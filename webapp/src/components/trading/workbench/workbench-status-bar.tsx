@@ -150,8 +150,8 @@ export function WorkbenchStatusBar({
       data-slot="workbench-status-bar"
       data-status={status}
       className={cn(
-        // 토스 B `.status-bar`(260924-vj1) — 카드 면 · 무테 · 16 radius · 10/16px 패딩. flex-wrap 이라 잘리지 않고 줄바꿈된다.
-        "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-4 py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]",
+        // 토스 B `.status-bar`(260924-vj1) — 카드 면 · 무테 · 16 radius · 8/16px 패딩(quick-261017-bwt — 32-15 계좌 칩 32 + 8×2 = 48 · 옛 10/16). flex-wrap 이라 잘리지 않고 줄바꿈된다.
+        "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-4 py-2 text-[length:var(--t-caption)] text-[var(--muted-fg)]",
         className,
       )}
     >
@@ -259,7 +259,7 @@ export function WorkbenchStatusBar({
             <ToggleGroupItem
               key={c}
               value={String(c)}
-              className="h-6 min-w-0 rounded-full! bg-transparent px-[9px] text-[11px] font-semibold text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
+              className="h-6 min-w-0 rounded-full! bg-transparent px-2 text-[11px] font-semibold text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
             >
               {c}단
             </ToggleGroupItem>
@@ -300,12 +300,13 @@ export function WorkbenchAuxLines({ account }: { account: RelayAccount | null })
       {showMove && (
         <p data-slot="workbench-moved-from" className={cn(AUX_LINE, "inline-flex items-start gap-1")}>
           <span className="min-w-0">{move.text}</span>
+          {/* 24px 누름 영역(WCAG 2.5.8) · 위아래 −4 = 줄 높이 16(`AUX_LINE` 11×1.45)에 맞춘 광학 보정 — 줄을 키우지 않는다(quick-261017-bwt) */}
           <button
             type="button"
             aria-label="안내 닫기"
             title="안내 닫기"
             onClick={() => setDismissedMoves((prev) => new Set(prev).add(move.key))}
-            className="-my-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
+            className="-my-1 inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
           >
             <X aria-hidden="true" className="size-3" />
           </button>

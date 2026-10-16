@@ -830,7 +830,7 @@ export function ViConfirmDialog({
 
         <dl
           data-slot="vi-confirm-summary"
-          className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]"
+          className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border)] p-3 text-[length:var(--t-caption)]"
         >
           {/* 「계좌」 는 시작·중지 모두 맨 앞이다 — 어느 계좌의 전략을 켜고 끄는지 말한다(CR-02). */}
           <SummaryRow label="계좌">{accountLabel(accountNo, accountName)}</SummaryRow>
@@ -856,7 +856,7 @@ export function ViConfirmDialog({
 
         <p
           data-slot="vi-confirm-warning"
-          className="m-0 rounded-[var(--r-md)] border border-[var(--destructive)] px-2.5 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]"
+          className="m-0 rounded-[var(--r-md)] border border-[var(--destructive)] px-3 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]"
         >
           {isStart
             ? '시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.'

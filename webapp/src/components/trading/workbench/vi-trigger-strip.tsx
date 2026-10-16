@@ -223,7 +223,7 @@ function ViChip({ item }: { item: RelayViOrderItem }) {
       <span
         data-slot="vi-chip-state"
         className={cn(
-          'inline-flex h-4 items-center rounded-[4px] border px-[5px] text-[9px] font-bold',
+          'inline-flex h-4 items-center rounded-[4px] border px-1 text-[9px] font-bold',
           face.className,
         )}
       >

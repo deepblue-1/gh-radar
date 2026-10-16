@@ -287,7 +287,7 @@ function DisableAccountDialog({
           <DialogDescription>{disableSubtitle(summary)}</DialogDescription>
         </DialogHeader>
 
-        <dl className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]">
+        <dl className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border)] p-3 text-[length:var(--t-caption)]">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-[var(--muted-fg)]">상따 전략</dt>
             <dd className="mono font-semibold text-[var(--fg)]">
@@ -309,7 +309,7 @@ function DisableAccountDialog({
         </dl>
 
         {/* 되돌릴 수 없는 사실 — 이미 나간 주문은 이 버튼으로 취소되지 않는다. */}
-        <p className="rounded-[var(--r-md)] border border-[var(--destructive)] px-2.5 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]">
+        <p className="rounded-[var(--r-md)] border border-[var(--destructive)] px-3 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]">
           이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.
         </p>
 

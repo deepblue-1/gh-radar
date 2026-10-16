@@ -145,7 +145,7 @@ function ToastItem({
         setHovered(false);
       }}
       className={
-        "pointer-events-auto grid cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-2.5 rounded-[var(--r-md)] border border-l-4 border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[12px] text-[var(--fg)] shadow-[0_12px_32px_oklch(0_0_0/0.14)] motion-safe:animate-[wb-toast-in_.18s_ease-out] " +
+        "pointer-events-auto grid cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-2 rounded-[var(--r-md)] border border-l-4 border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px] text-[var(--fg)] shadow-[0_12px_32px_oklch(0_0_0/0.14)] motion-safe:animate-[wb-toast-in_.18s_ease-out] " +
         "data-[kind=accept]:border-l-[var(--primary)] data-[kind=fill]:border-l-[var(--led-armed)] data-[kind=modify]:border-l-[var(--flat)] data-[kind=cancel]:border-l-[var(--flat)] data-[kind=reject]:border-l-[var(--destructive)] data-[kind=vi]:border-l-[var(--led-latent)] data-[kind=breakout]:border-l-[var(--new-bd)]"
       }
     >
@@ -166,7 +166,7 @@ function ToastItem({
         {a.count > 1 && (
           <span
             data-part="count"
-            className="mono ml-1 inline-block rounded-full bg-[var(--accent)] px-[5px] text-[10px] font-bold text-[var(--accent-fg)]"
+            className="mono ml-1 inline-block rounded-full bg-[var(--accent)] px-1 text-[10px] font-bold text-[var(--accent-fg)]"
           >
             {a.count}건
           </span>

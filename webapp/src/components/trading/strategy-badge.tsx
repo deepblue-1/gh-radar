@@ -173,7 +173,7 @@ export function StrategyBadge({ badge, className }: StrategyBadgeProps) {
       variant={style.variant}
       data-slot="strategy-badge"
       data-kind={badge.kind}
-      className={cn("gap-1 px-[5px]", style.extra, className)}
+      className={cn("gap-1 px-1", style.extra, className)}
     >
       {style.dot !== "none" && (
         <span

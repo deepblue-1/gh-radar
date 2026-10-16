@@ -660,7 +660,7 @@ const BreakoutTable = memo(function BreakoutTable({
                     {v.highlighted && (
                       <span
                         data-slot="breakout-new-badge"
-                        className="inline-flex h-4 flex-none items-center rounded-[4px] border border-[var(--new-bd)] px-[5px] text-[9px] font-bold text-[var(--fg)]"
+                        className="inline-flex h-4 flex-none items-center rounded-[4px] border border-[var(--new-bd)] px-1 text-[9px] font-bold text-[var(--fg)]"
                       >
                         신규
                       </span>

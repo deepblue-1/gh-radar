@@ -248,7 +248,7 @@ Declared values (must be multiples of 4) — 프로젝트 토큰 `--s-*` 그대�
 |-------|-------|-------|
 | xs (`--s-1`) | 4px | 상단 줄 아래 보조 줄 위 여백 · 소제목–첫 행 간격 · 빈 상태 상자 위 여백 |
 | sm (`--s-2`) | 8px | 「트레이딩」 제목 → 상단 줄 간격 · 계좌 소제목 안 항목 간격 · 사이드바 소제목 좌우 패딩 · 설정 제목 → 서버 세그먼트 |
-| (`--s-3`) | 12px | /me 현황 계좌 묶음 위 여백 · 계좌 빈 상태 상자 패딩 · 서버 세그먼트 항목 좌우 — 목업 값 · 기존 `ChoiceRow` · 카드 패딩과 같은 단계 |
+| (`--s-3`) | 12px | /me 현황 계좌 묶음 위 여백 · 계좌 빈 상태 상자 패딩 · ~~서버 세그먼트 항목 좌우 — 목업 값 · 기존 `ChoiceRow`~~ (서버 세그먼트는 S8′ 로 없음 · `ChoiceRow` 항목 좌우는 8 — quick-261017-bwt) · 카드 패딩과 같은 단계 |
 | md (`--s-4`) | 16px | 상단 줄 좌우 패딩(기존 `px-4`) |
 | lg (`--s-5`) | 24px | (변경 없음 — /me 빈 상태 상자 세로 패딩 기존값) |
 | xl (`--s-6`) | 32px | (변경 없음) |
@@ -260,7 +260,7 @@ Declared values (must be multiples of 4) — 프로젝트 토큰 `--s-*` 그대�
 | 치수 | 값 | 근거 |
 |---|---|---|
 | 작업대 머리(`workbench-head`) 세로 간격 | 8px — 「트레이딩」 h1 줄 → 상단 줄 카드 | 목업 ① A `.wb-head{gap:8px}` |
-| 상단 줄 카드 | 기존 그대로 — 패딩 16/10 · 모서리 `--r-md` 16 · 항목 간격 가로 12 · 세로 4 | 목업 `.bar` 와 같은 결 · 변경 없음 |
+| 상단 줄 카드 | 기존 그대로 — 패딩 ~~16/10~~ 16/8(quick-261017-bwt — 칩 32 + 8×2 = 48) · 모서리 `--r-md` 16 · 항목 간격 가로 12 · 세로 4 | 목업 `.bar` 와 같은 결 · 변경 없음 |
 | ~~/me 현황 계좌 묶음 사이~~ | ~~12px~~ | 2026-10-16 무효(묶음 없음 — S5′) |
 | ~~/me 현황 계좌 소제목~~ | ~~최소 높이 32px · 좌우 8px~~ | 2026-10-16 무효(소제목 없음 — S5′) |
 | 「이 계좌 끄기」 버튼 | 기존 「전체 비활성화」 버튼과 같은 치수(높이 32 · 좌우 12 · `--r-sm`) — 카드 맨 아래 kill 줄 | 2026-10-16 S5′(목업 ⑥ `.btn.danger`) |
@@ -271,20 +271,25 @@ Declared values (must be multiples of 4) — 프로젝트 토큰 `--s-*` 그대�
 | ~~서버 세그먼트 항목~~ | ~~높이 28px · 좌우 12px~~ | 2026-10-16 무효(세그먼트 없음 — S8′) |
 | ~~서버 세그먼트 → 캡션~~ | ~~4px~~ | 2026-10-16 무효 → 위 「/me 설정 제목 줄 → 서버 캡션」 |
 | 토스트 계좌 줄 | 위 줄과 0px(줄 높이로만 쌓는다) | Phase 31 두 줄 행과 같은 규칙 |
+| 알림 토스트 카드 | 패딩 12/8 · 열 간격 8 | quick-261017-bwt #1 — 밀집 작업면이라 내림(옛 12/10 · 10) |
+| 확인 다이얼로그 요약 상자 · 경고 문단 | 요약 상자 패딩 12 사방 · 행 간격 8 · 경고 문단 패딩 12/8 — 「이 계좌 끄기」 · VI 시작/중지 공용 | quick-261017-bwt #3 · #4 — 결정 표면이라 이웃 값 정렬(옛 12/10 · 6 · 10/8) |
+| 컬럼 세그먼트 · `ChoiceRow` 항목 | 좌우 8 | quick-261017-bwt #6 — 내림(옛 9) |
+| 마이크로 배지(토스트 건수 · `StrategyBadge` · VI 주문 · VI 트리거 · 돌파 태그) | 좌우 4 | quick-261017-bwt #2 — 내림(옛 5) |
+| 옮김 안내 닫기 × | 24 상자 · 위아래 −4(광학 보정 · 24 − 8 = 줄 높이 16) | quick-261017-bwt #7 — 누름 영역 20 → 24(WCAG 2.5.8) |
 
 Exceptions (상속 · 컴포넌트 내부 미세 치수 — 간격 스케일 밖으로 선언):
 - ~~서버 세그먼트 트랙 안쪽 패딩 2px · 항목 사이 2px~~ — 2026-10-16 무효(세그먼트 없음).
 - 서버키 칩 높이 18px · 좌우 6px · 모서리 5px — ~~기존 `workbench-account-server` 칩 그대로~~ 32-15 뒤 계좌 칩 안 `data-part="server"`(/me · 작업대 공용 `account-chips.tsx`) · /me 설정 제목 줄 서버키 칩(`limit-chaser-defaults.tsx`) — 옛 칩 치수 그대로.
 - ~~상단 줄 계좌 셀렉트 높이 26px~~(32-15: 칩 높이 32 · S13 치수) · 컬럼 세그먼트 높이 24px · LED 점 7px — 기존값 그대로.
 - 사이드바 서버키 칩 모서리 4px · 세그먼트 점 6px — 목업 값 그대로(장식 요소).
-- 2026-10-16 UI 리뷰 간격 판정(quick-261016-udz) — 32-UI-REVIEW Pillar 5 지목 값 중 4배수로 바꾸지 않고 남기는 것 · 근거 = 출처 커밋 · 공용 규격:
-  - 알림 토스트 카드(`alert-toasts.tsx` 토스트 버튼) `gap-2.5` · `py-2.5` = 10px — 출처 `3efe2d24` quick-260923-pgu(2026-09-23 · Phase 31 이전 상속). Phase 32 는 S4 계좌 줄(`data-part="account"`)만 더했다. 알림 토스트 7종 공통 기하라 바꾸면 Phase 32 와 무관한 모든 토스트의 높이 · 열 간격이 바뀐다(UI-REVIEW 의 「신규 코드」 판단은 blame 상 틀림).
-  - 토스트 건수 배지 「{n}건」(`alert-toasts.tsx`) `px-[5px]` = 5px — 출처 `3efe2d24`(같음 · Phase 31 이전). 프로젝트 공용 마이크로 배지 규격 — `strategy-badge.tsx` · `vi-order-list.tsx` · `vi-trigger-strip.tsx` · `breakout-strip.tsx` 배지가 같은 5px.
-  - 「이 계좌 끄기」 확인 다이얼로그 요약 상자 `dl`(`strategy-status-card.tsx`) `gap-1.5` = 6px · `py-2.5` = 10px — 원본 `527af76a` 16-15(2026-09-08 「전체 비활성화」 다이얼로그) → 32-01 · 32-06 이 계좌 모드로 옮김. 확인 다이얼로그 공용 문법 — `vi-settings-rows.tsx` VI 시작/중지 다이얼로그 `vi-confirm-summary` 가 같은 값이라 한쪽만 바꾸면 두 확인 다이얼로그가 갈린다.
-  - 같은 다이얼로그 경고 문단(`strategy-status-card.tsx`) `px-2.5` = 10px(`py-2` 8 은 4배수) — 원본 `527af76a` 16-15(같음). 같은 근거 — `vi-settings-rows.tsx` `vi-confirm-warning` 이 같은 값.
-  - 작업대 상단 줄 카드(`workbench-status-bar.tsx` 루트 `workbench-status-bar`) `py-2.5` = 10px — 출처 `f8280a45` 토스 B 테마 `.status-bar` 10/16(quick-260924-vj1 · Phase 31 이전 상속). 위 치수 표 「상단 줄 카드 — 기존 그대로 패딩 16/10」 과 같은 값을 예외로도 선언해 계약 안 모순을 없앤다. 바꾸면 작업대 머리 높이가 바뀐다.
-  - 컬럼 세그먼트 항목 「1단/2단/3단」(`workbench-status-bar.tsx` `workbench-cols-segment`) `px-[9px]` = 9px — 출처 `e2f33f7c` 18-11(Phase 18) → 32-03 이 옮김. 공용 세그먼트 항목 규격(`setting-group.tsx` `ChoiceRow` 항목도 `px-[9px]`) · 24px 트랙 안 항목 폭 맞춤.
-  - 옮김 안내 닫기 ×(`workbench-status-bar.tsx` `workbench-moved-from` 닫기 버튼) `-my-0.5` = −2px — 출처 `b32ef150` 29-39(Phase 29 상속). 광학 보정 — 20px(`size-5`) 누름 영역을 `AUX_LINE` 줄 높이 ≈16px(11px × 1.45) 안에 넣어 줄을 키우지 않는다(20 − 2×2 = 16).
+- 2026-10-16 UI 리뷰 간격 판정(quick-261016-udz) — 32-UI-REVIEW Pillar 5 지목 값 중 4배수로 바꾸지 않고 남기는 것 · 근거 = 출처 커밋 · 공용 규격: → 2026-10-17 quick-261017-bwt 로 아래 7곳 모두 4배수로 해소(예외 아님)
+  - ~~알림 토스트 카드(`alert-toasts.tsx` 토스트 버튼) `gap-2.5` · `py-2.5` = 10px — 출처 `3efe2d24` quick-260923-pgu(2026-09-23 · Phase 31 이전 상속). Phase 32 는 S4 계좌 줄(`data-part="account"`)만 더했다. 알림 토스트 7종 공통 기하라 바꾸면 Phase 32 와 무관한 모든 토스트의 높이 · 열 간격이 바뀐다(UI-REVIEW 의 「신규 코드」 판단은 blame 상 틀림).~~ → quick-261017-bwt 로 해소: `gap-2` 8 · `py-2` 8(`px-3` 유지) · 짝 없음
+  - ~~토스트 건수 배지 「{n}건」(`alert-toasts.tsx`) `px-[5px]` = 5px — 출처 `3efe2d24`(같음 · Phase 31 이전). 프로젝트 공용 마이크로 배지 규격 — `strategy-badge.tsx` · `vi-order-list.tsx` · `vi-trigger-strip.tsx` · `breakout-strip.tsx` 배지가 같은 5px.~~ → quick-261017-bwt 로 해소: `px-1` 4 · 짝 `strategy-badge.tsx` · `vi-order-list.tsx` · `vi-trigger-strip.tsx` · `breakout-strip.tsx`(admin `PILL_CHIP` 은 목록 밖 — 그대로)
+  - ~~「이 계좌 끄기」 확인 다이얼로그 요약 상자 `dl`(`strategy-status-card.tsx`) `gap-1.5` = 6px · `py-2.5` = 10px — 원본 `527af76a` 16-15(2026-09-08 「전체 비활성화」 다이얼로그) → 32-01 · 32-06 이 계좌 모드로 옮김. 확인 다이얼로그 공용 문법 — `vi-settings-rows.tsx` VI 시작/중지 다이얼로그 `vi-confirm-summary` 가 같은 값이라 한쪽만 바꾸면 두 확인 다이얼로그가 갈린다.~~ → quick-261017-bwt 로 해소: `gap-2` 8 · `p-3` 12 사방 · 짝 `vi-settings-rows.tsx` `vi-confirm-summary`
+  - ~~같은 다이얼로그 경고 문단(`strategy-status-card.tsx`) `px-2.5` = 10px(`py-2` 8 은 4배수) — 원본 `527af76a` 16-15(같음). 같은 근거 — `vi-settings-rows.tsx` `vi-confirm-warning` 이 같은 값.~~ → quick-261017-bwt 로 해소: `px-3` 12(`py-2` 유지) · 짝 `vi-settings-rows.tsx` `vi-confirm-warning`
+  - ~~작업대 상단 줄 카드(`workbench-status-bar.tsx` 루트 `workbench-status-bar`) `py-2.5` = 10px — 출처 `f8280a45` 토스 B 테마 `.status-bar` 10/16(quick-260924-vj1 · Phase 31 이전 상속). 위 치수 표 「상단 줄 카드 — 기존 그대로 패딩 16/10」 과 같은 값을 예외로도 선언해 계약 안 모순을 없앤다. 바꾸면 작업대 머리 높이가 바뀐다.~~ → quick-261017-bwt 로 해소: `py-2` 8(16/8 · 칩 32 + 8×2 = 48) · 짝 없음
+  - ~~컬럼 세그먼트 항목 「1단/2단/3단」(`workbench-status-bar.tsx` `workbench-cols-segment`) `px-[9px]` = 9px — 출처 `e2f33f7c` 18-11(Phase 18) → 32-03 이 옮김. 공용 세그먼트 항목 규격(`setting-group.tsx` `ChoiceRow` 항목도 `px-[9px]`) · 24px 트랙 안 항목 폭 맞춤.~~ → quick-261017-bwt 로 해소: `px-2` 8 · 짝 `lc/setting-group.tsx` `ChoiceRow` 항목
+  - ~~옮김 안내 닫기 ×(`workbench-status-bar.tsx` `workbench-moved-from` 닫기 버튼) `-my-0.5` = −2px — 출처 `b32ef150` 29-39(Phase 29 상속). 광학 보정 — 20px(`size-5`) 누름 영역을 `AUX_LINE` 줄 높이 ≈16px(11px × 1.45) 안에 넣어 줄을 키우지 않는다(20 − 2×2 = 16).~~ → quick-261017-bwt 로 해소: `-my-1` −4 · `size-6` 24(24 − 4×2 = 16 · 아이콘 `size-3` 유지) · 짝 없음
   - 정리(예외 아님): `device-settings-card.tsx` 「이 기기」 캡션 위 여백 2px → 4px(`pt-1`)로 정리 — Phase 32 신규(`6d4e3822` 32-03) · 공용 아님 · 차이 2px. 같은 역할 캡션 `me-lc-defaults-note` 도 `pt-1` 이라 위 여백이 맞춰진다. (서버키 칩 좌우 6px 는 위 서버키 칩 항목 — 32-15 문구로 갱신.)
 
 ---

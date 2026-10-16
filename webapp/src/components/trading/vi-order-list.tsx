@@ -817,7 +817,7 @@ function StateBadge({ face }: { face: StateFace }) {
     <span
       data-slot="vi-state-badge"
       className={cn(
-        'inline-flex h-5 items-center gap-1 rounded-full border px-[5px] text-[11px] font-semibold whitespace-nowrap',
+        'inline-flex h-5 items-center gap-1 rounded-full border px-1 text-[11px] font-semibold whitespace-nowrap',
         face.className,
       )}
     >

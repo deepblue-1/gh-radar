@@ -1226,7 +1226,7 @@ export function ChoiceRow({
                 disabled={disabled}
                 onClick={() => pick(o.value)}
                 className={cn(
-                  'h-[26px] whitespace-nowrap rounded-[7px] px-[9px] text-[12.5px] font-semibold disabled:opacity-50',
+                  'h-[26px] whitespace-nowrap rounded-[7px] px-2 text-[12.5px] font-semibold disabled:opacity-50',
                   on
                     ? cn(
                         'bg-[var(--seg-on-bg)] shadow-[var(--seg-on-shadow)]',
