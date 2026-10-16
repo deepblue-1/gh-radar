@@ -121,11 +121,11 @@ export function TeamflowMembers({ members }: { members: TeamflowMembersData | nu
           {rows.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
               <span className="inline-flex items-center gap-1">
-                <i aria-hidden="true" className="inline-block size-2.5 rounded-[2px] bg-[var(--up)]" />
+                <span aria-hidden="true" className="inline-block size-2.5 rounded-[2px] bg-[var(--up)]" />
                 매수
               </span>
               <span className="inline-flex items-center gap-1">
-                <i aria-hidden="true" className="inline-block size-2.5 rounded-[2px] bg-[var(--down)]" />
+                <span aria-hidden="true" className="inline-block size-2.5 rounded-[2px] bg-[var(--down)]" />
                 매도
               </span>
               <span>오른쪽 = 순매수(주)</span>
