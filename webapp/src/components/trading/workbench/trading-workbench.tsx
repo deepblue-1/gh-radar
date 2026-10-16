@@ -178,7 +178,7 @@ import {
 } from "@/components/trading/workbench/vi-settings-rows";
 import { ViTriggerStrip } from "@/components/trading/workbench/vi-trigger-strip";
 import {
-  AccountPill,
+  WorkbenchAuxLines,
   WorkbenchStatusBar,
 } from "@/components/trading/workbench/workbench-status-bar";
 import { OrderLogFeedProvider } from "@/components/trading/order-log/order-log-feed-context";
@@ -224,7 +224,7 @@ const WB_SINGLE_COLUMN_BELOW = 680;
 /** 합친 전략 로그 보관 상한(브라우저 메모리). 카드 1장의 상한(100)과 같은 자릿수다. */
 const MAX_MERGED_LOG = 200;
 
-/** 자동 복구를 기대할 수 없는 상태 — 상태줄에 「다시 연결」을 준다(18-10 호가 탭과 같은 집합). */
+/** 자동 복구를 기대할 수 없는 상태 — 상단 줄 주문 알약이 「끊김 · 다시 연결」 을 그린다(18-10 호가 탭과 같은 집합 · Phase 32 D-06). */
 const UNRECOVERABLE_STATES: ReadonlySet<string> = new Set([
   "failed",
   "manual_required",
@@ -1376,38 +1376,37 @@ function WorkbenchSurface() {
       className="@container/wb flex min-w-0 flex-col gap-3"
     >
       {/*
-        1 · 머리줄 — 제목 · 계좌 · 상태줄(폭이 모자라면 상태줄이 다음 줄, quick-260925-ptw)
-        ★ 줄바꿈은 새 폭 숫자·뷰포트 브레이크포인트·컨테이너 쿼리가 아니라 **내용 폭**이 정한다:
-          상태줄 basis auto(= 내용 max-content)가 남는 폭보다 크면 flex-wrap 이 통째로 다음 줄로
-          내리고, 들어가면 남는 폭을 채운다(상태줄 안 `ml-auto` 우측 묶음은 그대로 오른쪽 끝).
-          gap 12 = 루트 `gap-3` 과 같아 줄바꿈된 모양이 종전 두 줄 배치와 같다.
+        1 · 머리 — Phase 32 D-05 · 채택 목업 ① A 세로 묶음(간격 8px):
+          ① 「트레이딩」 h1 자기 줄
+          ② 상단 줄 카드 한 줄 — 계좌 셀렉트 → 서버키 칩 → 시세 → 주문 → (`ml-auto`) 컬럼 세그먼트.
+             넘치면 카드 안 flex-wrap 이 뒤 항목부터 다음 줄로 내린다(세그먼트는 오른쪽 끝 · 새 뷰포트
+             브레이크포인트 없음 — 줄바꿈은 내용 폭이 정한다). 카드 자신이 `workbench-status-bar` 준비 신호다.
+          ③ 보조 줄(낡은 전략 · 옮김) — 고른 계좌에 필드가 있을 때만. 없으면 요소 0 이라 머리 높이는 ①+② 뿐.
       */}
-      <div data-slot="workbench-head" className="flex min-w-0 flex-wrap items-center gap-3">
-        <div
+      <div data-slot="workbench-head" className="flex min-w-0 flex-col gap-2">
+        <h1
           data-slot="workbench-title"
-          className="flex max-w-full min-w-0 flex-wrap items-center gap-2.5"
+          className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-bold text-[var(--fg)]"
         >
-          <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-bold text-[var(--fg)]">
-            트레이딩
-          </h1>
-          <AccountPill accounts={accounts} accountNo={accountNo} onChange={pickAccount} />
-        </div>
+          트레이딩
+        </h1>
 
         <WorkbenchStatusBar
-          className="flex-[1_1_auto]"
           status={status}
           statusLabel={statusLabel}
           quoteState={relay.quoteState}
           subLimit={subLimit}
           subLimitLabel={subLimitLabel}
-          queuedWindow={queuedWindow}
-          appliedAt={appliedAt}
-          account={accounts.find((a) => a.accountNo === accountNo) ?? null}
+          accounts={accounts}
+          accountNo={accountNo}
+          onAccountChange={pickAccount}
           cols={cols}
           onColsChange={setCols}
           phoneBand={singleColumnOnly}
           onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
         />
+
+        <WorkbenchAuxLines account={accounts.find((a) => a.accountNo === accountNo) ?? null} />
       </div>
 
       {/* 3 · VI 패널 — 스트립 줄 · 경보 · 펼침 안 VI 설정 2줄 · 발동 표 */}

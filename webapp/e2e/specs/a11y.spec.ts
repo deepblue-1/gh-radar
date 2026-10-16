@@ -395,9 +395,10 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     const openCard = page.locator('[data-slot="strategy-card"][data-open="true"]');
     await expect(openCard).toHaveCount(1, { timeout: 15_000 });
 
-    // Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 카드는 기본 접힘이다(Phase 27 자동매도 카드도). 접힌 상태를 먼저 스캔한다.
+    // Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 카드는 기본 접힘이다(Phase 27 자동매도 카드 · quick-261012-oif 매수취소
+    // 카드도 — 5개). 접힌 상태를 먼저 스캔한다.
     const folds = openCard.locator('[data-slot="lc-group-fold"]');
-    await expect(folds).toHaveCount(4);
+    await expect(folds).toHaveCount(5);
     for (const f of await folds.all()) await expect(f).toHaveAttribute('aria-expanded', 'false');
     const blocking = await scanSurface(page);
     expect(

@@ -1,100 +1,80 @@
 "use client";
 
 /**
- * WorkbenchStatusBar — `/trading` 작업대의 **상태줄** (UI-SPEC §레이아웃 계약 2 · §상태줄 문구표 ·
- * D-04 · D-05 · D-17 · D-22 · E1, TRADE-09). 정본은 채택 목업 `18-workbench-mockup.html`
- * `.stat`(마크업 `:729-740` · CSS `:258-270`).
+ * WorkbenchStatusBar — `/trading` 작업대의 **상단 줄** (Phase 32 D-05 · D-06 · D-07 · UI-SPEC S1 · 채택 목업
+ * `.planning/phases/32-account-axis/reference/mockup-account-axis.html` ① A 「한 줄 필」).
  *
- * ① 옛 상따 상태줄(18-13 삭제 · `StatusBar`)의 **페이지 축 부분**만 왔다
- *   DMA 필 · 반영 시각이 여기로 오고, 래치 LED 3칩은 18-06 이 **카드 헤더**로 가져갔다(판정 함수
- *   `latchLedStateOf` 는 하나 그대로다). 이 줄은 특정 전략을 말하지 않는다 — 페이지의 **핵심만**
- *   말한다: DMA 연결 · 77 구간 배지(알 때만) · 알림음 아이콘 · 반영 시각 · 단 수(목업
- *   `260923-bjb-mockup.html` `.stat`). 목록 개수는 각 스트립의 칩이 이미 말하므로 여기 두 번 적지
- *   않는다.
+ * ① 배치 — 「트레이딩」 h1 자기 줄 → **이 카드 한 줄** → 보조 줄(`WorkbenchAuxLines` · 있을 때만)
+ *   카드 안 왼쪽부터 계좌 셀렉트 → 서버키 칩 → 시세 알약 → 주문 알약 → (`ml-auto`) 컬럼 세그먼트. 카드는
+ *   `flex-wrap` 이라 한 줄을 넘으면 뒤 항목부터 다음 줄로 내려가고, 세그먼트는 내려가도 오른쪽 끝에 선다.
+ *   글자를 줄이거나 말줄임하지 않는다(셀렉트 내부 글자만 네이티브 `<select>` 가 자른다). 이 카드 자신이
+ *   `data-slot="workbench-status-bar"` + `data-status` 루트다 — 다른 spec 5개의 준비 신호다(Pitfall 4).
  *
- * ② ★ 이 파일은 **벽시계를 읽지 않는다** (D-22 · D-27)
- *   77 구간 배지는 `queuedWindowBadgeOf`(카드·호가 탭의 `affordanceOf` 와 같은 원천 `queuedWindow`)
- *   한 함수가 판정한다. `queuedWindow === undefined` = 「모름」 = **배지 없음** — 「정규」로
- *   위장하지 않는다. 「반영 시각」은 작업대가 서버 push 를 받은 시각을 문자열로 내려주고 여기서는
- *   그대로 쓴다. 보이는 글자는 맨 `HH:MM:SS`(첫 push 전이면 「—」)이고, 「반영」 접두는 `sr-only` ·
- *   `title` 이 말한다.
+ * ② 뺀 것 (D-06) — 「정규」 · 예약 창 배지 · 알림음 아이콘(→ /me 설정 「이 기기」 카드 · D-15) · 반영 시각 ·
+ *   「다시 연결」 버튼(→ 주문 알약 안 텍스트 버튼 ⑤). relay 77 수신 · `queuedWindow` 상태 · 카드 안 예약 표시는
+ *   그대로다(카드 · 호가 탭의 `affordanceOf` 몫). 이 파일은 여전히 **벽시계를 읽지 않는다**(D-22 · D-27).
  *
- * ③ ★ 단 수 세그먼트는 격자 1열 고정 폭(page <680)에서 **DOM 에서 뺀다** (UI-SPEC §접근성 계약)
- *   `display:none` 만으로 숨기지 않는다 — 작업대가 `wb` 컨테이너 폭으로 판정한 값(prop 이름은
- *   `phoneBand` 지만 뜻은 「격자 1열 고정」, §2.2b 「격자 열 수 경계」 680 — 카드 밴드 첫 경계 685 와 다르다)이
- *   `true` 면 조건부 렌더로 빠진다. 폭을 아직 모르는 첫 페인트(`null`)에만 CSS 폴백
- *   (`hidden @min-[680px]/wb:inline-flex`)이 받친다. 그 아래 격자는 저장값과 무관하게 1단이다
- *   (격자 쪽 CSS 가 `data-cols` 를 680 이상에서만 적용한다).
+ * ③ ★ 컬럼 세그먼트는 격자 1열 고정 폭(`wb` < 680)에서 **DOM 에서 뺀다** (UI-SPEC S1 · 사용자 확인 2026-10-13)
+ *   `display:none` 만으로 숨기지 않는다 — 작업대가 `wb` 컨테이너 폭으로 판정한 값(prop 이름은 `phoneBand` 지만
+ *   뜻은 「격자 1열 고정」, §2.2b 「격자 열 수 경계」 680 — 카드 밴드 첫 경계 685 와 다르다)이 `true` 면 조건부
+ *   렌더로 빠진다. 폭을 아직 모르는 첫 페인트(`null`)에만 CSS 폴백(`hidden @min-[680px]/wb:inline-flex`)이
+ *   받친다. 목업 폰 390 의 「아래 줄 세그먼트」 는 이 이유로 그리지 않는다 — D-05 의 「아래 줄」 은 680 이상에서
+ *   넘칠 때의 `flex-wrap` 줄바꿈이다(RESEARCH Pitfall 7).
  *
- * ④ 이 기기 전용 알림 — 돌파 알림음(D-17)
- *   기본 꺼짐. 아이콘 전용 버튼이고 이름은 `aria-label` · `title` 이 말한다. 자동재생이 막혀 있을
- *   때만 아이콘 옆에 「클릭해 활성화」 글자가 선다(실행 가능한 안내). `resumeToneContext` 는 **클릭 핸들러
- *   안에서만** 부른다(제스처 밖 `resume()` 은 브라우저가 무시한다).
- *   이력: VI 브라우저 알림 토글은 사용자 요청으로 기능째 제거했다(quick-260922-tqr).
+ * ④ 계좌 셀렉트 (`AccountPill` · D-25 로 작업대 파일 안 그대로)
+ *   옵션 글자 = `accountFullLabelOf`(D-12 「번호 · 상품명 · 서버키」 · 빈 칸 생략). 고른 계좌에 `serverKey` 가
+ *   있으면 셀렉트 바로 오른쪽에 서버키 칩 1개(29-30 채택 A). 계좌 선택의 **뜻**(새 카드 기본값)은 32-04 의 작업대
+ *   스코프(D-01)가 바꾼다 — 그때 `ACCOUNT_PILL_TITLE` 도 함께 바꾼다.
  *
- * ⑤ 오류 채널 (E1 error)
- *   relay 끊김/재연결은 DMA 필 **하나**가 말한다(● 색 + 라벨). 자동 재연결 중에는 버튼이 없다.
- *   자동 복구를 포기한 상태(작업대가 `onReconnect` 를 넘길 때)에만 「다시 연결」이 선다 — 18-10
- *   호가 탭 상태줄과 같은 규율. 주문·설정 오류는 이 줄이 아니라 해당 폼의 인라인 `role="status"` 몫이다.
+ * ⑤ 오류 채널 (S1 error)
+ *   relay 끊김/재연결은 주문 알약 **하나**가 말한다(● 색 + 상태어). 자동 재연결 중에는 버튼이 없다. 자동 복구를
+ *   포기한 상태(작업대가 `onReconnect` 를 넘길 때 = `UNRECOVERABLE_STATES`)에만 보이는 상태어가 「끊김」 이 되고
+ *   (점 · 글자 `--destructive`) 바로 뒤에 「 · 」 + 「다시 연결」 텍스트 버튼(`workbench-reconnect` · `--primary`)이
+ *   선다. 정확한 상태어(「회선 단절」 등)는 sr-only 「 — {상태어}」 와 `title` 로 남는다(정보 손실 없음). 버튼은
+ *   `workbench-dma` 라이브 영역 **밖의 형제**다 — 라이브 영역이 버튼 글자를 낭독하지 않게. 둘을 감싼 `inline-flex`
+ *   묶음이 시각상 한 알약이다. `unauthorized` 는 `UNRECOVERABLE_STATES` 밖이라 「권한 없음」 · 링크 없음.
  *
  * ⑥ ★ 배지 2축 — 「시세」 · 「주문」 (Phase 26 D-01 · D-04 · 26-13 채택안 안 B 점형)
- *   정본은 목업 `.planning/phases/26-shared-quote-feed/reference/quote-badge-mockup.html` 머리 「26-14 정본 목록」.
  *   판정은 `quotePillOf` · `orderPillOf`(`lib/quote-state.ts`) 한 곳이고 My page 상태줄도 같은 함수를 쓴다.
- *   - 시세 필(`workbench-quote`)은 주문 필 앞에 서고, relay 가 시세 상태를 모르면(`quoteState === null`)
+ *   - 시세 알약(`workbench-quote`)은 주문 알약 앞에 서고, relay 가 시세 상태를 모르면(`quoteState === null`)
  *     **없다**. 정상 「● 시세」 · 끊김 「● 시세 HH:MM:SS~ 멈춤」(점 · 상태어 `--destructive`). 구독 한도는
- *     칩이 아니라 이 필의 `title` 이다.
- *   - 주문 필은 옛 DMA 필 자리(`workbench-dma` · `aria-live` 유지 — a11y e2e 가 이 슬롯을 본다)이고 사용자
+ *     칩이 아니라 이 알약의 `title` 이다.
+ *   - 주문 알약은 옛 DMA 필 자리(`workbench-dma` · `aria-live` 유지 — a11y e2e 가 이 슬롯을 본다)이고 사용자
  *     DMA 세션만 말한다. ready 면 「● 주문」 뿐, 그 밖은 `RELAY_STATE_LABELS` 문구(⑤ 규율 그대로).
- *   - 시세가 끊겨도 호가 · 체결 숫자는 흐리지도 비우지도 않는다(D-04 — 끊긴 시각은 이 필에만).
+ *   - 시세가 끊겨도 호가 · 체결 숫자는 흐리지도 비우지도 않는다(D-04 — 끊긴 시각은 이 알약에만).
  *   - 상태 적색은 `--destructive` 다. 가격 방향 토큰(`--up`)을 상태에 쓰지 않는다.
  *
- * ⑦ (없어짐) 29-22 의 「주문 서버가 X 로 바뀜 — 재접속하면 적용」 배지는 G-1 에서 없어졌다 — 주문 서버 변경은 끄기 → 즉시 재수립(29-36)이다.
- *
- * ⑧ 계좌별 주문 서버 (Phase 29-39 G-1 · 29-30 채택 workbench-display A · `mockup-g1-workbench-order-server.html` 변형 A)
- *   원천은 relay 상태 프레임 계좌 항목의 `serverKey` · `staleStrategies` · `movedFrom`(29-36) — **표시 전용**이다. 주문 허용 ·
+ * ⑦ 보조 줄 — `WorkbenchAuxLines` (Phase 29-39 G-1 · gh-trade-84 ② · Phase 32 D-06 으로 카드 밖)
+ *   원천은 relay 상태 프레임 계좌 항목의 `staleStrategies` · `movedFrom`(29-36) — **표시 전용**이다. 주문 허용 ·
  *   계좌 대조 · 전략 등록 판정에 쓰지 않는다(relay allowedAccounts 가 정본).
- *   - 계좌 필(`AccountPill`) 옵션 글자 끝에 「 · 서버키」 꼬리표 · 필 바로 옆에 고른 계좌의 서버 키 칩 1개. `serverKey` 가 없는
- *     계좌는 둘 다 없다. 닫힌 필에서 서버 키가 꼬리표 · 칩으로 두 번 보이는 것은 채택 그대로다(29-30 「렌더 확인」).
- *   - 끄기 미확인 경고(gh-trade-84 ②(가)) — 고른 계좌에 `staleStrategies` 가 있으면 상태줄 끝에 경고색 한 줄. 닫기가 없다 —
- *     사라지는 조건은 relay 의 다음 상태 프레임(필드 없음)뿐이다. 한 계좌가 여러 옛 서버에 남기면 relay 가 `otherServers` 를
- *     실어 「옛 서버 KB120 외 1개 서버 …」 로 말한다(29-52 GC-12 · 새 요소 없음).
- *   - 되돌아옴 안내(gh-trade-84 ② 추가) — 고른 계좌에 `movedFrom` 이 있으면 「클라(OCX) 대사」 안내 한 줄 · × 로 그 (계좌,
- *     movedFrom) 조합을 이 탭 안에서 닫는다(로컬 상태 · 저장 안 함).
- *   - 두 줄은 목업 뒤에 생긴 요구라 목업에 없다. 해당 필드가 없으면 요소 0 — 상태줄 줄 수는 종전 그대로다.
+ *   - 끄기 미확인 경고(gh-trade-84 ②(가)) — 고른 계좌에 `staleStrategies` 가 있으면 경고색 한 줄. 닫기가 없다 —
+ *     사라지는 조건은 relay 의 다음 상태 프레임(필드 없음)뿐이다. 한 계좌가 여러 옛 서버에 남기면 relay 가
+ *     `otherServers` 를 실어 「옛 서버 KB120 외 1개 서버 …」 로 말한다(29-52 GC-12).
+ *   - 되돌아옴 안내(gh-trade-84 ② 추가) — 고른 계좌에 `movedFrom` 이 있으면 「클라(OCX) 대사」 안내 한 줄 · × 로
+ *     그 (계좌, movedFrom) 조합을 이 탭 안에서 닫는다(로컬 상태 · 저장 안 함).
+ *   - 상단 줄 카드 **밖, 바로 아래**(작업대 `workbench-head` 안 · 카드와 4px · 좌우 4px 들여쓰기). 필드가 없으면
+ *     요소 0 — 머리 높이는 상단 줄만큼이다.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { Volume2, VolumeX, X } from "lucide-react";
-import type {
-  RelayAccount,
-  RelayQueuedWindowMsg,
-  RelayQuoteStateMsg,
-  RelaySubLimitMsg,
-} from "@gh-radar/shared";
+import { useState } from "react";
+import { X } from "lucide-react";
+import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from "@gh-radar/shared";
 
-import { Button } from "@/components/ui/button";
-import { accountLabelOf } from "@/lib/account-label";
+import { accountFullLabelOf } from "@/lib/account-label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { isTonePlaybackBlocked, resumeToneContext } from "@/lib/alert-tone";
-import {
-  readTonePref,
-  writeColsPref,
-  writeTonePref,
-  type TradingCols,
-} from "@/lib/breakout-list";
+import { writeColsPref, type TradingCols } from "@/lib/breakout-list";
 import type { IsinLabel } from "@/lib/isin-labels";
-import { queuedWindowBadgeOf } from "@/lib/queued-window";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
-/** 계좌 필 `title` — 상태줄 계좌는 **신규 카드의 기본값**일 뿐이다(Q-3 채택값). */
+/** 계좌 필 `title` — 상태줄 계좌는 **신규 카드의 기본값**일 뿐이다(Q-3 채택값 · 32-04 D-01 에서 교체). */
 export const ACCOUNT_PILL_TITLE =
   "새로 추가하는 카드의 기본 계좌예요 · 이미 있는 카드는 자기 계좌를 유지해요";
 
 const COLS: readonly TradingCols[] = [1, 2, 3];
 
-/** 상태줄 보조 줄 문구(⑧ · 해요체). */
+/** 보조 줄 문구(⑦ · 해요체). */
 export const WORKBENCH_STATUS_TEXT = {
   /**
    * 끄기 미확인 경고 — `count` null = 몇 건인지 모름. `otherServers` 가 있으면(한 계좌가 여러 옛 서버에 남김 · 29-52 GC-12)
@@ -107,32 +87,28 @@ export const WORKBENCH_STATUS_TEXT = {
     `주문 서버 ${from} → ${to} — 옛 서버 잔고 · 미체결은 클라(OCX) 대사로 맞추세요`,
 } as const;
 
-/** 상태줄 보조 줄 양식(⑧) — 경고색 한 줄 · 줄 전체 폭(flex-wrap 의 새 줄) · 잘림 대신 줄바꿈. */
+/** 보조 줄 양식(⑦) — 경고색 한 줄 · 줄 전체 폭 · 잘림 대신 줄바꿈. */
 const AUX_LINE = "m-0 min-w-0 basis-full text-[11px] leading-[1.45] break-keep text-[var(--led-latent)]";
 
 export interface WorkbenchStatusBarProps {
   status: RelayStatus;
   statusLabel: string;
-  /** 시세 전용 공유 연결 상태(⑥). `null` = relay 가 모름 → 시세 필 없음. */
+  /** 시세 전용 공유 연결 상태(⑥). `null` = relay 가 모름 → 시세 알약 없음. */
   quoteState: RelayQuoteStateMsg | null;
-  /** 구독 한도 거부 최신 1건(⑥). `null` = 없음 → 시세 필 title 없음. */
+  /** 구독 한도 거부 최신 1건(⑥). `null` = 없음 → 시세 알약 title 없음. */
   subLimit: RelaySubLimitMsg | null;
   /** `subLimit.i` 의 표시 라벨(종목명 · 단축코드). 모르면 생략 — 문구가 ISIN 원문을 쓴다. */
   subLimitLabel?: IsinLabel;
-  /** 77 창 힌트. `undefined` = 모름 → 배지 없음(②). */
-  queuedWindow: RelayQueuedWindowMsg | undefined;
-  /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「—」. */
-  appliedAt: string | null;
-  /**
-   * 계좌 필이 고른 계좌(⑧). `staleStrategies` · `movedFrom` 이 있으면 경고 · 안내 줄을 그린다. 없거나 null 이면 그 줄 없음.
-   * 표시 전용 — 판정 근거가 아니다.
-   */
-  account?: RelayAccount | null;
+  /** 계좌 셀렉트 목록(④). 비면 「계좌 확인 중…」 1옵션 · 비활성. */
+  accounts: readonly RelayAccount[];
+  /** 셀렉트가 고른 계좌번호(④). */
+  accountNo: string;
+  onAccountChange: (accountNo: string) => void;
   cols: TradingCols;
   onColsChange: (cols: TradingCols) => void;
-  /** 페이지(`wb`) 폭이 폰 밴드인가. `true` 면 세그먼트를 DOM 에서 뺀다. `null` = 아직 모름(③). */
+  /** `wb` 폭이 격자 1열 고정(< 680)인가. `true` 면 세그먼트를 DOM 에서 뺀다. `null` = 아직 모름(③). */
   phoneBand: boolean | null;
-  /** 자동 복구를 포기한 상태에서만 넘긴다 — 있으면 「다시 연결」(⑤). */
+  /** 자동 복구를 포기한 상태에서만 넘긴다 — 있으면 「끊김 · 다시 연결」(⑤). */
   onReconnect?: () => void;
   className?: string;
 }
@@ -143,9 +119,9 @@ export function WorkbenchStatusBar({
   quoteState,
   subLimit,
   subLimitLabel,
-  queuedWindow,
-  appliedAt,
-  account,
+  accounts,
+  accountNo,
+  onAccountChange,
   cols,
   onColsChange,
   phoneBand,
@@ -154,18 +130,9 @@ export function WorkbenchStatusBar({
 }: WorkbenchStatusBarProps) {
   const quote = quotePillOf(quoteState, subLimit, subLimitLabel);
   const order = orderPillOf(status, statusLabel);
-  const badge = queuedWindowBadgeOf(queuedWindow);
-  // 되돌아옴 안내를 닫은 (계좌, movedFrom) 조합 — 이 탭 로컬 · 저장 안 함(⑧).
-  const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(() => new Set());
-  const stale = account?.staleStrategies;
-  // 안내는 옛 서버 · 지금 서버를 둘 다 알 때만 — relay 는 movedFrom 을 실을 때 serverKey 도 싣는다(29-36).
-  const move =
-    account?.movedFrom !== undefined && account.serverKey !== undefined
-      ? {
-          key: `${account.accountNo}|${account.movedFrom}`,
-          text: WORKBENCH_STATUS_TEXT.movedFrom(account.movedFrom, account.serverKey),
-        }
-      : null;
+  // ⑤ 자동 복구 포기 = 작업대가 `onReconnect` 를 넘긴 상태. 정확한 상태어는 sr-only · title 로 남긴다.
+  const broken = onReconnect !== undefined;
+  const brokenDetail = order.detail ?? statusLabel;
 
   const pickCols = (value: string) => {
     const next = value === "2" ? 2 : value === "3" ? 3 : value === "1" ? 1 : null;
@@ -180,12 +147,13 @@ export function WorkbenchStatusBar({
       data-slot="workbench-status-bar"
       data-status={status}
       className={cn(
-        // 토스 B `.status-bar`(260924-vj1) — 카드 면 · 무테 · 16 radius · 10/16px 패딩. 작업대 폭이라 가로 16px 허용
-        // (flex-wrap 이라 잘리지 않고 줄바꿈된다).
+        // 토스 B `.status-bar`(260924-vj1) — 카드 면 · 무테 · 16 radius · 10/16px 패딩. flex-wrap 이라 잘리지 않고 줄바꿈된다.
         "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-4 py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]",
         className,
       )}
     >
+      <AccountPill accounts={accounts} accountNo={accountNo} onChange={onAccountChange} />
+
       {quote !== null && (
         <span
           data-slot="workbench-quote"
@@ -219,92 +187,116 @@ export function WorkbenchStatusBar({
         </span>
       )}
 
-      <span data-slot="workbench-dma" aria-live="polite" className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span data-slot="workbench-order" className="inline-flex items-center gap-1.5 whitespace-nowrap">
         <span
-          aria-hidden="true"
-          data-tone={order.tone}
-          className={cn(
-            "block size-[7px] shrink-0 rounded-full",
-            order.tone === "ok" ? "bg-[var(--led-armed)]" : "bg-[var(--flat)]",
-            order.pulse && "animate-pulse motion-reduce:animate-none",
+          data-slot="workbench-dma"
+          aria-live="polite"
+          title={broken ? brokenDetail : undefined}
+          className="inline-flex items-center gap-1.5 whitespace-nowrap"
+        >
+          <span
+            aria-hidden="true"
+            data-tone={broken ? "down" : order.tone}
+            className={cn(
+              "block size-[7px] shrink-0 rounded-full",
+              broken
+                ? "bg-[var(--destructive)]"
+                : order.tone === "ok"
+                  ? "bg-[var(--led-armed)]"
+                  : "bg-[var(--flat)]",
+              !broken && order.pulse && "animate-pulse motion-reduce:animate-none",
+            )}
+          />
+          {order.label}
+          {broken ? (
+            <>
+              {" "}
+              <b className="font-semibold text-[var(--destructive)]">끊김</b>
+              <span className="sr-only"> — {brokenDetail}</span>
+            </>
+          ) : (
+            order.detail !== null && (
+              <>
+                {" "}
+                <b className="font-semibold text-[var(--fg)]">{order.detail}</b>
+              </>
+            )
           )}
-        />
-        {order.label}
-        {order.detail !== null && (
+          {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
+        </span>
+        {broken && (
           <>
-            {" "}
-            <b className="font-semibold text-[var(--fg)]">{order.detail}</b>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              data-slot="workbench-reconnect"
+              onClick={onReconnect}
+              className="rounded-[var(--r)] font-semibold text-[var(--primary)] hover:underline focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none"
+            >
+              다시 연결
+            </button>
           </>
         )}
-        {order.srDetail !== null && <span className="sr-only"> {order.srDetail}</span>}
       </span>
 
-      {badge !== null && (
-        <span
-          data-slot="workbench-window-badge"
-          data-tone={badge.tone}
+      {phoneBand !== true && (
+        <ToggleGroup
+          type="single"
+          value={String(cols)}
+          onValueChange={pickCols}
+          aria-label="카드 단 수"
+          data-slot="workbench-cols-segment"
           className={cn(
-            "inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold whitespace-nowrap",
-            badge.tone === "regular" && "border-transparent bg-[var(--muted)] text-[var(--fg)]",
-            badge.tone === "queued" && "border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]",
-            badge.tone === "offhours" &&
-              "border-transparent bg-[var(--accent)] text-[var(--accent-fg)]",
+            "ml-auto h-6 gap-0 overflow-hidden rounded-full border border-transparent bg-[var(--muted)]",
+            // 폭을 아직 모르는 첫 페인트만 CSS 가 받친다(③). 판정이 나면 위 조건부 렌더가 정본이다.
+            phoneBand === null && "hidden @min-[680px]/wb:inline-flex",
           )}
         >
-          {badge.text}
-        </span>
+          {COLS.map((c) => (
+            <ToggleGroupItem
+              key={c}
+              value={String(c)}
+              className="h-6 min-w-0 rounded-full! bg-transparent px-[9px] text-[11px] font-semibold text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
+            >
+              {c}단
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       )}
+    </div>
+  );
+}
 
-      <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-        <span data-slot="workbench-alerts" className="inline-flex items-center gap-1">
-          <ToneToggle />
-        </span>
-        {onReconnect !== undefined && (
-          <Button variant="outline" size="sm" className="h-6 px-2" onClick={onReconnect}>
-            다시 연결
-          </Button>
-        )}
-        <span data-testid="stat-applied" title="서버 반영 시각" className="mono whitespace-nowrap">
-          <span className="sr-only">반영 </span>
-          {appliedAt ?? "—"}
-        </span>
-        {phoneBand !== true && (
-          <ToggleGroup
-            type="single"
-            value={String(cols)}
-            onValueChange={pickCols}
-            aria-label="카드 단 수"
-            data-slot="workbench-cols-segment"
-            className={cn(
-              "h-6 gap-0 overflow-hidden rounded-full border border-transparent bg-[var(--muted)]",
-              // 폭을 아직 모르는 첫 페인트만 CSS 가 받친다(③). 판정이 나면 위 조건부 렌더가 정본이다.
-              phoneBand === null && "hidden @min-[680px]/wb:inline-flex",
-            )}
-          >
-            {COLS.map((c) => (
-              <ToggleGroupItem
-                key={c}
-                value={String(c)}
-                className="h-6 min-w-0 rounded-full! bg-transparent px-[9px] text-[11px] font-semibold text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
-              >
-                {c}단
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        )}
-      </span>
+/**
+ * 상단 줄 카드 밖 보조 줄(⑦ · D-06) — 고른 계좌의 끄기 미확인 경고 · 되돌아옴 안내. 둘 다 없으면 `null`(요소 0).
+ * 작업대가 `workbench-head` 안 상단 줄 바로 아래에 둔다(머리 `gap-2` 8px − `-mt-1` 4px = 카드와 4px).
+ */
+export function WorkbenchAuxLines({ account }: { account: RelayAccount | null }) {
+  // 되돌아옴 안내를 닫은 (계좌, movedFrom) 조합 — 이 탭 로컬 · 저장 안 함(⑦).
+  const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(() => new Set());
+  const stale = account?.staleStrategies;
+  // 안내는 옛 서버 · 지금 서버를 둘 다 알 때만 — relay 는 movedFrom 을 실을 때 serverKey 도 싣는다(29-36).
+  const move =
+    account?.movedFrom !== undefined && account.serverKey !== undefined
+      ? {
+          key: `${account.accountNo}|${account.movedFrom}`,
+          text: WORKBENCH_STATUS_TEXT.movedFrom(account.movedFrom, account.serverKey),
+        }
+      : null;
+  const showMove = move !== null && !dismissedMoves.has(move.key);
+  if (stale === undefined && !showMove) return null;
 
+  return (
+    <div data-slot="workbench-aux-lines" className="-mt-1 flex min-w-0 flex-col gap-1 px-1">
       {stale !== undefined && (
         <p role="status" data-slot="workbench-stale-strategies" className={AUX_LINE}>
           {WORKBENCH_STATUS_TEXT.staleStrategies(stale.serverKey, stale.count, stale.otherServers)}
         </p>
       )}
 
-      {move !== null && !dismissedMoves.has(move.key) && (
+      {showMove && (
         <p data-slot="workbench-moved-from" className={cn(AUX_LINE, "inline-flex items-start gap-1")}>
-          <span className="min-w-0">
-            {move.text}
-          </span>
+          <span className="min-w-0">{move.text}</span>
           <button
             type="button"
             aria-label="안내 닫기"
@@ -320,68 +312,6 @@ export function WorkbenchStatusBar({
   );
 }
 
-/** 아이콘 버튼 — 목업 `.iconbtn`(26×24). 차단 안내 글자가 붙으면 옆으로 늘어난다. */
-const ALERT_BTN =
-  "inline-flex h-6 min-w-[26px] items-center justify-center gap-1 rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--raised-2)] aria-pressed:border-[var(--primary)] aria-pressed:text-[var(--fg)]";
-
-/**
- * 돌파 알림음 토글 (D-17 · ④). 기본 꺼짐.
- *
- * - 꺼짐 → 클릭: 켜고 **그 클릭 안에서** 오디오 컨텍스트를 만들어 `resume()` 한다.
- * - 켜짐 ∧ 차단 → 클릭: 끄지 않는다. 활성화(`resume()`)만 한다 — 「클릭해 활성화」가 약속한 일이다.
- * - 켜짐 ∧ 정상 → 클릭: 끈다.
- */
-function ToneToggle() {
-  const [on, setOn] = useState(false);
-  const [blocked, setBlocked] = useState(false);
-  // 저장값·차단 상태는 마운트 후에 읽는다 — SSR HTML 과 첫 클라 렌더가 갈리면 하이드레이션이 깨진다.
-  useEffect(() => {
-    setOn(readTonePref() === "on");
-    setBlocked(isTonePlaybackBlocked());
-  }, []);
-
-  const activate = useCallback(() => {
-    void resumeToneContext().then(() => setBlocked(isTonePlaybackBlocked()));
-  }, []);
-
-  const onClick = () => {
-    if (!on) {
-      writeTonePref("on");
-      setOn(true);
-      activate();
-      return;
-    }
-    if (blocked) {
-      activate();
-      return;
-    }
-    writeTonePref("off");
-    setOn(false);
-  };
-
-  const needsGesture = on && blocked;
-  const ariaLabel = needsGesture
-    ? "돌파 알림음 — 클릭해 활성화 (이 기기만)"
-    : on
-      ? "돌파 알림음 끄기 (이 기기만)"
-      : "돌파 알림음 켜기 (이 기기만)";
-
-  return (
-    <button
-      type="button"
-      data-slot="workbench-tone-toggle"
-      aria-pressed={on}
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      onClick={onClick}
-      className={ALERT_BTN}
-    >
-      {on ? <Volume2 aria-hidden="true" className="size-3.5" /> : <VolumeX aria-hidden="true" className="size-3.5" />}
-      {needsGesture && "클릭해 활성화"}
-    </button>
-  );
-}
-
 export interface AccountPillProps {
   accounts: readonly RelayAccount[];
   accountNo: string;
@@ -389,14 +319,15 @@ export interface AccountPillProps {
 }
 
 /**
- * 제목줄 계좌 필 (목업 `.acct` `:728`) — 상태줄 계좌 = **신규 카드의 기본 계좌**이자 VI 설정 2줄 ·
+ * 상단 줄 계좌 필 (목업 `.acct` `:728` · Phase 32 목업 ① A 에서 상단 줄 카드 맨 앞) — 상태줄 계좌 = **신규 카드의 기본 계좌**이자 VI 설정 2줄 ·
  * 공용 패널의 계좌 축이다(Q-2 · Q-3). 이미 등록된 카드는 자기 키의 계좌를 유지하며 이 값을 바꿔도
  * 움직이지 않는다 — 그 사실을 `title` 이 말한다.
  *
  * ★ 옛 상따 계좌 칩과 같은 네이티브 `<select>` 다(`appearance-none` 금지 — OS 선택 UI 를 잃는다).
  * ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
- * ★ 옵션 글자 = `accountLabelOf` — 수동주문 「주문계좌」 행과 같은 문자열(quick-261007-h76). 그 계좌에 `serverKey` 가
- *   있으면 끝에 「 · 서버키」 꼬리표가 붙고, 필 바로 옆에 고른 계좌의 서버 키 칩이 선다(⑧ · 채택 A — 목업 `.srvkey`).
+ * ★ 옵션 글자 = `accountFullLabelOf`(Phase 32 D-12 「번호 · 상품명 · 서버키」 · 빈 칸 생략) — 종전 인라인 조립
+ *   (「번호 · 이름」 + 「 · 서버키」)과 같은 글자다. 고른 계좌에 `serverKey` 가 있으면 필 바로 옆에 서버 키 칩이 선다
+ *   (④ · 29-30 채택 A — 목업 `.srvkey`).
  */
 export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps) {
   const serverKey = accounts.find((a) => a.accountNo === accountNo)?.serverKey;
@@ -416,7 +347,7 @@ export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps)
         ) : (
           accounts.map((a) => (
             <option key={a.accountNo} value={a.accountNo}>
-              {accountLabelOf(a.accountNo, a.name) + (a.serverKey !== undefined ? ` · ${a.serverKey}` : "")}
+              {accountFullLabelOf(a)}
             </option>
           ))
         )}

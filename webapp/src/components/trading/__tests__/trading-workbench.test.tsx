@@ -332,18 +332,25 @@ describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
       const rel = order[i - 1]!.compareDocumentPosition(order[i]!);
       expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    expect(within(slot('workbench-title')!).getByRole('heading', { name: '트레이딩' })).toBeTruthy();
-    expect(within(slot('workbench-title')!).getByRole('combobox', { name: '계좌' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '트레이딩' })).toBe(slot('workbench-title'));
+    // Phase 32 D-05 — 계좌 셀렉트는 제목 옆이 아니라 상단 줄 카드 맨 앞이다.
+    expect(within(slot('workbench-status-bar')!).getByRole('combobox', { name: '계좌' })).toBeTruthy();
   });
 
-  it('머리줄 — 제목·계좌와 상태줄이 같은 flex-wrap 부모(workbench-head)에 서고 상태줄은 flex-[1_1_auto] (quick-260925-ptw)', () => {
+  it('머리 — h1 자기 줄 → 상단 줄 카드 → (보조 줄) 세로 묶음(workbench-head flex-col) · 카드는 flex-wrap (Phase 32 D-05 · 목업 ① A)', () => {
     render(<TradingWorkbench />);
     const head = slot('workbench-head')!;
     expect(head).not.toBeNull();
+    expect(slot('workbench-title')!.tagName).toBe('H1');
     expect(slot('workbench-title')!.parentElement).toBe(head);
     expect(slot('workbench-status-bar')!.parentElement).toBe(head);
-    expect(head.className.split(/\s+/)).toContain('flex-wrap');
-    expect(slot('workbench-status-bar')!.className.split(/\s+/)).toContain('flex-[1_1_auto]');
+    expect(head.firstElementChild).toBe(slot('workbench-title'));
+    expect(slot('workbench-title')!.nextElementSibling).toBe(slot('workbench-status-bar'));
+    expect(head.className.split(/\s+/)).toContain('flex-col');
+    expect(slot('workbench-status-bar')!.className.split(/\s+/)).toContain('flex-wrap');
+    // 보조 줄 필드가 없으면 요소 0 — 머리는 제목 + 카드뿐.
+    expect(slot('workbench-aux-lines')).toBeNull();
+    expect(head.childElementCount).toBe(2);
     // 새 뷰포트 브레이크포인트를 들이지 않는다(내용 폭 기반 줄바꿈).
     for (const el of [head, slot('workbench-title')!, slot('workbench-status-bar')!]) {
       expect(el.className).not.toMatch(/(^|\s)(sm|md|lg|xl|2xl):/);

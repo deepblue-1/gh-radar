@@ -608,6 +608,85 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await gridColumnCount(page)).toBe(3);
   });
 
+  test('P32-top 상단 줄 A — h1 아래 한 줄 카드 · 셀렉트 → 칩 → 시세 → 주문 → 세그먼트 · 배지 · 알림음 · 반영 시각 없음 · 1080 한 줄 (D-05 · D-06)', async ({
+    page,
+  }) => {
+    /*
+      Phase 32 D-05 · 채택 목업 ① A — 「트레이딩」 h1 자기 줄 → 상단 줄 카드 한 줄 → 보조 줄(있을 때만).
+      카드 자신이 준비 신호(`workbench-status-bar` · `data-status`)다. D-06 으로 뺀 4개(「정규」 · 예약 창 배지 ·
+      알림음 아이콘 · 반영 시각 · 「다시 연결」 버튼)는 어느 상태에서도 DOM 에 없다(끊김 링크는 단위 테스트 몫).
+    */
+    await page.setViewportSize({ width: 1080, height: 900 });
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+
+    const bar = statusBar(page);
+    const account = bar.locator('[data-slot="workbench-account"]');
+    const dma = bar.locator('[data-slot="workbench-dma"]');
+    const seg = bar.locator('[data-slot="workbench-cols-segment"]');
+    // 계좌 목록이 와야 셀렉트가 활성이다 — 그 뒤에 잰다.
+    await expect(account).toBeEnabled({ timeout: 15_000 });
+    await expect(seg).toBeVisible();
+    await expect(dma).toHaveAttribute('aria-live', 'polite');
+
+    // DOM 순서 — 셀렉트 → (서버키 칩) → (시세) → 주문 → 세그먼트. 칩 · 시세는 있을 때만 끼운다.
+    const order = await bar.evaluate((root) => {
+      const names = [
+        'workbench-account',
+        'workbench-account-server',
+        'workbench-quote',
+        'workbench-dma',
+        'workbench-cols-segment',
+      ];
+      const all = [...root.querySelectorAll('[data-slot]')].map((el) => el.getAttribute('data-slot'));
+      return all.filter((n): n is string => n !== null && names.includes(n));
+    });
+    expect(order[0]).toBe('workbench-account');
+    expect(order.at(-1)).toBe('workbench-cols-segment');
+    expect(order.indexOf('workbench-dma')).toBe(order.length - 2);
+    if (order.includes('workbench-quote')) {
+      expect(order.indexOf('workbench-quote')).toBe(order.indexOf('workbench-dma') - 1);
+    }
+
+    // 1080 에서 한 줄 — 셀렉트 · 주문 알약 · 세그먼트의 세로 중심 차가 8px 미만.
+    const centerY = async (loc: Locator) => {
+      const b = await loc.boundingBox();
+      expect(b).not.toBeNull();
+      return b!.y + b!.height / 2;
+    };
+    const ys = [await centerY(account), await centerY(dma), await centerY(seg)];
+    expect(Math.max(...ys) - Math.min(...ys), `세로 중심 ${ys.join(' · ')}`).toBeLessThan(8);
+
+    // h1 은 카드 위 자기 줄이다 — 같은 머리 묶음 안에서 카드보다 먼저 · 박스가 겹치지 않는다.
+    const h1 = page.getByRole('heading', { level: 1, name: '트레이딩' });
+    const head = page.locator('[data-slot="workbench-head"]');
+    await expect(head.locator(':scope > h1')).toHaveCount(1);
+    await expect(head.locator(':scope > [data-slot="workbench-status-bar"]')).toHaveCount(1);
+    await expect(h1.locator('[data-slot="workbench-account"]')).toHaveCount(0);
+    const h1Box = await h1.boundingBox();
+    const barBox = await bar.boundingBox();
+    expect(h1Box!.y + h1Box!.height).toBeLessThanOrEqual(barBox!.y + 0.5);
+
+    // D-06 — 뺀 것은 DOM 에 없다.
+    for (const sel of [
+      '[data-slot="workbench-window-badge"]',
+      '[data-slot="workbench-tone-toggle"]',
+      '[data-slot="workbench-alerts"]',
+      '[data-testid="stat-applied"]',
+      '[data-slot="workbench-reconnect"]',
+    ]) {
+      await expect(page.locator(sel), sel).toHaveCount(0);
+    }
+    await expect(page.getByRole('button', { name: /알림음/ })).toHaveCount(0);
+    await expect(bar).not.toContainText(/정규|반영|다시 연결/);
+    // 보조 줄 필드가 없으면 요소 0 — 머리는 제목 + 카드뿐.
+    await expect(page.locator('[data-slot="workbench-aux-lines"]')).toHaveCount(0);
+
+    // 잘림 · 가로 스크롤 0.
+    expect(await leavesOverflowing(bar, barBox!.x + barBox!.width)).toEqual([]);
+    expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]')).toEqual([]);
+  });
+
   test('3. 돌파 칩 클릭 → 카드 1장(KRX · 스위치 전부 OFF · 기본값) → 그 칩이 「거래중」, 서버 송신 0 (D-07 · TRADE-06)', async ({
     page,
   }) => {
