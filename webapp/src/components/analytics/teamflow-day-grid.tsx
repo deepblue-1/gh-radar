@@ -13,6 +13,7 @@ import {
   fmtRate,
   fmtShare,
   isHotShare,
+  isNum,
   rowDescriptionOf,
   tagOf,
   toneOf,
@@ -128,8 +129,8 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
           const net = fmtEok(r.team_net_val, { signed: true });
           const below20 = fmtEok(r.below20_net_val, { signed: true });
           const above20 = fmtEok(r.above20_net_val, { signed: true });
-          // D-09 — 결과 보조줄은 미도달 · high_rate 있을 때만
-          const high = tag.kind === 'below' && r.high_rate !== null ? fmtRate(r.high_rate) : null;
+          // D-09 — 결과 보조줄은 미도달 · high_rate 있을 때만(sr 설명 `rowDescriptionOf` 와 같은 `isNum` 판정 · IN-04)
+          const high = tag.kind === 'below' && isNum(r.high_rate) ? fmtRate(r.high_rate) : null;
           return (
             <li key={r.isin} data-open={open ? 'true' : undefined} className={cn(ROW_DIVIDER)}>
               <button

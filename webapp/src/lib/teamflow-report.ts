@@ -24,7 +24,8 @@ function roundHalfAway(x: number): number {
   return Math.sign(x) * Math.round(Math.abs(x));
 }
 
-const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
+/** 유한한 number 만 통과 — null · undefined(키 없음) · NaN 은 「값 없음」. 화면 · sr 설명이 같은 판정을 쓰도록 export(IN-04). */
+export const isNum = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
  * 원 → 억 소수 1자리 반올림 값(−0 은 0). null · NaN 은 null. 표시 · 색이 같은 값을 쓴다.
