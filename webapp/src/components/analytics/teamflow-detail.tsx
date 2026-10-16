@@ -4,6 +4,8 @@ import type { TeamflowRow } from '@gh-radar/shared';
 
 import { factLineOf, summaryPartsOf } from '@/lib/teamflow-report';
 
+import { TeamflowBandChart } from './teamflow-band-chart';
+
 /**
  * 팀 매집 펼친 상세 (Phase 33 · UI-SPEC T5 — 요약 블록 · D-14).
  *
@@ -12,7 +14,8 @@ import { factLineOf, summaryPartsOf } from '@/lib/teamflow-report';
  * - 요약 상자: `summary_lines` 번호 목록(1~N · export 순서 · 개수 제한 없음 — 상자가 세로로 늘어난다) → 사실 줄.
  *   문장은 HTML 문자열을 주입하지 않고 `summaryPartsOf` 조각 배열을 React 요소로 그린다(`<b>` 짝만 strong).
  *   summary_lines 가 비면 번호 목록 없이 사실 줄만, 사실 줄도 없으면 상자를 그리지 않는다.
- * - 뒤 플랜(33-05 · 33-06)이 구간 차트 · 거래원 · 10분 흐름 · 판정 기준 블록을 아래에 덧붙인다(세로 블록 사이 16px).
+ * - 요약 다음 = [구간 가로 막대 | 다섯 창구 거래원] 2열(`grid gap-4 xl:grid-cols-2` · < xl 1열 — D-14 · UI-SPEC T6 · T7).
+ * - 뒤 플랜(33-06)이 10분 흐름 블록을 2열 아래에 덧붙인다(세로 블록 사이 16px).
  */
 export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelledBy: string }) {
   const lines = row.payload?.summary_lines ?? [];
@@ -66,6 +69,17 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
           )}
         </div>
       )}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div data-slot="teamflow-bands" className="min-w-0">
+          <TeamflowBandChart
+            name={row.name ?? row.short_code ?? row.isin}
+            bands={row.payload?.bands ?? []}
+            below20={row.below20_net_val}
+            above20={row.above20_net_val}
+          />
+        </div>
+      </div>
     </section>
   );
 }
