@@ -115,23 +115,18 @@ describe("upsertQuotesStep1", () => {
 });
 
 /**
- * STEP2 는 종목별 UPDATE (.update + .eq) 호출 — UPSERT 가 NOT NULL constraint 위반 회피.
- * mock 시그니처: from().update(payload).eq(col, val) 가 promise 반환.
+ * STEP2 는 단일 RPC intraday_update_quotes_step2 1회 (quick 261016-miy).
+ * mock 시그니처: supabase.rpc(name, { p_rows }) 가 { data, error } promise 반환.
  */
-function mockUpdateEq(error: Error | null = null) {
-  const eq = vi.fn().mockResolvedValue({ error });
-  const update = vi.fn().mockReturnValue({ eq });
-  const from = vi.fn().mockReturnValue({ update });
-  return { from, _update: update, _eq: eq } as unknown as {
-    from: ReturnType<typeof vi.fn>;
-    _update: ReturnType<typeof vi.fn>;
-    _eq: ReturnType<typeof vi.fn>;
-  };
+function mockRpc(data: unknown = 1, error: Error | null = null) {
+  const rpc = vi.fn().mockResolvedValue({ data, error });
+  const supabase = { rpc } as unknown as Parameters<typeof upsertQuotesStep2>[0];
+  return { rpc, supabase };
 }
 
 describe("upsertQuotesStep2", () => {
-  it("payload 에 STEP2 컬럼만 (price/change/volume 없음)", async () => {
-    const supabase = mockUpdateEq();
+  it("rpc 1회 · p_rows 행은 recordset 7키뿐 (date/price/volume 없음)", async () => {
+    const { rpc, supabase } = mockRpc(1);
     const u: IntradayOhlcUpdate = {
       code: "005930",
       date: "2026-05-14",
@@ -142,54 +137,43 @@ describe("upsertQuotesStep2", () => {
       lowerLimit: 49000,
       marketCap: 4209000 * 1e8,
     };
-    await upsertQuotesStep2(
-      supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
-      [u],
-    );
-    const payload = supabase._update.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).toEqual(
-      expect.objectContaining({
-        open: 70000,
-        high: 71000,
-        low: 69500,
-        upper_limit: 91000,
-        lower_limit: 49000,
-        market_cap: 4209000 * 1e8,
-      }),
-    );
-    // STEP1 매분 갱신 컬럼 보호 — STEP2 가 덮어쓰지 않음
-    expect(payload.price).toBeUndefined();
-    expect(payload.volume).toBeUndefined();
-    expect(payload.trade_amount).toBeUndefined();
-    // code 는 payload 가 아니라 .eq() 절에 사용
-    expect(supabase._eq).toHaveBeenCalledWith("code", "005930");
+    await upsertQuotesStep2(supabase, [u]);
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc.mock.calls[0][0]).toBe("intraday_update_quotes_step2");
+    const args = rpc.mock.calls[0][1] as { p_rows: Array<Record<string, unknown>> };
+    expect(args.p_rows).toHaveLength(1);
+    expect(args.p_rows[0]).toEqual({
+      code: "005930",
+      open: 70000,
+      high: 71000,
+      low: 69500,
+      upper_limit: 91000,
+      lower_limit: 49000,
+      market_cap: 4209000 * 1e8,
+    });
   });
 
   it("rate_updated_at 은 쓰지 않는다 — change_rate 를 안 쓰는 hot set UPDATE (261001-bnc)", async () => {
-    const supabase = mockUpdateEq();
-    await upsertQuotesStep2(
-      supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
-      [
-        {
-          code: "023790",
-          date: "2026-10-01",
-          open: 100,
-          high: 110,
-          low: 95,
-          upperLimit: 130,
-          lowerLimit: 70,
-          marketCap: null,
-        },
-      ],
-    );
-    const payload = supabase._update.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty("rate_updated_at");
-    expect(payload).not.toHaveProperty("change_rate");
-    expect(typeof payload.updated_at).toBe("string");
+    const { rpc, supabase } = mockRpc(1);
+    await upsertQuotesStep2(supabase, [
+      {
+        code: "023790",
+        date: "2026-10-01",
+        open: 100,
+        high: 110,
+        low: 95,
+        upperLimit: 130,
+        lowerLimit: 70,
+        marketCap: null,
+      },
+    ]);
+    const row = (rpc.mock.calls[0][1] as { p_rows: Array<Record<string, unknown>> }).p_rows[0];
+    expect(row).not.toHaveProperty("rate_updated_at");
+    expect(row).not.toHaveProperty("change_rate");
   });
 
-  it("250 row → 250회 update 직렬 호출", async () => {
-    const supabase = mockUpdateEq();
+  it("250 row → rpc 1회, count = RPC 반환값(실제 갱신 행 수)", async () => {
+    const { rpc, supabase } = mockRpc(248);
     const updates: IntradayOhlcUpdate[] = Array.from({ length: 250 }, (_, i) => ({
       code: String(i + 1).padStart(6, "0"),
       date: "2026-05-14",
@@ -200,21 +184,26 @@ describe("upsertQuotesStep2", () => {
       lowerLimit: null,
       marketCap: null,
     }));
-    const out = await upsertQuotesStep2(
-      supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
-      updates,
-    );
-    expect(out.count).toBe(250);
-    expect(supabase._update).toHaveBeenCalledTimes(250);
+    const out = await upsertQuotesStep2(supabase, updates);
+    expect(rpc).toHaveBeenCalledOnce();
+    expect((rpc.mock.calls[0][1] as { p_rows: unknown[] }).p_rows).toHaveLength(250);
+    expect(out.count).toBe(248);
   });
 
-  it("빈 입력 → no-op", async () => {
-    const supabase = mockUpdateEq();
-    const out = await upsertQuotesStep2(
-      supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
-      [],
-    );
+  it("빈 입력 → rpc 호출 없음, count 0", async () => {
+    const { rpc, supabase } = mockRpc(0);
+    const out = await upsertQuotesStep2(supabase, []);
     expect(out.count).toBe(0);
-    expect(supabase._update).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("rpc 에러 → 그 에러로 reject", async () => {
+    const err = new Error("PGRST202");
+    const { supabase } = mockRpc(null, err);
+    await expect(
+      upsertQuotesStep2(supabase, [
+        { code: "005930", date: "2026-05-14", open: 1, high: 1, low: 1, upperLimit: 1, lowerLimit: 1, marketCap: 1 },
+      ]),
+    ).rejects.toBe(err);
   });
 });
