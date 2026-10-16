@@ -200,6 +200,7 @@ import {
   LC_LEGACY_ARM_REJECT_TEXT,
   LC_LEGACY_SET_REJECT_TEXT,
   USER_SETTINGS_FLOOR_UNKNOWN_TEXT,
+  USER_SETTINGS_SERVER_GONE_TEXT,
   parseInbound,
   type RelayInboundWire,
   withNeutralBuy3,
@@ -1889,7 +1890,10 @@ export class WsFanout {
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
     // ⚠️ `user.settings` 도 `queued.window` 와 같다 (Phase 27) — 84 를 한 번도 못 받았으면(`undefined`) **보내지 않는다.**
     //    모르면 보내지 않는다 — 지어낸 `present=false` 를 내리면 `/me` 가 「서버 저장값 없음」 거짓 칩을 그린다.
-    const userSettings = this.#hub.getUserSettings(userId);
+    //    Phase 32 D-14a — 84 는 서버마다 따로다. (트레이서 단계: primary 서버 것 1건 — 서버별 재생은 다음 태스크.)
+    const primarySession = this.#sessions.primaryOf(userId);
+    const userSettings =
+      primarySession === undefined ? undefined : this.#hub.getUserSettings(userId, primarySession.serverKey);
     if (userSettings !== undefined) this.#send(conn, userSettings);
     // ⚠️ `unf.progress` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (25-06).
     //    빈 배열은 「지금 보이는 진행 중 대기 없음」의 확정 정보이고, 웹은 snap 이면 Map 을 전량 교체한다
@@ -2113,19 +2117,39 @@ export class WsFanout {
     }
 
     // `user.settings.set`(42 · Phase 27) — ② 계좌 대조가 **없다**: 계좌 축이 없고 서버가 세션 신원(`GetId()`)으로
-    // 저장한다. 14값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자 전 세션에
+    // 저장한다. 14값 범위는 zod 가 이미 봤다(`USER_SETTINGS_RANGES`). 성공 신호는 서버가 같은 사용자의 그 서버 세션에
     // 브로드캐스트하는 84 다 — relay 는 84 를 받은 대로 팬아웃할 뿐 **42 에 대해 지어낸 84 를 내지 않는다.**
     // 거부는 54 ERROR `src="SetUserSettings"` 가 기존 `msg` 경로로 간다. pending FIFO · 재전송 없음(T-16-10).
     //
+    // Phase 32 D-14a — **서버 축**이 있다(서버마다 `user_settings.toml` 이 따로). `serverKey` 부재(구 탭) = primary(종전).
+    // 지정했는데 그 사용자 세션 맵에 그 서버가 없거나 준비되지 않았으면 **primary 로 떨어뜨리지 않는다**(사용자가 KYOBO119 에
+    // 저장한다고 믿는 값이 KB120 을 덮는다) — 거부 프레임 1건 · 게이트웨이 0바이트 · 소켓 유지. 42 를 다른 서버로 복제하지 않는다
+    // (2026-10-12 결정 · Deferred).
+    //
     // 12값 · 구 탭은 84 캐시 금액 되싣기(D-14 보정 · Pitfall 3) — 후매수 최소(`postBuyFloorAmount`)가 없는 구 탭 11값은
-    // 그 사용자의 마지막 84 금액으로 채운다. 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다.
+    // **그 서버**의 마지막 84 금액으로 채운다(다른 서버 값으로 채우지 않는다). 42 는 전체 교체라 0 을 지어 보내면 C# 「최소 [ ]만」
+    // 원값이 지워진다.
     // 캐시도 없으면 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 — 끊으면 시세 · 에코 · 수동주문까지
     // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
     // 선매수 2필드(quick-261012-u04)는 그대로 통과 — 부재 = 42 슬롯 부재 = 서버 저장값 유지(되싣기 불필요).
     if (msg.t === "user.settings.set") {
-      const session = this.#strategySession(conn, userId, msg.t);
+      const target =
+        msg.serverKey === undefined
+          ? this.#sessions.primaryOf(userId)
+          : this.#users.get(userId)?.sessions.get(msg.serverKey)?.session;
+      if (msg.serverKey !== undefined && (target === undefined || !target.isReady)) {
+        // 값은 싣지 않는다(서버키 · 상태만).
+        logger.warn(
+          { userId, t: msg.t, serverKey: msg.serverKey, state: target?.state ?? "none" },
+          "[WS] user.settings.set 지정 서버 세션 없음 · 미준비 — primary 로 보내지 않고 거부 프레임 · 소켓 유지",
+        );
+        this.#send(conn, rejectFrame(USER_SETTINGS_SERVER_GONE_TEXT, "", "", msg.t));
+        return;
+      }
+      const session = this.#readySession(conn, userId, msg.t, target);
       if (session === null) return;
-      const amount = msg.s.postBuyFloorAmount ?? this.#hub.getUserSettings(userId)?.postBuyFloorAmount;
+      const amount =
+        msg.s.postBuyFloorAmount ?? this.#hub.getUserSettings(userId, session.serverKey)?.postBuyFloorAmount;
       if (amount === undefined) {
         // 값 · 계좌는 싣지 않는다.
         logger.warn(

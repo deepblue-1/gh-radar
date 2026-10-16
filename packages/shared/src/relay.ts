@@ -781,10 +781,16 @@ export type RelayAutoSellCmdMsg = {
  * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
  *
  * ⚠️ **별도 ack 프레임이 없다.** 성공 신호는 서버의 84 브로드캐스트(`user.settings`, 같은 사용자 전 세션)이고,
- *    거부는 54 ERROR `src="SetUserSettings"`(첫 위반 문구 하나)다. 계좌 축이 없다 — 서버가 세션 신원으로 저장한다.
+ *    거부는 54 ERROR `src="SetUserSettings"`(첫 위반 문구 하나)다. 계좌 축은 없고 **서버 축**이 있다(Phase 32) — 서버마다
+ *    `user_settings.toml` 이 따로다.
  */
 export type RelayUserSettingsSetMsg = {
   t: "user.settings.set";
+  /**
+   * Phase 32 D-14a — 저장할 서버(게이트웨이)의 서버키. 부재 = primary(구 탭 관용 · Phase 31 D-14 보정과 같은 결).
+   * 있는데 그 서버 세션이 없거나 준비되지 않았으면 relay 는 primary 로 떨어뜨리지 않고 거부 프레임으로 답한다.
+   */
+  serverKey?: string;
   s: RelayUserSettingsValues;
 };
 
@@ -1495,8 +1501,8 @@ export type UserSettingsNumericKey = {
 }[keyof RelayUserSettingsValues];
 
 /**
- * 사용자 설정 응답 (84 — `UserSettingsResp`). **최신 1건만** 보관한다(77 동형 3상태 규율 — relay 는 84 를
- * 받기 전에는 아무것도 내리지 않는다. 지어낸 기본값 금지).
+ * 사용자 설정 응답 (84 — `UserSettingsResp`). **서버마다 최신 1건만** 보관한다(Phase 32 — relay 캐시 키 = 세션 소유 키 ·
+ * 77 동형 3상태 규율 — relay 는 84 를 받기 전에는 아무것도 내리지 않는다. 지어낸 기본값 금지).
  *
  * `present` 는 84 전용 — `false` 면 서버 저장값이 없어 서버가 **내장 기본값**을 실은 것이다(42 요청값은
  * 서버가 읽지 않는다).
@@ -1508,7 +1514,15 @@ export type UserSettingsNumericKey = {
  * (gh-trade 261012 「84 에 없으면 0·false」). 새 relay 는 늘 싣고(84 슬롯 부재 = 구 서버 = 0 · false), 키 부재는 이
  * 동기화보다 오래된 relay 뿐이다. 「불러오는 중」 으로 두지 않는다.
  */
-export type RelayUserSettingsMsg = { t: "user.settings"; present: boolean } & Omit<
+export type RelayUserSettingsMsg = {
+  t: "user.settings";
+  present: boolean;
+  /**
+   * 이 84 를 보낸 서버(게이트웨이)의 서버키 (Phase 32 D-14a — 84 는 서버마다 따로다). 새 relay 는 늘 싣는다 · 부재 = 구 relay
+   * (그때 값은 primary 서버 것이다).
+   */
+  serverKey?: string;
+} & Omit<
   RelayUserSettingsValues,
   "postBuyFloorAmount" | "preBuyWatchAmount" | "preBuyAutoAddBuy"
 > & { postBuyFloorAmount?: number; preBuyWatchAmount?: number; preBuyAutoAddBuy?: boolean };

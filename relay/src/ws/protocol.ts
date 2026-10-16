@@ -425,6 +425,10 @@ function userSettingInt(k: UserSettingsNumericKey) {
  */
 export const RelayUserSettingsSetSchema = z.object({
   t: z.literal("user.settings.set"),
+  // Phase 32 D-14a — 저장할 서버의 서버키. 부재 = primary(구 탭 관용). 형식 정규식(shared `SERVER_KEY_RE`)은 쓰지 않는다 —
+  // 레지스트리 없는 세션(E2E 하네스 · 단위 테스트)의 서버키는 증권사 이름(`"KB"` — `DmaSession.serverKey = serverKey ?? broker`)이라
+  // 그 정규식에 걸려 4400 이 된다. 길이 1~16 만 보고, 진짜 검증은 fanout 의 그 사용자 세션 맵 조회다(없으면 거부 프레임 · 소켓 유지).
+  serverKey: z.string().min(1).max(16).optional(),
   s: z.object({
     preBuyAmount: userSettingInt("preBuyAmount"),
     addBuyAmount: userSettingInt("addBuyAmount"),
@@ -590,6 +594,13 @@ export const LC_LEGACY_SET_REJECT_TEXT = "매수 설정 방식이 바뀌었어�
  * 원값이 지워진다 — 저장하지 않고, 소켓도 끊지 않고(`LC_LEGACY_SET_REJECT_TEXT` 와 같은 규율) 이 문구 한 건으로 답한다.
  */
 export const USER_SETTINGS_FLOOR_UNKNOWN_TEXT = "후매수 최소 금액을 아직 받지 못해 저장하지 않았어요 — 화면을 새로고침해 주세요";
+
+/**
+ * `user.settings.set` 이 서버키를 지정했는데(Phase 32 D-14a) 그 사용자 세션 맵에 그 서버 세션이 없거나 준비되지 않았을 때 relay 가
+ * 돌려주는 거부 문구. **primary 로 떨어뜨리지 않는다** — 사용자가 KYOBO119 에 저장한다고 믿는 값이 KB120 을 덮는다. 게이트웨이
+ * 0바이트 · 소켓 유지(`USER_SETTINGS_FLOOR_UNKNOWN_TEXT` 와 같은 규율).
+ */
+export const USER_SETTINGS_SERVER_GONE_TEXT = "고른 서버 세션이 없어 저장하지 않았어요 — 계좌를 다시 골라 주세요";
 
 /**
  * Phase 24 매수 3종 C→S 12 의 **중립값** — 옛 모양 **철거** 프레임에만 쓴다(`withNeutralBuy3`).

@@ -1107,9 +1107,10 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
   /**
-   * `userId` → 사용자 설정 **최신 1건** (84 `UserSettingsResp` · 27-01).
+   * 세션 소유 키(`ownerKey(userId, serverKey)`) → 그 서버의 사용자 설정 **최신 1건** (84 `UserSettingsResp` · 27-01 ·
+   * Phase 32 D-14a — 소유 키 단위). 84 는 서버마다 `user_settings.toml` 이 따로라 서버마다 1건이고, 값에는 그 서버키를 싣는다.
    *
-   * 키 부재(= `getUserSettings` 가 `undefined`)는 「84 를 아직 못 받았다」이고 `present:false`(서버 저장값 없음 ·
+   * 키 부재(= `getUserSettings` 가 `undefined`)는 「그 서버의 84 를 아직 못 받았다」이고 `present:false`(서버 저장값 없음 ·
    * 내장 기본값)와 **다른 상태**다. 지어낸 기본값을 넣지 않는다 — 넣으면 인증 직후 재생이 거짓 「저장값 없음」을
    * 그린다(`#queuedWindows` 와 같은 3상태 규율).
    */
@@ -2409,12 +2410,13 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 그 사용자의 사용자 설정 (84 · 27-01).
+   * 그 사용자 · 그 서버의 사용자 설정 (84 · 27-01 · Phase 32 D-14a — 서버마다 따로). 값에는 그 서버키가 실려 있다.
    *
-   * **`undefined` 는 「84 를 아직 못 받았다」**이다 — `getQueuedWindow` 와 같은 3상태 규율. 모르면 내리지 않는다.
+   * **`undefined` 는 「그 서버의 84 를 아직 못 받았다」**이다 — `getQueuedWindow` 와 같은 3상태 규율. 모르면 내리지 않는다.
+   * 다른 서버 값으로 대신 채우지 않는다(fanout 42 금액 되싣기가 그 서버 것만 본다).
    */
-  getUserSettings(userId: string): RelayUserSettingsMsg | undefined {
-    return this.#userSettings.get(userId);
+  getUserSettings(userId: string, serverKey: string): RelayUserSettingsMsg | undefined {
+    return this.#userSettings.get(ownerKey(userId, serverKey));
   }
 
   /**
@@ -2833,10 +2835,11 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.UserSettingsResp: {
         // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12 · 27-01). 84 는 LoginResp → 77 → 84 순으로 계좌 선언 전
-        // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4). 사용자 설정은 primary 원천(D-18 · 29-20).
-        if (!this.#fromPrimary(userId, owner, e.msgType)) return;
+        // (Ready 전)에 온다 — 캐시는 늘, 팬아웃은 Ready 뒤(RESEARCH Pitfall 4). Phase 32 D-14a — 사용자 설정은 **서버마다** 따로라
+        // 모든 세션의 84 를 그 소유 키로 받는다(`#fromPrimary` 해제는 이 갈래만 — 76/78 · 77 은 사용자 단위 1건이라 primary 전용
+        // 그대로다 · Pitfall 11).
         const settings = parseUserSettings(e.env);
-        if (settings !== null) this.#onUserSettings(userId, session, settings);
+        if (settings !== null) this.#onUserSettings(userId, owner, session, settings);
         return;
       }
       case MSG.QueueProgress: {
@@ -3026,16 +3029,19 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 사용자 설정 (84 · 27-01) — **최신 1건만** 보관한다(77 동형).
+   * 사용자 설정 (84 · 27-01) — 그 세션 소유 키에 **최신 1건만** 보관한다(77 동형 · Phase 32 D-14a — 서버마다 1건).
    *
-   * 84 는 로그인 직후 77 뒤 1프레임 · 43 응답 · 42 성공 뒤 같은 사용자 전 세션 브로드캐스트로 온다. 로그인 직후
+   * 84 는 로그인 직후 77 뒤 1프레임 · 43 응답 · 42 성공 뒤 같은 사용자의 **그 서버** 세션 브로드캐스트로 온다. 로그인 직후
    * 84 는 Ready 전이라 **캐시만** 하고(인증한 탭은 fanout 의 인증 재생이 캐시를 내린다), Ready 세션의 84 만
    * 팬아웃한다 — Ready 게이트로 버리면 탭이 영영 「불러오는 중」이 된다(RESEARCH Pitfall 4).
+   *
+   * 캐시 · 팬아웃 값에는 그 세션의 서버키를 싣는다 — 웹이 서버별로 받아 둔다(구 webapp 은 여분 필드를 무시한다).
    */
-  #onUserSettings(userId: string, session: HubSession, settings: RelayUserSettingsMsg): void {
-    this.#userSettings.set(userId, settings);
+  #onUserSettings(userId: string, owner: string, session: HubSession, settings: RelayUserSettingsMsg): void {
+    const msg: RelayUserSettingsMsg = { ...settings, serverKey: serverKeyOf(session) };
+    this.#userSettings.set(owner, msg);
     if (!session.isReady) return;
-    this.#fanout(userId, settings);
+    this.#fanout(userId, msg);
   }
 
   /**

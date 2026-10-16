@@ -67,11 +67,12 @@ import {
 } from "../src/dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { MSG } from "../src/dma/msg-type.js";
-import { LC_LEGACY_SET_REJECT_TEXT } from "../src/ws/protocol.js";
+import { LC_LEGACY_SET_REJECT_TEXT, USER_SETTINGS_SERVER_GONE_TEXT } from "../src/ws/protocol.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
   readSetLimitChaserRequest,
+  readSetUserSettingsRequest,
   readDisableStrategiesKey,
   readSubscribeRequest,
   readViSetRequest,
@@ -1418,7 +1419,7 @@ describe("WsFanout", () => {
     tabA.ws.sendAuth("token-a");
     await waitFor(() => framesOf(tabA.inbox, "vi.list").length === 1, "A 새 탭 스냅샷");
     await flushIo(20);
-    expect(h.hub.getUserSettings(USER_A)).toBeUndefined();
+    expect(h.hub.getUserSettings(USER_A, "KB")).toBeUndefined();
     expect(framesOf(tabA.inbox, "user.settings")).toHaveLength(0);
 
     // (B) 게이트웨이가 77 · 84 를 밀면 그 뒤 인증하는 연결은 `queued.window` 바로 뒤에 `user.settings` 1프레임을 받는다.
@@ -1427,7 +1428,7 @@ describe("WsFanout", () => {
     if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
     gateway.sendFrame(sock, buildQueuedWindowStateFrame({ open: true, maxPieces: 7 }));
     gateway.sendUserSettings(sock, { present: true, preBuyAmount: 5000, autoSellPeriodSec: 5 });
-    await waitFor(() => h.hub.getUserSettings(USER_A) !== undefined, "사용자 설정 캐시");
+    await waitFor(() => h.hub.getUserSettings(USER_A, "KB") !== undefined, "사용자 설정 캐시");
 
     const tabB = await open();
     tabB.ws.sendAuth("token-a");
@@ -1438,6 +1439,8 @@ describe("WsFanout", () => {
       {
         t: "user.settings",
         present: true,
+        // Phase 32 D-14a — 새 relay 는 그 84 를 보낸 서버의 서버키를 늘 싣는다(레지스트리 없는 하네스 = 증권사 이름).
+        serverKey: "KB",
         preBuyAmount: 5000,
         addBuyAmount: 4000,
         postBuyAmount: 4000,
@@ -1458,6 +1461,97 @@ describe("WsFanout", () => {
     ]);
     const order = tabB.inbox.map((m) => m.t);
     expect(order.indexOf("user.settings")).toBe(order.indexOf("queued.window") + 1);
+  });
+
+  describe("P32 user.settings 서버 축 트레이서 (D-14a)", () => {
+    /** 새 웹 14값 — 범위 안 · 기본값과 다른 칸을 섞는다. */
+    const S = {
+      preBuyAmount: 5000,
+      addBuyAmount: 3000,
+      postBuyAmount: 2000,
+      postBuyMaxCount: 4,
+      postBuyFloorQty: 0,
+      postBuyReboundPct: 25,
+      sellQtyTrackRatio: 40,
+      autoSellPeriodSec: 3,
+      auctionSellRatioPct: 20,
+      autoSellRatioDefaultPct: 10,
+      autoSellMethodDefault: 3,
+      postBuyFloorAmount: 84,
+      preBuyWatchAmount: 50,
+      preBuyAutoAddBuy: true,
+    };
+    /** 게이트웨이로 나간 42 만 디코드해 좁힌다 — msg_type 만 세면 「보냈다」까지밖에 못 본다. */
+    const settingsReqs = () =>
+      gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === MSG.SetUserSettingsReq)
+        .map((r) => readSetUserSettingsRequest(r.payload))
+        .filter((r) => r !== null);
+
+    it("84 → user.settings{serverKey} · user.settings.set{serverKey} → 그 세션 42 1건 → 다음 84 → user.settings 새 값 · 같은 서버키", async () => {
+      const a = await authed("token-a");
+      await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      const session = h.sessions.get(USER_A);
+      if (session === undefined) throw new Error("세션 없음");
+      // 레지스트리 없는 하네스 — 서버키 = 증권사 이름(`DmaSession.serverKey = serverKey ?? broker`).
+      expect(session.serverKey).toBe("KB");
+
+      // ① 그 서버의 84 → 브라우저 user.settings 에 서버키가 실린다 · hub 소유 키 캐시.
+      gateway.sendUserSettings(sock, { present: true, preBuyAmount: 4000 });
+      await waitFor(() => framesOf(a.inbox, "user.settings").length === 1, "84 팬아웃");
+      expect(framesOf(a.inbox, "user.settings")[0]).toMatchObject({ serverKey: "KB", preBuyAmount: 4000, present: true });
+      expect(h.hub.getUserSettings(USER_A, "KB")).toMatchObject({ serverKey: "KB", preBuyAmount: 4000 });
+
+      // ② 그 서버키를 지정한 저장 → 그 세션으로 42 1건 · 값 그대로(봉인 하한잔량 0).
+      a.ws.sendRaw({ t: "user.settings.set", serverKey: "KB", s: S });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+      await flushIo(30);
+      expect(settingsReqs()).toHaveLength(1);
+      expect(settingsReqs()[0]).toMatchObject({ preBuyAmount: 5000, postBuyFloorAmount: 84, postBuyFloorQty: 0 });
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+
+      // ③ 서버의 42 뒤 브로드캐스트(84) → 브라우저 user.settings 새 값 · 같은 서버키.
+      gateway.sendUserSettings(sock, { present: true, preBuyAmount: 5000 });
+      await waitFor(() => framesOf(a.inbox, "user.settings").length === 2, "84 새 값 팬아웃");
+      expect(framesOf(a.inbox, "user.settings")[1]).toMatchObject({ serverKey: "KB", preBuyAmount: 5000 });
+      expect(h.hub.getUserSettings(USER_A, "KB")?.preBuyAmount).toBe(5000);
+      expect(a.ws.closeInfo).toBeNull();
+    });
+
+    it("그 사용자 세션 맵에 없는 serverKey(「NOPE」) → 42 0건 · 거부 프레임 1건(문구 = 상수 · kind user.settings.set) · 소켓 열림 · primary 로 떨어뜨리지 않는다", async () => {
+      const a = await authed("token-a");
+
+      a.ws.sendRaw({ t: "user.settings.set", serverKey: "NOPE", s: S });
+      await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 프레임");
+      await flushIo(30);
+
+      expect(settingsReqs()).toHaveLength(0);
+      expect(gateway.strategyRequests().filter((r) => r.msgType === MSG.SetUserSettingsReq)).toHaveLength(0);
+      const [rejected] = framesOf(a.inbox, "msg");
+      expect({ lv: rejected?.lv, src: rejected?.src, kind: rejected?.kind, m: rejected?.m }).toEqual({
+        lv: "ERROR",
+        src: RELAY_MSG_SOURCE,
+        kind: "user.settings.set",
+        m: USER_SETTINGS_SERVER_GONE_TEXT,
+      });
+      expect(USER_SETTINGS_SERVER_GONE_TEXT).toBe("고른 서버 세션이 없어 저장하지 않았어요 — 계좌를 다시 골라 주세요");
+      expect(a.ws.closeInfo).toBeNull();
+    });
+
+    it("serverKey 부재(구 탭) → primary 세션으로 42 1건(종전)", async () => {
+      const a = await authed("token-a");
+
+      a.ws.sendRaw({ t: "user.settings.set", s: S });
+      await waitFor(() => settingsReqs().length === 1, "42 송신");
+      await flushIo(30);
+
+      expect(settingsReqs()).toHaveLength(1);
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+      expect(a.ws.closeInfo).toBeNull();
+    });
   });
 
   it("⑭-2b 같은 ISIN 으로 76 KRX 뒤 76 NXT 가 오면 새 탭의 첫 rate.cross.snap 은 그 ISIN 1원소 · NXT (quick-260926-rcc)", async () => {
