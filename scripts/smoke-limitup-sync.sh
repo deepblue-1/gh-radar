@@ -21,7 +21,7 @@ set +x  # 비밀(service_role 키)이 trace 로 새지 않게 — 키는 변수 
 # INV-3: 로그 "limitup-sync failed" 0건
 # INV-4: 대상 날짜 6표 count == GCS export/<D>/manifest.json 의 files[<tbl>.ndjson.gz].rows
 #        (인박스 「확인 방법」 — limitup_member_alloc 은 D 가 KST 오늘 − 30일 안일 때만 · 다른 5표는 − 90일 안)
-# INV-5: Scheduler gh-radar-limitup-sync-nightly ENABLED + cron '20 21 * * 1-5' + timeZone Asia/Seoul
+# INV-5: Scheduler gh-radar-limitup-sync-nightly ENABLED + cron '30 20 * * 1-5' + timeZone Asia/Seoul
 # INV-6: Storage limitup-grid 의 grid/<D>/ 객체 수 == manifest 의 grid/ 파일 수
 # INV-7: 버킷 IAM — relay SA roles/storage.objectUser · 워커 SA roles/storage.objectViewer
 # INV-8: 대상 날짜 limitup_team_flow count == manifest files[team_flow.ndjson.gz].rows(없으면 0 · Phase 33 D-02)
@@ -31,7 +31,7 @@ set +x  # 비밀(service_role 키)이 trace 로 새지 않게 — 키는 변수 
 REGION=asia-northeast3
 JOB=gh-radar-limitup-sync
 SCHED=gh-radar-limitup-sync-nightly
-SCHED_CRON='20 21 * * 1-5'
+SCHED_CRON='30 20 * * 1-5'
 SCHED_TZ='Asia/Seoul'
 BUCKET_URL=gs://gh-radar-limitup-export
 EXPORT_URL="${BUCKET_URL}/export"

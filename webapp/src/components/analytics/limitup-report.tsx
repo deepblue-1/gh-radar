@@ -133,7 +133,7 @@ export function LimitupReport() {
     <div data-slot="limitup-report" className="mx-auto flex w-full max-w-[1120px] flex-col gap-4">
       <PageHeader
         title="상한가 보고서"
-        description="평일 밤 21:20쯤 그날 보고서가 올라와요"
+        description="평일 밤 20:30쯤 그날 보고서가 올라와요"
         actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} />}
       />
 
@@ -155,13 +155,13 @@ export function LimitupReport() {
       )}
 
       {resp !== null && resp.dates.length === 0 && (
-        <EmptyBox title="아직 올라온 보고서가 없어요" body="첫 보고서는 평일 밤 21:20쯤 올라와요" />
+        <EmptyBox title="아직 올라온 보고서가 없어요" body="첫 보고서는 평일 밤 20:30쯤 올라와요" />
       )}
 
       {resp !== null && resp.dates.length > 0 && !resp.loaded && (
         <EmptyBox
           title="이 날 보고서가 아직 없어요"
-          body={`보고서는 평일 밤 21:20쯤 올라와요. 최신 보고서는 ${fmtYmdShort(resp.dates[0]!)}예요`}
+          body={`보고서는 평일 밤 20:30쯤 올라와요. 최신 보고서는 ${fmtYmdShort(resp.dates[0]!)}예요`}
         >
           <Button className="mt-2" onClick={() => go(resp.dates[0]!)}>
             최신 보고서 보기

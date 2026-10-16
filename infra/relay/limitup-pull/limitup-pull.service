@@ -1,11 +1,11 @@
 # limitup-pull.service — 119 상한가 밤 export → GCS 운반 (oneshot, Phase 28 D-13 · docs/relay-operations.md)
 #
 # radar-gw 전용이다 — install.sh 가 그대로 /etc/systemd/system/ 에 복사한다(자리표시자 없음).
-# limitup-pull.timer 가 평일 21:00 KST 에 Unit= 으로 부른다 — 이 유닛에는 [Install] 이 없다(직접 enable 하지 않는다).
+# limitup-pull.timer 가 평일 20:20 KST 에 Unit= 으로 부른다 — 이 유닛에는 [Install] 이 없다(직접 enable 하지 않는다).
 # 입력은 119 ~/ticks/export(rrsync 읽기 전용 키 radar-gw-pull), 출력은 /etc/limitup-pull.env 의 BUCKET 아래 export/.
-# 적재(manifest sha256 대조 · 날짜 단위 교체)는 Cloud Run Job gh-radar-limitup-sync(21:20)가 한다 — 여기는 운반만.
+# 적재(manifest sha256 대조 · 날짜 단위 교체)는 Cloud Run Job gh-radar-limitup-sync(20:30)가 한다 — 여기는 운반만.
 #
-# 재시작 없음 — 상태 없이 미러와 버킷을 매 회차 맞추므로 실패한 회차는 다음 평일 21:00 이 보충한다.
+# 재시작 없음 — 상태 없이 미러와 버킷을 매 회차 맞추므로 실패한 회차는 다음 평일 20:20 이 보충한다.
 # 실패는 journald(`journalctl -u limitup-pull`)의 `[limitup-pull] dates=… rsync=… upload=…` 요약 줄과 비영 종료로 남는다.
 #
 # 자원 상한 — radar-gw 는 gh-radar relay 가 도는 e2-small(2GB)이다. relay 에 양보한다:
