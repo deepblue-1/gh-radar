@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 33
 current_phase_name: 팀 매집(teamflow) 보고서
 status: executing
-stopped_at: Completed 33-01-PLAN.md
-last_updated: "2026-10-16T06:34:49.586Z"
+stopped_at: Completed 33-02-PLAN.md
+last_updated: "2026-10-16T06:46:33.009Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 33 execution started
-state_head: 57b947cd6131f8af5e002c0b53f1da7bd6c7a550
+state_head: bf0c71a98010ce222855e2892a2da3cbfa479726
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 40
-  completed_plans: 22
+  completed_plans: 23
   percent: 50
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-12 after Phase 31)
 ## Current Position
 
 Phase: 33 (팀 매집(teamflow) 보고서) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
-Last activity: 2026-10-16 — Phase 33 33-01 완료(트레이서 C1~C4 · pgTAP 이미지 보유, push 안 함)
+Last activity: 2026-10-16 — Phase 33 33-02 완료(D-03 재적재 자동 감지 · pgTAP 300단언 실행 통과 · 스모크 INV-8, push 안 함)
 
 Progress: [█████░░░░░] 50% (17/17 plans)
 
@@ -88,8 +88,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-16T06:34:49.537Z
-Stopped at: Completed 33-01-PLAN.md
+Last session: 2026-10-16T06:46:32.956Z
+Stopped at: Completed 33-02-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -117,6 +117,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 31 P06 | 22min | 3 tasks | 8 files |
 | Phase 31 P07 | 47 min | 3 tasks | 9 files |
 | Phase 33 P01 | 23min | 2 tasks | 24 files |
+| Phase 33 P02 | 8 min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -160,3 +161,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 33]: 33-01: TeamflowDetail 은 버튼 id 를 labelledBy prop 으로 받는다(day-grid↔detail import 순환 회피 · LimitupEventCard 동형 · aria-labelledby 값 동일)
 - [Phase 33]: 33-01: 팀 매집 행 그리드는 최종 7열 템플릿 · 이 플랜은 1·2·3·7열만 — xl 열 머리 · 20% 아래/위 · 매수 중 팀 · 미니막대는 33-03 가산
 - [Phase 33]: 33-01: pgTAP 러너 이미지 public.ecr.aws/supabase/postgres:17.6.1.104 사용자 승인으로 로컬 보유 — 마이그레이션 2개 SQL 실행 검증은 33-02 Task 2
+- [Phase 33]: 33-02: 워커 D-03 재적재 감지 = manifest 에 team_flow 가 있고 이력 rows.team_flow ≠ manifest rows(키 없음 포함)이면 files_sig 같아도 재적재 · 로그 reason new|files_sig|team_flow_backfill — 수동 files_sig NULL 대체
+- [Phase 33]: 33-02: pgTAP 3파일(limitup_load 218 · teamflow_report 28 · limitup_report 54) 로컬 일회용 컨테이너 실행 통과 — 33-01 마이그레이션 수정 0

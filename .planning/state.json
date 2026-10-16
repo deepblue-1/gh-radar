@@ -21,7 +21,7 @@
     {
       "number": "33",
       "name": "팀 매집(teamflow) 보고서",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "next": {
@@ -29,5 +29,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 33 of 4 · 50% · executing"
   },
-  "updated_at": "2026-10-16T06:34:39.252Z"
+  "updated_at": "2026-10-16T06:46:26.140Z"
 }
