@@ -1081,6 +1081,16 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51 →
       });
   }
 
+  /** 브라우저로 나간 `vi.slot.clear` 프레임 — [계좌, 거래소] (quick-261017-daz · IN-04 — 슬롯을 「모름」 으로 되돌림). */
+  function viCleared(): [string, string][] {
+    return fanned
+      .filter((e) => e.userId === U && e.msg.t === "vi.slot.clear")
+      .map((e) => {
+        const m = e.msg as Extract<RelayOutbound, { t: "vi.slot.clear" }>;
+        return [m.a, m.x];
+      });
+  }
+
   beforeEach(() => {
     resetDroppedEnvelopeCount();
     hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
@@ -1239,7 +1249,7 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51 →
     ]);
   });
 
-  it("KB121 분리(retainSessions) — KB121 몫 VI 슬롯 · 주문 · 대기열 0 · 슬롯 재팬아웃 0(모르면 안 보냄) · primary(KB120) 몫은 그대로", () => {
+  it("KB121 분리(retainSessions) — KB121 몫 VI 슬롯 · 주문 · 대기열 0 · 지운 슬롯마다 vi.slot.clear 1건(IN-04) · primary(KB120) 몫은 그대로", () => {
     kb120.emitReady();
     kb121.emitReady();
     kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: false }));
@@ -1253,8 +1263,10 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51 →
     hub.retainSessions(U, new Set(["KB120"]));
     expect(hub.getViSlot(U, A, "KRX")).toBeUndefined();
     expect(hub.getViSlot(U, B, "KRX")).toMatchObject({ accountNo: B, run: false });
-    // 떼어 낸 세션 슬롯은 브라우저로 다시 보내지 않는다 — 「지움」 프레임이 없고 모르면 보내지 않는다(3상태 규율).
+    // 떼어 낸 세션 슬롯은 「모름」 으로 되돌린다(quick-261017-daz · IN-04) — 지운 슬롯마다 `vi.slot.clear` 1건. 값(`vi.slot`)은 다시
+    // 보내지 않는다(다른 세션이 그 슬롯을 모른다). A|NXT 는 받은 적이 없어 지움도 없고, KB120 몫(B) 슬롯은 지우지 않는다.
     expect(viSeen()).toHaveLength(seen);
+    expect(viCleared()).toEqual([[A, "KRX"]]);
     expect(hub.getViOrders(U).map((i) => i.orderNo)).toEqual(["O1"]);
     const last = fanned.filter((e) => e.userId === U && e.msg.t === "vi.list").at(-1)?.msg;
     expect(last?.t === "vi.list" ? [last.snap, last.items.map((i) => i.orderNo)] : null).toEqual([true, ["O1"]]);

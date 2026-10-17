@@ -63,6 +63,7 @@ import {
   STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   relayQuoteKey,
   useRelayConnection,
+  viAccountRunning,
   viSlotOf,
   type RelayConnectionState,
 } from '../use-relay-socket';
@@ -2029,6 +2030,58 @@ describe('P32 viSlots 리듀서 (D-17 · vi.slot)', () => {
     });
     expect(viSlotOf(hook.result.current.viSlots, B, 'KRX')).toMatchObject({ accountNo: B, run: true });
     expect('viTriggers' in hook.result.current).toBe(false);
+  });
+
+  it('vi.slot.clear 는 그 키를 지운다(모름 — null 아님) · 다른 계좌 슬롯은 그대로 · 그 계좌 VI 가동 false (IN-04)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: true }) });
+      ws.push({ t: 'vi.slot', a: B, x: 'KRX', cfg: cfgOf(B, { run: true }) });
+    });
+    expect(viAccountRunning(hook.result.current.viSlots, A)).toBe(true);
+
+    await act(async () => {
+      ws.push({ t: 'vi.slot.clear', a: A, x: 'KRX' });
+    });
+    const slots = hook.result.current.viSlots;
+    expect(slots.has(`${A}|KRX`)).toBe(false);
+    expect(viSlotOf(slots, A, 'KRX')).toBeUndefined();
+    expect(viSlotOf(slots, B, 'KRX')).toMatchObject({ accountNo: B, run: true });
+    expect(viAccountRunning(slots, A)).toBe(false);
+    // 계좌 미지정(전체) — B 가동이 남는다.
+    expect(viAccountRunning(slots, undefined)).toBe(true);
+  });
+
+  it('vi.slot.clear — 모르는 키 · VI 거래소 밖 x 는 상태 참조 그대로(재렌더 없음)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'KRX', cfg: cfgOf(A, { run: true }) });
+    });
+    const before = hook.result.current.viSlots;
+    await act(async () => {
+      ws.push({ t: 'vi.slot.clear', a: B, x: 'KRX' });
+      ws.push({ t: 'vi.slot.clear', a: A, x: 'NXT' });
+      // 계약 밖 거래소 — 런타임 방어를 시험한다.
+      ws.push({ t: 'vi.slot.clear', a: A, x: 'SOR' });
+    });
+    expect(hook.result.current.viSlots).toBe(before);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'KRX')).toMatchObject({ run: true });
+  });
+
+  it('vi.slot.clear — 미등록(null) 슬롯도 키가 사라진다(모름으로 되돌림)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'vi.slot', a: A, x: 'NXT', cfg: null });
+    });
+    expect(viSlotOf(hook.result.current.viSlots, A, 'NXT')).toBeNull();
+    await act(async () => {
+      ws.push({ t: 'vi.slot.clear', a: A, x: 'NXT' });
+    });
+    expect(hook.result.current.viSlots.has(`${A}|NXT`)).toBe(false);
+    expect(viSlotOf(hook.result.current.viSlots, A, 'NXT')).toBeUndefined();
   });
 
   it('reset(로그아웃 · 비활성화)이 슬롯을 비운다', async () => {
