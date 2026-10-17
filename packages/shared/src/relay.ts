@@ -29,6 +29,7 @@
  *   Phase 28 (28-01) — 상한가 특징 85 `{t:"limit.feature"}` (`RelayLimitFeatureMsg`) 를 `RelayOutbound` 에 더한다.
  *         공개 시세 파생값 — FULL 구독 소켓에만 간다.
  *   Phase 29 (29-22 · D-10) 의 주문 서버 바뀜 프레임은 G-1 에서 없어짐 — 29-36 즉시 재수립 · 29-39 가 타입을 지웠다.
+ *   quick-261017-daz (Phase 32 IN-04) — VI 슬롯 지움 `{t:"vi.slot.clear"}` (`RelayViSlotClearMsg`) 를 `RelayOutbound` 에 더한다.
  *
  * DB 는 snake_case (`dma_credentials` · `dma_orders`), 게이트웨이 필드도 snake_case 다.
  * row/프레임 → 아래 타입 변환 책임은 **server·relay 의 순수함수**에 있다 (chat.ts 규약).
@@ -1326,7 +1327,7 @@ export type RelayViTriggerMsg = {
  * VI 전략 (계좌, 거래소) 슬롯 1건 (Phase 32 D-17 · gh-trade Phase 33 — 61 이 계좌별 슬롯이 됐다).
  *
  * 브라우저 칸 키는 `${a}|${x}` 다. 3상태는 칸마다 독립이다:
- *  - 키 부재 : 그 슬롯을 아직 모른다(프레임을 받은 적 없음 — relay 는 모르면 보내지 않는다)
+ *  - 키 부재 : 그 슬롯을 아직 모른다(프레임을 받은 적 없음 — relay 는 모르면 보내지 않는다 — 또는 `vi.slot.clear` 로 모름으로 되돌아왔다)
  *  - `cfg: null` : 미등록(61 `unregistered` 프레임 · 구 서버의 빈 61 · 구 서버 21 답의 다른 소유 계좌)
  *  - 객체 : 등록돼 있다(`cfg.accountNo === a` · `cfg.exchange === x`)
  *
@@ -1340,6 +1341,26 @@ export type RelayViSlotMsg = {
   /** 거래소 — 슬롯 키의 뒤. */
   x: RelayExchange;
   cfg: RelayViTrigger | null;
+};
+
+/**
+ * VI (계좌, 거래소) 슬롯을 「모름」(키 부재)으로 되돌린다 (quick-261017-daz · Phase 32 IN-04).
+ *
+ * relay 가 그 슬롯을 아는 세션을 잃었을 때(세션 분리 `retainSessions` · 세션 교체 `attach` · 주문 서버 재수립) hub 캐시에서 지운
+ * 슬롯마다 1건 낸다. 같은 슬롯을 다른 결선 세션이 아직 알면 이 프레임 대신 그 값의 `vi.slot` 이 간다(지운 직후 브라우저 = relay 병합 뷰).
+ * 브라우저는 그 키를 **지운다** — `null` 로 바꾸지 않는다(D-17 3상태: 키 부재 = 모름 · `null` = 미등록. 미등록이면 VI 행이 빈 행이 돼
+ * 소유 세션 없는 계좌에 저장을 부른다).
+ *
+ * 새 `t` 를 고른 이유: 구 webapp 은 모르는 `t` 를 리듀서 default 로 무시해 깨지지 않는다. `cfg` 를 뺀 `vi.slot` 은 JSON 에서 키가 빠져
+ * 구 리듀서가 `undefined` 를 슬롯에 넣고 구 번들 사이드바가 `.exchange` 를 읽다 TypeError 로 앱 셸이 깨진다. 구 relay 는 이 프레임을
+ * 내지 않는다(새 webapp + 구 relay 는 지금 동작 그대로).
+ */
+export type RelayViSlotClearMsg = {
+  t: "vi.slot.clear";
+  /** 계좌번호 — 슬롯 키의 앞. */
+  a: string;
+  /** 거래소 — 슬롯 키의 뒤. */
+  x: RelayExchange;
 };
 
 /**
@@ -1859,6 +1880,7 @@ export type RelayOutbound =
   | RelayLimitChaserSnapMsg
   | RelayViTriggerMsg
   | RelayViSlotMsg
+  | RelayViSlotClearMsg
   | RelayViListMsg
   | RelayViNoticeMsg
   | RelayStrategiesDisabledMsg

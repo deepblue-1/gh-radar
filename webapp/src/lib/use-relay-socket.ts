@@ -566,7 +566,8 @@ export interface RelayConnectionState {
    */
   limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
-   * VI (계좌, 거래소) 슬롯 (Phase 32 D-17 — relay `vi.slot`). 키 `` `${accountNo}|${exchange}` `` · **키 부재 = 모름** · `null` = 미등록 ·
+   * VI (계좌, 거래소) 슬롯 (Phase 32 D-17 — relay `vi.slot`). 키 `` `${accountNo}|${exchange}` `` · **키 부재 = 모름**(받은 적 없음 또는
+   * relay `vi.slot.clear` — quick-261017-daz IN-04) · `null` = 미등록 ·
    * 객체 = 등록. 같은 거래소의 두 계좌가 각자 칸을 갖는다(한쪽이 다른 쪽을 덮지 않는다). 조회는 `viSlotOf` · `viSlotsOfAccount` 로 한다.
    *
    * ★ 웹의 VI 상태는 이 슬롯 **하나뿐**이다(Phase 32 D-17 slot-only) — 거래소 하나에 한 칸을 두는 모양을 별칭으로도 두지 않는다.
@@ -1141,6 +1142,19 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       if (!VI_EXCHANGES.includes(frame.x)) return state;
       const viSlots = new Map(state.viSlots);
       viSlots.set(viSlotKey(frame.a, frame.x), frame.cfg);
+      return { ...state, viSlots };
+    }
+
+    case "vi.slot.clear": {
+      // quick-261017-daz (IN-04) — relay 가 그 슬롯을 아는 세션을 잃었다(세션 분리 · 교체 · 재수립) → 「모름」 으로 되돌린다(키 삭제).
+      // ★ `null` 로 바꾸지 않는다 — `null` 은 미등록(서버가 「없다」 고 말함)이라 VI 행이 빈 행이 돼 소유 세션 없는 계좌에 저장을 부른다.
+      //   키 부재(모름)면 VI 행은 「미조회」 잠금이고, 소유 세션이 다시 서면 그 Ready 의 21 → 61(`vi.slot`)이 다시 채운다.
+      // 거래소 밖 x · 모르는 키는 상태 참조를 그대로 둔다(재렌더 없음).
+      if (!VI_EXCHANGES.includes(frame.x)) return state;
+      const key = viSlotKey(frame.a, frame.x);
+      if (!state.viSlots.has(key)) return state;
+      const viSlots = new Map(state.viSlots);
+      viSlots.delete(key);
       return { ...state, viSlots };
     }
 

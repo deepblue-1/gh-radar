@@ -3525,12 +3525,27 @@ export class SubscriptionHub extends EventEmitter {
 
   /**
    * 소유 키 하나의 VI 몫을 지운다 (29-51 · P32 D-17) — VI 설정 슬롯 · VI 주문 추적 · 21 대기열(규칙 (d) — 그 세션 답은 이제 오지 않는다 ·
-   * 그 대기열을 기다리던 대여 배수도 끝낸다). 브라우저 사본의 그 슬롯은 지우지 않는다(「지움」 프레임 없음 — 모르면 보내지 않는다). VI 주문
-   * 추적을 하나라도 지웠으면 true(브라우저 사본이 어긋났다 — `vi.list` 합집합 스냅샷을 다시 낸다).
+   * 그 대기열을 기다리던 대여 배수도 끝낸다). 브라우저 사본의 그 슬롯은 「모름」 으로 되돌린다(quick-261017-daz · IN-04) — 지운 (계좌,
+   * 거래소)마다 다시 `getViSlot` 을 보고 다른 결선 세션도 모르면 `vi.slot.clear`, 알면 그 값의 `vi.slot` 1건(지운 직후 브라우저 = 병합 뷰).
+   * `closeAll` 은 이 길을 지나지 않는다(소켓 전량 종료 — 지움 프레임 없음). VI 주문 추적을 하나라도 지웠으면 true(브라우저 사본이
+   * 어긋났다 — `vi.list` 합집합 스냅샷을 다시 낸다).
    */
-  #clearViOwner(owner: string): boolean {
+  #clearViOwner(userId: string, owner: string): boolean {
     const own = ownerPrefix(owner);
-    for (const key of [...this.#viSlots.keys()]) if (key.startsWith(own)) this.#viSlots.delete(key);
+    const cleared: { a: string; x: RelayExchange }[] = [];
+    for (const key of [...this.#viSlots.keys()]) {
+      if (!key.startsWith(own)) continue;
+      this.#viSlots.delete(key);
+      // 풀이는 `getViSlotsAll` 과 같다 — 소유 접두를 자르고 마지막 `|` 로 계좌 · 거래소.
+      const rest = key.slice(own.length);
+      const bar = rest.lastIndexOf("|");
+      cleared.push({ a: rest.slice(0, bar), x: rest.slice(bar + 1) as RelayExchange });
+    }
+    // 그 소유 키 슬롯이 전부 사라진 뒤에 판정한다 — 같은 (계좌, 거래소)를 다른 세션이 알면 지움은 거짓이다(re-assert).
+    for (const { a, x } of cleared) {
+      const cfg = this.getViSlot(userId, a, x);
+      this.#fanout(userId, cfg === undefined ? { t: "vi.slot.clear", a, x } : { t: "vi.slot", a, x, cfg });
+    }
     let orders = false;
     for (const key of [...this.#viOrders.keys()]) {
       if (!key.startsWith(own)) continue;
@@ -3873,7 +3888,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#dropDisableSenders(owner);
     // VI 는 소유 키 몫이다(29-51 GC-05 · P32 D-17) — 그 세션의 VI 슬롯 · VI 주문 추적 · 21 대기열을 버린다. 추적 합집합은 결선 정리
     // (`#afterPrimaryChange` → `#syncViList`)가 다시 낸다(교체는 새 세션의 61 · 72 가 다시 채운다).
-    const viOrdersCleared = this.#clearViOwner(owner);
+    const viOrdersCleared = this.#clearViOwner(userId, owner);
     // 사용자 설정(84)은 소유 키 몫이다(Phase 32 D-14a) — 그 세션의 교체 · 분리는 **늘** 그 서버 84 를 버린다(새 세션의 84 · 43 이 다시
     // 채울 때까지 「모름」). 브라우저 사본은 지우지 않는다 — 「지움」 프레임이 없다(77/84 규율 · RESEARCH Pitfall 13).
     this.#userSettings.delete(owner);
