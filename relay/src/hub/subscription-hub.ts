@@ -104,7 +104,8 @@
  *                                                                   서버마다 `user_settings.toml` 이 따로 · replay 는 서버마다 1프레임(primary 마지막)
  *           76/78 돌파 · 77 예약 창                   primary 전용   사용자 단위 키 그대로 — 다른 세션 프레임은 debug 드롭  없음
  *         요청: 25(계좌) · 24(상따) · 43(사용자 설정 · Phase 32) · 21 · 34(VI · P32 D-17)는 세션마다 Ready 에서(21 대기열은 소유 키별).
- *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고(VI · 84 도 소유 키 몫), 그 세션이 primary
+ *         세션 교체(같은 소유 키 다른 객체) · 분리(`retainSessions`)는 **그 세션 몫**만 버리고(VI · 84 도 소유 키 몫 — 지운 VI 슬롯은
+ *         브라우저에 `vi.slot.clear`, 같은 슬롯을 다른 세션이 알면 그 값 `vi.slot` · quick-261017-daz IN-04), 그 세션이 primary
  *         였으면 primary 전용 캐시(76/78 · 77)도 버린다. primary 가 바뀌면 옛 primary 몫 primary 전용 캐시만 버린다 — 84 는 서버별이라
  *         지우지 않고 43 도 다시 보내지 않는다(각 세션이 자기 Ready 에서 이미 요청했다 · VI 원천도 primary 와 무관 — 모든 결선 세션이라
  *         그대로다). 단일 세션 사용자는 「세션 1개짜리 병합」 — 종전과 같다.
@@ -115,7 +116,8 @@
  *         남은 지정 계좌 VI 끄기는 sweep 몫), 브라우저 `{t:"vi.slot", a, x, cfg}` 를 슬롯마다 1건 낸다 — 병합하지 않는다(slot-only · 구
  *         거래소 병합 `vi` 는 더 내지 않는다). 구 gh-trade 서버(21 → 61 한 프레임)는 21 답 첫 프레임에서 그 세션 소유 계좌의 모르는 슬롯을
  *         미등록으로 채워 호환한다(`#onViTrigger`). 72/73 추적은 소유 키별 캐시의 합집합(`vi.list` 스냅샷 = 합집합), 56 은 그 계좌의 소유
- *         세션 것만.
+ *         세션 것만. 세션 교체 · 분리로 지운 슬롯은 `{t:"vi.slot.clear", a, x}`(다른 결선 세션이 그 슬롯을 알면 그 값 `vi.slot`)로
+ *         브라우저 사본을 「모름」 으로 되돌린다(quick-261017-daz · IN-04 — `#clearViOwner`).
  *   Phase 29-35 G-1 소유 필터  같은 계좌가 두 서버 users.toml 에 모두 있어도 그 계좌는 **유효 주문 서버 세션 하나에서만 보인다**
  *         (29-29 운영 규칙 · gh-trade-84 ② 확정 — A 서버 주문의 체결 통보는 B 서버로 가지 않으므로 다른 서버의 잔고 · 미체결은 낡는다).
  *         위 표의 「병합」 프레임 중 계좌가 실린 것(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts` — 29-33 `DmaSession`)에 없는
@@ -1647,7 +1649,8 @@ export class SubscriptionHub extends EventEmitter {
    * VI 주문 추적 합집합 재송신 (29-51 → Phase 32 D-17). VI 원천이 모든 결선 세션이라 원천이 바뀌는 길은 결선 · 분리뿐이고, 분리된 세션의 VI 몫
    * (설정 슬롯 · 추적 · 21 대기열)은 `#clearCaches` → `#clearViOwner` 가 이미 지웠다. 그때 추적을 하나라도 지웠으면(`#viListDirty`) 남은
    * 합집합 `vi.list` 스냅샷을 낸다. 새로 결선된 세션의 21 · 34 는 그 세션 Ready 프리페치(`#onReady` — 되돌아온 Ready 세션은 `attach` 가 바로
-   * 부른다)가 보낸다. 설정 슬롯은 다시 보내지 않는다 — 브라우저에 「지움」 프레임이 없고, 모르면 보내지 않는다(3상태 규율).
+   * 부른다)가 보낸다. 설정 슬롯은 여기서 다시 보내지 않는다 — `#clearViOwner` 가 지울 때 이미 슬롯마다 `vi.slot.clear`(다른 세션이 알면 그
+   * 값 `vi.slot` — re-assert)로 맞췄다(quick-261017-daz · IN-04).
    */
   #syncViList(userId: string): void {
     if (this.#viListDirty.delete(userId)) this.#fanout(userId, { t: "vi.list", snap: true, items: this.getViOrders(userId) });
@@ -3886,8 +3889,9 @@ export class SubscriptionHub extends EventEmitter {
     this.#lent.delete(owner);
     // 14 송신자 꼬리표(29-54)도 그 세션 몫이다 — 진행 중 「전부 정지」 집계의 그 대상은 detached 로 끝낸다.
     this.#dropDisableSenders(owner);
-    // VI 는 소유 키 몫이다(29-51 GC-05 · P32 D-17) — 그 세션의 VI 슬롯 · VI 주문 추적 · 21 대기열을 버린다. 추적 합집합은 결선 정리
-    // (`#afterPrimaryChange` → `#syncViList`)가 다시 낸다(교체는 새 세션의 61 · 72 가 다시 채운다).
+    // VI 는 소유 키 몫이다(29-51 GC-05 · P32 D-17) — 그 세션의 VI 슬롯 · VI 주문 추적 · 21 대기열을 버린다. 지운 슬롯은 브라우저에
+    // `vi.slot.clear`(남은 세션이 알면 그 값 `vi.slot`)로 바로 알린다(IN-04). 추적 합집합은 결선 정리(`#afterPrimaryChange` →
+    // `#syncViList`)가 다시 낸다(교체는 새 세션의 61 · 72 가 다시 채운다).
     const viOrdersCleared = this.#clearViOwner(userId, owner);
     // 사용자 설정(84)은 소유 키 몫이다(Phase 32 D-14a) — 그 세션의 교체 · 분리는 **늘** 그 서버 84 를 버린다(새 세션의 84 · 43 이 다시
     // 채울 때까지 「모름」). 브라우저 사본은 지우지 않는다 — 「지움」 프레임이 없다(77/84 규율 · RESEARCH Pitfall 13).

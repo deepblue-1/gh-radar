@@ -1294,15 +1294,18 @@ export class WsFanout {
   resyncUser(userId: string, reason: string): void {
     const conns = [...this.#conns].filter((c) => c.userId === userId);
     for (const conn of conns) conn.acquiredServers = [];
+    // 그 사용자 몫 hub 결선 · 캐시를 버린다 — 재접속 뒤 새 세션 ready → 25 → 66 이 다시 채운다(옛 서버 몫 캐시가 새 탭 스냅샷으로
+    // 새지 않게). **`#users` entry 를 지우기 전에** 부른다(quick-261017-daz · IN-04) — hub 정리가 내는 사용자 프레임(VI 슬롯 지움
+    // `vi.slot.clear` 등)이 아직 등록된 연결로 1012 close 전에 가야 한다(ws 는 send 를 close 프레임보다 먼저 흘린다). 같은 정리가 내는
+    // 다른 프레임(vi.list 스냅 · unf.progress 스냅 · 전부 정지 집계 strategies.disabled)도 close 전에 가지만, 모두 브라우저가 재접속
+    // replay 로 같은 값을 다시 받는 프레임이라 무해하다.
+    this.#hub.retainSessions(userId, new Set());
     const entry = this.#users.get(userId);
     if (entry !== undefined) {
       for (const es of entry.sessions.values()) this.#unlisten(es);
       this.#users.delete(userId);
     }
     this.#syncedSig.delete(userId);
-    // 그 사용자 몫 hub 결선 · 캐시를 버린다 — 재접속 뒤 새 세션 ready → 25 → 66 이 다시 채운다(옛 서버 몫 캐시가 새 탭 스냅샷으로
-    // 새지 않게).
-    this.#hub.retainSessions(userId, new Set());
     const dropped = this.#sessions.dropUser?.(userId, reason) ?? 0;
     for (const conn of conns) {
       if (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING) {
@@ -1874,6 +1877,7 @@ export class WsFanout {
     }
     // VI 설정은 **(계좌, 거래소) 슬롯마다 1건**이다 (Phase 32 D-17 · slot-only) — hub 가 아는 슬롯 전량을 `vi.slot` 으로 내린다.
     // 3상태 규율은 슬롯마다 **독립**이다 — 아는 슬롯만 싣는다. 구 거래소 병합 `vi` 는 더 내지 않는다(구 탭은 VI 「모름」 — 사용자 결정).
+    // 지운 슬롯은 hub 가 연결 중 브라우저에 `vi.slot.clear` 로 이미 알렸다(quick-261017-daz · IN-04) — replay 는 아는 슬롯만이다.
     for (const { a, x, cfg } of this.#hub.getViSlotsAll(userId)) this.#send(conn, { t: "vi.slot", a, x, cfg });
     this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
 
