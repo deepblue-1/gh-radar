@@ -511,6 +511,31 @@ describe("G-1 주문 서버 변경 즉시 적용 — 옛 서버 전략 끄기 �
     expect(drop).toHaveBeenCalledTimes(1);
   });
 
+  it("IN-04 재수립 — 1012 로 닫히기 전 그 탭이 받은 vi.slot · vi.slot.clear 를 순서대로 적용하면 남는 VI 슬롯 0(quick-261017-daz)", async () => {
+    await captureLogs();
+    const h = await harness();
+    const tab = await h.open("token-1");
+    await readyTab(h, tab, U1, 2, "u1 탭 ready(A · B)");
+    // 스텁은 21 마다 빈 61(미등록)로 답한다 → KB120 소유 뷰(A · B) × (KRX · NXT) 슬롯이 브라우저에 있다.
+    const slotsOf = (inbox: RelayOutbound[]): Map<string, unknown> => {
+      const m = new Map<string, unknown>();
+      for (const f of inbox) {
+        if (f.t === "vi.slot") m.set(`${f.a}|${f.x}`, f.cfg);
+        else if (f.t === "vi.slot.clear") m.delete(`${f.a}|${f.x}`);
+      }
+      return m;
+    };
+    expect([...slotsOf(tab.inbox).keys()].sort()).toEqual([`${A}|KRX`, `${A}|NXT`, `${B}|KRX`, `${B}|NXT`]);
+
+    chosenRows = [{ dma_user_id: D1, broker: "KB", account_no: A, server_key: "KB121" }];
+    await h.loader.reload();
+    await waitFor(() => tab.ws.closeInfo !== null, "u1 탭 close");
+    expect(tab.ws.closeInfo?.code).toBe(WS_CLOSE_ORDER_SERVER_CHANGED);
+    // hub 정리(retainSessions)가 entry 삭제보다 먼저라 지움이 1012 전에 닿는다 — 남는 슬롯 0.
+    expect(tab.inbox.filter((f) => f.t === "vi.slot.clear").length).toBeGreaterThan(0);
+    expect(slotsOf(tab.inbox).size).toBe(0);
+  });
+
   it("② 끄기 미확인(65 안 옴 → 단계 시한) — warn 1줄(계좌 · DMA id 없음) · 레지스터 timeout · 그래도 1012 · 재접속 뒤 상태 프레임 A 에 staleStrategies { KB120, 1 } · B 에는 없음", async () => {
     const logs = await captureLogs();
     kb120.respondLimitChaserList([on(SAMPLE_ISIN, A), on(ISIN2, B)]);

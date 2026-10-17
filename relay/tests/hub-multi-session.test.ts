@@ -1277,6 +1277,44 @@ describe("SubscriptionHub — VI 계좌 소유 세션 원천 (GC-05 · 29-51 →
     // KB120 몫(84)은 그대로.
     expect(hub.getUserSettings(U, "KB120")).toMatchObject({ present: true });
   });
+
+  it("세션 교체(attach — 같은 소유 키 새 객체) — 옛 세션이 알던 슬롯마다 vi.slot.clear 1건(A|KRX · A|NXT · IN-04 경로 1)", () => {
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "NXT", run: false }));
+    expect(viCleared()).toEqual([]);
+
+    hub.attach(new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]));
+    expect(hub.getViSlot(U, A, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(U, A, "NXT")).toBeUndefined();
+    expect(viCleared()).toEqual([
+      [A, "KRX"],
+      [A, "NXT"],
+    ]);
+  });
+
+  it("re-assert — 같은 (계좌, 거래소)를 남은 세션이 알면 지움 대신 그 값 vi.slot 1건(지운 직후 브라우저 = getViSlot)", () => {
+    // 두 세션 모두 소유 뷰에 A 를 가진다(KB120 을 A · B 소유로 교체 — 옛 kb120 은 슬롯이 없어 지움 0).
+    const both120 = new FakeBrokerSession(U, "KB120", "KB", [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+    ]);
+    hub.attach(both120);
+    both120.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: false }));
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    const seen = viSeen().length;
+
+    hub.retainSessions(U, new Set(["KB120"]));
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ accountNo: A, run: false });
+    expect(viCleared()).toEqual([]);
+    expect(viSeen().slice(seen)).toEqual([[A, "KRX", false]]);
+  });
+
+  it("closeAll(프로세스 종료) — 슬롯이 있어도 vi.slot.clear 0건(IN-04 경로 4 — 소켓 전량 종료)", () => {
+    kb120.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", run: true }));
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    hub.closeAll();
+    expect(viCleared()).toEqual([]);
+  });
 });
 
 /**
