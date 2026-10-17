@@ -535,6 +535,29 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     }
   });
 
+  it("⑤ relay vi.slot.clear 뒤(그 키 없는 Map) — KRX 만 가동이던 VI 줄은 사라지고, 둘 다 가동 중 KRX 만 지우면 「VI — NXT 가동」 만 (IN-04)", () => {
+    setupReady({ viSlots: viSlotsOf(viCfg("KRX", { run: true })) });
+    const view = render(<AppSidebar />);
+    expect(screen.getByRole("link", { name: "VI — KRX 가동" })).toBeInTheDocument();
+
+    setupReady({ viSlots: new Map() });
+    view.rerender(<AppSidebar />);
+    expect(screen.queryByRole("link", { name: /VI/ })).toBeNull();
+    view.unmount();
+
+    const both = viSlotsOf(viCfg("KRX", { run: true }), viCfg("NXT", { run: true }));
+    setupReady({ viSlots: both });
+    const view2 = render(<AppSidebar />);
+    expect(screen.getByRole("link", { name: "VI — KRX·NXT 가동" })).toBeInTheDocument();
+
+    const cleared = new Map(both);
+    cleared.delete("37728502101|KRX");
+    setupReady({ viSlots: cleared });
+    view2.rerender(<AppSidebar />);
+    expect(viTagExchanges()).toEqual(["NXT"]);
+    expect(screen.getByRole("link", { name: "VI — NXT 가동" })).toBeInTheDocument();
+  });
+
   it("⑤ VI 줄 텍스트는 「VI」 + 태그 글자뿐 — 옛 「가동」 배지 글자 · strategy-badge 슬롯이 없다", () => {
     setupReady({
       viSlots: viSlotsOf(viCfg("KRX", { run: true }), viCfg("NXT", { run: true })),

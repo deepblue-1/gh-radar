@@ -745,6 +745,27 @@ describe("StrategyStatusCard — P32 VI 슬롯 표면 (D-18)", () => {
     expect(summaryText()).toBe("상따 0 · VI 가동");
   });
 
+  it("relay vi.slot.clear 뒤(그 키 없는 Map) — 상따 0 계좌의 「이 계좌 끄기」 는 비활성 · 「VI 중지」, 켜진 상따가 있는 계좌는 활성 유지 (IN-04)", () => {
+    const C_NXT = { ...VI_RUNNING, accountNo: ACC_C, exchange: "NXT" as const };
+    mockRelay = populated({ viSlots: viSlotsOf(VI_RUNNING, C_NXT) });
+    const view = render(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeEnabled();
+    expect(summaryText()).toBe("상따 0 · VI 가동");
+
+    // 지움 뒤 — 리듀서가 그 키를 지운 Map(모름). relay 가 거부할 「이 계좌 끄기」 가 눌리지 않는다.
+    mockRelay = populated({ viSlots: viSlotsOf(VI_RUNNING) });
+    view.rerender(<StrategyStatusCard accountNo={ACC_C} />);
+    expect(killButton(ACC_C)).toBeDisabled();
+    expect(summaryText()).toBe("상따 0 · VI 중지");
+    view.unmount();
+
+    // 켜진 상따가 있는 계좌(A)는 VI 슬롯이 지워져도 활성 — nothingToDisable = 상따 0 ∧ VI 미가동.
+    mockRelay = populated({ viSlots: new Map() });
+    render(<StrategyStatusCard accountNo={ACC_A} />);
+    expect(killButton(ACC_A)).toBeEnabled();
+    expect(summaryText()).toMatch(/· VI 중지$/);
+  });
+
   it("accountNo 없음(계좌 미수신) → 전 계좌 슬롯 기준 — 어느 계좌든 가동이면 「VI 가동」 · 요약은 가동 슬롯", () => {
     mockRelay = populated({ viSlots: viSlotsOf({ ...VI_RUNNING, accountNo: ACC_B, exchange: "NXT" }) });
     render(<StrategyStatusCard />);

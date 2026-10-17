@@ -500,6 +500,29 @@ describe('이관 — ⑤ 미조회 · ⑦ 세션 가드', () => {
     expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' })).not.toBeDisabled();
   });
 
+  it('relay vi.slot.clear 뒤(그 키 부재) — 「미조회」 잠금이고 입력값은 직전 서버 값 그대로(빈 행 아님) · 같은 값 61 이 다시 오면 풀린다 (IN-04)', () => {
+    const { rerender } = renderRows({ accountSlots: { KRX: trigger() } });
+    const krxSwitch = () => within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' });
+    expect(krxSwitch()).not.toBeDisabled();
+    const rateBefore = rateInput('KRX').value;
+    const amountBefore = amountInput('KRX').value;
+    expect(rateBefore).not.toBe('');
+
+    // 지움 — 그 계좌 KRX 키가 사라졌다(모름 · null 아님).
+    rerender(<Rows accountSlots={{}} accountNo={ACCOUNT} />);
+    expect(krxSwitch()).toBeDisabled();
+    expect(rateInput('KRX')).toBeDisabled();
+    expect(amountInput('KRX')).toBeDisabled();
+    expect(rateInput('KRX').value).toBe(rateBefore);
+    expect(amountInput('KRX').value).toBe(amountBefore);
+
+    // 소유 세션 Ready 의 21 → 61 이 같은 값을 다시 채운다(새 객체) — 잠금이 풀린다(WR-03 불변식).
+    rerender(<Rows accountSlots={{ KRX: trigger() }} accountNo={ACCOUNT} />);
+    expect(krxSwitch()).not.toBeDisabled();
+    expect(rateInput('KRX')).not.toBeDisabled();
+    expect(rateInput('KRX').value).toBe(rateBefore);
+  });
+
   it('계좌가 비어 있으면 잠긴다 — 계좌 없는 `vi.set` 을 만들지 않는다', () => {
     // Phase 32 D-18: 행의 계좌 = 고른 계좌다. 고른 계좌가 공란이면(계좌 도착 전) 두 행 모두 잠긴다.
     renderRows({ accountSlots: { KRX: null, NXT: trigger({ exchange: 'NXT', run: true }) }, accountNo: '' });
