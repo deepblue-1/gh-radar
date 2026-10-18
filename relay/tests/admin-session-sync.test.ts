@@ -21,6 +21,8 @@
  *   ⑥ (29-42 G-1) 87 대조 = 세션 원본(`declaredAccounts`) — A1 을 KB121 에 넘긴 KB120 세션(소유 뷰 [A2] · 원본 [A1, A2])에
  *      KB120 87 이 A1 을 빼면 원본에서도 A1 제외 1회(소유 뷰로 고르면 남는다)
  *   ⑦ (29-42 G-1) 같은 세션에 87 이 그대로([A1, A2])면 제외 0 · 선언 0(넘긴 계좌를 다시 선언하지 않는다)
+ *   ⑧ (quick-261018-qob) op 4 로 A2 제외 → 87 → 그 탭에 A2 VI 슬롯 `vi.slot.clear`(A2|KRX · A2|NXT) · A1 슬롯 무변경 · 21 재요청 0 →
+ *      op 3 으로 A2 재추가 → 21 → 61 이 A2 슬롯을 다시 채운다
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -367,7 +369,50 @@ describe("AdminSessionSync — 87 → 열린 세션 반영 (29-21)", () => {
     await waitFor(() => lastState(inbox)?.s === "unauthorized", "전부 닫힘 → unauthorized");
     expect(accountNosOf(lastState(inbox))).toEqual([]);
   });
+
+  it("⑧ op 4 A2 → 87 → 그 탭에 A2 VI 슬롯 vi.slot.clear · A1 무변경 · 21 재요청 0 → op 3 A2 재추가 → 21 → 61 재충전 (quick-261018-qob)", async () => {
+    const r = await rig({ d1Kb: [A1, A2] });
+    // 슬롯 모드 스텁(gh-trade Phase 33) — A2 의 KRX 만 등록(run) · 나머지는 21 답에서 미등록.
+    r.kb.respondViSlots([{ accountNo: A2, exchange: "KRX", run: true, orderAmountKrw: 1_000_000n, checkRate: 25 }]);
+    const kbTypes: number[] = [];
+    r.kb.onFrame((t) => kbTypes.push(t));
+    const viGets = (): number => kbTypes.filter((t) => t === MSG.GetVITriggerReq).length;
+    const { inbox } = await r.open();
+    await waitFor(() => viSlotsOf(inbox).size === 4 && viGets() === 2, "Ready 21 답 → VI 슬롯 4칸");
+    expect([...viSlotsOf(inbox).keys()].sort()).toEqual([`${A1}|KRX`, `${A1}|NXT`, `${A2}|KRX`, `${A2}|NXT`]);
+    expect(viSlotsOf(inbox).get(`${A2}|KRX`)).toMatchObject({ run: true });
+
+    const removed = await r.kbAdmin.command({ op: 4, userId: "d1", account: kbAccount(A2) });
+    expect(removed.kind).toBe("result");
+    await waitFor(() => viClearsOf(inbox).length === 2, "A2 VI 슬롯 지움 2건", 2_000);
+    expect(viClearsOf(inbox)).toEqual([`${A2}|KRX`, `${A2}|NXT`]);
+    expect([...viSlotsOf(inbox).keys()].sort()).toEqual([`${A1}|KRX`, `${A1}|NXT`]);
+    await sleep(100);
+    expect(viGets()).toBe(2); // 87 제외만으로는 21 재요청 없음
+
+    const added = await r.kbAdmin.command({ op: 3, userId: "d1", account: kbAccount(A2, 2) });
+    expect(added.kind).toBe("result");
+    await waitFor(() => viGets() === 4 && viSlotsOf(inbox).size === 4, "재선언 → 21 → 61 재충전");
+    const slots = viSlotsOf(inbox);
+    expect(slots.get(`${A2}|KRX`)).toMatchObject({ run: true });
+    expect(slots.get(`${A2}|NXT`)).toBeNull();
+  });
 });
+
+/** 그 탭이 받은 `vi.slot` · `vi.slot.clear` 를 받은 순서대로 적용한 VI 슬롯 사본(웹 리듀서와 같은 set / delete). */
+function viSlotsOf(inbox: RelayOutbound[]): Map<string, unknown> {
+  const m = new Map<string, unknown>();
+  for (const f of inbox) {
+    if (f.t === "vi.slot") m.set(`${f.a}|${f.x}`, f.cfg);
+    else if (f.t === "vi.slot.clear") m.delete(`${f.a}|${f.x}`);
+  }
+  return m;
+}
+
+/** 그 탭이 받은 `vi.slot.clear` 의 `계좌|거래소` (정렬). */
+function viClearsOf(inbox: RelayOutbound[]): string[] {
+  return inbox.flatMap((f) => (f.t === "vi.slot.clear" ? [`${f.a}|${f.x}`] : [])).sort();
+}
 
 /**
  * Phase 29-42 — G-1 87 대조는 세션 원본 계좌로 (`declaredAccounts`).
