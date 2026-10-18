@@ -6,7 +6,7 @@
  *
  * ① 위 → 아래 고정 순서 (UI-SPEC §레이아웃 계약 표 10행)
  *   제목줄(「트레이딩」 + 계좌 필) → 상태줄 → VI 패널(스트립 줄 · 「더보기」 펼침 안 VI 설정 2줄 ·
- *   발동 표) → 돌파 스트립/표 → 종목 추가 → 카드 격자 → 공용 패널. 블록은 앞선 플랜(18-05 ~
+ *   발동 표) → 돌파 스트립/표 → 매집 스트립/표(quick-261018-rfy) → 종목 추가 → 카드 격자 → 공용 패널. 블록은 앞선 플랜(18-05 ~
  *   18-10)이 만든 것을 **조립만** 한다. VI 설정은 VI 패널의 `settings` 슬롯으로 넘긴다 — 접혀도
  *   마운트가 유지되므로 아래 ⑦ 의 VI 더티 합이 그대로 산다.
  *
@@ -172,6 +172,7 @@ import {
 } from "@/components/trading/card/strategy-card";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import type { StrategyLogEntry } from "@/components/trading/strategy-log";
+import { AccumStrip } from "@/components/trading/workbench/accum-strip";
 import { AlertToasts } from "@/components/trading/workbench/alert-toasts";
 import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
@@ -207,6 +208,7 @@ import {
   type SavedLayout,
 } from "@/lib/trading-layout";
 import { breakoutFeedKey } from "@/lib/use-breakout-quotes";
+import { useAccumSignals } from "@/lib/use-accum-signals";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { useTradingAlerts } from "@/lib/use-trading-alerts";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
@@ -627,6 +629,8 @@ function WorkbenchSurface() {
   // D-16 — relay 재탐침. 편집 중 수동주문 입력은 컴포넌트 로컬 상태라 유지된다.
   useNativeRefresh(relay.probeNow);
   const labels = useIsinLabels();
+  // quick-261018-rfy — 「매집」 패널 원천(REST 복원 ∪ relay kind 16 별도 목록 · isin 별 최신).
+  const accum = useAccumSignals();
   /*
     ④ — 라벨 Map 은 계좌 델타마다 새 인스턴스다. 콜백이 Map 을 의존성으로 잡으면 콜백이 매번 바뀌어
     카드 `memo` 가 죽는다. 콜백 안에서는 ref 로 최신 Map 을 읽는다.
@@ -1570,6 +1574,16 @@ function WorkbenchSurface() {
         onAddCard={addBreakoutCard}
         onFocusCard={focusBreakoutCard}
         onRowsAdded={notifyBreakouts}
+      />
+
+      {/* 4b · 매집 스트립 / 표 (quick-261018-rfy) */}
+      <AccumStrip
+        signals={accum.signals}
+        filled={accum.filled}
+        cards={cardIsins}
+        labels={labels}
+        onAddCard={addBreakoutCard}
+        onFocusCard={focusBreakoutCard}
       />
 
       {/* 5 · 종목 추가 */}

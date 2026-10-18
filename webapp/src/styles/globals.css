@@ -82,6 +82,12 @@
      서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) · 면은 라이트 purple50 / 다크 purple500 rgba .16 (Phase 33). */
   --team: #a234c7;
   --team-bg: #f9f0fc;
+  /* 매집 상태 축(quick-261018-rfy · 작업대 「매집」 패널) — 매도중 주황 · 이월 노랑. 가격 방향(--up/--down) · LED · 팀(--team) 축과
+     서로 대체하지 마라(매집중 배지는 --team). 라이트 글자/면 대비 4.77:1 · 4.67:1(AA) · 다크는 목업 값. */
+  --accum-sell: #c2410c;
+  --accum-sell-bg: #fff4e6;
+  --accum-carry: #a16207;
+  --accum-carry-bg: #fef9e7;
 
   /* B 세그먼트 선택 면 · 작은 알약 선택 · 호가 잔량 막대 · 사이드바 바탕 (sketch 001 · 260924-vj1).
      작은 알약 선택 `--pill-on-*` 과 사이드바 바탕 `--side-bg` 의 라이트 값은 sketch 003-A
@@ -234,6 +240,11 @@
      서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) — 다크 purple500 #ae3dd1 은 --card 위 3.8:1 이라 600. */
   --team: #c353e5;
   --team-bg: rgba(174, 61, 209, 0.16);
+  /* 매집 상태 축 다크 — 의미는 `:root` 쪽 주석. */
+  --accum-sell: #ff9f43;
+  --accum-sell-bg: rgba(255, 159, 67, 0.16);
+  --accum-carry: #ffd43b;
+  --accum-carry-bg: rgba(255, 212, 59, 0.16);
 
   /* B 세그먼트·알약·호가 막대·사이드바 다크 값 — 의미는 `:root` 쪽 주석. `:root` 와 같은 집합을
      빠짐없이 정의한다. `--seg-on-shadow` 는 `none` 대신 `0 0 #0000` — Tailwind shadow 합성에서

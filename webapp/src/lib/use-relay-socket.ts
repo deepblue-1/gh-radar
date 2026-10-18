@@ -158,6 +158,14 @@ export const MAX_STRATEGY_EVENTS = 5000;
  * 때문에 조회 캐시 꼬리 뒤의 줄이 버려지면 주문로그 피드(`use-order-log-feed` ⑥)가 그 틈을 보고 한 번 더 부른다(WR-A02).
  */
 export const MAX_LIMIT_FEATURE_EVENTS = 5000;
+/**
+ * 매집감지(kind 16 `AccumSignal`) 보관 상한 (quick-261018-rfy D-02).
+ *
+ * kind 16 은 등록 종목(수십) × 누적이 바뀐 분만 오고 세 서버가 각자 넣는다 — 주문 이벤트 · kind 15 목록과 섞지 않게
+ * **별도 목록**에 따로 상한을 둔다. 넘으면 오래된 것부터 버린다(화면은 REST 복원 `GET /api/accum-signals` 가 오늘분 isin 별
+ * 최신을 다시 준다 — 패널은 isin 별 마지막 행만 쓰므로 오래된 행이 버려져도 현재 상태는 그대로다).
+ */
+export const MAX_ACCUM_SIGNAL_EVENTS = 2000;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
 /**
@@ -516,6 +524,15 @@ export interface RelayConnectionState {
   /** `strategyEventsBatch` 의 kind 15 짝 — 체크가 켜졌을 때만 새 줄 강조 · 배지 원천이 된다. */
   limitFeatureEventsBatch: { seq: number; rows: StrategyEventRow[] };
   /**
+   * 매집감지(kind 16) 이벤트 — `journal.events` 중 kind 16 만 따로 보관한다 (quick-261018-rfy D-02).
+   *
+   * 작업대 「매집」 패널 원천(`use-accum-signals`)이고 주문로그에는 섞지 않는다(`strategyEvents` · `limitFeatureEvents` 무영향).
+   * 같은 키 · 정렬 규칙이고 상한만 `MAX_ACCUM_SIGNAL_EVENTS` 다. 비우는 것은 `reset` 뿐이다.
+   */
+  accumSignalEvents: StrategyEventRow[];
+  /** `strategyEventsBatch` 의 kind 16 짝 — 마지막으로 삽입이 있었던 프레임의 삽입분 + 단조 번호. */
+  accumSignalEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  /**
    * 미체결 잔량진행률 (`{t:"unf.progress"}` · Phase 25-06) — 키 `relayQuoteKey(isin, exchange)` → 그
    * (종목, 거래소)의 대기 주문 진행률 전량.
    *
@@ -776,6 +793,8 @@ interface RelayData {
   strategyEventsBatch: { seq: number; rows: StrategyEventRow[] };
   limitFeatureEvents: StrategyEventRow[];
   limitFeatureEventsBatch: { seq: number; rows: StrategyEventRow[] };
+  accumSignalEvents: StrategyEventRow[];
+  accumSignalEventsBatch: { seq: number; rows: StrategyEventRow[] };
   queueProgress: ReadonlyMap<string, readonly RelayQueueProgressItem[]>;
   messages: RelayServerMessageEntry[];
   isStale: boolean;
@@ -828,6 +847,9 @@ const INITIAL_DATA: RelayData = {
   // kind 15 별도 목록(D-18) — reset 이 같이 비운다.
   limitFeatureEvents: [],
   limitFeatureEventsBatch: { seq: 0, rows: [] },
+  // kind 16 별도 목록(quick-261018-rfy D-02) — reset 이 같이 비운다.
+  accumSignalEvents: [],
+  accumSignalEventsBatch: { seq: 0, rows: [] },
   // 로그아웃(reset) 이 비운다 — 다음 사용자가 이전 사용자의 대기 주문 진행률을 보지 않는다(25-06).
   queueProgress: new Map(),
   messages: [],
@@ -1041,15 +1063,20 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
 
     case "journal.events": {
       // kind 15(상한가 특징)는 별도 목록으로 가른다(Phase 28 D-18 · Pitfall 3) — 분당 수십 행이 주문 이벤트
-      // 상한을 먹지 않게. 삽입이 없는 쪽은 그 필드를 바꾸지 않고, 둘 다 없으면 같은 state(목록 memo 헛돎 방지).
+      // 상한을 먹지 않게. kind 16(매집감지)도 별도 목록이다(quick-261018-rfy D-02 — 작업대 「매집」 패널 전용 · 주문로그 무영향).
+      // 삽입이 없는 쪽은 그 필드를 바꾸지 않고, 셋 다 없으면 같은 state(목록 memo 헛돎 방지).
       const orderRows: StrategyEventRow[] = [];
       const featureRows: StrategyEventRow[] = [];
+      const accumRows: StrategyEventRow[] = [];
       for (const row of frame.rows) {
-        (row.kind === STRATEGY_EVENT_KIND.LimitFeature ? featureRows : orderRows).push(row);
+        if (row.kind === STRATEGY_EVENT_KIND.LimitFeature) featureRows.push(row);
+        else if (row.kind === STRATEGY_EVENT_KIND.AccumSignal) accumRows.push(row);
+        else orderRows.push(row);
       }
       const ev = upsertStrategyEvents(state.strategyEvents, orderRows);
       const lf = upsertStrategyEvents(state.limitFeatureEvents, featureRows, MAX_LIMIT_FEATURE_EVENTS);
-      if (ev.inserted.length === 0 && lf.inserted.length === 0) return state;
+      const ac = upsertStrategyEvents(state.accumSignalEvents, accumRows, MAX_ACCUM_SIGNAL_EVENTS);
+      if (ev.inserted.length === 0 && lf.inserted.length === 0 && ac.inserted.length === 0) return state;
       return {
         ...state,
         ...(ev.inserted.length > 0
@@ -1062,6 +1089,12 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
           ? {
               limitFeatureEvents: lf.next,
               limitFeatureEventsBatch: { seq: state.limitFeatureEventsBatch.seq + 1, rows: lf.inserted },
+            }
+          : null),
+        ...(ac.inserted.length > 0
+          ? {
+              accumSignalEvents: ac.next,
+              accumSignalEventsBatch: { seq: state.accumSignalEventsBatch.seq + 1, rows: ac.inserted },
             }
           : null),
       };
@@ -2315,6 +2348,8 @@ export function useRelayConnection({
       strategyEventsBatch: data.strategyEventsBatch,
       limitFeatureEvents: data.limitFeatureEvents,
       limitFeatureEventsBatch: data.limitFeatureEventsBatch,
+      accumSignalEvents: data.accumSignalEvents,
+      accumSignalEventsBatch: data.accumSignalEventsBatch,
       queueProgress: data.queueProgress,
       messages: data.messages,
       isStale: data.isStale,

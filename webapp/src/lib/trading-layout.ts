@@ -292,6 +292,8 @@ export interface TradingPanelsPref {
   vi?: boolean;
   /** 돌파 스트립 펼침. */
   breakout?: boolean;
+  /** 매집 스트립 펼침(quick-261018-rfy). */
+  accum?: boolean;
   /** 하단 공용 패널 탭(미체결 · 잔고 · 주문로그 · 전략 로그). */
   sharedTab?: SharedPanelTab;
   /** 하단 공용 패널 접힘(폰 밴드). */
@@ -318,6 +320,7 @@ export function readPanelsPref(): TradingPanelsPref {
     const out: TradingPanelsPref = {};
     if (typeof p.vi === "boolean") out.vi = p.vi;
     if (typeof p.breakout === "boolean") out.breakout = p.breakout;
+    if (typeof p.accum === "boolean") out.accum = p.accum;
     if (isSharedPanelTab(p.sharedTab)) out.sharedTab = p.sharedTab;
     if (typeof p.sharedFolded === "boolean") out.sharedFolded = p.sharedFolded;
     if (typeof p.cardTabsFolded === "boolean") out.cardTabsFolded = p.cardTabsFolded;
