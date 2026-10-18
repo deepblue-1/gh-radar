@@ -268,6 +268,8 @@ describe("Phase 27 자동매도 표시명 (D-15 · D-16)", () => {
     expect(strategyKindLabel(14)).toBe("14");
     // 15 LimitFeature — Phase 28 에서 라벨 「상한가특징」(붙여 씀 · D-07 구분 칩).
     expect(strategyKindLabel(15)).toBe("상한가특징");
+    // 16 AccumSignal — quick-261018-rfy 「매집감지」(시세 이벤트 · 주문로그에는 오지 않는다).
+    expect(strategyKindLabel(16)).toBe("매집감지");
   });
 
   it("group 9 「자동매도」 · cancel 10 「매수 우선 취소」 · 11 「동시호가 감축」", () => {

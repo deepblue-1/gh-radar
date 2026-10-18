@@ -64,11 +64,14 @@ describe("strategy-event 계약 (Phase 25 · T-25-02)", () => {
     expect(row.snapQty).toEqual([1, 2]);
   });
 
-  it("isMarketStrategyEvent 는 kind 1 · 2 · 10 · 15 만 참 (9 는 예약 · 11~14 자동매도 — 거짓)", () => {
-    const kinds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 99];
-    expect(kinds.filter(isMarketStrategyEvent)).toEqual([1, 2, 10, 15]);
+  it("isMarketStrategyEvent 는 kind 1 · 2 · 10 · 15 · 16 만 참 (9 는 예약 · 11~14 자동매도 — 거짓)", () => {
+    const kinds = Array.from({ length: 21 }, (_, i) => i).concat(99);
+    expect(kinds.filter(isMarketStrategyEvent)).toEqual([1, 2, 10, 15, 16]);
     expect(STRATEGY_EVENT_KIND.LimitFeature).toBe(15);
     expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LimitFeature)).toBe(true);
+    // quick-261018-rfy — 16 매집감지(계좌 없음 · 시세 이벤트). 조회 RPC SQL 집합과 같아야 한다.
+    expect(STRATEGY_EVENT_KIND.AccumSignal).toBe(16);
+    expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.AccumSignal)).toBe(true);
   });
 
   it("strategyEventKey = gateway|journalEpoch|seq · compareStrategyEventAsc 는 gwTimeMs → gateway → seq", () => {
