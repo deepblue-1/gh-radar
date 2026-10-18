@@ -1835,6 +1835,43 @@ describe("SubscriptionHub — P32 VI 슬롯 다세션 (D-17)", () => {
       });
   }
 
+  /** 기준점(`fanned` 길이) 뒤에 사용자 U 로 나간 `vi.slot.clear` 의 `계좌|거래소` (정렬 · quick-261018-qob). */
+  function clearsSince(mark: number): string[] {
+    return fanned
+      .slice(mark)
+      .filter((e) => e.userId === U && e.msg.t === "vi.slot.clear")
+      .map((e) => {
+        const m = e.msg as Extract<RelayOutbound, { t: "vi.slot.clear" }>;
+        return `${m.a}|${m.x}`;
+      })
+      .sort();
+  }
+
+  /** 기준점 뒤에 사용자 U 로 나간 `vi.slot` 의 [계좌, 거래소, run]. */
+  function slotsSince(mark: number): [string, string, boolean | null][] {
+    return fanned
+      .slice(mark)
+      .filter((e) => e.userId === U && e.msg.t === "vi.slot")
+      .map((e) => {
+        const m = e.msg as Extract<RelayOutbound, { t: "vi.slot" }>;
+        return [m.a, m.x, m.cfg?.run ?? null];
+      });
+  }
+
+  /** kb Ready → 21 답(새 서버) — A|KRX run · B|KRX 미등록 · 빈 Envelope(NXT → A · B 미등록). */
+  function readyKbWithSlots(): void {
+    kb.emitReady();
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+    kb.pushFrame(buildSetVITriggerRespFrame({ accountNo: B, exchange: "KRX", unregistered: true }));
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+  }
+
+  /** 세션 소유 뷰에서 계좌를 뺀다(87 제외 — `DmaSession.removeAllowedAccounts` 흉내 · 이벤트는 호출자가 낸다). */
+  function dropAccount(session: FakeBrokerSession, accountNo: string): void {
+    const i = session.allowedAccounts.findIndex((a) => a.accountNo === accountNo);
+    if (i >= 0) session.allowedAccounts.splice(i, 1);
+  }
+
   beforeEach(() => {
     resetDroppedEnvelopeCount();
     hub = new SubscriptionHub({ preferredPrimaryServerKey: () => "KB120" });
@@ -1897,6 +1934,74 @@ describe("SubscriptionHub — P32 VI 슬롯 다세션 (D-17)", () => {
     kb.isReady = true;
     kb.emit("accounts");
     expect(viGets(kb)).toBe(0);
+  });
+
+  it("87 제외 — 미준비(재접속 중) 세션도 빠진 계좌 슬롯을 지운다 · 21 0 · 다음 Ready 21 답은 빠진 계좌를 되살리지 않는다 (quick-261018-qob)", () => {
+    const viGets = (): number => kb.sentTypes.filter((t) => t === MSG.GetVITriggerReq).length;
+    readyKbWithSlots();
+    expect(viGets()).toBe(2);
+    kb.isReady = false; // 회선 끊김 · 재접속 중
+
+    dropAccount(kb, A);
+    const mark = fanned.length;
+    kb.emit("accounts");
+    expect(clearsSince(mark)).toEqual([`${A}|KRX`, `${A}|NXT`]);
+    expect(slotsSince(mark)).toEqual([]);
+    expect(viGets()).toBe(2);
+    expect(hub.getViSlot(U, A, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(U, A, "NXT")).toBeUndefined();
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+    expect(hub.getViSlot(U, B, "NXT")).toBeNull();
+
+    // 다음 Ready — 21 은 소유 계좌(B)만 묻는다 · 빈 Envelope 두 건(KRX → NXT)이 B 만 채운다.
+    kb.emitReady();
+    expect(viGets()).toBe(4);
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    kb.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+    expect(hub.getViSlot(U, B, "NXT")).toBeNull();
+    expect(hub.getViSlot(U, A, "KRX")).toBeUndefined();
+    expect(hub.getViSlot(U, A, "NXT")).toBeUndefined();
+  });
+
+  it("87 제외 — 같은 (계좌, 거래소)를 다른 결선 세션(KB121)이 알면 지움 대신 그 값 vi.slot re-assert · 그 세션 슬롯은 남는다 (quick-261018-qob)", () => {
+    const kb121 = new FakeBrokerSession(U, "KB121", "KB", [{ accountNo: A, name: "계좌A" }]);
+    hub.attach(kb121);
+    kb121.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: false }));
+    readyKbWithSlots();
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: true }); // 결선 순 첫 세션(KB120) 값
+
+    dropAccount(kb, A);
+    const mark = fanned.length;
+    kb.emit("accounts");
+    expect(slotsSince(mark)).toEqual([[A, "KRX", false]]);
+    expect(clearsSince(mark)).toEqual([`${A}|NXT`]);
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: false });
+    expect(hub.getViSlotsAll(U).filter((s) => s.a === A).map((s) => [s.x, s.cfg?.run ?? null])).toEqual([["KRX", false]]);
+    // 남은 계좌(B) 슬롯은 무변경.
+    expect(hub.getViSlot(U, B, "KRX")).toBeNull();
+  });
+
+  it("87 — 변화 없는 accounts · 교체된 옛 세션의 accounts 는 슬롯을 지우지 않는다 (quick-261018-qob)", () => {
+    readyKbWithSlots();
+    let mark = fanned.length;
+    kb.emit("accounts");
+    expect(clearsSince(mark)).toEqual([]);
+    expect(slotsSince(mark)).toEqual([]);
+
+    // 같은 소유 키 새 세션 결선(그 결선 자체의 지움은 261017-daz 경로 1 — 세지 않는다).
+    const kb2 = new FakeBrokerSession(U, "KB120", "KB", [
+      { accountNo: A, name: "계좌A" },
+      { accountNo: B, name: "계좌B" },
+    ]);
+    hub.attach(kb2);
+    mark = fanned.length;
+    kb2.pushFrame(buildSetVITriggerRespFrame({ accountNo: A, exchange: "KRX", run: true }));
+
+    dropAccount(kb, A);
+    kb.emit("accounts");
+    expect(clearsSince(mark)).toEqual([]);
+    expect(hub.getViSlot(U, A, "KRX")).toMatchObject({ run: true });
   });
 
   it("소유 뷰 밖 계좌 61(초집합 · 옛 지정) → 슬롯 캐시 0 · vi.slot 0 · #logForeign 1줄", () => {
