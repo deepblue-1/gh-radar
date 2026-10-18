@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>261018-rfy — 장중 매집 현황 목업 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --fg: #fff; --fg-2: #e4e4e4; --muted-fg: #9e9e9e; --faint: #636363;
+  --hair: #3d3d3d; --up: #f04251; --down: #3485fa; --up-bg: rgba(240,66,81,.16); --down-bg: rgba(52,133,250,.16);
+  --team: #c353e5; --team-bg: rgba(195,83,229,.16); --sell: #ff9f43; --sell-bg: rgba(255,159,67,.16); --carry: #ffd43b; --carry-bg: rgba(255,212,59,.16);
+  flex: none; background: var(--bg); color: var(--fg-2); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.phone { width: 390px; border-radius: 30px; }
+.f.desktop { width: 1120px; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.f.desktop .main { padding: 24px 32px; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+.ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.ph h1 { margin: 0; font-size: 20px; color: var(--fg); }
+.ph p { margin: 4px 0 0; font-size: 12px; color: var(--muted-fg); }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--hair); border-radius: 999px; padding: 6px 10px; font-size: 13px; color: var(--fg-2); }
+.pill i { color: var(--muted-fg); font-style: normal; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; }
+.f.phone .kpis { grid-template-columns: 1fr 1fr; }
+.kpi { background: var(--card); border-radius: 12px; padding: 12px; display: flex; flex-direction: column-reverse; min-width: 0; }
+.kpi dt { font-size: 12px; color: var(--muted-fg); }
+.kpi dd { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; color: var(--fg); }
+.kpi dd.team { color: var(--team); }
+.cap { margin: -8px 0 0; font-size: 12px; color: var(--muted-fg); line-height: 1.5; }
+
+.card { background: var(--card); border-radius: 16px; padding: 16px; }
+.sec { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sec h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg); }
+.sec span { font-size: 12px; color: var(--muted-fg); }
+.sec .live { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--team); font-weight: 600; }
+.sec .live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--team); box-shadow: 0 0 0 3px var(--team-bg); }
+.empty { padding: 36px 16px; text-align: center; background: var(--card); border-radius: 16px; }
+.empty b { display: block; font-size: 14px; color: var(--fg); }
+.empty span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted-fg); }
+
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tag.acc { background: var(--team-bg); color: var(--team); }
+.tag.sell { background: var(--sell-bg); color: var(--sell); }
+.tag.end { background: var(--muted); color: var(--muted-fg); }
+.tag.lim { background: var(--up-bg); color: var(--up); }
+.tag.below { background: var(--muted); color: var(--fg-2); }
+.tag.carry { background: var(--carry-bg); color: var(--carry); }
+.tag.sig { background: transparent; color: var(--team); border: 1px solid var(--team); height: 18px; padding: 0 6px; font-size: 10.5px; }
+.pos { color: var(--up); } .neg { color: var(--down); } .dim { color: var(--faint); }
+
+/* live list */
+.lhead { display: none; gap: 0 12px; padding: 0 8px 8px; margin-top: 12px; border-bottom: 1px solid var(--hair); font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.f.desktop .lhead { display: grid; }
+.lrow { display: grid; gap: 6px 12px; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--hair); min-height: 44px; }
+.lrow:last-child { border-bottom: 0; }
+.lrow.end { opacity: .55; }
+.lrow .nm { display: flex; flex-direction: column; min-width: 0; }
+.lrow .nm b { font-size: 14px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .nm small { font-size: 12px; color: var(--muted-fg); }
+.lrow .st { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.lrow .v { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.lrow .s { font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.lrow .s b { color: var(--fg-2); font-weight: 500; }
+.lrow .meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
+.lrow .meta .lb { color: var(--muted-fg); margin-right: 4px; }
+/* desktop columns: 종목 · 상태 · 순매수 · 평단 / 현재가 · 매집 구간 · 수량 · 갱신 */
+.LCOLS { grid-template-columns: minmax(0,168px) 150px 88px minmax(0,150px) minmax(0,160px) 88px 56px; }
+.f.desktop .lrow { grid-template-columns: minmax(0,168px) 150px 88px minmax(0,150px) minmax(0,160px) 88px 56px; }
+.f.desktop .lrow .meta { display: contents; }
+.f.desktop .lrow .meta .lb { display: none; }
+.f.phone .lrow { grid-template-columns: minmax(0,1fr) auto; }
+.f.phone .lrow .nm { grid-column: 1; }
+.f.phone .lrow .st { grid-column: 2; justify-content: flex-end; }
+.f.phone .lrow .meta { grid-column: 1 / -1; }
+
+/* nightly list (existing) */
+.nhead { display: none; gap: 0 12px; padding: 0 8px 8px; margin-top: 12px; border-bottom: 1px solid var(--hair); font-size: 12px; color: var(--muted-fg); white-space: nowrap; grid-template-columns: minmax(0,168px) 104px 80px minmax(0,148px) 72px minmax(0,1fr) 16px; }
+.f.desktop .nhead { display: grid; }
+.nrow { display: grid; gap: 6px 12px; align-items: center; padding: 12px 8px; border-bottom: 1px solid var(--hair); }
+.nrow:last-child { border-bottom: 0; }
+.f.desktop .nrow { grid-template-columns: minmax(0,168px) 104px 80px minmax(0,148px) 72px minmax(0,1fr) 16px; }
+.f.phone .nrow { grid-template-columns: minmax(0,1fr) auto 16px; }
+.nrow .res { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.f.phone .nrow .res { align-items: flex-end; }
+.nrow .res small { font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.f.phone .nrow .res small.xl { display: none; }
+.nrow .strip { height: 14px; border-radius: 3px; background: linear-gradient(90deg, var(--team-bg) 0 30%, var(--team) 30% 55%, var(--team-bg) 55% 70%, transparent 70%); }
+.f.phone .nrow .strip { grid-column: 1 / -1; }
+.nrow .chev { width: 16px; height: 16px; border-right: 2px solid var(--muted-fg); border-bottom: 2px solid var(--muted-fg); transform: rotate(45deg) scale(.6); justify-self: end; }
+.f.phone .nrow .pmeta { grid-column: 1 / -1; display: flex; gap: 12px; font-size: 12px; }
+.f.desktop .nrow .pmeta { display: contents; }
+.nrow .pmeta .lb { color: var(--muted-fg); margin-right: 4px; }
+.f.desktop .nrow .pmeta .lb { display: none; }
+.two { display: flex; flex-direction: column; font-size: 12px; }
+.grp { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted-fg); padding: 12px 8px 4px; text-transform: none; }
+.grp.live { color: var(--team); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span>
+    <button class="on" data-v="A">A 상단 별도 카드</button>
+    <button data-v="B">B 밤 보고서 아래 카드</button>
+    <button data-v="C">C 탐지 종목 안에 그룹</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button class="on" data-w="desktop">1120</button>
+    <button data-w="phone">390</button>
+  </div>
+  <div class="g"><span class="l">날짜</span>
+    <button class="on" data-d="today">오늘 장중(밤 보고서 전)</button>
+    <button data-d="past">지난 날(밤 보고서 있음)</button>
+  </div>
+  <p id="desc"></p>
+</div>
+<div id="stage"></div>
+
+<script>
+const DESC = {
+  A: '<b>A</b> — 「장중 매집 현황」을 머리 바로 아래 <b>별도 카드</b>로 둔다(KPI 띠 위). 장중엔 이 카드가 첫 화면이고 밤 보고서가 없는 오늘은 그 아래가 빈 상태. 지난 날엔 그날 마지막 상태(청산 포함)가 그대로 남고, 밤 보고서 카드 결과 칸엔 「장중 신호」 테두리 칩 + 「첫 감지 · 최고」 보조줄.',
+  B: '<b>B</b> — 같은 카드를 <b>KPI 띠·탐지 종목 아래</b>에 둔다. 밤 보고서(확정치)가 먼저, 장중 신호(추정치)는 보조. 오늘 장중엔 빈 상태 아래에 카드가 와서 스크롤이 한 번 필요.',
+  C: '<b>C</b> — 별도 카드 없이 <b>탐지 종목 목록 안에 「장중 매집」 그룹</b>으로 위에 끼운다. 열은 장중용으로 바꿔 그린다(순매수·평단·구간). 밤 행과 한 목록이라 종목이 양쪽에 있으면 두 줄로 보인다.',
+};
+const LIVE = [
+  { n:'천일고속', c:'000650 · 코스피', st:'acc', net:'+3.8억', avg:'152,300', px:'156,800', rate:'+8.2%', lo:'148,500', hi:'157,000', qty:'2,480주', at:'13:42', carry:0 },
+  { n:'한선엔지니어링', c:'477380 · 코스닥', st:'acc', net:'+2.1억', avg:'6,840', px:'7,120', rate:'+12.6%', lo:'6,500', hi:'7,150', qty:'30,700주', at:'13:41', carry:2 },
+  { n:'서산', c:'079650 · 코스닥', st:'sell', net:'+0.9억', avg:'3,215', px:'3,590', rate:'+21.3%', lo:'3,100', hi:'3,600', qty:'28,000주', at:'13:40', carry:0, phases:1 },
+  { n:'대양금속', c:'009190 · 코스피', st:'acc', net:'+1.4억', avg:'3,980', px:'4,105', rate:'+4.1%', lo:'3,900', hi:'4,120', qty:'35,200주', at:'13:12', carry:1 },
+  { n:'금호전기', c:'001210 · 코스피', st:'end', net:'−0.2억', avg:'2,145', px:'2,210', rate:'', lo:'2,080', hi:'2,230', qty:'0주', at:'11:58', carry:0, reason:'청산' },
+];
+const NIGHT = [
+  { n:'서산', c:'079650 · 코스닥', res:'lim', net:'+1.1억', b20:'+0.9억', a20:'+0.2억', sh:'41%', sig:{first:'10:15', peak:'+1.6억', end:'매도중'} },
+  { n:'천일고속', c:'000650 · 코스피', res:'below', high:'+8.9%', net:'+3.8억', b20:'+3.8억', a20:'—', sh:'36%', sig:{first:'09:48', peak:'+3.8억', end:'매집중'} },
+  { n:'에스엠벡셀', c:'010580 · 코스피', res:'below', high:'+22.4%', net:'+0.6억', b20:'+0.6억', a20:'+0.0억', sh:'18%', sig:null },
+  { n:'쏘닉스', c:'270780 · 코스닥', res:'lim', net:'−0.3억', b20:'+0.4억', a20:'−0.7억', sh:'9%', sig:{first:'14:02', peak:'+1.2억', end:'청산'} },
+];
+const ST = { acc:['acc','매집중'], sell:['sell','매도중'], end:['end','청산'] };
+const tone = s => s.startsWith('+') ? 'pos' : s.startsWith('−') ? 'neg' : 'dim';
+
+function liveRows(variant) {
+  return LIVE.map(r => {
+    const [cls, txt] = ST[r.st];
+    const end = r.st === 'end';
+    const tags = `<span class="tag ${cls}">${txt}</span>${r.carry ? `<span class="tag carry">이월 D+${r.carry}</span>` : ''}`;
+    const pxLine = end ? `<span class="s">마지막 <b class="mono">${r.px}</b> · ${r.reason}</span>` : `<span class="s">현재 <b class="mono">${r.px}</b> <span class="${r.rate.startsWith('+')?'pos':'neg'} mono">${r.rate}</span></span>`;
+    return `<div class="lrow ${end?'end':''}">
+      <div class="nm"><b>${r.n}</b><small class="mono">${r.c}</small></div>
+      <div class="st">${tags}</div>
+      <div class="meta">
+        <span><span class="lb">순매수</span><span class="v mono ${tone(r.net)}">${r.net}</span></span>
+        <span class="two"><span><span class="lb">평단</span><b class="mono">${r.avg}</b></span>${pxLine}</span>
+        <span><span class="lb">구간</span><span class="s"><b class="mono">${r.lo}</b> ~ <b class="mono">${r.hi}</b></span></span>
+        <span><span class="lb">수량</span><span class="s"><b class="mono">${r.qty}</b></span></span>
+        <span><span class="lb">갱신</span><span class="s mono">${r.at}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+function liveHead() {
+  return `<div class="lhead LCOLS"><span>종목</span><span>상태</span><span>팀 순매수</span><span>평단 / 현재가</span><span>매집 구간</span><span>순수량</span><span>갱신</span></div>`;
+}
+function liveCard(today) {
+  const sub = today ? `<span class="live">장중 · 13:42 갱신</span><span>분당 갱신 · 등록 임계 순매수 1억 · 추정치</span>` : `<span>그날 마지막 상태 · 30일 보관</span>`;
+  return `<section class="card"><div class="sec"><h2>장중 매집 현황</h2>${sub}</div>${liveHead()}${liveRows()}</section>`;
+}
+function nightRows(withSig) {
+  return NIGHT.map(r => {
+    const resTag = r.res === 'lim' ? `<span class="tag lim">상한가</span>` : `<span class="tag below mono">미도달</span>`;
+    const sig = withSig && r.sig ? `<span class="tag sig">장중 신호</span>` : '';
+    const sub = withSig && r.sig ? `<small class="xl">첫 감지 <span class="mono">${r.sig.first}</span> · 최고 <span class="mono ${tone(r.sig.peak)}">${r.sig.peak}</span> · ${r.sig.end}</small>` : (r.high ? `<small class="xl">고가 <span class="mono">${r.high}</span></small>` : '');
+    return `<div class="nrow">
+      <div class="nm"><b style="font-size:14px;color:var(--fg)">${r.n}</b><br><small class="mono" style="font-size:12px;color:var(--muted-fg)">${r.c}</small></div>
+      <div class="res"><span style="display:flex;gap:4px">${resTag}${sig}</span>${sub}</div>
+      <div class="strip"></div>
+      <div class="pmeta">
+        <span><span class="lb">팀 순매수</span><b class="mono ${tone(r.net)}" style="font-size:14px">${r.net}</b></span>
+        <span class="two"><span><span class="lb">20% 아래</span><span class="mono ${tone(r.b20)}">${r.b20}</span></span><span><span class="lb">20%~상한</span><span class="mono ${tone(r.a20)}">${r.a20}</span></span></span>
+        <span><span class="lb">매수 중 팀</span><span class="mono ${parseInt(r.sh)>=30?'':'dim'}" style="${parseInt(r.sh)>=30?'color:var(--team);font-weight:600':''}">${r.sh}</span></span>
+      </div>
+      <div class="chev"></div>
+    </div>`;
+  }).join('');
+}
+function nightHead() {
+  return `<div class="nhead"><span>종목</span><span>결과</span><span>팀 순매수</span><span>20% 아래 / 위</span><span>매수 중 팀</span><span>구간별 순매수</span><span></span></div>`;
+}
+function kpis() {
+  return `<dl class="kpis"><div class="kpi"><dt>탐지 종목</dt><dd>4</dd></div><div class="kpi"><dt>팀 순매수 종목</dt><dd>3</dd></div><div class="kpi"><dt>상한가 도달</dt><dd>2</dd></div><div class="kpi"><dt>팀 순매수 합</dt><dd class="pos">+5.2억</dd></div></dl>
+  <p class="cap">탐지 = 20%↑ 또는 상한가 체결 종목 · 팀 수치는 들어와서 친 체결만 센 최소치예요</p>`;
+}
+function nightCard(today) {
+  if (today) return `<div class="empty"><b>이 날은 팀 매집 데이터가 없어요</b><span>팀 매집 보고서는 평일 밤 20:30쯤 올라와요. 최신 보고서는 10.17예요</span></div>`;
+  return kpis() + `<section class="card"><div class="sec"><h2>탐지 종목</h2><span>팀 순매수 큰 순 · 막대 = 구간별 팀 순매수(0% 미만 → 상한가 가격 · 점선 = 20%)</span></div>${nightHead()}${nightRows(true)}</section>`;
+}
+function variantC(today) {
+  const liveGrp = `<div class="grp live">장중 매집 · 13:42 갱신 · 추정치</div>${liveHead()}${liveRows()}`;
+  if (today) return `<section class="card"><div class="sec"><h2>탐지 종목</h2><span>밤 보고서 전 — 장중 매집만</span></div>${liveGrp}</section>`;
+  return kpis() + `<section class="card"><div class="sec"><h2>탐지 종목</h2><span>팀 순매수 큰 순 · 막대 = 구간별 팀 순매수</span></div>${liveGrp}<div class="grp">밤 보고서 · 확정치</div>${nightHead()}${nightRows(true)}</section>`;
+}
+function header(today) {
+  return `<div class="ph"><div><h1>팀 매집</h1><p>평일 밤 20:30쯤 그날 보고서가 올라와요 · 팀 = 교보 · 한국 · 유진 · 신한 · NH</p></div><span class="pill"><i>‹</i> ${today?'10.18 (오늘)':'10.17'} <i>›</i></span></div>`;
+}
+let V='A', W='desktop', D='today';
+function render() {
+  const today = D === 'today';
+  let body;
+  if (V === 'A') body = header(today) + liveCard(today) + nightCard(today);
+  else if (V === 'B') body = header(today) + nightCard(today) + liveCard(today);
+  else body = header(today) + variantC(today);
+  document.getElementById('stage').innerHTML = `<div class="f ${W}"><div class="main">${body}</div></div>`;
+  document.getElementById('desc').innerHTML = DESC[V];
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  const g = b.parentElement; g.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) V = b.dataset.v; if (b.dataset.w) W = b.dataset.w; if (b.dataset.d) D = b.dataset.d;
+  render();
+}));
+render();
+</script>
+</body>
+</html>

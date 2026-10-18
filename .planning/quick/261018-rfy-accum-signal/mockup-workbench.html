@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>261018-rfy — 작업대 「매집」 패널 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised-2: #3a3a3a; --fg: #fff; --fg-2: #e4e4e4; --muted-fg: #9e9e9e; --faint: #636363;
+  --hair: #3d3d3d; --up: #f04251; --down: #3485fa; --flat: #9e9e9e; --new-bg: rgba(255,212,59,.14); --new-bd: #ffd43b; --led: #38d39f;
+  --team: #c353e5; --team-bg: rgba(195,83,229,.16); --sell: #ff9f43; --sell-bg: rgba(255,159,67,.16); --carry: #ffd43b; --carry-bg: rgba(255,212,59,.16);
+  --primary: #f2f2f2; --primary-fg: #111;
+  flex: none; background: var(--bg); color: var(--fg-2); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.phone { width: 390px; border-radius: 30px; }
+.f.desktop { width: 1120px; }
+.main { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.f.desktop .main { padding: 16px 24px; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ghost { font-size: 12px; color: var(--faint); padding: 6px 2px; }
+
+.panel { min-width: 0; overflow: hidden; border-radius: 12px; background: var(--card); }
+.strip { display: flex; align-items: center; gap: 8px; padding: 10px; min-width: 0; }
+.strip .lb { flex: none; font-size: 12px; font-weight: 700; color: var(--fg); display: flex; gap: 6px; align-items: center; }
+.strip .chips { display: flex; flex: 1; min-width: 0; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.strip .empty { align-self: center; font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.strip .more { flex: none; height: 26px; border-radius: 6px; border: 1px solid transparent; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; white-space: nowrap; }
+.chip { display: inline-flex; flex: none; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border-radius: 999px; border: 1px solid transparent; background: var(--muted); font-size: 12px; white-space: nowrap; }
+.chip b { font-weight: 600; color: var(--fg); max-width: 8rem; overflow: hidden; text-overflow: ellipsis; }
+.chip.new { border-color: var(--new-bd); background: var(--new-bg); }
+.chip.trading { border-style: dashed; border-color: var(--faint); background: transparent; color: var(--muted-fg); }
+.chip .nb { font-size: 10px; font-weight: 700; color: var(--fg); }
+.chip .t { font-size: 11px; color: var(--muted-fg); }
+.f.phone .chip .t { display: none; }
+.pos { color: var(--up); } .neg { color: var(--down); } .dim { color: var(--muted-fg); }
+.bd { display: inline-flex; align-items: center; height: 16px; padding: 0 4px; border-radius: 4px; border: 1px solid transparent; font-size: 9px; font-weight: 700; }
+.bd.acc { background: var(--team-bg); color: var(--team); }
+.bd.sell { background: var(--sell-bg); color: var(--sell); }
+.bd.end { background: var(--muted); color: var(--muted-fg); border-color: var(--hair); }
+.bd.carry { background: var(--carry-bg); color: var(--carry); }
+.net { font-weight: 700; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; border-top: 1px solid var(--hair); }
+th { height: auto; padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--muted-fg); text-align: left; white-space: nowrap; }
+td { height: 36px; padding: 0 10px; white-space: nowrap; border-top: 1px solid rgba(255,255,255,.04); }
+.f.phone th, .f.phone td { padding: 0 8px; }
+.f.phone th { padding: 6px 8px; }
+.r { text-align: right; }
+tr.end td { color: var(--muted-fg); }
+tr.end td .nm { color: var(--muted-fg); }
+.nm { font-weight: 600; color: var(--fg); }
+.cd { font-size: 11px; color: var(--muted-fg); margin-left: 4px; }
+.sub { display: none; font-size: 10px; color: var(--muted-fg); }
+.f.phone .sub { display: block; }
+.f.phone .cd { display: none; }
+.f.phone .n7 { display: none; }
+.f.desktop .n7, .f.desktop .b8 { display: table-cell; }
+.btn { height: 26px; border-radius: 6px; border: 1px solid transparent; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; }
+.btn.pri { background: var(--primary); color: var(--primary-fg); }
+.trd { font-size: 11px; color: var(--muted-fg); }
+.trd::before { content: '●'; font-size: 9px; color: var(--led); margin-right: 4px; }
+.x { width: 26px; height: 26px; border: 0; background: transparent; color: var(--muted-fg); font: inherit; font-size: 12px; }
+.acts { display: inline-flex; gap: 4px; justify-content: flex-end; align-items: center; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">칩 모양</span>
+    <button class="on" data-v="A">A 이름 · 순매수 · 상태</button>
+    <button data-v="B">B 돌파 칩 동형 (이름 · 등락률 · 순매수)</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button class="on" data-w="desktop">1120</button>
+    <button data-w="phone">390</button>
+  </div>
+  <p id="desc"></p>
+</div>
+<div id="stage"></div>
+
+<script>
+const DESC = {
+  A: '<b>A</b> — 칩 = 종목명 · <b>팀 순매수(억)</b> · 상태 배지(매집중/매도중) · 이월 D+n. 등락률은 표에만. 「매집」 이 보는 건 금액이니 칩의 숫자는 순매수.',
+  B: '<b>B</b> — 돌파 칩과 같은 꼴: 종목명 · <b>등락률</b> · 순매수 · 시각. 배지 없이 매도중만 주황 글자. 돌파 줄과 눈이 같은 자리를 읽는다.',
+};
+const ROWS = [
+  { n:'천일고속', c:'000650', st:'acc', net:'+3.8억', px:'156,800', rate:'+8.2%', avg:'152,300', lo:'148,500', hi:'157,000', qty:'2,480', at:'13:42:10', carry:0, trading:true },
+  { n:'한선엔지니어링', c:'477380', st:'acc', net:'+2.1억', px:'7,120', rate:'+12.6%', avg:'6,840', lo:'6,500', hi:'7,150', qty:'30,700', at:'13:41:00', carry:2, isNew:true },
+  { n:'대양금속', c:'009190', st:'acc', net:'+1.4억', px:'4,105', rate:'+4.1%', avg:'3,980', lo:'3,900', hi:'4,120', qty:'35,200', at:'13:12:00', carry:1 },
+  { n:'서산', c:'079650', st:'sell', net:'+0.9억', px:'3,590', rate:'+21.3%', avg:'3,215', lo:'3,100', hi:'3,600', qty:'28,000', at:'13:40:00', carry:0 },
+  { n:'금호전기', c:'001210', st:'end', net:'−0.2억', px:'2,210', rate:'+3.0%', avg:'2,145', lo:'2,080', hi:'2,230', qty:'0', at:'11:58:21', carry:0, reason:'청산' },
+];
+const ST = { acc:['acc','매집중'], sell:['sell','매도중'], end:['end','청산'] };
+const tone = s => s.startsWith('+') ? 'pos' : s.startsWith('−') ? 'neg' : 'dim';
+
+function chip(r, v) {
+  if (r.st === 'end') return '';
+  const cls = ['chip', r.isNew ? 'new' : '', r.trading ? 'trading' : ''].join(' ');
+  const carry = r.carry ? `<span class="bd carry">이월 D+${r.carry}</span>` : '';
+  if (v === 'A') {
+    return `<span class="${cls}"><b>${r.n}</b><span class="mono net ${tone(r.net)}">${r.net}</span><span class="bd ${ST[r.st][0]}">${ST[r.st][1]}</span>${carry}${r.isNew?'<span class="nb">신규</span>':''}${r.trading?'<span class="t">거래중</span>':''}</span>`;
+  }
+  return `<span class="${cls}"><b>${r.n}</b><span class="mono net ${tone(r.rate)}">${r.rate}</span><span class="mono ${r.st==='sell'?'' : 'dim'}" style="${r.st==='sell'?'color:var(--sell)':''}">${r.net}</span><span class="t mono">${r.at.slice(0,5)}</span>${carry}${r.isNew?'<span class="nb">신규</span>':''}${r.trading?'<span class="t">거래중</span>':''}</span>`;
+}
+function table() {
+  return `<table>
+    <thead><tr><th>종목</th><th class="r">현재가</th><th class="r">등락률</th><th class="r">팀 순매수</th><th class="r n7">평단</th><th class="n7">매집 구간</th><th class="r n7">순수량</th><th>상태</th><th class="n7">갱신</th><th></th></tr></thead>
+    <tbody>${ROWS.map(r => {
+      const [cls, txt] = ST[r.st];
+      const carry = r.carry ? ` <span class="bd carry">이월 D+${r.carry}</span>` : '';
+      const act = r.st === 'end' ? '' : r.trading ? `<span class="trd">거래중</span>` : `<button class="btn ${r.isNew?'pri':''}">추가</button>`;
+      return `<tr class="${r.st==='end'?'end':''}">
+        <td><span class="nm">${r.n}</span><span class="cd mono">${r.c}</span>${r.isNew?' <span class="bd" style="border-color:var(--new-bd);color:var(--fg)">신규</span>':''}<span class="sub mono">${r.at} · 평단 ${r.avg} · ${r.lo}~${r.hi}</span></td>
+        <td class="r mono ${tone(r.rate)}">${r.px}</td>
+        <td class="r mono net ${tone(r.rate)}">${r.rate}</td>
+        <td class="r mono net ${tone(r.net)}">${r.net}</td>
+        <td class="r mono n7">${r.avg}</td>
+        <td class="mono n7">${r.lo} ~ ${r.hi}</td>
+        <td class="r mono n7">${r.qty}</td>
+        <td><span class="bd ${cls}">${txt}</span>${carry}</td>
+        <td class="mono n7">${r.at}</td>
+        <td class="r"><span class="acts">${act}<button class="x">✕</button></span></td>
+      </tr>`;
+    }).join('')}</tbody></table>`;
+}
+function panelVi() {
+  return `<div class="panel"><div class="strip"><div class="lb">VI</div><div class="chips"><span class="empty">오늘 VI 발동 주문이 없어요</span></div><button class="more">더보기</button></div></div>`;
+}
+function panelBreakout() {
+  return `<div class="panel"><div class="strip"><div class="lb">돌파</div><div class="chips">
+    <span class="chip trading"><b>천일고속</b><span class="mono net pos">+8.20%</span><span class="t mono">13:40</span><span class="t">거래중</span></span>
+    <span class="chip"><b>서산</b><span class="mono net pos">+21.30%</span><span class="t mono">10:15</span></span>
+    <span class="chip"><b>쏘닉스</b><span class="mono net pos">+20.10%</span><span class="t mono">14:02</span></span>
+  </div><button class="more">더보기</button></div></div>`;
+}
+function panelAccum(v) {
+  const live = ROWS.filter(r => r.st !== 'end').length;
+  return `<div class="panel"><div class="strip"><div class="lb">매집</div><div class="chips">${ROWS.map(r => chip(r, v)).join('')}</div><button class="more">접기</button></div>${table()}</div>`;
+}
+let V='A', W='desktop';
+function render() {
+  const body = `<div class="ghost">… 상단 요약 · 계좌 줄 (그대로)</div>${panelVi()}${panelBreakout()}${panelAccum(V)}<div class="ghost">종목 추가 · 카드 격자 (그대로)</div>`;
+  document.getElementById('stage').innerHTML = `<div class="f ${W}"><div class="main">${body}</div></div>`;
+  document.getElementById('desc').innerHTML = DESC[V] + ' 공통: 돌파 패널 바로 아래 같은 패널 문법(라벨 「매집」 · 칩 줄 · 더보기/접기 · 펼친 표). 청산 행은 칩에서 빠지고 표에만 회색. 칩·행 클릭 = 돌파처럼 카드 추가/포커스. 폰(390)은 평단·구간·수량·갱신을 숨기고 종목 아래 보조 줄로.';
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  const g = b.parentElement; g.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) V = b.dataset.v; if (b.dataset.w) W = b.dataset.w;
+  render();
+}));
+render();
+</script>
+</body>
+</html>
