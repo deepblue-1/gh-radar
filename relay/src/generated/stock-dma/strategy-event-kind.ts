@@ -17,5 +17,6 @@ export enum StrategyEventKind {
   AutoSellModified = 12,
   AutoSellState = 13,
   AutoSellPause = 14,
-  LimitFeature = 15
+  LimitFeature = 15,
+  AccumSignal = 16
 }

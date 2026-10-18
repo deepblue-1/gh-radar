@@ -4,6 +4,9 @@
 
 export { AccountEntry } from './stock-dma/account-entry.js';
 export { AccountState } from './stock-dma/account-state.js';
+export { AccumBucket } from './stock-dma/accum-bucket.js';
+export { AccumSignal } from './stock-dma/accum-signal.js';
+export { AccumSnapshot } from './stock-dma/accum-snapshot.js';
 export { AdminAccount } from './stock-dma/admin-account.js';
 export { AdminCommandReq } from './stock-dma/admin-command-req.js';
 export { AdminCommandResp } from './stock-dma/admin-command-resp.js';

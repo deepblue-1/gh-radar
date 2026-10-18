@@ -70,5 +70,7 @@ export enum MsgType {
   UserSettingsResp = 84,
   LimitFeature = 85,
   AdminCommandResp = 86,
-  AdminUsersSnapshot = 87
+  AdminUsersSnapshot = 87,
+  AccumSignal = 88,
+  AccumSnapshot = 89
 }

@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: acb8182d
-// synced-date:        2026-10-16
+// server-repo-commit: 233cb995
+// synced-date:        2026-10-18
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -185,8 +185,14 @@ enum MsgType : byte {
 
     // === 이하 Phase 29 추가 (원격 유저·계좌 관리 — 29-CONTEXT D-04~D-07, gh-radar-34 합의) ===
     AdminCommandResp = 86,         // 44 응답 (S→C, Envelope.admin_command_resp 슬롯 94, 요청 연결에만 Notice) — code 표는 테이블 주석
-    AdminUsersSnapshot = 87        // users.toml 전체 목록 (S→C, Envelope.admin_users_snapshot 슬롯 96, 요청 연결에만 Notice) —
+    AdminUsersSnapshot = 87,       // users.toml 전체 목록 (S→C, Envelope.admin_users_snapshot 슬롯 96, 요청 연결에만 Notice) —
                                    // op 5 응답 · 변경 op 가 실제 변경을 낸 뒤 86 다음 1회. 비밀번호 없음 (D-06/D-07)
+
+    // === 이하 Phase 34 추가 (매집감지 — 34-CONTEXT D-08/D-09, gh-radar-67 합의 2026-10-18) ===
+    AccumSignal = 88,              // 팀매집 누적 상태 (S→C, Envelope.accum_signal 슬롯 98, 등록 종목만 키(isin)별 1초 스로틀
+                                   // Broadcast — 접속 연결 전부, 76 선례 · FULL 구독 조건 없음). 종료(청산)도 state 3 으로 1프레임
+    AccumSnapshot = 89             // 매집감지 스냅샷 (S→C, Envelope.accum_snapshot 슬롯 100, 로그인 성공 직후 그 연결에만 Notice
+                                   // 1프레임 — 지금 등록된 종목 전부, 78 선례)
 }
 
 // ============================================================================
@@ -1397,7 +1403,9 @@ enum StrategyEventKind : ubyte {
     AutoSellPause = 14,     // 자동매도 멈춤/재개 — cond_threshold 0 · cond_actual 1 VI · 2 동시호가 · 3 재개 · expected_cum 새 T0(재개) ·
                             // reason_code AutoSellPauseVI / AutoSellPauseAuction / AutoSellResume
     // 15 는 Phase 27 실시간 상한가 특징 — 계좌 없음, 저널 80 전용(분당 1건/키).
-    LimitFeature = 15       // 실시간 상한가 특징 분당 스냅 — 시세 이벤트 아님(82 미송신), 슬롯 매핑 docs/analysis/feature-dictionary.md ③
+    LimitFeature = 15,      // 실시간 상한가 특징 분당 스냅 — 시세 이벤트 아님(82 미송신), 슬롯 매핑 docs/analysis/feature-dictionary.md ③
+    // 16 은 Phase 34 매집감지 — 계좌 없음, 저널 80 전용(분당 1건/키·변화 시만·종료/복원/첫 스냅샷 행).
+    AccumSignal = 16        // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md
 }
 
 enum OrderGroup : ubyte {
@@ -1590,6 +1598,62 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
     // === 이하 quick-261006-f1j 추가 (테이블 말미 append — 기존 필드 순서 불변, 저널 kind 15 슬롯에는 싣지 않는다) ===
     lock_sell_krw: ulong;        // 이번 잠김 누적 매도 주도 상한가 체결 금액(원) — AtLimit run 시작부터(첫 3초 포함), 30틱 확정 전 run 은 싣지 않음, 잠김이 끝나면 마지막 값 유지, 오늘 잠김 없으면 0 (quick-261006-f1j)
     lock_cancel_krw: ulong;      // 같은 창의 상한가 매수잔량 취소 금액(원, 하한) — cancel_10s 와 같은 접속매매 음수 순유입 × upper_px (quick-261006-f1j)
+}
+
+// ============================================================================
+// Phase 34 — 매집감지(팀매집 시그널) (34-CONTEXT D-01~D-10, gh-radar-67 합의 2026-10-18)
+//
+//   88 AccumSignal   (S→C) — Envelope.accum_signal 슬롯 98. 요청 짝 없음(76 선례), 등록 종목만 키(isin)별 1초 스로틀
+//                             Broadcast — **접속 연결 전부**(FULL 구독 조건 없음, 등록 종목이 수십 개라 양이 작다).
+//                             한 프레임 = 한 종목 누적 상태 전체 + 당일 10분 버킷 + 서버 설정값 3개. 종료(청산·이월 탈락·
+//                             이월 만료)도 state 3 으로 1프레임 보낸 뒤 서버 목록에서 빠진다(클라가 회색 10분 유지).
+//   89 AccumSnapshot (S→C) — Envelope.accum_snapshot 슬롯 100. 로그인 성공 직후 그 연결에만 Notice 1프레임(78 선례) —
+//                             지금 등록된 종목 전부를 88 원소 테이블로(빈 벡터 가능).
+// 팀 주문 = KRX G1 A3 조각을 「직전 조각 0/0 ∧ 같은 bs ∧ 간격 ≤ 200µs」 로 묶은 주문 중 자전거래방지(한 가격 2조각+)
+// ∪ 0/0 단독. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
+// 금액은 원, 수량은 주, 가격은 원 정수다. 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
+// ============================================================================
+
+table AccumBucket {              // 당일 10분 버킷 1칸 (값 있는 칸만 싣는다)
+    slot: ubyte;                 // 0 = 09:00~09:10 … 38 = 15:20~15:30 (당일만)
+    buy_krw: ulong;              // 이 칸 팀 매수 금액(원)
+    sell_krw: ulong;             // 이 칸 팀 매도 금액(원)
+}
+
+table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 누적 상태 (1초 스로틀 Broadcast, D-08)
+    isin: string;                // 종목 ISIN
+    exchange: string;            // "KRX" 고정 — KRX G1 연속매매만 판정한다(NXT 는 0/0 조각이 없어 불가)
+    gw_time_ms: long;            // 송신 시각 epoch ms (1초 틱 시각)
+    since_date: string;          // 등록 거래일 "YYYYMMDD"
+    since_time: string;          // 등록 시각 "HHMMSS" — 이월 행도 등록일 당일 시각
+    state: ubyte;                // 1 매집중 · 2 매도중 · 3 종료
+    end_reason: ubyte;           // state 3 일 때 1 청산 · 2 이월 탈락 · 3 이월 만료, 그 밖 0
+    cycle: uint;                 // 사이클 번호 (같은 날 청산 뒤 재등록이면 +1)
+    carry_days: ubyte;           // 이월 거래일 수 — 0 = 당일 등록
+    buy_qty: long;               // 팀 매수 누적 수량(주) — 우리 체결 제외 뒤
+    buy_krw: long;               // 팀 매수 누적 금액(원)
+    sell_qty: long;              // 팀 매도 누적 수량(주)
+    sell_krw: long;              // 팀 매도 누적 금액(원)
+    net_qty: long;               // 순수량 = buy_qty − sell_qty
+    net_krw: long;               // 순매수 금액 = buy_krw − sell_krw
+    avg_px: uint;                // 평단 = buy_krw / buy_qty 반올림 (buy_qty 0 이면 0)
+    lo_px: uint;                 // 팀 매수 체결가 최저(원) — 매집 구간 하한
+    hi_px: uint;                 // 팀 매수 체결가 최고(원) — 매집 구간 상한
+    reg_px: uint;                // 등록 주문의 가격(원)
+    peak_net_krw: long;          // 이 사이클 최고 순매수 금액(원)
+    sell_phases: uint;           // 매도중 전환 횟수
+    max_same: uint;              // 이 사이클 매수 SMP 주문의 한 가격 최대 조각 수
+    mcap_krw: ulong;             // 시가총액(원) = 기준가 × 상장주식수 (마스터 사본)
+    our_excluded_qty: long;      // 우리 체결 제외 수량(주) — 이 서버가 낸 주문 체결을 팀 누적에서 뺀 합 (D-07)
+    last_px: uint;               // 마지막 팀 체결가(원)
+    th_net_krw: long;            // 서버 설정 — 등록 순매수 임계(원)
+    th_min_same: uint;           // 서버 설정 — 등록 한 가격 최소 조각 수
+    th_max_mcap_krw: ulong;      // 서버 설정 — 등록 시총 상한(원), 0 = 상한 없음
+    buckets: [AccumBucket];      // 당일 10분 버킷 — 값 있는 칸만(최대 39), 이월분의 전날 버킷은 싣지 않는다
+}
+
+table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
+    items: [AccumSignal];        // 지금 등록된 종목 전부 — 등록 시각 오름차순, 빈 벡터 가능
 }
 
 // ============================================================================
@@ -1797,6 +1861,10 @@ table Envelope {
     admin_command_req: AdminCommandReq;          // 44 본문 — 원격 유저·계좌 관리 명령 (vtable 슬롯 92)
     admin_command_resp: AdminCommandResp;        // 86 본문 — 명령 응답 (vtable 슬롯 94)
     admin_users_snapshot: AdminUsersSnapshot;    // 87 본문 — users.toml 전체 목록 (vtable 슬롯 96)
+
+    // === 이하 Phase 34 추가 (테이블 말미 append — 가운데 삽입 금지, D-08) ===
+    accum_signal: AccumSignal;                   // 88 본문 — 팀매집 누적 상태 (vtable 슬롯 98)
+    accum_snapshot: AccumSnapshot;               // 89 본문 — 매집감지 로그인 스냅샷 (vtable 슬롯 100)
 }
 
 root_type Envelope;
@@ -1830,4 +1898,16 @@ root_type Envelope;
 // 빈 Envelope 는 선언 계좌 0 일 때만 남는다 (D-06/D-07). 56/72/73/33 와이어는 무변경 (D-09).
 // unregistered 는 S→C 전용·기본 false = 등록됨 — 구 서버 61 은 그대로 「등록됨」 으로 읽힌다.
 // 슬롯 16 은 폐기해도 재사용 금지.
+// ============================================================================
+
+// ============================================================================
+// === Phase 34 (매집감지) 변경 요약: MsgType 88 AccumSignal / 89 AccumSnapshot ·
+//     테이블 AccumBucket·AccumSignal·AccumSnapshot · Envelope 슬롯 98/100 · StrategyEventKind 16 ===
+//
+// 88 은 등록 종목만 키(isin)별 1초 스로틀 Broadcast — 접속 연결 전부(FULL 구독 조건 없음, 76 선례)이고
+// 종료(청산·이월 탈락·이월 만료)는 state 3 으로 1프레임 뒤 빠진다. 89 는 로그인 성공 직후 그 연결에만
+// Notice 1프레임(78 선례, 88 원소 재사용). 관찰자 저널 kind 16 은 `IsMarketEventKind` 밖이다 — 82 미송신·
+// 81 백필 없음·계좌 없음, 43칸 재해석 표는 gh-radar 인박스 노트(34-04). 핫패스(Stock·LimitChaser·
+// MarketFeed)는 무변경 — 상태기는 MarketPublisher 스레드 단독 소유다.
+// 번호 88/89·슬롯 98/100·kind 16 은 폐기해도 재사용 금지.
 // ============================================================================

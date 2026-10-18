@@ -5,6 +5,8 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { AccountState } from '../stock-dma/account-state.js';
+import { AccumSignal } from '../stock-dma/accum-signal.js';
+import { AccumSnapshot } from '../stock-dma/accum-snapshot.js';
 import { AdminCommandReq } from '../stock-dma/admin-command-req.js';
 import { AdminCommandResp } from '../stock-dma/admin-command-resp.js';
 import { AdminUsersSnapshot } from '../stock-dma/admin-users-snapshot.js';
@@ -294,8 +296,18 @@ adminUsersSnapshot(obj?:AdminUsersSnapshot):AdminUsersSnapshot|null {
   return offset ? (obj || new AdminUsersSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+accumSignal(obj?:AccumSignal):AccumSignal|null {
+  const offset = this.bb!.__offset(this.bb_pos, 98);
+  return offset ? (obj || new AccumSignal()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+accumSnapshot(obj?:AccumSnapshot):AccumSnapshot|null {
+  const offset = this.bb!.__offset(this.bb_pos, 100);
+  return offset ? (obj || new AccumSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(47);
+  builder.startObject(49);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -476,6 +488,14 @@ static addAdminCommandResp(builder:flatbuffers.Builder, adminCommandRespOffset:f
 
 static addAdminUsersSnapshot(builder:flatbuffers.Builder, adminUsersSnapshotOffset:flatbuffers.Offset) {
   builder.addFieldOffset(46, adminUsersSnapshotOffset, 0);
+}
+
+static addAccumSignal(builder:flatbuffers.Builder, accumSignalOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(47, accumSignalOffset, 0);
+}
+
+static addAccumSnapshot(builder:flatbuffers.Builder, accumSnapshotOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(48, accumSnapshotOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {
