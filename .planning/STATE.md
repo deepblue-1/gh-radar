@@ -6,10 +6,10 @@ current_phase: 32
 current_phase_name: 계좌 축 정리
 status: completed
 stopped_at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
-last_updated: "2026-10-17T00:56:14.254Z"
+last_updated: "2026-10-18T10:29:12.463Z"
 last_activity: 2026-10-17
 last_activity_desc: Phase 32 complete
-state_head: f45302f7f6f564b1e057ba820d28b639c3a628b3
+state_head: ab86af3d21012eaea053b0efaf61dfdff5f3baf0
 progress:
   total_phases: 4
   completed_phases: 4
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 Phase: 32 (계좌 축 정리) — COMPLETE
 Plan: 14 of 14
 Status: All phases complete (v1.1 30 · 31 · 32 · 33)
-Last activity: 2026-10-17 - Completed quick task 261017-daz: IN-04 VI 슬롯 지움 프레임
+Last activity: 2026-10-18 - Completed quick task 261018-qob: 87 계좌 제외 시 VI 슬롯 지움
 
 Progress: [██████████] 100% (40/40 plans)
 
@@ -87,6 +87,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261016-udz | Phase 32 UI 리뷰 Top 3 — 계좌 칩 화살표·Home/End 가 선택까지(WAI-ARIA radio · IN-02) · UI-SPEC 32-15 작업대 칩 절·옛 셀렉트 무효 · 간격 1곳 4배수(pt-1)·7곳 예외 근거 명시 | 2026-10-16 | 1ad9d4fb | [261016-udz-phase-32-ui-top-3-ui-spec-4](./quick/261016-udz-phase-32-ui-top-3-ui-spec-4/) |
 | 261017-bwt | Phase 32 UI 리뷰 잔여 — 간격 7곳 4배수(공용 짝 VI 다이얼로그·ChoiceRow·마이크로 배지 동행) · 끄기 버튼 --destructive 면 카드·다이얼로그 일치 · 「끄기」 어휘 통일 · 잠긴 칩 개별 aria-disabled·title · VI 스트립 scopeAccount 게이트(IN-05) | 2026-10-17 | bdceac07 | [261017-bwt-phase-32-ui-7-4-destructive-in-05](./quick/261017-bwt-phase-32-ui-7-4-destructive-in-05/) |
 | 261017-daz | IN-04 — relay 가 VI 슬롯 캐시를 지울 때 브라우저에 vi.slot.clear 송신(다른 세션이 알면 vi.slot re-assert · closeAll 무프레임) · resyncUser 지움 순서 수정 · 웹 리듀서 키 삭제 → 사이드바 VI·이 계좌 끄기·VI 행이 사실을 따름 | 2026-10-17 | f45302f7 | [261017-daz-in-04-relay-vi-vislots](./quick/261017-daz-in-04-relay-vi-vislots/) |
+| 261018-qob | 87 로 세션 선언에서 빠진 계좌의 VI 슬롯을 hub 캐시에서 지우고 vi.slot.clear 팬아웃(다른 세션이 알면 re-assert) — #clearViOwner 와 #dropViSlots 헬퍼 공유 · 미준비 세션도 지움 · 21 재요청은 Ready 때만 | 2026-10-18 | ab86af3d | [261018-qob-87-hub-vi-vi-slot-clear](./quick/261018-qob-87-hub-vi-vi-slot-clear/) |
 
 ## Session Continuity
 
