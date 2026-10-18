@@ -117,7 +117,8 @@
  *         거래소 병합 `vi` 는 더 내지 않는다). 구 gh-trade 서버(21 → 61 한 프레임)는 21 답 첫 프레임에서 그 세션 소유 계좌의 모르는 슬롯을
  *         미등록으로 채워 호환한다(`#onViTrigger`). 72/73 추적은 소유 키별 캐시의 합집합(`vi.list` 스냅샷 = 합집합), 56 은 그 계좌의 소유
  *         세션 것만. 세션 교체 · 분리로 지운 슬롯은 `{t:"vi.slot.clear", a, x}`(다른 결선 세션이 그 슬롯을 알면 그 값 `vi.slot`)로
- *         브라우저 사본을 「모름」 으로 되돌린다(quick-261017-daz · IN-04 — `#clearViOwner`).
+ *         브라우저 사본을 「모름」 으로 되돌린다(quick-261017-daz · IN-04 — `#clearViOwner`). 87 로 소유 뷰에서 빠진 계좌 슬롯도 같은
+ *         규칙이다(`#onAccounts` · quick-261018-qob).
  *   Phase 29-35 G-1 소유 필터  같은 계좌가 두 서버 users.toml 에 모두 있어도 그 계좌는 **유효 주문 서버 세션 하나에서만 보인다**
  *         (29-29 운영 규칙 · gh-trade-84 ② 확정 — A 서버 주문의 체결 통보는 B 서버로 가지 않으므로 다른 서버의 잔고 · 미체결은 낡는다).
  *         위 표의 「병합」 프레임 중 계좌가 실린 것(66/67 · 60/64 · 83)은 그 세션 소유 뷰(`allowedAccounts` — 29-33 `DmaSession`)에 없는
@@ -538,7 +539,7 @@ export interface HubSession {
   on(event: "ready", listener: (e: SessionReadyEvent) => void): unknown;
   /**
    * 상태는 그대로 · 허용 계좌만 바뀌었다 (`DmaSession` 29-21 — Ready 중 계좌 추가 선언 · 87 제외). hub 는 인자를 읽지 않는다 — 바뀐
-   * `allowedAccounts` 를 다시 읽는다(WR-03 · 새 계좌 VI 슬롯 21 재요청).
+   * `allowedAccounts` 를 다시 읽는다(WR-03 · 새 계좌 VI 슬롯 21 재요청 · 87 제외 계좌 VI 슬롯 지움(Ready 무관) — quick-261018-qob).
    */
   on(event: "accounts", listener: () => void): unknown;
 }
@@ -3527,28 +3528,41 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 소유 키 하나의 VI 설정 슬롯 중 `drop(계좌)` 가 참인 것을 지운다 (Phase 32 D-17). 브라우저 사본의 그 슬롯은 「모름」 으로 되돌린다
+   * (quick-261017-daz · IN-04) — 지운 (계좌, 거래소)마다 다시 `getViSlot` 을 보고 다른 결선 세션도 모르면 `vi.slot.clear`, 알면 그 값의
+   * `vi.slot` 1건(지운 직후 브라우저 = 병합 뷰). 다른 소유 키(다른 서버 세션) 슬롯은 건드리지 않는다. 지운 슬롯 수를 돌려준다.
+   * 호출자 둘 — `#clearViOwner`(그 소유 키 전부 · 세션 교체 · 분리) · `#onAccounts`(87 로 소유 뷰 밖이 된 계좌 · quick-261018-qob).
+   */
+  #dropViSlots(userId: string, owner: string, drop: (accountNo: string) => boolean): number {
+    const own = ownerPrefix(owner);
+    const cleared: { a: string; x: RelayExchange }[] = [];
+    for (const key of [...this.#viSlots.keys()]) {
+      if (!key.startsWith(own)) continue;
+      // 풀이는 `getViSlotsAll` 과 같다 — 소유 접두를 자르고 마지막 `|` 로 계좌 · 거래소.
+      const rest = key.slice(own.length);
+      const bar = rest.lastIndexOf("|");
+      const a = rest.slice(0, bar);
+      if (!drop(a)) continue;
+      this.#viSlots.delete(key);
+      cleared.push({ a, x: rest.slice(bar + 1) as RelayExchange });
+    }
+    // 지울 슬롯이 전부 사라진 뒤에 판정한다 — 같은 (계좌, 거래소)를 다른 세션이 알면 지움은 거짓이다(re-assert).
+    for (const { a, x } of cleared) {
+      const cfg = this.getViSlot(userId, a, x);
+      this.#fanout(userId, cfg === undefined ? { t: "vi.slot.clear", a, x } : { t: "vi.slot", a, x, cfg });
+    }
+    return cleared.length;
+  }
+
+  /**
    * 소유 키 하나의 VI 몫을 지운다 (29-51 · P32 D-17) — VI 설정 슬롯 · VI 주문 추적 · 21 대기열(규칙 (d) — 그 세션 답은 이제 오지 않는다 ·
-   * 그 대기열을 기다리던 대여 배수도 끝낸다). 브라우저 사본의 그 슬롯은 「모름」 으로 되돌린다(quick-261017-daz · IN-04) — 지운 (계좌,
-   * 거래소)마다 다시 `getViSlot` 을 보고 다른 결선 세션도 모르면 `vi.slot.clear`, 알면 그 값의 `vi.slot` 1건(지운 직후 브라우저 = 병합 뷰).
+   * 그 대기열을 기다리던 대여 배수도 끝낸다). 슬롯 지움 · 브라우저 「모름」 송신은 `#dropViSlots`(전부)를 지난다.
    * `closeAll` 은 이 길을 지나지 않는다(소켓 전량 종료 — 지움 프레임 없음). VI 주문 추적을 하나라도 지웠으면 true(브라우저 사본이
    * 어긋났다 — `vi.list` 합집합 스냅샷을 다시 낸다).
    */
   #clearViOwner(userId: string, owner: string): boolean {
     const own = ownerPrefix(owner);
-    const cleared: { a: string; x: RelayExchange }[] = [];
-    for (const key of [...this.#viSlots.keys()]) {
-      if (!key.startsWith(own)) continue;
-      this.#viSlots.delete(key);
-      // 풀이는 `getViSlotsAll` 과 같다 — 소유 접두를 자르고 마지막 `|` 로 계좌 · 거래소.
-      const rest = key.slice(own.length);
-      const bar = rest.lastIndexOf("|");
-      cleared.push({ a: rest.slice(0, bar), x: rest.slice(bar + 1) as RelayExchange });
-    }
-    // 그 소유 키 슬롯이 전부 사라진 뒤에 판정한다 — 같은 (계좌, 거래소)를 다른 세션이 알면 지움은 거짓이다(re-assert).
-    for (const { a, x } of cleared) {
-      const cfg = this.getViSlot(userId, a, x);
-      this.#fanout(userId, cfg === undefined ? { t: "vi.slot.clear", a, x } : { t: "vi.slot", a, x, cfg });
-    }
+    this.#dropViSlots(userId, owner, () => true);
     let orders = false;
     for (const key of [...this.#viOrders.keys()]) {
       if (!key.startsWith(own)) continue;
@@ -3803,12 +3817,27 @@ export class SubscriptionHub extends EventEmitter {
    * Ready 중 허용 목록 변경 (Phase 32 WR-03 — `DmaSession` 29-21 Ready 중 계좌 추가 선언 · 87 제외). VI 슬롯은 21 답 · 에코로만 채워지므로
    * Ready 프리페치 뒤 들어온 계좌의 슬롯은 다음 재접속까지 모름(웹 VI 행 잠금)으로 남는다. 그 세션 소유 계좌 중 슬롯이 하나라도 모름인
    * 계좌가 있을 때만 그 세션으로 21(KRX → NXT)을 다시 묻는다 — 같은 회선이라 대기열은 이어 붙인다(`append`). 대여 중이면
-   * `#requestViTriggers` 가 `refetchVi` 로 반납 때까지 미룬다. 계좌가 빠지기만 했으면(87) 모름 계좌가 없어 무동작이다.
+   * `#requestViTriggers` 가 `refetchVi` 로 반납 때까지 미룬다.
+   *
+   * 소유 뷰 밖이 된 계좌(87 제외 · quick-261018-qob)의 슬롯은 **Ready 와 무관하게** 먼저 지운다(`#dropViSlots` — 다른 세션이 알면 그 값
+   * re-assert) — 재접속 중 제외도 다음 Ready 의 21 은 소유 계좌만 묻기 때문에 지금 안 지우면 영영 남는다. 일시적 빈 87(유저 0명 · 그 유저
+   * 누락)과 변화 없는 87 · 재로그인은 이 이벤트를 내지 않는다(session-sync.ts `#accountsOf` undefined · session.ts `removed === 0` ·
+   * `#onLoginAccepted` 는 `ready`) — 아직 소유한 계좌 슬롯은 술어가 거짓이라 깜빡이지 않는다. 21 재요청은 Ready 일 때만이고, 지운 계좌는
+   * 소유 뷰 밖이라 모름 계좌에 들지 않는다(제외만으로는 21 이 나가지 않는다).
    */
   #onAccounts(userId: string, owner: string, session: HubSession): void {
-    if (this.#sessions.get(owner) !== session || !session.isReady) return;
+    // 옛 세션 이벤트가 같은 소유 키 새 세션 슬롯을 지우면 안 된다.
+    if (this.#sessions.get(owner) !== session) return;
     const owned = ownedAccountsOf(session);
     if (owned === null) return;
+    const dropped = this.#dropViSlots(userId, owner, (accountNo) => !owned.has(accountNo));
+    if (dropped > 0) {
+      logger.info(
+        { userId, serverKey: serverKeyOf(session), slots: dropped },
+        "[HUB] 소유 뷰에서 빠진 계좌(87 제외) — VI 슬롯 지움",
+      );
+    }
+    if (!session.isReady) return;
     const unknown = [...owned].filter((accountNo) =>
       VI_PREFETCH_EXCHANGES.some((exchange) => !this.#viSlots.has(viSlotKey(owner, accountNo, exchange))),
     );
