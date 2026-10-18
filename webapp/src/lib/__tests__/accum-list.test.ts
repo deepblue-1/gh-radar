@@ -20,6 +20,7 @@ import {
   advanceAccumMeta,
   latestAccumByIsin,
   readAccumDismissed,
+  restoreCutByGateway,
   sortAccum,
 } from '../accum-list';
 import { HIGHLIGHT_MS } from '../breakout-list';
@@ -105,6 +106,50 @@ describe('latestAccumByIsin', () => {
 
   it('빈 입력 → 빈 배열', () => {
     expect(latestAccumByIsin([])).toEqual([]);
+  });
+});
+
+describe('restoreCutByGateway · latestAccumByIsin ⑤ — 복원 묶음 = 그 서버의 전체 목록', () => {
+  const T2132 = 1_760_000_000_000;
+  const T2316 = T2132 + 104 * 60_000;
+  it('게이트웨이별 가장 최근 복원 묶음(queue_case 3 · 2분 창)의 시작 시각', () => {
+    const rows = [
+      row({ isin: 'X', gwTimeMs: T2132, queueCase: 3, seq: 1 }),
+      row({ isin: 'Y', gwTimeMs: T2132 + 500, queueCase: 3, seq: 2 }),
+      row({ isin: 'Y', gwTimeMs: T2316, queueCase: 3, seq: 3 }),
+      row({ isin: 'Z', gwTimeMs: T2316 + 40_000, queueCase: 3, seq: 4 }),
+      row({ isin: 'Z', gwTimeMs: T2316 + 60_000, queueCase: 2, seq: 5 }),
+      row({ isin: 'X', gwTimeMs: T2132, queueCase: 3, seq: 1, gateway: 'KYOBO119' }),
+    ];
+    const cut = restoreCutByGateway(rows);
+    expect(cut.get('KB120')).toBe(T2316);
+    expect(cut.get('KYOBO119')).toBe(T2132);
+  });
+  it('복원 행이 없는 게이트웨이는 키가 없다', () => {
+    expect(restoreCutByGateway([row({ isin: 'X', queueCase: 1 })]).size).toBe(0);
+  });
+  it('묶음 시작보다 오래된 행의 종목은 빠진다 — 2026-10-18 21:32 복원 46종목 시나리오', () => {
+    const rows = [
+      row({ isin: 'X', gwTimeMs: T2132, queueCase: 3, seq: 1 }), // 21:32 복원 — 23:16 묶음에 없음 → 사라진 종목
+      row({ isin: 'X', gwTimeMs: T2132 + 60_000, queueCase: 2, seq: 2 }), // 21:33 첫 스냅샷도 묶음 전
+      row({ isin: 'Y', gwTimeMs: T2132 + 500, queueCase: 3, seq: 3 }),
+      row({ isin: 'Y', gwTimeMs: T2316, queueCase: 3, seq: 4 }), // 23:16 복원 묶음
+      row({ isin: 'W', gwTimeMs: T2316 + 1_000, queueCase: 4, seq: 5 }), // 묶음 뒤 종료 행 — 남는다(state 3 표시)
+      row({ isin: 'Z', gwTimeMs: T2316 + 60_000, queueCase: 2, seq: 6 }), // 23:17 첫 스냅샷
+    ];
+    expect(lite(latestAccumByIsin(rows)).map((r) => `${r.isin}:${r.seq}`)).toEqual(['Y:4', 'W:5', 'Z:6']);
+  });
+  it('복원 행이 하나도 없으면 자르지 않는다(기존 ① 그대로)', () => {
+    const rows = [row({ isin: 'X', gwTimeMs: 1, seq: 1 }), row({ isin: 'X', gwTimeMs: 2, seq: 2 })];
+    expect(lite(latestAccumByIsin(rows)).map((r) => r.seq)).toEqual([2]);
+  });
+  it('자르기는 게이트웨이별 — 한 서버에서 빠진 종목도 다른 서버의 묶음 뒤 행이 있으면 남는다', () => {
+    const rows = [
+      row({ isin: 'X', gwTimeMs: T2132, queueCase: 3, seq: 1 }),
+      row({ isin: 'Y', gwTimeMs: T2316, queueCase: 3, seq: 2 }),
+      row({ isin: 'X', gwTimeMs: T2316 + 5_000, queueCase: 1, seq: 7, gateway: 'KYOBO119' }),
+    ];
+    expect(lite(latestAccumByIsin(rows)).map((r) => `${r.gateway}:${r.isin}`).sort()).toEqual(['KB120:Y', 'KYOBO119:X']);
   });
 });
 

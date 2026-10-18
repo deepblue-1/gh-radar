@@ -49,10 +49,41 @@ function isNewer(
   return a.seq > b.seq;
 }
 
-/** isin 별 최신 행 1건씩(①). 순서는 처음 본 isin 순. */
+/** 같은 재기동의 복원 행(queue_case 3)으로 묶는 창 — 마지막 복원 행 기준(⑤). */
+export const RESTORE_BATCH_WINDOW_MS = 120_000;
+
+/**
+ * ⑤ 복원 묶음 = 그 서버의 전체 목록 — 게이트웨이별 **가장 최근 복원 묶음**(queue_case 3 · `RESTORE_BATCH_WINDOW_MS` 창)의
+ * 시작 시각. 서버가 재기동하며 내는 복원 행 묶음은 그 서버가 지금 들고 있는 포지션 전체이므로, 그보다 오래된 행의 종목은
+ * 그 서버가 더는 들고 있지 않다(2026-10-18 이월 파일 교체로 종료 행 없이 사라진 46종목). 복원 행이 없는 게이트웨이는 키가 없다.
+ * ★ 같은 규칙을 REST RPC(`dma_accum_signals_for_user_json` · 20261018233000)가 SQL 로 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
+ */
+export function restoreCutByGateway(
+  rows: readonly Pick<StrategyEventRow, 'gateway' | 'gwTimeMs' | 'queueCase'>[],
+): Map<string, number> {
+  const last = new Map<string, number>();
+  for (const r of rows) {
+    if (r.queueCase !== 3) continue;
+    const cur = last.get(r.gateway);
+    if (cur === undefined || r.gwTimeMs > cur) last.set(r.gateway, r.gwTimeMs);
+  }
+  const cut = new Map<string, number>();
+  for (const r of rows) {
+    if (r.queueCase !== 3) continue;
+    if (r.gwTimeMs < (last.get(r.gateway) as number) - RESTORE_BATCH_WINDOW_MS) continue;
+    const cur = cut.get(r.gateway);
+    if (cur === undefined || r.gwTimeMs < cur) cut.set(r.gateway, r.gwTimeMs);
+  }
+  return cut;
+}
+
+/** isin 별 최신 행 1건씩(①) — 복원 묶음보다 오래된 행은 먼저 버린다(⑤). 순서는 처음 본 isin 순. */
 export function latestAccumByIsin(rows: readonly StrategyEventRow[]): StrategyEventRow[] {
+  const cut = restoreCutByGateway(rows);
   const byIsin = new Map<string, StrategyEventRow>();
   for (const r of rows) {
+    const c = cut.get(r.gateway);
+    if (c !== undefined && r.gwTimeMs < c) continue;
     const cur = byIsin.get(r.isin);
     if (cur === undefined || isNewer(r, cur)) byIsin.set(r.isin, r);
   }

@@ -120,6 +120,22 @@ INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO119
   pg_temp.sev(3, 16, 0, '', '', '10:20:00.000', pg_temp.ac('KR7035720002'))                    -- C KYOBO 만
 ));
 
+-- KST 오늘 − 2일: 복원 묶음 시나리오(20261018233000 ⑤ — 2026-10-18 밤 재현). 같은 epoch · seq 는 이어서.
+--   KB120: 21:32 복원 B · A(qc 3) → 21:33 B 첫 스냅샷(qc 2) → 23:16 복원 A · C(qc 3 · 40초 간격 = 같은 묶음) → 23:17 C 첫 스냅샷(qc 2).
+--   KYOBO119: 21:32 복원 B(qc 3) → 23:16 복원 A(qc 3). → B 는 두 서버 모두 23:16 묶음에 없다 = 사라진 종목.
+INSERT INTO t_setup SELECT 'strategy_kb_restore', public.dma_strategy_apply('KB120', 'ep-ac', jsonb_build_array(
+  pg_temp.sev(21, 16, 0, '', '', '21:32:00.000', pg_temp.ac('KR7000660001') || '{"queue_case":3}', pg_temp.kd(2)),
+  pg_temp.sev(22, 16, 0, '', '', '21:32:00.500', pg_temp.ac('KR7005930003') || '{"queue_case":3}', pg_temp.kd(2)),
+  pg_temp.sev(23, 16, 0, '', '', '21:33:00.000', pg_temp.ac('KR7000660001') || '{"queue_case":2}', pg_temp.kd(2)),
+  pg_temp.sev(24, 16, 0, '', '', '23:16:00.000', pg_temp.ac('KR7005930003') || '{"queue_case":3}', pg_temp.kd(2)),
+  pg_temp.sev(25, 16, 0, '', '', '23:16:40.000', pg_temp.ac('KR7035720002') || '{"queue_case":3}', pg_temp.kd(2)),
+  pg_temp.sev(26, 16, 0, '', '', '23:17:00.000', pg_temp.ac('KR7035720002') || '{"queue_case":2}', pg_temp.kd(2))
+));
+INSERT INTO t_setup SELECT 'strategy_kyobo_restore', public.dma_strategy_apply('KYOBO119', 'ep-ack', jsonb_build_array(
+  pg_temp.sev(11, 16, 0, '', '', '21:32:00.000', pg_temp.ac('KR7000660001') || '{"queue_case":3}', pg_temp.kd(2)),
+  pg_temp.sev(12, 16, 0, '', '', '23:16:05.000', pg_temp.ac('KR7005930003') || '{"queue_case":3}', pg_temp.kd(2))
+));
+
 -- jsonb 배열 RPC 결과를 (ord, gateway, seq, kind, isin) 순서열로 펼친다.
 CREATE FUNCTION pg_temp.accum_rows(p_user uuid, p_date date)
 RETURNS TABLE (ord bigint, gateway text, seq int, kind int, isin text) LANGUAGE sql AS $$
@@ -127,7 +143,7 @@ RETURNS TABLE (ord bigint, gateway text, seq int, kind int, isin text) LANGUAGE 
     FROM jsonb_array_elements(public.dma_accum_signals_for_user_json(p_user, p_date)) WITH ORDINALITY AS x(e, ord)
 $$;
 
-SELECT plan(26);
+SELECT plan(28);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT is(
@@ -136,7 +152,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::int FROM public.dma_strategy_events WHERE kind = 16),
-  9, '(픽스처, KB120+KYOBO119, kind 16, 적재) 9행 — 오늘 KB 3 · KYOBO 3 · −31 · −30 · −1 각 1'
+  17, '(픽스처, KB120+KYOBO119, kind 16, 적재) 17행 — 오늘 KB 3 · KYOBO 3 · −31 · −30 · −1 각 1 · −2일 복원 묶음 KB 6 · KYOBO 2'
 );
 
 -- ── 1. SETOF 가시성 (시세 kind 16) ─────────────────────────────
@@ -220,6 +236,18 @@ SELECT results_eq(
   '(U1, KB120, kind 16, KST 오늘 − 1일) 그날 행만 — 오늘 행이 섞이지 않는다'
 );
 
+-- ── 3b. 복원 묶음 = 그 서버의 전체 목록 (20261018233000 ⑤) ──────────
+SELECT results_eq(
+  $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(2)::date) ORDER BY ord$$,
+  $$VALUES ('KB120', 24, 'KR7005930003'), ('KB120', 26, 'KR7035720002')$$,
+  '(U1, KB120+KYOBO119, kind 16, −2일 복원 묶음) 23:16 묶음 전 행만 있는 B 는 빠진다 · A = 같은 분 quote-primary KB120 복원 행 · C = 같은 묶음(40초 뒤) 뒤 첫 스냅샷'
+);
+SELECT results_eq(
+  $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002912', pg_temp.kd(2)::date) ORDER BY ord$$,
+  $$VALUES ('KB120', 24, 'KR7005930003'), ('KB120', 26, 'KR7035720002')$$,
+  '(U2, KB120 만, kind 16, −2일 복원 묶음) 자르기는 게이트웨이별 — KB120 만 봐도 B 는 빠지고 A · C 만'
+);
+
 -- ── 4. purge — kind 15 · 16 함께 30일 ───────────────────────────
 SELECT is(
   public.dma_strategy_events_purge_limit_feature(30),
@@ -227,7 +255,7 @@ SELECT is(
 );
 SELECT results_eq(
   $$SELECT gateway, seq::int, trade_date FROM public.dma_strategy_events
-     WHERE kind = 16 AND trade_date <> pg_temp.kd(0)::date ORDER BY gateway, seq$$,
+     WHERE kind = 16 AND trade_date NOT IN (pg_temp.kd(0)::date, pg_temp.kd(2)::date) ORDER BY gateway, seq$$,
   $$VALUES ('KB120', 15, pg_temp.kd(30)::date), ('KB120', 16, pg_temp.kd(1)::date)$$,
   '(—, KB120, kind 16, −30 경계 · −1) 남는다 — −31 seq 11 만 사라졌다'
 );
