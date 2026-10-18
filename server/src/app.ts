@@ -21,6 +21,7 @@ import { ordersRouter } from "./routes/orders.js";
 import { strategyEventsRouter } from "./routes/strategy-events.js";
 import { limitupRouter } from "./routes/limitup-report.js";
 import { teamflowRouter } from "./routes/teamflow-report.js";
+import { accumSignalsRouter } from "./routes/accum-signals.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
 
@@ -109,6 +110,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/limitup", limitupRouter);
   // Phase 33 D-05 — 팀 매집 보고서 조회 전용 · 게이트는 RPC 안(dma_visible_accounts · 왕복 1회). 적재는 workers/limitup-sync.
   app.use("/api/teamflow", teamflowRouter);
+  // quick-261018-rfy — kind 16 매집감지 조회 전용(작업대 「매집」 패널 복원 · isin 별 최신 1행). 적재는 relay 관찰자 기록기.
+  app.use("/api/accum-signals", accumSignalsRouter);
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
   // 걸므로 순서가 반대면 /servers 요청이 역할 조회를 두 번 한다(Cloud Run → Supabase 왕복 +1).

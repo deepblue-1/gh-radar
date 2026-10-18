@@ -9,7 +9,7 @@
  *   추가 포함)도 숫자 그대로 싣고, 표시명은 `strategy-event-labels.ts` 가 모르면 원문 숫자로 그린다(D-10).
  * - T-19-08 · T-25-02: 주문자(`dma_user_id`)는 **싣지 않는다** — 적재 입력에만 있고 적용 RPC 반환 rows ·
  *   `journal.events` 프레임 · 조회 RPC 어디에도 없다.
- * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2·10·15)는 자격증명이 있는
+ * - 가시성: 주문 이벤트(kind 3~8)는 그 계좌 권한 사용자에게만, 시세 이벤트(kind 1·2·10·15·16)는 자격증명이 있는
  *   사용자 전원에게 간다. 판정은 **kind 로만** 한다(`isMarketStrategyEvent`) — 빈 계좌번호로 판정하면 형식
  *   이상 주문 이벤트가 전 사용자에게 샌다(RESEARCH Security).
  *
@@ -54,6 +54,22 @@ export const STRATEGY_EVENT_KIND = {
    * 문장 조립은 28-09(이 키는 라벨 · 시세 집합만).
    */
   LimitFeature: 15,
+  /**
+   * 매집감지 — gh-trade Phase 34(인박스 261018-accum-signal) · **시세 이벤트**(계좌 없음 · account_no '' · dma_user_id '' ·
+   * order_no '' · exchange "KRX") · 82/81 에는 없다(88 실시간 + 이 저널로만). 등록 종목(매집중 · 매도중)만 ·
+   * 키(isin)당 분당 ≤1행 · 지문이 바뀐 분만. 행 = 그 시점 **누적 상태 전체**(델타 아님) — 어떤 분에 행이 없으면
+   * 직전 행과 누적이 같다(키별 마지막 행을 이어 쓴다). 세 서버(KB120 · KB121 · KYOBO119)가 각자 넣는다(값 차이는
+   * our_excluded_qty 뿐). 행 종류 queueCase 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료.
+   * 칸 재해석(인박스 43칸 매핑 표 — 이름 풀기는 `accumSignalOf`):
+   * price=last_px · qty=state(1 매집중 · 2 매도중 · 3 종료) · condThreshold=net_krw · condActual=rate_bp ·
+   * evPrice=avg_px · evQtyBefore=buy_qty · evQtyAfter=sell_qty · evTradeQty=net_qty · limitBidQty=buy_krw ·
+   * bid1Price=reg_px · bid1Qty=sell_krw · immediateFillQty=our_excluded_qty · queueCase=row · baseCum=mcap_krw ·
+   * aheadQty=max_same · expectedCum=cycle · cancelReason=end_reason(0 · 1 청산 · 2 이월 탈락 · 3 이월 만료) ·
+   * resultCode=sell_phases · entryRound=carry_days · snapQty=[lo_px, hi_px] · snapCum=[th_net_krw, th_min_same] ·
+   * askQtyAtLimit=peak_net_krw · cumVolume=KRX 누적 거래량.
+   * message=`since=YYYYMMDD|reg=HHMMSS|st=…|end=…|cyc=…|carry=…|row=…|our=…|th=<net>/<same>/<mcap>`.
+   */
+  AccumSignal: 16,
 } as const;
 
 /**
@@ -76,12 +92,12 @@ export const ORDER_GROUP = {
 } as const;
 
 /**
- * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가 · 상한가 특징)인가. 이 이벤트는 계좌가 없어 `account_no` 가
+ * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가 · 상한가 특징 · 매집감지)인가. 이 이벤트는 계좌가 없어 `account_no` 가
  * 빈 문자열이지만, 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
  * 예약 kind 9 는 시세가 아니다(계좌가 비면 아무에게도 안 보인다).
  *
- * ★ 같은 집합 {1, 2, 10, 15} 을 조회 RPC `dma_strategy_events_for_user`
- *   (supabase/migrations/20261006090000_dma_strategy_events_limit_feature.sql)가 SQL 로 쓴다 — 하나만 바뀌면
+ * ★ 같은 집합 {1, 2, 10, 15, 16} 을 조회 RPC `dma_strategy_events_for_user`
+ *   (supabase/migrations/20261018120000_dma_strategy_events_accum_signal.sql)가 SQL 로 쓴다 — 하나만 바뀌면
  *   wss 푸시(relay `WsFanout` 이 이 함수를 import)와 REST 백필이 갈린다.
  */
 export function isMarketStrategyEvent(kind: number): boolean {
@@ -89,7 +105,8 @@ export function isMarketStrategyEvent(kind: number): boolean {
     kind === STRATEGY_EVENT_KIND.LimitExposed ||
     kind === STRATEGY_EVENT_KIND.LimitEntered ||
     kind === STRATEGY_EVENT_KIND.BurstLimit ||
-    kind === STRATEGY_EVENT_KIND.LimitFeature
+    kind === STRATEGY_EVENT_KIND.LimitFeature ||
+    kind === STRATEGY_EVENT_KIND.AccumSignal
   );
 }
 

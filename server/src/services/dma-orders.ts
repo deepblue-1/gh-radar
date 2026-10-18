@@ -127,6 +127,30 @@ export async function listStrategyEvents(
 }
 
 /**
+ * quick-261018-rfy D-03 — 그날 kind 16 매집감지 isin 별 최신 1행(작업대 「매집」 패널 복원). RPC 1회
+ * (`dma_accum_signals_for_user_json` — jsonb 배열 · max_rows 무관). 1행 고르기(다른 분 = 최신 분 · 같은 분 =
+ * quote-primary 게이트웨이 우선 · 그 서버 행이 없으면 다른 서버 행)와 가시성(시세 kind 게이트웨이 공개)은 RPC 가
+ * 정본이다 — 여기서는 순서(isin 오름차순)를 유지하고 매핑만 한다. 기본값은 KST 오늘.
+ */
+export async function listAccumSignals(
+  supabase: SupabaseClient,
+  userId: string,
+  date?: string,
+): Promise<StrategyEventRow[]> {
+  const tradeDate = resolveTradeDate(date);
+  const { data, error } = await supabase.rpc("dma_accum_signals_for_user_json", {
+    p_user_id: userId,
+    p_trade_date: tradeDate,
+  });
+  if (error) throw DbError("매집 신호 조회에 실패했습니다.", { code: error.code, message: error.message });
+  // RPC 는 늘 배열을 준다(coalesce '[]'). 배열이 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
+  if (!Array.isArray(data)) {
+    throw DbError("매집 신호 조회에 실패했습니다.", { reason: "dma_accum_signals_for_user_json 모양 위반", type: typeof data });
+  }
+  return (data as StrategyEventDbRow[]).map(toStrategyEventRow);
+}
+
+/**
  * `YYYY-MM-DD`(KST) 검증 → 그대로 거래일. 형식은 zod 가 이미 봤지만 `2026-13-45` 같은
  * **형식은 맞고 날짜가 아닌 값**은 여기서만 걸린다(그대로 RPC 로 넘기면 Postgres 가 `date` 캐스트를
  * 거부해 400 이어야 할 요청이 500 이 된다). `2026-02-30` 처럼 JS `Date` 가 조용히 3월로 넘기는 값도

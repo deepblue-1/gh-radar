@@ -34,6 +34,8 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   13: "상태",
   // 15 — 상한가 특징(gh-trade Phase 27 · 시세 이벤트). 붙여 쓴다 — 주문로그 구분 칩(D-07). 문장 조립은 28-09.
   15: "상한가특징",
+  // 16 — 매집감지(gh-trade Phase 34 · 시세 이벤트). 주문로그에는 오지 않는다(작업대 「매집」 패널 전용 · quick-261018-rfy).
+  16: "매집감지",
 };
 
 /** `OrderGroup` 표시명 — 로그 줄의 「구분」 칸. 0(None)은 표에 없다. */

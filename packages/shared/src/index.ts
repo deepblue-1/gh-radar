@@ -141,6 +141,8 @@ export { toJournalOrderRow, JOURNAL_ORDER_PUBLIC_COLUMNS } from "./journal";
 export * from "./strategy-event";
 export * from "./strategy-event-labels";
 export * from "./strategy-event-text";
+// --- quick-261018-rfy kind 16 매집감지 — 43칸 → 이름 풀기 · 상태/사유 문구 ---
+export * from "./accum-signal";
 // --- Phase 25 주문 1건 타임라인(오늘 주문 펼침) — REST 와 웹이 같은 매퍼 · 같은 비교 함수 ---
 export * from "./order-timeline";
 export type { Summary, SummaryType, Sentiment } from "./summary";
