@@ -57,6 +57,13 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
+// quick-261018-rfy — 「매집」 패널 복원 훅의 REST 조회 · 마스터 이름 폴백은 이 파일 밖 몫(빈 값 고정).
+vi.mock('@/lib/accum-signals-api', () => ({ fetchAccumSignals: vi.fn(async () => []) }));
+vi.mock('@/lib/stock-names', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/stock-names')>()),
+  useStockNames: () => new Map<string, string>(),
+}));
+
 vi.mock('@/lib/alert-tone', () => ({
   playBreakoutTone: vi.fn(() => false),
   isTonePlaybackBlocked: vi.fn(() => false),
@@ -165,6 +172,7 @@ vi.mock('@/components/trading/workbench/shared-panels', async (importOriginal) =
   return { ...actual, SharedPanels: SpySharedPanels };
 });
 
+import { kstDateIso } from '@gh-radar/shared';
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { indexUnfilled } from '@/lib/trading-alerts';
 import { requestTradingAccount, requestTradingFocus } from '@/lib/trading-focus';
@@ -332,6 +340,7 @@ describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
       slot('vi-trigger-table'),
       slot('breakout-strip'),
       slot('breakout-table'),
+      slot('accum-strip'),
       slot('stock-add-bar'),
       slot('card-grid-empty'),
       screen.getByTestId('shared-panels'),
@@ -388,6 +397,31 @@ describe('TradingWorkbench — 카드 추가 (D-07 · D-08)', () => {
     expect(cards[0].getAttribute('data-key')).toBe(`KR7096530001:${ACCOUNT}:KRX`);
     expect(cards[0].getAttribute('data-open')).toBe('true');
     expect(propsOf('KR7096530001')?.name).toBe('씨젠');
+    expect(propsOf('KR7096530001')?.code).toBe('096530');
+  });
+
+  it('매집 칩 클릭 → 돌파와 같은 콜백으로 카드 1장 · KRX · 펼침 (quick-261018-rfy D-01)', async () => {
+    const exposedLike = {
+      gateway: 'KB120', journalEpoch: 'ep-34', seq: 1, tradeDate: kstDateIso(), gwTimeMs: Date.now(),
+      kind: 16, group: 0, exchange: 'KRX', isin: 'KR7096530001', stockCode: '096530', cumVolume: 0,
+      accountNo: '', orderNo: '', price: 12_100, qty: 1, orderCondition: '', reasonCode: '',
+      condThreshold: 1_230_000_000, condActual: 512, condMetric: 0, evKind: 0, evPrice: 11_900,
+      evQtyBefore: 0, evQtyAfter: 0, evTradeQty: 0, limitBidQty: 0, bid1Price: 0, bid1Qty: 0,
+      acceptLatencyUs: 0, immediateFillQty: 0, queueCase: 1, baseCum: 0, aheadQty: 0, expectedCum: 1,
+      errorVolume: 0, remainingVolume: 0, hasRemaining: false, cancelReason: 0, resultCode: 0,
+      message: '', entryRound: 0, snapQty: [11_800, 12_200], snapCum: [100_000_000, 30],
+      askQtyAtLimit: 0, openAtLimit: false,
+    };
+    mockRelay = relay({ accumSignalEvents: [exposedLike] });
+    render(<TradingWorkbench />);
+    // 매집 패널은 돌파 패널 바로 아래다.
+    expect(slot('breakout')!.nextElementSibling).toBe(slot('accum'));
+    await waitFor(() => expect(slot('accum-chip')).not.toBeNull());
+    fireEvent.click(slot('accum-chip')!);
+    const cards = cardsInDom();
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute('data-key')).toBe(`KR7096530001:${ACCOUNT}:KRX`);
+    expect(cards[0].getAttribute('data-open')).toBe('true');
     expect(propsOf('KR7096530001')?.code).toBe('096530');
   });
 

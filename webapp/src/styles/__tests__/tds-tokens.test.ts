@@ -54,6 +54,10 @@ const LIGHT_EXPECTED: Record<string, string> = {
   'down-bg': '#e8f3ff',
   team: '#a234c7',
   'team-bg': '#f9f0fc',
+  'accum-sell': '#c2410c',
+  'accum-sell-bg': '#fff4e6',
+  'accum-carry': '#a16207',
+  'accum-carry-bg': '#fef9e7',
   'seg-on-bg': '#ffffff',
   'pill-on-bg': '#e8f3ff',
   'pill-on-fg': '#1b64da',
@@ -87,6 +91,10 @@ const DARK_EXPECTED: Record<string, string> = {
   down: '#3485fa',
   team: '#c353e5',
   'team-bg': 'rgba(174, 61, 209, 0.16)',
+  'accum-sell': '#ff9f43',
+  'accum-sell-bg': 'rgba(255, 159, 67, 0.16)',
+  'accum-carry': '#ffd43b',
+  'accum-carry-bg': 'rgba(255, 212, 59, 0.16)',
   'seg-on-bg': '#4e4e4e',
   'pill-on-bg': '#4e4e4e',
   'pill-on-fg': '#ffffff',
@@ -110,6 +118,7 @@ const THEME_COLOR_TOKENS = [
   'ask-bar', 'bid-bar', 'side-bg', 'led-latent', 'led-armed', 'new-bg', 'new-bd',
   'nav-on-bg', 'nav-on-fg', 'nav-on-line', 'spec-dot-bg', 'spec-dot-ring',
   'group-bg', 'switch-off', 'dim', 'team', 'team-bg',
+  'accum-sell', 'accum-sell-bg', 'accum-carry', 'accum-carry-bg',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {

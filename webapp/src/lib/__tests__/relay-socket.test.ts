@@ -53,6 +53,7 @@ import type {
 import {
   MAX_JOURNAL_ROWS,
   MAX_LIMIT_FEATURE_EVENTS,
+  MAX_ACCUM_SIGNAL_EVENTS,
   MAX_STRATEGY_EVENTS,
   RELAY_MARKET_BATCH_MS,
   RELAY_MARKET_BUFFER_MAX,
@@ -3518,6 +3519,93 @@ describe('journal.events kind 15 별도 스토어 (Phase 28 D-18 · Pitfall 3)',
     });
     expect(hook.result.current.limitFeatureEvents).toEqual([]);
     expect(hook.result.current.limitFeatureEventsBatch).toEqual({ seq: 0, rows: [] });
+  });
+});
+
+describe('journal.events kind 16 별도 스토어 (quick-261018-rfy D-02)', () => {
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!;
+  const exposed = STRATEGY_DAY_BY_NAME.exposed!;
+  const lf43 = STRATEGY_LIMIT_FEATURE_BY_NAME.lfLocked43!;
+  // kind 16 행 — fixture exposed 를 펼쳐 kind · seq · isin · qty(state) 만 바꾼다(계좌 없음은 exposed 그대로).
+  const acA = { ...exposed, kind: 16, seq: 9_001, isin: 'KR7000020008', qty: 1 };
+  const acB = { ...exposed, kind: 16, seq: 9_002, isin: 'KR7000040006', qty: 2 };
+
+  it('kind 16 두 행 + 주문 한 행 + kind 15 한 행 → 세 목록으로 갈리고 각 batch seq 1', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.accumSignalEvents).toEqual([]);
+    expect(hook.result.current.accumSignalEventsBatch).toEqual({ seq: 0, rows: [] });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [acA, buy, lf43, acB] });
+    });
+    expect(hook.result.current.strategyEvents).toEqual([buy]);
+    expect(hook.result.current.strategyEventsBatch).toEqual({ seq: 1, rows: [buy] });
+    expect(hook.result.current.limitFeatureEvents).toEqual([lf43]);
+    expect(hook.result.current.limitFeatureEventsBatch).toEqual({ seq: 1, rows: [lf43] });
+    expect(hook.result.current.accumSignalEvents.map((r) => r.seq)).toEqual([9_001, 9_002]);
+    expect(hook.result.current.accumSignalEventsBatch.seq).toBe(1);
+    expect(hook.result.current.accumSignalEventsBatch.rows.map((r) => r.seq)).toEqual([9_001, 9_002]);
+    expect(hook.result.current.strategyEvents.some((r) => r.kind === 16)).toBe(false);
+    expect(hook.result.current.limitFeatureEvents.some((r) => r.kind === 16)).toBe(false);
+  });
+
+  it('kind 16 만 온 프레임은 strategyEvents · limitFeatureEvents 와 그 batch 참조를 바꾸지 않는다 · 같은 키 재전송은 state 불변', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [buy, lf43] });
+    });
+    const events = hook.result.current.strategyEvents;
+    const batch = hook.result.current.strategyEventsBatch;
+    const lfEvents = hook.result.current.limitFeatureEvents;
+    const lfBatch = hook.result.current.limitFeatureEventsBatch;
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [acA] });
+    });
+    expect(hook.result.current.strategyEvents).toBe(events);
+    expect(hook.result.current.strategyEventsBatch).toBe(batch);
+    expect(hook.result.current.limitFeatureEvents).toBe(lfEvents);
+    expect(hook.result.current.limitFeatureEventsBatch).toBe(lfBatch);
+    const acEvents = hook.result.current.accumSignalEvents;
+    const acBatch = hook.result.current.accumSignalEventsBatch;
+    expect(acEvents).toHaveLength(1);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [acA] });
+    });
+    expect(hook.result.current.accumSignalEvents).toBe(acEvents);
+    expect(hook.result.current.accumSignalEventsBatch).toBe(acBatch);
+  });
+
+  it(`accumSignalEvents 상한 ${MAX_ACCUM_SIGNAL_EVENTS} — 넘으면 오래된 것부터 버린다`, async () => {
+    expect(MAX_ACCUM_SIGNAL_EVENTS).toBe(2000);
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const base = kstMs('2026-09-29', '09:00:00.000');
+    const many = Array.from({ length: MAX_ACCUM_SIGNAL_EVENTS }, (_, i) => ({ ...acA, seq: i + 10, gwTimeMs: base + i }));
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: many });
+    });
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [{ ...acA, seq: 1_000_000, gwTimeMs: base + MAX_ACCUM_SIGNAL_EVENTS }] });
+    });
+    const rows = hook.result.current.accumSignalEvents;
+    expect(rows).toHaveLength(MAX_ACCUM_SIGNAL_EVENTS);
+    expect(rows[0]?.seq).toBe(11);
+    expect(rows[rows.length - 1]?.seq).toBe(1_000_000);
+  });
+
+  it('로그아웃(reset) 뒤 accumSignalEvents · batch 도 비워진다', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.events', rows: [acA] });
+    });
+    expect(hook.result.current.accumSignalEvents).toHaveLength(1);
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.accumSignalEvents).toEqual([]);
+    expect(hook.result.current.accumSignalEventsBatch).toEqual({ seq: 0, rows: [] });
   });
 });
 
