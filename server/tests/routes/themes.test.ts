@@ -331,3 +331,140 @@ describe("GET /api/themes/:id (테마 상세 — 메타 + 통계 + 소속 종목
     expect(quoteCalls.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ------------------------------------------------------------------
+// GET /api/themes/by-stock — inbox 261019-theme-by-stock (gh-trade 매집감지창·돌파감지창 「테마」 열)
+// 규칙(사용자 2026-10-19): ① 오늘 최신 「오늘의 급등 테마」 → ② 최근 거래일 급등 테마 → ③ 시스템 테마 최신.
+// ①② 는 RPC home_theme_by_stock(거래일 내림차순 · 거래일별 최신 스냅샷) 결과 그대로 — SQL 의미는 pgTAP 이 본다.
+// ------------------------------------------------------------------
+describe("GET /api/themes/by-stock", () => {
+  const HIDDEN_T = "e5555555-5555-4555-8555-555555555555";
+  const TODAY = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }); // YYYY-MM-DD (KST)
+  const tsAt = (themeId: string, code: string, from: string, effectiveTo: string | null = null): ThemeStockRow => ({
+    ...ts(themeId, code, effectiveTo),
+    effective_from: from,
+  });
+  const hit = (code: string, trade_date: string, theme_name: string, captured_at = `${trade_date}T06:30:00Z`) => ({
+    code,
+    trade_date,
+    captured_at,
+    theme_name,
+  });
+  const byStockState = (rpcRows: unknown[] = []) => ({
+    themes: [
+      theme(SYS_A, "HBM", true),
+      theme(SYS_B, "2차전지", true),
+      theme(C_NONE, "로봇", true),
+      theme(USER_T, "내 관심테마", false),
+      theme(HIDDEN_T, "삭제된 테마", true, true),
+    ],
+    themeStocks: [
+      tsAt(SYS_B, "005930", "2026-10-01T07:00:00Z"),
+      tsAt(SYS_A, "005930", "2026-10-15T07:00:00Z"), // 가장 최근 → themes[0]
+      tsAt(C_NONE, "005930", "2026-09-01T07:00:00Z"),
+      tsAt(HIDDEN_T, "005930", "2026-10-18T07:00:00Z"), // hidden → 제외
+      tsAt(USER_T, "005930", "2026-10-19T07:00:00Z"), // 유저 테마 → 제외
+      tsAt(SYS_A, "000660", "2026-10-10T07:00:00Z", "2026-10-12T07:00:00Z"), // 제외된 이력 → 무시
+      tsAt(SYS_B, "000660", "2026-10-11T07:00:00Z"),
+    ],
+    rpc: { home_theme_by_stock: { data: rpcRows } },
+  });
+  const sys = (id: string, name: string, effectiveFrom: string) => ({
+    kind: "system",
+    name,
+    id,
+    tradeDate: null,
+    capturedAt: null,
+    effectiveFrom,
+    source: "naver",
+  });
+
+  it("③ 급등 테마 없음 → 시스템 테마 active 행을 편입일 desc 최대 3 · 입력 순서 · 테마 없는 코드 생략 · 중복 코드 1회", async () => {
+    const res = await request(app(byStockState())).get("/api/themes/by-stock?codes=000660,005930,035720,005930");
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("public, max-age=60");
+    expect(res.body).toEqual([
+      { code: "000660", themes: [sys(SYS_B, "2차전지", "2026-10-11T07:00:00Z")] },
+      {
+        code: "005930",
+        themes: [
+          sys(SYS_A, "HBM", "2026-10-15T07:00:00Z"),
+          sys(SYS_B, "2차전지", "2026-10-01T07:00:00Z"),
+          sys(C_NONE, "로봇", "2026-09-01T07:00:00Z"),
+        ],
+      },
+    ]);
+  });
+
+  it("① 오늘 스냅샷 테마가 있으면 kind today 로 그것만(시스템 테마는 안 섞음) · ② 다른 코드는 최근 거래일 recent · ③ 나머지 system", async () => {
+    const rows = [
+      hit("005930", TODAY, "AI 반도체"),
+      hit("005930", TODAY, "HBM 장비"),
+      hit("005930", "2026-10-15", "옛 테마"), // 더 옛 거래일 → 무시
+      hit("035720", "2026-10-15", "바이오"),
+      hit("035720", "2026-10-15", "비만치료제"),
+    ];
+    const res = await request(app(byStockState(rows))).get("/api/themes/by-stock?codes=005930,035720,000660");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      {
+        code: "005930",
+        themes: [
+          { kind: "today", name: "AI 반도체", id: null, tradeDate: TODAY, capturedAt: `${TODAY}T06:30:00Z`, effectiveFrom: null, source: null },
+          { kind: "today", name: "HBM 장비", id: null, tradeDate: TODAY, capturedAt: `${TODAY}T06:30:00Z`, effectiveFrom: null, source: null },
+        ],
+      },
+      {
+        code: "035720",
+        themes: [
+          { kind: "recent", name: "바이오", id: null, tradeDate: "2026-10-15", capturedAt: "2026-10-15T06:30:00Z", effectiveFrom: null, source: null },
+          { kind: "recent", name: "비만치료제", id: null, tradeDate: "2026-10-15", capturedAt: "2026-10-15T06:30:00Z", effectiveFrom: null, source: null },
+        ],
+      },
+      { code: "000660", themes: [sys(SYS_B, "2차전지", "2026-10-11T07:00:00Z")] },
+    ]);
+  });
+
+  it("상한 3 — 같은 날 4번째 테마 · 시스템 4번째 테마는 잘린다", async () => {
+    const st = byStockState([
+      hit("035720", TODAY, "a"), hit("035720", TODAY, "b"), hit("035720", TODAY, "c"), hit("035720", TODAY, "d"),
+    ]);
+    st.themes.push(theme("f6666666-6666-4666-8666-666666666666", "넷째", true));
+    st.themeStocks.push(tsAt("f6666666-6666-4666-8666-666666666666", "005930", "2026-08-01T07:00:00Z"));
+    const res = await request(app(st)).get("/api/themes/by-stock?codes=035720,005930");
+    expect(res.status).toBe(200);
+    expect(res.body[0].themes.map((t: { name: string }) => t.name)).toEqual(["a", "b", "c"]);
+    expect(res.body[1].themes.map((t: { name: string }) => t.name)).toEqual(["HBM", "2차전지", "로봇"]);
+  });
+
+  it("60초 캐시 — 같은 코드 집합(순서 무관)은 RPC 1회 · 다른 집합은 새로", async () => {
+    const st = byStockState([hit("005930", TODAY, "AI 반도체")]);
+    const sb = mockSupabase(st);
+    const a = createApp({ supabase: sb });
+    await request(a).get("/api/themes/by-stock?codes=005930,000660");
+    await request(a).get("/api/themes/by-stock?codes=000660,005930");
+    expect((sb.rpc as any).mock.calls.filter((c: unknown[]) => c[0] === "home_theme_by_stock")).toHaveLength(1);
+    await request(a).get("/api/themes/by-stock?codes=005930");
+    expect((sb.rpc as any).mock.calls.filter((c: unknown[]) => c[0] === "home_theme_by_stock")).toHaveLength(2);
+  });
+
+  it("400 — codes 없음 · 비6자리 · 빈 조각 · 101개", async () => {
+    const a = app(byStockState());
+    expect((await request(a).get("/api/themes/by-stock")).status).toBe(400);
+    expect((await request(a).get("/api/themes/by-stock?codes=5930")).status).toBe(400);
+    expect((await request(a).get("/api/themes/by-stock?codes=005930,,000660")).status).toBe(400);
+    const many = Array.from({ length: 101 }, (_, i) => String(100000 + i)).join(",");
+    expect((await request(a).get(`/api/themes/by-stock?codes=${many}`)).status).toBe(400);
+    const hundred = Array.from({ length: 100 }, (_, i) => String(100000 + i)).join(",");
+    expect((await request(a).get(`/api/themes/by-stock?codes=${hundred}`)).status).toBe(200);
+  });
+
+  it("매칭 없음 → 빈 배열(200) · RPC 오류 → 500", async () => {
+    const res = await request(app(byStockState())).get("/api/themes/by-stock?codes=035720");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    const bad = byStockState();
+    bad.rpc = { home_theme_by_stock: { error: { message: "boom" } } } as any;
+    expect((await request(app(bad)).get("/api/themes/by-stock?codes=035720")).status).toBe(500);
+  });
+});

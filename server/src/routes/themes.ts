@@ -1,7 +1,7 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ThemeWithStats, ThemeStockMember } from "@gh-radar/shared";
-import { ThemeDetailParams } from "../schemas/themes.js";
+import { kstDateIso, type ThemeWithStats, type ThemeStockMember } from "@gh-radar/shared";
+import { ThemeByStockQuery, ThemeDetailParams } from "../schemas/themes.js";
 import {
   systemThemeListRowToThemeWithStats,
   themeRowToThemeWithStats,
@@ -128,6 +128,198 @@ async function computeSystemThemeList(
 
   return result;
 }
+
+/**
+ * `GET /api/themes/by-stock` 응답 원소(inbox 261019-theme-by-stock). 클라(gh-trade WinForms)가 `themes[0].name` 을 「테마」 열에 쓴다.
+ * `kind`: `today` = 오늘 최신 「오늘의 급등 테마」 스냅샷 · `recent` = 최근 거래일의 급등 테마(그날 마지막 스냅샷) ·
+ * `system` = 시스템 테마(theme_stocks · 편입일 최신). 한 코드의 themes 는 한 kind 로만 채운다(사용자 규칙 2026-10-19).
+ */
+export type ThemeByStockEntry = {
+  code: string;
+  themes: {
+    kind: "today" | "recent" | "system";
+    name: string;
+    /** 시스템 테마 id — today · recent 는 null(AI 클러스터는 id 가 없다). */
+    id: string | null;
+    /** today · recent — 그 스냅샷의 거래일(YYYY-MM-DD) · 시각(ISO). system 은 null. */
+    tradeDate: string | null;
+    capturedAt: string | null;
+    /** system — 편입 시각(ISO) · source. today · recent 는 null. */
+    effectiveFrom: string | null;
+    source: string | null;
+  }[];
+};
+
+/** 코드별 테마 상한 — 인박스 계약 「최대 3」. */
+export const THEME_BY_STOCK_TOP = 3;
+/** 급등 테마 역조회 창(KST 달력일) — ② 「최근 날짜의 급등 테마」 를 거슬러 보는 범위. */
+export const THEME_BY_STOCK_DAYS = 30;
+/** by-stock 응답 캐시 TTL — 「오늘의 급등 테마」 가 1분마다 바뀌므로 60초(클라 폴링 1분). */
+export const BY_STOCK_CACHE_TTL_MS = 60_000;
+
+/** `home_theme_by_stock` RPC 행 — 거래일 내림차순 · 거래일별 최신 스냅샷의 (code, 테마) 쌍. */
+type HomeThemeHitRow = { code: string; trade_date: string; captured_at: string; theme_name: string };
+
+/** 코드 집합(정렬 · 결합 문자열) → 응답 캐시(진행 중 promise 포함). 클라이언트별이라 테스트 목이 섞이지 않는다. */
+const byStockCache = new WeakMap<SupabaseClient, Map<string, { at: number; promise: Promise<ThemeByStockEntry[]> }>>();
+
+/**
+ * 여러 종목의 active(effective_to IS NULL) theme_stocks 행 — ROW_PAGE 페이지네이션 전수 수집(db-max-rows 절단 방지 ·
+ * `fetchActiveThemeStocksForOne` 과 같은 규율). 정렬은 DB 가 effective_from desc 로 준다.
+ */
+async function fetchActiveThemeStocksForCodes(
+  supabase: SupabaseClient,
+  codes: readonly string[],
+): Promise<ThemeStockRow[]> {
+  const out: ThemeStockRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("theme_stocks")
+      .select(THEME_STOCK_COLS)
+      .in("stock_code", codes as string[])
+      .is("effective_to", null)
+      .order("effective_from", { ascending: false })
+      .range(from, from + ROW_PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as ThemeStockRow[];
+    if (rows.length === 0) break;
+    out.push(...rows);
+    from += rows.length;
+    if (rows.length < ROW_PAGE) break;
+  }
+  return out;
+}
+
+/** ③ 시스템 테마 폴백 — 코드별 active 행을 편입일 최신순 최대 THEME_BY_STOCK_TOP. 유저 테마 · hidden 제외. */
+async function systemThemesByCode(
+  supabase: SupabaseClient,
+  codes: readonly string[],
+): Promise<Map<string, ThemeByStockEntry["themes"]>> {
+  const byCode = new Map<string, ThemeByStockEntry["themes"]>();
+  if (codes.length === 0) return byCode;
+  const memberRows = await fetchActiveThemeStocksForCodes(supabase, codes);
+  const themeIds = [...new Set(memberRows.map((r) => r.theme_id))];
+  const nameById = new Map<string, string>();
+  if (themeIds.length > 0) {
+    const { data, error } = await supabase
+      .from("themes")
+      .select("id,name")
+      .in("id", themeIds)
+      .eq("is_system", true)
+      .eq("hidden", false);
+    if (error) throw error;
+    for (const t of (data ?? []) as { id: string; name: string }[]) nameById.set(t.id, t.name);
+  }
+  for (const r of memberRows) {
+    const name = nameById.get(r.theme_id);
+    if (name === undefined) continue; // 유저 테마 · hidden
+    const list = byCode.get(r.stock_code) ?? [];
+    if (list.length >= THEME_BY_STOCK_TOP) continue;
+    list.push({
+      kind: "system",
+      name,
+      id: r.theme_id,
+      tradeDate: null,
+      capturedAt: null,
+      effectiveFrom: r.effective_from,
+      source: r.source,
+    });
+    byCode.set(r.stock_code, list);
+  }
+  // DB 정렬(effective_from desc)을 믿되, 페이지 경계에서 섞였을 때를 대비해 코드 안에서 한 번 더 정렬한다.
+  for (const list of byCode.values()) {
+    list.sort((a, b) => ((a.effectiveFrom ?? "") < (b.effectiveFrom ?? "") ? 1 : (a.effectiveFrom ?? "") > (b.effectiveFrom ?? "") ? -1 : 0));
+  }
+  return byCode;
+}
+
+/**
+ * 종목별 테마 판정(사용자 규칙 2026-10-19) — ① 오늘 최신 「오늘의 급등 테마」 스냅샷 → ② 최근 거래일(창 THEME_BY_STOCK_DAYS)의
+ * 급등 테마(그날 마지막 스냅샷) → ③ 시스템 테마 최신. ①② 는 RPC `home_theme_by_stock` 1회(거래일 내림차순 · 거래일별 최신
+ * 스냅샷), ③ 은 ①② 에 없는 코드만 theme_stocks 로 보충. 응답은 입력 코드 순서 · 테마 없는 코드 생략.
+ */
+async function computeThemesByStock(supabase: SupabaseClient, codes: readonly string[]): Promise<ThemeByStockEntry[]> {
+  const { data, error } = await supabase.rpc("home_theme_by_stock", {
+    p_codes: codes as string[],
+    p_days: THEME_BY_STOCK_DAYS,
+  });
+  if (error) throw error;
+  if (!Array.isArray(data)) throw new Error("home_theme_by_stock 모양 위반 — 배열이 아니다");
+  const today = kstDateIso();
+  // 코드별로 가장 최근 거래일 한 날의 테마만(RPC 가 거래일 내림차순이라 첫 거래일 = 가장 최근).
+  const surge = new Map<string, ThemeByStockEntry["themes"]>();
+  for (const r of data as HomeThemeHitRow[]) {
+    const list = surge.get(r.code);
+    if (list !== undefined && list[0]!.tradeDate !== r.trade_date) continue; // 더 옛 거래일
+    if (list !== undefined && list.length >= THEME_BY_STOCK_TOP) continue;
+    const entry = {
+      kind: (r.trade_date === today ? "today" : "recent") as "today" | "recent",
+      name: r.theme_name,
+      id: null,
+      tradeDate: r.trade_date,
+      capturedAt: r.captured_at,
+      effectiveFrom: null,
+      source: null,
+    };
+    if (list === undefined) surge.set(r.code, [entry]);
+    else list.push(entry);
+  }
+  const missing = codes.filter((c) => !surge.has(c));
+  const system = await systemThemesByCode(supabase, missing);
+  const out: ThemeByStockEntry[] = [];
+  for (const code of codes) {
+    const themes = surge.get(code) ?? system.get(code);
+    if (themes === undefined || themes.length === 0) continue;
+    out.push({ code, themes });
+  }
+  return out;
+}
+
+/** BY_STOCK_CACHE_TTL_MS 안이면 같은 코드 집합의 캐시(진행 중 promise 포함)를, 아니면 새로 계산. 실패는 캐시하지 않는다. */
+function getThemesByStock(supabase: SupabaseClient, codes: readonly string[]): Promise<ThemeByStockEntry[]> {
+  let perClient = byStockCache.get(supabase);
+  if (perClient === undefined) {
+    perClient = new Map();
+    byStockCache.set(supabase, perClient);
+  }
+  const key = [...codes].sort().join(",");
+  const hit = perClient.get(key);
+  if (hit && Date.now() - hit.at < BY_STOCK_CACHE_TTL_MS) return hit.promise;
+  // 오래된 항목 정리 — 코드 집합이 매번 달라도 맵이 자라지 않게.
+  for (const [k, v] of perClient) if (Date.now() - v.at >= BY_STOCK_CACHE_TTL_MS) perClient.delete(k);
+  const entry = { at: Date.now(), promise: computeThemesByStock(supabase, codes) };
+  perClient.set(key, entry);
+  entry.promise.catch(() => {
+    if (perClient!.get(key) === entry) perClient!.delete(key);
+  });
+  return entry.promise;
+}
+
+/**
+ * GET /api/themes/by-stock?codes=005930,000660,…  (inbox 261019-theme-by-stock · gh-trade 매집감지창·돌파감지창 「테마」 열)
+ *
+ * - 쿼리: 6자리 코드 쉼표 구분 · 최대 100 · 초과/형식 오류 400 (`ThemeByStockQuery`).
+ * - 응답: bare array `ThemeByStockEntry[]` — 입력 순서 · 코드별 `kind` 하나(today → recent → system)로 최대 3개 · 테마 없는 코드 생략.
+ * - 인증 없음(`/api/themes` 와 같음) · `Cache-Control: public, max-age=60`(「오늘의 급등 테마」 1분 갱신 · 클라 폴링 1분).
+ * - 왕복: RPC 1회 + (폴백 코드가 있을 때만) theme_stocks · themes 각 1회. 코드 집합별 60초 캐시.
+ *   ★ 라우트 순서: `/:id` 보다 앞에 둔다 — 뒤에 두면 "by-stock" 이 uuid 검증에 걸려 400 이 된다.
+ */
+themesRouter.get("/by-stock", async (req, res, next) => {
+  try {
+    const parsed = ThemeByStockQuery.safeParse(req.query);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new ApiError(400, "INVALID_QUERY_PARAM", `${issue.path.join(".")}: ${issue.message}`);
+    }
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const out = await getThemesByStock(supabase, parsed.data.codes);
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
 
 /**
  * GET /api/themes/:id
