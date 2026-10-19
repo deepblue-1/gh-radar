@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 233cb995
-// synced-date:        2026-10-18
+// server-repo-commit: 776320af
+// synced-date:        2026-10-19
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1650,6 +1650,9 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     th_min_same: uint;           // 서버 설정 — 등록 한 가격 최소 조각 수
     th_max_mcap_krw: ulong;      // 서버 설정 — 등록 시총 상한(원), 0 = 상한 없음
     buckets: [AccumBucket];      // 당일 10분 버킷 — 값 있는 칸만(최대 39), 이월분의 전날 버킷은 싣지 않는다
+    sell_warn: bool;             // 지금 매도 경보 중 — 매집중에서 warn_min_order_krw 이상 팀 매도가 매수 없이 warn_sell_streak 건 연속이면 켜진다(append, quick-261019-gwm)
+    sell_warns: uint;            // 이 사이클 매도 경보 횟수 — 청산·새 사이클에 0, 이월은 유지, 재기동 0(파일에 없다)
+    day_avg_px: uint;            // 오늘 팀 매수 평단 = 당일 매수 금액 ÷ 수량 반올림(우리 체결 제외 반영), 당일 매수 없으면 0 · 06:00·새 사이클·복원 직후 0(파일에 없다) (append, quick-261019-hni)
 }
 
 table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)

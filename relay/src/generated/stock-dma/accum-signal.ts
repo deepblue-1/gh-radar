@@ -183,8 +183,23 @@ bucketsLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+sellWarn():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 62);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
+sellWarns():number {
+  const offset = this.bb!.__offset(this.bb_pos, 64);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+dayAvgPx():number {
+  const offset = this.bb!.__offset(this.bb_pos, 66);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumSignal(builder:flatbuffers.Builder) {
-  builder.startObject(29);
+  builder.startObject(32);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -315,12 +330,24 @@ static startBucketsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addSellWarn(builder:flatbuffers.Builder, sellWarn:boolean) {
+  builder.addFieldInt8(29, +sellWarn, +false);
+}
+
+static addSellWarns(builder:flatbuffers.Builder, sellWarns:number) {
+  builder.addFieldInt32(30, sellWarns, 0);
+}
+
+static addDayAvgPx(builder:flatbuffers.Builder, dayAvgPx:number) {
+  builder.addFieldInt32(31, dayAvgPx, 0);
+}
+
 static endAccumSignal(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset, sellWarn:boolean, sellWarns:number, dayAvgPx:number):flatbuffers.Offset {
   AccumSignal.startAccumSignal(builder);
   AccumSignal.addIsin(builder, isinOffset);
   AccumSignal.addExchange(builder, exchangeOffset);
@@ -351,6 +378,9 @@ static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Off
   AccumSignal.addThMinSame(builder, thMinSame);
   AccumSignal.addThMaxMcapKrw(builder, thMaxMcapKrw);
   AccumSignal.addBuckets(builder, bucketsOffset);
+  AccumSignal.addSellWarn(builder, sellWarn);
+  AccumSignal.addSellWarns(builder, sellWarns);
+  AccumSignal.addDayAvgPx(builder, dayAvgPx);
   return AccumSignal.endAccumSignal(builder);
 }
 }
