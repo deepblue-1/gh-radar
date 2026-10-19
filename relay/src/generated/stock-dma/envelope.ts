@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { AccountState } from '../stock-dma/account-state.js';
+import { AccumChartResp } from '../stock-dma/accum-chart-resp.js';
 import { AccumSignal } from '../stock-dma/accum-signal.js';
 import { AccumSnapshot } from '../stock-dma/accum-snapshot.js';
 import { AdminCommandReq } from '../stock-dma/admin-command-req.js';
@@ -16,6 +17,7 @@ import { DirectOrderReq } from '../stock-dma/direct-order-req.js';
 import { DisableStrategiesReq } from '../stock-dma/disable-strategies-req.js';
 import { DisableStrategiesResp } from '../stock-dma/disable-strategies-resp.js';
 import { GetAccountStateReq } from '../stock-dma/get-account-state-req.js';
+import { GetAccumChartReq } from '../stock-dma/get-accum-chart-req.js';
 import { GetQuoteReq } from '../stock-dma/get-quote-req.js';
 import { GetStrategyReq } from '../stock-dma/get-strategy-req.js';
 import { GetTradeTapeReq } from '../stock-dma/get-trade-tape-req.js';
@@ -306,8 +308,18 @@ accumSnapshot(obj?:AccumSnapshot):AccumSnapshot|null {
   return offset ? (obj || new AccumSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+getAccumChartReq(obj?:GetAccumChartReq):GetAccumChartReq|null {
+  const offset = this.bb!.__offset(this.bb_pos, 102);
+  return offset ? (obj || new GetAccumChartReq()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+accumChartResp(obj?:AccumChartResp):AccumChartResp|null {
+  const offset = this.bb!.__offset(this.bb_pos, 104);
+  return offset ? (obj || new AccumChartResp()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(49);
+  builder.startObject(51);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -496,6 +508,14 @@ static addAccumSignal(builder:flatbuffers.Builder, accumSignalOffset:flatbuffers
 
 static addAccumSnapshot(builder:flatbuffers.Builder, accumSnapshotOffset:flatbuffers.Offset) {
   builder.addFieldOffset(48, accumSnapshotOffset, 0);
+}
+
+static addGetAccumChartReq(builder:flatbuffers.Builder, getAccumChartReqOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(49, getAccumChartReqOffset, 0);
+}
+
+static addAccumChartResp(builder:flatbuffers.Builder, accumChartRespOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(50, accumChartRespOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 776320af
+// server-repo-commit: 9eb71e84
 // synced-date:        2026-10-19
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -103,6 +103,10 @@ enum MsgType : byte {
                                    // 응답 = 86 AdminCommandResp (+ 실제 변경이면 87 AdminUsersSnapshot 1회).
                                    // 사용자 세션 연결이 보내면 86 code 11(NOT_ADMIN)
 
+    // === 이하 quick-261019-i4a 추가 (매집감지창 상세 가격·팀 주문 차트) ===
+    GetAccumChartReq = 45,         // 매집 차트 자료 조회 (C→S, Envelope.get_accum_chart_req 슬롯 102 — quick-261019-i4a).
+                                   // 로그인 세션 연결만, 응답 90
+
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
     //   60~69: KRX 전략·계좌 상태 응답
@@ -191,8 +195,11 @@ enum MsgType : byte {
     // === 이하 Phase 34 추가 (매집감지 — 34-CONTEXT D-08/D-09, gh-radar-67 합의 2026-10-18) ===
     AccumSignal = 88,              // 팀매집 누적 상태 (S→C, Envelope.accum_signal 슬롯 98, 등록 종목만 키(isin)별 1초 스로틀
                                    // Broadcast — 접속 연결 전부, 76 선례 · FULL 구독 조건 없음). 종료(청산)도 state 3 으로 1프레임
-    AccumSnapshot = 89             // 매집감지 스냅샷 (S→C, Envelope.accum_snapshot 슬롯 100, 로그인 성공 직후 그 연결에만 Notice
+    AccumSnapshot = 89,            // 매집감지 스냅샷 (S→C, Envelope.accum_snapshot 슬롯 100, 로그인 성공 직후 그 연결에만 Notice
                                    // 1프레임 — 지금 등록된 종목 전부, 78 선례)
+
+    // === 이하 quick-261019-i4a 추가 (매집감지창 상세 가격·팀 주문 차트) ===
+    AccumChartResp = 90            // 매집 차트 자료 (S→C, Envelope.accum_chart_resp 슬롯 104, 요청 연결에만 Notice 1프레임 — 69 선례, quick-261019-i4a)
 }
 
 // ============================================================================
@@ -1660,6 +1667,47 @@ table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
 }
 
 // ============================================================================
+// quick-261019-i4a — 매집 차트 자료(45/90)
+//
+//   45 GetAccumChartReq (C→S) — Envelope.get_accum_chart_req 슬롯 102. 로그인 세션 연결만(quote 관찰자 목록 밖).
+//   90 AccumChartResp   (S→C) — Envelope.accum_chart_resp 슬롯 104. 요청 연결에만 Notice 1프레임(69 GetTape 선례).
+//                               미등록·자료 없음·모르는 isin 도 빈 배열 1프레임(무응답 금지). 연결당 1초 1건 넘으면 무응답.
+// 자료는 등록(발표된) 포지션의 당일·등록 이후만 — 등록 판정 주문부터 쌓고, 청산·06:00·재기동이면 없어진다(영속 없음).
+// 프레임 ≈ 2,048×36B + 2,340×28B ≈ 140KB 로 클라 1 MiB 상한 안. 정본 docs/features/accum-signal.md ⑨.
+// ============================================================================
+
+table GetAccumChartReq {         // 45 본문 — 매집 차트 자료 조회
+    isin: string;                // 종목 ISIN (12자)
+}
+
+table AccumChartSample {         // 10초 가격 샘플 1칸 (체결 있는 칸만 싣는다)
+    t_s: ushort;                 // 09:00 기준 10초 칸 번호 (0 = 09:00:00~09:00:10 … 2339 = 15:29:50~15:30:00)
+    px: uint;                    // 그 칸 마지막 KRX G1 체결가(원)
+    net_krw: long;               // 그 시점 팀 순매수(원) — 전체 팀 주문(1천만 미만 포함), 우리 체결 제외 뒤
+    avg_px: uint;                // 그 시점 팀 평단(원) — buy_qty 0 이면 0
+}
+
+table AccumChartOrder {          // 1천만원 이상 팀 주문 1건
+    t_us: long;                  // 체결 시각 — 당일 0시 기준 µs
+    side: ubyte;                 // 1 매수 · 2 매도
+    qty: uint;                   // 주문 수량(주)
+    krw: long;                   // 주문 금액(원) — 1천만 이상만 싣는다
+    px: uint;                    // 주문 가격(원)
+    pieces: ushort;              // 한 가격 조각 수
+}
+
+table AccumChartResp {           // 90 본문 — 매집 차트 자료 (요청 연결 Notice 1프레임)
+    isin: string;                // 종목 ISIN (요청 그대로)
+    since_date: string;          // 등록 거래일 "YYYYMMDD" — "" 이면 미등록·자료 없음
+    reg_time_us: long;           // 등록 판정 주문 시각(당일 µs) — 이월 행도 등록일 시각, 자료 없음이면 0
+    samples: [AccumChartSample]; // 10초 가격 샘플 — 칸 순서, 체결 있는 칸만(≤ 2,340), 빈 벡터 가능
+    orders: [AccumChartOrder];   // 1천만+ 팀 주문 — 오래된 것 → 최신(≤ 2,048), 빈 벡터 가능
+    dropped_orders: uint;        // 상한 2,048 을 넘어 버린 가장 오래된 주문 수 (0 = 없음)
+    cum_buy_krw: long;           // 팀 매수 누적 금액(원) — 88 buy_krw 와 같은 값, 자료 없음이면 0
+    cum_sell_krw: long;          // 팀 매도 누적 금액(원) — 88 sell_krw 와 같은 값, 자료 없음이면 0
+}
+
+// ============================================================================
 // Phase 28 — 자동매도(체결매도) (28-CONTEXT D-18~D-27, 28-HANDOFF §4-1 v0.2)
 //
 // 상따 전략의 자동매도 설정은 SetLimitChaser 말미 8필드(vtable 140~154)로 오가고, 그 밖 새 와이어는 셋이다.
@@ -1868,6 +1916,10 @@ table Envelope {
     // === 이하 Phase 34 추가 (테이블 말미 append — 가운데 삽입 금지, D-08) ===
     accum_signal: AccumSignal;                   // 88 본문 — 팀매집 누적 상태 (vtable 슬롯 98)
     accum_snapshot: AccumSnapshot;               // 89 본문 — 매집감지 로그인 스냅샷 (vtable 슬롯 100)
+
+    // === 이하 quick-261019-i4a 추가 (테이블 말미 append — 가운데 삽입 금지) ===
+    get_accum_chart_req: GetAccumChartReq;       // 45 본문 — 매집 차트 자료 조회 (vtable 슬롯 102)
+    accum_chart_resp: AccumChartResp;            // 90 본문 — 매집 차트 자료 (vtable 슬롯 104)
 }
 
 root_type Envelope;

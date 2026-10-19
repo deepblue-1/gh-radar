@@ -5,6 +5,9 @@
 export { AccountEntry } from './stock-dma/account-entry.js';
 export { AccountState } from './stock-dma/account-state.js';
 export { AccumBucket } from './stock-dma/accum-bucket.js';
+export { AccumChartOrder } from './stock-dma/accum-chart-order.js';
+export { AccumChartResp } from './stock-dma/accum-chart-resp.js';
+export { AccumChartSample } from './stock-dma/accum-chart-sample.js';
 export { AccumSignal } from './stock-dma/accum-signal.js';
 export { AccumSnapshot } from './stock-dma/accum-snapshot.js';
 export { AdminAccount } from './stock-dma/admin-account.js';
@@ -22,6 +25,7 @@ export { DisableStrategiesResp } from './stock-dma/disable-strategies-resp.js';
 export { Envelope } from './stock-dma/envelope.js';
 export { EvidenceKind } from './stock-dma/evidence-kind.js';
 export { GetAccountStateReq } from './stock-dma/get-account-state-req.js';
+export { GetAccumChartReq } from './stock-dma/get-accum-chart-req.js';
 export { GetQuoteReq } from './stock-dma/get-quote-req.js';
 export { GetStrategyReq } from './stock-dma/get-strategy-req.js';
 export { GetTradeTapeReq } from './stock-dma/get-trade-tape-req.js';
