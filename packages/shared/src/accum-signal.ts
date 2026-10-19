@@ -4,7 +4,11 @@
  * 정본 = 인박스 `docs/inbox/from-gh-trade/261018-accum-signal.md` 「kind 16 — 43칸 매핑 표」(gh-trade
  * `server/src/market/publish/AccumSignal.cpp` `FillJournalSlot` 과 한 칸도 다르지 않다). 칸이 정본이다 —
  * `message` 는 칸에 없는 값(`since` 등록 거래일 · `reg` 등록 시각 · `th` 세 번째 조각 시총 상한)만 읽고
- * `st`/`end`/`cyc`/`carry`/`row`/`our` 는 칸과 대조하지 않는다.
+ * `st`/`end`/`cyc`/`carry`/`row`/`our`/`warn` 는 칸과 대조하지 않는다.
+ *
+ * quick-261019-j1w — 인박스 `261019-accum-sell-warn` (나): `hasRemaining` = sell_warn(모든 행 종류) ·
+ * `condMetric` = min(sell_warns, 255) · `queueCase` 5 = 매도 경보 에지(켜짐 · 꺼짐 즉시 1행 — 종료 행 4 가
+ * 같이 나가면 4 만 내고 그 행의 hasRemaining false 가 꺼짐을 알린다). message 끝 `|warn=<0|1>` 은 사람용이라 읽지 않는다.
  *
  * 입력은 이미 숫자화된 `StrategyEventRow`(REST 매퍼 · wss 푸시 공용)라 값 보정이 없다. 유일한 기본값은 길이가
  * 모자란 `snapQty`/`snapCum` 원소의 0 이다.
@@ -59,8 +63,12 @@ export type AccumSignal = {
   lastPx: number;
   /** 등락률 × 100(부호 포함 · 종료 · 복원 행 0). */
   rateBp: number;
-  /** 행 종류 — 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료. */
+  /** 행 종류 — 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료 · 5 매도 경보 에지. */
   row: number;
+  /** 지금 매도 경보 중(칸 hasRemaining) — 매집중에서만 켜진다(서버 규칙). */
+  sellWarn: boolean;
+  /** 이 사이클 경보 횟수(칸 condMetric · 서버가 255 로 자름) — 청산 · 새 사이클 0 · 06:00 이월 유지 · 재기동 0. */
+  sellWarns: number;
   /** 등록 거래일 `YYYY-MM-DD`(message `since=`). 모양이 틀리면 null. */
   sinceDate: string | null;
   /** 등록 시각 `HH:MM:SS`(message `reg=`). 모양이 틀리면 null. */
@@ -157,6 +165,8 @@ export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
     lastPx: row.price,
     rateBp: row.condActual,
     row: row.queueCase,
+    sellWarn: row.hasRemaining,
+    sellWarns: row.condMetric,
     sinceDate: sinceDateOf(msg.get("since")),
     regTime: regTimeOf(msg.get("reg")),
     thNetKrw: row.snapCum[0] ?? 0,

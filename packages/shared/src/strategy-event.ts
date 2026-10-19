@@ -59,15 +59,17 @@ export const STRATEGY_EVENT_KIND = {
    * order_no '' · exchange "KRX") · 82/81 에는 없다(88 실시간 + 이 저널로만). 등록 종목(매집중 · 매도중)만 ·
    * 키(isin)당 분당 ≤1행 · 지문이 바뀐 분만. 행 = 그 시점 **누적 상태 전체**(델타 아님) — 어떤 분에 행이 없으면
    * 직전 행과 누적이 같다(키별 마지막 행을 이어 쓴다). 세 서버(KB120 · KB121 · KYOBO119)가 각자 넣는다(값 차이는
-   * our_excluded_qty 뿐). 행 종류 queueCase 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료.
+   * our_excluded_qty 뿐). 행 종류 queueCase 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료 ·
+   * 5 매도 경보 에지(분 경계 밖 즉시 · 인박스 261019-accum-sell-warn).
    * 칸 재해석(인박스 43칸 매핑 표 — 이름 풀기는 `accumSignalOf`):
    * price=last_px · qty=state(1 매집중 · 2 매도중 · 3 종료) · condThreshold=net_krw · condActual=rate_bp ·
    * evPrice=avg_px · evQtyBefore=buy_qty · evQtyAfter=sell_qty · evTradeQty=net_qty · limitBidQty=buy_krw ·
    * bid1Price=reg_px · bid1Qty=sell_krw · immediateFillQty=our_excluded_qty · queueCase=row · baseCum=mcap_krw ·
    * aheadQty=max_same · expectedCum=cycle · cancelReason=end_reason(0 · 1 청산 · 2 이월 탈락 · 3 이월 만료) ·
    * resultCode=sell_phases · entryRound=carry_days · snapQty=[lo_px, hi_px] · snapCum=[th_net_krw, th_min_same] ·
-   * askQtyAtLimit=peak_net_krw · cumVolume=KRX 누적 거래량.
-   * message=`since=YYYYMMDD|reg=HHMMSS|st=…|end=…|cyc=…|carry=…|row=…|our=…|th=<net>/<same>/<mcap>`.
+   * askQtyAtLimit=peak_net_krw · cumVolume=KRX 누적 거래량 · hasRemaining=sell_warn(모든 행) ·
+   * condMetric=min(sell_warns, 255).
+   * message=`since=YYYYMMDD|reg=HHMMSS|st=…|end=…|cyc=…|carry=…|row=…|our=…|th=<net>/<same>/<mcap>|warn=<0|1>`.
    */
   AccumSignal: 16,
 } as const;
