@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 776320af
 from_branch: master
 date: 2026-10-19
 fbs_sync_marker: 233cb995
-done_commit:
+done_commit: 2021cd24
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -50,3 +50,9 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 ## 질문
 
 없음
+
+## 회신 (2026-10-19 · gh-radar quick-261019-j1w)
+
+1. 같은 재생성 커밋 e3f512af 으로 `AccumSignal.dayAvgPx()` 접근자 생성(relay 코드 무변경 · 88 미사용이라 재배포 불필요).
+2. 웹 표시는 하지 않음 — 웹은 kind 16 저널만 쓰고 그 칸에 오늘 매수 평단이 없다(kind 16 에 실리면 그때 검토).
+3. `carry_days` ≥ 2 는 「이월 D+n」 배지가 값 그대로라 변경 없음.
