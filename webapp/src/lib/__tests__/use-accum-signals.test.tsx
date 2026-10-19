@@ -134,6 +134,44 @@ describe('useAccumSignals', () => {
     expect(byIsin.get('KR7000020008')?.state).toBe(2);
   });
 
+  it('매도 경보 (quick-261019-j1w) — 라이브 에지 행 5 가 최신이면 켜지고 · 종료 행 4 가 오면 꺼진다', async () => {
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gwTimeMs: kstMs('2026-09-29', '09:30:00.000'), queueCase: 1, hasRemaining: false }),
+    ]);
+    const { result, rerender } = renderHook(() => useAccumSignals());
+    await flush();
+    expect(result.current.signals[0]?.sellWarn).toBe(false);
+    const edge = ac({
+      isin: 'KR7000020008',
+      seq: 5,
+      gwTimeMs: kstMs('2026-09-29', '09:31:00.000'),
+      queueCase: 5,
+      hasRemaining: true,
+      condMetric: 1,
+    });
+    mockRelay = { ...mockRelay, accumSignalEvents: [edge] };
+    rerender();
+    expect(result.current.signals).toHaveLength(1);
+    expect(result.current.signals[0]).toMatchObject({ sellWarn: true, sellWarns: 1, row: 5, state: 1 });
+    mockRelay = {
+      ...mockRelay,
+      accumSignalEvents: [
+        edge,
+        ac({
+          isin: 'KR7000020008',
+          seq: 9,
+          gwTimeMs: kstMs('2026-09-29', '09:40:00.000'),
+          qty: 3,
+          queueCase: 4,
+          hasRemaining: false,
+          condMetric: 1,
+        }),
+      ],
+    };
+    rerender();
+    expect(result.current.signals[0]).toMatchObject({ sellWarn: false, state: 3, row: 4 });
+  });
+
   it('조회 실패 → filled true · 라이브 행은 보인다', async () => {
     fetchAccumSignalsMock.mockRejectedValue(new Error('500'));
     mockRelay = {

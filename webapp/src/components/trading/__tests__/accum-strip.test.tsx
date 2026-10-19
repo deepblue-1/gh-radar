@@ -14,6 +14,8 @@ import type { AccumSignal } from '@gh-radar/shared';
  *   ⑥ 클릭 — 카드 없음 onAddCard(isin, 이름, 코드, 'KRX') · 카드 있음 점선 「거래중」 + onFocusCard · 이름 없음 ISIN 고정폭 · 이름 undefined
  *   ⑦ 첫 채움 무강조 · 그 뒤 새 isin → data-new + 「신규」 · 30초 뒤 해제
  *   ⑧ 활성 칩 0 → 빈 문구
+ *   ⑨ 매도경보(quick-261019-j1w D-01) — 매집중 + sellWarn 일 때만 칩 · 표 상태 셀에 주황 채움 「매도경보」(「매집중」 뒤 · 이월 앞 ·
+ *      accum-blink 깜빡임 · title 「이 사이클 경보 n회」) · 칩 title 끝 「 · 매도경보 n회」. 매도중 · 청산 · 경보 꺼짐은 없음
  */
 
 vi.mock('@/lib/stock-names', () => ({
@@ -58,6 +60,8 @@ function sig(over: Partial<AccumSignal> = {}): AccumSignal {
     lastPx: 10_450,
     rateBp: 512,
     row: 1,
+    sellWarn: false,
+    sellWarns: 0,
     sinceDate: '2026-10-16',
     regTime: '10:15:23',
     thNetKrw: 100_000_000,
@@ -284,5 +288,59 @@ describe('AccumStrip — 신규 강조', () => {
     });
     expect(document.querySelector('[data-new="true"]')).toBeNull();
     expect(screen.queryByText('신규')).toBeNull();
+  });
+});
+
+describe('AccumStrip — 매도경보 (D-01)', () => {
+  const warns = () => document.querySelectorAll('[data-slot="accum-warn"]');
+
+  function expectWarnBadge(scope: HTMLElement, n: number) {
+    const warn = scope.querySelector('[data-slot="accum-warn"]') as HTMLElement;
+    expect(warn).not.toBeNull();
+    expect(warn.textContent).toBe('매도경보');
+    expect(warn.className).toContain('--accum-sell');
+    expect(warn.className).toContain('--accum-warn-fg');
+    expect(warn.className).toContain('accum-blink');
+    expect(warn.className).toContain('motion-reduce:animate-none');
+    expect(warn.getAttribute('title')).toBe(`이 사이클 경보 ${n}회`);
+    const state = scope.querySelector('[data-slot="accum-state"]') as HTMLElement;
+    expect(state.textContent).toBe('매집중');
+    expect(state.nextElementSibling).toBe(warn);
+    expect(warn.nextElementSibling?.textContent).toBe('이월 D+2');
+  }
+
+  it('⑨ 칩 — 매집중 + 경보 → 「매집중」 뒤 · 이월 앞 주황 배지 · 칩 title 끝 「매도경보 2회」', () => {
+    setup({ signals: [sig({ sellWarn: true, sellWarns: 2, carryDays: 2 })] });
+    const chip = chips()[0] as HTMLElement;
+    expectWarnBadge(chip, 2);
+    expect(chip.getAttribute('title')).toMatch(/ · 매도경보 2회$/);
+  });
+
+  it('⑨ 표 — 같은 행 상태 셀에 같은 배지(「매집중」 뒤 · 이월 앞)', () => {
+    setup({ signals: [sig({ sellWarn: true, sellWarns: 2, carryDays: 2 })] });
+    openTable();
+    expect(rows()).toHaveLength(1);
+    expectWarnBadge(rows()[0] as HTMLElement, 2);
+  });
+
+  it('⑨ 매도중 · 청산 + sellWarn true → 칩 · 표 어디에도 없음', () => {
+    setup({
+      signals: [
+        sig({ isin: 'KR7000040006', state: 2, sellWarn: true, sellWarns: 3 }),
+        sig({ isin: 'KR7000060004', state: 3, endReason: 1, sellWarn: true, sellWarns: 1 }),
+      ],
+    });
+    expect(warns()).toHaveLength(0);
+    openTable();
+    expect(rows()).toHaveLength(2);
+    expect(warns()).toHaveLength(0);
+  });
+
+  it('⑨ 매집중 · sellWarn false · sellWarns 3 → 배지 없음 · 칩 title 에 「매도경보」 없음', () => {
+    setup({ signals: [sig({ sellWarn: false, sellWarns: 3 })] });
+    expect(warns()).toHaveLength(0);
+    expect((chips()[0] as HTMLElement).getAttribute('title')).not.toContain('매도경보');
+    openTable();
+    expect(warns()).toHaveLength(0);
   });
 });

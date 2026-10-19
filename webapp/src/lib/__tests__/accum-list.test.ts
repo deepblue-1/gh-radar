@@ -61,6 +61,8 @@ function sig(over: Partial<AccumSignal>): AccumSignal {
     lastPx: 0,
     rateBp: 0,
     row: 1,
+    sellWarn: false,
+    sellWarns: 0,
     sinceDate: null,
     regTime: null,
     thNetKrw: 0,
