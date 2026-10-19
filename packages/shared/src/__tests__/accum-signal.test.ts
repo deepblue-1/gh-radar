@@ -10,7 +10,7 @@ import {
 } from "../accum-signal";
 import type { StrategyEventRow } from "../strategy-event";
 
-const NOTE_MESSAGE = "since=20261016|reg=101523|st=1|end=0|cyc=2|carry=0|row=1|our=0|th=100000000/30/500000000000";
+const NOTE_MESSAGE = "since=20261016|reg=101523|st=1|end=0|cyc=2|carry=0|row=1|our=0|th=100000000/30/500000000000|warn=1";
 
 /** 43칸이 모두 서로 다른 값인 kind 16 행 — 칸이 뒤섞이면 단언이 잡는다. */
 function accumRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
@@ -34,7 +34,7 @@ function accumRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
     reasonCode: "",
     condThreshold: 1_234_000_000,
     condActual: 512,
-    condMetric: 0,
+    condMetric: 4,
     evKind: 2,
     evPrice: 10_120,
     evQtyBefore: 150_000,
@@ -51,7 +51,7 @@ function accumRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
     expectedCum: 2,
     errorVolume: 0,
     remainingVolume: 0,
-    hasRemaining: false,
+    hasRemaining: true,
     cancelReason: 0,
     resultCode: 3,
     message: NOTE_MESSAGE,
@@ -96,6 +96,8 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       lastPx: 10_450,
       rateBp: 512,
       row: 1,
+      sellWarn: true,
+      sellWarns: 4,
       sinceDate: "2026-10-16",
       regTime: "10:15:23",
       thNetKrw: 100_000_000,
@@ -162,6 +164,36 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
     expect(sig?.row).toBe(1);
     expect(sig?.ourExcludedQty).toBe(1_500);
     expect(sig?.thMaxMcapKrw).toBe(3);
+  });
+
+  it("매도 경보 (나) — 행 종류 5 꺼짐 에지도 통과한다 (sellWarn false · sellWarns 누적 유지)", () => {
+    const off = accumSignalOf(accumRow({ queueCase: 5, hasRemaining: false, condMetric: 4 }));
+    expect(off).not.toBeNull();
+    expect(off?.row).toBe(5);
+    expect(off?.sellWarn).toBe(false);
+    expect(off?.sellWarns).toBe(4);
+  });
+
+  it("매도 경보 (나) — 종료 행 4 가 꺼짐을 대신한다 (hasRemaining false → sellWarn false)", () => {
+    const end = accumSignalOf(accumRow({ qty: 3, queueCase: 4, hasRemaining: false }));
+    expect(end?.state).toBe(3);
+    expect(end?.row).toBe(4);
+    expect(end?.sellWarn).toBe(false);
+  });
+
+  it("매도 경보 (나) — message 의 warn= 키는 읽지 않는다 (칸이 정본)", () => {
+    const onKeyOffCell = accumSignalOf(
+      accumRow({ hasRemaining: false, message: "since=20261016|reg=101523|st=1|row=1|th=1/2/3|warn=1" }),
+    );
+    expect(onKeyOffCell?.sellWarn).toBe(false);
+    const offKeyOnCell = accumSignalOf(
+      accumRow({ hasRemaining: true, message: "since=20261016|reg=101523|st=1|row=1|th=1/2/3|warn=0" }),
+    );
+    expect(offKeyOnCell?.sellWarn).toBe(true);
+  });
+
+  it("매도 경보 (나) — condMetric 255 는 그대로 (상한 자르기는 서버 몫)", () => {
+    expect(accumSignalOf(accumRow({ condMetric: 255 }))?.sellWarns).toBe(255);
   });
 
   it("snapQty / snapCum 길이 < 2 → 빠진 원소 0", () => {
