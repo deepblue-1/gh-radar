@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>261019-j1w — 「매집」 패널 매도경보 배지 목업 A/B</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+.f {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --fg: #fff; --fg-2: #e4e4e4; --muted-fg: #9e9e9e; --faint: #636363; --hair: #3d3d3d;
+  --up: #f04251; --down: #3485fa; --team: #c353e5; --team-bg: rgba(195,83,229,.16); --sell: #ff9f43; --sell-bg: rgba(255,159,67,.16);
+  --carry: #ffd43b; --carry-bg: rgba(255,212,59,.16); --led: #38d39f;
+  flex: none; background: var(--bg); color: var(--fg-2); word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.phone { width: 390px; border-radius: 30px; }
+.f.desktop { width: 1120px; }
+.main { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.f.desktop .main { padding: 16px 24px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ghost { font-size: 12px; color: var(--faint); padding: 6px 2px; }
+.panel { min-width: 0; overflow: hidden; border-radius: 12px; background: var(--card); }
+.strip { display: flex; align-items: center; gap: 8px; padding: 10px; min-width: 0; }
+.strip .lb { flex: none; font-size: 12px; font-weight: 700; color: var(--fg); }
+.strip .chips { display: flex; flex: 1; min-width: 0; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.strip .more { flex: none; height: 26px; border-radius: 6px; border: 0; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; }
+.chip { display: inline-flex; flex: none; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border-radius: 999px; border: 1px solid transparent; background: var(--muted); font-size: 12px; white-space: nowrap; }
+.chip b { font-weight: 600; color: var(--fg); }
+.chip.trading { border-style: dashed; border-color: var(--faint); background: transparent; color: var(--muted-fg); }
+.chip .t { font-size: 11px; color: var(--muted-fg); }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.bd { display: inline-flex; align-items: center; height: 16px; padding: 0 4px; border-radius: 4px; border: 1px solid transparent; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.bd.acc { background: var(--team-bg); color: var(--team); }
+.bd.sell { background: var(--sell-bg); color: var(--sell); }
+.bd.end { background: var(--muted); color: var(--muted-fg); border-color: var(--hair); }
+.bd.carry { background: var(--carry-bg); color: var(--carry); }
+/* 경보 배지 — A: 채움 + 깜빡임 · B: 테두리 정적 + 횟수 */
+.bd.warnA { background: var(--sell); color: #111; animation: blink 1s steps(2, start) infinite; }
+.bd.warnB { background: transparent; color: var(--sell); border-color: var(--sell); }
+@keyframes blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .bd.warnA { animation: none; } }
+table { width: 100%; border-collapse: collapse; font-size: 12px; border-top: 1px solid var(--hair); }
+th { padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--muted-fg); text-align: left; white-space: nowrap; }
+td { height: 36px; padding: 0 10px; white-space: nowrap; border-top: 1px solid rgba(255,255,255,.04); }
+.f.phone th, .f.phone td { padding: 0 8px; }
+.r { text-align: right; }
+.nm { font-weight: 600; color: var(--fg); }
+.cd { font-size: 11px; color: var(--muted-fg); margin-left: 4px; }
+.f.phone .cd, .f.phone .n7 { display: none; }
+.st { display: inline-flex; gap: 4px; align-items: center; }
+.trd { font-size: 11px; color: var(--muted-fg); }
+.trd::before { content: '●'; font-size: 9px; color: var(--led); margin-right: 4px; }
+.btn { height: 26px; border-radius: 6px; border: 0; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; }
+.x { width: 26px; height: 26px; border: 0; background: transparent; color: var(--muted-fg); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">경보 배지</span>
+    <button class="on" data-v="A">A 주황 채움 + 깜빡임 (클라 동형)</button>
+    <button data-v="B">B 주황 테두리 정적 + 횟수</button>
+  </div>
+  <div class="g"><span class="l">폭</span>
+    <button class="on" data-w="desktop">1120</button>
+    <button data-w="phone">390</button>
+  </div>
+  <p id="desc"></p>
+</div>
+<div id="stage"></div>
+<script>
+const DESC = {
+  A: '<b>A</b> — gh-trade 클라와 같은 모양: 「매집중」 옆에 <b>주황 채움 「매도경보」</b> 배지, 1초 깜빡임(시스템 「동작 줄이기」 켜면 정적). 횟수는 배지 툴팁(「이 사이클 경보 2회」)에만. 경보는 매집중일 때만 있어 「매도중」(주황 연한 배지)과 같은 줄에 나란히 서지 않는다.',
+  B: '<b>B</b> — 깜빡임 없이 <b>주황 테두리 「매도경보 ×2」</b> 정적 배지(횟수 포함). 표의 상태 열도 같은 배지. 눈에 덜 띄지만 패널이 조용하다.',
+};
+const ROWS = [
+  { n:'천일고속', c:'000650', st:'acc', net:'+3.8억', px:'156,800', rate:'+8.2%', warn:1, warns:2, trading:true },
+  { n:'한선엔지니어링', c:'477380', st:'acc', net:'+2.1억', px:'7,120', rate:'+12.6%', warn:0, warns:1, carry:2 },
+  { n:'대양금속', c:'009190', st:'acc', net:'+1.4억', px:'4,105', rate:'+4.1%', warn:1, warns:1 },
+  { n:'서산', c:'079650', st:'sell', net:'+0.9억', px:'3,590', rate:'+21.3%', warn:0, warns:3 },
+  { n:'금호전기', c:'001210', st:'end', net:'−0.2억', px:'2,210', rate:'+3.0%', warn:0, warns:0 },
+];
+const ST = { acc:['acc','매집중'], sell:['sell','매도중'], end:['end','청산'] };
+const tone = s => s.startsWith('+') ? 'pos' : s.startsWith('−') ? 'neg' : '';
+function warnBadge(r, v) {
+  if (!r.warn) return '';
+  return v === 'A' ? `<span class="bd warnA" title="이 사이클 경보 ${r.warns}회">매도경보</span>` : `<span class="bd warnB">매도경보 ×${r.warns}</span>`;
+}
+function badges(r, v) {
+  const [cls, txt] = ST[r.st];
+  return `<span class="bd ${cls}">${txt}</span>${warnBadge(r, v)}${r.carry ? `<span class="bd carry">이월 D+${r.carry}</span>` : ''}`;
+}
+function chip(r, v) {
+  if (r.st === 'end') return '';
+  return `<span class="chip ${r.trading?'trading':''}"><b>${r.n}</b><span class="mono ${tone(r.net)}" style="font-weight:700">${r.net}</span>${badges(r, v)}${r.trading?'<span class="t">거래중</span>':''}</span>`;
+}
+function table(v) {
+  return `<table><thead><tr><th>종목</th><th class="r">현재가</th><th class="r">등락률</th><th class="r">팀 순매수</th><th>상태</th><th class="n7">갱신</th><th></th></tr></thead><tbody>${ROWS.map(r => `
+    <tr style="${r.st==='end'?'color:var(--muted-fg)':''}">
+      <td><span class="nm" style="${r.st==='end'?'color:var(--muted-fg)':''}">${r.n}</span><span class="cd mono">${r.c}</span></td>
+      <td class="r mono ${tone(r.rate)}">${r.px}</td><td class="r mono ${tone(r.rate)}" style="font-weight:700">${r.rate}</td>
+      <td class="r mono ${tone(r.net)}" style="font-weight:700">${r.net}</td>
+      <td><span class="st">${badges(r, v)}</span></td>
+      <td class="mono n7">13:4${ROWS.indexOf(r)}:00</td>
+      <td class="r">${r.st==='end'?'':r.trading?'<span class="trd">거래중</span>':'<button class="btn">추가</button>'}<button class="x">✕</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+let V='A', W='desktop';
+function render() {
+  const body = `<div class="ghost">… VI · 돌파 패널 (그대로)</div><div class="panel"><div class="strip"><div class="lb">매집</div><div class="chips">${ROWS.map(r => chip(r, V)).join('')}</div><button class="more">접기</button></div>${table(V)}</div><div class="ghost">종목 추가 · 카드 격자 (그대로)</div>`;
+  document.getElementById('stage').innerHTML = `<div class="f ${W}"><div class="main">${body}</div></div>`;
+  document.getElementById('desc').innerHTML = DESC[V] + ' 공통: 경보는 켜짐·꺼짐 즉시 행이 와서 바로 갱신되고, 매도중으로 확정되면 배지는 「매도중」 으로 바뀐다.';
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) V = b.dataset.v; if (b.dataset.w) W = b.dataset.w; render();
+}));
+render();
+</script>
+</body>
+</html>
