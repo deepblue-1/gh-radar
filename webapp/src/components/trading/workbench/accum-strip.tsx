@@ -7,8 +7,10 @@
  * 「더보기/접기」) → 펼친 표(행 있을 때만). 원천은 kind 16 매집감지(gh-trade Phase 34) — `useAccumSignals` 가 isin 별
  * 현재 상태를 준다(REST 복원 ∪ relay 별도 목록). 주문로그와는 무관하다.
  *
- * ① 시세 구독 없음 — 현재가 · 등락률은 행 자체 값(`lastPx` · `rateBp`)이다. kind 16 은 분당 갱신이라 충분하다
- *   (돌파의 `useBreakoutQuotes` 를 쓰지 않는다).
+ * ① 현재가 · 등락률은 **시세 구독**(`useBreakoutQuotes` · price level · 카드 피드 제외 · 돌파와 같은 예산)이다 — 2026-10-19 사용자 제보.
+ *   kind 16 행은 누적이 바뀔 때만 오고 가격은 지문 밖이라 행 값(`lastPx` · `rateBp`)은 수십 분 묵는다. 활성(1 · 2) 행만 구독하고,
+ *   시세를 모르면(예산 초과 · 미도착) 행 값을 그대로 보인다. 등락률은 행의 기준가(`lastPx / (1 + rateBp/10000)`)로 다시 센다.
+ *   청산 행은 구독하지 않는다(행 값 고정). 서버 기준 게이트웨이(`gateway`)는 라벨 옆에 작게 보인다(훅 ④).
  * ② 거래소를 표시하지 않는다 — 돌파 D-07 동형. 카드는 행 `exchange`(늘 KRX)로 연다.
  * ③ 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
  *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 이월 탈락 ·
@@ -45,6 +47,7 @@ import { kstClock } from '@/lib/limitup-report';
 import { useStockNames } from '@/lib/stock-names';
 import { fmtEok, toneOf } from '@/lib/teamflow-report';
 import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
+import { breakoutFeedKey, useBreakoutQuotes, type BreakoutQuoteCandidate } from '@/lib/use-breakout-quotes';
 import { cn } from '@/lib/utils';
 
 import { BREAKOUT_TICK_MS } from './breakout-strip';
@@ -61,6 +64,10 @@ export interface AccumStripProps {
   filled: boolean;
   /** 카드가 있는 종목(ISIN). 그 칩 · 행은 「거래중」 이다. */
   cards: ReadonlySet<string>;
+  /** 카드가 스스로 구독한 피드 키(`breakoutFeedKey`) — 시세 구독 예산에서만 뺀다(①). */
+  cardFeeds: ReadonlySet<string>;
+  /** 보이는 목록의 게이트웨이(`useAccumSignals().gateway`) — 라벨 옆 표시. null 이면 표시 없음. */
+  gateway: string | null;
   /** relay 라벨(`useIsinLabels`). */
   labels: ReadonlyMap<string, IsinLabel>;
   /** 카드가 없는 종목을 눌렀다 — 돌파 스트립과 같은 콜백. */
@@ -86,9 +93,37 @@ interface AccumView {
   trading: boolean;
   highlighted: boolean;
   clock: string;
+  /** 표시 현재가 — 구독 시세, 모르면 행 값(①). */
+  price: number;
+  /** 표시 등락률(%) — 구독 시세로 다시 센 값, 모르면 행 값(①). */
+  rate: number;
 }
 
-export function AccumStrip({ signals, filled, cards, labels, onAddCard, onFocusCard, className }: AccumStripProps) {
+/** 행의 기준가(전일 종가) — `lastPx / (1 + rateBp/10000)`. 행 값이 없으면 null. */
+function basePxOf(sig: AccumSignal): number | null {
+  if (!(sig.lastPx > 0) || sig.rateBp <= -10_000) return null;
+  const base = Math.round(sig.lastPx / (1 + sig.rateBp / 10_000));
+  return base > 0 ? base : null;
+}
+
+/** 표시 등락률(%) — 시세가 있고 기준가를 알면 다시 센다, 아니면 행 값(①). */
+export function liveRateOf(sig: AccumSignal, price: number): number {
+  const base = basePxOf(sig);
+  if (base === null || price === sig.lastPx) return sig.rateBp / 100;
+  return ((price - base) * 100) / base;
+}
+
+export function AccumStrip({
+  signals,
+  filled,
+  gateway,
+  cards,
+  cardFeeds,
+  labels,
+  onAddCard,
+  onFocusCard,
+  className,
+}: AccumStripProps) {
   const [open, setOpen] = useState(false);
   // 펼침은 기억한다 — 마운트 후에 읽는다(하이드레이션 · 돌파 동형).
   useEffect(() => {
@@ -122,6 +157,16 @@ export function AccumStrip({ signals, filled, cards, labels, onAddCard, onFocusC
     committedRef.current = { meta, filled };
   }, [meta, filled]);
 
+  // ① 활성 행만 시세 구독(price level) — 카드 피드는 예산에서 뺀다. 최근 갱신 행이 예산 우선.
+  const candidates = useMemo<BreakoutQuoteCandidate[]>(
+    () =>
+      visible
+        .filter((s) => s.state !== 3)
+        .map((s) => ({ isin: s.isin, exchange: s.exchange === 'NXT' ? 'NXT' : 'KRX', addedAt: s.gwTimeMs })),
+    [visible],
+  );
+  const { prices } = useBreakoutQuotes(candidates, { excludeFeeds: cardFeeds });
+
   const views = useMemo<AccumView[]>(
     () =>
       visible.map((sig) => {
@@ -131,20 +176,24 @@ export function AccumStrip({ signals, filled, cards, labels, onAddCard, onFocusC
         const named = name !== undefined && name !== '';
         const trading = cards.has(sig.isin);
         const until = meta.get(key) ?? null;
+        const exchange: RelayExchange = sig.exchange === 'NXT' ? 'NXT' : 'KRX';
+        const price = sig.state === 3 ? sig.lastPx : (prices.get(breakoutFeedKey({ isin: sig.isin, exchange })) ?? sig.lastPx);
         return {
           sig,
           key,
           label: named ? (name as string) : sig.isin,
           named,
           code: sig.stockCode ?? labels.get(sig.isin)?.code ?? undefined,
-          exchange: sig.exchange === 'NXT' ? 'NXT' : 'KRX',
+          exchange,
           trading,
           // 「거래중」 · 청산 행은 신규로 칠하지 않는다.
           highlighted: until !== null && now < until && !trading && sig.state !== 3,
           clock: kstClock(sig.gwTimeMs),
+          price,
+          rate: liveRateOf(sig, price),
         };
       }),
-    [visible, labels, masterNames, cards, meta, now],
+    [visible, labels, masterNames, cards, meta, now, prices],
   );
   const chipViews = useMemo(() => views.filter((v) => v.sig.state !== 3), [views]);
 
@@ -186,6 +235,11 @@ export function AccumStrip({ signals, filled, cards, labels, onAddCard, onFocusC
       <section data-slot="accum-strip" aria-label="매집감지" className="flex min-w-0 items-center gap-2 px-2.5 py-2.5">
         <div className="flex flex-none items-center gap-1.5 text-[12px] font-bold text-[var(--fg)]">
           <span data-testid="accum-strip-label">매집</span>
+          {gateway !== null && (
+            <span data-slot="accum-gateway" className="mono text-[10px] font-medium text-[var(--muted-fg)]">
+              {gateway}
+            </span>
+          )}
         </div>
 
         <div
@@ -403,7 +457,7 @@ const AccumTable = memo(function AccumTable({
       <TableBody>
         {views.map((v) => {
           const ended = v.sig.state === 3;
-          const rate = v.sig.rateBp / 100;
+          const rate = v.rate;
           return (
             <TableRow
               key={v.key}
@@ -457,7 +511,7 @@ const AccumTable = memo(function AccumTable({
                   {`${v.clock} · 평단 ${NUM.format(v.sig.avgPx)} · ${bandText(v.sig)}`}
                 </span>
               </TableCell>
-              <TableCell className={cn(td, 'mono text-right', !ended && rateClass(rate))}>{NUM.format(v.sig.lastPx)}</TableCell>
+              <TableCell className={cn(td, 'mono text-right', !ended && rateClass(rate))}>{NUM.format(v.price)}</TableCell>
               <TableCell className={cn(td, 'mono text-right font-bold', !ended && rateClass(rate))}>
                 {signedRate(rate)}
               </TableCell>

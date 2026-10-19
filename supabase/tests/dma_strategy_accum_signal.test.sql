@@ -12,9 +12,9 @@
 --   - purge: dma_strategy_events_purge_limit_feature(30) 가 KST 오늘 − 31일 kind 15 · 16 을 함께 지운다. 경계일(오늘 − 30) ·
 --     최근 kind 16 · 같은 옛날짜 시세 1 · 주문 이벤트는 남는다.
 --   - 부분 인덱스 idx_dma_strategy_events_accum_signal_day 존재 · 술어 kind = 16.
---   - accum RPC: isin 별 정확히 1행 — 다른 분이면 늦은 분 행, 같은 분이면 dma_servers.is_quote_primary(KB120) 행
---     (그 분 안에서 gw_time_ms 가 더 이르더라도), quote-primary 행이 없는 isin 은 다른 서버 행. 원소 = SETOF 행 jsonb 그대로 ·
---     isin 오름차순. 행 없는 날 '[]'.
+--   - accum RPC(20261019160000): (gateway, isin) 별 정확히 1행 — 그 게이트웨이의 최신 행(gw_time_ms desc → seq desc).
+--     서버 사이 선택은 없다(서버 기준은 웹이 고른 계좌의 serverKey 로 고른다). 원소 = SETOF 행 jsonb 그대로 ·
+--     gateway, isin 오름차순. 행 없는 날 '[]'. 복원 묶음 자르기(20261018233000 ⑤)는 게이트웨이별 그대로.
 --   - 권한: 네 함수 모두 anon · authenticated EXECUTE 불가 · service_role 가능.
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_strategy_accum_signal.test.sql`
@@ -195,20 +195,21 @@ SELECT is(
   0, '(U2, KB120, kind 16, 오늘 · lf=true) 래퍼 원소 중 kind 16 0개'
 );
 
--- ── 3. accum RPC — isin 별 최신 1행 · 같은 분 quote-primary 우선 · 폴백 ──
+-- ── 3. accum RPC — (gateway, isin) 별 최신 1행 (20261019160000) ──
 SELECT is(
   jsonb_typeof(public.dma_accum_signals_for_user_json('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
   'array', '(U1, —, kind 16, 오늘) accum RPC 는 jsonb 배열 하나'
 );
 SELECT results_eq(
   $$SELECT gateway, seq, kind, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date) ORDER BY ord$$,
-  $$VALUES ('KYOBO119', 2, 16, 'KR7000660001'), ('KB120', 3, 16, 'KR7005930003'), ('KYOBO119', 3, 16, 'KR7035720002')$$,
-  '(U1, KB120+KYOBO119, kind 16, 오늘) isin 별 1행 · isin 오름차순 — B = 늦은 분 KYOBO · A = 같은 분 quote-primary KB120(더 이른 시각이어도) · C = KYOBO 폴백'
+  $$VALUES ('KB120', 2, 16, 'KR7000660001'), ('KB120', 3, 16, 'KR7005930003'),
+           ('KYOBO119', 2, 16, 'KR7000660001'), ('KYOBO119', 1, 16, 'KR7005930003'), ('KYOBO119', 3, 16, 'KR7035720002')$$,
+  '(U1, KB120+KYOBO119, kind 16, 오늘) (gateway, isin) 별 1행 · gateway → isin 오름차순 — KB120 A 는 10:14 보다 늦은 10:15 seq 3 · KYOBO119 C 는 그 서버에만'
 );
 SELECT is(
   (SELECT count(*)::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
-  (SELECT count(DISTINCT isin)::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
-  '(U1, KB120+KYOBO119, kind 16, 오늘) 행 수 = 서로 다른 isin 수(정확히 1행씩)'
+  (SELECT count(DISTINCT (gateway, isin))::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
+  '(U1, KB120+KYOBO119, kind 16, 오늘) 행 수 = 서로 다른 (gateway, isin) 수(정확히 1행씩)'
 );
 SELECT results_eq(
   $$SELECT gateway, seq, kind, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002912', pg_temp.kd(0)::date) ORDER BY ord$$,
@@ -239,8 +240,8 @@ SELECT results_eq(
 -- ── 3b. 복원 묶음 = 그 서버의 전체 목록 (20261018233000 ⑤) ──────────
 SELECT results_eq(
   $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(2)::date) ORDER BY ord$$,
-  $$VALUES ('KB120', 24, 'KR7005930003'), ('KB120', 26, 'KR7035720002')$$,
-  '(U1, KB120+KYOBO119, kind 16, −2일 복원 묶음) 23:16 묶음 전 행만 있는 B 는 빠진다 · A = 같은 분 quote-primary KB120 복원 행 · C = 같은 묶음(40초 뒤) 뒤 첫 스냅샷'
+  $$VALUES ('KB120', 24, 'KR7005930003'), ('KB120', 26, 'KR7035720002'), ('KYOBO119', 12, 'KR7005930003')$$,
+  '(U1, KB120+KYOBO119, kind 16, −2일 복원 묶음) 23:16 묶음 전 행만 있는 B 는 두 서버 모두 빠진다 · KB120 A 복원 행 · C 첫 스냅샷 · KYOBO119 A 복원 행'
 );
 SELECT results_eq(
   $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002912', pg_temp.kd(2)::date) ORDER BY ord$$,

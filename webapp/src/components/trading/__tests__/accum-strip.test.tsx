@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { AccumSignal } from '@gh-radar/shared';
+import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
 
 /**
  * quick-261018-rfy D-01 — 작업대 「매집」 패널(돌파 패널 동형 · 목업 mockup-workbench.html 안 A).
@@ -22,11 +22,29 @@ vi.mock('@/lib/stock-names', () => ({
   useStockNames: () => new Map<string, string>(),
 }));
 
+// ① 시세 구독 — relay 컨텍스트의 quotes · subscribe 만 흉내 낸다(돌파 스트립 테스트와 같은 문법).
+const subscribeMock = vi.fn();
+const unsubscribeMock = vi.fn();
+let quotesMap: Map<string, RelayQuote> = new Map();
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
+  return {
+    ...actual,
+    useRelayContext: () => ({
+      ...actual.EMPTY_RELAY_VALUE,
+      quotes: quotesMap,
+      subscribe: subscribeMock,
+      unsubscribe: unsubscribeMock,
+    }),
+  };
+});
+
 import { HIGHLIGHT_MS } from '@/lib/breakout-list';
 import { ACCUM_DISMISSED_KEY } from '@/lib/accum-list';
 import { readPanelsPref } from '@/lib/trading-layout';
 import type { IsinLabel } from '@/lib/isin-labels';
-import { ACCUM_EMPTY_TEXT, AccumStrip } from '../workbench/accum-strip';
+import { ACCUM_EMPTY_TEXT, AccumStrip, liveRateOf } from '../workbench/accum-strip';
+import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 const T = (hms: string) => Date.parse(`2026-10-18T${hms}+09:00`);
 
@@ -87,6 +105,8 @@ function setup(over: Partial<Props> = {}) {
     signals: [],
     filled: true,
     cards: new Set<string>(),
+    cardFeeds: new Set<string>(),
+    gateway: 'KB120',
     labels: LABELS,
     onAddCard,
     onFocusCard,
@@ -105,6 +125,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-18T10:20:00+09:00'));
   window.localStorage.clear();
+  quotesMap = new Map();
+  subscribeMock.mockClear();
+  unsubscribeMock.mockClear();
 });
 
 afterEach(() => {
@@ -342,5 +365,42 @@ describe('AccumStrip — 매도경보 (D-01)', () => {
     expect((chips()[0] as HTMLElement).getAttribute('title')).not.toContain('매도경보');
     openTable();
     expect(warns()).toHaveLength(0);
+  });
+});
+
+describe('⑩ 시세 구독 · 서버 기준 (2026-10-19)', () => {
+  it('활성 행은 price level 로 구독하고, 시세가 오면 표의 현재가 · 등락률이 행 값 대신 시세로 — 청산 행은 구독 안 함 · 행 값 고정', () => {
+    const live = sig({ isin: 'KR7000020008', lastPx: 10_450, rateBp: 512 }); // 기준가 ≈ 9,941
+    const ended = sig({ isin: 'KR7000060004', state: 3, lastPx: 2_210, rateBp: 300 });
+    const { rerender } = setup({ signals: [live, ended] });
+    expect(subscribeMock).toHaveBeenCalledWith('KR7000020008', 'KRX', 'price');
+    expect(subscribeMock).not.toHaveBeenCalledWith('KR7000060004', expect.anything(), expect.anything());
+    openTable();
+    // 시세 전 = 행 값
+    expect(within(rows()[0] as HTMLElement).getByText('10,450')).toBeInTheDocument();
+    quotesMap = new Map([[relayQuoteKey('KR7000020008', 'KRX'), { t: 'q', i: 'KR7000020008', x: 'KRX', snap: false, p: 10_950 } as unknown as RelayQuote]]);
+    rerender({ signals: [live, ended] });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    const first = rows()[0] as HTMLElement;
+    expect(within(first).getByText('10,950')).toBeInTheDocument();
+    expect(within(first).getByText(`${liveRateOf(live, 10_950) > 0 ? '+' : ''}${liveRateOf(live, 10_950).toFixed(2)}%`)).toBeInTheDocument();
+    // 청산 행은 행 값 그대로
+    expect(within(rows()[1] as HTMLElement).getByText('2,210')).toBeInTheDocument();
+  });
+
+  it('liveRateOf — 기준가로 다시 센다 · 시세가 행 값과 같거나 기준가를 모르면 행 등락률', () => {
+    const s1 = sig({ lastPx: 10_450, rateBp: 512 });
+    expect(liveRateOf(s1, 10_450)).toBeCloseTo(5.12, 5);
+    expect(liveRateOf(s1, 10_950)).toBeCloseTo(((10_950 - 9_941) * 100) / 9_941, 5);
+    expect(liveRateOf(sig({ lastPx: 0, rateBp: 0 }), 100)).toBe(0);
+  });
+
+  it('게이트웨이 라벨 — gateway 가 있으면 「매집」 옆에 작게 · null 이면 없음', () => {
+    const { rerender } = setup({ signals: [sig()], gateway: 'KYOBO119' });
+    expect(document.querySelector('[data-slot="accum-gateway"]')?.textContent).toBe('KYOBO119');
+    rerender({ gateway: null });
+    expect(document.querySelector('[data-slot="accum-gateway"]')).toBeNull();
   });
 });

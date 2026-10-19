@@ -172,6 +172,37 @@ describe('useAccumSignals', () => {
     expect(result.current.signals[0]).toMatchObject({ sellWarn: false, state: 3, row: 4 });
   });
 
+  it('서버 기준(④) — gateway 를 주면 그 게이트웨이 행만 · gateway 도 돌려준다', async () => {
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:30:00.000') }),
+      ac({ isin: 'KR7000040006', seq: 1, gateway: 'KYOBO119', gwTimeMs: kstMs('2026-09-29', '09:31:00.000') }),
+      ac({ isin: 'KR7000020008', seq: 2, gateway: 'KYOBO119', gwTimeMs: kstMs('2026-09-29', '09:32:00.000'), qty: 2 }),
+    ]);
+    const { result } = renderHook(() => useAccumSignals('KYOBO119'));
+    await flush();
+    expect(result.current.gateway).toBe('KYOBO119');
+    expect(result.current.signals.map((s) => [s.isin, s.gateway, s.state]).sort()).toEqual([
+      ['KR7000020008', 'KYOBO119', 2],
+      ['KR7000040006', 'KYOBO119', 1],
+    ]);
+  });
+
+  it('서버 기준(④) — gateway null 이면 행이 있는 게이트웨이 중 사전순 첫 것(KB120) · 그 서버에 행이 없으면 빈 목록', async () => {
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gateway: 'KYOBO119', gwTimeMs: kstMs('2026-09-29', '09:30:00.000') }),
+      ac({ isin: 'KR7000040006', seq: 1, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:31:00.000') }),
+    ]);
+    const { result, rerender } = renderHook(({ gw }: { gw: string | null }) => useAccumSignals(gw), {
+      initialProps: { gw: null as string | null },
+    });
+    await flush();
+    expect(result.current.gateway).toBe('KB120');
+    expect(result.current.signals.map((s) => s.isin)).toEqual(['KR7000040006']);
+    rerender({ gw: 'KB121' });
+    expect(result.current.gateway).toBe('KB121');
+    expect(result.current.signals).toEqual([]);
+  });
+
   it('조회 실패 → filled true · 라이브 행은 보인다', async () => {
     fetchAccumSignalsMock.mockRejectedValue(new Error('500'));
     mockRelay = {

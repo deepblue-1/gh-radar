@@ -629,8 +629,6 @@ function WorkbenchSurface() {
   // D-16 — relay 재탐침. 편집 중 수동주문 입력은 컴포넌트 로컬 상태라 유지된다.
   useNativeRefresh(relay.probeNow);
   const labels = useIsinLabels();
-  // quick-261018-rfy — 「매집」 패널 원천(REST 복원 ∪ relay kind 16 별도 목록 · isin 별 최신).
-  const accum = useAccumSignals();
   /*
     ④ — 라벨 Map 은 계좌 델타마다 새 인스턴스다. 콜백이 Map 을 의존성으로 잡으면 콜백이 매번 바뀌어
     카드 `memo` 가 죽는다. 콜백 안에서는 ref 로 최신 Map 을 읽는다.
@@ -660,6 +658,10 @@ function WorkbenchSurface() {
     경로(Pitfall 6)가 같은 값을 쓴다. 업데이터 · 안정 콜백은 ref 로 최신 값을 읽는다.
   */
   const scopeAccount = accountNo !== "" && accounts.length > 0 ? accountNo : "";
+  // quick-261018-rfy — 「매집」 패널 원천(REST 복원 ∪ relay kind 16 별도 목록 · isin 별 최신). 서버 기준은 고른 계좌의
+  // 주문 서버 키(`RelayAccount.serverKey` · 2026-10-19 사용자 결정 — 클라가 보는 서버 하나와 같은 목록). 없으면 훅의 폴백.
+  const accumGateway = accounts.find((a) => a.accountNo === accountNo)?.serverKey ?? null;
+  const accum = useAccumSignals(accumGateway);
   const scopeAccountRef = useRef(scopeAccount);
   scopeAccountRef.current = scopeAccount;
   const accountNoRef = useRef(accountNo);
@@ -1580,7 +1582,9 @@ function WorkbenchSurface() {
       <AccumStrip
         signals={accum.signals}
         filled={accum.filled}
+        gateway={accum.gateway}
         cards={cardIsins}
+        cardFeeds={cardFeeds}
         labels={labels}
         onAddCard={addBreakoutCard}
         onFocusCard={focusBreakoutCard}

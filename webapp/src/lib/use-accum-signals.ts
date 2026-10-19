@@ -13,6 +13,12 @@
  *   실패해도 라이브 행은 보인다(복원이 없을 뿐).
  *
  * ③ 요청 번호 가드 — 늦게 도착한 옛 응답이 새 응답을 덮지 않는다(`reqRef`).
+ *
+ * ④ 서버 기준(2026-10-19 사용자 결정) — KB120 · KYOBO119 는 등록 종목 집합이 다르다(「우리 체결 제외」 가 서버마다 달라 임계 통과가
+ *   갈린다). gh-trade 클라는 접속한 서버 하나만 보이므로 웹도 **한 게이트웨이**만 보인다: `gateway` = 작업대에서 고른 계좌의
+ *   서버 키(`RelayAccount.serverKey`). null(계좌 미정 · serverKey 없음)이면 행이 있는 게이트웨이 중 키 사전순 첫 것(KB120 < KYOBO119).
+ *   REST(20261019160000)는 (gateway, isin) 별 최신 행을 다 주고 여기서 거른다 — 계좌를 바꾸면 재조회 없이 목록이 바뀐다.
+ *   고른 서버에 오늘 행이 없으면 빈 목록이다(그 서버 클라도 비어 있다).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -34,9 +40,19 @@ export interface AccumSignalsState {
   signals: AccumSignal[];
   /** 첫 복원 요청이 끝났는가(성공 · 실패). */
   filled: boolean;
+  /** 지금 보이는 목록의 게이트웨이(④) — 고른 서버, 또는 폴백. 행이 없으면 null. */
+  gateway: string | null;
 }
 
-export function useAccumSignals(): AccumSignalsState {
+/** ④ 표시 게이트웨이 — 고른 서버가 있으면 그것, 없으면 행이 있는 게이트웨이 중 사전순 첫 것. */
+export function displayGatewayOf(rows: readonly Pick<StrategyEventRow, 'gateway'>[], selected: string | null): string | null {
+  if (selected !== null) return selected;
+  let first: string | null = null;
+  for (const r of rows) if (first === null || r.gateway < first) first = r.gateway;
+  return first;
+}
+
+export function useAccumSignals(gateway: string | null = null): AccumSignalsState {
   const { accumSignalEvents, status: relayStatus } = useRelayContext();
   const today = kstDateIso();
 
@@ -74,16 +90,19 @@ export function useAccumSignals(): AccumSignalsState {
 
   const restoredRows = restored !== null && restored.date === today ? restored.rows : null;
 
-  const signals = useMemo(() => {
+  const { signals, shown } = useMemo(() => {
     const merged = mergeStrategyEvents(restoredRows ?? [], accumSignalEvents, today);
     const accumOnly = merged.filter((r) => r.kind === STRATEGY_EVENT_KIND.AccumSignal);
+    // ④ 한 게이트웨이만 — 자르기(복원 묶음)도 그 게이트웨이 행 안에서 돈다.
+    const shownGateway = displayGatewayOf(accumOnly, gateway);
+    const mine = shownGateway === null ? [] : accumOnly.filter((r) => r.gateway === shownGateway);
     const out: AccumSignal[] = [];
-    for (const row of latestAccumByIsin(accumOnly)) {
+    for (const row of latestAccumByIsin(mine)) {
       const sig = accumSignalOf(row);
       if (sig !== null) out.push(sig);
     }
-    return out;
-  }, [restoredRows, accumSignalEvents, today]);
+    return { signals: out, shown: shownGateway };
+  }, [restoredRows, accumSignalEvents, today, gateway]);
 
-  return { signals, filled };
+  return { signals, filled, gateway: shown };
 }
