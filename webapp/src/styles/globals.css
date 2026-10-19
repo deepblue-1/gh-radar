@@ -88,6 +88,9 @@
   --accum-sell-bg: #fff4e6;
   --accum-carry: #a16207;
   --accum-carry-bg: #fef9e7;
+  /* 「매도경보」 배지(quick-261019-j1w D-01) — --accum-sell 채움 위 글자. 라이트 #fff 5.2:1 · 다크 #111 9.2:1(테마별로 가른다 —
+     라이트 #111 은 3.6:1 로 AA 미달). */
+  --accum-warn-fg: #ffffff;
 
   /* B 세그먼트 선택 면 · 작은 알약 선택 · 호가 잔량 막대 · 사이드바 바탕 (sketch 001 · 260924-vj1).
      작은 알약 선택 `--pill-on-*` 과 사이드바 바탕 `--side-bg` 의 라이트 값은 sketch 003-A
@@ -245,6 +248,7 @@
   --accum-sell-bg: rgba(255, 159, 67, 0.16);
   --accum-carry: #ffd43b;
   --accum-carry-bg: rgba(255, 212, 59, 0.16);
+  --accum-warn-fg: #111111;
 
   /* B 세그먼트·알약·호가 막대·사이드바 다크 값 — 의미는 `:root` 쪽 주석. `:root` 와 같은 집합을
      빠짐없이 정의한다. `--seg-on-shadow` 는 `none` 대신 `0 0 #0000` — Tailwind shadow 합성에서
@@ -674,6 +678,17 @@ html[lang="ko"] {
   [data-slot="strategy-card"][data-alert="true"] > [data-slot="card-header"] {
     animation: none;
   }
+}
+/*
+  quick-261019-j1w D-01 — 작업대 「매집」 패널 「매도경보」 배지 깜빡임(gh-trade 클라 동형 1초 · steps(2)).
+  ★ 평문 클래스가 아니라 `@utility` 다 — 레이어 밖 규칙은 레이어드 유틸보다 우선해 소비처의 `motion-reduce:animate-none` 이 진다.
+  유틸리티 레이어에 두면 변형 유틸이 이긴다(동작 줄이기 = 정적).
+*/
+@keyframes accum-blink {
+  50% { opacity: 0.25; }
+}
+@utility accum-blink {
+  animation: accum-blink 1s steps(2, start) infinite;
 }
 
 /* ─────────────────────────────────────────────────────────────

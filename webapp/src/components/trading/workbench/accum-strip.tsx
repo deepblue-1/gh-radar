@@ -13,6 +13,8 @@
  * ③ 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
  *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 이월 탈락 ·
  *   이월 만료)는 행 툴팁(gh-trade 클라 동형 · 인박스 질문 1·2 답).
+ *   매도경보(quick-261019-j1w D-01) = 매집중 + `sellWarn` 일 때만 「매집중」 뒤 · 이월 앞 주황 채움 1초 깜빡임(칩 · 표 상태 셀) ·
+ *   횟수는 배지 title(「이 사이클 경보 n회」)과 칩 title 끝.
  * ④ 첫 채움 무강조 — REST 복원(`filled` 전 · 직후 첫 커밋)으로 들어온 행은 강조하지 않고, 그 뒤 새로 오른 키(새 isin · 같은 isin
  *   새 사이클)만 30초 `--new-bg` + 「신규」 다(돌파 규칙 · `HIGHLIGHT_MS`). 강조 계산은 `advanceAccumMeta` 순수 함수를 렌더에서 하고
  *   커밋 뒤 레이아웃 effect 가 기록을 옮긴다(돌파 ⑧). 강조 행이 있을 때만 tick 타이머 1개(돌파 ⑤).
@@ -253,10 +255,16 @@ function bandText(s: AccumSignal): string {
   return `${NUM.format(s.loPx)}~${NUM.format(s.hiPx)}`;
 }
 
-/** 칩 `title` — 「이름 코드 · 팀 순매수 · 평단 · 구간 lo~hi · 갱신 HH:MM:SS」. */
+/** 매도경보 표시 여부 — 경보는 매집중 전용(서버 규칙)이라 매도중 · 청산 행의 sellWarn 은 무시한다. */
+function showsWarn(s: AccumSignal): boolean {
+  return s.state === 1 && s.sellWarn;
+}
+
+/** 칩 `title` — 「이름 코드 · 팀 순매수 · 평단 · 구간 lo~hi · 갱신 HH:MM:SS[ · 매도경보 n회]」. */
 function chipTitle(v: AccumView): string {
   const head = v.named && v.code ? `${v.label} ${v.code}` : v.label;
-  return `${head} · 팀 순매수 ${fmtEok(v.sig.netKrw, { signed: true })} · 평단 ${NUM.format(v.sig.avgPx)} · 구간 ${bandText(v.sig)} · 갱신 ${v.clock}`;
+  const warn = showsWarn(v.sig) ? ` · 매도경보 ${v.sig.sellWarns}회` : '';
+  return `${head} · 팀 순매수 ${fmtEok(v.sig.netKrw, { signed: true })} · 평단 ${NUM.format(v.sig.avgPx)} · 구간 ${bandText(v.sig)} · 갱신 ${v.clock}${warn}`;
 }
 
 const BADGE = 'inline-flex h-4 flex-none items-center rounded-[4px] border border-transparent px-1 text-[9px] font-bold';
@@ -281,6 +289,23 @@ function CarryBadge({ days }: { days: number }) {
   return (
     <span data-slot="accum-carry" className={cn(BADGE, 'bg-[var(--accum-carry-bg)] text-[var(--accum-carry)]')}>
       이월 D+{days}
+    </span>
+  );
+}
+
+/** 매도경보 — 매집중 + sellWarn 만 · 주황 채움 1초 깜빡임(동작 줄이기 = 정적) · 횟수는 title(D-01 · 목업 A). */
+function WarnBadge({ sig }: { sig: AccumSignal }) {
+  if (!showsWarn(sig)) return null;
+  return (
+    <span
+      data-slot="accum-warn"
+      title={`이 사이클 경보 ${sig.sellWarns}회`}
+      className={cn(
+        BADGE,
+        'bg-[var(--accum-sell)] text-[var(--accum-warn-fg)] accum-blink motion-reduce:animate-none',
+      )}
+    >
+      매도경보
     </span>
   );
 }
@@ -320,6 +345,7 @@ const AccumChip = memo(function AccumChip({
       </b>
       <span className={cn('mono font-bold', netClass(v.sig.netKrw))}>{fmtNet}</span>
       <StateBadge state={v.sig.state} />
+      <WarnBadge sig={v.sig} />
       <CarryBadge days={v.sig.carryDays} />
       {v.highlighted && (
         <span data-slot="accum-new-badge" className="text-[10px] font-bold text-[var(--fg)]">
@@ -450,6 +476,7 @@ const AccumTable = memo(function AccumTable({
               <TableCell className={td}>
                 <span className="inline-flex items-center gap-1">
                   <StateBadge state={v.sig.state} />
+                  <WarnBadge sig={v.sig} />
                   <CarryBadge days={v.sig.carryDays} />
                 </span>
               </TableCell>
