@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-04-PLAN.md
-last_updated: "2026-10-20T13:40:57.274Z"
+stopped_at: Completed 34-05-PLAN.md
+last_updated: "2026-10-20T13:47:33.356Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: cb6dc49df233d5dba5ad0fea9cf30aa9e8d26a46
+state_head: 733311b631e3ff54afa661efc8d048e528e2ac5d
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 45
+  completed_plans: 46
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 6 of 13
+Plan: 7 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T13:40:57.205Z
-Stopped at: Completed 34-04-PLAN.md
+Last session: 2026-10-20T13:47:33.283Z
+Stopped at: Completed 34-05-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -138,6 +138,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P13 | 8min | 1 tasks | 16 files |
 | Phase 34 P03 | 4min | 2 tasks | 4 files |
 | Phase 34 P04 | 7min | 2 tasks | 9 files |
+| Phase 34 P05 | 4min | 3 tasks | 3 files |
 
 ## Decisions
 
@@ -208,3 +209,4 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-03: 탐지 0 거래일 manifest 는 코드 변경 없이 그대로 적재(테스트로 잠금) · backfill 로그 객체는 표별 { tbl, prev, manifest } 배열
 - [Phase 34]: 34-04: 카드 소제목·캡션을 AccumDayGrid 로 옮김(열 머리와 한 곳) · section aria-labelledby 는 페이지 유지
 - [Phase 34]: 34-04: 합성 목록 행 등록 시각은 since_date 기준 KST ms · 상한가+last_rate null = 「상한가」 · 미도달+last_rate null = none 「—」
+- [Phase 34]: 34-05: D-03 팀 매집 단언은 team_flow 행 있는 날짜를 함께 적재해 dates 정확 비교로 강화(빈 배열 우연 통과 방지)
