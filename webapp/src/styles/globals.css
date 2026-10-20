@@ -91,6 +91,10 @@
   /* 「매도경보」 배지(quick-261019-j1w D-01) — --accum-sell 채움 위 글자. 라이트 #fff 5.2:1 · 다크 #111 9.2:1(테마별로 가른다 —
      라이트 #111 은 3.6:1 로 AA 미달). */
   --accum-warn-fg: #ffffff;
+  /* 매집감지 차트 시간 띠 축(Phase 34 · UI-SPEC Color) — 등록 전 음영 · 15:30~16:00 빈 띠. 가격 방향 · 팀(--team-bg 최대 매집 창) ·
+     매집 상태 축과 다르다. 서로 대체하지 마라. 목업 --shade · --gap 값(grey600 틴트) · hex/rgba 만. */
+  --accum-shade: rgba(107, 118, 132, 0.10);
+  --accum-gap: rgba(107, 118, 132, 0.07);
 
   /* B 세그먼트 선택 면 · 작은 알약 선택 · 호가 잔량 막대 · 사이드바 바탕 (sketch 001 · 260924-vj1).
      작은 알약 선택 `--pill-on-*` 과 사이드바 바탕 `--side-bg` 의 라이트 값은 sketch 003-A
@@ -249,6 +253,9 @@
   --accum-carry: #ffd43b;
   --accum-carry-bg: rgba(255, 212, 59, 0.16);
   --accum-warn-fg: #111111;
+  /* 매집감지 차트 시간 띠 축 다크 — 의미는 `:root` 쪽 주석. */
+  --accum-shade: rgba(255, 255, 255, 0.07);
+  --accum-gap: rgba(255, 255, 255, 0.04);
 
   /* B 세그먼트·알약·호가 막대·사이드바 다크 값 — 의미는 `:root` 쪽 주석. `:root` 와 같은 집합을
      빠짐없이 정의한다. `--seg-on-shadow` 는 `none` 대신 `0 0 #0000` — Tailwind shadow 합성에서

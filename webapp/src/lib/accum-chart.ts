@@ -18,7 +18,8 @@ import type {
   AccumReportRow,
 } from '@gh-radar/shared';
 
-import { isNum } from './teamflow-report';
+import { kstClock } from './limitup-report';
+import { fmtEok, isNum, kstHm } from './teamflow-report';
 
 /**
  * 판 배치(UI-SPEC A6) — 그림 영역 x = [L, W − R] · 가격 판 y 16~216 · 누적 판 240~352 · 10분 판 376~448 ·
@@ -185,7 +186,7 @@ export function pricePathOf(
 }
 
 // ---------------------------------------------------------------------------
-// 골격(RED) — 데이터 레이어 시그니처만. 구현은 GREEN 커밋.
+// 데이터 레이어 — 주문 원 · 누적 계단 · 10분 막대 · 빈 띠 · 등록 전 음영 (UI-SPEC A6 레이어 1 · 3 · 4 · 7)
 // ---------------------------------------------------------------------------
 
 export interface Rect {
@@ -195,82 +196,189 @@ export interface Rect {
   h: number;
 }
 
+/** 주문 원 반지름(D-15) = max(2.2, min(7, 2.2 + √(val ÷ 1e7) × 0.5)) — 1천만 ≈ 2.7 · 1억 ≈ 3.8 · 10억 이상 7. */
+export function orderRadiusOf(val: number): number {
+  if (!isNum(val) || val <= 0) return 2.2;
+  return Math.max(2.2, Math.min(7, 2.2 + Math.sqrt(val / 1e7) * 0.5));
+}
+
 export interface OrderCircle {
   cx: number;
   cy: number;
   r: number;
   side: 'B' | 'S';
   first: boolean;
+  /** 「HH:MM:SS 팀 매수 N주 · X.XX억 @가격 · N조각」 + first 면 「 · 팀매수 시작」 */
   title: string;
 }
 
-export function orderRadiusOf(_val: number): number {
-  return 0;
-}
+const INT_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
+/**
+ * 주문 원(D-15) — 창 ±30분 안 · 시각 · 가격이 유한한 주문만. **그리기 순서 = first 아닌 원은 반지름 내림차순(큰 원 먼저 →
+ * 작은 원이 위) → first 원은 맨 마지막(항상 위)**. 금액은 억 2자리(부호 없이) · 수량 · 가격 ko-KR · 시각 KST HH:MM:SS.
+ */
 export function orderCirclesOf(
-  _orders: AccumReportOrders,
-  _view: View,
-  _x: (t: number) => number,
-  _y: (px: number) => number,
+  orders: AccumReportOrders,
+  view: View,
+  x: (t: number) => number,
+  y: (px: number) => number,
 ): OrderCircle[] {
-  return [];
+  const lo = view.t0 - VIEW_PAD_MS;
+  const hi = view.t1 + VIEW_PAD_MS;
+  const plain: OrderCircle[] = [];
+  const firsts: OrderCircle[] = [];
+  for (let i = 0; i < orders.t_ms.length; i++) {
+    const t = orders.t_ms[i];
+    const px = orders.px[i];
+    if (!isNum(t) || !isNum(px) || t < lo || t > hi) continue;
+    const val = orders.val[i];
+    const side = orders.side[i] === 'S' ? 'S' : 'B';
+    const first = orders.first[i] === 1;
+    const qty = orders.qty[i];
+    const pieces = orders.pieces[i];
+    const title =
+      `${kstClock(t)} 팀 ${side === 'B' ? '매수' : '매도'} ${isNum(qty) ? INT_FMT.format(qty) : '—'}주 · ` +
+      `${fmtEok(val, { digits: 2 })} @${INT_FMT.format(px)} · ${isNum(pieces) ? pieces : '—'}조각` +
+      (first ? ' · 팀매수 시작' : '');
+    const c: OrderCircle = { cx: x(t), cy: y(px), r: orderRadiusOf(val ?? 0), side, first, title };
+    (first ? firsts : plain).push(c);
+  }
+  plain.sort((a, b) => b.r - a.r);
+  return [...plain, ...firsts];
 }
 
+/** 누적 y 범위 — 하루 전체 min/max(0 포함 · 창과 무관하게 고정). */
 export interface CumRange {
   min: number;
   max: number;
 }
 
-export function cumRangeOf(_cum: AccumReportCumNet): CumRange {
-  return { min: 0, max: 0 };
+export function cumRangeOf(cum: AccumReportCumNet): CumRange {
+  let min = 0;
+  let max = 0;
+  for (const c of cum.net_krw) {
+    if (!isNum(c)) continue;
+    if (c < min) min = c;
+    if (c > max) max = c;
+  }
+  return { min, max };
 }
 
-export function yOfCum(_range: CumRange): (c: number) => number {
-  return () => 0;
+/** 누적 → y(누적 판 TOP + H1 + GAP ~ + H2). 범위 0 이면 0선이 판 위끝. */
+export function yOfCum(range: CumRange): (c: number) => number {
+  const { TOP, H1, GAP, H2 } = ACCUM_CHART;
+  const top = TOP + H1 + GAP;
+  const span = range.max - range.min || 1;
+  return (c) => top + ((range.max - c) / span) * H2;
 }
 
+/**
+ * 순매수 누적 계단(D-14) — `M x0,y(0) L x0,y0` 뒤 점마다 `H x V y` · 끝 `H x(T2000)`. 결측 점은 건너뛴다 · 빈 배열이면 ''.
+ * 점이 수천 개여도 경로 하나 · 창 밖은 clipPath 가 자른다(계단은 창 시작 값이 앞 점에 달려 있어 잘라 순회하지 않는다).
+ */
 export function cumPathOf(
-  _cum: AccumReportCumNet,
-  _x: (t: number) => number,
-  _yC: (c: number) => number,
-  _T2000: number,
+  cum: AccumReportCumNet,
+  x: (t: number) => number,
+  yC: (c: number) => number,
+  T2000: number,
 ): string {
-  return '';
+  let d = '';
+  const n = Math.min(cum.t_ms.length, cum.net_krw.length);
+  for (let k = 0; k < n; k++) {
+    const t = cum.t_ms[k];
+    const c = cum.net_krw[k];
+    if (!isNum(t) || !isNum(c)) continue;
+    const X = f1(x(t));
+    d += d === '' ? `M${X},${f1(yC(0))}L${X},${f1(yC(c))}` : `H${X}V${f1(yC(c))}`;
+  }
+  return d === '' ? '' : `${d}H${f1(x(T2000))}`;
 }
+
+const SLOT_MS = 10 * MIN;
+const BAR_RATIO = 0.42;
+const BAR_MIN_W = 1.5;
 
 export interface BucketBar {
   slot: number;
+  /** 매수 막대(왼쪽) — 0 이면 null */
   buy: Rect | null;
+  /** 매도 막대(오른쪽) — 0 이면 null */
   sell: Rect | null;
+  /** 칸 전체 높이 투명 히트 영역(<title> 자리) */
   hit: Rect;
+  /** 「HH:MM~HH:MM 팀 매수 X.XX억 · 팀 매도 X.XX억」 */
   title: string;
 }
 
-export function bucketMaxOf(_buckets: readonly AccumReportBucket[]): number {
-  return 0;
+/** 10분 막대 y 기준 = 하루 전체 매수 · 매도 최대(창과 무관하게 고정) · 없으면 0. */
+export function bucketMaxOf(buckets: readonly AccumReportBucket[]): number {
+  let mx = 0;
+  for (const b of buckets) {
+    if (isNum(b.buy_krw) && b.buy_krw > mx) mx = b.buy_krw;
+    if (isNum(b.sell_krw) && b.sell_krw > mx) mx = b.sell_krw;
+  }
+  return mx;
 }
 
+/**
+ * 10분 막대 쌍(D-14 · 목업 detail chart()) — slot k 의 칸 = [x(T0 + k × 10분), x(T0 + (k+1) × 10분)] · 막대 폭 = 현재 창 기준
+ * 칸 폭 × 0.42(최소 1.5) · 매수 왼쪽(x0 + 1) · 매도 오른쪽(+ 폭 + 1) · 높이 = 값 ÷ 하루 최대 × h · 바닥 = 판 아래선 · 0 은 없음.
+ * 창 ±30분 밖 칸은 뺀다.
+ */
 export function bucketBarsOf(
-  _buckets: readonly AccumReportBucket[],
-  _view: View,
-  _x: (t: number) => number,
-  _T0: number,
-  _bTop: number,
-  _h: number,
-  _bMax?: number,
+  buckets: readonly AccumReportBucket[],
+  view: View,
+  x: (t: number) => number,
+  T0: number,
+  bTop: number,
+  h: number,
+  bMax: number = bucketMaxOf(buckets),
 ): BucketBar[] {
-  return [];
+  const scale = bMax > 0 ? h / bMax : 0;
+  const out: BucketBar[] = [];
+  for (const b of buckets) {
+    if (!isNum(b.slot)) continue;
+    const s0 = T0 + b.slot * SLOT_MS;
+    const s1 = s0 + SLOT_MS;
+    if (s1 < view.t0 - VIEW_PAD_MS || s0 > view.t1 + VIEW_PAD_MS) continue;
+    const x0 = x(s0);
+    const slotW = x(s1) - x0;
+    const bw = Math.max(BAR_MIN_W, slotW * BAR_RATIO);
+    const bar = (v: number, bx: number): Rect | null => {
+      if (!isNum(v) || v <= 0) return null;
+      const bh = v * scale;
+      return { x: bx, y: bTop + h - bh, w: bw, h: bh };
+    };
+    out.push({
+      slot: b.slot,
+      buy: bar(b.buy_krw, x0 + 1),
+      sell: bar(b.sell_krw, x0 + 1 + bw + 1),
+      hit: { x: x0, y: bTop, w: slotW, h },
+      title: `${kstHm(s0)}~${kstHm(s1)} 팀 매수 ${fmtEok(b.buy_krw, { digits: 2 })} · 팀 매도 ${fmtEok(b.sell_krw, { digits: 2 })}`,
+    });
+  }
+  return out;
 }
 
-export function gapBandOf(_bounds: { T1530: number; T1600: number }, _x: (t: number) => number): { x: number; w: number } {
-  return { x: 0, w: 0 };
+/** 15:30~16:00 빈 띠(체결 없음 정상 구간)의 x 구간. */
+export function gapBandOf(bounds: { T1530: number; T1600: number }, x: (t: number) => number): { x: number; w: number } {
+  const a = x(bounds.T1530);
+  return { x: a, w: x(bounds.T1600) - a };
 }
 
+/**
+ * 등록 전 음영(D-16 · Pitfall 15) = 오늘 등록(`since_date === date`)이고 첫 사이클 `reg_time_ms` 가 있을 때만
+ * `[T0, max(T0, firstReg)]`. 이월 · reg 결측 · 사이클 없음 · 첫 사이클이 다른 날 등록이면 null.
+ */
 export function shadeOf(
-  _row: Pick<AccumReportRow, 'since_date' | 'date'>,
-  _payload: Pick<AccumReportPayload, 'cycles'>,
-  _T0: number,
+  row: Pick<AccumReportRow, 'since_date' | 'date'>,
+  payload: Pick<AccumReportPayload, 'cycles'>,
+  T0: number,
 ): View | null {
-  return null;
+  if (row.since_date !== row.date) return null;
+  const first = payload.cycles[0];
+  if (first === undefined || !isNum(first.reg_time_ms)) return null;
+  if (typeof first.since_date === 'string' && first.since_date !== '' && first.since_date !== row.date) return null;
+  return { t0: T0, t1: Math.max(T0, first.reg_time_ms) };
 }
