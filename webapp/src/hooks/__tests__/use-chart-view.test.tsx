@@ -253,6 +253,22 @@ describe('useChartView — 키보드 · rAF 합치기 (UI-SPEC 접근성 보강)
     expect(fireEvent.keyDown(wrap, { key: '=' })).toBe(false);
   });
 
+  it('(k2) 창이 바뀌지 않는 키는 넘긴다 — 왼쪽 끝 ← · 전체 창 − · 10분 창 + 는 preventDefault 없음 · 0 은 늘 처리(IN-05)', () => {
+    const { wrap } = setup();
+    act(() => ctl.setPreset('reg'));
+    expect(fireEvent.keyDown(wrap, { key: 'ArrowLeft' })).toBe(true); // T0 에서 더 왼쪽 = 변화 없음 → 페이지로
+    expect(fireEvent.keyDown(wrap, { key: 'ArrowRight' })).toBe(false);
+    flushFrame();
+    act(() => ctl.setPreset('full'));
+    expect(fireEvent.keyDown(wrap, { key: '-' })).toBe(true);
+    expect(fireEvent.keyDown(wrap, { key: 'ArrowRight' })).toBe(true); // 전체 창은 이동할 곳이 없다
+    act(() => void ctl.schedule(() => ({ t0: T0 + H, t1: T0 + H + MIN_VIEW_MS })));
+    flushFrame();
+    expect(fireEvent.keyDown(wrap, { key: '+' })).toBe(true);
+    expect(fireEvent.keyDown(wrap, { key: '0' })).toBe(false);
+    expect(ctl.preset).toBe('full');
+  });
+
   it('(r1) 한 프레임 안 휠 3번 → rAF 예약 1번 · setView 1회 · 결과 = 세 변환 합성', () => {
     const { svg } = setup();
     const before = commits.length;

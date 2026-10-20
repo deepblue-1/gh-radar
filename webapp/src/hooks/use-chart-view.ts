@@ -39,7 +39,10 @@ export interface ChartViewControl {
   setPreset: (name: ChartPreset) => void;
   /** 다음 프레임에 창 변환을 예약(대기 창에 합성) — 창이 바뀌지 않으면 false(호출 쪽이 이벤트를 넘긴다). */
   schedule: (fn: (v: View) => View) => boolean;
-  /** 차트 래퍼 키보드 — ← / → 창 폭 20% 이동 · + / = ×0.5 · − / _ ×2 · 0 「전체」 · 처리한 키만 preventDefault. */
+  /**
+   * 차트 래퍼 키보드 — ← / → 창 폭 20% 이동 · + / = ×0.5 · − / _ ×2 · 0 「전체」 · 창을 바꾼 키만 preventDefault
+   * (끝에서 더 이동 · 10분에서 더 확대 · 전체에서 더 축소는 넘긴다 — 휠 넘김 규칙 Discretion 7 과 같다 · IN-05). 0 은 늘 처리.
+   */
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }
 
@@ -151,29 +154,32 @@ export function useChartView({
     (e: KeyboardEvent<HTMLElement>) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return; // 브라우저 확대(⌘ = · ⌘ 0) 등 단축키는 넘긴다
       const center = (v: View) => (v.t0 + v.t1) / 2;
+      let changed: boolean;
       switch (e.key) {
         case 'ArrowLeft':
-          schedule((v) => panBy(v, -(v.t1 - v.t0) * KEY_PAN));
+          changed = schedule((v) => panBy(v, -(v.t1 - v.t0) * KEY_PAN));
           break;
         case 'ArrowRight':
-          schedule((v) => panBy(v, (v.t1 - v.t0) * KEY_PAN));
+          changed = schedule((v) => panBy(v, (v.t1 - v.t0) * KEY_PAN));
           break;
         case '+':
         case '=':
-          schedule((v) => zoomView(v, center(v), 0.5, bounds));
+          changed = schedule((v) => zoomView(v, center(v), 0.5, bounds));
           break;
         case '-':
         case '_':
         case '−':
-          schedule((v) => zoomView(v, center(v), 2, bounds));
+          changed = schedule((v) => zoomView(v, center(v), 2, bounds));
           break;
         case '0':
           setPreset('full');
+          changed = true;
           break;
         default:
           return;
       }
-      e.preventDefault();
+      // 창이 그대로면 넘긴다 — 창 끝에서 ← / → 가 페이지 스크롤로 간다(IN-05)
+      if (changed) e.preventDefault();
     },
     [bounds, schedule, setPreset],
   );
