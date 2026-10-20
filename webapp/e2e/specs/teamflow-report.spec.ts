@@ -733,4 +733,65 @@ test.describe('Phase 33 Plan 04 — 팀 매집 목록 (로컬 relay)', () => {
     await openDetail(page, SMBEXCEL);
     await expect(page.locator('[data-slot="teamflow-member-flow"]')).toHaveCount(0);
   });
+
+  test('P33-TF-N2 390 — 행렬 첫 열 sticky · 래퍼 가로 스크롤 · 10분 거래원 표 · 거래원 아랫줄 · 페이지 가로 스크롤 0', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installTeamflowMocks(page, { newKeys: true });
+    await page.goto(BASE);
+    await expect(rows(page)).toHaveCount(34, { timeout: 30_000 });
+    const det = await openDetail(page, CHEONIL);
+
+    /** 첫 열 sticky · 넘치면 래퍼를 끝까지 밀어도 첫 열이 래퍼 왼쪽에 붙고 마지막 머리 칸이 래퍼 안으로 들어온다. */
+    const checkMatrix = async (name: string) => {
+      const wrap = slot(page, CHEONIL, name);
+      await expect(wrap).toBeVisible();
+      const m = await wrap.evaluate((el) => {
+        const headFirst = el.querySelector('thead th')!;
+        const bodyFirst = el.querySelector('tbody tr th')!;
+        const r = {
+          sw: el.scrollWidth,
+          cw: el.clientWidth,
+          headPos: getComputedStyle(headFirst).position,
+          bodyPos: getComputedStyle(bodyFirst).position,
+          firstLeftGap: 0,
+          lastHeadOver: 0,
+        };
+        if (el.scrollWidth > el.clientWidth) {
+          el.scrollLeft = el.scrollWidth;
+          const w = el.getBoundingClientRect();
+          r.firstLeftGap = bodyFirst.getBoundingClientRect().left - w.left;
+          const ths = el.querySelectorAll('thead th');
+          r.lastHeadOver = ths[ths.length - 1]!.getBoundingClientRect().right - w.right;
+          el.scrollLeft = 0;
+        }
+        return r;
+      });
+      console.log(`[P33-TF-N2 390 ${name}] scrollWidth ${m.sw} / clientWidth ${m.cw} → ${m.sw > m.cw ? '넘침' : '맞음'}`);
+      expect(m.headPos, `${name} 머리 첫 칸 sticky`).toBe('sticky');
+      expect(m.bodyPos, `${name} 본문 첫 칸 sticky`).toBe('sticky');
+      if (m.sw > m.cw) {
+        expect(m.firstLeftGap, `${name} 끝까지 밀어도 첫 열이 래퍼 왼쪽`).toBeLessThanOrEqual(1);
+        expect(m.lastHeadOver, `${name} 마지막 머리 칸 래퍼 안`).toBeLessThanOrEqual(1);
+      }
+      await expectNoHorizontalScroll(page, `390 ${name}`);
+    };
+
+    await checkMatrix('teamflow-member-band-matrix');
+    await det.getByRole('button', { name: '10분 거래원 표 보기', exact: true }).click();
+    await checkMatrix('teamflow-member-bucket-matrix');
+
+    // 거래원 아랫줄 · 출처 캡션 — 잘림 0(줄바꿈으로 들어간다).
+    const clipped = await det.evaluate((el) =>
+      Array.from(
+        el.querySelectorAll('[data-slot="teamflow-member-sub"], [data-slot="teamflow-member-source-note"]'),
+      ).map((e) => ({ slot: e.getAttribute('data-slot'), over: e.scrollWidth - e.clientWidth })),
+    );
+    expect(clipped.filter((c) => c.slot === 'teamflow-member-sub')).toHaveLength(4);
+    expect(clipped.filter((c) => c.slot === 'teamflow-member-source-note')).toHaveLength(1);
+    for (const c of clipped) expect(c.over, `${c.slot} 잘림 0`).toBeLessThanOrEqual(0);
+    await expectNoHorizontalScroll(page, '390 상세(새 키)');
+    await det.screenshot({ path: test.info().outputPath('teamflow-member-flow-390.png') });
+  });
 });

@@ -3,10 +3,8 @@
 import type { TeamflowBucket, TeamflowWindow } from '@gh-radar/shared';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { windowKeysOf } from '@/lib/teamflow-chart';
+import { windowKeyTestOf } from '@/lib/teamflow-chart';
 import {
-  BUCKET_KEY_CLOSE,
-  BUCKET_KEY_LAST,
   TONE_TEXT,
   fmtEok,
   fmtQty,
@@ -22,7 +20,7 @@ import { cn } from '@/lib/utils';
  *
  * - 7열 「시각 · 등락 범위 · 거래량 · 팀 매수 · 팀 매도 · 팀 순매수 · 매수 중 팀」.
  * - 행 = `buckets[]` **전부**(key 오름차순) — 차트와 달리 key 92 · 93(종가 단일가) · 범위 밖 key 가 각자 행으로 남는다(원자료 보존).
- * - 최대 매집 창 칸 행(`windowKeysOf` 범위 = 축으로 자르지 않은 key · 창이 key 92 까지 닿으면 차트가 거기 합산하는 key 93 도)은 첫 칸에
+ * - 최대 매집 창 칸 행(`windowKeyTestOf` — `windowKeysOf` 범위 = 축으로 자르지 않은 key · 창이 key 92 까지 닿으면 차트가 거기 합산하는 key 93 도)은 첫 칸에
  *   `inset 3px 0 0 var(--team)` 띠.
  * - 숫자 열 오른쪽 정렬 `mono` · 팀 순매수 ±억(600 · 부호 색) · 매수 중 팀 ≥ 30% `--team` 600 · 0% `--faint`.
  *   좁으면 `Table` 래퍼(`overflow-x-auto`)가 가로 스크롤 · 표 안 세로 스크롤 없음.
@@ -37,19 +35,6 @@ function shareClass(share: number | null): string {
   return '';
 }
 
-/**
- * window → 띠를 그을 key 판정 함수(window null · 형식 오류면 항상 false).
- * 축으로 자르지 않은 key 범위로 판정한다 — 창이 09:00 이전 · 15:40 이후여도 실제 그 key 행에만 띠(IN-03).
- * 차트가 key 93 을 슬롯 38(key 92)에 합산하므로, 창이 key 92 까지 닿으면 key 93 행에도 띠(차트 음영과 같은 칸).
- */
-function windowKeyTest(window: Pick<TeamflowWindow, 'start' | 'end'> | null): (key: number) => boolean {
-  const ks = windowKeysOf(window);
-  if (!ks) return () => false;
-  const [k0, k1] = ks;
-  const closeIn = k1 >= BUCKET_KEY_LAST && k0 <= BUCKET_KEY_CLOSE;
-  return (key) => (key >= k0 && key <= k1) || (closeIn && key === BUCKET_KEY_CLOSE);
-}
-
 export function TeamflowBucketTable({
   buckets,
   window,
@@ -57,7 +42,7 @@ export function TeamflowBucketTable({
   buckets: readonly TeamflowBucket[];
   window: Pick<TeamflowWindow, 'start' | 'end'> | null;
 }) {
-  const inWindow = windowKeyTest(window);
+  const inWindow = windowKeyTestOf(window);
   const rows = [...buckets].sort((a, b) => a.key - b.key);
 
   return (

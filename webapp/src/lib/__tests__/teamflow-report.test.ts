@@ -26,6 +26,8 @@ import {
   kpisOf,
   kstHm,
   memberBandMatrixOf,
+  memberBucketMatrixOf,
+  memberDaySplitOf,
   memberFlowOf,
   mixPctOf,
   rowDescriptionOf,
@@ -541,5 +543,45 @@ describe('mixPctOf (C-02 — 다섯 창구 공통 눈금 0~40)', () => {
     expect(mixPctOf(null, mx)).toBe(0);
     expect(mixPctOf(123, 0)).toBe(0);
     expect(mixPctOf(2 * mx, mx)).toBe(40);
+  });
+});
+
+describe('memberBucketMatrixOf (C-04 · C-14 — 10분 행렬 · buckets 전부)', () => {
+  it('천일고속 — 39행 · key [54..91, 93] · 12:00 행 · 마지막 15:30 · total 행 없음 · mx', () => {
+    const ch = newRowOf(CHEONIL);
+    const m = memberBucketMatrixOf(ch.payload!.buckets, ch.payload!.member_flow!);
+    expect(m.rows).toHaveLength(39);
+    expect(m.rows.map((r) => r.key)).toEqual([...Array.from({ length: 38 }, (_, i) => 54 + i), 93]);
+    const noon = m.rows.find((r) => r.key === 72)!;
+    expect(noon.label).toBe('12:00');
+    expect(noon.id).toBe('72');
+    expect(noon.team).toBe(720_776_500);
+    expect(noon.cells).toEqual([null, -126_760_627, null, 118_009_103, -194_062_461]);
+    expect(m.rows.at(-1)!.label).toBe('15:30');
+    expect(m.rows.some((r) => r.total || r.lim)).toBe(false);
+    expect(m.mx).toBe(298_677_201);
+  });
+
+  it('key 오름차순(원본 불변) · payload bucket 없으면 key × 10분 라벨 · 팀 null', () => {
+    const ch = newRowOf(CHEONIL);
+    const flow = ch.payload!.member_flow!;
+    const shuffled = { ...flow, buckets: [...flow.buckets].reverse() };
+    const m = memberBucketMatrixOf([], shuffled);
+    expect(m.rows[0]!.key).toBe(54);
+    expect(m.rows[0]!.label).toBe('09:00');
+    expect(m.rows[0]!.team).toBeNull();
+    expect(shuffled.buckets[0]!.key).toBe(93);
+  });
+});
+
+describe('memberDaySplitOf (C-06 — 상한가 전 · 상한가 가격 분해)', () => {
+  it('천일고속 신한 · NH · 한국 · 동양고속(상한가 가격 없음) · flow null', () => {
+    const flow = newRowOf(CHEONIL).payload!.member_flow!;
+    expect(memberDaySplitOf(flow, '00002')).toEqual({ pre: -37_477_736, lim: 805_969_886, hasLim: true });
+    expect(memberDaySplitOf(flow, '00012')).toEqual({ pre: 4_214_172, lim: -559_502_572, hasLim: true });
+    expect(memberDaySplitOf(flow, '00003')).toEqual({ pre: null, lim: -222_607_755, hasLim: true });
+    const dy = newRowOf(DONGYANG).payload!.member_flow!;
+    expect(memberDaySplitOf(dy, '00003')).toEqual({ pre: null, lim: null, hasLim: false });
+    expect(memberDaySplitOf(null, '00002')).toBeNull();
   });
 });

@@ -8,7 +8,16 @@
 import type { TeamflowBand, TeamflowBucket, TeamflowWindow } from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
-import { BUCKET_KEY_CLOSE, BUCKET_KEY_FIRST, BUCKET_SLOTS, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
+import {
+  BUCKET_KEY_CLOSE,
+  BUCKET_KEY_FIRST,
+  BUCKET_KEY_LAST,
+  BUCKET_SLOTS,
+  isNum,
+  kstHm,
+  toneOf,
+  type TeamflowTone,
+} from './teamflow-report';
 
 /** 측정 폭을 모를 때(jsdom clientWidth 0 · 첫 렌더) 쓰는 폭 — Pitfall 8. */
 export const CHART_FALLBACK_W = 640;
@@ -178,6 +187,20 @@ export function windowKeysOf(window: Pick<TeamflowWindow, 'start' | 'end'> | nul
   const k0 = Math.floor(a / 10);
   const k1 = Math.floor(b / 10);
   return k0 <= k1 ? [k0, k1] : [k1, k0];
+}
+
+/**
+ * window → 띠를 그을 key 판정 함수(window null · 형식 오류면 항상 false).
+ * 축으로 자르지 않은 key 범위로 판정한다 — 창이 09:00 이전 · 15:40 이후여도 실제 그 key 행에만 띠(IN-03).
+ * 차트가 key 93 을 슬롯 38(key 92)에 합산하므로, 창이 key 92 까지 닿으면 key 93 행에도 띠(차트 음영과 같은 칸).
+ * 「10분 표 보기」 와 「10분 거래원 표 보기」 가 같이 쓴다(띠가 어긋날 수 없게 — quick 261018-j17).
+ */
+export function windowKeyTestOf(window: Pick<TeamflowWindow, 'start' | 'end'> | null): (key: number) => boolean {
+  const ks = windowKeysOf(window);
+  if (!ks) return () => false;
+  const [k0, k1] = ks;
+  const closeIn = k1 >= BUCKET_KEY_LAST && k0 <= BUCKET_KEY_CLOSE;
+  return (key) => (key >= k0 && key <= k1) || (closeIn && key === BUCKET_KEY_CLOSE);
 }
 
 /**

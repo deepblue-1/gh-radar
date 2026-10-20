@@ -463,3 +463,23 @@ export function mixPctOf(won: number | null, mx: number): number {
   if (!isNum(won) || won === 0 || !(mx > 0)) return 0;
   return Math.round(Math.min(Math.abs(won) / mx, 1) * 40);
 }
+
+/**
+ * 거래원별 하루 블록의 분해 줄(C-06 · 재량 8) — 창구 코드로 member_flow 칸을 찾는다.
+ * pre = 「하루 합계」 칸(상한가 전 = gh-trade 하루 합계(상한가 가격 뺀 구간 합) — 다시 더하지 않는다) ·
+ * lim = 「상한가 가격」 칸(그 구간이 있을 때만 hasLim true · 미도달 종목은 hasLim false · lim null). flow null → null.
+ */
+export function memberDaySplitOf(
+  flow: TeamflowMemberFlow | null,
+  member: string,
+): { pre: number | null; lim: number | null; hasLim: boolean } | null {
+  if (flow === null) return null;
+  const at = (label: string) => {
+    const b = flow.bands.find((x) => x.label === label);
+    const v = b?.net_val?.[member];
+    return { has: b !== undefined, v: isNum(v) ? v : null };
+  };
+  const total = at('하루 합계');
+  const lim = at('상한가 가격');
+  return { pre: total.v, lim: lim.has ? lim.v : null, hasLim: lim.has };
+}

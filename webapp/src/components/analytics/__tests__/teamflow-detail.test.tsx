@@ -513,3 +513,121 @@ describe('TeamflowDetail — 등락 구간별 팀 · 거래원 순매수 (quick 
     expect(document.querySelector('[data-slot="teamflow-member-warn"]')).toBeNull();
   });
 });
+
+describe('TeamflowDetail — 「10분 거래원 표 보기」 (C-04 · quick 261018-j17)', () => {
+  const bucketMatrix = () => document.querySelector('[data-slot="teamflow-member-bucket-matrix"]') as HTMLElement | null;
+  const INSET = 'inset_3px_0_0_var(--team)';
+
+  it('기본 접힘 → 클릭 → 머리 7열 · 39행 · 12:00 행 값 · 창 띠는 12:00 첫 칸에만 · 마지막 15:30', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const btn = toggle('10분 거래원 표 보기');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(bucketMatrix()).toBeNull();
+    fireEvent.click(btn);
+    const m = bucketMatrix()!;
+    expect(Array.from(m.querySelectorAll('thead th')).map((h) => h.textContent)).toEqual([
+      '시각',
+      '팀',
+      '교보',
+      '한국',
+      '유진',
+      '신한',
+      'NH',
+    ]);
+    const trs = Array.from(m.querySelectorAll('tbody tr'));
+    expect(trs).toHaveLength(39);
+    const noon = m.querySelector('tbody tr[data-row="72"]')!;
+    expect(cellTexts(noon)).toEqual(['12:00', '+7.2', '—', '−1.3', '—', '+1.2', '−1.9']);
+    expect(noon.children[0]!.className).toContain(INSET);
+    expect(noon.children[1]!.className).not.toContain(INSET);
+    expect(m.querySelector('tbody tr[data-row="71"]')!.children[0]!.className).not.toContain(INSET);
+    expect(trs.filter((tr) => tr.children[0]!.className.includes(INSET))).toHaveLength(1);
+    expect(trs.at(-1)!.children[0]!.textContent).toBe('15:30');
+  });
+
+  it('토글 독립 — 10분 거래원 표를 열어도 다른 셋은 닫힘 · 반대도 · 옛 행엔 버튼 없음', () => {
+    const { unmount } = renderDetail(newRowOf(CHEONIL));
+    const LABELS = ['구간표 보기', '10분 거래원 표 보기', '10분 표 보기', '판정 기준'];
+    const state = () => LABELS.map((l) => toggle(l).getAttribute('aria-expanded'));
+    fireEvent.click(toggle('10분 거래원 표 보기'));
+    expect(state()).toEqual(['false', 'true', 'false', 'false']);
+    fireEvent.click(toggle('10분 거래원 표 보기'));
+    fireEvent.click(toggle('구간표 보기'));
+    fireEvent.click(toggle('10분 표 보기'));
+    fireEvent.click(toggle('판정 기준'));
+    expect(state()).toEqual(['true', 'false', 'true', 'true']);
+    unmount();
+    renderDetail(rowOf(CHEONIL));
+    expect(screen.queryByRole('button', { name: '10분 거래원 표 보기' })).toBeNull();
+  });
+});
+
+describe('TeamflowDetail — 거래원별 하루 순매수 억 모드 (C-06 · C-14 · quick 261018-j17)', () => {
+  const membersBox = () => document.querySelector('[data-slot="teamflow-members"]') as HTMLElement;
+  const memberRows = () => Array.from(membersBox().querySelectorAll<HTMLElement>('[data-slot="teamflow-member-row"]'));
+  const subs = () =>
+    Array.from(membersBox().querySelectorAll<HTMLElement>('[data-slot="teamflow-member-sub"]')).map((e) => e.textContent);
+  const nets = () => memberRows().map((r) => r.querySelector('[data-slot="teamflow-member-net"]')!.textContent);
+  const SOURCE_NOTE =
+    '큰 숫자 = 마지막 거래원 집계의 하루 누적 · 아랫줄 「상한가 전 · 상한가 가격」 = 그 누적을 체결 구간에 나눈 추정이라 더해도 큰 숫자와 다를 수 있다(출처가 다르다)';
+
+  it('천일고속 — 소제목 · net_val 순 · 큰 숫자 억 · 아랫줄 분해 · 막대 · title · 범례 · 출처 캡션 · 상위 5 밖 · 참고 줄', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const box = membersBox();
+    expect(within(box).getByText('거래원별 하루 순매수')).toBeTruthy();
+    expect(within(box).queryByText('다섯 창구 거래원')).toBeNull();
+    expect(memberRows().map((r) => r.getAttribute('data-member'))).toEqual(['신한', '한국', 'NH', '교보']);
+    expect(nets()).toEqual(['+8.0억', '−2.2억', '−5.2억', '—']);
+    expect(subs()).toEqual([
+      '매수 31.3억 · 매도 23.2억 · 상한가 전 −0.4억 · 상한가 가격 +8.1억',
+      '매수 21.1억 · 매도 23.3억 · 상한가 전 — · 상한가 가격 −2.2억',
+      '매수 18.7억 · 매도 23.8억 · 상한가 전 0.0억 · 상한가 가격 −5.6억',
+      '매수 15.6억 · 매도 — · 상한가 전 — · 상한가 가격 —',
+    ]);
+    const sh = memberRows()[0]!;
+    expect(sh.querySelector<HTMLElement>('[data-slot="teamflow-member-buy"]')!.style.width).toBe('100%');
+    expect(parseFloat(sh.querySelector<HTMLElement>('[data-slot="teamflow-member-sell"]')!.style.width)).toBeCloseTo(
+      (2_324_330_100 / 3_129_112_950) * 100,
+      6,
+    );
+    expect(sh.getAttribute('title')).toBe('신한 · 매수 31.3억 · 매도 23.2억');
+    expect(within(box).getByText('오른쪽 = 순매수(억)')).toBeTruthy();
+    expect(within(box).queryByText('오른쪽 = 순매수(주)')).toBeNull();
+    expect(box.querySelector('[data-slot="teamflow-member-source-note"]')!.textContent).toBe(SOURCE_NOTE);
+    expect(within(box).getByText('상위 5 밖: 유진')).toBeTruthy();
+    expect(within(box).getByText('참고: 매수 1위 키움증권 17,487주 · 매도 1위 키움증권 20,192주')).toBeTruthy();
+  });
+
+  it('동양고속 실샘플(상한가 가격 없음) — [한국, NH] · 분해 없음 · 출처 캡션 없음', () => {
+    renderDetail(newRowOf(DONGYANG));
+    expect(memberRows().map((r) => r.getAttribute('data-member'))).toEqual(['한국', 'NH']);
+    expect(nets()).toEqual(['+0.7억', '−3.4억']);
+    expect(subs()).toEqual(['매수 44.8억 · 매도 44.2억', '매수 64.8억 · 매도 68.2억']);
+    expect(within(membersBox()).getByText('상위 5 밖: 교보 · 유진 · 신한')).toBeTruthy();
+    expect(membersBox().querySelector('[data-slot="teamflow-member-source-note"]')).toBeNull();
+  });
+
+  it('금액 정렬이 수량 정렬과 다르면 금액 순(합성 2행)', () => {
+    const ch = newRowOf(CHEONIL);
+    const m = ch.payload!.members!;
+    renderDetail(
+      withPayload(ch, {
+        members: {
+          ...m,
+          rows: [
+            { member: '00002', name: '신한', buy: 200, sell: 100, net: 100, buy_val: 1e8, sell_val: 3e8, net_val: -2e8 },
+            { member: '00003', name: '한국', buy: 50, sell: 100, net: -50, buy_val: 5e8, sell_val: 1e8, net_val: 4e8 },
+          ],
+        },
+      }),
+    );
+    expect(memberRows().map((r) => r.getAttribute('data-member'))).toEqual(['한국', '신한']);
+  });
+
+  it('member_flow null + 금액 있음 → 억 모드 · 아랫줄 매수 · 매도만 · 출처 캡션 없음', () => {
+    renderDetail(withPayload(newRowOf(CHEONIL), { member_flow: null }));
+    expect(within(membersBox()).getByText('거래원별 하루 순매수')).toBeTruthy();
+    expect(subs()[0]).toBe('매수 31.3억 · 매도 23.2억');
+    expect(membersBox().querySelector('[data-slot="teamflow-member-source-note"]')).toBeNull();
+  });
+});

@@ -16,6 +16,7 @@ import {
   chartWidthOf,
   firstLimitXOf,
   stripBarsOf,
+  windowKeyTestOf,
   windowKeysOf,
   windowSlotsOf,
 } from '../teamflow-chart';
@@ -362,5 +363,25 @@ describe('bucketChartOf (39칸 고정축 · 높이 228)', () => {
     expect(g.bars).toEqual([]);
     expect(g.hits).toHaveLength(1);
     expect(g.rates).toHaveLength(1);
+  });
+});
+
+describe('windowKeyTestOf (10분 표 · 10분 거래원 표 공용 띠 판정 — quick 261018-j17)', () => {
+  it('12:00~12:09 → 72 만 · null → 늘 거짓 · 15:10~15:29(key 91~92) → 93 도 · 08:20~08:39 → 50 · 51', () => {
+    const noon = windowKeyTestOf({ start: '12:00', end: '12:09' });
+    expect(noon(72)).toBe(true);
+    expect(noon(71)).toBe(false);
+    expect(noon(73)).toBe(false);
+    const none = windowKeyTestOf(null);
+    expect(none(72)).toBe(false);
+    expect(none(93)).toBe(false);
+    const close = windowKeyTestOf({ start: '15:10', end: '15:29' });
+    expect(close(91)).toBe(true);
+    expect(close(92)).toBe(true);
+    expect(close(93)).toBe(true);
+    const early = windowKeyTestOf({ start: '08:20', end: '08:39' });
+    expect(early(50)).toBe(true);
+    expect(early(51)).toBe(true);
+    expect(early(54)).toBe(false);
   });
 });

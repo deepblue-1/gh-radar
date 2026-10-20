@@ -2,7 +2,14 @@
 
 import type { TeamflowRow } from '@gh-radar/shared';
 
-import { factLineOf, memberBandMatrixOf, memberFlowOf, summaryPartsOf } from '@/lib/teamflow-report';
+import { windowKeyTestOf } from '@/lib/teamflow-chart';
+import {
+  factLineOf,
+  memberBandMatrixOf,
+  memberBucketMatrixOf,
+  memberFlowOf,
+  summaryPartsOf,
+} from '@/lib/teamflow-report';
 
 import { TeamflowBandChart } from './teamflow-band-chart';
 import { TeamflowBandTable } from './teamflow-band-table';
@@ -40,7 +47,7 @@ const RULES = [
  * - 상세 맨 아래 「판정 기준」 접힘(UI-SPEC T9 — 6항목 + 출처 줄). 세 토글 모두 기본 접힘 · 서로 독립 · 행을 접으면 초기화.
  * - (quick 261018-j17) 새 키 `payload.member_flow` 가 있을 때만 2열 바로 아래 「등락 구간별 팀 · 거래원 순매수」 블록
  *   (`teamflow-member-flow` — 소제목 · 경고(거래원 = 창구 전체 추정 · 더해도 팀 순매수 아님 · 상위 5 밖 = 모름) · 구간 행렬 ·
- *   캡션). 경고가 행렬 앞에 한 번 오도록 출처(거래원)별로 묶었다(목업 016 안 B). 옛 행 = 블록 없음(C-07).
+ *   캡션 · 「10분 거래원 표 보기」 접힘 행렬 — buckets 전부 · 창 띠). 경고가 두 행렬 앞에 한 번 오도록 출처(거래원)별로 묶었다(목업 016 안 B). 옛 행 = 블록 없음(C-07).
  * - 2열 아래 전폭 = 10분 흐름 블록(UI-SPEC T8 · D-13 — 39칸 고정축 차트 · 세로 블록 사이 16px) → 8px 「10분 표 보기」 접힘 표.
  */
 export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelledBy: string }) {
@@ -113,7 +120,7 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
           </div>
         </div>
         <div className="min-w-0">
-          <TeamflowMembers members={row.payload?.members ?? null} />
+          <TeamflowMembers members={row.payload?.members ?? null} memberFlow={flow} />
         </div>
       </div>
 
@@ -143,6 +150,19 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
           <p className="m-0 mt-1 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep">
             색 진하기 = 다섯 창구 안에서 크기 · 팀 열은 색 없음(출처가 달라 한 눈금에 섞지 않는다) · 「—」 = 모름
           </p>
+          <div className="mt-2">
+            <TeamflowToggle label="10분 거래원 표 보기" tone="accent">
+              <p className="m-0 mb-2 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                {row.payload?.window ? '단위 억 · 왼쪽 띠 = 팀 최대 매집 창' : '단위 억'}
+              </p>
+              <TeamflowMemberMatrix
+                kind="bucket"
+                matrix={memberBucketMatrixOf(row.payload?.buckets ?? [], flow)}
+                inWindow={windowKeyTestOf(row.payload?.window ?? null)}
+                caption={`${name} 10분 팀 · 거래원 순매수(억)`}
+              />
+            </TeamflowToggle>
+          </div>
         </div>
       )}
 
