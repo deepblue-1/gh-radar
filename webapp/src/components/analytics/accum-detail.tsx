@@ -8,10 +8,13 @@ import { DmaGate, type DmaGateReason } from '@/components/trading/dma-gate';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { accumDetailCacheKey, fetchAccumDetail } from '@/lib/accum-api';
+import { clampView, dayBoundsOf, type View } from '@/lib/accum-chart';
 import { detailKpisOf } from '@/lib/accum-report';
 import { readQueryCache } from '@/lib/query-cache';
 import { TONE_TEXT } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
+
+import { AccumChart } from './accum-chart';
 
 /**
  * 매집감지 펼친 상세 셸 (Phase 34 · UI-SPEC A4 상세 셸 · A5 KPI 줄 · D-06 · D-18 · D-19).
@@ -33,6 +36,13 @@ type Phase =
   | { kind: 'gate'; reason: DmaGateReason }
   | { kind: 'missing' }
   | { kind: 'ready'; row: AccumDetailRow };
+
+/** 기본 보기 창 = 하루 전체 09:00~20:00(D-14) — 34-07 이 확대/이동 훅(use-chart-view)으로 바꾼다. */
+function fullViewOf(row: AccumDetailRow): View | null {
+  if (row.payload === null) return null;
+  const { T0, T2000 } = dayBoundsOf(row.payload.price.t0_ms);
+  return clampView({ t0: T0, t1: T2000 }, T0, T2000);
+}
 
 function phaseOf(resp: AccumDetailResponse): Phase {
   if (!resp.access) return { kind: 'gate', reason: 'unmapped' };
@@ -132,8 +142,14 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
               </span>
             ))}
           </div>
+          <ReadyChart row={phase.row} />
         </div>
       )}
     </section>
   );
+}
+
+function ReadyChart({ row }: { row: AccumDetailRow }) {
+  const view = fullViewOf(row);
+  return view === null ? null : <AccumChart row={row} view={view} />;
 }

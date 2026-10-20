@@ -40,7 +40,10 @@ describe('accum-chart — 창 · x (D-14)', () => {
   it('clampView — 10분 미만은 MIN_VIEW_MS 로 넓히고 T0 앞이면 T0 시작 · 12h 는 [T0, T2000]', () => {
     const { T2000 } = dayBoundsOf(T0);
     expect(MIN_VIEW_MS).toBe(10 * M);
-    expect(clampView({ t0: T0 - H, t1: T0 + 5 * M }, T0, T2000)).toEqual({ t0: T0, t1: T0 + 10 * M });
+    // 폭 5분 · T0 앞 → 폭 10분 · 시작 T0
+    expect(clampView({ t0: T0 - H, t1: T0 - H + 5 * M }, T0, T2000)).toEqual({ t0: T0, t1: T0 + 10 * M });
+    // 폭 65분 · T0 앞 → 폭은 지키고 시작만 T0
+    expect(clampView({ t0: T0 - H, t1: T0 + 5 * M }, T0, T2000)).toEqual({ t0: T0, t1: T0 + 65 * M });
     expect(clampView({ t0: T0 - H, t1: T0 + 11 * H }, T0, T2000)).toEqual({ t0: T0, t1: T2000 });
     // 오른쪽 끝을 넘으면 폭을 지키고 T2000 에 붙는다
     expect(clampView({ t0: T2000 - 10 * M, t1: T2000 + 50 * M }, T0, T2000)).toEqual({ t0: T2000 - H, t1: T2000 });
