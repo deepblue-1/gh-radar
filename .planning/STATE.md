@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-06-PLAN.md
-last_updated: "2026-10-20T14:01:42.612Z"
+stopped_at: Completed 34-07-PLAN.md
+last_updated: "2026-10-20T14:12:45.737Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: 948c716b5cdd4bbe01e3f112a0562bf64a0d91d4
+state_head: 529c8da68fc18967c4f6ae47e727b153f297a601
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 47
+  completed_plans: 48
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 8 of 13
+Plan: 9 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T14:01:42.543Z
-Stopped at: Completed 34-06-PLAN.md
+Last session: 2026-10-20T14:12:45.668Z
+Stopped at: Completed 34-07-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -140,6 +140,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P04 | 7min | 2 tasks | 9 files |
 | Phase 34 P05 | 4min | 3 tasks | 3 files |
 | Phase 34 P06 | 11min | 3 tasks | 11 files |
+| Phase 34 P07 | 9min | 2 tasks | 9 files |
 
 ## Decisions
 
@@ -213,3 +214,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-05: D-03 팀 매집 단언은 team_flow 행 있는 날짜를 함께 적재해 dates 정확 비교로 강화(빈 배열 우연 통과 방지)
 - [Phase 34]: 34-06: 상세 차트 시각 눈금은 KST 자정 기준 정렬(2h = 10·12·…·20) · 세로선/라벨은 창 안 것만 clipPath 밖에 그린다
 - [Phase 34]: 34-06: 「팀 체결 없음」 은 판마다 해당 배열 기준(누적 = day_cum_net · 10분 = buckets) · shadeOf 는 첫 사이클 since 가 그날과 다르면 null
+- [Phase 34]: 34-07: 제스처는 schedule(fn) 하나로 대기 창에 합성 → 프레임당 setState 1회 · 창 불변이면 false 를 돌려 휠을 페이지로 넘긴다(ctrlKey 는 늘 preventDefault)
+- [Phase 34]: 34-07: 확대 폭은 [10분, 하루] 로 먼저 자른 정확한 값 — 10분 창에서 더 확대해도 창이 밀리지 않고 넘김
+- [Phase 34]: 34-07: 키보드는 Alt·Ctrl·Meta 조합을 처리하지 않는다(⌘= · ⌘0 브라우저 확대 보존) · 끌기 방향은 목업 C(내용을 잡아 끈다)
