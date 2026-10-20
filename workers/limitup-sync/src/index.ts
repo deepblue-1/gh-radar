@@ -8,6 +8,7 @@ import { KNOWN_SCHEMA_VERSIONS, filesSig, listExportDates, readManifest, verifyF
 import {
   EXPORT_TABLES,
   OPTIONAL_FILES,
+  accumRowProblems,
   commitDay,
   readNdjsonGz,
   stageDay,
@@ -37,7 +38,8 @@ export { kstYmdDaysAgo } from "./purge";
  *   격자 재업로드를 건너뛰고, 실패해도 그 날짜를 unpublish 하지 않는다 — 실패 날짜로만 남는다 · WR-01) →
  *   files sha256 대조(불일치 · 없는 파일이면 skip "sha") → 6 ndjson.gz 읽기(행 수 == manifest rows) →
  *   선택 파일 `OPTIONAL_FILES` 순회(manifest 에 있을 때만 · 행 수 == manifest rows · 없으면 0행 — Phase 33 D-02 ·
- *   Phase 34 D-02): `team_flow.ndjson.gz`(팀 매집) · `accum_flow.ndjson.gz`(매집감지 — 원문 그대로 · 1행 청크) →
+ *   Phase 34 D-02): `team_flow.ndjson.gz`(팀 매집) · `accum_flow.ndjson.gz`(매집감지 — 원문 그대로 · 1행 청크 · 결함이면
+ *   그 표만 0행 · 기대 수 키 없이 적재하고 `degraded` → 종료 1 — 34 WR-02) →
  *   격자 `grid/<isin>.json.gz` 읽기 → 파생 2표(`gridSummaryOf` · `memberDailyOf` — D-17, gh-trade 정의) →
  *   `limitup_stage_clear` → 격자 Storage 업로드(commit **앞** — D-14 · grid.ts 순서 계약) →
  *   `limitup_stage` 청크 insert(6표 + grid_summary + member_daily · 선택 표는 표마다 자기 작은 청크로 따로) →
@@ -82,6 +84,9 @@ export type SkipReason = "schema" | "sha" | "manifest";
 /** skip 이 아닌 오류로 끝난 날짜 하나(CR-B01) — 사유 메시지와 함께. */
 export type FailedDay = { date: string; error: string };
 
+/** 결함으로 0행 적재한 선택 표 하나(34 WR-02) — 그 날짜의 다른 표는 적재됐다. */
+export type DegradedTbl = { date: string; tbl: OptionalTbl; problems: string[] };
+
 export type DispatchResult = {
   dryRun: boolean;
   since: string;
@@ -104,6 +109,8 @@ export type DispatchResult = {
   failed: FailedDay[];
   /** `LIMITUP_SKIP_DATES` 로 운영자가 뺀 날짜 — 읽지도 기록하지도 않는다. */
   excluded: string[];
+  /** 결함 선택 파일(accum_flow)만 0행으로 내리고 적재한 날짜 · 표(34 WR-02) — 하나라도 있으면 main 종료 1(알림). */
+  degraded: DegradedTbl[];
   /** export 신선도(WR-B01) — `stale` 이면 main 종료 1. */
   freshness: Freshness;
   /** run 끝 보존 정리 실패 — 적재는 끝났다. main 이 종료 1 로 판정(WR-R2-02). 정상 · dry-run 이면 null. */
@@ -173,6 +180,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     alertDates: [],
     failed: [],
     excluded: [],
+    degraded: [],
     freshness: freshnessOf(dates, since, now),
     purgeError: null,
   };
@@ -272,13 +280,34 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     }
 
     // 선택 파일(33 D-02 · 34 D-02) — 있으면 행 수 대조, 없으면 0행. counts.<tbl> 는 늘 기록(0 포함 — commit 이 키를 본다).
+    // accum_flow 결함(행 수 불일치 · accumRowProblems — 34 WR-02)은 그 표만 0행으로 내리고 기대 수에서 키를 뺀다 —
+    // commit 대조는 coalesce(…, 0) = 0 으로 통과하고 limitup_loads.rows 에 키가 안 남아, 다음 run 이 backfill 경로(격리 ·
+    // unpublish 없음)로 다시 본다. 「선택」 파일 하나 때문에 새 날짜의 상한가 6표 · team_flow 까지 그날 비지 않게.
+    // 단 backfill 대상이 전부 그 결함 표뿐이면 다시 실어도 바뀌는 것이 없다 — 지금처럼 그 날짜 failed(record_skip load · 종료 1).
     const optionalRows = {} as Record<OptionalTbl, Row[]>;
+    const omitTbls = new Set<OptionalTbl>();
+    const degraded: DegradedTbl[] = [];
     for (const o of optional) {
       let rows: Row[] = [];
       if (o.entry) {
         rows = readNdjsonGz(join(config.exportDir, date, o.file));
-        if (rows.length !== o.entry.rows) {
-          throw new Error(`${date}: ${o.file} rows ${rows.length} != manifest ${o.entry.rows}`);
+        const countBad = rows.length !== o.entry.rows ? `${o.file} rows ${rows.length} != manifest ${o.entry.rows}` : null;
+        if (o.tbl !== "accum_flow") {
+          if (countBad) throw new Error(`${date}: ${countBad}`);
+        } else {
+          const problems = [...(countBad ? [countBad] : []), ...accumRowProblems(date, rows)];
+          if (problems.length > 0) {
+            if (backfill && backfillTbls.every((t) => t === o.tbl)) {
+              throw new Error(`${date}: ${o.file} invalid — ${problems.join("; ")}`);
+            }
+            log.warn(
+              { date, tbl: o.tbl, problems },
+              "limitup optional file invalid — 그 표만 0행 · 기대 수 키 없이 적재 · 다음 run backfill 로 재확인",
+            );
+            degraded.push({ date, tbl: o.tbl, problems });
+            omitTbls.add(o.tbl);
+            rows = [];
+          }
         }
       }
       optionalRows[o.tbl] = rows;
@@ -304,6 +333,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 
     if (dryRun || !sb) {
       result.grids += grids.length;
+      result.degraded.push(...degraded);
       return;
     }
 
@@ -324,7 +354,8 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
         manifestSha256: mr.sha256,
         filesSig: sig,
         schemaVersion: m.schema_version,
-        expected: counts,
+        // 결함으로 내린 선택 표는 키째 뺀다(34 WR-02 — rows 이력에 키가 안 남아야 다음 run 이 backfill 로 다시 본다).
+        expected: Object.fromEntries(Object.entries(counts).filter(([k]) => !omitTbls.has(k as OptionalTbl))),
       });
       commitMs = Date.now() - commitStart;
     } catch (err) {
@@ -352,6 +383,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       );
     }
     result.loaded.push(date);
+    result.degraded.push(...degraded);
   };
 
   for (const date of dates) {
@@ -401,9 +433,9 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 }
 
 /**
- * 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · 정리 실패 1(WR-R2-02) ·
- * stale 1(WR-B01) · 예외 1(사유 로그). 캘린더 seed 만료(IN-R2-02)는 warn 만 — 종료 코드 영향 없음.
- * 로그 순서: calendar warn → stale error → (실패 날짜 | alert | 정리 실패) error. stale 은 다른 판정에 가려지지 않는다.
+ * 실행 1회 → 종료 코드(D-20): skip 만 0 · 같은 날짜 3연속 skip 1 · 실패 날짜 1(CR-B01) · 결함 선택 파일 1(34 WR-02) ·
+ * 정리 실패 1(WR-R2-02) · stale 1(WR-B01) · 예외 1(사유 로그). 캘린더 seed 만료(IN-R2-02)는 warn 만 — 종료 코드 영향 없음.
+ * 로그 순서: calendar warn → stale error → (실패 날짜 | alert | 결함 선택 파일 | 정리 실패) error. stale 은 다른 판정에 가려지지 않는다.
  */
 export async function main(argv: string[] = process.argv, now?: Date): Promise<number> {
   try {
@@ -428,6 +460,11 @@ export async function main(argv: string[] = process.argv, now?: Date): Promise<n
     }
     if (result.alert) {
       logger.error({ result }, "limitup-sync alert — 같은 날짜 3회 연속 skip");
+      return 1;
+    }
+    if (result.degraded.length > 0) {
+      // 그날 핵심 표는 적재됐지만 선택 파일이 깨졌다(34 WR-02) — gh-trade export 를 고쳐야 하므로 실패 실행으로 알린다.
+      logger.error({ degraded: result.degraded }, "limitup-sync optional file invalid — 그 표만 0행 적재(gh-trade export 확인)");
       return 1;
     }
     if (result.purgeError) {

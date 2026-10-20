@@ -18,6 +18,8 @@ export type StageTbl = ExportTbl | "grid_summary" | "member_daily" | "team_flow"
 /**
  * 선택 파일 표(Phase 33 D-02 · Phase 34 D-02) — manifest `files[]` 에 있을 때만 적재하고(없으면 0행 commit),
  * 필수 6표 루프(`EXPORT_TABLES`)에는 넣지 않는다 — 없다고 그 날짜가 실패하면 안 된다.
+ * accum_flow 는 파일이 **깨져도**(행 수 불일치 · `accumRowProblems`) 첫 적재에서는 0행 · 기대 수 키 없이 싣는다(34 WR-02 —
+ * index.ts). team_flow 는 지금처럼 행 수가 다르면 그 날짜 실패.
  * 행은 export 원문 그대로 stage 한다(33 D-04 · 34 D-05 — 단위 변환 · 키 재조립 없음).
  */
 export type OptionalTbl = "team_flow" | "accum_flow";
@@ -36,6 +38,56 @@ export const OPTIONAL_FILES: readonly { tbl: OptionalTbl; file: string; chunk: n
 ];
 
 export type Row = Record<string, unknown>;
+
+/**
+ * accum_flow 평평한 열 중 숫자형 — 표 정의(supabase/migrations/20261020200000_limitup_accum_flow.sql)와 같은 목록.
+ * `jsonb_populate_record` 는 JSON 숫자 텍스트를 열 입력 함수에 그대로 넣으므로 29.78 이 bigint 열에 가면 그날 commit
+ * 전체가 롤백된다(상한가 6표 · team_flow 까지) — 그래서 stage 전에 워커가 먼저 본다(`accumRowProblems` · 34 WR-02).
+ */
+const ACCUM_BIGINT_COLS = [
+  "base", "upper", "last_px", "high_px", "reg_time_ms", "end_time_ms", "our_excluded_qty", "mcap_krw",
+  "th_net_krw", "th_same", "th_mcap_krw", "pos_buy_qty", "pos_buy_krw", "pos_sell_qty", "pos_sell_krw",
+  "pos_net_krw", "pos_avg_px", "pos_peak_net_krw", "pos_reg_px", "day_buy_krw", "day_sell_krw", "day_net_krw",
+  "day_buy_qty", "day_sell_qty",
+] as const;
+const ACCUM_INT4_COLS = ["state", "end_reason", "cycle", "carry_days", "schema_version"] as const;
+const ACCUM_FLOAT_COLS = ["last_rate", "high_rate"] as const;
+const INT4_MAX = 2_147_483_647;
+/** 문제 목록 상한 — 로그 한 줄에 다 싣지 않는다. */
+const PROBLEMS_MAX = 5;
+
+/**
+ * accum_flow 행이 commit RPC 를 깨뜨릴 결함 목록(34 WR-02 · 비면 정상) — 날짜 불일치(payload 날짜 대조) ·
+ * isin 결측 · 같은 isin 두 줄(PK 위반) · 정수 열(bigint · integer)에 정수 아닌 값 · 실수 열에 숫자 아닌 값.
+ * null · 키 없음은 통과(열이 null 허용). 처음 `PROBLEMS_MAX` 개만 돌려준다.
+ */
+export function accumRowProblems(date: string, rows: readonly Row[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const isNil = (v: unknown) => v === null || v === undefined;
+  rows.forEach((r, i) => {
+    const at = `row ${i + 1}`;
+    if (r.date !== date) out.push(`${at} date ${String(r.date)} != ${date}`);
+    const isin = r.isin;
+    if (typeof isin !== "string" || isin === "") out.push(`${at} isin missing`);
+    else if (seen.has(isin)) out.push(`${at} isin ${isin} duplicate`);
+    else seen.add(isin);
+    for (const c of ACCUM_BIGINT_COLS) {
+      if (!isNil(r[c]) && !Number.isSafeInteger(r[c])) out.push(`${at} ${c} not integer: ${JSON.stringify(r[c])}`);
+    }
+    for (const c of ACCUM_INT4_COLS) {
+      const v = r[c];
+      if (!isNil(v) && !(Number.isInteger(v) && Math.abs(v as number) <= INT4_MAX)) {
+        out.push(`${at} ${c} not int4: ${JSON.stringify(v)}`);
+      }
+    }
+    for (const c of ACCUM_FLOAT_COLS) {
+      const v = r[c];
+      if (!isNil(v) && !(typeof v === "number" && Number.isFinite(v))) out.push(`${at} ${c} not number: ${JSON.stringify(v)}`);
+    }
+  });
+  return out.slice(0, PROBLEMS_MAX);
+}
 
 /** gzip 해제 → 줄 분리 → JSON.parse(빈 줄 무시). */
 export function readNdjsonGz(path: string): Row[] {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeFakeSupabase, type Call } from "./helpers/fake-supabase";
 import { filesSig, type Manifest } from "../src/manifest";
-import { EXPORT_TABLES, readNdjsonGz } from "../src/load";
+import { EXPORT_TABLES, accumRowProblems, readNdjsonGz } from "../src/load";
 
 const FIXTURE = join(__dirname, "fixtures", "export");
 const DATE = "20261002";
@@ -66,6 +66,32 @@ describe("readNdjsonGz", () => {
     }
     const facts = readNdjsonGz(join(FIXTURE, DATE, "facts.ndjson.gz"));
     expect(typeof facts[0].values).toBe("object"); // facts.values 는 문자열 아닌 객체(→ jsonb)
+  });
+});
+
+describe("accumRowProblems(34 WR-02 — commit RPC 를 깨뜨릴 accum_flow 결함)", () => {
+  const AF = readNdjsonGz(join(__dirname, "fixtures", "accum_flow", "20261014", "accum_flow.ndjson.gz"));
+
+  it("10/14 실측 픽스처 6행 → 결함 없음 · null 열은 통과", () => {
+    expect(accumRowProblems("20261014", AF)).toEqual([]);
+    expect(accumRowProblems("20261014", [{ ...AF[0], end_time_ms: null, last_rate: null, state: undefined }])).toEqual([]);
+  });
+
+  it("날짜 불일치 · isin 결측 · isin 중복 · bigint 소수 · int4 범위 밖 · 실수 열 문자열", () => {
+    const rows = [
+      { ...AF[0], date: "20261013" },
+      { ...AF[1], isin: "" },
+      { ...AF[2] },
+      { ...AF[2], pos_avg_px: 1234.5 },
+      { ...AF[3], carry_days: 2 ** 31, high_rate: "29.78" },
+    ];
+    expect(accumRowProblems("20261014", rows)).toEqual([
+      "row 1 date 20261013 != 20261014",
+      "row 2 isin missing",
+      `row 4 isin ${AF[2].isin} duplicate`,
+      "row 4 pos_avg_px not integer: 1234.5",
+      "row 5 carry_days not int4: 2147483648",
+    ]); // 처음 5개만(high_rate 는 잘림)
   });
 });
 

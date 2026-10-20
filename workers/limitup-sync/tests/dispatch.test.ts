@@ -592,6 +592,26 @@ function addAccumFlowDay(date: string, manifestRows = 6, opts: { teamFlow?: bool
 
 const afRowsOf = (calls: Call[]) => inserts(calls).filter((i) => i.rows.some((r) => r.tbl === "accum_flow"));
 
+/** accum_flow 픽스처 행을 고쳐 다시 gzip — manifest rows · sha256 은 고친 파일 그대로(34 WR-02 결함 흉내). */
+function addBadAccumFlowDay(date: string, mutate: (rows: Record<string, unknown>[]) => Record<string, unknown>[], opts: { teamFlow?: boolean } = {}) {
+  const rows = mutate(AF_ROWS.map((r) => ({ ...r })));
+  const bytes = gzipSync(rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  addDay(date, (m) => ({
+    ...m,
+    files: [
+      ...m.files,
+      ...(opts.teamFlow ? [{ name: "team_flow.ndjson.gz", rows: 34, sha256: TF_SHA }] : []),
+      { name: "accum_flow.ndjson.gz", rows: rows.length, sha256: sha },
+    ],
+  }));
+  writeFileSync(join(dir, date, "accum_flow.ndjson.gz"), bytes);
+  if (opts.teamFlow) cpSync(TF_FIXTURE, join(dir, date, "team_flow.ndjson.gz"));
+}
+/** EXPECTED10 에서 accum_flow 키를 뺀 9키 — 결함으로 내린 날짜의 commit 기대 수(34 WR-02). */
+const { accum_flow: _af, ...EXPECTED9 } = EXPECTED10;
+const invalidWarns = () => log.calls.warn.filter((w) => w.msg.startsWith("limitup optional file invalid"));
+
 describe("dispatch — accum_flow 선택 파일(D-02)", () => {
   it("파일이 있으면 6행을 1행 청크(insert 6회 · seq 1..6 · payload = export 원문)로 stage · p_expected.accum_flow 6", async () => {
     expect(AF_ROWS).toHaveLength(6);
@@ -636,17 +656,21 @@ describe("dispatch — accum_flow 선택 파일(D-02)", () => {
     expect(out.totals.accum_flow).toBe(6);
   });
 
-  it("manifest rows ≠ 파일 행 수면 그 날짜만 failed(사유 문구) · 뒤 날짜는 적재된다", async () => {
-    addAccumFlowDay("20261003", 5);
-    addAccumFlowDay("20261014");
+  it("manifest rows ≠ 파일 행 수 → 그 표만 0행 · 기대 수에 accum_flow 키 없음 · 6표는 적재 · degraded(34 WR-02)", async () => {
+    addDay(GOOD);
+    addAccumFlowDay("20261014", 5);
     const { out, fake } = await run({ recordSkip: 1 });
-    expect(out.failed).toEqual([
-      { date: "20261003", error: expect.stringContaining("accum_flow.ndjson.gz rows 6 != manifest 5") },
+    expect(out.failed).toEqual([]);
+    expect(out.loaded).toEqual([GOOD, "20261014"]);
+    expect(commitFor(fake.calls, "20261014").args.p_expected).toEqual(EXPECTED9);
+    expect(commitFor(fake.calls, GOOD).args.p_expected).toEqual(EXPECTED10);
+    expect(out.degraded).toEqual([
+      { date: "20261014", tbl: "accum_flow", problems: ["accum_flow.ndjson.gz rows 6 != manifest 5"] },
     ]);
-    expect(out.loaded).toEqual(["20261014"]);
-    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual(["20261014"]);
-    // 실패 날짜는 stage 까지 가지 않는다(행 수 대조가 읽기 단계에서 끊는다)
-    expect(afRowsOf(fake.calls).every((i) => i.rows.every((r) => r.date === "20261014"))).toBe(true);
+    expect(invalidWarns().map((w) => w.obj.date)).toEqual(["20261014"]);
+    // 결함 날짜는 accum_flow 를 stage 하지 않는다
+    expect(afRowsOf(fake.calls)).toEqual([]);
+    expect(rpcs(fake.calls, "limitup_record_skip")).toEqual([]);
   });
 
   it("team_flow · accum_flow 둘 다 있는 날은 표마다 자기 청크(team_flow 20 · 14 / accum_flow 1 × 6) · 기대 수 둘 다", async () => {
@@ -658,6 +682,58 @@ describe("dispatch — accum_flow 선택 파일(D-02)", () => {
     for (const i of inserts(fake.calls)) expect(new Set(i.rows.map((r) => r.tbl)).size).toBe(1);
     expect(commitFor(fake.calls, "20261014").args.p_expected).toEqual({ ...EXPECTED10, team_flow: 34, accum_flow: 6 });
     expect(out.totals).toMatchObject({ team_flow: 34, accum_flow: 6 });
+  });
+});
+
+describe("dispatch — accum_flow 결함은 그 표만 내린다(34 WR-02)", () => {
+  const sigOf = (date: string) => {
+    const r = readManifest(dir, date);
+    if (!r.ok) throw new Error(r.reason);
+    return filesSig(r.manifest);
+  };
+  const TF0_ROWS: Record<string, number> = { ...STAGED8, team_flow: 0 };
+
+  it("정수 열에 소수(pos_avg_px 1234.5) → 6표 적재 · accum_flow insert 0 · 기대 수 키 없음 · warn · main 종료 1", async () => {
+    addBadAccumFlowDay("20261014", (rows) => rows.map((r, i) => (i === 2 ? { ...r, pos_avg_px: 1234.5 } : r)));
+    const fake = makeFakeSupabase();
+    const { main } = await loadIndex(fake);
+    expect(await main(["node", "index.ts"], NOW)).toBe(1);
+    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_expected)).toEqual([EXPECTED9]);
+    expect(afRowsOf(fake.calls)).toEqual([]);
+    expect(invalidWarns()[0].obj).toEqual({ date: "20261014", tbl: "accum_flow", problems: ["row 3 pos_avg_px not integer: 1234.5"] });
+    expect(log.calls.error.map((e) => e.msg)).toEqual(["limitup-sync optional file invalid — 그 표만 0행 적재(gh-trade export 확인)"]);
+  });
+
+  it("같은 isin 두 줄(PK 위반) → 그 표만 내린다 · dry-run 도 degraded 에 남는다", async () => {
+    addBadAccumFlowDay("20261014", (rows) => [...rows, { ...rows[0] }]);
+    const { out } = await run({}, { dryRun: true });
+    expect(out.degraded).toEqual([
+      { date: "20261014", tbl: "accum_flow", problems: ["row 7 isin KR7000650002 duplicate"] },
+    ]);
+    expect(out.rows["20261014"].accum_flow).toBe(0);
+  });
+
+  it("다음 run(이력 키 없음 · 같은 sig) — backfill 대상이 결함 표뿐이면 commit 없이 그 날짜 failed · unpublish 없음", async () => {
+    addBadAccumFlowDay("20261014", (rows) => rows.map((r, i) => (i === 0 ? { ...r, state: "3" } : r)));
+    const { out, fake } = await run({
+      loads: [{ date: "20261014", files_sig: sigOf("20261014"), skip_streak: 0, rows: TF0_ROWS }],
+      recordSkip: 1,
+    });
+    expect(out.failed).toEqual([{ date: "20261014", error: expect.stringContaining('row 1 state not int4: "3"') }]);
+    expect(rpcs(fake.calls, "limitup_commit_day")).toEqual([]);
+    expect(fake.calls.filter((c) => c.kind === "update" && c.table === "limitup_loads")).toEqual([]);
+    expect(out.degraded).toEqual([]);
+  });
+
+  it("team_flow + accum_flow 동시 backfill 에서 accum_flow 만 결함 → team_flow 34 는 싣고 accum_flow 키 없음", async () => {
+    addBadAccumFlowDay("20261014", (rows) => rows.map((r) => ({ ...r, date: "20261013" })), { teamFlow: true });
+    const { out, fake } = await run({
+      loads: [{ date: "20261014", files_sig: sigOf("20261014"), skip_streak: 0, rows: TF0_ROWS }],
+    });
+    expect(out.loaded).toEqual(["20261014"]);
+    const expected = commitFor(fake.calls, "20261014").args.p_expected as Record<string, number>;
+    expect(expected).toEqual({ ...EXPECTED9, team_flow: 34 });
+    expect(out.degraded.map((d) => d.problems.length)).toEqual([5]); // 6행 날짜 불일치 — 처음 5개만
   });
 });
 
@@ -860,7 +936,7 @@ describe("dispatch — accum_flow 재적재 감지(D-02 · D-04)", () => {
 // ── Phase 34 D-03 — 탐지 0 거래일 manifest(빈 6표 + accum_flow · 격자 없음 · team_flow 없음) ──
 /**
  * 탐지 0 거래일 export 를 흉내 — 픽스처 manifest 최상위 키는 그대로 두고 date · files 만 바꾼다.
- * 6표는 빈 gzip(rows 0 · sha256 실계산) · grid/ 없음 · team_flow 없음 · accum_flow 픽스처 6행.
+ * 6표는 빈 gzip(rows 0 · sha256 실계산) · grid/ 없음 · team_flow 없음 · accum_flow 픽스처 6행(행 date 만 그 날짜로 · sha256 실계산).
  */
 function addZeroDetectDay(date: string) {
   mkdirSync(join(dir, date), { recursive: true });
@@ -871,8 +947,10 @@ function addZeroDetectDay(date: string) {
     writeFileSync(join(dir, date, `${t}.ndjson.gz`), empty);
     files.push({ name: `${t}.ndjson.gz`, rows: 0, sha256: sha });
   }
-  files.push({ name: "accum_flow.ndjson.gz", rows: 6, sha256: AF_SHA });
-  cpSync(AF_FIXTURE, join(dir, date, "accum_flow.ndjson.gz"));
+  // 행 날짜 = 그 날짜(commit RPC 의 payload 날짜 대조 · 워커 accumRowProblems 와 같은 규칙)
+  const af = gzipSync(AF_ROWS.map((r) => JSON.stringify({ ...r, date })).join("\n") + "\n");
+  files.push({ name: "accum_flow.ndjson.gz", rows: 6, sha256: createHash("sha256").update(af).digest("hex") });
+  writeFileSync(join(dir, date, "accum_flow.ndjson.gz"), af);
   writeFileSync(join(dir, date, "manifest.json"), JSON.stringify({ ...fixtureManifest, date, files }, null, 1));
 }
 
