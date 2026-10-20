@@ -497,8 +497,9 @@ export function memberDaySplitOf(
 /**
  * payload.pnl — 객체이고 total_val 이 숫자일 때만 그것, 아니면 null(옛 행 키 없음 · 팀 연속매매 체결 0 = null).
  * 상한가 가격 체결을 포함하므로 평평한 열 team_buy_val(상한가 제외)과 다르다 · 미실현 평가가 = last_px. 정본 gh-trade team-flow.md §5-1.
+ * `pnl` 키만 읽는다 — 매집감지 상세 payload(같은 13키 pnl · Phase 34 D-21)도 그대로 넘긴다.
  */
-export function pnlOf(payload: TeamflowPayload | null | undefined): TeamflowPnl | null {
+export function pnlOf(payload: Pick<TeamflowPayload, 'pnl'> | null | undefined): TeamflowPnl | null {
   const p = payload?.pnl;
   if (p === null || typeof p !== 'object' || !isNum(p.total_val)) return null;
   return p;

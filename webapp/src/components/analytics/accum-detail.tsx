@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
-import type { AccumDetailResponse, AccumDetailRow } from '@gh-radar/shared';
+import type { AccumDetailResponse, AccumDetailRow, TeamflowPnl } from '@gh-radar/shared';
 
 import { DmaGate, type DmaGateReason } from '@/components/trading/dma-gate';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,13 +10,22 @@ import { ApiClientError } from '@/lib/api';
 import { accumDetailCacheKey, fetchAccumDetail } from '@/lib/accum-api';
 import { useChartView } from '@/hooks/use-chart-view';
 import { dayBoundsOf, fmtViewRange, lastTradeMsOf, type ChartPreset } from '@/lib/accum-chart';
-import { cycleRowsOf, detailKpisOf } from '@/lib/accum-report';
+import {
+  ACCUM_LOAD_HM,
+  ACCUM_RULE_LINES,
+  ACCUM_RULE_SOURCE,
+  cycleRowsOf,
+  detailKpisOf,
+  thresholdPartsOf,
+} from '@/lib/accum-report';
+import { fmtYmdShort } from '@/lib/limitup-report';
 import { readQueryCache } from '@/lib/query-cache';
-import { TONE_TEXT } from '@/lib/teamflow-report';
+import { TONE_TEXT, fmtEok, fmtPnl, isNum, pnlOf, toneOf } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
 import { AccumChart } from './accum-chart';
 import { AccumCycleTable } from './accum-cycle-table';
+import { TeamflowToggle } from './teamflow-toggle';
 
 /**
  * 매집감지 펼친 상세 셸 (Phase 34 · UI-SPEC A4 상세 셸 · A5 KPI 줄 · D-06 · D-18 · D-19).
@@ -31,7 +40,10 @@ import { AccumCycleTable } from './accum-cycle-table';
  * - 차트 블록 `flex flex-col gap-2` = KPI 줄 → 범례(8 · 견본 span aria-hidden) → 프리셋 줄(「전체 · 정규장 · 마지막 2시간」
  *   `aria-pressed` + 창 범위 「HH:MM ~ HH:MM」) → 차트(창 = `useChartView`) → 캡션(34-07 · A5 · D-14 · D-18).
  *   `price.idx` 가 비면(또는 payload 없음) 범례 ~ 캡션 대신 한 줄 「그날 체결 자료 없음」 — KPI 줄은 남는다.
- *   그 아래 사이클 표 · 손익 줄 · 판정 기준 · 출처 칩도 34-06~08 몫. 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정).
+ * - 준비 본문 순서(D-19 · 블록 사이 16px = 루트 `gap-4`): 차트 블록 → 사이클 표(`cycles.length >= 2` 만 · 기본 펼침 · D-20) →
+ *   팀 당일 손익 줄(`accum-pnl` · D-21 · pnl null = 「팀 체결 없음」) → 「판정 기준」 접힘(`accum-rules` · 기본 접힘 · 닫히면
+ *   언마운트 · D-22) → 상세 맨 끝 출처 칩(`accum-detail-source` · 머리 칩과 같은 모양 · kind 16 과 join 하지 않는다).
+ *   가격 자료가 없어도 사이클 표 · 손익 · 판정 기준 · 출처 칩은 그대로다. 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정).
  */
 
 type Phase =
@@ -131,7 +143,7 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
   );
 }
 
-/** 준비 상태 본문(D-19) — 차트 블록 → (사이클 표 · 2개↑) → … */
+/** 준비 상태 본문(D-19) — 차트 블록 → (사이클 표 · 2개↑) → 손익 줄 → 판정 기준 → 출처 칩. */
 function ReadyBody({ row }: { row: AccumDetailRow }) {
   const cycles = cycleRowsOf(row);
   return (
@@ -151,7 +163,90 @@ function ReadyBody({ row }: { row: AccumDetailRow }) {
         <ReadyChart row={row} />
       </div>
       {cycles.length >= 2 && <AccumCycleTable rows={cycles} count={cycles.length} />}
+      <PnlLine pnl={pnlOf(row.payload)} />
+      <div data-slot="accum-rules">
+        <TeamflowToggle label="판정 기준" tone="muted">
+          <ul className="m-0 list-disc space-y-1 pl-4 text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
+            <li>
+              {thresholdPartsOf(row).map((p, i) =>
+                p.num ? (
+                  <span key={i} className="mono whitespace-nowrap text-[var(--fg-2)]">
+                    {p.text}
+                  </span>
+                ) : (
+                  <Fragment key={i}>{p.text}</Fragment>
+                ),
+              )}
+            </li>
+            {ACCUM_RULE_LINES.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+          <p className="m-0 mt-2 text-[length:var(--t-caption)] text-[var(--muted-fg)]">{ACCUM_RULE_SOURCE}</p>
+        </TeamflowToggle>
+      </div>
+      <span
+        data-slot="accum-detail-source"
+        className="inline-flex items-center self-start rounded-[var(--r-sm)] bg-[var(--muted)] px-2 py-0.5 text-[length:var(--t-caption)] whitespace-nowrap text-[var(--muted-fg)]"
+      >
+        KYOBO119 판정 기준 · {fmtYmdShort(row.date)} {ACCUM_LOAD_HM} 적재
+      </span>
     </>
+  );
+}
+
+const SUBHEAD = 'm-0 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]';
+const PNL_CAPTION =
+  '그날 하루 팀 주문 기준(등록 전 · 상한가 가격 포함) · 출처 모를 매도(전날 이전 보유분 추정)는 손익 제외';
+
+const fmtShares = (n: number | null | undefined) => (isNum(n) ? `${n.toLocaleString('ko-KR')}주` : '—');
+
+/** 손익 줄 항목 — 라벨 `--muted-fg` + 값 `mono`(기본 `--fg-2`) · teamflow-pnl 문법. */
+function PnlItem({ label, tone, children }: { label: string; tone?: string; children: string }) {
+  return (
+    <span data-slot="accum-pnl-item" className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span className="text-[var(--muted-fg)]">{label}</span>
+      <span className={cn('mono', tone ?? 'text-[var(--fg-2)]')}>{children}</span>
+    </span>
+  );
+}
+
+/**
+ * 팀 당일 손익 줄(D-21 · UI-SPEC A8) — teamflow-pnl 동형(면 상자 없음): 소제목 + 합계(억 2자리 · 수익률 · 부호 색) →
+ * 항목 4(실현 · 평가 · 보유 · 출처 모를 매도 — D-21 라벨 · UI-SPEC Discretion 2) → 캡션. pnl null = 소제목 + 「팀 체결 없음」 만.
+ */
+function PnlLine({ pnl }: { pnl: TeamflowPnl | null }) {
+  return (
+    <section data-slot="accum-pnl" className="min-w-0">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h3 className={SUBHEAD}>팀 당일 손익</h3>
+        {pnl === null ? (
+          <span className="text-[length:var(--t-caption)] text-[var(--faint)]">팀 체결 없음</span>
+        ) : (
+          <span
+            data-slot="accum-pnl-total"
+            className={cn('mono text-[length:var(--t-sm)] font-semibold', TONE_TEXT[toneOf(pnl.total_val, 2)])}
+          >
+            {fmtPnl(pnl)}
+          </span>
+        )}
+      </div>
+      {pnl !== null && (
+        <>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)]">
+            <PnlItem label="실현" tone={TONE_TEXT[toneOf(pnl.realized_val, 2)]}>
+              {fmtEok(pnl.realized_val, { signed: true, digits: 2 })}
+            </PnlItem>
+            <PnlItem label="평가" tone={TONE_TEXT[toneOf(pnl.unrealized_val, 2)]}>
+              {fmtEok(pnl.unrealized_val, { signed: true, digits: 2 })}
+            </PnlItem>
+            <PnlItem label="보유">{fmtShares(pnl.end_qty)}</PnlItem>
+            <PnlItem label="출처 모를 매도">{fmtShares(pnl.unknown_sell_qty)}</PnlItem>
+          </div>
+          <p className="m-0 mt-1 text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">{PNL_CAPTION}</p>
+        </>
+      )}
+    </section>
   );
 }
 

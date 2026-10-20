@@ -339,26 +339,70 @@ export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
 }
 
 // ---------------------------------------------------------------------------
-// 판정 기준 (D-22 · UI-SPEC A9) — RED 골격
+// 판정 기준 (D-22 · UI-SPEC A9)
 // ---------------------------------------------------------------------------
 
+/** 판정 기준 본문 1 조각 — `num` 은 수 한 덩어리(mono --fg-2 · 줄바꿈 안 함). */
 export interface AccumRulePart {
   text: string;
   num?: boolean;
 }
 
-export function thresholdPartsOf(
-  _row: Pick<AccumReportRow, 'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw'>,
-): AccumRulePart[] {
-  return [];
+type ThresholdCols = Pick<AccumReportRow, 'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw'>;
+
+/** 원 → 억 정수 쉼표 「5,000억」. */
+const eokIntOf = (won: number): string => `${QTY_FMT.format(Math.round(won / 1e8))}억`;
+
+/**
+ * 판정 기준 본문 1(UI-SPEC A9) 조각 — 「이 종목의 등록 임계 — 순매수 {1.0억} 이상 · 한 가격 {30조각} 이상 · 시총 {5,000억} 이하
+ * (현재 시총 {3,144억})」. `th_mcap_krw` 0 = 「시총 상한 없음」 · 값 null/NaN 은 그 항목 「—」(뒤 「이상 · 이하」 없이).
+ */
+export function thresholdPartsOf(row: ThresholdCols): AccumRulePart[] {
+  const out: AccumRulePart[] = [];
+  const text = (t: string) => {
+    const last = out[out.length - 1];
+    if (last !== undefined && !last.num) last.text += t;
+    else out.push({ text: t });
+  };
+  const num = (t: string) => out.push({ text: t, num: true });
+
+  text('이 종목의 등록 임계 — 순매수 ');
+  if (isNum(row.th_net_krw)) {
+    num(fmtEok(row.th_net_krw));
+    text(' 이상');
+  } else text(DASH);
+  text(' · 한 가격 ');
+  if (isNum(row.th_same)) {
+    num(`${QTY_FMT.format(row.th_same)}조각`);
+    text(' 이상');
+  } else text(DASH);
+  text(' · 시총 ');
+  if (row.th_mcap_krw === 0) text('상한 없음');
+  else if (isNum(row.th_mcap_krw)) {
+    num(eokIntOf(row.th_mcap_krw));
+    text(' 이하');
+  } else text(DASH);
+  text(' (현재 시총 ');
+  if (isNum(row.mcap_krw)) num(eokIntOf(row.mcap_krw));
+  else text(DASH);
+  text(')');
+  return out;
 }
 
-export function thresholdLineOf(row: Pick<AccumReportRow, 'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw'>): string {
+/** 판정 기준 본문 1 한 문자열(조각을 이은 것). */
+export function thresholdLineOf(row: ThresholdCols): string {
   return thresholdPartsOf(row)
     .map((p) => p.text)
     .join('');
 }
 
-export const ACCUM_RULE_LINES: readonly string[] = [];
+/** 판정 기준 본문 2 ~ 5(D-22 고정 순서 · UI-SPEC A9 Copywriting 글자 그대로 — 고치지 않는다). */
+export const ACCUM_RULE_LINES: readonly string[] = [
+  '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
+  '하루 순매수(day) · 차트는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
+  '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
+  '종료 사유 — 청산 / 이월 탈락(복원 안 됨 · 06:00 이월 판정과 서버 기동 정합 포함) / 이월 만료.',
+];
 
-export const ACCUM_RULE_SOURCE = '';
+/** 판정 기준 출처 줄(링크 없음). */
+export const ACCUM_RULE_SOURCE = '규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13';
