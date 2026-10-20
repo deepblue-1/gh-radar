@@ -25,6 +25,7 @@ import {
   priceClipOf,
   pricePointsOf,
   priceRangeOf,
+  priceTicksOf,
   shadeOf,
   ticksOf,
   xOfView,
@@ -93,7 +94,7 @@ export function AccumChart({
   const points = pricePointsOf(payload.price);
   const pRange = priceRangeOf(points, payload.orders, view);
   const yP = yOfPrice(pRange);
-  const pxTicks = [0, 1, 2, 3, 4].map((i) => pRange.min + ((pRange.max - pRange.min) * i) / 4);
+  const pxTicks = priceTicksOf(pRange);
   const priceD = pricePathOf(points, view, x, yP);
   const pxClip = priceClipOf(L, W);
 
@@ -286,9 +287,9 @@ export function AccumChart({
 
         {/* ⑧ 축 글자(클립 밖) */}
         <g data-slot="accum-px-axis" fill="var(--muted-fg)" aria-hidden="true">
-          {pxTicks.map((p, i) => (
-            <text key={i} x={L - 6} y={yP(p) + 3} textAnchor="end">
-              {PX_FMT.format(Math.round(p))}
+          {pxTicks.map((p) => (
+            <text key={p} x={L - 6} y={yP(p) + 3} textAnchor="end">
+              {PX_FMT.format(p)}
             </text>
           ))}
         </g>

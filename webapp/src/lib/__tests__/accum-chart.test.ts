@@ -36,6 +36,7 @@ import {
   pricePathOf,
   pricePointsOf,
   priceRangeOf,
+  priceTicksOf,
   xOfView,
   fmtViewRange,
   lastTradeMsOf,
@@ -183,6 +184,12 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     const d = pricePathOf(pts, view, xOfView(view, 52, 640), y);
     expect(d).not.toMatch(/NaN|Infinity/);
     expect(cmds(d).filter((c) => c === 'M').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('priceTicksOf(IN-06) — 5등분 반올림 · 같은 값은 하나(상한가 잠김 창 = 글자 1개) · 오름차순', () => {
+    expect(priceTicksOf({ min: 100, max: 140 })).toEqual([100, 110, 120, 130, 140]);
+    expect(priceTicksOf({ min: 12_000, max: 12_000 })).toEqual([12_000]);
+    expect(priceTicksOf({ min: 1000, max: 1002 })).toEqual([1000, 1001, 1002]);
   });
 
   it('priceClipOf(WR-01) — x [L, W − R] · y 가격 판 [TOP, TOP + H1] ± 원 최대 반지름 7 · 누적 판 위끝(240) 안 넘음', () => {

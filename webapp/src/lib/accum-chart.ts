@@ -154,6 +154,15 @@ export function priceRangeOf(points: readonly PricePoint[], orders: AccumReportO
   return { min, max, lo: min - pad, hi: max + pad };
 }
 
+/**
+ * 가격 축 글자 값(D-14) — min ~ max 5등분 점 5개를 원 단위로 반올림해 같은 값은 하나만(IN-06 — 창 안 가격이 한 값(상한가
+ * 잠김)이면 5개가 한 자리에 겹쳐 그려졌다 · DOM · 스크린리더 · 글자 두께가 달라진다). 오름차순.
+ */
+export function priceTicksOf(range: Pick<PriceRange, 'min' | 'max'>): number[] {
+  const raw = [0, 1, 2, 3, 4].map((i) => Math.round(range.min + ((range.max - range.min) * i) / 4));
+  return [...new Set(raw)];
+}
+
 /** 가격 → y(가격 판 TOP ~ TOP + H1). */
 export function yOfPrice(range: PriceRange): (px: number) => number {
   const { TOP, H1 } = ACCUM_CHART;
