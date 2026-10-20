@@ -5,17 +5,17 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-10-20T13:09:09.348Z"
+stopped_at: Completed 34-02-PLAN.md
+last_updated: "2026-10-20T13:16:11.037Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: 99ac085fd12d3273b05bda007c8dc4a6793452eb
+state_head: bec08c0805a015d928e09381b3ac69a689310f72
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 41
-  percent: 77
+  completed_plans: 42
+  percent: 79
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 2 of 13
+Plan: 3 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
-Progress: [████████░░] 77% (40/40 plans)
+Progress: [████████░░] 79% (40/40 plans)
 
 ## Accumulated Context
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T13:09:09.279Z
-Stopped at: Completed 34-01-PLAN.md
+Last session: 2026-10-20T13:16:10.969Z
+Stopped at: Completed 34-02-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -134,6 +134,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 33 P07 | 25min | 2 tasks | 2 files |
 | Phase 33 P09 | 6 min | 2 tasks | 3 files |
 | Phase 34 P01 | 6min | 1 tasks | 8 files |
+| Phase 34 P02 | 5min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -197,3 +198,4 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-01: accum_flow stage 청크 1행 — 최대 행 json ≈ 224KB 가 증명된 insert 본문 ≈ 293KB 안에 드는 유일한 값
 - [Phase 34]: 34-01: 재적재 감지는 team_flow 그대로 · OPTIONAL_FILES 참조로만 교체(일반화는 34-03)
 - [Phase 34]: 34-01: accum_detail_for_user 는 행 없으면 {access:true,row:null} 200
+- [Phase 34]: 34-02: 소급 줄 정수 칸은 null/비숫자를 0 으로 — 23키 항상 실음(키 빠지면 gh-trade bad=)
