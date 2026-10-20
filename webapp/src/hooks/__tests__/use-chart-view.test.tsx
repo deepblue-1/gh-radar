@@ -42,7 +42,7 @@ let rafCalls = 0;
 function Harness() {
   const c = useChartView({ bounds: B, lastTradeMs: LAST });
   const ref = useRef<SVGSVGElement>(null);
-  const { dragging } = useChartGestures(ref, { L, W }, c);
+  const { dragging } = useChartGestures(ref, { L, W, R: 56 }, c);
   ctl = c;
   useEffect(() => {
     commits.push(c.view);

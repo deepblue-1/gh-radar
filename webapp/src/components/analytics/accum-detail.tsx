@@ -230,7 +230,7 @@ function ChartBody({ row }: { row: AccumDetailRow }) {
           {fmtViewRange(ctl.view)}
         </span>
       </div>
-      <AccumChart row={row} view={ctl.view} />
+      <AccumChart row={row} view={ctl.view} ctl={ctl} />
       <p data-slot="accum-caption" className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
         {noTeam ? `팀 체결 없음 · ${CAPTION}` : CAPTION}
       </p>

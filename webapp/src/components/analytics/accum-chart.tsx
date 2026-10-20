@@ -1,9 +1,10 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 
 import type { AccumDetailRow } from '@gh-radar/shared';
 
+import { useChartGestures, type ChartViewControl } from '@/hooks/use-chart-view';
 import { useChartWidth } from '@/hooks/use-chart-width';
 import {
   ACCUM_CHART,
@@ -31,12 +32,17 @@ import {
   type View,
 } from '@/lib/accum-chart';
 import { fmtEok, kstHm } from '@/lib/teamflow-report';
+import { cn } from '@/lib/utils';
 
 /**
  * 매집감지 상세 3판 차트 — 정적 레이어 (Phase 34 · UI-SPEC A6 · D-14 ~ D-18 · D-17 순수 SVG).
  *
  * - 래퍼 `div` 폭을 `useChartWidth` 로 재고(측정 전 · jsdom = 640) `viewBox="0 0 {W} 472"` 를 그 폭과 **1:1** — 글자 11px 고정.
- * - 세 판(가격 · 순매수 누적 · 10분 팀 매수/매도)이 같은 x(ms) 창 `view` 를 공유한다. 창은 부모가 준다(34-07 이 확대/이동 훅으로 바꾼다).
+ * - 세 판(가격 · 순매수 누적 · 10분 팀 매수/매도)이 같은 x(ms) 창 `view` 를 공유한다. 창은 부모가 준다(`useChartView`).
+ * - **조작(34-07 · A6):** 래퍼가 `role="group"` `tabIndex=0` 키보드 영역(←/→/+/−/0 · 접근 이름 A6)이 되고, SVG 에
+ *   휠 · 끌기 · 핀치 리스너(`useChartGestures`)를 단다. SVG `touch-action: pan-y`(폰 세로 스크롤은 브라우저 · 가로 끌기 · 핀치만
+ *   차트 — Pitfall 12) · `user-select: none` · 커서 grab / 끌기 중 grabbing. 포커스 링은 전역 `*:focus-visible` 상속.
+ *   훅에는 그림 영역 좌우(L = `priceAxisWidthOf` · R = `ACCUM_CHART.R`)와 viewBox 폭 W 를 넘긴다 — 픽셀 → 시각 변환 기준.
  * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
  *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
@@ -54,14 +60,17 @@ const B_TOP = C_TOP + H2 + GAP;
 const PLOT_BOTTOM = B_TOP + H3;
 const PX_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
-export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
+export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View; ctl: ChartViewControl }) {
   const [ref, W] = useChartWidth<HTMLDivElement>();
+  const svgRef = useRef<SVGSVGElement>(null);
   const rawId = useId();
   const payload = row.payload;
-  if (payload === null || payload.price.idx.length === 0) return null;
+  const hasPrice = payload !== null && payload.price.idx.length > 0;
+  const L = hasPrice ? priceAxisWidthOf(dayMaxPxOf(payload.price, payload.orders)) : priceAxisWidthOf(0);
+  const { dragging } = useChartGestures(svgRef, { L, W, R }, hasPrice ? ctl : null);
+  if (!hasPrice) return null;
 
   const clipId = `accum-clip-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
-  const L = priceAxisWidthOf(dayMaxPxOf(payload.price, payload.orders));
   const right = W - R;
   const midX = (L + right) / 2;
   const x = xOfView(view, L, W);
@@ -102,15 +111,24 @@ export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
   const ariaLabel = `${name} 매집 상세 차트 — ${kstHm(view.t0)}~${kstHm(view.t1)} · 사이클 ${payload.cycles.length}개 · 팀 주문 ${payload.orders.t_ms.length}건 · 하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`;
 
   return (
-    <div ref={ref} data-slot="accum-chart-wrap">
+    <div
+      ref={ref}
+      data-slot="accum-chart-wrap"
+      role="group"
+      tabIndex={0}
+      aria-label={`${name} 차트 보기 창 — 왼쪽·오른쪽 화살표 이동, +·− 확대/축소, 0 전체`}
+      onKeyDown={ctl.onKeyDown}
+    >
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height={H}
         role="img"
         aria-label={ariaLabel}
         data-slot="accum-chart"
-        className="block tabular-nums"
+        className={cn('block tabular-nums', dragging ? 'cursor-grabbing' : 'cursor-grab')}
+        style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
         fontSize={11}
       >
         <defs>
