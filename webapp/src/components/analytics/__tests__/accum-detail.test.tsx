@@ -282,3 +282,31 @@ describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위
     expect(cap).toBe(`팀 체결 없음 · ${CAPTION}`);
   });
 });
+
+describe('AccumDetail 차트 조작 — 키보드 래퍼 (A6 · D-14 · UI-SPEC 접근성 보강)', () => {
+  it('(h4) 「정규장」 → 차트 래퍼(role=group) → 키 → 창 범위 「10:18 ~ 16:48」 · 프리셋 셋 다 aria-pressed=false · SVG touch-action pan-y', async () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    try {
+      const sec = await expand(CHEONIL);
+      fireEvent.click(presetsOf(sec)[1]!);
+      const group = sec.querySelector<HTMLElement>('[role="group"][data-slot="accum-chart-wrap"]')!;
+      expect(group).toBeTruthy();
+      expect(group.tabIndex).toBe(0);
+      expect(group.getAttribute('aria-label')).toBe(
+        '천일고속 차트 보기 창 — 왼쪽·오른쪽 화살표 이동, +·− 확대/축소, 0 전체',
+      );
+      expect((chartOf(sec)!.style as CSSStyleDeclaration & { touchAction: string }).touchAction).toBe('pan-y');
+      act(() => {
+        fireEvent.keyDown(group, { key: 'ArrowRight' });
+      });
+      expect(rangeOf(sec)).toBe('10:18 ~ 16:48');
+      expect(pressedOf(sec)).toEqual(['false', 'false', 'false']);
+      expect(chartOf(sec)!.getAttribute('aria-label')!.startsWith('천일고속 매집 상세 차트 — 10:18~16:48')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

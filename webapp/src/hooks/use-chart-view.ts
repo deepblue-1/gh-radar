@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 
 import { clampView, presetOf, type ChartPreset, type View } from '@/lib/accum-chart';
 
@@ -30,6 +30,10 @@ export interface ChartViewControl {
   setPreset: (name: ChartPreset) => void;
   /** 현재 창에 변환을 적용(clampView 경유)하고 프리셋을 끈다. */
   apply: (fn: (v: View) => View) => void;
+  /** 다음 프레임에 창 변환을 예약 — 창이 바뀌지 않으면 false(호출 쪽이 이벤트를 넘긴다). */
+  schedule: (fn: (v: View) => View) => boolean;
+  /** 차트 래퍼 키보드(←/→/+/−/0). */
+  onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }
 
 export function useChartView({
@@ -61,5 +65,22 @@ export function useChartView({
     [bounds, commit],
   );
 
-  return { view: state.view, preset: state.preset, bounds, setPreset, apply };
+  const schedule = useCallback((_fn: (v: View) => View) => false, []);
+  const onKeyDown = useCallback((_e: KeyboardEvent<HTMLElement>) => {}, []);
+
+  return { view: state.view, preset: state.preset, bounds, setPreset, apply, schedule, onKeyDown };
+}
+
+/** 차트 그림 영역 기하 — L = 왼쪽 가격 축 폭 · W = viewBox 폭(측정 폭 1:1). */
+export interface ChartGeom {
+  L: number;
+  W: number;
+}
+
+export function useChartGestures(
+  _svgRef: RefObject<SVGSVGElement | null>,
+  _geom: ChartGeom,
+  _ctl: ChartViewControl,
+): { dragging: boolean } {
+  return { dragging: false };
 }
