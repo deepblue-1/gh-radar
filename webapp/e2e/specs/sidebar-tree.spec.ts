@@ -81,8 +81,8 @@ const LED_TONES: readonly (readonly string[])[] = [
  * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다. 검색 허브 하위 3페이지는
  * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
  * 전략 3건은 「트레이딩」 바로 아래에 선다(VI 미가동 — VI 줄 없음). 그 다음이 「분석」 그룹 제목 + 하위
- * 「상한가 보고서」 · 「팀 매집」 · 「AI 애널리스트」(Phase 28 D-09 · Phase 33 TEAM-02 · quick-261005-vk1 D-01 —
- * AI 애널리스트 · 팀 매집 = 분석 하위 · 트레이딩과 같은 노출 조건), 그 다음이 「Admin」 그룹 제목 + 하위 「사용자」 · 「서버」(Phase 29 D-13 — e2e 계정은
+ * 「상한가 보고서」 · 「팀 매집」 · 「매집감지」 · 「AI 애널리스트」(Phase 28 D-09 · Phase 33 TEAM-02 · Phase 34 D-27 · quick-261005-vk1 D-01 —
+ * AI 애널리스트 · 팀 매집 · 매집감지 = 분석 하위 · 트레이딩과 같은 노출 조건), 그 다음이 「Admin」 그룹 제목 + 하위 「사용자」 · 「서버」(Phase 29 D-13 — e2e 계정은
  * admin 시드(29-07)라 보인다 · 노출은 역할만 본다), 그 뒤 My page.
  */
 const TREE_LINKS = [
@@ -92,6 +92,7 @@ const TREE_LINKS = [
   '분석',
   '상한가 보고서',
   '팀 매집 보고서',
+  '매집감지 보고서',
   'AI 애널리스트',
   'Admin',
   '사용자',
@@ -346,11 +347,31 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await page.route('**/api/teamflow/report*', (route) =>
       route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'DMA_UNMAPPED', message: 'x' } }) }),
     );
-    for (const path of ['/trading', '/trading/limit-chaser/new', '/trading/vi', '/me', '/analytics/limitup', '/analytics/teamflow']) {
+    // Phase 34 D-27 — 매집감지도 같다. 목록 · 상세 둘 다 막는다(glob `*` 는 `/` 를 넘지 않아 상세는 따로 잡는다 — Pitfall 9).
+    await page.route(
+      (url) => url.pathname === '/api/accum/report' || url.pathname.startsWith('/api/accum/report/'),
+      (route) =>
+        route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'DMA_UNMAPPED', message: 'x' } }) }),
+    );
+    for (const path of [
+      '/trading',
+      '/trading/limit-chaser/new',
+      '/trading/vi',
+      '/me',
+      '/analytics/limitup',
+      '/analytics/teamflow',
+      '/analytics/accum',
+    ]) {
       await page.goto(path);
       const gate = page.locator('[data-slot="dma-gate"]');
       await expect(gate).toBeVisible({ timeout: 30_000 });
       await expect(gate).toContainText('DMA 계정이 연결되지 않았어요');
+      if (path === '/analytics/accum') {
+        await expect(gate).toContainText(
+          '매집감지 보고서는 증권사 계정이 연결된 사용자만 이용할 수 있어요. 관리자에게 연결을 요청하세요.',
+        );
+        await expect(page.locator('[data-slot="accum-list"]')).toHaveCount(0);
+      }
       // Phase 29(29-15) — Admin 이 웹에서 연결하므로 「문의」 가 아니라 「연결 요청」.
       await expect(gate).toContainText('관리자에게 연결을 요청하세요.');
       await expect(gate).toContainText('차트·뉴스·종목토론방은 그대로 이용할 수 있어요.');
