@@ -7,12 +7,12 @@ import { createSupabaseClient } from "./services/supabase";
 import { KNOWN_SCHEMA_VERSIONS, filesSig, listExportDates, readManifest, verifyFiles } from "./manifest";
 import {
   EXPORT_TABLES,
-  TEAM_FLOW_FILE,
-  TEAM_FLOW_STAGE_CHUNK,
+  OPTIONAL_FILES,
   commitDay,
   readNdjsonGz,
   stageDay,
   type ExportTbl,
+  type OptionalTbl,
   type Row,
   type StageTbl,
 } from "./load";
@@ -35,11 +35,12 @@ export { kstYmdDaysAgo } from "./purge";
  *   같아도 재적재한다(Phase 33 D-03 — 옛 워커가 team_flow 없이 실은 날짜 · 수동 files_sig NULL 대체 · 이 backfill 은
  *   격자 재업로드를 건너뛰고, 실패해도 그 날짜를 unpublish 하지 않는다 — 실패 날짜로만 남는다 · WR-01) →
  *   files sha256 대조(불일치 · 없는 파일이면 skip "sha") → 6 ndjson.gz 읽기(행 수 == manifest rows) →
- *   선택 파일 `team_flow.ndjson.gz`(manifest 에 있을 때만 · 행 수 == manifest rows · 없으면 0행 — Phase 33 D-02) →
+ *   선택 파일 `OPTIONAL_FILES` 순회(manifest 에 있을 때만 · 행 수 == manifest rows · 없으면 0행 — Phase 33 D-02 ·
+ *   Phase 34 D-02): `team_flow.ndjson.gz`(팀 매집) · `accum_flow.ndjson.gz`(매집감지 — 원문 그대로 · 1행 청크) →
  *   격자 `grid/<isin>.json.gz` 읽기 → 파생 2표(`gridSummaryOf` · `memberDailyOf` — D-17, gh-trade 정의) →
  *   `limitup_stage_clear` → 격자 Storage 업로드(commit **앞** — D-14 · grid.ts 순서 계약) →
- *   `limitup_stage` 청크 insert(6표 + grid_summary + member_daily · team_flow 는 작은 청크로 따로) →
- *   `limitup_commit_day` 1회(기대 수 9키 — team_flow 는 0 이어도 키를 싣는다 ·
+ *   `limitup_stage` 청크 insert(6표 + grid_summary + member_daily · 선택 표는 표마다 자기 작은 청크로 따로) →
+ *   `limitup_commit_day` 1회(기대 수 10키 — team_flow · accum_flow 는 0 이어도 키를 싣는다 ·
  *   성공 commit 이 skip_streak 를 0 으로).
  *
  * skip(D-20) = warn 로그 + (dryRun 이 아니면) `limitup_record_skip(date, reason)` — 돌아온 streak 가
@@ -85,7 +86,7 @@ export type DispatchResult = {
   since: string;
   dates: string[];
   loaded: string[];
-  /** 날짜별 표 행 수 — export 6 + 파생 2(grid_summary · member_daily) + 선택 1(team_flow · 없으면 0). */
+  /** 날짜별 표 행 수 — export 6 + 파생 2(grid_summary · member_daily) + 선택 2(team_flow · accum_flow · 없으면 0). */
   rows: Record<string, Record<StageTbl, number>>;
   totals: Record<StageTbl, number>;
   /** 격자 파일 수 — 실적재 = 업로드한 수, dry-run = 읽은 수. */
@@ -114,7 +115,10 @@ const SKIP_TEXT: Record<SkipReason, string> = {
   sha: "파일 sha256 불일치 · 없음",
 };
 
-const STAGE_TABLES: readonly StageTbl[] = [...EXPORT_TABLES, "grid_summary", "member_daily", "team_flow"];
+const STAGE_TABLES: readonly StageTbl[] = [...EXPORT_TABLES, "grid_summary", "member_daily", "team_flow", "accum_flow"];
+
+/** 재적재 감지(Phase 33 D-03)가 보는 선택 파일 — 지금은 team_flow 하나(일반화는 34-03). */
+const TEAM_FLOW_OPTIONAL = OPTIONAL_FILES.find((o) => o.tbl === "team_flow")!;
 
 function emptyCounts(): Record<StageTbl, number> {
   return Object.fromEntries(STAGE_TABLES.map((t) => [t, 0])) as Record<StageTbl, number>;
@@ -220,7 +224,7 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     const sig = filesSig(m);
     const p = prev.get(date);
     // D-03 — team_flow 가 manifest 에 있는데 이력 개수와 다르면(키 없음 = 옛 워커 적재 · Pitfall 1) sig 가 같아도 진행.
-    const tfEntry = m.files.find((f) => f.name === TEAM_FLOW_FILE);
+    const tfEntry = m.files.find((f) => f.name === TEAM_FLOW_OPTIONAL.file);
     const needTeamFlow = tfEntry !== undefined && p?.rows?.team_flow !== tfEntry.rows;
     if (p?.sig === sig && !needTeamFlow) {
       result.skipped.unchanged.push(date);
@@ -263,15 +267,20 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       counts[t] = rows.length;
     }
 
-    // 팀 매집 — 선택 파일(D-02). 있으면 행 수 대조, 없으면 0행. counts.team_flow 는 늘 기록(0 포함 — commit 이 키를 본다).
-    let teamFlow: Row[] = [];
-    if (tfEntry) {
-      teamFlow = readNdjsonGz(join(config.exportDir, date, TEAM_FLOW_FILE));
-      if (teamFlow.length !== tfEntry.rows) {
-        throw new Error(`${date}: ${TEAM_FLOW_FILE} rows ${teamFlow.length} != manifest ${tfEntry.rows}`);
+    // 선택 파일(33 D-02 · 34 D-02) — 있으면 행 수 대조, 없으면 0행. counts.<tbl> 는 늘 기록(0 포함 — commit 이 키를 본다).
+    const optional = {} as Record<OptionalTbl, Row[]>;
+    for (const o of OPTIONAL_FILES) {
+      const entry = m.files.find((f) => f.name === o.file);
+      let rows: Row[] = [];
+      if (entry) {
+        rows = readNdjsonGz(join(config.exportDir, date, o.file));
+        if (rows.length !== entry.rows) {
+          throw new Error(`${date}: ${o.file} rows ${rows.length} != manifest ${entry.rows}`);
+        }
       }
+      optional[o.tbl] = rows;
+      counts[o.tbl] = rows.length;
     }
-    counts.team_flow = teamFlow.length;
 
     // 격자 · 파생(D-17) — 파생 행은 표 열 이름 그대로 · date = 그 날짜(commit RPC 의 날짜 대조를 통과).
     const grids = m.files.flatMap((f) => {
@@ -304,7 +313,9 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     try {
       if (!backfill) result.grids += await uploadGrids(sb, date, grids);
       await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
-      await stageDay(sb, date, { team_flow: teamFlow }, Math.min(config.stageChunk, TEAM_FLOW_STAGE_CHUNK));
+      for (const o of OPTIONAL_FILES) {
+        await stageDay(sb, date, { [o.tbl]: optional[o.tbl] }, Math.min(config.stageChunk, o.chunk));
+      }
       const commitStart = Date.now();
       await commitDay(sb, {
         date,

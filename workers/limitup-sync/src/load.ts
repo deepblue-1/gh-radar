@@ -12,20 +12,28 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /** export 파일 6개(= 노트 표 6개). 파일 이름 = `<tbl>.ndjson.gz`. */
 export const EXPORT_TABLES = ["entries", "locks", "jumps", "member_alloc", "facts", "touches"] as const;
 export type ExportTbl = (typeof EXPORT_TABLES)[number];
-/** stage `tbl` 값 — export 6 + 파생 2 + 선택 1 — DB CHECK 와 같은 목록(20261016200000). */
-export type StageTbl = ExportTbl | "grid_summary" | "member_daily" | "team_flow";
+/** stage `tbl` 값 — export 6 + 파생 2 + 선택 2 — DB CHECK 와 같은 목록(20261020200000). */
+export type StageTbl = ExportTbl | "grid_summary" | "member_daily" | "team_flow" | "accum_flow";
 
 /**
- * 팀 매집 export(Phase 33 D-02) — **선택 파일**. manifest `files[]` 에 있을 때만 적재하고(없으면 0행 commit),
+ * 선택 파일 표(Phase 33 D-02 · Phase 34 D-02) — manifest `files[]` 에 있을 때만 적재하고(없으면 0행 commit),
  * 필수 6표 루프(`EXPORT_TABLES`)에는 넣지 않는다 — 없다고 그 날짜가 실패하면 안 된다.
- * 행은 export 원문 그대로 stage 한다(D-04 — 단위 변환 · 키 재조립 없음).
+ * 행은 export 원문 그대로 stage 한다(33 D-04 · 34 D-05 — 단위 변환 · 키 재조립 없음).
  */
-export const TEAM_FLOW_FILE = "team_flow.ndjson.gz";
+export type OptionalTbl = "team_flow" | "accum_flow";
+
 /**
- * team_flow stage 청크 — 10/14 실측 행 ≈ 14KB(payload 포함)라 기본 청크(1000)면 insert 본문이 수 MB 가 된다.
- * 증명된 insert 본문(member_alloc 1000행 ≈ 293KB)에 맞춰 20행(Phase 33 RESEARCH Pitfall 5).
+ * 선택 파일 목록 — 표 · 파일 이름 · stage 청크(행 수). 청크는 insert 본문을 증명된 크기
+ * (member_alloc 1000행 ≈ 293KB) 안에 두려고 표마다 따로 잡는다.
  */
-export const TEAM_FLOW_STAGE_CHUNK = 20;
+export const OPTIONAL_FILES: readonly { tbl: OptionalTbl; file: string; chunk: number }[] = [
+  // 팀 매집(Phase 33) — 10/14 실측 행 ≈ 14KB(payload 포함)라 기본 청크(1000)면 insert 본문이 수 MB 가 된다.
+  // 증명된 insert 본문에 맞춰 20행(Phase 33 RESEARCH Pitfall 5).
+  { tbl: "team_flow", file: "team_flow.ndjson.gz", chunk: 20 },
+  // 매집감지(Phase 34) — 최대 행 json ≈ 224KB(10/14 한선엔지니어링)라 1행씩이어야 증명된 본문 ≈ 293KB 안이다
+  // (2행이면 최악 ≈ 448KB 로 범위 밖 · 34 RESEARCH 청크 권고). 하루 수~수십 행이라 insert 횟수는 문제 아님.
+  { tbl: "accum_flow", file: "accum_flow.ndjson.gz", chunk: 1 },
+];
 
 export type Row = Record<string, unknown>;
 

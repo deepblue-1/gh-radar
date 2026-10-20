@@ -435,16 +435,16 @@ const GRID_ISINS = golden.grid_summary.map((g) => g.isin);
 const tableRows = Object.fromEntries(
   fixtureManifest.files.filter((f) => !f.name.startsWith("grid/")).map((f) => [f.name.replace(".ndjson.gz", ""), f.rows]),
 );
-/** insert 로 실제 stage 되는 8표(행 0 인 team_flow 는 insert 0회라 집계에 키가 없다). */
+/** insert 로 실제 stage 되는 8표(행 0 인 team_flow · accum_flow 는 insert 0회라 집계에 키가 없다). */
 const STAGED8 = { ...tableRows, grid_summary: GRID_ISINS.length, member_daily: golden.member_daily.length };
-/** commit 기대 수 · 결과 rows/totals — 9키(Phase 33 D-02: team_flow 파일이 없어도 0 키). */
-const EXPECTED9 = { ...STAGED8, team_flow: 0 };
+/** commit 기대 수 · 결과 rows/totals — 10키(Phase 33 · 34 D-02: team_flow · accum_flow 파일이 없어도 0 키). */
+const EXPECTED10 = { ...STAGED8, team_flow: 0, accum_flow: 0 };
 
 const label = (c: Call) =>
   c.kind === "rpc" ? `rpc:${c.name}` : c.kind === "storage" ? `storage:${c.op}` : `${c.kind}:${c.table}`;
 
-describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 수 9키 (28-06 · Phase 33)", () => {
-  it("업로드 → stage → commit 순서: stage_clear → upload × 3 → stage insert(6표 + 파생 2) → commit_day(9키) → 정리", async () => {
+describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 수 10키 (28-06 · Phase 33 · 34)", () => {
+  it("업로드 → stage → commit 순서: stage_clear → upload × 3 → stage insert(6표 + 파생 2) → commit_day(10키) → 정리", async () => {
     addDay(GOOD);
     const { out, fake } = await run();
     const seq = fake.calls.map(label);
@@ -480,9 +480,9 @@ describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 �
     for (const r of derived) expect((r.payload as { date: string }).date).toBe(GOOD);
 
     const commit = rpcs(fake.calls, "limitup_commit_day")[0];
-    expect(commit.args.p_expected).toEqual(EXPECTED9);
-    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(9);
-    expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED9 });
+    expect(commit.args.p_expected).toEqual(EXPECTED10);
+    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(10);
+    expect(out).toMatchObject({ loaded: [GOOD], grids: 3, totals: EXPECTED10 });
   });
 
   it("업로드 error 면 commit 0회 · 그 날짜 failed(사유에 경로 · 다음 run 이 날짜를 다시 한다) · 정리는 그대로 돈다(CR-B01)", async () => {
@@ -505,7 +505,7 @@ describe("dispatch — 파생 stage · 격자 업로드(commit 앞) · 기대 �
     addDay(GOOD);
     const { out, fake } = await run({}, { dryRun: true });
     expect(fake.calls).toEqual([]);
-    expect(out).toMatchObject({ rows: { [GOOD]: EXPECTED9 }, totals: EXPECTED9, grids: 3, purged: null, loaded: [] });
+    expect(out).toMatchObject({ rows: { [GOOD]: EXPECTED10 }, totals: EXPECTED10, grids: 3, purged: null, loaded: [] });
   });
 });
 
@@ -538,8 +538,8 @@ describe("dispatch — team_flow 선택 파일(D-02)", () => {
     expect(rows[0].payload).toEqual(TF_ROWS[0]);
 
     const commit = commitFor(fake.calls, "20261014");
-    expect((commit.args.p_expected as Record<string, number>).team_flow).toBe(34);
-    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(9);
+    expect(commit.args.p_expected).toEqual({ ...EXPECTED10, team_flow: 34 });
+    expect(Object.keys(commit.args.p_expected as object)).toHaveLength(10);
     expect(out.loaded).toEqual(["20261014"]);
     expect(out.rows["20261014"].team_flow).toBe(34);
     expect(out.totals.team_flow).toBe(34);
@@ -551,7 +551,7 @@ describe("dispatch — team_flow 선택 파일(D-02)", () => {
     const { out, fake } = await run();
     expect(out.loaded).toEqual([GOOD, "20261014"]);
     expect((commitFor(fake.calls, GOOD).args.p_expected as Record<string, number>).team_flow).toBe(0);
-    expect(commitFor(fake.calls, GOOD).args.p_expected).toEqual(EXPECTED9);
+    expect(commitFor(fake.calls, GOOD).args.p_expected).toEqual(EXPECTED10);
     // GOOD 날짜의 insert 중 team_flow 는 없다(team_flow insert 는 20261014 의 2회뿐)
     expect(tfRowsOf(fake.calls).every((i) => i.rows.every((r) => r.date === "20261014"))).toBe(true);
     expect(tfRowsOf(fake.calls)).toHaveLength(2);
@@ -567,6 +567,97 @@ describe("dispatch — team_flow 선택 파일(D-02)", () => {
     ]);
     expect(out.loaded).toEqual(["20261014"]);
     expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual(["20261014"]);
+  });
+});
+
+// ── Phase 34 — accum_flow 선택 파일(D-02 · D-05) ──────────────────────
+// 픽스처 = 10/14 맥 샘플 34행 중 6행(make-accum-fixture.mjs 출력 sha256 — 줄 원문 그대로 · gzip 9 · mtime 0).
+const AF_FIXTURE = join(__dirname, "fixtures", "accum_flow", "20261014", "accum_flow.ndjson.gz");
+const AF_SHA = "8037c4e5e896410d122d45039434285cd1afb9878cedbc2e1f20f3131f2a05a8";
+const AF_ROWS = readNdjsonGz(AF_FIXTURE);
+
+/** 날짜를 만들고 accum_flow 픽스처를 복사 + manifest files[] 에 싣는다(teamFlow 면 team_flow 픽스처도 같은 날짜에). */
+function addAccumFlowDay(date: string, manifestRows = 6, opts: { teamFlow?: boolean } = {}) {
+  addDay(date, (m) => ({
+    ...m,
+    files: [
+      ...m.files,
+      ...(opts.teamFlow ? [{ name: "team_flow.ndjson.gz", rows: 34, sha256: TF_SHA }] : []),
+      { name: "accum_flow.ndjson.gz", rows: manifestRows, sha256: AF_SHA },
+    ],
+  }));
+  cpSync(AF_FIXTURE, join(dir, date, "accum_flow.ndjson.gz"));
+  if (opts.teamFlow) cpSync(TF_FIXTURE, join(dir, date, "team_flow.ndjson.gz"));
+}
+
+const afRowsOf = (calls: Call[]) => inserts(calls).filter((i) => i.rows.some((r) => r.tbl === "accum_flow"));
+
+describe("dispatch — accum_flow 선택 파일(D-02)", () => {
+  it("파일이 있으면 6행을 1행 청크(insert 6회 · seq 1..6 · payload = export 원문)로 stage · p_expected.accum_flow 6", async () => {
+    expect(AF_ROWS).toHaveLength(6);
+    addAccumFlowDay("20261014");
+    const { out, fake } = await run();
+
+    const af = afRowsOf(fake.calls);
+    expect(af.map((i) => i.rows.length)).toEqual([1, 1, 1, 1, 1, 1]);
+    for (const i of af) expect(i.rows.every((r) => r.tbl === "accum_flow" && r.date === "20261014")).toBe(true);
+    const rows = af.flatMap((i) => i.rows);
+    expect(rows.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    // D-05 — 단위 변환 · 키 재조립 없음(ms epoch · 원 · % · since_date 문자열 · payload 6키 그대로)
+    expect(rows[0].payload).toEqual(AF_ROWS[0]);
+    expect(rows.map((r) => (r.payload as { isin: string }).isin)).toEqual([
+      "KR7000650002",
+      "KR7011151008",
+      "KR7084670009",
+      "KR7452280001",
+      "KRA0113321F5",
+      "KYG2114A1094",
+    ]);
+
+    const commit = commitFor(fake.calls, "20261014");
+    expect(commit.args.p_expected).toEqual({ ...EXPECTED10, accum_flow: 6 });
+    expect((commit.args.p_expected as Record<string, number>).accum_flow).toBe(6);
+    expect(out.loaded).toEqual(["20261014"]);
+    expect(out.rows["20261014"].accum_flow).toBe(6);
+    expect(out.totals.accum_flow).toBe(6);
+  });
+
+  it("파일 없는 날짜는 p_expected.accum_flow 0 · accum_flow insert 0회 · 6표 적재 그대로", async () => {
+    addDay(GOOD);
+    addAccumFlowDay("20261014");
+    const { out, fake } = await run();
+    expect(out.loaded).toEqual([GOOD, "20261014"]);
+    expect((commitFor(fake.calls, GOOD).args.p_expected as Record<string, number>).accum_flow).toBe(0);
+    expect(commitFor(fake.calls, GOOD).args.p_expected).toEqual(EXPECTED10);
+    // GOOD 날짜의 insert 중 accum_flow 는 없다(accum_flow insert 는 20261014 의 6회뿐)
+    expect(afRowsOf(fake.calls).every((i) => i.rows.every((r) => r.date === "20261014"))).toBe(true);
+    expect(afRowsOf(fake.calls)).toHaveLength(6);
+    expect(out.rows[GOOD].accum_flow).toBe(0);
+    expect(out.totals.accum_flow).toBe(6);
+  });
+
+  it("manifest rows ≠ 파일 행 수면 그 날짜만 failed(사유 문구) · 뒤 날짜는 적재된다", async () => {
+    addAccumFlowDay("20261003", 5);
+    addAccumFlowDay("20261014");
+    const { out, fake } = await run({ recordSkip: 1 });
+    expect(out.failed).toEqual([
+      { date: "20261003", error: expect.stringContaining("accum_flow.ndjson.gz rows 6 != manifest 5") },
+    ]);
+    expect(out.loaded).toEqual(["20261014"]);
+    expect(rpcs(fake.calls, "limitup_commit_day").map((c) => c.args.p_date)).toEqual(["20261014"]);
+    // 실패 날짜는 stage 까지 가지 않는다(행 수 대조가 읽기 단계에서 끊는다)
+    expect(afRowsOf(fake.calls).every((i) => i.rows.every((r) => r.date === "20261014"))).toBe(true);
+  });
+
+  it("team_flow · accum_flow 둘 다 있는 날은 표마다 자기 청크(team_flow 20 · 14 / accum_flow 1 × 6) · 기대 수 둘 다", async () => {
+    addAccumFlowDay("20261014", 6, { teamFlow: true });
+    const { out, fake } = await run();
+    expect(tfRowsOf(fake.calls).map((i) => i.rows.length)).toEqual([20, 14]);
+    expect(afRowsOf(fake.calls).map((i) => i.rows.length)).toEqual([1, 1, 1, 1, 1, 1]);
+    // 한 insert 안에 두 표가 섞이지 않는다
+    for (const i of inserts(fake.calls)) expect(new Set(i.rows.map((r) => r.tbl)).size).toBe(1);
+    expect(commitFor(fake.calls, "20261014").args.p_expected).toEqual({ ...EXPECTED10, team_flow: 34, accum_flow: 6 });
+    expect(out.totals).toMatchObject({ team_flow: 34, accum_flow: 6 });
   });
 });
 
