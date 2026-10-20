@@ -12,6 +12,7 @@ import type { TeamflowRow } from '@gh-radar/shared';
  */
 
 import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import { withTeamflowNewKeys } from '@/test-fixtures/teamflow-new-keys';
 
 import { TeamflowDayGrid } from '../teamflow-day-grid';
 import { TeamflowDetail } from '../teamflow-detail';
@@ -418,5 +419,97 @@ describe('TeamflowDetail — 「10분 표 보기」 (T8 · D-14)', () => {
     fireEvent.click(rowBtn());
     expect(toggle('10분 표 보기').getAttribute('aria-expanded')).toBe('false');
     expect(bucketTable()).toBeNull();
+  });
+});
+
+// ─── quick 261018-j17 — 등락 구간별 팀 · 거래원 순매수 행렬 (C-01 · C-02 · C-07) ───
+
+/** 실샘플(2906e7a0…) 새 키 행. */
+const newRowOf = (isin: string): TeamflowRow => withTeamflowNewKeys(rowOf(isin));
+/** 행의 자식 칸(th · td) 글자. */
+const cellTexts = (tr: Element) => Array.from(tr.children).map((c) => c.textContent);
+
+describe('TeamflowDetail — 등락 구간별 팀 · 거래원 순매수 (quick 261018-j17)', () => {
+  const flowBox = () => document.querySelector('[data-slot="teamflow-member-flow"]') as HTMLElement | null;
+  const bandMatrix = () => document.querySelector('[data-slot="teamflow-member-band-matrix"]') as HTMLElement;
+  const bodyRowOf = (label: string) => bandMatrix().querySelector(`tbody tr[data-row="${label}"]`)!;
+
+  it('천일고속 새 키 — 소제목 · 캡션 · 경고 문구', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const box = flowBox()!;
+    expect(box).not.toBeNull();
+    expect(within(box).getByText('등락 구간별 팀 · 거래원 순매수')).toBeTruthy();
+    expect(within(box).getByText('단위 억 · 하루 합계 = 상한가 가격 제외')).toBeTruthy();
+    const warn = box.querySelector('[data-slot="teamflow-member-warn"]')!.textContent!;
+    expect(warn).toContain('거래원 숫자 = 그 창구 전체');
+    expect(warn).toContain('(일반 고객 포함)');
+    expect(warn).toContain('다섯 창구를 더해도 팀 순매수가 되지 않는다');
+    expect(warn).toContain('상위 5 밖이면');
+  });
+
+  it('구간 행렬 — 머리 7열 · 9행 · 회신 노트 값(억 1자리)', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const m = bandMatrix();
+    expect(Array.from(m.querySelectorAll('thead th')).map((h) => h.textContent)).toEqual([
+      '구간',
+      '팀',
+      '교보',
+      '한국',
+      '유진',
+      '신한',
+      'NH',
+    ]);
+    expect(m.querySelectorAll('tbody tr')).toHaveLength(9);
+    expect(cellTexts(bodyRowOf('상한가 가격'))).toEqual(['상한가 가격', '−5.1', '—', '−2.2', '—', '+8.1', '−5.6']);
+    expect(cellTexts(bodyRowOf('15~20%'))).toEqual(['15~20%', '+0.8', '—', '−0.8', '—', '+1.0', '+0.1']);
+    expect(cellTexts(bodyRowOf('0~5%'))).toEqual(['0~5%', '−0.1', '—', '—', '—', '−0.2', '+0.1']);
+    expect(cellTexts(bodyRowOf('하루 합계'))).toEqual(['하루 합계', '+4.1', '—', '—', '—', '−0.4', '0.0']);
+    expect(m.querySelector('tbody tr:last-child')!.getAttribute('data-row')).toBe('하루 합계');
+  });
+
+  it('배경 — 다섯 창구 칸만 data-mix(신한 상한가 40 up · NH 상한가 28 down) · 팀 열 · 「—」 · 하루 합계 · 반올림 0 없음', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const lim = bodyRowOf('상한가 가격');
+    const sh = lim.querySelector('[data-col="00002"]')!;
+    expect(sh.getAttribute('data-mix')).toBe('40');
+    expect(sh.getAttribute('data-tone')).toBe('up');
+    const nh = lim.querySelector('[data-col="00012"]')!;
+    expect(nh.getAttribute('data-mix')).toBe('28');
+    expect(nh.getAttribute('data-tone')).toBe('down');
+    expect(lim.querySelector('[data-col="00001"]')!.hasAttribute('data-mix')).toBe(false);
+    for (const td of bandMatrix().querySelectorAll('[data-col="team"]')) expect(td.hasAttribute('data-mix')).toBe(false);
+    for (const td of bodyRowOf('하루 합계').querySelectorAll('td')) expect(td.hasAttribute('data-mix')).toBe(false);
+    // 0~5% NH +0.1 은 배경 있음(반올림 0 아님) · 하루 합계 NH 0.0 은 위에서 없음
+    expect(bodyRowOf('0~5%').querySelector('[data-col="00012"]')!.hasAttribute('data-mix')).toBe(true);
+  });
+
+  it('배치 — 2열 그리드 뒤 · teamflow-buckets 앞', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const box = flowBox()!;
+    const grid = document.querySelector('.xl\\:grid-cols-2') as HTMLElement;
+    const buckets = document.querySelector('[data-slot="teamflow-buckets"]') as HTMLElement;
+    expect(box.closest('.xl\\:grid-cols-2')).toBeNull();
+    expect(grid.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box.compareDocumentPosition(buckets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('동양고속 실샘플(상한가 가격 없음) — 8행 · 마지막 하루 합계', () => {
+    renderDetail(newRowOf(DONGYANG));
+    const trs = bandMatrix().querySelectorAll('tbody tr');
+    expect(trs).toHaveLength(8);
+    expect(trs[7]!.getAttribute('data-row')).toBe('하루 합계');
+    expect(bandMatrix().querySelector('tbody tr[data-row="상한가 가격"]')).toBeNull();
+  });
+
+  it('회귀(C-07) — 옛 행 4개 · member_flow null 패치 → 블록 · 경고 없음', () => {
+    for (const isin of [CHEONIL, SMBEXCEL, DONGYANG, HANSUN]) {
+      const { unmount } = renderDetail(rowOf(isin));
+      expect(flowBox(), isin).toBeNull();
+      expect(document.querySelector('[data-slot="teamflow-member-warn"]')).toBeNull();
+      unmount();
+    }
+    renderDetail(withPayload(newRowOf(CHEONIL), { member_flow: null }));
+    expect(flowBox()).toBeNull();
+    expect(document.querySelector('[data-slot="teamflow-member-warn"]')).toBeNull();
   });
 });

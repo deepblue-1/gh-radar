@@ -71,6 +71,13 @@ export interface TeamflowMemberRow {
   buy: number | null;
   sell: number | null;
   net: number | null;
+  /**
+   * 금액(원 · 마지막 스윕 `lv*_value`) — quick 261018-j17 · 옛 행엔 키가 없다(정본 gh-trade team-flow.md §11).
+   * 상위 5 밖 쪽은 null · 한쪽이 null 이면 net_val 도 null(주 단위 규칙과 같다).
+   */
+  buy_val?: number | null;
+  sell_val?: number | null;
+  net_val?: number | null;
 }
 
 export interface TeamflowMemberTop {
@@ -90,6 +97,51 @@ export interface TeamflowMembers {
   top_sell: TeamflowMemberTop | null;
 }
 
+/** member_flow 칸 맵 — 키 = 창구 코드(members[].member) · 값 = 원 정수 | null(모름 · 아는 체결 50% 미만) · 0 = 체결 없음. */
+export type TeamflowMemberNet = Record<string, number | null>;
+export interface TeamflowMemberFlowMember {
+  member: string;
+  name: string;
+}
+export interface TeamflowMemberFlowBand {
+  label: string;
+  net_val: TeamflowMemberNet;
+}
+export interface TeamflowMemberFlowBucket {
+  key: number;
+  net_val: TeamflowMemberNet;
+}
+/**
+ * payload.member_flow — members 5개 TEAM 순서(교보 · 한국 · 유진 · 신한 · NH) · bands 라벨/순서 = payload.bands
+ * (「하루 합계」 마지막 = 상한가 가격 뺀 합 · 하나라도 null 이면 null) · buckets key 열 = payload.buckets key 열.
+ * 옛 행엔 키가 없다 · 정본 gh-trade team-flow.md §11(quick 261018-j17).
+ */
+export interface TeamflowMemberFlow {
+  members: TeamflowMemberFlowMember[];
+  bands: TeamflowMemberFlowBand[];
+  buckets: TeamflowMemberFlowBucket[];
+}
+/**
+ * payload.pnl — 팀 당일 손익(평균단가법 · 상한가 가격 포함 · 단일가 제외 · 미실현 평가가 last_px). 금액 원 · 수량 주.
+ * 옛 행엔 키가 없다 · 정본 gh-trade team-flow.md §5-1(quick 261018-j17).
+ */
+export interface TeamflowPnl {
+  buy_val: number;
+  buy_qty: number;
+  sell_val: number;
+  sell_qty: number;
+  realized_val: number;
+  realized_qty: number;
+  unrealized_val: number;
+  total_val: number;
+  /** total_val ÷ buy_val (0~1) · buy_val 0 이면 null */
+  ret: number | null;
+  end_qty: number;
+  end_cost_val: number;
+  unknown_sell_qty: number;
+  unknown_sell_val: number;
+}
+
 export interface TeamflowPayload {
   bands: TeamflowBand[];
   buckets: TeamflowBucket[];
@@ -103,6 +155,10 @@ export interface TeamflowPayload {
   members: TeamflowMembers | null;
   /** 사실 문장 3~5줄 — HTML 은 `<b>` 만(웹은 조각 배열로 렌더 · HTML 주입 없음) */
   summary_lines: string[];
+  /** 거래원별 순매수(구간 · 10분) — B9 없음 = null · 옛 행엔 키 없음(§11) */
+  member_flow?: TeamflowMemberFlow | null;
+  /** 팀 당일 손익 — 팀 연속매매 체결 0 = null · 옛 행엔 키 없음(§5-1) */
+  pnl?: TeamflowPnl | null;
 }
 
 /** limitup_team_flow 한 행(29열 + schema_version + payload). PK (date, isin). */

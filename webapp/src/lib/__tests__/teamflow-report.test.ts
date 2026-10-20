@@ -18,12 +18,16 @@ import {
   bucketSlotsOf,
   fmtRangePct,
   fmtEok,
+  fmtEokCell,
   fmtQty,
   fmtRate,
   fmtShare,
   isHotShare,
   kpisOf,
   kstHm,
+  memberBandMatrixOf,
+  memberFlowOf,
+  mixPctOf,
   rowDescriptionOf,
   sortRows,
   summaryPartsOf,
@@ -31,6 +35,7 @@ import {
   toneOf,
 } from '../teamflow-report';
 import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
+import { CJSEAFOOD_PREF, NEW_KEY_ISINS, teamflowNewKeyRows, withTeamflowNewKeys } from '@/test-fixtures/teamflow-new-keys';
 import type { TeamflowBucket, TeamflowRow } from '@gh-radar/shared';
 
 const rowOf = (isin: string): TeamflowRow => teamflowRows().find((r) => r.isin === isin)!;
@@ -344,5 +349,197 @@ describe('fmtRangePct (UI-SPEC 10분 표 · 툴팁)', () => {
   it('둘 중 하나라도 null → 「—」', () => {
     expect(fmtRangePct(null, 3)).toBe('—');
     expect(fmtRangePct(3, null)).toBe('—');
+  });
+});
+
+// ─── quick 261018-j17 — 거래원별 순매수(member_flow) · 팀 당일 손익(pnl) ───
+
+/** 실샘플(2906e7a0…) 새 키 행 — 옛 행에 끼워 넣은 것. */
+const newRowOf = (isin: string): TeamflowRow => withTeamflowNewKeys(rowOf(isin));
+
+/** 회신 노트 261020-teamflow-member-flow 「확인 방법」 구간 표(교보 00001 · 한국 00003 · 유진 00008 · 신한 00002 · NH 00012). */
+const NOTE_BANDS: [string, (number | null)[]][] = [
+  ['0~5%', [null, null, null, -16_398_155, 14_877_765]],
+  ['5~10%', [null, null, null, -89_707_872, -2_763_906]],
+  ['10~15%', [null, null, null, 89_057_405, 59_465_250]],
+  ['15~20%', [null, -84_612_530, null, 96_768_852, 11_469_414]],
+  ['20~25%', [null, 75_583_556, null, -180_640_448, 59_733_780]],
+  ['25~28%', [null, -122_710_206, null, 25_377_118, -73_866_773]],
+  ['28%~상한 미만', [null, -35_061_618, null, 38_065_364, -64_701_358]],
+  ['상한가 가격', [null, -222_607_755, null, 805_969_886, -559_502_572]],
+  ['하루 합계', [null, null, null, -37_477_736, 4_214_172]],
+];
+const NOTE_CODES = ['00001', '00003', '00008', '00002', '00012'];
+/** 회신 노트 버킷 표(한국 · 신한 · NH — 교보 · 유진은 39개 모두 null). */
+const NOTE_BUCKETS: [number, number | null, number, number][] = [
+  [54, null, 6_720_850, 15_027_533],
+  [55, null, -162_562_576, 7_863_705],
+  [60, -15_886_582, -26_035_347, 176_873_997],
+  [72, -126_760_627, 118_009_103, -194_062_461],
+  [93, -672_000, 8_736_000, -4_256_000],
+];
+/** pnl 노트 261020-teamflow-pnl 「확인 방법」 13키 JSON. */
+const NOTE_PNL = {
+  buy_val: 2666615800,
+  buy_qty: 12413,
+  sell_val: 2764277500,
+  sell_qty: 12795,
+  realized_val: 26850642,
+  realized_qty: 9012,
+  unrealized_val: 3099958,
+  total_val: 29950600,
+  ret: 0.011231689244472338,
+  end_qty: 3401,
+  end_cost_val: 758724042,
+  unknown_sell_qty: 3783,
+  unknown_sell_val: 829535100,
+};
+
+describe('실샘플 새 키 픽스처 정직성 (회신 노트 고정값 대조)', () => {
+  const ch = () => newRowOf(CHEONIL);
+
+  it('천일고속 member_flow.bands 9행 × 5창구 = 회신 표 · 라벨 열 = payload.bands 라벨 열', () => {
+    const flow = ch().payload!.member_flow!;
+    expect(flow.bands.map((b) => b.label)).toEqual(NOTE_BANDS.map(([l]) => l));
+    expect(flow.bands.map((b) => b.label)).toEqual(ch().payload!.bands.map((b) => b.label));
+    for (const [label, vals] of NOTE_BANDS) {
+      const b = flow.bands.find((x) => x.label === label)!;
+      expect(NOTE_CODES.map((c) => b.net_val[c]), label).toEqual(vals);
+    }
+  });
+
+  it('members 순서 = 교보 · 한국 · 유진 · 신한 · NH · buckets key 열 = payload.buckets key 열(39 · 93 있음 · 92 없음) · 버킷 5칸', () => {
+    const flow = ch().payload!.member_flow!;
+    expect(flow.members).toEqual([
+      { member: '00001', name: '교보' },
+      { member: '00003', name: '한국' },
+      { member: '00008', name: '유진' },
+      { member: '00002', name: '신한' },
+      { member: '00012', name: 'NH' },
+    ]);
+    const keys = flow.buckets.map((b) => b.key);
+    expect(keys).toEqual(ch().payload!.buckets.map((b) => b.key));
+    expect(keys).toHaveLength(39);
+    expect(keys).toContain(93);
+    expect(keys).not.toContain(92);
+    for (const [key, kr, sh, nh] of NOTE_BUCKETS) {
+      const b = flow.buckets.find((x) => x.key === key)!;
+      expect([b.net_val['00001'], b.net_val['00003'], b.net_val['00008'], b.net_val['00002'], b.net_val['00012']], `key ${key}`).toEqual([
+        null,
+        kr,
+        null,
+        sh,
+        nh,
+      ]);
+    }
+    expect(flow.buckets.every((b) => b.net_val['00001'] === null && b.net_val['00008'] === null)).toBe(true);
+  });
+
+  it('pnl = pnl 노트 13키 · members.rows 금액 = 회신 노트', () => {
+    expect(ch().payload!.pnl).toEqual(NOTE_PNL);
+    const amt = ch().payload!.members!.rows.map((r) => [r.name, r.buy_val, r.sell_val, r.net_val]);
+    expect(amt).toEqual([
+      ['신한', 3_129_112_950, 2_324_330_100, 804_782_850],
+      ['한국', 2_105_170_650, 2_329_488_700, -224_318_050],
+      ['NH', 1_866_093_400, 2_384_365_100, -518_271_700],
+      ['교보', 1_560_189_100, null, null],
+    ]);
+    expect(ch().payload!.members!.absent).toEqual(['유진']);
+  });
+
+  it('3행 각각 새 키를 지우면 옛 픽스처 같은 isin 행과 같다 · CJ씨푸드1우 pnl null · 입력 불변', () => {
+    const fresh = teamflowNewKeyRows();
+    expect(fresh.map((r) => r.isin)).toEqual([CHEONIL, CJSEAFOOD_PREF, DONGYANG]);
+    expect([...NEW_KEY_ISINS].sort()).toEqual(fresh.map((r) => r.isin));
+    for (const r of fresh) {
+      const c = structuredClone(r);
+      delete c.payload!.member_flow;
+      delete c.payload!.pnl;
+      for (const m of c.payload!.members?.rows ?? []) {
+        delete m.buy_val;
+        delete m.sell_val;
+        delete m.net_val;
+      }
+      expect(c, r.isin).toEqual(rowOf(r.isin));
+    }
+    expect(fresh.find((r) => r.isin === CJSEAFOOD_PREF)!.payload!.pnl).toBeNull();
+    const old = rowOf(HANSUN);
+    expect(withTeamflowNewKeys(old)).toBe(old);
+    const before = rowOf(CHEONIL);
+    withTeamflowNewKeys(before);
+    expect(before.payload!.member_flow).toBeUndefined();
+  });
+});
+
+describe('fmtEokCell (행렬 칸 — 억 1자리 · 단위 없음)', () => {
+  it('부호 · 반올림 0 · null', () => {
+    expect(fmtEokCell(-180_640_448)).toBe('−1.8');
+    expect(fmtEokCell(805_969_886)).toBe('+8.1');
+    expect(fmtEokCell(0)).toBe('0.0');
+    expect(fmtEokCell(-672_000)).toBe('0.0');
+    expect(fmtEokCell(4_214_172)).toBe('0.0');
+    expect(fmtEokCell(null)).toBe('—');
+    expect(fmtEokCell(undefined)).toBe('—');
+  });
+});
+
+describe('memberFlowOf', () => {
+  it('키 없음 · null · 배열 아닌 모양 → null · 정상 → 그 객체', () => {
+    const ch = newRowOf(CHEONIL);
+    expect(memberFlowOf(rowOf(CHEONIL).payload)).toBeNull();
+    expect(memberFlowOf(null)).toBeNull();
+    expect(memberFlowOf(undefined)).toBeNull();
+    expect(memberFlowOf({ ...ch.payload!, member_flow: null })).toBeNull();
+    expect(
+      memberFlowOf({ ...ch.payload!, member_flow: { members: [], bands: {}, buckets: [] } as never }),
+    ).toBeNull();
+    expect(memberFlowOf({ ...ch.payload!, member_flow: 'x' as never })).toBeNull();
+    expect(memberFlowOf(ch.payload)).toBe(ch.payload!.member_flow);
+  });
+});
+
+describe('memberBandMatrixOf (C-02 — 구간 행렬)', () => {
+  it('천일고속 — 9행 · 15~20% · 상한가 가격(lim) · 하루 합계(total) · mx = 하루 합계 제외 최대 |값|', () => {
+    const ch = newRowOf(CHEONIL);
+    const m = memberBandMatrixOf(ch.payload!.bands, ch.payload!.member_flow!);
+    expect(m.members.map((x) => x.name)).toEqual(['교보', '한국', '유진', '신한', 'NH']);
+    expect(m.rows.map((r) => r.label)).toEqual(NOTE_BANDS.map(([l]) => l));
+    const r1520 = m.rows.find((r) => r.label === '15~20%')!;
+    expect(r1520.team).toBe(77_503_700);
+    expect(r1520.cells).toEqual([null, -84_612_530, null, 96_768_852, 11_469_414]);
+    expect(r1520.lim).toBe(false);
+    expect(r1520.total).toBe(false);
+    expect(r1520.key).toBeNull();
+    const lim = m.rows.find((r) => r.label === '상한가 가격')!;
+    expect(lim.lim).toBe(true);
+    expect(lim.team).toBe(-508_256_000);
+    expect(lim.cells).toEqual([null, -222_607_755, null, 805_969_886, -559_502_572]);
+    const total = m.rows.at(-1)!;
+    expect(total.label).toBe('하루 합계');
+    expect(total.total).toBe(true);
+    expect(total.team).toBe(410_594_300);
+    expect(total.cells).toEqual([null, null, null, -37_477_736, 4_214_172]);
+    expect(m.mx).toBe(805_969_886);
+  });
+
+  it('팀 열은 라벨로 찾는다 — payload bands 순서가 달라도 · 라벨이 없으면 null', () => {
+    const ch = newRowOf(CHEONIL);
+    const reversed = [...ch.payload!.bands].reverse().filter((b) => b.label !== '0~5%');
+    const m = memberBandMatrixOf(reversed, ch.payload!.member_flow!);
+    expect(m.rows[0]!.label).toBe('0~5%');
+    expect(m.rows[0]!.team).toBeNull();
+    expect(m.rows.find((r) => r.label === '15~20%')!.team).toBe(77_503_700);
+  });
+});
+
+describe('mixPctOf (C-02 — 다섯 창구 공통 눈금 0~40)', () => {
+  it('최대 = 40 · 비례 반올림 · 0 · null · mx 0 → 0', () => {
+    const mx = 805_969_886;
+    expect(mixPctOf(805_969_886, mx)).toBe(40);
+    expect(mixPctOf(-559_502_572, mx)).toBe(28);
+    expect(mixPctOf(0, mx)).toBe(0);
+    expect(mixPctOf(null, mx)).toBe(0);
+    expect(mixPctOf(123, 0)).toBe(0);
+    expect(mixPctOf(2 * mx, mx)).toBe(40);
   });
 });

@@ -11,7 +11,15 @@
  * 33-03 = KPI · 행 칸 · 미니막대 슬롯 · 33-06 = 10분 축 슬롯(`bucketSlotsOf`) · 등락 범위(`fmtRangePct`).
  */
 
-import type { TeamflowBand, TeamflowBucket, TeamflowRow } from '@gh-radar/shared';
+import type {
+  TeamflowBand,
+  TeamflowBucket,
+  TeamflowMemberFlow,
+  TeamflowMemberFlowMember,
+  TeamflowMemberNet,
+  TeamflowPayload,
+  TeamflowRow,
+} from '@gh-radar/shared';
 
 import { kstSecOf } from './limitup-report';
 
@@ -348,4 +356,110 @@ function fmtPct1(v: number): string {
 export function fmtRangePct(lo: number | null | undefined, hi: number | null | undefined): string {
   if (!isNum(lo) || !isNum(hi)) return DASH;
   return `${fmtPct1(lo)}~${fmtPct1(hi)}%`;
+}
+
+// ─── quick 261018-j17 — 거래원별 순매수(payload.member_flow) ───
+
+/** 행렬 칸 글자 — `fmtEok(won, { signed: true })` 에서 「억」 만 뺀 것: 「+8.1」 · 「−1.8」 · 「0.0」 · null 「—」. */
+export function fmtEokCell(won: number | null | undefined): string {
+  const s = fmtEok(won, { signed: true });
+  return s === DASH ? DASH : s.slice(0, -1);
+}
+
+/**
+ * payload.member_flow — 객체이고 members · bands · buckets 가 배열일 때만 그것, 아니면 null(옛 행 키 없음 · B9 없음 null ·
+ * 모양 오류). 정본 gh-trade team-flow.md §11.
+ */
+export function memberFlowOf(payload: TeamflowPayload | null | undefined): TeamflowMemberFlow | null {
+  const f = payload?.member_flow;
+  if (f === null || typeof f !== 'object') return null;
+  if (!Array.isArray(f.members) || !Array.isArray(f.bands) || !Array.isArray(f.buckets)) return null;
+  return f;
+}
+
+export interface MemberMatrixRow {
+  /** 행 id — 구간 = 라벨 · 10분 = String(key) */
+  id: string;
+  label: string;
+  /** 10분 행 key · 구간 행 null */
+  key: number | null;
+  /** 팀 순매수(원) — payload bands/buckets 의 net_val */
+  team: number | null;
+  /** 다섯 창구 순매수(원) — members 순서 · null = 모름 */
+  cells: (number | null)[];
+  /** 「상한가 가격」 행 */
+  lim: boolean;
+  /** 「하루 합계」 행 */
+  total: boolean;
+}
+
+export interface MemberMatrix {
+  members: TeamflowMemberFlowMember[];
+  rows: MemberMatrixRow[];
+  /** 다섯 창구 칸 |값| 최대(하루 합계 행 제외 · 없으면 0) — 배경 진하기 공통 눈금 */
+  mx: number;
+}
+
+const cellsOf = (net: TeamflowMemberNet | null | undefined, members: readonly TeamflowMemberFlowMember[]) =>
+  members.map((m) => {
+    const v = net?.[m.member];
+    return isNum(v) ? v : null;
+  });
+
+const mxOf = (rows: readonly MemberMatrixRow[]) =>
+  rows.reduce((mx, r) => (r.total ? mx : Math.max(mx, ...r.cells.filter(isNum).map(Math.abs))), 0);
+
+/**
+ * 등락 구간 행렬(C-02 · 목업 016 안 B) — 행 = flow.bands 순서(상한가 가격 포함 · 마지막 「하루 합계」 = 상한가 가격 뺀 합).
+ * 팀 칸 = payload bands 에서 **라벨로** 찾은 net_val(인덱스로 맞추지 않는다). 다섯 창구 칸 = members 순서로 net_val[창구 코드].
+ * `mx` = 다섯 창구 칸 공통 눈금(팀 열 · 하루 합계 제외) — 팀 숫자와 거래원 숫자는 출처가 달라 한 눈금에 섞지 않는다.
+ */
+export function memberBandMatrixOf(bands: readonly TeamflowBand[], flow: TeamflowMemberFlow): MemberMatrix {
+  const rows: MemberMatrixRow[] = flow.bands.map((fb) => {
+    const tb = bands.find((b) => b.label === fb.label);
+    return {
+      id: fb.label,
+      label: fb.label,
+      key: null,
+      team: tb && isNum(tb.net_val) ? tb.net_val : null,
+      cells: cellsOf(fb.net_val, flow.members),
+      lim: fb.label === '상한가 가격',
+      total: fb.label === '하루 합계',
+    };
+  });
+  return { members: flow.members, rows, mx: mxOf(rows) };
+}
+
+/** key(10분 칸 번호) → 「HH:MM」. */
+const hmOfKey = (key: number) => {
+  const min = key * 10;
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+};
+
+/**
+ * 10분 행렬(C-04 · C-14) — 행 = flow.buckets 전부 key 오름차순(key 93 「15:30」 도 자기 행 · 차트의 39칸 합산을 쓰지 않는다 ·
+ * 원본 불변). label = 같은 key 의 payload bucket start(없으면 key × 10분). 팀 칸 = 그 bucket net_val.
+ */
+export function memberBucketMatrixOf(buckets: readonly TeamflowBucket[], flow: TeamflowMemberFlow): MemberMatrix {
+  const rows: MemberMatrixRow[] = [...flow.buckets]
+    .sort((a, b) => a.key - b.key)
+    .map((fb) => {
+      const tb = buckets.find((b) => b.key === fb.key);
+      return {
+        id: String(fb.key),
+        label: tb?.start ?? hmOfKey(fb.key),
+        key: fb.key,
+        team: tb && isNum(tb.net_val) ? tb.net_val : null,
+        cells: cellsOf(fb.net_val, flow.members),
+        lim: false,
+        total: false,
+      };
+    });
+  return { members: flow.members, rows, mx: mxOf(rows) };
+}
+
+/** 배경 color-mix 비율 0~40(정수) — |won| ÷ mx 비례(1 에서 자름). 값 없음 · 0 · mx ≤ 0 이면 0(배경 없음). */
+export function mixPctOf(won: number | null, mx: number): number {
+  if (!isNum(won) || won === 0 || !(mx > 0)) return 0;
+  return Math.round(Math.min(Math.abs(won) / mx, 1) * 40);
 }

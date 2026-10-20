@@ -45,7 +45,7 @@ interface Recorder {
   mode403: boolean;
 }
 
-async function installTeamflowMocks(page: Page, opts: { worst?: boolean } = {}): Promise<Recorder> {
+async function installTeamflowMocks(page: Page, opts: { worst?: boolean; newKeys?: boolean } = {}): Promise<Recorder> {
   const rec: Recorder = { ds: [], mode403: false };
   await page.route('**/api/teamflow/report*', async (route: Route) => {
     const d = new URL(route.request().url()).searchParams.get('d');
@@ -60,9 +60,9 @@ async function installTeamflowMocks(page: Page, opts: { worst?: boolean } = {}):
     }
     const body =
       d === null
-        ? teamflowE2EFixture({ worst: opts.worst })
+        ? teamflowE2EFixture({ worst: opts.worst, newKeys: opts.newKeys })
         : TEAMFLOW_DATES.includes(d)
-          ? teamflowE2EFixture({ date: d, worst: opts.worst })
+          ? teamflowE2EFixture({ date: d, worst: opts.worst, newKeys: opts.newKeys })
           : { access: true, dates: TEAMFLOW_DATES, date: d, rows: [] };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
@@ -691,5 +691,46 @@ test.describe('Phase 33 Plan 04 — 팀 매집 목록 (로컬 relay)', () => {
     await slot(page, WORST_ISIN, 'teamflow-buckets').screenshot({
       path: test.info().outputPath('teamflow-bucket-worst-390.png'),
     });
+  });
+
+  // ─── quick 261018-j17 — 거래원 순매수 · 팀 손익 (실샘플 새 키 3행 · newKeys) ───
+
+  test('P33-TF-N1 1280 — 거래원 행렬(새 키 천일고속) · 옛 행 블록 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installTeamflowMocks(page, { newKeys: true });
+    await page.goto(BASE);
+    await expect(rows(page)).toHaveCount(34, { timeout: 30_000 });
+
+    const det = await openDetail(page, CHEONIL);
+    const flow = slot(page, CHEONIL, 'teamflow-member-flow');
+    const matrix = slot(page, CHEONIL, 'teamflow-member-band-matrix');
+    await expect(flow).toBeVisible();
+    await expect(matrix).toBeVisible();
+    const lim = matrix.locator('tbody tr[data-row="상한가 가격"]');
+    expect(await lim.evaluate((tr) => Array.from(tr.children).map((c) => c.textContent))).toEqual([
+      '상한가 가격',
+      '−5.1',
+      '—',
+      '−2.2',
+      '—',
+      '+8.1',
+      '−5.6',
+    ]);
+    const bg = (sel: string) => lim.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg('[data-col="team"]'), '팀 열 배경 없음').toBe('rgba(0, 0, 0, 0)');
+    expect(await bg('[data-col="00002"]'), '신한 상한가 가격 칸 배경 있음').not.toBe('rgba(0, 0, 0, 0)');
+    const fit = await matrix.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+    expect(fit.sw, '1280 행렬 래퍼 넘침 0').toBeLessThanOrEqual(fit.cw);
+
+    const b = await detailBoxes(det, ['teamflow-bands', 'teamflow-members', 'teamflow-member-flow', 'teamflow-bucket-chart']);
+    const f = b['teamflow-member-flow']!;
+    expect(f.top, '행렬 블록 = 2열 아래').toBeGreaterThan(Math.max(b['teamflow-bands']!.bottom, b['teamflow-members']!.bottom));
+    expect(f.top, '행렬 블록 = 10분 차트 위').toBeLessThan(b['teamflow-bucket-chart']!.top);
+    await expectNoHorizontalScroll(page, '1280 거래원 행렬');
+    await det.screenshot({ path: test.info().outputPath('teamflow-member-flow-1280.png') });
+
+    // 옛 행(에스엠벡셀) — 블록 없음.
+    await openDetail(page, SMBEXCEL);
+    await expect(page.locator('[data-slot="teamflow-member-flow"]')).toHaveCount(0);
   });
 });

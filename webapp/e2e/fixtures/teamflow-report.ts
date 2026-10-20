@@ -7,6 +7,7 @@
  * - 20261013 = 같은 34행의 `date` 만 바꾼 **합성** 응답 — 날짜 알약 ‹ 이동을 확인하려는 용도뿐(그날 실측 아님).
  * - `WORST_ROW` = 폭 백스톱(UI-SPEC T2 · T3 · 상세 T6 · T8) 용 **합성** 최악값 행 — 15자 종목명 · 상한가 15:19 · 금액 −1,234.5억.
  *   실재 종목명 · ISIN 이 아니다(종목명은 일부러 말이 안 되는 15자 · ISIN 은 KR79 합성 대역).
+ * - `newKeys` = 천일고속 · 동양고속 · CJ씨푸드1우 3행만 실샘플(2906e7a0…) 새 키 행(`@/test-fixtures/teamflow-new-keys` · quick 261018-j17).
  * ★ 실계좌 · 사용자 식별 리터럴 없음 — 종목 · 창구 공개 정보뿐.
  */
 
@@ -21,8 +22,9 @@ import {
   teamflowReportFixture,
   teamflowRows,
 } from '@/test-fixtures/teamflow-export';
+import { CJSEAFOOD_PREF, teamflowRowsWithNewKeys } from '@/test-fixtures/teamflow-new-keys';
 
-export { CHEONIL, DONGYANG, HANSUN, SMBEXCEL };
+export { CHEONIL, CJSEAFOOD_PREF, DONGYANG, HANSUN, SMBEXCEL };
 
 export type TeamflowReportBody = ReturnType<typeof teamflowReportFixture>;
 
@@ -177,10 +179,14 @@ export const WORST_ROW: TeamflowRow = (() => {
 /**
  * `GET /api/teamflow/report?d=` 200 본문.
  * - `date` 생략 = 최신(20261014) · 다른 날짜 = 같은 행의 `date` 만 옮긴 합성.
- * - `worst` = `WORST_ROW` 한 행만.
+ * - `worst` = `WORST_ROW` 한 행만(newKeys 보다 우선).
+ * - `newKeys` = 34행 중 3행만 실샘플 새 키 행(`teamflowRowsWithNewKeys`).
  */
-export function teamflowE2EFixture(opts: { date?: LimitupDate; worst?: boolean } = {}): TeamflowReportBody {
+export function teamflowE2EFixture(
+  opts: { date?: LimitupDate; worst?: boolean; newKeys?: boolean } = {},
+): TeamflowReportBody {
   const date = opts.date ?? TEAMFLOW_LATEST;
-  const rows = (opts.worst ? [WORST_ROW] : teamflowRows()).map((r) => ({ ...r, date }));
+  const base = opts.worst ? [WORST_ROW] : opts.newKeys ? teamflowRowsWithNewKeys() : teamflowRows();
+  const rows = base.map((r) => ({ ...r, date }));
   return teamflowReportFixture({ date, dates: TEAMFLOW_DATES, rows });
 }
