@@ -544,26 +544,40 @@ export function labelRowsOf(
 /** 프리셋 3개 — 「전체」 09:00~20:00 · 「정규장」 09:00~15:30 · 「마지막 2시간」 [max(T0, 끝 − 2h), 끝]. */
 export type ChartPreset = 'full' | 'reg' | 'last2h';
 
-export function lastTradeMsOf(_price: AccumReportPrice): number | null {
-  return null;
+/** 마지막 체결 칸 시각 = t0_ms + 마지막 idx × step_s × 1000(목업 lastTradeOf) · idx 가 비면 null. */
+export function lastTradeMsOf(price: AccumReportPrice): number | null {
+  const last = price.idx[price.idx.length - 1];
+  if (!isNum(last)) return null;
+  return price.t0_ms + last * (isNum(price.step_s) ? price.step_s : 10) * 1000;
 }
 
+/**
+ * 프리셋 창(D-14 · 목업 preset) — clampView 를 거친다. 「마지막 2시간」 의 끝은 마지막 체결 칸 시각이고, 끝이 없으면(체결 0 —
+ * 버튼은 disabled) 「전체」 로 폴백한다.
+ */
 export function presetOf(
-  _name: ChartPreset,
-  _bounds: { T0: number; T1530: number; T2000: number },
-  _lastTradeMs: number | null,
+  name: ChartPreset,
+  bounds: { T0: number; T1530: number; T2000: number },
+  lastTradeMs: number | null,
 ): View {
-  return { t0: 0, t1: 0 };
+  const { T0, T1530, T2000 } = bounds;
+  let v: View = { t0: T0, t1: T2000 };
+  if (name === 'reg') v = { t0: T0, t1: T1530 };
+  else if (name === 'last2h' && lastTradeMs !== null) v = { t0: Math.max(T0, lastTradeMs - 2 * HOUR), t1: lastTradeMs };
+  return clampView(v, T0, T2000);
 }
 
-export function zoomAt(v: View, _tc: number, _k: number): View {
-  return v;
+/** tc 기준 k 배 확대/축소 — tc 의 창 안 상대 위치를 지킨다(k < 1 확대 · k > 1 축소 · clamp 는 호출 쪽). */
+export function zoomAt(v: View, tc: number, k: number): View {
+  return { t0: tc - (tc - v.t0) * k, t1: tc + (v.t1 - tc) * k };
 }
 
-export function panBy(v: View, _dt: number): View {
-  return v;
+/** 창을 dt 만큼 옮긴다(+ = 뒤 시각 · clamp 는 호출 쪽). */
+export function panBy(v: View, dt: number): View {
+  return { t0: v.t0 + dt, t1: v.t1 + dt };
 }
 
-export function fmtViewRange(_v: View): string {
-  return '';
+/** 창 범위 글자 「HH:MM ~ HH:MM」(KST). */
+export function fmtViewRange(v: View): string {
+  return `${kstHm(v.t0)} ~ ${kstHm(v.t1)}`;
 }

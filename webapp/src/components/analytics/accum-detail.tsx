@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { AccumDetailResponse, AccumDetailRow } from '@gh-radar/shared';
 
@@ -8,7 +8,8 @@ import { DmaGate, type DmaGateReason } from '@/components/trading/dma-gate';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { accumDetailCacheKey, fetchAccumDetail } from '@/lib/accum-api';
-import { clampView, dayBoundsOf, type View } from '@/lib/accum-chart';
+import { useChartView } from '@/hooks/use-chart-view';
+import { dayBoundsOf, fmtViewRange, lastTradeMsOf, type ChartPreset } from '@/lib/accum-chart';
 import { detailKpisOf } from '@/lib/accum-report';
 import { readQueryCache } from '@/lib/query-cache';
 import { TONE_TEXT } from '@/lib/teamflow-report';
@@ -26,7 +27,9 @@ import { AccumChart } from './accum-chart';
  * - 상태: 로딩 = 실제 배치 높이 스켈레톤(KPI 줄 → 범례 → 프리셋 → 차트 472 · 사이 8px) + sr 전용 「상세 불러오는 중…」 /
  *   실패 = 「상세를 불러오지 못했어요」 + 「다시 시도」(재요청 · 실패는 캐시하지 않는다) / 401 · 403 · `{access:false}` = 상세 자리
  *   `DmaGate`(페이지 전체는 그대로) / `row: null` = 「이 종목 상세를 찾지 못했어요」(재시도 없음) / 준비 = 차트 블록.
- * - 차트 블록 `flex flex-col gap-2` = KPI 줄(이 파일) → 범례 · 프리셋 · 차트 · 캡션(34-06~08 이 이 블록 안에 붙인다).
+ * - 차트 블록 `flex flex-col gap-2` = KPI 줄 → 범례(8 · 견본 span aria-hidden) → 프리셋 줄(「전체 · 정규장 · 마지막 2시간」
+ *   `aria-pressed` + 창 범위 「HH:MM ~ HH:MM」) → 차트(창 = `useChartView`) → 캡션(34-07 · A5 · D-14 · D-18).
+ *   `price.idx` 가 비면(또는 payload 없음) 범례 ~ 캡션 대신 한 줄 「그날 체결 자료 없음」 — KPI 줄은 남는다.
  *   그 아래 사이클 표 · 손익 줄 · 판정 기준 · 출처 칩도 34-06~08 몫. 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정).
  */
 
@@ -36,13 +39,6 @@ type Phase =
   | { kind: 'gate'; reason: DmaGateReason }
   | { kind: 'missing' }
   | { kind: 'ready'; row: AccumDetailRow };
-
-/** 기본 보기 창 = 하루 전체 09:00~20:00(D-14) — 34-07 이 확대/이동 훅(use-chart-view)으로 바꾼다. */
-function fullViewOf(row: AccumDetailRow): View | null {
-  if (row.payload === null) return null;
-  const { T0, T2000 } = dayBoundsOf(row.payload.price.t0_ms);
-  return clampView({ t0: T0, t1: T2000 }, T0, T2000);
-}
 
 function phaseOf(resp: AccumDetailResponse): Phase {
   if (!resp.access) return { kind: 'gate', reason: 'unmapped' };
@@ -149,7 +145,95 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
   );
 }
 
+const PRESETS: readonly { name: ChartPreset; label: string }[] = [
+  { name: 'full', label: '전체' },
+  { name: 'reg', label: '정규장' },
+  { name: 'last2h', label: '마지막 2시간' },
+];
+
+const CAPTION =
+  '원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+
+/** 범례 견본(UI-SPEC A5) — 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정). */
+const DOT = 'inline-block size-2.5 rounded-full';
+const HLINE = 'inline-block h-0.5 w-2.5 rounded-full';
+const VLINE = 'inline-block h-2.5 w-0.5';
+const LEGEND: readonly { label: string; swatch: string }[] = [
+  { label: '가격(10초)', swatch: `${HLINE} bg-[var(--fg-2)]` },
+  { label: '팀 매수', swatch: `${DOT} bg-[var(--up)] opacity-70` },
+  { label: '팀 매도', swatch: `${DOT} bg-[var(--down)] opacity-70` },
+  { label: '팀매수 시작', swatch: `${DOT} border-2 border-[var(--fg)] bg-[var(--up)]` },
+  { label: '순매수 누적', swatch: `${HLINE} bg-[var(--team)]` },
+  { label: '등록', swatch: `${VLINE} bg-[var(--team)]` },
+  { label: '청산·종료', swatch: 'inline-block h-2.5 w-0 border-l-2 border-dashed border-[var(--muted-fg)]' },
+  { label: '등록 전', swatch: 'inline-block size-2.5 border border-[var(--border-subtle)] bg-[var(--accum-shade)]' },
+];
+
+/** KPI 줄 아래 차트 블록 나머지 — 가격 자료가 없으면 한 줄 대체. */
 function ReadyChart({ row }: { row: AccumDetailRow }) {
-  const view = fullViewOf(row);
-  return view === null ? null : <AccumChart row={row} view={view} />;
+  if (row.payload === null || row.payload.price.idx.length === 0) {
+    return (
+      <p data-slot="accum-no-price" className="text-[length:var(--t-caption)] text-[var(--faint)]">
+        그날 체결 자료 없음
+      </p>
+    );
+  }
+  return <ChartBody row={row} />;
+}
+
+function ChartBody({ row }: { row: AccumDetailRow }) {
+  const payload = row.payload!;
+  const t0ms = payload.price.t0_ms;
+  const bounds = useMemo(() => dayBoundsOf(t0ms), [t0ms]);
+  const lastTradeMs = lastTradeMsOf(payload.price);
+  const ctl = useChartView({ bounds, lastTradeMs });
+  const noTeam = payload.day_cum_net.t_ms.length === 0;
+
+  return (
+    <>
+      <div
+        data-slot="accum-legend"
+        className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+      >
+        {LEGEND.map((l) => (
+          <span key={l.label} className="inline-flex items-center gap-1 whitespace-nowrap">
+            <span aria-hidden="true" className={l.swatch} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+      <div data-slot="accum-presets" className="flex flex-wrap items-center gap-2">
+        {PRESETS.map((p) => {
+          const on = ctl.preset === p.name;
+          return (
+            <button
+              key={p.name}
+              type="button"
+              aria-pressed={on}
+              disabled={p.name === 'last2h' && lastTradeMs === null}
+              onClick={() => ctl.setPreset(p.name)}
+              className={cn(
+                'min-h-8 rounded-full px-3 text-[length:var(--t-caption)] font-semibold disabled:cursor-not-allowed disabled:opacity-50',
+                on
+                  ? 'bg-[var(--pill-on-bg)] text-[var(--pill-on-fg)]'
+                  : 'bg-[var(--muted)] text-[var(--fg-2)] hover:bg-[var(--raised-2)]',
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+        <span
+          data-slot="accum-view-range"
+          className="mono ml-auto text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        >
+          {fmtViewRange(ctl.view)}
+        </span>
+      </div>
+      <AccumChart row={row} view={ctl.view} />
+      <p data-slot="accum-caption" className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
+        {noTeam ? `팀 체결 없음 · ${CAPTION}` : CAPTION}
+      </p>
+    </>
+  );
 }
