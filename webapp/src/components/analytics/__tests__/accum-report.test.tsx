@@ -41,6 +41,13 @@ import { ApiClientError } from '@/lib/api';
 import { clearQueryCache } from '@/lib/query-cache';
 import {
   ACCUM_DATE,
+  AC_CARRY,
+  AC_DROP,
+  AC_EXPIRE,
+  AC_LIQ,
+  AC_LIVE,
+  AC_PARTIAL,
+  AC_SELL,
   CHEONIL,
   CJSEAFOOD_PREF,
   CXI,
@@ -253,6 +260,151 @@ describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
 
     await open('d=20261012', accumReportFixture({ date: '20261012', rows: [] }));
     expect(document.querySelector('[data-slot="accum-kpis"]')).toBeNull();
+  });
+});
+
+const slotText = (isin: string, slot: string) =>
+  rowBtn(isin).querySelector(`[data-slot="${slot}"]`)?.textContent ?? null;
+
+describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
+  const openSyn = () => open('d=20261014', accumReportFixture({ rows: accumSyntheticListRows() }));
+
+  it('(r1) 정렬 — 매집중들(pos 큰 순 · null 맨 뒤) → 매도중 → 종료들(pos 큰 순)', async () => {
+    await openSyn();
+    expect(rowButtons().map((b) => b.getAttribute('data-isin'))).toEqual([
+      AC_LIVE,
+      AC_CARRY,
+      AC_PARTIAL,
+      AC_SELL,
+      AC_DROP,
+      AC_EXPIRE,
+      AC_LIQ,
+    ]);
+  });
+
+  it('(r2) 흐림 — 종료 이월 탈락 · 만료 행만 data-dim="true" + opacity-60 · 장중 청산 · 살아 있는 행은 정상 농도', async () => {
+    await openSyn();
+    for (const isin of [AC_DROP, AC_EXPIRE]) {
+      expect(rowBtn(isin).getAttribute('data-dim')).toBe('true');
+      expect(rowBtn(isin).className).toContain('opacity-60');
+      expect(rowBtn(isin).className).toContain('hover:opacity-100');
+      expect(rowBtn(isin).className).toContain('focus-visible:opacity-100');
+    }
+    for (const isin of [AC_LIQ, AC_LIVE, AC_SELL, AC_CARRY, AC_PARTIAL]) {
+      expect(rowBtn(isin).hasAttribute('data-dim')).toBe(false);
+      expect(rowBtn(isin).className).not.toContain('opacity-60');
+    }
+    // 열면 불투명도 1 — 상세는 흐리지 않는다
+    fireEvent.click(rowBtn(AC_DROP));
+    expect(rowBtn(AC_DROP).className).toContain('opacity-100');
+    expect(rowBtn(AC_DROP).className).not.toMatch(/(^|\s)opacity-60(\s|$)/);
+  });
+
+  it('(r3) 배지 묶음 — 상태 → 「이월 D+2」 → 「사이클 2」 순 · carry 0 · cycle 1 이면 배지 없음', async () => {
+    await openSyn();
+    const badges = (isin: string) =>
+      Array.from(rowBtn(isin).querySelectorAll('[data-slot="accum-badges"] > span')).map((b) => [
+        b.getAttribute('data-slot'),
+        b.textContent,
+      ]);
+    expect(badges(AC_CARRY)).toEqual([
+      ['accum-state', '매집중'],
+      ['accum-carry', '이월 D+2'],
+      ['accum-cycle', '사이클 2'],
+    ]);
+    expect(badges(AC_LIVE)).toEqual([['accum-state', '매집중']]);
+    expect(badges(AC_SELL)).toEqual([['accum-state', '매도중']]);
+    expect(badges(AC_EXPIRE)).toEqual([
+      ['accum-state', '종료'],
+      ['accum-carry', '이월 D+5'],
+    ]);
+  });
+
+  it('(r4) 사유 줄 — 종료 행만 · 사유 2 줄에 title · 청산은 title 없음', async () => {
+    await openSyn();
+    const reason = (isin: string) => rowBtn(isin).querySelector('[data-slot="accum-reason"]');
+    expect(reason(AC_DROP)!.textContent).toBe('이월 탈락(복원 안 됨) · 06:00');
+    expect(reason(AC_DROP)!.getAttribute('title')).toBe(
+      '06:00 이월 판정에서 탈락했거나 서버 재기동 때 복원되지 않은 종목이에요',
+    );
+    expect(reason(AC_EXPIRE)!.textContent).toBe('이월 만료 · 06:00');
+    expect(reason(AC_LIQ)!.textContent).toBe('청산 · 11:32');
+    expect(reason(AC_LIQ)!.hasAttribute('title')).toBe(false);
+    expect(reason(AC_LIVE)).toBeNull();
+  });
+
+  it('(r5) 결과 태그 — 천일고속 limit 「상한가 +29.8%」(보조줄 없음) · 동양고속 rate 「+22.1%」 + 「고가 +29.3%」', async () => {
+    await open('d=20261014');
+    const tag = rowBtn(CHEONIL).querySelector('[data-slot="accum-tag"]')!;
+    expect(tag.getAttribute('data-kind')).toBe('limit');
+    expect(tag.textContent).toBe('상한가 +29.8%');
+    expect(tag.className).toContain('text-[var(--up)]');
+    expect(rowBtn(CHEONIL).querySelector('[data-slot="accum-high"]')).toBeNull();
+    const dy = rowBtn(DONGYANG).querySelector('[data-slot="accum-tag"]')!;
+    expect(dy.getAttribute('data-kind')).toBe('rate');
+    expect(dy.textContent).toBe('+22.1%');
+    expect(slotText(DONGYANG, 'accum-high')).toBe('고가 +29.3%');
+  });
+
+  it('(r6) 금액 · 등록·종료 칸 — 팀 순매수 + 평단/등록가 · 하루 0 = 「0.0억」 --fg-2 · 이월 「MM/DD 등록」', async () => {
+    await openSyn();
+    expect(slotText(AC_LIVE, 'accum-pos')).toBe('+9.3억');
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-pos"]')!.className).toContain('text-[var(--up)]');
+    expect(slotText(AC_LIVE, 'accum-avg')).toBe('평단 12,680 · 등록가 11,410');
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-avg"]')!.getAttribute('title')).toBe(
+      '평단 12,680 · 등록가 11,410',
+    );
+    expect(slotText(AC_SELL, 'accum-pos')).toBe('−2.4억');
+    const day = rowBtn(AC_DROP).querySelector('[data-slot="accum-day"]')!;
+    expect(day.textContent).toBe('0.0억');
+    expect(day.className).toContain('text-[var(--fg-2)]');
+    const reg = (isin: string) =>
+      Array.from(rowBtn(isin).querySelectorAll('[data-slot="accum-reg"] > span')).map((s) => s.textContent);
+    expect(reg(AC_LIVE)).toEqual(['09:12', '장 마감까지']);
+    expect(reg(AC_CARRY)).toEqual(['10/10 등록', '오늘 이월']);
+    expect(reg(AC_LIQ)).toEqual(['09:05', '11:32 청산']);
+    expect(reg(AC_DROP)).toEqual(['10/13 등록', '06:00 탈락']);
+    expect(reg(AC_PARTIAL)).toEqual(['—', '장 마감까지']);
+    expect(slotText(AC_LIQ, 'accum-meta-reg')).toBe('등록 09:05 → 11:32');
+    expect(slotText(AC_DROP, 'accum-meta-reg')).toBe('10/13 등록 → 06:00');
+  });
+
+  it('(r7) 결측 행 — 접근 이름 short_code · 태그 「—」 · 금액 「—」 · 사유 줄 없음', async () => {
+    await openSyn();
+    expect(rowBtn(AC_PARTIAL).getAttribute('aria-label')).toBe('AC0007 — 매집감지 상세');
+    const tag = rowBtn(AC_PARTIAL).querySelector('[data-slot="accum-tag"]')!;
+    expect(tag.getAttribute('data-kind')).toBe('none');
+    expect(tag.textContent).toBe('—');
+    expect(slotText(AC_PARTIAL, 'accum-pos')).toBe('—');
+    expect(slotText(AC_PARTIAL, 'accum-avg')).toBe('평단 — · 등록가 —');
+    expect(within(rowBtn(AC_PARTIAL)).getByText('AC0007')).toBeTruthy();
+  });
+
+  it('(r8) sr 설명 — aria-describedby="accum-row-desc-{isin}" · 1문장', async () => {
+    await openSyn();
+    const btn = rowBtn(AC_CARRY);
+    expect(btn.getAttribute('aria-describedby')).toBe(`accum-row-desc-${AC_CARRY}`);
+    expect(document.getElementById(`accum-row-desc-${AC_CARRY}`)!.textContent).toBe(
+      '매집중, 이월 D+2, 사이클 2, 결과 +13.8%, 고가 +29.8%, 팀 순매수 등록 후 +3.6억, 하루 순매수 +0.4억, 등록 10/10',
+    );
+  });
+
+  it('(r9) 카드 머리 — 소제목 캡션 · xl 열 머리 aria-hidden 2줄(「(등록 후)」 · 「(등록 전 포함)」)', async () => {
+    await openSyn();
+    expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 팀 순매수(등록 후) 큰 순')).toBeTruthy();
+    const head = document.querySelector('[data-slot="accum-list-head"]')!;
+    expect(head.getAttribute('aria-hidden')).toBe('true');
+    expect(Array.from(head.children).map((c) => c.textContent)).toEqual([
+      '종목',
+      '상태',
+      '결과',
+      '팀 순매수(등록 후)',
+      '하루 순매수(등록 전 포함)',
+      '등록 · 종료',
+      '',
+    ]);
+    const sec = screen.getByRole('heading', { level: 2, name: '매집감지 종목' }).closest('section')!;
+    expect(sec.getAttribute('aria-labelledby')).toBe('accum-list-title');
   });
 });
 
