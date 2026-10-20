@@ -260,15 +260,20 @@ export function metaLineOf(row: AccumReportRow): AccumMetaItem[] {
 /**
  * 행 sr 설명 1문장(UI-SPEC A3) — 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그}{, 고가 +NN.N%},
  * 팀 순매수 등록 후 {pos}, 하루 순매수 {day}, 등록 {HH:MM | MM/DD}{, 종료 HH:MM}」. 결측에 throw 없음(「—」).
+ * 끝 「종료 HH:MM」 은 사유 절이 시각을 이미 말했으면 생략한다(IN-02 — 같은 시각을 두 번 읽지 않게).
  */
 export function accumRowDescriptionOf(row: AccumReportRow): string {
   const parts = [stateLabelOf(row.state)];
   if (isNum(row.carry_days) && row.carry_days > 0) parts.push(`이월 D+${row.carry_days}`);
   if (isNum(row.cycle) && row.cycle > 1) parts.push(`사이클 ${row.cycle}`);
   const end = endHmOf(row);
+  let endSaid = false;
   if (row.state === 3) {
     const label = endReasonLabelOf(row.end_reason);
-    if (label !== null) parts.push(end === null ? label : `${label} ${end}`);
+    if (label !== null) {
+      parts.push(end === null ? label : `${label} ${end}`);
+      endSaid = end !== null;
+    }
   }
   const tag = accumTagOf(row);
   parts.push(`결과 ${tag.text}`);
@@ -278,7 +283,7 @@ export function accumRowDescriptionOf(row: AccumReportRow): string {
     `하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`,
     `등록 ${isCarry(row) ? fmtYmdShort(row.since_date!) : regLineOf(row)}`,
   );
-  if (end !== null) parts.push(`종료 ${end}`);
+  if (end !== null && !endSaid) parts.push(`종료 ${end}`);
   return parts.join(', ');
 }
 

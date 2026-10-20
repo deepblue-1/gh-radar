@@ -264,7 +264,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 등록 · 종료 칸(xl) | 1줄: 오늘 등록(`since_date == date`) 「HH:MM」(`reg_time_ms` · null 「—」) / 이월 「MM/DD 등록」(`since_date`) · 2줄: `end_reason` 1 「HH:MM 청산」 · 2 「HH:MM 탈락」 · 3 「HH:MM 만료」 · 0 이고 이월 「오늘 이월」 · 0 이고 오늘 등록 「장 마감까지」 |
 | 폰 메타 줄(< xl · 3줄) | 「팀 순매수 {pos}」 · 「하루 {day}」 · 「등록 HH:MM」 또는 「{MM/DD} 등록」 + 종료가 있으면 「 → HH:MM」 — 라벨 `--muted-fg` + 값 |
 | 행 버튼 접근 이름 | 「{종목명} {코드} — 매집감지 상세」 |
-| 행 sr 설명(`aria-describedby`) | 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그 글자}{, 고가 +NN.N%}, 팀 순매수 등록 후 {pos}, 하루 순매수 {day}, 등록 {HH:MM \| MM/DD}{, 종료 HH:MM}」 |
+| 행 sr 설명(`aria-describedby`) | 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그 글자}{, 고가 +NN.N%}, 팀 순매수 등록 후 {pos}, 하루 순매수 {day}, 등록 {HH:MM \| MM/DD}{, 종료 HH:MM}」 — 끝 「종료 HH:MM」 은 사유 절이 시각을 이미 말했으면 생략(코드 리뷰 IN-02) |
 
 `since_date` 가 8자리 숫자가 아니면(빈 문자열 · `"None"` — 소급 결측 · 리서치 Pitfall 17) 이월 판정에서 「오늘 등록 아님 · 이월 아님」 으로 두고 등록 칸 1줄을 「—」 로 쓴다(배지는 `carry_days` 만 본다).
 
