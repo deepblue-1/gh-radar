@@ -38,7 +38,9 @@ export type DmaGateSurface =
   // quick-261009-c43 — 「트」 받침 없음 → 「AI 애널리스트는」(topicParticle).
   | "AI 애널리스트"
   // Phase 33 — 「집」 받침 있음 → 「팀 매집은」(topicParticle).
-  | "팀 매집";
+  | "팀 매집"
+  // Phase 34 — 「서」 받침 없음 → 「매집감지 보고서는」(topicParticle).
+  | "매집감지 보고서";
 
 export interface DmaGateProps {
   reason: DmaGateReason;
