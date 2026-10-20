@@ -1,0 +1,10 @@
+{
+ "command": "pnpm --filter @gh-radar/relay exec vitest run tests/accum-backfill.test.ts --maxWorkers=2 --reporter=tap-flat -t \"미리보기 count 1007\"",
+ "exitCode": 1,
+ "output": "TAP version 13\n1..6\nok 1 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > kind=16 · gateway=KYOBO119 · trade_date=2026-10-19 필터와 gw_time_ms · journal_epoch · seq 정렬로 읽는다 # SKIP\nnot ok 2 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 미리보기 count 1007 · 2페이지(1000 + 7) → 1,007줄 파일 · rows 1007 · isins = 서로 다른 isin 수 # time=3.54ms\n    ---\n    error:\n        name: \"AssertionError\"\n        message: \"expected '' to be '/var/folders/f9/n6mq39vd3zz93b0j0clgj…' // Object.is equality\"\n    at: \"/Users/alex/repos/gh-radar/relay/tests/accum-backfill.test.ts:137:22\"\n    actual: \n    expected: \"/var/folders/f9/n6mq39vd3zz93b0j0clgjxbc0000gn/T/accum-backfill-crvthB/20261019.jsonl\"\n    ...\nok 3 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 각 줄의 키 집합이 ACCUM_BACKFILL_KEYS(23개 · gh-trade EVENT_KEYS_REQUIRED)와 같고 since_date · reg_time 은 문자열 # SKIP\nok 4 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 출력 디렉터리에 임시 파일이 남지 않는다(<D>.jsonl 하나) # SKIP\nok 5 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 미리보기 count 1008 인데 1007행만 읽히면 throw · 파일 없음 # SKIP\nok 6 - tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 대상 파일이 이미 있으면 force 없이 throw(내용 그대로) · force=true 면 덮어쓴다 # SKIP\n",
+ "targetTest": "tests/accum-backfill.test.ts > exportAccumBackfillDay — 한 날짜 경로(트레이서) > 미리보기 count 1007 · 2페이지(1000 + 7) → 1,007줄 파일 · rows 1007 · isins = 서로 다른 isin 수",
+ "targetFile": "relay/tests/accum-backfill.test.ts",
+ "expected": "path <outDir>/20261019.jsonl · rows 1007 · isins 3 · 1,007줄",
+ "actual": "골격 exportAccumBackfillDay 가 빈 요약 반환 — path \"\" (AssertionError at :137)",
+ "semanticAssessment": "대상 테스트가 실행되어 계획한 단언(res.path === <outDir>/20261019.jsonl)에서 AssertionError 로 실패. import·구문·픽스처 오류 아님 — 골격 모듈은 타입만 있고 동작이 없다. 전체 실행(6/6 단언 실패)은 vitest TAP 의 다중행 진단 때문에 파서가 거부해 -t 로 대상만 재실행."
+}
