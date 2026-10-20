@@ -1,0 +1,10 @@
+{
+ "command": "pnpm exec vitest run src/components/analytics/__tests__/accum-detail.test.tsx --maxWorkers=2 --reporter=tap-flat -t \"\\(c1\\)\" (cwd webapp)",
+ "exitCode": 1,
+ "output": "TAP version 13\n1..1\nnot ok 1 - src/components/analytics/__tests__/accum-detail.test.tsx > AccumChart — 가격 판 · 1:1 viewBox (A6 · D-17) > (c1) 천일고속 펼침 → svg[data-slot=accum-chart] viewBox \"0 0 640 472\"(jsdom 폴백) · role=img · 접근 이름 · 가격 선 # time=89.92ms\n    ---\n    error:\n        name: \"AssertionError\"\n        message: \"expected null to be truthy\"\n    at: \"/Users/alex/repos/gh-radar/webapp/src/components/analytics/__tests__/accum-detail.test.tsx:89:17\"\n    actual: \"null\"\n    expected: \"true\"\n    ...",
+ "targetTest": "src/components/analytics/__tests__/accum-detail.test.tsx > AccumChart — 가격 판 · 1:1 viewBox (A6 · D-17) > (c1) 천일고속 펼침 → svg[data-slot=accum-chart] viewBox \"0 0 640 472\"(jsdom 폴백) · role=img · 접근 이름 · 가격 선",
+ "targetFile": "webapp/src/components/analytics/__tests__/accum-detail.test.tsx",
+ "expected": "펼친 천일고속 상세에 svg[data-slot=accum-chart](viewBox 0 0 640 472 · role=img · 접근 이름)",
+ "actual": "svg 없음 — expected null to be truthy (AssertionError at :89)",
+ "semanticAssessment": "대상 테스트가 실행되어 계획한 첫 단언(svg 존재)에서 AssertionError 로 실패. 목록 렌더 · 행 펼침 · 상세 section 까지 통과했으므로 import·구문·픽스처 오류 아님 — 상세에 AccumChart 가 아직 없다. 같은 RED 묶음의 lib 단위 11건도 골격 모듈(시그니처만 · 빈 값)에서 전부 AssertionError 로 실패(로드 실패 아님)."
+}
