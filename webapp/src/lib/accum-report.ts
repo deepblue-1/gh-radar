@@ -8,7 +8,7 @@
  * - kind 16(라이브)과 join 하지 않는다 — 이 보고서의 이력 정본은 `limitup_accum_flow` 다(D-22).
  */
 
-import type { AccumReportRow } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportRow } from '@gh-radar/shared';
 
 import { fmtYmdShort } from './limitup-report';
 import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
@@ -277,4 +277,29 @@ export function accumRowDescriptionOf(row: AccumReportRow): string {
   );
   if (end !== null) parts.push(`종료 ${end}`);
   return parts.join(', ');
+}
+
+// ---------------------------------------------------------------------------
+// 사이클 표 (D-20 · UI-SPEC A7 · CR-01)
+// ---------------------------------------------------------------------------
+
+export interface AccumCycleRowView {
+  /** 나온 순서 1-based — `cycle` 값을 쓰지 않는다(CR-01 · 차트 등록 라벨 「· k」 와 같은 번호) */
+  k: number;
+  reg: string;
+  end: string;
+  /** 종료 null = 장 마감까지 살아 있음(--muted-fg) */
+  endIsOpen: boolean;
+  status: string;
+  regPx: string;
+  avgPx: string;
+  net: string;
+  netTone: TeamflowTone;
+  peak: string;
+  qty: string;
+}
+
+/** 사이클 표 행(UI-SPEC A7 칸 규칙). RED 골격. */
+export function cycleRowsOf(_row: AccumDetailRow): AccumCycleRowView[] {
+  return [];
 }

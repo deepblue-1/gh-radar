@@ -8,13 +8,14 @@ import { describe, it, expect } from 'vitest';
  * 픽스처 = 10/14 실측 6행(워커 gz 원문) + 합성 7행(`accumSyntheticListRows` — 목업 A 의 상태 조합 · KR79 합성 대역).
  */
 
-import type { AccumReportRow } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportCycle, AccumReportRow } from '@gh-radar/shared';
 
 import {
   ACCUM_DROP_TITLE,
   accumKpisOf,
   accumRowDescriptionOf,
   accumTagOf,
+  cycleRowsOf,
   endReasonLabelOf,
   isCarry,
   isDimRow,
@@ -33,7 +34,10 @@ import {
   AC_SELL,
   CHEONIL,
   DONGYANG,
+  accumDetailRows,
+  accumKstMs,
   accumListRows,
+  accumSyntheticDetail,
   accumSyntheticListRows,
 } from '@/test-fixtures/accum-export';
 
@@ -207,5 +211,89 @@ describe('accumRowDescriptionOf — 행 sr 설명 (A3)', () => {
     const broken = { ...syn(AC_PARTIAL), state: null, cycle: Number.NaN, carry_days: null, since_date: 'None' };
     expect(() => accumRowDescriptionOf(broken)).not.toThrow();
     expect(accumRowDescriptionOf(broken).startsWith('—, 결과 —')).toBe(true);
+  });
+});
+
+describe('cycleRowsOf — 사이클 표 칸 (D-20 · A7 · CR-01)', () => {
+  /** multiCycle 바탕에 사이클만 갈아 끼운 상세 행. */
+  const withCycles = (cycles: Partial<AccumReportCycle>[]): AccumDetailRow => {
+    const base = accumSyntheticDetail('multiCycle');
+    const tpl = base.payload!.cycles[1]!;
+    return { ...base, payload: { ...base.payload!, cycles: cycles.map((c) => ({ ...tpl, ...c })) } };
+  };
+
+  it('multiCycle → 2행 · # 1, 2(cycle 값 중복 — 둘 다 1이어도 나온 순서) · 1행 청산 · 2행 장 마감까지 · 매집중', () => {
+    const row = accumSyntheticDetail('multiCycle');
+    expect(row.payload!.cycles.map((c) => c.cycle)).toEqual([1, 1]);
+    const rows = cycleRowsOf(row);
+    expect(rows.map((r) => r.k)).toEqual([1, 2]);
+    expect(rows[0]).toMatchObject({ reg: '09:12:40', end: '11:32:04', endIsOpen: false, status: '청산' });
+    expect(rows[1]).toMatchObject({ reg: '13:05:20', end: '장 마감까지', endIsOpen: true, status: '매집중' });
+    // 합성 사이클은 pos_* 가 null — 값 칸 전부 「—」
+    expect(rows[1]).toMatchObject({ regPx: '—', avgPx: '—', net: '—', netTone: 'flat', peak: '—', qty: '—' });
+  });
+
+  it('이월 사이클(since 20261010 · date 20261014) 등록 칸 「10/10 09:20:00」 · reg null → 「—」 · since 결측은 날짜 없이', () => {
+    const carry = cycleRowsOf(accumSyntheticDetail('carry'));
+    expect(carry).toHaveLength(1);
+    expect(carry[0]).toMatchObject({ k: 1, reg: '10/10 09:20:00', end: '14:56:30', status: '청산' });
+    const r = cycleRowsOf(
+      withCycles([
+        { reg_time_ms: null },
+        { since_date: null, reg_time_ms: accumKstMs('20261014', '09:20:00') },
+      ]),
+    );
+    expect(r[0]!.reg).toBe('—');
+    expect(r[1]!.reg).toBe('09:20:00');
+  });
+
+  it('값 칸 — 등록가 · 평단 원 쉼표 · 순매수 ±억 1자리(부호 색) · 최고 순매수 ±억 · 수량 「38,200 / 3,100」 · 한쪽 null 「—」', () => {
+    const r = cycleRowsOf(
+      withCycles([
+        {
+          state: 2,
+          pos_reg_px: 11_410,
+          pos_avg_px: 12_680,
+          pos_net_krw: 930_000_000,
+          pos_peak_net_krw: 1_020_000_000,
+          pos_buy_qty: 38_200,
+          pos_sell_qty: 3_100,
+        },
+        { pos_net_krw: -240_000_000, pos_peak_net_krw: 10_000_000, pos_buy_qty: 977, pos_sell_qty: null },
+      ]),
+    );
+    expect(r[0]).toMatchObject({
+      status: '매도중',
+      regPx: '11,410',
+      avgPx: '12,680',
+      net: '+9.3억',
+      netTone: 'up',
+      peak: '+10.2억',
+      qty: '38,200 / 3,100',
+    });
+    expect(r[1]).toMatchObject({ net: '−2.4억', netTone: 'down', peak: '+0.1억', qty: '977 / —' });
+  });
+
+  it('상태 — end_reason > 0 이면 사유(청산 / 이월 탈락(복원 안 됨) / 이월 만료) · 아니면 매집중 / 매도중', () => {
+    const end = accumKstMs('20261014', '06:00:00');
+    const r = cycleRowsOf(
+      withCycles([
+        { end_reason: 2, state: 3, end_time_ms: end },
+        { end_reason: 3, state: 3, end_time_ms: end },
+        { end_reason: 0, state: 1 },
+      ]),
+    );
+    expect(r.map((x) => x.status)).toEqual(['이월 탈락(복원 안 됨)', '이월 만료', '매집중']);
+    expect(r[0]!.end).toBe('06:00:00');
+  });
+
+  it('실측 행(사이클 1) → 1행 · payload null · cycles 키 결측 → 빈 배열(throw 없음)', () => {
+    const real = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    const one = cycleRowsOf(real);
+    expect(one).toHaveLength(1);
+    expect(one[0]).toMatchObject({ k: 1, reg: '09:57:20', end: '장 마감까지', regPx: '205,500', avgPx: '200,407', qty: '977 / 164' });
+    expect(cycleRowsOf({ ...real, payload: null })).toEqual([]);
+    const { cycles: _c, ...noKey } = real.payload!;
+    expect(cycleRowsOf({ ...real, payload: noKey as unknown as NonNullable<AccumDetailRow['payload']> })).toEqual([]);
   });
 });

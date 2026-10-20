@@ -310,3 +310,38 @@ describe('AccumDetail 차트 조작 — 키보드 래퍼 (A6 · D-14 · UI-SPEC 
     }
   });
 });
+
+describe('AccumCycleTable — 사이클 표 (A7 · D-20 · CR-01)', () => {
+  it('(t1) multiCycle(cycle 값 중복) → 차트 블록 다음 사이클 표 · 머리 9열 · 캡션 · # 1, 2 · 마지막 행 첫 칸 --team 띠 · 「장 마감까지」', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('multiCycle'));
+    const sec = await expand(HANSUN);
+    const tbl = sec.querySelector<HTMLElement>('[data-slot="accum-cycles"]');
+    expect(tbl).toBeTruthy();
+    // 차트 블록 다음(같은 상세 루트의 형제 · 토글 없음)
+    const block = sec.querySelector('[data-slot="accum-chart-block"]')!;
+    expect(block.compareDocumentPosition(tbl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(block.contains(tbl!)).toBe(false);
+    expect(tbl!.querySelector('[aria-expanded]')).toBeNull();
+    expect(tbl!.textContent).toContain('사이클');
+    expect(tbl!.textContent).toContain('2개 · 값은 각 사이클 종료 시점(살아 있으면 마지막)');
+    const heads = Array.from(tbl!.querySelectorAll('thead th')).map((th) => th.textContent);
+    expect(heads).toEqual(['#', '등록', '종료', '상태', '등록가', '평단', '순매수', '최고 순매수', '매수 / 매도 수량']);
+    const rows = Array.from(tbl!.querySelectorAll('tbody tr'));
+    expect(rows).toHaveLength(2);
+    const cells = rows.map((r) => Array.from(r.querySelectorAll('td')).map((td) => td.textContent));
+    expect(cells.map((c) => c[0])).toEqual(['1', '2']);
+    expect(cells[0]!.slice(1, 4)).toEqual(['09:12:40', '11:32:04', '청산']);
+    expect(cells[1]!.slice(1, 4)).toEqual(['13:05:20', '장 마감까지', '매집중']);
+    const firstTd = (r: Element) => r.querySelector('td')!;
+    expect(firstTd(rows[1]!).className).toContain('shadow-[inset_3px_0_0_var(--team)]');
+    expect(firstTd(rows[0]!).className).not.toContain('shadow-[inset_3px_0_0_var(--team)]');
+    // 가로 스크롤 래퍼(폰)
+    expect(tbl!.querySelector('.overflow-x-auto')).toBeTruthy();
+  });
+
+  it('(t2) 사이클 1 → 표 없음 — 천일고속(실측 1개)', async () => {
+    const sec = await expand(CHEONIL);
+    expect(sec.querySelector('[data-slot="accum-chart-block"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-cycles"]')).toBeNull();
+  });
+});
