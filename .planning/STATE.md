@@ -6,10 +6,10 @@ current_phase: 32
 current_phase_name: 계좌 축 정리
 status: completed
 stopped_at: Phase 32 complete — UAT 4/4 · v1.1 전 phase 완료
-last_updated: "2026-10-18T10:29:12.463Z"
-last_activity: 2026-10-17
+last_updated: "2026-10-20T03:15:39.723Z"
+last_activity: 2026-10-19
 last_activity_desc: Phase 32 complete
-state_head: ab86af3d21012eaea053b0efaf61dfdff5f3baf0
+state_head: c57160970510ce7a21682b0ea77ed40a2f906d66
 progress:
   total_phases: 4
   completed_phases: 4
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 Phase: 32 (계좌 축 정리) — COMPLETE
 Plan: 14 of 14
 Status: All phases complete (v1.1 30 · 31 · 32 · 33)
-Last activity: 2026-10-19 - Completed quick task 261019-j1w: 매집감지 매도 조기 경보 수용
+Last activity: 2026-10-20 - Completed quick task 261018-j17: 팀 매집 거래원별 순매수 + 팀 당일 손익
 
 Progress: [██████████] 100% (40/40 plans)
 
@@ -90,6 +90,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261018-qob | 87 로 세션 선언에서 빠진 계좌의 VI 슬롯을 hub 캐시에서 지우고 vi.slot.clear 팬아웃(다른 세션이 알면 re-assert) — #clearViOwner 와 #dropViSlots 헬퍼 공유 · 미준비 세션도 지움 · 21 재요청은 Ready 때만 | 2026-10-18 | ab86af3d | [261018-qob-87-hub-vi-vi-slot-clear](./quick/261018-qob-87-hub-vi-vi-slot-clear/) |
 | 261018-rfy | 매집감지(kind 16) 수용 — shared 시세 집합 16 · 조회 RPC · 주문로그 래퍼 16 제외 · purge 30일 · isin 별 최신 읽기 RPC(같은 분 quote-primary 우선) · GET /api/accum-signals · relay 리듀서 별도 목록 · /trading 작업대 「매집」 패널(돌파 동형) · 인박스 done | 2026-10-18 | 89947e7f | [261018-rfy-accum-signal](./quick/261018-rfy-accum-signal/) |
 | 261019-j1w | 매집감지 매도 조기 경보 · 오늘 매수 평단 수용 — relay 생성물 재생성(776320af) · shared kind 16 sellWarn · sellWarns · 행 종류 5 · 작업대 「매집」 패널 주황 「매도경보」 배지(목업 A) · 인박스 2건 done | 2026-10-19 | 2021cd24 | [261019-j1w-accum-sell-warn](./quick/261019-j1w-accum-sell-warn/) |
+| 261018-j17 | 팀 매집 보고서 거래원별 순매수(행렬 표 · 하루 억) + 팀 당일 손익(목록 열 · 상세 줄) | 2026-10-20 | c5716097 | [261018-j17-teamflow-broker-net-buy](./quick/261018-j17-teamflow-broker-net-buy/) |
 
 ## Session Continuity
 
