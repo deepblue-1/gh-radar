@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-13-PLAN.md
-last_updated: "2026-10-20T13:25:48.534Z"
+stopped_at: Completed 34-03-PLAN.md
+last_updated: "2026-10-20T13:30:49.282Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: 778bd33ce1cf99474caaf0cdc1db97731638f3c4
+state_head: 9c3138d49acc6e20c8f51ab8365962e1680515aa
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 43
+  completed_plans: 44
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 4 of 13
+Plan: 5 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T13:25:48.463Z
-Stopped at: Completed 34-13-PLAN.md
+Last session: 2026-10-20T13:30:49.210Z
+Stopped at: Completed 34-03-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -136,6 +136,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P01 | 6min | 1 tasks | 8 files |
 | Phase 34 P02 | 5min | 2 tasks | 4 files |
 | Phase 34 P13 | 8min | 1 tasks | 16 files |
+| Phase 34 P03 | 4min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -202,3 +203,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-02: 소급 줄 정수 칸은 null/비숫자를 0 으로 — 23키 항상 실음(키 빠지면 gh-trade bad=)
 - [Phase 34]: 34-13: 매집감지 상세는 access:true 응답만 query-cache(accum-detail:{date}:{isin} · 만료 없음 · row:null 포함) · 진행 중 요청 합침 · 실패 비캐시. 펼친 상세 첫 렌더는 캐시에서 동기 초기화
 - [Phase 34]: 34-13: 목록 열 머리 · 행 sr 설명은 34-04 가 열을 채울 때 함께 — 34-13 은 7열 템플릿 위 종목 · 상태 배지 · 셰브론만
+- [Phase 34]: 34-03: 재적재 감지를 OPTIONAL_FILES 순회 backfillTbls 로 일반화 — reason `<표들>_backfill`(표 하나면 기존 문자열 그대로) · 격자 생략 · 실패 시 unpublish 생략
+- [Phase 34]: 34-03: 탐지 0 거래일 manifest 는 코드 변경 없이 그대로 적재(테스트로 잠금) · backfill 로그 객체는 표별 { tbl, prev, manifest } 배열
