@@ -31,8 +31,9 @@ export { kstYmdDaysAgo } from "./purge";
  * 한 날짜 판정 순서(고정 — 28-16 · D-14):
  *   manifest 읽기(깨지면 skip "manifest") → `schema_version`(모르는 판(1 · 2 밖)이면 skip "schema" — 파일을 읽지 않는다) →
  *   `files_sig` 가 이력과 같으면 `skipped.unchanged`(verify · stage · commit · record_skip 없음) —
- *   단 manifest 에 `team_flow.ndjson.gz` 가 있고 이력 `rows.team_flow` 가 그 rows 와 다르면(키 없음 포함) files_sig 가
- *   같아도 재적재한다(Phase 33 D-03 — 옛 워커가 team_flow 없이 실은 날짜 · 수동 files_sig NULL 대체 · 이 backfill 은
+ *   단 manifest 에 선택 파일(`OPTIONAL_FILES` — team_flow · accum_flow)이 있고 이력 `rows.<tbl>` 이 그 rows 와 다르면(키 없음
+ *   포함) files_sig 가 같아도 재적재한다(Phase 33 D-03 → Phase 34 D-02 일반화 — 옛 워커가 그 표 없이 실은 날짜 · 수동
+ *   files_sig NULL 대체 · reason `<tbl>[+<tbl>]_backfill` · 이 backfill 은
  *   격자 재업로드를 건너뛰고, 실패해도 그 날짜를 unpublish 하지 않는다 — 실패 날짜로만 남는다 · WR-01) →
  *   files sha256 대조(불일치 · 없는 파일이면 skip "sha") → 6 ndjson.gz 읽기(행 수 == manifest rows) →
  *   선택 파일 `OPTIONAL_FILES` 순회(manifest 에 있을 때만 · 행 수 == manifest rows · 없으면 0행 — Phase 33 D-02 ·
@@ -117,8 +118,6 @@ const SKIP_TEXT: Record<SkipReason, string> = {
 
 const STAGE_TABLES: readonly StageTbl[] = [...EXPORT_TABLES, "grid_summary", "member_daily", "team_flow", "accum_flow"];
 
-/** 재적재 감지(Phase 33 D-03)가 보는 선택 파일 — 지금은 team_flow 하나(일반화는 34-03). */
-const TEAM_FLOW_OPTIONAL = OPTIONAL_FILES.find((o) => o.tbl === "team_flow")!;
 
 function emptyCounts(): Record<StageTbl, number> {
   return Object.fromEntries(STAGE_TABLES.map((t) => [t, 0])) as Record<StageTbl, number>;
@@ -223,10 +222,13 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     }
     const sig = filesSig(m);
     const p = prev.get(date);
-    // D-03 — team_flow 가 manifest 에 있는데 이력 개수와 다르면(키 없음 = 옛 워커 적재 · Pitfall 1) sig 가 같아도 진행.
-    const tfEntry = m.files.find((f) => f.name === TEAM_FLOW_OPTIONAL.file);
-    const needTeamFlow = tfEntry !== undefined && p?.rows?.team_flow !== tfEntry.rows;
-    if (p?.sig === sig && !needTeamFlow) {
+    // D-03(Phase 33) — 선택 파일이 manifest 에 있는데 이력 개수와 다르면(키 없음 = 옛 워커 적재 · Pitfall 1) sig 가 같아도 진행.
+    // Phase 34 D-02 — team_flow 하나에서 OPTIONAL_FILES 전부로 일반화(accum_flow 포함 · manifest 에 없는 표는 보지 않는다).
+    const optional = OPTIONAL_FILES.map((o) => ({ ...o, entry: m.files.find((f) => f.name === o.file) }));
+    const backfillTbls = optional
+      .filter((o) => o.entry !== undefined && p?.rows?.[o.tbl] !== o.entry.rows)
+      .map((o) => o.tbl);
+    if (p?.sig === sig && backfillTbls.length === 0) {
       result.skipped.unchanged.push(date);
       log.info({ date }, "limitup day unchanged — files_sig 같음");
       // 적재본과 같은 export 로 돌아왔다 = 연속 skip 이 끊겼다. streak 를 0 으로 — 띄엄띄엄 skip 이 「3연속」 알림을 내지 않게
@@ -240,12 +242,14 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       }
       return;
     }
-    const reason = p === undefined ? "new" : p.sig !== sig ? "files_sig" : "team_flow_backfill";
-    if (reason === "team_flow_backfill") {
-      log.info(
-        { date, prevTeamFlow: p?.rows?.team_flow ?? null, manifestTeamFlow: tfEntry?.rows },
-        "limitup day team_flow backfill — files_sig 같음 · team_flow 개수 불일치(D-03)",
-      );
+    // 표 하나면 기존 문자열 그대로('team_flow_backfill' · 'accum_flow_backfill'), 둘이면 'team_flow+accum_flow_backfill'.
+    const reason = p === undefined ? "new" : p.sig !== sig ? "files_sig" : `${backfillTbls.join("+")}_backfill`;
+    const backfill = reason.endsWith("_backfill");
+    if (backfill) {
+      const tables = optional
+        .filter((o) => backfillTbls.includes(o.tbl))
+        .map((o) => ({ tbl: o.tbl, prev: p?.rows?.[o.tbl] ?? null, manifest: o.entry!.rows }));
+      log.info({ date, tables }, `limitup day ${backfillTbls.join("+")} backfill — files_sig 같음 · 개수 불일치(D-02)`);
     }
     const bad = await verifyFiles(config.exportDir, date, m);
     if (bad.length > 0) {
@@ -268,17 +272,16 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
     }
 
     // 선택 파일(33 D-02 · 34 D-02) — 있으면 행 수 대조, 없으면 0행. counts.<tbl> 는 늘 기록(0 포함 — commit 이 키를 본다).
-    const optional = {} as Record<OptionalTbl, Row[]>;
-    for (const o of OPTIONAL_FILES) {
-      const entry = m.files.find((f) => f.name === o.file);
+    const optionalRows = {} as Record<OptionalTbl, Row[]>;
+    for (const o of optional) {
       let rows: Row[] = [];
-      if (entry) {
+      if (o.entry) {
         rows = readNdjsonGz(join(config.exportDir, date, o.file));
-        if (rows.length !== entry.rows) {
-          throw new Error(`${date}: ${o.file} rows ${rows.length} != manifest ${entry.rows}`);
+        if (rows.length !== o.entry.rows) {
+          throw new Error(`${date}: ${o.file} rows ${rows.length} != manifest ${o.entry.rows}`);
         }
       }
-      optional[o.tbl] = rows;
+      optionalRows[o.tbl] = rows;
       counts[o.tbl] = rows.length;
     }
 
@@ -306,15 +309,14 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
 
     const { error: clearErr } = await sb.rpc("limitup_stage_clear", { p_date: date });
     if (clearErr) throw new Error(`limitup_stage_clear ${date}: ${clearErr.message}`);
-    // D-03 backfill 은 files_sig 가 같아 들어온다 = 격자 파일이 sha256 까지 같다(filesSig 는 grid/* 도 싣는다).
+    // 선택 파일 backfill(33 D-03 · 34 D-02) 은 files_sig 가 같아 들어온다 = 격자 파일이 sha256 까지 같다(filesSig 는 grid/* 도 싣는다).
     // 그래서 격자를 다시 올리지 않고, 실패해도 「새 격자 + 옛 행」 이 섞일 일이 없어 unpublish 하지 않는다(WR-01).
-    const backfill = reason === "team_flow_backfill";
     let commitMs: number;
     try {
       if (!backfill) result.grids += await uploadGrids(sb, date, grids);
       await stageDay(sb, date, { ...tables, grid_summary: gridSummary, member_daily: memberDaily }, config.stageChunk);
-      for (const o of OPTIONAL_FILES) {
-        await stageDay(sb, date, { [o.tbl]: optional[o.tbl] }, Math.min(config.stageChunk, o.chunk));
+      for (const o of optional) {
+        await stageDay(sb, date, { [o.tbl]: optionalRows[o.tbl] }, Math.min(config.stageChunk, o.chunk));
       }
       const commitStart = Date.now();
       await commitDay(sb, {
@@ -330,10 +332,10 @@ export async function dispatch(opts: { dryRun?: boolean; now?: Date } = {}): Pro
       // 격자는 새 export 라 보고서가 둘을 겹쳐 그린다. 그 날짜의 files_sig 를 지워 보고서에서 내리고(「적재 안 된
       // 날짜」 — 보고서 RPC 는 files_sig 있는 날짜만 보인다) 다음 run 이 통째로 다시 적재하게 한다.
       // backfill 실패는 내리지 않는다(WR-01) — 격자를 건드리지 않았고 commit 은 원자라 DB 는 이미 게시된 그대로다.
-      // 선택 파일 team_flow 하나 때문에 멀쩡한 상한가 보고서 날짜가 사라지면 안 된다. 그 날짜는 아래 루프에서
+      // 선택 파일(team_flow · accum_flow) 때문에 멀쩡한 상한가 보고서 날짜가 사라지면 안 된다. 그 날짜는 아래 루프에서
       // 그대로 failed(종료 1 · record_skip "load" — files_sig 는 건드리지 않는다)로 남아 운영자에게 보인다.
       if (backfill) {
-        log.warn({ date }, "limitup day team_flow backfill failed — 게시된 날짜는 그대로 둔다(unpublish 없음)");
+        log.warn({ date }, `limitup day ${backfillTbls.join("+")} backfill failed — 게시된 날짜는 그대로 둔다(unpublish 없음)`);
       } else if (p?.sig) {
         await unpublish(date);
       }

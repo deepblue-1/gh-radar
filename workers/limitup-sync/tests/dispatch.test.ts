@@ -682,7 +682,7 @@ describe("dispatch — team_flow 재적재 자동 감지(D-03)", () => {
     expect((commitFor(fake.calls, TF_DATE).args.p_expected as Record<string, number>).team_flow).toBe(34);
     expect(committedLog(TF_DATE)?.obj).toMatchObject({ reason: "team_flow_backfill", replaced: true, sigChanged: false });
     const backfill = log.calls.info.find((c) => c.msg.startsWith("limitup day team_flow backfill"));
-    expect(backfill?.obj).toEqual({ date: TF_DATE, prevTeamFlow: null, manifestTeamFlow: 34 });
+    expect(backfill?.obj).toEqual({ date: TF_DATE, tables: [{ tbl: "team_flow", prev: null, manifest: 34 }] });
   });
 
   it("이력 rows.team_flow 34 + 같은 sig → unchanged · commit 0회(다 실린 날짜는 다시 싣지 않는다)", async () => {
