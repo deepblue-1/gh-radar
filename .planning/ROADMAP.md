@@ -213,7 +213,7 @@ Plans:
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
-| 34. 매집감지(accum) 보고서 | v1.1 | 10/13 | Not started | - |
+| 34. 매집감지(accum) 보고서 | v1.1 | 11/13 | Not started | - |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -274,7 +274,7 @@ Plans:
   6. 단위 · E2E 통과 · 첫 실물 날짜 라이브 UAT · 인박스 `261020-accum-flow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션 → limitup-sync Job 재배포(20:30 밖) → server → webapp push(= 프로덕션). 119 배치가 20:20 을 넘기면 radar-gw `limitup-pull.timer` 20:30 · limitup-sync CRON 20:40 으로 함께 미룬다(D-09 조건부 합의)
-**Plans**: 10/13 plans executed
+**Plans**: 11/13 plans executed
 
 Plans:
 **Wave 1**
@@ -304,7 +304,7 @@ Plans:
 - [x] 34-09-PLAN.md — 실브라우저 상세 경로 E2E · 사이드바 「분석 › 매집감지 보고서」
 
 **Wave 9** *(blocked on Wave 8 completion)*
-- [ ] 34-10-PLAN.md — 폰 390 · 폭 백스톱 6종 · 전 워크스페이스 회귀 게이트
+- [x] 34-10-PLAN.md — 폰 390 · 폭 백스톱 6종 · 전 워크스페이스 회귀 게이트
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 34-11-PLAN.md — [BLOCKING] db push → Job 재배포 → 소급 실행 · gh-trade 전달 → 운반 · 적재 · 스모크 → server(메인 세션)

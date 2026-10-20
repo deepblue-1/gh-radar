@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-09-PLAN.md
-last_updated: "2026-10-20T14:26:33.343Z"
+stopped_at: Completed 34-10-PLAN.md
+last_updated: "2026-10-20T14:41:59.795Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: c3d117d9a6bd9ff153798bc2c9a5524afcec51b6
+state_head: 4080ea138c131e1de3bd14a376e2ecc8fe039cfe
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 50
+  completed_plans: 51
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 11 of 13
+Plan: 12 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T14:26:33.273Z
-Stopped at: Completed 34-09-PLAN.md
+Last session: 2026-10-20T14:41:59.724Z
+Stopped at: Completed 34-10-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -143,6 +143,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P07 | 9min | 2 tasks | 9 files |
 | Phase 34 P08 | 6min | 2 tasks | 8 files |
 | Phase 34 P09 | 4min | 2 tasks | 5 files |
+| Phase 34 P10 | 12min | 3 tasks | 5 files |
 
 ## Decisions
 
@@ -222,3 +223,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-08: 사이클 표 # = cycles 나온 순서(CR-01) · 수량 둘 다 null 「—」 · 판정 기준 본문 1 은 조각 배열(thresholdPartsOf)이 정본 · pnlOf 인자를 Pick<TeamflowPayload,'pnl'> 로 넓혀 매집감지 공용
 - [Phase 34]: 34-09: e2e 목은 목록(pathname ===)과 상세(startsWith …/)를 URL 판정 함수로 분리 — glob * 가 / 를 넘지 않음(Pitfall 9) · sidebar-tree 403 루프도 같은 판정
 - [Phase 34]: 34-09: 합성 최악값 행 ISIN KR790000AC99 · 상세는 한선 payload + 최악값 평평한 열 · accumDetailFixtureOf synthetic 옵션으로 34-10 합성 상세 주입
+- [Phase 34]: 34-10: 매집감지 누적 축 글자는 0 과 세로 12px 미만인 끝값을 뺀다(cumTicksOf · 0 글자 우선)
+- [Phase 34]: 34-10: 전 워크스페이스 회귀 · pgTAP 4파일 green — 34-11 배포 전제 충족(server admin-dma ECONNRESET 2건은 단독 재실행 85/85)
