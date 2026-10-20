@@ -32,6 +32,7 @@ import {
   ticksOf,
   yOfCum,
   priceAxisWidthOf,
+  priceClipOf,
   pricePathOf,
   pricePointsOf,
   priceRangeOf,
@@ -182,6 +183,23 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     const d = pricePathOf(pts, view, xOfView(view, 52, 640), y);
     expect(d).not.toMatch(/NaN|Infinity/);
     expect(cmds(d).filter((c) => c === 'M').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('priceClipOf(WR-01) — x [L, W − R] · y 가격 판 [TOP, TOP + H1] ± 원 최대 반지름 7 · 누적 판 위끝(240) 안 넘음', () => {
+    const c = priceClipOf(52, 640);
+    expect(c).toEqual({ x: 52, y: 16 - 7, w: 640 - 56 - 52, h: 200 + 14 });
+    expect(c.y + c.h).toBeLessThan(ACCUM_CHART.TOP + ACCUM_CHART.H1 + ACCUM_CHART.GAP);
+    expect(priceClipOf(60, 100).w).toBe(0); // 폭이 L + R 보다 좁으면 0(음수 금지)
+    // 재현: 창 끝 바로 밖 가격이 크게 다르면 경로 y 가 판 밖으로 나간다 — 그래서 클립이 필요하다
+    const pts: PricePoint[] = [
+      [at('09:59:50'), 12_000],
+      [at('10:00:00'), 13_000],
+    ];
+    const view = { t0: at('09:50:00'), t1: at('09:59:55') };
+    const r = priceRangeOf(pts, EMPTY_ORDERS, view);
+    const y = (p: number) => 16 + ((r.hi - p) / (r.hi - r.lo)) * 200;
+    const ys = (pricePathOf(pts, view, xOfView(view, 52, 640), y).match(/,(-?\d+\.\d)/g) ?? []).map((s) => Number(s.slice(1)));
+    expect(Math.min(...ys)).toBeLessThan(c.y);
   });
 });
 

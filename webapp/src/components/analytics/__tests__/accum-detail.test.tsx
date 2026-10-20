@@ -110,6 +110,14 @@ describe('AccumChart — 가격 판 · 1:1 viewBox (A6 · D-17)', () => {
     expect(pricePath).toBeTruthy();
     expect(pricePath!.getAttribute('d')).toMatch(/^M/);
     expect(pricePath!.getAttribute('d')).not.toMatch(/NaN/);
+    // WR-01 — 가격 선 · 주문 원은 가격 판 높이 클립(y 9 · 높이 214) 안
+    const layer = svg!.querySelector('[data-slot="accum-price-layer"]')!;
+    expect(layer.contains(pricePath)).toBe(true);
+    expect(layer.querySelectorAll('circle').length).toBe(svg!.querySelectorAll('circle').length);
+    const pxClipId = /^url\(#(.+)\)$/.exec(layer.getAttribute('clip-path') ?? '')?.[1];
+    expect(pxClipId).toMatch(/-px$/);
+    const pxRect = svg!.querySelector(`clipPath[id="${pxClipId}"] rect`)!;
+    expect([pxRect.getAttribute('y'), pxRect.getAttribute('height')]).toEqual(['9', '214']);
     // 차트는 KPI 줄 아래(같은 차트 블록 안)
     const block = sec.querySelector('[data-slot="accum-chart-block"]')!;
     expect(block.contains(svg!)).toBe(true);

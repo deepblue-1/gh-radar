@@ -22,6 +22,7 @@ import {
   orderCirclesOf,
   priceAxisWidthOf,
   pricePathOf,
+  priceClipOf,
   pricePointsOf,
   priceRangeOf,
   shadeOf,
@@ -47,7 +48,8 @@ import { cn } from '@/lib/utils';
  * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
  *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
- *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖.
+ *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖. 가격 선 · 주문 원은
+ *   가격 판 높이 클립(`priceClipOf`)을 한 겹 더 쓴다(WR-01 — 창 경계를 넘는 선분이 누적 · 10분 판 · 라벨 띠를 가르지 않게).
  *   불투명도(DOM `fill-opacity` · `stroke-opacity`): 원 채움 .55 · 테두리 .9 · first 채움 .9 · 10분 막대 .7.
  * - 팀 체결 없음(해당 배열이 빔)이면 누적 판 · 10분 판 가운데 「팀 체결 없음」 — 가격 선 · 0선 · 축 · 빈 띠는 그대로.
  * - `payload` 가 없거나 `price.idx` 가 비면 그리지 않는다(null — 대체 문구 「그날 체결 자료 없음」 은 34-07).
@@ -82,6 +84,7 @@ export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View
   const yP = yOfPrice(pRange);
   const pxTicks = [0, 1, 2, 3, 4].map((i) => pRange.min + ((pRange.max - pRange.min) * i) / 4);
   const priceD = pricePathOf(points, view, x, yP);
+  const pxClip = priceClipOf(L, W);
 
   const cRange = cumRangeOf(payload.day_cum_net);
   const yC = yOfCum(cRange);
@@ -135,6 +138,10 @@ export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View
         <defs>
           <clipPath id={clipId}>
             <rect x={L} y={0} width={Math.max(0, right - L)} height={H} />
+          </clipPath>
+          {/* 가격 레이어 전용 — 가격 판 높이만(WR-01 · 창 경계 선분이 다른 판을 가르지 않게) */}
+          <clipPath id={`${clipId}-px`}>
+            <rect x={pxClip.x} y={pxClip.y} width={pxClip.w} height={pxClip.h} />
           </clipPath>
         </defs>
 
@@ -208,35 +215,37 @@ export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View
             </g>
           ))}
 
-          {/* ⑤ 가격 선 */}
-          <path
-            data-slot="accum-price-path"
-            d={priceD}
-            fill="none"
-            stroke="var(--fg-2)"
-            strokeWidth={1.25}
-            strokeLinejoin="round"
-          />
+          {/* ⑤ 가격 선 · ⑦ 주문 원 — 가격 판 높이 클립(WR-01) */}
+          <g data-slot="accum-price-layer" clipPath={`url(#${clipId}-px)`}>
+            <path
+              data-slot="accum-price-path"
+              d={priceD}
+              fill="none"
+              stroke="var(--fg-2)"
+              strokeWidth={1.25}
+              strokeLinejoin="round"
+            />
 
-          {/* ⑦ 주문 원 — 큰 원 → 작은 원 → first(맨 위) */}
-          {circles.map((c, i) => {
-            const color = c.side === 'B' ? 'var(--up)' : 'var(--down)';
-            return (
-              <circle
-                key={i}
-                cx={c.cx}
-                cy={c.cy}
-                r={c.r}
-                fill={color}
-                fillOpacity={c.first ? 0.9 : 0.55}
-                stroke={c.first ? 'var(--fg)' : color}
-                strokeOpacity={c.first ? 1 : 0.9}
-                strokeWidth={c.first ? 1.5 : 0.75}
-              >
-                <title>{c.title}</title>
-              </circle>
-            );
-          })}
+            {/* ⑦ 주문 원 — 큰 원 → 작은 원 → first(맨 위) */}
+            {circles.map((c, i) => {
+              const color = c.side === 'B' ? 'var(--up)' : 'var(--down)';
+              return (
+                <circle
+                  key={i}
+                  cx={c.cx}
+                  cy={c.cy}
+                  r={c.r}
+                  fill={color}
+                  fillOpacity={c.first ? 0.9 : 0.55}
+                  stroke={c.first ? 'var(--fg)' : color}
+                  strokeOpacity={c.first ? 1 : 0.9}
+                  strokeWidth={c.first ? 1.5 : 0.75}
+                >
+                  <title>{c.title}</title>
+                </circle>
+              );
+            })}
+          </g>
         </g>
 
         {/* ② 판 아래선 */}

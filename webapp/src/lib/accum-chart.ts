@@ -197,10 +197,23 @@ export interface Rect {
   h: number;
 }
 
+/** 주문 원 최대 반지름(D-15). */
+const ORDER_R_MAX = 7;
+
 /** 주문 원 반지름(D-15) = max(2.2, min(7, 2.2 + √(val ÷ 1e7) × 0.5)) — 1천만 ≈ 2.7 · 1억 ≈ 3.8 · 10억 이상 7. */
 export function orderRadiusOf(val: number): number {
   if (!isNum(val) || val <= 0) return 2.2;
-  return Math.max(2.2, Math.min(7, 2.2 + Math.sqrt(val / 1e7) * 0.5));
+  return Math.max(2.2, Math.min(ORDER_R_MAX, 2.2 + Math.sqrt(val / 1e7) * 0.5));
+}
+
+/**
+ * 가격 레이어(가격 선 · 주문 원) 클립 = 그림 영역 x [L, W − R] × 가격 판 y [TOP, TOP + H1] 위아래 원 최대 반지름(7) 여유(WR-01).
+ * 가격 y 범위는 창 안 점만으로 잡는데 경로 · 원은 창 ±30분까지 그려서, 창 경계 바로 밖 가격이 크게 다르면(상한가 진입 · 급락)
+ * 경계를 넘는 선분이 위 라벨 띠나 아래 누적 · 10분 판을 세로로 가른다 — 그 선분을 가격 판 높이에서 자른다.
+ */
+export function priceClipOf(L: number, W: number): Rect {
+  const { R, TOP, H1 } = ACCUM_CHART;
+  return { x: L, y: TOP - ORDER_R_MAX, w: Math.max(0, W - R - L), h: H1 + 2 * ORDER_R_MAX };
 }
 
 export interface OrderCircle {
