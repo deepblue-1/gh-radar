@@ -16,14 +16,19 @@ import {
   MIN_VIEW_MS,
   bucketBarsOf,
   bucketMaxOf,
+  carryLineOf,
   clampView,
+  cycleMarksOf,
   cumPathOf,
   cumRangeOf,
   dayBoundsOf,
   gapBandOf,
+  labelRowsOf,
+  labelWidthOf,
   orderCirclesOf,
   orderRadiusOf,
   shadeOf,
+  ticksOf,
   yOfCum,
   priceAxisWidthOf,
   pricePathOf,
@@ -326,5 +331,157 @@ describe('accum-chart — 빈 띠 · 등록 전 음영 (D-14 · D-16 · Pitfall 
     expect(shadeOf(row, { cycles: [] }, T0)).toBeNull();
     const pre = accumSyntheticDetail('preOpenReg');
     expect(shadeOf(pre, pre.payload!, T0)).toEqual({ t0: T0, t1: T0 });
+  });
+});
+
+describe('accum-chart — 사이클 세로선 (D-16 · CR-01 · Pitfall 13)', () => {
+  it('multiCycle(cycle 값 1, 1) → k = 1, 2(나온 순서) · 「등록 09:12 · 1」 · 「청산 11:32」 · 「등록 13:05 · 2」 · 둘째 종료선 없음', () => {
+    const row = accumSyntheticDetail('multiCycle');
+    expect(row.payload!.cycles.map((c) => c.cycle)).toEqual([1, 1]);
+    const m = cycleMarksOf(row, row.payload!, T0);
+    expect(m.map((c) => c.k)).toEqual([1, 2]);
+    expect(m[0]!.reg).toEqual({ t: at('09:12:40'), tx: at('09:12:40'), label: '등록 09:12 · 1', title: '사이클 1 등록 09:12:40' });
+    expect(m[0]!.end).toEqual({ t: at('11:32:04'), tx: at('11:32:04'), label: '청산 11:32', title: '사이클 1 청산 11:32:04' });
+    expect(m[1]!.reg!.label).toBe('등록 13:05 · 2');
+    expect(m[1]!.reg!.title).toBe('사이클 2 등록 13:05:20');
+    expect(m[1]!.end).toBeNull();
+  });
+
+  it('사이클 1개 오늘 등록 09:57:20 → 「등록 09:57」(번호 없음) · title 「사이클 1 등록 09:57:20」', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    const m = cycleMarksOf(row, row.payload!, T0);
+    expect(m).toHaveLength(1);
+    expect(m[0]!.reg!.label).toBe('등록 09:57');
+    expect(m[0]!.reg!.title).toBe('사이클 1 등록 09:57:20');
+    expect(m[0]!.end).toBeNull();
+  });
+
+  it('cycles 0 → 선 없음', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    expect(cycleMarksOf(row, { cycles: [] }, T0)).toEqual([]);
+  });
+
+  it('carry → 등록선 없음 · 종료선 「청산 14:56」', () => {
+    const row = accumSyntheticDetail('carry');
+    const m = cycleMarksOf(row, row.payload!, T0);
+    expect(m[0]!.reg).toBeNull();
+    expect(m[0]!.end!.label).toBe('청산 14:56');
+    expect(m[0]!.end!.title).toBe('사이클 1 청산 14:56:30');
+  });
+
+  it('drop0600 → 종료선 x 기준 = T0(왼쪽 끝) · 라벨은 원래 시각 「이월 탈락(복원 안 됨) 06:00」', () => {
+    const row = accumSyntheticDetail('drop0600');
+    const m = cycleMarksOf(row, row.payload!, T0);
+    expect(m[0]!.reg).toBeNull();
+    expect(m[0]!.end!.tx).toBe(T0);
+    expect(m[0]!.end!.t).toBe(at('06:00:00'));
+    expect(m[0]!.end!.label).toBe('이월 탈락(복원 안 됨) 06:00');
+    expect(m[0]!.end!.title).toBe('사이클 1 이월 탈락(복원 안 됨) 06:00:00');
+  });
+
+  it('preOpenReg 08:41 → 등록선 x 기준 = T0 · 라벨 「등록 08:41」', () => {
+    const row = accumSyntheticDetail('preOpenReg');
+    const m = cycleMarksOf(row, row.payload!, T0);
+    expect(m[0]!.reg!.tx).toBe(T0);
+    expect(m[0]!.reg!.label).toBe('등록 08:41');
+  });
+
+  it('reg_time_ms · end_time_ms null → 그 선 없음', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    const c = { ...row.payload!.cycles[0]!, reg_time_ms: null, end_time_ms: null };
+    expect(cycleMarksOf(row, { cycles: [c] }, T0)).toEqual([{ k: 1, reg: null, end: null }]);
+  });
+});
+
+describe('accum-chart — 이월 줄 (D-16)', () => {
+  it('carryLineOf — 「이월 D+2 · 10/10 09:20 등록」 · reg null 「이월 D+2 · 10/10 등록」 · 오늘 등록 null', () => {
+    const carry = accumSyntheticDetail('carry');
+    expect(carryLineOf(carry)).toBe('이월 D+2 · 10/10 09:20 등록');
+    expect(carryLineOf({ ...carry, reg_time_ms: null })).toBe('이월 D+2 · 10/10 등록');
+    expect(carryLineOf(accumDetailRows().find((r) => r.isin === CHEONIL)!)).toBeNull();
+  });
+});
+
+describe('accum-chart — 시각 눈금 (D-14 · 28px 규칙)', () => {
+  it('전체 창 · 그림 폭 1000 → 1시간 간격 「9」…「20」', () => {
+    const t = ticksOf(FULL, 1000);
+    expect(t.map((k) => k.label)).toEqual(['9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20']);
+    expect(t[0]!.t).toBe(T0);
+  });
+
+  it('전체 창 · 그림 폭 202 → 2시간 간격(1h 간격 18px < 28)', () => {
+    const t = ticksOf(FULL, 202);
+    expect(t.length).toBeGreaterThanOrEqual(5);
+    const steps = new Set(t.slice(1).map((k, i) => k.t - t[i]!.t));
+    expect([...steps]).toEqual([2 * H]);
+    expect(t.every((k) => /^\d{1,2}$/.test(k.label))).toBe(true);
+  });
+
+  it('30분 창 → 5분 간격 · 정시 「10」 · 그 밖 「10:05」 꼴', () => {
+    const t = ticksOf({ t0: at('10:00:00'), t1: at('10:30:00') }, 500);
+    expect(t.map((k) => k.label)).toEqual(['10', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30']);
+  });
+});
+
+describe('accum-chart — 세로선 라벨 줄 배치 (labelRowsOf)', () => {
+  const PL = 52;
+  const PR = 584;
+
+  it('labelWidthOf — 한글 11px · 숫자/기호/공백 6.5px', () => {
+    expect(labelWidthOf('등록 09:12')).toBeCloseTo(2 * 11 + 6 * 6.5, 6);
+  });
+
+  it('0 라벨 → 빈 줄', () => {
+    expect(labelRowsOf([], PL, PR)).toEqual([]);
+  });
+
+  it('겹치지 않으면 모두 1줄(y 27) · 등록은 선 오른쪽(start) · 종료는 선 왼쪽(end)', () => {
+    const p = labelRowsOf(
+      [
+        { id: 'r1', x: 100, text: '등록 09:57', kind: 'reg' },
+        { id: 'e1', x: 400, text: '청산 14:56', kind: 'end' },
+      ],
+      PL,
+      PR,
+    );
+    expect(p.map((l) => [l.id, l.row, l.y, l.anchor, l.textX])).toEqual([
+      ['r1', 0, 27, 'start', 104],
+      ['e1', 0, 27, 'end', 396],
+    ]);
+  });
+
+  it('앞 라벨과 4px 안으로 겹치면 다음 줄(+14) · 최대 3줄 · 넘치면 생략', () => {
+    const labels = [0, 1, 2, 3].map((i) => ({ id: `r${i}`, x: 100 + i * 5, text: '등록 09:12 · 1', kind: 'reg' as const }));
+    const p = labelRowsOf(labels, PL, PR);
+    expect(p.map((l) => [l.id, l.row, l.y])).toEqual([
+      ['r0', 0, 27],
+      ['r1', 1, 41],
+      ['r2', 2, 55],
+    ]);
+  });
+
+  it('오른쪽 끝을 넘는 등록 라벨은 선 왼쪽 · 왼쪽 끝 종료 라벨은 선 오른쪽', () => {
+    const p = labelRowsOf(
+      [
+        { id: 'e0', x: PL, text: '이월 탈락(복원 안 됨) 06:00', kind: 'end' },
+        { id: 'r9', x: PR - 10, text: '등록 19:50', kind: 'reg' },
+      ],
+      PL,
+      PR,
+    );
+    expect(p.find((l) => l.id === 'e0')).toMatchObject({ anchor: 'start', textX: PL + 4 });
+    expect(p.find((l) => l.id === 'r9')).toMatchObject({ anchor: 'end', textX: PR - 14 });
+  });
+
+  it('이월 줄이 1줄 왼쪽 자리를 먼저 차지 → 왼쪽 끝 종료 라벨은 2줄', () => {
+    const p = labelRowsOf(
+      [{ id: 'e0', x: PL, text: '이월 탈락(복원 안 됨) 06:00', kind: 'end' }],
+      PL,
+      PR,
+      '이월 D+1 · 10/13 13:30 등록',
+    );
+    expect(p).toEqual([
+      expect.objectContaining({ id: 'e0', row: 1, y: 41, anchor: 'start' }),
+    ]);
   });
 });

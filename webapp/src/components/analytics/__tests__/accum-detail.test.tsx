@@ -36,8 +36,11 @@ import {
   ACCUM_DATE,
   CHEONIL,
   CJSEAFOOD_PREF,
+  DONGYANG,
+  HANSUN,
   accumDetailFixture,
   accumReportFixture,
+  accumSyntheticDetail,
 } from '@/test-fixtures/accum-export';
 
 import { AccumReport } from '../accum-report';
@@ -154,5 +157,63 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
     expect(svg.querySelector('[data-slot="accum-price-path"]')!.getAttribute('d')).toMatch(/^M/);
     expect(svg.querySelector('[data-slot="accum-cum-zero"]')).toBeTruthy();
     expect(svg.querySelector('[data-slot="accum-gap"]')).toBeTruthy();
+  });
+});
+
+describe('AccumChart — 사이클 세로선 · 이월 줄 · 눈금 · 축 글자 (A6 레이어 2 · 6 · 8 · D-16)', () => {
+  it('(c4) multiCycle(한선 합성) → 「등록 09:12 · 1」 · 「등록 13:05 · 2」 · 「청산 11:32」 · 판 제목 2개 · 눈금 「9」…「20」 · 세로선 title', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('multiCycle'));
+    const sec = await expand(HANSUN);
+    const svg = chartOf(sec)!;
+    const texts = textsOf(svg);
+    expect(texts).toContain('등록 09:12 · 1');
+    expect(texts).toContain('등록 13:05 · 2');
+    expect(texts).toContain('청산 11:32');
+    expect(texts).toContain('순매수 누적');
+    expect(texts).toContain('10분 팀 매수 / 매도');
+    for (const h of ['9', '10', '15', '20']) expect(texts).toContain(h);
+    const marks = Array.from(svg.querySelectorAll('[data-slot="accum-cycle-line"]'));
+    expect(marks.map((g) => g.querySelector('title')?.textContent)).toEqual([
+      '사이클 1 등록 09:12:40',
+      '사이클 1 청산 11:32:04',
+      '사이클 2 등록 13:05:20',
+    ]);
+    expect(svg.getAttribute('aria-label')).toContain('사이클 2개');
+    // 오늘 등록 → 음영 있음 · 이월 줄 없음
+    expect(svg.querySelector('[data-slot="accum-shade"]')).toBeTruthy();
+    expect(texts.some((t) => t.startsWith('이월 D+'))).toBe(false);
+  });
+
+  it('(c5) carry(동양고속 합성) → 이월 줄 「이월 D+2 · 10/10 …」 · 등록선 · 음영 없음 · 종료선 「청산 14:56」', async () => {
+    detailOver.set(DONGYANG, accumSyntheticDetail('carry'));
+    const sec = await expand(DONGYANG);
+    const svg = chartOf(sec)!;
+    const texts = textsOf(svg);
+    expect(texts.find((t) => t.startsWith('이월 D+2 · 10/10'))).toBe('이월 D+2 · 10/10 09:20 등록');
+    expect(texts).toContain('청산 14:56');
+    expect(texts.some((t) => t.startsWith('등록 '))).toBe(false);
+    expect(svg.querySelector('[data-slot="accum-shade"]')).toBeNull();
+  });
+
+  it('(c6) drop0600(천일 합성) → 왼쪽 끝 종료선 라벨 「이월 탈락(복원 안 됨) 06:00」 · first 원 없음', async () => {
+    detailOver.set(CHEONIL, accumSyntheticDetail('drop0600'));
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    expect(textsOf(svg)).toContain('이월 탈락(복원 안 됨) 06:00');
+    const line = svg.querySelector('[data-slot="accum-cycle-line"] line')!;
+    expect(Number(line.getAttribute('x1'))).toBeCloseTo(52, 6);
+    expect(Array.from(svg.querySelectorAll('circle')).some((c) => c.getAttribute('stroke') === 'var(--fg)')).toBe(false);
+  });
+
+  it('(c7) 천일고속 축 글자 — 가격 축 5개(쉼표 정수) · 누적 축 ±억 · 10분 판 최대값 억', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const px = Array.from(svg.querySelectorAll('[data-slot="accum-px-axis"] text')).map((t) => t.textContent);
+    expect(px).toHaveLength(5);
+    expect(px.every((t) => /^\d{1,3}(,\d{3})*$/.test(t ?? ''))).toBe(true);
+    const cum = Array.from(svg.querySelectorAll('[data-slot="accum-cum-axis"] text')).map((t) => t.textContent);
+    expect(cum).toContain('0.0억');
+    expect(cum.length).toBeGreaterThanOrEqual(2);
+    expect(svg.querySelector('[data-slot="accum-bucket-max"]')!.textContent).toMatch(/^[\d.,]+억$/);
   });
 });

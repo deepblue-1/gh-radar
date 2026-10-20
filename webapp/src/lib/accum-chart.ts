@@ -382,3 +382,70 @@ export function shadeOf(
   if (typeof first.since_date === 'string' && first.since_date !== '' && first.since_date !== row.date) return null;
   return { t0: T0, t1: Math.max(T0, first.reg_time_ms) };
 }
+
+// ---------------------------------------------------------------------------
+// 골격(RED) — 세로선 · 라벨 · 눈금 시그니처만. 구현은 GREEN 커밋.
+// ---------------------------------------------------------------------------
+
+export interface CycleMarkLine {
+  t: number;
+  tx: number;
+  label: string;
+  title: string;
+}
+
+export interface CycleMark {
+  k: number;
+  reg: CycleMarkLine | null;
+  end: CycleMarkLine | null;
+}
+
+export function cycleMarksOf(
+  _row: Pick<AccumReportRow, 'date'>,
+  _payload: Pick<AccumReportPayload, 'cycles'>,
+  _T0: number,
+): CycleMark[] {
+  return [];
+}
+
+export function carryLineOf(
+  _row: Pick<AccumReportRow, 'since_date' | 'date' | 'carry_days' | 'reg_time_ms'>,
+): string | null {
+  return null;
+}
+
+export interface Tick {
+  t: number;
+  label: string;
+}
+
+export function ticksOf(_view: View, _plotW: number): Tick[] {
+  return [];
+}
+
+export interface ChartLabel {
+  id: string;
+  x: number;
+  text: string;
+  kind: 'reg' | 'end';
+}
+
+export interface PlacedLabel extends ChartLabel {
+  row: number;
+  y: number;
+  textX: number;
+  anchor: 'start' | 'end';
+}
+
+export function labelWidthOf(_text: string): number {
+  return 0;
+}
+
+export function labelRowsOf(
+  _labels: readonly ChartLabel[],
+  _plotL: number,
+  _plotR: number,
+  _carryText?: string | null,
+): PlacedLabel[] {
+  return [];
+}
