@@ -8,6 +8,8 @@ import { useChartGestures, type ChartViewControl } from '@/hooks/use-chart-view'
 import { useChartWidth } from '@/hooks/use-chart-width';
 import {
   ACCUM_CHART,
+  avgPxPathOf,
+  avgPxPointsOf,
   bucketBarsOf,
   bucketMaxOf,
   carryLineOf,
@@ -19,6 +21,7 @@ import {
   dayMaxPxOf,
   gapBandOf,
   labelRowsOf,
+  lastTradeMsOf,
   orderCirclesOf,
   priceAxisWidthOf,
   pricePathOf,
@@ -47,7 +50,8 @@ import { cn } from '@/lib/utils';
  *   차트 — Pitfall 12) · `user-select: none` · 커서 grab / 끌기 중 grabbing. 포커스 링은 전역 `*:focus-visible` 상속.
  *   훅에는 그림 영역 좌우(L = `priceAxisWidthOf` · R = `ACCUM_CHART.R`)와 viewBox 폭 W 를 넘긴다 — 픽셀 → 시각 변환 기준.
  * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
- *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
+ *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
+ *   title 없음 — quick-261021-amg) ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
  *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖. 가격 선 · 주문 원은
  *   가격 판 높이 클립(`priceClipOf`)을 한 겹 더 쓴다(WR-01 — 창 경계를 넘는 선분이 누적 · 10분 판 · 라벨 띠를 가르지 않게).
@@ -96,6 +100,8 @@ export function AccumChart({
   const yP = yOfPrice(pRange);
   const pxTicks = priceTicksOf(pRange);
   const priceD = pricePathOf(points, view, x, yP);
+  // quick-261021-amg — 팀 평단 계단 · 열린 끝은 가격 선과 같은 마지막 체결 칸(없으면 20:00)
+  const avgD = avgPxPathOf(avgPxPointsOf(payload), x, pRange, bounds.T0, lastTradeMsOf(payload.price) ?? bounds.T2000);
   const pxClip = priceClipOf(L, W);
 
   const cRange = cumRangeOf(payload.day_cum_net);
@@ -227,7 +233,7 @@ export function AccumChart({
             </g>
           ))}
 
-          {/* ⑤ 가격 선 · ⑦ 주문 원 — 가격 판 높이 클립(WR-01) */}
+          {/* ⑤ 가격 선 · ⑤' 팀 평단 계단(quick-261021-amg) · ⑦ 주문 원 — 가격 판 높이 클립(WR-01) */}
           <g data-slot="accum-price-layer" clipPath={`url(#${clipId}-px)`}>
             <path
               data-slot="accum-price-path"
@@ -237,6 +243,19 @@ export function AccumChart({
               strokeWidth={1.25}
               strokeLinejoin="round"
             />
+
+            {/* ⑤' 팀 평단 계단 — 가격 선 위 · 원 아래 · 히트 없음(title 없음 · 툴팁은 원/막대/세로선이 맡는다) */}
+            {avgD !== '' && (
+              <path
+                data-slot="accum-team-avg-path"
+                d={avgD}
+                fill="none"
+                stroke="var(--up)"
+                strokeWidth={1.25}
+                strokeDasharray="1 2"
+                pointerEvents="none"
+              />
+            )}
 
             {/* ⑦ 주문 원 — 큰 원 → 작은 원 → first(맨 위) */}
             {circles.map((c, i) => {

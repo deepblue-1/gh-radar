@@ -195,6 +195,72 @@ export function pricePathOf(
   return d;
 }
 
+/**
+ * payload.avg_px → 팀 평단 점 목록(quick-261021-amg) — 유한 수 쌍만 · **배열 순서 그대로(정렬하지 않음)**.
+ * 같은 ms 두 점(종료 값 → 0)은 순서가 정본이다. 두 배열 길이가 다르면 짧은 쪽까지만 본다.
+ * payloadOf 는 6키만 검사하고 이 선택 키는 보지 않는다(pnl 을 pnlOf 가 따로 방어하는 것과 같은 방식). 그래서 키가 없거나
+ * (2026-10-21 이전 export 행) 모양이 어긋나면 이 함수가 [] 를 내서 **평단 선만 생략**되고 행 · 차트 · KPI 는 그대로다.
+ */
+export function avgPxPointsOf(payload: Pick<AccumReportPayload, 'avg_px'>): PricePoint[] {
+  const a: unknown = payload.avg_px;
+  if (typeof a !== 'object' || a === null || Array.isArray(a)) return [];
+  const { t_ms: ts, px: ps } = a as { t_ms?: unknown; px?: unknown };
+  if (!Array.isArray(ts) || !Array.isArray(ps)) return [];
+  const out: PricePoint[] = [];
+  const n = Math.min(ts.length, ps.length);
+  for (let k = 0; k < n; k++) {
+    const t = ts[k] as number;
+    const p = ps[k] as number;
+    if (!isNum(t) || !isNum(p)) continue;
+    out.push([t, p]);
+  }
+  return out;
+}
+
+/**
+ * 팀 평단 계단 경로(quick-261021-amg · WinForms AccumChartPanel 동형) — 가격 판과 같은 y 축.
+ * - 계단: 다음 점까지 수평(`H`) · 값이 바뀌는 점에서 수직(`V`). 좌표 소수 1자리 · 점이 없으면 빈 문자열.
+ * - px ≤ 0 = 등록 포지션 없음 → 열린 조각을 그 점 x 까지 수평으로 닫고 끊는다 · 다음 양수 점에서 `M` 으로 새로 시작.
+ * - 09:00(T0) 미만 점(이월 종목 06:01 row 2)은 x = T0 에 붙인다. T0 전 점이 여럿이면 마지막 점만 쓴다(다음 점도 T0 전이면 건너뜀).
+ * - 가격축 안 클램프: px 를 [range.lo, range.hi] 로 잘라 판 위/아래 끝에 붙인다. 축 맞춤(priceRangeOf · D-14)에는 평단을
+ *   넣지 않는다 — 가격 축 글자 · 가격 선 · 원 위치는 평단 유무와 무관.
+ * - 열린 마지막 조각의 끝 = max(endMs, 마지막 점 시각). 호출부는 endMs 로 마지막 체결 칸 시각(lastTradeMsOf)을 준다 — 가격 선이
+ *   마지막 체결 칸에서 끝나므로 같은 끝을 쓴다(누적 판의 T2000 연장 규칙과 다르다).
+ * - 창 ±30분 자르기는 하지 않는다 — 계단은 창 시작 값이 앞 점에 달려 있고 클립이 자른다(cumPathOf 와 같은 이유).
+ */
+export function avgPxPathOf(
+  points: readonly PricePoint[],
+  x: (t: number) => number,
+  range: PriceRange,
+  T0: number,
+  endMs: number,
+): string {
+  const y = yOfPrice(range);
+  const yc = (p: number) => f1(y(Math.min(range.hi, Math.max(range.lo, p))));
+  let d = '';
+  let open = false;
+  let lastTx: number | null = null;
+  for (let k = 0; k < points.length; k++) {
+    const [t, p] = points[k]!;
+    const next = points[k + 1];
+    if (t < T0 && next !== undefined && next[0] < T0) continue;
+    const tx = Math.max(t, T0);
+    lastTx = tx;
+    const xs = f1(x(tx));
+    if (p <= 0) {
+      if (open) d += `H${xs}`;
+      open = false;
+    } else if (open) {
+      d += `H${xs}V${yc(p)}`;
+    } else {
+      d += `M${xs},${yc(p)}`;
+      open = true;
+    }
+  }
+  if (open && lastTx !== null) d += `H${f1(x(Math.max(endMs, lastTx)))}`;
+  return d;
+}
+
 // ---------------------------------------------------------------------------
 // 데이터 레이어 — 주문 원 · 누적 계단 · 10분 막대 · 빈 띠 · 등록 전 음영 (UI-SPEC A6 레이어 1 · 3 · 4 · 7)
 // ---------------------------------------------------------------------------
