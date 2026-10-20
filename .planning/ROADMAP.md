@@ -274,9 +274,20 @@ Plans:
   6. 단위 · E2E 통과 · 첫 실물 날짜 라이브 UAT · 인박스 `261020-accum-flow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션 → limitup-sync Job 재배포(20:30 밖) → server → webapp push(= 프로덕션). 119 배치가 20:20 을 넘기면 radar-gw `limitup-pull.timer` 20:30 · limitup-sync CRON 20:40 으로 함께 미룬다(D-09 조건부 합의)
-**Plans**: 0 plans
+**Plans**: 12 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 34 to break down)
+- [ ] 34-01-PLAN.md — 트레이서: 10/14 6행 픽스처 → 워커 선택 파일 목록화 → commit_day 10번째 쌍 → 목록/상세 RPC · 라우트 → /analytics/accum 목록 · 펼침 지연 로드 · KPI 줄
+- [ ] 34-02-PLAN.md — 소급 내보내기 도구: kind 16 → 23키 JSON lines(읽기 전용 · 페이지네이션 · 비출력 래퍼)
+- [ ] 34-03-PLAN.md — 워커 재적재 감지 일반화(accum_flow_backfill) · 탐지 0 manifest 적재
+- [ ] 34-04-PLAN.md — 목록 완성: KPI 4칸 · 배지 묶음 · 종료 사유 · 흐림 · 결과 태그 · 폰 3줄 · sr 설명
+- [ ] 34-05-PLAN.md — SQL 회귀: pgTAP accum_report(신규) · limitup_load 섹션 K · 스모크 INV-9
+- [ ] 34-06-PLAN.md — 상세 차트 정적 레이어(순수 SVG): 가격 · 팀 원 · first · 누적 계단 · 10분 막대 · 세로선 · 음영 · 토큰
+- [ ] 34-07-PLAN.md — 차트 조작: 프리셋 · 창 범위 · 휠/트랙패드 · 끌기 · 핀치 · 키보드 · 범례 · 캡션
+- [ ] 34-08-PLAN.md — 상세 부속: 사이클 표(2개↑) · 팀 당일 손익 · 판정 기준 · 출처 칩
+- [ ] 34-09-PLAN.md — 실브라우저 상세 경로 E2E · 사이드바 「분석 › 매집감지 보고서」
+- [ ] 34-10-PLAN.md — 폰 390 · 폭 백스톱 6종 · 전 워크스페이스 회귀 게이트
+- [ ] 34-11-PLAN.md — [BLOCKING] db push → Job 재배포 → 소급 실행 · gh-trade 전달 → 운반 · 적재 · 스모크 → server(메인 세션)
+- [ ] 34-12-PLAN.md — webapp push · 10/19 · 10/20 라이브 UAT · 인박스 회신 done
 
 **UI hint**: yes
