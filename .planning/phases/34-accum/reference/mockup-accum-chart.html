@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 34 목업 — 매집감지 상세 차트</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa;
+  --up: #f04452; --down: #3182f6; --up-bg: #ffeeee; --down-bg: #e8f3ff;
+  --team: #a234c7; --team-bg: #f9f0fc; --accum-sell: #c2410c; --accum-sell-bg: #fff4e6; --accum-carry: #a16207; --accum-carry-bg: #fef9e7;
+  --shade: rgba(107,118,132,.10); --gap: rgba(107,118,132,.07);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --band: #101013;
+  --up: #f04251; --down: #3485fa; --up-bg: rgba(240,66,81,.16); --down-bg: rgba(52,133,250,.16);
+  --team: #c353e5; --team-bg: rgba(174,61,209,.16); --accum-sell: #ff9f43; --accum-sell-bg: rgba(255,159,67,.16); --accum-carry: #ffd43b; --accum-carry-bg: rgba(255,212,59,.16);
+  --shade: rgba(255,255,255,.07); --gap: rgba(255,255,255,.04);
+}
+.f.phone { width: 390px; min-height: 700px; border-radius: 30px; padding: 16px; }
+.f.desktop { width: 1120px; min-height: 620px; padding: 24px 32px; }
+
+/* 펼친 행 머리(목록 A 행) */
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0 12px; border-bottom: 1px solid var(--border-subtle); }
+.row .nm b { font-size: 16px; font-weight: 600; color: var(--fg); margin-right: 6px; }
+.row .nm span { font-size: 12px; color: var(--muted-fg); }
+.badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+.badge.s1 { background: var(--team-bg); color: var(--team); } .badge.s2 { background: var(--accum-sell-bg); color: var(--accum-sell); }
+.badge.s3 { background: var(--muted); color: var(--muted-fg); border-color: var(--border-subtle); } .badge.carry { background: var(--accum-carry-bg); color: var(--accum-carry); }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-left: auto; }
+.tag.limit { background: var(--up-bg); color: var(--up); } .tag.rate { background: var(--muted); color: var(--fg-2); }
+.inner { padding: 12px 0 0; }
+.kline { display: flex; gap: 14px 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted-fg); margin-bottom: 10px; }
+.kline b { color: var(--fg); font-weight: 600; margin-left: 4px; }
+.pos { color: var(--up) !important; } .neg { color: var(--down) !important; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--muted-fg); margin: 2px 0 6px; }
+.legend i { display: inline-block; vertical-align: -1px; margin-right: 4px; }
+.lg-line { width: 14px; height: 2px; background: var(--fg-2); }
+.lg-step { width: 14px; height: 2px; background: var(--team); }
+.lg-b { width: 7px; height: 7px; border-radius: 50%; background: var(--up); opacity: .7; }
+.lg-s { width: 7px; height: 7px; border-radius: 50%; background: var(--down); opacity: .7; }
+.lg-first { width: 7px; height: 7px; border-radius: 50%; border: 2px solid var(--fg); background: var(--up); }
+.lg-reg { width: 2px; height: 12px; background: var(--team); }
+.lg-end { width: 0; height: 12px; border-left: 2px dashed var(--muted-fg); }
+.lg-shade { width: 14px; height: 10px; background: var(--shade); border: 1px solid var(--border-subtle); }
+.chart { background: var(--card); border-radius: 12px; padding: 6px 4px 2px; }
+.f:not(.dark) .chart { background: var(--muted); }
+svg { display: block; width: 100%; height: auto; font-family: var(--font); font-size: 10.5px; }
+svg text { fill: var(--muted-fg); }
+.ax line { stroke: var(--border-subtle); }
+.px path { fill: none; stroke: var(--fg-2); stroke-width: 1.3; }
+.cum path { fill: none; stroke: var(--team); stroke-width: 1.6; }
+.zero { stroke: var(--faint); stroke-dasharray: 2 3; }
+.ord circle.B { fill: var(--up); fill-opacity: .55; stroke: var(--up); stroke-opacity: .9; stroke-width: .8; }
+.ord circle.S { fill: var(--down); fill-opacity: .55; stroke: var(--down); stroke-opacity: .9; stroke-width: .8; }
+.ord circle.first { stroke: var(--fg); stroke-width: 1.6; fill-opacity: .9; }
+.reg line { stroke: var(--team); stroke-width: 1.6; } .reg text { fill: var(--team); font-weight: 600; }
+.end line { stroke: var(--muted-fg); stroke-width: 1.4; stroke-dasharray: 4 3; }
+.shade rect { fill: var(--shade); } .gapb rect { fill: var(--gap); }
+.brk line { stroke: var(--muted-fg); stroke-width: 1; }
+.ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
+.ctl button { font: inherit; font-size: 12px; font-weight: 600; background: var(--muted); color: var(--fg-2); border: 0; border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.ctl button.on { background: var(--fg); color: var(--bg); }
+.ctl .rng { margin-left: auto; font-size: 11.5px; color: var(--muted-fg); }
+.chart svg { cursor: grab; touch-action: none; user-select: none; }
+.chart svg.drag { cursor: grabbing; }
+.cap { font-size: 12px; color: var(--muted-fg); margin: 8px 2px 0; line-height: 1.5; }
+.ptitle { font-size: 11.5px; color: var(--muted-fg); padding: 0 6px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">채택</span><button class="on">C 두 패널 + 확대/축소 · 좌우 스크롤</button></div>
+  <div class="g"><span class="l">종목</span><button data-s="hansun" class="on">한선(사이클 2)</button><button data-s="cheonil">천일고속(장중 등록)</button><button data-s="dongyang">동양고속(이월 D+2 · 청산)</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script src="mockup-accum-chart-data.js"></script>
+<script>
+// 합성 사이클(실측 payload 위에 덮어씀). 시각은 KST HH:MM:SS → 10/14 ms.
+const DAY0 = SAMPLE.cheonil.price.t0_ms - 9*3600*1000; // 10/14 00:00 KST
+const ms = hms => { const [h,m,s] = hms.split(':').map(Number); return DAY0 + (h*3600+m*60+s)*1000; };
+const CASES = {
+  hansun: { name:'한선엔지니어링', code:'294630 · KOSDAQ', state:1, carry:0, tag:{rate:26.93}, pos:{net:9.3e8, avg:12680, reg:11410, peak:11.2e8},
+    cycles:[ {cycle:1, reg:ms('09:12:40'), end:ms('11:32:04'), er:1}, {cycle:2, reg:ms('13:05:20'), end:null, er:0} ] },
+  cheonil: { name:'천일고속', code:'000650 · KOSPI', state:1, carry:0, tag:{limit:'15:02'}, pos:{net:1.62e8, avg:200407, reg:205500, peak:1.69e8},
+    cycles:[ {cycle:1, reg:ms('09:57:20'), end:null, er:0} ] },
+  dongyang: { name:'동양고속', code:'084670 · KOSPI', state:3, carry:2, since:'10/10', regHm:'09:20', tag:{rate:22.13}, pos:{net:-0.3e8, avg:31800, reg:31250, peak:2.1e8},
+    cycles:[ {cycle:1, reg:null, end:ms('14:56:30'), er:1} ] },
+};
+const ER = {1:'청산', 2:'이월 탈락(복원 안 됨)', 3:'이월 만료'};
+const T0 = SAMPLE.cheonil.price.t0_ms, T930 = T0, T1530 = T0 + 6.5*3600e3, T1600 = T0 + 7*3600e3, T2000 = T0 + 11*3600e3;
+const fmtEok = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${(Math.abs(v)/1e8).toFixed(1)}억`;
+const hm = t => { const d = new Date(t + 9*3600e3); return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`; };
+const hms = t => hm(t) + ':' + String(new Date(t + 9*3600e3).getUTCSeconds()).padStart(2,'0');
+const rOf = val => Math.max(2.2, Math.min(7, 2.2 + Math.sqrt(val / 1e7) * 0.5)); // 1천만 ≈ 2.7 · 1억 ≈ 3.8 · 10억 ≈ 7(상한)
+
+// 보기 창(view) — 기본 = 하루 전체(09:00~20:00). 휠 = 커서 기준 확대/축소, 드래그 = 좌우 이동, 최소 10분 · 09:00~20:00 안.
+const MIN_W = 10*60e3;
+function lastTradeOf(key) { const P = SAMPLE[key].price; return P.t0_ms + P.idx[P.idx.length - 1]*10000; }
+function preset(name, key) {
+  if (name === 'full') return { t0: T930, t1: T2000 };
+  if (name === 'reg') return { t0: T930, t1: T1530 };
+  const end = lastTradeOf(key); return { t0: Math.max(T930, end - 2*3600e3), t1: end };
+}
+function clampView(v) {
+  let w = Math.max(MIN_W, Math.min(T2000 - T930, v.t1 - v.t0));
+  let t0 = Math.max(T930, Math.min(v.t0, T2000 - w));
+  return { t0, t1: t0 + w };
+}
+function ticks(view) {
+  const w = view.t1 - view.t0;
+  const step = w <= 30*60e3 ? 5*60e3 : w <= 2.5*3600e3 ? 15*60e3 : w <= 5*3600e3 ? 30*60e3 : 3600e3;
+  const out = []; for (let t = Math.ceil(view.t0 / step) * step; t <= view.t1; t += step) { const d = new Date(t + 9*3600e3); const mm = d.getUTCMinutes(); out.push({ t, l: mm === 0 ? `${d.getUTCHours()}` : `${String(d.getUTCHours()).padStart(2,'0')}:${String(mm).padStart(2,'0')}` }); }
+  return out;
+}
+
+function build(key, W, view) {
+  const S = SAMPLE[key], C = CASES[key];
+  const L = 52, R = 56, TOP = 16, H1 = 200, GAPP = 22, H2 = 110, BOT = 22, H = TOP + H1 + GAPP + H2 + BOT;
+  const x = t => L + (t - view.t0) / (view.t1 - view.t0) * (W - R - L);
+  const inView = t => t >= view.t0 - 30*60e3 && t <= view.t1 + 30*60e3;
+  // 보이는 창 안의 값으로 세로축 자동 맞춤(가격) · 누적은 하루 전체 범위 고정(0선 흔들림 방지)
+  const vis = S.price.idx.map((i, k) => [S.price.t0_ms + i*10000, S.price.px[k]]).filter(([t]) => t >= view.t0 && t <= view.t1);
+  const pts = vis.length ? vis : S.price.idx.map((i, k) => [S.price.t0_ms + i*10000, S.price.px[k]]);
+  const pxs = pts.map(p => p[1]); const pxMin = Math.min(...pxs), pxMax = Math.max(...pxs), pad = (pxMax - pxMin) * 0.08 || pxMax * 0.005;
+  const yP = p => TOP + (pxMax + pad - p) / (pxMax - pxMin + 2*pad) * H1;
+  const cum = S.day_cum_net.net_krw, cMin = Math.min(0, ...cum), cMax = Math.max(0, ...cum);
+  const cTop = TOP + H1 + GAPP, yC = c => cTop + (cMax - c) / (cMax - cMin || 1) * H2;
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${C.name} 매집 상세 차트"><defs><clipPath id="clip"><rect x="${L}" y="0" width="${W - R - L}" height="${H}"/></clipPath></defs><g clip-path="url(#clip)">`;
+  const firstReg = C.cycles.find(c => c.reg)?.reg;
+  if (firstReg && C.carry === 0) s += `<g class="shade"><rect x="${x(T930)}" y="${TOP}" width="${x(firstReg) - x(T930)}" height="${H1 + GAPP + H2}"/></g>`;
+  s += `<g class="gapb"><rect x="${x(T1530)}" y="${TOP}" width="${x(T1600) - x(T1530)}" height="${H1 + GAPP + H2}"/></g>`;
+  s += `<g class="ax">`;
+  for (const tk of ticks(view)) s += `<line x1="${x(tk.t)}" y1="${TOP}" x2="${x(tk.t)}" y2="${H - BOT}"/><text x="${x(tk.t)}" y="${H - 7}" text-anchor="middle">${tk.l}</text>`;
+  s += `</g>`;
+  s += `<line class="zero" x1="${L}" y1="${yC(0)}" x2="${W - R}" y2="${yC(0)}"/>`;
+  let d = ''; const ct = S.day_cum_net.t_ms;
+  ct.forEach((t, k) => { const X = x(t).toFixed(1), Y = yC(cum[k]).toFixed(1); d += k === 0 ? `M${X},${yC(0).toFixed(1)}L${X},${Y}` : `H${X}V${Y}`; });
+  d += `H${x(T2000).toFixed(1)}`;
+  s += `<g class="cum"><path d="${d}"/></g>`;
+  let pd = '', prev = null;
+  for (const [t, p] of S.price.idx.map((i, k) => [S.price.t0_ms + i*10000, S.price.px[k]])) { if (!inView(t)) { prev = null; continue; } const gap = prev !== null && t - prev > 15*60e3; pd += (pd === '' || gap || prev === null ? 'M' : 'L') + `${x(t).toFixed(1)},${yP(p).toFixed(1)}`; prev = t; }
+  s += `<g class="px"><path d="${pd}"/></g>`;
+  C.cycles.forEach(c => {
+    if (c.reg) s += `<g class="reg"><line x1="${x(c.reg)}" y1="${TOP}" x2="${x(c.reg)}" y2="${H - BOT}"/><text x="${x(c.reg) + 4}" y="${TOP + 11}">등록 ${hm(c.reg)}${C.cycles.length > 1 ? ' · ' + c.cycle : ''}</text></g>`;
+    if (c.end) s += `<g class="end"><line x1="${x(c.end)}" y1="${TOP}" x2="${x(c.end)}" y2="${H - BOT}"/><text x="${x(c.end) - 4}" y="${TOP + 11}" text-anchor="end">${ER[c.er]} ${hm(c.end)}</text></g>`;
+  });
+  const o = S.orders;
+  const firstIdx = new Set(o.first.map((f, i) => f ? i : -1).filter(i => i >= 0));
+  if (key === 'hansun') { const i2 = o.t_ms.findIndex((t, i) => t > C.cycles[0].end && o.side[i] === 'B'); if (i2 >= 0) firstIdx.add(i2); }
+  s += `<g class="ord">`;
+  o.t_ms.forEach((t, i) => {
+    if (!inView(t)) return;
+    const cls = `${o.side[i]}${firstIdx.has(i) ? ' first' : ''}`;
+    s += `<circle class="${cls}" cx="${x(t).toFixed(1)}" cy="${yP(o.px[i]).toFixed(1)}" r="${rOf(o.val[i]).toFixed(1)}"><title>${hms(t)} 팀 ${o.side[i] === 'B' ? '매수' : '매도'} ${o.qty[i].toLocaleString()}주 · ${(o.val[i]/1e8).toFixed(2)}억 @${o.px[i].toLocaleString()} · ${o.pieces[i]}조각${firstIdx.has(i) ? ' · 팀매수 시작' : ''}</title></circle>`;
+  });
+  s += `</g></g>`;
+  // 축 라벨(클립 밖)
+  s += `<g class="ax"><line x1="${L}" y1="${TOP + H1}" x2="${W - R}" y2="${TOP + H1}"/>`;
+  for (let i = 0; i <= 4; i++) { const p = pxMin + (pxMax - pxMin) * i / 4; s += `<text x="${L - 6}" y="${yP(p) + 3}" text-anchor="end">${Math.round(p).toLocaleString()}</text>`; }
+  for (const c of [cMin, 0, cMax].filter((v2, i, a) => a.indexOf(v2) === i)) s += `<text x="${W - R + 6}" y="${yC(c) + 3}" style="fill:var(--team)">${fmtEok(c)}</text>`;
+  s += `</g><text x="${L}" y="${cTop - 8}" style="fill:var(--team);font-weight:600">순매수 누적</text>`;
+  if (C.carry > 0) s += `<text x="${L + 4}" y="${TOP + 11}" style="fill:var(--accum-carry);font-weight:600">이월 D+${C.carry} · ${C.since} ${C.regHm} 등록</text>`;
+  s += `</svg>`;
+  return s;
+}
+
+const DESC = { C: '<b>C 두 패널 + 확대/축소 · 좌우 스크롤</b> — 위 가격 + 주문 원 + 세로선, 아래 순매수 누적 계단(0선). <b>기본 창 = 하루 전체 09:00~20:00</b>. 휠(또는 트랙패드) = 커서 기준 확대/축소, 드래그 = 좌우 이동, 프리셋 「2시간 · 정규장 · 전체」. 가격축은 보이는 창에 자동 맞춤, 누적축은 하루 전체 고정.' };
+const state = { s:'hansun', w:'phone', t:'dark', view:null, vp:'full' };
+function setView(v, vp) { state.view = clampView(v); state.vp = vp || null; renderChart(); }
+function renderChart() {
+  const W = state.w === 'phone' ? 358 : 1056;
+  const el = document.getElementById('chart'); if (!el) return;
+  el.innerHTML = build(state.s, W, state.view);
+  const r = document.getElementById('rng'); if (r) r.textContent = `${hm(state.view.t0)} ~ ${hm(state.view.t1)}`;
+  document.querySelectorAll('.ctl button').forEach(b => b.classList.toggle('on', b.dataset.p === state.vp));
+  const svg = el.querySelector('svg'); if (!svg) return;
+  const W2 = W, L = 52, R = 56;
+  const tAt = px => { const rect = svg.getBoundingClientRect(); const fx = (px - rect.left) / rect.width * W2; return state.view.t0 + (fx - L) / (W2 - L - R) * (state.view.t1 - state.view.t0); };
+  svg.addEventListener('wheel', e => { e.preventDefault(); const tc = tAt(e.clientX), k = Math.exp(e.deltaY * 0.0015); setView({ t0: tc - (tc - state.view.t0) * k, t1: tc + (state.view.t1 - tc) * k }); }, { passive: false });
+  let drag = null;
+  svg.addEventListener('pointerdown', e => { drag = { x: e.clientX, v: state.view }; svg.setPointerCapture(e.pointerId); svg.classList.add('drag'); });
+  svg.addEventListener('pointermove', e => { if (!drag) return; const rect = svg.getBoundingClientRect(); const dt = (e.clientX - drag.x) / rect.width * W2 / (W2 - L - R) * (drag.v.t1 - drag.v.t0); setView({ t0: drag.v.t0 - dt, t1: drag.v.t1 - dt }); drag = { x: drag.x, v: drag.v }; });
+  svg.addEventListener('pointerup', () => { drag = null; svg.classList.remove('drag'); });
+}
+function render() {
+  const C = CASES[state.s];
+  if (!state.view) state.view = clampView(preset('full', state.s));
+  document.getElementById('desc').innerHTML = DESC.C + ' <span style="color:#777">(가격 · 주문 · 누적은 10/14 실측 payload, 사이클 · 등록 시각 · 이월은 합성 · 원 위에 마우스 = 툴팁)</span>';
+  const tag = C.tag.limit ? `<span class="tag limit">상한가 ${C.tag.limit}</span>` : `<span class="tag rate">+${C.tag.rate.toFixed(1)}%</span>`;
+  const last = C.cycles[C.cycles.length - 1];
+  document.getElementById('stage').innerHTML = `<div class="f ${state.w} ${state.t}">
+    <div class="row"><div class="nm"><b>${C.name}</b><span>${C.code}</span></div><span class="badge s${C.state}">${C.state === 1 ? '매집중' : C.state === 2 ? '매도중' : '종료'}</span>${C.carry ? `<span class="badge carry">이월 D+${C.carry}</span>` : ''}${C.cycles.length > 1 ? `<span class="badge s3" style="border-color:transparent">사이클 ${last.cycle}</span>` : ''}${tag}</div>
+    <div class="inner">
+      <div class="kline"><span>등록가<b>${C.pos.reg.toLocaleString()}</b></span><span>평단<b>${C.pos.avg.toLocaleString()}</b></span><span>등록 후 순매수<b class="${C.pos.net >= 0 ? 'pos' : 'neg'}">${fmtEok(C.pos.net)}</b></span><span>최고 순매수<b>${fmtEok(C.pos.peak)}</b></span></div>
+      <div class="legend"><span><i class="lg-line"></i>가격(10초)</span><span><i class="lg-b"></i>팀 매수</span><span><i class="lg-s"></i>팀 매도</span><span><i class="lg-first"></i>팀매수 시작</span><span><i class="lg-step"></i>순매수 누적</span><span><i class="lg-reg"></i>등록</span><span><i class="lg-end"></i>청산·종료</span><span><i class="lg-shade"></i>등록 전</span></div>
+      <div class="ctl"><button data-p="full">전체</button><button data-p="reg">정규장</button><button data-p="2h">마지막 2시간</button><span class="rng" id="rng"></span></div>
+      <div class="chart" id="chart"></div>
+      <div class="cap">원 크기 = 주문 금액(1천만 이상 팀 주문 + 사이클별 첫 팀 매수). 15:30~16:00 은 체결 없음(정상). 휠 = 확대/축소 · 드래그 = 이동. KYOBO119 판정 기준.</div>
+    </div></div>`;
+  document.querySelectorAll('.ctl button').forEach(b => b.addEventListener('click', () => setView(preset(b.dataset.p, state.s), b.dataset.p)));
+  renderChart();
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.s ? 's' : b.dataset.w ? 'w' : b.dataset.t ? 't' : null; if (!k) return;
+  state[k] = b.dataset[k]; if (k === 's') { state.view = clampView(preset('full', state.s)); state.vp = 'full'; }
+  b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+}));
+render();
+</script>
+</body>
+</html>

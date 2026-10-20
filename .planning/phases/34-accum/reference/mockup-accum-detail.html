@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 34 목업 — 매집감지 상세 · 차트 아래 부속 정보</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff;
+  --up: #f04452; --down: #3182f6; --up-bg: #ffeeee; --down-bg: #e8f3ff;
+  --team: #a234c7; --team-bg: #f9f0fc; --accum-sell: #c2410c; --accum-sell-bg: #fff4e6; --accum-carry: #a16207; --accum-carry-bg: #fef9e7;
+  --shade: rgba(107,118,132,.10); --gap: rgba(107,118,132,.07);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515;
+  --up: #f04251; --down: #3485fa; --up-bg: rgba(240,66,81,.16); --down-bg: rgba(52,133,250,.16);
+  --team: #c353e5; --team-bg: rgba(174,61,209,.16); --accum-sell: #ff9f43; --accum-sell-bg: rgba(255,159,67,.16); --accum-carry: #ffd43b; --accum-carry-bg: rgba(255,212,59,.16);
+  --shade: rgba(255,255,255,.07); --gap: rgba(255,255,255,.04);
+}
+.f.phone { width: 390px; min-height: 700px; border-radius: 30px; padding: 16px; }
+.f.desktop { width: 1120px; min-height: 620px; padding: 24px 32px; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0 12px; border-bottom: 1px solid var(--border-subtle); }
+.row .nm b { font-size: 16px; font-weight: 600; color: var(--fg); margin-right: 6px; }
+.row .nm span { font-size: 12px; color: var(--muted-fg); }
+.badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid transparent; }
+.badge.s1 { background: var(--team-bg); color: var(--team); } .badge.s3 { background: var(--muted); color: var(--muted-fg); border-color: var(--border-subtle); }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-left: auto; }
+.tag.limit { background: var(--up-bg); color: var(--up); } .tag.rate { background: var(--muted); color: var(--fg-2); }
+.inner { padding: 12px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.kline { display: flex; gap: 8px 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted-fg); }
+.kline b { color: var(--fg); font-weight: 600; margin-left: 4px; }
+.kline .th { color: var(--muted-fg); } .kline .th b { color: var(--fg-2); font-weight: 500; }
+.pos { color: var(--up) !important; } .neg { color: var(--down) !important; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 11.5px; color: var(--muted-fg); }
+.legend i { display: inline-block; vertical-align: -1px; margin-right: 4px; }
+.lg-line { width: 14px; height: 2px; background: var(--fg-2); } .lg-step { width: 14px; height: 2px; background: var(--team); }
+.lg-b { width: 7px; height: 7px; border-radius: 50%; background: var(--up); opacity: .7; } .lg-s { width: 7px; height: 7px; border-radius: 50%; background: var(--down); opacity: .7; }
+.lg-first { width: 7px; height: 7px; border-radius: 50%; border: 2px solid var(--fg); background: var(--up); }
+.lg-reg { width: 2px; height: 12px; background: var(--team); } .lg-end { width: 0; height: 12px; border-left: 2px dashed var(--muted-fg); }
+.lg-shade { width: 14px; height: 10px; background: var(--shade); border: 1px solid var(--border-subtle); }
+.chart { background: var(--card); border-radius: 12px; padding: 6px 4px 2px; }
+.f:not(.dark) .chart { background: var(--muted); }
+svg { display: block; width: 100%; height: auto; font-family: var(--font); font-size: 10.5px; }
+svg text { fill: var(--muted-fg); }
+.ax line { stroke: var(--border-subtle); }
+.px path { fill: none; stroke: var(--fg-2); stroke-width: 1.3; }
+.cum path { fill: none; stroke: var(--team); stroke-width: 1.6; }
+.zero { stroke: var(--faint); stroke-dasharray: 2 3; }
+.ord circle.B { fill: var(--up); fill-opacity: .55; stroke: var(--up); stroke-width: .8; }
+.ord circle.S { fill: var(--down); fill-opacity: .55; stroke: var(--down); stroke-width: .8; }
+.ord circle.first { stroke: var(--fg); stroke-width: 1.6; fill-opacity: .9; }
+.reg line { stroke: var(--team); stroke-width: 1.6; } .reg text { fill: var(--team); font-weight: 600; }
+.end line { stroke: var(--muted-fg); stroke-width: 1.4; stroke-dasharray: 4 3; }
+.shade rect { fill: var(--shade); } .gapb rect { fill: var(--gap); }
+.bk rect.b { fill: var(--up); fill-opacity: .7; } .bk rect.s { fill: var(--down); fill-opacity: .7; }
+
+/* ── 부속 ── */
+.sec-h { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 0; }
+.sec-h b { font-size: 13.5px; color: var(--fg); font-weight: 600; }
+.sec-h span { font-size: 12px; color: var(--muted-fg); }
+.tw { overflow-x: auto; border-radius: 10px; background: var(--card); }
+.f:not(.dark) .tw { background: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+th { font-size: 11.5px; color: var(--muted-fg); font-weight: 500; }
+th.n, td.n { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+td.cur { box-shadow: inset 3px 0 0 var(--team); }
+.pnl { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted-fg); background: var(--card); border-radius: 10px; padding: 10px 12px; }
+.f:not(.dark) .pnl { background: var(--muted); }
+.pnl b { color: var(--fg); font-weight: 600; margin-left: 4px; }
+.pnl .hd { color: var(--fg); font-weight: 600; }
+details { font-size: 12.5px; color: var(--muted-fg); line-height: 1.6; }
+details summary { cursor: pointer; color: var(--fg-2); font-weight: 600; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; padding: 8px 0; }
+details summary::before { content: '›'; display: inline-block; transition: transform .15s; color: var(--muted-fg); }
+details[open] summary::before { transform: rotate(90deg); }
+details .bd { padding: 2px 0 8px 14px; }
+details .bd p { margin: 0 0 6px; }
+details .bd b { color: var(--fg-2); font-weight: 600; }
+.src { display: inline-flex; align-items: center; font-size: 11.5px; color: var(--muted-fg); background: var(--muted); border-radius: 6px; padding: 2px 7px; }
+.off { display: none; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">사이클 표</span><button data-cyc="multi" class="on">2개↑일 때만 펼침</button><button data-cyc="always">항상(접힘)</button><button data-cyc="none">없음</button></div>
+  <div class="g"><span class="l">손익 줄</span><button data-pnl="on" class="on">켬</button><button data-pnl="off">끔</button></div>
+  <div class="g"><span class="l">10분 매수/매도</span><button data-bk="none" class="on">없음</button><button data-bk="panel">세 번째 패널</button><button data-bk="table">접힌 표</button></div>
+  <div class="g"><span class="l">임계</span><button data-th="kpi" class="on">KPI 줄에</button><button data-th="rule">판정 기준 안에만</button></div>
+  <div class="g"><span class="l">종목</span><button data-s="hansun" class="on">한선(사이클 2)</button><button data-s="cheonil">천일고속(사이클 1)</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"><b>펼친 행 전체</b> — 채택한 차트(C 두 패널 · 전체) 위아래에 붙는 부속 정보를 토글로 켜고 끄며 봅니다. 위에서부터 KPI 줄 → 차트 → (10분 막대) → (사이클 표) → (손익 줄) → 판정 기준 접힘 → 출처. 차트 안 값은 10/14 실측, 사이클·손익 숫자 일부는 합성.</div>
+</div>
+<div id="stage"></div>
+<script src="mockup-accum-chart-data.js"></script>
+<script>
+const DAY0 = SAMPLE.cheonil.price.t0_ms - 9*3600*1000;
+const ms = hms => { const [h,m,s] = hms.split(':').map(Number); return DAY0 + (h*3600+m*60+s)*1000; };
+const CASES = {
+  hansun: { name:'한선엔지니어링', code:'294630 · KOSDAQ', state:1, tag:{rate:26.93}, mcap:2180e8, th:{net:1.0e8, same:30, mcap:5000e8},
+    cycles:[ {cycle:1, reg:ms('09:12:40'), end:ms('11:32:04'), er:1, state:3, regPx:11410, avg:11980, net:4.2e8, peak:5.1e8, buyQty:38200, sellQty:3100},
+             {cycle:2, reg:ms('13:05:20'), end:null, er:0, state:1, regPx:13950, avg:14320, net:5.1e8, peak:6.1e8, buyQty:41800, sellQty:6200} ] },
+  cheonil: { name:'천일고속', code:'000650 · KOSPI', state:1, tag:{limit:'15:02'}, mcap:3144e8, th:{net:1.0e8, same:30, mcap:5000e8},
+    cycles:[ {cycle:1, reg:ms('09:57:20'), end:null, er:0, state:1, regPx:205500, avg:200407, net:1.62e8, peak:1.69e8, buyQty:977, sellQty:164} ] },
+};
+const ER = {1:'청산', 2:'이월 탈락(복원 안 됨)', 3:'이월 만료'};
+const ST = {1:'매집중', 2:'매도중', 3:'종료'};
+const T930 = SAMPLE.cheonil.price.t0_ms, T1530 = T930 + 6.5*3600e3, T1600 = T930 + 7*3600e3, T2000 = T930 + 11*3600e3;
+const fmtEok = (v, d=1) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${(Math.abs(v)/1e8).toFixed(d)}억`;
+const hm = t => { const d = new Date(t + 9*3600e3); return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`; };
+const hms = t => hm(t) + ':' + String(new Date(t + 9*3600e3).getUTCSeconds()).padStart(2,'0');
+const rOf = val => Math.max(2.2, Math.min(7, 2.2 + Math.sqrt(val / 1e7) * 0.5));
+const tone = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+
+function chart(key, W, withBuckets) {
+  const S = SAMPLE[key], C = CASES[key];
+  const L = 52, R = 56, TOP = 16, H1 = 200, GAPP = 22, H2 = 110, H3 = withBuckets ? 70 : 0, GAP3 = withBuckets ? 22 : 0, BOT = 22;
+  const H = TOP + H1 + GAPP + H2 + GAP3 + H3 + BOT;
+  const x = t => L + (t - T930) / (T2000 - T930) * (W - R - L);
+  const pts = S.price.idx.map((i, k) => [S.price.t0_ms + i*10000, S.price.px[k]]);
+  const pxMin = Math.min(...S.price.px), pxMax = Math.max(...S.price.px), pad = (pxMax - pxMin) * 0.08 || 1;
+  const yP = p => TOP + (pxMax + pad - p) / (pxMax - pxMin + 2*pad) * H1;
+  const cum = S.day_cum_net.net_krw, cMin = Math.min(0, ...cum), cMax = Math.max(0, ...cum);
+  const cTop = TOP + H1 + GAPP, yC = c => cTop + (cMax - c) / (cMax - cMin || 1) * H2;
+  let s = `<svg viewBox="0 0 ${W} ${H}">`;
+  const firstReg = C.cycles[0].reg;
+  s += `<g class="shade"><rect x="${x(T930)}" y="${TOP}" width="${x(firstReg) - x(T930)}" height="${H - TOP - BOT}"/></g>`;
+  s += `<g class="gapb"><rect x="${x(T1530)}" y="${TOP}" width="${x(T1600) - x(T1530)}" height="${H - TOP - BOT}"/></g>`;
+  s += `<g class="ax">`;
+  for (let i = 0; i < 12; i++) { const t = T930 + i*3600e3; s += `<line x1="${x(t)}" y1="${TOP}" x2="${x(t)}" y2="${H - BOT}"/><text x="${x(t)}" y="${H - 7}" text-anchor="middle">${9+i}</text>`; }
+  s += `<line x1="${L}" y1="${TOP + H1}" x2="${W - R}" y2="${TOP + H1}"/>`;
+  for (let i = 0; i <= 4; i++) { const p = pxMin + (pxMax - pxMin) * i / 4; s += `<text x="${L - 6}" y="${yP(p) + 3}" text-anchor="end">${Math.round(p).toLocaleString()}</text>`; }
+  for (const c of [cMin, 0, cMax].filter((v, i, a) => a.indexOf(v) === i)) s += `<text x="${W - R + 6}" y="${yC(c) + 3}" style="fill:var(--team)">${fmtEok(c)}</text>`;
+  s += `</g><text x="${L}" y="${cTop - 8}" style="fill:var(--team);font-weight:600">순매수 누적</text>`;
+  s += `<line class="zero" x1="${L}" y1="${yC(0)}" x2="${W - R}" y2="${yC(0)}"/>`;
+  let d = ''; S.day_cum_net.t_ms.forEach((t, k) => { const X = x(t).toFixed(1), Y = yC(cum[k]).toFixed(1); d += k === 0 ? `M${X},${yC(0).toFixed(1)}L${X},${Y}` : `H${X}V${Y}`; }); d += `H${x(T2000).toFixed(1)}`;
+  s += `<g class="cum"><path d="${d}"/></g>`;
+  let pd = '', prev = null; for (const [t, p] of pts) { const gap = prev !== null && t - prev > 15*60e3; pd += (pd === '' || gap ? 'M' : 'L') + `${x(t).toFixed(1)},${yP(p).toFixed(1)}`; prev = t; }
+  s += `<g class="px"><path d="${pd}"/></g>`;
+  C.cycles.forEach(c => {
+    s += `<g class="reg"><line x1="${x(c.reg)}" y1="${TOP}" x2="${x(c.reg)}" y2="${H - BOT}"/><text x="${x(c.reg) + 4}" y="${TOP + 11}">등록 ${hm(c.reg)}${C.cycles.length > 1 ? ' · ' + c.cycle : ''}</text></g>`;
+    if (c.end) s += `<g class="end"><line x1="${x(c.end)}" y1="${TOP}" x2="${x(c.end)}" y2="${H - BOT}"/><text x="${x(c.end) - 4}" y="${TOP + 11}" text-anchor="end">${ER[c.er]} ${hm(c.end)}</text></g>`;
+  });
+  const o = S.orders; const firstIdx = new Set(o.first.map((f, i) => f ? i : -1).filter(i => i >= 0));
+  if (key === 'hansun') { const i2 = o.t_ms.findIndex((t, i) => t > C.cycles[0].end && o.side[i] === 'B'); if (i2 >= 0) firstIdx.add(i2); }
+  s += `<g class="ord">`;
+  o.t_ms.forEach((t, i) => { s += `<circle class="${o.side[i]}${firstIdx.has(i) ? ' first' : ''}" cx="${x(t).toFixed(1)}" cy="${yP(o.px[i]).toFixed(1)}" r="${rOf(o.val[i]).toFixed(1)}"><title>${hms(t)} 팀 ${o.side[i] === 'B' ? '매수' : '매도'} ${o.qty[i].toLocaleString()}주 · ${(o.val[i]/1e8).toFixed(2)}억 @${o.px[i].toLocaleString()}</title></circle>`; });
+  s += `</g>`;
+  if (withBuckets) {
+    const bTop = cTop + H2 + GAP3, bMax = Math.max(...S.buckets.map(b => Math.max(b.buy_krw, b.sell_krw))) || 1;
+    const w = (x(T2000) - x(T930)) / 66, bw = Math.max(1.5, w * 0.42);
+    s += `<text x="${L}" y="${bTop - 8}" style="font-weight:600;fill:var(--fg-2)">10분 팀 매수 / 매도</text><g class="bk">`;
+    for (const b of S.buckets) { const x0 = x(T930 + b.slot * 600e3); const hb = b.buy_krw / bMax * H3, hs = b.sell_krw / bMax * H3; s += `<rect class="b" x="${x0 + 1}" y="${bTop + H3 - hb}" width="${bw}" height="${hb}"><title>${hm(T930 + b.slot*600e3)} 매수 ${fmtEok(b.buy_krw, 2)}</title></rect><rect class="s" x="${x0 + 1 + bw + 1}" y="${bTop + H3 - hs}" width="${bw}" height="${hs}"><title>${hm(T930 + b.slot*600e3)} 매도 ${fmtEok(b.sell_krw, 2)}</title></rect>`; }
+    s += `</g><g class="ax"><line x1="${L}" y1="${bTop + H3}" x2="${W - R}" y2="${bTop + H3}"/></g>`;
+  }
+  s += `</svg>`;
+  return s;
+}
+
+function cycleTable(C) {
+  return `<div class="sec-h"><b>사이클</b><span>${C.cycles.length}개 · 값은 각 사이클 종료 시점(살아 있으면 마지막)</span></div>
+  <div class="tw"><table><thead><tr><th>#</th><th>등록</th><th>종료</th><th>상태</th><th class="n">등록가</th><th class="n">평단</th><th class="n">순매수</th><th class="n">최고 순매수</th><th class="n">매수 / 매도 수량</th></tr></thead><tbody>
+  ${C.cycles.map((c, i) => `<tr><td class="${i === C.cycles.length - 1 ? 'cur' : ''}">${c.cycle}</td><td>${hms(c.reg)}</td><td>${c.end ? hms(c.end) : '<span style="color:var(--muted-fg)">장 마감까지</span>'}</td><td>${c.end ? ER[c.er] : ST[c.state]}</td><td class="n">${c.regPx.toLocaleString()}</td><td class="n">${c.avg.toLocaleString()}</td><td class="n ${tone(c.net)}">${fmtEok(c.net)}</td><td class="n">${fmtEok(c.peak)}</td><td class="n">${c.buyQty.toLocaleString()} / ${c.sellQty.toLocaleString()}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function bucketTable(S) {
+  return `<details><summary>10분 표 보기 <span style="font-weight:400;color:var(--muted-fg)">팀 주문이 있는 칸 ${S.buckets.length}개</span></summary><div class="bd"><div class="tw"><table><thead><tr><th>시각</th><th class="n">팀 매수</th><th class="n">팀 매도</th><th class="n">순매수</th></tr></thead><tbody>
+  ${S.buckets.slice(0, 12).map(b => `<tr><td>${hm(T930 + b.slot*600e3)}</td><td class="n pos">${fmtEok(b.buy_krw, 2)}</td><td class="n neg">${fmtEok(-b.sell_krw, 2)}</td><td class="n ${tone(b.buy_krw - b.sell_krw)}">${fmtEok(b.buy_krw - b.sell_krw, 2)}</td></tr>`).join('')}
+  <tr><td colspan="4" style="color:var(--muted-fg)">… ${S.buckets.length - 12}칸 더</td></tr></tbody></table></div></div></details>`;
+}
+function pnlLine(S) {
+  const p = S.pnl; if (!p) return `<div class="pnl"><span class="hd">팀 당일 손익</span><span>팀 체결 없음 — </span></div>`;
+  return `<div class="pnl"><span class="hd">팀 당일 손익</span><span class="${tone(p.total_val)}" style="font-weight:600">${fmtEok(p.total_val, 2)} (${p.ret >= 0 ? '+' : ''}${(p.ret*100).toFixed(1)}%)</span><span>실현<b class="${tone(p.realized_val)}">${fmtEok(p.realized_val, 2)}</b></span><span>평가<b class="${tone(p.unrealized_val)}">${fmtEok(p.unrealized_val, 2)}</b></span><span>보유<b>${p.end_qty.toLocaleString()}주</b></span><span>출처 모를 매도<b>${p.unknown_sell_qty.toLocaleString()}주</b></span></div>`;
+}
+function ruleBlock(C, thInRule) {
+  return `<details><summary>판정 기준</summary><div class="bd">
+    ${thInRule ? `<p><b>이 종목의 등록 임계</b> — 순매수 ${fmtEok(C.th.net).replace('+','')} 이상 · 한 가격 ${C.th.same}조각 이상 · 시총 ${(C.th.mcap/1e8).toLocaleString()}억 이하 (현재 시총 ${(C.mcap/1e8).toLocaleString()}억)</p>` : ''}
+    <p><b>등록 후 순매수(pos)</b> 는 KYOBO119 서버 상태기 값 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값.</p>
+    <p><b>하루 순매수(day) · 차트</b> 는 119 pcap 으로 다시 계산한 하루 전체 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다르다.</p>
+    <p><b>원</b> 은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」). <b>누적 계단</b> 은 전체 팀 주문. <b>종료 사유</b> — 청산 / 이월 탈락(복원 안 됨 · 06:00 판정과 서버 기동 정합 포함) / 이월 만료.</p>
+    <p>규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13.</p>
+  </div></details>`;
+}
+
+const state = { cyc:'multi', pnl:'on', bk:'none', th:'kpi', s:'hansun', w:'phone', t:'dark' };
+function render() {
+  const C = CASES[state.s], S = SAMPLE[state.s], W = state.w === 'phone' ? 358 : 1056;
+  const last = C.cycles[C.cycles.length - 1];
+  const tag = C.tag.limit ? `<span class="tag limit">상한가 ${C.tag.limit}</span>` : `<span class="tag rate">+${C.tag.rate.toFixed(1)}%</span>`;
+  const showCyc = state.cyc === 'always' || (state.cyc === 'multi' && C.cycles.length > 1);
+  const cycHtml = !showCyc ? '' : state.cyc === 'always' ? `<details ${C.cycles.length > 1 ? 'open' : ''}><summary>사이클 보기 <span style="font-weight:400;color:var(--muted-fg)">${C.cycles.length}개</span></summary><div class="bd">${cycleTable(C)}</div></details>` : cycleTable(C);
+  const thKpi = state.th === 'kpi' ? `<span class="th">임계<b>순매수 ${fmtEok(C.th.net).replace('+','')} · ${C.th.same}조각 · 시총 ${(C.th.mcap/1e8).toLocaleString()}억↓</b></span>` : '';
+  document.getElementById('stage').innerHTML = `<div class="f ${state.w} ${state.t}">
+    <div class="row"><div class="nm"><b>${C.name}</b><span>${C.code}</span></div><span class="badge s${C.state}">${ST[C.state]}</span>${C.cycles.length > 1 ? `<span class="badge s3" style="border-color:transparent">사이클 ${last.cycle}</span>` : ''}${tag}</div>
+    <div class="inner">
+      <div class="kline"><span>등록가<b>${last.regPx.toLocaleString()}</b></span><span>평단<b>${last.avg.toLocaleString()}</b></span><span>등록 후 순매수<b class="${tone(last.net)}">${fmtEok(last.net)}</b></span><span>최고 순매수<b>${fmtEok(last.peak)}</b></span>${thKpi}</div>
+      <div class="legend"><span><i class="lg-line"></i>가격(10초)</span><span><i class="lg-b"></i>팀 매수</span><span><i class="lg-s"></i>팀 매도</span><span><i class="lg-first"></i>팀매수 시작</span><span><i class="lg-step"></i>순매수 누적</span><span><i class="lg-reg"></i>등록</span><span><i class="lg-end"></i>청산·종료</span><span><i class="lg-shade"></i>등록 전</span></div>
+      <div class="chart">${chart(state.s, W, state.bk === 'panel')}</div>
+      ${state.bk === 'table' ? bucketTable(S) : ''}
+      ${cycHtml}
+      ${state.pnl === 'on' ? pnlLine(S) : ''}
+      ${ruleBlock(C, state.th === 'rule')}
+      <div><span class="src">KYOBO119 판정 기준 · 10/14 20:30 적재</span></div>
+    </div></div>`;
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  const k = Object.keys(b.dataset)[0]; if (!k) return; state[k] = b.dataset[k];
+  b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+}));
+render();
+</script>
+</body>
+</html>
