@@ -3,7 +3,7 @@
  * Phase 34 Plan 02 — D-23 매집감지 소급 내보내기: `dma_strategy_events` kind 16(KYOBO119) → `<out>/<YYYYMMDD>.jsonl`.
  *
  * 한 줄 = gh-trade 인박스 261020 「소급 목록 파일 형식」 23키(`teamflow_accum.EVENT_KEYS_REQUIRED`). 매핑 · 조회 · 파일 쓰기는
- * `relay/src/store/accum-backfill.ts` 가 하고, 이 스크립트는 인자 · env · 출력만 한다(migrate-dma-users.ts 패턴).
+ * `relay/src/tools/accum-backfill.ts` 가 하고, 이 스크립트는 인자 · env · 출력만 한다(migrate-dma-users.ts 패턴).
  *
  * 실행 (relay 워크스페이스로 — tsx · supabase-js 가 relay/node_modules 에만 있다):
  *   bash scripts/export-accum-backfill.sh --date 20261019 --date 20261020             # 래퍼 — env 파일을 비출력으로 주입
@@ -21,7 +21,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { exportAccumBackfillDay } from "../relay/src/store/accum-backfill.js";
+import { exportAccumBackfillDay } from "../relay/src/tools/accum-backfill.js";
 import { createRelaySupabase } from "../relay/src/store/supabase.js";
 
 const DEFAULT_OUT = join(homedir(), "ticks", "accum-backfill");

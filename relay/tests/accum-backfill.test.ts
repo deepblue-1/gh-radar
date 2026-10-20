@@ -1,5 +1,5 @@
 /**
- * Phase 34 Plan 02 — D-23 소급 내보내기(`relay/src/store/accum-backfill.ts`) 단위 테스트.
+ * Phase 34 Plan 02 — D-23 소급 내보내기(`relay/src/tools/accum-backfill.ts`) 단위 테스트.
  *
  * kind 16(KYOBO119) 행 → 인박스 261020 「소급 목록 파일 형식」 23키 JSON lines. 실 DB 에 붙지 않는다 —
  * 가짜 Supabase 클라이언트가 체인 호출(select · eq · order · range)을 기록하고 head count · range 페이지를 돌려준다.
@@ -21,7 +21,7 @@ import {
   accumBackfillLineOf,
   exportAccumBackfillDay,
   type Kind16Row,
-} from "../src/store/accum-backfill.js";
+} from "../src/tools/accum-backfill.js";
 
 /** gh-trade `server/tools/analysis/tickana/teamflow_accum.py` EVENT_KEYS_REQUIRED 원문(2026-10-20) — 대조용 사본. */
 const GH_TRADE_EVENT_KEYS_REQUIRED = [

@@ -10,6 +10,10 @@
  * `accumBackfillLineOf` 이고, `exportAccumBackfillDay` 는 조회 · 파일 쓰기만 하는 얇은 층이다
  * (`dma-users-migrate.ts` 선례). 실행 CLI 는 `scripts/export-accum-backfill.ts`(+ 비출력 래퍼 `.sh`).
  *
+ * 위치(34 IN-04): relay 런타임(`src/index.ts` 이하)은 이 모듈을 import 하지 않는다 — CLI 전용 일회성 도구라 런타임 소스
+ * (`src/store/`)와 구분해 `src/tools/` 에 둔다. relay/node_modules(supabase-js · tsx)와 relay 타입체크 · vitest 를 쓰려고
+ * relay 패키지 안에 남긴다. 소급이 끝나 필요 없어지면 이 파일 · 테스트 · CLI 를 함께 지운다.
+ *
  * 키 ← kind 16 원천(인박스 표 원문 · 261018-accum-signal.md 43칸 매핑과 같다 · 라이브 `accumSignalOf` 와 열 대응 같음):
  *   row←queue_case · gw_time_ms · isin · state←qty · end_reason←cancel_reason · cycle←expected_cum · carry_days←entry_round
  *   since_date←message `since=`(문자열 "YYYYMMDD") · reg_time←message `reg=`(문자열 "HHMMSS" — 앞 0 유지)
