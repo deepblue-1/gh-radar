@@ -217,3 +217,68 @@ describe('AccumChart — 사이클 세로선 · 이월 줄 · 눈금 · 축 글�
     expect(svg.querySelector('[data-slot="accum-bucket-max"]')!.textContent).toMatch(/^[\d.,]+억$/);
   });
 });
+
+const CAPTION =
+  '원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+
+const presetsOf = (sec: HTMLElement) =>
+  Array.from(sec.querySelectorAll<HTMLButtonElement>('[data-slot="accum-presets"] button'));
+const rangeOf = (sec: HTMLElement) => sec.querySelector('[data-slot="accum-view-range"]')?.textContent ?? null;
+const pressedOf = (sec: HTMLElement) => presetsOf(sec).map((b) => b.getAttribute('aria-pressed'));
+
+describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위 · 캡션 (A5 · D-14 · D-18)', () => {
+  it('(h1) 천일고속 — 범례 8 순서 · 프리셋 3 「전체」 켜짐 · 창 「09:00 ~ 20:00」 → 「정규장」 클릭 → 「09:00 ~ 15:30」 · aria-pressed 전환 · SVG 접근 이름', async () => {
+    const sec = await expand(CHEONIL);
+    const legend = sec.querySelector('[data-slot="accum-legend"]')!;
+    expect(legend).toBeTruthy();
+    const items = Array.from(legend.children).map((c) => c.textContent);
+    expect(items).toEqual(['가격(10초)', '팀 매수', '팀 매도', '팀매수 시작', '순매수 누적', '등록', '청산·종료', '등록 전']);
+    expect(Array.from(legend.children).every((c) => c.querySelector('span[aria-hidden="true"]') !== null)).toBe(true);
+    expect(sec.querySelectorAll('i')).toHaveLength(0);
+
+    const btns = presetsOf(sec);
+    expect(btns.map((b) => b.textContent)).toEqual(['전체', '정규장', '마지막 2시간']);
+    expect(btns.every((b) => b.getAttribute('type') === 'button')).toBe(true);
+    expect(pressedOf(sec)).toEqual(['true', 'false', 'false']);
+    expect(rangeOf(sec)).toBe('09:00 ~ 20:00');
+
+    fireEvent.click(btns[1]!);
+    expect(rangeOf(sec)).toBe('09:00 ~ 15:30');
+    expect(pressedOf(sec)).toEqual(['false', 'true', 'false']);
+    expect(chartOf(sec)!.getAttribute('aria-label')!.startsWith('천일고속 매집 상세 차트 — 09:00~15:30')).toBe(true);
+
+    // 마지막 2시간 = 마지막 체결 15:30:00 끝 2시간
+    fireEvent.click(btns[2]!);
+    expect(rangeOf(sec)).toBe('13:30 ~ 15:30');
+    expect(pressedOf(sec)).toEqual(['false', 'false', 'true']);
+    expect(btns[2]!.disabled).toBe(false);
+
+    // 블록 순서 = KPI 줄 → 범례 → 프리셋 줄 → 차트 → 캡션
+    const block = sec.querySelector('[data-slot="accum-chart-block"]')!;
+    const order = ['accum-kline', 'accum-legend', 'accum-presets', 'accum-chart', 'accum-caption'].map(
+      (s) => block.querySelector(`[data-slot="${s}"]`)!,
+    );
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(block.querySelector('[data-slot="accum-caption"]')!.textContent).toBe(CAPTION);
+  });
+
+  it('(h2) noPrice(price.idx 빔) — 「그날 체결 자료 없음」 한 줄 · 범례 · 프리셋 · 차트 · 캡션 없음 · KPI 줄은 남는다', async () => {
+    detailOver.set(CHEONIL, accumSyntheticDetail('noPrice'));
+    const sec = await expand(CHEONIL);
+    expect(sec.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+    const none = sec.querySelector('[data-slot="accum-no-price"]');
+    expect(none?.textContent).toBe('그날 체결 자료 없음');
+    for (const s of ['accum-legend', 'accum-presets', 'accum-chart', 'accum-caption']) {
+      expect(sec.querySelector(`[data-slot="${s}"]`)).toBeNull();
+    }
+  });
+
+  it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 1천만원 이상」 으로 시작', async () => {
+    const sec = await expand(CJSEAFOOD_PREF);
+    const cap = sec.querySelector('[data-slot="accum-caption"]')!.textContent ?? '';
+    expect(cap.startsWith('팀 체결 없음 · 원 = 1천만원 이상')).toBe(true);
+    expect(cap).toBe(`팀 체결 없음 · ${CAPTION}`);
+  });
+});

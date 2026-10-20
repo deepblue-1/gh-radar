@@ -536,3 +536,34 @@ export function labelRowsOf(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// 보기 창 조작 — 프리셋 · 확대/축소 · 이동 · 창 범위 글자 (D-14 · 34-07)
+// ---------------------------------------------------------------------------
+
+/** 프리셋 3개 — 「전체」 09:00~20:00 · 「정규장」 09:00~15:30 · 「마지막 2시간」 [max(T0, 끝 − 2h), 끝]. */
+export type ChartPreset = 'full' | 'reg' | 'last2h';
+
+export function lastTradeMsOf(_price: AccumReportPrice): number | null {
+  return null;
+}
+
+export function presetOf(
+  _name: ChartPreset,
+  _bounds: { T0: number; T1530: number; T2000: number },
+  _lastTradeMs: number | null,
+): View {
+  return { t0: 0, t1: 0 };
+}
+
+export function zoomAt(v: View, _tc: number, _k: number): View {
+  return v;
+}
+
+export function panBy(v: View, _dt: number): View {
+  return v;
+}
+
+export function fmtViewRange(_v: View): string {
+  return '';
+}

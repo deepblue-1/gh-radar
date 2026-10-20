@@ -35,6 +35,11 @@ import {
   pricePointsOf,
   priceRangeOf,
   xOfView,
+  fmtViewRange,
+  lastTradeMsOf,
+  panBy,
+  presetOf,
+  zoomAt,
   type PricePoint,
 } from '../accum-chart';
 
@@ -483,5 +488,40 @@ describe('accum-chart — 세로선 라벨 줄 배치 (labelRowsOf)', () => {
     expect(p).toEqual([
       expect.objectContaining({ id: 'e0', row: 1, y: 41, anchor: 'start' }),
     ]);
+  });
+});
+
+describe('accum-chart — 보기 창 조작 (D-14 · 34-07 프리셋 · 확대/축소 · 이동)', () => {
+  const B = dayBoundsOf(T0);
+
+  it('lastTradeMsOf — 마지막 idx 칸 시각(천일 15:30:00 · 한선 19:59:50) · idx 빔이면 null', () => {
+    const rows = accumDetailRows();
+    expect(lastTradeMsOf(rows.find((r) => r.isin === CHEONIL)!.payload!.price)).toBe(at('15:30:00'));
+    expect(lastTradeMsOf(rows.find((r) => r.isin === HANSUN)!.payload!.price)).toBe(at('19:59:50'));
+    expect(lastTradeMsOf(accumSyntheticDetail('noPrice').payload!.price)).toBeNull();
+  });
+
+  it('presetOf — full [T0, T2000] · reg [T0, T1530] · last2h [끝 − 2h, 끝] · 끝이 T0 + 2h 안이면 [T0, 끝 → 최소 폭]', () => {
+    expect(presetOf('full', B, at('19:58:30'))).toEqual({ t0: T0, t1: B.T2000 });
+    expect(presetOf('reg', B, at('19:58:30'))).toEqual({ t0: T0, t1: B.T1530 });
+    expect(presetOf('last2h', B, at('19:58:30'))).toEqual({ t0: at('17:58:30'), t1: at('19:58:30') });
+    expect(presetOf('last2h', B, at('10:00:00'))).toEqual({ t0: T0, t1: at('10:00:00') });
+    // 끝이 09:05 면 폭 5분 → clampView 가 10분으로 넓힌다
+    expect(presetOf('last2h', B, at('09:05:00'))).toEqual({ t0: T0, t1: T0 + 10 * M });
+    // 끝 null(체결 없음)이면 전체로 폴백(버튼은 disabled)
+    expect(presetOf('last2h', B, null)).toEqual({ t0: T0, t1: B.T2000 });
+  });
+
+  it('zoomAt — tc 기준 k 배(tc 의 상대 위치 유지) · panBy — 양 끝 +dt', () => {
+    const v = { t0: T0, t1: T0 + 4 * H };
+    expect(zoomAt(v, T0 + H, 0.5)).toEqual({ t0: T0 + 0.5 * H, t1: T0 + 2.5 * H });
+    expect(zoomAt(v, T0 + 2 * H, 2)).toEqual({ t0: T0 - 2 * H, t1: T0 + 6 * H });
+    expect(panBy(v, 30 * M)).toEqual({ t0: T0 + 30 * M, t1: T0 + 4 * H + 30 * M });
+    expect(panBy(v, -30 * M)).toEqual({ t0: T0 - 30 * M, t1: T0 + 4 * H - 30 * M });
+  });
+
+  it('fmtViewRange — 「HH:MM ~ HH:MM」(KST)', () => {
+    expect(fmtViewRange({ t0: T0, t1: B.T2000 })).toBe('09:00 ~ 20:00');
+    expect(fmtViewRange({ t0: at('13:30:00'), t1: at('15:30:00') })).toBe('13:30 ~ 15:30');
   });
 });
