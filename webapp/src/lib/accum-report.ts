@@ -10,7 +10,8 @@
 
 import type { AccumReportRow } from '@gh-radar/shared';
 
-import { fmtEok, isNum, toneOf, type TeamflowTone } from './teamflow-report';
+import { fmtYmdShort } from './limitup-report';
+import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
 
 /**
  * 밤 적재 시각 「HH:MM」 — 빈 상태 2곳 · 머리 출처 칩 · 상세 출처 칩이 모두 이 값 하나를 읽는다.
@@ -130,4 +131,150 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
   }
   k.held = k.accumulating + k.selling;
   return k;
+}
+
+// ---------------------------------------------------------------------------
+// 목록 행 변환 (D-08 · D-10 ~ D-13 · UI-SPEC A3 · 「표시 변환 규칙」)
+// ---------------------------------------------------------------------------
+
+/** 사유 2(이월 탈락) 줄 `title` — 「복원 안 됨」 이 무엇인지 설명한다(D-11). */
+export const ACCUM_DROP_TITLE = '06:00 이월 판정에서 탈락했거나 서버 재기동 때 복원되지 않은 종목이에요';
+
+/** 종료 사유 라벨 — 1 「청산」 · 2 「이월 탈락(복원 안 됨)」 · 3 「이월 만료」 · 그 밖(0 · null) null. */
+export function endReasonLabelOf(endReason: number | null | undefined): string | null {
+  if (endReason === 1) return '청산';
+  if (endReason === 2) return '이월 탈락(복원 안 됨)';
+  if (endReason === 3) return '이월 만료';
+  return null;
+}
+
+/** 종료 시각 KST 「HH:MM」 · 없으면 null. */
+function endHmOf(row: Pick<AccumReportRow, 'end_time_ms'>): string | null {
+  return isNum(row.end_time_ms) ? kstHm(row.end_time_ms) : null;
+}
+
+/** 종료 행(state 3)의 사유 줄 「{사유} · HH:MM」(end_time_ms null 이면 사유만) · 그 밖 null. */
+export function reasonLineOf(row: Pick<AccumReportRow, 'state' | 'end_reason' | 'end_time_ms'>): string | null {
+  if (row.state !== 3) return null;
+  const label = endReasonLabelOf(row.end_reason);
+  if (label === null) return null;
+  const hm = endHmOf(row);
+  return hm === null ? label : `${label} · ${hm}`;
+}
+
+/** 흐린 행(D-11) — 종료 이월 탈락 · 만료만. 장중 청산(1)은 정상 농도. */
+export function isDimRow(row: Pick<AccumReportRow, 'state' | 'end_reason'>): boolean {
+  return row.state === 3 && (row.end_reason === 2 || row.end_reason === 3);
+}
+
+export interface AccumTag {
+  /** limit = 상한가 마감 · rate = 미도달 등락률 · none = 등락률 없음 */
+  kind: 'limit' | 'rate' | 'none';
+  text: string;
+  /** xl 보조줄 「고가 +NN.N%」 — 상한가가 아니고 high_rate 가 수일 때만 */
+  sub: string | null;
+}
+
+/**
+ * 결과 태그(D-12) — `upper` · `last_px` 둘 다 수이고 `last_px >= upper` 면 「상한가 +NN.N%」(시각 없음 · last_rate 없으면
+ * 「상한가」) · 아니면 「+NN.N%」 / 「−N.N%」 · last_rate 없음 「—」.
+ */
+export function accumTagOf(
+  row: Pick<AccumReportRow, 'upper' | 'last_px' | 'last_rate' | 'high_rate'>,
+): AccumTag {
+  if (isNum(row.upper) && isNum(row.last_px) && row.last_px >= row.upper) {
+    return { kind: 'limit', text: isNum(row.last_rate) ? `상한가 ${fmtRate(row.last_rate)}` : '상한가', sub: null };
+  }
+  const sub = isNum(row.high_rate) ? `고가 ${fmtRate(row.high_rate)}` : null;
+  if (!isNum(row.last_rate)) return { kind: 'none', text: DASH, sub };
+  return { kind: 'rate', text: fmtRate(row.last_rate), sub };
+}
+
+const YMD_RE = /^\d{8}$/;
+
+/** 이월 행 — `since_date` 가 8자리 숫자이고 그날(date)보다 앞. 결측("" · "None" · null)은 이월 아님. */
+export function isCarry(row: Pick<AccumReportRow, 'since_date' | 'date'>): boolean {
+  return typeof row.since_date === 'string' && YMD_RE.test(row.since_date) && row.since_date < row.date;
+}
+
+/** 오늘 등록 — `since_date === date`. */
+export function isTodayReg(row: Pick<AccumReportRow, 'since_date' | 'date'>): boolean {
+  return row.since_date === row.date;
+}
+
+/** 등록 칸 1줄 — 오늘 등록 「HH:MM」(reg_time_ms 없으면 「—」) · 이월 「MM/DD 등록」 · since 결측 「—」. */
+function regLineOf(row: AccumReportRow): string {
+  if (isTodayReg(row)) return isNum(row.reg_time_ms) ? kstHm(row.reg_time_ms) : DASH;
+  if (isCarry(row)) return `${fmtYmdShort(row.since_date!)} 등록`;
+  return DASH;
+}
+
+const END_WORD: Record<number, string> = { 1: '청산', 2: '탈락', 3: '만료' };
+
+/**
+ * 등록 · 종료 칸(xl · A3) — [1줄, 2줄].
+ * 2줄 = end_reason 1 「HH:MM 청산」 · 2 「HH:MM 탈락」 · 3 「HH:MM 만료」(시각 없으면 단어만) · 0 이고 이월 「오늘 이월」 · 그 밖 「장 마감까지」.
+ */
+export function regCellOf(row: AccumReportRow): [string, string] {
+  const word = row.end_reason === null ? undefined : END_WORD[row.end_reason];
+  let line2: string;
+  if (word !== undefined) {
+    const hm = endHmOf(row);
+    line2 = hm === null ? word : `${hm} ${word}`;
+  } else {
+    line2 = isCarry(row) ? '오늘 이월' : '장 마감까지';
+  }
+  return [regLineOf(row), line2];
+}
+
+export interface AccumMetaItem {
+  /** 앞 라벨(--muted-fg) — null 이면 값만(「10/13 등록 → 06:00」) */
+  label: string | null;
+  value: string;
+  /** 금액 항목만 — 부호 색 · `none` = 값 없음(「—」 --faint) */
+  tone?: TeamflowTone | 'none';
+}
+
+const amountTone = (won: number | null): TeamflowTone | 'none' => (isNum(won) ? toneOf(won) : 'none');
+
+/**
+ * 폰(< xl) 3줄 메타 — 「팀 순매수 {pos}」 · 「하루 {day}」 · 「등록 HH:MM」 또는 「MM/DD 등록」 + 종료 있으면 「 → HH:MM」.
+ * xl 에서는 앞 두 항목이 팀 순매수 · 하루 순매수 칸으로 풀린다(라벨 sr-only).
+ */
+export function metaLineOf(row: AccumReportRow): AccumMetaItem[] {
+  const end = endHmOf(row);
+  const tail = end === null ? '' : ` → ${end}`;
+  const reg: AccumMetaItem = isCarry(row)
+    ? { label: null, value: `${fmtYmdShort(row.since_date!)} 등록${tail}` }
+    : { label: '등록', value: `${regLineOf(row)}${tail}` };
+  return [
+    { label: '팀 순매수', value: fmtEok(row.pos_net_krw, { signed: true }), tone: amountTone(row.pos_net_krw) },
+    { label: '하루', value: fmtEok(row.day_net_krw, { signed: true }), tone: amountTone(row.day_net_krw) },
+    reg,
+  ];
+}
+
+/**
+ * 행 sr 설명 1문장(UI-SPEC A3) — 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그}{, 고가 +NN.N%},
+ * 팀 순매수 등록 후 {pos}, 하루 순매수 {day}, 등록 {HH:MM | MM/DD}{, 종료 HH:MM}」. 결측에 throw 없음(「—」).
+ */
+export function accumRowDescriptionOf(row: AccumReportRow): string {
+  const parts = [stateLabelOf(row.state)];
+  if (isNum(row.carry_days) && row.carry_days > 0) parts.push(`이월 D+${row.carry_days}`);
+  if (isNum(row.cycle) && row.cycle > 1) parts.push(`사이클 ${row.cycle}`);
+  const end = endHmOf(row);
+  if (row.state === 3) {
+    const label = endReasonLabelOf(row.end_reason);
+    if (label !== null) parts.push(end === null ? label : `${label} ${end}`);
+  }
+  const tag = accumTagOf(row);
+  parts.push(`결과 ${tag.text}`);
+  if (tag.sub !== null) parts.push(tag.sub);
+  parts.push(
+    `팀 순매수 등록 후 ${fmtEok(row.pos_net_krw, { signed: true })}`,
+    `하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`,
+    `등록 ${isCarry(row) ? fmtYmdShort(row.since_date!) : regLineOf(row)}`,
+  );
+  if (end !== null) parts.push(`종료 ${end}`);
+  return parts.join(', ');
 }

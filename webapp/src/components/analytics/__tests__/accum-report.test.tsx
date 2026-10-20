@@ -377,7 +377,8 @@ describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
     expect(tag.textContent).toBe('—');
     expect(slotText(AC_PARTIAL, 'accum-pos')).toBe('—');
     expect(slotText(AC_PARTIAL, 'accum-avg')).toBe('평단 — · 등록가 —');
-    expect(within(rowBtn(AC_PARTIAL)).getByText('AC0007')).toBeTruthy();
+    // name null → 이름 자리 = 코드 · market null → 둘째 줄 = 코드만(「 · 시장」 없음)
+    expect(within(rowBtn(AC_PARTIAL)).getAllByText('AC0007')).toHaveLength(2);
   });
 
   it('(r8) sr 설명 — aria-describedby="accum-row-desc-{isin}" · 1문장', async () => {

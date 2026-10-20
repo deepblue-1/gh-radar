@@ -169,11 +169,7 @@ export function AccumReport() {
 
       {resp !== null && rows !== null && (
         <section aria-labelledby="accum-list-title" className={cn(CARD, 'p-4')}>
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <h2 id="accum-list-title" className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-              매집감지 종목
-            </h2>
-          </div>
+          {/* 소제목 「매집감지 종목」(id=accum-list-title) + 캡션 · 열 머리는 AccumDayGrid 가 그린다 */}
           <AccumDayGrid key={resp.date ?? ''} date={resp.date ?? ''} rows={rows} />
         </section>
       )}
