@@ -337,3 +337,28 @@ export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// 판정 기준 (D-22 · UI-SPEC A9) — RED 골격
+// ---------------------------------------------------------------------------
+
+export interface AccumRulePart {
+  text: string;
+  num?: boolean;
+}
+
+export function thresholdPartsOf(
+  _row: Pick<AccumReportRow, 'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw'>,
+): AccumRulePart[] {
+  return [];
+}
+
+export function thresholdLineOf(row: Pick<AccumReportRow, 'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw'>): string {
+  return thresholdPartsOf(row)
+    .map((p) => p.text)
+    .join('');
+}
+
+export const ACCUM_RULE_LINES: readonly string[] = [];
+
+export const ACCUM_RULE_SOURCE = '';

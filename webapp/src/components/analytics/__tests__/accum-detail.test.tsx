@@ -345,3 +345,118 @@ describe('AccumCycleTable — 사이클 표 (A7 · D-20 · CR-01)', () => {
     expect(sec.querySelector('[data-slot="accum-cycles"]')).toBeNull();
   });
 });
+
+const PNL_CAPTION =
+  '그날 하루 팀 주문 기준(등록 전 · 상한가 가격 포함) · 출처 모를 매도(전날 이전 보유분 추정)는 손익 제외';
+const RULE_TEXTS = [
+  '이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
+  '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
+  '하루 순매수(day) · 차트는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
+  '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
+  '종료 사유 — 청산 / 이월 탈락(복원 안 됨 · 06:00 이월 판정과 서버 기동 정합 포함) / 이월 만료.',
+];
+const rulesToggleOf = (sec: HTMLElement) =>
+  sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!;
+const detailCalls = () => authFetchMock.mock.calls.filter(([p]) => DETAIL_RE.test(String(p)));
+
+describe('AccumDetail 부속 — 팀 당일 손익 줄 (A8 · D-21)', () => {
+  it('(p1) 천일고속(pnl 있음) → 「팀 당일 손익」 + 「+0.30억(+1.1%)」(up) · 실현 · 평가 · 보유 · 출처 모를 매도 · 캡션 · 면 상자 없음', async () => {
+    const sec = await expand(CHEONIL);
+    const pnl = sec.querySelector<HTMLElement>('[data-slot="accum-pnl"]');
+    expect(pnl).toBeTruthy();
+    expect(pnl!.querySelector('h3')!.textContent).toBe('팀 당일 손익');
+    const total = pnl!.querySelector('[data-slot="accum-pnl-total"]')!;
+    expect(total.textContent).toBe('+0.30억(+1.1%)');
+    expect(total.className).toContain('text-[var(--up)]');
+    const items = Array.from(pnl!.querySelectorAll('[data-slot="accum-pnl-item"]')).map((e) => e.textContent);
+    expect(items).toEqual(['실현+0.27억', '평가+0.03억', '보유3,401주', '출처 모를 매도3,783주']);
+    expect(pnl!.textContent).toContain(PNL_CAPTION);
+    expect(pnl!.className).not.toMatch(/bg-|rounded/);
+  });
+
+  it('(p2) CJ씨푸드1우(pnl null) → 「팀 당일 손익」 + 「팀 체결 없음」 만 · 항목 · 캡션 없음', async () => {
+    const sec = await expand(CJSEAFOOD_PREF);
+    const pnl = sec.querySelector<HTMLElement>('[data-slot="accum-pnl"]')!;
+    expect(pnl).toBeTruthy();
+    expect(pnl.querySelector('h3')!.textContent).toBe('팀 당일 손익');
+    expect(pnl.textContent).toBe('팀 당일 손익팀 체결 없음');
+    expect(pnl.querySelectorAll('[data-slot="accum-pnl-item"]')).toHaveLength(0);
+  });
+});
+
+describe('AccumDetail 부속 — 판정 기준 · 출처 칩 · D-19 순서 (A9 · D-19 · D-22)', () => {
+  it('(r1) 「판정 기준」 기본 접힘(본문 없음) → 클릭 → 본문 5줄 순서 + 출처 줄 · 다시 클릭 → 언마운트', async () => {
+    const sec = await expand(CHEONIL);
+    const rules = sec.querySelector<HTMLElement>('[data-slot="accum-rules"]')!;
+    expect(rules).toBeTruthy();
+    const btn = rulesToggleOf(sec);
+    expect(btn.textContent).toBe('판정 기준');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(rules.querySelector('ul')).toBeNull();
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    const lis = Array.from(rules.querySelectorAll('ul > li')).map((li) => li.textContent);
+    expect(lis).toEqual(RULE_TEXTS);
+    // 본문 1 의 수 = mono 한 덩어리
+    const nums = Array.from(rules.querySelectorAll('ul > li:first-child .mono')).map((e) => e.textContent);
+    expect(nums).toEqual(['1.0억', '30조각', '5,000억', '3,144억']);
+    expect(rules.textContent).toContain('규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13');
+    expect(rules.querySelector('a')).toBeNull();
+    fireEvent.click(btn);
+    expect(rules.querySelector('ul')).toBeNull();
+  });
+
+  it('(s1) multiCycle → 블록 문서 순서 kline → legend → presets → chart → cycles → pnl → rules → detail-source · 출처 칩 「KYOBO119 판정 기준 · 10/14 20:30 적재」 맨 끝 · KPI 줄에 임계 없음', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('multiCycle'));
+    const sec = await expand(HANSUN);
+    const order = [
+      'accum-kline',
+      'accum-legend',
+      'accum-presets',
+      'accum-chart',
+      'accum-cycles',
+      'accum-pnl',
+      'accum-rules',
+      'accum-detail-source',
+    ].map((s) => {
+      const el = sec.querySelector(`[data-slot="${s}"]`);
+      expect(el, s).toBeTruthy();
+      return el!;
+    });
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    const chip = sec.querySelector('[data-slot="accum-detail-source"]')!;
+    expect(chip.textContent).toBe('KYOBO119 판정 기준 · 10/14 20:30 적재');
+    expect(chip.className).toContain('whitespace-nowrap');
+    // 상세 맨 끝 — 뒤따르는 요소 없음
+    const all = Array.from(sec.querySelectorAll('*'));
+    expect(all.filter((e) => chip.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING && !chip.contains(e))).toHaveLength(0);
+    expect(sec.querySelector('[data-slot="accum-kline"]')!.textContent).not.toContain('임계');
+  });
+
+  it('(s2) noPrice → 「그날 체결 자료 없음」 이어도 손익 줄 · 판정 기준 · 출처 칩은 그대로', async () => {
+    detailOver.set(CHEONIL, accumSyntheticDetail('noPrice'));
+    const sec = await expand(CHEONIL);
+    expect(sec.querySelector('[data-slot="accum-no-price"]')).toBeTruthy();
+    for (const s of ['accum-pnl', 'accum-rules', 'accum-detail-source']) {
+      expect(sec.querySelector(`[data-slot="${s}"]`), s).toBeTruthy();
+    }
+  });
+
+  it('(s3) 판정 기준을 연 채 행을 접고 다시 펼침 → 상세 요청 1회 유지 · 손익 줄 즉시 · 판정 기준은 다시 접힘', async () => {
+    const sec = await expand(CHEONIL);
+    fireEvent.click(rulesToggleOf(sec));
+    expect(rulesToggleOf(sec).getAttribute('aria-expanded')).toBe('true');
+    const btn = document.getElementById(`accum-row-${CHEONIL}`) as HTMLButtonElement;
+    fireEvent.click(btn);
+    expect(document.getElementById(`ac-${CHEONIL}`)).toBeNull();
+    fireEvent.click(btn);
+    const again = document.getElementById(`ac-${CHEONIL}`)!;
+    expect(again.querySelector('[data-slot="accum-pnl"]')).toBeTruthy();
+    expect(rulesToggleOf(again).getAttribute('aria-expanded')).toBe('false');
+    expect(again.querySelector('[data-slot="accum-rules"] ul')).toBeNull();
+    await flush();
+    expect(detailCalls()).toHaveLength(1);
+  });
+});
