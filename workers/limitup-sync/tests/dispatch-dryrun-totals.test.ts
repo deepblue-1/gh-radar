@@ -77,5 +77,8 @@ describe("dispatch dry-run — 합계 == manifest rows 합 (28-03 · 28-06 게�
     }
     // 창 밖 날짜는 합계에 안 섞인다 — 단일 날짜 합의 정확히 2배(두 날짜가 같은 픽스처 사본)
     expect(out.totals.entries).toBe(2 * manifestRows(SRC, "entries"));
+    // 선택 파일이 없는 픽스처 — 선택 표 합계도 키는 있고 0(34 D-02)
+    expect(out.totals.team_flow).toBe(0);
+    expect(out.totals.accum_flow).toBe(0);
   });
 });
