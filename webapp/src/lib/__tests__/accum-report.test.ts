@@ -293,7 +293,8 @@ describe('cycleRowsOf — 사이클 표 칸 (D-20 · A7 · CR-01)', () => {
     expect(one).toHaveLength(1);
     expect(one[0]).toMatchObject({ k: 1, reg: '09:57:20', end: '장 마감까지', regPx: '205,500', avgPx: '200,407', qty: '977 / 164' });
     expect(cycleRowsOf({ ...real, payload: null })).toEqual([]);
-    const { cycles: _c, ...noKey } = real.payload!;
-    expect(cycleRowsOf({ ...real, payload: noKey as unknown as NonNullable<AccumDetailRow['payload']> })).toEqual([]);
+    const noKey: Partial<NonNullable<AccumDetailRow['payload']>> = { ...real.payload! };
+    delete noKey.cycles;
+    expect(cycleRowsOf({ ...real, payload: noKey as NonNullable<AccumDetailRow['payload']> })).toEqual([]);
   });
 });

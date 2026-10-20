@@ -10,7 +10,7 @@
 
 import type { AccumDetailRow, AccumReportRow } from '@gh-radar/shared';
 
-import { fmtYmdShort } from './limitup-report';
+import { fmtYmdShort, kstClock } from './limitup-report';
 import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
 
 /**
@@ -299,7 +299,41 @@ export interface AccumCycleRowView {
   qty: string;
 }
 
-/** 사이클 표 행(UI-SPEC A7 칸 규칙). RED 골격. */
-export function cycleRowsOf(_row: AccumDetailRow): AccumCycleRowView[] {
-  return [];
+const QTY_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+
+/** 수량 한쪽 — 정수 쉼표 · null/NaN 「—」. */
+const fmtQtyOrDash = (n: number | null | undefined): string => (isNum(n) ? QTY_FMT.format(n) : DASH);
+
+/**
+ * 사이클 표 행(D-20 · UI-SPEC A7 칸 규칙) — `payload.cycles` 나온 순서 그대로(cycles 키 결측 · payload null = 빈 배열).
+ * - k = 배열 순서 1-based — `cycle` 값을 쓰지 않는다(CR-01 · 값이 중복 · 비연속일 수 있다).
+ * - 등록 「HH:MM:SS」 · 사이클 since_date 가 8자리이고 그날(date)과 다르면 「MM/DD HH:MM:SS」 · reg null 「—」.
+ * - 종료 「HH:MM:SS」 · null 이면 「장 마감까지」(endIsOpen) · 상태 = end_reason > 0 이면 사유 아니면 매집중/매도중.
+ * - 등록가 · 평단 = fmtPx · 순매수(부호 색) · 최고 순매수 = ±억 1자리 · 수량 「{buy} / {sell}」(둘 다 null 이면 「—」).
+ */
+export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
+  const cycles = row.payload?.cycles ?? [];
+  return cycles.map((c, i) => {
+    const since = c.since_date;
+    const datePrefix =
+      typeof since === 'string' && YMD_RE.test(since) && since !== row.date ? `${fmtYmdShort(since)} ` : '';
+    const endIsOpen = !isNum(c.end_time_ms);
+    const qty =
+      !isNum(c.pos_buy_qty) && !isNum(c.pos_sell_qty)
+        ? DASH
+        : `${fmtQtyOrDash(c.pos_buy_qty)} / ${fmtQtyOrDash(c.pos_sell_qty)}`;
+    return {
+      k: i + 1,
+      reg: isNum(c.reg_time_ms) ? `${datePrefix}${kstClock(c.reg_time_ms)}` : DASH,
+      end: endIsOpen ? '장 마감까지' : kstClock(c.end_time_ms!),
+      endIsOpen,
+      status: (c.end_reason > 0 ? endReasonLabelOf(c.end_reason) : null) ?? stateLabelOf(c.state),
+      regPx: fmtPx(c.pos_reg_px),
+      avgPx: fmtPx(c.pos_avg_px),
+      net: fmtEok(c.pos_net_krw, { signed: true }),
+      netTone: toneOf(c.pos_net_krw),
+      peak: fmtEok(c.pos_peak_net_krw, { signed: true }),
+      qty,
+    };
+  });
 }

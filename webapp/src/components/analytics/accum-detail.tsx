@@ -10,12 +10,13 @@ import { ApiClientError } from '@/lib/api';
 import { accumDetailCacheKey, fetchAccumDetail } from '@/lib/accum-api';
 import { useChartView } from '@/hooks/use-chart-view';
 import { dayBoundsOf, fmtViewRange, lastTradeMsOf, type ChartPreset } from '@/lib/accum-chart';
-import { detailKpisOf } from '@/lib/accum-report';
+import { cycleRowsOf, detailKpisOf } from '@/lib/accum-report';
 import { readQueryCache } from '@/lib/query-cache';
 import { TONE_TEXT } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
 import { AccumChart } from './accum-chart';
+import { AccumCycleTable } from './accum-cycle-table';
 
 /**
  * 매집감지 펼친 상세 셸 (Phase 34 · UI-SPEC A4 상세 셸 · A5 KPI 줄 · D-06 · D-18 · D-19).
@@ -125,23 +126,32 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
         </div>
       )}
 
-      {phase.kind === 'ready' && (
-        <div data-slot="accum-chart-block" className="flex flex-col gap-2">
-          <div
-            data-slot="accum-kline"
-            className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]"
-          >
-            {detailKpisOf(phase.row).map((k) => (
-              <span key={k.label} data-slot="accum-kline-item" className="inline-flex items-baseline gap-1 whitespace-nowrap">
-                <span className="text-[var(--muted-fg)]">{k.label}</span>
-                <span className={cn('mono font-semibold', k.tone ? TONE_TEXT[k.tone] : 'text-[var(--fg)]')}>{k.text}</span>
-              </span>
-            ))}
-          </div>
-          <ReadyChart row={phase.row} />
-        </div>
-      )}
+      {phase.kind === 'ready' && <ReadyBody row={phase.row} />}
     </section>
+  );
+}
+
+/** 준비 상태 본문(D-19) — 차트 블록 → (사이클 표 · 2개↑) → … */
+function ReadyBody({ row }: { row: AccumDetailRow }) {
+  const cycles = cycleRowsOf(row);
+  return (
+    <>
+      <div data-slot="accum-chart-block" className="flex flex-col gap-2">
+        <div
+          data-slot="accum-kline"
+          className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]"
+        >
+          {detailKpisOf(row).map((k) => (
+            <span key={k.label} data-slot="accum-kline-item" className="inline-flex items-baseline gap-1 whitespace-nowrap">
+              <span className="text-[var(--muted-fg)]">{k.label}</span>
+              <span className={cn('mono font-semibold', k.tone ? TONE_TEXT[k.tone] : 'text-[var(--fg)]')}>{k.text}</span>
+            </span>
+          ))}
+        </div>
+        <ReadyChart row={row} />
+      </div>
+      {cycles.length >= 2 && <AccumCycleTable rows={cycles} count={cycles.length} />}
+    </>
   );
 }
 
