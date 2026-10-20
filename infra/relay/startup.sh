@@ -411,13 +411,14 @@ log "✓ 라우팅 안전장치 예약 (부팅 후 180초 1회)"
 # ───────────────────────────────────────────────────────────────
 # 8. WireGuard 서버 (개발기 직결) — quick-260909-muo
 #    개발기(Mac/Windows)가 외부 CLI·IAP·포트 포워딩 없이 wg0 를 통해
-#    KB 게이트웨이 10.41.1.120/.121 과 교보 SecuwaySSL tun1 서버 10.16.207.112/.119/.127 의
-#    {9100, 22} 에만 닿게 한다. 인증은 피어 공개키다 — 등록된 피어는 전원 같은 범위다
+#    KB 게이트웨이 10.41.1.120/.121 · KB82 10.41.2.82 와 교보 SecuwaySSL tun1 서버
+#    10.16.207.112/.119/.127 의 {9100, 22} 에만 닿게 한다. 인증은 피어 공개키다 — 등록된 피어는 전원 같은 범위다
 #    (2026-10-11: 121·교보의 피어별 출발지 제한을 걷었다. 이전엔 121 은 alex-mac 전용
 #    quick-260915-doz, 교보는 quick-260921-or9 · .127 quick-260928-ei9 에서 alex-mac 전용).
+#    KB82 10.41.2.82(2026-10-20)는 kbvpn-vpnc-wrapper 의 10.41.0.0/16 split 라우트로 이미 tun0 을 탄다.
 #    교보 규칙은 tun 번호가 아니라 목적지 IP(daddr)로 매칭한다 — KB tun0 과의 기동
 #    순서에 따라 교보 tun 번호가 바뀔 수 있기 때문이다. 클라이언트 AllowedIPs 는
-#    이 다섯 /32 다(scripts/install-vpn-menubar.sh 기본값 · client.conf.template).
+#    이 여섯 /32 다(scripts/install-vpn-menubar.sh 기본값 · client.conf.template).
 #
 #    ⚠️ 이 섹션은 기본 경로·tun0 라우트·kbvpn-* 자산(연결·워치독·주간갱신·
 #       라우팅 안전장치)·Caddy·relay 컨테이너를 **한 줄도 건드리지 않는다.**
@@ -491,8 +492,8 @@ table inet wgfwd {
     iifname "wg0" oifname "tun0" tcp flags syn tcp option maxseg size set rt mtu
     iifname "tun0" oifname "wg0" tcp flags syn tcp option maxseg size set rt mtu
 
-    # ② KB 허용은 게이트웨이 120·121 의 두 포트뿐이다.
-    iifname "wg0" oifname "tun0" ip daddr { 10.41.1.120, 10.41.1.121 } tcp dport { 9100, 22 } accept
+    # ② KB 허용은 게이트웨이 120·121 · KB82 의 두 포트뿐이다.
+    iifname "wg0" oifname "tun0" ip daddr { 10.41.1.120, 10.41.1.121, 10.41.2.82 } tcp dport { 9100, 22 } accept
 
     # ③ 그 응답만 돌아온다.
     iifname "tun0" oifname "wg0" ct state established,related accept
@@ -546,6 +547,8 @@ PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multipo
 PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT
 PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT
+PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.2.82 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -d 10.41.2.82 -p tcp -m multiport --dports 9100,22 -j ACCEPT
 PostUp = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 # 교보 SecuwaySSL DMA — 10.16.207.112/.119/.127 의 9100·22 (quick-260921-or9 · .127 quick-260928-ei9)
@@ -565,6 +568,7 @@ PostUp = iptables -I DOCKER-USER -o wg0 -s 10.16.207.127 -m conntrack --ctstate 
 
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.2.82 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i wg0 -d 10.16.207.112 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i wg0 -d 10.16.207.119 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true

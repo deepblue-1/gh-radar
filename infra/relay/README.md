@@ -378,14 +378,14 @@ radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션�
 
 VM 쪽 자산은 `infra/relay/startup.sh` **섹션 8** 이 부팅마다 멱등하게 만든다
 (`wg0` = `10.20.0.1/24` · UDP 51820 · nft `wgfwd` · `DOCKER-USER` 우회 · `wg-peer-add`).
-피어가 닿을 수 있는 곳은 **KB `10.41.1.120`·`.121` 과 교보 SecuwaySSL `10.16.207.112`·`.119`·`.127` 의 `9100`·`22` 두 포트뿐**
+피어가 닿을 수 있는 곳은 **KB `10.41.1.120`·`.121`·KB82 `10.41.2.82` 와 교보 SecuwaySSL `10.16.207.112`·`.119`·`.127` 의 `9100`·`22` 두 포트뿐**
 이고, 그 외 `wg0` 출입은 명시적으로 drop 된다. 등록된 피어는 전원 같은 범위다 — 2026-10-11 에 121(quick-260915-doz)·교보
 (quick-260921-or9)의 alex-mac 전용 출발지 제한을 nft·`DOCKER-USER` 두 층에서 걷었다(인증은 이미 피어 공개키 등록이 한다).
-클라이언트 `AllowedIPs` 는 이 게이트웨이 다섯 `/32` 만 담아 기본 경로를 뺏지 않는다.
+클라이언트 `AllowedIPs` 는 이 게이트웨이 여섯 `/32` 만 담아 기본 경로를 뺏지 않는다.
 
-> `scripts/install-vpn-menubar.sh` 는 `$(brew --prefix)/etc/wireguard/KB-DMA.conf` 의 `AllowedIPs` 를 위 다섯 `/32` 로 쓴다.
-> 기존 값이 `10.41.1.x/32`·`10.16.207.x/32` 항목만으로 이뤄지고 게이트웨이 `/32` 를 포함하면 그 밖의 항목도 덧붙여 보존하고,
-> 그 밖의 형식(넓은 대역·게이트웨이 누락)이면 다섯 `/32` 기본값으로 되돌린다. 기존 사용자는 스크립트를 다시 돌리거나
+> `scripts/install-vpn-menubar.sh` 는 `$(brew --prefix)/etc/wireguard/KB-DMA.conf` 의 `AllowedIPs` 를 위 여섯 `/32` 로 쓴다.
+> 기존 값이 `10.41.x.x/32`·`10.16.207.x/32` 항목만으로 이뤄지고 게이트웨이 `/32` 를 포함하면 그 밖의 항목도 덧붙여 보존하고,
+> 그 밖의 형식(넓은 대역·게이트웨이 누락)이면 여섯 `/32` 기본값으로 되돌린다. 기존 사용자는 스크립트를 다시 돌리거나
 > conf 의 `AllowedIPs` 를 손으로 고친 뒤 재연결한다. 게이트웨이를 새로 열 때는 VM 규칙(섹션 8)·이 기본값·`client.conf.template` 을 함께 늘린다.
 
 발급 절차는 **OS 별로 갈린다.** mac 은 GUI 앱을 쓰지 않고 `brew wireguard-tools` 를
@@ -572,7 +572,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --proj
 systemctl is-active wg-quick@wg0        # active 여야 한다
 sudo wg show                            # 핸드셰이크 시각 · 피어 수 · 전송량
 sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
-sudo iptables -S DOCKER-USER            # ACCEPT 아홉 줄이 있어야 한다 (120 · alex-mac 전용 121 · tun0 응답 · 교보 112·119·127 · 교보 응답 3)
+sudo iptables -S DOCKER-USER            # ACCEPT 열 줄이 있어야 한다 (120 · 121 · KB82 · tun0 응답 · 교보 112·119·127 · 교보 응답 3)
 ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
 
 systemctl is-active wg-probe            # active 여야 한다 (터널 정지 측정기)
