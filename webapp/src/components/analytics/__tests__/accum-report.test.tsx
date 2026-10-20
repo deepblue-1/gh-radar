@@ -49,6 +49,7 @@ import {
   NAMELESS,
   accumDetailFixture,
   accumReportFixture,
+  accumSyntheticListRows,
 } from '@/test-fixtures/accum-export';
 
 import { AccumReport } from '../accum-report';
@@ -201,6 +202,57 @@ describe('AccumReport — 목록 (A1 · A3 · D-08)', () => {
     await open('d=2026-10-14');
     expect(replaceMock).toHaveBeenCalledWith('/analytics/accum');
     expect(listCalls()[0]).toEqual(['/api/accum/report', undefined]);
+  });
+});
+
+/** KPI 칸 → 「라벨 | 값 | 보조」 글자(보조 없으면 2칸). */
+const kpiTiles = () =>
+  Array.from(document.querySelectorAll('[data-slot="accum-kpis"] [data-kpi]')).map((tile) => {
+    const dt = tile.querySelector('dt')!.textContent;
+    const dd = tile.querySelector('dd')!;
+    return [dt, ...Array.from(dd.children).map((c) => c.textContent)];
+  });
+
+describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
+  it('(k1) 실측 6행 → 라벨 4개 · 보조 「이월 0」 · 「매집중 6 · 매도중 0」 · 「청산 0 · 탈락 0 · 만료 0」 · 합 부호 색', async () => {
+    await open('d=20261014');
+    const strip = document.querySelector('[data-slot="accum-kpis"]')!;
+    expect(strip).toBeTruthy();
+    expect(kpiTiles()).toEqual([
+      ['등록 종목', '6', '이월 0'],
+      ['장 마감 보유', '6', '매집중 6 · 매도중 0'],
+      ['종료', '0', '청산 0 · 탈락 0 · 만료 0'],
+      ['팀 순매수 합(등록 후)', '+9.7억'],
+    ]);
+    const sum = strip.querySelector('[data-kpi="팀 순매수 합(등록 후)"] dd > span')!;
+    expect(sum.className).toContain('text-[var(--up)]');
+    const total = strip.querySelector('[data-kpi="등록 종목"] dd > span')!;
+    expect(total.className).toContain('text-[var(--fg)]');
+    // 세로 순서 — 머리 다음 · 목록 카드 앞
+    const list = document.querySelector('[data-slot="accum-list"]')!;
+    expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(k2) 합성 7행 → 등록 7(이월 3) · 보유 4(매집중 3 · 매도중 1) · 종료 3(청산 1 · 탈락 1 · 만료 1) · 합 +4.2억', async () => {
+    await open('d=20261014', accumReportFixture({ rows: accumSyntheticListRows() }));
+    expect(kpiTiles()).toEqual([
+      ['등록 종목', '7', '이월 3'],
+      ['장 마감 보유', '4', '매집중 3 · 매도중 1'],
+      ['종료', '3', '청산 1 · 탈락 1 · 만료 1'],
+      ['팀 순매수 합(등록 후)', '+4.2억'],
+    ]);
+  });
+
+  it('(k3) pos 합 null → 「0.0억」 --fg-2 · rows [] 이면 accum-kpis 없음', async () => {
+    const rows = accumReportFixture().rows.map((r) => ({ ...r, pos_net_krw: null }));
+    const a = await open('d=20261014', accumReportFixture({ rows }));
+    const sum = document.querySelector('[data-kpi="팀 순매수 합(등록 후)"] dd > span')!;
+    expect(sum.textContent).toBe('0.0억');
+    expect(sum.className).toContain('text-[var(--fg-2)]');
+    a.unmount();
+
+    await open('d=20261012', accumReportFixture({ date: '20261012', rows: [] }));
+    expect(document.querySelector('[data-slot="accum-kpis"]')).toBeNull();
   });
 });
 
