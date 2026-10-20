@@ -18,6 +18,8 @@
 --     payload 는 같은 이름 열로 그대로(1 초과 위험도 · null 포함), 키가 없는 옛 payload 는 null · 열 타입 · 열 권한
 --   - Phase 33(20261016200000): limitup_team_flow 9번째 쌍 · stage CHECK 9값 · 이력 rows.team_flow 는 p_expected 에 키가
 --     있을 때만(옛 워커 호출 호환 · D-03 감지 전제) · 날짜 교체 · purge · statement_timeout 120s 보존 · 열 타입 · 잠금 (J 절)
+--   - Phase 34(20261020200000): limitup_accum_flow 10번째 쌍 · stage CHECK 10값 · 이력 rows.accum_flow 는 p_expected 에 키가
+--     있을 때만(옛 워커 호출 호환) · 날짜 교체 · 원자성 · purge 90일 · statement_timeout 120s 보존 · 열 타입 · PK · 잠금 (K 절)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -28,7 +30,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(218);  -- 163(Phase 28) + 55(J · Phase 33 team_flow)
+SELECT plan(271);  -- 163(Phase 28) + 55(J · Phase 33 team_flow) + 53(K · Phase 34 accum_flow)
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -358,6 +360,139 @@ SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND
           'J⑩ limitup_team_flow 정책 0개(읽기는 서버 RPC 뿐)');
 SELECT is(has_table_privilege(r.role, 'public.limitup_team_flow', r.priv), r.expect,
           format('J⑩ %s %s limitup_team_flow = %s', r.role, r.priv, r.expect))
+  FROM (VALUES ('anon', 'SELECT', false), ('anon', 'INSERT', false),
+               ('authenticated', 'SELECT', false), ('authenticated', 'INSERT', false),
+               ('service_role', 'SELECT', true), ('service_role', 'INSERT', true),
+               ('service_role', 'UPDATE', true), ('service_role', 'DELETE', true)) AS r(role, priv, expect)
+ ORDER BY r.role, r.priv;
+
+-- ── K. Phase 34 accum_flow — 20261020200000_limitup_accum_flow.sql ───────────
+-- 잠그는 것: stage CHECK 10값 · 10번째 쌍(payload 중첩 그대로 · *_rate double · since_date 문자열 · null 열) · 이력 키는
+-- p_expected 에 있을 때만(옛 워커 호출은 키 없음 · 그날 limitup_accum_flow 는 비움 — Pitfall 1 · D-01 · D-02) ·
+-- 날짜 단위 교체 · 대조 실패 원자성 · purge(90일) · statement_timeout 재진술(Pitfall 2) · 열 타입 · PK · 잠금.
+-- J⑤ 의 「옛 워커 호출 rows 키 8개」 단언은 그대로 — accum_flow 키도 키가 있을 때만 쓰므로 8개가 유지된다.
+-- accum_flow export 행 — 평평한 36열(date 는 st 가 싣는다) + payload 중첩(price · orders · buckets · day_cum_net · pnl · cycles).
+CREATE FUNCTION pg_temp.af(p_isin text, p_pos bigint, p_rate double precision) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'isin', p_isin, 'short_code', substr(p_isin, 4, 6), 'name', '매집' || right(p_isin, 2), 'market', 'KOSDAQ',
+    'base', 10000, 'upper', 13000, 'last_px', 12978, 'last_rate', p_rate, 'high_px', 13000, 'high_rate', 30.0,
+    'state', 1, 'end_reason', 0, 'cycle', 1, 'carry_days', 2, 'since_date', '20261009',
+    'reg_time_ms', 1792200000000, 'end_time_ms', NULL, 'our_excluded_qty', 0, 'mcap_krw', 120000000000,
+    'th_net_krw', 100000000, 'th_same', 5, 'th_mcap_krw', 300000000000,
+    'pos_buy_qty', 20000, 'pos_buy_krw', 250000000, 'pos_sell_qty', 5000, 'pos_sell_krw', 70000000,
+    'pos_net_krw', p_pos, 'pos_avg_px', 12500, 'pos_peak_net_krw', 200000000, 'pos_reg_px', 11000,
+    'day_buy_krw', 90000000, 'day_sell_krw', 30000000, 'day_net_krw', 60000000,
+    'day_buy_qty', 7000, 'day_sell_qty', 2300, 'schema_version', 1,
+    'payload', jsonb_build_object(
+      'price', jsonb_build_object('step_s', 10, 't0_ms', 1792200000000, 'px', jsonb_build_array(12000, 12978)),
+      'orders', jsonb_build_array(jsonb_build_object('t_ms', 1792200100000, 'side', 'B', 'px', 12500, 'qty', 100)),
+      'buckets', jsonb_build_array(jsonb_build_object('key', 54, 'start', '09:00', 'net_krw', 1250000)),
+      'day_cum_net', jsonb_build_array(0, 60000000),
+      'pnl', jsonb_build_object('buy_val', 250000000, 'sell_val', 70000000, 'ret', 0.012),
+      'cycles', jsonb_build_array(jsonb_build_object('cycle', 1, 'state', 1, 'since_date', '20261009'))))
+$$;
+
+-- ① stage CHECK — accum_flow 허용 · 목록 밖 값은 23514
+SELECT lives_ok($$ SELECT pg_temp.st('20261020', 'accum_flow', 1, pg_temp.af('KR7000000201', 1, 29.78)) $$,
+                'K① limitup_stage tbl accum_flow 허용(CHECK 10값)');
+SELECT throws_ok($$ SELECT pg_temp.st('20261020', 'accum_bogus', 1, '{}') $$, '23514', NULL,
+                 'K① limitup_stage tbl accum_bogus → 23514(check_violation)');
+SELECT is(public.limitup_stage_clear('20261020'), 1, 'K① stage_clear 가 accum_flow stage 1행을 지운다');
+
+-- ② p_expected accum_flow 2 → 2행 · payload 중첩 · double · since_date 문자열 · null 열 · 이력 키
+SELECT pg_temp.st('20261021', 'accum_flow', 1, pg_temp.af('KR7000000201', 500000000, 29.78));
+SELECT pg_temp.st('20261021', 'accum_flow', 2, pg_temp.af('KR7000000202', NULL, NULL) - 'name');
+INSERT INTO t_res SELECT 'af1', public.limitup_commit_day('20261021', 'mf-af-1', 'sig-af-1', 1, '{"accum_flow":2}');
+SELECT is((SELECT r #>> '{rows,accum_flow}' FROM t_res WHERE label = 'af1'), '2', 'K② commit 반환 rows.accum_flow = 2');
+SELECT is((SELECT count(*)::int FROM public.limitup_accum_flow WHERE date = '20261021'), 2, 'K② limitup_accum_flow 2행');
+SELECT is((SELECT payload #>> '{price,step_s}' FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000201'),
+          '10', 'K② payload.price.step_s 중첩 그대로');
+SELECT is((SELECT payload #>> '{cycles,0,since_date}' FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000201'),
+          '20261009', 'K② payload.cycles[0].since_date 중첩 그대로');
+SELECT is((SELECT last_rate FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000201'),
+          29.78::double precision, 'K② last_rate = 29.78(double precision — bigint 아님)');
+SELECT is((SELECT high_rate FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000201'),
+          30.0::double precision, 'K② high_rate = 30.0(double precision)');
+SELECT is((SELECT since_date FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000201'),
+          '20261009', 'K② since_date "20261009" 문자열 그대로(앞 0 · 숫자 변환 없음)');
+SELECT ok((SELECT end_time_ms IS NULL AND name IS NULL AND pos_net_krw IS NULL AND last_rate IS NULL
+             FROM public.limitup_accum_flow WHERE date = '20261021' AND isin = 'KR7000000202'),
+          'K② end_time_ms · pos_net_krw · last_rate JSON null · name 키 없음 → null');
+SELECT is((SELECT "rows"->>'accum_flow' FROM public.limitup_loads WHERE date = '20261021'), '2',
+          'K② 이력 rows.accum_flow = 2');
+
+-- ③ 이력 rows 에 accum_flow 키(새 워커 호출)
+SELECT ok((SELECT "rows" ? 'accum_flow' FROM public.limitup_loads WHERE date = '20261021'), 'K③ 이력 rows 에 accum_flow 키 있음');
+
+-- ④ 옛 워커 호출 — p_expected 에 accum_flow 키 없음 · stage 0 → 통과 · 그날 accum_flow 비움 · 이력에 키 없음(Pitfall 1)
+SELECT pg_temp.st('20261022', 'accum_flow', 1, pg_temp.af('KR7000000203', 7, 29.0));
+SELECT public.limitup_commit_day('20261022', 'mf-af-2', 'sig-af-2', 1, '{"accum_flow":1}');
+SELECT is((SELECT count(*)::int FROM public.limitup_accum_flow WHERE date = '20261022'), 1, 'K④ 준비 — 20261022 accum_flow 1행');
+SELECT pg_temp.st('20261022', 'entries', 1, '{"isin":"KR7000000203","name":"옛워커","schema_version":1}');
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261022', 'mf-af-3', 'sig-af-3', 1,
+  '{"entries":1,"locks":0,"jumps":0,"member_alloc":0,"facts":0,"touches":0,"grid_summary":0,"member_daily":0}') $$,
+                'K④ 옛 워커 호출(8키 · accum_flow 키 없음 · stage 6표만) 통과');
+SELECT is((SELECT count(*)::int FROM public.limitup_accum_flow WHERE date = '20261022'), 0,
+          'K④ 옛 워커 commit 이 그날 accum_flow 를 지운다(날짜 교체 — D-02)');
+SELECT ok((SELECT NOT ("rows" ? 'accum_flow') FROM public.limitup_loads WHERE date = '20261022'),
+          'K④ 이력 rows 에 accum_flow 키 없음(새 워커가 다음 run 에 재적재를 감지)');
+SELECT is((SELECT count(*)::int FROM public.limitup_loads l, jsonb_object_keys(l."rows") k WHERE l.date = '20261022'), 8,
+          'K④ 이력 rows 키 8개(옛 8표 — team_flow · accum_flow 없음)');
+
+-- ⑤ 더 적은 행으로 재commit → 빠진 isin 이 남지 않는다(2 → 1)
+SELECT pg_temp.st('20261021', 'accum_flow', 1, pg_temp.af('KR7000000202', 1000, 12.5));
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261021', 'mf-af-4', 'sig-af-4', 1, '{"accum_flow":1}') $$,
+                'K⑤ accum_flow 1행 재commit 성공');
+SELECT is((SELECT count(*)::int FROM public.limitup_accum_flow WHERE date = '20261021'), 1, 'K⑤ 2 → 1행');
+SELECT is((SELECT isin FROM public.limitup_accum_flow WHERE date = '20261021'), 'KR7000000202', 'K⑤ 남은 행 = 재commit 행');
+SELECT is((SELECT "rows"->>'accum_flow' FROM public.limitup_loads WHERE date = '20261021'), '1', 'K⑤ 이력 rows.accum_flow = 1');
+
+-- ⑥ stage 2 · 기대 1 → 대조 실패 예외 · 그 날짜 accum_flow · stage 그대로(원자성)
+SELECT pg_temp.st('20261023', 'accum_flow', 1, pg_temp.af('KR7000000204', 1, 1.0));
+SELECT public.limitup_commit_day('20261023', 'mf-af-5', 'sig-af-5', 1, '{"accum_flow":1}');
+SELECT pg_temp.st('20261023', 'accum_flow', 1, pg_temp.af('KR7000000205', 1, 1.0));
+SELECT pg_temp.st('20261023', 'accum_flow', 2, pg_temp.af('KR7000000206', 2, 2.0));
+SELECT throws_like($$ SELECT public.limitup_commit_day('20261023', 'mf-af-6', 'sig-af-6', 1, '{"accum_flow":1}') $$,
+                   '%20261023 accum_flow stage 2 expected 1%', 'K⑥ accum_flow stage 2 ≠ 기대 1 → 예외');
+SELECT is((SELECT array_agg(isin ORDER BY isin) FROM public.limitup_accum_flow WHERE date = '20261023'),
+          ARRAY['KR7000000204'], 'K⑥ 예외 뒤 그 날짜 accum_flow 그대로(이전 commit 1행)');
+SELECT is((SELECT "rows"->>'accum_flow' FROM public.limitup_loads WHERE date = '20261023'), '1',
+          'K⑥ 예외 뒤 이력 rows.accum_flow 그대로 1');
+SELECT is(public.limitup_stage_clear('20261023'), 2, 'K⑥ 예외 뒤 stage 2행 그대로(stage_clear 가 2행)');
+
+-- ⑦ 보존 정리 — cutoff 이전 accum_flow 삭제 · 89일 전 남김 · 반환에 accum_flow 키
+SELECT public.limitup_stage_clear(pg_temp.dd('d91'));
+SELECT public.limitup_stage_clear(pg_temp.dd('d89'));
+SELECT pg_temp.st(pg_temp.dd('d91'), 'accum_flow', 1, pg_temp.af('KR7000000207', 1, 1.0));
+SELECT public.limitup_commit_day(pg_temp.dd('d91'), 'mf', 'sig-af-d91', 1, '{"accum_flow":1}');
+SELECT pg_temp.st(pg_temp.dd('d89'), 'accum_flow', 1, pg_temp.af('KR7000000207', 1, 1.0));
+SELECT public.limitup_commit_day(pg_temp.dd('d89'), 'mf', 'sig-af-d89', 1, '{"accum_flow":1}');
+INSERT INTO t_res SELECT 'purge-af', public.limitup_purge_old(90, 30);
+SELECT ok((SELECT r->'deleted' ? 'accum_flow' FROM t_res WHERE label = 'purge-af'), 'K⑦ purge 반환 deleted 에 accum_flow 키');
+SELECT is((SELECT r #>> '{deleted,accum_flow}' FROM t_res WHERE label = 'purge-af'), '1', 'K⑦ deleted.accum_flow = 1(d91)');
+SELECT is(pg_temp.cnt('limitup_accum_flow', pg_temp.dd('d91')), 0, 'K⑦ limitup_accum_flow 91일 전 삭제');
+SELECT is(pg_temp.cnt('limitup_accum_flow', pg_temp.dd('d89')), 1, 'K⑦ limitup_accum_flow 89일 전 남김');
+
+-- ⑧ Pitfall 2 — 두 번째 CREATE OR REPLACE(20261020200000) 뒤에도 statement_timeout 120s
+SELECT ok((SELECT proconfig FROM pg_proc
+            WHERE oid = 'public.limitup_commit_day(text,text,text,integer,jsonb)'::regprocedure)
+          @> ARRAY['statement_timeout=120s'], 'K⑧ limitup_commit_day proconfig statement_timeout=120s 보존(Phase 34 재정의 뒤)');
+
+-- ⑨ 열 타입 · PK
+SELECT col_type_is('public', 'limitup_accum_flow', c.col, c.typ, 'K⑨ 열 타입 ' || c.col || ' = ' || c.typ)
+  FROM (VALUES ('last_rate', 'double precision'), ('high_rate', 'double precision'),
+               ('state', 'integer'), ('end_reason', 'integer'), ('cycle', 'integer'), ('carry_days', 'integer'),
+               ('schema_version', 'integer'), ('since_date', 'text'), ('th_same', 'bigint'), ('th_mcap_krw', 'bigint'),
+               ('payload', 'jsonb')) AS c(col, typ)
+ ORDER BY c.col;
+SELECT col_is_pk('public', 'limitup_accum_flow', ARRAY['date', 'isin'], 'K⑨ PK (date, isin)');
+
+-- ⑩ 잠금 — RLS 활성 · 정책 0 · anon/authenticated 불가 · service_role 4권한
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.limitup_accum_flow'::regclass), 'K⑩ limitup_accum_flow RLS 활성');
+SELECT is((SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'limitup_accum_flow'), 0,
+          'K⑩ limitup_accum_flow 정책 0개(읽기는 서버 RPC 뿐)');
+SELECT is(has_table_privilege(r.role, 'public.limitup_accum_flow', r.priv), r.expect,
+          format('K⑩ %s %s limitup_accum_flow = %s', r.role, r.priv, r.expect))
   FROM (VALUES ('anon', 'SELECT', false), ('anon', 'INSERT', false),
                ('authenticated', 'SELECT', false), ('authenticated', 'INSERT', false),
                ('service_role', 'SELECT', true), ('service_role', 'INSERT', true),
