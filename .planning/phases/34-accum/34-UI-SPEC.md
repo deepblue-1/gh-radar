@@ -178,6 +178,7 @@ Exceptions (상속 · 차트 내부 미세 치수 — 간격 스케일 밖으로
 | `.tag.rate` | `--muted` 면 + `--fg-2` 글자 | 「+NN.N%」 |
 | `.src` | `--muted` 면 + `--muted-fg` 글자 | 출처 칩 두 곳 |
 | `.px path` | `--fg-2` | 가격 선 · 범례 「가격(10초)」 |
+| `.avg path` | `--up`(1.25 · `1 2` 점점선) | 팀 평단 계단 · 범례 「팀 평단」(quick-261021-amg) |
 | `circle.B` / `circle.S` | `--up` / `--down`(채움 불투명도 .55 · 테두리 .9) | 팀 매수 / 매도 원 |
 | `circle.first` | 테두리 `--fg` 1.5 · 채움 불투명도 .9 | 팀매수 시작 |
 | `.cum path` · 누적 축 글자 · 「순매수 누적」 제목 | `--team` | 순매수 누적 계단 |
@@ -283,7 +284,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 요소 | 문구 |
 |---|---|
 | KPI 줄(4항목 · 마지막 사이클 = 평평한 열 · D-19) | 「등록가 {pos_reg_px}」 · 「평단 {pos_avg_px}」 · 「등록 후 순매수 {pos_net_krw ±억 1자리}」(부호 색) · 「최고 순매수 {pos_peak_net_krw ±억 1자리}」 — 라벨 `--muted-fg` + 값 `mono` 600. 임계는 넣지 않는다 |
-| 범례(8항목 · 이 순서) | 「가격(10초)」 · 「팀 매수」 · 「팀 매도」 · 「팀매수 시작」 · 「순매수 누적」 · 「등록」 · 「청산·종료」 · 「등록 전」 |
+| 범례(9항목 · 이 순서) | 「가격(10초)」 · 「팀 평단」 · 「팀 매수」 · 「팀 매도」 · 「팀매수 시작」 · 「순매수 누적」 · 「등록」 · 「청산·종료」 · 「등록 전」 |
 | 프리셋 버튼 | 「전체」(09:00~20:00) · 「정규장」(09:00~15:30) · 「마지막 2시간」(마지막 체결 끝 2시간) |
 | 창 범위(프리셋 줄 오른쪽) | 「HH:MM ~ HH:MM」(현재 창 · `mono`) |
 | 차트 캡션(차트 아래) | 「원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동」 — 팀 체결 없음(`day_cum_net` 빔)이면 앞에 「팀 체결 없음 · 」 을 붙인다 |
@@ -410,7 +411,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 - 상세 루트 `section` · `id="ac-{isin}"` · `aria-labelledby={행 버튼 id}` · `data-slot="accum-detail"` · `flex flex-col gap-4 px-2 pt-1 pb-6`.
 - 마운트 때 `fetchAccumDetail(date, isin)` — 캐시 키 `accum-detail:{date}:{isin}` 가 있으면 **요청 없이 즉시** 그린다(재펼침 재요청 0 · D-06). 같은 키 진행 중 요청은 하나로 합친다. 실패는 캐시하지 않는다(「다시 시도」 = 재요청). 타임아웃 15초.
-- **로딩 = 스켈레톤(D-18):** 실제 배치와 같은 높이로 자리를 잡아 데이터가 와도 아래가 튀지 않는다 — KPI 줄 자리 `Skeleton h-[18px] w-2/3` → 8px → 범례 자리(범례 8항목과 같은 `flex-wrap` 줄에 항목별 `h-[18px]` 칸 — 폰에서 같은 줄 수로 접힌다) → 8px → 프리셋 줄 자리(`h-8 w-16` 알약 3) → 8px → 차트 자리 `h-[472px] w-full rounded-[var(--r)]`. 사이클 표 · 손익 · 판정 기준 자리는 그리지 않는다. sr 전용 「상세 불러오는 중…」.
+- **로딩 = 스켈레톤(D-18):** 실제 배치와 같은 높이로 자리를 잡아 데이터가 와도 아래가 튀지 않는다 — KPI 줄 자리 `Skeleton h-[18px] w-2/3` → 8px → 범례 자리(범례 9항목과 같은 `flex-wrap` 줄에 항목별 `h-[18px]` 칸 — 폰에서 같은 줄 수로 접힌다) → 8px → 프리셋 줄 자리(`h-8 w-16` 알약 3) → 8px → 차트 자리 `h-[472px] w-full rounded-[var(--r)]`. 사이클 표 · 손익 · 판정 기준 자리는 그리지 않는다. sr 전용 「상세 불러오는 중…」.
 - **실패:** 상세 자리에 가운데 정렬 상자(`py-8` · 면 없음) — 제목 14/600 + 「다시 시도」 텍스트 버튼(최소 높이 32) · `role="alert"`. 행은 열린 채로 남는다.
 - `row: null` → A4 Copywriting 「이 종목 상세를 찾지 못했어요」 상자(재시도 버튼 없음).
 - 401/403 → 상세 자리에 `DmaGate`(페이지 전체를 바꾸지 않는다 — 열린 행 하나의 일).
@@ -419,7 +420,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 - 차트 블록 = `flex flex-col gap-2`: KPI 줄 → 범례 → 프리셋 줄 → 차트 → 캡션.
 - KPI 줄: `flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]` · 항목 = 라벨 `--muted-fg` + 4px + 값 `mono` 600(`--fg` · 등록 후 순매수만 부호 색) · `data-slot="accum-kline"`.
-- 범례: `flex flex-wrap gap-x-3 gap-y-1` 12/400 `--muted-fg` · 견본은 `<span aria-hidden>`(teamflow 「상세 안 `<i>` 0개」 규칙): 가격 10×2 `--fg-2` · 팀 매수 10px 원 `--up` .7 · 팀 매도 10px 원 `--down` .7 · 팀매수 시작 10px 원 `--up` + 2px `--fg` 테두리 · 순매수 누적 10×2 `--team` · 등록 2×10 `--team` · 청산·종료 2×10 점선 `--muted-fg`(`border-l-2 border-dashed`) · 등록 전 10px 정사각 `--accum-shade` + 1px `--border-subtle`.
+- 범례: `flex flex-wrap gap-x-3 gap-y-1` 12/400 `--muted-fg` · 견본은 `<span aria-hidden>`(teamflow 「상세 안 `<i>` 0개」 규칙): 가격 10×2 `--fg-2` · 팀 평단 10×2 `--up` 점선(`border-t-2 border-dotted`) · 팀 매수 10px 원 `--up` .7 · 팀 매도 10px 원 `--down` .7 · 팀매수 시작 10px 원 `--up` + 2px `--fg` 테두리 · 순매수 누적 10×2 `--team` · 등록 2×10 `--team` · 청산·종료 2×10 점선 `--muted-fg`(`border-l-2 border-dashed`) · 등록 전 10px 정사각 `--accum-shade` + 1px `--border-subtle`.
 - 프리셋 줄: `flex flex-wrap items-center gap-2` · 버튼 3개 `button type="button"` · `aria-pressed` · `min-h-8 rounded-full px-3 text-[length:var(--t-caption)] font-semibold` · 꺼짐 `bg-[var(--muted)] text-[var(--fg-2)]` · 켜짐 `bg-[var(--pill-on-bg)] text-[var(--pill-on-fg)]` · hover 꺼짐 `bg-[var(--raised-2)]`. 기본 켜짐 = 「전체」. 휠 · 끌기 · 키보드로 창을 바꾸면 **셋 다 꺼짐**(목업 `vp = null`) — 창이 우연히 프리셋과 같아져도 켜지 않는다. 창 범위 「HH:MM ~ HH:MM」 은 `ml-auto` 12/400 `--muted-fg` `mono` · `aria-live` 없음(끌기 중 낭독 폭주 방지 — 값은 SVG 접근 이름에 있다).
 - 「마지막 2시간」 은 `price.idx` 가 비면 `disabled`(그 경우 차트 자체가 없다 — A6).
 
@@ -435,13 +436,13 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 2. 시각 격자 세로선 `--border-subtle` 1px(16~448) · 가격 판 아래선 · 10분 판 아래선 `--border-subtle`.
 3. 누적 판 0선 `--faint` 1px `2 3` 점선 · 누적 계단 `--team` 1.5 · `stroke-linejoin round`.
 4. 10분 막대 쌍 — 칸마다 `<g>`(칸 전체 높이 투명 히트 rect + `<title>`) · 매수 `--up` .7 왼쪽 · 매도 `--down` .7 오른쪽 · 바닥 = 판 아래선 · 0 은 그리지 않는다.
-5. 가격 선 `--fg-2` 1.25 · 15분 넘는 공백에서 끊는다.
+5. 가격 선 `--fg-2` 1.25 · 15분 넘는 공백에서 끊는다 · 그 위 팀 평단 계단 `--up` 1.25 `1 2` 점점선(payload.avg_px 선택 키 · 0 에서 끊김 · 열린 마지막 조각은 마지막 체결 칸까지 · 09:00 이전 점은 09:00 · 가격 판 안으로 클램프 · `pointer-events: none` · `<title>` 없음 — quick-261021-amg · WinForms AccumChartPanel 동형).
 6. 세로선 — 사이클 순서대로 등록선 `--team` 1.5 실선 · 종료선 `--muted-fg` 1.25 `4 3` 점선(16~448) · 각 선에 폭 8px 투명 히트 rect + `<title>`.
 7. 주문 원 — `(t_ms, px)` · 반지름 `orderRadiusOf(val)` · 매수 `--up` / 매도 `--down` · 채움 .55 · 테두리 같은 색 .9 · .75 · **큰 원부터 그려 작은 원이 위**에 오고 `first = 1` 원은 맨 마지막(항상 위 · 테두리 `--fg` 1.5 · 채움 .9) · 원마다 `<title>`.
 8. 축 글자(클립 밖): 가격 축 왼쪽 5개(창 min~max 4등분 · 원 정수 쉼표 · 오른쪽 정렬 x = 46) · 누적 축 오른쪽 `cMin` · 0 · `cMax`(중복 제거 · ±억 1자리 · `--team`) · 10분 축 오른쪽 위 하루 최대 막대값(억 1자리 · `--muted-fg`) · 판 제목 2개 · 시각 눈금(x 가운데 · y 465) · 세로선 라벨(A11 `labelRowsOf` · 첫 줄 y = 27 · 다음 줄 +14) · 이월 줄(좌상단 x = 56 · y = 27 · `--accum-carry` 600).
 
 **축 규칙(D-14)**
-- 가격 y = **보이는 창 안의 가격 ∪ 보이는 주문 px**(원이 판 밖으로 잘리지 않게) · 창이 바뀔 때마다 다시 맞춘다.
+- 가격 y = **보이는 창 안의 가격 ∪ 보이는 주문 px**(원이 판 밖으로 잘리지 않게) · 창이 바뀔 때마다 다시 맞춘다. 팀 평단은 넣지 않는다 — 판 안 클램프만(quick-261021-amg).
 - 누적 y · 10분 y = **하루 전체 범위 고정**(0선 · 막대 기준이 창 이동에 흔들리지 않는다).
 - 09:00 이전 등록 · 06:00 종료는 x = `T0`(왼쪽 끝)에 붙이고 라벨은 원래 시각(D-16 · 리서치 Pitfall 13). 기준 시각은 하드코딩 없이 `price.t0_ms`.
 
@@ -552,10 +553,10 @@ Applicable state considerations resolved: 77 — explicit 64 · backstop 6 · di
 | empty | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | `price.idx` 빔 = 범례 · 프리셋 줄 · 캡션 대신 「그날 체결 자료 없음」 한 줄 · KPI 줄은 남는다(값 null = 「—」) |
 | loading | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | A4 스켈레톤이 KPI 줄 · 범례 · 프리셋 자리를 같은 높이로 잡는다 |
 | error | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | A4 실패 · 게이트 때 그리지 않는다 |
-| populated | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | 4항목 · 8범례 · 프리셋 「전체」 켜짐(`aria-pressed`) · 창 범위 「09:00 ~ 20:00」 |
+| populated | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | 4항목 · 9범례 · 프리셋 「전체」 켜짐(`aria-pressed`) · 창 범위 「09:00 ~ 20:00」 |
 | partial | A5 KPI 줄 | ✅ covered | 등록가 · 평단 null/0 = 「—」 · 등록 후 순매수 반올림 0 = 「0.0억」 `--fg-2` · 「마지막 2시간」 은 `price.idx` 빔이면 `disabled` · 휠/끌기/키보드로 창을 바꾸면 프리셋 셋 다 꺼짐 |
 | overflow | A5 프리셋 줄 | 🧪 backstop | { statement: "폰 310 폭에서 프리셋 3개 + 「HH:MM ~ HH:MM」 이 flex-wrap 으로 겹침 0 · 버튼 높이 32 유지", verification: backstop } |
-| zero-one-many | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | KPI 4 · 범례 8 · 프리셋 3 — 개수 고정 · 가변 없음 · 캡션 앞 「팀 체결 없음 · 」 만 조건부 |
+| zero-one-many | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | KPI 4 · 범례 9 · 프리셋 3 — 개수 고정 · 가변 없음 · 캡션 앞 「팀 체결 없음 · 」 만 조건부 |
 | long-text | A5 KPI 줄 · 범례 · 프리셋 | ✅ covered | 범례 · KPI 줄 `flex-wrap gap-y-1`(항목 단위 줄바꿈 · 최악 「등록 후 순매수 −1,234.5억」) · 캡션 `break-keep` · 말줄임 없음 |
 | empty | A6 차트 | ✅ covered | 팀 체결 없음 = 가격 선 + 0선 + 축 + 빈 띠 + 판 가운데 「팀 체결 없음」 · `price.idx` 빔 = 「그날 체결 자료 없음」 한 줄(차트 없음) |
 | loading | A6 차트 | ✅ covered | 측정 전 첫 페인트 = 폴백 폭 640 → 측정 즉시 다시 그림 · 높이 472 고정이라 점프 없음 · 데이터 전엔 A4 스켈레톤 472px |

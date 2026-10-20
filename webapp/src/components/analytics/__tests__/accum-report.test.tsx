@@ -429,8 +429,8 @@ describe('AccumDetail — 펼침 지연 로드 (A4 · A5 · D-06 · D-19)', () =
     expect(sec.getAttribute('aria-labelledby')).toBe(`accum-row-${CHEONIL}`);
     // 응답 전 = 스켈레톤 + sr 전용 상태 문구
     expect(within(sec).getByRole('status').textContent).toBe('상세 불러오는 중…');
-    // 실제 배치 자리(34 UI 리뷰) — KPI 줄 1 · 범례 8칸 · 프리셋 3칸 · 차트 1
-    expect(sec.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(13);
+    // 실제 배치 자리(34 UI 리뷰) — KPI 줄 1 · 범례 9칸(quick-261021-amg 「팀 평단」) · 프리셋 3칸 · 차트 1
+    expect(sec.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(14);
     await flush();
     expect(detailCalls()).toEqual([[`/api/accum/report/20261014/${CHEONIL}`, { timeoutMs: 15_000 }]]);
     expect(sec.querySelector('[data-slot="skeleton"]')).toBeNull();

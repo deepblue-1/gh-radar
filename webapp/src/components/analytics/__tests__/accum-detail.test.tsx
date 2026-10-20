@@ -288,12 +288,12 @@ const rangeOf = (sec: HTMLElement) => sec.querySelector('[data-slot="accum-view-
 const pressedOf = (sec: HTMLElement) => presetsOf(sec).map((b) => b.getAttribute('aria-pressed'));
 
 describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위 · 캡션 (A5 · D-14 · D-18)', () => {
-  it('(h1) 천일고속 — 범례 8 순서 · 프리셋 3 「전체」 켜짐 · 창 「09:00 ~ 20:00」 → 「정규장」 클릭 → 「09:00 ~ 15:30」 · aria-pressed 전환 · SVG 접근 이름', async () => {
+  it('(h1) 천일고속 — 범례 9 순서 · 프리셋 3 「전체」 켜짐 · 창 「09:00 ~ 20:00」 → 「정규장」 클릭 → 「09:00 ~ 15:30」 · aria-pressed 전환 · SVG 접근 이름', async () => {
     const sec = await expand(CHEONIL);
     const legend = sec.querySelector('[data-slot="accum-legend"]')!;
     expect(legend).toBeTruthy();
     const items = Array.from(legend.children).map((c) => c.textContent);
-    expect(items).toEqual(['가격(10초)', '팀 매수', '팀 매도', '팀매수 시작', '순매수 누적', '등록', '청산·종료', '등록 전']);
+    expect(items).toEqual(['가격(10초)', '팀 평단', '팀 매수', '팀 매도', '팀매수 시작', '순매수 누적', '등록', '청산·종료', '등록 전']);
     expect(Array.from(legend.children).every((c) => c.querySelector('span[aria-hidden="true"]') !== null)).toBe(true);
     expect(sec.querySelectorAll('i')).toHaveLength(0);
 

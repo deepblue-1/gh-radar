@@ -37,7 +37,7 @@ import { TeamflowToggle } from './teamflow-toggle';
  * - 상태: 로딩 = 실제 배치 높이 스켈레톤(KPI 줄 → 범례 → 프리셋 → 차트 472 · 사이 8px) + sr 전용 「상세 불러오는 중…」 /
  *   실패 = 「상세를 불러오지 못했어요」 + 「다시 시도」(재요청 · 실패는 캐시하지 않는다) / 401 · 403 · `{access:false}` = 상세 자리
  *   `DmaGate`(페이지 전체는 그대로) / `row: null` = 「이 종목 상세를 찾지 못했어요」(재시도 없음) / 준비 = 차트 블록.
- * - 차트 블록 `flex flex-col gap-2` = KPI 줄 → 범례(8 · 견본 span aria-hidden) → 프리셋 줄(「전체 · 정규장 · 마지막 2시간」
+ * - 차트 블록 `flex flex-col gap-2` = KPI 줄 → 범례(9 · 견본 span aria-hidden) → 프리셋 줄(「전체 · 정규장 · 마지막 2시간」
  *   `aria-pressed` + 창 범위 「HH:MM ~ HH:MM」) → 차트(창 = `useChartView`) → 캡션(34-07 · A5 · D-14 · D-18).
  *   `price.idx` 가 비면(또는 payload 없음) 범례 ~ 캡션 대신 한 줄 「그날 체결 자료 없음」 — KPI 줄은 남는다.
  * - 준비 본문 순서(D-19 · 블록 사이 16px = 루트 `gap-4`): 차트 블록 → 사이클 표(`cycles.length >= 2` 만 · 기본 펼침 · D-20) →
@@ -306,6 +306,8 @@ const HLINE = 'inline-block h-0.5 w-2.5 rounded-full';
 const VLINE = 'inline-block h-2.5 w-0.5';
 const LEGEND: readonly { label: string; swatch: string }[] = [
   { label: '가격(10초)', swatch: `${HLINE} bg-[var(--fg-2)]` },
+  // quick-261021-amg — 가격 판 팀 평단 계단과 같은 --up 점선(10×2)
+  { label: '팀 평단', swatch: 'inline-block h-0 w-2.5 border-t-2 border-dotted border-[var(--up)]' },
   { label: '팀 매수', swatch: `${DOT} bg-[var(--up)] opacity-70` },
   { label: '팀 매도', swatch: `${DOT} bg-[var(--down)] opacity-70` },
   { label: '팀매수 시작', swatch: `${DOT} border-2 border-[var(--fg)] bg-[var(--up)]` },
