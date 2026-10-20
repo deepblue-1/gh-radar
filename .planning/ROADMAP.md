@@ -213,7 +213,7 @@ Plans:
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
-| 34. 매집감지(accum) 보고서 | v1.1 | 6/13 | Not started | - |
+| 34. 매집감지(accum) 보고서 | v1.1 | 7/13 | Not started | - |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -274,7 +274,7 @@ Plans:
   6. 단위 · E2E 통과 · 첫 실물 날짜 라이브 UAT · 인박스 `261020-accum-flow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션 → limitup-sync Job 재배포(20:30 밖) → server → webapp push(= 프로덕션). 119 배치가 20:20 을 넘기면 radar-gw `limitup-pull.timer` 20:30 · limitup-sync CRON 20:40 으로 함께 미룬다(D-09 조건부 합의)
-**Plans**: 6/13 plans executed
+**Plans**: 7/13 plans executed
 
 Plans:
 **Wave 1**
@@ -292,7 +292,7 @@ Plans:
 - [x] 34-05-PLAN.md — SQL 회귀: pgTAP accum_report(신규) · limitup_load 섹션 K · 스모크 INV-9
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 34-06-PLAN.md — 상세 차트 정적 레이어(순수 SVG): 가격 · 팀 원 · first · 누적 계단 · 10분 막대 · 세로선 · 음영 · 토큰
+- [x] 34-06-PLAN.md — 상세 차트 정적 레이어(순수 SVG): 가격 · 팀 원 · first · 누적 계단 · 10분 막대 · 세로선 · 음영 · 토큰
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 34-07-PLAN.md — 차트 조작: 프리셋 · 창 범위 · 휠/트랙패드 · 끌기 · 핀치 · 키보드 · 범례 · 캡션
