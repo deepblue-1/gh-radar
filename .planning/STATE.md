@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-20T17:17:03.834Z"
+last_updated: "2026-10-20T22:54:03.818Z"
 last_activity: 2026-10-21
 last_activity_desc: Phase 34 complete
-state_head: 76d32a7a070839a185051252d86d08b76373d378
+state_head: 3aaf6c362573a0f60de574473a0ef6838bc489df
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-21 — Phase 34 complete
+Last activity: 2026-10-21 - Completed quick task 261021-amg: 매집감지 상세 가격 차트 팀 평단 선
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100% (53/53 plans)
 - **WINDOWS.md open 4건** — #9·#10·#11(Phase 16 승계 · 상따 밴드 전이점·체결가 7자 예산) · #17(D-25).
 - **[Phase 34 후속 · 비차단] 코드 리뷰 11건(WARNING 5 · INFO 6) 수정 완료 2026-10-21** — `/gsd-code-review 34 --fix --all`, 건별 커밋 df59036f..a14652be. 정본 `phases/34-accum/34-REVIEW-FIX.md` · `34-REVIEW-DISPOSITION.md`. limitup-sync 워커 76d32a7a 재배포 · 스모크 14/14. UI 리뷰 WARNING 5건(다시 시도 터치 대상 · 흐림 범위 · 스켈레톤 · KPI 합 결측 「—」 · 상태 안내 `--faint` 대비)도 2026-10-21 수정(UI-SPEC 개정 동반).
 - **[Phase 34 결정 2026-10-21] 10/1~10/16 시뮬레이션 소급 표기 안 함.** gh-trade 가 「모델 판정」 으로 소급한 10개 날짜(1001 1002 1006 1007 1008 1012 1013 1014 1015 1016)는 표식 없이 일반 보고서로 보인다(사용자 결정 — 표기 불필요).
+- **[Phase 34 결정 2026-10-21] 10/19 · 10/20 도 모델 판정 · 서버 재기동 있는 날은 앞으로도 모델 판정.** 서버 재기동이 미등록 누적을 지워 사이클 · 등록 후 순매수가 왜곡된다(10/20 녹십자엠에스 12:15 재기동 → cycle 1 재등록 +8.02억 vs 하루 −0.56억). 10/1~10/20 은 gh-trade quick-261021-3rf 가 모델로 재생성(+ payload.avg_px · G4 msg_seq 정렬 버그 873fdd32 수정 — day_* · payload 전부 바뀜), 07:04 수동 운반 · 적재 · 스모크 10/19 63행 · 10/20 51행 14/14. 재기동 날 자동 모델 판정은 gh-trade 인박스 `261021-accum-restart-day-model.md` 로 요청(open).
 
 ### Deferred Items
 
@@ -94,6 +95,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261019-j1w | 매집감지 매도 조기 경보 · 오늘 매수 평단 수용 — relay 생성물 재생성(776320af) · shared kind 16 sellWarn · sellWarns · 행 종류 5 · 작업대 「매집」 패널 주황 「매도경보」 배지(목업 A) · 인박스 2건 done | 2026-10-19 | 2021cd24 | [261019-j1w-accum-sell-warn](./quick/261019-j1w-accum-sell-warn/) |
 | 261018-j17 | 팀 매집 보고서 거래원별 순매수(행렬 표 · 하루 억) + 팀 당일 손익(목록 열 · 상세 줄) | 2026-10-20 | c5716097 | [261018-j17-teamflow-broker-net-buy](./quick/261018-j17-teamflow-broker-net-buy/) |
 | 16 | Phase 34 UI 리뷰 WARNING 5건 — 페이지 다시 시도 min-h-8 · 흐림은 종목·결과·금액 칸만 · 상세 스켈레톤 실제 배치 · KPI 합 결측 「—」 · 상태 안내 --muted-fg(UI-SPEC 개정) | 2026-10-21 | 76d32a7a | — |
+| 261021-amg | 매집감지 상세 가격 차트 팀 평단 선 — payload.avg_px 계단 · --up 점점선 · 0 끊김 · 범례 「팀 평단」 | 2026-10-21 | 3aaf6c36 | [261021-amg-accum-chart-team-avg-price-line](./quick/261021-amg-accum-chart-team-avg-price-line/) |
 
 ## Session Continuity
 
