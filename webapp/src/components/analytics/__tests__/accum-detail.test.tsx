@@ -283,6 +283,35 @@ describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위
     }
   });
 
+  it('(h2b) payload 모양 어긋남(price null · cycles 객체) → 「그날 체결 자료 없음」 · 사이클 표 없음 · 손익 줄 그대로 · throw 없음(WR-05)', async () => {
+    const base = accumDetailFixture(CHEONIL).row!;
+    detailOver.set(CHEONIL, {
+      ...base,
+      payload: { ...base.payload!, price: null, cycles: {} } as unknown as AccumDetailRow['payload'],
+    });
+    const sec = await expand(CHEONIL);
+    expect(sec.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-no-price"]')?.textContent).toBe('그날 체결 자료 없음');
+    expect(sec.querySelector('[data-slot="accum-chart"]')).toBeNull();
+    expect(sec.querySelector('[data-slot="accum-pnl"]')).toBeTruthy();
+  });
+
+  it('(h2c) 준비 본문 렌더 예외 → 상세 자리만 「상세를 불러오지 못했어요」 · 목록 행은 그대로(error boundary · WR-05)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const base = accumDetailFixture(CHEONIL).row!;
+      detailOver.set(CHEONIL, { ...base, date: null as unknown as string }); // 출처 칩 fmtYmdShort 가 throw
+      const sec = await expand(CHEONIL);
+      const crash = sec.querySelector('[data-slot="accum-detail-crash"]');
+      expect(crash?.getAttribute('role')).toBe('alert');
+      expect(crash?.textContent).toBe('상세를 불러오지 못했어요');
+      expect(document.getElementById(`accum-row-${CHEONIL}`)).toBeTruthy();
+      expect(document.getElementById(`accum-row-${DONGYANG}`)).toBeTruthy();
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 1천만원 이상」 으로 시작', async () => {
     const sec = await expand(CJSEAFOOD_PREF);
     const cap = sec.querySelector('[data-slot="accum-caption"]')!.textContent ?? '';

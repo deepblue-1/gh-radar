@@ -23,6 +23,7 @@ import {
   isDimRow,
   isTodayReg,
   metaLineOf,
+  payloadOf,
   reasonLineOf,
   regCellOf,
   thresholdLineOf,
@@ -300,6 +301,44 @@ describe('cycleRowsOf — 사이클 표 칸 (D-20 · A7 · CR-01)', () => {
     const noKey: Partial<NonNullable<AccumDetailRow['payload']>> = { ...real.payload! };
     delete noKey.cycles;
     expect(cycleRowsOf({ ...real, payload: noKey as NonNullable<AccumDetailRow['payload']> })).toEqual([]);
+    // WR-05 — 배열이 아닌 cycles · 객체 아닌 항목은 throw 없이 버린다
+    const bad = (cycles: unknown) => ({ ...real, payload: { ...real.payload!, cycles } as unknown as AccumDetailRow['payload'] });
+    expect(cycleRowsOf(bad({ 0: 1 }))).toEqual([]);
+    expect(cycleRowsOf(bad([null, real.payload!.cycles[0]]))).toHaveLength(1);
+  });
+});
+
+describe('payloadOf — 차트가 읽는 payload 모양 확인 (WR-05)', () => {
+  const row = () => accumDetailRows().find((r) => r.isin === CHEONIL)!;
+  const withPayload = (p: unknown) => ({ payload: p as AccumDetailRow['payload'] });
+
+  it('실측 행 · 합성 행 → payload 그대로(같은 참조) · payload null → null', () => {
+    const r = row();
+    expect(payloadOf(r)).toBe(r.payload);
+    for (const kind of ['multiCycle', 'carry', 'drop0600', 'preOpenReg', 'noTeam', 'noPrice'] as const) {
+      const d = accumSyntheticDetail(kind);
+      expect(payloadOf(d), kind).toBe(d.payload);
+    }
+    expect(payloadOf({ payload: null })).toBeNull();
+  });
+
+  it('6키 중 하나라도 어긋나면 null — price null · price.px 결측 · t0_ms 문자열 · orders 열 결측 · buckets null 항목 · day_cum_net 결측 · cycles 객체', () => {
+    const p = row().payload!;
+    const { side: _side, ...ordersNoSide } = p.orders;
+    const { px: _px, ...priceNoPx } = p.price;
+    const { day_cum_net: _cum, ...noCum } = p;
+    const cases: unknown[] = [
+      { ...p, price: null },
+      { ...p, price: priceNoPx },
+      { ...p, price: { ...p.price, t0_ms: '1760400000000' } },
+      { ...p, orders: ordersNoSide },
+      { ...p, buckets: [null] },
+      noCum,
+      { ...p, cycles: {} },
+      'payload',
+      [],
+    ];
+    for (const c of cases) expect(payloadOf(withPayload(c)), JSON.stringify(c).slice(0, 60)).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@
  * - kind 16(라이브)과 join 하지 않는다 — 이 보고서의 이력 정본은 `limitup_accum_flow` 다(D-22).
  */
 
-import type { AccumDetailRow, AccumReportRow } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportPayload, AccumReportRow } from '@gh-radar/shared';
 
 import { fmtYmdShort, kstClock } from './limitup-report';
 import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
@@ -20,6 +20,9 @@ import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './team
 export const ACCUM_LOAD_HM = '20:30';
 
 const DASH = '—';
+
+/** 배열 아닌 객체(null 제외) — payload 모양 확인(34 WR-05). */
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** state 정렬 순위 — 1 매집중 → 2 매도중 → 3 종료 → 그 밖(null 포함) 맨 뒤. */
 function stateRank(state: number | null): number {
@@ -312,7 +315,9 @@ const fmtQtyOrDash = (n: number | null | undefined): string => (isNum(n) ? QTY_F
  * - 등록가 · 평단 = fmtPx · 순매수(부호 색) · 최고 순매수 = ±억 1자리 · 수량 「{buy} / {sell}」(둘 다 null 이면 「—」).
  */
 export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
-  const cycles = row.payload?.cycles ?? [];
+  // 배열이 아니거나 객체가 아닌 항목은 버린다(34 WR-05 — payload 는 검증 없는 export 원문)
+  const raw: unknown = row.payload?.cycles;
+  const cycles = Array.isArray(raw) ? (raw.filter(isObj) as unknown as AccumReportPayload['cycles']) : [];
   return cycles.map((c, i) => {
     const since = c.since_date;
     const datePrefix =
@@ -336,6 +341,30 @@ export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
       qty,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// payload 모양 확인 (34 WR-05)
+// ---------------------------------------------------------------------------
+
+const ORDER_COLS = ['t_ms', 'side', 'qty', 'val', 'px', 'pieces', 'first'] as const;
+
+/**
+ * 차트가 가드 없이 읽는 payload 모양 확인(34 WR-05) — payload 는 저장소 경계 밖(gh-trade export) 원문이고 server · DB 가
+ * 검증하지 않는다(D-05). price(t0_ms 유한 수 · idx · px 배열) · orders 7열 배열 · buckets 객체 배열 · day_cum_net(t_ms ·
+ * net_krw 배열) · cycles 객체 배열 — 하나라도 어긋나면 null → 상세는 「그날 체결 자료 없음」 경로(키 하나 빠진 행이 렌더 예외로
+ * 페이지 전체를 바꾸지 않게). pnl 은 `pnlOf` 가 따로 방어한다.
+ */
+export function payloadOf(row: Pick<AccumDetailRow, 'payload'>): AccumReportPayload | null {
+  const p: unknown = row.payload;
+  if (!isObj(p)) return null;
+  const { price, orders, buckets, day_cum_net: cum, cycles } = p;
+  if (!isObj(price) || !isNum(price.t0_ms as number) || !Array.isArray(price.idx) || !Array.isArray(price.px)) return null;
+  if (!isObj(orders) || !ORDER_COLS.every((k) => Array.isArray(orders[k]))) return null;
+  if (!Array.isArray(buckets) || !buckets.every(isObj)) return null;
+  if (!isObj(cum) || !Array.isArray(cum.t_ms) || !Array.isArray(cum.net_krw)) return null;
+  if (!Array.isArray(cycles) || !cycles.every(isObj)) return null;
+  return row.payload;
 }
 
 // ---------------------------------------------------------------------------

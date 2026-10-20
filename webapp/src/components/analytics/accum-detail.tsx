@@ -1,8 +1,8 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Component, Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import type { AccumDetailResponse, AccumDetailRow, TeamflowPnl } from '@gh-radar/shared';
+import type { AccumDetailResponse, AccumDetailRow, AccumReportPayload, TeamflowPnl } from '@gh-radar/shared';
 
 import { DmaGate, type DmaGateReason } from '@/components/trading/dma-gate';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +16,7 @@ import {
   ACCUM_RULE_SOURCE,
   cycleRowsOf,
   detailKpisOf,
+  payloadOf,
   thresholdPartsOf,
 } from '@/lib/accum-report';
 import { fmtYmdShort } from '@/lib/limitup-report';
@@ -137,9 +138,39 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
         </div>
       )}
 
-      {phase.kind === 'ready' && <ReadyBody row={phase.row} />}
+      {phase.kind === 'ready' && (
+        <DetailBoundary>
+          <ReadyBody row={phase.row} />
+        </DetailBoundary>
+      )}
     </section>
   );
+}
+
+/**
+ * 준비 본문 렌더 예외를 상세 자리에서 멈춘다(34 WR-05) — 없으면 `app/error.tsx` 가 페이지 전체(목록 포함)를 바꾼다.
+ * payload 는 검증 없는 export 원문이라 `payloadOf` 가 못 거른 모양이 남을 수 있다. 같은 자료라 다시 그려도 같으므로 재시도 없음.
+ * 행을 접으면 상세가 언마운트되어 경계도 같이 초기화된다.
+ */
+class DetailBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(err: unknown): void {
+    console.error('accum detail render failed', err);
+  }
+
+  render(): ReactNode {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div role="alert" data-slot="accum-detail-crash" className="flex flex-col items-center gap-1 py-8 text-center">
+        <p className="text-[length:var(--t-sm)] font-semibold break-keep text-[var(--fg)]">상세를 불러오지 못했어요</p>
+      </div>
+    );
+  }
 }
 
 /** 준비 상태 본문(D-19) — 차트 블록 → (사이클 표 · 2개↑) → 손익 줄 → 판정 기준 → 출처 칩. */
@@ -273,20 +304,20 @@ const LEGEND: readonly { label: string; swatch: string }[] = [
   { label: '등록 전', swatch: 'inline-block size-2.5 border border-[var(--border-subtle)] bg-[var(--accum-shade)]' },
 ];
 
-/** KPI 줄 아래 차트 블록 나머지 — 가격 자료가 없으면 한 줄 대체. */
+/** KPI 줄 아래 차트 블록 나머지 — 가격 자료가 없거나 payload 모양이 어긋나면(`payloadOf` · WR-05) 한 줄 대체. */
 function ReadyChart({ row }: { row: AccumDetailRow }) {
-  if (row.payload === null || row.payload.price.idx.length === 0) {
+  const payload = payloadOf(row);
+  if (payload === null || payload.price.idx.length === 0) {
     return (
       <p data-slot="accum-no-price" className="text-[length:var(--t-caption)] text-[var(--faint)]">
         그날 체결 자료 없음
       </p>
     );
   }
-  return <ChartBody row={row} />;
+  return <ChartBody row={row} payload={payload} />;
 }
 
-function ChartBody({ row }: { row: AccumDetailRow }) {
-  const payload = row.payload!;
+function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReportPayload }) {
   const t0ms = payload.price.t0_ms;
   const bounds = useMemo(() => dayBoundsOf(t0ms), [t0ms]);
   const lastTradeMs = lastTradeMsOf(payload.price);
@@ -334,7 +365,7 @@ function ChartBody({ row }: { row: AccumDetailRow }) {
           {fmtViewRange(ctl.view)}
         </span>
       </div>
-      <AccumChart row={row} view={ctl.view} ctl={ctl} />
+      <AccumChart row={row} payload={payload} view={ctl.view} ctl={ctl} />
       <p data-slot="accum-caption" className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
         {noTeam ? `팀 체결 없음 · ${CAPTION}` : CAPTION}
       </p>

@@ -2,7 +2,7 @@
 
 import { useId, useRef } from 'react';
 
-import type { AccumDetailRow } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportPayload } from '@gh-radar/shared';
 
 import { useChartGestures, type ChartViewControl } from '@/hooks/use-chart-view';
 import { useChartWidth } from '@/hooks/use-chart-width';
@@ -52,7 +52,8 @@ import { cn } from '@/lib/utils';
  *   가격 판 높이 클립(`priceClipOf`)을 한 겹 더 쓴다(WR-01 — 창 경계를 넘는 선분이 누적 · 10분 판 · 라벨 띠를 가르지 않게).
  *   불투명도(DOM `fill-opacity` · `stroke-opacity`): 원 채움 .55 · 테두리 .9 · first 채움 .9 · 10분 막대 .7.
  * - 팀 체결 없음(해당 배열이 빔)이면 누적 판 · 10분 판 가운데 「팀 체결 없음」 — 가격 선 · 0선 · 축 · 빈 띠는 그대로.
- * - `payload` 가 없거나 `price.idx` 가 비면 그리지 않는다(null — 대체 문구 「그날 체결 자료 없음」 은 34-07).
+ * - `payload` 는 부모가 `payloadOf` 로 모양을 확인해 넘긴다(WR-05). 없거나 `price.idx` 가 비면 그리지 않는다(null — 대체 문구
+ *   「그날 체결 자료 없음」 은 34-07).
  * - 폰에서는 `<title>` 툴팁이 뜨지 않는다 — v1 은 KPI 줄 · 사이클 표 · 손익 줄 글자가 수치를 맡는다(D-15 「<title> 또는 동급」).
  */
 
@@ -63,11 +64,21 @@ const B_TOP = C_TOP + H2 + GAP;
 const PLOT_BOTTOM = B_TOP + H3;
 const PX_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
-export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View; ctl: ChartViewControl }) {
+export function AccumChart({
+  row,
+  payload,
+  view,
+  ctl,
+}: {
+  row: AccumDetailRow;
+  /** 모양 확인을 거친 payload(`payloadOf` · WR-05) — row.payload 를 직접 읽지 않는다 */
+  payload: AccumReportPayload | null;
+  view: View;
+  ctl: ChartViewControl;
+}) {
   const [ref, W] = useChartWidth<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
   const rawId = useId();
-  const payload = row.payload;
   const hasPrice = payload !== null && payload.price.idx.length > 0;
   const L = hasPrice ? priceAxisWidthOf(dayMaxPxOf(payload.price, payload.orders)) : priceAxisWidthOf(0);
   const { dragging } = useChartGestures(svgRef, { L, W, R }, hasPrice ? ctl : null);
