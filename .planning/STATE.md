@@ -57,7 +57,7 @@ Progress: [██████████] 100% (53/53 plans)
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
 - **`/healthz` 알림 정책 — 사용자 결정 대기.** 게이트웨이가 끊기면 세션 생성 5분 뒤 503 상시화. 후보 4개는 v1.0 phase 16 `deferred-items.md` §16-35.
 - **WINDOWS.md open 4건** — #9·#10·#11(Phase 16 승계 · 상따 밴드 전이점·체결가 7자 예산) · #17(D-25).
-- **[Phase 34 후속 · 비차단] 코드 리뷰 WARNING 5건 open.** WR-02(accum_flow 가 깨지면 그날 6표 · team_flow 까지 적재 실패 — 워커 사전 검증 · 0행 격리, 우선순위 높음) · WR-05(상세 payload 모양 검증 없음) · WR-01(확대 창 경계 가격 선 판 밖) · WR-03(상세 캐시 무만료) · WR-04(소급 CLI 상대 --out). 정본 `phases/34-accum/34-REVIEW-DISPOSITION.md` — `/gsd-code-review 34 --fix` 후보. UI 리뷰 WARNING 3건(다시 시도 터치 대상 · 흐림 범위 · 스켈레톤)은 `34-UI-REVIEW.md`.
+- **[Phase 34 후속 · 비차단] 코드 리뷰 11건(WARNING 5 · INFO 6) 수정 완료 2026-10-21** — `/gsd-code-review 34 --fix --all`, 건별 커밋 df59036f..a14652be. 정본 `phases/34-accum/34-REVIEW-FIX.md` · `34-REVIEW-DISPOSITION.md`. WR-02 는 limitup-sync 워커 재배포 필요. UI 리뷰 WARNING 3건(다시 시도 터치 대상 · 흐림 범위 · 스켈레톤)은 `34-UI-REVIEW.md` 에 그대로 open.
 - **[Phase 34 후속 · 사용자 결정 대기] 10/1~10/16 시뮬레이션 소급 표기.** gh-trade 가 10개 날짜(1001 1002 1006 1007 1008 1012 1013 1014 1015 1016)를 「모델 판정」 으로 소급했고, 다음 20:30 적재가 files_sig 로 실어 간다. 행에 표식이 없어 화면은 「KYOBO119 판정 기준」 으로 보인다 — 날짜 목록 기반 「시뮬레이션(모델 판정)」 표기 quick 여부를 사용자가 정한다.
 
 ### Deferred Items
