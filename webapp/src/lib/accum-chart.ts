@@ -488,7 +488,8 @@ const KST_OFFSET = 9 * HOUR;
 
 /**
  * 시각 눈금(D-14 · 목업 ticks) — 창 폭 ≤ 30분 5분 · ≤ 2.5h 15분 · ≤ 5h 30분 · 그 밖 1h → 눈금 간격이 28px 미만이면 한 단계
- * 큰 간격(1h → 2h → 3h). 눈금은 KST 자정 기준으로 맞춘다 · 라벨 정시 「H」 · 그 밖 「HH:MM」 · 창 양 끝 포함.
+ * 큰 간격(1h → 2h → 3h). 눈금은 KST 자정 기준 간격 배수에만 놓는다(창 끝이 배수가 아니면 그 끝에는 눈금 없음 · 배수와
+ * 겹치면 포함) · 라벨 정시 「H」 · 그 밖 「HH:MM」.
  */
 export function ticksOf(view: View, plotW: number): Tick[] {
   const w = view.t1 - view.t0;
