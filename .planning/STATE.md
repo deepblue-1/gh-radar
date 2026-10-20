@@ -4,18 +4,18 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
-status: completed
-stopped_at: Phase 34 UI-SPEC approved
-last_updated: "2026-10-20T12:52:39.321Z"
+status: executing
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-10-20T13:09:09.348Z"
 last_activity: 2026-10-20
-last_activity_desc: Phase 32 complete
-state_head: f81ba1cfbf9d10880ec6211d460aff32d5105282
+last_activity_desc: Phase 34 execution started
+state_head: 99ac085fd12d3273b05bda007c8dc4a6793452eb
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 40
-  percent: 75
+  completed_plans: 41
+  percent: 77
 ---
 
 # Project State
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** v1.1 전 phase 완료 — 새 작업 대기(`/gsd-phase add` · `/gsd-quick`)
+**Current focus:** Phase 34 — 매집감지(accum) 보고서
 
 ## Current Position
 
-Phase: 34 (매집감지(accum) 보고서) — READY TO EXECUTE
-Plan: 14 of 14
-Status: All phases complete (v1.1 30 · 31 · 32 · 33)
-Last activity: 2026-10-20 - Completed quick task 261018-j17: 팀 매집 거래원별 순매수 + 팀 당일 손익
+Phase: 34 (매집감지(accum) 보고서) — EXECUTING
+Plan: 2 of 13
+Status: Ready to execute
+Last activity: 2026-10-20 — Phase 34 execution started
 
-Progress: [████████░░] 75% (40/40 plans)
+Progress: [████████░░] 77% (40/40 plans)
 
 ## Accumulated Context
 
@@ -95,10 +95,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/34-accum/34-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-10-20T11:44:32.015Z
-Stopped at: Phase 34 UI-SPEC approved
+Last session: 2026-10-20T13:09:09.279Z
+Stopped at: Completed 34-01-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -133,6 +133,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 33 P06 | 9 min | 2 tasks | 8 files |
 | Phase 33 P07 | 25min | 2 tasks | 2 files |
 | Phase 33 P09 | 6 min | 2 tasks | 3 files |
+| Phase 34 P01 | 6min | 1 tasks | 8 files |
 
 ## Decisions
 
@@ -193,3 +194,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 33]: 33-07: 전 워크스페이스 회귀 게이트 green(worker 108 · server 521 · webapp 4234 · E2E 25 · pgTAP 218/28/54) — 33-08 배포 전제 충족 · 두 자리 억 왼쪽 축 글자는 33-09 UAT 관찰
 - [Phase 33]: 33-09: 인박스 261016 done_commit = 5d6e2499(배포 이미지 태그 · 병합) — 회신에 순수 Phase 33 마지막 코드 커밋 bc489782 병기
 - [Phase 33]: 33-09: 「상한가 도달」 KPI 는 종가 상한가만 셈 — 사용자 답 「이대로 둠」(라벨 유지)
+- [Phase 34]: 34-01: accum_flow stage 청크 1행 — 최대 행 json ≈ 224KB 가 증명된 insert 본문 ≈ 293KB 안에 드는 유일한 값
+- [Phase 34]: 34-01: 재적재 감지는 team_flow 그대로 · OPTIONAL_FILES 참조로만 교체(일반화는 34-03)
+- [Phase 34]: 34-01: accum_detail_for_user 는 행 없으면 {access:true,row:null} 200

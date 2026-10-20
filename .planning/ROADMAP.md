@@ -213,7 +213,7 @@ Plans:
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
-| 34. 매집감지(accum) 보고서 | v1.1 | 0/? | Not started | - |
+| 34. 매집감지(accum) 보고서 | v1.1 | 1/13 | Not started | - |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -274,11 +274,11 @@ Plans:
   6. 단위 · E2E 통과 · 첫 실물 날짜 라이브 UAT · 인박스 `261020-accum-flow-export.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: DB 마이그레이션 → limitup-sync Job 재배포(20:30 밖) → server → webapp push(= 프로덕션). 119 배치가 20:20 을 넘기면 radar-gw `limitup-pull.timer` 20:30 · limitup-sync CRON 20:40 으로 함께 미룬다(D-09 조건부 합의)
-**Plans**: 13 plans
+**Plans**: 1/13 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 34-01-PLAN.md — 트레이서 전반: 10/14 6행 픽스처 → 워커 선택 파일 목록화 → commit_day 10번째 쌍 → 목록/상세 RPC(전 마이그레이션 재생)
+- [x] 34-01-PLAN.md — 트레이서 전반: 10/14 6행 픽스처 → 워커 선택 파일 목록화 → commit_day 10번째 쌍 → 목록/상세 RPC(전 마이그레이션 재생)
 - [ ] 34-02-PLAN.md — 소급 내보내기 도구: kind 16 → 23키 JSON lines(읽기 전용 · 페이지네이션 · 비출력 래퍼)
 
 **Wave 2** *(blocked on Wave 1 completion)*
