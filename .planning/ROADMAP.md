@@ -205,7 +205,7 @@ Plans:
 | Milestone | Phases | Plans | Status |
 |-----------|--------|-------|--------|
 | v1.0 Launch | 37 | 432 | ✅ Shipped 2026-10-11 |
-| v1.1 운영 유지보수 | 4 | — | 🚧 진행 중 |
+| v1.1 운영 유지보수 | 5 | — | 🚧 진행 중 |
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -213,6 +213,7 @@ Plans:
 | 31. 인박스 상따 금액 단위 | v1.1 | 8/8 | Complete | 2026-10-12 |
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
+| 34. 매집감지(accum) 보고서 | v1.1 | 0/? | Not started | - |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -256,5 +257,26 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 - [x] 33-09-PLAN.md — git push(= webapp 프로덕션) · 라이브 UAT 10/14 · 인박스 261016-teamflow-export done · TEAM-02 문구 정합
+
+**UI hint**: yes
+
+### Phase 34: 매집감지(accum) 보고서
+
+**Goal**: gh-trade 119 밤 배치가 내보내는 `accum_flow.ndjson.gz` 가 Supabase `limitup_accum_flow`(PK `(date, isin)` · 평평한 열 37 + `payload` jsonb · 90일 purge)에 적재되고, 「분석 › 매집감지 보고서」 `/analytics/accum?d=YYYYMMDD` 에서 그날 매집감지 종목(장중 등록·청산 · 이월 · 06:00 탈락/만료 포함) 목록과 행 펼침 상세 차트(10초 가격 선 · 팀 매수/매도 원 · `first` 팀매수 시작 표식 · `day_cum_net` 순매수 누적 계단 · 사이클별 등록/청산 세로선 · 등록 전 음영)가 읽힌다. 「KYOBO119 판정 기준」 표기 · kind 16 과 join 하지 않음(이 표가 이력 정본)
+**Depends on**: Phase 33(limitup-sync 선택 파일 적재 · teamflow 차트 부품) · 외부: gh-trade Phase 36(`master 7cb31d87` · 119 서버 + 119 tickana 배포) · 열 사전 정본 인박스 `docs/inbox/from-gh-trade/261020-accum-flow-export.md` (2026-10-20 도착)
+**Requirements**: TBD
+**Success Criteria** (초안 — discuss/plan 에서 확정):
+  1. `limitup-sync`(20:30 KST)가 manifest `files[]` 의 `accum_flow.ndjson.gz` 를 team_flow 와 같은 sha256 대조 · `limitup_commit_day` 날짜 단위 원자 교체로 적재하고, 파일이 없는 날짜는 6표·team_flow 에 영향이 없다. 재적재 감지(이력 rows ≠ manifest)가 accum_flow 로 일반화된다
+  2. 서버가 목록(평평한 열만)과 상세(한 종목 `payload` — 최대 json ≈ 224KB)를 분리된 RPC/라우트로 내준다. DMA 게이트는 teamflow 와 같은 경로
+  3. `/analytics/accum` 목록 = 날짜 알약 → 종목 행(상태 매집중/매도중/종료 · 「이월 D+n」 · `end_reason` 청산/이월 탈락(복원 안 됨)/이월 만료 · `pos_*` KPI · `day_net_krw`) · 행 펼침 시 상세 지연 로드
+  4. 상세 차트 7요소 + `first` 표식(범례 「팀매수 시작」) · 09:00 이전 등록은 09:00(`price.t0_ms`)에 맞춤 · 15:30~16:00 빈 칸 정상 · 팀 체결 없는 종목도 깨지지 않음
+  5. 소급: gh-radar DB kind 16(KYOBO119)을 날짜별 JSON lines(인계 노트 「소급 목록 파일 형식」 23키 · `since_date`/`reg_time` 문자열)로 맥 `~/ticks/accum-backfill/<D>.jsonl` 에 내보낸다(10-19 · 필요 시 10-20) → gh-trade 가 119 로 옮겨 배치 → files_sig 자동 재적재
+  6. 단위 · E2E 통과 · 첫 실물 날짜 라이브 UAT · 인박스 `261020-accum-flow-export.md` 를 `status: done` 으로 닫는다
+
+**배포 순서**: DB 마이그레이션 → limitup-sync Job 재배포(20:30 밖) → server → webapp push(= 프로덕션). 119 배치가 20:20 을 넘기면 radar-gw `limitup-pull.timer` 20:30 · limitup-sync CRON 20:40 으로 함께 미룬다(D-09 조건부 합의)
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 34 to break down)
 
 **UI hint**: yes
