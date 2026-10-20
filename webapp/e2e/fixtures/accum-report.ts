@@ -137,8 +137,6 @@ export const ACCUM_WORST_DROP_ISIN = 'KR790000AC97';
 /** 7자리 가격 최댓값 — 가격 축 「1,234,500」 · 왼쪽 축 폭 60(34-06 priceAxisWidthOf). */
 export const ACCUM_7DIGIT_MAX_PX = 1_234_500;
 
-const DAY_MS = 86_400_000;
-
 /** 사이클 한 항목(16키) — 기본 = 그날 등록 · 살아 있음 · pos_* 없음. */
 function cycleOn(date: string, over: Partial<AccumReportCycle>): AccumReportCycle {
   return {
@@ -257,8 +255,9 @@ function worstDropDetailOf(date: string): AccumDetailRow {
 
 /** 상세 행 → 목록 평평한 열(payload 제거). */
 function flatOf(row: AccumDetailRow): AccumReportRow {
-  const { payload: _payload, ...flat } = row;
-  return flat;
+  const flat: Partial<AccumDetailRow> = { ...row };
+  delete flat.payload;
+  return flat as AccumReportRow;
 }
 
 export const ACCUM_WORST_DETAIL: AccumDetailRow = worstDetailOf(ACCUM_BACKSTOP_DATE);
