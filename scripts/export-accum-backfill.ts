@@ -19,7 +19,7 @@
  * 로 옮겨 `tickana.batch --date D --accum-events <file> --ticks ~/ticks` 실행(확인 문자열 `stage=accum_flow reason=backfill`).
  */
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { exportAccumBackfillDay } from "../relay/src/store/accum-backfill.js";
 import { createRelaySupabase } from "../relay/src/store/supabase.js";
@@ -29,7 +29,7 @@ const DEFAULT_OUT = join(homedir(), "ticks", "accum-backfill");
 const USAGE = [
   "사용법: pnpm --filter @gh-radar/relay exec tsx ../scripts/export-accum-backfill.ts --date YYYYMMDD [--date YYYYMMDD …] [--out <dir>] [--force]",
   "  --date YYYYMMDD  내보낼 KST 거래일(여러 번 · 최소 1 · 중복은 한 번만)",
-  `  --out <dir>      출력 디렉터리(기본 ${DEFAULT_OUT}) — 파일은 <dir>/<YYYYMMDD>.jsonl`,
+  `  --out <dir>      출력 디렉터리(기본 ${DEFAULT_OUT}) — 파일은 <dir>/<YYYYMMDD>.jsonl · 상대 경로는 호출한 cwd 기준`,
   "  --force          같은 이름 파일이 있으면 덮어쓴다(없으면 거부)",
   "  --help           이 도움말",
   "env: SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY (필수 · 래퍼 scripts/export-accum-backfill.sh 가 주입)",
@@ -43,6 +43,12 @@ function fail(message: string): never {
 
 type Args = { dates: string[]; out: string; force: boolean; help: boolean };
 
+/**
+ * 상대 `--out` 의 기준 = 사용자가 명령을 친 cwd(34 WR-04). `pnpm --filter … exec` 는 relay/ 에서 돌아 process.cwd() 가
+ * relay/ 다 — 래퍼는 `ACCUM_BACKFILL_CWD`, pnpm 직접 실행은 `INIT_CWD`(pnpm 이 호출 cwd 를 넣는다)를 쓴다.
+ */
+const CALLER_CWD = process.env.ACCUM_BACKFILL_CWD || process.env.INIT_CWD || process.cwd();
+
 function parseArgs(argv: string[]): Args {
   const out: Args = { dates: [], out: DEFAULT_OUT, force: false, help: false };
   for (let i = 0; i < argv.length; i++) {
@@ -53,7 +59,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) fail(`${a} 에 값이 없습니다\n${USAGE}`);
       i++;
-      if (a === "--out") out.out = v;
+      if (a === "--out") out.out = resolve(CALLER_CWD, v);
       else {
         if (!/^\d{8}$/.test(v)) fail(`--date 형식 오류: ${v} (YYYYMMDD)`);
         if (!out.dates.includes(v)) out.dates.push(v);

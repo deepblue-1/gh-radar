@@ -14,7 +14,10 @@ set -euo pipefail
 #   bash scripts/export-accum-backfill.sh --help
 #
 # 선택 env:
-#   ACCUM_BACKFILL_ENV_FILE   env 파일 경로. 기본 workers/master-sync/.env
+#   ACCUM_BACKFILL_ENV_FILE   env 파일 경로. 기본 workers/master-sync/.env(저장소 루트 기준) — 상대 경로를 주면 호출한 cwd 기준
+#
+# 상대 경로(`--out ./backfill` · ACCUM_BACKFILL_ENV_FILE)는 **호출한 cwd 기준**으로 푼다(34 WR-04) — 래퍼가 루트로 cd 하고
+# pnpm exec 가 relay/ 에서 돌아도 `ACCUM_BACKFILL_CWD` 로 원래 cwd 를 넘겨 TS 가 그 기준으로 resolve 한다.
 #
 # 비밀은 이 래퍼가 화면에 내보내지 않는다:
 #   env 파일은 `set -a; source` 로만 읽고 내용을 echo 하지 않으며, 검증 실패 시에도
@@ -22,8 +25,13 @@ set -euo pipefail
 # ═══════════════════════════════════════════════════════════════
 
 # ───────────────────────────────────────────────────────────────
-# Section 1: 저장소 루트로 이동
+# Section 1: 호출 cwd 기억 → 저장소 루트로 이동
 # ───────────────────────────────────────────────────────────────
+ACCUM_BACKFILL_CWD="$(pwd)"
+export ACCUM_BACKFILL_CWD
+if [[ -n "${ACCUM_BACKFILL_ENV_FILE:-}" && "$ACCUM_BACKFILL_ENV_FILE" != /* ]]; then
+  ACCUM_BACKFILL_ENV_FILE="$ACCUM_BACKFILL_CWD/$ACCUM_BACKFILL_ENV_FILE"
+fi
 cd "$(dirname "$0")/.."
 
 # ───────────────────────────────────────────────────────────────
