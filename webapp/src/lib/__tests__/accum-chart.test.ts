@@ -21,6 +21,7 @@ import {
   cycleMarksOf,
   cumPathOf,
   cumRangeOf,
+  cumTicksOf,
   dayBoundsOf,
   gapBandOf,
   labelRowsOf,
@@ -238,6 +239,15 @@ describe('accum-chart — 순매수 누적 계단 (D-14 · 고정 범위)', () =
     expect(cumRangeOf(cum)).toEqual({ min: -5e7, max: 2e8 });
     expect(cumRangeOf({ t_ms: [at('09:10:00')], net_krw: [3e8] })).toEqual({ min: 0, max: 3e8 });
     expect(cumRangeOf({ t_ms: [], net_krw: [] })).toEqual({ min: 0, max: 0 });
+  });
+
+  it('cumTicksOf — 0 과 12px 미만으로 붙은 끝값 글자는 뺀다(0 글자 우선 · 오름차순)', () => {
+    const r1 = cumRangeOf(cum); // −0.5억 ~ 2억 → 0 과 −0.5억 간격 = 112 × 0.5/2.5 = 22.4px
+    expect(cumTicksOf(r1, yOfCum(r1))).toEqual([-5e7, 0, 2e8]);
+    const r2 = { min: -3e7, max: 2.28e9 }; // 한선엔지니어링 실측급 −0.3억 ~ +22.8억 → −0.3억 간격 ≈ 1.5px
+    expect(cumTicksOf(r2, yOfCum(r2))).toEqual([0, 2.28e9]);
+    const r3 = { min: 0, max: 0 };
+    expect(cumTicksOf(r3, yOfCum(r3))).toEqual([0]);
   });
 
   it('cumPathOf — M x0,y(0) L x0,y0 → H/V 계단 → 끝 H x(T2000) · 창을 좁혀도 y(0) 같다', () => {

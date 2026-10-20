@@ -13,6 +13,7 @@ import {
   carryLineOf,
   cumPathOf,
   cumRangeOf,
+  cumTicksOf,
   cycleMarksOf,
   dayBoundsOf,
   dayMaxPxOf,
@@ -84,7 +85,7 @@ export function AccumChart({ row, view, ctl }: { row: AccumDetailRow; view: View
 
   const cRange = cumRangeOf(payload.day_cum_net);
   const yC = yOfCum(cRange);
-  const cumTicks = [cRange.min, 0, cRange.max].filter((v, i, a) => a.indexOf(v) === i);
+  const cumTicks = cumTicksOf(cRange, yC);
   const cumD = cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
   const zeroY = yC(0);
 

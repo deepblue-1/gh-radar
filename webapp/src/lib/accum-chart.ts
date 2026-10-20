@@ -274,6 +274,21 @@ export function yOfCum(range: CumRange): (c: number) => number {
   return (c) => top + ((range.max - c) / span) * H2;
 }
 
+/** 누적 축 글자 간 최소 세로 간격(11px 글자 높이 + 여유) — 이보다 0 에 가까운 끝값 글자는 뺀다. */
+const CUM_TICK_MIN_PX = 12;
+
+/**
+ * 누적 축 글자(오른쪽 · D-14) — 0 · `min` · `max` 중 0 과 세로 간격이 `CUM_TICK_MIN_PX` 미만인 끝값은 뺀다(34-10 백스톱 —
+ * 한선엔지니어링 실측 −0.3억 처럼 0 에 붙은 끝값 글자가 「0.0억」 과 겹쳤다). 0 글자는 0선과 짝이라 항상 남긴다 · 오름차순.
+ */
+export function cumTicksOf(range: CumRange, y: (c: number) => number): number[] {
+  const out = [0];
+  for (const v of [range.min, range.max]) {
+    if (v !== 0 && Math.abs(y(v) - y(0)) >= CUM_TICK_MIN_PX) out.push(v);
+  }
+  return out.sort((a, b) => a - b);
+}
+
 /**
  * 순매수 누적 계단(D-14) — `M x0,y(0) L x0,y0` 뒤 점마다 `H x V y` · 끝 `H x(T2000)`. 결측 점은 건너뛴다 · 빈 배열이면 ''.
  * 점이 수천 개여도 경로 하나 · 창 밖은 clipPath 가 자른다(계단은 창 시작 값이 앞 점에 달려 있어 잘라 순회하지 않는다).
