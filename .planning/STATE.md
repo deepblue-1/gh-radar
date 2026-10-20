@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 32
-current_phase_name: 계좌 축 정리
+current_phase: 34
+current_phase_name: 매집감지(accum) 보고서
 status: completed
 stopped_at: Phase 34 UI-SPEC approved
-last_updated: "2026-10-20T11:44:32.112Z"
+last_updated: "2026-10-20T12:52:39.321Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 32 complete
-state_head: 3560824a5599e53da7c251fb9b6bf08ae96ef4ab
+state_head: f81ba1cfbf9d10880ec6211d460aff32d5105282
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 40
+  total_plans: 53
   completed_plans: 40
-  percent: 80
+  percent: 75
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 
 ## Current Position
 
-Phase: 32 (계좌 축 정리) — COMPLETE
+Phase: 34 (매집감지(accum) 보고서) — READY TO EXECUTE
 Plan: 14 of 14
 Status: All phases complete (v1.1 30 · 31 · 32 · 33)
 Last activity: 2026-10-20 - Completed quick task 261018-j17: 팀 매집 거래원별 순매수 + 팀 당일 손익
 
-Progress: [████████░░] 80% (40/40 plans)
+Progress: [████████░░] 75% (40/40 plans)
 
 ## Accumulated Context
 

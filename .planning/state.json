@@ -22,12 +22,17 @@
       "number": "33",
       "name": "팀 매집(teamflow) 보고서",
       "status": "complete"
+    },
+    {
+      "number": "34",
+      "name": "매집감지(accum) 보고서",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd:new-milestone",
-    "label": "Start a new milestone",
-    "reason": "All phases complete — start a new milestone"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-10-20T09:14:43.830Z"
+  "updated_at": "2026-10-20T12:52:39.333Z"
 }
