@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 016 — 팀 매집 거래원별 순매수</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #17171c; --layer: #202027; --float: #2c2c35; --g200: #3c3c47;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #2e2e37; --red: #f04251; --blue: #3485fa; --team: #b48cf2; --team-box: rgba(180,140,242,.16);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  flex: none; background: var(--bg); color: var(--t800); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.phone { width: 390px; border-radius: 30px; }
+.f.desktop { width: 1120px; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.f.desktop .main { padding: 24px 32px; }
+.row-h { display: flex; align-items: center; gap: 10px; background: var(--layer); border-radius: 16px 16px 0 0; padding: 14px 18px; }
+.row-h b { font-size: 16px; color: var(--t900); }
+.row-h span { font-size: 12.5px; color: var(--t500); }
+.tag { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(240,66,81,.18); color: var(--red); }
+.inner { background: var(--layer); border-radius: 0 0 16px 16px; padding: 4px 18px 22px; }
+.f.phone .inner { padding: 4px 14px 18px; }
+.sum { margin: 0 0 4px; padding: 12px 14px; list-style: none; display: grid; gap: 6px; background: rgba(60,60,71,.35); border-radius: 12px; }
+.sum li { font-size: 13px; line-height: 1.55; color: var(--t800); }
+.sum li b { color: var(--t900); }
+.sec-h { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 8px; flex-wrap: wrap; }
+.sec-h b { font-size: 14px; color: var(--t900); font-weight: 600; }
+.sec-h span { font-size: 12px; color: var(--t500); }
+.new { font-size: 10.5px; font-weight: 700; color: var(--team); border: 1px solid var(--team); border-radius: 4px; padding: 0 4px; margin-left: 2px; }
+.pos { color: var(--red); } .neg { color: var(--blue); } .dim { color: var(--t400); }
+.cap { font-size: 11.5px; color: var(--t500); line-height: 1.55; margin: 6px 0 0; }
+.warn { font-size: 12px; color: var(--t600); line-height: 1.6; background: rgba(255,177,61,.08); border-left: 3px solid #ffb13d; padding: 8px 10px; border-radius: 6px; margin-top: 8px; }
+.warn b { color: var(--t800); }
+.two { display: grid; gap: 16px; }
+.f.desktop .two { grid-template-columns: 1fr 1fr; }
+
+/* chips (A) */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 0; }
+.chip { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--hair); background: var(--bg); color: var(--t600); cursor: pointer; }
+.chip.on { background: var(--t900); color: #111; border-color: var(--t900); font-weight: 700; }
+.chip.team.on { background: var(--team); border-color: var(--team); color: #111; }
+.chip .u { font-size: 10px; color: var(--t400); margin-left: 3px; }
+
+/* band bars */
+.bars { display: grid; gap: 4px; }
+.bar { display: grid; grid-template-columns: 92px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; }
+.f.phone .bar { grid-template-columns: 78px 1fr 56px; }
+.bar .lb { color: var(--t600); white-space: nowrap; }
+.bar .tr { position: relative; height: 18px; }
+.bar .tr::before { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; border-left: 1px solid var(--g200); }
+.bar .fl { position: absolute; top: 3px; height: 12px; border-radius: 3px; }
+.bar .vl { text-align: right; font-weight: 600; white-space: nowrap; }
+.bar .unk { position: absolute; inset: 3px 0; border-radius: 3px; background: repeating-linear-gradient(45deg, transparent 0 4px, rgba(255,255,255,.07) 4px 8px); }
+.bar.lim .lb { color: var(--t500); }
+.bar.sep { border-top: 1px dashed var(--g200); padding-top: 4px; margin-top: 2px; }
+
+/* 10-min columns */
+.cols { position: relative; height: 150px; display: grid; grid-template-columns: repeat(39, 1fr); gap: 2px; align-items: stretch; }
+.cols .c { position: relative; }
+.cols .c i { position: absolute; left: 0; right: 0; border-radius: 2px; }
+.cols .c.unk { background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,255,255,.07) 3px 6px); }
+.cols .c.win { background-color: var(--team-box); }
+.cols::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--g200); }
+.axis { display: grid; grid-template-columns: repeat(39, 1fr); font-size: 10px; color: var(--t500); margin-top: 4px; }
+.axis span { white-space: nowrap; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--t500); margin-top: 6px; align-items: center; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.legend .hatch { background: repeating-linear-gradient(45deg, var(--g200) 0 2px, transparent 2px 4px); }
+
+/* matrix (B) */
+.tw { overflow-x: auto; border-radius: 10px; background: var(--bg); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; text-align: right; }
+th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--bg); }
+th { font-size: 11.5px; color: var(--t500); font-weight: 500; }
+th.team { color: var(--team); font-weight: 700; }
+td.team { font-weight: 700; box-shadow: inset 1px 0 0 var(--hair), inset -1px 0 0 var(--hair); }
+td.cell { font-weight: 600; }
+tr.total td { font-weight: 700; border-top: 2px solid var(--g200); }
+tr.lim td:first-child { color: var(--t500); }
+tr.win td:first-child { box-shadow: inset 3px 0 0 var(--team); }
+.f.phone th, .f.phone td { padding: 5px 5px; font-size: 11.5px; }
+.toggle { all: unset; cursor: pointer; font-size: 12.5px; color: var(--team); font-weight: 600; margin-top: 8px; display: inline-block; }
+
+/* small multiples (C) */
+.sm { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+.f.phone .sm { grid-template-columns: repeat(2, 1fr); }
+.sm .p { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.sm .p h4 { margin: 0 0 6px; font-size: 12.5px; color: var(--t900); display: flex; justify-content: space-between; }
+.sm .p h4 em { font-style: normal; font-weight: 700; }
+.sm .p.team h4 { color: var(--team); }
+.sm .bar { grid-template-columns: 1fr; gap: 0; }
+.sm .bar .tr { height: 12px; }
+.sm .bar .fl { top: 2px; height: 8px; }
+.sm .lbcol { font-size: 10px; color: var(--t500); }
+.strips { display: grid; gap: 3px; }
+.strip { display: grid; grid-template-columns: 44px 1fr 58px; gap: 8px; align-items: center; font-size: 12px; }
+.strip .nm { color: var(--t800); font-weight: 600; }
+.strip.team .nm { color: var(--team); }
+.strip .cols { height: 34px; }
+.strip .vl { text-align: right; font-weight: 600; }
+
+/* day members */
+.mem { display: grid; gap: 8px; }
+.mrow { display: grid; grid-template-columns: 44px 1fr 92px; gap: 8px; align-items: center; font-size: 12.5px; }
+.mrow .nm { font-weight: 600; color: var(--t900); }
+.mrow .tk { display: flex; flex-direction: column; gap: 3px; }
+.mrow .tk span { display: block; height: 7px; border-radius: 3px; background: var(--float); overflow: hidden; }
+.mrow .tk span i { display: block; height: 100%; border-radius: 3px; }
+.mrow .vv { text-align: right; }
+.mrow .vv b { display: block; font-weight: 700; font-size: 13px; }
+.mrow .vv small { display: block; font-size: 10.5px; color: var(--t500); }
+.mrow.off .nm, .mrow.off .vv { color: var(--t400); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span><button data-v="A" class="on">A 칩 전환</button><button data-v="B">B 행렬 표</button><button data-v="C">C 작은 여러 장</button></div>
+  <div class="g"><span class="l">화면</span><button data-w="desktop" class="on">데스크톱</button><button data-w="phone">폰 390</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"><div class="f desktop" id="frame"><div class="main" id="main"></div></div></div>
+<script>
+const D = {"name": "천일고속", "code": "000650", "date": "20261014", "status": "limit", "team_net": 410594300, "bands": [{"label": "0~5%", "net_val": -9836500, "share": 0.10139049826187717, "vol": 4512}, {"label": "5~10%", "net_val": -25661200, "share": 0.10396605190141994, "vol": 12596}, {"label": "10~15%", "net_val": 71828300, "share": 0.19628877935633518, "vol": 6721}, {"label": "15~20%", "net_val": 77503700, "share": 0.17895826696400127, "vol": 23185}, {"label": "20~25%", "net_val": -6569500, "share": 0.07762312633832977, "vol": 13184}, {"label": "25~28%", "net_val": -22754500, "share": 0.07698412698412699, "vol": 10268}, {"label": "28%~상한 미만", "net_val": 326084000, "share": 0.5051891529963174, "vol": 3400}, {"label": "상한가 가격", "net_val": -508256000, "share": 0.9933268229166666, "vol": 24446}, {"label": "하루 합계", "net_val": 410594300, "share": 0.15535366964571484, "vol": 73866}], "buckets": [{"key": 54, "start": "09:00", "lo": 0.4634994206257348, "hi": 6.60486674391656, "net_val": -7263500, "share": 0.11781011781011781}, {"key": 55, "start": "09:10", "lo": 3.7659327925840147, "hi": 10.950173812282738, "net_val": -57882800, "share": 0.09699222710375127}, {"key": 56, "start": "09:20", "lo": 3.128621089223649, "hi": 7.184241019698723, "net_val": 13663500, "share": 0.0766847405112316}, {"key": 57, "start": "09:30", "lo": 5.098493626882972, "hi": 8.169177288528395, "net_val": -1483000, "share": 0.04529616724738676}, {"key": 58, "start": "09:40", "lo": 4.9826187717265435, "hi": 6.431054461181929, "net_val": 11643700, "share": 0.2088235294117647}, {"key": 59, "start": "09:50", "lo": 5.504055619930481, "hi": 21.089223638470457, "net_val": 165366900, "share": 0.20552593310712555}, {"key": 60, "start": "10:00", "lo": 14.542294322132099, "hi": 21.668597914252597, "net_val": 13394700, "share": 0.1375598086124402}, {"key": 61, "start": "10:10", "lo": 13.789107763615306, "hi": 17.03360370799536, "net_val": -28378000, "share": 0.09014423076923077}, {"key": 62, "start": "10:20", "lo": 14.947856315179608, "hi": 19.351100811123988, "net_val": 26465500, "share": 0.1465603190428714}, {"key": 63, "start": "10:30", "lo": 15.469293163383547, "hi": 17.902665121668605, "net_val": 7304100, "share": 0.2906574394463668}, {"key": 64, "start": "10:40", "lo": 13.789107763615306, "hi": 17.32329084588644, "net_val": -33081500, "share": 0.11405295315682282}, {"key": 65, "start": "10:50", "lo": 13.962920046349936, "hi": 16.74391657010428, "net_val": -21057600, "share": 0.07434944237918216}, {"key": 66, "start": "11:00", "lo": 14.42641946697567, "hi": 19.351100811123988, "net_val": 21973200, "share": 0.12039312039312039}, {"key": 67, "start": "11:10", "lo": 14.13673232908459, "hi": 18.192352259559684, "net_val": -16509900, "share": 0.24788732394366197}, {"key": 68, "start": "11:20", "lo": 14.194669756662815, "hi": 15.81691772885283, "net_val": -77686700, "share": 0.10416666666666667}, {"key": 69, "start": "11:30", "lo": 15.063731170336037, "hi": 17.32329084588644, "net_val": 21092700, "share": 0.1483050847457627}, {"key": 70, "start": "11:40", "lo": 16.454229432213218, "hi": 23.406720741599063, "net_val": 66447000, "share": 0.11928934010152284}, {"key": 71, "start": "11:50", "lo": 20.509849362688293, "hi": 29.77983777520279, "net_val": -922446500, "share": 0.4190753852561433}, {"key": 72, "start": "12:00", "lo": 21.089223638470457, "hi": 29.77983777520279, "net_val": 720776500, "share": 0.4742495180391077}, {"key": 73, "start": "12:10", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 74, "start": "12:20", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 75, "start": "12:30", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 76, "start": "12:40", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 77, "start": "12:50", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 78, "start": "13:00", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 79, "start": "13:10", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 80, "start": "13:20", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 81, "start": "13:30", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 82, "start": "13:40", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 83, "start": "13:50", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 84, "start": "14:00", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 85, "start": "14:10", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 86, "start": "14:20", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 87, "start": "14:30", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 88, "start": "14:40", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 89, "start": "14:50", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 90, "start": "15:00", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 91, "start": "15:10", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}, {"key": 93, "start": "15:30", "lo": 29.77983777520279, "hi": 29.77983777520279, "net_val": 0, "share": null}], "window": {"i": 18, "j": 18, "start": "12:00", "end": "12:09", "lo": 21.089223638470457, "hi": 29.77983777520279, "net_val": 720776500, "share_lo": 0.47424951803910775, "share_hi": 0.47424951803910775}, "members": {"time": "15:30", "rows": [{"member": "00002", "name": "신한", "buy": 15096, "sell": 11471, "net": 3625}, {"member": "00003", "name": "한국", "buy": 10141, "sell": 10990, "net": -849}, {"member": "00012", "name": "NH", "buy": 9288, "sell": 11479, "net": -2191}, {"member": "00001", "name": "교보", "buy": 6994, "sell": null, "net": null}], "absent": ["유진"], "total": null, "top_buy": {"member": "00050", "name": "키움증권", "qty": 17487}, "top_sell": {"member": "00050", "name": "키움증권", "qty": 20192}}, "summary": ["20% 아래 팀 순매수 <b>+1.1억</b>(15% 미만 +0.4억 · 15~20% +0.8억), 20%~상한 미만 팀 순매수 <b>+3.0억</b>.", "팀 순매수가 가장 크게 이어진 10분 구간은 <b>12:00~12:09</b>(등락률 21.1~29.8%) — 순매수 합 <b>+7.2억</b>, 매수주도 체결 중 팀 47%.", "팀 순매도가 가장 컸던 10분 구간: 09:10 −0.6억 · 11:20 −0.8억 · 11:50 −9.2억.", "하루 합계(상한가 가격 제외) 팀 매수 13.0억 · 팀 매도 8.9억 · 팀 순매수 <b>+4.1억</b>. 들어와서 친 체결(A3 공격 방향)만 센 최소치다 — 호가에 걸어 두고 받아낸 팀 체결은 보이지 않는다.", "첫 상한가 11:50:30 · 도달 순간 매수주도 중 팀 81%(9.9억) · 상한가 가격 팀 매수 13.7억 · 팀 매도 18.8억."], "mb": {"교보": {"0~5%": null, "10~15%": null, "15~20%": null, "20~25%": null, "25~28%": null, "28%~상한 미만": null, "5~10%": null, "상한가 가격": null}, "한국": {"0~5%": null, "10~15%": null, "15~20%": 57051368, "20~25%": 88106930, "25~28%": -122710206, "28%~상한 미만": -35061618, "5~10%": null, "상한가 가격": -222607755}, "유진": {"0~5%": null, "10~15%": null, "15~20%": null, "20~25%": null, "25~28%": null, "28%~상한 미만": null, "5~10%": null, "상한가 가격": null}, "신한": {"0~5%": -38044227, "10~15%": 89057405, "15~20%": 96768852, "20~25%": -180640448, "25~28%": 25377118, "28%~상한 미만": 38065364, "5~10%": -101062100, "상한가 가격": 805969886}, "NH": {"0~5%": 44084019, "10~15%": 59465250, "15~20%": 11469414, "20~25%": 59733780, "25~28%": -73866773, "28%~상한 미만": -64701358, "5~10%": 12555940, "상한가 가격": -559502572}}, "mk": {"교보": {"54": null, "55": null, "56": null, "57": null, "58": null, "59": null, "60": null, "61": null, "62": null, "63": null, "64": null, "65": null, "66": null, "67": null, "68": null, "69": null, "70": null, "71": null, "72": null, "73": null, "74": null, "75": null, "76": null, "77": null, "78": null, "79": null, "80": null, "81": null, "82": null, "83": null, "84": null, "85": null, "86": null, "87": null, "88": null, "89": null, "90": null, "91": null, "93": null}, "한국": {"54": null, "55": null, "56": null, "57": null, "58": null, "59": null, "60": -15886582, "61": -58942520, "62": 65975206, "63": 19109960, "64": null, "65": null, "66": null, "67": null, "68": -5360000, "69": -71628200, "70": -13109000, "71": -57198945, "72": -126760627, "73": -43438427, "74": -9184000, "75": -4480000, "76": -896000, "77": -19712000, "78": -5600000, "79": 0, "80": -8736000, "81": -448000, "82": -2688000, "83": -224000, "84": 0, "85": 0, "86": 0, "87": 0, "88": 0, "89": -672000, "90": -597333, "91": -2538667, "93": -672000}, "유진": {"54": null, "55": null, "56": null, "57": null, "58": null, "59": null, "60": null, "61": null, "62": null, "63": null, "64": null, "65": null, "66": null, "67": null, "68": null, "69": null, "70": null, "71": null, "72": null, "73": null, "74": null, "75": null, "76": null, "77": null, "78": null, "79": null, "80": null, "81": null, "82": null, "83": null, "84": null, "85": null, "86": null, "87": null, "88": null, "89": null, "90": null, "91": null, "93": null}, "신한": {"54": -26279450, "55": -162562576, "56": -13985911, "57": -17806689, "58": 18662476, "59": 298677201, "60": -26035347, "61": 10488287, "62": 16533276, "63": 6152442, "64": 17752474, "65": -26296883, "66": -23850519, "67": 2007569, "68": -19275350, "69": 4898100, "70": -37218500, "71": -57611689, "72": 118009103, "73": -36910163, "74": 135968000, "75": 67200000, "76": 21504000, "77": 136416000, "78": 69888000, "79": 10976000, "80": 35392000, "81": 5600000, "82": 15904000, "83": 14784000, "84": 17024000, "85": 7840000, "86": 896000, "87": 5376000, "88": 9856000, "89": 11424000, "90": 84000000, "91": 31360000, "93": 8736000}, "NH": {"54": 59553633, "55": 7863705, "56": 9160959, "57": -136945, "58": -19457053, "59": -13192959, "60": 176873997, "61": 38296859, "62": -27468766, "63": -4019741, "64": 12544076, "65": 14161333, "66": -18130942, "67": 13453342, "68": -28704054, "69": -472246, "70": -151665000, "71": -49784798, "72": -194062461, "73": -263764574, "74": -22530667, "75": -9856000, "76": -896000, "77": -6496000, "78": -7840000, "79": 0, "80": -10976000, "81": -2688000, "82": -672000, "83": -224000, "84": -465231, "85": -654769, "86": 0, "87": -2688000, "88": 0, "89": -896000, "90": -672000, "91": 0, "93": -4256000}}, "day": {"교보": {"buy": 1560189100, "sell": null}, "한국": {"buy": 2105170650, "sell": 2329488700}, "유진": {"buy": null, "sell": null}, "신한": {"buy": 3129112950, "sell": 2324330100}, "NH": {"buy": 1866093400, "sell": 2384365100}}};
+const MEMBERS = ['교보', '한국', '유진', '신한', 'NH'];
+const DESC = {
+  A: '<b>A 칩 전환</b> — 지금 차트 두 개는 그대로 두고, 위에 [팀 전체 · 교보 · 한국 · 유진 · 신한 · NH] 칩 한 줄. 칩을 누르면 구간 막대와 10분 막대가 그 창구 값으로 바뀐다. 한 번에 한 창구만 본다. 빗금 = 그 칸에서 창구가 상위 5 밖이라 모름.',
+  B: '<b>B 행렬 표</b> — 행 = 구간(또는 10분), 열 = 팀 · 교보 · 한국 · 유진 · 신한 · NH. 숫자로 한눈에 나란히 비교. 마지막 「하루 합계」 행이 창구별 하루 순매수. 지금 차트는 그대로, 표 두 개는 접힘 토글. 「—」 = 상위 5 밖이라 모름.',
+  C: '<b>C 작은 여러 장</b> — 팀 + 다섯 창구를 같은 눈금의 작은 차트 6장으로 나란히. 구간은 미니 막대 6장, 10분은 시간축을 맞춘 띠 6줄(위아래 = 순매수/순매도). 모양(언제 · 어디서 샀나) 비교에 강하고, 정확한 숫자는 막대에 마우스를 올린다.',
+};
+const eok = (v, signed = true) => {
+  if (v === null || v === undefined) return '—';
+  const x = Math.round(v / 1e7) / 10;
+  const s = Math.abs(x).toFixed(1);
+  if (x === 0) return '0.0억';
+  return (signed ? (x > 0 ? '+' : '−') : '') + s + '억';
+};
+const tone = (v) => v === null || v === undefined ? 'dim' : (Math.round(v / 1e7) === 0 ? 'dim' : v > 0 ? 'pos' : 'neg');
+const fill = (v) => v > 0 ? 'var(--red)' : 'var(--blue)';
+const BANDS = D.bands.filter((b) => b.label !== '하루 합계');
+const BUCKETS = (() => {   // 09:00~15:20 39칸 고정축(15:30 은 15:20 칸 합산 — 지금 화면과 같다)
+  const out = [];
+  for (let k = 54; k <= 92; k++) out.push({ key: k, start: `${String(Math.floor(k / 6)).padStart(2, '0')}:${k % 6}0` });
+  return out;
+})();
+const teamBucket = (k) => { let v = 0, has = false; for (const b of D.buckets) if (b.key === k || (k === 92 && b.key === 93)) { v += b.net_val; has = true; } return has ? v : 0; };
+const memBucket = (m, k) => { const a = D.mk[m][String(k)], b = k === 92 ? D.mk[m]['93'] : undefined; if (a === null || b === null) return null; return (a ?? 0) + (b ?? 0); };
+const series = (who) => ({
+  band: BANDS.map((b) => who === '팀' ? b.net_val : (D.mb[who][b.label] ?? (D.mb[who][b.label] === null ? null : 0))),
+  bucket: BUCKETS.map((b) => who === '팀' ? teamBucket(b.key) : memBucket(who, b.key)),
+});
+const sumKnown = (arr) => arr.some((v) => v === null) ? null : arr.reduce((a, b) => a + b, 0);
+const winKeys = (() => { const [h0, m0] = D.window.start.split(':').map(Number), [h1, m1] = D.window.end.split(':').map(Number); return [h0 * 6 + m0 / 10, h1 * 6 + Math.floor(m1 / 10)]; })();
+const inWin = (k) => k >= winKeys[0] && k <= winKeys[1];
+
+function bandBars(vals, mx, compact) {
+  return `<div class="bars">${BANDS.map((b, i) => {
+    const v = vals[i]; const lim = b.label === '상한가 가격';
+    const w = v === null ? 0 : Math.min(Math.abs(v) / mx, 1) * 50;
+    const pos = v > 0 ? `left:50%;width:${w}%` : `right:50%;width:${w}%`;
+    return `<div class="bar${lim ? ' lim sep' : ''}" title="${b.label} ${eok(v)}">
+      ${compact ? '' : `<span class="lb">${b.label}</span>`}
+      <span class="tr">${v === null ? '<span class="unk"></span>' : `<span class="fl" style="${pos};background:${fill(v)}"></span>`}</span>
+      ${compact ? '' : `<span class="vl ${tone(v)}">${v === null ? '모름' : eok(v)}</span>`}</div>`;
+  }).join('')}</div>`;
+}
+function bucketCols(vals, mx, h) {
+  return `<div class="cols"${h ? ` style="height:${h}px"` : ''}>${BUCKETS.map((b, i) => {
+    const v = vals[i];
+    if (v === null) return `<span class="c unk${inWin(b.key) ? ' win' : ''}" title="${b.start} 모름"></span>`;
+    const hh = Math.min(Math.abs(v) / mx, 1) * 50;
+    const st = v >= 0 ? `bottom:50%;height:${hh}%` : `top:50%;height:${hh}%`;
+    return `<span class="c${inWin(b.key) ? ' win' : ''}" title="${b.start} ${eok(v)}"><i style="${st};background:${fill(v)}"></i></span>`;
+  }).join('')}</div>`;
+}
+const axis = () => `<div class="axis">${BUCKETS.map((b, i) => `<span>${i % 6 === 0 ? b.start.slice(0, 2) + '시' : ''}</span>`).join('')}</div>`;
+const legend = (extra = '') => `<div class="legend"><span><i style="background:var(--red)"></i>순매수</span><span><i style="background:var(--blue)"></i>순매도</span><span><i class="hatch"></i>상위 5 밖 — 모름</span><span><i style="background:var(--team-box)"></i>팀 최대 매집 창(${D.window.start}~${D.window.end})</span>${extra}</div>`;
+const WARN = `<div class="warn"><b>거래원 숫자 = 그 창구 전체</b>(일반 고객 포함)의 순매수다. 거래소가 1분마다 주는 거래원 상위 5 누적을 창구별로 빼서, 그 1분 체결량 비례로 구간 · 10분에 나눈 추정이다. 팀 숫자(체결 모양으로 찾은 팀 주문)와는 출처가 달라 <b>다섯 창구를 더해도 팀 순매수가 되지 않는다.</b> 그 1분 동안 상위 5 밖이면 「모름」.</div>`;
+
+function daySection() {
+  const rows = MEMBERS.map((m) => {
+    const d = D.day[m];
+    const bandVals = BANDS.map((b) => D.mb[m][b.label] ?? null);
+    const pre = sumKnown(bandVals.slice(0, -1));
+    const lim = bandVals[bandVals.length - 1];
+    const net = d.buy !== null && d.sell !== null ? d.buy - d.sell : null;
+    return { m, d, net, pre, lim };
+  }).sort((a, b) => (b.net ?? -1e18) - (a.net ?? -1e18));
+  const mx = Math.max(...MEMBERS.flatMap((m) => [D.day[m].buy, D.day[m].sell]).filter((x) => x !== null));
+  return `<div class="sec-h"><b>거래원별 하루 순매수</b><span class="new">새로</span><span>${D.members.time} 기준 하루 누적 · 창구 전체(일반 고객 포함)</span></div>
+  <div class="mem">${rows.map(({ m, d, net, pre, lim }) => {
+    const off = d.buy === null && d.sell === null;
+    const sub = off ? '하루 내내 상위 5 밖' : `상한가 전 ${eok(pre)} · 상한가 가격 ${eok(lim)}`;
+    return `<div class="mrow${off ? ' off' : ''}"><span class="nm">${m}</span>
+      <span class="tk"><span>${d.buy !== null ? `<i style="width:${d.buy / mx * 100}%;background:var(--red)"></i>` : ''}</span><span>${d.sell !== null ? `<i style="width:${d.sell / mx * 100}%;background:var(--blue)"></i>` : ''}</span></span>
+      <span class="vv"><b class="${tone(net)}">${off ? '모름' : net === null ? (d.sell === null ? '매도 모름' : '매수 모름') : eok(net)}</b><small>매수 ${eok(d.buy, false)} · 매도 ${eok(d.sell, false)}</small></span></div>
+      <p class="cap" style="margin:-4px 0 0 52px">${sub}</p>`;
+  }).join('')}</div>
+  <p class="cap">팀(체결 모양) 하루 순매수 ${eok(D.team_net)} — 위 다섯 창구 합과 다른 출처다. 지금 화면의 「다섯 창구 거래원」(주 단위)을 금액(억)으로 바꾸고 상한가 전 · 상한가 가격을 나눈 자리.</p>`;
+}
+
+function renderA(sel) {
+  const s = series(sel);
+  const all = ['팀', ...MEMBERS].map(series);
+  const mxBand = Math.max(...all.flatMap((x) => x.band).filter((v) => v !== null).map(Math.abs));
+  const mxBk = Math.max(...all.flatMap((x) => x.bucket).filter((v) => v !== null).map(Math.abs));
+  const chips = ['팀', ...MEMBERS].map((m) => {
+    const unk = series(m).band.every((v) => v === null);
+    return `<button class="chip${m === '팀' ? ' team' : ''}${m === sel ? ' on' : ''}" data-chip="${m}">${m === '팀' ? '팀 전체' : m}${unk ? '<span class="u">모름</span>' : ''}</button>`;
+  }).join('');
+  const who = sel === '팀' ? '팀' : `${sel} 창구`;
+  return `<div class="chips">${chips}</div>
+    ${sel === '팀' ? '' : WARN}
+    <div class="two">
+      <div><div class="sec-h"><b>등락 구간별 ${who} 순매수</b><span>${sel === '팀' ? '막대 = 팀 순매수' : '막대 = 창구 전체 순매수(추정)'}</span></div>${bandBars(s.band, mxBand)}</div>
+      <div>${daySection()}</div>
+    </div>
+    <div class="sec-h"><b>10분마다 ${who} 순매수</b><span>09:00~15:30 · 눈금은 여섯 칩 공통</span></div>
+    ${bucketCols(s.bucket, mxBk)}${axis()}${legend()}`;
+}
+
+function matrix(kind) {
+  const rows = kind === 'band' ? BANDS.map((b, i) => ({ label: b.label, i, lim: b.label === '상한가 가격' })) : BUCKETS.map((b, i) => ({ label: b.start, i, win: inWin(b.key) }));
+  const cols = ['팀', ...MEMBERS].map((m) => series(m)[kind === 'band' ? 'band' : 'bucket']);
+  const mx = Math.max(...cols.slice(1).flat().filter((v) => v !== null).map(Math.abs));
+  const bg = (v, team) => { if (v === null || team) return ''; const a = Math.min(Math.abs(v) / mx, 1) * 0.42; return `background:${v > 0 ? `rgba(240,66,81,${a})` : `rgba(52,133,250,${a})`}`; };
+  const head = `<tr><th>${kind === 'band' ? '구간' : '시각'}</th><th class="team">팀</th>${MEMBERS.map((m) => `<th>${m}</th>`).join('')}</tr>`;
+  const body = rows.map((r) => `<tr class="${r.lim ? 'lim' : ''}${r.win ? ' win' : ''}"><td>${r.label}</td>${cols.map((c, j) => { const v = c[r.i]; return `<td class="${j === 0 ? 'team ' : 'cell '}${tone(v)}" style="${bg(v, j === 0)}">${v === null ? '—' : eok(v).replace('억', '')}</td>`; }).join('')}</tr>`).join('');
+  let total = '';
+  if (kind === 'band') {
+    const t = cols.map((c, j) => j === 0 ? D.bands.find((b) => b.label === '하루 합계').net_val : sumKnown(c.slice(0, -1)));
+    total = `<tr class="total"><td>하루 합계</td>${t.map((v, j) => `<td class="${j === 0 ? 'team ' : ''}${tone(v)}">${v === null ? '—' : eok(v).replace('억', '')}</td>`).join('')}</tr>`;
+  }
+  return `<div class="tw"><table>${head}${body}${total}</table></div>`;
+}
+
+function renderB(open) {
+  return `${WARN}
+    <div class="two">
+      <div><div class="sec-h"><b>등락 구간별 팀 · 거래원 순매수</b><span class="new">새로</span><span>단위 억 · 하루 합계 = 상한가 가격 제외</span></div>${matrix('band')}
+        <p class="cap">색 진하기 = 다섯 창구 안에서 크기. 팀 열은 색 없음(출처가 달라 한 눈금에 섞지 않는다).</p></div>
+      <div>${daySection()}</div>
+    </div>
+    <div class="sec-h"><b>10분마다 팀 · 거래원 순매수</b><span class="new">새로</span><span>단위 억 · 보라 띠 = 팀 최대 매집 창</span></div>
+    ${open ? matrix('bucket') : ''}
+    <button class="toggle" data-tg="1">${open ? '▴ 10분 거래원 표 접기' : '▾ 10분 거래원 표 보기 (39행)'}</button>
+    <p class="cap">지금 화면의 구간 막대 · 10분 막대(팀)는 이 표 위에 그대로 둔다 — 목업에선 생략.</p>`;
+}
+
+function renderC() {
+  const all = ['팀', ...MEMBERS];
+  const mem = MEMBERS.map(series);
+  const mxBand = Math.max(...mem.flatMap((x) => x.band).filter((v) => v !== null).map(Math.abs));
+  const mxBk = Math.max(...mem.flatMap((x) => x.bucket).filter((v) => v !== null).map(Math.abs));
+  const t = series('팀');
+  const tBand = Math.max(...t.band.map(Math.abs)), tBk = Math.max(...t.bucket.map(Math.abs));
+  const panels = all.map((m) => {
+    const s = series(m); const tot = m === '팀' ? D.bands.find((b) => b.label === '하루 합계').net_val : sumKnown(s.band.slice(0, -1));
+    return `<div class="p${m === '팀' ? ' team' : ''}"><h4>${m === '팀' ? '팀(체결 모양)' : m}<em class="${tone(tot)}">${tot === null ? '모름' : eok(tot)}</em></h4>${bandBars(s.band, m === '팀' ? tBand : mxBand, true)}</div>`;
+  }).join('');
+  const strips = all.map((m) => {
+    const s = series(m); const tot = sumKnown(s.bucket);
+    return `<div class="strip${m === '팀' ? ' team' : ''}"><span class="nm">${m}</span>${bucketCols(s.bucket, m === '팀' ? tBk : mxBk, 34)}<span class="vl ${tone(tot)}">${tot === null ? '—' : eok(tot)}</span></div>`;
+  }).join('');
+  return `${WARN}
+    <div class="sec-h"><b>등락 구간별 순매수 — 팀 · 다섯 창구</b><span class="new">새로</span><span>위에서부터 ${BANDS.map((b) => b.label).join(' · ')} · 머리 숫자 = 상한가 가격 제외 합</span></div>
+    <div class="sm">${panels}</div>
+    <p class="cap">다섯 창구는 한 눈금, 팀은 자기 눈금(출처가 다르다).</p>
+    <div class="two"><div>
+    <div class="sec-h"><b>10분마다 순매수 — 팀 · 다섯 창구</b><span class="new">새로</span><span>시간축 공통 · 오른쪽 = 하루 합(모르는 칸 있으면 —)</span></div>
+    <div class="strips">${strips}</div>
+    <div class="strip"><span></span>${axis()}<span></span></div>${legend()}
+    </div><div>${daySection()}</div></div>`;
+}
+
+let V = 'A', W = 'desktop', SEL = '팀', OPEN = false;
+function render() {
+  document.getElementById('desc').innerHTML = DESC[V];
+  const fr = document.getElementById('frame'); fr.className = `f ${W}`;
+  const head = `<div class="row-h"><b>${D.name}</b><span>${D.code} · 10/14</span><span class="tag">상한가</span><span style="flex:1"></span><span>팀 순매수 <b class="${tone(D.team_net)}" style="font-size:14px">${eok(D.team_net)}</b></span></div>`;
+  const sum = `<ol class="sum">${D.summary.slice(0, 2).map((l) => `<li>${l}</li>`).join('')}<li class="dim">… (지금 화면 요약 그대로)</li></ol>`;
+  const body = V === 'A' ? renderA(SEL) : V === 'B' ? renderB(OPEN) : renderC();
+  document.getElementById('main').innerHTML = `${head}<div class="inner">${sum}${body}</div>
+    <p class="cap" style="text-align:center;margin-top:10px">실데이터: 천일고속 2026-10-14 — 팀 = export 그대로, 거래원 = 맥 parquet B9 로 위 방식대로 계산한 값(gh-trade 확정 규칙 전 시안).</p>`;
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.v) { V = t.dataset.v; document.querySelectorAll('[data-v]').forEach((b) => b.classList.toggle('on', b === t)); }
+  if (t.dataset.w) { W = t.dataset.w; document.querySelectorAll('[data-w]').forEach((b) => b.classList.toggle('on', b === t)); }
+  if (t.dataset.chip) SEL = t.dataset.chip;
+  if (t.dataset.tg) OPEN = !OPEN;
+  render();
+});
+render();
+</script>
+</body>
+</html>
