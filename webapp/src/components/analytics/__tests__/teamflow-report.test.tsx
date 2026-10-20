@@ -44,6 +44,8 @@ import {
   teamflowRows,
 } from '@/test-fixtures/teamflow-export';
 
+import { CJSEAFOOD_PREF, teamflowRowsWithNewKeys } from '@/test-fixtures/teamflow-new-keys';
+
 import { TeamflowReport } from '../teamflow-report';
 
 async function flush() {
@@ -250,6 +252,7 @@ describe('TeamflowReport', () => {
       '종목',
       '결과',
       '팀 순매수',
+      '팀 손익',
       '20% 아래 / 위',
       '매수 중 팀',
       '구간별 순매수',
@@ -314,5 +317,27 @@ describe('TeamflowReport', () => {
     expect(sum.textContent).toBe('0.0억');
     expect(sum.className).toContain('text-[var(--fg)]');
     expect(document.querySelector('[data-kpi="팀 순매수 종목"] dd')!.textContent).toBe('1');
+  });
+  it('(q) 팀 손익(quick 261018-j17) — xl 칸 · < xl 메타 · pnl null · 옛 행 「—」 · 정렬 그대로', async () => {
+    await open('d=20261014', teamflowReportFixture({ rows: teamflowRowsWithNewKeys() }));
+    const cell = (isin: string) => rowBtn(isin).querySelector('[data-slot="teamflow-pnl-cell"]') as HTMLElement;
+    const total = (isin: string) => cell(isin).querySelector('[data-slot="teamflow-pnl-total"]') as HTMLElement;
+    const ret = (isin: string) => cell(isin).querySelector('[data-slot="teamflow-pnl-ret"]') as HTMLElement;
+    expect(total(CHEONIL).textContent).toBe('+0.30억');
+    expect(total(CHEONIL).className).toContain('text-[var(--up)]');
+    expect(ret(CHEONIL).textContent).toBe('+1.1%');
+    expect(total(DONGYANG).textContent).toBe('−0.08억');
+    expect(total(DONGYANG).className).toContain('text-[var(--down)]');
+    expect(ret(DONGYANG).textContent).toBe('−1.3%');
+    expect(cell(CJSEAFOOD_PREF).textContent).toBe('—');
+    expect(cell(HANSUN).textContent).toBe('—');
+    const meta = (isin: string) => rowBtn(isin).querySelector('[data-slot="teamflow-pnl-meta"]');
+    expect(meta(CHEONIL)!.textContent).toBe('손익+0.30억(+1.1%)');
+    expect(meta(CJSEAFOOD_PREF)).toBeNull();
+    expect(meta(HANSUN)).toBeNull();
+    const names = rowButtons()
+      .slice(0, 5)
+      .map((b) => b.getAttribute('aria-label')!.split(' ')[0]);
+    expect(names).toEqual(['한선엔지니어링', '제주항공', '천일고속', '도우인시스', '동양고속']);
   });
 });

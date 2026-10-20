@@ -18,7 +18,9 @@ import {
   bucketSlotsOf,
   fmtRangePct,
   fmtEok,
+  fmtAvgPx,
   fmtEokCell,
+  fmtPnl,
   fmtQty,
   fmtRate,
   fmtShare,
@@ -30,6 +32,7 @@ import {
   memberDaySplitOf,
   memberFlowOf,
   mixPctOf,
+  pnlOf,
   rowDescriptionOf,
   sortRows,
   summaryPartsOf,
@@ -583,5 +586,58 @@ describe('memberDaySplitOf (C-06 — 상한가 전 · 상한가 가격 분해)',
     const dy = newRowOf(DONGYANG).payload!.member_flow!;
     expect(memberDaySplitOf(dy, '00003')).toEqual({ pre: null, lim: null, hasLim: false });
     expect(memberDaySplitOf(null, '00002')).toBeNull();
+  });
+});
+
+describe('fmtEok digits 2 · toneOf digits (팀 손익 — 재량 6)', () => {
+  it('억 2자리 · 0.005 는 0 에서 먼 쪽 · 0 「0.00억」 · 생략 = 1자리 그대로', () => {
+    expect(fmtEok(29_950_600, { signed: true, digits: 2 })).toBe('+0.30억');
+    expect(fmtEok(3_099_958, { signed: true, digits: 2 })).toBe('+0.03억');
+    expect(fmtEok(26_850_642, { signed: true, digits: 2 })).toBe('+0.27억');
+    expect(fmtEok(829_535_100, { digits: 2 })).toBe('8.30억');
+    expect(fmtEok(-123_456_000_000, { signed: true, digits: 2 })).toBe('−1,234.56억');
+    expect(fmtEok(400_000, { signed: true, digits: 2 })).toBe('0.00억');
+    expect(fmtEok(500_000, { signed: true, digits: 2 })).toBe('+0.01억');
+    expect(fmtEok(-500_000, { signed: true, digits: 2 })).toBe('−0.01억');
+    expect(fmtEok(null, { digits: 2 })).toBe('—');
+    expect(fmtEok(29_950_600, { signed: true })).toBe('+0.3억');
+  });
+
+  it('toneOf 는 표시와 같은 자릿수로 판정', () => {
+    expect(toneOf(3_099_958, 2)).toBe('up');
+    expect(toneOf(3_099_958)).toBe('flat');
+    expect(toneOf(-400_000, 2)).toBe('flat');
+  });
+});
+
+describe('pnlOf · fmtPnl · fmtAvgPx (C-08 · C-10)', () => {
+  it('pnlOf — 13키 그대로 · 키 없음 · null · total_val 비숫자 → null', () => {
+    const ch = newRowOf(CHEONIL);
+    expect(pnlOf(ch.payload)).toEqual(NOTE_PNL);
+    expect(pnlOf(rowOf(CHEONIL).payload)).toBeNull();
+    expect(pnlOf(teamflowNewKeyRows().find((r) => r.isin === CJSEAFOOD_PREF)!.payload)).toBeNull();
+    expect(pnlOf(null)).toBeNull();
+    expect(pnlOf({ ...ch.payload!, pnl: { ...NOTE_PNL, total_val: 'x' as never } })).toBeNull();
+  });
+
+  it('fmtPnl — 천일고속 · 동양고속 · ret null', () => {
+    expect(fmtPnl(pnlOf(newRowOf(CHEONIL).payload)!)).toBe('+0.30억(+1.1%)');
+    expect(fmtPnl(pnlOf(newRowOf(DONGYANG).payload)!)).toBe('−0.08억(−1.3%)');
+    expect(fmtPnl({ total_val: 29_950_600, ret: null })).toBe('+0.30억');
+  });
+
+  it('fmtAvgPx — 반올림 원 · qty 0 · null → 「—」', () => {
+    expect(fmtAvgPx(2_666_615_800, 12_413)).toBe('214,824원');
+    expect(fmtAvgPx(2_764_277_500, 12_795)).toBe('216,044원');
+    expect(fmtAvgPx(1_000, 0)).toBe('—');
+    expect(fmtAvgPx(null, 10)).toBe('—');
+    expect(fmtAvgPx(1_000, null)).toBe('—');
+  });
+
+  it('rowDescriptionOf — 새 키 천일고속 끝 「, 팀 손익 +0.30억(+1.1%)」 · pnl null 이면 없음', () => {
+    expect(rowDescriptionOf(newRowOf(CHEONIL)).endsWith(', 팀 손익 +0.30억(+1.1%)')).toBe(true);
+    expect(rowDescriptionOf(rowOf(CHEONIL))).not.toContain('팀 손익');
+    const cj = teamflowNewKeyRows().find((r) => r.isin === CJSEAFOOD_PREF)!;
+    expect(rowDescriptionOf(cj)).not.toContain('팀 손익');
   });
 });

@@ -18,6 +18,7 @@ import type {
   TeamflowMemberFlowMember,
   TeamflowMemberNet,
   TeamflowPayload,
+  TeamflowPnl,
   TeamflowRow,
 } from '@gh-radar/shared';
 
@@ -40,33 +41,37 @@ export const isNum = (v: number | null | undefined): v is number => typeof v ===
  * 0.5 는 0 에서 먼 쪽(`roundHalfAway` — `fmtRate` · `fmtPct1` 과 같은 규칙). 부호에 따라 반올림이 갈리면 순매수 ·
  * 순매도가 비대칭으로 보인다(`Math.round` 는 +5,000,000 원 「+0.1억」 인데 −5,000,000 원 「0.0억」 이었다 · WR-02).
  */
-function eokOf(won: number | null | undefined): number | null {
+function eokOf(won: number | null | undefined, digits: 1 | 2 = 1): number | null {
   if (!isNum(won)) return null;
-  const v = roundHalfAway(won / 1e7) / 10;
+  const scale = digits === 2 ? 100 : 10;
+  const v = roundHalfAway(won / (1e8 / scale)) / scale;
   return v === 0 ? 0 : v;
 }
 
 const EOK_FMT = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const EOK_FMT2 = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const INT_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
 /**
  * 원 → 「+7.0억」 · 「−3.1억」 · 「0.0억」 · 「+1,234.5억」(D-10).
  * `signed` 가 아니면 양수에 「+」 를 붙이지 않는다(음수의 「−」 는 남긴다 — 값을 숨기지 않는다). null/NaN 「—」.
+ * `digits` 2 = 「+0.30억」 · 「0.00억」 · 「−1,234.56억」(팀 손익 전용 — 1자리면 미실현 +0.03억이 「0.0억」 으로 사라진다).
  */
-export function fmtEok(won: number | null | undefined, opts: { signed?: boolean } = {}): string {
-  const v = eokOf(won);
+export function fmtEok(won: number | null | undefined, opts: { signed?: boolean; digits?: 1 | 2 } = {}): string {
+  const digits = opts.digits ?? 1;
+  const v = eokOf(won, digits);
   if (v === null) return DASH;
-  if (v === 0) return '0.0억';
-  const abs = EOK_FMT.format(Math.abs(v));
+  if (v === 0) return digits === 2 ? '0.00억' : '0.0억';
+  const abs = (digits === 2 ? EOK_FMT2 : EOK_FMT).format(Math.abs(v));
   if (v < 0) return `${MINUS}${abs}억`;
   return `${opts.signed ? '+' : ''}${abs}억`;
 }
 
 export type TeamflowTone = 'up' | 'down' | 'flat';
 
-/** 반올림(억 1자리) 값 기준 색 판정 — 글자 · 막대가 같은 판정을 쓴다. null 은 flat. */
-export function toneOf(won: number | null | undefined): TeamflowTone {
-  const v = eokOf(won);
+/** 반올림(억 `digits` 자리 · 기본 1) 값 기준 색 판정 — 글자 · 막대가 표시와 같은 판정을 쓴다. null 은 flat. */
+export function toneOf(won: number | null | undefined, digits: 1 | 2 = 1): TeamflowTone {
+  const v = eokOf(won, digits);
   if (v === null || v === 0) return 'flat';
   return v > 0 ? 'up' : 'down';
 }
@@ -267,6 +272,7 @@ export function rowDescriptionOf(
     | 'below20_net_val'
     | 'above20_net_val'
     | 'team_buy_share'
+    | 'payload'
   >,
 ): string {
   const tag = tagOf(row);
@@ -278,6 +284,8 @@ export function rowDescriptionOf(
     `20%~상한 ${fmtEok(row.above20_net_val, { signed: true })}`,
     `매수 중 팀 ${fmtShare(row.team_buy_share)}`,
   );
+  const pnl = pnlOf(row.payload);
+  if (pnl !== null) parts.push(`팀 손익 ${fmtPnl(pnl)}`);
   return parts.join(', ');
 }
 
@@ -482,4 +490,28 @@ export function memberDaySplitOf(
   const total = at('하루 합계');
   const lim = at('상한가 가격');
   return { pre: total.v, lim: lim.has ? lim.v : null, hasLim: lim.has };
+}
+
+// ─── quick 261018-j17 — 팀 당일 손익(payload.pnl) ───
+
+/**
+ * payload.pnl — 객체이고 total_val 이 숫자일 때만 그것, 아니면 null(옛 행 키 없음 · 팀 연속매매 체결 0 = null).
+ * 상한가 가격 체결을 포함하므로 평평한 열 team_buy_val(상한가 제외)과 다르다 · 미실현 평가가 = last_px. 정본 gh-trade team-flow.md §5-1.
+ */
+export function pnlOf(payload: TeamflowPayload | null | undefined): TeamflowPnl | null {
+  const p = payload?.pnl;
+  if (p === null || typeof p !== 'object' || !isNum(p.total_val)) return null;
+  return p;
+}
+
+/** 「+0.30억(+1.1%)」 — 금액 억 2자리(재량 6) + ret(0~1) × 100 수익률 1자리 · ret null 이면 「+0.30억」. */
+export function fmtPnl(pnl: Pick<TeamflowPnl, 'total_val' | 'ret'>): string {
+  const amt = fmtEok(pnl.total_val, { signed: true, digits: 2 });
+  return isNum(pnl.ret) ? `${amt}(${fmtRate(pnl.ret * 100)})` : amt;
+}
+
+/** 평균가 — val ÷ qty 반올림 원 「214,824원」 · qty ≤ 0 · null → 「—」. */
+export function fmtAvgPx(val: number | null | undefined, qty: number | null | undefined): string {
+  if (!isNum(val) || !isNum(qty) || qty <= 0) return DASH;
+  return `${INT_FMT.format(Math.round(val / qty))}원`;
 }

@@ -12,7 +12,7 @@ import type { TeamflowRow } from '@gh-radar/shared';
  */
 
 import { CHEONIL, DONGYANG, HANSUN, SMBEXCEL, teamflowRows } from '@/test-fixtures/teamflow-export';
-import { withTeamflowNewKeys } from '@/test-fixtures/teamflow-new-keys';
+import { CJSEAFOOD_PREF, teamflowNewKeyRows, withTeamflowNewKeys } from '@/test-fixtures/teamflow-new-keys';
 
 import { TeamflowDayGrid } from '../teamflow-day-grid';
 import { TeamflowDetail } from '../teamflow-detail';
@@ -629,5 +629,51 @@ describe('TeamflowDetail — 거래원별 하루 순매수 억 모드 (C-06 · C
     expect(within(membersBox()).getByText('거래원별 하루 순매수')).toBeTruthy();
     expect(subs()[0]).toBe('매수 31.3억 · 매도 23.2억');
     expect(membersBox().querySelector('[data-slot="teamflow-member-source-note"]')).toBeNull();
+  });
+});
+
+describe('TeamflowDetail — 팀 당일 손익 (C-10 · C-11 · quick 261018-j17)', () => {
+  const pnlBox = () => document.querySelector('[data-slot="teamflow-pnl"]') as HTMLElement | null;
+  const NOTE = '그날 보인 팀 주문 기준 · 상한가 가격 포함 · 원가 미상 매도(전날 이전 보유분 추정)는 손익 제외';
+
+  it('천일고속 — 요약 뒤 · 2열 앞 · 합계 · 실현 · 미실현 · 평균가 · 원가 미상 매도 · 문구', () => {
+    renderDetail(newRowOf(CHEONIL));
+    const box = pnlBox()!;
+    expect(box).not.toBeNull();
+    const summary = document.querySelector('[data-slot="teamflow-summary"]') as HTMLElement;
+    const grid = document.querySelector('.xl\\:grid-cols-2') as HTMLElement;
+    expect(summary.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const t = box.textContent!;
+    for (const x of [
+      '팀 당일 손익',
+      '+0.30억(+1.1%)',
+      '실현',
+      '+0.27억',
+      '미실현',
+      '+0.03억',
+      '평균 매수가',
+      '214,824원',
+      '평균 매도가',
+      '216,044원',
+      '원가 미상 매도',
+      '8.30억',
+    ]) {
+      expect(t, x).toContain(x);
+    }
+    expect(within(box).getByText(NOTE)).toBeTruthy();
+  });
+
+  it('옛 행 4개 · CJ씨푸드1우(pnl null) → 없음 · 동양고속 → −0.08억(−1.3%)', () => {
+    for (const isin of [CHEONIL, SMBEXCEL, DONGYANG, HANSUN]) {
+      const { unmount } = renderDetail(rowOf(isin));
+      expect(pnlBox(), isin).toBeNull();
+      unmount();
+    }
+    const { unmount } = renderDetail(teamflowNewKeyRows().find((r) => r.isin === CJSEAFOOD_PREF)!);
+    expect(pnlBox()).toBeNull();
+    unmount();
+    renderDetail(newRowOf(DONGYANG));
+    expect(pnlBox()!.textContent).toContain('−0.08억(−1.3%)');
   });
 });

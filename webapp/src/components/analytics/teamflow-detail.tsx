@@ -4,12 +4,19 @@ import type { TeamflowRow } from '@gh-radar/shared';
 
 import { windowKeyTestOf } from '@/lib/teamflow-chart';
 import {
+  TONE_TEXT,
   factLineOf,
+  fmtAvgPx,
+  fmtEok,
+  fmtPnl,
   memberBandMatrixOf,
   memberBucketMatrixOf,
   memberFlowOf,
+  pnlOf,
   summaryPartsOf,
+  toneOf,
 } from '@/lib/teamflow-report';
+import { cn } from '@/lib/utils';
 
 import { TeamflowBandChart } from './teamflow-band-chart';
 import { TeamflowBandTable } from './teamflow-band-table';
@@ -42,6 +49,8 @@ const RULES = [
  * - 요약 상자: `summary_lines` 번호 목록(1~N · export 순서 · 개수 제한 없음 — 상자가 세로로 늘어난다) → 사실 줄.
  *   문장은 HTML 문자열을 주입하지 않고 `summaryPartsOf` 조각 배열을 React 요소로 그린다(`<b>` 짝만 strong).
  *   summary_lines 가 비면 번호 목록 없이 사실 줄만, 사실 줄도 없으면 상자를 그리지 않는다.
+ * - (quick 261018-j17) 새 키 `payload.pnl` 이 있을 때만 요약 바로 아래 「팀 당일 손익」 줄(`teamflow-pnl` — 합계(억 2자리 · 수익률) ·
+ *   실현 · 미실현 · 평균 매수가 · 평균 매도가 · 원가 미상 매도 + 문구). 구간별 손익은 없다(C-11). 없음/null = 줄 없음.
  * - 요약 다음 = [구간 가로 막대 | 다섯 창구 거래원] 2열(`grid gap-4 xl:grid-cols-2` · < xl 1열 — D-14 · UI-SPEC T6 · T7).
  *   구간 차트 아래 8px 「구간표 보기」 접힘 표.
  * - 상세 맨 아래 「판정 기준」 접힘(UI-SPEC T9 — 6항목 + 출처 줄). 세 토글 모두 기본 접힘 · 서로 독립 · 행을 접으면 초기화.
@@ -50,12 +59,23 @@ const RULES = [
  *   캡션 · 「10분 거래원 표 보기」 접힘 행렬 — buckets 전부 · 창 띠). 경고가 두 행렬 앞에 한 번 오도록 출처(거래원)별로 묶었다(목업 016 안 B). 옛 행 = 블록 없음(C-07).
  * - 2열 아래 전폭 = 10분 흐름 블록(UI-SPEC T8 · D-13 — 39칸 고정축 차트 · 세로 블록 사이 16px) → 8px 「10분 표 보기」 접힘 표.
  */
+/** 손익 줄 항목 — 라벨 `--muted-fg` + 값 `mono`(기본 `--fg-2`). */
+function PnlItem({ label, tone, children }: { label: string; tone?: string; children: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span className="text-[var(--muted-fg)]">{label}</span>
+      <span className={cn('mono', tone ?? 'text-[var(--fg-2)]')}>{children}</span>
+    </span>
+  );
+}
+
 export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelledBy: string }) {
   const lines = row.payload?.summary_lines ?? [];
   const fact = factLineOf(row);
   const hasSummary = lines.length > 0 || fact !== null;
   const name = row.name ?? row.short_code ?? row.isin;
   const flow = memberFlowOf(row.payload);
+  const pnl = pnlOf(row.payload);
 
   return (
     <section
@@ -102,6 +122,33 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
               {fact}
             </p>
           )}
+        </div>
+      )}
+
+      {pnl !== null && (
+        <div data-slot="teamflow-pnl" className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h3 className={SUBHEAD}>팀 당일 손익</h3>
+            <span
+              className={cn('mono text-[length:var(--t-sm)] font-semibold', TONE_TEXT[toneOf(pnl.total_val, 2)])}
+            >
+              {fmtPnl(pnl)}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)]">
+            <PnlItem label="실현" tone={TONE_TEXT[toneOf(pnl.realized_val, 2)]}>
+              {fmtEok(pnl.realized_val, { signed: true, digits: 2 })}
+            </PnlItem>
+            <PnlItem label="미실현" tone={TONE_TEXT[toneOf(pnl.unrealized_val, 2)]}>
+              {fmtEok(pnl.unrealized_val, { signed: true, digits: 2 })}
+            </PnlItem>
+            <PnlItem label="평균 매수가">{fmtAvgPx(pnl.buy_val, pnl.buy_qty)}</PnlItem>
+            <PnlItem label="평균 매도가">{fmtAvgPx(pnl.sell_val, pnl.sell_qty)}</PnlItem>
+            <PnlItem label="원가 미상 매도">{fmtEok(pnl.unknown_sell_val, { digits: 2 })}</PnlItem>
+          </div>
+          <p className="m-0 mt-1 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep">
+            그날 보인 팀 주문 기준 · 상한가 가격 포함 · 원가 미상 매도(전날 이전 보유분 추정)는 손익 제외
+          </p>
         </div>
       )}
 

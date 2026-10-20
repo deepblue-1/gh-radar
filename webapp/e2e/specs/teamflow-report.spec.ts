@@ -9,6 +9,7 @@ import {
   SMBEXCEL,
   TEAMFLOW_DATES,
   TEAMFLOW_LATEST,
+  CJSEAFOOD_PREF,
   WORST_ISIN,
   WORST_NAME,
   teamflowE2EFixture,
@@ -793,5 +794,64 @@ test.describe('Phase 33 Plan 04 — 팀 매집 목록 (로컬 relay)', () => {
     for (const c of clipped) expect(c.over, `${c.slot} 잘림 0`).toBeLessThanOrEqual(0);
     await expectNoHorizontalScroll(page, '390 상세(새 키)');
     await det.screenshot({ path: test.info().outputPath('teamflow-member-flow-390.png') });
+  });
+
+  test('P33-TF-N3 손익 — 1280 「팀 손익」 열 · 390 메타 줄 · 상세 「팀 당일 손익」 줄', async ({ page }) => {
+    await installTeamflowMocks(page, { newKeys: true });
+    const pnlCell = (isin: string) => rowOf(page, isin).locator('[data-slot="teamflow-pnl-cell"]');
+
+    // 1280 — 열 머리 · 칸 · 상세 줄.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE);
+    await expect(rows(page)).toHaveCount(34, { timeout: 30_000 });
+    await expect(page.locator('[data-slot="teamflow-list-head"]')).toContainText('팀 손익');
+    const ch = pnlCell(CHEONIL);
+    await expect(ch.locator('[data-slot="teamflow-pnl-total"]')).toHaveText('+0.30억');
+    await expect(ch.locator('[data-slot="teamflow-pnl-ret"]')).toHaveText('+1.1%');
+    await expect(ch.locator('[data-slot="teamflow-pnl-total"]')).toBeVisible();
+    const fit = await ch.locator('[data-slot="teamflow-pnl-total"]').evaluate((el) => ({
+      over: el.scrollWidth - el.clientWidth,
+      title: el.getAttribute('title'),
+      text: el.textContent,
+    }));
+    expect(fit.over <= 0 || fit.title === fit.text, '1280 손익 칸 잘림 0(또는 title 전문)').toBe(true);
+    await expect(pnlCell(DONGYANG).locator('[data-slot="teamflow-pnl-total"]')).toHaveText('−0.08억');
+    await expect(pnlCell(DONGYANG).locator('[data-slot="teamflow-pnl-ret"]')).toHaveText('−1.3%');
+    await expect(pnlCell(HANSUN)).toHaveText('—');
+    await expect(pnlCell(CJSEAFOOD_PREF)).toHaveText('—');
+
+    const det = await openDetail(page, CHEONIL);
+    const pnl = slot(page, CHEONIL, 'teamflow-pnl');
+    await expect(pnl).toBeVisible();
+    await expect(
+      pnl.getByText('그날 보인 팀 주문 기준 · 상한가 가격 포함 · 원가 미상 매도(전날 이전 보유분 추정)는 손익 제외', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    const b = await detailBoxes(det, ['teamflow-summary', 'teamflow-pnl', 'teamflow-bands']);
+    expect(b['teamflow-pnl']!.top, '손익 줄 = 요약 아래').toBeGreaterThanOrEqual(b['teamflow-summary']!.bottom - 0.5);
+    expect(b['teamflow-pnl']!.bottom, '손익 줄 = 2열 위').toBeLessThanOrEqual(b['teamflow-bands']!.top + 0.5);
+    await expectNoHorizontalScroll(page, '1280 손익');
+
+    // 390 — 칸 숨김 · 메타 줄 「손익」 · 메타 최대 2줄 · 상세 줄 잘림 0.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(BASE);
+    await expect(rows(page)).toHaveCount(34, { timeout: 30_000 });
+    await expect(pnlCell(CHEONIL)).toBeHidden();
+    const meta = rowOf(page, CHEONIL).locator('[data-slot="teamflow-pnl-meta"]');
+    await expect(meta).toBeVisible();
+    await expect(meta).toContainText('+0.30억(+1.1%)');
+    const metaLines = await meta.evaluate((el) => {
+      const tops = Array.from(el.parentElement!.children)
+        .filter((c) => (c as HTMLElement).offsetParent !== null)
+        .map((c) => Math.round(c.getBoundingClientRect().top));
+      return new Set(tops).size;
+    });
+    expect(metaLines, '390 천일고속 메타 줄 ≤ 2줄').toBeLessThanOrEqual(2);
+    const det390 = await openDetail(page, CHEONIL);
+    const over = await slot(page, CHEONIL, 'teamflow-pnl').evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(over, '390 손익 줄 잘림 0').toBeLessThanOrEqual(0);
+    await expectNoHorizontalScroll(page, '390 손익');
+    await det390.screenshot({ path: test.info().outputPath('teamflow-pnl-390.png') });
   });
 });

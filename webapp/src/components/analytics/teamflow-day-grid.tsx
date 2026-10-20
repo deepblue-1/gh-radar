@@ -10,10 +10,12 @@ import {
   TONE_TEXT,
   bandSlotsOf,
   fmtEok,
+  fmtPnl,
   fmtRate,
   fmtShare,
   isHotShare,
   isNum,
+  pnlOf,
   rowDescriptionOf,
   tagOf,
   toneOf,
@@ -36,14 +38,15 @@ import { TeamflowDetail } from './teamflow-detail';
  *   접근 이름 「{종목명} {코드} — 팀 매집 상세」 · `aria-describedby` = sr-only 행 설명(`rowDescriptionOf` —
  *   button 자식은 presentational 이라 보이는 칸을 직접 잇지 않는다).
  * - 같은 DOM · CSS 로만 배치 전환(뷰포트 — UI-SPEC T3): < xl 카드형(1줄 종목 … 결과 태그 · 셰브론 / 2줄 미니막대 전폭 /
- *   3줄 메타 「팀 순매수 · 20% 아래 · 매수 중 팀」) · xl 7열(종목 · 결과(태그 + 미도달 보조줄 「고가 +NN.N%」) · 팀 순매수 ·
- *   20% 아래/위 두 줄 · 매수 중 팀 · 미니막대 · 셰브론) + `aria-hidden` 열 머리. 메타 묶음은 xl 에서 `contents` 로 풀리고
+ *   3줄 메타 「팀 순매수 · (손익) · 20% 아래 · 매수 중 팀」) · xl 8열(종목 · 결과(태그 + 미도달 보조줄 「고가 +NN.N%」) · 팀 순매수 ·
+ *   팀 손익(±억 2자리 + 아랫줄 수익률 · pnl 없음 「—」 — quick 261018-j17) · 20% 아래/위 두 줄 · 매수 중 팀 · 미니막대 · 셰브론) +
+ *   `aria-hidden` 열 머리. < xl 메타 「손익」 항목은 pnl 이 있을 때만(옛 행 메타 줄 불변). 메타 묶음은 xl 에서 `contents` 로 풀리고
  *   라벨은 `xl:sr-only`(20% 칸 라벨은 xl 에서도 보인다 — 두 줄을 가르는 글자). 셰브론은 폰에서도 보인다.
  * - 치수 불변: `min-h-11` · 패딩 8/12 · `gap-x-3` · `gap-y-1.5` · `scroll-mt-[calc(4.5rem+var(--app-safe-top))]` · 열 템플릿.
  * - 열린 행 바로 아래에만 `TeamflowDetail` 을 마운트한다(접으면 언마운트 → 상세 안 토글 상태도 초기화).
  */
 
-const COLS_XL = 'xl:grid-cols-[minmax(0,168px)_104px_80px_minmax(0,148px)_72px_minmax(0,1fr)_16px]';
+const COLS_XL = 'xl:grid-cols-[minmax(0,168px)_104px_80px_96px_minmax(0,148px)_72px_minmax(0,1fr)_16px]';
 
 const TAG_TONE: Record<TeamflowTag['kind'], string> = {
   limit: 'bg-[var(--up-bg)] text-[var(--up)]',
@@ -115,6 +118,7 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
         <span>종목</span>
         <span>결과</span>
         <span>팀 순매수</span>
+        <span>팀 손익</span>
         <span>20% 아래 / 위</span>
         <span>매수 중 팀</span>
         <span>구간별 순매수</span>
@@ -131,6 +135,8 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
           const above20 = fmtEok(r.above20_net_val, { signed: true });
           // D-09 — 결과 보조줄은 미도달 · high_rate 있을 때만(sr 설명 `rowDescriptionOf` 와 같은 `isNum` 판정 · IN-04)
           const high = tag.kind === 'below' && isNum(r.high_rate) ? fmtRate(r.high_rate) : null;
+          const pnl = pnlOf(r.payload);
+          const pnlTotal = pnl ? fmtEok(pnl.total_val, { signed: true, digits: 2 }) : null;
           return (
             <li key={r.isin} data-open={open ? 'true' : undefined} className={cn(ROW_DIVIDER)}>
               <button
@@ -192,12 +198,41 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
                   )}
                 </span>
 
-                {/* 미니막대 — < xl 2줄 전폭 · xl 6열 */}
-                <span className="col-span-3 row-start-2 block min-w-0 xl:col-span-1 xl:col-start-6 xl:row-start-1">
+                {/* 팀 손익 — xl 4열만(< xl 은 메타 줄 「손익」) · pnl 없음 「—」 */}
+                <span
+                  data-slot="teamflow-pnl-cell"
+                  className="hidden min-w-0 flex-col xl:col-start-4 xl:row-start-1 xl:flex"
+                >
+                  {pnl ? (
+                    <>
+                      <span
+                        data-slot="teamflow-pnl-total"
+                        title={pnlTotal!}
+                        className={cn(
+                          'mono min-w-0 truncate text-[length:var(--t-sm)] font-semibold',
+                          TONE_TEXT[toneOf(pnl.total_val, 2)],
+                        )}
+                      >
+                        {pnlTotal}
+                      </span>
+                      <span
+                        data-slot="teamflow-pnl-ret"
+                        className="mono text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+                      >
+                        {isNum(pnl.ret) ? fmtRate(pnl.ret * 100) : '—'}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="mono text-[length:var(--t-sm)] text-[var(--faint)]">—</span>
+                  )}
+                </span>
+
+                {/* 미니막대 — < xl 2줄 전폭 · xl 7열 */}
+                <span className="col-span-3 row-start-2 block min-w-0 xl:col-span-1 xl:col-start-7 xl:row-start-1">
                   <TeamflowBandStrip slots={bandSlotsOf(r.payload?.bands ?? [])} />
                 </span>
 
-                {/* 메타 — < xl 3줄(라벨 + 값 · flex-wrap) · xl 에서는 contents 로 풀려 3 · 4 · 5열 */}
+                {/* 메타 — < xl 3줄(라벨 + 값 · flex-wrap) · xl 에서는 contents 로 풀려 3 · 5 · 6열(손익 항목은 xl 숨김) */}
                 <span className="col-span-3 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
                   <span className="inline-flex min-w-0 items-baseline gap-1 xl:col-start-3 xl:row-start-1">
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">팀 순매수</span>
@@ -213,7 +248,19 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
                     </span>
                   </span>
 
-                  <span className="flex min-w-0 flex-col xl:col-start-4 xl:row-start-1">
+                  {pnl && (
+                    <span
+                      data-slot="teamflow-pnl-meta"
+                      className="inline-flex min-w-0 items-baseline gap-1 xl:hidden"
+                    >
+                      <span className="shrink-0 text-[var(--muted-fg)]">손익</span>
+                      <span className={cn('mono min-w-0 truncate', TONE_TEXT[toneOf(pnl.total_val, 2)])}>
+                        {fmtPnl(pnl)}
+                      </span>
+                    </span>
+                  )}
+
+                  <span className="flex min-w-0 flex-col xl:col-start-5 xl:row-start-1">
                     <span className="inline-flex min-w-0 items-baseline gap-1">
                       <span className="shrink-0 text-[var(--muted-fg)]">20% 아래</span>
                       <span
@@ -236,7 +283,7 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
                     </span>
                   </span>
 
-                  <span className="inline-flex min-w-0 items-baseline gap-1 xl:col-start-5 xl:row-start-1">
+                  <span className="inline-flex min-w-0 items-baseline gap-1 xl:col-start-6 xl:row-start-1">
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">매수 중 팀</span>
                     <span
                       data-slot="teamflow-share"
@@ -251,7 +298,7 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
                   aria-hidden="true"
                   data-slot="teamflow-row-chevron"
                   className={cn(
-                    'col-start-3 row-start-1 size-4 shrink-0 justify-self-end text-[var(--muted-fg)] transition-transform duration-200 motion-reduce:transition-none xl:col-start-7 xl:row-start-1',
+                    'col-start-3 row-start-1 size-4 shrink-0 justify-self-end text-[var(--muted-fg)] transition-transform duration-200 motion-reduce:transition-none xl:col-start-8 xl:row-start-1',
                     open && 'rotate-180',
                   )}
                 />
