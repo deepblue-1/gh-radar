@@ -164,6 +164,7 @@ export interface LimitupFingerprintRow {
 /**
  * 적재 이력의 표별 행 수(manifest 대조값).
  * `team_flow` — Phase 33 · 새 워커만 기록 · 옛 워커 적재 날짜엔 없음(워커가 이 키 유무로 재적재를 감지한다 — D-03).
+ * `accum_flow` — Phase 34 · 같은 규칙(manifest 에 있는데 키가 없거나 다르면 같은 files_sig 라도 재적재 — D-02).
  */
 export type LimitupLoadRows = Partial<
   Record<
@@ -175,7 +176,8 @@ export type LimitupLoadRows = Partial<
     | "touches"
     | "grid_summary"
     | "member_daily"
-    | "team_flow",
+    | "team_flow"
+    | "accum_flow",
     number
   >
 >;
