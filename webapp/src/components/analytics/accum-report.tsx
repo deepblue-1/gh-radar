@@ -11,11 +11,12 @@ import { DmaGate, useDmaGateReason, type DmaGateReason } from '@/components/trad
 import { Button } from '@/components/ui/button';
 import { ApiClientError } from '@/lib/api';
 import { fetchAccumReport } from '@/lib/accum-api';
-import { ACCUM_LOAD_HM, sortAccumRows } from '@/lib/accum-report';
+import { ACCUM_LOAD_HM, accumKpisOf, sortAccumRows } from '@/lib/accum-report';
 import { dateNavOf, fmtYmdShort, parseYmdParam } from '@/lib/limitup-report';
 import { cn } from '@/lib/utils';
 
 import { AccumDayGrid } from './accum-day-grid';
+import { AccumKpiStrip } from './accum-kpi-strip';
 import { LimitupDateNav } from './limitup-date-nav';
 
 /**
@@ -29,7 +30,7 @@ import { LimitupDateNav } from './limitup-date-nav';
  * ③ 머리(제목 + 출처 칩 설명 + 날짜 알약)는 로딩 · 오류 중에도 그린다. 알약 글자는 `?d` 에서 즉시 · ‹ › 는 마지막으로 받은
  *   `dates[]`(행 있는 날짜만 — D-07)로 판정한다. `?d` 가 dates 밖이면 `dateNavOf` 가 앞뒤 행 있는 날로 보낸다.
  * ④ 빈 상태 2종: 이력 0(`dates` 빔) · 행 없는 날(`dates > 0 ∧ rows []`) — 둘 다 KPI · 목록 카드 없음(`data-slot="accum-empty"`).
- * ⑤ 행이 있으면 세로 순서 = 머리 → (KPI 4칸 — 34-04) → 매집감지 종목 카드(D-08 정렬 · 기본 전부 접힘).
+ * ⑤ 행이 있으면 세로 순서 = 머리 → KPI 4칸(D-09 · `AccumKpiStrip`) → 매집감지 종목 카드(D-08 정렬 · 기본 전부 접힘).
  * ⑥ 「20:30」 글자는 `ACCUM_LOAD_HM` 한 상수에서만 나온다(머리 칩 · 빈 상태 2곳).
  */
 
@@ -164,7 +165,7 @@ export function AccumReport() {
         </EmptyBox>
       )}
 
-      {/* (KPI 4칸 자리 — 34-04) */}
+      {rows !== null && <AccumKpiStrip kpis={accumKpisOf(rows)} />}
 
       {resp !== null && rows !== null && (
         <section aria-labelledby="accum-list-title" className={cn(CARD, 'p-4')}>

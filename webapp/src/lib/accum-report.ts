@@ -76,3 +76,58 @@ export function detailKpisOf(row: AccumReportRow): AccumDetailKpi[] {
     { label: '최고 순매수', text: fmtEok(row.pos_peak_net_krw, { signed: true }) },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// KPI 4칸 (D-09 · UI-SPEC A2)
+// ---------------------------------------------------------------------------
+
+export interface AccumKpis {
+  /** 등록 종목 = 행 수 */
+  total: number;
+  /** 보조 「이월 n」 = carry_days > 0 행 수 */
+  carry: number;
+  /** 장 마감 보유 = state ∈ {1, 2} 행 수 */
+  held: number;
+  /** 보조 「매집중 a」 = state 1 */
+  accumulating: number;
+  /** 보조 「매도중 b」 = state 2 */
+  selling: number;
+  /** 종료 = state 3 행 수 */
+  ended: number;
+  /** 보조 「청산 · 탈락 · 만료」 = 종료 행의 end_reason 1 · 2 · 3 */
+  liquidated: number;
+  dropped: number;
+  expired: number;
+  /** 팀 순매수 합(등록 후 · 원) = 전 행 pos_net_krw 합(종료 행 포함 · null 제외) — 수가 하나도 없으면 null */
+  posSum: number | null;
+}
+
+/** KPI 4칸 집계(UI-SPEC A2 표 그대로). 빈 배열 = 전부 0 · posSum null. */
+export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
+  const k: AccumKpis = {
+    total: rows.length,
+    carry: 0,
+    held: 0,
+    accumulating: 0,
+    selling: 0,
+    ended: 0,
+    liquidated: 0,
+    dropped: 0,
+    expired: 0,
+    posSum: null,
+  };
+  for (const r of rows) {
+    if (isNum(r.carry_days) && r.carry_days > 0) k.carry += 1;
+    if (r.state === 1) k.accumulating += 1;
+    else if (r.state === 2) k.selling += 1;
+    else if (r.state === 3) {
+      k.ended += 1;
+      if (r.end_reason === 1) k.liquidated += 1;
+      else if (r.end_reason === 2) k.dropped += 1;
+      else if (r.end_reason === 3) k.expired += 1;
+    }
+    if (isNum(r.pos_net_krw)) k.posSum = (k.posSum ?? 0) + r.pos_net_krw;
+  }
+  k.held = k.accumulating + k.selling;
+  return k;
+}
