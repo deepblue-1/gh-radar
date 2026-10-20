@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 34
 current_phase_name: 매집감지(accum) 보고서
 status: executing
-stopped_at: Completed 34-03-PLAN.md
-last_updated: "2026-10-20T13:30:49.282Z"
+stopped_at: Completed 34-04-PLAN.md
+last_updated: "2026-10-20T13:40:57.274Z"
 last_activity: 2026-10-20
 last_activity_desc: Phase 34 execution started
-state_head: 9c3138d49acc6e20c8f51ab8365962e1680515aa
+state_head: cb6dc49df233d5dba5ad0fea9cf30aa9e8d26a46
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 53
-  completed_plans: 44
+  completed_plans: 45
   percent: 80
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-16 after Phase 32)
 ## Current Position
 
 Phase: 34 (매집감지(accum) 보고서) — EXECUTING
-Plan: 5 of 13
+Plan: 6 of 13
 Status: Ready to execute
 Last activity: 2026-10-20 — Phase 34 execution started
 
@@ -97,8 +97,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-20T13:30:49.210Z
-Stopped at: Completed 34-03-PLAN.md
+Last session: 2026-10-20T13:40:57.205Z
+Stopped at: Completed 34-04-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -137,6 +137,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P02 | 5min | 2 tasks | 4 files |
 | Phase 34 P13 | 8min | 1 tasks | 16 files |
 | Phase 34 P03 | 4min | 2 tasks | 4 files |
+| Phase 34 P04 | 7min | 2 tasks | 9 files |
 
 ## Decisions
 
@@ -205,3 +206,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-13: 목록 열 머리 · 행 sr 설명은 34-04 가 열을 채울 때 함께 — 34-13 은 7열 템플릿 위 종목 · 상태 배지 · 셰브론만
 - [Phase 34]: 34-03: 재적재 감지를 OPTIONAL_FILES 순회 backfillTbls 로 일반화 — reason `<표들>_backfill`(표 하나면 기존 문자열 그대로) · 격자 생략 · 실패 시 unpublish 생략
 - [Phase 34]: 34-03: 탐지 0 거래일 manifest 는 코드 변경 없이 그대로 적재(테스트로 잠금) · backfill 로그 객체는 표별 { tbl, prev, manifest } 배열
+- [Phase 34]: 34-04: 카드 소제목·캡션을 AccumDayGrid 로 옮김(열 머리와 한 곳) · section aria-labelledby 는 페이지 유지
+- [Phase 34]: 34-04: 합성 목록 행 등록 시각은 since_date 기준 KST ms · 상한가+last_rate null = 「상한가」 · 미도달+last_rate null = none 「—」
