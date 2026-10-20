@@ -12,6 +12,8 @@
 export const QUERY_CACHE_MAX_AGE_MS = 5 * 60_000;
 
 const store = new Map<string, { data: unknown; at: number }>();
+/** `clearQueryCache` 때마다 1 씩 — 비우기 전에 시작한 요청이 비운 뒤 캐시에 쓰지 않게 대조한다(34 WR-03). */
+let generation = 0;
 
 export function readQueryCache<T>(
   key: string,
@@ -28,4 +30,10 @@ export function writeQueryCache<T>(key: string, data: T): void {
 
 export function clearQueryCache(): void {
   store.clear();
+  generation += 1;
+}
+
+/** 지금 캐시 세대 — 요청 시작 때 받아 두고 응답 때 같을 때만 쓴다(사용자 전환 뒤 옛 사용자 응답 차단). */
+export function queryCacheGeneration(): number {
+  return generation;
 }

@@ -467,6 +467,50 @@ describe('AccumDetail — 펼침 지연 로드 (A4 · A5 · D-06 · D-19)', () =
     expect(detailCalls()).toHaveLength(1);
   });
 
+  it('(c3) 상세 캐시는 30분 — 그 뒤 재펼침은 다시 요청한다(재적재 반영 · WR-03)', async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(t0);
+    try {
+      await open('d=20261014');
+      fireEvent.click(rowBtn(CHEONIL));
+      await flush();
+      fireEvent.click(rowBtn(CHEONIL));
+      now.mockReturnValue(t0 + 29 * 60_000);
+      fireEvent.click(rowBtn(CHEONIL));
+      await flush();
+      expect(detailCalls()).toHaveLength(1);
+      fireEvent.click(rowBtn(CHEONIL));
+      now.mockReturnValue(t0 + 31 * 60_000);
+      fireEvent.click(rowBtn(CHEONIL));
+      // 만료 = 첫 렌더부터 스켈레톤(옛 값을 그리지 않는다)
+      expect(document.getElementById(`ac-${CHEONIL}`)!.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+      await flush();
+      expect(detailCalls()).toHaveLength(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('(c4) 캐시를 비우기(사용자 전환) 전에 시작한 요청 — 새 요청과 합치지 않고 · 그 응답은 캐시에 쓰지 않는다(WR-03)', async () => {
+    const pending: ((v: AccumDetailResponse) => void)[] = [];
+    detailImpl = () => new Promise((r) => pending.push(r));
+    await open('d=20261014');
+    fireEvent.click(rowBtn(CHEONIL)); // 옛 사용자 요청
+    fireEvent.click(rowBtn(CHEONIL));
+    clearQueryCache(); // AuthProvider — 사용자 전환
+    fireEvent.click(rowBtn(CHEONIL)); // 새 사용자 요청 — 합치지 않는다
+    expect(detailCalls()).toHaveLength(2);
+    fireEvent.click(rowBtn(CHEONIL));
+    pending[0]!(accumDetailFixture(CHEONIL)); // 옛 요청이 늦게 도착
+    await flush();
+    fireEvent.click(rowBtn(CHEONIL));
+    expect(document.getElementById(`ac-${CHEONIL}`)!.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+    expect(detailCalls()).toHaveLength(2); // 새 세대 진행 중 요청과는 합친다
+    pending[1]!(accumDetailFixture(CHEONIL));
+    await flush();
+    expect(document.getElementById(`ac-${CHEONIL}`)!.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+  });
+
   it('(d) 다른 행 클릭 → 앞 section 언마운트 · 새 요청 1회 · 동시에 열린 상세 1개', async () => {
     await open('d=20261014');
     fireEvent.click(rowBtn(CHEONIL));
@@ -508,6 +552,13 @@ describe('AccumDetail — 펼침 지연 로드 (A4 · A5 · D-06 · D-19)', () =
     expect(within(sec).getByText('이 종목 상세를 찾지 못했어요')).toBeTruthy();
     expect(within(sec).getByText('보고서가 다시 올라왔을 수 있어요. 페이지를 새로고침해 주세요')).toBeTruthy();
     expect(within(sec).queryByRole('button')).toBeNull();
+    // row: null 은 캐시하지 않는다 — 재적재 뒤 접고 다시 펼치면 새로 묻는다(WR-03)
+    detailImpl = (isin) => Promise.resolve(accumDetailFixture(isin));
+    fireEvent.click(rowBtn(CXI));
+    fireEvent.click(rowBtn(CXI));
+    await flush();
+    expect(detailCalls()).toHaveLength(2);
+    expect(within(document.getElementById(`ac-${CXI}`)!).queryByText('이 종목 상세를 찾지 못했어요')).toBeNull();
   });
 
   it('(f2) 상세 403 → 상세 자리 DmaGate · 페이지 목록은 그대로', async () => {

@@ -7,7 +7,7 @@ import type { AccumDetailResponse, AccumDetailRow, TeamflowPnl } from '@gh-radar
 import { DmaGate, type DmaGateReason } from '@/components/trading/dma-gate';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
-import { accumDetailCacheKey, fetchAccumDetail } from '@/lib/accum-api';
+import { fetchAccumDetail, readAccumDetailCache } from '@/lib/accum-api';
 import { useChartView } from '@/hooks/use-chart-view';
 import { dayBoundsOf, fmtViewRange, lastTradeMsOf, type ChartPreset } from '@/lib/accum-chart';
 import {
@@ -19,7 +19,6 @@ import {
   thresholdPartsOf,
 } from '@/lib/accum-report';
 import { fmtYmdShort } from '@/lib/limitup-report';
-import { readQueryCache } from '@/lib/query-cache';
 import { TONE_TEXT, fmtEok, fmtPnl, isNum, pnlOf, toneOf } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
@@ -32,7 +31,7 @@ import { TeamflowToggle } from './teamflow-toggle';
  *
  * - 루트 `section#ac-{isin}` · `aria-labelledby` = 행 버튼 id(`labelledBy` — 부모 DayGrid 가 `accumRowButtonId` 로 준다 ·
  *   import 순환을 피하려 prop 으로 받는다) · 열린 행 바로 아래에만 마운트된다(접으면 언마운트).
- * - **지연 로드(D-06):** 마운트 때 `fetchAccumDetail(date, isin)`. 캐시(`accum-detail:{date}:{isin}`)에 있으면 첫 렌더부터
+ * - **지연 로드(D-06):** 마운트 때 `fetchAccumDetail(date, isin)`. 캐시(`accum-detail:{date}:{isin}` · 30분 · 행 있는 응답만)에 있으면 첫 렌더부터
  *   그 값으로 그린다(재펼침 = 요청 0 · 스켈레톤 깜빡임 없음). 언마운트 뒤 도착한 응답은 setState 하지 않는다(캐시에만 남는다).
  * - 상태: 로딩 = 실제 배치 높이 스켈레톤(KPI 줄 → 범례 → 프리셋 → 차트 472 · 사이 8px) + sr 전용 「상세 불러오는 중…」 /
  *   실패 = 「상세를 불러오지 못했어요」 + 「다시 시도」(재요청 · 실패는 캐시하지 않는다) / 401 · 403 · `{access:false}` = 상세 자리
@@ -60,7 +59,7 @@ function phaseOf(resp: AccumDetailResponse): Phase {
 
 /** 캐시에 있으면 첫 렌더부터 그 값 — 재펼침에 스켈레톤이 번쩍이지 않게. */
 function initialPhase(date: string, isin: string): Phase {
-  const hit = readQueryCache<AccumDetailResponse>(accumDetailCacheKey(date, isin), Number.POSITIVE_INFINITY);
+  const hit = readAccumDetailCache(date, isin);
   return hit === undefined ? { kind: 'loading' } : phaseOf(hit);
 }
 
