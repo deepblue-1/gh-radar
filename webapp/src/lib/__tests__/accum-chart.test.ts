@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AccumReportOrders } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportOrders, AccumReportPayload } from '@gh-radar/shared';
 
 import {
   ACCUM_DATE,
@@ -10,10 +10,13 @@ import {
   accumKstMs,
   accumSyntheticDetail,
 } from '@/test-fixtures/accum-export';
+import { payloadOf } from '@/lib/accum-report';
 
 import {
   ACCUM_CHART,
   MIN_VIEW_MS,
+  avgPxPathOf,
+  avgPxPointsOf,
   bucketBarsOf,
   bucketMaxOf,
   carryLineOf,
@@ -558,5 +561,81 @@ describe('accum-chart — 보기 창 조작 (D-14 · 34-07 프리셋 · 확대/�
   it('fmtViewRange — 「HH:MM ~ HH:MM」(KST)', () => {
     expect(fmtViewRange({ t0: T0, t1: B.T2000 })).toBe('09:00 ~ 20:00');
     expect(fmtViewRange({ t0: at('13:30:00'), t1: at('15:30:00') })).toBe('13:30 ~ 15:30');
+  });
+});
+
+describe('accum-chart — 팀 평단 계단 (quick-261021-amg · WinForms AccumChartPanel 동형)', () => {
+  /** x = 분 = px · range 100~120(여유 0) → y(110) 116 · y(120) 16 · y(100) 216. */
+  const xm = (t: number) => (t - T0) / M;
+  const R = { min: 100, max: 120, lo: 100, hi: 120 };
+  const m = (n: number) => T0 + n * M;
+  const pts = (...a: [number, number][]): PricePoint[] => a.map(([n, p]) => [m(n), p]);
+  const path = (p: PricePoint[], endMin: number) => avgPxPathOf(p, xm, R, T0, m(endMin));
+
+  it('avgPxPointsOf — 결측 · null · 숫자 · 배열 · t_ms/px 가 배열 아님 → []', () => {
+    const bad: unknown[] = [undefined, null, 5, [], { t_ms: 'x', px: [] }, { t_ms: [1], px: 'y' }];
+    expect(avgPxPointsOf({})).toEqual([]);
+    for (const v of bad) {
+      expect(avgPxPointsOf({ avg_px: v } as unknown as Pick<AccumReportPayload, 'avg_px'>)).toEqual([]);
+    }
+  });
+
+  it('avgPxPointsOf — NaN · null 요소 건너뜀 · 같은 ms 순서 유지 · 정렬 안 함 · 길이 다르면 짧은 쪽까지', () => {
+    const [a, b, c] = [m(10), m(20), m(30)];
+    expect(avgPxPointsOf({ avg_px: { t_ms: [a, b, b, c], px: [110, 120, 0, Number.NaN] } })).toEqual([
+      [a, 110],
+      [b, 120],
+      [b, 0],
+    ]);
+    expect(
+      avgPxPointsOf({ avg_px: { t_ms: [a, null, c], px: [110, 115, 120] } as unknown as AccumReportPayload['avg_px'] }),
+    ).toEqual([
+      [a, 110],
+      [c, 120],
+    ]);
+    // 정렬하지 않는다(배열 순서가 정본)
+    expect(avgPxPointsOf({ avg_px: { t_ms: [c, a], px: [110, 120] } })).toEqual([
+      [c, 110],
+      [a, 120],
+    ]);
+    expect(avgPxPointsOf({ avg_px: { t_ms: [a, b, c], px: [110] } })).toEqual([[a, 110]]);
+  });
+
+  it('실측 천일(avg_px 없음) · avg_px 불량 → payloadOf 는 행을 남기고 avgPxPointsOf 만 [](선만 빠진다)', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    expect(row.payload!.avg_px).toBeUndefined();
+    expect(payloadOf(row)).not.toBeNull();
+    expect(avgPxPointsOf(row.payload!)).toEqual([]);
+    const bad = { ...row, payload: { ...row.payload!, avg_px: 'bad' } } as unknown as AccumDetailRow;
+    expect(payloadOf(bad)).not.toBeNull();
+    expect(avgPxPointsOf(bad.payload!)).toEqual([]);
+  });
+
+  it('avgPxPathOf — 계단(수평 → 수직) · 0 에서 끊김', () => {
+    expect(path(pts([60, 110], [120, 120], [180, 0]), 300)).toBe('M60.0,116.0H120.0V16.0H180.0');
+  });
+
+  it('avgPxPathOf — 0 뒤 다음 양수 점에서 새로 시작 · 열린 끝은 endMs 까지', () => {
+    expect(path(pts([60, 110], [120, 0], [180, 100]), 300)).toBe('M60.0,116.0H120.0M180.0,216.0H300.0');
+  });
+
+  it('avgPxPathOf — 같은 ms 두 점(종료 값 → 0)은 배열 순서대로', () => {
+    expect(path(pts([60, 110], [120, 120], [120, 0]), 300)).toBe('M60.0,116.0H120.0V16.0H120.0');
+  });
+
+  it('avgPxPathOf — 09:00 미만 점은 09:00 · 여럿이면 마지막 점만', () => {
+    expect(path(pts([-180, 105], [-179, 110], [60, 120]), 120)).toBe('M0.0,116.0H60.0V16.0H120.0');
+    expect(path(pts([-180, 110], [-180, 0]), 120)).toBe('');
+  });
+
+  it('avgPxPathOf — 가격축 범위 밖은 판 위/아래 끝으로 클램프', () => {
+    expect(path(pts([60, 50], [120, 500]), 180)).toBe('M60.0,216.0H120.0V16.0H180.0');
+  });
+
+  it('avgPxPathOf — 끝은 마지막 점보다 앞으로 가지 않음 · 빈/0 만 → \'\' · 음수 px 는 0 처럼 끊음', () => {
+    expect(path(pts([60, 110]), 30)).toBe('M60.0,116.0H60.0');
+    expect(path([], 300)).toBe('');
+    expect(path(pts([60, 0]), 300)).toBe('');
+    expect(path(pts([60, 110], [120, -1]), 300)).toBe('M60.0,116.0H120.0');
   });
 });

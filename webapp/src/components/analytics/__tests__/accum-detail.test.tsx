@@ -166,6 +166,59 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
     expect(svg.querySelector('[data-slot="accum-cum-zero"]')).toBeTruthy();
     expect(svg.querySelector('[data-slot="accum-gap"]')).toBeTruthy();
   });
+
+  /** 천일 실측 행에 payload.avg_px 를 붙인 상세(quick-261021-amg). */
+  const withAvg = (avg_px: unknown) => {
+    const base = accumDetailFixture(CHEONIL).row!;
+    detailOver.set(CHEONIL, {
+      ...base,
+      payload: { ...base.payload!, avg_px } as unknown as AccumDetailRow['payload'],
+    });
+    return base;
+  };
+
+  it('(c8) avg_px 있음 → 가격 레이어 안 팀 평단 계단 1개(--up · 1 2 점점선 · pointer-events none · title 없음) · 가격 선 → 평단 → 원 순서 (quick-261021-amg)', async () => {
+    const base = accumDetailFixture(CHEONIL).row!;
+    const t0 = base.payload!.price.t0_ms;
+    withAvg({ t_ms: [t0 + 3600e3, t0 + 7200e3, t0 + 10800e3], px: [200000, 201000, 0] });
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const avg = svg.querySelectorAll('[data-slot="accum-team-avg-path"]');
+    expect(avg).toHaveLength(1);
+    const p = avg[0]!;
+    const layer = svg.querySelector('[data-slot="accum-price-layer"]')!;
+    expect(layer.contains(p)).toBe(true);
+    const d = p.getAttribute('d') ?? '';
+    expect(d).toMatch(/^M[\d.]+,[\d.]+H[\d.]+V[\d.]+H[\d.]+$/);
+    expect(d).not.toMatch(/NaN/);
+    expect(p.getAttribute('stroke')).toBe('var(--up)');
+    expect(p.getAttribute('stroke-dasharray')).toBe('1 2');
+    expect(p.getAttribute('pointer-events')).toBe('none');
+    expect(p.getAttribute('fill')).toBe('none');
+    expect(p.querySelectorAll('title')).toHaveLength(0);
+    const pricePath = svg.querySelector('[data-slot="accum-price-path"]')!;
+    const firstCircle = svg.querySelector('circle')!;
+    expect(pricePath.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(p.compareDocumentPosition(firstCircle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(c9) 실측 천일(avg_px 없음) → 평단 선 없음 · 가격 선 · 원 45개 그대로 (quick-261021-amg)', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    expect(svg.querySelector('[data-slot="accum-team-avg-path"]')).toBeNull();
+    expect(svg.querySelector('[data-slot="accum-price-path"]')!.getAttribute('d')).toMatch(/^M/);
+    expect(svg.querySelectorAll('circle')).toHaveLength(45);
+  });
+
+  it('(c10) avg_px 모양 불량 → 평단 선만 없음 · 차트 · 가격 선 그대로 · 「그날 체결 자료 없음」 없음 (quick-261021-amg)', async () => {
+    withAvg({ t_ms: 'x', px: null });
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec);
+    expect(svg).toBeTruthy();
+    expect(svg!.querySelector('[data-slot="accum-team-avg-path"]')).toBeNull();
+    expect(svg!.querySelector('[data-slot="accum-price-path"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-no-price"]')).toBeNull();
+  });
 });
 
 describe('AccumChart — 사이클 세로선 · 이월 줄 · 눈금 · 축 글자 (A6 레이어 2 · 6 · 8 · D-16)', () => {
