@@ -37,8 +37,6 @@ export interface ChartViewControl {
   bounds: ChartBounds;
   /** 프리셋 창으로 즉시 바꾸고 그 프리셋을 켠다(대기 중인 제스처 프레임은 버린다). */
   setPreset: (name: ChartPreset) => void;
-  /** 현재 창에 변환을 즉시 적용(clampView 경유)하고 프리셋을 끈다. */
-  apply: (fn: (v: View) => View) => void;
   /** 다음 프레임에 창 변환을 예약(대기 창에 합성) — 창이 바뀌지 않으면 false(호출 쪽이 이벤트를 넘긴다). */
   schedule: (fn: (v: View) => View) => boolean;
   /** 차트 래퍼 키보드 — ← / → 창 폭 20% 이동 · + / = ×0.5 · − / _ ×2 · 0 「전체」 · 처리한 키만 preventDefault. */
@@ -125,14 +123,6 @@ export function useChartView({
     [bounds, lastTradeMs, commit, dropPending],
   );
 
-  const apply = useCallback(
-    (fn: (v: View) => View) => {
-      dropPending();
-      commit(clampView(fn(viewRef.current), bounds.T0, bounds.T2000), null);
-    },
-    [bounds, commit, dropPending],
-  );
-
   const flush = useCallback(() => {
     frameRef.current = null;
     const next = pendingRef.current;
@@ -188,7 +178,7 @@ export function useChartView({
     [bounds, schedule, setPreset],
   );
 
-  return { view: state.view, preset: state.preset, bounds, setPreset, apply, schedule, onKeyDown };
+  return { view: state.view, preset: state.preset, bounds, setPreset, schedule, onKeyDown };
 }
 
 /** 차트 그림 영역 기하 — L = 왼쪽 가격 축 폭 · W = viewBox 폭(측정 폭 1:1) · 그림 영역 = [L, W − 56]. */

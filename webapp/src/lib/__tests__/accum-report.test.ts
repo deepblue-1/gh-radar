@@ -26,7 +26,6 @@ import {
   payloadOf,
   reasonLineOf,
   regCellOf,
-  thresholdLineOf,
   thresholdPartsOf,
 } from '../accum-report';
 import {
@@ -346,8 +345,13 @@ describe('payloadOf — 차트가 읽는 payload 모양 확인 (WR-05)', () => {
   });
 });
 
-describe('판정 기준 — thresholdLineOf · ACCUM_RULE_LINES (D-22 · A9)', () => {
+describe('판정 기준 — thresholdPartsOf · ACCUM_RULE_LINES (D-22 · A9)', () => {
   const TH = { th_net_krw: 1e8, th_same: 30, th_mcap_krw: 5e11, mcap_krw: 3.144e11 };
+  /** 본문 1 한 문자열 — 조각을 이은 것(화면은 조각을 그대로 그린다 · IN-03 으로 프로덕션 API 에서 내림). */
+  const thresholdLineOf = (row: Parameters<typeof thresholdPartsOf>[0]) =>
+    thresholdPartsOf(row)
+      .map((p) => p.text)
+      .join('');
 
   it('본문 1 — 「이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 3,144억)」', () => {
     expect(thresholdLineOf(TH)).toBe(

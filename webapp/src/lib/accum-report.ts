@@ -423,13 +423,6 @@ export function thresholdPartsOf(row: ThresholdCols): AccumRulePart[] {
   return out;
 }
 
-/** 판정 기준 본문 1 한 문자열(조각을 이은 것). */
-export function thresholdLineOf(row: ThresholdCols): string {
-  return thresholdPartsOf(row)
-    .map((p) => p.text)
-    .join('');
-}
-
 /** 판정 기준 본문 2 ~ 5(D-22 고정 순서 · UI-SPEC A9 Copywriting 글자 그대로 — 고치지 않는다). */
 export const ACCUM_RULE_LINES: readonly string[] = [
   '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',

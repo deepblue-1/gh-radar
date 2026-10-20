@@ -152,7 +152,9 @@ describe('useChartView — 휠 넘김 규칙 · 확대 (D-14 · Discretion 7 · 
 
   it('(w5) 10분 창에서 더 확대 → 창 변화 없음 → 넘김(창이 옆으로 밀리지 않는다)', () => {
     const { svg } = setup();
-    act(() => ctl.apply(() => ({ t0: T0 + H, t1: T0 + H + MIN_VIEW_MS })));
+    act(() => void ctl.schedule(() => ({ t0: T0 + H, t1: T0 + H + MIN_VIEW_MS })));
+    flushFrame();
+    expect(ctl.view).toEqual({ t0: T0 + H, t1: T0 + H + MIN_VIEW_MS });
     const before = ctl.view;
     expect(wheel(svg, { deltaY: -100, clientX: L + 10 })).toBe(false);
     flushFrame();
