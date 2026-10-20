@@ -2,7 +2,17 @@ import { test, expect, type Locator, type Page, type Route } from '@playwright/t
 
 import { mockStockApi } from '../fixtures/mock-api';
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
-import { ACCUM_LATEST, CHEONIL, HANSUN, accumDetailFixtureOf, accumReportFixture } from '../fixtures/accum-report';
+import {
+  ACCUM_BACKSTOP_DATE,
+  ACCUM_LATEST,
+  ACCUM_WORST_DETAIL_ISIN,
+  ACCUM_WORST_ISIN,
+  CHEONIL,
+  HANSUN,
+  accumDetailFixtureOf,
+  accumReportFixture,
+  type AccumReportBody,
+} from '../fixtures/accum-report';
 import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
 
 /**
@@ -21,7 +31,10 @@ import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
  *   URL 판정 함수로 따로 잡는다 — Playwright glob 의 `*` 는 `/` 를 넘지 않아 `**\/api/accum/report*` 로는 상세가 안 잡힌다.
  *
  * ④ 픽스처 = 워커 실측 20261014 6행(fixtures/accum-report.ts). 20261013 · 최악값 행은 합성이다(그 파일 머리 주석).
- *   34-10 이 이 파일에 폭 백스톱 케이스를 더한다.
+ *
+ * ⑤ Phase 34 Plan 10 — 폰 390 상세 경로(트레이서) · UI-SPEC 폭 백스톱 6종(A1 · A2 · A3 · A5 · A6 overflow · A6 long-text)
+ *   · 빈 상태 2종 · 403 게이트. 백스톱 목록 = `accumReportFixture(20261013, { backstop: true })`(합성 최악값 행 ·
+ *   ACCUM_WORST_DETAIL 사이클 3개 7자리 · 06:00 이월 탈락 7자리) — 실측은 jsdom 이 못 보는 실레이아웃(bbox · scrollWidth).
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -33,14 +46,30 @@ interface Recorder {
   details: string[];
 }
 
-async function installAccumMocks(page: Page): Promise<Recorder> {
+interface MockOpts {
+  /** 목록 응답 바꾸기(기본 = `accumReportFixture(d)`). */
+  list?: (d: string | null) => AccumReportBody | { access: true; dates: string[]; date: string | null; rows: [] };
+  /** 목록을 403 DMA_UNMAPPED 로 막는다. */
+  forbid?: boolean;
+}
+
+async function installAccumMocks(page: Page, opts: MockOpts = {}): Promise<Recorder> {
   const rec: Recorder = { ds: [], details: [] };
   await page.route(
     (url) => url.pathname === '/api/accum/report',
     async (route: Route) => {
       const d = new URL(route.request().url()).searchParams.get('d');
       rec.ds.push(d);
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(accumReportFixture(d)) });
+      if (opts.forbid) {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'DMA_UNMAPPED', message: 'DMA 매핑 없음' } }),
+        });
+        return;
+      }
+      const body = opts.list ? opts.list(d) : accumReportFixture(d);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     },
   );
   await page.route(
@@ -89,6 +118,56 @@ async function chartCenter(svg: Locator): Promise<{ x: number; y: number; w: num
   const b = await svg.boundingBox();
   if (b === null) throw new Error('차트 svg 박스 없음');
   return { x: b.x + b.width / 2, y: b.y + b.height / 2, w: b.width };
+}
+
+/** 백스톱 목록(20261013 · 합성 최악값 3행 + 실측 6행). */
+const backstopList = (d: string | null) =>
+  accumReportFixture(d, { backstop: d === null || d === ACCUM_BACKSTOP_DATE });
+
+/** 가로 넘침 — 문서 스크롤 · 앱 셸 `main`(overflow-auto) 둘 다(teamflow-report.spec 와 같은 판정). */
+async function expectNoHorizontalScroll(page: Page, tag: string): Promise<void> {
+  const o = await page.evaluate(() => {
+    const se = document.scrollingElement ?? document.documentElement;
+    const main = document.querySelector('main');
+    return {
+      doc: se.scrollWidth - se.clientWidth,
+      main: main === null ? 0 : main.scrollWidth - main.clientWidth,
+    };
+  });
+  expect(o.doc, `${tag} 문서 가로 스크롤 0(scrollWidth <= clientWidth)`).toBeLessThanOrEqual(0);
+  expect(o.main, `${tag} main 가로 스크롤 0`).toBeLessThanOrEqual(0);
+}
+
+/** 차트 svg 가 측정 폭과 1:1 이 될 때까지(첫 페인트 폴백 640 → 측정 뒤 다시 그림). */
+async function expectOneToOne(svg: Locator, tag: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        svg.evaluate((el) => {
+          const vb = (el as SVGSVGElement).viewBox.baseVal.width;
+          return Math.abs(vb - el.getBoundingClientRect().width);
+        }),
+      { message: `${tag} viewBox 폭 = 렌더 폭(1:1)`, timeout: 5_000 },
+    )
+    .toBeLessThanOrEqual(1);
+}
+
+type VBox = { top: number; bottom: number; left: number; right: number };
+
+async function boxOf(loc: Locator, tag: string): Promise<VBox> {
+  const b = await loc.boundingBox();
+  if (b === null) throw new Error(`${tag} 박스 없음`);
+  return { top: b.y, bottom: b.y + b.height, left: b.x, right: b.x + b.width };
+}
+
+/** 세로 구간 겹침 길이(> 0 = 같은 줄). */
+const vOverlap = (a: VBox, b: VBox) => Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+
+/** 시각 눈금 글자(y = ACCUM_CHART.TICK_Y 465) — 「9」 「10」 … 또는 「HH:MM」. */
+async function tickLabelsOf(svg: Locator): Promise<{ text: string; x: number }[]> {
+  return svg.locator('text[y="465"]').evaluateAll((els) =>
+    els.map((e) => ({ text: e.textContent ?? '', x: Number(e.getAttribute('x')) })),
+  );
 }
 
 test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (로컬 relay)', () => {
@@ -194,5 +273,99 @@ test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (
     await expect(slot(page, CHEONIL, 'accum-chart')).toBeVisible({ timeout: 15_000 });
     expect(rec.details).toEqual([`${ACCUM_LATEST}/${HANSUN}`, `${ACCUM_LATEST}/${CHEONIL}`]);
     expect(errors, '경로 전체 페이지 오류 0').toEqual([]);
+  });
+});
+
+test.describe('Phase 34 Plan 10 — 폰 390 · 폭 백스톱 · 빈 상태 · 게이트 (로컬 relay)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  test.describe('폰 390', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('P34-AC2 390 — 목록 3줄 카드 → 다중 사이클 펼침 → 차트 1:1 · 2시간 눈금 → 사이클 표 내부 가로 스크롤 → 페이지 가로 스크롤 0', async ({
+      page,
+    }) => {
+      const rec = await installAccumMocks(page, { list: backstopList });
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+
+      await page.goto(`${BASE}?d=${ACCUM_BACKSTOP_DATE}`);
+      await expect(rows(page)).toHaveCount(9, { timeout: 30_000 });
+      await expect(page.locator('[data-slot="accum-list-head"]')).toBeHidden();
+
+      // ① 목록 행(합성 최악값) — 1줄 [종목 … 결과 태그 · 셰브론] / 2줄 배지 묶음(+ 사유 줄) / 3줄 메타.
+      const worst = rowOf(page, ACCUM_WORST_ISIN);
+      const name = await boxOf(worst.locator('span[title]').first(), '종목명');
+      const tag = await boxOf(worst.locator('[data-slot="accum-tag"]'), '결과 태그');
+      const chev = await boxOf(worst.locator('[data-slot="accum-row-chevron"]'), '셰브론');
+      const badges = await boxOf(worst.locator('[data-slot="accum-badges"]'), '배지 묶음');
+      const reason = await boxOf(worst.locator('[data-slot="accum-reason"]'), '사유 줄');
+      const meta = await boxOf(worst.locator('[data-slot="accum-pos"]'), '메타(팀 순매수)');
+      expect(vOverlap(name, tag), '1줄 종목명 ↔ 결과 태그 같은 줄').toBeGreaterThan(0);
+      expect(vOverlap(name, chev), '1줄 종목명 ↔ 셰브론 같은 줄').toBeGreaterThan(0);
+      expect(badges.top, '2줄 배지 묶음 = 종목 줄 아래').toBeGreaterThanOrEqual(Math.max(tag.bottom, chev.bottom) - 1);
+      expect(reason.top, '사유 줄 = 배지 묶음 아래').toBeGreaterThanOrEqual(badges.bottom - 1);
+      expect(meta.top, '3줄 메타 = 배지 · 사유 아래').toBeGreaterThanOrEqual(reason.bottom - 1);
+      await expectNoHorizontalScroll(page, '390 목록');
+
+      // ② 다중 사이클(합성 7자리 · 사이클 3) 펼침 → 상세 1회 · 차트 svg 1:1 · 시각 눈금 2시간 간격.
+      const row = rowOf(page, ACCUM_WORST_DETAIL_ISIN);
+      await row.click();
+      await expect(row).toHaveAttribute('aria-expanded', 'true');
+      const svg = slot(page, ACCUM_WORST_DETAIL_ISIN, 'accum-chart');
+      await expect(svg).toBeVisible({ timeout: 15_000 });
+      expect(rec.details).toEqual([`${ACCUM_BACKSTOP_DATE}/${ACCUM_WORST_DETAIL_ISIN}`]);
+      await expectOneToOne(svg, '390 차트');
+      const vbW = await svg.evaluate((el) => (el as SVGSVGElement).viewBox.baseVal.width);
+      expect(vbW, '폰 390 차트 W ≈ 310(본문 358 − 카드 32 − 상세 16)').toBeGreaterThan(290);
+      expect(vbW).toBeLessThan(330);
+      await expect(slot(page, ACCUM_WORST_DETAIL_ISIN, 'accum-view-range')).toHaveText('09:00 ~ 20:00');
+      const ticks = await tickLabelsOf(svg);
+      const hours = ticks.map((t) => {
+        expect(t.text, `눈금 「${t.text}」 = 정시`).toMatch(/^\d{1,2}$/);
+        return Number(t.text);
+      });
+      expect(hours.length, '눈금 3개 이상').toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < hours.length; i++) {
+        expect(hours[i]! - hours[i - 1]!, `눈금 간격 2시간(${hours.join(' · ')})`).toBe(2);
+      }
+      for (let i = 1; i < ticks.length; i++) {
+        expect(ticks[i]!.x - ticks[i - 1]!.x, '눈금 간격 ≥ 28px').toBeGreaterThanOrEqual(28);
+      }
+
+      // ③ 사이클 표(3행) — 표 래퍼 안에서만 가로 스크롤.
+      const cycles = slot(page, ACCUM_WORST_DETAIL_ISIN, 'accum-cycles');
+      await cycles.scrollIntoViewIfNeeded();
+      await expect(cycles.locator('tbody tr')).toHaveCount(3);
+      const wrap = cycles.locator('[data-slot="table-container"]');
+      const sc = await wrap.evaluate((el) => ({
+        sw: el.scrollWidth,
+        cw: el.clientWidth,
+        ox: getComputedStyle(el).overflowX,
+      }));
+      expect(sc.ox, '표 래퍼 overflow-x auto').toBe('auto');
+      expect(sc.sw, '표 안 가로 스크롤(scrollWidth > clientWidth)').toBeGreaterThan(sc.cw);
+      const cyclesBox = await boxOf(cycles, '사이클 표');
+      expect(cyclesBox.right, '사이클 표 섹션 = 뷰포트 안').toBeLessThanOrEqual(390);
+
+      // ④ 페이지 가로 스크롤 0(document.scrollingElement.scrollWidth <= clientWidth).
+      await expectNoHorizontalScroll(page, '390 상세');
+      expect(errors, '페이지 오류 0').toEqual([]);
+      await page.screenshot({ path: test.info().outputPath('accum-detail-390.png'), fullPage: true });
+    });
   });
 });
