@@ -59,6 +59,8 @@ const LIGHT_EXPECTED: Record<string, string> = {
   'accum-carry': '#a16207',
   'accum-carry-bg': '#fef9e7',
   'accum-warn-fg': '#ffffff',
+  'accum-shade': 'rgba(107, 118, 132, 0.10)',
+  'accum-gap': 'rgba(107, 118, 132, 0.07)',
   'seg-on-bg': '#ffffff',
   'pill-on-bg': '#e8f3ff',
   'pill-on-fg': '#1b64da',
@@ -97,6 +99,8 @@ const DARK_EXPECTED: Record<string, string> = {
   'accum-carry': '#ffd43b',
   'accum-carry-bg': 'rgba(255, 212, 59, 0.16)',
   'accum-warn-fg': '#111111',
+  'accum-shade': 'rgba(255, 255, 255, 0.07)',
+  'accum-gap': 'rgba(255, 255, 255, 0.04)',
   'seg-on-bg': '#4e4e4e',
   'pill-on-bg': '#4e4e4e',
   'pill-on-fg': '#ffffff',
@@ -121,6 +125,7 @@ const THEME_COLOR_TOKENS = [
   'nav-on-bg', 'nav-on-fg', 'nav-on-line', 'spec-dot-bg', 'spec-dot-ring',
   'group-bg', 'switch-off', 'dim', 'team', 'team-bg',
   'accum-sell', 'accum-sell-bg', 'accum-carry', 'accum-carry-bg', 'accum-warn-fg',
+  'accum-shade', 'accum-gap',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {

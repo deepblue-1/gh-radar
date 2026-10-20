@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
-import type { AccumDetailRow, AccumReportRow } from '@gh-radar/shared';
+import type { AccumDetailRow, AccumReportCycle, AccumReportRow } from '@gh-radar/shared';
 
 export const ACCUM_DATE = '20261014';
 export const CHEONIL = 'KR7000650002';
@@ -216,4 +216,143 @@ export function accumSyntheticListRows(): AccumReportRow[] {
 /** `GET /api/accum/report/{date}/{isin}` 성공 응답 모양 — 픽스처에 없는 isin 이면 row: null. */
 export function accumDetailFixture(isin: string): { access: true; row: AccumDetailRow | null } {
   return { access: true, row: accumDetailRows().find((r) => r.isin === isin) ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// 합성 상세 케이스 (34-06 · D-14 ~ D-18 차트 경계 사례)
+// ---------------------------------------------------------------------------
+
+export type AccumSyntheticDetailKind = 'multiCycle' | 'carry' | 'drop0600' | 'preOpenReg' | 'noTeam' | 'noPrice';
+
+/** 사이클 한 항목(16키) — 기본 = 오늘 등록 · 살아 있음 · pos_* 없음. */
+function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
+  return {
+    cycle: 1,
+    since_date: ACCUM_DATE,
+    reg_time_ms: null,
+    end_time_ms: null,
+    end_reason: 0,
+    carry_days: 0,
+    state: 1,
+    pos_buy_qty: null,
+    pos_buy_krw: null,
+    pos_sell_qty: null,
+    pos_sell_krw: null,
+    pos_net_krw: null,
+    pos_avg_px: null,
+    pos_peak_net_krw: null,
+    pos_reg_px: null,
+    our_excluded_qty: null,
+    ...over,
+  };
+}
+
+/**
+ * **합성 — 실측 사이클은 전부 1개 모의 줄(09:57:20 · 사이클 1)이다.** 10/14 실측 행의 payload(가격 · 주문 · 누적 · 10분 막대)는
+ * 그대로 두고 사이클(`payload.cycles`)과 평평한 열(상태 · 사유 · 사이클 · 이월 · 등록/종료 시각)만 덮어쓴 상세 행.
+ * ISIN · 종목명은 바탕 실측 행 그대로(목록 행 펼침으로 찾는다). 시각 = KST ms — 등록은 등록 거래일 · 종료는 그날 기준.
+ *
+ * - `multiCycle` 한선엔지니어링 · 09:12:40 등록 → 11:32:04 청산 · 13:05:20 재등록 · 살아 있음. **CR-01 재현 — 두 사이클의
+ *   `cycle` 값이 둘 다 1**(번호 연속 · 고유를 가정하지 않는다 · 차트 k 는 나온 순서).
+ * - `carry` 동양고속 · since 20261010 · 이월 D+2 · 10/10 09:20:00 등록 · 14:56:30 청산(등록선 · 음영 없음 · 이월 줄).
+ * - `drop0600` 천일고속 · since 20261013 · D+1 · 06:00 이월 탈락(end_reason 2) · orders first 전부 0.
+ * - `preOpenReg` 천일고속 · 오늘 08:41:00 등록(09:00 이전 → 선은 왼쪽 끝).
+ * - `noTeam` CJ씨푸드1우 실측 그대로(orders · day_cum_net · buckets 빔).
+ * - `noPrice` 천일고속 · price.idx · px 빈 배열.
+ */
+export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetailRow {
+  const rows = accumDetailRows();
+  const pick = (isin: string) => rows.find((r) => r.isin === isin)!;
+  const D = ACCUM_DATE;
+  switch (kind) {
+    case 'multiCycle': {
+      const base = pick(HANSUN);
+      const reg2 = accumKstMs(D, '13:05:20');
+      return {
+        ...base,
+        state: 1,
+        end_reason: 0,
+        cycle: 1,
+        carry_days: 0,
+        since_date: D,
+        reg_time_ms: reg2,
+        end_time_ms: null,
+        payload: {
+          ...base.payload!,
+          cycles: [
+            cycleOf({
+              reg_time_ms: accumKstMs(D, '09:12:40'),
+              end_time_ms: accumKstMs(D, '11:32:04'),
+              end_reason: 1,
+              state: 3,
+            }),
+            cycleOf({ reg_time_ms: reg2 }),
+          ],
+        },
+      };
+    }
+    case 'carry': {
+      const base = pick(DONGYANG);
+      const since = '20261010';
+      const reg = accumKstMs(since, '09:20:00');
+      const end = accumKstMs(D, '14:56:30');
+      return {
+        ...base,
+        state: 3,
+        end_reason: 1,
+        cycle: 1,
+        carry_days: 2,
+        since_date: since,
+        reg_time_ms: reg,
+        end_time_ms: end,
+        payload: {
+          ...base.payload!,
+          cycles: [
+            cycleOf({ since_date: since, reg_time_ms: reg, end_time_ms: end, end_reason: 1, carry_days: 2, state: 3 }),
+          ],
+        },
+      };
+    }
+    case 'drop0600': {
+      const base = pick(CHEONIL);
+      const since = '20261013';
+      const reg = accumKstMs(since, '13:30:02');
+      const end = accumKstMs(D, '06:00:00');
+      const p = base.payload!;
+      return {
+        ...base,
+        state: 3,
+        end_reason: 2,
+        cycle: 1,
+        carry_days: 1,
+        since_date: since,
+        reg_time_ms: reg,
+        end_time_ms: end,
+        payload: {
+          ...p,
+          orders: { ...p.orders, first: p.orders.first.map(() => 0 as const) },
+          cycles: [
+            cycleOf({ since_date: since, reg_time_ms: reg, end_time_ms: end, end_reason: 2, carry_days: 1, state: 3 }),
+          ],
+        },
+      };
+    }
+    case 'preOpenReg': {
+      const base = pick(CHEONIL);
+      const reg = accumKstMs(D, '08:41:00');
+      return {
+        ...base,
+        since_date: D,
+        reg_time_ms: reg,
+        payload: { ...base.payload!, cycles: [cycleOf({ reg_time_ms: reg })] },
+      };
+    }
+    case 'noTeam':
+      return pick(CJSEAFOOD_PREF);
+    case 'noPrice': {
+      const base = pick(CHEONIL);
+      const p = base.payload!;
+      return { ...base, payload: { ...p, price: { ...p.price, idx: [], px: [] } } };
+    }
+  }
 }

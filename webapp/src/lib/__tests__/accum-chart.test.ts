@@ -2,13 +2,29 @@ import { describe, expect, it } from 'vitest';
 
 import type { AccumReportOrders } from '@gh-radar/shared';
 
-import { ACCUM_DATE, HANSUN, accumDetailRows, accumKstMs } from '@/test-fixtures/accum-export';
+import {
+  ACCUM_DATE,
+  CHEONIL,
+  HANSUN,
+  accumDetailRows,
+  accumKstMs,
+  accumSyntheticDetail,
+} from '@/test-fixtures/accum-export';
 
 import {
   ACCUM_CHART,
   MIN_VIEW_MS,
+  bucketBarsOf,
+  bucketMaxOf,
   clampView,
+  cumPathOf,
+  cumRangeOf,
   dayBoundsOf,
+  gapBandOf,
+  orderCirclesOf,
+  orderRadiusOf,
+  shadeOf,
+  yOfCum,
   priceAxisWidthOf,
   pricePathOf,
   pricePointsOf,
@@ -155,5 +171,160 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     const d = pricePathOf(pts, view, xOfView(view, 52, 640), y);
     expect(d).not.toMatch(/NaN|Infinity/);
     expect(cmds(d).filter((c) => c === 'M').length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+const FULL = { t0: T0, t1: T0 + 11 * H };
+
+describe('accum-chart — 주문 원 (D-15)', () => {
+  it('orderRadiusOf — 1천만 ≈ 2.7 · 1억 ≈ 3.78 · 10억 이상 7 · 0 = 2.2', () => {
+    expect(orderRadiusOf(1e7)).toBeCloseTo(2.7, 1);
+    expect(Math.abs(orderRadiusOf(1e7) - 2.7)).toBeLessThan(0.05);
+    expect(orderRadiusOf(1e8)).toBeCloseTo(3.78, 2);
+    expect(orderRadiusOf(1e9)).toBe(7);
+    expect(orderRadiusOf(1e12)).toBe(7);
+    expect(orderRadiusOf(0)).toBe(2.2);
+  });
+
+  it('orderCirclesOf — 큰 원부터(반지름 내림차순) · first 는 맨 뒤 · 창 ±30분 밖 · 결측 좌표 제외', () => {
+    const view = { t0: at('10:00:00'), t1: at('11:00:00') };
+    const orders: AccumReportOrders = {
+      t_ms: [at('10:01:00'), at('10:02:00'), at('10:03:00'), at('10:04:00'), at('11:31:00'), at('10:05:00')],
+      side: ['B', 'S', 'B', 'B', 'B', 'S'],
+      qty: [10, 20, 30, 1, 5, 7],
+      val: [1e7, 1e9, 1e8, 1e6, 1e9, Number.NaN],
+      px: [100, 101, 102, 99, 103, Number.NaN],
+      pieces: [1, 2, 3, 1, 1, 1],
+      first: [0, 0, 0, 1, 0, 0],
+    };
+    const c = orderCirclesOf(orders, view, xOfView(view, 52, 640), (p) => p);
+    expect(c.map((o) => o.cy)).toEqual([101, 102, 100, 99]);
+    expect(c.map((o) => o.first)).toEqual([false, false, false, true]);
+    expect(c[0]!.r).toBe(7);
+    expect(c[0]!.side).toBe('S');
+    expect(c[0]!.title).toBe('10:02:00 팀 매도 20주 · 10.00억 @101 · 2조각');
+  });
+
+  it('천일고속 first 원 — title 「09:01:00 팀 매수 9주 · 0.02억 @…조각 · 팀매수 시작」 · 맨 마지막', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    const c = orderCirclesOf(row.payload!.orders, FULL, xOfView(FULL, 52, 640), (p) => p);
+    expect(c).toHaveLength(45);
+    const last = c[c.length - 1]!;
+    expect(last.first).toBe(true);
+    expect(last.title.startsWith('09:01:00 팀 매수 9주 · 0.02억 @')).toBe(true);
+    expect(last.title.endsWith('조각 · 팀매수 시작')).toBe(true);
+    expect(last.title).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+  });
+
+  it('orders 빈 배열 → [] · throw 없음', () => {
+    expect(orderCirclesOf(EMPTY_ORDERS, FULL, xOfView(FULL, 52, 640), (p) => p)).toEqual([]);
+  });
+});
+
+describe('accum-chart — 순매수 누적 계단 (D-14 · 고정 범위)', () => {
+  const cum = { t_ms: [at('09:10:00'), at('10:00:00'), at('11:00:00')], net_krw: [1e8, -5e7, 2e8] };
+
+  it('cumRangeOf — 하루 전체 min/max(0 포함)', () => {
+    expect(cumRangeOf(cum)).toEqual({ min: -5e7, max: 2e8 });
+    expect(cumRangeOf({ t_ms: [at('09:10:00')], net_krw: [3e8] })).toEqual({ min: 0, max: 3e8 });
+    expect(cumRangeOf({ t_ms: [], net_krw: [] })).toEqual({ min: 0, max: 0 });
+  });
+
+  it('cumPathOf — M x0,y(0) L x0,y0 → H/V 계단 → 끝 H x(T2000) · 창을 좁혀도 y(0) 같다', () => {
+    const yC = yOfCum(cumRangeOf(cum));
+    const { T2000 } = dayBoundsOf(T0);
+    const d1 = cumPathOf(cum, xOfView(FULL, 52, 640), yC, T2000);
+    expect(cmds(d1)).toEqual(['M', 'L', 'H', 'V', 'H', 'V', 'H']);
+    const y0 = yC(0).toFixed(1);
+    expect(d1.startsWith('M')).toBe(true);
+    expect(d1.split('L')[0]!.endsWith(`,${y0}`)).toBe(true);
+    // 0 은 [−0.5억, 2억] 의 아래 1/5 지점 → 누적 판(240~352) 안
+    expect(yC(0)).toBeCloseTo(240 + (2e8 / 2.5e8) * 112, 6);
+    expect(d1.endsWith(`H${xOfView(FULL, 52, 640)(T2000).toFixed(1)}`)).toBe(true);
+    const narrow = { t0: at('10:00:00'), t1: at('10:30:00') };
+    const d2 = cumPathOf(cum, xOfView(narrow, 52, 640), yC, T2000);
+    expect(d2.split('L')[0]!.endsWith(`,${y0}`)).toBe(true);
+    expect(d2.match(/V([\d.]+)/g)).toEqual(d1.match(/V([\d.]+)/g));
+  });
+
+  it('day_cum_net 빔 → 빈 경로', () => {
+    const yC = yOfCum(cumRangeOf({ t_ms: [], net_krw: [] }));
+    expect(cumPathOf({ t_ms: [], net_krw: [] }, xOfView(FULL, 52, 640), yC, T0 + 11 * H)).toBe('');
+  });
+});
+
+describe('accum-chart — 10분 막대 (D-14 · 창 기준 폭 · 하루 최대 고정)', () => {
+  const buckets = [
+    { slot: 0, buy_krw: 1e8, sell_krw: 0 },
+    { slot: 3, buy_krw: 5e7, sell_krw: 2e8 },
+  ];
+  const bTop = 376;
+
+  it('bucketMaxOf — 매수 · 매도 중 하루 최대 · 빈 배열 0', () => {
+    expect(bucketMaxOf(buckets)).toBe(2e8);
+    expect(bucketMaxOf([])).toBe(0);
+  });
+
+  it('bucketBarsOf — slot k 의 x = x(T0 + k × 10분) · 폭 = 칸 × 0.42 · 0 값 막대 없음 · title', () => {
+    const x = xOfView(FULL, 52, 640);
+    const bars = bucketBarsOf(buckets, FULL, x, T0, bTop, 72);
+    expect(bars.map((b) => b.slot)).toEqual([0, 3]);
+    const slotW = x(T0 + 10 * M) - x(T0);
+    const [b0, b3] = bars as [(typeof bars)[0], (typeof bars)[0]];
+    expect(b0.hit.x).toBeCloseTo(x(T0), 6);
+    expect(b0.hit.w).toBeCloseTo(slotW, 6);
+    expect(b0.hit.y).toBe(bTop);
+    expect(b0.hit.h).toBe(72);
+    expect(b0.buy!.w).toBeCloseTo(slotW * 0.42, 6);
+    expect(b0.sell).toBeNull();
+    expect(b3.hit.x).toBeCloseTo(x(T0 + 30 * M), 6);
+    expect(b3.sell!.h).toBeCloseTo(72, 6);
+    expect(b3.sell!.y).toBeCloseTo(bTop, 6);
+    expect(b3.buy!.h).toBeCloseTo(18, 6);
+    expect(b3.buy!.y).toBeCloseTo(bTop + 72 - 18, 6);
+    expect(b3.sell!.x).toBeGreaterThan(b3.buy!.x);
+    expect(b0.title).toBe('09:00~09:10 팀 매수 1.00억 · 팀 매도 0.00억');
+    expect(b3.title).toBe('09:30~09:40 팀 매수 0.50억 · 팀 매도 2.00억');
+  });
+
+  it('창을 반으로 좁히면 막대 폭 2배 · 높이(하루 최대 기준)는 같다 · 최소 폭 1.5', () => {
+    const half = { t0: T0, t1: T0 + 5.5 * H };
+    const a = bucketBarsOf(buckets, FULL, xOfView(FULL, 52, 640), T0, bTop, 72);
+    const b = bucketBarsOf(buckets, half, xOfView(half, 52, 640), T0, bTop, 72);
+    expect(b[1]!.buy!.w / a[1]!.buy!.w).toBeCloseTo(2, 6);
+    expect(b[1]!.buy!.h).toBeCloseTo(a[1]!.buy!.h, 6);
+    // 그림 폭 66 → 칸 1px → 막대 1.5
+    const tiny = bucketBarsOf(buckets, FULL, xOfView(FULL, 52, 52 + 66 + 56), T0, bTop, 72);
+    expect(tiny[0]!.buy!.w).toBe(1.5);
+  });
+
+  it('buckets [] → [] · throw 없음', () => {
+    expect(bucketBarsOf([], FULL, xOfView(FULL, 52, 640), T0, bTop, 72)).toEqual([]);
+  });
+});
+
+describe('accum-chart — 빈 띠 · 등록 전 음영 (D-14 · D-16 · Pitfall 15)', () => {
+  it('gapBandOf = [T1530, T1600] 의 x 구간', () => {
+    const b = dayBoundsOf(T0);
+    const x = xOfView(FULL, 52, 640);
+    const g = gapBandOf(b, x);
+    expect(g.x).toBeCloseTo(x(b.T1530), 6);
+    expect(g.w).toBeCloseTo(x(b.T1600) - x(b.T1530), 6);
+  });
+
+  it('shadeOf — 오늘 등록 · 첫 사이클 reg 09:57:20 → [T0, reg]', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    expect(shadeOf(row, row.payload!, T0)).toEqual({ t0: T0, t1: at('09:57:20') });
+  });
+
+  it('shadeOf — 이월(since < date) → null · reg null → null · reg < T0 → [T0, T0](폭 0)', () => {
+    const carry = accumSyntheticDetail('carry');
+    expect(shadeOf(carry, carry.payload!, T0)).toBeNull();
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    const noReg = { ...row.payload!, cycles: [{ ...row.payload!.cycles[0]!, reg_time_ms: null }] };
+    expect(shadeOf(row, noReg, T0)).toBeNull();
+    expect(shadeOf(row, { cycles: [] }, T0)).toBeNull();
+    const pre = accumSyntheticDetail('preOpenReg');
+    expect(shadeOf(pre, pre.payload!, T0)).toEqual({ t0: T0, t1: T0 });
   });
 });

@@ -32,7 +32,13 @@ vi.mock('@/lib/auth-fetch', () => ({
 }));
 
 import { clearQueryCache } from '@/lib/query-cache';
-import { ACCUM_DATE, CHEONIL, accumDetailFixture, accumReportFixture } from '@/test-fixtures/accum-export';
+import {
+  ACCUM_DATE,
+  CHEONIL,
+  CJSEAFOOD_PREF,
+  accumDetailFixture,
+  accumReportFixture,
+} from '@/test-fixtures/accum-export';
 
 import { AccumReport } from '../accum-report';
 
@@ -106,5 +112,47 @@ describe('AccumChart — 가격 판 · 1:1 viewBox (A6 · D-17)', () => {
     expect(block.contains(svg!)).toBe(true);
     const kline = block.querySelector('[data-slot="accum-kline"]')!;
     expect(kline.compareDocumentPosition(svg!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+const textsOf = (svg: SVGSVGElement) => Array.from(svg.querySelectorAll('text')).map((t) => t.textContent ?? '');
+
+describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)', () => {
+  it('(c2) 천일고속 — 음영 · 빈 띠 · 누적 계단 · 0선 · 10분 막대 19칸(title) · 원 45개(title) · first 원 맨 마지막(--fg 테두리)', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    expect(svg.querySelector('[data-slot="accum-shade"]')).toBeTruthy();
+    expect(svg.querySelector('[data-slot="accum-gap"]')).toBeTruthy();
+    expect(svg.querySelector('[data-slot="accum-gap"]')!.getAttribute('fill')).toBe('var(--accum-gap)');
+    expect(svg.querySelector('[data-slot="accum-shade"]')!.getAttribute('fill')).toBe('var(--accum-shade)');
+    const cum = svg.querySelector('[data-slot="accum-cum-path"]')!;
+    expect(cum.getAttribute('d')).toMatch(/^M[\d.]+,[\d.]+L/);
+    expect(cum.getAttribute('stroke')).toBe('var(--team)');
+    expect(svg.querySelector('[data-slot="accum-cum-zero"]')!.getAttribute('stroke-dasharray')).toBe('2 3');
+    const bars = svg.querySelectorAll('[data-slot="accum-bucket"]');
+    expect(bars).toHaveLength(19);
+    expect(Array.from(bars).every((g) => /^\d\d:\d\d~\d\d:\d\d 팀 매수 [\d.,]+억 · 팀 매도 [\d.,]+억$/.test(g.querySelector('title')?.textContent ?? ''))).toBe(true);
+    const circles = Array.from(svg.querySelectorAll('circle'));
+    expect(circles).toHaveLength(45);
+    expect(circles.every((c) => c.querySelector('title') !== null)).toBe(true);
+    const last = circles[circles.length - 1]!;
+    expect(last.getAttribute('stroke')).toBe('var(--fg)');
+    expect(last.getAttribute('fill-opacity')).toBe('0.9');
+    expect(last.querySelector('title')!.textContent).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(circles[0]!.getAttribute('fill-opacity')).toBe('0.55');
+    expect(textsOf(svg)).not.toContain('팀 체결 없음');
+    expect(sec.querySelectorAll('i')).toHaveLength(0);
+  });
+
+  it('(c3) CJ씨푸드1우(orders 0 · day_cum_net 0) — 「팀 체결 없음」 2개(누적 판 · 10분 판) · 원 0 · 가격 선 · 0선 · 빈 띠는 그대로', async () => {
+    const sec = await expand(CJSEAFOOD_PREF);
+    const svg = chartOf(sec)!;
+    expect(svg).toBeTruthy();
+    expect(textsOf(svg).filter((t) => t === '팀 체결 없음')).toHaveLength(2);
+    expect(svg.querySelectorAll('circle')).toHaveLength(0);
+    expect(svg.querySelectorAll('[data-slot="accum-bucket"]')).toHaveLength(0);
+    expect(svg.querySelector('[data-slot="accum-price-path"]')!.getAttribute('d')).toMatch(/^M/);
+    expect(svg.querySelector('[data-slot="accum-cum-zero"]')).toBeTruthy();
+    expect(svg.querySelector('[data-slot="accum-gap"]')).toBeTruthy();
   });
 });

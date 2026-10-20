@@ -9,7 +9,14 @@
  *   viewBox 1:1(글자 11px 고정).
  */
 
-import type { AccumReportOrders, AccumReportPrice } from '@gh-radar/shared';
+import type {
+  AccumReportBucket,
+  AccumReportCumNet,
+  AccumReportOrders,
+  AccumReportPayload,
+  AccumReportPrice,
+  AccumReportRow,
+} from '@gh-radar/shared';
 
 import { isNum } from './teamflow-report';
 
@@ -175,4 +182,95 @@ export function pricePathOf(
     prev = t;
   }
   return d;
+}
+
+// ---------------------------------------------------------------------------
+// 골격(RED) — 데이터 레이어 시그니처만. 구현은 GREEN 커밋.
+// ---------------------------------------------------------------------------
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface OrderCircle {
+  cx: number;
+  cy: number;
+  r: number;
+  side: 'B' | 'S';
+  first: boolean;
+  title: string;
+}
+
+export function orderRadiusOf(_val: number): number {
+  return 0;
+}
+
+export function orderCirclesOf(
+  _orders: AccumReportOrders,
+  _view: View,
+  _x: (t: number) => number,
+  _y: (px: number) => number,
+): OrderCircle[] {
+  return [];
+}
+
+export interface CumRange {
+  min: number;
+  max: number;
+}
+
+export function cumRangeOf(_cum: AccumReportCumNet): CumRange {
+  return { min: 0, max: 0 };
+}
+
+export function yOfCum(_range: CumRange): (c: number) => number {
+  return () => 0;
+}
+
+export function cumPathOf(
+  _cum: AccumReportCumNet,
+  _x: (t: number) => number,
+  _yC: (c: number) => number,
+  _T2000: number,
+): string {
+  return '';
+}
+
+export interface BucketBar {
+  slot: number;
+  buy: Rect | null;
+  sell: Rect | null;
+  hit: Rect;
+  title: string;
+}
+
+export function bucketMaxOf(_buckets: readonly AccumReportBucket[]): number {
+  return 0;
+}
+
+export function bucketBarsOf(
+  _buckets: readonly AccumReportBucket[],
+  _view: View,
+  _x: (t: number) => number,
+  _T0: number,
+  _bTop: number,
+  _h: number,
+  _bMax?: number,
+): BucketBar[] {
+  return [];
+}
+
+export function gapBandOf(_bounds: { T1530: number; T1600: number }, _x: (t: number) => number): { x: number; w: number } {
+  return { x: 0, w: 0 };
+}
+
+export function shadeOf(
+  _row: Pick<AccumReportRow, 'since_date' | 'date'>,
+  _payload: Pick<AccumReportPayload, 'cycles'>,
+  _T0: number,
+): View | null {
+  return null;
 }
