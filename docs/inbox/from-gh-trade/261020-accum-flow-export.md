@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: fc4dec8e
 from_branch: master
 date: 2026-10-20
 fbs_sync_marker: 9eb71e84
-done_commit:
+done_commit: b35c0494
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -261,3 +261,19 @@ gh-radar 쪽 순서는 항상 DB → relay(이번엔 무변경) → webapp 이�
 
 ## 회신 (gh-radar 가 채운다)
 
+
+2026-10-21 00:1x KST, gh-radar Phase 34 배포 뒤 회신이다.
+
+① **D-09 조건부 10분 미루기는 수락한다.** 첫날 실측 `finished_at` 이 20:20 을 넘으면 `infra/relay/limitup-pull/limitup-pull.timer` OnCalendar 20:30 과 `scripts/deploy-limitup-sync.sh` CRON 20:40 을 한 커밋에서 함께 미루고 회신한다. 받은 첫날(10/20) 실측은 `finished_at` 20:13:16 이라 넘지 않았고, 그래서 미루지 않는다(Phase 34 에서는 타이머 · CRON 을 바꾸지 않았다).
+
+② **소급 전달은 (b) 맥 파일 → gh-trade 가 119 로.** 맥 `/Users/alex/ticks/accum-backfill/20261019.jsonl`(2884행 · isin 37) · `20261020.jsonl`(3353행 · isin 48)을 gh-trade 노트 `docs/inbox/from-gh-radar/261020-accum-backfill-1019-1020.md` 로 넘겼고, 119 소급은 isins 37 · 48 · bad 0 이었다. radar-gw 운반 뒤 Job `gh-radar-limitup-sync-s7kxq` 가 두 날짜를 `files_sig` 로 다시 실었고, 스모크 INV-9 는 `db=37 manifest=37` · `db=48 manifest=48` 이다.
+
+③ **files_sig 통째 재적재는 수락한다.** accum_flow 만 다시 싣는 별도 경로는 두지 않는다. 재적재 감지는 선택 파일 목록 전체의 rows 키 비교로 일반화했고, sig 가 같아도 표 개수가 다르면 reason `accum_flow_backfill`(두 표면 `team_flow+accum_flow_backfill`)로 다시 싣는다.
+
+④ **샘플 행 모양은 이상 없다.** 목록 RPC `accum_report_for_user` 는 평평한 37열만 주고, 상세 RPC `accum_detail_for_user` 가 한 종목 행을 payload 와 함께 준다. 행 단위로 가져오므로 224KB 행도 문제없다. `reg_time_ms` 초 해상도는 받아들이고, `th_same` · `th_mcap_krw` 열 이름은 export 그대로 쓴다. 비 KR ISIN(`KYG…` · `KRA…`)도 그대로 받는다.
+
+⑤ **탐지 0 거래일 자동 게시(평일 + row 1/5, gh-trade 5e7aad3b)를 워커가 그대로 적재한다.** 빈 6표 + accum_flow manifest 적재를 단위 테스트로 고정했고, 그 날짜는 상한가 · 팀 매집 보고서 날짜 목록에는 뜨지 않는다(pgTAP). 알고 받는 한계: 탐지 0 거래일에 06:00 탈락 · 만료만 있고 장중 행이 없으면 그 탈락은 보고서 이력에 남지 않는다.
+
+⑥ **CR-01 · CR-02 · WR-02 반영을 확인했다.** CR-01 은 사이클을 나온 순서로 다루고 번호의 연속 · 고유를 가정하지 않는다(차트 등록 라벨 · 사이클 표 # 가 순서 번호). CR-02 이어받기를 전제로 소급은 날짜마다 한 번만 했다. WR-02 빈 6표 manifest 는 ⑤ 대로 적재한다. 프로덕션 `/analytics/accum?d=20261019` · `?d=20261020` 라이브 점검은 사용자가 「전부 이상 없음」 으로 답했다.
+
+done_commit `b35c0494` 는 배포된 limitup-sync 이미지 태그(배포 시점 HEAD)다. Phase 34 마지막 코드 커밋은 `4080ea13` 이고, master 는 `d318ef96` 까지 push 했다.
