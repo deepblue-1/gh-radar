@@ -18,7 +18,8 @@ import type {
   AccumReportRow,
 } from '@gh-radar/shared';
 
-import { kstClock } from './limitup-report';
+import { endReasonLabelOf, isCarry } from './accum-report';
+import { fmtYmdShort, kstClock } from './limitup-report';
 import { fmtEok, isNum, kstHm } from './teamflow-report';
 
 /**
@@ -384,9 +385,10 @@ export function shadeOf(
 }
 
 // ---------------------------------------------------------------------------
-// 골격(RED) — 세로선 · 라벨 · 눈금 시그니처만. 구현은 GREEN 커밋.
+// 세로선 · 이월 줄 · 눈금 · 라벨 줄 (UI-SPEC A6 레이어 2 · 6 · 8 · D-16)
 // ---------------------------------------------------------------------------
 
+/** 사이클 세로선 하나 — t = 원래 시각(라벨 · title) · tx = 그릴 시각 max(t, T0)(09:00 이전 · 06:00 은 왼쪽 끝). */
 export interface CycleMarkLine {
   t: number;
   tx: number;
@@ -395,23 +397,56 @@ export interface CycleMarkLine {
 }
 
 export interface CycleMark {
+  /** cycles[] 나온 순서 1-based(사이클 표 # 와 같은 번호 · `cycle` 값은 연속 · 고유를 가정하지 않는다 — CR-01) */
   k: number;
   reg: CycleMarkLine | null;
   end: CycleMarkLine | null;
 }
 
+/**
+ * 사이클 세로선(D-16) — `cycles[]` 를 나온 순서대로 k = 1… · 등록선 = 그 사이클이 오늘 등록(since_date == date)이고
+ * reg_time_ms 가 있을 때만 · 라벨 「등록 HH:MM」(사이클 2개 이상이면 「 · k」) · 종료선 = end_time_ms 가 있을 때 ·
+ * 라벨 「{청산|이월 탈락(복원 안 됨)|이월 만료} HH:MM」(원래 시각) · title 은 HH:MM:SS.
+ */
 export function cycleMarksOf(
-  _row: Pick<AccumReportRow, 'date'>,
-  _payload: Pick<AccumReportPayload, 'cycles'>,
-  _T0: number,
+  row: Pick<AccumReportRow, 'date'>,
+  payload: Pick<AccumReportPayload, 'cycles'>,
+  T0: number,
 ): CycleMark[] {
-  return [];
+  const multi = payload.cycles.length >= 2;
+  return payload.cycles.map((c, i) => {
+    const k = i + 1;
+    let reg: CycleMarkLine | null = null;
+    if (c.since_date === row.date && isNum(c.reg_time_ms)) {
+      const t = c.reg_time_ms;
+      reg = {
+        t,
+        tx: Math.max(t, T0),
+        label: `등록 ${kstHm(t)}${multi ? ` · ${k}` : ''}`,
+        title: `사이클 ${k} 등록 ${kstClock(t)}`,
+      };
+    }
+    let end: CycleMarkLine | null = null;
+    if (isNum(c.end_time_ms)) {
+      const t = c.end_time_ms;
+      const word = endReasonLabelOf(c.end_reason) ?? '종료';
+      end = { t, tx: Math.max(t, T0), label: `${word} ${kstHm(t)}`, title: `사이클 ${k} ${word} ${kstClock(t)}` };
+    }
+    return { k, reg, end };
+  });
 }
 
+/**
+ * 좌상단 이월 줄(D-16) — 이월 행(`isCarry`)만 「이월 D+{carry_days} · {MM/DD} {HH:MM} 등록」 · reg_time_ms null 이면
+ * 「이월 D+n · {MM/DD} 등록」. 그 밖 null.
+ */
 export function carryLineOf(
-  _row: Pick<AccumReportRow, 'since_date' | 'date' | 'carry_days' | 'reg_time_ms'>,
+  row: Pick<AccumReportRow, 'since_date' | 'date' | 'carry_days' | 'reg_time_ms'>,
 ): string | null {
-  return null;
+  if (!isCarry(row)) return null;
+  const d = isNum(row.carry_days) ? ` D+${row.carry_days}` : '';
+  const hm = isNum(row.reg_time_ms) ? ` ${kstHm(row.reg_time_ms)}` : '';
+  return `이월${d} · ${fmtYmdShort(row.since_date!)}${hm} 등록`;
 }
 
 export interface Tick {
@@ -419,10 +454,29 @@ export interface Tick {
   label: string;
 }
 
-export function ticksOf(_view: View, _plotW: number): Tick[] {
-  return [];
+const TICK_STEPS = [5 * MIN, 15 * MIN, 30 * MIN, HOUR, 2 * HOUR, 3 * HOUR];
+const TICK_MIN_PX = 28;
+const KST_OFFSET = 9 * HOUR;
+
+/**
+ * 시각 눈금(D-14 · 목업 ticks) — 창 폭 ≤ 30분 5분 · ≤ 2.5h 15분 · ≤ 5h 30분 · 그 밖 1h → 눈금 간격이 28px 미만이면 한 단계
+ * 큰 간격(1h → 2h → 3h). 눈금은 KST 자정 기준으로 맞춘다 · 라벨 정시 「H」 · 그 밖 「HH:MM」 · 창 양 끝 포함.
+ */
+export function ticksOf(view: View, plotW: number): Tick[] {
+  const w = view.t1 - view.t0;
+  if (!(w > 0)) return [];
+  let si = w <= 30 * MIN ? 0 : w <= 2.5 * HOUR ? 1 : w <= 5 * HOUR ? 2 : 3;
+  while (si < TICK_STEPS.length - 1 && (TICK_STEPS[si]! / w) * plotW < TICK_MIN_PX) si += 1;
+  const step = TICK_STEPS[si]!;
+  const out: Tick[] = [];
+  for (let t = Math.ceil((view.t0 + KST_OFFSET) / step) * step - KST_OFFSET; t <= view.t1; t += step) {
+    const hm = kstHm(t);
+    out.push({ t, label: hm.endsWith(':00') ? String(Number(hm.slice(0, 2))) : hm });
+  }
+  return out;
 }
 
+/** 세로선 라벨 입력 — x = 선 위치(그림 좌표). */
 export interface ChartLabel {
   id: string;
   x: number;
@@ -430,6 +484,7 @@ export interface ChartLabel {
   kind: 'reg' | 'end';
 }
 
+/** 배치된 라벨 — row 0~2 · y = 27 + row × 14 · textX/anchor = 글자 기준점. */
 export interface PlacedLabel extends ChartLabel {
   row: number;
   y: number;
@@ -437,15 +492,47 @@ export interface PlacedLabel extends ChartLabel {
   anchor: 'start' | 'end';
 }
 
-export function labelWidthOf(_text: string): number {
-  return 0;
+const LABEL_ROW0_Y = 27;
+const LABEL_ROW_H = 14;
+const LABEL_MAX_ROWS = 3;
+const LABEL_PAD = 4;
+const LABEL_GAP = 4;
+const HANGUL_RE = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/;
+
+/** 라벨 폭 추정(11px 글자) — 한글 11px · 숫자/기호/공백 6.5px. */
+export function labelWidthOf(text: string): number {
+  let w = 0;
+  for (const ch of text) w += HANGUL_RE.test(ch) ? 11 : 6.5;
+  return w;
 }
 
+/**
+ * 세로선 라벨 줄 배치(A11 labelRowsOf) — 등록 라벨은 선 오른쪽(+4 · start) · 종료 라벨은 선 왼쪽(−4 · end)이 기본이고,
+ * 오른쪽 끝을 넘는 등록 라벨은 선 왼쪽으로 · 왼쪽 끝을 넘는 종료 라벨은 선 오른쪽으로 뒤집는다. 같은 줄 앞 라벨과 4px 안으로
+ * 겹치면 다음 줄(최대 3줄 · 넘치면 그 라벨은 결과에서 빠진다 — 선과 <title> 은 남는다). 이월 줄(`carryText`)이 있으면
+ * 1줄 왼쪽 [plotL + 4, + 폭] 을 먼저 차지한다. 입력 순서대로 놓는다.
+ */
 export function labelRowsOf(
-  _labels: readonly ChartLabel[],
-  _plotL: number,
-  _plotR: number,
-  _carryText?: string | null,
+  labels: readonly ChartLabel[],
+  plotL: number,
+  plotR: number,
+  carryText?: string | null,
 ): PlacedLabel[] {
-  return [];
+  const rows: [number, number][][] = Array.from({ length: LABEL_MAX_ROWS }, () => []);
+  if (carryText) rows[0]!.push([plotL + LABEL_PAD, plotL + LABEL_PAD + labelWidthOf(carryText)]);
+  const out: PlacedLabel[] = [];
+  for (const l of labels) {
+    const w = labelWidthOf(l.text);
+    let anchor: 'start' | 'end' = l.kind === 'reg' ? 'start' : 'end';
+    if (anchor === 'start' && l.x + LABEL_PAD + w > plotR) anchor = 'end';
+    else if (anchor === 'end' && l.x - LABEL_PAD - w < plotL) anchor = 'start';
+    const textX = anchor === 'start' ? l.x + LABEL_PAD : l.x - LABEL_PAD;
+    const a = anchor === 'start' ? textX : textX - w;
+    const b = a + w;
+    const row = rows.findIndex((r) => r.every(([p, q]) => b + LABEL_GAP <= p || a >= q + LABEL_GAP));
+    if (row < 0) continue;
+    rows[row]!.push([a, b]);
+    out.push({ ...l, row, y: LABEL_ROW0_Y + row * LABEL_ROW_H, textX, anchor });
+  }
+  return out;
 }

@@ -9,20 +9,25 @@ import {
   ACCUM_CHART,
   bucketBarsOf,
   bucketMaxOf,
+  carryLineOf,
   cumPathOf,
   cumRangeOf,
+  cycleMarksOf,
   dayBoundsOf,
   dayMaxPxOf,
   gapBandOf,
+  labelRowsOf,
   orderCirclesOf,
   priceAxisWidthOf,
   pricePathOf,
   pricePointsOf,
   priceRangeOf,
   shadeOf,
+  ticksOf,
   xOfView,
   yOfCum,
   yOfPrice,
+  type ChartLabel,
   type View,
 } from '@/lib/accum-chart';
 import { fmtEok, kstHm } from '@/lib/teamflow-report';
@@ -32,8 +37,10 @@ import { fmtEok, kstHm } from '@/lib/teamflow-report';
  *
  * - 래퍼 `div` 폭을 `useChartWidth` 로 재고(측정 전 · jsdom = 640) `viewBox="0 0 {W} 472"` 를 그 폭과 **1:1** — 글자 11px 고정.
  * - 세 판(가격 · 순매수 누적 · 10분 팀 매수/매도)이 같은 x(ms) 창 `view` 를 공유한다. 창은 부모가 준다(34-07 이 확대/이동 훅으로 바꾼다).
- * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 판 아래선 ③ 누적 0선 · 계단 ④ 10분 막대 쌍
- *   ⑤ 가격 선 ⑦ 주문 원(큰 원 → 작은 원 → first). 데이터 레이어는 그림 영역 `clipPath` 안, 축 글자는 밖.
+ * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
+ *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
+ *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
+ *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖.
  *   불투명도(DOM `fill-opacity` · `stroke-opacity`): 원 채움 .55 · 테두리 .9 · first 채움 .9 · 10분 막대 .7.
  * - 팀 체결 없음(해당 배열이 빔)이면 누적 판 · 10분 판 가운데 「팀 체결 없음」 — 가격 선 · 0선 · 축 · 빈 띠는 그대로.
  * - `payload` 가 없거나 `price.idx` 가 비면 그리지 않는다(null — 대체 문구 「그날 체결 자료 없음」 은 34-07).
@@ -45,6 +52,7 @@ const { R, TOP, H1, GAP, H2, H3, H } = ACCUM_CHART;
 const C_TOP = TOP + H1 + GAP;
 const B_TOP = C_TOP + H2 + GAP;
 const PLOT_BOTTOM = B_TOP + H3;
+const PX_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
 export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
   const [ref, W] = useChartWidth<HTMLDivElement>();
@@ -60,17 +68,32 @@ export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
   const bounds = dayBoundsOf(payload.price.t0_ms);
 
   const points = pricePointsOf(payload.price);
-  const yP = yOfPrice(priceRangeOf(points, payload.orders, view));
+  const pRange = priceRangeOf(points, payload.orders, view);
+  const yP = yOfPrice(pRange);
+  const pxTicks = [0, 1, 2, 3, 4].map((i) => pRange.min + ((pRange.max - pRange.min) * i) / 4);
   const priceD = pricePathOf(points, view, x, yP);
 
-  const yC = yOfCum(cumRangeOf(payload.day_cum_net));
+  const cRange = cumRangeOf(payload.day_cum_net);
+  const yC = yOfCum(cRange);
+  const cumTicks = [cRange.min, 0, cRange.max].filter((v, i, a) => a.indexOf(v) === i);
   const cumD = cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
   const zeroY = yC(0);
 
-  const bars = bucketBarsOf(payload.buckets, view, x, bounds.T0, B_TOP, H3, bucketMaxOf(payload.buckets));
+  const bMax = bucketMaxOf(payload.buckets);
+  const bars = bucketBarsOf(payload.buckets, view, x, bounds.T0, B_TOP, H3, bMax);
   const circles = orderCirclesOf(payload.orders, view, x, yP);
   const gap = gapBandOf(bounds, x);
   const shade = shadeOf(row, payload, bounds.T0);
+
+  const ticks = ticksOf(view, right - L);
+  const inView = (t: number) => t >= view.t0 && t <= view.t1;
+  const lines: (ChartLabel & { title: string })[] = [];
+  for (const m of cycleMarksOf(row, payload, bounds.T0)) {
+    if (m.reg && inView(m.reg.tx)) lines.push({ id: `r${m.k}`, x: x(m.reg.tx), text: m.reg.label, kind: 'reg', title: m.reg.title });
+    if (m.end && inView(m.end.tx)) lines.push({ id: `e${m.k}`, x: x(m.end.tx), text: m.end.label, kind: 'end', title: m.end.title });
+  }
+  const carry = carryLineOf(row);
+  const labels = labelRowsOf(lines, L, right, carry);
 
   const noCum = payload.day_cum_net.t_ms.length === 0;
   const noBuckets = payload.buckets.length === 0;
@@ -116,6 +139,19 @@ export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
             height={PLOT_BOTTOM - TOP}
             fill="var(--accum-gap)"
           />
+
+          {/* ② 시각 격자 */}
+          {ticks.map((tk) => (
+            <line
+              key={tk.t}
+              x1={x(tk.t)}
+              x2={x(tk.t)}
+              y1={TOP}
+              y2={PLOT_BOTTOM}
+              stroke="var(--border-subtle)"
+              strokeWidth={1}
+            />
+          ))}
 
           {/* ③ 누적 판 0선 · 계단 */}
           <line
@@ -187,6 +223,79 @@ export function AccumChart({ row, view }: { row: AccumDetailRow; view: View }) {
         {/* ② 판 아래선 */}
         <line x1={L} x2={right} y1={TOP + H1} y2={TOP + H1} stroke="var(--border-subtle)" />
         <line x1={L} x2={right} y1={PLOT_BOTTOM} y2={PLOT_BOTTOM} stroke="var(--border-subtle)" />
+
+        {/* ⑥ 사이클 세로선 — 선마다 폭 8 투명 히트 rect + <title> */}
+        {lines.map((l) => (
+          <g key={l.id} data-slot="accum-cycle-line">
+            <title>{l.title}</title>
+            <rect x={l.x - 4} y={TOP} width={8} height={PLOT_BOTTOM - TOP} fill="transparent" />
+            {l.kind === 'reg' ? (
+              <line x1={l.x} x2={l.x} y1={TOP} y2={PLOT_BOTTOM} stroke="var(--team)" strokeWidth={1.5} />
+            ) : (
+              <line
+                x1={l.x}
+                x2={l.x}
+                y1={TOP}
+                y2={PLOT_BOTTOM}
+                stroke="var(--muted-fg)"
+                strokeWidth={1.25}
+                strokeDasharray="4 3"
+              />
+            )}
+          </g>
+        ))}
+
+        {/* ⑧ 축 글자(클립 밖) */}
+        <g data-slot="accum-px-axis" fill="var(--muted-fg)" aria-hidden="true">
+          {pxTicks.map((p, i) => (
+            <text key={i} x={L - 6} y={yP(p) + 3} textAnchor="end">
+              {PX_FMT.format(Math.round(p))}
+            </text>
+          ))}
+        </g>
+        <g data-slot="accum-cum-axis" fill="var(--team)" aria-hidden="true">
+          {cumTicks.map((c) => (
+            <text key={c} x={right + 6} y={yC(c) + 3}>
+              {fmtEok(c, { signed: true })}
+            </text>
+          ))}
+        </g>
+        {bMax > 0 && (
+          <text data-slot="accum-bucket-max" x={right + 6} y={B_TOP + 8} fill="var(--muted-fg)" aria-hidden="true">
+            {fmtEok(bMax)}
+          </text>
+        )}
+        <text x={L} y={C_TOP - 8} fill="var(--team)" fontWeight={600}>
+          순매수 누적
+        </text>
+        <text x={L} y={B_TOP - 8} fill="var(--fg-2)" fontWeight={600}>
+          10분 팀 매수 / 매도
+        </text>
+        <g fill="var(--muted-fg)" aria-hidden="true">
+          {ticks.map((tk) => (
+            <text key={tk.t} x={x(tk.t)} y={ACCUM_CHART.TICK_Y} textAnchor="middle">
+              {tk.label}
+            </text>
+          ))}
+        </g>
+        {labels.map((l) => (
+          <text
+            key={l.id}
+            data-slot="accum-cycle-label"
+            x={l.textX}
+            y={l.y}
+            textAnchor={l.anchor}
+            fill={l.kind === 'reg' ? 'var(--team)' : 'var(--muted-fg)'}
+            fontWeight={l.kind === 'reg' ? 600 : 400}
+          >
+            {l.text}
+          </text>
+        ))}
+        {carry && (
+          <text data-slot="accum-carry-line" x={L + 4} y={27} fill="var(--accum-carry)" fontWeight={600}>
+            {carry}
+          </text>
+        )}
 
         {/* 빈 판 글자 */}
         {noCum && (
