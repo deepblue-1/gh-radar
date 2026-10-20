@@ -129,7 +129,7 @@ export function AccumReport() {
       />
 
       {phase.kind === 'loading' && (
-        <p role="status" aria-live="polite" className="text-[length:var(--t-caption)] text-[var(--faint)]">
+        <p role="status" aria-live="polite" className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
           불러오는 중…
         </p>
       )}
@@ -140,7 +140,7 @@ export function AccumReport() {
           <button
             type="button"
             onClick={() => setAttempt((n) => n + 1)}
-            className="text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)] hover:underline"
+            className="min-h-8 text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)] hover:underline"
           >
             다시 시도
           </button>

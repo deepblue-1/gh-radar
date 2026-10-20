@@ -105,9 +105,17 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
           <p role="status" aria-live="polite" className="sr-only">
             상세 불러오는 중…
           </p>
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-3 w-1/2" />
-          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-[18px] w-2/3" />
+          <div className={LEGEND_ROW}>
+            {LEGEND.map((l) => (
+              <Skeleton key={l.label} className="h-[18px]" style={{ width: `${l.label.length * 12 + 14}px` }} />
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {PRESETS.map((p) => (
+              <Skeleton key={p.name} className="h-8 w-16 rounded-full" />
+            ))}
+          </div>
           <Skeleton className="h-[472px] w-full rounded-[var(--r)]" />
         </div>
       )}
@@ -251,7 +259,7 @@ function PnlLine({ pnl }: { pnl: TeamflowPnl | null }) {
       <div className="flex flex-wrap items-baseline gap-x-2">
         <h3 className={SUBHEAD}>팀 당일 손익</h3>
         {pnl === null ? (
-          <span className="text-[length:var(--t-caption)] text-[var(--faint)]">팀 체결 없음</span>
+          <span className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">팀 체결 없음</span>
         ) : (
           <span
             data-slot="accum-pnl-total"
@@ -289,6 +297,9 @@ const PRESETS: readonly { name: ChartPreset; label: string }[] = [
 const CAPTION =
   '원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
 
+/** 범례 줄 배치 — 로딩 스켈레톤도 같은 줄바꿈으로 높이를 잡는다(34 UI 리뷰). */
+const LEGEND_ROW = 'flex flex-wrap gap-x-3 gap-y-1';
+
 /** 범례 견본(UI-SPEC A5) — 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정). */
 const DOT = 'inline-block size-2.5 rounded-full';
 const HLINE = 'inline-block h-0.5 w-2.5 rounded-full';
@@ -309,7 +320,7 @@ function ReadyChart({ row }: { row: AccumDetailRow }) {
   const payload = payloadOf(row);
   if (payload === null || payload.price.idx.length === 0) {
     return (
-      <p data-slot="accum-no-price" className="text-[length:var(--t-caption)] text-[var(--faint)]">
+      <p data-slot="accum-no-price" className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
         그날 체결 자료 없음
       </p>
     );
@@ -328,7 +339,7 @@ function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReport
     <>
       <div
         data-slot="accum-legend"
-        className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        className={cn(LEGEND_ROW, 'text-[length:var(--t-caption)] text-[var(--muted-fg)]')}
       >
         {LEGEND.map((l) => (
           <span key={l.label} className="inline-flex items-center gap-1 whitespace-nowrap">

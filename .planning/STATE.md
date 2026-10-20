@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-20T15:26:20.978Z"
+last_updated: "2026-10-20T17:17:03.834Z"
 last_activity: 2026-10-21
 last_activity_desc: Phase 34 complete
-state_head: a255a5a27a28d45a13019bf2efc364caa1973646
+state_head: 76d32a7a070839a185051252d86d08b76373d378
 progress:
   total_phases: 5
   completed_phases: 5
@@ -57,8 +57,8 @@ Progress: [██████████] 100% (53/53 plans)
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
 - **`/healthz` 알림 정책 — 사용자 결정 대기.** 게이트웨이가 끊기면 세션 생성 5분 뒤 503 상시화. 후보 4개는 v1.0 phase 16 `deferred-items.md` §16-35.
 - **WINDOWS.md open 4건** — #9·#10·#11(Phase 16 승계 · 상따 밴드 전이점·체결가 7자 예산) · #17(D-25).
-- **[Phase 34 후속 · 비차단] 코드 리뷰 11건(WARNING 5 · INFO 6) 수정 완료 2026-10-21** — `/gsd-code-review 34 --fix --all`, 건별 커밋 df59036f..a14652be. 정본 `phases/34-accum/34-REVIEW-FIX.md` · `34-REVIEW-DISPOSITION.md`. WR-02 는 limitup-sync 워커 재배포 필요. UI 리뷰 WARNING 3건(다시 시도 터치 대상 · 흐림 범위 · 스켈레톤)은 `34-UI-REVIEW.md` 에 그대로 open.
-- **[Phase 34 후속 · 사용자 결정 대기] 10/1~10/16 시뮬레이션 소급 표기.** gh-trade 가 10개 날짜(1001 1002 1006 1007 1008 1012 1013 1014 1015 1016)를 「모델 판정」 으로 소급했고, 다음 20:30 적재가 files_sig 로 실어 간다. 행에 표식이 없어 화면은 「KYOBO119 판정 기준」 으로 보인다 — 날짜 목록 기반 「시뮬레이션(모델 판정)」 표기 quick 여부를 사용자가 정한다.
+- **[Phase 34 후속 · 비차단] 코드 리뷰 11건(WARNING 5 · INFO 6) 수정 완료 2026-10-21** — `/gsd-code-review 34 --fix --all`, 건별 커밋 df59036f..a14652be. 정본 `phases/34-accum/34-REVIEW-FIX.md` · `34-REVIEW-DISPOSITION.md`. limitup-sync 워커 76d32a7a 재배포 · 스모크 14/14. UI 리뷰 WARNING 5건(다시 시도 터치 대상 · 흐림 범위 · 스켈레톤 · KPI 합 결측 「—」 · 상태 안내 `--faint` 대비)도 2026-10-21 수정(UI-SPEC 개정 동반).
+- **[Phase 34 결정 2026-10-21] 10/1~10/16 시뮬레이션 소급 표기 안 함.** gh-trade 가 「모델 판정」 으로 소급한 10개 날짜(1001 1002 1006 1007 1008 1012 1013 1014 1015 1016)는 표식 없이 일반 보고서로 보인다(사용자 결정 — 표기 불필요).
 
 ### Deferred Items
 
@@ -93,6 +93,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261018-rfy | 매집감지(kind 16) 수용 — shared 시세 집합 16 · 조회 RPC · 주문로그 래퍼 16 제외 · purge 30일 · isin 별 최신 읽기 RPC(같은 분 quote-primary 우선) · GET /api/accum-signals · relay 리듀서 별도 목록 · /trading 작업대 「매집」 패널(돌파 동형) · 인박스 done | 2026-10-18 | 89947e7f | [261018-rfy-accum-signal](./quick/261018-rfy-accum-signal/) |
 | 261019-j1w | 매집감지 매도 조기 경보 · 오늘 매수 평단 수용 — relay 생성물 재생성(776320af) · shared kind 16 sellWarn · sellWarns · 행 종류 5 · 작업대 「매집」 패널 주황 「매도경보」 배지(목업 A) · 인박스 2건 done | 2026-10-19 | 2021cd24 | [261019-j1w-accum-sell-warn](./quick/261019-j1w-accum-sell-warn/) |
 | 261018-j17 | 팀 매집 보고서 거래원별 순매수(행렬 표 · 하루 억) + 팀 당일 손익(목록 열 · 상세 줄) | 2026-10-20 | c5716097 | [261018-j17-teamflow-broker-net-buy](./quick/261018-j17-teamflow-broker-net-buy/) |
+| 16 | Phase 34 UI 리뷰 WARNING 5건 — 페이지 다시 시도 min-h-8 · 흐림은 종목·결과·금액 칸만 · 상세 스켈레톤 실제 배치 · KPI 합 결측 「—」 · 상태 안내 --muted-fg(UI-SPEC 개정) | 2026-10-21 | 76d32a7a | — |
 
 ## Session Continuity
 

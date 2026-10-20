@@ -339,12 +339,12 @@ export function AccumChart({
 
         {/* 빈 판 글자 */}
         {noCum && (
-          <text x={midX} y={C_TOP + H2 / 2 + 4} textAnchor="middle" fill="var(--faint)" fontWeight={400}>
+          <text x={midX} y={C_TOP + H2 / 2 + 4} textAnchor="middle" fill="var(--muted-fg)" fontWeight={400}>
             팀 체결 없음
           </text>
         )}
         {noBuckets && (
-          <text x={midX} y={B_TOP + H3 / 2 + 4} textAnchor="middle" fill="var(--faint)" fontWeight={400}>
+          <text x={midX} y={B_TOP + H3 / 2 + 4} textAnchor="middle" fill="var(--muted-fg)" fontWeight={400}>
             팀 체결 없음
           </text>
         )}

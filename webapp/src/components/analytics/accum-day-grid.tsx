@@ -44,8 +44,9 @@ import { AccumDetail } from './accum-detail';
  *   - xl 7열: 종목 · 상태(배지 묶음 + 사유 줄 nowrap) · 결과(태그 + 「고가」 보조줄) · 팀 순매수(+ 「평단 · 등록가」 truncate) ·
  *     하루 순매수(값만 — D-10) · 등록·종료 2줄(`regCellOf`) · 셰브론. 메타 묶음은 xl 에서 `contents` 로 풀리고 라벨은 `xl:sr-only`
  *     (등록 항목은 xl 에서 숨기고 등록·종료 칸이 대신한다).
- * - 흐린 행(D-11): `isDimRow`(종료 이월 탈락 · 만료) 면 행 버튼 `opacity-60` + `data-dim="true"` · hover · focus-visible · 열림 때 1 ·
- *   150ms · reduced-motion 즉시. 장중 청산은 정상 농도 · 상세(열린 영역)는 흐리지 않는다.
+ * - 흐린 행(D-11): `isDimRow`(종료 이월 탈락 · 만료) 면 행 버튼 `data-dim="true"` · 종목 · 결과 · 금액 · 등록 칸만 `opacity-60`
+ *   (`dimOf` — 배지 묶음 · 사유 줄은 정상 농도: 흐림의 뜻을 말하는 줄이 가장 흐리면 대비가 AA 밖 · 34 UI 리뷰) ·
+ *   행 hover · focus-visible · 열림 때 1 · 150ms · reduced-motion 즉시. 장중 청산은 정상 농도 · 상세(열린 영역)는 흐리지 않는다.
  * - 상태 배지 라벨은 자체 라벨(`stateLabelOf` — 3 「종료」) · shared `ACCUM_STATE_LABELS` 를 쓰지 않는다.
  * - 치수 불변: `min-h-11` · 패딩 8/12 · `gap-x-3` · `gap-y-1.5` · `scroll-mt-[calc(4.5rem+var(--app-safe-top))]`.
  * - 열린 행 바로 아래에만 `AccumDetail` 을 마운트한다(접으면 언마운트 · 받은 상세는 캐시에 남는다 — D-06).
@@ -75,6 +76,18 @@ const TAG_TONE: Record<AccumTag['kind'], string> = {
 function metaTone(tone: AccumMetaItem['tone']): string {
   if (tone === undefined) return 'text-[var(--fg-2)]';
   return tone === 'none' ? 'text-[var(--faint)]' : TONE_TEXT[tone];
+}
+
+/**
+ * 흐린 행의 흐릴 칸 클래스(D-11 · `group` = 행 버튼) — 메타 묶음은 xl 에서 `contents` 라 불투명도가 안 먹으므로 그 자식에 단다.
+ * 열리면 흐리지 않는다.
+ */
+function dimOf(dim: boolean, open: boolean): string | undefined {
+  if (!dim) return undefined;
+  return cn(
+    'transition-opacity duration-150 motion-reduce:transition-none',
+    !open && 'opacity-60 group-hover:opacity-100 group-focus-visible:opacity-100',
+  );
 }
 
 /** 행 버튼 id — 펼친 상세가 `aria-labelledby` 로 가리킨다. */
@@ -152,6 +165,7 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
         {rows.map((r) => {
           const open = openIsin === r.isin;
           const dim = isDimRow(r);
+          const dimCls = dimOf(dim, open);
           const label = labelOf(r);
           const sub = r.short_code ? [r.short_code, r.market].filter(Boolean).join(' · ') : null;
           const tag = accumTagOf(r);
@@ -174,17 +188,14 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                 aria-controls={open ? `ac-${r.isin}` : undefined}
                 onClick={() => toggle(r.isin)}
                 className={cn(
-                  'grid min-h-11 w-full scroll-mt-[calc(4.5rem+var(--app-safe-top))] grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-x-3 gap-y-1.5 rounded-[var(--r)] px-2 py-3 text-left',
+                  'group grid min-h-11 w-full scroll-mt-[calc(4.5rem+var(--app-safe-top))] grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-x-3 gap-y-1.5 rounded-[var(--r)] px-2 py-3 text-left',
                   'hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
                   open && 'bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]',
-                  dim &&
-                    'opacity-60 transition-opacity duration-150 hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none',
-                  dim && open && 'opacity-100',
                   COLS_XL,
                 )}
               >
                 {/* 종목 — 이름(name · null 이면 short_code · 말줄임) / 코드 · 시장(market null 이면 코드만) */}
-                <span className="col-start-1 row-start-1 flex min-w-0 flex-col xl:col-start-1">
+                <span className={cn('col-start-1 row-start-1 flex min-w-0 flex-col xl:col-start-1', dimCls)}>
                   <span
                     className="min-w-0 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]"
                     title={label}
@@ -230,7 +241,12 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                 </span>
 
                 {/* 결과 — 태그 + (xl) 보조줄 「고가 +NN.N%」(상한가 아닐 때만) */}
-                <span className="col-start-2 row-start-1 flex min-w-0 flex-col items-end gap-0.5 justify-self-end xl:col-start-3 xl:items-start xl:justify-self-start">
+                <span
+                  className={cn(
+                    'col-start-2 row-start-1 flex min-w-0 flex-col items-end gap-0.5 justify-self-end xl:col-start-3 xl:items-start xl:justify-self-start',
+                    dimCls,
+                  )}
+                >
                   <span
                     data-slot="accum-tag"
                     data-kind={tag.kind}
@@ -259,7 +275,12 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
 
                 {/* 메타 — < xl 3줄(라벨 + 값 · flex-wrap) · xl 에서는 contents 로 풀려 4 · 5열(등록 항목은 xl 숨김 → 6열 칸) */}
                 <span className="col-span-3 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
-                  <span className="inline-flex min-w-0 items-baseline gap-1 xl:col-start-4 xl:row-start-1 xl:flex xl:flex-col xl:items-start xl:gap-0">
+                  <span
+                    className={cn(
+                      'inline-flex min-w-0 items-baseline gap-1 xl:col-start-4 xl:row-start-1 xl:flex xl:flex-col xl:items-start xl:gap-0',
+                      dimCls,
+                    )}
+                  >
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{pos.label}</span>
                     <span
                       data-slot="accum-pos"
@@ -280,7 +301,7 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                     </span>
                   </span>
 
-                  <span className="inline-flex min-w-0 items-baseline gap-1 xl:col-start-5 xl:row-start-1">
+                  <span className={cn('inline-flex min-w-0 items-baseline gap-1 xl:col-start-5 xl:row-start-1', dimCls)}>
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{day.label}</span>
                     <span
                       data-slot="accum-day"
@@ -294,7 +315,7 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                     </span>
                   </span>
 
-                  <span data-slot="accum-meta-reg" className="min-w-0 truncate xl:hidden">
+                  <span data-slot="accum-meta-reg" className={cn('min-w-0 truncate xl:hidden', dimCls)}>
                     {reg.label !== null && (
                       <>
                         <span className="text-[var(--muted-fg)]">{reg.label}</span>{' '}
@@ -307,7 +328,7 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                 {/* 등록 · 종료 — xl 6열만(< xl 은 메타 줄 「등록 … → …」) */}
                 <span
                   data-slot="accum-reg"
-                  className="hidden min-w-0 flex-col xl:col-start-6 xl:row-start-1 xl:flex"
+                  className={cn('hidden min-w-0 flex-col xl:col-start-6 xl:row-start-1 xl:flex', dimCls)}
                 >
                   <span
                     className={cn(

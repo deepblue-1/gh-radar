@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
  * `teamflow-kpi-strip.tsx` 복제(일반화하지 않는다). 치수 불변 계약: 칸 `--card` · `--r-md` · `p-3` · 라벨 12/400 위 ·
  * 값 20/600 `mono` 줄높이 1.2 아래(`flex-col-reverse`) · 폰(< md) 2열 2줄 · md 이상 4열.
  * - 칸 = 「등록 종목」(보조 「이월 n」) · 「장 마감 보유」(보조 「매집중 a · 매도중 b」) · 「종료」(보조 「청산 a · 탈락 b · 만료 c」) ·
- *   「팀 순매수 합(등록 후)」(부호 + 억 1자리 · 부호 색 — 합이 없거나 반올림 0 이면 「0.0억」 `--fg-2`).
+ *   「팀 순매수 합(등록 후)」(부호 + 억 1자리 · 부호 색 — 반올림 0 이면 「0.0억」 `--fg-2` · 합이 없으면(전부 null) 「—」 `--faint`).
  * - `dd` = `flex flex-wrap items-baseline gap-x-2` — 좁은 칸에서 보조 글자는 값 아래 줄로 내려간다(`truncate` 를 걸지 않는다).
  *   보조 글자는 0 이어도 지우지 않는다(날짜 간 칸 자리가 같아야 비교된다).
  * - 행이 있는 날에만 그린다(빈 날은 부모가 띠를 생략). KPI 아래 캡션은 없다(D-10).
@@ -34,8 +34,8 @@ export function AccumKpiStrip({ kpis }: { kpis: AccumKpis }) {
     },
     {
       label: '팀 순매수 합(등록 후)',
-      value: fmtEok(kpis.posSum ?? 0, { signed: true }),
-      tone: TONE_TEXT[toneOf(kpis.posSum)],
+      value: kpis.posSum === null ? '—' : fmtEok(kpis.posSum, { signed: true }),
+      tone: kpis.posSum === null ? 'text-[var(--faint)]' : TONE_TEXT[toneOf(kpis.posSum)],
       sub: null,
     },
   ];

@@ -198,7 +198,8 @@ Exceptions (상속 · 차트 내부 미세 치수 — 간격 스케일 밖으로
 | 종목명 · 소제목 · 빈/오류 제목 · 손익 합계(0) · 상세 KPI 줄 값(등록가 · 평단 · 최고 순매수) | `--fg` |
 | 등록·종료 첫 줄 · 표 본문 수 · 손익 항목 값(부호 없는 것) | `--fg-2` |
 | 코드 · 시장 · 캡션 · 열 머리 · 사유 줄 · 행 아랫줄 · 결과 보조줄 · 폰 메타 라벨 · 상세 KPI 줄 라벨 · 범례 · 창 범위 · 축 · 판정 기준 본문 · 출처 칩 · 「장 마감까지」 | `--muted-fg` |
-| 「—」(null) · 빈 판 글자(「팀 체결 없음」) · 「그날 체결 자료 없음」 · 로딩 | `--faint` |
+| 「—」(null) | `--faint` |
+| 빈 판 글자(「팀 체결 없음」) · 「그날 체결 자료 없음」 · 로딩 「불러오는 중…」 | `--muted-fg`(상태 안내 — `--faint` 는 흰 카드 위 ≈2:1 이라 안내 문구에 쓰지 않는다 · 34 UI 리뷰 개정 2026-10-21) |
 | 금액(팀 순매수 · 하루 순매수 · KPI 합 · 등록 후 순매수 · 사이클 순매수 · 손익) | 부호 색 — 반올림 값 > 0 `--up` · < 0 `--down` · 0 이면 `--fg-2`(「0.0억」 · D-10) |
 | 「매집중」 배지 · 등록선 라벨 · 누적 축 · 「순매수 누적」 | `--team` 600 |
 | 「매도중」 배지 | `--accum-sell` 600 |
@@ -232,7 +233,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 문서 제목 | 날짜 모름 「매집감지 보고서」 · 날짜 앎 「매집감지 보고서 · {MM/DD}」(`fmtYmdShort`) |
 | 머리 설명(`description`) | 출처 칩 「KYOBO119 판정 기준 · 20:30 적재」 + 글자 「 장중에는 트레이딩 「매집」 패널이 실시간으로 보여줘요」(인박스 D-04 — 보고서는 밤 적재 뒤부터) |
 | 날짜 알약 | `LimitupDateNav` 그대로 — 「‹ 10/19 (월) ›」 · 날짜 모름 「—」 · aria 「이전 보고서」 / 「다음 보고서」 |
-| 로딩 | 「불러오는 중…」(12/400 `--faint` · 목록은 스켈레톤 없음 — teamflow 상속) |
+| 로딩 | 「불러오는 중…」(12/400 `--muted-fg` · 목록은 스켈레톤 없음 — teamflow 상속) |
 | 게이트 — 미매핑 | 「매집감지 보고서는 증권사 계정이 연결된 사용자만 이용할 수 있어요. 관리자에게 연결을 요청하세요.」(`DmaGate` 템플릿) |
 | 게이트 — 미인증 | 「매집감지 보고서는 로그인한 뒤 이용할 수 있어요.」(`DmaGate` 템플릿) |
 
@@ -301,8 +302,8 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 주문 원 툴팁(`<title>`) | 「HH:MM:SS 팀 매수 {qty}주 · {X.XX억} @{px} · {pieces}조각」 + `first` 면 「 · 팀매수 시작」 (매도는 「팀 매도」) |
 | 10분 칸 툴팁(`<title>`) | 「HH:MM~HH:MM 팀 매수 {X.XX억} · 팀 매도 {X.XX억}」 |
 | 세로선 툴팁(`<title>`) | 등록 「사이클 {k} 등록 HH:MM:SS」 · 종료 「사이클 {k} {사유} HH:MM:SS」 |
-| 빈 판 글자(판 가운데) | 누적 판 · 10분 판 「팀 체결 없음」(11/400 `--faint` — 해당 배열이 빌 때) |
-| 가격 없음(`price.idx` 빔) | 차트 · 범례 · 프리셋 · 캡션 자리에 한 줄 「그날 체결 자료 없음」(12/400 `--faint` · D-18) |
+| 빈 판 글자(판 가운데) | 누적 판 · 10분 판 「팀 체결 없음」(11/400 `--muted-fg` — 해당 배열이 빌 때) |
+| 가격 없음(`price.idx` 빔) | 차트 · 범례 · 프리셋 · 캡션 자리에 한 줄 「그날 체결 자료 없음」(12/400 `--muted-fg` · D-18) |
 
 ### A7. 사이클 표(`cycles.length >= 2` 일 때만)
 
@@ -319,7 +320,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 | 소제목 + 합계 | 「팀 당일 손익」 + `fmtPnl` 「+0.30억(+1.1%)」(억 2자리 · 수익률 1자리 · 부호 색) |
 | 항목(D-21 · 이 순서) | 「실현 {realized_val ±억 2자리}」 · 「평가 {unrealized_val ±억 2자리}」 · 「보유 {end_qty}주」 · 「출처 모를 매도 {unknown_sell_qty}주」 |
 | 캡션 | 「그날 하루 팀 주문 기준(등록 전 · 상한가 가격 포함) · 출처 모를 매도(전날 이전 보유분 추정)는 손익 제외」 |
-| `pnl` null | 소제목 「팀 당일 손익」 + 「팀 체결 없음」(12/400 `--faint`) — 항목 · 캡션 없음 |
+| `pnl` null | 소제목 「팀 당일 손익」 + 「팀 체결 없음」(12/400 `--muted-fg`) — 항목 · 캡션 없음 |
 
 ### A9. 판정 기준 · 출처 칩
 
@@ -396,7 +397,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 - 카드 `section`(`CARD` · `p-4` · `aria-labelledby` 소제목) → 소제목 줄(`flex flex-wrap items-baseline gap-x-2`) → (xl) 열 머리(`items-end` · 2줄 머리) → `ol` 행 목록. 행 구분 `ROW_DIVIDER`. 행 수 제한 없음(페이지 스크롤 · 페이지네이션 없음).
 - **아코디언(D-08):** 한 번에 하나 · **기본 전부 접힘** · 같은 행 다시 누름 = 접힘 · 다른 행 = 그 행만 · 날짜가 바뀌면 부모가 `key=date` 로 새로 만든다. 새로 연 행이 앱 머리 위로 밀리면 `scrollIntoView({block:'start'})`(reduced-motion = 즉시) — `pendingScroll` 규칙. 포커스는 행 버튼에 남는다.
 - 행 버튼: `button` · `id = accum-row-{isin}` · `data-isin` · `aria-expanded` · 열렸을 때만 `aria-controls="ac-{isin}"` · `aria-label` · `aria-describedby="accum-row-desc-{isin}"`. 면: hover · 열림 = `color-mix(in oklab, var(--muted) 60%, transparent)` · `rounded-[var(--r)]`.
-- **흐린 행(D-11):** `isDimRow` 면 행 버튼에 `opacity-60` · `data-dim="true"`. hover · `focus-visible` · 열림이면 `opacity-100`(읽으려는 순간 대비를 되돌린다) · 전환 150ms · `motion-reduce:transition-none`. 상세(열린 영역)는 흐리지 않는다. 장중 청산(`end_reason` 1)은 정상 농도.
+- **흐린 행(D-11):** `isDimRow` 면 행 버튼에 `data-dim="true"` · 종목 · 결과 · 금액 · 등록 칸에만 `opacity-60`(배지 묶음 · 사유 줄은 정상 농도 — 사유 줄까지 흐리면 대비 ≈2.3:1 · 34 UI 리뷰 개정). 행 hover · `focus-visible` · 열림이면 `opacity-100`(읽으려는 순간 대비를 되돌린다) · 전환 150ms · `motion-reduce:transition-none`. 상세(열린 영역)는 흐리지 않는다. 장중 청산(`end_reason` 1)은 정상 농도.
 - **배치(같은 DOM · CSS 전환):**
   - `< xl` 카드형 3줄: 1줄 [종목(이름 + 코드 · 시장)] … [결과 태그] [셰브론] / 2줄 [배지 묶음 `flex-wrap gap-1`] + 종료 행이면 바로 아래 사유 줄(12/400 `--muted-fg`) / 3줄 메타 `flex flex-wrap gap-x-3 gap-y-0.5`(팀 순매수 · 하루 · 등록→종료). 결과 보조줄 · 평단/등록가 줄 숨김. 셰브론은 폰에서도 보인다(quick-261010-h22 규칙).
   - `xl` 7열: 종목 · 상태(배지 묶음 + 사유 줄 — 사유 줄은 `whitespace-nowrap`) · 결과(태그 + 보조줄) · 팀 순매수(14/600 `mono` 부호 색 + 아랫줄 12/400 `--muted-fg` `truncate` + `title`) · 하루 순매수(14/600 `mono` 부호 색) · 등록·종료(1줄 14/400 `--fg-2` `mono` · 이월 「MM/DD 등록」 은 `--muted-fg` / 2줄 12/400 `--muted-fg`) · 셰브론. 메타 묶음은 xl 에서 `contents` 로 풀리고 라벨은 `xl:sr-only`.
@@ -409,7 +410,7 @@ Accent reserved for (이 phase 가 **추가하는** accent 소비처는 2곳뿐�
 
 - 상세 루트 `section` · `id="ac-{isin}"` · `aria-labelledby={행 버튼 id}` · `data-slot="accum-detail"` · `flex flex-col gap-4 px-2 pt-1 pb-6`.
 - 마운트 때 `fetchAccumDetail(date, isin)` — 캐시 키 `accum-detail:{date}:{isin}` 가 있으면 **요청 없이 즉시** 그린다(재펼침 재요청 0 · D-06). 같은 키 진행 중 요청은 하나로 합친다. 실패는 캐시하지 않는다(「다시 시도」 = 재요청). 타임아웃 15초.
-- **로딩 = 스켈레톤(D-18):** 실제 배치와 같은 높이로 자리를 잡아 데이터가 와도 아래가 튀지 않는다 — KPI 줄 자리 `Skeleton h-4 w-2/3` → 8px → 범례 자리 `h-3 w-1/2` → 8px → 프리셋 줄 자리 `h-8 w-56` → 8px → 차트 자리 `h-[472px] w-full rounded-[var(--r)]`. 사이클 표 · 손익 · 판정 기준 자리는 그리지 않는다. sr 전용 「상세 불러오는 중…」.
+- **로딩 = 스켈레톤(D-18):** 실제 배치와 같은 높이로 자리를 잡아 데이터가 와도 아래가 튀지 않는다 — KPI 줄 자리 `Skeleton h-[18px] w-2/3` → 8px → 범례 자리(범례 8항목과 같은 `flex-wrap` 줄에 항목별 `h-[18px]` 칸 — 폰에서 같은 줄 수로 접힌다) → 8px → 프리셋 줄 자리(`h-8 w-16` 알약 3) → 8px → 차트 자리 `h-[472px] w-full rounded-[var(--r)]`. 사이클 표 · 손익 · 판정 기준 자리는 그리지 않는다. sr 전용 「상세 불러오는 중…」.
 - **실패:** 상세 자리에 가운데 정렬 상자(`py-8` · 면 없음) — 제목 14/600 + 「다시 시도」 텍스트 버튼(최소 높이 32) · `role="alert"`. 행은 열린 채로 남는다.
 - `row: null` → A4 Copywriting 「이 종목 상세를 찾지 못했어요」 상자(재시도 버튼 없음).
 - 401/403 → 상세 자리에 `DmaGate`(페이지 전체를 바꾸지 않는다 — 열린 행 하나의 일).
@@ -518,7 +519,7 @@ Applicable state considerations resolved: 77 — explicit 64 · backstop 6 · di
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
 | empty | A1 페이지 셸 | ✅ covered(보강) | 적재 이력 0 = 「아직 올라온 매집감지 보고서가 없어요」 상자 · 행 없는 날짜 = 「이 날은 매집감지 데이터가 없어요」 + 「최신 보고서 보기」 · KPI · 목록 카드 없음(Copywriting Empty state) |
-| loading | A1 페이지 셸 | ✅ covered | 「불러오는 중…」 한 줄(12/400 `--faint`) · 머리 · 알약은 `?d` 로 즉시 · ‹ › 는 마지막 `dates[]` 유지 · 목록 스켈레톤 없음(teamflow 상속) |
+| loading | A1 페이지 셸 | ✅ covered | 「불러오는 중…」 한 줄(12/400 `--muted-fg`) · 머리 · 알약은 `?d` 로 즉시 · ‹ › 는 마지막 `dates[]` 유지 · 목록 스켈레톤 없음(teamflow 상속) |
 | error | A1 페이지 셸 | ✅ covered | 「보고서를 불러오지 못했어요」 + 「다시 시도」(`role="alert"`) · 401/403 · `{access:false}` = `DmaGate surface="매집감지 보고서"` · 형식 오류 `?d` = 최신으로 `replace`(Copywriting Error state) |
 | populated | A1 페이지 셸 | ✅ covered(보강) | 머리(출처 칩) → KPI 4칸 → 매집감지 종목 카드 · 문서 제목 「매집감지 보고서 · MM/DD」 |
 | partial | A1 페이지 셸 | ✅ covered(보강) | `?d` 가 `dates[]` 밖 = 빈 상태 + 알약은 앞뒤 행 있는 날짜로(`dateNavOf`) |
@@ -528,7 +529,7 @@ Applicable state considerations resolved: 77 — explicit 64 · backstop 6 · di
 | loading | A2 KPI | ✅ covered | 페이지 로딩에 묶인다 — `ready` 때만 마운트 · 띠 자체 스켈레톤 없음 |
 | error | A2 KPI | ✅ covered | 페이지 오류에 묶인다 — 띠 없음 |
 | populated | A2 KPI | ✅ covered | 4칸 = 정수(보조 「이월 n」) · 정수(보조 「매집중 a · 매도중 b」) · 정수(보조 「청산 · 탈락 · 만료」) · 부호 억 1자리(부호 색) |
-| partial | A2 KPI | ✅ covered | `pos_net_krw` null 은 합에서 빠짐 · 보조 글자 0 항목도 표시(「이월 0」) · 합 반올림 0 = 「0.0억」 `--fg-2`(`toneOf`) |
+| partial | A2 KPI | ✅ covered | `pos_net_krw` null 은 합에서 빠짐 · 보조 글자 0 항목도 표시(「이월 0」) · 합 반올림 0 = 「0.0억」 `--fg-2`(`toneOf`) · 전부 null(합 없음) = 「—」 `--faint`(0 이라 말하지 않는다 · 34 UI 리뷰) |
 | overflow | A2 KPI | 🧪 backstop | { statement: "폰 2열 칸에서 「15」 + 「청산 12 · 탈락 10 · 만료 10」 이 잘림 없이 값 아래로 줄바꿈 · 「−1,234.5억」 칸 안", verification: backstop } |
 | zero-one-many | A2 KPI | ✅ covered | 행 0 = 띠 없음 · 1행 이상 = 4칸 고정 · 단복수 문구 없음(한글) · 날짜 간 칸 자리 동일 |
 | long-text | A2 KPI | ✅ covered | 값 최악 「−1,234.5억」 · 보조 최악 「청산 12 · 탈락 10 · 만료 10」 — `dd` 가 `flex-wrap items-baseline` 라 보조 글자는 값 아래 줄로 · `truncate` 를 `dd` 에 걸지 않는다 |

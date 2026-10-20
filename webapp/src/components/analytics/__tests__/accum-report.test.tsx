@@ -250,12 +250,12 @@ describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
     ]);
   });
 
-  it('(k3) pos 합 null → 「0.0억」 --fg-2 · rows [] 이면 accum-kpis 없음', async () => {
+  it('(k3) pos 합 null(전부 결측) → 「—」 --faint(0 이라 말하지 않는다 · 34 UI 리뷰) · rows [] 이면 accum-kpis 없음', async () => {
     const rows = accumReportFixture().rows.map((r) => ({ ...r, pos_net_krw: null }));
     const a = await open('d=20261014', accumReportFixture({ rows }));
     const sum = document.querySelector('[data-kpi="팀 순매수 합(등록 후)"] dd > span')!;
-    expect(sum.textContent).toBe('0.0억');
-    expect(sum.className).toContain('text-[var(--fg-2)]');
+    expect(sum.textContent).toBe('—');
+    expect(sum.className).toContain('text-[var(--faint)]');
     a.unmount();
 
     await open('d=20261012', accumReportFixture({ date: '20261012', rows: [] }));
@@ -282,22 +282,30 @@ describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
     ]);
   });
 
-  it('(r2) 흐림 — 종료 이월 탈락 · 만료 행만 data-dim="true" + opacity-60 · 장중 청산 · 살아 있는 행은 정상 농도', async () => {
+  it('(r2) 흐림 — 종료 이월 탈락 · 만료 행만 data-dim="true" + 종목 · 결과 · 금액 칸 opacity-60(배지 · 사유 줄은 정상 농도) · 장중 청산 · 살아 있는 행은 정상 농도', async () => {
     await openSyn();
+    const nameCell = (isin: string) => rowBtn(isin).firstElementChild as HTMLElement;
+    const dimmed = (isin: string) => Array.from(rowBtn(isin).querySelectorAll<HTMLElement>('.opacity-60'));
     for (const isin of [AC_DROP, AC_EXPIRE]) {
       expect(rowBtn(isin).getAttribute('data-dim')).toBe('true');
-      expect(rowBtn(isin).className).toContain('opacity-60');
-      expect(rowBtn(isin).className).toContain('hover:opacity-100');
-      expect(rowBtn(isin).className).toContain('focus-visible:opacity-100');
+      expect(rowBtn(isin).className).not.toMatch(/(^|\s)opacity-60(\s|$)/);
+      expect(nameCell(isin).className).toContain('opacity-60');
+      expect(nameCell(isin).className).toContain('group-hover:opacity-100');
+      expect(nameCell(isin).className).toContain('group-focus-visible:opacity-100');
+      const pos = rowBtn(isin).querySelector('[data-slot="accum-pos"]')!;
+      expect(dimmed(isin).some((el) => el.contains(pos))).toBe(true);
+      for (const slot of ['accum-badges', 'accum-reason']) {
+        const el = rowBtn(isin).querySelector(`[data-slot="${slot}"]`)!;
+        expect(dimmed(isin).some((d) => d.contains(el))).toBe(false);
+      }
     }
     for (const isin of [AC_LIQ, AC_LIVE, AC_SELL, AC_CARRY, AC_PARTIAL]) {
       expect(rowBtn(isin).hasAttribute('data-dim')).toBe(false);
-      expect(rowBtn(isin).className).not.toContain('opacity-60');
+      expect(dimmed(isin)).toHaveLength(0);
     }
     // 열면 불투명도 1 — 상세는 흐리지 않는다
     fireEvent.click(rowBtn(AC_DROP));
-    expect(rowBtn(AC_DROP).className).toContain('opacity-100');
-    expect(rowBtn(AC_DROP).className).not.toMatch(/(^|\s)opacity-60(\s|$)/);
+    expect(dimmed(AC_DROP)).toHaveLength(0);
   });
 
   it('(r3) 배지 묶음 — 상태 → 「이월 D+2」 → 「사이클 2」 순 · carry 0 · cycle 1 이면 배지 없음', async () => {
@@ -421,7 +429,8 @@ describe('AccumDetail — 펼침 지연 로드 (A4 · A5 · D-06 · D-19)', () =
     expect(sec.getAttribute('aria-labelledby')).toBe(`accum-row-${CHEONIL}`);
     // 응답 전 = 스켈레톤 + sr 전용 상태 문구
     expect(within(sec).getByRole('status').textContent).toBe('상세 불러오는 중…');
-    expect(sec.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
+    // 실제 배치 자리(34 UI 리뷰) — KPI 줄 1 · 범례 8칸 · 프리셋 3칸 · 차트 1
+    expect(sec.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(13);
     await flush();
     expect(detailCalls()).toEqual([[`/api/accum/report/20261014/${CHEONIL}`, { timeoutMs: 15_000 }]]);
     expect(sec.querySelector('[data-slot="skeleton"]')).toBeNull();
