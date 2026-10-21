@@ -1,14 +1,15 @@
 -- ============================================================
 -- Phase 34 Plan 05 — 매집감지 보고서 RPC accum_report_for_user · accum_detail_for_user pgTAP.
 --
--- 대상: 20261020200100_accum_report_rpc.sql. 적재는 20261020200000 의 stage → limitup_commit_day(accum_flow 10번째 쌍)로 채운다.
+-- 대상: 20261020200100_accum_report_rpc.sql (+ 20261021140000 목록 pnl). 적재는 20261020200000 의 stage → limitup_commit_day(accum_flow 10번째 쌍)로 채운다.
 --
 -- 잠그는 것(D-03 · D-06 · D-07):
 --   - 게이트: 가시 계좌(dma_visible_accounts) 없는 사용자 · NULL → 두 RPC 모두 {"access": false} 만
 --   - 이력 0 → 목록 {access: true, dates: [], date: null, rows: []} · 상세 {access: true, row: null}
 --   - dates = limitup_accum_flow 행이 있는 날짜 내림차순 · p_date 없음 = 최신 · 행 없는 날짜 p_date → rows [] (dates 그대로)
 --   - 정렬 state, pos_net_krw DESC NULLS LAST, isin
---   - 목록 rows 는 평평한 37열만 — 어느 행에도 payload 키가 없다(Pitfall 6) · 상세 row 는 37열 + payload · 없는 (date, isin) → row null
+--   - 목록 rows 는 평평한 37열 + pnl(payload.pnl 그대로 · 20261021140000) — 어느 행에도 payload 키가 없다(Pitfall 6) ·
+--     상세 row 는 37열 + payload · 없는 (date, isin) → row null
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · STABLE ·
 --     limitup_accum_flow RLS 활성 · 정책 0 · anon/authenticated SELECT 불가
 --   - D-03(RESEARCH Pitfall 8 정정): 탐지 0 거래일(6표 0 · 파생 0 · team_flow 0 · accum_flow 1 commit)은
@@ -24,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(52);
+SELECT plan(53);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -145,18 +146,21 @@ SELECT is(pg_temp.r('d1013')->>'date', '20261013', '③ D-07 p_date 20261013 →
 SELECT is(pg_temp.isins(pg_temp.r('d1013')), '["KR7000000401", "KR7000000402"]'::jsonb,
           '③ D-07 20261013 rows pos 3억 → 2억');
 
--- ── ④ 목록 행 모양 — 평평한 37열 · payload 없음(D-06 · Pitfall 6) ───
+-- ── ④ 목록 행 모양 — 평평한 37열 + pnl · payload 없음(D-06 · Pitfall 6) ───
 SELECT ok(NOT EXISTS (SELECT 1 FROM t_r, jsonb_array_elements(t_r.r->'rows') e
                        WHERE t_r.label IN ('latest', 'd1013') AND e ? 'payload'),
           '④ D-06 목록 rows 어느 행에도 payload 키 없음(Pitfall 6)');
 SELECT is((SELECT array_agg(DISTINCT n) FROM (
              SELECT (SELECT count(*)::int FROM jsonb_object_keys(e)) AS n
                FROM t_r, jsonb_array_elements(t_r.r->'rows') e WHERE t_r.label IN ('latest', 'd1013')) k),
-          ARRAY[37], '④ D-06 목록 모든 행 키 수 37');
+          ARRAY[38], '④ D-06 목록 모든 행 키 수 38(37열 + pnl)');
 SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(pg_temp.r('latest')->'rows'->0) k),
-          (SELECT array_agg(column_name::text ORDER BY column_name::text) FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'limitup_accum_flow' AND column_name <> 'payload'),
-          '④ D-06 목록 행 키 집합 = limitup_accum_flow 열 − payload');
+          (SELECT array_agg(c ORDER BY c) FROM (
+             SELECT column_name::text AS c FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'limitup_accum_flow' AND column_name <> 'payload'
+             UNION ALL SELECT 'pnl') cols),
+          '④ D-06 목록 행 키 집합 = limitup_accum_flow 열 − payload + pnl');
+SELECT is(pg_temp.r('latest')->'rows'->0->'pnl'->'ret', '0.012'::jsonb, '④ 목록 행 pnl = payload.pnl 그대로');
 SELECT is(pg_temp.r('latest')->'rows'->0->'last_rate', '29.78'::jsonb, '④ D-06 last_rate 29.78(JSON 숫자 · double)');
 SELECT is(pg_temp.r('latest')->'rows'->0->'since_date', '"20261009"'::jsonb, '④ D-06 since_date "20261009" 문자열');
 SELECT is(jsonb_typeof(pg_temp.r('latest')->'rows'->3->'pos_net_krw'), 'null', '④ D-06 rows[3].pos_net_krw null(state 1 끝)');

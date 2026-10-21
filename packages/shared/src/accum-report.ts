@@ -71,6 +71,11 @@ export interface AccumReportRow {
   day_buy_qty: number | null;
   day_sell_qty: number | null;
   schema_version: number | null;
+  /**
+   * 팀 당일 손익 — 목록 RPC 만 싣는다(payload.pnl 그대로 · 20261021140000). 상세 행은 payload.pnl 을 읽는다.
+   * 팀 체결 0 · 옛 행 = null · 키 없음.
+   */
+  pnl?: TeamflowPnl | null;
 }
 
 /** payload.price — 10초 칸 가격(체결 있는 칸만). 칸 시각 = t0_ms + idx × step_s × 1000 · t0_ms = 그날 09:00 KST. */

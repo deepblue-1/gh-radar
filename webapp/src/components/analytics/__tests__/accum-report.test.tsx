@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { AccumDetailResponse, AccumReportResponse } from '@gh-radar/shared';
+import type { AccumDetailResponse, AccumReportResponse, TeamflowPnl } from '@gh-radar/shared';
 
 /**
  * Phase 34 Plan 13 (트레이서 후반 C4) — `/analytics/accum` 목록 · 펼침 상세 지연 로드 (UI-SPEC A1 · A3 · A4 · A5 · D-06 · D-08 · D-19 · D-22).
@@ -398,6 +398,24 @@ describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
     );
   });
 
+  it('(r10) 팀 당일 손익 — 목록 행 pnl 이 있으면 xl 6열 「±억 2자리 + 수익률」 · < xl 메타 「손익」 · sr 설명 · 없으면 「—」 · 메타 없음', async () => {
+    const pnl = { total_val: 30_000_000, ret: 0.011, realized_val: 10_000_000, unrealized_val: 20_000_000 } as TeamflowPnl;
+    const rows = accumSyntheticListRows().map((r) => (r.isin === AC_LIVE ? { ...r, pnl } : { ...r, pnl: null }));
+    await open('d=20261014', accumReportFixture({ rows }));
+    expect(slotText(AC_LIVE, 'accum-pnl-total')).toBe('+0.30억');
+    expect(slotText(AC_LIVE, 'accum-pnl-ret')).toBe('+1.1%');
+    const total = rowBtn(AC_LIVE).querySelector('[data-slot="accum-pnl-total"]')!;
+    expect(total.className).toContain('text-[var(--up)]');
+    const cell = rowBtn(AC_LIVE).querySelector('[data-slot="accum-pnl-cell"]')!;
+    expect(cell.className).toContain('xl:col-start-6');
+    expect(cell.className).toContain('hidden');
+    expect(slotText(AC_LIVE, 'accum-pnl-meta')).toBe('손익+0.30억(+1.1%)');
+    expect(document.getElementById(`accum-row-desc-${AC_LIVE}`)!.textContent).toContain('팀 당일 손익 +0.30억(+1.1%)');
+    expect(slotText(AC_SELL, 'accum-pnl-cell')).toBe('—');
+    expect(rowBtn(AC_SELL).querySelector('[data-slot="accum-pnl-meta"]')).toBeNull();
+    expect(document.getElementById(`accum-row-desc-${AC_SELL}`)!.textContent).not.toContain('손익');
+  });
+
   it('(r9) 카드 머리 — 소제목 캡션 · xl 열 머리 aria-hidden 2줄(「(등록 후)」 · 「(등록 전 포함)」)', async () => {
     await openSyn();
     expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 팀 순매수(등록 후) 큰 순')).toBeTruthy();
@@ -409,6 +427,7 @@ describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
       '결과',
       '팀 순매수(등록 후)',
       '하루 순매수(등록 전 포함)',
+      '팀 당일 손익',
       '등록 · 종료',
       '',
     ]);

@@ -11,7 +11,7 @@
 import type { AccumDetailRow, AccumReportPayload, AccumReportRow } from '@gh-radar/shared';
 
 import { fmtYmdShort, kstClock } from './limitup-report';
-import { fmtEok, fmtRate, isNum, kstHm, toneOf, type TeamflowTone } from './teamflow-report';
+import { fmtEok, fmtPnl, fmtRate, isNum, kstHm, pnlOf, toneOf, type TeamflowTone } from './teamflow-report';
 
 /**
  * 밤 적재 시각 「HH:MM」 — 빈 상태 2곳 · 머리 출처 칩 · 상세 출처 칩이 모두 이 값 하나를 읽는다.
@@ -259,7 +259,7 @@ export function metaLineOf(row: AccumReportRow): AccumMetaItem[] {
 
 /**
  * 행 sr 설명 1문장(UI-SPEC A3) — 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그}{, 고가 +NN.N%},
- * 팀 순매수 등록 후 {pos}, 하루 순매수 {day}, 등록 {HH:MM | MM/DD}{, 종료 HH:MM}」. 결측에 throw 없음(「—」).
+ * 팀 순매수 등록 후 {pos}, 하루 순매수 {day}{, 팀 당일 손익 {±억(±%)}}, 등록 {HH:MM | MM/DD}{, 종료 HH:MM}」. 결측에 throw 없음(「—」).
  * 끝 「종료 HH:MM」 은 사유 절이 시각을 이미 말했으면 생략한다(IN-02 — 같은 시각을 두 번 읽지 않게).
  */
 export function accumRowDescriptionOf(row: AccumReportRow): string {
@@ -281,8 +281,10 @@ export function accumRowDescriptionOf(row: AccumReportRow): string {
   parts.push(
     `팀 순매수 등록 후 ${fmtEok(row.pos_net_krw, { signed: true })}`,
     `하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`,
-    `등록 ${isCarry(row) ? fmtYmdShort(row.since_date!) : regLineOf(row)}`,
   );
+  const pnl = pnlOf(row);
+  if (pnl !== null) parts.push(`팀 당일 손익 ${fmtPnl(pnl)}`);
+  parts.push(`등록 ${isCarry(row) ? fmtYmdShort(row.since_date!) : regLineOf(row)}`);
   if (end !== null && !endSaid) parts.push(`종료 ${end}`);
   return parts.join(', ');
 }

@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-21T07:14:06.400Z"
+last_updated: "2026-10-21T12:26:37.372Z"
 last_activity: 2026-10-21
 last_activity_desc: Phase 34 complete
-state_head: b7c28659115bcc1f4c211071e9329cb74ea7159d
+state_head: 8d8b117c3d5a280d50a396da508463b0f102bd2d
 progress:
   total_phases: 5
   completed_phases: 5
@@ -97,6 +97,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 16 | Phase 34 UI 리뷰 WARNING 5건 — 페이지 다시 시도 min-h-8 · 흐림은 종목·결과·금액 칸만 · 상세 스켈레톤 실제 배치 · KPI 합 결측 「—」 · 상태 안내 --muted-fg(UI-SPEC 개정) | 2026-10-21 | 76d32a7a | — |
 | 261021-amg | 매집감지 상세 가격 차트 팀 평단 선 — payload.avg_px 계단 · --up 점점선 · 0 끊김 · 범례 「팀 평단」 | 2026-10-21 | 3aaf6c36 | [261021-amg-accum-chart-team-avg-price-line](./quick/261021-amg-accum-chart-team-avg-price-line/) |
 | 18 | 작업대 매집감지 gh-trade 동형 — 청산 행 먼저 청산한 순 · 06:00 이월 탈락/만료 종료 행 제외 · 팀 수익률 열 | 2026-10-21 | b7c28659 | — |
+| 19 | 매집감지 보고서 목록 「팀 당일 손익」 열(하루 순매수 다음) — 목록 RPC 에 payload.pnl 동봉 | 2026-10-21 | 8d8b117c | — |
 
 ## Session Continuity
 
