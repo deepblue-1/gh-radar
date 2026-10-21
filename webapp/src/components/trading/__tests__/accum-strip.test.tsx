@@ -7,7 +7,7 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  *
  * 잠그는 것:
  *   ① 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 --team · 매도중 --accum-sell) · 이월 D+n(carryDays > 0 만)
- *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구
+ *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구 · 이월 탈락 · 만료(사유 2 · 3) 종료 행은 표에도 없음
  *   ③ 표 순서 = sortAccum · 열 접기(평단 · 구간 · 순수량 · 갱신 = colNarrow) · 보조 줄 · 코드 <700 숨김
  *   ④ 더보기 → 표 · panels pref accum 기억(다시 마운트해도 열림)
  *   ⑤ ✕ → 그 사이클 숨김(gh-radar:accum-dismissed 에 isin|cycle) · 같은 isin 새 사이클이면 다시 보임
@@ -43,7 +43,7 @@ import { HIGHLIGHT_MS } from '@/lib/breakout-list';
 import { ACCUM_DISMISSED_KEY } from '@/lib/accum-list';
 import { readPanelsPref } from '@/lib/trading-layout';
 import type { IsinLabel } from '@/lib/isin-labels';
-import { ACCUM_EMPTY_TEXT, AccumStrip, liveRateOf } from '../workbench/accum-strip';
+import { ACCUM_EMPTY_TEXT, AccumStrip, liveRateOf, teamProfitOf } from '../workbench/accum-strip';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 const T = (hms: string) => Date.parse(`2026-10-18T${hms}+09:00`);
@@ -163,9 +163,14 @@ describe('AccumStrip — 칩 (안 A)', () => {
     expect(within(b!).getByText('−2.5억').className).toContain('text-[var(--down)]');
   });
 
-  it('② 청산 행은 칩에 없고 펼친 표에만 회색 · title = 사유(이월 탈락)', () => {
+  it('② 청산 행은 칩에 없고 펼친 표에만 회색 · title = 사유(청산) · 이월 탈락 · 만료 종료 행은 표에도 없다', () => {
     setup({
-      signals: [sig(), sig({ isin: 'KR7000060004', state: 3, endReason: 2, netKrw: -20_000_000 })],
+      signals: [
+        sig(),
+        sig({ isin: 'KR7000060004', state: 3, endReason: 1, netKrw: -20_000_000 }),
+        sig({ isin: 'KR7000040006', state: 3, endReason: 2 }),
+        sig({ isin: 'KR7000040006', state: 3, endReason: 3, cycle: 2 }),
+      ],
     });
     expect(chips()).toHaveLength(1);
     expect(within(chips()[0] as HTMLElement).queryByText('금호전기')).toBeNull();
@@ -173,7 +178,8 @@ describe('AccumStrip — 칩 (안 A)', () => {
     expect(rows()).toHaveLength(2);
     const ended = Array.from(rows()).find((r) => r.textContent?.includes('금호전기')) as HTMLElement;
     expect(ended.className).toContain('text-[var(--muted-fg)]');
-    expect(ended.getAttribute('title')).toBe('이월 탈락');
+    expect(ended.getAttribute('title')).toBe('청산');
+    expect(Array.from(rows()).some((r) => r.textContent?.includes('서산'))).toBe(false);
     expect(within(ended).getByText('청산')).toBeInTheDocument();
   });
 
@@ -186,17 +192,38 @@ describe('AccumStrip — 칩 (안 A)', () => {
 });
 
 describe('AccumStrip — 표', () => {
-  it('③ 순서 = 매집중 · 매도중 netKrw 큰 순, 청산은 뒤', () => {
+  it('③ 팀 수익률 = 현재가 ÷ 평단 − 1 · 부호 색 · 모든 밴드 · 현재가나 평단이 없으면 빈 칸 · 청산 행은 회색', () => {
     setup({
       signals: [
-        sig({ isin: 'KR7000060004', state: 3, endReason: 1, netKrw: 9e9 }),
+        sig(),
+        sig({ isin: 'KR7000040006', state: 2, avgPx: 0, netKrw: 1 }),
+        sig({ isin: 'KR7000060004', state: 3, endReason: 1, lastPx: 9_614, avgPx: 10_120 }),
+      ],
+    });
+    openTable();
+    expect(screen.getByRole('columnheader', { name: '팀 수익률' })).toBeInTheDocument();
+    const [live, noAvg, ended] = Array.from(rows()).map((r) => r.querySelector('[data-col="profit"]') as HTMLElement);
+    expect(live!.textContent).toBe('+3.26%'); // 10,450 ÷ 10,120 − 1
+    expect(live!.className).toContain('text-[var(--up)]');
+    expect(live!.className).not.toContain('hidden');
+    expect(noAvg!.textContent).toBe('');
+    expect(ended!.textContent).toBe('-5.00%');
+    expect(ended!.className).not.toContain('text-[var(--down)]');
+    expect(teamProfitOf(0, 10_120)).toBeNull();
+  });
+
+  it('③ 순서 = 매집중 · 매도중 netKrw 큰 순, 청산은 뒤 · 청산끼리는 먼저 청산한 순', () => {
+    setup({
+      signals: [
+        sig({ isin: 'KR7000060004', state: 3, endReason: 1, netKrw: 9e9, gwTimeMs: T('10:20:00') }),
         sig({ isin: 'KR7000020008', netKrw: 1e8 }),
+        sig({ isin: 'KR7000080002', state: 3, endReason: 1, netKrw: 1, gwTimeMs: T('09:05:00') }),
         sig({ isin: 'KR7000040006', state: 2, netKrw: 5e8 }),
       ],
     });
     openTable();
     const names = Array.from(rows()).map((r) => r.querySelector('[data-slot="accum-row-name"]')?.textContent);
-    expect(names).toEqual(['서산', '천일고속', '금호전기']);
+    expect(names).toEqual(['서산', '천일고속', '대양금속', '금호전기']);
     const chipNames = Array.from(chips()).map((c) => c.querySelector('[data-slot="accum-chip-name"]')?.textContent);
     expect(chipNames).toEqual(['서산', '천일고속']);
   });
@@ -371,7 +398,7 @@ describe('AccumStrip — 매도경보 (D-01)', () => {
 describe('⑩ 시세 구독 · 서버 기준 (2026-10-19)', () => {
   it('활성 행은 price level 로 구독하고, 시세가 오면 표의 현재가 · 등락률이 행 값 대신 시세로 — 청산 행은 구독 안 함 · 행 값 고정', () => {
     const live = sig({ isin: 'KR7000020008', lastPx: 10_450, rateBp: 512 }); // 기준가 ≈ 9,941
-    const ended = sig({ isin: 'KR7000060004', state: 3, lastPx: 2_210, rateBp: 300 });
+    const ended = sig({ isin: 'KR7000060004', state: 3, endReason: 1, lastPx: 2_210, rateBp: 300 });
     const { rerender } = setup({ signals: [live, ended] });
     expect(subscribeMock).toHaveBeenCalledWith('KR7000020008', 'KRX', 'price');
     expect(subscribeMock).not.toHaveBeenCalledWith('KR7000060004', expect.anything(), expect.anything());

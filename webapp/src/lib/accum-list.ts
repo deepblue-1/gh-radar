@@ -5,7 +5,12 @@
  *   최신 판정은 gwTimeMs desc → gateway asc → seq desc. 세 서버가 같은 isin 을 각자 넣지만 값 차이는
  *   our_excluded_qty 뿐이라 웹은 이 규칙 하나다(같은 분 quote-primary 우선은 REST RPC 에만 있다 — 웹은 quote-primary 를 모른다).
  *
- * ② 정렬 — 매집중 · 매도중(1·2)이 먼저(팀 순매수 큰 순), 청산(3)은 뒤(갱신 늦은 순). 동률은 isin 으로 고정.
+ * ② 정렬 — 매집중 · 매도중(1·2)이 먼저(팀 순매수 큰 순), 청산(3)은 뒤(**먼저 청산한 순** — gh-trade 클라 `AccumWatchForm.SortRows`
+ *   ClosedAtTick 오름차순 동형). 동률은 isin 으로 고정.
+ *
+ * ②' 목록에 싣는 행 — 청산 행은 종료 사유 1(청산)만. 2 이월 탈락 · 3 이월 만료는 06:00 거래일 경계(또는 서버 기동 정합)에서만 나오는데,
+ *   gh-trade 클라는 그 종료 프레임을 받을 때 그 종목 행이 없거나(자정 넘김이 목록을 비운다 · 모르는 종목의 종료는 무시) 재접속 89 스냅샷이
+ *   조용히 지운다 — 클라에 「청산」 행으로 남는 일이 없다(2026-10-21 사용자 제보 · 06:00 종료 행 6~7건).
  *
  * ③ ✕ 숨김 = 이 기기 · 오늘 · **사이클 단위** — 키 `${isin}|${cycle}`. 같은 종목의 새 사이클(cycle +1)이 오면 다시 보인다.
  *   날짜 키 집합은 돌파 패널(`breakout-list.ts` readDatedSet/writeDatedSet)과 같은 저장 문법이다.
@@ -90,6 +95,11 @@ export function latestAccumByIsin(rows: readonly StrategyEventRow[]): StrategyEv
   return [...byIsin.values()];
 }
 
+/** 목록에 싣는 행인가(②') — 활성(1 · 2) 전부 · 청산(3)은 종료 사유 1 만. */
+export function isListedAccum(sig: Pick<AccumSignal, 'state' | 'endReason'>): boolean {
+  return sig.state !== 3 || sig.endReason === 1;
+}
+
 /** 표시 순서(②) — 새 배열을 돌려준다. */
 export function sortAccum(signals: readonly AccumSignal[]): AccumSignal[] {
   return [...signals].sort((a, b) => {
@@ -97,7 +107,7 @@ export function sortAccum(signals: readonly AccumSignal[]): AccumSignal[] {
     const bEnd = b.state === 3;
     if (aEnd !== bEnd) return aEnd ? 1 : -1;
     if (!aEnd && a.netKrw !== b.netKrw) return b.netKrw - a.netKrw;
-    if (aEnd && a.gwTimeMs !== b.gwTimeMs) return b.gwTimeMs - a.gwTimeMs;
+    if (aEnd && a.gwTimeMs !== b.gwTimeMs) return a.gwTimeMs - b.gwTimeMs;
     return a.isin < b.isin ? -1 : a.isin > b.isin ? 1 : 0;
   });
 }

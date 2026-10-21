@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * AccumStrip — `/trading` 작업대의 **매집 스트립 + 「더보기」 10열 표** (quick-261018-rfy · D-01).
+ * AccumStrip — `/trading` 작업대의 **매집 스트립 + 「더보기」 11열 표** (quick-261018-rfy · D-01).
  * 정본은 채택 목업 `.planning/quick/261018-rfy-accum-signal/mockup-workbench.html` 안 **A**.
  * `breakout-strip.tsx` · `vi-trigger-strip.tsx` 와 **같은 문법**이다 — 무테 카드 안에 스트립 줄(라벨 「매집」 · 칩 ·
  * 「더보기/접기」) → 펼친 표(행 있을 때만). 원천은 kind 16 매집감지(gh-trade Phase 34) — `useAccumSignals` 가 isin 별
@@ -23,6 +23,9 @@
  * ⑤ ✕ = 이 기기 · 오늘 · **사이클 단위** 숨김(`isin|cycle`) — 같은 종목의 새 사이클이 오면 다시 보인다.
  * ⑥ 이름 없는 행은 ISIN 을 고정폭 그대로 — `onAddCard` 에 이름을 싣지 않는다(돌파 ⑥). 코드는 행의 `stocks` 조인 값(없으면 relay 라벨)이라
  *   이름과 무관하게 싣는다. 이름 폴백은 relay 라벨 → 종목 마스터.
+ * ⑦ 팀 수익률 = 표시 현재가 ÷ 팀 평단 − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청) — 평단 열 다음, 모든 밴드에 보인다.
+ *   현재가나 평단이 없으면 빈 칸. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
+ * ⑧ 청산 행은 `isListedAccum` 이 거른 것만(06:00 이월 탈락 · 만료 종료 행은 gh-trade 클라에 남지 않는다 — accum-list ②').
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +41,7 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  isListedAccum,
   readAccumDismissed,
   sortAccum,
   type AccumMeta,
@@ -97,6 +101,14 @@ interface AccumView {
   price: number;
   /** 표시 등락률(%) — 구독 시세로 다시 센 값, 모르면 행 값(①). */
   rate: number;
+  /** 팀 수익률(%) — 표시 현재가 ÷ 팀 평단 − 1(⑦). 현재가 · 평단이 없으면 null. */
+  profit: number | null;
+}
+
+/** 팀 수익률(%) — 현재가 ÷ 평단 − 1(⑦ · gh-trade `ProfitRateOf` 동형). 어느 하나라도 0 이하면 null. */
+export function teamProfitOf(price: number, avgPx: number): number | null {
+  if (!(price > 0) || !(avgPx > 0)) return null;
+  return (price / avgPx - 1) * 100;
 }
 
 /** 행의 기준가(전일 종가) — `lastPx / (1 + rateBp/10000)`. 행 값이 없으면 null. */
@@ -143,7 +155,7 @@ export function AccumStrip({
   const masterNames = useStockNames(unnamed);
 
   const visible = useMemo(
-    () => sortAccum(signals.filter((s) => !dismissed.has(accumDismissKey(s)))),
+    () => sortAccum(signals.filter((s) => isListedAccum(s) && !dismissed.has(accumDismissKey(s)))),
     [signals, dismissed],
   );
 
@@ -191,6 +203,7 @@ export function AccumStrip({
           clock: kstClock(sig.gwTimeMs),
           price,
           rate: liveRateOf(sig, price),
+          profit: teamProfitOf(price, sig.avgPx),
         };
       }),
     [visible, labels, masterNames, cards, meta, now, prices],
@@ -415,10 +428,10 @@ const AccumChip = memo(function AccumChip({
   );
 });
 
-/* ── 표 (목업 `table` · 10열) ─────────────────────────────────────────── */
+/* ── 표 (목업 `table` · 11열) ─────────────────────────────────────────── */
 
 /**
- * 10열 — 종목 · 현재가 · 등락률 · 팀 순매수 · 평단 · 매집 구간 · 순수량 · 상태 · 갱신 · 액션.
+ * 11열 — 종목 · 현재가 · 등락률 · 팀 순매수 · 평단 · 팀 수익률 · 매집 구간 · 순수량 · 상태 · 갱신 · 액션(팀 수익률은 접지 않는다 · ⑦).
  * 작업대 컨테이너(`@container/wb`) 폭으로 접는다(돌파 표 규칙 · 경계는 globals.css §2.2b 정본): 본문 <700 에서 평단 · 구간 ·
  * 순수량 · 갱신 열을 숨기고 종목 셀 아래 보조 줄 「HH:MM:SS · 평단 N · lo~hi」 를 세우고 코드를 숨긴다.
  */
@@ -445,6 +458,7 @@ const AccumTable = memo(function AccumTable({
           <TableHead scope="col" className={cn(th, 'text-right')}>등락률</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>팀 순매수</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>평단</TableHead>
+          <TableHead scope="col" className={cn(th, 'text-right')}>팀 수익률</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow)}>매집 구간</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>순수량</TableHead>
           <TableHead scope="col" className={th}>상태</TableHead>
@@ -520,6 +534,12 @@ const AccumTable = memo(function AccumTable({
               </TableCell>
               <TableCell data-col="avg" className={cn(td, colNarrow, 'mono text-right')}>
                 {NUM.format(v.sig.avgPx)}
+              </TableCell>
+              <TableCell
+                data-col="profit"
+                className={cn(td, 'mono text-right font-bold', !ended && v.profit !== null && rateClass(v.profit))}
+              >
+                {v.profit === null ? '' : signedRate(v.profit)}
               </TableCell>
               <TableCell data-col="band" className={cn(td, colNarrow, 'mono')}>
                 {bandText(v.sig)}

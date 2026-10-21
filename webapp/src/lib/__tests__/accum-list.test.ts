@@ -7,7 +7,8 @@ import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
  *
  * 잠그는 것:
  *  - latestAccumByIsin: 같은 isin 여러 행 → gwTimeMs 큰 것 → 같으면 gateway 사전순 앞 → 같으면 seq 큰 것
- *  - sortAccum: 매집중 · 매도중(1·2)은 netKrw 큰 순 · 청산(3)은 뒤에서 gwTimeMs 큰 순
+ *  - sortAccum: 매집중 · 매도중(1·2)은 netKrw 큰 순 · 청산(3)은 뒤에서 gwTimeMs 작은 순(먼저 청산한 순 · gh-trade 동형)
+ *  - isListedAccum: 활성 전부 · 청산은 종료 사유 1 만(06:00 이월 탈락 · 만료 제외)
  *  - accumDismissKey = `${isin}|${cycle}` · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
  *  - advanceAccumMeta: 직전 커밋이 filled 전이면 새 키 무강조, filled 뒤 새 키(새 isin · 같은 isin 새 cycle)는
  *    now + HIGHLIGHT_MS 까지 강조 · 이미 본 키는 직전 값 유지 · state 3 은 강조하지 않음
@@ -18,6 +19,7 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  isListedAccum,
   latestAccumByIsin,
   readAccumDismissed,
   restoreCutByGateway,
@@ -156,7 +158,7 @@ describe('restoreCutByGateway · latestAccumByIsin ⑤ — 복원 묶음 = 그 �
 });
 
 describe('sortAccum', () => {
-  it('state 1·2 는 netKrw 큰 순 · state 3 은 뒤에서 gwTimeMs 큰 순', () => {
+  it('state 1·2 는 netKrw 큰 순 · state 3 은 뒤에서 gwTimeMs 작은 순(먼저 청산한 순)', () => {
     const out = sortAccum([
       sig({ isin: 'E1', state: 3, gwTimeMs: 1_000, netKrw: 9e9 }),
       sig({ isin: 'A1', state: 1, netKrw: 1e8 }),
@@ -164,13 +166,23 @@ describe('sortAccum', () => {
       sig({ isin: 'E2', state: 3, gwTimeMs: 3_000, netKrw: -1 }),
       sig({ isin: 'A2', state: 1, netKrw: 3e8 }),
     ]);
-    expect(out.map((s) => s.isin)).toEqual(['S1', 'A2', 'A1', 'E2', 'E1']);
+    expect(out.map((s) => s.isin)).toEqual(['S1', 'A2', 'A1', 'E1', 'E2']);
   });
 
   it('입력 배열을 바꾸지 않는다', () => {
     const input = [sig({ isin: 'A', netKrw: 1 }), sig({ isin: 'B', netKrw: 2 })];
     sortAccum(input);
     expect(input.map((s) => s.isin)).toEqual(['A', 'B']);
+  });
+});
+
+describe('isListedAccum', () => {
+  it('활성(1 · 2)은 전부 · 청산(3)은 종료 사유 1 만 — 2 이월 탈락 · 3 이월 만료는 뺀다', () => {
+    expect(isListedAccum(sig({ state: 1 }))).toBe(true);
+    expect(isListedAccum(sig({ state: 2 }))).toBe(true);
+    expect(isListedAccum(sig({ state: 3, endReason: 1 }))).toBe(true);
+    expect(isListedAccum(sig({ state: 3, endReason: 2 }))).toBe(false);
+    expect(isListedAccum(sig({ state: 3, endReason: 3 }))).toBe(false);
   });
 });
 
