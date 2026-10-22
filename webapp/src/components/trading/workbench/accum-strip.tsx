@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * AccumStrip — `/trading` 작업대의 **매집 스트립 + 「더보기」 11열 표** (quick-261018-rfy · D-01).
+ * AccumStrip — `/trading` 작업대의 **매집 스트립 + 「더보기」 12열 표** (quick-261018-rfy · D-01).
  * 정본은 채택 목업 `.planning/quick/261018-rfy-accum-signal/mockup-workbench.html` 안 **A**.
  * `breakout-strip.tsx` · `vi-trigger-strip.tsx` 와 **같은 문법**이다 — 무테 카드 안에 스트립 줄(라벨 「매집」 · 칩 ·
  * 「더보기/접기」) → 펼친 표(행 있을 때만). 원천은 kind 16 매집감지(gh-trade Phase 34) — `useAccumSignals` 가 isin 별
@@ -26,6 +26,11 @@
  * ⑦ 팀 수익률 = 표시 현재가 ÷ 팀 평단 − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청) — 평단 열 다음, 모든 밴드에 보인다.
  *   현재가나 평단이 없으면 빈 칸. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
  * ⑧ 청산 행은 `isListedAccum` 이 거른 것만(06:00 이월 탈락 · 만료 종료 행은 gh-trade 클라에 남지 않는다 — accum-list ②').
+ * ⑨ NXT 순매수(quick-261022-ozx · 인박스 261022-accum-nxt-team-burst · gh-trade Phase 37) — 팀 순매수 바로 다음 열 ·
+ *   값 = nxtBuyKrw − nxtSellKrw(kind 16 error_volume − remaining_volume) · 팀 순매수와 같은 억 포맷 · 부호 색 · 0(옛 행 ·
+ *   NXT 없는 종목)은 「0.0억」 그대로. 팀 순매수(netKrw)는 KRX+NXT 합산 — 열 이름 대신 머리 · 칩 title 로 알린다.
+ *   <700 에서 접히고 보조 줄 끝에 「NXT ±x.x억」. 거래소 표시(②)가 아니다 — 행 exchange 는 여전히 KRX. 금액만(수량 없음 ·
+ *   사용자 결정).
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -330,11 +335,14 @@ function showsWarn(s: AccumSignal): boolean {
   return s.state === 1 && s.sellWarn;
 }
 
-/** 칩 `title` — 「이름 코드 · 팀 순매수 · 평단 · 구간 lo~hi · 갱신 HH:MM:SS[ · 매도경보 n회]」. */
+/**
+ * 칩 `title` — 「이름 코드 · 팀 순매수(KRX+NXT) ±x.x억 · NXT 순매수 ±x.x억 · 평단 · 구간 lo~hi · 갱신 HH:MM:SS[ · 매도경보 n회]」.
+ * NXT 는 title 에만 — 칩의 보이는 글자(이름 · 팀 순매수 · 배지)는 그대로다(⑨).
+ */
 function chipTitle(v: AccumView): string {
   const head = v.named && v.code ? `${v.label} ${v.code}` : v.label;
   const warn = showsWarn(v.sig) ? ` · 매도경보 ${v.sig.sellWarns}회` : '';
-  return `${head} · 팀 순매수 ${fmtEok(v.sig.netKrw, { signed: true })} · 평단 ${NUM.format(v.sig.avgPx)} · 구간 ${bandText(v.sig)} · 갱신 ${v.clock}${warn}`;
+  return `${head} · 팀 순매수(KRX+NXT) ${fmtEok(v.sig.netKrw, { signed: true })} · NXT 순매수 ${fmtEok(v.nxtNet, { signed: true })} · 평단 ${NUM.format(v.sig.avgPx)} · 구간 ${bandText(v.sig)} · 갱신 ${v.clock}${warn}`;
 }
 
 const BADGE = 'inline-flex h-4 flex-none items-center rounded-[4px] border border-transparent px-1 text-[9px] font-bold';
@@ -431,12 +439,13 @@ const AccumChip = memo(function AccumChip({
   );
 });
 
-/* ── 표 (목업 `table` · 11열) ─────────────────────────────────────────── */
+/* ── 표 (목업 `table` · 12열) ─────────────────────────────────────────── */
 
 /**
- * 11열 — 종목 · 현재가 · 등락률 · 팀 순매수 · 평단 · 팀 수익률 · 매집 구간 · 순수량 · 상태 · 갱신 · 액션(팀 수익률은 접지 않는다 · ⑦).
- * 작업대 컨테이너(`@container/wb`) 폭으로 접는다(돌파 표 규칙 · 경계는 globals.css §2.2b 정본): 본문 <700 에서 평단 · 구간 ·
- * 순수량 · 갱신 열을 숨기고 종목 셀 아래 보조 줄 「HH:MM:SS · 평단 N · lo~hi」 를 세우고 코드를 숨긴다.
+ * 12열 — 종목 · 현재가 · 등락률 · 팀 순매수 · NXT 순매수 · 평단 · 팀 수익률 · 매집 구간 · 순수량 · 상태 · 갱신 · 액션
+ * (팀 수익률은 접지 않는다 · ⑦ / NXT 순매수 ⑨). 작업대 컨테이너(`@container/wb`) 폭으로 접는다(돌파 표 규칙 · 경계는
+ * globals.css §2.2b 정본): 본문 <700 에서 NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 열을 숨기고 종목 셀 아래 보조 줄
+ * 「HH:MM:SS · 평단 N · lo~hi · NXT ±x.x억」 를 세우고 코드를 숨긴다.
  */
 const AccumTable = memo(function AccumTable({
   views,
@@ -459,8 +468,16 @@ const AccumTable = memo(function AccumTable({
           <TableHead scope="col" className={th}>종목</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>현재가</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>등락률</TableHead>
-          <TableHead scope="col" className={cn(th, 'text-right')}>팀 순매수</TableHead>
-          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>NXT 순매수</TableHead>
+          <TableHead scope="col" title="KRX+NXT 합산" className={cn(th, 'text-right')}>
+            팀 순매수
+          </TableHead>
+          <TableHead
+            scope="col"
+            title="NXT 팀 매수 − 매도 금액 · 팀 순매수에 포함"
+            className={cn(th, colNarrow, 'text-right')}
+          >
+            NXT 순매수
+          </TableHead>
           <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>평단</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>팀 수익률</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow)}>매집 구간</TableHead>
@@ -521,12 +538,12 @@ const AccumTable = memo(function AccumTable({
                     </span>
                   )}
                 </span>
-                {/* 폰 밴드 보조 줄 — 숨긴 갱신 · 평단 · 구간 열의 사실을 여기서 말한다. */}
+                {/* 폰 밴드 보조 줄 — 숨긴 갱신 · 평단 · 구간 · NXT 순매수 열의 사실을 여기서 말한다. */}
                 <span
                   data-slot="accum-row-subline"
                   className="mono block truncate text-[10px] text-[var(--muted-fg)] @min-[700px]/wb:hidden"
                 >
-                  {`${v.clock} · 평단 ${NUM.format(v.sig.avgPx)} · ${bandText(v.sig)}`}
+                  {`${v.clock} · 평단 ${NUM.format(v.sig.avgPx)} · ${bandText(v.sig)} · NXT ${fmtEok(v.nxtNet, { signed: true })}`}
                 </span>
               </TableCell>
               <TableCell className={cn(td, 'mono text-right', !ended && rateClass(rate))}>{NUM.format(v.price)}</TableCell>

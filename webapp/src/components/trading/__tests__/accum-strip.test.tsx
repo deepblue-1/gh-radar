@@ -8,7 +8,7 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  * 잠그는 것:
  *   ① 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 --team · 매도중 --accum-sell) · 이월 D+n(carryDays > 0 만)
  *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구 · 이월 탈락 · 만료(사유 2 · 3) 종료 행은 표에도 없음
- *   ③ 표 순서 = sortAccum · 열 접기(평단 · 구간 · 순수량 · 갱신 = colNarrow) · 보조 줄 · 코드 <700 숨김
+ *   ③ 표 순서 = sortAccum · 열 접기(NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 = colNarrow) · 보조 줄 · 코드 <700 숨김
  *   ④ 더보기 → 표 · panels pref accum 기억(다시 마운트해도 열림)
  *   ⑤ ✕ → 그 사이클 숨김(gh-radar:accum-dismissed 에 isin|cycle) · 같은 isin 새 사이클이면 다시 보임
  *   ⑥ 클릭 — 카드 없음 onAddCard(isin, 이름, 코드, 'KRX') · 카드 있음 점선 「거래중」 + onFocusCard · 이름 없음 ISIN 고정폭 · 이름 undefined
@@ -16,6 +16,9 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  *   ⑧ 활성 칩 0 → 빈 문구
  *   ⑨ 매도경보(quick-261019-j1w D-01) — 매집중 + sellWarn 일 때만 칩 · 표 상태 셀에 주황 채움 「매도경보」(「매집중」 뒤 · 이월 앞 ·
  *      accum-blink 깜빡임 · title 「이 사이클 경보 n회」) · 칩 title 끝 「 · 매도경보 n회」. 매도중 · 청산 · 경보 꺼짐은 없음
+ *   ⑪ NXT 순매수(quick-261022-ozx) — 팀 순매수 다음 열 · nxtBuyKrw − nxtSellKrw · 같은 억 포맷 · 부호 색 · 0 「0.0억」 ·
+ *      청산 무색 · <700 접힘 + 보조 줄 끝 · 머리 title 「KRX+NXT 합산」 · 칩 title 「팀 순매수(KRX+NXT) … · NXT 순매수 …」 ·
+ *      칩 글자 무변경
  */
 
 vi.mock('@/lib/stock-names', () => ({
@@ -230,11 +233,11 @@ describe('AccumStrip — 표', () => {
     expect(chipNames).toEqual(['서산', '천일고속']);
   });
 
-  it('③ 평단 · 구간 · 순수량 · 갱신 열은 <700 숨김 · 보조 줄 「HH:MM:SS · 평단 N · lo~hi」 · 코드 <700 숨김', () => {
+  it('③ NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 열은 <700 숨김 · 보조 줄 「HH:MM:SS · 평단 N · lo~hi · NXT ±x.x억」 · 코드 <700 숨김', () => {
     setup({ signals: [sig()] });
     openTable();
     const row = rows()[0] as HTMLElement;
-    for (const col of ['avg', 'band', 'qty', 'at']) {
+    for (const col of ['nxt', 'avg', 'band', 'qty', 'at']) {
       const cell = row.querySelector(`[data-col="${col}"]`) as HTMLElement;
       expect(cell, col).not.toBeNull();
       expect(cell.className).toContain('hidden');
@@ -245,7 +248,7 @@ describe('AccumStrip — 표', () => {
     expect(row.querySelector('[data-col="qty"]')?.textContent).toBe('120,000');
     expect(row.querySelector('[data-col="at"]')?.textContent).toBe('10:16:05');
     const sub = row.querySelector('[data-slot="accum-row-subline"]') as HTMLElement;
-    expect(sub.textContent).toBe('10:16:05 · 평단 10,120 · 9,900~10,300');
+    expect(sub.textContent).toBe('10:16:05 · 평단 10,120 · 9,900~10,300 · NXT 0.0억');
     expect(sub.className).toContain('@min-[700px]/wb:hidden');
     const code = row.querySelector('[data-slot="accum-row-code"]') as HTMLElement;
     expect(code.textContent).toBe('000020');
@@ -409,6 +412,48 @@ describe('AccumStrip — NXT 순매수 (quick-261022-ozx)', () => {
     const cell = nxtCell(rows()[0]);
     expect(cell.textContent).toBe('+0.5억');
     expect(cell.className).toContain('text-[var(--up)]');
+  });
+
+  it('⑪ 0 → 「0.0억」 flat · 음수 → down · 청산 행은 부호 색 없음 · <700 접힘', () => {
+    setup({
+      signals: [
+        sig({ netKrw: 3e9 }),
+        sig({ isin: 'KR7000040006', netKrw: 2e9, nxtBuyKrw: 10_000_000, nxtSellKrw: 260_000_000 }),
+        sig({ isin: 'KR7000060004', state: 3, endReason: 1, nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 }),
+      ],
+    });
+    openTable();
+    const [zero, neg, ended] = Array.from(rows()).map(nxtCell);
+    expect(zero.textContent).toBe('0.0억');
+    expect(zero.className).toContain('text-[var(--flat)]');
+    expect(zero.className).toContain('hidden');
+    expect(zero.className).toContain('@min-[700px]/wb:table-cell');
+    expect(neg.textContent).toBe('−2.5억');
+    expect(neg.className).toContain('text-[var(--down)]');
+    expect(ended.textContent).toBe('+0.5억');
+    expect(ended.className).not.toContain('text-[var(--up)]');
+  });
+
+  it('⑪ 머리 title — 「팀 순매수」 = KRX+NXT 합산 · 「NXT 순매수」 = 팀 순매수에 포함', () => {
+    setup({ signals: [sig()] });
+    openTable();
+    expect(screen.getByRole('columnheader', { name: '팀 순매수' }).getAttribute('title')).toBe('KRX+NXT 합산');
+    expect(screen.getByRole('columnheader', { name: 'NXT 순매수' }).getAttribute('title')).toContain('팀 순매수에 포함');
+  });
+
+  it('⑪ 칩 title 에 「팀 순매수(KRX+NXT) · NXT 순매수」 — 칩 보이는 글자에는 NXT 없음', () => {
+    setup({ signals: [sig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
+    const chip = chips()[0] as HTMLElement;
+    expect(chip.getAttribute('title')).toContain('팀 순매수(KRX+NXT) +12.3억 · NXT 순매수 +0.5억 · 평단 10,120');
+    expect(within(chip).queryByText(/NXT/)).toBeNull();
+    expect(chip.textContent).not.toContain('NXT');
+  });
+
+  it('⑪ 폰 보조 줄 끝 「 · NXT +0.5억」', () => {
+    setup({ signals: [sig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
+    openTable();
+    const sub = rows()[0].querySelector('[data-slot="accum-row-subline"]') as HTMLElement;
+    expect(sub.textContent).toBe('10:16:05 · 평단 10,120 · 9,900~10,300 · NXT +0.5억');
   });
 });
 

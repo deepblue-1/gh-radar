@@ -4,11 +4,17 @@
  * 정본 = 인박스 `docs/inbox/from-gh-trade/261018-accum-signal.md` 「kind 16 — 43칸 매핑 표」(gh-trade
  * `server/src/market/publish/AccumSignal.cpp` `FillJournalSlot` 과 한 칸도 다르지 않다). 칸이 정본이다 —
  * `message` 는 칸에 없는 값(`since` 등록 거래일 · `reg` 등록 시각 · `th` 세 번째 조각 시총 상한)만 읽고
- * `st`/`end`/`cyc`/`carry`/`row`/`our`/`warn` 는 칸과 대조하지 않는다.
+ * `st`/`end`/`cyc`/`carry`/`row`/`our`/`warn`/`nxt` 는 칸과 대조하지 않는다.
  *
  * quick-261019-j1w — 인박스 `261019-accum-sell-warn` (나): `hasRemaining` = sell_warn(모든 행 종류) ·
  * `condMetric` = min(sell_warns, 255) · `queueCase` 5 = 매도 경보 에지(켜짐 · 꺼짐 즉시 1행 — 종료 행 4 가
  * 같이 나가면 4 만 내고 그 행의 hasRemaining false 가 꺼짐을 알린다). message 끝 `|warn=<0|1>` 은 사람용이라 읽지 않는다.
+ *
+ * quick-261022-ozx — 인박스 `261022-accum-nxt-team-burst`(gh-trade Phase 37 · NXT 팀 주문 합산): buy_* · sell_*(따라서
+ * netKrw · netQty · avgPx)는 KRX+NXT 합산이고 exchange 는 "KRX" 그대로(뜻만 합산 포지션). 0 고정이던 두 칸이 NXT 몫
+ * 금액이다 — errorVolume = nxt_buy_krw → `nxtBuyKrw` · remainingVolume = nxt_sell_krw → `nxtSellKrw`(옛 행 0).
+ * message 끝 `|nxt=<buy_krw>/<sell_krw>/<buy_qty>/<sell_qty>` 는 읽지 않는다 — 금액은 칸이 정본이고 수량은 쓰지 않는다
+ * (사용자 결정).
  *
  * 입력은 이미 숫자화된 `StrategyEventRow`(REST 매퍼 · wss 푸시 공용)라 값 보정이 없다. 유일한 기본값은 길이가
  * 모자란 `snapQty`/`snapCum` 원소의 0 이다.

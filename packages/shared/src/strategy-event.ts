@@ -68,8 +68,11 @@ export const STRATEGY_EVENT_KIND = {
    * aheadQty=max_same · expectedCum=cycle · cancelReason=end_reason(0 · 1 청산 · 2 이월 탈락 · 3 이월 만료) ·
    * resultCode=sell_phases · entryRound=carry_days · snapQty=[lo_px, hi_px] · snapCum=[th_net_krw, th_min_same] ·
    * askQtyAtLimit=peak_net_krw · cumVolume=KRX 누적 거래량 · hasRemaining=sell_warn(모든 행) ·
-   * condMetric=min(sell_warns, 255).
-   * message=`since=YYYYMMDD|reg=HHMMSS|st=…|end=…|cyc=…|carry=…|row=…|our=…|th=<net>/<same>/<mcap>|warn=<0|1>`.
+   * condMetric=min(sell_warns, 255) · errorVolume=nxt_buy_krw · remainingVolume=nxt_sell_krw(gh-trade Phase 37 · NXT 팀
+   * 주문 몫 금액 · 옛 행 0 · 인박스 261022-accum-nxt-team-burst).
+   * buy_* · sell_* · net_* 는 KRX+NXT 합산 · exchange "KRX" 는 합산 포지션 뜻.
+   * message=`since=YYYYMMDD|reg=HHMMSS|st=…|end=…|cyc=…|carry=…|row=…|our=…|th=<net>/<same>/<mcap>|warn=<0|1>`
+   * [`|nxt=<buy_krw>/<sell_krw>/<buy_qty>/<sell_qty>`](Phase 37 부터 · 읽지 않음).
    */
   AccumSignal: 16,
 } as const;
