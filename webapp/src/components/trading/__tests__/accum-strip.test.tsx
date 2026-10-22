@@ -66,6 +66,8 @@ function sig(over: Partial<AccumSignal> = {}): AccumSignal {
     sellKrw: 270_000_000,
     netQty: 120_000,
     netKrw: 1_230_000_000,
+    nxtBuyKrw: 0,
+    nxtSellKrw: 0,
     avgPx: 10_120,
     loPx: 9_900,
     hiPx: 10_300,
@@ -392,6 +394,21 @@ describe('AccumStrip — 매도경보 (D-01)', () => {
     expect((chips()[0] as HTMLElement).getAttribute('title')).not.toContain('매도경보');
     openTable();
     expect(warns()).toHaveLength(0);
+  });
+});
+
+describe('AccumStrip — NXT 순매수 (quick-261022-ozx)', () => {
+  const nxtCell = (row: Element) => row.querySelector('[data-col="nxt"]') as HTMLElement;
+
+  it('⑪ 「팀 순매수」 바로 다음 열 「NXT 순매수」 = nxtBuyKrw − nxtSellKrw · 같은 억 포맷 · 부호 색', () => {
+    setup({ signals: [sig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
+    openTable();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads.indexOf('NXT 순매수')).toBeGreaterThan(-1);
+    expect(heads.indexOf('NXT 순매수')).toBe(heads.indexOf('팀 순매수') + 1);
+    const cell = nxtCell(rows()[0]);
+    expect(cell.textContent).toBe('+0.5억');
+    expect(cell.className).toContain('text-[var(--up)]');
   });
 });
 

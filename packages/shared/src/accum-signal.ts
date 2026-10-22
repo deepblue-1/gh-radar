@@ -36,13 +36,18 @@ export type AccumSignal = {
   cycle: number;
   /** 이월 일수(0 = 이월 안 함). */
   carryDays: number;
+  /** buy_* · sell_* · net_* · 평단은 KRX+NXT 합산(gh-trade Phase 37 부터). */
   buyQty: number;
   buyKrw: number;
   sellQty: number;
   sellKrw: number;
   netQty: number;
-  /** 팀 순매수 금액(매수 − 매도 · 음수 가능). */
+  /** 팀 순매수 금액(매수 − 매도 · 음수 가능) · KRX+NXT 합산. */
   netKrw: number;
+  /** NXT 팀 매수 금액(원) — buyKrw 안에 든 NXT 몫 · 칸 errorVolume · gh-trade Phase 37 · 옛 행 0. */
+  nxtBuyKrw: number;
+  /** NXT 팀 매도 금액(원) — sellKrw 안에 든 NXT 몫 · 칸 remainingVolume · 옛 행 0. */
+  nxtSellKrw: number;
   /** 팀 매수 평단. */
   avgPx: number;
   /** 매집 구간 하한 · 상한. */
@@ -153,6 +158,8 @@ export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
     sellKrw: row.bid1Qty,
     netQty: row.evTradeQty,
     netKrw: row.condThreshold,
+    nxtBuyKrw: row.errorVolume,
+    nxtSellKrw: row.remainingVolume,
     avgPx: row.evPrice,
     loPx: row.snapQty[0] ?? 0,
     hiPx: row.snapQty[1] ?? 0,

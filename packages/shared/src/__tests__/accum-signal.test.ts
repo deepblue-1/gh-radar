@@ -49,8 +49,8 @@ function accumRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
     baseCum: 321_000_000_000,
     aheadQty: 45,
     expectedCum: 2,
-    errorVolume: 0,
-    remainingVolume: 0,
+    errorVolume: 312_000_000,
+    remainingVolume: 87_000_000,
     hasRemaining: true,
     cancelReason: 0,
     resultCode: 3,
@@ -84,6 +84,8 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       sellKrw: 284_000_000,
       netQty: 120_000,
       netKrw: 1_234_000_000,
+      nxtBuyKrw: 312_000_000,
+      nxtSellKrw: 87_000_000,
       avgPx: 10_120,
       loPx: 9_900,
       hiPx: 10_300,
@@ -115,6 +117,30 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
     expect(end?.state).toBe(3);
     expect(end?.endReason).toBe(2);
     expect(end?.row).toBe(4);
+  });
+
+  it("NXT 칸 — errorVolume = NXT 매수 금액 · remainingVolume = NXT 매도 금액 · message 의 nxt 꼬리는 읽지 않는다", () => {
+    const sig = accumSignalOf(
+      accumRow({
+        errorVolume: 312_000_000,
+        remainingVolume: 87_000_000,
+        message: `${NOTE_MESSAGE}|nxt=1/2/3/4`,
+      }),
+    );
+    expect(sig?.nxtBuyKrw).toBe(312_000_000);
+    expect(sig?.nxtSellKrw).toBe(87_000_000);
+    expect(sig?.sinceDate).toBe("2026-10-16");
+    expect(sig?.regTime).toBe("10:15:23");
+    expect(sig?.thMaxMcapKrw).toBe(500_000_000_000);
+  });
+
+  it("옛 행 — 두 칸 0 · 꼬리 없음 → nxtBuyKrw 0 · nxtSellKrw 0 (합산 칸은 그대로)", () => {
+    const sig = accumSignalOf(accumRow({ errorVolume: 0, remainingVolume: 0, message: NOTE_MESSAGE }));
+    expect(sig?.nxtBuyKrw).toBe(0);
+    expect(sig?.nxtSellKrw).toBe(0);
+    expect(sig?.buyKrw).toBe(1_518_000_000);
+    expect(sig?.sellKrw).toBe(284_000_000);
+    expect(sig?.netKrw).toBe(1_234_000_000);
   });
 
   it("음수 순매수(netKrw) · 음수 등락률(rateBp)을 부호 그대로 둔다", () => {

@@ -51,6 +51,8 @@ function sig(over: Partial<AccumSignal>): AccumSignal {
     sellKrw: 0,
     netQty: 0,
     netKrw: 0,
+    nxtBuyKrw: 0,
+    nxtSellKrw: 0,
     avgPx: 0,
     loPx: 0,
     hiPx: 0,

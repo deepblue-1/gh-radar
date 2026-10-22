@@ -103,6 +103,8 @@ interface AccumView {
   rate: number;
   /** 팀 수익률(%) — 표시 현재가 ÷ 팀 평단 − 1(⑦). 현재가 · 평단이 없으면 null. */
   profit: number | null;
+  /** NXT 팀 순매수 금액(원) = nxtBuyKrw − nxtSellKrw · 팀 순매수(netKrw · KRX+NXT 합산) 안에 든 NXT 몫. */
+  nxtNet: number;
 }
 
 /** 팀 수익률(%) — 현재가 ÷ 평단 − 1(⑦ · gh-trade `ProfitRateOf` 동형). 어느 하나라도 0 이하면 null. */
@@ -204,6 +206,7 @@ export function AccumStrip({
           price,
           rate: liveRateOf(sig, price),
           profit: teamProfitOf(price, sig.avgPx),
+          nxtNet: sig.nxtBuyKrw - sig.nxtSellKrw,
         };
       }),
     [visible, labels, masterNames, cards, meta, now, prices],
@@ -457,6 +460,7 @@ const AccumTable = memo(function AccumTable({
           <TableHead scope="col" className={cn(th, 'text-right')}>현재가</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>등락률</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>팀 순매수</TableHead>
+          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>NXT 순매수</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>평단</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>팀 수익률</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow)}>매집 구간</TableHead>
@@ -531,6 +535,12 @@ const AccumTable = memo(function AccumTable({
               </TableCell>
               <TableCell className={cn(td, 'mono text-right font-bold', !ended && netClass(v.sig.netKrw))}>
                 {fmtEok(v.sig.netKrw, { signed: true })}
+              </TableCell>
+              <TableCell
+                data-col="nxt"
+                className={cn(td, colNarrow, 'mono text-right font-bold', !ended && netClass(v.nxtNet))}
+              >
+                {fmtEok(v.nxtNet, { signed: true })}
               </TableCell>
               <TableCell data-col="avg" className={cn(td, colNarrow, 'mono text-right')}>
                 {NUM.format(v.sig.avgPx)}
