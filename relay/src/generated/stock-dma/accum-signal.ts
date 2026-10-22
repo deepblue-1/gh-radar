@@ -218,8 +218,13 @@ nxtSellKrw():bigint {
   return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
 }
 
+bucketBaseSec():number {
+  const offset = this.bb!.__offset(this.bb_pos, 76);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumSignal(builder:flatbuffers.Builder) {
-  builder.startObject(36);
+  builder.startObject(37);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -378,12 +383,16 @@ static addNxtSellKrw(builder:flatbuffers.Builder, nxtSellKrw:bigint) {
   builder.addFieldInt64(35, nxtSellKrw, BigInt('0'));
 }
 
+static addBucketBaseSec(builder:flatbuffers.Builder, bucketBaseSec:number) {
+  builder.addFieldInt32(36, bucketBaseSec, 0);
+}
+
 static endAccumSignal(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset, sellWarn:boolean, sellWarns:number, dayAvgPx:number, nxtBuyQty:bigint, nxtBuyKrw:bigint, nxtSellQty:bigint, nxtSellKrw:bigint):flatbuffers.Offset {
+static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset, sellWarn:boolean, sellWarns:number, dayAvgPx:number, nxtBuyQty:bigint, nxtBuyKrw:bigint, nxtSellQty:bigint, nxtSellKrw:bigint, bucketBaseSec:number):flatbuffers.Offset {
   AccumSignal.startAccumSignal(builder);
   AccumSignal.addIsin(builder, isinOffset);
   AccumSignal.addExchange(builder, exchangeOffset);
@@ -421,6 +430,7 @@ static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Off
   AccumSignal.addNxtBuyKrw(builder, nxtBuyKrw);
   AccumSignal.addNxtSellQty(builder, nxtSellQty);
   AccumSignal.addNxtSellKrw(builder, nxtSellKrw);
+  AccumSignal.addBucketBaseSec(builder, bucketBaseSec);
   return AccumSignal.endAccumSignal(builder);
 }
 }

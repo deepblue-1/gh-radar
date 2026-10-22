@@ -85,8 +85,13 @@ cycleStartUs():bigint {
   return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
 }
 
+sampleBaseSec():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumChartResp(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(10);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -149,12 +154,16 @@ static addCycleStartUs(builder:flatbuffers.Builder, cycleStartUs:bigint) {
   builder.addFieldInt64(8, cycleStartUs, BigInt('0'));
 }
 
+static addSampleBaseSec(builder:flatbuffers.Builder, sampleBaseSec:number) {
+  builder.addFieldInt32(9, sampleBaseSec, 0);
+}
+
 static endAccumChartResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint, cycleStartUs:bigint):flatbuffers.Offset {
+static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint, cycleStartUs:bigint, sampleBaseSec:number):flatbuffers.Offset {
   AccumChartResp.startAccumChartResp(builder);
   AccumChartResp.addIsin(builder, isinOffset);
   AccumChartResp.addSinceDate(builder, sinceDateOffset);
@@ -165,6 +174,7 @@ static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.
   AccumChartResp.addCumBuyKrw(builder, cumBuyKrw);
   AccumChartResp.addCumSellKrw(builder, cumSellKrw);
   AccumChartResp.addCycleStartUs(builder, cycleStartUs);
+  AccumChartResp.addSampleBaseSec(builder, sampleBaseSec);
   return AccumChartResp.endAccumChartResp(builder);
 }
 }
