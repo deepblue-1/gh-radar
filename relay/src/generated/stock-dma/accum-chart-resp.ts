@@ -80,8 +80,13 @@ cumSellKrw():bigint {
   return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
 }
 
+cycleStartUs():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startAccumChartResp(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(9);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -140,12 +145,16 @@ static addCumSellKrw(builder:flatbuffers.Builder, cumSellKrw:bigint) {
   builder.addFieldInt64(7, cumSellKrw, BigInt('0'));
 }
 
+static addCycleStartUs(builder:flatbuffers.Builder, cycleStartUs:bigint) {
+  builder.addFieldInt64(8, cycleStartUs, BigInt('0'));
+}
+
 static endAccumChartResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint):flatbuffers.Offset {
+static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint, cycleStartUs:bigint):flatbuffers.Offset {
   AccumChartResp.startAccumChartResp(builder);
   AccumChartResp.addIsin(builder, isinOffset);
   AccumChartResp.addSinceDate(builder, sinceDateOffset);
@@ -155,6 +164,7 @@ static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.
   AccumChartResp.addDroppedOrders(builder, droppedOrders);
   AccumChartResp.addCumBuyKrw(builder, cumBuyKrw);
   AccumChartResp.addCumSellKrw(builder, cumSellKrw);
+  AccumChartResp.addCycleStartUs(builder, cycleStartUs);
   return AccumChartResp.endAccumChartResp(builder);
 }
 }

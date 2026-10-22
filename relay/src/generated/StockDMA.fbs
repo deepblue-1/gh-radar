@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 9eb71e84
-// synced-date:        2026-10-19
+// server-repo-commit: aeae7809
+// synced-date:        2026-10-22
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -196,7 +196,8 @@ enum MsgType : byte {
     AccumSignal = 88,              // 팀매집 누적 상태 (S→C, Envelope.accum_signal 슬롯 98, 등록 종목만 키(isin)별 1초 스로틀
                                    // Broadcast — 접속 연결 전부, 76 선례 · FULL 구독 조건 없음). 종료(청산)도 state 3 으로 1프레임
     AccumSnapshot = 89,            // 매집감지 스냅샷 (S→C, Envelope.accum_snapshot 슬롯 100, 로그인 성공 직후 그 연결에만 Notice
-                                   // 1프레임 — 지금 등록된 종목 전부, 78 선례)
+                                   // 1프레임 — 지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1,
+                                   // 그 뒤 · 청산 시각 오름차순, quick-261021-hxa), 78 선례)
 
     // === 이하 quick-261019-i4a 추가 (매집감지창 상세 가격·팀 주문 차트) ===
     AccumChartResp = 90            // 매집 차트 자료 (S→C, Envelope.accum_chart_resp 슬롯 104, 요청 연결에만 Notice 1프레임 — 69 선례, quick-261019-i4a)
@@ -1615,21 +1616,23 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
 //                             한 프레임 = 한 종목 누적 상태 전체 + 당일 10분 버킷 + 서버 설정값 3개. 종료(청산·이월 탈락·
 //                             이월 만료)도 state 3 으로 1프레임 보낸 뒤 서버 목록에서 빠진다(클라가 회색 10분 유지).
 //   89 AccumSnapshot (S→C) — Envelope.accum_snapshot 슬롯 100. 로그인 성공 직후 그 연결에만 Notice 1프레임(78 선례) —
-//                             지금 등록된 종목 전부를 88 원소 테이블로(빈 벡터 가능).
-// 팀 주문 = KRX G1 A3 조각을 「직전 조각 0/0 ∧ 같은 bs ∧ 간격 ≤ 200µs」 로 묶은 주문 중 자전거래방지(한 가격 2조각+)
+//                             지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1, 그 뒤 ·
+//                             청산 시각 오름차순, quick-261021-hxa)을 88 원소 테이블로(빈 벡터 가능).
+// 팀 주문 = KRX G1·G4 A3 조각(G4 = 애프터마켓 16:00~20:00, quick-261019-qqc)을 「직전 조각 0/0 ∧ 같은 bs ∧ 간격 ≤ 200µs」 로
+// 묶은 주문 중 자전거래방지(한 가격 2조각+)
 // ∪ 0/0 단독. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
 // 금액은 원, 수량은 주, 가격은 원 정수다. 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
 // ============================================================================
 
 table AccumBucket {              // 당일 10분 버킷 1칸 (값 있는 칸만 싣는다)
-    slot: ubyte;                 // 0 = 09:00~09:10 … 38 = 15:20~15:30 (당일만)
+    slot: ubyte;                 // 0 = 09:00~09:10 … 65 = 19:50~20:00 (당일만, 15:30~16:00 칸 39~41 은 비어 있다)
     buy_krw: ulong;              // 이 칸 팀 매수 금액(원)
     sell_krw: ulong;             // 이 칸 팀 매도 금액(원)
 }
 
 table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 누적 상태 (1초 스로틀 Broadcast, D-08)
     isin: string;                // 종목 ISIN
-    exchange: string;            // "KRX" 고정 — KRX G1 연속매매만 판정한다(NXT 는 0/0 조각이 없어 불가)
+    exchange: string;            // "KRX" 고정 — 값은 계약상 유지, 뜻은 합산 포지션(KRX G1·G4 + NXT G1, Phase 37 D-10). 거래소별 값은 nxt_*
     gw_time_ms: long;            // 송신 시각 epoch ms (1초 틱 시각)
     since_date: string;          // 등록 거래일 "YYYYMMDD"
     since_time: string;          // 등록 시각 "HHMMSS" — 이월 행도 등록일 당일 시각
@@ -1656,14 +1659,19 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     th_net_krw: long;            // 서버 설정 — 등록 순매수 임계(원)
     th_min_same: uint;           // 서버 설정 — 등록 한 가격 최소 조각 수
     th_max_mcap_krw: ulong;      // 서버 설정 — 등록 시총 상한(원), 0 = 상한 없음
-    buckets: [AccumBucket];      // 당일 10분 버킷 — 값 있는 칸만(최대 39), 이월분의 전날 버킷은 싣지 않는다
+    buckets: [AccumBucket];      // 당일 10분 버킷 — 값 있는 칸만(최대 66), 이월분의 전날 버킷은 싣지 않는다
     sell_warn: bool;             // 지금 매도 경보 중 — 매집중에서 warn_min_order_krw 이상 팀 매도가 매수 없이 warn_sell_streak 건 연속이면 켜진다(append, quick-261019-gwm)
     sell_warns: uint;            // 이 사이클 매도 경보 횟수 — 청산·새 사이클에 0, 이월은 유지, 재기동 0(파일에 없다)
     day_avg_px: uint;            // 오늘 팀 매수 평단 = 당일 매수 금액 ÷ 수량 반올림(우리 체결 제외 반영), 당일 매수 없으면 0 · 06:00·새 사이클·복원 직후 0(파일에 없다) (append, quick-261019-hni)
+    nxt_buy_qty: long;           // NXT 팀 매수 누적 수량(주) — 우리 체결 제외 뒤, 합계 buy_qty 안에 포함된 몫 (append, Phase 37 D-11)
+    nxt_buy_krw: long;           // NXT 팀 매수 누적 금액(원)
+    nxt_sell_qty: long;          // NXT 팀 매도 누적 수량(주)
+    nxt_sell_krw: long;          // NXT 팀 매도 누적 금액(원) — NXT 순매수는 파생(nxt_buy_krw − nxt_sell_krw), 합계 buy/sell 은 KRX+NXT
 }
 
 table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
-    items: [AccumSignal];        // 지금 등록된 종목 전부 — 등록 시각 오름차순, 빈 벡터 가능
+    items: [AccumSignal];        // 지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1, 그 뒤 ·
+                                 // 청산 시각 오름차순, quick-261021-hxa), 빈 벡터 가능
 }
 
 // ============================================================================
@@ -1673,7 +1681,7 @@ table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
 //   90 AccumChartResp   (S→C) — Envelope.accum_chart_resp 슬롯 104. 요청 연결에만 Notice 1프레임(69 GetTape 선례).
 //                               미등록·자료 없음·모르는 isin 도 빈 배열 1프레임(무응답 금지). 연결당 1초 1건 넘으면 무응답.
 // 자료는 등록(발표된) 포지션의 당일·등록 이후만 — 등록 판정 주문부터 쌓고, 청산·06:00·재기동이면 없어진다(영속 없음).
-// 프레임 ≈ 2,048×36B + 2,340×28B ≈ 140KB 로 클라 1 MiB 상한 안. 정본 docs/features/accum-signal.md ⑨.
+// 프레임 ≈ 2,048×36B + 3,960×28B ≈ 185KB 로 클라 1 MiB 상한 안. 정본 docs/features/accum-signal.md ⑨.
 // ============================================================================
 
 table GetAccumChartReq {         // 45 본문 — 매집 차트 자료 조회
@@ -1681,8 +1689,8 @@ table GetAccumChartReq {         // 45 본문 — 매집 차트 자료 조회
 }
 
 table AccumChartSample {         // 10초 가격 샘플 1칸 (체결 있는 칸만 싣는다)
-    t_s: ushort;                 // 09:00 기준 10초 칸 번호 (0 = 09:00:00~09:00:10 … 2339 = 15:29:50~15:30:00)
-    px: uint;                    // 그 칸 마지막 KRX G1 체결가(원)
+    t_s: ushort;                 // 09:00 기준 10초 칸 번호 (0 = 09:00:00~09:00:10 … 3959 = 19:59:50~20:00:00)
+    px: uint;                    // 그 칸 마지막 KRX G1·G4 체결가(원)
     net_krw: long;               // 그 시점 팀 순매수(원) — 전체 팀 주문(1천만 미만 포함), 우리 체결 제외 뒤
     avg_px: uint;                // 그 시점 팀 평단(원) — buy_qty 0 이면 0
 }
@@ -1694,17 +1702,20 @@ table AccumChartOrder {          // 1천만원 이상 팀 주문 1건
     krw: long;                   // 주문 금액(원) — 1천만 이상만 싣는다
     px: uint;                    // 주문 가격(원)
     pieces: ushort;              // 한 가격 조각 수
+    exchange: ubyte;             // 'K'(75) KRX · 'N'(78) NXT · 0/부재 = KRX (append, Phase 37 D-12)
 }
 
 table AccumChartResp {           // 90 본문 — 매집 차트 자료 (요청 연결 Notice 1프레임)
     isin: string;                // 종목 ISIN (요청 그대로)
     since_date: string;          // 등록 거래일 "YYYYMMDD" — "" 이면 미등록·자료 없음
     reg_time_us: long;           // 등록 판정 주문 시각(당일 µs) — 이월 행도 등록일 시각, 자료 없음이면 0
-    samples: [AccumChartSample]; // 10초 가격 샘플 — 칸 순서, 체결 있는 칸만(≤ 2,340), 빈 벡터 가능
+    samples: [AccumChartSample]; // 10초 가격 샘플 — 칸 순서, 체결 있는 칸만(≤ 3,960), 빈 벡터 가능
     orders: [AccumChartOrder];   // 1천만+ 팀 주문 — 오래된 것 → 최신(≤ 2,048), 빈 벡터 가능
     dropped_orders: uint;        // 상한 2,048 을 넘어 버린 가장 오래된 주문 수 (0 = 없음)
     cum_buy_krw: long;           // 팀 매수 누적 금액(원) — 88 buy_krw 와 같은 값, 자료 없음이면 0
     cum_sell_krw: long;          // 팀 매도 누적 금액(원) — 88 sell_krw 와 같은 값, 자료 없음이면 0
+    cycle_start_us: long;        // 이 사이클 첫 팀 주문 시각(당일 µs, 금액·방향 무관 — 등록 전 구간의 시작점, quick-261022-g06).
+                                 // 0 = 모름(옛 파일·옛 서버)·이월 행(carry_days ≥ 1). 청산 차트는 청산한 사이클의 값. 정본 docs/features/accum-signal.md ⑨
 }
 
 // ============================================================================
@@ -1961,7 +1972,8 @@ root_type Envelope;
 //
 // 88 은 등록 종목만 키(isin)별 1초 스로틀 Broadcast — 접속 연결 전부(FULL 구독 조건 없음, 76 선례)이고
 // 종료(청산·이월 탈락·이월 만료)는 state 3 으로 1프레임 뒤 빠진다. 89 는 로그인 성공 직후 그 연결에만
-// Notice 1프레임(78 선례, 88 원소 재사용). 관찰자 저널 kind 16 은 `IsMarketEventKind` 밖이다 — 82 미송신·
+// Notice 1프레임(78 선례, 88 원소 재사용 — 지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 ·
+// end_reason 1, 그 뒤 · 청산 시각 오름차순, quick-261021-hxa)). 관찰자 저널 kind 16 은 `IsMarketEventKind` 밖이다 — 82 미송신·
 // 81 백필 없음·계좌 없음, 43칸 재해석 표는 gh-radar 인박스 노트(34-04). 핫패스(Stock·LimitChaser·
 // MarketFeed)는 무변경 — 상태기는 MarketPublisher 스레드 단독 소유다.
 // 번호 88/89·슬롯 98/100·kind 16 은 폐기해도 재사용 금지.

@@ -52,8 +52,13 @@ pieces():number {
   return offset ? this.bb!.readUint16(this.bb_pos + offset) : 0;
 }
 
+exchange():number {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startAccumChartOrder(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(7);
 }
 
 static addTUs(builder:flatbuffers.Builder, tUs:bigint) {
@@ -80,12 +85,16 @@ static addPieces(builder:flatbuffers.Builder, pieces:number) {
   builder.addFieldInt16(5, pieces, 0);
 }
 
+static addExchange(builder:flatbuffers.Builder, exchange:number) {
+  builder.addFieldInt8(6, exchange, 0);
+}
+
 static endAccumChartOrder(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumChartOrder(builder:flatbuffers.Builder, tUs:bigint, side:number, qty:number, krw:bigint, px:number, pieces:number):flatbuffers.Offset {
+static createAccumChartOrder(builder:flatbuffers.Builder, tUs:bigint, side:number, qty:number, krw:bigint, px:number, pieces:number, exchange:number):flatbuffers.Offset {
   AccumChartOrder.startAccumChartOrder(builder);
   AccumChartOrder.addTUs(builder, tUs);
   AccumChartOrder.addSide(builder, side);
@@ -93,6 +102,7 @@ static createAccumChartOrder(builder:flatbuffers.Builder, tUs:bigint, side:numbe
   AccumChartOrder.addKrw(builder, krw);
   AccumChartOrder.addPx(builder, px);
   AccumChartOrder.addPieces(builder, pieces);
+  AccumChartOrder.addExchange(builder, exchange);
   return AccumChartOrder.endAccumChartOrder(builder);
 }
 }
