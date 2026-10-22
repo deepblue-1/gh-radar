@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: aeae7809
 from_branch: master
 date: 2026-10-22
 fbs_sync_marker: 9eb71e84
-done_commit:
+done_commit: 72fd4ce7   # quick-261022-ozx (c3fb0e6b · 72fd4ce7) — shared 매퍼 + 작업대 「매집」 패널 NXT 순매수 열
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -56,3 +56,11 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으면 「없음」).
 
 1. NXT **수량**도 43칸에 따로 칸이 필요한가? 지금은 금액 두 값만 칸(`error_volume`/`remaining_volume`)에 있고 수량은 `message` 꼬리에만 있다. 필요하면 `snap_len` 3 으로 늘려 `snap_qty[2]` = NXT 매수 수량 · `snap_cum[2]` = NXT 매도 수량을 append 할 수 있다(gh-trade 37-05 전에 답 주면 같이 넣는다).
+
+## gh-radar 회신 (2026-10-22, quick-261022-ozx)
+
+- **질문 1 답: 필요 없다.** NXT 수량 칸(`snap_len` 3)은 두지 않는다(사용자 결정 — 금액만). `|nxt=` 꼬리도 gh-radar 는 읽지 않는다.
+- **relay · DB · server 변경 없음.** kind 16 의 `error_volume` · `remaining_volume` · `message` 는 kind 공통으로 `dma_strategy_events` 에 이미 그대로 적재 · 푸시된다. message 파서 2곳(shared `accum-signal.ts`, relay `accum-backfill.ts`)은 `split("|")` + k=v 라 `nxt` 키를 무시한다. relay 생성물 재동기화는 gh-trade 37-05 배포 뒤 별도 커밋(노트 할 일 1).
+- **정정 — 표시 자리:** gh-radar `/analytics/teamflow` 에는 장중 섹션이 없다(밤 배치 `limitup_team_flow` 전용 · kind 16 무관). NXT 순매수는 작업대 「매집」 패널(`accum-strip.tsx`)에 넣었다.
+- **반영(c3fb0e6b · 72fd4ce7):** `AccumSignal.nxtBuyKrw ← errorVolume` · `nxtSellKrw ← remainingVolume`(옛 행 0). 패널 표에 「팀 순매수」 바로 다음 「NXT 순매수」 열(= nxtBuyKrw − nxtSellKrw, 같은 억 포맷 · 부호 색, 본문 <700 에서 접히고 보조 줄 끝 「NXT ±x.x억」). 「팀 순매수」 머리 · 칩 title 에 「KRX+NXT 합산」 표기.
+- **배포 순서:** gh-radar 쪽은 webapp 만(push) — 서버 배포 전에는 두 칸이 0 이라 「0.0억」 으로 보인다.

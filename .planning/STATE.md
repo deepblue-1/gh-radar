@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-21T12:26:37.372Z"
+last_updated: "2026-10-22T09:11:37.084Z"
 last_activity: 2026-10-21
 last_activity_desc: Phase 34 complete
-state_head: 8d8b117c3d5a280d50a396da508463b0f102bd2d
+state_head: 72fd4ce730d837e1f6831e8d8a3f9ada42c07f59
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-21 - Completed quick task 261021-amg: 매집감지 상세 가격 차트 팀 평단 선
+Last activity: 2026-10-22 - Completed quick task 261022-ozx: 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -98,6 +98,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261021-amg | 매집감지 상세 가격 차트 팀 평단 선 — payload.avg_px 계단 · --up 점점선 · 0 끊김 · 범례 「팀 평단」 | 2026-10-21 | 3aaf6c36 | [261021-amg-accum-chart-team-avg-price-line](./quick/261021-amg-accum-chart-team-avg-price-line/) |
 | 18 | 작업대 매집감지 gh-trade 동형 — 청산 행 먼저 청산한 순 · 06:00 이월 탈락/만료 종료 행 제외 · 팀 수익률 열 | 2026-10-21 | b7c28659 | — |
 | 19 | 매집감지 보고서 목록 「팀 당일 손익」 열(하루 순매수 다음) — 목록 RPC 에 payload.pnl 동봉 | 2026-10-21 | 8d8b117c | — |
+| 261022-ozx | 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume(gh-trade Phase 37 인계) | 2026-10-22 | 72fd4ce7 | [261022-ozx-nxt-kind-16-error-remaining-volume](./quick/261022-ozx-nxt-kind-16-error-remaining-volume/) |
 
 ## Session Continuity
 
