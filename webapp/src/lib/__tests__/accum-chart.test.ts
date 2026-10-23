@@ -19,19 +19,24 @@ import {
   avgPxPointsOf,
   bucketBarsOf,
   bucketMaxOf,
+  bucketTipAt,
   carryLineOf,
   clampView,
   cycleMarksOf,
   cumPathOf,
   cumRangeOf,
   cumTicksOf,
+  cumTipAt,
   dayBoundsOf,
   gapBandOf,
   labelRowsOf,
   labelWidthOf,
+  nearestOrderOf,
   orderCirclesOf,
+  orderTipOf,
   orderRadiusOf,
   shadeOf,
+  tOfView,
   ticksOf,
   yOfCum,
   priceAxisWidthOf,
@@ -113,7 +118,7 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     ]);
   });
 
-  it('pricePathOf — 15:20 · 15:30 · 16:00(간격 30분) → 16:00 에서 새 M · 좌표 소수 1자리', () => {
+  it('pricePathOf — 15:20 · 15:30 · 16:00(간격 30분) → 16:00 에서 새 M · 체결가 계단(앞 값 수평 유지 → 칸 안에서 새 값) · 좌표 소수 1자리', () => {
     const pts: PricePoint[] = [
       [at('15:20:00'), 100],
       [at('15:30:00'), 110],
@@ -121,8 +126,44 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     ];
     const view = { t0: T0, t1: T0 + 11 * H };
     const d = pricePathOf(pts, view, xOfView(view, 52, 640), (p) => 300 - p);
-    expect(cmds(d)).toEqual(['M', 'L', 'M']);
-    expect(d).toMatch(/^M\d+\.\d,200\.0L\d+\.\d,190\.0M\d+\.\d,180\.0$/);
+    expect(cmds(d)).toEqual(['M', 'H', 'H', 'L', 'M', 'H']);
+    expect(d).toMatch(/^M\d+\.\d,200\.0H\d+\.\dH\d+\.\dL\d+\.\d,190\.0M\d+\.\d,180\.0H\d+\.\d$/);
+    const x = xOfView(view, 52, 640);
+    // 15:20 칸을 수평으로 채우고 · 15:30 칸 시작까지 100 유지 · 15:30:10(칸 끝)에 110
+    expect(d.startsWith(`M${x(at('15:20:00')).toFixed(1)},200.0H${x(at('15:20:10')).toFixed(1)}H${x(at('15:30:00')).toFixed(1)}L${x(at('15:30:10')).toFixed(1)},190.0`)).toBe(true);
+  });
+
+  it('pricePathOf — 이웃 칸(10초 간격)은 수평 없이 칸 끝으로 바로 L · 팀 주문(칸 안 시각 · 앞 값과 새 값 사이 가격)이 선 위에 온다', () => {
+    const pts: PricePoint[] = [
+      [at('09:44:00'), 24_100],
+      [at('09:44:10'), 24_600],
+    ];
+    const view = { t0: at('09:40:00'), t1: at('09:50:00') };
+    const x = xOfView(view, 52, 640);
+    const d = pricePathOf(pts, view, x, (p) => p / 100);
+    // 09:44:00 칸 = 241 수평 · 09:44:10 칸 안에서 246 으로 — 09:44:12 · 24,200 체결은 이 L 선분 위에 있다
+    const f = (t: string) => x(at(t)).toFixed(1);
+    expect(d).toBe(`M${f('09:44:00')},241.0H${f('09:44:10')}L${f('09:44:20')},246.0`);
+  });
+
+  it('pricePathOf — 팀 주문(orders)은 그 시각 · 가격 꼭짓점 → 원이 선 위 · 같은 칸 안이면 칸 끝 값으로 이어진다 · 창 밖 주문은 없다', () => {
+    const pts: PricePoint[] = [
+      [at('09:41:50'), 24_100],
+      [at('09:44:10'), 24_600],
+    ];
+    const orders: AccumReportOrders = {
+      ...EMPTY_ORDERS,
+      t_ms: [at('09:44:12'), at('09:44:13'), at('12:00:00')],
+      px: [24_250, 24_500, 99_999],
+    };
+    const view = { t0: at('09:40:00'), t1: at('09:50:00') };
+    const x = xOfView(view, 52, 640);
+    const f = (t: string) => x(at(t)).toFixed(1);
+    const d = pricePathOf(pts, view, x, (p) => p / 100, 10_000, orders);
+    // 24,100 을 09:44:10(주문이 든 칸 시작)까지 유지 → 09:44:12 · 242.5 → 09:44:13 · 245 → 칸 끝 09:44:20 · 246
+    expect(d).toBe(
+      `M${f('09:41:50')},241.0H${f('09:42:00')}H${f('09:44:10')}L${f('09:44:12')},242.5L${f('09:44:13')},245.0L${f('09:44:20')},246.0`,
+    );
   });
 
   it('pricePathOf — 창 ±30분 밖 점은 경로에 없다(이진 탐색 자르기)', () => {
@@ -138,7 +179,7 @@ describe('accum-chart — 가격 판 (D-14 · Pitfall 14 · A6 long-text 백스�
     const d = pricePathOf(pts, view, xOfView(view, 52, 640), (p) => p);
     // 09:31 · 10:30 · 11:29 만 남는다(09:31 → 10:30 간격 59분 = 끊김)
     expect(d.match(/,(\d+)\.\d/g)).toEqual([',3.0', ',4.0', ',5.0']);
-    expect(cmds(d)).toEqual(['M', 'M', 'M']);
+    expect(cmds(d)).toEqual(['M', 'H', 'M', 'H', 'M', 'H']);
   });
 
   it('priceRangeOf — 보이는 가격 [100, 120] ∪ 보이는 주문 px 130 → [100, 130] · 여유 8%', () => {
@@ -637,5 +678,70 @@ describe('accum-chart — 팀 평단 계단 (quick-261021-amg · WinForms AccumC
     expect(path([], 300)).toBe('');
     expect(path(pts([60, 0]), 300)).toBe('');
     expect(path(pts([60, 110], [120, -1]), 300)).toBe('M60.0,116.0H120.0');
+  });
+});
+
+describe('마우스 툴팁(2026-10-23 · gh-trade AccumChartPanel · AccumBucketChart 동형)', () => {
+  const orders: AccumReportOrders = {
+    t_ms: [at('10:00:00'), at('10:00:05'), at('10:30:00')],
+    side: ['B', 'B', 'S'],
+    qty: [100, 50, 80],
+    val: [2_000_000_000, 10_000_000, 1_600_000],
+    px: [20_000, 20_000, 20_500],
+    pieces: [3, 1, 1],
+    first: [1, 0, 0],
+  };
+  const view = { t0: at('09:30:00'), t1: at('11:00:00') };
+  const x = xOfView(view, 52, 640);
+  const circles = orderCirclesOf(orders, view, x, (p) => 220 - (p - 19_000) / 10);
+  const payload = {
+    orders,
+    day_cum_net: { t_ms: [at('10:00:00'), at('10:00:05'), at('10:30:00')], net_krw: [200_000_000, 210_000_000, 194_000_000] },
+    avg_px: { t_ms: [at('10:00:00'), at('10:30:00')], px: [19_800, 0] },
+  } as Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px'>;
+
+  it('tOfView = xOfView 의 역', () => {
+    expect(tOfView(view, 52, 640)(x(at('10:15:00')))).toBeCloseTo(at('10:15:00'), 3);
+  });
+
+  it('nearestOrderOf — 세로선이 「반지름 + 2」 안에 지나는 원 중 세로로 가장 가까운 것 · 가격 판(16~216) 밖 · 멀면 null · 원래 번호 i', () => {
+    const big = circles.find((c) => c.i === 0)!;
+    expect(nearestOrderOf(circles, big.cx + big.r + 1.5, big.cy + 30)?.i).toBe(0);
+    expect(nearestOrderOf(circles, big.cx + big.r + 3, big.cy)?.i ?? null).not.toBe(0);
+    expect(nearestOrderOf(circles, big.cx, 230)).toBeNull();
+    expect(nearestOrderOf(circles, 600, 100)).toBeNull();
+  });
+
+  it('orderTipOf — 원 title + 「순매수 누적(그 주문 포함) · 등락률(기준가) · 평단 대비(그 시각 평단)」 · 모르는 항목은 뺀다', () => {
+    const c0 = circles.find((c) => c.i === 0)!;
+    expect(orderTipOf(payload, { base: 18_000 }, c0)).toEqual([
+      '10:00:00 팀 매수 100주 · 20.00억 @20,000 · 3조각 · 팀매수 시작',
+      '순매수 누적 +2.00억 · 등락률 +11.11% · 평단 대비 +1.01%',
+    ]);
+    // 평단 0(포지션 없음) · 기준가 없음 → 순매수 누적만
+    const c2 = circles.find((c) => c.i === 2)!;
+    expect(orderTipOf(payload, { base: null }, c2)).toEqual([c2.title, '순매수 누적 +1.94억']);
+    // 누적 점도 없으면 1줄
+    expect(orderTipOf({ ...payload, day_cum_net: { t_ms: [], net_krw: [] } }, { base: null }, c2)).toEqual([c2.title]);
+  });
+
+  it('cumTipAt — t 이하 마지막 점 「HH:MM:SS · 순매수 누적 · 팀 평단」 · 첫 점 앞 null', () => {
+    expect(cumTipAt(payload, at('10:10:00'))).toEqual({
+      key: 'c1',
+      lines: ['10:00:05 · 순매수 누적 +2.10억 · 팀 평단 19,800원'],
+      circle: null,
+    });
+    expect(cumTipAt(payload, at('10:40:00'))!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억']);
+    expect(cumTipAt(payload, at('09:59:59'))).toBeNull();
+  });
+
+  it('bucketTipAt — 그 칸 「HH:MM~HH:MM · 팀 매수 / 매도 / 순」 · 빈 칸 null', () => {
+    const buckets = [{ slot: 6, buy_krw: 300_000_000, sell_krw: 120_000_000 }];
+    expect(bucketTipAt(buckets, T0, at('10:05:00'))).toEqual({
+      key: 'b6',
+      lines: ['10:00~10:10 · 팀 매수 3.00억 / 매도 1.20억 / 순 +1.80억'],
+      circle: null,
+    });
+    expect(bucketTipAt(buckets, T0, at('10:10:00'))).toBeNull();
   });
 });

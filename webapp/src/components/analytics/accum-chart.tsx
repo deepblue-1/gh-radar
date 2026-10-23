@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef } from 'react';
+import { useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { AccumDetailRow, AccumReportPayload } from '@gh-radar/shared';
 
@@ -12,17 +12,21 @@ import {
   avgPxPointsOf,
   bucketBarsOf,
   bucketMaxOf,
+  bucketTipAt,
   carryLineOf,
   cumPathOf,
   cumRangeOf,
   cumTicksOf,
+  cumTipAt,
   cycleMarksOf,
   dayBoundsOf,
   dayMaxPxOf,
   gapBandOf,
   labelRowsOf,
   lastTradeMsOf,
+  nearestOrderOf,
   orderCirclesOf,
+  orderTipOf,
   priceAxisWidthOf,
   pricePathOf,
   priceClipOf,
@@ -30,10 +34,12 @@ import {
   priceRangeOf,
   priceTicksOf,
   shadeOf,
+  tOfView,
   ticksOf,
   xOfView,
   yOfCum,
   yOfPrice,
+  type ChartHover,
   type ChartLabel,
   type View,
 } from '@/lib/accum-chart';
@@ -59,7 +65,12 @@ import { cn } from '@/lib/utils';
  * - 팀 체결 없음(해당 배열이 빔)이면 누적 판 · 10분 판 가운데 「팀 체결 없음」 — 가격 선 · 0선 · 축 · 빈 띠는 그대로.
  * - `payload` 는 부모가 `payloadOf` 로 모양을 확인해 넘긴다(WR-05). 없거나 `price.idx` 가 비면 그리지 않는다(null — 대체 문구
  *   「그날 체결 자료 없음」 은 34-07).
- * - 폰에서는 `<title>` 툴팁이 뜨지 않는다 — v1 은 KPI 줄 · 사이클 표 · 손익 줄 글자가 수치를 맡는다(D-15 「<title> 또는 동급」).
+ * - **마우스 툴팁(2026-10-23 · gh-trade AccumChartPanel · AccumBucketChart 동형):** 마우스(펜)가 움직이면 판마다 대상 하나를 고른다 —
+ *   가격 판 = 세로선이 지나는 원 중 세로로 가장 가까운 주문(`nearestOrderOf` · 2줄 「주문 사실」 + 「순매수 누적 · 등락률 · 평단 대비」),
+ *   누적 판 = 그 시각 계단 값(`cumTipAt`), 10분 판 = 그 칸(`bucketTipAt`). 대상이 바뀔 때만 상태를 바꾸고 상자는 그 순간 마우스
+ *   +12px(오른쪽 · 아래 절반이면 반대쪽으로 접는다). 고른 원은 --fg 테두리 고리. 끌기 중 · 포인터가 나가면 지운다.
+ *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · 사이클 세로선 title 은 남는다). 터치는 상자를 띄우지 않는다 —
+ *   폰은 KPI 줄 · 사이클 표 · 손익 줄 글자가 수치를 맡는다(D-15).
  */
 
 const { R, TOP, H1, GAP, H2, H3, H } = ACCUM_CHART;
@@ -87,6 +98,10 @@ export function AccumChart({
   const hasPrice = payload !== null && payload.price.idx.length > 0;
   const L = hasPrice ? priceAxisWidthOf(dayMaxPxOf(payload.price, payload.orders)) : priceAxisWidthOf(0);
   const { dragging } = useChartGestures(svgRef, { L, W, R }, hasPrice ? ctl : null);
+  const [hoverState, setHover] = useState<(ChartHover & { ax: number; ay: number; vk: string }) | null>(null);
+  // 창이 움직이면(휠 · 키 · 프리셋 · 끌기) 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
+  const vk = `${view.t0}|${view.t1}`;
+  const hover = hoverState !== null && hoverState.vk === vk && !dragging ? hoverState : null;
   if (!hasPrice) return null;
 
   const clipId = `accum-clip-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -99,9 +114,12 @@ export function AccumChart({
   const pRange = priceRangeOf(points, payload.orders, view);
   const yP = yOfPrice(pRange);
   const pxTicks = priceTicksOf(pRange);
-  const priceD = pricePathOf(points, view, x, yP);
-  // quick-261021-amg — 팀 평단 계단 · 열린 끝은 가격 선과 같은 마지막 체결 칸(없으면 20:00)
-  const avgD = avgPxPathOf(avgPxPointsOf(payload), x, pRange, bounds.T0, lastTradeMsOf(payload.price) ?? bounds.T2000);
+  const stepMs = payload.price.step_s * 1000;
+  // 팀 주문 원이 선 위에 오게 — 팀 체결을 꼭짓점으로 넣는다(pricePathOf)
+  const priceD = pricePathOf(points, view, x, yP, stepMs, payload.orders);
+  // quick-261021-amg — 팀 평단 계단 · 열린 끝은 가격 선과 같은 마지막 체결 칸 끝(없으면 20:00)
+  const lastTrade = lastTradeMsOf(payload.price);
+  const avgD = avgPxPathOf(avgPxPointsOf(payload), x, pRange, bounds.T0, lastTrade === null ? bounds.T2000 : lastTrade + stepMs);
   const pxClip = priceClipOf(L, W);
 
   const cRange = cumRangeOf(payload.day_cum_net);
@@ -129,6 +147,28 @@ export function AccumChart({
   const noCum = payload.day_cum_net.t_ms.length === 0;
   const noBuckets = payload.buckets.length === 0;
 
+  // 마우스 툴팁 — 판마다 대상 하나(가격 판 원 · 누적 판 계단 값 · 10분 판 칸) · 대상이 바뀔 때만 상태를 바꾼다
+  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch' || dragging) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const mx = ((e.clientX - box.left) * W) / (box.width || W);
+    const my = ((e.clientY - box.top) * H) / (box.height || H);
+    let next: ChartHover | null = null;
+    if (mx >= L && mx <= right) {
+      const t = tOfView(view, L, W)(mx);
+      if (my <= TOP + H1) {
+        const c = nearestOrderOf(circles, mx, my);
+        if (c !== null) next = { key: `o${c.i}`, lines: orderTipOf(payload, row, c), circle: c };
+      } else if (my >= C_TOP && my <= C_TOP + H2) {
+        next = cumTipAt(payload, t);
+      } else if (my >= B_TOP && my <= PLOT_BOTTOM) {
+        next = bucketTipAt(payload.buckets, bounds.T0, t);
+      }
+    }
+    if ((next?.key ?? null) === (hover?.key ?? null)) return;
+    setHover(next === null ? null : { ...next, ax: mx, ay: my, vk });
+  };
+
   const name = row.name ?? row.short_code;
   const ariaLabel = `${name} 매집 상세 차트 — ${kstHm(view.t0)}~${kstHm(view.t1)} · 사이클 ${payload.cycles.length}개 · 팀 주문 ${payload.orders.t_ms.length}건 · 하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`;
 
@@ -136,6 +176,7 @@ export function AccumChart({
     <div
       ref={ref}
       data-slot="accum-chart-wrap"
+      className="relative"
       role="group"
       tabIndex={0}
       aria-label={`${name} 차트 보기 창 — 왼쪽·오른쪽 화살표 이동, +·− 확대/축소, 0 전체`}
@@ -143,6 +184,8 @@ export function AccumChart({
     >
       <svg
         ref={svgRef}
+        onPointerMove={onPointerMove}
+        onPointerLeave={() => setHover(null)}
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height={H}
@@ -219,10 +262,9 @@ export function AccumChart({
             />
           )}
 
-          {/* ④ 10분 막대 쌍 — 칸마다 투명 히트 rect + <title> */}
+          {/* ④ 10분 막대 쌍 — 칸마다 투명 히트 rect(툴팁은 bucketTipAt) */}
           {bars.map((b) => (
             <g key={b.slot} data-slot="accum-bucket">
-              <title>{b.title}</title>
               <rect x={b.hit.x} y={b.hit.y} width={Math.max(0, b.hit.w)} height={b.hit.h} fill="transparent" />
               {b.buy && (
                 <rect x={b.buy.x} y={b.buy.y} width={b.buy.w} height={b.buy.h} fill="var(--up)" fillOpacity={0.7} />
@@ -271,11 +313,22 @@ export function AccumChart({
                   stroke={c.first ? 'var(--fg)' : color}
                   strokeOpacity={c.first ? 1 : 0.9}
                   strokeWidth={c.first ? 1.5 : 0.75}
-                >
-                  <title>{c.title}</title>
-                </circle>
+                />
               );
             })}
+            {/* 툴팁 대상 원 고리(gh-trade hoverRim) */}
+            {hover?.circle && (
+              <circle
+                data-slot="accum-order-hover"
+                cx={hover.circle.cx}
+                cy={hover.circle.cy}
+                r={hover.circle.r + 1}
+                fill="none"
+                stroke="var(--fg)"
+                strokeWidth={1.5}
+                pointerEvents="none"
+              />
+            )}
           </g>
         </g>
 
@@ -368,6 +421,23 @@ export function AccumChart({
           </text>
         )}
       </svg>
+      {hover && (
+        <div
+          data-slot="accum-chart-tip"
+          role="tooltip"
+          className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] whitespace-nowrap text-[var(--popover-fg)] shadow-md tabular-nums"
+          style={{
+            left: hover.ax > W / 2 ? undefined : hover.ax + 12,
+            right: hover.ax > W / 2 ? W - hover.ax + 12 : undefined,
+            top: hover.ay > H / 2 ? undefined : hover.ay + 12,
+            bottom: hover.ay > H / 2 ? H - hover.ay + 12 : undefined,
+          }}
+        >
+          {hover.lines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

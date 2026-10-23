@@ -20,7 +20,7 @@ import type {
 
 import { endReasonLabelOf, isCarry } from './accum-report';
 import { fmtYmdShort, kstClock } from './limitup-report';
-import { fmtEok, isNum, kstHm } from './teamflow-report';
+import { MINUS, fmtEok, isNum, kstHm } from './teamflow-report';
 
 /**
  * 판 배치(UI-SPEC A6) — 그림 영역 x = [L, W − R] · 가격 판 y 16~216 · 누적 판 240~352 · 10분 판 376~448 ·
@@ -173,24 +173,59 @@ export function yOfPrice(range: PriceRange): (px: number) => number {
 const f1 = (n: number) => n.toFixed(1);
 
 /**
- * 가격 선 경로(D-14) — 창 ±30분 밖 점은 이진 탐색으로 시작/끝 인덱스를 잘라 순회 · 이웃 간격 > 15분이면 `M` 으로 끊는다 ·
- * 좌표 소수 1자리. 점이 없으면 빈 문자열.
+ * 가격 선 경로(D-14) — 창 ±30분 밖 점은 잘라 순회 · 이웃 간격 > 15분이면 `M` 으로 끊는다 · 좌표 소수 1자리. 점이 없으면 빈 문자열.
+ *
+ * **체결가 계단 + 팀 체결(2026-10-23 · 팀 주문 원이 선 위에 오게):** 가격 점 = 10초 칸 시작 시각 · 그 칸 **마지막** 체결가다.
+ * 칸 시작에 그 값을 찍고 이웃 점을 곧게 이으면 (a) 칸 끝 값이 최대 10초 앞서 그려지고 (b) 체결 없는 칸 사이를 대각선으로 이어
+ * 가격이 그대로였던 구간이 미리 오르내려 — 그 사이 실제 체결가로 찍힌 팀 주문 원이 선에서 떨어져 보였다(10/22 원 8,296개 중앙값
+ * 0.26% · p90 1.03% 차이). 그래서 선은 「꼭짓점」 을 시각순으로 잇는다:
+ *   - 칸 마지막 값은 칸 **끝**(시작 + step) 꼭짓점 · 팀 주문은 그 주문 시각 · 가격(`orders` — 팀 체결도 그 시각 실제 체결이다).
+ *   - 앞 꼭짓점 값을 「바뀔 수 있는 가장 이른 때」(그 꼭짓점이 든 10초 칸 시작 · 앞 꼭짓점보다 이르면 앞 꼭짓점)까지 수평 유지(`H`)
+ *     → 새 꼭짓점까지 `L`. 구간 첫 꼭짓점은 그 「이른 때」 에서 시작해 수평으로 꼭짓점까지 간다.
+ *   그래서 원은 늘 선 위에 있다. 칸 안 다른(팀 아닌) 체결의 오르내림은 자료에 없어 선이 지나지 않는다.
  */
 export function pricePathOf(
   points: readonly PricePoint[],
   view: View,
   x: (t: number) => number,
   y: (px: number) => number,
+  stepMs: number = 10_000,
+  orders: Pick<AccumReportOrders, 't_ms' | 'px'> | null = null,
 ): string {
-  const a = lowerBound(points, view.t0 - VIEW_PAD_MS);
-  const b = upperBound(points, view.t1 + VIEW_PAD_MS);
-  let d = '';
-  let prev: number | null = null;
+  const lo = view.t0 - VIEW_PAD_MS;
+  const hi = view.t1 + VIEW_PAD_MS;
+  // 꼭짓점 [바뀔 수 있는 가장 이른 때, 꼭짓점 시각, 가격] — 칸 끝 값 ∪ 팀 주문, 시각순(같은 시각은 칸 값 먼저)
+  const verts: [s: number, t: number, p: number][] = [];
+  const a = lowerBound(points, lo - stepMs);
+  const b = upperBound(points, hi);
   for (let k = a; k < b; k++) {
     const [t, p] = points[k]!;
-    const cmd = prev === null || t - prev > PRICE_BREAK_MS ? 'M' : 'L';
-    d += `${cmd}${f1(x(t))},${f1(y(p))}`;
-    prev = t;
+    verts.push([t, t + stepMs, p]);
+  }
+  if (orders !== null && points.length > 0) {
+    const t0 = points[0]![0];
+    const n = Math.min(orders.t_ms.length, orders.px.length);
+    for (let i = 0; i < n; i++) {
+      const t = orders.t_ms[i];
+      const p = orders.px[i];
+      if (!isNum(t) || !isNum(p) || p <= 0 || t < lo || t > hi) continue;
+      const s0 = t0 + Math.floor((t - t0) / stepMs) * stepMs;
+      verts.push([s0, t, p]);
+    }
+    verts.sort((u, v) => u[1] - v[1] || u[0] - v[0]);
+  }
+  let d = '';
+  let prevT: number | null = null;
+  for (const [s0, t, p] of verts) {
+    if (prevT === null || t - prevT > PRICE_BREAK_MS) {
+      d += `M${f1(x(s0))},${f1(y(p))}`;
+      if (t > s0) d += `H${f1(x(t))}`;
+    } else {
+      const s = Math.max(prevT, s0);
+      if (s > prevT) d += `H${f1(x(s))}`;
+      d += `L${f1(x(t))},${f1(y(p))}`;
+    }
+    prevT = t;
   }
   return d;
 }
@@ -292,6 +327,8 @@ export function priceClipOf(L: number, W: number): Rect {
 }
 
 export interface OrderCircle {
+  /** payload.orders 안 원래 번호 — 마우스 툴팁(`orderTipOf`)이 그 주문을 다시 찾는다 */
+  i: number;
   cx: number;
   cy: number;
   r: number;
@@ -330,7 +367,7 @@ export function orderCirclesOf(
       `${kstClock(t)} 팀 ${side === 'B' ? '매수' : '매도'} ${isNum(qty) ? INT_FMT.format(qty) : '—'}주 · ` +
       `${fmtEok(val, { digits: 2 })} @${INT_FMT.format(px)} · ${isNum(pieces) ? pieces : '—'}조각` +
       (first ? ' · 팀매수 시작' : '');
-    const c: OrderCircle = { cx: x(t), cy: y(px), r: orderRadiusOf(val ?? 0), side, first, title };
+    const c: OrderCircle = { i, cx: x(t), cy: y(px), r: orderRadiusOf(val ?? 0), side, first, title };
     (first ? firsts : plain).push(c);
   }
   plain.sort((a, b) => b.r - a.r);
@@ -463,6 +500,134 @@ export function bucketBarsOf(
     });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 마우스 툴팁(2026-10-23 사용자 요청 · gh-trade AccumChartPanel · AccumBucketChart 동형) — 판마다 대상 하나
+// ---------------------------------------------------------------------------
+
+/** 원 판정 가로 여유 — 마우스 세로선이 「반지름 + 2」 안에 원을 지나면 후보(gh-trade HOVER_PAD). */
+const HOVER_PAD = 2;
+
+/** 마우스 툴팁 대상 — 판 하나에 하나. key 가 같으면 같은 대상(다시 그리지 않는다). */
+export interface ChartHover {
+  key: string;
+  lines: string[];
+  /** 가격 판 주문이면 그 원(테두리 강조용) */
+  circle: OrderCircle | null;
+}
+
+/** x(px) → 시각 — `xOfView` 의 역. */
+export function tOfView(view: View, L: number, W: number): (px: number) => number {
+  const plotW = W - ACCUM_CHART.R - L || 1;
+  return (px) => view.t0 + ((px - L) / plotW) * (view.t1 - view.t0);
+}
+
+/** 부호 붙은 % 2자리(gh-trade 툴팁 「+5.13%」) — 음수는 MINUS(U+2212). */
+function pct2(v: number): string {
+  const r = Math.round(v * 100) / 100;
+  if (r === 0) return '0.00%';
+  return `${r > 0 ? '+' : MINUS}${Math.abs(r).toFixed(2)}%`;
+}
+
+/** 열 지향 계단에서 시각 t 이하 마지막 점의 번호(없으면 −1) — t_ms 비감소 가정 · 결측 점은 건너뛴다. */
+function stepIndexAt(ts: readonly number[], vs: readonly number[], t: number): number {
+  let idx = -1;
+  const n = Math.min(ts.length, vs.length);
+  for (let k = 0; k < n; k++) {
+    const tk = ts[k];
+    if (!isNum(tk) || !isNum(vs[k])) continue;
+    if (tk > t) break;
+    idx = k;
+  }
+  return idx;
+}
+
+/** 그 시각 팀 평단(avg_px 계단 · 0 이하 = 포지션 없음 → null). 키가 없거나 모양이 어긋나면 null. */
+function avgPxAt(payload: Pick<AccumReportPayload, 'avg_px'>, t: number): number | null {
+  const pts = avgPxPointsOf(payload);
+  let v: number | null = null;
+  for (const [tk, p] of pts) {
+    if (tk > t) break;
+    v = p;
+  }
+  return v !== null && v > 0 ? v : null;
+}
+
+/**
+ * 가격 판 — 마우스 세로선이 지나는 원(|mx − cx| ≤ r + 2) 중 세로로 가장 가까운 것(gh-trade NearestCircle). 가격 판 밖이면 null.
+ */
+export function nearestOrderOf(circles: readonly OrderCircle[], mx: number, my: number): OrderCircle | null {
+  const { TOP, H1 } = ACCUM_CHART;
+  if (my < TOP || my > TOP + H1) return null;
+  let best: OrderCircle | null = null;
+  let bestDy = Infinity;
+  for (const c of circles) {
+    if (Math.abs(mx - c.cx) > c.r + HOVER_PAD) continue;
+    const dy = Math.abs(my - c.cy);
+    if (dy < bestDy) {
+      bestDy = dy;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/**
+ * 주문 원 툴팁 2줄 — ① 「HH:MM:SS 팀 매수 N주 · X.XX억 @가격 · N조각[ · 팀매수 시작]」(원 title 그대로)
+ * ② 「순매수 누적 ±X.XX억 · 등락률 ±N.NN% · 평단 대비 ±N.NN%」 — 그 시각까지 day_cum_net(그 주문 포함) · 기준가(row.base) 대비 ·
+ * 그 시각 팀 평단 대비. 값을 모르는 항목은 뺀다(gh-trade TooltipText 동형). 다 빠지면 1줄.
+ */
+export function orderTipOf(
+  payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px'>,
+  row: Pick<AccumReportRow, 'base'>,
+  c: OrderCircle,
+): string[] {
+  const t = payload.orders.t_ms[c.i]!;
+  const px = payload.orders.px[c.i]!;
+  const parts: string[] = [];
+  const k = stepIndexAt(payload.day_cum_net.t_ms, payload.day_cum_net.net_krw, t);
+  if (k >= 0) parts.push(`순매수 누적 ${fmtEok(payload.day_cum_net.net_krw[k], { signed: true, digits: 2 })}`);
+  if (isNum(row.base) && row.base > 0) parts.push(`등락률 ${pct2(((px - row.base) / row.base) * 100)}`);
+  const avg = avgPxAt(payload, t);
+  if (avg !== null) parts.push(`평단 대비 ${pct2(((px - avg) / avg) * 100)}`);
+  return parts.length > 0 ? [c.title, parts.join(' · ')] : [c.title];
+}
+
+/**
+ * 누적 판 — 시각 t 의 계단 값(t 이하 마지막 점) 「HH:MM:SS · 순매수 누적 ±X.XX억[ · 팀 평단 N원]」(gh-trade NetTooltipText).
+ * 첫 점 앞이면 null.
+ */
+export function cumTipAt(
+  payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px'>,
+  t: number,
+): ChartHover | null {
+  const { t_ms: ts, net_krw: vs } = payload.day_cum_net;
+  const k = stepIndexAt(ts, vs, t);
+  if (k < 0) return null;
+  const tk = ts[k]!;
+  let text = `${kstClock(tk)} · 순매수 누적 ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
+  const avg = avgPxAt(payload, tk);
+  if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
+  return { key: `c${k}`, lines: [text], circle: null };
+}
+
+/**
+ * 10분 판 — 시각 t 가 든 칸(09:00 = 0)에 팀 주문이 있으면 「HH:MM~HH:MM · 팀 매수 X.XX억 / 매도 X.XX억 / 순 ±X.XX억」
+ * (gh-trade BarTooltipText — 금액은 이 화면 규칙대로 억 2자리). 빈 칸이면 null.
+ */
+export function bucketTipAt(buckets: readonly AccumReportBucket[], T0: number, t: number): ChartHover | null {
+  const slot = Math.floor((t - T0) / SLOT_MS);
+  const b = buckets.find((x) => x.slot === slot);
+  if (b === undefined) return null;
+  const buy = isNum(b.buy_krw) ? b.buy_krw : 0;
+  const sell = isNum(b.sell_krw) ? b.sell_krw : 0;
+  if (buy <= 0 && sell <= 0) return null;
+  const s0 = T0 + slot * SLOT_MS;
+  const text =
+    `${kstHm(s0)}~${kstHm(s0 + SLOT_MS)} · 팀 매수 ${fmtEok(buy, { digits: 2 })} / 매도 ${fmtEok(sell, { digits: 2 })}` +
+    ` / 순 ${fmtEok(buy - sell, { signed: true, digits: 2 })}`;
+  return { key: `b${slot}`, lines: [text], circle: null };
 }
 
 /** 15:30~16:00 빈 띠(체결 없음 정상 구간)의 x 구간. */

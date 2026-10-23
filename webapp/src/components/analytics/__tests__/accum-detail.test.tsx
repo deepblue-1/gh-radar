@@ -129,7 +129,7 @@ describe('AccumChart — 가격 판 · 1:1 viewBox (A6 · D-17)', () => {
 const textsOf = (svg: SVGSVGElement) => Array.from(svg.querySelectorAll('text')).map((t) => t.textContent ?? '');
 
 describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)', () => {
-  it('(c2) 천일고속 — 음영 · 빈 띠 · 누적 계단 · 0선 · 10분 막대 19칸(title) · 원 45개(title) · first 원 맨 마지막(--fg 테두리)', async () => {
+  it('(c2) 천일고속 — 음영 · 빈 띠 · 누적 계단 · 0선 · 10분 막대 19칸 · 원 45개(네이티브 title 없음 — 마우스 상자) · first 원 맨 마지막(--fg 테두리)', async () => {
     const sec = await expand(CHEONIL);
     const svg = chartOf(sec)!;
     expect(svg.querySelector('[data-slot="accum-shade"]')).toBeTruthy();
@@ -142,17 +142,57 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
     expect(svg.querySelector('[data-slot="accum-cum-zero"]')!.getAttribute('stroke-dasharray')).toBe('2 3');
     const bars = svg.querySelectorAll('[data-slot="accum-bucket"]');
     expect(bars).toHaveLength(19);
-    expect(Array.from(bars).every((g) => /^\d\d:\d\d~\d\d:\d\d 팀 매수 [\d.,]+억 · 팀 매도 [\d.,]+억$/.test(g.querySelector('title')?.textContent ?? ''))).toBe(true);
+    expect(Array.from(bars).every((g) => g.querySelector('title') === null)).toBe(true);
     const circles = Array.from(svg.querySelectorAll('circle'));
     expect(circles).toHaveLength(45);
-    expect(circles.every((c) => c.querySelector('title') !== null)).toBe(true);
+    expect(circles.every((c) => c.querySelector('title') === null)).toBe(true);
     const last = circles[circles.length - 1]!;
     expect(last.getAttribute('stroke')).toBe('var(--fg)');
     expect(last.getAttribute('fill-opacity')).toBe('0.9');
-    expect(last.querySelector('title')!.textContent).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
     expect(circles[0]!.getAttribute('fill-opacity')).toBe('0.55');
     expect(textsOf(svg)).not.toContain('팀 체결 없음');
     expect(sec.querySelectorAll('i')).toHaveLength(0);
+  });
+
+  it('(c9) 마우스 툴팁(gh-trade 동형) — 원 위 = 주문 2줄 + 고리 · 누적 판 = 그 시각 누적 · 10분 판 = 칸 매수/매도/순 · 빈 곳 · 떠나면 지움 · 터치 무시', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const tip = () => sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]');
+    const circles = Array.from(svg.querySelectorAll('circle'));
+    const first = circles[circles.length - 1]!; // 09:01:00 팀매수 시작
+    const at = (cx: number, cy: number, pointerType = 'mouse') =>
+      act(() => {
+        fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType });
+      });
+    const cx = Number(first.getAttribute('cx'));
+    const cy = Number(first.getAttribute('cy'));
+    // 터치는 상자를 띄우지 않는다
+    at(cx, cy, 'touch');
+    expect(tip()).toBeNull();
+    at(cx, cy);
+    const lines = Array.from(tip()!.children).map((d) => d.textContent);
+    expect(lines[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(lines[1]).toMatch(/^순매수 누적 [+−][\d.,]+억 · 등락률 [+−]\d+\.\d\d%$/);
+    expect(tip()!.getAttribute('role')).toBe('tooltip');
+    expect(svg.querySelector('[data-slot="accum-order-hover"]')!.getAttribute('cx')).toBe(first.getAttribute('cx'));
+    // 누적 판(240~352) — 그 시각 계단 값
+    at(cx + 40, 300);
+    expect(tip()!.textContent).toMatch(/^\d\d:\d\d:\d\d · 순매수 누적 [+−]?[\d.,]+억/);
+    expect(svg.querySelector('[data-slot="accum-order-hover"]')).toBeNull();
+    // 10분 판(376~448) — 팀 주문 있는 칸
+    const bar = svg.querySelector('[data-slot="accum-bucket"] rect')!;
+    const bx = Number(bar.getAttribute('x')) + Number(bar.getAttribute('width')) / 2;
+    at(bx, 420);
+    expect(tip()!.textContent).toMatch(/^\d\d:\d0~\d\d:\d0 · 팀 매수 [\d.,]+억 \/ 매도 [\d.,]+억 \/ 순 [+−]?[\d.,]+억$/);
+    // 그림 영역 밖(왼쪽 가격 축) → 지움 · 떠나면 지움
+    at(10, 100);
+    expect(tip()).toBeNull();
+    at(cx, cy);
+    expect(tip()).not.toBeNull();
+    act(() => {
+      fireEvent.pointerLeave(svg);
+    });
+    expect(tip()).toBeNull();
   });
 
   it('(c3) CJ씨푸드1우(orders 0 · day_cum_net 0) — 「팀 체결 없음」 2개(누적 판 · 10분 판) · 원 0 · 가격 선 · 0선 · 빈 띠는 그대로', async () => {

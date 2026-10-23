@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-22T09:11:37.084Z"
-last_activity: 2026-10-21
+last_updated: "2026-10-23T11:24:39.264Z"
+last_activity: 2026-10-22
 last_activity_desc: Phase 34 complete
-state_head: 72fd4ce730d837e1f6831e8d8a3f9ada42c07f59
+state_head: 46d56b02c0f57b13b664f3f5a6044c13cac3979b
 progress:
   total_phases: 5
   completed_phases: 5
@@ -99,6 +99,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 18 | 작업대 매집감지 gh-trade 동형 — 청산 행 먼저 청산한 순 · 06:00 이월 탈락/만료 종료 행 제외 · 팀 수익률 열 | 2026-10-21 | b7c28659 | — |
 | 19 | 매집감지 보고서 목록 「팀 당일 손익」 열(하루 순매수 다음) — 목록 RPC 에 payload.pnl 동봉 | 2026-10-21 | 8d8b117c | — |
 | 261022-ozx | 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume(gh-trade Phase 37 인계) | 2026-10-22 | 72fd4ce7 | [261022-ozx-nxt-kind-16-error-remaining-volume](./quick/261022-ozx-nxt-kind-16-error-remaining-volume/) |
+| 21 | 매집감지 보고서 차트 마우스 툴팁(gh-trade 동형) · 팀 주문 원이 가격 선 위에 오게 | 2026-10-23 | 46d56b02 | — |
 
 ## Session Continuity
 

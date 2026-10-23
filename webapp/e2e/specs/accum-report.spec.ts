@@ -315,6 +315,46 @@ test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (
     expect(rec.details).toEqual([`${ACCUM_LATEST}/${HANSUN}`, `${ACCUM_LATEST}/${CHEONIL}`]);
     expect(errors, '경로 전체 페이지 오류 0').toEqual([]);
   });
+
+  test('P34-AC1b 1280 — 마우스 툴팁(gh-trade 동형): 원 위 = 주문 2줄 + 고리 · 10분 판 = 칸 · 상자는 차트 안 · 떠나면 사라짐', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installAccumMocks(page);
+    await page.goto(`${BASE}?d=${ACCUM_LATEST}`);
+    await expect(rows(page)).toHaveCount(6, { timeout: 30_000 });
+    await rowOf(page, HANSUN).click();
+    const svg = slot(page, HANSUN, 'accum-chart');
+    await expect(svg).toBeVisible({ timeout: 15_000 });
+    const wrap = slot(page, HANSUN, 'accum-chart-wrap');
+    const tip = slot(page, HANSUN, 'accum-chart-tip');
+
+    // 가장 큰 원(맨 앞 — 큰 원 먼저 그린다) 중심으로
+    const circle = svg.locator('[data-slot="accum-price-layer"] > circle').first();
+    const cb = (await circle.boundingBox())!;
+    await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+    await expect(tip).toBeVisible();
+    await expect(tip.locator('> div')).toHaveCount(2);
+    await expect(tip.locator('> div').first()).toHaveText(/^\d\d:\d\d:\d\d 팀 (매수|매도) [\d,]+주 · [\d.,]+억 @[\d,]+ · \d+조각/);
+    await expect(tip.locator('> div').nth(1)).toHaveText(/순매수 누적 [+−]?[\d.,]+억/);
+    await expect(svg.locator('[data-slot="accum-order-hover"]')).toHaveCount(1);
+    const wb = (await wrap.boundingBox())!;
+    const tb = (await tip.boundingBox())!;
+    expect(tb.x).toBeGreaterThanOrEqual(wb.x - 1);
+    expect(tb.x + tb.width).toBeLessThanOrEqual(wb.x + wb.width + 1);
+    await page.screenshot({ path: test.info().outputPath('accum-tip-order.png') });
+
+    // 10분 판 — 막대 칸 가운데
+    const bar = svg.locator('[data-slot="accum-bucket"] rect').first();
+    await bar.scrollIntoViewIfNeeded();
+    const bb = (await bar.boundingBox())!;
+    await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    await expect(tip).toHaveText(/^\d\d:\d0~\d\d:\d0 · 팀 매수 [\d.,]+억 \/ 매도 [\d.,]+억 \/ 순 [+−]?[\d.,]+억$/);
+    await expect(svg.locator('[data-slot="accum-order-hover"]')).toHaveCount(0);
+
+    // 차트 밖으로 나가면 사라진다
+    const wb2 = (await wrap.boundingBox())!;
+    await page.mouse.move(wb2.x + wb2.width / 2, wb2.y - 40);
+    await expect(tip).toHaveCount(0);
+  });
 });
 
 test.describe('Phase 34 Plan 10 — 폰 390 · 폭 백스톱 · 빈 상태 · 게이트 (로컬 relay)', () => {
