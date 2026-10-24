@@ -36,6 +36,8 @@ export enum MsgType {
   GetUserSettingsReq = 43,
   AdminCommandReq = 44,
   GetAccumChartReq = 45,
+  SetOpenArbReq = 46,
+  GetOpenArbReq = 47,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,
@@ -74,5 +76,8 @@ export enum MsgType {
   AdminUsersSnapshot = 87,
   AccumSignal = 88,
   AccumSnapshot = 89,
-  AccumChartResp = 90
+  AccumChartResp = 90,
+  SetOpenArbResp = 91,
+  OpenArbJudgement = 92,
+  OpenArbPreview = 93
 }

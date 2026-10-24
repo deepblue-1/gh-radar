@@ -44,6 +44,9 @@ export { MsgType } from './stock-dma/msg-type.js';
 export { ObserverAccount } from './stock-dma/observer-account.js';
 export { ObserverLoginReq } from './stock-dma/observer-login-req.js';
 export { ObserverLoginResp } from './stock-dma/observer-login-resp.js';
+export { OpenArbJudgement } from './stock-dma/open-arb-judgement.js';
+export { OpenArbJudgementItem } from './stock-dma/open-arb-judgement-item.js';
+export { OpenArbPreview } from './stock-dma/open-arb-preview.js';
 export { OrderConfirm } from './stock-dma/order-confirm.js';
 export { OrderGroup } from './stock-dma/order-group.js';
 export { OrderResp } from './stock-dma/order-resp.js';
@@ -57,6 +60,7 @@ export { ReconcileAccountStateReq } from './stock-dma/reconcile-account-state-re
 export { ReconcileAccountStateResp } from './stock-dma/reconcile-account-state-resp.js';
 export { ServerMessage } from './stock-dma/server-message.js';
 export { SetLimitChaser } from './stock-dma/set-limit-chaser.js';
+export { SetOpenArb } from './stock-dma/set-open-arb.js';
 export { SetVITrigger } from './stock-dma/set-vitrigger.js';
 export { StrategyEvent } from './stock-dma/strategy-event.js';
 export { StrategyEventBatch } from './stock-dma/strategy-event-batch.js';

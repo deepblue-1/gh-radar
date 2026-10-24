@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 07a34fe8
-// synced-date:        2026-10-23
+// server-repo-commit: 20e718d7
+// synced-date:        2026-10-24
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -107,6 +107,14 @@ enum MsgType : byte {
     GetAccumChartReq = 45,         // 매집 차트 자료 조회 (C→S, Envelope.get_accum_chart_req 슬롯 102 — quick-261019-i4a).
                                    // 로그인 세션 연결만, 응답 90
 
+    // === 이하 Phase 38 추가 (KRX·NXT 개장 차익거래 — 38-CONTEXT D-02/D-07/D-11, 계좌별 슬롯은 Phase 33 선례) ===
+    SetOpenArbReq = 46,            // 개장차익 설정 (C→S, Envelope.set_open_arb 슬롯 106 — 91 과 공유, 11/61 선례).
+                                   // 슬롯 키 = account_no (거래소 축 없음). 응답 = 91 에코(같은 user 전 연결),
+                                   // 거부 = 54 ERROR source "SetOpenArb" + 저장본(없으면 미등록 스텁) 91 1프레임
+    GetOpenArbReq = 47,            // 개장차익 설정 조회 (C→S) — 요청 테이블 없음(43 선례). 계좌는 세션 선언 집합 —
+                                   // 응답 = 선언 계좌마다 91 1프레임(미등록 = unregistered=true 스텁) + 선언 밖 등록 슬롯,
+                                   // 0 프레임이면 빈 Envelope 1프레임 (무응답 금지, 21 선례)
+
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
     //   60~69: KRX 전략·계좌 상태 응답
@@ -200,7 +208,17 @@ enum MsgType : byte {
                                    // 그 뒤 · 청산 시각 오름차순, quick-261021-hxa), 78 선례)
 
     // === 이하 quick-261019-i4a 추가 (매집감지창 상세 가격·팀 주문 차트) ===
-    AccumChartResp = 90            // 매집 차트 자료 (S→C, Envelope.accum_chart_resp 슬롯 104, 요청 연결에만 Notice 1프레임 — 69 선례, quick-261019-i4a)
+    AccumChartResp = 90,           // 매집 차트 자료 (S→C, Envelope.accum_chart_resp 슬롯 104, 요청 연결에만 Notice 1프레임 — 69 선례, quick-261019-i4a)
+
+    // === 이하 Phase 38 추가 (KRX·NXT 개장 차익거래 — 38-CONTEXT D-02/D-10) ===
+    SetOpenArbResp = 91,           // 개장차익 설정 에코 (S→C, Envelope.set_open_arb 슬롯 106 — 46 요청과 공유, 61 선례).
+                                   // 46 Set 에코(같은 user 전 연결) · 47 조회 응답(요청 연결) · 로그인 복원·킬 스위치 푸시 공용
+    OpenArbJudgement = 92,         // 개장차익 판정 목록 (S→C **Notice** — 돈이 걸린 상태, Envelope.open_arb_judgement 슬롯 108).
+                                   // is_snapshot=true 는 로그인·조회 스냅샷, false 는 판정·발사·체결 변화 푸시
+
+    // === 이하 quick-261024-lxt 추가 (개장차익 판정 미리보기) ===
+    OpenArbPreview = 93            // 개장차익 판정 미리보기 (S→C **Broadcast** — 1초마다 다시 오는 파생 표시값, Envelope.open_arb_preview
+                                   // 슬롯 110). 09:00:00 ~ 실제 판정 스냅샷(09:00:28.9 기본) 전 1초마다 켠 슬롯 계좌 세션에만 (quick-261024-lxt)
 }
 
 // ============================================================================
@@ -1638,7 +1656,9 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     since_date: string;          // 등록 거래일 "YYYYMMDD"
     since_time: string;          // 등록 시각 "HHMMSS" — 이월 행도 등록일 당일 시각
     state: ubyte;                // 1 매집중 · 2 매도중 · 3 종료
-    end_reason: ubyte;           // state 3 일 때 1 청산 · 2 이월 탈락 · 3 이월 만료, 그 밖 0
+    end_reason: ubyte;           // state 3 일 때 1 청산(1억 미만 숨김·추적 계속, 다시 1억 이상이면 같은 사이클로 재등장) · 2 서버 재기동 때
+                                 // 복원 안 됨 · 3 이월 10일 만료 · 4 매집 종료(숨김 중 순매수 ≤ 사이클 최고 −30%, kind 16·accum_events 만,
+                                 // 88 없음), 그 밖 0
     cycle: uint;                 // 사이클 번호 (같은 날 청산 뒤 재등록이면 +1)
     carry_days: ubyte;           // 이월 거래일 수 — 0 = 당일 등록
     buy_qty: long;               // 팀 매수 누적 수량(주) — 우리 체결 제외 뒤
@@ -1833,6 +1853,71 @@ table AdminUsersSnapshot {       // 87 본문 — users.toml 전체 (WinForms �
 }
 
 // ============================================================================
+// Phase 38 — KRX·NXT 개장 차익거래 (38-CONTEXT D-02/D-07/D-10/D-11/D-27~D-31)
+//
+//   46 SetOpenArbReq  (C→S) — Envelope.set_open_arb 슬롯 106. 슬롯 키 = account_no (거래소 축 없음 — 한 계좌에 1건).
+//   47 GetOpenArbReq  (C→S) — 요청 테이블 없음. 세션 선언 계좌마다 91 1프레임(미등록 = unregistered=true).
+//   91 SetOpenArbResp (S→C) — 같은 슬롯 106. 46 에코·47 응답·푸시 공용 — 「조회 응답과 Set 에코는 같은 바이트」.
+//   92 OpenArbJudgement (S→C Notice) — Envelope.open_arb_judgement 슬롯 108. 당일 판정 목록.
+// 표시 문구: case 1 = 「KRX > NXT」(KRX 에서 사서 NXT 에 판다) · case 2 = 「NXT > KRX」(NXT 에서 사서 KRX 에 판다) — D-29.
+// 마감선(「KRX > NXT」 09:00:29.5)은 와이어·설정에 없는 서버 고정 상수 kOpenArbCase1DeadlineMs 다 (D-27).
+// 제외 종목 목록은 없다 — NXT 거래가능 전 종목이 대상이다 (D-28).
+// ============================================================================
+
+table SetOpenArb {                // 46/91 본문 — 개장차익 계좌 슬롯 1건 (필드 순서 = vtable 슬롯 정본, 말미 append 만)
+    account_no: string;           // 계좌번호 (최대 12자리) — 슬롯 키. 비어 있으면 서버는 ERROR 로 거부한다. vtable 4
+    min_profit_bp: int;           // 최소수익률 (bp, 왕복 비용 0.22% 포함 기준) — 기본 50(0.5%, D-31). 50 미만 거부(D-41). vtable 6
+    budget_krw: ulong;            // 총예산 (원) — 기본 10,000,000 (D-31). 0 = 제한 없음(D-40). vtable 8
+    per_stock_cap_krw: ulong;     // 종목당 금액 상한 (원) — 기본 1,000,000 (D-31). 0 = 제한 없음(D-40). vtable 10
+    n1: ushort;                   // 「KRX > NXT」(case 1) 최대 종목 수 — 기본 5 (D-31). 0 = 판정만(주문 없음, D-09). vtable 12
+    n2: ushort;                   // 「NXT > KRX」(case 2) 최대 종목 수 — 기본 5 (D-31). 0 = 판정만. n1 + n2 > 32 거부. vtable 14
+    case1_fire_ms: int;           // 「KRX > NXT」 발사 시각 — 09:00:00 기준 ms, 기본 27000(09:00:27.0, D-31 — 2026-10-24 29000 에서).
+                                  // 마감선 29500(09:00:29.5)은 서버 고정 상수 kOpenArbCase1DeadlineMs 이고 이 테이블에
+                                  // 없다(D-27) — case1_fire_ms < 25000(D-41) 또는 ≥ 29500 이면 거부. vtable 16
+    run: bool;                    // 전략 켜짐 (켜면 바로 실운용, D-08/D-09) — 기본 false. vtable 18
+    unregistered: bool;           // **S→C 전용** — true = 이 계좌에 개장차익 설정이 없다(「미등록」 프레임: account_no 와
+                                  // D-31 기본값만 실린다, run=false). 요청(46)값은 서버가 읽지 않는다 — C→S 는 비워 보낸다
+                                  // (Phase 33 SetVITrigger.unregistered 선례). vtable 20
+    fired_ymd: string;            // **S→C 전용** — 마지막으로 발사한 거래일 "YYYYMMDD" ("" = 발사 기록 없음). 하루 한 번 발사
+                                  // 규칙(D-26)의 서버 기록을 보여 줄 뿐이다 — 요청(46)값은 서버가 읽지 않는다. vtable 22
+}
+
+table OpenArbJudgementItem {      // 92 의 판정 1행 — 종목·방향 1건
+    isin: string;                 // 종목 ISIN (12자)
+    case_no: ubyte;               // 방향 — 1 = 「KRX > NXT」(KRX 매수 → NXT 매도) · 2 = 「NXT > KRX」(NXT 매수 → KRX 매도).
+                                  // 표시는 이 문구로만 한다(「경우1/경우2」 금지, D-29)
+    krx_px: uint;                 // 판정에 쓴 KRX 가격 (원)
+    nxt_px: uint;                 // 판정에 쓴 NXT 가격 (원)
+    qty: uint;                    // 판정 수량 (주) — 진입 수량(종목당 상한·총예산 적용)
+    expected_profit_krw: long;    // 진입 수량 기준 예상수익(종목당 상한·총예산 적용, 원, 왕복 비용 차감 뒤) — 정렬 키 아님(D-04)
+    selected: bool;               // 상위 N 선정 여부 (N = 0 이면 언제나 false — 판정만)
+    buy_filled_qty: uint;         // 매수 체결 수량 (주)
+    sell_filled_qty: uint;        // 매도 체결 수량 (주)
+    pnl_krw: long;                // 실현 손익 (원, 비용 차감 뒤)
+    residual_qty: uint;           // 잔여 수량 (주) — 매수 체결 − 매도 체결, 「잔여」 표시
+    state: ubyte;                 // 0 판정만 · 1 선정·대기 · 2 매수 발사 · 3 매도 발사 · 4 완료 · 5 잔여 · 6 생략
+    // === 이하 quick-261024-lxt 추가 (테이블 말미 append — 가운데 삽입 금지) ===
+    max_qty: uint;                // 순위 기준 수량 (주) — 종목당 상한 없이 걸은 수량 (D-04)
+    max_profit_krw: long;         // 순위 기준 최대수익 (원, 왕복 비용 뒤, 종목당 상한 무시) — 92·93 정렬 키 (D-04)
+}
+
+table OpenArbJudgement {          // 92 본문 — 계좌 1개의 당일 판정 목록
+    account_no: string;           // 계좌번호
+    date_ymd: string;             // 거래일 "YYYYMMDD"
+    is_snapshot: bool;            // true = 로그인·조회 스냅샷(통째 교체) · false = 변화 푸시
+    note: string;                 // 사람이 읽는 한 줄(예 「KRX > NXT 생략 — 개장 지연」) — 「경우1/경우2」 금지(D-29), "" 가능
+    items: [OpenArbJudgementItem];// 판정 행 — 빈 벡터 가능
+}
+
+table OpenArbPreview {            // 93 본문 — 계좌 1개의 판정 미리보기 (quick-261024-lxt, 표시 전용)
+    account_no: string;           // 계좌번호
+    date_ymd: string;             // 거래일 "YYYYMMDD"
+    book_time: string;            // NXT 판 복사 시각 "HH:MM:SS.mmm" (서버 KST, 표시 전용)
+    items: [OpenArbJudgementItem];// 최대수익 순위 「KRX > NXT」 상위 10 → 「NXT > KRX」 상위 5. state 0 판정만 · 1 선정 예정,
+                                  // 체결·손익·잔여 0
+}
+
+// ============================================================================
 // Envelope (메시지 래퍼)
 // ============================================================================
 
@@ -1936,6 +2021,14 @@ table Envelope {
     // === 이하 quick-261019-i4a 추가 (테이블 말미 append — 가운데 삽입 금지) ===
     get_accum_chart_req: GetAccumChartReq;       // 45 본문 — 매집 차트 자료 조회 (vtable 슬롯 102)
     accum_chart_resp: AccumChartResp;            // 90 본문 — 매집 차트 자료 (vtable 슬롯 104)
+
+    // === 이하 Phase 38 추가 (테이블 말미 append — 가운데 삽입 금지, D-02) ===
+    // GetOpenArbReq(47) 는 인자가 없어 요청 슬롯을 두지 않는다 (43 선례).
+    set_open_arb: SetOpenArb;                    // 46/91 공용 본문 — 개장차익 설정 요청·에코 (vtable 슬롯 106)
+    open_arb_judgement: OpenArbJudgement;        // 92 본문 — 개장차익 판정 목록 (vtable 슬롯 108)
+
+    // === 이하 quick-261024-lxt 추가 (테이블 말미 append — 가운데 삽입 금지) ===
+    open_arb_preview: OpenArbPreview;            // 93 본문 (vtable 슬롯 110)
 }
 
 root_type Envelope;
@@ -1982,4 +2075,18 @@ root_type Envelope;
 // 81 백필 없음·계좌 없음, 43칸 재해석 표는 gh-radar 인박스 노트(34-04). 핫패스(Stock·LimitChaser·
 // MarketFeed)는 무변경 — 상태기는 MarketPublisher 스레드 단독 소유다.
 // 번호 88/89·슬롯 98/100·kind 16 은 폐기해도 재사용 금지.
+// ============================================================================
+
+// ============================================================================
+// === Phase 38 (KRX·NXT 개장 차익거래) 변경 요약: MsgType 46 SetOpenArbReq / 47 GetOpenArbReq /
+//     91 SetOpenArbResp / 92 OpenArbJudgement · 테이블 SetOpenArb·OpenArbJudgementItem·OpenArbJudgement ·
+//     Envelope 슬롯 106(set_open_arb)/108(open_arb_judgement) ===
+//
+// 46/91 은 Envelope.set_open_arb 슬롯 하나를 공유한다(11/61 선례). 슬롯 키는 account_no 하나다 — 거래소 축이
+// 없다(한 계좌 = 1건, D-24). 47 은 요청 테이블이 없고 응답은 세션 선언 계좌마다 91 1프레임(미등록 =
+// unregistered=true 스텁) + 선언 밖 등록 슬롯이며, 빈 Envelope 는 프레임 0 일 때만이다(Phase 33 D-06/D-07 선례).
+// SetOpenArb.unregistered·fired_ymd 는 S→C 전용이다 — 요청값은 서버가 읽지 않는다. 마감선·제외 목록 필드는
+// 없다(D-27/D-28) — 「KRX > NXT」 마감선 09:00:29.5 는 서버 고정 상수다.
+// 92 는 「돈이 걸린 상태 = Notice」 분류다. 구 클라는 모르는 MsgType 을 무시하므로 서버 먼저 배포가 안전하다(D-25).
+// OrderGroup·StrategyEventKind 는 무변경이다(kind-defer, D-36). 번호 46/47/91/92·슬롯 106/108 은 폐기해도 재사용 금지.
 // ============================================================================

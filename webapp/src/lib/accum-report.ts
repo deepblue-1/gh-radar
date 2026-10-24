@@ -98,8 +98,9 @@ export interface AccumKpis {
   selling: number;
   /** 종료 = state 3 행 수 */
   ended: number;
-  /** 보조 「청산 · 탈락 · 만료」 = 종료 행의 end_reason 1 · 2 · 3 */
+  /** 보조 「청산 · 매집 종료 · 탈락 · 만료」 = 종료 행의 end_reason 1 · 4 · 2 · 3 */
   liquidated: number;
+  terminated: number;
   dropped: number;
   expired: number;
   /** 팀 순매수 합(등록 후 · 원) = 전 행 pos_net_krw 합(종료 행 포함 · null 제외) — 수가 하나도 없으면 null */
@@ -116,6 +117,7 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
     selling: 0,
     ended: 0,
     liquidated: 0,
+    terminated: 0,
     dropped: 0,
     expired: 0,
     posSum: null,
@@ -129,6 +131,7 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
       if (r.end_reason === 1) k.liquidated += 1;
       else if (r.end_reason === 2) k.dropped += 1;
       else if (r.end_reason === 3) k.expired += 1;
+      else if (r.end_reason === 4) k.terminated += 1;
     }
     if (isNum(r.pos_net_krw)) k.posSum = (k.posSum ?? 0) + r.pos_net_krw;
   }
@@ -141,13 +144,14 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
 // ---------------------------------------------------------------------------
 
 /** 사유 2(이월 탈락) 줄 `title` — 「복원 안 됨」 이 무엇인지 설명한다(D-11). */
-export const ACCUM_DROP_TITLE = '06:00 이월 판정에서 탈락했거나 서버 재기동 때 복원되지 않은 종목이에요';
+export const ACCUM_DROP_TITLE = '서버 재기동 때 이월 파일에 없어 복원되지 않은 종목이에요';
 
-/** 종료 사유 라벨 — 1 「청산」 · 2 「이월 탈락(복원 안 됨)」 · 3 「이월 만료」 · 그 밖(0 · null) null. */
+/** 종료 사유 라벨 — 1 「청산」 · 2 「이월 탈락(복원 안 됨)」 · 3 「이월 만료」 · 4 「매집 종료」 · 그 밖(0 · null) null. */
 export function endReasonLabelOf(endReason: number | null | undefined): string | null {
   if (endReason === 1) return '청산';
   if (endReason === 2) return '이월 탈락(복원 안 됨)';
   if (endReason === 3) return '이월 만료';
+  if (endReason === 4) return '매집 종료';
   return null;
 }
 
@@ -212,11 +216,11 @@ function regLineOf(row: AccumReportRow): string {
   return DASH;
 }
 
-const END_WORD: Record<number, string> = { 1: '청산', 2: '탈락', 3: '만료' };
+const END_WORD: Record<number, string> = { 1: '청산', 2: '탈락', 3: '만료', 4: '종료' };
 
 /**
  * 등록 · 종료 칸(xl · A3) — [1줄, 2줄].
- * 2줄 = end_reason 1 「HH:MM 청산」 · 2 「HH:MM 탈락」 · 3 「HH:MM 만료」(시각 없으면 단어만) · 0 이고 이월 「오늘 이월」 · 그 밖 「장 마감까지」.
+ * 2줄 = end_reason 1 「HH:MM 청산」 · 2 「HH:MM 탈락」 · 3 「HH:MM 만료」 · 4 「HH:MM 종료」(시각 없으면 단어만) · 0 이고 이월 「오늘 이월」 · 그 밖 「장 마감까지」.
  */
 export function regCellOf(row: AccumReportRow): [string, string] {
   const word = row.end_reason === null ? undefined : END_WORD[row.end_reason];
@@ -430,7 +434,7 @@ export const ACCUM_RULE_LINES: readonly string[] = [
   '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
   '하루 순매수(day) · 차트는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
   '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
-  '종료 사유 — 청산 / 이월 탈락(복원 안 됨 · 06:00 이월 판정과 서버 기동 정합 포함) / 이월 만료.',
+  '종료 사유 — 청산(순매수 1억 미만 — 서버는 계속 추적하고 다시 1억 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
 ];
 
 /** 판정 기준 출처 줄(링크 없음). */

@@ -58,6 +58,7 @@ describe('accumKpisOf — KPI 4칸 (D-09 · A2)', () => {
       selling: 1,
       ended: 3,
       liquidated: 1,
+      terminated: 0,
       dropped: 1,
       expired: 1,
       // 9.3 − 2.4 + 3.6 − 6.9 + 0.4 + 0.2 = +4.2억(⑦ null 제외 · 종료 행 포함)
@@ -74,6 +75,7 @@ describe('accumKpisOf — KPI 4칸 (D-09 · A2)', () => {
       selling: 0,
       ended: 0,
       liquidated: 0,
+      terminated: 0,
       dropped: 0,
       expired: 0,
       posSum: null,
@@ -94,10 +96,11 @@ describe('accumKpisOf — KPI 4칸 (D-09 · A2)', () => {
 });
 
 describe('종료 사유 · 흐림 (D-11)', () => {
-  it('endReasonLabelOf 1/2/3/0 = 청산 / 이월 탈락(복원 안 됨) / 이월 만료 / null', () => {
+  it('endReasonLabelOf 1/2/3/4/0 = 청산 / 이월 탈락(복원 안 됨) / 이월 만료 / 매집 종료 / null', () => {
     expect(endReasonLabelOf(1)).toBe('청산');
     expect(endReasonLabelOf(2)).toBe('이월 탈락(복원 안 됨)');
     expect(endReasonLabelOf(3)).toBe('이월 만료');
+    expect(endReasonLabelOf(4)).toBe('매집 종료');
     expect(endReasonLabelOf(0)).toBeNull();
     expect(endReasonLabelOf(null)).toBeNull();
   });
@@ -108,11 +111,17 @@ describe('종료 사유 · 흐림 (D-11)', () => {
     expect(reasonLineOf(syn(AC_EXPIRE))).toBe('이월 만료 · 06:00');
     expect(reasonLineOf({ ...syn(AC_LIQ), end_time_ms: null })).toBe('청산');
     expect(reasonLineOf(syn(AC_LIVE))).toBeNull();
+    // end_reason 4 매집 종료(장중 · 정상 농도 · 2줄 「HH:MM 종료」 · KPI terminated)
+    const term = { ...syn(AC_LIQ), end_reason: 4 };
+    expect(reasonLineOf(term)).toBe('매집 종료 · 11:32');
+    expect(isDimRow(term)).toBe(false);
+    expect(regCellOf(term)[1]).toBe('11:32 종료');
+    expect(accumKpisOf([term])).toMatchObject({ ended: 1, terminated: 1, liquidated: 0 });
     expect(reasonLineOf(syn(AC_SELL))).toBeNull();
   });
 
   it('사유 2 title 상수', () => {
-    expect(ACCUM_DROP_TITLE).toBe('06:00 이월 판정에서 탈락했거나 서버 재기동 때 복원되지 않은 종목이에요');
+    expect(ACCUM_DROP_TITLE).toBe('서버 재기동 때 이월 파일에 없어 복원되지 않은 종목이에요');
   });
 
   it('isDimRow — state 3 & end_reason 2 · 3 만 true(장중 청산 · 살아 있는 행 false)', () => {
@@ -383,7 +392,7 @@ describe('판정 기준 — thresholdPartsOf · ACCUM_RULE_LINES (D-22 · A9)', 
       '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
       '하루 순매수(day) · 차트는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
       '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
-      '종료 사유 — 청산 / 이월 탈락(복원 안 됨 · 06:00 이월 판정과 서버 기동 정합 포함) / 이월 만료.',
+      '종료 사유 — 청산(순매수 1억 미만 — 서버는 계속 추적하고 다시 1억 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
     ]);
     expect(ACCUM_RULE_SOURCE).toBe('규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13');
   });

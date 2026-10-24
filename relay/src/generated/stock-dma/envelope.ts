@@ -31,6 +31,8 @@ import { MemberStats } from '../stock-dma/member-stats.js';
 import { MsgType } from '../stock-dma/msg-type.js';
 import { ObserverLoginReq } from '../stock-dma/observer-login-req.js';
 import { ObserverLoginResp } from '../stock-dma/observer-login-resp.js';
+import { OpenArbJudgement } from '../stock-dma/open-arb-judgement.js';
+import { OpenArbPreview } from '../stock-dma/open-arb-preview.js';
 import { OrderConfirm } from '../stock-dma/order-confirm.js';
 import { OrderResp } from '../stock-dma/order-resp.js';
 import { QueueProgress } from '../stock-dma/queue-progress.js';
@@ -42,6 +44,7 @@ import { ReconcileAccountStateReq } from '../stock-dma/reconcile-account-state-r
 import { ReconcileAccountStateResp } from '../stock-dma/reconcile-account-state-resp.js';
 import { ServerMessage } from '../stock-dma/server-message.js';
 import { SetLimitChaser } from '../stock-dma/set-limit-chaser.js';
+import { SetOpenArb } from '../stock-dma/set-open-arb.js';
 import { SetVITrigger } from '../stock-dma/set-vitrigger.js';
 import { StrategyEventBatch } from '../stock-dma/strategy-event-batch.js';
 import { SubscribeQuoteReq } from '../stock-dma/subscribe-quote-req.js';
@@ -318,8 +321,23 @@ accumChartResp(obj?:AccumChartResp):AccumChartResp|null {
   return offset ? (obj || new AccumChartResp()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+setOpenArb(obj?:SetOpenArb):SetOpenArb|null {
+  const offset = this.bb!.__offset(this.bb_pos, 106);
+  return offset ? (obj || new SetOpenArb()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+openArbJudgement(obj?:OpenArbJudgement):OpenArbJudgement|null {
+  const offset = this.bb!.__offset(this.bb_pos, 108);
+  return offset ? (obj || new OpenArbJudgement()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+openArbPreview(obj?:OpenArbPreview):OpenArbPreview|null {
+  const offset = this.bb!.__offset(this.bb_pos, 110);
+  return offset ? (obj || new OpenArbPreview()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(51);
+  builder.startObject(54);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -516,6 +534,18 @@ static addGetAccumChartReq(builder:flatbuffers.Builder, getAccumChartReqOffset:f
 
 static addAccumChartResp(builder:flatbuffers.Builder, accumChartRespOffset:flatbuffers.Offset) {
   builder.addFieldOffset(50, accumChartRespOffset, 0);
+}
+
+static addSetOpenArb(builder:flatbuffers.Builder, setOpenArbOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(51, setOpenArbOffset, 0);
+}
+
+static addOpenArbJudgement(builder:flatbuffers.Builder, openArbJudgementOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(52, openArbJudgementOffset, 0);
+}
+
+static addOpenArbPreview(builder:flatbuffers.Builder, openArbPreviewOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(53, openArbPreviewOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

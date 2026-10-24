@@ -221,14 +221,14 @@ const kpiTiles = () =>
   });
 
 describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
-  it('(k1) 실측 6행 → 라벨 4개 · 보조 「이월 0」 · 「매집중 6 · 매도중 0」 · 「청산 0 · 탈락 0 · 만료 0」 · 합 부호 색', async () => {
+  it('(k1) 실측 6행 → 라벨 4개 · 보조 「이월 0」 · 「매집중 6 · 매도중 0」 · 「청산 0 · 매집 종료 0 · 탈락 0 · 만료 0」 · 합 부호 색', async () => {
     await open('d=20261014');
     const strip = document.querySelector('[data-slot="accum-kpis"]')!;
     expect(strip).toBeTruthy();
     expect(kpiTiles()).toEqual([
       ['등록 종목', '6', '이월 0'],
       ['장 마감 보유', '6', '매집중 6 · 매도중 0'],
-      ['종료', '0', '청산 0 · 탈락 0 · 만료 0'],
+      ['종료', '0', '청산 0 · 매집 종료 0 · 탈락 0 · 만료 0'],
       ['팀 순매수 합(등록 후)', '+9.7억'],
     ]);
     const sum = strip.querySelector('[data-kpi="팀 순매수 합(등록 후)"] dd > span')!;
@@ -240,12 +240,12 @@ describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
     expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('(k2) 합성 7행 → 등록 7(이월 3) · 보유 4(매집중 3 · 매도중 1) · 종료 3(청산 1 · 탈락 1 · 만료 1) · 합 +4.2억', async () => {
+  it('(k2) 합성 7행 → 등록 7(이월 3) · 보유 4(매집중 3 · 매도중 1) · 종료 3(청산 1 · 매집 종료 0 · 탈락 1 · 만료 1) · 합 +4.2억', async () => {
     await open('d=20261014', accumReportFixture({ rows: accumSyntheticListRows() }));
     expect(kpiTiles()).toEqual([
       ['등록 종목', '7', '이월 3'],
       ['장 마감 보유', '4', '매집중 3 · 매도중 1'],
-      ['종료', '3', '청산 1 · 탈락 1 · 만료 1'],
+      ['종료', '3', '청산 1 · 매집 종료 0 · 탈락 1 · 만료 1'],
       ['팀 순매수 합(등록 후)', '+4.2억'],
     ]);
   });
@@ -333,7 +333,7 @@ describe('AccumDayGrid — 행 완성 (A3 · D-08 · D-10 ~ D-13)', () => {
     const reason = (isin: string) => rowBtn(isin).querySelector('[data-slot="accum-reason"]');
     expect(reason(AC_DROP)!.textContent).toBe('이월 탈락(복원 안 됨) · 06:00');
     expect(reason(AC_DROP)!.getAttribute('title')).toBe(
-      '06:00 이월 판정에서 탈락했거나 서버 재기동 때 복원되지 않은 종목이에요',
+      '서버 재기동 때 이월 파일에 없어 복원되지 않은 종목이에요',
     );
     expect(reason(AC_EXPIRE)!.textContent).toBe('이월 만료 · 06:00');
     expect(reason(AC_LIQ)!.textContent).toBe('청산 · 11:32');
