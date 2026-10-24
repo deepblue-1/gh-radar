@@ -16,12 +16,15 @@
  * message 끝 `|nxt=<buy_krw>/<sell_krw>/<buy_qty>/<sell_qty>` 는 읽지 않는다 — 금액은 칸이 정본이고 수량은 쓰지 않는다
  * (사용자 결정).
  *
+ * quick-261024-uov — 인박스 `261024-accum-hidden-carry10` 「추가 — 매집 종료 end_reason 4」: cancel_reason 4 = 매집 종료
+ * (짧은 말 「종료」). 매퍼 변경 없음(칸을 그대로 옮긴다) — 문구와 주석만.
+ *
  * 입력은 이미 숫자화된 `StrategyEventRow`(REST 매퍼 · wss 푸시 공용)라 값 보정이 없다. 유일한 기본값은 길이가
  * 모자란 `snapQty`/`snapCum` 원소의 0 이다.
  */
 import { STRATEGY_EVENT_KIND, type StrategyEventRow } from "./strategy-event";
 
-/** 1 매집중 · 2 매도중 · 3 종료(청산 · 이월 탈락 · 이월 만료). */
+/** 1 매집중 · 2 매도중 · 3 종료(청산 · 기동 정합 · 이월 만료 · 매집 종료). */
 export type AccumState = 1 | 2 | 3;
 
 /** kind 16 행 1건을 이름으로 푼 값(팀 매집 누적 상태 전체 — 델타 아님). 금액 단위 원 · 수량 단위 주. */
@@ -36,9 +39,9 @@ export type AccumSignal = {
   /** 행을 만든 시각(분 경계 틱 · 복원 = 기동 · 종료 = 청산 시각). 「갱신」 표시 · 최신 판정 정본. */
   gwTimeMs: number;
   state: AccumState;
-  /** 0 없음 · 1 청산(1억 미만 숨김 — 같은 cycle 로 재등장 가능) · 2 서버 재기동 때 복원 안 됨 · 3 이월 10일 만료. */
+  /** 0 없음 · 1 청산(1억 미만 숨김 — 같은 cycle 로 재등장 가능) · 2 서버 재기동 때 복원 안 됨 · 3 이월 10일 만료 · 4 매집 종료(청산 뒤 순매수가 등록 뒤 최고의 −30% 이하 — 같은 사이클 두 번째 종료 행 · 장중 팀 주문에서만 · 88 없음 · 다음 등록은 cycle + 1). */
   endReason: number;
-  /** 사이클 번호(첫 사이클 1 · 청산 뒤 재등장은 같은 번호 · 만료 · 기동 정합 뒤 새 등록만 +1). */
+  /** 사이클 번호(첫 사이클 1 · 청산 뒤 재등장은 같은 번호 · 만료 · 기동 정합 · 매집 종료 뒤 새 등록만 +1). */
   cycle: number;
   /** 이월 일수(0 = 이월 안 함). */
   carryDays: number;
@@ -90,7 +93,7 @@ export type AccumSignal = {
   thMaxMcapKrw: number | null;
 };
 
-/** 상태 배지 문구 — gh-trade 클라 동형. 종료 사유 1/2/3 은 배지 하나 「청산」(사유는 `ACCUM_END_REASON_LABELS` 툴팁). */
+/** 상태 배지 문구 — gh-trade 클라 동형. 종료 사유 1~4 는 배지 하나 「청산」(사유는 `ACCUM_END_REASON_LABELS` 툴팁). */
 export const ACCUM_STATE_LABELS: Readonly<Record<AccumState, string>> = {
   1: "매집중",
   2: "매도중",
@@ -102,6 +105,7 @@ export const ACCUM_END_REASON_LABELS: Readonly<Record<number, string>> = {
   1: "청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)",
   2: "서버 재기동 때 복원 안 됨",
   3: "이월 10일 만료",
+  4: "매집 종료 — 청산 뒤 순매수가 사이클 최고의 −30% 이하(최고 10억 → −3억)",
 };
 
 /** message `k=v|k=v…` → Map. 키 순서는 보지 않는다. */
