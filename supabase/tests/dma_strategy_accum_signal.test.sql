@@ -2,7 +2,8 @@
 -- quick-261018-rfy — kind 16(매집감지 · AccumSignal) 시세 가시성 · 주문로그 래퍼 제외 · 30일 purge ·
 -- isin 별 최신 읽기 RPC(dma_accum_signals_for_user_json) pgTAP.
 --
--- 대상 마이그레이션: supabase/migrations/20261018120000_dma_strategy_events_accum_signal.sql
+-- 대상 마이그레이션: supabase/migrations/20261018120000_dma_strategy_events_accum_signal.sql ·
+--                   supabase/migrations/20261024230000_dma_accum_signals_closed_companion.sql
 --
 -- 잠그는 것:
 --   - 가시성: 계좌가 빈 kind 16 행은 그 게이트웨이에 가시 계좌가 있는 사용자 전원에게 보인다(시세 kind 집합
@@ -12,9 +13,10 @@
 --   - purge: dma_strategy_events_purge_limit_feature(30) 가 KST 오늘 − 31일 kind 15 · 16 을 함께 지운다. 경계일(오늘 − 30) ·
 --     최근 kind 16 · 같은 옛날짜 시세 1 · 주문 이벤트는 남는다.
 --   - 부분 인덱스 idx_dma_strategy_events_accum_signal_day 존재 · 술어 kind = 16.
---   - accum RPC(20261019160000): (gateway, isin) 별 정확히 1행 — 그 게이트웨이의 최신 행(gw_time_ms desc → seq desc).
+--   - accum RPC(20261024230000): (gateway, isin) 별 최신 1행 + 그날 최신 청산(queue_case 4 · cancel_reason 1) 1행 —
+--     최신이 곧 청산이면 1행 · 중복 없음 · 자르기 뒤 행에서만 · gateway → isin → gw_time_ms → seq 오름차순.
 --     서버 사이 선택은 없다(서버 기준은 웹이 고른 계좌의 serverKey 로 고른다). 원소 = SETOF 행 jsonb 그대로 ·
---     gateway, isin 오름차순. 행 없는 날 '[]'. 복원 묶음 자르기(20261018233000 ⑤)는 게이트웨이별 그대로.
+--     행 없는 날 '[]'. 복원 묶음 자르기(20261018233000 ⑤)는 게이트웨이별 그대로.
 --   - 권한: 네 함수 모두 anon · authenticated EXECUTE 불가 · service_role 가능.
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_strategy_accum_signal.test.sql`
@@ -136,6 +138,24 @@ INSERT INTO t_setup SELECT 'strategy_kyobo_restore', public.dma_strategy_apply('
   pg_temp.sev(12, 16, 0, '', '', '23:16:05.000', pg_temp.ac('KR7005930003') || '{"queue_case":3}', pg_temp.kd(2))
 ));
 
+-- KST 오늘 − 3일: 매집 종료 시나리오(20261024230000 · 인박스 261024-accum-hidden-carry10 「추가 — 매집 종료」).
+--   종료 행 = qty 3 · queue_case 4 · cancel_reason 1(청산) / 4(매집 종료).
+--   KB120: A 등록 → 청산 → 같은 ms 에 매집 종료(더 큰 seq) · C 청산 → 재등장 · B 는 숨김 이월 뒤 매집 종료 한 줄(그날 청산 없음).
+--   KYOBO119: B 청산 → 복원 묶음(자르기 — 앞 청산은 빠진다) · A 청산이 곧 최신.
+INSERT INTO t_setup SELECT 'strategy_kb_end4', public.dma_strategy_apply('KB120', 'ep-ac', jsonb_build_array(
+  pg_temp.sev(31, 16, 0, '', '', '10:00:00.000', pg_temp.ac('KR7005930003'), pg_temp.kd(3)),
+  pg_temp.sev(32, 16, 0, '', '', '10:30:00.000', pg_temp.ac('KR7035720002') || '{"qty":3,"queue_case":4,"cancel_reason":1}', pg_temp.kd(3)),
+  pg_temp.sev(33, 16, 0, '', '', '10:40:00.000', pg_temp.ac('KR7035720002'), pg_temp.kd(3)),
+  pg_temp.sev(34, 16, 0, '', '', '11:00:00.000', pg_temp.ac('KR7005930003') || '{"qty":3,"queue_case":4,"cancel_reason":1}', pg_temp.kd(3)),
+  pg_temp.sev(35, 16, 0, '', '', '11:00:00.000', pg_temp.ac('KR7005930003') || '{"qty":3,"queue_case":4,"cancel_reason":4}', pg_temp.kd(3)),
+  pg_temp.sev(36, 16, 0, '', '', '11:30:00.000', pg_temp.ac('KR7000660001') || '{"qty":3,"queue_case":4,"cancel_reason":4}', pg_temp.kd(3))
+));
+INSERT INTO t_setup SELECT 'strategy_kyobo_end4', public.dma_strategy_apply('KYOBO119', 'ep-ack', jsonb_build_array(
+  pg_temp.sev(21, 16, 0, '', '', '09:00:00.000', pg_temp.ac('KR7000660001') || '{"qty":3,"queue_case":4,"cancel_reason":1}', pg_temp.kd(3)),
+  pg_temp.sev(22, 16, 0, '', '', '09:30:00.000', pg_temp.ac('KR7000660001') || '{"queue_case":3}', pg_temp.kd(3)),
+  pg_temp.sev(23, 16, 0, '', '', '10:00:00.000', pg_temp.ac('KR7005930003') || '{"qty":3,"queue_case":4,"cancel_reason":1}', pg_temp.kd(3))
+));
+
 -- jsonb 배열 RPC 결과를 (ord, gateway, seq, kind, isin) 순서열로 펼친다.
 CREATE FUNCTION pg_temp.accum_rows(p_user uuid, p_date date)
 RETURNS TABLE (ord bigint, gateway text, seq int, kind int, isin text) LANGUAGE sql AS $$
@@ -143,7 +163,7 @@ RETURNS TABLE (ord bigint, gateway text, seq int, kind int, isin text) LANGUAGE 
     FROM jsonb_array_elements(public.dma_accum_signals_for_user_json(p_user, p_date)) WITH ORDINALITY AS x(e, ord)
 $$;
 
-SELECT plan(28);
+SELECT plan(31);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT is(
@@ -152,7 +172,7 @@ SELECT is(
 );
 SELECT is(
   (SELECT count(*)::int FROM public.dma_strategy_events WHERE kind = 16),
-  17, '(픽스처, KB120+KYOBO119, kind 16, 적재) 17행 — 오늘 KB 3 · KYOBO 3 · −31 · −30 · −1 각 1 · −2일 복원 묶음 KB 6 · KYOBO 2'
+  26, '(픽스처, KB120+KYOBO119, kind 16, 적재) 26행 — 오늘 KB 3 · KYOBO 3 · −31 · −30 · −1 각 1 · −2일 복원 묶음 KB 6 · KYOBO 2 · −3일 매집 종료 KB 6 · KYOBO 3'
 );
 
 -- ── 1. SETOF 가시성 (시세 kind 16) ─────────────────────────────
@@ -209,7 +229,7 @@ SELECT results_eq(
 SELECT is(
   (SELECT count(*)::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
   (SELECT count(DISTINCT (gateway, isin))::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(0)::date)),
-  '(U1, KB120+KYOBO119, kind 16, 오늘) 행 수 = 서로 다른 (gateway, isin) 수(정확히 1행씩)'
+  '(U1, KB120+KYOBO119, kind 16, 오늘) 행 수 = 서로 다른 (gateway, isin) 수(정확히 1행씩) — 청산 행 없는 날'
 );
 SELECT results_eq(
   $$SELECT gateway, seq, kind, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002912', pg_temp.kd(0)::date) ORDER BY ord$$,
@@ -249,6 +269,26 @@ SELECT results_eq(
   '(U2, KB120 만, kind 16, −2일 복원 묶음) 자르기는 게이트웨이별 — KB120 만 봐도 B 는 빠지고 A · C 만'
 );
 
+-- ── 3c. 매집 종료 — 그날 최신 청산 행 동반 (20261024230000) ──────────
+SELECT results_eq(
+  $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(3)::date) ORDER BY ord$$,
+  $$VALUES ('KB120', 36, 'KR7000660001'), ('KB120', 34, 'KR7005930003'), ('KB120', 35, 'KR7005930003'),
+           ('KB120', 32, 'KR7035720002'), ('KB120', 33, 'KR7035720002'),
+           ('KYOBO119', 22, 'KR7000660001'), ('KYOBO119', 23, 'KR7005930003')$$,
+  '(U1, KB120+KYOBO119, kind 16, −3일 매집 종료) 최신 행 + 그날 최신 청산 행 · 같은 ms 는 seq 순 · 숨김 이월 뒤 매집 종료 B@KB120 는 한 줄 · 자르기 앞 청산 KYOBO119 seq 21 없음 · 최신이 곧 청산 A@KYOBO119 는 1행'
+);
+SELECT is(
+  (SELECT count(*)::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(3)::date)),
+  (SELECT count(DISTINCT (gateway, seq))::int FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002911', pg_temp.kd(3)::date)),
+  '(U1, KB120+KYOBO119, kind 16, −3일 매집 종료) 행 수 = 서로 다른 (gateway, seq) 수 — 중복 없음'
+);
+SELECT results_eq(
+  $$SELECT gateway, seq, isin FROM pg_temp.accum_rows('00000000-0000-4000-8000-000000002912', pg_temp.kd(3)::date) ORDER BY ord$$,
+  $$VALUES ('KB120', 36, 'KR7000660001'), ('KB120', 34, 'KR7005930003'), ('KB120', 35, 'KR7005930003'),
+           ('KB120', 32, 'KR7035720002'), ('KB120', 33, 'KR7035720002')$$,
+  '(U2, KB120 만, kind 16, −3일 매집 종료) 가시 게이트웨이 행에서만 — KB120 다섯 행 · KYOBO119 행 없음'
+);
+
 -- ── 4. purge — kind 15 · 16 함께 30일 ───────────────────────────
 SELECT is(
   public.dma_strategy_events_purge_limit_feature(30),
@@ -256,7 +296,7 @@ SELECT is(
 );
 SELECT results_eq(
   $$SELECT gateway, seq::int, trade_date FROM public.dma_strategy_events
-     WHERE kind = 16 AND trade_date NOT IN (pg_temp.kd(0)::date, pg_temp.kd(2)::date) ORDER BY gateway, seq$$,
+     WHERE kind = 16 AND trade_date NOT IN (pg_temp.kd(0)::date, pg_temp.kd(2)::date, pg_temp.kd(3)::date) ORDER BY gateway, seq$$,
   $$VALUES ('KB120', 15, pg_temp.kd(30)::date), ('KB120', 16, pg_temp.kd(1)::date)$$,
   '(—, KB120, kind 16, −30 경계 · −1) 남는다 — −31 seq 11 만 사라졌다'
 );
