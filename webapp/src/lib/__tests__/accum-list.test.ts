@@ -9,7 +9,7 @@ import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
  *  - latestAccumByIsin: 같은 isin 여러 행 → gwTimeMs 큰 것 → 같으면 gateway 사전순 앞 → 같으면 seq 큰 것
  *  - sortAccum: 매집중 · 매도중(1·2)은 netKrw 큰 순 · 청산(3)은 뒤에서 gwTimeMs 작은 순(먼저 청산한 순 · gh-trade 동형)
  *  - isListedAccum: 활성 전부 · 청산은 종료 사유 1 만(06:00 이월 탈락 · 만료 제외)
- *  - accumDismissKey = `${isin}|${cycle}` · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
+ *  - accumDismissKey = 활성 `${isin}|${cycle}` · 청산 `…|end`(같은 cycle 재등장) · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
  *  - advanceAccumMeta: 직전 커밋이 filled 전이면 새 키 무강조, filled 뒤 새 키(새 isin · 같은 isin 새 cycle)는
  *    now + HIGHLIGHT_MS 까지 강조 · 이미 본 키는 직전 값 유지 · state 3 은 강조하지 않음
  */
@@ -19,6 +19,7 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  isAccumDismissed,
   isListedAccum,
   latestAccumByIsin,
   readAccumDismissed,
@@ -189,8 +190,22 @@ describe('isListedAccum', () => {
 });
 
 describe('✕ 숨김 — 사이클 단위 · 오늘', () => {
-  it('accumDismissKey = isin|cycle', () => {
+  it('accumDismissKey = 활성 isin|cycle · 청산 isin|cycle|end', () => {
     expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3 }))).toBe('KR7000020008|3');
+    expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3, state: 2 }))).toBe('KR7000020008|3');
+    expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3, state: 3, endReason: 1 }))).toBe('KR7000020008|3|end');
+  });
+
+  it('isAccumDismissed — 활성 때 숨긴 사이클은 청산 · 재등장에도 숨김 · 청산 행에서 숨긴 것은 같은 사이클 재등장이면 다시 보임', () => {
+    const live = sig({ isin: 'A', cycle: 2 });
+    const ended = sig({ isin: 'A', cycle: 2, state: 3, endReason: 1 });
+    const fromLive = new Set([accumDismissKey(live)]);
+    expect(isAccumDismissed(fromLive, live)).toBe(true);
+    expect(isAccumDismissed(fromLive, ended)).toBe(true);
+    const fromEnded = new Set([accumDismissKey(ended)]);
+    expect(isAccumDismissed(fromEnded, ended)).toBe(true);
+    expect(isAccumDismissed(fromEnded, live)).toBe(false);
+    expect(isAccumDismissed(fromLive, sig({ isin: 'A', cycle: 3 }))).toBe(false);
   });
 
   it('addAccumDismissed → readAccumDismissed 로 같은 날 읽힌다 · 다른 날은 빈 집합', () => {
@@ -230,6 +245,15 @@ describe('advanceAccumMeta — 신규 강조', () => {
 
   it('state 3(청산) 새 키는 강조하지 않는다', () => {
     const meta = advanceAccumMeta(new Map(), [sig({ isin: 'C', cycle: 1, state: 3 })], NOW, true);
-    expect(meta.get('C|1')).toBeNull();
+    expect(meta.get('C|1|end')).toBeNull();
+  });
+
+  it('같은 cycle 재등장(활성 → 청산 → 활성)은 다시 강조', () => {
+    const live = advanceAccumMeta(new Map([['A|1', null]]), [sig({ isin: 'A', cycle: 1 })], NOW, true);
+    const ended = advanceAccumMeta(live, [sig({ isin: 'A', cycle: 1, state: 3, endReason: 1 })], NOW + 1_000, true);
+    expect(ended.get('A|1|end')).toBeNull();
+    expect(ended.has('A|1')).toBe(false);
+    const back = advanceAccumMeta(ended, [sig({ isin: 'A', cycle: 1 })], NOW + 2_000, true);
+    expect(back.get('A|1')).toBe(NOW + 2_000 + HIGHLIGHT_MS);
   });
 });

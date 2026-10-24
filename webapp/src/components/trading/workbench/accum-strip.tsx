@@ -18,9 +18,10 @@
  *   매도경보(quick-261019-j1w D-01) = 매집중 + `sellWarn` 일 때만 「매집중」 뒤 · 이월 앞 주황 채움 1초 깜빡임(칩 · 표 상태 셀) ·
  *   횟수는 배지 title(「이 사이클 경보 n회」)과 칩 title 끝.
  * ④ 첫 채움 무강조 — REST 복원(`filled` 전 · 직후 첫 커밋)으로 들어온 행은 강조하지 않고, 그 뒤 새로 오른 키(새 isin · 같은 isin
- *   새 사이클)만 30초 `--new-bg` + 「신규」 다(돌파 규칙 · `HIGHLIGHT_MS`). 강조 계산은 `advanceAccumMeta` 순수 함수를 렌더에서 하고
+ *   새 사이클 · 같은 사이클 재등장)만 30초 `--new-bg` + 「신규」 다(돌파 규칙 · `HIGHLIGHT_MS`). 강조 계산은 `advanceAccumMeta` 순수 함수를 렌더에서 하고
  *   커밋 뒤 레이아웃 effect 가 기록을 옮긴다(돌파 ⑧). 강조 행이 있을 때만 tick 타이머 1개(돌파 ⑤).
- * ⑤ ✕ = 이 기기 · 오늘 · **사이클 단위** 숨김(`isin|cycle`) — 같은 종목의 새 사이클이 오면 다시 보인다.
+ * ⑤ ✕ = 이 기기 · 오늘 · **사이클 단위** 숨김(활성 `isin|cycle` · 청산 `isin|cycle|end`) — 같은 종목의 새 사이클이 오면 다시 보이고,
+ *   청산 행에서 숨긴 것은 같은 사이클로 재등장해도 다시 보인다(accum-list ③).
  * ⑥ 이름 없는 행은 ISIN 을 고정폭 그대로 — `onAddCard` 에 이름을 싣지 않는다(돌파 ⑥). 코드는 행의 `stocks` 조인 값(없으면 relay 라벨)이라
  *   이름과 무관하게 싣는다. 이름 폴백은 relay 라벨 → 종목 마스터.
  * ⑦ 팀 수익률 = 표시 현재가 ÷ 팀 평단 − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청) — 평단 열 다음, 모든 밴드에 보인다.
@@ -46,6 +47,7 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  isAccumDismissed,
   isListedAccum,
   readAccumDismissed,
   sortAccum,
@@ -162,7 +164,7 @@ export function AccumStrip({
   const masterNames = useStockNames(unnamed);
 
   const visible = useMemo(
-    () => sortAccum(signals.filter((s) => isListedAccum(s) && !dismissed.has(accumDismissKey(s)))),
+    () => sortAccum(signals.filter((s) => isListedAccum(s) && !isAccumDismissed(dismissed, s))),
     [signals, dismissed],
   );
 

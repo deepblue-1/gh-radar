@@ -183,7 +183,7 @@ describe('AccumStrip — 칩 (안 A)', () => {
     expect(rows()).toHaveLength(2);
     const ended = Array.from(rows()).find((r) => r.textContent?.includes('금호전기')) as HTMLElement;
     expect(ended.className).toContain('text-[var(--muted-fg)]');
-    expect(ended.getAttribute('title')).toBe('청산');
+    expect(ended.getAttribute('title')).toBe('청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)');
     expect(Array.from(rows()).some((r) => r.textContent?.includes('서산'))).toBe(false);
     expect(within(ended).getByText('청산')).toBeInTheDocument();
   });
@@ -292,6 +292,17 @@ describe('AccumStrip — ✕ · 클릭', () => {
     rerender({ signals: [sig({ cycle: 2, netKrw: 2e9 })] });
     expect(chips()).toHaveLength(0);
     rerender({ signals: [sig({ cycle: 3 })] });
+    expect(chips()).toHaveLength(1);
+  });
+
+  it('⑤ 청산 행 ✕ → isin|cycle|end 기록 · 같은 사이클로 재등장하면 다시 보임', () => {
+    const { rerender } = setup({ signals: [sig({ cycle: 2, state: 3, endReason: 1 })] });
+    openTable();
+    expect(rows()).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '천일고속 숨기기' }));
+    expect(rows()).toHaveLength(0);
+    expect(window.localStorage.getItem(ACCUM_DISMISSED_KEY)).toContain('KR7000020008|2|end');
+    rerender({ signals: [sig({ cycle: 2 })] });
     expect(chips()).toHaveLength(1);
   });
 

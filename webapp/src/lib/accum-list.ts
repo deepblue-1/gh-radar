@@ -12,11 +12,15 @@
  *   gh-trade 클라는 그 종료 프레임을 받을 때 그 종목 행이 없거나(자정 넘김이 목록을 비운다 · 모르는 종목의 종료는 무시) 재접속 89 스냅샷이
  *   조용히 지운다 — 클라에 「청산」 행으로 남는 일이 없다(2026-10-21 사용자 제보 · 06:00 종료 행 6~7건).
  *
- * ③ ✕ 숨김 = 이 기기 · 오늘 · **사이클 단위** — 키 `${isin}|${cycle}`. 같은 종목의 새 사이클(cycle +1)이 오면 다시 보인다.
+ * ③ ✕ 숨김 = 이 기기 · 오늘 · **사이클 단위** — 활성 행 키 `${isin}|${cycle}` · 청산 행 키 `${isin}|${cycle}|end`.
+ *   청산(end_reason 1)은 서버가 같은 포지션을 숨김으로 계속 추적하고, 다시 1억 이상이면 **같은 cycle** 로 재등장한다
+ *   (인박스 261024-accum-hidden-carry10 D-4). 그래서 활성 때 숨긴 사이클은 청산 · 재등장까지 계속 숨기고, 청산 행에서 숨긴 것은
+ *   청산 동안만 숨긴다 — 재등장하면 다시 보인다. 같은 종목의 새 사이클(번호가 바뀜)은 어느 쪽이든 다시 보인다.
  *   날짜 키 집합은 돌파 패널(`breakout-list.ts` readDatedSet/writeDatedSet)과 같은 저장 문법이다.
  *
- * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클)만
- *   강조한다. 청산 행은 강조하지 않는다. 「직전 커밋 기록 + 현재 입력」 순수 계산 — 컴포넌트가 렌더에서 계산하고 커밋 뒤 옮긴다.
+ * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클 ·
+ *   같은 사이클 재등장)만 강조한다. 청산 행은 강조하지 않는다. 청산 행이 최신이면 활성 키가 기록에서 빠지므로 재등장 행은 새 키다.
+ *   「직전 커밋 기록 + 현재 입력」 순수 계산 — 컴포넌트가 렌더에서 계산하고 커밋 뒤 옮긴다.
  */
 
 import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
@@ -26,9 +30,18 @@ import { HIGHLIGHT_MS, kstDateKey, readDatedSet, writeDatedSet } from './breakou
 /** ✕ 로 숨긴 사이클 집합 — 날짜 키(KST 오늘) 단위. */
 export const ACCUM_DISMISSED_KEY = 'gh-radar:accum-dismissed';
 
-/** 숨김 · 강조 키 — 사이클 단위(③ · ④). */
-export function accumDismissKey(sig: Pick<AccumSignal, 'isin' | 'cycle'>): string {
-  return `${sig.isin}|${sig.cycle}`;
+/** 숨김 · 강조 키 — 사이클 단위 · 청산 행은 `|end`(③ · ④). */
+export function accumDismissKey(sig: Pick<AccumSignal, 'isin' | 'cycle' | 'state'>): string {
+  const base = `${sig.isin}|${sig.cycle}`;
+  return sig.state === 3 ? `${base}|end` : base;
+}
+
+/** ✕ 로 숨긴 행인가(③) — 활성 때 숨긴 사이클 키는 청산 · 재등장에도, 청산 행 키는 청산 동안만. */
+export function isAccumDismissed(
+  dismissed: ReadonlySet<string>,
+  sig: Pick<AccumSignal, 'isin' | 'cycle' | 'state'>,
+): boolean {
+  return dismissed.has(`${sig.isin}|${sig.cycle}`) || dismissed.has(accumDismissKey(sig));
 }
 
 /** 오늘 숨긴 사이클 키 집합. 날짜가 다르거나 저장소가 막혔으면 빈 집합. */

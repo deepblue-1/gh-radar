@@ -22,6 +22,7 @@ MsgType 번호·필드·슬롯·의미 수준에서 무엇이 바뀌었는지 �
   `OriginName(5)` = `"OpenArb"` 라 51 OrderResp `origin` 과 관찰자 주문 저널(80)의 origin 문자열에 `"OpenArb"` 가 보이기 시작한다(개장차익 주문이 실제로 나갈 때부터 — 38-05 이후).
 - MsgType **46 SetOpenArbReq · 47 GetOpenArbReq · 91 SetOpenArbResp · 92 OpenArbJudgement** 와 테이블 `SetOpenArb`·`OpenArbJudgementItem`·`OpenArbJudgement`, Envelope 슬롯 106(`set_open_arb`)·108(`open_arb_judgement`) 가 append 됐다 — **클라(WinForms) 전용**이다. relay 는 받을 필요가 없고, 모르는 메시지는 무시하면 된다.
 - 주문로그 kind 범위 = **kind-defer(D-36)** — 개장차익 주문은 `OrderGroup`·주문로그 kind(StrategyEvent)에 아직 없다(성과 확인 뒤). 80 의 `strategy_events` 에는 새 kind 가 나오지 않는다.
+- (2026-10-24 추가, D-40/D-41) `SetOpenArb` 테이블 **주석만** 바뀌었다 — `budget_krw`·`per_stock_cap_krw` 0 = 제한 없음, 입력 최소값 `min_profit_bp` ≥ 50 · `case1_fire_ms` ≥ 25000. 와이어(필드·슬롯·MsgType)는 그대로, gh-radar 할 일 없음.
 
 판정기가 걸린 파일:
 

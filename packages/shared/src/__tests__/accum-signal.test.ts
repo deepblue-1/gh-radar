@@ -232,6 +232,10 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
 
   it("상태 · 종료 사유 문구 (gh-trade 클라 동형 — 배지는 「청산」 하나)", () => {
     expect(ACCUM_STATE_LABELS).toEqual({ 1: "매집중", 2: "매도중", 3: "청산" });
-    expect(ACCUM_END_REASON_LABELS).toEqual({ 1: "청산", 2: "이월 탈락", 3: "이월 만료" });
+    expect(ACCUM_END_REASON_LABELS).toEqual({
+      1: "청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)",
+      2: "서버 재기동 때 복원 안 됨",
+      3: "이월 10일 만료",
+    });
   });
 });

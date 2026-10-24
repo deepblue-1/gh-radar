@@ -36,9 +36,9 @@ export type AccumSignal = {
   /** 행을 만든 시각(분 경계 틱 · 복원 = 기동 · 종료 = 청산 시각). 「갱신」 표시 · 최신 판정 정본. */
   gwTimeMs: number;
   state: AccumState;
-  /** 0 없음 · 1 청산 · 2 이월 탈락 · 3 이월 만료. */
+  /** 0 없음 · 1 청산(1억 미만 숨김 — 같은 cycle 로 재등장 가능) · 2 서버 재기동 때 복원 안 됨 · 3 이월 10일 만료. */
   endReason: number;
-  /** 사이클 번호(청산 뒤 재등록마다 +1, 첫 사이클 1). */
+  /** 사이클 번호(첫 사이클 1 · 청산 뒤 재등장은 같은 번호 · 만료 · 기동 정합 뒤 새 등록만 +1). */
   cycle: number;
   /** 이월 일수(0 = 이월 안 함). */
   carryDays: number;
@@ -78,7 +78,7 @@ export type AccumSignal = {
   row: number;
   /** 지금 매도 경보 중(칸 hasRemaining) — 매집중에서만 켜진다(서버 규칙). */
   sellWarn: boolean;
-  /** 이 사이클 경보 횟수(칸 condMetric · 서버가 255 로 자름) — 청산 · 새 사이클 0 · 06:00 이월 유지 · 재기동 0. */
+  /** 이 사이클 경보 횟수(칸 condMetric · 서버가 255 로 자름) — 새 사이클 0 · 청산 뒤 재등장 · 06:00 이월 유지 · 재기동 0. */
   sellWarns: number;
   /** 등록 거래일 `YYYY-MM-DD`(message `since=`). 모양이 틀리면 null. */
   sinceDate: string | null;
@@ -99,9 +99,9 @@ export const ACCUM_STATE_LABELS: Readonly<Record<AccumState, string>> = {
 
 /** 종료 사유 문구(`endReason`) — 행 툴팁용. 0(없음)은 표에 없다. */
 export const ACCUM_END_REASON_LABELS: Readonly<Record<number, string>> = {
-  1: "청산",
-  2: "이월 탈락",
-  3: "이월 만료",
+  1: "청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)",
+  2: "서버 재기동 때 복원 안 됨",
+  3: "이월 10일 만료",
 };
 
 /** message `k=v|k=v…` → Map. 키 순서는 보지 않는다. */
