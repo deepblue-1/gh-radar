@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-23T11:24:39.264Z"
+last_updated: "2026-10-24T13:25:09.639Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 34 complete
-state_head: 46d56b02c0f57b13b664f3f5a6044c13cac3979b
+state_head: da978c130104b4b6515d8118cc19f0fadd4bb661
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-22 - Completed quick task 261022-ozx: 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume
+Last activity: 2026-10-24 - Completed quick task 261024-uov: 매집 패널 매집 종료(4) — 그날 청산 행 있을 때만 회색 청산 · 복원 RPC 청산 행 동반
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -100,6 +100,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 19 | 매집감지 보고서 목록 「팀 당일 손익」 열(하루 순매수 다음) — 목록 RPC 에 payload.pnl 동봉 | 2026-10-21 | 8d8b117c | — |
 | 261022-ozx | 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume(gh-trade Phase 37 인계) | 2026-10-22 | 72fd4ce7 | [261022-ozx-nxt-kind-16-error-remaining-volume](./quick/261022-ozx-nxt-kind-16-error-remaining-volume/) |
 | 21 | 매집감지 보고서 차트 마우스 툴팁(gh-trade 동형) · 팀 주문 원이 가격 선 위에 오게 | 2026-10-23 | 46d56b02 | — |
+| 261024-uov | 매집 패널 매집 종료(4) — 그날 청산 행 있을 때만 회색 청산(값=청산 행) · 복원 RPC 청산 행 동반 · 라벨 | 2026-10-24 | da978c13 | [261024-uov-end-reason-4-rpc-end1](./quick/261024-uov-end-reason-4-rpc-end1/) |
 
 ## Session Continuity
 
