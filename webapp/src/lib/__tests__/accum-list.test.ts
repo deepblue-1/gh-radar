@@ -8,7 +8,8 @@ import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
  * 잠그는 것:
  *  - latestAccumByIsin: 같은 isin 여러 행 → gwTimeMs 큰 것 → 같으면 gateway 사전순 앞 → 같으면 seq 큰 것
  *  - sortAccum: 매집중 · 매도중(1·2)은 netKrw 큰 순 · 청산(3)은 뒤에서 gwTimeMs 작은 순(먼저 청산한 순 · gh-trade 동형)
- *  - isListedAccum: 활성 전부 · 청산은 종료 사유 1 만(06:00 이월 탈락 · 만료 제외)
+ *  - isListedAccum(sig, closed): 활성 전부 · 청산은 종료 사유 1 · 매집 종료(4)는 그날 청산 행이 있는 isin 만(06:00 기동 정합 · 만료 제외)
+ *  - closedRowsOf: 자르기 뒤 queueCase 4 · cancelReason 1 행 — isin 별 최신 1건(매집 종료 행의 값 · 시각 정본)
  *  - accumDismissKey = 활성 `${isin}|${cycle}` · 청산 `…|end`(같은 cycle 재등장) · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
  *  - advanceAccumMeta: 직전 커밋이 filled 전이면 새 키 무강조, filled 뒤 새 키(새 isin · 같은 isin 새 cycle)는
  *    now + HIGHLIGHT_MS 까지 강조 · 이미 본 키는 직전 값 유지 · state 3 은 강조하지 않음
@@ -19,6 +20,7 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  closedRowsOf,
   isAccumDismissed,
   isListedAccum,
   latestAccumByIsin,
@@ -180,12 +182,63 @@ describe('sortAccum', () => {
 });
 
 describe('isListedAccum', () => {
-  it('활성(1 · 2)은 전부 · 청산(3)은 종료 사유 1 만 — 2 이월 탈락 · 3 이월 만료는 뺀다', () => {
-    expect(isListedAccum(sig({ state: 1 }))).toBe(true);
-    expect(isListedAccum(sig({ state: 2 }))).toBe(true);
-    expect(isListedAccum(sig({ state: 3, endReason: 1 }))).toBe(true);
-    expect(isListedAccum(sig({ state: 3, endReason: 2 }))).toBe(false);
-    expect(isListedAccum(sig({ state: 3, endReason: 3 }))).toBe(false);
+  const none = new Set<string>();
+  const mine = new Set(['KR7000020008']);
+  const other = new Set(['KR7000040006']);
+
+  it('활성(1 · 2)은 전부 · 청산(3)은 종료 사유 1 — 그날 청산 행 집합과 무관', () => {
+    expect(isListedAccum(sig({ state: 1 }), none)).toBe(true);
+    expect(isListedAccum(sig({ state: 2 }), none)).toBe(true);
+    expect(isListedAccum(sig({ state: 3, endReason: 1 }), none)).toBe(true);
+  });
+
+  it('종료 사유 2 기동 정합 · 3 이월 만료는 뺀다 — 그날 청산 행이 있어도', () => {
+    expect(isListedAccum(sig({ state: 3, endReason: 2 }), mine)).toBe(false);
+    expect(isListedAccum(sig({ state: 3, endReason: 3 }), mine)).toBe(false);
+    expect(isListedAccum(sig({ state: 3, endReason: 2 }), none)).toBe(false);
+  });
+
+  it('매집 종료(4)는 그날 청산 행이 있는 isin 만 — 없거나 다른 isin 만 있으면 뺀다', () => {
+    expect(isListedAccum(sig({ state: 3, endReason: 4 }), mine)).toBe(true);
+    expect(isListedAccum(sig({ state: 3, endReason: 4 }), none)).toBe(false);
+    expect(isListedAccum(sig({ state: 3, endReason: 4 }), other)).toBe(false);
+  });
+
+  it('두 번째 인자는 has(isin) 만 본다 — closedRowsOf 의 Map 도 그대로 받는다', () => {
+    const closed = closedRowsOf([row({ isin: 'KR7000020008', queueCase: 4, cancelReason: 1 })]);
+    expect(isListedAccum(sig({ state: 3, endReason: 4 }), closed)).toBe(true);
+  });
+});
+
+describe("closedRowsOf — 그날 청산 행(②')", () => {
+  it('queueCase 4 · cancelReason 1 행만 — 매집 종료(4) · 기동 정합(2) 종료 행 · 행 종류 1 은 아니다', () => {
+    const out = closedRowsOf([
+      row({ isin: 'A', seq: 1, queueCase: 4, cancelReason: 1 }),
+      row({ isin: 'B', seq: 2, queueCase: 4, cancelReason: 4 }),
+      row({ isin: 'C', seq: 3, queueCase: 4, cancelReason: 2 }),
+      row({ isin: 'D', seq: 4, queueCase: 1, cancelReason: 0 }),
+    ]);
+    expect([...out.keys()]).toEqual(['A']);
+  });
+
+  it('isin 별 최신 청산 행 1건 — 같은 사이클 청산 · 재등장 · 다시 청산이면 뒤 청산', () => {
+    const first = row({ isin: 'A', seq: 1, gwTimeMs: 1_000, queueCase: 4, cancelReason: 1 });
+    const again = row({ isin: 'A', seq: 3, gwTimeMs: 3_000, queueCase: 4, cancelReason: 1 });
+    const out = closedRowsOf([again, row({ isin: 'A', seq: 2, gwTimeMs: 2_000, queueCase: 1 }), first]);
+    expect(out.get('A')).toBe(again);
+  });
+
+  it('같은 게이트웨이의 최근 복원 묶음(queueCase 3) 시작보다 이른 청산 행은 세지 않는다', () => {
+    const out = closedRowsOf([
+      row({ isin: 'A', seq: 1, gwTimeMs: 1_000, queueCase: 4, cancelReason: 1 }),
+      row({ isin: 'C', seq: 2, gwTimeMs: 2_000, queueCase: 3 }),
+      row({ isin: 'B', seq: 3, gwTimeMs: 3_000, queueCase: 4, cancelReason: 1 }),
+    ]);
+    expect([...out.keys()]).toEqual(['B']);
+  });
+
+  it('빈 입력 → 빈 Map', () => {
+    expect(closedRowsOf([]).size).toBe(0);
   });
 });
 
@@ -194,6 +247,8 @@ describe('✕ 숨김 — 사이클 단위 · 오늘', () => {
     expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3 }))).toBe('KR7000020008|3');
     expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3, state: 2 }))).toBe('KR7000020008|3');
     expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 3, state: 3, endReason: 1 }))).toBe('KR7000020008|3|end');
+    // 매집 종료(4)도 state 3 — 청산 행과 같은 키라 청산 행에서 숨긴 것은 매집 종료 뒤에도 숨김이다.
+    expect(accumDismissKey(sig({ isin: 'KR7000020008', cycle: 2, state: 3, endReason: 4 }))).toBe('KR7000020008|2|end');
   });
 
   it('isAccumDismissed — 활성 때 숨긴 사이클은 청산 · 재등장에도 숨김 · 청산 행에서 숨긴 것은 같은 사이클 재등장이면 다시 보임', () => {

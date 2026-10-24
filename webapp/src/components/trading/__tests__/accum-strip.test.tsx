@@ -7,7 +7,7 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  *
  * 잠그는 것:
  *   ① 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 --team · 매도중 --accum-sell) · 이월 D+n(carryDays > 0 만)
- *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구 · 이월 탈락 · 만료(사유 2 · 3) 종료 행은 표에도 없음
+ *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구 · 패널은 받은 행을 거르지 않는다(목록 규칙은 훅 — accum-list ②')
  *   ③ 표 순서 = sortAccum · 열 접기(NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 = colNarrow) · 보조 줄 · 코드 <700 숨김
  *   ④ 더보기 → 표 · panels pref accum 기억(다시 마운트해도 열림)
  *   ⑤ ✕ → 그 사이클 숨김(gh-radar:accum-dismissed 에 isin|cycle) · 같은 isin 새 사이클이면 다시 보임
@@ -168,24 +168,26 @@ describe('AccumStrip — 칩 (안 A)', () => {
     expect(within(b!).getByText('−2.5억').className).toContain('text-[var(--down)]');
   });
 
-  it('② 청산 행은 칩에 없고 펼친 표에만 회색 · title = 사유(청산) · 이월 탈락 · 만료 종료 행은 표에도 없다', () => {
+  it('② 청산 · 매집 종료 행은 칩에 없고 펼친 표에만 회색 · 배지 「청산」 · title = 종료 사유 문구 · 받은 행을 거르지 않는다', () => {
     setup({
       signals: [
         sig(),
         sig({ isin: 'KR7000060004', state: 3, endReason: 1, netKrw: -20_000_000 }),
-        sig({ isin: 'KR7000040006', state: 3, endReason: 2 }),
-        sig({ isin: 'KR7000040006', state: 3, endReason: 3, cycle: 2 }),
+        sig({ isin: 'KR7000040006', state: 3, endReason: 4 }),
       ],
     });
     expect(chips()).toHaveLength(1);
     expect(within(chips()[0] as HTMLElement).queryByText('금호전기')).toBeNull();
+    expect(within(chips()[0] as HTMLElement).queryByText('서산')).toBeNull();
     openTable();
-    expect(rows()).toHaveLength(2);
+    expect(rows()).toHaveLength(3);
     const ended = Array.from(rows()).find((r) => r.textContent?.includes('금호전기')) as HTMLElement;
-    expect(ended.className).toContain('text-[var(--muted-fg)]');
+    const stopped = Array.from(rows()).find((r) => r.textContent?.includes('서산')) as HTMLElement;
+    for (const r of [ended, stopped]) {
+      expect(r.className).toContain('text-[var(--muted-fg)]');
+      expect(within(r).getByText('청산')).toBeInTheDocument();
+    }
     expect(ended.getAttribute('title')).toBe('청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)');
-    expect(Array.from(rows()).some((r) => r.textContent?.includes('서산'))).toBe(false);
-    expect(within(ended).getByText('청산')).toBeInTheDocument();
   });
 
   it('⑧ 활성 칩 0 이면 빈 문구 — 청산 행만 있어도', () => {

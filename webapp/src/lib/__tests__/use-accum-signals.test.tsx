@@ -11,6 +11,8 @@ import type { StrategyEventRow } from '@gh-radar/shared';
  *  - relay status 가 ready 아닌 값 → ready 로 바뀌면 1회 더 · ready 유지 리렌더는 0회 · 폴링 없음
  *  - 복원 ∪ 라이브(accumSignalEvents · tradeDate 오늘만)를 합쳐 isin 별 최신만 AccumSignal 로 — 라이브의 늦은 행이 복원 행을 이긴다
  *  - 첫 요청이 끝나면(성공 · 실패) filled = true · 실패해도 라이브 행은 보인다
+ *  - 목록 규칙(accum-list ②')을 훅이 적용 — 매집 종료(4)는 고른 서버의 그날 청산 행이 있을 때만 · 종료 사유 2 · 3 은 없다 ·
+ *    매집 종료 행의 값 · 시각은 그날 최신 청산 행(end 1) 기준이고 종료 사유만 4(gh-trade WinForms 동형)
  *
  * 시계는 픽스처 거래일(2026-09-29 KST)로 고정한다 — 훅의 「오늘」 이 shared `kstDateIso()` 라서.
  */
@@ -163,6 +165,7 @@ describe('useAccumSignals', () => {
           gwTimeMs: kstMs('2026-09-29', '09:40:00.000'),
           qty: 3,
           queueCase: 4,
+          cancelReason: 1,
           hasRemaining: false,
           condMetric: 1,
         }),
@@ -170,6 +173,58 @@ describe('useAccumSignals', () => {
     };
     rerender();
     expect(result.current.signals[0]).toMatchObject({ sellWarn: false, state: 3, row: 4 });
+  });
+
+  it('목록 규칙 — 매집 종료(4)는 그날 청산 행이 있을 때만 · 숨김 이월 뒤 종료 · 기동 정합 · 다른 서버 청산은 없다', async () => {
+    const end = (over: Partial<StrategyEventRow>) => ac({ qty: 3, queueCase: 4, ...over });
+    fetchAccumSignalsMock.mockResolvedValue([
+      // X — 장중 청산 뒤 매집 종료(같은 ms · 더 큰 seq).
+      ac({ isin: 'KR7000020008', seq: 1, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:30:00.000') }),
+      end({ isin: 'KR7000020008', seq: 2, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:50:00.000'), cancelReason: 1, condThreshold: 50_000_000 }),
+      end({ isin: 'KR7000020008', seq: 3, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:50:00.000'), cancelReason: 4, condThreshold: -200_000_000 }),
+      // Y — 숨김 이월 뒤 바로 매집 종료(그날 청산 행 없음).
+      end({ isin: 'KR7000040006', seq: 4, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:40:00.000'), cancelReason: 4 }),
+      // Z — 기동 정합 종료.
+      end({ isin: 'KR7000060004', seq: 5, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:41:00.000'), cancelReason: 2 }),
+      // W — KB120 매집 종료 · 청산은 다른 서버(KYOBO119)에만.
+      end({ isin: 'KR7000080002', seq: 1, gateway: 'KYOBO119', gwTimeMs: kstMs('2026-09-29', '09:45:00.000'), cancelReason: 1 }),
+      end({ isin: 'KR7000080002', seq: 6, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:46:00.000'), cancelReason: 4 }),
+    ]);
+    const { result } = renderHook(() => useAccumSignals('KB120'));
+    await flush();
+    expect(result.current.signals.map((s) => [s.isin, s.state, s.endReason])).toEqual([['KR7000020008', 3, 4]]);
+  });
+
+  it('라이브 매집 종료가 와도 복원의 청산 행으로 남는다 — 값 · 갱신 시각은 청산 행 · 종료 사유만 4', async () => {
+    const at = kstMs('2026-09-29', '09:50:00.000');
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:30:00.000') }),
+      ac({ isin: 'KR7000020008', seq: 2, gateway: 'KB120', gwTimeMs: at, qty: 3, queueCase: 4, cancelReason: 1, condThreshold: 50_000_000 }),
+    ]);
+    const { result, rerender } = renderHook(() => useAccumSignals('KB120'));
+    await flush();
+    expect(result.current.signals.map((s) => [s.isin, s.state, s.endReason])).toEqual([['KR7000020008', 3, 1]]);
+    mockRelay = {
+      ...mockRelay,
+      accumSignalEvents: [
+        ac({ isin: 'KR7000020008', seq: 3, gateway: 'KB120', gwTimeMs: at, qty: 3, queueCase: 4, cancelReason: 4, condThreshold: -200_000_000 }),
+      ],
+    };
+    rerender();
+    expect(result.current.signals.map((s) => [s.isin, s.state, s.endReason])).toEqual([['KR7000020008', 3, 4]]);
+    expect(result.current.signals[0]).toMatchObject({ netKrw: 50_000_000, gwTimeMs: at });
+  });
+
+  it('매집 종료 행이 청산보다 늦게 와도 「갱신」 시각 · 값은 그날 최신 청산 행', async () => {
+    const closedAt = kstMs('2026-09-29', '09:50:00.000');
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 2, gateway: 'KB120', gwTimeMs: closedAt, qty: 3, queueCase: 4, cancelReason: 1, condThreshold: 50_000_000 }),
+      ac({ isin: 'KR7000020008', seq: 3, gateway: 'KB120', gwTimeMs: kstMs('2026-09-29', '09:55:00.000'), qty: 3, queueCase: 4, cancelReason: 4, condThreshold: -200_000_000 }),
+    ]);
+    const { result } = renderHook(() => useAccumSignals('KB120'));
+    await flush();
+    expect(result.current.signals).toHaveLength(1);
+    expect(result.current.signals[0]).toMatchObject({ state: 3, endReason: 4, netKrw: 50_000_000, gwTimeMs: closedAt, row: 4 });
   });
 
   it('서버 기준(④) — gateway 를 주면 그 게이트웨이 행만 · gateway 도 돌려준다', async () => {
