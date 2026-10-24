@@ -75,7 +75,7 @@ describe('TeamflowDetail — 접힘 토글 · 구간표 · 판정 기준 (T6 · 
     expect(cells[5]).toBe('−1.1억−74,310주');
   });
 
-  it('「판정 기준」 은 구간표를 열어도 닫힌 채 → 클릭 → li 6개 + 출처 줄', () => {
+  it('「판정 기준」 은 구간표를 열어도 닫힌 채 → 클릭 → li 7개 + 출처 줄', () => {
     renderDetail(rowOf(SMBEXCEL));
     fireEvent.click(toggle('구간표 보기'));
     const rulesBtn = toggle('판정 기준');
@@ -87,7 +87,7 @@ describe('TeamflowDetail — 접힘 토글 · 구간표 · 판정 기준 (T6 · 
     fireEvent.click(rulesBtn);
     expect(rulesBtn.getAttribute('aria-expanded')).toBe('true');
     const items = rules.querySelectorAll('li');
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(7);
     expect(items[0]!.textContent).toBe('팀 = 교보 · 한국 · 유진 · 신한 · NH 다섯 창구.');
     expect(within(rules).getByText('출처: gh-trade 팀 매집 분석 규칙')).toBeTruthy();
     // 구간표는 그대로 열려 있다(서로 독립)
