@@ -3,10 +3,12 @@
 /**
  * useAccumSignals — 작업대 「매집」 패널 원천 (quick-261018-rfy · D-02).
  *
- * ① 복원 ∪ 라이브 — 마운트 1회 + relay `ready` 전이마다 `fetchAccumSignals()`(오늘 · 서버가 isin 별 최신 1행)를 받고,
+ * ① 복원 ∪ 라이브 — 마운트 1회 + relay `ready` 전이마다 `fetchAccumSignals()`(오늘 · 서버가 (gateway, isin) 별 최신 1행 + 그날 최신 청산 행 — 20261024230000)를 받고,
  *   relay 리듀서의 kind 16 별도 목록(`accumSignalEvents` · 그날 행만)과 `strategyEventKey` 로 합친다
  *   (`mergeStrategyEvents` — 주문로그 피드와 같은 병합). 그 합집합에서 isin 별 최신 행(gwTimeMs desc → gateway asc → seq desc ·
  *   `latestAccumByIsin`)을 골라 `accumSignalOf` 로 이름을 푼다 — 라이브의 늦은 행이 복원 행을 이긴다.
+ *   목록 규칙(accum-list ②')은 여기서 한 번 — 고른 게이트웨이 행(`mine`)에서 `closedRowsOf` 로 그날 청산 행을 구해
+ *   `isListedAccum` 으로 거르고, 실은 매집 종료(4)는 그 청산 행의 값 · 시각에 종료 사유 4 만 덮는다. 패널은 거르지 않는다.
  *   폴링 · 타이머가 없다(`use-order-log-feed.ts` ⑥/② 의 축소판).
  *
  * ② `filled` — 첫 요청이 끝났는가(성공 · 실패 모두 true). 패널은 이것으로 「첫 채움 = 무강조」 경계를 잡는다.
@@ -31,12 +33,12 @@ import {
 } from '@gh-radar/shared';
 
 import { fetchAccumSignals } from './accum-signals-api';
-import { latestAccumByIsin } from './accum-list';
+import { closedRowsOf, isListedAccum, latestAccumByIsin } from './accum-list';
 import { mergeStrategyEvents } from './order-log-feed';
 import { useRelayContext } from './relay-provider';
 
 export interface AccumSignalsState {
-  /** isin 별 현재 상태(정렬 전 — 표시 순서는 패널의 `sortAccum`). */
+  /** 목록에 싣는 isin 별 현재 상태(accum-list ②' 적용 · 정렬 전 — 표시 순서는 패널의 `sortAccum`). */
   signals: AccumSignal[];
   /** 첫 복원 요청이 끝났는가(성공 · 실패). */
   filled: boolean;
@@ -96,10 +98,16 @@ export function useAccumSignals(gateway: string | null = null): AccumSignalsStat
     // ④ 한 게이트웨이만 — 자르기(복원 묶음)도 그 게이트웨이 행 안에서 돈다.
     const shownGateway = displayGatewayOf(accumOnly, gateway);
     const mine = shownGateway === null ? [] : accumOnly.filter((r) => r.gateway === shownGateway);
+    // ②' 목록 규칙 — 고른 게이트웨이 행에서만 판정(다른 서버의 청산은 세지 않는다).
+    const closed = closedRowsOf(mine);
     const out: AccumSignal[] = [];
     for (const row of latestAccumByIsin(mine)) {
       const sig = accumSignalOf(row);
-      if (sig !== null) out.push(sig);
+      if (sig === null || !isListedAccum(sig, closed)) continue;
+      // 매집 종료 — 값 · 「갱신」 시각은 그날 최신 청산 행, 종료 사유만 4(WinForms 동형).
+      const closedRow = sig.state === 3 && sig.endReason === 4 ? closed.get(sig.isin) : undefined;
+      const closedSig = closedRow === undefined ? null : accumSignalOf(closedRow);
+      out.push(closedSig === null ? sig : { ...closedSig, endReason: 4 });
     }
     return { signals: out, shown: shownGateway };
   }, [restoredRows, accumSignalEvents, today, gateway]);

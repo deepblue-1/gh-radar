@@ -8,14 +8,23 @@
  * ② 정렬 — 매집중 · 매도중(1·2)이 먼저(팀 순매수 큰 순), 청산(3)은 뒤(**먼저 청산한 순** — gh-trade 클라 `AccumWatchForm.SortRows`
  *   ClosedAtTick 오름차순 동형). 동률은 isin 으로 고정.
  *
- * ②' 목록에 싣는 행 — 청산 행은 종료 사유 1(청산)만. 2 이월 탈락 · 3 이월 만료는 06:00 거래일 경계(또는 서버 기동 정합)에서만 나오는데,
+ * ②' 목록에 싣는 행 — 활성(1 · 2) 전부 · 청산 행은 종료 사유 1(청산)과, 종료 사유 4(매집 종료 — 인박스 261024-accum-hidden-carry10
+ *   「추가 — 매집 종료」)는 그날 같은 서버 그 종목에 청산 행(row 4 · end 1)이 있을 때만. 서버는 end 4 에 88 을 내지 않아 gh-trade 클라는
+ *   장중 청산으로 생긴 회색 「청산」 행을 자정까지 그대로 둔다(배지 그대로 — 사유만 툴팁). 숨김 이월 뒤 끝난 종목은 그날 청산 행이 없다 —
+ *   클라 목록에 처음부터 없었으므로 싣지 않는다. 2 기동 정합 · 3 이월 만료는 06:00 거래일 경계(또는 서버 기동 정합)에서만 나오는데,
  *   gh-trade 클라는 그 종료 프레임을 받을 때 그 종목 행이 없거나(자정 넘김이 목록을 비운다 · 모르는 종목의 종료는 무시) 재접속 89 스냅샷이
  *   조용히 지운다 — 클라에 「청산」 행으로 남는 일이 없다(2026-10-21 사용자 제보 · 06:00 종료 행 6~7건).
+ *   판정은 isin 별 최신 행만으로는 못 한다(end 4 가 최신이면 end 1 이 가려진다) — 자르기 뒤 행 전체에서 `closedRowsOf` 로 구해
+ *   `isListedAccum(sig, closed)` 로 거르고, 거름은 훅(use-accum-signals)이 한 번 한다(패널은 받은 것을 그대로 보인다).
+ *   매집 종료 행의 값 · 「갱신」 시각 · 청산끼리 순서(②)는 **그날 최신 청산 행(end 1) 기준**이고 종료 사유만 4 다 — 클라는 88 을 받지
+ *   않아 청산 순간의 값 · 시각을 그대로 들고 있다(WinForms 동형 · 2026-10-24 결정). 그래서 훅은 청산 행의 신호에 `endReason: 4` 만 덮는다.
+ *   ★ 같은 생각을 복원 RPC(20261024230000 — (gateway, isin) 별 그날 최신 청산 행을 함께 싣는다)가 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
  *
  * ③ ✕ 숨김 = 이 기기 · 오늘 · **사이클 단위** — 활성 행 키 `${isin}|${cycle}` · 청산 행 키 `${isin}|${cycle}|end`.
  *   청산(end_reason 1)은 서버가 같은 포지션을 숨김으로 계속 추적하고, 다시 1억 이상이면 **같은 cycle** 로 재등장한다
  *   (인박스 261024-accum-hidden-carry10 D-4). 그래서 활성 때 숨긴 사이클은 청산 · 재등장까지 계속 숨기고, 청산 행에서 숨긴 것은
  *   청산 동안만 숨긴다 — 재등장하면 다시 보인다. 같은 종목의 새 사이클(번호가 바뀜)은 어느 쪽이든 다시 보인다.
+ *   매집 종료(4) 행도 state 3 이라 청산 행과 같은 키(`…|end`)다 — 청산 행에서 숨긴 것은 매집 종료 뒤에도 숨김이다.
  *   날짜 키 집합은 돌파 패널(`breakout-list.ts` readDatedSet/writeDatedSet)과 같은 저장 문법이다.
  *
  * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클 ·
@@ -108,9 +117,34 @@ export function latestAccumByIsin(rows: readonly StrategyEventRow[]): StrategyEv
   return [...byIsin.values()];
 }
 
-/** 목록에 싣는 행인가(②') — 활성(1 · 2) 전부 · 청산(3)은 종료 사유 1 만. */
-export function isListedAccum(sig: Pick<AccumSignal, 'state' | 'endReason'>): boolean {
-  return sig.state !== 3 || sig.endReason === 1;
+/**
+ * ②' 그날 청산 행(row 4 · end 1) — isin 별 최신 1건(최신 판정은 ①). 복원 묶음(⑤) 뒤 행만. 매집 종료(4) 행을 싣는지와,
+ * 실을 때의 값 · 「갱신」 시각이 이 행이다. 입력은 한 게이트웨이 행이다(훅 ④) — 게이트웨이를 섞어 주면 다른 서버의 청산도 센다.
+ * ★ 같은 판정을 REST RPC(20261024230000)가 SQL 로 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
+ */
+export function closedRowsOf(rows: readonly StrategyEventRow[]): Map<string, StrategyEventRow> {
+  const cut = restoreCutByGateway(rows);
+  const byIsin = new Map<string, StrategyEventRow>();
+  for (const r of rows) {
+    const c = cut.get(r.gateway);
+    if (c !== undefined && r.gwTimeMs < c) continue;
+    if (r.queueCase !== 4 || r.cancelReason !== 1) continue;
+    const cur = byIsin.get(r.isin);
+    if (cur === undefined || isNewer(r, cur)) byIsin.set(r.isin, r);
+  }
+  return byIsin;
+}
+
+/**
+ * 목록에 싣는 행인가(②') — 활성(1 · 2) 전부 · 청산(3)은 종료 사유 1 과, `closed`(그날 청산 행이 있는 isin —
+ * `closedRowsOf` 결과 그대로 줘도 된다)에 든 종목의 종료 사유 4(매집 종료).
+ */
+export function isListedAccum(
+  sig: Pick<AccumSignal, 'isin' | 'state' | 'endReason'>,
+  closed: { has(isin: string): boolean },
+): boolean {
+  if (sig.state !== 3 || sig.endReason === 1) return true;
+  return sig.endReason === 4 && closed.has(sig.isin);
 }
 
 /** 표시 순서(②) — 새 배열을 돌려준다. */

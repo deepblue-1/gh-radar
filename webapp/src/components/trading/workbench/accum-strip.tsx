@@ -13,20 +13,24 @@
  *   청산 행은 구독하지 않는다(행 값 고정). 서버 기준 게이트웨이(`gateway`)는 라벨 옆에 작게 보인다(훅 ④).
  * ② 거래소를 표시하지 않는다 — 돌파 D-07 동형. 카드는 행 `exchange`(늘 KRX)로 연다.
  * ③ 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
- *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 이월 탈락 ·
- *   이월 만료)는 행 툴팁(gh-trade 클라 동형 · 인박스 질문 1·2 답).
+ *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 매집 종료)는
+ *   행 툴팁(gh-trade 클라 동형 · 인박스 질문 1·2 답).
  *   매도경보(quick-261019-j1w D-01) = 매집중 + `sellWarn` 일 때만 「매집중」 뒤 · 이월 앞 주황 채움 1초 깜빡임(칩 · 표 상태 셀) ·
  *   횟수는 배지 title(「이 사이클 경보 n회」)과 칩 title 끝.
  * ④ 첫 채움 무강조 — REST 복원(`filled` 전 · 직후 첫 커밋)으로 들어온 행은 강조하지 않고, 그 뒤 새로 오른 키(새 isin · 같은 isin
  *   새 사이클 · 같은 사이클 재등장)만 30초 `--new-bg` + 「신규」 다(돌파 규칙 · `HIGHLIGHT_MS`). 강조 계산은 `advanceAccumMeta` 순수 함수를 렌더에서 하고
  *   커밋 뒤 레이아웃 effect 가 기록을 옮긴다(돌파 ⑧). 강조 행이 있을 때만 tick 타이머 1개(돌파 ⑤).
  * ⑤ ✕ = 이 기기 · 오늘 · **사이클 단위** 숨김(활성 `isin|cycle` · 청산 `isin|cycle|end`) — 같은 종목의 새 사이클이 오면 다시 보이고,
- *   청산 행에서 숨긴 것은 같은 사이클로 재등장해도 다시 보인다(accum-list ③).
+ *   청산 행에서 숨긴 것은 같은 사이클로 재등장해도 다시 보인다(accum-list ③). 매집 종료 행도 청산 행과 같은 키라 청산 행에서
+ *   숨긴 것은 매집 종료 뒤에도 숨김이다.
  * ⑥ 이름 없는 행은 ISIN 을 고정폭 그대로 — `onAddCard` 에 이름을 싣지 않는다(돌파 ⑥). 코드는 행의 `stocks` 조인 값(없으면 relay 라벨)이라
  *   이름과 무관하게 싣는다. 이름 폴백은 relay 라벨 → 종목 마스터.
  * ⑦ 팀 수익률 = 표시 현재가 ÷ 팀 평단 − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청) — 평단 열 다음, 모든 밴드에 보인다.
  *   현재가나 평단이 없으면 빈 칸. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
- * ⑧ 청산 행은 `isListedAccum` 이 거른 것만(06:00 이월 탈락 · 만료 종료 행은 gh-trade 클라에 남지 않는다 — accum-list ②').
+ * ⑧ 목록 거름(accum-list ②')은 훅(`useAccumSignals`)이 한 번 한다 — 패널은 받은 행을 그대로 보인다. 청산 행은 종료 사유 1 과,
+ *   그날 청산 행이 있는 종목의 매집 종료(4)뿐이고, 매집 종료 행도 배지 「청산」 · 회색 그대로 툴팁만 「매집 종료 — …」(gh-trade 클라는
+ *   end 4 에 88 이 없어 회색 청산 행을 자정까지 둔다 · 값 · 「갱신」 은 그 청산 행). 06:00 · 기동 정합 종료 행과 숨김 이월 뒤 매집 종료 행은
+ *   싣지 않는다.
  * ⑨ NXT 순매수(quick-261022-ozx · 인박스 261022-accum-nxt-team-burst · gh-trade Phase 37) — 팀 순매수 바로 다음 열 ·
  *   값 = nxtBuyKrw − nxtSellKrw(kind 16 error_volume − remaining_volume) · 팀 순매수와 같은 억 포맷 · 부호 색 · 0(옛 행 ·
  *   NXT 없는 종목)은 「0.0억」 그대로. 팀 순매수(netKrw)는 KRX+NXT 합산 — 열 이름 대신 머리 · 칩 title 로 알린다.
@@ -48,7 +52,6 @@ import {
   addAccumDismissed,
   advanceAccumMeta,
   isAccumDismissed,
-  isListedAccum,
   readAccumDismissed,
   sortAccum,
   type AccumMeta,
@@ -69,7 +72,7 @@ const NUM = new Intl.NumberFormat('ko-KR');
 export const ACCUM_EMPTY_TEXT = '아직 팀 매집으로 등록된 종목이 없어요';
 
 export interface AccumStripProps {
-  /** `useAccumSignals().signals` — isin 별 현재 상태(정렬 전). */
+  /** `useAccumSignals().signals` — 목록에 싣는 isin 별 현재 상태(훅이 accum-list ②' 로 거름 · 정렬 전). */
   signals: readonly AccumSignal[];
   /** 첫 복원 요청이 끝났는가 — 첫 채움 무강조 경계(④). */
   filled: boolean;
@@ -164,7 +167,7 @@ export function AccumStrip({
   const masterNames = useStockNames(unnamed);
 
   const visible = useMemo(
-    () => sortAccum(signals.filter((s) => isListedAccum(s) && !isAccumDismissed(dismissed, s))),
+    () => sortAccum(signals.filter((s) => !isAccumDismissed(dismissed, s))),
     [signals, dismissed],
   );
 
