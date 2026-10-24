@@ -188,6 +188,7 @@ describe('AccumStrip — 칩 (안 A)', () => {
       expect(within(r).getByText('청산')).toBeInTheDocument();
     }
     expect(ended.getAttribute('title')).toBe('청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)');
+    expect(stopped.getAttribute('title')).toBe('매집 종료 — 청산 뒤 순매수가 사이클 최고의 −30% 이하(최고 10억 → −3억)');
   });
 
   it('⑧ 활성 칩 0 이면 빈 문구 — 청산 행만 있어도', () => {

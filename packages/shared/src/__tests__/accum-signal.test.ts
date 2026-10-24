@@ -119,6 +119,14 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
     expect(end?.row).toBe(4);
   });
 
+  it("종료 사유 4(매집 종료)도 칸 그대로 — 모르는 값으로 버리지 않는다", () => {
+    const end = accumSignalOf(accumRow({ qty: 3, queueCase: 4, cancelReason: 4 }));
+    expect(end).not.toBeNull();
+    expect(end?.state).toBe(3);
+    expect(end?.endReason).toBe(4);
+    expect(end?.row).toBe(4);
+  });
+
   it("NXT 칸 — errorVolume = NXT 매수 금액 · remainingVolume = NXT 매도 금액 · message 의 nxt 꼬리는 읽지 않는다", () => {
     const sig = accumSignalOf(
       accumRow({
@@ -236,6 +244,7 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       1: "청산 — 순매수 1억 미만(다시 1억 이상이면 같은 사이클로 재등장)",
       2: "서버 재기동 때 복원 안 됨",
       3: "이월 10일 만료",
+      4: "매집 종료 — 청산 뒤 순매수가 사이클 최고의 −30% 이하(최고 10억 → −3억)",
     });
   });
 });
