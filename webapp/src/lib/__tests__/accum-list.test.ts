@@ -75,6 +75,15 @@ function sig(over: Partial<AccumSignal>): AccumSignal {
     thNetKrw: 0,
     thMinSame: 0,
     thMaxMcapKrw: null,
+    dayBuyKrw: null,
+    daySellKrw: null,
+    dayNetKrw: null,
+    dayAvgPx: null,
+    dayNetQty: null,
+    dayLoPx: null,
+    dayHiPx: null,
+    thRecentPieces: null,
+    thRecentSec: null,
     ...over,
   };
 }

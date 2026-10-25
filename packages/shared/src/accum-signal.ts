@@ -3,8 +3,8 @@
  *
  * 정본 = 인박스 `docs/inbox/from-gh-trade/261018-accum-signal.md` 「kind 16 — 43칸 매핑 표」(gh-trade
  * `server/src/market/publish/AccumSignal.cpp` `FillJournalSlot` 과 한 칸도 다르지 않다). 칸이 정본이다 —
- * `message` 는 칸에 없는 값(`since` 등록 거래일 · `reg` 등록 시각 · `th` 세 번째 조각 시총 상한)만 읽고
- * `st`/`end`/`cyc`/`carry`/`row`/`our`/`warn`/`nxt` 는 칸과 대조하지 않는다.
+ * `message` 는 칸에 없는 값(`since` 등록 거래일 · `reg` 등록 시각 · `th` 세 번째 조각 시총 상한 · `day` 당일 순수량 ·
+ * 가격 범위 · `recent` 등록 임계 조각 수 · 창 초)만 읽고 `st`/`end`/`cyc`/`carry`/`row`/`our`/`warn`/`nxt` 는 칸과 대조하지 않는다.
  *
  * quick-261019-j1w — 인박스 `261019-accum-sell-warn` (나): `hasRemaining` = sell_warn(모든 행 종류) ·
  * `condMetric` = min(sell_warns, 255) · `queueCase` 5 = 매도 경보 에지(켜짐 · 꺼짐 즉시 1행 — 종료 행 4 가
@@ -19,8 +19,14 @@
  * quick-261024-uov — 인박스 `261024-accum-hidden-carry10` 「추가 — 매집 종료 end_reason 4」: cancel_reason 4 = 매집 종료
  * (짧은 말 「종료」). 매퍼 변경 없음(칸을 그대로 옮긴다) — 문구와 주석만.
  *
+ * quick-261025-uf2 — 인박스 `261025-accum-day-axis` ③(gh-trade Phase 39 · 당일 축): snap_len 3 행만
+ * snap_qty[2] = day_buy_krw · snap_cum[2] = day_sell_krw · accept_latency_us = day_avg_px(kind 16 에서만 이 뜻) —
+ * 길이 2(옛 행)는 「당일 값 없음」 이라 null(acceptLatencyUs 0 고정 칸을 평단 0 으로 읽지 않는다). message 새 꼴
+ * `since|reg|st|end|cyc|carry|row|our|th|day|recent|nxt(2)` — `day=<net_qty>/<lo_px>/<hi_px>` · `recent=<pieces>/<sec>` 를
+ * 읽는다. `|warn=` 은 삭제됐고(has_remaining 칸이 정본) `|nxt=` 는 수량 둘만(금액은 칸이 정본)이라 둘 다 계속 읽지 않는다.
+ *
  * 입력은 이미 숫자화된 `StrategyEventRow`(REST 매퍼 · wss 푸시 공용)라 값 보정이 없다. 유일한 기본값은 길이가
- * 모자란 `snapQty`/`snapCum` 원소의 0 이다.
+ * 모자란 `snapQty`/`snapCum` 원소의 0 이다. 당일 칸(셋째 원소 · 평단)은 둘 다 길이 3 이 아니면 0 이 아니라 null 이다.
  */
 import { STRATEGY_EVENT_KIND, type StrategyEventRow } from "./strategy-event";
 
@@ -91,6 +97,24 @@ export type AccumSignal = {
   thNetKrw: number;
   thMinSame: number;
   thMaxMcapKrw: number | null;
+  // ── 당일 축(quick-261025-uf2 · 인박스 261025-accum-day-axis ③) — 옛 행(snap 길이 2 · message 키 없음)은 null ──
+  /** 당일 팀 매수 금액(원 · snapQty[2]) — 우리 체결 제외 · 06:00 · 새 사이클 · 종료 프레임 직전 0. */
+  dayBuyKrw: number | null;
+  /** 당일 팀 매도 금액(원 · snapCum[2]) — 우리 체결 제외 · 06:00 · 새 사이클 · 종료 프레임 직전 0. */
+  daySellKrw: number | null;
+  /** 당일 팀 순매수 금액(매수 − 매도 · 파생 · 음수 가능). */
+  dayNetKrw: number | null;
+  /** 당일 팀 매수 평단(acceptLatencyUs — kind 16 에서만 이 뜻) · 0 = 당일 매수 없음. */
+  dayAvgPx: number | null;
+  /** 당일 팀 순수량(주 · message `day=` 첫 조각 · 음수 가능). */
+  dayNetQty: number | null;
+  /** 당일 팀 매수 주문 가격 최저 · 최고(message `day=` 둘째 · 셋째) · 0 = 당일 매수 없음. */
+  dayLoPx: number | null;
+  dayHiPx: number | null;
+  /** 서버 등록 임계 — 최근 `thRecentSec` 초 팀 매수 조각 수 합(message `recent=` 첫 조각) · 0 = 옛 서버. */
+  thRecentPieces: number | null;
+  /** 서버 등록 임계 — 위 창 초(message `recent=` 둘째 조각) · 0 = 옛 서버. */
+  thRecentSec: number | null;
 };
 
 /** 상태 배지 문구 — gh-trade 클라 동형. 종료 사유 1~4 는 배지 하나 「청산」(사유는 `ACCUM_END_REASON_LABELS` 툴팁). */
@@ -137,13 +161,30 @@ function thMaxMcapOf(v: string | undefined): number | null {
   return Number(parts[2]);
 }
 
+/** `day=<net_qty>/<lo_px>/<hi_px>` — 정확히 3조각 · 첫 조각 음수 허용 · 가격은 음 아닌 정수. 아니면 전부 null. */
+function dayOf(v: string | undefined): [number, number, number] | null {
+  if (!v) return null;
+  const parts = v.split("/");
+  if (parts.length !== 3 || !/^-?\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1]) || !/^\d+$/.test(parts[2])) return null;
+  return [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+}
+
+/** `recent=<pieces>/<sec>` — 정확히 2조각 · 둘 다 음 아닌 정수. 아니면 전부 null. */
+function recentOf(v: string | undefined): [number, number] | null {
+  if (!v) return null;
+  const parts = v.split("/");
+  if (parts.length !== 2 || !/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) return null;
+  return [Number(parts[0]), Number(parts[1])];
+}
+
 function isAccumState(n: number): n is AccumState {
   return n === 1 || n === 2 || n === 3;
 }
 
 /**
  * kind 16 행 → `AccumSignal`. kind ≠ 16 · isin 빈 문자열 · state ∉ {1, 2, 3} 이면 null(표시할 수 없는 행).
- * message 가 비었거나 키가 깨지면 `sinceDate` · `regTime` · `thMaxMcapKrw` 만 null 이고 나머지 칸은 그대로다.
+ * message 가 비었거나 키가 깨지면 `sinceDate` · `regTime` · `thMaxMcapKrw` · `dayNetQty` · `dayLoPx` · `dayHiPx` ·
+ * `thRecentPieces` · `thRecentSec` 만 null 이고 나머지 칸은 그대로다. 당일 칸 4값은 snapQty · snapCum 둘 다 길이 3 일 때만.
  */
 export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
   if (row.kind !== STRATEGY_EVENT_KIND.AccumSignal) return null;
@@ -151,6 +192,11 @@ export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
   const state = row.qty;
   if (!isAccumState(state)) return null;
   const msg = parseAccumMessage(row.message);
+  const hasDay = row.snapQty.length >= 3 && row.snapCum.length >= 3;
+  const dayBuyKrw = hasDay ? row.snapQty[2] : null;
+  const daySellKrw = hasDay ? row.snapCum[2] : null;
+  const day = dayOf(msg.get("day"));
+  const recent = recentOf(msg.get("recent"));
   return {
     isin: row.isin,
     exchange: row.exchange,
@@ -189,5 +235,14 @@ export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
     thNetKrw: row.snapCum[0] ?? 0,
     thMinSame: row.snapCum[1] ?? 0,
     thMaxMcapKrw: thMaxMcapOf(msg.get("th")),
+    dayBuyKrw,
+    daySellKrw,
+    dayNetKrw: dayBuyKrw !== null && daySellKrw !== null ? dayBuyKrw - daySellKrw : null,
+    dayAvgPx: hasDay ? row.acceptLatencyUs : null,
+    dayNetQty: day ? day[0] : null,
+    dayLoPx: day ? day[1] : null,
+    dayHiPx: day ? day[2] : null,
+    thRecentPieces: recent ? recent[0] : null,
+    thRecentSec: recent ? recent[1] : null,
   };
 }
