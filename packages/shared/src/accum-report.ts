@@ -4,18 +4,20 @@
  * - 계약 정본: `docs/inbox/from-gh-trade/261020-accum-flow-export.md` 열 사전(gh-trade `teamflow_accum.FLAT_COLUMNS` 37열 + payload 7키(이 순서 · avg_px · pos_net 은 선택 키)).
  * - **행 키는 gh-trade export 열 이름 그대로(snake_case)** — DB 표 `limitup_accum_flow` 열 이름도 같고 RPC 가
  *   `to_jsonb` 로 싣는다(매퍼 없음). **봉투 키(access · dates · date · rows · row)는 단어 하나라 그대로.**
- * - 목록/상세 분리(D-06): 목록 행 `AccumReportRow` 는 평평한 37열만(payload 없음), 상세 행 `AccumDetailRow` 는 + `payload`.
+ * - 목록/상세 분리(D-06): 목록 행 `AccumReportRow` 는 평평한 37열 + pnl + 당일 축 4 + 전날 2(payload 없음 · 20261026010000),
+ *   상세 행 `AccumDetailRow` 는 평평한 37열 + 당일 축 4 + `payload`.
  * - 단위: `*_ms` = epoch ms · 가격 · 금액(`*_krw` · `*_px`) = 원 정수 · 수량 = 주 · **`*_rate` = % 그대로(30.0 = +30%)** ·
  *   `since_date` = `"YYYYMMDD"` 문자열 · NaN/inf 는 null. 억 · % 표시 변환은 웹 표시층(`webapp/src/lib/accum-report.ts`)만 한다.
  * - `pos_*` = 서버 상태기 값(등록 이후 누적 · 우리 체결 제외 · 마지막 사이클) · `day_*` / payload = 119 pcap 재계산(그날 하루 전체).
- * - 상세 행은 + 당일 축 4열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2).
+ * - 당일 축 4열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2)은 목록(20261026010000 부터) ·
+ *   상세 RPC 모두 싣는다. 목록은 + 전날 2키(prev_pos_day_buy_krw · prev_pos_day_sell_krw) · 봉투 prev_date(quick-261026-01h).
  * - **라이브 kind 16 계약(`accum-signal.ts` 의 AccumState · AccumSignal)과 별개다 — join 없음(D-22 · 30일 purge 비대칭).**
  *   이름이 겹치지 않게 `AccumReport*` 접두를 쓴다.
  */
 import type { LimitupDate } from "./limitup-report";
 import type { TeamflowPnl } from "./teamflow-report";
 
-/** limitup_accum_flow 한 행의 평평한 37열(목록 RPC 응답 행 · payload 키 없음). PK (date, isin). */
+/** limitup_accum_flow 한 행의 평평한 37열 + 선택 키(목록 RPC 응답 행 · payload 키 없음). PK (date, isin). */
 export interface AccumReportRow {
   date: LimitupDate;
   /** ISIN 12자 — 비 KR(KYG…) 실재 */
@@ -72,7 +74,8 @@ export interface AccumReportRow {
   day_buy_qty: number | null;
   day_sell_qty: number | null;
   schema_version: number | null;
-  // quick-261025-uf2 — 상세 RPC(to_jsonb)만 싣고 목록 RPC(37열 명시)는 싣지 않아 선택 키 · 이 열 추가 전 적재 행 null.
+  // quick-261025-uf2 — 목록(20261026010000 부터) · 상세 RPC 모두 싣는다 · 이 열 추가 전 적재 행 null ·
+  // 옛 서버 RPC 응답(마이그레이션 적용 전 목록)엔 키 없음 → 선택 키 유지.
   /** 서버 당일 팀 매수 금액(원 · 그날 마지막 kind 16 snap_qty[2]) · 우리 체결 제외 · 전날 요약 원천 · `day_buy_krw` 와 다른 뜻. */
   pos_day_buy_krw?: number | null;
   /** 서버 당일 팀 매도 금액(원 · 그날 마지막 kind 16 snap_cum[2]) · 우리 체결 제외 · 전날 요약 원천 · `day_sell_krw` 와 다른 뜻. */
@@ -81,6 +84,13 @@ export interface AccumReportRow {
   th_recent_pieces?: number | null;
   /** 서버 등록 임계 — 위 창 길이(초 · 기본 60) · 0 = 옛 서버. */
   th_recent_sec?: number | null;
+  /**
+   * 전날 서버 당일 팀 매수 금액(원) — 목록 RPC 만(quick-261026-01h · 20261026010000). 그 날짜보다 앞선 가장 최근 행 있는 날짜
+   * (봉투 `prev_date`)의 같은 isin 행 `pos_day_buy_krw` · 그 행이 없거나 값이 없으면 null · 옛 응답엔 키 없음.
+   */
+  prev_pos_day_buy_krw?: number | null;
+  /** 전날 서버 당일 팀 매도 금액(원) — 목록 RPC 만 · 규칙은 `prev_pos_day_buy_krw` 와 같다. */
+  prev_pos_day_sell_krw?: number | null;
   /**
    * 팀 당일 손익 — 목록 RPC 만 싣는다(payload.pnl 그대로 · 20261021140000). 상세 행은 payload.pnl 을 읽는다.
    * 팀 체결 0 · 옛 행 = null · 키 없음.
@@ -179,11 +189,12 @@ export type AccumDetailRow = AccumReportRow & { payload: AccumReportPayload | nu
 /**
  * `GET /api/accum/report?d=YYYYMMDD` 응답 = RPC accum_report_for_user 그대로.
  * dates = 행 있는 날짜 내림차순 · date = ?d 또는 최신(이력 0 이면 null) · rows = 그날 평평한 열(없는 날 []).
+ * prev_date = dates 중 date 바로 앞(행 있는 날짜 기준 · 없으면 null · 20261026010000 전 응답엔 키 없음 — quick-261026-01h).
  * `{access:false}` 는 server 가 403 DMA_UNMAPPED 로 바꾸므로 웹은 성공 응답에서 보지 않는 것이 정상이다.
  */
 export type AccumReportResponse =
   | { access: false }
-  | { access: true; dates: LimitupDate[]; date: LimitupDate | null; rows: AccumReportRow[] };
+  | { access: true; dates: LimitupDate[]; date: LimitupDate | null; prev_date?: LimitupDate | null; rows: AccumReportRow[] };
 
 /**
  * `GET /api/accum/report/:date/:isin` 응답 = RPC accum_detail_for_user 그대로.

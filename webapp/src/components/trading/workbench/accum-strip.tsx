@@ -12,7 +12,7 @@
  *   시세를 모르면(예산 초과 · 미도착) 행 값을 그대로 보인다. 등락률은 행의 기준가(`lastPx / (1 + rateBp/10000)`)로 다시 센다.
  *   청산 행은 구독하지 않는다(행 값 고정). 서버 기준 게이트웨이(`gateway`)는 라벨 옆에 작게 보인다(훅 ④).
  * ② 거래소를 표시하지 않는다 — 돌파 D-07 동형. 카드는 행 `exchange`(늘 KRX)로 연다.
- * ③ 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
+ * ③ 칩 = 이름 · 「당일」 · 당일 순매수(dayNetKrw · 억 · 부호 색 · 모르면 「—」 — ⑩) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
  *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 매집 종료)는
  *   행 툴팁(gh-trade 클라 동형 · 인박스 질문 1·2 답).
  *   매도경보(quick-261019-j1w D-01) = 매집중 + `sellWarn` 일 때만 「매집중」 뒤 · 이월 앞 주황 채움 1초 깜빡임(칩 · 표 상태 셀) ·
@@ -25,8 +25,8 @@
  *   숨긴 것은 매집 종료 뒤에도 숨김이다.
  * ⑥ 이름 없는 행은 ISIN 을 고정폭 그대로 — `onAddCard` 에 이름을 싣지 않는다(돌파 ⑥). 코드는 행의 `stocks` 조인 값(없으면 relay 라벨)이라
  *   이름과 무관하게 싣는다. 이름 폴백은 relay 라벨 → 종목 마스터.
- * ⑦ 팀 수익률 = 표시 현재가 ÷ 팀 평단 − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청) — 평단 열 다음, 모든 밴드에 보인다.
- *   현재가나 평단이 없으면 빈 칸. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
+ * ⑦ 수익률(당일) = 표시 현재가 ÷ **당일 평단**(dayAvgPx) − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청 · ⑩ 로 당일
+ *   기준) — 평단 열 다음, 모든 밴드에 보인다. 현재가나 당일 평단이 없으면 「—」. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
  * ⑧ 목록 거름(accum-list ②')은 훅(`useAccumSignals`)이 한 번 한다 — 패널은 받은 행을 그대로 보인다. 청산 행은 종료 사유 1 과,
  *   그날 청산 행이 있는 종목의 매집 종료(4)뿐이고, 매집 종료 행도 배지 「청산」 · 회색 그대로 툴팁만 「매집 종료 — …」(gh-trade 클라는
  *   end 4 에 88 이 없어 회색 청산 행을 자정까지 둔다 · 값 · 「갱신」 은 그 청산 행). 06:00 · 기동 정합 종료 행과 숨김 이월 뒤 매집 종료 행은
@@ -36,6 +36,12 @@
  *   NXT 없는 종목)은 「0.0억」 그대로. 팀 순매수(netKrw)는 KRX+NXT 합산 — 열 이름 대신 머리 · 칩 title 로 알린다.
  *   <700 에서 접히고 보조 줄 끝에 「NXT ±x.x억」. 거래소 표시(②)가 아니다 — 행 exchange 는 여전히 KRX. 금액만(수량 없음 ·
  *   사용자 결정).
+ * ⑩ 당일 축(quick-261026-01h · 스케치 018 B · 인박스 261025-accum-day-axis — gh-trade Phase 39 WinForms 동형) — 12열 그대로.
+ *   4열 「당일 순매수」 = 첫 줄 dayNetKrw(굵게 · 부호 색 · null 이면 「—」 --faint) + 둘째 줄 「누적 ±x.x억」(netKrw · 이월 포함 ·
+ *   KRX+NXT). 이월 행(carryDays > 0)이고 전 거래일 순매수(`prevNet` — 훅 ⑤ · KYOBO119 보고서 · 0 이면 없음 = WinForms 「0 이면 빈칸」)가
+ *   있으면 ≥700 에서 둘째 줄 끝 「 · 전날 ±x.x억」, <700 에서는 보조 줄 「전날 ±x.x억」. 평단 · 수익률 · 매집 구간 · 순수량은
+ *   당일 값(dayAvgPx · dayLoPx~dayHiPx · dayNetQty)이고 dayAvgPx 가 0(당일 매수 없음) 또는 null(옛 행)이면 네 칸 모두 「—」 —
+ *   누적으로 채우지 않는다. 활성 행 순서는 당일 순매수 큰 순(accum-list ②). NXT 순매수 열은 누적 그대로다(D1 「NXT 유지」).
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -67,6 +73,9 @@ import { cn } from '@/lib/utils';
 import { BREAKOUT_TICK_MS } from './breakout-strip';
 
 const NUM = new Intl.NumberFormat('ko-KR');
+const DASH = '—';
+/** 전날 값 없음 — 기본 prop(매 렌더 같은 참조). */
+const NO_PREV: ReadonlyMap<string, number> = new Map();
 
 /** 빈 상태 — 활성(매집중 · 매도중) 칩이 0 일 때. */
 export const ACCUM_EMPTY_TEXT = '아직 팀 매집으로 등록된 종목이 없어요';
@@ -88,6 +97,8 @@ export interface AccumStripProps {
   onAddCard: (isin: string, name: string | undefined, code: string | undefined, exchange: RelayExchange) => void;
   /** 카드가 이미 있는 종목을 눌렀다 — 돌파 스트립과 같은 콜백. */
   onFocusCard: (isin: string, exchange: RelayExchange) => void;
+  /** 이월 행 전날 순매수(`useAccumSignals().prevNet` · isin → 원) — 이월 행(carryDays > 0)에만 쓰인다(⑩). */
+  prevNet?: ReadonlyMap<string, number>;
   className?: string;
 }
 
@@ -111,10 +122,22 @@ interface AccumView {
   price: number;
   /** 표시 등락률(%) — 구독 시세로 다시 센 값, 모르면 행 값(①). */
   rate: number;
-  /** 팀 수익률(%) — 표시 현재가 ÷ 팀 평단 − 1(⑦). 현재가 · 평단이 없으면 null. */
+  /** 수익률(당일 · %) — 표시 현재가 ÷ 당일 평단 − 1(⑦). 현재가 · 당일 평단이 없으면 null. */
   profit: number | null;
-  /** NXT 팀 순매수 금액(원) = nxtBuyKrw − nxtSellKrw · 팀 순매수(netKrw · KRX+NXT 합산) 안에 든 NXT 몫. */
+  /** NXT 팀 순매수 금액(원) = nxtBuyKrw − nxtSellKrw · 누적 순매수(netKrw · KRX+NXT 합산) 안에 든 NXT 몫. */
   nxtNet: number;
+  /** 당일 순매수(원 · dayNetKrw) — 옛 행이면 null(⑩). */
+  dayNet: number | null;
+  /** 당일 팀 매수가 있는가 — dayAvgPx 가 수이고 > 0(⑩). 아니면 평단 · 구간 · 순수량 · 수익률 「—」. */
+  dayBuy: boolean;
+  /** 평단(당일) 글자 — 당일 매수 없으면 「—」. */
+  dayAvg: string;
+  /** 매집 구간(당일) 글자 「lo~hi」 — 당일 매수 없으면 「—」. */
+  dayBand: string;
+  /** 순수량(당일) 글자 — 당일 매수 없거나 값 없으면 「—」. */
+  dayQty: string;
+  /** 전날 순매수(원) — 이월 행이고 prevNet 값이 0 아닌 수일 때만, 아니면 null(⑩). */
+  prev: number | null;
 }
 
 /** 팀 수익률(%) — 현재가 ÷ 평단 − 1(⑦ · gh-trade `ProfitRateOf` 동형). 어느 하나라도 0 이하면 null. */
@@ -146,6 +169,7 @@ export function AccumStrip({
   labels,
   onAddCard,
   onFocusCard,
+  prevNet = NO_PREV,
   className,
 }: AccumStripProps) {
   const [open, setOpen] = useState(false);
@@ -202,6 +226,9 @@ export function AccumStrip({
         const until = meta.get(key) ?? null;
         const exchange: RelayExchange = sig.exchange === 'NXT' ? 'NXT' : 'KRX';
         const price = sig.state === 3 ? sig.lastPx : (prices.get(breakoutFeedKey({ isin: sig.isin, exchange })) ?? sig.lastPx);
+        // ⑩ 당일 축 — dayAvgPx 0(당일 매수 없음) · null(옛 행)이면 평단 · 구간 · 순수량 · 수익률 「—」(누적 폴백 없음).
+        const dayBuy = sig.dayAvgPx !== null && sig.dayAvgPx > 0;
+        const prevVal = sig.carryDays > 0 ? prevNet.get(sig.isin) : undefined;
         return {
           sig,
           key,
@@ -215,11 +242,17 @@ export function AccumStrip({
           clock: kstClock(sig.gwTimeMs),
           price,
           rate: liveRateOf(sig, price),
-          profit: teamProfitOf(price, sig.avgPx),
+          profit: teamProfitOf(price, dayBuy ? (sig.dayAvgPx as number) : 0),
           nxtNet: sig.nxtBuyKrw - sig.nxtSellKrw,
+          dayNet: sig.dayNetKrw,
+          dayBuy,
+          dayAvg: dayBuy ? NUM.format(sig.dayAvgPx as number) : DASH,
+          dayBand: dayBuy ? `${NUM.format(sig.dayLoPx ?? 0)}~${NUM.format(sig.dayHiPx ?? 0)}` : DASH,
+          dayQty: dayBuy && sig.dayNetQty !== null ? NUM.format(sig.dayNetQty) : DASH,
+          prev: prevVal !== undefined && Number.isFinite(prevVal) && prevVal !== 0 ? prevVal : null,
         };
       }),
-    [visible, labels, masterNames, cards, meta, now, prices],
+    [visible, labels, masterNames, cards, meta, now, prices, prevNet],
   );
   const chipViews = useMemo(() => views.filter((v) => v.sig.state !== 3), [views]);
 
@@ -331,8 +364,20 @@ function rateClass(r: number): string {
   return r > 0 ? 'text-[var(--up)]' : r < 0 ? 'text-[var(--down)]' : 'text-[var(--flat)]';
 }
 
-function bandText(s: AccumSignal): string {
-  return `${NUM.format(s.loPx)}~${NUM.format(s.hiPx)}`;
+/** 「—」 칸 색 — 값이 없을 때만 --faint. */
+function dashClass(text: string): string | false {
+  return text === DASH && 'text-[var(--faint)]';
+}
+
+/** 당일 순매수 글자 — null(옛 행)이면 「—」. */
+function dayNetText(v: AccumView): string {
+  return v.dayNet === null ? DASH : fmtEok(v.dayNet, { signed: true });
+}
+
+/** 당일 순매수 색 — null 은 --faint · 청산 행(`plain`)은 부호 색 없음(회색 행 그대로). */
+function dayNetClass(v: AccumView, plain: boolean): string | false {
+  if (v.dayNet === null) return 'text-[var(--faint)]';
+  return !plain && netClass(v.dayNet);
 }
 
 /** 매도경보 표시 여부 — 경보는 매집중 전용(서버 규칙)이라 매도중 · 청산 행의 sellWarn 은 무시한다. */
@@ -341,13 +386,15 @@ function showsWarn(s: AccumSignal): boolean {
 }
 
 /**
- * 칩 `title` — 「이름 코드 · 팀 순매수(KRX+NXT) ±x.x억 · NXT 순매수 ±x.x억 · 평단 · 구간 lo~hi · 갱신 HH:MM:SS[ · 매도경보 n회]」.
- * NXT 는 title 에만 — 칩의 보이는 글자(이름 · 팀 순매수 · 배지)는 그대로다(⑨).
+ * 칩 `title` — 「이름 코드 · 당일 순매수 ±x.x억 · 누적 ±x.x억(KRX+NXT)[ · 전날 ±x.x억] · NXT 순매수 ±x.x억 · 평단(당일) N ·
+ * 구간(당일) lo~hi · 갱신 HH:MM:SS[ · 매도경보 n회]」(⑩ — 값이 없으면 「—」). NXT 는 title 에만 — 칩의 보이는 글자는
+ * 이름 · 「당일」 · 당일 순매수 · 배지다(⑨).
  */
 function chipTitle(v: AccumView): string {
   const head = v.named && v.code ? `${v.label} ${v.code}` : v.label;
+  const prev = v.prev === null ? '' : ` · 전날 ${fmtEok(v.prev, { signed: true })}`;
   const warn = showsWarn(v.sig) ? ` · 매도경보 ${v.sig.sellWarns}회` : '';
-  return `${head} · 팀 순매수(KRX+NXT) ${fmtEok(v.sig.netKrw, { signed: true })} · NXT 순매수 ${fmtEok(v.nxtNet, { signed: true })} · 평단 ${NUM.format(v.sig.avgPx)} · 구간 ${bandText(v.sig)} · 갱신 ${v.clock}${warn}`;
+  return `${head} · 당일 순매수 ${dayNetText(v)} · 누적 ${fmtEok(v.sig.netKrw, { signed: true })}(KRX+NXT)${prev} · NXT 순매수 ${fmtEok(v.nxtNet, { signed: true })} · 평단(당일) ${v.dayAvg} · 구간(당일) ${v.dayBand} · 갱신 ${v.clock}${warn}`;
 }
 
 const BADGE = 'inline-flex h-4 flex-none items-center rounded-[4px] border border-transparent px-1 text-[9px] font-bold';
@@ -402,7 +449,6 @@ const AccumChip = memo(function AccumChip({
   view: AccumView;
   onActivate: (v: AccumView) => void;
 }) {
-  const fmtNet = fmtEok(v.sig.netKrw, { signed: true });
   return (
     <button
       type="button"
@@ -426,7 +472,12 @@ const AccumChip = memo(function AccumChip({
       >
         {v.label}
       </b>
-      <span className={cn('mono font-bold', netClass(v.sig.netKrw))}>{fmtNet}</span>
+      <span data-slot="accum-chip-day" className="text-[10px] font-semibold text-[var(--muted-fg)]">
+        당일
+      </span>
+      <span data-slot="accum-chip-net" className={cn('mono font-bold', dayNetClass(v, false))}>
+        {dayNetText(v)}
+      </span>
       <StateBadge state={v.sig.state} />
       <WarnBadge sig={v.sig} />
       <CarryBadge days={v.sig.carryDays} />
@@ -447,10 +498,10 @@ const AccumChip = memo(function AccumChip({
 /* ── 표 (목업 `table` · 12열) ─────────────────────────────────────────── */
 
 /**
- * 12열 — 종목 · 현재가 · 등락률 · 팀 순매수 · NXT 순매수 · 평단 · 팀 수익률 · 매집 구간 · 순수량 · 상태 · 갱신 · 액션
- * (팀 수익률은 접지 않는다 · ⑦ / NXT 순매수 ⑨). 작업대 컨테이너(`@container/wb`) 폭으로 접는다(돌파 표 규칙 · 경계는
- * globals.css §2.2b 정본): 본문 <700 에서 NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 열을 숨기고 종목 셀 아래 보조 줄
- * 「HH:MM:SS · 평단 N · lo~hi · NXT ±x.x억」 를 세우고 코드를 숨긴다.
+ * 12열 — 종목 · 현재가 · 등락률 · 당일 순매수(+ 누적 · 전날 아랫줄) · NXT 순매수 · 평단(당일) · 수익률(당일) · 매집 구간(당일) ·
+ * 순수량(당일) · 상태 · 갱신 · 액션(수익률은 접지 않는다 · ⑦ / NXT 순매수 ⑨ / 당일 축 ⑩). 작업대 컨테이너(`@container/wb`) 폭으로
+ * 접는다(돌파 표 규칙 · 경계는 globals.css §2.2b 정본): 본문 <700 에서 NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 열과 4열 아랫줄의
+ * 「전날」 을 숨기고 종목 셀 아래 보조 줄 「HH:MM:SS · 평단 N · lo~hi[ · 전날 ±x.x억] · NXT ±x.x억」 를 세우고 코드를 숨긴다.
  */
 const AccumTable = memo(function AccumTable({
   views,
@@ -473,8 +524,12 @@ const AccumTable = memo(function AccumTable({
           <TableHead scope="col" className={th}>종목</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>현재가</TableHead>
           <TableHead scope="col" className={cn(th, 'text-right')}>등락률</TableHead>
-          <TableHead scope="col" title="KRX+NXT 합산" className={cn(th, 'text-right')}>
-            팀 순매수
+          <TableHead
+            scope="col"
+            title="당일 팀 매수 − 매도(06:00 또는 새 사이클부터 · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)"
+            className={cn(th, 'text-right')}
+          >
+            당일 순매수
           </TableHead>
           <TableHead
             scope="col"
@@ -483,10 +538,10 @@ const AccumTable = memo(function AccumTable({
           >
             NXT 순매수
           </TableHead>
-          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>평단</TableHead>
-          <TableHead scope="col" className={cn(th, 'text-right')}>팀 수익률</TableHead>
-          <TableHead scope="col" className={cn(th, colNarrow)}>매집 구간</TableHead>
-          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>순수량</TableHead>
+          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>평단(당일)</TableHead>
+          <TableHead scope="col" className={cn(th, 'text-right')}>수익률(당일)</TableHead>
+          <TableHead scope="col" className={cn(th, colNarrow)}>매집 구간(당일)</TableHead>
+          <TableHead scope="col" className={cn(th, colNarrow, 'text-right')}>순수량(당일)</TableHead>
           <TableHead scope="col" className={th}>상태</TableHead>
           <TableHead scope="col" className={cn(th, colNarrow)}>갱신</TableHead>
           <TableHead scope="col" className={th}>
@@ -543,20 +598,33 @@ const AccumTable = memo(function AccumTable({
                     </span>
                   )}
                 </span>
-                {/* 폰 밴드 보조 줄 — 숨긴 갱신 · 평단 · 구간 · NXT 순매수 열의 사실을 여기서 말한다. */}
+                {/* 폰 밴드 보조 줄 — 숨긴 갱신 · 평단 · 구간 · (전날) · NXT 순매수의 사실을 여기서 말한다(⑩). */}
                 <span
                   data-slot="accum-row-subline"
                   className="mono block truncate text-[10px] text-[var(--muted-fg)] @min-[700px]/wb:hidden"
                 >
-                  {`${v.clock} · 평단 ${NUM.format(v.sig.avgPx)} · ${bandText(v.sig)} · NXT ${fmtEok(v.nxtNet, { signed: true })}`}
+                  {`${v.clock} · 평단 ${v.dayAvg} · ${v.dayBand}${v.prev === null ? '' : ` · 전날 ${fmtEok(v.prev, { signed: true })}`} · NXT ${fmtEok(v.nxtNet, { signed: true })}`}
                 </span>
               </TableCell>
               <TableCell className={cn(td, 'mono text-right', !ended && rateClass(rate))}>{NUM.format(v.price)}</TableCell>
               <TableCell className={cn(td, 'mono text-right font-bold', !ended && rateClass(rate))}>
                 {signedRate(rate)}
               </TableCell>
-              <TableCell className={cn(td, 'mono text-right font-bold', !ended && netClass(v.sig.netKrw))}>
-                {fmtEok(v.sig.netKrw, { signed: true })}
+              <TableCell data-col="net" className={cn(td, 'text-right')}>
+                {/* ⑩ 당일(굵게) 위 · 누적(+ ≥700 전날) 아래 — h-9 안 두 줄. */}
+                <span className="inline-flex flex-col items-end py-[3px] leading-[1.25]">
+                  <b data-slot="accum-day-net" className={cn('mono font-bold', dayNetClass(v, ended))}>
+                    {dayNetText(v)}
+                  </b>
+                  <span data-slot="accum-net-sub" className="mono text-[10px] font-normal text-[var(--muted-fg)]">
+                    {`누적 ${fmtEok(v.sig.netKrw, { signed: true })}`}
+                    {v.prev !== null && (
+                      <span data-slot="accum-prev-net" className="hidden @min-[700px]/wb:inline">
+                        {` · 전날 ${fmtEok(v.prev, { signed: true })}`}
+                      </span>
+                    )}
+                  </span>
+                </span>
               </TableCell>
               <TableCell
                 data-col="nxt"
@@ -564,20 +632,24 @@ const AccumTable = memo(function AccumTable({
               >
                 {fmtEok(v.nxtNet, { signed: true })}
               </TableCell>
-              <TableCell data-col="avg" className={cn(td, colNarrow, 'mono text-right')}>
-                {NUM.format(v.sig.avgPx)}
+              <TableCell data-col="avg" className={cn(td, colNarrow, 'mono text-right', dashClass(v.dayAvg))}>
+                {v.dayAvg}
               </TableCell>
               <TableCell
                 data-col="profit"
-                className={cn(td, 'mono text-right font-bold', !ended && v.profit !== null && rateClass(v.profit))}
+                className={cn(
+                  td,
+                  'mono text-right font-bold',
+                  v.profit === null ? 'text-[var(--faint)]' : !ended && rateClass(v.profit),
+                )}
               >
-                {v.profit === null ? '' : signedRate(v.profit)}
+                {v.profit === null ? DASH : signedRate(v.profit)}
               </TableCell>
-              <TableCell data-col="band" className={cn(td, colNarrow, 'mono')}>
-                {bandText(v.sig)}
+              <TableCell data-col="band" className={cn(td, colNarrow, 'mono', dashClass(v.dayBand))}>
+                {v.dayBand}
               </TableCell>
-              <TableCell data-col="qty" className={cn(td, colNarrow, 'mono text-right')}>
-                {NUM.format(v.sig.netQty)}
+              <TableCell data-col="qty" className={cn(td, colNarrow, 'mono text-right', dashClass(v.dayQty))}>
+                {v.dayQty}
               </TableCell>
               <TableCell className={td}>
                 <span className="inline-flex items-center gap-1">

@@ -5,7 +5,8 @@
  *   최신 판정은 gwTimeMs desc → gateway asc → seq desc. 세 서버가 같은 isin 을 각자 넣지만 값 차이는
  *   our_excluded_qty 뿐이라 웹은 이 규칙 하나다(같은 분 quote-primary 우선은 REST RPC 에만 있다 — 웹은 quote-primary 를 모른다).
  *
- * ② 정렬 — 매집중 · 매도중(1·2)이 먼저(팀 순매수 큰 순), 청산(3)은 뒤(**먼저 청산한 순** — gh-trade 클라 `AccumWatchForm.SortRows`
+ * ② 정렬 — 매집중 · 매도중(1·2)이 먼저(**당일 순매수 큰 순** — dayNetKrw · null(옛 행)은 수 있는 행 뒤 → 같으면 누적 netKrw 큰 순 ·
+ *   quick-261026-01h 당일 축 · WinForms 동형), 청산(3)은 뒤(**먼저 청산한 순** — gh-trade 클라 `AccumWatchForm.SortRows`
  *   ClosedAtTick 오름차순 동형). 동률은 isin 으로 고정.
  *
  * ②' 목록에 싣는 행 — 활성(1 · 2) 전부 · 청산 행은 종료 사유 1(청산)과, 종료 사유 4(매집 종료 — 인박스 261024-accum-hidden-carry10
@@ -27,14 +28,20 @@
  *   매집 종료(4) 행도 state 3 이라 청산 행과 같은 키(`…|end`)다 — 청산 행에서 숨긴 것은 매집 종료 뒤에도 숨김이다.
  *   날짜 키 집합은 돌파 패널(`breakout-list.ts` readDatedSet/writeDatedSet)과 같은 저장 문법이다.
  *
+ * ⑥ 전날 순매수(quick-261026-01h · `prevDayNetOf`) — 이월 행 「전날 ±x.x억」 의 원천은 KYOBO119 판정 accum_flow(매집감지 보고서)의
+ *   전 거래일 마지막 행 pos_day 차(pos_day_buy − pos_day_sell)다. 패널이 다른 서버(KB120)를 보여도 같은 값을 쓴다(서버 사이 차이는
+ *   우리 체결 제외분뿐). 최신 보고서가 오늘 전이면 그 행의 pos_day 차, 오늘(20:30 적재 뒤)이면 prev_pos_day 키(목록 RPC 가 앞날 행에서
+ *   싣는다). 행 있는 날짜 기준이라 적재 누락일이 있으면 그 앞날 값이 된다.
+ *
  * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클 ·
  *   같은 사이클 재등장)만 강조한다. 청산 행은 강조하지 않는다. 청산 행이 최신이면 활성 키가 기록에서 빠지므로 재등장 행은 새 키다.
  *   「직전 커밋 기록 + 현재 입력」 순수 계산 — 컴포넌트가 렌더에서 계산하고 커밋 뒤 옮긴다.
  */
 
-import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
+import type { AccumReportResponse, AccumSignal, StrategyEventRow } from '@gh-radar/shared';
 
 import { HIGHLIGHT_MS, kstDateKey, readDatedSet, writeDatedSet } from './breakout-list';
+import { isNum } from './teamflow-report';
 
 /** ✕ 로 숨긴 사이클 집합 — 날짜 키(KST 오늘) 단위. */
 export const ACCUM_DISMISSED_KEY = 'gh-radar:accum-dismissed';
@@ -153,10 +160,35 @@ export function sortAccum(signals: readonly AccumSignal[]): AccumSignal[] {
     const aEnd = a.state === 3;
     const bEnd = b.state === 3;
     if (aEnd !== bEnd) return aEnd ? 1 : -1;
-    if (!aEnd && a.netKrw !== b.netKrw) return b.netKrw - a.netKrw;
+    if (!aEnd) {
+      // 당일 순매수 큰 순 — null(옛 행)은 −∞ 로 뒤. 같을 때 뺄셈하지 않는다(−∞ − −∞ = NaN).
+      const ad = a.dayNetKrw ?? -Infinity;
+      const bd = b.dayNetKrw ?? -Infinity;
+      if (ad !== bd) return bd > ad ? 1 : -1;
+      if (a.netKrw !== b.netKrw) return b.netKrw - a.netKrw;
+    }
     if (aEnd && a.gwTimeMs !== b.gwTimeMs) return a.gwTimeMs - b.gwTimeMs;
     return a.isin < b.isin ? -1 : a.isin > b.isin ? 1 : 0;
   });
+}
+
+/**
+ * 이월 행 전날 순매수(⑥) — 최신 매집감지 보고서(`fetchAccumReport()` · d 없음) → isin → 원.
+ * - `resp.date < todayYmd` → 그날 행의 pos_day_buy_krw − pos_day_sell_krw
+ * - `resp.date === todayYmd`(20:30 적재 뒤) → prev_pos_day_buy_krw − prev_pos_day_sell_krw
+ * - 둘 중 하나라도 수가 아니면 그 isin 은 없다 · access false · date null · 미래 날짜 → 빈 Map.
+ * 날짜는 'YYYYMMDD' 문자열 사전 비교다.
+ */
+export function prevDayNetOf(resp: AccumReportResponse, todayYmd: string): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!resp.access || resp.date === null || resp.date > todayYmd) return out;
+  const isToday = resp.date === todayYmd;
+  for (const r of resp.rows) {
+    const buy = isToday ? r.prev_pos_day_buy_krw : r.pos_day_buy_krw;
+    const sell = isToday ? r.prev_pos_day_sell_krw : r.pos_day_sell_krw;
+    if (isNum(buy) && isNum(sell)) out.set(r.isin, buy - sell);
+  }
+  return out;
 }
 
 /** 사이클 키 → 강조 만료 시각(ms) · null = 무강조. */

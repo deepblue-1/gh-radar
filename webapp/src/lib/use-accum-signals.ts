@@ -21,6 +21,11 @@
  *   서버 키(`RelayAccount.serverKey`). null(계좌 미정 · serverKey 없음)이면 행이 있는 게이트웨이 중 키 사전순 첫 것(KB120 < KYOBO119).
  *   REST(20261019160000)는 (gateway, isin) 별 최신 행을 다 주고 여기서 거른다 — 계좌를 바꾸면 재조회 없이 목록이 바뀐다.
  *   고른 서버에 오늘 행이 없으면 빈 목록이다(그 서버 클라도 비어 있다).
+ *
+ * ⑤ 전날 순매수(quick-261026-01h · 스케치 018 B) — 이월 행의 「전날 ±x.x억」 원천은 기존 매집감지 보고서 목록
+ *   `fetchAccumReport()`(d 없음 = 최신 · KYOBO119 판정)다. **오늘 1회**(마운트 + KST 날짜가 바뀔 때)만 부르고 relay ready
+ *   전이로는 다시 부르지 않는다 — 보고서는 하루 한 번(20:30) 적재라 장중에 바뀌지 않는다. 값 계산은 `prevDayNetOf`(accum-list ⑥).
+ *   실패(403 DMA 미매핑 · 네트워크)는 복원 실패와 같은 규약으로 조용히 비운다 — 전날 없이 패널은 그대로 보인다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -32,8 +37,9 @@ import {
   type StrategyEventRow,
 } from '@gh-radar/shared';
 
+import { fetchAccumReport } from './accum-api';
 import { fetchAccumSignals } from './accum-signals-api';
-import { closedRowsOf, isListedAccum, latestAccumByIsin } from './accum-list';
+import { closedRowsOf, isListedAccum, latestAccumByIsin, prevDayNetOf } from './accum-list';
 import { mergeStrategyEvents } from './order-log-feed';
 import { useRelayContext } from './relay-provider';
 
@@ -44,7 +50,12 @@ export interface AccumSignalsState {
   filled: boolean;
   /** 지금 보이는 목록의 게이트웨이(④) — 고른 서버, 또는 폴백. 행이 없으면 null. */
   gateway: string | null;
+  /** 이월 행 전날 순매수(⑤) — isin → 원. 오늘 받은 것만 · 모르면 빈 Map. */
+  prevNet: ReadonlyMap<string, number>;
 }
+
+/** 전날 값이 없을 때 — 매 렌더 같은 참조(패널 memo 안정). */
+const NO_PREV: ReadonlyMap<string, number> = new Map();
 
 /** ④ 표시 게이트웨이 — 고른 서버가 있으면 그것, 없으면 행이 있는 게이트웨이 중 사전순 첫 것. */
 export function displayGatewayOf(rows: readonly Pick<StrategyEventRow, 'gateway'>[], selected: string | null): string | null {
@@ -90,6 +101,24 @@ export function useAccumSignals(gateway: string | null = null): AccumSignalsStat
     void load();
   }, [relayStatus, load]);
 
+  // ⑤ 전날 순매수 — 오늘 1회(날짜가 바뀌면 다시). 별도 요청 번호로 늦은 응답을 버린다.
+  const [prev, setPrev] = useState<{ date: string; map: ReadonlyMap<string, number> } | null>(null);
+  const prevReqRef = useRef(0);
+  useEffect(() => {
+    const req = ++prevReqRef.current;
+    fetchAccumReport()
+      .then((resp) => {
+        if (req !== prevReqRef.current) return;
+        setPrev({ date: today, map: prevDayNetOf(resp, today.replace(/-/g, '')) });
+      })
+      .catch(() => {
+        if (req !== prevReqRef.current) return;
+        // 실패 — 전날 없이 보인다(복원 실패와 같은 규약).
+        setPrev({ date: today, map: NO_PREV });
+      });
+  }, [today]);
+  const prevNet = prev !== null && prev.date === today ? prev.map : NO_PREV;
+
   const restoredRows = restored !== null && restored.date === today ? restored.rows : null;
 
   const { signals, shown } = useMemo(() => {
@@ -112,5 +141,5 @@ export function useAccumSignals(gateway: string | null = null): AccumSignalsStat
     return { signals: out, shown: shownGateway };
   }, [restoredRows, accumSignalEvents, today, gateway]);
 
-  return { signals, filled, gateway: shown };
+  return { signals, filled, gateway: shown, prevNet };
 }

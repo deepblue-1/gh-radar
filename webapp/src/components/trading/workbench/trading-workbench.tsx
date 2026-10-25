@@ -1588,6 +1588,7 @@ function WorkbenchSurface() {
         labels={labels}
         onAddCard={addBreakoutCard}
         onFocusCard={focusBreakoutCard}
+        prevNet={accum.prevNet}
       />
 
       {/* 5 · 종목 추가 */}
