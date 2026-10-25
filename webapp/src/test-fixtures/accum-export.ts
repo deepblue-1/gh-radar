@@ -229,7 +229,8 @@ export type AccumSyntheticDetailKind =
   | 'preOpenReg'
   | 'noTeam'
   | 'noPrice'
-  | 'posNet';
+  | 'posNet'
+  | 'posNetCarry';
 
 /** 사이클 한 항목(16키) — 기본 = 오늘 등록 · 살아 있음 · pos_* 없음. */
 function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
@@ -269,6 +270,9 @@ function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
  * - `posNet` 한선엔지니어링 · multiCycle 바탕에 두 번째 사이클만 `cycle: 2` + payload.pos_net(quick-261025-fac · end 배열 있음) —
  *   09:13 · 10:00 · 11:32(청산 end 1) · 12:10(같은 사이클 재등장 → 새 조각) · 12:40(매집 종료 end 4) · 13:06 · 14:00(사이클 2 ·
  *   열린 끝 20:00). 포지션 선 3조각.
+ * - `posNetCarry` 동양고속 · carry 바탕에 payload.pos_net(**end 배열 없음** · 이월 13억) — 06:01(이월 row 2 · 건너뜀) · 08:40(왼쪽
+ *   끝) · 10:00 · 14:56(청산 — end 없어 이어짐) · 15:10 · 16:00(사이클 2 · 열린 끝). payload.cycles 는 carry 그대로다 — 차트는
+ *   pos_net.cycle 만 본다. 포지션 선 2조각.
  */
 export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetailRow {
   const rows = accumDetailRows();
@@ -378,6 +382,21 @@ export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetai
             net_krw: [120_000_000, 250_000_000, 60_000_000, 140_000_000, 50_000_000, 110_000_000, 180_000_000],
             cycle: [1, 1, 1, 1, 1, 2, 2],
             end: [0, 0, 1, 0, 4, 0, 0],
+          },
+        },
+      };
+    }
+    case 'posNetCarry': {
+      const base = accumSyntheticDetail('carry');
+      const at = (hms: string) => accumKstMs(D, hms);
+      return {
+        ...base,
+        payload: {
+          ...base.payload!,
+          pos_net: {
+            t_ms: ['06:01:00', '08:40:00', '10:00:00', '14:56:00', '15:10:00', '16:00:00'].map(at),
+            net_krw: [1_240_000_000, 1_260_000_000, 1_300_000_000, 50_000_000, 120_000_000, 150_000_000],
+            cycle: [1, 1, 1, 1, 2, 2],
           },
         },
       };

@@ -51,6 +51,9 @@ import {
   panBy,
   presetOf,
   zoomAt,
+  posNetPathOf,
+  posNetPointsOf,
+  type PosNetPoint,
   type PricePoint,
 } from '../accum-chart';
 
@@ -743,5 +746,165 @@ describe('마우스 툴팁(2026-10-23 · gh-trade AccumChartPanel · AccumBucket
       circle: null,
     });
     expect(bucketTipAt(buckets, T0, at('10:10:00'))).toBeNull();
+  });
+});
+
+describe('포지션 순매수 선(quick-261025-fac · 스케치 017 B)', () => {
+  /** x = 분 = px · y = 억(yq) · T2000 → x 660. */
+  const xm = (t: number) => (t - T0) / M;
+  const yq = (c: number) => c / 1e8;
+  const m = (n: number) => T0 + n * M;
+  const T2000 = T0 + 11 * H;
+  const pp = (...a: [number, number, number, number?][]): PosNetPoint[] =>
+    a.map(([n, net, cycle, end = 0]) => ({ t: m(n), net, cycle, end }));
+  const path = (p: PosNetPoint[]) => posNetPathOf(p, xm, yq, T0, T2000);
+  type PosPick = Pick<AccumReportPayload, 'pos_net'>;
+  const ofPos = (v: unknown) => posNetPointsOf({ pos_net: v } as unknown as PosPick);
+
+  it('posNetPointsOf — 키 없음 · null · 문자열 · 숫자 · 배열 · t_ms/net_krw/cycle 중 하나가 배열 아님 → []', () => {
+    expect(posNetPointsOf({})).toEqual([]);
+    const bad: unknown[] = [
+      undefined,
+      null,
+      'bad',
+      5,
+      [],
+      { t_ms: 'x', net_krw: [], cycle: [] },
+      { t_ms: [1], net_krw: 'y', cycle: [1] },
+      { t_ms: [1], net_krw: [1] },
+    ];
+    for (const v of bad) expect(ofPos(v)).toEqual([]);
+  });
+
+  it('posNetPointsOf — 길이 다르면 셋 중 최소 · NaN/null 점 건너뜀 · end 없음/배열 아님 → 0 · end 짧음/수 아님 → 그 점 0 · 정렬 안 함', () => {
+    const [a, b, c] = [m(10), m(20), m(30)];
+    expect(ofPos({ t_ms: [a, b, c], net_krw: [1, 2], cycle: [1, 1, 1] })).toEqual([
+      { t: a, net: 1, cycle: 1, end: 0 },
+      { t: b, net: 2, cycle: 1, end: 0 },
+    ]);
+    expect(ofPos({ t_ms: [a, null, c, c], net_krw: [1, 2, Number.NaN, 4], cycle: [1, 1, 1, null] })).toEqual([
+      { t: a, net: 1, cycle: 1, end: 0 },
+    ]);
+    expect(ofPos({ t_ms: [a, b], net_krw: [1, 2], cycle: [1, 2], end: 'x' })).toEqual([
+      { t: a, net: 1, cycle: 1, end: 0 },
+      { t: b, net: 2, cycle: 2, end: 0 },
+    ]);
+    expect(ofPos({ t_ms: [a, b, c], net_krw: [1, 2, 3], cycle: [1, 1, 1], end: [4, 'q'] })).toEqual([
+      { t: a, net: 1, cycle: 1, end: 4 },
+      { t: b, net: 2, cycle: 1, end: 0 },
+      { t: c, net: 3, cycle: 1, end: 0 },
+    ]);
+    // 정렬하지 않는다(배열 순서가 정본)
+    expect(ofPos({ t_ms: [c, a], net_krw: [1, 2], cycle: [1, 1] }).map((p) => p.t)).toEqual([c, a]);
+  });
+
+  it('실측 천일(pos_net 없음) · pos_net 불량 → payloadOf 는 행을 남기고 posNetPointsOf 만 [](선만 빠진다)', () => {
+    const row = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+    expect(row.payload!.pos_net).toBeUndefined();
+    expect(payloadOf(row)).not.toBeNull();
+    expect(posNetPointsOf(row.payload!)).toEqual([]);
+    const bad = { ...row, payload: { ...row.payload!, pos_net: 'bad' } } as unknown as AccumDetailRow;
+    expect(payloadOf(bad)).not.toBeNull();
+    expect(posNetPointsOf(bad.payload!)).toEqual([]);
+  });
+
+  it('posNetPathOf — end≠0 점 뒤 끊김 · 사이클 끊김 · 열린 마지막 조각만 20:00', () => {
+    expect(
+      path(
+        pp([13, 1.2e8, 1, 0], [60, 2.5e8, 1, 0], [152, 0.6e8, 1, 1], [190, 1.4e8, 1, 0], [220, 0.5e8, 1, 4], [246, 1.1e8, 2, 0], [300, 1.8e8, 2, 0]),
+      ),
+    ).toBe('M13.0,1.2H60.0V2.5H152.0V0.6M190.0,1.4H220.0V0.5M246.0,1.1H300.0V1.8H660.0');
+  });
+
+  it('posNetPathOf — end 없음 · 사이클로만 끊김 · 09:00 전 점은 왼쪽 끝 · 여럿이면 마지막만', () => {
+    expect(
+      path(pp([-179, 12.4e8, 1], [-20, 12.6e8, 1], [60, 13e8, 1], [356, 0.5e8, 1], [370, 1.2e8, 2], [420, 1.5e8, 2])),
+    ).toBe('M0.0,12.6H60.0V13.0H356.0V0.5M370.0,1.2H420.0V1.5H660.0');
+  });
+
+  it('posNetPathOf — 닫힌 마지막 조각은 연장 없음 · 열린 점 하나는 20:00 까지 · 빈 배열 → \'\'', () => {
+    expect(path(pp([60, 1e8, 1, 0], [120, 0.5e8, 1, 1]))).toBe('M60.0,1.0H120.0V0.5');
+    expect(path(pp([60, 1e8, 1, 0]))).toBe('M60.0,1.0H660.0');
+    expect(path([])).toBe('');
+  });
+
+  it('cumRangeOf(cum, pos) — 포지션 값도 합친 범위 · 인자 하나는 그대로', () => {
+    const cum = { t_ms: [at('09:10:00'), at('09:20:00')], net_krw: [-5e7, 2e8] };
+    expect(cumRangeOf(cum, pp([60, 13e8, 1]))).toEqual({ min: -5e7, max: 13e8 });
+    expect(cumRangeOf(cum, pp([60, -3e8, 1]))).toEqual({ min: -3e8, max: 2e8 });
+    expect(cumRangeOf(cum)).toEqual({ min: -5e7, max: 2e8 });
+    expect(cumRangeOf(cum, [])).toEqual({ min: -5e7, max: 2e8 });
+  });
+
+  describe('cumTipAt — 포지션 순매수(이월 포함) · 공백 「포지션 —」', () => {
+    const base = {
+      orders: EMPTY_ORDERS,
+      day_cum_net: { t_ms: [at('10:00:00'), at('10:00:05'), at('10:30:00')], net_krw: [200_000_000, 210_000_000, 194_000_000] },
+      avg_px: { t_ms: [at('10:00:00'), at('10:30:00')], px: [19_800, 0] },
+    };
+    type Tip = Pick<AccumReportPayload, 'day_cum_net' | 'avg_px' | 'pos_net'>;
+    const withPos = (pos: Tip['pos_net']): Tip => ({ ...base, pos_net: pos });
+    const payload = withPos({
+      t_ms: ['09:30:00', '10:00:00', '10:20:00', '10:40:00', '11:00:00'].map(at),
+      net_krw: [1.5e8, 1.8e8, 0.5e8, 1.2e8, 1.6e8],
+      cycle: [1, 1, 1, 2, 2],
+      end: [0, 0, 1, 0, 0],
+    });
+    const tip = (p: Tip, hms: string) => cumTipAt(p, at(hms));
+
+    it('둘 다 점 없음 → null · 그날 첫 점 전 → 그날 0.00억 · 스냅샷 시각 = 둘 중 늦은 점', () => {
+      expect(tip(payload, '09:20:00')).toBeNull();
+      expect(tip(payload, '09:45:00')).toEqual({
+        key: 'c-1p0',
+        lines: ['09:30:00 · 순매수 누적 0.00억 · 포지션 순매수 +1.50억(이월 포함)'],
+        circle: null,
+      });
+      expect(tip(payload, '10:10:00')).toEqual({
+        key: 'c1p1',
+        lines: ['10:00:05 · 순매수 누적 +2.10억 · 포지션 순매수 +1.80억(이월 포함) · 팀 평단 19,800원'],
+        circle: null,
+      });
+    });
+
+    it('end≠0 점 그 시각엔 값 · 그 뒤는 「포지션 —」 · 새 사이클 점에서 다시 값', () => {
+      expect(tip(payload, '10:25:00')).toEqual({
+        key: 'c1p2',
+        lines: ['10:20:00 · 순매수 누적 +2.10억 · 포지션 순매수 +0.50억(이월 포함) · 팀 평단 19,800원'],
+        circle: null,
+      });
+      expect(tip(payload, '10:35:00')).toEqual({
+        key: 'c2p2',
+        lines: ['10:30:00 · 순매수 누적 +1.94억 · 포지션 —'],
+        circle: null,
+      });
+      expect(tip(payload, '10:50:00')).toEqual({
+        key: 'c2p3',
+        lines: ['10:40:00 · 순매수 누적 +1.94억 · 포지션 순매수 +1.20억(이월 포함)'],
+        circle: null,
+      });
+    });
+
+    it('사이클 사이(end 없음) · 닫힌 마지막 조각 뒤 → 「포지션 —」', () => {
+      const between = withPos({
+        t_ms: ['09:30:00', '10:20:00', '10:40:00'].map(at),
+        net_krw: [1.5e8, 0.5e8, 1.2e8],
+        cycle: [1, 1, 2],
+      });
+      expect(tip(between, '10:35:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억 · 포지션 —']);
+      const closed = withPos({ t_ms: ['09:30:00', '10:20:00'].map(at), net_krw: [1.5e8, 0.5e8], cycle: [1, 1], end: [0, 1] });
+      expect(tip(closed, '10:50:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억 · 포지션 —']);
+    });
+
+    it('pos_net 키 없음 · 빈 배열 셋 → 기존 문구 · key 그대로', () => {
+      for (const p of [base as Tip, withPos({ t_ms: [], net_krw: [], cycle: [] })]) {
+        expect(tip(p, '10:10:00')).toEqual({
+          key: 'c1',
+          lines: ['10:00:05 · 순매수 누적 +2.10억 · 팀 평단 19,800원'],
+          circle: null,
+        });
+        expect(tip(p, '10:40:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억']);
+        expect(tip(p, '09:59:59')).toBeNull();
+      }
+    });
   });
 });

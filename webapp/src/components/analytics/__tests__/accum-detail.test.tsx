@@ -631,4 +631,33 @@ describe('quick-261025-fac 포지션 순매수 선(스케치 017 B)', () => {
     expect(texts).toContain('순매수 누적');
     expect(texts).not.toContain('포지션 순매수 · 그날 누적');
   });
+
+  it('(f3) posNetCarry(동양 합성 · end 없음 · 06:01 이월 점 · 13억) → 포지션 선이 왼쪽 끝에서 시작 · 2조각 · 열린 끝 · 축에 +13.0억', async () => {
+    detailOver.set(DONGYANG, accumSyntheticDetail('posNetCarry'));
+    const sec = await expand(DONGYANG);
+    const svg = chartOf(sec)!;
+    const pd = svg.querySelector('[data-slot="accum-pos-net-path"]')!.getAttribute('d')!;
+    const x1 = Number(svg.querySelector('[data-slot="accum-cum-zero"]')!.getAttribute('x1')).toFixed(1);
+    expect(pd.startsWith(`M${x1},`)).toBe(true);
+    expect(pd.match(/M/g)).toHaveLength(2);
+    expect(lastHOf(pd)).toBe(lastHOf(svg.querySelector('[data-slot="accum-cum-path"]')!.getAttribute('d')!));
+    const axis = Array.from(svg.querySelectorAll('[data-slot="accum-cum-axis"] text')).map((t) => t.textContent);
+    expect(axis).toContain('+13.0억');
+  });
+
+  it('(f4) posNet → 누적 판 첫 조각 위 마우스 → 「HH:MM:SS · 순매수 누적 ±X억 · 포지션 순매수 ±Y억(이월 포함)」', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('posNet'));
+    const sec = await expand(HANSUN);
+    const svg = chartOf(sec)!;
+    const pd = svg.querySelector('[data-slot="accum-pos-net-path"]')!.getAttribute('d')!;
+    const m = /^M([\d.]+),[\d.]+H([\d.]+)/.exec(pd)!;
+    const mx = (Number(m[1]) + Number(m[2])) / 2;
+    act(() => {
+      fireEvent.pointerMove(svg, { clientX: mx, clientY: 300, pointerType: 'mouse' });
+    });
+    const tip = sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]')!;
+    expect(tip.textContent).toMatch(
+      /^\d\d:\d\d:\d\d · 순매수 누적 [+−]?[\d.,]+억 · 포지션 순매수 [+−]?[\d.,]+억\(이월 포함\)/,
+    );
+  });
 });
