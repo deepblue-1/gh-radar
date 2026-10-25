@@ -32,7 +32,7 @@ vi.mock('@/lib/auth-fetch', () => ({
 }));
 
 import { clearQueryCache } from '@/lib/query-cache';
-import { ACCUM_RULE_LINES_DAY } from '@/lib/accum-report';
+import { ACCUM_RULE_LINES_DAY, ACCUM_RULE_LINES_DAY_POS } from '@/lib/accum-report';
 import {
   ACCUM_DATE,
   AC_CARRY,
@@ -950,5 +950,127 @@ describe('quick-261026-0ty 당일 평단(pos_day_avg_px)', () => {
     expect(prev).toBeTruthy();
     expect(norm(prev.textContent)).not.toContain('평단');
     expect(prev.querySelector('[data-slot="accum-prev-avg"]')).toBeNull();
+  });
+});
+
+describe('quick-261026-0ty 누적 판 pos_day', () => {
+  const dayListWithReal = () => {
+    const real = accumListRows().filter((r) => r.isin === CHEONIL || r.isin === HANSUN).map(accumDayAxisRowOf);
+    listOver = accumReportFixture({ rows: [...accumDayAxisListRows(), ...real], prevDate: '20261013' });
+  };
+  const expandDay = async (detail: AccumDetailRow = accumSyntheticDetail('posDay'), dayAxis = true) => {
+    if (dayAxis) dayListWithReal();
+    detailOver.set(HANSUN, detail);
+    const sec = await expand(HANSUN);
+    return { sec, svg: chartOf(sec)! };
+  };
+  const legendOf = (sec: HTMLElement) =>
+    Array.from(sec.querySelector('[data-slot="accum-legend"]')!.children).map((c) => c.textContent);
+  /** path d 가 y 값을 지나는가(`,y` 또는 `Vy`). */
+  const passesY = (d: string, y: string) => new RegExp(`[,V]${y.replace('.', '\\.')}(?![\\d])`).test(d);
+  const firstMx = (d: string) => /^M([\d.]+),/.exec(d)![1];
+  const lastTok = (d: string) => /H[\d.]+$/.exec(d)![0];
+
+  it('(p1) 보라 주선 = accum-pos-day-path(--team 2.2 · opacity 없음) · accum-cum-path 없음 · 회색 포지션 그대로 · 포지션 → pos-day 순', async () => {
+    const { svg } = await expandDay();
+    const day = svg.querySelector('[data-slot="accum-pos-day-path"]')!;
+    expect(day).toBeTruthy();
+    expect(day.getAttribute('stroke')).toBe('var(--team)');
+    expect(day.getAttribute('stroke-width')).toBe('2.2');
+    expect(day.hasAttribute('stroke-opacity')).toBe(false);
+    expect(svg.querySelector('[data-slot="accum-cum-path"]')).toBeNull();
+    const pos = svg.querySelector('[data-slot="accum-pos-net-path"]')!;
+    expect(pos.getAttribute('stroke')).toBe('var(--muted-fg)');
+    expect(pos.getAttribute('stroke-width')).toBe('1');
+    expect(pos.getAttribute('stroke-opacity')).toBe('0.7');
+    expect(pos.compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(p2) pos-day path 한 조각 · 첫 x = 포지션 첫 x(09:13) · 끝 20:00 · 판 위끝 240.0 · 오른쪽 축 = pos_day 범위', async () => {
+    const { svg } = await expandDay();
+    const dayD = svg.querySelector('[data-slot="accum-pos-day-path"]')!.getAttribute('d')!;
+    const posD = svg.querySelector('[data-slot="accum-pos-net-path"]')!.getAttribute('d')!;
+    expect(dayD).not.toMatch(/NaN/);
+    expect(dayD.match(/M/g)).toHaveLength(1);
+    expect(firstMx(dayD)).toBe(firstMx(posD));
+    expect(lastTok(dayD)).toBe(lastTok(posD));
+    expect(passesY(dayD, '240.0')).toBe(true);
+    const axis = Array.from(svg.querySelectorAll('[data-slot="accum-cum-axis"] text')).map((t) => t.textContent);
+    expect(axis).toEqual(['0.0억', '+2.3억']);
+  });
+
+  it('(p3) 누적 판 마우스 → 「09:13:00 · 당일 순매수 +1.00억 · 누적 +1.20억(이월 포함) · 팀 평단(당일) 14,100원」', async () => {
+    const { sec, svg } = await expandDay();
+    const pd = svg.querySelector('[data-slot="accum-pos-day-path"]')!.getAttribute('d')!;
+    const m = /^M([\d.]+),[\d.]+H([\d.]+)/.exec(pd)!;
+    const mx = (Number(m[1]) + Number(m[2])) / 2;
+    act(() => {
+      fireEvent.pointerMove(svg, { clientX: mx, clientY: 300, pointerType: 'mouse' });
+    });
+    const tip = sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]')!;
+    expect(tip.textContent!.startsWith('09:13:00 · 당일 순매수 +1.00억 · 누적 +1.20억(이월 포함) · 팀 평단(당일) 14,100원')).toBe(
+      true,
+    );
+  });
+
+  it('(p4) 팀 평단 점선 = pos_day 평단(13:06 0 에서 끊겨 M 2개 · 첫 x 09:13) · 범례 2번째 「팀 평단(당일)」', async () => {
+    const { sec, svg } = await expandDay();
+    const avgD = svg.querySelector('[data-slot="accum-team-avg-path"]')!.getAttribute('d')!;
+    const dayD = svg.querySelector('[data-slot="accum-pos-day-path"]')!.getAttribute('d')!;
+    expect(avgD.match(/M/g)).toHaveLength(2);
+    expect(firstMx(avgD)).toBe(firstMx(dayD));
+    expect(legendOf(sec)).toEqual([
+      '가격(10초)',
+      '팀 평단(당일)',
+      '팀 매수',
+      '팀 매도',
+      '팀매수 시작',
+      '당일 순매수',
+      '누적(이월 포함)',
+      '등록',
+      '청산·종료',
+      '등록 전',
+    ]);
+  });
+
+  it('(p5) pos_day 평단 전부 0 → 범례 「팀 평단」 · pos-day path 그대로', async () => {
+    const base = accumSyntheticDetail('posDay');
+    const p = base.payload!;
+    const detail = { ...base, payload: { ...p, pos_day: { ...p.pos_day!, avg_px: p.pos_day!.avg_px.map(() => 0) } } };
+    const { sec, svg } = await expandDay(detail);
+    expect(legendOf(sec)[1]).toBe('팀 평단');
+    expect(svg.querySelector('[data-slot="accum-pos-day-path"]')).toBeTruthy();
+  });
+
+  it('(p6) 당일 축 아닌 날짜 + pos_day 상세 → fac 모양 그대로', async () => {
+    const { sec, svg } = await expandDay(accumSyntheticDetail('posDay'), false);
+    expect(svg.querySelector('[data-slot="accum-cum-path"]')).toBeTruthy();
+    expect(svg.querySelector('[data-slot="accum-pos-day-path"]')).toBeNull();
+    expect(textsOf(svg)).toContain('포지션 순매수 · 그날 누적');
+    expect(legendOf(sec)[1]).toBe('팀 평단');
+  });
+
+  it('(p7) 당일 축 + pos_day · pos_net 없음 → pos-day path --team 1.5 · 포지션 · 왼쪽 축 없음 · 제목 「당일 순매수」 · 범례 9', async () => {
+    const base = accumSyntheticDetail('posDay');
+    const { pos_net: _pn, ...rest } = base.payload!;
+    const { sec, svg } = await expandDay({ ...base, payload: rest });
+    const day = svg.querySelector('[data-slot="accum-pos-day-path"]')!;
+    expect(day.getAttribute('stroke')).toBe('var(--team)');
+    expect(day.getAttribute('stroke-width')).toBe('1.5');
+    expect(svg.querySelector('[data-slot="accum-cum-path"]')).toBeNull();
+    expect(svg.querySelector('[data-slot="accum-pos-net-path"]')).toBeNull();
+    expect(svg.querySelector('[data-slot="accum-pos-axis"]')).toBeNull();
+    expect(textsOf(svg)).toContain('당일 순매수');
+    const legend = legendOf(sec);
+    expect(legend).toHaveLength(9);
+    expect(legend[1]).toBe('팀 평단(당일)');
+    expect(legend[5]).toBe('당일 순매수');
+  });
+
+  it('(p8) 판정 기준 본문 = ACCUM_RULE_LINES_DAY_POS', async () => {
+    const { sec } = await expandDay();
+    fireEvent.click(sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!);
+    const lis = Array.from(sec.querySelectorAll('[data-slot="accum-rules"] ul > li')).map((li) => li.textContent);
+    expect(lis.slice(1)).toEqual([...ACCUM_RULE_LINES_DAY_POS]);
   });
 });

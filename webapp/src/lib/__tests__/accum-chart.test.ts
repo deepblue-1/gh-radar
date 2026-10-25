@@ -51,8 +51,12 @@ import {
   panBy,
   presetOf,
   zoomAt,
+  posDayPathOf,
+  posDayPointsOf,
   posNetPathOf,
   posNetPointsOf,
+  teamAvgOf,
+  type PosDayPoint,
   type PosNetPoint,
   type PricePoint,
 } from '../accum-chart';
@@ -940,6 +944,153 @@ describe('포지션 순매수 선(quick-261025-fac · 스케치 017 B)', () => {
         expect(tip(p, '10:40:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억']);
         expect(tip(p, '09:59:59')).toBeNull();
       }
+    });
+  });
+});
+
+describe('quick-261026-0ty pos_day — 서버 당일 순매수 · 당일 평단(gh-trade 261026-0q3)', () => {
+  const xm = (t: number) => (t - T0) / M;
+  const yq = (c: number) => c / 1e8;
+  const m = (n: number) => T0 + n * M;
+  const T2000 = T0 + 11 * H;
+  type DayPick = Pick<AccumReportPayload, 'pos_day'>;
+  const ofDay = (v: unknown) => posDayPointsOf({ pos_day: v } as unknown as DayPick);
+  const dp = (...a: [number, number, number?][]): PosDayPoint[] => a.map(([n, net, avg = 0]) => ({ t: m(n), net, avg }));
+
+  it('posDayPointsOf — 키 없음 · null · 배열 자체 · t_ms/net_krw 배열 아님 → []', () => {
+    expect(posDayPointsOf({})).toEqual([]);
+    for (const v of [undefined, null, 'x', 3, [], { t_ms: 'x', net_krw: [] }, { t_ms: [1], net_krw: 'y' }, { t_ms: [1] }]) {
+      expect(ofDay(v)).toEqual([]);
+    }
+  });
+
+  it('posDayPointsOf — 짧은 쪽까지 · t/net 결측 점 건너뜀 · avg 배열 아님/결측/짧음 → 0 · 순서 그대로', () => {
+    const [a, b, c] = [m(10), m(20), m(30)];
+    expect(ofDay({ t_ms: [a, b, c], net_krw: [1, 2], avg_px: [5, 6, 7] })).toEqual([
+      { t: a, net: 1, avg: 5 },
+      { t: b, net: 2, avg: 6 },
+    ]);
+    expect(ofDay({ t_ms: [a, null, c], net_krw: [1, 2, Number.NaN] })).toEqual([{ t: a, net: 1, avg: 0 }]);
+    expect(ofDay({ t_ms: [a, b, c], net_krw: [1, 2, 3], avg_px: [5, 'q'] })).toEqual([
+      { t: a, net: 1, avg: 5 },
+      { t: b, net: 2, avg: 0 },
+      { t: c, net: 3, avg: 0 },
+    ]);
+    expect(ofDay({ t_ms: [c, a], net_krw: [1, 2], avg_px: [1, 2] }).map((p) => p.t)).toEqual([c, a]);
+  });
+
+  it('posDayPathOf — 한 조각 · 0선 시작 없음 · 20:00 연장 · 09:00 전 점은 T0 에 붙임 · 빈 배열 \'\'', () => {
+    expect(posDayPathOf(dp([13, 1e8], [60, 2.3e8], [246, 0.2e8]), xm, yq, T0, T2000)).toBe('M13.0,1.0H60.0V2.3H246.0V0.2H660.0');
+    expect(posDayPathOf(dp([-179, 0], [-20, 0.1e8], [60, 0.5e8]), xm, yq, T0, T2000)).toBe('M0.0,0.1H60.0V0.5H660.0');
+    expect(posDayPathOf([], xm, yq, T0, T2000)).toBe('');
+  });
+
+  it('teamAvgOf — 당일 축 + pos_day 양수 평단 점 → pos_day [t, avg] 전부(0 포함) · day true · 그 밖 payload.avg_px', () => {
+    const avg_px = { t_ms: [m(60)], px: [19_800] };
+    const pos_day = { t_ms: [m(50), m(65), m(90)], net_krw: [1, 2, 3], avg_px: [0, 19_900, 19_950] };
+    expect(teamAvgOf({ avg_px, pos_day }, false)).toEqual({ points: [[m(60), 19_800]], day: false });
+    expect(teamAvgOf({ avg_px, pos_day }, true)).toEqual({
+      points: [
+        [m(50), 0],
+        [m(65), 19_900],
+        [m(90), 19_950],
+      ],
+      day: true,
+    });
+    expect(teamAvgOf({ avg_px, pos_day: { ...pos_day, avg_px: [0, 0, 0] } }, true)).toEqual({
+      points: [[m(60), 19_800]],
+      day: false,
+    });
+    expect(teamAvgOf({ avg_px }, true)).toEqual({ points: [[m(60), 19_800]], day: false });
+    expect(teamAvgOf({ avg_px, pos_day: { t_ms: [], net_krw: [], avg_px: [] } }, true).day).toBe(false);
+  });
+
+  describe('툴팁 — pos_day 원천(dayAxis 일 때만)', () => {
+    const orders: AccumReportOrders = {
+      t_ms: [at('10:00:00'), at('10:00:05'), at('10:30:00')],
+      side: ['B', 'B', 'S'],
+      qty: [100, 50, 80],
+      val: [2_000_000_000, 10_000_000, 1_600_000],
+      px: [20_000, 20_000, 20_500],
+      pieces: [3, 1, 1],
+      first: [1, 0, 0],
+    };
+    const view = { t0: at('09:30:00'), t1: at('11:00:00') };
+    const x = xOfView(view, 52, 640);
+    const circles = orderCirclesOf(orders, view, x, (p) => 220 - (p - 19_000) / 10);
+    const base = {
+      orders,
+      day_cum_net: { t_ms: [at('10:00:00'), at('10:00:05'), at('10:30:00')], net_krw: [200_000_000, 210_000_000, 194_000_000] },
+      avg_px: { t_ms: [at('10:00:00'), at('10:30:00')], px: [19_800, 0] },
+    };
+    const PD = {
+      ...base,
+      pos_day: {
+        t_ms: [at('09:50:00'), at('10:00:05'), at('10:30:00')],
+        net_krw: [50_000_000, 180_000_000, 150_000_000],
+        avg_px: [0, 19_900, 19_950],
+      },
+    };
+
+    it('cumTipAt { dayAxis } (pos_net 없음) — 당일 순매수 = pos_day 계단 · 「팀 평단(당일)」 · 평단 0 이면 없음 · 첫 점 전 null', () => {
+      expect(cumTipAt(PD, at('10:10:00'), { dayAxis: true })).toEqual({
+        key: 'c1',
+        lines: ['10:00:05 · 당일 순매수 +1.80억 · 팀 평단(당일) 19,900원'],
+        circle: null,
+      });
+      expect(cumTipAt(PD, at('09:55:00'), { dayAxis: true })!.lines).toEqual(['09:50:00 · 당일 순매수 +0.50억']);
+      expect(cumTipAt(PD, at('09:45:00'), { dayAxis: true })).toBeNull();
+      expect(cumTipAt(PD, at('10:10:00'), { dayAxis: false })!.lines).toEqual([
+        '10:00:05 · 순매수 누적 +2.10억 · 팀 평단 19,800원',
+      ]);
+    });
+
+    it('cumTipAt { dayAxis } (pos_net 있음) — 당일 = pos_day · 첫 점 전 「당일 순매수 —」', () => {
+      const withPos = {
+        ...PD,
+        pos_net: {
+          t_ms: ['09:30:00', '10:00:00', '10:20:00', '10:40:00', '11:00:00'].map(at),
+          net_krw: [1.5e8, 1.8e8, 0.5e8, 1.2e8, 1.6e8],
+          cycle: [1, 1, 1, 2, 2],
+          end: [0, 0, 1, 0, 0],
+        },
+      };
+      expect(cumTipAt(withPos, at('10:10:00'), { dayAxis: true })).toEqual({
+        key: 'c1p1',
+        lines: ['10:00:05 · 당일 순매수 +1.80억 · 누적 +1.80억(이월 포함) · 팀 평단(당일) 19,900원'],
+        circle: null,
+      });
+      expect(cumTipAt(withPos, at('09:40:00'), { dayAxis: true })).toEqual({
+        key: 'c-1p0',
+        lines: ['09:30:00 · 당일 순매수 — · 누적 +1.50억(이월 포함)'],
+        circle: null,
+      });
+    });
+
+    it('orderTipOf { dayAxis } — 당일 순매수 = pos_day · 평단 대비 = pos_day 평단(0 이면 없음)', () => {
+      const c0 = circles.find((c) => c.i === 0)!;
+      expect(orderTipOf(PD, { base: 18_000 }, c0, { dayAxis: true })).toEqual([
+        '10:00:00 팀 매수 100주 · 20.00억 @20,000 · 3조각 · 팀매수 시작',
+        '당일 순매수 +0.50억 · 등락률 +11.11%',
+      ]);
+      const c1 = circles.find((c) => c.i === 1)!;
+      expect(orderTipOf(PD, { base: 18_000 }, c1, { dayAxis: true })[1]).toBe(
+        '당일 순매수 +1.80억 · 등락률 +11.11% · 평단 대비 +0.50%',
+      );
+    });
+
+    it('pos_day 빈 배열 셋 → { dayAxis } 결과가 01h 와 같다', () => {
+      const empty = { ...base, pos_day: { t_ms: [], net_krw: [], avg_px: [] } };
+      expect(cumTipAt(empty, at('10:10:00'), { dayAxis: true })).toEqual({
+        key: 'c1',
+        lines: ['10:00:05 · 당일 순매수 +2.10억 · 팀 평단 19,800원'],
+        circle: null,
+      });
+      const c0 = circles.find((c) => c.i === 0)!;
+      expect(orderTipOf(empty, { base: 18_000 }, c0, { dayAxis: true })).toEqual([
+        '10:00:00 팀 매수 100주 · 20.00억 @20,000 · 3조각 · 팀매수 시작',
+        '당일 순매수 +2.00억 · 등락률 +11.11% · 평단 대비 +1.01%',
+      ]);
     });
   });
 });

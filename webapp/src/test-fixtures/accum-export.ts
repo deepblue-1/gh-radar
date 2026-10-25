@@ -318,7 +318,8 @@ export type AccumSyntheticDetailKind =
   | 'noTeam'
   | 'noPrice'
   | 'posNet'
-  | 'posNetCarry';
+  | 'posNetCarry'
+  | 'posDay';
 
 /** 사이클 한 항목(16키) — 기본 = 오늘 등록 · 살아 있음 · pos_* 없음. */
 function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
@@ -361,6 +362,9 @@ function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
  * - `posNetCarry` 동양고속 · carry 바탕에 payload.pos_net(**end 배열 없음** · 이월 13억) — 06:01(이월 row 2 · 건너뜀) · 08:40(왼쪽
  *   끝) · 10:00 · 14:56(청산 — end 없어 이어짐) · 15:10 · 16:00(사이클 2 · 열린 끝). payload.cycles 는 carry 그대로다 — 차트는
  *   pos_net.cycle 만 본다. 포지션 선 2조각.
+ * - `posDay` **합성** — posNet 바탕에 payload.pos_day(quick-261026-0ty · gh-trade 261026-0q3)를 얹는다. t_ms = pos_net 과 같은 7시각 ·
+ *   net_krw 1.0 · 2.3 · 0.4 · 1.2 · 0.3 · 0.2 · 0.9억 · avg_px 14,100 · 14,200 · 14,200 · 14,300 · 14,300 · 0(13:06 새 사이클) · 14,500.
+ *   pos_day 는 끊김이 없어 한 조각 · 평단 선은 13:06 에서 끊긴다.
  */
 export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetailRow {
   const rows = accumDetailRows();
@@ -485,6 +489,21 @@ export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetai
             t_ms: ['06:01:00', '08:40:00', '10:00:00', '14:56:00', '15:10:00', '16:00:00'].map(at),
             net_krw: [1_240_000_000, 1_260_000_000, 1_300_000_000, 50_000_000, 120_000_000, 150_000_000],
             cycle: [1, 1, 1, 1, 2, 2],
+          },
+        },
+      };
+    }
+    case 'posDay': {
+      const base = accumSyntheticDetail('posNet');
+      const p = base.payload!;
+      return {
+        ...base,
+        payload: {
+          ...p,
+          pos_day: {
+            t_ms: [...p.pos_net!.t_ms],
+            net_krw: [100_000_000, 230_000_000, 40_000_000, 120_000_000, 30_000_000, 20_000_000, 90_000_000],
+            avg_px: [14_100, 14_200, 14_200, 14_300, 14_300, 0, 14_500],
           },
         },
       };

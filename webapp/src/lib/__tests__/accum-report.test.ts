@@ -18,6 +18,7 @@ import {
   ACCUM_DROP_TITLE,
   ACCUM_RULE_LINES,
   ACCUM_RULE_LINES_DAY,
+  ACCUM_RULE_LINES_DAY_POS,
   ACCUM_RULE_SOURCE,
   accumKpisOf,
   accumRowDescriptionOf,
@@ -589,5 +590,16 @@ describe('전날 평단 — prevDayOf avgPx (quick-261026-0ty)', () => {
     expect(prevDayOf({ ...dav(AC_CARRY), prev_pos_day_avg_px: 0 })!.avgPx).toBeNull();
     expect(prevDayOf(dax(AC_CARRY))!.avgPx).toBeNull();
     expect(prevDayOf({ ...dav(AC_CARRY), prev_pos_day_sell_krw: null })).toBeNull();
+  });
+});
+
+describe('ACCUM_RULE_LINES_DAY_POS (quick-261026-0ty)', () => {
+  it('4줄 — 본문 1 = DAY[0] · 본문 2 서버 당일 순매수 보라 · 원 문턱(누적 계단 문장 없음) · 종료 사유 공유', () => {
+    expect(ACCUM_RULE_LINES_DAY_POS).toEqual([
+      ACCUM_RULE_LINES_DAY[0],
+      '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 당일 순매수와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
+      '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.',
+      ACCUM_RULE_LINES[3],
+    ]);
   });
 });
