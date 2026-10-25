@@ -8,6 +8,7 @@
  * - 단위: `*_ms` = epoch ms · 가격 · 금액(`*_krw` · `*_px`) = 원 정수 · 수량 = 주 · **`*_rate` = % 그대로(30.0 = +30%)** ·
  *   `since_date` = `"YYYYMMDD"` 문자열 · NaN/inf 는 null. 억 · % 표시 변환은 웹 표시층(`webapp/src/lib/accum-report.ts`)만 한다.
  * - `pos_*` = 서버 상태기 값(등록 이후 누적 · 우리 체결 제외 · 마지막 사이클) · `day_*` / payload = 119 pcap 재계산(그날 하루 전체).
+ * - 상세 행은 + 당일 축 4열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2).
  * - **라이브 kind 16 계약(`accum-signal.ts` 의 AccumState · AccumSignal)과 별개다 — join 없음(D-22 · 30일 purge 비대칭).**
  *   이름이 겹치지 않게 `AccumReport*` 접두를 쓴다.
  */
@@ -71,6 +72,15 @@ export interface AccumReportRow {
   day_buy_qty: number | null;
   day_sell_qty: number | null;
   schema_version: number | null;
+  // quick-261025-uf2 — 상세 RPC(to_jsonb)만 싣고 목록 RPC(37열 명시)는 싣지 않아 선택 키 · 이 열 추가 전 적재 행 null.
+  /** 서버 당일 팀 매수 금액(원 · 그날 마지막 kind 16 snap_qty[2]) · 우리 체결 제외 · 전날 요약 원천 · `day_buy_krw` 와 다른 뜻. */
+  pos_day_buy_krw?: number | null;
+  /** 서버 당일 팀 매도 금액(원 · 그날 마지막 kind 16 snap_cum[2]) · 우리 체결 제외 · 전날 요약 원천 · `day_sell_krw` 와 다른 뜻. */
+  pos_day_sell_krw?: number | null;
+  /** 서버 등록 임계 — 최근 `th_recent_sec` 초 팀 매수 조각 수 합(기본 30) · 0 = 옛 서버. */
+  th_recent_pieces?: number | null;
+  /** 서버 등록 임계 — 위 창 길이(초 · 기본 60) · 0 = 옛 서버. */
+  th_recent_sec?: number | null;
   /**
    * 팀 당일 손익 — 목록 RPC 만 싣는다(payload.pnl 그대로 · 20261021140000). 상세 행은 payload.pnl 을 읽는다.
    * 팀 체결 0 · 옛 행 = null · 키 없음.

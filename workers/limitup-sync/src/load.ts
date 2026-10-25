@@ -40,7 +40,8 @@ export const OPTIONAL_FILES: readonly { tbl: OptionalTbl; file: string; chunk: n
 export type Row = Record<string, unknown>;
 
 /**
- * accum_flow 평평한 열 중 숫자형 — 표 정의(supabase/migrations/20261020200000_limitup_accum_flow.sql)와 같은 목록.
+ * accum_flow 평평한 열 중 숫자형 — 표 정의(supabase/migrations/20261020200000_limitup_accum_flow.sql +
+ * 20261025200000(당일 축 4열 · quick-261025-uf2))와 같은 목록.
  * `jsonb_populate_record` 는 JSON 숫자 텍스트를 열 입력 함수에 그대로 넣으므로 29.78 이 bigint 열에 가면 그날 commit
  * 전체가 롤백된다(상한가 6표 · team_flow 까지) — 그래서 stage 전에 워커가 먼저 본다(`accumRowProblems` · 34 WR-02).
  */
@@ -48,9 +49,11 @@ const ACCUM_BIGINT_COLS = [
   "base", "upper", "last_px", "high_px", "reg_time_ms", "end_time_ms", "our_excluded_qty", "mcap_krw",
   "th_net_krw", "th_same", "th_mcap_krw", "pos_buy_qty", "pos_buy_krw", "pos_sell_qty", "pos_sell_krw",
   "pos_net_krw", "pos_avg_px", "pos_peak_net_krw", "pos_reg_px", "day_buy_krw", "day_sell_krw", "day_net_krw",
-  "day_buy_qty", "day_sell_qty",
+  "day_buy_qty", "day_sell_qty", "pos_day_buy_krw", "pos_day_sell_krw",
 ] as const;
-const ACCUM_INT4_COLS = ["state", "end_reason", "cycle", "carry_days", "schema_version"] as const;
+const ACCUM_INT4_COLS = [
+  "state", "end_reason", "cycle", "carry_days", "schema_version", "th_recent_pieces", "th_recent_sec",
+] as const;
 const ACCUM_FLOAT_COLS = ["last_rate", "high_rate"] as const;
 const INT4_MAX = 2_147_483_647;
 /** 문제 목록 상한 — 로그 한 줄에 다 싣지 않는다. */

@@ -93,6 +93,30 @@ describe("accumRowProblems(34 WR-02 — commit RPC 를 깨뜨릴 accum_flow 결�
       "row 5 carry_days not int4: 2147483648",
     ]); // 처음 5개만(high_rate 는 잘림)
   });
+
+  it("당일 축 4열(quick-261025-uf2) — 정수면 통과 · 키 없음 · null 통과", () => {
+    const rows = [
+      { ...AF[0], pos_day_buy_krw: 3_000_000_000, pos_day_sell_krw: 1_200_000_000, th_recent_pieces: 30, th_recent_sec: 60 },
+      { ...AF[1], pos_day_buy_krw: null, pos_day_sell_krw: null, th_recent_pieces: null, th_recent_sec: null },
+      { ...AF[2] },
+    ];
+    expect(accumRowProblems("20261014", rows)).toEqual([]);
+  });
+
+  it("당일 축 4열 — 정수 아닌 값은 stage 전에 잡는다", () => {
+    const rows = [
+      { ...AF[0], pos_day_buy_krw: 1.5 },
+      { ...AF[1], pos_day_sell_krw: "100" },
+      { ...AF[2], th_recent_pieces: 2 ** 31 },
+      { ...AF[3], th_recent_sec: 60.5 },
+    ];
+    expect(accumRowProblems("20261014", rows)).toEqual([
+      "row 1 pos_day_buy_krw not integer: 1.5",
+      'row 2 pos_day_sell_krw not integer: "100"',
+      "row 3 th_recent_pieces not int4: 2147483648",
+      "row 4 th_recent_sec not int4: 60.5",
+    ]);
+  });
 });
 
 describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage insert × k → commit 1회 → 정리)", () => {
