@@ -54,6 +54,7 @@ import {
   DONGYANG,
   HANSUN,
   NAMELESS,
+  accumDayAvgListRows,
   accumDayAxisListRows,
   accumDetailFixture,
   accumReportFixture,
@@ -681,5 +682,19 @@ describe('quick-261026-01h — 당일 축 날짜 목록 · KPI (스케치 018)',
     expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 팀 순매수(등록 후) 큰 순')).toBeTruthy();
     expect(document.querySelector('[data-slot="accum-today"]')).toBeNull();
     expect(slotText(AC_LIVE, 'accum-avg')).toBe('평단 12,680 · 등록가 11,410');
+  });
+
+  it('(b1) quick-261026-0ty 당일 평단 열이 실린 날짜 → 아랫줄 「누적 · 평단(당일) N」 · 0 이면 「—」(누적 평단으로 채우지 않음)', async () => {
+    await open('d=20261014', accumReportFixture({ rows: accumDayAvgListRows(), prevDate: '20261013' }));
+    const carry = rowBtn(AC_CARRY).querySelector('[data-slot="accum-cum-sub"]')!;
+    expect(carry.textContent).toBe('누적 +3.6억 · 평단(당일) 21,480');
+    expect(carry.getAttribute('title')).toBe('누적 +3.6억 · 평단(당일) 21,480');
+    const live = rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!;
+    expect(live.textContent).toBe('누적 +9.3억 · 평단(당일) —');
+  });
+
+  it('(b2) quick-261026-0ty 열 없는 당일 축 날짜 → 01h 「누적 · 누적 평단」 그대로', async () => {
+    await openDay();
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!.textContent).toBe('누적 +9.3억 · 누적 평단 12,680');
   });
 });

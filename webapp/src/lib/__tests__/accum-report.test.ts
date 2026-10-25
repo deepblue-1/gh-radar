@@ -430,7 +430,7 @@ describe('당일 축 판정 — todayNetOf · prevDayOf · dayAxisOf (quick-2610
   });
 
   it('prevDayOf = { buyKrw, sellKrw, netKrw } · prev 2키 둘 다 수일 때만', () => {
-    expect(prevDayOf(dax(AC_CARRY))).toEqual({ buyKrw: 984_000_000, sellKrw: 674_000_000, netKrw: 310_000_000 });
+    expect(prevDayOf(dax(AC_CARRY))).toEqual({ buyKrw: 984_000_000, sellKrw: 674_000_000, netKrw: 310_000_000, avgPx: null });
     expect(prevDayOf(dax(AC_LIVE))).toBeNull();
     expect(prevDayOf({ ...dax(AC_CARRY), prev_pos_day_sell_krw: undefined })).toBeNull();
     expect(prevDayOf(syn(AC_CARRY))).toBeNull();
@@ -541,7 +541,7 @@ describe('당일 축 판정 기준 — 새 임계 문구 · ACCUM_RULE_LINES_DAY
 
   it('ACCUM_RULE_LINES_DAY 4줄 — 본문 1 · 2 당일 축용 · 3 · 4 는 ACCUM_RULE_LINES 공유(500만원)', () => {
     expect(ACCUM_RULE_LINES_DAY).toEqual([
-      '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 작업대의 당일 평단은 「—」(누적으로 채우지 않아요).',
+      '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
       '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 당일 순매수와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
       ACCUM_RULE_LINES[2],
       ACCUM_RULE_LINES[3],
@@ -580,5 +580,14 @@ describe('당일 평단 — hasDayAvgOf · detailKpisOf(row, true, true) (quick-
       '최고 순매수',
     ]);
     expect(detailKpisOf(dav(AC_CARRY)).map((x) => x.label)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
+  });
+});
+
+describe('전날 평단 — prevDayOf avgPx (quick-261026-0ty)', () => {
+  it('prev_pos_day_avg_px > 0 → avgPx · 0 · 키 없음 → null · buy/sell null 규칙 그대로', () => {
+    expect(prevDayOf(dav(AC_CARRY))).toEqual({ buyKrw: 984_000_000, sellKrw: 674_000_000, netKrw: 310_000_000, avgPx: 21_120 });
+    expect(prevDayOf({ ...dav(AC_CARRY), prev_pos_day_avg_px: 0 })!.avgPx).toBeNull();
+    expect(prevDayOf(dax(AC_CARRY))!.avgPx).toBeNull();
+    expect(prevDayOf({ ...dav(AC_CARRY), prev_pos_day_sell_krw: null })).toBeNull();
   });
 });

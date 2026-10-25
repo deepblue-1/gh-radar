@@ -926,4 +926,29 @@ describe('quick-261026-0ty 당일 평단(pos_day_avg_px)', () => {
     const sec = await expand(AC_CARRY);
     expect(kline(sec).map((x) => x.label)).not.toContain('당일 평단');
   });
+
+  const norm = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+
+  it('(b3) 이월 행 전날 줄 끝 「평단 21,120」(mono · --fg-2)', async () => {
+    avgList();
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY, accumDayAvgListRows()));
+    const sec = await expand(AC_CARRY);
+    const prev = sec.querySelector<HTMLElement>('[data-slot="accum-prev-line"]')!;
+    expect(norm(prev.textContent)).toBe('전날 10/13 순매수 +3.10억 매수 9.84억 / 매도 6.74억 평단 21,120');
+    const avg = prev.querySelector('[data-slot="accum-prev-avg"]')!;
+    expect(avg.textContent).toBe('21,120');
+    expect(avg.className).toContain('mono');
+    expect(avg.className).toContain('text-[var(--fg-2)]');
+  });
+
+  it('(b4) 전날 평단 0 → 전날 줄은 있고 평단 항목 없음', async () => {
+    const rows = accumDayAvgListRows().map((r) => (r.isin === AC_CARRY ? { ...r, prev_pos_day_avg_px: 0 } : r));
+    avgList(rows);
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY, rows));
+    const sec = await expand(AC_CARRY);
+    const prev = sec.querySelector<HTMLElement>('[data-slot="accum-prev-line"]')!;
+    expect(prev).toBeTruthy();
+    expect(norm(prev.textContent)).not.toContain('평단');
+    expect(prev.querySelector('[data-slot="accum-prev-avg"]')).toBeNull();
+  });
 });
