@@ -26,3 +26,4 @@
 | 013 | mypage-ia | /me 마이페이지 — 상따 기본설정 11행이 전략·계좌 위에 펼쳐지고 표면이 세로로 다 쌓임. A 상단 4탭 / B 접힘 요약 세로 / C 요약 타일 + 설정 분리? 설정 행은 S1 묶음 카드 / S2 한 장 / S3 값 타일? | A 상단 4탭 + S1 묶음 카드 4장(데스크톱 2열) (2026-10-06) | me, mypage, ia, settings, limit-chaser, mobile, web |
 | 014 | teamflow-list-detail | 팀 매집(teamflow) 보고서 — 하루 탐지 종목 목록과 종목 상세를 A 보고서 동형(행+그 자리 펼침) / B 비교표 고정+상세 전환 / C 판정 카드 피드(바텀시트·우측 패널) 중 어느 구조로? 상세 표 vs 차트는 015 | A 보고서 동형 · 기본 전부 접힘 (2026-10-16) | analytics, teamflow, report, list, accordion, comparison, cards, gh-trade |
 | 015 | teamflow-detail-chart | 팀 매집 상세(014 A 행 펼침 안) — 구간표·10분 흐름·거래원을 A 표 그대로 / B 차트(가로막대 + 10분 막대·팀 비중 선·등락률 띠) / C 혼합(차트 + 접힌 표) 중 어느 모양? | C 혼합 — 차트 + 접힌 표 (2026-10-16) | analytics, teamflow, report, chart, table, detail, gh-trade |
+| 017 | accum-pos-net-line | 매집감지 상세 누적 판에 포지션 순매수(이월 포함) 선 — A 같은 축 호박 실선 / B 같은 축 포지션 주인공 / C 축 분리? | B 같은 축 · 포지션 주인공(굵은 보라) · 그날 누적 회색 보조 (2026-10-25) | analytics, accum, report, chart, carry, gh-trade |

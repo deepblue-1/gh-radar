@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-24T13:25:09.639Z"
-last_activity: 2026-10-22
+last_updated: "2026-10-25T02:17:09.168Z"
+last_activity: 2026-10-24
 last_activity_desc: Phase 34 complete
-state_head: da978c130104b4b6515d8118cc19f0fadd4bb661
+state_head: f88226e49f3a424047d7462fe585ccad6cfb5f76
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-24 - Completed quick task 261024-uov: 매집 패널 매집 종료(4) — 그날 청산 행 있을 때만 회색 청산 · 복원 RPC 청산 행 동반
+Last activity: 2026-10-25 - Completed quick task 261025-fac: 매집감지 누적 판 포지션 순매수(이월 포함) 선 — 스케치 017 B
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -101,6 +101,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261022-ozx | 매집 패널 NXT 순매수 열 — kind 16 error/remaining_volume(gh-trade Phase 37 인계) | 2026-10-22 | 72fd4ce7 | [261022-ozx-nxt-kind-16-error-remaining-volume](./quick/261022-ozx-nxt-kind-16-error-remaining-volume/) |
 | 21 | 매집감지 보고서 차트 마우스 툴팁(gh-trade 동형) · 팀 주문 원이 가격 선 위에 오게 | 2026-10-23 | 46d56b02 | — |
 | 261024-uov | 매집 패널 매집 종료(4) — 그날 청산 행 있을 때만 회색 청산(값=청산 행) · 복원 RPC 청산 행 동반 · 라벨 | 2026-10-24 | da978c13 | [261024-uov-end-reason-4-rpc-end1](./quick/261024-uov-end-reason-4-rpc-end1/) |
+| 261025-fac | 매집감지 상세 누적 판 — 포지션 순매수(pos_net·이월 포함) 주인공 보라 계단 + 그날 누적 회색 보조(스케치 017 B) | 2026-10-25 | f88226e4 | [261025-fac-pos-net-017-b](./quick/261025-fac-pos-net-017-b/) |
 
 ## Session Continuity
 
