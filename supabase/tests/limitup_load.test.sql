@@ -20,6 +20,8 @@
 --     있을 때만(옛 워커 호출 호환 · D-03 감지 전제) · 날짜 교체 · purge · statement_timeout 120s 보존 · 열 타입 · 잠금 (J 절)
 --   - Phase 34(20261020200000): limitup_accum_flow 10번째 쌍 · stage CHECK 10값 · 이력 rows.accum_flow 는 p_expected 에 키가
 --     있을 때만(옛 워커 호출 호환) · 날짜 교체 · 원자성 · purge 90일 · statement_timeout 120s 보존 · 열 타입 · PK · 잠금 (K 절)
+--   - quick-261025-uf2(20261025200000): limitup_accum_flow 당일 축 4열 — 새 키가 있는 payload 는 같은 이름 열로 그대로
+--     (int4 초과 금액 포함), 키 없음 · JSON null 은 NULL · 열 타입 · commit 본문 무변경 (L 절)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -30,7 +32,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(271);  -- 163(Phase 28) + 55(J · Phase 33 team_flow) + 53(K · Phase 34 accum_flow)
+SELECT plan(282);  -- 163(Phase 28) + 55(J · Phase 33 team_flow) + 53(K · Phase 34 accum_flow) + 11(L · quick-261025-uf2 당일 축 4열)
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -498,6 +500,43 @@ SELECT is(has_table_privilege(r.role, 'public.limitup_accum_flow', r.priv), r.ex
                ('service_role', 'SELECT', true), ('service_role', 'INSERT', true),
                ('service_role', 'UPDATE', true), ('service_role', 'DELETE', true)) AS r(role, priv, expect)
  ORDER BY r.role, r.priv;
+
+-- ── L. quick-261025-uf2 accum_flow 당일 축 4열 — 20261025200000 ──────────────
+-- 잠그는 것: commit 의 accum_flow INSERT(열 목록 없는 jsonb_populate_record 행 타입 위치 대응)가 본문 무변경으로
+-- 새 4열을 싣는다 — 301 = 새 4키(30억 = int4 초과) · 302 = 키 없음(옛 export) · 303 = 4키 JSON null.
+SELECT pg_temp.st('20261024', 'accum_flow', 1, pg_temp.af('KR7000000301', 500000000, 29.78)
+  || '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60}'::jsonb);
+SELECT pg_temp.st('20261024', 'accum_flow', 2, pg_temp.af('KR7000000302', 1000, 12.5));
+SELECT pg_temp.st('20261024', 'accum_flow', 3, pg_temp.af('KR7000000303', 2000, 1.0)
+  || '{"pos_day_buy_krw":null,"pos_day_sell_krw":null,"th_recent_pieces":null,"th_recent_sec":null}'::jsonb);
+
+-- ① commit 성공(3행)
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261024', 'mf-af-l', 'sig-af-l', 1, '{"accum_flow":3}') $$,
+                'L① 당일 축 4키 실린 stage 3행 commit 성공');
+
+-- ② 301 — 새 4키가 같은 이름 열로 그대로(30억 = bigint)
+SELECT is((SELECT pos_day_buy_krw FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000301'),
+          3000000000::bigint, 'L② pos_day_buy_krw = 3000000000(int4 초과 금액 그대로)');
+SELECT is((SELECT pos_day_sell_krw FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000301'),
+          1200000000::bigint, 'L② pos_day_sell_krw = 1200000000');
+SELECT is((SELECT th_recent_pieces FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000301'),
+          30, 'L② th_recent_pieces = 30');
+SELECT is((SELECT th_recent_sec FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000301'),
+          60, 'L② th_recent_sec = 60');
+
+-- ③ 302(키 없음 — 옛 export) · 303(JSON null) → 네 열 NULL
+SELECT ok((SELECT pos_day_buy_krw IS NULL AND pos_day_sell_krw IS NULL AND th_recent_pieces IS NULL AND th_recent_sec IS NULL
+             FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000302'),
+          'L③ 4키 없는 옛 export 행 → 네 열 NULL');
+SELECT ok((SELECT pos_day_buy_krw IS NULL AND pos_day_sell_krw IS NULL AND th_recent_pieces IS NULL AND th_recent_sec IS NULL
+             FROM public.limitup_accum_flow WHERE date = '20261024' AND isin = 'KR7000000303'),
+          'L③ 4키 JSON null 행 → 네 열 NULL');
+
+-- ④ 열 타입
+SELECT col_type_is('public', 'limitup_accum_flow', c.col, c.typ, 'L④ 열 타입 ' || c.col || ' = ' || c.typ)
+  FROM (VALUES ('pos_day_buy_krw', 'bigint'), ('pos_day_sell_krw', 'bigint'),
+               ('th_recent_pieces', 'integer'), ('th_recent_sec', 'integer')) AS c(col, typ)
+ ORDER BY c.col;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -9,7 +9,8 @@
 --   - dates = limitup_accum_flow 행이 있는 날짜 내림차순 · p_date 없음 = 최신 · 행 없는 날짜 p_date → rows [] (dates 그대로)
 --   - 정렬 state, pos_net_krw DESC NULLS LAST, isin
 --   - 목록 rows 는 평평한 37열 + pnl(payload.pnl 그대로 · 20261021140000) — 어느 행에도 payload 키가 없다(Pitfall 6) ·
---     상세 row 는 37열 + payload · 없는 (date, isin) → row null
+--     당일 축 4열(quick-261025-uf2 · 20261025200000)도 없다(목록 RPC 37열 명시 그대로) ·
+--     상세 row 는 41열(37 + 당일 축 4) + payload(to_jsonb) · 없는 (date, isin) → row null
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · STABLE ·
 --     limitup_accum_flow RLS 활성 · 정책 0 · anon/authenticated SELECT 불가
 --   - D-03(RESEARCH Pitfall 8 정정): 탐지 0 거래일(6표 0 · 파생 0 · team_flow 0 · accum_flow 1 commit)은
@@ -25,7 +26,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(53);
+SELECT plan(55);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -49,7 +50,7 @@ LANGUAGE sql AS $$
   INSERT INTO public.limitup_stage (date, tbl, seq, payload)
   VALUES (p_date, p_tbl, p_seq, jsonb_build_object('date', p_date) || p_payload)
 $$;
--- accum_flow export 행 — 평평한 36열(date 는 st 가 싣는다 → 37열) + payload(price · orders · buckets · day_cum_net · pnl · cycles 최소 모양).
+-- accum_flow export 행 — 평평한 40열(date 는 st 가 싣는다 → 41열 · 끝 4 = 당일 축 quick-261025-uf2) + payload(price · orders · buckets · day_cum_net · pnl · cycles 최소 모양).
 CREATE FUNCTION pg_temp.af(p_isin text, p_state int, p_pos bigint) RETURNS jsonb LANGUAGE sql AS $$
   SELECT jsonb_build_object(
     'isin', p_isin, 'short_code', substr(p_isin, 4, 6), 'name', '매집종목' || right(p_isin, 2), 'market', 'KOSDAQ',
@@ -61,6 +62,7 @@ CREATE FUNCTION pg_temp.af(p_isin text, p_state int, p_pos bigint) RETURNS jsonb
     'pos_net_krw', p_pos, 'pos_avg_px', 12500, 'pos_peak_net_krw', 200000000, 'pos_reg_px', 11000,
     'day_buy_krw', 90000000, 'day_sell_krw', 30000000, 'day_net_krw', 60000000,
     'day_buy_qty', 7000, 'day_sell_qty', 2300, 'schema_version', 1,
+    'pos_day_buy_krw', 3000000000, 'pos_day_sell_krw', 1200000000, 'th_recent_pieces', 30, 'th_recent_sec', 60,
     'payload', jsonb_build_object(
       'price', jsonb_build_object('step_s', 10, 't0_ms', 1792200000000, 'px', jsonb_build_array(12000, 12500, 12978)),
       'orders', jsonb_build_array(jsonb_build_object('t_ms', 1792200100000, 'side', 'B', 'px', 12500, 'qty', 100)),
@@ -157,9 +159,14 @@ SELECT is((SELECT array_agg(DISTINCT n) FROM (
 SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(pg_temp.r('latest')->'rows'->0) k),
           (SELECT array_agg(c ORDER BY c) FROM (
              SELECT column_name::text AS c FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'limitup_accum_flow' AND column_name <> 'payload'
+              WHERE table_schema = 'public' AND table_name = 'limitup_accum_flow'
+                AND column_name NOT IN ('payload', 'pos_day_buy_krw', 'pos_day_sell_krw', 'th_recent_pieces', 'th_recent_sec')
              UNION ALL SELECT 'pnl') cols),
-          '④ D-06 목록 행 키 집합 = limitup_accum_flow 열 − payload + pnl');
+          '④ D-06 목록 행 키 집합 = limitup_accum_flow 열 − payload − 당일 축 4열(목록 RPC 37열 명시) + pnl');
+SELECT ok(NOT EXISTS (SELECT 1 FROM t_r, jsonb_array_elements(t_r.r->'rows') e
+                       WHERE t_r.label IN ('latest', 'd1013')
+                         AND e ?| ARRAY['pos_day_buy_krw', 'pos_day_sell_krw', 'th_recent_pieces', 'th_recent_sec']),
+          '④ 목록 rows 어느 행에도 당일 축 4키 없음(quick-261025-uf2 — 목록 RPC 무변경)');
 SELECT is(pg_temp.r('latest')->'rows'->0->'pnl'->'ret', '0.012'::jsonb, '④ 목록 행 pnl = payload.pnl 그대로');
 SELECT is(pg_temp.r('latest')->'rows'->0->'last_rate', '29.78'::jsonb, '④ D-06 last_rate 29.78(JSON 숫자 · double)');
 SELECT is(pg_temp.r('latest')->'rows'->0->'since_date', '"20261009"'::jsonb, '④ D-06 since_date "20261009" 문자열');
@@ -178,7 +185,10 @@ SELECT is(pg_temp.r('det')->'row'->>'date', '20261014', '⑥ D-06 상세 row.dat
 SELECT is(jsonb_typeof(pg_temp.r('det')->'row'->'payload'), 'object', '⑥ D-06 상세 row 에 payload 객체');
 SELECT is(pg_temp.r('det')->'row' #>> '{payload,price,step_s}', '10', '⑥ D-06 상세 payload.price.step_s 중첩 그대로');
 SELECT is(pg_temp.r('det')->'row' #>> '{payload,cycles,0,since_date}', '20261009', '⑥ D-06 상세 payload.cycles[0] 그대로');
-SELECT is((SELECT count(*)::int FROM jsonb_object_keys(pg_temp.r('det')->'row')), 38, '⑥ D-06 상세 row 키 38(37열 + payload)');
+SELECT is((SELECT count(*)::int FROM jsonb_object_keys(pg_temp.r('det')->'row')), 42,
+          '⑥ D-06 상세 row 키 42(37열 + 당일 축 4열 + payload)');
+SELECT ok(pg_temp.r('det')->'row' @> '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60}'::jsonb,
+          '⑥ 상세 row 가 당일 축 4키 값을 싣는다(to_jsonb — quick-261025-uf2)');
 SELECT ok(pg_temp.r('det-no') ? 'row' AND jsonb_typeof(pg_temp.r('det-no')->'row') = 'null',
           '⑥ D-06 없는 isin → row 키 있음 · jsonb null');
 SELECT ok(pg_temp.r('det-dt') ? 'row' AND jsonb_typeof(pg_temp.r('det-dt')->'row') = 'null',
