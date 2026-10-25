@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { fetchAccumDetail, readAccumDetailCache } from '@/lib/accum-api';
 import { useChartView } from '@/hooks/use-chart-view';
-import { dayBoundsOf, fmtViewRange, lastTradeMsOf, type ChartPreset } from '@/lib/accum-chart';
+import { dayBoundsOf, fmtViewRange, lastTradeMsOf, posNetPointsOf, type ChartPreset } from '@/lib/accum-chart';
 import {
   ACCUM_LOAD_HM,
   ACCUM_RULE_LINES,
@@ -317,6 +317,15 @@ const LEGEND: readonly { label: string; swatch: string }[] = [
   { label: '등록 전', swatch: 'inline-block size-2.5 border border-[var(--border-subtle)] bg-[var(--accum-shade)]' },
 ];
 
+/** quick-261025-fac · 스케치 017 B — pos_net 점이 있는 행은 누적 판이 두 선이라 「순매수 누적」 자리에 이 두 항목이 들어간다. */
+const POS_LEGEND: readonly { label: string; swatch: string }[] = [
+  { label: '포지션 순매수(이월 포함)', swatch: 'inline-block h-[3px] w-2.5 rounded-full bg-[var(--team)]' },
+  { label: '그날 순매수 누적(0부터)', swatch: 'inline-block h-px w-2.5 bg-[var(--muted-fg)] opacity-70' },
+];
+const LEGEND_POS: readonly { label: string; swatch: string }[] = LEGEND.flatMap((l) =>
+  l.label === '순매수 누적' ? POS_LEGEND : [l],
+);
+
 /** KPI 줄 아래 차트 블록 나머지 — 가격 자료가 없거나 payload 모양이 어긋나면(`payloadOf` · WR-05) 한 줄 대체. */
 function ReadyChart({ row }: { row: AccumDetailRow }) {
   const payload = payloadOf(row);
@@ -336,6 +345,8 @@ function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReport
   const lastTradeMs = lastTradeMsOf(payload.price);
   const ctl = useChartView({ bounds, lastTradeMs });
   const noTeam = payload.day_cum_net.t_ms.length === 0;
+  // 로딩 스켈레톤은 payload 를 모르니 LEGEND 그대로 — 범례 분기는 여기만
+  const legend = posNetPointsOf(payload).length > 0 ? LEGEND_POS : LEGEND;
 
   return (
     <>
@@ -343,7 +354,7 @@ function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReport
         data-slot="accum-legend"
         className={cn(LEGEND_ROW, 'text-[length:var(--t-caption)] text-[var(--muted-fg)]')}
       >
-        {LEGEND.map((l) => (
+        {legend.map((l) => (
           <span key={l.label} className="inline-flex items-center gap-1 whitespace-nowrap">
             <span aria-hidden="true" className={l.swatch} />
             {l.label}
