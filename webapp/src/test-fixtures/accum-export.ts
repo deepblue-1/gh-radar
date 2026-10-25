@@ -253,6 +253,14 @@ export function accumDayAxisListRows(): AccumReportRow[] {
 }
 
 /**
+ * 목록 행 하나를 당일 축 행으로(합성 · quick-261026-01h 차트 테스트) — pos_day 1.2억 / 0.3억 · th_recent 30개 · 60초.
+ * 실측 행(천일 · 한선)을 당일 축 목록에 넣어 실측/합성 상세(pos_net 유무)를 당일 축 날짜로 펼칠 때 쓴다.
+ */
+export function accumDayAxisRowOf(row: AccumReportRow): AccumReportRow {
+  return { ...row, pos_day_buy_krw: 120_000_000, pos_day_sell_krw: 30_000_000, th_recent_pieces: 30, th_recent_sec: 60 };
+}
+
+/**
  * 당일 축 목록 행의 상세 — 실측 천일고속 상세(payload)에 그 목록 행의 평평한 열 · 당일 축 4키를 덮는다(전날 2키 · pnl 은 목록만 →
  * 뺀다). 합성 ISIN(AC0n)을 펼쳤을 때 상세 RPC 모양으로 돌려주는 테스트 도우미.
  */

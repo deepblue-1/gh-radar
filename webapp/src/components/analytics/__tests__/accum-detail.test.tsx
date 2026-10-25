@@ -43,6 +43,8 @@ import {
   HANSUN,
   accumDayAxisDetailOf,
   accumDayAxisListRows,
+  accumDayAxisRowOf,
+  accumListRows,
   accumDetailFixture,
   accumReportFixture,
   accumSyntheticDetail,
@@ -775,5 +777,116 @@ describe('quick-261026-01h — 당일 축 상세 KPI · 전날 줄 · 판정 기
     expect(klineLabels(sec)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
     expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
     expect(openRules(sec)).toEqual(RULE_TEXTS);
+  });
+});
+
+describe('quick-261026-01h 당일 축 누적 판(스케치 018 ②)', () => {
+  /** 당일 축 목록(합성 7행) + 실측 천일 · 한선 행(당일 축 키) — 펼침은 실측/합성 상세. */
+  const dayListWithReal = () => {
+    const real = accumListRows().filter((r) => r.isin === CHEONIL || r.isin === HANSUN).map(accumDayAxisRowOf);
+    listOver = accumReportFixture({ rows: [...accumDayAxisListRows(), ...real], prevDate: '20261013' });
+  };
+  const expandPosNet = async () => {
+    dayListWithReal();
+    detailOver.set(HANSUN, accumSyntheticDetail('posNet'));
+    const sec = await expand(HANSUN);
+    return { sec, svg: chartOf(sec)! };
+  };
+  /** path d 가 y 값을 지나는가(`,y` 또는 `Vy`). */
+  const passesY = (d: string, y: string) => new RegExp(`[,V]${y.replace('.', '\\.')}(?![\\d])`).test(d);
+
+  it('(d1) 누적 판 — 그날 path 굵은 보라(--team 2.2) · 포지션 path 회색(--muted-fg 1 · 0.7) · 포지션이 먼저(= 아래)', async () => {
+    const { svg } = await expandPosNet();
+    const cum = svg.querySelector('[data-slot="accum-cum-path"]')!;
+    const pos = svg.querySelector('[data-slot="accum-pos-net-path"]')!;
+    expect(cum.getAttribute('stroke')).toBe('var(--team)');
+    expect(cum.getAttribute('stroke-width')).toBe('2.2');
+    expect(cum.hasAttribute('stroke-opacity')).toBe(false);
+    expect(pos.getAttribute('stroke')).toBe('var(--muted-fg)');
+    expect(pos.getAttribute('stroke-width')).toBe('1');
+    expect(pos.getAttribute('stroke-opacity')).toBe('0.7');
+    expect(pos.getAttribute('pointer-events')).toBe('none');
+    expect(pos.compareDocumentPosition(cum) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(d2) 두 축 독립 — 두 path 모두 판 위끝 240.0 을 지난다 · 왼쪽 회색 축(min · max · L − 6 · end) · 오른쪽 --team 축 그대로', async () => {
+    const { svg } = await expandPosNet();
+    const cumD = svg.querySelector('[data-slot="accum-cum-path"]')!.getAttribute('d')!;
+    const posD = svg.querySelector('[data-slot="accum-pos-net-path"]')!.getAttribute('d')!;
+    expect(posD).not.toMatch(/NaN/);
+    expect(passesY(posD, '240.0')).toBe(true);
+    expect(passesY(cumD, '240.0')).toBe(true);
+    const axis = svg.querySelector('[data-slot="accum-pos-axis"]')!;
+    expect(axis).toBeTruthy();
+    expect(axis.getAttribute('fill')).toBe('var(--muted-fg)');
+    const texts = Array.from(axis.querySelectorAll('text'));
+    expect(texts.map((t) => t.textContent)).toEqual(['0.0억', '+2.5억']);
+    const pxX = svg.querySelector('[data-slot="accum-px-axis"] text')!.getAttribute('x');
+    for (const t of texts) {
+      expect(t.getAttribute('x')).toBe(pxX);
+      expect(t.getAttribute('text-anchor')).toBe('end');
+    }
+    expect(svg.querySelector('[data-slot="accum-cum-axis"]')!.getAttribute('fill')).toBe('var(--team)');
+  });
+
+  it('(d3) 판 제목 「당일 순매수 · 누적(이월 포함)」(뒤 조각 --muted-fg tspan) · 「포지션 순매수 · 그날 누적」 없음', async () => {
+    const { svg } = await expandPosNet();
+    const texts = textsOf(svg);
+    expect(texts).toContain('당일 순매수 · 누적(이월 포함)');
+    expect(texts).not.toContain('포지션 순매수 · 그날 누적');
+    const tspan = Array.from(svg.querySelectorAll('tspan')).find((t) => t.textContent === ' · 누적(이월 포함)')!;
+    expect(tspan.getAttribute('fill')).toBe('var(--muted-fg)');
+  });
+
+  it('(d4) 누적 판 마우스 → 「HH:MM:SS · 당일 순매수 ±X억 · 누적 ±Y억(이월 포함)」', async () => {
+    const { sec, svg } = await expandPosNet();
+    const pd = svg.querySelector('[data-slot="accum-pos-net-path"]')!.getAttribute('d')!;
+    const m = /^M([\d.]+),[\d.]+H([\d.]+)/.exec(pd)!;
+    const mx = (Number(m[1]) + Number(m[2])) / 2;
+    act(() => {
+      fireEvent.pointerMove(svg, { clientX: mx, clientY: 300, pointerType: 'mouse' });
+    });
+    const tip = sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]')!;
+    expect(tip.textContent).toMatch(/^\d\d:\d\d:\d\d · 당일 순매수 [+−]?[\d.,]+억 · 누적 [+−]?[\d.,]+억\(이월 포함\)/);
+  });
+
+  it('(d5) 범례 10항목 — 「당일 순매수」(3px --team) · 「누적(이월 포함)」(1px --muted-fg opacity-70)', async () => {
+    const { sec } = await expandPosNet();
+    const kids = Array.from(sec.querySelector('[data-slot="accum-legend"]')!.children);
+    expect(kids.map((c) => c.textContent)).toEqual([
+      '가격(10초)',
+      '팀 평단',
+      '팀 매수',
+      '팀 매도',
+      '팀매수 시작',
+      '당일 순매수',
+      '누적(이월 포함)',
+      '등록',
+      '청산·종료',
+      '등록 전',
+    ]);
+    const sw = (i: number) => kids[i]!.querySelector('span[aria-hidden="true"]')!.getAttribute('class') ?? '';
+    expect(sw(5)).toContain('bg-[var(--team)]');
+    expect(sw(5)).toContain('h-[3px]');
+    expect(sw(6)).toContain('bg-[var(--muted-fg)]');
+    expect(sw(6)).toContain('h-px');
+    expect(sw(6)).toContain('opacity-70');
+  });
+
+  it('(d6) 당일 축 날짜 + pos_net 없는 상세(실측 천일) → 포지션 path · 왼쪽 축 없음 · 그날 path --team 1.5 · 제목 「당일 순매수」 · 범례 9', async () => {
+    dayListWithReal();
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    expect(svg.querySelector('[data-slot="accum-pos-net-path"]')).toBeNull();
+    expect(svg.querySelector('[data-slot="accum-pos-axis"]')).toBeNull();
+    const cum = svg.querySelector('[data-slot="accum-cum-path"]')!;
+    expect(cum.getAttribute('stroke')).toBe('var(--team)');
+    expect(cum.getAttribute('stroke-width')).toBe('1.5');
+    const texts = textsOf(svg);
+    expect(texts).toContain('당일 순매수');
+    expect(texts).not.toContain('순매수 누적');
+    const kids = Array.from(sec.querySelector('[data-slot="accum-legend"]')!.children).map((c) => c.textContent);
+    expect(kids).toHaveLength(9);
+    expect(kids[5]).toBe('당일 순매수');
   });
 });

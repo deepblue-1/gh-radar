@@ -728,6 +728,26 @@ describe('마우스 툴팁(2026-10-23 · gh-trade AccumChartPanel · AccumBucket
     expect(orderTipOf({ ...payload, day_cum_net: { t_ms: [], net_krw: [] } }, { base: null }, c2)).toEqual([c2.title]);
   });
 
+  it('quick-261026-01h orderTipOf { dayAxis } — 둘째 줄 첫 항목만 「당일 순매수 ±X.XX억」 · 옵션 없음 그대로', () => {
+    const c0 = circles.find((c) => c.i === 0)!;
+    expect(orderTipOf(payload, { base: 18_000 }, c0, { dayAxis: true })).toEqual([
+      '10:00:00 팀 매수 100주 · 20.00억 @20,000 · 3조각 · 팀매수 시작',
+      '당일 순매수 +2.00억 · 등락률 +11.11% · 평단 대비 +1.01%',
+    ]);
+    expect(orderTipOf(payload, { base: 18_000 }, c0, { dayAxis: false })[1]).toBe(
+      '순매수 누적 +2.00억 · 등락률 +11.11% · 평단 대비 +1.01%',
+    );
+  });
+
+  it('quick-261026-01h cumTipAt { dayAxis } (pos_net 없음) — 「HH:MM:SS · 당일 순매수 ±X.XX억[ · 팀 평단 N원]」 · key 그대로', () => {
+    expect(cumTipAt(payload, at('10:10:00'), { dayAxis: true })).toEqual({
+      key: 'c1',
+      lines: ['10:00:05 · 당일 순매수 +2.10억 · 팀 평단 19,800원'],
+      circle: null,
+    });
+    expect(cumTipAt(payload, at('10:40:00'), { dayAxis: true })!.lines).toEqual(['10:30:00 · 당일 순매수 +1.94억']);
+  });
+
   it('cumTipAt — t 이하 마지막 점 「HH:MM:SS · 순매수 누적 · 팀 평단」 · 첫 점 앞 null', () => {
     expect(cumTipAt(payload, at('10:10:00'))).toEqual({
       key: 'c1',
@@ -893,6 +913,21 @@ describe('포지션 순매수 선(quick-261025-fac · 스케치 017 B)', () => {
       expect(tip(between, '10:35:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억 · 포지션 —']);
       const closed = withPos({ t_ms: ['09:30:00', '10:20:00'].map(at), net_krw: [1.5e8, 0.5e8], cycle: [1, 1], end: [0, 1] });
       expect(tip(closed, '10:50:00')!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억 · 포지션 —']);
+    });
+
+    it('quick-261026-01h { dayAxis } — 같은 key · 글자만 「당일 순매수 · 누적(이월 포함)」 / 「누적 —」', () => {
+      expect(cumTipAt(payload, at('10:10:00'), { dayAxis: true })).toEqual({
+        key: 'c1p1',
+        lines: ['10:00:05 · 당일 순매수 +2.10억 · 누적 +1.80억(이월 포함) · 팀 평단 19,800원'],
+        circle: null,
+      });
+      expect(cumTipAt(payload, at('10:35:00'), { dayAxis: true })).toEqual({
+        key: 'c2p2',
+        lines: ['10:30:00 · 당일 순매수 +1.94억 · 누적 —'],
+        circle: null,
+      });
+      // 옵션 없음 = 기존 글자
+      expect(cumTipAt(payload, at('10:35:00'), {})!.lines).toEqual(['10:30:00 · 순매수 누적 +1.94억 · 포지션 —']);
     });
 
     it('pos_net 키 없음 · 빈 배열 셋 → 기존 문구 · key 그대로', () => {
