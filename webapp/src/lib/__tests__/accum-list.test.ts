@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import type { AccumSignal, StrategyEventRow } from '@gh-radar/shared';
+import type { AccumReportResponse, AccumReportRow, AccumSignal, StrategyEventRow } from '@gh-radar/shared';
 
 /**
  * quick-261018-rfy — 작업대 「매집」 패널 순수 함수 (D-01 · D-02).
  *
  * 잠그는 것:
  *  - latestAccumByIsin: 같은 isin 여러 행 → gwTimeMs 큰 것 → 같으면 gateway 사전순 앞 → 같으면 seq 큰 것
- *  - sortAccum: 매집중 · 매도중(1·2)은 netKrw 큰 순 · 청산(3)은 뒤에서 gwTimeMs 작은 순(먼저 청산한 순 · gh-trade 동형)
+ *  - sortAccum: 매집중 · 매도중(1·2)은 dayNetKrw 큰 순(null 은 수 뒤) → netKrw 큰 순 → isin · 청산(3)은 뒤에서 gwTimeMs 작은 순
+ *    (먼저 청산한 순 · gh-trade 동형) — quick-261026-01h 당일 축
+ *  - prevDayNetOf(resp, todayYmd): 최신 보고서가 오늘 전이면 그날 pos_day 차 · 오늘이면 prev_pos_day 차 · 결측 isin 없음 ·
+ *    access false · date null · 미래 날짜 → 빈 Map(quick-261026-01h)
  *  - isListedAccum(sig, closed): 활성 전부 · 청산은 종료 사유 1 · 매집 종료(4)는 그날 청산 행이 있는 isin 만(06:00 기동 정합 · 만료 제외)
  *  - closedRowsOf: 자르기 뒤 queueCase 4 · cancelReason 1 행 — isin 별 최신 1건(매집 종료 행의 값 · 시각 정본)
  *  - accumDismissKey = 활성 `${isin}|${cycle}` · 청산 `…|end`(같은 cycle 재등장) · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
@@ -26,6 +29,7 @@ import {
   latestAccumByIsin,
   readAccumDismissed,
   restoreCutByGateway,
+  prevDayNetOf,
   sortAccum,
 } from '../accum-list';
 import { HIGHLIGHT_MS } from '../breakout-list';
@@ -187,6 +191,68 @@ describe('sortAccum', () => {
     const input = [sig({ isin: 'A', netKrw: 1 }), sig({ isin: 'B', netKrw: 2 })];
     sortAccum(input);
     expect(input.map((s) => s.isin)).toEqual(['A', 'B']);
+  });
+
+  it('quick-261026-01h — 활성 행은 dayNetKrw 큰 순(−0.6억 이 +2.4억 뒤) · null 은 수 뒤 · 같거나 둘 다 null 이면 netKrw → isin · 청산은 그대로', () => {
+    const out = sortAccum([
+      sig({ isin: 'N1', netKrw: 9e9, dayNetKrw: null }),
+      sig({ isin: 'D2', netKrw: 1e8, dayNetKrw: -60_000_000 }),
+      sig({ isin: 'E1', state: 3, gwTimeMs: 2_000, dayNetKrw: 5e9 }),
+      sig({ isin: 'D1', netKrw: 1e8, dayNetKrw: 240_000_000 }),
+      sig({ isin: 'N2', netKrw: 9e9, dayNetKrw: null }),
+      sig({ isin: 'N0', netKrw: 3e9, dayNetKrw: null }),
+      sig({ isin: 'T2', state: 2, netKrw: 5e8, dayNetKrw: 100_000_000 }),
+      sig({ isin: 'T1', netKrw: 2e8, dayNetKrw: 100_000_000 }),
+      sig({ isin: 'E0', state: 3, gwTimeMs: 1_000, dayNetKrw: null }),
+    ]);
+    expect(out.map((s) => s.isin)).toEqual(['D1', 'T2', 'T1', 'D2', 'N1', 'N2', 'N0', 'E0', 'E1']);
+  });
+});
+
+describe('prevDayNetOf — 이월 행 전날 순매수(quick-261026-01h)', () => {
+  const ar = (over: Partial<AccumReportRow>): AccumReportRow => ({ isin: 'A', ...over }) as AccumReportRow;
+  const resp = (date: string | null, rows: AccumReportRow[]): AccumReportResponse => ({
+    access: true,
+    dates: date === null ? [] : [date],
+    date,
+    rows,
+  });
+
+  it('최신 보고서가 오늘 전이면 그날 행의 pos_day_buy − pos_day_sell · 하나라도 결측 · null 이면 그 isin 없음', () => {
+    const m = prevDayNetOf(
+      resp('20261023', [
+        ar({ isin: 'A', pos_day_buy_krw: 984_000_000, pos_day_sell_krw: 674_000_000, prev_pos_day_buy_krw: 1, prev_pos_day_sell_krw: 0 }),
+        ar({ isin: 'B', pos_day_buy_krw: 0, pos_day_sell_krw: 60_000_000 }),
+        ar({ isin: 'C', pos_day_buy_krw: null, pos_day_sell_krw: 1 }),
+        ar({ isin: 'D', pos_day_buy_krw: 5 }),
+      ]),
+      '20261026',
+    );
+    expect([...m.entries()]).toEqual([
+      ['A', 310_000_000],
+      ['B', -60_000_000],
+    ]);
+  });
+
+  it('최신 보고서가 오늘(20:30 적재 뒤)이면 prev_pos_day_buy − prev_pos_day_sell · 같은 결측 규칙', () => {
+    const m = prevDayNetOf(
+      resp('20261026', [
+        ar({ isin: 'A', pos_day_buy_krw: 9e9, pos_day_sell_krw: 0, prev_pos_day_buy_krw: 984_000_000, prev_pos_day_sell_krw: 674_000_000 }),
+        ar({ isin: 'B', pos_day_buy_krw: 1, pos_day_sell_krw: 0, prev_pos_day_buy_krw: null, prev_pos_day_sell_krw: null }),
+        ar({ isin: 'C', pos_day_buy_krw: 1, pos_day_sell_krw: 0 }),
+      ]),
+      '20261026',
+    );
+    expect([...m.entries()]).toEqual([['A', 310_000_000]]);
+  });
+
+  it('access false · date null · rows [] · 미래 날짜 → 빈 Map', () => {
+    expect(prevDayNetOf({ access: false }, '20261026').size).toBe(0);
+    expect(prevDayNetOf(resp(null, []), '20261026').size).toBe(0);
+    expect(prevDayNetOf(resp('20261023', []), '20261026').size).toBe(0);
+    expect(
+      prevDayNetOf(resp('20261027', [ar({ isin: 'A', pos_day_buy_krw: 1, pos_day_sell_krw: 0 })]), '20261026').size,
+    ).toBe(0);
   });
 });
 

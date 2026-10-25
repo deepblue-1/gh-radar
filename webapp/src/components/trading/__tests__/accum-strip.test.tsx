@@ -6,7 +6,7 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  * quick-261018-rfy D-01 — 작업대 「매집」 패널(돌파 패널 동형 · 목업 mockup-workbench.html 안 A).
  *
  * 잠그는 것:
- *   ① 칩 = 이름 · 팀 순매수(억 · 부호 색) · 상태 배지(매집중 --team · 매도중 --accum-sell) · 이월 D+n(carryDays > 0 만)
+ *   ① 칩 = 이름 · 「당일」 · 당일 순매수(억 · 부호 색 — quick-261026-01h) · 상태 배지(매집중 --team · 매도중 --accum-sell) · 이월 D+n(carryDays > 0 만)
  *   ② 청산(state 3)은 칩에 없고 펼친 표에만 회색 · 행 title = 종료 사유 문구 · 패널은 받은 행을 거르지 않는다(목록 규칙은 훅 — accum-list ②')
  *   ③ 표 순서 = sortAccum · 열 접기(NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 = colNarrow) · 보조 줄 · 코드 <700 숨김
  *   ④ 더보기 → 표 · panels pref accum 기억(다시 마운트해도 열림)
@@ -19,6 +19,11 @@ import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
  *   ⑪ NXT 순매수(quick-261022-ozx) — 팀 순매수 다음 열 · nxtBuyKrw − nxtSellKrw · 같은 억 포맷 · 부호 색 · 0 「0.0억」 ·
  *      청산 무색 · <700 접힘 + 보조 줄 끝 · 머리 title 「KRX+NXT 합산」 · 칩 title 「팀 순매수(KRX+NXT) … · NXT 순매수 …」 ·
  *      칩 글자 무변경
+ *   ⑫ 당일 축(quick-261026-01h · 스케치 018 B) — 4열 「당일 순매수」(첫 줄 dayNetKrw · null 「—」 --faint) + 둘째 줄 「누적 ±x.x억」 ·
+ *      이월 행 + 전날 값(prevNet · 0 아님)이면 ≥700 둘째 줄 끝 「 · 전날 ±x.x억」 · <700 보조 줄 「전날 ±x.x억」 ·
+ *      평단 · 수익률 · 구간 · 순수량 = 당일(dayAvgPx 0 · null 이면 「—」 · 누적 폴백 없음) · 칩 「당일」 + dayNetKrw · 정렬 dayNetKrw 큰 순
+ *
+ * 기존 ① · ③ · ⑪ 의 금액 · 평단 · 구간 단언은 당일 값(`daySig` — 누적과 같은 수를 당일 9필드에 얹은 새 서버 행)으로 같은 사실을 잠근다.
  */
 
 vi.mock('@/lib/stock-names', () => ({
@@ -103,6 +108,22 @@ function sig(over: Partial<AccumSignal> = {}): AccumSignal {
   };
 }
 
+/** 새 서버 행 — 당일 축 9필드를 누적과 같은 수로 얹는다(기존 단언의 금액 · 평단 · 구간이 그대로 당일 값이 된다). */
+function daySig(over: Partial<AccumSignal> = {}): AccumSignal {
+  return sig({
+    dayBuyKrw: 1_500_000_000,
+    daySellKrw: 270_000_000,
+    dayNetKrw: 1_230_000_000,
+    dayAvgPx: 10_120,
+    dayNetQty: 120_000,
+    dayLoPx: 9_900,
+    dayHiPx: 10_300,
+    thRecentPieces: 30,
+    thRecentSec: 60,
+    ...over,
+  });
+}
+
 const LABELS: ReadonlyMap<string, IsinLabel> = new Map([
   ['KR7000020008', { name: '천일고속', code: '000650' }],
   ['KR7000040006', { name: '서산', code: '079650' }],
@@ -149,12 +170,13 @@ afterEach(() => {
 });
 
 describe('AccumStrip — 칩 (안 A)', () => {
-  it('① 이름 · +12.3억(up) · 매집중(--team) · 이월 0 이면 이월 배지 없음', () => {
-    setup({ signals: [sig()] });
+  it('① 이름 · 「당일」 · +12.3억(up) · 매집중(--team) · 이월 0 이면 이월 배지 없음', () => {
+    setup({ signals: [daySig()] });
     expect(screen.getByText('매집')).toBeInTheDocument();
     expect(chips()).toHaveLength(1);
     const chip = chips()[0] as HTMLElement;
     expect(within(chip).getByText('천일고속')).toBeInTheDocument();
+    expect(chip.querySelector('[data-slot="accum-chip-day"]')?.textContent).toBe('당일');
     const net = within(chip).getByText('+12.3억');
     expect(net.className).toContain('text-[var(--up)]');
     const badge = within(chip).getByText('매집중');
@@ -165,8 +187,8 @@ describe('AccumStrip — 칩 (안 A)', () => {
   it('① 이월 D+2 배지(--accum-carry) · 매도중 배지(--accum-sell) · 음수 순매수는 down 색', () => {
     setup({
       signals: [
-        sig({ carryDays: 2 }),
-        sig({ isin: 'KR7000040006', state: 2, netKrw: -250_000_000, cycle: 1 }),
+        daySig({ carryDays: 2 }),
+        daySig({ isin: 'KR7000040006', state: 2, dayNetKrw: -250_000_000, cycle: 1 }),
       ],
     });
     const [a, b] = Array.from(chips()) as HTMLElement[];
@@ -209,21 +231,22 @@ describe('AccumStrip — 칩 (안 A)', () => {
 });
 
 describe('AccumStrip — 표', () => {
-  it('③ 팀 수익률 = 현재가 ÷ 평단 − 1 · 부호 색 · 모든 밴드 · 현재가나 평단이 없으면 빈 칸 · 청산 행은 회색', () => {
+  it('③ 수익률(당일) = 현재가 ÷ 당일 평단 − 1 · 부호 색 · 모든 밴드 · 당일 평단이 없으면 「—」 · 청산 행은 회색', () => {
     setup({
       signals: [
-        sig(),
-        sig({ isin: 'KR7000040006', state: 2, avgPx: 0, netKrw: 1 }),
-        sig({ isin: 'KR7000060004', state: 3, endReason: 1, lastPx: 9_614, avgPx: 10_120 }),
+        daySig(),
+        daySig({ isin: 'KR7000040006', state: 2, dayAvgPx: 0, dayNetKrw: 1 }),
+        daySig({ isin: 'KR7000060004', state: 3, endReason: 1, lastPx: 9_614, dayAvgPx: 10_120 }),
       ],
     });
     openTable();
-    expect(screen.getByRole('columnheader', { name: '팀 수익률' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '수익률(당일)' })).toBeInTheDocument();
     const [live, noAvg, ended] = Array.from(rows()).map((r) => r.querySelector('[data-col="profit"]') as HTMLElement);
     expect(live!.textContent).toBe('+3.26%'); // 10,450 ÷ 10,120 − 1
     expect(live!.className).toContain('text-[var(--up)]');
     expect(live!.className).not.toContain('hidden');
-    expect(noAvg!.textContent).toBe('');
+    expect(noAvg!.textContent).toBe('—');
+    expect(noAvg!.className).toContain('text-[var(--faint)]');
     expect(ended!.textContent).toBe('-5.00%');
     expect(ended!.className).not.toContain('text-[var(--down)]');
     expect(teamProfitOf(0, 10_120)).toBeNull();
@@ -246,7 +269,7 @@ describe('AccumStrip — 표', () => {
   });
 
   it('③ NXT 순매수 · 평단 · 구간 · 순수량 · 갱신 열은 <700 숨김 · 보조 줄 「HH:MM:SS · 평단 N · lo~hi · NXT ±x.x억」 · 코드 <700 숨김', () => {
-    setup({ signals: [sig()] });
+    setup({ signals: [daySig()] });
     openTable();
     const row = rows()[0] as HTMLElement;
     for (const col of ['nxt', 'avg', 'band', 'qty', 'at']) {
@@ -431,7 +454,7 @@ describe('AccumStrip — NXT 순매수 (quick-261022-ozx)', () => {
     openTable();
     const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
     expect(heads.indexOf('NXT 순매수')).toBeGreaterThan(-1);
-    expect(heads.indexOf('NXT 순매수')).toBe(heads.indexOf('팀 순매수') + 1);
+    expect(heads.indexOf('NXT 순매수')).toBe(heads.indexOf('당일 순매수') + 1);
     const cell = nxtCell(rows()[0]);
     expect(cell.textContent).toBe('+0.5억');
     expect(cell.className).toContain('text-[var(--up)]');
@@ -457,26 +480,175 @@ describe('AccumStrip — NXT 순매수 (quick-261022-ozx)', () => {
     expect(ended.className).not.toContain('text-[var(--up)]');
   });
 
-  it('⑪ 머리 title — 「팀 순매수」 = KRX+NXT 합산 · 「NXT 순매수」 = 팀 순매수에 포함', () => {
+  it('⑪ 머리 title — 「당일 순매수」 = 당일 · 누적(KRX+NXT) · 전날 뜻 · 「NXT 순매수」 = 팀 순매수에 포함', () => {
     setup({ signals: [sig()] });
     openTable();
-    expect(screen.getByRole('columnheader', { name: '팀 순매수' }).getAttribute('title')).toBe('KRX+NXT 합산');
+    expect(screen.getByRole('columnheader', { name: '당일 순매수' }).getAttribute('title')).toBe(
+      '당일 팀 매수 − 매도(06:00 또는 새 사이클부터 · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)',
+    );
     expect(screen.getByRole('columnheader', { name: 'NXT 순매수' }).getAttribute('title')).toContain('팀 순매수에 포함');
   });
 
-  it('⑪ 칩 title 에 「팀 순매수(KRX+NXT) · NXT 순매수」 — 칩 보이는 글자에는 NXT 없음', () => {
-    setup({ signals: [sig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
+  it('⑪ 칩 title 에 「누적(KRX+NXT) · NXT 순매수」 — 칩 보이는 글자에는 NXT 없음', () => {
+    setup({ signals: [daySig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
     const chip = chips()[0] as HTMLElement;
-    expect(chip.getAttribute('title')).toContain('팀 순매수(KRX+NXT) +12.3억 · NXT 순매수 +0.5억 · 평단 10,120');
+    expect(chip.getAttribute('title')).toContain(
+      '당일 순매수 +12.3억 · 누적 +12.3억(KRX+NXT) · NXT 순매수 +0.5억 · 평단(당일) 10,120',
+    );
     expect(within(chip).queryByText(/NXT/)).toBeNull();
     expect(chip.textContent).not.toContain('NXT');
   });
 
   it('⑪ 폰 보조 줄 끝 「 · NXT +0.5억」', () => {
-    setup({ signals: [sig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
+    setup({ signals: [daySig({ nxtBuyKrw: 80_000_000, nxtSellKrw: 30_000_000 })] });
     openTable();
     const sub = rows()[0].querySelector('[data-slot="accum-row-subline"]') as HTMLElement;
     expect(sub.textContent).toBe('10:16:05 · 평단 10,120 · 9,900~10,300 · NXT +0.5억');
+  });
+});
+
+describe('AccumStrip — ⑫ 당일 축 (quick-261026-01h · 스케치 018 B)', () => {
+  const PREV = new Map([['KR7000020008', 310_000_000]]);
+  const cell = (row: Element, col: string) => row.querySelector(`[data-col="${col}"]`) as HTMLElement;
+  const dayNet = (row: Element) => row.querySelector('[data-slot="accum-day-net"]') as HTMLElement;
+  const netSub = (row: Element) => row.querySelector('[data-slot="accum-net-sub"]') as HTMLElement;
+  const subline = (row: Element) => row.querySelector('[data-slot="accum-row-subline"]') as HTMLElement;
+  /** 천일고속 — 3일째 이월 · 오늘 +2.4억(누적 +18.6억). */
+  const carry = (over: Partial<AccumSignal> = {}) =>
+    daySig({
+      dayNetKrw: 240_000_000,
+      netKrw: 1_862_000_000,
+      dayAvgPx: 14_280,
+      dayLoPx: 14_050,
+      dayHiPx: 14_500,
+      dayNetQty: 16_880,
+      carryDays: 3,
+      ...over,
+    });
+
+  it('머리 — 4열 「당일 순매수」 · 6~9열 「평단(당일)」 「수익률(당일)」 「매집 구간(당일)」 「순수량(당일)」 · 12열 그대로', () => {
+    setup({ signals: [sig()] });
+    openTable();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toHaveLength(12);
+    expect(heads.slice(3, 9)).toEqual([
+      '당일 순매수',
+      'NXT 순매수',
+      '평단(당일)',
+      '수익률(당일)',
+      '매집 구간(당일)',
+      '순수량(당일)',
+    ]);
+  });
+
+  it('새 서버 이월 행 + 전날 → 첫 줄 당일(up) · 둘째 줄 「누적 · 전날」(전날 ≥700 만) · 당일 평단 · 구간 · 순수량 · 보조 줄 전날', () => {
+    setup({ signals: [carry()], prevNet: PREV });
+    openTable();
+    const row = rows()[0] as HTMLElement;
+    expect(dayNet(row).textContent).toBe('+2.4억');
+    expect(dayNet(row).className).toContain('text-[var(--up)]');
+    expect(netSub(row).textContent).toBe('누적 +18.6억 · 전날 +3.1억');
+    const prev = row.querySelector('[data-slot="accum-prev-net"]') as HTMLElement;
+    expect(prev.className).toContain('hidden');
+    expect(prev.className).toContain('@min-[700px]/wb:inline');
+    expect(cell(row, 'avg').textContent).toBe('14,280');
+    expect(cell(row, 'band').textContent).toBe('14,050~14,500');
+    expect(cell(row, 'qty').textContent).toBe('16,880');
+    expect(subline(row).textContent).toBe('10:16:05 · 평단 14,280 · 14,050~14,500 · 전날 +3.1억 · NXT 0.0억');
+  });
+
+  it('당일 매도만(dayAvgPx 0) → 첫 줄 −0.6억(down) · 평단 · 수익률 · 구간 · 순수량 「—」 · 보조 줄 「평단 — · —」', () => {
+    setup({
+      signals: [
+        daySig({ dayNetKrw: -60_000_000, dayAvgPx: 0, dayLoPx: 0, dayHiPx: 0, dayNetQty: -40_000, netKrw: 984_000_000, carryDays: 5 }),
+      ],
+    });
+    openTable();
+    const row = rows()[0] as HTMLElement;
+    expect(dayNet(row).textContent).toBe('−0.6억');
+    expect(dayNet(row).className).toContain('text-[var(--down)]');
+    expect(netSub(row).textContent).toBe('누적 +9.8억');
+    for (const col of ['avg', 'profit', 'band', 'qty']) {
+      expect(cell(row, col).textContent, col).toBe('—');
+      expect(cell(row, col).className, col).toContain('text-[var(--faint)]');
+    }
+    expect(subline(row).textContent).toBe('10:16:05 · 평단 — · — · NXT 0.0억');
+  });
+
+  it('옛 행(당일 9필드 null) → 첫 줄 「—」 --faint · 둘째 줄 「누적 +12.3억」 · 평단 · 수익률 · 구간 · 순수량 「—」 · 칩 값 「—」(누적 폴백 없음)', () => {
+    setup({ signals: [sig()] });
+    const chipNet = (chips()[0] as HTMLElement).querySelector('[data-slot="accum-chip-net"]') as HTMLElement;
+    expect(chipNet.textContent).toBe('—');
+    expect(chipNet.className).toContain('text-[var(--faint)]');
+    openTable();
+    const row = rows()[0] as HTMLElement;
+    expect(dayNet(row).textContent).toBe('—');
+    expect(dayNet(row).className).toContain('text-[var(--faint)]');
+    expect(netSub(row).textContent).toBe('누적 +12.3억');
+    for (const col of ['avg', 'profit', 'band', 'qty']) expect(cell(row, col).textContent, col).toBe('—');
+  });
+
+  it('전날 조건 — 이월 아님 · 전날 값 없음 · 전날 0 이면 둘째 줄 · 보조 줄 어디에도 「전날」 없음', () => {
+    setup({
+      signals: [
+        carry({ carryDays: 0 }),
+        carry({ isin: 'KR7000040006', dayNetKrw: 100_000_000 }),
+        carry({ isin: 'KR7000060004', dayNetKrw: 50_000_000 }),
+      ],
+      prevNet: new Map([
+        ['KR7000020008', 310_000_000],
+        ['KR7000060004', 0],
+      ]),
+    });
+    openTable();
+    expect(rows()).toHaveLength(3);
+    for (const row of Array.from(rows())) {
+      expect(row.querySelector('[data-slot="accum-prev-net"]')).toBeNull();
+      expect(netSub(row).textContent).not.toContain('전날');
+      expect(subline(row).textContent).not.toContain('전날');
+    }
+  });
+
+  it('칩 — 이름 · 「당일」 · dayNetKrw(부호 색) · 배지 · title 「… 당일 순매수 · 누적(KRX+NXT) · 전날 · NXT · 평단(당일) · 구간(당일) · 갱신」', () => {
+    setup({ signals: [carry()], prevNet: PREV });
+    const chip = chips()[0] as HTMLElement;
+    const parts = Array.from(chip.children).map((c) => c.textContent);
+    expect(parts.slice(0, 4)).toEqual(['천일고속', '당일', '+2.4억', '매집중']);
+    expect((chip.querySelector('[data-slot="accum-chip-net"]') as HTMLElement).className).toContain('text-[var(--up)]');
+    expect(chip.getAttribute('title')).toBe(
+      '천일고속 000020 · 당일 순매수 +2.4억 · 누적 +18.6억(KRX+NXT) · 전날 +3.1억 · NXT 순매수 0.0억 · 평단(당일) 14,280 · 구간(당일) 14,050~14,500 · 갱신 10:16:05',
+    );
+  });
+
+  it('칩 title — 당일 매수 없음이면 평단 · 구간 「—」 · 전날 없으면 그 조각 없음', () => {
+    setup({ signals: [daySig({ dayNetKrw: -60_000_000, dayAvgPx: 0, dayLoPx: 0, dayHiPx: 0, netKrw: 984_000_000 })] });
+    expect((chips()[0] as HTMLElement).getAttribute('title')).toBe(
+      '천일고속 000020 · 당일 순매수 −0.6억 · 누적 +9.8억(KRX+NXT) · NXT 순매수 0.0억 · 평단(당일) — · 구간(당일) — · 갱신 10:16:05',
+    );
+  });
+
+  it('순서 — 활성 행은 dayNetKrw 큰 순(누적과 갈려도) · null 은 뒤 · 청산은 그 뒤', () => {
+    setup({
+      signals: [
+        daySig({ isin: 'KR7000020008', netKrw: 9e9, dayNetKrw: -60_000_000 }),
+        sig({ isin: 'KR7000080002', netKrw: 9e9 }),
+        daySig({ isin: 'KR7000040006', netKrw: 1e8, dayNetKrw: 240_000_000 }),
+        daySig({ isin: 'KR7000060004', state: 3, endReason: 1, dayNetKrw: 9e9 }),
+      ],
+    });
+    openTable();
+    const names = Array.from(rows()).map((r) => r.querySelector('[data-slot="accum-row-name"]')?.textContent);
+    expect(names).toEqual(['서산', '천일고속', '대양금속', '금호전기']);
+    const chipNames = Array.from(chips()).map((c) => c.querySelector('[data-slot="accum-chip-name"]')?.textContent);
+    expect(chipNames).toEqual(['서산', '천일고속', '대양금속']);
+  });
+
+  it('청산 행 — 첫 줄 부호 색 없음(회색)', () => {
+    setup({ signals: [daySig({ state: 3, endReason: 1, dayNetKrw: 240_000_000 })] });
+    openTable();
+    const row = rows()[0] as HTMLElement;
+    expect(dayNet(row).textContent).toBe('+2.4억');
+    expect(dayNet(row).className).not.toContain('text-[var(--up)]');
   });
 });
 

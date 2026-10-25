@@ -14,6 +14,9 @@ import type { StrategyEventRow } from '@gh-radar/shared';
  *  - 목록 규칙(accum-list ②')을 훅이 적용 — 매집 종료(4)는 고른 서버의 그날 청산 행이 있을 때만 · 종료 사유 2 · 3 은 없다 ·
  *    매집 종료 행의 값 · 시각은 그날 최신 청산 행(end 1) 기준이고 종료 사유만 4(gh-trade WinForms 동형)
  *
+ *  - 전날 순매수(quick-261026-01h) — 오늘 1회 fetchAccumReport()(인자 없음 = 최신 보고서) → prevDayNetOf(resp, 오늘) 를
+ *    prevNet 으로 · 실패하면 빈 Map(signals · filled 그대로) · relay ready 전이로는 다시 부르지 않는다
+ *
  * 시계는 픽스처 거래일(2026-09-29 KST)로 고정한다 — 훅의 「오늘」 이 shared `kstDateIso()` 라서.
  */
 
@@ -28,6 +31,11 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 const fetchAccumSignalsMock = vi.fn();
 vi.mock('@/lib/accum-signals-api', () => ({
   fetchAccumSignals: (date?: string) => fetchAccumSignalsMock(date),
+}));
+
+const fetchAccumReportMock = vi.fn();
+vi.mock('@/lib/accum-api', () => ({
+  fetchAccumReport: (...args: unknown[]) => fetchAccumReportMock(...args),
 }));
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
@@ -61,6 +69,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-09-29T10:00:00+09:00'));
   mockRelay = { ...EMPTY_RELAY_VALUE, status: 'ready' };
   fetchAccumSignalsMock.mockReset();
+  fetchAccumReportMock.mockReset();
+  fetchAccumReportMock.mockResolvedValue({ access: true, dates: [], date: null, rows: [] });
 });
 
 afterEach(() => {
@@ -279,5 +289,48 @@ describe('useAccumSignals', () => {
     const { result } = renderHook(() => useAccumSignals());
     await flush();
     expect(result.current.signals).toEqual([]);
+  });
+
+  it('전날 순매수 — 마운트 1회 fetchAccumReport()(인자 없음) → 앞 거래일 행의 pos_day 차 · 값 null 행은 없음', async () => {
+    fetchAccumSignalsMock.mockResolvedValue([]);
+    fetchAccumReportMock.mockResolvedValue({
+      access: true,
+      dates: ['20260928'],
+      date: '20260928',
+      rows: [
+        { isin: 'KR7000020008', pos_day_buy_krw: 310_000_000, pos_day_sell_krw: 0 },
+        { isin: 'KR7000040006', pos_day_buy_krw: null, pos_day_sell_krw: null },
+      ],
+    });
+    const { result } = renderHook(() => useAccumSignals());
+    expect(result.current.prevNet.size).toBe(0);
+    await flush();
+    expect(fetchAccumReportMock).toHaveBeenCalledTimes(1);
+    expect(fetchAccumReportMock).toHaveBeenCalledWith();
+    expect([...result.current.prevNet.entries()]).toEqual([['KR7000020008', 310_000_000]]);
+  });
+
+  it('전날 순매수 — 조회 실패(403 등) → prevNet 빈 Map · signals · filled 그대로', async () => {
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gwTimeMs: kstMs('2026-09-29', '09:30:00.000') }),
+    ]);
+    fetchAccumReportMock.mockRejectedValue(new Error('403'));
+    const { result } = renderHook(() => useAccumSignals());
+    await flush();
+    expect(result.current.prevNet.size).toBe(0);
+    expect(result.current.filled).toBe(true);
+    expect(result.current.signals.map((s) => s.isin)).toEqual(['KR7000020008']);
+  });
+
+  it('전날 순매수 — relay ready 전이로 fetchAccumSignals 는 다시 불리지만 fetchAccumReport 는 오늘 1회', async () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: 'connecting' };
+    fetchAccumSignalsMock.mockResolvedValue([]);
+    const { rerender } = renderHook(() => useAccumSignals());
+    await flush();
+    mockRelay = { ...mockRelay, status: 'ready' };
+    rerender();
+    await flush();
+    expect(fetchAccumSignalsMock).toHaveBeenCalledTimes(2);
+    expect(fetchAccumReportMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -59,6 +59,8 @@ vi.mock('next/navigation', () => ({
 
 // quick-261018-rfy — 「매집」 패널 복원 훅의 REST 조회 · 마스터 이름 폴백은 이 파일 밖 몫(빈 값 고정).
 vi.mock('@/lib/accum-signals-api', () => ({ fetchAccumSignals: vi.fn(async () => []) }));
+// quick-261026-01h — 전날 순매수(최신 매집감지 보고서 1회)도 이 파일 밖 몫(빈 보고서).
+vi.mock('@/lib/accum-api', () => ({ fetchAccumReport: vi.fn(async () => ({ access: true, dates: [], date: null, rows: [] })) }));
 vi.mock('@/lib/stock-names', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/stock-names')>()),
   useStockNames: () => new Map<string, string>(),
