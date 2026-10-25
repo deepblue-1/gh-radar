@@ -43,21 +43,27 @@ export function todayNetOf(row: Pick<AccumReportRow, 'pos_day_buy_krw' | 'pos_da
   return isNum(buy) && isNum(sell) ? buy - sell : null;
 }
 
-/** 전날 서버 당일 매수 · 매도 · 순매수(원) — 목록 RPC 의 prev 2키(20261026010000). */
+/** 전날 서버 당일 매수 · 매도 · 순매수(원) — 목록 RPC 의 prev 키(20261026010000 · 20261026120000). */
 export interface AccumPrevDay {
   buyKrw: number;
   sellKrw: number;
   netKrw: number;
+  /** 전날 서버 당일 팀 매수 평단(원 · prev_pos_day_avg_px · quick-261026-0ty) — 0 · null = 없음 → 그리지 않는다. */
+  avgPx: number | null;
 }
 
-/** 전날 요약 — prev_pos_day_buy_krw · prev_pos_day_sell_krw 둘 다 수일 때만, 아니면 null. */
+/**
+ * 전날 요약 — prev_pos_day_buy_krw · prev_pos_day_sell_krw 둘 다 수일 때만, 아니면 null.
+ * avgPx 는 prev_pos_day_avg_px 가 수이고 > 0 일 때만(아니면 null).
+ */
 export function prevDayOf(
-  row: Pick<AccumReportRow, 'prev_pos_day_buy_krw' | 'prev_pos_day_sell_krw'>,
+  row: Pick<AccumReportRow, 'prev_pos_day_buy_krw' | 'prev_pos_day_sell_krw' | 'prev_pos_day_avg_px'>,
 ): AccumPrevDay | null {
   const buy = row.prev_pos_day_buy_krw;
   const sell = row.prev_pos_day_sell_krw;
   if (!isNum(buy) || !isNum(sell)) return null;
-  return { buyKrw: buy, sellKrw: sell, netKrw: buy - sell };
+  const avg = row.prev_pos_day_avg_px;
+  return { buyKrw: buy, sellKrw: sell, netKrw: buy - sell, avgPx: isNum(avg) && avg > 0 ? avg : null };
 }
 
 /**
@@ -572,9 +578,10 @@ export const ACCUM_RULE_LINES: readonly string[] = [
 /**
  * 당일 축 날짜용 판정 기준 본문 2 ~ 5(quick-261026-01h · 스케치 018) — 본문 1 · 2 만 당일 축용으로 다시 쓰고 3 · 4 는
  * `ACCUM_RULE_LINES` 와 공유한다(원 문턱 · 종료 사유). 목록 · KPI 가 당일 순매수를 큰 숫자로 보이는 날짜에서만 쓴다.
+ * quick-261026-0ty — 보고서도 당일 평단을 보여 본문 1 끝 문장에서 「작업대의」 를 뺐다.
  */
 export const ACCUM_RULE_LINES_DAY: readonly string[] = [
-  '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 작업대의 당일 평단은 「—」(누적으로 채우지 않아요).',
+  '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
   '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 당일 순매수와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
   ACCUM_RULE_LINES[2]!,
   ACCUM_RULE_LINES[3]!,

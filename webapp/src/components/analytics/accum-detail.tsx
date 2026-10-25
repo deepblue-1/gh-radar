@@ -17,6 +17,7 @@ import {
   ACCUM_RULE_SOURCE,
   cycleRowsOf,
   detailKpisOf,
+  fmtPx,
   payloadOf,
   thresholdPartsOf,
   type AccumPrevDay,
@@ -48,8 +49,8 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   가격 자료가 없어도 사이클 표 · 손익 · 판정 기준 · 출처 칩은 그대로다. 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정).
  * - 당일 축(quick-261026-01h · 스케치 018 · prop `dayAxis` — 목록 날짜 단위 판정): KPI 줄 = 당일 순매수 · 누적 순매수 · 누적 평단 ·
  *   등록가 · 최고 순매수(`detailKpisOf(row, true)`) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY`. 부모가 `prev`(이월 행 · 목록 RPC
- *   prev 2키 + prev_date)를 주면 KPI 줄 바로 뒤 「전날 MM/DD · 순매수 · 매수 / 매도」 한 줄(`accum-prev-line`). 전날 평단 ·
- *   종가 대비 % 는 원천(목록 · 상세 RPC 어디에도 없음)이 없어 그리지 않는다. 판정 기준 1줄 새 임계 문구는 상세 행
+ *   prev 키 + prev_date)를 주면 KPI 줄 바로 뒤 「전날 MM/DD · 순매수 · 매수 / 매도」 한 줄(`accum-prev-line`). 종가 대비 % 는
+ *   원천이 없어 없다 · 전날 평단은 prev_pos_day_avg_px > 0 일 때(quick-261026-0ty). 판정 기준 1줄 새 임계 문구는 상세 행
  *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원 문턱은 500만원(gh-trade D-20).
  *   그날 pos_day_avg_px 열이 실렸으면(prop `dayAvg` = hasDayAvgOf · quick-261026-0ty) KPI 줄에 「당일 평단」(0 · null 「—」).
  */
@@ -274,7 +275,8 @@ function ReadyBody({
 
 /**
  * 「전날」 줄(quick-261026-01h · 스케치 018 prevline) — 「전날 MM/DD」 라벨(font-semibold · --muted-fg) · 「순매수 ±X.XX억」(부호 색) ·
- * 「매수 X.XX억 / 매도 Y.YY억」. KPI 줄과 같은 항목 문법(라벨 --muted-fg + 값 mono). 전날 평단 · 종가 대비 % 는 원천이 없어 없다.
+ * 「매수 X.XX억 / 매도 Y.YY억」 · 전날 평단이 있으면(avgPx · > 0) 「평단 N」. KPI 줄과 같은 항목 문법(라벨 --muted-fg + 값 mono).
+ * 종가 대비 % 는 원천이 없어 없다 · 전날 평단은 prev_pos_day_avg_px > 0 일 때(quick-261026-0ty).
  */
 function PrevLine({ prev }: { prev: AccumDetailPrev }) {
   return (
@@ -292,6 +294,17 @@ function PrevLine({ prev }: { prev: AccumDetailPrev }) {
         <span className="text-[var(--muted-fg)]">/ 매도</span>{' '}
         <span className="mono text-[var(--fg-2)]">{fmtEok(prev.sellKrw, { digits: 2 })}</span>
       </span>
+      {prev.avgPx !== null && (
+        <>
+          {' '}
+          <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-[var(--muted-fg)]">평단</span>{' '}
+            <span data-slot="accum-prev-avg" className="mono text-[var(--fg-2)]">
+              {fmtPx(prev.avgPx)}
+            </span>
+          </span>
+        </>
+      )}
     </div>
   );
 }

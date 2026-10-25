@@ -55,7 +55,7 @@ import { AccumDetail } from './accum-detail';
  * - 열린 행 바로 아래에만 `AccumDetail` 을 마운트한다(접으면 언마운트 · 받은 상세는 캐시에 남는다 — D-06).
  * - 당일 축 날짜(`dayAxis` · quick-261026-01h · 스케치 018)만 — 캡션 「… 그 안 당일 순매수 큰 순」 · 머리 4열 「당일 순매수」/
  *   「(등록 후 · 아래 누적)」 · 4열 칸 = 당일(`accum-today` · 부호 색 · 값 없음 「—」 --faint) + xl 아랫줄 「누적 {pos} · 누적 평단 N」
- *   (`accum-cum-sub`) · 폰 메타 「당일 · 누적(`accum-pos` · xl 숨김) · 하루 · 손익 · 등록」 · sr 설명 당일 문장 · 이월 행이고 전날 매수나
+ *   (`accum-cum-sub` · 그날 열이 실렸으면 「누적 {pos} · 평단(당일) N|—」 — 스케치 018 목록 아랫줄 그대로 · quick-261026-0ty) · 폰 메타 「당일 · 누적(`accum-pos` · xl 숨김) · 하루 · 손익 · 등록」 · sr 설명 당일 문장 · 이월 행이고 전날 매수나
  *   매도가 있으면 상세에 「전날」 줄(`prev` = prev_date + prev 2키). dayAxis 가 아니면 DOM · 글자가 지금과 같다(재생성 전 날짜).
  *   그날 pos_day_avg_px 열이 실렸으면(hasDayAvgOf · quick-261026-0ty) 상세 KPI 에 당일 평단.
  */
@@ -209,7 +209,13 @@ export function AccumDayGrid({
           const day = meta[meta.length - 2] as AccumMetaItem;
           const reg = meta[meta.length - 1] as AccumMetaItem;
           const avg = `평단 ${fmtPx(r.pos_avg_px)} · 등록가 ${fmtPx(r.pos_reg_px)}`;
-          const cumSub = cumItem === null ? '' : `누적 ${cumItem.value} · 누적 평단 ${fmtPx(r.pos_avg_px)}`;
+          // quick-261026-0ty — 그날 당일 평단 열이 실렸으면 「평단(당일)」(0 · null 「—」 · 누적 평단으로 채우지 않음)
+          const cumSub =
+            cumItem === null
+              ? ''
+              : dayAvg
+                ? `누적 ${cumItem.value} · 평단(당일) ${fmtPx(r.pos_day_avg_px)}`
+                : `누적 ${cumItem.value} · 누적 평단 ${fmtPx(r.pos_avg_px)}`;
           const [regTop, regBottom] = regCellOf(r);
           const carry = typeof r.carry_days === 'number' && r.carry_days > 0 ? r.carry_days : 0;
           const cycle = typeof r.cycle === 'number' && Number.isFinite(r.cycle) && r.cycle > 1 ? r.cycle : null;
