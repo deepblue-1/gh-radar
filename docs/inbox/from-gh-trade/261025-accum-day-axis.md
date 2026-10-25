@@ -15,7 +15,7 @@ gh-radar-eb 와 3왕복으로 합의한 계약(2026-10-25)의 구현 결과다. 
 
 ## 바뀐 것
 
-변경 커밋(gh-trade master — worktree 커밋이 해시 그대로 병합됐다, 병합 커밋 `014be2b8`, 노트 시점 HEAD `f0e71804`):
+변경 커밋(gh-trade master — worktree 커밋이 해시 그대로 병합됐다, 병합 커밋 `014be2b8`, **조각 정정 39-06 병합 `beaa8116`(d6071511·38397961·b6346b48)**, 노트 갱신 시점 HEAD `7191d6aa`):
 
 - ⓐ `4f43447c` — fbs 88/90 append · 클라 생성물 · 서버 88/90 송신 · 차트 원 문턱 500만(서버·export)
 - ⓑ `6e4e3805` — kind 16 당일 칸 3개 · message 새 꼴 · 하루 이벤트 JSON 키 8
@@ -36,11 +36,11 @@ gh-radar-eb 와 3왕복으로 합의한 계약(2026-10-25)의 구현 결과다. 
 | `prev_buy_krw` | long | 92 | 전 거래일 팀 매수 금액 |
 | `prev_sell_krw` | long | 94 | 전 거래일 팀 매도 금액 |
 | `prev_avg_px` | uint | 96 | 전 거래일 팀 매수 평단(원), 매수 없으면 0 |
-| `th_recent_buy_orders` | uint | 98 | 등록 임계 — 최근 N초 팀 매수 주문 건수(기본 30). 0·부재 = 옛 서버(30조각 규칙) |
+| `th_recent_buy_pieces` | uint | 98 | 등록 임계 — 최근 N초 팀 매수 **조각 수 합**(A3 체결 조각, 기본 30 — 정정 2026-10-25 밤: 주문 건수 아님). 0·부재 = 옛 서버(30조각 규칙) |
 | `th_recent_sec` | uint | 100 | 위 창(초, 기본 60) |
 
 - `th_min_same` 은 이제 늘 **0**(「조각 조건 없음」 — 기존 정의된 뜻, gh-radar-eb OK).
-- 등록 규칙이 「0 < 시총 ≤ 5천억 ∧ 당일 순매수 ≥ 1억 ∧ 최근 60초 팀 매수 주문 30건+」 로 바뀌었다(30조각·빠른 경로 폐지). 생사(청산·재등장·되돌림·종료·이월 10일)는 그대로다.
+- 등록 규칙이 「0 < 시총 ≤ 5천억 ∧ 당일 순매수 ≥ 1억 ∧ 최근 60초 팀 매수 조각 30개+」 로 바뀌었다(30조각·빠른 경로 폐지). 생사(청산·재등장·되돌림·종료·이월 10일)는 그대로다.
 
 ### ② 90 `AccumChartSample` 말미 append 2필드
 
@@ -65,10 +65,10 @@ MsgType·Envelope 슬롯·기존 필드 이름·순서·의미 무변경, deprec
 `message` 새 꼴(키 순서 고정):
 
 ```text
-since=YYYYMMDD|reg=HHMMSS|st=<1|2|3>|end=<0..4>|cyc=<n>|carry=<n>|row=<1..5>|our=<n>|th=<net>/<same>/<mcap>|day=<net_qty>/<lo_px>/<hi_px>|recent=<orders>/<sec>|nxt=<buy_qty>/<sell_qty>
+since=YYYYMMDD|reg=HHMMSS|st=<1|2|3>|end=<0..4>|cyc=<n>|carry=<n>|row=<1..5>|our=<n>|th=<net>/<same>/<mcap>|day=<net_qty>/<lo_px>/<hi_px>|recent=<pieces>/<sec>|nxt=<buy_qty>/<sell_qty>
 ```
 
-- `day=` = 당일 팀 순수량(매수 − 매도 수량)/당일 매수 주문 가격 최저/최고 · `recent=` = 등록 임계 건수/창 초.
+- `day=` = 당일 팀 순수량(매수 − 매도 수량)/당일 매수 주문 가격 최저/최고 · `recent=` = 등록 임계 조각 수 합/창 초.
 - **`|warn=` 삭제**(has_remaining 칸이 정본) · **`|nxt=` 는 수량 둘만**(금액은 error/remaining_volume 칸이 정본).
 - `th=` 는 3조각 그대로(gh-radar 파서 호환).
 - 옛 꼴(옛 행): `…|th=…|warn=<0|1>|nxt=<buy_krw>/<sell_krw>/<buy_qty>/<sell_qty>`(Phase 37 ~), 그 전은 `nxt` 꼬리 없음. 서버 기동 정합은 옛 4값·새 2값 둘 다 읽는다.
@@ -77,11 +77,11 @@ since=YYYYMMDD|reg=HHMMSS|st=<1|2|3>|end=<0..4>|cyc=<n>|carry=<n>|row=<1..5>|our
 
 ### ④ 하루 이벤트 JSON(`log/accum_events/<D>.jsonl`) 키 36 → 44
 
-`nxt_sell_krw` 뒤(문자열 키 `since_date`·`reg_time`·`message` 앞)에 8키 append: `day_buy_krw · day_sell_krw · day_avg_px · day_net_qty · day_lo_px · day_hi_px · th_recent_orders · th_recent_sec`. 로더는 키로 읽는다(옛 줄 = 키 없음 = 0).
+`nxt_sell_krw` 뒤(문자열 키 `since_date`·`reg_time`·`message` 앞)에 8키 append: `day_buy_krw · day_sell_krw · day_avg_px · day_net_qty · day_lo_px · day_hi_px · th_recent_pieces · th_recent_sec`. 로더는 키로 읽는다(옛 줄 = 키 없음 = 0).
 
 ### ⑤ accum_flow export 열 4개 (39-03 커밋에서 — `51e21a8f`)
 
-평평한 열 말미 append: `pos_day_buy_krw · pos_day_sell_krw`(그 isin 그날 마지막 이벤트 행의 kind 16 새 숫자 칸 — 우리 체결 제외) · `th_recent_orders · th_recent_sec`. `schema_version` 무변경. 옛 행 0.
+평평한 열 말미 append: `pos_day_buy_krw · pos_day_sell_krw`(그 isin 그날 마지막 이벤트 행의 kind 16 새 숫자 칸 — 우리 체결 제외) · `th_recent_pieces · th_recent_sec`. `schema_version` 무변경. 옛 행 0.
 
 - **전날 요약 = 전날 마지막 행 `pos_day_*` 차.** 같은 isin 의 **전날 행이 없으면 빈칸**.
 - `day_*`(pcap 하루 전체·우리 체결 포함) 와 `pos_day_*`(서버 포지션·우리 체결 제외)는 뜻이 다르다.
@@ -98,7 +98,7 @@ since=YYYYMMDD|reg=HHMMSS|st=<1|2|3>|end=<0..4>|cyc=<n>|carry=<n>|row=<1..5>|our
 
 ## gh-radar 가 할 일
 
-- **relay 생성물 동기화**(gh-radar 몫 — gh-radar-eb 답 a): `RELAY=<gh-radar>/relay server/scripts/sync-relay-schema.sh` — 대상은 fbs 마지막 변경 커밋 **ⓒ `41e13eb3`**(master 해시 그대로. 와이어 필드는 ⓐ `4f43447c` 에서 들어갔고 ⓒ 는 주석 한 줄). 88/90 을 직접 디코드하지 않으면 append 라 무시해도 된다.
+- **relay 생성물 동기화**(gh-radar 몫 — gh-radar-eb 답 a): `RELAY=<gh-radar>/relay server/scripts/sync-relay-schema.sh` — 대상은 fbs 마지막 변경 커밋 **`d6071511`**(39-06 — `th_recent_buy_orders` → `th_recent_buy_pieces` 이름 교체, 슬롯 98 그대로; 그 전 41e13eb3 기준 동기화본은 이름만 옛것). 88/90 을 직접 디코드하지 않으면 append 라 무시해도 된다.
 - **kind 16 파서**: k=v 맵이라 `day=`·`recent=` 새 키 추가·`warn=` 부재·`nxt=` 2값을 받는지 확인. `snap_qty/snap_cum` bigint[] 길이 3 허용 — 마이그레이션 없음(gh-radar-eb 확인). snap_len 2 행 = 당일 값 없음.
 - **accum_flow 적재**: 새 열 4개 마이그레이션(정해진 열만 커밋하므로 그 전까지 무시된다).
 - **웹 라벨**: 보고서 차트 원 「1천만원 이상」 → 「500만원 이상」.
@@ -116,7 +116,7 @@ since=YYYYMMDD|reg=HHMMSS|st=<1|2|3>|end=<0..4>|cyc=<n>|carry=<n>|row=<1..5>|our
 | 매집구간 | 누적 lo~hi | **`day_lo_px ~ day_hi_px`** |
 | 매수/매도 | 누적 | **당일 매수/매도 금액** |
 
-당일 매수가 없으면(`day_avg_px` 0) 평단가·수익률·매집구간·매집수량·매수/매도는 빈칸 또는 0 — 누적 폴백 없음. 누적 값은 상세 패널(「누적」 접두), 상세에 전날 매수/매도·전날 평단·전날 종가 대비 % 줄 추가. 차트 수급 탭은 당일 순매수 선이 메인·누적 계단은 회색, 팀 평단 점점선 = 90 `day_avg_px`. 상태바 임계 문구 「등록 당일 순매수 ≥ N억 · 60초 팀 매수 M건+ · 시총 ≤ K억 · 청산 순매수 < N억」(`th_recent_*` 0·부재면 옛 문구).
+당일 매수가 없으면(`day_avg_px` 0) 평단가·수익률·매집구간·매집수량·매수/매도는 빈칸 또는 0 — 누적 폴백 없음. 누적 값은 상세 패널(「누적」 접두), 상세에 전날 매수/매도·전날 평단·전날 종가 대비 % 줄 추가. 차트 수급 탭은 당일 순매수 선이 메인·누적 계단은 회색, 팀 평단 점점선 = 90 `day_avg_px`. 상태바 임계 문구 「등록 당일 순매수 ≥ N억 · 60초 팀 매수 M조각+ · 시총 ≤ K억 · 청산 순매수 < N억」(`th_recent_*` 0·부재면 옛 문구).
 
 ### 재생성 범위
 
@@ -130,9 +130,9 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 
 ## 확인 방법
 
-- 배포 뒤 첫 분 경계 kind 16 행: `snap_len` 3 · message 에 `|day=`·`|recent=30/60`·`|nxt=<n>/<n>` 가 있고 `|warn=` 이 없다.
+- 배포 뒤 첫 분 경계 kind 16 행: `snap_len` 3 · message 에 `|day=`·`|recent=30/60(조각)`·`|nxt=<n>/<n>` 가 있고 `|warn=` 이 없다.
 - 하루 이벤트 파일 한 줄에 `"day_buy_krw":` … `"th_recent_sec":60` 8키, 키 44개.
-- 다음 날 export 행에 `pos_day_buy_krw`·`th_recent_orders` 30·`th_recent_sec` 60. 이월 행 다음 날 전날 요약이 전날 마지막 행 `pos_day_*` 차와 같다.
+- 다음 날 export 행에 `pos_day_buy_krw`·`th_recent_pieces` 30·`th_recent_sec` 60. 이월 행 다음 날 전날 요약이 전날 마지막 행 `pos_day_*` 차와 같다.
 - 보고서 차트 `payload.orders` 에 500만 ~ 1천만 원이 보인다.
 
 ## 질문

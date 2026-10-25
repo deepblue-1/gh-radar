@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 41e13eb3
+// server-repo-commit: d6071511
 // synced-date:        2026-10-25
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -1640,8 +1640,9 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
 // 팀 주문 = KRX G1·G4(G4 = 애프터마켓 16:00~20:00, quick-261019-qqc) · NXT G1(Phase 37) A3 조각을 msg_seq 런(같은 ISIN·거래소
 // 직전 A3 seq + 1 ∧ 같은 bs, quick-261023-wbd)으로 묶은 주문 중 KRX 는 자전거래방지(한 가격 2조각+) ∪ 마지막 조각 0/0, NXT 는
 // 한 가격 2조각+. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
-// 등록 = 0 < 시총 ≤ th_max_mcap_krw ∧ 당일 순매수 ≥ th_net_krw ∧ 최근 th_recent_sec 초 팀 매수 주문 ≥ th_recent_buy_orders 건
-// (2026-10-25 Phase 39 D-01 — 옛 30조각·빠른 경로 폐지, th_min_same 은 0). 생사(청산·재등장·되돌림·종료·이월)는 사이클 누적 기준 그대로.
+// 등록 = 0 < 시총 ≤ th_max_mcap_krw ∧ 당일 순매수 ≥ th_net_krw ∧ 최근 th_recent_sec 초 팀 매수 주문들의
+// A3 조각 수 합 ≥ th_recent_buy_pieces (2026-10-25 Phase 39 D-01 — 같은 날 정정: 주문 건수가 아니라 조각 수 합. 옛 30조각·빠른 경로
+// 폐지, th_min_same 은 0). 생사(청산·재등장·되돌림·종료·이월)는 사이클 누적 기준 그대로.
 // Phase 39 — 당일 축(2026-10-25, gh-radar-eb 합의): 88 말미 day_*·prev_*·th_recent_* 12필드 · 90 샘플 말미 day_net_krw·day_avg_px.
 // 금액은 원, 수량은 주, 가격은 원 정수다. 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
 // ============================================================================
@@ -1705,9 +1706,9 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     prev_buy_krw: long;          // 전 거래일 팀 매수 금액(원)
     prev_sell_krw: long;         // 전 거래일 팀 매도 금액(원)
     prev_avg_px: uint;           // 전 거래일 팀 매수 평단(원) = 그날 매수 금액 ÷ 수량 반올림, 매수 없으면 0
-    th_recent_buy_orders: uint;  // 서버 설정 — 등록 「최근 th_recent_sec 초 팀 매수 주문 건수」 임계, 0 = 건수 조건 없음.
+    th_recent_buy_pieces: uint;  // 서버 설정 — 등록 「최근 th_recent_sec 초 팀 매수 조각 수 합」 임계, 0 = 60초 조건 없음.
                                  // 부재·0 이고 th_min_same > 0 이면 옛 서버(30조각 규칙)
-    th_recent_sec: uint;         // 서버 설정 — 위 건수 창(초, 기본 60). 0·부재 = 옛 서버
+    th_recent_sec: uint;         // 서버 설정 — 위 조각 수 합의 창(초, 기본 60). 0·부재 = 옛 서버
 }
 
 table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
@@ -2097,7 +2098,7 @@ root_type Envelope;
 // MarketFeed)는 무변경 — 상태기는 MarketPublisher 스레드 단독 소유다.
 // 번호 88/89·슬롯 98/100·kind 16 은 폐기해도 재사용 금지.
 // Phase 39(2026-10-25, 당일 축): 88 AccumSignal 말미 12필드(day_buy_qty·day_buy_krw·day_sell_qty·day_sell_krw·day_lo_px·day_hi_px·
-// prev_net_krw·prev_buy_krw·prev_sell_krw·prev_avg_px·th_recent_buy_orders·th_recent_sec) · 90 AccumChartSample 말미 2필드
+// prev_net_krw·prev_buy_krw·prev_sell_krw·prev_avg_px·th_recent_buy_pieces·th_recent_sec) · 90 AccumChartSample 말미 2필드
 // (day_net_krw·day_avg_px) append. MsgType·슬롯·기존 필드 무변경. kind 16 은 snapLen 3·acceptLatencyUs = day_avg_px·message 새 꼴 —
 // 표는 server/docs/protocol.md · docs/features/accum-signal.md ⑤. 차트 원 문턱 500만(D-20).
 // ============================================================================
