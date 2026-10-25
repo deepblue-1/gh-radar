@@ -481,7 +481,7 @@ const PNL_CAPTION =
 const RULE_TEXTS = [
   '이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
   '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
-  '하루 순매수(day) · 차트는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
+  '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판의 얇은 회색 계단이 이 값이고, 굵은 보라 선은 포지션 순매수(등록 후 · 이월 포함 · 우리 체결 제외 — 목록 · KPI 와 같은 값)예요. 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
   '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
   '종료 사유 — 청산(순매수 1억 미만 — 서버는 계속 추적하고 다시 1억 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
 ];
@@ -659,5 +659,30 @@ describe('quick-261025-fac 포지션 순매수 선(스케치 017 B)', () => {
     expect(tip.textContent).toMatch(
       /^\d\d:\d\d:\d\d · 순매수 누적 [+−]?[\d.,]+억 · 포지션 순매수 [+−]?[\d.,]+억\(이월 포함\)/,
     );
+  });
+
+  it('(l1) posNet → 범례 10항목 — 「순매수 누적」 자리에 「포지션 순매수(이월 포함)」(굵은 --team) · 「그날 순매수 누적(0부터)」(얇은 --muted-fg)', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('posNet'));
+    const sec = await expand(HANSUN);
+    const legend = sec.querySelector('[data-slot="accum-legend"]')!;
+    const kids = Array.from(legend.children);
+    expect(kids.map((c) => c.textContent)).toEqual([
+      '가격(10초)',
+      '팀 평단',
+      '팀 매수',
+      '팀 매도',
+      '팀매수 시작',
+      '포지션 순매수(이월 포함)',
+      '그날 순매수 누적(0부터)',
+      '등록',
+      '청산·종료',
+      '등록 전',
+    ]);
+    expect(kids.every((c) => c.querySelector('span[aria-hidden="true"]') !== null)).toBe(true);
+    const sw = (i: number) => kids[i]!.querySelector('span[aria-hidden="true"]')!.getAttribute('class') ?? '';
+    expect(sw(5)).toContain('bg-[var(--team)]');
+    expect(sw(5)).toContain('h-[3px]');
+    expect(sw(6)).toContain('bg-[var(--muted-fg)]');
+    expect(sw(6)).toContain('h-px');
   });
 });
