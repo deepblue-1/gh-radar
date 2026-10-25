@@ -373,6 +373,76 @@ export function posNetPathOf(
   return d;
 }
 
+/** 서버 당일 순매수 · 당일 평단 점(quick-261026-0ty · gh-trade 261026-0q3) — avg 0 = 당일 매수 없음. */
+export interface PosDayPoint {
+  t: number;
+  net: number;
+  avg: number;
+}
+
+/**
+ * payload.pos_day → 서버 당일 점 목록(quick-261026-0ty) — posNetPointsOf 와 같은 선 단위 방어.
+ * - 키 없음 · 객체 아님 · 배열 자체 · t_ms / net_krw 중 하나라도 배열 아님 → []. 길이는 t_ms · net_krw 중 짧은 쪽까지.
+ * - t · net 중 하나라도 유한 수가 아니면 그 점을 건너뛴다. **배열 순서 그대로(정렬하지 않음).**
+ * - `avg_px` 가 배열이 아니면(없음 포함) 모든 점 avg 0, 배열이면 그 자리 값이 유한 수일 때만 그 값 · 아니면(짧음 포함) 0.
+ * payloadOf 는 6키만 검사하고 이 선택 키는 보지 않는다. 그래서 키가 없거나(gh-trade 261026-0q3 이전 export 행) 모양이 어긋나면
+ * 이 함수가 [] 를 내서 **당일 선 · 당일 평단만 생략**되고(01h 모양 — day_cum_net 보라 · payload.avg_px 평단) 나머지는 그대로다.
+ */
+export function posDayPointsOf(payload: Pick<AccumReportPayload, 'pos_day'>): PosDayPoint[] {
+  const a: unknown = payload.pos_day;
+  if (typeof a !== 'object' || a === null || Array.isArray(a)) return [];
+  const { t_ms: ts, net_krw: ns, avg_px: as } = a as { t_ms?: unknown; net_krw?: unknown; avg_px?: unknown };
+  if (!Array.isArray(ts) || !Array.isArray(ns)) return [];
+  const avgs: unknown[] | null = Array.isArray(as) ? as : null;
+  const out: PosDayPoint[] = [];
+  const n = Math.min(ts.length, ns.length);
+  for (let k = 0; k < n; k++) {
+    const t = ts[k] as number;
+    const net = ns[k] as number;
+    if (!isNum(t) || !isNum(net)) continue;
+    const v = avgs === null ? 0 : (avgs[k] as number);
+    out.push({ t, net, avg: isNum(v) ? v : 0 });
+  }
+  return out;
+}
+
+/**
+ * 서버 당일 순매수 계단 경로(quick-261026-0ty) — 점마다 cycle 0 · end 0 으로 바꿔 `posNetPathOf` 에 넘긴다.
+ * cycle · end 배열이 없는 계약이라 첫 점부터 한 조각 · 0선 시작 없음(첫 점 전 당일 값은 모른다) · 20:00 연장 ·
+ * 09:00 전 점은 T0 에 붙임(여럿이면 마지막만) — 규칙은 posNetPathOf 와 공유한다.
+ */
+export function posDayPathOf(
+  points: readonly PosDayPoint[],
+  x: (t: number) => number,
+  yC: (c: number) => number,
+  T0: number,
+  T2000: number,
+): string {
+  return posNetPathOf(
+    points.map((p) => ({ t: p.t, net: p.net, cycle: 0, end: 0 })),
+    x,
+    yC,
+    T0,
+    T2000,
+  );
+}
+
+/**
+ * 팀 평단 점선 원천(quick-261026-0ty) — 당일 축(`dayAxis`)이고 pos_day 평단에 양수 점이 하나라도 있으면 pos_day 의 [t, avg] 전부
+ * (0 포함 — 0 에서 선이 끊긴다 · 순서 그대로) · `day: true`(범례 · 툴팁 라벨 「팀 평단(당일)」). 그 밖(당일 축 아님 · pos_day 없음 ·
+ * 비었음 · 평단 전부 0)은 payload.avg_px(`avgPxPointsOf`) · `day: false` — 01h · amg 그대로.
+ */
+export function teamAvgOf(
+  payload: Pick<AccumReportPayload, 'avg_px' | 'pos_day'>,
+  dayAxis: boolean,
+): { points: PricePoint[]; day: boolean } {
+  if (dayAxis) {
+    const pd = posDayPointsOf(payload);
+    if (pd.some((p) => p.avg > 0)) return { points: pd.map((p): PricePoint => [p.t, p.avg]), day: true };
+  }
+  return { points: avgPxPointsOf(payload), day: false };
+}
+
 // ---------------------------------------------------------------------------
 // 데이터 레이어 — 주문 원 · 누적 계단 · 10분 막대 · 빈 띠 · 등록 전 음영 (UI-SPEC A6 레이어 1 · 3 · 4 · 7)
 // ---------------------------------------------------------------------------
@@ -457,7 +527,7 @@ export interface CumRange {
   max: number;
 }
 
-export function cumRangeOf(cum: AccumReportCumNet, pos: readonly PosNetPoint[] = []): CumRange {
+export function cumRangeOf(cum: AccumReportCumNet, pos: readonly Pick<PosNetPoint, 'net'>[] = []): CumRange {
   let min = 0;
   let max = 0;
   for (const c of cum.net_krw) {
@@ -625,15 +695,27 @@ function stepIndexAt(ts: readonly number[], vs: readonly number[], t: number): n
   return idx;
 }
 
-/** 그 시각 팀 평단(avg_px 계단 · 0 이하 = 포지션 없음 → null). 키가 없거나 모양이 어긋나면 null. */
-function avgPxAt(payload: Pick<AccumReportPayload, 'avg_px'>, t: number): number | null {
-  const pts = avgPxPointsOf(payload);
+/** 그 시각 팀 평단(평단 계단 점 · 0 이하 = 포지션 · 당일 매수 없음 → null). 점이 없으면 null. 원천은 `teamAvgOf`. */
+function avgAt(points: readonly PricePoint[], t: number): number | null {
   let v: number | null = null;
-  for (const [tk, p] of pts) {
+  for (const [tk, p] of points) {
     if (tk > t) break;
     v = p;
   }
   return v !== null && v > 0 ? v : null;
+}
+
+/**
+ * 그날 계단(툴팁 「당일 순매수」 · 「순매수 누적」 값) — 당일 축이고 pos_day 점이 있으면 서버 당일 순매수(pos_day t · net ·
+ * quick-261026-0ty), 아니면 day_cum_net. `pd` = pos_day 를 쓰는가(첫 점 전 값을 「—」 로 낼지 가른다).
+ */
+function dayStepsOf(
+  payload: Pick<AccumReportPayload, 'day_cum_net' | 'pos_day'>,
+  dayAxis: boolean,
+): { ts: readonly number[]; vs: readonly number[]; pd: boolean } {
+  const pd = dayAxis ? posDayPointsOf(payload) : [];
+  if (pd.length > 0) return { ts: pd.map((p) => p.t), vs: pd.map((p) => p.net), pd: true };
+  return { ts: payload.day_cum_net.t_ms, vs: payload.day_cum_net.net_krw, pd: false };
 }
 
 /**
@@ -659,22 +741,28 @@ export function nearestOrderOf(circles: readonly OrderCircle[], mx: number, my: 
  * 주문 원 툴팁 2줄 — ① 「HH:MM:SS 팀 매수 N주 · X.XX억 @가격 · N조각[ · 팀매수 시작]」(원 title 그대로)
  * ② 「순매수 누적 ±X.XX억 · 등락률 ±N.NN% · 평단 대비 ±N.NN%」 — 그 시각까지 day_cum_net(그 주문 포함) · 기준가(row.base) 대비 ·
  * 그 시각 팀 평단 대비. 값을 모르는 항목은 뺀다(gh-trade TooltipText 동형). 다 빠지면 1줄.
- * 당일 축 날짜(`dayAxis` · quick-261026-01h)면 첫 항목 라벨만 「당일 순매수」(값은 같은 day_cum_net — `cumTipAt` 주석).
+ * 당일 축 날짜(`dayAxis` · quick-261026-01h)면 첫 항목 라벨만 「당일 순매수」.
+ *
+ * **quick-261026-0ty — pos_day 원천:** 당일 축이고 payload.pos_day 점이 있으면 「당일 순매수」 값은 서버 당일 값(pos_day 계단 · 그
+ * 시각 이하 마지막 점 · 첫 점 전이면 항목 생략)이고, 「평단 대비」 는 `teamAvgOf` 평단(양수 점이 있으면 pos_day 당일 평단 · 그 시각
+ * 0 이면 생략)이다. pos_day 가 없거나 당일 축이 아니면 day_cum_net · payload.avg_px 그대로다.
  */
 export function orderTipOf(
-  payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px'>,
+  payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px' | 'pos_day'>,
   row: Pick<AccumReportRow, 'base'>,
   c: OrderCircle,
   opts: { dayAxis?: boolean } = {},
 ): string[] {
-  const dayLabel = opts.dayAxis ? '당일 순매수' : '순매수 누적';
+  const dayAxis = opts.dayAxis === true;
+  const dayLabel = dayAxis ? '당일 순매수' : '순매수 누적';
   const t = payload.orders.t_ms[c.i]!;
   const px = payload.orders.px[c.i]!;
   const parts: string[] = [];
-  const k = stepIndexAt(payload.day_cum_net.t_ms, payload.day_cum_net.net_krw, t);
-  if (k >= 0) parts.push(`${dayLabel} ${fmtEok(payload.day_cum_net.net_krw[k], { signed: true, digits: 2 })}`);
+  const { ts, vs } = dayStepsOf(payload, dayAxis);
+  const k = stepIndexAt(ts, vs, t);
+  if (k >= 0) parts.push(`${dayLabel} ${fmtEok(vs[k], { signed: true, digits: 2 })}`);
   if (isNum(row.base) && row.base > 0) parts.push(`등락률 ${pct2(((px - row.base) / row.base) * 100)}`);
-  const avg = avgPxAt(payload, t);
+  const avg = avgAt(teamAvgOf(payload, dayAxis).points, t);
   if (avg !== null) parts.push(`평단 대비 ${pct2(((px - avg) / avg) * 100)}`);
   return parts.length > 0 ? [c.title, parts.join(' · ')] : [c.title];
 }
@@ -691,25 +779,32 @@ export function orderTipOf(
  * pos_net 이 없거나 빈 행은 위 기존 문구 · key `c{k}` 그대로다.
  *
  * **당일 축 날짜(`dayAxis` · quick-261026-01h · 스케치 018 ②)** — key · 스냅샷 · 공백 판정은 그대로, 글자만: 보라 선 = day_cum_net 의
- * 라벨이 잠긴 결정대로 「당일 순매수」, 포지션 조각은 「누적 ±Y.YY억(이월 포함)」/「누적 —」. 보라 선 끝값이 목록의 당일 순매수
- * (pos_day — 서버 상태기)와 다를 수 있음은 판정 기준 본문 2(`ACCUM_RULE_LINES_DAY`)가 말한다.
+ * 라벨이 잠긴 결정대로 「당일 순매수」, 포지션 조각은 「누적 ±Y.YY억(이월 포함)」/「누적 —」.
+ *
+ * **quick-261026-0ty — pos_day 원천(gh-trade 261026-0q3):** 당일 축이고 payload.pos_day 점이 있으면 그날 계단(kd · 「당일 순매수」 값)은
+ * 서버 당일 순매수(pos_day — 목록의 당일 순매수와 같은 값의 흐름)이고, pos 갈래에서 그 점이 아직 없으면(첫 점 전) 0 이 아니라
+ * 「당일 순매수 —」 다. 평단은 `teamAvgOf`(pos_day 평단에 양수 점이 있으면 그 값 · 라벨 「팀 평단(당일)」). pos_day 가 없으면
+ * day_cum_net · payload.avg_px · 「팀 평단」 그대로(01h). key · 스냅샷 · 공백 판정 · 라벨 규칙은 같다.
  */
 export function cumTipAt(
-  payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px' | 'pos_net'>,
+  payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px' | 'pos_net' | 'pos_day'>,
   t: number,
   opts: { dayAxis?: boolean } = {},
 ): ChartHover | null {
   const dayAxis = opts.dayAxis === true;
   const dayLabel = dayAxis ? '당일 순매수' : '순매수 누적';
-  const { t_ms: ts, net_krw: vs } = payload.day_cum_net;
+  const { ts, vs, pd } = dayStepsOf(payload, dayAxis);
   const k = stepIndexAt(ts, vs, t);
+  const team = teamAvgOf(payload, dayAxis);
+  const avgText = (tk: number): string => {
+    const avg = avgAt(team.points, tk);
+    return avg === null ? '' : ` · ${team.day ? '팀 평단(당일)' : '팀 평단'} ${INT_FMT.format(avg)}원`;
+  };
   const pos = posNetPointsOf(payload);
   if (pos.length === 0) {
     if (k < 0) return null;
     const tk = ts[k]!;
-    let text = `${kstClock(tk)} · ${dayLabel} ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
-    const avg = avgPxAt(payload, tk);
-    if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
+    const text = `${kstClock(tk)} · ${dayLabel} ${fmtEok(vs[k], { signed: true, digits: 2 })}${avgText(tk)}`;
     return { key: `c${k}`, lines: [text], circle: null };
   }
   let kp = -1;
@@ -719,7 +814,8 @@ export function cumTipAt(
   }
   if (k < 0 && kp < 0) return null;
   const tk = Math.max(k >= 0 ? ts[k]! : -Infinity, kp >= 0 ? pos[kp]!.t : -Infinity);
-  const day = `${dayLabel} ${fmtEok(k >= 0 ? vs[k] : 0, { signed: true, digits: 2 })}`;
+  const day =
+    k < 0 && pd ? `${dayLabel} —` : `${dayLabel} ${fmtEok(k >= 0 ? vs[k] : 0, { signed: true, digits: 2 })}`;
   let posVal: number | null = null;
   if (kp >= 0) {
     const p = pos[kp]!;
@@ -734,9 +830,7 @@ export function cumTipAt(
         ? '누적 —'
         : '포지션 —'
       : `${posWord} ${fmtEok(posVal, { signed: true, digits: 2 })}(이월 포함)`;
-  let text = `${kstClock(tk)} · ${day} · ${posText}`;
-  const avg = avgPxAt(payload, tk);
-  if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
+  const text = `${kstClock(tk)} · ${day} · ${posText}${avgText(tk)}`;
   return { key: `c${k}p${kp}`, lines: [text], circle: null };
 }
 

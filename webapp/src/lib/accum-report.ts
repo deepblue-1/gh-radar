@@ -587,5 +587,17 @@ export const ACCUM_RULE_LINES_DAY: readonly string[] = [
   ACCUM_RULE_LINES[3]!,
 ];
 
+/**
+ * 판정 기준 본문 4줄 — 당일 축 날짜이고 그 행 payload.pos_day 가 있을 때(quick-261026-0ty · gh-trade 261026-0q3).
+ * 누적 판 보라 선이 day_cum_net(pcap 재계산)이 아니라 서버 당일 순매수라 본문 2(보라 선의 뜻) · 3(원 문턱 — 「누적 계단은 전체 팀
+ * 주문」 문장은 그 선이 없으니 뺀다)을 다시 쓴다. 본문 1 은 `ACCUM_RULE_LINES_DAY[0]`, 4 는 `ACCUM_RULE_LINES[3]` 공유.
+ */
+export const ACCUM_RULE_LINES_DAY_POS: readonly string[] = [
+  ACCUM_RULE_LINES_DAY[0]!,
+  '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 당일 순매수와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
+  '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.',
+  ACCUM_RULE_LINES[3]!,
+];
+
 /** 판정 기준 출처 줄(링크 없음). */
 export const ACCUM_RULE_SOURCE = '규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13';

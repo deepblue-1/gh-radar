@@ -9,7 +9,6 @@ import { useChartWidth } from '@/hooks/use-chart-width';
 import {
   ACCUM_CHART,
   avgPxPathOf,
-  avgPxPointsOf,
   bucketBarsOf,
   bucketMaxOf,
   bucketTipAt,
@@ -27,6 +26,8 @@ import {
   nearestOrderOf,
   orderCirclesOf,
   orderTipOf,
+  posDayPathOf,
+  posDayPointsOf,
   posNetPathOf,
   posNetPointsOf,
   priceAxisWidthOf,
@@ -37,6 +38,7 @@ import {
   priceTicksOf,
   shadeOf,
   tOfView,
+  teamAvgOf,
   ticksOf,
   xOfView,
   yOfCum,
@@ -63,7 +65,9 @@ import { cn } from '@/lib/utils';
  *   스케치 017 B) ③'' 당일 축 분할(quick-261026-01h · 스케치 018 ② · prop `dayAxis` 이고 pos_net 점이 있을 때) — 보라 day_cum_net
  *   (--team 2.2 · 오른쪽 --team 축 · 그날 범위만)이 위, 회색 pos_net(--muted-fg 1 · .7 · 왼쪽 회색 축 `accum-pos-axis` · 0 포함 독립
  *   범위 · 끊김 · 열린 끝 규칙은 ③' 그대로)이 아래 — 두 축이라 두 선 높이는 비교할 수 없다. 0선은 그날 축 하나 · 판 제목
- *   「당일 순매수 · 누적(이월 포함)」 · 툴팁 라벨 「당일 순매수」/「누적」 ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
+ *   「당일 순매수 · 누적(이월 포함)」 · 툴팁 라벨 「당일 순매수」/「누적」 ③''' pos_day 원천(quick-261026-0ty · gh-trade 261026-0q3) —
+ *   당일 축이고 payload.pos_day 점이 있으면 보라 주선 = pos_day 당일 순매수(`accum-pos-day-path` · 한 조각 · 오른쪽 축 범위 = pos_day 값 ·
+ *   pos_net 이 있으면 --team 2.2 · 없으면 1.5) · day_cum_net 안 그림 · ⑤' 팀 평단 = teamAvgOf(양수 점 있으면 pos_day.avg_px) ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
  *   title 없음 — quick-261021-amg) ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
  *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖. 가격 선 · 주문 원은
@@ -129,7 +133,9 @@ export function AccumChart({
   const priceD = pricePathOf(points, view, x, yP, stepMs, payload.orders);
   // quick-261021-amg — 팀 평단 계단 · 열린 끝은 가격 선과 같은 마지막 체결 칸 끝(없으면 20:00)
   const lastTrade = lastTradeMsOf(payload.price);
-  const avgD = avgPxPathOf(avgPxPointsOf(payload), x, pRange, bounds.T0, lastTrade === null ? bounds.T2000 : lastTrade + stepMs);
+  // quick-261026-0ty — 당일 축이고 pos_day 평단에 양수 점이 있으면 그 당일 평단(teamAvgOf), 아니면 payload.avg_px
+  const teamAvg = teamAvgOf(payload, dayAxis);
+  const avgD = avgPxPathOf(teamAvg.points, x, pRange, bounds.T0, lastTrade === null ? bounds.T2000 : lastTrade + stepMs);
   const pxClip = priceClipOf(L, W);
 
   // quick-261025-fac — 포지션 순매수(pos_net · 이월 포함)가 주인공 · 그날 계단은 회색 보조 · 두 선은 한 축(합친 범위)
@@ -137,13 +143,21 @@ export function AccumChart({
   const posPts = posNetPointsOf(payload);
   const hasPos = posPts.length > 0;
   const split = dayAxis && hasPos;
-  const cRange = split ? cumRangeOf(payload.day_cum_net) : cumRangeOf(payload.day_cum_net, posPts);
+  // quick-261026-0ty — 당일 축이고 pos_day 점이 있으면 보라 주선 = pos_day(오른쪽 축 = pos_day 범위) · day_cum_net 안 그림
+  const dayPts = dayAxis ? posDayPointsOf(payload) : [];
+  const hasDay = dayPts.length > 0;
+  const cRange = hasDay
+    ? cumRangeOf({ t_ms: [], net_krw: [] }, dayPts)
+    : split
+      ? cumRangeOf(payload.day_cum_net)
+      : cumRangeOf(payload.day_cum_net, posPts);
   const yC = yOfCum(cRange);
   const posRange = split ? cumRangeOf({ t_ms: [], net_krw: [] }, posPts) : cRange;
   const yPos = split ? yOfCum(posRange) : yC;
   const posTicks = split ? [...new Set([posRange.min, posRange.max])] : [];
   const cumTicks = cumTicksOf(cRange, yC);
-  const cumD = cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
+  const cumD = hasDay ? '' : cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
+  const dayD = hasDay ? posDayPathOf(dayPts, x, yC, bounds.T0, bounds.T2000) : '';
   const posD = hasPos ? posNetPathOf(posPts, x, yPos, bounds.T0, bounds.T2000) : '';
   const zeroY = yC(0);
 
@@ -296,6 +310,17 @@ export function AccumChart({
                   strokeLinejoin="round"
                 />
               )}
+              {/* ③''' 서버 당일 순매수(pos_day) — 보라 주선 · day_cum_net 대신 */}
+              {dayD !== '' && (
+                <path
+                  data-slot="accum-pos-day-path"
+                  d={dayD}
+                  fill="none"
+                  stroke="var(--team)"
+                  strokeWidth={2.2}
+                  strokeLinejoin="round"
+                />
+              )}
             </>
           ) : (
             <>
@@ -307,6 +332,17 @@ export function AccumChart({
                   stroke={hasPos ? 'var(--muted-fg)' : 'var(--team)'}
                   strokeWidth={hasPos ? 1 : 1.5}
                   strokeOpacity={hasPos ? 0.7 : undefined}
+                  strokeLinejoin="round"
+                />
+              )}
+              {/* ③''' 당일 축 · pos_net 없음 — 서버 당일 순매수(pos_day) 한 선 */}
+              {dayD !== '' && (
+                <path
+                  data-slot="accum-pos-day-path"
+                  d={dayD}
+                  fill="none"
+                  stroke="var(--team)"
+                  strokeWidth={1.5}
                   strokeLinejoin="round"
                 />
               )}

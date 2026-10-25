@@ -9,11 +9,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { fetchAccumDetail, readAccumDetailCache } from '@/lib/accum-api';
 import { useChartView } from '@/hooks/use-chart-view';
-import { dayBoundsOf, fmtViewRange, lastTradeMsOf, posNetPointsOf, type ChartPreset } from '@/lib/accum-chart';
+import {
+  dayBoundsOf,
+  fmtViewRange,
+  lastTradeMsOf,
+  posDayPointsOf,
+  posNetPointsOf,
+  teamAvgOf,
+  type ChartPreset,
+} from '@/lib/accum-chart';
 import {
   ACCUM_LOAD_HM,
   ACCUM_RULE_LINES,
   ACCUM_RULE_LINES_DAY,
+  ACCUM_RULE_LINES_DAY_POS,
   ACCUM_RULE_SOURCE,
   cycleRowsOf,
   detailKpisOf,
@@ -53,6 +62,8 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   원천이 없어 없다 · 전날 평단은 prev_pos_day_avg_px > 0 일 때(quick-261026-0ty). 판정 기준 1줄 새 임계 문구는 상세 행
  *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원 문턱은 500만원(gh-trade D-20).
  *   그날 pos_day_avg_px 열이 실렸으면(prop `dayAvg` = hasDayAvgOf · quick-261026-0ty) KPI 줄에 「당일 평단」(0 · null 「—」).
+ *   그 행 payload.pos_day 점이 있으면(quick-261026-0ty · gh-trade 261026-0q3) 누적 판 보라 주선 = 서버 당일 순매수 · 팀 평단 점선 =
+ *   당일 평단(양수 점 있을 때 · 범례 「팀 평단(당일)」) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY_POS`.
  */
 
 type Phase =
@@ -223,6 +234,10 @@ function ReadyBody({
   prev: AccumDetailPrev | null;
 }) {
   const cycles = cycleRowsOf(row);
+  // quick-261026-0ty — 당일 축이고 그 행 payload.pos_day 점이 있으면 보라 선이 서버 당일 값이라 판정 기준 본문을 바꾼다
+  const payload = dayAxis ? payloadOf(row) : null;
+  const posDay = payload !== null && posDayPointsOf(payload).length > 0;
+  const rules = dayAxis ? (posDay ? ACCUM_RULE_LINES_DAY_POS : ACCUM_RULE_LINES_DAY) : ACCUM_RULE_LINES;
   return (
     <>
       <div data-slot="accum-chart-block" className="flex flex-col gap-2">
@@ -256,7 +271,7 @@ function ReadyBody({
                 ),
               )}
             </li>
-            {(dayAxis ? ACCUM_RULE_LINES_DAY : ACCUM_RULE_LINES).map((l) => (
+            {rules.map((l) => (
               <li key={l}>{l}</li>
             ))}
           </ul>
@@ -438,7 +453,11 @@ function ChartBody({ row, payload, dayAxis }: { row: AccumDetailRow; payload: Ac
   const noTeam = payload.day_cum_net.t_ms.length === 0;
   // 로딩 스켈레톤은 payload 를 모르니 LEGEND 그대로 — 범례 분기는 여기만
   const hasPos = posNetPointsOf(payload).length > 0;
-  const legend = dayAxis ? (hasPos ? DAY_LEGEND_POS : LEGEND_DAY) : hasPos ? LEGEND_POS : LEGEND;
+  const base = dayAxis ? (hasPos ? DAY_LEGEND_POS : LEGEND_DAY) : hasPos ? LEGEND_POS : LEGEND;
+  // quick-261026-0ty — 팀 평단 점선이 pos_day 당일 평단이면 그 항목 라벨만 「팀 평단(당일)」(견본 그대로)
+  const legend = teamAvgOf(payload, dayAxis).day
+    ? base.map((l) => (l.label === '팀 평단' ? { ...l, label: '팀 평단(당일)' } : l))
+    : base;
 
   return (
     <>
