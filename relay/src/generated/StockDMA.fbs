@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 20e718d7
-// synced-date:        2026-10-24
+// server-repo-commit: 41e13eb3
+// synced-date:        2026-10-25
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1431,6 +1431,7 @@ enum StrategyEventKind : ubyte {
     // 15 는 Phase 27 실시간 상한가 특징 — 계좌 없음, 저널 80 전용(분당 1건/키).
     LimitFeature = 15,      // 실시간 상한가 특징 분당 스냅 — 시세 이벤트 아님(82 미송신), 슬롯 매핑 docs/analysis/feature-dictionary.md ③
     // 16 은 Phase 34 매집감지 — 계좌 없음, 저널 80 전용(분당 1건/키·변화 시만·종료/복원/첫 스냅샷 행).
+    // Phase 39(2026-10-25 D-08) — 16 은 snap_len 3 · snap_qty[2] = day_buy_krw · snap_cum[2] = day_sell_krw · accept_latency_us = day_avg_px(이 kind 에서만).
     AccumSignal = 16        // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md
 }
 
@@ -1636,9 +1637,12 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
 //   89 AccumSnapshot (S→C) — Envelope.accum_snapshot 슬롯 100. 로그인 성공 직후 그 연결에만 Notice 1프레임(78 선례) —
 //                             지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1, 그 뒤 ·
 //                             청산 시각 오름차순, quick-261021-hxa)을 88 원소 테이블로(빈 벡터 가능).
-// 팀 주문 = KRX G1·G4 A3 조각(G4 = 애프터마켓 16:00~20:00, quick-261019-qqc)을 「직전 조각 0/0 ∧ 같은 bs ∧ 간격 ≤ 200µs」 로
-// 묶은 주문 중 자전거래방지(한 가격 2조각+)
-// ∪ 0/0 단독. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
+// 팀 주문 = KRX G1·G4(G4 = 애프터마켓 16:00~20:00, quick-261019-qqc) · NXT G1(Phase 37) A3 조각을 msg_seq 런(같은 ISIN·거래소
+// 직전 A3 seq + 1 ∧ 같은 bs, quick-261023-wbd)으로 묶은 주문 중 KRX 는 자전거래방지(한 가격 2조각+) ∪ 마지막 조각 0/0, NXT 는
+// 한 가격 2조각+. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
+// 등록 = 0 < 시총 ≤ th_max_mcap_krw ∧ 당일 순매수 ≥ th_net_krw ∧ 최근 th_recent_sec 초 팀 매수 주문 ≥ th_recent_buy_orders 건
+// (2026-10-25 Phase 39 D-01 — 옛 30조각·빠른 경로 폐지, th_min_same 은 0). 생사(청산·재등장·되돌림·종료·이월)는 사이클 누적 기준 그대로.
+// Phase 39 — 당일 축(2026-10-25, gh-radar-eb 합의): 88 말미 day_*·prev_*·th_recent_* 12필드 · 90 샘플 말미 day_net_krw·day_avg_px.
 // 금액은 원, 수량은 주, 가격은 원 정수다. 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
 // ============================================================================
 
@@ -1678,7 +1682,7 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     our_excluded_qty: long;      // 우리 체결 제외 수량(주) — 이 서버가 낸 주문 체결을 팀 누적에서 뺀 합 (D-07)
     last_px: uint;               // 마지막 팀 체결가(원)
     th_net_krw: long;            // 서버 설정 — 등록 순매수 임계(원)
-    th_min_same: uint;           // 서버 설정 — 등록 한 가격 최소 조각 수
+    th_min_same: uint;           // 서버 설정 — 등록 한 가격 최소 조각 수 (0 = 조각 조건 없음 — 2026-10-25 Phase 39 부터 늘 0, 등록 임계는 th_recent_*)
     th_max_mcap_krw: ulong;      // 서버 설정 — 등록 시총 상한(원), 0 = 상한 없음
     buckets: [AccumBucket];      // 당일 10분 버킷 — 값 있는 칸만(최대 72), 이월분의 전날 버킷은 싣지 않는다
     sell_warn: bool;             // 지금 매도 경보 중 — 매집중에서 warn_min_order_krw 이상 팀 매도가 매수 없이 warn_sell_streak 건 연속이면 켜진다(append, quick-261019-gwm)
@@ -1690,6 +1694,20 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     nxt_sell_krw: long;          // NXT 팀 매도 누적 금액(원) — NXT 순매수는 파생(nxt_buy_krw − nxt_sell_krw), 합계 buy/sell 은 KRX+NXT
     bucket_base_sec: uint;       // buckets[].slot 0 의 당일 초 — 지금 서버 28,800(08:00), 0·부재 = 옛 서버 32,400(09:00). 89 원소도 같다
                                  // (append, quick-261023-bdc)
+    // ---- 이하 Phase 39 당일 축 append (2026-10-25 D-06, gh-radar-eb 합의) — 부재·0 = 옛 서버(당일 값 없음 → 빈칸) ----
+    day_buy_qty: long;           // 당일 팀 매수 수량(주) — 우리 체결 제외 뒤, 06:00·새 사이클·종료 프레임 직전 0 (append, Phase 39 D-06)
+    day_buy_krw: long;           // 당일 팀 매수 금액(원) — day_avg_px 의 원천
+    day_sell_qty: long;          // 당일 팀 매도 수량(주) — 우리 체결 제외 뒤(하한 0)
+    day_sell_krw: long;          // 당일 팀 매도 금액(원) — 당일 순매수 = day_buy_krw − day_sell_krw (파생, 칸 없음)
+    day_lo_px: uint;             // 당일 팀 매수 주문 가격 최저(원) — 0 = 당일 매수 없음. 우리 체결 제외로 되돌리지 않는다(근사)
+    day_hi_px: uint;             // 당일 팀 매수 주문 가격 최고(원) — 0 = 당일 매수 없음
+    prev_net_krw: long;          // 전 거래일 팀 순매수(원, 음수 가능) — 06:00 이월 때 그날 day 값으로 확정. 당일 등록·새 사이클·팀 주문 없던 날 0
+    prev_buy_krw: long;          // 전 거래일 팀 매수 금액(원)
+    prev_sell_krw: long;         // 전 거래일 팀 매도 금액(원)
+    prev_avg_px: uint;           // 전 거래일 팀 매수 평단(원) = 그날 매수 금액 ÷ 수량 반올림, 매수 없으면 0
+    th_recent_buy_orders: uint;  // 서버 설정 — 등록 「최근 th_recent_sec 초 팀 매수 주문 건수」 임계, 0 = 건수 조건 없음.
+                                 // 부재·0 이고 th_min_same > 0 이면 옛 서버(30조각 규칙)
+    th_recent_sec: uint;         // 서버 설정 — 위 건수 창(초, 기본 60). 0·부재 = 옛 서버
 }
 
 table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
@@ -1704,7 +1722,7 @@ table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
 //   90 AccumChartResp   (S→C) — Envelope.accum_chart_resp 슬롯 104. 요청 연결에만 Notice 1프레임(69 GetTape 선례).
 //                               미등록·자료 없음·모르는 isin 도 빈 배열 1프레임(무응답 금지). 연결당 1초 1건 넘으면 무응답.
 // 자료는 등록(발표된) 포지션의 당일·등록 이후만 — 등록 판정 주문부터 쌓고, 청산·06:00·재기동이면 없어진다(영속 없음).
-// 프레임 ≈ 2,048×36B + 4,320×28B ≈ 195KB 로 클라 1 MiB 상한 안(08:00 축, quick-261023-bdc). 정본 docs/features/accum-signal.md ⑨.
+// 프레임 ≈ 2,048×36B + 4,320×44B ≈ 264KB 로 클라 1 MiB 상한 안(08:00 축 quick-261023-bdc · 샘플 day 2칸 Phase 39). 정본 docs/features/accum-signal.md ⑨.
 // ============================================================================
 
 table GetAccumChartReq {         // 45 본문 — 매집 차트 자료 조회
@@ -1715,15 +1733,18 @@ table AccumChartSample {         // 10초 가격 샘플 1칸 (체결 있는 칸�
     t_s: ushort;                 // AccumChartResp.sample_base_sec 기준 10초 칸 번호 — 지금 서버 08:00 기준 0 = 08:00:00~08:00:10 … 4319 =
                                  // 19:59:50~20:00:00 (부재·0 = 옛 서버 09:00 기준 0~3959, quick-261023-bdc)
     px: uint;                    // 그 칸 마지막 KRX G1·G4 · NXT G1 체결가(원 — 같은 칸 두 거래소면 마지막 도착, quick-261023-bdc)
-    net_krw: long;               // 그 시점 팀 순매수(원) — 전체 팀 주문(1천만 미만 포함), 우리 체결 제외 뒤
+    net_krw: long;               // 그 시점 팀 순매수(원) — 전체 팀 주문(원 문턱 미만 포함), 우리 체결 제외 뒤
     avg_px: uint;                // 그 시점 팀 평단(원) — buy_qty 0 이면 0
+    day_net_krw: long;           // 그 시점 당일 팀 순매수(원) = 당일 매수 − 당일 매도(88 day_* 와 같은 원천). 청산 차트는 청산 시점 값 고정.
+                                 // 0·부재 = 옛 서버·옛 사이드카 칸 (append, Phase 39 D-06)
+    day_avg_px: uint;            // 그 시점 당일 팀 매수 평단(원, 88 day_avg_px 식) — 당일 매수 없으면 0 (append, Phase 39 D-06)
 }
 
-table AccumChartOrder {          // 1천만원 이상 팀 주문 1건
+table AccumChartOrder {          // 500만원 이상 팀 주문 1건 (2026-10-25 Phase 39 D-20 — 옛 1천만)
     t_us: long;                  // 체결 시각 — 당일 0시 기준 µs
     side: ubyte;                 // 1 매수 · 2 매도
     qty: uint;                   // 주문 수량(주)
-    krw: long;                   // 주문 금액(원) — 1천만 이상만 싣는다
+    krw: long;                   // 주문 금액(원) — 500만 이상만 싣는다(옛 서버 1천만)
     px: uint;                    // 주문 가격(원)
     pieces: ushort;              // 한 가격 조각 수
     exchange: ubyte;             // 'K'(75) KRX · 'N'(78) NXT · 0/부재 = KRX (append, Phase 37 D-12)
@@ -1734,7 +1755,7 @@ table AccumChartResp {           // 90 본문 — 매집 차트 자료 (요청 �
     since_date: string;          // 등록 거래일 "YYYYMMDD" — "" 이면 미등록·자료 없음
     reg_time_us: long;           // 등록 판정 주문 시각(당일 µs) — 이월 행도 등록일 시각, 자료 없음이면 0
     samples: [AccumChartSample]; // 10초 가격 샘플 — 칸 순서, 체결 있는 칸만(≤ 4,320), 빈 벡터 가능
-    orders: [AccumChartOrder];   // 1천만+ 팀 주문 — 오래된 것 → 최신(≤ 2,048), 빈 벡터 가능
+    orders: [AccumChartOrder];   // 500만+ 팀 주문(옛 서버 1천만+) — 오래된 것 → 최신(≤ 2,048), 빈 벡터 가능
     dropped_orders: uint;        // 상한 2,048 을 넘어 버린 가장 오래된 주문 수 (0 = 없음)
     cum_buy_krw: long;           // 팀 매수 누적 금액(원) — 88 buy_krw 와 같은 값, 자료 없음이면 0
     cum_sell_krw: long;          // 팀 매도 누적 금액(원) — 88 sell_krw 와 같은 값, 자료 없음이면 0
@@ -2075,6 +2096,10 @@ root_type Envelope;
 // 81 백필 없음·계좌 없음, 43칸 재해석 표는 gh-radar 인박스 노트(34-04). 핫패스(Stock·LimitChaser·
 // MarketFeed)는 무변경 — 상태기는 MarketPublisher 스레드 단독 소유다.
 // 번호 88/89·슬롯 98/100·kind 16 은 폐기해도 재사용 금지.
+// Phase 39(2026-10-25, 당일 축): 88 AccumSignal 말미 12필드(day_buy_qty·day_buy_krw·day_sell_qty·day_sell_krw·day_lo_px·day_hi_px·
+// prev_net_krw·prev_buy_krw·prev_sell_krw·prev_avg_px·th_recent_buy_orders·th_recent_sec) · 90 AccumChartSample 말미 2필드
+// (day_net_krw·day_avg_px) append. MsgType·슬롯·기존 필드 무변경. kind 16 은 snapLen 3·acceptLatencyUs = day_avg_px·message 새 꼴 —
+// 표는 server/docs/protocol.md · docs/features/accum-signal.md ⑤. 차트 원 문턱 500만(D-20).
 // ============================================================================
 
 // ============================================================================

@@ -42,8 +42,18 @@ avgPx():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+dayNetKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+dayAvgPx():number {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumChartSample(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(6);
 }
 
 static addTS(builder:flatbuffers.Builder, tS:number) {
@@ -62,17 +72,27 @@ static addAvgPx(builder:flatbuffers.Builder, avgPx:number) {
   builder.addFieldInt32(3, avgPx, 0);
 }
 
+static addDayNetKrw(builder:flatbuffers.Builder, dayNetKrw:bigint) {
+  builder.addFieldInt64(4, dayNetKrw, BigInt('0'));
+}
+
+static addDayAvgPx(builder:flatbuffers.Builder, dayAvgPx:number) {
+  builder.addFieldInt32(5, dayAvgPx, 0);
+}
+
 static endAccumChartSample(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumChartSample(builder:flatbuffers.Builder, tS:number, px:number, netKrw:bigint, avgPx:number):flatbuffers.Offset {
+static createAccumChartSample(builder:flatbuffers.Builder, tS:number, px:number, netKrw:bigint, avgPx:number, dayNetKrw:bigint, dayAvgPx:number):flatbuffers.Offset {
   AccumChartSample.startAccumChartSample(builder);
   AccumChartSample.addTS(builder, tS);
   AccumChartSample.addPx(builder, px);
   AccumChartSample.addNetKrw(builder, netKrw);
   AccumChartSample.addAvgPx(builder, avgPx);
+  AccumChartSample.addDayNetKrw(builder, dayNetKrw);
+  AccumChartSample.addDayAvgPx(builder, dayAvgPx);
   return AccumChartSample.endAccumChartSample(builder);
 }
 }

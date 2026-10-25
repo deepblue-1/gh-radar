@@ -223,8 +223,68 @@ bucketBaseSec():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+dayBuyQty():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 78);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+dayBuyKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 80);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+daySellQty():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 82);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+daySellKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 84);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+dayLoPx():number {
+  const offset = this.bb!.__offset(this.bb_pos, 86);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+dayHiPx():number {
+  const offset = this.bb!.__offset(this.bb_pos, 88);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+prevNetKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 90);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+prevBuyKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 92);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+prevSellKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 94);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+prevAvgPx():number {
+  const offset = this.bb!.__offset(this.bb_pos, 96);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+thRecentBuyOrders():number {
+  const offset = this.bb!.__offset(this.bb_pos, 98);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+thRecentSec():number {
+  const offset = this.bb!.__offset(this.bb_pos, 100);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumSignal(builder:flatbuffers.Builder) {
-  builder.startObject(37);
+  builder.startObject(49);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -387,12 +447,60 @@ static addBucketBaseSec(builder:flatbuffers.Builder, bucketBaseSec:number) {
   builder.addFieldInt32(36, bucketBaseSec, 0);
 }
 
+static addDayBuyQty(builder:flatbuffers.Builder, dayBuyQty:bigint) {
+  builder.addFieldInt64(37, dayBuyQty, BigInt('0'));
+}
+
+static addDayBuyKrw(builder:flatbuffers.Builder, dayBuyKrw:bigint) {
+  builder.addFieldInt64(38, dayBuyKrw, BigInt('0'));
+}
+
+static addDaySellQty(builder:flatbuffers.Builder, daySellQty:bigint) {
+  builder.addFieldInt64(39, daySellQty, BigInt('0'));
+}
+
+static addDaySellKrw(builder:flatbuffers.Builder, daySellKrw:bigint) {
+  builder.addFieldInt64(40, daySellKrw, BigInt('0'));
+}
+
+static addDayLoPx(builder:flatbuffers.Builder, dayLoPx:number) {
+  builder.addFieldInt32(41, dayLoPx, 0);
+}
+
+static addDayHiPx(builder:flatbuffers.Builder, dayHiPx:number) {
+  builder.addFieldInt32(42, dayHiPx, 0);
+}
+
+static addPrevNetKrw(builder:flatbuffers.Builder, prevNetKrw:bigint) {
+  builder.addFieldInt64(43, prevNetKrw, BigInt('0'));
+}
+
+static addPrevBuyKrw(builder:flatbuffers.Builder, prevBuyKrw:bigint) {
+  builder.addFieldInt64(44, prevBuyKrw, BigInt('0'));
+}
+
+static addPrevSellKrw(builder:flatbuffers.Builder, prevSellKrw:bigint) {
+  builder.addFieldInt64(45, prevSellKrw, BigInt('0'));
+}
+
+static addPrevAvgPx(builder:flatbuffers.Builder, prevAvgPx:number) {
+  builder.addFieldInt32(46, prevAvgPx, 0);
+}
+
+static addThRecentBuyOrders(builder:flatbuffers.Builder, thRecentBuyOrders:number) {
+  builder.addFieldInt32(47, thRecentBuyOrders, 0);
+}
+
+static addThRecentSec(builder:flatbuffers.Builder, thRecentSec:number) {
+  builder.addFieldInt32(48, thRecentSec, 0);
+}
+
 static endAccumSignal(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset, sellWarn:boolean, sellWarns:number, dayAvgPx:number, nxtBuyQty:bigint, nxtBuyKrw:bigint, nxtSellQty:bigint, nxtSellKrw:bigint, bucketBaseSec:number):flatbuffers.Offset {
+static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, sinceDateOffset:flatbuffers.Offset, sinceTimeOffset:flatbuffers.Offset, state:number, endReason:number, cycle:number, carryDays:number, buyQty:bigint, buyKrw:bigint, sellQty:bigint, sellKrw:bigint, netQty:bigint, netKrw:bigint, avgPx:number, loPx:number, hiPx:number, regPx:number, peakNetKrw:bigint, sellPhases:number, maxSame:number, mcapKrw:bigint, ourExcludedQty:bigint, lastPx:number, thNetKrw:bigint, thMinSame:number, thMaxMcapKrw:bigint, bucketsOffset:flatbuffers.Offset, sellWarn:boolean, sellWarns:number, dayAvgPx:number, nxtBuyQty:bigint, nxtBuyKrw:bigint, nxtSellQty:bigint, nxtSellKrw:bigint, bucketBaseSec:number, dayBuyQty:bigint, dayBuyKrw:bigint, daySellQty:bigint, daySellKrw:bigint, dayLoPx:number, dayHiPx:number, prevNetKrw:bigint, prevBuyKrw:bigint, prevSellKrw:bigint, prevAvgPx:number, thRecentBuyOrders:number, thRecentSec:number):flatbuffers.Offset {
   AccumSignal.startAccumSignal(builder);
   AccumSignal.addIsin(builder, isinOffset);
   AccumSignal.addExchange(builder, exchangeOffset);
@@ -431,6 +539,18 @@ static createAccumSignal(builder:flatbuffers.Builder, isinOffset:flatbuffers.Off
   AccumSignal.addNxtSellQty(builder, nxtSellQty);
   AccumSignal.addNxtSellKrw(builder, nxtSellKrw);
   AccumSignal.addBucketBaseSec(builder, bucketBaseSec);
+  AccumSignal.addDayBuyQty(builder, dayBuyQty);
+  AccumSignal.addDayBuyKrw(builder, dayBuyKrw);
+  AccumSignal.addDaySellQty(builder, daySellQty);
+  AccumSignal.addDaySellKrw(builder, daySellKrw);
+  AccumSignal.addDayLoPx(builder, dayLoPx);
+  AccumSignal.addDayHiPx(builder, dayHiPx);
+  AccumSignal.addPrevNetKrw(builder, prevNetKrw);
+  AccumSignal.addPrevBuyKrw(builder, prevBuyKrw);
+  AccumSignal.addPrevSellKrw(builder, prevSellKrw);
+  AccumSignal.addPrevAvgPx(builder, prevAvgPx);
+  AccumSignal.addThRecentBuyOrders(builder, thRecentBuyOrders);
+  AccumSignal.addThRecentSec(builder, thRecentSec);
   return AccumSignal.endAccumSignal(builder);
 }
 }
