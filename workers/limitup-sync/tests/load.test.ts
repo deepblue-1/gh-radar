@@ -117,6 +117,24 @@ describe("accumRowProblems(34 WR-02 — commit RPC 를 깨뜨릴 accum_flow 결�
       "row 4 th_recent_sec not int4: 60.5",
     ]);
   });
+
+  it("pos_day_avg_px(quick-261026-0ty) — 정수 · 0 · null · 키 없음 통과 · 소수 · 문자열은 stage 전에 잡는다", () => {
+    const ok = [
+      { ...AF[0], pos_day_avg_px: 14_280 },
+      { ...AF[1], pos_day_avg_px: 0 },
+      { ...AF[2], pos_day_avg_px: null },
+      { ...AF[3] },
+    ];
+    expect(accumRowProblems("20261014", ok)).toEqual([]);
+    const bad = [
+      { ...AF[0], pos_day_avg_px: 14_280.5 },
+      { ...AF[1], pos_day_avg_px: "14280" },
+    ];
+    expect(accumRowProblems("20261014", bad)).toEqual([
+      "row 1 pos_day_avg_px not integer: 14280.5",
+      'row 2 pos_day_avg_px not integer: "14280"',
+    ]);
+  });
 });
 
 describe("dispatch — 정상 경로(stage_clear → 격자 업로드 → stage insert × k → commit 1회 → 정리)", () => {

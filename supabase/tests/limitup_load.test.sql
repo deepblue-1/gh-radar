@@ -22,6 +22,8 @@
 --     있을 때만(옛 워커 호출 호환) · 날짜 교체 · 원자성 · purge 90일 · statement_timeout 120s 보존 · 열 타입 · PK · 잠금 (K 절)
 --   - quick-261025-uf2(20261025200000): limitup_accum_flow 당일 축 4열 — 새 키가 있는 payload 는 같은 이름 열로 그대로
 --     (int4 초과 금액 포함), 키 없음 · JSON null 은 NULL · 열 타입 · commit 본문 무변경 (L 절)
+--   - quick-261026-0ty(20261026120000): limitup_accum_flow pos_day_avg_px 열 — 값 그대로 · 0 은 0(NULL 아님) ·
+--     키 없음 · JSON null 은 NULL · 열 타입 bigint · commit 본문 무변경 (M 절)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/limitup_load.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -32,7 +34,8 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(282);  -- 163(Phase 28) + 55(J · Phase 33 team_flow) + 53(K · Phase 34 accum_flow) + 11(L · quick-261025-uf2 당일 축 4열)
+SELECT plan(288);  -- 163(Phase 28) + 55(J · Phase 33 team_flow) + 53(K · Phase 34 accum_flow) + 11(L · quick-261025-uf2 당일 축 4열)
+                   -- + 6(M · quick-261026-0ty pos_day_avg_px)
 
 -- stage 행 1개 — payload 에 date 를 기본으로 싣는다(p_payload 가 덮을 수 있다).
 CREATE FUNCTION pg_temp.st(p_date text, p_tbl text, p_seq int, p_payload jsonb) RETURNS void
@@ -537,6 +540,33 @@ SELECT col_type_is('public', 'limitup_accum_flow', c.col, c.typ, 'L④ 열 타�
   FROM (VALUES ('pos_day_buy_krw', 'bigint'), ('pos_day_sell_krw', 'bigint'),
                ('th_recent_pieces', 'integer'), ('th_recent_sec', 'integer')) AS c(col, typ)
  ORDER BY c.col;
+
+-- ── M. quick-261026-0ty accum_flow pos_day_avg_px — 20261026120000 ───────────
+-- 잠그는 것: commit 본문 무변경(위치 대응)으로 새 열을 싣는다 — 311 = 14280 · 312 = 0(당일 매수 없음 — NULL 아님) ·
+-- 313 = 키 없음(옛 export) · 314 = JSON null.
+SELECT pg_temp.st('20261025', 'accum_flow', 1, pg_temp.af('KR7000000311', 500000000, 29.78) || '{"pos_day_avg_px":14280}'::jsonb);
+SELECT pg_temp.st('20261025', 'accum_flow', 2, pg_temp.af('KR7000000312', 1000, 12.5) || '{"pos_day_avg_px":0}'::jsonb);
+SELECT pg_temp.st('20261025', 'accum_flow', 3, pg_temp.af('KR7000000313', 2000, 1.0));
+SELECT pg_temp.st('20261025', 'accum_flow', 4, pg_temp.af('KR7000000314', 3000, 2.0) || '{"pos_day_avg_px":null}'::jsonb);
+
+-- ① commit 성공(4행)
+SELECT lives_ok($$ SELECT public.limitup_commit_day('20261025', 'mf-af-m', 'sig-af-m', 1, '{"accum_flow":4}') $$,
+                'M① pos_day_avg_px 실린 stage 4행 commit 성공');
+
+-- ② 311 — 값 그대로
+SELECT is((SELECT pos_day_avg_px FROM public.limitup_accum_flow WHERE date = '20261025' AND isin = 'KR7000000311'),
+          14280::bigint, 'M② pos_day_avg_px = 14280');
+-- ③ 312 — 0 은 0(NULL 아님 · 당일 매수 없음)
+SELECT is((SELECT pos_day_avg_px FROM public.limitup_accum_flow WHERE date = '20261025' AND isin = 'KR7000000312'),
+          0::bigint, 'M③ pos_day_avg_px = 0(NULL 아님)');
+-- ④ 313(키 없음 — 옛 export) · 314(JSON null) → NULL
+SELECT ok((SELECT pos_day_avg_px IS NULL FROM public.limitup_accum_flow WHERE date = '20261025' AND isin = 'KR7000000313'),
+          'M④ 키 없는 옛 export 행 → pos_day_avg_px NULL');
+SELECT ok((SELECT pos_day_avg_px IS NULL FROM public.limitup_accum_flow WHERE date = '20261025' AND isin = 'KR7000000314'),
+          'M④ JSON null 행 → pos_day_avg_px NULL');
+
+-- ⑤ 열 타입
+SELECT col_type_is('public', 'limitup_accum_flow', 'pos_day_avg_px', 'bigint', 'M⑤ 열 타입 pos_day_avg_px = bigint');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -253,6 +253,30 @@ export function accumDayAxisListRows(): AccumReportRow[] {
 }
 
 /**
+ * **합성 — 실측 아님 · 당일 평단 열이 실린 당일 축 날짜(quick-261026-0ty · gh-trade 261026-0q3).** `accumDayAxisListRows()` 7행에
+ * 목록 RPC(20261026120000)의 `pos_day_avg_px` · `prev_pos_day_avg_px` 를 얹는다.
+ * - pos_day_avg_px: AC01 0(당일 매도만 — 매수 없음) · AC02 13,900 · AC03 21,480 · AC04 14,350 · AC05 9,910 · AC06 0 · AC07 null
+ * - prev_pos_day_avg_px: AC03 21,120(전날 매수 있음) · 나머지 null
+ * `hasDayAvgOf` 가 true 가 된다(0 도 값).
+ */
+export function accumDayAvgListRows(): AccumReportRow[] {
+  const avg: Record<string, number | null> = {
+    [AC_LIVE]: 0,
+    [AC_SELL]: 13_900,
+    [AC_CARRY]: 21_480,
+    [AC_LIQ]: 14_350,
+    [AC_DROP]: 9_910,
+    [AC_EXPIRE]: 0,
+    [AC_PARTIAL]: null,
+  };
+  return accumDayAxisListRows().map((r) => ({
+    ...r,
+    pos_day_avg_px: avg[r.isin]!,
+    prev_pos_day_avg_px: r.isin === AC_CARRY ? 21_120 : null,
+  }));
+}
+
+/**
  * 목록 행 하나를 당일 축 행으로(합성 · quick-261026-01h 차트 테스트) — pos_day 1.2억 / 0.3억 · th_recent 30개 · 60초.
  * 실측 행(천일 · 한선)을 당일 축 목록에 넣어 실측/합성 상세(pos_net 유무)를 당일 축 날짜로 펼칠 때 쓴다.
  */
@@ -261,17 +285,19 @@ export function accumDayAxisRowOf(row: AccumReportRow): AccumReportRow {
 }
 
 /**
- * 당일 축 목록 행의 상세 — 실측 천일고속 상세(payload)에 그 목록 행의 평평한 열 · 당일 축 4키를 덮는다(전날 2키 · pnl 은 목록만 →
- * 뺀다). 합성 ISIN(AC0n)을 펼쳤을 때 상세 RPC 모양으로 돌려주는 테스트 도우미.
+ * 당일 축 목록 행의 상세 — 실측 천일고속 상세(payload)에 그 목록 행의 평평한 열 · 당일 축 키를 덮는다(전날 키 · pnl 은 목록만 →
+ * 뺀다). 합성 ISIN(AC0n)을 펼쳤을 때 상세 RPC 모양으로 돌려주는 테스트 도우미. `rows` = 원천 목록(기본 accumDayAxisListRows ·
+ * 당일 평단 날짜는 accumDayAvgListRows — quick-261026-0ty).
  */
-export function accumDayAxisDetailOf(isin: string): AccumDetailRow {
+export function accumDayAxisDetailOf(isin: string, rows: readonly AccumReportRow[] = accumDayAxisListRows()): AccumDetailRow {
   const base = accumDetailRows().find((r) => r.isin === CHEONIL)!;
   const {
     prev_pos_day_buy_krw: _pb,
     prev_pos_day_sell_krw: _ps,
+    prev_pos_day_avg_px: _pa,
     pnl: _pnl,
     ...flat
-  } = accumDayAxisListRows().find((r) => r.isin === isin)!;
+  } = rows.find((r) => r.isin === isin)!;
   return { ...base, ...flat, payload: base.payload };
 }
 

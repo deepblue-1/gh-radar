@@ -1,17 +1,20 @@
 -- ============================================================
 -- Phase 34 Plan 05 — 매집감지 보고서 RPC accum_report_for_user · accum_detail_for_user pgTAP.
 --
--- 대상: 20261020200100_accum_report_rpc.sql (+ 20261021140000 목록 pnl · 20261026010000 목록 당일 축 · 전날 키). 적재는 20261020200000 의 stage → limitup_commit_day(accum_flow 10번째 쌍)로 채운다.
+-- 대상: 20261020200100_accum_report_rpc.sql (+ 20261021140000 목록 pnl · 20261026010000 목록 당일 축 · 전날 키 ·
+--       20261026120000 pos_day_avg_px 열 · 목록 당일 평단 · 전날 평단 키). 적재는 20261020200000 의 stage → limitup_commit_day(accum_flow 10번째 쌍)로 채운다.
 --
 -- 잠그는 것(D-03 · D-06 · D-07):
 --   - 게이트: 가시 계좌(dma_visible_accounts) 없는 사용자 · NULL → 두 RPC 모두 {"access": false} 만
 --   - 이력 0 → 목록 {access: true, dates: [], date: null, rows: []} · 상세 {access: true, row: null}
 --   - dates = limitup_accum_flow 행이 있는 날짜 내림차순 · p_date 없음 = 최신 · 행 없는 날짜 p_date → rows [] (dates 그대로)
 --   - 정렬 state, pos_net_krw DESC NULLS LAST, isin
---   - 목록 rows 는 평평한 37열 + pnl(payload.pnl 그대로 · 20261021140000) + 당일 축 4열(quick-261025-uf2 · 20261025200000) +
---     전날 2키(prev_pos_day_buy_krw · prev_pos_day_sell_krw — 그 날짜보다 앞선 가장 최근 행 있는 날짜의 같은 isin 행 · 없으면 null ·
---     quick-261026-01h · 20261026010000) = 44키 — 어느 행에도 payload 키가 없다(Pitfall 6) · 봉투에 prev_date(없으면 null) ·
---     상세 row 는 41열(37 + 당일 축 4) + payload(to_jsonb) · 없는 (date, isin) → row null
+--   - 목록 rows 는 평평한 37열 + pnl(payload.pnl 그대로 · 20261021140000) + 당일 축 5열(quick-261025-uf2 · 20261025200000 4열 +
+--     quick-261026-0ty · 20261026120000 pos_day_avg_px) + 전날 3키(prev_pos_day_buy_krw · prev_pos_day_sell_krw ·
+--     prev_pos_day_avg_px — 그 날짜보다 앞선 가장 최근 행 있는 날짜의 같은 isin 행 · 없으면 null · quick-261026-01h ·
+--     20261026010000 · 0ty) = 46키 — 어느 행에도 payload 키가 없다(Pitfall 6) · 봉투에 prev_date(없으면 null) ·
+--     상세 row 는 42열(37 + 당일 축 5) + payload(to_jsonb) = 43키 · 없는 (date, isin) → row null ·
+--     pos_day_avg_px 0 은 null 이 아니다(당일 매수 없음)
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · STABLE ·
 --     limitup_accum_flow RLS 활성 · 정책 0 · anon/authenticated SELECT 불가
 --   - D-03(RESEARCH Pitfall 8 정정): 탐지 0 거래일(6표 0 · 파생 0 · team_flow 0 · accum_flow 1 commit)은
@@ -27,7 +30,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(67);
+SELECT plan(68);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -51,7 +54,7 @@ LANGUAGE sql AS $$
   INSERT INTO public.limitup_stage (date, tbl, seq, payload)
   VALUES (p_date, p_tbl, p_seq, jsonb_build_object('date', p_date) || p_payload)
 $$;
--- accum_flow export 행 — 평평한 40열(date 는 st 가 싣는다 → 41열 · 끝 4 = 당일 축 quick-261025-uf2) + payload(price · orders · buckets · day_cum_net · pnl · cycles 최소 모양).
+-- accum_flow export 행 — 평평한 41열(date 는 st 가 싣는다 → 42열 · 끝 5 = 당일 축 quick-261025-uf2 4 + quick-261026-0ty 1) + payload(price · orders · buckets · day_cum_net · pnl · cycles 최소 모양).
 CREATE FUNCTION pg_temp.af(p_isin text, p_state int, p_pos bigint) RETURNS jsonb LANGUAGE sql AS $$
   SELECT jsonb_build_object(
     'isin', p_isin, 'short_code', substr(p_isin, 4, 6), 'name', '매집종목' || right(p_isin, 2), 'market', 'KOSDAQ',
@@ -64,6 +67,7 @@ CREATE FUNCTION pg_temp.af(p_isin text, p_state int, p_pos bigint) RETURNS jsonb
     'day_buy_krw', 90000000, 'day_sell_krw', 30000000, 'day_net_krw', 60000000,
     'day_buy_qty', 7000, 'day_sell_qty', 2300, 'schema_version', 1,
     'pos_day_buy_krw', 3000000000, 'pos_day_sell_krw', 1200000000, 'th_recent_pieces', 30, 'th_recent_sec', 60,
+    'pos_day_avg_px', 14280,
     'payload', jsonb_build_object(
       'price', jsonb_build_object('step_s', 10, 't0_ms', 1792200000000, 'px', jsonb_build_array(12000, 12500, 12978)),
       'orders', jsonb_build_array(jsonb_build_object('t_ms', 1792200100000, 'side', 'B', 'px', 12500, 'qty', 100)),
@@ -160,20 +164,22 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM t_r, jsonb_array_elements(t_r.r->'rows') e
 SELECT is((SELECT array_agg(DISTINCT n) FROM (
              SELECT (SELECT count(*)::int FROM jsonb_object_keys(e)) AS n
                FROM t_r, jsonb_array_elements(t_r.r->'rows') e WHERE t_r.label IN ('latest', 'd1013')) k),
-          ARRAY[44], '④ 목록 모든 행 키 수 44(37열 + 당일 축 4 + pnl + 전날 2)');
+          ARRAY[46], '④ 목록 모든 행 키 수 46(37열 + 당일 축 5 + pnl + 전날 3)');
 SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(pg_temp.r('latest')->'rows'->0) k),
           (SELECT array_agg(c ORDER BY c) FROM (
              SELECT column_name::text AS c FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'limitup_accum_flow' AND column_name <> 'payload'
-             UNION ALL SELECT 'pnl' UNION ALL SELECT 'prev_pos_day_buy_krw' UNION ALL SELECT 'prev_pos_day_sell_krw') cols),
-          '④ 목록 행 키 집합 = limitup_accum_flow 열 − payload + pnl + prev_pos_day_buy_krw + prev_pos_day_sell_krw');
-SELECT ok(pg_temp.r('latest')->'rows'->0 @> '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60}'::jsonb,
-          '④ quick-261026-01h 목록 rows[0] 이 당일 축 4키 값을 싣는다');
+             UNION ALL SELECT 'pnl' UNION ALL SELECT 'prev_pos_day_buy_krw' UNION ALL SELECT 'prev_pos_day_sell_krw'
+             UNION ALL SELECT 'prev_pos_day_avg_px') cols),
+          '④ 목록 행 키 집합 = limitup_accum_flow 열 − payload + pnl + prev_pos_day_buy_krw + prev_pos_day_sell_krw + prev_pos_day_avg_px');
+SELECT ok(pg_temp.r('latest')->'rows'->0 @> '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60,"pos_day_avg_px":14280}'::jsonb,
+          '④ quick-261026-01h · 0ty 목록 rows[0] 이 당일 축 5키 값을 싣는다');
 SELECT ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(pg_temp.r('latest')->'rows') e
-                       WHERE NOT (e ? 'prev_pos_day_buy_krw' AND e ? 'prev_pos_day_sell_krw')
+                       WHERE NOT (e ? 'prev_pos_day_buy_krw' AND e ? 'prev_pos_day_sell_krw' AND e ? 'prev_pos_day_avg_px')
                           OR jsonb_typeof(e->'prev_pos_day_buy_krw') <> 'null'
-                          OR jsonb_typeof(e->'prev_pos_day_sell_krw') <> 'null'),
-          '④ quick-261026-01h latest 행들 — 같은 isin 이 20261013 에 없으므로 prev 2키 있음 · JSON null');
+                          OR jsonb_typeof(e->'prev_pos_day_sell_krw') <> 'null'
+                          OR jsonb_typeof(e->'prev_pos_day_avg_px') <> 'null'),
+          '④ quick-261026-01h · 0ty latest 행들 — 같은 isin 이 20261013 에 없으므로 prev 3키 있음 · JSON null');
 SELECT is(pg_temp.r('latest')->'rows'->0->'pnl'->'ret', '0.012'::jsonb, '④ 목록 행 pnl = payload.pnl 그대로');
 SELECT is(pg_temp.r('latest')->'rows'->0->'last_rate', '29.78'::jsonb, '④ D-06 last_rate 29.78(JSON 숫자 · double)');
 SELECT is(pg_temp.r('latest')->'rows'->0->'since_date', '"20261009"'::jsonb, '④ D-06 since_date "20261009" 문자열');
@@ -194,10 +200,10 @@ SELECT is(pg_temp.r('det')->'row'->>'date', '20261014', '⑥ D-06 상세 row.dat
 SELECT is(jsonb_typeof(pg_temp.r('det')->'row'->'payload'), 'object', '⑥ D-06 상세 row 에 payload 객체');
 SELECT is(pg_temp.r('det')->'row' #>> '{payload,price,step_s}', '10', '⑥ D-06 상세 payload.price.step_s 중첩 그대로');
 SELECT is(pg_temp.r('det')->'row' #>> '{payload,cycles,0,since_date}', '20261009', '⑥ D-06 상세 payload.cycles[0] 그대로');
-SELECT is((SELECT count(*)::int FROM jsonb_object_keys(pg_temp.r('det')->'row')), 42,
-          '⑥ D-06 상세 row 키 42(37열 + 당일 축 4열 + payload)');
-SELECT ok(pg_temp.r('det')->'row' @> '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60}'::jsonb,
-          '⑥ 상세 row 가 당일 축 4키 값을 싣는다(to_jsonb — quick-261025-uf2)');
+SELECT is((SELECT count(*)::int FROM jsonb_object_keys(pg_temp.r('det')->'row')), 43,
+          '⑥ D-06 상세 row 키 43(37열 + 당일 축 5열 + payload)');
+SELECT ok(pg_temp.r('det')->'row' @> '{"pos_day_buy_krw":3000000000,"pos_day_sell_krw":1200000000,"th_recent_pieces":30,"th_recent_sec":60,"pos_day_avg_px":14280}'::jsonb,
+          '⑥ 상세 row 가 당일 축 5키 값을 싣는다(to_jsonb — quick-261025-uf2 · 0ty)');
 SELECT ok(pg_temp.r('det-no') ? 'row' AND jsonb_typeof(pg_temp.r('det-no')->'row') = 'null',
           '⑥ D-06 없는 isin → row 키 있음 · jsonb null');
 SELECT ok(pg_temp.r('det-dt') ? 'row' AND jsonb_typeof(pg_temp.r('det-dt')->'row') = 'null',
@@ -249,12 +255,12 @@ SELECT is(public.teamflow_report_for_user(pg_temp.u1())->'dates', '["20261014"]'
           '⑧ D-03 팀 매집 dates 에는 없음(team_flow 행 있는 20261014 만)');
 
 -- ── ⑨ 전날 키(quick-261026-01h · 20261026010000) ────────────────────
--- 20261016: 415(앞날 20261015 에 행 있음) · 417(앞날 행 없음).
--- 20261019: 418 — pos_day 두 키가 없는 af(이 열 추가 전 적재 행 모양 → 열 null) · 20261020: 418(앞날 행은 있으나 pos_day null).
+-- 20261016: 415(앞날 20261015 에 행 있음) · 417(앞날 행 없음 · pos_day_avg_px 0 = 당일 매수 없음 · quick-261026-0ty).
+-- 20261019: 418 — pos_day 세 키가 없는 af(이 열 추가 전 적재 행 모양 → 열 null) · 20261020: 418(앞날 행은 있으나 pos_day null).
 SELECT pg_temp.st('20261016', 'accum_flow', 1, pg_temp.af('KR7000000415', 1, 150000000));
-SELECT pg_temp.st('20261016', 'accum_flow', 2, pg_temp.af('KR7000000417', 1, 250000000));
+SELECT pg_temp.st('20261016', 'accum_flow', 2, pg_temp.af('KR7000000417', 1, 250000000) || '{"pos_day_avg_px":0}'::jsonb);
 SELECT public.limitup_commit_day('20261016', 'mf-1016', 'sig-1016', 1, pg_temp.exp(0, 2));
-SELECT pg_temp.st('20261019', 'accum_flow', 1, pg_temp.af('KR7000000418', 1, 120000000) - 'pos_day_buy_krw' - 'pos_day_sell_krw');
+SELECT pg_temp.st('20261019', 'accum_flow', 1, pg_temp.af('KR7000000418', 1, 120000000) - 'pos_day_buy_krw' - 'pos_day_sell_krw' - 'pos_day_avg_px');
 SELECT public.limitup_commit_day('20261019', 'mf-1019', 'sig-1019', 1, pg_temp.exp(0, 1));
 SELECT pg_temp.st('20261020', 'accum_flow', 1, pg_temp.af('KR7000000418', 1, 130000000));
 SELECT public.limitup_commit_day('20261020', 'mf-1020', 'sig-1020', 1, pg_temp.exp(0, 1));
@@ -269,21 +275,27 @@ CREATE FUNCTION pg_temp.row_of(p_label text, p_isin text) RETURNS jsonb LANGUAGE
 $$;
 
 SELECT is(pg_temp.r('d1016')->>'prev_date', '20261015', '⑨ 20261016 prev_date = 20261015');
-SELECT ok(pg_temp.row_of('d1016', 'KR7000000415') @> '{"prev_pos_day_buy_krw":3000000000,"prev_pos_day_sell_krw":1200000000}'::jsonb,
-          '⑨ 415(앞날 행 있음) prev_pos_day_buy/sell = 앞날 행의 pos_day_buy/sell');
+SELECT ok(pg_temp.row_of('d1016', 'KR7000000415') @> '{"prev_pos_day_buy_krw":3000000000,"prev_pos_day_sell_krw":1200000000,"prev_pos_day_avg_px":14280}'::jsonb,
+          '⑨ 415(앞날 행 있음) prev_pos_day_buy/sell/avg = 앞날 행의 pos_day_buy/sell/avg');
 SELECT ok(pg_temp.row_of('d1016', 'KR7000000417') ? 'prev_pos_day_buy_krw'
+          AND pg_temp.row_of('d1016', 'KR7000000417') ? 'prev_pos_day_avg_px'
           AND jsonb_typeof(pg_temp.row_of('d1016', 'KR7000000417')->'prev_pos_day_buy_krw') = 'null'
-          AND jsonb_typeof(pg_temp.row_of('d1016', 'KR7000000417')->'prev_pos_day_sell_krw') = 'null',
-          '⑨ 417(앞날 행 없음) prev 2키 있음 · null');
+          AND jsonb_typeof(pg_temp.row_of('d1016', 'KR7000000417')->'prev_pos_day_sell_krw') = 'null'
+          AND jsonb_typeof(pg_temp.row_of('d1016', 'KR7000000417')->'prev_pos_day_avg_px') = 'null',
+          '⑨ 417(앞날 행 없음) prev 3키 있음 · null');
+SELECT is(pg_temp.row_of('d1016', 'KR7000000417')->'pos_day_avg_px', '0'::jsonb,
+          '⑨ quick-261026-0ty 417 pos_day_avg_px = JSON 0(null 아님 · 당일 매수 없음)');
 SELECT is(pg_temp.isins(pg_temp.r('d1016')), '["KR7000000417", "KR7000000415"]'::jsonb,
           '⑨ 20261016 정렬 그대로(state → pos_net DESC → isin)');
 SELECT ok(jsonb_typeof(pg_temp.row_of('d1019', 'KR7000000418')->'pos_day_buy_krw') = 'null'
-          AND jsonb_typeof(pg_temp.row_of('d1019', 'KR7000000418')->'pos_day_sell_krw') = 'null',
-          '⑨ 20261019 418 — pos_day 두 키 없는 export 행 → 열 null');
+          AND jsonb_typeof(pg_temp.row_of('d1019', 'KR7000000418')->'pos_day_sell_krw') = 'null'
+          AND jsonb_typeof(pg_temp.row_of('d1019', 'KR7000000418')->'pos_day_avg_px') = 'null',
+          '⑨ 20261019 418 — pos_day 세 키 없는 export 행 → 열 null');
 SELECT is(pg_temp.r('d1020')->>'prev_date', '20261019', '⑨ 20261020 prev_date = 20261019(행 있는 날짜 기준 · 주말 건너뜀)');
 SELECT ok(jsonb_typeof(pg_temp.row_of('d1020', 'KR7000000418')->'prev_pos_day_buy_krw') = 'null'
-          AND jsonb_typeof(pg_temp.row_of('d1020', 'KR7000000418')->'prev_pos_day_sell_krw') = 'null',
-          '⑨ 418(앞날 행은 있으나 pos_day null) prev 2키 null');
+          AND jsonb_typeof(pg_temp.row_of('d1020', 'KR7000000418')->'prev_pos_day_sell_krw') = 'null'
+          AND jsonb_typeof(pg_temp.row_of('d1020', 'KR7000000418')->'prev_pos_day_avg_px') = 'null',
+          '⑨ 418(앞날 행은 있으나 pos_day null) prev 3키 null');
 SELECT is(pg_temp.r('d1015')->>'prev_date', '20261014', '⑨ p_date 20261015(중간 날짜) prev_date = 20261014');
 
 SELECT * FROM finish();

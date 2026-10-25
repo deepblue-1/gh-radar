@@ -26,6 +26,7 @@ import {
   dayAxisOf,
   detailKpisOf,
   endReasonLabelOf,
+  hasDayAvgOf,
   isCarry,
   isDimRow,
   isTodayReg,
@@ -48,6 +49,7 @@ import {
   AC_SELL,
   CHEONIL,
   DONGYANG,
+  accumDayAvgListRows,
   accumDayAxisListRows,
   accumDetailRows,
   accumKstMs,
@@ -545,5 +547,38 @@ describe('당일 축 판정 기준 — 새 임계 문구 · ACCUM_RULE_LINES_DAY
       ACCUM_RULE_LINES[3],
     ]);
     expect(ACCUM_RULE_LINES_DAY[2]).toContain('500만원 이상');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// quick-261026-0ty — 당일 평단(pos_day_avg_px · gh-trade 261026-0q3)
+// ---------------------------------------------------------------------------
+
+const dav = (isin: string): AccumReportRow => accumDayAvgListRows().find((r) => r.isin === isin)!;
+
+describe('당일 평단 — hasDayAvgOf · detailKpisOf(row, true, true) (quick-261026-0ty)', () => {
+  it('hasDayAvgOf — 한 행이라도 pos_day_avg_px 가 수(0 포함)면 true · 열 없음 · 빈 배열 → false', () => {
+    expect(hasDayAvgOf(accumDayAvgListRows())).toBe(true);
+    expect(hasDayAvgOf(accumDayAxisListRows())).toBe(false);
+    expect(hasDayAvgOf(accumDayAxisListRows().map((r) => ({ ...r, pos_day_avg_px: 0 })))).toBe(true);
+    expect(hasDayAvgOf([])).toBe(false);
+  });
+
+  it('detailKpisOf(row, true, true) — 6항목 · 당일 평단 = pos_day_avg_px > 0 · 아니면 「—」(누적으로 채우지 않음)', () => {
+    const k = detailKpisOf(dav(AC_CARRY), true, true);
+    expect(k.map((x) => x.label)).toEqual(['당일 순매수', '당일 평단', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(k[1]).toEqual({ label: '당일 평단', text: '21,480' });
+    const live = detailKpisOf(dav(AC_LIVE), true, true);
+    expect(live[1]!.text).toBe('—');
+    expect(live[3]).toEqual({ label: '누적 평단', text: '12,680' });
+    expect(detailKpisOf(dav(AC_PARTIAL), true, true)[1]!.text).toBe('—');
+    expect(detailKpisOf(dav(AC_CARRY), true).map((x) => x.label)).toEqual([
+      '당일 순매수',
+      '누적 순매수',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+    ]);
+    expect(detailKpisOf(dav(AC_CARRY)).map((x) => x.label)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
   });
 });

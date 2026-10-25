@@ -41,6 +41,7 @@ import {
   CJSEAFOOD_PREF,
   DONGYANG,
   HANSUN,
+  accumDayAvgListRows,
   accumDayAxisDetailOf,
   accumDayAxisListRows,
   accumDayAxisRowOf,
@@ -888,5 +889,41 @@ describe('quick-261026-01h 당일 축 누적 판(스케치 018 ②)', () => {
     const kids = Array.from(sec.querySelector('[data-slot="accum-legend"]')!.children).map((c) => c.textContent);
     expect(kids).toHaveLength(9);
     expect(kids[5]).toBe('당일 순매수');
+  });
+});
+
+describe('quick-261026-0ty 당일 평단(pos_day_avg_px)', () => {
+  const kline = (sec: HTMLElement) =>
+    Array.from(sec.querySelectorAll('[data-slot="accum-kline-item"]')).map((e) => ({
+      label: e.querySelector('span:first-child')!.textContent,
+      text: e.querySelector('span:last-child')!.textContent,
+    }));
+  const avgList = (rows = accumDayAvgListRows()) => {
+    listOver = accumReportFixture({ rows, prevDate: '20261013' });
+  };
+
+  it('(a1) 열이 실린 당일 축 날짜 · 이월 행 → KPI 6항목 · 당일 평단 21,480', async () => {
+    avgList();
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY, accumDayAvgListRows()));
+    const sec = await expand(AC_CARRY);
+    const k = kline(sec);
+    expect(k.map((x) => x.label)).toEqual(['당일 순매수', '당일 평단', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(k[1]!.text).toBe('21,480');
+  });
+
+  it('(a2) 당일 매도만(pos_day_avg_px 0) → 당일 평단 「—」 · 누적 평단 12,680(대신 채우지 않음)', async () => {
+    avgList();
+    detailOver.set(AC_LIVE, accumDayAxisDetailOf(AC_LIVE, accumDayAvgListRows()));
+    const sec = await expand(AC_LIVE);
+    const k = kline(sec);
+    expect(k.find((x) => x.label === '당일 평단')!.text).toBe('—');
+    expect(k.find((x) => x.label === '누적 평단')!.text).toBe('12,680');
+  });
+
+  it('(a3) 날짜 전체에 열 없는 당일 축 목록 → 01h 5항목 · 「당일 평단」 라벨 없음', async () => {
+    avgList(accumDayAxisListRows());
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
+    const sec = await expand(AC_CARRY);
+    expect(kline(sec).map((x) => x.label)).not.toContain('당일 평단');
   });
 });
