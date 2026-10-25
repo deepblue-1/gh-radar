@@ -72,6 +72,15 @@ export function dayAxisOf(
   return rows.some((r) => todayNetOf(r) !== null && isNum(r.th_recent_pieces) && r.th_recent_pieces > 0);
 }
 
+/**
+ * 당일 평단 열이 실린 날짜인가(quick-261026-0ty) — **날짜 단위** 판정: 한 행이라도 `pos_day_avg_px` 가 수(0 포함)면 true.
+ * - 그날 전체가 null 이면 재생성 전(또는 20261026120000 적용 전 적재)이라 01h 폴백(「누적 평단」 표기)을 쓴다.
+ * - 0 은 값이다(당일 매수 없음 → 그 행 「당일 평단」 은 「—」).
+ */
+export function hasDayAvgOf(rows: readonly Pick<AccumReportRow, 'pos_day_avg_px'>[]): boolean {
+  return rows.some((r) => isNum(r.pos_day_avg_px));
+}
+
 /** null(isNum 아님) 맨 뒤 · 큰 순 비교 — 같으면 0. */
 function descNullsLast(a: number | null | undefined, b: number | null | undefined): number {
   const an = isNum(a);
@@ -130,13 +139,16 @@ export interface AccumDetailKpi {
  * 상세 KPI 줄 4항목(D-19 · 마지막 사이클 = 평평한 열 · 임계 없음):
  * 「등록가」 · 「평단」(fmtPx) · 「등록 후 순매수」(±억 1자리 · 부호 색) · 「최고 순매수」(±억 1자리).
  * 당일 축(`dayAxis`)이면 5항목 — 「당일 순매수」(부호 색) · 「누적 순매수」(pos_net · 부호 색) · 「누적 평단」(pos_avg_px) ·
- * 「등록가」 · 「최고 순매수」(quick-261026-01h · 당일 평단은 원천이 없어 그리지 않는다).
+ * 「등록가」 · 「최고 순매수」(quick-261026-01h).
+ * 당일 축이고 그날 당일 평단 열이 실렸으면(`dayAvg` = hasDayAvgOf · quick-261026-0ty) 6항목 — 「당일 순매수」 뒤에
+ * 「당일 평단」(pos_day_avg_px · 0 · null 이면 「—」 · 누적 평단으로 채우지 않는다)을 넣는다.
  */
-export function detailKpisOf(row: AccumReportRow, dayAxis = false): AccumDetailKpi[] {
+export function detailKpisOf(row: AccumReportRow, dayAxis = false, dayAvg = false): AccumDetailKpi[] {
   if (dayAxis) {
     const today = todayNetOf(row);
     return [
       { label: '당일 순매수', text: fmtEok(today, { signed: true }), tone: toneOf(today) },
+      ...(dayAvg ? [{ label: '당일 평단', text: fmtPx(row.pos_day_avg_px) }] : []),
       { label: '누적 순매수', text: fmtEok(row.pos_net_krw, { signed: true }), tone: toneOf(row.pos_net_krw) },
       { label: '누적 평단', text: fmtPx(row.pos_avg_px) },
       { label: '등록가', text: fmtPx(row.pos_reg_px) },

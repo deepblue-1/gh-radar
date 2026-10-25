@@ -41,7 +41,7 @@ export type Row = Record<string, unknown>;
 
 /**
  * accum_flow 평평한 열 중 숫자형 — 표 정의(supabase/migrations/20261020200000_limitup_accum_flow.sql +
- * 20261025200000(당일 축 4열 · quick-261025-uf2))와 같은 목록.
+ * 20261025200000(당일 축 4열 · quick-261025-uf2) + 20261026120000(pos_day_avg_px · quick-261026-0ty))와 같은 목록.
  * `jsonb_populate_record` 는 JSON 숫자 텍스트를 열 입력 함수에 그대로 넣으므로 29.78 이 bigint 열에 가면 그날 commit
  * 전체가 롤백된다(상한가 6표 · team_flow 까지) — 그래서 stage 전에 워커가 먼저 본다(`accumRowProblems` · 34 WR-02).
  */
@@ -49,7 +49,7 @@ const ACCUM_BIGINT_COLS = [
   "base", "upper", "last_px", "high_px", "reg_time_ms", "end_time_ms", "our_excluded_qty", "mcap_krw",
   "th_net_krw", "th_same", "th_mcap_krw", "pos_buy_qty", "pos_buy_krw", "pos_sell_qty", "pos_sell_krw",
   "pos_net_krw", "pos_avg_px", "pos_peak_net_krw", "pos_reg_px", "day_buy_krw", "day_sell_krw", "day_net_krw",
-  "day_buy_qty", "day_sell_qty", "pos_day_buy_krw", "pos_day_sell_krw",
+  "day_buy_qty", "day_sell_qty", "pos_day_buy_krw", "pos_day_sell_krw", "pos_day_avg_px",
 ] as const;
 const ACCUM_INT4_COLS = [
   "state", "end_reason", "cycle", "carry_days", "schema_version", "th_recent_pieces", "th_recent_sec",

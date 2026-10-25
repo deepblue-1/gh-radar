@@ -1,16 +1,17 @@
 /**
  * Phase 34 — 매집감지(accum) 보고서 계약 (server `GET /api/accum/report` · `GET /api/accum/report/:date/:isin` ↔ webapp).
  *
- * - 계약 정본: `docs/inbox/from-gh-trade/261020-accum-flow-export.md` 열 사전(gh-trade `teamflow_accum.FLAT_COLUMNS` 37열 + payload 7키(이 순서 · avg_px · pos_net 은 선택 키)).
+ * - 계약 정본: `docs/inbox/from-gh-trade/261020-accum-flow-export.md` 열 사전(gh-trade `teamflow_accum.FLAT_COLUMNS` 37열 + payload 8키(이 순서 · avg_px · pos_net · pos_day 는 선택 키)).
  * - **행 키는 gh-trade export 열 이름 그대로(snake_case)** — DB 표 `limitup_accum_flow` 열 이름도 같고 RPC 가
  *   `to_jsonb` 로 싣는다(매퍼 없음). **봉투 키(access · dates · date · rows · row)는 단어 하나라 그대로.**
- * - 목록/상세 분리(D-06): 목록 행 `AccumReportRow` 는 평평한 37열 + pnl + 당일 축 4 + 전날 2(payload 없음 · 20261026010000),
- *   상세 행 `AccumDetailRow` 는 평평한 37열 + 당일 축 4 + `payload`.
+ * - 목록/상세 분리(D-06): 목록 행 `AccumReportRow` 는 평평한 37열 + pnl + 당일 축 5 + 전날 3(payload 없음 · 20261026010000 ·
+ *   20261026120000), 상세 행 `AccumDetailRow` 는 평평한 37열 + 당일 축 5 + `payload`.
  * - 단위: `*_ms` = epoch ms · 가격 · 금액(`*_krw` · `*_px`) = 원 정수 · 수량 = 주 · **`*_rate` = % 그대로(30.0 = +30%)** ·
  *   `since_date` = `"YYYYMMDD"` 문자열 · NaN/inf 는 null. 억 · % 표시 변환은 웹 표시층(`webapp/src/lib/accum-report.ts`)만 한다.
  * - `pos_*` = 서버 상태기 값(등록 이후 누적 · 우리 체결 제외 · 마지막 사이클) · `day_*` / payload = 119 pcap 재계산(그날 하루 전체).
- * - 당일 축 4열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2)은 목록(20261026010000 부터) ·
- *   상세 RPC 모두 싣는다. 목록은 + 전날 2키(prev_pos_day_buy_krw · prev_pos_day_sell_krw) · 봉투 prev_date(quick-261026-01h).
+ * - 당일 축 5열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2 · pos_day_avg_px —
+ *   quick-261026-0ty)은 목록(20261026010000 · 20261026120000 부터) · 상세 RPC 모두 싣는다. 목록은 + 전날 3키
+ *   (prev_pos_day_buy_krw · prev_pos_day_sell_krw · prev_pos_day_avg_px) · 봉투 prev_date(quick-261026-01h · 0ty).
  * - **라이브 kind 16 계약(`accum-signal.ts` 의 AccumState · AccumSignal)과 별개다 — join 없음(D-22 · 30일 purge 비대칭).**
  *   이름이 겹치지 않게 `AccumReport*` 접두를 쓴다.
  */
@@ -85,12 +86,19 @@ export interface AccumReportRow {
   /** 서버 등록 임계 — 위 창 길이(초 · 기본 60) · 0 = 옛 서버. */
   th_recent_sec?: number | null;
   /**
+   * 서버 당일 팀 매수 평단(원 · 그 isin 그날 마지막 이벤트 행 kind 16 day_avg_px · 우리 체결 제외) · 0 = 당일 매수 없음(또는 옛
+   * export 행) · 이 열 추가(20261026120000) 전 적재 행 null · 목록 · 상세 RPC 모두 · quick-261026-0ty · gh-trade 261026-0q3.
+   */
+  pos_day_avg_px?: number | null;
+  /**
    * 전날 서버 당일 팀 매수 금액(원) — 목록 RPC 만(quick-261026-01h · 20261026010000). 그 날짜보다 앞선 가장 최근 행 있는 날짜
    * (봉투 `prev_date`)의 같은 isin 행 `pos_day_buy_krw` · 그 행이 없거나 값이 없으면 null · 옛 응답엔 키 없음.
    */
   prev_pos_day_buy_krw?: number | null;
   /** 전날 서버 당일 팀 매도 금액(원) — 목록 RPC 만 · 규칙은 `prev_pos_day_buy_krw` 와 같다. */
   prev_pos_day_sell_krw?: number | null;
+  /** 전날 서버 당일 팀 매수 평단(원) — 목록 RPC 만 · 규칙은 `prev_pos_day_buy_krw` 와 같다 · 0 = 그날 매수 없음(quick-261026-0ty). */
+  prev_pos_day_avg_px?: number | null;
   /**
    * 팀 당일 손익 — 목록 RPC 만 싣는다(payload.pnl 그대로 · 20261021140000). 상세 행은 payload.pnl 을 읽는다.
    * 팀 체결 0 · 옛 행 = null · 키 없음.
@@ -160,7 +168,7 @@ export interface AccumReportCycle {
   our_excluded_qty: number | null;
 }
 
-/** 상세 payload 7키(이 순서 · avg_px · pos_net 은 선택 키). pnl 은 팀 매집 보고서와 같은 13키(팀 체결 0 이면 null). */
+/** 상세 payload 8키(이 순서 · avg_px · pos_net · pos_day 는 선택 키). pnl 은 팀 매집 보고서와 같은 13키(팀 체결 0 이면 null). */
 export interface AccumReportPayload {
   price: AccumReportPrice;
   orders: AccumReportOrders;
@@ -184,6 +192,15 @@ export interface AccumReportPayload {
    *   있으면 end ≠ 0 점 뒤를 끊고, 없으면 cycle 로만 끊는다.
    */
   pos_net?: { t_ms: number[]; net_krw: number[]; cycle: number[]; end?: number[] };
+  /**
+   * 서버 당일 순매수 · 당일 평단 계단(quick-261026-0ty · gh-trade 261026-0q3) — 선택 키라 그 전 export 행에는 없고, 있어도 빌 수 있다.
+   * - 정수 평행 배열(같은 길이). 점 = pos_net 과 같은 서버 상태기 row 1/2/3/4 — 당일 값 없는 행은 건너뛴다.
+   * - `net_krw` = day_buy_krw − day_sell_krw(그날 06:00 또는 새 사이클 시작부터 · 우리 체결 제외 — 목록의
+   *   pos_day_buy_krw − pos_day_sell_krw 와 같은 뜻). **day_cum_net(pcap 재계산 · 전체 팀 주문)과 다른 선이다.**
+   * - `avg_px` = day_avg_px(당일 팀 매수 평단 원) · 0 = 당일 매수 없음.
+   * - cycle · end 배열이 없어 첫 점부터 한 조각으로 잇는다.
+   */
+  pos_day?: { t_ms: number[]; net_krw: number[]; avg_px: number[] };
 }
 
 /** 상세 RPC 응답 행 — 평평한 37열 + payload. */

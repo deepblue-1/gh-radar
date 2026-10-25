@@ -51,6 +51,7 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   prev 2키 + prev_date)를 주면 KPI 줄 바로 뒤 「전날 MM/DD · 순매수 · 매수 / 매도」 한 줄(`accum-prev-line`). 전날 평단 ·
  *   종가 대비 % 는 원천(목록 · 상세 RPC 어디에도 없음)이 없어 그리지 않는다. 판정 기준 1줄 새 임계 문구는 상세 행
  *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원 문턱은 500만원(gh-trade D-20).
+ *   그날 pos_day_avg_px 열이 실렸으면(prop `dayAvg` = hasDayAvgOf · quick-261026-0ty) KPI 줄에 「당일 평단」(0 · null 「—」).
  */
 
 type Phase =
@@ -79,6 +80,7 @@ export function AccumDetail({
   isin,
   labelledBy,
   dayAxis = false,
+  dayAvg = false,
   prev = null,
 }: {
   date: string;
@@ -86,6 +88,8 @@ export function AccumDetail({
   labelledBy: string;
   /** 당일 축 날짜(quick-261026-01h) — KPI 줄 · 판정 기준 본문이 당일 축 모양. */
   dayAxis?: boolean;
+  /** 그날 당일 평단 열이 실렸나(quick-261026-0ty · 부모가 dayAxis && hasDayAvgOf(rows)) — KPI 줄에 「당일 평단」. */
+  dayAvg?: boolean;
   /** 이월 행 전날 요약 — 있으면 KPI 줄 뒤 「전날」 줄. */
   prev?: AccumDetailPrev | null;
 }) {
@@ -172,7 +176,7 @@ export function AccumDetail({
 
       {phase.kind === 'ready' && (
         <DetailBoundary>
-          <ReadyBody row={phase.row} dayAxis={dayAxis} prev={prev} />
+          <ReadyBody row={phase.row} dayAxis={dayAxis} dayAvg={dayAvg} prev={prev} />
         </DetailBoundary>
       )}
     </section>
@@ -209,10 +213,12 @@ class DetailBoundary extends Component<{ children: ReactNode }, { failed: boolea
 function ReadyBody({
   row,
   dayAxis,
+  dayAvg,
   prev,
 }: {
   row: AccumDetailRow;
   dayAxis: boolean;
+  dayAvg: boolean;
   prev: AccumDetailPrev | null;
 }) {
   const cycles = cycleRowsOf(row);
@@ -223,7 +229,7 @@ function ReadyBody({
           data-slot="accum-kline"
           className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]"
         >
-          {detailKpisOf(row, dayAxis).map((k) => (
+          {detailKpisOf(row, dayAxis, dayAvg).map((k) => (
             <span key={k.label} data-slot="accum-kline-item" className="inline-flex items-baseline gap-1 whitespace-nowrap">
               <span className="text-[var(--muted-fg)]">{k.label}</span>
               <span className={cn('mono font-semibold', k.tone ? TONE_TEXT[k.tone] : 'text-[var(--fg)]')}>{k.text}</span>

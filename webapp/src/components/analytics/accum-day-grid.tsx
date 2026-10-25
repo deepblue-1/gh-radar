@@ -11,6 +11,7 @@ import {
   accumRowDescriptionOf,
   accumTagOf,
   fmtPx,
+  hasDayAvgOf,
   isCarry,
   isDimRow,
   metaLineOf,
@@ -56,6 +57,7 @@ import { AccumDetail } from './accum-detail';
  *   「(등록 후 · 아래 누적)」 · 4열 칸 = 당일(`accum-today` · 부호 색 · 값 없음 「—」 --faint) + xl 아랫줄 「누적 {pos} · 누적 평단 N」
  *   (`accum-cum-sub`) · 폰 메타 「당일 · 누적(`accum-pos` · xl 숨김) · 하루 · 손익 · 등록」 · sr 설명 당일 문장 · 이월 행이고 전날 매수나
  *   매도가 있으면 상세에 「전날」 줄(`prev` = prev_date + prev 2키). dayAxis 가 아니면 DOM · 글자가 지금과 같다(재생성 전 날짜).
+ *   그날 pos_day_avg_px 열이 실렸으면(hasDayAvgOf · quick-261026-0ty) 상세 KPI 에 당일 평단.
  */
 
 const COLS_XL = 'xl:grid-cols-[minmax(0,176px)_minmax(152px,1fr)_104px_160px_112px_96px_88px_16px]';
@@ -124,6 +126,8 @@ export function AccumDayGrid({
   /** 목록 봉투 prev_date — 상세 「전날」 줄 날짜. */
   prevDate?: string | null;
 }) {
+  // quick-261026-0ty — 당일 평단 열이 실린 당일 축 날짜(날짜 단위 판정)
+  const dayAvg = dayAxis && hasDayAvgOf(rows);
   // D-08 — 기본 전부 접힘
   const [openIsin, setOpenIsin] = useState<string | null>(null);
   const pendingScroll = useRef<string | null>(null);
@@ -484,6 +488,7 @@ export function AccumDayGrid({
                   isin={r.isin}
                   labelledBy={accumRowButtonId(r.isin)}
                   dayAxis={dayAxis}
+                  dayAvg={dayAvg}
                   prev={prev}
                 />
               )}
