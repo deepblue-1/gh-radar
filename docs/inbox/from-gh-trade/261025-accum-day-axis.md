@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: f0e71804
 from_branch: master
 date: 2026-10-25
 fbs_sync_marker: 20e718d7
-done_commit:
+done_commit: f95851be   # relay 동기화 829c3d17·0e70415f(d6071511) · 파서·열 4개 261025-uf2 · 당일 축 UI 261026-01h · pos_day 261026-0ty · 과거 15일 재적재 10/26 01:51~02:07 KST manifest=DB
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
