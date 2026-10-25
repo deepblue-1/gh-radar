@@ -109,7 +109,10 @@ export interface AccumReportPrice {
   px: number[];
 }
 
-/** payload.orders — 열 지향(같은 길이 · t_ms 오름차순). 1천만원 이상 팀 주문 ∪ 사이클마다 첫 팀 매수(first=1). */
+/**
+ * payload.orders — 열 지향(같은 길이 · t_ms 오름차순). 500만원 이상 팀 주문(gh-trade D-20 · 2026-10-25 · 그 전 export 는 1천만원 —
+ * 재생성으로 바뀐다) ∪ 사이클마다 첫 팀 매수(first=1).
+ */
 export interface AccumReportOrders {
   t_ms: number[];
   side: ("B" | "S")[];

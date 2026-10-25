@@ -14,6 +14,7 @@ import {
   isCarry,
   isDimRow,
   metaLineOf,
+  prevDayOf,
   reasonLineOf,
   regCellOf,
   stateLabelOf,
@@ -51,11 +52,16 @@ import { AccumDetail } from './accum-detail';
  * - 상태 배지 라벨은 자체 라벨(`stateLabelOf` — 3 「종료」) · shared `ACCUM_STATE_LABELS` 를 쓰지 않는다.
  * - 치수 불변: `min-h-11` · 패딩 8/12 · `gap-x-3` · `gap-y-1.5` · `scroll-mt-[calc(4.5rem+var(--app-safe-top))]`.
  * - 열린 행 바로 아래에만 `AccumDetail` 을 마운트한다(접으면 언마운트 · 받은 상세는 캐시에 남는다 — D-06).
+ * - 당일 축 날짜(`dayAxis` · quick-261026-01h · 스케치 018)만 — 캡션 「… 그 안 당일 순매수 큰 순」 · 머리 4열 「당일 순매수」/
+ *   「(등록 후 · 아래 누적)」 · 4열 칸 = 당일(`accum-today` · 부호 색 · 값 없음 「—」 --faint) + xl 아랫줄 「누적 {pos} · 누적 평단 N」
+ *   (`accum-cum-sub`) · 폰 메타 「당일 · 누적(`accum-pos` · xl 숨김) · 하루 · 손익 · 등록」 · sr 설명 당일 문장 · 이월 행이고 전날 매수나
+ *   매도가 있으면 상세에 「전날」 줄(`prev` = prev_date + prev 2키). dayAxis 가 아니면 DOM · 글자가 지금과 같다(재생성 전 날짜).
  */
 
 const COLS_XL = 'xl:grid-cols-[minmax(0,176px)_minmax(152px,1fr)_104px_160px_112px_96px_88px_16px]';
 
 const CAPTION = '매집중 → 매도중 → 종료 · 그 안 팀 순매수(등록 후) 큰 순';
+const CAPTION_DAY = '매집중 → 매도중 → 종료 · 그 안 당일 순매수 큰 순';
 
 const BADGE =
   'inline-flex h-5 items-center rounded-[4px] border border-transparent px-1.5 text-[11px] font-semibold whitespace-nowrap';
@@ -105,7 +111,19 @@ function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export function AccumDayGrid({ date, rows }: { date: string; rows: readonly AccumReportRow[] }) {
+export function AccumDayGrid({
+  date,
+  rows,
+  dayAxis = false,
+  prevDate = null,
+}: {
+  date: string;
+  rows: readonly AccumReportRow[];
+  /** 당일 축 날짜(`dayAxisOf`) — 4열 · 메타 · 캡션 · 상세가 당일 순매수 주인공(quick-261026-01h). */
+  dayAxis?: boolean;
+  /** 목록 봉투 prev_date — 상세 「전날」 줄 날짜. */
+  prevDate?: string | null;
+}) {
   // D-08 — 기본 전부 접힘
   const [openIsin, setOpenIsin] = useState<string | null>(null);
   const pendingScroll = useRef<string | null>(null);
@@ -138,7 +156,9 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
         <h2 id="accum-list-title" className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
           매집감지 종목
         </h2>
-        <span className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">{CAPTION}</span>
+        <span className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
+          {dayAxis ? CAPTION_DAY : CAPTION}
+        </span>
       </div>
       <div
         aria-hidden="true"
@@ -151,10 +171,17 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
         <span>종목</span>
         <span>상태</span>
         <span>결과</span>
-        <span className="flex flex-col">
-          <span>팀 순매수</span>
-          <span>(등록 후)</span>
-        </span>
+        {dayAxis ? (
+          <span className="flex flex-col">
+            <span>당일 순매수</span>
+            <span>(등록 후 · 아래 누적)</span>
+          </span>
+        ) : (
+          <span className="flex flex-col">
+            <span>팀 순매수</span>
+            <span>(등록 후)</span>
+          </span>
+        )}
         <span className="flex flex-col">
           <span>하루 순매수</span>
           <span>(등록 전 포함)</span>
@@ -172,13 +199,24 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
           const sub = r.short_code ? [r.short_code, r.market].filter(Boolean).join(' · ') : null;
           const tag = accumTagOf(r);
           const reason = reasonLineOf(r);
-          const [pos, day, reg] = metaLineOf(r) as [AccumMetaItem, AccumMetaItem, AccumMetaItem];
+          // 당일 축 = [당일, 누적, 하루, 등록] · 아니면 [팀 순매수, 하루, 등록]
+          const meta = metaLineOf(r, dayAxis);
+          const [lead, cumItem] = dayAxis ? [meta[0]!, meta[1]!] : [meta[0]!, null];
+          const day = meta[meta.length - 2] as AccumMetaItem;
+          const reg = meta[meta.length - 1] as AccumMetaItem;
           const avg = `평단 ${fmtPx(r.pos_avg_px)} · 등록가 ${fmtPx(r.pos_reg_px)}`;
+          const cumSub = cumItem === null ? '' : `누적 ${cumItem.value} · 누적 평단 ${fmtPx(r.pos_avg_px)}`;
           const [regTop, regBottom] = regCellOf(r);
           const carry = typeof r.carry_days === 'number' && r.carry_days > 0 ? r.carry_days : 0;
           const cycle = typeof r.cycle === 'number' && Number.isFinite(r.cycle) && r.cycle > 1 ? r.cycle : null;
           const pnl = pnlOf(r);
           const pnlTotal = pnl ? fmtEok(pnl.total_val, { signed: true, digits: 2 }) : null;
+          // 상세 「전날」 줄 — 당일 축 · 이월 행 · prev_date 있음 · 전날 매수나 매도가 있을 때만
+          const prevDay = dayAxis && carry > 0 && prevDate ? prevDayOf(r) : null;
+          const prev =
+            prevDay !== null && prevDate && (prevDay.buyKrw > 0 || prevDay.sellKrw > 0)
+              ? { date: prevDate, ...prevDay }
+              : null;
           return (
             <li key={r.isin} data-open={open ? 'true' : undefined} className={cn(ROW_DIVIDER)}>
               <button
@@ -279,31 +317,73 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
 
                 {/* 메타 — < xl 3줄(라벨 + 값 · flex-wrap) · xl 에서는 contents 로 풀려 4 · 5열(손익 · 등록 항목은 xl 숨김 → 6 · 7열 칸) */}
                 <span className="col-span-3 row-start-3 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[length:var(--t-caption)] xl:contents">
-                  <span
-                    className={cn(
-                      'inline-flex min-w-0 items-baseline gap-1 xl:col-start-4 xl:row-start-1 xl:flex xl:flex-col xl:items-start xl:gap-0',
-                      dimCls,
-                    )}
-                  >
-                    <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{pos.label}</span>
+                  {cumItem === null ? (
                     <span
-                      data-slot="accum-pos"
-                      title={pos.value}
                       className={cn(
-                        'mono min-w-0 truncate xl:text-[length:var(--t-sm)] xl:font-semibold',
-                        metaTone(pos.tone),
+                        'inline-flex min-w-0 items-baseline gap-1 xl:col-start-4 xl:row-start-1 xl:flex xl:flex-col xl:items-start xl:gap-0',
+                        dimCls,
                       )}
                     >
-                      {pos.value}
+                      <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{lead.label}</span>
+                      <span
+                        data-slot="accum-pos"
+                        title={lead.value}
+                        className={cn(
+                          'mono min-w-0 truncate xl:text-[length:var(--t-sm)] xl:font-semibold',
+                          metaTone(lead.tone),
+                        )}
+                      >
+                        {lead.value}
+                      </span>
+                      <span
+                        data-slot="accum-avg"
+                        title={avg}
+                        className="mono hidden max-w-full min-w-0 truncate text-[length:var(--t-caption)] text-[var(--muted-fg)] xl:block"
+                      >
+                        {avg}
+                      </span>
                     </span>
-                    <span
-                      data-slot="accum-avg"
-                      title={avg}
-                      className="mono hidden max-w-full min-w-0 truncate text-[length:var(--t-caption)] text-[var(--muted-fg)] xl:block"
-                    >
-                      {avg}
-                    </span>
-                  </span>
+                  ) : (
+                    <>
+                      {/* 당일 축 — 4열 = 당일(큰 숫자) + xl 아랫줄 누적 · 누적 평단 */}
+                      <span
+                        className={cn(
+                          'inline-flex min-w-0 items-baseline gap-1 xl:col-start-4 xl:row-start-1 xl:flex xl:flex-col xl:items-start xl:gap-0',
+                          dimCls,
+                        )}
+                      >
+                        <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{lead.label}</span>
+                        <span
+                          data-slot="accum-today"
+                          title={lead.value}
+                          className={cn(
+                            'mono min-w-0 truncate xl:text-[length:var(--t-sm)] xl:font-semibold',
+                            metaTone(lead.tone),
+                          )}
+                        >
+                          {lead.value}
+                        </span>
+                        <span
+                          data-slot="accum-cum-sub"
+                          title={cumSub}
+                          className="mono hidden max-w-full min-w-0 truncate text-[length:var(--t-caption)] text-[var(--muted-fg)] xl:block"
+                        >
+                          {cumSub}
+                        </span>
+                      </span>
+                      {/* 누적 — 폰 메타만(xl 은 4열 아랫줄이 말한다) */}
+                      <span className={cn('inline-flex min-w-0 items-baseline gap-1 xl:hidden', dimCls)}>
+                        <span className="shrink-0 text-[var(--muted-fg)]">{cumItem.label}</span>
+                        <span
+                          data-slot="accum-pos"
+                          title={cumItem.value}
+                          className={cn('mono min-w-0 truncate', metaTone(cumItem.tone))}
+                        >
+                          {cumItem.value}
+                        </span>
+                      </span>
+                    </>
+                  )}
 
                   <span className={cn('inline-flex min-w-0 items-baseline gap-1 xl:col-start-5 xl:row-start-1', dimCls)}>
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">{day.label}</span>
@@ -395,10 +475,18 @@ export function AccumDayGrid({ date, rows }: { date: string; rows: readonly Accu
                   )}
                 />
                 <span id={`accum-row-desc-${r.isin}`} className="sr-only">
-                  {accumRowDescriptionOf(r)}
+                  {accumRowDescriptionOf(r, dayAxis)}
                 </span>
               </button>
-              {open && <AccumDetail date={date} isin={r.isin} labelledBy={accumRowButtonId(r.isin)} />}
+              {open && (
+                <AccumDetail
+                  date={date}
+                  isin={r.isin}
+                  labelledBy={accumRowButtonId(r.isin)}
+                  dayAxis={dayAxis}
+                  prev={prev}
+                />
+              )}
             </li>
           );
         })}

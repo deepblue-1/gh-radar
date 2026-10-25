@@ -12,12 +12,13 @@ import { cn } from '@/lib/utils';
  * - `dd` = `flex flex-wrap items-baseline gap-x-2` — 좁은 칸에서 보조 글자는 값 아래 줄로 내려간다(`truncate` 를 걸지 않는다).
  *   보조 글자는 0 이어도 지우지 않는다(날짜 간 칸 자리가 같아야 비교된다).
  * - 행이 있는 날에만 그린다(빈 날은 부모가 띠를 생략). KPI 아래 캡션은 없다(D-10).
+ * - 당일 축 날짜(`dayAxis` · quick-261026-01h)면 4칸째가 「당일 순매수 합(등록 후)」(daySum · 없으면 「—」 --faint) + 보조 「누적 ±x.x억」(posSum).
  */
 
 const INT_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 const n = (v: number) => INT_FMT.format(v);
 
-export function AccumKpiStrip({ kpis }: { kpis: AccumKpis }) {
+export function AccumKpiStrip({ kpis, dayAxis = false }: { kpis: AccumKpis; dayAxis?: boolean }) {
   const tiles: { label: string; value: string; tone: string; sub: string | null }[] = [
     { label: '등록 종목', value: n(kpis.total), tone: 'text-[var(--fg)]', sub: `이월 ${n(kpis.carry)}` },
     {
@@ -32,12 +33,19 @@ export function AccumKpiStrip({ kpis }: { kpis: AccumKpis }) {
       tone: 'text-[var(--fg)]',
       sub: `청산 ${n(kpis.liquidated)} · 매집 종료 ${n(kpis.terminated)} · 탈락 ${n(kpis.dropped)} · 만료 ${n(kpis.expired)}`,
     },
-    {
-      label: '팀 순매수 합(등록 후)',
-      value: kpis.posSum === null ? '—' : fmtEok(kpis.posSum, { signed: true }),
-      tone: kpis.posSum === null ? 'text-[var(--faint)]' : TONE_TEXT[toneOf(kpis.posSum)],
-      sub: null,
-    },
+    dayAxis
+      ? {
+          label: '당일 순매수 합(등록 후)',
+          value: kpis.daySum === null ? '—' : fmtEok(kpis.daySum, { signed: true }),
+          tone: kpis.daySum === null ? 'text-[var(--faint)]' : TONE_TEXT[toneOf(kpis.daySum)],
+          sub: `누적 ${fmtEok(kpis.posSum, { signed: true })}`,
+        }
+      : {
+          label: '팀 순매수 합(등록 후)',
+          value: kpis.posSum === null ? '—' : fmtEok(kpis.posSum, { signed: true }),
+          tone: kpis.posSum === null ? 'text-[var(--faint)]' : TONE_TEXT[toneOf(kpis.posSum)],
+          sub: null,
+        },
   ];
   return (
     <dl className="m-0 grid grid-cols-2 gap-2 md:grid-cols-4" data-slot="accum-kpis">

@@ -11,7 +11,7 @@ import { DmaGate, useDmaGateReason, type DmaGateReason } from '@/components/trad
 import { Button } from '@/components/ui/button';
 import { ApiClientError } from '@/lib/api';
 import { fetchAccumReport } from '@/lib/accum-api';
-import { ACCUM_LOAD_HM, accumKpisOf, sortAccumRows } from '@/lib/accum-report';
+import { ACCUM_LOAD_HM, accumKpisOf, dayAxisOf, sortAccumRows } from '@/lib/accum-report';
 import { dateNavOf, fmtYmdShort, parseYmdParam } from '@/lib/limitup-report';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +32,8 @@ import { LimitupDateNav } from './limitup-date-nav';
  * ④ 빈 상태 2종: 이력 0(`dates` 빔) · 행 없는 날(`dates > 0 ∧ rows []`) — 둘 다 KPI · 목록 카드 없음(`data-slot="accum-empty"`).
  * ⑤ 행이 있으면 세로 순서 = 머리 → KPI 4칸(D-09 · `AccumKpiStrip`) → 매집감지 종목 카드(D-08 정렬 · 기본 전부 접힘).
  * ⑥ 「20:30」 글자는 `ACCUM_LOAD_HM` 한 상수에서만 나온다(머리 칩 · 빈 상태 2곳).
+ * ⑦ 당일 축(quick-261026-01h · 스케치 018) — `dayAxisOf(resp.rows)` 가 true 인 날짜만 정렬 · KPI · 목록 · 상세가 당일 순매수를
+ *   주인공으로 그린다(prop `dayAxis`). 봉투 `prev_date`(목록 RPC 20261026010000)는 상세 「전날」 줄 날짜로 내려 보낸다.
  */
 
 type Ready = Exclude<AccumReportResponse, { access: false }>;
@@ -99,7 +101,11 @@ export function AccumReport() {
   const nav = dateNavOf(dates, shown);
   const go = (to: LimitupDate) => router.push(`${BASE}?d=${to}`);
 
-  const rows = useMemo(() => (resp !== null && resp.rows.length > 0 ? sortAccumRows(resp.rows) : null), [resp]);
+  const dayAxis = useMemo(() => resp !== null && dayAxisOf(resp.rows), [resp]);
+  const rows = useMemo(
+    () => (resp !== null && resp.rows.length > 0 ? sortAccumRows(resp.rows, { dayAxis }) : null),
+    [resp, dayAxis],
+  );
 
   const gateReason = gate ?? (phase.kind === 'gate' ? phase.reason : null);
   if (gateReason !== null) {
@@ -165,12 +171,18 @@ export function AccumReport() {
         </EmptyBox>
       )}
 
-      {rows !== null && <AccumKpiStrip kpis={accumKpisOf(rows)} />}
+      {rows !== null && <AccumKpiStrip kpis={accumKpisOf(rows)} dayAxis={dayAxis} />}
 
       {resp !== null && rows !== null && (
         <section aria-labelledby="accum-list-title" className={cn(CARD, 'p-4')}>
           {/* 소제목 「매집감지 종목」(id=accum-list-title) + 캡션 · 열 머리는 AccumDayGrid 가 그린다 */}
-          <AccumDayGrid key={resp.date ?? ''} date={resp.date ?? ''} rows={rows} />
+          <AccumDayGrid
+            key={resp.date ?? ''}
+            date={resp.date ?? ''}
+            rows={rows}
+            dayAxis={dayAxis}
+            prevDate={resp.prev_date ?? null}
+          />
         </section>
       )}
     </div>

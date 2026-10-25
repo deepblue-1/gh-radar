@@ -13,11 +13,13 @@ import { dayBoundsOf, fmtViewRange, lastTradeMsOf, posNetPointsOf, type ChartPre
 import {
   ACCUM_LOAD_HM,
   ACCUM_RULE_LINES,
+  ACCUM_RULE_LINES_DAY,
   ACCUM_RULE_SOURCE,
   cycleRowsOf,
   detailKpisOf,
   payloadOf,
   thresholdPartsOf,
+  type AccumPrevDay,
 } from '@/lib/accum-report';
 import { fmtYmdShort } from '@/lib/limitup-report';
 import { TONE_TEXT, fmtEok, fmtPnl, isNum, pnlOf, toneOf } from '@/lib/teamflow-report';
@@ -44,6 +46,11 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   팀 당일 손익 줄(`accum-pnl` · D-21 · pnl null = 「팀 체결 없음」) → 「판정 기준」 접힘(`accum-rules` · 기본 접힘 · 닫히면
  *   언마운트 · D-22) → 상세 맨 끝 출처 칩(`accum-detail-source` · 머리 칩과 같은 모양 · kind 16 과 join 하지 않는다).
  *   가격 자료가 없어도 사이클 표 · 손익 · 판정 기준 · 출처 칩은 그대로다. 상세 안에서 `<i>` 를 쓰지 않는다(33-05 결정).
+ * - 당일 축(quick-261026-01h · 스케치 018 · prop `dayAxis` — 목록 날짜 단위 판정): KPI 줄 = 당일 순매수 · 누적 순매수 · 누적 평단 ·
+ *   등록가 · 최고 순매수(`detailKpisOf(row, true)`) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY`. 부모가 `prev`(이월 행 · 목록 RPC
+ *   prev 2키 + prev_date)를 주면 KPI 줄 바로 뒤 「전날 MM/DD · 순매수 · 매수 / 매도」 한 줄(`accum-prev-line`). 전날 평단 ·
+ *   종가 대비 % 는 원천(목록 · 상세 RPC 어디에도 없음)이 없어 그리지 않는다. 판정 기준 1줄 새 임계 문구는 상세 행
+ *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원 문턱은 500만원(gh-trade D-20).
  */
 
 type Phase =
@@ -64,7 +71,24 @@ function initialPhase(date: string, isin: string): Phase {
   return hit === undefined ? { kind: 'loading' } : phaseOf(hit);
 }
 
-export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: string; labelledBy: string }) {
+/** 상세 「전날」 줄 입력 — 목록 행 prev 2키(`prevDayOf`) + 봉투 prev_date. */
+export type AccumDetailPrev = AccumPrevDay & { date: string };
+
+export function AccumDetail({
+  date,
+  isin,
+  labelledBy,
+  dayAxis = false,
+  prev = null,
+}: {
+  date: string;
+  isin: string;
+  labelledBy: string;
+  /** 당일 축 날짜(quick-261026-01h) — KPI 줄 · 판정 기준 본문이 당일 축 모양. */
+  dayAxis?: boolean;
+  /** 이월 행 전날 요약 — 있으면 KPI 줄 뒤 「전날」 줄. */
+  prev?: AccumDetailPrev | null;
+}) {
   const [phase, setPhase] = useState<Phase>(() => initialPhase(date, isin));
   const [attempt, setAttempt] = useState(0);
 
@@ -148,7 +172,7 @@ export function AccumDetail({ date, isin, labelledBy }: { date: string; isin: st
 
       {phase.kind === 'ready' && (
         <DetailBoundary>
-          <ReadyBody row={phase.row} />
+          <ReadyBody row={phase.row} dayAxis={dayAxis} prev={prev} />
         </DetailBoundary>
       )}
     </section>
@@ -182,7 +206,15 @@ class DetailBoundary extends Component<{ children: ReactNode }, { failed: boolea
 }
 
 /** 준비 상태 본문(D-19) — 차트 블록 → (사이클 표 · 2개↑) → 손익 줄 → 판정 기준 → 출처 칩. */
-function ReadyBody({ row }: { row: AccumDetailRow }) {
+function ReadyBody({
+  row,
+  dayAxis,
+  prev,
+}: {
+  row: AccumDetailRow;
+  dayAxis: boolean;
+  prev: AccumDetailPrev | null;
+}) {
   const cycles = cycleRowsOf(row);
   return (
     <>
@@ -191,13 +223,14 @@ function ReadyBody({ row }: { row: AccumDetailRow }) {
           data-slot="accum-kline"
           className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]"
         >
-          {detailKpisOf(row).map((k) => (
+          {detailKpisOf(row, dayAxis).map((k) => (
             <span key={k.label} data-slot="accum-kline-item" className="inline-flex items-baseline gap-1 whitespace-nowrap">
               <span className="text-[var(--muted-fg)]">{k.label}</span>
               <span className={cn('mono font-semibold', k.tone ? TONE_TEXT[k.tone] : 'text-[var(--fg)]')}>{k.text}</span>
             </span>
           ))}
         </div>
+        {prev !== null && <PrevLine prev={prev} />}
         <ReadyChart row={row} />
       </div>
       {cycles.length >= 2 && <AccumCycleTable rows={cycles} count={cycles.length} />}
@@ -216,7 +249,7 @@ function ReadyBody({ row }: { row: AccumDetailRow }) {
                 ),
               )}
             </li>
-            {ACCUM_RULE_LINES.map((l) => (
+            {(dayAxis ? ACCUM_RULE_LINES_DAY : ACCUM_RULE_LINES).map((l) => (
               <li key={l}>{l}</li>
             ))}
           </ul>
@@ -230,6 +263,30 @@ function ReadyBody({ row }: { row: AccumDetailRow }) {
         KYOBO119 판정 기준 · {fmtYmdShort(row.date)} {ACCUM_LOAD_HM} 적재
       </span>
     </>
+  );
+}
+
+/**
+ * 「전날」 줄(quick-261026-01h · 스케치 018 prevline) — 「전날 MM/DD」 라벨(font-semibold · --muted-fg) · 「순매수 ±X.XX억」(부호 색) ·
+ * 「매수 X.XX억 / 매도 Y.YY억」. KPI 줄과 같은 항목 문법(라벨 --muted-fg + 값 mono). 전날 평단 · 종가 대비 % 는 원천이 없어 없다.
+ */
+function PrevLine({ prev }: { prev: AccumDetailPrev }) {
+  return (
+    <div data-slot="accum-prev-line" className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--t-caption)]">
+      <span className="font-semibold whitespace-nowrap text-[var(--muted-fg)]">전날 {fmtYmdShort(prev.date)}</span>{' '}
+      <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+        <span className="text-[var(--muted-fg)]">순매수</span>{' '}
+        <span data-slot="accum-prev-net" className={cn('mono font-semibold', TONE_TEXT[toneOf(prev.netKrw, 2)])}>
+          {fmtEok(prev.netKrw, { signed: true, digits: 2 })}
+        </span>
+      </span>{' '}
+      <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+        <span className="text-[var(--muted-fg)]">매수</span>{' '}
+        <span className="mono text-[var(--fg-2)]">{fmtEok(prev.buyKrw, { digits: 2 })}</span>{' '}
+        <span className="text-[var(--muted-fg)]">/ 매도</span>{' '}
+        <span className="mono text-[var(--fg-2)]">{fmtEok(prev.sellKrw, { digits: 2 })}</span>
+      </span>
+    </div>
   );
 }
 
@@ -295,7 +352,7 @@ const PRESETS: readonly { name: ChartPreset; label: string }[] = [
 ];
 
 const CAPTION =
-  '원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+  '원 = 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
 
 /** 범례 줄 배치 — 로딩 스켈레톤도 같은 줄바꿈으로 높이를 잡는다(34 UI 리뷰). */
 const LEGEND_ROW = 'flex flex-wrap gap-x-3 gap-y-1';
