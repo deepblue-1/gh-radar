@@ -54,6 +54,7 @@ import {
   DONGYANG,
   HANSUN,
   NAMELESS,
+  accumDayAxisListRows,
   accumDetailFixture,
   accumReportFixture,
   accumSyntheticListRows,
@@ -605,5 +606,80 @@ describe('AccumDetail — 펼침 지연 로드 (A4 · A5 · D-06 · D-19)', () =
     await flush();
     const sec = document.getElementById(`ac-${CJSEAFOOD_PREF}`)!;
     expect(klineTexts(sec)).toHaveLength(4);
+  });
+});
+
+describe('quick-261026-01h — 당일 축 날짜 목록 · KPI (스케치 018)', () => {
+  const openDay = () =>
+    open('d=20261014', accumReportFixture({ rows: accumDayAxisListRows(), prevDate: '20261013' }));
+
+  it('(y1) KPI 4칸째 「당일 순매수 합(등록 후)」 = 당일 합 + 보조 「누적 ±x.x억」 · 1~3칸 그대로', async () => {
+    await openDay();
+    expect(kpiTiles()).toEqual([
+      ['등록 종목', '7', '이월 3'],
+      ['장 마감 보유', '4', '매집중 3 · 매도중 1'],
+      ['종료', '3', '청산 1 · 매집 종료 0 · 탈락 1 · 만료 1'],
+      ['당일 순매수 합(등록 후)', '+0.4억', '누적 +4.2억'],
+    ]);
+    const sum = document.querySelector('[data-kpi="당일 순매수 합(등록 후)"] dd > span')!;
+    expect(sum.className).toContain('text-[var(--up)]');
+    expect(document.querySelector('[data-kpi="팀 순매수 합(등록 후)"]')).toBeNull();
+  });
+
+  it('(y2) 머리 4열 「당일 순매수」/「(등록 후 · 아래 누적)」 · 캡션 「… 그 안 당일 순매수 큰 순」 · 행 순서 = 당일 큰 순', async () => {
+    await openDay();
+    expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 당일 순매수 큰 순')).toBeTruthy();
+    const head = document.querySelector('[data-slot="accum-list-head"]')!;
+    expect(Array.from(head.children).map((c) => c.textContent)[3]).toBe('당일 순매수(등록 후 · 아래 누적)');
+    expect(rowButtons().map((b) => b.getAttribute('data-isin'))).toEqual([
+      AC_CARRY,
+      AC_LIVE,
+      AC_PARTIAL,
+      AC_SELL,
+      AC_DROP,
+      AC_EXPIRE,
+      AC_LIQ,
+    ]);
+  });
+
+  it('(y3) 행 4열 — 당일(부호 색 · pos_day null 「—」 --faint) + xl 아랫줄 「누적 · 누적 평단」 · 폰 메타 = 당일 · 누적 · 하루 · 손익 · 등록', async () => {
+    const pnl = { total_val: 30_000_000, ret: 0.011, realized_val: 10_000_000, unrealized_val: 20_000_000 } as TeamflowPnl;
+    const rows = accumDayAxisListRows().map((r) => (r.isin === AC_LIVE ? { ...r, pnl } : r));
+    await open('d=20261014', accumReportFixture({ rows, prevDate: '20261013' }));
+    const today = rowBtn(AC_LIVE).querySelector('[data-slot="accum-today"]')!;
+    expect(today.textContent).toBe('−0.6억');
+    expect(today.className).toContain('text-[var(--down)]');
+    const sub = rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!;
+    expect(sub.textContent).toBe('누적 +9.3억 · 누적 평단 12,680');
+    expect(sub.getAttribute('title')).toBe('누적 +9.3억 · 누적 평단 12,680');
+    expect(sub.className).toContain('hidden');
+    expect(sub.className).toContain('xl:block');
+    expect(slotText(AC_CARRY, 'accum-today')).toBe('+2.4억');
+    const partial = rowBtn(AC_PARTIAL).querySelector('[data-slot="accum-today"]')!;
+    expect(partial.textContent).toBe('—');
+    expect(partial.className).toContain('text-[var(--faint)]');
+    // 누적 항목 — 폰만(xl 숨김)
+    const pos = rowBtn(AC_LIVE).querySelector('[data-slot="accum-pos"]')!;
+    expect(pos.textContent).toBe('+9.3억');
+    expect(pos.parentElement!.className).toContain('xl:hidden');
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-avg"]')).toBeNull();
+    // 폰 메타 순서 — 당일 → 누적 → 하루 → 손익 → 등록
+    const order = ['accum-today', 'accum-pos', 'accum-day', 'accum-pnl-meta', 'accum-meta-reg'].map(
+      (slot) => rowBtn(AC_LIVE).querySelector(`[data-slot="${slot}"]`)!,
+    );
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(document.getElementById(`accum-row-desc-${AC_CARRY}`)!.textContent).toContain(
+      '당일 순매수 +2.4억, 누적 +3.6억, 하루 순매수 +0.4억',
+    );
+  });
+
+  it('(y4) 당일 축 아닌 날짜(재생성 전 합성 7행 · prev_date 있어도) → 지금 모양 그대로', async () => {
+    await open('d=20261014', accumReportFixture({ rows: accumSyntheticListRows(), prevDate: '20261013' }));
+    expect(kpiTiles()[3]).toEqual(['팀 순매수 합(등록 후)', '+4.2억']);
+    expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 팀 순매수(등록 후) 큰 순')).toBeTruthy();
+    expect(document.querySelector('[data-slot="accum-today"]')).toBeNull();
+    expect(slotText(AC_LIVE, 'accum-avg')).toBe('평단 12,680 · 등록가 11,410');
   });
 });

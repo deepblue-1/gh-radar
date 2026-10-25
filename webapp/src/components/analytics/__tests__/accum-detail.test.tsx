@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render } from '@testing-library/react';
 
-import type { AccumDetailResponse, AccumDetailRow } from '@gh-radar/shared';
+import type { AccumDetailResponse, AccumDetailRow, AccumReportResponse } from '@gh-radar/shared';
 
 /**
  * Phase 34 Plan 06 — 매집감지 펼친 상세의 차트 정적 레이어(UI-SPEC A6 · D-14 ~ D-18).
@@ -32,12 +32,17 @@ vi.mock('@/lib/auth-fetch', () => ({
 }));
 
 import { clearQueryCache } from '@/lib/query-cache';
+import { ACCUM_RULE_LINES_DAY } from '@/lib/accum-report';
 import {
   ACCUM_DATE,
+  AC_CARRY,
+  AC_LIVE,
   CHEONIL,
   CJSEAFOOD_PREF,
   DONGYANG,
   HANSUN,
+  accumDayAxisDetailOf,
+  accumDayAxisListRows,
   accumDetailFixture,
   accumReportFixture,
   accumSyntheticDetail,
@@ -49,6 +54,8 @@ const DETAIL_RE = /^\/api\/accum\/report\/(\d{8})\/([A-Z0-9]{12})$/;
 
 /** 상세 응답 덮어쓰기(isin → row) — 없으면 실측 픽스처. */
 let detailOver = new Map<string, AccumDetailRow>();
+/** 목록 응답 덮어쓰기(quick-261026-01h 당일 축) — null 이면 실측 10/14 목록. */
+let listOver: AccumReportResponse | null = null;
 
 function routeFetch(path: string): Promise<unknown> {
   const m = DETAIL_RE.exec(path);
@@ -58,7 +65,7 @@ function routeFetch(path: string): Promise<unknown> {
     const resp: AccumDetailResponse = row ? { access: true, row } : accumDetailFixture(isin);
     return Promise.resolve(resp);
   }
-  return Promise.resolve(accumReportFixture());
+  return Promise.resolve(listOver ?? accumReportFixture());
 }
 
 async function flush() {
@@ -87,6 +94,7 @@ beforeEach(() => {
   authFetchMock.mockReset();
   authFetchMock.mockImplementation((path: string) => routeFetch(path));
   detailOver = new Map();
+  listOver = null;
   clearQueryCache();
 });
 
@@ -320,7 +328,7 @@ describe('AccumChart — 사이클 세로선 · 이월 줄 · 눈금 · 축 글�
 });
 
 const CAPTION =
-  '원 = 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+  '원 = 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
 
 const presetsOf = (sec: HTMLElement) =>
   Array.from(sec.querySelectorAll<HTMLButtonElement>('[data-slot="accum-presets"] button'));
@@ -405,10 +413,10 @@ describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위
     }
   });
 
-  it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 1천만원 이상」 으로 시작', async () => {
+  it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 500만원 이상」 으로 시작', async () => {
     const sec = await expand(CJSEAFOOD_PREF);
     const cap = sec.querySelector('[data-slot="accum-caption"]')!.textContent ?? '';
-    expect(cap.startsWith('팀 체결 없음 · 원 = 1천만원 이상')).toBe(true);
+    expect(cap.startsWith('팀 체결 없음 · 원 = 500만원 이상')).toBe(true);
     expect(cap).toBe(`팀 체결 없음 · ${CAPTION}`);
   });
 });
@@ -482,7 +490,7 @@ const RULE_TEXTS = [
   '이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
   '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
   '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판의 얇은 회색 계단이 이 값이고, 굵은 보라 선은 포지션 순매수(등록 후 · 이월 포함 · 우리 체결 제외 — 목록 · KPI 와 같은 값)예요. 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
-  '원은 1천만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
+  '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
   '종료 사유 — 청산(순매수 1억 미만 — 서버는 계속 추적하고 다시 1억 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
 ];
 const rulesToggleOf = (sec: HTMLElement) =>
@@ -684,5 +692,88 @@ describe('quick-261025-fac 포지션 순매수 선(스케치 017 B)', () => {
     expect(sw(5)).toContain('h-[3px]');
     expect(sw(6)).toContain('bg-[var(--muted-fg)]');
     expect(sw(6)).toContain('h-px');
+  });
+});
+
+describe('quick-261026-01h — 당일 축 상세 KPI · 전날 줄 · 판정 기준(스케치 018)', () => {
+  const norm = (t: string | null | undefined) => (t ?? '').replace(/\s+/g, ' ').trim();
+  const klineLabels = (sec: HTMLElement) =>
+    Array.from(sec.querySelectorAll('[data-slot="accum-kline-item"] > span:first-child')).map((e) => e.textContent);
+  const dayList = (rows = accumDayAxisListRows()) => {
+    listOver = accumReportFixture({ rows, prevDate: '20261013' });
+  };
+  const openRules = (sec: HTMLElement) => {
+    fireEvent.click(sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!);
+    return Array.from(sec.querySelectorAll('[data-slot="accum-rules"] ul > li')).map((li) => li.textContent);
+  };
+
+  it('(d1) 이월 행(전날 9.84억 / 6.74억) → KPI 줄 뒤 「전날 10/13 순매수 +3.10억 매수 9.84억 / 매도 6.74억」 · 부호 색 · kline → prev-line → legend', async () => {
+    dayList();
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
+    const sec = await expand(AC_CARRY);
+    const prev = sec.querySelector<HTMLElement>('[data-slot="accum-prev-line"]');
+    expect(prev).toBeTruthy();
+    expect(norm(prev!.textContent)).toBe('전날 10/13 순매수 +3.10억 매수 9.84억 / 매도 6.74억');
+    const net = prev!.querySelector('[data-slot="accum-prev-net"]')!;
+    expect(net.textContent).toBe('+3.10억');
+    expect(net.className).toContain('text-[var(--up)]');
+    const kline = sec.querySelector('[data-slot="accum-kline"]')!;
+    const legend = sec.querySelector('[data-slot="accum-legend"]')!;
+    expect(kline.compareDocumentPosition(prev!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(prev!.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('(d2) 이월 아닌 행 → prev 2키가 있어도 전날 줄 없음', async () => {
+    dayList(
+      accumDayAxisListRows().map((r) =>
+        r.isin === AC_LIVE ? { ...r, prev_pos_day_buy_krw: 5e8, prev_pos_day_sell_krw: 1e8 } : r,
+      ),
+    );
+    detailOver.set(AC_LIVE, accumDayAxisDetailOf(AC_LIVE));
+    const sec = await expand(AC_LIVE);
+    expect(sec.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
+  });
+
+  it('(d2b) 이월 행이어도 prev 0/0 이면 전날 줄 없음', async () => {
+    dayList(
+      accumDayAxisListRows().map((r) =>
+        r.isin === AC_CARRY ? { ...r, prev_pos_day_buy_krw: 0, prev_pos_day_sell_krw: 0 } : r,
+      ),
+    );
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
+    const sec = await expand(AC_CARRY);
+    expect(sec.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
+  });
+
+  it('(d2c) 이월 행이어도 prev 2키 null 이면 전날 줄 없음', async () => {
+    dayList(
+      accumDayAxisListRows().map((r) =>
+        r.isin === AC_CARRY ? { ...r, prev_pos_day_buy_krw: null, prev_pos_day_sell_krw: null } : r,
+      ),
+    );
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
+    const sec = await expand(AC_CARRY);
+    expect(sec.querySelector('[data-slot="accum-kline"]')).toBeTruthy();
+    expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
+  });
+
+  it('(d3) KPI 줄 = 당일 축 5항목 · 판정 기준 1줄 새 임계 문구 · 본문 = ACCUM_RULE_LINES_DAY 4줄', async () => {
+    dayList();
+    detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
+    const sec = await expand(AC_CARRY);
+    expect(klineLabels(sec)).toEqual(['당일 순매수', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(openRules(sec)).toEqual([
+      '이 종목의 등록 임계 — 당일 순매수 1.0억 이상 · 최근 60초 팀 매수 조각 30개 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
+      ...ACCUM_RULE_LINES_DAY,
+    ]);
+  });
+
+  it('(d4) 당일 축 아닌 날짜 — KPI 줄 4항목 · 판정 기준 지금 문구(원 문턱만 500만원) · 전날 줄 없음', async () => {
+    const sec = await expand(CHEONIL);
+    expect(klineLabels(sec)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
+    expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
+    expect(openRules(sec)).toEqual(RULE_TEXTS);
   });
 });

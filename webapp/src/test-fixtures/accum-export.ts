@@ -46,14 +46,18 @@ export function accumListRows(): AccumReportRow[] {
   return accumDetailRows().map(({ payload: _payload, ...flat }) => flat);
 }
 
-/** `GET /api/accum/report` 성공 응답 모양 — 기본 = 10/14 6행 · dates 2개. */
+/**
+ * `GET /api/accum/report` 성공 응답 모양 — 기본 = 10/14 6행 · dates 2개.
+ * `prevDate` 를 주면 봉투에 `prev_date`(quick-261026-01h · 목록 RPC 20261026010000) — 안 주면 키 없음(옛 응답 · 기존 호출 결과 불변).
+ */
 export function accumReportFixture(
-  over: { date?: string | null; dates?: string[]; rows?: AccumReportRow[] } = {},
-): { access: true; dates: string[]; date: string | null; rows: AccumReportRow[] } {
+  over: { date?: string | null; dates?: string[]; rows?: AccumReportRow[]; prevDate?: string | null } = {},
+): { access: true; dates: string[]; date: string | null; prev_date?: string | null; rows: AccumReportRow[] } {
   return {
     access: true,
     dates: over.dates ?? [ACCUM_DATE, '20261013'],
     date: over.date === undefined ? ACCUM_DATE : over.date,
+    ...(over.prevDate === undefined ? {} : { prev_date: over.prevDate }),
     rows: over.rows ?? accumListRows(),
   };
 }
@@ -211,6 +215,56 @@ export function accumSyntheticListRows(): AccumReportRow[] {
       day_net_krw: null,
     }),
   ];
+}
+
+/**
+ * **합성 — 실측 아님 · 당일 축 날짜(quick-261026-01h · 스케치 018).** `accumSyntheticListRows()` 7행에 목록 RPC(20261026010000)의
+ * 당일 축 4키 + 전날 2키를 얹는다. th_recent_pieces 30 · th_recent_sec 60(새 서버) — `dayAxisOf` 가 true 가 된다.
+ * - AC01 매집중(누적 +9.3억) — 당일 매도만 0 / 0.6억 → 당일 −0.6억(누적 + 인데 당일 −)
+ * - AC02 매도중 — 1.2억 / 2.5억 → −1.3억
+ * - AC03 이월 D+2 — 3.10억 / 0.69억 → +2.41억 · 전날 9.84억 / 6.74억(→ +3.10억)
+ * - AC04 청산 — 0.5억 / 0.9억 → −0.4억 · AC05 탈락 — 0.3억 / 0 → +0.3억 · AC06 만료 — 0 / 0 → 0
+ * - AC07 결측 — pos_day 두 키 null(당일 축 날짜 안의 「—」)
+ * 당일 정렬 = AC03 · AC01 · AC07 → AC02 → AC05 · AC06 · AC04(누적 정렬은 AC01 · AC03 · AC07 → … — 상태 1 안에서 갈린다).
+ * 당일 합 = −0.6 − 1.3 + 2.41 − 0.4 + 0.3 + 0 = +0.41억 · 누적 합 = +4.2억. 전날 2키는 AC03 만 수(나머지 null).
+ */
+export function accumDayAxisListRows(): AccumReportRow[] {
+  const day: Record<string, [number | null, number | null]> = {
+    [AC_LIVE]: [0, 60_000_000],
+    [AC_SELL]: [120_000_000, 250_000_000],
+    [AC_CARRY]: [310_000_000, 69_000_000],
+    [AC_LIQ]: [50_000_000, 90_000_000],
+    [AC_DROP]: [30_000_000, 0],
+    [AC_EXPIRE]: [0, 0],
+    [AC_PARTIAL]: [null, null],
+  };
+  return accumSyntheticListRows().map((r) => {
+    const [buy, sell] = day[r.isin]!;
+    return {
+      ...r,
+      pos_day_buy_krw: buy,
+      pos_day_sell_krw: sell,
+      th_recent_pieces: 30,
+      th_recent_sec: 60,
+      prev_pos_day_buy_krw: r.isin === AC_CARRY ? 984_000_000 : null,
+      prev_pos_day_sell_krw: r.isin === AC_CARRY ? 674_000_000 : null,
+    };
+  });
+}
+
+/**
+ * 당일 축 목록 행의 상세 — 실측 천일고속 상세(payload)에 그 목록 행의 평평한 열 · 당일 축 4키를 덮는다(전날 2키 · pnl 은 목록만 →
+ * 뺀다). 합성 ISIN(AC0n)을 펼쳤을 때 상세 RPC 모양으로 돌려주는 테스트 도우미.
+ */
+export function accumDayAxisDetailOf(isin: string): AccumDetailRow {
+  const base = accumDetailRows().find((r) => r.isin === CHEONIL)!;
+  const {
+    prev_pos_day_buy_krw: _pb,
+    prev_pos_day_sell_krw: _ps,
+    pnl: _pnl,
+    ...flat
+  } = accumDayAxisListRows().find((r) => r.isin === isin)!;
+  return { ...base, ...flat, payload: base.payload };
 }
 
 /** `GET /api/accum/report/{date}/{isin}` 성공 응답 모양 — 픽스처에 없는 isin 이면 row: null. */
