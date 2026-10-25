@@ -590,3 +590,45 @@ describe('AccumDetail 부속 — 판정 기준 · 출처 칩 · D-19 순서 (A9 
     expect(detailCalls()).toHaveLength(1);
   });
 });
+
+/** path d 의 마지막 `H` 값(없으면 null). */
+const lastHOf = (d: string) => (d.match(/H[\d.]+/g) ?? []).at(-1) ?? null;
+
+describe('quick-261025-fac 포지션 순매수 선(스케치 017 B)', () => {
+  it('(f1) posNet(한선 합성) → 굵은 --team 포지션 계단 3조각 · 열린 끝 = 그날 계단 끝 · 그날 계단 회색 보조 · 포지션이 위 · 판 제목', async () => {
+    detailOver.set(HANSUN, accumSyntheticDetail('posNet'));
+    const sec = await expand(HANSUN);
+    const svg = chartOf(sec)!;
+    const pos = svg.querySelectorAll('[data-slot="accum-pos-net-path"]');
+    expect(pos).toHaveLength(1);
+    const p = pos[0]!;
+    expect(p.getAttribute('stroke')).toBe('var(--team)');
+    expect(p.getAttribute('stroke-width')).toBe('2.2');
+    expect(p.getAttribute('fill')).toBe('none');
+    const pd = p.getAttribute('d')!;
+    expect(pd).not.toMatch(/NaN/);
+    expect(pd.match(/M/g)).toHaveLength(3);
+    const cum = svg.querySelector('[data-slot="accum-cum-path"]')!;
+    expect(lastHOf(pd)).toBe(lastHOf(cum.getAttribute('d')!));
+    expect(cum.getAttribute('stroke')).toBe('var(--muted-fg)');
+    expect(cum.getAttribute('stroke-width')).toBe('1');
+    expect(cum.getAttribute('stroke-opacity')).toBe('0.7');
+    expect(cum.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const texts = textsOf(svg);
+    expect(texts).toContain('포지션 순매수 · 그날 누적');
+    expect(texts).not.toContain('순매수 누적');
+  });
+
+  it('(f2) 천일고속(pos_net 없음) → 포지션 선 없음 · 그날 계단 --team 1.5 · stroke-opacity 없음 · 판 제목 「순매수 누적」', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    expect(svg.querySelector('[data-slot="accum-pos-net-path"]')).toBeNull();
+    const cum = svg.querySelector('[data-slot="accum-cum-path"]')!;
+    expect(cum.getAttribute('stroke')).toBe('var(--team)');
+    expect(cum.getAttribute('stroke-width')).toBe('1.5');
+    expect(cum.hasAttribute('stroke-opacity')).toBe(false);
+    const texts = textsOf(svg);
+    expect(texts).toContain('순매수 누적');
+    expect(texts).not.toContain('포지션 순매수 · 그날 누적');
+  });
+});
