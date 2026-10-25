@@ -1,6 +1,7 @@
 /**
  * quick-261018-rfy — kind 16 `AccumSignal`(매집감지) 행 → 이름 풀기.
  * 칸 매핑 정본 = 인박스 `docs/inbox/from-gh-trade/261018-accum-signal.md` 「kind 16 — 43칸 매핑 표」.
+ * quick-261025-uf2 — 인박스 261025-accum-day-axis ③ 당일 칸 · message 새 꼴(day= · recent= · warn 삭제 · nxt 2값).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -11,6 +12,9 @@ import {
 import type { StrategyEventRow } from "../strategy-event";
 
 const NOTE_MESSAGE = "since=20261016|reg=101523|st=1|end=0|cyc=2|carry=0|row=1|our=0|th=100000000/30/500000000000|warn=1";
+/** 새 꼴(gh-trade Phase 39) — warn= 없음 · day= · recent= · nxt= 수량 2값. */
+const DAY_AXIS_MESSAGE =
+  "since=20261016|reg=101523|st=1|end=0|cyc=2|carry=0|row=1|our=0|th=100000000/0/500000000000|day=-1200/9800/10400|recent=30/60|nxt=12/34";
 
 /** 43칸이 모두 서로 다른 값인 kind 16 행 — 칸이 뒤섞이면 단언이 잡는다. */
 function accumRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
@@ -105,6 +109,15 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       thNetKrw: 100_000_000,
       thMinSame: 30,
       thMaxMcapKrw: 500_000_000_000,
+      dayBuyKrw: null,
+      daySellKrw: null,
+      dayNetKrw: null,
+      dayAvgPx: null,
+      dayNetQty: null,
+      dayLoPx: null,
+      dayHiPx: null,
+      thRecentPieces: null,
+      thRecentSec: null,
     });
   });
 
@@ -236,6 +249,10 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
     expect(sig?.hiPx).toBe(0);
     expect(sig?.thNetKrw).toBe(0);
     expect(sig?.thMinSame).toBe(0);
+    expect(sig?.dayBuyKrw).toBeNull();
+    expect(sig?.daySellKrw).toBeNull();
+    expect(sig?.dayNetKrw).toBeNull();
+    expect(sig?.dayAvgPx).toBeNull();
   });
 
   it("상태 · 종료 사유 문구 (gh-trade 클라 동형 — 배지는 「청산」 하나)", () => {
@@ -246,5 +263,106 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       3: "이월 10일 만료",
       4: "매집 종료 — 청산 뒤 순매수가 사이클 최고의 −30% 이하(최고 10억 → −3억)",
     });
+  });
+});
+
+/** 새 꼴 kind 16 행(snap 길이 3 · acceptLatencyUs = 당일 매수 평단 · 새 message). */
+function dayAxisRow(over: Partial<StrategyEventRow> = {}): StrategyEventRow {
+  return accumRow({
+    snapQty: [9_900, 10_300, 1_234_000_000],
+    snapCum: [100_000_000, 0, 456_000_000],
+    acceptLatencyUs: 10_250,
+    message: DAY_AXIS_MESSAGE,
+    ...over,
+  });
+}
+
+describe("accumSignalOf — 당일 축(quick-261025-uf2 · 인박스 261025-accum-day-axis ③)", () => {
+  it("새 행 — 당일 칸 3(snapQty[2] · snapCum[2] · acceptLatencyUs) · day= 3값 · recent= 2값", () => {
+    const sig = accumSignalOf(dayAxisRow());
+    expect(sig).toMatchObject({
+      dayBuyKrw: 1_234_000_000,
+      daySellKrw: 456_000_000,
+      dayNetKrw: 778_000_000,
+      dayAvgPx: 10_250,
+      dayNetQty: -1200,
+      dayLoPx: 9_800,
+      dayHiPx: 10_400,
+      thRecentPieces: 30,
+      thRecentSec: 60,
+      sinceDate: "2026-10-16",
+      regTime: "10:15:23",
+      thNetKrw: 100_000_000,
+      thMinSame: 0,
+      thMaxMcapKrw: 500_000_000_000,
+      loPx: 9_900,
+      hiPx: 10_300,
+    });
+  });
+
+  it("새 행 warn= 없음 — sellWarn 은 hasRemaining 칸 그대로", () => {
+    expect(accumSignalOf(dayAxisRow({ hasRemaining: true }))?.sellWarn).toBe(true);
+    expect(accumSignalOf(dayAxisRow({ hasRemaining: false }))?.sellWarn).toBe(false);
+  });
+
+  it("당일 매수 없음(길이 3 · 0) → 0 그대로(null 아님)", () => {
+    const sig = accumSignalOf(
+      dayAxisRow({ snapQty: [9_900, 10_300, 0], snapCum: [100_000_000, 0, 0], acceptLatencyUs: 0 }),
+    );
+    expect(sig?.dayBuyKrw).toBe(0);
+    expect(sig?.daySellKrw).toBe(0);
+    expect(sig?.dayNetKrw).toBe(0);
+    expect(sig?.dayAvgPx).toBe(0);
+  });
+
+  it("길이 섞임(한쪽만 3) → 당일 칸 4개 모두 null", () => {
+    for (const over of [
+      { snapQty: [9_900, 10_300, 1_234_000_000], snapCum: [100_000_000, 0] },
+      { snapQty: [9_900, 10_300], snapCum: [100_000_000, 0, 456_000_000] },
+    ]) {
+      const sig = accumSignalOf(dayAxisRow(over));
+      expect(sig?.dayBuyKrw).toBeNull();
+      expect(sig?.daySellKrw).toBeNull();
+      expect(sig?.dayNetKrw).toBeNull();
+      expect(sig?.dayAvgPx).toBeNull();
+      expect(sig?.loPx).toBe(9_900);
+    }
+  });
+
+  it("day= 깨짐 → dayNetQty · dayLoPx · dayHiPx 셋 다 null(다른 키는 그대로)", () => {
+    for (const day of ["1/2", "a/1/2", "1/-2/3", ""]) {
+      const sig = accumSignalOf(dayAxisRow({ message: DAY_AXIS_MESSAGE.replace("day=-1200/9800/10400", `day=${day}`) }));
+      expect(sig?.dayNetQty).toBeNull();
+      expect(sig?.dayLoPx).toBeNull();
+      expect(sig?.dayHiPx).toBeNull();
+      expect(sig?.thRecentPieces).toBe(30);
+      expect(sig?.thRecentSec).toBe(60);
+      expect(sig?.sinceDate).toBe("2026-10-16");
+      expect(sig?.thMaxMcapKrw).toBe(500_000_000_000);
+      expect(sig?.dayBuyKrw).toBe(1_234_000_000);
+    }
+  });
+
+  it("recent= 깨짐 → thRecentPieces · thRecentSec 둘 다 null(다른 키는 그대로)", () => {
+    for (const recent of ["30", "30/x", "-1/60", "30/60/9"]) {
+      const sig = accumSignalOf(dayAxisRow({ message: DAY_AXIS_MESSAGE.replace("recent=30/60", `recent=${recent}`) }));
+      expect(sig?.thRecentPieces).toBeNull();
+      expect(sig?.thRecentSec).toBeNull();
+      expect(sig?.dayNetQty).toBe(-1200);
+      expect(sig?.regTime).toBe("10:15:23");
+    }
+  });
+
+  it("message 빈 문자열 → day · recent 5값 null · 당일 칸 4값은 그대로", () => {
+    const sig = accumSignalOf(dayAxisRow({ message: "" }));
+    expect(sig?.dayNetQty).toBeNull();
+    expect(sig?.dayLoPx).toBeNull();
+    expect(sig?.dayHiPx).toBeNull();
+    expect(sig?.thRecentPieces).toBeNull();
+    expect(sig?.thRecentSec).toBeNull();
+    expect(sig?.dayBuyKrw).toBe(1_234_000_000);
+    expect(sig?.daySellKrw).toBe(456_000_000);
+    expect(sig?.dayNetKrw).toBe(778_000_000);
+    expect(sig?.dayAvgPx).toBe(10_250);
   });
 });
