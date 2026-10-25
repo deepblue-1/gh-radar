@@ -231,7 +231,7 @@ function ReadyBody({
           ))}
         </div>
         {prev !== null && <PrevLine prev={prev} />}
-        <ReadyChart row={row} />
+        <ReadyChart row={row} dayAxis={dayAxis} />
       </div>
       {cycles.length >= 2 && <AccumCycleTable rows={cycles} count={cycles.length} />}
       <PnlLine pnl={pnlOf(row.payload)} />
@@ -383,8 +383,23 @@ const LEGEND_POS: readonly { label: string; swatch: string }[] = LEGEND.flatMap(
   l.label === '순매수 누적' ? POS_LEGEND : [l],
 );
 
+/**
+ * quick-261026-01h · 스케치 018 ② — 당일 축 날짜의 누적 판 범례. pos_net 점이 있으면 「순매수 누적」 자리에 「당일 순매수」(굵은
+ * --team · 오른쪽 축) · 「누적(이월 포함)」(얇은 --muted-fg · 왼쪽 축) 두 항목, 없으면 「당일 순매수」 한 항목(HLINE --team).
+ */
+const DAY_POS_LEGEND: readonly { label: string; swatch: string }[] = [
+  { label: '당일 순매수', swatch: 'inline-block h-[3px] w-2.5 rounded-full bg-[var(--team)]' },
+  { label: '누적(이월 포함)', swatch: 'inline-block h-px w-2.5 bg-[var(--muted-fg)] opacity-70' },
+];
+const DAY_LEGEND_POS: readonly { label: string; swatch: string }[] = LEGEND.flatMap((l) =>
+  l.label === '순매수 누적' ? DAY_POS_LEGEND : [l],
+);
+const LEGEND_DAY: readonly { label: string; swatch: string }[] = LEGEND.map((l) =>
+  l.label === '순매수 누적' ? { label: '당일 순매수', swatch: `${HLINE} bg-[var(--team)]` } : l,
+);
+
 /** KPI 줄 아래 차트 블록 나머지 — 가격 자료가 없거나 payload 모양이 어긋나면(`payloadOf` · WR-05) 한 줄 대체. */
-function ReadyChart({ row }: { row: AccumDetailRow }) {
+function ReadyChart({ row, dayAxis }: { row: AccumDetailRow; dayAxis: boolean }) {
   const payload = payloadOf(row);
   if (payload === null || payload.price.idx.length === 0) {
     return (
@@ -393,17 +408,18 @@ function ReadyChart({ row }: { row: AccumDetailRow }) {
       </p>
     );
   }
-  return <ChartBody row={row} payload={payload} />;
+  return <ChartBody row={row} payload={payload} dayAxis={dayAxis} />;
 }
 
-function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReportPayload }) {
+function ChartBody({ row, payload, dayAxis }: { row: AccumDetailRow; payload: AccumReportPayload; dayAxis: boolean }) {
   const t0ms = payload.price.t0_ms;
   const bounds = useMemo(() => dayBoundsOf(t0ms), [t0ms]);
   const lastTradeMs = lastTradeMsOf(payload.price);
   const ctl = useChartView({ bounds, lastTradeMs });
   const noTeam = payload.day_cum_net.t_ms.length === 0;
   // 로딩 스켈레톤은 payload 를 모르니 LEGEND 그대로 — 범례 분기는 여기만
-  const legend = posNetPointsOf(payload).length > 0 ? LEGEND_POS : LEGEND;
+  const hasPos = posNetPointsOf(payload).length > 0;
+  const legend = dayAxis ? (hasPos ? DAY_LEGEND_POS : LEGEND_DAY) : hasPos ? LEGEND_POS : LEGEND;
 
   return (
     <>
@@ -446,7 +462,7 @@ function ChartBody({ row, payload }: { row: AccumDetailRow; payload: AccumReport
           {fmtViewRange(ctl.view)}
         </span>
       </div>
-      <AccumChart row={row} payload={payload} view={ctl.view} ctl={ctl} />
+      <AccumChart row={row} payload={payload} view={ctl.view} ctl={ctl} dayAxis={dayAxis} />
       <p data-slot="accum-caption" className="text-[length:var(--t-caption)] break-keep text-[var(--muted-fg)]">
         {noTeam ? `팀 체결 없음 · ${CAPTION}` : CAPTION}
       </p>

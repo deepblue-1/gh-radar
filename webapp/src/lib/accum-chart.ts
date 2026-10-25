@@ -659,17 +659,20 @@ export function nearestOrderOf(circles: readonly OrderCircle[], mx: number, my: 
  * 주문 원 툴팁 2줄 — ① 「HH:MM:SS 팀 매수 N주 · X.XX억 @가격 · N조각[ · 팀매수 시작]」(원 title 그대로)
  * ② 「순매수 누적 ±X.XX억 · 등락률 ±N.NN% · 평단 대비 ±N.NN%」 — 그 시각까지 day_cum_net(그 주문 포함) · 기준가(row.base) 대비 ·
  * 그 시각 팀 평단 대비. 값을 모르는 항목은 뺀다(gh-trade TooltipText 동형). 다 빠지면 1줄.
+ * 당일 축 날짜(`dayAxis` · quick-261026-01h)면 첫 항목 라벨만 「당일 순매수」(값은 같은 day_cum_net — `cumTipAt` 주석).
  */
 export function orderTipOf(
   payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px'>,
   row: Pick<AccumReportRow, 'base'>,
   c: OrderCircle,
+  opts: { dayAxis?: boolean } = {},
 ): string[] {
+  const dayLabel = opts.dayAxis ? '당일 순매수' : '순매수 누적';
   const t = payload.orders.t_ms[c.i]!;
   const px = payload.orders.px[c.i]!;
   const parts: string[] = [];
   const k = stepIndexAt(payload.day_cum_net.t_ms, payload.day_cum_net.net_krw, t);
-  if (k >= 0) parts.push(`순매수 누적 ${fmtEok(payload.day_cum_net.net_krw[k], { signed: true, digits: 2 })}`);
+  if (k >= 0) parts.push(`${dayLabel} ${fmtEok(payload.day_cum_net.net_krw[k], { signed: true, digits: 2 })}`);
   if (isNum(row.base) && row.base > 0) parts.push(`등락률 ${pct2(((px - row.base) / row.base) * 100)}`);
   const avg = avgPxAt(payload, t);
   if (avg !== null) parts.push(`평단 대비 ${pct2(((px - avg) / avg) * 100)}`);
@@ -686,18 +689,25 @@ export function orderTipOf(
  * 포지션 값은 posNetPathOf 의 조각 규칙과 짝이다: 그 점 시각엔 값이 있고, 그 뒤(tk > 점 시각)는 그 점 end ≠ 0(조각이 거기서
  * 멈춤) 또는 다음 점 cycle 이 다르면(사이클 사이) 없다 → 「포지션 —」. 열린 마지막 조각만 이후에도 값이 이어진다. key = `c{kd}p{kp}`.
  * pos_net 이 없거나 빈 행은 위 기존 문구 · key `c{k}` 그대로다.
+ *
+ * **당일 축 날짜(`dayAxis` · quick-261026-01h · 스케치 018 ②)** — key · 스냅샷 · 공백 판정은 그대로, 글자만: 보라 선 = day_cum_net 의
+ * 라벨이 잠긴 결정대로 「당일 순매수」, 포지션 조각은 「누적 ±Y.YY억(이월 포함)」/「누적 —」. 보라 선 끝값이 목록의 당일 순매수
+ * (pos_day — 서버 상태기)와 다를 수 있음은 판정 기준 본문 2(`ACCUM_RULE_LINES_DAY`)가 말한다.
  */
 export function cumTipAt(
   payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px' | 'pos_net'>,
   t: number,
+  opts: { dayAxis?: boolean } = {},
 ): ChartHover | null {
+  const dayAxis = opts.dayAxis === true;
+  const dayLabel = dayAxis ? '당일 순매수' : '순매수 누적';
   const { t_ms: ts, net_krw: vs } = payload.day_cum_net;
   const k = stepIndexAt(ts, vs, t);
   const pos = posNetPointsOf(payload);
   if (pos.length === 0) {
     if (k < 0) return null;
     const tk = ts[k]!;
-    let text = `${kstClock(tk)} · 순매수 누적 ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
+    let text = `${kstClock(tk)} · ${dayLabel} ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
     const avg = avgPxAt(payload, tk);
     if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
     return { key: `c${k}`, lines: [text], circle: null };
@@ -709,7 +719,7 @@ export function cumTipAt(
   }
   if (k < 0 && kp < 0) return null;
   const tk = Math.max(k >= 0 ? ts[k]! : -Infinity, kp >= 0 ? pos[kp]!.t : -Infinity);
-  const day = `순매수 누적 ${fmtEok(k >= 0 ? vs[k] : 0, { signed: true, digits: 2 })}`;
+  const day = `${dayLabel} ${fmtEok(k >= 0 ? vs[k] : 0, { signed: true, digits: 2 })}`;
   let posVal: number | null = null;
   if (kp >= 0) {
     const p = pos[kp]!;
@@ -717,8 +727,13 @@ export function cumTipAt(
     const gap = tk > p.t && (p.end !== 0 || (next !== undefined && next.cycle !== p.cycle));
     if (!gap) posVal = p.net;
   }
+  const posWord = dayAxis ? '누적' : '포지션 순매수';
   const posText =
-    posVal === null ? '포지션 —' : `포지션 순매수 ${fmtEok(posVal, { signed: true, digits: 2 })}(이월 포함)`;
+    posVal === null
+      ? dayAxis
+        ? '누적 —'
+        : '포지션 —'
+      : `${posWord} ${fmtEok(posVal, { signed: true, digits: 2 })}(이월 포함)`;
   let text = `${kstClock(tk)} · ${day} · ${posText}`;
   const avg = avgPxAt(payload, tk);
   if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;

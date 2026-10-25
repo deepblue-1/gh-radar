@@ -60,7 +60,10 @@ import { cn } from '@/lib/utils';
  * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
  *   ③' 포지션 순매수 계단(pos_net 점이 있을 때만 — 굵은 --team 2.2 · cycle · end≠0 에서 끊김 · 열린 마지막 조각만 20:00 ·
  *   pointer-events none · 그날 계단은 --muted-fg 1 · .7 보조로 내리고 판 제목 「포지션 순매수 · 그날 누적」 — quick-261025-fac ·
- *   스케치 017 B) ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
+ *   스케치 017 B) ③'' 당일 축 분할(quick-261026-01h · 스케치 018 ② · prop `dayAxis` 이고 pos_net 점이 있을 때) — 보라 day_cum_net
+ *   (--team 2.2 · 오른쪽 --team 축 · 그날 범위만)이 위, 회색 pos_net(--muted-fg 1 · .7 · 왼쪽 회색 축 `accum-pos-axis` · 0 포함 독립
+ *   범위 · 끊김 · 열린 끝 규칙은 ③' 그대로)이 아래 — 두 축이라 두 선 높이는 비교할 수 없다. 0선은 그날 축 하나 · 판 제목
+ *   「당일 순매수 · 누적(이월 포함)」 · 툴팁 라벨 「당일 순매수」/「누적」 ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
  *   title 없음 — quick-261021-amg) ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
  *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖. 가격 선 · 주문 원은
@@ -89,12 +92,15 @@ export function AccumChart({
   payload,
   view,
   ctl,
+  dayAxis = false,
 }: {
   row: AccumDetailRow;
   /** 모양 확인을 거친 payload(`payloadOf` · WR-05) — row.payload 를 직접 읽지 않는다 */
   payload: AccumReportPayload | null;
   view: View;
   ctl: ChartViewControl;
+  /** 당일 축 날짜(quick-261026-01h) — 누적 판 축 분할 · 제목 · 툴팁 라벨(③''). */
+  dayAxis?: boolean;
 }) {
   const [ref, W] = useChartWidth<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
@@ -127,13 +133,18 @@ export function AccumChart({
   const pxClip = priceClipOf(L, W);
 
   // quick-261025-fac — 포지션 순매수(pos_net · 이월 포함)가 주인공 · 그날 계단은 회색 보조 · 두 선은 한 축(합친 범위)
+  // quick-261026-01h — 당일 축 날짜면(split) 보라 그날(오른쪽 축 · 그날 범위) 위 · 회색 포지션(왼쪽 축 · 독립 범위) 아래
   const posPts = posNetPointsOf(payload);
   const hasPos = posPts.length > 0;
-  const cRange = cumRangeOf(payload.day_cum_net, posPts);
+  const split = dayAxis && hasPos;
+  const cRange = split ? cumRangeOf(payload.day_cum_net) : cumRangeOf(payload.day_cum_net, posPts);
   const yC = yOfCum(cRange);
+  const posRange = split ? cumRangeOf({ t_ms: [], net_krw: [] }, posPts) : cRange;
+  const yPos = split ? yOfCum(posRange) : yC;
+  const posTicks = split ? [...new Set([posRange.min, posRange.max])] : [];
   const cumTicks = cumTicksOf(cRange, yC);
   const cumD = cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
-  const posD = hasPos ? posNetPathOf(posPts, x, yC, bounds.T0, bounds.T2000) : '';
+  const posD = hasPos ? posNetPathOf(posPts, x, yPos, bounds.T0, bounds.T2000) : '';
   const zeroY = yC(0);
 
   const bMax = bucketMaxOf(payload.buckets);
@@ -167,9 +178,9 @@ export function AccumChart({
       const t = tOfView(view, L, W)(mx);
       if (my <= TOP + H1) {
         const c = nearestOrderOf(circles, mx, my);
-        if (c !== null) next = { key: `o${c.i}`, lines: orderTipOf(payload, row, c), circle: c };
+        if (c !== null) next = { key: `o${c.i}`, lines: orderTipOf(payload, row, c, { dayAxis }), circle: c };
       } else if (my >= C_TOP && my <= C_TOP + H2) {
-        next = cumTipAt(payload, t);
+        next = cumTipAt(payload, t, { dayAxis });
       } else if (my >= B_TOP && my <= PLOT_BOTTOM) {
         next = bucketTipAt(payload.buckets, bounds.T0, t);
       }
@@ -260,28 +271,58 @@ export function AccumChart({
             strokeWidth={1}
             strokeDasharray="2 3"
           />
-          {cumD !== '' && (
-            <path
-              data-slot="accum-cum-path"
-              d={cumD}
-              fill="none"
-              stroke={hasPos ? 'var(--muted-fg)' : 'var(--team)'}
-              strokeWidth={hasPos ? 1 : 1.5}
-              strokeOpacity={hasPos ? 0.7 : undefined}
-              strokeLinejoin="round"
-            />
-          )}
-          {/* ③' 포지션 순매수 계단 — 그날 계단 위 · 히트 없음(툴팁은 cumTipAt 이 판 전체로 맡는다) */}
-          {posD !== '' && (
-            <path
-              data-slot="accum-pos-net-path"
-              d={posD}
-              fill="none"
-              stroke="var(--team)"
-              strokeWidth={2.2}
-              strokeLinejoin="round"
-              pointerEvents="none"
-            />
+          {split ? (
+            <>
+              {/* ③'' 당일 축 분할 — 회색 포지션(왼쪽 축) 먼저(아래) · 보라 그날(오른쪽 축) 위 */}
+              {posD !== '' && (
+                <path
+                  data-slot="accum-pos-net-path"
+                  d={posD}
+                  fill="none"
+                  stroke="var(--muted-fg)"
+                  strokeWidth={1}
+                  strokeOpacity={0.7}
+                  strokeLinejoin="round"
+                  pointerEvents="none"
+                />
+              )}
+              {cumD !== '' && (
+                <path
+                  data-slot="accum-cum-path"
+                  d={cumD}
+                  fill="none"
+                  stroke="var(--team)"
+                  strokeWidth={2.2}
+                  strokeLinejoin="round"
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {cumD !== '' && (
+                <path
+                  data-slot="accum-cum-path"
+                  d={cumD}
+                  fill="none"
+                  stroke={hasPos ? 'var(--muted-fg)' : 'var(--team)'}
+                  strokeWidth={hasPos ? 1 : 1.5}
+                  strokeOpacity={hasPos ? 0.7 : undefined}
+                  strokeLinejoin="round"
+                />
+              )}
+              {/* ③' 포지션 순매수 계단 — 그날 계단 위 · 히트 없음(툴팁은 cumTipAt 이 판 전체로 맡는다) */}
+              {posD !== '' && (
+                <path
+                  data-slot="accum-pos-net-path"
+                  d={posD}
+                  fill="none"
+                  stroke="var(--team)"
+                  strokeWidth={2.2}
+                  strokeLinejoin="round"
+                  pointerEvents="none"
+                />
+              )}
+            </>
           )}
 
           {/* ④ 10분 막대 쌍 — 칸마다 투명 히트 rect(툴팁은 bucketTipAt) */}
@@ -387,6 +428,15 @@ export function AccumChart({
             </text>
           ))}
         </g>
+        {split && (
+          <g data-slot="accum-pos-axis" fill="var(--muted-fg)" aria-hidden="true">
+            {posTicks.map((v) => (
+              <text key={v} x={L - 6} y={yPos(v) + 3} textAnchor="end">
+                {fmtEok(v, { signed: true })}
+              </text>
+            ))}
+          </g>
+        )}
         <g data-slot="accum-cum-axis" fill="var(--team)" aria-hidden="true">
           {cumTicks.map((c) => (
             <text key={c} x={right + 6} y={yC(c) + 3}>
@@ -400,7 +450,22 @@ export function AccumChart({
           </text>
         )}
         <text x={L} y={C_TOP - 8} fill="var(--team)" fontWeight={600}>
-          {hasPos ? '포지션 순매수 · 그날 누적' : '순매수 누적'}
+          {dayAxis ? (
+            hasPos ? (
+              <>
+                당일 순매수
+                <tspan fill="var(--muted-fg)" fontWeight={400}>
+                  {' · 누적(이월 포함)'}
+                </tspan>
+              </>
+            ) : (
+              '당일 순매수'
+            )
+          ) : hasPos ? (
+            '포지션 순매수 · 그날 누적'
+          ) : (
+            '순매수 누적'
+          )}
         </text>
         <text x={L} y={B_TOP - 8} fill="var(--fg-2)" fontWeight={600}>
           10분 팀 매수 / 매도
