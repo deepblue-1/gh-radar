@@ -1,7 +1,7 @@
 /**
  * Phase 34 — 매집감지(accum) 보고서 계약 (server `GET /api/accum/report` · `GET /api/accum/report/:date/:isin` ↔ webapp).
  *
- * - 계약 정본: `docs/inbox/from-gh-trade/261020-accum-flow-export.md` 열 사전(gh-trade `teamflow_accum.FLAT_COLUMNS` 37열 + payload 7키(이 순서 · avg_px 는 선택 키)).
+ * - 계약 정본: `docs/inbox/from-gh-trade/261020-accum-flow-export.md` 열 사전(gh-trade `teamflow_accum.FLAT_COLUMNS` 37열 + payload 7키(이 순서 · avg_px · pos_net 은 선택 키)).
  * - **행 키는 gh-trade export 열 이름 그대로(snake_case)** — DB 표 `limitup_accum_flow` 열 이름도 같고 RPC 가
  *   `to_jsonb` 로 싣는다(매퍼 없음). **봉투 키(access · dates · date · rows · row)는 단어 하나라 그대로.**
  * - 목록/상세 분리(D-06): 목록 행 `AccumReportRow` 는 평평한 37열만(payload 없음), 상세 행 `AccumDetailRow` 는 + `payload`.
@@ -137,7 +137,7 @@ export interface AccumReportCycle {
   our_excluded_qty: number | null;
 }
 
-/** 상세 payload 7키(이 순서 · avg_px 는 선택 키). pnl 은 팀 매집 보고서와 같은 13키(팀 체결 0 이면 null). */
+/** 상세 payload 7키(이 순서 · avg_px · pos_net 은 선택 키). pnl 은 팀 매집 보고서와 같은 13키(팀 체결 0 이면 null). */
 export interface AccumReportPayload {
   price: AccumReportPrice;
   orders: AccumReportOrders;
@@ -152,6 +152,15 @@ export interface AccumReportPayload {
    * - 이월 종목은 06:01 row 2 가 첫 점일 수 있다. 점이 없으면 `[]`/`[]`.
    */
   avg_px?: { t_ms: number[]; px: number[] };
+  /**
+   * 포지션 순매수 계단(quick-261025-fac · 스케치 017 B) — 2026-10-25 gh-trade 가 추가한 선택 키라 그 전 export 행에는 없다.
+   * - 정수 평행 배열(같은 길이 · 빌 수 있음). 점 = 서버 상태기 row 1/2/3/4(row 5 없음) · `net_krw` = 등록 이후 순매수(원 ·
+   *   이월 포함 · 우리 체결 제외 — 목록 · KPI 의 `pos_net_krw` 와 같은 뜻). **day_cum_net(그날 0부터 · 전체 팀 주문)과 다른 선이다.**
+   * - 이월 종목은 06:01 row 2 가 첫 점일 수 있다. `cycle` 이 앞 점과 바뀐 곳에서 선을 끊는다.
+   * - `end` = 점마다 end_reason(0 = 열림 · row 1/2/3 = 0 · row 4 = 0 아님) — gh-trade 후속 선택 배열이라 없을 수 있다.
+   *   있으면 end ≠ 0 점 뒤를 끊고, 없으면 cycle 로만 끊는다.
+   */
+  pos_net?: { t_ms: number[]; net_krw: number[]; cycle: number[]; end?: number[] };
 }
 
 /** 상세 RPC 응답 행 — 평평한 37열 + payload. */

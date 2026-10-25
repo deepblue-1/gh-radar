@@ -296,6 +296,83 @@ export function avgPxPathOf(
   return d;
 }
 
+/** 포지션 순매수 점(quick-261025-fac) — end 0 = 열림(end 배열이 없으면 전부 0). */
+export interface PosNetPoint {
+  t: number;
+  net: number;
+  cycle: number;
+  end: number;
+}
+
+/**
+ * payload.pos_net → 포지션 순매수 점 목록(quick-261025-fac · 스케치 017 B) — avgPxPointsOf 와 같은 선 단위 방어.
+ * - 키 없음 · 객체 아님 · 배열 자체 · t_ms / net_krw / cycle 중 하나라도 배열 아님 → []. 길이가 다르면 셋 중 짧은 쪽까지.
+ * - t · net · cycle 중 하나라도 유한 수가 아니면 그 점을 건너뛴다. **배열 순서 그대로(정렬하지 않음).**
+ * - `end` 가 배열이 아니면(없음 포함) 모든 점 end 0, 배열이면 그 자리 값이 유한 수일 때만 그 값 · 아니면(짧음 포함) 0.
+ * payloadOf 는 6키만 검사하고 이 선택 키는 보지 않는다(avg_px 와 같은 방식). 그래서 키가 없거나(2026-10-25 이전 export 행)
+ * 모양이 어긋나면 이 함수가 [] 를 내서 **포지션 선만 생략**되고 행 · 차트 · 범례 · 툴팁은 오늘 모양 그대로다.
+ */
+export function posNetPointsOf(payload: Pick<AccumReportPayload, 'pos_net'>): PosNetPoint[] {
+  const a: unknown = payload.pos_net;
+  if (typeof a !== 'object' || a === null || Array.isArray(a)) return [];
+  const { t_ms: ts, net_krw: ns, cycle: cs, end: es } = a as {
+    t_ms?: unknown;
+    net_krw?: unknown;
+    cycle?: unknown;
+    end?: unknown;
+  };
+  if (!Array.isArray(ts) || !Array.isArray(ns) || !Array.isArray(cs)) return [];
+  const ends: unknown[] | null = Array.isArray(es) ? es : null;
+  const out: PosNetPoint[] = [];
+  const n = Math.min(ts.length, ns.length, cs.length);
+  for (let k = 0; k < n; k++) {
+    const t = ts[k] as number;
+    const net = ns[k] as number;
+    const cycle = cs[k] as number;
+    if (!isNum(t) || !isNum(net) || !isNum(cycle)) continue;
+    const e = ends === null ? 0 : (ends[k] as number);
+    out.push({ t, net, cycle, end: isNum(e) ? e : 0 });
+  }
+  return out;
+}
+
+/**
+ * 포지션 순매수 계단 경로(quick-261025-fac · 스케치 017 B · WinForms 상세 차트 동형) — 누적 판 y 축(cumRangeOf 두 선 합친 범위).
+ * - cumPathOf 와 같은 H-다음-V 계단 · 좌표 소수 1자리 · 점이 없으면 ''.
+ * - **끊김:** 점 k 는 (앞 점 없음) 또는 (cycle 이 앞 점과 다름) 또는 (앞 점 end ≠ 0) 이면 `M` 으로 새 조각을 시작한다. 앞 점은
+ *   건너뛴 점을 포함한 원래 순서의 앞 점이다. 조각은 자기 마지막 점에서 멈춘다(0선 시작 `L` 없음 · 조각 끝 연장 없음).
+ * - **열린 끝:** 마지막 점의 end 가 0(열린 포지션)일 때만 `H x(max(T2000, 마지막 점 x 시각))` 로 20:00 까지 잇는다.
+ * - 09:00(T0) 미만 점(이월 종목 06:01 row 2)은 avgPxPathOf 와 똑같이 x = T0 에 붙이고, 다음 점도 T0 전이면 건너뛴다.
+ * - 창 ±30분 자르기는 하지 않는다 — 계단은 창 시작 값이 앞 점에 달려 있고 클립이 자른다(cumPathOf 와 같은 이유).
+ * - 툴팁 `cumTipAt` 의 「포지션 —」 판정이 이 조각 규칙과 짝이다(마지막 점에서 멈춤 · 열린 마지막 조각만 이어짐).
+ * - 한계: end 배열이 없는 동안 같은 사이클 안 청산 → 재등장(숨김 구간)은 끊지 못하고 이어져 보인다(gh-trade `end[]` 로 해소).
+ */
+export function posNetPathOf(
+  points: readonly PosNetPoint[],
+  x: (t: number) => number,
+  yC: (c: number) => number,
+  T0: number,
+  T2000: number,
+): string {
+  let d = '';
+  let open = false;
+  let last: { tx: number; end: number } | null = null;
+  for (let k = 0; k < points.length; k++) {
+    const p = points[k]!;
+    const prev = points[k - 1];
+    if (prev === undefined || prev.cycle !== p.cycle || prev.end !== 0) open = false;
+    const next = points[k + 1];
+    if (p.t < T0 && next !== undefined && next.t < T0) continue;
+    const tx = Math.max(p.t, T0);
+    const xs = f1(x(tx));
+    d += open ? `H${xs}V${f1(yC(p.net))}` : `M${xs},${f1(yC(p.net))}`;
+    open = true;
+    last = { tx, end: p.end };
+  }
+  if (last !== null && last.end === 0) d += `H${f1(x(Math.max(T2000, last.tx)))}`;
+  return d;
+}
+
 // ---------------------------------------------------------------------------
 // 데이터 레이어 — 주문 원 · 누적 계단 · 10분 막대 · 빈 띠 · 등록 전 음영 (UI-SPEC A6 레이어 1 · 3 · 4 · 7)
 // ---------------------------------------------------------------------------
@@ -374,19 +451,24 @@ export function orderCirclesOf(
   return [...plain, ...firsts];
 }
 
-/** 누적 y 범위 — 하루 전체 min/max(0 포함 · 창과 무관하게 고정). */
+/** 누적 y 범위 — 하루 전체 min/max(0 포함 · 창과 무관하게 고정 · pos_net 점이 있으면 그 값도 합친다). */
 export interface CumRange {
   min: number;
   max: number;
 }
 
-export function cumRangeOf(cum: AccumReportCumNet): CumRange {
+export function cumRangeOf(cum: AccumReportCumNet, pos: readonly PosNetPoint[] = []): CumRange {
   let min = 0;
   let max = 0;
   for (const c of cum.net_krw) {
     if (!isNum(c)) continue;
     if (c < min) min = c;
     if (c > max) max = c;
+  }
+  // quick-261025-fac — 포지션 순매수 선도 같은 축(이월 13억도 판 안). 09:00 전 건너뛴 점 값도 넣는다(차이가 작아 단순함 우선).
+  for (const p of pos) {
+    if (p.net < min) min = p.net;
+    if (p.net > max) max = p.net;
   }
   return { min, max };
 }

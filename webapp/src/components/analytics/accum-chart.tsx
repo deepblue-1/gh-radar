@@ -27,6 +27,8 @@ import {
   nearestOrderOf,
   orderCirclesOf,
   orderTipOf,
+  posNetPathOf,
+  posNetPointsOf,
   priceAxisWidthOf,
   pricePathOf,
   priceClipOf,
@@ -56,7 +58,9 @@ import { cn } from '@/lib/utils';
  *   차트 — Pitfall 12) · `user-select: none` · 커서 grab / 끌기 중 grabbing. 포커스 링은 전역 `*:focus-visible` 상속.
  *   훅에는 그림 영역 좌우(L = `priceAxisWidthOf` · R = `ACCUM_CHART.R`)와 viewBox 폭 W 를 넘긴다 — 픽셀 → 시각 변환 기준.
  * - 레이어(아래 → 위 · UI-SPEC A6): ① 등록 전 음영 · 15:30~16:00 빈 띠 ② 시각 격자 · 판 아래선 ③ 누적 0선 · 계단
- *   ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
+ *   ③' 포지션 순매수 계단(pos_net 점이 있을 때만 — 굵은 --team 2.2 · cycle · end≠0 에서 끊김 · 열린 마지막 조각만 20:00 ·
+ *   pointer-events none · 그날 계단은 --muted-fg 1 · .7 보조로 내리고 판 제목 「포지션 순매수 · 그날 누적」 — quick-261025-fac ·
+ *   스케치 017 B) ④ 10분 막대 쌍 ⑤ 가격 선 ⑤' 팀 평단 계단(--up 1.25 `1 2` 점점선 · 0 에서 끊김 · 가격 판 안 클램프 · pointer-events none ·
  *   title 없음 — quick-261021-amg) ⑥ 사이클 세로선(등록 실선 --team · 종료 점선 --muted-fg · 폭 8 히트 rect + <title>)
  *   ⑦ 주문 원(큰 원 → 작은 원 → first) ⑧ 축 글자 · 판 제목 · 시각 눈금 · 세로선 라벨(labelRowsOf) · 이월 줄.
  *   데이터 레이어는 그림 영역 `clipPath` 안, 세로선(창 안 것만 — 왼쪽 끝 선이 반쯤 잘리지 않게)과 글자는 밖. 가격 선 · 주문 원은
@@ -122,10 +126,14 @@ export function AccumChart({
   const avgD = avgPxPathOf(avgPxPointsOf(payload), x, pRange, bounds.T0, lastTrade === null ? bounds.T2000 : lastTrade + stepMs);
   const pxClip = priceClipOf(L, W);
 
-  const cRange = cumRangeOf(payload.day_cum_net);
+  // quick-261025-fac — 포지션 순매수(pos_net · 이월 포함)가 주인공 · 그날 계단은 회색 보조 · 두 선은 한 축(합친 범위)
+  const posPts = posNetPointsOf(payload);
+  const hasPos = posPts.length > 0;
+  const cRange = cumRangeOf(payload.day_cum_net, posPts);
   const yC = yOfCum(cRange);
   const cumTicks = cumTicksOf(cRange, yC);
   const cumD = cumPathOf(payload.day_cum_net, x, yC, bounds.T2000);
+  const posD = hasPos ? posNetPathOf(posPts, x, yC, bounds.T0, bounds.T2000) : '';
   const zeroY = yC(0);
 
   const bMax = bucketMaxOf(payload.buckets);
@@ -144,6 +152,7 @@ export function AccumChart({
   const carry = carryLineOf(row);
   const labels = labelRowsOf(lines, L, right, carry);
 
+  // 이월 종목이 그날 팀 체결 0 이어도(포지션 선만 있음) 「팀 체결 없음」 은 사실이라 그대로 둔다(quick-261025-fac 판단)
   const noCum = payload.day_cum_net.t_ms.length === 0;
   const noBuckets = payload.buckets.length === 0;
 
@@ -256,9 +265,22 @@ export function AccumChart({
               data-slot="accum-cum-path"
               d={cumD}
               fill="none"
-              stroke="var(--team)"
-              strokeWidth={1.5}
+              stroke={hasPos ? 'var(--muted-fg)' : 'var(--team)'}
+              strokeWidth={hasPos ? 1 : 1.5}
+              strokeOpacity={hasPos ? 0.7 : undefined}
               strokeLinejoin="round"
+            />
+          )}
+          {/* ③' 포지션 순매수 계단 — 그날 계단 위 · 히트 없음(툴팁은 cumTipAt 이 판 전체로 맡는다) */}
+          {posD !== '' && (
+            <path
+              data-slot="accum-pos-net-path"
+              d={posD}
+              fill="none"
+              stroke="var(--team)"
+              strokeWidth={2.2}
+              strokeLinejoin="round"
+              pointerEvents="none"
             />
           )}
 
@@ -378,7 +400,7 @@ export function AccumChart({
           </text>
         )}
         <text x={L} y={C_TOP - 8} fill="var(--team)" fontWeight={600}>
-          순매수 누적
+          {hasPos ? '포지션 순매수 · 그날 누적' : '순매수 누적'}
         </text>
         <text x={L} y={B_TOP - 8} fill="var(--fg-2)" fontWeight={600}>
           10분 팀 매수 / 매도

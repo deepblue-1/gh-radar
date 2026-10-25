@@ -222,7 +222,14 @@ export function accumDetailFixture(isin: string): { access: true; row: AccumDeta
 // 합성 상세 케이스 (34-06 · D-14 ~ D-18 차트 경계 사례)
 // ---------------------------------------------------------------------------
 
-export type AccumSyntheticDetailKind = 'multiCycle' | 'carry' | 'drop0600' | 'preOpenReg' | 'noTeam' | 'noPrice';
+export type AccumSyntheticDetailKind =
+  | 'multiCycle'
+  | 'carry'
+  | 'drop0600'
+  | 'preOpenReg'
+  | 'noTeam'
+  | 'noPrice'
+  | 'posNet';
 
 /** 사이클 한 항목(16키) — 기본 = 오늘 등록 · 살아 있음 · pos_* 없음. */
 function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
@@ -259,6 +266,9 @@ function cycleOf(over: Partial<AccumReportCycle>): AccumReportCycle {
  * - `preOpenReg` 천일고속 · 오늘 08:41:00 등록(09:00 이전 → 선은 왼쪽 끝).
  * - `noTeam` CJ씨푸드1우 실측 그대로(orders · day_cum_net · buckets 빔).
  * - `noPrice` 천일고속 · price.idx · px 빈 배열.
+ * - `posNet` 한선엔지니어링 · multiCycle 바탕에 두 번째 사이클만 `cycle: 2` + payload.pos_net(quick-261025-fac · end 배열 있음) —
+ *   09:13 · 10:00 · 11:32(청산 end 1) · 12:10(같은 사이클 재등장 → 새 조각) · 12:40(매집 종료 end 4) · 13:06 · 14:00(사이클 2 ·
+ *   열린 끝 20:00). 포지션 선 3조각.
  */
 export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetailRow {
   const rows = accumDetailRows();
@@ -353,6 +363,24 @@ export function accumSyntheticDetail(kind: AccumSyntheticDetailKind): AccumDetai
       const base = pick(CHEONIL);
       const p = base.payload!;
       return { ...base, payload: { ...p, price: { ...p.price, idx: [], px: [] } } };
+    }
+    case 'posNet': {
+      const base = accumSyntheticDetail('multiCycle');
+      const p = base.payload!;
+      const at = (hms: string) => accumKstMs(D, hms);
+      return {
+        ...base,
+        payload: {
+          ...p,
+          cycles: [p.cycles[0]!, { ...p.cycles[1]!, cycle: 2 }],
+          pos_net: {
+            t_ms: ['09:13:00', '10:00:00', '11:32:00', '12:10:00', '12:40:00', '13:06:00', '14:00:00'].map(at),
+            net_krw: [120_000_000, 250_000_000, 60_000_000, 140_000_000, 50_000_000, 110_000_000, 180_000_000],
+            cycle: [1, 1, 1, 1, 1, 2, 2],
+            end: [0, 0, 1, 0, 4, 0, 0],
+          },
+        },
+      };
     }
   }
 }
