@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-25T15:35:32.998Z"
-last_activity: 2026-10-25
+last_updated: "2026-10-25T16:02:38.632Z"
+last_activity: 2026-10-26
 last_activity_desc: Phase 34 complete
-state_head: 7956414d07ac43dbf2f27b9624b1df8334732314
+state_head: d9a6c3aaf9d156ac6fa65fbc4a07a432b78ad1d8
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-26 - Completed quick task 261026-01h: 매집감지 당일 축 UI(작업대 B · 보고서 당일 축 · 500만원)
+Last activity: 2026-10-26 - Completed quick task 261026-0ty: 매집감지 보고서 서버 기준 당일 값(pos_day_avg_px · pos_day)
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -104,6 +104,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261025-fac | 매집감지 상세 누적 판 — 포지션 순매수(pos_net·이월 포함) 주인공 보라 계단 + 그날 누적 회색 보조(스케치 017 B) | 2026-10-25 | f88226e4 | [261025-fac-pos-net-017-b](./quick/261025-fac-pos-net-017-b/) |
 | 261025-uf2 | 매집감지 당일 축 기반 — kind 16 파서 당일 칸·day=·recent=(조각) · accum_flow 열 4개 마이그레이션 | 2026-10-25 | 2cf5e807 | [261025-uf2-kind-16-day-recent-accum-flow-4-261025-a](./quick/261025-uf2-kind-16-day-recent-accum-flow-4-261025-a/) |
 | 261026-01h | 매집감지 당일 축 UI — 작업대 B(당일 주인공·누적/전날 보조) · 보고서 당일 축(누적 왼쪽 회색 축) · 500만원 | 2026-10-26 | 7956414d | [261026-01h-ui-b-500](./quick/261026-01h-ui-b-500/) |
+| 261026-0ty | 매집감지 보고서 서버 기준 당일 값 — pos_day_avg_px 열 · payload.pos_day 주선 · 팀 평단(당일) | 2026-10-26 | d9a6c3aa | [261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da](./quick/261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da/) |
 
 ## Session Continuity
 
