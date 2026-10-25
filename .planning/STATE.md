@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 34
 status: completed
 stopped_at: Phase 34 complete — all phases complete
-last_updated: "2026-10-25T02:17:09.168Z"
-last_activity: 2026-10-24
+last_updated: "2026-10-25T13:38:10.779Z"
+last_activity: 2026-10-25
 last_activity_desc: Phase 34 complete
-state_head: f88226e49f3a424047d7462fe585ccad6cfb5f76
+state_head: 2cf5e807d95f7790216eed6a4fb0832f74d46c2d
 progress:
   total_phases: 5
   completed_phases: 5
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 34
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-10-25 - Completed quick task 261025-fac: 매집감지 누적 판 포지션 순매수(이월 포함) 선 — 스케치 017 B
+Last activity: 2026-10-25 - Completed quick task 261025-uf2: 매집감지 당일 축 기반 — kind 16 파서 · accum_flow 열 4개
 
 Progress: [██████████] 100% (53/53 plans)
 
@@ -102,6 +102,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 21 | 매집감지 보고서 차트 마우스 툴팁(gh-trade 동형) · 팀 주문 원이 가격 선 위에 오게 | 2026-10-23 | 46d56b02 | — |
 | 261024-uov | 매집 패널 매집 종료(4) — 그날 청산 행 있을 때만 회색 청산(값=청산 행) · 복원 RPC 청산 행 동반 · 라벨 | 2026-10-24 | da978c13 | [261024-uov-end-reason-4-rpc-end1](./quick/261024-uov-end-reason-4-rpc-end1/) |
 | 261025-fac | 매집감지 상세 누적 판 — 포지션 순매수(pos_net·이월 포함) 주인공 보라 계단 + 그날 누적 회색 보조(스케치 017 B) | 2026-10-25 | f88226e4 | [261025-fac-pos-net-017-b](./quick/261025-fac-pos-net-017-b/) |
+| 261025-uf2 | 매집감지 당일 축 기반 — kind 16 파서 당일 칸·day=·recent=(조각) · accum_flow 열 4개 마이그레이션 | 2026-10-25 | 2cf5e807 | [261025-uf2-kind-16-day-recent-accum-flow-4-261025-a](./quick/261025-uf2-kind-16-day-recent-accum-flow-4-261025-a/) |
 
 ## Session Continuity
 

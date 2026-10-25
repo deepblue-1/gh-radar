@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 018 — 매집감지 당일 축</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* gh-radar globals.css 실제 토큰 (라이트 / 다크) */
+.f {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border-subtle:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --flat:#6b7684; --team:#a234c7; --team-bg:#f9f0fc;
+  --accum-sell:#c2410c; --accum-sell-bg:#fff4e6; --accum-carry:#a16207; --accum-carry-bg:#fef9e7; --accum-warn-fg:#ffffff;
+  --accum-shade:rgba(107,118,132,.10); --new-bg:#fff6d9; --new-bd:#ffd257; --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da; --primary:#3182f6; --primary-fg:#fff;
+  --chg:#1b64da;
+  --font:'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); padding: 16px; flex: none;
+}
+.f.dark { --bg:#0a0a0a; --surface:#0a0a0a; --card:#151515; --muted:#2d2d2d; --raised-2:#3d3d3d; --fg:#ffffff; --fg-2:#e4e4e4; --muted-fg:#9e9e9e; --faint:#636363;
+  --border-subtle:#3d3d3d; --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --flat:#9e9e9e; --team:#c353e5; --team-bg:rgba(174,61,209,.16);
+  --accum-sell:#ff9f43; --accum-sell-bg:rgba(255,159,67,.16); --accum-carry:#ffd43b; --accum-carry-bg:rgba(255,212,59,.16); --accum-warn-fg:#111;
+  --accum-shade:rgba(255,255,255,.07); --new-bg:#3a3014; --new-bd:#6d5a1d; --pill-on-bg:#4e4e4e; --pill-on-fg:#fff; --primary:#3485fa; --chg:#6ea8ff; }
+.f.phone { width: 390px; }
+.f.desktop { width: 1200px; }
+.mono { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); } .faint { color: var(--faint); } .mf { color: var(--muted-fg); }
+.chg { text-decoration: underline dotted var(--chg); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.surface-h { font-size: 13px; font-weight: 700; color: var(--muted-fg); margin: 4px 2px 8px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.surface-h small { font-weight: 400; font-size: 12px; }
+.sep { height: 28px; }
+
+/* ── ① 작업대 매집 패널 ── */
+.wb { background: var(--card); border-radius: 16px; overflow: hidden; }
+.strip { display: flex; align-items: center; gap: 8px; padding: 10px; min-width: 0; }
+.strip .lab { font-size: 12px; font-weight: 700; flex: none; display: flex; gap: 6px; align-items: baseline; }
+.strip .lab small { font-size: 10px; color: var(--muted-fg); font-weight: 500; }
+.chips { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; padding-bottom: 2px; scrollbar-width: thin; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; border-radius: 999px; padding: 0 10px 0 8px; font-size: 12px; white-space: nowrap; background: var(--muted); border: 1px solid transparent; flex: none; }
+.chip.new { background: var(--new-bg); border-color: var(--new-bd); }
+.chip b { font-weight: 600; }
+.chip .n { font-weight: 700; }
+.chip .k { font-size: 10px; color: var(--muted-fg); font-weight: 500; margin-right: -3px; }
+.more { height: 26px; border-radius: 12px; border: 0; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; flex: none; }
+.badge { display: inline-flex; align-items: center; height: 16px; border-radius: 4px; padding: 0 4px; font-size: 9px; font-weight: 700; flex: none; border: 1px solid transparent; }
+.b1 { background: var(--team-bg); color: var(--team); } .b2 { background: var(--accum-sell-bg); color: var(--accum-sell); }
+.b3 { background: var(--muted); color: var(--muted-fg); border-color: var(--border-subtle); }
+.bc { background: var(--accum-carry-bg); color: var(--accum-carry); }
+.bw { background: var(--accum-sell); color: var(--accum-warn-fg); animation: blink 1s steps(2, start) infinite; }
+.bn { border-color: var(--new-bd); color: var(--fg); }
+@keyframes blink { 50% { opacity: .25; } }
+.tblwrap { border-top: 1px solid var(--border-subtle); overflow-x: auto; }
+.tbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 2px; font-size: 11px; color: var(--muted-fg); }
+.seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; }
+.seg button { font: inherit; font-size: 11px; font-weight: 600; border: 0; background: transparent; color: var(--fg-2); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.seg button.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+table.lt { width: 100%; border-collapse: collapse; font-size: 12px; }
+.lt th { font-size: 11px; font-weight: 600; color: var(--muted-fg); white-space: nowrap; padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border-subtle); }
+.lt td { height: 36px; padding: 0 8px; white-space: nowrap; border-bottom: 1px solid var(--border-subtle); }
+.desktop .lt th, .desktop .lt td { padding-left: 10px; padding-right: 10px; }
+.lt .r { text-align: right; }
+.lt b { font-weight: 700; }
+.lt tr.ended td { color: var(--muted-fg); }
+.lt tr.ended td * { color: inherit !important; }
+.lt tr.ended .badge { color: var(--muted-fg) !important; }
+.lt tr.hl td { background: var(--new-bg); }
+.lt .nm { font-weight: 600; } .lt .cd { font-size: 11px; color: var(--muted-fg); margin-left: 4px; }
+.lt .sub { display: block; font-size: 10px; color: var(--muted-fg); line-height: 1.3; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.lt .two { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; padding: 3px 0; }
+.lt .two small { font-size: 10px; color: var(--muted-fg); font-weight: 400; }
+.lt .add { height: 26px; border-radius: 12px; border: 0; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 0 10px; }
+.lt tr.hl .add { background: var(--primary); color: var(--primary-fg); }
+.lt .x { color: var(--muted-fg); padding-left: 6px; }
+.lt.scroll { min-width: 1120px; }
+.lt.scroll th:first-child, .lt.scroll td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; box-shadow: 1px 0 0 var(--border-subtle); }
+.lt.scroll tr.hl td:first-child { background: var(--new-bg); }
+.foot { padding: 8px 10px 10px; font-size: 11px; color: var(--muted-fg); line-height: 1.5; }
+.hint { font-size: 11px; color: var(--muted-fg); padding: 6px 10px 0; }
+
+/* ── ② 보고서 ── */
+.rh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.rh h2 { margin: 0; font-size: 20px; font-weight: 700; }
+.src { display: inline-flex; align-items: center; background: var(--muted); color: var(--muted-fg); border-radius: 6px; padding: 2px 8px; font-size: 12px; white-space: nowrap; }
+.dnav { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.dnav span { background: var(--card); border-radius: 999px; padding: 5px 12px; font-weight: 600; }
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.desktop .kpis { grid-template-columns: repeat(4, 1fr); }
+.kpi { background: var(--card); border-radius: 16px; padding: 12px; display: flex; flex-direction: column-reverse; min-width: 0; }
+.kpi dt { font-size: 12px; color: var(--muted-fg); }
+.kpi dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.kpi .v { font-size: 20px; font-weight: 600; line-height: 1.2; }
+.kpi .s { font-size: 12px; color: var(--muted-fg); }
+.card { background: var(--card); border-radius: 16px; padding: 16px; }
+.lh { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
+.lh h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.lh span { font-size: 12px; color: var(--muted-fg); }
+.grid { display: grid; grid-template-columns: minmax(0,1fr) auto 16px; gap: 6px 12px; align-items: center; padding: 12px 8px; border-radius: 12px; }
+.desktop .grid { grid-template-columns: minmax(0,176px) minmax(152px,1fr) 104px 170px 112px 96px 88px 16px; }
+.ghead { display: none; } .desktop .ghead { display: grid; padding-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); border-radius: 0; font-size: 12px; color: var(--muted-fg); margin-top: 12px; align-items: end; white-space: nowrap; }
+.ghead .c2 { display: flex; flex-direction: column; }
+.li { border-bottom: 1px solid var(--border-subtle); }
+.li.open > .grid { background: color-mix(in oklab, var(--muted) 60%, transparent); }
+.c-name { display: flex; flex-direction: column; min-width: 0; grid-column: 1; grid-row: 1; }
+.c-name b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-name small { font-size: 12px; color: var(--muted-fg); }
+.c-state { grid-column: 1 / span 3; grid-row: 2; display: flex; flex-direction: column; gap: 4px; }
+.desktop .c-state { grid-column: 2; grid-row: 1; }
+.rb { display: inline-flex; align-items: center; height: 20px; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.reason { font-size: 12px; color: var(--muted-fg); }
+.c-tag { grid-column: 2; grid-row: 1; justify-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.desktop .c-tag { grid-column: 3; justify-self: start; align-items: flex-start; }
+.tag { display: inline-flex; height: 20px; align-items: center; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 600; background: var(--muted); color: var(--fg-2); white-space: nowrap; }
+.tag.limit { background: var(--up-bg); color: var(--up); }
+.c-tag small { display: none; font-size: 12px; color: var(--muted-fg); } .desktop .c-tag small { display: block; }
+.meta { grid-column: 1 / span 3; grid-row: 3; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
+.meta .mf { margin-right: 4px; }
+.desktop .meta { display: contents; }
+.d-only { display: none !important; } .desktop .d-only { display: flex !important; }
+.desktop .p-only { display: none !important; }
+.c4 { grid-column: 4; grid-row: 1; flex-direction: column; min-width: 0; }
+.c4 .v, .c5 .v, .c6 .v, .c7 .v { font-size: 14px; font-weight: 600; }
+.c4 small, .c6 small, .c7 small { font-size: 12px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c5 { grid-column: 5; grid-row: 1; } .c6 { grid-column: 6; grid-row: 1; flex-direction: column; } .c7 { grid-column: 7; grid-row: 1; flex-direction: column; }
+.chev { grid-column: 3; grid-row: 1; color: var(--muted-fg); font-size: 12px; justify-self: end; }
+.desktop .chev { grid-column: 8; }
+.dim { opacity: .6; }
+.detail { display: flex; flex-direction: column; gap: 16px; padding: 4px 8px 24px; }
+.kline { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+.kline span { white-space: nowrap; } .kline .mf { margin-right: 4px; } .kline b { font-weight: 600; }
+.prevline { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--accum-carry-bg); }
+.prevline span { white-space: nowrap; } .prevline .mf { margin-right: 4px; }
+.prevline .pl { font-weight: 700; color: var(--accum-carry); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted-fg); }
+.legend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.sw { display: inline-block; width: 10px; height: 2px; border-radius: 2px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.presets { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.presets b { border-radius: 999px; padding: 7px 12px; background: var(--muted); color: var(--fg-2); font-weight: 600; }
+.presets b.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.presets .rg { margin-left: auto; color: var(--muted-fg); }
+.chartbox { position: relative; }
+svg { display: block; font-size: 11px; font-family: var(--font); }
+.tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; display: none; transform: translate(-50%, -100%); z-index: 3; }
+.cap { margin: 0; font-size: 12px; color: var(--muted-fg); line-height: 1.55; }
+.pnl h4 { margin: 0; font-size: 14px; font-weight: 600; display: inline; }
+.rules summary { font-size: 13px; font-weight: 600; color: var(--muted-fg); cursor: pointer; }
+.rules ul { margin: 8px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted-fg); line-height: 1.6; }
+.rules .num { color: var(--fg-2); white-space: nowrap; }
+.old { margin-top: 8px; font-size: 12px; color: var(--muted-fg); border: 1px dashed var(--border-subtle); border-radius: 8px; padding: 6px 8px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">① 실시간 패널</span><button data-v="A" class="on">A 새 열 전부 인라인</button><button data-v="B">B 당일 주인공 · 누적은 아랫줄</button><button data-v="C">C 「당일 | 누적」 전환</button></div>
+  <div class="g"><span class="l">② 상세 누적 판 축</span><button data-ax="same" class="on">같은 축</button><button data-ax="split">누적은 왼쪽 회색 축</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="light" class="on">라이트</button><button data-t="dark">다크</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"><div id="frame" class="f phone"></div></div>
+
+<script>
+const DESC = {
+  A: '<b>A 새 열 전부 인라인 (WinForms 열 그대로)</b> — 순매수(누적) · <b>당일 순매수</b> · <b>전날 순매수</b> 를 나란히 두고 평단 · 수익률 · 구간 · 순수량은 당일 값. 칩은 지금처럼 누적. 폰은 접지 않고 가로 스크롤(종목 열 고정). 가장 WinForms 와 같지만 폰에서 한눈에 안 들어온다.',
+  B: '<b>B 당일이 주인공 · 누적/전날은 보조 줄</b> — 표 열 수는 지금과 같다(12). 「당일 순매수」 칸 아랫줄에 「누적 +18.6억」, 이월 행은 종목 보조 줄에 「전날 +3.1억」. 칩도 당일 값(누적은 title). 폰 접힘 규칙(&lt;700) 그대로.',
+  C: '<b>C 「당일 | 누적」 전환</b> — 표 위 알약으로 순매수 · 평단 · 수익률 · 구간 · 순수량 다섯 열을 통째로 바꾼다(기본 당일 · 기기 기억). 당일일 때만 「전날 순매수」 열. 칩도 따라 바뀐다. 옛 행은 누적으로 보면 값이 있다. 두 값을 한 화면에서 비교하진 못한다.',
+};
+const NUM = new Intl.NumberFormat('ko-KR');
+const n = (v) => NUM.format(Math.round(v));
+const tone = (v, d = 1) => { const r = +v.toFixed(d); return r > 0 ? 'up' : r < 0 ? 'down' : 'flat'; };
+const eok = (v, d = 1) => { const r = +v.toFixed(d); return (r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toFixed(d) + '억'; };
+const pct = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2) + '%';
+const DASH = '<span class="faint">—</span>';
+const E = (v, d) => `<span class="mono ${tone(v, d)}">${eok(v, d)}</span>`;
+
+/* ── 실시간 행(가상) — day: null = 옛 행(당일 값 없음) · avg 0 = 당일 매수 없음 ── */
+const LIVE = [
+  { nm: '금호전기', cd: '001210', px: 2530, rate: 9.07, st: 1, carry: 0, cum: 3.82, day: 3.82, prev: 0, nxt: 0, avg: 2415, lo: 2350, hi: 2480, qty: 158200, at: '13:40:55', hl: true },
+  { nm: '흥구석유', cd: '024060', px: 14650, rate: 6.32, st: 1, carry: 3, cum: 18.62, day: 2.41, prev: 3.10, nxt: 0.42, avg: 14280, lo: 14050, hi: 14500, qty: 16880, at: '13:42:10',
+    cAvg: 12960, cLo: 12400, cHi: 14500, cQty: 143520 },
+  { nm: '동양철관', cd: '008970', px: 1412, rate: 2.17, st: 1, carry: 5, cum: 9.84, day: -0.60, prev: 1.40, nxt: 0, avg: 0, lo: 0, hi: 0, qty: 0, at: '13:31:47',
+    cAvg: 1288, cLo: 1190, cHi: 1405, cQty: 764000 },
+  { nm: '대성창투', cd: '027830', px: 3185, rate: 4.08, st: 1, carry: 1, cum: 6.21, day: 1.12, prev: 2.40, nxt: 0.15, avg: 3120, lo: 3050, hi: 3200, qty: 35900, at: '13:38:02', warn: 3,
+    cAvg: 3010, cLo: 2890, cHi: 3200, cQty: 206300 },
+  { nm: '에이프로젠', cd: '007460', px: 1086, rate: 12.40, st: 1, carry: 0, cum: 2.08, day: 2.08, prev: 0, nxt: 0.31, avg: 1021, lo: 985, hi: 1060, qty: 203700, at: '13:36:20' },
+  { nm: '이니텍', cd: '053350', px: 6240, rate: 1.79, st: 1, carry: 0, cum: 1.65, day: null, prev: 0, nxt: 0, avg: 0, lo: 0, hi: 0, qty: 0, at: '09:14:03', old: true,
+    cAvg: 6105, cLo: 6020, cHi: 6190, cQty: 27030 },
+  { nm: '한국ANKOR유전', cd: '152550', px: 798, rate: -3.04, st: 2, carry: 1, cum: 4.92, day: -1.34, prev: 2.20, nxt: -0.12, avg: 812, lo: 805, hi: 830, qty: -16400, at: '13:29:11',
+    cAvg: 776, cLo: 742, cHi: 830, cQty: 634000 },
+  { nm: '우진비앤지', cd: '018620', px: 2265, rate: 5.30, st: 2, carry: 0, cum: 1.21, day: 1.21, prev: 0, nxt: 0, avg: 2210, lo: 2150, hi: 2290, qty: 54750, at: '13:25:40' },
+  { nm: '써니전자', cd: '004770', px: 3410, rate: -1.59, st: 3, carry: 0, cum: 0.84, day: 0.84, prev: 0, nxt: 0, avg: 3520, lo: 3440, hi: 3600, qty: 23860, at: '11:05:41' },
+];
+const STATE = { 1: '매집중', 2: '매도중', 3: '청산' };
+
+let S = { v: 'A', ax: 'same', w: 'phone', t: 'light', mode: 'day' };
+
+/* 행의 「보이는 축」 값 — mode 'day' | 'cum' */
+function vals(r, mode) {
+  if (mode === 'cum') {
+    const same = r.cAvg === undefined;
+    return { net: r.cum, avg: same ? r.avg : r.cAvg, lo: same ? r.lo : r.cLo, hi: same ? r.hi : r.cHi, qty: same ? r.qty : r.cQty, none: false };
+  }
+  return { net: r.day, avg: r.avg, lo: r.lo, hi: r.hi, qty: r.qty, none: r.old || !(r.avg > 0) };
+}
+const profitOf = (px, avg) => (avg > 0 ? (px / avg - 1) * 100 : null);
+const netCell = (v) => (v === null ? DASH : `<b class="mono ${tone(v)}">${eok(v)}</b>`);
+const ended = (r) => r.st === 3;
+function stateCell(r) {
+  return `<span style="display:inline-flex;gap:4px;align-items:center"><span class="badge b${r.st}">${STATE[r.st]}</span>${r.warn && r.st === 1 ? `<span class="badge bw" title="이 사이클 경보 ${r.warn}회">매도경보</span>` : ''}${r.carry ? `<span class="badge bc">이월 D+${r.carry}</span>` : ''}</span>`;
+}
+function actCell(r) {
+  return `<span style="display:inline-flex;align-items:center;justify-content:flex-end">${ended(r) ? '' : '<button class="add">추가</button>'}<span class="x">✕</span></span>`;
+}
+
+/* 열 정의 — d: 폰 접힘(데스크톱만) · always: 폰에서도 */
+function columns(v, phone) {
+  const mode = v === 'C' ? S.mode : 'day';
+  const L = (t) => (v === 'C' ? (mode === 'day' ? `당일 ${t}` : `${t}(누적)`) : t);
+  const name = {
+    h: '종목', c: (r) => {
+      const x = vals(r, mode);
+      let sub = '';
+      if (phone && v !== 'A') {
+        const bits = [r.at, `평단 ${x.none ? '—' : n(x.avg)}`, x.none ? '—' : `${n(x.lo)}~${n(x.hi)}`];
+        if (mode === 'day' && r.carry && r.prev) bits.push(`<span class="chg">전날 ${eok(r.prev)}</span>`);
+        bits.push(`NXT ${eok(r.nxt)}`);
+        sub = `<span class="sub mono">${bits.join(' · ')}</span>`;
+      }
+      return `<span class="nm">${r.nm}</span>${phone ? '' : `<span class="cd mono">${r.cd}</span>`}${r.hl ? ' <span class="badge bn">신규</span>' : ''}${sub}`;
+    } };
+  const px = { h: '현재가', r: 1, c: (r) => `<span class="mono ${ended(r) ? '' : tone(r.rate, 2)}">${n(r.px)}</span>` };
+  const rate = { h: '등락률', r: 1, c: (r) => `<b class="mono ${tone(r.rate, 2)}">${pct(r.rate)}</b>` };
+  const nxt = { h: 'NXT 순매수', r: 1, d: 1, c: (r) => `<b class="mono ${tone(r.nxt)}">${eok(r.nxt)}</b>` };
+  const st = { h: '상태', c: stateCell };
+  const at = { h: '갱신', d: 1, c: (r) => `<span class="mono">${r.at}</span>` };
+  const act = { h: '', r: 1, c: actCell };
+  const avg = { h: L('평단'), r: 1, d: 1, chg: 1, c: (r) => { const x = vals(r, mode); return x.none ? DASH : `<span class="mono">${n(x.avg)}</span>`; } };
+  const prof = { h: v === 'C' ? L('수익률') : '수익률(당일)', r: 1, chg: 1, c: (r) => { const x = vals(r, mode); const p = x.none ? null : profitOf(r.px, x.avg); return p === null ? DASH : `<b class="mono ${tone(p, 2)}">${pct(p)}</b>`; } };
+  const band = { h: v === 'C' ? L('매집 구간') : '매집 구간(당일)', d: 1, chg: 1, c: (r) => { const x = vals(r, mode); return x.none ? DASH : `<span class="mono">${n(x.lo)}~${n(x.hi)}</span>`; } };
+  const qty = { h: v === 'C' ? L('순수량') : '순수량(당일)', r: 1, d: 1, chg: 1, c: (r) => { const x = vals(r, mode); return x.none ? DASH : `<span class="mono">${n(x.qty)}</span>`; } };
+  const prevC = { h: '전날 순매수', r: 1, d: 1, chg: 1, c: (r) => (r.old ? DASH : r.carry && r.prev ? `<b class="mono ${tone(r.prev)}">${eok(r.prev)}</b>` : '') };
+  if (v === 'A') {
+    if (avg.h === '평단') avg.h = '평단(당일)';
+    return [name, px, rate,
+      { h: '순매수(누적)', r: 1, chg: 1, c: (r) => netCell(r.cum) },
+      { h: '당일 순매수', r: 1, chg: 1, c: (r) => netCell(r.day) },
+      prevC, nxt, avg, prof, band, qty, st, at, act];
+  }
+  if (v === 'B') {
+    avg.h = '평단(당일)';
+    return [name, px, rate,
+      { h: '당일 순매수', r: 1, chg: 1, c: (r) => `<span class="two">${netCell(r.day)}<small class="mono">누적 ${eok(r.cum)}${!phone && r.carry && r.prev ? ` · 전날 ${eok(r.prev)}` : ''}</small></span>` },
+      nxt, avg, prof, band, qty, st, at, act];
+  }
+  const net = { h: mode === 'day' ? '당일 순매수' : '순매수(누적)', r: 1, chg: 1, c: (r) => netCell(vals(r, mode).net) };
+  return mode === 'day' ? [name, px, rate, net, prevC, nxt, avg, prof, band, qty, st, at, act]
+                        : [name, px, rate, net, nxt, avg, prof, band, qty, st, at, act];
+}
+
+function liveHTML() {
+  const phone = S.w === 'phone', v = S.v;
+  const mode = v === 'C' ? S.mode : 'day';
+  // 칩 — A 누적 · B 당일 · C 전환값
+  const chipVal = (r) => (v === 'A' ? r.cum : v === 'B' ? r.day : vals(r, mode).net);
+  const chips = LIVE.filter((r) => r.st !== 3).map((r) => {
+    const val = chipVal(r);
+    const k = v === 'A' ? '' : v === 'B' ? '<span class="k">당일</span>' : `<span class="k">${mode === 'day' ? '당일' : '누적'}</span>`;
+    return `<span class="chip ${r.hl ? 'new' : ''}" title="${r.nm} · 당일 ${r.day === null ? '—' : eok(r.day)} · 누적 ${eok(r.cum)}"><b>${r.nm}</b>${k}<span class="n mono ${val === null ? 'faint' : tone(val)}">${val === null ? '—' : eok(val)}</span><span class="badge b${r.st}">${STATE[r.st]}</span>${r.warn ? '<span class="badge bw">매도경보</span>' : ''}${r.carry ? `<span class="badge bc">이월 D+${r.carry}</span>` : ''}${r.hl ? '<span style="font-size:10px;font-weight:700">신규</span>' : ''}</span>`;
+  }).join('');
+  const scroll = v === 'A' && phone;
+  const cols = columns(v, phone).filter((c) => !(phone && !scroll && c.d));
+  const head = cols.map((c) => `<th class="${c.r ? 'r' : ''}">${c.chg ? `<span class="chg">${c.h}</span>` : c.h}</th>`).join('');
+  const body = LIVE.map((r) => `<tr class="${ended(r) ? 'ended' : ''} ${r.hl ? 'hl' : ''}" title="${ended(r) ? '청산 — 순매수 1억 미만' : r.old ? '옛 행 — 당일 값 없음(서버 갱신 전)' : ''}">${cols.map((c) => `<td class="${c.r ? 'r' : ''}">${c.c(r)}</td>`).join('')}</tr>`).join('');
+  const bar = v === 'C'
+    ? `<div class="tbar"><span class="seg"><button data-mode="day" class="${mode === 'day' ? 'on' : ''}">당일</button><button data-mode="cum" class="${mode === 'cum' ? 'on' : ''}">누적</button></span><span>${mode === 'day' ? '06:00(또는 새 사이클)부터 · 당일 매수 없으면 —' : '등록 이후 사이클 누적 · 이월 포함'}</span></div>`
+    : '';
+  return `<div class="surface-h">① 트레이딩 작업대 「매집」 패널 <small>더보기 펼침 · ${phone ? '본문 &lt;700 접힘 밴드' : '넓은 밴드'} · 13:42 장중</small></div>
+  <div class="wb">
+    <div class="strip"><span class="lab">매집<small class="mono">KYOBO119</small></span><div class="chips">${chips}</div><button class="more">접기</button></div>
+    <div class="tblwrap">${bar}${scroll ? '<div class="hint">← 가로로 밀어 보기 · 종목 열 고정 →</div>' : ''}<table class="lt ${scroll ? 'scroll' : ''}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    <div class="foot"><span class="chg">등록 당일 순매수 ≥ 1억 · 60초 팀 매수 30건+ · 시총 ≤ 5,000억 · 청산 순매수 &lt; 1억</span> <span class="faint">(제안 — WinForms 상태바 문구 · 옛 서버면 「순매수 ≥ 1억 · 한 가격 30조각+ …」)</span></div>
+  </div>`;
+}
+
+/* ── 보고서 행(가상 · 10/24 금) ── */
+const REP = [
+  { nm: '흥구석유', cd: '024060', mk: 'KOSDAQ', st: 1, carry: 3, tag: '+6.32%', high: '+11.40%', day: null /* 차트에서 */, cum: null, avg: null, whole: 2.63, pnl: [0.31, 2.1], reg: ['10/21 등록', '오늘 이월'], meta: '10/21 등록', open: true },
+  { nm: '금호전기', cd: '001210', mk: 'KOSPI', st: 1, carry: 0, limit: '+29.98%', day: 3.82, cum: 3.82, avg: 2415, whole: 4.10, pnl: [1.12, 29.3], reg: ['09:42', '장 마감까지'], meta: '등록 09:42' },
+  { nm: '대성창투', cd: '027830', mk: 'KOSDAQ', st: 2, carry: 1, tag: '+4.08%', high: '+7.90%', day: 1.12, cum: 6.21, avg: 3120, whole: 0.95, pnl: [0.04, 0.6], reg: ['10/23 등록', '오늘 이월'], meta: '10/23 등록' },
+  { nm: '동양철관', cd: '008970', mk: 'KOSPI', st: 3, end: '청산 · 14:20', carry: 5, tag: '+2.17%', high: '+4.30%', day: -0.60, cum: 0.92, avg: 0, whole: -0.71, pnl: null, reg: ['10/17 등록', '14:20 청산'], meta: '10/17 등록 → 14:20' },
+  { nm: '이니텍', cd: '053350', mk: 'KOSDAQ', st: 3, end: '이월 만료 · 06:00', carry: 10, tag: '+1.79%', high: '+3.10%', day: null, cum: 1.20, avg: 0, whole: 0.12, pnl: null, reg: ['10/10 등록', '06:00 만료'], meta: '10/10 등록 → 06:00', dim: true },
+];
+const RSTATE = { 1: '매집중', 2: '매도중', 3: '종료' };
+
+/* ── 흥구석유 차트 자료(결정적 가상) ── */
+const HOUR = 3600e3, MIN = 60e3, T0 = 8 * HOUR, T1 = 20 * HOUR;
+const hm = (t) => `${String(Math.floor(t / HOUR)).padStart(2, '0')}:${String(Math.floor((t % HOUR) / MIN)).padStart(2, '0')}`;
+function rnd(seed) { let s = seed; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
+const gap = (t) => t >= 15.5 * HOUR && t < 16 * HOUR;
+const CH = (() => {
+  const r = rnd(11), price = []; let w = 0;
+  for (let t = T0; t <= T1; t += 5 * MIN) {
+    w = w * 0.9 + (r() - 0.5) * 140;
+    const k = (t - T0) / (T1 - T0);
+    price.push({ t, p: gap(t) ? null : Math.round((13780 + 870 * Math.sqrt(k) + w) / 10) * 10 });
+  }
+  const pAt = (t) => price[Math.min(price.length - 1, Math.round((t - T0) / (5 * MIN)))].p ?? 14200;
+  const orders = [{ t: 9.2 * HOUR, side: 1, amt: 0.32, first: 1 }];
+  for (let i = 0; i < 34; i++) {
+    let t = 9.3 * HOUR + r() * 10.1 * HOUR; if (gap(t)) t += 0.6 * HOUR;
+    orders.push({ t, side: r() < 0.74 ? 1 : -1, amt: 0.05 + r() * r() * 0.6 });
+  }
+  orders.sort((a, b) => a.t - b.t);
+  orders.forEach((o) => { o.px = Math.round((pAt(o.t) + (r() - 0.5) * 60) / 10) * 10; });
+  // 당일 순매수(그날 06:00 부터 · 우리 체결 제외) 계단 · 당일 평단 — 끝값 +2.41억에 맞춤
+  let raw = 0; const rawSteps = orders.map((o) => (raw += o.side * o.amt));
+  const sc = 2.41 / raw; const carry = 16.21;
+  let bq = 0, bk = 0;
+  const steps = orders.map((o, i) => {
+    if (o.side > 0) { bk += o.amt * sc * 1e8; bq += (o.amt * sc * 1e8) / o.px; }
+    return { t: o.t, day: rawSteps[i] * sc, avg: Math.round(bk / bq / 10) * 10 };
+  });
+  const last = steps[steps.length - 1];
+  const peak = Math.max(...steps.map((s) => s.day)) + carry;
+  const bars = [];
+  for (let t = 9 * HOUR; t < T1; t += 10 * MIN) {
+    if (gap(t)) continue;
+    const os = orders.filter((o) => o.t >= t && o.t < t + 10 * MIN);
+    const b = os.filter((o) => o.side > 0).reduce((a, o) => a + o.amt, 0) + r() * 0.08;
+    const s = os.filter((o) => o.side < 0).reduce((a, o) => a + o.amt, 0) + r() * 0.05;
+    bars.push({ t, b, s });
+  }
+  return { price, orders, steps, carry, last, peak, bars };
+})();
+
+function chartSVG(W) {
+  const L = 52, R = 56, right = W - R;
+  const P = { top: 18, h: 150 }, C = { top: 200, h: 96 }, B = { top: 318, h: 48 }, H = 392;
+  const x = (t) => L + ((t - T0) / (T1 - T0)) * (right - L);
+  // 가격 판
+  const ps = CH.price.filter((p) => p.p !== null).map((p) => p.p).concat(CH.orders.map((o) => o.px));
+  const pmn = Math.min(...ps) - 40, pmx = Math.max(...ps) + 40;
+  const yP = (p) => P.top + ((pmx - p) / (pmx - pmn)) * P.h;
+  let dp = ''; let pen = false;
+  CH.price.forEach((p) => { if (p.p === null) { pen = false; return; } dp += `${pen ? 'L' : 'M'}${x(p.t).toFixed(1)},${yP(p.p).toFixed(1)}`; pen = true; });
+  let da = '';
+  CH.steps.forEach((s, i) => { da += i === 0 ? `M${x(s.t)},${yP(s.avg)}` : `H${x(s.t)}V${yP(s.avg)}`; }); da += `H${x(19.9 * HOUR)}`;
+  const circ = CH.orders.map((o) => {
+    const rr = o.first ? 5 : 2.5 + Math.sqrt(o.amt) * 9, col = o.side > 0 ? 'var(--up)' : 'var(--down)';
+    return `<circle cx="${x(o.t)}" cy="${yP(o.px)}" r="${rr.toFixed(1)}" fill="${col}" fill-opacity="${o.first ? .9 : .55}" stroke="${o.first ? 'var(--fg)' : col}" stroke-width="${o.first ? 2 : 1}" stroke-opacity=".9"/>`;
+  }).join('');
+  const pt = [pmn + 40, (pmn + pmx) / 2, pmx - 40].map((p) => Math.round(p / 50) * 50);
+  // 누적 판 — 주인공 당일(보라 굵게) · 누적(이월 포함) 회색
+  const dayV = [0, ...CH.steps.map((s) => s.day)], posV = dayV.map((d) => d + CH.carry);
+  const dom = (a) => { const mn = Math.min(0, ...a), mx = Math.max(...a); return { mn, mx, y: (v) => C.top + ((mx - v) / (mx - mn || 1)) * C.h }; };
+  const split = S.ax === 'split';
+  const dD = split ? dom(dayV) : dom([...dayV, ...posV]);
+  const dPo = split ? dom(posV.concat([CH.carry - 1])) : dD;
+  const step = (vals, y, from) => { let d = `M${x(from)},${y(vals[0])}`; CH.steps.forEach((s, i) => { d += `H${x(s.t)}V${y(vals[i + 1])}`; }); return d + `H${x(T1)}`; };
+  const dDay = step(dayV, dD.y, 9.2 * HOUR - 1), dPos = step(posV, dPo.y, T0);
+  const tickR = [dD.mn, 0, dD.mx].filter((v, i, a) => a.indexOf(v) === i).map((v) => `<text x="${right + 6}" y="${dD.y(v) + 4}" fill="${split ? 'var(--team)' : 'var(--muted-fg)'}">${eok(v)}</text>`).join('');
+  const tickL = split ? [dPo.mn, dPo.mx].map((v) => `<text x="${L - 6}" y="${dPo.y(v) + 4}" fill="var(--muted-fg)" text-anchor="end">${eok(v)}</text>`).join('') : '';
+  // 10분 판
+  const bmx = Math.max(...CH.bars.map((b) => Math.max(b.b, b.s)));
+  const mid = B.top + B.h / 2, bw = Math.max(1.5, (x(T0 + 10 * MIN) - x(T0)) * 0.7);
+  const bars = CH.bars.map((b) => `<rect x="${x(b.t)}" y="${mid - (b.b / bmx) * (B.h / 2)}" width="${bw}" height="${(b.b / bmx) * (B.h / 2)}" fill="var(--up)" fill-opacity=".7"/><rect x="${x(b.t)}" y="${mid}" width="${bw}" height="${(b.s / bmx) * (B.h / 2)}" fill="var(--down)" fill-opacity=".7"/>`).join('');
+  const hours = W < 500 ? [8, 11, 14, 17, 20] : [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  const grid = hours.map((h) => `<line x1="${x(h * HOUR)}" x2="${x(h * HOUR)}" y1="${P.top}" y2="${B.top + B.h}" stroke="var(--border-subtle)" stroke-width=".6"/><text x="${x(h * HOUR)}" y="${H - 6}" fill="var(--muted-fg)" text-anchor="middle">${String(h).padStart(2, '0')}</text>`).join('');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect x="${x(15.5 * HOUR)}" y="${P.top}" width="${x(16 * HOUR) - x(15.5 * HOUR)}" height="${B.top + B.h - P.top}" fill="var(--accum-shade)"/>
+    ${grid}
+    ${pt.map((p) => `<text x="${L - 6}" y="${yP(p) + 4}" fill="var(--muted-fg)" text-anchor="end">${n(p)}</text>`).join('')}
+    <path d="${dp}" fill="none" stroke="var(--fg-2)" stroke-width="1.2"/>
+    <path d="${da}" fill="none" stroke="var(--up)" stroke-width="1.25" stroke-dasharray="1 2"/>
+    ${circ}
+    <text x="${L + 4}" y="${P.top + P.h - 4}" fill="var(--accum-carry)" font-weight="600">10/21 등록 · 이월 D+3 · 06:00 이월 ${eok(CH.carry, 2)}</text>
+    <text x="${L}" y="${C.top - 6}" fill="var(--team)" font-weight="600"><tspan class="chg">당일 순매수</tspan> <tspan fill="var(--muted-fg)" font-weight="400">· 순매수(누적)</tspan></text>
+    <line x1="${L}" x2="${right}" y1="${dD.y(0)}" y2="${dD.y(0)}" stroke="var(--faint)" stroke-dasharray="2 3"/>
+    <path d="${dPos}" fill="none" stroke="var(--muted-fg)" stroke-width="1" stroke-opacity=".75"/>
+    <path d="${dDay}" fill="none" stroke="var(--team)" stroke-width="2.2" stroke-linejoin="round"/>
+    ${tickR}${tickL}
+    <text x="${L}" y="${B.top - 6}" fill="var(--muted-fg)" font-weight="600">10분 팀 매수 · 매도</text>
+    <line x1="${L}" x2="${right}" y1="${mid}" y2="${mid}" stroke="var(--faint)" stroke-width=".6"/>
+    ${bars}
+    <line class="cross" x1="0" x2="0" y1="${P.top}" y2="${B.top + B.h}" stroke="var(--fg-2)" stroke-width=".6" style="display:none"/>
+    <rect class="hit" x="${L}" y="${P.top}" width="${right - L}" height="${B.top + B.h - P.top}" fill="transparent"/>
+  </svg>`;
+}
+
+function reportHTML() {
+  const desk = S.w === 'desktop';
+  const L = CH.last;
+  const hk = REP[0]; hk.day = L.day; hk.cum = L.day + CH.carry; hk.avg = L.avg;
+  const live = REP.filter((r) => r.day !== null);
+  const daySum = live.reduce((a, r) => a + r.day, 0), cumSum = REP.reduce((a, r) => a + r.cum, 0);
+  const kpis = [
+    ['등록 종목', '5', '이월 3', 'var(--fg)'],
+    ['장 마감 보유', '3', '매집중 2 · 매도중 1', 'var(--fg)'],
+    ['종료', '2', '청산 1 · 매집 종료 0 · 탈락 0 · 만료 1', 'var(--fg)'],
+    ['<span class="chg">당일 순매수 합(등록 후)</span>', eok(daySum), `<span class="chg">누적 ${eok(cumSum)}</span>`, `var(--${tone(daySum)})`],
+  ].map(([l, v, s, c]) => `<div class="kpi"><dt>${l}</dt><dd><span class="v mono" style="color:${c}">${v}</span><span class="s mono">${s}</span></dd></div>`).join('');
+  const rows = REP.map((r) => {
+    const dim = r.dim ? 'dim' : '';
+    const dayTxt = r.day === null ? DASH : E(r.day);
+    const avgTxt = r.avg > 0 ? n(r.avg) : '—';
+    const tag = r.limit ? `<span class="tag limit">상한가 <span class="mono">${r.limit}</span></span>` : `<span class="tag mono">${r.tag}</span>`;
+    const pnl = r.pnl ? `<span class="v mono ${tone(r.pnl[0], 2)}">${eok(r.pnl[0], 2)}</span><small class="mono">${r.pnl[1] > 0 ? '+' : ''}${r.pnl[1].toFixed(1)}%</small>` : `<span class="v faint">—</span>`;
+    return `<li class="li ${r.open ? 'open' : ''}"><div class="grid">
+      <span class="c-name ${dim}"><b>${r.nm}</b><small class="mono">${r.cd} · ${r.mk}</small></span>
+      <span class="c-state"><span class="badges"><span class="rb b${r.st}">${RSTATE[r.st]}</span>${r.carry ? `<span class="rb bc">이월 D+${r.carry}</span>` : ''}</span>${r.end ? `<span class="reason">${r.end}</span>` : ''}</span>
+      <span class="c-tag ${dim}">${tag}${r.high ? `<small>고가 <span class="mono">${r.high}</span></small>` : ''}</span>
+      <span class="meta">
+        <span class="p-only ${dim}"><span class="mf chg">당일</span>${dayTxt}</span>
+        <span class="p-only ${dim}"><span class="mf chg">누적</span>${E(r.cum)}</span>
+        <span class="p-only ${dim}"><span class="mf">하루</span>${E(r.whole)}</span>
+        ${r.pnl ? `<span class="p-only ${dim}"><span class="mf">손익</span><span class="mono ${tone(r.pnl[0], 2)}">${eok(r.pnl[0], 2)} (${r.pnl[1] > 0 ? '+' : ''}${r.pnl[1].toFixed(1)}%)</span></span>` : ''}
+        <span class="p-only ${dim}"><span class="mono" style="color:var(--fg-2)">${r.meta}</span></span>
+        <span class="d-only c4 ${dim}"><span class="v">${dayTxt}</span><small class="mono"><span class="chg">누적 ${eok(r.cum)} · 평단(당일) ${avgTxt}</span></small></span>
+        <span class="d-only c5 ${dim}"><span class="v">${E(r.whole)}</span></span>
+        <span class="d-only c6 ${dim}">${pnl}</span>
+        <span class="d-only c7 ${dim}"><span class="v mono" style="color:${r.carry && r.st !== 3 ? 'var(--muted-fg)' : 'var(--fg-2)'};font-weight:400">${r.reg[0]}</span><small>${r.reg[1]}</small></span>
+      </span>
+      <span class="chev">${r.open ? '▲' : '▼'}</span>
+    </div>${r.open ? detailHTML() : ''}</li>`;
+  }).join('');
+  return `<div class="surface-h">② 매집감지 보고서 <small>/analytics/accum · 10/24(금) · 흥구석유 펼침</small></div>
+  <div class="rh"><h2>매집감지</h2><span class="src">KYOBO119 판정 기준 · 20:30 적재</span>${desk ? '<span class="mf" style="font-size:12px">장중에는 트레이딩 「매집」 패널이 실시간으로 보여줘요</span>' : ''}<div class="dnav"><span>‹</span><span>10/24 (금)</span><span>›</span></div></div>
+  <dl class="kpis" style="margin-top:0">${kpis}</dl>
+  <section class="card">
+    <div class="lh"><h3>매집감지 종목</h3><span>매집중 → 매도중 → 종료 · 그 안 <span class="chg">당일 순매수</span> 큰 순</span></div>
+    <div class="grid ghead"><span>종목</span><span>상태</span><span>결과</span><span class="c2"><span class="chg">당일 순매수</span><span>(등록 후 · 아래 누적)</span></span><span class="c2"><span>하루 순매수</span><span>(등록 전 포함)</span></span><span>팀 당일 손익</span><span>등록 · 종료</span><span></span></div>
+    <ol style="list-style:none;margin:0;padding:0">${rows}</ol>
+  </section>`;
+}
+
+function detailHTML() {
+  const L = CH.last;
+  const k = [
+    ['당일 순매수', E(L.day, 2), 1], ['당일 평단', `<b class="mono">${n(L.avg)}</b>`, 1],
+    ['누적 순매수', E(L.day + CH.carry, 2), 1], ['누적 평단', '<b class="mono">12,960</b>', 1],
+    ['등록가', '<b class="mono">12,900</b>'], ['최고 순매수', `<b class="mono">${eok(CH.peak, 2)}</b>`],
+  ].map(([l, v, c]) => `<span><span class="mf ${c ? 'chg' : ''}">${l}</span>${v}</span>`).join('');
+  const prev = `<div class="prevline"><span class="pl chg">전날 10/23</span><span><span class="mf">순매수</span>${E(3.10, 2)}</span><span><span class="mf">매수</span><span class="mono">9.84억</span> <span class="mf">/ 매도</span><span class="mono">6.74억</span></span><span><span class="mf">평단</span><span class="mono">13,920</span></span><span title="전날 종가 14,140 ÷ 전날 평단 − 1"><span class="mf">종가 대비</span><span class="mono up">+1.58%</span></span></div>`;
+  const legend = [
+    ['가격(10초)', '<span class="sw" style="background:var(--fg-2)"></span>'],
+    ['<span class="chg">팀 평단(당일)</span>', '<span class="sw" style="height:0;border-top:2px dotted var(--up)"></span>'],
+    ['팀 매수', '<span class="dot" style="background:var(--up);opacity:.7"></span>'],
+    ['팀 매도', '<span class="dot" style="background:var(--down);opacity:.7"></span>'],
+    ['팀매수 시작', '<span class="dot" style="background:var(--up);box-shadow:inset 0 0 0 2px var(--fg)"></span>'],
+    ['<span class="chg">당일 순매수</span>', '<span class="sw" style="height:3px;background:var(--team)"></span>'],
+    ['<span class="chg">순매수(누적 · 이월 포함)</span>', '<span class="sw" style="height:1px;background:var(--muted-fg);opacity:.75"></span>'],
+    ['등록', '<span style="display:inline-block;width:2px;height:10px;background:var(--team)"></span>'],
+    ['청산·종료', '<span style="display:inline-block;width:0;height:10px;border-left:2px dashed var(--muted-fg)"></span>'],
+    ['등록 전', '<span style="display:inline-block;width:10px;height:10px;border:1px solid var(--border-subtle);background:var(--accum-shade)"></span>'],
+  ].map(([l, s]) => `<span>${s}${l}</span>`).join('');
+  return `<section class="detail">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="kline">${k}</div>
+      ${prev}
+      <div class="legend">${legend}</div>
+      <div class="presets"><b class="on">전체</b><b>정규장</b><b>마지막 2시간</b><span class="rg mono">08:00 ~ 20:00</span></div>
+      <div class="chartbox" id="cbox"><div class="tip"></div></div>
+      <p class="cap">원 = <span class="chg">500만원 이상</span> 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동</p>
+    </div>
+    <div class="pnl"><h4>팀 당일 손익</h4> <span class="mono up" style="font-weight:600;font-size:14px">+0.31억 (+2.1%)</span>
+      <div class="kline" style="margin-top:4px"><span><span class="mf">실현</span><span class="mono up">+0.12억</span></span><span><span class="mf">평가</span><span class="mono up">+0.19억</span></span><span><span class="mf">보유</span><span class="mono">16,880주</span></span><span><span class="mf">출처 모를 매도</span><span class="mono">0주</span></span></div></div>
+    <details class="rules" open><summary>판정 기준</summary><ul>
+      <li><span class="chg">이 종목의 등록 임계 — 당일 순매수 <span class="num">1.0억</span> 이상 · 최근 <span class="num">60초</span> 팀 매수 <span class="num">30건</span> 이상 · 시총 <span class="num">5,000억</span> 이하</span> (현재 시총 <span class="num">1,284억</span>)</li>
+      <li><span class="chg">당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI · 누적 판 굵은 보라 선이 이 값이고, 평단 · 팀 평단 점선도 당일 기준이에요. 당일 매수가 없으면 평단은 「—」(누적으로 채우지 않아요).</span></li>
+      <li><span class="chg">순매수(누적)는 등록 이후 사이클 누적(이월 포함)이에요 — 누적 판 얇은 회색 계단 · 목록 아랫줄 「누적」.</span></li>
+      <li>하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 · 우리 체결 · 상한가 가격 포함. 그래서 당일 순매수와 부호까지 다를 수 있어요.</li>
+      <li>원은 <span class="chg">500만원 이상</span> 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.</li>
+      <li>종료 사유 — 청산(순매수 1억 미만 …) / 매집 종료 / 이월 탈락 / 이월 만료(이월 10일 초과).</li>
+    </ul><div class="old">옛 서버 행(th_recent 0 · 부재)은 지금 문구 그대로 — 「이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 …)」</div></details>
+    <span class="src" style="align-self:flex-start">KYOBO119 판정 기준 · 10/24 20:30 적재</span>
+  </section>`;
+}
+
+function wireChart() {
+  const box = document.getElementById('cbox'); if (!box) return;
+  const W = box.clientWidth; box.insertAdjacentHTML('afterbegin', chartSVG(W));
+  const svg = box.querySelector('svg'), tip = box.querySelector('.tip'), cross = svg.querySelector('.cross');
+  const Lp = 52, right = W - 56;
+  svg.addEventListener('mousemove', (e) => {
+    const px = e.clientX - svg.getBoundingClientRect().left;
+    if (px < Lp || px > right) { tip.style.display = 'none'; cross.style.display = 'none'; return; }
+    const t = T0 + ((px - Lp) / (right - Lp)) * (T1 - T0);
+    let k = -1; CH.steps.forEach((s, i) => { if (s.t <= t) k = i; });
+    const d = k < 0 ? 0 : CH.steps[k].day;
+    const a = k < 0 ? '—' : n(CH.steps[k].avg);
+    tip.textContent = `${hm(t)} · 당일 순매수 ${eok(d, 2)} · 당일 평단 ${a} · 순매수(누적) ${eok(d + CH.carry, 2)}(이월 포함)`;
+    tip.style.left = `${Math.min(Math.max(px, 150), W - 150)}px`; tip.style.top = '196px'; tip.style.display = 'block';
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.style.display = 'block';
+  });
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; cross.style.display = 'none'; });
+}
+
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.v] + ' <span style="color:#6ea8ff">점선 밑줄 = 바뀌는 글자</span> · ② 보고서는 한 안(변형 무관) — 축만 고른다.';
+  const f = document.getElementById('frame');
+  f.className = `f ${S.w} ${S.t === 'dark' ? 'dark' : ''}`;
+  f.innerHTML = liveHTML() + '<div class="sep"></div>' + reportHTML();
+  f.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { S.mode = b.dataset.mode; render(); }));
+  wireChart();
+}
+document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => {
+  const k = ['v', 'ax', 'w', 't'].find((kk) => b.dataset[kk] !== undefined);
+  S[k] = b.dataset[k];
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+}));
+render();
+</script>
+</body>
+</html>
