@@ -679,19 +679,50 @@ export function orderTipOf(
 /**
  * 누적 판 — 시각 t 의 계단 값(t 이하 마지막 점) 「HH:MM:SS · 순매수 누적 ±X.XX억[ · 팀 평단 N원]」(gh-trade NetTooltipText).
  * 첫 점 앞이면 null.
+ *
+ * **pos_net 점이 있으면(quick-261025-fac · 스케치 017 B)** 「t 이하 마지막 사건 시각」 문법을 두 선으로 넓힌 스냅샷이다 —
+ * kd = 그날 계단 t 이하 마지막 점 · kp = 포지션 t 이하 마지막 점 · 둘 다 없으면 null · 시각 tk = 둘 중 늦은 점.
+ * 「HH:MM:SS · 순매수 누적 ±X.XX억 · 포지션 순매수 ±Y.YY억(이월 포함)[ · 팀 평단 N원]」 — 그날 값은 첫 주문 전이면 0(그날 0부터).
+ * 포지션 값은 posNetPathOf 의 조각 규칙과 짝이다: 그 점 시각엔 값이 있고, 그 뒤(tk > 점 시각)는 그 점 end ≠ 0(조각이 거기서
+ * 멈춤) 또는 다음 점 cycle 이 다르면(사이클 사이) 없다 → 「포지션 —」. 열린 마지막 조각만 이후에도 값이 이어진다. key = `c{kd}p{kp}`.
+ * pos_net 이 없거나 빈 행은 위 기존 문구 · key `c{k}` 그대로다.
  */
 export function cumTipAt(
-  payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px'>,
+  payload: Pick<AccumReportPayload, 'day_cum_net' | 'avg_px' | 'pos_net'>,
   t: number,
 ): ChartHover | null {
   const { t_ms: ts, net_krw: vs } = payload.day_cum_net;
   const k = stepIndexAt(ts, vs, t);
-  if (k < 0) return null;
-  const tk = ts[k]!;
-  let text = `${kstClock(tk)} · 순매수 누적 ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
+  const pos = posNetPointsOf(payload);
+  if (pos.length === 0) {
+    if (k < 0) return null;
+    const tk = ts[k]!;
+    let text = `${kstClock(tk)} · 순매수 누적 ${fmtEok(vs[k], { signed: true, digits: 2 })}`;
+    const avg = avgPxAt(payload, tk);
+    if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
+    return { key: `c${k}`, lines: [text], circle: null };
+  }
+  let kp = -1;
+  for (let i = 0; i < pos.length; i++) {
+    if (pos[i]!.t > t) break;
+    kp = i;
+  }
+  if (k < 0 && kp < 0) return null;
+  const tk = Math.max(k >= 0 ? ts[k]! : -Infinity, kp >= 0 ? pos[kp]!.t : -Infinity);
+  const day = `순매수 누적 ${fmtEok(k >= 0 ? vs[k] : 0, { signed: true, digits: 2 })}`;
+  let posVal: number | null = null;
+  if (kp >= 0) {
+    const p = pos[kp]!;
+    const next = pos[kp + 1];
+    const gap = tk > p.t && (p.end !== 0 || (next !== undefined && next.cycle !== p.cycle));
+    if (!gap) posVal = p.net;
+  }
+  const posText =
+    posVal === null ? '포지션 —' : `포지션 순매수 ${fmtEok(posVal, { signed: true, digits: 2 })}(이월 포함)`;
+  let text = `${kstClock(tk)} · ${day} · ${posText}`;
   const avg = avgPxAt(payload, tk);
   if (avg !== null) text += ` · 팀 평단 ${INT_FMT.format(avg)}원`;
-  return { key: `c${k}`, lines: [text], circle: null };
+  return { key: `c${k}p${kp}`, lines: [text], circle: null };
 }
 
 /**
