@@ -30,7 +30,7 @@
  *
  * ⑥ 전날 순매수(quick-261026-01h · `prevDayNetOf`) — 이월 행 「전날 ±x.x억」 의 원천은 KYOBO119 판정 accum_flow(매집감지 보고서)의
  *   전 거래일 마지막 행 pos_day 차(pos_day_buy − pos_day_sell)다. 패널이 다른 서버(KB120)를 보여도 같은 값을 쓴다(서버 사이 차이는
- *   우리 체결 제외분뿐). 최신 보고서가 오늘 전이면 그 행의 pos_day 차, 오늘(20:30 적재 뒤)이면 prev_pos_day 키(목록 RPC 가 앞날 행에서
+ *   우리 체결 제외분뿐). 최신 보고서가 오늘 전이면 그 행의 pos_day 차, 오늘(21:00 적재 뒤)이면 prev_pos_day 키(목록 RPC 가 앞날 행에서
  *   싣는다). 행 있는 날짜 기준이라 적재 누락일이 있으면 그 앞날 값이 된다.
  *
  * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클 ·
@@ -175,7 +175,7 @@ export function sortAccum(signals: readonly AccumSignal[]): AccumSignal[] {
 /**
  * 이월 행 전날 순매수(⑥) — 최신 매집감지 보고서(`fetchAccumReport()` · d 없음) → isin → 원.
  * - `resp.date < todayYmd` → 그날 행의 pos_day_buy_krw − pos_day_sell_krw
- * - `resp.date === todayYmd`(20:30 적재 뒤) → prev_pos_day_buy_krw − prev_pos_day_sell_krw
+ * - `resp.date === todayYmd`(21:00 적재 뒤) → prev_pos_day_buy_krw − prev_pos_day_sell_krw
  * - 둘 중 하나라도 수가 아니면 그 isin 은 없다 · access false · date null · 미래 날짜 → 빈 Map.
  * 날짜는 'YYYYMMDD' 문자열 사전 비교다.
  */

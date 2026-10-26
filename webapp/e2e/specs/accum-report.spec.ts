@@ -245,7 +245,7 @@ test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (
       true,
     );
     await expect(page.locator('[data-slot="accum-detail"]')).toHaveCount(0);
-    await expect(page.locator('[data-slot="accum-source"]')).toHaveText('KYOBO119 판정 기준 · 20:30 적재');
+    await expect(page.locator('[data-slot="accum-source"]')).toHaveText('KYOBO119 판정 기준 · 21:00 적재');
     expect(rec.ds).toContain(ACCUM_LATEST);
     expect(rec.details).toHaveLength(0);
 
@@ -478,7 +478,7 @@ test.describe('Phase 34 Plan 10 — 폰 390 · 폭 백스톱 · 빈 상태 · �
       expect(chip.right, `${vp.tag} 칩 = 설명 안(오른쪽)`).toBeLessThanOrEqual(descBox.right + 0.5);
       const chipFit = await chipLoc.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
       expect(chipFit.sw, `${vp.tag} 칩 글자 잘림 0`).toBeLessThanOrEqual(chipFit.cw);
-      await expect(chipLoc).toHaveText('KYOBO119 판정 기준 · 20:30 적재');
+      await expect(chipLoc).toHaveText('KYOBO119 판정 기준 · 21:00 적재');
       expect(await desc.evaluate((el) => getComputedStyle(el).wordBreak), `${vp.tag} 설명 break-keep`).toBe('keep-all');
       await expectNoHorizontalScroll(page, `${vp.tag} 머리`);
     });
@@ -704,7 +704,7 @@ test.describe('Phase 34 Plan 10 — 폰 390 · 폭 백스톱 · 빈 상태 · �
     const empty = page.locator('[data-slot="accum-empty"]');
     await expect(empty).toBeVisible({ timeout: 30_000 });
     await expect(empty).toContainText('아직 올라온 매집감지 보고서가 없어요');
-    await expect(empty).toContainText('첫 보고서는 평일 밤 20:30쯤 올라와요');
+    await expect(empty).toContainText('첫 보고서는 평일 밤 21:00쯤 올라와요');
     await expect(page.locator('[data-kpi]')).toHaveCount(0);
     await expect(page.locator('[data-slot="accum-list"]')).toHaveCount(0);
   });

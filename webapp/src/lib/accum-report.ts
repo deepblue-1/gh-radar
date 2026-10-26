@@ -18,9 +18,9 @@ import { fmtEok, fmtPnl, fmtRate, isNum, kstHm, pnlOf, toneOf, type TeamflowTone
 
 /**
  * 밤 적재 시각 「HH:MM」 — 빈 상태 2곳 · 머리 출처 칩 · 상세 출처 칩이 모두 이 값 하나를 읽는다.
- * D-24 ① 10분 미루기(운반 20:20 → 20:30 · 적재 20:30 → 20:40)가 실행되면 **여기 하나만** 「20:40」 으로 바꾼다.
+ * 2026-10-26 운반 20:20 → 20:50 · 적재 20:30 → 21:00(gh-trade 밤 배치 D+1 재기록이 20:20 을 넘김). 시각이 다시 바뀌면 **여기 하나만** 바꾼다.
  */
-export const ACCUM_LOAD_HM = '20:30';
+export const ACCUM_LOAD_HM = '21:00';
 
 const DASH = '—';
 

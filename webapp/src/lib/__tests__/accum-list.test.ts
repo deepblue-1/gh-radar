@@ -234,7 +234,7 @@ describe('prevDayNetOf — 이월 행 전날 순매수(quick-261026-01h)', () =>
     ]);
   });
 
-  it('최신 보고서가 오늘(20:30 적재 뒤)이면 prev_pos_day_buy − prev_pos_day_sell · 같은 결측 규칙', () => {
+  it('최신 보고서가 오늘(21:00 적재 뒤)이면 prev_pos_day_buy − prev_pos_day_sell · 같은 결측 규칙', () => {
     const m = prevDayNetOf(
       resp('20261026', [
         ar({ isin: 'A', pos_day_buy_krw: 9e9, pos_day_sell_krw: 0, prev_pos_day_buy_krw: 984_000_000, prev_pos_day_sell_krw: 674_000_000 }),

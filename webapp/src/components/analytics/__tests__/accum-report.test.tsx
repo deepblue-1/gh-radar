@@ -152,13 +152,13 @@ describe('AccumReport — 목록 (A1 · A3 · D-08)', () => {
     expect(within(rowBtn(CXI)).getByText('매도중')).toBeTruthy();
   });
 
-  it('(h) 머리 출처 칩 「KYOBO119 판정 기준 · 20:30 적재」 + 장중 패널 안내 — 로딩 중에도 머리를 그린다', async () => {
+  it('(h) 머리 출처 칩 「KYOBO119 판정 기준 · 21:00 적재」 + 장중 패널 안내 — 로딩 중에도 머리를 그린다', async () => {
     let resolve!: (v: AccumReportResponse) => void;
     listImpl = () => new Promise((r) => (resolve = r));
     await open('d=20261014');
     const chip = document.querySelector('[data-slot="accum-source"]')!;
-    expect(chip.textContent).toBe('KYOBO119 판정 기준 · 20:30 적재');
-    expect(chip.parentElement!.textContent).toBe('KYOBO119 판정 기준 · 20:30 적재 장중에는 트레이딩 「매집」 패널이 실시간으로 보여줘요');
+    expect(chip.textContent).toBe('KYOBO119 판정 기준 · 21:00 적재');
+    expect(chip.parentElement!.textContent).toBe('KYOBO119 판정 기준 · 21:00 적재 장중에는 트레이딩 「매집」 패널이 실시간으로 보여줘요');
     expect(screen.getByText('불러오는 중…')).toBeTruthy();
     expect(rowButtons()).toHaveLength(0);
     resolve(accumReportFixture());
@@ -171,14 +171,14 @@ describe('AccumReport — 목록 (A1 · A3 · D-08)', () => {
     const a = await open('', { access: true, dates: [], date: null, rows: [] });
     const empty = document.querySelector('[data-slot="accum-empty"]')!;
     expect(within(empty as HTMLElement).getByText('아직 올라온 매집감지 보고서가 없어요')).toBeTruthy();
-    expect(within(empty as HTMLElement).getByText('첫 보고서는 평일 밤 20:30쯤 올라와요')).toBeTruthy();
+    expect(within(empty as HTMLElement).getByText('첫 보고서는 평일 밤 21:00쯤 올라와요')).toBeTruthy();
     expect(document.querySelector('[data-slot="accum-list"]')).toBeNull();
     expect(document.title).toBe('매집감지 보고서');
     a.unmount();
 
     await open('d=20261012', accumReportFixture({ date: '20261012', rows: [] }));
     expect(screen.getByText('이 날은 매집감지 데이터가 없어요')).toBeTruthy();
-    expect(screen.getByText('매집감지 보고서는 평일 밤 20:30쯤 올라와요. 최신 보고서는 10/14예요')).toBeTruthy();
+    expect(screen.getByText('매집감지 보고서는 평일 밤 21:00쯤 올라와요. 최신 보고서는 10/14예요')).toBeTruthy();
     expect(document.querySelector('[data-slot="accum-list"]')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '최신 보고서 보기' }));
     expect(pushMock).toHaveBeenCalledWith(`/analytics/accum?d=${ACCUM_DATE}`);

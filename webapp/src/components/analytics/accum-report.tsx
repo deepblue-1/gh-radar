@@ -31,7 +31,7 @@ import { LimitupDateNav } from './limitup-date-nav';
  *   `dates[]`(행 있는 날짜만 — D-07)로 판정한다. `?d` 가 dates 밖이면 `dateNavOf` 가 앞뒤 행 있는 날로 보낸다.
  * ④ 빈 상태 2종: 이력 0(`dates` 빔) · 행 없는 날(`dates > 0 ∧ rows []`) — 둘 다 KPI · 목록 카드 없음(`data-slot="accum-empty"`).
  * ⑤ 행이 있으면 세로 순서 = 머리 → KPI 4칸(D-09 · `AccumKpiStrip`) → 매집감지 종목 카드(D-08 정렬 · 기본 전부 접힘).
- * ⑥ 「20:30」 글자는 `ACCUM_LOAD_HM` 한 상수에서만 나온다(머리 칩 · 빈 상태 2곳).
+ * ⑥ 적재 시각 글자(「21:00」)는 `ACCUM_LOAD_HM` 한 상수에서만 나온다(머리 칩 · 빈 상태 2곳).
  * ⑦ 당일 축(quick-261026-01h · 스케치 018) — `dayAxisOf(resp.rows)` 가 true 인 날짜만 정렬 · KPI · 목록 · 상세가 당일 순매수를
  *   주인공으로 그린다(prop `dayAxis`). 봉투 `prev_date`(목록 RPC 20261026010000)는 상세 「전날」 줄 날짜로 내려 보낸다.
  */

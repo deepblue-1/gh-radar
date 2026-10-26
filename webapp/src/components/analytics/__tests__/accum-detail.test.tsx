@@ -547,7 +547,7 @@ describe('AccumDetail 부속 — 판정 기준 · 출처 칩 · D-19 순서 (A9 
     expect(rules.querySelector('ul')).toBeNull();
   });
 
-  it('(s1) multiCycle → 블록 문서 순서 kline → legend → presets → chart → cycles → pnl → rules → detail-source · 출처 칩 「KYOBO119 판정 기준 · 10/14 20:30 적재」 맨 끝 · KPI 줄에 임계 없음', async () => {
+  it('(s1) multiCycle → 블록 문서 순서 kline → legend → presets → chart → cycles → pnl → rules → detail-source · 출처 칩 「KYOBO119 판정 기준 · 10/14 21:00 적재」 맨 끝 · KPI 줄에 임계 없음', async () => {
     detailOver.set(HANSUN, accumSyntheticDetail('multiCycle'));
     const sec = await expand(HANSUN);
     const order = [
@@ -568,7 +568,7 @@ describe('AccumDetail 부속 — 판정 기준 · 출처 칩 · D-19 순서 (A9 
       expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     const chip = sec.querySelector('[data-slot="accum-detail-source"]')!;
-    expect(chip.textContent).toBe('KYOBO119 판정 기준 · 10/14 20:30 적재');
+    expect(chip.textContent).toBe('KYOBO119 판정 기준 · 10/14 21:00 적재');
     expect(chip.className).toContain('whitespace-nowrap');
     // 상세 맨 끝 — 뒤따르는 요소 없음
     const all = Array.from(sec.querySelectorAll('*'));
