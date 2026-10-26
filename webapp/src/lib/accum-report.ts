@@ -144,21 +144,22 @@ export interface AccumDetailKpi {
 /**
  * 상세 KPI 줄 4항목(D-19 · 마지막 사이클 = 평평한 열 · 임계 없음):
  * 「등록가」 · 「평단」(fmtPx) · 「등록 후 순매수」(±억 1자리 · 부호 색) · 「최고 순매수」(±억 1자리).
- * 당일 축(`dayAxis`)이면 5항목 — 「당일 순매수」(부호 색) · 「누적 순매수」(pos_net · 부호 색) · 「누적 평단」(pos_avg_px) ·
- * 「등록가」 · 「최고 순매수」(quick-261026-01h).
- * 당일 축이고 그날 당일 평단 열이 실렸으면(`dayAvg` = hasDayAvgOf · quick-261026-0ty) 6항목 — 「당일 순매수」 뒤에
+ * 당일 축(`dayAxis`)이면 6항목 — 「순매수(오늘)」(부호 색) · 「누적(이월포함)」(pos_net · 부호 색) · 「누적 평단」(pos_avg_px) ·
+ * 「등록가」 · 「최고 순매수」 · 「하루 순매수(등록 전 포함)」(day_net · 부호 색 — 목록에서 빠져 여기에만 · 2026-10-26)(quick-261026-01h).
+ * 당일 축이고 그날 당일 평단 열이 실렸으면(`dayAvg` = hasDayAvgOf · quick-261026-0ty) 7항목 — 「순매수(오늘)」 뒤에
  * 「당일 평단」(pos_day_avg_px · 0 · null 이면 「—」 · 누적 평단으로 채우지 않는다)을 넣는다.
  */
 export function detailKpisOf(row: AccumReportRow, dayAxis = false, dayAvg = false): AccumDetailKpi[] {
   if (dayAxis) {
     const today = todayNetOf(row);
     return [
-      { label: '당일 순매수', text: fmtEok(today, { signed: true }), tone: toneOf(today) },
+      { label: '순매수(오늘)', text: fmtEok(today, { signed: true }), tone: toneOf(today) },
       ...(dayAvg ? [{ label: '당일 평단', text: fmtPx(row.pos_day_avg_px) }] : []),
-      { label: '누적 순매수', text: fmtEok(row.pos_net_krw, { signed: true }), tone: toneOf(row.pos_net_krw) },
+      { label: '누적(이월포함)', text: fmtEok(row.pos_net_krw, { signed: true }), tone: toneOf(row.pos_net_krw) },
       { label: '누적 평단', text: fmtPx(row.pos_avg_px) },
       { label: '등록가', text: fmtPx(row.pos_reg_px) },
       { label: '최고 순매수', text: fmtEok(row.pos_peak_net_krw, { signed: true }) },
+      { label: '하루 순매수(등록 전 포함)', text: fmtEok(row.day_net_krw, { signed: true }), tone: toneOf(row.day_net_krw) },
     ];
   }
   return [
@@ -340,7 +341,8 @@ const amountTone = (won: number | null): TeamflowTone | 'none' => (isNum(won) ? 
 /**
  * 폰(< xl) 3줄 메타 — 「팀 순매수 {pos}」 · 「하루 {day}」 · 「등록 HH:MM」 또는 「MM/DD 등록」 + 종료 있으면 「 → HH:MM」.
  * xl 에서는 앞 두 항목이 팀 순매수 · 하루 순매수 칸으로 풀린다(라벨 sr-only).
- * 당일 축(`dayAxis`)이면 4항목 「당일 {today}」 · 「누적 {pos}」 · 「하루 {day}」 · 등록(quick-261026-01h).
+ * 당일 축(`dayAxis`)이면 gh-trade 매집감지창 열과 같은 3항목 「순매수(오늘) {today}」 · 「누적(이월포함) {pos}」 · 등록 —
+ * 하루 순매수는 목록에서 빼고 상세 KPI 에만 둔다(quick-261026-01h · 2026-10-26).
  */
 export function metaLineOf(row: AccumReportRow, dayAxis = false): AccumMetaItem[] {
   const end = endHmOf(row);
@@ -356,9 +358,8 @@ export function metaLineOf(row: AccumReportRow, dayAxis = false): AccumMetaItem[
   if (dayAxis) {
     const today = todayNetOf(row);
     return [
-      { label: '당일', value: fmtEok(today, { signed: true }), tone: amountTone(today) },
-      { label: '누적', value: fmtEok(row.pos_net_krw, { signed: true }), tone: amountTone(row.pos_net_krw) },
-      day,
+      { label: '순매수(오늘)', value: fmtEok(today, { signed: true }), tone: amountTone(today) },
+      { label: '누적(이월포함)', value: fmtEok(row.pos_net_krw, { signed: true }), tone: amountTone(row.pos_net_krw) },
       reg,
     ];
   }
@@ -373,7 +374,7 @@ export function metaLineOf(row: AccumReportRow, dayAxis = false): AccumMetaItem[
  * 행 sr 설명 1문장(UI-SPEC A3) — 「{상태}{, 이월 D+n}{, 사이클 n}{, {사유} HH:MM}, 결과 {태그}{, 고가 +NN.N%},
  * 팀 순매수 등록 후 {pos}, 하루 순매수 {day}{, 팀 당일 손익 {±억(±%)}}, 등록 {HH:MM | MM/DD}{, 종료 HH:MM}」. 결측에 throw 없음(「—」).
  * 끝 「종료 HH:MM」 은 사유 절이 시각을 이미 말했으면 생략한다(IN-02 — 같은 시각을 두 번 읽지 않게).
- * 당일 축(`dayAxis`)이면 금액 절이 「당일 순매수 {today}, 누적 {pos}, 하루 순매수 {day}」 다(quick-261026-01h).
+ * 당일 축(`dayAxis`)이면 금액 절이 「순매수(오늘) {today}, 누적(이월포함) {pos}」 다(quick-261026-01h · 2026-10-26).
  */
 export function accumRowDescriptionOf(row: AccumReportRow, dayAxis = false): string {
   const parts = [stateLabelOf(row.state)];
@@ -393,9 +394,8 @@ export function accumRowDescriptionOf(row: AccumReportRow, dayAxis = false): str
   if (tag.sub !== null) parts.push(tag.sub);
   if (dayAxis) {
     parts.push(
-      `당일 순매수 ${fmtEok(todayNetOf(row), { signed: true })}`,
-      `누적 ${fmtEok(row.pos_net_krw, { signed: true })}`,
-      `하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`,
+      `순매수(오늘) ${fmtEok(todayNetOf(row), { signed: true })}`,
+      `누적(이월포함) ${fmtEok(row.pos_net_krw, { signed: true })}`,
     );
   } else {
     parts.push(
@@ -581,8 +581,8 @@ export const ACCUM_RULE_LINES: readonly string[] = [
  * quick-261026-0ty — 보고서도 당일 평단을 보여 본문 1 끝 문장에서 「작업대의」 를 뺐다.
  */
 export const ACCUM_RULE_LINES_DAY: readonly string[] = [
-  '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
-  '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 당일 순매수와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
+  '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 「순매수(오늘)」이 이 값이에요. 「누적(이월포함)」(pos)은 사이클 시작부터 날을 넘겨 쌓은 값(등록 전 · 이월 포함 · 우리 체결 제외)이고 목록 「누적(이월포함)」 열 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
+  '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 순매수(오늘)와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
   ACCUM_RULE_LINES[2]!,
   ACCUM_RULE_LINES[3]!,
 ];
@@ -594,7 +594,7 @@ export const ACCUM_RULE_LINES_DAY: readonly string[] = [
  */
 export const ACCUM_RULE_LINES_DAY_POS: readonly string[] = [
   ACCUM_RULE_LINES_DAY[0]!,
-  '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 당일 순매수와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
+  '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 순매수(오늘)와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
   '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.',
   ACCUM_RULE_LINES[3]!,
 ];

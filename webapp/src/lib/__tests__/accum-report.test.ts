@@ -483,32 +483,39 @@ describe('당일 축 목록 · KPI · 메타 · 설명 · 상세 KPI (quick-2610
     expect(accumKpisOf([]).daySum).toBeNull();
   });
 
-  it('metaLineOf(row, true) — 당일 · 누적 · 하루 · 등록 · 인자 없음은 3항목 그대로', () => {
+  it('metaLineOf(row, true) — 순매수(오늘) · 누적(이월포함) · 등록(하루 없음) · 인자 없음은 3항목 그대로', () => {
     expect(metaLineOf(dax(AC_CARRY), true)).toEqual([
-      { label: '당일', value: '+2.4억', tone: 'up' },
-      { label: '누적', value: '+3.6억', tone: 'up' },
-      { label: '하루', value: '+0.4억', tone: 'up' },
+      { label: '순매수(오늘)', value: '+2.4억', tone: 'up' },
+      { label: '누적(이월포함)', value: '+3.6억', tone: 'up' },
       { label: null, value: '10/10 등록' },
     ]);
-    expect(metaLineOf(dax(AC_PARTIAL), true)[0]).toEqual({ label: '당일', value: '—', tone: 'none' });
+    expect(metaLineOf(dax(AC_PARTIAL), true)[0]).toEqual({ label: '순매수(오늘)', value: '—', tone: 'none' });
     expect(metaLineOf(dax(AC_LIVE))).toEqual(metaLineOf(syn(AC_LIVE)));
     expect(metaLineOf(dax(AC_LIVE))).toHaveLength(3);
   });
 
-  it('accumRowDescriptionOf(row, true) — 금액 절 「당일 순매수 · 누적 · 하루 순매수」 · 인자 없음은 지금 문장', () => {
+  it('accumRowDescriptionOf(row, true) — 금액 절 「순매수(오늘) · 누적(이월포함)」 · 인자 없음은 지금 문장', () => {
     expect(accumRowDescriptionOf(dax(AC_CARRY), true)).toBe(
-      '매집중, 이월 D+2, 사이클 2, 결과 +13.8%, 고가 +29.8%, 당일 순매수 +2.4억, 누적 +3.6억, 하루 순매수 +0.4억, 등록 10/10',
+      '매집중, 이월 D+2, 사이클 2, 결과 +13.8%, 고가 +29.8%, 순매수(오늘) +2.4억, 누적(이월포함) +3.6억, 등록 10/10',
     );
     expect(accumRowDescriptionOf(dax(AC_CARRY))).toBe(
       '매집중, 이월 D+2, 사이클 2, 결과 +13.8%, 고가 +29.8%, 팀 순매수 등록 후 +3.6억, 하루 순매수 +0.4억, 등록 10/10',
     );
   });
 
-  it('detailKpisOf(row, true) — 당일 순매수(tone) · 누적 순매수(tone) · 누적 평단 · 등록가 · 최고 순매수 · 인자 없음 = 4항목', () => {
+  it('detailKpisOf(row, true) — 순매수(오늘) · 누적(이월포함) · 누적 평단 · 등록가 · 최고 순매수 · 하루 순매수 · 인자 없음 = 4항목', () => {
     const k = detailKpisOf(dax(AC_LIVE), true);
-    expect(k.map((x) => x.label)).toEqual(['당일 순매수', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
-    expect(k[0]).toEqual({ label: '당일 순매수', text: '−0.6억', tone: 'down' });
-    expect(k[1]).toEqual({ label: '누적 순매수', text: '+9.3억', tone: 'up' });
+    expect(k.map((x) => x.label)).toEqual([
+      '순매수(오늘)',
+      '누적(이월포함)',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+      '하루 순매수(등록 전 포함)',
+    ]);
+    expect(k[0]).toEqual({ label: '순매수(오늘)', text: '−0.6억', tone: 'down' });
+    expect(k[1]).toEqual({ label: '누적(이월포함)', text: '+9.3억', tone: 'up' });
+    expect(detailKpisOf(dax(AC_CARRY), true)[5]).toEqual({ label: '하루 순매수(등록 전 포함)', text: '+0.4억', tone: 'up' });
     expect(k[2]!.text).toBe('12,680');
     expect(k[3]!.text).toBe('11,410');
     expect(detailKpisOf(dax(AC_LIVE)).map((x) => x.label)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
@@ -542,8 +549,8 @@ describe('당일 축 판정 기준 — 새 임계 문구 · ACCUM_RULE_LINES_DAY
 
   it('ACCUM_RULE_LINES_DAY 4줄 — 본문 1 · 2 당일 축용 · 3 · 4 는 ACCUM_RULE_LINES 공유(500만원)', () => {
     expect(ACCUM_RULE_LINES_DAY).toEqual([
-      '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 큰 숫자가 이 값이에요. 누적 순매수(pos)는 등록 이후 사이클 누적(이월 포함 · 우리 체결 제외)이고 목록 아랫줄 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
-      '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 당일 순매수와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
+      '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 「순매수(오늘)」이 이 값이에요. 「누적(이월포함)」(pos)은 사이클 시작부터 날을 넘겨 쌓은 값(등록 전 · 이월 포함 · 우리 체결 제외)이고 목록 「누적(이월포함)」 열 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
+      '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 순매수(오늘)와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
       ACCUM_RULE_LINES[2],
       ACCUM_RULE_LINES[3],
     ]);
@@ -565,20 +572,29 @@ describe('당일 평단 — hasDayAvgOf · detailKpisOf(row, true, true) (quick-
     expect(hasDayAvgOf([])).toBe(false);
   });
 
-  it('detailKpisOf(row, true, true) — 6항목 · 당일 평단 = pos_day_avg_px > 0 · 아니면 「—」(누적으로 채우지 않음)', () => {
+  it('detailKpisOf(row, true, true) — 7항목 · 당일 평단 = pos_day_avg_px > 0 · 아니면 「—」(누적으로 채우지 않음)', () => {
     const k = detailKpisOf(dav(AC_CARRY), true, true);
-    expect(k.map((x) => x.label)).toEqual(['당일 순매수', '당일 평단', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(k.map((x) => x.label)).toEqual([
+      '순매수(오늘)',
+      '당일 평단',
+      '누적(이월포함)',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+      '하루 순매수(등록 전 포함)',
+    ]);
     expect(k[1]).toEqual({ label: '당일 평단', text: '21,480' });
     const live = detailKpisOf(dav(AC_LIVE), true, true);
     expect(live[1]!.text).toBe('—');
     expect(live[3]).toEqual({ label: '누적 평단', text: '12,680' });
     expect(detailKpisOf(dav(AC_PARTIAL), true, true)[1]!.text).toBe('—');
     expect(detailKpisOf(dav(AC_CARRY), true).map((x) => x.label)).toEqual([
-      '당일 순매수',
-      '누적 순매수',
+      '순매수(오늘)',
+      '누적(이월포함)',
       '누적 평단',
       '등록가',
       '최고 순매수',
+      '하루 순매수(등록 전 포함)',
     ]);
     expect(detailKpisOf(dav(AC_CARRY)).map((x) => x.label)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
   });
@@ -597,7 +613,7 @@ describe('ACCUM_RULE_LINES_DAY_POS (quick-261026-0ty)', () => {
   it('4줄 — 본문 1 = DAY[0] · 본문 2 서버 당일 순매수 보라 · 원 문턱(누적 계단 문장 없음) · 종료 사유 공유', () => {
     expect(ACCUM_RULE_LINES_DAY_POS).toEqual([
       ACCUM_RULE_LINES_DAY[0],
-      '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 당일 순매수와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
+      '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 순매수(오늘)와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
       '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.',
       ACCUM_RULE_LINES[3],
     ]);

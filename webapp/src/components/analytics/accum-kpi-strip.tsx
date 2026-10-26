@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
  * - `dd` = `flex flex-wrap items-baseline gap-x-2` — 좁은 칸에서 보조 글자는 값 아래 줄로 내려간다(`truncate` 를 걸지 않는다).
  *   보조 글자는 0 이어도 지우지 않는다(날짜 간 칸 자리가 같아야 비교된다).
  * - 행이 있는 날에만 그린다(빈 날은 부모가 띠를 생략). KPI 아래 캡션은 없다(D-10).
- * - 당일 축 날짜(`dayAxis` · quick-261026-01h)면 4칸째가 「당일 순매수 합(등록 후)」(daySum · 없으면 「—」 --faint) + 보조 「누적 ±x.x억」(posSum).
+ * - 당일 축 날짜(`dayAxis` · quick-261026-01h)면 4칸째가 「순매수(오늘) 합」(daySum · 없으면 「—」 --faint) + 보조 「누적(이월포함) ±x.x억」(posSum) — 목록 4 · 5열과 같은 이름(2026-10-26).
  */
 
 const INT_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
@@ -35,10 +35,10 @@ export function AccumKpiStrip({ kpis, dayAxis = false }: { kpis: AccumKpis; dayA
     },
     dayAxis
       ? {
-          label: '당일 순매수 합(등록 후)',
+          label: '순매수(오늘) 합',
           value: kpis.daySum === null ? '—' : fmtEok(kpis.daySum, { signed: true }),
           tone: kpis.daySum === null ? 'text-[var(--faint)]' : TONE_TEXT[toneOf(kpis.daySum)],
-          sub: `누적 ${fmtEok(kpis.posSum, { signed: true })}`,
+          sub: `누적(이월포함) ${fmtEok(kpis.posSum, { signed: true })}`,
         }
       : {
           label: '팀 순매수 합(등록 후)',

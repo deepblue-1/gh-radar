@@ -762,11 +762,18 @@ describe('quick-261026-01h — 당일 축 상세 KPI · 전날 줄 · 판정 기
     expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
   });
 
-  it('(d3) KPI 줄 = 당일 축 5항목 · 판정 기준 1줄 새 임계 문구 · 본문 = ACCUM_RULE_LINES_DAY 4줄', async () => {
+  it('(d3) KPI 줄 = 당일 축 6항목 · 판정 기준 1줄 새 임계 문구 · 본문 = ACCUM_RULE_LINES_DAY 4줄', async () => {
     dayList();
     detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY));
     const sec = await expand(AC_CARRY);
-    expect(klineLabels(sec)).toEqual(['당일 순매수', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(klineLabels(sec)).toEqual([
+      '순매수(오늘)',
+      '누적(이월포함)',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+      '하루 순매수(등록 전 포함)',
+    ]);
     expect(openRules(sec)).toEqual([
       '이 종목의 등록 임계 — 당일 순매수 1.0억 이상 · 최근 60초 팀 매수 조각 30개 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
       ...ACCUM_RULE_LINES_DAY,
@@ -902,12 +909,20 @@ describe('quick-261026-0ty 당일 평단(pos_day_avg_px)', () => {
     listOver = accumReportFixture({ rows, prevDate: '20261013' });
   };
 
-  it('(a1) 열이 실린 당일 축 날짜 · 이월 행 → KPI 6항목 · 당일 평단 21,480', async () => {
+  it('(a1) 열이 실린 당일 축 날짜 · 이월 행 → KPI 7항목 · 당일 평단 21,480', async () => {
     avgList();
     detailOver.set(AC_CARRY, accumDayAxisDetailOf(AC_CARRY, accumDayAvgListRows()));
     const sec = await expand(AC_CARRY);
     const k = kline(sec);
-    expect(k.map((x) => x.label)).toEqual(['당일 순매수', '당일 평단', '누적 순매수', '누적 평단', '등록가', '최고 순매수']);
+    expect(k.map((x) => x.label)).toEqual([
+      '순매수(오늘)',
+      '당일 평단',
+      '누적(이월포함)',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+      '하루 순매수(등록 전 포함)',
+    ]);
     expect(k[1]!.text).toBe('21,480');
   });
 

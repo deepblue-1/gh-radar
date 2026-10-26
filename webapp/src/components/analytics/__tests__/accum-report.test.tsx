@@ -614,24 +614,25 @@ describe('quick-261026-01h — 당일 축 날짜 목록 · KPI (스케치 018)',
   const openDay = () =>
     open('d=20261014', accumReportFixture({ rows: accumDayAxisListRows(), prevDate: '20261013' }));
 
-  it('(y1) KPI 4칸째 「당일 순매수 합(등록 후)」 = 당일 합 + 보조 「누적 ±x.x억」 · 1~3칸 그대로', async () => {
+  it('(y1) KPI 4칸째 「순매수(오늘) 합」 = 당일 합 + 보조 「누적(이월포함) ±x.x억」 · 1~3칸 그대로', async () => {
     await openDay();
     expect(kpiTiles()).toEqual([
       ['등록 종목', '7', '이월 3'],
       ['장 마감 보유', '4', '매집중 3 · 매도중 1'],
       ['종료', '3', '청산 1 · 매집 종료 0 · 탈락 1 · 만료 1'],
-      ['당일 순매수 합(등록 후)', '+0.4억', '누적 +4.2억'],
+      ['순매수(오늘) 합', '+0.4억', '누적(이월포함) +4.2억'],
     ]);
-    const sum = document.querySelector('[data-kpi="당일 순매수 합(등록 후)"] dd > span')!;
+    const sum = document.querySelector('[data-kpi="순매수(오늘) 합"] dd > span')!;
     expect(sum.className).toContain('text-[var(--up)]');
     expect(document.querySelector('[data-kpi="팀 순매수 합(등록 후)"]')).toBeNull();
   });
 
-  it('(y2) 머리 4열 「당일 순매수」/「(등록 후 · 아래 누적)」 · 캡션 「… 그 안 당일 순매수 큰 순」 · 행 순서 = 당일 큰 순', async () => {
+  it('(y2) 머리 4 · 5열 「순매수(오늘)」 · 「누적(이월포함)」(gh-trade 동형) · 캡션 「… 그 안 순매수(오늘) 큰 순」 · 행 순서 = 당일 큰 순', async () => {
     await openDay();
-    expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 당일 순매수 큰 순')).toBeTruthy();
+    expect(screen.getByText('매집중 → 매도중 → 종료 · 그 안 순매수(오늘) 큰 순')).toBeTruthy();
     const head = document.querySelector('[data-slot="accum-list-head"]')!;
-    expect(Array.from(head.children).map((c) => c.textContent)[3]).toBe('당일 순매수(등록 후 · 아래 누적)');
+    expect(Array.from(head.children).map((c) => c.textContent).slice(3, 5)).toEqual(['순매수(오늘)', '누적(이월포함)']);
+    expect(head.textContent).not.toContain('하루 순매수');
     expect(rowButtons().map((b) => b.getAttribute('data-isin'))).toEqual([
       AC_CARRY,
       AC_LIVE,
@@ -643,36 +644,39 @@ describe('quick-261026-01h — 당일 축 날짜 목록 · KPI (스케치 018)',
     ]);
   });
 
-  it('(y3) 행 4열 — 당일(부호 색 · pos_day null 「—」 --faint) + xl 아랫줄 「누적 · 누적 평단」 · 폰 메타 = 당일 · 누적 · 하루 · 손익 · 등록', async () => {
+  it('(y3) 4열 순매수(오늘)(부호 색 · pos_day null 「—」 --faint) · 5열 누적(이월포함) + xl 아랫줄 「누적 평단」 · 하루 없음 · 폰 메타 = 오늘 · 누적 · 손익 · 등록', async () => {
     const pnl = { total_val: 30_000_000, ret: 0.011, realized_val: 10_000_000, unrealized_val: 20_000_000 } as TeamflowPnl;
     const rows = accumDayAxisListRows().map((r) => (r.isin === AC_LIVE ? { ...r, pnl } : r));
     await open('d=20261014', accumReportFixture({ rows, prevDate: '20261013' }));
     const today = rowBtn(AC_LIVE).querySelector('[data-slot="accum-today"]')!;
     expect(today.textContent).toBe('−0.6억');
     expect(today.className).toContain('text-[var(--down)]');
-    const sub = rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!;
-    expect(sub.textContent).toBe('누적 +9.3억 · 누적 평단 12,680');
-    expect(sub.getAttribute('title')).toBe('누적 +9.3억 · 누적 평단 12,680');
-    expect(sub.className).toContain('hidden');
-    expect(sub.className).toContain('xl:block');
     expect(slotText(AC_CARRY, 'accum-today')).toBe('+2.4억');
     const partial = rowBtn(AC_PARTIAL).querySelector('[data-slot="accum-today"]')!;
     expect(partial.textContent).toBe('—');
     expect(partial.className).toContain('text-[var(--faint)]');
-    // 누적 항목 — 폰만(xl 숨김)
+    // 5열 누적 — 폰 · xl 둘 다 보인다
     const pos = rowBtn(AC_LIVE).querySelector('[data-slot="accum-pos"]')!;
     expect(pos.textContent).toBe('+9.3억');
-    expect(pos.parentElement!.className).toContain('xl:hidden');
+    expect(pos.parentElement!.className).toContain('xl:col-start-5');
+    expect(pos.parentElement!.className).not.toContain('xl:hidden');
+    const cumAvg = rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-avg"]')!;
+    expect(cumAvg.textContent).toBe('누적 평단 12,680');
+    expect(cumAvg.className).toContain('hidden');
+    expect(cumAvg.className).toContain('xl:block');
+    // 당일 평단 열 없는 날짜 → 4열 아랫줄 없음 · 하루 · 평단 · 등록가 칸 없음
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-day-avg"]')).toBeNull();
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-day"]')).toBeNull();
     expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-avg"]')).toBeNull();
-    // 폰 메타 순서 — 당일 → 누적 → 하루 → 손익 → 등록
-    const order = ['accum-today', 'accum-pos', 'accum-day', 'accum-pnl-meta', 'accum-meta-reg'].map(
+    // 폰 메타 순서 — 오늘 → 누적 → 손익 → 등록
+    const order = ['accum-today', 'accum-pos', 'accum-pnl-meta', 'accum-meta-reg'].map(
       (slot) => rowBtn(AC_LIVE).querySelector(`[data-slot="${slot}"]`)!,
     );
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     expect(document.getElementById(`accum-row-desc-${AC_CARRY}`)!.textContent).toContain(
-      '당일 순매수 +2.4억, 누적 +3.6억, 하루 순매수 +0.4억',
+      '순매수(오늘) +2.4억, 누적(이월포함) +3.6억, 등록',
     );
   });
 
@@ -684,17 +688,18 @@ describe('quick-261026-01h — 당일 축 날짜 목록 · KPI (스케치 018)',
     expect(slotText(AC_LIVE, 'accum-avg')).toBe('평단 12,680 · 등록가 11,410');
   });
 
-  it('(b1) quick-261026-0ty 당일 평단 열이 실린 날짜 → 아랫줄 「누적 · 평단(당일) N」 · 0 이면 「—」(누적 평단으로 채우지 않음)', async () => {
+  it('(b1) quick-261026-0ty 당일 평단 열이 실린 날짜 → 4열 아랫줄 「평단(당일) N」 · 0 이면 「—」(누적 평단으로 채우지 않음)', async () => {
     await open('d=20261014', accumReportFixture({ rows: accumDayAvgListRows(), prevDate: '20261013' }));
-    const carry = rowBtn(AC_CARRY).querySelector('[data-slot="accum-cum-sub"]')!;
-    expect(carry.textContent).toBe('누적 +3.6억 · 평단(당일) 21,480');
-    expect(carry.getAttribute('title')).toBe('누적 +3.6억 · 평단(당일) 21,480');
-    const live = rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!;
-    expect(live.textContent).toBe('누적 +9.3억 · 평단(당일) —');
+    const carry = rowBtn(AC_CARRY).querySelector('[data-slot="accum-day-avg"]')!;
+    expect(carry.textContent).toBe('평단(당일) 21,480');
+    expect(carry.getAttribute('title')).toBe('평단(당일) 21,480');
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-day-avg"]')!.textContent).toBe('평단(당일) —');
+    expect(slotText(AC_LIVE, 'accum-cum-avg')).toBe('누적 평단 12,680');
   });
 
-  it('(b2) quick-261026-0ty 열 없는 당일 축 날짜 → 01h 「누적 · 누적 평단」 그대로', async () => {
+  it('(b2) quick-261026-0ty 열 없는 당일 축 날짜 → 4열 아랫줄 없음 · 5열 아랫줄 「누적 평단」', async () => {
     await openDay();
-    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-cum-sub"]')!.textContent).toBe('누적 +9.3억 · 누적 평단 12,680');
+    expect(rowBtn(AC_LIVE).querySelector('[data-slot="accum-day-avg"]')).toBeNull();
+    expect(slotText(AC_LIVE, 'accum-cum-avg')).toBe('누적 평단 12,680');
   });
 });
