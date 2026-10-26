@@ -1,16 +1,16 @@
-# limitup-pull.timer — 평일 20:20 KST 에 limitup-pull.service 를 부른다 (docs/relay-operations.md)
+# limitup-pull.timer — 평일 20:50 KST 에 limitup-pull.service 를 부른다 (docs/relay-operations.md)
 #
 # radar-gw 의 시스템 시간대는 UTC 다 — OnCalendar 의 Asia/Seoul 접미사가 없으면 21:00 UTC(= 06:00 KST)에 돈다.
-# 20:20 = 119 밤 export 배치(2026-10-16 부터 20:10 시작, 실측 3~6분) 뒤 · gh-trade tick-archive(22:00) 앞 · 적재 Job(20:30) 앞, 장(~20:00) 밖.
+# 20:50 = 119 밤 export 배치(20:10 시작) 뒤 — D+1 재기록 · files_changed 재실행이 붙으면 20:20 을 넘긴다(2026-10-26 실측: 10/23 재기록 20:15 끝 · 10/26 그 뒤) · gh-trade tick-archive(22:00) 앞 · 적재 Job(21:00) 앞, 장(~20:00) 밖. 2026-10-26 20:20→20:50(gh-trade-3c 합의).
 #
-# Persistent= 를 두지 않는다 — 상태 없이 미러와 버킷을 맞추므로 놓친 회차는 다음 평일 20:20 이 보충한다.
+# Persistent= 를 두지 않는다 — 상태 없이 미러와 버킷을 맞추므로 놓친 회차는 다음 평일 20:50 이 보충한다.
 # Persistent 보충 실행은 radar-gw 재부팅 뒤 장중에 운반을 일으킬 수 있다(스크립트의 장중 가드가 이중 방어).
 # 설치 직후에는 disabled 다 — 119 에 키(radar-gw-pull)가 등록된 뒤 `install.sh … --enable-timer` 로 켠다.
 [Unit]
-Description=Run limitup-pull on weekdays at 20:20 KST
+Description=Run limitup-pull on weekdays at 20:50 KST
 
 [Timer]
-OnCalendar=Mon..Fri 20:20:00 Asia/Seoul
+OnCalendar=Mon..Fri 20:50:00 Asia/Seoul
 AccuracySec=1min
 Unit=limitup-pull.service
 

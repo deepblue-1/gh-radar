@@ -10,7 +10,7 @@ set -euo pipefail
 # 차이 (28-08-PLAN / 28-RESEARCH §E-3):
 #   - GCS 볼륨 마운트(읽기 전용 · gen2) — gs://gh-radar-limitup-export → /mnt/export,
 #     워커 env LIMITUP_EXPORT_DIR=/mnt/export/export (버킷 접두 export/ — radar-gw 운반기가 올린다)
-#   - Scheduler 평일 20:30 KST (radar-gw 운반 20:20 KST 뒤)
+#   - Scheduler 평일 21:00 KST (radar-gw 운반 20:50 KST 뒤 · 2026-10-26 20:30→21:00)
 #   - task-timeout 1800s · memory 1Gi (첫 run 은 GCS 의 전 날짜를 한 번에 적재)
 #   - 실패 실행 알림 정책 gh-radar-limitup-sync-failure (D-20 — 3회 연속 skip · 예외 = 종료 1 ·
 #     CR-B01 실패 날짜 · WR-B01 export 3 거래일 공백(stale) 도 종료 1)
@@ -70,7 +70,7 @@ IMAGE="${REGISTRY}/limitup-sync:${SHA}"
 IMAGE_LATEST="${REGISTRY}/limitup-sync:latest"
 JOB="gh-radar-limitup-sync"
 SCHED="gh-radar-limitup-sync-nightly"
-CRON="30 20 * * 1-5"
+CRON="0 21 * * 1-5"
 
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
@@ -124,7 +124,7 @@ deploy_job() {
 # 첫 run 은 GCS 전 날짜 적재 — 넉넉히 1800s · 1Gi (28-RESEARCH §E-2)
 deploy_job "$JOB"
 
-# Section 6: Cloud Scheduler — 평일 20:30 KST (radar-gw 운반기 20:20 KST 뒤)
+# Section 6: Cloud Scheduler — 평일 21:00 KST (radar-gw 운반기 20:50 KST 뒤)
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
 create_or_update_scheduler() {
@@ -152,7 +152,7 @@ create_or_update_scheduler() {
   fi
 }
 
-# cron "30 20 * * 1-5" Asia/Seoul
+# cron "0 21 * * 1-5" Asia/Seoul
 create_or_update_scheduler "$SCHED" "$JOB" "$CRON"
 
 # Section 7: Alert policy (idempotent — update-or-create)

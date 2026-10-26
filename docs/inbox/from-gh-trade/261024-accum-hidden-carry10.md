@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 86d6b531
 from_branch: worktree-agent-a48ddd48e004abc85
 date: 2026-10-24
 fbs_sync_marker: 07a34fe8
-done_commit:
+done_commit: none   # 실시간 패널 e3c4f912 · 보고서 매집 종료 90a3289d · end 4 목록 da97a6d2 · pos_net fee1002b · 10/01~10/23 재적재 대조 일치 · 10/23 D+1 재기록 49행 사고 → gh-trade 복구 118행 10/26 20:57 KST 재적재
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
