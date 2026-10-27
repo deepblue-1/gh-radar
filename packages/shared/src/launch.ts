@@ -302,3 +302,78 @@ export function launchHeadOf<P extends Pick<LaunchCalcPiece, "wire" | "sent_rel_
     nonmono: lo !== null && hi !== null && lo > hi,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 패널 집계 · 리본 — 첨부 summaryCard · drawPanel 식
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 패널 머리 집계. 판단 불가 날은 경계 · 전부 접수 · 전부 거부 어디에도 세지 않는다(Pitfall 5). */
+export interface LaunchPanelStats {
+  days: number;
+  n_gate: number;
+  n_all_accept: number;
+  n_all_reject: number;
+  n_unknown: number;
+  /** 접수된 가장 이른 조각 rel(= 날별 hi 최솟값) */
+  min_accept: number | null;
+  /** 거부 받은 가장 늦은 조각 rel(= 날별 lo 최댓값) */
+  max_reject: number | null;
+}
+
+export function launchPanelStatsOf(days: readonly LaunchDay<unknown>[]): LaunchPanelStats {
+  const count = (k: LaunchDayKind) => days.filter((d) => d.kind === k).length;
+  return {
+    days: days.length,
+    n_gate: count("gate"),
+    n_all_accept: count("all_accept"),
+    n_all_reject: count("all_reject"),
+    n_unknown: count("unknown"),
+    min_accept: minOrNull(days.flatMap((d) => (d.hi !== null ? [d.hi] : []))),
+    max_reject: maxOrNull(days.flatMap((d) => (d.lo !== null ? [d.lo] : []))),
+  };
+}
+
+/** 리본 한 칸 — 그 시각에 첫 조각을 쐈다면 확실히 접수 · 확실히 거부 · 모름인 날 수. */
+export interface LaunchRibbonCell {
+  ok: number;
+  bad: number;
+  unknown: number;
+}
+
+/** 첨부 식 그대로 — `v ≥ hi` 면 접수, 아니면 `v ≤ lo` 면 거부, 나머지 모름(hi 먼저 판정). */
+export function launchRibbonAt(days: readonly LaunchDay<unknown>[], v: number): LaunchRibbonCell {
+  let ok = 0;
+  let bad = 0;
+  for (const d of days) {
+    if (d.hi !== null && v >= d.hi) ok++;
+    else if (d.lo !== null && v <= d.lo) bad++;
+  }
+  return { ok, bad, unknown: days.length - ok - bad };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 발사 기준 — profile × 거래소 → 기준시각 · 지도 발사
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * (profile, 거래소) → 발사 기준시각 `"HH:MM:SS"`. Q16 = KRX 16:00:00 · A = KRX 09:00:27(매수 다리) ·
+ * N · A = NXT 09:00:30(N 매수 · A 매도 다리). 그 밖 조합은 null(백필 입력이면 거부 사유).
+ */
+export function launchFireBaseOf(profile: string, fireExchange: string): string | null {
+  if (fireExchange === "KRX") {
+    if (profile === "Q16") return "16:00:00";
+    if (profile === "A") return "09:00:27";
+    return null;
+  }
+  if (fireExchange === "NXT" && (profile === "N" || profile === "A")) return "09:00:30";
+  return null;
+}
+
+/** (거래소, 기준시각) → 지도 발사. A 의 KRX 09:00:27 다리는 지도 대상이 아니라 null(주문 내역에만). */
+export function launchFireOf(row: { fire_exchange: string; fire_base: string }): LaunchFire | null {
+  for (const fire of Object.keys(LAUNCH_FIRES) as LaunchFire[]) {
+    const f = LAUNCH_FIRES[fire];
+    if (f.fire_exchange === row.fire_exchange && f.fire_base === row.fire_base) return fire;
+  }
+  return null;
+}
