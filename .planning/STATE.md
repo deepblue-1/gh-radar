@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-05-PLAN.md
-last_updated: "2026-10-27T12:15:01.071Z"
+stopped_at: Completed 35-06-PLAN.md
+last_updated: "2026-10-27T12:30:18.802Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 execution started
-state_head: 794c4ce8868674eaaae981d4add1a96b1cac67de
+state_head: 8bbd4ded2ac6dbbd4fa010d0c73f98c7237234e8
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 64
-  completed_plans: 58
+  completed_plans: 59
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 5 of 11 (35-01~05 완료)
+Plan: 6 of 11 (35-01~06 완료)
 Status: Executing Phase 35
 Last activity: 2026-10-27 — Phase 35 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T12:15:00.986Z
-Stopped at: Completed 35-05-PLAN.md
+Last session: 2026-10-27T12:30:18.712Z
+Stopped at: Completed 35-06-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -162,6 +162,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P10 | 12min | 3 tasks | 5 files |
 | Phase 35 P04 | 10 min | 2 tasks | 3 files |
 | Phase 35 P05 | 5 min | 3 tasks | 8 files |
+| Phase 35 P06 | 13 min | 2 tasks | 11 files |
 
 ## Decisions
 
@@ -248,3 +249,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-04: launch_project_event 는 Wave A no-op 스텁 — 35-10 이 같은 시그니처로 정식 매핑을 넣고 launch_reproject() 1회(applied_at · seq 순 · 멱등)
 - [Phase 35]: 35-05: 발사 어드민 라우트는 경로 한정 관문(/launch) + adminServersRouter 뒤 · adminRouter 앞 마운트 — /launch · /users · /servers 모두 역할 조회 1회(supertest 기록)
 - [Phase 35]: 35-05: server 는 발사 RPC jsonb 를 변환 없이 Launch*Response 로 통과 · 모양 검사는 assertArrays(객체 + 키 3개 배열) 하나 — 계산은 웹 shared(D-20)
+- [Phase 35]: 35-06: 발사 카드 모델은 머리 우선 · 조각 폴백 — q16 경계는 머리 gate_lo/hi, 둘 다 null 이면 shared launchDaysOf 그날 1개 · 결과 수는 언제나 탭 조각(표와 같은 수) · n0930 오프셋/다음 오프셋은 N 머리만
+- [Phase 35]: 35-06: fetchLaunchOrders/Map 은 같은 경로 진행 중 요청만 합친다(캐시 없음) — 개발 StrictMode 이중 effect 로 첫 진입 요청이 2건 되는 것 방지 · /admin/launch 탭은 AVAILABLE_TABS(['orders'])만 그리고 35-08 이 'map' 을 더한다
