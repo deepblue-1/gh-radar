@@ -13,10 +13,14 @@
 
 import {
   launchFireOf,
+  launchRibbonAt,
   type LaunchDay,
   type LaunchFire,
   type LaunchHeadRow,
+  type LaunchRibbonCell,
 } from '@gh-radar/shared';
+
+import { fmtUs, resultToneOf, type LaunchResultTone } from './launch-format';
 
 /**
  * 패널 배치 — 그림 영역 x = [L, W − R] · 첫 행 위끝 T · 날짜 행 RH · 행과 리본 사이 GAP_R · 리본 RIBBON_H ·
@@ -195,4 +199,80 @@ export function mapNextOffsetOf(
 export function launchDateLabelOf(date: string): string {
   const d = date.replace(/\D/g, '');
   return d.length >= 8 ? `${d.slice(4, 6)}/${d.slice(6, 8)}` : date;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 「쐈다면」 리본 · 표식 · 툴팁
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LaunchRibbon {
+  /** 칸 폭(µs) */
+  stepR: number;
+  /** 칸 v = xmin + i·stepR(정수 i) · 값 = shared `launchRibbonAt(days, v)` */
+  cells: (LaunchRibbonCell & { v: number })[];
+}
+
+/**
+ * 리본 칸(첨부 :174-185 · 목업 :207) — stepR = 축 폭 > 100 이면 1 · 아니면 0.2(µs). 칸 수(v < xmax) > plotPx 면 stepR 을
+ * 다음 nice(1 · 2 · 5 × 10^k)로 올린다 — SVG 노드 수가 그림 폭에 비례. 칸 v 는 정수 i 로 계산(부동소수 누적 금지).
+ */
+export function launchRibbonCellsOf(
+  days: readonly LaunchDay<unknown>[],
+  axis: LaunchAxis,
+  plotPx: number,
+): LaunchRibbon {
+  const span = axis.xmax - axis.xmin;
+  if (span <= 0) return { stepR: 1, cells: [] };
+  let stepR = span > 100 ? 1 : 0.2;
+  const countOf = (s: number) => Math.ceil(tidy(span / s));
+  while (countOf(stepR) > Math.max(1, Math.floor(plotPx))) stepR = nextNice(stepR);
+  const n = countOf(stepR);
+  const cells: LaunchRibbon['cells'] = [];
+  for (let i = 0; i < n; i++) {
+    const v = tidy(axis.xmin + i * stepR);
+    cells.push({ v, ...launchRibbonAt(days, v) });
+  }
+  return { stepR, cells };
+}
+
+export interface LaunchMark {
+  shape: 'circle' | 'diamond';
+  tone: LaunchResultTone;
+}
+
+/**
+ * 점 표식(D-17 · 오케스트레이터 결정 5) — 09:00:30 합패널의 매도(A 매도 다리)만 마름모 · 그 밖(N 매수 · side null(D-08) ·
+ * 16:00 전부)은 원. 색 축은 결과(`resultToneOf` — 접수 · 101/515 · 기타).
+ */
+export function launchMarkOf(piece: { side: string | null; result: string }, fire: LaunchFire): LaunchMark {
+  return {
+    shape: fire === 'n0930' && piece.side === 'sell' ? 'diamond' : 'circle',
+    tone: resultToneOf(piece.result),
+  };
+}
+
+/** 마름모 경로 — 중심 (cx, cy) · 꼭짓점까지 r. */
+export function diamondPathOf(cx: number, cy: number, r: number): string {
+  return `M${cx} ${cy - r} L${cx + r} ${cy} L${cx} ${cy + r} L${cx - r} ${cy} Z`;
+}
+
+const SIDE_TIP: Readonly<Record<string, string>> = { buy: '매수', sell: '매도' };
+
+/**
+ * 점 `<title>` — q16 「MM/DD −350µs · wire 2 · 101」 · n0930 「MM/DD −20,148µs · wire 0 · 매수 · 101 · 재전송 2」
+ * (side null 「구분 없음」 · retry 0/null 이면 재전송 조각 생략) · 축 밖이면 끝에 「 · 축 밖」.
+ * 재전송 1·2·3회는 점을 따로 그리지 않고 여기 횟수로만 싣는다(첫 발 송신 시각 점 하나).
+ */
+export function launchTooltipOf(
+  date: string,
+  piece: { sent_rel_us: number; wire: number; side: string | null; result: string; retry: number | null },
+  fire: LaunchFire,
+  offAxis = false,
+): string {
+  const parts = [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, `wire ${piece.wire}`];
+  if (fire === 'n0930') parts.push(piece.side === null ? '구분 없음' : (SIDE_TIP[piece.side] ?? piece.side));
+  parts.push(piece.result);
+  if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
+  if (offAxis) parts.push('축 밖');
+  return parts.join(' · ');
 }
