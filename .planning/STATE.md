@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-04-PLAN.md
-last_updated: "2026-10-27T12:08:59.550Z"
+stopped_at: Completed 35-05-PLAN.md
+last_updated: "2026-10-27T12:15:01.071Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 execution started
-state_head: 22b0470666734553f60ea45a509838d22009fb7e
+state_head: 794c4ce8868674eaaae981d4add1a96b1cac67de
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 64
-  completed_plans: 57
+  completed_plans: 58
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 4 of 11 (35-01~04 완료)
+Plan: 5 of 11 (35-01~05 완료)
 Status: Executing Phase 35
 Last activity: 2026-10-27 — Phase 35 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T12:08:51.883Z
-Stopped at: Completed 35-04-PLAN.md
+Last session: 2026-10-27T12:15:00.986Z
+Stopped at: Completed 35-05-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -161,6 +161,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P09 | 4min | 2 tasks | 5 files |
 | Phase 34 P10 | 12min | 3 tasks | 5 files |
 | Phase 35 P04 | 10 min | 2 tasks | 3 files |
+| Phase 35 P05 | 5 min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -245,3 +246,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-04: kind 17·18 해석은 dma_strategy_apply 재정의 안 kind 한정 예외 서브블록 — 원문 INSERT 는 블록 밖, 17·18 은 rows 제외(relay 무변경 · ws 누설 0), 실패는 errors[{seq, error}]
 - [Phase 35]: 35-04: 사용자 경로 차단은 json 래퍼 · 주문 타임라인 2곳(NOT IN (17, 18)) — 원천 SETOF dma_strategy_events_for_user 와 kind 15·16 purge 는 그대로
 - [Phase 35]: 35-04: launch_project_event 는 Wave A no-op 스텁 — 35-10 이 같은 시그니처로 정식 매핑을 넣고 launch_reproject() 1회(applied_at · seq 순 · 멱등)
+- [Phase 35]: 35-05: 발사 어드민 라우트는 경로 한정 관문(/launch) + adminServersRouter 뒤 · adminRouter 앞 마운트 — /launch · /users · /servers 모두 역할 조회 1회(supertest 기록)
+- [Phase 35]: 35-05: server 는 발사 RPC jsonb 를 변환 없이 Launch*Response 로 통과 · 모양 검사는 assertArrays(객체 + 키 3개 배열) 하나 — 계산은 웹 shared(D-20)
