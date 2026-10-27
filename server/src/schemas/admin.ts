@@ -150,6 +150,14 @@ export const dmaAccountParam = z.object({
  */
 export const AdminOrderServerSchema = z.object({ serverKey: ServerKeySchema.nullable() });
 
+/**
+ * PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/budget — 계좌 예수금(Phase 36 · op 6 · D-01 · D-02). 원 단위 정수 ·
+ * 0 = 해제. 상한은 안전 정수(웹 입력 상한 9자리 만원 ≈ 1e13원 이 그 안). 추가 키는 거부(strict) — 다른 필드가 실려 오지 않게.
+ */
+export const AdminAccountBudgetSchema = z
+  .object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) })
+  .strict();
+
 /** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
 export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
 

@@ -16,7 +16,12 @@ import { ApiClientError } from '@/lib/api';
 const putDmaAccountMock = vi.fn();
 const removeDmaAccountMock = vi.fn();
 const setAccountOrderServerMock = vi.fn();
+const setAccountBudgetMock = vi.fn();
+const setAccountFeeMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
+  setAccountBudget: (dma: string, broker: string, no: string, krw: number) => setAccountBudgetMock(dma, broker, no, krw),
+  setAccountFee: (dma: string, broker: string, no: string, fee: number, tax: number) =>
+    setAccountFeeMock(dma, broker, no, fee, tax),
   putDmaAccount: (dma: string, body: unknown) => putDmaAccountMock(dma, body),
   removeDmaAccount: (dma: string, broker: string, no: string) => removeDmaAccountMock(dma, broker, no),
   setAccountOrderServer: (dma: string, broker: string, no: string, key: string | null) =>
@@ -94,6 +99,8 @@ beforeEach(() => {
   putDmaAccountMock.mockReset();
   removeDmaAccountMock.mockReset();
   setAccountOrderServerMock.mockReset();
+  setAccountBudgetMock.mockReset();
+  setAccountFeeMock.mockReset();
 });
 
 afterEach(() => {
@@ -119,7 +126,8 @@ describe('AccountEditor — 계좌 줄', () => {
     expect(ky).toHaveTextContent('지점 해당 없음');
     expect(ky).toHaveTextContent('트레이더 해당 없음');
     expect(within(ky).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label'))).toEqual(['KYOBO119', 'KYOBO127']);
-    expect(within(ky).queryByRole('textbox')).toBeNull();
+    // 교보는 지점 · 트레이더 입력칸이 없다(Phase 36 이후 카드의 입력칸은 예수금 · 수수료 · 매도세 행뿐).
+    expect(within(ky).queryByRole('textbox', { name: /지점|트레이더/ })).toBeNull();
 
     const only = acctRow('5550001');
     expect(only).toHaveAttribute('data-server-only', 'true');
@@ -1603,5 +1611,125 @@ describe('P30 공유 계좌 안내 (D-18)', () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(resultLines()).toHaveLength(0);
     expect(sharedLines()).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 36 — 예수금 · 수수료 · 매도세 행 (36-UI-SPEC ① · D-01 ~ D-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Cost = NonNullable<NonNullable<AdminAccountView['costs']>[string]>;
+const cost = (budgetKrw: number, feePpm = 100, sellTaxPpm = 2000, budgetSource: Cost['budgetSource'] = 'live'): Cost => ({
+  budgetKrw,
+  feePpm,
+  sellTaxPpm,
+  budgetSource,
+});
+// KB_TWO(KB120 · KB121 active · 기본 KB120)는 위 P30 픽스처를 그대로 쓴다.
+const withCosts = (a: AdminAccountView, costs: AdminAccountView['costs']): AdminAccountView => ({ ...a, costs });
+
+const costRow = (no: string) => acctRow(no).querySelector('[data-slot="admin-account-cost"]') as HTMLElement | null;
+const budgetInput = (no = '12345678901', broker = 'KB') =>
+  within(acctRow(no)).getByRole('textbox', { name: `${broker} ${no} 예수금(만원)` }) as HTMLInputElement;
+const costChips = (no = '12345678901') =>
+  Array.from(costRow(no)!.querySelectorAll('[data-slot="admin-account-cost-chips"] [data-slot="reflect-chip"]')) as HTMLElement[];
+const chipTexts = (no = '12345678901') => costChips(no).map((c) => c.textContent);
+const caption = (no = '12345678901') =>
+  costRow(no)!.querySelector('[data-slot="admin-account-cost-caption"]') as HTMLElement;
+const enter = (el: HTMLElement) => fireEvent.keyDown(el, { key: 'Enter' });
+
+function mountCost(accounts: AdminAccountView[]) {
+  const onChanged = vi.fn();
+  const view = (a: AdminAccountView[]) => (
+    <AccountEditor dmaUserId="kimtr" accounts={a} servers={SERVERS} onChanged={onChanged} onRemoveLast={vi.fn()} />
+  );
+  const r = render(view(accounts));
+  return { onChanged, rerender: (a: AdminAccountView[]) => r.rerender(view(a)) };
+}
+
+describe('P36 예수금 칸', () => {
+  it('costs 1억(KB120 · live) → 칸 「10,000」 · 단위 「만원」 · 라벨 htmlFor · 캡션 문구(미설정 꼬리 없음) · 쉬는 칩 KB120 ok', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) }), KYOBO_ACCT]);
+    const input = budgetInput();
+    expect(input).toHaveValue('10,000');
+    expect(input).toHaveAttribute('inputmode', 'numeric');
+    expect(input).toHaveAttribute('placeholder', '—');
+    const label = costRow('12345678901')!.querySelector(`label[for="${input.id}"]`);
+    expect(label).toHaveTextContent('예수금');
+    expect(costRow('12345678901')).toHaveTextContent('만원');
+    expect(caption()).toHaveTextContent('예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제');
+    expect(caption()).not.toHaveTextContent('비우면 미설정');
+    expect(chipTexts()).toEqual(['KB120']);
+    expect(costChips()[0]).toHaveAttribute('data-tone', 'ok');
+  });
+
+  it('「1,500」 입력 + Enter → setAccountBudget(kimtr, KB, 계좌, 15,000,000) 1회 → results ok 2 → 칩 「KB120」 「KB121」 · onChanged', async () => {
+    setAccountBudgetMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'ok' },
+        { server: 'KB121', outcome: 'ok', message: '변경 없음' },
+      ],
+    });
+    const { onChanged } = mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000), KB121: cost(100_000_000) })]);
+    const input = budgetInput();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '1500' } });
+    expect(input).toHaveValue('1,500');
+    enter(input);
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', '12345678901', 15_000_000);
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120', 'KB121']));
+    // code 0 은 message 가 「변경 없음」 이어도 ok 칩(D-06 — 문장 대조 없음)
+    expect(costChips().map((c) => c.getAttribute('data-tone'))).toEqual(['ok', 'ok']);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue('1,500');
+  });
+
+  it('값 0 → 빈 칸 · 입력 안내 글자 「—」 · 캡션 끝 「 · 비우면 미설정」', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(0) })]);
+    expect(budgetInput()).toHaveValue('');
+    expect(budgetInput()).toHaveAttribute('placeholder', '—');
+    expect(caption()).toHaveTextContent('예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제 · 비우면 미설정');
+  });
+
+  it('입력은 숫자만 · 최대 9자리(999,999,999만원)', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(0) })]);
+    fireEvent.change(budgetInput(), { target: { value: '12a34567890123' } });
+    expect(budgetInput()).toHaveValue('123,456,789');
+  });
+
+  it('87 전용 흐린 계좌 줄(ServerOnlyAccountRow)에는 「예수금」 행이 없다 · 교보 카드에는 있다', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(1) }), withCosts(KYOBO_ACCT, { KYOBO119: cost(700_000_000) }), ONLY_ACCT]);
+    expect(costRow('5550001')).toBeNull();
+    expect(acctRow('5550001')).not.toHaveTextContent('예수금');
+    expect(budgetInput('9876543201', 'KYOBO')).toHaveValue('70,000');
+    expect(caption('9876543201')).toHaveTextContent('예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요');
+  });
+
+  it('편집 모드에서도 행이 보이고(편집 블록 다음 · 서버 알약 앞) · 카드 저장 바디(op 3)에 예수금 키가 없다', async () => {
+    putDmaAccountMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    fireEvent.click(screen.getByRole('button', { name: 'KB 12345678901 편집' }));
+    const row = costRow('12345678901')!;
+    const form = acctRow('12345678901').querySelector('[data-slot="admin-account-edit"]') as HTMLElement;
+    const pillEl = pill('12345678901', 'KB120');
+    expect(form.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.compareDocumentPosition(pillEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(within(acctRow('12345678901')).getByRole('textbox', { name: '계좌명' }), { target: { value: '새 이름' } });
+    fireEvent.click(screen.getByRole('button', { name: 'KB 12345678901 편집 저장' }));
+    expect(putDmaAccountMock).toHaveBeenCalledTimes(1);
+    const body = putDmaAccountMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['account', 'servers']);
+    expect(JSON.stringify(body)).not.toMatch(/budget|fee|sellTax/i);
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    await act(async () => {});
+  });
+
+  it('읽기 카드 — 행 자리: IP/MAC 줄 다음 · 서버 알약 줄 앞', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    const row = costRow('12345678901')!;
+    const ipmac = acctRow('12345678901').querySelector('[data-slot="admin-account-ipmac"]') as HTMLElement;
+    expect(ipmac.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row.compareDocumentPosition(pill('12345678901', 'KB120')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

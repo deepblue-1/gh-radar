@@ -24,6 +24,7 @@
  */
 
 import type {
+  AdminAccountBudgetBody,
   AdminCommandResponse,
   AdminCreateUserBody,
   AdminDmaInput,
@@ -176,6 +177,23 @@ export function setAccountOrderServer(
   const body: AdminOrderServerBody = { serverKey };
   return authFetch<AdminOrderServerResponse>(
     `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/order-server`,
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
+}
+
+/**
+ * 계좌 예수금(Phase 36 · op 6 · D-01 · D-02) — 원 단위(만원 × 10000) · 0 = 해제. relay 가 그 계좌의 active 등록 서버마다 op 6 을
+ * 보내고 서버별 결과를 돌려준다(code 0 만 반영 · D-06 — 해석은 화면). 없는 계좌는 409 `NO_SUCH_ACCOUNT`.
+ */
+export function setAccountBudget(
+  dmaUserId: string,
+  broker: DmaBroker,
+  accountNo: string,
+  budgetKrw: number,
+): Promise<AdminCommandResponse> {
+  const body: AdminAccountBudgetBody = { budgetKrw };
+  return authFetch<AdminCommandResponse>(
+    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/budget`,
     jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
   );
 }

@@ -874,3 +874,100 @@ describe("P30 PUT 감사 플래그 — IP/MAC 값 없음", () => {
     expect(line).toMatchObject({ op: "dma-account-put", broker: "KB" });
   });
 });
+
+describe("P36 PUT …/budget (D-01 · D-06)", () => {
+  const PATH = "/api/admin/dma-users/kim01/accounts/KB/00123/budget";
+  const TWO = [
+    { server: "KB120", outcome: "ok" },
+    { server: "KB121", outcome: "failed", code: 1, message: "BAD_OP" },
+  ];
+
+  it("무토큰 → 401 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await request(app).put(PATH).send({ budgetKrw: 10_000_000 });
+    expect(res.status).toBe(401);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("trader 토큰 → 403 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await request(app).put(PATH).set("Authorization", "Bearer tok-trader").send({ budgetKrw: 10_000_000 });
+    expect(res.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("admin → relay 같은 경로 PUT 1회 · 바디 { budgetKrw } · 200 { results } 그대로(code 1 failed 포함 · 해석 없음)", async () => {
+    const relay = makeFakeRelay(() => ({ status: 200, data: { results: TWO } }));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ budgetKrw: 10_000_000 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: TWO });
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/dma-users/kim01/accounts/KB/00123/budget",
+        adminEmail: ADMIN_EMAIL,
+        body: { budgetKrw: 10_000_000 },
+      },
+    ]);
+  });
+
+  it("budgetKrw 0(해제) → 200 · relay 바디 { budgetKrw: 0 }", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ budgetKrw: 0 });
+    expect(res.status).toBe(200);
+    expect(relay.calls[0].body).toEqual({ budgetKrw: 0 });
+  });
+
+  it("relay 409 NO_SUCH_ACCOUNT → 409 그대로 · 못 닿음 → 502 RELAY_FAILED", async () => {
+    const rej = makeApp({}, makeFakeRelay(() => relayReject(409, "NO_SUCH_ACCOUNT", "없는 계좌")).client);
+    const r1 = await auth(request(rej.app).put(PATH)).send({ budgetKrw: 1 });
+    expect(r1.status).toBe(409);
+    expect(r1.body).toEqual({ error: { code: "NO_SUCH_ACCOUNT", message: "없는 계좌" } });
+    const down = makeApp({}, makeFakeRelay(() => ({ status: 0, data: null })).client);
+    const r2 = await auth(request(down.app).put(PATH)).send({ budgetKrw: 1 });
+    expect(r2.status).toBe(502);
+    expect(r2.body.error.code).toBe("RELAY_FAILED");
+  });
+
+  it.each<[string, unknown]>([
+    ["음수", { budgetKrw: -1 }],
+    ["소수", { budgetKrw: 1.5 }],
+    ["문자열", { budgetKrw: "1" }],
+    ["MAX_SAFE 초과", { budgetKrw: 9007199254740992 }],
+    ["추가 키", { budgetKrw: 1, feePpm: 100 }],
+    ["누락", {}],
+  ])("budgetKrw %s → 400 VALIDATION_FAILED · relay 0", async (_n, body) => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send(body as object);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("감사 1줄 — DMA id 마스킹 · 계좌번호 원문 없음 · budgetKrw · 서버 결과", async () => {
+    const cap = captureLogs();
+    try {
+      const relay = makeFakeRelay();
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts/KB/1234567801/budget")).send({
+        budgetKrw: 50_000_000,
+      });
+      expect(res.status).toBe(200);
+      const lines = cap.text().split("\n").filter((l) => l.includes('"audit":"admin"'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('"op":"dma-account-budget"');
+      expect(lines[0]).toContain("ki***(5)");
+      expect(lines[0]).toContain('"budgetKrw":50000000');
+      expect(lines[0]).toContain("KB120:ok");
+      expect(lines[0]).not.toContain("1234567801");
+      expect(lines[0]).not.toContain("kim01");
+    } finally {
+      cap.restore();
+    }
+  });
+});

@@ -15,6 +15,7 @@ import { requireAdmin } from "../middleware/require-admin.js";
 import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
 import {
+  AdminAccountBudgetSchema,
   AdminDmaInputSchema,
   AdminOrderServerSchema,
   AdminPasswordSchema,
@@ -58,6 +59,7 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  * - POST   /dma-users/:dma/reconcile                 : 「다시 반영」 → `{ results }`
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/order-server : `{ serverKey | null }` → `{ ok, orderServer }` (29-37 G-1 ⑥ —
  *          계좌 주문 서버 지정. relay 가 RPC 저장 · 지정 적재기 즉시 재적재 · 29-36 재수립. Express 는 DB 에 직접 쓰지 않는다)
+ * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/budget : `{ budgetKrw }` → `{ results }` (Phase 36 op 6 · 계좌 예수금)
  *   DMA 프록시는 relay 계약(29-11 표)을 1:1 로 부른다 — 409 업무 거부는 그대로, 못 닿음 · 5xx 는 502 `RELAY_FAILED`,
  *   클라이언트 없음은 503 `RELAY_UNAVAILABLE`. 비밀번호 평문은 relay 로만 전달된다(Express 암호화 · 저장 · 로그 없음).
  *
@@ -529,6 +531,28 @@ adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/order-server", asyn
     }
     audit(req, "dma-order-server", maskDmaUserId(dma), { broker, orderServer });
     res.json({ ok: true, orderServer });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /dma-users/:dma/accounts/:broker/:accountNo/budget — 계좌 예수금 (Phase 36 · op 6 · D-01 · D-06) ---
+//   relay 가 active 등록 서버마다 op 6 fan-out → { results } 그대로. 결과 해석(code 0 만 ok)은 웹 몫 · 감사 줄에 계좌번호 없음.
+adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/budget", async (req, res, next) => {
+  try {
+    const { dma, broker, accountNo } = parseOrThrow(dmaAccountParam, req.params);
+    const { budgetKrw } = parseOrThrow(AdminAccountBudgetSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(
+      await relay.setAccountBudget(dma, broker, accountNo, { budgetKrw }, req.adminEmail!),
+      "dma-account-budget",
+    );
+    audit(req, "dma-account-budget", maskDmaUserId(dma), {
+      broker,
+      budgetKrw,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    res.json({ results });
   } catch (e) {
     next(e);
   }

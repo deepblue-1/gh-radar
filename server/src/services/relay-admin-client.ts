@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from "axios";
 import type {
+  AdminAccountBudgetBody,
   AdminCommandResponse,
   AdminDmaInput,
   AdminOrderEndpointsRaw,
@@ -136,6 +137,17 @@ export type RelayAdminClient = {
     serverKey: string | null,
     adminEmail: string,
   ): Promise<RelayAdminResponse<RelayOrderServerResult>>;
+  /**
+   * 계좌 예수금(Phase 36 · op 6 · 36-02 계약) — relay 가 그 계좌의 active 등록 서버마다 op 6 → 서버별 결과. DB 기록 없음(D-01 —
+   * 정본은 각 서버). 없는 계좌는 relay 409 `NO_SUCH_ACCOUNT`.
+   */
+  setAccountBudget(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    body: AdminAccountBudgetBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
   /** 시세 주 서버 전환(D-11 break-then-make) — 성공하면 relay 가 DB 를 갱신한다(29-23). */
   setQuotePrimary(
     serverKey: string,
@@ -326,6 +338,8 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<RelayOrderServerResult>("PUT", `${account(dma, broker, accountNo)}/order-server`, adminEmail, {
         serverKey,
       }),
+    setAccountBudget: (dma, broker, accountNo, body, adminEmail) =>
+      request<AdminCommandResponse>("PUT", `${account(dma, broker, accountNo)}/budget`, adminEmail, body),
     deleteDmaUser: (dma, adminEmail, opts) =>
       request<RelayDeleteDmaUserResult>(
         "DELETE",
