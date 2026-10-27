@@ -87,7 +87,8 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 **Downstream agents MUST read these before planning or implementing.**
 
 ### 계약 · 데이터 정본 (gh-trade)
-- `docs/inbox/from-gh-trade/261027-launch-gate-admin.md` — 상의 노트(성격 · 첨부 · 프로파일 표 · 머리/조각 필드 목록 · 채널 제안 A · 질문 3건). phase 끝에 `## 회신` + `status: done` · `done_commit`. **정식 인계 노트(kind 17·18 칸 매핑 표)는 아직 미도착** — 도착하면 이 목록 맨 위에 추가하고 D-06 해석 함수를 그 표로 구현.
+- `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` — **정식 인계 노트(2026-10-28 · from_commit 2e090eb9 · fbs_sync_marker f156cb6f)** — ⓑ kind 17 LaunchPiece · 18 LaunchHead 칸 매핑 정본(= gh-trade `LaunchJournal.h` 머리 주석) · ⓒ op 8/9 · 94 와이어 · 질문 5 답(A1 다리별 wire · A 머리 1행 · 재송신 · 17/18 순서 · 계좌). **kind 17·18 칸 매핑 정본 — 35-10 이 구현**(`20261028200000_launch_project_mapping.sql`).
+- `docs/inbox/from-gh-trade/261027-launch-gate-admin.md` — 상의 노트(성격 · 첨부 · 프로파일 표 · 머리/조각 필드 목록 · 채널 제안 A · 질문 3건). phase 끝에 `## 회신` + `status: done` · `done_commit`. 정식 인계 노트(kind 17·18 칸 매핑 표)는 2026-10-28 도착 — 이 목록 맨 위 줄(35-10 이 D-06 해석 함수를 그 표로 구현).
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/launch-gate-map.html` — 첨부 지도(:84 `ROWS` 196행 · :85 `NEXT` · :91-112 `group()` 경계 계산 규칙 · :128-205 패널 그리기 · :174-191 리본 식). **경계 · 리본 계산의 정본**(D-10 자동 대조 기준 · D-16).
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/pieces.json` — 10/12~10/26 16:00 196행 `{date, broker, market, wire, q, j, rel, result}` — 백필 1차 입력 + 테스트 픽스처.
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/pieces120.txt` · `pieces119.txt` — 원본 `[Launch] 조각` 로그 줄(16:00 꼴 `q= j= probe=` · 09:00:30 꼴 `key=N idx= retry= rc_rejects=`) — gh-trade 가 넘길 ndjson 의 필드 출처 · 로그에 없는 열(D-08) 근거.

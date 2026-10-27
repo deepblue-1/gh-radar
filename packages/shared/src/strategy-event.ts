@@ -77,6 +77,29 @@ export const STRATEGY_EVENT_KIND = {
    * (Phase 39 · nxt 읽지 않음) · 옛 행 `…|th=…|warn=<0|1>[|nxt=<buy_krw>/<sell_krw>/<buy_qty>/<sell_qty>]`.
    */
   AccumSignal: 16,
+  /**
+   * 발사 조각 — gh-trade Phase 43(정식 인계 노트 `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` ⓑ) ·
+   * **관찰자 저널 80 전용**(82 · 81 없음) · wire 에 나간 조각 1건 = 1행(재전송은 같은 행에 접힘). 실계좌 `account_no` ·
+   * `dma_user_id` 가 실린다 — 사용자 경로에서는 DB 가 뺀다(apply rows · 주문로그 json 래퍼 · 주문 타임라인 · D-05).
+   * 칸 재해석: condMetric=profile(1 Q16 · 2 A · 3 N) · exchange=fire_exchange · expectedCum=fire_base(HHMMSSmmm) ·
+   * evKind=market('K' 75 · 'Q' 81) · entryRound=wire · orderCondition=side(B/S) · evQtyBefore=piece_idx ·
+   * evPrice=round(−1 탐침) · hasRemaining=probe · condThreshold=sent_rel_us · queueCase=result(1 접수 · 2 재전송대상
+   * 거부 · 3 기타 · 4 무응답) · resultCode=정수 코드 · condActual=accept_time · evQtyAfter=retry · cancelReason=abandoned ·
+   * evTradeQty=filled_qty(0 고정 = 모름) · message=`q=<queued_id>|res=<접수|101|기타|무응답>|rc=<4자 원문>`.
+   * 해석은 DB `launch_project_event`(20261028200000) · 화면은 어드민 「발사」.
+   */
+  LaunchPiece: 17,
+  /**
+   * 발사 머리 — 같은 노트 ⓑ · 관찰자 저널 80 전용 · 회차(프로파일 × 시장 레인) 1건 = 1행 · 그 회차 kind 17 들 뒤(seq 큼) ·
+   * 계좌 · 사용자 · isin 은 비어 온다. 칸 재해석: condThreshold=next_offset_us(최신 발사 계획 첫 값) ·
+   * condActual=offset_used_us · errorVolume/remainingVolume=gate_lo/hi_us(0 + message lo=-/hi=- 면 없음) ·
+   * cancelReason=nonmono · evPrice=n_pieces · evQtyBefore=n_accepted · evQtyAfter=n_retry_rejects ·
+   * evTradeQty=n_other · limitBidQty=first_accept_idx(−1 없음) · bid1Price=retries · bid1Qty=abandoned ·
+   * acceptLatencyUs=one_way_us · immediateFillQty=rtt_min_us · entryRound=plan_rev ·
+   * message=`plan=<…>|rev=<n>|fire=<HHMMSS.uuuuuu>|lo=<v|->|hi=<v|->`. Q16 학습값 칸은 없다(gh-trade D-12).
+   * 해석은 DB `launch_project_event` · 화면은 어드민 「발사」.
+   */
+  LaunchHead: 18,
 } as const;
 
 /**
@@ -106,6 +129,7 @@ export const ORDER_GROUP = {
  * ★ 같은 집합 {1, 2, 10, 15, 16} 을 조회 RPC `dma_strategy_events_for_user`
  *   (supabase/migrations/20261018120000_dma_strategy_events_accum_signal.sql)가 SQL 로 쓴다 — 하나만 바뀌면
  *   wss 푸시(relay `WsFanout` 이 이 함수를 import)와 REST 백필이 갈린다.
+ * 17 · 18(발사 조각 · 머리)은 시세 이벤트가 아니다(D-05) — 넣으면 실계좌 원문이 ws fan-out 으로 전원에게 퍼진다.
  */
 export function isMarketStrategyEvent(kind: number): boolean {
   return (
