@@ -4,7 +4,8 @@
 -- 무엇:
 --   ① public.launch_plan_changes — 발사 계획 저장 시도 한 행(D-29 · 실패 포함 · purge 없음 D-05 결).
 --   ② launch_plan_change_record(p jsonb) — 한 행을 넣고 그 행을 jsonb 로 돌려준다(키 = shared LAUNCH_PLAN_CHANGE_COLUMNS 12개).
---   ③ launch_plan_changes_for_admin(p_limit integer) — 패널 「마지막 변경」 · 「변경 이력」 읽기(jsonb 1값 · 왕복 1회).
+--   ③ launch_plan_changes_for_admin(p_limit integer) — 패널 「마지막 변경」 · 「변경 이력」 읽기(jsonb 1값 · 왕복 1회) —
+--      조합별 최근 N + 마지막 ok · 8조합 × 20 = 최대 160행 + 마지막 ok.
 --
 -- 왜: gh-trade 서버는 계획의 현재 값만 쥔다. 「경계가 언제부터 바뀌었나」 를 지도와 맞춰 읽으려면 누가 · 언제 ·
 --   무엇을 → 무엇으로 바꿨는지(실패한 시도 포함)를 gh-radar DB 가 영구 보관해야 한다(D-29 · gh-trade 질문 2 답).
@@ -136,7 +137,9 @@ REVOKE EXECUTE ON FUNCTION public.launch_plan_change_record(jsonb) FROM anon, au
 GRANT EXECUTE ON FUNCTION public.launch_plan_change_record(jsonb) TO service_role;
 
 -- ── ③ 읽기 RPC ────────────────────────────────────────────────────
--- 반환: { changes: [행 …] } — at 내림차순(같은 at 은 id 내림차순).
+-- 반환: { changes: [행 …] } — (gateway, fire, market) 마다 최근 p_limit 행 + 같은 키의 마지막 ok 1행
+-- (최근 p_limit 이 전부 실패여도 패널 「마지막 변경」 이 보인다 · 이미 최근에 있으면 중복 없음) · at 내림차순(같은 at 은 id 내림차순).
+-- 8조합(서버 2 × 발사 2 × 시장 2) × 20 = 최대 160행 + 키마다 마지막 ok 1행. p_limit NULL 또는 1~200 밖 → 22023.
 CREATE FUNCTION public.launch_plan_changes_for_admin(p_limit integer DEFAULT 20)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -145,9 +148,33 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+  IF p_limit IS NULL OR p_limit < 1 OR p_limit > 200 THEN
+    RAISE EXCEPTION 'launch_plan_changes_for_admin: p_limit 는 1~200 (got %)', p_limit USING ERRCODE = '22023';
+  END IF;
+
   RETURN (
-    SELECT jsonb_build_object('changes', COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.at DESC, r.id DESC), '[]'::jsonb))
-      FROM (SELECT c.* FROM public.launch_plan_changes c ORDER BY c.at DESC, c.id DESC LIMIT p_limit) r
+    WITH ranked AS (
+      SELECT c.id,
+             row_number() OVER (PARTITION BY gateway, fire, market ORDER BY at DESC, id DESC) AS rn
+        FROM public.launch_plan_changes c
+    ),
+    recent AS (
+      SELECT id FROM ranked WHERE rn <= p_limit
+    ),
+    last_ok AS (
+      SELECT DISTINCT ON (gateway, fire, market) id
+        FROM public.launch_plan_changes
+       WHERE outcome = 'ok'
+       ORDER BY gateway, fire, market, at DESC, id DESC
+    ),
+    picked AS (
+      SELECT id FROM recent
+      UNION
+      SELECT id FROM last_ok
+    )
+    SELECT jsonb_build_object('changes', COALESCE(jsonb_agg(to_jsonb(c) ORDER BY c.at DESC, c.id DESC), '[]'::jsonb))
+      FROM public.launch_plan_changes c
+      JOIN picked USING (id)
   );
 END;
 $$;
