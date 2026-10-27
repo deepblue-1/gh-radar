@@ -74,8 +74,18 @@ budgetKrw():bigint {
   return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
 }
 
+feePpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+sellTaxPpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAdminAccount(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(10);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -110,12 +120,20 @@ static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
   builder.addFieldInt64(7, budgetKrw, BigInt('0'));
 }
 
+static addFeePpm(builder:flatbuffers.Builder, feePpm:number) {
+  builder.addFieldInt32(8, feePpm, 0);
+}
+
+static addSellTaxPpm(builder:flatbuffers.Builder, sellTaxPpm:number) {
+  builder.addFieldInt32(9, sellTaxPpm, 0);
+}
+
 static endAdminAccount(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number, orderIpOffset:flatbuffers.Offset, orderMacOffset:flatbuffers.Offset, budgetKrw:bigint):flatbuffers.Offset {
+static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number, orderIpOffset:flatbuffers.Offset, orderMacOffset:flatbuffers.Offset, budgetKrw:bigint, feePpm:number, sellTaxPpm:number):flatbuffers.Offset {
   AdminAccount.startAdminAccount(builder);
   AdminAccount.addAccountNo(builder, accountNoOffset);
   AdminAccount.addName(builder, nameOffset);
@@ -125,6 +143,8 @@ static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffe
   AdminAccount.addOrderIp(builder, orderIpOffset);
   AdminAccount.addOrderMac(builder, orderMacOffset);
   AdminAccount.addBudgetKrw(builder, budgetKrw);
+  AdminAccount.addFeePpm(builder, feePpm);
+  AdminAccount.addSellTaxPpm(builder, sellTaxPpm);
   return AdminAccount.endAdminAccount(builder);
 }
 }

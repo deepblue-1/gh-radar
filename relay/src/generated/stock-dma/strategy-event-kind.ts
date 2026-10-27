@@ -18,5 +18,7 @@ export enum StrategyEventKind {
   AutoSellState = 13,
   AutoSellPause = 14,
   LimitFeature = 15,
-  AccumSignal = 16
+  AccumSignal = 16,
+  LaunchPiece = 17,
+  LaunchHead = 18
 }

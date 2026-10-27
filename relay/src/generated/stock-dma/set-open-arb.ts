@@ -76,8 +76,18 @@ firedYmd(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+nKospi():number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.readUint16(this.bb_pos + offset) : null;
+}
+
+nKosdaq():number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readUint16(this.bb_pos + offset) : null;
+}
+
 static startSetOpenArb(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(12);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -120,12 +130,20 @@ static addFiredYmd(builder:flatbuffers.Builder, firedYmdOffset:flatbuffers.Offse
   builder.addFieldOffset(9, firedYmdOffset, 0);
 }
 
+static addNKospi(builder:flatbuffers.Builder, nKospi:number) {
+  builder.addFieldInt16(10, nKospi, null);
+}
+
+static addNKosdaq(builder:flatbuffers.Builder, nKosdaq:number) {
+  builder.addFieldInt16(11, nKosdaq, null);
+}
+
 static endSetOpenArb(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createSetOpenArb(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, minProfitBp:number, budgetKrw:bigint, perStockCapKrw:bigint, n1:number, n2:number, case1FireMs:number, run:boolean, unregistered:boolean, firedYmdOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createSetOpenArb(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, minProfitBp:number, budgetKrw:bigint, perStockCapKrw:bigint, n1:number, n2:number, case1FireMs:number, run:boolean, unregistered:boolean, firedYmdOffset:flatbuffers.Offset, nKospi:number|null, nKosdaq:number|null):flatbuffers.Offset {
   SetOpenArb.startSetOpenArb(builder);
   SetOpenArb.addAccountNo(builder, accountNoOffset);
   SetOpenArb.addMinProfitBp(builder, minProfitBp);
@@ -137,6 +155,10 @@ static createSetOpenArb(builder:flatbuffers.Builder, accountNoOffset:flatbuffers
   SetOpenArb.addRun(builder, run);
   SetOpenArb.addUnregistered(builder, unregistered);
   SetOpenArb.addFiredYmd(builder, firedYmdOffset);
+  if (nKospi !== null)
+    SetOpenArb.addNKospi(builder, nKospi);
+  if (nKosdaq !== null)
+    SetOpenArb.addNKosdaq(builder, nKosdaq);
   return SetOpenArb.endSetOpenArb(builder);
 }
 }

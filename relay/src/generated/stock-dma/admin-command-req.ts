@@ -59,8 +59,47 @@ budgetKrw():bigint {
   return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
 }
 
+feePpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+sellTaxPpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+launchProfile():string|null
+launchProfile(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+launchProfile(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+launchMarket():string|null
+launchMarket(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+launchMarket(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+launchOffsetsUs(index: number):number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.readInt32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
+}
+
+launchOffsetsUsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+launchOffsetsUsArray():Int32Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? new Int32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
+}
+
 static startAdminCommandReq(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(11);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -85,6 +124,43 @@ static addAccount(builder:flatbuffers.Builder, accountOffset:flatbuffers.Offset)
 
 static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
   builder.addFieldInt64(5, budgetKrw, BigInt('0'));
+}
+
+static addFeePpm(builder:flatbuffers.Builder, feePpm:number) {
+  builder.addFieldInt32(6, feePpm, 0);
+}
+
+static addSellTaxPpm(builder:flatbuffers.Builder, sellTaxPpm:number) {
+  builder.addFieldInt32(7, sellTaxPpm, 0);
+}
+
+static addLaunchProfile(builder:flatbuffers.Builder, launchProfileOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(8, launchProfileOffset, 0);
+}
+
+static addLaunchMarket(builder:flatbuffers.Builder, launchMarketOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, launchMarketOffset, 0);
+}
+
+static addLaunchOffsetsUs(builder:flatbuffers.Builder, launchOffsetsUsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, launchOffsetsUsOffset, 0);
+}
+
+static createLaunchOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array):flatbuffers.Offset;
+/**
+ * @deprecated This Uint8Array overload will be removed in the future.
+ */
+static createLaunchOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset;
+static createLaunchOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array|Uint8Array):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addInt32(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startLaunchOffsetsUsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static endAdminCommandReq(builder:flatbuffers.Builder):flatbuffers.Offset {
