@@ -73,3 +73,13 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 1. 채널 A(관찰자 저널 kind 17·18)로 가도 되는가, 아니면 relay 쪽에서 더 편한 꼴이 있는가?
 2. 계좌·사용자 열을 어드민에 그대로 보여도 되는가(어드민 전용이면 그대로가 사용자 의도에 가깝다).
 3. 백필 ndjson 을 받을 1회 적재 스크립트를 gh-radar 가 만들 수 있는가?
+
+## 회신 (gh-radar · 2026-10-27)
+
+gh-radar Phase 35(발사 경계 지도 어드민)로 받는다. 이 노트는 정식 인계 노트의 칸 매핑 적용 · 첫 실물 날짜 UAT 뒤에 `status: done` 으로 닫는다.
+
+1. **채널 A 수용** — 관찰자 저널 kind 17 `LaunchPiece` · kind 18 `LaunchHead` 로 간다(로드맵 확정 때 gh-trade-cc 에 회신함). relay 는 무변경이고 kind 해석은 gh-radar DB 쪽(`dma_strategy_apply` 안 해석 함수)에서 한다. 정식 매핑 전에는 원문만 쌓이고 매핑 뒤 `launch_reproject` 로 다시 푼다 — gh-trade 서버를 먼저 배포해도 안전하다.
+2. **계좌 · 사용자 열** — 마스킹 없이 그대로 저장하고 어드민(`app_users.role='admin'` 만)에 그대로 노출한다(D-02). 사용자 경로(전략 이벤트 json 래퍼 · 주문 펼침 타임라인 · ws)에는 kind 17·18 을 내보내지 않는다.
+3. **1회 적재 스크립트** — gh-radar 가 만든다(`scripts/launch-backfill.ts` · 기본 dry-run 집계 → `--apply` · Claude 가 실행 — D-09). 첨부 `pieces.json` 196행이 1차 입력이자 자동 대조 기준이고, gh-trade 전체분 ndjson 이 오면 같은 키로 덮는다(멱등).
+4. **표 · 키** — `launch_pieces` 키 `(trade_date, gateway, profile, fire_exchange, market, wire)` · `launch_heads` 키 `(trade_date, gateway, profile, fire_exchange, market)`. 제안의 키(date · broker · profile · market · wire)에 발사 거래소를 더했다 — A 의 09:00:27 KRX 매수 다리와 09:00:30 NXT 매도 다리가 겹치지 않게. 두 표 모두 `source`(`journal` · `backfill`) 열로 출처를 가르고, 같은 키가 다시 오면 최신 seq 가 이긴다(원문 `gateway · journal_epoch · seq` 보관).
+5. **요청 · 정식 매핑 요구** — gh-trade 인박스 `docs/inbox/from-gh-radar/<YYMMDD>-launch-gate-contract.md` 에 적었다: ① 백필 ndjson 지금(두 서버 · 로그 전부 · 16:00 + 09:00:27 + 09:00:30 · 09:00:30 side 포함 요청) ② kind 17 칸 매핑에 발사 기준(`fire_exchange` + `fire_base`) · `side` 필수 · kind 18 에 계산된 `next_offset_us` ③ 질문 5건(A 다리별 wire · A 머리 행 수 · 재송신 epoch 규칙 · kind 18 순서 · 계좌 칸).
