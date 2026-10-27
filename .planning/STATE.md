@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-05-PLAN.md
-last_updated: "2026-10-27T15:30:46.734Z"
+stopped_at: Completed 36-07-PLAN.md
+last_updated: "2026-10-27T15:41:51.493Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
-state_head: 7efbbd45807b92c4bd06675dc0d170a1749ab04b
+state_head: 981e6cf527dc39ce8d182aec171f8f55899160fc
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 74
-  completed_plans: 69
+  completed_plans: 70
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 8 of 10
+Plan: 9 of 10
 Status: Ready to execute
 Last activity: 2026-10-27 — Phase 36 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T15:30:46.648Z
-Stopped at: Completed 36-05-PLAN.md
+Last session: 2026-10-27T15:41:51.402Z
+Stopped at: Completed 36-07-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -172,6 +172,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P06 | 8min | 2 tasks | 8 files |
 | Phase 36 P04 | 15min | 3 tasks | 13 files |
 | Phase 36 P05 | 10min | 2 tasks | 11 files |
+| Phase 36 P07 | 9min | 2 tasks | 9 files |
 
 ## Decisions
 
@@ -280,3 +281,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-04: account-costs 의 op 5 응답 87 은 AdminConn 캐시(currentSnapshot)로 받는다 — 서버당 15초 · 비행 공유 · 최대 800ms 대기 뒤 캐시 읽기
 - [Phase 36]: 36-04: op 3 뒤 되싣기 출처 = 같은 계좌 다른 active · 켜진 등록 서버 중 resolveEffectiveOrderServer(지정 → 기본 → 단일) · 없으면 레지스트리 순 첫 서버 · removing 서버 제외 · 실패는 비치명 warn
 - [Phase 36]: 36-05 D-15(one-way): 저널 손익 4키 avg_price · fee_krw · tax_krw · realized_pnl_krw = dma_journal_events bigint NOT NULL DEFAULT 0 열 이름(사용자 「승인 (권장)」) · 평단 모르는 매도 정본은 인박스 「추가」 4번
+- [Phase 36]: 36-07: /me 매매손익 응답 dma_user_ids 는 항상 [] (T-19-08 · D-08 — 트레이더 RPC 는 dma_user_id 비노출)
+- [Phase 36]: 36-07: 매매손익 집계 SQL 은 내부 조립 함수 dma_pnl_daily_build(me|user|account) 한 벌 — for_user · for_admin 은 얇은 래퍼(권한 3줄 셋 다)
