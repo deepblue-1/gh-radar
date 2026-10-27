@@ -6,6 +6,8 @@ import { render, screen, within } from '@testing-library/react';
 
 import { launchDaysOf, type LaunchMapPiece } from '@gh-radar/shared';
 
+import { launchAxisOf, launchRibbonCellsOf, LAUNCH_CHART } from '@/lib/launch-map';
+
 import { LaunchGateChart } from '../launch-gate-chart';
 
 /**
@@ -139,5 +141,120 @@ describe('LaunchGateChart — 빈 패널', () => {
     expect(within(panel).getByRole('heading', { name: '교보 코스피' })).toBeInTheDocument();
     expect(screen.getByText('이 범위에 발사 없음')).toBeInTheDocument();
     expect(panel.querySelector('svg')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 2 — 09:00:30 합패널 · 이상치 · 리본 · 날짜별 표
+// ─────────────────────────────────────────────────────────────────────────────
+
+const N_LEG = { trade_date: '20261026', gateway: 'KB120', market: 'Q', fire_exchange: 'NXT', piece_idx: null } as const;
+
+/** 10/26 KB120 코스닥 — N 매수 3(pieces120.txt) + 합성 A 매도 1(e2e 픽스처와 같은 값). */
+const N0930_KB_Q: LaunchMapPiece[] = [
+  { ...N_LEG, profile: 'N', side: 'buy', wire: 0, sent_rel_us: -20148, result: '101', retry: 2 },
+  { ...N_LEG, profile: 'N', side: 'buy', wire: 1, sent_rel_us: -20143, result: '101', retry: 1 },
+  { ...N_LEG, profile: 'N', side: 'buy', wire: 2, sent_rel_us: -20141, result: '101', retry: 1 },
+  { ...N_LEG, profile: 'A', side: 'sell', wire: 3, sent_rel_us: -20139, result: '101', retry: 0 },
+];
+
+describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름모)', () => {
+  function renderN() {
+    const days = launchDaysOf(N0930_KB_Q);
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="n0930" days={days} next={-245} />);
+    const svg = document.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+    return { svg, days };
+  }
+
+  it('원 3 · 마름모 1 · 마름모 title 에 「매도」 · 원 title 에 「매수 · 101 · 재전송 2」', () => {
+    const { svg } = renderN();
+    expect(svg.querySelectorAll('circle')).toHaveLength(3);
+    const diamonds = svg.querySelectorAll('path[data-shape="diamond"]');
+    expect(diamonds).toHaveLength(1);
+    expect(diamonds[0]!.getAttribute('fill')).toBe('var(--launch-bad)');
+    expect(diamonds[0]!.querySelector('title')!.textContent).toBe('10/26 −20,139µs · wire 3 · 매도 · 101');
+    const titles = [...svg.querySelectorAll('circle > title')].map((t) => t.textContent);
+    expect(titles).toContain('10/26 −20,148µs · wire 0 · 매수 · 101 · 재전송 2');
+  });
+
+  it('next −245 는 축 밖 → 점선 없음 · 「▸ 다음 −245µs」', () => {
+    const { svg } = renderN();
+    expect(svg.querySelectorAll('[data-slot="launch-next"]')).toHaveLength(0);
+    const off = svg.querySelector('[data-slot="launch-next-off"]')!;
+    expect(off.textContent).toContain('▸ 다음 −245µs');
+  });
+
+  it('리본 rect 수 = 칸 수 × 3 · 왼쪽 「쐈다면」', () => {
+    const { svg, days } = renderN();
+    const axis = launchAxisOf(
+      N0930_KB_Q.map((p) => p.sent_rel_us),
+      -245,
+      'n0930',
+    );
+    const { cells } = launchRibbonCellsOf(days, axis, LAUNCH_CHART.W_MIN - LAUNCH_CHART.L - LAUNCH_CHART.R);
+    expect(cells.length).toBeGreaterThan(0);
+    expect(svg.querySelectorAll('[data-slot="launch-ribbon"] rect')).toHaveLength(cells.length * 3);
+    expect(within(svg as unknown as HTMLElement).getByText('쐈다면')).toBeInTheDocument();
+  });
+});
+
+describe('LaunchGateChart — 이상치 점 바깥 표식', () => {
+  it('q16 한 날 [−300, −305, −20148] → −20148 점은 왼쪽 끝 · 「◂」 · title 「· 축 밖」', () => {
+    const days = launchDaysOf(
+      [-300, -305, -20148].map((v, wire) => ({
+        trade_date: '20261026',
+        gateway: 'KB120',
+        market: 'Q',
+        profile: 'Q16',
+        fire_exchange: 'KRX',
+        side: null,
+        wire,
+        piece_idx: wire,
+        sent_rel_us: v,
+        result: '접수',
+        retry: null,
+      })),
+    );
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={days} next={null} />);
+    const svg = document.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+    expect(within(svg as unknown as HTMLElement).getAllByText('◂')).toHaveLength(1);
+    const out = [...svg.querySelectorAll('circle')].find((c) => c.querySelector('title')!.textContent!.includes('−20,148'))!;
+    expect(out.getAttribute('cx')).toBe(String(LAUNCH_CHART.L));
+    expect(out.querySelector('title')!.textContent).toBe('10/26 −20,148µs · wire 2 · 접수 · 축 밖');
+  });
+});
+
+describe('LaunchGateChart — 날짜별 표 보기', () => {
+  it('KB 코스닥 — 접힘 · 행 = days 10 · 10/14 경계 · 10/21 전부 거부', () => {
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} next={-337} />);
+    const details = document.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(within(details).getByText('날짜별 표 보기')).toBeInTheDocument();
+    const table = details.querySelector('table[data-slot="launch-day-table"]')!;
+    expect([...table.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual([
+      '날짜',
+      '첫 조각 µs',
+      '결과',
+      '처음 접수 µs',
+      '경계 µs',
+      '조각',
+    ]);
+    const rows = [...table.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(10);
+    const cells = (tr: Element) => [...tr.querySelectorAll('td')].map((td) => td.textContent);
+    expect(cells(rows[2]!)).toEqual(['10/14', '−352', '경계', '−342', '−350 ~ −342', '5']);
+    expect(cells(rows[6]!)).toEqual(['10/21', '−342', '전부 거부', '—', '−322 보다 뒤', '3']);
+    expect(cells(rows[0]!)).toEqual(['10/12', '−342', '전부 접수', '−342', '−342 보다 앞', '6']);
+    expect(table.parentElement!.className).toContain('overflow-x-auto');
+  });
+
+  it('KB 코스피 10/16 — 결과 알약 「판단 불가」(Pitfall 5) · 경계 「—」', () => {
+    render(<LaunchGateChart gateway="KB120" market="K" fire="q16" days={daysOf('KB120', 'K')} next={-285} />);
+    const table = document.querySelector('table[data-slot="launch-day-table"]')!;
+    const row = [...table.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('td')!.textContent === '10/16')!;
+    const pill = row.querySelector('[data-slot="launch-day-kind"]')!;
+    expect(pill.textContent).toBe('판단 불가');
+    expect(pill.getAttribute('data-kind')).toBe('unknown');
+    expect(row.querySelectorAll('td')[4]!.textContent).toBe('—');
   });
 });

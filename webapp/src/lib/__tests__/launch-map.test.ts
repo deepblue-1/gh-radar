@@ -3,15 +3,20 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import type { LaunchHeadRow } from '@gh-radar/shared';
+import { launchDaysOf, type LaunchHeadRow } from '@gh-radar/shared';
 
 import {
   LAUNCH_CHART,
+  diamondPathOf,
+  launchAxisFrom,
   launchAxisOf,
   launchDateLabelOf,
   launchGateBandOf,
+  launchMarkOf,
+  launchRibbonCellsOf,
   launchStackOf,
   launchTicksOf,
+  launchTooltipOf,
   mapNextOffsetOf,
   xOfUs,
 } from '../launch-map';
@@ -27,7 +32,9 @@ interface AttachRow {
   date: string;
   broker: string;
   market: string;
+  wire: number;
   rel: number;
+  result: string;
 }
 
 const RAW = JSON.parse(
@@ -36,6 +43,17 @@ const RAW = JSON.parse(
 
 function relsOf(broker: string, market: string): number[] {
   return RAW.filter((r) => r.broker === broker && r.market === market).map((r) => r.rel);
+}
+
+function daysOf(broker: string, market: string) {
+  return launchDaysOf(
+    RAW.filter((r) => r.broker === broker && r.market === market).map((r) => ({
+      trade_date: r.date,
+      wire: r.wire,
+      sent_rel_us: r.rel,
+      result: r.result,
+    })),
+  );
 }
 
 const { L, R, W_MIN } = LAUNCH_CHART;
@@ -195,5 +213,111 @@ describe('launchDateLabelOf', () => {
   it('YYYYMMDD · YYYY-MM-DD → MM/DD', () => {
     expect(launchDateLabelOf('20261026')).toBe('10/26');
     expect(launchDateLabelOf('2026-10-12')).toBe('10/12');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 2 — 리본 · 이상치 상한 · 표식 · 툴팁
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 10/26 09:00:30 N 조각 10개(pieces120.txt · pieces119.txt) — 휴장 중 오발 −20,1xxµs. */
+const N_1026 = [-20148, -20143, -20148, -20143, -20141, -20149, -20142, -20149, -20140, -20138];
+
+describe('launchRibbonCellsOf — 첨부 리본 식 · 칸 값 = shared launchRibbonAt', () => {
+  it('KB 코스닥(−360~−280 · plotPx 568) → stepR 0.2 · 칸 400 · v −337 = 접수 5 · 거부 3 · 모름 2', () => {
+    const days = daysOf('KB', '코스닥');
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), -337, 'q16');
+    const r = launchRibbonCellsOf(days, axis, PLOT);
+    expect(r.stepR).toBe(0.2);
+    expect(r.cells).toHaveLength(400);
+    expect(r.cells[0]!.v).toBe(-360);
+    const c = r.cells.find((cell) => cell.v === -337);
+    expect(c).toMatchObject({ ok: 5, bad: 3, unknown: 2 });
+  });
+
+  it('칸 v 는 정수 i 로 계산 — 0.2 누적 오차 없음', () => {
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), -337, 'q16');
+    const r = launchRibbonCellsOf(daysOf('KB', '코스닥'), axis, PLOT);
+    for (const cell of r.cells) expect(Math.round(cell.v * 5)).toBeCloseTo(cell.v * 5, 9);
+    expect(r.cells.at(-1)!.v).toBe(-280.2);
+  });
+});
+
+describe('이상치 상한(Pitfall 4)', () => {
+  it('n0930 −20,149 … −20,138 + next −245 → 축 −20152 ~ −20135(next 제외) · next hi · 눈금 2 · 칸 0.2', () => {
+    const axis = launchAxisOf(N_1026, -245, 'n0930');
+    expect([axis.xmin, axis.xmax]).toEqual([-20152, -20135]);
+    expect(axis.offAxis(-245)).toBe('hi');
+    expect(launchTicksOf(axis, PLOT).step).toBe(2);
+    const days = launchDaysOf(N_1026.map((v, wire) => ({ trade_date: '20261026', wire, sent_rel_us: v, result: '101' })));
+    expect(launchRibbonCellsOf(days, axis, PLOT).stepR).toBe(0.2);
+  });
+
+  it('섞인 축 [−300, −305, −20148] q16 → −20148 은 lo · 축 폭 < 700 · 눈금 ≤ 12 · 칸 ≤ plotPx', () => {
+    const values = [-300, -305, -20148];
+    const axis = launchAxisOf(values, null, 'q16');
+    expect(axis.offAxis(-20148)).toBe('lo');
+    expect(axis.offAxis(-300)).toBeNull();
+    expect(axis.xmax - axis.xmin).toBeLessThan(700);
+    expect(launchTicksOf(axis, PLOT).values.length).toBeLessThanOrEqual(12);
+    const days = launchDaysOf(values.map((v, wire) => ({ trade_date: '20261026', wire, sent_rel_us: v, result: '접수' })));
+    expect(launchRibbonCellsOf(days, axis, PLOT).cells.length).toBeLessThanOrEqual(PLOT);
+  });
+
+  it.each([PLOT, 1200])('극단 폭 강제 축 −10000 ~ 10000 · plotPx %d → 눈금 ≤ 12 · 간격 ≥ 28px · 칸 ≤ plotPx', (plotPx) => {
+    const axis = launchAxisFrom(-10000, 10000);
+    const t = launchTicksOf(axis, plotPx);
+    expect(t.values.length).toBeLessThanOrEqual(LAUNCH_CHART.TICK_MAX);
+    expect(t.values.length).toBeGreaterThanOrEqual(2);
+    expect((t.step / 20000) * plotPx).toBeGreaterThanOrEqual(LAUNCH_CHART.TICK_MIN_PX);
+    const r = launchRibbonCellsOf(daysOf('KB', '코스닥'), axis, plotPx);
+    expect(r.cells.length).toBeLessThanOrEqual(plotPx);
+    expect(r.cells.length).toBeGreaterThan(0);
+  });
+
+  it('극단 좁은 축 −300 ~ −299 · plotPx 568 → 눈금 ≥ 1 · 칸 ≤ plotPx', () => {
+    const axis = launchAxisFrom(-300, -299);
+    const t = launchTicksOf(axis, PLOT);
+    expect(t.values.length).toBeGreaterThanOrEqual(1);
+    expect(t.values.length).toBeLessThanOrEqual(12);
+    expect(launchRibbonCellsOf(daysOf('KB', '코스닥'), axis, PLOT).cells.length).toBeLessThanOrEqual(PLOT);
+  });
+});
+
+describe('launchMarkOf · diamondPathOf', () => {
+  it('n0930 매도 101 → 마름모 · bad', () => {
+    expect(launchMarkOf({ side: 'sell', result: '101' }, 'n0930')).toEqual({ shape: 'diamond', tone: 'bad' });
+  });
+  it('n0930 구분 없음 접수 → 원 · ok', () => {
+    expect(launchMarkOf({ side: null, result: '접수' }, 'n0930')).toEqual({ shape: 'circle', tone: 'ok' });
+  });
+  it('q16 매도 기타 → 원 · other(마름모는 09:00:30 만)', () => {
+    expect(launchMarkOf({ side: 'sell', result: '기타' }, 'q16')).toEqual({ shape: 'circle', tone: 'other' });
+  });
+  it('diamondPathOf(10, 20, 5)', () => {
+    expect(diamondPathOf(10, 20, 5)).toBe('M10 15 L15 20 L10 25 L5 20 Z');
+  });
+});
+
+describe('launchTooltipOf', () => {
+  it('n0930 — 「10/26 −20,148µs · wire 0 · 매수 · 101 · 재전송 2」', () => {
+    expect(
+      launchTooltipOf('20261026', { sent_rel_us: -20148, wire: 0, side: 'buy', result: '101', retry: 2 }, 'n0930'),
+    ).toBe('10/26 −20,148µs · wire 0 · 매수 · 101 · 재전송 2');
+  });
+  it('n0930 — side null 「구분 없음」 · retry 0 은 재전송 생략', () => {
+    expect(
+      launchTooltipOf('20261026', { sent_rel_us: -245, wire: 1, side: null, result: '접수', retry: 0 }, 'n0930'),
+    ).toBe('10/26 −245µs · wire 1 · 구분 없음 · 접수');
+  });
+  it('q16 — 「10/14 −350µs · wire 2 · 101」', () => {
+    expect(
+      launchTooltipOf('20261014', { sent_rel_us: -350, wire: 2, side: null, result: '101', retry: null }, 'q16'),
+    ).toBe('10/14 −350µs · wire 2 · 101');
+  });
+  it('축 밖이면 끝에 「 · 축 밖」', () => {
+    expect(
+      launchTooltipOf('20261026', { sent_rel_us: -20148, wire: 0, side: null, result: '101', retry: null }, 'q16', true),
+    ).toBe('10/26 −20,148µs · wire 0 · 101 · 축 밖');
   });
 });
