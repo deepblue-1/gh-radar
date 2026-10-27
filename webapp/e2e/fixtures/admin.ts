@@ -47,6 +47,11 @@ import {
  *   같은 정규화 계좌번호를 가진 다른 사용자 계좌의 active 서버 중 이번 PUT servers 에 든 서버**에도 같은 정규화값을 쓴다 — gh-trade
  *   261011 op 3 전파(같은 서버 users.toml 안 · 주문자 IP · MAC 만)를 흉내 낸다. 전파 배포 전 실서버는 code 7 로 거절한다 — 그 경로는
  *   spec 이 `onRequest` 로 `ADMIN_CODE7_MESSAGE`(gh-trade 원문) 결과를 돌려주어 본다.
+ *
+ * ⑥ Phase 36 예수금 · 비용률(36-03) — `ADMIN_USERS_FIXTURE_P36` 은 P30 복제에 alex 계좌별 `costs`(서버별 67/87 병합 값)를 붙인다:
+ *   KB 위탁 = KB120 1억 · 0.01% · 0.2%(live) · KB121 5,000만 · 0.05% · 0.2%(snapshot — 서버별 다름 두 줄) · 교보 위탁 = KYOBO119 7억(snapshot) ·
+ *   KYOBO127 null(「확인 전」). 목 `PUT …/accounts/:broker/:accountNo/budget|fee` 는 그 계좌 active 등록 서버 중 값을 아는 서버의
+ *   `costs` 를 바꾸고(예수금은 live) 서버마다 ok 를 돌려준다 — 재조회가 바뀐 값을 받는다. 실패 · code 1 은 spec 이 `onRequest` 로 덮는다.
  */
 
 export const ADMIN_SERVER_KEYS = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'] as const;
@@ -276,6 +281,25 @@ function buildP30Fixture(): AdminUsersOverview {
  */
 export const ADMIN_USERS_FIXTURE_P30: AdminUsersOverview = buildP30Fixture();
 
+// ── Phase 36 (36-03) 예수금 · 수수료 · 매도세 ─────────────────────────────────────────
+
+/** P36 픽스처 — `ADMIN_USERS_FIXTURE_P30` 복제 + alex KB · 교보 위탁 계좌의 서버별 `costs`. 머리 주석 ⑥. */
+function buildP36Fixture(): AdminUsersOverview {
+  const users = clone(ADMIN_USERS_FIXTURE_P30);
+  const alex = users.users.find((u) => u.email === 'alex@example.invalid')!;
+  alex.accounts[0].costs = {
+    KB120: { budgetKrw: 100_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: 'live' },
+    KB121: { budgetKrw: 50_000_000, feePpm: 500, sellTaxPpm: 2000, budgetSource: 'snapshot' },
+  };
+  alex.accounts[1].costs = {
+    KYOBO119: { budgetKrw: 700_000_000, feePpm: 500, sellTaxPpm: 2000, budgetSource: 'snapshot' },
+    KYOBO127: null,
+  };
+  return users;
+}
+
+export const ADMIN_USERS_FIXTURE_P36: AdminUsersOverview = buildP36Fixture();
+
 function server(
   key: string,
   broker: DmaBroker,
@@ -466,6 +490,23 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
         }
         acct.orderServer = key;
         return { body: { ok: true, orderServer: key } };
+      }
+      // ⑥ 계좌 예수금 · 비용률(36-03) — `accounts` PUT 보다 먼저(경로가 더 길다). 값을 아는 active 등록 서버의 costs 를 바꾼다.
+      if (seg[2] === 'accounts' && seg.length === 6 && (seg[5] === 'budget' || seg[5] === 'fee') && req.method === 'PUT') {
+        const acct = owner?.accounts.find((a) => a.broker === seg[3] && a.accountNo === seg[4]);
+        if (!acct) return { status: 409, body: { error: { code: 'NO_SUCH_ACCOUNT', message: '없는 계좌예요' } } };
+        const active = acct.servers.filter((c) => c.state === 'active').map((c) => c.serverKey);
+        const costs = { ...(acct.costs ?? {}) };
+        for (const k of active) {
+          const cur = costs[k];
+          if (cur == null) continue;
+          costs[k] =
+            seg[5] === 'budget'
+              ? { ...cur, budgetKrw: Number(body.budgetKrw), budgetSource: 'live' }
+              : { ...cur, feePpm: Number(body.feePpm), sellTaxPpm: Number(body.sellTaxPpm) };
+        }
+        acct.costs = costs;
+        return { body: { results: okResults(active) } };
       }
       if (seg[2] === 'accounts' && req.method === 'PUT') {
         const put = body as Partial<AdminPutAccountBody>;

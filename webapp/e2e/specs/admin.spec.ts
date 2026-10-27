@@ -13,6 +13,7 @@ import {
   ADMIN_SHARED_ACCOUNT,
   ADMIN_USERS_FIXTURE,
   ADMIN_USERS_FIXTURE_P30,
+  ADMIN_USERS_FIXTURE_P36,
   mockAdminApi,
   type AdminApiMock,
 } from '../fixtures/admin';
@@ -44,6 +45,11 @@ import { leavesOverflowing, scrollOverflowing } from '../overflow';
  *   아니라 단언으로 잠근다.
  *   P30-E6 · E7(30-09 · D-18) — 공유 계좌 편집 모드 안내 줄 · 저장 뒤 개요 재조회로 함께 쓰는 사용자(kim) 카드도 새 값(목이 gh-trade
  *   전파를 흉내 — 픽스처 머리 주석 ⑥) · gh-trade 전파 배포 전 code 7 은 결과 줄에 서버 문구 원문 그대로(특수 처리 없음).
+ *
+ * ⑥ Phase 36 — 계좌 카드 「예수금 · 수수료 · 매도세」 행(P36-B1 · B2 · `ADMIN_USERS_FIXTURE_P36` · 픽스처 머리 주석 ⑥)
+ *   표시값(주문 서버 값) · 서버별 다름 줄 → 예수금 Enter 저장(PUT 1건 · 원 단위) → 서버별 칩 · 재조회 → 범위 밖 수수료는 요청 0 ·
+ *   빨간 테두리 → code 1 「서버 미지원」 줄 → 교보 카드 「확인 전」 칩 · 서버 알약 반영 칩 무변경(D-04). 행 배치는 카드 폭 컨테이너
+ *   쿼리라 440px 시트에서는 1080 · 390 모두 2줄(예수금 / 수수료 · 매도세) · 줄 끝 「·」 없음 · 가로 넘침 0.
  */
 
 const VIEWPORTS = [
@@ -1170,4 +1176,181 @@ test('P30-E7 공유 계좌 code 7 원문 · 편집 유지 (1080)', async ({ page
   await result.scrollIntoViewIfNeeded();
   await settled(page);
   await page.screenshot({ path: testInfo.outputPath('admin-ipmac-code7-1080.png') });
+});
+
+// ── Phase 36 예수금 · 비용률 (36-03 · 머리 주석 ⑥) ─────────────────────────────────────
+
+const RANGE_INVALID = '수수료 · 매도세는 0~1%, 소수 넷째 자리까지예요';
+
+test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
+  const costRow = (card: Locator) => card.locator('[data-slot="admin-account-cost"]');
+  const costChips = (card: Locator) => costRow(card).locator('[data-slot="admin-account-cost-chips"] [data-slot="reflect-chip"]');
+  const pillChips = (card: Locator) => card.locator('[data-slot="admin-server-toggle"] [data-slot="reflect-chip"]');
+  const field = (card: Locator, accountNo: string, broker: string, name: string) =>
+    costRow(card).getByRole('textbox', { name: `${broker} ${accountNo} ${name}`, exact: true });
+  const costWrites = (api: AdminApiMock, op: 'budget' | 'fee') =>
+    writes(api).filter((r) => r.path.endsWith(`/${op}`));
+
+  test('P36-B1 표시 · 서버별 다름 → 예수금 저장 · 범위 밖 수수료 · 서버 미지원 · 교보 확인 전 (1080)', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1080, height: 800 });
+    const api = await mockAdminApi(page, {
+      users: ADMIN_USERS_FIXTURE_P36,
+      onRequest: (req) =>
+        req.method === 'PUT' && req.path.endsWith('/fee')
+          ? {
+              body: {
+                results: [
+                  { server: 'KB120', outcome: 'failed', code: 1, message: 'BAD_OP' },
+                  { server: 'KB121', outcome: 'ok' },
+                ],
+              },
+            }
+          : undefined,
+    });
+
+    await page.goto('/admin/users');
+    const sheet = await openUserSheet(page, ALEX);
+    const card = accountCard(sheet, ALEX_KB);
+    const budget = field(card, ALEX_KB, 'KB', '예수금(만원)');
+    const fee = field(card, ALEX_KB, 'KB', '수수료(%)');
+    const tax = field(card, ALEX_KB, 'KB', '매도세(%)');
+
+    // ① 표시값 = (유효) 주문 서버 KB120 값 · 다른 서버 KB121 은 줄로(예수금 · 비용률 따로)
+    await expect(budget).toHaveValue('10,000');
+    await expect(fee).toHaveValue('0.01');
+    await expect(tax).toHaveValue('0.2');
+    const mismatch = costRow(card).locator('[data-slot="admin-account-cost-mismatch"]');
+    await expect(mismatch).toHaveText([
+      'KB121 은 5,000만 — 저장하면 등록 서버가 모두 같아져요',
+      'KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요',
+    ]);
+    await expect(costRow(card).locator('[data-slot="admin-account-cost-caption"]')).toHaveText(
+      '예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제',
+    );
+    await expect(costChips(card)).toHaveText(['KB120', 'KB121']);
+    const pillsBefore = await pillChips(card).allTextContents();
+    // 배치 — 데스크톱에서도 편집 시트는 440px 패널이라 카드 폭 쿼리로 2줄(예수금 / 수수료 · 매도세): 줄 끝에 「·」 이 매달리지 않는다
+    const bBox = (await budget.boundingBox())!;
+    const fBox = (await fee.boundingBox())!;
+    const tBox = (await tax.boundingBox())!;
+    expect(fBox.y).toBeGreaterThan(bBox.y + bBox.height - 1);
+    expect(Math.abs(fBox.y - tBox.y)).toBeLessThanOrEqual(1);
+    await expect(costRow(card).locator('[data-slot="admin-account-cost-sep"]')).toBeHidden();
+    const cBox = (await card.boundingBox())!;
+    expect(await leavesOverflowing(costRow(card), cBox.x + cBox.width)).toEqual([]);
+
+    // ② 예수금 「12,000」 Enter → PUT 1건(원) → 서버별 칩 → 재조회로 예수금 다름 줄이 사라진다
+    await budget.click();
+    await budget.fill('12000');
+    await expect(budget).toHaveValue('12,000');
+    await budget.press('Enter');
+    await expect.poll(() => costWrites(api, 'budget').length).toBe(1);
+    expect(costWrites(api, 'budget')[0]).toEqual({
+      method: 'PUT',
+      path: `/dma-users/alexjx/accounts/KB/${ALEX_KB}/budget`,
+      body: { budgetKrw: 120_000_000 },
+    });
+    await expect(costChips(card)).toHaveText(['KB120', 'KB121']);
+    await expect(costChips(card).first()).toHaveAttribute('data-tone', 'ok');
+    await expect(mismatch).toHaveText(['KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요']);
+    await expect(budget).toHaveValue('12,000');
+
+    // ③ 수수료 「1.5」 Enter → 빨간 테두리 + 범위 줄 · 요청 0 · 입력값 유지
+    await fee.click();
+    await fee.fill('1.5');
+    await fee.press('Enter');
+    await expect(fee).toHaveAttribute('aria-invalid', 'true');
+    await expect(costRow(card).locator('[data-slot="admin-account-cost-invalid"]')).toHaveText(RANGE_INVALID);
+    // 빨간 테두리 — 계산된 테두리색이 --destructive 와 같다(테두리 전환 120ms 가 끝날 때까지 기다린다)
+    const destructive = await fee.evaluate((el) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--destructive)';
+      el.parentElement!.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    });
+    await expect.poll(() => fee.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(destructive);
+    expect(await tax.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe(destructive);
+    await expect(fee).toHaveValue('1.5');
+    expect(costWrites(api, 'fee')).toHaveLength(0);
+
+    // ④ 「0.05」 로 고치면 범위 줄이 사라지고 Enter → op 7 두 값 함께 → code 1 「서버 미지원」 줄(role=alert) · 칩 title
+    await fee.fill('0.05');
+    await expect(fee).not.toHaveAttribute('aria-invalid');
+    await expect(costRow(card).locator('[data-slot="admin-account-cost-invalid"]')).toHaveCount(0);
+    await fee.press('Enter');
+    await expect.poll(() => costWrites(api, 'fee').length).toBe(1);
+    expect(costWrites(api, 'fee')[0].body).toEqual({ feePpm: 500, sellTaxPpm: 2000 });
+    const alert = costRow(card).getByRole('alert');
+    await expect(alert).toHaveText('KB120 실패: 서버 미지원 · BAD_OP — 서버 업데이트 뒤 다시 저장');
+    await expect(costChips(card)).toHaveText(['KB120 · 실패', 'KB121']);
+    await expect(costChips(card).first()).toHaveAttribute('title', '서버 미지원 · BAD_OP');
+    await expect(fee).toHaveValue('0.05');
+
+    // D-04 — 비용 저장은 서버 알약의 users.toml 반영 칩을 바꾸지 않는다 · 토스트 없음
+    expect(await pillChips(card).allTextContents()).toEqual(pillsBefore);
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
+
+    // ⑤ 교보 카드도 같은 행 · 캡션 · KYOBO127 은 87 모름 → 「확인 전」 칩
+    const ky = accountCard(sheet, ALEX_KYOBO);
+    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '예수금(만원)')).toHaveValue('70,000');
+    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '수수료(%)')).toHaveValue('0.05');
+    await expect(costChips(ky)).toHaveText(['KYOBO119', 'KYOBO127 · 확인 전']);
+    await expect(costChips(ky).last()).toHaveAttribute('data-tone', 'only');
+    await expect(costRow(ky).locator('[data-slot="admin-account-cost-mismatch"]')).toHaveCount(0);
+    await expect(costRow(ky).locator('[data-slot="admin-account-cost-caption"]')).toHaveText(
+      '예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제',
+    );
+    // 87 전용 흐린 줄은 없다(이 사용자) — 비용 행은 의도 계좌 카드에만
+
+    await costRow(card).scrollIntoViewIfNeeded();
+    await settled(page);
+    await page.screenshot({ path: testInfo.outputPath('admin-cost-row-1080.png') });
+  });
+
+  test('P36-B2 폰 390 — 예수금 줄 / 수수료 · 매도세 줄 2줄 · 1줄 끝 구분점 숨김 · 가로 넘침 0', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P36 });
+
+    await page.goto('/admin/users');
+    const sheet = await openUserSheet(page, ALEX);
+    for (const [accountNo, broker] of [
+      [ALEX_KB, 'KB'],
+      [ALEX_KYOBO, 'KYOBO'],
+    ] as const) {
+      const card = accountCard(sheet, accountNo);
+      await costRow(card).scrollIntoViewIfNeeded();
+      const budget = field(card, accountNo, broker, '예수금(만원)');
+      const fee = field(card, accountNo, broker, '수수료(%)');
+      const tax = field(card, accountNo, broker, '매도세(%)');
+      const b = (await budget.boundingBox())!;
+      const f = (await fee.boundingBox())!;
+      const t = (await tax.boundingBox())!;
+      // 2줄 — 수수료 · 매도세는 예수금 아래 같은 줄
+      expect(f.y).toBeGreaterThan(b.y + b.height - 1);
+      expect(Math.abs(f.y - t.y)).toBeLessThanOrEqual(1);
+      // 폰 터치 높이 36px
+      expect(b.height).toBeGreaterThanOrEqual(35.5);
+      // 1줄 끝 구분점은 폰에서 숨김(2줄이 「·」 로 시작하지 않게)
+      await expect(costRow(card).locator('[data-slot="admin-account-cost-sep"]')).toBeHidden();
+      // 가로 넘침 0 — 행 · 칸 값 · 카드 오른쪽
+      const cardBox = (await card.boundingBox())!;
+      const right = cardBox.x + cardBox.width;
+      expect(await leavesOverflowing(costRow(card), right)).toEqual([]);
+      expect(await costRow(card).evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      expect(await scrollOverflowing(page, `${cardSelector(accountNo)} [data-slot="admin-account-cost"]`)).toEqual([]);
+    }
+    // 9자리 만원 상한 값이 예수금 칸 안에 들어간다(UI-SPEC 칸 폭 근거)
+    const kb = accountCard(sheet, ALEX_KB);
+    const budget = field(kb, ALEX_KB, 'KB', '예수금(만원)');
+    await budget.click();
+    await budget.fill('999999999');
+    await expect(budget).toHaveValue('999,999,999');
+    expect(await ownOverflow(budget)).toBeLessThanOrEqual(0);
+
+    await costRow(kb).scrollIntoViewIfNeeded();
+    await settled(page);
+    await page.screenshot({ path: testInfo.outputPath('admin-cost-row-390.png') });
+  });
 });
