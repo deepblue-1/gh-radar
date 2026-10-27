@@ -79,7 +79,7 @@ export function fireLegLabelOf(p: FireKey): string {
   return `${p.profile} ${p.fire_exchange}`;
 }
 
-const BROKER_LABEL = { KB: 'KB', KYOBO: '교보' } as const;
+export const BROKER_LABEL = { KB: 'KB', KYOBO: '교보' } as const;
 const MARKET_LABEL: Readonly<Record<string, string>> = { K: '코스피', Q: '코스닥' };
 
 /** (서버 키, 시장) → 「KB 코스닥」 · 「교보 코스피」. 모르는 값은 원문 그대로. */

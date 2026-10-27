@@ -186,7 +186,7 @@ const NAV_TEAMFLOW = { href: "/analytics/teamflow", label: "팀 매집 보고서
 const NAV_ACCUM = { href: "/analytics/accum", label: "매집감지 보고서" } as const;
 
 /**
- * 「Admin」 그룹 제목 = `/admin/users` 링크(Phase 29 D-13). 하위 = 사용자 · 서버 · 발사(Phase 35 D-11). 위치는 「분석」 뒤 · My page 앞(목업 A
+ * 「Admin」 그룹 제목 = `/admin/users` 링크(Phase 29 D-13). 하위 = 사용자 · 서버 · 발사(Phase 35 D-11) · 매매손익(Phase 36 D-17). 위치는 「분석」 뒤 · My page 앞(목업 A
  * 데스크톱 사이드바). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
  * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만)와 Express `requireAdmin` 이다.
  * 활성은 「분석」 규율 그대로 하위 항목이 켠다(펼침에서 제목은 켜지 않음) · 레일은 `/admin` 접두 일치로 제목 아이콘.
@@ -197,6 +197,8 @@ const NAV_ADMIN_USERS = { href: "/admin/users", label: "사용자" } as const;
 const NAV_ADMIN_SERVERS = { href: "/admin/servers", label: "서버" } as const;
 // Phase 35 D-11 — 발사 경계 지도 · 주문 내역(어드민 전용 · 서버 다음).
 const NAV_ADMIN_LAUNCH = { href: "/admin/launch", label: "발사" } as const;
+// Phase 36 D-17 ① — 일자별 매매손익(계정별 | 계좌별 · 어드민 전용 · 발사 다음 = 맨 뒤).
+const NAV_ADMIN_PNL = { href: "/admin/pnl", label: "매매손익" } as const;
 const ADMIN_PREFIX = "/admin";
 
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
@@ -762,6 +764,15 @@ export function AppSidebar() {
                     label={NAV_ADMIN_LAUNCH.label}
                     item="admin-launch"
                     active={isActive(NAV_ADMIN_LAUNCH.href)}
+                    rail={rail}
+                  />
+                </li>
+                <li>
+                  <SubNavLink
+                    href={NAV_ADMIN_PNL.href}
+                    label={NAV_ADMIN_PNL.label}
+                    item="admin-pnl"
+                    active={isActive(NAV_ADMIN_PNL.href)}
                     rail={rail}
                   />
                 </li>

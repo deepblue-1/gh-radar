@@ -136,7 +136,7 @@ describe('PnlAdminClient — /admin/pnl', () => {
     expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?group=account&range=month');
     view.rerender(<PnlAdminClient />);
     await waitFor(() => expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', 'month'));
-    expect(await screen.findByText('이달 실현손익')).toBeInTheDocument();
+    expect(await screen.findAllByText('이달 실현손익')).toHaveLength(2);
   });
 
   it('④ 계정별 머리 — 제목 dma_user_id(truncate · title) · 부제 「KB 37728502101 · 교보 10279758101」 · 「미상」 맨 뒤 · 부제 「dma_user_id 없는 체결 · 계좌 …」', async () => {
