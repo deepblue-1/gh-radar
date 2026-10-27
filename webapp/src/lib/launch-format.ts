@@ -149,7 +149,13 @@ export interface LaunchHeadCardQ16 extends LaunchHeadCardBase {
   fire: 'q16';
   /** 「lo ~ hi」 · 「전부 접수 (첫 접수 hiµs)」 · 「전부 101 (마지막 loµs)」 · 「판단 불가」 */
   gate: string;
-  /** 「before → after · 다음 nextµs (step s)」 · 머리 없음 「—」 */
+  /**
+   * 학습 줄 라벨 (D-32). gh-trade Phase 43 뒤 kind 18 은 Q16 학습값(correction · step 등 8칸)을 싣지 않고
+   * next_offset_us = 콜드3 시점 최신 발사 계획의 첫 조각이다 — 학습값이 하나라도 있는 머리(학습 시절 · 백필)만
+   * 옛 라벨 「학습 → 다음 오프셋」, 그 밖(학습값 없음 · 머리 없음)은 「다음 발사 계획 첫 조각」.
+   */
+  learnLabel: string;
+  /** 학습 머리 「before → after · 다음 nextµs (step s)」 · 그 밖 「nextµs」 · next 도 없으면 「—」 */
   learn: string;
 }
 
@@ -191,18 +197,23 @@ function gateText(lo: number | null, hi: number | null): string {
   return '판단 불가';
 }
 
-function learnText(h: LaunchHeadRow | undefined): string {
-  if (h === undefined) return DASH;
+const LEARN_LABEL = '학습 → 다음 오프셋';
+const PLAN_FIRST_LABEL = '다음 발사 계획 첫 조각';
+
+/** 16:00 머리 → 학습 줄 (D-32 세 갈래). 판정 = correction_before · correction_after · step_us 중 하나라도 non-null. */
+function learnLineOf(h: LaunchHeadRow | undefined): { learnLabel: string; learn: string } {
+  if (h === undefined) return { learnLabel: PLAN_FIRST_LABEL, learn: DASH };
   const { correction_before_us: before, correction_after_us: after, next_offset_us: next, step_us: step } = h;
-  if (before === null && after === null && next === null && step === null) return DASH;
-  return `${fmtUs(before)} → ${fmtUs(after)} · 다음 ${usOrDash(next)} (step ${cell(step)})`;
+  if (before === null && after === null && step === null) return { learnLabel: PLAN_FIRST_LABEL, learn: usOrDash(next) };
+  return { learnLabel: LEARN_LABEL, learn: `${fmtUs(before)} → ${fmtUs(after)} · 다음 ${usOrDash(next)} (step ${cell(step)})` };
 }
 
 /**
  * (서버, 시장, 세그먼트) → 카드 모델. 그 조합의 탭 조각 0 · 머리 0 이면 null(빈 카드).
  *
  * q16: 오프셋 = Q16 머리 offset_used_us → 없으면 최소 wire 조각 rel · 경계 = 머리 gate_lo/hi(하나라도 있으면) → 없으면
- * shared `launchDaysOf` 의 그날 1개 · 학습 = 머리 correction_before → after · next_offset_us · step_us.
+ * shared `launchDaysOf` 의 그날 1개 · 학습 줄 = 학습값 있는 머리는 correction_before → after · next_offset_us · step_us,
+ * 학습값 없는 머리(Phase 43 뒤)는 「다음 발사 계획 첫 조각」 next_offset_us (D-32).
  * n0930: 탭 조각 = N NXT + A 두 다리(KRX 09:00:27 · NXT 09:00:30) · 결과 라벨 「거부」 · 오프셋 = N 머리 offset_used_us →
  * 없으면 N NXT 최소 wire rel · 재전송 = 탭 조각 retry 합 · 다음 오프셋 = N 머리 「고정 next_offset_usµs」(없으면 「—」).
  */
@@ -249,7 +260,7 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
     badLabel: '101',
     offset: usOrDash(head?.offset_used_us ?? minWireRel(pieces)),
     gate,
-    learn: learnText(head),
+    ...learnLineOf(head),
   };
 }
 

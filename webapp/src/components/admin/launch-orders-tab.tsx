@@ -303,7 +303,7 @@ export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) 
       {model.fire === 'q16' ? (
         <>
           <CardRow label="경계">{model.gate}</CardRow>
-          <CardRow label="학습 → 다음 오프셋">{model.learn}</CardRow>
+          <CardRow label={model.learnLabel}>{model.learn}</CardRow>
         </>
       ) : (
         <>
