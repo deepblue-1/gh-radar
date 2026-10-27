@@ -26,6 +26,7 @@ import {
   type LaunchPlanEntry,
   type LaunchPlanResponse,
   type LaunchPlanSaveResponse,
+  type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
 import { DASH, fmtUs } from './launch-format';
@@ -262,3 +263,12 @@ export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at
       };
   }
 }
+
+/** 미리보기 표 셀(D-28) — 「접수 a · 모름 b · 거부 c」(날 수 · shared `launchPlanVerdictRows` 셀 그대로). */
+export function verdictCellText(cell: LaunchRibbonCell): string {
+  return `접수 ${cell.ok} · 모름 ${cell.unknown} · 거부 ${cell.bad}`;
+}
+
+/** 지도 탭 범례 아래 공용 적용 안내(D-27 · 계획을 읽었을 때만). */
+export const LAUNCH_PLAN_APPLY_NOTE =
+  '저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.';

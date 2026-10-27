@@ -295,3 +295,68 @@ describe('LaunchGateChart — 날짜별 표 보기', () => {
     expect(row.querySelectorAll('td')[4]!.textContent).toBe('—');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 35-15 — 바꿀 계획 실선(D-28 · Pitfall S9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchGateChart — 바꿀 계획 draftLines', () => {
+  it('draftLines 3개 → launch-draft-line 3(--launch-gate 실선 · 점선 아님) · 번호 글 1·2·3 · title 「바꿀 n번」', () => {
+    render(
+      <LaunchGateChart
+        gateway="KB120"
+        market="Q"
+        fire="q16"
+        days={daysOf('KB120', 'Q')}
+        planLines={[-350, -345, -325]}
+        draftLines={[-340, -335, -322]}
+      />,
+    );
+    const lines = Array.from(document.querySelectorAll('[data-slot="launch-draft-line"]'));
+    expect(lines.map((l) => l.getAttribute('data-idx'))).toEqual(['0', '1', '2']);
+    expect(lines.every((l) => l.getAttribute('stroke') === 'var(--launch-gate)')).toBe(true);
+    expect(lines.every((l) => l.getAttribute('stroke-dasharray') === null)).toBe(true);
+    expect(lines.map((l) => l.querySelector('title')?.textContent)).toEqual([
+      '바꿀 1번 −340µs',
+      '바꿀 2번 −335µs',
+      '바꿀 3번 −322µs',
+    ]);
+    const nums = Array.from(document.querySelectorAll('[data-slot="launch-draft-num"]')).map((t) => t.textContent);
+    expect(nums).toEqual(['1', '2', '3']);
+    // 계획 점선은 그대로 3개
+    expect(document.querySelectorAll('[data-slot="launch-next"]')).toHaveLength(3);
+  });
+
+  it('draftLines 없음(기본) → 실선 · 번호 없음', () => {
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} planLines={[-350]} />);
+    expect(document.querySelectorAll('[data-slot="launch-draft-line"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-slot="launch-draft-num"]')).toHaveLength(0);
+  });
+
+  it('바꿀 값도 축 후보 — −250 은 축을 넓혀 그 선이 축 안에 든다', () => {
+    const days = daysOf('KB120', 'Q');
+    const values = days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us));
+    expect(launchAxisOf(values, [-350], 'q16').xmax).toBeLessThan(-250);
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={days} planLines={[-350]} draftLines={[-250]} />);
+    expect(document.querySelectorAll('[data-slot="launch-draft-line"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-slot="launch-draft-off"]')).toHaveLength(0);
+  });
+
+  it('09:00:30 — 계획 · 바꿀 값 둘 다 축 밖 · 같은 쪽 → 한 글 「▸ 다음 −245µs · 바꿀 1번 −190µs」(겹치지 않게)', () => {
+    render(
+      <LaunchGateChart
+        gateway="KB120"
+        market="Q"
+        fire="n0930"
+        days={launchDaysOf(N0930_KB_Q)}
+        planLines={[-245]}
+        draftLines={[-190]}
+      />,
+    );
+    expect(document.querySelectorAll('[data-slot="launch-draft-line"]')).toHaveLength(0);
+    const off = document.querySelector('[data-slot="launch-next-off"]')!;
+    expect(off.textContent).toContain('▸ 다음 −245µs');
+    expect(off.querySelector('[data-slot="launch-draft-off"]')!.textContent).toBe(' · 바꿀 1번 −190µs');
+    expect(document.querySelectorAll('[data-slot="launch-draft-off"]')).toHaveLength(1);
+  });
+});

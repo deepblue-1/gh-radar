@@ -39,6 +39,9 @@ import { cn } from '@/lib/utils';
  *   세 겹) → 다음 발사 계획 점선(조각마다 1개 · 행과 리본을 지난다 · planLines 가 비면 없음) → x 눈금 글.
  * - 이상치(Pitfall 4): 축은 중앙값 ± 상한 안에서만 잡고, 밖의 점은 축 끝에 고정 + 옆에 「◂」/「▸」 · title 끝 「축 밖」.
  *   계획 값이 축 밖이면 그 값의 점선 대신 축 끝에 「▸ 다음 −245µs」 글(축 밖인 첫 값 하나만).
+ * - 바꿀 계획(35-15 · D-28 · 목업 `mockup-launch-plan-preview.html` `draftFor()`): 편집 중 `draftLines` 값마다 `--launch-gate`
+ *   실선(행 + 리본 · 계획 점선 위) + 행 아래 번호(1..n = 조각). 축 후보 = 계획 + 바꿀 값(cap 그대로) · 축 밖이면 축 밖인 첫 값
+ *   하나만 끝에 「◂/▸ 바꿀 n번 …µs」(계획 글과 같은 쪽이면 그 글 뒤에 이어 붙인다 — 겹치지 않게).
  * - `children` = 패널 머리 아래 슬롯(「다음 발사 계획」 줄 · D-24) — 날짜 없는 패널에도 그린다.
  * - 상호작용은 `<title>` 툴팁뿐(D-19) — 확대 · 끌기 · 마우스 상자 없음. 재전송은 첫 발 점 하나 · 횟수는 툴팁.
  * - 패널 머리 집계는 shared `launchPanelStatsOf` 한 벌(백필 머리 계산과 같은 규칙 · 판단 불가 날은 세지 않는다).
@@ -57,9 +60,13 @@ export interface LaunchGateChartProps {
    * 다음 발사 계획 점선(µs · D-25) — 서버 계획이면 조각마다 하나 · 대신 값(최신 머리)이면 1개 · 없으면 빈 배열(점선 없음).
    */
   planLines: readonly number[];
+  /** 바꿀 계획(편집 중 · 저장 전) 실선 — 0번 = 1번 조각. 기본 없음. */
+  draftLines?: readonly number[];
   /** 패널 머리 아래 슬롯(「다음 발사 계획」 줄) — 날짜 없는 패널에도 렌더. */
   children?: ReactNode;
 }
+
+const NO_DRAFT: readonly number[] = [];
 
 const { W_MIN, L, R, T, RH, RIBBON_H, GAP_R, TICK_H, DOT_R } = LAUNCH_CHART;
 
@@ -82,7 +89,15 @@ function tickAnchorOf(tx: number, right: number): 'middle' | 'end' {
 }
 const OFF_GLYPH = { lo: '◂', hi: '▸' } as const;
 
-export function LaunchGateChart({ gateway, market, fire, days, planLines, children }: LaunchGateChartProps) {
+export function LaunchGateChart({
+  gateway,
+  market,
+  fire,
+  days,
+  planLines,
+  draftLines = NO_DRAFT,
+  children,
+}: LaunchGateChartProps) {
   const title = brokerMarketLabelOf(gateway, market);
   const stats = launchPanelStatsOf(days);
 
@@ -104,7 +119,7 @@ export function LaunchGateChart({ gateway, market, fire, days, planLines, childr
       {children}
       {days.length > 0 && (
         <>
-          <LaunchGateSvg title={title} fire={fire} days={days} planLines={planLines} />
+          <LaunchGateSvg title={title} fire={fire} days={days} planLines={planLines} draftLines={draftLines} />
           <LaunchDayTable days={days} />
         </>
       )}
@@ -117,11 +132,13 @@ function LaunchGateSvg({
   fire,
   days,
   planLines,
+  draftLines,
 }: {
   title: string;
   fire: LaunchFire;
   days: readonly LaunchDay<LaunchChartPiece>[];
   planLines: readonly number[];
+  draftLines: readonly number[];
 }) {
   const [ref, width] = useChartWidth<HTMLDivElement>();
   const [hover, setHover] = useState<HoverDot | null>(null);
@@ -134,7 +151,7 @@ function LaunchGateSvg({
 
   const axis = launchAxisOf(
     days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us)),
-    planLines,
+    [...planLines, ...draftLines],
     fire,
   );
   const x = (v: number) => xOfUs(v, axis, left, right);
@@ -144,6 +161,12 @@ function LaunchGateSvg({
   const offFirst = planLines.find((v) => axis.offAxis(v) !== null);
   const nextOff: LaunchOffAxis = offFirst === undefined ? null : axis.offAxis(offFirst);
   const single = planLines.length === 1;
+  const draftOnAxis = draftLines.flatMap((v, i) => (axis.offAxis(v) === null ? [{ v, i }] : []));
+  const draftOffIdx = draftLines.findIndex((v) => axis.offAxis(v) !== null);
+  const draftOff: LaunchOffAxis = draftOffIdx < 0 ? null : axis.offAxis(draftLines[draftOffIdx]!);
+  const draftOffText =
+    draftOffIdx < 0 ? '' : `바꿀 ${draftOffIdx + 1}번 ${fmtUs(draftLines[draftOffIdx]!)}µs`;
+  const draftOffJoined = draftOff !== null && draftOff === nextOff;
 
   return (
     <div ref={ref} className="relative min-w-0 overflow-x-auto" onMouseLeave={() => setHover(null)}>
@@ -316,6 +339,58 @@ function LaunchGateSvg({
           >
             {`${OFF_GLYPH[nextOff]} 다음 ${fmtUs(offFirst)}µs`}
             <title>{`다음 첫 조각 ${fmtUs(offFirst)}µs · 축 밖`}</title>
+            {draftOffJoined && (
+              <tspan data-slot="launch-draft-off" fill="var(--launch-gate)" fontWeight={700}>
+                {` · ${draftOffText}`}
+              </tspan>
+            )}
+          </text>
+        )}
+
+        {/* 바꿀 계획(저장 전) — 조각마다 실선(행 + 리본) · 행 아래 번호 = 조각 */}
+        {draftOnAxis.map(({ v, i }) => {
+          const dx = x(v);
+          return (
+            <g key={`d${i}`}>
+              <path
+                data-slot="launch-draft-line"
+                data-idx={i}
+                d={`M${dx} ${T - 4} V${rowsBottom + 2} M${dx} ${ry - 2} V${ry + RIBBON_H + 2}`}
+                stroke="var(--launch-gate)"
+                strokeWidth={2}
+                fill="none"
+              >
+                <title>{`바꿀 ${i + 1}번 ${fmtUs(v)}µs`}</title>
+              </path>
+              <text
+                data-slot="launch-draft-num"
+                x={dx}
+                y={rowsBottom + 14}
+                textAnchor="middle"
+                fontSize={11}
+                fontWeight={700}
+                fill="var(--launch-gate)"
+                stroke="var(--card)"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                {i + 1}
+              </text>
+            </g>
+          );
+        })}
+        {draftOff !== null && !draftOffJoined && (
+          <text
+            data-slot="launch-draft-off"
+            x={draftOff === 'lo' ? left : right}
+            y={rowsBottom + 12}
+            textAnchor={draftOff === 'lo' ? 'start' : 'end'}
+            fontSize={11}
+            fontWeight={700}
+            fill="var(--launch-gate)"
+          >
+            {`${OFF_GLYPH[draftOff]} ${draftOffText}`}
+            <title>{`${draftOffText} · 축 밖`}</title>
           </text>
         )}
 

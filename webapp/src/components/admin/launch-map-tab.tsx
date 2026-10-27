@@ -23,10 +23,12 @@ import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-ap
 import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { launchRangeOf } from '@/lib/launch-map';
 import {
+  LAUNCH_PLAN_APPLY_NOTE,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
   planStateWithSave,
+  sameOffsets,
   type LaunchPlanEdit,
   type LaunchPlanState,
   type PanelPlan,
@@ -53,6 +55,8 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  * - 계획 고치기(범위 7 · D-24 ~ D-28): 편집 칸은 한 번에 한 패널 — 다른 패널을 열면 앞 편집이 닫히고, 발사 세그먼트가
  *   바뀌면 닫힌다(편집의 fire 가 지금 fire 와 다르면 닫힌 것으로 본다). 「저장」 = PUT 1건 → 응답 plan · change 로 계획 상태만
  *   바꾼다(Pitfall S6 — 지도 · 계획 재조회 없음). 요청 자체가 실패하면(throw) 결과 = offline(「서버 연결 안 됨」).
+ *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
+ *   범례 아래 공용 적용 안내 한 줄.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
  */
@@ -325,7 +329,15 @@ export function LaunchMapView({
 
       {ready && !noHistory && (
         <>
-          <LaunchLegend fire={fire} sideless={sideless} planned={plan.kind === 'ready'} />
+          <LaunchLegend fire={fire} sideless={sideless} planned={plan.kind === 'ready'} drafting={editing !== null} />
+          {plan.kind === 'ready' && (
+            <p
+              data-slot="launch-apply-note"
+              className="rounded-[10px] bg-[var(--band)] px-3 py-2 text-[12.5px] leading-normal break-keep text-[var(--muted-fg)]"
+            >
+              {LAUNCH_PLAN_APPLY_NOTE}
+            </p>
+          )}
           <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
             {panels.map((p) => (
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
@@ -335,6 +347,8 @@ export function LaunchMapView({
             {panels.map((p) => {
               const open = editing !== null && editing.gateway === p.gateway && editing.market === p.market;
               const entry = p.plan.entry;
+              const draftLines =
+                open && entry !== null && !sameOffsets(editing.valid, entry.offsets_us) ? editing.valid : undefined;
               return (
                 <LaunchGateChart
                   key={`${p.gateway}|${p.market}`}
@@ -343,6 +357,7 @@ export function LaunchMapView({
                   fire={fire}
                   days={p.days}
                   planLines={p.plan.lines}
+                  draftLines={draftLines}
                 >
                   <LaunchPlanBar
                     fire={fire}
@@ -369,6 +384,8 @@ export function LaunchMapView({
                         onSave={() => onSave?.()}
                         saving={saving}
                         result={lastSave}
+                        days={p.days}
+                        preview={editing.valid}
                       />
                     )}
                   </LaunchPlanBar>
@@ -406,7 +423,17 @@ function nextLegendOf(fire: LaunchFire, planned: boolean): string {
   return fire === 'q16' ? '다음 발사 계획(조각마다 점선)' : '다음 발사 계획(시각)';
 }
 
-function LaunchLegend({ fire, sideless, planned }: { fire: LaunchFire; sideless: boolean; planned: boolean }) {
+function LaunchLegend({
+  fire,
+  sideless,
+  planned,
+  drafting,
+}: {
+  fire: LaunchFire;
+  sideless: boolean;
+  planned: boolean;
+  drafting: boolean;
+}) {
   return (
     <div
       data-slot="launch-legend"
@@ -439,6 +466,11 @@ function LaunchLegend({ fire, sideless, planned }: { fire: LaunchFire; sideless:
       <LegendItem swatch={<i className="inline-block h-3.5 w-0.5 shrink-0 bg-[var(--primary)]" />}>
         {nextLegendOf(fire, planned)}
       </LegendItem>
+      {drafting && (
+        <LegendItem swatch={<i className="inline-block h-3.5 w-[3px] shrink-0 bg-[var(--launch-gate)]" />}>
+          바꿀 계획(저장 전 · 번호 = 조각)
+        </LegendItem>
+      )}
     </div>
   );
 }

@@ -2,7 +2,16 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { LaunchFire, LaunchPlanEntry } from '@gh-radar/shared';
+import {
+  launchDaysOf,
+  launchRibbonAt,
+  type LaunchCalcPiece,
+  type LaunchDay,
+  type LaunchFire,
+  type LaunchPlanEntry,
+} from '@gh-radar/shared';
+
+import { planEditOf, planEditWithDraft, verdictCellText } from '@/lib/launch-plan-view';
 
 import { LaunchPlanEditor, type LaunchPlanSaveState } from '../launch-plan-editor';
 
@@ -186,5 +195,96 @@ describe('LaunchPlanEditor — 결과 줄(D-27)', () => {
     render(<Harness result={{ result: { server: 'KB120', outcome: 'ok' }, at: new Date('2026-10-27T13:41:00Z') }} />);
     expect(q('[data-slot="launch-plan-result"] [data-slot="reflect-chip"]')!.textContent).toBe('KB120');
     expect(q('[data-slot="launch-plan-result-line"]')!.textContent).toBe('저장됨 · 22:41 · 다음 16:00 발사부터');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 미리보기 P2(D-28 · Pitfall S9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const P = (trade_date: string, wire: number, sent_rel_us: number, result: string): LaunchCalcPiece => ({
+  trade_date,
+  wire,
+  sent_rel_us,
+  result,
+});
+
+/** 합성 3일 — 10/12 경계(−360 거부 · −340 접수) · 10/13 전부 접수(−350) · 10/14 전부 거부(−330). */
+const DAYS: LaunchDay<LaunchCalcPiece>[] = launchDaysOf([
+  P('20261012', 0, -360, '101'),
+  P('20261012', 1, -340, '접수'),
+  P('20261013', 0, -350, '접수'),
+  P('20261014', 0, -330, '101'),
+]);
+
+/** 부모(지도 탭)처럼 편집 상태를 쥐고 마지막 유효 값을 preview 로 넘긴다. */
+function PreviewHarness({ entry = Q_ENTRY, days = DAYS }: { entry?: LaunchPlanEntry; days?: readonly LaunchDay<unknown>[] }) {
+  const [edit, setEdit] = useState(() => planEditOf('KB120', 'Q', 'q16', entry.offsets_us));
+  return (
+    <LaunchPlanEditor
+      gateway="KB120"
+      fire="q16"
+      entry={entry}
+      draft={edit.draft}
+      onDraft={(d) => setEdit((e) => planEditWithDraft(e, d))}
+      onSave={() => {}}
+      days={days}
+      preview={edit.valid}
+    />
+  );
+}
+
+const previewRows = () => Array.from(document.querySelectorAll<HTMLTableRowElement>('[data-slot="launch-plan-preview"] tbody tr'));
+const cellsOf = (tr: HTMLTableRowElement) => Array.from(tr.querySelectorAll('td')).map((td) => td.textContent);
+
+describe('LaunchPlanEditor — 미리보기 P2', () => {
+  it('열 「조각 | 지금 µs | 바꿀 µs | 지금 — 지난 3일에 쐈다면 | 바꿀 — 지난 3일에 쐈다면」 · 행 = 조각 수', () => {
+    render(<PreviewHarness />);
+    const heads = Array.from(document.querySelectorAll('[data-slot="launch-plan-preview"] thead th')).map((th) => th.textContent);
+    expect(heads).toEqual(['조각', '지금 µs', '바꿀 µs', '지금 — 지난 3일에 쐈다면', '바꿀 — 지난 3일에 쐈다면']);
+    expect(previewRows()).toHaveLength(3);
+  });
+
+  it('셀 = 「접수 a · 모름 b · 거부 c」(launchRibbonAt 그대로) · 입력마다 바꿀 쪽 갱신', () => {
+    render(<PreviewHarness />);
+    // −350: 10/12 hi −340 > −350 → lo −360 < −350 → 모름 · 10/13 hi −350 → 접수 · 10/14 lo −330 ≥ −350 → 거부
+    expect(verdictCellText(launchRibbonAt(DAYS, -350))).toBe('접수 1 · 모름 1 · 거부 1');
+    expect(cellsOf(previewRows()[0]!)).toEqual([
+      '1',
+      `${M}350`,
+      `${M}350`,
+      '접수 1 · 모름 1 · 거부 1',
+      '접수 1 · 모름 1 · 거부 1',
+    ]);
+    type(inputs()[0]!, '-348');
+    expect(cellsOf(previewRows()[0]!)[2]).toBe(`${M}348`);
+    expect(cellsOf(previewRows()[0]!)[4]).toBe(verdictCellText(launchRibbonAt(DAYS, -348)));
+  });
+
+  it('+ 로 조각을 늘리면 지금 쪽은 「—」', () => {
+    render(<PreviewHarness />);
+    fireEvent.click(plus());
+    expect(previewRows()).toHaveLength(4);
+    const last = cellsOf(previewRows()[3]!);
+    expect(last[1]).toBe('—');
+    expect(last[2]).toBe(`${M}325`);
+    expect(last[3]).toBe('—');
+    expect(last[4]).toBe(verdictCellText(launchRibbonAt(DAYS, -325)));
+  });
+
+  it('검증 오류 동안 표 값은 마지막 유효 값 그대로(S9)', () => {
+    render(<PreviewHarness />);
+    type(inputs()[1]!, '-340');
+    expect(cellsOf(previewRows()[1]!)[2]).toBe(`${M}340`);
+    type(inputs()[1]!, '-360');
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(cellsOf(previewRows()[1]!)[2]).toBe(`${M}340`);
+    type(inputs()[1]!, '-');
+    expect(cellsOf(previewRows()[1]!)[2]).toBe(`${M}340`);
+  });
+
+  it('days [] → 표 없음', () => {
+    render(<PreviewHarness days={[]} />);
+    expect(document.querySelector('[data-slot="launch-plan-preview"]')).toBeNull();
   });
 });

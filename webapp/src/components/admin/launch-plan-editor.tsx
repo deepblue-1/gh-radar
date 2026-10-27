@@ -2,14 +2,18 @@
 
 import {
   LAUNCH_PLAN_LIMITS,
+  launchPlanVerdictRows,
   validateLaunchPlanDraft,
   type AdminServerResult,
+  type LaunchDay,
   type LaunchFire,
   type LaunchPlanEntry,
+  type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
-import { sameOffsets, saveResultViewOf, type SaveTone } from '@/lib/launch-plan-view';
+import { DASH, fmtUs } from '@/lib/launch-format';
+import { sameOffsets, saveResultViewOf, verdictCellText, type SaveTone } from '@/lib/launch-plan-view';
 import { cn } from '@/lib/utils';
 
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './reflect-chip';
@@ -26,6 +30,9 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  *   개수 위반(badIdx −1)은 칸 표시 없이 alert 만.
  * - 「저장」 은 검증 통과 · 서버 값과 다름 · 저장 중 아님일 때만 켜진다. 「되돌리기」 = 서버 현재 값(같으면 비활성).
  * - 저장 중에도 입력은 막지 않는다(값 유지 · 버튼만 「저장 중…」).
+ * - 미리보기 P2(D-28 · 목업 `mockup-launch-plan-preview.html` `verdict()`): 조각마다 지금 / 바꿀 µs 와 「지난 N일에 쐈다면」
+ *   접수 · 모름 · 거부 날 수(shared `launchPlanVerdictRows` — 리본과 같은 식). N = 그 패널 지금 범위의 날 수. 바꿀 값은
+ *   `preview`(마지막 유효 값 · Pitfall S9) — 검증 오류 동안에도 지우지 않는다. 표는 자기 래퍼 안에서만 가로 스크롤.
  * - 결과 = Admin 칩 한 벌(`ReflectChip`) + 결과 줄(`saveResultViewOf` — outcome · code 로만 가른다).
  */
 
@@ -45,7 +52,13 @@ export interface LaunchPlanEditorProps {
   saving?: boolean;
   /** 마지막 저장 결과(이 칸) — 없으면 null. */
   result?: LaunchPlanSaveState | null;
+  /** 그 패널 지금 범위의 날들(미리보기 표) — 비면 표 없음. */
+  days?: readonly LaunchDay<unknown>[];
+  /** 바꿀 값(마지막 유효 값 · S9) — 기본 서버 값. */
+  preview?: readonly number[];
 }
+
+const NO_DAYS: readonly LaunchDay<unknown>[] = [];
 
 const LABEL = 'min-w-[52px] text-[12.5px] font-semibold text-[var(--muted-fg)]';
 const STEP_BTN =
@@ -66,6 +79,8 @@ export function LaunchPlanEditor({
   onSave,
   saving = false,
   result = null,
+  days = NO_DAYS,
+  preview,
 }: LaunchPlanEditorProps) {
   const lim = LAUNCH_PLAN_LIMITS[fire];
   const multi = lim.maxPieces > 1;
@@ -122,7 +137,7 @@ export function LaunchPlanEditor({
               <label
                 key={i}
                 className={cn(
-                  'inline-flex h-9 w-[88px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[var(--muted)] px-2.5',
+                  'inline-flex h-9 w-[104px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[var(--muted)] px-2.5',
                   bad && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
                 )}
               >
@@ -149,6 +164,7 @@ export function LaunchPlanEditor({
           </span>
         )}
       </div>
+      {days.length > 0 && <LaunchPlanPreview days={days} cur={entry.offsets_us} next={preview ?? entry.offsets_us} />}
       {!check.ok && (
         <div data-slot="launch-plan-alert" role="alert" className="text-[12.5px] break-keep text-[var(--destructive)]">
           {check.message}
@@ -191,6 +207,71 @@ export function LaunchPlanEditor({
           {saving ? '저장 중…' : '저장'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 미리보기 P2 — 조각별 「지난 N일에 쐈다면」
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TH = 'bg-[var(--card)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
+const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
+const NUMERIC = 'text-right tabular-nums';
+
+function VerdictCell({ cell }: { cell: LaunchRibbonCell | null }) {
+  if (cell === null) return <>{DASH}</>;
+  // 글자는 verdictCellText 와 같다(색만 나눈다).
+  return (
+    <span data-slot="launch-plan-verdict" data-text={verdictCellText(cell)} className="tabular-nums">
+      <span className="font-bold text-[var(--launch-ok)]">{`접수 ${cell.ok}`}</span>
+      {' · '}
+      <span className="text-[var(--muted-fg)]">{`모름 ${cell.unknown}`}</span>
+      {' · '}
+      <span className="font-bold text-[var(--launch-bad)]">{`거부 ${cell.bad}`}</span>
+    </span>
+  );
+}
+
+function LaunchPlanPreview({
+  days,
+  cur,
+  next,
+}: {
+  days: readonly LaunchDay<unknown>[];
+  cur: readonly number[];
+  next: readonly number[];
+}) {
+  const rows = launchPlanVerdictRows(days, cur, next);
+  const n = days.length;
+  return (
+    <div data-slot="launch-plan-preview" className="min-w-0 overflow-x-auto">
+      <table className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap text-[var(--fg)]">
+        <thead>
+          <tr>
+            <th className={TH}>조각</th>
+            <th className={cn(TH, 'text-right')}>지금 µs</th>
+            <th className={cn(TH, 'text-right')}>바꿀 µs</th>
+            <th className={TH}>{`지금 — 지난 ${n}일에 쐈다면`}</th>
+            <th className={TH}>{`바꿀 — 지난 ${n}일에 쐈다면`}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.idx} data-idx={r.idx}>
+              <td className={cn(TD, 'tabular-nums')}>{r.idx + 1}</td>
+              <td className={cn(TD, NUMERIC)}>{fmtUs(r.cur)}</td>
+              <td className={cn(TD, NUMERIC, 'font-bold text-[var(--launch-gate)]')}>{fmtUs(r.next)}</td>
+              <td className={TD}>
+                <VerdictCell cell={r.cur_cell} />
+              </td>
+              <td className={TD}>
+                <VerdictCell cell={r.next_cell} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
