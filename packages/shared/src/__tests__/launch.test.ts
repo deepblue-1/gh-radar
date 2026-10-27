@@ -10,7 +10,22 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { launchDaysOf, launchHeadOf, LAUNCH_ORDER, type LaunchCalcPiece, type LaunchDayKind } from "../launch";
+import {
+  isLaunchAccept,
+  isLaunchReject,
+  launchDaysOf,
+  launchFireBaseOf,
+  launchFireOf,
+  launchHeadOf,
+  launchPanelStatsOf,
+  launchRibbonAt,
+  LAUNCH_FIRES,
+  LAUNCH_ORDER,
+  LAUNCH_RANGE_DAYS,
+  type LaunchCalcPiece,
+  type LaunchDayKind,
+} from "../launch";
+import { isMarketStrategyEvent } from "../strategy-event";
 
 /** 첨부 pieces.json 한 원소. */
 interface AttachRow {
@@ -73,20 +88,123 @@ describe("첨부 pieces.json 입력", () => {
   });
 });
 
+/**
+ * 첨부 group() 출력 — D-10 정답지(35-RESEARCH 「Code Examples」 날짜별 표 33행 그대로).
+ * (date, 조각 수, lo, hi, first, 분류)
+ */
+const EXPECTED_DAYS: Record<string, DayTuple[]> = {
+  "KB120|Q": [
+    ["10-12", 6, null, -342, -342, "all_accept"],
+    ["10-13", 6, null, -347, -347, "all_accept"],
+    ["10-14", 5, -350, -342, -352, "gate"],
+    ["10-15", 6, -337, -327, -347, "gate"],
+    ["10-16", 6, null, -342, -342, "all_accept"],
+    ["10-20", 15, -347, -345, -347, "gate"],
+    ["10-21", 3, -322, null, -342, "all_reject"],
+    ["10-22", 16, -335, -334, -337, "gate"],
+    ["10-23", 6, null, -327, -327, "all_accept"],
+    ["10-26", 18, null, -332, -332, "all_accept"],
+  ],
+  "KB120|K": [
+    ["10-12", 3, -302, null, -305, "all_reject"],
+    ["10-14", 10, -291, -291, -301, "gate"],
+    ["10-16", 3, null, null, -290, "unknown"],
+    ["10-19", 6, null, -290, -290, "all_accept"],
+    ["10-21", 3, -275, null, -295, "all_reject"],
+    ["10-23", 6, -280, -260, -290, "gate"],
+  ],
+  "KYOBO119|Q": [
+    ["10-12", 6, null, -476, -476, "all_accept"],
+    ["10-13", 3, null, -498, -498, "all_accept"],
+    ["10-14", 2, -537, null, -547, "all_reject"],
+    ["10-15", 3, -512, null, -522, "all_reject"],
+    ["10-16", 6, null, -510, -510, "all_accept"],
+    ["10-19", 3, -497, null, -517, "all_reject"],
+    ["10-20", 9, null, -511, -511, "all_accept"],
+    ["10-21", 3, null, -516, -516, "all_accept"],
+    ["10-22", 6, null, -521, -521, "all_accept"],
+    ["10-23", 3, -501, null, -531, "all_reject"],
+    ["10-26", 9, null, -521, -521, "all_accept"],
+  ],
+  "KYOBO119|K": [
+    ["10-12", 3, -415, null, -415, "all_reject"],
+    ["10-14", 4, -399, null, -410, "all_reject"],
+    ["10-16", 3, -384, null, -404, "all_reject"],
+    ["10-19", 6, null, -394, -394, "all_accept"],
+    ["10-21", 3, -390, null, -400, "all_reject"],
+    ["10-23", 6, null, -395, -395, "all_accept"],
+  ],
+};
+
+/** 패널 집계 — 조각 수 · 날 수 · (경계, 전부 접수, 전부 거부, 판단 불가) · 접수 최소 · 거부 최대. */
+const EXPECTED_PANELS: Record<string, { pieces: number; stats: ReturnType<typeof launchPanelStatsOf> }> = {
+  "KB120|Q": {
+    pieces: 87,
+    stats: { days: 10, n_gate: 4, n_all_accept: 5, n_all_reject: 1, n_unknown: 0, min_accept: -347, max_reject: -322 },
+  },
+  "KB120|K": {
+    pieces: 31,
+    stats: { days: 6, n_gate: 2, n_all_accept: 1, n_all_reject: 2, n_unknown: 1, min_accept: -291, max_reject: -275 },
+  },
+  "KYOBO119|Q": {
+    pieces: 53,
+    stats: { days: 11, n_gate: 0, n_all_accept: 7, n_all_reject: 4, n_unknown: 0, min_accept: -521, max_reject: -497 },
+  },
+  "KYOBO119|K": {
+    pieces: 25,
+    stats: { days: 6, n_gate: 0, n_all_accept: 2, n_all_reject: 4, n_unknown: 0, min_accept: -395, max_reject: -384 },
+  },
+};
+
+/** 리본 표본 — v = 첨부 NEXT(`{"KB|코스피":-285,"KB|코스닥":-337,"교보|코스피":-400,"교보|코스닥":-526}`). */
+const EXPECTED_RIBBON: Record<string, { v: number; ok: number; bad: number; unknown: number }> = {
+  "KB120|Q": { v: -337, ok: 5, bad: 3, unknown: 2 },
+  "KB120|K": { v: -285, ok: 2, bad: 2, unknown: 2 },
+  "KYOBO119|Q": { v: -526, ok: 0, bad: 3, unknown: 8 },
+  "KYOBO119|K": { v: -400, ok: 0, bad: 3, unknown: 3 },
+};
+
 describe("launchDaysOf — 첨부 group() 이식", () => {
-  it("KB 코스닥 10일 — 날짜별 (date, 조각, lo, hi, first, 분류)", () => {
-    expect(tuplesOf(panel("KB120", "Q"))).toEqual<DayTuple[]>([
-      ["10-12", 6, null, -342, -342, "all_accept"],
-      ["10-13", 6, null, -347, -347, "all_accept"],
-      ["10-14", 5, -350, -342, -352, "gate"],
-      ["10-15", 6, -337, -327, -347, "gate"],
-      ["10-16", 6, null, -342, -342, "all_accept"],
-      ["10-20", 15, -347, -345, -347, "gate"],
-      ["10-21", 3, -322, null, -342, "all_reject"],
-      ["10-22", 16, -335, -334, -337, "gate"],
-      ["10-23", 6, null, -327, -327, "all_accept"],
-      ["10-26", 18, null, -332, -332, "all_accept"],
+  for (const [gateway, market] of LAUNCH_ORDER) {
+    const key = `${gateway}|${market}`;
+    it(`${key} — 날짜별 (date, 조각, lo, hi, first, 분류)가 정답지와 같다`, () => {
+      expect(tuplesOf(panel(gateway, market))).toEqual(EXPECTED_DAYS[key]);
+    });
+  }
+
+  it("정답지 33행 = 발사 33개", () => {
+    expect(Object.values(EXPECTED_DAYS).reduce((s, rows) => s + rows.length, 0)).toBe(33);
+  });
+
+  it("KB 코스피 10/16 — 조각 3개 전부 기타 → 판단 불가(lo · hi null · Pitfall 5)", () => {
+    const [d] = launchDaysOf(panel("KB120", "K").filter((p) => p.trade_date === "2026-10-16"));
+    expect(d).toMatchObject({ lo: null, hi: null, first: -290, kind: "unknown" });
+    expect(d!.pieces.every((p) => p.result === "기타")).toBe(true);
+  });
+
+  it("515 는 거부로 센다 — [515 −20, 접수 −10, 기타 −30] → lo −20 · hi −10 · gate · first −30", () => {
+    const days = launchDaysOf([
+      { trade_date: "2026-10-27", wire: 0, sent_rel_us: -20, result: "515" },
+      { trade_date: "2026-10-27", wire: 1, sent_rel_us: -10, result: "접수" },
+      { trade_date: "2026-10-27", wire: 2, sent_rel_us: -30, result: "기타" },
     ]);
+    expect(days).toHaveLength(1);
+    expect(days[0]).toMatchObject({ lo: -20, hi: -10, first: -30, kind: "gate" });
+  });
+
+  it("모르는 결과(무응답 · E127)는 기타 — 경계 계산에서 뺀다", () => {
+    expect(isLaunchAccept("접수")).toBe(true);
+    expect(isLaunchReject("101")).toBe(true);
+    expect(isLaunchReject("515")).toBe(true);
+    for (const r of ["무응답", "E127", "기타", ""]) {
+      expect(isLaunchAccept(r)).toBe(false);
+      expect(isLaunchReject(r)).toBe(false);
+    }
+    const [d] = launchDaysOf([
+      { trade_date: "2026-10-27", wire: 0, sent_rel_us: -40, result: "무응답" },
+      { trade_date: "2026-10-27", wire: 1, sent_rel_us: -35, result: "E127" },
+    ]);
+    expect(d).toMatchObject({ lo: null, hi: null, first: -40, kind: "unknown" });
   });
 
   it("묶음 안 조각은 wire 오름차순이고 입력 배열을 바꾸지 않는다", () => {
@@ -140,5 +258,84 @@ describe("launchHeadOf — 백필 머리(D-04)", () => {
 
   it("빈 배열은 throw", () => {
     expect(() => launchHeadOf([])).toThrow();
+  });
+});
+
+describe("launchPanelStatsOf — 4패널 집계", () => {
+  for (const [gateway, market] of LAUNCH_ORDER) {
+    const key = `${gateway}|${market}`;
+    it(`${key} — 조각 ${EXPECTED_PANELS[key]!.pieces} · 집계가 정답지와 같다`, () => {
+      const ps = panel(gateway, market);
+      expect(ps).toHaveLength(EXPECTED_PANELS[key]!.pieces);
+      expect(launchPanelStatsOf(launchDaysOf(ps))).toEqual(EXPECTED_PANELS[key]!.stats);
+    });
+  }
+
+  it("빈 패널 — days 0 · 최소/최대 null", () => {
+    expect(launchPanelStatsOf([])).toEqual({
+      days: 0,
+      n_gate: 0,
+      n_all_accept: 0,
+      n_all_reject: 0,
+      n_unknown: 0,
+      min_accept: null,
+      max_reject: null,
+    });
+  });
+});
+
+describe("launchRibbonAt — 첨부 식(v ≥ hi → 접수 · 아니면 v ≤ lo → 거부 · 나머지 모름)", () => {
+  for (const [gateway, market] of LAUNCH_ORDER) {
+    const key = `${gateway}|${market}`;
+    const e = EXPECTED_RIBBON[key]!;
+    it(`${key} v=${e.v} → 접수 ${e.ok} · 거부 ${e.bad} · 모름 ${e.unknown}`, () => {
+      expect(launchRibbonAt(launchDaysOf(panel(gateway, market)), e.v)).toEqual({
+        ok: e.ok,
+        bad: e.bad,
+        unknown: e.unknown,
+      });
+    });
+  }
+
+  it("hi 를 먼저 판정한다 — lo > hi(뒤집힌 날)에서 v 가 둘 사이면 접수", () => {
+    const days = launchDaysOf([
+      { trade_date: "2026-10-27", wire: 0, sent_rel_us: -20, result: "접수" },
+      { trade_date: "2026-10-27", wire: 1, sent_rel_us: -10, result: "101" },
+    ]);
+    expect(launchRibbonAt(days, -15)).toEqual({ ok: 1, bad: 0, unknown: 0 });
+  });
+});
+
+describe("발사 기준 — launchFireBaseOf · launchFireOf · LAUNCH_FIRES (D-03 · D-17)", () => {
+  it("launchFireBaseOf(profile, 거래소)", () => {
+    expect(launchFireBaseOf("Q16", "KRX")).toBe("16:00:00");
+    expect(launchFireBaseOf("A", "KRX")).toBe("09:00:27");
+    expect(launchFireBaseOf("N", "NXT")).toBe("09:00:30");
+    expect(launchFireBaseOf("A", "NXT")).toBe("09:00:30");
+    expect(launchFireBaseOf("Q16", "NXT")).toBeNull();
+    expect(launchFireBaseOf("N", "KRX")).toBeNull();
+    expect(launchFireBaseOf("X", "KRX")).toBeNull();
+  });
+
+  it("launchFireOf — 지도 대상은 q16 · n0930 뿐(A 의 KRX 09:00:27 다리는 null)", () => {
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "16:00:00" })).toBe("q16");
+    expect(launchFireOf({ fire_exchange: "NXT", fire_base: "09:00:30" })).toBe("n0930");
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "09:00:27" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "NXT", fire_base: "16:00:00" })).toBeNull();
+  });
+
+  it("LAUNCH_FIRES · LAUNCH_RANGE_DAYS", () => {
+    expect(LAUNCH_FIRES).toEqual({
+      q16: { fire_exchange: "KRX", fire_base: "16:00:00" },
+      n0930: { fire_exchange: "NXT", fire_base: "09:00:30" },
+    });
+    expect(LAUNCH_RANGE_DAYS).toEqual({ "10d": 10, "20d": 20, all: null });
+  });
+});
+
+describe("kind 17 · 18 은 시세 이벤트가 아니다 (D-05)", () => {
+  it("isMarketStrategyEvent(17) · (18) === false — 넣으면 ws fan-out 으로 전원에게 퍼진다", () => {
+    expect(isMarketStrategyEvent(17)).toBe(false);
+    expect(isMarketStrategyEvent(18)).toBe(false);
   });
 });
