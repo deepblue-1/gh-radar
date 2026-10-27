@@ -102,6 +102,16 @@ export type AdminAccount = {
   orderIp?: string;
   /** 계좌별 주문자 MAC(슬롯 16) — 서버 정규화값(대문자 12자리 16진) 그대로. 규칙은 `orderIp` 와 같다(둘은 함께 적거나 함께 비운다). */
   orderMac?: string;
+  /**
+   * 계좌 한도(원 · 슬롯 18 · Phase 36 · gh-trade 41) — **87 전용**(44 의 account 에는 싣지 않는다 — op 6 은 요청 최상위 `budgetKrw`).
+   * ulong 을 `toNum` 으로 number 화. 같은 서버 같은 account_no 의 모든 유저 행이 같은 값이다. 숫자라 0 = 미설정 · 구 서버(필드 없음)
+   * 도 **키를 둔다**(orderIp 의 「빈 값 = 키 없음」 규칙과 다름). 의도 · drift · op 3 계획 · DB 적재(snapshot sink)에 쓰지 않는다(D-04).
+   */
+  budgetKrw?: number;
+  /** 수수료 ppm(슬롯 20 · uint32) — 87 전용 · 0 = 미설정도 키를 둔다. 규칙은 `budgetKrw` 와 같다. */
+  feePpm?: number;
+  /** 매도세 ppm(슬롯 22 · uint32) — 87 전용 · 0 = 미설정도 키를 둔다. 규칙은 `budgetKrw` 와 같다. */
+  sellTaxPpm?: number;
 };
 
 /** 44 조립 입력. */

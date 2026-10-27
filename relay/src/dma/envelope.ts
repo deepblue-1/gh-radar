@@ -3338,6 +3338,8 @@ function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuf
  * - `requestId` 는 ulong 이라 0 이상 2^64 미만이어야 한다 — 벗어나면 호출자 버그라 throw 한다(값은 문구에 싣되 비밀은 없다).
  * - `budgetKrw` 는 **op 6 일 때만** 싣는다(ulong · 같은 범위 가드). 0 은 flatbuffers 가 필드를 생략하지만 서버는 부재를 0 으로
  *   읽으므로 「해제」 의미 그대로다. 그 밖 op 에는 실리지 않는다(호출자가 넘겨도 와이어에 없다).
+ * - `feePpm` · `sellTaxPpm` 는 **op 7 일 때만** 둘 다 싣는다(uint32 정수 가드 — 밖이면 RangeError). 0~10000 범위는 보지 않는다 —
+ *   서버가 code 1 「비용률 범위 밖」 으로 답한다(D-02). 그 밖 op 에는 실리지 않는다.
  */
 export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   const { requestId } = input;
@@ -3347,6 +3349,12 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   const budgetKrw = input.op === ADMIN_OP.SetAccountBudget ? (input.budgetKrw ?? 0n) : null;
   if (budgetKrw !== null && (typeof budgetKrw !== "bigint" || budgetKrw < 0n || budgetKrw >= 1n << 64n)) {
     throw new RangeError(`admin budget_krw 가 ulong 범위가 아니다: ${String(budgetKrw)}`);
+  }
+  const fee = input.op === ADMIN_OP.SetAccountFee ? { feePpm: input.feePpm ?? 0, sellTaxPpm: input.sellTaxPpm ?? 0 } : null;
+  if (fee !== null) {
+    for (const [label, v] of [["fee_ppm", fee.feePpm], ["sell_tax_ppm", fee.sellTaxPpm]] as const) {
+      if (!Number.isInteger(v) || v < 0 || v > 0xffff_ffff) throw new RangeError(`admin ${label} 가 uint32 범위가 아니다: ${String(v)}`);
+    }
   }
   const b = new flatbuffers.Builder(256);
   const userId = b.createString(input.userId);
@@ -3360,6 +3368,10 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   AdminCommandReq.addPassword(b, password);
   if (account !== null) AdminCommandReq.addAccount(b, account);
   if (budgetKrw !== null) AdminCommandReq.addBudgetKrw(b, budgetKrw);
+  if (fee !== null) {
+    AdminCommandReq.addFeePpm(b, fee.feePpm);
+    AdminCommandReq.addSellTaxPpm(b, fee.sellTaxPpm);
+  }
   const table = AdminCommandReq.endAdminCommandReq(b);
 
   Envelope.startEnvelope(b);
@@ -3396,6 +3408,7 @@ export function parseAdminCommandResp(env: Envelope): AdminCommandResult | null 
  * - 유저는 파일 순, 계좌는 priority 오름차순 — 서버 순서를 그대로 보존한다(정렬하지 않는다).
  * - 교보 계좌의 `branchNo` · `traderId` 빈 문자열은 그대로 둔다(D-23 ③).
  * - 주문자 IP/MAC(GC-02)은 비어 있지 않을 때만 `orderIp` · `orderMac` 키로 둔다 — 서버 정규화값 그대로(재정규화 금지).
+ * - 예수금 · 비용률(Phase 36 · D-05) `budgetKrw`(toNum) · `feePpm` · `sellTaxPpm` 은 **늘** 싣는다 — 필드 없는 구 서버 = 0.
  * - `request_id` 가 없다 — 86 직후 같은 연결 순서로 짝짓는다(29-08).
  * - 원소 null 은 건너뛴다(구조 이상 — 로그에는 인덱스만, 계좌번호 없음). 상한 초과는 앞 N건(`takeCount` 경고).
  */
@@ -3435,6 +3448,9 @@ export function parseAdminUsersSnapshot(env: Envelope): AdminUsersSnapshot | nul
           priority: a.priority(),
           ...(orderIp !== "" ? { orderIp } : {}),
           ...(orderMac !== "" ? { orderMac } : {}),
+          budgetKrw: toNum(a.budgetKrw(), "admin_account.budget_krw"),
+          feePpm: a.feePpm(),
+          sellTaxPpm: a.sellTaxPpm(),
         });
       }
       users.push({ userId, accounts });

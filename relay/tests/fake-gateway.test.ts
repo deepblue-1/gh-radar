@@ -416,6 +416,8 @@ describe("fake-gateway 전략 표면", () => {
 describe("Phase 29 admin 모드", () => {
   const OBS_BASE = { secret: "s", sinceSeq: 0, epoch: "", client: "radar-admin", strategySinceSeq: 0 };
   const KB_ACC = { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 0 };
+  /** 87 파서가 늘 싣는 예수금 · 비용률(Phase 36) — 필드 없는 87 은 0. */
+  const NO_COST = { budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 };
 
   /** 다음 프레임을 화이트리스트(수신 대역)로 읽는다 — 79 · 86 · 87 은 전부 INBOUND 다. */
   async function next(c: TestClient): Promise<{ msgType: number; env: Envelope }> {
@@ -544,7 +546,11 @@ describe("Phase 29 admin 모드", () => {
       users: [
         {
           userId: "kb-user",
-          accounts: [KB_ACC, { ...KB_ACC, accountNo: "1234567802", name: "연금", priority: 1 }],
+          // 87 파서는 예수금 · 비용률을 늘 싣는다(Phase 36 · 필드 없음 = 0).
+          accounts: [
+            { ...KB_ACC, ...NO_COST },
+            { ...KB_ACC, accountNo: "1234567802", name: "연금", priority: 1, ...NO_COST },
+          ],
         },
       ],
     });

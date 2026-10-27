@@ -27,6 +27,9 @@
  * (서버마다 ok · failed + code + message 원문 · timeout · offline · skipped). 의도에 없는 계좌는 409 `NO_SUCH_ACCOUNT`(계좌 라우트
  * 공통 매핑). DB 의도 저장 · `dma_admin_results` 기록 없음(D-04 — 87 이 정본 · 반영 칩 원천 밖). 감사 줄 extra = 증권사 · 마스킹 계좌 ·
  * budgetKrw. 지정 재적재 없음(지정 무변경).
+ * 계좌 비용률(Phase 36 · D-02) `PUT …/accounts/:broker/:accountNo/fee` body `{ feePpm, sellTaxPpm }`(둘 다 필수 · uint32 정수) → 같은 길로
+ * op 7(두 값을 한 번에). **0~10000 범위는 막지 않는다** — 범위는 클라(D-02)가 막고, 밖이면 서버 code 1 「비용률 범위 밖」 이 서버별
+ * failed 로 말한다(IPMAC-03 형식 검사 없음 선례 — 막으면 서버 판정이 닿지 않는다). 감사 extra = 증권사 · 마스킹 계좌 · 두 값.
  *
  * 서버 상태 `GET /servers/status`(29-11) — 서버마다 `{ conn, journal, admin, quote, staleAccounts }`. `staleAccounts`(29-43 G-1 (가))는
  * 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(deps `staleStrategies` 없으면 0 · 꺼진 서버에도 싣는다 — Admin 서버 카드 한 줄 · 29-38).
@@ -35,7 +38,7 @@
  * 요청. 꺼진 · 없는 등록 서버에는 op 를 보내지 않고 그 서버 의도 행만 settle 한 결과(`skipped` + 사유)를 싣고, 켜진 서버가 전부
  * ok 면 `deleted: true`. 쿼리 값 `1` 만 참. 감사 줄에 `skipDisabled: true`.
  *
- * 요청 마감(29-32 WR-07): 변경 라우트(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile · 계좌 예수금 36)는 요청 도착 시각 +
+ * 요청 마감(29-32 WR-07): 변경 라우트(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile · 계좌 예수금 · 비용률 36)는 요청 도착 시각 +
  * `ADMIN_REQUEST_DEADLINE_MS`(10초)를 `deadlineAt` 으로 dispatcher 에 넘긴다(생성은 RPC 뒤 reconcile 에). 그때까지 끝나지 않은
  * 서버는 결과 배열에 `timeout`(「10초 안에 끝나지 않아 먼저 응답했어요 …」)으로 접혀 **200** 으로 나가고, 서버 반영은 뒤에서
  * 계속돼 실제 결과가 `dma_admin_results` 에 다시 기록된다(다음 재조회 칩). Express 상한(`RELAY_ADMIN_TIMEOUT_MS` 15초)이
@@ -210,6 +213,14 @@ const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nu
 
 /** 계좌 예수금(Phase 36 · op 6) — 원 정수 0..Number.MAX_SAFE_INTEGER(0 = 해제). 문자열 · 소수 · 음수 · 추가 키는 400. */
 const BudgetBody = z.object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
+
+/** uint32 정수(0..0xFFFFFFFF) — 와이어 구조 검사만. */
+const Uint32 = z.number().int().min(0).max(0xffff_ffff);
+
+/**
+ * 계좌 비용률(Phase 36 · op 7) — ppm 두 값 필수 · uint32 구조만. 0~10000 범위는 클라(D-02) · 서버 code 1 이 말한다(여기서 400 금지).
+ */
+const FeeBody = z.object({ feePpm: Uint32, sellTaxPpm: Uint32 }).strict();
 
 /** 경로 `:key` — 레지스트리 서버 키 형식(있는지는 라우트가 레지스트리로 본다). */
 const ServerKeyParam = z.object({ key: z.string().regex(SERVER_KEY_RE) });
@@ -548,6 +559,29 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
         results: await deps.dispatcher.setAccountCost(dma, { broker, accountNo }, { op: 6, budgetKrw }, { adminEmail, deadlineAt }),
       }),
       { broker, account: maskAccountNo(accountNo), budgetKrw },
+    );
+    respond(res, results);
+  });
+
+  // ── 계좌 비용률 (Phase 36 D-02 — 같은 길로 op 7 · 범위 검사 없음 · 서버 code 1 이 말한다) ───────────────────────────────
+  router.put("/dma-users/:dma/accounts/:broker/:accountNo/fee", async (req, res) => {
+    const deadlineAt = deadlineOf();
+    const { dma, broker, accountNo } = AccountParam.parse(req.params);
+    const { feePpm, sellTaxPpm } = FeeBody.parse(req.body);
+    const adminEmail = res.locals.adminEmail as string;
+    const { results } = await audited(
+      res,
+      "PUT /dma-users/:dma/accounts/:broker/:accountNo/fee",
+      dma,
+      async () => ({
+        results: await deps.dispatcher.setAccountCost(
+          dma,
+          { broker, accountNo },
+          { op: 7, feePpm, sellTaxPpm },
+          { adminEmail, deadlineAt },
+        ),
+      }),
+      { broker, account: maskAccountNo(accountNo), feePpm, sellTaxPpm },
     );
     respond(res, results);
   });
