@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 35 목업 — 발사 주문 내역(어드민)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 (라이트 / 다크) ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6;
+  --up: #f04452; --down: #3182f6; --up-bg: #ffeeee; --down-bg: #e8f3ff;
+  --ok: #1f8a5b; --ok-bg: #e3f5ea; --bad: #c8402f; --bad-bg: #fbe4e0; --gate: #b7791f; --gate-bg: #fdf3dc; --other: #8a93a2;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --primary: #3485fa;
+  --up: #f04251; --down: #3485fa; --up-bg: rgba(240,66,81,.16); --down-bg: rgba(52,133,250,.16);
+  --ok: #3fbf86; --ok-bg: rgba(63,191,134,.16); --bad: #ec6a57; --bad-bg: rgba(236,106,87,.16); --gate: #e9b44a; --gate-bg: rgba(233,180,74,.16); --other: #7d8695;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 900px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; text-decoration: none; }
+.side a.grp.on { color: var(--fg); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side a.sub.new::after { content: '추가'; font-size: 10px; font-weight: 700; color: var(--gate); background: var(--gate-bg); border-radius: 5px; padding: 1px 5px; margin-left: auto; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+.phead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phead h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--fg); }
+.phead .sub { font-size: 12.5px; color: var(--muted-fg); flex-basis: 100%; }
+.f.desktop .phead .sub { flex-basis: auto; }
+.phead .sp { flex: 1; }
+.datepill { display: inline-flex; align-items: center; gap: 2px; background: var(--muted); border-radius: 999px; padding: 3px; font-size: 14px; font-weight: 600; color: var(--fg); }
+.datepill button { font: inherit; background: none; border: 0; color: var(--muted-fg); width: 30px; height: 30px; border-radius: 50%; }
+.datepill span { padding: 0 8px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { font: inherit; border: 0; background: none; color: var(--muted-fg); font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+.seg button.on { background: var(--card); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.f.dark .seg button.on { background: #3a3a3a; }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border-subtle); font-size: 15px; font-weight: 600; }
+.tabs span { padding: 8px 2px 10px; color: var(--muted-fg); }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.ctl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ctl .sp { flex: 1; }
+.src { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted-fg); background: var(--muted); border-radius: 6px; padding: 2px 7px; }
+
+/* ── 머리 카드 (A) ── */
+.heads { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.f.phone .heads { grid-template-columns: 1fr; }
+.hcard { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.f:not(.dark) .hcard { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.hcard .t { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; color: var(--fg); }
+.hcard .t small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.hcard .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted-fg); }
+.hcard .row b { color: var(--fg); font-weight: 600; }
+.hcard.empty { color: var(--muted-fg); font-size: 13px; justify-content: center; align-items: center; min-height: 96px; }
+.cnt { display: inline-flex; gap: 6px; font-weight: 600; }
+.cnt .ok { color: var(--ok); } .cnt .bad { color: var(--bad); } .cnt .oth { color: var(--other); }
+
+/* ── 머리 표 (B) ── */
+.hdtbl { background: var(--card); border-radius: 14px; overflow-x: auto; }
+.f:not(.dark) .hdtbl, .f:not(.dark) .tbl { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+
+/* ── 조각 표 ── */
+.grp { display: flex; flex-direction: column; gap: 8px; }
+.gh { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; color: var(--fg); padding: 2px 4px; }
+.gh small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.tbl { background: var(--card); border-radius: 14px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; white-space: nowrap; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; }
+th { font-size: 11.5px; font-weight: 600; color: var(--muted-fg); background: var(--band); position: sticky; top: 0; }
+td.n, th.n { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+td.dim { color: var(--muted-fg); }
+.pill { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.bad { background: var(--bad-bg); color: var(--bad); }
+.pill.oth { background: var(--muted); color: var(--other); } .pill.gate { background: var(--gate-bg); color: var(--gate); }
+.side-b { color: var(--up); font-weight: 600; } .side-s { color: var(--down); font-weight: 600; }
+.chip { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--muted); color: var(--fg-2); }
+.chip.on { background: var(--fg); color: var(--bg); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.foot { font-size: 12px; color: var(--muted-fg); padding: 2px 4px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span><button data-v="A" class="on">A 서버×시장 섹션</button><button data-v="B">B 머리 표 + 평탄 조각 표</button></div>
+  <div class="g"><span class="l">메뉴</span><button data-m="one" class="on">Admin 항목 1개 + 탭</button><button data-m="two">Admin 항목 2개</button></div>
+  <div class="g"><span class="l">발사</span><button data-p="q16" class="on">16:00</button><button data-p="n">09:00:30</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+// 10/26 실측: 16:00 조각(pieces.json) · 09:00:30 N 조각(pieces119/120.txt 로그). 종목·구분·가격·수량·계좌·사용자·주문번호는 로그에 없어 합성(표시 모양 확인용).
+// 09:00:30 의 A 매도 2행은 10/26 로그에 없는 합성 행 — 매수/매도 구분 모양 확인용.
+const Q16 = {
+  'KB|코스닥': { off:-332, next:-337, lo:null, hi:-332, corr:'−332 → −337', step:5, rows:[
+    [0,'Q153015001',0,0,-332,'접수','160000000'],[1,'Q153016001',0,0,-330,'접수','160000000'],[2,'Q153017001',0,0,-329,'접수','160000000'],
+    [3,'Q153018001',0,0,-328,'접수','160000000'],[4,'Q153019001',0,0,-327,'접수','160000000'],[5,'Q153020001',0,0,-326,'접수','160000000'],
+    [6,'Q153015001',1,1,-322,'접수','160000000'],[7,'Q153016001',1,1,-322,'접수','160000000'],[8,'Q153017001',1,1,-322,'접수','160000000'],
+    [9,'Q153018001',1,1,-321,'접수','160000000'],[10,'Q153019001',1,1,-321,'접수','160000000'],[11,'Q153020001',1,1,-320,'접수','160000000'],
+    [12,'Q153015001',2,2,-302,'접수','160000000'],[13,'Q153016001',2,2,-301,'기타','160000000'],[14,'Q153017001',2,2,-300,'접수','160000000'],
+    [15,'Q153018001',2,2,-299,'접수','160000000'],[16,'Q153019001',2,2,-298,'접수','160000000'],[17,'Q153020001',2,2,-298,'기타','160000000'] ] },
+  'KB|코스피': null,
+  '교보|코스닥': { off:-521, next:-526, lo:null, hi:-521, corr:'−521 → −526', step:5, rows:[
+    [0,'Q153740001',0,0,-521,'접수','160000000'],[1,'Q153741001',0,0,-520,'접수','160000000'],[2,'Q153742001',0,0,-519,'접수','160000000'],
+    [3,'Q153740001',1,1,-511,'접수','160000000'],[4,'Q153741001',1,1,-510,'접수','160000000'],[5,'Q153742001',1,1,-510,'접수','160000000'],
+    [6,'Q153740001',2,2,-491,'기타','160000000'],[7,'Q153741001',2,2,-491,'접수','160000000'],[8,'Q153742001',2,2,-490,'접수','160000000'] ] },
+  '교보|코스피': null,
+};
+// 09:00:30 — [wire, key, idx, round, rel, result, acceptTime, retry, side]
+const N = {
+  'KB|코스피': { off:-245, next:-245, rows:[ [0,'N',0,0,-20148,'101','090030046',2,'매수'],[1,'N',1,0,-20143,'101','090030007',1,'매수'],[2,'A',0,0,-20139,'접수','090030012',0,'매도'] ] },
+  'KB|코스닥': { off:-245, next:-245, rows:[ [0,'N',0,0,-20148,'101','090030092',2,'매수'],[1,'N',1,0,-20143,'101','090030025',1,'매수'],[2,'N',2,0,-20141,'101','090030060',1,'매수'] ] },
+  '교보|코스피': { off:-200, next:-200, rows:[ [0,'N',0,0,-20149,'기타','090029979',0,'매수'],[1,'N',1,0,-20142,'기타','090029979',0,'매수'],[2,'A',0,0,-20138,'접수','090030003',0,'매도'] ] },
+  '교보|코스닥': { off:-200, next:-200, rows:[ [0,'N',0,0,-20149,'기타','090029979',0,'매수'],[1,'N',1,0,-20140,'기타','090029979',0,'매수'],[2,'N',2,0,-20138,'기타','090029979',0,'매수'] ] },
+};
+const ORDER = [['KB','코스닥'],['KB','코스피'],['교보','코스닥'],['교보','코스피']];
+const SYN = [ ['한선엔지니어링','294630'],['제주항공','089590'],['에스엠벡셀','010580'],['대한제강','084010'],['천일고속','000650'],['동양고속','084670'] ];
+const ACC = { KB:['12345678-01','12345678-02','23456789-01'], 교보:['543210-01','543210-02','654321-01'] };
+const USR = { KB:['alex','deepblue','kjh'], 교보:['alex','deepblue','kjh'] };
+const ORDNO = { KB:3405000780, 교보:53200030 };
+
+const state = { v:'A', m:'one', p:'q16', w:'phone', t:'dark' };
+function pill(r){ return r==='접수' ? '<span class="pill ok">접수</span>' : (r==='101'||r==='515') ? `<span class="pill bad">${r}</span>` : `<span class="pill oth">${r}</span>`; }
+function hhmmss(s){ return `${s.slice(0,2)}:${s.slice(2,4)}:${s.slice(4,6)}.${s.slice(6)}`; }
+function fmtUs(v){ return (v>0?'+':'')+v.toLocaleString('ko-KR'); }
+function counts(rows, ri){ const c={ok:0,bad:0,oth:0}; rows.forEach(r=>{const x=r[ri]; if(x==='접수')c.ok++; else if(x==='101'||x==='515')c.bad++; else c.oth++;}); return c; }
+function cntHtml(c){ return `<span class="cnt"><span class="ok">접수 ${c.ok}</span><span class="bad">${state.p==='q16'?'101':'거부'} ${c.bad}</span><span class="oth">기타 ${c.oth}</span></span>`; }
+
+function synth(b, i, rel){ const s=SYN[i%SYN.length]; const px=[12680,9340,4215,21350,33500,8120][i%6]; const q=[150,320,900,70,40,500][i%6]; return { nm:s[0], code:s[1], px, qty:q, fill:q, acc:ACC[b][i%3], usr:USR[b][i%3], ord:(ORDNO[b]+i) }; }
+
+function headCard(b,m,h,isQ){
+  if(!h) return `<div class="hcard empty">${b} ${m} · 이 날 발사 없음</div>`;
+  const c = counts(h.rows, 5);
+  const gate = isQ ? (h.lo!==null&&h.hi!==null ? `${h.lo} ~ ${h.hi}` : h.hi!==null ? `전부 접수 (첫 접수 ${h.hi}µs)` : h.lo!==null ? `전부 101 (마지막 ${h.lo}µs)` : '판단 불가') : '—';
+  return `<div class="hcard">
+    <div class="t">${b} ${m} <small>${h.rows.length}조각 · ${isQ?'Q16':'N·A'}</small></div>
+    <div class="row"><span>결과</span>${cntHtml(c)}</div>
+    <div class="row"><span>오프셋 (발사 기준)</span><b>${fmtUs(h.off)}µs</b></div>
+    ${isQ ? `<div class="row"><span>경계</span><b>${gate}</b></div><div class="row"><span>학습 → 다음 오프셋</span><b>${h.corr} (step ${h.step})</b></div>` : `<div class="row"><span>재전송</span><b>${h.rows.reduce((a,r)=>a+r[7],0)}회</b></div><div class="row"><span>다음 오프셋</span><b>고정 ${fmtUs(h.next)}µs</b></div>`}
+  </div>`;
+}
+
+function pieceRows(b,m,h,isQ){
+  return h.rows.map((r,i)=>{
+    const s = synth(b,i,r[4]);
+    const side = isQ ? '매수' : r[8];
+    const key = isQ ? `${r[1]} · j${r[2]} · R${r[3]}` : `${r[1]} · idx${r[2]}`;
+    const retry = isQ ? '' : `<td class="n">${r[7]||'—'}</td>`;
+    const fire = isQ ? '' : `<td class="dim">${r[1]==='A'?'A 09:00:27 KRX→':'N'} NXT</td>`;
+    return `<tr>${state.v==='B'?`<td>${b} ${m}</td>`:''}<td class="n">${r[0]}</td><td class="dim">${key}</td>${fire}<td class="n">${fmtUs(r[4])}</td><td>${pill(r[5])}</td>${retry}<td class="dim">${hhmmss(r[6])}</td>
+      <td><b>${s.nm}</b> <span class="dim">${s.code}</span></td><td class="${side==='매수'?'side-b':'side-s'}">${side}</td><td class="n">${s.px.toLocaleString('ko-KR')}</td><td class="n">${s.qty}/${r[5]==='접수'?s.fill:0}</td>
+      <td class="dim">${s.acc}</td><td class="dim">${s.usr}</td><td class="dim">${s.ord}</td></tr>`;
+  }).join('');
+}
+function pieceHead(isQ){
+  return `<tr>${state.v==='B'?'<th>서버 · 시장</th>':''}<th class="n">wire</th><th>${isQ?'예약 · 조각 · 라운드':'키 · idx'}</th>${isQ?'':'<th>발사</th>'}<th class="n">송신 µs</th><th>결과</th>${isQ?'':'<th class="n">재전송</th>'}<th>${isQ?'접수 시각':'응답 시각'}</th><th>종목</th><th>구분</th><th class="n">가격</th><th class="n">수량/체결</th><th>계좌</th><th>사용자</th><th>주문번호</th></tr>`;
+}
+
+function render(){
+  const isQ = state.p==='q16'; const D = isQ ? Q16 : N;
+  const f = document.createElement('div'); f.className = `f ${state.w} ${state.t}`;
+  const side = `<nav class="side"><div class="brand">gh-radar</div>
+    <a class="grp">📈 트레이딩</a><a class="grp">📊 분석</a>
+    <a class="grp on">🛡 Admin</a>
+    <a class="sub">사용자</a><a class="sub">서버</a>
+    ${state.m==='one' ? '<a class="sub cur new">발사</a>' : '<a class="sub cur new">발사 주문 내역</a><a class="sub new">발사 경계 지도</a>'}
+    <a class="grp">👤 My page</a></nav>`;
+  const title = state.m==='one' ? '발사' : '발사 주문 내역';
+  const tabs = state.m==='one' ? `<div class="tabs"><span class="on">주문 내역</span><span>경계 지도</span></div>` : '';
+  const ctl = `<div class="ctl">
+    <div class="datepill"><button>‹</button><span>10/26 (일)</span><button>›</button></div>
+    <div class="seg"><button class="${isQ?'on':''}">16:00 예약</button><button class="${isQ?'':'on'}">09:00:30 개장차익</button></div>
+    <span class="sp"></span><span class="src">KB120 · KYOBO119 저널 80 · ${isQ?'16:00:01':'09:00:31'} 적재</span></div>`;
+  let body = '';
+  if (state.v==='A') {
+    body += `<div class="heads">${ORDER.map(([b,m])=>headCard(b,m,D[b+'|'+m],isQ)).join('')}</div>`;
+    body += ORDER.filter(([b,m])=>D[b+'|'+m]).map(([b,m])=>{ const h=D[b+'|'+m]; return `<div class="grp"><div class="gh">${b} ${m} <small>${h.rows.length}조각 · wire 순</small></div><div class="tbl"><table><thead>${pieceHead(isQ)}</thead><tbody>${pieceRows(b,m,h,isQ)}</tbody></table></div></div>`; }).join('');
+  } else {
+    const hrows = ORDER.map(([b,m])=>{ const h=D[b+'|'+m]; if(!h) return `<tr><td>${b} ${m}</td><td class="dim" colspan="6">발사 없음</td></tr>`; const c=counts(h.rows,5);
+      const gate = isQ ? (h.hi!==null&&h.lo!==null?`${h.lo} ~ ${h.hi}`:h.hi!==null?`전부 접수 · 첫 접수 ${h.hi}`:'전부 101') : '—';
+      return `<tr><td><b>${b} ${m}</b></td><td class="n">${h.rows.length}</td><td>${cntHtml(c)}</td><td class="n">${fmtUs(h.off)}</td><td>${isQ?`<span class="pill ${h.lo!==null&&h.hi!==null?'gate':'ok'}">${gate}</span>`:'—'}</td><td class="n">${isQ?h.corr:'고정 '+fmtUs(h.next)}</td><td class="n">${isQ?h.step:h.rows.reduce((a,r)=>a+r[7],0)+'회 재전송'}</td></tr>`; }).join('');
+    body += `<div class="hdtbl"><table><thead><tr><th>서버 · 시장</th><th class="n">조각</th><th>결과</th><th class="n">오프셋 µs</th><th>경계</th><th class="n">${isQ?'학습 → 다음':'다음 오프셋'}</th><th class="n">${isQ?'step':'재전송'}</th></tr></thead><tbody>${hrows}</tbody></table></div>`;
+    body += `<div class="chips"><span class="chip on">전체</span><span class="chip">KB</span><span class="chip">교보</span><span class="chip">코스피</span><span class="chip">코스닥</span><span class="chip">접수만</span><span class="chip">거부만</span></div>`;
+    body += `<div class="tbl"><table><thead>${pieceHead(isQ)}</thead><tbody>${ORDER.filter(([b,m])=>D[b+'|'+m]).map(([b,m])=>pieceRows(b,m,D[b+'|'+m],isQ)).join('')}</tbody></table></div>`;
+  }
+  const foot = `<div class="foot">송신 µs = 발사 기준시각(${isQ?'16:00:00.000':'09:00:30.000'}) 대비 첫 발 송신 시각. 종목·구분·가격·수량·계좌·사용자·주문번호는 로그에 없어 <b>합성</b>(백필 행은 「—」). 09:00:30 의 A 매도 2행은 합성.</div>`;
+  f.innerHTML = `${side}<div class="col"><div class="main"><div class="phead"><h1>${title}</h1><span class="sub">gh-trade 서버 발사 결과 · 머리 + 조각</span></div>${tabs}${ctl}${body}${foot}</div></div>`;
+  const st = document.getElementById('stage'); st.innerHTML=''; st.appendChild(f);
+  document.getElementById('desc').innerHTML = state.v==='A'
+    ? '<b>A 서버×시장 섹션</b> — 머리 카드 4장(KB/교보 × 코스닥/코스피) 아래에 서버·시장별 조각 표. 발사가 없는 조합은 빈 카드. 한 발사를 위에서 아래로 읽는 꼴.'
+    : '<b>B 머리 표 + 평탄 조각 표</b> — 머리 4행 표 하나, 그 아래 조각 전부를 한 표에(서버·시장 열) + 필터 칩. 서버 간 비교·필터에 유리.';
+}
+document.querySelectorAll('#nav button').forEach(b=>b.addEventListener('click',()=>{
+  const k = Object.keys(b.dataset)[0]; const map={v:'v',m:'m',p:'p',w:'w',t:'t'};
+  state[map[k]] = b.dataset[k]; b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); render();
+}));
+render();
+</script>
+</body>
+</html>
