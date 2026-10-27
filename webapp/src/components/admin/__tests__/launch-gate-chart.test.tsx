@@ -225,7 +225,7 @@ describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름
     const { svg, days } = renderN();
     const axis = launchAxisOf(
       N0930_KB_Q.map((p) => p.sent_rel_us),
-      -245,
+      [-245],
       'n0930',
     );
     const { cells } = launchRibbonCellsOf(days, axis, LAUNCH_CHART.W_MIN - LAUNCH_CHART.L - LAUNCH_CHART.R);
