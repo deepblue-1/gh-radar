@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-15-PLAN.md
-last_updated: "2026-10-27T16:05:41.159Z"
+stopped_at: Completed 35-10-PLAN.md
+last_updated: "2026-10-27T16:32:04.030Z"
 last_activity: 2026-10-28
-last_activity_desc: 35-15 웹 발사 계획 고치기(편집 칸 A · 미리보기 P2 · 저장 · 결과) 완료(로컬 커밋)
-state_head: fe7c01df5ff1dc6056f03167e59c7f6b79d04b1f
+last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
+state_head: 4be128bdfe0dcade838010bc5a089df10b5f82a6
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 82
-  completed_plans: 66
+  completed_plans: 67
   percent: 71
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 13 of 19 (35-01~09 · 35-12~15 완료 — 노트 전 플랜 전부 끝 · 35-10·11·16~19 는 gh-trade Phase 43 정식 인계 노트 대기 · 로컬 커밋까지만 D-35)
-Status: Executing Phase 35 — 범위 7 노트 전 완료 · 노트 대기
-Last activity: 2026-10-28 — 35-15 웹 발사 계획 고치기(saveLaunchPlan · LaunchPlanEditor · draftLines · P2 표 · E2E P35-P3~P6) 로컬 커밋 · push 안 함
+Plan: 14 of 19 (35-01~10 · 35-12~15 완료 — 정식 인계 노트 261028 도착 · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-16~19 남음 · 로컬 커밋까지만 D-35)
+Status: Ready to execute
+Last activity: 2026-10-28 — 35-10 kind 17·18 정식 칸 매핑(20261028200000 · pgTAP 36/36) · STRATEGY_EVENT_KIND 17·18 · 라벨 로컬 커밋 · push 안 함
 
 Progress: [███████░░░] 71% (53/53 plans)
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T16:05:41.031Z
-Stopped at: Completed 35-15-PLAN.md
+Last session: 2026-10-27T16:32:03.941Z
+Stopped at: Completed 35-10-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -169,6 +169,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P13 | 6min | 2 tasks | 6 files |
 | Phase 35 P14 | 10min | 3 tasks | 13 files |
 | Phase 35 P15 | 21min | 3 tasks | 11 files |
+| Phase 35 P10 | 25min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -270,3 +271,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-15: 편집 상태는 지도 탭 LaunchPlanEdit 한 곳(draft 원문 · valid 마지막 유효 값) — 미리보기 선·표는 valid 만
 - [Phase 35]: 35-15: 저장 결과·저장 중은 칸 키(gateway|market|fire)로 묶는다 · 실패여도 응답 plan·change 로 계획 상태 갱신(재조회 없음)
 - [Phase 35]: 35-15: 바꿀 실선 굵기 2 · 번호는 행 아래(목업 정본) · 조각 칸 104px(−3000 잘림 실측)
+- [Phase 35]: 35-10: kind 17·18 정식 매핑 — 노트 전용 4칸(base_cum·error_volume·remaining_volume·plan_rev) 매핑 안 함(사용자 결정 2026-10-28) · next_offset_us = cond_threshold 직접(A2 폴백 없음)
+- [Phase 35]: 35-10: launch_pieces.result_code 는 rc= 원문(0101·0515·E127·F083) · 백필 표기(101·515·0)와 다름 · fire_at_us = fire= KST epoch µs
