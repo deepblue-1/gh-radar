@@ -6,14 +6,14 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-09-PLAN.md (Wave A 배포) — 35-10 대기(gh-trade Phase 43 정식 노트)
-last_updated: "2026-10-27T13:00:57.308Z"
+last_updated: "2026-10-27T15:01:43.534Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 Wave A 배포 · 백필 UAT 통과
-state_head: b6a45697d507ae32a74e0c2cfb72a0602a7a7d9d
+state_head: 3e5da7c15d88182a75eeb403bfac5e1455a48449
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 64
+  total_plans: 82
   completed_plans: 62
   percent: 71
 ---
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 9 of 11 (35-01~09 완료 · 35-10 은 gh-trade Phase 43 정식 인계 노트 대기)
+Plan: 9 of 19 (35-01~09 완료 · 35-10·11·16~18 은 gh-trade Phase 43 정식 인계 노트 대기 · 범위 7 발사 계획 어드민 35-12~19 플랜 추가 — 35-12~15 는 노트 전 실행 가능 · 로컬 커밋까지만)
 Status: Phase 35 Wave A 배포 완료 — Wave B 대기
 Last activity: 2026-10-27 — Phase 35 Wave A 배포(DB · 백필 254 · server 00067 · webapp 190f3e57) · 백필 UAT 「같다」 · 10/26 09:00:30 사전 발사 기록 삭제
 
