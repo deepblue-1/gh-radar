@@ -133,14 +133,18 @@ export interface LaunchPlanRelaySetResponse {
 /**
  * 발사 기준별 편집 한도 — D-34 · **정식 노트 `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` 와 일치 확인**(35-19).
  * 노트 ⓒ 의 119/120 서버 설정값: Q16 클램프 −3000~1000µs · `max_pieces` 10(조각 1~10) · N ±2000µs · 길이 1.
+ * `maxSpanUs` = Q16 시각 목록 폭(마지막 − 첫) 상한 500µs — fix 노트 `docs/inbox/from-gh-trade/261028-launch-plan-fix.md`
+ * (서버 「시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)」). N 은 한 칸이라 해당 없음(null).
  * 서버 설정이 바뀌면 이 한 곳만 고친다(웹 · relay · server 에 두 번째 숫자를 두지 않는다).
  * 조각 수 1~10 은 웹 스테퍼 한도(D-26)이고 서버 구조 상한(`LAUNCH_PLAN_SERVER_MAX_PIECES`)과 별개다.
  */
-export const LAUNCH_PLAN_LIMITS: Record<LaunchFire, { minUs: number; maxUs: number; minPieces: number; maxPieces: number }> =
-  {
-    q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10 },
-    n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1 },
-  };
+export const LAUNCH_PLAN_LIMITS: Record<
+  LaunchFire,
+  { minUs: number; maxUs: number; minPieces: number; maxPieces: number; maxSpanUs: number | null }
+> = {
+  q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10, maxSpanUs: 500 },
+  n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1, maxSpanUs: null },
+};
 
 /** 서버 · relay zod 의 구조 상한(offsets_us 배열 길이). 사용자 한도는 `LAUNCH_PLAN_LIMITS`. */
 export const LAUNCH_PLAN_SERVER_MAX_PIECES = 64;
@@ -153,12 +157,13 @@ export function launchPlanUsText(v: number): string {
 /** 편집 초안 검사 결과 — badIdx 는 0부터(개수 위반은 -1 · 화면 번호 = badIdx + 1). */
 export type LaunchPlanDraftCheck =
   | { ok: true; values: number[] }
-  | { ok: false; badIdx: number; kind: "count" | "int" | "range" | "order"; message: string };
+  | { ok: false; badIdx: number; kind: "count" | "int" | "range" | "order" | "span"; message: string };
 
 const INT_RE = /^-?\d+$/;
 
 /**
- * 편집 칸 원문(문자열) 검사 — 개수 → 칸마다(정수 → 범위) → 순서(q16 만 · 같은 값 허용) 순으로 첫 위반 하나만 돌려준다.
+ * 편집 칸 원문(문자열) 검사 — 개수 → 칸마다(정수 → 범위) → 순서(q16 만 · 같은 값 허용) → 폭(마지막 − 첫 ≤ `maxSpanUs` ·
+ * 위반이면 badIdx = 마지막 칸) 순으로 첫 위반 하나만 돌려준다.
  * 원문을 숫자로 바꾸기 전에 검사한다(웹이 입력 원문을 쥔다 · 앞뒤 공백은 잘라서 본다 · `+5` · 소수 · 지수는 정수 위반).
  */
 export function validateLaunchPlanDraft(fire: LaunchFire, raw: readonly string[]): LaunchPlanDraftCheck {
@@ -200,6 +205,17 @@ export function validateLaunchPlanDraft(fire: LaunchFire, raw: readonly string[]
           `${i}번 ${launchPlanUsText(values[i - 1]!)}µs 보다 이릅니다`,
       };
     }
+  }
+
+  // 순서 검사를 통과했으니 폭 = 마지막 − 첫(≥ 0).
+  const span = values[values.length - 1]! - values[0]!;
+  if (lim.maxSpanUs !== null && span > lim.maxSpanUs) {
+    return {
+      ok: false,
+      badIdx: values.length - 1,
+      kind: "span",
+      message: `${label}은 첫 조각과 마지막 조각 차이가 ${lim.maxSpanUs}µs 이하여야 해요 — 지금 ${span}µs`,
+    };
   }
 
   return { ok: true, values };
