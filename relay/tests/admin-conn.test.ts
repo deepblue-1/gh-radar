@@ -25,6 +25,10 @@
  *
  * 잠그는 것 (35-16 — 발사 계획 op 8/9 · 94 · gh-trade 43 · 인박스 261028-launch-plan-contract):
  *   P35-1  command(op 9) → 44 op 9 · 같은 request_id 94 → { result 합성(code 0), launchPlan 4행 · planRev bigint }
+ *   P35-S1 op 8 → 86 code 0 → 87 안 기다리고 풀림 → op 9 비행 중 op 8 의 94(다른 request_id) → debug 버림 → op 9 는 자기 94 로
+ *   P35-S2 op 9 → 같은 request_id 86 code 1(구 서버) · 10 · 11 → 즉시 result(launchPlan 없음 · 타임아웃 아님)
+ *   P35-R  users_rev null(접속 87 전)이어도 op 8/9 뒤 op 5 를 다시 보내지 않는다 · 결과 usersRev = 0n(모름)
+ *   P35-D  op 9 비행 중 끊김 → offline
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03) · admin 연결이 보낸 msg_type ⊆ {4, 5, 44}.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -452,5 +456,118 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     // 94 는 users.toml 과 무관 — 87 캐시 · snapshot 이벤트를 건드리지 않는다.
     expect(snapshots).toHaveLength(1);
     expect(c.currentSnapshot()?.usersRev).toBe(3n);
+  });
+
+  it("P35-S1 op 8 → 86 code 0 → 바로 풀림 · op 9 비행 중 op 8 의 94 는 버리고 op 9 는 자기 94 로 풀린다", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p8 = c.command({
+      op: ADMIN_OP.SetLaunchPlan,
+      userId: "",
+      launchProfile: "Q16",
+      launchMarket: "K",
+      launchOffsetsUs: [-350, -345, -325],
+    });
+    const p9 = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 8 44");
+    const r8 = commands()[0]!;
+    expect(r8.op).toBe(8);
+
+    // 서버: 86(저장 — 다음 발사부터 적용 · users_rev 는 users 레지스트리 값 그대로) → (실제 변경) 94. 94 는 op 9 가 나간 뒤에 닿게 한다.
+    gateway.respondAdminCommand(sock, { requestId: r8.requestId, ok: true, code: 0, message: "저장 — 다음 발사부터 적용", usersRev: 3n });
+    const o8 = await p8;
+    expect(o8).toEqual({
+      kind: "result",
+      result: { requestId: r8.requestId, ok: true, code: 0, message: "저장 — 다음 발사부터 적용", usersRev: 3n },
+    });
+
+    await waitFor(() => commands().length === 2, "op 9 44");
+    const r9 = commands()[1]!;
+    expect(r9.op).toBe(9);
+    // op 8 의 늦은 94(plan_rev 4) — 짝 없음 → debug 1줄로 버린다(op 9 를 풀지 않는다).
+    gateway.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: r8.requestId, planRev: 4n }));
+    await waitFor(() => logs.some((l) => l.level === "debug" && String(l.args[1]).includes("짝 없는 발사 계획 스냅샷")), "짝 없는 94");
+    // op 9 의 94(plan_rev 5 — 그 사이 다른 저장이 있었다고 친다).
+    gateway.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: r9.requestId, planRev: 5n }));
+    const o9 = await p9;
+    expect(o9.kind).toBe("result");
+    if (o9.kind !== "result") throw new Error("unreachable");
+    expect(o9.launchPlan?.requestId).toBe(r9.requestId);
+    expect(o9.launchPlan?.planRev).toBe(5n);
+    expect(logs.filter((l) => String(l.args[1]).includes("짝 없는 발사 계획 스냅샷"))).toHaveLength(1);
+    // users.toml 과 무관 — op 5 를 더 보내지 않았고 87 이벤트도 그대로다.
+    expect(gateway.adminCommandRequests().map((r) => r.op)).toEqual([ADMIN_OP.ListUsers, 8, 9]);
+    expect(snapshots).toHaveLength(1);
+  });
+
+  it("P35-S2 op 9 → 같은 request_id 86 code 1(구 서버) · 10 · 11 → 즉시 result(launchPlan 없음 · 타임아웃 아님)", async () => {
+    // 기본 handler 는 op 6 이상을 code 1 「알 수 없는 명령입니다」 로 답한다 = 구 서버(op 8/9 모름) 흉내.
+    const { c } = await readyConn();
+    const t0 = Date.now();
+    const old = await c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(old.kind).toBe("result");
+    if (old.kind !== "result") throw new Error("unreachable");
+    expect(old.result).toMatchObject({ ok: false, code: 1, message: "알 수 없는 명령입니다" });
+    expect(old.result.requestId).toBe(commands()[0]?.requestId);
+    expect("launchPlan" in old).toBe(false);
+
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    for (const [code, message] of [
+      [10, "발사 계획 미초기화"],
+      [11, "관리자 연결이 아닙니다"],
+    ] as const) {
+      const before = commands().length;
+      const p = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+      await waitFor(() => commands().length === before + 1, `op 9 (${code})`);
+      const req = commands().at(-1)!;
+      expect(req.op).toBe(9);
+      gateway.respondAdminCommand(sock, { requestId: req.requestId, ok: false, code, message, usersRev: 3n });
+      const out = await p;
+      expect(out.kind).toBe("result");
+      if (out.kind !== "result") throw new Error("unreachable");
+      expect(out.result).toMatchObject({ ok: false, code, message });
+      expect("launchPlan" in out).toBe(false);
+    }
+    // 실패 86 은 짝이 있으므로 「짝 없는 86」 warn 이 아니다.
+    expect(logs.filter((l) => l.level === "warn" && String(l.args[1]).includes("짝 없는 86"))).toEqual([]);
+  });
+
+  it("P35-R users_rev null(접속 87 전)이어도 op 8/9 뒤 op 5 를 다시 보내지 않는다 · op 9 결과 usersRev 0n", async () => {
+    gateway.respondAdminLogin({});
+    gateway.onAdminCommand(null); // 접속 op 5 에 답하지 않는다 → 87 없음 → 이 세대 rev 모름
+    const c = startConn({ snapshotWaitMs: 50 });
+    await waitFor(() => c.state === "ready" && gateway.adminCommandRequests().length === 1, "ready · op 5");
+    const sock = await gateway.waitForAdminConnection();
+    expect(c.health().usersRev).toBeNull();
+
+    const p9 = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 9");
+    gateway.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: commands()[0]!.requestId }));
+    const o9 = await p9;
+    expect(o9.kind === "result" && o9.result.usersRev).toBe(0n);
+
+    const p8 = c.command({ op: ADMIN_OP.SetLaunchPlan, userId: "", launchProfile: "N", launchMarket: "Q", launchOffsetsUs: [-180] });
+    await waitFor(() => commands().length === 2, "op 8");
+    gateway.respondAdminCommand(sock, { requestId: commands()[1]!.requestId, ok: true, code: 0, message: "저장 — 다음 발사부터 적용", usersRev: 3n });
+    const o8 = await p8;
+    expect(o8.kind).toBe("result");
+    expect("snapshot" in o8).toBe(false);
+    // 87 대기 상한(50ms)을 넘겨도 보정 op 5 가 나가지 않는다 — op 8/9 는 users_rev 변경 판정 밖.
+    await sleep(200);
+    expect(gateway.adminCommandRequests().map((r) => r.op)).toEqual([ADMIN_OP.ListUsers, 9, 8]);
+  });
+
+  it("P35-D op 9 비행 중 끊김 → offline", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    const p = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 9 비행");
+    gateway.hardClose(sock);
+    expect(await p).toEqual({ kind: "offline" });
   });
 });
