@@ -1900,3 +1900,116 @@ describe("P36 GET /account-costs (D-05)", () => {
     expect(text).not.toContain("010041001124");
   });
 });
+
+/**
+ * 잠그는 것 (Phase 36 36-04 Task 2 — account-costs op 5 스로틀 · D-05 · Pitfall 8): 서버당 15초(`ACCOUNT_COSTS_REFRESH_MS`) ·
+ * 비행 공유 · 최대 800ms(`ACCOUNT_COSTS_WAIT_MS`) 대기 · 실패는 warn 후 캐시. op 5 응답 87 은 `AdminConn.#onSnapshot` 이
+ * `currentSnapshot()` 을 갈아 끼우므로 라우트는 기다린 뒤 캐시를 다시 읽으면 된다.
+ */
+describe("P36 account-costs op 5 스로틀 (D-05 · Pitfall 8)", () => {
+  const PATH = "/internal/admin/account-costs";
+  /** stateWithOther 의 다른 유저 계좌 — 생성 없이(44 없이) 87 에 이미 있다. */
+  const ACC = "9999999901";
+  let h: Harness | undefined;
+  let clock = 1_000_000;
+  const now = (): number => clock;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  type CostBody = { servers: Record<string, Array<{ accountNo: string; budgetKrw: number; feePpm: number; sellTaxPpm: number }>> };
+  const op5Count = (spy: { mock: { calls: unknown[][] } }): number =>
+    spy.mock.calls.filter(([input]) => (input as { op: number }).op === 5).length;
+  const rowOf = (body: CostBody, key: string) => body.servers[key]!.find((r) => r.accountNo === ACC);
+  const get = async (harness: Harness): Promise<CostBody> => {
+    const res = await call(harness, "GET", PATH);
+    expect(res.status).toBe(200);
+    return (await res.json()) as CostBody;
+  };
+
+  it("T1 첫 GET → 켜진 서버마다 op 5 1회 · 800ms 안에 온 87 새 값으로 응답", async () => {
+    h = await startHarness({ now });
+    const s120 = vi.spyOn(h.conns.KB120!, "command");
+    const s121 = vi.spyOn(h.conns.KB121!, "command");
+    // 서버 쪽 값만 바꾼다(87 캐시는 아직 옛 값 0) — 라우트의 op 5 가 새 87 을 받아 와야 보인다.
+    h.states.KB120!.costs = new Map([[ACC, { budgetKrw: 70_000_000n, feePpm: 150, sellTaxPpm: 1800 }]]);
+
+    const body = await get(h);
+    expect(op5Count(s120)).toBe(1);
+    expect(op5Count(s121)).toBe(1);
+    expect(rowOf(body, "KB120")).toMatchObject({ budgetKrw: 70_000_000, feePpm: 150, sellTaxPpm: 1800 });
+    expect(rowOf(body, "KB121")).toMatchObject({ budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 });
+  });
+
+  it("T2 15초 안 두 번째 GET → op 5 0회 · 15초가 지나면 다시 1회", async () => {
+    h = await startHarness({ now });
+    const s120 = vi.spyOn(h.conns.KB120!, "command");
+    await get(h);
+    expect(op5Count(s120)).toBe(1);
+
+    clock += 14_999;
+    await get(h);
+    expect(op5Count(s120)).toBe(1);
+
+    clock += 1;
+    await get(h);
+    expect(op5Count(s120)).toBe(2);
+  });
+
+  it("T3 op 5 가 끝나지 않으면 ~800ms 뒤 캐시 값으로 200(총 2초 미만)", async () => {
+    h = await startHarness({ now });
+    vi.spyOn(h.conns.KB120!, "command").mockReturnValue(new Promise(() => {}));
+    h.states.KB120!.costs = new Map([[ACC, { budgetKrw: 70_000_000n, feePpm: 150, sellTaxPpm: 1800 }]]);
+
+    const t0 = performance.now();
+    const body = await get(h);
+    const elapsed = performance.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(700);
+    expect(elapsed).toBeLessThan(2000);
+    // 캐시(옛 87) 그대로 — 서버 키도 남는다.
+    expect(rowOf(body, "KB120")).toMatchObject({ budgetKrw: 0 });
+    expect(Object.keys(body.servers)).toEqual(["KB120", "KB121"]);
+  });
+
+  it("T4 동시 GET 2건 → 서버당 op 5 1회(비행 공유) · 두 응답 모두 그 op 5 의 새 87", async () => {
+    h = await startHarness({ now });
+    const conn = h.conns.KB120!;
+    const original = conn.command.bind(conn);
+    const s120 = vi.spyOn(conn, "command").mockImplementation(async (input) => {
+      await new Promise((r) => setTimeout(r, 200));
+      return original(input);
+    });
+    h.states.KB120!.costs = new Map([[ACC, { budgetKrw: 70_000_000n, feePpm: 150, sellTaxPpm: 1800 }]]);
+
+    const [a, b] = await Promise.all([get(h), get(h)]);
+    expect(op5Count(s120)).toBe(1);
+    expect(rowOf(a, "KB120")).toMatchObject({ budgetKrw: 70_000_000 });
+    expect(rowOf(b, "KB120")).toMatchObject({ budgetKrw: 70_000_000 });
+  });
+
+  it("T5 op 5 결과 timeout · offline → 서버마다 warn 1줄(server · reason) · 응답은 캐시 · 다음 GET 은 15초 규칙대로", async () => {
+    h = await startHarness({ now });
+    const s120 = vi.spyOn(h.conns.KB120!, "command").mockResolvedValue({ kind: "timeout" });
+    const s121 = vi.spyOn(h.conns.KB121!, "command").mockResolvedValue({ kind: "offline" });
+    const logs = await spyLogs();
+
+    const body = await get(h);
+    expect(rowOf(body, "KB120")).toMatchObject({ budgetKrw: 0 });
+    const warns = logs.filter((l) => l.level === "warn" && String(l.args[1]).includes("account-costs op 5"));
+    expect(warns.map((w) => w.args[0])).toEqual(
+      expect.arrayContaining([
+        { server: "KB120", reason: "timeout" },
+        { server: "KB121", reason: "offline" },
+      ]),
+    );
+    expect(warns).toHaveLength(2);
+
+    clock += 5_000;
+    await get(h);
+    expect(op5Count(s120)).toBe(1);
+    expect(op5Count(s121)).toBe(1);
+  });
+});
