@@ -158,6 +158,15 @@ export const AdminAccountBudgetSchema = z
   .object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) })
   .strict();
 
+/** uint32 정수(gh-trade 86 op 7 필드 폭) — 구조 검사만. */
+const Uint32Schema = z.number().int().min(0).max(0xffff_ffff);
+
+/**
+ * PUT /api/admin/dma-users/:dma/accounts/:broker/:accountNo/fee — 수수료 · 매도세 ppm(Phase 36 · op 7 · D-02). 두 값을 늘 함께.
+ * **0~10000(1%) 범위 검사는 하지 않는다** — 범위는 웹이 막고, 넘어온 값은 gh-trade code 1 「범위 밖」 경로가 말하게 둔다(36-02 계약).
+ */
+export const AdminAccountFeeSchema = z.object({ feePpm: Uint32Schema, sellTaxPpm: Uint32Schema }).strict();
+
 /** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
 export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
 

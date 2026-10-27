@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   findSharedAccountHolders,
+  formatManwonFloor,
   formatOrderIp,
   formatOrderMac,
   isValidAccountNoInput,
   normalizeAccountNo,
   normalizeOrderIp,
   normalizeOrderMac,
-  REFLECT_LABEL,
   parseBudgetManwon,
+  parseCostPct,
+  ppmToPct,
+  REFLECT_LABEL,
   resolveEffectiveOrderServer,
   summarizeAccountCosts,
   summarizeOrderEndpoint,
@@ -31,7 +34,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { putDmaAccount, removeDmaAccount, setAccountBudget, setAccountOrderServer } from "@/lib/admin-api";
+import {
+  putDmaAccount,
+  removeDmaAccount,
+  setAccountBudget,
+  setAccountFee,
+  setAccountOrderServer,
+} from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from "./reflect-chip";
@@ -102,6 +111,15 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * <서버 message 원문>」 이고 code 7 특수 처리 · 문장 대조는 없다(IPMAC-03 · D-12). 전부 ok 면 기존 `onChanged` 개요 재조회가 함께 쓰는
  * 사용자들의 같은 계좌 카드도 새 값으로 그린다. 읽기 카드 · 교보 · `users` 없음 · 함께 쓰는 사용자 0명이면 줄이 없다.
  */
+
+/**
+ * 서버 키 뒤 조사 은/는 — 키 끝 숫자의 한자어 읽기(36-UI-SPEC researcher decision 9): 0 영 · 1 일 · 3 삼 · 6 육 · 7 칠 · 8 팔 → 「은」,
+ * 2 이 · 4 사 · 5 오 · 9 구 → 「는」. 숫자로 끝나지 않으면 「은」.
+ */
+export function josaEunNeun(serverKey: string): "은" | "는" {
+  const last = serverKey.at(-1) ?? "";
+  return "2459".includes(last) && last !== "" ? "는" : "은";
+}
 
 export const ACCOUNT_EDITOR_TEXT = {
   remove: "제거",
@@ -175,6 +193,24 @@ export const ACCOUNT_EDITOR_TEXT = {
   costCaptionUnsetSuffix: " · 비우면 미설정",
   /** 결과 칩 — 실패(err) 낱말. 기존 `REFLECT_LABEL.err`(「실패 · BUSY」)는 users.toml 반영 칩 전용이라 따로 둔다. */
   costFailed: "실패",
+  feeLabel: "수수료",
+  sellTaxLabel: "매도세",
+  pctUnit: "%",
+  /** 서버 간 예수금 다름(D-03 · 원인 단정 없음) — v = 「500만」 또는 「미설정」. 키와 조사 사이 한 칸(목업). */
+  costMismatchBudget: (serverKey: string, v: string) =>
+    `${serverKey} ${josaEunNeun(serverKey)} ${v} — 저장하면 등록 서버가 모두 같아져요`,
+  /** 서버 간 (수수료, 매도세) 다름 — 예수금 줄과 따로(둘 다 다르면 두 줄). fee · tax 는 % 문자열. */
+  costMismatchFee: (serverKey: string, fee: string, tax: string) =>
+    `${serverKey} ${josaEunNeun(serverKey)} ${fee}% · ${tax}% — 저장하면 등록 서버가 모두 같아져요`,
+  costBudgetUnset: "미설정",
+  costRangeInvalid: "수수료 · 매도세는 0~1%, 소수 넷째 자리까지예요",
+  /** 클라 판정으로 요청을 보내지 않았다(값이 서버 값과 같고 불일치 없음) — NOTE 줄 · 칩 「<키> · 변경 없음」. */
+  costUnchanged: "변경 없음",
+  costBusy: "보내는 중",
+  /** gh-trade code 1(op 6/7 을 모르는 구 서버 · 범위 밖) — 칩 title 「서버 미지원 · <message>」 · 줄 아래 문형. */
+  costUnsupported: "서버 미지원",
+  costUnsupportedLine: (serverKey: string, message: string) =>
+    `${serverKey} 실패: 서버 미지원${message ? ` · ${message}` : ""} — 서버 업데이트 뒤 다시 저장`,
 } as const;
 
 /** shared 검증 오류 종류 → 편집 블록 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기). */
@@ -538,26 +574,63 @@ function budgetFieldText(krw: number): string {
   return manwon === 0 ? "" : KO_NUM.format(manwon);
 }
 
-/** 비용 행 칩 1개 — 톤 · 보이는 글자 · title(서버 message 원문). */
+/** ppm → 칸 표시(% 끝 0 없음) — 0 은 빈 칸. */
+function pctFieldText(ppm: number): string {
+  return ppm === 0 ? "" : ppmToPct(ppm);
+}
+
+/** 비용 행 칩 1개 — 톤 · 보이는 글자 · title(서버 message 원문) · 보내는 중(스피너). */
 interface CostChip {
   server: string;
   tone: ReflectTone;
   text: string;
   title: string | null;
+  busy?: boolean;
 }
 
 /**
- * 응답 결과 1개 → 비용 행 칩(36-UI-SPEC ① 칩 표). ok = 키만 · failed = 「키 · 실패」 · timeout · offline 은 기존 `RESULT_CHIP` 낱말 ·
- * skipped = 「키 · 미반영」. code 0 은 message 가 무엇이든 ok(D-06 — message 문장 대조 없음).
+ * 응답 결과 1개 → 비용 행 칩(36-UI-SPEC ① 칩 표). ok = 키만 · failed = 「키 · 실패」(code 1 이면 title 「서버 미지원 · <message>」) ·
+ * timeout · offline 은 기존 `RESULT_CHIP` 낱말 · skipped = 「키 · 미반영」. code 0 은 message 가 무엇이든 ok(D-06 — 문장 대조 없음).
  */
 function costChipOf(r: AdminServerResult): CostChip {
   const chip = chipOfResult(r);
-  const label = r.outcome === "failed" ? ACCOUNT_EDITOR_TEXT.costFailed : chip.label;
+  const T = ACCOUNT_EDITOR_TEXT;
+  const label = r.outcome === "failed" ? T.costFailed : chip.label;
   const text = chip.tone === "ok" ? r.server : `${r.server} · ${label ?? REFLECT_LABEL[chip.tone]}`;
-  return { server: r.server, tone: chip.tone, text, title: chip.message };
+  const unsupported = r.outcome === "failed" && r.code === 1;
+  const title = unsupported ? (r.message ? `${T.costUnsupported} · ${r.message}` : T.costUnsupported) : chip.message;
+  return { server: r.server, tone: chip.tone, text, title };
 }
 
-/** 칩 하나 — `ReflectChip` 과 같은 틀(톤 · `title`). */
+/** 비용 저장 결과 줄 1개 — err(role=alert) 실패 · warn 미반영. */
+interface CostLine {
+  server: string;
+  tone: "err" | "warn";
+  text: string;
+}
+
+/**
+ * ok 가 아닌 결과 → 서버마다 한 줄(36-UI-SPEC ① 줄 표). code 1 = 「<키> 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 ·
+ * 그 밖 err = 기존 `editFailedLine` · warn = 기존 `skippedLineText`(사유 없으면 「서버 연결 안 됨」). 분기는 `code === 1` 만.
+ */
+function costResultLines(results: readonly AdminServerResult[]): CostLine[] {
+  const T = ACCOUNT_EDITOR_TEXT;
+  const lines: CostLine[] = [];
+  for (const r of results) {
+    const chip = chipOfResult(r);
+    if (r.outcome === "failed" && r.code === 1) {
+      lines.push({ server: r.server, tone: "err", text: T.costUnsupportedLine(r.server, r.message ?? "") });
+    } else if (chip.tone === "err") {
+      const word = r.outcome === "failed" ? T.costFailed : chipStatusText(chip);
+      lines.push({ server: r.server, tone: "err", text: T.editFailedLine(r.server, r.message || word) });
+    } else if (chip.tone === "warn") {
+      lines.push({ server: r.server, tone: "warn", text: skippedLineText(r.server, r.message || "서버 연결 안 됨") });
+    }
+  }
+  return lines;
+}
+
+/** 칩 하나 — `ReflectChip` 과 같은 틀(톤 · `title`) + 보내는 중이면 9px CSS 스피너(글자와 4px · 움직임 줄이기면 정지). */
 function CostChipView({ chip }: { chip: CostChip }) {
   return (
     <span
@@ -565,8 +638,15 @@ function CostChipView({ chip }: { chip: CostChip }) {
       data-tone={chip.tone}
       data-server={chip.server}
       title={chip.title ?? undefined}
-      className={cn(ADMIN_CHIP_BASE, ADMIN_TONE_CLASS[chip.tone])}
+      className={cn(ADMIN_CHIP_BASE, ADMIN_TONE_CLASS[chip.tone], chip.busy && "inline-flex items-center gap-1")}
     >
+      {chip.busy && (
+        <span
+          data-slot="admin-cost-spinner"
+          aria-hidden="true"
+          className="inline-block size-[9px] shrink-0 animate-spin rounded-full border border-current border-t-transparent motion-reduce:animate-none"
+        />
+      )}
       {chip.text}
     </span>
   );
@@ -575,7 +655,7 @@ function CostChipView({ chip }: { chip: CostChip }) {
 /**
  * 칸 하나의 초안 — 포커스/편집 중이면 개요 재조회가 칸을 덮지 않는다(researcher decision 6).
  * `draft` null = 표시값을 따른다 · 포커스를 받으면 그 순간 표시값을 붙잡는다 · `edited` = 이번 포커스 뒤 고침(이탈 저장 조건).
- * `hold` = 마지막 저장이 전부 반영되지 않음(또는 범위 밖) — 입력값을 유지한다(상태 6종 「실패 · 입력값 유지」).
+ * `hold` = 마지막 시도가 전부 반영되지 않음(실패 · 미반영 · 범위 밖) — 입력값을 유지한다(상태 6종 「입력값 유지」).
  */
 function useCostDraft(display: string) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -594,18 +674,18 @@ function useCostDraft(display: string) {
       setDraft(v);
       setEdited(true);
     },
-    onBlur: () => {
+    /** 이탈 — 고친 것이 없고 붙잡을 것도 없으면 표시값을 따른다(고쳤으면 호출자가 저장 시도). */
+    onBlur: (willSave: boolean) => {
       focused.current = false;
+      if (!willSave && !hold) setDraft(null);
     },
-    /** 저장 시도가 끝남(보냄 · 변경 없음 · 범위 밖) — 이탈이 다시 보내지 않게. `keep` = 입력값 유지. */
+    /** 보냄 — 결과가 올 때까지 입력값을 그대로 둔다 · 이탈이 다시 보내지 않게. */
+    markSent: () => setEdited(false),
+    /** 시도가 끝남(결과 · 변경 없음 · 범위 밖). `keep` = 입력값 유지. */
     settle: (keep: boolean) => {
       setEdited(false);
       setHold(keep);
       if (!keep && !focused.current) setDraft(null);
-    },
-    /** 이탈 뒤 정리 — 고친 것도 붙잡을 것도 없으면 표시값을 따른다. */
-    release: () => {
-      if (!focused.current) setDraft((d) => (hold ? d : null));
     },
   };
 }
@@ -620,88 +700,255 @@ interface AccountCostRowProps {
   onChanged: () => void;
 }
 
+type CostOp = "budget" | "fee";
+
 /**
  * 계좌 카드 「예수금 · 수수료 · 매도세」 행(36-UI-SPEC ①). 편집 모드와 무관하게 늘 보인다 · 87 전용 흐린 줄에는 없다.
- * 표시값 · 출처 · 불일치는 shared `summarizeAccountCosts` 한 벌(67 live 우선 · 87 폴백 — 개요 `costs`).
- * 저장은 칸마다 즉시(D-02 · 저장 버튼 없음) — 예수금 = op 6(`PUT …/budget`). 결과는 등록 서버마다 칩 1개(D-06) ·
- * users.toml 반영 칩(서버 알약)은 바꾸지 않는다(D-04). 토스트 · alert · 확인창 없음.
+ *
+ * - 표시값 · 출처 · 불일치는 shared `summarizeAccountCosts` 한 벌(67 live 우선 · 87 폴백 — 개요 `costs` · 출처 = 유효 주문 서버).
+ *   불일치는 다른 서버마다 경고 한 줄(예수금 · 비용률 따로 · 원인 단정 없음 · D-03). 87 을 모르는 서버는 판정 밖 · 「확인 전」 칩.
+ * - 저장은 칸마다 즉시(D-02 · 저장 버튼 없음) — 예수금 = op 6(`PUT …/budget`) · 수수료 · 매도세 = op 7(`PUT …/fee` 두 값 함께).
+ *   Enter = 저장 시도 · 포커스 이탈 = 고쳤을 때만 · 값이 서버 값과 같고 불일치가 없으면 요청 없이 「변경 없음」 · 범위 밖 비용률은
+ *   보내지 않고 `aria-invalid` + 범위 줄. 비행 중엔 그 op 칸만 readOnly · 카드 편집 저장 비행 중엔 세 칸 모두.
+ * - 결과는 등록 서버마다 칩 1개(D-06 · 칩 자리 1벌 = 가장 최근에 끝난 저장) · 실패/미반영 줄은 op 별 · 그 op 칸을 다시 고치면 지운다.
+ *   users.toml 반영 칩(서버 알약)은 바꾸지 않는다(D-04). 토스트 · alert · 확인창 없음.
  */
 function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }: AccountCostRowProps) {
   const T = ACCOUNT_EDITOR_TEXT;
   const budgetId = useId();
+  const feeId = useId();
+  const taxId = useId();
   const summary = summarizeAccountCosts({ account, registry });
   const known = summary.state === "known";
-  // 칩 자리 1벌 — 가장 최근에 끝난 저장의 결과(researcher decision 7). null = 쉬는 상태.
+  const budgetMismatched = summary.budgetMismatches.length > 0;
+  const feeMismatched = summary.feeMismatches.length > 0;
+
+  // 칩 자리 1벌 — 가장 최근에 끝난 저장(결과 · 변경 없음)의 칩(researcher decision 7). null = 쉬는 상태.
   const [lastChips, setLastChips] = useState<CostChip[] | null>(null);
+  const [lines, setLines] = useState<Record<CostOp, CostLine[]>>({ budget: [], fee: [] });
+  const [unchanged, setUnchanged] = useState<CostOp | null>(null);
+  const [invalid, setInvalid] = useState({ fee: false, tax: false });
+
+  // 활성 등록 서버(레지스트리 순) — 쉬는 · 보내는 중 · 변경 없음 칩의 서버 목록.
+  const order = registry.map((s) => s.key);
+  const activeKeys = account.servers.filter((s) => s.state === "active").map((s) => s.serverKey);
+  const active = [...order.filter((k) => activeKeys.includes(k)), ...activeKeys.filter((k) => !order.includes(k))];
+
+  const finish = (op: CostOp, results: readonly AdminServerResult[]) => {
+    setLastChips(results.map(costChipOf));
+    setLines((prev) => ({ ...prev, [op]: costResultLines(results) }));
+    return results.some((r) => r.outcome !== "ok");
+  };
 
   const budget = useFieldSave<number>(
     (krw) => setAccountBudget(dmaUserId, account.broker, account.accountNo, krw),
     {
       releaseOn: account,
       onSuccess: (_v, res) => {
-        const results = res?.results ?? [];
-        setLastChips(results.map(costChipOf));
-        budgetField.settle(results.some((r) => r.outcome !== "ok"));
+        budgetField.settle(finish("budget", res?.results ?? []));
         onChanged();
       },
     },
   );
-  const shownBudgetKrw = budget.value ?? summary.budgetKrw;
-  const budgetField = useCostDraft(known || budget.value !== undefined ? budgetFieldText(shownBudgetKrw) : "");
-
-  // 쉬는 상태 칩 — 활성 등록 서버마다(레지스트리 순): 값을 아는 서버 「키」(ok) · 모르는 서버 「키 · 확인 전」(only).
-  const order = registry.map((s) => s.key);
-  const activeKeys = account.servers.filter((s) => s.state === "active").map((s) => s.serverKey);
-  const active = [...order.filter((k) => activeKeys.includes(k)), ...activeKeys.filter((k) => !order.includes(k))];
-  const idleChips: CostChip[] = active.map((k) =>
-    account.costs?.[k] != null
-      ? { server: k, tone: "ok", text: k, title: null }
-      : { server: k, tone: "only", text: `${k} · ${T.ipmacUnknown}`, title: null },
+  const cost = useFieldSave<{ feePpm: number; sellTaxPpm: number }>(
+    (v) => setAccountFee(dmaUserId, account.broker, account.accountNo, v.feePpm, v.sellTaxPpm),
+    {
+      releaseOn: account,
+      onSuccess: (_v, res) => {
+        const keep = finish("fee", res?.results ?? []);
+        feeField.settle(keep);
+        taxField.settle(keep);
+        onChanged();
+      },
+    },
   );
-  const chips = lastChips ?? idleChips;
+
+  // 표시값 — 저장이 쥔 의도 값(재조회 전) ?? 개요 값. 모르면(확인 전) 빈 칸 + 「—」.
+  const budgetKnown = known || budget.value !== undefined;
+  const feeKnown = known || cost.value !== undefined;
+  const shownBudgetKrw = budget.value ?? summary.budgetKrw;
+  const budgetField = useCostDraft(budgetKnown ? budgetFieldText(shownBudgetKrw) : "");
+  const feeField = useCostDraft(feeKnown ? pctFieldText(cost.value?.feePpm ?? summary.feePpm) : "");
+  const taxField = useCostDraft(feeKnown ? pctFieldText(cost.value?.sellTaxPpm ?? summary.sellTaxPpm) : "");
+
+  const budgetBusy = budget.state === "saving";
+  const feeBusy = cost.state === "saving";
+  const budgetLocked = editSaving || budgetBusy;
+  const feeLocked = editSaving || feeBusy;
+
+  const markUnchanged = (op: CostOp) => {
+    setUnchanged(op);
+    setLastChips(active.map((k) => ({ server: k, tone: "only", text: `${k} · ${T.costUnchanged}`, title: null })));
+  };
 
   const saveBudget = () => {
+    if (budgetLocked) return;
     const parsed = parseBudgetManwon(budgetField.text);
     if (!parsed.ok) {
       budgetField.settle(true);
       return;
     }
+    setUnchanged((u) => (u === "budget" ? null : u));
+    // 서버 값과 같고 등록 서버 간 불일치가 없으면 요청 없이 「변경 없음」(불일치면 같은 값이어도 보낸다 — 맞추기).
+    if (known && parsed.krw === summary.budgetKrw && !budgetMismatched) {
+      markUnchanged("budget");
+      budgetField.settle(false);
+      return;
+    }
+    setLines((prev) => ({ ...prev, budget: [] }));
+    budgetField.markSent();
     budget.run(parsed.krw);
   };
 
-  const unset = known && shownBudgetKrw === 0;
+  const saveFee = () => {
+    if (feeLocked) return;
+    const fee = parseCostPct(feeField.text);
+    const tax = parseCostPct(taxField.text);
+    if (!fee.ok || !tax.ok) {
+      // 범위 밖 · 소수 다섯째 자리 · 숫자 아님 — 보내지 않는다 · 입력값 유지(D-02).
+      setInvalid({ fee: !fee.ok, tax: !tax.ok });
+      feeField.settle(true);
+      taxField.settle(true);
+      return;
+    }
+    setInvalid({ fee: false, tax: false });
+    setUnchanged((u) => (u === "fee" ? null : u));
+    if (known && fee.ppm === summary.feePpm && tax.ppm === summary.sellTaxPpm && !feeMismatched) {
+      markUnchanged("fee");
+      feeField.settle(false);
+      taxField.settle(false);
+      return;
+    }
+    setLines((prev) => ({ ...prev, fee: [] }));
+    feeField.markSent();
+    taxField.markSent();
+    cost.run({ feePpm: fee.ppm, sellTaxPpm: tax.ppm });
+  };
+
+  /** 칸을 고침 — 그 op 의 「변경 없음」 · 실패/미반영 줄을 지운다(researcher decision 7). */
+  const touched = (op: CostOp) => {
+    setUnchanged((u) => (u === op ? null : u));
+    setLines((prev) => (prev[op].length === 0 ? prev : { ...prev, [op]: [] }));
+  };
+
+  const onEnter = (save: () => void) => (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    save();
+  };
+
+  const busyChips: CostChip[] = active.map((k) => ({
+    server: k,
+    tone: "only",
+    text: `${k} · ${T.costBusy}`,
+    title: null,
+    busy: true,
+  }));
+  const idleChips: CostChip[] = active.map((k) =>
+    account.costs?.[k] != null
+      ? { server: k, tone: "ok", text: k, title: null }
+      : { server: k, tone: "only", text: `${k} · ${T.ipmacUnknown}`, title: null },
+  );
+  const chips = budgetBusy || feeBusy ? busyChips : (lastChips ?? idleChips);
+
+  const unset = budgetKnown && shownBudgetKrw === 0;
   const fieldBox = "h-9 px-2 text-right font-semibold tabular-nums sm:h-8";
+  const label = (field: string, unit: string) => `${account.broker} ${account.accountNo} ${field}(${unit})`;
+  const feePlaceholder = feeKnown ? "0" : "—";
+  const errorLines = [...lines.budget, ...lines.fee];
 
   return (
     <div data-slot="admin-account-cost" data-account={account.accountNo}>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--muted-fg)]">
-        <span className="flex items-center gap-1">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-[var(--muted-fg)]">
+        <span data-slot="admin-account-cost-budget" className="flex basis-full items-center gap-1 sm:basis-auto">
           <label htmlFor={budgetId}>{T.budgetLabel}</label>
           <Input
             id={budgetId}
             size="sm"
             inputMode="numeric"
             autoComplete="off"
-            aria-label={`${account.broker} ${account.accountNo} ${T.budgetLabel}(${T.budgetUnit})`}
+            aria-label={label(T.budgetLabel, T.budgetUnit)}
             placeholder="—"
-            readOnly={editSaving || budget.state === "saving"}
-            className={cn("w-24", fieldBox, budget.state === "saving" && "opacity-50")}
+            readOnly={budgetLocked}
+            className={cn("w-24", fieldBox, budgetBusy && "opacity-50")}
             value={budgetField.text}
             onFocus={budgetField.onFocus}
-            onChange={(e) => budgetField.onChange(formatBudgetInput(e.target.value))}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-              e.preventDefault();
-              if (editSaving || budget.state === "saving") return;
-              saveBudget();
+            onChange={(e) => {
+              budgetField.onChange(formatBudgetInput(e.target.value));
+              touched("budget");
             }}
+            onKeyDown={onEnter(saveBudget)}
             onBlur={() => {
-              budgetField.onBlur();
-              if (budgetField.edited && !editSaving && budget.state !== "saving") saveBudget();
-              else budgetField.release();
+              const willSave = budgetField.edited && !budgetLocked;
+              budgetField.onBlur(willSave);
+              if (willSave) saveBudget();
             }}
           />
           <span>{T.budgetUnit}</span>
+          <span data-slot="admin-account-cost-sep" aria-hidden="true" className="hidden text-[var(--faint)] sm:inline">
+            ·
+          </span>
+        </span>
+        <span className="flex items-center gap-1">
+          <label htmlFor={feeId}>{T.feeLabel}</label>
+          <Input
+            id={feeId}
+            size="sm"
+            inputMode="decimal"
+            autoComplete="off"
+            aria-label={label(T.feeLabel, T.pctUnit)}
+            aria-invalid={invalid.fee || undefined}
+            placeholder={feePlaceholder}
+            readOnly={feeLocked}
+            className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
+            value={feeField.text}
+            onFocus={feeField.onFocus}
+            onChange={(e) => {
+              const v = e.target.value;
+              feeField.onChange(v);
+              touched("fee");
+              if (invalid.fee) setInvalid((s) => ({ ...s, fee: !parseCostPct(v).ok }));
+            }}
+            onKeyDown={onEnter(saveFee)}
+            onBlur={() => {
+              const willSave = feeField.edited && !feeLocked;
+              feeField.onBlur(willSave);
+              if (willSave) saveFee();
+            }}
+          />
+          <span>{T.pctUnit}</span>
+        </span>
+        <span aria-hidden="true" className="text-[var(--faint)]">
+          ·
+        </span>
+        <span className="flex items-center gap-1">
+          <label htmlFor={taxId}>{T.sellTaxLabel}</label>
+          <Input
+            id={taxId}
+            size="sm"
+            inputMode="decimal"
+            autoComplete="off"
+            aria-label={label(T.sellTaxLabel, T.pctUnit)}
+            aria-invalid={invalid.tax || undefined}
+            placeholder={feePlaceholder}
+            readOnly={feeLocked}
+            className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
+            value={taxField.text}
+            onFocus={taxField.onFocus}
+            onChange={(e) => {
+              const v = e.target.value;
+              taxField.onChange(v);
+              touched("fee");
+              if (invalid.tax) setInvalid((s) => ({ ...s, tax: !parseCostPct(v).ok }));
+            }}
+            onKeyDown={onEnter(saveFee)}
+            onBlur={() => {
+              const willSave = taxField.edited && !feeLocked;
+              taxField.onBlur(willSave);
+              if (willSave) saveFee();
+            }}
+          />
+          <span>{T.pctUnit}</span>
         </span>
         <span data-slot="admin-account-cost-chips" className="inline-flex flex-wrap gap-1">
           {chips.map((c) => (
@@ -713,10 +960,43 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
         {T.costCaption}
         {unset ? T.costCaptionUnsetSuffix : null}
       </p>
-      {budget.error && (
-        <p role="alert" data-slot="admin-account-cost-line" data-tone="err" className={EDIT_ERROR_LINE}>
-          {budget.error}
+      {summary.budgetMismatches.map((m) => (
+        <p key={`b-${m.serverKey}`} data-slot="admin-account-cost-mismatch" data-server={m.serverKey} className={WARN_LINE}>
+          {T.costMismatchBudget(m.serverKey, m.budgetKrw === 0 ? T.costBudgetUnset : formatManwonFloor(m.budgetKrw))}
         </p>
+      ))}
+      {summary.feeMismatches.map((m) => (
+        <p key={`f-${m.serverKey}`} data-slot="admin-account-cost-mismatch" data-server={m.serverKey} className={WARN_LINE}>
+          {T.costMismatchFee(m.serverKey, ppmToPct(m.feePpm), ppmToPct(m.sellTaxPpm))}
+        </p>
+      ))}
+      {unchanged !== null && (
+        <p data-slot="admin-account-cost-unchanged" className={NOTE}>
+          {T.costUnchanged}
+        </p>
+      )}
+      {(invalid.fee || invalid.tax) && (
+        <p data-slot="admin-account-cost-invalid" className={EDIT_ERROR_LINE}>
+          {T.costRangeInvalid}
+        </p>
+      )}
+      {errorLines.map((l, i) =>
+        l.tone === "err" ? (
+          <p key={`${i}-${l.server}`} role="alert" data-slot="admin-account-cost-line" data-server={l.server} data-tone="err" className={EDIT_ERROR_LINE}>
+            {l.text}
+          </p>
+        ) : (
+          <p key={`${i}-${l.server}`} data-slot="admin-account-cost-line" data-server={l.server} data-tone="warn" className={WARN_LINE}>
+            {l.text}
+          </p>
+        ),
+      )}
+      {[budget.error, cost.error].map((err, i) =>
+        err ? (
+          <p key={i} role="alert" data-slot="admin-account-cost-error" className={EDIT_ERROR_LINE}>
+            {err}
+          </p>
+        ) : null,
       )}
     </div>
   );

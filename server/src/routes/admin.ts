@@ -16,6 +16,7 @@ import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
 import {
   AdminAccountBudgetSchema,
+  AdminAccountFeeSchema,
   AdminDmaInputSchema,
   AdminOrderServerSchema,
   AdminPasswordSchema,
@@ -60,6 +61,7 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/order-server : `{ serverKey | null }` → `{ ok, orderServer }` (29-37 G-1 ⑥ —
  *          계좌 주문 서버 지정. relay 가 RPC 저장 · 지정 적재기 즉시 재적재 · 29-36 재수립. Express 는 DB 에 직접 쓰지 않는다)
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/budget : `{ budgetKrw }` → `{ results }` (Phase 36 op 6 · 계좌 예수금)
+ * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/fee    : `{ feePpm, sellTaxPpm }` → `{ results }` (Phase 36 op 7 · uint32 구조 검사만)
  *   DMA 프록시는 relay 계약(29-11 표)을 1:1 로 부른다 — 409 업무 거부는 그대로, 못 닿음 · 5xx 는 502 `RELAY_FAILED`,
  *   클라이언트 없음은 503 `RELAY_UNAVAILABLE`. 비밀번호 평문은 relay 로만 전달된다(Express 암호화 · 저장 · 로그 없음).
  *
@@ -550,6 +552,29 @@ adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/budget", async (req
     audit(req, "dma-account-budget", maskDmaUserId(dma), {
       broker,
       budgetKrw,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /dma-users/:dma/accounts/:broker/:accountNo/fee — 계좌 수수료 · 매도세 (Phase 36 · op 7 · D-02 · D-06) ---
+//   두 값을 함께 보낸다 · 0~10000 범위는 웹이 막는다(여기서 400 을 내면 gh-trade code 1 「범위 밖」 이 화면에 닿지 않는다).
+adminRouter.put("/dma-users/:dma/accounts/:broker/:accountNo/fee", async (req, res, next) => {
+  try {
+    const { dma, broker, accountNo } = parseOrThrow(dmaAccountParam, req.params);
+    const { feePpm, sellTaxPpm } = parseOrThrow(AdminAccountFeeSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(
+      await relay.setAccountFee(dma, broker, accountNo, { feePpm, sellTaxPpm }, req.adminEmail!),
+      "dma-account-fee",
+    );
+    audit(req, "dma-account-fee", maskDmaUserId(dma), {
+      broker,
+      feePpm,
+      sellTaxPpm,
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
     res.json({ results });

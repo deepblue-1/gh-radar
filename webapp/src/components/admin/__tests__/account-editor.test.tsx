@@ -2020,6 +2020,32 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(document.querySelectorAll('[data-slot="admin-busy-line"]')).toHaveLength(0);
   });
 
+  it('(E1 loading) 포커스 · 고치는 중에는 개요 재조회가 칸을 덮지 않는다 · 이탈(안 고침) 뒤에는 최신 개요 값을 따른다', () => {
+    const { rerender } = mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000, 100, 2000) })]);
+    fireEvent.focus(budgetInput());
+    rerender([withCosts(KB_ACCT, { KB120: cost(90_000_000, 100, 2000) })]);
+    expect(budgetInput()).toHaveValue('10,000');
+    fireEvent.blur(budgetInput());
+    expect(budgetInput()).toHaveValue('9,000');
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.0' } });
+    rerender([withCosts(KB_ACCT, { KB120: cost(90_000_000, 300, 2000) })]);
+    expect(feeInput()).toHaveValue('0.0');
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+  });
+
+  it('(D-05) 저장 성공 뒤 재조회 전에는 저장한 값 · 재조회가 오면 개요 값(서버 체결 조정)이 정본', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    const { rerender } = mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    fireEvent.blur(budgetInput());
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120']));
+    expect(budgetInput()).toHaveValue('2,000');
+    rerender([withCosts(KB_ACCT, { KB120: cost(19_950_000) })]);
+    expect(budgetInput()).toHaveValue('1,995');
+  });
+
   it('(E1 overflow) 배치 — 예수금 묶음 basis-full sm:basis-auto · 1줄 끝 구분점 hidden sm:inline · 칩 묶음 inline-flex flex-wrap gap-1', () => {
     mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
     const group = costRow(NO)!.querySelector('[data-slot="admin-account-cost-budget"]') as HTMLElement;

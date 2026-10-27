@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance } from "axios";
 import type {
   AdminAccountBudgetBody,
+  AdminAccountFeeBody,
   AdminCommandResponse,
   AdminDmaInput,
   AdminOrderEndpointsRaw,
@@ -146,6 +147,14 @@ export type RelayAdminClient = {
     broker: DmaBroker,
     accountNo: string,
     body: AdminAccountBudgetBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /** 계좌 수수료 · 매도세 ppm(Phase 36 · op 7 · 36-02 계약) — 두 값을 함께. 범위 검사 없음(gh-trade code 1 이 말한다). */
+  setAccountFee(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    body: AdminAccountFeeBody,
     adminEmail: string,
   ): Promise<RelayAdminResponse<AdminCommandResponse>>;
   /** 시세 주 서버 전환(D-11 break-then-make) — 성공하면 relay 가 DB 를 갱신한다(29-23). */
@@ -340,6 +349,8 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       }),
     setAccountBudget: (dma, broker, accountNo, body, adminEmail) =>
       request<AdminCommandResponse>("PUT", `${account(dma, broker, accountNo)}/budget`, adminEmail, body),
+    setAccountFee: (dma, broker, accountNo, body, adminEmail) =>
+      request<AdminCommandResponse>("PUT", `${account(dma, broker, accountNo)}/fee`, adminEmail, body),
     deleteDmaUser: (dma, adminEmail, opts) =>
       request<RelayDeleteDmaUserResult>(
         "DELETE",

@@ -25,6 +25,7 @@
 
 import type {
   AdminAccountBudgetBody,
+  AdminAccountFeeBody,
   AdminCommandResponse,
   AdminCreateUserBody,
   AdminDmaInput,
@@ -194,6 +195,24 @@ export function setAccountBudget(
   const body: AdminAccountBudgetBody = { budgetKrw };
   return authFetch<AdminCommandResponse>(
     `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/budget`,
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
+}
+
+/**
+ * 계좌 수수료 · 매도세 ppm(Phase 36 · op 7 · D-02) — 어느 칸을 저장하든 두 값을 함께. 0~10000(1%) 범위는 화면이 막고 보낸다
+ * (Express · relay 는 uint32 구조 검사만 · 넘친 값은 서버 code 1 로 돌아온다).
+ */
+export function setAccountFee(
+  dmaUserId: string,
+  broker: DmaBroker,
+  accountNo: string,
+  feePpm: number,
+  sellTaxPpm: number,
+): Promise<AdminCommandResponse> {
+  const body: AdminAccountFeeBody = { feePpm, sellTaxPpm };
+  return authFetch<AdminCommandResponse>(
+    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/fee`,
     jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
   );
 }
