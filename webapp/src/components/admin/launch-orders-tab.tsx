@@ -152,33 +152,7 @@ export function LaunchOrdersView({
     <div data-slot="launch-orders" className="flex min-w-0 flex-col gap-3.5">
       <div data-slot="launch-controls" className="flex min-w-0 flex-wrap items-center gap-2.5">
         <LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={onGoDate} />
-        <div
-          data-slot="launch-fire-seg"
-          role="group"
-          aria-label="발사 기준"
-          className="inline-flex gap-0.5 rounded-[10px] bg-[var(--muted)] p-[3px]"
-        >
-          {FIRE_SEGMENTS.map((s) => {
-            const on = s.value === fire;
-            return (
-              <button
-                key={s.value}
-                type="button"
-                aria-pressed={on}
-                data-fire={s.value}
-                onClick={() => !on && onFire(s.value)}
-                className={cn(
-                  'min-h-8 rounded-[8px] px-3 text-[13px] font-semibold whitespace-nowrap',
-                  on
-                    ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
-                    : 'text-[var(--muted-fg)] hover:text-[var(--fg)]',
-                )}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
+        <LaunchFireSeg fire={fire} onFire={onFire} />
         <span
           data-slot="launch-source"
           className="ml-auto inline-flex items-center rounded-[6px] bg-[var(--muted)] px-2 py-0.5 text-[11.5px] whitespace-nowrap text-[var(--muted-fg)]"
@@ -247,6 +221,42 @@ export function LaunchOrdersView({
           ))}
         </>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 발사 기준 세그먼트 — 주문 내역 · 경계 지도 두 탭이 같은 꼴 · 같은 `?fire` 키
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function LaunchFireSeg({ fire, onFire }: { fire: LaunchFire; onFire: (f: LaunchFire) => void }) {
+  return (
+    <div
+      data-slot="launch-fire-seg"
+      role="group"
+      aria-label="발사 기준"
+      className="inline-flex gap-0.5 rounded-[10px] bg-[var(--muted)] p-[3px]"
+    >
+      {FIRE_SEGMENTS.map((s) => {
+        const on = s.value === fire;
+        return (
+          <button
+            key={s.value}
+            type="button"
+            aria-pressed={on}
+            data-fire={s.value}
+            onClick={() => !on && onFire(s.value)}
+            className={cn(
+              'min-h-8 rounded-[8px] px-3 text-[13px] font-semibold whitespace-nowrap',
+              on
+                ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
+                : 'text-[var(--muted-fg)] hover:text-[var(--fg)]',
+            )}
+          >
+            {s.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

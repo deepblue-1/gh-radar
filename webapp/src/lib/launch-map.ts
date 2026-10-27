@@ -17,6 +17,7 @@ import {
   type LaunchDay,
   type LaunchFire,
   type LaunchHeadRow,
+  type LaunchRange,
   type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
@@ -275,4 +276,25 @@ export function launchTooltipOf(
   if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
   if (offAxis) parts.push('축 밖');
   return parts.join(' · ');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 지도 탭 — 범위 글
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 지도 응답 days(거래일 내림차순) → 실제 범위 글 「MM/DD ~ MM/DD · N거래일」(가장 이른 ~ 가장 늦은) · 1일
+ * 「MM/DD · 1거래일」 · 빈 배열 null. 프리셋 칩(10d · 20d · all)이 실제로 덮은 날을 응답 기준으로 보인다(D-15).
+ */
+export function launchRangeOf(days: readonly string[]): string | null {
+  if (days.length === 0) return null;
+  const sorted = [...days].sort();
+  const from = launchDateLabelOf(sorted[0]!);
+  const to = launchDateLabelOf(sorted[sorted.length - 1]!);
+  return days.length === 1 ? `${to} · 1거래일` : `${from} ~ ${to} · ${days.length}거래일`;
+}
+
+/** `?range=` 원문 → '10d' | '20d' | 'all' (그 밖 null — 호출부가 기본 10d 로 정본화). */
+export function launchRangeParamOf(raw: string | null | undefined): LaunchRange | null {
+  return raw === '10d' || raw === '20d' || raw === 'all' ? raw : null;
 }

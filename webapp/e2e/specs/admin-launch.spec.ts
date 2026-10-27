@@ -20,6 +20,9 @@ import { mockLaunchApi } from '../fixtures/launch';
  *   가로 스크롤 0.
  *
  * ⑤ 빈 상태 — 이력 0 · 행 없는 ?d(「최신 보기」 → d 없는 주소) · 형식 오류 ?d(replace 로 d 만 지움 · 다른 키 보존).
+ *
+ * ⑥ 경계 지도 탭(35-08 · `?tab=map` · D-15 ~ D-18) — 첨부 pieces.json 「전체」 + 첨부 NEXT 픽스처로 KB 코스닥 요약 카드가
+ *   10일 · −347 · −322 · −337 이고 4패널 점 합이 196(첨부 지도와 같은 값). 칩 · 세그먼트 하나 = map 요청 1건.
  */
 
 const MINUS = '\u2212';
@@ -202,5 +205,51 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930$/);
     await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
     expect(api.orders().every((r) => r.query.d === undefined)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 경계 지도 탭 (35-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const panels = (page: Page) => root(page).locator('[data-slot="launch-panel"]');
+const panel = (page: Page, gateway: string, market: string) =>
+  root(page).locator(`[data-slot="launch-panel"][data-gateway="${gateway}"][data-market="${market}"]`);
+const kpi = (page: Page, gateway: string, market: string) =>
+  root(page).locator(`[data-slot="launch-kpi"][data-gateway="${gateway}"][data-market="${market}"]`);
+const rangeText = (page: Page) => root(page).locator('[data-slot="launch-range-text"]');
+
+test.describe('어드민 발사 · 경계 지도', () => {
+  test('P35-M1 1280 — ?tab=map&range=all · 요청 1건 · 범위 글 · 4패널 순서 · 점 196 · KB 코스닥 카드 · 패널 머리', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map&range=all');
+
+    await expect(root(page).getByRole('tab', { name: '경계 지도' })).toHaveAttribute('aria-selected', 'true');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(rangeText(page)).toHaveText('10/12 ~ 10/26 · 11거래일');
+    await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('전체');
+
+    const order = await panels(page).evaluateAll((els) =>
+      els.map((el) => `${el.getAttribute('data-gateway')}|${el.getAttribute('data-market')}`),
+    );
+    expect(order).toEqual(['KB120|Q', 'KB120|K', 'KYOBO119|Q', 'KYOBO119|K']);
+
+    const dots = await root(page).locator('[data-slot="launch-chart"] circle').count();
+    expect(dots, '4패널 점 합 = 첨부 조각 196').toBe(196);
+
+    const kb = kpi(page, 'KB120', 'Q');
+    await expect(kb).toContainText('KB 코스닥 · 10일');
+    await expect(kb.locator('[data-kpi="min-accept"]')).toHaveText(`${MINUS}347µs`);
+    await expect(kb.locator('[data-kpi="max-reject"]')).toHaveText(`${MINUS}322µs`);
+    await expect(kb.locator('[data-kpi="next"]')).toHaveText(`${MINUS}337µs`);
+    await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-panel-stats"]')).toHaveText(
+      '경계 잡힌 날 4 · 전부 접수 5 · 전부 거부 1',
+    );
+
+    await page.waitForTimeout(500);
+    expect(api.maps().map((r) => r.query)).toEqual([{ fire: 'q16', range: 'all' }]);
+    expect(api.orders(), '지도 탭 진입은 주문 내역을 받지 않는다').toHaveLength(0);
+    await page.screenshot({ path: test.info().outputPath('launch-map-1280.png'), fullPage: true });
   });
 });

@@ -5,6 +5,7 @@ import type { Page, Route } from '@playwright/test';
 import type {
   LaunchFire,
   LaunchHeadRow,
+  LaunchMapPiece,
   LaunchMapResponse,
   LaunchOrdersResponse,
   LaunchPieceRow,
@@ -26,6 +27,10 @@ import type {
  *   accept_time 은 앞 0 빠진 8자리 원문) + **합성** A 두 다리 2줄(KB120 코스닥 · KRX 09:00:27 매수 접수 / NXT 09:00:30 매도 101) +
  *   **합성** N 머리 2개(KB120 코스닥 −245 · KYOBO119 코스닥 −200 — 고정 오프셋).
  * ⑤ `ordersEmpty` — dates [] 응답(적재 이력 0).
+ * ⑥ 경계 지도(35-08 · `launchMapFixture`) — q16 = 위 첨부 조각(days 11 내림차순 · 10d 면 최신 10일만 · 20d/all 은 11일) +
+ *   **합성** Q16 머리 4개(첨부 NEXT: KB120 Q −337 · KB120 K −285 · KYOBO119 Q −526 · KYOBO119 K −400 — 라이브는 kind 18
+ *   next_offset_us). n0930 = 10/26 N 10조각(로그 그대로) + **합성** A 매도 1조각(KB120 Q · 101) + **합성** N 머리
+ *   (KB120 −245 · KYOBO119 −200). 기본 map 핸들러가 이것이다.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +235,60 @@ const N_HEADS_1026: LaunchHeadRow[] = [
   launchHead({ ...N_HEAD_KEY, gateway: 'KYOBO119', market: 'Q', offset_used_us: -200, next_offset_us: -200 }),
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 경계 지도 (35-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 행 → 지도 RPC 가 싣는 열만. */
+function toMapPiece(p: LaunchPieceRow): LaunchMapPiece {
+  return {
+    trade_date: p.trade_date,
+    gateway: p.gateway,
+    market: p.market,
+    profile: p.profile,
+    fire_exchange: p.fire_exchange,
+    side: p.side,
+    wire: p.wire,
+    piece_idx: p.piece_idx,
+    sent_rel_us: p.sent_rel_us,
+    result: p.result,
+    retry: p.retry,
+  };
+}
+
+/** 합성 Q16 머리 — 첨부 NEXT(라이브는 kind 18 next_offset_us). 지도 heads = (서버, 시장, profile) 별 최신 1행. */
+const Q16_MAP_HEADS: LaunchHeadRow[] = (
+  [
+    ['KB120', 'Q', -337],
+    ['KB120', 'K', -285],
+    ['KYOBO119', 'Q', -526],
+    ['KYOBO119', 'K', -400],
+  ] as const
+).map(([gateway, market, next]) => launchHead({ trade_date: '20261026', gateway, market, next_offset_us: next }));
+
+/** 합성 N 머리 — 고정 오프셋(KB120 −245 · KYOBO119 −200). */
+const N_MAP_HEADS: LaunchHeadRow[] = (
+  [
+    ['KB120', 'Q', -245],
+    ['KB120', 'K', -245],
+    ['KYOBO119', 'Q', -200],
+    ['KYOBO119', 'K', -200],
+  ] as const
+).map(([gateway, market, next]) =>
+  launchHead({ ...N_HEAD_KEY, gateway, market, offset_used_us: next, next_offset_us: next }),
+);
+
+/** 경계 지도 응답 — 발사 기준 × 범위. */
+export function launchMapFixture(fire: LaunchFire, range: LaunchRange): LaunchMapResponse {
+  if (fire === 'n0930') {
+    const aSell = A_PIECES_1026.filter((p) => p.fire_exchange === 'NXT' && p.side === 'sell');
+    return { days: ['20261026'], heads: N_MAP_HEADS, pieces: [...N_PIECES_1026, ...aSell].map(toMapPiece) };
+  }
+  const days = range === '10d' ? LAUNCH_DATES.slice(0, 10) : LAUNCH_DATES;
+  const pieces = LAUNCH_Q16_PIECES.filter((p) => days.includes(p.trade_date)).map(toMapPiece);
+  return { days, heads: Q16_MAP_HEADS, pieces };
+}
+
 /** 적재 이력 0 응답. */
 export const LAUNCH_ORDERS_EMPTY: LaunchOrdersResponse = { dates: [], date: null, heads: [], pieces: [] };
 
@@ -270,6 +329,8 @@ export interface LaunchApiMock {
   requests: LaunchRequestRecord[];
   /** GET /orders 요청만. */
   orders: () => LaunchRequestRecord[];
+  /** GET /map 요청만. */
+  maps: () => LaunchRequestRecord[];
 }
 
 function isStatusBody(v: unknown): v is { status: number; body: unknown } {
@@ -304,7 +365,7 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
     } else if (rec.path === '/map') {
       const fire = (rec.query.fire ?? 'q16') as LaunchFire;
       const range = (rec.query.range ?? '10d') as LaunchRange;
-      body = opts.map?.(fire, range) ?? { days: [], heads: [], pieces: [] };
+      body = opts.map?.(fire, range) ?? launchMapFixture(fire, range);
     } else {
       status = 404;
       body = { error: { code: 'NOT_FOUND', message: '없는 경로예요' } };
@@ -314,5 +375,6 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
   return {
     requests,
     orders: () => requests.filter((r) => r.method === 'GET' && r.path === '/orders'),
+    maps: () => requests.filter((r) => r.method === 'GET' && r.path === '/map'),
   };
 }
