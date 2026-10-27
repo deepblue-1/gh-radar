@@ -115,6 +115,7 @@ import {
   buildAdminCommandReq,
   parseAdminCommandResp,
   parseAdminUsersSnapshot,
+  parseLaunchPlanSnapshot,
   type ViTriggerInput,
   type LcSetCfg,
 } from "../envelope.js";
@@ -144,6 +145,7 @@ import {
   SAMPLE_ACCOUNT_NO,
   buildAdminCommandRespFrame,
   buildAdminUsersSnapshotFrame,
+  buildLaunchPlanSnapshotFrame,
 } from "../../../tests/helpers/frames.js";
 import { AdminCommandReq } from "../../generated/stock-dma/admin-command-req.js";
 import { ADMIN_CODE, ADMIN_OP } from "../../admin/types.js";
@@ -2784,6 +2786,122 @@ describe("P36 87 AdminAccount budget_krw · fee_ppm · sell_tax_ppm (slot 18 · 
     expect(legacy).toMatchObject({ accountNo: "1234567802", budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 });
     for (const k of ["budgetKrw", "feePpm", "sellTaxPpm"]) expect(k in legacy!, k).toBe(true);
     expect(droppedEnvelopeCount()).toBe(0);
+  });
+});
+
+describe("35-16 발사 계획 코덱 (44 op 8/9 조립 · 94 파싱 — gh-trade 43 · fbs f156cb6f)", () => {
+  /** 프레임 바이트 → Envelope. 94 가 수신 화이트리스트를 통과해야 한다(PC-12). */
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  /** 44 를 생성 리더로 되읽어 발사 계획 3필드만 꺼낸다. */
+  function launchFields(bytes: Uint8Array): { op: number; profile: string | null; market: string | null; offsets: number[] } {
+    const req = readBack(bytes).adminCommandReq(new AdminCommandReq())!;
+    const offsets: number[] = [];
+    for (let i = 0; i < req.launchOffsetsUsLength(); i += 1) offsets.push(req.launchOffsetsUs(i) ?? 0);
+    return { op: req.op(), profile: req.launchProfile(), market: req.launchMarket(), offsets };
+  }
+
+  it("44 op 8 왕복 — Q16/Q 3조각 · N/K 1값 (launch_profile · launch_market · launch_offsets_us)", () => {
+    expect(
+      launchFields(
+        buildAdminCommandReq({
+          requestId: 801n,
+          op: ADMIN_OP.SetLaunchPlan,
+          userId: "",
+          launchProfile: "Q16",
+          launchMarket: "Q",
+          launchOffsetsUs: [-340, -335, -322],
+        }),
+      ),
+    ).toEqual({ op: 8, profile: "Q16", market: "Q", offsets: [-340, -335, -322] });
+    expect(
+      launchFields(
+        buildAdminCommandReq({ requestId: 802n, op: ADMIN_OP.SetLaunchPlan, userId: "", launchProfile: "N", launchMarket: "K", launchOffsetsUs: [-245] }),
+      ),
+    ).toEqual({ op: 8, profile: "N", market: "K", offsets: [-245] });
+    // int32 경계값은 그대로 실린다(범위 판정은 서버 — relay 는 구조만).
+    expect(
+      launchFields(
+        buildAdminCommandReq({
+          requestId: 803n,
+          op: ADMIN_OP.SetLaunchPlan,
+          userId: "",
+          launchProfile: "Q16",
+          launchMarket: "K",
+          launchOffsetsUs: [-(2 ** 31), 2 ** 31 - 1],
+        }),
+      ).offsets,
+    ).toEqual([-(2 ** 31), 2 ** 31 - 1]);
+  });
+
+  it("44 op 8 — offsets 에 int32 밖 · 정수 아님이 있으면 RangeError(2^31 · −2^31−1 · 1.5)", () => {
+    for (const bad of [2 ** 31, -(2 ** 31) - 1, 1.5]) {
+      expect(
+        () =>
+          buildAdminCommandReq({
+            requestId: 9n,
+            op: ADMIN_OP.SetLaunchPlan,
+            userId: "",
+            launchProfile: "Q16",
+            launchMarket: "K",
+            launchOffsetsUs: [-300, bad],
+          }),
+        `값 ${bad}`,
+      ).toThrow(RangeError);
+    }
+  });
+
+  it("44 — op 3 · op 9 에는 발사 계획 필드가 실리지 않는다(호출자가 넘겨도)", () => {
+    const extra = { launchProfile: "Q16" as const, launchMarket: "K" as const, launchOffsetsUs: [-300] };
+    for (const op of [ADMIN_OP.SetAccount, ADMIN_OP.GetLaunchPlan]) {
+      expect(launchFields(buildAdminCommandReq({ requestId: 11n, op, userId: "u1", ...extra })), `op ${op}`).toEqual({
+        op,
+        profile: null,
+        market: null,
+        offsets: [],
+      });
+    }
+  });
+
+  it("94 파싱 — 4행 고정 순서 · request_id · plan_rev bigint · updated_at", () => {
+    expect(parseLaunchPlanSnapshot(envOf(buildLaunchPlanSnapshotFrame({ requestId: 901n, planRev: 3n })))).toEqual({
+      requestId: 901n,
+      planRev: 3n,
+      updatedAt: "2026-10-27T22:41:00",
+      entries: [
+        { profile: "Q16", market: "K", offsetsUs: [-350, -345, -325] },
+        { profile: "Q16", market: "Q", offsetsUs: [-340, -335, -322] },
+        { profile: "N", market: "K", offsetsUs: [-200] },
+        { profile: "N", market: "Q", offsetsUs: [-245] },
+      ],
+    });
+  });
+
+  it("94 파싱 — 빈 entries 는 빈 배열 그대로", () => {
+    expect(parseLaunchPlanSnapshot(envOf(buildLaunchPlanSnapshotFrame({ entries: [] })))?.entries).toEqual([]);
+  });
+
+  it("94 파싱 — updated_at 빈 문자열 · 필드 부재 둘 다 \"\" 로 받는다(손으로 만든 파일 · 초깃값 직후)", () => {
+    expect(parseLaunchPlanSnapshot(envOf(buildLaunchPlanSnapshotFrame({ updatedAt: "" })))?.updatedAt).toBe("");
+    expect(parseLaunchPlanSnapshot(envOf(buildLaunchPlanSnapshotFrame({ updatedAt: null })))?.updatedAt).toBe("");
+  });
+
+  it("94 파싱 — plan_rev · request_id 가 2^53 을 넘어도 bigint 그대로(정밀도 손실 없음)", () => {
+    const big = 2n ** 53n + 7n;
+    const snap = parseLaunchPlanSnapshot(envOf(buildLaunchPlanSnapshotFrame({ requestId: 2n ** 64n - 1n, planRev: big })));
+    expect(snap?.planRev).toBe(big);
+    expect(snap?.requestId).toBe(2n ** 64n - 1n);
+  });
+
+  it("94 슬롯 null(표 없음) → 드롭(slot-null · 카운터 +1)", () => {
+    expect(parseLaunchPlanSnapshot(envOf(buildBareEnvelope(MSG.LaunchPlanSnapshot)))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const slots = warn.mock.calls.map((c: unknown[]) => (c[0] as Record<string, unknown>).slot);
+    expect(slots).toEqual(["launch_plan_snapshot"]);
   });
 });
 

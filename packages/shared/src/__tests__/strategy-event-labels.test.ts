@@ -40,7 +40,7 @@ import {
  */
 
 describe("표시명 표 전수 (D-10)", () => {
-  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 15(상한가특징 — Phase 28) · 16(매집감지 — quick-261018-rfy) · 9 는 예약이라 표에 없다", () => {
+  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 15(상한가특징 — Phase 28) · 16(매집감지 — quick-261018-rfy) · 17·18(발사조각 · 발사머리 — Phase 35) · 9 는 예약이라 표에 없다", () => {
     expect(STRATEGY_EVENT_KIND_LABELS).toEqual({
       1: "상한가노출",
       2: "상한가진입",
@@ -56,8 +56,13 @@ describe("표시명 표 전수 (D-10)", () => {
       13: "상태",
       15: "상한가특징",
       16: "매집감지",
+      17: "발사조각",
+      18: "발사머리",
     });
     expect(strategyKindLabel(10)).toBe("버스트 상한가");
+    // 17 · 18 — 발사 조각 · 머리(Phase 35 · 어드민 전용 — 주문로그 · ws 에는 오지 않는다).
+    expect(strategyKindLabel(17)).toBe("발사조각");
+    expect(strategyKindLabel(18)).toBe("발사머리");
     expect(strategyKindLabel(15)).toBe("상한가특징");
     expect(strategyKindLabel(9)).toBe("9");
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(strategyKindLabel)).toEqual([

@@ -575,8 +575,11 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *   - 13 BAD_ORDER_ENDPOINT(op 1 · op 3 주문자 IP/MAC 형식 오류 · gh-trade 인박스 261010)도 실패 — 칩은 서버 문구 그대로.
  *   - op 6 SetAccountBudget · op 7 SetAccountFee(gh-trade 41 · 인박스 261027-account-budget/pnl) — code 0 만 반영됨. 서버 「변경 없음」 도
  *     code 0. code 1 = 구 서버(op 모름) 또는 범위 밖 — 화면은 「서버 미지원 · <message 원문>」(D-06 · 문장 대조 없음).
+ *   - op 8 SetLaunchPlan · op 9 GetLaunchPlan(gh-trade 43 · 인박스 261028-launch-plan-contract) — code 0 만 ok · 같은 값 = code 0
+ *     「변경 없음」 · 범위 · 순서 · 대상 밖 · 폭 거부는 code 1 + 고정 문구(화면 「KB120 실패: <message>」 · 구 서버 「알 수 없는 명령입니다」 만
+ *     「서버 미지원」 — 웹 `saveResultViewOf`) · 10 · 11 도 실패.
  */
-export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 6 | 7, code: number): "ok" | "failed" {
+export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, code: number): "ok" | "failed" {
   if (code === 0) return "ok";
   if (op === 4 && code === 8) return "ok";
   if (op === 2 && code === 4) return "ok";

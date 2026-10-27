@@ -260,13 +260,36 @@ describe('launchHeadCardOf(q16) — 머리 우선 · 조각 폴백', () => {
       badLabel: '101',
       offset: `${M}332µs`,
       gate: `${M}360 ~ ${M}350`,
+      learnLabel: '학습 → 다음 오프셋',
       learn: `${M}146 → ${M}151 · 다음 ${M}337µs (step 5)`,
     });
   });
 
-  it('머리 없음 → 경계 = launchDaysOf 폴백(10/14 KB 코스닥) · 오프셋 = 최소 wire rel · 학습 「—」', () => {
+  it('머리 없음 → 경계 = launchDaysOf 폴백(10/14 KB 코스닥) · 오프셋 = 최소 wire rel · 다음 발사 계획 첫 조각 「—」', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'q16', pieces: attached('2026-10-14', 'KB', '코스닥'), heads: [] });
-    expect(card).toMatchObject({ gate: `${M}350 ~ ${M}342`, offset: `${M}352µs`, learn: '—', count: 5 });
+    expect(card).toMatchObject({ gate: `${M}350 ~ ${M}342`, offset: `${M}352µs`, learnLabel: '다음 발사 계획 첫 조각', learn: '—', count: 5 });
+  });
+});
+
+describe('launchHeadCardOf(q16) — 학습 줄 세 갈래 (D-32 · Phase 43 뒤 kind 18 학습값 없음)', () => {
+  const pieces = attached('2026-10-26', 'KB', '코스닥');
+  const cardOf = (h: LaunchHeadRow) => launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'q16', pieces, heads: [h] });
+
+  it('학습값이 하나라도 있으면(학습 시절 · 백필 머리) 옛 라벨 · 옛 문형', () => {
+    const card = cardOf(head({ gateway: 'KB120', market: 'Q', correction_before_us: -146, correction_after_us: -151, step_us: 5, next_offset_us: -337 }));
+    expect(card).toMatchObject({ learnLabel: '학습 → 다음 오프셋', learn: `${M}146 → ${M}151 · 다음 ${M}337µs (step 5)` });
+    const stepOnly = cardOf(head({ gateway: 'KB120', market: 'Q', step_us: 5, next_offset_us: -337 }));
+    expect(stepOnly).toMatchObject({ learnLabel: '학습 → 다음 오프셋', learn: `— → — · 다음 ${M}337µs (step 5)` });
+  });
+
+  it('학습값 전부 null · next −350 (Phase 43 뒤 journal 머리) → 「다음 발사 계획 첫 조각」 · 「−350µs」', () => {
+    const card = cardOf(head({ gateway: 'KB120', market: 'Q', offset_used_us: -350, next_offset_us: -350 }));
+    expect(card).toMatchObject({ learnLabel: '다음 발사 계획 첫 조각', learn: `${M}350µs` });
+  });
+
+  it('머리 값 전부 null → 「다음 발사 계획 첫 조각」 · 「—」', () => {
+    const card = cardOf(head({ gateway: 'KB120', market: 'Q' }));
+    expect(card).toMatchObject({ learnLabel: '다음 발사 계획 첫 조각', learn: '—' });
   });
 
   it('결과 수 = 탭 조각(10/14 KB 코스피 접수 4 · 101 5 · 기타 1)', () => {

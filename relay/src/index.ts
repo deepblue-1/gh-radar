@@ -113,6 +113,7 @@ import { AdminIntentStore } from "./admin/intent-store.js";
 import { AdminDispatcher } from "./admin/dispatcher.js";
 import { AdminSessionSync } from "./admin/session-sync.js";
 import { createAdminRouter } from "./admin/admin-api.js";
+import { LaunchPlanService } from "./admin/launch-plan.js";
 import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
@@ -540,6 +541,8 @@ const adminRouter = createAdminRouter({
   access: appAccess,
   // Admin 서버 카드 칩(conn · journal · admin) 원천 — 서버별 파이프라인.
   pipelines,
+  // Phase 35 범위 7(35-17) — 발사 계획 조회 · 저장(op 9 · op 8). 서버 키 단위(dispatcher 밖) · DB 무관(이력은 server).
+  launchPlan: new LaunchPlanService({ registry, pipelines }),
   credKey: config.dmaCredKey,
   // 시세 주 서버 칩 — 지금 quote 연결 대상(29-23 전환 창 동안은 새 서버 · 실패하면 옛 서버).
   quoteStatus: { serverKey: () => quoteSwitch.currentServerKey, health: (nowMs) => quoteStatus.health(nowMs) },

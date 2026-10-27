@@ -36,6 +36,9 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   15: "상한가특징",
   // 16 — 매집감지(gh-trade Phase 34 · 시세 이벤트). 주문로그에는 오지 않는다(작업대 「매집」 패널 전용 · quick-261018-rfy).
   16: "매집감지",
+  // 17 · 18 — 발사 조각 · 머리(gh-trade Phase 43 · 관찰자 저널 전용). 주문로그 · ws 에는 오지 않는다 — 어드민 전용(Phase 35).
+  17: "발사조각",
+  18: "발사머리",
 };
 
 /** `OrderGroup` 표시명 — 로그 줄의 「구분」 칸. 0(None)은 표에 없다. */

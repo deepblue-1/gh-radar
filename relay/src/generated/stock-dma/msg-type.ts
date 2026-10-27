@@ -79,5 +79,6 @@ export enum MsgType {
   AccumChartResp = 90,
   SetOpenArbResp = 91,
   OpenArbJudgement = 92,
-  OpenArbPreview = 93
+  OpenArbPreview = 93,
+  LaunchPlanSnapshot = 94
 }

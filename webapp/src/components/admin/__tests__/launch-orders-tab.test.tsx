@@ -135,8 +135,26 @@ describe('LaunchOrdersView — 16:00 예약', () => {
     expect(cards[1]).toHaveTextContent('KB 코스피 · 이 날 발사 없음');
     expect(cards[3]).toHaveTextContent('교보 코스피 · 이 날 발사 없음');
     expect(cards[0]).toHaveTextContent('3조각 · Q16');
-    expect(cards[0]).toHaveTextContent(`${M}146 → ${M}151 · 다음 ${M}337µs (step 5)`);
+    expect(cards[0]).toHaveTextContent(`학습 → 다음 오프셋${M}146 → ${M}151 · 다음 ${M}337µs (step 5)`);
+    expect(cards[0]).not.toHaveTextContent('다음 발사 계획 첫 조각');
     expect(cards[0]).toHaveTextContent('접수 1101 1기타 1');
+  });
+
+  it('학습값 없는 Q16 머리(Phase 43 뒤 · next −350) → 「다음 발사 계획 첫 조각 · −350µs」 · 09:00:30 카드 무변경 (D-32)', () => {
+    const resp: LaunchOrdersResponse = {
+      ...RESP,
+      heads: [head({ gateway: 'KB120', market: 'Q', offset_used_us: -350, next_offset_us: -350 }), RESP.heads[1]!],
+    };
+    const { container, unmount } = view({ resp });
+    const card = cardsOf(container)[0]!;
+    expect(card).toHaveTextContent(`다음 발사 계획 첫 조각${M}350µs`);
+    expect(card).not.toHaveTextContent('학습 → 다음 오프셋');
+    unmount();
+
+    const { container: n } = view({ resp, fire: 'n0930' });
+    const nCard = cardsOf(n)[0]!;
+    expect(nCard).toHaveTextContent(`다음 오프셋고정 ${M}245µs`);
+    expect(nCard).not.toHaveTextContent('다음 발사 계획 첫 조각');
   });
 
   it('조각 표 — 계좌 그대로 · 접수 시각 · 결과 알약 tone/토큰 · null 칸 「—」', () => {

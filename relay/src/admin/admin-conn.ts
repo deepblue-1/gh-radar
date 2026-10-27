@@ -3,7 +3,7 @@
  *
  * 게이트웨이에 **관찰자 로그인 role 2(admin)** 로 붙는 연결 하나. gh-trade 관문(D-02 · 92cdfbff)은 이 연결을 어떤 Session 에도
  * 붙이지 않고 4(LivePing) · 44(AdminCommandReq) 만 처리한다 — 80 · 76/78 · 사용자 요청은 드롭된다. 그래서 relay 도 이 연결로는
- * 로그인(5) · 핑(4) · 44 외에 아무것도 보내지 않는다. 받는 것은 79 · 86 · 87 뿐이고, 그 밖 프레임은 debug 로 버린다.
+ * 로그인(5) · 핑(4) · 44 외에 아무것도 보내지 않는다. 받는 것은 79 · 86 · 87 · 94(발사 계획 · 35-16) 뿐이고, 그 밖 프레임은 debug 로 버린다.
  *
  * 흐름:
  *   start() → connect → "up" → 관찰자 로그인 1건(role 2 · client `ADMIN_CLIENT_NAME`) → 79 판단 → ready
@@ -40,6 +40,13 @@
  *     87 을 기다리는 중 연결이 끊기면 변경은 이미 반영됐으므로 offline 이 아니라 snapshot 없는 result 로 푼다(재접속 op 5 가 맞춘다).
  *   - op 5 를 `command()` 로 부르면 86 이 없으므로 87 을 응답으로 보고 `{ result(합성 · code 0 · 그 87 의 rev), snapshot }` 으로 푼다.
  *   - 요청 없는 87(다른 admin 클라의 변경 뒤 등)도 캐시를 갈아 끼우고 "snapshot" 이벤트를 낸다.
+ *   - **발사 계획 op 8/9 · 94(35-16 · gh-trade 43 · 인박스 261028-launch-plan-contract):** 94 는 request_id 를 에코한다 —
+ *     87 과 달리 「다음 프레임 순서」 로 짝짓지 않는다. op 9 GetLaunchPlan 은 86 없이 94 1프레임만 오므로 비행 항목이
+ *     `awaiting: "plan"` 으로 나가고, **request_id 가 같은 94** 가 오면 `{ result(합성 · code 0 · 현재 users_rev 또는 0n),
+ *     launchPlan }` 으로 푼다. 짝 없는 94(op 8 저장 뒤 서버가 보내는 정상 프레임 · 타임아웃 뒤 늦은 94)는 debug 1줄로 버린다.
+ *     94 는 users.toml 과 무관해 87 캐시 · "snapshot" 이벤트를 건드리지 않는다. op 9 에 같은 request_id 의 86 이 오면 실패
+ *     (구 서버 code 1 · 미초기화 10 · 비 admin 11)라 그 86 으로 바로 푼다. op 8 은 86 으로 풀리고(뒤따르는 94 는 짝 없음),
+ *     op 8 · 9 는 users_rev 변경 판정에서 빠진다 — 87 을 기다리지 않고 보정 op 5 도 보내지 않는다(users_rev 가 null 이어도).
  *   - 감사 로그는 86 마다 1줄(serverKey · op · requestId · code · rev). dmaUserId · 계좌 · 비밀번호는 싣지 않는다 — 누가 시켰는지는
  *     29-11 이 남긴다.
  *   T-19-03     비밀은 로그인 페이로드 조립(`buildObserverLoginReq`)에만 넘긴다. 비밀 · 계좌번호 · dmaUserId 는 어떤 로그 인자에도
@@ -61,13 +68,23 @@ import {
   buildObserverLoginReq,
   parseAdminCommandResp,
   parseAdminUsersSnapshot,
+  parseLaunchPlanSnapshot,
   parseObserverLoginResp,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 import { LOGIN_RESP_TIMEOUT_MS } from "../dma/session.js";
 import { logger } from "../logger.js";
 import type { ObserverLoginResult, ObserverTransport } from "../journal/types.js";
-import { ADMIN_CODE, ADMIN_CODE_NAME, ADMIN_OP, ADMIN_ROLE, type AdminCommandInput, type AdminCommandResult, type AdminUsersSnapshot } from "./types.js";
+import {
+  ADMIN_CODE,
+  ADMIN_CODE_NAME,
+  ADMIN_OP,
+  ADMIN_ROLE,
+  type AdminCommandInput,
+  type AdminCommandResult,
+  type AdminUsersSnapshot,
+  type LaunchPlanSnapshot,
+} from "./types.js";
 
 /** admin 관찰자 로그인의 `client` 값 — 게이트웨이 로그 `client='…'` 에서 저널(`gh-radar-relay`) · quote 연결과 가른다. */
 export const ADMIN_CLIENT_NAME = "gh-radar-relay/admin";
@@ -112,7 +129,13 @@ export type AdminConnDeps = {
 
 /** `command()` 결과. */
 export type AdminCommandOutcome =
-  | { kind: "result"; result: AdminCommandResult; snapshot?: AdminUsersSnapshot }
+  | {
+      kind: "result";
+      result: AdminCommandResult;
+      snapshot?: AdminUsersSnapshot;
+      /** op 9 GetLaunchPlan 이 같은 request_id 의 94 로 풀렸을 때만(35-16). op 8 은 86 으로 풀리므로 없다. */
+      launchPlan?: LaunchPlanSnapshot;
+    }
   | { kind: "timeout" }
   | { kind: "offline" };
 
@@ -142,10 +165,13 @@ type CommandInput = Omit<AdminCommandInput, "requestId">;
 /** 대기열 항목. */
 type QueuedCommand = { input: CommandInput; resolve: (outcome: AdminCommandOutcome) => void };
 
-/** 비행 중 항목 — 86 을 기다리거나(`resp`), 변경 86 뒤 87 을 기다린다(`snapshot` · op 5 는 처음부터 `snapshot`). */
+/**
+ * 비행 중 항목 — 86 을 기다리거나(`resp`), 변경 86 뒤 87 을 기다린다(`snapshot` · op 5 는 처음부터 `snapshot`),
+ * 또는 같은 request_id 의 94 를 기다린다(`plan` · op 9 · 35-16).
+ */
 type InFlightCommand = QueuedCommand & {
   requestId: bigint;
-  awaiting: "resp" | "snapshot";
+  awaiting: "resp" | "snapshot" | "plan";
   timer: NodeJS.Timeout | null;
   /** 87 을 기다리는 동안 들고 있는 86. op 5 는 없다. */
   result: AdminCommandResult | null;
@@ -363,7 +389,16 @@ export class AdminConn extends EventEmitter {
       this.#onSnapshot(snapshot, e.generation);
       return;
     }
-    // 86 외 · 87 외 — 관문(D-02)상 오지 않아야 할 프레임(76/78/80 등). 이 연결의 소비자에게 흘리지 않는다.
+    if (e.msgType === MSG.LaunchPlanSnapshot) {
+      const plan = parseLaunchPlanSnapshot(e.env);
+      if (plan === null) {
+        logger.warn({ serverKey: this.#deps.serverKey, msgType: e.msgType }, "[ADMIN] 94 파손 — 버린다(비행 중 op 9 는 타임아웃으로 끝난다)");
+        return;
+      }
+      this.#onLaunchPlan(plan);
+      return;
+    }
+    // 86 외 · 87 외 · 94 외 — 관문(D-02)상 오지 않아야 할 프레임(76/78/80 등). 이 연결의 소비자에게 흘리지 않는다.
     logger.debug({ serverKey: this.#deps.serverKey, msgType: e.msgType }, "[ADMIN] admin 연결의 관리 밖 프레임 — 버린다");
   }
 
@@ -441,11 +476,48 @@ export class AdminConn extends EventEmitter {
     this.#finish(f, { kind: "result", result, snapshot });
   }
 
-  /** 86 수신 — 비행 중 항목과 request_id 로 짝짓는다. 다르면(늦은 86) 버린다. */
+  /**
+   * 94 수신 — 비행 중 op 9(`awaiting: "plan"`)와 **request_id 로만** 짝짓는다(35-16). 짝이 없으면(op 8 저장 뒤 서버가 보내는
+   * 정상 94 · 타임아웃 뒤 늦은 94) debug 1줄로 버린다 — 다음 비행 명령에 순서로 붙이지 않는다.
+   */
+  #onLaunchPlan(plan: LaunchPlanSnapshot): void {
+    const f = this.#inFlight;
+    if (f === null || f.awaiting !== "plan" || f.requestId !== plan.requestId) {
+      logger.debug(
+        {
+          serverKey: this.#deps.serverKey,
+          requestId: plan.requestId.toString(),
+          inFlightRequestId: f === null ? null : f.requestId.toString(),
+          planRev: plan.planRev.toString(),
+        },
+        "[admin] 짝 없는 발사 계획 스냅샷 — 버림",
+      );
+      return;
+    }
+    logger.info(
+      { serverKey: this.#deps.serverKey, op: f.input.op, requestId: plan.requestId.toString(), planRev: plan.planRev.toString() },
+      "[ADMIN] 발사 계획 스냅샷 수신(94)",
+    );
+    // op 9 는 86 이 없다 — 94 를 응답으로 보고 결과를 합성한다(code 0 · users_rev 는 이 세대 값 또는 0n — 계획 rev 가 아니다).
+    const result: AdminCommandResult = {
+      requestId: f.requestId,
+      ok: true,
+      code: ADMIN_CODE.Ok,
+      message: "",
+      usersRev: this.#currentRev() ?? 0n,
+    };
+    this.#finish(f, { kind: "result", result, launchPlan: plan });
+  }
+
+  /**
+   * 86 수신 — 비행 중 항목과 request_id 로 짝짓는다. 다르면(늦은 86) 버린다.
+   * op 9(`awaiting: "plan"`)에 같은 request_id 의 86 이 오면 실패 응답(구 서버 code 1 · 미초기화 10 · 비 admin 11)이라 그 86 으로
+   * 바로 푼다(35-16 — 5초 타임아웃으로 새지 않는다).
+   */
   #onCommandResp(result: AdminCommandResult, generation: number): void {
     const serverKey = this.#deps.serverKey;
     const f = this.#inFlight;
-    if (f === null || f.awaiting !== "resp" || f.requestId !== result.requestId) {
+    if (f === null || (f.awaiting !== "resp" && f.awaiting !== "plan") || f.requestId !== result.requestId) {
       logger.warn(
         {
           serverKey,
@@ -474,9 +546,12 @@ export class AdminConn extends EventEmitter {
       },
       "[ADMIN] 명령 결과(86)",
     );
-    const changed = result.ok && (prevRev === null || prevRev !== result.usersRev);
+    // op 8 · 9(발사 계획)는 users.toml 과 무관하다 — 서버는 87 을 쓰지 않으므로 rev 변경 판정(87 대기 · 보정 op 5)에서 뺀다
+    // (35-16 · 노트 「BUSY · 54 · 87 은 없다」). op 8 성공 뒤 오는 94 는 짝이 없어 #onLaunchPlan 이 버린다.
+    const isLaunchPlanOp = f.input.op === ADMIN_OP.SetLaunchPlan || f.input.op === ADMIN_OP.GetLaunchPlan;
+    const changed = !isLaunchPlanOp && result.ok && (prevRev === null || prevRev !== result.usersRev);
     if (!changed) {
-      // 무변경 · 실패 — 서버는 87 을 쓰지 않는다. 기다리지 않는다.
+      // 무변경 · 실패 · 발사 계획 op — 서버는 87 을 쓰지 않는다. 기다리지 않는다.
       this.#finish(f, { kind: "result", result });
       return;
     }
@@ -518,7 +593,7 @@ export class AdminConn extends EventEmitter {
       const f: InFlightCommand = {
         ...next,
         requestId,
-        awaiting: next.input.op === ADMIN_OP.ListUsers ? "snapshot" : "resp",
+        awaiting: next.input.op === ADMIN_OP.ListUsers ? "snapshot" : next.input.op === ADMIN_OP.GetLaunchPlan ? "plan" : "resp",
         timer: null,
         result: null,
       };

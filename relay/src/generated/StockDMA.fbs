@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 7824e51b
-// synced-date:        2026-10-27
+// server-repo-commit: f156cb6f
+// synced-date:        2026-10-28
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -217,8 +217,12 @@ enum MsgType : byte {
                                    // is_snapshot=true 는 로그인·조회 스냅샷, false 는 판정·발사·체결 변화 푸시
 
     // === 이하 quick-261024-lxt 추가 (개장차익 판정 미리보기) ===
-    OpenArbPreview = 93            // 개장차익 판정 미리보기 (S→C **Broadcast** — 1초마다 다시 오는 파생 표시값, Envelope.open_arb_preview
+    OpenArbPreview = 93,           // 개장차익 판정 미리보기 (S→C **Broadcast** — 1초마다 다시 오는 파생 표시값, Envelope.open_arb_preview
                                    // 슬롯 110). 09:00:00 ~ 실제 판정 스냅샷(09:00:28.9 기본) 전 1초마다 켠 슬롯 계좌 세션에만 (quick-261024-lxt)
+
+    // === 이하 Phase 43 추가 (발사 계획 어드민 — 43-CONTEXT D-02·D-13) ===
+    LaunchPlanSnapshot = 94        // 발사 계획 전체 (S→C, Envelope.launch_plan_snapshot 말미 슬롯, 요청 연결에만 **Notice**) — 44 op 9 응답 ·
+                                   // op 8 이 실제 변경을 낸 뒤 86 다음 1회. 멱등·거부면 없음. 구 클라·구 relay 는 모르는 MsgType 으로 무시 (Phase 43)
 }
 
 // ============================================================================
@@ -1450,7 +1454,12 @@ enum StrategyEventKind : ubyte {
     LimitFeature = 15,      // 실시간 상한가 특징 분당 스냅 — 시세 이벤트 아님(82 미송신), 슬롯 매핑 docs/analysis/feature-dictionary.md ③
     // 16 은 Phase 34 매집감지 — 계좌 없음, 저널 80 전용(분당 1건/키·변화 시만·종료/복원/첫 스냅샷 행).
     // Phase 39(2026-10-25 D-08) — 16 은 snap_len 3 · snap_qty[2] = day_buy_krw · snap_cum[2] = day_sell_krw · accept_latency_us = day_avg_px(이 kind 에서만).
-    AccumSignal = 16        // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md
+    AccumSignal = 16,       // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md
+    // 17·18 은 Phase 43 발사 기록 저널 — 저널 80 전용(82·81 없음 — IsObserverOnlyKind).
+    LaunchPiece = 17,       // 발사 조각 1건(16:00 Q16 · 09:00:27 A · 09:00:30 N) — 콜드3 조각당 1건, 저널 80 전용(82·81 없음 — IsObserverOnlyKind),
+                            // 계좌·사용자 칸을 채운다
+    LaunchHead = 18         // 발사 1회 요약 — (날짜·서버·프로파일·발사 기준·시장)마다 1건, 그 회차 kind 17 들 뒤, 계좌 없음.
+                            // 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-launch-plan-contract.md
 }
 
 enum OrderGroup : ubyte {
@@ -1849,6 +1858,8 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
 // 새 메시지·역할은 append-only 라 strategy_state.toml·account_state.toml·vi_orders.toml·예약주문 복원 경로를 건드리지 않는다 (D-19).
 // Phase 41(2026-10-27): 44 AdminCommandReq·87 AdminAccount·66/67 AccountState 말미 budget_krw(ulong) append, op 6 SetAccountBudget — MsgType·슬롯·AdminCode 무변경
 // Phase 41-03(2026-10-27): 44 AdminCommandReq·87 AdminAccount 말미 fee_ppm·sell_tax_ppm(uint) append, op 7 SetAccountFee — MsgType·슬롯·AdminCode·AccountState 무변경
+// Phase 43(2026-10-27): 44 AdminCommandReq 말미 launch_profile·launch_market·launch_offsets_us append, op 8 SetLaunchPlan·9 GetLaunchPlan,
+// 새 MsgType 94 LaunchPlanSnapshot(테이블 2·Envelope 말미 슬롯), StrategyEventKind 17 LaunchPiece·18 LaunchHead — 기존 번호·슬롯·AdminCode 무변경
 // ============================================================================
 
 table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 AdminUser.accounts 공용
@@ -1877,6 +1888,8 @@ table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 
     op: ubyte;                   // 1 UpsertUser · 2 DeleteUser · 3 SetAccount · 4 RemoveAccount · 5 ListUsers. 그 밖 값은 86 code 1
                                  // · 6 SetAccountBudget(Phase 41 — account.account_no + 말미 budget_krw, 아래 주석). 7 이상은 86 code 1
                                  // · 7 SetAccountFee(Phase 41-03 — account.account_no + 말미 fee_ppm·sell_tax_ppm). 8 이상은 86 code 1
+                                 // · 8 SetLaunchPlan · 9 GetLaunchPlan(Phase 43 — 아래 launch_* 필드). 10 이상은 86 code 1
+                                 //   — 위 줄의 「8 이상」 은 Phase 43 전 서술
     user_id: string;             // 대상 users.toml user_id (op 1~4). op 5 는 읽지 않는다
     password: string;            // op 1 만 — 기존 유저 + 빈 문자열 = 비밀번호 유지, 신규 유저는 필수(빈 값이면 code 3)
     account: AdminAccount;       // op 3(추가 또는 같은 account_no 갱신) · op 4(account_no 만 읽음) ·
@@ -1892,6 +1905,18 @@ table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 
     sell_tax_ppm: uint;          // 키 account.account_no(정규화), user_id·password 는 읽지 않는다, 그 서버에서 그 계좌를 가진 모든 유저 행에
                                  // 같은 값. 멱등 = code 0·rev 불변·87 없음, 변경 = 86 → 87. BUSY 없음, 67 없음(클라 계산에 안 쓰인다).
                                  // 다른 op 는 이 필드를 읽지 않는다 (Phase 41 D-28)
+    // === 이하 Phase 43 추가 (말미 append) ===
+    launch_profile: string;      // op 8/9 — "Q16"(16:00 예약) · "N"(09:00:30 NXT). op 9 는 읽지 않는다(전체 조회)
+    launch_market: string;       // op 8 — "K" 코스피 · "Q" 코스닥. op 9 는 읽지 않는다
+    launch_offsets_us: [int];    // op 8 — 발사 시각 목록 µs(기준 16:00:00.000000 / 09:00:30.000000, 음수 = 앞당김).
+                                 //   Q16: 길이 1 ~ [queued_order] max_pieces · 같거나 커지는 순서(서버가 정렬하지 않음) ·
+                                 //        각 [offset_clamp_min_us, offset_clamp_max_us]
+                                 //   N  : 길이 1 · [-2000, 2000]
+                                 // 거부는 전부 86 code 1 + 고정 문구(새 code 없음) · 같은 값 = code 0 「변경 없음」 rev 불변 94 없음 ·
+                                 // 변경 = 86 「저장 — 다음 발사부터 적용」 → 94. users 레지스트리와 무관 — BUSY·87·users_rev 변화 없음.
+                                 // **N 값은 저장·조회되고 발사 적용은 Phase 43 마지막 플랜(43-07)부터** — 그 전엔
+                                 // [open_arb] nxt_fire_offset_us 로 쏜다. 16:00 조각 수 = Q16 목록 길이(발사 때 재분할 —
+                                 // DirectOrderReq.piece_count 는 서버가 무시, D-05). 다른 op 는 이 세 필드를 읽지 않는다
 }
 
 table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만 Notice)
@@ -1921,6 +1946,20 @@ table AdminUsersSnapshot {       // 87 본문 — users.toml 전체 (WinForms �
     users: [AdminUser];          // 유저는 파일 순 · 계좌는 priority 오름차순. 유저 0명이면 빈 벡터
 }
 
+// === 이하 Phase 43 추가 (발사 계획 — 94 본문, 43-CONTEXT D-02·D-13) ===
+table LaunchPlanEntry {          // 94 의 칸 1행 — (발사, 시장) 하나
+    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT)
+    market: string;              // "K" 코스피 · "Q" 코스닥
+    offsets_us: [int];           // 발사 시각 목록 µs — Q16 = 조각 수만큼(비감소) · N = 길이 1. 기준·범위는 AdminCommandReq.launch_offsets_us
+}
+
+table LaunchPlanSnapshot {       // 94 본문 — 서버 한 대의 발사 계획 전체 (요청 연결에만 Notice)
+    request_id: ulong;           // 44 의 request_id 에코
+    plan_rev: ulong;             // 계획 리비전 — 기동 파일 값(처음 1) · 변경마다 +1. users_rev 와 별도 카운터이고 파일(log/launch_plan.toml)에 남는다
+    updated_at: string;          // 마지막 변경 시각 "YYYY-MM-DDTHH:MM:SS" KST — 초깃값 생성 직후·변경 이력 없음이면 빈 값일 수 있다
+    entries: [LaunchPlanEntry];  // Q16/K · Q16/Q · N/K · N/Q 네 행 고정 순서. N 은 offsets_us 길이 1
+}
+
 // ============================================================================
 // Phase 38 — KRX·NXT 개장 차익거래 (38-CONTEXT D-02/D-07/D-10/D-11/D-27~D-31)
 //
@@ -1938,8 +1977,10 @@ table SetOpenArb {                // 46/91 본문 — 개장차익 계좌 슬롯
     min_profit_bp: int;           // 최소수익률 (bp, 왕복 비용 0.22% 포함 기준) — 기본 50(0.5%, D-31). 50 미만 거부(D-41). vtable 6
     budget_krw: ulong;            // 총예산 (원) — 기본 10,000,000 (D-31). 0 = 제한 없음(D-40). vtable 8
     per_stock_cap_krw: ulong;     // 종목당 금액 상한 (원) — 기본 1,000,000 (D-31). 0 = 제한 없음(D-40). vtable 10
-    n1: ushort;                   // 「KRX > NXT」(case 1) 최대 종목 수 — 기본 5 (D-31). 0 = 판정만(주문 없음, D-09). vtable 12
-    n2: ushort;                   // 「NXT > KRX」(case 2) 최대 종목 수 — 기본 5 (D-31). 0 = 판정만. n1 + n2 > 32 거부. vtable 14
+    n1: ushort;                   // (deprecated, Phase 42 D-15) 서버는 요청값을 읽지 않는다 — 저장값(없으면 5)을 에코·'O' 영속
+                                  // (옛 바이너리 되돌리기용). 선정에 안 쓴다 — n_kospi·n_kosdaq 를 본다. 옛 뜻 「KRX > NXT」 최대 종목 수. vtable 12
+    n2: ushort;                   // (deprecated, Phase 42 D-15) 서버는 요청값을 읽지 않는다 — 저장값(없으면 5)을 에코·'O' 영속
+                                  // (옛 바이너리 되돌리기용). 선정에 안 쓴다. 옛 뜻 「NXT > KRX」 최대 종목 수. vtable 14
     case1_fire_ms: int;           // 「KRX > NXT」 발사 시각 — 09:00:00 기준 ms, 기본 27000(09:00:27.0, D-31 — 2026-10-24 29000 에서).
                                   // 마감선 29500(09:00:29.5)은 서버 고정 상수 kOpenArbCase1DeadlineMs 이고 이 테이블에
                                   // 없다(D-27) — case1_fire_ms < 25000(D-41) 또는 ≥ 29500 이면 거부. vtable 16
@@ -1949,6 +1990,10 @@ table SetOpenArb {                // 46/91 본문 — 개장차익 계좌 슬롯
                                   // (Phase 33 SetVITrigger.unregistered 선례). vtable 20
     fired_ymd: string;            // **S→C 전용** — 마지막으로 발사한 거래일 "YYYYMMDD" ("" = 발사 기록 없음). 하루 한 번 발사
                                   // 규칙(D-26)의 서버 기록을 보여 줄 뿐이다 — 요청(46)값은 서버가 읽지 않는다. vtable 22
+    // === 이하 Phase 42 D-15 — optional 스칼라(`= null`). 부재 = 옛 클라 → 그 계좌 저장값 유지(없으면 5) ===
+    // 91 에코는 둘을 늘 싣는다(미등록 스텁 5·5) — 클라는 실린 0 을 「그 시장 안 함」 값으로 본다.
+    n_kospi: ushort = null;       // 코스피 종목 수(좌석) 0 ~ 10, 기본 5. 0 = 코스피 안 함. 10 초과 거부. vtable 24
+    n_kosdaq: ushort = null;      // 코스닥 종목 수(좌석) 0 ~ 10, 기본 5. 0 = 코스닥 안 함. 10 초과 거부, n_kospi 와 둘 다 0 이면 거부. vtable 26
 }
 
 table OpenArbJudgementItem {      // 92 의 판정 1행 — 종목·방향 1건
@@ -1967,7 +2012,11 @@ table OpenArbJudgementItem {      // 92 의 판정 1행 — 종목·방향 1건
     state: ubyte;                 // 0 판정만 · 1 선정·대기 · 2 매수 발사 · 3 매도 발사 · 4 완료 · 5 잔여 · 6 생략
     // === 이하 quick-261024-lxt 추가 (테이블 말미 append — 가운데 삽입 금지) ===
     max_qty: uint;                // 순위 기준 수량 (주) — 종목당 상한 없이 걸은 수량 (D-04)
-    max_profit_krw: long;         // 순위 기준 최대수익 (원, 왕복 비용 뒤, 종목당 상한 무시) — 92·93 정렬 키 (D-04)
+    max_profit_krw: long;         // 순위 기준 최대수익 (원, 왕복 비용 뒤, 종목당 상한 무시) — 순위 기준(시장별 좌석 점수는 이 값,
+                                  // 「NXT > KRX」 는 × 가중치 — Phase 42 D-16) (D-04)
+    // === 이하 Phase 42 D-22 append ===
+    market: ubyte;                // 시장 — 'K'(75) 코스피 · 'Q'(81) 코스닥 · 0/부재 = 옛 서버(모름). vtable 32
+    tier: ubyte;                  // 칸 — 0 = 칸 없음(판정만·옛 서버) · 1 = 1등 칸 · 2 = 후순위. vtable 34
 }
 
 table OpenArbJudgement {          // 92 본문 — 계좌 1개의 당일 판정 목록
@@ -2098,6 +2147,9 @@ table Envelope {
 
     // === 이하 quick-261024-lxt 추가 (테이블 말미 append — 가운데 삽입 금지) ===
     open_arb_preview: OpenArbPreview;            // 93 본문 (vtable 슬롯 110)
+
+    // === 이하 Phase 43 추가 (테이블 말미 append — 가운데 삽입 금지) ===
+    launch_plan_snapshot: LaunchPlanSnapshot;    // 94 본문 (vtable 슬롯 112 — 정본은 scripts/expected-vtable.txt)
 }
 
 root_type Envelope;
@@ -2163,4 +2215,19 @@ root_type Envelope;
 // 없다(D-27/D-28) — 「KRX > NXT」 마감선 09:00:29.5 는 서버 고정 상수다.
 // 92 는 「돈이 걸린 상태 = Notice」 분류다. 구 클라는 모르는 MsgType 을 무시하므로 서버 먼저 배포가 안전하다(D-25).
 // OrderGroup·StrategyEventKind 는 무변경이다(kind-defer, D-36). 번호 46/47/91/92·슬롯 106/108 은 폐기해도 재사용 금지.
+// Phase 42 D-15/D-22(2026-10-27, 시장별 1등 칸): SetOpenArb 말미 n_kospi·n_kosdaq(optional ushort = null, vtable 24·26) ·
+// OpenArbJudgementItem 말미 market·tier(ubyte, vtable 32·34) append. n1·n2 는 주석 deprecated(접근자 유지 — 서버는 요청값을
+// 읽지 않고 저장값을 에코·'O' 영속, 옛 「n1 + n2 > 32」 거부 삭제). 옛 클라 46 은 두 칸이 부재 → 그 계좌 저장값 유지(없으면 5),
+// 각 0 ~ 10 밖·둘 다 0 은 거부. MsgType·슬롯·기존 필드 무변경 — 서버 먼저 배포가 안전하다.
+// ============================================================================
+
+// ============================================================================
+// === Phase 43 (발사 계획 어드민 + 발사 기록 저널) 변경 요약: MsgType 94 LaunchPlanSnapshot ·
+//     테이블 LaunchPlanEntry·LaunchPlanSnapshot · Envelope 말미 슬롯 launch_plan_snapshot ·
+//     AdminCommandReq 말미 launch_* 3필드 · StrategyEventKind 17/18 ===
+//
+// Phase 43(2026-10-27): 44 AdminCommandReq 말미 launch_profile·launch_market·launch_offsets_us append, op 8 SetLaunchPlan·9 GetLaunchPlan,
+// 새 MsgType 94 LaunchPlanSnapshot(테이블 2·Envelope 말미 슬롯), StrategyEventKind 17 LaunchPiece·18 LaunchHead — 기존 번호·슬롯·AdminCode 무변경.
+// op 8 거부는 86 code 1 + 고정 문구(새 AdminCode 없음). N 값은 저장·조회·94 까지 되고 발사 적용은 43-07 부터다.
+// 구 클라·구 relay 는 모르는 필드·MsgType 을 무시하므로 서버 먼저 배포가 안전하다. 번호 94·새 슬롯·kind 17/18 은 폐기해도 재사용 금지.
 // ============================================================================

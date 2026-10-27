@@ -278,16 +278,22 @@ describe("MSG 상수", () => {
     expect(INBOUND_MSG_TYPES.has(87)).toBe(true);
   });
 
-  it("Phase 29 INBOUND_MSG_TYPES 는 응답 대역(50~87)만 담는다 — 30종", () => {
+  it("35-16 발사 계획 스냅샷 94 — 생성 enum 과 같고 수신 화이트리스트에 있다(gh-trade 43 · fbs f156cb6f)", () => {
+    expect(MSG.LaunchPlanSnapshot).toBe(MsgType.LaunchPlanSnapshot);
+    expect(MSG.LaunchPlanSnapshot).toBe(94);
+    expect(INBOUND_MSG_TYPES.has(94)).toBe(true);
+  });
+
+  it("Phase 35 INBOUND_MSG_TYPES 는 응답 대역(50~94)만 담는다 — 31종", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
     // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종
-    // + 28-01 상한가 특징 85 = 28종 + 29-02 admin 응답 86·87 = 30종.
+    // + 28-01 상한가 특징 85 = 28종 + 29-02 admin 응답 86·87 = 30종 + 35-16 발사 계획 스냅샷 94 = 31종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(30);
+    expect(INBOUND_MSG_TYPES.size).toBe(31);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(87);
+      expect(v).toBeLessThanOrEqual(94);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);

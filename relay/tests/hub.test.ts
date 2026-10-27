@@ -67,6 +67,7 @@ import {
   buildLimitFeatureFrame,
   buildAdminCommandRespFrame,
   buildAdminUsersSnapshotFrame,
+  buildLaunchPlanSnapshotFrame,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -712,30 +713,34 @@ describe("Phase 29 86/87 은 admin 전용 — 사용자 세션 · quote 연결�
     vi.restoreAllMocks();
   });
 
-  it("사용자 세션으로 온 86 · 87 → warn 각 1건 · unhandledFrameCount 불변 · 팬아웃 0", () => {
+  it("사용자 세션으로 온 86 · 87 · 94 → warn 각 1건 · unhandledFrameCount 불변 · 팬아웃 0", () => {
     const session = new FakeSession("user-1");
     hub.attach(session);
     session.pushFrame(buildAdminCommandRespFrame({ code: 0 }));
     session.pushFrame(buildAdminUsersSnapshotFrame());
+    session.pushFrame(buildLaunchPlanSnapshotFrame());
 
     expect(adminWarns("사용자 세션에 admin 전용 프레임")).toEqual([
       { userId: "user-1", msgType: MSG.AdminCommandResp },
       { userId: "user-1", msgType: MSG.AdminUsersSnapshot },
+      { userId: "user-1", msgType: MSG.LaunchPlanSnapshot },
     ]);
     expect(hub.unhandledFrameCount()).toBe(0);
     expect(fanout).toEqual([]);
     expect(session.sent).toEqual([]);
   });
 
-  it("quote 연결로 온 86 · 87 → warn 각 1건 · unhandledFrameCount 불변 · market 0", () => {
+  it("quote 연결로 온 86 · 87 · 94 → warn 각 1건 · unhandledFrameCount 불변 · market 0", () => {
     const feed = new FakeFeed();
     hub.attachFeed(feed);
     feed.pushFrame(buildAdminCommandRespFrame({ code: 9, message: "먼저 정리" }));
     feed.pushFrame(buildAdminUsersSnapshotFrame());
+    feed.pushFrame(buildLaunchPlanSnapshotFrame());
 
     expect(adminWarns("quote 연결에 admin 전용 프레임")).toEqual([
       { msgType: MSG.AdminCommandResp },
       { msgType: MSG.AdminUsersSnapshot },
+      { msgType: MSG.LaunchPlanSnapshot },
     ]);
     expect(hub.unhandledFrameCount()).toBe(0);
     expect(market).toEqual([]);

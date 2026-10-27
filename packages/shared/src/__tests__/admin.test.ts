@@ -258,6 +258,15 @@ describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
     [6, 8, "failed"], // 8 의 「반영됨」 예외는 op 4 전용
     [7, 10, "failed"],
     [6, 11, "failed"],
+    // Phase 35 범위 7(35-17) — op 8 SetLaunchPlan · op 9 GetLaunchPlan(gh-trade 43): code 0 만 ok(같은 값 「변경 없음」 도 0).
+    [8, 0, "ok"],
+    [9, 0, "ok"],
+    [8, 1, "failed"], // 1 — 범위 · 순서 · 대상 밖 고정 문구 · 구 서버 「알 수 없는 명령입니다」
+    [8, 10, "failed"], // 10 — 저장 실패(파일) · 미초기화
+    [9, 1, "failed"],
+    [9, 11, "failed"], // 11 — 관리자 연결 아님
+    [8, 8, "failed"], // op 4 의 8 「이미 없음」 예외가 번지지 않는다
+    [9, 4, "failed"], // op 2 의 4 「유저 없음」 예외가 번지지 않는다
   ] as const)("op %i · code %i → %s", (op, code, expected) => {
     expect(interpretAdminResult(op, code)).toBe(expected);
   });

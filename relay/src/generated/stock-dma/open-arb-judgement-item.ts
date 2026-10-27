@@ -94,8 +94,18 @@ maxProfitKrw():bigint {
   return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
 }
 
+market():number {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
+tier():number {
+  const offset = this.bb!.__offset(this.bb_pos, 34);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startOpenArbJudgementItem(builder:flatbuffers.Builder) {
-  builder.startObject(14);
+  builder.startObject(16);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -154,12 +164,20 @@ static addMaxProfitKrw(builder:flatbuffers.Builder, maxProfitKrw:bigint) {
   builder.addFieldInt64(13, maxProfitKrw, BigInt('0'));
 }
 
+static addMarket(builder:flatbuffers.Builder, market:number) {
+  builder.addFieldInt8(14, market, 0);
+}
+
+static addTier(builder:flatbuffers.Builder, tier:number) {
+  builder.addFieldInt8(15, tier, 0);
+}
+
 static endOpenArbJudgementItem(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createOpenArbJudgementItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, caseNo:number, krxPx:number, nxtPx:number, qty:number, expectedProfitKrw:bigint, selected:boolean, buyFilledQty:number, sellFilledQty:number, pnlKrw:bigint, residualQty:number, state:number, maxQty:number, maxProfitKrw:bigint):flatbuffers.Offset {
+static createOpenArbJudgementItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, caseNo:number, krxPx:number, nxtPx:number, qty:number, expectedProfitKrw:bigint, selected:boolean, buyFilledQty:number, sellFilledQty:number, pnlKrw:bigint, residualQty:number, state:number, maxQty:number, maxProfitKrw:bigint, market:number, tier:number):flatbuffers.Offset {
   OpenArbJudgementItem.startOpenArbJudgementItem(builder);
   OpenArbJudgementItem.addIsin(builder, isinOffset);
   OpenArbJudgementItem.addCaseNo(builder, caseNo);
@@ -175,6 +193,8 @@ static createOpenArbJudgementItem(builder:flatbuffers.Builder, isinOffset:flatbu
   OpenArbJudgementItem.addState(builder, state);
   OpenArbJudgementItem.addMaxQty(builder, maxQty);
   OpenArbJudgementItem.addMaxProfitKrw(builder, maxProfitKrw);
+  OpenArbJudgementItem.addMarket(builder, market);
+  OpenArbJudgementItem.addTier(builder, tier);
   return OpenArbJudgementItem.endOpenArbJudgementItem(builder);
 }
 }

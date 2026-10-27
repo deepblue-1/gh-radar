@@ -25,7 +25,7 @@ import {
   type LaunchCalcPiece,
   type LaunchDayKind,
 } from "../launch";
-import { isMarketStrategyEvent } from "../strategy-event";
+import { isMarketStrategyEvent, STRATEGY_EVENT_KIND } from "../strategy-event";
 
 /** 첨부 pieces.json 한 원소. */
 interface AttachRow {
@@ -337,5 +337,12 @@ describe("kind 17 · 18 은 시세 이벤트가 아니다 (D-05)", () => {
   it("isMarketStrategyEvent(17) · (18) === false — 넣으면 ws fan-out 으로 전원에게 퍼진다", () => {
     expect(isMarketStrategyEvent(17)).toBe(false);
     expect(isMarketStrategyEvent(18)).toBe(false);
+  });
+
+  it("STRATEGY_EVENT_KIND.LaunchPiece === 17 · LaunchHead === 18 (정식 인계 노트 261028) · 둘 다 시세 이벤트 아님", () => {
+    expect(STRATEGY_EVENT_KIND.LaunchPiece).toBe(17);
+    expect(STRATEGY_EVENT_KIND.LaunchHead).toBe(18);
+    expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LaunchPiece)).toBe(false);
+    expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LaunchHead)).toBe(false);
   });
 });

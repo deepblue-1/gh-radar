@@ -1,0 +1,284 @@
+/**
+ * launch-plan-view — 경계 지도 패널의 「다음 발사 계획」 모델 · 표기 (Phase 35 범위 7 · D-24 · D-25 · D-29 · D-35).
+ *
+ * 화면 정본 = 채택 목업 `reference/mockup-launch-plan-place.html`(자리 B — 패널 머리 아래 「다음 발사 계획」 줄).
+ * 순수 함수만 둔다(React 없음).
+ *
+ * 계획 상태 4가지(지도 탭이 `GET /api/admin/launch/plan` 을 탭 진입 때 1번 부른 결과):
+ * - `ready`  — 응답이 왔다. 그 서버가 ok 이고 칸이 있으면 **서버 계획**(조각마다 점선), 아니면 **대신 값**.
+ * - `error`  — 5xx · 네트워크 · 타임아웃(Pitfall S11). 모든 패널이 **대신 값**.
+ * - `loading` — 아직 묻는 중. 점선은 대신 값으로 먼저 그리고 줄은 스켈레톤.
+ * - `absent` — 404(gh-radar server 가 라우트를 모름 = 배포 전 · D-35). 계획 기능을 숨긴다 — 줄 · 이력 없음 ·
+ *   점선은 최신 머리 값(35-08 그대로).
+ *
+ * 대신 값 = 최신 머리 `next_offset_us`(`mapNextOffsetOf`) 하나뿐이다 — 머리에 조각 목록이 없어 Q16 도 첫 조각 1개.
+ * 계획 줄 · 점선 값을 상수로 박지 않는다(서버 계획 또는 머리 값에서만 온다).
+ */
+
+import {
+  launchPlanEntryOf,
+  validateLaunchPlanDraft,
+  type AdminServerResult,
+  type LaunchFire,
+  type LaunchHeadRow,
+  type LaunchMarket,
+  type LaunchPlanChangeRow,
+  type LaunchPlanEntry,
+  type LaunchPlanResponse,
+  type LaunchPlanSaveResponse,
+  type LaunchRibbonCell,
+} from '@gh-radar/shared';
+
+import { DASH, fmtUs } from './launch-format';
+import { mapNextOffsetOf } from './launch-map';
+
+/** 지도 탭의 계획 조회 상태. */
+export type LaunchPlanState =
+  | { kind: 'loading' }
+  | { kind: 'absent' }
+  | { kind: 'error' }
+  | { kind: 'ready'; resp: LaunchPlanResponse };
+
+/** 패널 하나의 계획 모델 — `lines` 가 지도 점선(µs · 0번 = 첫 조각)이다. */
+export interface PanelPlan {
+  source: 'server' | 'fallback' | 'loading' | 'absent';
+  /** 점선으로 그릴 값 — server = 계획 조각 전부 · 그 밖 = 대신 값 1개(없으면 빈 배열). */
+  lines: number[];
+  /** 서버 계획 칸(source server 일 때만). */
+  entry: LaunchPlanEntry | null;
+  /** 최신 머리 next_offset_us(대신 값) — 없으면 null. */
+  fallbackUs: number | null;
+  /** 이 (서버, 발사, 시장)의 마지막 성공 변경 — 없으면 null. */
+  lastChange: LaunchPlanChangeRow | null;
+  /** 이 (서버, 발사, 시장)의 이력 — at 내림차순. */
+  changes: LaunchPlanChangeRow[];
+}
+
+const byAtDesc = (a: LaunchPlanChangeRow, b: LaunchPlanChangeRow): number =>
+  a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id;
+
+/** 상태 · 머리 → 패널 계획 모델(D-25 · Pitfall S11). */
+export function panelPlanOf(
+  state: LaunchPlanState,
+  heads: readonly LaunchHeadRow[],
+  gateway: string,
+  market: string,
+  fire: LaunchFire,
+): PanelPlan {
+  const fallbackUs = mapNextOffsetOf(heads, gateway, market, fire);
+  const fallbackLines = fallbackUs === null ? [] : [fallbackUs];
+
+  if (state.kind !== 'ready') {
+    const source = state.kind === 'error' ? 'fallback' : state.kind;
+    return { source, lines: fallbackLines, entry: null, fallbackUs, lastChange: null, changes: [] };
+  }
+
+  const changes = state.resp.changes
+    .filter((c) => c.gateway === gateway && c.fire === fire && c.market === market)
+    .sort(byAtDesc);
+  const lastChange = changes.find((c) => c.outcome === 'ok') ?? null;
+  const entry = launchPlanEntryOf(state.resp.servers[gateway], fire, market as LaunchMarket);
+
+  if (entry !== null) {
+    return { source: 'server', lines: [...entry.offsets_us], entry, fallbackUs, lastChange, changes };
+  }
+  return { source: 'fallback', lines: fallbackLines, entry: null, fallbackUs, lastChange, changes };
+}
+
+/** 계획 줄 값 — q16 「3조각 −350 · −345 · −325µs」 · n0930 「−245µs」. */
+export function planLineText(entry: Pick<LaunchPlanEntry, 'offsets_us'>, fire: LaunchFire): string {
+  const xs = entry.offsets_us;
+  if (fire === 'n0930') return `${fmtUs(xs[0])}µs`;
+  return `${xs.length}조각 ${xs.map((v) => fmtUs(v)).join(' · ')}µs`;
+}
+
+/** 패널 「변경 이력」 접힘 안 최대 행 수(D-29). */
+export const LAUNCH_PLAN_HISTORY_MAX = 10;
+
+/** 대신 값 줄(D-25 · Pitfall S11) — 「서버 연결 안 됨 · 마지막 발사 값 −337µs」 · 값 없으면 「—」. */
+export function fallbackLineText(us: number | null): string {
+  return `서버 연결 안 됨 · 마지막 발사 값 ${us === null ? DASH : `${fmtUs(us)}µs`}`;
+}
+
+const KST_PARTS = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+function kstPartsOf(d: Date): { ymd: string; md: string; hm: string } {
+  const p = Object.fromEntries(KST_PARTS.formatToParts(d).map((x) => [x.type, x.value]));
+  return { ymd: `${p.year}-${p.month}-${p.day}`, md: `${p.month}/${p.day}`, hm: `${p.hour}:${p.minute}` };
+}
+
+/** 이력 행 시각(KST · 24시간) — `now` 와 같은 KST 날이면 「HH:MM」, 아니면 「MM/DD HH:MM」. */
+export function changeAtText(at: string, now: Date): string {
+  const t = kstPartsOf(new Date(at));
+  return t.ymd === kstPartsOf(now).ymd ? t.hm : `${t.md} ${t.hm}`;
+}
+
+/** 마지막 변경 — 「22:41 · a@b.c」 · 오늘(KST)이 아니면 「10/27 22:41 · a@b.c」. */
+export function lastChangeText(row: Pick<LaunchPlanChangeRow, 'at' | 'admin_email'>, now: Date): string {
+  return `${changeAtText(row.at, now)} · ${row.admin_email}`;
+}
+
+const usList = (xs: readonly number[]): string => xs.map((v) => fmtUs(v)).join(' · ');
+
+/** 전 → 후 — 「−350 · −345 · −325 → −340 · −335 · −322」 · 전이 null 이면 「— → …」. */
+export function changeValuesText(before: readonly number[] | null, after: readonly number[]): string {
+  return `${before === null ? DASH : usList(before)} → ${usList(after)}`;
+}
+
+export type ChangeOutcomeTone = 'ok' | 'warn' | 'err';
+
+export interface ChangeOutcomeView {
+  tone: ChangeOutcomeTone;
+  text: string;
+  /** 실패 상세(서버 거부 원문) — failed 일 때만. */
+  title?: string;
+}
+
+/** 이력 결과 알약 — ok 저장됨 · failed 실패(title = message) · timeout 응답 없음 · offline 서버 연결 안 됨 · skipped 꺼진 서버. */
+export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'message'>): ChangeOutcomeView {
+  switch (row.outcome) {
+    case 'ok':
+      return { tone: 'ok', text: '저장됨' };
+    case 'failed':
+      return row.message ? { tone: 'err', text: '실패', title: row.message } : { tone: 'err', text: '실패' };
+    case 'timeout':
+      return { tone: 'err', text: '응답 없음' };
+    case 'offline':
+      return { tone: 'warn', text: '서버 연결 안 됨' };
+    case 'skipped':
+      return { tone: 'warn', text: '꺼진 서버' };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 편집 · 저장(35-15 · D-26 · D-27 · Pitfall S6 · S9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 열린 편집 칸 하나(한 번에 한 패널 · D-24). 상태는 지도 탭이 쥔다.
+ * - `draft` = 칸마다 입력 원문 문자열(숫자로 바꾸지 않는다 — 「-」 만 친 칸도 그대로 둔다).
+ * - `valid` = 마지막으로 검증을 통과한 값(Pitfall S9) — 오류 동안에도 미리보기 선 · 표는 이 값을 그린다.
+ */
+export interface LaunchPlanEdit {
+  gateway: string;
+  market: LaunchMarket;
+  fire: LaunchFire;
+  draft: string[];
+  valid: number[];
+}
+
+/** 「계획 고치기」 — 서버 값으로 칸을 채운다. */
+export function planEditOf(gateway: string, market: LaunchMarket, fire: LaunchFire, offsets: readonly number[]): LaunchPlanEdit {
+  return { gateway, market, fire, draft: offsets.map(String), valid: [...offsets] };
+}
+
+/** 입력 하나 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(S9 · 검증은 shared 한 벌). */
+export function planEditWithDraft(edit: LaunchPlanEdit, draft: string[]): LaunchPlanEdit {
+  const check = validateLaunchPlanDraft(edit.fire, draft);
+  return { ...edit, draft, valid: check.ok ? check.values : edit.valid };
+}
+
+/** 같은 µs 목록인가. */
+export function sameOffsets(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/**
+ * 저장 응답 → 계획 상태(Pitfall S6 · 재조회 없음). 응답 plan 이 있으면 그 서버 계획을 통째로 바꾸고(실패여도 relay 가 다시
+ * 읽은 값이면 그것이 지금 값), change 가 있으면 이력 맨 앞에 넣는다(null = 기록 실패 · 늘리지 않는다). ready 가 아니면 그대로.
+ */
+export function planStateWithSave(
+  state: LaunchPlanState,
+  gateway: string,
+  resp: Pick<LaunchPlanSaveResponse, 'plan' | 'change'>,
+): LaunchPlanState {
+  if (state.kind !== 'ready') return state;
+  const servers = resp.plan === null ? state.resp.servers : { ...state.resp.servers, [gateway]: resp.plan };
+  const changes = resp.change === null ? state.resp.changes : [resp.change, ...state.resp.changes];
+  return { kind: 'ready', resp: { servers, changes } };
+}
+
+export type SaveTone = 'ok' | 'err' | 'warn';
+
+/** 저장 결과 그림 — 칩(Admin 칩 한 벌 · title = 상세) + 결과 줄. */
+export interface SaveResultView {
+  chip: { tone: SaveTone; text: string; title: string | null };
+  line: { tone: SaveTone; text: string };
+}
+
+const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
+
+/**
+ * gh-trade 86 code 1 고정 문구 중 「op 모름」(구 서버가 44 op 8 · 9 를 모름) — 바이트 그대로 대조한다.
+ * 정본: 인박스 `261028-launch-plan-contract.md` ⓒ 86 표. 같은 code 1 의 나머지 고정 문구(대상 밖 · 조각 수 범위 밖 ·
+ * N 은 시각 한 값 · 발사 시각 범위 밖 2종 · 같거나 커지는 순서 · fix 노트의 「시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)」)는
+ * 새 서버의 입력 거부라 일반 실패 줄로 원문을 보인다.
+ */
+export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
+
+/**
+ * 저장 결과(D-27) — 분기는 outcome · code 로 하고, code 1 만 「op 모름」 고정 문구 하나를 바이트 대조한다
+ * (`LAUNCH_PLAN_UNKNOWN_OP_MESSAGE`). 서버 message 는 원문 그대로 싣는다.
+ *
+ * | outcome | 칩 | 줄 |
+ * |---|---|---|
+ * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
+ * | failed · code 1 · 「알 수 없는 명령입니다」 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
+ * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
+ * | timeout | 「KB120 · 응답 없음」 | 「KB120 실패: 응답 없음」 |
+ * | offline · 요청 실패 | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
+ * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
+ *
+ * 서버 미지원 = 구 서버가 44 op 8 을 모름(code 1 「알 수 없는 명령입니다」) — 서버 업데이트 전까지 저장이 안 된다.
+ * 새 서버(gh-trade 43)는 범위 · 순서 · 조각 수 · 폭 거부도 code 1 이라 code 만으로는 가를 수 없다.
+ */
+export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at: Date): SaveResultView {
+  const s = result.server;
+  const msg = result.message || null;
+  switch (result.outcome) {
+    case 'ok':
+      return {
+        chip: { tone: 'ok', text: s, title: null },
+        line: { tone: 'ok', text: `저장됨 · ${kstPartsOf(at).hm} · 다음 ${FIRE_CLOCK[fire]} 발사부터` },
+      };
+    case 'failed': {
+      if (result.code === 1 && msg === LAUNCH_PLAN_UNKNOWN_OP_MESSAGE) {
+        const detail = `서버 미지원 · ${msg}`;
+        return {
+          chip: { tone: 'err', text: `${s} · 실패`, title: detail },
+          line: { tone: 'err', text: `${s} 실패: ${detail} — 서버 업데이트 뒤 다시 저장` },
+        };
+      }
+      return { chip: { tone: 'err', text: `${s} · 실패`, title: msg }, line: { tone: 'err', text: `${s} 실패: ${msg ?? '실패'}` } };
+    }
+    case 'timeout':
+      return { chip: { tone: 'err', text: `${s} · 응답 없음`, title: null }, line: { tone: 'err', text: `${s} 실패: 응답 없음` } };
+    case 'offline':
+      return {
+        chip: { tone: 'warn', text: `${s} · 서버 연결 안 됨`, title: msg },
+        line: { tone: 'warn', text: `${s} 미반영: 서버 연결 안 됨` },
+      };
+    case 'skipped':
+      return {
+        chip: { tone: 'warn', text: `${s} · 미반영`, title: msg },
+        line: { tone: 'warn', text: `${s} 미반영: ${msg ?? '꺼진 서버'}` },
+      };
+  }
+}
+
+/** 미리보기 표 셀(D-28) — 「접수 a · 모름 b · 거부 c」(날 수 · shared `launchPlanVerdictRows` 셀 그대로). */
+export function verdictCellText(cell: LaunchRibbonCell): string {
+  return `접수 ${cell.ok} · 모름 ${cell.unknown} · 거부 ${cell.bad}`;
+}
+
+/** 지도 탭 범례 아래 공용 적용 안내(D-27 · 계획을 읽었을 때만). */
+export const LAUNCH_PLAN_APPLY_NOTE =
+  '저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.';

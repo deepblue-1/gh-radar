@@ -68,6 +68,8 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - **D-31: gh-trade 회신 = 지금(이 discuss 커밋과 함께).** `scripts/trade-handoff.sh launch-plan-admin-reply` 노트 + ListAgents 로 찾은 gh-trade 세션에 SendMessage(보조). 내용: 목업 승인(자리 B · 편집 칸 A · 미리보기 P2 · 이력 DB) · 질문 1 = 가능(P2) · 질문 2 = 예(gh-radar DB, 서버는 현재 값만) · **정식 노트 요구** ⓐ 현재 계획 조회 op + 응답 모양(서버 1대의 발사 × 시장 전부 · 시각 목록 · 마지막 변경 시각이 있으면 같이) ⓑ **09:00:30 µs 값의 기준** — 인박스 초깃값(KYOBO119 −200 · KB120 −245)과 kind 17 `sent_rel_us` 축(10/26 실측 −20,148 류 · D-17)의 관계(같은 축이 아니면 변환 규칙) ⓒ 저장 op 거부 code(조각 수 범위 · 순서 위반 · 발사/시장 값 오류) · 같은 값 재저장 = code 0 멱등 여부 ⓓ 86 에 「적용 발사(다음 / 그다음)」 를 실을 수 있는지 ⓔ kind 18 `next_offset_us` = 그 시점 계획 첫 조각 · 빠지는 Q16 학습값 칸 목록(D-32). 인박스 `261027-launch-plan-admin.md` 에 `## 회신` 기록 · `status: done` 은 구현 + 라이브 UAT 뒤.
 - **D-32: 주문 내역 머리 카드의 16:00 「학습 → 다음 오프셋(step)」 줄은 보정이 없어지므로 「다음 발사 계획 첫 조각」 으로 바꾼다**(학습값 칸은 정식 노트대로 비우거나 숨김 · 문구 재량) — Wave B(35-10) 칸 매핑과 같이.
 - **D-33: 구현 게이트 = gh-trade Phase 43 정식 인계 노트.** 노트 전에 만들 수 있는 것(이력 표 · 웹 편집 칸 · 미리보기 · 모킹 E2E)과 노트 뒤(44 op · 조회 파싱 · relay/server 라우트 · 라이브 UAT)를 플래너가 웨이브로 가른다. 35-10 · 35-11(Wave B)과 같은 노트를 기다린다. 라이브 UAT = 어드민에서 KB120 · 16:00 · 코스닥 계획 변경 → ① 86 code 0 ② 서버 로그 「발사 계획 변경」 ③ 다음 16:00 kind 17 조각 `sent_rel_us` 가 새 시각 근처(재기동 없이) ④ 이력 행 · 패널 마지막 변경.
+- **D-34: 클라 검증에 범위 검사를 더한다(D-26 보강 · plan-phase 2026-10-27 사용자 결정).** 정수 · 같거나 커지는 순서에 더해 조각 시각 범위를 저장 전에 막는다 — 위반 칸 `aria-invalid` + role=alert 「조각 시각은 −3000 ~ 1000µs 사이여야 해요」 꼴 + 저장 비활성. 범위 숫자는 gh-trade 정식 노트 값(잠정 — 16시 −3000~1000 · 개장 발사 ±2000, RESEARCH §7.2)을 shared 상수 한 곳에 두고 노트 뒤 플랜에서 대조해 맞춘다. 서버 code 1 문형(D-27)은 그대로(클라를 통과한 거부만 그 문형).
+- **D-35: 노트 전 플랜은 로컬 커밋까지만 · push 는 배포 플랜에서(plan-phase 2026-10-27 사용자 결정).** 노트 전에 만드는 이력 표 · server 라우트 · 웹 편집 칸은 원격 db push · relay/server 배포 · webapp push 를 하지 않는다. push(= 프로덕션)는 D-30 배포 순서(gh-trade 43 배포 확인 → DB → relay → server → webapp push)를 따르는 배포 플랜에서 한 번에, 메인 세션이 한다.
 
 ### Claude's Discretion
 - 표 · 열 · RPC · 라우트 · 파일 · shared 타입 이름(`launch_pieces` · `launch_heads` · `launch_orders_for_admin` · `launch_map_for_admin` · `server/src/routes/admin-launch.ts` · `webapp/src/app/admin/launch/page.tsx` · `webapp/src/components/admin/launch-*.tsx` · `packages/shared/src/launch.ts` 류) · 발사 기준 열의 표현(D-03) · `source` 열 값 이름 · 해석 위치(apply 재정의 vs 트리거) · 해석 함수의 kind 17/18 칸 → 열 매핑 코드 구조(정식 노트 뒤).
@@ -85,7 +87,8 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 **Downstream agents MUST read these before planning or implementing.**
 
 ### 계약 · 데이터 정본 (gh-trade)
-- `docs/inbox/from-gh-trade/261027-launch-gate-admin.md` — 상의 노트(성격 · 첨부 · 프로파일 표 · 머리/조각 필드 목록 · 채널 제안 A · 질문 3건). phase 끝에 `## 회신` + `status: done` · `done_commit`. **정식 인계 노트(kind 17·18 칸 매핑 표)는 아직 미도착** — 도착하면 이 목록 맨 위에 추가하고 D-06 해석 함수를 그 표로 구현.
+- `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` — **정식 인계 노트(2026-10-28 · from_commit 2e090eb9 · fbs_sync_marker f156cb6f)** — ⓑ kind 17 LaunchPiece · 18 LaunchHead 칸 매핑 정본(= gh-trade `LaunchJournal.h` 머리 주석) · ⓒ op 8/9 · 94 와이어 · 질문 5 답(A1 다리별 wire · A 머리 1행 · 재송신 · 17/18 순서 · 계좌). **kind 17·18 칸 매핑 정본 — 35-10 이 구현**(`20261028200000_launch_project_mapping.sql`).
+- `docs/inbox/from-gh-trade/261027-launch-gate-admin.md` — 상의 노트(성격 · 첨부 · 프로파일 표 · 머리/조각 필드 목록 · 채널 제안 A · 질문 3건). phase 끝에 `## 회신` + `status: done` · `done_commit`. 정식 인계 노트(kind 17·18 칸 매핑 표)는 2026-10-28 도착 — 이 목록 맨 위 줄(35-10 이 D-06 해석 함수를 그 표로 구현).
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/launch-gate-map.html` — 첨부 지도(:84 `ROWS` 196행 · :85 `NEXT` · :91-112 `group()` 경계 계산 규칙 · :128-205 패널 그리기 · :174-191 리본 식). **경계 · 리본 계산의 정본**(D-10 자동 대조 기준 · D-16).
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/pieces.json` — 10/12~10/26 16:00 196행 `{date, broker, market, wire, q, j, rel, result}` — 백필 1차 입력 + 테스트 픽스처.
 - `docs/inbox/from-gh-trade/261027-launch-gate-admin-attach/pieces120.txt` · `pieces119.txt` — 원본 `[Launch] 조각` 로그 줄(16:00 꼴 `q= j= probe=` · 09:00:30 꼴 `key=N idx= retry= rc_rejects=`) — gh-trade 가 넘길 ndjson 의 필드 출처 · 로그에 없는 열(D-08) 근거.
@@ -94,6 +97,7 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - `docs/inbox/from-gh-trade/README.md` · `CLAUDE.md` 「gh-trade 인박스」 · `scripts/trade-handoff.sh` — 인박스 닫기 · gh-trade 에 요청하는 경로(D-21).
 
 ### 발사 계획 어드민 (범위 7)
+- `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` (2026-10-28 · gh-trade Phase 43 정식 인계 노트 · fbs f156cb6f) — **op · 필드 · code 정본**(44 op 8 SetLaunchPlan · op 9 GetLaunchPlan · 94 LaunchPlanSnapshot · code 1 고정 문구 7종 · 10 · 11). 35-16(relay 와이어) · 35-17(HTTP 라우트 · 서버별 판정)이 구현 · 잠정 → 노트 대응은 `35-16-SUMMARY.md`.
 - `docs/inbox/from-gh-trade/261027-launch-plan-admin.md` — 기능 요청 · 목업용 값 모양(서버 · 발사 · 시장 · µs 목록 · N 한 값 · 초깃값 · 적용 시점) · 질문 2건. **정식 인계 노트(gh-trade Phase 43 · op · 필드 · code)는 미도착** — 도착하면 이 목록 맨 위에 추가.
 - `.planning/phases/35-launch-gate/reference/mockup-launch-plan-place.html` — 자리 **B 경계 지도 패널 안** 채택(A 3번째 탭 · C 별도 메뉴 기각).
 - `.planning/phases/35-launch-gate/reference/mockup-launch-plan-edit.html` — 편집 칸 **A 조각마다 직접 입력** 채택 · 상태(순서 오류 · 저장됨 · 서버 거부 code 1) 모양.

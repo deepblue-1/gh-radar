@@ -51,6 +51,8 @@ import { AdminAccount } from "../../src/generated/stock-dma/admin-account.js";
 import { AdminCommandResp } from "../../src/generated/stock-dma/admin-command-resp.js";
 import { AdminUser } from "../../src/generated/stock-dma/admin-user.js";
 import { AdminUsersSnapshot } from "../../src/generated/stock-dma/admin-users-snapshot.js";
+import { LaunchPlanEntry } from "../../src/generated/stock-dma/launch-plan-entry.js";
+import { LaunchPlanSnapshot } from "../../src/generated/stock-dma/launch-plan-snapshot.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
@@ -2072,6 +2074,60 @@ export function buildAdminUsersSnapshotFrame(input: FakeAdminUsersSnapshotInput 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MsgType.AdminUsersSnapshot);
   Envelope.addAdminUsersSnapshot(b, snap);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// 발사 계획 스냅샷 (94) — Phase 35-16 · gh-trade 43 · fbs f156cb6f · 인박스 261028-launch-plan-contract
+// ============================================================
+
+/** 94 의 한 칸(profile × market) 입력. `offsetsUs` 는 µs 정수 — Q16 = 목록, N = 길이 1. */
+export type FakeLaunchPlanEntryInput = { profile: string; market: string; offsetsUs: readonly number[] };
+
+/**
+ * 94 입력. 기본 = request_id 1 · plan_rev 1 · updated_at 「2026-10-27T22:41:00」 · 4행(Q16/K · Q16/Q · N/K · N/Q 고정 순서).
+ * `updatedAt: null` = 필드 부재(손으로 만든 파일에 키 없음 흉내) · `""` = 빈 문자열 명시.
+ */
+export type FakeLaunchPlanSnapshotInput = {
+  requestId?: bigint;
+  planRev?: bigint;
+  updatedAt?: string | null;
+  entries?: readonly FakeLaunchPlanEntryInput[];
+};
+
+/** 서버 4행 고정 순서의 가짜 계획(실서버 설정값 아님 — 노트 예시 꼴의 µs). */
+export const DEFAULT_FAKE_LAUNCH_PLAN_ENTRIES: readonly FakeLaunchPlanEntryInput[] = [
+  { profile: "Q16", market: "K", offsetsUs: [-350, -345, -325] },
+  { profile: "Q16", market: "Q", offsetsUs: [-340, -335, -322] },
+  { profile: "N", market: "K", offsetsUs: [-200] },
+  { profile: "N", market: "Q", offsetsUs: [-245] },
+];
+
+/** 발사 계획 스냅샷 프레임 (94 · `launch_plan_snapshot` Envelope 슬롯 vtable 112). 문자열 · 벡터는 테이블 조립 **전에** 만든다. */
+export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(512);
+  const entries = input.entries ?? DEFAULT_FAKE_LAUNCH_PLAN_ENTRIES;
+  const entryOffsets = entries.map((e) => {
+    const profile = b.createString(e.profile);
+    const market = b.createString(e.market);
+    const offsets = LaunchPlanEntry.createOffsetsUsVector(b, [...e.offsetsUs]);
+    return LaunchPlanEntry.createLaunchPlanEntry(b, profile, market, offsets);
+  });
+  const entriesVec = LaunchPlanSnapshot.createEntriesVector(b, entryOffsets);
+  const updatedAtRaw = input.updatedAt === undefined ? "2026-10-27T22:41:00" : input.updatedAt;
+  const updatedAt = updatedAtRaw === null ? null : b.createString(updatedAtRaw);
+  LaunchPlanSnapshot.startLaunchPlanSnapshot(b);
+  LaunchPlanSnapshot.addRequestId(b, input.requestId ?? 1n);
+  LaunchPlanSnapshot.addPlanRev(b, input.planRev ?? 1n);
+  if (updatedAt !== null) LaunchPlanSnapshot.addUpdatedAt(b, updatedAt);
+  LaunchPlanSnapshot.addEntries(b, entriesVec);
+  const snap = LaunchPlanSnapshot.endLaunchPlanSnapshot(b);
+
+  Envelope.startEnvelope(b);
+  // 생성 enum 을 쓴다 — 「94 는 INBOUND 에 있다」 단언이 이 빌더에 기대지 않게.
+  Envelope.addMsgType(b, MsgType.LaunchPlanSnapshot);
+  Envelope.addLaunchPlanSnapshot(b, snap);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

@@ -22,6 +22,7 @@ import { GetQuoteReq } from '../stock-dma/get-quote-req.js';
 import { GetStrategyReq } from '../stock-dma/get-strategy-req.js';
 import { GetTradeTapeReq } from '../stock-dma/get-trade-tape-req.js';
 import { JournalBatch } from '../stock-dma/journal-batch.js';
+import { LaunchPlanSnapshot } from '../stock-dma/launch-plan-snapshot.js';
 import { LimitChaserList } from '../stock-dma/limit-chaser-list.js';
 import { LimitFeature } from '../stock-dma/limit-feature.js';
 import { LivePing } from '../stock-dma/live-ping.js';
@@ -336,8 +337,13 @@ openArbPreview(obj?:OpenArbPreview):OpenArbPreview|null {
   return offset ? (obj || new OpenArbPreview()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+launchPlanSnapshot(obj?:LaunchPlanSnapshot):LaunchPlanSnapshot|null {
+  const offset = this.bb!.__offset(this.bb_pos, 112);
+  return offset ? (obj || new LaunchPlanSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(54);
+  builder.startObject(55);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -546,6 +552,10 @@ static addOpenArbJudgement(builder:flatbuffers.Builder, openArbJudgementOffset:f
 
 static addOpenArbPreview(builder:flatbuffers.Builder, openArbPreviewOffset:flatbuffers.Offset) {
   builder.addFieldOffset(53, openArbPreviewOffset, 0);
+}
+
+static addLaunchPlanSnapshot(builder:flatbuffers.Builder, launchPlanSnapshotOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(54, launchPlanSnapshotOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

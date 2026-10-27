@@ -46,6 +46,14 @@
  * GC-10(29-48): 그 뒤의 재적재 대기(지정 재적재 · 유저 삭제의 접근 맵 재적재)도 같은 `deadlineAt` 의 남은 시간까지만 기다린다
  * (`awaitWithinDeadline`) — 지면 응답부터 하고 재적재는 취소 없이 뒤에서 끝까지 간다. 지정 라우트(PUT order-server)도 도착 시각 마감.
  *
+ * 발사 계획(Phase 35 범위 7 · 35-17 · D-25 · D-30) — 서버 키 단위 `LaunchPlanService`(dispatcher `#serial` 밖 · DB 무관 — 이력은
+ * server). `GET /launch-plan?servers=KB120,KYOBO119`(쉼표 1~8개 · 키 형식 밖 400) → 서버마다 op 9 병렬 → 200
+ * `{ servers: Record<키, LaunchPlanServer> }`(요청 키 전부 · 순서 그대로 · 감사 없음). `PUT /launch-plan/:server` body
+ * `{ profile: Q16|N, market: K|Q, offsets_us: int32[1..64] }`(추가 키 400 · **순서 · 범위는 막지 않는다** — gh-trade code 1 고정 문구가
+ * 말한다 · D-26) → 그 서버 1대에 조회(전) → op 8 → 조회(후) · 요청 도착 마감(10초) → 200 `{ result, before_us, plan }`
+ * (`LaunchPlanRelaySetResponse` · result.server = 경로 키) · 감사 1줄(route · server · profile · market · n · outcome · code).
+ * deps `launchPlan` 이 없으면 두 라우트 503 `LAUNCH_PLAN_UNAVAILABLE`.
+ *
  * 계좌 PUT 의 주문자 IP/MAC(Phase 30 · IPMAC-02 · D-07 · D-10) — body 최상위 선택 `orderEndpoint { orderIp, orderMac }`(계좌 객체
  * 밖). **KB 계좌만**(교보면 400 — 교보 서버는 형식을 보지 않고 저장한다) · 두 키 모두 필수(하나만 오면 400) · **형식 검사 없음**
  * (막으면 gh-trade 86 code 13 이 도달하지 않는다 — IPMAC-03) · **DB 미저장**(RPC `p_account` 에 싣지 않는다 — 87 이 정본) →
@@ -71,6 +79,7 @@ import { Router, type ErrorRequestHandler, type RequestHandler } from "express";
 import { z, ZodError } from "zod";
 import {
   isValidAccountNoInput,
+  LAUNCH_PLAN_SERVER_MAX_PIECES,
   maskDmaUserId,
   normalizeAccountNo,
   SERVER_KEY_RE,
@@ -89,6 +98,7 @@ import type { QuoteSwitchResult } from "../quote/quote-switch.js";
 import type { AdminConn } from "./admin-conn.js";
 import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
+import type { LaunchPlanService } from "./launch-plan.js";
 import { ADMIN_OP, type AdminUsersSnapshot } from "./types.js";
 
 // ============================================================
@@ -131,6 +141,11 @@ export type AdminApiDeps = {
     switchTo(server: DmaServerRow): Promise<QuoteSwitchResult>;
     readonly currentServerKey: string | null;
   };
+  /**
+   * 발사 계획 조회 · 저장(Phase 35 범위 7 · 35-17 · `LaunchPlanService`) — 서버 키 단위. 주지 않으면 두 라우트 503
+   * `LAUNCH_PLAN_UNAVAILABLE`.
+   */
+  launchPlan?: Pick<LaunchPlanService, "read" | "set">;
   /** 시각 주입구(ms). 기본 `Date.now`. */
   now?: () => number;
   /** 변경 요청 마감(ms · 29-32). 기본 `ADMIN_REQUEST_DEADLINE_MS` — 실 소켓 테스트만 줄인다. */
@@ -266,6 +281,36 @@ const AccountParam = z.object({
     .refine(isValidAccountNoInput, "계좌번호는 1~12자여야 합니다")
     .transform((a) => normalizeAccountNo(a.trim())),
 });
+
+/** 발사 계획 조회 한 번에 묻는 서버 수 상한 — 대상은 지금 2대(`LAUNCH_PLAN_GATEWAYS`). */
+const LAUNCH_PLAN_MAX_SERVERS = 8;
+
+/**
+ * `GET /launch-plan?servers=KB120,KYOBO119` — 쉼표 목록 · 각 키 레지스트리 형식 · 1~8개 · 중복 제거(순서 유지). 레지스트리에 있는지는
+ * 서비스가 본다(없으면 그 서버 skipped — 400 이 아니다: server 는 응답에 요청 키가 다 있기를 기대한다).
+ */
+const LaunchPlanServersQuery = z.object({
+  servers: z
+    .string()
+    .transform((s) => s.split(","))
+    .pipe(z.array(z.string().regex(SERVER_KEY_RE)).min(1).max(LAUNCH_PLAN_MAX_SERVERS))
+    .transform((keys) => [...new Set(keys)]),
+});
+
+/** int32 — 44 `launch_offsets_us: [int]` 구조 상한. 범위(Q16 −3000~1000 · N ±2000)는 서버 설정값이라 서버가 판정한다. */
+const Int32 = z.number().int().min(-2147483648).max(2147483647);
+
+/** `PUT /launch-plan/:server` 바디(shared `LaunchPlanRelaySetBody`) — 구조만 · 추가 키 거부. 순서 · 범위는 보지 않는다(D-26 · D-30). */
+const LaunchPlanSetBody = z
+  .object({
+    profile: z.enum(["Q16", "N"]),
+    market: z.enum(["K", "Q"]),
+    offsets_us: z.array(Int32).min(1).max(LAUNCH_PLAN_SERVER_MAX_PIECES),
+  })
+  .strict();
+
+/** 경로 `:server` — 레지스트리 서버 키 형식(있는지 · 켜졌는지는 서비스가 skipped 로 답한다). */
+const LaunchPlanServerParam = z.object({ server: z.string().regex(SERVER_KEY_RE) });
 
 // ============================================================
 // 오류
@@ -754,6 +799,37 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       servers[row.key] = { conn, journal, admin, quote, staleAccounts };
     }
     res.status(200).json({ servers });
+  });
+
+  // ── 발사 계획 (Phase 35 범위 7 · 35-17 — 서버 키 단위 · DB 무관 · 이력은 server) ─────────────────────────────
+  const launchPlanOf = (): NonNullable<AdminApiDeps["launchPlan"]> => {
+    if (deps.launchPlan === undefined) {
+      throw new RelayApiError(503, "LAUNCH_PLAN_UNAVAILABLE", "발사 계획 경로가 준비되지 않았습니다");
+    }
+    return deps.launchPlan;
+  };
+
+  // 조회 — 서버마다 op 9 병렬 · 요청 키 전부를 그 순서로 싣는다(server 35-13 이 모양을 검사한다). 읽기라 감사 줄 없음.
+  router.get("/launch-plan", async (req, res) => {
+    const launchPlan = launchPlanOf();
+    const { servers } = LaunchPlanServersQuery.parse(req.query);
+    res.status(200).json({ servers: await launchPlan.read(servers) });
+  });
+
+  // 저장 — 그 서버 1대 · 조회(전) → op 8 → 조회(후) · 요청 도착 마감. relay 는 DB 를 쓰지 않는다(이력은 server · D-29).
+  router.put("/launch-plan/:server", async (req, res) => {
+    const deadlineAt = deadlineOf();
+    const launchPlan = launchPlanOf();
+    const { server } = LaunchPlanServerParam.parse(req.params);
+    const body = LaunchPlanSetBody.parse(req.body);
+    const out = await launchPlan.set(server, body, { deadlineAt });
+    audit(res.locals.adminEmail as string, "PUT /launch-plan/:server", null, { results: [out.result] }, {
+      server,
+      profile: body.profile,
+      market: body.market,
+      n: body.offsets_us.length,
+    });
+    res.status(200).json(out);
   });
 
   // ── 계좌별 주문자 IP/MAC (Phase 30 · D-09 — relay 메모리 87 캐시 읽기만 · 44 · 감사 · 로그 없음) ─────────────────────

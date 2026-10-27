@@ -9,6 +9,9 @@ import type {
   AdminPutAccountBody,
   AdminServerLiveStatus,
   DmaBroker,
+  LaunchPlanRelayReadResponse,
+  LaunchPlanRelaySetBody,
+  LaunchPlanRelaySetResponse,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -63,6 +66,13 @@ export type RelayAdminRequest = <T = unknown>(
  * 넘으면 status 0 → 개요는 200 · 「확인 전」.
  */
 export const RELAY_ORDER_ENDPOINTS_TIMEOUT_MS = 2_000;
+
+/**
+ * `GET /internal/admin/launch-plan?servers=` 상한(35-13 · D-25). relay 는 서버마다 op 9(계획 조회)를 병렬로 보내고 서버별 상한 5초에
+ * `timeout` 으로 접는다 — 그 5초 + 네트워크 여유. 쓰기용 기본 15초를 물려받지 않는다(orderEndpoints 결 — relay VM 이 안 닿으면
+ * 화면 첫 조회가 15초 멈춘다). 넘으면 status 0 → 두 서버 offline 200(웹은 대신 값으로 그린다).
+ */
+export const RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS = 6_000;
 
 /** `POST /internal/admin/dma-users` 바디(29-11) — 웹 사용자 이메일 + `AdminDmaInput`. */
 export type RelayCreateDmaUserBody = { email: string } & AdminDmaInput;
@@ -168,6 +178,22 @@ export type RelayAdminClient = {
     serverKey: string,
     adminEmail: string,
   ): Promise<RelayAdminResponse<RelayQuotePrimaryResult>>;
+  /**
+   * 발사 계획 조회(35-13 · 35-17 relay 계약) — `GET /internal/admin/launch-plan?servers=KB120,KYOBO119`.
+   * relay 가 서버마다 op 9 → 94 스냅샷을 파스해 `{ servers: { [key]: LaunchPlanServer } }` 로 준다(서버별 실패는 그 서버 status).
+   * 상한 `RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS`.
+   */
+  launchPlans(servers: readonly string[], adminEmail: string): Promise<RelayAdminResponse<LaunchPlanRelayReadResponse>>;
+  /**
+   * 발사 계획 저장(35-13 · 35-17 relay 계약) — `PUT /internal/admin/launch-plan/:server` 바디 `{ profile, market, offsets_us }`.
+   * relay 가 저장 직전 값을 읽고(before_us) op 8 로 저장한 뒤 다시 읽어(plan) `{ result, before_us, plan }` 로 준다. 기본 상한(쓰기).
+   * relay 는 이 경로에서 DB 를 쓰지 않는다 — 이력 기록은 server 몫(D-29).
+   */
+  setLaunchPlan(
+    server: string,
+    body: LaunchPlanRelaySetBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<LaunchPlanRelaySetResponse>>;
 };
 
 // ============================================================
@@ -380,6 +406,21 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
         "POST",
         `/internal/admin/servers/${encodeURIComponent(key)}/quote-primary`,
         adminEmail,
+      ),
+    launchPlans: (servers, adminEmail) =>
+      request<LaunchPlanRelayReadResponse>(
+        "GET",
+        `/internal/admin/launch-plan?servers=${servers.map(encodeURIComponent).join(",")}`,
+        adminEmail,
+        undefined,
+        { timeoutMs: RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS },
+      ),
+    setLaunchPlan: (server, body, adminEmail) =>
+      request<LaunchPlanRelaySetResponse>(
+        "PUT",
+        `/internal/admin/launch-plan/${encodeURIComponent(server)}`,
+        adminEmail,
+        body,
       ),
   };
 }

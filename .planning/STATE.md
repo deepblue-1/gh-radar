@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 36
-current_phase_name: 계좌별 주문가능 금액
+current_phase: 35
+current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: "36-08 완료(9/10) — 36-09 배포는 Phase 35 종료 뒤 master 병합과 함께(사용자 결정 2026-10-28)"
-last_updated: "2026-10-27T16:11:37.835Z"
-last_activity: 2026-10-27
-last_activity_desc: Phase 36 execution started
-state_head: fd0a065c27e4536bd1ef48a37db3561b97270104
+stopped_at: Completed 35-19-PLAN.md
+last_updated: "2026-10-27T17:16:24.775Z"
+last_activity: 2026-10-28
+last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
+state_head: 9f51eb456cb6d77d58160190887789d450120ee0
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 74
-  completed_plans: 71
+  total_plans: 82
+  completed_plans: 79
   percent: 71
 ---
 
@@ -25,14 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 36 — 계좌별 주문가능 금액
+**Current focus:** Phase 35 — 발사 경계 지도 어드민
 
 ## Current Position
 
-Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 10 of 10
+Phase: 35 (발사 경계 지도 어드민) — EXECUTING
+Plan: 17 of 19 (35-01~10 · 35-12~17 · 35-19 완료 — 범위 7 로컬 전체 회귀 green · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-18(배포) 남음 · 로컬 커밋까지만 D-35)
 Status: Ready to execute
-Last activity: 2026-10-27 — Phase 36 execution started
+Last activity: 2026-10-28 — 35-19 16:00 머리 카드 「다음 발사 계획 첫 조각」 · LAUNCH_PLAN_LIMITS 노트 일치 · 범위 7 전체 회귀 green(로컬 커밋 · push 안 함)
+Phase 36 (계좌별 주문가능 금액): 9 of 10 (36-01~08 · 36-10 완료 · 36-09 배포는 Phase 35 종료 뒤 master 병합과 함께 — 사용자 결정 2026-10-28) · master 병합 2026-10-28(Phase 35 · gh-trade 43 SYNC 흡수)
 
 Progress: [███████░░░] 71% (53/53 plans)
 
@@ -113,8 +114,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T16:11:37.747Z
-Stopped at: Completed 36-08-PLAN.md
+Last session: 2026-10-27T17:09:11.891Z
+Stopped at: Completed 35-19-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -165,6 +166,14 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P06 | 13 min | 2 tasks | 11 files |
 | Phase 35 P07 | 8 min | 2 tasks | 4 files |
 | Phase 35 P08 | 14 min | 3 tasks | 9 files |
+| Phase 35 P12 | 8min | 3 tasks | 5 files |
+| Phase 35 P13 | 6min | 2 tasks | 6 files |
+| Phase 35 P14 | 10min | 3 tasks | 13 files |
+| Phase 35 P15 | 21min | 3 tasks | 11 files |
+| Phase 35 P10 | 25min | 3 tasks | 8 files |
+| Phase 35 P16 | 7min | 3 tasks | 11 files |
+| Phase 35 P17 | 8min | 2 tasks | 7 files |
+| Phase 35 P19 | 5min | 2 tasks | 5 files |
 | Phase 36 P01 | 6 min | 1 tasks | 15 files |
 | Phase 36 P10 | 5min | 2 tasks | 10 files |
 | Phase 36 P02 | 10min | 2 tasks | 14 files |
@@ -266,6 +275,26 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-07: 축 밖 점은 끝 고정 + ◂/▸ · title 「축 밖」 · 축 밖 다음 오프셋은 점선 대신 「▸ 다음 Xµs」 · 리본 칸 ≤ 그림 폭
 - [Phase 35]: 35-08: 경계 지도 요약 카드 = shared launchPanelStatsOf(min_accept · max_reject) + mapNextOffsetOf(최신 머리) · null 이면 「—」 — 상수 없음
 - [Phase 35]: 35-08: 발사 기준 세그먼트는 LaunchFireSeg 하나를 두 탭이 공유(같은 ?fire 키) · ?range 10d 기본 · 탭 · 칩 · 세그먼트 전환은 다른 쿼리 보존
+- [Phase 35]: 35-12: 이력 읽기 RPC = 조합별 최근 N ∪ 마지막 ok(jsonb 1값) · launch_plan_changes 는 service_role SELECT/INSERT 만
+- [Phase 35]: 35-12: validateLaunchPlanDraft 검사 순서 = 개수 → 칸마다(정수 → 범위) → 순서 · badIdx/idx 0부터 · LAUNCH_PLAN_LIMITS 잠정(35-19 대조)
+- [Phase 35]: 35-13: 발사 계획 GET 은 relay 실패(미설정·못 닿음·비200·모양 위반·누락 서버)를 서버별 offline 200 으로 접고, PUT 은 어떤 결과든 이력 1행 · 기록 실패는 200 change null + logger.error
+- [Phase 35]: 35-14: 계획 상태는 LaunchMapTab 소유 · 탭 진입 1회 GET /plan · 404=absent 면 계획 기능 숨김(35-08 그대로)
+- [Phase 35]: 35-14: panelPlanOf 가 패널 계획 정본 — 「계획 고치기」 비활성 = plan.source !== 'server' · 마지막 변경은 server 일 때만
+- [Phase 35]: 35-14: LaunchGateChart next → planLines(조각마다 점선 data-idx) + children 슬롯 · launchAxisOf(values, marks, fire)
+- [Phase 35]: 35-15: 편집 상태는 지도 탭 LaunchPlanEdit 한 곳(draft 원문 · valid 마지막 유효 값) — 미리보기 선·표는 valid 만
+- [Phase 35]: 35-15: 저장 결과·저장 중은 칸 키(gateway|market|fire)로 묶는다 · 실패여도 응답 plan·change 로 계획 상태 갱신(재조회 없음)
+- [Phase 35]: 35-15: 바꿀 실선 굵기 2 · 번호는 행 아래(목업 정본) · 조각 칸 104px(−3000 잘림 실측)
+- [Phase 35]: 35-10: kind 17·18 정식 매핑 — 노트 전용 4칸(base_cum·error_volume·remaining_volume·plan_rev) 매핑 안 함(사용자 결정 2026-10-28) · next_offset_us = cond_threshold 직접(A2 폴백 없음)
+- [Phase 35]: 35-10: launch_pieces.result_code 는 rc= 원문(0101·0515·E127·F083) · 백필 표기(101·515·0)와 다름 · fire_at_us = fire= KST epoch µs
+- [Phase 35]: 35-16: ADMIN_OP 8·9 만 · 6·7 자리는 phase-36 병합 세션 몫
+- [Phase 35]: 35-16: 94 는 request_id 로만 짝짓는다 — op 8 뒤 94 · 늦은 94 는 debug 후 버림 · op 8/9 는 87 대기 판정 밖
+- [Phase 35]: 35-16: 94 updated_at 빈 값 허용 · entries 원소 null = 프레임 파손
+- [Phase 35]: 35-17: 발사 계획 조회 · 저장은 서버 키 단위 LaunchPlanService(dispatcher 밖) — offline 은 isReady 로만, 레지스트리 없음 · 꺼짐은 skipped 단일 문구
+- [Phase 35]: 35-17: PUT 은 조회(전) → op 8 → 조회(후) 같은 FIFO · 후 조회는 저장 끝 + 5초 ≤ 마감(도착+10초)일 때만 · relay zod 는 구조만(순서 · 범위는 gh-trade code 1)
+- [Phase 35]: 35-17: Phase 36 갈래 ③ — phase-36 브랜치는 커밋 완료 · master 미병합. 병합 때 admin-api import · interpretAdminResult 유니온(1~9) · admin.test it.each 3곳 양쪽 살림
+- [Phase 35]: 35-19: 16:00 학습 줄 판정 = correction_before · after · step_us 중 하나라도 non-null 이면 옛 라벨, 아니면 「다음 발사 계획 첫 조각」 + next_offset_us
+- [Phase 35]: 35-19: D-34 LAUNCH_PLAN_LIMITS 정식 노트(119/120 서버 설정값)와 일치 — 값·테스트 무변경, JSDoc 만
+- [Phase 35]: 35-19(fix 노트): 「서버 미지원」 은 code 1 + 「알 수 없는 명령입니다」 일 때만 · Q16 시각 목록 폭 ≤ 500µs 클라 검증(LAUNCH_PLAN_LIMITS.maxSpanUs)
 - [Phase 36]: 36-01: /me 는 priceOf 미전달 — 시세 미구독 표면이라 시장가 매수 미체결은 0 으로 센다(D-11 재량, 인박스 규칙)
 - [Phase 36]: 36-01: 예수금은 relay #mergeAccountState 델타에서 budgetKrw: next.budgetKrw 로 무조건 덮는다(0=해제 포함) · 웹 mergeAccount 는 ...next 라 무변경
 - [Phase 36]: 36-10: costs 색인은 그 DMA 유저 행 우선 · 없으면 같은 계좌 다른 유저 행(예수금·비용률은 서버 계좌 단위 값 — IP/MAC 색인과 다름)

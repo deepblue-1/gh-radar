@@ -4,6 +4,8 @@
 **Domain:** Postgres(plpgsql) 저널 원문 → 투영 표 해석 · 어드민 RPC/라우트 · 순수 SVG 점 지도 · 1회 백필 스크립트
 **Confidence:** HIGH (코드베이스 근거 전부 이번 세션 실독) / 칸 매핑(kind 17·18)은 **미정** — 정식 인계 노트 미도착
 
+> **보충(2026-10-27):** 범위 7 발사 계획 어드민(D-24~D-33)은 이 파일 맨 끝 「## 범위 7 — 발사 계획 어드민 (D-24~D-33 · 보충 리서치 2026-10-27)」 을 본다. 범위 1~6 내용은 그대로다.
+
 ## Summary
 
 이 phase 는 새 외부 패키지가 하나도 없다. 전부 기존 경로의 확장이다 — relay 는 kind 를 해석하지 않고 43칸 원문을 `dma_strategy_apply` 로 넣으며(`relay/src/journal/strategy-stream.ts:169-176`), DB 쪽에는 이미 **「원문 INSERT 는 항상 남고 투영 실패는 그 이벤트만 되돌린다」** 는 선례(주문 저널 `dma_journal_apply` 의 포이즌 격리 T-19-15, `20261004090100_dma_journal_apply_skipped_rows.sql:121-131`)와 그 실패를 relay 가 로그 + `/healthz` 계수로 드러내는 배선(`relay/src/journal/writer.ts:616-622`)이 이미 있다. 따라서 **해석 위치는 `dma_strategy_apply` 재정의**가 정답이다 — 트리거는 실패가 원문 INSERT 문장을 통째로 깨뜨리고(배치 전체 실패 → relay 영구 재시도), 반환 `errors[]` 로 실패를 올릴 길이 없고, 반환 `rows` 에서 17·18 을 빼는(= ws fan-out 누설 차단) 일을 못 한다.
@@ -756,3 +758,317 @@ bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_strategy
 
 **Research date:** 2026-10-27
 **Valid until:** 정식 인계 노트 도착 시(칸 매핑 · 키 질문 답으로 Pattern 1b · Pitfall 1 · 3 재확인) — 그 외 30일.
+
+---
+
+## 범위 7 — 발사 계획 어드민 (D-24~D-33 · 보충 리서치 2026-10-27)
+
+**Researched:** 2026-10-27 (범위 7 discuss 커밋 `ef7052d9` 뒤)
+**Domain:** relay admin 명령 경로(44/86 + 새 응답) · 어드민 서버 라우트 · 서비스롤 전용 이력 표 · 경계 지도 패널 안 편집/미리보기(순수 SVG)
+**Confidence:** 코드베이스(gh-radar) HIGH — 이번 세션 실독 / gh-trade 와이어 **PROVISIONAL(MEDIUM)** — gh-trade Phase 43 **플랜**(미실행)에서 읽음, 정식 인계 노트 미도착
+
+> 범위 1~6 은 위 본문 그대로다. 이 절은 D-24~D-33 만 다룬다. 새 외부 패키지 없음(Package Legitimacy Audit 해당 없음 — 전부 기존 의존). `security_enforcement: false` 라 Security Domain 생략(위 본문과 같음).
+
+<user_constraints>
+### User Constraints (범위 7 — CONTEXT.md 원문 그대로)
+
+**Locked Decisions**
+- **D-24: 자리 = 경계 지도 탭의 서버×시장 패널 안(목업 자리 B).** 새 메뉴 · 새 탭 없음(A 3번째 탭 · C 별도 메뉴 기각). 패널마다 머리 아래 **「다음 발사 계획」 줄**(값 — 16:00 「3조각 −350 · −345 · −325µs」 / 09:00:30 「−245µs」 + 마지막 변경 D-29) + **「계획 고치기」 버튼** → 그 패널 안에 편집 칸 펼침(버튼은 「닫기」 로). 편집 대상 = 그 패널의 gateway × 시장 × 지금 세그먼트의 발사(16:00 / 09:00:30). 「지도를 보고 시각을 정하는 흐름」 이 한 화면에서 끝난다.
+- **D-25: 지도 점선 출처 = 서버 현재 계획 조회.** 지도 탭을 열 때(그리고 저장 성공 뒤) relay admin 연결로 그 서버의 현재 발사 계획을 읽어 **16:00 = 조각마다 `--primary` 점선 · 09:00:30 = 선 1개**를 그린다(패널 · 리본 둘 다 · x 축 범위에 계획 값 포함). 요약 카드 「다음 첫 조각」 = 같은 출처의 첫 조각. 서버 연결 없음 · 조회 실패면 최신 `launch_heads` 다음 오프셋(D-16 원래 값)으로 대신 그리고 줄에 「서버 연결 안 됨 · 마지막 발사 값」 · **「계획 고치기」 비활성**. 조회 op · 응답 모양은 정식 노트(D-31 ⓐ). — **Reversibility:** cheap(표시 출처) — 단, 조회 op 요구는 gh-trade 와이어 요구다.
+- **D-26: 편집 칸 = 조각마다 직접 입력(목업 편집 칸 A).** 16:00 = 「조각 수」 −/+ 스테퍼(1 ~ 10 · 서버 상한 64 안) + 칸마다 µs 정수 입력(번호 1..n · 음수 = 앞당김 · `inputMode="numeric"`) — 서버가 받는 시각 목록과 1:1. 09:00:30 = 「발사 시각」 µs 한 칸(그 시장 주문 전부가 그 시각에 붙어 나감). 클라 검증 = 정수 · **같거나 커지는 순서** — 위반 칸 `aria-invalid` 빨간 테두리 + role=alert 「조각 시각은 앞 조각과 같거나 늦어야 해요 — 2번 −360µs 가 1번 −350µs 보다 이릅니다」 + 저장 비활성 · 입력값 유지. 「되돌리기」 = 서버 현재 값으로. 「첫 시각 + 간격」(B) · 「고르게 채우기」 도우미(C) 기각.
+- **D-27: 저장 = 패널 1칸(서버 × 발사 × 시장) · 확인창 없이 바로(Phase 36 결).** 결과 = Phase 36 D-06 문형 그대로: ok → 칩 「KB120」 + 「저장됨 · HH:MM · 다음 16:00 발사부터」 · failed code 1 → 칩 「KB120 · 실패」(title 「서버 미지원 · <message 원문>」) + 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 · 그 밖 failed → 「KB120 실패: <message 원문>」 · offline → 「KB120 미반영: 서버 연결 안 됨」(분기는 `code` 로만 · message 문장 대조 없음). 토스트 · 확인창 없음. 성공 뒤 그 서버 계획을 다시 조회해 점선 · 「다음 발사 계획」 줄 갱신(D-25). **적용 시점 안내 한 줄**(지도 탭 범례 아래 공용 · 목업 문구): 「저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.」 — 86 이 적용 발사를 알려 주면(D-31 ⓓ) 결과 줄 「다음 … 발사부터」 가 그 값을 쓴다.
+- **D-28: 저장 전 미리보기 = P2(선 + 조각별 「쐈다면」).** 편집 중 바꿀 조각을 같은 패널 · 리본에 **`--gate` 실선(아래 번호 = 조각)** 으로 겹치고(파란 점선 = 서버 현재 계획 그대로), 편집 칸 아래 표 **조각 | 지금 µs | 바꿀 µs | 지금 — 지난 N일에 쐈다면 | 바꿀 — 지난 N일에 쐈다면**(N = 지금 범위 프리셋의 날 수 · 셀 = 「접수 a · 모름 b · 거부 c」 · 판정 = 리본 식 그대로: 그날 hi 가 있고 v ≥ hi 면 접수, lo 가 있고 v ≤ lo 면 거부, 나머지 모름). 입력마다 즉시 갱신 · 순서 오류면 선 · 표 갱신 멈춤. 범례에 「바꿀 계획(저장 전 · 번호 = 조각)」. gh-trade 질문 1 답 = 가능 · 채택. 09:00:30 도 같은 규칙(선 1개 · 행 1개).
+- **D-29: 변경 이력 = gh-radar DB 영구 보관 + 패널 표시.** 새 표(이름 재량 · 예 `launch_plan_changes`) — 저장 **시도마다 1행**(실패 포함): `at` · 어드민(app_users 이메일) · gateway · fire(q16/n) · market · `before int[]`(조회해 둔 현재 값 · 모르면 null) · `after int[]` · 결과(ok / failed+code+message / offline · timeout). RLS 켜고 정책 0개 · service_role 전용 · purge 없음(D-05 결). 패널 「다음 발사 계획」 줄 끝에 **마지막 성공 변경 「22:41 · 이메일」**(오늘이 아니면 「10/27 22:41」) + **「변경 이력」 접힘**(최근 기록 — 시각 · 이메일 · 전 → 후 · 결과 알약). 이력 읽기를 지도 RPC 응답에 같이 실을지 별도 라우트일지는 플래너 재량(왕복 1회 원칙). gh-trade 질문 2 답 = 예(gh-radar DB). 지도에서 「경계가 언제부터 바뀌었나」 를 계획 변경과 맞춰 읽는 용도.
+- **D-30: 경로 = 웹 → server(`requireAuth → requireAdmin` · 감사 줄) → relay 내부 admin HTTP → admin 연결 44 새 op → 86.** Phase 36 `setAccountCost` 결(`relay/src/admin/dispatcher.ts` · 의도 표 · `dma_admin_results` 반영 칩 기록 없음 · **서버 파일이 정본**). 대상 서버 1대(패널 gateway) · 꺼진 서버 skipped · admin 연결/스냅샷 없음 offline. 조회(D-25)도 같은 길(새 조회 op 또는 정식 노트가 정하는 응답). 이력 행(D-29)을 쓰는 쪽(server vs relay)은 플래너 재량. 배포 순서 = gh-trade 서버 먼저(구 웹은 새 op 를 안 보낸다 · 새 웹이 구 서버에 보내면 code 1) → DB(이력 표) → **relay** → server → webapp push. 배포는 메인 세션.
+- **D-31: gh-trade 회신 = 지금(이 discuss 커밋과 함께).** (… 회신 완료 — `gh-trade/docs/inbox/from-gh-radar/261027-launch-plan-admin-reply.md` · 정식 노트 요구 ⓐ 현재 계획 조회 op + 응답 모양 ⓑ 09:00:30 µs 기준 ⓒ 저장 op 거부 code · 멱등 ⓓ 86 「적용 발사」 ⓔ kind 18 `next_offset_us` = 계획 첫 조각 · 빠지는 Q16 학습값 칸 목록(D-32).)
+- **D-32: 주문 내역 머리 카드의 16:00 「학습 → 다음 오프셋(step)」 줄은 보정이 없어지므로 「다음 발사 계획 첫 조각」 으로 바꾼다**(학습값 칸은 정식 노트대로 비우거나 숨김 · 문구 재량) — Wave B(35-10) 칸 매핑과 같이.
+- **D-33: 구현 게이트 = gh-trade Phase 43 정식 인계 노트.** 노트 전에 만들 수 있는 것(이력 표 · 웹 편집 칸 · 미리보기 · 모킹 E2E)과 노트 뒤(44 op · 조회 파싱 · relay/server 라우트 · 라이브 UAT)를 플래너가 웨이브로 가른다. 35-10 · 35-11(Wave B)과 같은 노트를 기다린다. 라이브 UAT = 어드민에서 KB120 · 16:00 · 코스닥 계획 변경 → ① 86 code 0 ② 서버 로그 「발사 계획 변경」 ③ 다음 16:00 kind 17 조각 `sent_rel_us` 가 새 시각 근처(재기동 없이) ④ 이력 행 · 패널 마지막 변경.
+
+**Claude's Discretion (범위 7)**
+- 이력 표 · 라우트 · relay HTTP 경로 이름 · 편집 칸 펼침 상태(한 번에 한 패널만 열지) · 「변경 이력」 접힘 건수 · 시각 표기 · 스테퍼 · 입력 폭 · 폰 390 배치(편집 칸은 패널 폭 안 줄바꿈 · 미리보기 표는 가로 스크롤) · 「다음 발사 계획」 줄 문구 · 조회 중 스켈레톤.
+- (DISCUSSION-LOG) 이력 행을 쓰는 쪽(server vs relay) · 이력 읽기 왕복 배치 · 실패 시도도 이력 1행(결과 열).
+
+**Deferred Ideas (OUT OF SCOPE)**
+- **(범위 7) gh-radar 밖에서 바뀐 계획 감지.** 서버 파일을 직접 고치면 이력에 없다 — 「서버 현재 값 ≠ 마지막 이력 after」 표시는 후속.
+- **(범위 7) 지도 위 끌어서 조각 시각 고치기 · 서버/시장 간 계획 복사 · 「첫 시각 + 간격」 채우기 도우미.** 목업 B·C 기각 — 필요해지면 후속.
+</user_constraints>
+
+### 7.0 요약 — 플래너가 먼저 알아야 할 것 6가지
+
+1. **Phase 36 relay op 6/7 은 아직 코드에 없다(플랜만).** `relay/src/admin/types.ts:26-32` 의 `ADMIN_OP` 는 `UpsertUser: 1, DeleteUser: 2, SetAccount: 3, RemoveAccount: 4, ListUsers: 5` 뿐이고 `.planning/phases/36-account-budget/` 에 SUMMARY 가 하나도 없다 `[VERIFIED: relay/src/admin/types.ts:26-32 · ls 36-account-budget]`. 그래서 D-30 이 「Phase 36 setAccountCost 결」 이라 부른 것은 **36-02-PLAN 의 설계**다(코드 선례 아님). 범위 7 relay 작업은 36-02 · 36-01 과 **같은 6파일**(`types.ts` · `envelope.ts` · `admin-api.ts` · `frames.ts` · `subscription-hub.ts` · `relay/src/generated/*`)과 shared `admin.ts`(`interpretAdminResult`)를 건드린다 → §7.1 「순서」.
+2. **gh-trade Phase 43 은 플랜 6개가 커밋됐고 실행 전이다.** 플랜이 정한 와이어(PROVISIONAL): **44 op 8 SetLaunchPlan · op 9 GetLaunchPlan** · `AdminCommandReq` 말미 `launch_profile` · `launch_market` · `launch_offsets_us:[int]` · **새 MsgType 94 `LaunchPlanSnapshot`**(`request_id` · `plan_rev` · `updated_at` · `entries[4]`) · 거부 = **전부 code 1 + 고정 문구 7종** · 멱등 = code 0 「변경 없음」(94 없음) · op 9 = **94 만(86 없음)** `[CITED: gh-trade/.planning/phases/43-launch-plan-admin/43-RESEARCH.md:231-262 · 43-03-PLAN.md:170-201]`. 정식 노트 이름은 `YYMMDD-launch-plan-contract.md` 예정 `[CITED: 43-05-PLAN.md:61,116]` — **아직 gh-radar 인박스에 없다**(오늘 open 노트 6건 중 해당 없음 `[VERIFIED: grep status: open docs/inbox/from-gh-trade/*.md]`).
+3. **relay admin 연결은 지금 94 를 받을 수 없다 — 세 겹으로 막힌다.** ① `INBOUND_MSG_TYPES` 에 없으면 파싱 전에 드롭(`envelope.ts:564`) ② `subscription-hub.ts:2848 · :3121` 의 86/87 명시 case 와 「한 커밋에서만 함께 자란다」 불변식(`msg-type.ts:280-282`) ③ `AdminConn` 은 86 뒤 **`users_rev` 가 바뀌었을 때만** 다음 프레임(87)을 기다리고 87 은 `request_id` 가 없어 「86 직후 순서」로 짝짓는다(`admin-conn.ts:30-41, 470-500`). op 8 은 users_rev 를 바꾸지 않으므로 86 에서 바로 풀리고, 뒤따르는 94 는 짝 없는 프레임이 된다. op 9 는 86 없이 94 만 오므로 지금 구조로는 **5초 타임아웃**이 난다. → §7.1 Pattern R2.
+4. **ⓑ 09:00:30 µs 축 질문은 사실상 풀렸다(정식 노트 확인만 남음).** 10/26 N 조각의 −20,148µs 는 **선트리거 오발**(09:00:29.98)이었고 gh-trade quick-261026-dz9 가 그 경로를 지웠으며, 그날 N 기록은 35-09 UAT 에서 사용자 지시로 삭제됐다 `[CITED: gh-trade/.planning/quick/261026-dz9-openarb-1026-fix/261026-dz9-SUMMARY.md:64 · 35-09-SUMMARY.md:22,58]`. gh-trade 코드상 `sent_rel_us = firstSentSystemUs − gateSystemUs` 이고 게이트 = **오프셋 적용 전 base fireAt**(N = `NxtMainOpenFireAt` = 09:00:30.000000) `[CITED: gh-trade/server/src/trade/queued/LaunchThread.cpp:1638,1997,2715-2721 · app/Server.cpp:4662-4684]` → 계획 값과 `sent_rel_us` 는 **16:00 · 09:00:30 둘 다 같은 축**(계획 = 목표, 실측은 그보다 수 µs 뒤 — 하한).
+5. **N 값은 저장 · 조회는 되지만 발사 적용은 gh-trade 43-06(마지막 플랜)부터다** `[CITED: 43-03-PLAN.md:146 「N 값은 저장·조회되고 발사 적용은 Phase 43 마지막 플랜(43-06)부터」]`. 43-06 이 늦게 배포되면 09:00:30 저장은 code 0 인데 실제 발사는 `[open_arb] nxt_fire_offset_us` 로 나간다. D-33 UAT 가 16:00 코스닥만 보는 것은 이 점에서 맞다 — 09:00:30 UAT 는 43-06 배포 확인 뒤로.
+6. **권장 모양:** relay 에 새 모듈(`relay/src/admin/launch-plan.ts`)로 **서버 키 단위** 경로를 두고(dispatcher `#serial` 은 DMA 유저 단위라 맞지 않는다 · Phase 36 hunk 충돌도 피한다), 이력은 **server 가 쓴다**(요청자 이메일 · 서비스롤 클라이언트 · RPC 패턴이 이미 server 에 있다). 계획 읽기는 **별도 라우트** `GET /api/admin/launch/plan` 하나가 relay op 9 fan-out 과 이력 RPC 를 `Promise.all` 로 묶는다(지도 RPC 는 그대로 · 저장 뒤 지도 재조회 불필요).
+
+### 7.1 relay admin op 경로 (D-30) — 지금 상태와 end-to-end 추가 절차
+
+**현재 상태 (이번 세션 실독):**
+
+| 항목 | 현재 값 | 근거 |
+|---|---|---|
+| `ADMIN_OP` | `UpsertUser: 1, DeleteUser: 2, SetAccount: 3, RemoveAccount: 4, ListUsers: 5` | `[VERIFIED: relay/src/admin/types.ts:26-32]` |
+| `ADMIN_CODE` 일부 | `Ok: 0, BadOp: 1, … PersistFailed: 10, NotAdmin: 11, … BadOrderEndpoint: 13` | `[VERIFIED: relay/src/admin/types.ts:38-59]` |
+| `AdminCommandInput` | `{ requestId: bigint; op: AdminOp; userId: string; password?: string; account?: AdminAccount }` | `[VERIFIED: relay/src/admin/types.ts:103-112]` |
+| `MSG` | `AdminCommandResp: 86` · `AdminUsersSnapshot: 87` (94 없음) | `[VERIFIED: relay/src/dma/msg-type.ts:255,260]` |
+| 수신 허용 | `INBOUND_MSG_TYPES` 30종 — 「`SubscriptionHub.#onFrame` 의 명시 case 와 한 커밋에서만 함께 자란다」 | `[VERIFIED: relay/src/dma/msg-type.ts:276-284]` · hub case `[VERIFIED grep: subscription-hub.ts:2848-2849, 3121-3122]` |
+| 44 빌더 | `buildAdminCommandReq` — requestId ulong 가드 · password op 1 만 · account 조건부 | `[VERIFIED: relay/src/dma/envelope.ts:3338-3361]` |
+| 생성 코드 | 작업 트리에 **미커밋** 변경(`admin-command-req.ts` 에 `feePpm()` vtable 16 · `sellTaxPpm()` vtable 18 · `startObject(8)`, SYNC MARKER `75195b70 → 7824e51b`) — Phase 36-01 D-16 이 「첫 태스크에서 커밋」 할 gh-trade 41 sync 산출물 | `[VERIFIED: git diff relay/src/generated/]` · `[CITED: 36-01-PLAN.md:64]` |
+| 86→87 짝 | 86 ok + users_rev 변경이면 87 을 1초 대기 · op 5 는 처음부터 87 대기 · 짝 없는 86 은 warn 후 버림 | `[VERIFIED: relay/src/admin/admin-conn.ts:30-41, 427-500]` |
+| server 프록시 | `RelayAdminClient`(헤더 `X-Relay-Secret` · `x-admin-email`) · `toProxyResult`(200 · 400/409 통과 · 그 밖 502 `RELAY_FAILED`) · `audit(req, op, target, extra)` 1줄 | `[VERIFIED: server/src/services/relay-admin-client.ts:22,79-190]` · `[VERIFIED grep: server/src/routes/admin.ts:164-167]` |
+| 지도 라우트 | `adminLaunchRouter.use("/launch", requireAuth(), requireAdmin())` · GET orders · GET map(RPC 1회) | `[VERIFIED: server/src/routes/admin-launch.ts:26-57]` |
+
+**op 를 하나 더하는 end-to-end 절차 (정식 노트 뒤 · 아래 번호 · 필드는 PROVISIONAL):**
+
+1. **생성 코드 sync** — gh-trade 소유 `sync-relay-schema.sh` 가 `relay/src/generated/StockDMA.fbs` · `stock-dma/*.ts` 를 갱신(손편집 금지 · [[reference_gh_trade_protocol_sync]]). Phase 43 은 `AdminCommandReq` 3필드 · `LaunchPlanSnapshot`/`LaunchPlanEntry` 표 · `Envelope.launch_plan_snapshot` · `MsgType 94` · `StrategyEventKind 17/18` 을 **한 fbs 커밋**에 넣는다 `[CITED: 43-03-PLAN.md:120,146]` → 35-10 의 kind 17/18 sync 와 **같은 sync 한 번**이다.
+2. **`relay/src/admin/types.ts`** — `ADMIN_OP` 에 `SetLaunchPlan: 8, GetLaunchPlan: 9`(Phase 36 의 6 · 7 다음) · `AdminCommandInput` 에 `launchProfile?: "Q16" | "N"` · `launchMarket?: "K" | "Q"` · `launchOffsetsUs?: number[]` · 새 `LaunchPlanSnapshot = { requestId: bigint; planRev: bigint; updatedAt: string; entries: { profile: string; market: string; offsetsUs: number[] }[] }`.
+3. **`relay/src/dma/msg-type.ts`** — `LaunchPlanSnapshot: 94` + `INBOUND_MSG_TYPES` 추가 + **같은 커밋**에 `subscription-hub.ts` 두 case 에 `MSG.LaunchPlanSnapshot` 추가(86/87 과 같이 「admin 연결 전용 — 버린다」).
+4. **`relay/src/dma/envelope.ts`** — `buildAdminCommandReq` 에 op 8 분기(`createString(launchProfile/market)` · `AdminCommandReq.createLaunchOffsetsUsVector(b, offsets)` — 문자열 · 벡터는 `startAdminCommandReq` **앞에서** 만든다 · int32 범위 가드 RangeError) · op 9 는 필드 없음(서버가 읽지 않는다 `[CITED: 43-03-PLAN.md:183]`) · 새 `parseLaunchPlanSnapshot(env)`(total · 파손이면 null · `plan_rev` bigint 유지).
+5. **`relay/src/admin/admin-conn.ts`** — Pattern R2(아래): 94 를 `request_id` 로 짝짓는다 · op 9 는 「94 또는 86(실패)」 둘 다 받는다 · `#onCommandResp` 의 87 대기 판정에서 op 8 · 9 를 뺀다.
+6. **`relay/src/admin/launch-plan.ts`(신설)** — 서버 키 단위 두 함수(Pattern R1): `readLaunchPlans(serverKeys)` · `setLaunchPlan(serverKey, profile, market, offsets)`. 결과 모양은 `AdminServerResult`(shared) 재사용.
+7. **`relay/src/admin/admin-api.ts`** — 라우트 2개(이름 재량): `GET /internal/admin/launch-plan?servers=KB120,KYOBO119` · `PUT /internal/admin/launch-plan/:server` body `{ profile, market, offsetsUs }`(zod: `ServerKeyParam` · enum · `z.array(z.number().int().min(-2147483648).max(2147483647)).min(1).max(64)` — **순서 · 범위 검사는 하지 않는다**: 서버 code 1 문구가 말한다 · Phase 36 FeeBody 「구조만」 선례). 감사 = DMA 유저가 없으므로 `audited()` 대신 quote-primary 라우트처럼 `audit(adminEmail, route, null, {...}, { server })` 직접 `[VERIFIED: relay/src/admin/admin-api.ts:584-636]`.
+8. **server** — `relay-admin-client.ts` 에 `launchPlans(servers, adminEmail)` · `setLaunchPlan(server, body, adminEmail)` · `admin-launch.ts` 에 `GET /launch/plan` · `PUT /launch/plan/:gateway/:fire/:market`(이미 `/launch` 관문 뒤 — `requireAuth → requireAdmin` 재사용) · `audit(req, "launch-plan", "<gateway>/<fire>/<market>", { outcome, code })` · 이력 RPC 기록(§7.4).
+9. **shared** — `interpretAdminResult` 의 op 유니온에 8 · 9(code 0 만 ok). Phase 36 이 같은 줄에 6 · 7 을 넣는다 → 나중 쪽이 합친다.
+
+**Pattern R1 — 서버 키 단위 모듈 (dispatcher 를 쓰지 않는 이유):**
+- `AdminDispatcher.#serial(dmaUserId, …)` 는 **DMA 유저 줄**이다 `[VERIFIED grep: dispatcher.ts:174,202,241,581]`. 발사 계획은 유저와 무관하고, 서버당 직렬은 `AdminConn` 이 이미 보장한다(「서버당 1건 비행 · FIFO」 `[VERIFIED: admin-conn.ts:31-33]`). dispatcher 에 넣으면 의미 없는 키로 줄을 세우고, 36-02 가 고치는 `#answerBy` · `#fanOut` hunk 와 겹친다.
+- 필요한 표면은 `pipelines.get(key)?.admin`(`AdminConnLike`) + `registry.get(key)?.enabled` 둘뿐이다 — dispatcher deps 와 같은 모양을 좁혀 주입.
+- 판정 규칙은 36-02 와 같다: 레지스트리에 없거나 꺼짐 → `skipped`(문구 상수) · admin 없음/`isReady` 아님 → `offline` · `command()` 결과 `timeout`/`offline` 그대로 · 86 code ≠ 0 → `failed{code, message 원문}` · code 0 → `ok`. **`currentSnapshot() === null` 을 offline 판정에 쓰지 않는다** — 87(users.toml) 유무는 발사 계획과 무관하다(36-02 는 계좌 op 라 87 을 본다). ready 판정만 쓴다.
+- `setLaunchPlan` 흐름(권장): op 9(전 값 — 실패면 `before = null` 로 계속) → op 8 → code 0 이면 op 9(후 값). 세 프레임 모두 같은 연결 FIFO · 수 ms. 전 값을 **서버에서** 읽으므로 탭을 오래 열어 둔 화면의 낡은 값이 이력 `before` 로 들어가지 않는다. `{ result: AdminServerResult; before: number[] | null; after: LaunchPlanSnapshot | null }` 반환.
+- `readLaunchPlans` = 요청한 서버들에 op 9 병렬 → 서버별 `{ status: "ok", planRev, updatedAt, entries } | { status: "failed", code, message } | { status: "offline" | "timeout" | "skipped" }`. **구 서버(43 미배포)는 86 code 1 「알 수 없는 명령입니다」** 로 온다 — D-25 의 「조회 실패 → 대신 값 · 고치기 비활성」 으로 간다.
+- 마감: 기존 `ADMIN_REQUEST_DEADLINE_MS = 10_000` < Express `RELAY_ADMIN_TIMEOUT_MS` 15초 관계 그대로 `[VERIFIED: relay/src/admin/dispatcher.ts:116-121]`. op 9 → 8 → 9 는 각 5초 상한(`ADMIN_COMMAND_TIMEOUT_MS = 5_000` `[VERIFIED grep: admin-conn.ts:82]`)이라 최악 15초 → **라우트 도착 시각 기준 마감**을 넘으면 남은 단계를 건너뛰고 응답(op 8 이 이미 나갔으면 그 결과를 싣는다). 기록 · 의도 표 없음이므로 「뒤에서 계속 반영」 문구는 쓰지 않는다.
+
+**Pattern R2 — `AdminConn` 94 짝짓기 (가장 틀리기 쉬운 곳):**
+```ts
+// relay/src/admin/admin-conn.ts — 변경 요지 (PROVISIONAL 이름)
+type InFlightCommand = QueuedCommand & {
+  requestId: bigint;
+  awaiting: "resp" | "snapshot" | "plan";   // + "plan": op 9 — 94 또는 실패 86 을 기다린다
+  timer: NodeJS.Timeout | null;
+  result: AdminCommandResult | null;
+};
+// #pump: op 9 면 awaiting = "plan"(op 5 가 처음부터 "snapshot" 인 것과 같은 자리)
+// #handleFrame: MSG.LaunchPlanSnapshot → parseLaunchPlanSnapshot → #onLaunchPlan(snap)
+// #onLaunchPlan: f?.awaiting === "plan" && f.requestId === snap.requestId 일 때만 푼다
+//   → { kind: "result", result: { requestId, ok: true, code: 0, message: "", usersRev: <현재 rev> }, launchPlan: snap }
+//   그 밖(op 8 이 변경 뒤 보낸 94 · 늦은 94) = debug/info 로그 후 버린다 — 87 처럼 「다음 프레임」 으로 짝짓지 않는다
+// #onCommandResp: f.awaiting === "plan" 이고 requestId 같으면 86(실패 · 구 서버 code 1 · 10 · 11)으로 푼다
+//   op 8 · 9 는 users_rev 와 무관 → `changed` 판정(87 대기)에서 제외: if (f.input.op >= 8) { finish; return; }
+```
+근거: 94 는 87 과 달리 `request_id` 를 에코한다(`table LaunchPlanSnapshot { request_id: ulong; … }` `[CITED: 43-RESEARCH.md:250]`). op 8 성공 뒤 86 → 94 가 연달아 오는데 relay 는 86 에서 풀고 바로 다음 명령(op 9)을 내보내므로, **op 9 비행 중에 op 8 의 94 가 먼저 도착**한다 — 순서로 짝지으면 op 9 가 op 8 의 94 를 자기 응답으로 오인한다(값은 같겠지만 rev/시점 의미가 틀어지고 테스트가 비결정적이 된다). `request_id` 비교가 유일하게 안전한 짝이다. 86 의 `users_rev` 는 「users 레지스트리 rev 그대로」 `[CITED: 43-RESEARCH.md:259]` 라 현재 `changed` 판정에 걸리지 않지만(rev 동일), 같은 세대 rev 가 null 인 순간(접속 직후 op 5 전)에는 `prevRev === null → changed` 로 87 을 1초 기다리고 op 5 를 한 번 더 보낸다 — op 번호로 명시 제외하는 편이 안전하다.
+
+**순서 — Phase 36 과 겹치는 파일 (권장 시퀀스):**
+
+| 파일 | Phase 36 플랜 | 범위 7 |
+|---|---|---|
+| `relay/src/generated/*` | 36-01 Task 1 이 gh-trade 41 sync 커밋(지금 미커밋 변경) | gh-trade 43 sync(35-10 과 공용) |
+| `relay/src/admin/types.ts` · `relay/src/dma/envelope.ts` | 36-02(op 6/7 · 87 3필드) | op 8/9 · 94 |
+| `relay/src/admin/admin-api.ts` · `relay/tests/admin-api.test.ts` · `relay/tests/helpers/frames.ts` | 36-02 | 새 라우트 2 · 94 프레임 헬퍼 |
+| `relay/src/hub/subscription-hub.ts` | 36 플랜 2개 | 94 case 2곳 |
+| `packages/shared/src/admin.ts`(`interpretAdminResult`) · `packages/shared/src/index.ts` | 36-10 | op 8/9 · launch-plan 타입 export |
+| `server/src/services/relay-admin-client.ts` | 36 플랜 2개 | 메서드 2 |
+
+권장: **범위 7 의 relay · server-relay-client 플랜은 `depends_on` 에 36-02 를 걸거나, 36 이 아직이면 그 플랜 머리에 「36-02 가 먼저 병합됐는지 확인 — 아니면 op 6/7 자리를 비워 두고(8 · 9 만 추가) 병합 세션이 정리」 를 적는다.** 생성 코드는 36-01 의 41 sync 커밋 **뒤에** 43 sync 가 와야 한다(같은 파일 덮어쓰기 · 이 트리의 미커밋 사본은 다른 세션 것 — 35-10 prohibitions 와 같은 규칙). 병렬 실행은 [[feedback_parallel_wave_worktree]] · [[feedback_concurrent_session_commit_race]] 대로 순차 또는 worktree.
+
+### 7.2 gh-trade Phase 43 상태 · 예상 와이어 (PROVISIONAL — 게이트는 정식 노트, D-33)
+
+**상태:** 플랜 6개(5 wave) 커밋 `f75a5534` · 실행 SUMMARY 0개 · 우리 회신 수신 커밋 `178c9e2c`(open) `[VERIFIED: git -C gh-trade log · ls 43-launch-plan-admin]`. 43-05 는 우리 회신(ⓐ~ⓔ)이 오기 **전에** 쓰인 플랜이라 노트 부록이 「① 매핑 표 2 · ② op 와이어 표 · ③ 답 5(launch-gate-contract 질문)」 로 잡혀 있다 `[CITED: 43-05-PLAN.md:116]` — ⓐ ⓒ ⓔ 는 와이어 표 ②와 매핑 표 ①로 사실상 답해지지만 **ⓑ(축) · ⓓ(적용 발사)는 명시 답이 빠질 수 있다** → 노트 도착 시 확인 항목.
+
+| 요구 | 플랜이 정한 답 (PROVISIONAL) | 출처 |
+|---|---|---|
+| ⓐ 조회 | op 9 GetLaunchPlan → **94 만**(86 없음) · `LaunchPlanSnapshot { request_id: ulong; plan_rev: ulong; updated_at: string; entries: [LaunchPlanEntry] }` · `LaunchPlanEntry { profile: string; market: string; offsets_us: [int] }` · entries = **Q16/K · Q16/Q · N/K · N/Q 네 행 고정 순서** · N 은 길이 1 · `updated_at` = `"YYYY-MM-DDTHH:MM:SS"` KST · `plan_rev` 기동 1 · 변경마다 +1(파일에 남음) · 미초기화면 86 code 10 「발사 계획 미초기화」 | `[CITED: 43-RESEARCH.md:245-251 · 43-03-PLAN.md:44,124,146,182]` |
+| 저장 | op 8 SetLaunchPlan · `launch_profile` "Q16"\|"N" · `launch_market` "K"\|"Q" · `launch_offsets_us` µs(기준 16:00:00.000000 / 09:00:30.000000 · 음수 = 앞당김) · 변경이면 86 → **94 1프레임** | `[CITED: 43-RESEARCH.md:238-241,256-258]` |
+| ⓒ 거부 | **새 code 없음 — 전부 86 code 1 + 고정 문구**: 「발사 계획 대상 밖(profile Q16\|N · market K\|Q)」 · 「조각 수 범위 밖(1~10)」 · 「발사 시각 범위 밖(-3000~1000µs)」 · 「발사 시각 범위 밖(-2000~2000µs)」 · 「시각 목록은 같거나 커지는 순서(서버가 정렬하지 않음)」 · 「N 은 시각 한 값」 · 저장 실패 code 10 · 비 admin 11. 같은 값(−350,−345,−345 등 동일값 포함) 수용 | `[CITED: 43-03-PLAN.md:184 (doctest 표)]` |
+| ⓒ 멱등 | 같은 값 = code 0 · `kAdminNoChangeMessage`(「변경 없음」) · rev 불변 · 파일 안 씀 · **94 없음** | `[CITED: 43-RESEARCH.md:257]` |
+| ⓓ 적용 발사 | **86 에 싣지 않음** — 성공 문구 **고정** 「저장 — 다음 발사부터 적용」(회차 진행 판정 안 함) | `[CITED: 43-RESEARCH.md:258]` → 웹은 D-27 의 고정 안내 문구 경로 |
+| ⓔ kind 18 | 학습값 칸(`correction_before/after_us` · `step_us` · `last_dir` · `bracketed` · `same_dir_run` · `reject_span_us` · `jump`) **싣지 않음** · `next_offset_us`(cond_threshold) = 콜드3 에서 `Load()` 한 **최신 계획 첫 조각**(N = 그 시장 값) · kind 18 `message` 에 `plan=-350,-345,-325` · `entry_round` = plan_rev | `[CITED: 43-CONTEXT.md D-12 · 43-RESEARCH.md:311-322]` |
+| ⓑ 축 | 플랜에 명시 답 없음 — 코드상 같은 축(§7.0-4) | `[CITED: LaunchThread.cpp:2715-2721]` |
+| 조각 수 상한 | 119/120 `max_pieces` = 10 → D-26 스테퍼 1~10 과 일치 | `[CITED: 43-RESEARCH.md:256 「(119/120 = 10)」]` |
+| 초깃값 | 계획 파일이 없는 첫 기동: Q16 = 보정 상태로 계산한 첫 조각 + 0/+10/+30 의 3조각 · N = `nxt_fire_offset_us`(119 −200 · 120 −245) 코스피·코스닥 같은 값 | `[CITED: 43-CONTEXT.md D-09]` · 설정값 `[VERIFIED: gh-trade server/config/kyobo/119/server.toml:345 "nxt_fire_offset_us = -200" · kb/120/server.toml:436 "nxt_fire_offset_us = -245"]` |
+| 121 | 대상 아님 · 배포도 안 함 | `[CITED: 43-CONTEXT.md D-02]` |
+
+**플래너 규칙:** 위 번호 · 필드 이름 · 문구를 **플랜 action 에 리터럴로 박지 않는다.** 노트 전 플랜은 §7.5 의 shared 계약 타입(우리 쪽 내부 모양)까지만 만들고, 노트 뒤 플랜 Task 1 이 「노트 ②표 대조 → 다르면 이 절과 shared 타입 갱신」 으로 시작한다(35-10 Task 1 게이트와 같은 꼴).
+
+### 7.3 웹 삽입 지점 (D-24 · D-25 · D-26 · D-28 · D-32)
+
+**지금 구조 (이번 세션 실독):**
+- `LaunchMapTab`(받기 · `fire`/`range` effect · alive 플래그 · `attempt` 재시도) → `LaunchMapView`(순수 렌더: 컨트롤 → 범례 → KPI 4장 → `LaunchGateChart` ×4 → 푸터) `[VERIFIED: webapp/src/components/admin/launch-map-tab.tsx:51-229]`.
+- `panelsOf(resp, fire)` 가 패널마다 `next: mapNextOffsetOf(resp.heads, gateway, market, fire)` — **단일 값**. KPI 「다음 첫 조각」 도 그 값 `[VERIFIED: launch-map-tab.tsx:119-133,291-301]`.
+- `LaunchGateChart({ gateway, market, fire, days, next })` — 머리(h3 + 집계 글) · SVG · 날짜별 표. SVG 의 축은 `launchAxisOf(values, next, fire)`, 점선은 `data-slot="launch-next"` path 1개(행 + 리본 관통), 축 밖이면 `launch-next-off` 글 `[VERIFIED: launch-gate-chart.tsx:49-57,80-107,129-138,283-307]`.
+- 축 함수는 `next: number | null` 하나만 core 에 넣는다(중앙값 ± `AXIS_CAP` q16 300 · n0930 100) `[VERIFIED: webapp/src/lib/launch-map.ts:46,75-89]`.
+- 리본 판정은 shared `launchRibbonAt(days, v)` — 「`v ≥ hi` 면 접수, 아니면 `v ≤ lo` 면 거부, 나머지 모름(hi 먼저)」 `[VERIFIED: packages/shared/src/launch.ts:338-354]` — **D-28 미리보기 셀 판정과 같은 식**(목업 `verdict()` 의 `f` 와 동일 `[VERIFIED: mockup-launch-plan-preview.html:305-312]`).
+- 색 토큰: 목업 `--gate` = 코드 **`--launch-gate`** · `--launch-gate-bg`(경계 띠에 이미 씀) `[VERIFIED: launch-gate-chart.tsx:66-70]`. 새 토큰 불필요.
+- 결과 칩: `ReflectChip({ serverKey, tone, message, text })` · `ADMIN_CHIP_BASE` · `ADMIN_TONE_CLASS`(ok/warn/err/only) `[VERIFIED: webapp/src/components/admin/reflect-chip.tsx:17-60]` — D-27 「KB120 · 실패」 는 `text` 덮어쓰기 + `message` = title.
+- API: `launch-api.ts` 는 `authFetch` + 같은 경로 in-flight 합치기 `[VERIFIED: webapp/src/lib/launch-api.ts:17-39]` → `fetchLaunchPlan()` · `saveLaunchPlan(...)` 를 같은 파일에.
+- E2E 목: `mockLaunchApi` 가 `**/api/admin/launch/**` 하나로 받고 모르는 경로는 404 · 요청 기록을 경로로 거른다(`maps()` = `/map` 만) `[VERIFIED: webapp/e2e/fixtures/launch.ts:339-378]` → `/plan` 을 더해도 기존 M1~M5 「요청 1건」 단언은 안 깨지고, 목에 `/plan` 이 없으면 404 → D-25 대신 값 경로로 떨어져 기존 점선 단언(최신 머리 값)이 그대로 산다.
+
+**권장 변경 (파일별):**
+
+| 파일 | 변경 |
+|---|---|
+| `packages/shared/src/launch-plan.ts`(신설 · index export) | 계약 타입(§7.5 R-seam) + 순수 함수: `launchPlanProfileOf(fire)`(`q16→"Q16"` · `n0930→"N"`) · `validateLaunchPlanDraft(fire, raw: string[])` → `{ ok, values?, badIdx?, message? }`(정수 `^-?\d+$` · 비감소 · 16:00 길이 1~10 · 09:00:30 길이 1) · `launchPlanVerdictRows(days, cur, next)` → `launchRibbonAt` 재사용 · `planOf(server, fire, market)` |
+| `webapp/src/lib/launch-plan-format.ts`(신설) | 「다음 발사 계획」 줄 문구(「3조각 −350 · −345 · −325µs」 / 「−245µs」 · `fmtUs` 재사용 — `−` U+2212) · 결과 줄 문구 4종(D-27) · 마지막 변경 「22:41 · 이메일」/「10/27 22:41」(KST) · 이력 알약 |
+| `webapp/src/lib/launch-map.ts` | `launchAxisOf(values, marks: readonly number[], fire)` 로 일반화(기존 `next` 호출부는 `[next]` · null 이면 `[]`) — 계획 선 전부 + 바꿀 선 전부를 core 후보에 넣는다(cap 밖이면 기존 「◂/▸ 글」 규칙). 기존 단위 테스트는 시그니처 어댑터로 유지 |
+| `launch-gate-chart.tsx` | props `next` → `planLines: number[]`(조각마다 `--primary` 점선 · 첫 조각만 쓰던 `launch-next` 를 `data-idx` 붙여 n개) + `draftLines?: number[]`(`--launch-gate` **실선** · 리본 아래 번호 글 1..n · 범례 「바꿀 계획(저장 전 · 번호 = 조각)」) + `planSource: "server" \| "fallback"` + 머리 아래 슬롯(`children` 또는 `header` prop — 「다음 발사 계획」 줄 · 「계획 고치기」 · 편집 칸 · 미리보기 표 · 「변경 이력」 접힘) |
+| `launch-plan-editor.tsx`(신설) | 편집 칸 A(스테퍼 −/+ 1~10 · 조각 칸 n개 `inputMode="numeric"` · `aria-invalid` · role=alert · 「되돌리기」 · 「저장」) + P2 표(가로 스크롤 래퍼) + 결과 줄 · 칩. 상태는 부모가 쥔다(draft 문자열 배열 — 입력값 유지 위해 숫자 변환 전 원문) |
+| `launch-map-tab.tsx` | `LaunchMapTab` 에 **계획 상태** 하나 더: `fetchLaunchPlan()` 을 지도 요청과 **병렬**(탭 진입 · 저장 성공 뒤 · fire/range 변경 시엔 다시 부르지 않음 — 계획은 fire 와 무관한 서버 전체 4행) · 편집 상태 `{ key: "KB120\|Q", draft: string[] } \| null`(한 번에 한 패널 — 다른 패널 「계획 고치기」 는 앞 편집을 닫는다 · fire 세그먼트 바꾸면 닫는다). `panelsOf` 가 `planLines`(서버 ok → 그 entry · 아니면 `mapNextOffsetOf` 를 `[x]` 로 · null 이면 `[]`) · `planSource` · `lastChange` · `changes` 를 싣는다. KPI 「다음 첫 조각」 = `planLines[0] ?? null`. 범례 아래 **적용 시점 안내 한 줄**(D-27 문구 원문) |
+| `launch-format.ts`(D-32) | `learnText` → 16:00 머리 카드 줄을 「다음 발사 계획 첫 조각 −350µs」(`next_offset_us`)로. 학습값 칸이 null 인 행(Phase 43 뒤)은 그 줄만, 백필 · 43 이전 행(학습값 있음)은 — 표시 여부 재량(§7.8 Q3) `[VERIFIED: launch-format.ts:194-199 현재 learnText]` |
+
+**폰 390 · 반응형:** 이 화면은 limit-chaser 의 「본문 폭 4밴드 컨테이너 쿼리」 규칙 대상이 **아니다**(CLAUDE.md Conventions 는 `/trading/limit-chaser` 한정 · 「앱 셸 · 사이드바는 뷰포트 브레이크포인트」). 지도는 이미 「SVG 640 고정 + 패널 래퍼 가로 스크롤 · 부모 `min-w-0`」 `[VERIFIED: launch-map-tab.tsx:38-39 · launch-gate-chart.tsx:35-36,141]`. 편집 칸은 **패널 폭 안 `flex-wrap` 줄바꿈**(조각 칸 고정폭 ~88px), 미리보기 표는 날짜별 표와 같은 `overflow-x-auto` + `min-w-max` 래퍼(D-14 · 재량 원문). E2E P35-M3 의 「페이지 가로 스크롤 0」 단언을 편집 칸 펼친 상태로 하나 더 건다.
+
+**한 화면 흐름 상태 표 (플래너 태스크 분해용):**
+
+| 상태 | 「다음 발사 계획」 줄 | 점선 | 고치기 |
+|---|---|---|---|
+| 계획 조회 중 | 스켈레톤(재량) | 최신 머리 값(임시) | 비활성 |
+| 서버 ok | 「3조각 −350 · −345 · −325µs · 22:41 · a@b」 | 조각마다 `--primary` | 활성 |
+| 서버 offline/timeout/failed/skipped · relay 502 | 「서버 연결 안 됨 · 마지막 발사 값 −337µs」 | 최신 머리 1개(Q16 은 첫 조각만 — 머리에 목록이 없다) | **비활성**(D-25) |
+| 편집 중 · 순서 오류 | 그대로 | 계획 점선 + 바꿀 실선 **갱신 멈춤**(마지막 유효 draft 유지) | 저장 비활성 |
+| 저장 성공 | 갱신(응답의 after) | 갱신 | 편집 닫힘 여부 재량 |
+
+### 7.4 변경 이력 표 (D-29)
+
+**누가 쓰나 — server(권장).** 근거: ① 요청자 이메일이 server 에 있다(`requireAdmin` 이 `req.adminEmail` 을 싣는다 — `audit()` 가 쓴다 `[VERIFIED grep: server/src/routes/admin.ts:164-167]`) ② server 는 서비스롤 `SupabaseClient` + 「RPC 1회 · DbError · 모양 검사」 서비스 패턴이 이미 있다 `[VERIFIED: server/src/services/admin-launch.ts:1-88]` ③ relay 에서 쓰면 relay 가 「relay 도달 실패(502)」 시도를 기록할 수 없다 — D-29 는 offline 시도도 1행이다 ④ relay 는 이 경로에서 DB 무관(Phase 36 D-04 「의도 저장 없음」 결)으로 둬 relay 테스트가 단순해진다.
+
+**마이그레이션 골격 (이름 재량 · 타임스탬프 주의 — Pitfall S7):**
+```sql
+-- supabase/migrations/2026102821xxxx_launch_plan_changes.sql  (35-10 의 20261028200000 보다 뒤)
+BEGIN;
+CREATE TABLE public.launch_plan_changes (
+  id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  at           timestamptz NOT NULL DEFAULT now(),
+  admin_email  text        NOT NULL,
+  gateway      text        NOT NULL,             -- 'KB120' · 'KYOBO119' (FK 없음 — 키 개명 선례 20261007200000)
+  fire         text        NOT NULL,             -- 'q16' · 'n0930' (LaunchFire 그대로)
+  market       text        NOT NULL,             -- 'K' · 'Q'
+  before_us    integer[]   NULL,                 -- 저장 직전 서버 조회값 · 모르면 null
+  after_us     integer[]   NOT NULL,             -- 보낸 값
+  outcome      text        NOT NULL,             -- AdminOutcome: ok · failed · timeout · offline · skipped
+  code         integer     NULL,
+  message      text        NULL,
+  plan_rev     bigint      NULL                  -- 94 plan_rev(성공 · 노트가 확정하면)
+);
+CREATE INDEX launch_plan_changes_key_at_idx ON public.launch_plan_changes (gateway, fire, market, at DESC);
+ALTER TABLE public.launch_plan_changes ENABLE ROW LEVEL SECURITY;      -- 정책 0개 · 추가 금지
+REVOKE ALL ON TABLE public.launch_plan_changes FROM PUBLIC;
+REVOKE ALL ON TABLE public.launch_plan_changes FROM anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.launch_plan_changes TO service_role;  -- 이력은 고치지 않는다(UPDATE/DELETE 없음)
+-- RPC 2개: launch_plan_change_record(p jsonb) RETURNS jsonb · launch_plan_changes_for_admin(p_limit integer DEFAULT 20) RETURNS jsonb
+--   SECURITY INVOKER · SET search_path = public, pg_temp · REVOKE EXECUTE … FROM PUBLIC · FROM anon, authenticated · GRANT … TO service_role
+COMMIT;
+```
+권한 3줄 재진술 · 서비스롤 전용 잠금 문형은 35-02 마이그레이션 그대로 `[VERIFIED: supabase/migrations/20261027200000_launch_gate.sql:33-35,111-114,276-278]` · [[feedback_supabase_rpc_revoke]]. CHECK 는 `outcome` 정도만(원천이 우리 server zod — 투영 표 Pitfall 6 의 「조용한 유실」 은 여기선 「기록 실패 로그」 로 드러나지만, 굳이 막을 값이 없다). purge 없음(D-29 · D-05 결).
+
+**읽기 RPC 모양(권장):** `launch_plan_changes_for_admin(p_limit)` → `{ changes: [...] }` — `(gateway, fire, market)` 마다 최근 `p_limit` 행(`row_number() OVER (PARTITION BY gateway, fire, market ORDER BY at DESC)`) + 같은 키의 **마지막 ok 1행**(최근 N 이 전부 실패여도 「마지막 변경」 이 보이게 — `DISTINCT ON (gateway, fire, market) … WHERE outcome = 'ok'`) 을 합쳐 jsonb 스칼라 1개. 8조합 × 20 = 최대 160행.
+
+**왕복(D-29 「지도 RPC 에 실을지」) — 별도 라우트 권장:**
+- 계획 현재 값은 **DB 가 아니라 relay** 에서 온다(D-25). 지도 RPC 에 이력을 실어도 relay 호출은 따로 필요하고, 저장 뒤엔 계획 + 이력만 바뀌고 지도(`launch_pieces`)는 안 바뀐다 → 지도 재조회는 낭비.
+- `GET /api/admin/launch/plan` = `Promise.all([relay.launchPlans(["KB120","KYOBO119"]), rpc("launch_plan_changes_for_admin")])` → **Supabase 왕복 1 · relay 왕복 1 병렬**(벽시계 = 둘 중 긴 쪽). 브라우저는 지도 요청과 이 요청을 병렬로 낸다. relay 실패는 응답을 실패로 만들지 않는다 — 서버별 `status` 를 「offline」 으로 채워 200(웹이 대신 값 경로) · 이력 RPC 실패는 500 `DB_ERROR`(이력 없이 그리면 「마지막 변경」 이 거짓 「—」 가 된다 — 재량, 경고 줄로 낮춰도 됨).
+- `PUT /api/admin/launch/plan/:gateway/:fire/:market` body `{ offsets_us: number[] }` → relay `setLaunchPlan`(op 9 → 8 → 9) → `rpc("launch_plan_change_record", { … outcome, code, message, before_us, after_us, plan_rev })` → `{ result, plan, change }` **한 응답**(웹은 저장 뒤 다시 부르지 않는다 = D-27 「다시 조회」 를 서버가 같은 요청 안에서 한다). relay 502 → 이력 1행(`outcome: "offline"`, message 「relay 연결 실패」 류) + 200 `{ result: { server, outcome: "offline" } }`(D-27 「미반영: 서버 연결 안 됨」). 이력 기록 실패는 **응답을 실패로 바꾸지 않되** `logger.error({ gateway, fire, market, outcome }, "[admin] 발사 계획 이력 기록 실패")` + 응답에 `change: null`(무로그 fail-safe 금지 메모리 [[feedback_silent_failure_max_tokens]]).
+- 마운트는 기존 `adminLaunchRouter` 안(`/launch` 관문 재사용 · `app.ts` 마운트 순서 무변경) `[VERIFIED: admin-launch.ts:28-31]`. 서버 zod: `gateway` = `ServerKeySchema` 류 · `fire` = `LaunchFire` enum · `market` = `K|Q` · `offsets_us` = int 배열 1~64(순서 검사는 웹 · 서버 gh-trade).
+
+### 7.5 노트 전 / 노트 뒤 웨이브 가르기 (D-33)
+
+**R-seam — 우리 쪽 내부 계약을 먼저 고정한다(노트와 무관한 모양):**
+```ts
+// packages/shared/src/launch-plan.ts — server ↔ webapp 계약(snake_case 통과 · D-20 결). relay ↔ server 도 같은 모양을 쓴다.
+// 노트 뒤 바뀌는 것은 relay 의 44/94 인코드·파스뿐 — 이 타입은 「서버 1대의 4칸 계획」 이라는 의미만 담는다.
+export type LaunchPlanProfile = "Q16" | "N";
+export interface LaunchPlanEntry { profile: LaunchPlanProfile; market: LaunchMarket; offsets_us: number[] }
+export type LaunchPlanServer =
+  | { status: "ok"; plan_rev: number | null; updated_at: string | null; entries: LaunchPlanEntry[] }
+  | { status: "failed"; code: number; message: string }
+  | { status: "offline" | "timeout" | "skipped"; message?: string };
+export interface LaunchPlanChangeRow {
+  id: number; at: string; admin_email: string; gateway: string; fire: LaunchFire; market: LaunchMarket;
+  before_us: number[] | null; after_us: number[]; outcome: AdminOutcome; code: number | null; message: string | null;
+}
+export interface LaunchPlanResponse { servers: Record<string, LaunchPlanServer>; changes: LaunchPlanChangeRow[] }
+export interface LaunchPlanSaveBody { offsets_us: number[] }
+export interface LaunchPlanSaveResponse { result: AdminServerResult; plan: LaunchPlanServer | null; change: LaunchPlanChangeRow | null }
+```
+`AdminOutcome = "ok" | "failed" | "timeout" | "offline" | "skipped"` `[VERIFIED: packages/shared/src/admin.ts:126]` · `LaunchFire = "q16" | "n0930"` · `LaunchMarket = "K" | "Q"` `[VERIFIED: packages/shared/src/launch.ts:27,31]` · 패널 키 `LAUNCH_ORDER` = `["KB120","Q"],["KB120","K"],["KYOBO119","Q"],["KYOBO119","K"]` `[VERIFIED: packages/shared/src/launch.ts:45-50]`. `plan_rev` 는 relay 에서 bigint → number(`toNum` 관례).
+
+**권장 플랜 분할 (번호는 플래너 재량 · 35-10 = wave 7 · 35-11 뒤 이어서):**
+
+| 플랜 | 노트 | 내용 | 검증 |
+|---|---|---|---|
+| **35-12** 계약 · 이력 · server | **전** | shared `launch-plan.ts`(타입 + 검증 · 판정 · 문구 순수 함수 + vitest) · 이력 마이그레이션 + RPC 2 + pgTAP · server `GET/PUT /launch/plan`(relay 클라이언트 **메서드 시그니처만 추가하고 테스트는 가짜 `relayAdmin`**) · supertest(관문 403 · zod 400 · relay 502 → offline 200 + 이력 1행 · 이력 실패 → change null + error 로그) | pgTAP · shared/server vitest |
+| **35-13** 웹 편집 · 미리보기 · 이력 | **전** | `launchAxisOf` 일반화 · `LaunchGateChart` 계획 선 n개 + 바꿀 실선 + 번호 · 편집 칸 A · P2 표 · 「다음 발사 계획」 줄 · 「변경 이력」 접힘 · 대신 값/비활성 · 적용 시점 안내 · `launch-api` 2함수 · jsdom 단위 + Playwright(`mockLaunchApi` 에 `/plan` GET · PUT 목 — ok · code 1 · offline · 순서 오류 · 390) | webapp vitest · e2e `--workers=1` |
+| **35-14** relay op 8/9 · 94 · D-32 | **뒤** | Task 1 게이트: 노트 ②표 대조(§7.2 표와 다르면 이 절 · shared 타입 갱신 후 진행) · 생성 코드 sync 확인(36-01 커밋 뒤 · gh-trade 스크립트) · `types` · `msg-type`+hub case · `envelope` 빌더/파서 · `admin-conn` Pattern R2 · `launch-plan.ts` Pattern R1 · `admin-api` 라우트 2 · server `relay-admin-client` 실제 경로 · shared `interpretAdminResult` 8/9 · D-32 `learnText`(35-10 의 kind 18 매핑과 같은 노트 칸) | relay vitest(envelope 왕복 · admin-conn 짝짓기 · launch-plan · admin-api) · server vitest |
+| **35-15**(또는 35-11 에 합침) 배포 · 라이브 UAT | **뒤** | D-30 순서: gh-trade 43 배포 확인 → `supabase db push --linked --yes`(이력 표 · 35-10 매핑과 같은 push) → relay 배포 → server → webapp push(메인 세션 · [[feedback_subagent_deploy_classifier]] · [[feedback_deploy_relay_before_push]]) → D-33 UAT ①~④ + 조회 op 새 값(회신 ④) · 인박스 `261027-launch-plan-admin.md` `status: done` | 사용자 확인 원문 |
+
+- 35-12 · 35-13 은 **지금 실행 가능**하지만 **원격 배포는 하지 않는다**(Pitfall S7 · 구 relay 에는 `/internal/admin/launch-plan` 이 없어 server 가 502 → 대신 값으로 떨어지므로 안전은 하나, 이력 표만 먼저 push 하면 35-10 마이그레이션 타임스탬프 역전이 생긴다). webapp push = 프로덕션이므로 35-13 커밋을 노트 전에 push 하면 「계획 고치기」 가 늘 비활성인 화면이 먼저 나간다 — 무해하지만 사용자 확인 사항.
+- 35-14 는 35-10(같은 노트 · 같은 sync)과 **같은 웨이브의 순차**, Phase 36 의 36-02 와 **depends_on/병합 확인**(§7.1 표).
+
+### 7.6 Pitfalls (범위 7)
+
+- **S1 — 94 를 87 처럼 「다음 프레임」 으로 짝짓기.** op 8 성공 뒤 94 와 이어서 보낸 op 9 의 94 가 섞인다. `request_id` 로만 짝짓고 짝 없는 94 는 버린다(Pattern R2). 테스트: 「op 8 → 86 → (op 9 송신) → op 8 의 94 → op 9 의 94」 순서 프레임으로 op 9 가 **자기 94** 로 풀리는지.
+- **S2 — op 9 가 5초 타임아웃.** 지금 `#onCommandResp` 는 `awaiting === "resp"` 만 받고 op 5 경로는 86 을 받지 않는다. op 9 는 구 서버 code 1 · 미초기화 code 10 · 비 admin 11 을 **86 으로** 받으므로 「94 또는 86」 둘 다 받아야 한다. 안 그러면 구 서버에서 조회가 5초씩 걸리고 지도 탭이 그만큼 「조회 중」 이다.
+- **S3 — 94 가 relay 에 닿지도 않음.** `MSG` · `INBOUND_MSG_TYPES` · hub 두 case 를 **한 커밋**에(PC-12 불변식 `[VERIFIED: msg-type.ts:280-282]`). 빠지면 envelope 이 WARNING 드롭.
+- **S4 — offline 판정에 `currentSnapshot()` 을 씀.** 87(users.toml) 미수신은 발사 계획과 무관 — 36-02 의 계좌 op 판정을 복사하면 87 이 늦은 접속 직후 계획 조회가 괜히 offline 이 된다. ready 만 본다.
+- **S5 — code 1 문형이 범위 거부에도 「서버 미지원」 으로 보인다.** gh-trade 는 범위 · 대상 밖 거부도 code 1 이다(§7.2 ⓒ). D-27(= Phase 36 D-06) 문형대로면 「KB120 실패: 서버 미지원 · 발사 시각 범위 밖(-3000~1000µs) — 서버 업데이트 뒤 다시 저장」 이 된다. D-26 의 클라 검증은 정수 · 순서뿐이라 범위 밖 입력은 서버까지 간다. → §7.8 Q1(사용자 확인).
+- **S6 — 저장 성공 뒤 지도 전체 재조회.** D-27 「다시 조회」 는 계획만이다. PUT 응답이 `plan` 을 싣게 하고 `fetchLaunchMap` 을 다시 부르지 않는다(E2E: 저장 뒤 `maps().length` 불변).
+- **S7 — 마이그레이션 타임스탬프 역전.** 35-10 매핑 `20261028200000` 이 노트 대기 중이다. 이력 표를 그보다 **이른** 타임스탬프로 만들어 먼저 push 하거나, 늦은 타임스탬프로 먼저 push 한 뒤 35-10 을 push 하면 `supabase db push` 가 순서 밖 로컬 마이그레이션을 거부한다(`--include-all` 필요). 이력 표는 `20261028200000` **뒤** 타임스탬프 + **35-10 과 같은 push**(노트 뒤)로. `[ASSUMED: Supabase CLI 순서 밖 마이그레이션 거부 동작 — 이번 세션 미재현]`
+- **S8 — 축이 계획 선을 못 담음.** `launchAxisOf` 는 `next` 하나만 core 에 넣는다. 16:00 3조각(−350 · −345 · −325) + 바꿀 3조각을 넣지 않으면 일부 선이 「축 밖」 글로 떨어진다. 다만 **cap(중앙값 ± 300/100)은 유지** — 오타(−35000)가 축을 수천 배로 늘리지 않게(위 Pitfall 4 와 같은 이유).
+- **S9 — 순서 오류 중 선이 깜빡임.** D-28 「순서 오류면 선 · 표 갱신 멈춤」 = 마지막 **유효** draft 를 그린다(빈 선으로 지우지 않는다). 입력 칸은 원문 문자열을 유지(숫자 변환으로 「-」 「-3」 중간 입력이 지워지지 않게).
+- **S10 — N 저장이 발사에 안 먹는 기간.** 43-06 배포 전에는 N 값이 저장 · 조회만 된다(§7.0-5). 09:00:30 UAT 를 16:00 UAT 와 같은 날 묶지 말 것 · 패널 줄은 서버 값을 그대로 보여 주므로 화면만으로는 구별이 안 된다 — 배포 기록(43-DEPLOY)으로 확인.
+- **S11 — Q16 대신 값은 첫 조각 하나뿐.** kind 18 머리에는 목록이 `message` 의 `plan=` 으로만 실린다는 것이 플랜 제안이다(§7.2 ⓔ). 35-10 이 그 목록을 열로 풀지 않는 한 대신 값 점선은 1개 — 상태 표대로 의도된 차이(「마지막 발사 값」 문구).
+- **S12 — D-32 백필 행.** 43 이전 머리(백필 · 학습 시절)는 학습값이 차 있고 `next_offset_us` 는 백필 null `[VERIFIED: packages/shared/src/launch.ts:146 「다음 발사 첫 조각 rel 목표(kind 18 계산값 · 백필은 null)」]`. 줄을 무조건 「다음 발사 계획 첫 조각 —」 로 바꾸면 과거 날 정보가 사라진다 → §7.8 Q3.
+- **S13 — 동시 세션 · 생성 코드.** 이 트리의 `relay/src/generated/*` 미커밋 변경은 다른 세션(Phase 36) 몫이다 — 범위 7 플랜이 `git add -A` 로 휩쓸지 않게 경로 지정 커밋([[feedback_concurrent_session_commit_race]]).
+
+### 7.7 Validation Architecture (범위 7)
+
+`workflow.nyquist_validation: true` `[VERIFIED: .planning/config.json:19]`. 프레임워크는 위 본문 §Validation Architecture 와 같다(pgTAP 일회용 컨테이너 · vitest 4.1.4 shared/relay/server · vitest 2.1.9 webapp · Playwright 1.59.1 `[VERIFIED: node_modules 각 package.json]`). 메모리 규칙: vitest `--maxWorkers=2` · playwright `--workers=1` · 전체 회귀는 한 세션만([[project_mac_freeze_concurrent_tests_261010]]).
+
+| Property | Value |
+|---|---|
+| Quick run | `pnpm --filter @gh-radar/<ws> exec vitest run <file> --maxWorkers=2` · `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/launch_plan_changes.test.sql` |
+| Full suite (범위 7) | `pnpm --filter @gh-radar/shared build` → shared · relay · server · webapp `typecheck` + vitest(`--maxWorkers=2`) → `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin-launch.spec.ts --workers=1` → pgTAP `launch_plan_changes.test.sql` + 회귀 `launch_gate.test.sql` |
+
+**결정 → 테스트 맵:**
+
+| 결정 | 동작 | 유형 | 명령 / 파일 | 존재 |
+|---|---|---|---|---|
+| D-26 | 정수 · 비감소 검증 · 위반 칸 index · 메시지 원문(「2번 −360µs 가 1번 −350µs 보다 이릅니다」) · 길이 1~10 / N 1 | unit | shared `src/__tests__/launch-plan.test.ts` | ❌ 35-12 |
+| D-28 | 판정 = `launchRibbonAt` 과 같은 값(첨부 196행 픽스처로 cur/next 행 교차 확인) | unit | 같은 파일 | ❌ 35-12 |
+| D-29 | 표 RLS on · 정책 0 · anon/authenticated SELECT·INSERT 거부 · record RPC 반환 · 조합별 최근 N + 마지막 ok · REVOKE EXECUTE anon/authenticated | pgTAP | `supabase/tests/launch_plan_changes.test.sql` | ❌ 35-12 |
+| D-30 server | 비관리자 403(RPC · relay 0회) · zod 400 · relay ok → 이력 ok 행 · relay 502 → offline 200 + 이력 1행 · 이력 RPC 실패 → `change: null` + error 로그 · GET 병렬(relay 실패여도 200) · 감사 줄 | unit(supertest) | `server/tests/routes/admin-launch.test.ts` 확장 | ✅ 확장 |
+| D-30 relay | op 8 빌더 왕복(3필드 · int32 가드) · op 9 필드 없음 · 94 파서(4행 · 빈 목록 · 파손 null) | unit | `relay/src/dma/__tests__/envelope.test.ts` | ✅ 확장 · 35-14 |
+| D-30 relay | 94 `request_id` 짝 · op 8 의 94 무시 · op 9 에 86 실패로 풀림 · op 8/9 는 87 대기 없음 · 끊김 → offline | unit | `relay/tests/admin-conn.test.ts` | ✅ 확장 · 35-14 |
+| D-30 relay | skipped(꺼짐) · offline(admin 없음/미ready — 87 없음은 offline 아님) · code 1 failed 원문 · op 9→8→9 순서 · before null 계속 · 마감 | unit | `relay/tests/admin-launch-plan.test.ts`(신설) · `admin-api.test.ts`(400 · 감사) | ❌ 35-14 |
+| D-24/25 | 계획 줄 · 점선 n개 · 대신 값 + 「서버 연결 안 됨」 + 고치기 비활성 · KPI 첫 조각 | unit(jsdom) | `webapp/src/components/admin/__tests__/launch-map-tab.test.tsx` · `launch-gate-chart.test.tsx` | ✅ 확장 |
+| D-26/27/28 | 스테퍼 · aria-invalid · role=alert · 저장 비활성 · 되돌리기 · 결과 줄 4종 문형 · 바꿀 실선 번호 · P2 표 셀 | unit(jsdom) | `launch-plan-editor.test.tsx`(신설) · `lib/__tests__/launch-map.test.ts`(축 일반화) | ❌ 35-13 |
+| 화면 | 1280 편집 → 저장 ok(PUT 1건 · map 재요청 0) · code 1 칩 title · offline · 390 편집 칸 줄바꿈 + 표 가로 스크롤 + 페이지 스크롤 0 | e2e | `webapp/e2e/specs/admin-launch.spec.ts` P35-P1~P4 + `fixtures/launch.ts` `/plan` 목 | ✅ 확장 · 35-13 |
+| D-32 | 16:00 머리 카드 줄 = 계획 첫 조각 · 학습값 null 처리 | unit | `webapp/src/lib/__tests__/launch-format.test.ts` | ✅ 확장 · 35-14 |
+| D-33 | ① 86 code 0 ② 서버 로그 「발사 계획 변경」 ③ 다음 16:00 kind 17 `sent_rel_us` 새 시각 근처 ④ 이력 행 · 패널 마지막 변경 + op 9 새 값 | manual(라이브) | 35-15 / 35-11 | — |
+
+**Sampling:** 태스크 커밋마다 그 파일 quick run · 플랜 끝 그 워크스페이스 typecheck + vitest · 35-13/35-14 끝 Full suite(범위 7) · `/gsd-verify-work` 전 Full suite + 범위 1~6 Full suite 한 번.
+
+**Wave 0 갭:** shared `launch-plan.test.ts` · `supabase/tests/launch_plan_changes.test.sql` · `relay/tests/admin-launch-plan.test.ts` · `webapp/.../launch-plan-editor.test.tsx` · `relay/tests/helpers/frames.ts` 의 94 프레임 빌더(노트 뒤 — 생성 코드 필요) · `webapp/e2e/fixtures/launch.ts` `/plan` 목.
+
+### 7.8 Assumptions Log · Open Questions (범위 7)
+
+| # | 가정 | 절 | 틀리면 |
+|---|---|---|---|
+| A7-1 | §7.2 와이어(op 8/9 · 94 · 필드 · 문구 7종)가 정식 노트에서도 같다 — 플랜에서 읽음, 미실행 | 7.2 | 35-14 envelope/admin-conn 모양 변경(shared 계약은 불변 설계) |
+| A7-2 | 94 가 `request_id` 를 에코한다 | 7.1 R2 | 짝짓기를 「op 9 비행 중 첫 94」 로 바꾸고 op 8 뒤 94 를 소비하는 대기 추가 |
+| A7-3 | `updated_at` 은 서버 마지막 변경 시각(gh-radar 밖 변경 포함) — 패널 「마지막 변경」 은 **이력 표** 기준(D-29), `updated_at` 은 툴팁 정도 | 7.3 | 두 시각이 갈릴 때 표시 규칙(Deferred 「밖에서 바뀐 계획 감지」 와 닿음) |
+| A7-4 | Supabase CLI 가 이미 원격에 있는 것보다 이른 로컬 마이그레이션을 `--include-all` 없이 거부 | S7 | 순서 무관이면 이력 표 먼저 push 가능 |
+| A7-5 | `ADMIN_COMMAND_TIMEOUT_MS` 5초 · `ADMIN_REQUEST_DEADLINE_MS` 10초 · Express 15초 관계가 그대로 | 7.1 R1 | op 9→8→9 마감 처리 재설계 |
+
+**Open Questions:**
+1. **(사용자) code 1 범위 거부 문형(S5).** 클라 검증에 범위(16:00 −3000~1000 · 09:00:30 ±2000 — 노트 값)를 더할지, D-27 문형(「서버 미지원 · <message>」)을 그대로 둘지. D-26 이 「정수 · 순서」 로 잠겨 있어 플래너 단독 결정 불가 — 권장: 노트 도착 시 한 질문(범위 클라 검증 추가 = 「조각 시각은 −3000 ~ 1000µs 사이여야 해요」 · 저장 비활성).
+2. **(gh-trade 노트) ⓑ · ⓓ 명시 답.** 코드상 답은 §7.0-4 · §7.2 ⓓ(고정 문구)지만 43-05 플랜 범위 밖일 수 있다 — 노트에 없으면 35-14 Task 1 이 회신 노트 「확인만」 으로 처리(차단 아님).
+3. **(재량) D-32 과거 머리.** 학습 시절 행은 「학습 → 다음」 을 그대로 두고(값이 있으면), 43 이후 행만 「다음 발사 계획 첫 조각」 으로 — 권장. 사용자에게 다시 물을 필요는 낮다(문구 재량 범위).
+4. **(재량) 노트 전 webapp push 여부.** 35-13 을 push 하면 「계획 고치기」 비활성 화면이 먼저 프로덕션에 나간다. 권장: 35-13 은 커밋까지만, push 는 35-15 배포 순서에서.
+
+### 7.9 Sources (범위 7)
+
+**Primary (이번 세션 실독 — gh-radar):** `relay/src/admin/types.ts` · `admin-conn.ts:1-175,330-520` · `dispatcher.ts:60-140,370-445` · `admin-api.ts:1-80,330-420,584-672` · `relay/src/dma/msg-type.ts:250-316` · `envelope.ts:3330-3369` · `server/src/routes/admin-launch.ts` · `server/src/services/admin-launch.ts` · `relay-admin-client.ts:22-200` · `webapp/src/components/admin/launch-map-tab.tsx` · `launch-gate-chart.tsx` · `reflect-chip.tsx:1-60` · `webapp/src/lib/launch-map.ts:40-140,186-193` · `launch-api.ts` · `launch-format.ts:194-199` · `webapp/e2e/fixtures/launch.ts:335-378` · `packages/shared/src/launch.ts:25-200,330-362` · `packages/shared/src/admin.ts:126,523-528` · `supabase/migrations/20261027200000_launch_gate.sql`(권한 줄) · 35-CONTEXT · 35-DISCUSSION-LOG · 35-09-SUMMARY · 35-10/11-PLAN · 36-02-PLAN · 36-CONTEXT D-06 · 목업 3장 JS(`verdict` · `draftFor` · 문구) · 인박스 `261027-launch-plan-admin.md` · gh-trade 회신 노트.
+
+**Secondary (gh-trade 플랜 · 코드 — PROVISIONAL):** `gh-trade/.planning/phases/43-launch-plan-admin/43-CONTEXT.md` · `43-RESEARCH.md:69-113,225-340` · `43-03-PLAN.md:120-201` · `43-05-PLAN.md:61,104-144` · `gh-trade/server/src/trade/queued/LaunchThread.cpp:1638,1997,2340-2375,2690-2721` · `server/src/app/Server.cpp:4655-4686` · `server/config/{kyobo/119,kb/120}/server.toml` · `.planning/quick/261026-dz9-openarb-1026-fix/261026-dz9-SUMMARY.md`.
+
+**Confidence (범위 7):** relay/server/webapp 삽입 지점 HIGH(실독) · 와이어 MEDIUM(플랜 · 미실행) · 축(ⓑ) MEDIUM-HIGH(코드 + 데이터 삭제 기록) · 마이그레이션 순서 함정 LOW-MEDIUM(A7-4).
+**Valid until:** gh-trade 정식 인계 노트(`YYMMDD-launch-plan-contract.md`) 도착 시 §7.2 재대조 — 또는 Phase 36 relay 플랜 실행 시 §7.1 표 재확인.
