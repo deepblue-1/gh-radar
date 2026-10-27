@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { launchDaysOf, type LaunchMapPiece } from '@gh-radar/shared';
 
@@ -175,6 +175,20 @@ describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름
     expect(diamonds[0]!.querySelector('title')!.textContent).toBe('10/26 −20,139µs · wire 3 · 매도 · 101');
     const titles = [...svg.querySelectorAll('circle > title')].map((t) => t.textContent);
     expect(titles).toContain('10/26 −20,148µs · wire 0 · 매수 · 101 · 재전송 2');
+  });
+
+  it('점 감지 칸에 마우스를 대면 즉시 툴팁 「−20,139µs」 · 「10/26 · wire 3 · 매도 · 101」, 벗어나면 사라진다', () => {
+    const { svg } = renderN();
+    const hits = svg.querySelectorAll('rect[data-slot="launch-dot-hit"]');
+    expect(hits).toHaveLength(4);
+    const wrap = svg.parentElement!;
+    expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).toBeNull();
+    const diamondHit = [...hits].find((h) => h.previousElementSibling?.getAttribute('data-shape') === 'diamond')!;
+    fireEvent.mouseEnter(diamondHit);
+    const tip = wrap.querySelector('[data-slot="launch-dot-tip"]')!;
+    expect(tip.textContent).toBe('−20,139µs10/26 · wire 3 · 매도 · 101');
+    fireEvent.mouseLeave(wrap);
+    expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).toBeNull();
   });
 
   it('next −245 는 축 밖 → 점선 없음 · 「▸ 다음 −245µs」', () => {

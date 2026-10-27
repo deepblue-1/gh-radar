@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 
 import type { LaunchCalcPiece, LaunchDay, LaunchDayKind, LaunchFire, LaunchMarket } from '@gh-radar/shared';
 import { launchPanelStatsOf } from '@gh-radar/shared';
@@ -17,6 +17,7 @@ import {
   launchMarkOf,
   launchRibbonCellsOf,
   launchStackOf,
+  launchHoverOf,
   launchTicksOf,
   launchTooltipOf,
   xOfUs,
@@ -117,6 +118,7 @@ function LaunchGateSvg({
   next: number | null;
 }) {
   const [ref, width] = useChartWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<HoverDot | null>(null);
   const W = Math.max(W_MIN, width);
   const left = L;
   const right = W - R;
@@ -136,7 +138,7 @@ function LaunchGateSvg({
   const nextX = next !== null && nextOff === null ? x(next) : null;
 
   return (
-    <div ref={ref} className="min-w-0 overflow-x-auto">
+    <div ref={ref} className="relative min-w-0 overflow-x-auto" onMouseLeave={() => setHover(null)}>
       <svg
         data-slot="launch-chart"
         viewBox={`0 0 ${W} ${H}`}
@@ -189,14 +191,15 @@ function LaunchGateSvg({
                 const mark = launchMarkOf(p, fire);
                 const cx = x(p.sent_rel_us);
                 const py = cy + dys[j]!;
-                const tip = launchTooltipOf(d.date, p, fire, axis.offAxis(p.sent_rel_us) !== null);
+                const off = axis.offAxis(p.sent_rel_us) !== null;
+                const tip = launchTooltipOf(d.date, p, fire, off);
+                const show = () => setHover({ cx, cy: py, ...launchHoverOf(d.date, p, fire, off) });
                 const hollow = mark.tone === 'other';
                 const paint = hollow
                   ? { fill: 'none', stroke: 'var(--launch-other)', strokeWidth: 1.6 }
                   : { fill: TONE_FILL[mark.tone], stroke: 'var(--card)', strokeWidth: 1 };
-                return mark.shape === 'diamond' ? (
+                const dot = mark.shape === 'diamond' ? (
                   <path
-                    key={j}
                     data-shape="diamond"
                     data-tone={mark.tone}
                     d={diamondPathOf(cx, py, hollow ? DIAMOND_R - 0.7 : DIAMOND_R)}
@@ -206,7 +209,6 @@ function LaunchGateSvg({
                   </path>
                 ) : (
                   <circle
-                    key={j}
                     data-tone={mark.tone}
                     cx={cx}
                     cy={py}
@@ -215,6 +217,23 @@ function LaunchGateSvg({
                   >
                     <title>{tip}</title>
                   </circle>
+                );
+                // 점(r 4.5)은 맞추기 어렵고 속 빈 「기타」 점은 테두리만 잡혀서, 보이지 않는 넓은 감지 칸을 위에 둔다.
+                return (
+                  <Fragment key={j}>
+                    {dot}
+                    <rect
+                      data-slot="launch-dot-hit"
+                      x={cx - HIT}
+                      y={py - HIT}
+                      width={HIT * 2}
+                      height={HIT * 2}
+                      fill="transparent"
+                      pointerEvents="all"
+                      onMouseEnter={show}
+                      onClick={show}
+                    />
+                  </Fragment>
                 );
               })}
               {[...offSides].map((side) => (
@@ -301,6 +320,39 @@ function LaunchGateSvg({
           ))}
         </g>
       </svg>
+      {hover && <LaunchDotTip hover={hover} left={left} right={right} />}
+    </div>
+  );
+}
+
+/** 감지 칸 반쪽 폭 — 점 사이 간격(세로 쌓기 4px)보다 넓어도 마지막에 그린 점이 이긴다. */
+const HIT = 8;
+
+interface HoverDot {
+  cx: number;
+  cy: number;
+  value: string;
+  detail: string;
+}
+
+/**
+ * 점 위 즉시 툴팁 — svg 와 같은 px 좌표(viewBox = width)라 감싼 div 기준 절대 위치로 띄운다.
+ * 첫 행 근처는 위가 잘리므로 점 아래로, 좌우 끝은 안쪽으로 붙인다.
+ */
+function LaunchDotTip({ hover, left, right }: { hover: HoverDot; left: number; right: number }) {
+  const below = hover.cy < 48;
+  const align = hover.cx < left + 70 ? 'start' : hover.cx > right - 70 ? 'end' : 'middle';
+  const tx = align === 'start' ? '-12px' : align === 'end' ? 'calc(-100% + 12px)' : '-50%';
+  const ty = below ? '12px' : 'calc(-100% - 10px)';
+  return (
+    <div
+      data-slot="launch-dot-tip"
+      role="tooltip"
+      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[var(--popover-foreground)] shadow-md"
+      style={{ left: hover.cx, top: hover.cy, transform: `translate(${tx}, ${ty})` }}
+    >
+      <div className="text-[13px] font-semibold tabular-nums">{hover.value}</div>
+      <div className="text-[11px] text-[var(--muted-fg)]">{hover.detail}</div>
     </div>
   );
 }

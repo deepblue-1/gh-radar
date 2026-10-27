@@ -278,6 +278,24 @@ export function launchTooltipOf(
   return parts.join(' · ');
 }
 
+/**
+ * 점 위 즉시 툴팁(사용자 UAT 2026-10-27 — 「점에 마우스를 대면 −247µs 처럼」) — 큰 줄 = 송신 µs 하나,
+ * 작은 줄 = 날짜 · wire · (n0930 매수/매도) · 결과 · (재전송) · (축 밖). `<title>` 과 같은 재료를 두 줄로 나눈 것.
+ */
+export function launchHoverOf(
+  date: string,
+  piece: { sent_rel_us: number; wire: number; side: string | null; result: string; retry: number | null },
+  fire: LaunchFire,
+  offAxis = false,
+): { value: string; detail: string } {
+  const parts = [launchDateLabelOf(date), `wire ${piece.wire}`];
+  if (fire === 'n0930') parts.push(piece.side === null ? '구분 없음' : (SIDE_TIP[piece.side] ?? piece.side));
+  parts.push(piece.result);
+  if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
+  if (offAxis) parts.push('축 밖');
+  return { value: `${fmtUs(piece.sent_rel_us)}µs`, detail: parts.join(' · ') };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 지도 탭 — 범위 글
 // ─────────────────────────────────────────────────────────────────────────────

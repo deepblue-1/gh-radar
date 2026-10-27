@@ -238,6 +238,13 @@ test.describe('어드민 발사 · 경계 지도', () => {
     const dots = await root(page).locator('[data-slot="launch-chart"] circle').count();
     expect(dots, '4패널 점 합 = 첨부 조각 196').toBe(196);
 
+    // 점에 마우스를 대면 즉시 µs 툴팁(사용자 UAT 2026-10-27)
+    const kbPanel = panel(page, 'KB120', 'Q');
+    await kbPanel.locator('rect[data-slot="launch-dot-hit"]').first().hover();
+    const tip = kbPanel.locator('[data-slot="launch-dot-tip"]');
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText(/^[−+]?[\d,]+µs/);
+
     const kb = kpi(page, 'KB120', 'Q');
     await expect(kb).toContainText('KB 코스닥 · 10일');
     await expect(kb.locator('[data-kpi="min-accept"]')).toHaveText(`${MINUS}347µs`);

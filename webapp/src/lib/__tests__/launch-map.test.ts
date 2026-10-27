@@ -18,6 +18,7 @@ import {
   launchRibbonCellsOf,
   launchStackOf,
   launchTicksOf,
+  launchHoverOf,
   launchTooltipOf,
   mapNextOffsetOf,
   xOfUs,
@@ -298,6 +299,19 @@ describe('launchMarkOf · diamondPathOf', () => {
   });
   it('diamondPathOf(10, 20, 5)', () => {
     expect(diamondPathOf(10, 20, 5)).toBe('M10 15 L15 20 L10 25 L5 20 Z');
+  });
+});
+
+describe('launchHoverOf', () => {
+  it('q16 — 큰 줄 「−247µs」 · 작은 줄 「10/14 · wire 2 · 101」', () => {
+    expect(
+      launchHoverOf('20261014', { sent_rel_us: -247, wire: 2, side: null, result: '101', retry: null }, 'q16'),
+    ).toEqual({ value: '−247µs', detail: '10/14 · wire 2 · 101' });
+  });
+  it('n0930 — 매도 · 재전송 · 축 밖', () => {
+    expect(
+      launchHoverOf('20261027', { sent_rel_us: -245, wire: 0, side: 'sell', result: '515', retry: 2 }, 'n0930', true),
+    ).toEqual({ value: '−245µs', detail: '10/27 · wire 0 · 매도 · 515 · 재전송 2 · 축 밖' });
   });
 });
 
