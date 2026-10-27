@@ -529,6 +529,8 @@ const adminDispatcher = new AdminDispatcher({
   access: appAccess,
   // 열린 세션 반영(29-21) — op 2 ok 서버 → 그 서버 세션 unauthorized 종료 · 비밀번호 변경 → 열린 세션 비밀 교체(D-08).
   sessions: sessionManager,
+  // Phase 36 D-07 — op 3 뒤 되싣기의 출처 예수금은 그 서버 67 live 우선(체결 조정 반영) · 없으면 87.
+  liveBudget: (k, a) => hub.liveBudgetOf(k, a),
 });
 const adminRouter = createAdminRouter({
   store: adminStore,

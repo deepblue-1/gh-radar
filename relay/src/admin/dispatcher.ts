@@ -50,6 +50,7 @@
 import {
   interpretAdminResult,
   normalizeAccountNo,
+  resolveEffectiveOrderServer,
   type AdminIntentRow,
   type AdminServerResult,
   type DmaBroker,
@@ -122,6 +123,11 @@ export type AdminDispatcherDeps = {
     closeForDmaUser(dmaUserId: string, reason: string, opts?: { serverKey?: string }): number;
     updatePassword(dmaUserId: string, password: string): number;
   };
+  /**
+   * 서버 · 계좌의 67 live 예수금(Phase 36 D-05 · D-07 · `SubscriptionHub.liveBudgetOf`) — op 3 뒤 되싣기의 출처 예수금은 이 값이
+   * 우선이고 null 이면 출처 87 값. 주지 않으면 늘 87.
+   */
+  liveBudget?: (serverKey: string, accountNo: string) => number | null;
 };
 
 /** op 1 비밀번호 공급자 — 필요할 때 한 번만 꺼낸다(인자 평문 또는 `dma_users` 복호). */
@@ -192,7 +198,9 @@ export class AdminDispatcher {
       const intent = withOrderEndpoint(stored, opts.orderEndpoint);
       const password = this.#passwordSource(dmaUserId, opts.password);
       const results = await this.#fanOut(progress, this.#serverKeysOf(stored), (serverKey) =>
-        this.#applyServer(dmaUserId, serverKey, (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }), password),
+        this.#applyServer(dmaUserId, serverKey, (snapshot) => planServerOps({ dmaUserId, serverKey, intent, snapshot }), password, {
+          reloadCostsFrom: stored,
+        }),
       );
       await this.#recordFinal(dmaUserId, progress, results);
       return results;
@@ -338,12 +346,7 @@ export class AdminDispatcher {
       logger.warn({ server: serverKey, op, kind: "offline", account }, "[admin] 계좌 예수금 · 비용률 미송신 — admin 연결 없음 · 87 미수신");
       return { server: serverKey, outcome: "offline" };
     }
-    const outcome = await admin.command({
-      op,
-      userId: "",
-      account: { accountNo, name: "", branchNo: "", traderId: "", priority: 0 },
-      ...(cost.op === 6 ? { budgetKrw: BigInt(cost.budgetKrw) } : { feePpm: cost.feePpm, sellTaxPpm: cost.sellTaxPpm }),
-    });
+    const outcome = await admin.command(costCommand(accountNo, cost));
     if (outcome.kind !== "result") {
       logger.warn({ server: serverKey, op, kind: outcome.kind, account }, "[admin] 계좌 예수금 · 비용률 결과 없음");
       return { server: serverKey, outcome: outcome.kind };
@@ -366,13 +369,16 @@ export class AdminDispatcher {
    * `settleUserOnOk`(유저 삭제) — DB 의 등록 행은 active 그대로라 「removing 행만 지우는」 settle 이 닿지 않는다. 그래서 그 서버가
    * **끝까지 ok** 일 때만 그 서버 행 전부를 settle 한다(op 2 든 의도 계좌 op 4 든 서버에서 그 유저의 의도 계좌가 다 빠졌다).
    * 중간 실패면 아무것도 지우지 않는다 — 다음 삭제 요청이 87 대조로 남은 것만 다시 보낸다.
+   *
+   * `reloadCostsFrom`(Phase 36 D-07 · reconcile 만) — 의도 원본. op 3 · op 1(계좌)이 ok 이고 그 계좌가 이 서버 87(전 유저 · 보내기
+   * 직전 87)에 없던 계좌면, 끝까지 실패가 없을 때 `#reloadCosts` 로 다른 서버 값의 op 6 · op 7 을 이어 보낸다(비치명 · 결과 불변).
    */
   async #applyServer(
     dmaUserId: string,
     serverKey: string,
     plan: (snapshot: AdminSnapshotView) => ServerPlan,
     password: PasswordSource,
-    opts: { settleUserOnOk?: boolean } = {},
+    opts: { settleUserOnOk?: boolean; reloadCostsFrom?: readonly AdminIntentRow[] } = {},
   ): Promise<AdminServerResult> {
     if (!this.#isEnabled(serverKey)) {
       // 꺼진 서버 = 관찰자 · admin 연결 없음 — 44 를 보내지 않는다. 사유는 맥락별(29-34 WR-04).
@@ -405,6 +411,9 @@ export class AdminDispatcher {
     let usersRev = snapshot.usersRev.toString();
     const removed = [...p.settleRemoved];
     let failure: AdminServerResult | null = null;
+    // D-07 — 이 서버 87(전 유저)에 이미 있는 계좌. 같은 서버 다른 유저가 가진 계좌를 추가하면 서버가 값을 복사하므로 되싣지 않는다.
+    const known = new Set(snapshot.users.flatMap((u) => u.accounts.map((a) => normalizeAccountNo(a.accountNo))));
+    const firstSeen: string[] = [];
 
     for (const op of p.ops) {
       let input: CommandInput;
@@ -429,6 +438,9 @@ export class AdminDispatcher {
         failure = { server: serverKey, outcome: "failed", code: r.code, message: r.message, usersRev };
         break;
       }
+      if ((op.op === 3 || (op.op === 1 && !("passwordOnly" in op))) && !known.has(normalizeAccountNo(op.account.accountNo))) {
+        firstSeen.push(op.account.accountNo);
+      }
       if (op.op === 4) removed.push(op.accountNo);
       if (op.op === 2) {
         // 그 서버에서 유저가 빠졌어도 settle 은 계획 때 removing 이던 행만(29-32 WR-01) — 그 사이 커밋된 active 행은 남긴다.
@@ -439,12 +451,89 @@ export class AdminDispatcher {
       }
     }
 
+    if (failure === null && opts.reloadCostsFrom !== undefined) {
+      for (const accountNo of firstSeen) await this.#reloadCosts(serverKey, admin, accountNo, opts.reloadCostsFrom);
+    }
+
     if (opts.settleUserOnOk === true) {
       if (failure === null) await this.#settle(dmaUserId, serverKey, [], true);
     } else if (removed.length > 0) {
       await this.#settle(dmaUserId, serverKey, removed, false);
     }
     return failure ?? { server: serverKey, outcome: "ok", usersRev };
+  }
+
+  /**
+   * D-07 — op 3(또는 op 1 신규 유저 첫 계좌)으로 이 서버에 처음 생긴 계좌(87 예수금 · 비용률 0)에 다른 서버 값을 되싣는다.
+   *
+   * 출처 = 같은 (증권사, 정규화 계좌)의 다른 **active** 의도 행 서버 중 켜진 것(레지스트리 순) → `resolveEffectiveOrderServer`
+   * (지정 주문 서버 → 증권사 기본 주문 서버 → 등록 1대)로 고르고, 못 고르면 첫 후보 — 어드민 카드 출처(36-10
+   * `summarizeAccountCosts`)와 같은 규칙. 예수금 = 출처 67 live(`deps.liveBudget`) 우선 · 없으면 출처 87, 비용률 = 출처 87.
+   * 예수금 > 0 이면 op 6, (수수료, 매도세) ≠ (0, 0) 이면 op 7. 출처가 없거나(다른 서버 미등록) 출처 87 을 모르면 보내지 않는다.
+   *
+   * **비치명(A5)** — 실패(code · timeout · offline)는 warn 1줄(server · op · code | kind · 마스킹 계좌)뿐, 서버 결과 · 기록은 op 3
+   * 결과 그대로다(계좌 추가는 이미 반영됐다 · 값은 어드민이 카드에서 다시 맞출 수 있다). reconcile 은 이 밖에서 예수금 · 비용률을
+   * 계획하지 않는다(D-04 — planner 무관).
+   */
+  async #reloadCosts(
+    serverKey: string,
+    admin: AdminConnLike,
+    accountNo: string,
+    intent: readonly AdminIntentRow[],
+  ): Promise<void> {
+    const account = maskAccountNo(accountNo);
+    try {
+      const broker = this.#deps.registry.get(serverKey)?.broker;
+      const no = normalizeAccountNo(accountNo);
+      const rows = intent.filter(
+        (r) => r.state === "active" && r.broker === broker && normalizeAccountNo(r.accountNo) === no && r.serverKey !== serverKey,
+      );
+      const registry = this.#deps.registry.all();
+      const order = registry.map((r) => r.key);
+      const keys = new Set(rows.map((r) => r.serverKey).filter((k) => this.#isEnabled(k)));
+      const candidates = [...order.filter((k) => keys.has(k)), ...[...keys].filter((k) => !order.includes(k))];
+      if (candidates.length === 0) return;
+      const designated = rows.find((r) => r.isOrder === true && candidates.includes(r.serverKey))?.serverKey ?? null;
+      const defaultKey = registry.find((r) => r.broker === broker && r.isOrderServer && r.enabled)?.key ?? null;
+      const source = resolveEffectiveOrderServer({ designated, defaultKey, registered: candidates })?.key ?? candidates[0]!;
+
+      const src = this.#deps.pipelines
+        .get(source)
+        ?.admin.currentSnapshot()
+        ?.users.flatMap((u) => u.accounts)
+        .find((a) => normalizeAccountNo(a.accountNo) === no);
+      if (src === undefined) {
+        logger.warn({ server: serverKey, source, account }, "[admin] op 3 뒤 예수금·비용률 되싣기 생략 — 출처 서버 87 에 계좌 없음 · 87 미수신");
+        return;
+      }
+      const budgetKrw = this.#deps.liveBudget?.(source, src.accountNo) ?? src.budgetKrw ?? 0;
+      const feePpm = src.feePpm ?? 0;
+      const sellTaxPpm = src.sellTaxPpm ?? 0;
+      const costs: AccountCostCommand[] = [];
+      if (budgetKrw > 0) costs.push({ op: 6, budgetKrw });
+      if (feePpm !== 0 || sellTaxPpm !== 0) costs.push({ op: 7, feePpm, sellTaxPpm });
+
+      for (const cost of costs) {
+        const outcome = await admin.command(costCommand(accountNo, cost));
+        const failed =
+          outcome.kind !== "result"
+            ? { kind: outcome.kind }
+            : interpretAdminResult(cost.op, outcome.result.code) === "failed"
+              ? { code: outcome.result.code }
+              : null;
+        if (failed !== null) {
+          logger.warn(
+            { server: serverKey, op: cost.op, ...failed, account },
+            "[admin] op 3 뒤 예수금·비용률 되싣기 실패 — 계좌 추가는 반영됨(비치명)",
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { server: serverKey, reason: err instanceof Error ? err.name : "unknown", account },
+        "[admin] op 3 뒤 예수금·비용률 되싣기 실패 — 계좌 추가는 반영됨(비치명)",
+      );
+    }
   }
 
   /** 레지스트리에 있고 켜진 서버인가 — 아니면(꺼짐 · 없음) op 를 보내지 않는다. */
@@ -696,6 +785,16 @@ function withOrderEndpoint(intent: AdminIntentRow[], override: OrderEndpointOver
  * 계좌 비용(op 6/7) 대상 의도 행 — 그 계좌(같은 증권사 · 같은 정규화 번호)의 **active** 행만(Phase 36 · D-07). removing 행 서버는
  * 곧 빠질 서버라 보내지 않는다.
  */
+/** op 6/7 44 입력 — account_no 만(user_id · 나머지 칸 빈 값 · gh-trade 41). `#applyCost` · `#reloadCosts` 공통. */
+function costCommand(accountNo: string, cost: AccountCostCommand): CommandInput {
+  return {
+    op: cost.op === 6 ? ADMIN_OP.SetAccountBudget : ADMIN_OP.SetAccountFee,
+    userId: "",
+    account: { accountNo, name: "", branchNo: "", traderId: "", priority: 0 },
+    ...(cost.op === 6 ? { budgetKrw: BigInt(cost.budgetKrw) } : { feePpm: cost.feePpm, sellTaxPpm: cost.sellTaxPpm }),
+  };
+}
+
 function costTargetRows(
   intent: readonly AdminIntentRow[],
   target: { broker: DmaBroker; accountNo: string },

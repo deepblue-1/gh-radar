@@ -1352,8 +1352,11 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
     ]);
     expect(env.conns.KB121!.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
     expect(env.conns.KB120!.sent).toEqual([]);
-    // 기록되는 반영 결과는 op 3 결과뿐(op 6/7 이 rev 를 올려도 결과 rev = op 3 의 6).
-    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual(results);
+    // 기록되는 반영 결과는 op 3 결과뿐(op 6/7 이 rev 를 올려도 결과 rev = op 3 의 6 · 기록은 server · outcome).
+    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual([
+      { server: "KB120", outcome: "ok" },
+      { server: "KB121", outcome: "ok" },
+    ]);
     expect(reloadWarns()).toEqual([]);
   });
 
@@ -1467,7 +1470,10 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
     expect(ops(env.conns.KB121!)).toEqual([3, 6]);
     expect(reloadWarns()).toHaveLength(1);
     expect(reloadWarns()[0]![0]).toEqual({ server: "KB121", op: 6, code: 1, account: maskAccountNo(A) });
-    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual(results);
+    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual([
+      { server: "KB120", outcome: "ok" },
+      { server: "KB121", outcome: "ok" },
+    ]);
   });
 
   it("⑥ 되싣기 결과 없음(timeout · offline)도 비치명 — warn 에 kind", async () => {

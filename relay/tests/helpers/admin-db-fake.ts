@@ -119,6 +119,8 @@ export class AdminDbFake {
           priority: a.priority,
           serverKey: s.serverKey,
           state: s.state,
+          // 실 RPC(20261010200100 ⑥)는 isOrder 를 늘 싣는다 — 지정 행만 키를 둬 기존 toEqual 단언을 바꾸지 않는다(36-04 D-07 출처 규칙).
+          ...(s.isOrder === true ? { isOrder: true } : {}),
         };
       })
       .sort(
