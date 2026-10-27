@@ -129,6 +129,17 @@ describe('LaunchPlanEditor — 검증 표시(D-26 · D-34)', () => {
     expect(inputs().every((i) => i.getAttribute('aria-invalid') === null)).toBe(true);
   });
 
+  it('3번 151(폭 501) → 마지막 칸만 aria-invalid · 폭 문구 · 저장 비활성 · 150 으로 고치면 저장 가능 (fix 노트)', () => {
+    render(<Harness />);
+    type(inputs()[2]!, '151');
+    expect(inputs().map((i) => i.getAttribute('aria-invalid'))).toEqual([null, null, 'true']);
+    expect(screen.getByRole('alert').textContent).toBe('조각 시각은 첫 조각과 마지막 조각 차이가 500µs 이하여야 해요 — 지금 501µs');
+    expect(saveBtn()).toBeDisabled();
+    type(inputs()[2]!, '150');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(saveBtn()).toBeEnabled();
+  });
+
   it('「되돌리기」 → 서버 값 · 서버 값과 같으면 저장 · 되돌리기 비활성', () => {
     const onSave = vi.fn();
     render(<Harness onSave={onSave} />);
@@ -189,6 +200,18 @@ describe('LaunchPlanEditor — 결과 줄(D-27)', () => {
     expect(q('[data-slot="launch-plan-result-line"]')!.textContent).toBe(
       'KB120 실패: 서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장',
     );
+  });
+
+  it('failed code 1 · 폭 거부 문구 → 칩 title 원문 · 줄 「KB120 실패: <원문>」 · 서버 미지원 아님', () => {
+    const span = '시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)';
+    render(
+      <Harness result={{ result: { server: 'KB120', outcome: 'failed', code: 1, message: span }, at: new Date('2026-10-27T13:41:00Z') }} />,
+    );
+    const chip = q('[data-slot="launch-plan-result"] [data-slot="reflect-chip"]')!;
+    expect(chip.textContent).toBe('KB120 · 실패');
+    expect(chip.getAttribute('title')).toBe(span);
+    expect(q('[data-slot="launch-plan-result-line"]')!.textContent).toBe(`KB120 실패: ${span}`);
+    expect(q('[data-slot="launch-plan-result"]')!.textContent).not.toContain('서버 미지원');
   });
 
   it('ok → 칩 「KB120」 · 「저장됨 · 22:41 · 다음 16:00 발사부터」', () => {

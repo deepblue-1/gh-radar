@@ -115,10 +115,10 @@ const panelDays = (gateway: string, market: string) =>
   launchDaysOf(PIECES.filter((p) => p.gateway === gateway && p.market === market));
 
 describe("LAUNCH_PLAN_LIMITS · launchPlanUsText", () => {
-  it("D-34 잠정 값 — q16 −3000~1000 · 1~10조각 · n0930 ±2000 · 1조각 · 서버 구조 상한 64", () => {
+  it("D-34 정식 노트 값 — q16 −3000~1000 · 1~10조각 · 폭 500 · n0930 ±2000 · 1조각(폭 해당 없음) · 서버 구조 상한 64", () => {
     expect(LAUNCH_PLAN_LIMITS).toEqual({
-      q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10 },
-      n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1 },
+      q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10, maxSpanUs: 500 },
+      n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1, maxSpanUs: null },
     });
     expect(LAUNCH_PLAN_SERVER_MAX_PIECES).toBe(64);
   });
@@ -130,7 +130,7 @@ describe("LAUNCH_PLAN_LIMITS · launchPlanUsText", () => {
   });
 });
 
-describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) → 순서", () => {
+describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) → 순서 → 폭", () => {
   it("ok — 값 배열 · 같은 값 허용 · 앞뒤 공백은 잘라서 본다", () => {
     expect(validateLaunchPlanDraft("q16", ["-350", "-345", "-325"])).toEqual({ ok: true, values: [-350, -345, -325] });
     expect(validateLaunchPlanDraft("q16", ["-350", "-345", "-345"])).toEqual({ ok: true, values: [-350, -345, -345] });
@@ -164,7 +164,10 @@ describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) �
   });
 
   it("경계값 −3000 · 1000 · −2000 · 2000 은 ok", () => {
-    expect(validateLaunchPlanDraft("q16", ["-3000", "1000"])).toEqual({ ok: true, values: [-3000, 1000] });
+    expect(validateLaunchPlanDraft("q16", ["-3000"])).toEqual({ ok: true, values: [-3000] });
+    expect(validateLaunchPlanDraft("q16", ["1000"])).toEqual({ ok: true, values: [1000] });
+    expect(validateLaunchPlanDraft("q16", ["-3000", "-2500"])).toEqual({ ok: true, values: [-3000, -2500] });
+    expect(validateLaunchPlanDraft("q16", ["500", "1000"])).toEqual({ ok: true, values: [500, 1000] });
     expect(validateLaunchPlanDraft("n0930", ["-2000"])).toEqual({ ok: true, values: [-2000] });
     expect(validateLaunchPlanDraft("n0930", ["2000"])).toEqual({ ok: true, values: [2000] });
   });
@@ -184,6 +187,23 @@ describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) �
       kind: "int",
       message: "발사 시각은 정수 µs 여야 해요 — 1번",
     });
+  });
+
+  it("폭 위반(fix 노트 · 마지막 − 첫 ≤ 500) — badIdx = 마지막 칸 · 문구 원문 · 경계 500 은 ok", () => {
+    expect(validateLaunchPlanDraft("q16", ["-350", "-345", "151"])).toEqual({
+      ok: false,
+      badIdx: 2,
+      kind: "span",
+      message: "조각 시각은 첫 조각과 마지막 조각 차이가 500µs 이하여야 해요 — 지금 501µs",
+    });
+    expect(validateLaunchPlanDraft("q16", ["-350", "-345", "150"])).toEqual({ ok: true, values: [-350, -345, 150] });
+    expect(validateLaunchPlanDraft("q16", ["-3000", "1000"])).toMatchObject({ ok: false, badIdx: 1, kind: "span" });
+  });
+
+  it("폭 검사는 순서 검사 뒤 — 순서 위반이 먼저 · 한 칸이면 폭 없음", () => {
+    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "500"])).toMatchObject({ badIdx: 1, kind: "order" });
+    expect(validateLaunchPlanDraft("q16", ["-350", "5000"])).toMatchObject({ badIdx: 1, kind: "range" });
+    expect(validateLaunchPlanDraft("q16", ["-3000"])).toEqual({ ok: true, values: [-3000] });
   });
 
   it("첫 위반 하나만 — 칸 순서대로 정수 → 범위 · 순서는 칸 검사가 다 통과한 뒤", () => {

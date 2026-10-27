@@ -4,6 +4,7 @@ import type { LaunchHeadRow, LaunchPlanChangeRow, LaunchPlanResponse, LaunchPlan
 
 import {
   LAUNCH_PLAN_HISTORY_MAX,
+  LAUNCH_PLAN_UNKNOWN_OP_MESSAGE,
   changeOutcomeView,
   changeValuesText,
   fallbackLineText,
@@ -213,7 +214,34 @@ describe('편집 · 저장(35-15)', () => {
     expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 10 }, 'q16', AT).line.text).toBe('KB120 실패: 실패');
   });
 
-  it('saveResultViewOf code 1 판정은 outcome failed 일 때만 — message 문장은 보지 않는다', () => {
+  it('saveResultViewOf failed code 1 · 서버 고정 거부 문구(범위 · 순서 · 조각 수 · 폭) → 일반 실패 줄 · 서버 미지원 아님', () => {
+    const span = '시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)';
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 1, message: span }, 'q16', AT)).toEqual({
+      chip: { tone: 'err', text: 'KB120 · 실패', title: span },
+      line: { tone: 'err', text: `KB120 실패: ${span}` },
+    });
+    for (const m of [
+      '발사 시각 범위 밖(-3000~1000µs)',
+      '조각 수 범위 밖(1~10)',
+      '시각 목록은 같거나 커지는 순서(서버가 정렬하지 않음)',
+      'N 은 시각 한 값',
+    ]) {
+      expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 1, message: m }, 'q16', AT).line.text).toBe(`KB120 실패: ${m}`);
+    }
+    // message 없는 code 1 은 서버 미지원으로 단정하지 않는다
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 1 }, 'q16', AT).line.text).toBe('KB120 실패: 실패');
+    expect(LAUNCH_PLAN_UNKNOWN_OP_MESSAGE).toBe('알 수 없는 명령입니다');
+  });
+
+  it('saveResultViewOf failed code 10 「발사 계획 저장 경로 없음 …」(fix 노트) → 일반 실패 줄', () => {
+    const m = '발사 계획 저장 경로 없음 — 서버 plan_file 설정을 확인하세요';
+    expect(saveResultViewOf({ server: 'KYOBO119', outcome: 'failed', code: 10, message: m }, 'q16', AT)).toEqual({
+      chip: { tone: 'err', text: 'KYOBO119 · 실패', title: m },
+      line: { tone: 'err', text: `KYOBO119 실패: ${m}` },
+    });
+  });
+
+  it('saveResultViewOf 서버 미지원은 outcome failed · code 1 · 「알 수 없는 명령입니다」 셋 다일 때만', () => {
     // 같은 문장이어도 code 가 1 이 아니면 서버 미지원이 아니다
     expect(
       saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 2, message: '알 수 없는 명령입니다' }, 'q16', AT).line.text,
