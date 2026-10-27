@@ -131,7 +131,9 @@ export interface LaunchPlanRelaySetResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 발사 기준별 편집 한도 — D-34 · **잠정**(gh-trade 43 플랜 값 · RESEARCH §7.2). 정식 노트 뒤 35-19 가 대조해 이 한 곳만 고친다.
+ * 발사 기준별 편집 한도 — D-34 · **정식 노트 `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` 와 일치 확인**(35-19).
+ * 노트 ⓒ 의 119/120 서버 설정값: Q16 클램프 −3000~1000µs · `max_pieces` 10(조각 1~10) · N ±2000µs · 길이 1.
+ * 서버 설정이 바뀌면 이 한 곳만 고친다(웹 · relay · server 에 두 번째 숫자를 두지 않는다).
  * 조각 수 1~10 은 웹 스테퍼 한도(D-26)이고 서버 구조 상한(`LAUNCH_PLAN_SERVER_MAX_PIECES`)과 별개다.
  */
 export const LAUNCH_PLAN_LIMITS: Record<LaunchFire, { minUs: number; maxUs: number; minPieces: number; maxPieces: number }> =
