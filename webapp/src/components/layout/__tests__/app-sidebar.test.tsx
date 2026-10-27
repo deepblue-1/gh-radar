@@ -1475,7 +1475,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", () => {
+describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29 D-13 · Phase 35 D-11)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1484,14 +1484,17 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
   const admin = () => screen.queryByRole("link", { name: "Admin" });
   const users = () => screen.queryByRole("link", { name: "사용자" });
   const servers = () => screen.queryByRole("link", { name: "서버" });
+  const launch = () => screen.queryByRole("link", { name: "발사" });
 
-  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 — 「분석」 뒤 · My page 앞", () => {
+  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 · 「발사」 — 「분석」 뒤 · My page 앞", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
     expect(admin()).toHaveAttribute("href", "/admin/users");
     expect(users()).toHaveAttribute("href", "/admin/users");
     expect(servers()).toHaveAttribute("href", "/admin/servers");
+    expect(launch()).toHaveAttribute("href", "/admin/launch");
+    expect(launch()).toHaveAttribute("data-sidebar-item", "admin-launch");
     const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
       const item = a.getAttribute("data-sidebar-item");
       return item === "strategy" ? "strategy" : (a.textContent ?? "").trim();
@@ -1510,13 +1513,14 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
       "Admin",
       "사용자",
       "서버",
+      "발사",
       "My page",
     ]);
     // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
     const sub = admin()!.closest("li")!.nextElementSibling!;
     expect(sub.className).toContain("rail:hidden");
     expect(sub.querySelector("ul")!.className).toContain("border-l");
-    for (const a of [admin()!, users()!, servers()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
+    for (const a of [admin()!, users()!, servers()!, launch()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
   });
 
   it("Admin 노출은 역할만 본다 — 트레이딩이 안 보이는(relay 미연결) admin 에게도 보인다", () => {
@@ -1537,6 +1541,7 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
       expect(admin()).toBeNull();
       expect(users()).toBeNull();
       expect(servers()).toBeNull();
+      expect(launch()).toBeNull();
       expect(screen.queryByText("Admin")).toBeNull();
       r.unmount();
     }
@@ -1565,6 +1570,19 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
 
+  it("/admin/launch → 「발사」 만 활성 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
+    mockRole = "admin";
+    mockPathname = "/admin/launch";
+    setupReady();
+    render(<AppSidebar />);
+    expect(launch()).toHaveAttribute("aria-current", "page");
+    expect(launch()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(servers()).not.toHaveAttribute("aria-current");
+    expect(users()).not.toHaveAttribute("aria-current");
+    expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
   it("레일 → 「Admin」 아이콘(title) · 하위 숨김 · /admin/* 접두 일치로 아이콘 활성", () => {
     mockRole = "admin";
     setSidebarCollapsed(true);
@@ -1582,7 +1600,7 @@ describe("AppSidebar — 「Admin › 사용자 · 서버」 (Phase 29 D-13)", (
     mockPathname = "/trading";
     setupReady();
     render(<AppSidebar />);
-    for (const a of [admin()!, users()!, servers()!]) {
+    for (const a of [admin()!, users()!, servers()!, launch()!]) {
       expect(a).not.toHaveAttribute("aria-current");
       expect(a.className).not.toContain("bg-[var(--nav-on-bg)]");
     }
