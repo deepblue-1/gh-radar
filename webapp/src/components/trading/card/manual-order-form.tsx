@@ -94,7 +94,7 @@ import type {
   PointerEvent,
   ReactNode,
 } from 'react';
-import { priceInputIssue } from '@gh-radar/shared';
+import { formatManwonFloor, priceInputIssue } from '@gh-radar/shared';
 import type {
   OrderSide,
   RelayExchange,
@@ -122,6 +122,7 @@ import {
   type RelayOrderRequest,
 } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
+import { useAvailableKrw } from '@/lib/use-available-krw';
 import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
 import { NumberPadSheet } from '../lc/number-pad-sheet';
@@ -420,6 +421,17 @@ export function ManualOrderForm({
     selectedUnfilled && unfilledSelectBlockReason(selectedUnfilled) === null
       ? selectedUnfilled
       : null;
+
+  /*
+    Phase 36 D-12 — 주문가능(원 · 음수 허용 · null = 미설정/상태 미수신). 판정은 경고만 — 버튼 · 제출 · 토스트는
+    건드리지 않는다. 매수 판정 대상 = 아래가 아닌 모든 경우(UI-SPEC researcher decision 11 · Pitfall 12):
+    선택 미체결이 매도(정정 · 취소 대상이 매도) · 시간외종가(금액 미정) · 주문금액 0(가격 · 수량 미입력).
+    선택 차단 행은 선택이 없는 것과 같다(`selected` — 칩 · 정정 · 취소 판정과 같은 축).
+  */
+  const availableKrw = useAvailableKrw(accountNo);
+  const orderKrw = price * qty;
+  const buyJudged = !offHours && orderKrw > 0 && selected?.side !== 'S';
+  const budgetOver = availableKrw !== null && buyJudged && orderKrw > availableKrw;
 
   /*
     주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 상위(작업대 · 카드 본문 · 호가 탭)는
@@ -996,6 +1008,30 @@ export function ManualOrderForm({
       </div>
 
       {/*
+        5a 주문가능 — 읽기 전용 44px 행(Phase 36 D-12 · 목업 ③). 주문금액 행과 같은 클래스 · 값만 만원 내림.
+        미설정 · 상태 미수신 「—」(--faint) · 음수 「0만」(--destructive 600) · 초과면 값 --destructive 600.
+      */}
+      <div
+        data-slot="mo-available"
+        className="flex min-h-[44px] min-w-0 items-center justify-between gap-2"
+      >
+        <span className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]">주문가능</span>
+        <b
+          data-slot="mo-available-value"
+          data-over={availableKrw !== null && (budgetOver || availableKrw < 0) ? '' : undefined}
+          className={cn(
+            'whitespace-nowrap text-[14px] font-medium tabular-nums text-[var(--fg-2)]',
+            availableKrw === null && 'text-[var(--faint)]',
+            availableKrw !== null &&
+              (budgetOver || availableKrw < 0) &&
+              'font-semibold text-[var(--destructive)]',
+          )}
+        >
+          {availableKrw === null ? '—' : formatManwonFloor(availableKrw)}
+        </b>
+      </div>
+
+      {/*
         5b 주문계좌 — 표시 전용 44px 행(quick-261007-h76 · 사용자 결정 B · 목업 261007-h76-mockup.html).
         주문 버튼 바로 위라 누르기 직전에 눈에 들어온다. 계좌를 바꾸는 select · 버튼은 없다(잘못 만든
         카드는 닫고 새로 만든다). 글자 = accountLabelOf(「번호 · 이름」).
@@ -1035,6 +1071,18 @@ export function ManualOrderForm({
         6·7 버튼 두 줄 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②). 윗줄 매수 | 매도 48px,
         아랫줄 정정 | 취소 38px(D-11). 매수가 **왼쪽**, 매도가 그 오른쪽이다(3중 일치).
       */}
+      {/* Phase 36 D-12 — 주문가능 초과 검증 줄(비차단 · 버튼 줄 바로 위 · priceIssue 줄 클래스 상속 · -mt-1 없음). */}
+      {budgetOver && (
+        <p
+          data-testid="manual-order-budget-over"
+          role="status"
+          aria-live="polite"
+          className="m-0 min-w-0 pl-0.5 text-[12.5px] leading-snug break-keep text-[var(--destructive)]"
+        >
+          {`주문가능 초과: ${formatManwonFloor(orderKrw)} > ${formatManwonFloor(Math.max(0, availableKrw))}`}
+        </p>
+      )}
+
       <div data-testid="manual-order-buttons" className="flex min-w-0 flex-col">
         <div className="mt-0.5 grid grid-cols-2 gap-2">
           <OrderButton tone="buy" disabled={sideDisabled} onClick={() => handleAction('buy')}>

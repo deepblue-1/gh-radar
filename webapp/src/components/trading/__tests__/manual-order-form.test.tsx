@@ -30,6 +30,8 @@ const lockMock = vi.hoisted(() => ({
   locks: null as null | ReadonlyMap<string, import('@/lib/relay-provider').OrderLockKind>,
   /** quick-261007-h76 — 「주문계좌」 행 이름 원천. null = `EMPTY_RELAY_VALUE.accounts`([]). */
   accounts: null as null | readonly import('@gh-radar/shared').RelayAccount[],
+  /** Phase 36 D-12 — 「주문가능」 행 원천(66/67 계좌 상태). null = `EMPTY_RELAY_VALUE.accountStates`. */
+  accountStates: null as null | ReadonlyMap<string, import('@gh-radar/shared').RelayAccountState>,
 }));
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
@@ -55,6 +57,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       sendOrder: providerSend,
       orderLocks: lockMock.locks ?? actual.EMPTY_RELAY_VALUE.orderLocks,
       accounts: lockMock.accounts ?? actual.EMPTY_RELAY_VALUE.accounts,
+      accountStates: lockMock.accountStates ?? actual.EMPTY_RELAY_VALUE.accountStates,
     }),
   };
 });
@@ -159,6 +162,7 @@ beforeEach(() => {
   affMock.override = null;
   lockMock.locks = null;
   lockMock.accounts = null;
+  lockMock.accountStates = null;
 });
 
 const FOOTNOTE = '정정·취소는 미체결 행을 선택하면 활성화돼요';
@@ -1629,12 +1633,14 @@ describe('주문계좌 행 (quick-261007-h76 · 결정 B)', () => {
     expect(accountValue()!.getAttribute('title')).toBe(expected);
   });
 
-  it('M2: 위치 — 4버튼 바로 위 · 「주문금액」 행 바로 아래', () => {
+  it('M2: 위치 — 4버튼 바로 위 · 「주문가능」 행(Phase 36 D-12) 아래 · 그 위 「주문금액」 행', () => {
     lockMock.accounts = [{ accountNo: '12345678-01', name: '교보위탁' }];
     renderForm();
     const prev = screen.getByTestId('manual-order-buttons').previousElementSibling as HTMLElement;
     expect(prev).toBe(accountRow());
-    const amountRow = prev.previousElementSibling as HTMLElement;
+    const availableRow = prev.previousElementSibling as HTMLElement;
+    expect(availableRow.getAttribute('data-slot')).toBe('mo-available');
+    const amountRow = availableRow.previousElementSibling as HTMLElement;
     expect(amountRow.textContent).toContain('주문금액');
   });
 
@@ -1673,5 +1679,138 @@ describe('주문계좌 행 (quick-261007-h76 · 결정 B)', () => {
     }
     expect(within(rowEl).queryAllByRole('button')).toHaveLength(0);
     expect(within(rowEl).queryAllByRole('combobox')).toHaveLength(0);
+  });
+});
+
+describe('P36 주문가능 (D-12)', () => {
+  const ACC = '12345678-01';
+  const availableRow = () => document.querySelector<HTMLElement>('[data-slot="mo-available"]');
+  const availableValue = () =>
+    document.querySelector<HTMLElement>('[data-slot="mo-available-value"]')!;
+  const overLine = () => screen.queryByTestId('manual-order-budget-over');
+  function withAccount(over: Partial<import('@gh-radar/shared').RelayAccountState> = {}) {
+    lockMock.accountStates = new Map([
+      [ACC, { t: 'acct', a: ACC, snap: true, hold: [], unf: [], rm: [], st: '', ...over }],
+    ]);
+  }
+
+  it('① 예수금 2,000만 · 보유 0 → 행 「2,000만」 · 주문금액 행 바로 아래 · 주문계좌 행 위', () => {
+    withAccount({ budgetKrw: 20_000_000 });
+    renderForm();
+    const row = availableRow()!;
+    expect(row.querySelector('span')!.textContent).toBe('주문가능');
+    expect(availableValue().textContent).toBe('2,000만');
+    expect(availableValue().className).toContain('text-[var(--fg-2)]');
+    expect(availableValue().className).not.toContain('text-[var(--destructive)]');
+    expect(row.previousElementSibling!.textContent).toContain('주문금액');
+    expect(row.nextElementSibling!.getAttribute('data-slot')).toBe('mo-account');
+    for (const c of ['min-h-[44px]', 'min-w-0', 'justify-between', 'gap-2']) {
+      expect(row.className).toContain(c);
+    }
+    expect(availableValue().className).toContain('whitespace-nowrap');
+    expect(within(row).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('② 가격 15,000 × 1,000주(1,500만) ≤ 주문가능 2,000만 → 줄 없음 · 기본색', async () => {
+    const user = userEvent.setup();
+    withAccount({ budgetKrw: 20_000_000 });
+    renderForm();
+    await fill(user, '15000', '1000');
+    expect(overLine()).toBeNull();
+    expect(availableValue().className).not.toContain('text-[var(--destructive)]');
+  });
+
+  it('③ 예수금 1,234만 · 15,000 × 1,000 → 값 빨강 600 + 「주문가능 초과: 1,500만 > 1,234만」 · 버튼 활성 · 주문은 나간다', async () => {
+    const user = userEvent.setup();
+    withAccount({ budgetKrw: 12_345_678 });
+    renderForm();
+    await fill(user, '15000', '1000');
+    const line = overLine()!;
+    expect(line).toHaveTextContent('주문가능 초과: 1,500만 > 1,234만');
+    expect(line).toHaveAttribute('role', 'status');
+    expect(line).toHaveAttribute('aria-live', 'polite');
+    for (const c of ['text-[12.5px]', 'break-keep', 'text-[var(--destructive)]', 'pl-0.5']) {
+      expect(line.className).toContain(c);
+    }
+    expect(line.className).not.toContain('-mt-1');
+    // 버튼 줄 바로 위.
+    expect(line.nextElementSibling).toBe(screen.getByTestId('manual-order-buttons'));
+    expect(availableValue().textContent).toBe('1,234만');
+    expect(availableValue().className).toContain('text-[var(--destructive)]');
+    expect(availableValue().className).toContain('font-semibold');
+    // 주문금액 행 단위는 원 그대로.
+    expect(screen.getByText('15,000,000원')).toBeInTheDocument();
+    // 비차단 — 버튼 활성 · 확인 → 전송.
+    expect(btn('매수')).toBeEnabled();
+    expect(btn('매도')).toBeEnabled();
+    await user.click(btn('매수'));
+    expect(screen.getByTestId('order-confirm-dialog')).toBeInTheDocument();
+  });
+
+  it('④ 선택 미체결이 매도(side "S") → 판정 제외 · 줄 없음', () => {
+    withAccount({ budgetKrw: 1_000_000 });
+    renderForm({ selectedUnfilled: unf({ side: 'S', price: 128_500, unfilledQty: 40 }) });
+    expect(screen.getByTestId('manual-order-selchip')).toHaveTextContent('매도');
+    expect(overLine()).toBeNull();
+    expect(availableValue().className).not.toContain('text-[var(--destructive)]');
+  });
+
+  it('④b 선택 미체결이 매수면 판정한다(정정 대상 매수)', () => {
+    withAccount({ budgetKrw: 1_000_000 });
+    renderForm({ selectedUnfilled: unf({ side: 'B', price: 128_500, unfilledQty: 40 }) });
+    // 128,500 × 40 = 514만 > 주문가능(100만 − 미체결 없음 — 계좌 상태 unf 는 비어 있다).
+    expect(overLine()).toHaveTextContent('주문가능 초과: 514만 > 100만');
+  });
+
+  it('⑤ 시간외종가 → 판정 제외 · 줄 없음', async () => {
+    const user = userEvent.setup();
+    withAccount({ budgetKrw: 1_000_000 });
+    renderForm({ queuedWindow: win({ g2Open: true }), referenceClose: 128_700 });
+    await fill(user, '15000', '1000');
+    expect(overLine()).not.toBeNull();
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    expect(overLine()).toBeNull();
+  });
+
+  it('⑥ 미설정(예수금 0) → 「—」(--faint) · 줄 없음', async () => {
+    const user = userEvent.setup();
+    withAccount({ budgetKrw: 0 });
+    renderForm();
+    await fill(user, '15000', '1000');
+    expect(availableValue().textContent).toBe('—');
+    expect(availableValue().className).toContain('text-[var(--faint)]');
+    expect(overLine()).toBeNull();
+  });
+
+  it('⑦ 주문가능 음수 → 「0만」 빨강 · 주문금액 0 이면 판정 없음(줄 없음)', () => {
+    withAccount({
+      budgetKrw: 1_000_000,
+      hold: [{ isin: ISIN, qty: 100, sellableQty: 100, avgPrice: 20_000 }],
+    });
+    renderForm();
+    expect(availableValue().textContent).toBe('0만');
+    expect(availableValue().className).toContain('text-[var(--destructive)]');
+    expect(availableValue().className).toContain('font-semibold');
+    expect(overLine()).toBeNull();
+  });
+
+  it('⑧ 계좌 상태 없음(미수신) → 「—」 · 줄 없음', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await fill(user, '15000', '1000');
+    expect(availableValue().textContent).toBe('—');
+    expect(overLine()).toBeNull();
+  });
+
+  it('⑨ 금액이 내려오면 기본색 · 줄 사라짐(렌더 재판정)', async () => {
+    const user = userEvent.setup();
+    withAccount({ budgetKrw: 12_345_678 });
+    renderForm();
+    await fill(user, '15000', '1000');
+    expect(overLine()).not.toBeNull();
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '100');
+    expect(overLine()).toBeNull();
+    expect(availableValue().className).not.toContain('text-[var(--destructive)]');
   });
 });

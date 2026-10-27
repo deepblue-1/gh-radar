@@ -150,7 +150,6 @@ import type {
   RelayExchange,
   RelayHolding,
   RelayLimitChaser,
-  RelayQuote,
   RelayUnfilled,
 } from "@gh-radar/shared";
 
@@ -211,7 +210,8 @@ import { breakoutFeedKey } from "@/lib/use-breakout-quotes";
 import { useAccumSignals } from "@/lib/use-accum-signals";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { useTradingAlerts } from "@/lib/use-trading-alerts";
-import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
+import { holdingQuotePrice } from "@/lib/use-available-krw";
+import type { RelayStatus } from "@/lib/use-relay-socket";
 import { useViServerError } from "@/lib/use-vi-server-error";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
@@ -471,24 +471,10 @@ function withoutId(prev: ReadonlySet<string>, id: string): ReadonlySet<string> {
 }
 
 /**
- * 잔고 평가 가격 (**순수 함수** · 18-REVIEW-R2 GC-IN-04) — KRX 시세가 유한·양수면 그 값, 아니면 NXT
- * 시세가 같은 조건이면 그 값, 아니면 `undefined`(평가손익 「—」).
- *
- * 근거: 잔고 행에는 거래소 축이 없다(게이트웨이 `HoldingState` · `RelayHolding` 은 ISIN · 수량 ·
- * 매도가능 · 평단뿐이다). KRX 는 기본 거래소다. NXT
- * 폴백은 NXT 카드만 있는 종목의 평가를 비우지 않기 위해서다. 카드 집합을 읽지 않는다 — 예전에는
- * 그 ISIN 의 **첫 카드** 거래소를 골라 같은 종목 KRX·NXT 카드의 순서에 따라 평가 가격이 바뀌었다.
+ * 잔고 평가 가격 `holdingQuotePrice` — Phase 36 에서 `@/lib/use-available-krw` 로 옮겼다(주문가능의 시장가 매수
+ * 미체결 현재가와 같은 규칙 한 벌). 기존 import 경로(테스트 등)를 지키려고 여기서 재수출한다.
  */
-export function holdingQuotePrice(
-  quotes: ReadonlyMap<string, RelayQuote>,
-  isin: string,
-): number | undefined {
-  for (const exchange of ["KRX", "NXT"] as const) {
-    const p = quotes.get(relayQuoteKey(isin, exchange))?.p;
-    if (p !== undefined && Number.isFinite(p) && p > 0) return p;
-  }
-  return undefined;
-}
+export { holdingQuotePrice };
 
 /**
  * 계좌 채움 (**순수 함수** · GC-IN-05 · D-07). 계좌 도착 전에 만든 카드(계좌 `""`)를 `accountNo` 로
