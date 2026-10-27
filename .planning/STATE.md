@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-10-PLAN.md
-last_updated: "2026-10-27T14:22:47.285Z"
+stopped_at: Completed 36-02-PLAN.md
+last_updated: "2026-10-27T14:37:20.161Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
-state_head: ab01eca95c161cd37166eb085a5a17890e091441
+state_head: 7e348d7980500d7027864cf1f9c89dedc80b83a6
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 74
-  completed_plans: 64
+  completed_plans: 65
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-10-27 — Phase 36 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T14:22:47.194Z
-Stopped at: Completed 36-10-PLAN.md
+Last session: 2026-10-27T14:37:20.074Z
+Stopped at: Completed 36-02-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -167,6 +167,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P08 | 14 min | 3 tasks | 9 files |
 | Phase 36 P01 | 6 min | 1 tasks | 15 files |
 | Phase 36 P10 | 5min | 2 tasks | 10 files |
+| Phase 36 P02 | 10min | 2 tasks | 14 files |
 
 ## Decisions
 
@@ -264,3 +265,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-10: costs 색인은 그 DMA 유저 행 우선 · 없으면 같은 계좌 다른 유저 행(예수금·비용률은 서버 계좌 단위 값 — IP/MAC 색인과 다름)
 - [Phase 36]: 36-10: liveBudgetKrw 0 은 해제 정당값 — null 일 때만 87 폴백
 - [Phase 36]: 36-10: registeredServersOf 를 꺼내 summarizeOrderEndpoint·summarizeAccountCosts 가 공유 — 둘 다 resolveEffectiveOrderServer 호출(GC-06)
+- [Phase 36]: 36-02: 의도에 없는 계좌의 op 6/7 라우트는 409 NO_SUCH_ACCOUNT(기존 계좌 라우트 매핑 · 플랜 404 문구 정정)
+- [Phase 36]: 36-02: op 6/7 은 setAccountCost 로 그 계좌 active 등록 서버마다 44 1건 · dma_admin_results 기록 없음(#answerBy record:false · keysOf)
+- [Phase 36]: 36-02: 87 AdminAccount budgetKrw · feePpm · sellTaxPpm 은 늘 키를 둔다(구 서버 0) · planner · sink 에는 들어가지 않는다
