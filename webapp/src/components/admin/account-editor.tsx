@@ -858,9 +858,15 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
   const errorLines = [...lines.budget, ...lines.fee];
 
   return (
-    <div data-slot="admin-account-cost" data-account={account.accountNo}>
+    // 배치(UI-SPEC ① overflow) — 카드 폭 컨테이너 쿼리: 세 칸이 한 줄에 들어가는 폭(464px · 칸 3 + 라벨 · 단위 · 구분점 ≈ 440)
+    // 부터 한 줄, 그보다 좁으면 2줄(예수금 basis-full / 수수료 · 매도세 · 칩)이고 1줄 끝 구분점을 숨긴다. 뷰포트가 아니라 카드 폭인 까닭:
+    // 데스크톱에서도 편집 시트는 440px 패널이라 뷰포트 sm 으로 한 줄을 시도하면 줄 끝에 「·」 이 매달린 채 꺾인다(36-03 E2E 실측).
+    <div data-slot="admin-account-cost" data-account={account.accountNo} className="@container/cost">
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-[var(--muted-fg)]">
-        <span data-slot="admin-account-cost-budget" className="flex basis-full items-center gap-1 sm:basis-auto">
+        <span
+          data-slot="admin-account-cost-budget"
+          className="flex basis-full items-center gap-1 @min-[464px]/cost:basis-auto"
+        >
           <label htmlFor={budgetId}>{T.budgetLabel}</label>
           <Input
             id={budgetId}
@@ -885,70 +891,76 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
             }}
           />
           <span>{T.budgetUnit}</span>
-          <span data-slot="admin-account-cost-sep" aria-hidden="true" className="hidden text-[var(--faint)] sm:inline">
+          <span
+            data-slot="admin-account-cost-sep"
+            aria-hidden="true"
+            className="hidden text-[var(--faint)] @min-[464px]/cost:inline"
+          >
             ·
           </span>
         </span>
-        <span className="flex items-center gap-1">
-          <label htmlFor={feeId}>{T.feeLabel}</label>
-          <Input
-            id={feeId}
-            size="sm"
-            inputMode="decimal"
-            autoComplete="off"
-            aria-label={label(T.feeLabel, T.pctUnit)}
-            aria-invalid={invalid.fee || undefined}
-            placeholder={feePlaceholder}
-            readOnly={feeLocked}
-            className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
-            value={feeField.text}
-            onFocus={feeField.onFocus}
-            onChange={(e) => {
-              const v = e.target.value;
-              feeField.onChange(v);
-              touched("fee");
-              if (invalid.fee) setInvalid((s) => ({ ...s, fee: !parseCostPct(v).ok }));
-            }}
-            onKeyDown={onEnter(saveFee)}
-            onBlur={() => {
-              const willSave = feeField.edited && !feeLocked;
-              feeField.onBlur(willSave);
-              if (willSave) saveFee();
-            }}
-          />
-          <span>{T.pctUnit}</span>
-        </span>
-        <span aria-hidden="true" className="text-[var(--faint)]">
-          ·
-        </span>
-        <span className="flex items-center gap-1">
-          <label htmlFor={taxId}>{T.sellTaxLabel}</label>
-          <Input
-            id={taxId}
-            size="sm"
-            inputMode="decimal"
-            autoComplete="off"
-            aria-label={label(T.sellTaxLabel, T.pctUnit)}
-            aria-invalid={invalid.tax || undefined}
-            placeholder={feePlaceholder}
-            readOnly={feeLocked}
-            className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
-            value={taxField.text}
-            onFocus={taxField.onFocus}
-            onChange={(e) => {
-              const v = e.target.value;
-              taxField.onChange(v);
-              touched("fee");
-              if (invalid.tax) setInvalid((s) => ({ ...s, tax: !parseCostPct(v).ok }));
-            }}
-            onKeyDown={onEnter(saveFee)}
-            onBlur={() => {
-              const willSave = taxField.edited && !feeLocked;
-              taxField.onBlur(willSave);
-              if (willSave) saveFee();
-            }}
-          />
-          <span>{T.pctUnit}</span>
+        <span data-slot="admin-account-cost-rates" className="flex items-center gap-2">
+          <span className="flex items-center gap-1">
+            <label htmlFor={feeId}>{T.feeLabel}</label>
+            <Input
+              id={feeId}
+              size="sm"
+              inputMode="decimal"
+              autoComplete="off"
+              aria-label={label(T.feeLabel, T.pctUnit)}
+              aria-invalid={invalid.fee || undefined}
+              placeholder={feePlaceholder}
+              readOnly={feeLocked}
+              className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
+              value={feeField.text}
+              onFocus={feeField.onFocus}
+              onChange={(e) => {
+                const v = e.target.value;
+                feeField.onChange(v);
+                touched("fee");
+                if (invalid.fee) setInvalid((s) => ({ ...s, fee: !parseCostPct(v).ok }));
+              }}
+              onKeyDown={onEnter(saveFee)}
+              onBlur={() => {
+                const willSave = feeField.edited && !feeLocked;
+                feeField.onBlur(willSave);
+                if (willSave) saveFee();
+              }}
+            />
+            <span>{T.pctUnit}</span>
+          </span>
+          <span aria-hidden="true" className="text-[var(--faint)]">
+            ·
+          </span>
+          <span className="flex items-center gap-1">
+            <label htmlFor={taxId}>{T.sellTaxLabel}</label>
+            <Input
+              id={taxId}
+              size="sm"
+              inputMode="decimal"
+              autoComplete="off"
+              aria-label={label(T.sellTaxLabel, T.pctUnit)}
+              aria-invalid={invalid.tax || undefined}
+              placeholder={feePlaceholder}
+              readOnly={feeLocked}
+              className={cn("w-16", fieldBox, feeBusy && "opacity-50")}
+              value={taxField.text}
+              onFocus={taxField.onFocus}
+              onChange={(e) => {
+                const v = e.target.value;
+                taxField.onChange(v);
+                touched("fee");
+                if (invalid.tax) setInvalid((s) => ({ ...s, tax: !parseCostPct(v).ok }));
+              }}
+              onKeyDown={onEnter(saveFee)}
+              onBlur={() => {
+                const willSave = taxField.edited && !feeLocked;
+                taxField.onBlur(willSave);
+                if (willSave) saveFee();
+              }}
+            />
+            <span>{T.pctUnit}</span>
+          </span>
         </span>
         <span data-slot="admin-account-cost-chips" className="inline-flex flex-wrap gap-1">
           {chips.map((c) => (

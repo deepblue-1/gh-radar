@@ -2046,14 +2046,20 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(budgetInput()).toHaveValue('1,995');
   });
 
-  it('(E1 overflow) 배치 — 예수금 묶음 basis-full sm:basis-auto · 1줄 끝 구분점 hidden sm:inline · 칩 묶음 inline-flex flex-wrap gap-1', () => {
+  it('(E1 overflow) 배치 — 카드 폭 컨테이너 쿼리: 예수금 묶음 basis-full → 464px 부터 auto · 1줄 끝 구분점 hidden → inline · 수수료 · 매도세 한 묶음 · 칩 묶음 inline-flex flex-wrap gap-1', () => {
     mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    expect(costRow(NO)!.className).toContain('@container/cost');
     const group = costRow(NO)!.querySelector('[data-slot="admin-account-cost-budget"]') as HTMLElement;
     expect(group.className).toContain('basis-full');
-    expect(group.className).toContain('sm:basis-auto');
+    expect(group.className).toContain('@min-[464px]/cost:basis-auto');
     const dot = group.querySelector('[data-slot="admin-account-cost-sep"]') as HTMLElement;
     expect(dot.className).toContain('hidden');
-    expect(dot.className).toContain('sm:inline');
+    expect(dot.className).toContain('@min-[464px]/cost:inline');
+    const rates = costRow(NO)!.querySelector('[data-slot="admin-account-cost-rates"]') as HTMLElement;
+    expect(within(rates).getAllByRole('textbox').map((i) => i.getAttribute('aria-label'))).toEqual([
+      'KB 12345678901 수수료(%)',
+      'KB 12345678901 매도세(%)',
+    ]);
     const chipsEl = costRow(NO)!.querySelector('[data-slot="admin-account-cost-chips"]') as HTMLElement;
     expect(chipsEl.className).toContain('inline-flex');
     expect(chipsEl.className).toContain('flex-wrap');
