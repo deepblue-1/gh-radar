@@ -9,7 +9,11 @@ import {
   fallbackLineText,
   lastChangeText,
   panelPlanOf,
+  planEditOf,
+  planEditWithDraft,
   planLineText,
+  planStateWithSave,
+  saveResultViewOf,
 } from '../launch-plan-view';
 
 /**
@@ -176,5 +180,92 @@ describe('표기', () => {
 
   it('LAUNCH_PLAN_HISTORY_MAX = 10', () => {
     expect(LAUNCH_PLAN_HISTORY_MAX).toBe(10);
+  });
+});
+
+describe('편집 · 저장(35-15)', () => {
+  const AT = new Date('2026-10-27T13:41:00Z'); // KST 22:41
+
+  it('saveResultViewOf ok — 칩 「KB120」 · 「저장됨 · 22:41 · 다음 16:00 발사부터」 / n0930 「다음 09:00:30 발사부터」', () => {
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'ok' }, 'q16', AT)).toEqual({
+      chip: { tone: 'ok', text: 'KB120', title: null },
+      line: { tone: 'ok', text: '저장됨 · 22:41 · 다음 16:00 발사부터' },
+    });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'ok' }, 'n0930', AT).line.text).toBe(
+      '저장됨 · 22:41 · 다음 09:00:30 발사부터',
+    );
+  });
+
+  it('saveResultViewOf failed code 1 — 서버 미지원 · 원문 · 「— 서버 업데이트 뒤 다시 저장」', () => {
+    expect(
+      saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' }, 'q16', AT),
+    ).toEqual({
+      chip: { tone: 'err', text: 'KB120 · 실패', title: '서버 미지원 · 알 수 없는 명령입니다' },
+      line: { tone: 'err', text: 'KB120 실패: 서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장' },
+    });
+  });
+
+  it('saveResultViewOf failed code 10 — 「KB120 실패: 저장 실패」 · message 없으면 칩 낱말', () => {
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 10, message: '저장 실패' }, 'q16', AT)).toEqual({
+      chip: { tone: 'err', text: 'KB120 · 실패', title: '저장 실패' },
+      line: { tone: 'err', text: 'KB120 실패: 저장 실패' },
+    });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 10 }, 'q16', AT).line.text).toBe('KB120 실패: 실패');
+  });
+
+  it('saveResultViewOf code 1 판정은 outcome failed 일 때만 — message 문장은 보지 않는다', () => {
+    // 같은 문장이어도 code 가 1 이 아니면 서버 미지원이 아니다
+    expect(
+      saveResultViewOf({ server: 'KB120', outcome: 'failed', code: 2, message: '알 수 없는 명령입니다' }, 'q16', AT).line.text,
+    ).toBe('KB120 실패: 알 수 없는 명령입니다');
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped', code: 1, message: '꺼진 서버' }, 'q16', AT).line.text).toBe(
+      'KB120 미반영: 꺼진 서버',
+    );
+  });
+
+  it('saveResultViewOf timeout · offline · skipped', () => {
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'timeout' }, 'q16', AT)).toEqual({
+      chip: { tone: 'err', text: 'KB120 · 응답 없음', title: null },
+      line: { tone: 'err', text: 'KB120 실패: 응답 없음' },
+    });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'offline' }, 'q16', AT)).toEqual({
+      chip: { tone: 'warn', text: 'KB120 · 서버 연결 안 됨', title: null },
+      line: { tone: 'warn', text: 'KB120 미반영: 서버 연결 안 됨' },
+    });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'offline', message: 'relay 응답이 없어요' }, 'q16', AT)).toEqual({
+      chip: { tone: 'warn', text: 'KB120 · 서버 연결 안 됨', title: 'relay 응답이 없어요' },
+      line: { tone: 'warn', text: 'KB120 미반영: 서버 연결 안 됨' },
+    });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped', message: '꺼진 서버' }, 'q16', AT)).toEqual({
+      chip: { tone: 'warn', text: 'KB120 · 미반영', title: '꺼진 서버' },
+      line: { tone: 'warn', text: 'KB120 미반영: 꺼진 서버' },
+    });
+    // skipped 사유가 비면 이력 알약 낱말(「꺼진 서버」 · 35-14 changeOutcomeView 와 같은 말)
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped' }, 'q16', AT).line.text).toBe('KB120 미반영: 꺼진 서버');
+  });
+
+  it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {
+    const e0 = planEditOf('KB120', 'Q', 'q16', [-350, -345, -325]);
+    expect(e0.draft).toEqual(['-350', '-345', '-325']);
+    const e1 = planEditWithDraft(e0, ['-350', '-340', '-325']);
+    expect(e1.valid).toEqual([-350, -340, -325]);
+    const e2 = planEditWithDraft(e1, ['-350', '-360', '-325']);
+    expect(e2.draft).toEqual(['-350', '-360', '-325']);
+    expect(e2.valid).toEqual([-350, -340, -325]);
+  });
+
+  it('planStateWithSave — plan 으로 그 서버만 교체 · change 는 맨 앞 · null 이면 그대로 · ready 아니면 그대로', () => {
+    const s0 = ready({ KB120: OK_KB, KYOBO119: { status: 'offline' } }, [row({ id: 1 })]);
+    const nextPlan: LaunchPlanServer = { ...OK_KB, plan_rev: 8, entries: [{ profile: 'Q16', market: 'Q', offsets_us: [-340] }] };
+    const s1 = planStateWithSave(s0, 'KB120', { plan: nextPlan, change: row({ id: 9 }) });
+    expect(s1.kind).toBe('ready');
+    if (s1.kind !== 'ready') return;
+    expect(s1.resp.servers.KB120).toBe(nextPlan);
+    expect(s1.resp.servers.KYOBO119).toEqual({ status: 'offline' });
+    expect(s1.resp.changes.map((c) => c.id)).toEqual([9, 1]);
+
+    const s2 = planStateWithSave(s0, 'KB120', { plan: null, change: null });
+    expect(s2).toEqual(s0);
+    expect(planStateWithSave({ kind: 'absent' }, 'KB120', { plan: nextPlan, change: null })).toEqual({ kind: 'absent' });
   });
 });
