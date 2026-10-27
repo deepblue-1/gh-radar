@@ -142,6 +142,11 @@ function makeApp(rpc: Record<string, RpcHandler> = {}, relayAdmin?: RelayAdminCl
       launch_orders_for_admin: () => ({ data: orders, error: null }),
       launch_map_for_admin: () => ({ data: map, error: null }),
       launch_plan_changes_for_admin: () => ({ data: { changes: [] }, error: null }),
+      // 35-12 기록 RPC 계약 — 받은 p 에 id · at 을 붙인 행 하나.
+      launch_plan_change_record: (params) => ({
+        data: { id: 7, at: "2026-10-27T13:41:00+00:00", ...(params as { p: object }).p },
+        error: null,
+      }),
       ...rpc,
     },
   });
@@ -441,5 +446,218 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     );
     expect(res2.status).toBe(500);
     expect(res2.body.error.code).toBe("DB_ERROR");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PUT_PATH = "/api/admin/launch/plan/KB120/q16/Q";
+const RELAY_PUT_PATH = "/internal/admin/launch-plan/KB120";
+
+const kb120After: LaunchPlanServer = {
+  status: "ok",
+  plan_rev: 4,
+  updated_at: "2026-10-28T00:10:00",
+  entries: [
+    { profile: "Q16", market: "K", offsets_us: [-340, -335, -320] },
+    { profile: "Q16", market: "Q", offsets_us: [-340, -335, -322] },
+    { profile: "N", market: "K", offsets_us: [-245] },
+    { profile: "N", market: "Q", offsets_us: [-245] },
+  ],
+};
+
+/** relay PUT 만 r 로 — 그 밖은 가짜 기본. */
+const relayPut = (r: { status: number; data: unknown } | (() => never)) =>
+  makeFakeRelay((c) => {
+    if (c.method !== "PUT" || !c.path.startsWith("/internal/admin/launch-plan/")) return undefined;
+    return typeof r === "function" ? r() : r;
+  });
+
+const recordCalls = (rec: ReturnType<typeof makeAdminSupabase>["rec"]) =>
+  rec.rpcCalls.filter((c) => c.fn === "launch_plan_change_record");
+
+const auditLines = (info: ReturnType<typeof vi.spyOn>) =>
+  info.mock.calls.filter((args) => {
+    const o = args[0] as { audit?: string; op?: string } | undefined;
+    return o?.audit === "admin" && o.op === "launch-plan-put";
+  });
+
+describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:market (D-27 · D-29 · D-30)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("P35-S5 저장 ok → relay PUT 1회(경로 · 바디 Q16/Q) · 기록 RPC 1회(p 전 필드) · 200 { result, plan, change } · 감사 1줄", async () => {
+    const info = vi.spyOn(logger, "info");
+    const result = { server: "KB120", outcome: "ok" };
+    const relay = relayPut({ status: 200, data: { result, before_us: [-350, -345, -325], plan: kb120After } });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: RELAY_PUT_PATH,
+        adminEmail: ADMIN_EMAIL,
+        body: { profile: "Q16", market: "Q", offsets_us: [-340, -335, -322] },
+      },
+    ]);
+    const p = {
+      admin_email: ADMIN_EMAIL,
+      gateway: "KB120",
+      fire: "q16",
+      market: "Q",
+      before_us: [-350, -345, -325],
+      after_us: [-340, -335, -322],
+      outcome: "ok",
+      code: null,
+      message: null,
+      plan_rev: 4,
+    };
+    expect(rec.rpcCalls).toEqual([{ fn: "launch_plan_change_record", params: { p } }]);
+    expect(res.body).toEqual({ result, plan: kb120After, change: { id: 7, at: "2026-10-27T13:41:00+00:00", ...p } });
+    expect(roleLookups(rec)).toBe(1);
+    const a = auditLines(info);
+    expect(a).toHaveLength(1);
+    expect(a[0]![0]).toMatchObject({ admin: ADMIN_EMAIL, op: "launch-plan-put", target: "KB120/q16/Q", outcome: "ok", code: null });
+  });
+
+  it("P35-S6 n0930 → relay 바디 profile N · market K · 경로 KYOBO119 (가짜 기본 PUT 응답)", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/launch/plan/KYOBO119/n0930/K")).send({ offsets_us: [-200] });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/launch-plan/KYOBO119",
+        adminEmail: ADMIN_EMAIL,
+        body: { profile: "N", market: "K", offsets_us: [-200] },
+      },
+    ]);
+    expect(res.body.result).toEqual({ server: "KYOBO119", outcome: "ok" });
+    expect(res.body.plan.status).toBe("ok");
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { gateway: "KYOBO119", fire: "n0930", market: "K", after_us: [-200], outcome: "ok", plan_rev: 3 },
+    });
+  });
+
+  it.each([
+    ["failed code 1", { server: "KB120", outcome: "failed", code: 1, message: "알 수 없는 명령입니다" }, 1, "알 수 없는 명령입니다"],
+    ["timeout", { server: "KB120", outcome: "timeout", message: "10초 안에 응답이 없었어요" }, null, "10초 안에 응답이 없었어요"],
+    ["skipped", { server: "KB120", outcome: "skipped" }, null, null],
+  ])("P35-S7 relay result %s → 200 result 그대로 · plan null · 기록 outcome · code · message 그대로", async (_l, result, code, message) => {
+    const relay = relayPut({ status: 200, data: { result, before_us: [-350, -345, -325], plan: null } });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual(result);
+    expect(res.body.plan).toBeNull();
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toEqual({
+      p: {
+        admin_email: ADMIN_EMAIL,
+        gateway: "KB120",
+        fire: "q16",
+        market: "Q",
+        before_us: [-350, -345, -325],
+        after_us: [-340, -335, -322],
+        outcome: result.outcome,
+        code,
+        message,
+        plan_rev: null,
+      },
+    });
+  });
+
+  it.each([
+    ["status 0", { status: 0, data: null }],
+    ["502", { status: 502, data: { error: { code: "RELAY_FAILED", message: "x" } } }],
+    ["모양 위반(result 없음)", { status: 200, data: { plan: null } }],
+    ["모양 위반(다른 서버 결과)", { status: 200, data: { result: { server: "KYOBO119", outcome: "ok" }, before_us: null, plan: null } }],
+    ["모양 위반(outcome 어휘 밖)", { status: 200, data: { result: { server: "KB120", outcome: "done" }, before_us: null, plan: null } }],
+  ])("P35-S8 relay %s → 200 result offline · plan null · 기록 offline 1행(before_us null)", async (_l, r) => {
+    const relay = relayPut(r);
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toMatchObject({ server: "KB120", outcome: "offline" });
+    expect(typeof res.body.result.message).toBe("string");
+    expect(res.body.plan).toBeNull();
+    expect(relay.calls).toHaveLength(1);
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { outcome: "offline", before_us: null, plan_rev: null, after_us: [-340, -335, -322], code: null },
+    });
+  });
+
+  it("P35-S8 relayAdmin 미설정 → 200 offline 「relay 연결이 설정되지 않았어요」 · 기록 offline 1행", async () => {
+    const { app, rec } = makeApp();
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340] });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual({ server: "KB120", outcome: "offline", message: "relay 연결이 설정되지 않았어요" });
+    expect(res.body.plan).toBeNull();
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { outcome: "offline", message: "relay 연결이 설정되지 않았어요", before_us: null },
+    });
+  });
+
+  it("P35-S9 기록 RPC 오류 → 200 · change null · logger.error 1회(gateway · fire · market · outcome)", async () => {
+    const err = vi.spyOn(logger, "error");
+    const relay = makeFakeRelay();
+    const { app } = makeApp(
+      { launch_plan_change_record: () => ({ data: null, error: { code: "23514", message: "check violation" } }) },
+      relay.client,
+    );
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
+    expect(res.status).toBe(200);
+    expect(res.body.change).toBeNull();
+    expect(res.body.result).toEqual({ server: "KB120", outcome: "ok" });
+    const lines = err.mock.calls.filter((a) => String(a[1] ?? "").includes("발사 계획 이력 기록 실패"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]![0]).toMatchObject({ gateway: "KB120", fire: "q16", market: "Q", outcome: "ok" });
+  });
+
+  it.each([
+    ["gateway KB121", "/api/admin/launch/plan/KB121/q16/Q", { offsets_us: [-340] }],
+    ["fire q17", "/api/admin/launch/plan/KB120/q17/Q", { offsets_us: [-340] }],
+    ["market X", "/api/admin/launch/plan/KB120/q16/X", { offsets_us: [-340] }],
+    ["빈 배열", PUT_PATH, { offsets_us: [] }],
+    ["65칸", PUT_PATH, { offsets_us: Array.from({ length: 65 }, (_, i) => -400 + i) }],
+    ["소수", PUT_PATH, { offsets_us: [1.5] }],
+    ["문자열", PUT_PATH, { offsets_us: ["1"] }],
+    ["추가 키", PUT_PATH, { offsets_us: [-340], extra: 1 }],
+    ["바디 없음", PUT_PATH, {}],
+  ])("P35-S9 400 %s → VALIDATION_FAILED · relay 0회 · RPC 0회", async (_l, path, body) => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(path)).send(body as object);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(relay.calls).toHaveLength(0);
+    expect(rec.rpcCalls).toEqual([]);
+  });
+
+  it.each([
+    ["순서 위반", [-340, -350]],
+    ["범위 밖", [-5000]],
+  ])("P35-S9 %s 는 server 가 막지 않는다 → relay 로 간다(D-26 · D-34 · gh-trade code 1)", async (_l, offsets) => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: offsets });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toHaveLength(1);
+    expect((relay.calls[0]!.body as { offsets_us: number[] }).offsets_us).toEqual(offsets);
+    expect(recordCalls(rec)).toHaveLength(1);
+  });
+
+  it("P35-S9 trader → 403 · relay 0회 · RPC 0회 / 무토큰 → 401", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    expect((await request(app).put(PUT_PATH).send({ offsets_us: [-340] })).status).toBe(401);
+    const res = await auth(request(app).put(PUT_PATH), TRADER_TOKEN).send({ offsets_us: [-340] });
+    expect(res.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+    expect(rec.rpcCalls).toEqual([]);
   });
 });
