@@ -21,11 +21,52 @@
  *
  * 위치(34 IN-04 와 같다): relay 런타임(`src/index.ts` 이하)은 이 모듈을 import 하지 않는다 — CLI 전용 도구라 `src/tools/`.
  */
-import { launchHeadOf, type LaunchHeadInput, type LaunchPieceInput } from "@gh-radar/shared";
+import {
+  launchFireBaseOf,
+  launchHeadOf,
+  type LaunchFire,
+  type LaunchHeadInput,
+  type LaunchMapResponse,
+  type LaunchPieceInput,
+} from "@gh-radar/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** RPC 한 번에 싣는 행 수(조각 · 머리 각각). */
 export const LAUNCH_BACKFILL_CHUNK = 500;
+
+/**
+ * gh-trade 에 요청한 ndjson 키 전부(35-01 핸드오프 「요청 내용」 (가)). 이름 = `launch_pieces` 열 이름이고
+ * `user` 만 `dma_user_id` 로 들어간다. 여기 없는 키는 무시하되 parse 결과 `unknownKeys` 에 모은다.
+ */
+export const LAUNCH_NDJSON_KEYS = [
+  "date",
+  "gateway",
+  "profile",
+  "fire_exchange",
+  "fire_base",
+  "market",
+  "wire",
+  "queued_id",
+  "piece_idx",
+  "round",
+  "probe",
+  "order_no",
+  "sent_rel_us",
+  "result",
+  "result_code",
+  "accept_time",
+  "retry",
+  "abandoned",
+  "side",
+  "isin",
+  "price",
+  "qty",
+  "filled_qty",
+  "account",
+  "user",
+] as const;
+
+const NDJSON_KEY_SET: ReadonlySet<string> = new Set(LAUNCH_NDJSON_KEYS);
 
 /** 파싱에서 버린 줄 — where = `<경로>#<원소 번호>` 또는 `<경로>:<줄 번호>`. */
 export interface LaunchReject {
@@ -108,15 +149,162 @@ export function pieceFromAttach(row: unknown): LaunchPieceInput {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// gh-trade ndjson — 풀린 필드명 한 줄 = 조각 1건
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NDJSON_GATEWAY: Record<string, string> = {
+  kb: "KB120",
+  kb120: "KB120",
+  kyobo: "KYOBO119",
+  kyobo119: "KYOBO119",
+  교보: "KYOBO119",
+};
+
+const NDJSON_MARKET: Record<string, string> = { K: "K", Q: "Q", 코스피: "K", 코스닥: "Q" };
+
+function absent(v: unknown): boolean {
+  return v === undefined || v === null;
+}
+
+/** 정수 칸 — number 정수 또는 정수 문자열(앞 0 허용 · accept_time 8자리 등). 없으면 null. */
+function optInt(obj: Record<string, unknown>, key: string): number | null {
+  const v = obj[key];
+  if (absent(v) || v === "") return null;
+  if (typeof v === "number" && Number.isInteger(v)) return v;
+  if (typeof v === "string" && /^-?\d+$/.test(v)) return Number(v);
+  throw new Error(`${key} 가 정수가 아닙니다`);
+}
+
+function reqInt(obj: Record<string, unknown>, key: string): number {
+  const v = optInt(obj, key);
+  if (v === null) throw new Error(`필수 키 누락: ${key}`);
+  return v;
+}
+
+/** 문자열 칸 — 숫자는 문자열로(주문번호 · 계좌가 숫자로 올 수 있다). 빈 문자열 · 없음은 null. */
+function optStr(obj: Record<string, unknown>, key: string): string | null {
+  const v = obj[key];
+  if (absent(v) || v === "") return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  throw new Error(`${key} 가 문자열이 아닙니다`);
+}
+
+function reqStr(obj: Record<string, unknown>, key: string): string {
+  const v = optStr(obj, key);
+  if (v === null) throw new Error(`필수 키 누락: ${key}`);
+  return v;
+}
+
+/** 0/1/true/false(문자열 "0"/"1" 포함) → boolean. 없으면 null. */
+function optBool(obj: Record<string, unknown>, key: string): boolean | null {
+  const v = obj[key];
+  if (absent(v) || v === "") return null;
+  if (v === true || v === 1 || v === "1" || v === "true") return true;
+  if (v === false || v === 0 || v === "0" || v === "false") return false;
+  throw new Error(`${key} 가 0/1/true/false 가 아닙니다`);
+}
+
+/**
+ * gh-trade ndjson 한 줄(객체) → DB 입력 조각. 필수(date · gateway · profile · fire_exchange · market · wire ·
+ * sent_rel_us · result) 누락이나 형식 오류는 사유와 함께 throw. 없는 선택 키는 null(D-08).
+ */
+export function pieceFromNdjson(obj: unknown): LaunchPieceInput {
+  if (!isObject(obj)) throw new Error("줄이 JSON 객체가 아닙니다");
+
+  const dateRaw = reqStr(obj, "date");
+  const m = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(dateRaw);
+  if (!m) throw new Error(`date 형식 오류(YYYY-MM-DD · YYYYMMDD): ${dateRaw}`);
+  const trade_date = `${m[1]}-${m[2]}-${m[3]}`;
+
+  const gwRaw = reqStr(obj, "gateway");
+  const gateway = gwRaw === "KB120" || gwRaw === "KYOBO119" ? gwRaw : NDJSON_GATEWAY[gwRaw.toLowerCase()];
+  if (!gateway) throw new Error(`모르는 gateway: ${gwRaw}`);
+
+  const profile = reqStr(obj, "profile");
+  const fire_exchange = reqStr(obj, "fire_exchange");
+
+  const mkRaw = reqStr(obj, "market");
+  const market = NDJSON_MARKET[mkRaw];
+  if (!market) throw new Error(`모르는 market: ${mkRaw}`);
+
+  let fire_base = optStr(obj, "fire_base");
+  if (fire_base === null) {
+    fire_base = launchFireBaseOf(profile, fire_exchange);
+    if (fire_base === null) throw new Error(`fire_base 를 정할 수 없습니다(profile ${profile} · ${fire_exchange})`);
+  } else if (!/^\d{2}:\d{2}:\d{2}$/.test(fire_base)) {
+    throw new Error(`fire_base 형식 오류(HH:MM:SS): ${fire_base}`);
+  }
+
+  const sideRaw = optStr(obj, "side");
+  const side = sideRaw === null ? null : sideRaw.toLowerCase();
+  if (side !== null && side !== "buy" && side !== "sell") throw new Error(`모르는 side: ${sideRaw}`);
+
+  return {
+    trade_date,
+    gateway,
+    profile,
+    fire_exchange,
+    fire_base,
+    market,
+    wire: reqInt(obj, "wire"),
+    side,
+    queued_id: optStr(obj, "queued_id"),
+    piece_idx: optInt(obj, "piece_idx"),
+    round: optInt(obj, "round"),
+    probe: optBool(obj, "probe"),
+    order_no: optStr(obj, "order_no"),
+    sent_rel_us: reqInt(obj, "sent_rel_us"),
+    result: reqStr(obj, "result"),
+    result_code: optInt(obj, "result_code"),
+    accept_time: optInt(obj, "accept_time"),
+    retry: optInt(obj, "retry"),
+    abandoned: optBool(obj, "abandoned"),
+    isin: optStr(obj, "isin"),
+    price: optInt(obj, "price"),
+    qty: optInt(obj, "qty"),
+    filled_qty: optInt(obj, "filled_qty"),
+    account: optStr(obj, "account"),
+    dma_user_id: optStr(obj, "user"),
+  };
+}
+
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 파일 하나를 읽는다 — 확장자로 형식을 고른다(`.json` = 첨부 배열). */
+/** 파일 하나를 읽는다 — 확장자로 형식을 고른다(`.json` = 첨부 배열 · `.ndjson` · `.jsonl` = gh-trade 한 줄 = 조각). */
 export function parseLaunchFile(path: string, text: string): LaunchParseResult {
   const lower = path.toLowerCase();
   if (lower.endsWith(".json")) return parseAttachJson(path, text);
+  if (lower.endsWith(".ndjson") || lower.endsWith(".jsonl")) return parseNdjson(path, text);
   throw new Error(`모르는 파일 형식(.json · .ndjson · .jsonl): ${path}`);
+}
+
+/** ndjson — 빈 줄은 건너뛰고, 깨진 줄은 줄 번호(1부터)와 사유로 rejects. */
+function parseNdjson(path: string, text: string): LaunchParseResult {
+  const pieces: LaunchPieceInput[] = [];
+  const rejects: LaunchReject[] = [];
+  const unknown = new Set<string>();
+  text.split(/\r?\n/).forEach((line, i) => {
+    if (line.trim() === "") return;
+    const where = `${path}:${i + 1}`;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      rejects.push({ where, reason: "JSON 파싱 실패" });
+      return;
+    }
+    if (isObject(obj)) for (const k of Object.keys(obj)) if (!NDJSON_KEY_SET.has(k)) unknown.add(k);
+    try {
+      pieces.push(pieceFromNdjson(obj));
+    } catch (err) {
+      rejects.push({ where, reason: errText(err) });
+    }
+  });
+  return { pieces, rejects, unknownKeys: [...unknown].sort() };
 }
 
 function parseAttachJson(path: string, text: string): LaunchParseResult {
@@ -298,4 +486,88 @@ export async function applyLaunchBackfill(
   const hc = chunksOf(plan.heads, size);
   for (let i = 0; i < hc.length; i++) await send("머리", i, hc.length, { p_pieces: [], p_heads: hc[i]! });
   return res;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 원격 상태(읽기 전용) · 재투영(Wave B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LaunchStatusDay {
+  /** YYYYMMDD */
+  trade_date: string;
+  gateway: string;
+  market: string;
+  pieces: number;
+}
+
+export interface LaunchFireStatus {
+  fire: LaunchFire;
+  days: number;
+  pieces: number;
+  /** 지도 RPC 의 heads = (서버, 시장, profile) 별 최신 1행 */
+  heads: number;
+  /** 날짜 × 서버 × 시장 조각 수(날짜 · 서버 · 시장 순) */
+  byDay: LaunchStatusDay[];
+}
+
+const STATUS_FIRES: readonly LaunchFire[] = ["q16", "n0930"];
+
+/** 원격 지도 RPC 를 발사 기준마다 한 번(p_days null = 전체) — 읽기 전용. */
+export async function launchStatusOf(sb: SupabaseClient): Promise<LaunchFireStatus[]> {
+  const out: LaunchFireStatus[] = [];
+  for (const fire of STATUS_FIRES) {
+    const { data, error } = await sb.rpc("launch_map_for_admin", { p_fire: fire, p_days: null });
+    if (error) throw new Error(`launch_map_for_admin(${fire}) 실패: ${rpcErrorText(error)}`);
+    const r = (data ?? { days: [], heads: [], pieces: [] }) as LaunchMapResponse;
+    const count = new Map<string, LaunchStatusDay>();
+    for (const p of r.pieces) {
+      const k = `${p.trade_date}|${p.gateway}|${p.market}`;
+      const cur = count.get(k);
+      if (cur) cur.pieces++;
+      else count.set(k, { trade_date: p.trade_date, gateway: p.gateway, market: p.market, pieces: 1 });
+    }
+    const byDay = [...count.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
+    out.push({ fire, days: r.days.length, pieces: r.pieces.length, heads: r.heads.length, byDay });
+  }
+  return out;
+}
+
+export interface LaunchReprojectOptions {
+  /** YYYYMMDD — 이 날부터(포함) */
+  from?: string;
+  /** YYYYMMDD — 이 날까지(포함) */
+  to?: string;
+  /** 거짓 = kind 17 · 18 원문 수만 센다(쓰기 0) · 참 = launch_reproject RPC */
+  apply: boolean;
+}
+
+export type LaunchReprojectResult =
+  | { mode: "dry"; events: number }
+  | { mode: "apply"; projected: number; errors: unknown[] };
+
+function ymdToIso(ymd: string, label: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(ymd);
+  if (!m) throw new Error(`${label} 형식 오류(YYYYMMDD): ${ymd}`);
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+/**
+ * Wave B 재해석 — 정식 kind 17 · 18 매핑으로 투영 함수를 바꾼 뒤 그동안 쌓인 원문을 다시 푼다.
+ * dry 는 원문 수(head count)만 읽고, apply 는 `launch_reproject(p_from, p_to)` 반환({projected, errors})을 그대로 준다.
+ */
+export async function reprojectLaunch(sb: SupabaseClient, opts: LaunchReprojectOptions): Promise<LaunchReprojectResult> {
+  const from = opts.from ? ymdToIso(opts.from, "from") : null;
+  const to = opts.to ? ymdToIso(opts.to, "to") : null;
+  if (!opts.apply) {
+    let q = sb.from("dma_strategy_events").select("seq", { count: "exact", head: true }).in("kind", [17, 18]);
+    if (from) q = q.gte("trade_date", from);
+    if (to) q = q.lte("trade_date", to);
+    const { count, error } = await q;
+    if (error) throw new Error(`dma_strategy_events kind 17·18 count 실패: ${rpcErrorText(error)}`);
+    return { mode: "dry", events: count ?? 0 };
+  }
+  const { data, error } = await sb.rpc("launch_reproject", { p_from: from, p_to: to });
+  if (error) throw new Error(`launch_reproject 실패: ${rpcErrorText(error)}`);
+  const r = (data ?? {}) as { projected?: number; errors?: unknown[] };
+  return { mode: "apply", projected: r.projected ?? 0, errors: r.errors ?? [] };
 }
