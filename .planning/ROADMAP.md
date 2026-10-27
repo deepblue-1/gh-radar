@@ -335,3 +335,23 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-discuss-phase 35 → 목업 → /gsd-plan-phase 35)
+
+### Phase 36: 계좌별 주문가능 금액
+
+**Goal**: gh-trade Phase 41 계약(인박스 `docs/inbox/from-gh-trade/261027-account-budget.md` · fbs SYNC 75195b70 — 44 `AdminCommandReq` · 87 `AdminAccount` · 66/67 `AccountState` 말미 `budget_krw: ulong`)을 받아, **어드민이 계좌별 한도(원 · 화면은 만원)를 설정**하고 **웹 주문 화면(호가창 계좌 패널 · /me)이 「주문가능 금액」을 실시간 표시**한다. 한도는 계좌당 값 하나 — relay 가 그 계좌가 등록된 서버 전부에 44 op 6 SetAccountBudget 을 fan-out 하고 서버별 결과 칩을 그린다(87 값이 서버마다 다르면 「서버별 다름」). op 3 으로 이 서버에 처음 생기는 계좌는 한도 0 이므로 relay 가 op 3 성공 뒤 다른 서버 스냅샷의 한도로 op 6 을 되싣는다(IP/MAC 되싣기 동형). 주문가능 = `budget_krw − Σ(avg_price × stock_qty) − Σ(매수 미체결 unfilled_qty × price)` — 매도 미체결 제외 · 매수는 KRX·NXT · 예약 요약 · 접수대기 포함 · `pending_cancel_sent` 제외 · price 0 이면 현재가(없으면 0, 상한가 금지) · 0 = 미설정 「—」 · 초과는 경고만(차단 · alert 없음)
+**Depends on**: Phase 29(웹 Admin · useFieldSave · 서버별 칩) · Phase 30(op 3 IP/MAC 되싣기 선례) · Phase 32(계좌 축 · 주문 서버 소유 필터 29-35) · 외부: gh-trade Phase 41(서버 배포는 사용자 지시 때 — 구 서버는 op 6 에 code 1 BAD_OP)
+**Requirements**: TBD
+**Success Criteria** (초안 — discuss/plan 에서 확정):
+  1. 목업: 어드민 계좌 카드 「한도(만원)」 칸 · 웹 주문가능 표시(계좌 패널 · /me · 초과 경고 톤)를 사용자 확인
+  2. relay: 44 op 6 송신(account_no + budget_krw · user_id 미사용) · 86 code 0/5/8/10/11 + 1(구 서버 「서버 미지원」) 표시 · 87 `AdminAccount.budget_krw` 파싱 · 66/67 `budget_krw` 캐시 반영(67 항목 병합 · 한도 마지막 값 덮어쓰기 · 한도 전용 빈 벡터 델타) · op 3(op 1 신규 첫 계좌 포함) 성공 뒤 op 6 되싣기
+  3. server/shared: 어드민 한도 쓰기 경로(requireAdmin) · 응답 계약에 budget 노출 · ulong(bigint) ↔ JSON 변환
+  4. webapp: 어드민 계좌 카드 한도 칸(즉시 저장 · 서버별 칩 · 서버별 다름) · 호가창 계좌 패널 · /me 주문가능 금액(웹과 WinForms 클라가 같은 값)
+  5. gh-trade 서버 배포 뒤 라이브 UAT(설정 → 86 code 0 · 87 전 행 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」) · 인박스 `261027-account-budget.md` 를 `status: done` 으로 닫는다
+
+**배포 순서**: gh-trade 서버 먼저 배포해도 안전(말미 append · 구 서버 op 6 = code 1) → gh-radar (DB 필요 시) → relay → server → webapp push(= 프로덕션)
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-discuss-phase 36 → 목업 → /gsd-plan-phase 36)
+
+**UI hint**: yes

@@ -43,6 +43,7 @@ Progress: [██████████] 100% (53/53 plans)
 - Phase 33 added (2026-10-16): 팀 매집(teamflow) 보고서 — gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표). 열 사전 인박스 `261016-teamflow-export.md` 는 미도착 — 도착 후 대조
 - Phase 34 added (2026-10-20): 매집감지(accum) 보고서 — gh-trade Phase 36 `accum_flow.ndjson.gz` export 적재(limitup-sync 선택 파일 일반화) · 목록/상세 분리 RPC · `/analytics/accum` 목록 + 상세 차트(10초 가격 · 팀 주문 · first · 순매수 누적 · 사이클 세로선 · 등록 전 음영) · kind 16 소급 파일 내보내기. 설계는 gh-trade-f4 와 합의(10-20), 열 사전 정본 인박스 `261020-accum-flow-export.md`. quick 대신 phase — teamflow(Phase 33, 9 plans)와 같은 규모
 - Phase 35 added (2026-10-27): 발사 경계 지도 어드민 — gh-trade 인박스 `261027-launch-gate-admin.md`(상의 단계). 16:00·09:00:30 발사 결과를 저널 80 kind 17·18 로 받아 DB 쪽 해석(relay 무변경) · 어드민 주문 내역 + 경계 지도 · 백필. 채널 답(A · DB 해석 · 백필 ndjson 풀린 이름)은 gh-trade-cc 에 회신 완료 · 계좌 열 노출은 목업 검토 때 사용자 결정
+- Phase 36 added (2026-10-27): 계좌별 주문가능 금액 — gh-trade 인박스 `261027-account-budget.md`(Phase 41 · SYNC 75195b70, 생성물 커밋 b7b25391). 어드민 계좌별 한도(op 6 · 전 서버 fan-out · op 3 뒤 되싣기) + 웹 주문 화면 주문가능 표시(경고만). 계약은 gh-trade-c9 와 합의 완료
 
 ### Pending Todos
 
