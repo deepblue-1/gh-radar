@@ -376,14 +376,14 @@ Plans:
   6. 라이브 UAT(설정 → 86 code 0 · 87 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」 · 체결 뒤 저널 4값 → 매매손익 행) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버는 이미 배포(말미 append · 구 서버 op 6/7 = code 1) → gh-radar DB 마이그레이션(`supabase db push --linked --yes` · 08:00~20:00 KST 밖) → relay(20:00 KST 뒤 · 메인 세션) → server → webapp push(= 프로덕션 · relay 뒤). relay 는 append-only 라 gh-trade 와의 순서 무관
-**Plans**: 1/10 plans executed
+**Plans**: 2/10 plans executed
 
 Plans:
 **Wave 1**
 - [x] 36-01-PLAN.md — 트레이서: D-16 생성물·노트 경로 지정 커밋 · frames 복구 · 66/67 예수금 → hub 덮기 → shared 계산 → 계좌 패널 요약 줄
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 36-10-PLAN.md — shared 계약(순수 계약 플랜): 어드민 비용(op 6/7 해석 · 서버별 비용 · summarizeAccountCosts) · 표기 · ppm · 상따 합 · 매매손익 타입·기간
+- [x] 36-10-PLAN.md — shared 계약(순수 계약 플랜): 어드민 비용(op 6/7 해석 · 서버별 비용 · summarizeAccountCosts) · 표기 · ppm · 상따 합 · 매매손익 타입·기간
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 36-02-PLAN.md — relay 어드민: op 6 예수금 PUT → dispatcher fan-out → 44 → 86 (트레이서) · op 7 비용률 · 87 3필드 파싱
