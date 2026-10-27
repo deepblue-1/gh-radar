@@ -165,6 +165,8 @@ type HarnessOptions = {
   orderServersReload?: () => Promise<{ ok: boolean }>;
   /** KYOBO119 에도 admin 연결(대역 87)을 세운다(30 IN-04). 기본 = KB120 · KB121 만. */
   kyoboAdmin?: boolean;
+  /** hub 67 live 예수금 대역(Phase 36 D-05). 기본 주입 없음. */
+  liveBudget?: (serverKey: string, accountNo: string) => number | null;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -233,6 +235,7 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     ...(opts.adminDeadlineMs !== undefined ? { adminDeadlineMs: opts.adminDeadlineMs } : {}),
     ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
     orderServers: { reload: orderServersReload },
+    ...(opts.liveBudget !== undefined ? { liveBudget: opts.liveBudget } : {}),
   });
 
   const app = createOrderApi({
@@ -1810,5 +1813,90 @@ describe("P30 GET /order-endpoints (D-09)", () => {
     expect(sent()).toBe(before);
     const dumped = stringify(logs.map((c) => c.args));
     for (const v of [IP, MAC]) expect(dumped).not.toContain(v);
+  });
+});
+
+/**
+ * 잠그는 것 (Phase 36 36-04 — GET /account-costs · D-05): 켜진 서버 전부(KB · 교보) · 87 3필드 + hub live 주입값 · 87 없는 서버 ·
+ * 꺼진 서버 키 없음 · IP/MAC 미적재.
+ */
+describe("P36 GET /account-costs (D-05)", () => {
+  const PATH = "/internal/admin/account-costs";
+  const ACC = "1234567801";
+  let h: Harness | undefined;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  /** tr01 을 KB120 · KB121 에 만들고 KB120 의 그 계좌에만 87 예수금 · 비용률을 넣은 뒤 op 5 로 KB120 캐시를 새로 받는다. */
+  async function seedKb120Cost(harness: Harness): Promise<void> {
+    expect((await call(harness, "POST", "/internal/admin/dma-users", createBody())).status).toBe(200);
+    harness.states.KB120!.costs = new Map([[ACC, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }]]);
+    await harness.conns.KB120!.command({ op: 5, userId: "" });
+  }
+
+  it("C1 켜진 서버 KB · 교보 둘 다 키 · 87 3필드 + liveBudget 주입값(없으면 null)", async () => {
+    h = await startHarness({
+      kyoboAdmin: true,
+      liveBudget: (k, a) => (k === "KB120" && a === ACC ? 99_000_000 : null),
+    });
+    await seedKb120Cost(h);
+
+    const res = await call(h, "GET", PATH);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120", "KB121", "KYOBO119"]);
+    expect(body.servers.KB120).toEqual([
+      { dmaUserId: "other", accountNo: "9999999901", budgetKrw: 0, feePpm: 0, sellTaxPpm: 0, liveBudgetKrw: null },
+      { dmaUserId: "tr01", accountNo: ACC, budgetKrw: 100_000_000, feePpm: 100, sellTaxPpm: 2000, liveBudgetKrw: 99_000_000 },
+    ]);
+    expect(body.servers.KB121).toEqual([
+      { dmaUserId: "other", accountNo: "9999999901", budgetKrw: 0, feePpm: 0, sellTaxPpm: 0, liveBudgetKrw: null },
+      { dmaUserId: "tr01", accountNo: ACC, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0, liveBudgetKrw: null },
+    ]);
+    expect(body.servers.KYOBO119).toEqual([
+      { dmaUserId: "other", accountNo: "9999999901", budgetKrw: 0, feePpm: 0, sellTaxPpm: 0, liveBudgetKrw: null },
+    ]);
+  });
+
+  it("C2 liveBudget 주입이 없으면 liveBudgetKrw 는 전부 null · live 0 은 0(해제 정당값)", async () => {
+    h = await startHarness({ liveBudget: (k) => (k === "KB121" ? 0 : null) });
+    const body = (await (await call(h, "GET", PATH)).json()) as {
+      servers: Record<string, Array<{ liveBudgetKrw: number | null }>>;
+    };
+    expect(body.servers.KB120!.map((r) => r.liveBudgetKrw)).toEqual([null]);
+    expect(body.servers.KB121!.map((r) => r.liveBudgetKrw)).toEqual([0]);
+  });
+
+  it("C3 꺼진 서버 · 파이프라인(87) 없는 서버는 키가 없다", async () => {
+    h = await startHarness({ disabled: ["KB121"] });
+    const body = (await (await call(h, "GET", PATH)).json()) as { servers: Record<string, unknown> };
+    // KYOBO119 는 이 하네스에서 admin 연결이 없다(87 모름) · KB121 은 꺼짐.
+    expect(Object.keys(body.servers)).toEqual(["KB120"]);
+  });
+
+  it("C4 87 미수신(재접속 중) 서버는 키가 없다", async () => {
+    h = await startHarness();
+    h.gateways.KB121!.sockets.forEach((sock) => sock.destroy());
+    await waitFor(() => h!.conns.KB121!.currentSnapshot() === null, "KB121 87 캐시 무효");
+
+    const body = (await (await call(h, "GET", PATH)).json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120"]);
+  });
+
+  it("C5 응답에 orderIp · orderMac 이 없다(개인 PC 식별 정보 — order-endpoints 전용)", async () => {
+    h = await startHarness({ kyoboAdmin: true });
+    const kb = h.states.KB120!.users.get("other")![0]!;
+    kb.orderIp = "010041001124";
+    kb.orderMac = "1CFD087D978E";
+    await h.conns.KB120!.command({ op: 5, userId: "" });
+
+    const text = await (await call(h, "GET", PATH)).text();
+    expect(text).not.toContain("orderIp");
+    expect(text).not.toContain("orderMac");
+    expect(text).not.toContain("010041001124");
   });
 });

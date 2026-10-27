@@ -4,7 +4,12 @@ import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
 import pino from "pino";
 import request from "supertest";
-import { deriveAdminUsersOverview, type AdminOrderEndpointsRaw, type AdminUsersRaw } from "@gh-radar/shared";
+import {
+  deriveAdminUsersOverview,
+  type AdminAccountCostsRaw,
+  type AdminOrderEndpointsRaw,
+  type AdminUsersRaw,
+} from "@gh-radar/shared";
 
 import { createApp } from "../../src/app";
 import { requireRelayAdmin } from "../../src/routes/admin";
@@ -191,7 +196,8 @@ describe("P30 GET /users orderEndpoints 병합 (D-09)", () => {
     const kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
     expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: { orderIp: IP, orderMac: MAC } });
     expect(rec.rpcCalls).toEqual([{ fn: "admin_users_raw", params: undefined }]);
-    expect(relay.calls).toEqual([{ method: "GET", path: ORDER_PATH, adminEmail: ADMIN_EMAIL }]);
+    // 36-04 — 예수금·비용률 GET 이 함께 나간다(병렬 · 순서 무관). order-endpoints 는 1회.
+    expect(relay.calls.filter((c) => c.path === ORDER_PATH)).toEqual([{ method: "GET", path: ORDER_PATH, adminEmail: ADMIN_EMAIL }]);
   });
 
   it("E2 relay 500 → 200 · 파생(raw, null) = 전 서버 「확인 전」 · warn 에 relay status 만", async () => {
@@ -258,6 +264,150 @@ describe("P30 GET /users orderEndpoints 병합 (D-09)", () => {
     });
     expect(JSON.stringify(relayWarns)).not.toContain(IP);
     expect(JSON.stringify(relayWarns)).not.toContain(MAC);
+  });
+});
+
+// ============================================================
+// Phase 36 (36-04) — GET /users 에 relay 예수금 · 비용률 병합 (D-05)
+//   K1 relay account-costs 200 → 계좌 costs.KB120 = live 값(budgetSource live) · 파생(raw, endpoints, costs) 그대로
+//   K2 live null → 87 값(snapshot)
+//   K3 relay 500 · throw · 모양 위반 → 200 · costs 전부 null(「확인 전」) · warn 에 status 만
+//   K4 order-endpoints 실패와 독립 — 한쪽만 실패해도 다른 쪽은 채운다
+//   K5 세 왕복은 Promise.all 병렬 — account-costs 가 끝나기 전에 order-endpoints 가 이미 나갔다
+//   K6 행 단위 모양 위반은 그 행만 버림
+// ============================================================
+
+describe("P36 GET /users costs 병합 (D-05)", () => {
+  const ORDER_PATH = "/internal/admin/order-endpoints";
+  const COSTS_PATH = "/internal/admin/account-costs";
+  const row = {
+    dmaUserId: "kim01",
+    accountNo: "12345678901",
+    budgetKrw: 100_000_000,
+    feePpm: 100,
+    sellTaxPpm: 2000,
+    liveBudgetKrw: 99_000_000,
+  };
+  const costs: AdminAccountCostsRaw = { servers: { KB120: [row] } };
+  const kimCosts = (body: { users: Array<{ dmaUserId: string | null; accounts: Array<{ costs?: unknown }> }> }) =>
+    body.users.find((u) => u.dmaUserId === "kim01")!.accounts[0]!.costs;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("K1 relay 200 → costs.KB120 = live 예수금(budgetSource live) · 87 비용률 · 파생(raw, endpoints, costs) 그대로", async () => {
+    const relay = makeFakeRelay((c) => (c.path === COSTS_PATH ? { status: 200, data: costs } : undefined));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, { servers: {} }, costs))));
+    expect(kimCosts(res.body)).toEqual({
+      KB120: { budgetKrw: 99_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "live" },
+    });
+    expect(relay.calls.filter((c) => c.path === COSTS_PATH)).toEqual([
+      { method: "GET", path: COSTS_PATH, adminEmail: ADMIN_EMAIL },
+    ]);
+  });
+
+  it("K2 live null → 87 예수금(budgetSource snapshot)", async () => {
+    const data = { servers: { KB120: [{ ...row, liveBudgetKrw: null }] } };
+    const relay = makeFakeRelay((c) => (c.path === COSTS_PATH ? { status: 200, data } : undefined));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(kimCosts(res.body)).toEqual({
+      KB120: { budgetKrw: 100_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "snapshot" },
+    });
+  });
+
+  it("K3 relay 500 · throw · 모양 위반 → 200 · costs 전부 null · warn 에 relay status 만", async () => {
+    const cases: Array<(c: { path: string }) => { status: number; data: unknown } | undefined> = [
+      (c) => (c.path === COSTS_PATH ? { status: 500, data: null } : undefined),
+      (c) => {
+        if (c.path === COSTS_PATH) throw new Error("socket hang up");
+        return undefined;
+      },
+      (c) => (c.path === COSTS_PATH ? { status: 200, data: { servers: [] } } : undefined),
+      (c) => (c.path === COSTS_PATH ? { status: 200, data: null } : undefined),
+    ];
+    for (const handler of cases) {
+      const warn = vi.spyOn(logger, "warn");
+      const relay = makeFakeRelay(handler as Parameters<typeof makeFakeRelay>[0]);
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).get("/api/admin/users"));
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(JSON.parse(JSON.stringify(deriveAdminUsersOverview(raw, { servers: {} }, null))));
+      expect(kimCosts(res.body)).toEqual({ KB120: null });
+      const costWarns = warn.mock.calls.filter((a) => (a[0] as { relay?: { op?: string } })?.relay?.op === "account-costs");
+      expect(costWarns).toHaveLength(1);
+      expect(Object.keys((costWarns[0]![0] as { relay: object }).relay)).toEqual(["op", "status"]);
+      warn.mockRestore();
+    }
+  });
+
+  it("K4 order-endpoints 실패와 독립 — 한쪽만 실패해도 다른 쪽은 채운다", async () => {
+    const endpoints: AdminOrderEndpointsRaw = {
+      servers: { KB120: [{ dmaUserId: "kim01", accountNo: "12345678901", orderIp: "010041001124", orderMac: "1CFD087D978E" }] },
+    };
+    // ① order-endpoints 500 · account-costs 200
+    let relay = makeFakeRelay((c) =>
+      c.path === ORDER_PATH ? { status: 500, data: null } : c.path === COSTS_PATH ? { status: 200, data: costs } : undefined,
+    );
+    let res = await auth(request(makeApp({}, relay.client).app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    let kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0].orderEndpoints).toEqual({ KB120: null });
+    expect(kim.accounts[0].costs.KB120).toMatchObject({ budgetKrw: 99_000_000, budgetSource: "live" });
+    // ② order-endpoints 200 · account-costs throw
+    relay = makeFakeRelay((c) => {
+      if (c.path === COSTS_PATH) throw new Error("ECONNRESET");
+      return c.path === ORDER_PATH ? { status: 200, data: endpoints } : undefined;
+    });
+    res = await auth(request(makeApp({}, relay.client).app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    kim = res.body.users.find((u: { dmaUserId: string | null }) => u.dmaUserId === "kim01");
+    expect(kim.accounts[0].orderEndpoints.KB120).toEqual({ orderIp: "010041001124", orderMac: "1CFD087D978E" });
+    expect(kim.accounts[0].costs).toEqual({ KB120: null });
+  });
+
+  it("K5 세 왕복은 병렬 — account-costs 응답을 붙잡아 둔 동안 order-endpoints 도 이미 나갔다", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const relay = makeFakeRelay(async (c) => {
+      if (c.path === COSTS_PATH) {
+        await gate;
+        return { status: 200, data: costs };
+      }
+      return undefined;
+    });
+    const { app } = makeApp({}, relay.client);
+    const pending = auth(request(app).get("/api/admin/users")).then((r) => r);
+    // account-costs 가 매달린 동안 order-endpoints 호출이 이미 기록돼 있어야 한다(순차라면 하나만 나간 상태).
+    for (let i = 0; i < 50 && relay.calls.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(new Set(relay.calls.map((c) => c.path))).toEqual(new Set([ORDER_PATH, COSTS_PATH]));
+    release();
+    const res = await pending;
+    expect(res.status).toBe(200);
+    expect(kimCosts(res.body)).toEqual({
+      KB120: { budgetKrw: 99_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "live" },
+    });
+  });
+
+  it("K6 행 단위 모양 위반은 그 행만 버림 · 서버 행 목록이 배열 아니면 그 서버만", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const data = {
+      servers: {
+        KB120: [row, null, { ...row, budgetKrw: "1" }, { ...row, liveBudgetKrw: Number.NaN }, { ...row, feePpm: undefined }],
+        KYOBO119: {},
+      },
+    };
+    const relay = makeFakeRelay((c) => (c.path === COSTS_PATH ? { status: 200, data } : undefined));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    expect(kimCosts(res.body)).toEqual({
+      KB120: { budgetKrw: 99_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "live" },
+    });
+    const costWarns = warn.mock.calls.filter((a) => (a[0] as { relay?: { op?: string } })?.relay?.op === "account-costs");
+    expect(costWarns[0]![0]).toEqual({ relay: { op: "account-costs", status: 200, droppedServers: 1, droppedRows: 4 } });
   });
 });
 

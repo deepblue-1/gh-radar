@@ -473,4 +473,45 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
       expect(cached?.budgetKrw).toBe(0);
     });
   });
+
+  // Phase 36 D-05 — 어드민 개요 「현재 예수금」 live 원천. 키 `${userId}|${serverKey}|${accountNo}` 의 서버 · 계좌 칸으로 찾는다.
+  describe("Phase 36 D-05 liveBudgetOf", () => {
+    class ServerSession extends FakeSession {
+      constructor(userId: string, readonly serverKey: string) {
+        super(userId);
+      }
+    }
+
+    it("66 예수금 5,000만 → liveBudgetOf(KB120, 계좌) 50,000,000 · 다른 서버 · 다른 계좌 null", () => {
+      const kb120 = new ServerSession("u1", "KB120");
+      hub.attach(kb120);
+      kb120.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 50_000_000 }));
+
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(50_000_000);
+      expect(hub.liveBudgetOf("KB121", SAMPLE_ACCOUNT_NO)).toBeNull();
+      // 접두 서버 키(KB1)가 KB120 캐시에 걸리지 않는다.
+      expect(hub.liveBudgetOf("KB1", SAMPLE_ACCOUNT_NO)).toBeNull();
+      expect(hub.liveBudgetOf("KB120", OTHER_ACCOUNT_NO)).toBeNull();
+    });
+
+    it("67 한도 전용 뒤에는 새 값 · 0(해제)도 그대로 돌려준다", () => {
+      const kb120 = new ServerSession("u1", "KB120");
+      hub.attach(kb120);
+      kb120.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 50_000_000 }));
+      kb120.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 49_990_000 }));
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(49_990_000);
+
+      kb120.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 0 }));
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(0);
+    });
+
+    it("사용자와 무관 — 다른 사용자 세션이 받은 같은 서버 같은 계좌 값을 쓴다 · 계좌번호 앞 0 은 정규화", () => {
+      const other = new ServerSession("u2", "KYOBO119");
+      hub.attach(other);
+      other.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 12_000_000 }));
+
+      expect(hub.liveBudgetOf("KYOBO119", SAMPLE_ACCOUNT_NO)).toBe(12_000_000);
+      expect(hub.liveBudgetOf("KYOBO119", `00${SAMPLE_ACCOUNT_NO}`)).toBe(12_000_000);
+    });
+  });
 });

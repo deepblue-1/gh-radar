@@ -58,6 +58,11 @@
  * 없다(= 「확인 전」). 44 를 보내지 않는다(메모리 읽기만) · 감사 · 로그 줄 없음(사용자 PC 식별 정보). 신선도 = 접속 · relay 변경 ·
  * op 1/3 직전 op 5 때(relay 밖 변경은 다음 갱신까지 옛 값 — 표시만 늦고 쓰기는 늘 새 87).
  *
+ * 계좌 예수금 · 비용률 읽기 `GET /account-costs`(Phase 36 · D-05) — 켜진 서버 **전부**(KB · 교보 — order-endpoints 의 KB 전용 필터를
+ * 복제하지 않는다: 예수금 · 비용률은 PC 식별 정보가 아니다) 의 87 캐시 계좌마다 `{ dmaUserId, accountNo, budgetKrw, feePpm, sellTaxPpm,
+ * liveBudgetKrw }` → 200 `AdminAccountCostsRaw`. `liveBudgetKrw` = hub 67 캐시(`deps.liveBudget` · 웹 세션이 없는 계좌는 null → 개요가
+ * 87 값으로 내려간다). 87 미수신 · 꺼진 서버는 키 없음(「확인 전」). orderIp/orderMac 은 싣지 않는다 · 감사 줄 없음(읽기).
+ *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
  */
@@ -68,6 +73,7 @@ import {
   maskDmaUserId,
   normalizeAccountNo,
   SERVER_KEY_RE,
+  type AdminAccountCostsRaw,
   type AdminOrderEndpointsRaw,
   type AdminServerLiveStatus,
   type AdminServerResult,
@@ -132,6 +138,11 @@ export type AdminApiDeps = {
    * 계좌 put · 계좌 제거 · 유저 삭제) 끝에서 남은 마감까지 기다린다(GC-10). 실패는 warn 만. 주지 않으면 60초 주기에 맡긴다.
    */
   orderServers?: { reload(): Promise<{ ok: boolean }> };
+  /**
+   * 서버 · 계좌의 67 live 예수금(Phase 36 D-05 · `SubscriptionHub.liveBudgetOf`). `GET /account-costs` 의 `liveBudgetKrw` 원천 —
+   * null = 그 계좌 67 을 못 받음(웹 세션 없음) → 87 폴백. 주지 않으면 전부 null.
+   */
+  liveBudget?: (serverKey: string, accountNo: string) => number | null;
 };
 
 // ============================================================
@@ -748,6 +759,28 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     }
     const body: AdminOrderEndpointsRaw = { servers };
     res.status(200).json(body);
+  });
+
+  // ── 계좌별 예수금 · 비용률 (Phase 36 · D-05 — 87 캐시 + hub 67 live · 감사 없음) ─────────────────────────────────────
+  router.get("/account-costs", (_req, res) => {
+    const servers: AdminAccountCostsRaw["servers"] = {};
+    for (const row of deps.registry.all()) {
+      if (!row.enabled) continue;
+      // null/undefined = 그 서버 87 을 모른다 → 키를 두지 않는다(「확인 전」).
+      const snapshot = deps.pipelines.get(row.key)?.admin.currentSnapshot();
+      if (snapshot == null) continue;
+      servers[row.key] = snapshot.users.flatMap((u) =>
+        u.accounts.map((a) => ({
+          dmaUserId: u.userId,
+          accountNo: a.accountNo,
+          budgetKrw: a.budgetKrw ?? 0,
+          feePpm: a.feePpm ?? 0,
+          sellTaxPpm: a.sellTaxPpm ?? 0,
+          liveBudgetKrw: deps.liveBudget?.(row.key, a.accountNo) ?? null,
+        })),
+      );
+    }
+    res.status(200).json({ servers } satisfies AdminAccountCostsRaw);
   });
 
   // IntentError · ZodError → RelayApiError. 나머지는 order-api errorHandler 가 500 으로 끝낸다(S-1).

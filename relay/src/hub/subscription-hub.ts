@@ -211,6 +211,7 @@ import type {
   RelayViOrderItem,
   RelayViTrigger,
 } from "@gh-radar/shared";
+import { normalizeAccountNo } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import type { TransportFrameEvent } from "../dma/dma-client.js";
@@ -2228,6 +2229,25 @@ export class SubscriptionHub extends EventEmitter {
       if (key.startsWith(prefix)) out.push(state);
     }
     return out;
+  }
+
+  /**
+   * 그 서버 그 계좌의 66/67 마지막 예수금(원) — Phase 36 D-05 · 어드민 개요 「현재 예수금」 의 live 원천.
+   *
+   * 서버가 체결마다 `budget_krw` 를 스스로 바꾸고(D-14) 그 값은 87 없이 한도 전용 67 로만 오므로, 87 보다 이 값이 새롭다.
+   * 캐시 키 `${userId}|${serverKey}|${accountNo}` 의 둘째 칸이 서버, 셋째 칸이 계좌인 첫 항목을 쓴다 — 같은 서버 같은 계좌의
+   * 예수금은 서버의 계좌 단위 값이라 어느 사용자 세션이 받았든 같다. 계좌번호는 정규화해 비교한다(87 · 67 표기 차이 흡수).
+   * 0 은 「해제」 정당값이다. **웹 세션이 없는 계좌는 67 을 받은 적이 없어 null** → 호출자가 87 값으로 내려간다.
+   */
+  liveBudgetOf(serverKey: string, accountNo: string): number | null {
+    const want = normalizeAccountNo(accountNo);
+    for (const [key, state] of this.#accountStates) {
+      const parts = key.split("|");
+      if (parts.length !== 3 || parts[1] !== serverKey) continue;
+      if (normalizeAccountNo(parts[2] ?? "") !== want) continue;
+      return state.budgetKrw ?? 0;
+    }
+    return null;
   }
 
   /**

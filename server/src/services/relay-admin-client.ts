@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance } from "axios";
 import type {
   AdminAccountBudgetBody,
+  AdminAccountCostsRaw,
   AdminAccountFeeBody,
   AdminCommandResponse,
   AdminDmaInput,
@@ -127,6 +128,11 @@ export type RelayAdminClient = {
    * 상한은 `RELAY_ORDER_ENDPOINTS_TIMEOUT_MS`(30 WR-01) — 쓰기용 기본 15초를 물려받지 않는다.
    */
   orderEndpoints(adminEmail: string): Promise<RelayAdminResponse<AdminOrderEndpointsRaw>>;
+  /**
+   * 계좌별 예수금 · 비용률(Phase 36 · D-05) — relay 87 캐시 + hub 67 live 예수금. 켜진 서버 전부(교보 포함). `servers` 에 키가 없는
+   * 서버 = 그 서버 87 을 모름. 실패해도 개요는 200 · 「확인 전」. 상한은 order-endpoints 와 같은 `RELAY_ORDER_ENDPOINTS_TIMEOUT_MS`.
+   */
+  accountCosts(adminEmail: string): Promise<RelayAdminResponse<AdminAccountCostsRaw>>;
   /**
    * 계좌 주문 서버 지정(29-37 G-1 ⑥) — relay 가 RPC 로 저장하고 지정 적재기를 즉시 재적재한다(29-36 재수립까지).
    * `serverKey` null = 증권사 기본 주문 서버로. 거부는 relay 409(`ORDER_SERVER_NOT_REGISTERED` · `NO_SUCH_ACCOUNT` · `NO_DMA_USER`).
@@ -363,6 +369,10 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<RelayServersStatus>("GET", "/internal/admin/servers/status", adminEmail),
     orderEndpoints: (adminEmail) =>
       request<AdminOrderEndpointsRaw>("GET", "/internal/admin/order-endpoints", adminEmail, undefined, {
+        timeoutMs: RELAY_ORDER_ENDPOINTS_TIMEOUT_MS,
+      }),
+    accountCosts: (adminEmail) =>
+      request<AdminAccountCostsRaw>("GET", "/internal/admin/account-costs", adminEmail, undefined, {
         timeoutMs: RELAY_ORDER_ENDPOINTS_TIMEOUT_MS,
       }),
     setQuotePrimary: (key, adminEmail) =>

@@ -4,6 +4,8 @@ import {
   brokerOfServerKey,
   deriveAdminUsersOverview,
   maskDmaUserId,
+  type AdminAccountCostRow,
+  type AdminAccountCostsRaw,
   type AdminOrderEndpointRow,
   type AdminOrderEndpointsRaw,
   type AdminUsersRaw,
@@ -43,6 +45,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *                          칩 판정 규칙은 shared 한 곳(relay planner 와 같은 diff)이고 server 는 파생만 부른다.
  *                          30-03(D-09 · D-10): relay `GET /internal/admin/order-endpoints`(87 캐시 IP/MAC)를 RPC 와 병렬로 받아
  *                          파생 두 번째 인자로 넘긴다. relay 없음 · 실패 · 모양 위반은 null(전 서버 「확인 전」) — 개요는 200 유지.
+ *                          36-04(D-05): relay `GET /internal/admin/account-costs`(87 + 67 live 예수금 · 비용률)도 세 번째 병렬 →
+ *                          파생 세 번째 인자 → `accounts[].costs`. 실패 규칙은 IP/MAC 과 같고 서로 독립이다.
  * - POST   /users        : `{ email, role, dma? }` — 사전 등록 · 승인 대기 승인 · viewer 생성(D-03). app_users upsert.
  *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
  *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400. 이미 DMA 가 연결된 이메일 + dma 는
@@ -250,20 +254,83 @@ async function fetchOrderEndpoints(req: Request): Promise<AdminOrderEndpointsRaw
   return null;
 }
 
+/** 예수금 · 비용률 행의 모양(Phase 36 · D-05) — 문자열 2개 · 유한 숫자 3개 · liveBudgetKrw 유한 숫자 | null. */
+function isAccountCostRow(r: unknown): r is AdminAccountCostRow {
+  if (!r || typeof r !== "object") return false;
+  const o = r as Record<string, unknown>;
+  const finite = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v);
+  return (
+    typeof o.dmaUserId === "string" &&
+    typeof o.accountNo === "string" &&
+    finite(o.budgetKrw) &&
+    finite(o.feePpm) &&
+    finite(o.sellTaxPpm) &&
+    (o.liveBudgetKrw === null || finite(o.liveBudgetKrw))
+  );
+}
+
+/** relay `servers` 를 서버 · 행 단위로 거른다(`sanitizeOrderEndpoints` 와 같은 규칙) — 버린 그 서버 · 계좌는 「확인 전」. */
+function sanitizeAccountCosts(servers: object): AdminAccountCostsRaw {
+  const out: AdminAccountCostsRaw["servers"] = {};
+  let droppedServers = 0;
+  let droppedRows = 0;
+  for (const [key, rows] of Object.entries(servers)) {
+    if (!Array.isArray(rows)) {
+      droppedServers += 1;
+      continue;
+    }
+    const kept = rows.filter(isAccountCostRow);
+    droppedRows += rows.length - kept.length;
+    out[key] = kept;
+  }
+  if (droppedServers > 0 || droppedRows > 0) {
+    logger.warn(
+      { relay: { op: "account-costs", status: 200, droppedServers, droppedRows } },
+      "[admin] relay 예수금·비용률 응답 일부가 모양 위반 — 해당 서버 · 계좌는 「확인 전」 으로",
+    );
+  }
+  return { servers: out };
+}
+
+/**
+ * relay 계좌별 예수금 · 비용률(Phase 36 · D-05 — 67 live 우선 · 87 폴백은 shared 파생이 한다). `fetchOrderEndpoints` 와 같은 꼴:
+ * 클라이언트 없음 · 비200 · 모양 위반 · throw 면 null(카드는 「— · 확인 전」) — 개요는 어떤 relay 응답에도 200 이다. 로그엔 status 만.
+ */
+async function fetchAccountCosts(req: Request): Promise<AdminAccountCostsRaw | null> {
+  const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+  if (!relay) return null;
+  let status = 0;
+  try {
+    const r = await relay.accountCosts(req.adminEmail!);
+    status = r.status;
+    const servers: unknown = r.status === 200 ? r.data?.servers : undefined;
+    if (servers && typeof servers === "object" && !Array.isArray(servers)) return sanitizeAccountCosts(servers);
+  } catch {
+    // 닿지 못함과 같게 본다(status 0) — 개요는 200 으로 「확인 전」.
+  }
+  logger.warn(
+    { relay: { op: "account-costs", status } },
+    "[admin] relay 예수금·비용률 조회 실패 — 개요는 「확인 전」 으로",
+  );
+  return null;
+}
+
 // --- GET /users — 사용자 개요 (D-14) ---
 adminRouter.get("/users", async (req, res, next) => {
   try {
     const supabase = req.app.locals.supabase as SupabaseClient;
-    const [{ data, error }, endpoints] = await Promise.all([
+    // relay 왕복 2개(IP/MAC · 예수금·비용률)는 RPC 와 병렬 — 서로 독립(한쪽 실패가 다른 쪽을 지우지 않는다).
+    const [{ data, error }, endpoints, costs] = await Promise.all([
       supabase.rpc("admin_users_raw"),
       fetchOrderEndpoints(req),
+      fetchAccountCosts(req),
     ]);
     if (error) throw DbError("사용자 목록 조회에 실패했습니다.", error);
     // RPC 는 늘 7키 객체를 준다(coalesce '[]'). 객체가 아니면 계약 위반 — 빈 목록으로 감추지 않는다.
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       throw DbError("사용자 목록 조회에 실패했습니다.");
     }
-    res.json(deriveAdminUsersOverview(data as AdminUsersRaw, endpoints));
+    res.json(deriveAdminUsersOverview(data as AdminUsersRaw, endpoints, costs));
   } catch (e) {
     next(e);
   }

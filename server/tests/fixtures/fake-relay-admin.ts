@@ -14,6 +14,7 @@ import {
  *   reload        → 200 `{ ok: true, changed: true }`
  *   servers/status → 200 `{ servers: {} }`
  *   order-endpoints → 200 `{ servers: {} }` (30-03 — 전 서버 「확인 전」)
+ *   account-costs   → 200 `{ servers: {} }` (36-04 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
  */
 
@@ -34,6 +35,7 @@ function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
   if (/\/reload$/.test(call.path)) return { status: 200, data: { ok: true, changed: true } };
   if (call.path === "/internal/admin/servers/status") return { status: 200, data: { servers: {} } };
   if (call.path === "/internal/admin/order-endpoints") return { status: 200, data: { servers: {} } };
+  if (call.path === "/internal/admin/account-costs") return { status: 200, data: { servers: {} } };
   if (/\/quote-primary$/.test(call.path)) return { status: 200, data: { ok: true } };
   if (call.method === "DELETE" && /^\/internal\/admin\/dma-users\/[^/]+$/.test(call.path)) {
     return { status: 200, data: { results: OK_RESULTS, deleted: true } };
