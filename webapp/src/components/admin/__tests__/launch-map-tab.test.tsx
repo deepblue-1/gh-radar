@@ -324,3 +324,66 @@ describe('LaunchMapView — 다음 발사 계획(서버 ok)', () => {
     expect(kpiNextOf(container, 'KB120', 'Q')).toBe(`${M}350µs`);
   });
 });
+
+describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
+  it('plan absent(기본 · 404 배포 전) → launch-plan-bar 0개 · 범례 「다음 발사의 첫 조각」 · 점선 = 머리 값', () => {
+    const { container } = view();
+    expect(slots(container, 'launch-plan-bar')).toHaveLength(0);
+    expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사의 첫 조각');
+    expect(slots(panelOf(container, 'KB120', 'Q'), 'launch-next')).toHaveLength(1);
+    expect(kpiNextOf(container, 'KB120', 'Q')).toBe(`${M}337µs`);
+  });
+
+  it('plan ready → 범례 「다음 발사 계획(조각마다 점선)」', () => {
+    const { container } = view({ plan: { kind: 'ready', resp: planResp() } });
+    expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사 계획(조각마다 점선)');
+  });
+
+  it('plan error → 4패널 모두 「서버 연결 안 됨 · 마지막 발사 값 …」(머리 값) · 점선 각 1개', () => {
+    const { container } = view({ plan: { kind: 'error' } });
+    const want: Record<string, number> = { 'KB120|Q': -337, 'KB120|K': -285, 'KYOBO119|Q': -526, 'KYOBO119|K': -400 };
+    for (const [key, us] of Object.entries(want)) {
+      const [g, m] = key.split('|') as [string, string];
+      const p = panelOf(container, g, m);
+      expect(one(p, '[data-slot="launch-plan-line"]').textContent).toBe(
+        `서버 연결 안 됨 · 마지막 발사 값 ${M}${Math.abs(us)}µs`,
+      );
+      expect(slots(p, 'launch-next')).toHaveLength(1);
+    }
+    expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사의 첫 조각');
+  });
+
+  it('plan ready 인데 KYOBO119 failed → 교보 두 패널만 대신 값 · KB 두 패널은 서버 값', () => {
+    const { container } = view({
+      plan: { kind: 'ready', resp: planResp({ KYOBO119: { status: 'failed', code: 1, message: '거부' } }) },
+    });
+    expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+      `3조각 ${M}350 · ${M}345 · ${M}325µs`,
+    );
+    expect(one(panelOf(container, 'KB120', 'K'), '[data-slot="launch-plan-line"]').textContent).toBe(
+      `3조각 ${M}340 · ${M}335 · ${M}320µs`,
+    );
+    for (const m of ['Q', 'K']) {
+      const line = one(panelOf(container, 'KYOBO119', m), '[data-slot="launch-plan-line"]');
+      expect(line.textContent).toContain('서버 연결 안 됨 · 마지막 발사 값');
+      expect(line.dataset.tone).toBe('warn');
+    }
+    expect(kpiNextOf(container, 'KYOBO119', 'Q')).toBe(`${M}526µs`);
+  });
+
+  it('n0930 + ready → KB 코스닥 줄 「−245µs」 · 점선 1개(축 밖이면 「▸ 다음」 글) · 범례 「다음 발사 계획(시각)」', () => {
+    const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d', plan: { kind: 'ready', resp: planResp() } });
+    const kbq = panelOf(container, 'KB120', 'Q');
+    expect(one(kbq, '[data-slot="launch-plan-line"]').textContent).toBe(`${M}245µs`);
+    expect(slots(kbq, 'launch-next').length + slots(kbq, 'launch-next-off').length).toBe(1);
+    expect(kpiNextOf(container, 'KB120', 'Q')).toBe(`${M}245µs`);
+    expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사 계획(시각)');
+  });
+
+  it('plan loading → 줄 스켈레톤(aria-busy) · 점선 = 머리 값', () => {
+    const { container } = view({ plan: { kind: 'loading' } });
+    const bar = one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-bar"]');
+    expect(bar.getAttribute('aria-busy')).toBe('true');
+    expect(slots(panelOf(container, 'KB120', 'Q'), 'launch-next')).toHaveLength(1);
+  });
+});

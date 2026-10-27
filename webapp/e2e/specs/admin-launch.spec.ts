@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { mockLaunchApi } from '../fixtures/launch';
+import { launchPlanFixture, mockLaunchApi } from '../fixtures/launch';
 
 /**
  * Phase 35 (35-06) — 웹 Admin `/admin/launch` 주문 내역 탭 E2E (LAUNCH-06 · D-11 ~ D-14 · 채택 목업 변형 A).
@@ -23,6 +23,10 @@ import { mockLaunchApi } from '../fixtures/launch';
  *
  * ⑥ 경계 지도 탭(35-08 · `?tab=map` · D-15 ~ D-18) — 첨부 pieces.json 「전체」 + 첨부 NEXT 픽스처로 KB 코스닥 요약 카드가
  *   10일 · −347 · −322 · −337 이고 4패널 점 합이 196(첨부 지도와 같은 값). 칩 · 세그먼트 하나 = map 요청 1건.
+ *
+ * ⑦ 발사 계획 읽기(35-14 · D-24 · D-25 · D-29 · D-35) — 지도 탭 진입 때 GET /plan 1건(칩 · 세그먼트로 다시 부르지 않는다).
+ *   서버 ok = 패널 줄 「3조각 …」 + 조각마다 점선 · 서버 실패 = 「서버 연결 안 됨 · 마지막 발사 값」(머리 값) ·
+ *   404(배포 전) = 계획 기능 숨김(35-08 그대로). 계획 값은 합성(`launchPlanFixture`).
  */
 
 const MINUS = '\u2212';
@@ -369,5 +373,106 @@ test.describe('어드민 발사 · 경계 지도', () => {
     await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
     await page.waitForTimeout(300);
     expect(api.maps().every((r) => r.query.range === '10d')).toBe(true);
+  });
+});
+
+const planBar = (page: Page, gateway: string, market: string) =>
+  panel(page, gateway, market).locator('[data-slot="launch-plan-bar"]');
+
+test.describe('어드민 발사 · 발사 계획(읽기)', () => {
+  test('P35-P1 1280 — 서버 ok · KB 코스닥 줄 「3조각」 · 점선 3 · KPI −350 · 마지막 변경 · 변경 이력 2 · /plan 1건', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixture });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+
+    const kbq = panel(page, 'KB120', 'Q');
+    await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(
+      `3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`,
+      { timeout: 15_000 },
+    );
+    await expect(kbq.locator('[data-slot="launch-next"]')).toHaveCount(3);
+    await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}350µs`);
+    await expect(kbq.locator('[data-slot="launch-plan-last"]')).toContainText('admin@example.com');
+    await expect(root(page).locator('[data-slot="launch-legend"]')).toContainText('다음 발사 계획(조각마다 점선)');
+
+    const fold = kbq.locator('[data-slot="launch-plan-history-fold"]');
+    await expect(fold.locator('summary')).toHaveText('변경 이력 2');
+    await fold.locator('summary').click();
+    const rows = fold.locator('[data-slot="launch-plan-history"] tbody tr');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toBeVisible();
+    await expect(rows.nth(0).locator('[data-slot="launch-plan-outcome"]')).toHaveText('저장됨');
+    await expect(rows.nth(1).locator('[data-slot="launch-plan-outcome"]')).toHaveText('실패');
+    await expect(rows.nth(1).locator('[data-slot="launch-plan-outcome"]')).toHaveAttribute(
+      'title',
+      '조각 시각 순서가 맞지 않아요',
+    );
+    // 이력이 없는 패널엔 접힘이 없다
+    await expect(panel(page, 'KB120', 'K').locator('[data-slot="launch-plan-history-fold"]')).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath('launch-plan-read-1280.png'), fullPage: true });
+
+    await page.waitForTimeout(300);
+    expect(api.planGets()).toHaveLength(1);
+    expect(api.maps()).toHaveLength(1);
+
+    await root(page).getByRole('button', { name: '20일' }).click();
+    await expect(page).toHaveURL(/range=20d/);
+    await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('20일');
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(2);
+
+    await root(page).getByRole('button', { name: '전체' }).click();
+    await expect(page).toHaveURL(/range=all/);
+    await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('전체');
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(3);
+    expect(api.planGets(), '범위 칩은 계획을 다시 부르지 않는다').toHaveLength(1);
+    await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`);
+  });
+
+  test('P35-P2 ① 서버 실패 → 4패널 대신 값(머리) · 점선 각 1 · KPI −337', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, {
+      plan: () => ({
+        servers: {
+          KB120: { status: 'offline', message: 'relay 응답이 없어요' },
+          KYOBO119: { status: 'failed', code: 1, message: '거부' },
+        },
+        changes: [],
+      }),
+    });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+
+    for (const [g, m] of [
+      ['KB120', 'Q'],
+      ['KB120', 'K'],
+      ['KYOBO119', 'Q'],
+      ['KYOBO119', 'K'],
+    ] as const) {
+      await expect(planBar(page, g, m).locator('[data-slot="launch-plan-line"]')).toContainText(
+        '서버 연결 안 됨 · 마지막 발사 값',
+        { timeout: 15_000 },
+      );
+      await expect(panel(page, g, m).locator('[data-slot="launch-next"]')).toHaveCount(1);
+    }
+    await expect(planBar(page, 'KB120', 'Q').locator('[data-slot="launch-plan-line"]')).toHaveText(
+      `서버 연결 안 됨 · 마지막 발사 값 ${MINUS}337µs`,
+    );
+    await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}337µs`);
+  });
+
+  test('P35-P2 ② /plan 404(배포 전) → 계획 기능 숨김 · 35-08 그대로(KPI −337 · 점선 1)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}337µs`);
+    await expect.poll(() => api.planGets().length).toBe(1);
+    await page.waitForTimeout(500);
+    await expect(root(page).locator('[data-slot="launch-plan-bar"]')).toHaveCount(0);
+    await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-next"]')).toHaveCount(1);
+    await expect(root(page).locator('[data-slot="launch-legend"]')).toContainText('다음 발사의 첫 조각');
   });
 });

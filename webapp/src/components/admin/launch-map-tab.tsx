@@ -239,7 +239,7 @@ export function LaunchMapView({
 
       {ready && !noHistory && (
         <>
-          <LaunchLegend fire={fire} sideless={sideless} />
+          <LaunchLegend fire={fire} sideless={sideless} planned={plan.kind === 'ready'} />
           <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
             {panels.map((p) => (
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
@@ -283,7 +283,13 @@ function LegendItem({ swatch, children }: { swatch: ReactNode; children: ReactNo
   );
 }
 
-function LaunchLegend({ fire, sideless }: { fire: LaunchFire; sideless: boolean }) {
+/** 점선 범례 — 서버 계획을 읽었으면(ready) 목업 문구(16:00 조각마다 점선 · 09:00:30 시각), 아니면 35-08 그대로. */
+function nextLegendOf(fire: LaunchFire, planned: boolean): string {
+  if (!planned) return '다음 발사의 첫 조각';
+  return fire === 'q16' ? '다음 발사 계획(조각마다 점선)' : '다음 발사 계획(시각)';
+}
+
+function LaunchLegend({ fire, sideless, planned }: { fire: LaunchFire; sideless: boolean; planned: boolean }) {
   return (
     <div
       data-slot="launch-legend"
@@ -314,7 +320,7 @@ function LaunchLegend({ fire, sideless }: { fire: LaunchFire; sideless: boolean 
         그날 경계(마지막 거부 ~ 첫 접수)
       </LegendItem>
       <LegendItem swatch={<i className="inline-block h-3.5 w-0.5 shrink-0 bg-[var(--primary)]" />}>
-        다음 발사의 첫 조각
+        {nextLegendOf(fire, planned)}
       </LegendItem>
     </div>
   );

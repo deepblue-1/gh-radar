@@ -9,6 +9,8 @@ import type {
   LaunchMapResponse,
   LaunchOrdersResponse,
   LaunchPieceRow,
+  LaunchPlanResponse,
+  LaunchPlanServer,
   LaunchRange,
 } from '@gh-radar/shared';
 
@@ -31,6 +33,9 @@ import type {
  *   **합성** Q16 머리 4개(첨부 NEXT: KB120 Q −337 · KB120 K −285 · KYOBO119 Q −526 · KYOBO119 K −400 — 라이브는 kind 18
  *   next_offset_us). n0930 = 10/26 N 10조각(로그 그대로) + **합성** A 매도 1조각(KB120 Q · 101) + **합성** N 머리
  *   (KB120 −245 · KYOBO119 −200). 기본 map 핸들러가 이것이다.
+ * ⑦ 발사 계획(35-14 · `launchPlanFixture`) — **합성 값 · 실서버 값 아님.** KB120 · KYOBO119 두 서버 ok 계획 4칸씩 +
+ *   KB120 16:00 코스닥 이력 2행(ok · failed code 1). `plan` 옵션이 없으면 GET `/plan` 은 **404**(배포 전 경로 · D-35) —
+ *   35-08 M1~M5 가 그 경로로 그대로 통과한다.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,9 +316,67 @@ export function launchOrdersFixture(d?: string): LaunchOrdersResponse {
 // page.route 목
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 발사 계획(35-14) — 합성
+// ─────────────────────────────────────────────────────────────────────────────
+
+function okPlan(q16K: number[], q16Q: number[], n: number): LaunchPlanServer {
+  return {
+    status: 'ok',
+    plan_rev: 3,
+    updated_at: '2026-10-27T13:41:00Z',
+    entries: [
+      { profile: 'Q16', market: 'K', offsets_us: q16K },
+      { profile: 'Q16', market: 'Q', offsets_us: q16Q },
+      { profile: 'N', market: 'K', offsets_us: [n] },
+      { profile: 'N', market: 'Q', offsets_us: [n] },
+    ],
+  };
+}
+
+/** GET /plan 기본 응답 — 두 서버 ok · KB120 16:00 코스닥 이력 2행(ok 22:41 KST · failed 22:30 KST). */
+export function launchPlanFixture(): LaunchPlanResponse {
+  return {
+    servers: {
+      KB120: okPlan([-340, -335, -320], [-350, -345, -325], -245),
+      KYOBO119: okPlan([-410, -400, -380], [-530, -520, -500], -200),
+    },
+    changes: [
+      {
+        id: 2,
+        at: '2026-10-27T13:41:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        market: 'Q',
+        before_us: [-355, -350, -330],
+        after_us: [-350, -345, -325],
+        outcome: 'ok',
+        code: null,
+        message: null,
+        plan_rev: 3,
+      },
+      {
+        id: 1,
+        at: '2026-10-27T13:30:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        market: 'Q',
+        before_us: [-355, -350, -330],
+        after_us: [-350, -360, -325],
+        outcome: 'failed',
+        code: 1,
+        message: '조각 시각 순서가 맞지 않아요',
+        plan_rev: null,
+      },
+    ],
+  };
+}
+
 export interface LaunchRequestRecord {
   method: string;
-  /** `/orders` · `/map` */
+  /** `/orders` · `/map` · `/plan` */
   path: string;
   query: Record<string, string>;
 }
@@ -323,6 +386,8 @@ export interface MockLaunchApiOptions {
   ordersEmpty?: boolean;
   orders?: (d: string | undefined) => LaunchOrdersResponse | { status: number; body: unknown };
   map?: (fire: LaunchFire, range: LaunchRange) => LaunchMapResponse;
+  /** GET /plan — 없으면 404(배포 전 · D-35 · 계획 기능 숨김). */
+  plan?: () => LaunchPlanResponse | { status: number; body: unknown };
 }
 
 export interface LaunchApiMock {
@@ -331,6 +396,8 @@ export interface LaunchApiMock {
   orders: () => LaunchRequestRecord[];
   /** GET /map 요청만. */
   maps: () => LaunchRequestRecord[];
+  /** GET /plan 요청만. */
+  planGets: () => LaunchRequestRecord[];
 }
 
 function isStatusBody(v: unknown): v is { status: number; body: unknown } {
@@ -366,6 +433,14 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
       const fire = (rec.query.fire ?? 'q16') as LaunchFire;
       const range = (rec.query.range ?? '10d') as LaunchRange;
       body = opts.map?.(fire, range) ?? launchMapFixture(fire, range);
+    } else if (rec.path === '/plan' && rec.method === 'GET' && opts.plan) {
+      const out = opts.plan();
+      if (isStatusBody(out)) {
+        status = out.status;
+        body = out.body;
+      } else {
+        body = out;
+      }
     } else {
       status = 404;
       body = { error: { code: 'NOT_FOUND', message: '없는 경로예요' } };
@@ -376,5 +451,6 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
     requests,
     orders: () => requests.filter((r) => r.method === 'GET' && r.path === '/orders'),
     maps: () => requests.filter((r) => r.method === 'GET' && r.path === '/map'),
+    planGets: () => requests.filter((r) => r.method === 'GET' && r.path === '/plan'),
   };
 }
