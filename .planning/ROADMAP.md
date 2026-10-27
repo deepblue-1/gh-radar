@@ -216,7 +216,7 @@ Plans:
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
-| 35. 발사 경계 지도 어드민 | v1.1 | 12/19 | In progress | — |
+| 35. 발사 경계 지도 어드민 | v1.1 | 13/19 | In progress | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -332,7 +332,7 @@ Plans:
   7. **(범위 추가 2026-10-27 · 사용자 결정) 발사 계획 어드민** — 인박스 `261027-launch-plan-admin.md`(gh-trade Phase 43). 서버(KB120 · KYOBO119) × 발사(16:00 Q16 · 09:00:30 N) × 시장(코스피 · 코스닥) 칸마다 16:00 은 「조각 수 + 조각별 발사 시각 µs 목록(같거나 커지는 순서)」, 09:00:30 은 「시장별 µs 한 값」 을 고쳐 저장(admin 44 새 op · 서버 재기동 없이 다음 발사부터 · 발사 직전 저장은 그다음 발사부터 — 응답 문구로 안내). 경계 지도로 바로 가는 길. **목업 → 사용자 승인 → gh-trade Phase 43 정식 인계 노트(op · 필드 · code) 뒤 구현.** 노트 질문 2개(저장 전 미리보기 · 변경 이력 DB 보관)는 목업에서 결정. kind 17·18 정식 매핑(Wave B)도 같은 Phase 43 노트로 온다 — kind 18 Q16 학습값 칸은 빠지거나 뜻이 바뀌고 `next_offset_us` = 그 시점 발사 계획 첫 조각 시각
 
 **배포 순서**: gh-trade 서버 먼저 배포해도 안전(relay 는 모르는 kind 도 그대로 적재) → gh-radar DB 마이그레이션 → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum·주석 sync 만). **범위 7(발사 계획 어드민)은 relay 배포 필요** — gh-trade 43 배포 확인 → DB(이력 표) → relay → server → webapp push(D-30 · 35-18 메인 세션) · 노트 전 플랜(35-12~15)은 로컬 커밋만(D-35)
-**Plans**: 12/19 plans executed
+**Plans**: 13/19 plans executed
 
 Plans:
 **Wave 1**
@@ -369,7 +369,7 @@ Plans:
 - [x] 35-14-PLAN.md — 범위 7 노트 전: 웹 읽기 — 「다음 발사 계획」 줄 · 조각마다 점선 · 대신 값 · 변경 이력 + E2E (W9 · 로컬 커밋만)
 
 **Wave 10** *(blocked on Wave 9 completion)*
-- [ ] 35-15-PLAN.md — 범위 7 노트 전: 웹 쓰기 — 편집 칸 A · 미리보기 P2 · 저장/결과 + E2E 회귀 게이트 (W10 · 로컬 커밋만)
+- [x] 35-15-PLAN.md — 범위 7 노트 전: 웹 쓰기 — 편집 칸 A · 미리보기 P2 · 저장/결과 + E2E 회귀 게이트 (W10 · 로컬 커밋만)
 
 **Wave 11** *(blocked on Wave 10 completion)*
 - [ ] 35-17-PLAN.md — 범위 7 노트 뒤: relay GET/PUT /internal/admin/launch-plan · LaunchPlanService · interpretAdminResult 8/9 · Phase 36 겹침 순서 규칙 (W11)
