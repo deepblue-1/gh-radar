@@ -191,7 +191,7 @@ function LaunchGateSvg({
                   : { fill: TONE_FILL[mark.tone], stroke: 'var(--card)', strokeWidth: 1 };
                 return mark.shape === 'diamond' ? (
                   <path
-                    key={p.wire}
+                    key={j}
                     data-shape="diamond"
                     data-tone={mark.tone}
                     d={diamondPathOf(cx, py, hollow ? DIAMOND_R - 0.7 : DIAMOND_R)}
@@ -201,7 +201,7 @@ function LaunchGateSvg({
                   </path>
                 ) : (
                   <circle
-                    key={p.wire}
+                    key={j}
                     data-tone={mark.tone}
                     cx={cx}
                     cy={py}
