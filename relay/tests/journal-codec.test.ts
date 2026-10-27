@@ -118,7 +118,7 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     expect(f).toMatchObject({ k: "login", result: { success: false, message: "관찰자 인증 실패", accounts: [] } });
   });
 
-  it("② 저널 배치(80) → batch · 23필드 입력과 같다 · 로컬 거부 레코드가 빠지지 않는다(D-02)", () => {
+  it("② 저널 배치(80) → batch · 27필드 입력과 같다 · 로컬 거부 레코드가 빠지지 않는다(D-02)", () => {
     const a = { seq: 11, noticeType: "E", execPrice: 70_100, execQty: 3, orgOrderNo: "0000009" };
     const localReject = {
       seq: 12,
@@ -147,9 +147,35 @@ describe("실 코덱 tracer — 프레임 바이트 → 화이트리스트 → d
     });
     if (f.k !== "batch") throw new Error("unreachable");
     expect(f.batch.records[1]).toMatchObject({ orderNo: "", localReject: true });
-    expect(Object.keys(f.batch.records[0] ?? {})).toHaveLength(23);
+    expect(Object.keys(f.batch.records[0] ?? {})).toHaveLength(27);
     expect(typeof f.batch.records[0]?.seq).toBe("number");
     expect(typeof f.batch.records[0]?.gwTimeMs).toBe("number");
+  });
+
+  it("②-b 36-05 D-15 — E 레코드 손익 4필드(음수 실현손익 포함) 왕복 · 4필드 안 준 레코드(옛 레코드 = 필드 부재) → 0", () => {
+    const sell = {
+      seq: 21,
+      noticeType: "E",
+      side: "S",
+      execPrice: 9_000,
+      execQty: 10,
+      avgPrice: 10_000,
+      feeKrw: 150,
+      taxKrw: 2_000,
+      realizedPnlKrw: -12_150,
+    };
+    // 평단 모르는 매도(인박스 「추가」 4번) — realized = −(fee + tax).
+    const unknownAvgSell = { seq: 22, noticeType: "E", side: "S", execPrice: 9_000, execQty: 1, feeKrw: 15, taxKrw: 180, realizedPnlKrw: -195 };
+    const accept = { seq: 23 };
+    const f = decode(buildJournalBatchFrame({ records: [sell, unknownAvgSell, accept] }));
+    if (f.k !== "batch") throw new Error(`batch 가 아니다: ${f.k}`);
+    expect(f.batch.records[0]).toMatchObject({ avgPrice: 10_000, feeKrw: 150, taxKrw: 2_000, realizedPnlKrw: -12_150 });
+    expect(f.batch.records[1]).toMatchObject({ avgPrice: 0, feeKrw: 15, taxKrw: 180, realizedPnlKrw: -195 });
+    expect(f.batch.records[2]).toMatchObject({ avgPrice: 0, feeKrw: 0, taxKrw: 0, realizedPnlKrw: 0 });
+    expect(f.batch.records).toEqual([sell, unknownAvgSell, accept].map(fakeJournalRecord));
+    for (const r of f.batch.records) {
+      for (const k of ["avgPrice", "feeKrw", "taxKrw", "realizedPnlKrw"] as const) expect(typeof r[k]).toBe("number");
+    }
   });
 
   it("③ 계좌번호 형식 이상(13자) 레코드 → 버리지 않는다 · warn 1회 · 원문 계좌번호는 로그에 없다", async () => {

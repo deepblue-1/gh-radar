@@ -19,6 +19,10 @@
 -- 19-03 이 체결(E) · 취소(C) · 정정(M) · 거부(R) · 로컬 거부 · 견고성(epoch · 순서 · 시각 · 미지 통보) 단언을
 -- 더했다(11~22절, 계좌 …9003 · 게이트웨이 KB120(옛 KB) ep-3 / KB2). 투영 규칙 표 ↔ 단언 번호 대응은 파일 끝 주석.
 --
+-- 36-05 D-15 손익 4열 — 25절(게이트웨이 KB3 · ep-pnl): 4키(avg_price · fee_krw · tax_krw · realized_pnl_krw)를 실은
+-- E 이벤트가 dma_journal_events 4열에 그대로 · 4키 없는 옛 이벤트 = 0 · int4 밖 값 · 재적용 skipped 뒤 rows 유지 ·
+-- dma_journal_apply 권한 (anon, authenticated, service_role) = (f, f, t).
+--
 -- 단언 설명에는 (seq, 계좌 말미, 기대값) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
 -- 사용자: U1·U2 → dma-shr(계좌 …7801), U3 → dma-solo(처음엔 매핑 없음, 뒤에 …3201).
 -- ============================================================
@@ -118,7 +122,7 @@ $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(89);
+SELECT plan(96);
 
 -- ── 1. 매핑 동기화: dma-shr → …7801 ──────────────────────────
 SELECT is(
@@ -706,6 +710,55 @@ SELECT is(
   '(자격증명 없는 사용자) jsonb 래퍼 = [] (null 아님)'
 );
 
+-- ── 25. 36-05 D-15 — 저널 손익 4키 → dma_journal_events 4열(bigint · 기본 0) ─────────────────
+-- 게이트웨이 KB3(레지스트리 밖 · 다른 절과 커서 · 투영이 섞이지 않는다). seq 901 = 4키 실은 매도 E,
+-- seq 902 = 4키 없는 E(옛 relay 이벤트), seq 903 = int4 를 넘는 실현손익(bigint 열 증명).
+INSERT INTO t_apply SELECT 'pnl', public.dma_journal_apply('KB3', 'ep-pnl', jsonb_build_array(
+  pg_temp.ev(901, '11:00:00', '{"order_no":"0000500001","notice_type":"E","side":"S","exec_qty":10,"exec_price":9000,
+    "avg_price":10000,"fee_krw":150,"tax_krw":2000,"realized_pnl_krw":-12345}'),
+  pg_temp.ev(902, '11:00:01', '{"order_no":"0000500002","notice_type":"E","exec_qty":1,"exec_price":1000}'),
+  pg_temp.ev(903, '11:00:02', '{"order_no":"0000500003","notice_type":"E","side":"S","exec_qty":1,"exec_price":1000,
+    "realized_pnl_krw":-3000000000}')));
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int, r->'errors')::text FROM t_apply WHERE label = 'pnl'),
+  '(3,0,[])', '(KB3 seq 901~903 E) (applied, skipped, errors) = (3, 0, []) — 손익 4키가 투영을 깨지 않는다'
+);
+SELECT is(
+  (SELECT row(avg_price, fee_krw, tax_krw, realized_pnl_krw)::text
+     FROM public.dma_journal_events WHERE gateway = 'KB3' AND journal_epoch = 'ep-pnl' AND seq = 901),
+  '(10000,150,2000,-12345)', '(KB3 seq 901 E 매도, …9003) 손익 4열 = (10000, 150, 2000, -12345) — 이벤트 키 그대로(음수 실현손익)'
+);
+SELECT is(
+  (SELECT row(avg_price, fee_krw, tax_krw, realized_pnl_krw)::text
+     FROM public.dma_journal_events WHERE gateway = 'KB3' AND journal_epoch = 'ep-pnl' AND seq = 902),
+  '(0,0,0,0)', '(KB3 seq 902 E 4키 없음, …9003) 손익 4열 = (0, 0, 0, 0) — 옛 relay 이벤트는 기본값'
+);
+SELECT is(
+  (SELECT realized_pnl_krw FROM public.dma_journal_events WHERE gateway = 'KB3' AND journal_epoch = 'ep-pnl' AND seq = 903),
+  -3000000000::bigint, '(KB3 seq 903 E, …9003) realized_pnl_krw = -3000000000 — int4 범위 밖도 bigint 로 적재'
+);
+
+-- 같은 배치 재적용(응답 유실 재시도) — skipped 이고 4열은 그대로, rows 반환(WR-09)은 유지된다.
+INSERT INTO t_apply SELECT 'pnl_replay', public.dma_journal_apply('KB3', 'ep-pnl', jsonb_build_array(
+  pg_temp.ev(901, '11:00:00', '{"order_no":"0000500001","notice_type":"E","side":"S","exec_qty":10,"exec_price":9000,
+    "avg_price":10000,"fee_krw":150,"tax_krw":2000,"realized_pnl_krw":-12345}'),
+  pg_temp.ev(902, '11:00:01', '{"order_no":"0000500002","notice_type":"E","exec_qty":1,"exec_price":1000}')));
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int, jsonb_array_length(r->'rows'))::text FROM t_apply WHERE label = 'pnl_replay'),
+  '(0,2,2)', '(KB3 seq 901·902 재생, …9003) (applied, skipped, rows 수) = (0, 2, 2) — skipped 뒤에도 행을 돌려준다'
+);
+SELECT is(
+  (SELECT row(count(*), sum(realized_pnl_krw))::text
+     FROM public.dma_journal_events WHERE gateway = 'KB3' AND journal_epoch = 'ep-pnl'),
+  '(3,-3000012345)', '(KB3 재생 뒤) 이벤트 3행 · realized_pnl_krw 합 -3000012345 — 재적용이 손익을 두 번 싣지 않는다'
+);
+SELECT is(
+  row(has_function_privilege('anon', 'public.dma_journal_apply(text, text, jsonb)', 'EXECUTE'),
+      has_function_privilege('authenticated', 'public.dma_journal_apply(text, text, jsonb)', 'EXECUTE'),
+      has_function_privilege('service_role', 'public.dma_journal_apply(text, text, jsonb)', 'EXECUTE'))::text,
+  '(f,f,t)', 'dma_journal_apply 재정의 뒤 EXECUTE (anon, authenticated, service_role) = (f, f, t)'
+);
+
 SELECT * FROM finish(true);
 
 ROLLBACK;
@@ -722,5 +775,6 @@ ROLLBACK;
 -- | M (이동 = LEAST(M 수량, 잔량))            | 55-56(이동 7 · 원주문 modified) · 57-58(원주문 모름 → M 수량 폴백 · 지어내지 않음) |
 -- | R 주문번호 있음 (자기 행만 · 원주문 불변) | 59-60 · 61(order_no = org 거부 → reject_seq 행 분리) |
 -- | 로컬 거부 · 주문번호 없는 R (reject_seq)  | 62-63(두 거부가 두 행) · 64(브로커 R · side ← 원주문) |
+-- | 36-05 손익 4열 (coalesce 기본 0 · bigint)   | 90-96(4키 적재 · 옛 이벤트 0 · int4 밖 · 재생 skipped · 권한) |
 -- | 공통 (last_seq · notice 최신 · 시각 · side/origin · epoch · 격리) | 10 · 38 · 48 · 74(시각 = gw_time, applied_at = now) · 67(origin 사상) · 50·57·59(방향) · 18-22·45-46·72(재생·커서 불감소) · 39-40·68-71(epoch 교체) · 30-36·75-77(포이즌·미지 통보 격리) · 78-79(빈 배열) |
 -- ============================================================

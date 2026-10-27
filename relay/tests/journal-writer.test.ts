@@ -15,6 +15,7 @@ import {
   JOURNAL_BATCH_SIZE,
   JOURNAL_MAX_QUEUE,
   JournalWriter,
+  toApplyEvent,
   type JournalApplyEvent,
   type JournalWriterDeps,
 } from "../src/journal/writer.js";
@@ -138,6 +139,10 @@ function record(seq: number): JournalRecord {
     resultCode: 0,
     message: "",
     localReject: false,
+    avgPrice: 0,
+    feeKrw: 0,
+    taxKrw: 0,
+    realizedPnlKrw: 0,
   };
 }
 
@@ -179,6 +184,29 @@ describe("JournalWriter", () => {
   it("상수 정본 — 배치 200 · 큐 상한 5,000", () => {
     expect(JOURNAL_BATCH_SIZE).toBe(200);
     expect(JOURNAL_MAX_QUEUE).toBe(5_000);
+  });
+
+  it("36-05 D-15 — toApplyEvent 키 27종 · 손익 4키(avg_price · fee_krw · tax_krw · realized_pnl_krw)가 레코드 값 그대로(음수 실현손익 포함)", () => {
+    const sell: JournalRecord = {
+      ...record(77),
+      noticeType: "E",
+      side: "S",
+      execPrice: 9_000,
+      execQty: 10,
+      avgPrice: 10_000,
+      feeKrw: 150,
+      taxKrw: 2_000,
+      realizedPnlKrw: -12_150,
+    };
+    const ev = toApplyEvent(sell);
+    // 키 이름은 relay ↔ DB 계약(one-way) — dma_journal_apply 가 이 이름으로 읽는다.
+    expect(Object.keys(ev)).toHaveLength(27);
+    expect(Object.keys(ev)).toEqual(expect.arrayContaining(["avg_price", "fee_krw", "tax_krw", "realized_pnl_krw"]));
+    expect(ev).toMatchObject({ avg_price: 10_000, fee_krw: 150, tax_krw: 2_000, realized_pnl_krw: -12_150 });
+    // 접수(A) 레코드 = 4값 0.
+    expect(toApplyEvent(record(78))).toMatchObject({ avg_price: 0, fee_krw: 0, tax_krw: 0, realized_pnl_krw: 0 });
+    // 배치 JSON 직렬화가 그대로 숫자를 싣는다(bigint 누출 없음).
+    expect(JSON.parse(JSON.stringify(ev)).realized_pnl_krw).toBe(-12_150);
   });
 
   it("① 450건 push → rpc 3회(200·200·50) · seq 오름차순 · 두 번째 호출은 첫 호출이 끝난 뒤에만", async () => {

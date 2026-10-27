@@ -3520,6 +3520,11 @@ export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
         resultCode: w.resultCode(),
         message: w.message() ?? "",
         localReject: w.localReject(),
+        // Phase 36 D-15 — 41-04 손익 4필드(long · 음수 실현손익 허용 · 필드 없는 옛 레코드는 생성 코드가 0n).
+        avgPrice: toNum(w.avgPrice(), "journal_record.avg_price"),
+        feeKrw: toNum(w.feeKrw(), "journal_record.fee_krw"),
+        taxKrw: toNum(w.taxKrw(), "journal_record.tax_krw"),
+        realizedPnlKrw: toNum(w.realizedPnlKrw(), "journal_record.realized_pnl_krw"),
       };
       if (!isValidAccountNo(rec.accountNo)) {
         badAccount += 1;

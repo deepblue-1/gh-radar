@@ -10,6 +10,8 @@
 --   - dma_account_orders 행 모델 제약: 키 xor(order_no ↔ reject_seq) · reject_seq 의 epoch 필수 ·
 --     상태 6종 · 거래소 KRX/NXT · 방향 B/S · 출처 3종 · ISIN 12자 · qty > 0 · 두 부분 유니크
 --   - dma_journal_cursor.last_seq >= 0
+--   - (36-05 D-15) dma_journal_events 손익 4열 avg_price · fee_krw · tax_krw · realized_pnl_krw = bigint NOT NULL DEFAULT 0 ·
+--     체결 부분 인덱스 idx_dma_journal_events_fill_day (trade_date, account_no) WHERE notice_type = 'E'
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_schema.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유·원격 DB 접촉 0).
@@ -26,7 +28,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(96);
+SELECT plan(114);
 
 -- ── 테이블 존재 ──────────────────────────────────────────────────
 SELECT has_table('public', 'dma_journal_events', 'public.dma_journal_events 테이블이 있다');
@@ -216,6 +218,29 @@ SELECT throws_ok(
   $$INSERT INTO public.dma_journal_cursor (gateway, journal_epoch, last_seq) VALUES ('KB', 'ep-1', -1)$$,
   '23514', NULL,
   'rejects dma_journal_cursor (KB, ep-1, last_seq -1)'
+);
+
+-- ── 36-05 D-15 — 손익 4열 · 체결 부분 인덱스 ──────────────────────
+SELECT has_column('public', 'dma_journal_events', 'avg_price', 'dma_journal_events.avg_price 열이 있다 (36-05 D-15)');
+SELECT col_type_is('public', 'dma_journal_events', 'avg_price', 'bigint', 'dma_journal_events.avg_price = bigint');
+SELECT col_not_null('public', 'dma_journal_events', 'avg_price', 'dma_journal_events.avg_price NOT NULL');
+SELECT col_default_is('public', 'dma_journal_events', 'avg_price', '0', 'dma_journal_events.avg_price DEFAULT 0 (옛 레코드 · 배포일 이전 = 0)');
+SELECT has_column('public', 'dma_journal_events', 'fee_krw', 'dma_journal_events.fee_krw 열이 있다 (36-05 D-15)');
+SELECT col_type_is('public', 'dma_journal_events', 'fee_krw', 'bigint', 'dma_journal_events.fee_krw = bigint');
+SELECT col_not_null('public', 'dma_journal_events', 'fee_krw', 'dma_journal_events.fee_krw NOT NULL');
+SELECT col_default_is('public', 'dma_journal_events', 'fee_krw', '0', 'dma_journal_events.fee_krw DEFAULT 0 (옛 레코드 · 배포일 이전 = 0)');
+SELECT has_column('public', 'dma_journal_events', 'tax_krw', 'dma_journal_events.tax_krw 열이 있다 (36-05 D-15)');
+SELECT col_type_is('public', 'dma_journal_events', 'tax_krw', 'bigint', 'dma_journal_events.tax_krw = bigint');
+SELECT col_not_null('public', 'dma_journal_events', 'tax_krw', 'dma_journal_events.tax_krw NOT NULL');
+SELECT col_default_is('public', 'dma_journal_events', 'tax_krw', '0', 'dma_journal_events.tax_krw DEFAULT 0 (옛 레코드 · 배포일 이전 = 0)');
+SELECT has_column('public', 'dma_journal_events', 'realized_pnl_krw', 'dma_journal_events.realized_pnl_krw 열이 있다 (36-05 D-15)');
+SELECT col_type_is('public', 'dma_journal_events', 'realized_pnl_krw', 'bigint', 'dma_journal_events.realized_pnl_krw = bigint');
+SELECT col_not_null('public', 'dma_journal_events', 'realized_pnl_krw', 'dma_journal_events.realized_pnl_krw NOT NULL');
+SELECT col_default_is('public', 'dma_journal_events', 'realized_pnl_krw', '0', 'dma_journal_events.realized_pnl_krw DEFAULT 0 (옛 레코드 · 배포일 이전 = 0)');
+SELECT has_index('public', 'dma_journal_events', 'idx_dma_journal_events_fill_day', ARRAY['trade_date', 'account_no'], 'idx_dma_journal_events_fill_day (trade_date, account_no) 가 있다');
+SELECT is(
+  (SELECT pg_get_expr(i.indpred, i.indrelid) FROM pg_index i WHERE i.indexrelid = 'public.idx_dma_journal_events_fill_day'::regclass),
+  '(notice_type = ''E''::text)', 'idx_dma_journal_events_fill_day 는 체결(notice_type = E)만 담는 부분 인덱스다'
 );
 
 SELECT * FROM finish(true);

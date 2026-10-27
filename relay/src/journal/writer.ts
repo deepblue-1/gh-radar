@@ -66,7 +66,7 @@ export const JOURNAL_MAX_QUEUE = 5_000;
 // 계약
 // ============================================================
 
-/** `dma_journal_apply` 입력 이벤트 1건 — 19-01 RPC 가 읽는 키 23종과 **1:1** 이다. */
+/** `dma_journal_apply` 입력 이벤트 1건 — RPC 가 읽는 키 27종(19-01 23종 + 36-05 손익 4종)과 **1:1** 이다. */
 export type JournalApplyEvent = {
   seq: number;
   trade_date: string;
@@ -91,6 +91,14 @@ export type JournalApplyEvent = {
   result_code: number;
   message: string;
   local_reject: boolean;
+  /*
+   * D-15 — gh-trade 41-04 와 합의된 이름 · 바꾸지 말 것(append-only). 이 4키는 DB 열 이름과 같고
+   * `dma_journal_apply`(20261027210000) 가 `coalesce((ev->>'…')::bigint, 0)` 로 읽는다.
+   */
+  avg_price: number;
+  fee_krw: number;
+  tax_krw: number;
+  realized_pnl_krw: number;
 };
 
 /** 적용 RPC 반환 jsonb (`dma_journal_apply` · `dma_strategy_apply` 공통 모양). 행 모양은 스트림이 정한다. */
@@ -167,7 +175,7 @@ export function journalRetryDelayMs(attempt: number, baseMs: number, maxMs: numb
 }
 
 /**
- * camelCase 도메인 레코드 → 적용 RPC 입력 키 23종. **순수 매핑**이다 — 값 보정이 없다.
+ * camelCase 도메인 레코드 → 적용 RPC 입력 키 27종. **순수 매핑**이다 — 값 보정이 없다.
  *
  * ★ 키 목록은 19-01 `dma_journal_apply`/`dma_journal_project` 가 `p_ev->>'…'` 로 읽는 키와 1:1 이다.
  *   하나라도 이름이 틀리면 DB 가 그 값을 ''/0/false 로 조용히 적재한다 — 테스트가 키 집합을 잠근다.
@@ -197,6 +205,11 @@ export function toApplyEvent(r: JournalRecord): JournalApplyEvent {
     result_code: r.resultCode,
     message: r.message,
     local_reject: r.localReject,
+    // D-15 — gh-trade 41-04 와 합의된 이름 · 바꾸지 말 것(append-only).
+    avg_price: r.avgPrice,
+    fee_krw: r.feeKrw,
+    tax_krw: r.taxKrw,
+    realized_pnl_krw: r.realizedPnlKrw,
   };
 }
 

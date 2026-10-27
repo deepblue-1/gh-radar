@@ -7,7 +7,7 @@
  * FlatBuffers 생성 타입을 기록기·매핑이 직접 쓰지 않는 이유가 이것이다 — 스키마 필드명이
  * 바뀌어도 코덱 한 파일만 고치면 된다.
  *
- * 필드 의미의 정본은 `19-GH-TRADE-HANDOFF.md` 의 23필드 ↔ 이벤트 JSON 키 대응표다.
+ * 필드 의미의 정본은 `19-GH-TRADE-HANDOFF.md` 의 23필드 ↔ 이벤트 JSON 키 대응표다(손익 4필드는 gh-trade 41-04 · Phase 36 D-15).
  * 값은 **게이트웨이 원문**이다 — relay 는 해석·보정·재정규화를 하지 않는다(투영은 DB RPC 정본).
  */
 import type {
@@ -20,7 +20,7 @@ import type {
 /**
  * 게이트웨이 저널 레코드 1건 (camelCase 도메인 표현).
  *
- * `toApplyEvent` 가 이것을 `dma_journal_apply` 입력 키 23종(snake_case)으로 1:1 바꾼다.
+ * `toApplyEvent` 가 이것을 `dma_journal_apply` 입력 키 27종(snake_case)으로 1:1 바꾼다(23종 + Phase 36 손익 4키).
  */
 export type JournalRecord = {
   /** 게이트웨이 저널 seq — epoch 안에서 조밀(1 씩 증가)하다. 기록기의 연속성 판정 근거. */
@@ -54,6 +54,21 @@ export type JournalRecord = {
   message: string;
   /** 게이트웨이 로컬 거부(주문번호 없음) 레코드인가. */
   localReject: boolean;
+  /*
+   * ── 손익 4필드 (Phase 36 D-15 · gh-trade 41-04 JournalRecord 24~27 · `long` → `toNum`) ──
+   * **E(체결) 레코드에만 값**이 있다 — A/C/M/R · 로컬 거부 · Gateway 즉시 회신 · 필드가 없는 옛 레코드(재생분 포함)는 0.
+   * 계산은 gh-trade 의 계좌 한도 자동 조정과 같은 함수(`FillCost`) 결과다. 비용률 미설정 계좌는 수수료 · 세금 0.
+   * 정본은 fbs 주석이 아니라 인박스 261027-account-pnl 「추가」 4번 — 평단 모르는 매도는
+   * `realizedPnlKrw = −(feeKrw + taxKrw)`(fbs 의 「평단 모름 0」 은 낡았다).
+   */
+  /** 매도 직전 평단(원 · 서버 잔고 가중평균 반올림). 매수 · 비체결 · 평단 모름 0. */
+  avgPrice: number;
+  /** 그 체결 수수료(원 · 원 미만 버림). */
+  feeKrw: number;
+  /** 매도 세금(원 · 원 미만 버림). 매수 0. */
+  taxKrw: number;
+  /** 실현손익(원 · **음수 가능**). 매도 = qty×(px−평단) − 수수료 − 세금 · 매수 = −수수료 · 비체결 0. */
+  realizedPnlKrw: number;
 };
 
 /**

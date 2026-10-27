@@ -219,10 +219,14 @@ function record(seq: number, accountNo: string, dmaUserId = "dma-shared"): Journ
     resultCode: 0,
     message: "",
     localReject: false,
+    avgPrice: 0,
+    feeKrw: 0,
+    taxKrw: 0,
+    realizedPnlKrw: 0,
   };
 }
 
-/** 19-01 `dma_journal_apply` 가 읽는 이벤트 키 23종. */
+/** `dma_journal_apply` 가 읽는 이벤트 키 27종(19-01 23종 + 36-05 손익 4종). */
 const APPLY_KEYS = [
   "seq",
   "trade_date",
@@ -247,6 +251,10 @@ const APPLY_KEYS = [
   "result_code",
   "message",
   "local_reject",
+  "avg_price",
+  "fee_krw",
+  "tax_krw",
+  "realized_pnl_krw",
 ].sort();
 
 function eventFrames(inbox: RelayOutbound[]): StrategyEventRow[][] {

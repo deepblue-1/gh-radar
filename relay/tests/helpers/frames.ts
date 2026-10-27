@@ -1497,7 +1497,7 @@ export function buildObserverLoginRespFrame(input: FakeObserverLoginRespInput = 
 /** 저널 레코드 입력 — `seq` 만 필수이고 나머지는 정상 신규 접수(A) 기본값으로 채운다. */
 export type FakeJournalRecordInput = Partial<JournalRecord> & { seq: number };
 
-/** `FakeJournalRecordInput` → 23필드 완성본. 테스트가 기대값을 같은 함수로 만든다(두 벌 금지). */
+/** `FakeJournalRecordInput` → 27필드 완성본. 테스트가 기대값을 같은 함수로 만든다(두 벌 금지). */
 export function fakeJournalRecord(input: FakeJournalRecordInput): JournalRecord {
   return {
     tradeDate: "2026-09-28",
@@ -1522,6 +1522,11 @@ export function fakeJournalRecord(input: FakeJournalRecordInput): JournalRecord 
     resultCode: 0,
     message: "",
     localReject: false,
+    // 손익 4필드(36-05 D-15) — 접수(A) 기본값이라 0(= 필드 부재 · 옛 레코드와 같다).
+    avgPrice: 0,
+    feeKrw: 0,
+    taxKrw: 0,
+    realizedPnlKrw: 0,
     ...input,
   };
 }
@@ -1645,12 +1650,12 @@ export function buildJournalBatchFrame(input: FakeJournalBatchInput = {}): Uint8
       r.resultCode,
       message,
       r.localReject,
-      // avg_price · fee_krw · tax_krw · realized_pnl_krw (gh-trade 41-04 말미 append) —
-      // 옛 레코드 의미값 0. 입력 연결은 36-05 가 relay JournalRecord 타입과 함께 한다.
-      0n,
-      0n,
-      0n,
-      0n,
+      // avg_price · fee_krw · tax_krw · realized_pnl_krw (gh-trade 41-04 말미 append · 36-05 D-15).
+      // 값 0 은 기본값이라 빌더가 필드를 쓰지 않는다 = 옛 레코드(필드 부재)와 같은 바이트.
+      BigInt(r.avgPrice),
+      BigInt(r.feeKrw),
+      BigInt(r.taxKrw),
+      BigInt(r.realizedPnlKrw),
     );
   });
   const records = JournalBatch.createRecordsVector(b, offsets);

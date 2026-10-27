@@ -216,6 +216,10 @@ function record(seq: number): JournalRecord {
     resultCode: 0,
     message: "",
     localReject: false,
+    avgPrice: 0,
+    feeKrw: 0,
+    taxKrw: 0,
+    realizedPnlKrw: 0,
   };
 }
 
