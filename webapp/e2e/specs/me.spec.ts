@@ -15,6 +15,7 @@ import {
 } from '../fixtures/relay';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 import { leavesOverflowing } from '../overflow';
+import { mockPnlApi, PNL_HUGE_BUY_KRW, PNL_HUGE_LABEL } from '../fixtures/pnl';
 import {
   BUNDLE_ORDER_NOS,
   BUNDLE_ROWS,
@@ -953,7 +954,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     const tabNames = (await meTabList(page).getByRole('tab').allTextContents()).map((t) =>
       t.replace(/\d+$/, ''),
     );
-    expect(tabNames).toEqual(['현황', '잔고', '주문', '설정']);
+    expect(tabNames).toEqual(['현황', '잔고', '주문', '설정', '손익']);
   });
 
   test('2. 전략 행 클릭 → 인코딩된 키로 /trading?focus= 로 이동하고 그 카드가 펼쳐진다 (Phase 18 D-02)', async ({
@@ -2066,7 +2067,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await waitForReady(page, 2);
 
     const names = (await meTabList(page).getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, ''));
-    expect(names).toEqual(['현황', '잔고', '주문', '설정']);
+    expect(names).toEqual(['현황', '잔고', '주문', '설정', '손익']);
     await expect(meTab(page, '현황')).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('[data-slot="me-status-bar"]')).toBeVisible();
     await expect(strategyCard(page)).toBeVisible();
@@ -2186,5 +2187,128 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     const note = `[PEY-K1] tabbar top=${top.atEnd} (scroll 0 에서 ${top.atTop}) scrollY=${top.scrollY} main.scrollTop=${top.mainScrollTop}`;
     test.info().annotations.push({ type: 'PEY-K1', description: note });
     console.log(note);
+  });
+
+  /* ───────────────────────── Phase 36 손익 탭 (D-17 ②) · 큰 값 백스톱(UI E2) ───────────────────────── */
+
+  test.describe('Phase 36 손익 탭 (D-17 ②)', () => {
+    const pnlRoot = (page: Page) => page.locator('[data-slot="me-pnl"]');
+    const pnlDays = (page: Page) => pnlRoot(page).locator('[data-slot="pnl-day"]');
+    const dayButton = (page: Page, i: number) => pnlDays(page).nth(i).locator('button[aria-expanded]');
+
+    /** 요소 안 글자가 자기 상자를 넘지 않는다(잘림 · 겹침 없음) — scrollWidth ≤ clientWidth. */
+    async function clipOf(locator: Locator): Promise<{ scroll: number; client: number }> {
+      return locator.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    }
+
+    async function pageOverflow(page: Page): Promise<{ doc: number; main: number }> {
+      return page.evaluate(() => {
+        const se = document.scrollingElement ?? document.documentElement;
+        const main = document.querySelector('main');
+        return { doc: se.scrollWidth - se.clientWidth, main: main === null ? 0 : main.scrollWidth - main.clientWidth };
+      });
+    }
+
+    test('P36-pnl-1 ①② 손익 탭 — /api/pnl?account=<고른 계좌>&range=30 · 「30일 실현손익」 · 첫 일자 행만 펼침 · 「7일」 → range=7 재요청', async ({
+      page,
+    }) => {
+      const api = await mockPnlApi(page);
+      await page.goto('/me');
+      await waitForReady(page, 2);
+      expect(api.requests).toHaveLength(0); // 탭을 열기 전에는 조회 0
+
+      await openMeTab(page, '손익', 'pnl');
+      await expect(meTabCount(page, '손익')).toHaveCount(0); // 개수 배지 없음
+      await expect(pnlRoot(page).locator('[data-slot="pnl-summary"]')).toContainText('30일 실현손익', { timeout: 15_000 });
+      expect(api.requests.map((r) => r.query)).toEqual([{ account: E2E_ACCOUNT_NO, range: '30' }]);
+      await expect(pnlRoot(page).locator('[data-slot="pnl-range-caption"]')).toHaveText('9/28 ~ 10/27');
+      await expect(pnlRoot(page).locator('[data-slot="pnl-summary-pnl"]')).toContainText('+122만');
+      await expect(pnlDays(page)).toHaveCount(2);
+      await expect(dayButton(page, 0)).toHaveAttribute('aria-expanded', 'true');
+      await expect(dayButton(page, 1)).toHaveAttribute('aria-expanded', 'false');
+      // 묶음 머리 없음(/me 는 계좌 칩이 계좌를 말한다).
+      await expect(pnlRoot(page).locator('[data-slot="pnl-group-head"]')).toHaveCount(0);
+
+      await pnlRoot(page).getByRole('group', { name: '기간' }).getByRole('button', { name: '7일' }).click();
+      await expect.poll(() => api.requests.at(-1)?.query).toEqual({ account: E2E_ACCOUNT_NO, range: '7' });
+      await expect(pnlRoot(page).locator('[data-slot="pnl-summary"]')).toContainText('7일 실현손익', { timeout: 15_000 });
+      await expect(pnlRoot(page).locator('[data-slot="pnl-range-caption"]')).toHaveText('10/21 ~ 10/27');
+      // 기간은 주소에 싣지 않는다.
+      await expect(page).toHaveURL((url) => url.searchParams.get('tab') === 'pnl' && !url.searchParams.has('range'));
+    });
+
+    test('P36-pnl-2 ③ 계좌 칩 B → /api/pnl?account=B 재요청 · 펼침 기본 복원', async ({ page }) => {
+      const api = await mockPnlApi(page);
+      await page.goto('/me');
+      await waitForReady(page, 2);
+      await openMeTab(page, '손익', 'pnl');
+      await expect(pnlDays(page)).toHaveCount(2, { timeout: 15_000 });
+      await dayButton(page, 1).click();
+      await expect(dayButton(page, 1)).toHaveAttribute('aria-expanded', 'true');
+
+      await accountChip(page, ACCOUNT_B).click();
+      await expect.poll(() => api.requests.at(-1)?.query.account).toBe(ACCOUNT_B);
+      expect(api.requests.at(-1)?.query.range).toBe('30');
+      await expect(pnlDays(page)).toHaveCount(2, { timeout: 15_000 });
+      await expect(dayButton(page, 0)).toHaveAttribute('aria-expanded', 'true');
+      await expect(dayButton(page, 1)).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('P36-pnl-3 ④ 폰 390 — 일자 행 2줄(아랫줄 「매수 … · 매도 … · N건」 · 데스크톱 칸 숨김) · 「123,456,789만」 비잘림 · 가로 넘침 0', async ({
+      page,
+    }) => {
+      await page.setViewportSize(MOBILE_VIEWPORT);
+      await mockPnlApi(page);
+      await page.goto('/me?tab=pnl');
+      await expect(pnlDays(page)).toHaveCount(2, { timeout: 30_000 });
+      const first = pnlDays(page).first();
+      const phoneLine = first.locator('[data-slot="pnl-day-phone-line"]');
+      await expect(phoneLine).toBeVisible();
+      await expect(phoneLine).toContainText(`매수 ${PNL_HUGE_LABEL} · 매도 1,640만 · 7건`);
+      await expect(first.locator('[data-slot="pnl-day-buy"]')).toBeHidden();
+      await expect(pnlRoot(page).locator('[data-slot="pnl-col-head"]')).toBeHidden();
+      // 2줄 — 아랫줄이 일자 · 실현손익 줄 아래에 있다.
+      const dateBox = await boxOf(first.locator('[data-slot="pnl-day-date"]'));
+      const lineBox = await boxOf(phoneLine);
+      expect(lineBox.y).toBeGreaterThan(dateBox.y);
+      const line = await clipOf(phoneLine);
+      expect(line.scroll).toBeLessThanOrEqual(line.client);
+      const sumBuy = await clipOf(pnlRoot(page).locator('[data-slot="pnl-summary-buy"]'));
+      expect(sumBuy.scroll).toBeLessThanOrEqual(sumBuy.client);
+      expect(await pageOverflow(page)).toEqual({ doc: 0, main: 0 });
+    });
+
+    test('P36-pnl-4 lg 1024 — 7열 머리 · 매수 칸 「123,456,789만」 비잘림(UI E2 백스톱) · 가로 넘침 0', async ({ page }) => {
+      await page.setViewportSize({ width: 1024, height: 900 });
+      await mockPnlApi(page);
+      await page.goto('/me?tab=pnl');
+      await expect(pnlDays(page)).toHaveCount(2, { timeout: 30_000 });
+      await expect(pnlRoot(page).locator('[data-slot="pnl-col-head"]')).toBeVisible();
+      const buy = pnlDays(page).first().locator('[data-slot="pnl-day-buy"]');
+      await expect(buy).toHaveText(PNL_HUGE_LABEL);
+      const cell = await clipOf(buy);
+      expect(cell.scroll).toBeLessThanOrEqual(cell.client);
+      const sumBuy = await clipOf(pnlRoot(page).locator('[data-slot="pnl-summary-buy"]'));
+      expect(sumBuy.scroll).toBeLessThanOrEqual(sumBuy.client);
+      expect(await pageOverflow(page)).toEqual({ doc: 0, main: 0 });
+    });
+
+    test('P36-pnl-5 ⑤ 잔고 탭 요약 줄 — 예수금 1,234,567,890,000 원 「123,456,789만」 이 폰 390 · lg 1024 에서 잘리지 않는다(UI E2 백스톱)', async ({
+      page,
+    }) => {
+      for (const vp of [MOBILE_VIEWPORT, { width: 1024, height: 900 }]) {
+        await page.setViewportSize(vp);
+        await page.goto('/me?tab=accounts');
+        await expect(accountChips(page)).toHaveCount(2, { timeout: 30_000 });
+        await relay.pushAccountState({ ...ACCOUNT_A_STATE, budgetKrw: PNL_HUGE_BUY_KRW });
+        await waitForAccountCard(page, E2E_ACCOUNT_NO);
+        const summary = accountCards(page).locator('[data-slot="account-budget-summary"]');
+        await expect(summary).toContainText(`/ 예수금 ${PNL_HUGE_LABEL}`, { timeout: 15_000 });
+        const box = await clipOf(summary);
+        expect(box.scroll, `${vp.width}px 요약 줄`).toBeLessThanOrEqual(box.client);
+        const card = await boxOf(accountCards(page));
+        expect(await leavesOverflowing(summary, card.right)).toEqual([]);
+      }
+    });
   });
 });
