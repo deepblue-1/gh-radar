@@ -69,6 +69,11 @@ const BAND_STYLE: Record<LaunchBandKind, { fill: string; stroke?: string; opacit
 };
 
 const TEXT = { fontSize: 11, fill: 'var(--muted-fg)' } as const;
+
+/** 눈금 글 정렬 — 그림 오른쪽 끝 24px 안이면 'end'(오른쪽 여백 R 14px 로는 가운데 정렬 긴 글이 SVG 밖으로 잘린다). */
+function tickAnchorOf(tx: number, right: number): 'middle' | 'end' {
+  return tx > right - 24 ? 'end' : 'middle';
+}
 const OFF_GLYPH = { lo: '◂', hi: '▸' } as const;
 
 export function LaunchGateChart({ gateway, market, fire, days, next }: LaunchGateChartProps) {
@@ -282,15 +287,15 @@ function LaunchGateSvg({
           </text>
         )}
 
-        {/* x 눈금 글 — 위 · 리본 아래 */}
+        {/* x 눈금 글 — 위 · 리본 아래. 오른쪽 여백(R)이 좁아 끝 눈금은 오른쪽 맞춤(「−20,136」 이 잘리지 않게). */}
         <g data-slot="launch-ticks">
           {ticks.values.map((v) => (
-            <text key={`t${v}`} x={x(v)} y={T - 10} textAnchor="middle" {...TEXT}>
+            <text key={`t${v}`} x={x(v)} y={T - 10} textAnchor={tickAnchorOf(x(v), right)} {...TEXT}>
               {fmtUs(v)}
             </text>
           ))}
           {ticks.values.map((v) => (
-            <text key={`b${v}`} x={x(v)} y={ry + RIBBON_H + 16} textAnchor="middle" {...TEXT}>
+            <text key={`b${v}`} x={x(v)} y={ry + RIBBON_H + 16} textAnchor={tickAnchorOf(x(v), right)} {...TEXT}>
               {fmtUs(v)}
             </text>
           ))}
