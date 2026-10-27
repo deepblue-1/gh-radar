@@ -1733,3 +1733,304 @@ describe('P36 예수금 칸', () => {
     expect(row.compareDocumentPosition(pill('12345678901', 'KB120')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('P36 비용률 · 상태 6종', () => {
+  const NO = '12345678901';
+  const feeInput = (no = NO, broker = 'KB') =>
+    within(acctRow(no)).getByRole('textbox', { name: `${broker} ${no} 수수료(%)` }) as HTMLInputElement;
+  const taxInput = (no = NO, broker = 'KB') =>
+    within(acctRow(no)).getByRole('textbox', { name: `${broker} ${no} 매도세(%)` }) as HTMLInputElement;
+  const lines = (no = NO) =>
+    Array.from(costRow(no)!.querySelectorAll('[data-slot="admin-account-cost-line"]')) as HTMLElement[];
+  const lineTexts = (no = NO) => lines(no).map((l) => l.textContent);
+  const RANGE = '수수료 · 매도세는 0~1%, 소수 넷째 자리까지예요';
+  const SAME = { KB120: cost(100_000_000, 100, 2000), KB121: cost(100_000_000, 100, 2000) };
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+
+  it('표시 — 수수료 「0.01」 · 매도세 「0.2」(ppm → % 끝 0 없음) · inputMode decimal · 입력 안내 글자 「0」 · 값 0 → 빈 칸', () => {
+    mountCost([withCosts(KB_TWO, SAME), withCosts(KYOBO_ACCT, { KYOBO119: cost(0, 0, 0) })]);
+    expect(feeInput()).toHaveValue('0.01');
+    expect(taxInput()).toHaveValue('0.2');
+    expect(feeInput()).toHaveAttribute('inputmode', 'decimal');
+    expect(feeInput()).toHaveAttribute('placeholder', '0');
+    expect(feeInput('9876543201', 'KYOBO')).toHaveValue('');
+    expect(taxInput('9876543201', 'KYOBO')).toHaveValue('');
+    expect(costRow(NO)).toHaveTextContent('%');
+  });
+
+  it('(behavior 1) 「1.5」 Enter → 칸 aria-invalid + 범위 줄 · setAccountFee 0회 · 입력값 유지 · 「0.05」 로 고치면 줄 사라짐', () => {
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '1.5' } });
+    enter(feeInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(feeInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(feeInput()).toHaveValue('1.5');
+    expect(costRow(NO)).toHaveTextContent(RANGE);
+    expect(taxInput()).not.toHaveAttribute('aria-invalid');
+    fireEvent.change(feeInput(), { target: { value: '0.05' } });
+    expect(feeInput()).not.toHaveAttribute('aria-invalid');
+    expect(costRow(NO)).not.toHaveTextContent(RANGE);
+  });
+
+  it('(behavior 1) 소수 다섯째 자리 · 숫자 아님 · 포커스 이탈도 보내지 않는다', () => {
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(taxInput());
+    fireEvent.change(taxInput(), { target: { value: '0.00001' } });
+    fireEvent.blur(taxInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(taxInput()).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: 'abc' } });
+    enter(feeInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(feeInput()).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('(behavior 2) 수수료 「0.05」 Enter → setAccountFee(…, 500, 2000) — 매도세 현재값을 함께 · 매도세만 고쳐도 두 값 함께', async () => {
+    setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.05' } });
+    enter(feeInput());
+    expect(setAccountFeeMock).toHaveBeenCalledTimes(1);
+    expect(setAccountFeeMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 500, 2000);
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120', 'KB121']));
+
+    fireEvent.focus(taxInput());
+    fireEvent.change(taxInput(), { target: { value: '0.18' } });
+    enter(taxInput());
+    expect(setAccountFeeMock).toHaveBeenCalledTimes(2);
+    expect(setAccountFeeMock).toHaveBeenLastCalledWith('kimtr', 'KB', NO, 500, 1800);
+    await act(async () => {});
+  });
+
+  it('(behavior 3) 표시값과 같은 값 Enter + 불일치 없음 → 요청 0 · NOTE 「변경 없음」 · 칩 「<키> · 변경 없음」 · 다시 고치면 지움', () => {
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '10000' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    const note = costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]');
+    expect(note).toHaveTextContent('변경 없음');
+    expect(chipTexts()).toEqual(['KB120 · 변경 없음', 'KB121 · 변경 없음']);
+    expect(costChips().map((c) => c.getAttribute('data-tone'))).toEqual(['only', 'only']);
+    fireEvent.change(budgetInput(), { target: { value: '1000' } });
+    expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toBeNull();
+
+    // 비용률도 같은 규칙 — 값을 안 고치고 Enter 만
+    fireEvent.focus(feeInput());
+    enter(feeInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toHaveTextContent('변경 없음');
+  });
+
+  it('(behavior 3) 불일치가 있으면 같은 값이어도 Enter 로 보낸다(예수금 · 비용률 따로)', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000, 100, 2000), KB121: cost(50_000_000, 500, 2000) })]);
+    fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100_000_000);
+    await act(async () => {});
+    fireEvent.focus(taxInput());
+    enter(taxInput());
+    expect(setAccountFeeMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100, 2000);
+    await act(async () => {});
+  });
+
+  it('(behavior 4) 포커스 이탈 — 안 고쳤으면 요청 0 · 고쳤으면 요청 1', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000, 100, 2000) })]);
+    fireEvent.focus(budgetInput());
+    fireEvent.blur(budgetInput());
+    fireEvent.focus(feeInput());
+    fireEvent.blur(feeInput());
+    fireEvent.focus(taxInput());
+    fireEvent.blur(taxInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    fireEvent.blur(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 20_000_000);
+    await act(async () => {});
+    fireEvent.focus(taxInput());
+    fireEvent.change(taxInput(), { target: { value: '0.15' } });
+    fireEvent.blur(taxInput());
+    expect(setAccountFeeMock).toHaveBeenCalledTimes(1);
+    expect(setAccountFeeMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100, 1500);
+    await act(async () => {});
+  });
+
+  it('(behavior 5) failed code 1 「BAD_OP」 → 칩 「KB120 · 실패」 title 「서버 미지원 · BAD_OP」 + role=alert 줄 · 입력값 유지', async () => {
+    setAccountFeeMock.mockResolvedValue({
+      results: [
+        { server: 'KB120', outcome: 'failed', code: 1, message: 'BAD_OP' },
+        { server: 'KB121', outcome: 'ok' },
+      ],
+    });
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.05' } });
+    enter(feeInput());
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120 · 실패', 'KB121']));
+    expect(costChips()[0]).toHaveAttribute('data-tone', 'err');
+    expect(costChips()[0]).toHaveAttribute('title', '서버 미지원 · BAD_OP');
+    const alert = within(costRow(NO)!).getByRole('alert');
+    expect(alert).toHaveTextContent('KB120 실패: 서버 미지원 · BAD_OP — 서버 업데이트 뒤 다시 저장');
+    fireEvent.blur(feeInput());
+    expect(feeInput()).toHaveValue('0.05');
+  });
+
+  it('(behavior 5) failed code 5 → 「KB120 실패: <message>」(role=alert · 서버 미지원 아님) · offline → WARN 「KB120 미반영: 서버 연결 안 됨」(role 없음) · 칩 「KB120 · 서버 연결 안 됨」', async () => {
+    setAccountBudgetMock.mockResolvedValueOnce({ results: [{ server: 'KB120', outcome: 'failed', code: 5, message: '계좌 없음' }] });
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    enter(budgetInput());
+    await waitFor(() => expect(lineTexts()).toEqual(['KB120 실패: 계좌 없음']));
+    expect(lines()[0]).toHaveAttribute('role', 'alert');
+    expect(costChips()[0]).toHaveAttribute('title', '계좌 없음');
+
+    setAccountBudgetMock.mockResolvedValueOnce({ results: [{ server: 'KB120', outcome: 'offline' }] });
+    fireEvent.change(budgetInput(), { target: { value: '3000' } });
+    // 그 op 칸을 다시 고치면 지난 실패 줄을 지운다
+    expect(lineTexts()).toEqual([]);
+    enter(budgetInput());
+    await waitFor(() => expect(lineTexts()).toEqual(['KB120 미반영: 서버 연결 안 됨']));
+    expect(lines()[0]).not.toHaveAttribute('role');
+    expect(lines()[0]).toHaveAttribute('data-tone', 'warn');
+    expect(chipTexts()).toEqual(['KB120 · 서버 연결 안 됨']);
+    expect(costChips()[0]).toHaveAttribute('data-tone', 'warn');
+  });
+
+  it('(behavior 6) 비행 중 — 예수금 저장이면 예수금 칸만 readOnly · 「<키> · 보내는 중」 칩(스피너) · 비용률 저장이면 두 칸 readOnly', async () => {
+    const b = deferred<{ results: { server: string; outcome: string }[] }>();
+    setAccountBudgetMock.mockReturnValue(b.promise);
+    mountCost([withCosts(KB_TWO, SAME)]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    enter(budgetInput());
+    expect(budgetInput()).toHaveAttribute('readonly');
+    expect(budgetInput().className).toContain('opacity-50');
+    expect(feeInput()).not.toHaveAttribute('readonly');
+    expect(taxInput()).not.toHaveAttribute('readonly');
+    expect(chipTexts()).toEqual(['KB120 · 보내는 중', 'KB121 · 보내는 중']);
+    expect(costChips()[0]).toHaveAttribute('data-tone', 'only');
+    const spinner = costChips()[0].querySelector('[data-slot="admin-cost-spinner"]') as HTMLElement;
+    expect(spinner.className).toContain('animate-spin');
+    expect(spinner.className).toContain('motion-reduce:animate-none');
+    await act(async () => b.resolve({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] }));
+    expect(budgetInput()).not.toHaveAttribute('readonly');
+
+    const f = deferred<{ results: { server: string; outcome: string }[] }>();
+    setAccountFeeMock.mockReturnValue(f.promise);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.02' } });
+    enter(feeInput());
+    expect(feeInput()).toHaveAttribute('readonly');
+    expect(taxInput()).toHaveAttribute('readonly');
+    expect(budgetInput()).not.toHaveAttribute('readonly');
+    await act(async () => f.resolve({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] }));
+  });
+
+  it('(behavior 6) 카드 편집 저장 비행 중 → 세 칸 모두 readOnly', async () => {
+    const d = deferred<{ results: { server: string; outcome: string }[] }>();
+    putDmaAccountMock.mockReturnValue(d.promise);
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    fireEvent.click(screen.getByRole('button', { name: 'KB 12345678901 편집' }));
+    fireEvent.change(within(acctRow(NO)).getByRole('textbox', { name: '계좌명' }), { target: { value: '새 이름' } });
+    fireEvent.click(screen.getByRole('button', { name: 'KB 12345678901 편집 저장' }));
+    expect(budgetInput()).toHaveAttribute('readonly');
+    expect(feeInput()).toHaveAttribute('readonly');
+    expect(taxInput()).toHaveAttribute('readonly');
+    await act(async () => d.resolve({ results: [{ server: 'KB120', outcome: 'ok' }] }));
+  });
+
+  it('(behavior 7) 서버별 다름 — 칸 = 주문 서버(KB120) 값 · 「KB121 은 5,000만 — …」 · 「KB121 은 0.05% · 0.2% — …」(WARN · role 없음)', () => {
+    mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000, 100, 2000), KB121: cost(50_000_000, 500, 2000, 'snapshot') })]);
+    expect(budgetInput()).toHaveValue('10,000');
+    expect(feeInput()).toHaveValue('0.01');
+    expect(taxInput()).toHaveValue('0.2');
+    const ms = Array.from(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')) as HTMLElement[];
+    expect(ms.map((m) => m.textContent)).toEqual([
+      'KB121 은 5,000만 — 저장하면 등록 서버가 모두 같아져요',
+      'KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요',
+    ]);
+    ms.forEach((m) => expect(m).not.toHaveAttribute('role'));
+    // 서버 1대 · 같은 값이면 불일치 줄 없음
+    expect(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).toHaveLength(2);
+  });
+
+  it('(behavior 7) 조사 은/는 = 키 끝 숫자 읽기 — KYOBO119 는 · KB120 의 미설정 → 「미설정」 · 87 모르는 서버는 「확인 전」 칩 · 불일치 판정 밖', () => {
+    const KY_TWO: AdminAccountView = {
+      ...KYOBO_ACCT,
+      servers: [
+        { serverKey: 'KYOBO119', tone: 'ok', message: null, state: 'active' },
+        { serverKey: 'KYOBO127', tone: 'ok', message: null, state: 'active' },
+      ],
+      orderServer: 'KYOBO127',
+    };
+    mountCost([
+      withCosts(KB_TWO, { KB120: cost(0), KB121: cost(50_000_000) }),
+      withCosts(KY_TWO, { KYOBO119: cost(700_000_000, 500, 2000), KYOBO127: cost(100_000_000, 500, 2000) }),
+    ]);
+    expect(Array.from(costRow('9876543201')!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).map((m) => m.textContent)).toEqual([
+      'KYOBO119 는 70,000만 — 저장하면 등록 서버가 모두 같아져요',
+    ]);
+    expect(Array.from(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).map((m) => m.textContent)).toEqual([
+      'KB121 은 5,000만 — 저장하면 등록 서버가 모두 같아져요',
+    ]);
+  });
+
+  it('(E1 empty) 87 미확인 서버만 → 세 칸 「—」 · 「<키> · 확인 전」 칩(only) · 불일치 줄 없음', () => {
+    mountCost([withCosts(KB_TWO, { KB120: null, KB121: null })]);
+    expect(budgetInput()).toHaveValue('');
+    expect(budgetInput()).toHaveAttribute('placeholder', '—');
+    expect(feeInput()).toHaveAttribute('placeholder', '—');
+    expect(taxInput()).toHaveAttribute('placeholder', '—');
+    expect(chipTexts()).toEqual(['KB120 · 확인 전', 'KB121 · 확인 전']);
+    expect(costChips().every((c) => c.getAttribute('data-tone') === 'only')).toBe(true);
+    expect(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).toHaveLength(0);
+  });
+
+  it('(E1 partial) KB121 만 87 모름 → KB120 ok 칩 · KB121 「확인 전」 · 불일치 줄 없음', () => {
+    mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000), KB121: null })]);
+    expect(chipTexts()).toEqual(['KB120', 'KB121 · 확인 전']);
+    expect(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).toHaveLength(0);
+  });
+
+  it('(D-04) 비용 저장 결과는 서버 알약의 반영 칩을 바꾸지 않는다', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'failed', code: 1, message: 'BAD_OP' }] });
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    const before = pill(NO, 'KB120').textContent;
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    enter(budgetInput());
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120 · 실패']));
+    expect(pill(NO, 'KB120').textContent).toBe(before);
+    expect(document.querySelectorAll('[data-slot="admin-busy-line"]')).toHaveLength(0);
+  });
+
+  it('(E1 overflow) 배치 — 예수금 묶음 basis-full sm:basis-auto · 1줄 끝 구분점 hidden sm:inline · 칩 묶음 inline-flex flex-wrap gap-1', () => {
+    mountCost([withCosts(KB_ACCT, { KB120: cost(100_000_000) })]);
+    const group = costRow(NO)!.querySelector('[data-slot="admin-account-cost-budget"]') as HTMLElement;
+    expect(group.className).toContain('basis-full');
+    expect(group.className).toContain('sm:basis-auto');
+    const dot = group.querySelector('[data-slot="admin-account-cost-sep"]') as HTMLElement;
+    expect(dot.className).toContain('hidden');
+    expect(dot.className).toContain('sm:inline');
+    const chipsEl = costRow(NO)!.querySelector('[data-slot="admin-account-cost-chips"]') as HTMLElement;
+    expect(chipsEl.className).toContain('inline-flex');
+    expect(chipsEl.className).toContain('flex-wrap');
+    expect(chipsEl.className).toContain('gap-1');
+  });
+});

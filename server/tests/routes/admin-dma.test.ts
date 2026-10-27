@@ -971,3 +971,86 @@ describe("P36 PUT …/budget (D-01 · D-06)", () => {
     }
   });
 });
+
+describe("P36 PUT …/fee (D-02 · D-06)", () => {
+  const PATH = "/api/admin/dma-users/kim01/accounts/KB/00123/fee";
+
+  it("admin → relay 같은 경로 PUT 1회 · 바디 { feePpm, sellTaxPpm } · 200 { results } 그대로 — 범위 검사 없음(20000 통과 · 서버 code 1 경로)", async () => {
+    const results = [{ server: "KB120", outcome: "failed", code: 1, message: "BAD_RANGE" }];
+    const relay = makeFakeRelay(() => ({ status: 200, data: { results } }));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ feePpm: 20_000, sellTaxPpm: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results });
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/dma-users/kim01/accounts/KB/00123/fee",
+        adminEmail: ADMIN_EMAIL,
+        body: { feePpm: 20_000, sellTaxPpm: 0 },
+      },
+    ]);
+  });
+
+  it("무토큰 401 · trader 403 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    expect((await request(app).put(PATH).send({ feePpm: 1, sellTaxPpm: 1 })).status).toBe(401);
+    const r = await request(app).put(PATH).set("Authorization", "Bearer tok-trader").send({ feePpm: 1, sellTaxPpm: 1 });
+    expect(r.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it.each<[string, unknown]>([
+    ["feePpm 음수", { feePpm: -1, sellTaxPpm: 0 }],
+    ["sellTaxPpm 소수", { feePpm: 0, sellTaxPpm: 1.5 }],
+    ["feePpm uint32 초과", { feePpm: 4294967296, sellTaxPpm: 0 }],
+    ["sellTaxPpm 누락", { feePpm: 100 }],
+    ["추가 키", { feePpm: 100, sellTaxPpm: 2000, budgetKrw: 1 }],
+    ["문자열", { feePpm: "100", sellTaxPpm: 2000 }],
+  ])("%s → 400 VALIDATION_FAILED · relay 0", async (_n, body) => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send(body as object);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("uint32 상한 4294967295 는 통과한다(구조 검사만)", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PATH)).send({ feePpm: 4294967295, sellTaxPpm: 0 });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toHaveLength(1);
+  });
+
+  it("relay 409 NO_SUCH_ACCOUNT → 409 그대로", async () => {
+    const { app } = makeApp({}, makeFakeRelay(() => relayReject(409, "NO_SUCH_ACCOUNT", "없는 계좌")).client);
+    const res = await auth(request(app).put(PATH)).send({ feePpm: 100, sellTaxPpm: 2000 });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("NO_SUCH_ACCOUNT");
+  });
+
+  it("감사 1줄 — op dma-account-fee · DMA id 마스킹 · 계좌번호 원문 없음 · feePpm · sellTaxPpm", async () => {
+    const cap = captureLogs();
+    try {
+      const relay = makeFakeRelay();
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts/KB/1234567801/fee")).send({
+        feePpm: 500,
+        sellTaxPpm: 2000,
+      });
+      expect(res.status).toBe(200);
+      const lines = cap.text().split("\n").filter((l) => l.includes('"audit":"admin"'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('"op":"dma-account-fee"');
+      expect(lines[0]).toContain("ki***(5)");
+      expect(lines[0]).toContain('"feePpm":500');
+      expect(lines[0]).toContain('"sellTaxPpm":2000');
+      expect(lines[0]).not.toContain("1234567801");
+    } finally {
+      cap.restore();
+    }
+  });
+});
