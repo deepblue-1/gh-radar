@@ -1636,6 +1636,153 @@ describe("P35 발사 계획 조회 GET /launch-plan (35-17 Task 1)", () => {
 });
 
 /**
+ * 잠그는 것 (Phase 35 범위 7 · 35-17 Task 2 — 발사 계획 저장 · D-27 · D-29 · D-30):
+ *   W1  PUT /launch-plan/KB120 — 실 LaunchPlanService ↔ 가짜 게이트웨이: op 9(전) → op 8 → op 9(후) · op 8 뒤 서버가 보낸 94(op 8 의
+ *       request_id)는 짝 없음으로 버려지고 후 조회는 자기 94 로 → 200 { result ok, before_us, plan(새 값) }
+ *   W2  body 400 — profile 'A' · market 'X' · offsets [] · 65칸 · [1.5] · [2**31] · 추가 키 · offsets 누락 · 경로 키 형식 밖 →
+ *       400 VALIDATION_FAILED · set 0회 / 순서 위반 [-340,-350] · 범위 밖 [-9000] 은 400 아님(서버 code 1 이 말한다)
+ *   W3  감사 줄 1 — route 「PUT /launch-plan/:server」 · server · profile · market · n · servers[{ server, outcome, code }] ·
+ *       deadlineAt = 도착 시각 + 마감
+ *   W4  launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE
+ */
+describe("P35 발사 계획 저장 PUT /launch-plan/:server (35-17 Task 2)", () => {
+  const PATH = "/internal/admin/launch-plan";
+  const BODY = { profile: "Q16", market: "Q", offsets_us: [-340, -335, -322] };
+  let h: Harness | undefined;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  type SetFn = NonNullable<AdminApiDeps["launchPlan"]>["set"];
+
+  /** 라우트 검증 · 감사만 볼 때의 서비스 대역 — set 인자를 기록하고 정해 둔 응답을 돌려준다. */
+  function fakeLaunchPlan(out?: Awaited<ReturnType<SetFn>>) {
+    const set = vi.fn<SetFn>(async (server) => out ?? { result: { server, outcome: "ok", usersRev: "12" }, before_us: [-350], plan: null });
+    return { read: vi.fn(async () => ({})), set };
+  }
+
+  it("W1 실 서비스 — op 9 → op 8 → op 9 · op 8 의 94 는 버림 · 200 { result ok, before_us, plan 새 값 }", async () => {
+    h = await startHarness();
+    const gw = h.gateways.KB120!;
+    const sock = await gw.waitForAdminConnection();
+    const base = defaultAdminHandler(h.states.KB120!);
+    const OLD = [
+      { profile: "Q16", market: "K", offsetsUs: [-350, -345, -325] },
+      { profile: "Q16", market: "Q", offsetsUs: [-350, -345, -325] },
+      { profile: "N", market: "K", offsetsUs: [-200] },
+      { profile: "N", market: "Q", offsetsUs: [-245] },
+    ];
+    let plan = { rev: 3n, entries: OLD };
+    gw.onAdminCommand((req) => {
+      if (req.op === 9) {
+        gw.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: req.requestId, planRev: plan.rev, entries: plan.entries }));
+        return null;
+      }
+      if (req.op === 8) {
+        plan = { rev: 4n, entries: OLD.map((e) => (e.profile === "Q16" && e.market === "Q" ? { ...e, offsetsUs: [-340, -335, -322] } : e)) };
+        // 실서버처럼 86 뒤 같은 request_id 의 94 — relay 는 짝 없음으로 버리고 후 조회(op 9)가 자기 94 로 풀린다.
+        setImmediate(() =>
+          gw.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: req.requestId, planRev: plan.rev, entries: plan.entries })),
+        );
+        return { resp: { requestId: req.requestId, ok: true, code: 0, message: "", usersRev: h!.states.KB120!.usersRev } };
+      }
+      return base(req);
+    });
+
+    const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      result: { server: "KB120", outcome: "ok", usersRev: "1" },
+      before_us: [-350, -345, -325],
+      plan: {
+        status: "ok",
+        plan_rev: 4,
+        updated_at: "2026-10-27T22:41:00",
+        entries: [
+          { profile: "Q16", market: "K", offsets_us: [-350, -345, -325] },
+          { profile: "Q16", market: "Q", offsets_us: [-340, -335, -322] },
+          { profile: "N", market: "K", offsets_us: [-200] },
+          { profile: "N", market: "Q", offsets_us: [-245] },
+        ],
+      },
+    });
+    expect(h.commands("KB120").map((r) => r.op)).toEqual([9, 8, 9]);
+    expect(h.commands("KB121")).toEqual([]);
+  });
+
+  it("W2 body · 경로 구조 위반 → 400 · set 0회 / 순서 위반 · 범위 밖은 통과", async () => {
+    const lp = fakeLaunchPlan();
+    h = await startHarness({ launchPlan: lp });
+    const bad: unknown[] = [
+      { ...BODY, profile: "A" },
+      { ...BODY, market: "X" },
+      { ...BODY, offsets_us: [] },
+      { ...BODY, offsets_us: Array.from({ length: 65 }, (_, i) => i) },
+      { ...BODY, offsets_us: [1.5] },
+      { ...BODY, offsets_us: [2 ** 31] },
+      { ...BODY, offsets_us: [-(2 ** 31) - 1] },
+      { ...BODY, offsets_us: ["-340"] },
+      { ...BODY, extra: 1 },
+      { profile: "Q16", market: "Q" },
+    ];
+    for (const b of bad) {
+      const res = await call(h, "PUT", `${PATH}/KB120`, b);
+      expect(res.status, JSON.stringify(b)).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    for (const key of ["KB%20120", "NH1"]) {
+      const res = await call(h, "PUT", `${PATH}/${key}`, BODY);
+      expect(res.status, key).toBe(400);
+    }
+    expect(lp.set).not.toHaveBeenCalled();
+
+    for (const offsets of [[-340, -350], [-9000], [-(2 ** 31), 2 ** 31 - 1], Array.from({ length: 64 }, () => 0)]) {
+      const res = await call(h, "PUT", `${PATH}/KB120`, { ...BODY, offsets_us: offsets });
+      expect(res.status, JSON.stringify(offsets)).toBe(200);
+    }
+    expect(lp.set).toHaveBeenCalledTimes(4);
+  });
+
+  it("W3 감사 줄 1 · deadlineAt = 도착 + 마감 · 응답은 서비스 결과 그대로", async () => {
+    const logs = await spyLogs();
+    const failed = {
+      result: { server: "KYOBO119", outcome: "failed" as const, code: 1, message: "같거나 커지는 순서" },
+      before_us: [-350, -345, -325],
+      plan: null,
+    };
+    const lp = fakeLaunchPlan(failed);
+    h = await startHarness({ launchPlan: lp, now: () => 1_000_000 });
+
+    const res = await call(h, "PUT", `${PATH}/KYOBO119`, { profile: "N", market: "K", offsets_us: [-200] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(failed);
+    expect(lp.set).toHaveBeenCalledWith("KYOBO119", { profile: "N", market: "K", offsets_us: [-200] }, { deadlineAt: 1_010_000 });
+
+    const audits = logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.args[0]).toEqual({
+      admin: ADMIN,
+      route: "PUT /launch-plan/:server",
+      server: "KYOBO119",
+      profile: "N",
+      market: "K",
+      n: 1,
+      servers: [{ server: "KYOBO119", outcome: "failed", code: 1 }],
+    });
+  });
+
+  it("W4 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE", async () => {
+    h = await startHarness({ launchPlan: null });
+    const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_PLAN_UNAVAILABLE");
+  });
+});
+
+/**
  * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09): 머리 잠금 목록 E1~E4.
  */
 describe("P30 GET /order-endpoints (D-09)", () => {
