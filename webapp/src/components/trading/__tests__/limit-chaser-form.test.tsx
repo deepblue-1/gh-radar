@@ -53,6 +53,8 @@ const MOCK_SERVER_KEY = 'KB120';
 let mockUserSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg> | null = null;
 /** relay `accounts[]` — 기본은 기본 계좌 1건(서버 `MOCK_SERVER_KEY`). */
 let mockAccounts: RelayAccount[] | null = null;
+/** Phase 36 D-13 — 계좌 상태(66/67 · 예수금). null = `EMPTY_RELAY_VALUE.accountStates`(미수신). */
+let mockAccountStates: ReadonlyMap<string, import('@gh-radar/shared').RelayAccountState> | null = null;
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
@@ -64,6 +66,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       userSettingsByServer:
         mockUserSettingsByServer ??
         new Map(mockUserSettings === undefined ? [] : [[MOCK_SERVER_KEY, mockUserSettings] as const]),
+      accountStates: mockAccountStates ?? actual.EMPTY_RELAY_VALUE.accountStates,
     }),
   };
 });
@@ -232,6 +235,7 @@ beforeEach(() => {
   mockUserSettings = undefined;
   mockUserSettingsByServer = null;
   mockAccounts = null;
+  mockAccountStates = null;
   sendMock.mockReset();
   // ★ 기본은 「소켓에 실렸다」 — `mockReset()` 뒤 기본 반환 `undefined`(falsy)면 모든 케이스가
   //   「전송 실패」 경로로 떨어진다.
@@ -5027,5 +5031,115 @@ describe('P32 시딩 = 카드 계좌 서버 (D-14b)', () => {
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig()).toMatchObject({ preBuyEnabled: true, extraBuyEnabled: true });
+  });
+});
+
+describe('P36 상따 합산 경고 (D-13)', () => {
+  /** 기본 계좌의 예수금(원) — 보유 · 미체결 0 이라 주문가능 = 예수금. */
+  const withBudget = (budgetKrw: number) => {
+    mockAccountStates = new Map([
+      [ACCOUNT, { t: 'acct', a: ACCOUNT, snap: true, hold: [], unf: [], rm: [], st: '', budgetKrw }],
+    ]);
+  };
+  const overLine = () => document.querySelector<HTMLElement>('[data-slot="lc-budget-over"]');
+  const buyAmountValue = () =>
+    document.querySelector<HTMLElement>('[data-lc-field="lc-buy-order-amount"] [data-slot="lc-row-value"]');
+
+  it('1 주문가능 1,234만 · 선매수 2,000만 → 선매수 「금액」 값 빨강 + 안내 줄 · 스위치 비차단', () => {
+    withBudget(12_345_678);
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000, preBuyEnabled: true }) })} />);
+    const v = buyAmountValue()!;
+    expect(v.textContent).toBe('2,000만원');
+    expect(v.className).toContain('text-[var(--destructive)]');
+    // 크기 · 굵기 그대로(15/500).
+    for (const c of ['text-[15px]', 'font-medium']) expect(v.className).toContain(c);
+    const line = overLine()!;
+    expect(line.textContent).toBe('주문가능 초과: 상따 합 2,000만 > 1,234만 — 등록은 그대로 돼요');
+    expect(line.hasAttribute('role')).toBe(false);
+    for (const c of ['mt-2', 'px-0.5', 'text-[12px]', 'leading-[1.5]', 'break-keep', 'text-[var(--led-latent)]']) {
+      expect(line.className).toContain(c);
+    }
+    // 다른 금액 행은 기본색(선매수 「금액」 만 빨강).
+    const extra = document.querySelector<HTMLElement>('[data-lc-field="lc-extra-buy-amount"] [data-slot="lc-row-value"]');
+    if (extra) expect(extra.className).not.toContain('text-[var(--destructive)]');
+    // 비차단 — 매수 열 스위치는 켜고 끌 수 있다.
+    expect(sw('선매수')).toBeEnabled();
+  });
+
+  it('2 선매수 1,000만 + 줄매수 500만(스위치 off · 자동 off) → 합 1,000만 · 경고 없음 → 줄매수 자동 on 이면 1,500만 → 경고', () => {
+    withBudget(12_345_678);
+    const base = { buyOrderAmount: 1000, extraBuyOrderAmount: 500, extraBuyEnabled: false, extraBuyAuto: false };
+    const { rerender } = render(<LimitChaserForm {...props({ server: echo(base) })} />);
+    expect(overLine()).toBeNull();
+    rerender(<LimitChaserForm {...props({ server: echo({ ...base, extraBuyAuto: true }) })} />);
+    expect(overLine()!.textContent).toBe('주문가능 초과: 상따 합 1,500만 > 1,234만 — 등록은 그대로 돼요');
+  });
+
+  it('3 후매수 300만(postBuyAuto on) 도 합산한다 — 1,000만 + 300만 = 1,300만', () => {
+    withBudget(12_345_678);
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyOrderAmount: 1000, postBuyOrderAmount: 300, postBuyAuto: true }) })}
+      />,
+    );
+    expect(overLine()!.textContent).toBe('주문가능 초과: 상따 합 1,300만 > 1,234만 — 등록은 그대로 돼요');
+  });
+
+  it('4 미설정 · 계좌 상태 미수신 · 금액 0 → 판정 없음 · 합이 내려오면 기본색 · 줄 사라짐', () => {
+    // 미수신.
+    const { rerender, unmount } = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000 }) })} />);
+    expect(overLine()).toBeNull();
+    unmount();
+    // 미설정(예수금 0).
+    withBudget(0);
+    const second = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000 }) })} />);
+    expect(overLine()).toBeNull();
+    second.unmount();
+    // 금액 0 · 주문가능 음수여도 합 0 이면 경고 없음.
+    mockAccountStates = new Map([
+      [
+        ACCOUNT,
+        {
+          t: 'acct',
+          a: ACCOUNT,
+          snap: true,
+          hold: [{ isin: ISIN, qty: 1000, sellableQty: 1000, avgPrice: 130_000 }],
+          unf: [],
+          rm: [],
+          st: '',
+          budgetKrw: 1_000_000,
+        },
+      ],
+    ]);
+    const third = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 0 }) })} />);
+    expect(overLine()).toBeNull();
+    third.unmount();
+    // 초과 → 합이 내려오면 기본색 · 줄 사라짐.
+    withBudget(12_345_678);
+    const fourth = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000, preBuyEnabled: true }) })} />);
+    expect(overLine()).not.toBeNull();
+    fourth.rerender(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1000, preBuyEnabled: true }) })} />);
+    expect(overLine()).toBeNull();
+    expect(buyAmountValue()!.className).not.toContain('text-[var(--destructive)]');
+    expect(buyAmountValue()!.className).toContain('text-[var(--fg-2)]');
+    void rerender;
+  });
+
+  it('5 경고 줄은 매수 pane 의 그룹들 다음 · 「켤 수 없는 이유」 패널 앞 — 사유 목록에 들어가지 않는다', () => {
+    withBudget(12_345_678);
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000, buyOrderPrice: 0 }) })} />);
+    const line = overLine()!;
+    expect(pane('buy').contains(line)).toBe(true);
+    expect(pane('sell').querySelector('[data-slot="lc-budget-over"]')).toBeNull();
+    // 그룹 목록 바로 다음 형제.
+    expect(line.previousElementSibling!.querySelector('[data-slot^="lc-group-"]')).not.toBeNull();
+    const panel = pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]');
+    if (panel) {
+      expect(line.nextElementSibling).toBe(panel);
+      expect(panel.textContent).not.toContain('주문가능');
+    }
+    for (const li of Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]'))) {
+      expect(li.textContent).not.toContain('주문가능');
+    }
   });
 });
