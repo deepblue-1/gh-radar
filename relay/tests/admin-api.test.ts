@@ -46,6 +46,7 @@
  *   B1  PUT …/budget → 등록 서버마다 44 op 6(account_no · budget_krw · userId 빈 값) → 200 { results } · 기록 0 · 감사 1줄(마스킹)
  *   B2  바디 음수 · 소수 · 문자열 · 누락 · 추가 키 · 안전 정수 초과 → 400 · 44 0건
  *   B3  의도에 없는 계좌 → 409 NO_SUCH_ACCOUNT · B4 구 서버 code 1 → 그 서버만 failed(원문)
+ *   F1  PUT …/fee → 서버마다 44 op 7(feePpm · sellTaxPpm) · F2 20000ppm 은 400 아님(서버 code 1) · F3 구조 위반 400
  *
  * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09):
  *   E1  켜진 서버마다 87 캐시의 모든 계좌 { dmaUserId, accountNo, orderIp, orderMac } — 87 정규화값 그대로 · 미설정 ""
@@ -761,6 +762,64 @@ describe("P36 계좌 예수금 · 비용률 (D-01 · D-02 · D-04 · D-06 · D-0
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("NO_SUCH_ACCOUNT");
     expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
     expect(auditLines().map((l) => l.rejected)).toEqual(["NO_SUCH_ACCOUNT"]);
+  });
+
+  const FEE = "/internal/admin/dma-users/tr01/accounts/KB/1234567801/fee";
+
+  it("F1 PUT …/fee { feePpm 100, sellTaxPpm 2000 } → 서버마다 44 op 7(두 값) → 200 { results } · 기록 0 · 감사 1줄", async () => {
+    const res = await call(h, "PUT", FEE, { feePpm: 100, sellTaxPpm: 2000 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "3" },
+        { server: "KB121", outcome: "ok", usersRev: "3" },
+      ],
+    });
+    for (const key of ["KB120", "KB121"]) {
+      expect(h.commands(key).at(-1)).toMatchObject({
+        op: 7,
+        userId: "",
+        feePpm: 100,
+        sellTaxPpm: 2000,
+        budgetKrw: 0n,
+        account: { accountNo: "1234567801" },
+      });
+    }
+    expect(h.db.callsTo("dma_admin_record_results")).toHaveLength(1);
+    expect(auditLines()[0]).toMatchObject({
+      route: "PUT /dma-users/:dma/accounts/:broker/:accountNo/fee",
+      broker: "KB",
+      account: "123456****",
+      feePpm: 100,
+      sellTaxPpm: 2000,
+    });
+  });
+
+  it("F2 0~10000 밖이어도 uint32 면 400 이 아니다 — 서버 code 1 「비용률 범위 밖」 이 failed 로 닿는다(D-02)", async () => {
+    const res = await call(h, "PUT", FEE, { feePpm: 20_000, sellTaxPpm: 0 });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { results: unknown[] }).results).toEqual([
+      { server: "KB120", outcome: "failed", code: 1, message: "비용률 범위 밖", usersRev: "2" },
+      { server: "KB121", outcome: "failed", code: 1, message: "비용률 범위 밖", usersRev: "2" },
+    ]);
+  });
+
+  it("F3 바디 — 음수 · 소수 · 문자열 · 한쪽 누락 · 추가 키 · uint32 초과 → 400 · 44 0건", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    for (const body of [
+      { feePpm: -1, sellTaxPpm: 0 },
+      { feePpm: 1.5, sellTaxPpm: 0 },
+      { feePpm: "100", sellTaxPpm: 0 },
+      { feePpm: 100 },
+      { sellTaxPpm: 100 },
+      { feePpm: 100, sellTaxPpm: 0, extra: 1 },
+      { feePpm: 2 ** 32, sellTaxPpm: 0 },
+    ]) {
+      const res = await call(h, "PUT", FEE, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
   });
 
   it("B4 구 서버(code 1 BAD_OP)는 그 서버만 failed · code · message 원문 — 200", async () => {

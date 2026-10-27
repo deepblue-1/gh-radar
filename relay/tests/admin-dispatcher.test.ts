@@ -1253,4 +1253,22 @@ describe("P36 setAccountCost op 6 · op 7 (D-01 · D-04 · D-06 · D-07)", () =>
       expect(env.db.callsTo("dma_admin_record_results")).toHaveLength(1);
     });
   });
+
+  it("op 7 — 두 서버에 op 7 1건씩(feePpm · sellTaxPpm 두 값) · 결과 ok", async () => {
+    const env = setupTwo();
+    const results = await env.dispatcher.setAccountCost(
+      "u1",
+      { broker: "KB", accountNo: ACC },
+      { op: 7, feePpm: 150, sellTaxPpm: 2000 },
+      { adminEmail: ADMIN },
+    );
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    for (const key of ["KB120", "KB121"]) {
+      expect(env.conns[key]!.sent).toEqual([
+        { op: 7, userId: "", account: { accountNo: ACC, name: "", branchNo: "", traderId: "", priority: 0 }, feePpm: 150, sellTaxPpm: 2000 },
+      ]);
+      expect(env.conns[key]!.state.costs?.get(ACC)).toEqual({ budgetKrw: 0n, feePpm: 150, sellTaxPpm: 2000 });
+    }
+    expect(env.db.callsTo("dma_admin_record_results")).toEqual([]);
+  });
 });

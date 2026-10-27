@@ -1976,6 +1976,12 @@ export type FakeAdminAccountInput = {
   orderIp?: string;
   /** 주문자 MAC(슬롯 16) — 주어질 때만 싣는다. */
   orderMac?: string;
+  /** 계좌 한도(원 · 슬롯 18 · Phase 36) — 주어질 때만 싣는다(생략 = 구 서버 · 필드 없음 = 0). */
+  budgetKrw?: number | bigint;
+  /** 수수료 ppm(슬롯 20) — 주어질 때만 싣는다. */
+  feePpm?: number;
+  /** 매도세 ppm(슬롯 22) — 주어질 때만 싣는다. */
+  sellTaxPpm?: number;
 };
 
 /** 86 입력. 기본 = 성공(code 0) · rev 1. */
@@ -2012,6 +2018,9 @@ function buildFakeAdminAccount(b: flatbuffers.Builder, a: FakeAdminAccountInput)
   AdminAccount.addPriority(b, a.priority ?? 0);
   if (orderIp !== null) AdminAccount.addOrderIp(b, orderIp);
   if (orderMac !== null) AdminAccount.addOrderMac(b, orderMac);
+  if (a.budgetKrw !== undefined) AdminAccount.addBudgetKrw(b, BigInt(a.budgetKrw));
+  if (a.feePpm !== undefined) AdminAccount.addFeePpm(b, a.feePpm);
+  if (a.sellTaxPpm !== undefined) AdminAccount.addSellTaxPpm(b, a.sellTaxPpm);
   return AdminAccount.endAdminAccount(b);
 }
 

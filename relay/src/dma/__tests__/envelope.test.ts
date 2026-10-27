@@ -2569,13 +2569,13 @@ describe("Phase 29 admin 코덱 (44 조립 · 86/87 파싱 · role 2)", () => {
         {
           userId: "kb-user",
           accounts: [
-            { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 0 },
-            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1 },
+            { accountNo: SAMPLE_ACCOUNT_NO, name: "위탁종합", branchNo: "00000", traderId: "000000", priority: 0, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 },
+            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 },
           ],
         },
         {
           userId: "kyobo-user",
-          accounts: [{ accountNo: "1234567803", name: "위탁종합", branchNo: "", traderId: "", priority: 0 }],
+          accounts: [{ accountNo: "1234567803", name: "위탁종합", branchNo: "", traderId: "", priority: 0, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 }],
         },
       ],
     });
@@ -2619,9 +2619,12 @@ describe("Phase 29 admin 코덱 (44 조립 · 86/87 파싱 · role 2)", () => {
               priority: 0,
               orderIp: ORDER_IP,
               orderMac: ORDER_MAC,
+              budgetKrw: 0,
+              feePpm: 0,
+              sellTaxPpm: 0,
             },
-            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1 },
-            { accountNo: "1234567804", name: "빈값", branchNo: "00000", traderId: "000000", priority: 2 },
+            { accountNo: "1234567802", name: "연금", branchNo: "00000", traderId: "000000", priority: 1, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 },
+            { accountNo: "1234567804", name: "빈값", branchNo: "00000", traderId: "000000", priority: 2, budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 },
           ],
         },
       ],
@@ -2710,6 +2713,77 @@ describe("P36 admin op 6 SetAccountBudget — 44 budget_krw (slot 5 · ulong)", 
       buildAdminCommandReq({ requestId: 15n, op: ADMIN_OP.SetAccount, userId: "kb-user", account: ACCOUNT, budgetKrw: 5_000_000n }),
     );
     expect(env.adminCommandReq(new AdminCommandReq())!.budgetKrw()).toBe(0n);
+  });
+});
+
+describe("P36 admin op 7 SetAccountFee — 44 fee_ppm · sell_tax_ppm (slot 6 · 7 · uint32)", () => {
+  const ACCOUNT = { accountNo: SAMPLE_ACCOUNT_NO, name: "", branchNo: "", traderId: "", priority: 0 };
+  const build = (feePpm: number, sellTaxPpm: number): Uint8Array =>
+    buildAdminCommandReq({ requestId: 21n, op: ADMIN_OP.SetAccountFee, userId: "", account: ACCOUNT, feePpm, sellTaxPpm });
+
+  it("op 7 왕복 — feePpm 500 · sellTaxPpm 2000 · account_no · budgetKrw 는 실리지 않는다(0n)", () => {
+    const req = readBack(build(500, 2000)).adminCommandReq(new AdminCommandReq())!;
+    expect(req.op()).toBe(7);
+    expect(req.feePpm()).toBe(500);
+    expect(req.sellTaxPpm()).toBe(2000);
+    expect(req.account()!.accountNo()).toBe(SAMPLE_ACCOUNT_NO);
+    expect(req.budgetKrw()).toBe(0n);
+  });
+
+  it("op 7 (0, 0) 해제 → 0 · 0 · 범위 0~10000 밖이어도 uint32 면 통과(20000 · 0xFFFFFFFF — 서버가 code 1)", () => {
+    const zero = readBack(build(0, 0)).adminCommandReq(new AdminCommandReq())!;
+    expect([zero.feePpm(), zero.sellTaxPpm()]).toEqual([0, 0]);
+    const wide = readBack(build(20_000, 0xffff_ffff)).adminCommandReq(new AdminCommandReq())!;
+    expect([wide.feePpm(), wide.sellTaxPpm()]).toEqual([20_000, 0xffff_ffff]);
+  });
+
+  it("op 7 — 음수 · 소수 · 2**32 · NaN 은 RangeError(두 값 각각)", () => {
+    for (const bad of [-1, 1.5, 2 ** 32, Number.NaN]) {
+      expect(() => build(bad, 0), `feePpm ${bad}`).toThrow(RangeError);
+      expect(() => build(0, bad), `sellTaxPpm ${bad}`).toThrow(RangeError);
+    }
+  });
+
+  it("op 6 · op 3 에는 fee/tax 가 실리지 않는다(넘겨도 0)", () => {
+    for (const op of [ADMIN_OP.SetAccountBudget, ADMIN_OP.SetAccount]) {
+      const req = readBack(
+        buildAdminCommandReq({ requestId: 22n, op, userId: "", account: ACCOUNT, budgetKrw: 1n, feePpm: 500, sellTaxPpm: 2000 }),
+      ).adminCommandReq(new AdminCommandReq())!;
+      expect([req.feePpm(), req.sellTaxPpm()], `op ${op}`).toEqual([0, 0]);
+    }
+  });
+});
+
+describe("P36 87 AdminAccount budget_krw · fee_ppm · sell_tax_ppm (slot 18 · 20 · 22 · D-05)", () => {
+  function envOf(bytes: Uint8Array): Envelope {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    if (parsed === null) throw new Error("화이트리스트 드롭");
+    return parsed.env;
+  }
+
+  it("새 서버 87 → budgetKrw 700,000,000(number) · feePpm 500 · sellTaxPpm 2000 · 필드 없는 구 서버 행 → 0 · 0 · 0(키는 늘 있다)", () => {
+    const snap = parseAdminUsersSnapshot(
+      envOf(
+        buildAdminUsersSnapshotFrame({
+          usersRev: 5n,
+          users: [
+            {
+              userId: "kb-user",
+              accounts: [
+                { accountNo: SAMPLE_ACCOUNT_NO, priority: 0, budgetKrw: 700_000_000n, feePpm: 500, sellTaxPpm: 2000 },
+                { accountNo: "1234567802", priority: 1 },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const [set, legacy] = snap!.users[0]!.accounts;
+    expect(set).toMatchObject({ accountNo: SAMPLE_ACCOUNT_NO, budgetKrw: 700_000_000, feePpm: 500, sellTaxPpm: 2000 });
+    expect(typeof set!.budgetKrw).toBe("number");
+    expect(legacy).toMatchObject({ accountNo: "1234567802", budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 });
+    for (const k of ["budgetKrw", "feePpm", "sellTaxPpm"]) expect(k in legacy!, k).toBe(true);
+    expect(droppedEnvelopeCount()).toBe(0);
   });
 });
 

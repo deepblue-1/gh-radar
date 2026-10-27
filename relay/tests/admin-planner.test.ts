@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { AdminAccountFields, AdminIntentRow } from "@gh-radar/shared";
 
 import { planPasswordOps, planServerOps } from "../src/admin/planner.js";
+import type { AdminAccount } from "../src/admin/types.js";
 
 /** 가짜 KB 계좌 — 실계좌 번호가 아니다. */
 const A1: AdminAccountFields = {
@@ -393,5 +394,30 @@ describe("planPasswordOps — 비밀번호만 op 1", () => {
       ops: [],
       settleRemoved: [],
     });
+  });
+});
+
+describe("P36 87 예수금 · 비용률은 계획에 들어가지 않는다 (D-04 · D-05)", () => {
+  /** 87 계좌에 예수금 · 비용률이 실려 있다(relay `AdminAccount` — 87 파서가 늘 싣는다). */
+  const withCost = (a: AdminAccountFields, budgetKrw: number, feePpm: number, sellTaxPpm: number): AdminAccount => ({
+    ...a,
+    budgetKrw,
+    feePpm,
+    sellTaxPpm,
+  });
+
+  it("87 의 예수금 · 비용률이 무엇이든 의도와 나머지 값이 같으면 op 0 — 비용 필드 없는 87 과 같은 계획", () => {
+    const bare = plan([A1, A2], [], [{ ...A1 }, { ...A2 }]);
+    const costly = plan([A1, A2], [], [withCost(A1, 700_000_000, 500, 2000), withCost(A2, 0, 0, 0)]);
+    expect(costly).toEqual(bare);
+    expect(costly.ops).toEqual([]);
+  });
+
+  it("op 3 이 생겨도(이름 변경) 계좌에 예수금 · 비용률 키가 실리지 않는다 — op 3 은 한도를 보존한다(서버 규칙)", () => {
+    const costly = plan([A1], [], [withCost({ ...A1, name: "옛 이름" }, 700_000_000, 500, 2000)]);
+    expect(costly.ops).toEqual([{ op: 3, account: sent(A1) }]);
+    const op = costly.ops[0]!;
+    if (op.op !== 3) throw new Error("op 3 이어야 한다");
+    for (const k of ["budgetKrw", "feePpm", "sellTaxPpm"]) expect(k in op.account, k).toBe(false);
   });
 });

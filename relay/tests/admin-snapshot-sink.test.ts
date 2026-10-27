@@ -576,6 +576,28 @@ describe("87 적재 규율 (29-14 T2)", () => {
     expect(warn?.args[0]).toMatchObject({ serverKey: SERVER, droppedUsers: 1, droppedAccounts: 1 });
   });
 
+  it("P36 87 의 예수금 · 비용률은 p_users 로 새지 않는다(명시 5필드 매핑 · D-04)", async () => {
+    await setup();
+    sink.onSnapshot(SERVER, {
+      generation: 1,
+      snapshot: {
+        usersRev: 1n,
+        users: [
+          {
+            userId: "u1",
+            accounts: [
+              { accountNo: B1, name: "위탁", branchNo: "", traderId: "", priority: 1, budgetKrw: 700_000_000, feePpm: 500, sellTaxPpm: 2000 },
+            ],
+          },
+        ],
+      },
+    });
+    await settle();
+    expect(applyCalls(db)[0]?.p_users).toEqual([
+      { userId: "u1", accounts: [{ accountNo: B1, name: "위탁", branchNo: "", traderId: "", priority: 1 }] },
+    ]);
+  });
+
   it("users_rev 가 JSON 안전 범위를 넘으면 문자열로 보낸다(PostgREST bigint) · 로그에 dmaUserId · 계좌번호 없음", async () => {
     await setup();
     const big = 2n ** 60n;

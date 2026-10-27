@@ -992,19 +992,29 @@ const FAKE_ADMIN_CODE = {
   LastAccount: 12,
 } as const;
 
-/** 87 입력 — 유저는 Map 순서(파일 순 흉내), 계좌는 priority 오름차순(안정 정렬). */
+/**
+ * 87 입력 — 유저는 Map 순서(파일 순 흉내), 계좌는 priority 오름차순(안정 정렬). `state.costs` 에 그 계좌번호가 있으면 그 계좌의
+ * 모든 유저 행에 같은 예수금 · 비용률을 싣는다(Phase 36 · 서버 계좌 단위 값) — 없으면 필드 없음(구 서버 · 미설정 = 0).
+ */
 function adminSnapshotOf(state: FakeAdminState): FakeAdminUsersSnapshotInput {
   return {
     usersRev: state.usersRev,
     users: [...state.users].map(([userId, accounts]) => ({
       userId,
-      accounts: [...accounts].sort((x, y) => (x.priority ?? 0) - (y.priority ?? 0)).map((a) => ({ ...a })),
+      accounts: [...accounts]
+        .sort((x, y) => (x.priority ?? 0) - (y.priority ?? 0))
+        .map((a) => {
+          const cost = state.costs?.get(a.accountNo ?? "");
+          return cost !== undefined ? { ...a, ...cost } : { ...a };
+        }),
     })),
   };
 }
 
 /** 계좌 입력 → 7필드 완성본 (비교용 — op 3 멱등은 주문자 IP/MAC 까지 7필드 · gh-trade 인박스 261010 · 없음 = 빈 문자열). */
-function fullAccount(a: FakeAdminAccountInput): Required<FakeAdminAccountInput> {
+function fullAccount(
+  a: FakeAdminAccountInput,
+): Required<Omit<FakeAdminAccountInput, "budgetKrw" | "feePpm" | "sellTaxPpm">> {
   return {
     accountNo: a.accountNo ?? "",
     name: a.name ?? "",

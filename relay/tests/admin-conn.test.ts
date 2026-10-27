@@ -22,6 +22,7 @@
  *   B7  health() = { state, usersRev(문자열) } · disabled 는 usersRev null
  *   B8  86 rev 변화 뒤 87 이 상한 안에 안 오면 op 5 를 한 번 더 보내고 결과는 snapshot 없이 풀린다
  *   B9  command(op 5) → 86 없이 87 이 응답 — 합성 result(code 0 · 87 rev) + snapshot
+ *   P36 87 budget_krw · fee_ppm · sell_tax_ppm 이 currentSnapshot 계좌에 실린다(구 서버 = 0) · op 6/7 변경 뒤 87 로 새 값
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03) · admin 연결이 보낸 msg_type ⊆ {4, 5, 44}.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -162,6 +163,10 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
       branchNo: "00001",
       traderId: "000001",
       priority: 1,
+      // Phase 36 — 87 예수금 · 비용률은 늘 키가 있다(필드 없는 구 서버 = 0).
+      budgetKrw: 0,
+      feePpm: 0,
+      sellTaxPpm: 0,
     });
 
     // 더 기다려도 op 5 는 접속당 1건이다.
@@ -412,5 +417,33 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     expect(out.result.requestId).toBe(gateway.adminCommandRequests()[1]?.requestId);
     expect(out.snapshot?.users.map((u) => u.userId)).toEqual(["alice", "bob"]);
     expect(snapshots).toHaveLength(2);
+  });
+
+  it("P36 87 예수금 · 비용률 — 접속 87 의 세 값이 currentSnapshot 계좌에 실리고 · op 6/op 7 변경 뒤 87 로 새 값(D-05)", async () => {
+    const { c, state } = await readyConn();
+    // 접속 87 은 비용 없음 → 0 · 0 · 0.
+    expect(c.currentSnapshot()?.users[0]?.accounts[0]).toMatchObject({ budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 });
+
+    const account = { accountNo: "1111111101", name: "", branchNo: "", traderId: "", priority: 0 };
+    const b = await c.command({ op: ADMIN_OP.SetAccountBudget, userId: "", account, budgetKrw: 700_000_000n });
+    expect(b.kind).toBe("result");
+    const f = await c.command({ op: ADMIN_OP.SetAccountFee, userId: "", account, feePpm: 500, sellTaxPpm: 2000 });
+    expect(f.kind === "result" && f.snapshot !== undefined).toBe(true);
+    expect(state.costs?.get("1111111101")).toEqual({ budgetKrw: 700_000_000n, feePpm: 500, sellTaxPpm: 2000 });
+
+    const snap = c.currentSnapshot()!;
+    expect(snap.users.find((u) => u.userId === "alice")?.accounts[0]).toMatchObject({
+      accountNo: "1111111101",
+      budgetKrw: 700_000_000,
+      feePpm: 500,
+      sellTaxPpm: 2000,
+    });
+    // 다른 계좌는 그대로 0.
+    expect(snap.users.find((u) => u.userId === "bob")?.accounts[0]).toMatchObject({ budgetKrw: 0, feePpm: 0, sellTaxPpm: 0 });
+    // 44 에 실린 값(가짜 게이트웨이가 생성 리더로 되읽음).
+    expect(commands().map((r) => [r.op, r.budgetKrw, r.feePpm, r.sellTaxPpm])).toEqual([
+      [6, 700_000_000n, 0, 0],
+      [7, 0n, 500, 2000],
+    ]);
   });
 });
