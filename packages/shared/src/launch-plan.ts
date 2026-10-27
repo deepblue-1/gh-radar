@@ -9,7 +9,7 @@
  * - 쓰는 쪽 = server(요청자 이메일 · relay 도달 실패 시도도 1행 · D-29). relay 는 이 경로에서 DB 무관.
  */
 import type { AdminOutcome, AdminServerResult } from "./admin";
-import type { LaunchFire, LaunchMarket } from "./launch";
+import { launchRibbonAt, type LaunchDay, type LaunchFire, type LaunchMarket, type LaunchRibbonCell } from "./launch";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 축 — 프로파일 · 대상 서버
@@ -124,4 +124,125 @@ export interface LaunchPlanRelaySetResponse {
   result: AdminServerResult;
   before_us: number[] | null;
   plan: LaunchPlanServer | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 편집 검증 — 웹 편집 칸이 저장 전에 막는다(D-26 · D-34)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 발사 기준별 편집 한도 — D-34 · **잠정**(gh-trade 43 플랜 값 · RESEARCH §7.2). 정식 노트 뒤 35-19 가 대조해 이 한 곳만 고친다.
+ * 조각 수 1~10 은 웹 스테퍼 한도(D-26)이고 서버 구조 상한(`LAUNCH_PLAN_SERVER_MAX_PIECES`)과 별개다.
+ */
+export const LAUNCH_PLAN_LIMITS: Record<LaunchFire, { minUs: number; maxUs: number; minPieces: number; maxPieces: number }> =
+  {
+    q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10 },
+    n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1 },
+  };
+
+/** 서버 · relay zod 의 구조 상한(offsets_us 배열 길이). 사용자 한도는 `LAUNCH_PLAN_LIMITS`. */
+export const LAUNCH_PLAN_SERVER_MAX_PIECES = 64;
+
+/** 검증 문구용 µs 표기 — 음수는 U+2212 + 절댓값, 0 · 양수는 그대로(쉼표 · + 없음). 화면 값 표기는 웹 `fmtUs`. */
+export function launchPlanUsText(v: number): string {
+  return v < 0 ? `\u2212${Math.abs(v)}` : String(v);
+}
+
+/** 편집 초안 검사 결과 — badIdx 는 0부터(개수 위반은 -1 · 화면 번호 = badIdx + 1). */
+export type LaunchPlanDraftCheck =
+  | { ok: true; values: number[] }
+  | { ok: false; badIdx: number; kind: "count" | "int" | "range" | "order"; message: string };
+
+const INT_RE = /^-?\d+$/;
+
+/**
+ * 편집 칸 원문(문자열) 검사 — 개수 → 칸마다(정수 → 범위) → 순서(q16 만 · 같은 값 허용) 순으로 첫 위반 하나만 돌려준다.
+ * 원문을 숫자로 바꾸기 전에 검사한다(웹이 입력 원문을 쥔다 · 앞뒤 공백은 잘라서 본다 · `+5` · 소수 · 지수는 정수 위반).
+ */
+export function validateLaunchPlanDraft(fire: LaunchFire, raw: readonly string[]): LaunchPlanDraftCheck {
+  const lim = LAUNCH_PLAN_LIMITS[fire];
+  const label = fire === "q16" ? "조각 시각" : "발사 시각";
+
+  if (raw.length < lim.minPieces || raw.length > lim.maxPieces) {
+    const message =
+      lim.maxPieces === 1 ? `${label}은 한 값이에요` : `조각 수는 ${lim.minPieces} ~ ${lim.maxPieces} 사이여야 해요`;
+    return { ok: false, badIdx: -1, kind: "count", message };
+  }
+
+  const values: number[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const s = raw[i]!.trim();
+    if (!INT_RE.test(s)) {
+      return { ok: false, badIdx: i, kind: "int", message: `${label}은 정수 µs 여야 해요 — ${i + 1}번` };
+    }
+    const v = Number(s) || 0; // "-0" → 0
+    if (v < lim.minUs || v > lim.maxUs) {
+      return {
+        ok: false,
+        badIdx: i,
+        kind: "range",
+        message: `${label}은 ${launchPlanUsText(lim.minUs)} ~ ${launchPlanUsText(lim.maxUs)}µs 사이여야 해요`,
+      };
+    }
+    values.push(v);
+  }
+
+  for (let i = 1; i < values.length; i++) {
+    if (values[i]! < values[i - 1]!) {
+      return {
+        ok: false,
+        badIdx: i,
+        kind: "order",
+        message:
+          `${label}은 앞 조각과 같거나 늦어야 해요 — ${i + 1}번 ${launchPlanUsText(values[i]!)}µs 가 ` +
+          `${i}번 ${launchPlanUsText(values[i - 1]!)}µs 보다 이릅니다`,
+      };
+    }
+  }
+
+  return { ok: true, values };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 계획 칸 · 「쐈다면」 판정(D-28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 서버 계획에서 (fire, market) 한 칸. 서버가 ok 가 아니거나 칸이 없으면 null(웹은 대신 값 경로). */
+export function launchPlanEntryOf(
+  server: LaunchPlanServer | undefined,
+  fire: LaunchFire,
+  market: LaunchMarket,
+): LaunchPlanEntry | null {
+  if (!server || server.status !== "ok") return null;
+  const profile = launchPlanProfileOf(fire);
+  return server.entries.find((e) => e.profile === profile && e.market === market) ?? null;
+}
+
+/** 미리보기 표 한 행 — 조각 idx(0부터 · 화면 번호 = idx + 1) · 지금 / 바꿀 값과 「지난 N일에 쐈다면」 셀. 없는 쪽은 null. */
+export interface LaunchPlanVerdictRow {
+  idx: number;
+  cur: number | null;
+  next: number | null;
+  cur_cell: LaunchRibbonCell | null;
+  next_cell: LaunchRibbonCell | null;
+}
+
+/** 지금 계획 · 바꿀 계획을 조각별로 나란히 — 셀은 리본 식 `launchRibbonAt` 그대로(D-28 · 같은 식 두 벌 금지). */
+export function launchPlanVerdictRows(
+  days: readonly LaunchDay<unknown>[],
+  cur: readonly number[],
+  next: readonly number[],
+): LaunchPlanVerdictRow[] {
+  const len = Math.max(cur.length, next.length);
+  return Array.from({ length: len }, (_, idx) => {
+    const c = idx < cur.length ? cur[idx]! : null;
+    const n = idx < next.length ? next[idx]! : null;
+    return {
+      idx,
+      cur: c,
+      next: n,
+      cur_cell: c === null ? null : launchRibbonAt(days, c),
+      next_cell: n === null ? null : launchRibbonAt(days, n),
+    };
+  });
 }
