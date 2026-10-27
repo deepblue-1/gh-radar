@@ -252,4 +252,115 @@ test.describe('어드민 발사 · 경계 지도', () => {
     expect(api.orders(), '지도 탭 진입은 주문 내역을 받지 않는다').toHaveLength(0);
     await page.screenshot({ path: test.info().outputPath('launch-map-1280.png'), fullPage: true });
   });
+
+  test('P35-M2 1280 — 기본 10d → 20일 → 전체(요청 1건씩) · 09:00:30 합패널 마름모 · 주문 내역 탭으로 fire 보존', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(rangeText(page)).toHaveText('10/13 ~ 10/26 · 10거래일');
+    await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('최근 10일');
+    await page.waitForTimeout(500);
+    expect(api.maps().map((r) => r.query)).toEqual([{ fire: 'q16', range: '10d' }]);
+
+    const params = () => Object.fromEntries(new URL(page.url()).searchParams.entries());
+
+    await root(page).getByRole('button', { name: '20일' }).click();
+    await expect(page).toHaveURL(/range=20d/);
+    expect(params()).toEqual({ tab: 'map', range: '20d' });
+    await expect(rangeText(page)).toHaveText('10/12 ~ 10/26 · 11거래일');
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(2);
+
+    await root(page).getByRole('button', { name: '전체' }).click();
+    await expect(page).toHaveURL(/range=all/);
+    await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('전체');
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(3);
+
+    await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
+    await expect(page).toHaveURL(/fire=n0930/);
+    expect(params()).toEqual({ tab: 'map', range: 'all', fire: 'n0930' });
+    await expect(rangeText(page)).toHaveText('10/26 · 1거래일');
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(4);
+    expect(api.maps()[3]!.query).toEqual({ fire: 'n0930', range: 'all' });
+
+    await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-chart"] path[data-shape="diamond"]')).toHaveCount(1);
+    const legend = root(page).locator('[data-slot="launch-legend"]');
+    await expect(legend).toContainText('마름모 = A 매도 · 동그라미 = N 매수');
+    await expect(legend).toContainText('구분 없음(백필)');
+    await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}245µs`);
+    await expect(kpi(page, 'KYOBO119', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}200µs`);
+    await expect(root(page).locator('[data-slot="launch-foot"]')).toHaveText(
+      'N 오프셋은 고정값 — 선은 최신 N 머리 값 · 재전송은 첫 발만 점 · 횟수는 툴팁',
+    );
+    await page.screenshot({ path: test.info().outputPath('launch-map-n0930-1280.png'), fullPage: true });
+
+    await root(page).getByRole('tab', { name: '주문 내역' }).click();
+    await expect(page).toHaveURL(/tab=orders/);
+    expect(params()).toEqual({ tab: 'orders', range: 'all', fire: 'n0930' });
+    await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('09:00:30 개장차익');
+    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+  });
+
+  test('P35-M3 390 — SVG 640 고정 · 패널 래퍼 가로 스크롤 · 요약 카드 2열 · 페이지 가로 스크롤 0', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+
+    const charts = root(page).locator('[data-slot="launch-chart"]');
+    await expect(charts).toHaveCount(4);
+    const fits = await charts.evaluateAll((els) =>
+      els.map((el) => {
+        const wrap = el.parentElement!;
+        return { w: el.getAttribute('width'), sw: wrap.scrollWidth, cw: wrap.clientWidth };
+      }),
+    );
+    for (const f of fits) {
+      expect(f.w, 'SVG 폭 640 고정').toBe('640');
+      expect(f.sw, '패널 래퍼 안 가로 스크롤').toBeGreaterThan(f.cw);
+    }
+
+    const k = root(page).locator('[data-slot="launch-kpi"]');
+    const b0 = (await k.nth(0).boundingBox())!;
+    const b1 = (await k.nth(1).boundingBox())!;
+    const b2 = (await k.nth(2).boundingBox())!;
+    expect(Math.round(b0.y), '1·2번째 카드 같은 줄').toBe(Math.round(b1.y));
+    expect(b2.y, '3번째 카드 아래 줄').toBeGreaterThan(b0.y + b0.height - 1);
+
+    const o = await horizontalOverflow(page);
+    expect(o.doc, '문서 가로 넘침 0').toBeLessThanOrEqual(0);
+    expect(o.main, 'main 가로 넘침 0').toBeLessThanOrEqual(0);
+    await page.screenshot({ path: test.info().outputPath('launch-map-390.png'), fullPage: true });
+
+    await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
+    await expect(panel(page, 'KB120', 'Q').locator('path[data-shape="diamond"]')).toHaveCount(1, { timeout: 15_000 });
+    const o2 = await horizontalOverflow(page);
+    expect(o2.doc, '09:00:30 문서 가로 넘침 0').toBeLessThanOrEqual(0);
+    expect(o2.main, '09:00:30 main 가로 넘침 0').toBeLessThanOrEqual(0);
+    await page.screenshot({ path: test.info().outputPath('launch-map-n0930-390.png'), fullPage: true });
+  });
+
+  test('P35-M4 빈 상태 — map days [] → 「아직 적재된 발사가 없어요」', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { map: () => ({ days: [], heads: [], pieces: [] }) });
+    await open(page, '/admin/launch?tab=map');
+    await expect(root(page).locator('[data-slot="launch-empty"]')).toHaveText('아직 적재된 발사가 없어요 · 첫 적재는 16:00:01', {
+      timeout: 15_000,
+    });
+    await expect(panels(page)).toHaveCount(0);
+    await expect(root(page).locator('[data-slot="launch-kpis"]')).toHaveCount(0);
+  });
+
+  test('P35-M5 잘못된 ?range → replace 로 range 만 지운다(기본 10d)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map&range=30d&fire=n0930');
+    await expect(page).toHaveURL(/\/admin\/launch\?tab=map&fire=n0930$/);
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await page.waitForTimeout(300);
+    expect(api.maps().every((r) => r.query.range === '10d')).toBe(true);
+  });
 });
