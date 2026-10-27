@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Phase 36 context gathered
-last_updated: "2026-10-27T12:06:08.497Z"
+stopped_at: Completed 35-04-PLAN.md
+last_updated: "2026-10-27T12:08:59.550Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 execution started
-state_head: 1b61728ad864f3bc49c496da1dcf641a1808701c
+state_head: 22b0470666734553f60ea45a509838d22009fb7e
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 64
-  completed_plans: 56
+  completed_plans: 57
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 1 of 11
+Plan: 4 of 11 (35-01~04 완료)
 Status: Executing Phase 35
 Last activity: 2026-10-27 — Phase 35 execution started
 
@@ -111,10 +111,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/36-account-budget/36-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-10-27T12:06:08.323Z
-Stopped at: Phase 36 context gathered
+Last session: 2026-10-27T12:08:51.883Z
+Stopped at: Completed 35-04-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -160,6 +160,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 34 P08 | 6min | 2 tasks | 8 files |
 | Phase 34 P09 | 4min | 2 tasks | 5 files |
 | Phase 34 P10 | 12min | 3 tasks | 5 files |
+| Phase 35 P04 | 10 min | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -241,3 +242,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 34]: 34-09: 합성 최악값 행 ISIN KR790000AC99 · 상세는 한선 payload + 최악값 평평한 열 · accumDetailFixtureOf synthetic 옵션으로 34-10 합성 상세 주입
 - [Phase 34]: 34-10: 매집감지 누적 축 글자는 0 과 세로 12px 미만인 끝값을 뺀다(cumTicksOf · 0 글자 우선)
 - [Phase 34]: 34-10: 전 워크스페이스 회귀 · pgTAP 4파일 green — 34-11 배포 전제 충족(server admin-dma ECONNRESET 2건은 단독 재실행 85/85)
+- [Phase 35]: 35-04: kind 17·18 해석은 dma_strategy_apply 재정의 안 kind 한정 예외 서브블록 — 원문 INSERT 는 블록 밖, 17·18 은 rows 제외(relay 무변경 · ws 누설 0), 실패는 errors[{seq, error}]
+- [Phase 35]: 35-04: 사용자 경로 차단은 json 래퍼 · 주문 타임라인 2곳(NOT IN (17, 18)) — 원천 SETOF dma_strategy_events_for_user 와 kind 15·16 purge 는 그대로
+- [Phase 35]: 35-04: launch_project_event 는 Wave A no-op 스텁 — 35-10 이 같은 시그니처로 정식 매핑을 넣고 launch_reproject() 1회(applied_at · seq 순 · 멱등)
