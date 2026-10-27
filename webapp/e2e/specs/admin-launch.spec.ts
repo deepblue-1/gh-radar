@@ -27,6 +27,10 @@ import { launchPlanFixture, mockLaunchApi } from '../fixtures/launch';
  * ⑦ 발사 계획 읽기(35-14 · D-24 · D-25 · D-29 · D-35) — 지도 탭 진입 때 GET /plan 1건(칩 · 세그먼트로 다시 부르지 않는다).
  *   서버 ok = 패널 줄 「3조각 …」 + 조각마다 점선 · 서버 실패 = 「서버 연결 안 됨 · 마지막 발사 값」(머리 값) ·
  *   404(배포 전) = 계획 기능 숨김(35-08 그대로). 계획 값은 합성(`launchPlanFixture`).
+ *
+ * ⑧ 발사 계획 고치기(35-15 · D-24 ~ D-28 · D-34) — 패널 「계획 고치기」 → 편집 칸 → 「저장」 = PUT 1건 → 결과 줄 · 줄 · 점선이
+ *   응답 plan 값으로(지도 · 계획 재요청 0). 순서 · 범위 오류는 저장 전에 칸에서 막고, 서버 거부(code 1) · 연결 실패는 정해진
+ *   문형. 저장 응답은 `savePlan` 목(기본 = 바디 값 ok · 합성).
  */
 
 const MINUS = '\u2212';
@@ -474,5 +478,58 @@ test.describe('어드민 발사 · 발사 계획(읽기)', () => {
     await expect(root(page).locator('[data-slot="launch-plan-bar"]')).toHaveCount(0);
     await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-next"]')).toHaveCount(1);
     await expect(root(page).locator('[data-slot="launch-legend"]')).toContainText('다음 발사의 첫 조각');
+  });
+});
+
+const editor = (page: Page, gateway: string, market: string) =>
+  panel(page, gateway, market).locator('[data-slot="launch-plan-editor"]');
+const editToggle = (page: Page, gateway: string, market: string) =>
+  panel(page, gateway, market).locator('[data-slot="launch-plan-edit-toggle"]');
+
+test.describe('어드민 발사 · 발사 계획(고치기)', () => {
+  test('P35-P3 1280 — KB 코스닥 「계획 고치기」 → 2번 −340 → 저장 → PUT 1건 · 결과 줄 · 줄 갱신 · 재요청 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixture });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    const kbq = panel(page, 'KB120', 'Q');
+    await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`, {
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(300);
+    const mapsBefore = api.maps().length;
+    const getsBefore = api.planGets().length;
+
+    await expect(editToggle(page, 'KB120', 'Q')).toHaveText('계획 고치기');
+    await editToggle(page, 'KB120', 'Q').click();
+    await expect(editToggle(page, 'KB120', 'Q')).toHaveText('닫기');
+    const ed = editor(page, 'KB120', 'Q');
+    await expect(ed).toBeVisible();
+    await expect(ed.locator('[data-slot="launch-plan-input"]')).toHaveCount(3);
+    const save = ed.locator('[data-slot="launch-plan-save"]');
+    await expect(save, '서버 값과 같으면 저장 비활성').toBeDisabled();
+
+    await ed.getByLabel('2번 조각 시각(µs)').fill('-340');
+    await expect(save).toBeEnabled();
+    await save.click();
+
+    await expect(ed.locator('[data-slot="launch-plan-result"]')).toContainText(/저장됨 · \d\d:\d\d · 다음 16:00 발사부터/, {
+      timeout: 15_000,
+    });
+    await expect(ed.locator('[data-slot="reflect-chip"]')).toHaveText('KB120');
+    expect(api.planPuts()).toHaveLength(1);
+    expect(api.planPuts()[0]!.path).toBe('/plan/KB120/q16/Q');
+    expect(api.planPuts()[0]!.body).toEqual({ offsets_us: [-350, -340, -325] });
+
+    await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}340 · ${MINUS}325µs`);
+    await expect(kbq.locator('[data-slot="launch-next"]')).toHaveCount(3);
+    await expect(kbq.locator('[data-slot="launch-next"][data-idx="1"] title')).toHaveText(`다음 발사 계획 2번 ${MINUS}340µs`);
+    await expect(kbq.locator('[data-slot="launch-plan-history-fold"] summary')).toHaveText('변경 이력 3');
+    await expect(save, '저장 뒤 = 서버 값 → 저장 비활성').toBeDisabled();
+    await page.screenshot({ path: test.info().outputPath('launch-plan-save-1280.png'), fullPage: true });
+
+    await page.waitForTimeout(300);
+    expect(api.maps(), '지도 재요청 없음').toHaveLength(mapsBefore);
+    expect(api.planGets(), '계획 재요청 없음').toHaveLength(getsBefore);
   });
 });

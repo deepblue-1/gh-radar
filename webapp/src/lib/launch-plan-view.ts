@@ -17,12 +17,15 @@
 
 import {
   launchPlanEntryOf,
+  validateLaunchPlanDraft,
+  type AdminServerResult,
   type LaunchFire,
   type LaunchHeadRow,
   type LaunchMarket,
   type LaunchPlanChangeRow,
   type LaunchPlanEntry,
   type LaunchPlanResponse,
+  type LaunchPlanSaveResponse,
 } from '@gh-radar/shared';
 
 import { DASH, fmtUs } from './launch-format';
@@ -152,4 +155,78 @@ export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'me
     case 'skipped':
       return { tone: 'warn', text: '꺼진 서버' };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 편집 · 저장(35-15 · D-26 · D-27 · Pitfall S6 · S9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 열린 편집 칸 하나(한 번에 한 패널 · D-24). 상태는 지도 탭이 쥔다.
+ * - `draft` = 칸마다 입력 원문 문자열(숫자로 바꾸지 않는다 — 「-」 만 친 칸도 그대로 둔다).
+ * - `valid` = 마지막으로 검증을 통과한 값(Pitfall S9) — 오류 동안에도 미리보기 선 · 표는 이 값을 그린다.
+ */
+export interface LaunchPlanEdit {
+  gateway: string;
+  market: LaunchMarket;
+  fire: LaunchFire;
+  draft: string[];
+  valid: number[];
+}
+
+/** 「계획 고치기」 — 서버 값으로 칸을 채운다. */
+export function planEditOf(gateway: string, market: LaunchMarket, fire: LaunchFire, offsets: readonly number[]): LaunchPlanEdit {
+  return { gateway, market, fire, draft: offsets.map(String), valid: [...offsets] };
+}
+
+/** 입력 하나 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(S9 · 검증은 shared 한 벌). */
+export function planEditWithDraft(edit: LaunchPlanEdit, draft: string[]): LaunchPlanEdit {
+  const check = validateLaunchPlanDraft(edit.fire, draft);
+  return { ...edit, draft, valid: check.ok ? check.values : edit.valid };
+}
+
+/** 같은 µs 목록인가. */
+export function sameOffsets(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/**
+ * 저장 응답 → 계획 상태(Pitfall S6 · 재조회 없음). 응답 plan 이 있으면 그 서버 계획을 통째로 바꾸고(실패여도 relay 가 다시
+ * 읽은 값이면 그것이 지금 값), change 가 있으면 이력 맨 앞에 넣는다(null = 기록 실패 · 늘리지 않는다). ready 가 아니면 그대로.
+ */
+export function planStateWithSave(
+  state: LaunchPlanState,
+  gateway: string,
+  resp: Pick<LaunchPlanSaveResponse, 'plan' | 'change'>,
+): LaunchPlanState {
+  if (state.kind !== 'ready') return state;
+  const servers = resp.plan === null ? state.resp.servers : { ...state.resp.servers, [gateway]: resp.plan };
+  const changes = resp.change === null ? state.resp.changes : [resp.change, ...state.resp.changes];
+  return { kind: 'ready', resp: { servers, changes } };
+}
+
+export type SaveTone = 'ok' | 'err' | 'warn';
+
+/** 저장 결과 그림 — 칩(Admin 칩 한 벌 · title = 상세) + 결과 줄. */
+export interface SaveResultView {
+  chip: { tone: SaveTone; text: string; title: string | null };
+  line: { tone: SaveTone; text: string };
+}
+
+const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
+
+/**
+ * 저장 결과(D-27) — 분기는 outcome · code 로만(서버 message 는 원문 그대로 싣기만 한다).
+ * ok → 칩 「KB120」 + 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」.
+ */
+export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at: Date): SaveResultView {
+  const s = result.server;
+  if (result.outcome === 'ok') {
+    return {
+      chip: { tone: 'ok', text: s, title: null },
+      line: { tone: 'ok', text: `저장됨 · ${kstPartsOf(at).hm} · 다음 ${FIRE_CLOCK[fire]} 발사부터` },
+    };
+  }
+  const msg = result.message || result.outcome;
+  return { chip: { tone: 'err', text: `${s} · 실패`, title: result.message ?? null }, line: { tone: 'err', text: `${s} 실패: ${msg}` } };
 }

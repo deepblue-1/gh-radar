@@ -6,26 +6,37 @@ import {
   LAUNCH_FIRES,
   LAUNCH_ORDER,
   launchDaysOf,
+  launchPlanEntryOf,
   launchPanelStatsOf,
   type LaunchDay,
   type LaunchFire,
   type LaunchMapPiece,
   type LaunchMapResponse,
+  type LaunchMarket,
   type LaunchPanelStats,
   type LaunchRange,
 } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
-import { fetchLaunchMap, fetchLaunchPlan } from '@/lib/launch-api';
+import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
 import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { launchRangeOf } from '@/lib/launch-map';
-import { panelPlanOf, type LaunchPlanState, type PanelPlan } from '@/lib/launch-plan-view';
+import {
+  panelPlanOf,
+  planEditOf,
+  planEditWithDraft,
+  planStateWithSave,
+  type LaunchPlanEdit,
+  type LaunchPlanState,
+  type PanelPlan,
+} from '@/lib/launch-plan-view';
 import { cn } from '@/lib/utils';
 
 import { LaunchGateChart } from './launch-gate-chart';
 import { LaunchFireSeg } from './launch-orders-tab';
 import { LaunchPlanBar } from './launch-plan-bar';
+import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor';
 
 /**
  * 경계 지도 탭 (Phase 35 · D-15 ~ D-18 · 채택 목업 `mockup-launch-gate-map.html` — 프리셋 칩 · 리본 켬 · 09:00:30 합패널).
@@ -39,6 +50,9 @@ import { LaunchPlanBar } from './launch-plan-bar';
  *   (발사 세그먼트 · 범위 칩을 바꿔도 다시 부르지 않는다). 서버 계획이 ok 면 조각마다 점선 + 패널 「다음 발사 계획」 줄,
  *   서버 실패 · 조회 실패면 최신 머리 값(`mapNextOffsetOf`) 하나로 대신 그린다. 404(배포 전 · D-35)면 계획 기능을 숨기고
  *   35-08 그대로 머리 값 점선만. 상수로 박지 않는다 — 머리가 없거나 값이 null 이면 「—」 · 점선 없음.
+ * - 계획 고치기(범위 7 · D-24 ~ D-28): 편집 칸은 한 번에 한 패널 — 다른 패널을 열면 앞 편집이 닫히고, 발사 세그먼트가
+ *   바뀌면 닫힌다(편집의 fire 가 지금 fire 와 다르면 닫힌 것으로 본다). 「저장」 = PUT 1건 → 응답 plan · change 로 계획 상태만
+ *   바꾼다(Pitfall S6 — 지도 · 계획 재조회 없음). 요청 자체가 실패하면(throw) 결과 = offline(「서버 연결 안 됨」).
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
  */
@@ -56,6 +70,11 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [plan, setPlan] = useState<LaunchPlanState>({ kind: 'loading' });
+  const [edit, setEdit] = useState<LaunchPlanEdit | null>(null);
+  const [saving, setSaving] = useState<string | null>(null); // 저장 중인 칸 키
+  // 저장 결과는 대상 칸 키와 함께 둔다 — 응답이 오기 전에 다른 패널을 열었으면 그 패널에 결과를 띄우지 않는다.
+  const [lastSave, setLastSave] = useState<{ key: string; save: LaunchPlanSaveState } | null>(null);
+  const editing = edit !== null && edit.fire === fire ? edit : null;
 
   // 계획은 탭 진입 1회 — fire · range 와 무관(D-25). 404 → absent(배포 전) · 그 밖 실패 → error(대신 값).
   useEffect(() => {
@@ -89,6 +108,41 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
     };
   }, [fire, range, attempt]);
 
+  const closeEdit = () => {
+    setEdit(null);
+    setLastSave(null);
+  };
+
+  const onEdit = (target: LaunchEditTarget | null) => {
+    setLastSave(null);
+    setEdit(target === null ? null : planEditOf(target.gateway, target.market, fire, target.offsets));
+  };
+
+  const onDraft = (draft: string[]) => {
+    setLastSave(null);
+    setEdit((e) => (e === null ? e : planEditWithDraft(e, draft)));
+  };
+
+  const onSave = () => {
+    if (editing === null || saving !== null) return;
+    const { gateway, market, fire: f, valid } = editing;
+    const same = (e: LaunchPlanEdit | null) => e !== null && e.gateway === gateway && e.market === market && e.fire === f;
+    const key = planEditKeyOf(editing);
+    setSaving(key);
+    setLastSave(null);
+    saveLaunchPlan(gateway, f, market, valid)
+      .then(
+        (resp) => {
+          setPlan((s) => planStateWithSave(s, gateway, resp));
+          const saved = resp.result.outcome === 'ok' ? launchPlanEntryOf(resp.plan ?? undefined, f, market) : null;
+          setEdit((e) => (same(e) && saved !== null ? planEditOf(gateway, market, f, saved.offsets_us) : e));
+          setLastSave({ key, save: { result: resp.result, at: new Date() } });
+        },
+        () => setLastSave({ key, save: { result: { server: gateway, outcome: 'offline' }, at: new Date() } }),
+      )
+      .finally(() => setSaving(null));
+  };
+
   return (
     <LaunchMapView
       status={phase.kind}
@@ -96,11 +150,29 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
       fire={fire}
       range={range}
       plan={plan}
-      onFire={onFire}
+      onFire={(f) => {
+        closeEdit();
+        onFire(f);
+      }}
       onRange={onRange}
       onRetry={() => setAttempt((n) => n + 1)}
+      editing={editing}
+      onEdit={onEdit}
+      onDraft={onDraft}
+      onSave={onSave}
+      saving={editing !== null && saving === planEditKeyOf(editing)}
+      lastSave={editing !== null && lastSave?.key === planEditKeyOf(editing) ? lastSave.save : null}
     />
   );
+}
+
+const planEditKeyOf = (e: Pick<LaunchPlanEdit, 'gateway' | 'market' | 'fire'>): string => `${e.gateway}|${e.market}|${e.fire}`;
+
+/** 「계획 고치기」 대상 — 그 패널 서버 × 시장과 서버 현재 값. */
+export interface LaunchEditTarget {
+  gateway: string;
+  market: LaunchMarket;
+  offsets: readonly number[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,6 +190,14 @@ export interface LaunchMapViewProps {
   onRetry?: () => void;
   /** 발사 계획 조회 상태(D-25) — 기본 absent(계획 기능 숨김 · 35-08 그대로). */
   plan?: LaunchPlanState;
+  /** 열린 편집 칸(한 번에 한 패널) — 기본 null(비편집). */
+  editing?: LaunchPlanEdit | null;
+  /** 「계획 고치기」(대상) · 「닫기」(null). 없으면 버튼을 그리지 않는다. */
+  onEdit?: (target: LaunchEditTarget | null) => void;
+  onDraft?: (draft: string[]) => void;
+  onSave?: () => void;
+  saving?: boolean;
+  lastSave?: LaunchPlanSaveState | null;
 }
 
 const PLAN_ABSENT: LaunchPlanState = { kind: 'absent' };
@@ -170,6 +250,12 @@ export function LaunchMapView({
   status = 'ready',
   onRetry,
   plan = PLAN_ABSENT,
+  editing = null,
+  onEdit,
+  onDraft,
+  onSave,
+  saving = false,
+  lastSave = null,
 }: LaunchMapViewProps) {
   const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, fire, plan)), [resp, fire, plan]);
   const rangeText = resp === null ? null : launchRangeOf(resp.days);
@@ -246,18 +332,49 @@ export function LaunchMapView({
             ))}
           </div>
           <div data-slot="launch-panels" className="flex min-w-0 flex-col gap-3">
-            {panels.map((p) => (
-              <LaunchGateChart
-                key={`${p.gateway}|${p.market}`}
-                gateway={p.gateway}
-                market={p.market}
-                fire={fire}
-                days={p.days}
-                planLines={p.plan.lines}
-              >
-                <LaunchPlanBar fire={fire} plan={p.plan} />
-              </LaunchGateChart>
-            ))}
+            {panels.map((p) => {
+              const open = editing !== null && editing.gateway === p.gateway && editing.market === p.market;
+              const entry = p.plan.entry;
+              return (
+                <LaunchGateChart
+                  key={`${p.gateway}|${p.market}`}
+                  gateway={p.gateway}
+                  market={p.market}
+                  fire={fire}
+                  days={p.days}
+                  planLines={p.plan.lines}
+                >
+                  <LaunchPlanBar
+                    fire={fire}
+                    plan={p.plan}
+                    editing={open}
+                    onToggle={
+                      onEdit === undefined
+                        ? undefined
+                        : () =>
+                            onEdit(
+                              open || entry === null
+                                ? null
+                                : { gateway: p.gateway, market: p.market as LaunchMarket, offsets: entry.offsets_us },
+                            )
+                    }
+                  >
+                    {open && entry !== null && (
+                      <LaunchPlanEditor
+                        gateway={p.gateway}
+                        fire={fire}
+                        entry={entry}
+                        draft={editing.draft}
+                        onDraft={(d) => onDraft?.(d)}
+                        onSave={() => onSave?.()}
+                        saving={saving}
+                        result={lastSave}
+                      />
+                    )}
+                  </LaunchPlanBar>
+                </LaunchGateChart>
+              );
+            })}
           </div>
           <p data-slot="launch-foot" className="px-1 text-[12px] leading-relaxed break-keep text-[var(--muted-fg)]">
             {FOOT[fire]}

@@ -9,7 +9,10 @@ import type {
   LaunchMapResponse,
   LaunchOrdersResponse,
   LaunchPieceRow,
+  LaunchMarket,
   LaunchPlanResponse,
+  LaunchPlanSaveBody,
+  LaunchPlanSaveResponse,
   LaunchPlanServer,
   LaunchRange,
 } from '@gh-radar/shared';
@@ -36,6 +39,8 @@ import type {
  * ⑦ 발사 계획(35-14 · `launchPlanFixture`) — **합성 값 · 실서버 값 아님.** KB120 · KYOBO119 두 서버 ok 계획 4칸씩 +
  *   KB120 16:00 코스닥 이력 2행(ok · failed code 1). `plan` 옵션이 없으면 GET `/plan` 은 **404**(배포 전 경로 · D-35) —
  *   35-08 M1~M5 가 그 경로로 그대로 통과한다.
+ * ⑧ 발사 계획 저장(35-15 · `savePlan`) — PUT `/plan/:gateway/:fire/:market` 을 기록한다(`planPuts()` · 바디 포함). 옵션이
+ *   없으면 200 · 바디 offsets 로 그 칸만 바꾼 ok plan(`launchPlanFixture` 기준 · 합성) · change 1행 · result ok.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -376,9 +381,53 @@ export function launchPlanFixture(): LaunchPlanResponse {
 
 export interface LaunchRequestRecord {
   method: string;
-  /** `/orders` · `/map` · `/plan` */
+  /** `/orders` · `/map` · `/plan` · `/plan/KB120/q16/Q` */
   path: string;
   query: Record<string, string>;
+  /** JSON 바디(PUT) — 없으면 null. */
+  body: unknown;
+}
+
+let savedId = 100;
+
+/**
+ * PUT /plan 기본 응답 — `launchPlanFixture()` 의 그 서버 계획에서 (fire, market) 칸만 바디 값으로 바꾼 ok plan +
+ * ok 이력 1행(before = 픽스처 값). **합성 · 실서버 값 아님.**
+ */
+export function launchPlanSaveOk(gateway: string, fire: LaunchFire, market: LaunchMarket, body: LaunchPlanSaveBody): LaunchPlanSaveResponse {
+  const base = launchPlanFixture().servers[gateway];
+  const profile = fire === 'q16' ? 'Q16' : 'N';
+  if (base === undefined || base.status !== 'ok') {
+    return { result: { server: gateway, outcome: 'offline' }, plan: null, change: null };
+  }
+  const before = base.entries.find((e) => e.profile === profile && e.market === market)?.offsets_us ?? null;
+  const rev = (base.plan_rev ?? 0) + 1;
+  const at = new Date().toISOString();
+  return {
+    result: { server: gateway, outcome: 'ok' },
+    plan: {
+      ...base,
+      plan_rev: rev,
+      updated_at: at,
+      entries: base.entries.map((e) =>
+        e.profile === profile && e.market === market ? { ...e, offsets_us: [...body.offsets_us] } : e,
+      ),
+    },
+    change: {
+      id: savedId++,
+      at,
+      admin_email: 'admin@example.com',
+      gateway,
+      fire,
+      market,
+      before_us: before,
+      after_us: [...body.offsets_us],
+      outcome: 'ok',
+      code: null,
+      message: null,
+      plan_rev: rev,
+    },
+  };
 }
 
 export interface MockLaunchApiOptions {
@@ -388,6 +437,13 @@ export interface MockLaunchApiOptions {
   map?: (fire: LaunchFire, range: LaunchRange) => LaunchMapResponse;
   /** GET /plan — 없으면 404(배포 전 · D-35 · 계획 기능 숨김). */
   plan?: () => LaunchPlanResponse | { status: number; body: unknown };
+  /** PUT /plan/:gateway/:fire/:market — 없으면 `launchPlanSaveOk`. */
+  savePlan?: (
+    gateway: string,
+    fire: LaunchFire,
+    market: LaunchMarket,
+    body: LaunchPlanSaveBody,
+  ) => LaunchPlanSaveResponse | { status: number; body: unknown };
 }
 
 export interface LaunchApiMock {
@@ -398,6 +454,8 @@ export interface LaunchApiMock {
   maps: () => LaunchRequestRecord[];
   /** GET /plan 요청만. */
   planGets: () => LaunchRequestRecord[];
+  /** PUT /plan/... 요청만(바디 포함). */
+  planPuts: () => LaunchRequestRecord[];
 }
 
 function isStatusBody(v: unknown): v is { status: number; body: unknown } {
@@ -414,6 +472,7 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
       method: request.method(),
       path: url.pathname.slice(idx + '/api/admin/launch'.length),
       query: Object.fromEntries(url.searchParams.entries()),
+      body: request.postData() === null ? null : (request.postDataJSON() as unknown),
     };
     requests.push(rec);
 
@@ -441,6 +500,20 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
       } else {
         body = out;
       }
+    } else if (rec.path.startsWith('/plan/') && rec.method === 'PUT') {
+      const [gateway = '', fire = '', market = ''] = rec.path.slice('/plan/'.length).split('/').map(decodeURIComponent);
+      const out = (opts.savePlan ?? launchPlanSaveOk)(
+        gateway,
+        fire as LaunchFire,
+        market as LaunchMarket,
+        rec.body as LaunchPlanSaveBody,
+      );
+      if (isStatusBody(out)) {
+        status = out.status;
+        body = out.body;
+      } else {
+        body = out;
+      }
     } else {
       status = 404;
       body = { error: { code: 'NOT_FOUND', message: '없는 경로예요' } };
@@ -452,5 +525,6 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
     orders: () => requests.filter((r) => r.method === 'GET' && r.path === '/orders'),
     maps: () => requests.filter((r) => r.method === 'GET' && r.path === '/map'),
     planGets: () => requests.filter((r) => r.method === 'GET' && r.path === '/plan'),
+    planPuts: () => requests.filter((r) => r.method === 'PUT' && r.path.startsWith('/plan/')),
   };
 }
