@@ -1193,6 +1193,11 @@ export type RelayAccountState = {
   rm: string[];
   /** 갱신시각 (표시용). */
   st: string;
+  /**
+   * 예수금(원 · 와이어 `budget_krw`) — 66/67 매번 그 시점 값을 싣는다 → 항목 병합과 달리
+   * 마지막 값으로 덮는다(Phase 36 D-14). 0/없음 = 미설정. 구 relay 프레임은 키 없음.
+   */
+  budgetKrw?: number;
 };
 
 /**

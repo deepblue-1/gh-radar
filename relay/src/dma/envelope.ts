@@ -2478,6 +2478,8 @@ export function parseAccountState(env: Envelope, isSnapshot: boolean): RelayAcco
     unf,
     rm,
     st: st.serverTime() ?? "",
+    // 예수금(원 · Phase 36 D-14) — ulong 이라 toNum 경유 필수(D-34). 구 서버 = 슬롯 없음 = 0.
+    budgetKrw: toNum(st.budgetKrw(), "account_state.budget_krw"),
   };
 }
 

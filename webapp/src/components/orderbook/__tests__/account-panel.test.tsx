@@ -1576,3 +1576,120 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 36 ② 계좌 패널 요약 줄 「주문가능 / 예수금」(D-08 · D-09 · D-11 · UI-SPEC ②)
+// 계산 · 표기는 shared availableKrwOf · formatManwonFloor — 여기서는 자리 · 상태 · 배선만 본다.
+// ---------------------------------------------------------------------------
+describe('Phase 36 계좌 패널 요약 줄 (D-08 · D-09 · D-11)', () => {
+  /** 보유 100주 × 평단 76,600 = 7,660,000 · 미체결 없음. */
+  const budgetAccount = (over: Partial<RelayAccountState> = {}) =>
+    accountState({
+      hold: [{ isin: ISIN, qty: 100, sellableQty: 100, avgPrice: 76_600 }],
+      unf: [],
+      ...over,
+    });
+  const summary = () => document.querySelector<HTMLElement>('[data-slot="account-budget-summary"]');
+
+  function renderAccountOnly(over: Partial<AccountPanelProps> = {}) {
+    return render(
+      <AccountPanel
+        selectedAccountNo="12345678-01"
+        accountName="위탁종합"
+        account={budgetAccount({ budgetKrw: 20_000_000 })}
+        status="ready"
+        hideAccountHeader
+        {...over}
+      />,
+    );
+  }
+
+  it('기본 모드(hideAccountHeader) 정상 — 「주문가능 1,234만 / 예수금 2,000만」 이 account-holdings 첫 자식', () => {
+    renderAccountOnly();
+    const line = summary();
+    expect(line).not.toBeNull();
+    expect(section('account-holdings').firstElementChild).toBe(line);
+    expect(within(line!).getByText('주문가능')).toBeInTheDocument();
+    expect(within(line!).getByText('1,234만')).toBeInTheDocument();
+    expect(within(line!).getByText('/ 예수금 2,000만')).toBeInTheDocument();
+    expect(line).not.toHaveAttribute('data-over');
+  });
+
+  it('초과(주문가능 < 0) → 값 「0만」 · data-over · --destructive', () => {
+    renderAccountOnly({ account: budgetAccount({ budgetKrw: 1_000_000 }) });
+    const line = summary()!;
+    expect(line).toHaveAttribute('data-over', 'true');
+    const value = within(line).getByText('0만');
+    expect(value.className).toContain('text-[var(--destructive)]');
+    expect(within(line).getByText('/ 예수금 100만')).toBeInTheDocument();
+  });
+
+  it('미설정(budgetKrw 없음 · 구 relay) → 「—」 + 「/ 예수금 미설정」', () => {
+    renderAccountOnly({ account: budgetAccount() });
+    const line = summary()!;
+    expect(within(line).getByText('—')).toBeInTheDocument();
+    expect(within(line).getByText('/ 예수금 미설정')).toBeInTheDocument();
+    expect(line).not.toHaveAttribute('data-over');
+  });
+
+  it('account null(상태 미수신) → 요약 줄 없음', () => {
+    renderAccountOnly({ account: null });
+    expect(summary()).toBeNull();
+  });
+
+  it('임베드 holdings · scope account → 요약 줄 있음(표 위)', () => {
+    render(
+      <AccountPanel
+        selectedAccountNo="12345678-01"
+        account={budgetAccount({ budgetKrw: 20_000_000 })}
+        status="ready"
+        section="holdings"
+        embedScope="account"
+      />,
+    );
+    const root = screen.getByTestId('account-panel');
+    expect(root.firstElementChild).toBe(summary());
+    expect(within(summary()!).getByText('1,234만')).toBeInTheDocument();
+  });
+
+  it('임베드 holdings · scope stock(카드 탭 「보유」) → 요약 줄 없음', () => {
+    render(
+      <AccountPanel
+        selectedAccountNo="12345678-01"
+        account={budgetAccount({ budgetKrw: 20_000_000 })}
+        status="ready"
+        section="holdings"
+        embedScope="stock"
+      />,
+    );
+    expect(summary()).toBeNull();
+  });
+
+  it('시장가(price 0) 매수 미체결 + priceOf → 현재가로 계산', () => {
+    const marketBuy: RelayUnfilled = {
+      orderNo: '0000200001',
+      orgOrderNo: '',
+      isin: OTHER_ISIN,
+      side: 'B',
+      price: 0,
+      orderQty: 10,
+      filledQty: 0,
+      unfilledQty: 10,
+      orderTime: '093015',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+      exchange: 'KRX',
+    };
+    const account = accountState({ hold: [], unf: [marketBuy], budgetKrw: 1_000_000 });
+    const priceOf = (isin: string) => (isin === OTHER_ISIN ? 50_000 : undefined);
+    const { unmount } = renderAccountOnly({ account, priceOf });
+    // 1,000,000 − 10 × 50,000 = 500,000 → 「50만」
+    expect(within(summary()!).getByText('50만')).toBeInTheDocument();
+    unmount();
+    // priceOf 없으면 0 으로 센다 → 「100만」
+    renderAccountOnly({ account });
+    expect(within(summary()!).getByText('100만')).toBeInTheDocument();
+  });
+});

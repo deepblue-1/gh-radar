@@ -156,7 +156,7 @@ import type {
   RelayOrderResultMsg,
   RelayUnfilled,
 } from '@gh-radar/shared';
-import { sideDisplayText } from '@gh-radar/shared';
+import { availableKrwOf, formatManwonFloor, sideDisplayText } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -641,6 +641,13 @@ export function AccountPanel({
         section={section}
         scope={embedScope}
         emptyTitle={embedEmptyTitle}
+        budgetLine={
+          <BudgetSummaryLine
+            account={account}
+            priceOf={priceOf}
+            className="px-[var(--s-3)] pb-[var(--s-2)] pt-[var(--s-2)]"
+          />
+        }
         unfilled={unfilled}
         holdings={holdings}
         sessionReady={sessionReady}
@@ -1003,6 +1010,8 @@ export function AccountPanel({
             !sessionReady && 'opacity-[.55]',
           )}
         >
+          {/* Phase 36 D-08 — 잔고 표 바로 위 「주문가능 / 예수금」(섹션 첫 자식 · 「잔고」 소제목 위). */}
+          <BudgetSummaryLine account={account} priceOf={priceOf} />
           <h4
             className={cn(
               'text-[length:var(--t-caption)] font-semibold text-[var(--fg)]',
@@ -1204,6 +1213,7 @@ function EmbeddedSection({
   section,
   scope,
   emptyTitle,
+  budgetLine,
   unfilled,
   holdings,
   sessionReady,
@@ -1222,6 +1232,8 @@ function EmbeddedSection({
   section: 'unfilled' | 'holdings';
   scope: 'account' | 'stock';
   emptyTitle?: string;
+  /** 잔고 표/빈 상태 위 「주문가능 / 예수금」 줄(Phase 36 D-08) — account 스코프에서만 그린다. */
+  budgetLine: ReactNode;
   unfilled: UnfilledView[];
   holdings: HoldingView[];
   sessionReady: boolean;
@@ -1250,6 +1262,8 @@ function EmbeddedSection({
         data-scope={scope}
         className={cn('min-w-0', !sessionReady && 'opacity-[.55]', className)}
       >
+        {/* 종목 축(카드 탭 「보유」)에는 그리지 않는다 — 높이 고정 · 주문가능은 같은 카드의 수동주문 · 상따가 말한다. */}
+        {!stockScope && budgetLine}
         {holdings.length === 0 ? (
           <EmptyState
             dense={stockScope}
@@ -1690,6 +1704,58 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
  * `dense` = 작업대 카드 탭(`embedScope="stock"`) — 본문이 정보 탭 3줄 높이(≈72px)로 고정이라 세로 패딩을
  * 24→8 로 줄여 그 안에 들어가게 한다(260925 후속).
  */
+/**
+ * Phase 36 ② 계좌 패널 요약 줄 「주문가능 N만 / 예수금 M만」(D-08 · D-09 · D-11 · UI-SPEC ②).
+ *
+ * 계산 · 표기는 shared 한 벌(`availableKrwOf` · `formatManwonFloor`)이다 — 수동주문 · 상따 경고와 갈리지 않게
+ * 여기서 다시 셈하지 않는다. 음수(초과)는 「0만」 `--destructive` · 예수금 0/없음은 「— / 예수금 미설정」 흐림.
+ * 깜빡임 · 강조 · 토스트 없음(gh-trade D-20 — 예수금 변경은 조용히 반영). 상태 미수신(`account` null)이면 줄 없음.
+ */
+function BudgetSummaryLine({
+  account,
+  priceOf,
+  className,
+}: {
+  account: RelayAccountState | null | undefined;
+  priceOf?: (isin: string) => number | undefined;
+  className?: string;
+}) {
+  const available = useMemo(
+    () => (account == null ? null : availableKrwOf(account, priceOf)),
+    [account, priceOf],
+  );
+  if (account == null) return null;
+  const over = available !== null && available < 0;
+  return (
+    <p
+      data-slot="account-budget-summary"
+      {...(over ? { 'data-over': 'true' } : {})}
+      className={cn(
+        'flex flex-wrap items-baseline gap-x-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--muted-fg)]',
+        className,
+      )}
+    >
+      <span>주문가능</span>
+      {available === null ? (
+        <span className="whitespace-nowrap">—</span>
+      ) : (
+        <span
+          data-slot="account-budget-available"
+          className={cn(
+            'whitespace-nowrap text-[15px] font-semibold tabular-nums',
+            over ? 'text-[var(--destructive)]' : 'text-[var(--fg)]',
+          )}
+        >
+          {formatManwonFloor(available)}
+        </span>
+      )}
+      <span className="whitespace-nowrap">
+        {available === null ? '/ 예수금 미설정' : `/ 예수금 ${formatManwonFloor(account.budgetKrw ?? 0)}`}
+      </span>
+    </p>
+  );
+}
+
 function EmptyState({ title, body, dense = false }: { title: string; body?: string; dense?: boolean }) {
   return (
     <div

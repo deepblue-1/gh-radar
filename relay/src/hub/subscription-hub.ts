@@ -3726,6 +3726,9 @@ export class SubscriptionHub extends EventEmitter {
       unf: [...unfilled.values()],
       rm: [],
       st: next.st,
+      // Phase 36 D-14 — 67 은 매번 그 시점 budget_krw 를 싣는다(체결 67 = 조정 전 · 한도 전용 67 = 새 값 · 1~2초 뒤 재전송)
+      // → 항목 병합과 달리 마지막 값으로 덮는다(0 = 해제도 정당값). 웹 mergeAccount 는 `...next` 로 같은 결과.
+      budgetKrw: next.budgetKrw,
     };
   }
 

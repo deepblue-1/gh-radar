@@ -406,4 +406,71 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
     expect(cached?.unf).toEqual([]);
   });
 
+  // gh-trade 41-01/41-03(인박스 261027-account-budget · 261027-account-pnl) — 66/67 은 매번 그 시점
+  // budget_krw 를 싣는다. 체결 67 은 조정 전 값, ≤100ms 뒤 한도 전용 67(빈 벡터 · is_snapshot=false)
+  // 이 새 값, 1~2초 뒤 같은 한도 전용 67 재전송. 항목 병합과 달리 예수금은 마지막 값으로 덮는다.
+  describe("Phase 36 D-14 예수금 마지막 값", () => {
+    it("(a) 66 → 67 체결 델타 → 67 한도 전용(빈 벡터) 순서면 캐시 budgetKrw 는 마지막 67 값이고 보유는 그대로다", () => {
+      session.pushFrame(
+        buildAccountStateFrame({
+          snapshot: true,
+          holdings: [{ isin: SAMPLE_ISIN, stockQty: 10, avgPrice: 10_000 }],
+          unfilled: [{ orderNo: "ORD0000001", unfilledQty: 10, price: 5_000 }],
+          budgetKrw: 10_000_000,
+        }),
+      );
+      // 체결 67 — 조정 전 budget 그대로, 보유 1건 변경.
+      session.pushFrame(
+        buildAccountStateFrame({
+          snapshot: false,
+          holdings: [{ isin: SAMPLE_ISIN, stockQty: 11, avgPrice: 10_000 }],
+          budgetKrw: 10_000_000,
+        }),
+      );
+      // 한도 전용 67 — 빈 벡터 · is_snapshot=false · 새 값.
+      session.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 9_990_000 }));
+
+      const [cached] = hub.getAccountStates("user-1");
+      expect(cached?.budgetKrw).toBe(9_990_000);
+      expect(cached?.hold).toEqual([
+        { isin: SAMPLE_ISIN, qty: 11, sellableQty: 10, avgPrice: 10_000 },
+      ]);
+      expect(cached?.unf.map((u) => u.orderNo)).toEqual(["ORD0000001"]);
+      // 와이어로는 델타 원본이 그대로 나간다 — 한도 전용 67 도 budgetKrw 를 싣는다.
+      expect(acctFrames(fanout)[2]).toMatchObject({ snap: false, hold: [], unf: [], budgetKrw: 9_990_000 });
+    });
+
+    it("(b) 같은 값을 실은 한도 전용 67 재전송은 그대로다", () => {
+      session.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 10_000_000 }));
+      session.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 9_990_000 }));
+      session.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 9_990_000 }));
+
+      const [cached] = hub.getAccountStates("user-1");
+      expect(cached?.budgetKrw).toBe(9_990_000);
+    });
+
+    it("(c) 0 을 실은 67 은 0 으로 덮는다(해제 — 이전 값 유지 아님)", () => {
+      session.pushFrame(
+        buildAccountStateFrame({
+          snapshot: true,
+          holdings: [{ isin: SAMPLE_ISIN, stockQty: 10 }],
+          budgetKrw: 10_000_000,
+        }),
+      );
+      session.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 0 }));
+
+      const [cached] = hub.getAccountStates("user-1");
+      expect(cached?.budgetKrw).toBe(0);
+      expect(cached?.hold.map((h) => h.isin)).toEqual([SAMPLE_ISIN]);
+    });
+
+    it("(d) budget_krw 슬롯 없는 66(구 서버)은 0 이다", () => {
+      session.pushFrame(
+        buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 10 }] }),
+      );
+
+      const [cached] = hub.getAccountStates("user-1");
+      expect(cached?.budgetKrw).toBe(0);
+    });
+  });
 });

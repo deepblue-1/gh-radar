@@ -415,6 +415,10 @@ export type FakeAccountStateInput = {
    * 과 같다 — 정상 게이트웨이는 둘을 일치시킨다 (D-33 대조 테스트용 탈출구).
    */
   bodyIsSnapshot?: boolean;
+  /**
+   * 예수금(원 · `budget_krw` — Phase 36). 생략 = 0(구 서버 · 미설정과 같은 와이어 값).
+   */
+  budgetKrw?: number | bigint;
 };
 
 /** 테스트 전반이 쓰는 기본 계좌번호. `SAMPLE_ACCOUNTS[0]` 과 같은 값이다. */
@@ -495,6 +499,7 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
     removedVec,
     input.bodyIsSnapshot ?? snapshot,
     serverTime,
+    BigInt(input.budgetKrw ?? 0),
   );
 
   Envelope.startEnvelope(b);
@@ -1640,6 +1645,12 @@ export function buildJournalBatchFrame(input: FakeJournalBatchInput = {}): Uint8
       r.resultCode,
       message,
       r.localReject,
+      // avg_price · fee_krw · tax_krw · realized_pnl_krw (gh-trade 41-04 말미 append) —
+      // 옛 레코드 의미값 0. 입력 연결은 36-05 가 relay JournalRecord 타입과 함께 한다.
+      0n,
+      0n,
+      0n,
+      0n,
     );
   });
   const records = JournalBatch.createRecordsVector(b, offsets);

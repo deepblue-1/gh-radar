@@ -262,5 +262,6 @@ export * from "./order-server";
 export * from "./order-endpoint";
 // --- Phase 31 상따 금액(만원)↔주 §10 환산 한 벌(gh-trade LimitChaserForm.cs 이식) — webapp 행 · 시트 · 제출 · 검증 · relay 테스트 ---
 export * from "./lc-amount";
+export * from "./account-budget";
 // --- Phase 35 발사 경계 지도 — 경계 계산 한 벌(첨부 group() 이식) · 어드민 RPC 행 계약 · relay 백필 머리 계산 ---
 export * from "./launch";
