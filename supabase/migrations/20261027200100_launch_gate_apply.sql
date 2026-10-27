@@ -209,6 +209,139 @@ REVOKE EXECUTE ON FUNCTION public.dma_strategy_apply(text, text, jsonb) FROM PUB
 REVOKE EXECUTE ON FUNCTION public.dma_strategy_apply(text, text, jsonb) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dma_strategy_apply(text, text, jsonb) TO service_role;
 
+-- ── ③ 원문 재해석 `launch_reproject` ────────────────────────────
+-- kind 17·18 원문을 다시 투영한다 — 정식 매핑 교체(35-10) 직후 1회, 이후 매핑을 고칠 때마다. 행마다 서브블록이라
+-- 한 행 실패가 나머지를 막지 않는다. 정렬은 gateway → applied_at(DB 도착 순서) → seq. journal_epoch 는 저널 저장소
+-- 신원 문자열(생성 시 1회)이라 순서가 없으므로 정렬에 쓰지 않는다. 두 번 돌려도 결과가 같다 — upsert 헬퍼가 같은
+-- epoch · 같은 seq 를 재해석으로 덮는다(launch_upsert_piece/head 규칙 한 곳).
+CREATE OR REPLACE FUNCTION public.launch_reproject(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  r     public.dma_strategy_events%ROWTYPE;
+  v_ok  integer := 0;
+  v_err jsonb := '[]'::jsonb;
+BEGIN
+  FOR r IN
+    SELECT * FROM public.dma_strategy_events
+     WHERE kind IN (17, 18)
+       AND (p_from IS NULL OR trade_date >= p_from)
+       AND (p_to IS NULL OR trade_date <= p_to)
+     ORDER BY gateway, applied_at, seq
+  LOOP
+    BEGIN
+      PERFORM public.launch_project_event(r);
+      v_ok := v_ok + 1;
+    EXCEPTION WHEN OTHERS THEN
+      v_err := v_err || jsonb_build_array(jsonb_build_object('gateway', r.gateway, 'seq', r.seq, 'error', SQLERRM));
+    END;
+  END LOOP;
+  RETURN jsonb_build_object('projected', v_ok, 'errors', v_err);
+END;
+$$;
+
+COMMENT ON FUNCTION public.launch_reproject(date, date) IS
+  'Phase 35 D-06 — kind 17·18 원문 재투영(gateway · applied_at · seq 순 · 멱등). {projected, errors}. service_role 전용';
+
+REVOKE EXECUTE ON FUNCTION public.launch_reproject(date, date) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.launch_reproject(date, date) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.launch_reproject(date, date) TO service_role;
+
+-- ── ④ 주문로그 jsonb 래퍼 재정의(20261018120000 (나) + kind 17·18 제외) ──
+-- kind 15 는 p_include_limit_feature 일 때만, kind 16(매집감지)은 늘 뺀다(주문로그에 안 섞는다).
+CREATE OR REPLACE FUNCTION public.dma_strategy_events_for_user_json(
+  p_user_id uuid, p_trade_date date, p_include_limit_feature boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  SELECT coalesce(
+           jsonb_agg(t.ev ORDER BY (t.ev->>'gw_time_ms')::bigint, t.ev->>'gateway', (t.ev->>'seq')::bigint),
+           '[]'::jsonb)
+    FROM public.dma_strategy_events_for_user(p_user_id, p_trade_date) AS t(ev)
+   WHERE (p_include_limit_feature OR (t.ev->>'kind')::int <> 15)
+     AND (t.ev->>'kind')::int <> 16
+     -- 발사 조각 · 머리(D-05) — 어드민 전용 · 주문로그에 섞지 않는다.
+     AND (t.ev->>'kind')::int NOT IN (17, 18);
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_strategy_events_for_user_json(uuid, date, boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_strategy_events_for_user_json(uuid, date, boolean) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_strategy_events_for_user_json(uuid, date, boolean) TO service_role;
+
+-- ── ⑤ 주문 1건(묶음) 타임라인 재정의(20260929190000 ⑦-② + 전략 갈래 kind 17·18 제외) ──
+CREATE OR REPLACE FUNCTION public.dma_order_events_for_user(p_user_id uuid, p_order_id uuid, p_order_nos text[])
+RETURNS TABLE (
+  source     text,
+  gw_time_ms bigint,
+  seq        bigint,
+  ev         jsonb
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  WITH o AS (
+    -- 요청 사용자에게 보이는 행만 — 게이트웨이 · 거래일 · 계좌의 유일한 출처(T-25-13).
+    SELECT r.gateway, r.trade_date, r.account_no, r.order_no
+      FROM public.dma_account_orders r
+     WHERE r.id = p_order_id
+       AND EXISTS (
+         SELECT 1
+           FROM public.dma_visible_accounts(p_user_id) v
+          WHERE v.gateway = r.gateway
+            AND v.account_no = r.account_no)
+     LIMIT 1
+  ),
+  k AS (
+    SELECT o.gateway, o.trade_date, o.account_no,
+           CASE WHEN p_order_nos IS NULL OR cardinality(p_order_nos) = 0
+                THEN ARRAY[o.order_no]
+                ELSE p_order_nos
+           END AS nos
+      FROM o
+  ),
+  u AS (
+    SELECT 'journal'::text AS source,
+           round(extract(epoch FROM j.gw_time) * 1000)::bigint AS gw_time_ms,
+           j.seq,
+           to_jsonb(j) - 'dma_user_id' - 'apply_error' - 'applied_at' AS ev
+      FROM public.dma_journal_events j
+      JOIN k ON j.gateway = k.gateway AND j.trade_date = k.trade_date AND j.account_no = k.account_no
+     WHERE j.apply_error IS NULL
+       AND (j.order_no = ANY (k.nos) OR (j.org_order_no <> '' AND j.org_order_no = ANY (k.nos)))
+    UNION ALL
+    SELECT 'strategy'::text,
+           e.gw_time_ms,
+           e.seq,
+           to_jsonb(e) - 'dma_user_id' - 'applied_at'
+             || jsonb_build_object('stock_code', s.code)
+      FROM public.dma_strategy_events e
+      JOIN k ON e.gateway = k.gateway AND e.trade_date = k.trade_date AND e.account_no = k.account_no
+      LEFT JOIN public.stocks s ON s.isin = e.isin
+     WHERE e.order_no <> '' AND e.order_no = ANY (k.nos)
+       -- 발사 조각 · 머리(D-05): kind 17 이 실계좌 · 주문번호를 실으면 그 주문 타임라인에 원문이 섞인다(RESEARCH Q3 ④).
+       AND e.kind NOT IN (17, 18)
+  )
+  SELECT u.source, u.gw_time_ms, u.seq, u.ev
+    FROM u
+   ORDER BY u.gw_time_ms, CASE u.source WHEN 'journal' THEN 0 ELSE 1 END, u.seq;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_order_events_for_user(uuid, uuid, text[]) TO service_role;
+
+-- kind 15·16 보존 purge(dma_strategy_events_purge_limit_feature)는 여기서 재정의하지 않는다 — kind 17·18 원문과
+-- launch_* 는 영구 보관(D-05). launch_gate_apply.test.sql 이 「옛날짜 17·18 원문이 purge 뒤 남는다」 로 잠근다.
+
 COMMIT;
 
 NOTIFY pgrst, 'reload schema';
