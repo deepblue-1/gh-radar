@@ -68,17 +68,19 @@ function lowerMedian(sorted: readonly number[]): number {
 }
 
 /**
- * 축 — 첨부 식(:170-173)에 상한을 더했다. m = values 아래 중앙값(비면 next ?? 0) · core = m ± cap 안의 values +
- * (next 가 m ± cap 안이면 next) · span = max − min · span > 40 이면 여유 8 · 10 단위, 아니면 여유 3 · 1 단위 ·
+ * 축 — 첨부 식(:170-173)에 상한을 더했다. m = values 아래 중앙값(비면 첫 mark ?? 0) · core = m ± cap 안의 values +
+ * m ± cap 안의 marks **전부**(다음 발사 계획 조각마다 · Pitfall S8 — 계획 점선이 축 밖으로 밀리지 않게) ·
+ * span = max − min · span > 40 이면 여유 8 · 10 단위, 아니면 여유 3 · 1 단위 ·
  * xmin = floor((min − pad)/unit)·unit · xmax = ceil((max + pad)/unit)·unit.
+ * m ± cap 밖의 mark(오타 같은 먼 값)는 축을 늘리지 않는다 — 컴포넌트가 「◂/▸ 다음 …µs」 글로 떨어뜨린다.
  */
-export function launchAxisOf(values: readonly number[], next: number | null, fire: LaunchFire): LaunchAxis {
+export function launchAxisOf(values: readonly number[], marks: readonly number[], fire: LaunchFire): LaunchAxis {
   const cap = AXIS_CAP[fire];
   const sorted = [...values].sort((a, b) => a - b);
-  const m = sorted.length > 0 ? lowerMedian(sorted) : (next ?? 0);
+  const m = sorted.length > 0 ? lowerMedian(sorted) : (marks[0] ?? 0);
   const near = (v: number) => Math.abs(v - m) <= cap;
   const core = sorted.filter(near);
-  if (next !== null && near(next)) core.push(next);
+  for (const v of marks) if (near(v)) core.push(v);
   if (core.length === 0) core.push(m);
   const lo = Math.min(...core);
   const hi = Math.max(...core);

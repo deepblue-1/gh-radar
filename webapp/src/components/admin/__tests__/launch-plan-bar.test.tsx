@@ -102,7 +102,7 @@ describe('LaunchPlanBar', () => {
       }),
     );
     render(<LaunchPlanBar fire="q16" plan={plan({ changes, lastChange: changes[1]! })} now={NOW} />);
-    const details = q('details[data-slot="launch-plan-history-fold"]')!;
+    const details = document.querySelector<HTMLDetailsElement>('details[data-slot="launch-plan-history-fold"]')!;
     expect(details.open).toBe(false);
     expect(details.querySelector('summary')!.textContent).toBe('변경 이력 12');
     fireEvent.click(details.querySelector('summary')!);

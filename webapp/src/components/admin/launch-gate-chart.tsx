@@ -134,7 +134,7 @@ function LaunchGateSvg({
 
   const axis = launchAxisOf(
     days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us)),
-    planLines[0] ?? null,
+    planLines,
     fire,
   );
   const x = (v: number) => xOfUs(v, axis, left, right);

@@ -144,7 +144,9 @@ describe('표기', () => {
 
   it('lastChangeText — 같은 KST 날 「22:41 · a@b.c」 · 다른 날 「10/27 22:41 · a@b.c」', () => {
     const r = row({ at: '2026-10-27T13:41:00Z' });
-    expect(lastChangeText(r, new Date('2026-10-27T15:00:00Z'))).toBe('22:41 · a@b.c');
+    // 계획 behavior 예시의 now 15:00Z 는 KST 10/28 00:00(다른 날)이라 같은 날 예시로 14:50Z(KST 10/27 23:50)를 쓴다.
+    expect(lastChangeText(r, new Date('2026-10-27T14:50:00Z'))).toBe('22:41 · a@b.c');
+    expect(lastChangeText(r, new Date('2026-10-27T15:00:00Z'))).toBe('10/27 22:41 · a@b.c');
     expect(lastChangeText(r, new Date('2026-10-28T01:00:00Z'))).toBe('10/27 22:41 · a@b.c');
   });
 

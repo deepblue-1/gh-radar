@@ -25,7 +25,7 @@ import {
   type LaunchPlanResponse,
 } from '@gh-radar/shared';
 
-import { fmtUs } from './launch-format';
+import { DASH, fmtUs } from './launch-format';
 import { mapNextOffsetOf } from './launch-map';
 
 /** 지도 탭의 계획 조회 상태. */
@@ -86,4 +86,70 @@ export function planLineText(entry: Pick<LaunchPlanEntry, 'offsets_us'>, fire: L
   const xs = entry.offsets_us;
   if (fire === 'n0930') return `${fmtUs(xs[0])}µs`;
   return `${xs.length}조각 ${xs.map((v) => fmtUs(v)).join(' · ')}µs`;
+}
+
+/** 패널 「변경 이력」 접힘 안 최대 행 수(D-29). */
+export const LAUNCH_PLAN_HISTORY_MAX = 10;
+
+/** 대신 값 줄(D-25 · Pitfall S11) — 「서버 연결 안 됨 · 마지막 발사 값 −337µs」 · 값 없으면 「—」. */
+export function fallbackLineText(us: number | null): string {
+  return `서버 연결 안 됨 · 마지막 발사 값 ${us === null ? DASH : `${fmtUs(us)}µs`}`;
+}
+
+const KST_PARTS = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+function kstPartsOf(d: Date): { ymd: string; md: string; hm: string } {
+  const p = Object.fromEntries(KST_PARTS.formatToParts(d).map((x) => [x.type, x.value]));
+  return { ymd: `${p.year}-${p.month}-${p.day}`, md: `${p.month}/${p.day}`, hm: `${p.hour}:${p.minute}` };
+}
+
+/** 이력 행 시각(KST · 24시간) — `now` 와 같은 KST 날이면 「HH:MM」, 아니면 「MM/DD HH:MM」. */
+export function changeAtText(at: string, now: Date): string {
+  const t = kstPartsOf(new Date(at));
+  return t.ymd === kstPartsOf(now).ymd ? t.hm : `${t.md} ${t.hm}`;
+}
+
+/** 마지막 변경 — 「22:41 · a@b.c」 · 오늘(KST)이 아니면 「10/27 22:41 · a@b.c」. */
+export function lastChangeText(row: Pick<LaunchPlanChangeRow, 'at' | 'admin_email'>, now: Date): string {
+  return `${changeAtText(row.at, now)} · ${row.admin_email}`;
+}
+
+const usList = (xs: readonly number[]): string => xs.map((v) => fmtUs(v)).join(' · ');
+
+/** 전 → 후 — 「−350 · −345 · −325 → −340 · −335 · −322」 · 전이 null 이면 「— → …」. */
+export function changeValuesText(before: readonly number[] | null, after: readonly number[]): string {
+  return `${before === null ? DASH : usList(before)} → ${usList(after)}`;
+}
+
+export type ChangeOutcomeTone = 'ok' | 'warn' | 'err';
+
+export interface ChangeOutcomeView {
+  tone: ChangeOutcomeTone;
+  text: string;
+  /** 실패 상세(서버 거부 원문) — failed 일 때만. */
+  title?: string;
+}
+
+/** 이력 결과 알약 — ok 저장됨 · failed 실패(title = message) · timeout 응답 없음 · offline 서버 연결 안 됨 · skipped 꺼진 서버. */
+export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'message'>): ChangeOutcomeView {
+  switch (row.outcome) {
+    case 'ok':
+      return { tone: 'ok', text: '저장됨' };
+    case 'failed':
+      return row.message ? { tone: 'err', text: '실패', title: row.message } : { tone: 'err', text: '실패' };
+    case 'timeout':
+      return { tone: 'err', text: '응답 없음' };
+    case 'offline':
+      return { tone: 'warn', text: '서버 연결 안 됨' };
+    case 'skipped':
+      return { tone: 'warn', text: '꺼진 서버' };
+  }
 }
