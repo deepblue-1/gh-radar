@@ -364,20 +364,40 @@ Plans:
 
 ### Phase 36: 계좌별 주문가능 금액
 
-**Goal**: gh-trade Phase 41 계약(인박스 `docs/inbox/from-gh-trade/261027-account-budget.md` · fbs SYNC 75195b70 — 44 `AdminCommandReq` · 87 `AdminAccount` · 66/67 `AccountState` 말미 `budget_krw: ulong`)을 받아, **어드민이 계좌별 한도(원 · 화면은 만원)를 설정**하고 **웹 주문 화면(호가창 계좌 패널 · /me)이 「주문가능 금액」을 실시간 표시**한다. 한도는 계좌당 값 하나 — relay 가 그 계좌가 등록된 서버 전부에 44 op 6 SetAccountBudget 을 fan-out 하고 서버별 결과 칩을 그린다(87 값이 서버마다 다르면 「서버별 다름」). op 3 으로 이 서버에 처음 생기는 계좌는 한도 0 이므로 relay 가 op 3 성공 뒤 다른 서버 스냅샷의 한도로 op 6 을 되싣는다(IP/MAC 되싣기 동형). 주문가능 = `budget_krw − Σ(avg_price × stock_qty) − Σ(매수 미체결 unfilled_qty × price)` — 매도 미체결 제외 · 매수는 KRX·NXT · 예약 요약 · 접수대기 포함 · `pending_cancel_sent` 제외 · price 0 이면 현재가(없으면 0, 상한가 금지) · 0 = 미설정 「—」 · 초과는 경고만(차단 · alert 없음)
-**Depends on**: Phase 29(웹 Admin · useFieldSave · 서버별 칩) · Phase 30(op 3 IP/MAC 되싣기 선례) · Phase 32(계좌 축 · 주문 서버 소유 필터 29-35) · 외부: gh-trade Phase 41(서버 배포는 사용자 지시 때 — 구 서버는 op 6 에 code 1 BAD_OP)
+**Goal**: gh-trade Phase 41 계약 두 인박스(`docs/inbox/from-gh-trade/261027-account-budget.md` · `261027-account-pnl.md` · fbs SYNC 7824e51b — 44 `AdminCommandReq` op 6 SetAccountBudget · op 7 SetAccountFee · 87 `AdminAccount` `budget_krw`·`fee_ppm`·`sell_tax_ppm` · 66/67 `AccountState.budget_krw` · 80 `JournalRecord` 말미 손익 4필드)을 받아 ① **어드민이 계좌별 예수금(와이어 `budget_krw` · 원 · 화면 만원) · 수수료(%) · 매도세(%)를 설정**하고(등록 서버 전부 fan-out · 서버별 칩 · 서버별 다름 · op 3 뒤 서버 간 되싣기 · DB 의도 저장 없음 — 87/67 정본), ② **웹 주문 화면(계좌 패널 · /me 잔고 탭 · 수동주문 폼 · 상따 카드)이 「주문가능 금액」을 실시간 표시**하며 초과는 경고만 하고(차단 · alert 없음), ③ 서버가 체결마다 실현손익·수수료·세금만큼 조정한 예수금을 66/67(한도 전용 67 포함) **마지막 값으로 덮어** 보이고, ④ 저널 손익 4필드(`avg_price`·`fee_krw`·`tax_krw`·`realized_pnl_krw`)를 DB 에 적재해 **「일자별 매매손익」**(`/admin/pnl` 전 계정·계좌 · `/me` 「손익」 탭 내 계좌)을 보여 준다. 주문가능 = `budget_krw − Σ(avg_price × stock_qty) − Σ(매수 미체결 unfilled_qty × price)` — 매도 미체결 제외 · 매수는 KRX·NXT · 예약 요약 · 접수대기 포함 · `pending_cancel_sent` 제외 · price 0 이면 현재가(없으면 0, 상한가 금지) · 0 = 미설정 「—」 · 표기 만원 내림 콤마(억 없음) · 음수는 「0만」 빨강. 화면 용어는 「한도」 대신 「예수금」(같은 것)
+**Depends on**: Phase 29(웹 Admin · useFieldSave · 서버별 칩) · Phase 30(op 3 IP/MAC 되싣기 · 서버 간 불일치 선례) · Phase 31(shared 환산 한 벌) · Phase 32(계좌 축 · /me 계좌 칩 · 주문 서버 소유 필터 29-35) · Phase 34(행 펼침 보고서 선례) · 외부: gh-trade Phase 41(KB120 · 교보119 2026-10-27 20:42 배포 완료 · v1.0-893-g2d5bc207 — 구 서버는 op 6/7 에 code 1) · 인박스 `261027-account-budget.md` + `261027-account-pnl.md` · fbs SYNC 7824e51b
 **Requirements**: TBD
-**Success Criteria** (초안 — discuss/plan 에서 확정):
-  1. 목업: 어드민 계좌 카드 「한도(만원)」 칸 · 웹 주문가능 표시(계좌 패널 · /me · 초과 경고 톤)를 사용자 확인
-  2. relay: 44 op 6 송신(account_no + budget_krw · user_id 미사용) · 86 code 0/5/8/10/11 + 1(구 서버 「서버 미지원」) 표시 · 87 `AdminAccount.budget_krw` 파싱 · 66/67 `budget_krw` 캐시 반영(67 항목 병합 · 한도 마지막 값 덮어쓰기 · 한도 전용 빈 벡터 델타) · op 3(op 1 신규 첫 계좌 포함) 성공 뒤 op 6 되싣기
-  3. server/shared: 어드민 한도 쓰기 경로(requireAdmin) · 응답 계약에 budget 노출 · ulong(bigint) ↔ JSON 변환
-  4. webapp: 어드민 계좌 카드 한도 칸(즉시 저장 · 서버별 칩 · 서버별 다름) · 호가창 계좌 패널 · /me 주문가능 금액(웹과 WinForms 클라가 같은 값)
-  5. gh-trade 서버 배포 뒤 라이브 UAT(설정 → 86 code 0 · 87 전 행 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」) · 인박스 `261027-account-budget.md` 를 `status: done` 으로 닫는다
+**Success Criteria** (discuss 2026-10-27 확정 · 범위 확장 ③④ 반영):
+  1. 목업 확인 — 완료(D-00 · `reference/mockup-account-budget.html` · ①~④ 그대로 · ⑤ 일자별 매매손익 A 안)
+  2. relay: 44 op 6/op 7 송신(account_no + `budget_krw` / `fee_ppm`·`sell_tax_ppm` · user_id 미사용) · 86 code 0/5/8/10/11 + 1(구 서버 · 범위 밖 「서버 미지원」 · message 원문) · 87 `budget_krw`·`fee_ppm`·`sell_tax_ppm` 파싱 · 66/67 `budget_krw` 마지막 값 덮기(한도 전용 빈 벡터 델타 · 1~2초 재전송 · 재접속 캐시 유지) · 저널 손익 4필드 파싱 · op 3(op 1 신규 첫 계좌 포함) 성공 뒤 서버 간 op 6/7 되싣기 · op 6/7 결과는 반영 칩 기록(`dma_admin_results`) 밖
+  3. server/shared: 어드민 쓰기 경로 2종(PUT budget · fee · requireAdmin) · 개요 응답에 서버별 예수금·비용률(67 live 우선 · 87 폴백 · op 5 스로틀) · bigint ↔ JSON(number · 안전 범위) · 주문가능 계산·표기·% ↔ ppm 은 shared 한 벌
+  4. DB: `dma_journal_events` bigint 4열(기본 0) · `dma_journal_apply` 재정의(4키 적재 · 옛 이벤트 0) · 일자 집계 RPC 2종(어드민 계정별/계좌별 · /me 가시성 조인 · 호출 1회 · `exec_qty::bigint` · REVOKE anon/authenticated)
+  5. webapp: 어드민 카드 「예수금 · 수수료 · 매도세」 상시 행(즉시 저장 · 서버별 칩 · 서버별 다름 · 범위 검증) · 계좌 패널 요약 줄 「주문가능 / 예수금」 · 수동주문 「주문가능」 행 + 초과 검증 줄 · 상따 금액 합산 경고 · `/admin/pnl`(계정별 | 계좌별) · `/me` 「손익」 탭 — 웹과 WinForms 클라가 같은 숫자
+  6. 라이브 UAT(설정 → 86 code 0 · 87 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」 · 체결 뒤 저널 4값 → 매매손익 행) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 를 `status: done` 으로 닫는다
 
-**배포 순서**: gh-trade 서버 먼저 배포해도 안전(말미 append · 구 서버 op 6 = code 1) → gh-radar (DB 필요 시) → relay → server → webapp push(= 프로덕션)
-**Plans**: 0 plans
+**배포 순서**: gh-trade 서버는 이미 배포(말미 append · 구 서버 op 6/7 = code 1) → gh-radar DB 마이그레이션(`supabase db push --linked --yes` · 08:00~20:00 KST 밖) → relay(20:00 KST 뒤 · 메인 세션) → server → webapp push(= 프로덕션 · relay 뒤). relay 는 append-only 라 gh-trade 와의 순서 무관
+**Plans**: 9 plans
 
 Plans:
-- [ ] TBD (run /gsd-discuss-phase 36 → 목업 → /gsd-plan-phase 36)
+**Wave 1**
+- [ ] 36-01-PLAN.md — 트레이서: D-16 생성물·노트 경로 지정 커밋 · frames 복구 · 66/67 예수금 → hub 덮기 → shared 계산 → 계좌 패널 요약 줄 + shared 계약(어드민 비용 · 표기 · 매매손익 타입)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 36-02-PLAN.md — relay 어드민: op 6 예수금 PUT → dispatcher fan-out → 44 → 86 (트레이서) · op 7 비용률 · 87 3필드 파싱
+- [ ] 36-03-PLAN.md — server+web 어드민 카드: 예수금 칸 저장 경로(트레이서) · 수수료·매도세 · 범위 · code 1 · 상태 6종 · 불일치 줄 · E2E
+- [ ] 36-06-PLAN.md — 주문가능 경고: 수동주문 「주문가능」 행 + 초과 검증 줄(트레이서) · 상따 금액 합산 경고
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 36-04-PLAN.md — 현재값 공급: 67 live · 87 → GET account-costs → 개요 costs(트레이서) · op 5 스로틀 · op 3 뒤 서버 간 되싣기
+- [ ] 36-05-PLAN.md — 저널 손익 4필드 → DB (D-15 one-way 체크포인트 → 트레이서: 파서 · apply 이벤트 · 4열 · apply 재정의 · pgTAP)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 36-07-PLAN.md — 매매손익 집계: /me RPC → GET /api/pnl(트레이서) · 어드민 RPC → GET /api/admin/pnl · pgTAP
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 36-08-PLAN.md — 매매손익 화면: /me 「손익」 탭(트레이서) · /admin/pnl · 사이드바 · E2E + 전체 회귀 게이트
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 36-09-PLAN.md — [BLOCKING] db push → relay → server → push · 라이브 UAT · 두 인박스 닫기 (메인 세션)
 
 **UI hint**: yes

@@ -40,22 +40,31 @@ created: "2026-10-27"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 36-00-01 | 00 | 0 | D-16 | — | N/A | typecheck | `pnpm --filter @gh-radar/relay run typecheck:tests` | ✅ (현재 FAIL) | ⬜ pending |
-| 36-xx-xx | — | — | D-11/D-09/D-02 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/account-budget.test.ts` | ❌ W0 | ⬜ pending |
-| 36-xx-xx | — | — | D-06/D-03/D-05 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/admin.test.ts src/__tests__/admin-overview.test.ts` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | op 6/7 · 87 3필드 | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run src/dma/__tests__/envelope.test.ts tests/admin-conn.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-14 | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/account-state.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-15 (relay) | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-codec.test.ts tests/journal-writer.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-07/D-04/D-05 | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/admin-dispatcher.test.ts tests/admin-api.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | server 프록시 · D-17 | — | requireAdmin / requireAuth | route | `pnpm --filter @gh-radar/server exec vitest run tests/routes/admin-dma.test.ts tests/routes/admin.test.ts tests/routes/pnl.test.ts --maxWorkers=2` | ✅ / ❌ W0 (pnl) | ⬜ pending |
-| 36-xx-xx | — | — | D-15 DB | — | service_role 전용 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_apply.test.sql` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-18/D-19 DB | — | REVOKE anon/authenticated · 가시성 조인 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_pnl_daily.test.sql` | ❌ W0 | ⬜ pending |
-| 36-xx-xx | — | — | D-01~D-03/D-06 UI | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/admin/__tests__/account-editor.test.tsx --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-08/D-09/D-12/D-13 UI | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/orderbook/__tests__/account-panel.test.tsx src/components/trading/__tests__/manual-order-form.test.tsx src/components/trading/__tests__/limit-chaser-form.test.tsx --maxWorkers=2` | ✅ | ⬜ pending |
-| 36-xx-xx | — | — | D-17/D-18 UI | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/__tests__/me-client.test.tsx src/components/pnl/__tests__/pnl-report.test.tsx --maxWorkers=2` | ✅ / ❌ W0 | ⬜ pending |
-| 36-xx-xx | — | — | 사이드바 · E2E | — | N/A | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/sidebar-tree.spec.ts e2e/specs/admin.spec.ts e2e/specs/me.spec.ts --workers=1` | ✅ | ⬜ pending |
+| 36-01-01 | 01 | 1 | D-16 · D-14 · D-08 · D-09 · D-11 | — | N/A | typecheck + unit + component | `pnpm --filter @gh-radar/relay run typecheck:tests` · `… shared exec vitest run src/__tests__/account-budget.test.ts` · `… relay exec vitest run tests/account-state.test.ts` · `… webapp exec vitest run src/components/orderbook/__tests__/account-panel.test.tsx` | ✅ / ❌ 36-01-01 생성(account-budget.test.ts) | ⬜ pending |
+| 36-01-02 | 01 | 1 | D-06 · D-04 · D-03 · D-05 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/admin.test.ts src/__tests__/admin-overview.test.ts src/__tests__/order-endpoint.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-01-03 | 01 | 1 | D-02 · D-18 · D-13 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/account-budget.test.ts src/__tests__/pnl.test.ts --maxWorkers=2` | ❌ 36-01-03 생성(pnl.test.ts) | ⬜ pending |
+| 36-02-01 | 02 | 2 | op 6 · D-01 · D-04 · D-06 · D-07(fan-out) | — | requireAdmin 은 Express · relay 는 X-Relay-Secret | unit | `pnpm --filter @gh-radar/relay exec vitest run src/dma/__tests__/envelope.test.ts tests/admin-dispatcher.test.ts tests/admin-api.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-02-02 | 02 | 2 | op 7 · 87 3필드 · D-02 · D-05 | — | N/A | unit | `… relay exec vitest run … tests/admin-conn.test.ts tests/admin-planner.test.ts tests/admin-snapshot-sink.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-03-01 | 03 | 2 | D-01 · D-06 · server 프록시 | — | requireAdmin | route + component | `pnpm --filter @gh-radar/server exec vitest run tests/routes/admin-dma.test.ts --maxWorkers=2` · `… webapp exec vitest run src/components/admin/__tests__/account-editor.test.tsx --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-03-02 | 03 | 2 | D-02 · D-03 · D-06 · D-04 | — | requireAdmin | route + component | 같은 두 명령 | ✅ | ⬜ pending |
+| 36-03-03 | 03 | 2 | D-01 ~ D-06 E2E | — | N/A | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/admin.spec.ts --workers=1` | ✅ | ⬜ pending |
+| 36-04-01 | 04 | 3 | D-05 | — | N/A | unit + route | `… relay exec vitest run tests/hub.test.ts tests/admin-api.test.ts` · `… server exec vitest run tests/routes/admin.test.ts` | ✅ | ⬜ pending |
+| 36-04-02 | 04 | 3 | D-05 op 5 스로틀 | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/admin-api.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-04-03 | 04 | 3 | D-07 · D-04 | — | N/A | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/admin-dispatcher.test.ts tests/admin-planner.test.ts --maxWorkers=2` | ✅ | ⬜ pending |
+| 36-05-01 | 05 | 3 | D-15 (one-way 체크포인트) | — | N/A | decision | — (사용자 승인 원문) | — | ⬜ pending |
+| 36-05-02 | 05 | 3 | D-15 | — | service_role 전용(apply) | unit + pgTAP | `… relay exec vitest run tests/journal-codec.test.ts tests/journal-writer.test.ts` · `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_apply.test.sql` · `… --test supabase/tests/dma_journal_schema.test.sql` | ✅ | ⬜ pending |
+| 36-06-01 | 06 | 2 | D-11 · D-12 | — | N/A | unit + component | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/use-available-krw.test.ts src/components/trading/__tests__/manual-order-form.test.tsx src/components/trading/__tests__/trading-workbench.test.tsx --maxWorkers=2` | ❌ 36-06-01 생성(use-available-krw.test.ts) | ⬜ pending |
+| 36-06-02 | 06 | 2 | D-13 · UI E3 overflow 백스톱 | — | N/A | component + e2e | `… webapp exec vitest run src/components/trading/__tests__/limit-chaser-form.test.tsx` · `… playwright test e2e/specs/trading-workbench.spec.ts --grep "카드 컨테이너\|4c\.\|18\. 폰 밴드" --workers=1` | ✅ | ⬜ pending |
+| 36-07-01 | 07 | 4 | D-17 ② · D-18 · D-19 | — | 가시성 조인 · REVOKE anon/authenticated · requireAuth | pgTAP + route | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_pnl_daily.test.sql` · `… server exec vitest run tests/routes/pnl.test.ts tests/routes/orders.test.ts` | ❌ 36-07-01 생성(dma_pnl_daily.test.sql · pnl.test.ts) | ⬜ pending |
+| 36-07-02 | 07 | 4 | D-17 ① · D-18 · D-19 | — | requireAdmin · REVOKE anon/authenticated | pgTAP + route | 같은 pgTAP · `… server exec vitest run tests/routes/admin-pnl.test.ts …` | ❌ 36-07-02 생성(admin-pnl.test.ts) | ⬜ pending |
+| 36-08-01 | 08 | 5 | D-17 ② · D-18 | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/pnl/__tests__/pnl-report.test.tsx src/components/trading/__tests__/me-client.test.tsx --maxWorkers=2` | ❌ 36-08-01 생성(pnl-report.test.tsx) | ⬜ pending |
+| 36-08-02 | 08 | 5 | D-17 ① · 사이드바 | — | N/A | component | `… webapp exec vitest run src/components/pnl/__tests__/pnl-admin-client.test.tsx src/components/layout/__tests__/app-sidebar.test.tsx --maxWorkers=2` | ❌ 36-08-02 생성(pnl-admin-client.test.tsx) | ⬜ pending |
+| 36-08-03 | 08 | 5 | E2E · UI E2 백스톱 · 전체 회귀 게이트 | — | N/A | e2e + full suite + pgTAP | `… playwright test e2e/specs/me.spec.ts e2e/specs/admin-pnl.spec.ts e2e/specs/sidebar-tree.spec.ts e2e/specs/admin.spec.ts --workers=1` · 전 워크스페이스 vitest · pgTAP 4파일 | ❌ 36-08-03 생성(admin-pnl.spec.ts) | ⬜ pending |
+| 36-09-01 | 09 | 6 | [BLOCKING] schema push · D-16 배포 순서 | — | N/A | manual (메인 세션) | `supabase migration list --linked` | — | ⬜ pending |
+| 36-09-02 | 09 | 6 | SC 6 라이브 UAT | — | N/A | manual (UAT) | `supabase migration list --linked` | — | ⬜ pending |
+| 36-09-03 | 09 | 6 | D-16 인박스 닫기 | — | N/A | source | 두 노트 `status: done` · `done_commit` · `## 회신` grep | ✅ | ⬜ pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky* — Task ID 는 플래너가 PLAN.md 확정 뒤 채운다.
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky* — Task ID 는 플래너가 PLAN.md 확정 뒤 채웠다(2026-10-27). 「Wave 0」 테스트 파일은 별도 웨이브 없이 각 태스크가 처음 만든다(File Exists 칸의 생성 태스크).
 
 ---
 
