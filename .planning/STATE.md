@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-10-PLAN.md
-last_updated: "2026-10-27T16:32:04.030Z"
+stopped_at: Completed 35-16-PLAN.md
+last_updated: "2026-10-27T16:48:07.801Z"
 last_activity: 2026-10-28
 last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
-state_head: 4be128bdfe0dcade838010bc5a089df10b5f82a6
+state_head: a4866ba159b1e9754b43fa02b36dcf0b8a11486c
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 82
-  completed_plans: 67
+  completed_plans: 68
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 14 of 19 (35-01~10 · 35-12~15 완료 — 정식 인계 노트 261028 도착 · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-16~19 남음 · 로컬 커밋까지만 D-35)
+Plan: 15 of 19 (35-01~10 · 35-12~15 완료 — 정식 인계 노트 261028 도착 · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-16~19 남음 · 로컬 커밋까지만 D-35)
 Status: Ready to execute
 Last activity: 2026-10-28 — 35-10 kind 17·18 정식 칸 매핑(20261028200000 · pgTAP 36/36) · STRATEGY_EVENT_KIND 17·18 · 라벨 로컬 커밋 · push 안 함
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T16:32:03.941Z
-Stopped at: Completed 35-10-PLAN.md
+Last session: 2026-10-27T16:48:07.716Z
+Stopped at: Completed 35-16-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -170,6 +170,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P14 | 10min | 3 tasks | 13 files |
 | Phase 35 P15 | 21min | 3 tasks | 11 files |
 | Phase 35 P10 | 25min | 3 tasks | 8 files |
+| Phase 35 P16 | 7min | 3 tasks | 11 files |
 
 ## Decisions
 
@@ -273,3 +274,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-15: 바꿀 실선 굵기 2 · 번호는 행 아래(목업 정본) · 조각 칸 104px(−3000 잘림 실측)
 - [Phase 35]: 35-10: kind 17·18 정식 매핑 — 노트 전용 4칸(base_cum·error_volume·remaining_volume·plan_rev) 매핑 안 함(사용자 결정 2026-10-28) · next_offset_us = cond_threshold 직접(A2 폴백 없음)
 - [Phase 35]: 35-10: launch_pieces.result_code 는 rc= 원문(0101·0515·E127·F083) · 백필 표기(101·515·0)와 다름 · fire_at_us = fire= KST epoch µs
+- [Phase 35]: 35-16: ADMIN_OP 8·9 만 · 6·7 자리는 phase-36 병합 세션 몫
+- [Phase 35]: 35-16: 94 는 request_id 로만 짝짓는다 — op 8 뒤 94 · 늦은 94 는 debug 후 버림 · op 8/9 는 87 대기 판정 밖
+- [Phase 35]: 35-16: 94 updated_at 빈 값 허용 · entries 원소 null = 프레임 파손
