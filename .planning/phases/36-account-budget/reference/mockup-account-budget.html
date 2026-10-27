@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 36 목업 — 계좌 예수금 · 주문가능 · 일자별 매매손익</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 (라이트 / 다크) ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6; --primary-fg: #fff;
+  --up: #f04452; --down: #3182f6; --up-bg: #ffeeee; --down-bg: #e8f3ff;
+  --warn: #c2410c; --warn-bg: #fff4e6; --destructive: #e5484d; --destructive-bg: #fdecec;
+  --led-armed: #16a34a; --led-latent: #a16207; --group-bg: #f2f4f6; --seg-on-bg: #fff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.12);
+  --accum-carry: #a16207; --accum-carry-bg: #fef9e7;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --primary: #3485fa;
+  --up: #f04251; --down: #3485fa; --up-bg: rgba(240,66,81,.16); --down-bg: rgba(52,133,250,.16);
+  --warn: #ff9f43; --warn-bg: rgba(255,159,67,.14); --destructive: #e5484d; --destructive-bg: rgba(229,72,77,.14);
+  --led-armed: #30d158; --led-latent: #ffd43b; --group-bg: #1d1d1f; --seg-on-bg: #3a3a3c; --seg-on-fg: #fff; --seg-on-shadow: none;
+  --accum-carry: #ffd43b; --accum-carry-bg: rgba(255,212,59,.16);
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1120px; min-height: 860px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 220px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; text-decoration: none; }
+.side a.grp.on { color: var(--fg); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side a.sub.new::after, .tab.new::after { content: '추가'; font-size: 10px; font-weight: 700; color: var(--accum-carry); background: var(--accum-carry-bg); border-radius: 5px; padding: 1px 5px; margin-left: 6px; }
+.side a.sub.new::after { margin-left: auto; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; max-width: 900px; width: 100%; margin: 0 auto; }
+.f.desktop .main.wide { max-width: 100%; }
+.phead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phead h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--fg); }
+.phead .sub { font-size: 12.5px; color: var(--muted-fg); flex-basis: 100%; }
+.phead .sp { flex: 1; }
+.mono { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pos { color: var(--up); } .neg { color: var(--down); } .dim { color: var(--muted-fg); } .zero { color: var(--fg-2); } .bad { color: var(--destructive); }
+.foot { font-size: 12px; color: var(--muted-fg); padding: 2px 4px; line-height: 1.5; }
+
+/* ── 세그먼트 · 탭 · 칩 ── */
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { font: inherit; font-size: 13px; font-weight: 500; border: 0; background: transparent; color: var(--muted-fg); border-radius: 8px; padding: 5px 11px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); font-weight: 600; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-subtle); }
+.tab { font-size: 14px; font-weight: 500; color: var(--muted-fg); padding: 10px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tab.on { color: var(--fg); font-weight: 600; border-bottom-color: var(--fg); }
+.tab small { font-size: 11px; font-weight: 500; color: var(--muted-fg); margin-left: 3px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.achip { display: inline-flex; align-items: center; gap: 5px; height: 32px; border-radius: 999px; padding: 0 12px; background: var(--muted); color: var(--muted-fg); white-space: nowrap; flex: none; font-size: 12.5px; font-weight: 600; }
+.achip.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.achip .no { font-size: 11px; font-weight: 400; opacity: .8; }
+.achip .sv { font-size: 10px; font-weight: 700; background: var(--muted); color: var(--fg-2); border-radius: 5px; padding: 0 5px; height: 18px; display: inline-flex; align-items: center; }
+.ch { display: inline-block; border-radius: 5px; padding: 2px 6px; font-size: 11px; line-height: 1.4; font-weight: 600; white-space: nowrap; }
+.ch.ok { background: color-mix(in srgb, var(--led-armed) 16%, transparent); color: var(--led-armed); }
+.ch.warn { background: color-mix(in srgb, var(--led-latent) 18%, transparent); color: var(--led-latent); }
+.ch.err { background: color-mix(in srgb, var(--destructive) 14%, transparent); color: var(--destructive); }
+.ch.dim { border: 1px dashed var(--border-subtle); padding: 1px 6px; color: var(--faint); }
+.ch.busy::before { content: ''; display: inline-block; width: 9px; height: 9px; border: 1.5px solid var(--faint); border-top-color: transparent; border-radius: 50%; margin-right: 4px; vertical-align: -1px; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn { font: inherit; font-size: 12px; font-weight: 600; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; background: var(--muted); color: var(--fg-2); }
+.btn.pri { background: var(--primary); color: var(--primary-fg); }
+.badge-new { font-size: 10px; font-weight: 700; color: var(--accum-carry); background: var(--accum-carry-bg); border-radius: 5px; padding: 1px 5px; vertical-align: 2px; margin-left: 4px; }
+
+/* ── ① 어드민 계좌 카드 ── */
+.sheet { background: var(--card); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.f:not(.dark) .sheet { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.sheet h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg); }
+.acard { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.acard .title { display: flex; align-items: center; gap: 8px; }
+.acard .title .bk { font-size: 11px; font-weight: 700; background: var(--muted); color: var(--fg-2); border-radius: 5px; padding: 2px 6px; }
+.acard .title b { font-size: 14px; color: var(--fg); font-weight: 600; }
+.acard .title .nm { color: var(--muted-fg); }
+.acard .title .act { margin-left: auto; display: flex; gap: 6px; }
+.acard .meta { font-size: 12.5px; color: var(--muted-fg); }
+.acard .meta b { color: var(--fg-2); font-weight: 500; }
+.lim { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; color: var(--muted-fg); }
+.lim .fld { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lim input { font: inherit; font-size: 13px; font-weight: 600; color: var(--fg); text-align: right; background: var(--muted); border: 1px solid transparent; border-radius: 7px; height: 30px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.lim input.w1 { width: 84px; } .lim input.w2 { width: 60px; }
+.lim input::placeholder { color: var(--faint); font-weight: 500; }
+.lim input:focus { outline: 0; border-color: var(--primary); }
+.lim.busy input { opacity: .5; }
+.lim .sep { color: var(--faint); }
+.lim .res { display: inline-flex; gap: 4px; margin-left: 2px; }
+.f.phone .lim .fld.first { flex-basis: 100%; }
+.cap { font-size: 11.5px; color: var(--muted-fg); line-height: 1.5; }
+.line { font-size: 12px; line-height: 1.5; }
+.line.warn { color: var(--warn); } .line.err { color: var(--destructive); } .line.note { color: var(--muted-fg); }
+.srv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted-fg); }
+.srv .sv { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px; color: var(--fg-2); font-weight: 500; }
+.srv .sv i { width: 24px; height: 14px; border-radius: 7px; background: var(--faint); position: relative; display: inline-block; }
+.srv .sv i.on { background: var(--led-armed); }
+.srv .sv i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.srv .sv i.on::after { left: 12px; }
+.srv .sv .ord { font-size: 10px; font-weight: 700; color: var(--primary); }
+
+/* ── ② 계좌 패널 ── */
+.panel { background: var(--card); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.f:not(.dark) .panel { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.panel .ph { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; color: var(--muted-fg); font-weight: 600; }
+.panel .ph b { color: var(--fg); font-weight: 600; }
+.panel .ph .sp { flex: 1; }
+.avail { display: flex; align-items: baseline; gap: 6px; padding: 10px 12px 8px; font-size: 13px; color: var(--muted-fg); }
+.avail .k { font-size: 12px; }
+.avail .v { font-size: 15px; font-weight: 600; color: var(--fg); }
+.avail .v.bad { color: var(--destructive); }
+.avail .v.none { color: var(--muted-fg); font-weight: 500; }
+.avail .lim { font-size: 12.5px; color: var(--muted-fg); gap: 0; }
+.sect { padding: 8px 12px 6px; font-size: 12px; font-weight: 600; color: var(--fg); display: flex; gap: 6px; align-items: baseline; }
+.sect span { color: var(--muted-fg); font-weight: 400; }
+table.t { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.t th { text-align: left; font-weight: 500; color: var(--muted-fg); font-size: 11.5px; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+table.t td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.t th.num, table.t td.num { text-align: right; }
+table.t td b { font-weight: 600; color: var(--fg); }
+table.t tr:last-child td { border-bottom: 0; }
+.rows { display: flex; flex-direction: column; }
+.rows .r { padding: 9px 12px; border-top: 1px solid var(--border); font-size: 12.5px; }
+.rows .r .a { display: flex; justify-content: space-between; gap: 8px; }
+.rows .r .a b { color: var(--fg); font-weight: 600; }
+.rows .r .b { color: var(--muted-fg); font-size: 11.5px; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+.rows .r .b b { font-weight: 600; }
+.side-tag { font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 5px; }
+.side-tag.B { background: var(--up-bg); color: var(--up); } .side-tag.S { background: var(--down-bg); color: var(--down); }
+.xbtn { font-size: 11px; color: var(--muted-fg); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 2px 7px; background: transparent; }
+
+/* ── ③ 수동주문 폼 ── */
+.card { background: var(--card); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.f:not(.dark) .card { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.f.desktop .card { max-width: 420px; }
+.card .ch-head { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg); font-weight: 600; margin-bottom: 4px; }
+.card .ch-head span { color: var(--muted-fg); font-weight: 400; font-size: 12px; }
+.box { display: flex; justify-content: space-between; align-items: center; background: var(--muted); border-radius: 16px; padding: 10px 14px; min-height: 52px; }
+.box .l { font-size: 13px; color: var(--muted-fg); }
+.box .v { font-size: 17px; font-weight: 600; color: var(--fg); }
+.box .v small { font-size: 12px; font-weight: 500; color: var(--muted-fg); margin-left: 3px; }
+.row { display: flex; justify-content: space-between; align-items: center; min-height: 44px; gap: 8px; }
+.row .l { font-size: 14px; color: var(--muted-fg); white-space: nowrap; }
+.row .v { font-size: 14px; font-weight: 500; color: var(--fg-2); }
+.row .v.bad { color: var(--destructive); font-weight: 600; }
+.row .v .no { font-variant-numeric: tabular-nums; }
+.row .v .faint { color: var(--faint); }
+.status { font-size: 12.5px; line-height: 1.45; color: var(--destructive); padding: 2px 2px 4px; }
+.status.warn { color: var(--warn); }
+.obtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.obtn button { font: inherit; border: 0; border-radius: 12px; font-weight: 700; font-size: 15px; height: 48px; color: #fff; cursor: pointer; }
+.obtn .buy { background: var(--up); } .obtn .sell { background: var(--down); }
+.obtn.sm button { height: 38px; font-size: 13px; background: var(--muted); color: var(--fg-2); font-weight: 600; }
+.obtn button.ring { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* ── ④ 상따 카드 ── */
+.grp { background: var(--group-bg); border-radius: 16px; padding: 10px 10px 4px; display: flex; flex-direction: column; gap: 2px; }
+.grp .gh { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--fg); padding: 0 4px 6px; }
+.grp .gh .sw { margin-left: auto; width: 34px; height: 20px; border-radius: 10px; background: var(--faint); position: relative; }
+.grp .gh .sw.on { background: var(--led-armed); }
+.grp .gh .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+.grp .gh .sw.on::after { left: 16px; }
+.lrow { display: flex; align-items: center; min-height: 32px; padding: 0 4px; font-size: 13px; border-radius: 10px; }
+.lrow .l { color: var(--muted-fg); width: 72px; flex: none; }
+.lrow .v { margin-left: auto; font-weight: 600; color: var(--fg); font-size: 15px; }
+.lrow .v.bad { color: var(--destructive); }
+.lrow .v small { font-size: 13px; font-weight: 400; color: var(--faint); margin-left: 3px; }
+.lrow .sub { color: var(--muted-fg); font-size: 12px; margin-left: 8px; }
+.notice { font-size: 12.5px; line-height: 1.45; color: var(--warn); padding: 4px 6px 6px; }
+
+/* ── ⑤ 매매손익 ── */
+.pctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pctl .mon { font: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--border-subtle); background: transparent; color: var(--muted-fg); border-radius: 10px; padding: 6px 11px; }
+.pctl .mon.on { color: var(--fg); border-color: var(--fg); font-weight: 600; }
+.pnl { background: var(--card); border-radius: 16px; overflow: hidden; }
+.f:not(.dark) .pnl { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.gh2 { display: flex; align-items: baseline; gap: 8px; padding: 11px 16px 8px; background: var(--band); border-bottom: 1px solid var(--border-subtle); font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.gh2 span { font-size: 12px; font-weight: 400; color: var(--muted-fg); }
+.gh2 .acc { font-size: 11px; font-weight: 700; background: var(--muted); border-radius: 5px; padding: 1px 5px; color: var(--fg-2); }
+.sum { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr 1fr .7fr; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.sum .k { font-size: 11px; color: var(--muted-fg); display: block; }
+.sum .v { font-weight: 600; color: var(--fg); }
+.sum .v.big { font-size: 17px; }
+.f.phone .sum { grid-template-columns: 1fr 1fr 1fr; gap: 10px 8px; }
+.f.phone .sum .c1 { grid-column: 1 / -1; }
+/* A · C 행 */
+.drow { border-bottom: 1px solid var(--border-subtle); }
+.drow:last-child { border-bottom: 0; }
+.dbtn { all: unset; box-sizing: border-box; width: 100%; display: grid; grid-template-columns: 110px 96px 80px 80px 110px 110px 60px 16px; gap: 10px; align-items: center; padding: 11px 16px; cursor: pointer; font-size: 13.5px; }
+.dbtn:hover { background: rgba(127,127,127,.06); }
+.dbtn .d { color: var(--fg); font-weight: 600; }
+.dbtn .p { font-weight: 600; }
+.dbtn .m { color: var(--muted-fg); font-size: 12.5px; }
+.dbtn .sub2 { display: none; }
+.dbtn .chev { color: var(--muted-fg); font-size: 13px; transition: transform .15s; }
+.drow.open .dbtn .chev { transform: rotate(180deg); }
+.f.phone .dbtn { grid-template-columns: 1fr auto 16px; grid-template-areas: "d p chev" "sub2 sub2 sub2"; gap: 3px 8px; padding: 11px 16px; }
+.f.phone .dbtn .d { grid-area: d; } .f.phone .dbtn .p { grid-area: p; font-size: 15px; } .f.phone .dbtn .chev { grid-area: chev; }
+.f.phone .dbtn .m { display: none; }
+.f.phone .dbtn .sub2 { display: block; grid-area: sub2; font-size: 12px; color: var(--muted-fg); }
+.dhead { display: grid; grid-template-columns: 110px 96px 80px 80px 110px 110px 60px 16px; gap: 10px; padding: 8px 16px; font-size: 11.5px; color: var(--muted-fg); border-bottom: 1px solid var(--border-subtle); }
+.f.phone .dhead { display: none; }
+.dhead span.num, .dbtn .num { text-align: right; }
+.dbody { display: none; padding: 0 16px 12px; }
+.drow.open .dbody { display: block; }
+.dbody .kv { font-size: 12.5px; color: var(--muted-fg); padding: 2px 0 8px; }
+.dbody .kv b { color: var(--fg-2); font-weight: 500; }
+.sl { display: grid; grid-template-columns: 1fr 90px 180px; gap: 8px; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; background: var(--band); margin-bottom: 3px; }
+.sl .n { color: var(--fg); font-weight: 500; }
+.sl .amt { color: var(--muted-fg); text-align: right; font-size: 12px; }
+.sl .p { text-align: right; font-weight: 600; }
+.f.phone .sl { grid-template-columns: 1fr 80px; }
+.f.phone .sl .amt { grid-column: 1 / -1; text-align: left; }
+.fl { display: grid; grid-template-columns: 56px 1fr 40px 70px 90px 80px; gap: 8px; font-size: 12px; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+.fl:last-child { border-bottom: 0; }
+.fl .t { color: var(--muted-fg); } .fl .n { color: var(--fg); font-weight: 500; } .fl .num { text-align: right; }
+.f.phone .fl { grid-template-columns: 50px 1fr 36px 70px; }
+.f.phone .fl .q { display: none; }
+.flh { display: grid; grid-template-columns: 56px 1fr 40px 70px 90px 80px; gap: 8px; font-size: 11px; color: var(--muted-fg); padding: 4px 10px; }
+.f.phone .flh { grid-template-columns: 50px 1fr 36px 70px; }
+.f.phone .flh .q { display: none; }
+.flh .num { text-align: right; }
+/* B 표 */
+.bwrap { overflow-x: auto; }
+table.b { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+table.b th { position: sticky; top: 0; font-weight: 500; font-size: 11.5px; color: var(--muted-fg); text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; background: var(--card); }
+table.b td { text-align: right; padding: 11px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.b th:first-child, table.b td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; box-shadow: 1px 0 0 var(--border-subtle); color: var(--fg); font-weight: 600; }
+table.b tr:last-child td { border-bottom: 0; }
+table.b td.p { font-weight: 600; }
+table.b td.m { color: var(--muted-fg); }
+.synth { font-size: 12px; color: var(--muted-fg); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">화면</span><button data-s="1" class="on">① 어드민 계좌 카드</button><button data-s="2">② 계좌 패널 요약</button><button data-s="3">③ 수동주문 폼</button><button data-s="4">④ 상따 금액 3칸</button><button data-s="5">⑤ 매매손익 A/B/C</button></div>
+  <div class="g"><span class="l">기기</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1120</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g" id="sub"></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+// ── 공통 ──
+const man = (v, sign = true) => { const s = v > 0 ? '+' : v < 0 ? '−' : ''; return `${sign ? s : ''}${Math.floor(Math.abs(v)).toLocaleString()}만`; };
+const man1 = v => `${(Math.floor(Math.abs(v) * 10) / 10).toLocaleString()}만`;
+const tone = v => v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero';
+const WD = ['일', '월', '화', '수', '목', '금', '토'];
+const md = s => { const d = new Date(s + 'T00:00:00'); return `${d.getMonth() + 1}/${d.getDate()} (${WD[d.getDay()]})`; };
+
+const SIDE = {
+  admin: 'users', pnl: 'pnl', me: 'me', trade: 'trade',
+};
+function side(ctx) {
+  const adm = ctx === 'users' || ctx === 'pnl';
+  return `<nav class="side"><div class="brand">gh-radar</div>
+    <a class="grp">홈</a>
+    <a class="grp ${ctx === 'trade' ? 'on' : ''}">트레이딩</a>${ctx === 'trade' ? '<a class="sub cur">상따</a><a class="sub">작업대</a>' : ''}
+    <a class="grp">분석</a>
+    <a class="grp ${ctx === 'me' ? 'on' : ''}">My page</a>
+    <a class="grp ${adm ? 'on' : ''}">Admin</a>${adm ? `<a class="sub ${ctx === 'users' ? 'cur' : ''}">사용자</a><a class="sub">서버</a><a class="sub">발사</a><a class="sub ${ctx === 'pnl' ? 'cur' : ''} new">매매손익</a>` : ''}
+  </nav>`;
+}
+const frame = (ctx, inner, wide = false) => `<div class="f ${state.w} ${state.t}">${side(ctx)}<div class="col"><div class="main ${wide ? 'wide' : ''}">${inner}</div></div></div>`;
+
+// ── ① 어드민 계좌 카드 ──
+const ACC1 = { bk: 'KB', no: '37728502101', nm: '주식', br: '00001', tr: '000001', ip: '10.41.1.124', mac: '1C:FD:08:7D:97:8E', lim: '1,000', fee: '0.01', tax: '0.2', srv: [['KB120', true, true], ['KB121', true, false]] };
+const ACC2 = { bk: '교보', no: '10279758101', nm: '위탁', br: null, tr: null, lim: '70,000', fee: '0.05', tax: '0.2', srv: [['KYOBO119', true, true]] };
+const ACC3 = { bk: 'KB', no: '48123456701', nm: '', br: '00001', tr: '000002', ip: '10.41.1.125', mac: '1C:FD:08:7D:97:8F', lim: '', fee: '0.01', tax: '0.2', srv: [['KB120', true, true]] };
+
+function limRow(a, st) {
+  const busy = st === 'busy';
+  const res = { ok: '<span class="ch ok">KB120</span>', busy: '<span class="ch dim busy">KB120 · 보내는 중</span>', same: '<span class="ch dim">KB120 · 변경 없음</span>', fail: '<span class="ch err" title="서버 미지원">KB120 · 실패</span>', off: '<span class="ch warn">KB120 · 서버 연결 안 됨</span>', diff: '<span class="ch ok">KB120</span>' };
+  const chips = st === 'static' ? a.srv.map(s => `<span class="ch ok">${s[0]}</span>`).join('') : (res[st] || res.ok);
+  const line = st === 'fail' ? '<div class="line err" role="alert">KB120 실패: 서버 미지원 · 알 수 없는 명령(code 1) — 서버 업데이트 뒤 다시 저장</div>'
+    : st === 'off' ? '<div class="line warn">KB120 미반영: 서버 연결 안 됨</div>'
+    : st === 'diff' ? '<div class="line warn">KB121 은 500만 — 저장하면 등록 서버가 모두 같아져요</div>'
+    : st === 'same' ? '<div class="line note">변경 없음</div>' : '';
+  const ro = busy ? ' readonly' : '';
+  return `<div class="lim ${busy ? 'busy' : ''}">
+      <span class="fld first">예수금 <input class="w1" value="${a.lim}" placeholder="—"${ro}> 만원</span>
+      <span class="sep">·</span><span class="fld">수수료 <input class="w2" value="${a.fee}"${ro}> %</span>
+      <span class="sep">·</span><span class="fld">매도세 <input class="w2" value="${a.tax}"${ro}> %</span>
+      <span class="res">${chips}</span>
+    </div>
+    <div class="cap">예수금는 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제${a.lim === '' ? ' · 비우면 미설정' : ''}</div>${line}`;
+}
+function acard(a, st) {
+  const kb = a.bk === 'KB';
+  return `<div class="acard">
+    <div class="title"><span class="bk">${a.bk}</span><b class="mono">${a.no}</b><span class="nm">${a.nm || '<span style="color:var(--faint)">이름 없음</span>'}</span><span class="act"><button class="btn">편집</button><button class="btn">제거</button></span></div>
+    <div class="meta">${kb ? `지점 <b class="mono">${a.br}</b> · 트레이더 <b class="mono">${a.tr}</b>` : '지점 · 트레이더 해당 없음'}</div>
+    ${kb ? `<div class="meta">주문자 IP <b class="mono">${a.ip}</b> · MAC <b class="mono">${a.mac}</b></div>` : ''}
+    ${limRow(a, st)}
+    <div class="srv">등록 서버 ${a.srv.map(s => `<span class="sv"><i class="${s[1] ? 'on' : ''}"></i>${s[0]}${s[2] ? ' <span class="ord">주문</span>' : ''}</span>`).join('')}</div>
+  </div>`;
+}
+function screen1() {
+  const st = state.st1;
+  return frame('users', `
+    <div class="phead"><h1>사용자</h1><span class="sp"></span><span class="synth">ezmesya 편집 시트</span></div>
+    <div class="sheet"><h3>계좌 · 등록 서버</h3>
+      ${acard(ACC1, st)}
+      ${acard(ACC2, 'static')}
+      ${acard(ACC3, 'static')}
+      <div><button class="btn">+ 계좌 추가</button></div>
+    </div>
+    <div class="foot">예수금 · 수수료 · 매도세 칸은 Enter / blur 에 즉시 저장(저장 버튼 없음) — 서버 토글 · 주문 서버와 같은 즉시 저장 결. 결과 칩 · 줄은 기존 반영 칩(ok 키만 · 그 밖 「키 · 상태」) · 결과 줄 그대로. 세 번째 카드 = 예수금 미설정(placeholder 「—」).</div>`);
+}
+
+// ── ② 계좌 패널 ──
+const HOLD = [['한선엔지니어링', 1200, 1200, 12680, 13410, 87.6, 5.8], ['제주항공', 900, 700, 9340, 9120, -19.8, -2.4], ['대한제강', 300, 300, 21350, 21900, 16.5, 2.6]];
+const PEND = [['한선엔지니어링', 'B', 13200, 500, 500], ['제주항공', 'S', 9500, 400, 150]];
+function availLine(st) {
+  if (st === 'none') return `<div class="avail"><span class="k">주문가능</span><span class="v none">—</span><span class="lim">/ 예수금 미설정</span></div>`;
+  const v = st === 'over' ? '<span class="v bad">0만</span>' : '<span class="v">1,234만</span>';
+  return `<div class="avail"><span class="k">주문가능</span>${v}<span class="lim">/ 예수금 2,000만</span></div>`;
+}
+function holdTable() {
+  if (state.w === 'phone') return `<div class="rows">${HOLD.map(h => `<div class="r"><div class="a"><b>${h[0]}</b><b class="${tone(h[5])}">${man(h[5])} · ${h[6] > 0 ? '+' : ''}${h[6]}%</b></div><div class="b"><span>보유 <b>${h[1].toLocaleString()}</b> · 매도가능 ${h[2].toLocaleString()}</span><span>평단 ${h[3].toLocaleString()} · 현재 ${h[4].toLocaleString()}</span></div></div>`).join('')}</div>`;
+  return `<table class="t"><tr><th>종목</th><th class="num">보유</th><th class="num">매도가능</th><th class="num">평단가</th><th class="num">현재가</th><th class="num">평가금액</th><th class="num">평가손익</th><th class="num">수익률</th></tr>
+    ${HOLD.map(h => `<tr><td><b>${h[0]}</b></td><td class="num">${h[1].toLocaleString()}</td><td class="num">${h[2].toLocaleString()}</td><td class="num">${h[3].toLocaleString()}</td><td class="num">${h[4].toLocaleString()}</td><td class="num">${Math.floor(h[1] * h[4] / 1e4).toLocaleString()}만</td><td class="num ${tone(h[5])}">${man(h[5])}</td><td class="num ${tone(h[6])}">${h[6] > 0 ? '+' : ''}${h[6]}%</td></tr>`).join('')}</table>`;
+}
+function pendTable() {
+  if (state.w === 'phone') return `<div class="rows">${PEND.map(p => `<div class="r"><div class="a"><b><span class="side-tag ${p[1]}">${p[1] === 'B' ? '매수' : '매도'}</span> ${p[0]}</b><button class="xbtn">취소</button></div><div class="b"><span>주문가 <b>${p[2].toLocaleString()}</b></span><span>주문 ${p[3]} · 미체결 <b>${p[4]}</b></span></div></div>`).join('')}</div>`;
+  return `<table class="t"><tr><th></th><th>종목</th><th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th class="num"></th></tr>
+    ${PEND.map(p => `<tr><td><span class="side-tag ${p[1]}">${p[1] === 'B' ? '매수' : '매도'}</span></td><td><b>${p[0]}</b></td><td class="num">${p[2].toLocaleString()}</td><td class="num">${p[3]}</td><td class="num">${p[4]}</td><td class="num"><button class="xbtn">취소</button></td></tr>`).join('')}</table>`;
+}
+const chipsRow = (active = 0) => `<div class="chips"><span class="achip ${active === 0 ? 'on' : ''}">주식 <span class="no mono">37728502101</span><span class="sv">KB120</span></span><span class="achip ${active === 1 ? 'on' : ''}">위탁 <span class="no mono">10279758101</span><span class="sv">KYOBO119</span></span></div>`;
+const meTabs = cur => `<div class="tabs">${[['현황'], ['잔고', '2'], ['주문', '5'], ['설정'], ['손익', null, true]].filter(t => t[2] ? state.s === '5' : true).map(t => `<span class="tab ${t[0] === cur ? 'on' : ''} ${t[2] ? 'new' : ''}">${t[0]}${t[1] ? `<small>${t[1]}</small>` : ''}</span>`).join('')}</div>`;
+function panel(st, withHead) {
+  return `<div class="panel">
+    ${withHead ? '<div class="ph">계좌 <b class="mono">37728502101</b> 주식 <span class="ch" style="background:var(--muted);color:var(--fg-2)">KB120</span><span class="sp"></span><span>새로고침</span></div>' : ''}
+    ${availLine(st)}
+    <div class="sect">보유 종목 <span>3</span></div>${holdTable()}
+    <div class="sect" style="border-top:1px solid var(--border-subtle);margin-top:4px">미체결 <span>2</span></div>${pendTable()}
+  </div>`;
+}
+function screen2() {
+  const st = state.st2;
+  if (state.ctx2 === 'me') return frame('me', `<div class="phead"><h1>My page</h1></div>${chipsRow(0)}${meTabs('잔고')}${panel(st, false)}
+    <div class="foot">/me 잔고 탭 = 호가창 · 작업대 공용 계좌 패널과 같은 부품 — 요약 줄도 같은 자리(패널 헤더 없이 칩 · 탭 아래). 예수금 미설정 계좌는 「— / 예수금 미설정」 흐리게 · 경고 없음.</div>`);
+  return frame('trade', `<div class="phead"><h1>작업대</h1><span class="sp"></span><span class="synth">하단 공용 계좌 패널</span></div>${panel(st, true)}
+    <div class="foot">요약 줄 한 줄: 「주문가능 <b>1,234만</b> / 예수금 2,000만」 — 주문가능 15px/600, 예수금 12.5px 흐림. 초과(0 이하)는 주문가능만 <span class="bad">destructive</span>, 예수금는 그대로. 보유 · 미체결 표는 지금 모양.</div>`);
+}
+
+// ── ③ 수동주문 폼 ──
+function screen3() {
+  const st = state.st3;
+  const amt = st === 'ok' ? 1000 : 1500, avail = st === 'none' ? null : 1234;
+  const over = st === 'over' && amt > avail;
+  const availV = avail === null ? '<span class="faint">—</span>' : `<span class="no ${over ? 'bad' : ''}">${avail.toLocaleString()}만</span>`;
+  const sellRing = st === 'sell' ? ' ring' : '';
+  const form = `<div class="card">
+    <div class="ch-head">수동주문 <span>한선엔지니어링 · 294630</span></div>
+    <div class="box"><span class="l">가격</span><span class="v mono">12,850<small>원</small></span></div>
+    <div class="box"><span class="l">수량</span><span class="v mono">${st === 'ok' ? '778' : '1,167'}<small>주</small></span></div>
+    <div class="row"><span class="l">주문유형</span><span class="v">지정가 <span class="faint">›</span></span></div>
+    <div class="row"><span class="l">주문금액</span><span class="v no">${amt.toLocaleString()}만</span></div>
+    <div class="row"><span class="l">주문가능</span><span class="v ${over ? 'bad' : ''}">${availV}</span></div>
+    <div class="row"><span class="l">주문계좌</span><span class="v"><span class="mono">37728502101</span> <span class="faint">주식</span></span></div>
+    ${over ? '<div class="status" role="status">주문가능 초과: 1,500만 > 1,234만</div>' : ''}
+    <div class="obtn"><button class="buy">매수</button><button class="sell${sellRing}">매도</button></div>
+    <div class="obtn sm"><button>정정</button><button>취소</button></div>
+  </div>`;
+  return frame('trade', `<div class="phead"><h1>작업대</h1></div>${form}
+    <div class="foot">「주문가능」 행은 주문금액 바로 아래 · 같은 라벨 열. 매수 ∧ 주문금액 > 주문가능 이면 값 <span class="bad">destructive</span> + 버튼 위 role=status 한 줄. 매수 · 매도 버튼은 잠그지 않는다(비차단 — 판정은 서버). 매도 방향 · 미설정은 판정 없음.</div>`);
+}
+
+// ── ④ 상따 카드 금액 3칸 ──
+function screen4() {
+  const over = state.st4 === 'over';
+  const sum = 800 + 700 + 500;
+  const g = (name, on, amt, extra, bad) => `<div class="grp"><div class="gh">${name}<span class="sw ${on ? 'on' : ''}"></span></div>
+    <div class="lrow"><span class="l">금액</span><span class="sub">${extra}</span><span class="v ${bad ? 'bad' : ''}">${amt.toLocaleString()}<small>만원</small></span></div></div>`;
+  const card = `<div class="card">
+    <div class="ch-head">상따 <span>한선엔지니어링 · 294630 · 37728502101</span></div>
+    ${g('선매수', true, 800, '비교가격 상한가 · 주문가격 +0호가', over)}
+    ${g('줄매수 자동', true, 700, '최소 잔량 3,000 · 최대 잔량 12,000', false)}
+    ${g('후매수 자동', true, 500, '최소 잔량 2,000 · 반등 2호가', false)}
+    ${over ? `<div class="notice">주문가능 초과: 상따 합 ${sum.toLocaleString()}만 > 1,234만 — 등록은 그대로 돼요</div>` : ''}
+    <div class="obtn"><button class="buy">등록</button><button style="background:var(--muted);color:var(--fg-2)">해제</button></div>
+  </div>`;
+  return frame('trade', `<div class="phead"><h1>상따</h1></div>${card}
+    <div class="foot">선 · 줄 · 후매수 금액 3칸의 합을 주문가능과 비교. 초과면 선매수 금액 값만 <span class="bad">destructive</span>, 안내는 기존 무장 안내 자리에 <span style="color:#ff9f43">warn</span> 톤 한 줄(비차단 — 등록 · 무장은 막지 않는다). 정상이면 색 · 줄 없음.</div>`);
+}
+
+// ── ⑤ 일자별 매매손익 ──
+const DAYS = [
+  ['2026-10-27', 123, 1.6, 3.3, 1500, 1640, 7], ['2026-10-26', -48, 1.1, 2.1, 980, 1050, 5], ['2026-10-23', 310, 2.4, 5.0, 2300, 2480, 9],
+  ['2026-10-22', -126, 1.9, 3.8, 1800, 1890, 8], ['2026-10-21', 37, 0.8, 1.5, 760, 740, 4], ['2026-10-20', 204, 2.0, 4.2, 1900, 2110, 8],
+  ['2026-10-19', -215, 2.2, 4.4, 2100, 2170, 10], ['2026-10-16', 88, 1.3, 2.6, 1200, 1290, 6], ['2026-10-15', -12, 0.6, 1.1, 520, 540, 3],
+  ['2026-10-13', 156, 1.7, 3.5, 1600, 1760, 7], ['2026-10-12', -73, 1.4, 2.7, 1300, 1340, 6], ['2026-10-08', 61, 1.0, 2.0, 900, 980, 5],
+]; // 10/14 (수) 는 체결 0건 → 행 생략
+const NAMES = ['한선엔지니어링', '제주항공', '에스엠벡셀', '대한제강', '천일고속', '대성산업', '화성밸브', '동양고속', '뉴인텍', '대양금속', '금강철강', '도우인시스'];
+const PX = [12680, 9340, 4215, 21350, 200400, 5720, 14200, 31800, 1915, 2230, 6410, 9880];
+const scaleDays = (f, from = 0, to = 12) => DAYS.slice(from, to).map(d => [d[0], d[1] * f, d[2] * f, d[3] * f, d[4] * f, d[5] * f, Math.max(1, Math.round(d[6] * f))]);
+function stocksOf(d, i) {
+  const k = d[6] >= 6 ? 3 : 2;
+  const ps = k === 3 ? [0.7, 0.5, -0.2] : [1.3, -0.3], bs = k === 3 ? [0.5, 0.3, 0.2] : [0.6, 0.4];
+  return Array.from({ length: k }, (_, j) => { const idx = (i * 3 + j) % 12; return { n: NAMES[idx], px: PX[idx], p: d[1] * ps[j], b: d[4] * bs[j], s: d[5] * bs[j], f: j < k - 1 ? Math.floor(d[6] / k) : d[6] - Math.floor(d[6] / k) * (k - 1) }; });
+}
+function fillsOf(d, i) {
+  const out = []; let t = 9 * 60 + 2 + i * 3;
+  stocksOf(d, i).forEach(s => {
+    const nb = Math.max(1, Math.ceil(s.f / 2)), ns = Math.max(1, s.f - nb);
+    for (let q = 0; q < nb + ns; q++) {
+      const sell = q >= nb; const px = Math.round(s.px * (1 + (sell ? 0.03 : 0) + q * 0.004));
+      const amt = (sell ? s.s / ns : s.b / nb) * 1e4;
+      out.push({ t: `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`, n: s.n, side: sell ? 'S' : 'B', qty: Math.max(1, Math.floor(amt / px)), px, p: sell ? s.p / ns : null });
+      t += 4 + (q * 7) % 11;
+    }
+  });
+  return out;
+}
+const periodDays = rows => { const p = state.p5; const cut = p === '7' ? '2026-10-21' : p === 'month' ? '2026-10-01' : '2026-01-01'; return rows.filter(d => d[0] >= cut); };
+function sumRow(rows) {
+  const s = rows.reduce((a, d) => [a[0] + d[1], a[1] + d[2], a[2] + d[3], a[3] + d[4], a[4] + d[5], a[5] + d[6]], [0, 0, 0, 0, 0, 0]);
+  const lab = { '7': '7일', '30': '30일', '90': '90일', month: '이달' }[state.p5];
+  return `<div class="sum"><span class="c1"><span class="k">${lab} 실현손익</span><span class="v big ${tone(s[0])}">${man(s[0])}</span></span>
+    <span><span class="k">수수료</span><span class="v">${man1(s[1])}</span></span><span><span class="k">세금</span><span class="v">${man1(s[2])}</span></span>
+    <span><span class="k">매수</span><span class="v">${man(s[3], false)}</span></span><span><span class="k">매도</span><span class="v">${man(s[4], false)}</span></span>
+    <span><span class="k">체결</span><span class="v">${s[5]}건</span></span></div>`;
+}
+const DHEAD = '<div class="dhead"><span>일자</span><span class="num">실현손익</span><span class="num">수수료</span><span class="num">세금</span><span class="num">매수</span><span class="num">매도</span><span class="num">체결</span><span></span></div>';
+function dayRow(d, i, body, open) {
+  return `<div class="drow ${open ? 'open' : ''}"><button class="dbtn" data-x="1">
+    <span class="d">${md(d[0])}</span><span class="p num ${tone(d[1])}">${man(d[1])}</span>
+    <span class="m num">${man1(d[2])}</span><span class="m num">${man1(d[3])}</span><span class="m num">${man(d[4], false)}</span><span class="m num">${man(d[5], false)}</span><span class="m num">${d[6]}건</span>
+    <span class="sub2">매수 ${man(d[4], false)} · 매도 ${man(d[5], false)} · ${d[6]}건</span><span class="chev">⌄</span></button>
+    <div class="dbody">${body}</div></div>`;
+}
+function listA(rows, gi) {
+  return DHEAD + rows.map((d, i) => dayRow(d, i, `<div class="kv">수수료 <b>${man1(d[2])}</b> · 세금 <b>${man1(d[3])}</b> · 체결 <b>${d[6]}건</b></div>
+    ${stocksOf(d, i).map(s => `<div class="sl"><span class="n">${s.n}</span><span class="p ${tone(s.p)}">${man(s.p)}</span><span class="amt">매수 ${man(s.b, false)} · 매도 ${man(s.s, false)} · ${s.f}건</span></div>`).join('')}`, gi === 0 && i === 0)).join('');
+}
+function listB(rows) {
+  return `<div class="bwrap"><table class="b"><tr><th>일자</th><th>실현손익</th><th>수수료</th><th>세금</th><th>매수</th><th>매도</th><th>건수</th></tr>
+    ${rows.map(d => `<tr><td>${md(d[0])}</td><td class="p ${tone(d[1])}">${man(d[1])}</td><td class="m">${man1(d[2])}</td><td class="m">${man1(d[3])}</td><td>${man(d[4], false)}</td><td>${man(d[5], false)}</td><td class="m">${d[6]}</td></tr>`).join('')}</table></div>`;
+}
+function listC(rows, gi) {
+  return DHEAD + rows.map((d, i) => dayRow(d, i, `<div class="kv">수수료 <b>${man1(d[2])}</b> · 세금 <b>${man1(d[3])}</b> · 체결 <b>${d[6]}건</b></div>
+    <div class="flh"><span>시각</span><span>종목</span><span></span><span class="num q">수량</span><span class="num">체결가</span><span class="num">손익</span></div>
+    ${fillsOf(d, i).map(f => `<div class="fl"><span class="t mono">${f.t}</span><span class="n">${f.n}</span><span><span class="side-tag ${f.side}">${f.side === 'B' ? '매수' : '매도'}</span></span><span class="num q mono">${f.qty.toLocaleString()}</span><span class="num mono">${f.px.toLocaleString()}</span><span class="num ${f.p === null ? 'dim' : tone(f.p)}">${f.p === null ? '—' : man(f.p)}</span></div>`).join('')}`, gi === 0 && i === 0)).join('');
+}
+function pnlGroup(title, sub, rows, gi) {
+  const r = periodDays(rows);
+  const body = state.v5 === 'A' ? listA(r, gi) : state.v5 === 'B' ? listB(r) : listC(r, gi);
+  return `<div class="pnl">${title ? `<div class="gh2">${title}<span>${sub}</span></div>` : ''}${sumRow(r)}${body}</div>`;
+}
+const periodCtl = () => `<div class="pctl"><span class="seg">${[['7', '7일'], ['30', '30일'], ['90', '90일']].map(p => `<button data-p="${p[0]}" class="${state.p5 === p[0] ? 'on' : ''}">${p[1]}</button>`).join('')}</span><button class="mon ${state.p5 === 'month' ? 'on' : ''}" data-p="month">이달</button><span class="sp" style="flex:1"></span><span class="synth">10/14 (수) 체결 0건 · 행 없음</span></div>`;
+function screen5() {
+  if (state.ctx5 === 'me') {
+    return frame('me', `<div class="phead"><h1>My page</h1></div>${chipsRow(0)}${meTabs('손익')}${periodCtl()}${pnlGroup('', '', DAYS, 0)}
+      <div class="foot">/me 「손익」 탭(새 5번째 탭) — 위 칩에서 고른 계좌 한 벌만. 기간 세그먼트 7 · 30 · 90일 + 「이달」, 기본 30일. 맨 위 기간 합 → 일자 행.</div>`);
+  }
+  const byUser = [['ezmesya', 'KB 37728502101 · 교보 10279758101', DAYS], ['junysim', 'KB 48123456701', scaleDays(0.45, 0, 9)], ['미상', 'dma_user_id 없는 체결 · 계좌 50011122233', scaleDays(0.2, 2, 5)]];
+  const byAcc = [['37728502101', 'KB · ezmesya · 주식', scaleDays(0.65)], ['10279758101', '교보 · ezmesya · 위탁', scaleDays(0.35, 0, 10)], ['48123456701', 'KB · junysim', scaleDays(0.45, 0, 9)]];
+  const groups = state.tab5 === 'user' ? byUser : byAcc;
+  return frame('pnl', `<div class="phead"><h1>매매손익</h1><span class="badge-new">추가</span><span class="sp"></span><span class="seg"><button data-tab="user" class="${state.tab5 === 'user' ? 'on' : ''}">계정별</button><button data-tab="acc" class="${state.tab5 === 'acc' ? 'on' : ''}">계좌별</button></span></div>
+    ${periodCtl()}
+    ${groups.map((g, gi) => pnlGroup(state.tab5 === 'user' ? g[0] : `<span class="acc">${g[1].split(' · ')[0]}</span> <span class="mono">${g[0]}</span>`, state.tab5 === 'user' ? g[1] : g[1].split(' · ').slice(1).join(' · '), g[2], gi)).join('')}
+    <div class="foot">사이드바 Admin 묶음에 「매매손익」. 「계정별 | 계좌별」 세그먼트 — 계정별 = dma_user_id 묶음(매핑 없는 체결은 「미상」), 계좌별 = account_no 묶음. 묶음마다 기간 합 + 일자 표.</div>`, true);
+}
+
+// ── 네비 · 상태 ──
+const state = { s: '1', w: 'phone', t: 'dark', st1: 'ok', st2: 'ok', ctx2: 'wb', st3: 'over', st4: 'over', ctx5: 'admin', v5: 'A', p5: '30', tab5: 'user' };
+const SUB = {
+  1: [['st1', '상태', [['ok', '반영됨'], ['busy', '저장 중'], ['same', '변경 없음'], ['fail', '실패 · 서버 미지원'], ['off', '서버 연결 안 됨'], ['diff', '서버별 다름']]]],
+  2: [['ctx2', '문맥', [['wb', '작업대'], ['me', '/me 잔고']]], ['st2', '상태', [['ok', '정상'], ['over', '초과'], ['none', '미설정']]]],
+  3: [['st3', '상태', [['ok', '정상'], ['over', '초과'], ['none', '미설정'], ['sell', '매도 탭']]]],
+  4: [['st4', '상태', [['ok', '정상'], ['over', '초과']]]],
+  5: [['ctx5', '문맥', [['admin', '/admin/pnl'], ['me', '/me 손익 탭']]], ['v5', '안', [['A', 'A 한 줄 + 종목별 펼침'], ['B', 'B 5열 표 · 가로 스크롤'], ['C', 'C 한 줄 + 체결 전부 펼침']]]],
+};
+const DESC = {
+  1: '<b>① 어드민 계좌 카드</b> — /admin/users 편집 시트의 계좌 카드(읽기 전용 카드 그대로) + 지점 · 트레이더 줄 아래 상시 노출 행 「예수금 · 수수료 · 매도세」 3칸. 칸마다 Enter / blur 즉시 저장 · 저장 버튼 없음 · 결과는 서버 칩 + 줄(기존 반영 칩 · 결과 줄과 같은 결). 폰은 예수금 1줄 · 수수료 · 매도세 2줄. 「서버별 다름」 은 주문 서버(KB120) 값을 보이고 아래 IP/MAC 불일치 줄과 같은 경고 한 줄.',
+  2: '<b>② 계좌 패널 요약 줄</b> — 보유 종목 표 위 한 줄 「주문가능 <b>1,234만</b> / 예수금 2,000만」. 호가창 · 작업대 공용 패널과 /me 잔고 탭이 같은 부품. 초과 = 주문가능 0만을 destructive 빨강(예수금는 그대로) · 미설정 = 「— / 예수금 미설정」 흐림 · 경고 없음.',
+  3: '<b>③ 수동주문 폼</b> — 주문금액 바로 아래 「주문가능」 행 추가(같은 라벨 열). 매수 ∧ 주문금액 > 주문가능 → 값 빨강 + 버튼 위 role=status 「주문가능 초과: 1,500만 > 1,234만」. 매수 · 매도 버튼은 <b>비차단</b>(잠그지 않음). 미설정은 「—」 · 줄 없음, 매도 방향은 판정하지 않음.',
+  4: '<b>④ 상따 카드 금액 3칸</b> — 선매수 · 줄매수 · 후매수 금액 합(2,000만)을 주문가능(1,234만)과 비교. 초과면 선매수 금액 값만 빨강 + 기존 무장 안내 자리에 warn 톤 한 줄 「… 등록은 그대로 돼요」(비차단). 정상이면 아무 표시 없음.',
+  5: '<b>⑤ 일자별 매매손익 A/B/C</b> — 두 문맥(/admin/pnl 계정별 | 계좌별 · /me 손익 탭) 공통 일자 표. 기간 7 · 30 · 90일 + 이달(기본 30일) · 맨 위 기간 합(실현손익 · 수수료 · 세금 · 매수 · 매도 · 체결 N건). <b>A(권장)</b> 일자 행 한 줄 + 펼침에 수수료 · 세금 · 건수 + 종목별 합 / <b>B</b> 7열 표 그대로(폰 가로 스크롤 · 첫 열 고정 · 펼침 없음) / <b>C</b> A 행 + 펼침에 그날 체결 전부(시각 · 종목 · 매수/매도 · 수량 · 체결가 · 손익). 행을 눌러 펼침 · 기간 · 계정별/계좌별 전환 동작.',
+};
+function renderSub() {
+  const el = document.getElementById('sub');
+  el.innerHTML = SUB[state.s].map(g => `<span class="l">${g[1]}</span>${g[2].map(o => `<button data-k="${g[0]}" data-val="${o[0]}" class="${state[g[0]] === o[0] ? 'on' : ''}">${o[1]}</button>`).join('')}<span style="width:10px"></span>`).join('');
+}
+function render() {
+  renderSub();
+  document.getElementById('desc').innerHTML = DESC[state.s] + ' <span class="synth">(금액 · 일자 · 체결은 전부 합성)</span>';
+  const fn = { 1: screen1, 2: screen2, 3: screen3, 4: screen4, 5: screen5 }[state.s];
+  document.getElementById('stage').innerHTML = fn();
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.s) state.s = b.dataset.s; else if (b.dataset.w) state.w = b.dataset.w; else if (b.dataset.t) state.t = b.dataset.t; else if (b.dataset.k) state[b.dataset.k] = b.dataset.val; else return;
+  if (!b.dataset.k) b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('stage').addEventListener('click', e => {
+  const x = e.target.closest('[data-x]'); if (x) { x.parentElement.classList.toggle('open'); return; }
+  const p = e.target.closest('[data-p]'); if (p) { state.p5 = p.dataset.p; render(); return; }
+  const t = e.target.closest('[data-tab]'); if (t) { state.tab5 = t.dataset.tab; render(); }
+});
+render();
+</script>
+</body>
+</html>
