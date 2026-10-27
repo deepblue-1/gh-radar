@@ -29,15 +29,19 @@
  *   P36 setAccountCost(Phase 36 · D-01 · D-04 · D-06 · D-07) — 그 계좌 active 등록 서버마다 op 6/7 1건(user_id 빈 값 · account_no ·
  *       값) · 결과 레지스트리 순 · 꺼진 서버 skipped(44 0) · 87 없음 offline · code 1 failed(원문) · timeout · 기록 0 · 의도 쓰기 0 ·
  *       없는 계좌 NO_SUCH_ACCOUNT · removing 서버 제외 · 마감 접기도 기록 0
+ *   P36 D-07 (36-04) op 3(op 1 신규 유저 첫 계좌 포함) ok 뒤 그 서버 87(전 유저)에 처음 생긴 계좌 → 다른 active 등록 서버(유효 주문
+ *       서버 우선 · 없으면 레지스트리 순 첫 서버) 값으로 op 6(> 0) · op 7(≠ (0, 0)) · 출처 예수금 67 live 우선 · 비치명(warn 1줄 ·
+ *       결과 · 기록 = op 3 결과) · op 3 failed 면 0회 · reconcile 은 87 비용 필드를 계획하지 않는다(D-04)
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminCommandOutcome } from "../src/admin/admin-conn.js";
 import * as dispatcherModule from "../src/admin/dispatcher.js";
-import { AdminDispatcher, type AdminConnLike } from "../src/admin/dispatcher.js";
+import { AdminDispatcher, type AdminConnLike, type AdminDispatcherDeps } from "../src/admin/dispatcher.js";
 import { AdminIntentStore, IntentError } from "../src/admin/intent-store.js";
 import { ADMIN_CODE, ADMIN_CODE_NAME, type AdminUsersSnapshot } from "../src/admin/types.js";
+import { maskAccountNo } from "../src/dma/envelope.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { decryptDmaPassword, encryptDmaPassword } from "../src/store/credentials.js";
 import { AdminDbFake } from "./helpers/admin-db-fake.js";
@@ -94,9 +98,17 @@ function snapshotOf(state: FakeAdminState): AdminUsersSnapshot {
           // 87 파서와 같은 규칙 — 비어 있지 않은 값만 키로 둔다.
           ...(a.orderIp ? { orderIp: a.orderIp } : {}),
           ...(a.orderMac ? { orderMac: a.orderMac } : {}),
+          // Phase 36 — op 6/7 이 쓴 서버 계좌 값(계좌번호 키 · 같은 계좌 전 행 같은 값). 없으면 키 없음(종전 단언 불변).
+          ...costOf(state, a.accountNo ?? ""),
         })),
     })),
   };
+}
+
+/** 87 계좌의 예수금 · 비용률 칸(파서와 같이 number) — state.costs 에 그 계좌가 있을 때만. */
+function costOf(state: FakeAdminState, accountNo: string): { budgetKrw?: number; feePpm?: number; sellTaxPpm?: number } {
+  const c = state.costs?.get(accountNo);
+  return c === undefined ? {} : { budgetKrw: Number(c.budgetKrw), feePpm: c.feePpm, sellTaxPpm: c.sellTaxPpm };
 }
 
 /** admin 연결 대역 — 스텁 handler 로 86 · 87 을 만들고, 87 이 오면 캐시를 갈아 끼운다. */
@@ -205,7 +217,11 @@ type Env = {
   dispatcher: AdminDispatcher;
 };
 
-function setup(states: Record<string, FakeAdminState>, rows: DmaServerRow[] = [row("KB120"), row("KB121")]): Env {
+function setup(
+  states: Record<string, FakeAdminState>,
+  rows: DmaServerRow[] = [row("KB120"), row("KB121")],
+  extra: Pick<AdminDispatcherDeps, "liveBudget"> = {},
+): Env {
   const db = new AdminDbFake(rows.map((r) => ({ key: r.key, broker: r.broker })));
   const store = new AdminIntentStore({ supabase: db.client });
   const conns: Record<string, FakeConn> = {};
@@ -228,6 +244,7 @@ function setup(states: Record<string, FakeAdminState>, rows: DmaServerRow[] = [r
         return 1;
       },
     },
+    ...extra,
   });
   return { db, store, conns, rows, access, sessionCalls, dispatcher };
 }
@@ -1270,5 +1287,251 @@ describe("P36 setAccountCost op 6 · op 7 (D-01 · D-04 · D-06 · D-07)", () =>
       expect(env.conns[key]!.state.costs?.get(ACC)).toEqual({ budgetKrw: 0n, feePpm: 150, sellTaxPpm: 2000 });
     }
     expect(env.db.callsTo("dma_admin_record_results")).toEqual([]);
+  });
+});
+
+describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () => {
+  const A = "1234567801";
+  const B = "1234567802";
+  const ADMIN = "boss@gmail.com";
+  type Cost = { budgetKrw: bigint; feePpm: number; sellTaxPpm: number };
+  let warns: unknown[][] = [];
+
+  beforeEach(async () => {
+    const { logger } = await import("../src/logger.js");
+    warns = [];
+    for (const level of ["debug", "info", "error"] as const) vi.spyOn(logger, level).mockImplementation((() => undefined) as never);
+    vi.spyOn(logger, "warn").mockImplementation(((...args: unknown[]) => {
+      warns.push(args);
+    }) as never);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 서버 state 에 계좌 비용(계좌번호 키) — 87 캐시도 다시 만든다(FakeConn 생성 전에 넣는다). */
+  function withCost(st: FakeAdminState, accountNo: string, cost: Cost): FakeAdminState {
+    (st.costs ??= new Map()).set(accountNo, cost);
+    return st;
+  }
+  const costOps = (c: FakeConn) => c.sent.filter((x) => x.op === 6 || x.op === 7);
+  const reloadWarns = () => warns.filter((w) => String(w[1]).includes("되싣기 실패"));
+  const acct = (accountNo: string) => ({ accountNo, name: "", branchNo: "", traderId: "", priority: 0 });
+
+  /** KB120 에만 A(u1) · KB121 에는 u1 의 B 만 → A 를 KB121 에도 등록하고 reconcile. */
+  async function addAToKb121(
+    states: { KB120: FakeAdminState; KB121: FakeAdminState; KB122?: FakeAdminState },
+    opts: { rows?: DmaServerRow[]; liveBudget?: AdminDispatcherDeps["liveBudget"]; aServers?: string[]; seedOnly?: boolean } = {},
+  ): Promise<{ env: Env; results: Awaited<ReturnType<AdminDispatcher["reconcileUser"]>> }> {
+    const rows = opts.rows ?? [row("KB120"), row("KB121"), ...(states.KB122 ? [row("KB122")] : [])];
+    const env = setup(states as Record<string, FakeAdminState>, rows, opts.liveBudget ? { liveBudget: opts.liveBudget } : {});
+    const aServers = opts.aServers ?? ["KB120"];
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: aServers },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+    ]);
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, [...aServers, "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    return { env, results };
+  }
+
+  it("① KB120 87 에 A(1억 · 100 · 2000) · KB121 87 에 A 없음 → KB121 op 3(A) ok → op 6(1억) · op 7(100, 2000) · 결과 ok(op 3 의 rev)", async () => {
+    const { env, results } = await addAToKb121({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({ u1: [kb(B, 2)] }),
+    });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "5" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+    expect(ops(env.conns.KB121!)).toEqual([3, 6, 7]);
+    expect(costOps(env.conns.KB121!)).toEqual([
+      { op: 6, userId: "", account: acct(A), budgetKrw: 100_000_000n },
+      { op: 7, userId: "", account: acct(A), feePpm: 100, sellTaxPpm: 2000 },
+    ]);
+    expect(env.conns.KB121!.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
+    expect(env.conns.KB120!.sent).toEqual([]);
+    // 기록되는 반영 결과는 op 3 결과뿐(op 6/7 이 rev 를 올려도 결과 rev = op 3 의 6).
+    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual(results);
+    expect(reloadWarns()).toEqual([]);
+  });
+
+  it("② 출처 값이 전부 0 → op 6/7 0회 · 예수금 0 · 비용률만 있으면 op 7 만", async () => {
+    const zero = await addAToKb121({ KB120: state({ u1: [kb(A, 1)] }), KB121: state({ u1: [kb(B, 2)] }) });
+    expect(ops(zero.env.conns.KB121!)).toEqual([3]);
+
+    const feeOnly = await addAToKb121({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 0n, feePpm: 150, sellTaxPpm: 0 }),
+      KB121: state({ u1: [kb(B, 2)] }),
+    });
+    expect(ops(feeOnly.env.conns.KB121!)).toEqual([3, 7]);
+    expect(costOps(feeOnly.env.conns.KB121!)).toEqual([{ op: 7, userId: "", account: acct(A), feePpm: 150, sellTaxPpm: 0 }]);
+  });
+
+  it("③ KB121 87 에 다른 유저가 A 를 이미 가짐 → op 6/7 0회(서버가 복사)", async () => {
+    const kb121 = state({ u1: [kb(B, 2)], other2: [kb(A, 1)] });
+    kb121.allowSharedAccounts = true;
+    const { env, results } = await addAToKb121({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: kb121,
+    });
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(ops(env.conns.KB121!)).toEqual([3]);
+  });
+
+  describe("④ 출처 서버 규칙 — 유효 주문 서버 우선 · 없으면 레지스트리 순 첫 서버(36-10 summarizeAccountCosts 와 같은 규칙)", () => {
+    const states = () => ({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({ u1: [kb(B, 2)] }),
+      KB122: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 50_000_000n, feePpm: 150, sellTaxPpm: 1800 }),
+    });
+
+    it("지정 주문 서버 KB120(1억) · KB122(5,000만) → KB120 값", async () => {
+      const env = setup(states(), [row("KB120"), row("KB121"), row("KB122")]);
+      seedU1(env, [
+        { accountNo: A, priority: 1, servers: ["KB120", "KB122"] },
+        { accountNo: B, priority: 2, servers: ["KB121"] },
+      ]);
+      await env.store.setAccountOrderServer("u1", "KB", A, "KB120");
+      await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121", "KB122"]);
+      await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+      expect(costOps(env.conns.KB121!).map((x) => x.budgetKrw ?? x.feePpm)).toEqual([100_000_000n, 100]);
+    });
+
+    it("지정이 KB122 면 레지스트리 순과 달라도 KB122 값(5,000만 · 150 · 1800)", async () => {
+      const env = setup(states(), [row("KB120"), row("KB121"), row("KB122")]);
+      seedU1(env, [
+        { accountNo: A, priority: 1, servers: ["KB120", "KB122"] },
+        { accountNo: B, priority: 2, servers: ["KB121"] },
+      ]);
+      await env.store.setAccountOrderServer("u1", "KB", A, "KB122");
+      await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121", "KB122"]);
+      await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+      expect(costOps(env.conns.KB121!)).toEqual([
+        { op: 6, userId: "", account: acct(A), budgetKrw: 50_000_000n },
+        { op: 7, userId: "", account: acct(A), feePpm: 150, sellTaxPpm: 1800 },
+      ]);
+    });
+
+    it("지정 없음 · 증권사 기본 주문 서버 KB122 → KB122 값 · 기본도 없으면 레지스트리 순 첫 서버 KB120", async () => {
+      const kb122Default = { ...row("KB122"), isOrderServer: true };
+      const viaDefault = await addAToKb121(states(), { rows: [row("KB120"), row("KB121"), kb122Default], aServers: ["KB120", "KB122"] });
+      expect(costOps(viaDefault.env.conns.KB121!)[0]).toMatchObject({ op: 6, budgetKrw: 50_000_000n });
+
+      const viaOrder = await addAToKb121(states(), { aServers: ["KB120", "KB122"] });
+      expect(costOps(viaOrder.env.conns.KB121!)[0]).toMatchObject({ op: 6, budgetKrw: 100_000_000n });
+    });
+
+    it("꺼진 출처 서버는 후보가 아니다 — KB120 꺼짐 → KB122 값", async () => {
+      const viaEnabled = await addAToKb121(states(), {
+        rows: [row("KB120", false), row("KB121"), row("KB122")],
+        aServers: ["KB120", "KB122"],
+      });
+      expect(costOps(viaEnabled.env.conns.KB121!)[0]).toMatchObject({ op: 6, budgetKrw: 50_000_000n });
+    });
+  });
+
+  it("⑤ 출처 KB120 의 67 live 예수금 9,900만 → op 6 은 99,000,000(비용률은 87)", async () => {
+    const seen: Array<[string, string]> = [];
+    const { env } = await addAToKb121(
+      {
+        KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+        KB121: state({ u1: [kb(B, 2)] }),
+      },
+      {
+        liveBudget: (k, a) => {
+          seen.push([k, a]);
+          return k === "KB120" ? 99_000_000 : null;
+        },
+      },
+    );
+    expect(costOps(env.conns.KB121!)).toEqual([
+      { op: 6, userId: "", account: acct(A), budgetKrw: 99_000_000n },
+      { op: 7, userId: "", account: acct(A), feePpm: 100, sellTaxPpm: 2000 },
+    ]);
+    expect(seen).toContainEqual(["KB120", A]);
+  });
+
+  it("⑥ 되싣기 op 6 이 code 1 → KB121 결과 ok 그대로 · warn 1줄(server · op · code · 마스킹 계좌) · 기록 = op 3 결과", async () => {
+    const kb121 = state({ u1: [kb(B, 2)] });
+    kb121.legacyCostOps = true;
+    const { env, results } = await addAToKb121({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 0, sellTaxPpm: 0 }),
+      KB121: kb121,
+    });
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "5" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+    expect(ops(env.conns.KB121!)).toEqual([3, 6]);
+    expect(reloadWarns()).toHaveLength(1);
+    expect(reloadWarns()[0]![0]).toEqual({ server: "KB121", op: 6, code: 1, account: maskAccountNo(A) });
+    expect(env.db.callsTo("dma_admin_record_results")[0]!.args.p_results).toEqual(results);
+  });
+
+  it("⑥ 되싣기 결과 없음(timeout · offline)도 비치명 — warn 에 kind", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 0, sellTaxPpm: 0 }),
+      KB121: state({ u1: [kb(B, 2)] }),
+    });
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: ["KB120"] },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+    ]);
+    const conn = env.conns.KB121!;
+    const original = conn.command.bind(conn);
+    vi.spyOn(conn, "command").mockImplementation(async (input) => (input.op === 6 ? { kind: "offline" } : original(input)));
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(reloadWarns().map((w) => w[0])).toEqual([{ server: "KB121", op: 6, kind: "offline", account: maskAccountNo(A) }]);
+  });
+
+  it("⑦ op 1 신규 유저(첫 계좌 A)도 같은 규칙 — KB121 에 u1 없음 → op 1(A) 뒤 op 6 · op 7", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({}),
+    });
+    seedU1(env, [{ accountNo: A, priority: 1, servers: ["KB120"] }]);
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(ops(env.conns.KB121!)).toEqual([1, 6, 7]);
+    expect(env.conns.KB121!.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
+  });
+
+  it("⑧ op 3 이 failed 면 되싣기 0회", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({ u1: [kb(B, 2)] }),
+    });
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: ["KB120"] },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+    ]);
+    const conn = env.conns.KB121!;
+    const original = conn.command.bind(conn);
+    const spy = vi.spyOn(conn, "command").mockImplementation(async (input) =>
+      input.op === 3
+        ? { kind: "result", result: { requestId: 1n, ok: false, code: 9, message: "BUSY", usersRev: 5n } }
+        : original(input),
+    );
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(results[1]).toMatchObject({ server: "KB121", outcome: "failed", code: 9 });
+    expect(spy.mock.calls.map(([i]) => i.op).filter((op) => op === 6 || op === 7)).toEqual([]);
+  });
+
+  it("(D-04) reconcile 은 87 비용 필드가 의도와 달라도 op 3 0건 · 되싣기 0건", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 1n, feePpm: 0, sellTaxPpm: 0 }),
+    });
+    seedU1(env, [{ accountNo: A, priority: 1, servers: ["KB120", "KB121"] }]);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(results.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(env.conns.KB120!.sent).toEqual([]);
+    expect(env.conns.KB121!.sent).toEqual([]);
   });
 });

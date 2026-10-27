@@ -194,6 +194,11 @@ export type FakeAdminState = {
   costs?: Map<string, FakeAdminAccountCost>;
   /** Phase 36 — op 6/7 을 모르는 구 서버 흉내(86 code 1 BAD_OP). */
   legacyCostOps?: boolean;
+  /**
+   * Phase 36 — 다른 유저가 가진 계좌의 op 1 첫 계좌 · op 3 추가를 받는다(gh-trade 41 「이 서버 다른 유저가 이미 가진 계좌를 추가 =
+   * 한도 복사」 · 값은 `costs` 가 계좌번호 키라 저절로 같다). 기본 false = 종전 code 7(AccountConflict).
+   */
+  allowSharedAccounts?: boolean;
 };
 
 /** Phase 36 — 서버 계좌 1개의 예수금 · 비용률. */
@@ -1100,7 +1105,7 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
         if (req.account === null || req.account.accountNo === "") {
           return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "신규 사용자는 첫 계좌가 필요합니다");
         }
-        if (ownerOf(req.account.accountNo) !== null) {
+        if (ownerOf(req.account.accountNo) !== null && state.allowSharedAccounts !== true) {
           return fail(req, FAKE_ADMIN_CODE.AccountConflict, "다른 사용자에게 등록된 계좌입니다");
         }
         state.users.set(req.userId, [{ ...req.account }]);
@@ -1122,7 +1127,7 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
         }
         const next = req.account;
         const owner = ownerOf(next.accountNo);
-        if (owner !== null && owner !== req.userId) {
+        if (owner !== null && owner !== req.userId && state.allowSharedAccounts !== true) {
           return fail(req, FAKE_ADMIN_CODE.AccountConflict, "다른 사용자에게 등록된 계좌입니다");
         }
         const i = accounts.findIndex((a) => a.accountNo === next.accountNo);
