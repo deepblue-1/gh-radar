@@ -100,8 +100,10 @@ import type {
   TickRule,
 } from '@gh-radar/shared';
 import { LC_AMOUNT_PAIRS, lcAmountPairOf, type LcAmountKey, type LcAmountQtyKey } from '@gh-radar/shared';
+import { formatManwonFloor, lcBuyAmountSumKrw } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
+import { useAvailableKrw } from '@/lib/use-available-krw';
 import { userSettingsForAccount } from '@/lib/user-settings-server';
 import {
   buyOrderQtyFromAmount,
@@ -823,6 +825,8 @@ export function LimitChaserForm({
   // primary 84 로 대신 채우지 않는다(Pitfall 14 — 교보 계좌 카드가 KB 설정으로 시딩된다). 시딩 · `preBuyWatchFixedOf` ·
   // 「줄매수도 같이 켜기」 가 모두 이 한 값을 본다.
   const userSettings = userSettingsForAccount(userSettingsByServer, accountNo, accounts);
+  // Phase 36 D-13 — 그 계좌의 주문가능(원 · null = 미설정/미수신). 합산 경고만 — 무장 · 등록은 보지 않는다.
+  const availableKrw = useAvailableKrw(accountNo);
   const [ownTab, setTab] = useState<'buy' | 'sell'>('buy');
   // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
   const tab = controlledTab ?? ownTab;
@@ -1767,6 +1771,8 @@ export function LimitChaserForm({
             sub={display.sub}
             dim={dim}
             {...valueProps(row.field, autoSellLocked(group))}
+            // Phase 36 D-13 — 합산 초과면 선매수 「금액」 값만 빨강(15/500 그대로 · 비차단).
+            valueTone={row.field === 'buyOrderAmount' && budgetOver ? 'over' : undefined}
             onActivate={(el) => activateRow(row.field, el)}
             editor={
               editingField === row.field
@@ -1949,6 +1955,14 @@ export function LimitChaserForm({
     「켤 수 없는 이유」는 **열 맨 아래 한 곳**에만 모인다 (260911-w5h).
     그룹 헤더 바로 아래에 끼우면 사유가 뜨거나 사라질 때마다 그 아래 행 전체가 세로로 밀린다.
   */
+  /*
+    Phase 36 D-13 — 상따 매수 금액 합(선매수 늘 · 줄매수 · 후매수는 켜짐 = 스위치 ∨ 자동)이 주문가능을 넘으면 경고만 한다.
+    비교 값은 폼에 보이는 서버 동기값(값 필드는 낙관 반영 없음 · D-06) — 서버가 선매수 금액을 모르면(레거시 「—」) 0 으로 센다.
+    「켤 수 없는 이유」(무장 불가 사유)가 아니다 — `canArm` · 사유 목록 · 등록 경로는 이 값을 읽지 않는다.
+  */
+  const lcSumKrw = lcBuyAmountSumKrw({ ...form, buyOrderAmount: shownValueOf('buyOrderAmount') ?? 0 });
+  const budgetOver = availableKrw !== null && lcSumKrw > 0 && lcSumKrw > availableKrw;
+
   const buyReasons = armBlockedGroupsOf(BUY_COLUMN_GATES, form, canArm, disabled, legacy ? BUY_COLUMN_LEGACY_NAMES : null);
   const sellReasons = armBlockedGroupsOf(
     SELL_COLUMN_GATES,
@@ -1978,6 +1992,18 @@ export function LimitChaserForm({
           {side === 'buy' ? '매수' : '매도'}
         </div>
         <div className="flex min-w-0 flex-col gap-2.5 @min-[685px]/lc:mt-2.5">{groups.map(renderGroup)}</div>
+        {/*
+          Phase 36 D-13 — 주문가능 초과 안내 줄. 매수 열 그룹들 다음 · 사유 패널 앞 한 곳(그룹 사이에 끼우지 않는다 —
+          260911-w5h 와 같은 이유). pane 은 CSS 로만 숨기고 줄 자체만 조건부다. 읽기 소음 방지로 role 없음.
+        */}
+        {side === 'buy' && budgetOver && availableKrw !== null && (
+          <p
+            data-slot="lc-budget-over"
+            className="mt-2 px-0.5 text-[12px] leading-[1.5] break-keep text-[var(--led-latent)]"
+          >
+            {`주문가능 초과: 상따 합 ${formatManwonFloor(lcSumKrw)} > ${formatManwonFloor(Math.max(0, availableKrw))} — 등록은 그대로 돼요`}
+          </p>
+        )}
         <ArmBlockedPanel groups={reasons} />
       </div>
     );

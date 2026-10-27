@@ -5063,7 +5063,8 @@ describe('P36 상따 합산 경고 (D-13)', () => {
     const extra = document.querySelector<HTMLElement>('[data-lc-field="lc-extra-buy-amount"] [data-slot="lc-row-value"]');
     if (extra) expect(extra.className).not.toContain('text-[var(--destructive)]');
     // 비차단 — 매수 열 스위치는 켜고 끌 수 있다.
-    expect(sw('선매수')).toBeEnabled();
+    expect(sw('선매수 켜기')).toBeEnabled();
+    expect(sw('매수주문 켜기')).toBeEnabled();
   });
 
   it('2 선매수 1,000만 + 줄매수 500만(스위치 off · 자동 off) → 합 1,000만 · 경고 없음 → 줄매수 자동 on 이면 1,500만 → 경고', () => {
@@ -5087,7 +5088,7 @@ describe('P36 상따 합산 경고 (D-13)', () => {
 
   it('4 미설정 · 계좌 상태 미수신 · 금액 0 → 판정 없음 · 합이 내려오면 기본색 · 줄 사라짐', () => {
     // 미수신.
-    const { rerender, unmount } = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000 }) })} />);
+    const { unmount } = render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 2000 }) })} />);
     expect(overLine()).toBeNull();
     unmount();
     // 미설정(예수금 0).
@@ -5122,7 +5123,6 @@ describe('P36 상따 합산 경고 (D-13)', () => {
     expect(overLine()).toBeNull();
     expect(buyAmountValue()!.className).not.toContain('text-[var(--destructive)]');
     expect(buyAmountValue()!.className).toContain('text-[var(--fg-2)]');
-    void rerender;
   });
 
   it('5 경고 줄은 매수 pane 의 그룹들 다음 · 「켤 수 없는 이유」 패널 앞 — 사유 목록에 들어가지 않는다', () => {
@@ -5133,11 +5133,11 @@ describe('P36 상따 합산 경고 (D-13)', () => {
     expect(pane('sell').querySelector('[data-slot="lc-budget-over"]')).toBeNull();
     // 그룹 목록 바로 다음 형제.
     expect(line.previousElementSibling!.querySelector('[data-slot^="lc-group-"]')).not.toBeNull();
+    // 매수가 0 이라 무장 불가 사유 패널이 선다 — 줄은 그 바로 앞이고 사유 목록에는 들지 않는다.
     const panel = pane('buy').querySelector('[data-slot="lc-arm-blocked-panel"]');
-    if (panel) {
-      expect(line.nextElementSibling).toBe(panel);
-      expect(panel.textContent).not.toContain('주문가능');
-    }
+    expect(panel).not.toBeNull();
+    expect(line.nextElementSibling).toBe(panel);
+    expect(panel!.textContent).not.toContain('주문가능');
     for (const li of Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]'))) {
       expect(li.textContent).not.toContain('주문가능');
     }

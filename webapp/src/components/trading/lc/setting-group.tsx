@@ -140,11 +140,14 @@ export function RowSubLine({ sub }: { sub: LcRowSub }) {
 function rowNameOf(label: string, text: string, sub: LcRowSub | undefined): string {
   return sub !== undefined && sub.text !== '' ? `${label} ${text} ${sub.text}` : `${label} ${text}`;
 }
-/** 행 값 15/500 `--fg-2` · 확정 뒤 900ms `--primary`(D-18). */
-function valueTextClass(flash: boolean, busy: boolean): string {
+/**
+ * 행 값 15/500 `--fg-2` · 확정 뒤 900ms `--primary`(D-18). Phase 36 D-13 — `over`(주문가능 초과)면 글자색만
+ * `--destructive`(크기 · 굵기 그대로 · flash 보다 우선 — 경고가 확정 강조에 가리지 않는다).
+ */
+function valueTextClass(flash: boolean, busy: boolean, over = false): string {
   return cn(
     'whitespace-nowrap text-[15px] font-medium leading-[1.5] tabular-nums',
-    flash ? 'text-[var(--primary)]' : 'text-[var(--fg-2)]',
+    over ? 'text-[var(--destructive)]' : flash ? 'text-[var(--primary)]' : 'text-[var(--fg-2)]',
     busy && 'opacity-60',
   );
 }
@@ -272,15 +275,22 @@ function ValueWithChevron({
   flash,
   busy,
   sub,
+  valueTone,
 }: {
   text: string;
   flash: boolean;
   busy: boolean;
   sub?: LcRowSub;
+  /** Phase 36 D-13 — `'over'` 면 값 글자만 `--destructive`. 없으면 DOM · 클래스 불변. */
+  valueTone?: 'over';
 }) {
   const line = (
     <span className="flex min-w-0 items-center whitespace-nowrap">
-      <span data-slot="lc-row-value" className={valueTextClass(flash, busy && sub === undefined)}>
+      <span
+        data-slot="lc-row-value"
+        data-tone={valueTone}
+        className={valueTextClass(flash, busy && sub === undefined, valueTone === 'over')}
+      >
         {text}
       </span>
       {/*
@@ -347,6 +357,11 @@ export interface SettingRowProps {
    * 받는다. 주면 행 상자가 56px(편집 중 div 도 같다) · 라벨은 낱말 경계 접힘(L4) · 기본 접근성 이름에 아래 줄이 붙는다.
    */
   sub?: LcRowSub;
+  /**
+   * 값 톤(Phase 36 D-13) — `'over'` = 주문가능 초과 경고(값 글자색만 `--destructive` · 15/500 그대로). 비차단 —
+   * 행은 그대로 눌리고 편집된다. 넘기지 않으면 DOM · 클래스 불변.
+   */
+  valueTone?: 'over';
   className?: string;
 }
 
@@ -369,6 +384,7 @@ export function SettingRow({
   ariaName,
   dim = false,
   sub,
+  valueTone,
   className,
 }: SettingRowProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -415,7 +431,7 @@ export function SettingRow({
       )}
     >
       <span className={labelClass}>{label}</span>
-      <ValueWithChevron text={text} flash={flash} busy={busy} sub={sub} />
+      <ValueWithChevron text={text} flash={flash} busy={busy} sub={sub} valueTone={valueTone} />
     </button>
   );
 
