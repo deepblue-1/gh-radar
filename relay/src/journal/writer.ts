@@ -93,7 +93,7 @@ export type JournalApplyEvent = {
   local_reject: boolean;
   /*
    * D-15 — gh-trade 41-04 와 합의된 이름 · 바꾸지 말 것(append-only). 이 4키는 DB 열 이름과 같고
-   * `dma_journal_apply`(20261027210000) 가 `coalesce((ev->>'…')::bigint, 0)` 로 읽는다.
+   * `dma_journal_apply`(20261028210000) 가 `coalesce((ev->>'…')::bigint, 0)` 로 읽는다.
    */
   avg_price: number;
   fee_krw: number;

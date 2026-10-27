@@ -1,7 +1,7 @@
 -- ============================================================
 -- Phase 36 Plan 07 — 일자별 매매손익 집계 RPC pgTAP (D-17 ~ D-19).
 --
--- 대상 마이그레이션: supabase/migrations/20261027210100_dma_pnl_rpcs.sql
+-- 대상 마이그레이션: supabase/migrations/20261028210100_dma_pnl_rpcs.sql
 --   (dma_pnl_daily_build 내부 조립 · dma_pnl_daily_for_user · dma_pnl_daily_for_admin)
 --
 -- 잠그는 것:
