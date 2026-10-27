@@ -44,7 +44,9 @@
  *     87 과 달리 「다음 프레임 순서」 로 짝짓지 않는다. op 9 GetLaunchPlan 은 86 없이 94 1프레임만 오므로 비행 항목이
  *     `awaiting: "plan"` 으로 나가고, **request_id 가 같은 94** 가 오면 `{ result(합성 · code 0 · 현재 users_rev 또는 0n),
  *     launchPlan }` 으로 푼다. 짝 없는 94(op 8 저장 뒤 서버가 보내는 정상 프레임 · 타임아웃 뒤 늦은 94)는 debug 1줄로 버린다.
- *     94 는 users.toml 과 무관해 87 캐시 · "snapshot" 이벤트를 건드리지 않는다.
+ *     94 는 users.toml 과 무관해 87 캐시 · "snapshot" 이벤트를 건드리지 않는다. op 9 에 같은 request_id 의 86 이 오면 실패
+ *     (구 서버 code 1 · 미초기화 10 · 비 admin 11)라 그 86 으로 바로 푼다. op 8 은 86 으로 풀리고(뒤따르는 94 는 짝 없음),
+ *     op 8 · 9 는 users_rev 변경 판정에서 빠진다 — 87 을 기다리지 않고 보정 op 5 도 보내지 않는다(users_rev 가 null 이어도).
  *   - 감사 로그는 86 마다 1줄(serverKey · op · requestId · code · rev). dmaUserId · 계좌 · 비밀번호는 싣지 않는다 — 누가 시켰는지는
  *     29-11 이 남긴다.
  *   T-19-03     비밀은 로그인 페이로드 조립(`buildObserverLoginReq`)에만 넘긴다. 비밀 · 계좌번호 · dmaUserId 는 어떤 로그 인자에도
@@ -507,11 +509,15 @@ export class AdminConn extends EventEmitter {
     this.#finish(f, { kind: "result", result, launchPlan: plan });
   }
 
-  /** 86 수신 — 비행 중 항목과 request_id 로 짝짓는다. 다르면(늦은 86) 버린다. */
+  /**
+   * 86 수신 — 비행 중 항목과 request_id 로 짝짓는다. 다르면(늦은 86) 버린다.
+   * op 9(`awaiting: "plan"`)에 같은 request_id 의 86 이 오면 실패 응답(구 서버 code 1 · 미초기화 10 · 비 admin 11)이라 그 86 으로
+   * 바로 푼다(35-16 — 5초 타임아웃으로 새지 않는다).
+   */
   #onCommandResp(result: AdminCommandResult, generation: number): void {
     const serverKey = this.#deps.serverKey;
     const f = this.#inFlight;
-    if (f === null || f.awaiting !== "resp" || f.requestId !== result.requestId) {
+    if (f === null || (f.awaiting !== "resp" && f.awaiting !== "plan") || f.requestId !== result.requestId) {
       logger.warn(
         {
           serverKey,
@@ -540,9 +546,12 @@ export class AdminConn extends EventEmitter {
       },
       "[ADMIN] 명령 결과(86)",
     );
-    const changed = result.ok && (prevRev === null || prevRev !== result.usersRev);
+    // op 8 · 9(발사 계획)는 users.toml 과 무관하다 — 서버는 87 을 쓰지 않으므로 rev 변경 판정(87 대기 · 보정 op 5)에서 뺀다
+    // (35-16 · 노트 「BUSY · 54 · 87 은 없다」). op 8 성공 뒤 오는 94 는 짝이 없어 #onLaunchPlan 이 버린다.
+    const isLaunchPlanOp = f.input.op === ADMIN_OP.SetLaunchPlan || f.input.op === ADMIN_OP.GetLaunchPlan;
+    const changed = !isLaunchPlanOp && result.ok && (prevRev === null || prevRev !== result.usersRev);
     if (!changed) {
-      // 무변경 · 실패 — 서버는 87 을 쓰지 않는다. 기다리지 않는다.
+      // 무변경 · 실패 · 발사 계획 op — 서버는 87 을 쓰지 않는다. 기다리지 않는다.
       this.#finish(f, { kind: "result", result });
       return;
     }

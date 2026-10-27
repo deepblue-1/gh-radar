@@ -3341,16 +3341,37 @@ function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuf
  * - `password` 는 **op 1(UpsertUser) 일 때만** 싣는다. 그 밖 op 는 빈 문자열 — 호출자가 실수로 넘겨도 와이어에 나가지 않는다.
  * - `account` 는 주어질 때만 싣는다(op 1 신규 · op 3 · op 4).
  * - `requestId` 는 ulong 이라 0 이상 2^64 미만이어야 한다 — 벗어나면 호출자 버그라 throw 한다(값은 문구에 싣되 비밀은 없다).
+ * - 발사 계획 `launchProfile` · `launchMarket` · `launchOffsetsUs` 는 **op 8(SetLaunchPlan) 일 때만** 싣는다(35-16 · gh-trade 43 ·
+ *   vtable 20 · 22 · 24). offsets 는 int32 정수여야 한다 — 밖이면 RangeError(requestId 가드와 같은 문형). 길이 · 범위 · 순서 ·
+ *   profile/market 값은 서버 설정으로 서버가 판정한다(code 1 고정 문구) — relay 는 검사하지 않고 그대로 중계한다.
+ *   op 9(GetLaunchPlan)는 op 번호만 — 서버는 request_id 외 필드를 읽지 않는다.
  */
 export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   const { requestId } = input;
   if (typeof requestId !== "bigint" || requestId < 0n || requestId >= 1n << 64n) {
     throw new RangeError(`admin request_id 가 ulong 범위가 아니다: ${String(requestId)}`);
   }
+  const launchOffsets = input.op === ADMIN_OP.SetLaunchPlan ? (input.launchOffsetsUs ?? []) : null;
+  if (launchOffsets !== null) {
+    for (const v of launchOffsets) {
+      if (!Number.isInteger(v) || v < -0x8000_0000 || v > 0x7fff_ffff) {
+        throw new RangeError(`admin launch_offsets_us 값이 int32 범위가 아니다: ${String(v)}`);
+      }
+    }
+  }
   const b = new flatbuffers.Builder(256);
   const userId = b.createString(input.userId);
   const password = b.createString(input.op === ADMIN_OP.UpsertUser ? (input.password ?? "") : "");
   const account = input.account !== undefined ? buildWireAdminAccount(b, input.account) : null;
+  // 문자열 · 벡터는 startAdminCommandReq **앞에서** 만든다(FlatBuffers 중첩 제약).
+  const launch =
+    launchOffsets !== null
+      ? {
+          profile: b.createString(input.launchProfile ?? ""),
+          market: b.createString(input.launchMarket ?? ""),
+          offsets: AdminCommandReq.createLaunchOffsetsUsVector(b, [...launchOffsets]),
+        }
+      : null;
 
   AdminCommandReq.startAdminCommandReq(b);
   AdminCommandReq.addRequestId(b, requestId);
@@ -3358,6 +3379,11 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   AdminCommandReq.addUserId(b, userId);
   AdminCommandReq.addPassword(b, password);
   if (account !== null) AdminCommandReq.addAccount(b, account);
+  if (launch !== null) {
+    AdminCommandReq.addLaunchProfile(b, launch.profile);
+    AdminCommandReq.addLaunchMarket(b, launch.market);
+    AdminCommandReq.addLaunchOffsetsUs(b, launch.offsets);
+  }
   const table = AdminCommandReq.endAdminCommandReq(b);
 
   Envelope.startEnvelope(b);

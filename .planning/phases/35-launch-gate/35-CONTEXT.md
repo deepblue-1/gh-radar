@@ -97,6 +97,7 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - `docs/inbox/from-gh-trade/README.md` · `CLAUDE.md` 「gh-trade 인박스」 · `scripts/trade-handoff.sh` — 인박스 닫기 · gh-trade 에 요청하는 경로(D-21).
 
 ### 발사 계획 어드민 (범위 7)
+- `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` (2026-10-28 · gh-trade Phase 43 정식 인계 노트 · fbs f156cb6f) — **op · 필드 · code 정본**(44 op 8 SetLaunchPlan · op 9 GetLaunchPlan · 94 LaunchPlanSnapshot · code 1 고정 문구 7종 · 10 · 11). 35-16(relay 와이어) · 35-17(HTTP 라우트 · 서버별 판정)이 구현 · 잠정 → 노트 대응은 `35-16-SUMMARY.md`.
 - `docs/inbox/from-gh-trade/261027-launch-plan-admin.md` — 기능 요청 · 목업용 값 모양(서버 · 발사 · 시장 · µs 목록 · N 한 값 · 초깃값 · 적용 시점) · 질문 2건. **정식 인계 노트(gh-trade Phase 43 · op · 필드 · code)는 미도착** — 도착하면 이 목록 맨 위에 추가.
 - `.planning/phases/35-launch-gate/reference/mockup-launch-plan-place.html` — 자리 **B 경계 지도 패널 안** 채택(A 3번째 탭 · C 별도 메뉴 기각).
 - `.planning/phases/35-launch-gate/reference/mockup-launch-plan-edit.html` — 편집 칸 **A 조각마다 직접 입력** 채택 · 상태(순서 오류 · 저장됨 · 서버 거부 code 1) 모양.
