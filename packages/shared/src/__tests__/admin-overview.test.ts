@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import {
   deriveAdminServersOverview,
   deriveAdminUsersOverview,
+  type AdminAccountCostRow,
+  type AdminAccountCostsRaw,
   type AdminAccountFields,
   type AdminIntentRow,
   type AdminOrderEndpointRow,
@@ -173,6 +175,8 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
         defaultOrderServer: null,
         // endpoints 생략 — active 등록 서버마다 null(「확인 전」 · Phase 30 D-09).
         orderEndpoints: { KB120: null, KB121: null },
+        // costs 생략 — active 등록 서버마다 null(「확인 전」 · Phase 36 D-05).
+        costs: { KB120: null, KB121: null },
       },
       {
         broker: "KYOBO",
@@ -184,6 +188,7 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
         orderServer: null,
         defaultOrderServer: null,
         orderEndpoints: { KYOBO119: null },
+        costs: { KYOBO119: null },
       },
     ]);
     expect(u.accountCount).toBe(2);
@@ -247,6 +252,7 @@ describe("계좌별 칩 · removing · serverOnlyOn", () => {
       orderServer: null,
       defaultOrderServer: null,
       orderEndpoints: {}, // 87 전용 계좌 — 등록 서버가 없어 빈 객체(Phase 30)
+      costs: {}, // 87 전용 계좌 — 같은 규칙(Phase 36)
     });
     expect(u.accountCount).toBe(1);
     expect(u.servers).toEqual([{ serverKey: "KB120", tone: "ok", message: null }]);
@@ -372,6 +378,124 @@ describe("P30 orderEndpoints 파생 (D-09 · D-10)", () => {
     const nulled = withEndpoints(BOTH, null);
     expect(nulled).toEqual(omitted);
     expect(omitted.accounts[0].orderEndpoints).toEqual({ KB120: null, KB121: null });
+  });
+});
+
+describe("P36 costs 병합 (D-05 · D-04)", () => {
+  /** 87 예수금 · 비용률 + 67 live 예수금(null = 아직 못 받음). 가짜 값. */
+  const cost = (
+    dmaUserId: string,
+    accountNo: string,
+    budgetKrw: number,
+    feePpm: number,
+    sellTaxPpm: number,
+    liveBudgetKrw: number | null = null,
+  ): AdminAccountCostRow => ({ dmaUserId, accountNo, budgetKrw, feePpm, sellTaxPpm, liveBudgetKrw });
+  const withCosts = (
+    over: Partial<AdminUsersRaw>,
+    costs?: AdminAccountCostsRaw | null,
+    endpoints?: AdminOrderEndpointsRaw | null,
+  ) => {
+    const ov = deriveAdminUsersOverview(raw(over), endpoints, costs);
+    const u = ov.users.find((x) => x.dmaUserId === "kimtr");
+    if (!u) throw new Error("kimtr 행이 없다");
+    return u;
+  };
+  const BOTH = {
+    intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121")],
+    snapshotAccounts: [snap("kimtr", A1, "KB120"), snap("kimtr", A1, "KB121")],
+  };
+
+  it("liveBudgetKrw 가 있으면 그 값 + live · null 이면 87 budgetKrw + snapshot", () => {
+    const u = withCosts(BOTH, {
+      servers: {
+        KB120: [cost("kimtr", A1.accountNo, 100_000_000, 100, 2000, 120_000_000)],
+        KB121: [cost("kimtr", A1.accountNo, 50_000_000, 500, 2000, null)],
+      },
+    });
+    expect(u.accounts[0].costs).toEqual({
+      KB120: { budgetKrw: 120_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "live" },
+      KB121: { budgetKrw: 50_000_000, feePpm: 500, sellTaxPpm: 2000, budgetSource: "snapshot" },
+    });
+  });
+
+  it("live 0(해제)도 정당값 — 87 값으로 내려가지 않는다", () => {
+    const u = withCosts(BOTH, {
+      servers: {
+        KB120: [cost("kimtr", A1.accountNo, 100_000_000, 100, 2000, 0)],
+        KB121: [cost("kimtr", A1.accountNo, 100_000_000, 100, 2000)],
+      },
+    });
+    expect(u.accounts[0].costs?.KB120).toEqual({ budgetKrw: 0, feePpm: 100, sellTaxPpm: 2000, budgetSource: "live" });
+  });
+
+  it("costs.servers 에 KB121 키 없음(87 모름) · 그 서버 87 에 계좌 없음 → null", () => {
+    const noKey = withCosts(BOTH, { servers: { KB120: [cost("kimtr", A1.accountNo, 1, 0, 0)] } });
+    expect(noKey.accounts[0].costs).toEqual({
+      KB120: { budgetKrw: 1, feePpm: 0, sellTaxPpm: 0, budgetSource: "snapshot" },
+      KB121: null,
+    });
+    const noRow = withCosts(BOTH, {
+      servers: { KB120: [cost("kimtr", A1.accountNo, 1, 0, 0)], KB121: [cost("kimtr", A2.accountNo, 9, 9, 9)] },
+    });
+    expect(noRow.accounts[0].costs?.KB121).toBeNull();
+  });
+
+  it("같은 서버에 같은 계좌 행이 여럿 → 그 DMA 유저 행 우선 · 없으면 다른 유저 행(서버 계좌 단위 값) · 계좌번호 정규화", () => {
+    const own = withCosts(BOTH, {
+      servers: {
+        KB120: [cost("other", A1.accountNo, 7, 7, 7), cost("kimtr", "001234567", 100_000_000, 100, 2000)],
+        KB121: [cost("other", A1.accountNo, 50_000_000, 500, 2000)],
+      },
+    });
+    expect(own.accounts[0].costs).toEqual({
+      KB120: { budgetKrw: 100_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: "snapshot" },
+      KB121: { budgetKrw: 50_000_000, feePpm: 500, sellTaxPpm: 2000, budgetSource: "snapshot" },
+    });
+  });
+
+  it("costs null 과 인자 생략은 같은 출력 — 의도 계좌의 active 서버 전부 null", () => {
+    const omitted = withCosts(BOTH);
+    const nulled = withCosts(BOTH, null);
+    expect(nulled).toEqual(omitted);
+    expect(omitted.accounts[0].costs).toEqual({ KB120: null, KB121: null });
+  });
+
+  it("removing 등록 서버는 키에 없다 · 87 전용 계좌 → {}", () => {
+    const u = withCosts(
+      {
+        intent: [intent("kimtr", A1, "KB120"), intent("kimtr", A1, "KB121", "removing")],
+        snapshotAccounts: [snap("kimtr", A1, "KB120"), snap("kimtr", A1, "KB121"), snap("kimtr", A2, "KB120")],
+      },
+      {
+        servers: {
+          KB120: [cost("kimtr", A1.accountNo, 1, 2, 3), cost("kimtr", A2.accountNo, 4, 5, 6)],
+          KB121: [cost("kimtr", A1.accountNo, 1, 2, 3)],
+        },
+      },
+    );
+    expect(u.accounts.map((a) => [a.accountNo, a.costs])).toEqual([
+      [A1.accountNo, { KB120: { budgetKrw: 1, feePpm: 2, sellTaxPpm: 3, budgetSource: "snapshot" } }],
+      [A2.accountNo, {}],
+    ]);
+  });
+
+  it("D-04 — 비용 값이 달라도 칩 · drift 판정은 costs 유무와 같다", () => {
+    const over = {
+      ...BOTH,
+      results: [result("kimtr", "KB121")],
+    };
+    const without = deriveAdminUsersOverview(raw(over));
+    const withC = deriveAdminUsersOverview(raw(over), null, {
+      servers: {
+        KB120: [cost("kimtr", A1.accountNo, 100_000_000, 100, 2000, 1)],
+        KB121: [cost("kimtr", A1.accountNo, 5, 500, 0)],
+      },
+    });
+    const chipsOf = (ov: typeof without) =>
+      ov.users.map((u) => ({ servers: u.servers, accounts: u.accounts.map((a) => a.servers), count: u.accountCount }));
+    expect(chipsOf(withC)).toEqual(chipsOf(without));
+    expect(withC.serverOnly).toEqual(without.serverOnly);
   });
 });
 

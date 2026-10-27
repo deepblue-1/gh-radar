@@ -249,6 +249,15 @@ describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
     [3, 13, "failed"], // 13 BAD_ORDER_ENDPOINT — 주문자 IP/MAC 형식 오류(gh-trade 인박스 261010)
     [1, 13, "failed"], // 13 — op 1 신규 첫 계좌에도 온다
     [5, 0, "ok"],
+    // Phase 36 (D-06) — op 6 SetAccountBudget · op 7 SetAccountFee: code 0 만 반영됨. 1 = 구 서버(op 모름) 또는 범위 밖.
+    [6, 0, "ok"],
+    [7, 0, "ok"],
+    [6, 1, "failed"],
+    [7, 1, "failed"],
+    [6, 5, "failed"],
+    [6, 8, "failed"], // 8 의 「반영됨」 예외는 op 4 전용
+    [7, 10, "failed"],
+    [6, 11, "failed"],
   ] as const)("op %i · code %i → %s", (op, code, expected) => {
     expect(interpretAdminResult(op, code)).toBe(expected);
   });

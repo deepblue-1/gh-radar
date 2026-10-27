@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { AdminAccountView, AdminOrderEndpoint } from "../admin";
+import type { AdminAccountCost, AdminAccountView, AdminOrderEndpoint } from "../admin";
 import {
+  summarizeAccountCosts,
+  type AccountCostSummary,
   formatOrderIp,
   formatOrderMac,
   normalizeOrderIp,
@@ -264,5 +266,125 @@ describe("summarizeOrderEndpoint — 출처 · 불일치 (D-09 · D-10)", () => 
     },
   ])("$name", ({ account: acct, registry, expected }) => {
     expect(summarizeOrderEndpoint({ account: acct, registry })).toEqual(expected);
+  });
+});
+
+describe("summarizeAccountCosts (D-03)", () => {
+  // 87/67 값 그대로(정규화 없음). 가짜 값.
+  const c = (budgetKrw: number, feePpm: number, sellTaxPpm: number): AdminAccountCost => ({
+    budgetKrw,
+    feePpm,
+    sellTaxPpm,
+    budgetSource: "snapshot",
+  });
+  const REGISTRY = [
+    { key: "KB120", enabled: true },
+    { key: "KB121", enabled: true },
+    { key: "KB122", enabled: true },
+  ];
+  type AccountIn = Pick<AdminAccountView, "servers" | "orderServer" | "defaultOrderServer" | "costs">;
+  const account = (
+    activeKeys: string[],
+    costs: AccountIn["costs"],
+    over: Partial<Pick<AdminAccountView, "orderServer" | "defaultOrderServer">> = {},
+  ): AccountIn => ({
+    servers: activeKeys.map((serverKey) => ({ serverKey, tone: "ok" as const, message: null, state: "active" as const })),
+    orderServer: null,
+    defaultOrderServer: "KB120",
+    costs,
+    ...over,
+  });
+  const UNKNOWN: AccountCostSummary = {
+    state: "unknown",
+    budgetKrw: 0,
+    feePpm: 0,
+    sellTaxPpm: 0,
+    source: null,
+    budgetMismatches: [],
+    feeMismatches: [],
+  };
+
+  it.each([
+    {
+      name: "주문 서버 KB120 1억/100/2000 · KB121 5,000만/500/2000 → 출처 KB120 · 예수금 · 비용률 불일치 각각",
+      account: account(["KB120", "KB121"], { KB120: c(100_000_000, 100, 2000), KB121: c(50_000_000, 500, 2000) }),
+      registry: REGISTRY,
+      expected: {
+        state: "known",
+        budgetKrw: 100_000_000,
+        feePpm: 100,
+        sellTaxPpm: 2000,
+        source: "KB120",
+        budgetMismatches: [{ serverKey: "KB121", budgetKrw: 50_000_000 }],
+        feeMismatches: [{ serverKey: "KB121", feePpm: 500, sellTaxPpm: 2000 }],
+      },
+    },
+    {
+      name: "지정 KB121(켜짐) → 출처 KB121 · 예수금만 다르면 budgetMismatches 만",
+      account: account(
+        ["KB120", "KB121"],
+        { KB120: c(100_000_000, 100, 2000), KB121: c(30_000_000, 100, 2000) },
+        { orderServer: "KB121" },
+      ),
+      registry: REGISTRY,
+      expected: {
+        state: "known",
+        budgetKrw: 30_000_000,
+        feePpm: 100,
+        sellTaxPpm: 2000,
+        source: "KB121",
+        budgetMismatches: [{ serverKey: "KB120", budgetKrw: 100_000_000 }],
+        feeMismatches: [],
+      },
+    },
+    {
+      name: "출처 KB120 값 null(87 모름) → 값을 아는 첫 서버 KB121 · 모르는 서버는 비교하지 않는다",
+      account: account(["KB120", "KB121", "KB122"], { KB120: null, KB121: c(1, 2, 3), KB122: c(1, 2, 4) }),
+      registry: REGISTRY,
+      expected: {
+        state: "known",
+        budgetKrw: 1,
+        feePpm: 2,
+        sellTaxPpm: 3,
+        source: "KB121",
+        budgetMismatches: [],
+        feeMismatches: [{ serverKey: "KB122", feePpm: 2, sellTaxPpm: 4 }],
+      },
+    },
+    {
+      name: "아무 서버도 모름 → unknown",
+      account: account(["KB120", "KB121"], { KB120: null, KB121: null }),
+      registry: REGISTRY,
+      expected: UNKNOWN,
+    },
+    {
+      name: "costs 없음(옛 픽스처) → unknown",
+      account: account(["KB120"], undefined),
+      registry: REGISTRY,
+      expected: UNKNOWN,
+    },
+    {
+      name: "지정 KB121 이 꺼진 서버 → 지정 무시 · 기본 KB120 이 출처",
+      account: account(
+        ["KB120", "KB121"],
+        { KB120: c(100_000_000, 100, 2000), KB121: c(100_000_000, 100, 2000) },
+        { orderServer: "KB121" },
+      ),
+      registry: [
+        { key: "KB120", enabled: true },
+        { key: "KB121", enabled: false },
+      ],
+      expected: {
+        state: "known",
+        budgetKrw: 100_000_000,
+        feePpm: 100,
+        sellTaxPpm: 2000,
+        source: "KB120",
+        budgetMismatches: [],
+        feeMismatches: [],
+      },
+    },
+  ])("$name", ({ account: acct, registry, expected }) => {
+    expect(summarizeAccountCosts({ account: acct, registry })).toEqual(expected);
   });
 });
