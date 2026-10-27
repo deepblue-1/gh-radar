@@ -331,10 +331,35 @@ Plans:
   6. 첫 실물 날짜 라이브 UAT(16:00:01 이후 relay 적재 → 어드민에 당일 행) · 인박스 `261027-launch-gate-admin.md` 및 후속 정식 인계 노트를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버 먼저 배포해도 안전(relay 는 모르는 kind 도 그대로 적재) → gh-radar DB 마이그레이션 → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum·주석 sync 만)
-**Plans**: 0 plans
+**Plans**: 11 plans
 
 Plans:
-- [ ] TBD (run /gsd-discuss-phase 35 → 목업 → /gsd-plan-phase 35)
+**Wave 1**
+- [ ] 35-01-PLAN.md — gh-trade 핸드오프(백필 ndjson 지금 · kind 17·18 매핑 요구) · 상의 노트 회신 (W1 · 메인 세션 체크포인트)
+- [ ] 35-02-PLAN.md — DB 트레이서 전반: launch_pieces/heads · 조건부 upsert · 백필/어드민 RPC 2 + pgTAP (W1)
+- [ ] 35-03-PLAN.md — shared group() 이식 · 백필 머리 계산 · relay 백필 도구 · CLI(dry-run/--apply/--status/--reproject) (W1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 35-04-PLAN.md — dma_strategy_apply 재정의(17·18 투영 서브블록 · rows 제외) · 스텁 · reproject · 래퍼/타임라인 제외 + pgTAP 회귀 (W2)
+- [ ] 35-05-PLAN.md — 어드민 라우트 2개(orders · map) · 사이드바 「발사」 (W2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 35-06-PLAN.md — /admin/launch 주문 내역 탭(16:00 · 09:00:30 · 폰 390) · 발사 색 토큰 (W3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 35-07-PLAN.md — 경계 지도 패널: 기하 lib + 순수 SVG(점 · 띠 · 점선 · 리본 · 마름모 · 이상치) (W4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 35-08-PLAN.md — 경계 지도 탭 조립(프리셋 칩 · 요약 카드 · 4패널) + 전체 회귀 게이트 (W5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 35-09-PLAN.md — Wave A 배포: [BLOCKING] db push → 백필 적재 → server → push → 백필 UAT (W6 · 메인 세션)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 35-10-PLAN.md — Wave B: 정식 인계 노트 게이트 → kind 17·18 칸 매핑 + pgTAP · shared kind/라벨 sync (W7 · 노트 조건부)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 35-11-PLAN.md — Wave B 배포: 매핑 db push · reproject · 라이브 UAT · 두 노트 닫기 (W8 · 메인 세션)
 
 ### Phase 36: 계좌별 주문가능 금액
 
