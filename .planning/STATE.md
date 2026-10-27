@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-12-PLAN.md
-last_updated: "2026-10-27T15:21:01.072Z"
+stopped_at: Completed 35-13-PLAN.md
+last_updated: "2026-10-27T15:27:50.517Z"
 last_activity: 2026-10-28
-last_activity_desc: 35-12 발사 계획 shared 계약 · 변경 이력 표 완료(로컬 커밋)
-state_head: b5a39c7ac6bf04c1b6379e27e374de8a54c791fc
+last_activity_desc: 35-13 server 발사 계획 라우트 GET/PUT 완료(로컬 커밋)
+state_head: 102191040ae35c2d0e9efca6c668c18efab65efd
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 82
-  completed_plans: 63
+  completed_plans: 64
   percent: 71
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 10 of 19 (35-01~09 · 35-12 완료 · 35-10·11·16~18 은 gh-trade Phase 43 정식 인계 노트 대기 · 노트 전 35-13~15 다음 · 로컬 커밋까지만 D-35)
+Plan: 11 of 19 (35-01~09 · 35-12 · 35-13 완료 · 35-10·11·16~18 은 gh-trade Phase 43 정식 인계 노트 대기 · 노트 전 35-14~15 다음 · 로컬 커밋까지만 D-35)
 Status: Executing Phase 35 — 범위 7 노트 전
-Last activity: 2026-10-28 — 35-12 발사 계획 shared 계약 · 변경 이력 표(launch_plan_changes · RPC 2 · pgTAP 26) 로컬 커밋 · push 안 함
+Last activity: 2026-10-28 — 35-13 server GET/PUT /api/admin/launch/plan(relay 계약 · 이력 기록 · supertest 31) 로컬 커밋 · push 안 함
 
 Progress: [███████░░░] 71% (53/53 plans)
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T15:21:00.988Z
-Stopped at: Completed 35-12-PLAN.md
+Last session: 2026-10-27T15:27:50.430Z
+Stopped at: Completed 35-13-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -166,6 +166,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P07 | 8 min | 2 tasks | 4 files |
 | Phase 35 P08 | 14 min | 3 tasks | 9 files |
 | Phase 35 P12 | 8min | 3 tasks | 5 files |
+| Phase 35 P13 | 6min | 2 tasks | 6 files |
 
 ## Decisions
 
@@ -260,3 +261,4 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-08: 발사 기준 세그먼트는 LaunchFireSeg 하나를 두 탭이 공유(같은 ?fire 키) · ?range 10d 기본 · 탭 · 칩 · 세그먼트 전환은 다른 쿼리 보존
 - [Phase 35]: 35-12: 이력 읽기 RPC = 조합별 최근 N ∪ 마지막 ok(jsonb 1값) · launch_plan_changes 는 service_role SELECT/INSERT 만
 - [Phase 35]: 35-12: validateLaunchPlanDraft 검사 순서 = 개수 → 칸마다(정수 → 범위) → 순서 · badIdx/idx 0부터 · LAUNCH_PLAN_LIMITS 잠정(35-19 대조)
+- [Phase 35]: 35-13: 발사 계획 GET 은 relay 실패(미설정·못 닿음·비200·모양 위반·누락 서버)를 서버별 offline 200 으로 접고, PUT 은 어떤 결과든 이력 1행 · 기록 실패는 200 change null + logger.error
