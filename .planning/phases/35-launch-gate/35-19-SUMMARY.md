@@ -17,14 +17,16 @@ provides:
   - "launch-orders-tab 16:00 CardRow 라벨 = model.learnLabel"
   - "LAUNCH_PLAN_LIMITS JSDoc — 정식 노트와 일치 확인(값 무변경)"
   - "범위 7 전체 회귀 결과(로컬 green)"
+  - "fix 노트 대조: LAUNCH_PLAN_LIMITS.maxSpanUs(q16 500) · validateLaunchPlanDraft 폭 위반(kind span)"
+  - "LAUNCH_PLAN_UNKNOWN_OP_MESSAGE — 저장 결과 「서버 미지원」 은 code 1 「알 수 없는 명령입니다」 일 때만"
 affects: [35-18]
 
 actuals:
-  tokens: 2650
-  tasks: 2
-  commits: 3
+  tokens: 7530
+  tasks: 3
+  commits: 7
 plan_head_before: 935db8db81b7aa312532f36e53326784b6efb751
-plan_head_after: 2777a821a26e77fb636b6ecc72cd18a293cc17c4
+plan_head_after: 9f51eb456cb6d77d58160190887789d450120ee0
 
 tech-stack:
   added: []
@@ -40,14 +42,22 @@ key-files:
     - webapp/src/lib/__tests__/launch-format.test.ts
     - webapp/src/components/admin/__tests__/launch-orders-tab.test.tsx
     - packages/shared/src/launch-plan.ts
+    - packages/shared/src/__tests__/launch-plan.test.ts
+    - packages/shared/src/admin.ts
+    - webapp/src/lib/launch-plan-view.ts
+    - webapp/src/lib/__tests__/launch-plan-view.test.ts
+    - webapp/src/components/admin/launch-plan-editor.tsx
+    - webapp/src/components/admin/__tests__/launch-plan-editor.test.tsx
 
 key-decisions:
   - "35-19: 16:00 학습 줄 판정 = correction_before · correction_after · step_us 중 하나라도 non-null 이면 옛 라벨 · 옛 문형, 아니면 「다음 발사 계획 첫 조각」 + next_offset_us(없으면 —)"
   - "35-19: D-34 LAUNCH_PLAN_LIMITS 는 정식 노트(119/120 서버 설정값)와 일치 — 값 · 테스트 무변경, JSDoc 만 갱신"
+  - "35-19(fix 노트): 저장 결과 「서버 미지원」 은 code 1 + 「알 수 없는 명령입니다」 바이트 일치일 때만 — 새 서버의 code 1 입력 거부는 「KB120 실패: <원문>」"
+  - "35-19(fix 노트): Q16 시각 목록 폭(마지막 − 첫) ≤ 500µs 클라 검증 — 순서 검사 뒤 · badIdx = 마지막 칸 · N 은 null(해당 없음)"
 
 requirements-completed: []
 
-duration: 5min
+duration: 15min
 completed: 2026-10-28
 ---
 
@@ -57,10 +67,10 @@ completed: 2026-10-28
 
 ## Performance
 
-- **Duration:** 약 5분
+- **Duration:** 약 15분 (본 플랜 5분 + fix 노트 후속 10분)
 - **Completed:** 2026-10-28
-- **Tasks:** 2 (tracer 1 · auto 1)
-- **Files modified:** 5
+- **Tasks:** 2 (tracer 1 · auto 1) + fix 노트 후속 1
+- **Files modified:** 11
 
 ## D-32 문형 표 (16:00 머리 카드 학습 줄 · 세 갈래)
 
@@ -102,12 +112,40 @@ completed: 2026-10-28
 
 미실행 항목 없음. 범위 밖 실패 없음.
 
+## fix 노트 대조 (코디네이터 후속 · `docs/inbox/from-gh-trade/261028-launch-plan-fix.md` · gh-trade f5113297 · 와이어 무변경)
+
+| fix 노트 항목 | 판정 | 코드 |
+|---|---|---|
+| ① op 8 code 1 거부 문구 8번째 「시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)」 | **반영** — shared `LAUNCH_PLAN_LIMITS.q16.maxSpanUs = 500`(n0930 `null`) · `validateLaunchPlanDraft` 가 순서 검사 **뒤**에 폭을 검사한다. 위반이면 `kind: "span"` · `badIdx` = 마지막 칸 · 문구 「조각 시각은 첫 조각과 마지막 조각 차이가 500µs 이하여야 해요 — 지금 nµs」. 첫 위반 하나만 돌려주는 규칙은 그대로 | `f2db92c3` |
+| ①' 기존 버그: code 1 이면 전부 「서버 미지원 · … — 서버 업데이트 뒤 다시 저장」 | **수정** — 새 서버는 범위 · 순서 · 조각 수 · 폭 거부도 code 1 + 고정 문구로 보낸다. 그래서 「서버 미지원」 은 code 1 이면서 message 가 `LAUNCH_PLAN_UNKNOWN_OP_MESSAGE`(「알 수 없는 명령입니다」, 바이트 대조 상수 하나)일 때만 쓴다. 그 밖의 code 1 은 「KB120 실패: <원문>」 이다. message 가 없는 code 1 은 「KB120 실패: 실패」. JSDoc 표 · editor 주석 · shared `interpretAdminResult` 주석도 갱신했다 | `9f51eb45` |
+| ② op 8 code 10 「발사 계획 저장 경로 없음 — 서버 plan_file 설정을 확인하세요」 | 코드 변경 없음 — 기존 failed 분기가 이미 「KYOBO119 실패: <원문>」 을 낸다. 단위 테스트 1건으로 확인했다 | 테스트만 |
+| ③ kind 17 `planned_us` 클램프 뒤 값 | 무관 — `planned_us` 는 launch_pieces 매핑에 없다(웹 · 지도 미사용) | 없음 |
+| ④ kind 17 `result_code` · `rc=` 첫 발 번호 기준 | 무변경 — 매핑(rc 원문 → text) 그대로이고 값의 뜻만 맞아졌다 | 없음 |
+| ⑤ 계획 파일 손상 시 op 9 초깃값 · `plan_rev` 1 | 무관 — 웹은 plan_rev 를 비교하지 않는다(표시 · 이력 기록만) | 없음 |
+
+- e2e P35-P4 ② 서버 거부 케이스는 message 가 「알 수 없는 명령입니다」 라서 기대값(「서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장」)이 그대로 맞다. 그래서 고치지 않았다.
+- 기존 shared 테스트 「경계값 −3000 · 1000 은 ok」 의 `["-3000", "1000"]` 은 폭이 4000 이라 이제 폭 위반이다. 그래서 한 칸씩(`["-3000"]` · `["1000"]`)과 폭 500 안의 두 칸(`["-3000","-2500"]` · `["500","1000"]`)으로 나눴다. `["-3000","1000"]` 은 폭 위반 단언으로 옮겼다. 상수 단언 it 제목의 「잠정」 도 「정식 노트 값」 으로 바꿨다.
+- 노트 파일은 건드리지 않았다(35-18 에서 닫음).
+
+### fix 노트 반영 뒤 회귀
+
+| 단계 | 결과 |
+|---|---|
+| shared vitest | **24 files · 726 passed** (724 → +2: 폭 위반 · 폭 순서) |
+| webapp typecheck · relay typecheck · server typecheck | 통과 |
+| webapp vitest | **189 files · 4889 passed · 1 skipped** (4885 → +4: view 2 · editor 2) |
+| playwright admin-launch `--workers=1` | **19 passed** |
+
+RED `13423f8c`: shared 2 failed · webapp 3 failed(폭 위반 2 · code 1 일반 실패 1). code 10 확인 테스트와 「폭은 순서 뒤」 테스트는 RED 에서도 통과했다(기존 동작 잠금).
+
 ## Task Commits
 
 1. **Task 1 (tracer): 16:00 머리 카드 다음 발사 계획 첫 조각** — RED `083ee5da` (test) → GREEN `9751265c` (feat)
 2. **Task 2: D-34 노트 대조** — `2777a821` (docs · JSDoc 만 · 행동 변화 없음이라 RED 없음) + 범위 7 전체 회귀(커밋 없음)
 
-**이 플랜의 마지막 코드 커밋(35-18 Task 3 done_commit 용): `2777a821`** — 행동이 바뀐 마지막 커밋은 `9751265c`.
+3. **fix 노트 대조(코디네이터 후속)** — RED `13423f8c` (test) → GREEN `f2db92c3` (feat · 폭 검증) · `9f51eb45` (fix · 서버 미지원 판정)
+
+**이 플랜의 마지막 코드 커밋(35-18 Task 3 done_commit 후보): `9f51eb45`** — 정식 노트 `261028-launch-plan-contract.md` 와 fix 노트 `261028-launch-plan-fix.md` 둘 다 이 해시로 닫으면 된다.
 
 ## TDD Gate Compliance
 
@@ -121,7 +159,8 @@ completed: 2026-10-28
 
 - **함수 이름:** 계획의 「`learnText` 세 갈래」 를 라벨과 값을 함께 돌려주는 `learnLineOf(h) → { learnLabel, learn }` 로 바꿨다. 판정을 한 곳에서 해서 라벨과 값이 서로 다른 갈래를 타지 않게 하려는 것이다. 겉으로 보이는 결과(모델 필드 `learnLabel` · `learn`)는 계획과 같다.
 - **커밋 타입:** Task 2 커밋은 JSDoc 만 고쳐서 `docs(35-19)` 로 했다.
-- **shared 테스트 제목:** `launch-plan.test.ts` 의 「D-34 잠정 값 — …」 it 제목은 계획대로 두었다(같으면 테스트 무변경). 숫자 단언은 노트와 같다.
+- **shared 테스트 제목:** Task 2 에서는 계획대로 테스트를 두었다. 그 뒤 fix 노트 후속에서 상수 단언에 `maxSpanUs` 가 붙으면서 it 제목의 「잠정」 을 「정식 노트 값」 으로 바꿨다.
+- **범위 추가(코디네이터 지시):** fix 노트 반영 2건(폭 검증 · 서버 미지원 판정 버그)을 35-19 범위(D-34 노트 대조)로 처리했다 — 위 「fix 노트 대조」 절.
 
 None — 자동 수정(Rule 1~3) 없음.
 
@@ -131,12 +170,14 @@ None.
 
 ## 35-18(배포 · 라이브 UAT)이 알아야 할 것
 
-- push 안 함(D-35). 이 플랜 커밋 3개와 SUMMARY 커밋은 로컬 master 에만 있다(origin 보다 44커밋 앞섬 · SUMMARY 포함).
-- 웹 변경은 주문 내역 16:00 카드 줄 하나다. DB · relay · server 에는 이 플랜의 변경이 없다. 배포 순서 D-30(gh-trade 43 → DB → relay → server → webapp push)은 그대로다.
+- push 안 함(D-35). 이 플랜 커밋(코드 6 · 문서 2)은 로컬 master 에만 있다.
+- 웹 변경은 주문 내역 16:00 카드 줄 · 편집 칸 폭 검증 · 저장 결과 줄 판정이다. shared 는 `LAUNCH_PLAN_LIMITS` 필드 추가(웹만 사용)와 주석뿐이다. DB · relay · server 동작 변경은 없다. 배포 순서 D-30(gh-trade 43 → DB → relay → server → webapp push)은 그대로다.
 - 라이브 UAT: Phase 43 서버 첫 16:00 뒤 그날 주문 내역 16:00 카드에 「다음 발사 계획 첫 조각 · <계획 첫 조각>µs」 가 보이는지 본다. 값은 kind 18 next_offset_us, 곧 그 시점 op 9 의 Q16/<시장> 첫 값이다. 그 전 날짜(백필 · 학습 시절)는 「학습 → 다음 오프셋」 이 보여야 한다.
-- 노트 `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` 는 `status: open` 그대로다(메인 세션의 미추적 파일 — 손대지 않았다). 닫을 때 done_commit 은 `2777a821`(위)을 쓴다.
+- 노트 `docs/inbox/from-gh-trade/261028-launch-plan-contract.md` · `261028-launch-plan-fix.md` 는 둘 다 `status: open` 그대로다(메인 세션의 미추적 파일 — 손대지 않았다). 닫을 때 done_commit 은 `9f51eb45`(위)를 쓴다.
+- 라이브 스모크 추가: 폭 501µs 계획은 웹이 저장 전에 막는다(서버까지 가지 않음). 구 서버(Phase 43 전)에 저장하면 「서버 미지원」 이 보이고, 새 서버의 거부는 「KB120 실패: <서버 원문>」 이다.
 
 ## Self-Check: PASSED
 
 - FOUND: webapp/src/lib/launch-format.ts (「다음 발사 계획 첫 조각」 · `learnLabel`) · webapp/src/components/admin/launch-orders-tab.tsx (`model.learnLabel`) · packages/shared/src/launch-plan.ts (「정식 노트」 · `export const LAUNCH_PLAN_LIMITS`)
-- FOUND commits (HEAD 조상): 083ee5da · 9751265c · 2777a821
+- FOUND commits (HEAD 조상): 083ee5da · 9751265c · 2777a821 · 13423f8c · f2db92c3 · 9f51eb45
+- FOUND: packages/shared/src/launch-plan.ts (`maxSpanUs: 500` · `kind: "span"`) · webapp/src/lib/launch-plan-view.ts (`LAUNCH_PLAN_UNKNOWN_OP_MESSAGE`)

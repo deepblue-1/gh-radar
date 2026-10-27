@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-19-PLAN.md
-last_updated: "2026-10-27T17:09:12.019Z"
+last_updated: "2026-10-27T17:16:24.775Z"
 last_activity: 2026-10-28
 last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
-state_head: 2777a821a26e77fb636b6ecc72cd18a293cc17c4
+state_head: 9f51eb456cb6d77d58160190887789d450120ee0
 progress:
   total_phases: 7
   completed_phases: 5
@@ -284,3 +284,4 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-17: Phase 36 갈래 ③ — phase-36 브랜치는 커밋 완료 · master 미병합. 병합 때 admin-api import · interpretAdminResult 유니온(1~9) · admin.test it.each 3곳 양쪽 살림
 - [Phase 35]: 35-19: 16:00 학습 줄 판정 = correction_before · after · step_us 중 하나라도 non-null 이면 옛 라벨, 아니면 「다음 발사 계획 첫 조각」 + next_offset_us
 - [Phase 35]: 35-19: D-34 LAUNCH_PLAN_LIMITS 정식 노트(119/120 서버 설정값)와 일치 — 값·테스트 무변경, JSDoc 만
+- [Phase 35]: 35-19(fix 노트): 「서버 미지원」 은 code 1 + 「알 수 없는 명령입니다」 일 때만 · Q16 시각 목록 폭 ≤ 500µs 클라 검증(LAUNCH_PLAN_LIMITS.maxSpanUs)
