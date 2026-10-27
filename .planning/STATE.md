@@ -5,7 +5,7 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-08-PLAN.md
+stopped_at: "36-08 완료(9/10) — 36-09 배포는 Phase 35 종료 뒤 master 병합과 함께(사용자 결정 2026-10-28)"
 last_updated: "2026-10-27T16:11:37.835Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
