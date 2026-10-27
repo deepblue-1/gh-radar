@@ -8,6 +8,7 @@
 --      — 「최신 seq 우선 · journal > backfill」 규칙 한 곳(라이브 해석 35-04 와 백필 RPC 가 같이 부른다).
 --   ④ launch_backfill_apply(p_pieces jsonb, p_heads jsonb) — 백필 스크립트(35-03)의 쓰기 입구.
 --   ⑤ launch_orders_for_admin(p_date text) — 「주문 내역」 탭 하루치(jsonb 1값).
+--   ⑥ launch_map_for_admin(p_fire text, p_days integer) — 「경계 지도」 탭(발사 기준 · 최근 N 거래일 · 최신 머리).
 --
 -- 왜: gh-trade 16:00 Q16 · 09:00:30 N · A(09:00:27 KRX 매수 + 09:00:30 NXT 매도) 발사의 조각 · 머리 이력 정본.
 --   서버는 하루치만 남기므로 이 표가 영구 보관한다(D-01 · 보존 정리 없음).
@@ -486,6 +487,87 @@ COMMENT ON FUNCTION public.launch_orders_for_admin(text) IS
 REVOKE EXECUTE ON FUNCTION public.launch_orders_for_admin(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.launch_orders_for_admin(text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.launch_orders_for_admin(text) TO service_role;
+
+-- ── ⑥ 경계 지도 RPC(D-15 · D-16 · D-17 · D-20 · A4) ──────────────
+-- 발사 기준(p_fire):
+--   q16   = (KRX, 16:00:00)
+--   n0930 = (NXT, 09:00:30) — profile 을 가로지른다(N 매수 + A 매도 · D-03 · D-17).
+--   A 의 09:00:27 KRX 매수 다리는 어느 기준에도 걸리지 않는다(지도 없음 — 주문 내역에만).
+--   그 밖 값 · p_days < 1 은 SQLSTATE 22023.
+-- 응답 {days, heads, pieces}:
+--   days   = 그 발사 기준에 조각이 있는 거래일 내림차순 YYYYMMDD · LIMIT p_days(null = 전체).
+--            「최근 N일」 은 발사 기준별 거래일이다(A4 — N 은 개장차익 가동일만 있어 q16 날짜로 자르면 안 된다).
+--   pieces = 그 날짜들의 그 발사 기준 조각 — 지도 열만(trade_date YYYYMMDD · gateway · market · profile · fire_exchange ·
+--            side · wire · piece_idx · sent_rel_us · result · retry) · trade_date, gateway, market, profile, wire 오름차순.
+--   heads  = 서버 × 시장 × 프로파일별 그 발사 기준 최신 머리 1행(범위와 무관 — 다음 오프셋 선 · D-16 · D-17).
+--            행 모양은 주문 내역 머리와 같다.
+-- 경계 · 리본 계산은 웹(shared launchDaysOf) — SQL 에 두 번째 구현을 두지 않는다(왕복 1회는 같다).
+-- 빈 경우 {days: [], heads: [], pieces: []}.
+CREATE FUNCTION public.launch_map_for_admin(p_fire text, p_days integer DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_ex   text;
+  v_base time;
+  v_days date[];
+BEGIN
+  IF p_fire = 'q16' THEN
+    v_ex := 'KRX'; v_base := time '16:00:00';
+  ELSIF p_fire = 'n0930' THEN
+    v_ex := 'NXT'; v_base := time '09:00:30';
+  ELSE
+    RAISE EXCEPTION 'launch_map_for_admin: p_fire 는 q16 | n0930 (got %)', p_fire USING ERRCODE = '22023';
+  END IF;
+  IF p_days IS NOT NULL AND p_days < 1 THEN
+    RAISE EXCEPTION 'launch_map_for_admin: p_days 는 1 이상 또는 null (got %)', p_days USING ERRCODE = '22023';
+  END IF;
+
+  -- 발사 기준별 거래일(launch_pieces_fire_date_idx) — LIMIT NULL = 전체
+  v_days := ARRAY(SELECT d.trade_date
+                    FROM (SELECT DISTINCT p.trade_date FROM public.launch_pieces p
+                           WHERE p.fire_exchange = v_ex AND p.fire_base = v_base) d
+                   ORDER BY d.trade_date DESC
+                   LIMIT p_days);
+
+  RETURN jsonb_build_object(
+    'days', (SELECT coalesce(jsonb_agg(to_char(d, 'YYYYMMDD') ORDER BY d DESC), '[]'::jsonb) FROM unnest(v_days) AS d),
+    'heads', (SELECT coalesce(jsonb_agg(
+                       to_jsonb(x) - 'created_at' - 'updated_at'
+                       || jsonb_build_object('trade_date', to_char(x.trade_date, 'YYYYMMDD'),
+                                             'fire_base', to_char(x.fire_base, 'HH24:MI:SS'))
+                       ORDER BY x.gateway, x.market, x.profile), '[]'::jsonb)
+                FROM (SELECT DISTINCT ON (h.gateway, h.market, h.profile) h.*
+                        FROM public.launch_heads h
+                       WHERE h.fire_exchange = v_ex AND h.fire_base = v_base
+                       ORDER BY h.gateway, h.market, h.profile, h.trade_date DESC) x),
+    'pieces', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+                        'trade_date', to_char(p.trade_date, 'YYYYMMDD'),
+                        'gateway', p.gateway,
+                        'market', p.market,
+                        'profile', p.profile,
+                        'fire_exchange', p.fire_exchange,
+                        'side', p.side,
+                        'wire', p.wire,
+                        'piece_idx', p.piece_idx,
+                        'sent_rel_us', p.sent_rel_us,
+                        'result', p.result,
+                        'retry', p.retry)
+                        ORDER BY p.trade_date, p.gateway, p.market, p.profile, p.wire), '[]'::jsonb)
+                 FROM public.launch_pieces p
+                WHERE p.fire_exchange = v_ex AND p.fire_base = v_base AND p.trade_date = ANY (v_days)));
+END;
+$$;
+
+COMMENT ON FUNCTION public.launch_map_for_admin(text, integer) IS
+  'Phase 35 D-15/D-16/D-17/D-20 — 발사 경계 지도(q16 = KRX 16:00 · n0930 = NXT 09:00:30 N+A · 발사 기준별 최근 p_days 거래일 · 최신 머리). service_role 전용';
+
+REVOKE EXECUTE ON FUNCTION public.launch_map_for_admin(text, integer) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.launch_map_for_admin(text, integer) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.launch_map_for_admin(text, integer) TO service_role;
 
 COMMIT;
 
