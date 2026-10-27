@@ -18,6 +18,7 @@ import { themesRouter } from "./routes/themes.js";
 import { homeRouter } from "./routes/home.js";
 import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
+import { pnlRouter } from "./routes/pnl.js";
 import { strategyEventsRouter } from "./routes/strategy-events.js";
 import { limitupRouter } from "./routes/limitup-report.js";
 import { teamflowRouter } from "./routes/teamflow-report.js";
@@ -106,6 +107,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/chat", chatRouter);
   // Phase 16 Plan 16 — DMA 주문 **조회 전용** (D-02). 접수는 relay wss 가 받는다.
   app.use("/api/orders", ordersRouter);
+  // Phase 36 D-17 ② — /me 손익 탭 일자별 매매손익 조회 전용 · 가시성은 RPC 안(dma_visible_accounts · 왕복 1회).
+  app.use("/api/pnl", pnlRouter);
   // Phase 25 D-07 — 하루치 주문로그(상따 전략 이벤트) 조회 전용. 적재는 relay 관찰자 기록기가 한다.
   app.use("/api/strategy-events", strategyEventsRouter);
   // Phase 28 D-10 — 상한가 보고서 조회 전용(DMA 매핑 사용자 · 격자는 인증 뒤 서명 URL). 적재는 workers/limitup-sync.
