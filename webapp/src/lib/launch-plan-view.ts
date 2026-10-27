@@ -217,18 +217,28 @@ export interface SaveResultView {
 const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
 
 /**
- * 저장 결과(D-27) — 분기는 outcome · code 로만(서버 message 는 원문 그대로 싣기만 한다 · 문장 대조 없음).
+ * gh-trade 86 code 1 고정 문구 중 「op 모름」(구 서버가 44 op 8 · 9 를 모름) — 바이트 그대로 대조한다.
+ * 정본: 인박스 `261028-launch-plan-contract.md` ⓒ 86 표. 같은 code 1 의 나머지 고정 문구(대상 밖 · 조각 수 범위 밖 ·
+ * N 은 시각 한 값 · 발사 시각 범위 밖 2종 · 같거나 커지는 순서 · fix 노트의 「시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)」)는
+ * 새 서버의 입력 거부라 일반 실패 줄로 원문을 보인다.
+ */
+export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
+
+/**
+ * 저장 결과(D-27) — 분기는 outcome · code 로 하고, code 1 만 「op 모름」 고정 문구 하나를 바이트 대조한다
+ * (`LAUNCH_PLAN_UNKNOWN_OP_MESSAGE`). 서버 message 는 원문 그대로 싣는다.
  *
  * | outcome | 칩 | 줄 |
  * |---|---|---|
  * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
- * | failed · code 1 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
- * | failed(그 밖) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
+ * | failed · code 1 · 「알 수 없는 명령입니다」 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
+ * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
  * | timeout | 「KB120 · 응답 없음」 | 「KB120 실패: 응답 없음」 |
  * | offline · 요청 실패 | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
  * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
  *
- * code 1 = 구 서버가 44 명령을 모름(gh-trade 「알 수 없는 명령」) — 서버 업데이트 전까지 저장이 안 된다.
+ * 서버 미지원 = 구 서버가 44 op 8 을 모름(code 1 「알 수 없는 명령입니다」) — 서버 업데이트 전까지 저장이 안 된다.
+ * 새 서버(gh-trade 43)는 범위 · 순서 · 조각 수 · 폭 거부도 code 1 이라 code 만으로는 가를 수 없다.
  */
 export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at: Date): SaveResultView {
   const s = result.server;
@@ -240,8 +250,8 @@ export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at
         line: { tone: 'ok', text: `저장됨 · ${kstPartsOf(at).hm} · 다음 ${FIRE_CLOCK[fire]} 발사부터` },
       };
     case 'failed': {
-      if (result.code === 1) {
-        const detail = msg === null ? '서버 미지원' : `서버 미지원 · ${msg}`;
+      if (result.code === 1 && msg === LAUNCH_PLAN_UNKNOWN_OP_MESSAGE) {
+        const detail = `서버 미지원 · ${msg}`;
         return {
           chip: { tone: 'err', text: `${s} · 실패`, title: detail },
           line: { tone: 'err', text: `${s} 실패: ${detail} — 서버 업데이트 뒤 다시 저장` },

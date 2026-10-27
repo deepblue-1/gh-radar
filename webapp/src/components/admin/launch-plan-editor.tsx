@@ -27,13 +27,13 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  * - 16:00 = 「조각 수」 −/+ 스테퍼(`LAUNCH_PLAN_LIMITS` · + 는 마지막 칸 값을 복사해 붙이고 − 는 마지막 칸을 뺀다) + 칸마다 µs.
  *   09:00:30 = 「발사 시각」 한 칸(스테퍼 없음). 「첫 시각 + 간격」 · 「고르게 채우기」 도우미는 없다(Deferred).
  * - 검증 위반 = 그 칸만 `aria-invalid` + 빨간 테두리 · `role=alert` 한 줄(shared 문구 원문) · 저장 비활성 · 입력값은 그대로.
- *   개수 위반(badIdx −1)은 칸 표시 없이 alert 만.
+ *   개수 위반(badIdx −1)은 칸 표시 없이 alert 만. 폭 위반(16:00 마지막 − 첫 > 500µs)은 마지막 칸에 표시.
  * - 「저장」 은 검증 통과 · 서버 값과 다름 · 저장 중 아님일 때만 켜진다. 「되돌리기」 = 서버 현재 값(같으면 비활성).
  * - 저장 중에도 입력은 막지 않는다(값 유지 · 버튼만 「저장 중…」).
  * - 미리보기 P2(D-28 · 목업 `mockup-launch-plan-preview.html` `verdict()`): 조각마다 지금 / 바꿀 µs 와 「지난 N일에 쐈다면」
  *   접수 · 모름 · 거부 날 수(shared `launchPlanVerdictRows` — 리본과 같은 식). N = 그 패널 지금 범위의 날 수. 바꿀 값은
  *   `preview`(마지막 유효 값 · Pitfall S9) — 검증 오류 동안에도 지우지 않는다. 표는 자기 래퍼 안에서만 가로 스크롤.
- * - 결과 = Admin 칩 한 벌(`ReflectChip`) + 결과 줄(`saveResultViewOf` — outcome · code 로만 가른다).
+ * - 결과 = Admin 칩 한 벌(`ReflectChip`) + 결과 줄(`saveResultViewOf` — outcome · code 로 가르고 code 1 은 「알 수 없는 명령입니다」 만 서버 미지원).
  */
 
 export interface LaunchPlanSaveState {
