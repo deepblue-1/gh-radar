@@ -56,14 +56,16 @@ import { maskDmaUserId } from "@gh-radar/shared";
 
 import { AppAccess } from "../src/access/app-access.js";
 import { AdminConn } from "../src/admin/admin-conn.js";
-import { createAdminRouter } from "../src/admin/admin-api.js";
+import { createAdminRouter, type AdminApiDeps } from "../src/admin/admin-api.js";
 import { AdminDispatcher } from "../src/admin/dispatcher.js";
 import { AdminIntentStore } from "../src/admin/intent-store.js";
+import { LaunchPlanService } from "../src/admin/launch-plan.js";
 import { createOrderApi } from "../src/order/order-api.js";
 import type { QuoteSwitchResult } from "../src/quote/quote-switch.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
 import { decryptDmaPassword } from "../src/store/credentials.js";
 import { AdminDbFake } from "./helpers/admin-db-fake.js";
+import { buildLaunchPlanSnapshotFrame } from "./helpers/frames.js";
 import {
   defaultAdminHandler,
   startFakeGateway,
@@ -140,6 +142,11 @@ type HarnessOptions = {
   journalStates?: Record<string, string>;
   /** 시세 주 서버 키 · 상태. */
   quote?: { serverKey: string | null; state: string };
+  /**
+   * 발사 계획 서비스(Phase 35 · 35-17). 기본 = 이 하네스의 registry · pipelines 위 실 `LaunchPlanService`. `null` = 주입 없음
+   * (두 라우트 503) · 대역 객체 = 라우트 검증 · 감사만 볼 때.
+   */
+  launchPlan?: AdminApiDeps["launchPlan"] | null;
   /** 꺼진 서버 키(레지스트리 enabled false). */
   disabled?: string[];
   /** DB 시세 주 서버 키(레지스트리 isQuotePrimary). 기본 없음. */
@@ -223,6 +230,8 @@ async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
     },
     // 시세 주 서버 전환(29-23) — 이 파일의 다른 경로는 부르지 않는다. 결과는 대역이 정한다.
     quoteSwitch: opts.quoteSwitch ?? { switchTo: () => Promise.resolve({ ok: true, changed: false }), currentServerKey: null },
+    // Phase 35 범위 7(35-17) — 발사 계획 조회 · 저장. 서버 키 단위(dispatcher 밖).
+    ...(opts.launchPlan === null ? {} : { launchPlan: opts.launchPlan ?? new LaunchPlanService({ registry, pipelines }) }),
     ...(opts.now !== undefined ? { now: opts.now } : {}),
     ...(opts.adminDeadlineMs !== undefined ? { adminDeadlineMs: opts.adminDeadlineMs } : {}),
     ...(opts.staleStrategies !== undefined ? { staleStrategies: opts.staleStrategies } : {}),
@@ -1538,6 +1547,91 @@ describe("P30 주문자 IP/MAC 쓰기 경로 (IPMAC-02 · D-07 · D-10)", () => 
       expect(ops3.at(-1)!.account).not.toHaveProperty("orderIp");
       expect(ops3.at(-1)!.account).not.toHaveProperty("orderMac");
     }
+  });
+});
+
+/**
+ * 잠그는 것 (Phase 35 범위 7 · 35-17 — 발사 계획 조회 · D-25 · D-30):
+ *   L1  GET /launch-plan?servers=KB120,KYOBO119 — 실 LaunchPlanService → 실 AdminConn → 가짜 게이트웨이. KB120 은 op 9 에 같은
+ *       request_id 94 로 · KYOBO119 는 구 서버(기본 handler 의 op 9 = code 1 「알 수 없는 명령입니다」) → 200 { servers: { KB120: ok,
+ *       KYOBO119: failed code 1 } } · 키 순서 = 요청 순서 · 감사 줄 없음(읽기)
+ *   L2  servers 누락 · 빈 값 · 9개 · 「KB 120」 → 400 VALIDATION_FAILED · 44 0건 · x-admin-email 없음 → 400(기존 관문)
+ *   L3  launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE
+ */
+describe("P35 발사 계획 조회 GET /launch-plan (35-17 Task 1)", () => {
+  const PATH = "/internal/admin/launch-plan";
+  let h: Harness | undefined;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  /** 그 서버 게이트웨이가 op 9 에 같은 request_id 의 94 로 답한다(그 밖 op 는 기본 handler). */
+  async function servePlan(harness: Harness, key: string, planRev: bigint): Promise<void> {
+    const gw = harness.gateways[key]!;
+    const sock = await gw.waitForAdminConnection();
+    const base = defaultAdminHandler(harness.states[key]!);
+    gw.onAdminCommand((req) => {
+      if (req.op !== 9) return base(req);
+      gw.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: req.requestId, planRev, updatedAt: "2026-10-27T22:41:00" }));
+      return null;
+    });
+  }
+
+  it("L1 KB120 = 94 스냅샷 ok · KYOBO119 = 구 서버 code 1 failed → 200 { servers } · 요청 순서 키", async () => {
+    const logs = await spyLogs();
+    h = await startHarness({ kyoboAdmin: true });
+    await servePlan(h, "KB120", 3n);
+
+    const res = await call(h, "GET", `${PATH}?servers=KB120,KYOBO119`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { servers: Record<string, unknown> };
+    expect(Object.keys(body.servers)).toEqual(["KB120", "KYOBO119"]);
+    expect(body).toEqual({
+      servers: {
+        KB120: {
+          status: "ok",
+          plan_rev: 3,
+          updated_at: "2026-10-27T22:41:00",
+          entries: [
+            { profile: "Q16", market: "K", offsets_us: [-350, -345, -325] },
+            { profile: "Q16", market: "Q", offsets_us: [-340, -335, -322] },
+            { profile: "N", market: "K", offsets_us: [-200] },
+            { profile: "N", market: "Q", offsets_us: [-245] },
+          ],
+        },
+        KYOBO119: { status: "failed", code: 1, message: "알 수 없는 명령입니다" },
+      },
+    });
+    expect(h.commands("KB120").map((r) => r.op)).toEqual([9]);
+    expect(h.commands("KYOBO119").map((r) => r.op)).toEqual([9]);
+    expect(h.commands("KB121")).toEqual([]);
+    // 읽기 — 감사 줄 없음.
+    expect(logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청")).toEqual([]);
+  });
+
+  it("L2 servers 누락 · 빈 값 · 9개 · 공백 키 → 400 · 44 0건 · x-admin-email 없음 → 400", async () => {
+    h = await startHarness();
+    const nine = Array.from({ length: 9 }, (_, i) => `KB${120 + i}`).join(",");
+    for (const q of ["", "?servers=", `?servers=${nine}`, "?servers=KB%20120", "?servers=KB120,,KB121", "?servers=NH1"]) {
+      const res = await call(h, "GET", `${PATH}${q}`);
+      expect(res.status, q).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code, q).toBe("VALIDATION_FAILED");
+    }
+    const noEmail = await call(h, "GET", `${PATH}?servers=KB120`, undefined, { "x-admin-email": "" });
+    expect(noEmail.status).toBe(400);
+    expect(((await noEmail.json()) as { error: { code: string } }).error.code).toBe("ADMIN_EMAIL_REQUIRED");
+    expect(h.commands("KB120")).toEqual([]);
+    expect(h.commands("KB121")).toEqual([]);
+  });
+
+  it("L3 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE", async () => {
+    h = await startHarness({ launchPlan: null });
+    const res = await call(h, "GET", `${PATH}?servers=KB120`);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_PLAN_UNAVAILABLE");
   });
 });
 
