@@ -15,6 +15,7 @@ import {
  *   servers/status → 200 `{ servers: {} }`
  *   order-endpoints → 200 `{ servers: {} }` (30-03 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
+ *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119 } }` 둘 다 ok 4칸(35-13 · `LAUNCH_PLAN_DEFAULT`)
  */
 
 export type FakeRelayCall = {
@@ -30,11 +31,33 @@ export type FakeRelayHandler = (
 
 export const OK_RESULTS = [{ server: "KB120", outcome: "ok", usersRev: "2" }];
 
+/** 서버 1대의 기본 계획(ok · 4칸) — N 값만 서버마다 다르다. */
+const planOf = (n: number) => ({
+  status: "ok",
+  plan_rev: 3,
+  updated_at: "2026-10-27T22:41:00",
+  entries: [
+    { profile: "Q16", market: "K", offsets_us: [-340, -335, -320] },
+    { profile: "Q16", market: "Q", offsets_us: [-350, -345, -325] },
+    { profile: "N", market: "K", offsets_us: [n] },
+    { profile: "N", market: "Q", offsets_us: [n] },
+  ],
+});
+
+/** 가짜 relay 의 기본 발사 계획(35-13) — GET 기본 응답의 `servers`. */
+export const LAUNCH_PLAN_DEFAULT: Record<string, ReturnType<typeof planOf>> = {
+  KB120: planOf(-245),
+  KYOBO119: planOf(-200),
+};
+
 function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
   if (/\/reload$/.test(call.path)) return { status: 200, data: { ok: true, changed: true } };
   if (call.path === "/internal/admin/servers/status") return { status: 200, data: { servers: {} } };
   if (call.path === "/internal/admin/order-endpoints") return { status: 200, data: { servers: {} } };
   if (/\/quote-primary$/.test(call.path)) return { status: 200, data: { ok: true } };
+  if (call.method === "GET" && call.path.startsWith("/internal/admin/launch-plan")) {
+    return { status: 200, data: { servers: LAUNCH_PLAN_DEFAULT } };
+  }
   if (call.method === "DELETE" && /^\/internal\/admin\/dma-users\/[^/]+$/.test(call.path)) {
     return { status: 200, data: { results: OK_RESULTS, deleted: true } };
   }

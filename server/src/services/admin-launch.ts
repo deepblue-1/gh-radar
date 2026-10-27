@@ -1,13 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  LAUNCH_PLAN_GATEWAYS,
   LAUNCH_RANGE_DAYS,
   type LaunchFire,
   type LaunchMapResponse,
   type LaunchOrdersResponse,
+  type LaunchPlanChangeRow,
+  type LaunchPlanServer,
   type LaunchRange,
 } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
+import { logger } from "../logger.js";
+import { RELAY_FAILED_MESSAGE, type RelayAdminClient } from "./relay-admin-client.js";
 
 /**
  * Phase 35 D-20 — 발사 경계 지도 어드민 **조회 전용** 서비스.
@@ -85,4 +90,86 @@ export async function getLaunchMap(
   if (error) throw DbError(MAP_FAIL, causeOf(error));
   assertArrays("launch_map_for_admin", MAP_FAIL, data, ["days", "heads", "pieces"]);
   return data as unknown as LaunchMapResponse;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 범위 7 (35-13) — 발사 계획 · 변경 이력(D-25 · D-27 · D-29 · D-30)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** relay 클라이언트가 없을 때(env 미설정 · 로컬) 서버 칸 문구. */
+export const RELAY_NOT_CONFIGURED_MESSAGE = "relay 연결이 설정되지 않았어요";
+
+/** 이력 읽기 한도 — 조합(gateway × fire × market)별 최근 N(+ 마지막 ok · 35-12 RPC). */
+export const LAUNCH_PLAN_CHANGES_LIMIT = 20;
+
+const CHANGES_FAIL = "발사 계획 이력 조회에 실패했습니다.";
+
+/** 변경 이력 — RPC `launch_plan_changes_for_admin` 1회 → `changes`. 배열이 아니면 500(웹이 바로 순회한다). */
+export async function getLaunchPlanChanges(supabase: SupabaseClient): Promise<LaunchPlanChangeRow[]> {
+  const { data, error } = await supabase.rpc("launch_plan_changes_for_admin", { p_limit: LAUNCH_PLAN_CHANGES_LIMIT });
+  if (error) throw DbError(CHANGES_FAIL, causeOf(error));
+  assertArrays("launch_plan_changes_for_admin", CHANGES_FAIL, data, ["changes"]);
+  return data.changes as LaunchPlanChangeRow[];
+}
+
+/** relay 가 준 서버 값 하나가 `LaunchPlanServer` 모양인지 — 아니면 그 서버는 offline 으로 접는다. */
+function isLaunchPlanServer(v: unknown): v is LaunchPlanServer {
+  if (!isObject(v)) return false;
+  switch (v.status) {
+    case "ok":
+      return Array.isArray(v.entries);
+    case "failed":
+      return typeof v.code === "number" && typeof v.message === "string";
+    case "offline":
+    case "timeout":
+    case "skipped":
+      return v.message === undefined || typeof v.message === "string";
+    default:
+      return false;
+  }
+}
+
+const allServers = (v: LaunchPlanServer): Record<string, LaunchPlanServer> =>
+  Object.fromEntries(LAUNCH_PLAN_GATEWAYS.map((k) => [k, v]));
+
+/**
+ * 서버별 현재 계획(D-25) — relay `launchPlans` 1회. **실패해도 throw 하지 않는다**: relay 없음 · 못 닿음(0) · 비200 · 모양 위반 ·
+ * relay 가 빠뜨린 서버는 `{ status: "offline", message }` — 웹이 대신 값(최신 머리)으로 그리고 「계획 고치기」 를 끈다.
+ * 반환 키 = `LAUNCH_PLAN_GATEWAYS` 순서. 로그에는 relay status 와 offline 으로 접은 서버 키만(바디 원문 금지).
+ */
+export async function readLaunchPlanServers(
+  relay: RelayAdminClient | undefined,
+  adminEmail: string,
+): Promise<Record<string, LaunchPlanServer>> {
+  if (!relay) return allServers({ status: "offline", message: RELAY_NOT_CONFIGURED_MESSAGE });
+  const offline: LaunchPlanServer = { status: "offline", message: RELAY_FAILED_MESSAGE };
+  let status = 0;
+  try {
+    const r = await relay.launchPlans(LAUNCH_PLAN_GATEWAYS, adminEmail);
+    status = r.status;
+    const servers: unknown = r.status === 200 && isObject(r.data) ? r.data.servers : undefined;
+    if (isObject(servers)) {
+      const out: Record<string, LaunchPlanServer> = {};
+      const folded: string[] = [];
+      for (const k of LAUNCH_PLAN_GATEWAYS) {
+        const v = servers[k];
+        if (isLaunchPlanServer(v)) out[k] = v;
+        else {
+          out[k] = offline;
+          folded.push(k);
+        }
+      }
+      if (folded.length > 0) {
+        logger.warn(
+          { relay: { op: "launch-plan-get", status, offline: folded } },
+          "[admin-launch] 발사 계획 조회 일부 서버 모양 위반 · 누락 → offline",
+        );
+      }
+      return out;
+    }
+  } catch {
+    // 닿지 못함과 같게 본다(status 0).
+  }
+  logger.warn({ relay: { op: "launch-plan-get", status } }, "[admin-launch] 발사 계획 조회 실패 → offline");
+  return allServers(offline);
 }
