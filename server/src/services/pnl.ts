@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { kstDateIso, pnlRangeOf, type PnlRange, type PnlReport } from "@gh-radar/shared";
+import { kstDateIso, pnlRangeOf, type PnlGroupBy, type PnlRange, type PnlReport } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
 
@@ -11,6 +11,7 @@ import { ApiError } from "../errors.js";
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-19-17  /me 는 인증된 `userId` 하나만 RPC 에 넘긴다(라우트가 requireAuth 로 확정한 값). 가시성은 RPC 안의
  *            `dma_visible_accounts` 조인이 정본 — 남의 계좌는 `groups: []`.
+ *   D-17 ①   어드민은 전 계정 · 전 계좌 — 라우트 관문(requireAuth → requireAdmin)이 정본. 묶음 · 정렬(미상 맨 뒤 · KB → 교보)은 RPC 가 한다.
  *   T-19-01  RPC EXECUTE 는 service_role 전용(anon · authenticated 명시 REVOKE — 20261027210100).
  *   T-15-07  DB 오류 원문은 응답에 싣지 않는다(고정 문구 DB_ERROR). 원문은 `cause` 로 실어 errorHandler 가 warn 로그에만 남긴다.
  *
@@ -62,4 +63,20 @@ export async function getMyPnl(
   });
   if (error) throw DbError(FAIL, causeOf(error));
   return asReport("dma_pnl_daily_for_user", data);
+}
+
+/** /admin/pnl — 전 계정(group=user) 또는 전 계좌(group=account) 묶음. */
+export async function getAdminPnl(
+  supabase: SupabaseClient,
+  group: PnlGroupBy,
+  range: PnlRange,
+): Promise<PnlReport> {
+  const { from, to } = pnlRangeOf(range, kstDateIso());
+  const { data, error } = await supabase.rpc("dma_pnl_daily_for_admin", {
+    p_from: from,
+    p_to: to,
+    p_group: group,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  return asReport("dma_pnl_daily_for_admin", data);
 }

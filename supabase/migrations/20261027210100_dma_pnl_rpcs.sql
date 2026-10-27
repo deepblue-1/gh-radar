@@ -7,7 +7,14 @@
 --        'me'      = p_user_id 가 볼 수 있는 계좌(dma_visible_accounts — 기존 가시성 의미 그대로) 중 p_account_no 한 계좌 ·
 --                    묶음 key = account_no · account_name = null · dma_user_ids = [](트레이더 응답 — T-19-08 · D-08 dma_user_id
 --                    비노출). 매핑 없는 사용자 · 남의 계좌 · p_user_id NULL = groups [].
+--        'user'    = 전 계정 · 묶음 key = dma_user_id. "" 체결은 「미상」 한 묶음 · 맨 뒤 · 나머지 key 오름차순.
+--                    dma_user_ids = [key](미상은 []) · account_name = null.
+--        'account' = 전 계좌 · 묶음 key = account_no(게이트웨이 무관 — KB120 · KB121 에 나뉜 같은 계좌는 한 묶음 · accounts 2개).
+--                    KB 묶음 → 교보 묶음 → 같은 증권사 안 account_no 오름차순 · 미상 없음. account_name = dma_user_accounts.name
+--                    (비면 null) · dma_user_ids = 그 계좌 체결의 빈 값 아닌 dma_user_id 들.
 --   ② dma_pnl_daily_for_user(p_user_id, p_account_no, p_from, p_to) — /me 손익 탭(server GET /api/pnl).
+--   ③ dma_pnl_daily_for_admin(p_from, p_to, p_group) — /admin/pnl(server GET /api/admin/pnl). p_group 'user' | 'account'
+--      밖은 22023 예외('me' 포함 — 가시성 모드를 어드민 경로로 열지 않는다).
 --
 -- 반환 jsonb = shared `PnlReport`(packages/shared/src/pnl.ts) 키 그대로(다단어 snake_case):
 --   { from, to, groups: [ { key, accounts: [{broker, gateway, account_no}], dma_user_ids, account_name,
@@ -31,7 +38,8 @@
 -- 권한: 모든 함수 SECURITY INVOKER · search_path 고정 · service_role 전용(PUBLIC · anon · authenticated 명시 REVOKE —
 -- 메모리 「Supabase RPC 는 REVOKE anon/authenticated 명시」). p_user_id 는 server 가 requireAuth 로 확정한 값만 넘긴다.
 --
--- 되돌리기(수동): DROP FUNCTION public.dma_pnl_daily_for_user(uuid, text, date, date);
+-- 되돌리기(수동): DROP FUNCTION public.dma_pnl_daily_for_admin(date, date, text);
+--                 DROP FUNCTION public.dma_pnl_daily_for_user(uuid, text, date, date);
 --                 DROP FUNCTION public.dma_pnl_daily_build(date, date, text, uuid, text);
 -- ============================================================
 
@@ -48,23 +56,25 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  IF p_mode IS NULL OR p_mode NOT IN ('me') THEN
+  IF p_mode IS NULL OR p_mode NOT IN ('me', 'user', 'account') THEN
     RAISE EXCEPTION 'dma_pnl_daily_build: unknown mode %', p_mode USING ERRCODE = '22023';
   END IF;
 
   RETURN (
     WITH fills AS (
-      SELECT j.account_no AS gkey,
+      SELECT CASE p_mode WHEN 'user' THEN j.dma_user_id ELSE j.account_no END AS gkey,
              j.gateway, j.trade_date, j.account_no, j.dma_user_id, j.isin, j.side,
              j.exec_qty::bigint * j.exec_price AS amt,
              j.fee_krw, j.tax_krw, j.realized_pnl_krw
         FROM public.dma_journal_events j
        WHERE j.notice_type = 'E'
          AND j.trade_date BETWEEN p_from AND p_to
-         AND j.account_no = p_account_no
-         AND EXISTS (
-               SELECT 1 FROM public.dma_visible_accounts(p_user_id) v
-                WHERE v.gateway = j.gateway AND v.account_no = j.account_no)
+         -- 'me' 만 가시성 · 계좌 거름. 어드민 모드는 전 계정 · 전 계좌(service_role 경로 · requireAdmin 뒤).
+         AND (p_mode <> 'me'
+              OR (j.account_no = p_account_no
+                  AND EXISTS (
+                        SELECT 1 FROM public.dma_visible_accounts(p_user_id) v
+                         WHERE v.gateway = j.gateway AND v.account_no = j.account_no)))
     ),
     per_stock AS (
       SELECT f.gkey, f.trade_date, f.isin,
@@ -107,7 +117,9 @@ BEGIN
                'fills', count(*)
              ) AS total,
              coalesce(jsonb_agg(DISTINCT f.dma_user_id ORDER BY f.dma_user_id) FILTER (WHERE f.dma_user_id <> ''),
-                      '[]'::jsonb) AS dma_user_ids
+                      '[]'::jsonb) AS dma_user_ids,
+             -- 계좌별 정렬 키: KB 체결이 하나라도 있으면 KB(0) · 교보만이면 1.
+             min(CASE WHEN f.gateway LIKE 'KYOBO%' THEN 1 ELSE 0 END) AS broker_rank
         FROM fills f
        GROUP BY f.gkey
     ),
@@ -131,10 +143,14 @@ BEGIN
                            'accounts', a.accounts,
                            -- 'me' 는 트레이더 응답이라 DMA 유저 id 를 싣지 않는다(T-19-08 · D-08 — 사용자 조회 RPC 는 dma_user_id 비노출).
                            'dma_user_ids', CASE WHEN p_mode = 'me' THEN '[]'::jsonb ELSE t.dma_user_ids END,
-                           'account_name', NULL,
+                           'account_name', CASE WHEN p_mode = 'account' THEN
+                             (SELECT nullif(max(ua.name), '') FROM public.dma_user_accounts ua WHERE ua.account_no = t.gkey)
+                           END,
                            'total', t.total,
                            'days', d.days)
-                         ORDER BY t.gkey)
+                         ORDER BY CASE WHEN p_mode = 'user' AND t.gkey = '' THEN 1 ELSE 0 END,
+                                  CASE WHEN p_mode = 'account' THEN t.broker_rank ELSE 0 END,
+                                  t.gkey)
                   FROM totals t
                   JOIN accts a ON a.gkey = t.gkey
                   JOIN days d ON d.gkey = t.gkey),
@@ -166,5 +182,26 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.dma_pnl_daily_for_user(uuid, text, date, date) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dma_pnl_daily_for_user(uuid, text, date, date) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dma_pnl_daily_for_user(uuid, text, date, date) TO service_role;
+
+-- ── ③ /admin/pnl (server GET /api/admin/pnl · 왕복 1회) ──────────────
+-- 전 계정 · 전 계좌. 경로 = requireAuth → requireAdmin → service_role RPC(T-19-01). 계정 · 계좌 노출은 어드민 전용.
+CREATE OR REPLACE FUNCTION public.dma_pnl_daily_for_admin(p_from date, p_to date, p_group text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF p_group IS NULL OR p_group NOT IN ('user', 'account') THEN
+    RAISE EXCEPTION 'p_group must be user or account' USING ERRCODE = '22023';
+  END IF;
+  RETURN public.dma_pnl_daily_build(p_from, p_to, p_group, NULL, NULL);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_pnl_daily_for_admin(date, date, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_pnl_daily_for_admin(date, date, text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_pnl_daily_for_admin(date, date, text) TO service_role;
 
 COMMIT;

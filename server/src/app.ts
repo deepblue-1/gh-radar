@@ -27,6 +27,7 @@ import { accumSignalsRouter } from "./routes/accum-signals.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
 import { adminLaunchRouter } from "./routes/admin-launch.js";
+import { adminPnlRouter } from "./routes/admin-pnl.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -125,6 +126,8 @@ export function createApp(deps: AppDeps): Express {
   // Phase 35 D-20 — 발사 어드민도 경로 한정 관문(/launch)이라 adminRouter 앞.
   app.use("/api/admin", adminServersRouter);
   app.use("/api/admin", adminLaunchRouter);
+  // Phase 36 D-17 — 매매손익 어드민도 경로 한정 관문(/pnl)이라 adminRouter 앞.
+  app.use("/api/admin", adminPnlRouter);
   app.use("/api/admin", adminRouter);
 
   // 9) 404 fallback

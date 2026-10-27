@@ -182,7 +182,7 @@ SELECT is((SELECT r->'groups'->0->'accounts' FROM t_r WHERE label = 'adm_user'),
 SELECT is((SELECT r->'groups'->0->'total' FROM t_r WHERE label = 'adm_user'),
   '{"pnl":0,"fee":4,"tax":0,"buy":20000,"sell":0,"fills":2}'::jsonb, '(admin user, ezmesya) total — seq 101 · 103');
 SELECT is((SELECT row(r->'groups'->0->'dma_user_ids', r->'groups'->0->'account_name')::text FROM t_r WHERE label = 'adm_user'),
-  '(["ezmesya"],null)', '(admin user, ezmesya) dma_user_ids = [key] · account_name = null');
+  row('["ezmesya"]'::jsonb, 'null'::jsonb)::text, '(admin user, ezmesya) dma_user_ids = [key] · account_name = null');
 SELECT is((SELECT r->'groups'->1->'accounts' FROM t_r WHERE label = 'adm_user'),
   '[{"broker":"KB","gateway":"KB121","account_no":"2222260001"},{"broker":"KB","gateway":"KB120","account_no":"2222260002"}]'::jsonb,
   '(admin user, kim01) accounts = KB121 D · KB120 E(계좌번호 순)');
