@@ -72,6 +72,11 @@
  *   요청 **44 `AdminCommandReq`** 는 C→S 라 화이트리스트에 넣지 않는다. 화이트리스트와 명시 case 는
  *   **같은 커밋**이다(PC-12).
  *
+ *   35-16 이 **94 `LaunchPlanSnapshot`** 을 더한다(31종 — gh-trade 43 · fbs f156cb6f · Envelope 슬롯 vtable 112 ·
+ *   인박스 261028-launch-plan-contract). 하류 책임은 admin 연결 전용 파서 `parseLaunchPlanSnapshot` 이고
+ *   (`AdminConn` 이 request_id 로 비행 중 op 9 와 짝짓는다), 사용자 세션 · quote 연결로 오면 86/87 과 같은
+ *   **명시 warn case** 가 버린다. 화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -258,6 +263,11 @@ export const MSG = {
    * 실제 변경 뒤(86 다음) · op 5 뒤 1프레임. **`request_id` 없음** — 86 직후 같은 연결 순서로 짝짓는다.
    */
   AdminUsersSnapshot: 87,
+  /**
+   * 발사 계획 스냅샷 (`launch_plan_snapshot` Envelope 슬롯 vtable 112 · Phase 35-16 — gh-trade 43 · fbs f156cb6f).
+   * **요청 연결(admin)에만** Notice · `request_id` 에코 · op 9 뒤 1프레임(86 없음) · op 8 실제 변경 뒤 86 다음 1프레임.
+   */
+  LaunchPlanSnapshot: 94,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -276,7 +286,7 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
  *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**, 27-01 이 사용자 설정 84 를
  *   더해 **27종**, 28-01 이 상한가 특징 85 를 더해 **28종**, 29-02 가 admin 응답 86·87 을 더해
- *   **30종**이다. 이 집합은
+ *   **30종**, 35-16 이 발사 계획 스냅샷 94 를 더해 **31종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -312,6 +322,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.LimitFeature,
   MSG.AdminCommandResp,
   MSG.AdminUsersSnapshot,
+  MSG.LaunchPlanSnapshot,
 ]);
 
 /**

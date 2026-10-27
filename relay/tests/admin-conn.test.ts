@@ -22,6 +22,9 @@
  *   B7  health() = { state, usersRev(문자열) } · disabled 는 usersRev null
  *   B8  86 rev 변화 뒤 87 이 상한 안에 안 오면 op 5 를 한 번 더 보내고 결과는 snapshot 없이 풀린다
  *   B9  command(op 5) → 86 없이 87 이 응답 — 합성 result(code 0 · 87 rev) + snapshot
+ *
+ * 잠그는 것 (35-16 — 발사 계획 op 8/9 · 94 · gh-trade 43 · 인박스 261028-launch-plan-contract):
+ *   P35-1  command(op 9) → 44 op 9 · 같은 request_id 94 → { result 합성(code 0), launchPlan 4행 · planRev bigint }
  *   공통 — 비밀은 어떤 로그 인자에도 없다(T-19-03) · admin 연결이 보낸 msg_type ⊆ {4, 5, 44}.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +34,7 @@ import { ADMIN_OP } from "../src/admin/types.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { defaultAdminHandler, startFakeGateway, type FakeAdminState, type FakeGateway } from "./helpers/fake-gateway.js";
+import { buildLaunchPlanSnapshotFrame } from "./helpers/frames.js";
 
 const SECRET = "test-admin-secret-DO-NOT-LOG";
 
@@ -412,5 +416,41 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     expect(out.result.requestId).toBe(gateway.adminCommandRequests()[1]?.requestId);
     expect(out.snapshot?.users.map((u) => u.userId)).toEqual(["alice", "bob"]);
     expect(snapshots).toHaveLength(2);
+  });
+  // ----------------------------------------------------------
+  // 35-16 — 발사 계획 op 8/9 · 94 (gh-trade 43)
+  // ----------------------------------------------------------
+
+  it("P35-1 발사 계획 조회 — command(op 9) → 44 op 9 → 같은 request_id 94 → { result code 0, launchPlan 4행 }", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 9 44");
+    const req = commands()[0]!;
+    expect(req.op).toBe(9);
+    expect(req.account).toBeNull();
+
+    gateway.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: req.requestId, planRev: 3n, updatedAt: "2026-10-27T22:41:00" }));
+    const out = await p;
+    expect(out.kind).toBe("result");
+    if (out.kind !== "result") throw new Error("unreachable");
+    expect(out.result).toEqual({ requestId: req.requestId, ok: true, code: 0, message: "", usersRev: 3n });
+    expect("snapshot" in out).toBe(false);
+    expect(out.launchPlan).toEqual({
+      requestId: req.requestId,
+      planRev: 3n,
+      updatedAt: "2026-10-27T22:41:00",
+      entries: [
+        { profile: "Q16", market: "K", offsetsUs: [-350, -345, -325] },
+        { profile: "Q16", market: "Q", offsetsUs: [-340, -335, -322] },
+        { profile: "N", market: "K", offsetsUs: [-200] },
+        { profile: "N", market: "Q", offsetsUs: [-245] },
+      ],
+    });
+    // 94 는 users.toml 과 무관 — 87 캐시 · snapshot 이벤트를 건드리지 않는다.
+    expect(snapshots).toHaveLength(1);
+    expect(c.currentSnapshot()?.usersRev).toBe(3n);
   });
 });

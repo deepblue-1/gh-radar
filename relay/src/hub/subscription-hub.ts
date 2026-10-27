@@ -2847,6 +2847,7 @@ export class SubscriptionHub extends EventEmitter {
         return;
       case MSG.AdminCommandResp:
       case MSG.AdminUsersSnapshot:
+      case MSG.LaunchPlanSnapshot: // 94 — 35-16 · admin 요청 연결에만(PC-12 같은 커밋)
         // **admin 연결(role 2) 전용 프레임이다**(29-02 — 화이트리스트와 같은 커밋의 명시 case · PC-12).
         // 86 은 요청 연결에만, 87 은 admin 연결에만 오므로 사용자 세션에 올 일이 없다 — 여기 오면 이상 신호라
         // warn 을 남기고 버린다(`unhandledFrameCount` 불변).
@@ -3120,6 +3121,7 @@ export class SubscriptionHub extends EventEmitter {
         return;
       case MSG.AdminCommandResp:
       case MSG.AdminUsersSnapshot:
+      case MSG.LaunchPlanSnapshot: // 94 — 35-16 · admin 요청 연결에만(PC-12 같은 커밋)
         // admin 연결(role 2) 전용 프레임(29-02 · PC-12 같은 커밋) — quote 역할에는 오지 않는다. 오면 이상 신호라 버린다.
         logger.warn({ msgType: e.msgType }, "[HUB] quote 연결에 admin 전용 프레임 — 무시");
         return;

@@ -22,6 +22,10 @@ export const ADMIN_ROLE = 2;
  * - 3 SetAccount — 추가 또는 같은 account_no 갱신(branch/trader 변경은 BUSY 면 9)
  * - 4 RemoveAccount — account_no 만 · 멱등 아님(없는 계좌 = 8) · 마지막 계좌 = 12
  * - 5 ListUsers — 87 만 돌아온다
+ * - 8 SetLaunchPlan — launch_profile("Q16"|"N") · launch_market("K"|"Q") · launch_offsets_us(µs [int]) 한 칸 저장 ·
+ *   실제 변경이면 86 뒤 94 1프레임 · 같은 값 = code 0 「변경 없음」(94 없음) · users_rev 와 무관(87 없음) · 구 서버 = code 1
+ * - 9 GetLaunchPlan — request_id 만 읽는다 · **94 1프레임만**(86 없음 — op 5 → 87 선례) · 구 서버 = 86 code 1 「알 수 없는 명령입니다」
+ *   (gh-trade 43 · fbs f156cb6f · 인박스 docs/inbox/from-gh-trade/261028-launch-plan-contract.md)
  */
 export const ADMIN_OP = {
   UpsertUser: 1,
@@ -29,6 +33,9 @@ export const ADMIN_OP = {
   SetAccount: 3,
   RemoveAccount: 4,
   ListUsers: 5,
+  // 6 SetAccountBudget · 7 SetAccountFee 는 phase-36(36-02) 몫 — master 미병합. phase-36 병합 세션이 이 자리에 넣고 이 줄을 지운다.
+  SetLaunchPlan: 8,
+  GetLaunchPlan: 9,
 } as const;
 
 /** `ADMIN_OP` 값 유니온. */
@@ -109,6 +116,44 @@ export type AdminCommandInput = {
   password?: string;
   /** 주어질 때만 싣는다(op 1 신규 · op 3 · op 4). */
   account?: AdminAccount;
+  /** op 8 만 싣는다 — "Q16" | "N". 대상 판정은 서버(code 1 「발사 계획 대상 밖…」). */
+  launchProfile?: LaunchProfile;
+  /** op 8 만 싣는다 — "K" | "Q". */
+  launchMarket?: LaunchMarket;
+  /**
+   * op 8 만 싣는다 — µs 정수(int32) 목록 · 기준 16:00:00.000000 / 09:00:30.000000 · 음수 = 앞당김. Q16 = 조각 목록 · N = 길이 1.
+   * 길이 · 범위 · 순서는 서버 설정값(119/120 = Q16 −3000~1000 · 10조각 · N ±2000)으로 서버가 판정한다 — relay 는 int32 구조만 본다.
+   */
+  launchOffsetsUs?: readonly number[];
+};
+
+/** 발사 계획 프로파일 — 94 의 `profile` · 44 의 `launch_profile`. */
+export type LaunchProfile = "Q16" | "N";
+
+/** 발사 계획 시장 — 94 의 `market` · 44 의 `launch_market`. */
+export type LaunchMarket = "K" | "Q";
+
+/** 94 의 한 칸. 서버 문자열을 그대로 둔다(미래 값이 와도 거르지 않는다 — 판정은 소비자). */
+export type LaunchPlanEntry = {
+  profile: string;
+  market: string;
+  /** µs 정수 — Q16 은 목록 = 조각 수 · N 은 길이 1. */
+  offsetsUs: number[];
+};
+
+/**
+ * 94 `LaunchPlanSnapshot` 파싱 결과 (gh-trade 43). **`request_id` 를 에코한다** — 87 과 달리 다음 프레임 순서로 짝짓지 않고
+ * request_id 로만 짝짓는다(op 8 저장 뒤 서버가 보내는 94 는 짝이 없어 버린다).
+ */
+export type LaunchPlanSnapshot = {
+  /** 44 의 request_id 에코(ulong · bigint 그대로). */
+  requestId: bigint;
+  /** 계획 rev — 첫 생성 1 · 변경마다 +1 · 파일에 남아 재기동해도 이어진다(users_rev 와 별도). bigint 그대로. */
+  planRev: bigint;
+  /** `YYYY-MM-DDTHH:MM:SS` 서버 벽시계(KST) — **빈 문자열일 수 있다**(손으로 만든 파일 · 키 없음). */
+  updatedAt: string;
+  /** 서버 순서 그대로 — 4행 고정 순서 Q16/K · Q16/Q · N/K · N/Q(relay 는 정렬 · 보정하지 않는다). */
+  entries: LaunchPlanEntry[];
 };
 
 /** 86 파싱 결과. */

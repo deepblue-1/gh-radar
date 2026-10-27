@@ -100,6 +100,7 @@ import { ObserverLoginReq } from "../generated/stock-dma/observer-login-req.js";
 import { AdminAccount as WireAdminAccount } from "../generated/stock-dma/admin-account.js";
 import { AdminCommandReq } from "../generated/stock-dma/admin-command-req.js";
 import { AdminUser as WireAdminUser } from "../generated/stock-dma/admin-user.js";
+import { LaunchPlanEntry as WireLaunchPlanEntry } from "../generated/stock-dma/launch-plan-entry.js";
 import { StrategyEvent as WireStrategyEvent } from "../generated/stock-dma/strategy-event.js";
 import type {
   JournalBatchFrame,
@@ -115,6 +116,8 @@ import type {
   AdminCommandResult,
   AdminSnapshotUser,
   AdminUsersSnapshot,
+  LaunchPlanEntry,
+  LaunchPlanSnapshot,
 } from "../admin/types.js";
 import { ADMIN_OP } from "../admin/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
@@ -186,6 +189,10 @@ export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
 export const MAX_ADMIN_ACCOUNTS_PER_USER = 64;
 /** admin 유저 스냅샷(87) 유저 벡터 상한 (Phase 29). users.toml 전체 — 실사용은 수십 명이다. */
 export const MAX_ADMIN_USERS = 2000;
+/** 발사 계획 스냅샷(94) 칸 벡터 상한 (35-16). 서버는 4행 고정 — 깨진 길이로 순회 폭주만 막는다. */
+export const MAX_LAUNCH_PLAN_ENTRIES = 16;
+/** 발사 계획 한 칸의 offsets 벡터 상한 (35-16). 서버 `max_pieces` 허용 1~64(119/120 = 10). */
+export const MAX_LAUNCH_PLAN_OFFSETS = 64;
 
 /** 12자 ISIN — 앞 2자는 국가코드(영문), 나머지 10자는 영숫자. */
 const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{10}$/;
@@ -3431,6 +3438,38 @@ export function parseAdminUsersSnapshot(env: Envelope): AdminUsersSnapshot | nul
       users.push({ userId, accounts });
     }
     return { usersRev: r.usersRev(), users };
+  } catch (err) {
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
+  }
+}
+
+/**
+ * 발사 계획 스냅샷 (94 · `launch_plan_snapshot` Envelope 슬롯 vtable 112 · 35-16 — gh-trade 43). total 하다 — throw 하지 않는다.
+ *
+ * - `request_id` 는 44 에코(ulong) · `plan_rev` 는 ulong — **둘 다 bigint 그대로**(정밀도 손실 금지 · toNum 경유 안 함).
+ * - `updated_at` 은 **빈 문자열일 수 있다**(손으로 만든 파일 · 키 없음 · 필드 부재도 "") — 받아들인다.
+ * - `entries` 는 서버 순서 그대로(4행 고정 순서 Q16/K · Q16/Q · N/K · N/Q) — 정렬 · 보정 · 거르기 없음. 빈 벡터도 그대로.
+ * - 원소 null 은 **구조 파손**이라 프레임 전체를 null 로 돌린다 — 계획 한 칸이 빠진 스냅샷을 화면에 「현재 계획」 으로
+ *   내보내면 빠진 칸이 「없음」 처럼 보인다(87 의 「건너뜀」 과 다른 이유).
+ * - offsets 는 `offsetsUs(i)` 로 하나씩 읽는다 — `offsetsUsArray()` 의 Int32Array 뷰는 소켓 버퍼 정렬에 따라 RangeError 를 낸다.
+ */
+export function parseLaunchPlanSnapshot(env: Envelope): LaunchPlanSnapshot | null {
+  const msgType = MSG.LaunchPlanSnapshot;
+  try {
+    const r = env.launchPlanSnapshot();
+    if (r === null) return dropField("slot-null", msgType, { slot: "launch_plan_snapshot" });
+    const scratch = new WireLaunchPlanEntry();
+    const n = takeCount(r.entriesLength(), MAX_LAUNCH_PLAN_ENTRIES, "발사 계획 스냅샷 칸");
+    const entries: LaunchPlanEntry[] = [];
+    for (let i = 0; i < n; i += 1) {
+      const e = r.entries(i, scratch);
+      if (e === null) return dropField("entry-null", msgType, { index: i });
+      const m = takeCount(e.offsetsUsLength(), MAX_LAUNCH_PLAN_OFFSETS, "발사 계획 스냅샷 offsets");
+      const offsetsUs: number[] = [];
+      for (let j = 0; j < m; j += 1) offsetsUs.push(e.offsetsUs(j) ?? 0);
+      entries.push({ profile: e.profile() ?? "", market: e.market() ?? "", offsetsUs });
+    }
+    return { requestId: r.requestId(), planRev: r.planRev(), updatedAt: r.updatedAt() ?? "", entries };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
   }
