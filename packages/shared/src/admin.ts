@@ -519,8 +519,10 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *     12 는 op 4 의 마지막 계좌 제거와 op 2 의 서버 마지막 사용자 삭제 둘 다에 온다(gh-trade 인박스 261007) —
  *     둘 다 서버별 실패 칩이고, relay HTTP 409 `LAST_ACCOUNT`(DB 의도 업무 거부)와는 이름만 같다.
  *   - 13 BAD_ORDER_ENDPOINT(op 1 · op 3 주문자 IP/MAC 형식 오류 · gh-trade 인박스 261010)도 실패 — 칩은 서버 문구 그대로.
+ *   - op 8 SetLaunchPlan · op 9 GetLaunchPlan(gh-trade 43 · 인박스 261028-launch-plan-contract) — code 0 만 ok · 같은 값 = code 0
+ *     「변경 없음」 · 범위 · 순서 · 대상 밖 거부는 code 1 + 고정 문구(화면 「서버 미지원 · <message>」 — D-27) · 10 · 11 도 실패.
  */
-export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5, code: number): "ok" | "failed" {
+export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 8 | 9, code: number): "ok" | "failed" {
   if (code === 0) return "ok";
   if (op === 4 && code === 8) return "ok";
   if (op === 2 && code === 4) return "ok";
