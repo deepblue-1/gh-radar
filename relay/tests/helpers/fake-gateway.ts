@@ -43,7 +43,7 @@
  * 2 면 `adminLoginRequests()` · admin 소켓에만 기록하고, `respondAdminLogin` 으로 켰을 때만 그 연결에 79(기본 role 2 · epoch "" ·
  * 계좌 빈 벡터 — 거부면 role 0) **1프레임만** 쓴다(78/80 없음). `AdminCommandReq(44)` 는 `adminCommandRequests()` 에 기록하고,
  * `onAdminCommand(handler)` 로 handler 를 심었을 때만 그 결과를 같은 연결에 86 → 87 순서로 쓴다 — **기본 무응답**(타임아웃 시나리오).
- * `defaultAdminHandler(state)` 는 메모리 users 표로 op 1~5 를 흉내 낸다(op 5 = 87 만 · 실제 변경 = 86(rev+1) 뒤 87 · 무변경 = 86
+ * `defaultAdminHandler(state)` 는 메모리 users 표로 op 1~7 을 흉내 낸다(op 6/7 = Phase 36 계좌 예수금 · 비용률 · op 5 = 87 만 · 실제 변경 = 86(rev+1) 뒤 87 · 무변경 = 86
  * code 0 · rev 불변 · 87 없음 · 실패 = 86 만). 이것은 **조회 3종 자동 응답과 같은 예외**다 — 29-08 · 29-11 · 29-14 통합 테스트가
  * 서버 2대 fan-out · BUSY · 무변경 멱등을 매번 손으로 조립하지 않게 한다. `startFakeGateway()` 를 두 번 부르면 독립 인스턴스 2개다.
  */
@@ -161,6 +161,12 @@ export type AdminCommandRequest = {
   password: string;
   /** 슬롯 부재 = `null`. */
   account: AdminAccount | null;
+  /** op 6 계좌 한도(원 · 슬롯 5 · 부재 = 0n — Phase 36). */
+  budgetKrw: bigint;
+  /** op 7 수수료 ppm(슬롯 6 · 부재 = 0). */
+  feePpm: number;
+  /** op 7 매도세 ppm(슬롯 7 · 부재 = 0). */
+  sellTaxPpm: number;
 };
 
 /** admin handler 결과 — 86 입력(생략 = 86 없음 · op 5) + 선택 87 입력. 둘 다 있으면 86 → 87 순서로 쓴다. */
@@ -181,7 +187,17 @@ export type FakeAdminState = {
   users: Map<string, FakeAdminAccountInput[]>;
   /** BUSY(9) 로 판정할 계좌번호 — 서버는 계좌 상태(미체결 · 상따 · VI · 예약)로만 판정한다(D-10~D-15). */
   busyAccounts: Set<string>;
+  /**
+   * Phase 36 — 서버 계좌 단위 예수금 · 비용률(op 6/7 이 쓴다 · 같은 account_no 전 행 같은 값). 키 = 계좌번호. 없으면 전부 0.
+   * op 6/7 이 처음 쓸 때 만든다.
+   */
+  costs?: Map<string, FakeAdminAccountCost>;
+  /** Phase 36 — op 6/7 을 모르는 구 서버 흉내(86 code 1 BAD_OP). */
+  legacyCostOps?: boolean;
 };
+
+/** Phase 36 — 서버 계좌 1개의 예수금 · 비용률. */
+export type FakeAdminAccountCost = { budgetKrw: bigint; feePpm: number; sellTaxPpm: number };
 
 /** `ObserverLoginReq(5)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
 export type ObserverLoginRequest = {
@@ -943,6 +959,9 @@ export function readAdminCommandRequest(msgType: number, payload: Buffer): Admin
     op: req.op(),
     userId: req.userId() ?? "",
     password: req.password() ?? "",
+    budgetKrw: req.budgetKrw(),
+    feePpm: req.feePpm(),
+    sellTaxPpm: req.sellTaxPpm(),
     account:
       a === null
         ? null
@@ -1033,8 +1052,33 @@ export function defaultAdminHandler(state: FakeAdminState): FakeAdminHandler {
   };
   const busyMessage = "미체결 1건 등록 — 먼저 정리";
 
+  /**
+   * Phase 36 op 6/7(gh-trade 41) — account_no 만 읽는다(user_id · password 무시) · 그 서버에서 그 계좌를 가진 모든 유저 행에 같은
+   * 값. 없는 계좌 8 · 빈 계좌 5 · op 7 범위 밖(> 10000ppm) 1 · 전 행 같은 값이면 「변경 없음」(rev 불변 · 87 없음) · BUSY 없음.
+   */
+  const setCost = (req: AdminCommandRequest): FakeAdminReply => {
+    if (state.legacyCostOps === true) return fail(req, FAKE_ADMIN_CODE.BadOp, "알 수 없는 명령입니다");
+    const accountNo = req.account?.accountNo ?? "";
+    if (accountNo === "") return fail(req, FAKE_ADMIN_CODE.BadAccountNo, "계좌번호가 비어 있습니다");
+    if (ownerOf(accountNo) === null) return fail(req, FAKE_ADMIN_CODE.NoSuchAccount, "이 서버에 없는 계좌");
+    if (req.op === 7 && (req.feePpm > 10_000 || req.sellTaxPpm > 10_000)) {
+      return fail(req, FAKE_ADMIN_CODE.BadOp, "비용률 범위 밖");
+    }
+    const costs = (state.costs ??= new Map());
+    const prev = costs.get(accountNo) ?? { budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 };
+    const next = req.op === 6 ? { ...prev, budgetKrw: req.budgetKrw } : { ...prev, feePpm: req.feePpm, sellTaxPpm: req.sellTaxPpm };
+    if (prev.budgetKrw === next.budgetKrw && prev.feePpm === next.feePpm && prev.sellTaxPpm === next.sellTaxPpm) {
+      return { resp: { requestId: req.requestId, ok: true, code: FAKE_ADMIN_CODE.Ok, message: "변경 없음", usersRev: state.usersRev } };
+    }
+    costs.set(accountNo, next);
+    const reply = changed(req);
+    const message = req.op === 6 ? (next.budgetKrw === 0n ? "한도 해제" : `한도 ${next.budgetKrw}원`) : "비용률 변경";
+    return { ...reply, resp: { ...reply.resp, message } };
+  };
+
   return (req) => {
     if (req.op === 5) return { snapshot: adminSnapshotOf(state) };
+    if (req.op === 6 || req.op === 7) return setCost(req);
     if (req.op < 1 || req.op > 5) return fail(req, FAKE_ADMIN_CODE.BadOp, "알 수 없는 명령입니다");
     if (req.userId === "") return fail(req, FAKE_ADMIN_CODE.BadUserId, "사용자 ID 가 비어 있습니다");
     const accounts = state.users.get(req.userId);

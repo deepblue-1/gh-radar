@@ -42,6 +42,11 @@
  *   R3  유저 삭제 뒤 재적재 1회(서버 settle 이 지정 행을 지운다)
  *   R4  생성 · 비밀번호 · reconcile 은 재적재하지 않는다(지정이 바뀌지 않는다)
  *
+ * 잠그는 것 (Phase 36 — 계좌 예수금 · 비용률):
+ *   B1  PUT …/budget → 등록 서버마다 44 op 6(account_no · budget_krw · userId 빈 값) → 200 { results } · 기록 0 · 감사 1줄(마스킹)
+ *   B2  바디 음수 · 소수 · 문자열 · 누락 · 추가 키 · 안전 정수 초과 → 400 · 44 0건
+ *   B3  의도에 없는 계좌 → 409 NO_SUCH_ACCOUNT · B4 구 서버 code 1 → 그 서버만 failed(원문)
+ *
  * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09):
  *   E1  켜진 서버마다 87 캐시의 모든 계좌 { dmaUserId, accountNo, orderIp, orderMac } — 87 정규화값 그대로 · 미설정 ""
  *   E2  꺼진 서버 · 파이프라인 없는 서버 · 87 미수신(재접속 중) 서버 · 교보 서버(30 IN-04)는 키 없음(= 「확인 전」)
@@ -661,6 +666,117 @@ describe("relay Admin 내부 HTTP — 계좌 주문 서버 지정 (29-37 G-1 ⑥
     }
     expect(h.orderServersReload).toHaveBeenCalledTimes(2);
     expect(logs.filter((c) => c.level === "warn" && String(c.args[1]).includes("지정 재적재"))).toHaveLength(2);
+  });
+});
+
+describe("P36 계좌 예수금 · 비용률 (D-01 · D-02 · D-04 · D-06 · D-07)", () => {
+  let h: Harness;
+  let logs: LogCall[];
+  const BUDGET = "/internal/admin/dma-users/tr01/accounts/KB/1234567801/budget";
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    const created = await call(h, "POST", "/internal/admin/dma-users", createBody());
+    expect(created.status).toBe(200);
+    logs.length = 0;
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  const auditLines = () =>
+    logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청").map((c) => c.args[0] as Record<string, unknown>);
+
+  it("B1 PUT …/budget → 등록 서버마다 44 op 6(account_no · budget_krw · userId 빈 값) → 200 { results } · 기록 0 · 감사 1줄(마스킹)", async () => {
+    // 경로 계좌번호도 정규화("001234567801" → "1234567801").
+    const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts/KB/001234567801/budget", { budgetKrw: 10_000_000 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "3" },
+        { server: "KB121", outcome: "ok", usersRev: "3" },
+      ],
+    });
+    for (const key of ["KB120", "KB121"]) {
+      const last = h.commands(key).at(-1)!;
+      expect(last).toMatchObject({ op: 6, userId: "", password: "", budgetKrw: 10_000_000n, account: { accountNo: "1234567801" } });
+      expect(h.states[key]!.costs?.get("1234567801")?.budgetKrw).toBe(10_000_000n);
+    }
+    // 반영 칩 기록(create 의 1회)만 — op 6 은 기록하지 않는다(D-04).
+    expect(h.db.callsTo("dma_admin_record_results")).toHaveLength(1);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
+
+    const lines = auditLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      admin: ADMIN,
+      route: "PUT /dma-users/:dma/accounts/:broker/:accountNo/budget",
+      dma: "tr***(4)",
+      broker: "KB",
+      account: "123456****",
+      budgetKrw: 10_000_000,
+      servers: [
+        { server: "KB120", outcome: "ok" },
+        { server: "KB121", outcome: "ok" },
+      ],
+    });
+    const dumped = stringify(logs.map((c) => c.args));
+    expect(dumped).not.toContain("1234567801");
+    expect(dumped).not.toContain('"tr01"');
+  });
+
+  it("B1 budgetKrw 0(해제) · Number.MAX_SAFE_INTEGER 는 통과", async () => {
+    for (const budgetKrw of [0, Number.MAX_SAFE_INTEGER]) {
+      const res = await call(h, "PUT", BUDGET, { budgetKrw });
+      expect(res.status).toBe(200);
+      expect(h.commands("KB120").at(-1)!.budgetKrw).toBe(BigInt(budgetKrw));
+    }
+  });
+
+  it("B2 바디 — 음수 · 소수 · 문자열 · 누락 · 추가 키 · 안전 정수 초과 → 400 VALIDATION_FAILED · 44 0건 · 감사 없음", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    for (const body of [
+      { budgetKrw: -1 },
+      { budgetKrw: 1.5 },
+      { budgetKrw: "1000" },
+      {},
+      { budgetKrw: 1000, extra: true },
+      { budgetKrw: Number.MAX_SAFE_INTEGER + 2 },
+    ]) {
+      const res = await call(h, "PUT", BUDGET, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+    expect(auditLines()).toEqual([]);
+  });
+
+  it("B3 의도에 없는 계좌 → 409 NO_SUCH_ACCOUNT(계좌 라우트 공통 매핑) · 44 0건 · 감사 rejected", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    const res = await call(h, "PUT", "/internal/admin/dma-users/tr01/accounts/KB/5555555555/budget", { budgetKrw: 1 });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("NO_SUCH_ACCOUNT");
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+    expect(auditLines().map((l) => l.rejected)).toEqual(["NO_SUCH_ACCOUNT"]);
+  });
+
+  it("B4 구 서버(code 1 BAD_OP)는 그 서버만 failed · code · message 원문 — 200", async () => {
+    h.states.KB121!.legacyCostOps = true;
+    const res = await call(h, "PUT", BUDGET, { budgetKrw: 1 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      results: [
+        { server: "KB120", outcome: "ok", usersRev: "3" },
+        { server: "KB121", outcome: "failed", code: 1, message: "알 수 없는 명령입니다", usersRev: "2" },
+      ],
+    });
+    expect(auditLines()[0]!.servers).toEqual([
+      { server: "KB120", outcome: "ok" },
+      { server: "KB121", outcome: "failed", code: 1 },
+    ]);
   });
 });
 

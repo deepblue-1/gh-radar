@@ -223,6 +223,7 @@ describe("QuoteSwitch 트레이서 — KB120 → KYOBO119 break-then-make · 재
         reconcileUser: () => Promise.resolve([]),
         changePassword: () => Promise.resolve([]),
         deleteUser: () => Promise.resolve({ results: [], deleted: false }),
+        setAccountCost: () => Promise.resolve([]),
       },
       registry: {
         all: () => rows.map((r) => ({ ...r })),

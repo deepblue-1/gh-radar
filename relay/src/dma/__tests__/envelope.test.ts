@@ -2664,6 +2664,55 @@ describe("Phase 29 admin 코덱 (44 조립 · 86/87 파싱 · role 2)", () => {
   });
 });
 
+describe("P36 admin op 6 SetAccountBudget — 44 budget_krw (slot 5 · ulong)", () => {
+  const ACCOUNT = { accountNo: SAMPLE_ACCOUNT_NO, name: "", branchNo: "", traderId: "", priority: 0 };
+
+  it("op 6 왕복 — budgetKrw 10,000,000n · account_no · userId 빈 값", () => {
+    const env = readBack(
+      buildAdminCommandReq({ requestId: 11n, op: ADMIN_OP.SetAccountBudget, userId: "", account: ACCOUNT, budgetKrw: 10_000_000n }),
+    );
+    const req = env.adminCommandReq(new AdminCommandReq())!;
+    expect(req.op()).toBe(6);
+    expect(req.userId()).toBe("");
+    expect(req.password()).toBe("");
+    expect(req.account()!.accountNo()).toBe(SAMPLE_ACCOUNT_NO);
+    expect(req.budgetKrw()).toBe(10_000_000n);
+  });
+
+  it("op 6 — 0n(해제)은 0n 으로 읽힌다(필드 생략 = 서버도 0) · 생략해도 0n", () => {
+    for (const budgetKrw of [0n, undefined]) {
+      const env = readBack(
+        buildAdminCommandReq({
+          requestId: 12n,
+          op: ADMIN_OP.SetAccountBudget,
+          userId: "",
+          account: ACCOUNT,
+          ...(budgetKrw !== undefined ? { budgetKrw } : {}),
+        }),
+      );
+      expect(env.adminCommandReq(new AdminCommandReq())!.budgetKrw()).toBe(0n);
+    }
+  });
+
+  it("op 6 — ulong 범위 밖(−1n · 2n**64n)은 RangeError · 경계 2n**64n − 1n 은 통과", () => {
+    for (const budgetKrw of [-1n, 2n ** 64n]) {
+      expect(() =>
+        buildAdminCommandReq({ requestId: 13n, op: ADMIN_OP.SetAccountBudget, userId: "", account: ACCOUNT, budgetKrw }),
+      ).toThrow(RangeError);
+    }
+    const max = 2n ** 64n - 1n;
+    const env = readBack(buildAdminCommandReq({ requestId: 14n, op: ADMIN_OP.SetAccountBudget, userId: "", account: ACCOUNT, budgetKrw: max }));
+    expect(env.adminCommandReq(new AdminCommandReq())!.budgetKrw()).toBe(max);
+  });
+
+  it("op 3 에는 budgetKrw 가 실리지 않는다(넘겨도 0n · op 3 은 서버가 한도를 읽지 않는다)", () => {
+    const env = readBack(
+      buildAdminCommandReq({ requestId: 15n, op: ADMIN_OP.SetAccount, userId: "kb-user", account: ACCOUNT, budgetKrw: 5_000_000n }),
+    );
+    expect(env.adminCommandReq(new AdminCommandReq())!.budgetKrw()).toBe(0n);
+  });
+});
+
 describe("잔량진행률 83 QueueProgress 파서 (Phase 25-06)", () => {
   /** 프레임 바이트 → Envelope. 83 이 수신 화이트리스트를 통과해야 한다(PC-12). */
   function envOf(bytes: Uint8Array): Envelope {

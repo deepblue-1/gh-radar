@@ -31,6 +31,13 @@
  *   다시 기록되어 개요 칩이 맞춰지고, 같은 요청을 다시 보내도 재계획이 `sameValues` 로 이미 반영된 계좌를 건너뛰어 멱등이다.
  *   마감을 늘리지 않는 이유: Express `RELAY_ADMIN_TIMEOUT_MS`(15초) 안에 응답이 나가야 「relay 는 반영했는데 Express 는 502」 가 없다.
  *
+ * 계좌 예수금 · 비용률(Phase 36 · `setAccountCost` · D-01 · D-02 · D-04 · D-07): 그 DMA 유저 의도에서 그 계좌(증권사 · 정규화 번호 ·
+ *   active) 행의 등록 서버 전부에 44 op 6(budget_krw) 또는 op 7(fee_ppm · sell_tax_ppm)을 **서버마다 1건** 병렬로 보낸다(planner ·
+ *   op 5 재조회 없음 — 서버 계좌 단위 값이라 user_id 를 읽지 않는다). 결과는 서버마다 1개(ok · failed + code + message 원문 ·
+ *   timeout · offline · skipped)를 레지스트리 순으로 돌려주기만 하고 **`dma_admin_results` 에 기록하지 않는다**(반영 칩은
+ *   users.toml 계좌 반영 상태 — 예수금 · 비용률은 그 원천 밖 · Pitfall 5). 의도 표도 바꾸지 않는다(DB 의도 저장 없음 — 87 이 정본).
+ *   같은 DMA 유저의 계좌 PUT 과는 같은 줄(`#serial`)에 선다. 마감 접기도 기록 없이 접는다(`#answerBy` 의 `record: false`).
+ *
  * 하지 않는 것:
  *   - **87 에만 있는 계좌 · 유저를 지우는 op 를 만들지 않는다**(D-23 ⑤ · D-16) — op 는 전부 planner 가 의도 행에서만 만든다.
  *     DB 등록 서버가 아닌 서버에는 아무것도 보내지 않는다.
@@ -48,6 +55,7 @@ import {
   type DmaBroker,
 } from "@gh-radar/shared";
 
+import { maskAccountNo } from "../dma/envelope.js";
 import { logger } from "../logger.js";
 import type { DmaServerRow } from "../registry/registry.js";
 import { decryptDmaPassword, encryptDmaPassword } from "../store/credentials.js";
@@ -67,6 +75,14 @@ import { ADMIN_OP } from "./types.js";
  *   - 사용자 PC 식별 정보 — 로그 · 감사 · 오류 문구에 싣지 않는다.
  */
 export type OrderEndpointOverride = { broker: DmaBroker; accountNo: string; orderIp: string; orderMac: string };
+
+/**
+ * Phase 36 (D-01 · D-02) — 계좌 예수금(op 6) · 비용률(op 7) 1건. 값은 서버 계좌 단위(같은 서버 그 계좌의 모든 유저 행)라 DB 의도에
+ * 저장하지 않는다 — 87 이 정본(D-04).
+ *   - op 6 `budgetKrw` — 원 · 0 = 해제 · 0..Number.MAX_SAFE_INTEGER 정수(라우트가 검사 · 와이어는 bigint).
+ *   - op 7 `feePpm` · `sellTaxPpm` — uint32 ppm · 두 값을 한 번에(0,0 = 해제). 0~10000 범위 판정은 서버 code 1(D-02).
+ */
+export type AccountCostCommand = { op: 6; budgetKrw: number } | { op: 7; feePpm: number; sellTaxPpm: number };
 
 /** dispatcher 가 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. */
 export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command">;
@@ -281,9 +297,68 @@ export class AdminDispatcher {
     return this.#answerBy(dmaUserId, opts.deadlineAt, progress, full, (results) => ({ results, deleted: false }));
   }
 
+  /**
+   * 계좌 예수금 · 비용률(Phase 36 · D-01 · D-02 · D-07) — 그 DMA 유저 의도의 그 계좌(증권사 · 정규화 번호 · **active**) 행 등록 서버
+   * 전부에 op 6/op 7 을 서버마다 1건 병렬로. 의도에 그 계좌가 없으면 `IntentError("NO_SUCH_ACCOUNT")`(라우트의 기존 매핑).
+   * removing 행 서버는 대상이 아니다(곧 빠질 서버). 결과는 **기록하지 않는다**(D-04 · Pitfall 5) — 마감 접기도 `record: false`.
+   */
+  setAccountCost(
+    dmaUserId: string,
+    target: { broker: DmaBroker; accountNo: string },
+    cost: AccountCostCommand,
+    opts: { adminEmail: string; deadlineAt?: number },
+  ): Promise<AdminServerResult[]> {
+    void opts.adminEmail;
+    const progress = newProgress();
+    const keysOf = (intent: readonly AdminIntentRow[]): string[] => this.#serverKeysOf(costTargetRows(intent, target));
+    const full = this.#serial(dmaUserId, async () => {
+      const rows = costTargetRows(await this.#deps.store.intent(dmaUserId), target);
+      if (rows.length === 0) throw new IntentError("NO_SUCH_ACCOUNT");
+      const accountNo = rows[0]!.accountNo;
+      // 기록 없음(D-04) — #recordFinal · #record 를 부르지 않는다.
+      return this.#fanOut(progress, this.#serverKeysOf(rows), (serverKey) => this.#applyCost(serverKey, accountNo, cost));
+    });
+    return this.#answerBy(dmaUserId, opts.deadlineAt, progress, full, (results) => results, { record: false, keysOf });
+  }
+
   // ----------------------------------------------------------
   // 서버 1대
   // ----------------------------------------------------------
+
+  /**
+   * 서버 1대에 op 6/op 7 1건 — 꺼진 서버 skipped(44 없음) · admin 연결 없음 · 87 미수신 offline · 86 이 오면
+   * `interpretAdminResult`(op 6/7 은 code 0 만 ok — 「변경 없음」 포함 · D-06). 실패 · 비결과는 warn 1줄(계좌는 마스킹).
+   */
+  async #applyCost(serverKey: string, accountNo: string, cost: AccountCostCommand): Promise<AdminServerResult> {
+    if (!this.#isEnabled(serverKey)) return { server: serverKey, outcome: "skipped", message: SKIPPED_DISABLED_RECONCILE_MESSAGE };
+    const op = cost.op === 6 ? ADMIN_OP.SetAccountBudget : ADMIN_OP.SetAccountFee;
+    const account = maskAccountNo(accountNo);
+    const admin = this.#deps.pipelines.get(serverKey)?.admin;
+    if (admin === undefined || admin.currentSnapshot() === null) {
+      logger.warn({ server: serverKey, op, kind: "offline", account }, "[admin] 계좌 예수금 · 비용률 미송신 — admin 연결 없음 · 87 미수신");
+      return { server: serverKey, outcome: "offline" };
+    }
+    const outcome = await admin.command({
+      op,
+      userId: "",
+      account: { accountNo, name: "", branchNo: "", traderId: "", priority: 0 },
+      ...(cost.op === 6 ? { budgetKrw: BigInt(cost.budgetKrw) } : { feePpm: cost.feePpm, sellTaxPpm: cost.sellTaxPpm }),
+    });
+    if (outcome.kind !== "result") {
+      logger.warn({ server: serverKey, op, kind: outcome.kind, account }, "[admin] 계좌 예수금 · 비용률 결과 없음");
+      return { server: serverKey, outcome: outcome.kind };
+    }
+    const r = outcome.result;
+    const usersRev = r.usersRev.toString();
+    if (interpretAdminResult(cost.op, r.code) === "failed") {
+      logger.warn(
+        { server: serverKey, op, code: r.code, message: r.message, account },
+        "[admin] 계좌 예수금 · 비용률 반영 실패",
+      );
+      return { server: serverKey, outcome: "failed", code: r.code, message: r.message, usersRev };
+    }
+    return { server: serverKey, outcome: "ok", usersRev };
+  }
 
   /**
    * 서버 1대에 계획을 보내고 결과 1개를 만든다. op 는 순서대로 · 첫 실패에서 멈춘다. 이미 반영된 제거는 실패가 나도 settle 한다.
@@ -472,6 +547,10 @@ export class AdminDispatcher {
    * 실제 결과 · 나머지는 `timeout`(`ADMIN_DEADLINE_MESSAGE`)으로 접어 기록하고 `fold` 로 응답한다. `full` 은 취소하지 않는다 —
    * 줄 꼬리도 `full` 에 묶여 있어 다음 요청은 이 반영이 실제로 끝난 뒤에 시작한다. 줄에서 아직 시작하지 못했으면(`keys` null)
    * 의도를 따로 읽어 등록 서버 전부를 접는다.
+   *
+   * `opts`(Phase 36): `record: false` 면 접은 결과를 기록하지 않는다(op 6/7 — 반영 칩 원천 밖 · D-04) · `keysOf` 는 줄에서 아직
+   * 시작하지 못했을 때 접을 서버 키를 의도에서 고르는 규칙(기본 = 등록 서버 전부 · 계좌 비용은 그 계좌 행의 서버만).
+   * 기본값은 종전 동작 그대로(기록함 · 전 등록 서버).
    */
   #answerBy<T>(
     dmaUserId: string,
@@ -479,20 +558,22 @@ export class AdminDispatcher {
     progress: Progress,
     full: Promise<T>,
     fold: (results: AdminServerResult[]) => T,
+    opts: { record?: boolean; keysOf?: (intent: readonly AdminIntentRow[]) => string[] } = {},
   ): Promise<T> {
+    const keysOf = opts.keysOf ?? ((intent: readonly AdminIntentRow[]) => this.#serverKeysOf(intent));
     if (deadlineAt === undefined) return full;
     return new Promise<T>((resolve, reject) => {
       let answered = false;
       const timer = setTimeout(() => {
         void (async () => {
           if (progress.finished) return;
-          const keys = progress.keys ?? this.#serverKeysOf(await this.#deps.store.intent(dmaUserId));
+          const keys = progress.keys ?? keysOf(await this.#deps.store.intent(dmaUserId));
           // 의도를 읽는 사이 반영이 끝났거나 응답이 나갔으면 실제 결과가 이긴다.
           if (answered || progress.finished) return;
           const results = this.#sorted(
             keys.map((k) => progress.done.get(k) ?? { server: k, outcome: "timeout", message: ADMIN_DEADLINE_MESSAGE }),
           );
-          progress.folded = this.#record(dmaUserId, results);
+          progress.folded = opts.record === false ? Promise.resolve() : this.#record(dmaUserId, results);
           answered = true;
           logger.warn(
             { servers: results.filter((r) => r.message === ADMIN_DEADLINE_MESSAGE).map((r) => r.server) },
@@ -609,4 +690,16 @@ function withOrderEndpoint(intent: AdminIntentRow[], override: OrderEndpointOver
       ? { ...r, orderIp: override.orderIp, orderMac: override.orderMac }
       : r,
   );
+}
+
+/**
+ * 계좌 비용(op 6/7) 대상 의도 행 — 그 계좌(같은 증권사 · 같은 정규화 번호)의 **active** 행만(Phase 36 · D-07). removing 행 서버는
+ * 곧 빠질 서버라 보내지 않는다.
+ */
+function costTargetRows(
+  intent: readonly AdminIntentRow[],
+  target: { broker: DmaBroker; accountNo: string },
+): AdminIntentRow[] {
+  const no = normalizeAccountNo(target.accountNo);
+  return intent.filter((r) => r.state === "active" && r.broker === target.broker && normalizeAccountNo(r.accountNo) === no);
 }

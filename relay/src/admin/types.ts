@@ -22,6 +22,9 @@ export const ADMIN_ROLE = 2;
  * - 3 SetAccount — 추가 또는 같은 account_no 갱신(branch/trader 변경은 BUSY 면 9)
  * - 4 RemoveAccount — account_no 만 · 멱등 아님(없는 계좌 = 8) · 마지막 계좌 = 12
  * - 5 ListUsers — 87 만 돌아온다
+ * - 6 SetAccountBudget — account_no + budget_krw(원 · 0 = 해제) · 같은 서버 그 계좌의 모든 유저 행 · user_id · password 는
+ *   읽지 않는다 · BUSY 없음(gh-trade 41 · 인박스 261027-account-budget). 구 서버는 code 1(BAD_OP).
+ * - 7 SetAccountFee — fee_ppm · sell_tax_ppm 두 값을 한 번에(0,0 = 해제) · 범위 밖은 code 1(gh-trade 41 · 인박스 261027-account-pnl)
  */
 export const ADMIN_OP = {
   UpsertUser: 1,
@@ -29,6 +32,8 @@ export const ADMIN_OP = {
   SetAccount: 3,
   RemoveAccount: 4,
   ListUsers: 5,
+  SetAccountBudget: 6,
+  SetAccountFee: 7,
 } as const;
 
 /** `ADMIN_OP` 값 유니온. */
@@ -107,8 +112,14 @@ export type AdminCommandInput = {
   userId: string;
   /** op 1 일 때만 싣는다. 그 밖 op 에서는 무시하고 빈 문자열을 싣는다. */
   password?: string;
-  /** 주어질 때만 싣는다(op 1 신규 · op 3 · op 4). */
+  /** 주어질 때만 싣는다(op 1 신규 · op 3 · op 4 · op 6 · op 7 — op 6/7 은 account_no 만 읽는다). */
   account?: AdminAccount;
+  /** op 6 만 싣는다 — ulong(원 · 0 = 해제). bigint 그대로(0 ≤ v < 2^64 · 밖이면 조립이 throw). */
+  budgetKrw?: bigint;
+  /** op 7 만 싣는다 — uint32 ppm(0 = 해제). 0~10000 범위는 서버가 판정(code 1) — 조립은 uint32 구조만 본다. */
+  feePpm?: number;
+  /** op 7 만 싣는다 — uint32 ppm(0 = 해제). 규칙은 `feePpm` 과 같다(두 값은 늘 함께 나간다). */
+  sellTaxPpm?: number;
 };
 
 /** 86 파싱 결과. */

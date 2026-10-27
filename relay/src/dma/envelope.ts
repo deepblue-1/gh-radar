@@ -3334,13 +3334,19 @@ function buildWireAdminAccount(b: flatbuffers.Builder, a: AdminAccount): flatbuf
  * admin 관리 명령 (MsgType 44 · `admin_command_req` 슬롯 92 · C→S · Phase 29).
  *
  * - `password` 는 **op 1(UpsertUser) 일 때만** 싣는다. 그 밖 op 는 빈 문자열 — 호출자가 실수로 넘겨도 와이어에 나가지 않는다.
- * - `account` 는 주어질 때만 싣는다(op 1 신규 · op 3 · op 4).
+ * - `account` 는 주어질 때만 싣는다(op 1 신규 · op 3 · op 4 · op 6 · op 7).
  * - `requestId` 는 ulong 이라 0 이상 2^64 미만이어야 한다 — 벗어나면 호출자 버그라 throw 한다(값은 문구에 싣되 비밀은 없다).
+ * - `budgetKrw` 는 **op 6 일 때만** 싣는다(ulong · 같은 범위 가드). 0 은 flatbuffers 가 필드를 생략하지만 서버는 부재를 0 으로
+ *   읽으므로 「해제」 의미 그대로다. 그 밖 op 에는 실리지 않는다(호출자가 넘겨도 와이어에 없다).
  */
 export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   const { requestId } = input;
   if (typeof requestId !== "bigint" || requestId < 0n || requestId >= 1n << 64n) {
     throw new RangeError(`admin request_id 가 ulong 범위가 아니다: ${String(requestId)}`);
+  }
+  const budgetKrw = input.op === ADMIN_OP.SetAccountBudget ? (input.budgetKrw ?? 0n) : null;
+  if (budgetKrw !== null && (typeof budgetKrw !== "bigint" || budgetKrw < 0n || budgetKrw >= 1n << 64n)) {
+    throw new RangeError(`admin budget_krw 가 ulong 범위가 아니다: ${String(budgetKrw)}`);
   }
   const b = new flatbuffers.Builder(256);
   const userId = b.createString(input.userId);
@@ -3353,6 +3359,7 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
   AdminCommandReq.addUserId(b, userId);
   AdminCommandReq.addPassword(b, password);
   if (account !== null) AdminCommandReq.addAccount(b, account);
+  if (budgetKrw !== null) AdminCommandReq.addBudgetKrw(b, budgetKrw);
   const table = AdminCommandReq.endAdminCommandReq(b);
 
   Envelope.startEnvelope(b);

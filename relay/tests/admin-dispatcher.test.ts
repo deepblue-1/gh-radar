@@ -26,6 +26,9 @@
  *       계좌명만 바꾼 PUT 은 등록 서버마다 op 3(IPMAC-05) · 재조회 timeout/offline 이면 그 서버 44 0건(fail closed) · 비밀번호 ·
  *       제거 · 유저 삭제 · 무변경은 재조회 0회 · 새 87 이 의도와 같으면 44 0건 · override(원문)가 새 87 값보다 이긴다(D-07 · D-10) ·
  *       재조회 왕복도 요청 마감(29-32)에 들어 마감 접기 · 뒤 기록이 그대로 처리한다(Pitfall 9)
+ *   P36 setAccountCost(Phase 36 · D-01 · D-04 · D-06 · D-07) — 그 계좌 active 등록 서버마다 op 6/7 1건(user_id 빈 값 · account_no ·
+ *       값) · 결과 레지스트리 순 · 꺼진 서버 skipped(44 0) · 87 없음 offline · code 1 failed(원문) · timeout · 기록 0 · 의도 쓰기 0 ·
+ *       없는 계좌 NO_SUCH_ACCOUNT · removing 서버 제외 · 마감 접기도 기록 0
  */
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -160,6 +163,9 @@ class FakeConn implements AdminConnLike {
       userId: input.userId,
       password: input.password ?? "",
       account: input.account ?? null,
+      budgetKrw: input.budgetKrw ?? 0n,
+      feePpm: input.feePpm ?? 0,
+      sellTaxPpm: input.sellTaxPpm ?? 0,
     });
     if (reply?.resp === undefined) return { kind: "timeout" };
     if (reply.snapshot !== undefined) this.#snapshot = snapshotOf(this.state);
@@ -1034,5 +1040,217 @@ describe("IPMAC-01 R3-01 — op 1/3 직전 op 5 재조회 (D-15)", () => {
       ]);
       expect(env.conns[key]!.refreshes).toBe(1);
     }
+  });
+});
+
+describe("P36 setAccountCost op 6 · op 7 (D-01 · D-04 · D-06 · D-07)", () => {
+  const ACC = "1234567801";
+  const ADMIN = "boss@gmail.com";
+  /** 계좌 비용 경로가 부를 수 있는 RPC — 의도 읽기만(기록 · 의도 쓰기 없음 · D-04). */
+  const writes = (env: Env): string[] => env.db.calls.map((c) => c.name).filter((n) => n !== "dma_admin_intent");
+  const budgetOf = (c: FakeConn): bigint | undefined => c.state.costs?.get(ACC)?.budgetKrw;
+
+  beforeEach(async () => {
+    const { logger } = await import("../src/logger.js");
+    for (const level of ["debug", "info", "warn", "error"] as const) vi.spyOn(logger, level).mockImplementation((() => undefined) as never);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function setupTwo(): Env {
+    const env = setup({ KB120: state({ u1: [kb(ACC)] }), KB121: state({ u1: [kb(ACC)] }) });
+    seedU1(env, [{ accountNo: ACC, servers: ["KB120", "KB121"] }]);
+    return env;
+  }
+
+  it("① active 등록 KB120 · KB121 → 서버마다 op 6 1건(account_no · budgetKrw · userId 빈 값) · 결과 레지스트리 순 ok 2", async () => {
+    const env = setupTwo();
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 10_000_000 }, { adminEmail: ADMIN });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "6" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+    for (const key of ["KB120", "KB121"]) {
+      expect(env.conns[key]!.sent).toEqual([
+        { op: 6, userId: "", account: { accountNo: ACC, name: "", branchNo: "", traderId: "", priority: 0 }, budgetKrw: 10_000_000n },
+      ]);
+      expect(budgetOf(env.conns[key]!)).toBe(10_000_000n);
+      // planner 경로가 아니다 — op 5 재조회 없음.
+      expect(env.conns[key]!.refreshes).toBe(0);
+    }
+  });
+
+  it("① 계좌번호는 정규화로 대조한다(경로 \" 001234567801\" 도 같은 계좌) · 같은 값 재전송 = 「변경 없음」 ok · rev 불변", async () => {
+    const env = setupTwo();
+    await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 5_000_000 }, { adminEmail: ADMIN });
+    const again = await env.dispatcher.setAccountCost(
+      "u1",
+      { broker: "KB", accountNo: ` 00${ACC}` },
+      { op: 6, budgetKrw: 5_000_000 },
+      { adminEmail: ADMIN },
+    );
+    expect(again).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "6" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+  });
+
+  it("② 꺼진 서버 → skipped(사유 문구) · 그 서버 command 0회 · 켜진 서버는 ok", async () => {
+    const env = setup({ KB120: state({ u1: [kb(ACC)] }), KB121: state({ u1: [kb(ACC)] }) }, [row("KB120"), row("KB121", false)]);
+    seedU1(env, [{ accountNo: ACC, servers: ["KB120", "KB121"] }]);
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "6" },
+      { server: "KB121", outcome: "skipped", message: SKIPPED_RECONCILE },
+    ]);
+    expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("③ 87 미수신 → offline · 44 0건 · 다른 서버 무영향", async () => {
+    const env = setupTwo();
+    env.conns.KB121!.forgetSnapshot();
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "6" },
+      { server: "KB121", outcome: "offline" },
+    ]);
+    expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("④ 구 서버 code 1(BAD_OP) → failed · code 1 · message 원문 그대로(문장 대조 없음)", async () => {
+    const env = setupTwo();
+    env.conns.KB121!.state.legacyCostOps = true;
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+
+    expect(results).toEqual([
+      { server: "KB120", outcome: "ok", usersRev: "6" },
+      { server: "KB121", outcome: "failed", code: ADMIN_CODE.BadOp, message: "알 수 없는 명령입니다", usersRev: "5" },
+    ]);
+  });
+
+  it("④ code 8(이 서버에 없는 계좌) → failed · 원문", async () => {
+    const env = setupTwo();
+    env.conns.KB121!.state.users.set("u1", [kb("9999999999")]);
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+    expect(results[1]).toEqual({ server: "KB121", outcome: "failed", code: ADMIN_CODE.NoSuchAccount, message: "이 서버에 없는 계좌", usersRev: "5" });
+  });
+
+  it("⑤ 무응답 → timeout(그 서버만)", async () => {
+    const env = setupTwo();
+    env.conns.KB120!.mode = "timeout";
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+    expect(results).toEqual([
+      { server: "KB120", outcome: "timeout" },
+      { server: "KB121", outcome: "ok", usersRev: "6" },
+    ]);
+  });
+
+  it("⑥ 결과 기록(dma_admin_record_results) 0회 · 의도 쓰기 0회 — 의도 읽기만", async () => {
+    const env = setupTwo();
+    env.conns.KB121!.state.legacyCostOps = true;
+    const before = env.db.intentOf("u1");
+    await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 7 }, { adminEmail: ADMIN });
+
+    expect(env.db.callsTo("dma_admin_record_results")).toEqual([]);
+    expect(writes(env)).toEqual([]);
+    expect(env.db.callsTo("dma_admin_intent")).toHaveLength(1);
+    expect(env.db.intentOf("u1")).toEqual(before);
+  });
+
+  it("⑦ 의도에 없는 계좌 · 다른 증권사 → IntentError NO_SUCH_ACCOUNT · 44 0건", async () => {
+    const env = setupTwo();
+    for (const target of [
+      { broker: "KB" as const, accountNo: "5555555555" },
+      { broker: "KYOBO" as const, accountNo: ACC },
+    ]) {
+      const err = await env.dispatcher.setAccountCost("u1", target, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(IntentError);
+      expect((err as IntentError).code).toBe("NO_SUCH_ACCOUNT");
+    }
+    expect(env.conns.KB120!.sent).toEqual([]);
+    expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("⑧ removing 행 서버는 대상이 아니다 — active 서버에만 op 6", async () => {
+    const env = setup({ KB120: state({ u1: [kb(ACC)] }), KB121: state({ u1: [kb(ACC)] }) });
+    seedU1(env, [{ accountNo: ACC, servers: ["KB120", { key: "KB121", state: "removing" }] }]);
+    const results = await env.dispatcher.setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN });
+
+    expect(results).toEqual([{ server: "KB120", outcome: "ok", usersRev: "6" }]);
+    expect(env.conns.KB121!.sent).toEqual([]);
+  });
+
+  it("⑧ 전부 removing 이면 NO_SUCH_ACCOUNT", async () => {
+    const env = setupTwo();
+    env.db.seedUser({ dmaUserId: "u2", passwordEnc: "x", accounts: [{ accountNo: ACC, servers: [{ key: "KB120", state: "removing" }] }] });
+    const err = await env.dispatcher.setAccountCost("u2", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 1 }, { adminEmail: ADMIN }).catch((e: unknown) => e);
+    expect((err as IntentError).code).toBe("NO_SUCH_ACCOUNT");
+  });
+
+  describe("⑨ 마감 접기 (29-32 WR-07 재사용)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("마감 접기 — KB120(12초)은 timeout 으로 접어 먼저 응답 · 접을 때도 · 뒤 완료 때도 기록 0회", async () => {
+      const env = setupTwo();
+      env.conns.KB120!.delayMs = 12_000;
+
+      let answered: unknown = null;
+      void env.dispatcher
+        .setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 3 }, { adminEmail: ADMIN, deadlineAt: Date.now() + DEADLINE_MS })
+        .then((r) => {
+          answered = r;
+        });
+
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS);
+      expect(answered).toEqual([
+        { server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE },
+        { server: "KB121", outcome: "ok", usersRev: "6" },
+      ]);
+      expect(env.db.callsTo("dma_admin_record_results")).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      // 반영은 취소되지 않고 끝났다 — 그래도 기록 없음.
+      expect(budgetOf(env.conns.KB120!)).toBe(3n);
+      expect(env.db.callsTo("dma_admin_record_results")).toEqual([]);
+      expect(writes(env)).toEqual([]);
+    });
+
+    it("같은 DMA 유저 줄(#serial) — 앞 계좌 PUT 반영이 끝난 뒤에 op 6 이 나간다 · 줄에서 마감을 맞으면 그 계좌 서버만 접는다", async () => {
+      const env = setup({ KB120: state({}), KB121: state({}) });
+      seedU1(env, [
+        { accountNo: ACC, priority: 1, servers: ["KB120"] },
+        { accountNo: "B", priority: 2, servers: ["KB120", "KB121"] },
+      ]);
+      env.conns.KB120!.delayMs = 6_000;
+
+      void env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+      let answered: unknown = null;
+      void env.dispatcher
+        .setAccountCost("u1", { broker: "KB", accountNo: ACC }, { op: 6, budgetKrw: 3 }, { adminEmail: ADMIN, deadlineAt: Date.now() + DEADLINE_MS })
+        .then((r) => {
+          answered = r;
+        });
+
+      await vi.advanceTimersByTimeAsync(DEADLINE_MS);
+      // reconcile(op 1 · op 3 = 12초)이 줄을 쥐고 있다 — op 6 은 아직 안 나갔고, 접힌 응답은 그 계좌 서버(KB120)뿐.
+      expect(answered).toEqual([{ server: "KB120", outcome: "timeout", message: DEADLINE_MESSAGE }]);
+      expect(ops(env.conns.KB120!)).toEqual([1, 3]);
+      const recordsBefore = env.db.callsTo("dma_admin_record_results").length;
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(ops(env.conns.KB120!)).toEqual([1, 3, 6]);
+      // 기록은 reconcile 몫(완료 때 1회)뿐 — op 6 은 접을 때도 끝날 때도 기록하지 않는다.
+      expect(recordsBefore).toBe(0);
+      expect(env.db.callsTo("dma_admin_record_results")).toHaveLength(1);
+    });
   });
 });

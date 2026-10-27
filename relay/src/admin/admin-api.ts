@@ -22,6 +22,12 @@
  * 계좌 put · 계좌 제거 · 유저 삭제도 성공 응답 전에 같은 재적재를 건다 — DB 가 removing 전환(또는 settle)과 함께 지정을 지운 것을
  * 60초 주기를 기다리지 않고 라우팅에. 생성 · 비밀번호 · reconcile 은 지정을 바꾸지 않아 걸지 않는다.
  *
+ * 계좌 예수금(Phase 36 · D-01 · D-07) `PUT /dma-users/:dma/accounts/:broker/:accountNo/budget` body `{ budgetKrw }`(원 · 0 = 해제 ·
+ * 0..Number.MAX_SAFE_INTEGER 정수 · 그 밖 400) → `dispatcher.setAccountCost` op 6 → 그 계좌 active 등록 서버 전부 44 → 200 `{ results }`
+ * (서버마다 ok · failed + code + message 원문 · timeout · offline · skipped). 의도에 없는 계좌는 409 `NO_SUCH_ACCOUNT`(계좌 라우트
+ * 공통 매핑). DB 의도 저장 · `dma_admin_results` 기록 없음(D-04 — 87 이 정본 · 반영 칩 원천 밖). 감사 줄 extra = 증권사 · 마스킹 계좌 ·
+ * budgetKrw. 지정 재적재 없음(지정 무변경).
+ *
  * 서버 상태 `GET /servers/status`(29-11) — 서버마다 `{ conn, journal, admin, quote, staleAccounts }`. `staleAccounts`(29-43 G-1 (가))는
  * 그 서버에 남아 끄지 못한 전략이 있는 계좌 수(deps `staleStrategies` 없으면 0 · 꺼진 서버에도 싣는다 — Admin 서버 카드 한 줄 · 29-38).
  *
@@ -29,7 +35,7 @@
  * 요청. 꺼진 · 없는 등록 서버에는 op 를 보내지 않고 그 서버 의도 행만 settle 한 결과(`skipped` + 사유)를 싣고, 켜진 서버가 전부
  * ok 면 `deleted: true`. 쿼리 값 `1` 만 참. 감사 줄에 `skipDisabled: true`.
  *
- * 요청 마감(29-32 WR-07): 변경 라우트 6개(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile)는 요청 도착 시각 +
+ * 요청 마감(29-32 WR-07): 변경 라우트(생성 · 비밀번호 · 계좌 put · 계좌 delete · 유저 delete · reconcile · 계좌 예수금 36)는 요청 도착 시각 +
  * `ADMIN_REQUEST_DEADLINE_MS`(10초)를 `deadlineAt` 으로 dispatcher 에 넘긴다(생성은 RPC 뒤 reconcile 에). 그때까지 끝나지 않은
  * 서버는 결과 배열에 `timeout`(「10초 안에 끝나지 않아 먼저 응답했어요 …」)으로 접혀 **200** 으로 나가고, 서버 반영은 뒤에서
  * 계속돼 실제 결과가 `dma_admin_results` 에 다시 기록된다(다음 재조회 칩). Express 상한(`RELAY_ADMIN_TIMEOUT_MS` 15초)이
@@ -83,7 +89,7 @@ export type AdminApiDeps = {
     AdminIntentStore,
     "createDmaUser" | "putAccount" | "markAccountRemoved" | "setQuotePrimary" | "setAccountOrderServer"
   >;
-  dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser">;
+  dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser" | "setAccountCost">;
   /** 서버 레지스트리 — 전 행(상태 · 키 검사) · 즉시 재적재(D-09 · D-17). `ServerRegistry` 가 만족한다. */
   registry: { all(): DmaServerRow[]; reload(): Promise<{ ok: boolean; changed: boolean }> };
   /** 웹 사용자 접근 맵 즉시 재적재(D-04 — 회수 사용자는 `revoked` 이벤트 → fanout 결선이 끊는다). `AppAccess` 가 만족한다. */
@@ -201,6 +207,9 @@ const PutAccountBody = z
 
 /** 계좌 주문 서버 지정 — 레지스트리 키 형식 또는 null(증권사 기본값으로). 키 누락은 거부(실수로 해제되지 않게). */
 const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nullable() });
+
+/** 계좌 예수금(Phase 36 · op 6) — 원 정수 0..Number.MAX_SAFE_INTEGER(0 = 해제). 문자열 · 소수 · 음수 · 추가 키는 400. */
+const BudgetBody = z.object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
 
 /** 경로 `:key` — 레지스트리 서버 키 형식(있는지는 라우트가 레지스트리로 본다). */
 const ServerKeyParam = z.object({ key: z.string().regex(SERVER_KEY_RE) });
@@ -523,6 +532,24 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     audit(adminEmail, route, dma, { orderServer }, extra);
     res.status(200).json({ ok: true, orderServer });
+  });
+
+  // ── 계좌 예수금 (Phase 36 D-01 · D-07 — 그 계좌 active 등록 서버 전부 op 6 · 기록 · 의도 저장 없음 D-04) ──────────────────
+  router.put("/dma-users/:dma/accounts/:broker/:accountNo/budget", async (req, res) => {
+    const deadlineAt = deadlineOf();
+    const { dma, broker, accountNo } = AccountParam.parse(req.params);
+    const { budgetKrw } = BudgetBody.parse(req.body);
+    const adminEmail = res.locals.adminEmail as string;
+    const { results } = await audited(
+      res,
+      "PUT /dma-users/:dma/accounts/:broker/:accountNo/budget",
+      dma,
+      async () => ({
+        results: await deps.dispatcher.setAccountCost(dma, { broker, accountNo }, { op: 6, budgetKrw }, { adminEmail, deadlineAt }),
+      }),
+      { broker, account: maskAccountNo(accountNo), budgetKrw },
+    );
+    respond(res, results);
   });
 
   // ── 유저 삭제 (D-15 — 서버마다 op 2(87 전용 계좌가 있으면 의도 계좌 op 4) · 전 서버 ok 일 때만 DB 삭제) ──

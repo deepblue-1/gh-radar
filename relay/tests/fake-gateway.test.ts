@@ -499,8 +499,9 @@ describe("Phase 29 admin 모드", () => {
     await expectSilence(client);
 
     expect(gateway.adminCommandRequests()).toEqual([
-      { requestId: 2n ** 63n + 5n, op: 1, userId: "new-user", password: "pw-test", account: KB_ACC },
-      { requestId: 8n, op: 5, userId: "", password: "", account: null },
+      // budgetKrw · feePpm · sellTaxPpm(Phase 36 op 6/7 슬롯) — 부재 = 0.
+      { requestId: 2n ** 63n + 5n, op: 1, userId: "new-user", password: "pw-test", account: KB_ACC, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 },
+      { requestId: 8n, op: 5, userId: "", password: "", account: null, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 },
     ]);
   });
 
