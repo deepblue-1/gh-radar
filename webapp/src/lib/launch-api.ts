@@ -10,8 +10,15 @@
  *   부르지 않게(끝나면 바로 지운다 · 실패도 지운다 → 「다시 시도」 = 새 요청).
  */
 
-import type { LaunchFire, LaunchMapResponse, LaunchOrdersResponse, LaunchRange } from '@gh-radar/shared';
+import type {
+  LaunchFire,
+  LaunchMapResponse,
+  LaunchOrdersResponse,
+  LaunchPlanResponse,
+  LaunchRange,
+} from '@gh-radar/shared';
 
+import { ApiClientError } from './api';
 import { authFetch } from './auth-fetch';
 
 const inflight = new Map<string, Promise<unknown>>();
@@ -36,4 +43,23 @@ export function fetchLaunchOrders(d?: string): Promise<LaunchOrdersResponse> {
 export function fetchLaunchMap(fire: LaunchFire, range: LaunchRange): Promise<LaunchMapResponse> {
   const query = `?fire=${encodeURIComponent(fire)}&range=${encodeURIComponent(range)}`;
   return joined<LaunchMapResponse>(`/api/admin/launch/map${query}`);
+}
+
+/** 발사 계획 조회 결과 — `absent` = server 가 이 라우트를 모른다(404). */
+export type LaunchPlanFetch = { kind: 'ready'; resp: LaunchPlanResponse } | { kind: 'absent' };
+
+/**
+ * 서버별 다음 발사 계획 + 조합별 최근 이력(35-13 `GET /api/admin/launch/plan` · D-25 · D-29).
+ *
+ * 404 = gh-radar server 가 이 라우트를 모름 = 배포 전(D-35) — 화면에서 계획 기능을 숨긴다(`{ kind: 'absent' }`).
+ * 그 밖 오류(5xx · 네트워크 · 타임아웃)는 그대로 throw — 지도 탭이 「대신 값」 경로로 접는다.
+ */
+export function fetchLaunchPlan(): Promise<LaunchPlanFetch> {
+  return joined<LaunchPlanResponse>('/api/admin/launch/plan').then(
+    (resp): LaunchPlanFetch => ({ kind: 'ready', resp }),
+    (e: unknown): LaunchPlanFetch => {
+      if (e instanceof ApiClientError && e.status === 404) return { kind: 'absent' };
+      throw e;
+    },
+  );
 }

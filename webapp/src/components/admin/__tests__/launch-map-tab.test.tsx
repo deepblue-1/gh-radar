@@ -4,7 +4,13 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { LaunchHeadRow, LaunchMapPiece, LaunchMapResponse } from '@gh-radar/shared';
+import type {
+  LaunchHeadRow,
+  LaunchMapPiece,
+  LaunchMapResponse,
+  LaunchPlanResponse,
+  LaunchPlanServer,
+} from '@gh-radar/shared';
 
 import { LaunchMapView, type LaunchMapViewProps } from '../launch-map-tab';
 
@@ -273,5 +279,48 @@ describe('LaunchMapView — 빈 상태 · 오류', () => {
     expect(screen.getByRole('alert').textContent).toContain('발사 기록을 불러오지 못했어요');
     fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 35-14 — 다음 발사 계획(D-24 · D-25 · D-35)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function okServer(q16K: number[], q16Q: number[], n: number): LaunchPlanServer {
+  return {
+    status: 'ok',
+    plan_rev: 7,
+    updated_at: '2026-10-27T13:41:00Z',
+    entries: [
+      { profile: 'Q16', market: 'K', offsets_us: q16K },
+      { profile: 'Q16', market: 'Q', offsets_us: q16Q },
+      { profile: 'N', market: 'K', offsets_us: [n] },
+      { profile: 'N', market: 'Q', offsets_us: [n] },
+    ],
+  };
+}
+
+function planResp(over: Partial<Record<'KB120' | 'KYOBO119', LaunchPlanServer>> = {}): LaunchPlanResponse {
+  return {
+    servers: {
+      KB120: over.KB120 ?? okServer([-340, -335, -320], [-350, -345, -325], -245),
+      KYOBO119: over.KYOBO119 ?? okServer([-410, -400, -380], [-530, -520, -500], -200),
+    },
+    changes: [],
+  };
+}
+
+const panelOf = (c: HTMLElement, g: string, m: string) =>
+  one(c, `[data-slot="launch-panel"][data-gateway="${g}"][data-market="${m}"]`);
+const kpiNextOf = (c: HTMLElement, g: string, m: string) =>
+  one(c, `[data-slot="launch-kpi"][data-gateway="${g}"][data-market="${m}"] [data-kpi="next"]`).textContent;
+
+describe('LaunchMapView — 다음 발사 계획(서버 ok)', () => {
+  it('plan ready → KB 코스닥 줄 「3조각 −350 · −345 · −325µs」 · 그 패널 점선 3개 · KPI 「−350µs」', () => {
+    const { container } = view({ plan: { kind: 'ready', resp: planResp() } });
+    const kbq = panelOf(container, 'KB120', 'Q');
+    expect(one(kbq, '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}345 · ${M}325µs`);
+    expect(slots(kbq, 'launch-next').map((l) => l.getAttribute('data-idx'))).toEqual(['0', '1', '2']);
+    expect(kpiNextOf(container, 'KB120', 'Q')).toBe(`${M}350µs`);
   });
 });

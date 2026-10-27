@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 
 import type { LaunchCalcPiece, LaunchDay, LaunchDayKind, LaunchFire, LaunchMarket } from '@gh-radar/shared';
 import { launchPanelStatsOf } from '@gh-radar/shared';
@@ -36,9 +36,10 @@ import { cn } from '@/lib/utils';
  *   폰 390 은 640 고정 + 래퍼 가로 스크롤 — 폰 폭에 맞춰 줄이지 않는다.
  * - 레이어(아래 → 위): 눈금 세로 격자 → 날짜 행 줄 · 왼쪽 「MM/DD」 → 경계 띠(+ 전부 거부 날 「경계는 이보다 뒤 →」) →
  *   점(같은 µs 는 세로 4px 대칭 쌓기 · 09:00:30 매도 = 마름모 · 각 점 `<title>`) → 「쐈다면」 리본(칸마다 접수 · 모름 · 거부
- *   세 겹) → 다음 첫 조각 점선(행과 리본을 지난다 · next null 이면 없음) → x 눈금 글.
+ *   세 겹) → 다음 발사 계획 점선(조각마다 1개 · 행과 리본을 지난다 · planLines 가 비면 없음) → x 눈금 글.
  * - 이상치(Pitfall 4): 축은 중앙값 ± 상한 안에서만 잡고, 밖의 점은 축 끝에 고정 + 옆에 「◂」/「▸」 · title 끝 「축 밖」.
- *   다음 오프셋이 축 밖이면 점선 대신 그 끝에 「▸ 다음 −245µs」 글.
+ *   계획 값이 축 밖이면 그 값의 점선 대신 축 끝에 「▸ 다음 −245µs」 글(축 밖인 첫 값 하나만).
+ * - `children` = 패널 머리 아래 슬롯(「다음 발사 계획」 줄 · D-24) — 날짜 없는 패널에도 그린다.
  * - 상호작용은 `<title>` 툴팁뿐(D-19) — 확대 · 끌기 · 마우스 상자 없음. 재전송은 첫 발 점 하나 · 횟수는 툴팁.
  * - 패널 머리 집계는 shared `launchPanelStatsOf` 한 벌(백필 머리 계산과 같은 규칙 · 판단 불가 날은 세지 않는다).
  */
@@ -52,8 +53,12 @@ export interface LaunchGateChartProps {
   fire: LaunchFire;
   /** 이 패널 조각의 `launchDaysOf` 결과(날짜 오름차순). */
   days: readonly LaunchDay<LaunchChartPiece>[];
-  /** 다음 발사 첫 조각(µs) — 없으면 null(점선 없음). */
-  next: number | null;
+  /**
+   * 다음 발사 계획 점선(µs · D-25) — 서버 계획이면 조각마다 하나 · 대신 값(최신 머리)이면 1개 · 없으면 빈 배열(점선 없음).
+   */
+  planLines: readonly number[];
+  /** 패널 머리 아래 슬롯(「다음 발사 계획」 줄) — 날짜 없는 패널에도 렌더. */
+  children?: ReactNode;
 }
 
 const { W_MIN, L, R, T, RH, RIBBON_H, GAP_R, TICK_H, DOT_R } = LAUNCH_CHART;
@@ -77,7 +82,7 @@ function tickAnchorOf(tx: number, right: number): 'middle' | 'end' {
 }
 const OFF_GLYPH = { lo: '◂', hi: '▸' } as const;
 
-export function LaunchGateChart({ gateway, market, fire, days, next }: LaunchGateChartProps) {
+export function LaunchGateChart({ gateway, market, fire, days, planLines, children }: LaunchGateChartProps) {
   const title = brokerMarketLabelOf(gateway, market);
   const stats = launchPanelStatsOf(days);
 
@@ -96,9 +101,10 @@ export function LaunchGateChart({ gateway, market, fire, days, next }: LaunchGat
             : `경계 잡힌 날 ${stats.n_gate} · 전부 접수 ${stats.n_all_accept} · 전부 거부 ${stats.n_all_reject}`}
         </span>
       </div>
+      {children}
       {days.length > 0 && (
         <>
-          <LaunchGateSvg title={title} fire={fire} days={days} next={next} />
+          <LaunchGateSvg title={title} fire={fire} days={days} planLines={planLines} />
           <LaunchDayTable days={days} />
         </>
       )}
@@ -110,12 +116,12 @@ function LaunchGateSvg({
   title,
   fire,
   days,
-  next,
+  planLines,
 }: {
   title: string;
   fire: LaunchFire;
   days: readonly LaunchDay<LaunchChartPiece>[];
-  next: number | null;
+  planLines: readonly number[];
 }) {
   const [ref, width] = useChartWidth<HTMLDivElement>();
   const [hover, setHover] = useState<HoverDot | null>(null);
@@ -128,14 +134,16 @@ function LaunchGateSvg({
 
   const axis = launchAxisOf(
     days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us)),
-    next,
+    planLines[0] ?? null,
     fire,
   );
   const x = (v: number) => xOfUs(v, axis, left, right);
   const ticks = launchTicksOf(axis, right - left);
   const ribbon = launchRibbonCellsOf(days, axis, right - left);
-  const nextOff: LaunchOffAxis = next === null ? null : axis.offAxis(next);
-  const nextX = next !== null && nextOff === null ? x(next) : null;
+  const onAxis = planLines.flatMap((v, i) => (axis.offAxis(v) === null ? [{ v, i }] : []));
+  const offFirst = planLines.find((v) => axis.offAxis(v) !== null);
+  const nextOff: LaunchOffAxis = offFirst === undefined ? null : axis.offAxis(offFirst);
+  const single = planLines.length === 1;
 
   return (
     <div ref={ref} className="relative min-w-0 overflow-x-auto" onMouseLeave={() => setHover(null)}>
@@ -279,20 +287,25 @@ function LaunchGateSvg({
         </g>
         <rect x={left} y={ry} width={right - left} height={RIBBON_H} fill="none" stroke="var(--border-subtle)" />
 
-        {/* 다음 첫 조각 — 축 안 = 점선(행 + 리본) · 축 밖 = 끝에 글 */}
-        {nextX !== null && (
-          <path
-            data-slot="launch-next"
-            d={`M${nextX} ${T - 4} V${rowsBottom} M${nextX} ${ry - 2} V${ry + RIBBON_H + 2}`}
-            stroke="var(--primary)"
-            strokeWidth={1.5}
-            strokeDasharray="4 3"
-            fill="none"
-          >
-            <title>{`다음 첫 조각 ${fmtUs(next)}µs`}</title>
-          </path>
-        )}
-        {nextOff !== null && (
+        {/* 다음 발사 계획 — 조각마다 축 안 = 점선(행 + 리본) · 축 밖 = 축 밖인 첫 값 하나만 끝에 글 */}
+        {onAxis.map(({ v, i }) => {
+          const nx = x(v);
+          return (
+            <path
+              key={i}
+              data-slot="launch-next"
+              data-idx={i}
+              d={`M${nx} ${T - 4} V${rowsBottom} M${nx} ${ry - 2} V${ry + RIBBON_H + 2}`}
+              stroke="var(--primary)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              fill="none"
+            >
+              <title>{single ? `다음 첫 조각 ${fmtUs(v)}µs` : `다음 발사 계획 ${i + 1}번 ${fmtUs(v)}µs`}</title>
+            </path>
+          );
+        })}
+        {nextOff !== null && offFirst !== undefined && (
           <text
             data-slot="launch-next-off"
             x={nextOff === 'lo' ? left : right}
@@ -301,8 +314,8 @@ function LaunchGateSvg({
             fontSize={11}
             fill="var(--primary)"
           >
-            {`${OFF_GLYPH[nextOff]} 다음 ${fmtUs(next)}µs`}
-            <title>{`다음 첫 조각 ${fmtUs(next)}µs · 축 밖`}</title>
+            {`${OFF_GLYPH[nextOff]} 다음 ${fmtUs(offFirst)}µs`}
+            <title>{`다음 첫 조각 ${fmtUs(offFirst)}µs · 축 밖`}</title>
           </text>
         )}
 
