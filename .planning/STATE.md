@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-09-PLAN.md (Wave A 배포) — 35-10 대기(gh-trade Phase 43 정식 노트)
-last_updated: "2026-10-27T15:01:43.534Z"
-last_activity: 2026-10-27
-last_activity_desc: Phase 35 Wave A 배포 · 백필 UAT 통과
-state_head: 3e5da7c15d88182a75eeb403bfac5e1455a48449
+stopped_at: Completed 35-12-PLAN.md
+last_updated: "2026-10-27T15:21:01.072Z"
+last_activity: 2026-10-28
+last_activity_desc: 35-12 발사 계획 shared 계약 · 변경 이력 표 완료(로컬 커밋)
+state_head: b5a39c7ac6bf04c1b6379e27e374de8a54c791fc
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 82
-  completed_plans: 62
+  completed_plans: 63
   percent: 71
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 9 of 19 (35-01~09 완료 · 35-10·11·16~18 은 gh-trade Phase 43 정식 인계 노트 대기 · 범위 7 발사 계획 어드민 35-12~19 플랜 추가 — 35-12~15 는 노트 전 실행 가능 · 로컬 커밋까지만)
-Status: Phase 35 Wave A 배포 완료 — Wave B 대기
-Last activity: 2026-10-27 — Phase 35 Wave A 배포(DB · 백필 254 · server 00067 · webapp 190f3e57) · 백필 UAT 「같다」 · 10/26 09:00:30 사전 발사 기록 삭제
+Plan: 10 of 19 (35-01~09 · 35-12 완료 · 35-10·11·16~18 은 gh-trade Phase 43 정식 인계 노트 대기 · 노트 전 35-13~15 다음 · 로컬 커밋까지만 D-35)
+Status: Executing Phase 35 — 범위 7 노트 전
+Last activity: 2026-10-28 — 35-12 발사 계획 shared 계약 · 변경 이력 표(launch_plan_changes · RPC 2 · pgTAP 26) 로컬 커밋 · push 안 함
 
 Progress: [███████░░░] 71% (53/53 plans)
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T13:00:57.224Z
-Stopped at: Completed 35-09-PLAN.md — Phase 35 범위에 발사 계획 어드민 추가(2026-10-27 사용자 · ROADMAP SC7) → 다음 `/gsd-discuss-phase 35` 로 그 영역 목업 · 승인 → `/gsd-plan-phase 35` 로 플랜 추가. 35-10 게이트는 gh-trade Phase 43(kind 17·18 + 발사 계획) 정식 인계 노트 뒤
+Last session: 2026-10-27T15:21:00.988Z
+Stopped at: Completed 35-12-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -165,6 +165,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P06 | 13 min | 2 tasks | 11 files |
 | Phase 35 P07 | 8 min | 2 tasks | 4 files |
 | Phase 35 P08 | 14 min | 3 tasks | 9 files |
+| Phase 35 P12 | 8min | 3 tasks | 5 files |
 
 ## Decisions
 
@@ -257,3 +258,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-07: 축 밖 점은 끝 고정 + ◂/▸ · title 「축 밖」 · 축 밖 다음 오프셋은 점선 대신 「▸ 다음 Xµs」 · 리본 칸 ≤ 그림 폭
 - [Phase 35]: 35-08: 경계 지도 요약 카드 = shared launchPanelStatsOf(min_accept · max_reject) + mapNextOffsetOf(최신 머리) · null 이면 「—」 — 상수 없음
 - [Phase 35]: 35-08: 발사 기준 세그먼트는 LaunchFireSeg 하나를 두 탭이 공유(같은 ?fire 키) · ?range 10d 기본 · 탭 · 칩 · 세그먼트 전환은 다른 쿼리 보존
+- [Phase 35]: 35-12: 이력 읽기 RPC = 조합별 최근 N ∪ 마지막 ok(jsonb 1값) · launch_plan_changes 는 service_role SELECT/INSERT 만
+- [Phase 35]: 35-12: validateLaunchPlanDraft 검사 순서 = 개수 → 칸마다(정수 → 범위) → 순서 · badIdx/idx 0부터 · LAUNCH_PLAN_LIMITS 잠정(35-19 대조)
