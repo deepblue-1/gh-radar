@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-16-PLAN.md
-last_updated: "2026-10-27T16:48:07.801Z"
+stopped_at: Completed 35-17-PLAN.md
+last_updated: "2026-10-27T17:00:39.766Z"
 last_activity: 2026-10-28
 last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
-state_head: a4866ba159b1e9754b43fa02b36dcf0b8a11486c
+state_head: ac6b6103c99a7b4e297e93c32e19ff3a20837ca5
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 82
-  completed_plans: 68
+  completed_plans: 69
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 15 of 19 (35-01~10 · 35-12~15 완료 — 정식 인계 노트 261028 도착 · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-16~19 남음 · 로컬 커밋까지만 D-35)
+Plan: 16 of 19 (35-01~10 · 35-12~17 완료 — 정식 인계 노트 261028 도착 · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-18(배포) · 35-19(노트 대조 · 회귀) 남음 · 로컬 커밋까지만 D-35)
 Status: Ready to execute
 Last activity: 2026-10-28 — 35-10 kind 17·18 정식 칸 매핑(20261028200000 · pgTAP 36/36) · STRATEGY_EVENT_KIND 17·18 · 라벨 로컬 커밋 · push 안 함
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T16:48:07.716Z
-Stopped at: Completed 35-16-PLAN.md
+Last session: 2026-10-27T17:00:39.679Z
+Stopped at: Completed 35-17-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -171,6 +171,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P15 | 21min | 3 tasks | 11 files |
 | Phase 35 P10 | 25min | 3 tasks | 8 files |
 | Phase 35 P16 | 7min | 3 tasks | 11 files |
+| Phase 35 P17 | 8min | 2 tasks | 7 files |
 
 ## Decisions
 
@@ -277,3 +278,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-16: ADMIN_OP 8·9 만 · 6·7 자리는 phase-36 병합 세션 몫
 - [Phase 35]: 35-16: 94 는 request_id 로만 짝짓는다 — op 8 뒤 94 · 늦은 94 는 debug 후 버림 · op 8/9 는 87 대기 판정 밖
 - [Phase 35]: 35-16: 94 updated_at 빈 값 허용 · entries 원소 null = 프레임 파손
+- [Phase 35]: 35-17: 발사 계획 조회 · 저장은 서버 키 단위 LaunchPlanService(dispatcher 밖) — offline 은 isReady 로만, 레지스트리 없음 · 꺼짐은 skipped 단일 문구
+- [Phase 35]: 35-17: PUT 은 조회(전) → op 8 → 조회(후) 같은 FIFO · 후 조회는 저장 끝 + 5초 ≤ 마감(도착+10초)일 때만 · relay zod 는 구조만(순서 · 범위는 gh-trade code 1)
+- [Phase 35]: 35-17: Phase 36 갈래 ③ — phase-36 브랜치는 커밋 완료 · master 미병합. 병합 때 admin-api import · interpretAdminResult 유니온(1~9) · admin.test it.each 3곳 양쪽 살림
