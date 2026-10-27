@@ -16,6 +16,7 @@ import {
  *   order-endpoints → 200 `{ servers: {} }` (30-03 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
  *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119 } }` 둘 다 ok 4칸(35-13 · `LAUNCH_PLAN_DEFAULT`)
+ *   PUT launch-plan/:server → 200 `{ result: { server, outcome: "ok" }, before_us: [-350,-345,-325], plan: 그 서버 기본 계획 }`
  */
 
 export type FakeRelayCall = {
@@ -57,6 +58,17 @@ function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
   if (/\/quote-primary$/.test(call.path)) return { status: 200, data: { ok: true } };
   if (call.method === "GET" && call.path.startsWith("/internal/admin/launch-plan")) {
     return { status: 200, data: { servers: LAUNCH_PLAN_DEFAULT } };
+  }
+  if (call.method === "PUT" && call.path.startsWith("/internal/admin/launch-plan/")) {
+    const server = decodeURIComponent(call.path.slice("/internal/admin/launch-plan/".length));
+    return {
+      status: 200,
+      data: {
+        result: { server, outcome: "ok" },
+        before_us: [-350, -345, -325],
+        plan: LAUNCH_PLAN_DEFAULT[server] ?? null,
+      },
+    };
   }
   if (call.method === "DELETE" && /^\/internal\/admin\/dma-users\/[^/]+$/.test(call.path)) {
     return { status: 200, data: { results: OK_RESULTS, deleted: true } };

@@ -2,10 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   LAUNCH_PLAN_GATEWAYS,
   LAUNCH_RANGE_DAYS,
+  launchPlanProfileOf,
+  type AdminServerResult,
   type LaunchFire,
+  type LaunchMarket,
   type LaunchMapResponse,
   type LaunchOrdersResponse,
   type LaunchPlanChangeRow,
+  type LaunchPlanRelaySetResponse,
   type LaunchPlanServer,
   type LaunchRange,
 } from "@gh-radar/shared";
@@ -172,4 +176,73 @@ export async function readLaunchPlanServers(
   }
   logger.warn({ relay: { op: "launch-plan-get", status } }, "[admin-launch] 발사 계획 조회 실패 → offline");
   return allServers(offline);
+}
+
+const RECORD_FAIL = "발사 계획 이력 기록에 실패했습니다.";
+
+/** 이력 1행 기록(D-29 · 시도마다 · 실패 포함) — RPC `launch_plan_change_record` `{ p }` 1회 → 기록된 행. */
+export async function recordLaunchPlanChange(
+  supabase: SupabaseClient,
+  input: Omit<LaunchPlanChangeRow, "id" | "at">,
+): Promise<LaunchPlanChangeRow> {
+  const { data, error } = await supabase.rpc("launch_plan_change_record", { p: input });
+  if (error) throw DbError(RECORD_FAIL, causeOf(error));
+  if (!isObject(data)) throw DbError(RECORD_FAIL, shapeCause("launch_plan_change_record", data));
+  return data as unknown as LaunchPlanChangeRow;
+}
+
+const OUTCOMES: readonly string[] = ["ok", "failed", "timeout", "offline", "skipped"];
+
+/** relay 저장 결과가 이 서버의 `AdminServerResult` 인지 — 다른 서버 결과 · 어휘 밖 outcome 은 모양 위반. */
+function isServerResultOf(v: unknown, gateway: string): v is AdminServerResult {
+  return (
+    isObject(v) &&
+    v.server === gateway &&
+    typeof v.outcome === "string" &&
+    OUTCOMES.includes(v.outcome) &&
+    (v.code === undefined || typeof v.code === "number") &&
+    (v.message === undefined || typeof v.message === "string")
+  );
+}
+
+const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every((x) => typeof x === "number");
+
+/**
+ * 계획 저장(D-27) — relay `setLaunchPlan` 1회. **throw 하지 않는다**: relay 없음 · 못 닿음(0) · 비200 · 모양 위반은
+ * `{ result: { server, outcome: "offline", message }, before_us: null, plan: null }` — 호출부가 이 결과로 이력 1행을 남긴다(D-29).
+ * relay 의 plan 은 op 8 뒤 재조회 값 — 웹이 다시 부르지 않게 그대로 싣는다. 로그에는 relay status 만(바디 원문 금지).
+ */
+export async function saveLaunchPlanViaRelay(
+  relay: RelayAdminClient | undefined,
+  adminEmail: string,
+  gateway: string,
+  fire: LaunchFire,
+  market: LaunchMarket,
+  offsets_us: number[],
+): Promise<LaunchPlanRelaySetResponse> {
+  const offline = (message: string): LaunchPlanRelaySetResponse => ({
+    result: { server: gateway, outcome: "offline", message },
+    before_us: null,
+    plan: null,
+  });
+  if (!relay) return offline(RELAY_NOT_CONFIGURED_MESSAGE);
+  let status = 0;
+  try {
+    const r = await relay.setLaunchPlan(gateway, { profile: launchPlanProfileOf(fire), market, offsets_us }, adminEmail);
+    status = r.status;
+    const d: unknown = r.data;
+    if (
+      r.status === 200 &&
+      isObject(d) &&
+      isServerResultOf(d.result, gateway) &&
+      (d.before_us === null || isNumberArray(d.before_us)) &&
+      (d.plan === null || isLaunchPlanServer(d.plan))
+    ) {
+      return { result: d.result, before_us: d.before_us, plan: d.plan };
+    }
+  } catch {
+    // 닿지 못함과 같게 본다(status 0).
+  }
+  logger.warn({ relay: { op: "launch-plan-put", status } }, "[admin-launch] 발사 계획 저장 relay 실패 → offline");
+  return offline(RELAY_FAILED_MESSAGE);
 }
