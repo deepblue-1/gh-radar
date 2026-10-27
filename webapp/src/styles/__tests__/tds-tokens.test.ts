@@ -126,6 +126,8 @@ const THEME_COLOR_TOKENS = [
   'group-bg', 'switch-off', 'dim', 'team', 'team-bg',
   'accum-sell', 'accum-sell-bg', 'accum-carry', 'accum-carry-bg', 'accum-warn-fg',
   'accum-shade', 'accum-gap',
+  'launch-ok', 'launch-ok-bg', 'launch-bad', 'launch-bad-bg', 'launch-gate', 'launch-gate-bg',
+  'launch-other', 'launch-grid',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
