@@ -216,7 +216,7 @@ Plans:
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
-| 35. 발사 경계 지도 어드민 | v1.1 | 0/0 | Not started | — |
+| 35. 발사 경계 지도 어드민 | v1.1 | 3/11 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -331,13 +331,13 @@ Plans:
   6. 첫 실물 날짜 라이브 UAT(16:00:01 이후 relay 적재 → 어드민에 당일 행) · 인박스 `261027-launch-gate-admin.md` 및 후속 정식 인계 노트를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버 먼저 배포해도 안전(relay 는 모르는 kind 도 그대로 적재) → gh-radar DB 마이그레이션 → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum·주석 sync 만)
-**Plans**: 11 plans
+**Plans**: 3/11 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 35-01-PLAN.md — gh-trade 핸드오프(백필 ndjson 지금 · kind 17·18 매핑 요구) · 상의 노트 회신 (W1 · 메인 세션 체크포인트)
-- [ ] 35-02-PLAN.md — DB 트레이서 전반: launch_pieces/heads · 조건부 upsert · 백필/어드민 RPC 2 + pgTAP (W1)
-- [ ] 35-03-PLAN.md — shared group() 이식 · 백필 머리 계산 · relay 백필 도구 · CLI(dry-run/--apply/--status/--reproject) (W1)
+- [x] 35-01-PLAN.md — gh-trade 핸드오프(백필 ndjson 지금 · kind 17·18 매핑 요구) · 상의 노트 회신 (W1 · 메인 세션 체크포인트)
+- [x] 35-02-PLAN.md — DB 트레이서 전반: launch_pieces/heads · 조건부 upsert · 백필/어드민 RPC 2 + pgTAP (W1)
+- [x] 35-03-PLAN.md — shared group() 이식 · 백필 머리 계산 · relay 백필 도구 · CLI(dry-run/--apply/--status/--reproject) (W1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 35-04-PLAN.md — dma_strategy_apply 재정의(17·18 투영 서브블록 · rows 제외) · 스텁 · reproject · 래퍼/타임라인 제외 + pgTAP 회귀 (W2)

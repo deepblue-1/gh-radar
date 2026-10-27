@@ -2,7 +2,7 @@
 phase: 35-launch-gate
 plan: 01
 subsystem: docs/inbox (gh-trade 핸드오프)
-status: partial
+status: complete
 tags: [handoff, gh-trade, launch-gate, inbox]
 requires: []
 provides:
@@ -36,14 +36,14 @@ plan_head_after: aae54cb2
 
 # Phase 35 Plan 01: gh-trade 핸드오프 초안 · 상의 노트 회신 Summary
 
-gh-trade 에 보낼 `launch-gate-contract` 노트 본문 초안(백필 ndjson 25키 표 · kind 17 발사 기준/side 필수 · kind 18 계산된 next_offset_us · 서버 먼저 배포 안전 · 질문 5건)과 상의 노트 `## 회신`(①~⑤)을 커밋했다. **Task 2(gh-trade 저장소에 노트 생성 · SendMessage)는 메인 세션 몫으로 대기 중이다.**
+gh-trade 에 보낼 `launch-gate-contract` 노트 본문 초안(백필 ndjson 25키 표 · kind 17 발사 기준/side 필수 · kind 18 계산된 next_offset_us · 서버 먼저 배포 안전 · 질문 5건)과 상의 노트 `## 회신`(①~⑤)을 커밋했다. Task 2 는 메인 세션이 처리했다 — gh-trade 인박스에 `261027-launch-gate-contract.md` 를 만들고 다섯 절을 초안으로 채웠다(TODO 0).
 
 ## 진행 상태
 
 | Task | 이름 | 상태 | 커밋 |
 |---|---|---|---|
 | 1 | 핸드오프 초안(템플릿 다섯 절) + 상의 노트 `## 회신` | 완료 | aae54cb2 |
-| 2 | (메인 세션) `scripts/trade-handoff.sh launch-gate-contract` → 본문 교체 → SendMessage | **대기 — 메인 세션** | — |
+| 2 | (메인 세션) `scripts/trade-handoff.sh launch-gate-contract` → 본문 교체 → SendMessage | 완료(메인 세션) | — (gh-trade 저장소 파일 · 커밋은 gh-trade 세션) |
 
 ## Task 1 결과
 
@@ -56,7 +56,7 @@ gh-trade 에 보낼 `launch-gate-contract` 노트 본문 초안(백필 ndjson 25
 - 상의 노트 끝 `## 회신 (gh-radar · 2026-10-27)` ①~⑤ — 프런트매터 `status: open` · `done_commit:` 빈 값 그대로.
 - verify: 플랜 `<automated>` exit 0(VERIFY_OK) · 초안 `TODO` 0개.
 
-## Task 2 — 메인 세션이 할 것 (대기)
+## Task 2 — 메인 세션 지시 (처리됨)
 
 precondition 확인(읽기 전용): Task 1 커밋 있음 · `/Users/alex/repos/gh-trade/docs/inbox/from-gh-radar/` 디렉터리 있음 · `*-launch-gate-contract.md` 아직 없음.
 
@@ -67,7 +67,13 @@ precondition 확인(읽기 전용): Task 1 커밋 있음 · `/Users/alex/repos/g
 
 resume-signal: 「핸드오프 완료: <노트 경로> · TODO 0 · SendMessage <세션 | 세션 없음>」
 
-gh-trade 노트 경로 · SendMessage 대상: **미정(메인 세션 처리 후 기록)**.
+### Task 2 결과 (메인 세션 · 2026-10-27 20:40 KST)
+
+- 노트: `/Users/alex/repos/gh-trade/docs/inbox/from-gh-radar/261027-launch-gate-contract.md` (from_commit 5f706d17 · fbs_sync_marker 7824e51b) — 본문은 초안 `## 요청 내용` ~ `## 질문` 다섯 절 그대로.
+- verify: `VERIFY_OK` (TODO 0 · `next_offset_us` · `fire_exchange` 존재).
+- SendMessage: gh-trade 세션 「phase 41: 계좌별 주문가능금액」 에 보냈으나 **그 세션이 보류한 뒤 승인 없이 만료돼 전달되지 않았다**(두 세션 권한 모드 차이). 파일이 정본이므로 gh-trade 세션이 인박스를 읽으면 처리된다. 재전송은 사용자 지시 시.
+
+resume-signal: 「핸드오프 완료: /Users/alex/repos/gh-trade/docs/inbox/from-gh-radar/261027-launch-gate-contract.md · TODO 0 · SendMessage phase 41: 계좌별 주문가능금액(미전달 — 만료)」
 
 ## Deviations from Plan
 
