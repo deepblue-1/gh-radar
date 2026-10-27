@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-03-PLAN.md
-last_updated: "2026-10-27T14:56:39.119Z"
+stopped_at: Completed 36-06-PLAN.md
+last_updated: "2026-10-27T15:06:35.555Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
-state_head: dc8724c06e6e54df93d9bd6a672c427f207bcf6c
+state_head: 46f286e7df2e44e44a794c772f53c2170dd92a6d
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 74
-  completed_plans: 66
+  completed_plans: 67
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-10-27 — Phase 36 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T14:56:39.031Z
-Stopped at: Completed 36-03-PLAN.md
+Last session: 2026-10-27T15:06:35.466Z
+Stopped at: Completed 36-06-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -169,6 +169,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P10 | 5min | 2 tasks | 10 files |
 | Phase 36 P02 | 10min | 2 tasks | 14 files |
 | Phase 36 P03 | 16min | 3 tasks | 9 files |
+| Phase 36 P06 | 8min | 2 tasks | 8 files |
 
 ## Decisions
 
@@ -272,3 +273,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-03: 어드민 비용 행 「변경 없음」 판정은 개요 값(summarizeAccountCosts) 기준 — 실패 뒤 재시도가 접히지 않게
 - [Phase 36]: 36-03: 어드민 예수금 행 배치는 카드 폭 컨테이너 쿼리(@container/cost · 464px) — 440px 시트에서 뷰포트 sm 은 줄 끝 「·」 매달림
 - [Phase 36]: 36-03: 비용 결과 칩은 users.toml 반영 칩과 별개 줄 — onResults · BusyLines 무접촉(D-04) · 실패 낱말은 새 키 costFailed
+- [Phase 36]: 36-06: 주문 표면 주문가능은 useAvailableKrw(webapp/src/lib/use-available-krw.ts) 한 훅 — holdingQuotePrice(KRX→NXT)도 여기로 옮겨 잔고 평가와 공유(작업대 재수출)
+- [Phase 36]: 36-06: 주문가능 경고는 비차단 표시층 — 수동 폼 판정 제외 = 선택 미체결 매도(selected) · 시간외종가 · 주문금액 0 / 상따 합은 화면 표시값(레거시 선매수 금액 「—」 = 0)
