@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 35
-current_phase_name: 발사 경계 지도 어드민
+current_phase: 36
+current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 35-09-PLAN.md (Wave A 배포) — 35-10 대기(gh-trade Phase 43 정식 노트)
-last_updated: "2026-10-27T13:00:57.308Z"
+stopped_at: Completed 36-01-PLAN.md
+last_updated: "2026-10-27T14:15:31.720Z"
 last_activity: 2026-10-27
-last_activity_desc: Phase 35 Wave A 배포 · 백필 UAT 통과
-state_head: b6a45697d507ae32a74e0c2cfb72a0602a7a7d9d
+last_activity_desc: Phase 36 execution started
+state_head: 4c5608181b3e4cbe410130f69052c0db803499fc
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 64
-  completed_plans: 62
+  total_plans: 74
+  completed_plans: 63
   percent: 71
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 35 — 발사 경계 지도 어드민
+**Current focus:** Phase 36 — 계좌별 주문가능 금액
 
 ## Current Position
 
-Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 9 of 11 (35-01~09 완료 · 35-10 은 gh-trade Phase 43 정식 인계 노트 대기)
-Status: Phase 35 Wave A 배포 완료 — Wave B 대기
-Last activity: 2026-10-27 — Phase 35 Wave A 배포(DB · 백필 254 · server 00067 · webapp 190f3e57) · 백필 UAT 「같다」 · 10/26 09:00:30 사전 발사 기록 삭제
+Phase: 36 (계좌별 주문가능 금액) — EXECUTING
+Plan: 2 of 10
+Status: Ready to execute
+Last activity: 2026-10-27 — Phase 36 execution started
 
 Progress: [███████░░░] 71% (53/53 plans)
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T13:00:57.224Z
-Stopped at: Completed 35-09-PLAN.md — Phase 35 범위에 발사 계획 어드민 추가(2026-10-27 사용자 · ROADMAP SC7) → 다음 `/gsd-discuss-phase 35` 로 그 영역 목업 · 승인 → `/gsd-plan-phase 35` 로 플랜 추가. 35-10 게이트는 gh-trade Phase 43(kind 17·18 + 발사 계획) 정식 인계 노트 뒤
+Last session: 2026-10-27T14:15:31.633Z
+Stopped at: Completed 36-01-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -165,6 +165,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P06 | 13 min | 2 tasks | 11 files |
 | Phase 35 P07 | 8 min | 2 tasks | 4 files |
 | Phase 35 P08 | 14 min | 3 tasks | 9 files |
+| Phase 36 P01 | 6 min | 1 tasks | 15 files |
 
 ## Decisions
 
@@ -257,3 +258,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-07: 축 밖 점은 끝 고정 + ◂/▸ · title 「축 밖」 · 축 밖 다음 오프셋은 점선 대신 「▸ 다음 Xµs」 · 리본 칸 ≤ 그림 폭
 - [Phase 35]: 35-08: 경계 지도 요약 카드 = shared launchPanelStatsOf(min_accept · max_reject) + mapNextOffsetOf(최신 머리) · null 이면 「—」 — 상수 없음
 - [Phase 35]: 35-08: 발사 기준 세그먼트는 LaunchFireSeg 하나를 두 탭이 공유(같은 ?fire 키) · ?range 10d 기본 · 탭 · 칩 · 세그먼트 전환은 다른 쿼리 보존
+- [Phase 36]: 36-01: /me 는 priceOf 미전달 — 시세 미구독 표면이라 시장가 매수 미체결은 0 으로 센다(D-11 재량, 인박스 규칙)
+- [Phase 36]: 36-01: 예수금은 relay #mergeAccountState 델타에서 budgetKrw: next.budgetKrw 로 무조건 덮는다(0=해제 포함) · 웹 mergeAccount 는 ...next 라 무변경
