@@ -58,7 +58,7 @@ CREATE TABLE public.launch_pieces (
   order_no      text,
   sent_rel_us   integer     NOT NULL,
   result        text        NOT NULL,
-  result_code   integer,
+  result_code   text,
   accept_time   integer,
   retry         smallint,
   abandoned     boolean,
@@ -92,6 +92,7 @@ COMMENT ON COLUMN public.launch_pieces.piece_idx     IS '큐 안 조각 순번(j
 COMMENT ON COLUMN public.launch_pieces.round         IS '회차 0 · 1 · 2';
 COMMENT ON COLUMN public.launch_pieces.probe         IS '탐침 조각 여부 — 탐침도 한 조각(gh-trade 게이트 정의)';
 COMMENT ON COLUMN public.launch_pieces.sent_rel_us   IS '첫 발 송신 − 기준시각 µs(음수 = 기준시각 전)';
+COMMENT ON COLUMN public.launch_pieces.result_code   IS '결과 코드 원문 — 0 · 101 · 515 또는 브로커 원 거부 코드(KB F083 · 교보 E124/E127). text(gh-trade 261027-launch-backfill — 저널은 숫자 아닌 거부코드를 -1000 으로만 가져 원 코드를 문자열로 싣는다)';
 COMMENT ON COLUMN public.launch_pieces.result        IS '접수 · 101 · 515 · 기타 · 무응답 … — CHECK 없음(Pitfall 6 · 모르는 값은 웹이 「기타」)';
 COMMENT ON COLUMN public.launch_pieces.accept_time   IS '접수 시각 HHMMSSmmm — 앞 0 이 빠진 숫자 그대로(09시대 8자리 · 웹이 9자리 0 패딩 · Pitfall 7)';
 COMMENT ON COLUMN public.launch_pieces.retry         IS '재송신 횟수';

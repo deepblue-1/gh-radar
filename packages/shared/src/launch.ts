@@ -82,7 +82,8 @@ export interface LaunchPieceRow {
   sent_rel_us: number;
   /** 결과 원문 — 접수 · 101 · 515 · 기타 · 무응답 · E127 … */
   result: string;
-  result_code: number | null;
+  /** 결과 코드 원문 — 0 · 101 · 515 또는 브로커 원 거부 코드(F083 · E124 · E127 …). 숫자로 와도 문자열로 둔다 */
+  result_code: string | null;
   /** 접수 시각 HHMMSSmmm(앞 0 빠진 숫자 그대로) */
   accept_time: number | null;
   retry: number | null;

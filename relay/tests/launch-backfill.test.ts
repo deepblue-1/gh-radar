@@ -204,6 +204,15 @@ describe("gh-trade ndjson 입력", () => {
     expect(() => pieceFromNdjson({ ...base, market: "X" })).toThrow(/모르는 market/);
   });
 
+  it("result_code — 브로커 원 거부 코드 문자열(F083 · E124) 그대로 · 숫자는 문자열로 · 없으면 null", () => {
+    const base = { date: "2026-10-27", gateway: "KB120", profile: "Q16", fire_exchange: "KRX", market: "K", wire: 0, sent_rel_us: -1, result: "기타" };
+    expect(pieceFromNdjson({ ...base, result_code: "F083" }).result_code).toBe("F083");
+    expect(pieceFromNdjson({ ...base, result_code: "E124" }).result_code).toBe("E124");
+    expect(pieceFromNdjson({ ...base, result: "515", result_code: 515 }).result_code).toBe("515");
+    expect(pieceFromNdjson({ ...base, result: "접수", result_code: 0 }).result_code).toBe("0");
+    expect(pieceFromNdjson(base).result_code).toBeNull();
+  });
+
   it("parseLaunchFile — 모르는 확장자는 throw", () => {
     expect(() => parseLaunchFile("/tmp/x.csv", "")).toThrow(/모르는 파일 형식/);
   });

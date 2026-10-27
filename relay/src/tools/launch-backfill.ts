@@ -257,7 +257,7 @@ export function pieceFromNdjson(obj: unknown): LaunchPieceInput {
     order_no: optStr(obj, "order_no"),
     sent_rel_us: reqInt(obj, "sent_rel_us"),
     result: reqStr(obj, "result"),
-    result_code: optInt(obj, "result_code"),
+    result_code: optStr(obj, "result_code"),
     accept_time: optInt(obj, "accept_time"),
     retry: optInt(obj, "retry"),
     abandoned: optBool(obj, "abandoned"),

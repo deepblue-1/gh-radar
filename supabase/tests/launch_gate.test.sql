@@ -32,7 +32,7 @@ SET LOCAL search_path = public, extensions;
 
 CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
-SELECT plan(59);
+SELECT plan(60);
 
 -- ── 1. 빈 상태 ─────────────────────────────────────────────────
 SELECT is(
@@ -243,12 +243,21 @@ SELECT is(
 -- ── 7. CHECK 없음(Pitfall 6) · source 만 거부 ─────────────────────
 INSERT INTO t_setup VALUES ('nocheck', to_jsonb(public.launch_upsert_piece(
   '{"trade_date":"2026-10-15","gateway":"KYOBO119","profile":"X","fire_exchange":"KRX","fire_base":"16:00:00","market":"Q",
-    "wire":0,"sent_rel_us":-180,"result":"E127"}'::jsonb, 'backfill')));
+    "wire":0,"sent_rel_us":-180,"result":"E127","result_code":"E127"}'::jsonb, 'backfill')));
 SELECT is(
   row((SELECT r::text FROM t_setup WHERE label = 'nocheck'),
-      (SELECT result || '/' || profile FROM public.launch_pieces WHERE trade_date = '2026-10-15' AND gateway = 'KYOBO119'))::text,
-  '(true,E127/X)',
-  '(2026-10-15, KYOBO119, X, KRX, Q, CHECK 없음) result E127 · profile X 조각이 들어간다'
+      (SELECT result || '/' || profile || '/' || result_code FROM public.launch_pieces WHERE trade_date = '2026-10-15' AND gateway = 'KYOBO119'))::text,
+  '(true,E127/X/E127)',
+  '(2026-10-15, KYOBO119, X, KRX, Q, CHECK 없음) result E127 · profile X · result_code 브로커 원 코드 문자열이 들어간다'
+);
+-- result_code 는 text — gh-trade 백필은 숫자(515)와 브로커 원 코드(F083)를 섞어 보낸다(261027-launch-backfill).
+SELECT public.launch_upsert_piece(
+  '{"trade_date":"2026-10-15","gateway":"KYOBO119","profile":"N","fire_exchange":"NXT","fire_base":"09:00:30","market":"Q",
+    "wire":0,"side":"buy","sent_rel_us":-200,"result":"515","result_code":515}'::jsonb, 'backfill');
+SELECT is(
+  (SELECT result_code FROM public.launch_pieces WHERE trade_date = '2026-10-15' AND gateway = 'KYOBO119' AND profile = 'N'),
+  '515',
+  '(2026-10-15, KYOBO119, N, NXT, Q, result_code 숫자) JSON 숫자 515 → text 「515」'
 );
 SELECT throws_ok(
   $$SELECT public.launch_upsert_piece('{"trade_date":"2026-10-15","gateway":"KB120","profile":"Q16","fire_exchange":"KRX","fire_base":"16:00:00","market":"K","wire":9,"sent_rel_us":-1,"result":"101"}'::jsonb, 'other')$$,
