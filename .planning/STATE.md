@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Phase 35 context gathered
-last_updated: "2026-10-27T11:37:53.220Z"
+stopped_at: Phase 36 context gathered
+last_updated: "2026-10-27T12:06:08.497Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 execution started
-state_head: 5f706d1731570265298e410c311f7cc61954daa9
+state_head: 1b61728ad864f3bc49c496da1dcf641a1808701c
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 64
-  completed_plans: 53
+  completed_plans: 56
   percent: 71
 ---
 
@@ -111,10 +111,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/35-launch-gate/35-CONTEXT.md
+**Resume file:** .planning/phases/36-account-budget/36-CONTEXT.md
 
-Last session: 2026-10-27T09:25:41.828Z
-Stopped at: Phase 35 context gathered
+Last session: 2026-10-27T12:06:08.323Z
+Stopped at: Phase 36 context gathered
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
