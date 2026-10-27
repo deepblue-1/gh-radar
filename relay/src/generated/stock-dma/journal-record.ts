@@ -165,8 +165,28 @@ localReject():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+avgPrice():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 50);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+feeKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 52);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+taxKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 54);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
+realizedPnlKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 56);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startJournalRecord(builder:flatbuffers.Builder) {
-  builder.startObject(23);
+  builder.startObject(27);
 }
 
 static addSeq(builder:flatbuffers.Builder, seq:bigint) {
@@ -261,12 +281,28 @@ static addLocalReject(builder:flatbuffers.Builder, localReject:boolean) {
   builder.addFieldInt8(22, +localReject, +false);
 }
 
+static addAvgPrice(builder:flatbuffers.Builder, avgPrice:bigint) {
+  builder.addFieldInt64(23, avgPrice, BigInt('0'));
+}
+
+static addFeeKrw(builder:flatbuffers.Builder, feeKrw:bigint) {
+  builder.addFieldInt64(24, feeKrw, BigInt('0'));
+}
+
+static addTaxKrw(builder:flatbuffers.Builder, taxKrw:bigint) {
+  builder.addFieldInt64(25, taxKrw, BigInt('0'));
+}
+
+static addRealizedPnlKrw(builder:flatbuffers.Builder, realizedPnlKrw:bigint) {
+  builder.addFieldInt64(26, realizedPnlKrw, BigInt('0'));
+}
+
 static endJournalRecord(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createJournalRecord(builder:flatbuffers.Builder, seq:bigint, tradeDateOffset:flatbuffers.Offset, gwTimeMs:bigint, dmaUserIdOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, sideTrusted:boolean, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, noticeTypeOffset:flatbuffers.Offset, requestKindOffset:flatbuffers.Offset, requesterOffset:flatbuffers.Offset, originOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, orderPrice:number, orderQty:number, execPrice:number, execQty:number, resultCode:number, messageOffset:flatbuffers.Offset, localReject:boolean):flatbuffers.Offset {
+static createJournalRecord(builder:flatbuffers.Builder, seq:bigint, tradeDateOffset:flatbuffers.Offset, gwTimeMs:bigint, dmaUserIdOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, sideTrusted:boolean, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, noticeTypeOffset:flatbuffers.Offset, requestKindOffset:flatbuffers.Offset, requesterOffset:flatbuffers.Offset, originOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, orderPrice:number, orderQty:number, execPrice:number, execQty:number, resultCode:number, messageOffset:flatbuffers.Offset, localReject:boolean, avgPrice:bigint, feeKrw:bigint, taxKrw:bigint, realizedPnlKrw:bigint):flatbuffers.Offset {
   JournalRecord.startJournalRecord(builder);
   JournalRecord.addSeq(builder, seq);
   JournalRecord.addTradeDate(builder, tradeDateOffset);
@@ -291,6 +327,10 @@ static createJournalRecord(builder:flatbuffers.Builder, seq:bigint, tradeDateOff
   JournalRecord.addResultCode(builder, resultCode);
   JournalRecord.addMessage(builder, messageOffset);
   JournalRecord.addLocalReject(builder, localReject);
+  JournalRecord.addAvgPrice(builder, avgPrice);
+  JournalRecord.addFeeKrw(builder, feeKrw);
+  JournalRecord.addTaxKrw(builder, taxKrw);
+  JournalRecord.addRealizedPnlKrw(builder, realizedPnlKrw);
   return JournalRecord.endJournalRecord(builder);
 }
 }

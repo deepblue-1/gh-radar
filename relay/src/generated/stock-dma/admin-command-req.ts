@@ -59,8 +59,18 @@ budgetKrw():bigint {
   return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
 }
 
+feePpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+sellTaxPpm():number {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAdminCommandReq(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(8);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -85,6 +95,14 @@ static addAccount(builder:flatbuffers.Builder, accountOffset:flatbuffers.Offset)
 
 static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
   builder.addFieldInt64(5, budgetKrw, BigInt('0'));
+}
+
+static addFeePpm(builder:flatbuffers.Builder, feePpm:number) {
+  builder.addFieldInt32(6, feePpm, 0);
+}
+
+static addSellTaxPpm(builder:flatbuffers.Builder, sellTaxPpm:number) {
+  builder.addFieldInt32(7, sellTaxPpm, 0);
 }
 
 static endAdminCommandReq(builder:flatbuffers.Builder):flatbuffers.Offset {
