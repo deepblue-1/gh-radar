@@ -264,3 +264,5 @@ export * from "./order-endpoint";
 export * from "./lc-amount";
 // --- Phase 35 발사 경계 지도 — 경계 계산 한 벌(첨부 group() 이식) · 어드민 RPC 행 계약 · relay 백필 머리 계산 ---
 export * from "./launch";
+// --- Phase 35 범위 7 발사 계획 어드민 — 서버 1대의 4칸 계획 · 변경 이력 행 · 편집 검증 · 「쐈다면」 판정 한 벌 ---
+export * from "./launch-plan";
