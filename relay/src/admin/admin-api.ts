@@ -60,7 +60,8 @@
  *
  * 계좌 예수금 · 비용률 읽기 `GET /account-costs`(Phase 36 · D-05) — 켜진 서버 **전부**(KB · 교보 — order-endpoints 의 KB 전용 필터를
  * 복제하지 않는다: 예수금 · 비용률은 PC 식별 정보가 아니다) 의 87 캐시 계좌마다 `{ dmaUserId, accountNo, budgetKrw, feePpm, sellTaxPpm,
- * liveBudgetKrw }` → 200 `AdminAccountCostsRaw`. `liveBudgetKrw` = hub 67 캐시(`deps.liveBudget` · 웹 세션이 없는 계좌는 null → 개요가
+ * liveBudgetKrw }` → 200 `AdminAccountCostsRaw`. 응답 전에 서버마다 op 5 재조회(서버당 `ACCOUNT_COSTS_REFRESH_MS` 15초 1건 · 동시 GET 은
+ * 비행 공유 · 최대 `ACCOUNT_COSTS_WAIT_MS` 800ms 대기 · 실패는 warn 후 캐시 — Express 2초 상한 안). `liveBudgetKrw` = hub 67 캐시(`deps.liveBudget` · 웹 세션이 없는 계좌는 null → 개요가
  * 87 값으로 내려간다). 87 미수신 · 꺼진 서버는 키 없음(「확인 전」). orderIp/orderMac 은 싣지 않는다 · 감사 줄 없음(읽기).
  *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
@@ -85,9 +86,10 @@ import { maskAccountNo } from "../dma/envelope.js";
 import { encryptDmaPassword } from "../store/credentials.js";
 import type { DmaServerRow } from "../registry/registry.js";
 import type { QuoteSwitchResult } from "../quote/quote-switch.js";
+import type { AdminConn } from "./admin-conn.js";
 import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
-import type { AdminUsersSnapshot } from "./types.js";
+import { ADMIN_OP, type AdminUsersSnapshot } from "./types.js";
 
 // ============================================================
 // 의존성
@@ -107,7 +109,12 @@ export type AdminApiDeps = {
   pipelines: {
     get(key: string):
       | {
-          admin: { health(): { state: string }; currentSnapshot(): AdminUsersSnapshot | null };
+          admin: {
+            health(): { state: string };
+            currentSnapshot(): AdminUsersSnapshot | null;
+            /** 44 1건 — `GET /account-costs` 의 op 5 재조회(Phase 36 D-05)만 쓴다. `AdminConn` 이 만족한다. */
+            command: AdminConn["command"];
+          };
           status: { health(nowMs: number): { state: string } };
         }
       | undefined;
@@ -144,6 +151,17 @@ export type AdminApiDeps = {
    */
   liveBudget?: (serverKey: string, accountNo: string) => number | null;
 };
+
+/**
+ * `GET /account-costs` 의 서버별 op 5 재조회 간격(ms · Phase 36 D-05 · Pitfall 8). 어드민 개요를 열 때마다 87 을 다시 받되 서버당
+ * 15초에 1건으로 묶는다 — 개요 재조회 · 여러 탭이 44 를 쏟지 않게.
+ */
+export const ACCOUNT_COSTS_REFRESH_MS = 15_000;
+/**
+ * `GET /account-costs` 가 비행 중인 op 5 를 기다리는 상한(ms). Express `RELAY_ORDER_ENDPOINTS_TIMEOUT_MS`(2초) 안이어야 개요가
+ * 「확인 전」 으로 떨어지지 않는다. 넘기면 그때 캐시로 응답하고, 늦게 온 87 은 `AdminConn` 캐시에 들어가 다음 GET 이 읽는다.
+ */
+export const ACCOUNT_COSTS_WAIT_MS = 800;
 
 // ============================================================
 // 입력 스키마
@@ -762,7 +780,63 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   });
 
   // ── 계좌별 예수금 · 비용률 (Phase 36 · D-05 — 87 캐시 + hub 67 live · 감사 없음) ─────────────────────────────────────
-  router.get("/account-costs", (_req, res) => {
+  /**
+   * 서버별 op 5 재조회 상태 — 마지막으로 보낸 시각 · 비행 중 약속(동시 GET 이 공유). op 5 응답 87 은 `AdminConn.#onSnapshot` 이
+   * `currentSnapshot()` 을 갈아 끼우므로 별도 보관 없이 기다린 뒤 캐시를 다시 읽는다. 실패(timeout · offline · throw)는 warn 후 캐시.
+   */
+  const costRefresh = new Map<string, { lastAt: number; inflight: Promise<void> | null }>();
+  const refreshCosts = (nowMs: number): Promise<void>[] => {
+    const inflights: Promise<void>[] = [];
+    for (const row of deps.registry.all()) {
+      if (!row.enabled) continue;
+      const admin = deps.pipelines.get(row.key)?.admin;
+      if (admin === undefined) continue;
+      let st = costRefresh.get(row.key);
+      if (st === undefined) {
+        st = { lastAt: Number.NEGATIVE_INFINITY, inflight: null };
+        costRefresh.set(row.key, st);
+      }
+      if (st.inflight === null && nowMs - st.lastAt >= ACCOUNT_COSTS_REFRESH_MS) {
+        const server = row.key;
+        const state = st;
+        state.lastAt = nowMs;
+        state.inflight = admin
+          .command({ op: ADMIN_OP.ListUsers, userId: "" })
+          .then(
+            (o) => {
+              if (o.kind !== "result") {
+                logger.warn({ server, reason: o.kind }, "[admin] account-costs op 5 재조회 실패 — 캐시로 응답");
+              }
+            },
+            (err: unknown) => {
+              logger.warn(
+                { server, reason: err instanceof Error ? err.name : "unknown" },
+                "[admin] account-costs op 5 재조회 실패 — 캐시로 응답",
+              );
+            },
+          )
+          .finally(() => {
+            state.inflight = null;
+          });
+      }
+      if (st.inflight !== null) inflights.push(st.inflight);
+    }
+    return inflights;
+  };
+
+  router.get("/account-costs", async (_req, res) => {
+    const inflights = refreshCosts(deps.now?.() ?? Date.now());
+    if (inflights.length > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waited = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ACCOUNT_COSTS_WAIT_MS);
+      });
+      try {
+        await Promise.race([Promise.allSettled(inflights), waited]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     const servers: AdminAccountCostsRaw["servers"] = {};
     for (const row of deps.registry.all()) {
       if (!row.enabled) continue;
