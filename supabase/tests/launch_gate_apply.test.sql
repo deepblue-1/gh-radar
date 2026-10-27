@@ -144,8 +144,13 @@ INSERT INTO t_apply SELECT 'access_kb', to_jsonb(public.dma_journal_sync_access(
   {"dma_user_id":"dma-lg-a","account_no":"1234567801","name":"위탁","priority":1}
 ]'::jsonb));
 
--- 마이그레이션 스텁 그대로(아직 교체 전) — kind 17 원문 2건(같은 논리 키 KYOBO119 · R · wire 0 · seq 20 −300 · seq 21 −290).
--- 아래 reproject 단언이 이 원문을 다시 푼다.
+-- Wave A 스텁(20261027200100 ① 과 같은 no-op) — kind 17 원문 2건(같은 논리 키 KYOBO119 · R · wire 0 · seq 20 −300 · seq 21 −290).
+-- 아래 reproject 단언이 이 원문을 다시 푼다. 35-10(20261028200000)이 정식 매핑으로 교체한 뒤에도 이 단언이 「스텁 시절」
+-- 을 재현하도록 테스트 안에서 스텁 본문을 다시 깐다(정식 매핑 단언은 launch_project_mapping.test.sql).
+CREATE OR REPLACE FUNCTION public.launch_project_event(p_ev public.dma_strategy_events)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = public, pg_temp
+AS $$ BEGIN RETURN; END; $$;
+
 INSERT INTO t_apply
 SELECT 'stub', public.dma_strategy_apply('KYOBO119', 'r1', jsonb_build_array(
   pg_temp.piece(20, 'R', 0, -300, 101, '2026-08-03'),

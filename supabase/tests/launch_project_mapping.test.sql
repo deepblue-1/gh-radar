@@ -1,7 +1,7 @@
 -- ============================================================
 -- Phase 35 Plan 10 — kind 17(LaunchPiece) · 18(LaunchHead) 정식 칸 매핑 pgTAP(Wave B · D-06).
 --
--- 대상 마이그레이션: supabase/migrations/20261028020000_launch_project_mapping.sql
+-- 대상 마이그레이션: supabase/migrations/20261028200000_launch_project_mapping.sql
 --   (launch_project_event 를 같은 시그니처로 교체 — 스텁 → 정식 매핑)
 -- 매핑 정본: docs/inbox/from-gh-trade/261028-launch-plan-contract.md ⓑ (from_commit 2e090eb9 · fbs_sync_marker f156cb6f)
 --   = gh-trade server/src/trade/queued/LaunchJournal.h 머리 주석.
