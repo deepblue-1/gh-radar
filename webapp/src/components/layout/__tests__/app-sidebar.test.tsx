@@ -1475,7 +1475,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29 D-13 · Phase 35 D-11)", () => {
+describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손익」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1485,8 +1485,9 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29
   const users = () => screen.queryByRole("link", { name: "사용자" });
   const servers = () => screen.queryByRole("link", { name: "서버" });
   const launch = () => screen.queryByRole("link", { name: "발사" });
+  const pnl = () => screen.queryByRole("link", { name: "매매손익" });
 
-  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 · 「발사」 — 「분석」 뒤 · My page 앞", () => {
+  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 · 「발사」 · 「매매손익」(맨 뒤) — 「분석」 뒤 · My page 앞", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
@@ -1495,6 +1496,8 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29
     expect(servers()).toHaveAttribute("href", "/admin/servers");
     expect(launch()).toHaveAttribute("href", "/admin/launch");
     expect(launch()).toHaveAttribute("data-sidebar-item", "admin-launch");
+    expect(pnl()).toHaveAttribute("href", "/admin/pnl");
+    expect(pnl()).toHaveAttribute("data-sidebar-item", "admin-pnl");
     const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
       const item = a.getAttribute("data-sidebar-item");
       return item === "strategy" ? "strategy" : (a.textContent ?? "").trim();
@@ -1514,13 +1517,14 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29
       "사용자",
       "서버",
       "발사",
+      "매매손익",
       "My page",
     ]);
     // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
     const sub = admin()!.closest("li")!.nextElementSibling!;
     expect(sub.className).toContain("rail:hidden");
     expect(sub.querySelector("ul")!.className).toContain("border-l");
-    for (const a of [admin()!, users()!, servers()!, launch()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
+    for (const a of [admin()!, users()!, servers()!, launch()!, pnl()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
   });
 
   it("Admin 노출은 역할만 본다 — 트레이딩이 안 보이는(relay 미연결) admin 에게도 보인다", () => {
@@ -1542,6 +1546,7 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29
       expect(users()).toBeNull();
       expect(servers()).toBeNull();
       expect(launch()).toBeNull();
+      expect(pnl()).toBeNull();
       expect(screen.queryByText("Admin")).toBeNull();
       r.unmount();
     }
@@ -1577,6 +1582,20 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사」 (Phase 29
     render(<AppSidebar />);
     expect(launch()).toHaveAttribute("aria-current", "page");
     expect(launch()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(servers()).not.toHaveAttribute("aria-current");
+    expect(users()).not.toHaveAttribute("aria-current");
+    expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("/admin/pnl → 「매매손익」 만 활성 · 「발사」 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
+    mockRole = "admin";
+    mockPathname = "/admin/pnl";
+    setupReady();
+    render(<AppSidebar />);
+    expect(pnl()).toHaveAttribute("aria-current", "page");
+    expect(pnl()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(launch()).not.toHaveAttribute("aria-current");
     expect(servers()).not.toHaveAttribute("aria-current");
     expect(users()).not.toHaveAttribute("aria-current");
     expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
