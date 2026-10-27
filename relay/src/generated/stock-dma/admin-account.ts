@@ -69,8 +69,13 @@ orderMac(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+budgetKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startAdminAccount(builder:flatbuffers.Builder) {
-  builder.startObject(7);
+  builder.startObject(8);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -101,12 +106,16 @@ static addOrderMac(builder:flatbuffers.Builder, orderMacOffset:flatbuffers.Offse
   builder.addFieldOffset(6, orderMacOffset, 0);
 }
 
+static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
+  builder.addFieldInt64(7, budgetKrw, BigInt('0'));
+}
+
 static endAdminAccount(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number, orderIpOffset:flatbuffers.Offset, orderMacOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, nameOffset:flatbuffers.Offset, branchNoOffset:flatbuffers.Offset, traderIdOffset:flatbuffers.Offset, priority:number, orderIpOffset:flatbuffers.Offset, orderMacOffset:flatbuffers.Offset, budgetKrw:bigint):flatbuffers.Offset {
   AdminAccount.startAdminAccount(builder);
   AdminAccount.addAccountNo(builder, accountNoOffset);
   AdminAccount.addName(builder, nameOffset);
@@ -115,6 +124,7 @@ static createAdminAccount(builder:flatbuffers.Builder, accountNoOffset:flatbuffe
   AdminAccount.addPriority(builder, priority);
   AdminAccount.addOrderIp(builder, orderIpOffset);
   AdminAccount.addOrderMac(builder, orderMacOffset);
+  AdminAccount.addBudgetKrw(builder, budgetKrw);
   return AdminAccount.endAdminAccount(builder);
 }
 }

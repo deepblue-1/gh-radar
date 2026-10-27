@@ -54,8 +54,13 @@ account(obj?:AdminAccount):AdminAccount|null {
   return offset ? (obj || new AdminAccount()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+budgetKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startAdminCommandReq(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(6);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -76,6 +81,10 @@ static addPassword(builder:flatbuffers.Builder, passwordOffset:flatbuffers.Offse
 
 static addAccount(builder:flatbuffers.Builder, accountOffset:flatbuffers.Offset) {
   builder.addFieldOffset(4, accountOffset, 0);
+}
+
+static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
+  builder.addFieldInt64(5, budgetKrw, BigInt('0'));
 }
 
 static endAdminCommandReq(builder:flatbuffers.Builder):flatbuffers.Offset {

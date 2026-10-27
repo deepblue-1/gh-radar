@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 2b86be0a
-// synced-date:        2026-10-26
+// server-repo-commit: 75195b70
+// synced-date:        2026-10-27
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -943,6 +943,15 @@ table AccountState {
     removed_order_nos: [string];     // 델타 전용 삭제 표식 (스냅샷에서는 비운다)
     is_snapshot: bool;               // true=전량 교체, false=키 upsert + removed 행 제거
     server_time: string;             // 갱신시각 표시용
+
+    // === 이하 Phase 41 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    budget_krw: ulong;               // 계좌 한도(원) — 66 스냅샷·67 델타 모두 그 시점 값, 0 = 미설정(클라 「—」).
+                                     // 정본은 서버 users.toml 계좌 항목 budget_krw(어드민 44 op 6 으로 설정).
+                                     // ★ 한도만 바뀐 67 은 holdings·unfilled·removed_order_nos 빈 벡터·is_snapshot=false 로 온다
+                                     //   (클라는 키 upsert 0건 + 한도 갱신). 구 클라는 슬롯을 읽지 않는다.
+                                     // 주문가능 = budget_krw − Σ(avg_price×stock_qty) − Σ(매수 unfilled_qty×price) 는
+                                     // 클라·gh-radar 웹이 표시용으로만 계산한다 — 서버는 판정·차단하지 않는다 (Phase 41 D-04·D-11)
 }
 
 // 계좌 상태 스냅샷 조회 요청 (Client -> Server, D-05)
@@ -1829,6 +1838,7 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
 // 비밀번호는 86·87·로그 어디에도 싣지 않는다 (D-07).
 // 이름·번호는 gh-radar 와 합의된 one-way 계약이다 — 바꾸지 않고, 추가는 말미 append 만 한다.
 // 새 메시지·역할은 append-only 라 strategy_state.toml·account_state.toml·vi_orders.toml·예약주문 복원 경로를 건드리지 않는다 (D-19).
+// Phase 41(2026-10-27): 44 AdminCommandReq·87 AdminAccount·66/67 AccountState 말미 budget_krw(ulong) append, op 6 SetAccountBudget — MsgType·슬롯·AdminCode 무변경
 // ============================================================================
 
 table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 AdminUser.accounts 공용
@@ -1840,15 +1850,29 @@ table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 Adm
     order_ip: string;            // 주문자식별정보(KB TCHODR1000 orderInfo) — 12자리 숫자 또는 a.b.c.d 입력, 서버가 12자리로 정규화해 87 에 싣는다.
                                  // 빈 문자열 = 미설정(서버가 주문 소켓 NIC 값을 쓴다). order_mac 과 함께 적거나 함께 비운다 (quick-261010-vfn)
     order_mac: string;           // MAC주소 — 12자리 16진(구분자 :·- 허용), 서버가 대문자 12자리로 정규화. 빈 문자열 = 미설정. 교보는 둘 다 빈 문자열
+    // === 이하 Phase 41 추가 (말미 append) ===
+    budget_krw: ulong;           // 계좌 한도(원) — 87 에 실린다, 0 = 미설정. 같은 account_no 를 가진 모든 유저 행에 같은 값.
+                                 // 한도는 44 op 6 전용이다 — **op 3 SetAccount 는 이 필드를 읽지 않는다**:
+                                 //   같은 행 갱신 = 보존 · 이 서버 다른 유저가 이미 가진 계좌를 추가 = 그 한도 복사 ·
+                                 //   이 서버에 처음 = 0 (relay 가 op 3 뒤 op 6 으로 되싣는다). op 4 로 마지막 행이 사라지면
+                                 //   한도도 사라진다 (Phase 41 D-02·D-03)
 }
 
 table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 명령 (D-04, D-09~D-16)
     request_id: ulong;           // relay 가 매기는 요청 번호 — 86/87 에 그대로 에코
     op: ubyte;                   // 1 UpsertUser · 2 DeleteUser · 3 SetAccount · 4 RemoveAccount · 5 ListUsers. 그 밖 값은 86 code 1
+                                 // · 6 SetAccountBudget(Phase 41 — account.account_no + 말미 budget_krw, 아래 주석). 7 이상은 86 code 1
     user_id: string;             // 대상 users.toml user_id (op 1~4). op 5 는 읽지 않는다
     password: string;            // op 1 만 — 기존 유저 + 빈 문자열 = 비밀번호 유지, 신규 유저는 필수(빈 값이면 code 3)
     account: AdminAccount;       // op 3(추가 또는 같은 account_no 갱신) · op 4(account_no 만 읽음) ·
                                  // op 1 신규(첫 계좌 필수 — 계좌 0개 유저 불허, 없으면 code 5). op 1 기존 유저는 무시
+    // === 이하 Phase 41 추가 (말미 append) ===
+    budget_krw: ulong;           // op 6 SetAccountBudget 전용 — 계좌 한도(원). 0 = 해제(미설정). 상한 검사 없음.
+                                 // 키는 account.account_no(정규화), user_id·password 는 읽지 않는다 — 그 서버에서 그 계좌를 가진
+                                 // 모든 유저 행에 같은 값을 쓴다. BUSY(9) 없음, code 는 0 OK · 5 BAD_ACCOUNT_NO ·
+                                 // 8 NO_SUCH_ACCOUNT(이 서버에 없는 계좌) · 10 PERSIST_FAILED · 11 NOT_ADMIN 만.
+                                 // 멱등은 code 0 · rev 불변 · 87 없음. 변경이면 86 → 87 + 그 계좌 세션 전부에 67 한도 전용 델타
+                                 // (Phase 41 D-01·D-05). 다른 op 는 이 필드를 읽지 않는다
 }
 
 table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만 Notice)

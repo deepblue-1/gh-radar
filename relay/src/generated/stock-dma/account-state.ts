@@ -77,8 +77,13 @@ serverTime(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+budgetKrw():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startAccountState(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(7);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -141,12 +146,16 @@ static addServerTime(builder:flatbuffers.Builder, serverTimeOffset:flatbuffers.O
   builder.addFieldOffset(5, serverTimeOffset, 0);
 }
 
+static addBudgetKrw(builder:flatbuffers.Builder, budgetKrw:bigint) {
+  builder.addFieldInt64(6, budgetKrw, BigInt('0'));
+}
+
 static endAccountState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccountState(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, holdingsOffset:flatbuffers.Offset, unfilledOffset:flatbuffers.Offset, removedOrderNosOffset:flatbuffers.Offset, isSnapshot:boolean, serverTimeOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createAccountState(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, holdingsOffset:flatbuffers.Offset, unfilledOffset:flatbuffers.Offset, removedOrderNosOffset:flatbuffers.Offset, isSnapshot:boolean, serverTimeOffset:flatbuffers.Offset, budgetKrw:bigint):flatbuffers.Offset {
   AccountState.startAccountState(builder);
   AccountState.addAccountNo(builder, accountNoOffset);
   AccountState.addHoldings(builder, holdingsOffset);
@@ -154,6 +163,7 @@ static createAccountState(builder:flatbuffers.Builder, accountNoOffset:flatbuffe
   AccountState.addRemovedOrderNos(builder, removedOrderNosOffset);
   AccountState.addIsSnapshot(builder, isSnapshot);
   AccountState.addServerTime(builder, serverTimeOffset);
+  AccountState.addBudgetKrw(builder, budgetKrw);
   return AccountState.endAccountState(builder);
 }
 }
