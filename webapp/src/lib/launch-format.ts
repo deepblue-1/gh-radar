@@ -59,6 +59,8 @@ export function sideLabelOf(side: string | null): { label: '매수' | '매도' |
   return { label: DASH, tone: null };
 }
 
+type FireKey = Pick<LaunchPieceRow, 'profile' | 'fire_exchange' | 'fire_base'>;
+
 const cell = (v: string | number | null | undefined): string =>
   v === null || v === undefined || v === '' ? DASH : String(v);
 
@@ -66,6 +68,15 @@ const cell = (v: string | number | null | undefined): string =>
 export function pieceKeyLabelOf(p: Pick<LaunchPieceRow, 'profile' | 'queued_id' | 'piece_idx' | 'round'>): string {
   if (p.profile === 'Q16') return `${cell(p.queued_id)} · j${cell(p.piece_idx)} · R${cell(p.round)}`;
   return `${cell(p.queued_id)} · idx${cell(p.piece_idx)}`;
+}
+
+/**
+ * 발사 다리 — N NXT 「N NXT」 · A KRX 09:00:27 매수 다리 「A 09:00:27 KRX→」 · A NXT 매도 다리 「A NXT」 · Q16 「Q16」.
+ */
+export function fireLegLabelOf(p: FireKey): string {
+  if (p.profile === 'Q16') return 'Q16';
+  if (p.profile === 'A' && p.fire_exchange === 'KRX') return `A ${p.fire_base} KRX→`;
+  return `${p.profile} ${p.fire_exchange}`;
 }
 
 const BROKER_LABEL = { KB: 'KB', KYOBO: '교보' } as const;
@@ -80,8 +91,6 @@ export function brokerMarketLabelOf(gateway: string, market: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // 탭 조각 — 발사 세그먼트(16:00 예약 · 09:00:30 개장차익)
 // ─────────────────────────────────────────────────────────────────────────────
-
-type FireKey = Pick<LaunchPieceRow, 'profile' | 'fire_exchange' | 'fire_base'>;
 
 /** 행이 그 세그먼트에 속하는가 — q16 = Q16 · KRX 16:00:00 / n0930 = N · A 의 KRX 09:00:27 · NXT 09:00:30 전부. */
 export function isOrderTabRow(row: FireKey, fire: LaunchFire): boolean {
@@ -130,6 +139,8 @@ interface LaunchHeadCardBase {
   /** 탭 조각 수(표 행 수와 같다) */
   count: number;
   counts: LaunchResultCounts;
+  /** 거부 수 라벨 — q16 「101」 · n0930 「거부」(101 · 515) */
+  badLabel: '101' | '거부';
   /** 오프셋(발사 기준) — 「−332µs」 · 없으면 「—」 */
   offset: string;
 }
@@ -142,7 +153,15 @@ export interface LaunchHeadCardQ16 extends LaunchHeadCardBase {
   learn: string;
 }
 
-export type LaunchHeadCardModel = LaunchHeadCardQ16;
+export interface LaunchHeadCardN0930 extends LaunchHeadCardBase {
+  fire: 'n0930';
+  /** 탭 조각 retry 합 */
+  retries: number;
+  /** 「고정 −245µs」 · N 머리 없음 「—」 */
+  next: string;
+}
+
+export type LaunchHeadCardModel = LaunchHeadCardQ16 | LaunchHeadCardN0930;
 
 export interface LaunchHeadCardInput {
   gateway: string;
@@ -184,6 +203,8 @@ function learnText(h: LaunchHeadRow | undefined): string {
  *
  * q16: 오프셋 = Q16 머리 offset_used_us → 없으면 최소 wire 조각 rel · 경계 = 머리 gate_lo/hi(하나라도 있으면) → 없으면
  * shared `launchDaysOf` 의 그날 1개 · 학습 = 머리 correction_before → after · next_offset_us · step_us.
+ * n0930: 탭 조각 = N NXT + A 두 다리(KRX 09:00:27 · NXT 09:00:30) · 결과 라벨 「거부」 · 오프셋 = N 머리 offset_used_us →
+ * 없으면 N NXT 최소 wire rel · 재전송 = 탭 조각 retry 합 · 다음 오프셋 = N 머리 「고정 next_offset_usµs」(없으면 「—」).
  */
 export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardModel | null {
   const { gateway, market, fire } = input;
@@ -192,8 +213,29 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
   const heads = input.heads.filter((h) => mine(h) && isOrderTabRow(h, fire));
   if (pieces.length === 0 && heads.length === 0) return null;
 
+  const base = {
+    gateway,
+    market,
+    title: brokerMarketLabelOf(gateway, market),
+    count: pieces.length,
+    counts: countsOf(pieces),
+  };
+
+  if (fire === 'n0930') {
+    // 오프셋 · 다음 오프셋은 N 머리(고정 오프셋 프로파일) — A 다리 머리는 보지 않는다.
+    const head = heads.find((h) => h.profile === 'N');
+    const nPieces = pieces.filter((p) => p.profile === 'N' && p.fire_exchange === 'NXT');
+    return {
+      ...base,
+      fire,
+      badLabel: '거부',
+      offset: usOrDash(head?.offset_used_us ?? minWireRel(nPieces)),
+      retries: pieces.reduce((n, p) => n + (p.retry ?? 0), 0),
+      next: head?.next_offset_us == null ? DASH : `고정 ${fmtUs(head.next_offset_us)}µs`,
+    };
+  }
+
   const head = heads.find((h) => h.profile === 'Q16');
-  const offset = usOrDash(head?.offset_used_us ?? minWireRel(pieces));
   let gate: string;
   if (head !== undefined && (head.gate_lo_us !== null || head.gate_hi_us !== null)) {
     gate = gateText(head.gate_lo_us, head.gate_hi_us);
@@ -202,13 +244,10 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
     gate = day === undefined ? '판단 불가' : gateText(day.lo, day.hi);
   }
   return {
-    fire: 'q16',
-    gateway,
-    market,
-    title: brokerMarketLabelOf(gateway, market),
-    count: pieces.length,
-    counts: countsOf(pieces),
-    offset,
+    ...base,
+    fire,
+    badLabel: '101',
+    offset: usOrDash(head?.offset_used_us ?? minWireRel(pieces)),
     gate,
     learn: learnText(head),
   };

@@ -17,6 +17,7 @@ import { fetchLaunchOrders } from '@/lib/launch-api';
 import {
   DASH,
   brokerMarketLabelOf,
+  fireLegLabelOf,
   fmtAcceptTime,
   fmtUs,
   launchHeadCardOf,
@@ -281,14 +282,25 @@ export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) 
     <div data-slot="launch-head-card" data-gateway={gateway} data-market={market} className={CARD_FACE}>
       <div className="flex items-baseline gap-2 text-[14px] font-bold text-[var(--fg)]">
         {model.title}
-        <small className="text-[12px] font-medium text-[var(--muted-fg)]">{model.count}조각 · Q16</small>
+        <small className="text-[12px] font-medium text-[var(--muted-fg)]">
+          {model.count}조각 · {model.fire === 'q16' ? 'Q16' : 'N·A'}
+        </small>
       </div>
       <CardRow label="결과">
-        <Counts counts={model.counts} badLabel="101" />
+        <Counts counts={model.counts} badLabel={model.badLabel} />
       </CardRow>
       <CardRow label="오프셋 (발사 기준)">{model.offset}</CardRow>
-      <CardRow label="경계">{model.gate}</CardRow>
-      <CardRow label="학습 → 다음 오프셋">{model.learn}</CardRow>
+      {model.fire === 'q16' ? (
+        <>
+          <CardRow label="경계">{model.gate}</CardRow>
+          <CardRow label="학습 → 다음 오프셋">{model.learn}</CardRow>
+        </>
+      ) : (
+        <>
+          <CardRow label="재전송">{model.retries}회</CardRow>
+          <CardRow label="다음 오프셋">{model.next}</CardRow>
+        </>
+      )}
     </div>
   );
 }
@@ -373,8 +385,10 @@ function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire
         <tr>
           <th className={cn(TH, 'text-right')}>wire</th>
           <th className={TH}>{q16 ? '예약 · 조각 · 라운드' : '키 · idx'}</th>
+          {!q16 && <th className={TH}>발사</th>}
           <th className={cn(TH, 'text-right')}>송신 µs</th>
           <th className={TH}>결과</th>
+          {!q16 && <th className={cn(TH, 'text-right')}>재전송</th>}
           <th className={TH}>{q16 ? '접수 시각' : '응답 시각'}</th>
           <th className={TH}>종목</th>
           <th className={TH}>구분</th>
@@ -392,10 +406,12 @@ function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire
             <tr key={`${p.profile}|${p.fire_exchange}|${p.fire_base}|${p.wire}`} data-slot="launch-piece-row">
               <td className={cn(TD, NUMERIC)}>{p.wire}</td>
               <td className={cn(TD, DIM)}>{pieceKeyLabelOf(p)}</td>
+              {!q16 && <td className={cn(TD, DIM)}>{fireLegLabelOf(p)}</td>}
               <td className={cn(TD, NUMERIC)}>{fmtUs(p.sent_rel_us)}</td>
               <td className={TD}>
                 <ResultPill result={p.result} />
               </td>
+              {!q16 && <td className={cn(TD, NUMERIC)}>{p.retry ? p.retry : DASH}</td>}
               <td className={cn(TD, DIM, 'tabular-nums')}>{fmtAcceptTime(p.accept_time)}</td>
               <td className={TD}>
                 {p.stock_name === null && p.stock_code === null ? (

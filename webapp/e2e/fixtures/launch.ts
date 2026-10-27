@@ -22,6 +22,10 @@ import type {
  *   dates 11개 내림차순 · 목록 밖 날짜는 heads/pieces 빈 배열.
  * ③ **합성 값 표시 · 실서버 값 아님(가짜 계좌).** 10/26 KB120 코스닥 머리 1개(학습 · 다음 오프셋)와 wire 0 조각의 주문 속성
  *   (삼성전자 · 1234567801 · e2e-user · 3404000288 · 15:59:59.999)은 화면 모양 확인용 합성이다.
+ * ④ 10/26 09:00:30 — 첨부 로그 pieces120.txt · pieces119.txt 의 N 10줄(ordno · sent_rel_us · result · retry · accept_time 그대로 ·
+ *   accept_time 은 앞 0 빠진 8자리 원문) + **합성** A 두 다리 2줄(KB120 코스닥 · KRX 09:00:27 매수 접수 / NXT 09:00:30 매도 101) +
+ *   **합성** N 머리 2개(KB120 코스닥 −245 · KYOBO119 코스닥 −200 — 고정 오프셋).
+ * ⑤ `ordersEmpty` — dates [] 응답(적재 이력 0).
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,14 +167,85 @@ const SYN_ORDER_1026: Partial<LaunchPieceRow> = {
   accept_time: 155959999,
 };
 
+const N_LEG = { profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', queued_id: 'N', trade_date: '20261026' } as const;
+
+/** 10/26 09:00:30 N 조각 — 첨부 로그 그대로(KB120 = pieces120.txt · KYOBO119 = pieces119.txt). */
+const N_PIECES_1026: LaunchPieceRow[] = (
+  [
+    ['KB120', 'K', 0, '3404000020', -20148, '101', 2, 90030046],
+    ['KB120', 'K', 1, '3404000019', -20143, '101', 1, 90030007],
+    ['KB120', 'Q', 0, '3405000786', -20148, '101', 2, 90030092],
+    ['KB120', 'Q', 1, '3405000784', -20143, '101', 1, 90030025],
+    ['KB120', 'Q', 2, '3405000785', -20141, '101', 1, 90030060],
+    ['KYOBO119', 'K', 0, '53200032', -20149, '기타', 0, 90029979],
+    ['KYOBO119', 'K', 1, '53200033', -20142, '기타', 0, 90029979],
+    ['KYOBO119', 'Q', 0, '53200030', -20149, '기타', 0, 90029979],
+    ['KYOBO119', 'Q', 1, '53200031', -20140, '기타', 0, 90029979],
+    ['KYOBO119', 'Q', 2, '53200034', -20138, '기타', 0, 90029979],
+  ] as const
+).map(([gateway, market, wire, order_no, sent_rel_us, result, retry, accept_time]) =>
+  launchPiece({ ...N_LEG, gateway, market, wire, piece_idx: wire, order_no, sent_rel_us, result, retry, accept_time }),
+);
+
+/** 10/26 합성 A 두 다리 — KB120 코스닥(매수 KRX 09:00:27 접수 · 매도 NXT 09:00:30 101). */
+const A_PIECES_1026: LaunchPieceRow[] = [
+  launchPiece({
+    trade_date: '20261026',
+    gateway: 'KB120',
+    market: 'Q',
+    profile: 'A',
+    fire_exchange: 'KRX',
+    fire_base: '09:00:27',
+    queued_id: 'A',
+    piece_idx: 0,
+    wire: 0,
+    side: 'buy',
+    sent_rel_us: -1210,
+    result: '접수',
+    retry: 0,
+    accept_time: 90027004,
+  }),
+  launchPiece({
+    trade_date: '20261026',
+    gateway: 'KB120',
+    market: 'Q',
+    profile: 'A',
+    fire_exchange: 'NXT',
+    fire_base: '09:00:30',
+    queued_id: 'A',
+    piece_idx: 0,
+    wire: 0,
+    side: 'sell',
+    sent_rel_us: -20139,
+    result: '101',
+    retry: 0,
+    accept_time: 90030012,
+  }),
+];
+
+/** 10/26 합성 N 머리 — 고정 오프셋. */
+const N_HEAD_KEY = { profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', trade_date: '20261026' } as const;
+const N_HEADS_1026: LaunchHeadRow[] = [
+  launchHead({ ...N_HEAD_KEY, gateway: 'KB120', market: 'Q', offset_used_us: -245, next_offset_us: -245 }),
+  launchHead({ ...N_HEAD_KEY, gateway: 'KYOBO119', market: 'Q', offset_used_us: -200, next_offset_us: -200 }),
+];
+
+/** 적재 이력 0 응답. */
+export const LAUNCH_ORDERS_EMPTY: LaunchOrdersResponse = { dates: [], date: null, heads: [], pieces: [] };
+
 /** 주문 내역 응답 — `d` 생략 = 최신. 목록 밖 날짜는 빈 heads/pieces. */
 export function launchOrdersFixture(d?: string): LaunchOrdersResponse {
   const date = d ?? LAUNCH_LATEST;
   const pieces = LAUNCH_Q16_PIECES.filter((p) => p.trade_date === date).map((p) =>
     date === '20261026' && p.gateway === 'KB120' && p.market === 'Q' && p.wire === 0 ? { ...p, ...SYN_ORDER_1026 } : p,
   );
-  const heads = date === '20261026' ? SYN_HEADS_1026 : [];
-  return { dates: LAUNCH_DATES, date, heads, pieces };
+  if (date !== '20261026') return { dates: LAUNCH_DATES, date, heads: [], pieces };
+  return {
+    dates: LAUNCH_DATES,
+    date,
+    heads: [...SYN_HEADS_1026, ...N_HEADS_1026],
+    pieces: [...pieces, ...N_PIECES_1026, ...A_PIECES_1026],
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +260,8 @@ export interface LaunchRequestRecord {
 }
 
 export interface MockLaunchApiOptions {
+  /** true = 적재 이력 0(`LAUNCH_ORDERS_EMPTY`). */
+  ordersEmpty?: boolean;
   orders?: (d: string | undefined) => LaunchOrdersResponse | { status: number; body: unknown };
   map?: (fire: LaunchFire, range: LaunchRange) => LaunchMapResponse;
 }
@@ -215,7 +292,9 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
     let status = 200;
     let body: unknown;
     if (rec.path === '/orders') {
-      const out = opts.orders?.(rec.query.d) ?? launchOrdersFixture(rec.query.d);
+      const out = opts.ordersEmpty
+        ? LAUNCH_ORDERS_EMPTY
+        : (opts.orders?.(rec.query.d) ?? launchOrdersFixture(rec.query.d));
       if (isStatusBody(out)) {
         status = out.status;
         body = out.body;
