@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-07-PLAN.md
-last_updated: "2026-10-27T12:44:19.268Z"
+stopped_at: Completed 35-08-PLAN.md
+last_updated: "2026-10-27T13:00:57.308Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 35 execution started
-state_head: 5561ae219d1a6912c5836f7bcac7d5295d5726fb
+state_head: b6a45697d507ae32a74e0c2cfb72a0602a7a7d9d
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 64
-  completed_plans: 60
+  completed_plans: 61
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 7 of 11 (35-01~07 완료)
+Plan: 8 of 11 (35-01~08 완료)
 Status: Executing Phase 35
 Last activity: 2026-10-27 — Phase 35 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T12:44:04.307Z
-Stopped at: Completed 35-07-PLAN.md
+Last session: 2026-10-27T13:00:57.224Z
+Stopped at: Completed 35-08-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -164,6 +164,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 35 P05 | 5 min | 3 tasks | 8 files |
 | Phase 35 P06 | 13 min | 2 tasks | 11 files |
 | Phase 35 P07 | 8 min | 2 tasks | 4 files |
+| Phase 35 P08 | 14 min | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -254,3 +255,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 35]: 35-06: fetchLaunchOrders/Map 은 같은 경로 진행 중 요청만 합친다(캐시 없음) — 개발 StrictMode 이중 effect 로 첫 진입 요청이 2건 되는 것 방지 · /admin/launch 탭은 AVAILABLE_TABS(['orders'])만 그리고 35-08 이 'map' 을 더한다
 - [Phase 35]: 35-07: 경계 지도 축 넓음/좁음 경계는 값 폭 40µs(플랜 span>100 으로는 첨부 4축 불일치) · 축 중심은 아래 중앙값(core 비지 않게)
 - [Phase 35]: 35-07: 축 밖 점은 끝 고정 + ◂/▸ · title 「축 밖」 · 축 밖 다음 오프셋은 점선 대신 「▸ 다음 Xµs」 · 리본 칸 ≤ 그림 폭
+- [Phase 35]: 35-08: 경계 지도 요약 카드 = shared launchPanelStatsOf(min_accept · max_reject) + mapNextOffsetOf(최신 머리) · null 이면 「—」 — 상수 없음
+- [Phase 35]: 35-08: 발사 기준 세그먼트는 LaunchFireSeg 하나를 두 탭이 공유(같은 ?fire 키) · ?range 10d 기본 · 탭 · 칩 · 세그먼트 전환은 다른 쿼리 보존

@@ -216,7 +216,7 @@ Plans:
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
-| 35. 발사 경계 지도 어드민 | v1.1 | 7/11 | Not started | — |
+| 35. 발사 경계 지도 어드민 | v1.1 | 8/11 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -331,7 +331,7 @@ Plans:
   6. 첫 실물 날짜 라이브 UAT(16:00:01 이후 relay 적재 → 어드민에 당일 행) · 인박스 `261027-launch-gate-admin.md` 및 후속 정식 인계 노트를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버 먼저 배포해도 안전(relay 는 모르는 kind 도 그대로 적재) → gh-radar DB 마이그레이션 → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum·주석 sync 만)
-**Plans**: 7/11 plans executed
+**Plans**: 8/11 plans executed
 
 Plans:
 **Wave 1**
@@ -350,7 +350,7 @@ Plans:
 - [x] 35-07-PLAN.md — 경계 지도 패널: 기하 lib + 순수 SVG(점 · 띠 · 점선 · 리본 · 마름모 · 이상치) (W4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 35-08-PLAN.md — 경계 지도 탭 조립(프리셋 칩 · 요약 카드 · 4패널) + 전체 회귀 게이트 (W5)
+- [x] 35-08-PLAN.md — 경계 지도 탭 조립(프리셋 칩 · 요약 카드 · 4패널) + 전체 회귀 게이트 (W5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 35-09-PLAN.md — Wave A 배포: [BLOCKING] db push → 백필 적재 → server → push → 백필 UAT (W6 · 메인 세션)
