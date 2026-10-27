@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { LaunchOrdersResponse } from "@gh-radar/shared";
+import {
+  LAUNCH_RANGE_DAYS,
+  type LaunchFire,
+  type LaunchMapResponse,
+  type LaunchOrdersResponse,
+  type LaunchRange,
+} from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
 
@@ -59,4 +65,24 @@ export async function getLaunchOrders(
   if (error) throw DbError(ORDERS_FAIL, causeOf(error));
   assertArrays("launch_orders_for_admin", ORDERS_FAIL, data, ["dates", "heads", "pieces"]);
   return data as unknown as LaunchOrdersResponse;
+}
+
+const MAP_FAIL = "발사 경계 지도 조회에 실패했습니다.";
+
+/**
+ * 경계 지도 — 발사 기준(`fire`) 하나의 최근 거래일(`range` → `p_days` = LAUNCH_RANGE_DAYS · all = null) 조각 + 최신 머리.
+ * 날·패널 분류 · 리본은 웹이 shared `launchDaysOf` 로 계산한다(server 는 계산하지 않는다 · D-20).
+ */
+export async function getLaunchMap(
+  supabase: SupabaseClient,
+  fire: LaunchFire,
+  range: LaunchRange,
+): Promise<LaunchMapResponse> {
+  const { data, error } = await supabase.rpc("launch_map_for_admin", {
+    p_fire: fire,
+    p_days: LAUNCH_RANGE_DAYS[range],
+  });
+  if (error) throw DbError(MAP_FAIL, causeOf(error));
+  assertArrays("launch_map_for_admin", MAP_FAIL, data, ["days", "heads", "pieces"]);
+  return data as unknown as LaunchMapResponse;
 }

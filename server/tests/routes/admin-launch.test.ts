@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
-import type { LaunchHeadRow, LaunchOrdersResponse, LaunchPieceRow } from "@gh-radar/shared";
+import type {
+  LaunchHeadRow,
+  LaunchMapPiece,
+  LaunchMapResponse,
+  LaunchOrdersResponse,
+  LaunchPieceRow,
+} from "@gh-radar/shared";
 
 import { createApp } from "../../src/app";
 import {
@@ -98,6 +104,26 @@ const orders: LaunchOrdersResponse = {
   pieces: [piece(0, -305, "101", 101), piece(1, -303, "접수", 0)],
 };
 
+/** 35-02 `launch_map_for_admin` 계약 모양 — 조각은 지도 열 11개만. */
+const mapPiece = (p: LaunchPieceRow): LaunchMapPiece => ({
+  trade_date: p.trade_date,
+  gateway: p.gateway,
+  market: p.market,
+  profile: p.profile,
+  fire_exchange: p.fire_exchange,
+  side: p.side,
+  wire: p.wire,
+  piece_idx: p.piece_idx,
+  sent_rel_us: p.sent_rel_us,
+  result: p.result,
+  retry: p.retry,
+});
+const map: LaunchMapResponse = {
+  days: ["20261026", "20261012"],
+  heads: [head],
+  pieces: orders.pieces.map(mapPiece),
+};
+
 /** 역할 조회(app_users select) 왕복 수 — 관문이 한 번만 돌았는지. */
 const roleLookups = (rec: ReturnType<typeof makeAdminSupabase>["rec"]) =>
   rec.ops.filter((o) => o.table === "app_users" && o.kind === "select").length;
@@ -108,6 +134,7 @@ function makeApp(rpc: Record<string, RpcHandler> = {}) {
     appUsers: baseAppUsers(),
     rpc: {
       launch_orders_for_admin: () => ({ data: orders, error: null }),
+      launch_map_for_admin: () => ({ data: map, error: null }),
       ...rpc,
     },
   });
@@ -194,5 +221,68 @@ describe("GET /api/admin/launch/orders — 주문 내역 (LAUNCH-05 · D-20)", (
     expect(res.status).toBe(200);
     expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["admin_users_raw"]);
     expect(roleLookups(rec)).toBe(1);
+  });
+});
+
+describe("GET /api/admin/launch/map — 경계 지도 (LAUNCH-05 · D-15 · D-20)", () => {
+  it("무토큰 401 · trader 403 — RPC 0회", async () => {
+    const { app, rec } = makeApp();
+    expect((await request(app).get("/api/admin/launch/map")).status).toBe(401);
+    const res = await auth(request(app).get("/api/admin/launch/map"), TRADER_TOKEN);
+    expect(res.status).toBe(403);
+    expect(rec.rpcCalls).toEqual([]);
+  });
+
+  it("기본 → p_fire q16 · p_days 10 · 응답 = RPC 값 그대로 · RPC 1회 · 역할 조회 1회", async () => {
+    const { app, rec } = makeApp();
+    const res = await auth(request(app).get("/api/admin/launch/map"));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(map);
+    expect(rec.rpcCalls).toEqual([{ fn: "launch_map_for_admin", params: { p_fire: "q16", p_days: 10 } }]);
+    expect(roleLookups(rec)).toBe(1);
+  });
+
+  it.each([
+    ["?range=20d", { p_fire: "q16", p_days: 20 }],
+    ["?range=all", { p_fire: "q16", p_days: null }],
+    ["?fire=n0930", { p_fire: "n0930", p_days: 10 }],
+    ["?fire=n0930&range=all", { p_fire: "n0930", p_days: null }],
+  ])("%s → params %j (LAUNCH_RANGE_DAYS)", async (q, params) => {
+    const { app, rec } = makeApp();
+    const res = await auth(request(app).get(`/api/admin/launch/map${q}`));
+    expect(res.status).toBe(200);
+    expect(rec.rpcCalls).toEqual([{ fn: "launch_map_for_admin", params }]);
+  });
+
+  it.each(["?fire=x", "?range=5d", "?fire=Q16", "?range=all&fire=krx"])(
+    "%s → 400 VALIDATION_FAILED · RPC 0회",
+    async (q) => {
+      const { app, rec } = makeApp();
+      const res = await auth(request(app).get(`/api/admin/launch/map${q}`));
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toEqual([]);
+    },
+  );
+
+  it("RPC 오류 → 500 DB_ERROR", async () => {
+    const { app } = makeApp({
+      launch_map_for_admin: () => ({ data: null, error: { code: "22023", message: "launch_map_for_admin: bad p_fire" } }),
+    });
+    const res = await auth(request(app).get("/api/admin/launch/map"));
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
+  });
+
+  it.each([
+    ["days 누락", { heads: map.heads, pieces: map.pieces }],
+    ["heads 가 객체", { ...map, heads: {} }],
+    ["pieces 가 문자열", { ...map, pieces: "[]" }],
+    ["data 가 null", null],
+  ])("모양 위반(%s) → 500 DB_ERROR", async (_label, data) => {
+    const { app } = makeApp({ launch_map_for_admin: () => ({ data, error: null }) });
+    const res = await auth(request(app).get("/api/admin/launch/map"));
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
   });
 });
