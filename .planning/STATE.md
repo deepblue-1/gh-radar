@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-02-PLAN.md
-last_updated: "2026-10-27T14:37:20.161Z"
+stopped_at: Completed 36-03-PLAN.md
+last_updated: "2026-10-27T14:56:39.119Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
-state_head: 7e348d7980500d7027864cf1f9c89dedc80b83a6
+state_head: dc8724c06e6e54df93d9bd6a672c427f207bcf6c
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 74
-  completed_plans: 65
+  completed_plans: 66
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-10-27 — Phase 36 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T14:37:20.074Z
-Stopped at: Completed 36-02-PLAN.md
+Last session: 2026-10-27T14:56:39.031Z
+Stopped at: Completed 36-03-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -168,6 +168,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P01 | 6 min | 1 tasks | 15 files |
 | Phase 36 P10 | 5min | 2 tasks | 10 files |
 | Phase 36 P02 | 10min | 2 tasks | 14 files |
+| Phase 36 P03 | 16min | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -268,3 +269,6 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-02: 의도에 없는 계좌의 op 6/7 라우트는 409 NO_SUCH_ACCOUNT(기존 계좌 라우트 매핑 · 플랜 404 문구 정정)
 - [Phase 36]: 36-02: op 6/7 은 setAccountCost 로 그 계좌 active 등록 서버마다 44 1건 · dma_admin_results 기록 없음(#answerBy record:false · keysOf)
 - [Phase 36]: 36-02: 87 AdminAccount budgetKrw · feePpm · sellTaxPpm 은 늘 키를 둔다(구 서버 0) · planner · sink 에는 들어가지 않는다
+- [Phase 36]: 36-03: 어드민 비용 행 「변경 없음」 판정은 개요 값(summarizeAccountCosts) 기준 — 실패 뒤 재시도가 접히지 않게
+- [Phase 36]: 36-03: 어드민 예수금 행 배치는 카드 폭 컨테이너 쿼리(@container/cost · 464px) — 440px 시트에서 뷰포트 sm 은 줄 끝 「·」 매달림
+- [Phase 36]: 36-03: 비용 결과 칩은 users.toml 반영 칩과 별개 줄 — onResults · BusyLines 무접촉(D-04) · 실패 낱말은 새 키 costFailed
