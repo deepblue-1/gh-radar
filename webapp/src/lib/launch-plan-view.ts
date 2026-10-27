@@ -216,17 +216,49 @@ export interface SaveResultView {
 const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
 
 /**
- * 저장 결과(D-27) — 분기는 outcome · code 로만(서버 message 는 원문 그대로 싣기만 한다).
- * ok → 칩 「KB120」 + 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」.
+ * 저장 결과(D-27) — 분기는 outcome · code 로만(서버 message 는 원문 그대로 싣기만 한다 · 문장 대조 없음).
+ *
+ * | outcome | 칩 | 줄 |
+ * |---|---|---|
+ * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
+ * | failed · code 1 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
+ * | failed(그 밖) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
+ * | timeout | 「KB120 · 응답 없음」 | 「KB120 실패: 응답 없음」 |
+ * | offline · 요청 실패 | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
+ * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
+ *
+ * code 1 = 구 서버가 44 명령을 모름(gh-trade 「알 수 없는 명령」) — 서버 업데이트 전까지 저장이 안 된다.
  */
 export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at: Date): SaveResultView {
   const s = result.server;
-  if (result.outcome === 'ok') {
-    return {
-      chip: { tone: 'ok', text: s, title: null },
-      line: { tone: 'ok', text: `저장됨 · ${kstPartsOf(at).hm} · 다음 ${FIRE_CLOCK[fire]} 발사부터` },
-    };
+  const msg = result.message || null;
+  switch (result.outcome) {
+    case 'ok':
+      return {
+        chip: { tone: 'ok', text: s, title: null },
+        line: { tone: 'ok', text: `저장됨 · ${kstPartsOf(at).hm} · 다음 ${FIRE_CLOCK[fire]} 발사부터` },
+      };
+    case 'failed': {
+      if (result.code === 1) {
+        const detail = msg === null ? '서버 미지원' : `서버 미지원 · ${msg}`;
+        return {
+          chip: { tone: 'err', text: `${s} · 실패`, title: detail },
+          line: { tone: 'err', text: `${s} 실패: ${detail} — 서버 업데이트 뒤 다시 저장` },
+        };
+      }
+      return { chip: { tone: 'err', text: `${s} · 실패`, title: msg }, line: { tone: 'err', text: `${s} 실패: ${msg ?? '실패'}` } };
+    }
+    case 'timeout':
+      return { chip: { tone: 'err', text: `${s} · 응답 없음`, title: null }, line: { tone: 'err', text: `${s} 실패: 응답 없음` } };
+    case 'offline':
+      return {
+        chip: { tone: 'warn', text: `${s} · 서버 연결 안 됨`, title: msg },
+        line: { tone: 'warn', text: `${s} 미반영: 서버 연결 안 됨` },
+      };
+    case 'skipped':
+      return {
+        chip: { tone: 'warn', text: `${s} · 미반영`, title: msg },
+        line: { tone: 'warn', text: `${s} 미반영: ${msg ?? '꺼진 서버'}` },
+      };
   }
-  const msg = result.message || result.outcome;
-  return { chip: { tone: 'err', text: `${s} · 실패`, title: result.message ?? null }, line: { tone: 'err', text: `${s} 실패: ${msg}` } };
 }
