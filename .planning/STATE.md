@@ -114,7 +114,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 **Resume file:** None
 
 Last session: 2026-10-27T13:00:57.224Z
-Stopped at: Completed 35-09-PLAN.md — 35-10 게이트는 gh-trade Phase 43(kind 17·18 + 발사 계획) 정식 인계 노트 도착 뒤 `/gsd-execute-phase 35`
+Stopped at: Completed 35-09-PLAN.md — Phase 35 범위에 발사 계획 어드민 추가(2026-10-27 사용자 · ROADMAP SC7) → 다음 `/gsd-discuss-phase 35` 로 그 영역 목업 · 승인 → `/gsd-plan-phase 35` 로 플랜 추가. 35-10 게이트는 gh-trade Phase 43(kind 17·18 + 발사 계획) 정식 인계 노트 뒤
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
