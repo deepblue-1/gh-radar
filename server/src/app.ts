@@ -25,6 +25,7 @@ import { accumReportRouter } from "./routes/accum-report.js";
 import { accumSignalsRouter } from "./routes/accum-signals.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
+import { adminLaunchRouter } from "./routes/admin-launch.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -118,7 +119,9 @@ export function createApp(deps: AppDeps): Express {
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
   // 걸므로 순서가 반대면 /servers 요청이 역할 조회를 두 번 한다(Cloud Run → Supabase 왕복 +1).
+  // Phase 35 D-20 — 발사 어드민도 경로 한정 관문(/launch)이라 adminRouter 앞.
   app.use("/api/admin", adminServersRouter);
+  app.use("/api/admin", adminLaunchRouter);
   app.use("/api/admin", adminRouter);
 
   // 9) 404 fallback
