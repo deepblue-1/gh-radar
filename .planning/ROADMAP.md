@@ -376,7 +376,7 @@ Plans:
   6. 라이브 UAT(설정 → 86 code 0 · 87 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」 · 체결 뒤 저널 4값 → 매매손익 행) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버는 이미 배포(말미 append · 구 서버 op 6/7 = code 1) → gh-radar DB 마이그레이션(`supabase db push --linked --yes` · 08:00~20:00 KST 밖) → relay(20:00 KST 뒤 · 메인 세션) → server → webapp push(= 프로덕션 · relay 뒤). relay 는 append-only 라 gh-trade 와의 순서 무관
-**Plans**: 5/10 plans executed
+**Plans**: 6/10 plans executed
 
 Plans:
 **Wave 1**
@@ -391,7 +391,7 @@ Plans:
 - [x] 36-06-PLAN.md — 주문가능 경고: 수동주문 「주문가능」 행 + 초과 검증 줄(트레이서) · 상따 금액 합산 경고
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 36-04-PLAN.md — 현재값 공급: 67 live · 87 → GET account-costs → 개요 costs(트레이서) · op 5 스로틀 · op 3 뒤 서버 간 되싣기
+- [x] 36-04-PLAN.md — 현재값 공급: 67 live · 87 → GET account-costs → 개요 costs(트레이서) · op 5 스로틀 · op 3 뒤 서버 간 되싣기
 - [ ] 36-05-PLAN.md — 저널 손익 4필드 → DB (D-15 one-way 체크포인트 → 트레이서: 파서 · apply 이벤트 · 4열 · apply 재정의 · pgTAP)
 
 **Wave 5** *(blocked on Wave 4 completion)*
