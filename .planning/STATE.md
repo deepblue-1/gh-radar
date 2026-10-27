@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 36
 current_phase_name: 계좌별 주문가능 금액
 status: executing
-stopped_at: Completed 36-07-PLAN.md
-last_updated: "2026-10-27T15:41:51.493Z"
+stopped_at: Completed 36-08-PLAN.md
+last_updated: "2026-10-27T16:11:37.835Z"
 last_activity: 2026-10-27
 last_activity_desc: Phase 36 execution started
-state_head: 981e6cf527dc39ce8d182aec171f8f55899160fc
+state_head: fd0a065c27e4536bd1ef48a37db3561b97270104
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 74
-  completed_plans: 70
+  completed_plans: 71
   percent: 71
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 36 (계좌별 주문가능 금액) — EXECUTING
-Plan: 9 of 10
+Plan: 10 of 10
 Status: Ready to execute
 Last activity: 2026-10-27 — Phase 36 execution started
 
@@ -113,8 +113,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-10-27T15:41:51.402Z
-Stopped at: Completed 36-07-PLAN.md
+Last session: 2026-10-27T16:11:37.747Z
+Stopped at: Completed 36-08-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -173,6 +173,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P04 | 15min | 3 tasks | 13 files |
 | Phase 36 P05 | 10min | 2 tasks | 11 files |
 | Phase 36 P07 | 9min | 2 tasks | 9 files |
+| Phase 36 P08 | 26min | 3 tasks | 15 files |
 
 ## Decisions
 
@@ -283,3 +284,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-05 D-15(one-way): 저널 손익 4키 avg_price · fee_krw · tax_krw · realized_pnl_krw = dma_journal_events bigint NOT NULL DEFAULT 0 열 이름(사용자 「승인 (권장)」) · 평단 모르는 매도 정본은 인박스 「추가」 4번
 - [Phase 36]: 36-07: /me 매매손익 응답 dma_user_ids 는 항상 [] (T-19-08 · D-08 — 트레이더 RPC 는 dma_user_id 비노출)
 - [Phase 36]: 36-07: 매매손익 집계 SQL 은 내부 조립 함수 dma_pnl_daily_build(me|user|account) 한 벌 — for_user · for_admin 은 얇은 래퍼(권한 3줄 셋 다)
+- [Phase 36]: 36-08: 펼침 기본 복원은 리셋 키 없이 로딩 상태로 — 기간·묶음·계좌 변경 시 카드가 다시 서며 첫 묶음 첫 행만 열림
+- [Phase 36]: 36-08: usePnlReport 상태를 만든 키와 함께 둬 키 변경 첫 렌더는 곧바로 loading(이전 응답을 새 라벨로 비추지 않음)
+- [Phase 36]: 36-08: /admin/pnl 문서 제목은 서버 metadata 정본 — router.replace 가 루트 제목으로 되돌림
+- [Phase 36]: 36-08: 계좌별 증권사 배지 = KB 게이트웨이 하나라도 있으면 KB · BROKER_LABEL export 로 같은 낱말 한 벌

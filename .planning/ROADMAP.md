@@ -376,7 +376,7 @@ Plans:
   6. 라이브 UAT(설정 → 86 code 0 · 87 · 67 한도 델타로 웹 즉시 갱신 · 같은 값 재전송 「변경 없음」 · 체결 뒤 저널 4값 → 매매손익 행) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 를 `status: done` 으로 닫는다
 
 **배포 순서**: gh-trade 서버는 이미 배포(말미 append · 구 서버 op 6/7 = code 1) → gh-radar DB 마이그레이션(`supabase db push --linked --yes` · 08:00~20:00 KST 밖) → relay(20:00 KST 뒤 · 메인 세션) → server → webapp push(= 프로덕션 · relay 뒤). relay 는 append-only 라 gh-trade 와의 순서 무관
-**Plans**: 8/10 plans executed
+**Plans**: 9/10 plans executed
 
 Plans:
 **Wave 1**
@@ -398,7 +398,7 @@ Plans:
 - [x] 36-07-PLAN.md — 매매손익 집계: /me RPC → GET /api/pnl(트레이서) · 어드민 RPC → GET /api/admin/pnl · pgTAP
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 36-08-PLAN.md — 매매손익 화면: /me 「손익」 탭(트레이서) · /admin/pnl · 사이드바 · E2E + 전체 회귀 게이트(멈춤 기준)
+- [x] 36-08-PLAN.md — 매매손익 화면: /me 「손익」 탭(트레이서) · /admin/pnl · 사이드바 · E2E + 전체 회귀 게이트(멈춤 기준)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 36-09-PLAN.md — [BLOCKING] db push → relay → server → push · 라이브 UAT · 두 인박스 닫기 (메인 세션)
