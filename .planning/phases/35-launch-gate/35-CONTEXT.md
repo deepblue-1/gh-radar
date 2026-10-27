@@ -1,6 +1,6 @@
 # Phase 35: 발사 경계 지도 어드민 - Context
 
-**Gathered:** 2026-10-27
+**Gathered:** 2026-10-27 (범위 7 발사 계획 어드민 추가 discuss 2026-10-27 — D-24~D-33)
 **Status:** Ready for planning
 
 <domain>
@@ -14,6 +14,8 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - `dma_strategy_apply` 는 현재 INSERT … ON CONFLICT DO NOTHING + 커서 upsert 뿐이고 `dma_strategy_events` 에는 트리거가 없다. kind 16 도 다른 표로 투영되지 않는다(`dma_accum_signals_for_user_json` 이 읽기만). **kind 17·18 → launch_* 투영이 이 표의 첫 DB 쪽 해석**이다.
 - 사용자 래퍼 `dma_strategy_events_for_user` 의 시장 kind 집합 {1,2,10,15,16} 밖이라 17·18 은 `account_no ''` 인 한 이미 숨겨진다 — 그래도 json 래퍼에 `kind NOT IN (17,18)` 을 명시한다(D-05). relay ws fan-out 도 같은 집합이라 소켓으로 새지 않는다.
 - 웹에 날짜 **범위** 선택 부품은 없다(단일 날짜 알약 `LimitupDateNav` 만). 사용자 결정: 범위 입력 부품을 만들지 않고 프리셋 칩(D-15).
+
+**범위 7 추가(2026-10-27 · 사용자 결정 · 인박스 `261027-launch-plan-admin.md` · gh-trade Phase 43):** 16:00 Q16 보정(학습)을 없애고 **어드민이 서버(KB120 · KYOBO119) × 발사(16:00 Q16 · 09:00:30 N) × 시장(코스피 · 코스닥) 칸마다 발사 시각을 정한다** — 16:00 = 조각 수 + 조각별 µs 목록(같거나 커지는 순서), 09:00:30 = 시장별 µs 한 값. 09:00:27 KRX(A 매수)는 대상 아님. 채널 = admin 관찰자(role 2) 44 새 op(op 6/7 과 같은 길) · 서버 재기동 없이 다음 발사부터 · 서버는 현재 값만 파일에 둔다. **목업 승인(이 discuss) → gh-trade 정식 인계 노트(op · 필드 · code) 뒤 구현.** 이 범위는 relay 에 admin 명령 중계 · 조회 파싱이 늘어 **relay 배포가 필요**하다(위 「relay 무변경」 은 kind 17·18 기록 경로에만 해당).
 
 </domain>
 
@@ -42,7 +44,7 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 
 ### 경계 지도 화면 (채택 목업 `reference/mockup-launch-gate-map.html` · 프리셋 칩 · 리본 켬)
 - **D-15: 날짜 범위 = 프리셋 칩.** 「최근 10일 · 20일 · 전체」(거래일 = `launch_pieces` 에 행 있는 날짜 기준 · 기본 최근 10일) + 실제 범위 텍스트 「10/12 ~ 10/26 · 11거래일」. 시작·끝 날짜 입력 부품은 만들지 않는다(사용자 결정 · 범위 입력은 deferred). 칩 옆 세그먼트 「16:00 예약 | 09:00:30 개장차익」. `?range=10d|20d|all` 딥링크 재량.
-- **D-16: 첨부 지도 구성 전부 유지 · gh-radar 톤.** 범례 → **요약 카드 4장**(서버 시장 · N일 · 접수된 가장 이른 µs(초록) · 거부된 가장 늦은 µs(빨강) · 다음 첫 조각 µs(`--primary`)) → **서버×시장 4패널**(순서 KB 코스닥 · KB 코스피 · 교보 코스닥 · 교보 코스피) 각각: 패널 머리(경계 잡힌 날 n · 전부 접수 n · 전부 거부 n) · x = 발사 기준시각 대비 송신 µs(왼쪽이 이름 · 눈금 10/20µs) · 날짜 행마다 점(접수 `--ok` 채운 원 · 101/515 `--bad` 채운 원 · 기타 `--other` 빈 원 · 같은 µs 는 세로 4px 스태킹) · **그날 경계 띠**(마지막 101 ~ 첫 접수 · `--gate` · 전부 101 이면 빨강 띠 + 「경계는 이보다 뒤 →」 · 전부 접수면 초록 띠) · **다음 발사의 첫 조각 세로 점선**(`--primary` · 값 = 그 서버×시장 최신 `launch_heads` 의 다음 오프셋 — Q16 은 학습값 `correction_after`, N 은 고정) · **「쐈다면」 리본**(1µs 칸마다 날 수 비율 초록/회색/빨강 · 첨부 식 그대로) · 「날짜별 표 보기」 접힘(날짜 · 첫 조각 µs · 결과 알약 · 처음 접수 µs · 경계 µs · 조각 수). 경계 계산 규칙 = 첨부 `group()`: lo = 101(515) 조각 rel 최댓값 · hi = 접수 조각 rel 최솟값 · **기타 거부는 제외** · 둘 다 있으면 「경계」, hi 만 「전부 접수」, lo 만 「전부 거부」. 범위 안에 발사가 없는 조합은 패널 머리만 + 「이 범위에 발사 없음」. 푸터 한 줄(조각 간격 0/+10/+20µs → 10/22부터 0/+10/+30µs · 기타 거부 제외).
+- **D-16: 첨부 지도 구성 전부 유지 · gh-radar 톤.** 범례 → **요약 카드 4장**(서버 시장 · N일 · 접수된 가장 이른 µs(초록) · 거부된 가장 늦은 µs(빨강) · 다음 첫 조각 µs(`--primary`)) → **서버×시장 4패널**(순서 KB 코스닥 · KB 코스피 · 교보 코스닥 · 교보 코스피) 각각: 패널 머리(경계 잡힌 날 n · 전부 접수 n · 전부 거부 n) · x = 발사 기준시각 대비 송신 µs(왼쪽이 이름 · 눈금 10/20µs) · 날짜 행마다 점(접수 `--ok` 채운 원 · 101/515 `--bad` 채운 원 · 기타 `--other` 빈 원 · 같은 µs 는 세로 4px 스태킹) · **그날 경계 띠**(마지막 101 ~ 첫 접수 · `--gate` · 전부 101 이면 빨강 띠 + 「경계는 이보다 뒤 →」 · 전부 접수면 초록 띠) · **다음 발사의 첫 조각 세로 점선**(`--primary` · 값 = 그 서버×시장 최신 `launch_heads` 의 다음 오프셋 — Q16 은 학습값 `correction_after`, N 은 고정 · **→ D-25 로 갱신: 서버 현재 발사 계획 조회값(조각마다 선) · 이 kind 18 값은 서버 연결 없을 때의 대신 값**) · **「쐈다면」 리본**(1µs 칸마다 날 수 비율 초록/회색/빨강 · 첨부 식 그대로) · 「날짜별 표 보기」 접힘(날짜 · 첫 조각 µs · 결과 알약 · 처음 접수 µs · 경계 µs · 조각 수). 경계 계산 규칙 = 첨부 `group()`: lo = 101(515) 조각 rel 최댓값 · hi = 접수 조각 rel 최솟값 · **기타 거부는 제외** · 둘 다 있으면 「경계」, hi 만 「전부 접수」, lo 만 「전부 거부」. 범위 안에 발사가 없는 조합은 패널 머리만 + 「이 범위에 발사 없음」. 푸터 한 줄(조각 간격 0/+10/+20µs → 10/22부터 0/+10/+30µs · 기타 거부 제외).
 - **D-17: `09:00:30` 지도 = 합패널.** 같은 4패널에 **N 매수 = 원 · A 매도 = 마름모**(채움 색은 결과 색 그대로) · 101 · 515 같은 `--bad` · 「다음 첫 조각」 선 = 고정 오프셋(119 −200 · 120 −245µs) · **재전송(515 ×3)은 첫 발 송신 시각만 점** · 재전송 횟수는 툴팁(「10/26 −20148µs · wire 0 · 매수 · 101 · 재전송 2」). 범례에 「마름모 = A 매도 · 동그라미 = N 매수」. x 축 폭이 좁으므로(µs 수십) 눈금 2µs · 리본 칸 0.2µs(목업 규칙). side 가 null 인 백필 날은 전부 원(D-08).
 - **D-18: 폰 390 = SVG 640px 고정 폭 가로 스크롤 · 요약 카드 2열.** 축소 없음. 데스크톱은 패널 폭 100%(viewBox 760 비율 유지 · `useChartWidth` 1:1 여부는 플래너 재량 — 글자 11px 가 읽히면 됨).
 - **D-19: 순수 SVG.** Phase 33 D-12 · Phase 34 결 그대로(lightweight-charts 아님). 상호작용은 `<title>` 툴팁뿐(확대/축소 · 드래그 없음).
@@ -55,11 +57,24 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - **D-22: 배포 순서** = 로드맵 그대로: gh-trade 서버 먼저 배포 안전 → gh-radar DB 마이그레이션(표 · RPC · 해석 함수 · json 래퍼 제외 · purge 테스트) → 백필 적재(D-09) → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum · 주석 sync 만 · `sync-relay-schema.sh` 는 gh-trade 소유 [[reference_gh_trade_protocol_sync]]). 배포 · 적재 실행은 메인 세션([[feedback_subagent_deploy_classifier]]).
 - **D-23: 라이브 UAT** = 첫 실물 날짜: 16:00:01 이후 relay 로그에 kind 17·18 적재 건수 · `launch_*` 행 · 어드민 주문 내역 당일 행 · 지도 「전체」 에 당일 행 + 다음 오프셋 선이 kind 18 값으로 바뀜. 09:00:31 도 같은 확인. 프로덕션 수동 주입 없음.
 
+### 발사 계획 어드민 (범위 7 · 채택 목업 `reference/mockup-launch-plan-place.html` B · `mockup-launch-plan-edit.html` A · `mockup-launch-plan-preview.html` P2)
+- **D-24: 자리 = 경계 지도 탭의 서버×시장 패널 안(목업 자리 B).** 새 메뉴 · 새 탭 없음(A 3번째 탭 · C 별도 메뉴 기각). 패널마다 머리 아래 **「다음 발사 계획」 줄**(값 — 16:00 「3조각 −350 · −345 · −325µs」 / 09:00:30 「−245µs」 + 마지막 변경 D-29) + **「계획 고치기」 버튼** → 그 패널 안에 편집 칸 펼침(버튼은 「닫기」 로). 편집 대상 = 그 패널의 gateway × 시장 × 지금 세그먼트의 발사(16:00 / 09:00:30). 「지도를 보고 시각을 정하는 흐름」 이 한 화면에서 끝난다.
+- **D-25: 지도 점선 출처 = 서버 현재 계획 조회.** 지도 탭을 열 때(그리고 저장 성공 뒤) relay admin 연결로 그 서버의 현재 발사 계획을 읽어 **16:00 = 조각마다 `--primary` 점선 · 09:00:30 = 선 1개**를 그린다(패널 · 리본 둘 다 · x 축 범위에 계획 값 포함). 요약 카드 「다음 첫 조각」 = 같은 출처의 첫 조각. 서버 연결 없음 · 조회 실패면 최신 `launch_heads` 다음 오프셋(D-16 원래 값)으로 대신 그리고 줄에 「서버 연결 안 됨 · 마지막 발사 값」 · **「계획 고치기」 비활성**. 조회 op · 응답 모양은 정식 노트(D-31 ⓐ). — **Reversibility:** cheap(표시 출처) — 단, 조회 op 요구는 gh-trade 와이어 요구다.
+- **D-26: 편집 칸 = 조각마다 직접 입력(목업 편집 칸 A).** 16:00 = 「조각 수」 −/+ 스테퍼(1 ~ 10 · 서버 상한 64 안) + 칸마다 µs 정수 입력(번호 1..n · 음수 = 앞당김 · `inputMode="numeric"`) — 서버가 받는 시각 목록과 1:1. 09:00:30 = 「발사 시각」 µs 한 칸(그 시장 주문 전부가 그 시각에 붙어 나감). 클라 검증 = 정수 · **같거나 커지는 순서** — 위반 칸 `aria-invalid` 빨간 테두리 + role=alert 「조각 시각은 앞 조각과 같거나 늦어야 해요 — 2번 −360µs 가 1번 −350µs 보다 이릅니다」 + 저장 비활성 · 입력값 유지. 「되돌리기」 = 서버 현재 값으로. 「첫 시각 + 간격」(B) · 「고르게 채우기」 도우미(C) 기각.
+- **D-27: 저장 = 패널 1칸(서버 × 발사 × 시장) · 확인창 없이 바로(Phase 36 결).** 결과 = Phase 36 D-06 문형 그대로: ok → 칩 「KB120」 + 「저장됨 · HH:MM · 다음 16:00 발사부터」 · failed code 1 → 칩 「KB120 · 실패」(title 「서버 미지원 · <message 원문>」) + 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 · 그 밖 failed → 「KB120 실패: <message 원문>」 · offline → 「KB120 미반영: 서버 연결 안 됨」(분기는 `code` 로만 · message 문장 대조 없음). 토스트 · 확인창 없음. 성공 뒤 그 서버 계획을 다시 조회해 점선 · 「다음 발사 계획」 줄 갱신(D-25). **적용 시점 안내 한 줄**(지도 탭 범례 아래 공용 · 목업 문구): 「저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.」 — 86 이 적용 발사를 알려 주면(D-31 ⓓ) 결과 줄 「다음 … 발사부터」 가 그 값을 쓴다.
+- **D-28: 저장 전 미리보기 = P2(선 + 조각별 「쐈다면」).** 편집 중 바꿀 조각을 같은 패널 · 리본에 **`--gate` 실선(아래 번호 = 조각)** 으로 겹치고(파란 점선 = 서버 현재 계획 그대로), 편집 칸 아래 표 **조각 | 지금 µs | 바꿀 µs | 지금 — 지난 N일에 쐈다면 | 바꿀 — 지난 N일에 쐈다면**(N = 지금 범위 프리셋의 날 수 · 셀 = 「접수 a · 모름 b · 거부 c」 · 판정 = 리본 식 그대로: 그날 hi 가 있고 v ≥ hi 면 접수, lo 가 있고 v ≤ lo 면 거부, 나머지 모름). 입력마다 즉시 갱신 · 순서 오류면 선 · 표 갱신 멈춤. 범례에 「바꿀 계획(저장 전 · 번호 = 조각)」. gh-trade 질문 1 답 = 가능 · 채택. 09:00:30 도 같은 규칙(선 1개 · 행 1개).
+- **D-29: 변경 이력 = gh-radar DB 영구 보관 + 패널 표시.** 새 표(이름 재량 · 예 `launch_plan_changes`) — 저장 **시도마다 1행**(실패 포함): `at` · 어드민(app_users 이메일) · gateway · fire(q16/n) · market · `before int[]`(조회해 둔 현재 값 · 모르면 null) · `after int[]` · 결과(ok / failed+code+message / offline · timeout). RLS 켜고 정책 0개 · service_role 전용 · purge 없음(D-05 결). 패널 「다음 발사 계획」 줄 끝에 **마지막 성공 변경 「22:41 · 이메일」**(오늘이 아니면 「10/27 22:41」) + **「변경 이력」 접힘**(최근 기록 — 시각 · 이메일 · 전 → 후 · 결과 알약). 이력 읽기를 지도 RPC 응답에 같이 실을지 별도 라우트일지는 플래너 재량(왕복 1회 원칙). gh-trade 질문 2 답 = 예(gh-radar DB). 지도에서 「경계가 언제부터 바뀌었나」 를 계획 변경과 맞춰 읽는 용도.
+- **D-30: 경로 = 웹 → server(`requireAuth → requireAdmin` · 감사 줄) → relay 내부 admin HTTP → admin 연결 44 새 op → 86.** Phase 36 `setAccountCost` 결(`relay/src/admin/dispatcher.ts` · 의도 표 · `dma_admin_results` 반영 칩 기록 없음 · **서버 파일이 정본**). 대상 서버 1대(패널 gateway) · 꺼진 서버 skipped · admin 연결/스냅샷 없음 offline. 조회(D-25)도 같은 길(새 조회 op 또는 정식 노트가 정하는 응답). 이력 행(D-29)을 쓰는 쪽(server vs relay)은 플래너 재량. 배포 순서 = gh-trade 서버 먼저(구 웹은 새 op 를 안 보낸다 · 새 웹이 구 서버에 보내면 code 1) → DB(이력 표) → **relay** → server → webapp push. 배포는 메인 세션.
+- **D-31: gh-trade 회신 = 지금(이 discuss 커밋과 함께).** `scripts/trade-handoff.sh launch-plan-admin-reply` 노트 + ListAgents 로 찾은 gh-trade 세션에 SendMessage(보조). 내용: 목업 승인(자리 B · 편집 칸 A · 미리보기 P2 · 이력 DB) · 질문 1 = 가능(P2) · 질문 2 = 예(gh-radar DB, 서버는 현재 값만) · **정식 노트 요구** ⓐ 현재 계획 조회 op + 응답 모양(서버 1대의 발사 × 시장 전부 · 시각 목록 · 마지막 변경 시각이 있으면 같이) ⓑ **09:00:30 µs 값의 기준** — 인박스 초깃값(KYOBO119 −200 · KB120 −245)과 kind 17 `sent_rel_us` 축(10/26 실측 −20,148 류 · D-17)의 관계(같은 축이 아니면 변환 규칙) ⓒ 저장 op 거부 code(조각 수 범위 · 순서 위반 · 발사/시장 값 오류) · 같은 값 재저장 = code 0 멱등 여부 ⓓ 86 에 「적용 발사(다음 / 그다음)」 를 실을 수 있는지 ⓔ kind 18 `next_offset_us` = 그 시점 계획 첫 조각 · 빠지는 Q16 학습값 칸 목록(D-32). 인박스 `261027-launch-plan-admin.md` 에 `## 회신` 기록 · `status: done` 은 구현 + 라이브 UAT 뒤.
+- **D-32: 주문 내역 머리 카드의 16:00 「학습 → 다음 오프셋(step)」 줄은 보정이 없어지므로 「다음 발사 계획 첫 조각」 으로 바꾼다**(학습값 칸은 정식 노트대로 비우거나 숨김 · 문구 재량) — Wave B(35-10) 칸 매핑과 같이.
+- **D-33: 구현 게이트 = gh-trade Phase 43 정식 인계 노트.** 노트 전에 만들 수 있는 것(이력 표 · 웹 편집 칸 · 미리보기 · 모킹 E2E)과 노트 뒤(44 op · 조회 파싱 · relay/server 라우트 · 라이브 UAT)를 플래너가 웨이브로 가른다. 35-10 · 35-11(Wave B)과 같은 노트를 기다린다. 라이브 UAT = 어드민에서 KB120 · 16:00 · 코스닥 계획 변경 → ① 86 code 0 ② 서버 로그 「발사 계획 변경」 ③ 다음 16:00 kind 17 조각 `sent_rel_us` 가 새 시각 근처(재기동 없이) ④ 이력 행 · 패널 마지막 변경.
+
 ### Claude's Discretion
 - 표 · 열 · RPC · 라우트 · 파일 · shared 타입 이름(`launch_pieces` · `launch_heads` · `launch_orders_for_admin` · `launch_map_for_admin` · `server/src/routes/admin-launch.ts` · `webapp/src/app/admin/launch/page.tsx` · `webapp/src/components/admin/launch-*.tsx` · `packages/shared/src/launch.ts` 류) · 발사 기준 열의 표현(D-03) · `source` 열 값 이름 · 해석 위치(apply 재정의 vs 트리거) · 해석 함수의 kind 17/18 칸 → 열 매핑 코드 구조(정식 노트 뒤).
 - 탭 · 날짜 · 발사 · 범위 쿼리 파라미터 이름과 상태 보존(탭 전환 시 날짜 유지 여부) · 빈 상태 문구(「아직 적재된 발사가 없어요 · 첫 적재는 16:00:01」 · 「이 날은 발사가 없어요」 + 「최신 보기」) · 로딩 스켈레톤 · 오류 문구 · 문서 title.
 - 차트 세부(패널 높이 · 행 높이 24px · 여백 · 눈금 규칙 · 스태킹 · 라벨 겹침 · 리본 높이 · 폰 터치) · 요약 카드 숫자 형식(µs 부호 · 천 단위 쉼표 여부 — 09:00:30 은 −20,148 처럼 쉼표).
 - 백필 스크립트 인자(`--file` 복수 · `--date` 필터 · `--out` 미리보기) · dry-run 출력 모양 · 재실행 규칙 로그.
+- (범위 7) 이력 표 · 라우트 · relay HTTP 경로 이름 · 편집 칸 펼침 상태(한 번에 한 패널만 열지) · 「변경 이력」 접힘 건수 · 시각 표기 · 스테퍼 · 입력 폭 · 폰 390 배치(편집 칸은 패널 폭 안 줄바꿈 · 미리보기 표는 가로 스크롤) · 「다음 발사 계획」 줄 문구 · 조회 중 스켈레톤.
 - E2E = `admin-servers.spec.ts` 동형(`page.route` 로 orders · map 두 경로 모킹 · 390 폰 · 탭 전환 · 세그먼트 · 프리셋 칩) · 단위 = 경계 계산(`group()` 이식) · 리본 비율 · 머리 계산(백필) · 열 포맷 · 날짜 목록 · 사이드바 순서 · SQL 테스트(upsert 멱등 · 도착 순서 무관 · 사용자 래퍼 제외 · purge 제외).
 
 </decisions>
@@ -77,6 +92,13 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - `/Users/alex/repos/gh-trade/docs/strategy/open-arb.md` §5(발사 — 'A' 와 'N' · 레인 K/Q · 'A' = KRX 매수 IOC 09:00:27 · 'N' = NXT 09:00:30 · 515 재전송) · §7(되팔기 · 'A' 의 NXT 매도) — **A 두 다리(D-03) 근거**.
 - `/Users/alex/repos/gh-trade/docs/features/queued-order.md` — Q16 예약 발사 · `LaunchPieceTable` · 학습(correction · step) — 머리 학습값 뜻.
 - `docs/inbox/from-gh-trade/README.md` · `CLAUDE.md` 「gh-trade 인박스」 · `scripts/trade-handoff.sh` — 인박스 닫기 · gh-trade 에 요청하는 경로(D-21).
+
+### 발사 계획 어드민 (범위 7)
+- `docs/inbox/from-gh-trade/261027-launch-plan-admin.md` — 기능 요청 · 목업용 값 모양(서버 · 발사 · 시장 · µs 목록 · N 한 값 · 초깃값 · 적용 시점) · 질문 2건. **정식 인계 노트(gh-trade Phase 43 · op · 필드 · code)는 미도착** — 도착하면 이 목록 맨 위에 추가.
+- `.planning/phases/35-launch-gate/reference/mockup-launch-plan-place.html` — 자리 **B 경계 지도 패널 안** 채택(A 3번째 탭 · C 별도 메뉴 기각).
+- `.planning/phases/35-launch-gate/reference/mockup-launch-plan-edit.html` — 편집 칸 **A 조각마다 직접 입력** 채택 · 상태(순서 오류 · 저장됨 · 서버 거부 code 1) 모양.
+- `.planning/phases/35-launch-gate/reference/mockup-launch-plan-preview.html` — 미리보기 **P2 선 + 조각별 「쐈다면」** 채택(`verdict()` = 판정 식 · `draftFor()` = 겹침 선).
+- Phase 36 op 6/7 선례: `.planning/phases/36-account-budget/36-CONTEXT.md`(D-04 의도 저장 없음 · D-06 결과 문형) · `36-02-PLAN.md`(dispatcher `setAccountCost` · admin-api PUT 라우트) · `relay/src/admin/dispatcher.ts` · `relay/src/admin/admin-api.ts` · `relay/src/admin/admin-conn.ts:511`(`buildAdminCommandReq`) · `relay/src/admin/types.ts`(`ADMIN_OP` · `ADMIN_CODE`) · `relay/src/dma/envelope.ts:3338` · `webapp/src/components/admin/reflect-chip.tsx`(`ADMIN_CHIP_BASE` · 톤) · `use-field-save.ts`.
 
 ### 채택 목업 (화면 정본 — 사용자 검토 완료 2026-10-27)
 - `.planning/phases/35-launch-gate/reference/mockup-launch-orders.html` — **변형 A · 메뉴 1개+탭** 채택(머리 카드 4장 내용 · 조각 표 열 · 결과 알약 · 09:00:30 발사·재전송 열 · 폰 표 스크롤). 변형 B · 메뉴 2개는 기각. 종목·구분·가격·수량·계좌·사용자·주문번호 값은 **합성**(모양 확인용) · 09:00:30 A 매도 2행 합성.
@@ -130,18 +152,22 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - 순수 SVG 차트(Phase 33 D-12 · 34) · 다크/라이트 토큰 · Cloud Run 왕복 1회([[project_cloudrun_egress_roundtrip_cost]]).
 - 사용자 전략 이벤트 가시성 = 시장 kind 집합 + 계좌 매칭(DB 래퍼 · relay fan-out 두 곳 동기).
 
+- (범위 7) admin 명령 경로 = Phase 36 `setAccountCost` 결(server 라우트 → relay 내부 admin HTTP → `dispatcher` → `admin-conn.command` → 44/86) · 결과 칩 = `reflect-chip.tsx` `ADMIN_CHIP_BASE` + 톤 · 칸 저장 훅 `use-field-save.ts`. 경계 지도 패널 · 리본 = `launch-gate-chart.tsx`(점선 · 겹침 선 추가 지점) · `launch-map-tab.tsx`(조회 · 편집 상태).
+
 ### Integration Points
 - `dma_strategy_apply`(재정의) 또는 `dma_strategy_events` 트리거 — 첫 DB 쪽 해석. 마이그레이션 1개에 표 2 · 해석 · RPC 2 · 래퍼 제외 · purge 테스트.
 - `server/src/app.ts` 어드민 라우터 마운트(순서 주석) · `packages/shared` 타입 재export.
 - `app-sidebar.tsx` Admin 그룹(「서버」 다음) + 단위/E2E 링크 순서 단언 · `webapp/src/app/admin/launch/page.tsx`.
 - `scripts/` 백필 스크립트 · gh-trade 핸드오프 노트(`scripts/trade-handoff.sh`) · 인박스 `## 회신`.
 - 정식 인계 노트 도착 → 해석 함수 칸 매핑 · fbs enum/주석 sync(gh-trade 소유 스크립트).
+- (범위 7) relay `ADMIN_OP` · `envelope.ts` 44 빌더 · 86/조회 응답 파서 · `admin-api.ts` 새 라우트 · server 어드민 라우트 · `launch-gate-chart.tsx` 계획 선 · `launch-map-tab.tsx` 편집 칸 · 이력 표 마이그레이션.
 
 </code_context>
 
 <specifics>
 ## Specific Ideas
 
+- (범위 7) 「지도를 보고 시각을 정하는 흐름」 — 편집은 지도 패널 안에서, 바꿀 조각이 지도 · 리본 위에 겹치고 「지난 N일에 쐈다면」 날 수가 바로 보인다(D-24 · D-28).
 - 「매도할 때의 경계 지도를 알아야지 — N 의 매수주문과 A 의 매도주문이 동시에 NXT 에 쏠 거니까 합쳐서 같이 봐야 해」 — 09:00:30 지도의 단위는 프로파일이 아니라 **「09:00:30 NXT 송신」** 이다(D-03 · D-17). 매수/매도는 모양(원/마름모)으로만 가르고 한 패널에 둔다.
 - 첨부 지도는 사용자가 로그로 손수 만든 것 — 어드민 지도는 그 읽기(요약 카드 → 4패널 → 리본 → 표)를 그대로 잇되 gh-radar 톤(Pretendard · 토큰 · 카드 반경)으로 다시 그린다(D-16). 「쐈다면」 리본은 유지.
 - 어드민 도구라 **데스크톱 위주** — 폰은 가로 스크롤로 깨지지만 않으면 된다(D-14 · D-18). Phase 34 식 폰 카드 배치는 만들지 않는다.
@@ -157,6 +183,8 @@ gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **
 - **머리 표 + 평탄 조각 표(변형 B) · 필터 칩.** 서버 간 비교·필터 요구가 생기면 후속.
 - **계좌 마스킹 옵션.** 어드민 전용이라 그대로 노출(D-02). 캡처 공유가 잦아지면 토글.
 - **kind 17·18 라벨(`strategy-event-labels.ts`) · fbs enum 주석.** 정식 인계 노트 뒤 sync — 이 phase 안이지만 노트 도착 조건부.
+- **(범위 7) gh-radar 밖에서 바뀐 계획 감지.** 서버 파일을 직접 고치면 이력에 없다 — 「서버 현재 값 ≠ 마지막 이력 after」 표시는 후속.
+- **(범위 7) 지도 위 끌어서 조각 시각 고치기 · 서버/시장 간 계획 복사 · 「첫 시각 + 간격」 채우기 도우미.** 목업 B·C 기각 — 필요해지면 후속.
 - **gh-trade 쪽 09:00:30 side 를 로그에서 못 뽑는 경우** 백필 09:00:30 지도는 전부 원(D-08) — 구분이 꼭 필요하면 gh-trade 가 예약 저장소 스냅샷에서 복원하는 별도 작업.
 
 </deferred>
