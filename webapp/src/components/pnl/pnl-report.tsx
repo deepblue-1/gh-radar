@@ -69,16 +69,16 @@ export type PnlViewStatus = 'loading' | 'error' | 'ready';
 
 /**
  * `key` 가 바뀔 때마다 `load` 를 1회 부른다(null = 부르지 않음 · 로딩 유지). `retry` = 같은 키로 새 요청.
- * 받는 동안 이전 응답은 버린다(로딩 = 카드 내림 → 펼침 기본 복원).
+ * 상태는 그 상태를 만든 키와 함께 둔다 — 키가 바뀐 첫 렌더(effect 전)에 이전 기간 · 묶음 · 계좌의 응답을 새 라벨로 한 번
+ * 비추지 않게, 키가 다르면 곧바로 로딩으로 본다(로딩 = 카드 내림 → 펼침 기본 복원).
  */
 export function usePnlReport(
   key: string | null,
   load: () => Promise<PnlReport>,
 ): { status: PnlViewStatus; report: PnlReport | null; retry: () => void } {
-  const [state, setState] = useState<{ status: PnlViewStatus; report: PnlReport | null }>({
-    status: 'loading',
-    report: null,
-  });
+  const [state, setState] = useState<{ key: string | null; attempt: number; status: PnlViewStatus; report: PnlReport | null }>(
+    { key: null, attempt: 0, status: 'loading', report: null },
+  );
   const [attempt, setAttempt] = useState(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -86,13 +86,12 @@ export function usePnlReport(
   useEffect(() => {
     if (key === null) return;
     let alive = true;
-    setState({ status: 'loading', report: null });
     loadRef.current().then(
       (report) => {
-        if (alive) setState({ status: 'ready', report });
+        if (alive) setState({ key, attempt, status: 'ready', report });
       },
       () => {
-        if (alive) setState({ status: 'error', report: null });
+        if (alive) setState({ key, attempt, status: 'error', report: null });
       },
     );
     return () => {
@@ -100,7 +99,12 @@ export function usePnlReport(
     };
   }, [key, attempt]);
 
-  return { ...state, retry: () => setAttempt((n) => n + 1) };
+  const current = state.key === key && state.attempt === attempt;
+  return {
+    status: current ? state.status : 'loading',
+    report: current ? state.report : null,
+    retry: () => setAttempt((n) => n + 1),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,7 +241,9 @@ export function PnlGroupCard({ group, header, rangeLabel, defaultOpenFirst }: Pn
 
 function PnlSummaryRow({ total, rangeLabel }: { total: PnlGroup['total']; rangeLabel: string }) {
   const cell = (label: string, value: string, slot: string) => (
-    <div data-slot={slot} className="flex min-w-0 flex-col">
+    // min-w-0 을 두지 않는다 — 칸의 최소폭 = 값 글자폭이라 fr 칸이 조 단위 값(「123,456,789만」)만큼 넓어지고 나머지 칸이
+    // 줄어든다(lg 1024 에서 1fr ≈ 95px < 14/600 값 99px — min-w-0 이면 값이 옆 칸으로 넘친다 · UI E2 백스톱).
+    <div data-slot={slot} className="flex flex-col">
       <span className={cn(CAPTION, 'text-[var(--muted-fg)]')}>{label}</span>
       <span className="text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)] tabular-nums">
         {value}
