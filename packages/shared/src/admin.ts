@@ -175,6 +175,37 @@ export interface AdminOrderEndpointsRaw {
   servers: Record<string, AdminOrderEndpointRow[]>;
 }
 
+/**
+ * 계좌 하나 · 서버 하나의 예수금 · 비용률(Phase 36 · D-03 · D-05). 예수금은 원 · 비용률은 ppm(100 = 0.01%).
+ * `budgetSource` — live = 그 서버 66/67 마지막 예수금(relay hub) · snapshot = 87 `AdminAccount.budget_krw`.
+ *
+ * D-04: **DB 의도 저장 없음 · 87/67 이 정본 · drift 판정 밖** — planner `sameValues` · 개요 반영 칩에 들어가지 않는다.
+ */
+export interface AdminAccountCost {
+  budgetKrw: number;
+  feePpm: number;
+  sellTaxPpm: number;
+  budgetSource: "live" | "snapshot";
+}
+
+/** relay 87 캐시의 계좌 1행 + 그 서버 67 live 예수금(`null` = 아직 못 받음 → 87 값으로 내려간다). 0 은 「해제」 정당값. */
+export interface AdminAccountCostRow {
+  dmaUserId: string;
+  accountNo: string;
+  budgetKrw: number;
+  feePpm: number;
+  sellTaxPpm: number;
+  liveBudgetKrw: number | null;
+}
+
+/**
+ * relay `GET /internal/admin/account-costs` 응답(Phase 36 · D-05) — `AdminOrderEndpointsRaw` 와 같은 꼴. `servers` 에 키가 없는 서버 =
+ * 그 서버 87 을 모름. 교보 포함(IP/MAC 과 달리 개인 PC 식별 정보가 아니다 — 그래서 엔드포인트를 분리했다).
+ */
+export interface AdminAccountCostsRaw {
+  servers: Record<string, AdminAccountCostRow[]>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 개요 뷰 — Express GET /api/admin/users 응답
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +252,12 @@ export interface AdminAccountView {
    * 선택 필드(기존 픽스처 호환) — `deriveAdminUsersOverview` 는 늘 채운다. 표시 판정은 `summarizeOrderEndpoint`.
    */
   orderEndpoints?: Record<string, AdminOrderEndpoint | null>;
+  /**
+   * 서버별 예수금 · 비용률(Phase 36 · D-03 · D-05) — 키 = 그 계좌의 active 등록 서버 · 값 = 그 서버 값(예수금은 67 live 우선 ·
+   * 없으면 87) · null = 그 서버 87 을 모르거나 그 서버 87 에 이 계좌가 없음(화면 「확인 전」). 87 전용 계좌는 `{}`.
+   * 선택 필드(기존 픽스처 호환) — `deriveAdminUsersOverview` 는 늘 채운다. 표시 판정은 `summarizeAccountCosts`. drift 판정 밖(D-04).
+   */
+  costs?: Record<string, AdminAccountCost | null>;
 }
 
 export interface AdminUserView {
@@ -379,6 +416,23 @@ export interface AdminOrderServerResponse {
   orderServer: string | null;
 }
 
+/**
+ * `PUT …/accounts/:accountNo/budget`(Phase 36 · op 6 SetAccountBudget) — 원 · 0 = 해제 · 정수 0..Number.MAX_SAFE_INTEGER.
+ * 입력 상한 999,999,999만원(≈ 1e13)이 안전 정수 범위 안이라 number 로 싣는다(relay 가 bigint 로 바꿔 보낸다).
+ */
+export interface AdminAccountBudgetBody {
+  budgetKrw: number;
+}
+
+/**
+ * `PUT …/accounts/:accountNo/fee`(Phase 36 · op 7 SetAccountFee) — 수수료 · 매도세 ppm(uint32 정수). 0~10000(1%) 범위는 클라가
+ * 막는다(D-02) — relay · Express 는 uint32 구조 검사만(범위로 400 금지 — gh-trade code 1 「범위 밖」 경로가 닿게 둔다).
+ */
+export interface AdminAccountFeeBody {
+  feePpm: number;
+  sellTaxPpm: number;
+}
+
 export interface AdminServerUpsertBody {
   key: string;
   broker: DmaBroker;
@@ -519,8 +573,10 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *     12 는 op 4 의 마지막 계좌 제거와 op 2 의 서버 마지막 사용자 삭제 둘 다에 온다(gh-trade 인박스 261007) —
  *     둘 다 서버별 실패 칩이고, relay HTTP 409 `LAST_ACCOUNT`(DB 의도 업무 거부)와는 이름만 같다.
  *   - 13 BAD_ORDER_ENDPOINT(op 1 · op 3 주문자 IP/MAC 형식 오류 · gh-trade 인박스 261010)도 실패 — 칩은 서버 문구 그대로.
+ *   - op 6 SetAccountBudget · op 7 SetAccountFee(gh-trade 41 · 인박스 261027-account-budget/pnl) — code 0 만 반영됨. 서버 「변경 없음」 도
+ *     code 0. code 1 = 구 서버(op 모름) 또는 범위 밖 — 화면은 「서버 미지원 · <message 원문>」(D-06 · 문장 대조 없음).
  */
-export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5, code: number): "ok" | "failed" {
+export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 6 | 7, code: number): "ok" | "failed" {
   if (code === 0) return "ok";
   if (op === 4 && code === 8) return "ok";
   if (op === 2 && code === 4) return "ok";
@@ -696,12 +752,45 @@ function indexOrderEndpoints(endpoints: AdminOrderEndpointsRaw | null | undefine
   return idx;
 }
 
+/**
+ * 예수금 · 비용률 색인 — serverKey → 정규화 계좌번호 → 87 행들(입력 순). 서버 키 없음 = 그 서버 87 모름.
+ * IP/MAC 과 달리 키에 dmaUserId 를 넣지 않는다 — 예수금 · 비용률은 서버의 **계좌** 값이다(op 3 이 다른 유저가 가진 계좌를 더하면 그
+ * 값을 복사한다 · 인박스 261027-account-budget). 그래서 그 DMA 유저 행을 우선하되, 없으면 같은 계좌의 다른 유저 행을 쓴다.
+ */
+type AccountCostIndex = Map<string, Map<string, AdminAccountCostRow[]>>;
+
+function indexAccountCosts(costs: AdminAccountCostsRaw | null | undefined): AccountCostIndex {
+  const idx: AccountCostIndex = new Map();
+  for (const [serverKey, rows] of Object.entries(costs?.servers ?? {})) {
+    const byAccount = new Map<string, AdminAccountCostRow[]>();
+    for (const r of rows) {
+      const k = normalizeAccountNo(r.accountNo);
+      const list = byAccount.get(k);
+      if (list) list.push(r);
+      else byAccount.set(k, [r]);
+    }
+    idx.set(serverKey, byAccount);
+  }
+  return idx;
+}
+
+/** 한 서버 · 한 계좌의 값 — 그 DMA 유저 행 우선 · 예수금은 67 live(null 아님) 우선 · 없으면 87. 행이 없으면 null. */
+function accountCostOf(rows: AdminAccountCostRow[] | undefined, dmaUserId: string): AdminAccountCost | null {
+  const r = rows?.find((x) => x.dmaUserId === dmaUserId) ?? rows?.[0];
+  if (!r) return null;
+  const fee = { feePpm: r.feePpm, sellTaxPpm: r.sellTaxPpm };
+  return r.liveBudgetKrw !== null
+    ? { budgetKrw: r.liveBudgetKrw, ...fee, budgetSource: "live" }
+    : { budgetKrw: r.budgetKrw, ...fee, budgetSource: "snapshot" };
+}
+
 /** 계좌 줄 — 의도 계좌의 등록 서버별 칩 + 87 에만 있는 서버(serverOnlyOn). 의도에 없는 87 계좌도 줄로 보인다. */
 function userAccounts(
   idx: RawIndex,
   dmaUserId: string,
   judged: ServerJudgement[],
   endpoints: OrderEndpointIndex,
+  costs: AccountCostIndex,
 ): { accounts: AdminAccountView[]; accountCount: number } {
   const drafts = new Map<string, AccountDraft>();
   const keyOf = (broker: DmaBroker, accountNo: string) => `${broker}\u0000${normalizeAccountNo(accountNo)}`;
@@ -765,6 +854,16 @@ function userAccounts(
     }
     return out;
   };
+  /** 의도 계좌의 active 등록 서버마다 예수금 · 비용률 · 모르면 null(D-05). 87 전용 계좌는 {}. 칩 · drift 와 무관(D-04). */
+  const costsOf = (d: AccountDraft): Record<string, AdminAccountCost | null> => {
+    const out: Record<string, AdminAccountCost | null> = {};
+    if (!d.hasIntent) return out;
+    const k = normalizeAccountNo(d.fields.accountNo);
+    for (const s of d.servers) {
+      if (s.state === "active") out[s.serverKey] = accountCostOf(costs.get(s.serverKey)?.get(k), dmaUserId);
+    }
+    return out;
+  };
   return {
     accounts: list.map((d) => {
       const servers = d.servers.sort((a, b) => bySrv(a.serverKey, b.serverKey));
@@ -776,6 +875,7 @@ function userAccounts(
         orderServer: d.hasIntent ? d.orderServer : null,
         defaultOrderServer: d.hasIntent ? (idx.defaultOrderServer.get(d.broker) ?? null) : null,
         orderEndpoints: orderEndpointsOf(d),
+        costs: costsOf(d),
       };
     }),
     accountCount: list.filter((d) => d.hasActive).length,
@@ -815,20 +915,25 @@ function timeDesc(a: string, b: string): number {
  *
  * `endpoints`(Phase 30 · D-09) = relay 87 캐시의 주문자 IP/MAC(`GET /internal/admin/order-endpoints`) — 의도 계좌마다 active 등록
  * 서버별 `orderEndpoints` 를 채운다. null/생략(relay 조회 실패 · 옛 호출)이면 전부 null(「확인 전」) — 두 경우 출력이 같다.
+ *
+ * `costs`(Phase 36 · D-05) = relay 87 캐시의 예수금 · 비용률 + 67 live 예수금(`GET /internal/admin/account-costs`) — 같은 규칙으로
+ * 계좌마다 `costs` 를 채운다(null/생략 = 전부 null). 칩 · drift 판정은 costs 유무와 무관하다(D-04).
  */
 export function deriveAdminUsersOverview(
   raw: AdminUsersRaw,
   endpoints?: AdminOrderEndpointsRaw | null,
+  costs?: AdminAccountCostsRaw | null,
 ): AdminUsersOverview {
   const idx = indexRaw(raw);
   const endpointIdx = indexOrderEndpoints(endpoints);
+  const costIdx = indexAccountCosts(costs);
   const users: AdminUserView[] = [...raw.appUsers]
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || (a.email < b.email ? -1 : a.email > b.email ? 1 : 0))
     .map((u) => {
       const head = { email: u.email, role: u.role, dmaUserId: u.dmaUserId, signedUp: u.signedUp };
       if (!u.dmaUserId) return { ...head, accountCount: 0, servers: [], accounts: [] };
       const judged = judgeUser(idx, u.dmaUserId);
-      const { accounts, accountCount } = userAccounts(idx, u.dmaUserId, judged, endpointIdx);
+      const { accounts, accountCount } = userAccounts(idx, u.dmaUserId, judged, endpointIdx, costIdx);
       return { ...head, accountCount, servers: userChips(idx, u.dmaUserId, judged), accounts };
     });
   return {

@@ -13,10 +13,12 @@
  * - 주문자 IP/MAC 은 사용자 PC 식별 정보 — **로그 · 감사 줄에 값을 싣지 않는다.**
  * - 오류 문구는 여기 두지 않는다(webapp `ACCOUNT_EDITOR_TEXT` 몫) — 여기는 오류 종류 · 칸만 낸다.
  *
+ * Phase 36 — 같은 출처 규칙으로 예수금 · 비용률 표시 판정(`summarizeAccountCosts`)도 여기 둔다(D-03).
+ *
  * `admin.ts` 가 이 파일을 런타임 import 한다(`sameValues`) — 여기서 admin 은 `import type` 으로만 가져온다(순환은 타입 전용).
  */
 
-import type { AdminAccountView } from "./admin";
+import type { AdminAccountCost, AdminAccountView } from "./admin";
 import { resolveEffectiveOrderServer } from "./order-server";
 
 /**
@@ -87,6 +89,24 @@ export function validateOrderEndpointInput(input: { ip: string; mac: string }): 
   return { ok: true, orderIp, orderMac };
 }
 
+/**
+ * 카드 판정의 등록 서버 목록 — `summarizeOrderEndpoint` · `summarizeAccountCosts` 공용(입력 구성은 웹 `OrderServerControl` 과 같다).
+ * registered = active 등록 서버(레지스트리 순 · 레지스트리에 없는 키는 뒤) · enabledRegistered = 그중 켜진 것 ·
+ * designated = 켜진 등록 서버 안에 있을 때만 지정(꺼진 지정은 relay 도 무시). 규칙 자체는 `resolveEffectiveOrderServer` 한 벌.
+ */
+function registeredServersOf(
+  account: Pick<AdminAccountView, "servers" | "orderServer">,
+  registry: readonly { key: string; enabled: boolean }[],
+): { registered: string[]; enabledRegistered: string[]; designated: string | null } {
+  const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
+  const order = registry.map((s) => s.key);
+  const registered = [...order.filter((k) => active.has(k)), ...[...active].filter((k) => !order.includes(k))];
+  const enabled = (k: string) => registry.find((s) => s.key === k)?.enabled ?? true;
+  const enabledRegistered = registered.filter(enabled);
+  const d = account.orderServer ?? null;
+  return { registered, enabledRegistered, designated: d !== null && enabledRegistered.includes(d) ? d : null };
+}
+
 /** 출처 서버와 IP 또는 MAC 이 다른 다른 등록 서버 하나(UI-SPEC §1-4 경고 줄 한 줄). 값은 87 정규화값 그대로. */
 export type OrderEndpointMismatch = { serverKey: string; state: "set" | "unset"; orderIp: string; orderMac: string };
 
@@ -120,18 +140,10 @@ export type SummarizeOrderEndpointInput = {
  */
 export function summarizeOrderEndpoint(input: SummarizeOrderEndpointInput): OrderEndpointSummary {
   const { account, registry } = input;
-  const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
-  const order = registry.map((s) => s.key);
-  const registered = [...order.filter((k) => active.has(k)), ...[...active].filter((k) => !order.includes(k))];
-  const enabled = (k: string) => registry.find((s) => s.key === k)?.enabled ?? true;
-  const enabledRegistered = registered.filter(enabled);
-  const designated = account.orderServer ?? null;
+  const { registered, enabledRegistered, designated } = registeredServersOf(account, registry);
   const preferred =
-    resolveEffectiveOrderServer({
-      designated: designated !== null && enabledRegistered.includes(designated) ? designated : null,
-      defaultKey: account.defaultOrderServer ?? null,
-      registered: enabledRegistered,
-    })?.key ??
+    resolveEffectiveOrderServer({ designated, defaultKey: account.defaultOrderServer ?? null, registered: enabledRegistered })
+      ?.key ??
     registered[0] ??
     null;
 
@@ -151,4 +163,84 @@ export function summarizeOrderEndpoint(input: SummarizeOrderEndpointInput): Orde
     }
   }
   return { state: stateOf(v), orderIp: v.orderIp, orderMac: v.orderMac, source, mismatches };
+}
+
+/** 출처 서버와 예수금이 다른 다른 등록 서버 하나(D-03 불일치 줄). 값은 그 서버 값(원). */
+export type AccountBudgetMismatch = { serverKey: string; budgetKrw: number };
+
+/** 출처 서버와 (수수료, 매도세) 쌍이 다른 다른 등록 서버 하나(D-03 불일치 줄 · 예수금과 따로). 값은 ppm. */
+export type AccountFeeMismatch = { serverKey: string; feePpm: number; sellTaxPpm: number };
+
+/**
+ * 계좌 카드의 예수금 · 비용률 표시 판정(D-03 · D-05). `state` — known 값을 아는 서버가 있음 · unknown 확인 전(그 경우 숫자는 0 ·
+ * 화면은 「—」). `source` = 표시값을 가져온 서버 · 불일치는 예수금 · 비용률을 따로 낸다(레지스트리 순).
+ */
+export type AccountCostSummary = {
+  state: "known" | "unknown";
+  budgetKrw: number;
+  feePpm: number;
+  sellTaxPpm: number;
+  source: string | null;
+  budgetMismatches: AccountBudgetMismatch[];
+  feeMismatches: AccountFeeMismatch[];
+};
+
+export type SummarizeAccountCostsInput = {
+  account: Pick<AdminAccountView, "servers" | "orderServer" | "defaultOrderServer" | "costs">;
+  /** 서버 레지스트리(개요 `servers` — 레지스트리 순). 여기 없는 서버는 켜진 것으로 본다. */
+  registry: readonly { key: string; enabled: boolean }[];
+};
+
+/**
+ * 계좌 하나의 예수금 · 비용률 표시값 · 출처 서버 · 불일치(D-03 · D-05) — `summarizeOrderEndpoint` 동형.
+ *
+ * - 출처 = 그 계좌의 **유효 주문 서버**(지정 → 증권사 기본 → 유일 등록 · `resolveEffectiveOrderServer` 한 벌 — GC-06 두 벌 금지) ·
+ *   유효 서버가 없으면 레지스트리 순 첫 active 등록 서버. 출처 값을 모르면(null) 값을 아는 첫 등록 서버. 아무도 모르면 unknown.
+ * - 불일치 = 값을 아는 다른 등록 서버 중 예수금이 다른 것(`budgetMismatches`) · (수수료, 매도세) 쌍이 다른 것(`feeMismatches`).
+ *   모르는 서버는 비교하지 않는다. 87/67 값은 이미 서버 값이라 정규화 없이 수 비교만 한다.
+ */
+export function summarizeAccountCosts(input: SummarizeAccountCostsInput): AccountCostSummary {
+  const { account, registry } = input;
+  const { registered, enabledRegistered, designated } = registeredServersOf(account, registry);
+  const preferred =
+    resolveEffectiveOrderServer({ designated, defaultKey: account.defaultOrderServer ?? null, registered: enabledRegistered })
+      ?.key ??
+    registered[0] ??
+    null;
+
+  const values: Record<string, AdminAccountCost | null> = account.costs ?? {};
+  const known = registered.filter((k) => values[k] != null);
+  const source = preferred !== null && known.includes(preferred) ? preferred : (known[0] ?? null);
+  const v = source !== null ? values[source] : null;
+  if (source === null || v == null) {
+    return {
+      state: "unknown",
+      budgetKrw: 0,
+      feePpm: 0,
+      sellTaxPpm: 0,
+      source: null,
+      budgetMismatches: [],
+      feeMismatches: [],
+    };
+  }
+
+  const budgetMismatches: AccountBudgetMismatch[] = [];
+  const feeMismatches: AccountFeeMismatch[] = [];
+  for (const k of known) {
+    const e = values[k];
+    if (k === source || e == null) continue;
+    if (e.budgetKrw !== v.budgetKrw) budgetMismatches.push({ serverKey: k, budgetKrw: e.budgetKrw });
+    if (e.feePpm !== v.feePpm || e.sellTaxPpm !== v.sellTaxPpm) {
+      feeMismatches.push({ serverKey: k, feePpm: e.feePpm, sellTaxPpm: e.sellTaxPpm });
+    }
+  }
+  return {
+    state: "known",
+    budgetKrw: v.budgetKrw,
+    feePpm: v.feePpm,
+    sellTaxPpm: v.sellTaxPpm,
+    source,
+    budgetMismatches,
+    feeMismatches,
+  };
 }
