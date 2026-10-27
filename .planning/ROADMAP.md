@@ -62,6 +62,7 @@
 - [x] **Phase 32: 계좌 축 정리** - 작업대 계좌 스코프(전략·VI 계좌별) · 상단 줄 재설계(정규 배지·사운드 토글 제거, 시세·주문 축약, 계좌 선택) · /me 탭 위 계좌 칩(현황 · 잔고 · 주문 · 설정이 고른 계좌를 따름) · 매매설정 서버별(relay 42/84 serverKey) · VI 계좌별(relay 61 슬롯 · gh-trade Phase 33 뒤) (completed 2026-10-16)
 - [x] **Phase 33: 팀 매집(teamflow) 보고서** - gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync · 표 + payload) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표) · 인박스 `261016-teamflow-export.md` 닫기 (completed 2026-10-16)
 - [x] **Phase 34: 매집감지(accum) 보고서** - gh-trade `accum_flow.ndjson.gz` export 적재(limitup-sync 10번째 표 + payload · 재적재 감지 일반화) · 목록/상세 분리 RPC · `/analytics/accum` 목록 + 펼침 상세(순수 SVG 3판 차트 · 사이클 표 · 손익 · 판정 기준) · 10/19·10/20 소급 · 인박스 `261020-accum-flow-export.md` 닫기 (completed 2026-10-21)
+- [ ] **Phase 35: 발사 경계 지도 어드민** - gh-trade 16:00 예약 발사 · 09:00:30 개장차익 발사 결과(조각·머리)를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads`·`launch_pieces` 적재(relay 무변경) · 어드민 메뉴 날짜별 주문 내역 + 날짜 범위 발사 경계 지도(서버×시장 4패널 SVG) · 10/12~10/26 백필 · 인박스 `261027-launch-gate-admin.md`
 
 ## Phase Details
 
@@ -206,7 +207,7 @@ Plans:
 | Milestone | Phases | Plans | Status |
 |-----------|--------|-------|--------|
 | v1.0 Launch | 37 | 432 | ✅ Shipped 2026-10-11 |
-| v1.1 운영 유지보수 | 5 | — | 🚧 진행 중 |
+| v1.1 운영 유지보수 | 6 | — | 🚧 진행 중 |
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -215,6 +216,7 @@ Plans:
 | 32. 계좌 축 정리 | v1.1 | 14/14 | Complete | 2026-10-16 |
 | 33. 팀 매집(teamflow) 보고서 | v1.1 | 9/9 | Complete | 2026-10-16 |
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
+| 35. 발사 경계 지도 어드민 | v1.1 | 0/0 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -314,3 +316,22 @@ Plans:
 - [x] 34-12-PLAN.md — webapp push · 10/19 · 10/20 라이브 UAT · 인박스 회신 done
 
 **UI hint**: yes
+
+### Phase 35: 발사 경계 지도 어드민
+
+**Goal**: gh-trade 서버(KB120 · KYOBO119)의 매일 **16:00 예약 발사(Q16)** 와 **09:00:30 개장차익 발사(N · A)** 결과가 조각(1행/주문 조각)·머리(1행/발사) 단위로 gh-radar DB 에 쌓이고(서버 쪽은 하루치만 남으므로 gh-radar DB 가 유일한 이력 저장소), 웹 **어드민 메뉴** 에서 ① 날짜별 발사 주문 내역(머리 + 조각 표 · 16:00 / 09:00:30 전환) ② 날짜 범위를 묶은 **발사 경계 지도**(서버 × 시장 4패널 · x = 송신 시각 µs · 접수/101·515/기타 점 · 그날 경계 띠 · 「쐈다면」 리본 · 다음 오프셋 선)를 본다. 채널은 관찰자 저널(80) StrategyEvent **kind 17 LaunchPiece · 18 LaunchHead**(관찰자 전용 append · 와이어 무변경) — relay 는 kind 를 해석하지 않고 43칸 원문을 `dma_strategy_events` 에 넣으므로 **relay 무변경**, 해석·upsert 는 DB 쪽(`dma_strategy_apply` 또는 트리거)이 `launch_pieces` · `launch_heads` 로 푼다. 10/12~10/26 은 첨부 `pieces.json` 등 ndjson 을 1회 적재 스크립트로 백필
+**Depends on**: Phase 29(웹 Admin · requireAdmin) · Phase 34(순수 SVG 차트 부품 · 날짜 알약) · 외부: gh-trade 정식 계약 인계 노트(kind 17·18 칸 매핑 표 — 이 phase 의 상의 답은 2026-10-27 gh-trade-cc 에 회신) · 인박스 `docs/inbox/from-gh-trade/261027-launch-gate-admin.md`(상의, 2026-10-27 도착) · 첨부 `261027-launch-gate-admin-attach/launch-gate-map.html`(목업 출발점)
+**Requirements**: TBD
+**Success Criteria** (초안 — discuss/plan 에서 확정):
+  1. 목업 2화면(날짜별 주문 내역 · 경계 지도)을 gh-radar 웹 톤으로 다시 그려 사용자 확인 → 계좌·사용자 열 노출 여부 결정 → gh-trade 에 회신(정식 인계 노트 전)
+  2. DB: `launch_heads` · `launch_pieces`(논리 키 trade_date · gateway · profile · market · wire — 최신 seq 우선 upsert 로 재생 멱등) + kind 17·18 을 푸는 DB 쪽 해석 · 사용자 전략 이벤트 json 래퍼에서 17·18 제외 · 15·16 purge 에 포함시키지 않음(이력 정본)
+  3. server: 어드민 전용 라우트(requireAuth → requireAdmin) 2개 — 날짜별 내역 · 날짜 범위 지도 데이터(RPC 1회)
+  4. webapp: 사이드바 Admin 그룹에 메뉴 추가 · 두 화면(또는 탭) · 순수 SVG 4패널 · 폰 390 가로 스크롤
+  5. 백필: ndjson(풀린 필드명) → `launch_pieces` 1회 적재 스크립트(머리는 조각에서 계산) · 10/12~10/26 적재 후 첨부 지도와 대조 일치
+  6. 첫 실물 날짜 라이브 UAT(16:00:01 이후 relay 적재 → 어드민에 당일 행) · 인박스 `261027-launch-gate-admin.md` 및 후속 정식 인계 노트를 `status: done` 으로 닫는다
+
+**배포 순서**: gh-trade 서버 먼저 배포해도 안전(relay 는 모르는 kind 도 그대로 적재) → gh-radar DB 마이그레이션 → server → webapp push(= 프로덕션). relay 재배포 없음(fbs enum·주석 sync 만)
+**Plans**: 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-discuss-phase 35 → 목업 → /gsd-plan-phase 35)

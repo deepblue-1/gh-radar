@@ -24,7 +24,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** v1.1 운영 유지보수 — 로드맵 phase 없음(새 작업은 phase add · quick)
+**Current focus:** v1.1 운영 유지보수 — Phase 35 발사 경계 지도 어드민(discuss → 목업 → plan)
 
 ## Current Position
 
@@ -42,6 +42,7 @@ Progress: [██████████] 100% (53/53 plans)
 - Phase 32 added (2026-10-13): 계좌 축 정리 — 작업대 계좌 스코프 · 상단 줄 재설계 · /me 전략 현황 계좌별 · 주문 탭 계좌 선택 · 매매설정 서버별(relay serverKey). 사용자가 A(quick+phase 2개) 대신 B(phase 1개 · 웨이브 분리)를 택함
 - Phase 33 added (2026-10-16): 팀 매집(teamflow) 보고서 — gh-trade `team_flow.ndjson.gz` export 적재(limitup-sync) · 서버 RPC · `/analytics/teamflow` 목록(스케치 014 A 보고서 동형 · 기본 접힘) + 행 펼침 상세(스케치 015 C 차트 + 접힌 표). 열 사전 인박스 `261016-teamflow-export.md` 는 미도착 — 도착 후 대조
 - Phase 34 added (2026-10-20): 매집감지(accum) 보고서 — gh-trade Phase 36 `accum_flow.ndjson.gz` export 적재(limitup-sync 선택 파일 일반화) · 목록/상세 분리 RPC · `/analytics/accum` 목록 + 상세 차트(10초 가격 · 팀 주문 · first · 순매수 누적 · 사이클 세로선 · 등록 전 음영) · kind 16 소급 파일 내보내기. 설계는 gh-trade-f4 와 합의(10-20), 열 사전 정본 인박스 `261020-accum-flow-export.md`. quick 대신 phase — teamflow(Phase 33, 9 plans)와 같은 규모
+- Phase 35 added (2026-10-27): 발사 경계 지도 어드민 — gh-trade 인박스 `261027-launch-gate-admin.md`(상의 단계). 16:00·09:00:30 발사 결과를 저널 80 kind 17·18 로 받아 DB 쪽 해석(relay 무변경) · 어드민 주문 내역 + 경계 지도 · 백필. 채널 답(A · DB 해석 · 백필 ndjson 풀린 이름)은 gh-trade-cc 에 회신 완료 · 계좌 열 노출은 목업 검토 때 사용자 결정
 
 ### Pending Todos
 
