@@ -7,7 +7,7 @@
  *   옛 계약은 한 세로 열 「상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문**」
  *   이었다. 지금은 계정 카드 아래 4탭이 그 순서를 잇는다 — 현황(상태줄 → 전략) → 잔고(계좌 A → B …) →
  *   주문 → 설정. 전략이 지금 어떤 상태인지가 먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문
- *   이력은 그 뒤에 붙는 기록이다. 제목 바로 아래 계정 카드(`AccountCard` · Phase 21 D-08)는 탭 **위**
+ *   이력은 그 뒤에 붙는 기록이다. Phase 36(D-17 ②)이 5번째 「손익」(고른 계좌의 일자별 실현손익)을 맨 뒤에 붙였다. 제목 바로 아래 계정 카드(`AccountCard` · Phase 21 D-08)는 탭 **위**
  *   공통이라 순서 자체를 바꾸지 않는다.
  *   ★ 전 종목 전략 로그(D-25a · G-21-R3-2 · 스케치 008 ① B)는 **새 칸이 아니다** — 전략 현황 칸 안의
  *     「현황 | 로그」 전환(기본 = 현황)이라 이 순서도 /me 세로 길이도 그대로다. 앱은 /trading 하단 공용
@@ -75,9 +75,16 @@
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import type { RelayAccountState } from "@gh-radar/shared";
+import type { PnlRange, RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
+import {
+  PNL_RANGE_LABEL,
+  PnlPeriodControl,
+  PnlReportView,
+  pnlCaptionRangeOf,
+  usePnlReport,
+} from "@/components/pnl/pnl-report";
 import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { MeAccountChips } from "@/components/me/account-chips";
@@ -90,6 +97,7 @@ import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { stockCodeOf } from "@/components/trading/vi-order-list";
 import { useAuth } from "@/lib/auth-context";
+import { fetchMyPnl } from "@/lib/pnl-api";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
@@ -304,6 +312,8 @@ const ME_TABS = [
   { v: "accounts", label: "잔고" },
   { v: "orders", label: "주문" },
   { v: "settings", label: "설정" },
+  // Phase 36 D-17 ② — 5번째 「손익」(개수 배지 없음 · 고른 계좌 한 벌의 일자별 실현손익).
+  { v: "pnl", label: "손익" },
 ] as const;
 
 type MeTabValue = (typeof ME_TABS)[number]["v"];
@@ -331,7 +341,7 @@ export function unfilledCountOf(
   return total;
 }
 
-/** 4탭 셸(위 ⑦). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
+/** 탭 셸(위 ⑦ · Phase 36 부터 5탭). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
 function MeTabs() {
   const { accounts, accountStates, status, limitChasers, journalRows } = useRelayContext();
   const tab = useUrlTab(ME_TAB_VALUES, "status");
@@ -491,13 +501,7 @@ function MeTabs() {
             아니라 「아직 모른다」이므로 빈 상태가 아니라 로딩으로 말한다. 계좌 목록은 왔지만 기본 칩이 아직
             안 정해진 한 박자(효과 전)도 같다 — 빈 계좌 패널(「미체결 없음」)을 한 번 비추지 않는다.
           */
-          <p
-            data-slot="me-accounts-loading"
-            aria-busy="true"
-            className="rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
-          >
-            계좌 정보를 불러오는 중이에요…
-          </p>
+          <MeAccountsLoading slot="me-accounts-loading" />
         ) : (
           /*
             고른 계좌 한 벌(Phase 32 D-22). 계좌는 탭 위 칩이 말하므로 패널 머리 줄(「계좌 · 번호 · 상품명」)을
@@ -562,8 +566,52 @@ function MeTabs() {
         {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
         <DeviceSettingsCard />
       </TabsContent>
+
+      <TabsContent
+        value="pnl"
+        data-testid="me-tab-panel-pnl"
+        forceMount={tab.keepMounted("pnl")}
+        className={ME_PANEL}
+      >
+        {/* Phase 36 D-17 ② — 고른 계좌 한 벌. 계좌 미정이면 잔고 탭과 같은 로딩 상자(빈 상태로 말하지 않는다). */}
+        {shownAccountNo === undefined ? (
+          <MeAccountsLoading slot="me-pnl-accounts-loading" />
+        ) : (
+          <MePnlTab accountNo={shownAccountNo} />
+        )}
+      </TabsContent>
     </Tabs>
     </>
+  );
+}
+
+/** 계좌 미정 상자 — 잔고 · 손익 탭 공용(「계좌 없음」 이 아니라 「아직 모른다」 · 로딩으로 말한다). */
+function MeAccountsLoading({ slot }: { slot: string }) {
+  return (
+    <p
+      data-slot={slot}
+      aria-busy="true"
+      className="rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+    >
+      계좌 정보를 불러오는 중이에요…
+    </p>
+  );
+}
+
+/**
+ * 「손익」 탭 본문(Phase 36 D-17 ② · UI-SPEC ⑤b). 기간은 탭 안 로컬 상태(기본 30일 · 주소에 싣지 않는다 — `?tab=` 훅과
+ * 섞지 않는다). 계좌 · 기간이 바뀌면 다시 받고(로딩 → 카드 새로 섬 = 펼침 기본 복원), 묶음 머리 없는 카드 1장으로 그린다.
+ * 어드민 권한 분기 없음 — 내 계좌만(server 가 가시성으로 거른다).
+ */
+function MePnlTab({ accountNo }: { accountNo: string }) {
+  const [range, setRange] = useState<PnlRange>("30");
+  const { status, report, retry } = usePnlReport(`${accountNo}|${range}`, () => fetchMyPnl(accountNo, range));
+  const cap = pnlCaptionRangeOf(range, report);
+  return (
+    <div data-slot="me-pnl" className="flex min-w-0 flex-col gap-4">
+      <PnlPeriodControl range={range} onChange={setRange} from={cap.from} to={cap.to} />
+      <PnlReportView status={status} report={report} rangeLabel={PNL_RANGE_LABEL[range]} onRetry={retry} />
+    </div>
   );
 }
 

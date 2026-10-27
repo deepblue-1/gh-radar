@@ -27,6 +27,10 @@ let mockPanelAccounts: string[] = [];
 /* 오늘 주문 목 — 마운트 횟수(조회 1회 = 마운트 1회)와 건수 콜백으로 올릴 값. */
 let mockOrdersMounts = 0;
 let mockOrdersCount = 0;
+/* Phase 36 손익 탭 — fetchMyPnl 목(받은 인자 기록 · 빈 보고서). */
+const mockFetchMyPnl = vi.fn((_account: string, _range: string) =>
+  Promise.resolve({ from: '2026-09-28', to: '2026-10-27', groups: [] }),
+);
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/me',
@@ -50,6 +54,10 @@ vi.mock('@/components/trading/dma-gate', () => ({
 }));
 vi.mock('@/lib/strategy-log-feed', () => ({ useStrategyLogFeed: () => mockFeed }));
 vi.mock('@/lib/native/use-native-refresh', () => ({ useNativeRefresh: () => {} }));
+vi.mock('@/lib/pnl-api', () => ({
+  fetchMyPnl: (account: string, range: string) => mockFetchMyPnl(account, range),
+  fetchAdminPnl: vi.fn(),
+}));
 vi.mock('@/components/me/account-card', () => ({ AccountCard: () => null }));
 vi.mock('@/components/trading/today-orders-card', async () => {
   const { useEffect } = await import('react');
@@ -107,6 +115,7 @@ beforeEach(() => {
   mockPanelAccounts = [];
   mockOrdersMounts = 0;
   mockOrdersCount = 0;
+  mockFetchMyPnl.mockClear();
   window.history.replaceState(null, '', '/me');
 });
 
@@ -436,10 +445,12 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     };
   }
 
-  it('B1 — 기본 렌더: 탭 순서 현황·잔고·주문·설정 · 현황 선택 · 미방문 패널 비마운트 · 오늘 주문 마운트 0', () => {
+  it('B1 — 기본 렌더: 탭 순서 현황·잔고·주문·설정·손익 · 현황 선택 · 미방문 패널 비마운트 · 오늘 주문 마운트 0 · 손익 조회 0', () => {
     render(<MeClient />);
     const names = within(meTabList()).getAllByRole('tab').map((t) => t.textContent);
-    expect(names).toEqual(['현황', '잔고', '주문', '설정']);
+    expect(names).toEqual(['현황', '잔고', '주문', '설정', '손익']);
+    expect(mockFetchMyPnl).not.toHaveBeenCalled();
+    expect(slot('me-pnl')).toBeNull();
     expect(meTab('현황')).toHaveAttribute('aria-selected', 'true');
 
     const statusPanel = screen.getByTestId('me-tab-panel-status');
@@ -579,6 +590,45 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     expect(screen.getByTestId('me-tab-panel-orders')).toHaveAttribute('data-state', 'inactive');
     expect(mockOrdersMounts).toBe(1);
     expect(countOf('주문')).toHaveTextContent('7');
+  });
+
+  it('B7 — 손익 탭(Phase 36 D-17 ②): 열면 fetchMyPnl(고른 계좌, "30") 1회 · 묶음 머리 없음 · 칩 B → B 로 재조회 · 「7일」 → range 7 · 배지 없음', async () => {
+    mockSearchParams = new URLSearchParams('tab=pnl');
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [
+        { accountNo: '1111111101', name: 'A' },
+        { accountNo: '2222222201', name: 'B' },
+      ],
+    } as unknown as RelayContextValue;
+    render(<MeClient />);
+    expect(meTab('손익')).toHaveAttribute('aria-selected', 'true');
+    expect(countOf('손익')).toBeNull();
+    expect(mockFetchMyPnl).toHaveBeenCalledTimes(1);
+    expect(mockFetchMyPnl).toHaveBeenLastCalledWith('1111111101', '30');
+    // 빈 보고서 → 빈 상자 · 기간 컨트롤 줄은 그대로.
+    expect(await screen.findByText('이 기간에는 체결이 없어요')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '기간' })).toBeInTheDocument();
+    expect(slot('pnl-group-head')).toBeNull();
+
+    const chipB = document.querySelector('[data-slot="me-account-chip"][data-account-no="2222222201"]');
+    await userEvent.click(chipB as HTMLElement);
+    expect(mockFetchMyPnl).toHaveBeenCalledTimes(2);
+    expect(mockFetchMyPnl).toHaveBeenLastCalledWith('2222222201', '30');
+
+    await userEvent.click(within(screen.getByRole('group', { name: '기간' })).getByRole('button', { name: '7일' }));
+    expect(mockFetchMyPnl).toHaveBeenCalledTimes(3);
+    expect(mockFetchMyPnl).toHaveBeenLastCalledWith('2222222201', '7');
+    // 기간은 주소에 싣지 않는다(탭 안 로컬 상태).
+    expect(window.location.search).not.toContain('range');
+  });
+
+  it('B7b — 손익 탭: 계좌 미정이면 「계좌 정보를 불러오는 중이에요…」 · 조회 0', () => {
+    mockSearchParams = new URLSearchParams('tab=pnl');
+    render(<MeClient />);
+    expect(slot('me-pnl-accounts-loading')).toHaveTextContent('계좌 정보를 불러오는 중이에요…');
+    expect(mockFetchMyPnl).not.toHaveBeenCalled();
   });
 
   it('B6 — DMA 게이트(미매핑) 분기에는 탭도 상따 기본설정도 없다', () => {
