@@ -64,7 +64,7 @@ import type { AdminConn } from "./admin-conn.js";
 import type { AdminIntentStore } from "./intent-store.js";
 import { IntentError } from "./intent-store.js";
 import { planPasswordOps, planServerOps, type AdminSnapshotView, type PlannedOp, type ServerPlan } from "./planner.js";
-import { ADMIN_OP } from "./types.js";
+import { ADMIN_OP, freshLiveBudget, type LiveBudget } from "./types.js";
 
 /**
  * Phase 30 (IPMAC-02 · D-07 · D-10) — 웹 계좌 편집이 보낸 주문자 IP/MAC 쌍. `reconcileUser` 가 그 계좌(증권사 · 정규화 번호 ·
@@ -86,7 +86,8 @@ export type OrderEndpointOverride = { broker: DmaBroker; accountNo: string; orde
 export type AccountCostCommand = { op: 6; budgetKrw: number } | { op: 7; feePpm: number; sellTaxPpm: number };
 
 /** dispatcher 가 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. */
-export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command">;
+export type AdminConnLike = Pick<AdminConn, "currentSnapshot" | "command"> &
+  Partial<Pick<AdminConn, "snapshotReceivedAtMs">>;
 
 /** 44 입력(요청 id 는 연결이 붙인다). */
 type CommandInput = Parameters<AdminConn["command"]>[0];
@@ -124,10 +125,10 @@ export type AdminDispatcherDeps = {
     updatePassword(dmaUserId: string, password: string): number;
   };
   /**
-   * 서버 · 계좌의 67 live 예수금(Phase 36 D-05 · D-07 · `SubscriptionHub.liveBudgetOf`) — op 3 뒤 되싣기의 출처 예수금은 이 값이
-   * 우선이고 null 이면 출처 87 값. 주지 않으면 늘 87.
+   * 서버 · 계좌의 67 live 예수금 + 수신 시각(Phase 36 D-05 · D-07 · `SubscriptionHub.liveBudgetOf`) — op 3 뒤 되싣기의 출처 예수금은
+   * 출처 87 보다 늦게 받은 live 면 그 값, 아니면 출처 87 값(36 WR-02 · `freshLiveBudget`). 주지 않으면 늘 87.
    */
-  liveBudget?: (serverKey: string, accountNo: string) => number | null;
+  liveBudget?: (serverKey: string, accountNo: string) => LiveBudget | null;
 };
 
 /** op 1 비밀번호 공급자 — 필요할 때 한 번만 꺼낸다(인자 평문 또는 `dma_users` 복호). */
@@ -468,7 +469,8 @@ export class AdminDispatcher {
    *
    * 출처 = 같은 (증권사, 정규화 계좌)의 다른 **active** 의도 행 서버 중 켜진 것(레지스트리 순) → `resolveEffectiveOrderServer`
    * (지정 주문 서버 → 증권사 기본 주문 서버 → 등록 1대)로 고르고, 못 고르면 첫 후보 — 어드민 카드 출처(36-10
-   * `summarizeAccountCosts`)와 같은 규칙. 예수금 = 출처 67 live(`deps.liveBudget`) 우선 · 없으면 출처 87, 비용률 = 출처 87.
+   * `summarizeAccountCosts`)와 같은 규칙. 예수금 = 출처 67 live(`deps.liveBudget` · 출처 87 보다 늦게 받은 것만 · WR-02) · 아니면
+   * 출처 87, 비용률 = 출처 87.
    * 예수금 > 0 이면 op 6, (수수료, 매도세) ≠ (0, 0) 이면 op 7. 출처가 없거나(다른 서버 미등록) 출처 87 을 모르면 보내지 않는다.
    *
    * **비치명(A5)** — 실패(code · timeout · offline)는 warn 1줄(server · op · code | kind · 마스킹 계좌)뿐, 서버 결과 · 기록은 op 3
@@ -497,16 +499,17 @@ export class AdminDispatcher {
       const defaultKey = registry.find((r) => r.broker === broker && r.isOrderServer && r.enabled)?.key ?? null;
       const source = resolveEffectiveOrderServer({ designated, defaultKey, registered: candidates })?.key ?? candidates[0]!;
 
-      const src = this.#deps.pipelines
-        .get(source)
-        ?.admin.currentSnapshot()
+      const sourceAdmin = this.#deps.pipelines.get(source)?.admin;
+      const src = sourceAdmin
+        ?.currentSnapshot()
         ?.users.flatMap((u) => u.accounts)
         .find((a) => normalizeAccountNo(a.accountNo) === no);
       if (src === undefined) {
         logger.warn({ server: serverKey, source, account }, "[admin] op 3 뒤 예수금·비용률 되싣기 생략 — 출처 서버 87 에 계좌 없음 · 87 미수신");
         return;
       }
-      const budgetKrw = this.#deps.liveBudget?.(source, src.accountNo) ?? src.budgetKrw ?? 0;
+      const live = freshLiveBudget(this.#deps.liveBudget?.(source, src.accountNo), sourceAdmin?.snapshotReceivedAtMs?.());
+      const budgetKrw = live ?? src.budgetKrw ?? 0;
       const feePpm = src.feePpm ?? 0;
       const sellTaxPpm = src.sellTaxPpm ?? 0;
       const costs: AccountCostCommand[] = [];

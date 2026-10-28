@@ -66,6 +66,7 @@ import { createAdminRouter, type AdminApiDeps } from "../src/admin/admin-api.js"
 import { AdminDispatcher } from "../src/admin/dispatcher.js";
 import { AdminIntentStore } from "../src/admin/intent-store.js";
 import { LaunchPlanService } from "../src/admin/launch-plan.js";
+import type { LiveBudget } from "../src/admin/types.js";
 import { createOrderApi } from "../src/order/order-api.js";
 import type { QuoteSwitchResult } from "../src/quote/quote-switch.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
@@ -173,7 +174,7 @@ type HarnessOptions = {
   /** KYOBO119 에도 admin 연결(대역 87)을 세운다(30 IN-04). 기본 = KB120 · KB121 만. */
   kyoboAdmin?: boolean;
   /** hub 67 live 예수금 대역(Phase 36 D-05). 기본 주입 없음. */
-  liveBudget?: (serverKey: string, accountNo: string) => number | null;
+  liveBudget?: (serverKey: string, accountNo: string) => LiveBudget | null;
 };
 
 async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
@@ -2082,7 +2083,8 @@ describe("P36 GET /account-costs (D-05)", () => {
   it("C1 켜진 서버 KB · 교보 둘 다 키 · 87 3필드 + liveBudget 주입값(없으면 null)", async () => {
     h = await startHarness({
       kyoboAdmin: true,
-      liveBudget: (k, a) => (k === "KB120" && a === ACC ? 99_000_000 : null),
+      // 87(op 5 재조회 포함)보다 늦게 받은 67 — live 로 싣는다(WR-02).
+      liveBudget: (k, a) => (k === "KB120" && a === ACC ? { krw: 99_000_000, atMs: Number.MAX_SAFE_INTEGER } : null),
     });
     await seedKb120Cost(h);
 
@@ -2104,12 +2106,30 @@ describe("P36 GET /account-costs (D-05)", () => {
   });
 
   it("C2 liveBudget 주입이 없으면 liveBudgetKrw 는 전부 null · live 0 은 0(해제 정당값)", async () => {
-    h = await startHarness({ liveBudget: (k) => (k === "KB121" ? 0 : null) });
+    h = await startHarness({ liveBudget: (k) => (k === "KB121" ? { krw: 0, atMs: Number.MAX_SAFE_INTEGER } : null) });
     const body = (await (await call(h, "GET", PATH)).json()) as {
       servers: Record<string, Array<{ liveBudgetKrw: number | null }>>;
     };
     expect(body.servers.KB120!.map((r) => r.liveBudgetKrw)).toEqual([null]);
     expect(body.servers.KB121!.map((r) => r.liveBudgetKrw)).toEqual([0]);
+  });
+
+  it("C2b (WR-02) 그 서버 87 보다 먼저 받은 67 live 는 싣지 않는다(null → 개요가 87 새 값) · 87 뒤에 온 67 은 싣는다", async () => {
+    let liveAt = 0;
+    h = await startHarness({ liveBudget: (k, a) => (k === "KB120" && a === ACC ? { krw: 99_000_000, atMs: liveAt } : null) });
+    await seedKb120Cost(h);
+    const kb120Live = async () => {
+      const body = (await (await call(h!, "GET", PATH)).json()) as {
+        servers: Record<string, Array<{ accountNo: string; budgetKrw: number; liveBudgetKrw: number | null }>>;
+      };
+      return body.servers.KB120!.find((r) => r.accountNo === ACC)!;
+    };
+    // 저장 직후 재조회 — 87(새 값 1억)은 받았고 67 은 그 전 값(옛 값)뿐 → live 를 싣지 않는다.
+    liveAt = h.conns.KB120!.snapshotReceivedAtMs()! - 1;
+    expect(await kb120Live()).toMatchObject({ budgetKrw: 100_000_000, liveBudgetKrw: null });
+    // 체결 조정 67 이 87 뒤에 옴 → live.
+    liveAt = h.conns.KB120!.snapshotReceivedAtMs()! + 1;
+    expect(await kb120Live()).toMatchObject({ budgetKrw: 100_000_000, liveBudgetKrw: 99_000_000 });
   });
 
   it("C3 꺼진 서버 · 파이프라인(87) 없는 서버는 키가 없다", async () => {

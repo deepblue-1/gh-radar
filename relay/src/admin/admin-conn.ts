@@ -250,6 +250,17 @@ export class AdminConn extends EventEmitter {
   }
 
   /**
+   * `currentSnapshot()` 이 돌려주는 87 을 받은 시각(`Date.now()` ms) — 같은 조건(ready · 같은 세대)에서만, 아니면 null.
+   * 67 live 예수금과 어느 쪽이 더 최근인지 견주는 데 쓴다(36 WR-02 · `freshLiveBudget`).
+   */
+  snapshotReceivedAtMs(): number | null {
+    const snap = this.#snapshot;
+    if (snap === null || !this.isReady || this.#transport === null) return null;
+    if (snap.generation !== this.#transport.generation) return null;
+    return snap.receivedAtMs;
+  }
+
+  /**
    * 관리 명령 1건(44). 서버당 1건 비행 — 앞 명령이 끝나야 나간다. 결과는 throw 하지 않고 세 갈래로만 온다:
    * `result`(86 · 변경이면 87 동반) · `timeout`(86 미도착) · `offline`(ready 아님 · 끊김 · 정지).
    */

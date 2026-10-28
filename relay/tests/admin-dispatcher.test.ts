@@ -143,6 +143,13 @@ class FakeConn implements AdminConnLike {
     return this.#snapshot;
   }
 
+  /** 87 수신 시각(36 WR-02) — null = 모름(시각 비교 없이 live 우선 · 종전 테스트 그대로). */
+  snapshotAtMs: number | null = null;
+
+  snapshotReceivedAtMs(): number | null {
+    return this.snapshotAtMs;
+  }
+
   async command(input: CommandInput): Promise<AdminCommandOutcome> {
     if (input.op === 5) {
       // 서버의 지금 users.toml(state)을 87 로 — relay 밖 변경(state 직접 수정)이 여기서 처음 캐시에 들어온다.
@@ -1445,7 +1452,7 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
       {
         liveBudget: (k, a) => {
           seen.push([k, a]);
-          return k === "KB120" ? 99_000_000 : null;
+          return k === "KB120" ? { krw: 99_000_000, atMs: 1_000 } : null;
         },
       },
     );
@@ -1454,6 +1461,29 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
       { op: 7, userId: "", account: acct(A), feePpm: 100, sellTaxPpm: 2000 },
     ]);
     expect(seen).toContainEqual(["KB120", A]);
+  });
+
+  it("⑤-b (WR-02) 출처 KB120 87 보다 먼저 받은 67 live 는 쓰지 않는다(87 1억) · 87 뒤에 온 live 는 쓴다(9,900만)", async () => {
+    const run = async (liveAtMs: number) => {
+      const env = setup(
+        {
+          KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 0, sellTaxPpm: 0 }),
+          KB121: state({ u1: [kb(B, 2)] }),
+        },
+        [row("KB120"), row("KB121")],
+        { liveBudget: (k) => (k === "KB120" ? { krw: 99_000_000, atMs: liveAtMs } : null) },
+      );
+      env.conns.KB120!.snapshotAtMs = 5_000;
+      seedU1(env, [
+        { accountNo: A, priority: 1, servers: ["KB120"] },
+        { accountNo: B, priority: 2, servers: ["KB121"] },
+      ]);
+      await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+      await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+      return costOps(env.conns.KB121!);
+    };
+    expect(await run(4_999)).toEqual([{ op: 6, userId: "", account: acct(A), budgetKrw: 100_000_000n }]);
+    expect(await run(5_001)).toEqual([{ op: 6, userId: "", account: acct(A), budgetKrw: 99_000_000n }]);
   });
 
   it("⑥ 되싣기 op 6 이 code 1 → KB121 결과 ok 그대로 · warn 1줄(server · op · code · 마스킹 계좌) · 기록 = op 3 결과", async () => {

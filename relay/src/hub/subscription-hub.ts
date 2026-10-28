@@ -213,6 +213,7 @@ import type {
 } from "@gh-radar/shared";
 import { normalizeAccountNo } from "@gh-radar/shared";
 
+import type { LiveBudget } from "../admin/types.js";
 import { logger } from "../logger.js";
 import type { TransportFrameEvent } from "../dma/dma-client.js";
 import type { SessionReadyEvent } from "../dma/session.js";
@@ -986,6 +987,12 @@ export class SubscriptionHub extends EventEmitter {
    * 가공하지 않고 원본 그대로 흘린다(브라우저가 같은 병합을 한다).
    */
   readonly #accountStates = new Map<string, RelayAccountState>();
+  /**
+   * `#accountStates` 와 같은 키 → 그 계좌 66/67 을 마지막으로 받은 시각(`Date.now()` ms · 36 WR-02). 66/67 은 프레임마다
+   * `budget_krw` 를 싣고 병합이 마지막 값으로 덮으므로(D-14) 이 시각이 곧 live 예수금의 수신 시각이다. `liveBudgetOf` 가
+   * 87 캐시 수신 시각과 견주게 돌려준다(`freshLiveBudget`). 지우기 · 비우기는 `#accountStates` 와 늘 함께.
+   */
+  readonly #accountStateAtMs = new Map<string, number>();
   /**
    * `${userId}|${item.key}` → 상따 전략 1건 (D-12).
    *
@@ -2234,20 +2241,26 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 그 서버 그 계좌의 66/67 마지막 예수금(원) — Phase 36 D-05 · 어드민 개요 「현재 예수금」 의 live 원천.
    *
-   * 서버가 체결마다 `budget_krw` 를 스스로 바꾸고(D-14) 그 값은 87 없이 한도 전용 67 로만 오므로, 87 보다 이 값이 새롭다.
+   * 서버가 체결마다 `budget_krw` 를 스스로 바꾸고(D-14) 그 값은 87 없이 한도 전용 67 로만 오므로, 평소엔 87 보다 이 값이 새롭다
+   * (op 6 저장 · op 5 재조회 직후는 87 이 더 새로울 수 있다 — 그래서 수신 시각을 함께 돌려준다 · WR-02).
    * 캐시 키 `${userId}|${serverKey}|${accountNo}` 의 둘째 칸이 서버, 셋째 칸이 계좌인 첫 항목을 쓴다 — 같은 서버 같은 계좌의
    * 예수금은 서버의 계좌 단위 값이라 어느 사용자 세션이 받았든 같다. 계좌번호는 정규화해 비교한다(87 · 67 표기 차이 흡수).
    * 0 은 「해제」 정당값이다. **웹 세션이 없는 계좌는 67 을 받은 적이 없어 null** → 호출자가 87 값으로 내려간다.
+   *
+   * `atMs` = 그 프레임 수신 시각(36 WR-02) — 호출자가 87 수신 시각과 견줘 더 최근 원천을 고른다(`freshLiveBudget`). 같은 서버
+   * 같은 계좌 키가 여럿(사용자 세션 여럿)이면 가장 최근에 받은 것.
    */
-  liveBudgetOf(serverKey: string, accountNo: string): number | null {
+  liveBudgetOf(serverKey: string, accountNo: string): LiveBudget | null {
     const want = normalizeAccountNo(accountNo);
+    let best: LiveBudget | null = null;
     for (const [key, state] of this.#accountStates) {
       const parts = key.split("|");
       if (parts.length !== 3 || parts[1] !== serverKey) continue;
       if (normalizeAccountNo(parts[2] ?? "") !== want) continue;
-      return state.budgetKrw ?? 0;
+      const atMs = this.#accountStateAtMs.get(key) ?? 0;
+      if (best === null || atMs > best.atMs) best = { krw: state.budgetKrw ?? 0, atMs };
     }
-    return null;
+    return best;
   }
 
   /**
@@ -2625,6 +2638,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#tapes.clear();
     this.#limitFeatures.clear();
     this.#accountStates.clear();
+    this.#accountStateAtMs.clear();
     this.#limitChasers.clear();
     this.#limitChaserKnown.clear();
     this.#viSlots.clear();
@@ -3358,6 +3372,7 @@ export class SubscriptionHub extends EventEmitter {
     // 키 앞은 세션 소유 키다(29-20 · D-18 병합) — 계좌별 항목이라 한 세션의 66 은 그 세션 계좌만 바꾼다.
     const key = `${ownerPrefix(owner)}${state.a}`;
     this.#accountStates.set(key, this.#mergeAccountState(key, state));
+    this.#accountStateAtMs.set(key, Date.now());
     logger.info(
       {
         userId,
@@ -3929,7 +3944,10 @@ export class SubscriptionHub extends EventEmitter {
     }
     // 시세 캐시(`#quotes` · `#tapes`)는 전역이라 여기서 건드리지 않는다 (Phase 26 D-12) — 사용자 세션 교체와 무관하다.
     for (const key of [...this.#accountStates.keys()]) {
-      if (key.startsWith(own)) this.#accountStates.delete(key);
+      if (key.startsWith(own)) {
+        this.#accountStates.delete(key);
+        this.#accountStateAtMs.delete(key);
+      }
     }
     // 전략 3맵도 **반드시** 여기서 버린다 (D-12). 빠뜨리면 재로그인·세션 교체 후에도 옛
     // 전략이 캐시에 남아, 인증 직후 스냅샷 팬아웃이 이미 사라진 전략을 화면에 그린다.

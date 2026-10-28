@@ -487,7 +487,7 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
       hub.attach(kb120);
       kb120.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 50_000_000 }));
 
-      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(50_000_000);
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)?.krw).toBe(50_000_000);
       expect(hub.liveBudgetOf("KB121", SAMPLE_ACCOUNT_NO)).toBeNull();
       // 접두 서버 키(KB1)가 KB120 캐시에 걸리지 않는다.
       expect(hub.liveBudgetOf("KB1", SAMPLE_ACCOUNT_NO)).toBeNull();
@@ -499,10 +499,10 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
       hub.attach(kb120);
       kb120.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 50_000_000 }));
       kb120.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 49_990_000 }));
-      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(49_990_000);
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)?.krw).toBe(49_990_000);
 
       kb120.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 0 }));
-      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toBe(0);
+      expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)?.krw).toBe(0);
     });
 
     it("사용자와 무관 — 다른 사용자 세션이 받은 같은 서버 같은 계좌 값을 쓴다 · 계좌번호 앞 0 은 정규화", () => {
@@ -510,8 +510,32 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
       hub.attach(other);
       other.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 12_000_000 }));
 
-      expect(hub.liveBudgetOf("KYOBO119", SAMPLE_ACCOUNT_NO)).toBe(12_000_000);
-      expect(hub.liveBudgetOf("KYOBO119", `00${SAMPLE_ACCOUNT_NO}`)).toBe(12_000_000);
+      expect(hub.liveBudgetOf("KYOBO119", SAMPLE_ACCOUNT_NO)?.krw).toBe(12_000_000);
+      expect(hub.liveBudgetOf("KYOBO119", `00${SAMPLE_ACCOUNT_NO}`)?.krw).toBe(12_000_000);
+    });
+
+    // 36 WR-02 — 수신 시각을 함께 돌려 87 수신 시각과 견주게 한다(`freshLiveBudget`).
+    it("(WR-02) atMs = 그 계좌 66/67 을 마지막으로 받은 시각 · 세션이 여럿이면 가장 최근 값 · 세션이 끝나면 null", () => {
+      const now = vi.spyOn(Date, "now");
+      try {
+        const a = new ServerSession("u1", "KB120");
+        const b = new ServerSession("u2", "KB120");
+        hub.attach(a);
+        hub.attach(b);
+        now.mockReturnValue(1_000);
+        a.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 50_000_000 }));
+        expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toEqual({ krw: 50_000_000, atMs: 1_000 });
+
+        now.mockReturnValue(2_000);
+        b.pushFrame(buildAccountStateFrame({ snapshot: true, budgetKrw: 49_000_000 }));
+        expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toEqual({ krw: 49_000_000, atMs: 2_000 });
+
+        now.mockReturnValue(3_000);
+        a.pushFrame(buildAccountStateFrame({ snapshot: false, budgetKrw: 48_000_000 }));
+        expect(hub.liveBudgetOf("KB120", SAMPLE_ACCOUNT_NO)).toEqual({ krw: 48_000_000, atMs: 3_000 });
+      } finally {
+        now.mockRestore();
+      }
     });
   });
 });

@@ -204,3 +204,23 @@ export type AdminUsersSnapshot = {
   usersRev: bigint;
   users: AdminSnapshotUser[];
 };
+
+/**
+ * 서버 · 계좌의 66/67 마지막 예수금(원)과 그 프레임을 받은 시각(`Date.now()` ms) — `SubscriptionHub.liveBudgetOf` 반환(Phase 36 D-05).
+ * `atMs` 는 87 캐시 수신 시각(`AdminConn.snapshotReceivedAtMs`)과 견줘 더 최근 원천을 고르는 데만 쓴다(36 WR-02 · `freshLiveBudget`).
+ */
+export type LiveBudget = { krw: number; atMs: number };
+
+/**
+ * 67 live 와 87 중 **더 최근에 받은** 예수금 원천 고르기(36 WR-02) — live 가 87 수신 시각보다 늦게(같은 ms 포함) 왔으면 live 원 값,
+ * 아니면 null(= 호출자가 87 값으로 내려간다). 87 시각을 모르면(null) live 를 그대로 쓴다(D-05 「live 우선」 종전).
+ *
+ * 왜 시각인가: 체결 조정은 87 없이 한도 전용 67 로만 오므로(D-14 · D-29) 평소엔 live 가 새롭다. 그러나 op 6 저장 · op 5 재조회의 87
+ * 은 서버 **현재 값**을 싣고(인박스 261027-account-pnl 「다음 87(op 5 등)은 현재 값」), live 원천 67 은 다른 연결(사용자 세션)로 와
+ * 87 과 도착 순서가 보장되지 않는다. live 를 무조건 앞세우면 저장 직후 재조회에 옛 값 · 거짓 불일치 줄이 뜬다.
+ */
+export function freshLiveBudget(live: LiveBudget | null | undefined, snapshotAtMs: number | null | undefined): number | null {
+  if (live === null || live === undefined) return null;
+  if (snapshotAtMs === null || snapshotAtMs === undefined) return live.krw;
+  return live.atMs >= snapshotAtMs ? live.krw : null;
+}

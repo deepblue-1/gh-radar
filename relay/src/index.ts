@@ -530,7 +530,7 @@ const adminDispatcher = new AdminDispatcher({
   access: appAccess,
   // 열린 세션 반영(29-21) — op 2 ok 서버 → 그 서버 세션 unauthorized 종료 · 비밀번호 변경 → 열린 세션 비밀 교체(D-08).
   sessions: sessionManager,
-  // Phase 36 D-07 — op 3 뒤 되싣기의 출처 예수금은 그 서버 67 live 우선(체결 조정 반영) · 없으면 87.
+  // Phase 36 D-07 — op 3 뒤 되싣기의 출처 예수금은 그 서버 67 live(체결 조정 반영) · 단 87 보다 먼저 받은 live 면 87(WR-02).
   liveBudget: (k, a) => hub.liveBudgetOf(k, a),
 });
 const adminRouter = createAdminRouter({
@@ -553,7 +553,8 @@ const adminRouter = createAdminRouter({
   // Phase 29-37 (G-1 ⑥) — Admin 이 계좌 주문 서버를 고르거나(order-server) 등록 해제 · 계좌 제거 · 유저 삭제로 DB 가 지정을
   // 지우면 지정 적재기를 즉시 재적재한다(꼬리) → changed → 29-36 재수립(옛 서버 전략 끄기 → 세션 drop → wss 1012).
   orderServers: accountOrderServers,
-  // Phase 36 D-05 — 어드민 카드 「현재 예수금」: 서버가 체결마다 바꾼 값(한도 전용 67)을 hub 캐시에서 · 없으면 87 폴백.
+  // Phase 36 D-05 — 어드민 카드 「현재 예수금」: 서버가 체결마다 바꾼 값(한도 전용 67)을 hub 캐시에서 · 없거나 87 보다 먼저 받은
+  // 값이면 87(WR-02 — 저장 직후 재조회에 옛 67 이 이기지 않게).
   liveBudget: (k, a) => hub.liveBudgetOf(k, a),
 });
 

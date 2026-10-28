@@ -70,7 +70,7 @@
  * 복제하지 않는다: 예수금 · 비용률은 PC 식별 정보가 아니다) 의 87 캐시 계좌마다 `{ dmaUserId, accountNo, budgetKrw, feePpm, sellTaxPpm,
  * liveBudgetKrw }` → 200 `AdminAccountCostsRaw`. 응답 전에 서버마다 op 5 재조회(서버당 `ACCOUNT_COSTS_REFRESH_MS` 15초 1건 · 동시 GET 은
  * 비행 공유 · 최대 `ACCOUNT_COSTS_WAIT_MS` 800ms 대기 · 실패는 warn 후 캐시 — Express 2초 상한 안). `liveBudgetKrw` = hub 67 캐시(`deps.liveBudget` · 웹 세션이 없는 계좌는 null → 개요가
- * 87 값으로 내려간다). 87 미수신 · 꺼진 서버는 키 없음(「확인 전」). orderIp/orderMac 은 싣지 않는다 · 감사 줄 없음(읽기).
+ * 87 값으로 내려간다). 단 그 서버 87 보다 먼저 받은 67 은 싣지 않는다(36 WR-02 — 더 최근 원천 · `freshLiveBudget`). 87 미수신 · 꺼진 서버는 키 없음(「확인 전」). orderIp/orderMac 은 싣지 않는다 · 감사 줄 없음(읽기).
  *
  * 비밀번호(D-19 · Phase 15 D-19): 평문은 이 요청 메모리 안에서만 산다 — `encryptDmaPassword(plain, dmaUserId, credKey)` 로
  * 암호화한 값만 RPC 로 가고, op 1 은 같은 요청의 평문을 44 에 싣는다. 응답 · 로그에는 어디에도 없다.
@@ -99,7 +99,7 @@ import type { AdminConn } from "./admin-conn.js";
 import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
 import type { LaunchPlanService } from "./launch-plan.js";
-import { ADMIN_OP, type AdminUsersSnapshot } from "./types.js";
+import { ADMIN_OP, freshLiveBudget, type AdminUsersSnapshot, type LiveBudget } from "./types.js";
 
 // ============================================================
 // 의존성
@@ -122,6 +122,11 @@ export type AdminApiDeps = {
           admin: {
             health(): { state: string };
             currentSnapshot(): AdminUsersSnapshot | null;
+            /**
+             * 그 87 수신 시각(ms · 36 WR-02) — `GET /account-costs` 가 67 live 와 견줘 더 최근 원천을 고른다(`freshLiveBudget`).
+             * 없으면(옛 목) 시각 비교 없이 live 우선(종전). `AdminConn` 이 만족한다.
+             */
+            snapshotReceivedAtMs?(): number | null;
             /** 44 1건 — `GET /account-costs` 의 op 5 재조회(Phase 36 D-05)만 쓴다. `AdminConn` 이 만족한다. */
             command: AdminConn["command"];
           };
@@ -161,10 +166,11 @@ export type AdminApiDeps = {
    */
   orderServers?: { reload(): Promise<{ ok: boolean }> };
   /**
-   * 서버 · 계좌의 67 live 예수금(Phase 36 D-05 · `SubscriptionHub.liveBudgetOf`). `GET /account-costs` 의 `liveBudgetKrw` 원천 —
-   * null = 그 계좌 67 을 못 받음(웹 세션 없음) → 87 폴백. 주지 않으면 전부 null.
+   * 서버 · 계좌의 67 live 예수금 + 수신 시각(Phase 36 D-05 · `SubscriptionHub.liveBudgetOf`). `GET /account-costs` 의 `liveBudgetKrw`
+   * 원천 — 그 서버 87 수신 시각보다 늦게 받은 것만 live 로 싣는다(36 WR-02 · `freshLiveBudget`). null = 그 계좌 67 을 못 받음(웹 세션
+   * 없음) → 87 폴백. 주지 않으면 전부 null.
    */
-  liveBudget?: (serverKey: string, accountNo: string) => number | null;
+  liveBudget?: (serverKey: string, accountNo: string) => LiveBudget | null;
 };
 
 /**
@@ -917,8 +923,11 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     for (const row of deps.registry.all()) {
       if (!row.enabled) continue;
       // null/undefined = 그 서버 87 을 모른다 → 키를 두지 않는다(「확인 전」).
-      const snapshot = deps.pipelines.get(row.key)?.admin.currentSnapshot();
+      const admin = deps.pipelines.get(row.key)?.admin;
+      const snapshot = admin?.currentSnapshot();
       if (snapshot == null) continue;
+      // 36 WR-02 — 67 live 는 이 87 보다 늦게 받았을 때만(저장 직후 87 = 새 값 · 67 미도착이면 87). 비교 기준은 그 서버 87 시각.
+      const snapshotAtMs = admin?.snapshotReceivedAtMs?.() ?? null;
       servers[row.key] = snapshot.users.flatMap((u) =>
         u.accounts.map((a) => ({
           dmaUserId: u.userId,
@@ -926,7 +935,7 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
           budgetKrw: a.budgetKrw ?? 0,
           feePpm: a.feePpm ?? 0,
           sellTaxPpm: a.sellTaxPpm ?? 0,
-          liveBudgetKrw: deps.liveBudget?.(row.key, a.accountNo) ?? null,
+          liveBudgetKrw: freshLiveBudget(deps.liveBudget?.(row.key, a.accountNo), snapshotAtMs),
         })),
       );
     }
