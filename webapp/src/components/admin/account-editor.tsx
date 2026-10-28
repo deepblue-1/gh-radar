@@ -589,6 +589,11 @@ export function budgetKrwToSave(text: string, serverKrw: number | null): { ok: t
   return parsed;
 }
 
+/** 칸 글자가 비었나(콤마 · 공백만 있어도 빈 칸). */
+function isBlankField(text: string): boolean {
+  return text.replace(/[,\s]/g, "") === "";
+}
+
 /** ppm → 칸 표시(% 끝 0 없음) — 0 은 빈 칸. */
 function pctFieldText(ppm: number): string {
   return ppm === 0 ? "" : ppmToPct(ppm);
@@ -798,6 +803,12 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
 
   const saveBudget = () => {
     if (budgetLocked) return;
+    // 확인 전(서버 값을 모름)의 빈 칸 = 모르는 값이지 0 이 아니다 — 아무것도 보내지 않는다(CR-01 · 30 IN-06 결 「모르는 값을 빈 값으로
+    // 덮지 않는다」). 칸이 「—」 로 보이는 상태에서 Enter 만 쳐도 등록 서버 전부의 예수금이 해제되던 경로. 해제는 「0」 을 직접 쳤을 때만.
+    if (!budgetKnown && isBlankField(budgetField.text)) {
+      budgetField.settle(false);
+      return;
+    }
     // 칸이 서버 값의 화면 표기(만원 내림)와 같으면 서버 원 값 그대로(WR-01) — Enter 만 쳐도 끝자리를 깎아 덮지 않는다.
     const parsed = budgetKrwToSave(budgetField.text, known ? summary.budgetKrw : null);
     if (!parsed.ok) {
@@ -818,6 +829,23 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
 
   const saveFee = () => {
     if (feeLocked) return;
+    if (!feeKnown) {
+      // 확인 전 — 빈 칸은 모르는 값이다(CR-01). op 7 은 두 값을 한 번에 쓰므로 한 칸이라도 비면 보내지 않는다: 둘 다 비면 조용히 끝,
+      // 한 칸만 비면 그 칸을 범위 줄로 표시(「0」 을 직접 쳐야 0 이 된다 — 모르는 매도세 · 수수료를 0 으로 덮지 않는다).
+      const feeBlank = isBlankField(feeField.text);
+      const taxBlank = isBlankField(taxField.text);
+      if (feeBlank && taxBlank) {
+        feeField.settle(false);
+        taxField.settle(false);
+        return;
+      }
+      if (feeBlank || taxBlank) {
+        setInvalid({ fee: feeBlank, tax: taxBlank });
+        feeField.settle(true);
+        taxField.settle(true);
+        return;
+      }
+    }
     const fee = parseCostPct(feeField.text);
     const tax = parseCostPct(taxField.text);
     if (!fee.ok || !tax.ok) {

@@ -2046,6 +2046,55 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).toHaveLength(0);
   });
 
+  it('(CR-01) 확인 전(E1 empty) — 세 칸 안 고친 Enter · 포커스 이탈은 요청 0 · 칩 「확인 전」 그대로(모르는 값을 0 으로 덮지 않는다)', () => {
+    mountCost([withCosts(KB_TWO, { KB120: null, KB121: null })]);
+    for (const el of [budgetInput(), feeInput(), taxInput()]) {
+      fireEvent.focus(el);
+      enter(el);
+      fireEvent.blur(el);
+    }
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(chipTexts()).toEqual(['KB120 · 확인 전', 'KB121 · 확인 전']);
+    expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toBeNull();
+  });
+
+  it('(CR-01) 확인 전 — 쳤다 지운 빈 칸도 해제(0)를 보내지 않는다 · 「0」 을 직접 치면 해제', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mountCost([withCosts(KB_TWO, { KB120: null, KB121: null })]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '5' } });
+    fireEvent.change(budgetInput(), { target: { value: '' } });
+    enter(budgetInput());
+    fireEvent.blur(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '0' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 0);
+    await act(async () => {});
+  });
+
+  it('(CR-01) 확인 전 — 수수료만 치고 매도세가 빈 칸이면 보내지 않는다(빈 칸 aria-invalid + 범위 줄) · 두 칸 다 치면 op 7', async () => {
+    setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mountCost([withCosts(KB_TWO, { KB120: null, KB121: null })]);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.01' } });
+    enter(feeInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    expect(taxInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(feeInput()).not.toHaveAttribute('aria-invalid');
+    expect(feeInput()).toHaveValue('0.01');
+    expect(costRow(NO)).toHaveTextContent(RANGE);
+    fireEvent.focus(taxInput());
+    fireEvent.change(taxInput(), { target: { value: '0' } });
+    enter(taxInput());
+    expect(setAccountFeeMock).toHaveBeenCalledTimes(1);
+    expect(setAccountFeeMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100, 0);
+    await act(async () => {});
+  });
+
   it('(E1 partial) KB121 만 87 모름 → KB120 ok 칩 · KB121 「확인 전」 · 불일치 줄 없음', () => {
     mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000), KB121: null })]);
     expect(chipTexts()).toEqual(['KB120', 'KB121 · 확인 전']);
