@@ -46,7 +46,7 @@ relay 로그: 기동 직후 `[DMA] 프레임 드롭`(msgType 89 unknown) 5건 �
 
 사용자 답 원문: **「1-6 pass」** (2026-10-28) — A~E OK · F OK.
 
-G(두 서버 동시 운영 「켜기 전 결정」 에 예수금 갈림 기록): Phase 36 완료 처리 때(2026-10-28) STATE.md Blockers 의 Phase 29 「켜기 전 결정」 줄에 반영. Phase 35 종료 뒤 STATE.md Blockers 에 「예수금 갈림 — 체결 조정이 서버마다 따로 가므로 두 서버 동시 운영 전 서버 간 예수금 동기화 결정 필요(Phase 36 D-03)」 한 줄을 넣는다.
+G(두 서버 동시 운영 「켜기 전 결정」 에 예수금 갈림 기록): Phase 36 완료 처리 때(2026-10-28) STATE.md Blockers 의 Phase 29 「켜기 전 결정」 줄에 반영.
 
 ## Task 3 — 인박스 닫기
 
