@@ -27,7 +27,7 @@ result: pass
 ### 4. WR-04 공유 계좌 반영 범위 — 처리 결정
 expected: 공유 계좌 값이 그 사용자의 등록 서버에만 반영되는 문제(새 RPC + D-03·D-07 범위 결정 필요)를 후속 작업으로 미룰지 결정
 result: skipped
-reason: "사용자 결정 「4 미룸」 — 새 RPC · D-03/D-07 범위 결정이 필요해 후속 작업으로"
+reason: "Deferred follow-up: 사용자 결정 「4 미룸」 — 새 RPC · D-03/D-07 범위 결정이 필요해 후속 작업으로"
 
 ## Summary
 
