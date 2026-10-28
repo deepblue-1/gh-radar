@@ -38,11 +38,13 @@ let ctl!: ChartViewControl;
 let commits: View[] = [];
 let rafQueue: FrameRequestCallback[] = [];
 let rafCalls = 0;
+/** quick-261028-ggj — 차트 길게 누르기 살펴보기 플래그(true 면 한 손가락 이동이 창을 옮기지 않는다). */
+const inspectFlag = { current: false };
 
 function Harness() {
   const c = useChartView({ bounds: B, lastTradeMs: LAST });
   const ref = useRef<SVGSVGElement>(null);
-  const { dragging } = useChartGestures(ref, { L, W, R: 56 }, c);
+  const { dragging } = useChartGestures(ref, { L, W, R: 56 }, c, inspectFlag);
   ctl = c;
   useEffect(() => {
     commits.push(c.view);
@@ -93,6 +95,7 @@ beforeEach(() => {
   commits = [];
   rafQueue = [];
   rafCalls = 0;
+  inspectFlag.current = false;
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     rafCalls += 1;
     rafQueue.push(cb);
@@ -193,6 +196,26 @@ describe('useChartView — 끌기 · 핀치 (Pointer Events · Pitfall 12)', () 
     flushFrame();
     expect(ctl.view).toEqual({ t0: T0, t1: B.T1530 });
     expect(ctl.preset).toBe('reg');
+  });
+
+  it('(i1) quick-261028-ggj 살펴보기 중 한 손가락 이동은 창을 옮기지 않는다 · 꺼진 뒤 이동은 억제 중 갱신된 x 기준', () => {
+    const { svg } = setup();
+    act(() => ctl.setPreset('last2h'));
+    const before = ctl.view;
+    const calls = rafCalls;
+    inspectFlag.current = true;
+    ptr(svg, 'pointerdown', 1, MID);
+    ptr(svg, 'pointermove', 1, MID + 60);
+    flushFrame();
+    expect(rafCalls).toBe(calls);
+    expect(ctl.view).toEqual(before);
+    inspectFlag.current = false;
+    ptr(svg, 'pointermove', 1, MID + 120);
+    flushFrame();
+    // 기준은 MID + 60(억제 중에도 x 를 갱신) — 60px 만큼만 앞 시각으로
+    const dt = (60 / PLOT_W) * width(before);
+    expect(ctl.view.t0).toBeCloseTo(before.t0 - dt, -1);
+    expect(width(ctl.view)).toBeCloseTo(width(before), -1);
   });
 
   it('(p3) 포인터 2개 → 거리 2배 → 창 폭 ½(중점 기준)', () => {
