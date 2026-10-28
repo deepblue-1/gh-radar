@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 2aa8a459
 from_branch: master
 date: 2026-10-27
 fbs_sync_marker: 75195b70
-done_commit:
+done_commit: 711d1a53
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -95,3 +95,13 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으면 「없음」).
 
 없음.
+
+## 회신
+
+(2026-10-28) gh-radar Phase 36 반영: DB `20261028210000` · `20261028210100`(02:49 KST) · relay `relay:711d1a53`(smoke 11/11) · server `gh-radar-server-00069-qwg`(smoke 15/15) · webapp push `2f26aea4..711d1a53`(02:54 KST, Vercel Ready).
+
+- relay: 66/67 `budget_krw` 는 계좌별 마지막 값으로 덮는다(0 = 해제도 그대로). 44 op 6 은 그 계좌가 active 로 등록된 서버마다 1건씩 fan-out 하고, 결과는 서버별 칩으로만 보이며 `dma_admin_results` · 의도 표에는 남기지 않는다. 87 `budget_krw` 를 어드민 카드 현재값으로 쓰되 67 live 값이 있으면 그것이 먼저다.
+- op 3 으로 계좌를 새로 추가하면 같은 계좌의 다른 등록 서버 값을 op 6 · op 7 로 되싣는다(서버 쪽 복사 규칙과 별개로 gh-radar 가 맞춘다).
+- 웹: 계좌 패널 「주문가능 / 예수금」 줄 · 수동주문 「주문가능」 행과 초과 줄 · 상따 카드 합산 경고(비차단).
+- 라이브 UAT: 어드민 저장 · 웹 즉시 갱신 · 「변경 없음」 · 비용률 · 주문가능 표시 · 체결 뒤 예수금 조정 — 사용자 「1-6 pass」(2026-10-28).
+- 남은 질문: 없음. 두 서버 동시 운영 시 예수금이 서버마다 따로 조정되는 갈림은 gh-radar 「켜기 전 결정」 목록에 올린다(Phase 36 D-03).

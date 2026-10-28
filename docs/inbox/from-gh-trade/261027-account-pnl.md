@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 2b73d815
 from_branch: master
 date: 2026-10-27
 fbs_sync_marker: 7824e51b
-done_commit:
+done_commit: 711d1a53
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -124,3 +124,13 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 3. **op 7 범위 밖 문구(요청 반영):** code 1, message 「비용률 범위 밖(0~10000ppm)」. 구 서버의 code 1 은 「알 수 없는 명령입니다」 — message 로 구별.
 4. **저널 손익 — 평단 모르는 매도:** `avg_price` 0 인 매도 E 레코드는 `realized_pnl_krw = −(fee_krw + tax_krw)`(종전 0). 한도도 그만큼 줄어든다. fbs 의 `JournalRecord` 주석 「평단 모름 0」 은 낡았고 정본은 gh-trade `docs/features/order-journal.md` 27행이다.
 5. **한도 전용 67 도달 범위:** 계좌번호 앞자리 0 원문으로 선언한 세션도 받는다(정규화 비교).
+
+## 회신
+
+(2026-10-28) gh-radar Phase 36 반영: DB `20261028210000`(저널 4열 · apply 재정의) · `20261028210100`(매매손익 RPC 2종) · relay `relay:711d1a53` · server `gh-radar-server-00069-qwg` · webapp push `2f26aea4..711d1a53`(Vercel Ready). 생성물(SYNC 7824e51b)은 aaf2d154 로 커밋했고, 이후 master 의 Phase 43 SYNC(f156cb6f)가 같은 필드를 그대로 포함한다.
+
+- A(41-03): 어드민 계좌 카드 「수수료 · 매도세(%)」 칸 → 44 op 7(서버별 칩 · fan-out) · 87 `fee_ppm` · `sell_tax_ppm` 파싱 · op 3 뒤 op 7 되싣기. code 1 은 「서버 미지원 · <message 원문>」 으로 보인다.
+- B(41-04): relay 저널 파서 → 이벤트 키 `avg_price` · `fee_krw` · `tax_krw` · `realized_pnl_krw` → `dma_journal_events` bigint 4열(NOT NULL DEFAULT 0, 백필 없음). 일자별 매매손익은 `/admin/pnl`(계정별 · 계좌별) · `/me` 「손익」 탭.
+- 질문 답: D-28 이름과 범위 밖 code 1 재사용 — 좋다. D-29 — relay 는 67 `budget_krw` 를 마지막 값으로 덮어 현재값으로 쓴다(87 은 체결로 안 바뀌어도 된다). D-37 4필드 이름 · `long` — 합의(gh-radar 사용자 승인, 열 이름도 같다). `dma_user_id = ""` 체결은 계정별 탭에 「미상」 한 묶음으로 맨 뒤에 두고, 계좌별 탭에는 그 계좌에 그대로 합산한다.
+- 「추가」 1~5 확인: 한도 전용 67 재전송 · 정규화 도달은 마지막 값 덮기로 흡수, 평단 모르는 매도 −(fee+tax) 는 DB 열 주석에 반영.
+- 라이브 UAT: 비용률 저장 · 체결 뒤 저널 4값 → `/admin/pnl` · `/me` 손익 탭 당일 행 · 체결 조정 예수금 반영 — 사용자 「1-6 pass」(2026-10-28).
