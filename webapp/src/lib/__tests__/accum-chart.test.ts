@@ -33,6 +33,9 @@ import {
   labelWidthOf,
   nearestOrderOf,
   orderCirclesOf,
+  orderGroupOf,
+  orderGroupTipOf,
+  orderHoverOf,
   orderTipOf,
   orderRadiusOf,
   shadeOf,
@@ -56,6 +59,7 @@ import {
   posNetPathOf,
   posNetPointsOf,
   teamAvgOf,
+  type OrderCircle,
   type PosDayPoint,
   type PosNetPoint,
   type PricePoint,
@@ -770,6 +774,192 @@ describe('마우스 툴팁(2026-10-23 · gh-trade AccumChartPanel · AccumBucket
       circle: null,
     });
     expect(bucketTipAt(buckets, T0, at('10:10:00'))).toBeNull();
+  });
+});
+
+describe('quick-261028-ggj 묶음 툴팁(gh-trade 261028 규칙 1~6)', () => {
+  const view = { t0: at('09:30:00'), t1: at('11:00:00') };
+  /** 손으로 만든 원 — 기하만 본다(title 은 자리표). */
+  const mk = (i: number, cx: number, cy: number, r: number, side: 'B' | 'S' = 'B'): OrderCircle => ({
+    i,
+    cx,
+    cy,
+    r,
+    side,
+    first: false,
+    title: `c${i}`,
+  });
+  const ids = (cs: readonly OrderCircle[]) => cs.map((c) => c.i);
+  /** 시각 · 가격 열만 — orderGroupOf 가 보는 것. */
+  const tp = (ts: string[], px: number[]) => ({ t_ms: ts.map(at), px });
+
+  it('orderGroupOf 사슬 금지 — A–B–C 가 이어 겹쳐도 씨앗과 직접 닿는 원만(A → {A, B} · B → {A, B, C} · C → {B, C})', () => {
+    const A = mk(0, 100, 100, 5);
+    const B = mk(1, 108, 100, 5);
+    const C = mk(2, 116, 100, 5);
+    const cs = [A, B, C];
+    const o = tp(['10:00:00', '10:01:00', '10:02:00'], [10_000, 10_000, 10_000]);
+    expect(ids(orderGroupOf(o, cs, A, view))).toEqual([0, 1]);
+    expect(ids(orderGroupOf(o, cs, B, view))).toEqual([0, 1, 2]);
+    expect(ids(orderGroupOf(o, cs, C, view))).toEqual([1, 2]);
+  });
+
+  it('orderGroupOf 경계 — 중심 거리 = r씨앗 + r 이면 든다 · 반지름이 달라도 합으로 본다(9.1 든다 · 9.3 안 든다)', () => {
+    const o = tp(['10:00:00', '10:01:00', '10:02:00'], [10_000, 10_000, 10_000]);
+    const A = mk(0, 100, 100, 5);
+    // 3–4–5 삼각형 — 거리 10 = 5 + 5
+    expect(ids(orderGroupOf(o, [A, mk(1, 106, 108, 5)], A, view))).toEqual([0, 1]);
+    expect(ids(orderGroupOf(o, [A, mk(1, 106, 108.1, 5)], A, view))).toEqual([0]);
+    const S = mk(0, 100, 100, 7);
+    expect(ids(orderGroupOf(o, [S, mk(1, 109.1, 100, 2.2)], S, view))).toEqual([0, 1]);
+    expect(ids(orderGroupOf(o, [S, mk(1, 109.3, 100, 2.2)], S, view))).toEqual([0]);
+  });
+
+  it('orderGroupOf 보이는 원만 — 시각이 창 밖 · 가격 0 인 원은 닿아도 빠진다 · 씨앗이 창 밖이면 [씨앗]', () => {
+    const o = tp(['10:00:00', '09:10:00', '10:02:00', '10:03:00'], [10_000, 10_000, 0, 10_000]);
+    const A = mk(0, 100, 100, 5);
+    const out = mk(1, 102, 100, 5); // 창 밖(09:10)
+    const zero = mk(2, 101, 100, 5); // 가격 0
+    const ok = mk(3, 103, 100, 5);
+    const cs = [A, out, zero, ok];
+    expect(ids(orderGroupOf(o, cs, A, view))).toEqual([0, 3]);
+    // 씨앗 자체가 창 밖 — 묶지 않는다(지금 한 원 툴팁 그대로)
+    expect(ids(orderGroupOf(o, cs, out, view))).toEqual([1]);
+    expect(ids(orderGroupOf(o, cs, zero, view))).toEqual([2]);
+  });
+
+  it('orderGroupOf 정렬 — 시각 오름차순 · 같은 시각이면 번호 오름차순(늦은 씨앗은 맨 앞이 아니다)', () => {
+    const o = tp(['10:06:00', '10:04:00', '10:05:00', '10:04:00'], [10_000, 10_000, 10_000, 10_000]);
+    const seed = mk(2, 100, 100, 5);
+    const cs = [mk(0, 101, 100, 5), mk(3, 102, 100, 5), seed, mk(1, 99, 100, 5)];
+    expect(ids(orderGroupOf(o, cs, seed, view))).toEqual([1, 3, 2, 0]);
+  });
+
+  // 노트 예시 — 합성 7건(i3 = 씨앗 10:12:34)
+  const orders7: AccumReportOrders = {
+    t_ms: ['10:05:12', '10:07:30', '10:09:05', '10:12:34', '10:14:00', '10:16:20', '10:18:40'].map(at),
+    side: ['B', 'B', 'S', 'B', 'S', 'B', 'B'],
+    qty: [3_279, 9_756, 2_435, 6_883, 4_847, 2_825, 2_419],
+    val: [40_000_000, 120_000_000, 30_000_000, 85_000_000, 60_000_000, 35_000_000, 30_000_000],
+    px: [12_200, 12_300, 12_320, 12_350, 12_380, 12_390, 12_400],
+    pieces: [2, 5, 1, 4, 3, 2, 1],
+    first: [0, 0, 0, 0, 0, 0, 0],
+  };
+  const x7 = xOfView(view, 52, 640);
+  const y7 = (p: number) => 220 - (p - 12_000) / 5;
+  const circles7 = orderCirclesOf(orders7, view, x7, y7);
+  const byI = (i: number) => circles7.find((c) => c.i === i)!;
+  const all7 = [0, 1, 2, 3, 4, 5, 6].map(byI);
+  const seed7 = byI(3);
+  const payload7 = {
+    orders: orders7,
+    day_cum_net: { t_ms: [at('10:05:12'), at('10:12:34')], net_krw: [40_000_000, 215_000_000] },
+    avg_px: { t_ms: [at('10:05:12')], px: [12_250] },
+  } as Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px' | 'pos_day'>;
+  const row7 = { base: 11_860 };
+
+  it('orderGroupTipOf 노트 예시 — 정확히 3줄 · 2줄 = 「묶음 7건 … (+1.64%)」 · 3줄 = 「큰 주문 매수 1.20억@12,300 · …」 · 1줄 = 고른 원', () => {
+    const lines = orderGroupTipOf(payload7, row7, seed7, all7);
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe(
+      '묶음 7건 10:05:12 ~ 10:18:40 · 팀 매수 5건 3.10억 · 팀 매도 2건 0.90억 · 가격 12,200 → 12,400 (+1.64%)',
+    );
+    expect(lines[2]).toBe('큰 주문 매수 1.20억@12,300 · 매수 0.85억@12,350 · 매도 0.60억@12,380');
+    expect(lines[0]).toBe(orderTipOf(payload7, row7, seed7).join(' · '));
+    expect(lines[0]!.startsWith('10:12:34 팀 매수 ')).toBe(true);
+    expect(lines[0]).toContain('순매수 누적 +2.15억');
+    // 당일 축 — 고른 원 줄의 맥락 라벨만 바뀐다
+    const day = orderGroupTipOf(payload7, row7, seed7, all7, { dayAxis: true });
+    expect(day[0]).toContain('당일 순매수 +2.15억');
+    expect(day.slice(1)).toEqual(lines.slice(1));
+  });
+
+  it('orderGroupTipOf 크기 1 — 지금 한 원 툴팁(2줄) 그대로', () => {
+    expect(orderGroupTipOf(payload7, row7, seed7, [seed7])).toEqual(orderTipOf(payload7, row7, seed7));
+  });
+
+  it('orderGroupTipOf 한쪽만 — 「팀 매수 N건 합계 X.XX억」 · 큰 주문에 매수/매도 접두 없음 · 매도만도 같은 꼴', () => {
+    const buys = orderGroupTipOf(payload7, row7, seed7, [0, 1, 3].map(byI));
+    expect(buys[1]).toBe('묶음 3건 10:05:12 ~ 10:12:34 · 팀 매수 3건 합계 2.45억 · 가격 12,200 → 12,350 (+1.23%)');
+    expect(buys[2]).toBe('큰 주문 1.20억@12,300 · 0.85억@12,350 · 0.40억@12,200');
+    const sells = orderGroupTipOf(payload7, row7, byI(2), [2, 4].map(byI));
+    expect(sells[1]).toContain(' · 팀 매도 2건 합계 0.90억 · ');
+    expect(sells[2]).toBe('큰 주문 0.60억@12,380 · 0.30억@12,320');
+  });
+
+  it('orderGroupTipOf 같은 초 — 시각 하나(「 ~ 」 없음)', () => {
+    const o: AccumReportOrders = {
+      t_ms: [at('10:00:00') + 200, at('10:00:00') + 900],
+      side: ['B', 'B'],
+      qty: [10, 10],
+      val: [10_000_000, 20_000_000],
+      px: [10_000, 10_000],
+      pieces: [1, 1],
+      first: [0, 0],
+    };
+    const cs = orderCirclesOf(o, view, x7, y7);
+    const g = [0, 1].map((i) => cs.find((c) => c.i === i)!);
+    const lines = orderGroupTipOf({ ...payload7, orders: o }, row7, g[0]!, g);
+    expect(lines[1]).toBe('묶음 2건 10:00:00 · 팀 매수 2건 합계 0.30억 · 가격 10,000 → 10,000 (0.00%)');
+  });
+
+  it('orderGroupTipOf NXT — 술어가 한 원이라도 참이면 방향 조각 끝에 「 (NXT 포함)」 · 옵션 없으면 없다', () => {
+    const nxt = orderGroupTipOf(payload7, row7, seed7, all7, { isNxt: (i) => i === 4 });
+    expect(nxt[1]).toContain('팀 매도 2건 0.90억 (NXT 포함) · 가격 12,200 → 12,400 (+1.64%)');
+    expect(nxt[2]).toBe('큰 주문 매수 1.20억@12,300 · 매수 0.85억@12,350 · 매도 0.60억@12,380');
+    expect(orderGroupTipOf(payload7, row7, seed7, all7)[1]).not.toContain('NXT');
+    const buysNxt = orderGroupTipOf(payload7, row7, seed7, [0, 1, 3].map(byI), { isNxt: () => true });
+    expect(buysNxt[1]).toContain('팀 매수 3건 합계 2.45억 (NXT 포함) · 가격 ');
+  });
+
+  it('orderGroupTipOf 가격 변화 — 끝 < 첫 이면 −(U+2212) · 같으면 0.00%', () => {
+    const o: AccumReportOrders = {
+      t_ms: [at('10:00:00'), at('10:01:00'), at('10:02:00')],
+      side: ['S', 'S', 'S'],
+      qty: [10, 10, 10],
+      val: [10_000_000, 10_000_000, 10_000_000],
+      px: [12_300, 12_250, 12_200],
+      pieces: [1, 1, 1],
+      first: [0, 0, 0],
+    };
+    const cs = orderCirclesOf(o, view, x7, y7);
+    const g = [0, 1, 2].map((i) => cs.find((c) => c.i === i)!);
+    const p = { ...payload7, orders: o };
+    expect(orderGroupTipOf(p, row7, g[0]!, g)[1]).toMatch(/ · 가격 12,300 → 12,200 \(−0\.81%\)$/);
+    expect(orderGroupTipOf(p, row7, g[0]!, [g[1]!, g[1]!])[1]).toMatch(/ · 가격 12,250 → 12,250 \(0\.00%\)$/);
+  });
+
+  it('orderGroupTipOf 큰 주문 동률 — 금액 같으면 시각순 → 번호순 · 4건 이상이면 3개 · 2건이면 2개', () => {
+    const o: AccumReportOrders = {
+      t_ms: [at('10:00:02'), at('10:00:01'), at('10:00:01'), at('10:00:00')],
+      side: ['B', 'B', 'B', 'B'],
+      qty: [10, 10, 10, 10],
+      val: [50_000_000, 50_000_000, 50_000_000, 20_000_000],
+      px: [100, 200, 300, 400],
+      pieces: [1, 1, 1, 1],
+      first: [0, 0, 0, 0],
+    };
+    // 모두 같은 자리 — 서로 닿는다
+    const cs = [mk(0, 100, 100, 5), mk(1, 100, 100, 5), mk(2, 100, 100, 5), mk(3, 100, 100, 5)];
+    const g = orderGroupOf(o, cs, cs[0]!, view);
+    expect(ids(g)).toEqual([3, 1, 2, 0]);
+    const p = { ...payload7, orders: o };
+    expect(orderGroupTipOf(p, row7, cs[0]!, g)[2]).toBe('큰 주문 0.50억@200 · 0.50억@300 · 0.50억@100');
+    expect(orderGroupTipOf(p, row7, cs[0]!, [cs[3]!, cs[0]!])[2]).toBe('큰 주문 0.50억@100 · 0.20억@400');
+  });
+
+  it('orderHoverOf — key o{씨앗} · circle = 씨앗 · 묶음(≥ 2)이면 group(시간순 · 씨앗 포함) · 크기 1 이면 group 키 없음', () => {
+    const cs = [mk(0, 100, 100, 5), mk(1, 104, 100, 5), mk(2, 300, 100, 5)];
+    const h = orderHoverOf(payload7, row7, cs, cs[1]!, view);
+    expect(h.key).toBe('o1');
+    expect(h.circle).toBe(cs[1]);
+    expect(ids(h.group!)).toEqual([0, 1]);
+    expect(h.lines).toEqual(orderGroupTipOf(payload7, row7, cs[1]!, [cs[0]!, cs[1]!]));
+    expect(h.lines).toHaveLength(3);
+    const lone = orderHoverOf(payload7, row7, cs, cs[2]!, view, { dayAxis: true });
+    expect(lone.key).toBe('o2');
+    expect('group' in lone).toBe(false);
+    expect(lone.lines).toEqual(orderTipOf(payload7, row7, cs[2]!, { dayAxis: true }));
   });
 });
 

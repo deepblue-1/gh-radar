@@ -92,6 +92,28 @@ async function expand(isin: string): Promise<HTMLElement> {
 
 const chartOf = (sec: HTMLElement) => sec.querySelector<SVGSVGElement>('svg[data-slot="accum-chart"]');
 
+/** 툴팁 줄 글자(없으면 []). */
+const tipLinesOf = (sec: HTMLElement) =>
+  Array.from(sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]')?.children ?? []).map((d) => d.textContent ?? '');
+
+/**
+ * quick-261028-ggj — 데이터 원(고리 제외)을 차례로 마우스로 대 보다가 툴팁이 3줄(묶음)인 첫 원 · 그 원 중심과 줄. 없으면 null.
+ * jsdom 은 getBoundingClientRect 가 0 이라 clientX/Y = viewBox 좌표.
+ */
+function findGroup(sec: HTMLElement, svg: SVGSVGElement): { cx: number; cy: number; lines: string[] } | null {
+  const data = Array.from(svg.querySelectorAll('[data-slot="accum-price-layer"] > circle:not([data-slot])'));
+  for (const c of data) {
+    const cx = Number(c.getAttribute('cx'));
+    const cy = Number(c.getAttribute('cy'));
+    act(() => {
+      fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
+    });
+    const lines = tipLinesOf(sec);
+    if (lines.length === 3) return { cx, cy, lines };
+  }
+  return null;
+}
+
 beforeEach(() => {
   replaceMock.mockReset();
   authFetchMock.mockReset();
@@ -186,6 +208,9 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
     expect(lines[1]).toMatch(/^순매수 누적 [+−][\d.,]+억 · 등락률 [+−]\d+\.\d\d%$/);
     expect(tip()!.getAttribute('role')).toBe('tooltip');
     expect(svg.querySelector('[data-slot="accum-order-hover"]')!.getAttribute('cx')).toBe(first.getAttribute('cx'));
+    // quick-261028-ggj — 홀로 있는 원(묶음 1)은 굵은 고리 없이 지금 고리 하나
+    expect(svg.querySelectorAll('[data-slot="accum-order-hover"]')).toHaveLength(1);
+    expect(svg.querySelector('[data-slot="accum-order-seed"]')).toBeNull();
     // 누적 판(240~352) — 그 시각 계단 값
     at(cx + 40, 300);
     expect(tip()!.textContent).toMatch(/^\d\d:\d\d:\d\d · 순매수 누적 [+−]?[\d.,]+억/);
@@ -204,6 +229,56 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
       fireEvent.pointerLeave(svg);
     });
     expect(tip()).toBeNull();
+  });
+
+  it('(c9g) quick-261028-ggj 묶음 툴팁(gh-trade 261028) — 닿는 원이 있으면 3줄(고른 원 · 묶음 요약 · 큰 주문) + 묶음 고리 N − 1 · 고른 원 굵은 고리 1', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const g = findGroup(sec, svg);
+    expect(g, '천일고속 실측에 3줄 묶음 원이 있어야 한다').not.toBeNull();
+    const { lines } = g!;
+    const m = /^묶음 (\d+)건 \d\d:\d\d:\d\d( ~ \d\d:\d\d:\d\d)? · 팀 (매수|매도) .+ · 가격 [\d,]+ → [\d,]+ \([+−]?\d+\.\d\d%\)$/.exec(
+      lines[1]!,
+    );
+    expect(m, lines[1]!).not.toBeNull();
+    const n = Number(m![1]);
+    expect(n).toBeGreaterThanOrEqual(2);
+    expect(lines[2]!.startsWith('큰 주문 ')).toBe(true);
+    expect(lines[2]!.slice('큰 주문 '.length).split(' · ')).toHaveLength(Math.min(3, n));
+    expect(lines[0]).toMatch(/^\d\d:\d\d:\d\d 팀 (매수|매도) [\d,]+주 · [\d.,]+억 @[\d,]+ · \d+조각/);
+    expect(lines[0]).toContain('순매수 누적');
+    expect(svg.querySelectorAll('[data-slot="accum-order-hover"]')).toHaveLength(n - 1);
+    expect(svg.querySelectorAll('[data-slot="accum-order-seed"]')).toHaveLength(1);
+  });
+
+  it('(c9s) quick-261028-ggj 규칙 6 — 같은 묶음 안 다른 원으로 옮겨 씨앗이 바뀌면 굵은 고리 자리와 툴팁 1줄이 바뀐다', async () => {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const g = findGroup(sec, svg);
+    expect(g).not.toBeNull();
+    const seedAt = () => {
+      const s = svg.querySelector('[data-slot="accum-order-seed"]');
+      return s === null ? null : `${s.getAttribute('cx')},${s.getAttribute('cy')}`;
+    };
+    const before = seedAt();
+    const line0 = g!.lines[0];
+    const thin = Array.from(svg.querySelectorAll('[data-slot="accum-order-hover"]')).map((c) => [
+      Number(c.getAttribute('cx')),
+      Number(c.getAttribute('cy')),
+    ]);
+    let changed = false;
+    for (const [cx, cy] of thin) {
+      act(() => {
+        fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
+      });
+      const now = seedAt();
+      if (now !== null && now !== before) {
+        expect(tipLinesOf(sec)[0]).not.toBe(line0);
+        changed = true;
+        break;
+      }
+    }
+    expect(changed, '묶음 안 다른 원으로 옮겨 씨앗이 바뀌는 경우가 있어야 한다').toBe(true);
   });
 
   it('(c3) CJ씨푸드1우(orders 0 · day_cum_net 0) — 「팀 체결 없음」 2개(누적 판 · 10분 판) · 원 0 · 가격 선 · 0선 · 빈 띠는 그대로', async () => {
