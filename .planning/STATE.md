@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-19-PLAN.md
-last_updated: "2026-10-27T17:16:24.775Z"
+last_updated: "2026-10-28T03:19:51.630Z"
 last_activity: 2026-10-28
 last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
-state_head: 9f51eb456cb6d77d58160190887789d450120ee0
+state_head: b1f7a10f650f89a03d1eb3579c77c15b8183e779
 progress:
   total_phases: 7
   completed_phases: 5
@@ -109,6 +109,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261025-uf2 | 매집감지 당일 축 기반 — kind 16 파서 당일 칸·day=·recent=(조각) · accum_flow 열 4개 마이그레이션 | 2026-10-25 | 2cf5e807 | [261025-uf2-kind-16-day-recent-accum-flow-4-261025-a](./quick/261025-uf2-kind-16-day-recent-accum-flow-4-261025-a/) |
 | 261026-01h | 매집감지 당일 축 UI — 작업대 B(당일 주인공·누적/전날 보조) · 보고서 당일 축(누적 왼쪽 회색 축) · 500만원 | 2026-10-26 | 7956414d | [261026-01h-ui-b-500](./quick/261026-01h-ui-b-500/) |
 | 261026-0ty | 매집감지 보고서 서버 기준 당일 값 — pos_day_avg_px 열 · payload.pos_day 주선 · 팀 평단(당일) | 2026-10-26 | d9a6c3aa | [261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da](./quick/261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da/) |
+| 261028-ggj | 매집 차트 닿는 원 묶음 툴팁(gh-trade 261028 규칙 1~6) + 모바일 길게 누르기 툴팁 | 2026-10-28 | b1f7a10f | [261028-ggj-accum-chart-group-tooltip-touch](./quick/261028-ggj-accum-chart-group-tooltip-touch/) |
 
 ## Session Continuity
 
