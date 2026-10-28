@@ -74,7 +74,7 @@
  *   ⓔ 상태줄은 현황 탭 **안**이다(전 탭 공통 아님 — D-1 · 목업 A).
  */
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { PnlRange, RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -102,6 +102,7 @@ import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
+import { holdingQuotePrice } from "@/lib/use-available-krw";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import { viAccountRunning } from "@/lib/use-relay-socket";
 import {
@@ -343,8 +344,14 @@ export function unfilledCountOf(
 
 /** 탭 셸(위 ⑦ · Phase 36 부터 5탭). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
 function MeTabs() {
-  const { accounts, accountStates, status, limitChasers, journalRows } = useRelayContext();
+  const { accounts, accountStates, quotes, status, limitChasers, journalRows } = useRelayContext();
   const tab = useUrlTab(ME_TAB_VALUES, "status");
+  /*
+    잔고 탭 계좌 패널의 현재가 — 작업대 · 수동주문과 같은 규칙 한 벌(`holdingQuotePrice` · KRX → NXT · 36 WR-05).
+    주문가능 요약 줄(D-11)이 시장가(price 0) 매수 미체결을 이 값으로 세고, 잔고 평가도 같은 값을 쓴다 — 한 계좌에
+    「주문가능」 이 두 숫자가 되지 않게. 시세가 없으면 undefined(미체결은 0 · 평가 「—」 · 종전과 같다).
+  */
+  const priceOf = useCallback((isin: string) => holdingQuotePrice(quotes, isin), [quotes]);
 
   /*
     ── 계좌 칩 (위 ② · Phase 32 D-20) ── 고른 계좌 · 이 화면 기억값 · 작업대 기억 계좌.
@@ -523,6 +530,7 @@ function MeTabs() {
               status={status}
               stack
               hideAccountHeader
+              priceOf={priceOf}
               stockHref={tradingCardHref}
             />
           </section>

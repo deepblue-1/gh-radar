@@ -7,6 +7,7 @@ import type { StrategyLogEntry } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
 import { makeLimitChaser } from '@/test-fixtures/limit-chaser';
 import { writeMeAccount } from '@/lib/trading-layout';
+import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 import { formatServerTime, latestAccountTime, MeClient, unfilledCountOf } from '../me-client';
 
@@ -24,6 +25,8 @@ let mockSearchParams = new URLSearchParams();
 let mockAuthUser: { id: string } | null = null;
 /* 계좌 패널 목이 렌더마다 받은 계좌(WR-06 — 기억 계좌 전에 첫 계좌로 한 번 그리는지). */
 let mockPanelAccounts: string[] = [];
+/* 계좌 패널 목이 마지막 렌더에 받은 현재가 함수(36 WR-05 — 작업대와 같은 `holdingQuotePrice` 를 넘기는지). */
+let mockPanelPriceOf: ((isin: string) => number | undefined) | undefined;
 /* 오늘 주문 목 — 마운트 횟수(조회 1회 = 마운트 1회)와 건수 콜백으로 올릴 값. */
 let mockOrdersMounts = 0;
 let mockOrdersCount = 0;
@@ -75,8 +78,14 @@ vi.mock('@/components/trading/today-orders-card', async () => {
 });
 /* 계좌 패널 목 — 무엇을 받았는지(계좌 · 머리 생략 · 상태 유무)만 남긴다(Phase 32 D-22). */
 vi.mock('@/components/orderbook/account-panel', () => ({
-  AccountPanel: (p: { selectedAccountNo: string; hideAccountHeader?: boolean; account: unknown }) => {
+  AccountPanel: (p: {
+    selectedAccountNo: string;
+    hideAccountHeader?: boolean;
+    account: unknown;
+    priceOf?: (isin: string) => number | undefined;
+  }) => {
     mockPanelAccounts.push(p.selectedAccountNo);
+    mockPanelPriceOf = p.priceOf;
     return (
       <div
         data-slot="account-panel-mock"
@@ -113,6 +122,7 @@ beforeEach(() => {
   mockSearchParams = new URLSearchParams();
   mockAuthUser = null;
   mockPanelAccounts = [];
+  mockPanelPriceOf = undefined;
   mockOrdersMounts = 0;
   mockOrdersCount = 0;
   mockFetchMyPnl.mockClear();
@@ -570,6 +580,26 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     ]);
     expect(slot('account-panel-mock')).toHaveAttribute('data-has-account', 'false');
     expect(countOf('잔고')).toBeNull();
+  });
+
+  it('B4c (36 WR-05) — 잔고 탭 계좌 패널에 작업대와 같은 현재가 규칙(KRX → NXT)을 넘긴다 — 시장가 매수 미체결 주문가능이 같은 숫자', () => {
+    mockSearchParams = new URLSearchParams('tab=accounts');
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: 'ready',
+      accounts: [{ accountNo: '1111111101', name: 'A' }],
+      accountStates: new Map([['1111111101', unfAcct('1111111101', 0)]]),
+      quotes: new Map([
+        [relayQuoteKey('KR7005930003', 'KRX'), { p: 70_000 }],
+        [relayQuoteKey('KR7005930003', 'NXT'), { p: 70_100 }],
+        [relayQuoteKey('KR7000660001', 'NXT'), { p: 200_000 }],
+      ]),
+    } as unknown as RelayContextValue;
+    render(<MeClient />);
+    expect(mockPanelPriceOf).toBeTypeOf('function');
+    expect(mockPanelPriceOf?.('KR7005930003')).toBe(70_000);
+    expect(mockPanelPriceOf?.('KR7000660001')).toBe(200_000);
+    expect(mockPanelPriceOf?.('KR7035420009')).toBeUndefined();
   });
 
   it('B5 — 주문 탭: 미방문 숫자 없음 · 열면 카드 「N건」 수 · 마운트 1회 · 다른 탭으로 가도 숨김으로 유지', () => {
