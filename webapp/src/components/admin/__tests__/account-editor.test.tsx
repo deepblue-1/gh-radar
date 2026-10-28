@@ -1829,17 +1829,51 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toHaveTextContent('변경 없음');
   });
 
-  it('(behavior 3) 불일치가 있으면 같은 값이어도 Enter 로 보낸다(예수금 · 비용률 따로)', async () => {
+  it('(WR-01 R2) 불일치여도 안 고친 칸 Enter 는 요청 0 · 「변경 없음」(시트를 연 시점 값으로 서버 조정분을 되감지 않는다)', () => {
+    mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000, 100, 2000), KB121: cost(50_000_000, 500, 2000) })]);
+    fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toHaveTextContent('변경 없음');
+    expect(chipTexts()).toEqual(['KB120 · 변경 없음', 'KB121 · 변경 없음']);
+    fireEvent.focus(taxInput());
+    enter(taxInput());
+    expect(setAccountFeeMock).not.toHaveBeenCalled();
+    // 불일치 줄은 그대로 남는다 — 맞추려면 값을 직접 친다
+    expect(costRow(NO)!.querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).toHaveLength(2);
+  });
+
+  it('(behavior 3) 불일치가 있으면 같은 값을 직접 쳐서 Enter 할 때 보낸다(예수금 · 비용률 따로)', async () => {
     setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
     setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
     mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000, 100, 2000), KB121: cost(50_000_000, 500, 2000) })]);
     fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '10000' } });
     enter(budgetInput());
     expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100_000_000);
     await act(async () => {});
     fireEvent.focus(taxInput());
+    // 지우고 같은 값을 다시 침(같은 글자로의 change 는 React 가 무시한다 — 실제 입력은 지웠다 치는 동작)
+    fireEvent.change(taxInput(), { target: { value: '' } });
+    fireEvent.change(taxInput(), { target: { value: '0.2' } });
     enter(taxInput());
     expect(setAccountFeeMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 100, 2000);
+    await act(async () => {});
+  });
+
+  it('(WR-01 R2) 실패로 입력값이 남은 칸은 고치지 않고 Enter 해도 다시 보낸다(재시도)', async () => {
+    setAccountBudgetMock.mockResolvedValueOnce({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'offline' }] });
+    mountCost([withCosts(KB_TWO, { KB120: cost(100_000_000), KB121: cost(100_000_000) })]);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '2000' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(chipTexts()).toEqual(['KB120', 'KB121 · 서버 연결 안 됨']));
+    expect(budgetInput()).toHaveValue('2,000');
+    setAccountBudgetMock.mockResolvedValueOnce({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(2);
+    expect(setAccountBudgetMock).toHaveBeenLastCalledWith('kimtr', 'KB', NO, 20_000_000);
     await act(async () => {});
   });
 
@@ -1857,10 +1891,14 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(setAccountBudgetMock).not.toHaveBeenCalled();
   });
 
-  it('(WR-01) 불일치 맞추기 Enter 는 서버 원 값 그대로(만원 내림 아님) · 실제로 고치면 칸 값 × 10,000', async () => {
+  it('(WR-01) 불일치 맞추기(같은 숫자를 직접 침)는 서버 원 값 그대로(만원 내림 아님) · 다른 값이면 칸 값 × 10,000', async () => {
     setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
     mountCost([withCosts(KB_TWO, { KB120: cost(99_987_654), KB121: cost(50_000_000) })]);
     fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    // 안 고친 Enter 는 불일치여도 보내지 않는다(WR-01 R2)
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    fireEvent.change(budgetInput(), { target: { value: '9998' } });
     enter(budgetInput());
     expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
     expect(setAccountBudgetMock).toHaveBeenLastCalledWith('kimtr', 'KB', NO, 99_987_654);

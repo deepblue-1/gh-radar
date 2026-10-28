@@ -685,6 +685,11 @@ function useCostDraft(display: string) {
   return {
     text: draft ?? display,
     edited,
+    /**
+     * 보낼 것이 있나(WR-01 R2) — 이번 포커스 뒤 고쳤거나, 지난 시도가 다 반영되지 않아 입력값을 쥐고 있다(재시도). 둘 다 아니면
+     * 칸은 표시값(시트를 연 시점의 서버 값) 그대로라 Enter 해도 보내지 않는다 — 불일치 상태에서도 옛 값으로 서버 조정분을 되감지 않는다.
+     */
+    dirty: edited || hold,
     onFocus: () => {
       focused.current = true;
       setEdited(false);
@@ -728,7 +733,8 @@ type CostOp = "budget" | "fee";
  * - 표시값 · 출처 · 불일치는 shared `summarizeAccountCosts` 한 벌(67 live 우선 · 87 폴백 — 개요 `costs` · 출처 = 유효 주문 서버).
  *   불일치는 다른 서버마다 경고 한 줄(예수금 · 비용률 따로 · 원인 단정 없음 · D-03). 87 을 모르는 서버는 판정 밖 · 「확인 전」 칩.
  * - 저장은 칸마다 즉시(D-02 · 저장 버튼 없음) — 예수금 = op 6(`PUT …/budget`) · 수수료 · 매도세 = op 7(`PUT …/fee` 두 값 함께).
- *   Enter = 저장 시도 · 포커스 이탈 = 고쳤을 때만 · 값이 서버 값과 같고 불일치가 없으면 요청 없이 「변경 없음」 · 범위 밖 비용률은
+ *   Enter · 포커스 이탈 모두 칸을 고쳤을 때만(또는 실패로 입력값을 쥔 재시도) 보낸다 — 안 고친 Enter 는 불일치여도 「변경 없음」 ·
+ *   확인 전 빈 칸은 보내지 않음(모르는 값) · 고친 값이 서버 값과 같고 불일치가 없으면 요청 없이 「변경 없음」 · 범위 밖 비용률은
  *   보내지 않고 `aria-invalid` + 범위 줄. 비행 중엔 그 op 칸만 readOnly · 카드 편집 저장 비행 중엔 세 칸 모두.
  * - 결과는 등록 서버마다 칩 1개(D-06 · 칩 자리 1벌 = 가장 최근에 끝난 저장) · 실패/미반영 줄은 op 별 · 그 op 칸을 다시 고치면 지운다.
  *   users.toml 반영 칩(서버 알약)은 바꾸지 않는다(D-04). 토스트 · alert · 확인창 없음.
@@ -803,20 +809,27 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
 
   const saveBudget = () => {
     if (budgetLocked) return;
+    // 안 고친 칸 Enter = 요청 없음(WR-01 R2). 불일치여도 보내지 않는다 — 칸 값은 시트를 연 시점의 값이라, 보내면 그 뒤 체결로 주문
+    // 서버가 조정한 현재 예수금을 옛 값으로 되감는다. 맞추기는 값을 직접 쳐서 한다(같은 숫자를 다시 쳐도 된다).
+    if (!budgetField.dirty) {
+      if (budgetKnown) markUnchanged("budget");
+      budgetField.settle(false);
+      return;
+    }
     // 확인 전(서버 값을 모름)의 빈 칸 = 모르는 값이지 0 이 아니다 — 아무것도 보내지 않는다(CR-01 · 30 IN-06 결 「모르는 값을 빈 값으로
     // 덮지 않는다」). 칸이 「—」 로 보이는 상태에서 Enter 만 쳐도 등록 서버 전부의 예수금이 해제되던 경로. 해제는 「0」 을 직접 쳤을 때만.
     if (!budgetKnown && isBlankField(budgetField.text)) {
       budgetField.settle(false);
       return;
     }
-    // 칸이 서버 값의 화면 표기(만원 내림)와 같으면 서버 원 값 그대로(WR-01) — Enter 만 쳐도 끝자리를 깎아 덮지 않는다.
+    // 칸이 서버 값의 화면 표기(만원 내림)와 같으면 서버 원 값 그대로(WR-01) — 같은 숫자를 다시 쳐도 끝자리를 깎아 덮지 않는다.
     const parsed = budgetKrwToSave(budgetField.text, known ? summary.budgetKrw : null);
     if (!parsed.ok) {
       budgetField.settle(true);
       return;
     }
     setUnchanged((u) => (u === "budget" ? null : u));
-    // 서버 값과 같고 등록 서버 간 불일치가 없으면 요청 없이 「변경 없음」(불일치면 같은 값이어도 보낸다 — 맞추기 · 원 값 그대로).
+    // 서버 값과 같고 등록 서버 간 불일치가 없으면 요청 없이 「변경 없음」(불일치면 직접 친 같은 값도 보낸다 — 맞추기 · 원 값 그대로).
     if (known && parsed.krw === summary.budgetKrw && !budgetMismatched) {
       markUnchanged("budget");
       budgetField.settle(false);
@@ -829,6 +842,13 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
 
   const saveFee = () => {
     if (feeLocked) return;
+    // 두 칸 다 안 고침 = 요청 없음(WR-01 R2 — 예수금과 같은 규칙).
+    if (!feeField.dirty && !taxField.dirty) {
+      if (feeKnown) markUnchanged("fee");
+      feeField.settle(false);
+      taxField.settle(false);
+      return;
+    }
     if (!feeKnown) {
       // 확인 전 — 빈 칸은 모르는 값이다(CR-01). op 7 은 두 값을 한 번에 쓰므로 한 칸이라도 비면 보내지 않는다: 둘 다 비면 조용히 끝,
       // 한 칸만 비면 그 칸을 범위 줄로 표시(「0」 을 직접 쳐야 0 이 된다 — 모르는 매도세 · 수수료를 0 으로 덮지 않는다).
