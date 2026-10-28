@@ -23,3 +23,15 @@ counts: { critical: 0, warning: 5, info: 6 }
 | IN-04 | info | open | 매수 미체결 정정 · 상따 합 이중 차감 — WinForms 동형 여부 확인 |
 | IN-05 | info | open | void opts.adminEmail · costTargetRows JSDoc 위치 |
 | IN-06 | info | open | 되싣기가 reconcile 10초 마감 안 순차 — 성공해도 timeout 으로 접힐 수 있음 |
+
+## 2라운드 (36-REVIEW-R2.md · 수정 36-REVIEW-FIX-R2.md)
+
+2026-10-28 재리뷰 뒤 사용자 「진행해」 로 고쳤다. 배포: relay `relay:640ae663`(14:46 KST, smoke 11/11) · webapp push `cd1c28ed..a5c67ae7`(14:49, Vercel Ready).
+
+| ID | Severity | Disposition | Source |
+|----|----------|-------------|--------|
+| CR-01 | critical | fixed (d13d32cb) | 「확인 전」 비용 칸 빈 Enter 가 op 6(0) · op 7(0,0) 로 예수금 · 비용률 해제 |
+| WR-01(R2) | warning | fixed (7dc67654) | 불일치 상태 안 고친 Enter 가 시트 연 시점 옛 값으로 서버 조정분 되돌림 |
+| WR-02(R2) | warning | fixed (4bd0464a) | /me 시세 미구독 — 굳은 옛 시세로 평가 · 주문가능 |
+| WR-03(R2) | warning | fixed (6f9cb46a) | timeout 뒤 되싣기 영구 누락 — 87 상태 기준 멱등 조건으로 |
+| IN-01(R2) · IN-02(R2) · IN-03(R2) | info | open | 마감 안 실패 가림 · 벽시계 비교 · op 5 87 계약 관측 장치 없음 |
