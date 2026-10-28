@@ -665,8 +665,13 @@ const HOVER_PAD = 2;
 export interface ChartHover {
   key: string;
   lines: string[];
-  /** 가격 판 주문이면 그 원(테두리 강조용) */
+  /** 가격 판 주문이면 그 원(테두리 강조용) — 묶음이면 고른 원(씨앗) */
   circle: OrderCircle | null;
+  /**
+   * 가격 판 묶음(2개 이상 · 시간순 · 씨앗 포함)일 때만 있다 — 묶음 고리 · 고른 원 굵은 고리 강조용(quick-261028-ggj ·
+   * gh-trade 261028 규칙 4). 크기 1 · 누적 판 · 10분 판이면 키가 없다.
+   */
+  group?: readonly OrderCircle[];
 }
 
 /** x(px) → 시각 — `xOfView` 의 역. */
@@ -765,6 +770,132 @@ export function orderTipOf(
   const avg = avgAt(teamAvgOf(payload, dayAxis).points, t);
   if (avg !== null) parts.push(`평단 대비 ${pct2(((px - avg) / avg) * 100)}`);
   return parts.length > 0 ? [c.title, parts.join(' · ')] : [c.title];
+}
+
+// ---------------------------------------------------------------------------
+// 닿는 원 묶음 툴팁(quick-261028-ggj · gh-trade 261028 인계 규칙 1~6 · AccumChartPanel OverlapGroup · GroupTooltipText 동형)
+// ---------------------------------------------------------------------------
+
+/**
+ * 가격 판 묶음 — 씨앗(`nearestOrderOf`) + 씨앗과 **직접** 닿는 보이는 원(노트 규칙 2 · 3 · gh-trade OverlapGroup · TryCircleOf).
+ *
+ * - 보임 = 주문 시각이 보기 창 [t0, t1] 안이고 가격 > 0(창 ±30분으로 그린 원 중 창 밖 원 · 가격 0 원은 대상 아님).
+ * - 닿음 = 화면 px 중심 거리² ≤ (r씨앗 + r)²(제곱 비교만). 씨앗과의 거리만 본다 — 닿은 원의 닿은 원은 넣지 않는다(사슬 금지).
+ *   매수/매도는 가리지 않는다. 화면 기준이라 확대하면 갈라지고 축소하면 묶인다.
+ * - 정렬 = 시각 오름차순 · 같으면 원래 번호 오름차순.
+ * - 씨앗 자체가 안 보이면 `[씨앗]` — 지금 한 원 툴팁 그대로(웹 nearestOrderOf 는 창 ±30분 원도 고를 수 있다).
+ */
+export function orderGroupOf(
+  orders: Pick<AccumReportOrders, 't_ms' | 'px'>,
+  circles: readonly OrderCircle[],
+  seed: OrderCircle,
+  view: View,
+): OrderCircle[] {
+  const visible = (c: OrderCircle) => {
+    const t = orders.t_ms[c.i];
+    const px = orders.px[c.i];
+    return isNum(t) && t >= view.t0 && t <= view.t1 && isNum(px) && px > 0;
+  };
+  if (!visible(seed)) return [seed];
+  const group = [seed];
+  for (const c of circles) {
+    if (c.i === seed.i || !visible(c)) continue;
+    const dx = c.cx - seed.cx;
+    const dy = c.cy - seed.cy;
+    const rr = seed.r + c.r;
+    if (dx * dx + dy * dy <= rr * rr) group.push(c);
+  }
+  return group.sort((a, b) => orders.t_ms[a.i]! - orders.t_ms[b.i]! || a.i - b.i);
+}
+
+/**
+ * 묶음 툴팁(노트 규칙 5 · gh-trade GroupTooltipText 동형) — 묶음 크기 < 2 면 `orderTipOf` 그대로(한 원 2줄). 묶음이면 정확히 3줄:
+ *
+ * 1. 고른 원 = `orderTipOf` 2줄(title + 맥락)을 ` · ` 로 이은 한 줄 — gh-trade 한 원 툴팁은 1줄이고 웹은 2줄이라, 3줄 구조와
+ *    「지금 한 원 툴팁과 같은 내용」 을 둘 다 지키려고 잇는다(quick-261028-ggj 재량).
+ * 2. `묶음 N건 HH:MM:SS ~ HH:MM:SS · 방향 · 가격 첫 → 끝 (±0.00%)` — 같은 초면 시각 하나. 방향 = 한쪽만이면
+ *    `팀 매수 N건 합계 X.XX억`(매도도 같은 꼴), 섞이면 `팀 매수 N건 X.XX억 · 팀 매도 M건 Y.YY억`, NXT 가 하나라도 있으면 끝에
+ *    ` (NXT 포함)`. 가격 변화 = 첫 주문가 대비 끝 주문가.
+ * 3. `큰 주문 ` + 금액 내림차순(같으면 시간순 → 번호순 · 안정 정렬) 상위 3개 `X.XX억@가격` 을 ` · ` 로 — 섞였을 때만 `매수 `/`매도 ` 접두.
+ *
+ * 묶음 쪽 맥락 줄은 넣지 않는다(고른 원 줄에 이미 있다 · 기준 시각이 다른 같은 항목이 두 번 나오지 않게). `group` 은 `orderGroupOf`
+ * 결과(시간순 · 씨앗 포함)를 받는다.
+ *
+ * **NXT 데이터 사실:** 웹 payload.orders 에는 거래소 칸이 없다(accum_flow export 원천이 KRX 전용 · 인박스 261022-accum-nxt-team-burst).
+ * 그래서 컴포넌트는 `isNxt` 를 넘기지 않고 ` (NXT 포함)` 은 화면에 나오지 않는다 — 규칙 문자열은 술어로 테스트가 잠근다.
+ */
+export function orderGroupTipOf(
+  payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px' | 'pos_day'>,
+  row: Pick<AccumReportRow, 'base'>,
+  seed: OrderCircle,
+  group: readonly OrderCircle[],
+  opts: { dayAxis?: boolean; isNxt?: (i: number) => boolean } = {},
+): string[] {
+  const single = orderTipOf(payload, row, seed, { dayAxis: opts.dayAxis });
+  if (group.length < 2) return single;
+  const { t_ms, px, val } = payload.orders;
+  const valOf = (c: OrderCircle) => {
+    const v = val[c.i];
+    return isNum(v) ? v : 0;
+  };
+  const first = group[0]!;
+  const last = group[group.length - 1]!;
+  const tFirst = t_ms[first.i]!;
+  const tLast = t_ms[last.i]!;
+  const clock =
+    Math.floor(tFirst / 1000) === Math.floor(tLast / 1000) ? kstClock(tFirst) : `${kstClock(tFirst)} ~ ${kstClock(tLast)}`;
+
+  let b = 0;
+  let s = 0;
+  let bk = 0;
+  let sk = 0;
+  for (const c of group) {
+    if (c.side === 'B') {
+      b++;
+      bk += valOf(c);
+    } else {
+      s++;
+      sk += valOf(c);
+    }
+  }
+  const mixed = b > 0 && s > 0;
+  let dir = mixed
+    ? `팀 매수 ${b}건 ${fmtEok(bk, { digits: 2 })} · 팀 매도 ${s}건 ${fmtEok(sk, { digits: 2 })}`
+    : b > 0
+      ? `팀 매수 ${b}건 합계 ${fmtEok(bk, { digits: 2 })}`
+      : `팀 매도 ${s}건 합계 ${fmtEok(sk, { digits: 2 })}`;
+  if (opts.isNxt && group.some((c) => opts.isNxt!(c.i))) dir += ' (NXT 포함)';
+
+  const pxFirst = px[first.i]!;
+  const pxLast = px[last.i]!;
+  const chg = pxFirst > 0 ? ((pxLast - pxFirst) / pxFirst) * 100 : 0;
+  const priceTxt = `가격 ${INT_FMT.format(pxFirst)} → ${INT_FMT.format(pxLast)} (${pct2(chg)})`;
+
+  const top = [...group].sort((p, q) => valOf(q) - valOf(p)).slice(0, 3);
+  const big = top
+    .map((c) => `${mixed ? (c.side === 'B' ? '매수 ' : '매도 ') : ''}${fmtEok(valOf(c), { digits: 2 })}@${INT_FMT.format(px[c.i]!)}`)
+    .join(' · ');
+
+  return [single.join(' · '), `묶음 ${group.length}건 ${clock} · ${dir} · ${priceTxt}`, `큰 주문 ${big}`];
+}
+
+/**
+ * 가격 판 hover 한 번에(quick-261028-ggj) — 씨앗에서 묶음(`orderGroupOf`)을 구하고 줄(`orderGroupTipOf`)을 만든다.
+ * key = `o{씨앗 번호}` — 같은 묶음 안 다른 원으로 옮겨도 씨앗이 바뀌면 key 가 바뀌어 다시 그린다(노트 규칙 6).
+ * `group` 은 묶음이 2개 이상일 때만 얹는다(고리 강조용).
+ */
+export function orderHoverOf(
+  payload: Pick<AccumReportPayload, 'orders' | 'day_cum_net' | 'avg_px' | 'pos_day'>,
+  row: Pick<AccumReportRow, 'base'>,
+  circles: readonly OrderCircle[],
+  seed: OrderCircle,
+  view: View,
+  opts: { dayAxis?: boolean } = {},
+): ChartHover {
+  const group = orderGroupOf(payload.orders, circles, seed, view);
+  const hover: ChartHover = { key: `o${seed.i}`, lines: orderGroupTipOf(payload, row, seed, group, opts), circle: seed };
+  if (group.length >= 2) hover.group = group;
+  return hover;
 }
 
 /**

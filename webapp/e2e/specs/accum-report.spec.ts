@@ -316,7 +316,7 @@ test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (
     expect(errors, '경로 전체 페이지 오류 0').toEqual([]);
   });
 
-  test('P34-AC1b 1280 — 마우스 툴팁(gh-trade 동형): 원 위 = 주문 2줄 + 고리 · 10분 판 = 칸 · 상자는 차트 안 · 떠나면 사라짐', async ({ page }) => {
+  test('P34-AC1b 1280 — 마우스 툴팁(gh-trade 동형): 원 위 = 주문 2줄 + 고리 · 묶음이면 3줄 + 굵은 고리 · 10분 판 = 칸 · 상자는 차트 안 · 떠나면 사라짐', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await installAccumMocks(page);
     await page.goto(`${BASE}?d=${ACCUM_LATEST}`);
@@ -332,10 +332,22 @@ test.describe('Phase 34 Plan 09 — 매집감지 상세 실브라우저 경로 (
     const cb = (await circle.boundingBox())!;
     await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
     await expect(tip).toBeVisible();
-    await expect(tip.locator('> div')).toHaveCount(2);
+    // quick-261028-ggj(gh-trade 261028) — 닿는 원이 없으면 2줄 + 고리 1 · 묶음이면 3줄(고른 원 · 묶음 요약 · 큰 주문) + 고리 N − 1 + 굵은 고리 1
+    const n = await tip.locator('> div').count();
+    expect([2, 3]).toContain(n);
     await expect(tip.locator('> div').first()).toHaveText(/^\d\d:\d\d:\d\d 팀 (매수|매도) [\d,]+주 · [\d.,]+억 @[\d,]+ · \d+조각/);
-    await expect(tip.locator('> div').nth(1)).toHaveText(/순매수 누적 [+−]?[\d.,]+억/);
-    await expect(svg.locator('[data-slot="accum-order-hover"]')).toHaveCount(1);
+    if (n === 2) {
+      await expect(tip.locator('> div').nth(1)).toHaveText(/순매수 누적 [+−]?[\d.,]+억/);
+      await expect(svg.locator('[data-slot="accum-order-hover"]')).toHaveCount(1);
+      await expect(svg.locator('[data-slot="accum-order-seed"]')).toHaveCount(0);
+    } else {
+      const summary = (await tip.locator('> div').nth(1).textContent()) ?? '';
+      const m = /^묶음 (\d+)건 /.exec(summary);
+      expect(m, summary).not.toBeNull();
+      await expect(tip.locator('> div').nth(2)).toHaveText(/^큰 주문 /);
+      await expect(svg.locator('[data-slot="accum-order-seed"]')).toHaveCount(1);
+      await expect(svg.locator('[data-slot="accum-order-hover"]')).toHaveCount(Number(m![1]) - 1);
+    }
     const wb = (await wrap.boundingBox())!;
     const tb = (await tip.boundingBox())!;
     expect(tb.x).toBeGreaterThanOrEqual(wb.x - 1);

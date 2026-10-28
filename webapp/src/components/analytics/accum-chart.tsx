@@ -25,7 +25,7 @@ import {
   lastTradeMsOf,
   nearestOrderOf,
   orderCirclesOf,
-  orderTipOf,
+  orderHoverOf,
   posDayPathOf,
   posDayPointsOf,
   posNetPathOf,
@@ -80,6 +80,9 @@ import { cn } from '@/lib/utils';
  *   가격 판 = 세로선이 지나는 원 중 세로로 가장 가까운 주문(`nearestOrderOf` · 2줄 「주문 사실」 + 「순매수 누적 · 등락률 · 평단 대비」),
  *   누적 판 = 그 시각 계단 값(`cumTipAt`), 10분 판 = 그 칸(`bucketTipAt`). 대상이 바뀔 때만 상태를 바꾸고 상자는 그 순간 마우스
  *   +12px(오른쪽 · 아래 절반이면 반대쪽으로 접는다). 고른 원은 --fg 테두리 고리. 끌기 중 · 포인터가 나가면 지운다.
+ *   **묶음(quick-261028-ggj · gh-trade 261028 규칙 1~6):** 가격 판은 씨앗(`nearestOrderOf`) + 씨앗과 직접 닿는 보이는 원(사슬 없음 ·
+ *   `orderGroupOf`)이 묶음이고, 2개 이상이면 3줄(고른 원 줄 · 묶음 요약 · 큰 주문 · `orderGroupTipOf`) · 묶음 원 고리 1.5 · 고른 원만
+ *   굵은 고리 2.5(`accum-order-seed`). 상자는 줄바꿈(break-keep · 내어쓰기)으로 래퍼 안에서 접힌다.
  *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · 사이클 세로선 title 은 남는다). 터치는 상자를 띄우지 않는다 —
  *   폰은 KPI 줄 · 사이클 표 · 손익 줄 글자가 수치를 맡는다(D-15).
  */
@@ -181,27 +184,38 @@ export function AccumChart({
   const noCum = payload.day_cum_net.t_ms.length === 0;
   const noBuckets = payload.buckets.length === 0;
 
-  // 마우스 툴팁 — 판마다 대상 하나(가격 판 원 · 누적 판 계단 값 · 10분 판 칸) · 대상이 바뀔 때만 상태를 바꾼다
+  // 판마다 대상 하나(가격 판 씨앗 + 닿는 원 묶음 · 누적 판 계단 값 · 10분 판 칸) — viewBox 좌표(mx · my) · 그림 영역 안만
+  const pickAt = (mx: number, my: number): ChartHover | null => {
+    const t = tOfView(view, L, W)(mx);
+    if (my <= TOP + H1) {
+      const c = nearestOrderOf(circles, mx, my);
+      if (c !== null) return orderHoverOf(payload, row, circles, c, view, { dayAxis });
+    } else if (my >= C_TOP && my <= C_TOP + H2) {
+      return cumTipAt(payload, t, { dayAxis });
+    } else if (my >= B_TOP && my <= PLOT_BOTTOM) {
+      return bucketTipAt(payload.buckets, bounds.T0, t);
+    }
+    return null;
+  };
+
+  // 마우스 툴팁 — 대상이 바뀔 때만 상태를 바꾼다(key · 묶음이면 씨앗 번호)
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.pointerType === 'touch' || dragging) return;
     const box = e.currentTarget.getBoundingClientRect();
     const mx = ((e.clientX - box.left) * W) / (box.width || W);
     const my = ((e.clientY - box.top) * H) / (box.height || H);
-    let next: ChartHover | null = null;
-    if (mx >= L && mx <= right) {
-      const t = tOfView(view, L, W)(mx);
-      if (my <= TOP + H1) {
-        const c = nearestOrderOf(circles, mx, my);
-        if (c !== null) next = { key: `o${c.i}`, lines: orderTipOf(payload, row, c, { dayAxis }), circle: c };
-      } else if (my >= C_TOP && my <= C_TOP + H2) {
-        next = cumTipAt(payload, t, { dayAxis });
-      } else if (my >= B_TOP && my <= PLOT_BOTTOM) {
-        next = bucketTipAt(payload.buckets, bounds.T0, t);
-      }
-    }
+    const next = mx >= L && mx <= right ? pickAt(mx, my) : null;
     if ((next?.key ?? null) === (hover?.key ?? null)) return;
     setHover(next === null ? null : { ...next, ax: mx, ay: my, vk });
   };
+
+  // 고리 — 원 하나면 그 원 1.5 · 묶음(2개 이상)이면 고른 원 밖 묶음 원마다 1.5 + 고른 원만 2.5(gh-trade seedRim 이 hoverRim 을 대신)
+  const seedRim = hover?.group ? hover.circle : null;
+  const rims = hover?.group
+    ? hover.group.filter((c) => c.i !== seedRim?.i)
+    : hover?.circle
+      ? [hover.circle]
+      : [];
 
   const name = row.name ?? row.short_code;
   const ariaLabel = `${name} 매집 상세 차트 — ${kstHm(view.t0)}~${kstHm(view.t1)} · 사이클 ${payload.cycles.length}개 · 팀 주문 ${payload.orders.t_ms.length}건 · 하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`;
@@ -415,16 +429,29 @@ export function AccumChart({
                 />
               );
             })}
-            {/* 툴팁 대상 원 고리(gh-trade hoverRim) */}
-            {hover?.circle && (
+            {/* 툴팁 대상 원 고리(gh-trade hoverRim 1.5) · 묶음이면 고른 원만 굵은 고리(seedRim 2.5 · quick-261028-ggj 규칙 4) */}
+            {rims.map((c) => (
               <circle
+                key={`h${c.i}`}
                 data-slot="accum-order-hover"
-                cx={hover.circle.cx}
-                cy={hover.circle.cy}
-                r={hover.circle.r + 1}
+                cx={c.cx}
+                cy={c.cy}
+                r={c.r + 1}
                 fill="none"
                 stroke="var(--fg)"
                 strokeWidth={1.5}
+                pointerEvents="none"
+              />
+            ))}
+            {seedRim && (
+              <circle
+                data-slot="accum-order-seed"
+                cx={seedRim.cx}
+                cy={seedRim.cy}
+                r={seedRim.r + 1}
+                fill="none"
+                stroke="var(--fg)"
+                strokeWidth={2.5}
                 pointerEvents="none"
               />
             )}
@@ -548,7 +575,7 @@ export function AccumChart({
         <div
           data-slot="accum-chart-tip"
           role="tooltip"
-          className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] whitespace-nowrap text-[var(--popover-fg)] shadow-md tabular-nums"
+          className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums"
           style={{
             left: hover.ax > W / 2 ? undefined : hover.ax + 12,
             right: hover.ax > W / 2 ? W - hover.ax + 12 : undefined,
@@ -557,7 +584,9 @@ export function AccumChart({
           }}
         >
           {hover.lines.map((line, i) => (
-            <div key={i}>{line}</div>
+            <div key={i} className="pl-3 -indent-3">
+              {line}
+            </div>
           ))}
         </div>
       )}
