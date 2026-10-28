@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-19-PLAN.md
-last_updated: "2026-10-28T03:19:51.630Z"
+last_updated: "2026-10-28T04:30:37.793Z"
 last_activity: 2026-10-28
 last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
-state_head: b1f7a10f650f89a03d1eb3579c77c15b8183e779
+state_head: f8edd81694eb9a7a113728f0bee6233820938b3a
 progress:
   total_phases: 7
   completed_phases: 5
@@ -110,6 +110,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261026-01h | 매집감지 당일 축 UI — 작업대 B(당일 주인공·누적/전날 보조) · 보고서 당일 축(누적 왼쪽 회색 축) · 500만원 | 2026-10-26 | 7956414d | [261026-01h-ui-b-500](./quick/261026-01h-ui-b-500/) |
 | 261026-0ty | 매집감지 보고서 서버 기준 당일 값 — pos_day_avg_px 열 · payload.pos_day 주선 · 팀 평단(당일) | 2026-10-26 | d9a6c3aa | [261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da](./quick/261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da/) |
 | 261028-ggj | 매집 차트 닿는 원 묶음 툴팁(gh-trade 261028 규칙 1~6) + 모바일 길게 누르기 툴팁 | 2026-10-28 | b1f7a10f | [261028-ggj-accum-chart-group-tooltip-touch](./quick/261028-ggj-accum-chart-group-tooltip-touch/) |
+| 28 | 매집 차트 묶음 판정 가로 ± 5px (gh-trade 261028-accum-chart-group-x5) | 2026-10-28 | f8edd816 | — |
 
 ## Session Continuity
 
