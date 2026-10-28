@@ -81,8 +81,8 @@ import { cn } from '@/lib/utils';
  *   가격 판 = 세로선이 지나는 원 중 세로로 가장 가까운 주문(`nearestOrderOf` · 2줄 「주문 사실」 + 「순매수 누적 · 등락률 · 평단 대비」),
  *   누적 판 = 그 시각 계단 값(`cumTipAt`), 10분 판 = 그 칸(`bucketTipAt`). 대상이 바뀔 때만 상태를 바꾸고 상자는 그 순간 마우스
  *   +12px(오른쪽 · 아래 절반이면 반대쪽으로 접는다). 고른 원은 --fg 테두리 고리. 끌기 중 · 포인터가 나가면 지운다.
- *   **묶음(quick-261028-ggj · gh-trade 261028 규칙 1~6):** 가격 판은 씨앗(`nearestOrderOf`) + 씨앗과 직접 닿는 보이는 원(사슬 없음 ·
- *   `orderGroupOf`)이 묶음이고, 2개 이상이면 3줄(고른 원 줄 · 묶음 요약 · 큰 주문 · `orderGroupTipOf`) · 묶음 원 고리 1.5 · 고른 원만
+ *   **묶음(quick-261028-ggj · gh-trade 261028 규칙 1~6):** 가격 판은 씨앗(`nearestOrderOf`) + 씨앗 중심 가로 ± 5px 안의 보이는 원(세로 무시 ·
+ *   사슬 없음 · `orderGroupOf` · gh-trade 261028-accum-chart-group-x5)이 묶음이고, 2개 이상이면 3줄(고른 원 줄 · 묶음 요약 · 큰 주문 · `orderGroupTipOf`) · 묶음 원 고리 1.5 · 고른 원만
  *   굵은 고리 2.5(`accum-order-seed`). 상자는 줄바꿈(break-keep · 내어쓰기)으로 래퍼 안에서 접힌다.
  *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · 사이클 세로선 title 은 남는다).
  * - **터치 살펴보기(quick-261028-ggj):** 손가락을 차트에 대고 300ms 동안 8px 안에 머물면(길게 누르기 · `createTouchInspect`) 살펴보기가
@@ -240,7 +240,7 @@ export function AccumChart({
   const noCum = payload.day_cum_net.t_ms.length === 0;
   const noBuckets = payload.buckets.length === 0;
 
-  // 판마다 대상 하나(가격 판 씨앗 + 닿는 원 묶음 · 누적 판 계단 값 · 10분 판 칸) — viewBox 좌표(mx · my) · 그림 영역 안만
+  // 판마다 대상 하나(가격 판 씨앗 + 가로 ± 5px 묶음 · 누적 판 계단 값 · 10분 판 칸) — viewBox 좌표(mx · my) · 그림 영역 안만
   const pickAt = (mx: number, my: number): ChartHover | null => {
     const t = tOfView(view, L, W)(mx);
     if (my <= TOP + H1) {

@@ -101,6 +101,21 @@ const tipLinesOf = (sec: HTMLElement) =>
  * quick-261028-ggj — 데이터 원(고리 제외)을 차례로 마우스로 대 보다가 툴팁이 3줄(묶음)인 첫 원 · 그 원 중심과 줄. 없으면 null.
  * jsdom 은 getBoundingClientRect 가 0 이라 clientX/Y = viewBox 좌표.
  */
+/**
+ * 가로 ± 5px 안에 다른 원이 없는 원(묶음 1 · gh-trade 261028-accum-chart-group-x5) — 천일고속 실측은 09:01:00 첫 원이
+ * 가로 1.5px 옆 원과 묶이므로 한 원 툴팁 테스트는 이것을 쓴다.
+ */
+function soloOf(svg: SVGSVGElement): { cx: number; cy: number } {
+  const data = Array.from(svg.querySelectorAll('[data-slot="accum-price-layer"] > circle:not([data-slot])'));
+  const xs = data.map((c) => Number(c.getAttribute('cx')));
+  const k = xs.findIndex((x, i) => xs.every((y, j) => j === i || Math.abs(x - y) > 5));
+  expect(k, '천일고속 실측에 가로로 홀로 있는 원이 있어야 한다').toBeGreaterThanOrEqual(0);
+  return { cx: xs[k]!, cy: Number(data[k]!.getAttribute('cy')) };
+}
+
+/** 한 원 툴팁 첫 줄 꼴 — `HH:MM:SS 팀 매수|매도 N주 · X.XX억 @가격 · N조각`. */
+const ORDER_LINE0 = /^\d\d:\d\d:\d\d 팀 (매수|매도) [\d,]+주 · [\d.,]+억 @[\d,]+ · \d+조각/;
+
 function findGroup(sec: HTMLElement, svg: SVGSVGElement): { cx: number; cy: number; lines: string[] } | null {
   const data = Array.from(svg.querySelectorAll('[data-slot="accum-price-layer"] > circle:not([data-slot])'));
   for (const c of data) {
@@ -192,23 +207,22 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
     const sec = await expand(CHEONIL);
     const svg = chartOf(sec)!;
     const tip = () => sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]');
-    const circles = Array.from(svg.querySelectorAll('circle'));
-    const first = circles[circles.length - 1]!; // 09:01:00 팀매수 시작
+    const solo = soloOf(svg); // 가로로 홀로 있는 원(묶음 1)
     const at = (cx: number, cy: number, pointerType = 'mouse') =>
       act(() => {
         fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType });
       });
-    const cx = Number(first.getAttribute('cx'));
-    const cy = Number(first.getAttribute('cy'));
+    const { cx, cy } = solo;
     // 길게 누르지 않은 터치 이동은 상자를 띄우지 않는다
     at(cx, cy, 'touch');
     expect(tip()).toBeNull();
     at(cx, cy);
     const lines = Array.from(tip()!.children).map((d) => d.textContent);
-    expect(lines[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(ORDER_LINE0);
     expect(lines[1]).toMatch(/^순매수 누적 [+−][\d.,]+억 · 등락률 [+−]\d+\.\d\d%$/);
     expect(tip()!.getAttribute('role')).toBe('tooltip');
-    expect(svg.querySelector('[data-slot="accum-order-hover"]')!.getAttribute('cx')).toBe(first.getAttribute('cx'));
+    expect(svg.querySelector('[data-slot="accum-order-hover"]')!.getAttribute('cx')).toBe(String(cx));
     // quick-261028-ggj — 홀로 있는 원(묶음 1)은 굵은 고리 없이 지금 고리 하나
     expect(svg.querySelectorAll('[data-slot="accum-order-hover"]')).toHaveLength(1);
     expect(svg.querySelector('[data-slot="accum-order-seed"]')).toBeNull();
@@ -1171,14 +1185,11 @@ describe('quick-261028-ggj 터치 길게 누르기', () => {
     vi.useRealTimers();
   });
 
-  /** 천일고속을 펼친 뒤 fake timers(setTimeout 만) — 손가락 도우미 · first 원(09:01:00 · 홀로) 중심. */
+  /** 천일고속을 펼친 뒤 fake timers(setTimeout 만) — 손가락 도우미 · 가로로 홀로 있는 원(`soloOf` · 묶음 1) 중심. */
   async function open() {
     const sec = await expand(CHEONIL);
     const svg = chartOf(sec)!;
-    const data = Array.from(svg.querySelectorAll('[data-slot="accum-price-layer"] > circle:not([data-slot])'));
-    const first = data[data.length - 1]!;
-    const cx = Number(first.getAttribute('cx'));
-    const cy = Number(first.getAttribute('cy'));
+    const { cx, cy } = soloOf(svg);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const finger = (kind: 'down' | 'move' | 'up' | 'cancel', clientX: number, clientY: number, pointerId = 1) =>
       act(() => {
@@ -1205,7 +1216,7 @@ describe('quick-261028-ggj 터치 길게 누르기', () => {
     expect(tip()).not.toBeNull();
     const lines = tipLinesOf(sec);
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(lines[0]).toMatch(ORDER_LINE0);
     expect(svg.querySelectorAll('[data-slot="accum-order-hover"]')).toHaveLength(1);
     expect(tip()!.getAttribute('data-touch')).toBe('1');
     expect(tip()!.style.left).toBe('4px');
@@ -1257,7 +1268,8 @@ describe('quick-261028-ggj 터치 길게 누르기', () => {
     finger('move', cx + 40, 300);
     expect(tip()!.textContent).toMatch(/^\d\d:\d\d:\d\d · 순매수 누적/);
     finger('move', cx, cy);
-    expect(tipLinesOf(sec)[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(tipLinesOf(sec)).toHaveLength(2);
+    expect(tipLinesOf(sec)[0]).toMatch(ORDER_LINE0);
     finger('cancel', cx, cy);
     expect(tip()).toBeNull();
   });

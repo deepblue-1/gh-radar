@@ -793,10 +793,10 @@ describe('quick-261028-ggj 묶음 툴팁(gh-trade 261028 규칙 1~6)', () => {
   /** 시각 · 가격 열만 — orderGroupOf 가 보는 것. */
   const tp = (ts: string[], px: number[]) => ({ t_ms: ts.map(at), px });
 
-  it('orderGroupOf 사슬 금지 — A–B–C 가 이어 겹쳐도 씨앗과 직접 닿는 원만(A → {A, B} · B → {A, B, C} · C → {B, C})', () => {
+  it('orderGroupOf 사슬 금지 — A–B–C 가 가로 4px 씩 이어져도 씨앗 ± 5px 안의 원만(A → {A, B} · B → {A, B, C} · C → {B, C})', () => {
     const A = mk(0, 100, 100, 5);
-    const B = mk(1, 108, 100, 5);
-    const C = mk(2, 116, 100, 5);
+    const B = mk(1, 104, 100, 5);
+    const C = mk(2, 108, 100, 5);
     const cs = [A, B, C];
     const o = tp(['10:00:00', '10:01:00', '10:02:00'], [10_000, 10_000, 10_000]);
     expect(ids(orderGroupOf(o, cs, A, view))).toEqual([0, 1]);
@@ -804,15 +804,18 @@ describe('quick-261028-ggj 묶음 툴팁(gh-trade 261028 규칙 1~6)', () => {
     expect(ids(orderGroupOf(o, cs, C, view))).toEqual([1, 2]);
   });
 
-  it('orderGroupOf 경계 — 중심 거리 = r씨앗 + r 이면 든다 · 반지름이 달라도 합으로 본다(9.1 든다 · 9.3 안 든다)', () => {
+  it('orderGroupOf 가로 ± 5px(gh-trade 261028-accum-chart-group-x5) — 세로로 멀어도 가로 3px 면 든다 · 가로 6px 면 커도 빠진다 · 경계 5 든다', () => {
     const o = tp(['10:00:00', '10:01:00', '10:02:00'], [10_000, 10_000, 10_000]);
-    const A = mk(0, 100, 100, 5);
-    // 3–4–5 삼각형 — 거리 10 = 5 + 5
-    expect(ids(orderGroupOf(o, [A, mk(1, 106, 108, 5)], A, view))).toEqual([0, 1]);
-    expect(ids(orderGroupOf(o, [A, mk(1, 106, 108.1, 5)], A, view))).toEqual([0]);
-    const S = mk(0, 100, 100, 7);
-    expect(ids(orderGroupOf(o, [S, mk(1, 109.1, 100, 2.2)], S, view))).toEqual([0, 1]);
-    expect(ids(orderGroupOf(o, [S, mk(1, 109.3, 100, 2.2)], S, view))).toEqual([0]);
+    const A = mk(0, 100, 100, 3);
+    // 가격이 튄 순간 — 세로 150px 떨어진 작은 원도 같은 시간대
+    expect(ids(orderGroupOf(o, [A, mk(1, 103, 250, 2)], A, view))).toEqual([0, 1]);
+    expect(ids(orderGroupOf(o, [A, mk(1, 97, -50, 2)], A, view))).toEqual([0, 1]);
+    // 원이 커서 화면에서 겹쳐도 중심이 가로 6px 이면 빠진다
+    expect(ids(orderGroupOf(o, [A, mk(1, 106, 100, 20)], A, view))).toEqual([0]);
+    expect(ids(orderGroupOf(o, [mk(0, 100, 100, 20), mk(1, 94, 100, 20)], mk(0, 100, 100, 20), view))).toEqual([0]);
+    // 경계 — 5 든다 · 5.1 안 든다
+    expect(ids(orderGroupOf(o, [A, mk(1, 105, 100, 1)], A, view))).toEqual([0, 1]);
+    expect(ids(orderGroupOf(o, [A, mk(1, 105.1, 100, 1)], A, view))).toEqual([0]);
   });
 
   it('orderGroupOf 보이는 원만 — 시각이 창 밖 · 가격 0 인 원은 닿아도 빠진다 · 씨앗이 창 밖이면 [씨앗]', () => {
@@ -939,7 +942,7 @@ describe('quick-261028-ggj 묶음 툴팁(gh-trade 261028 규칙 1~6)', () => {
       pieces: [1, 1, 1, 1],
       first: [0, 0, 0, 0],
     };
-    // 모두 같은 자리 — 서로 닿는다
+    // 모두 같은 자리 — 가로 0px 라 서로 묶인다
     const cs = [mk(0, 100, 100, 5), mk(1, 100, 100, 5), mk(2, 100, 100, 5), mk(3, 100, 100, 5)];
     const g = orderGroupOf(o, cs, cs[0]!, view);
     expect(ids(g)).toEqual([3, 1, 2, 0]);

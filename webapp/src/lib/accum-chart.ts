@@ -773,18 +773,23 @@ export function orderTipOf(
 }
 
 // ---------------------------------------------------------------------------
-// 닿는 원 묶음 툴팁(quick-261028-ggj · gh-trade 261028 인계 규칙 1~6 · AccumChartPanel OverlapGroup · GroupTooltipText 동형)
+// 묶음 툴팁(quick-261028-ggj · gh-trade 261028 인계 규칙 1~6 · 규칙 2 = 가로 ± 5px(group-x5) · AccumChartPanel OverlapGroup · GroupTooltipText 동형)
 // ---------------------------------------------------------------------------
 
 /**
- * 가격 판 묶음 — 씨앗(`nearestOrderOf`) + 씨앗과 **직접** 닿는 보이는 원(노트 규칙 2 · 3 · gh-trade OverlapGroup · TryCircleOf).
+ * 가격 판 묶음 — 씨앗(`nearestOrderOf`) + 씨앗 중심 가로 ± `ORDER_GROUP_HALF_WIDTH` px 안의 보이는 원(노트 규칙 2 · 3 ·
+ * gh-trade OverlapGroup · GROUP_HALF_WIDTH).
  *
  * - 보임 = 주문 시각이 보기 창 [t0, t1] 안이고 가격 > 0(창 ±30분으로 그린 원 중 창 밖 원 · 가격 0 원은 대상 아님).
- * - 닿음 = 화면 px 중심 거리² ≤ (r씨앗 + r)²(제곱 비교만). 씨앗과의 거리만 본다 — 닿은 원의 닿은 원은 넣지 않는다(사슬 금지).
- *   매수/매도는 가리지 않는다. 화면 기준이라 확대하면 갈라지고 축소하면 묶인다.
+ * - 묶음 = 화면 px |cx씨앗 − cx| ≤ 5(gh-trade 261028-accum-chart-group-x5 — 앞 노트의 중심 거리² ≤ (r씨앗 + r)² 를 대체).
+ *   세로(가격) · 반지름은 보지 않는다 — 가격이 튀는 순간 위아래로 떨어진 원도 같은 시간대로 묶는다. 씨앗과의 거리만 본다 —
+ *   묶인 원의 이웃은 넣지 않는다(사슬 금지). 매수/매도는 가리지 않는다. 화면 기준이라 확대하면 갈라지고 축소하면 묶인다.
  * - 정렬 = 시각 오름차순 · 같으면 원래 번호 오름차순.
  * - 씨앗 자체가 안 보이면 `[씨앗]` — 지금 한 원 툴팁 그대로(웹 nearestOrderOf 는 창 ±30분 원도 고를 수 있다).
  */
+/** 묶음 가로 반폭(화면 px) — gh-trade AccumChartPanel `GROUP_HALF_WIDTH = 5f` 동형. */
+export const ORDER_GROUP_HALF_WIDTH = 5;
+
 export function orderGroupOf(
   orders: Pick<AccumReportOrders, 't_ms' | 'px'>,
   circles: readonly OrderCircle[],
@@ -800,10 +805,7 @@ export function orderGroupOf(
   const group = [seed];
   for (const c of circles) {
     if (c.i === seed.i || !visible(c)) continue;
-    const dx = c.cx - seed.cx;
-    const dy = c.cy - seed.cy;
-    const rr = seed.r + c.r;
-    if (dx * dx + dy * dy <= rr * rr) group.push(c);
+    if (Math.abs(c.cx - seed.cx) <= ORDER_GROUP_HALF_WIDTH) group.push(c);
   }
   return group.sort((a, b) => orders.t_ms[a.i]! - orders.t_ms[b.i]! || a.i - b.i);
 }
