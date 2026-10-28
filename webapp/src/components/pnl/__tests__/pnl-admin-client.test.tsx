@@ -176,4 +176,52 @@ describe('PnlAdminClient — /admin/pnl', () => {
     await waitFor(() => expect(heads()).toHaveLength(3));
     expect(mockFetchAdminPnl).toHaveBeenCalledTimes(2);
   });
+
+  it('⑦ 묶음 칩 — 「전체」 기본 · 계정 칩 → ?key= 그 묶음만 · 「미상」 칩 → key= 빈 값 · 「전체」 → key 지움', async () => {
+    const user = userEvent.setup();
+    const view = render(<PnlAdminClient />);
+    await waitFor(() => expect(heads()).toHaveLength(3));
+    const chips = () => screen.getByRole('radiogroup', { name: '계정' });
+    expect(within(chips()).getAllByRole('radio').map((c) => c.textContent)).toEqual(['전체', 'ezmesya', 'kim01', '미상']);
+    expect(within(chips()).getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(within(chips()).getByRole('radio', { name: 'kim01' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=kim01');
+    view.rerender(<PnlAdminClient />);
+    expect(heads().map((h) => h.querySelector('[data-slot="pnl-group-title"]')!.textContent)).toEqual(['kim01']);
+    expect(within(chips()).getByRole('radio', { name: 'kim01' })).toHaveAttribute('aria-checked', 'true');
+    expect(mockFetchAdminPnl).toHaveBeenCalledTimes(1);
+
+    await user.click(within(chips()).getByRole('radio', { name: '미상' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=');
+    view.rerender(<PnlAdminClient />);
+    expect(heads().map((h) => h.querySelector('[data-slot="pnl-group-title"]')!.textContent)).toEqual(['미상']);
+
+    await user.click(within(chips()).getByRole('radio', { name: '전체' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl');
+    view.rerender(<PnlAdminClient />);
+    expect(heads()).toHaveLength(3);
+  });
+
+  it('⑧ 계좌별 칩 「KB 위탁 37728502101」 · 「교보 10279758101」 · 묶음 전환은 key 를 지운다 · 없는 key 는 「전체」 로 본다', async () => {
+    const user = userEvent.setup();
+    mockSearchParams = new URLSearchParams('group=account&key=10279758101');
+    const view = render(<PnlAdminClient />);
+    await waitFor(() => expect(heads()).toHaveLength(1));
+    const chips = () => screen.getByRole('radiogroup', { name: '계좌' });
+    expect(within(chips()).getAllByRole('radio').map((c) => c.getAttribute('aria-label') ?? c.textContent)).toEqual([
+      '전체',
+      'KB 위탁 37728502101',
+      '교보 10279758101',
+    ]);
+    expect(within(chips()).getByRole('radio', { name: '교보 10279758101' })).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(within(seg()).getByRole('button', { name: '계정별' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?group=user');
+
+    mockSearchParams = new URLSearchParams('key=nobody');
+    view.rerender(<PnlAdminClient />);
+    await waitFor(() => expect(heads()).toHaveLength(3));
+    expect(screen.getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
+  });
 });
