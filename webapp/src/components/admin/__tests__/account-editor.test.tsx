@@ -1843,6 +1843,50 @@ describe('P36 비용률 · 상태 6종', () => {
     await act(async () => {});
   });
 
+  it('(WR-01) 서버 예수금이 만원 배수가 아니어도(체결 조정 9,998만 7,654원) 안 고친 칸 Enter 는 요청 0 · 「변경 없음」', () => {
+    const ADJ = 99_987_654;
+    mountCost([withCosts(KB_TWO, { KB120: cost(ADJ), KB121: cost(ADJ) })]);
+    expect(budgetInput()).toHaveValue('9,998');
+    fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    expect(costRow(NO)!.querySelector('[data-slot="admin-account-cost-unchanged"]')).toHaveTextContent('변경 없음');
+    // 같은 숫자를 다시 쳐도 화면 단위로 같다 — 서버 원 값을 만원 내림 값으로 덮지 않는다
+    fireEvent.change(budgetInput(), { target: { value: '9998' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+  });
+
+  it('(WR-01) 불일치 맞추기 Enter 는 서버 원 값 그대로(만원 내림 아님) · 실제로 고치면 칸 값 × 10,000', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }] });
+    mountCost([withCosts(KB_TWO, { KB120: cost(99_987_654), KB121: cost(50_000_000) })]);
+    fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAccountBudgetMock).toHaveBeenLastCalledWith('kimtr', 'KB', NO, 99_987_654);
+    await act(async () => {});
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '9999' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(2);
+    expect(setAccountBudgetMock).toHaveBeenLastCalledWith('kimtr', 'KB', NO, 99_990_000);
+    await act(async () => {});
+  });
+
+  it('(WR-01) 서버 예수금이 1만원 미만(빈 칸 표시)이면 안 고친 Enter 로 해제(0)를 보내지 않는다 · 「0」 을 치면 해제', async () => {
+    setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
+    mountCost([withCosts(KB_ACCT, { KB120: cost(1) })]);
+    expect(budgetInput()).toHaveValue('');
+    fireEvent.focus(budgetInput());
+    enter(budgetInput());
+    expect(setAccountBudgetMock).not.toHaveBeenCalled();
+    fireEvent.change(budgetInput(), { target: { value: '0' } });
+    enter(budgetInput());
+    expect(setAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAccountBudgetMock).toHaveBeenCalledWith('kimtr', 'KB', NO, 0);
+    await act(async () => {});
+  });
+
   it('(behavior 4) 포커스 이탈 — 안 고쳤으면 요청 0 · 고쳤으면 요청 1', async () => {
     setAccountBudgetMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });
     setAccountFeeMock.mockResolvedValue({ results: [{ server: 'KB120', outcome: 'ok' }] });

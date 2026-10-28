@@ -574,6 +574,21 @@ function budgetFieldText(krw: number): string {
   return manwon === 0 ? "" : KO_NUM.format(manwon);
 }
 
+/**
+ * 예수금 칸 글자 → 보낼 원 값(36 WR-01). 칸은 서버 원 값을 **만원 내림**해 보이므로, 칸 글자가 서버 값의 그 표기와 같으면(안 고침 ·
+ * 같은 숫자를 다시 침) 서버 원 값을 그대로 돌려준다 — 체결 조정으로 생긴 만원 미만 끝자리(최대 9,999원)를 깎아 덮지 않는다.
+ * 그 밖은 칸 값 × 10,000. 「0」 을 직접 치면 표기(빈 칸)와 글자가 달라 0(해제)이 된다. `serverKrw` null = 서버 값을 모른다(확인 전).
+ * 숫자가 아니면 `{ ok: false }`(`parseBudgetManwon` 그대로).
+ */
+export function budgetKrwToSave(text: string, serverKrw: number | null): { ok: true; krw: number } | { ok: false } {
+  const parsed = parseBudgetManwon(text);
+  if (!parsed.ok) return parsed;
+  if (serverKrw !== null && text.replace(/[,\s]/g, "") === budgetFieldText(serverKrw).replace(/,/g, "")) {
+    return { ok: true, krw: serverKrw };
+  }
+  return parsed;
+}
+
 /** ppm → 칸 표시(% 끝 0 없음) — 0 은 빈 칸. */
 function pctFieldText(ppm: number): string {
   return ppm === 0 ? "" : ppmToPct(ppm);
@@ -783,13 +798,14 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
 
   const saveBudget = () => {
     if (budgetLocked) return;
-    const parsed = parseBudgetManwon(budgetField.text);
+    // 칸이 서버 값의 화면 표기(만원 내림)와 같으면 서버 원 값 그대로(WR-01) — Enter 만 쳐도 끝자리를 깎아 덮지 않는다.
+    const parsed = budgetKrwToSave(budgetField.text, known ? summary.budgetKrw : null);
     if (!parsed.ok) {
       budgetField.settle(true);
       return;
     }
     setUnchanged((u) => (u === "budget" ? null : u));
-    // 서버 값과 같고 등록 서버 간 불일치가 없으면 요청 없이 「변경 없음」(불일치면 같은 값이어도 보낸다 — 맞추기).
+    // 서버 값과 같고 등록 서버 간 불일치가 없으면 요청 없이 「변경 없음」(불일치면 같은 값이어도 보낸다 — 맞추기 · 원 값 그대로).
     if (known && parsed.krw === summary.budgetKrw && !budgetMismatched) {
       markUnchanged("budget");
       budgetField.settle(false);
