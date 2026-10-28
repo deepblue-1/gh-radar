@@ -22,6 +22,8 @@ import { MIN_VIEW_MS, clampView, panBy, presetOf, zoomAt, type ChartPreset, type
  * - **끌기 · 핀치 = Pointer Events + setPointerCapture.** 포인터 1개 = 좌우 이동 · 2개 = 두 점 거리 비로 확대하면서 손가락
  *   중점 아래 시각을 중점에 붙인다. pointerup · pointercancel(폰에서 브라우저가 세로 스크롤을 가져갈 때 — Pitfall 12) ·
  *   lostpointercapture 에서 푼다. SVG 의 `touch-action: pan-y` 는 차트가 단다.
+ * - **살펴보기 플래그(quick-261028-ggj):** `useChartGestures` 넷째 인자 `inspectingRef` 가 true 인 동안 한 손가락 이동은 창을 옮기지
+ *   않는다(포인터 x 는 갱신한다) — pan 만 억제하고, 핀치는 차트 상태기가 두 번째 손가락에서 살펴보기를 꺼서 그대로 된다.
  */
 
 export interface ChartBounds {
@@ -198,18 +200,24 @@ export interface ChartGeom {
 /**
  * SVG 에 휠 · 포인터 리스너를 단다. `ctl` 이 null 이면 아무것도 달지 않는다(정적 차트).
  * 반환 `dragging` = 포인터가 눌린 동안 true(커서 grab → grabbing).
+ *
+ * @param inspectingRef 선택 — `.current` 가 true 인 동안 한 손가락 이동은 창을 옮기지 않는다(차트 길게 누르기 살펴보기 ·
+ *   quick-261028-ggj). 포인터 x 는 계속 갱신해 꺼진 뒤 다음 이동 · 핀치가 튀지 않는다.
  */
 export function useChartGestures(
   svgRef: RefObject<SVGSVGElement | null>,
   geom: ChartGeom,
   ctl: ChartViewControl | null,
+  inspectingRef?: RefObject<boolean>,
 ): { dragging: boolean } {
   const [dragging, setDragging] = useState(false);
   const geomRef = useRef(geom);
   const ctlRef = useRef(ctl);
+  const inspectRef = useRef(inspectingRef);
   useLayoutEffect(() => {
     geomRef.current = geom;
     ctlRef.current = ctl;
+    inspectRef.current = inspectingRef;
   });
   const enabled = ctl !== null;
 
@@ -286,6 +294,8 @@ export function useChartGestures(
         return;
       }
       pointers.set(e.pointerId, e.clientX);
+      // 살펴보기 중 — x 만 갱신하고 창은 옮기지 않는다(quick-261028-ggj)
+      if (inspectRef.current?.current === true) return;
       const dx = e.clientX - prevX;
       if (dx !== 0) c.schedule((v) => panBy(v, -fracOfPx(dx) * (v.t1 - v.t0)));
     };
