@@ -372,7 +372,8 @@ export class AdminDispatcher {
    * 중간 실패면 아무것도 지우지 않는다 — 다음 삭제 요청이 87 대조로 남은 것만 다시 보낸다.
    *
    * `reloadCostsFrom`(Phase 36 D-07 · reconcile 만) — 의도 원본. op 3 · op 1(계좌)이 ok 이고 그 계좌가 이 서버 87(전 유저 · 보내기
-   * 직전 87)에 없던 계좌면, 끝까지 실패가 없을 때 `#reloadCosts` 로 다른 서버 값의 op 6 · op 7 을 이어 보낸다(비치명 · 결과 불변).
+   * 직전 87)에 없던 계좌면 `#reloadCosts` 로 다른 서버 값의 op 6 · op 7 을 이어 보낸다(비치명 · 결과 불변). 뒤 op 가 code 로
+   * 실패해도 이미 생긴 계좌는 되싣는다 — 연결 실패(timeout · offline)만 건너뛴다(36 WR-03).
    */
   async #applyServer(
     dmaUserId: string,
@@ -452,7 +453,10 @@ export class AdminDispatcher {
       }
     }
 
-    if (failure === null && opts.reloadCostsFrom !== undefined) {
+    // WR-03 — 이미 ok 로 생긴 계좌는 뒤 op 실패(code · 비밀번호)와 무관하게 되싣는다. 다음 reconcile 은 그 계좌가 87 에 있어
+    // (`known`) 다시 firstSeen 이 되지 않으므로 여기서 빠지면 그 서버 예수금 · 비용률이 0 으로 남는다. 연결이 끊긴 실패
+    // (timeout · offline)만 건너뛴다 — 보내도 닿지 않는다. 되싣기는 비치명이라 결과 · 기록은 그대로다.
+    if (opts.reloadCostsFrom !== undefined && (failure === null || failure.outcome === "failed")) {
       for (const accountNo of firstSeen) await this.#reloadCosts(serverKey, admin, accountNo, opts.reloadCostsFrom);
     }
 

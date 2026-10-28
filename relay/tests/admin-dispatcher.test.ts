@@ -1506,6 +1506,52 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
     ]);
   });
 
+  it("⑥-b (WR-03) 같은 서버 계획의 뒤 op 4 가 BUSY(9)여도 이미 ok 로 생긴 A 는 되싣는다 · 결과는 실패 그대로", async () => {
+    const C = "1234567803";
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({ u1: [kb(B, 2), kb(C, 3)] }, [C]),
+    });
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: ["KB120"] },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+      { accountNo: C, priority: 3, servers: ["KB121"] },
+    ]);
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    await env.store.markAccountRemoved("u1", "KB", C);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+
+    expect(results.find((r) => r.server === "KB121")).toMatchObject({ outcome: "failed", code: 9 });
+    expect(ops(env.conns.KB121!)).toEqual([3, 4, 6, 7]);
+    expect(costOps(env.conns.KB121!)).toEqual([
+      { op: 6, userId: "", account: acct(A), budgetKrw: 100_000_000n },
+      { op: 7, userId: "", account: acct(A), feePpm: 100, sellTaxPpm: 2000 },
+    ]);
+    expect(env.conns.KB121!.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
+  });
+
+  it("⑥-c (WR-03) 뒤 op 가 연결 실패(offline)면 되싣지 않는다 — 보내도 닿지 않는다", async () => {
+    const C = "1234567803";
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: state({ u1: [kb(B, 2), kb(C, 3)] }),
+    });
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: ["KB120"] },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+      { accountNo: C, priority: 3, servers: ["KB121"] },
+    ]);
+    const conn = env.conns.KB121!;
+    const original = conn.command.bind(conn);
+    vi.spyOn(conn, "command").mockImplementation(async (input) => (input.op === 4 ? { kind: "offline" } : original(input)));
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    await env.store.markAccountRemoved("u1", "KB", C);
+    const results = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+
+    expect(results.find((r) => r.server === "KB121")).toMatchObject({ outcome: "offline" });
+    expect(costOps(conn)).toEqual([]);
+  });
+
   it("⑥ 되싣기 결과 없음(timeout · offline)도 비치명 — warn 에 kind", async () => {
     const env = setup({
       KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 0, sellTaxPpm: 0 }),
