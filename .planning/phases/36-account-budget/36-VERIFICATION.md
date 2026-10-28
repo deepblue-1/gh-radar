@@ -1,7 +1,7 @@
 ---
 phase: 36-account-budget
-verified: 2026-10-28T02:10:00Z
-status: human_needed
+verified: 2026-10-28T07:05:00Z
+status: passed
 score: 6/6 must-haves verified
 covered_files:
   - ".planning/phases/36-account-budget/36-01-PLAN.md"
@@ -25,9 +25,12 @@ covered_files:
   - ".planning/phases/36-account-budget/36-10-PLAN.md"
   - ".planning/phases/36-account-budget/36-10-SUMMARY.md"
   - "packages/shared/src/account-budget.ts"
+  - "packages/shared/src/admin.ts"
   - "packages/shared/src/pnl.ts"
   - "relay/src/admin/admin-api.ts"
+  - "relay/src/admin/admin-conn.ts"
   - "relay/src/admin/dispatcher.ts"
+  - "relay/src/admin/types.ts"
   - "relay/src/dma/envelope.ts"
   - "relay/src/hub/subscription-hub.ts"
   - "relay/src/journal/writer.ts"
@@ -45,26 +48,33 @@ covered_files:
   - "webapp/src/components/trading/limit-chaser-form.tsx"
   - "webapp/src/components/trading/me-client.tsx"
   - "webapp/src/lib/use-available-krw.ts"
-covered_digest: "v3:sha256:88474c03eb6a7f91434785cd5719c67d930cbf4aa62060ed4ee9385c4b0b06f5"
+covered_digest: "v3:sha256:c3b39b8f06085f58a09fd2a03c95c938dcc2b1c857873313633bcb6313dc6e9f"
 behavior_unverified: 0
 overrides_applied: 0
-human_verification:
-  - test: "WR-05 처리 결정 — /me 잔고 탭 계좌 패널에 priceOf 를 주입해 작업대·수동주문과 같은 주문가능 값을 내도록 고칠지"
-    expected: "시장가(price 0) 매수 미체결이 있는 계좌에서 /me 요약 줄의 「주문가능」 이 작업대 패널·수동주문 「주문가능」 과 같은 숫자"
-    why_human: "코드는 현재 /me 만 시장가 매수 미체결을 0 으로 센다(me-client.tsx 519-527 에 priceOf 없음). 로드맵 계산식 「price 0 이면 현재가」 와 SC5 「같은 숫자」 의 모서리 이탈이라 수정 여부(후속 quick)는 사용자 판단 사항. 라이브 UAT 가 이 모서리(시장가 매수 미체결 + /me)를 밟았는지 기록에 없다."
-  - test: "WR-01 · WR-02 · WR-03 · WR-04 (예수금 쓰기 경로 경고 4건) 후속 수정 시점 결정"
-    expected: "Enter 만 눌러도 op 6 가 나가는 문제(WR-01), 67 live 우선으로 저장 직후 옛 값이 보일 수 있는 문제(WR-02), 같은 서버 계획의 다른 op 실패 시 op 3 뒤 되싣기가 빠지는 문제(WR-03), 공유 계좌 fan-out 이 그 DMA 유저 등록 서버에만 닿는 문제(WR-04)가 후속 fix 로 닫힌다"
-    why_human: "배포·라이브 UAT A~F 통과 뒤 발견된 경고라 목표 실패는 아니지만 WR-01 은 실거래 계좌 예수금을 최대 9,999원 깎을 수 있는 실제 쓰기 결함이다. 처리 우선순위는 사용자가 정한다(36-REVIEW-DISPOSITION.md 에 open)."
+re_verification:
+  previous_status: human_needed
+  previous_score: 6/6
+  gaps_closed:
+    - "WR-05 — /me 잔고 탭 계좌 패널 priceOf 미주입 (22dd07c7, 이후 4bd0464a 로 구독 방식 보강)"
+    - "WR-01 — 고치지 않은 예수금 칸 Enter 가 op 6 로 서버 조정 원 값을 만원 내림으로 덮음 (3feb08dc)"
+    - "WR-02 — 67 live 를 87 보다 무조건 우선 (e1f352a8, freshLiveBudget 수신 시각 비교)"
+    - "WR-03 — op 3 뒤 되싣기가 같은 서버 계획의 다른 op 실패에 묶임 (c3a6bd74)"
+    - "R2 CR-01 — 「확인 전」 빈 칸 Enter 가 예수금 · 비용률 해제 (d13d32cb)"
+    - "R2 WR-01 — 불일치 상태 안 고친 Enter 가 서버 조정분을 되감음 (7dc67654)"
+    - "R2 WR-02 — /me 시세 미구독 · 굳은 옛 시세 (4bd0464a)"
+    - "R2 WR-03 — timeout 뒤 되싣기 영구 누락 (6f9cb46a, 87 상태 기준 멱등 조건)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 36: 계좌별 주문가능 금액 Verification Report
 
-**Phase Goal:** 어드민이 계좌별 예수금·수수료·매도세를 설정(op 6/7 fan-out · 서버별 칩 · op 3 뒤 되싣기)하고, 웹 주문 화면이 주문가능 금액을 실시간 표시·초과 경고하며, 66/67 예수금을 마지막 값으로 덮고, 저널 손익 4필드를 DB 에 적재해 「일자별 매매손익」(/admin/pnl · /me 손익 탭)을 보여 준다.
-**Verified:** 2026-10-28T02:10:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Phase Goal:** gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87 `budget_krw`·`fee_ppm`·`sell_tax_ppm` · 66/67 `budget_krw` · 80 저널 손익 4필드)을 받아 ① 어드민이 계좌별 예수금·수수료·매도세를 설정(등록 서버 전부 fan-out · 서버별 칩 · op 3 뒤 되싣기) ② 웹 주문 화면이 「주문가능 금액」 실시간 표시 · 초과 경고(차단 없음) ③ 66/67 예수금을 마지막 값으로 덮기 ④ 저널 손익 4필드를 DB 에 적재해 「일자별 매매손익」(`/admin/pnl` · `/me` 「손익」 탭).
+**Verified:** 2026-10-28T07:05:00Z
+**Status:** passed
+**Re-verification:** Yes — 이전 36-VERIFICATION.md(`human_needed`, 2026-10-28T02:10Z)는 코드 리뷰 수정 2라운드와 `/admin/pnl` 칩 줄 커밋 뒤 소스가 바뀌어 낡았다. 이전 report 의 `gaps:` 는 없었고(`human_needed`), 사람 판단 2건(WR-05 처리 결정 · WR-01~04 시점 결정)이 열려 있었다. 이번에 6개 Success Criteria 를 HEAD(`5cac157b`) 기준으로 다시 전수 확인하고, 고쳤다는 8건이 실제 코드에 있는지 직접 읽어 대조했다.
 
-판정 요약: 목표의 모든 요소가 코드에 실존하고 배선돼 있으며(스텁 없음), 라이브 UAT A~F 통과 기록과 일치한다. must-have 를 FAILED 로 떨어뜨리는 항목은 없다. 다만 코드 리뷰 경고 5건 중 WR-05(/me 만 시장가 매수 미체결을 0 으로 셈)는 로드맵 계산식의 실제 이탈이고 WR-01 은 실쓰기 결함이라, 후속 처리 결정을 사람에게 올린다(아래 Human Verification).
+판정 요약: 6/6 Success Criteria 가 코드 · 마이그레이션 · 라우트 · 화면 · 테스트로 실재하고 배선돼 있다. 이전 `human_needed` 사유였던 리뷰 경고 WR-01·02·03·05 와 2라운드 CR-01 · WR-01~03(R2)은 SUMMARY 서술이 아니라 현재 소스에서 수정이 확인됐고(아래 "리뷰 수정 대조"), 각 수정의 회귀 테스트가 현재 소스에서 통과한다. 남은 것은 WR-04 한 건뿐이며 사용자가 후속으로 미루기로 결정(36-UAT.md 테스트 4)한 설계 범위 결정 사항이라 이번 목표 달성을 막지 않는다.
 
 ## Goal Achievement
 
@@ -72,68 +82,86 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | 목업 확인(D-00) | ✓ VERIFIED | `.planning/phases/36-account-budget/reference/mockup-account-budget.html` 존재 |
-| 2 | relay: op 6/op 7 송신 · 87 3필드 파싱 · 66/67 `budget_krw` 마지막 값 덮기 · 저널 손익 4필드 파싱 · op 3 뒤 되싣기 · op 6/7 은 `dma_admin_results` 밖 | ✓ VERIFIED | `relay/src/admin/types.ts:39-40` ADMIN_OP.SetAccountBudget=6 / SetAccountFee=7; `envelope.ts:3360-3398` op 6 만 `addBudgetKrw`(ulong 가드), op 7 fee/tax; `envelope.ts:3484` 87 `budgetKrw` 파싱; `envelope.ts:2489` 66/67 `budgetKrw`; `subscription-hub.ts:3751-3753` 델타 병합이 `budgetKrw: next.budgetKrw` 로 마지막 값 덮기(스냅샷은 `...next`); `envelope.ts:3589-3592` 저널 4필드 `toNum`; `dispatcher.ts:454-456` `#reloadCosts` 되싣기. 단일 파일 테스트 `account-state` · `journal-codec` · `admin-dispatcher` 101/101 통과(직접 실행). 단 되싣기는 WR-03 의 부분 결함 있음 |
-| 3 | server/shared: 어드민 쓰기 2종(PUT budget · fee · requireAdmin) · 개요에 서버별 예수금·비용률(67 live 우선 · 87 폴백) · 주문가능 계산·표기·ppm 은 shared 한 벌 | ✓ VERIFIED | `server/src/routes/admin.ts:610-621` PUT `…/budget`(`AdminAccountBudgetSchema`), fee 라우트 동일 구조(67-68 주석 · `relay.setAccountBudget/Fee`); `app.ts:127-131` admin 라우터 군; `relay admin-api` 의 `GET /internal/admin/account-costs` + `hub.liveBudgetOf`(`subscription-hub.ts:2242`) ; `packages/shared/src/account-budget.ts` 의 `availableKrwOf` 식이 로드맵과 일치(budget − Σ평단×수량 − Σ매수 미체결, `pendingCancelSent` 제외, price 0→priceOf, 0 이하 예수금 → null)·`formatManwonFloor`·`ppmToPct`. shared `account-budget` 57/57 통과(직접 실행) |
-| 4 | DB: `dma_journal_events` bigint 4열(기본 0) · `dma_journal_apply` 재정의 · 일자 집계 RPC 2종 · REVOKE anon/authenticated · `exec_qty::bigint` | ✓ VERIFIED | `20261028210000_dma_journal_pnl.sql:33-36` 4열 `NOT NULL DEFAULT 0`, `:113-116` `coalesce((ev->>'…')::bigint,0)` 로 적재; `20261028210100_dma_pnl_rpcs.sql` build/for_user/for_admin 3함수, `exec_qty::bigint * exec_price`, `dma_visible_accounts` 가시성 조인(me 모드만), 어드민 p_group 22023 잠금, 3함수 모두 `REVOKE … FROM PUBLIC` + `FROM anon, authenticated`(162-204). pgTAP `supabase/tests/dma_pnl_daily.test.sql` 존재(36-05/07/08 SUMMARY 에 ok 기록, 이번에 재실행하지 않음). 원격 적용은 36-09 에 02:49 KST 기록 |
-| 5 | webapp: 어드민 카드 예수금·수수료·매도세 행(즉시 저장 · 서버별 칩) · 계좌 패널 「주문가능 / 예수금」 줄 · 수동주문 「주문가능」 + 초과 줄 · 상따 합산 경고 · `/admin/pnl` · `/me` 「손익」 탭 | ✓ VERIFIED (경고 있음) | `account-editor.tsx:744,754` `setAccountBudget/Fee` 배선(`admin-api.ts:189,206`); `account-panel.tsx:1714-1753` `BudgetSummaryLine`(`data-slot="account-budget-summary"`, 미설정 시 「/ 예수금 미설정」); `manual-order-form.tsx:1015-1077` `mo-available` · `manual-order-budget-over`; `limit-chaser-form.tsx:2001` `lc-budget-over`; `use-available-krw.ts` 가 shared `availableKrwOf` 호출; `webapp/src/app/admin/pnl/page.tsx` + `PnlAdminClient`(→ `fetchAdminPnl`); `me-client.tsx:316` `{ v: "pnl", label: "손익" }`; `app-sidebar.tsx:201` `NAV_ADMIN_PNL`. 경고: WR-05(`/me` AccountPanel 에 `priceOf` 미주입 → 시장가 매수 미체결 0 취급) |
-| 6 | 라이브 UAT · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` `status: done` | ✓ VERIFIED | 두 노트 frontmatter `status: done` 직접 확인; 36-09-SUMMARY: relay:711d1a53 smoke 11/11, server 00069-qwg smoke 15/15 + 신규 3경로 무인증 401, 사용자 UAT 「1-6 pass」(A~F). 라이브 UAT 는 이 검증에서 재현하지 않고 사용자 응답 기록에 의존 |
+| 1 | 목업 확인(D-00) | ✓ VERIFIED | `.planning/phases/36-account-budget/reference/` 존재 (36-VALIDATION · 36-UI-SPEC 가 채택 목업 ⑤ A 안 참조) |
+| 2 | relay: op 6/op 7 송신 · 86 code 해석 · 87 3필드 파싱 · 66/67 `budget_krw` 마지막 값 덮기 · 저널 손익 4필드 파싱 · op 3 뒤 서버 간 되싣기 · op 6/7 은 반영 칩 기록(`dma_admin_results`) 밖 | ✓ VERIFIED | `relay/src/admin/types.ts:39` `SetAccountBudget: 6`; `envelope.ts:3360-3401` op 6 만 `addBudgetKrw`(ulong 가드 3361-3363), op 7 만 `addFeePpm`·`addSellTaxPpm`(uint32 가드); `envelope.ts:3484-3486` 87 `budgetKrw`·`feePpm`·`sellTaxPpm` 파싱; `envelope.ts:2489` 66/67 `budgetKrw`; `subscription-hub.ts:3768` 델타 병합 `budgetKrw: next.budgetKrw`(마지막 값 덮기); `envelope.ts:3589-3592` 저널 4필드 `toNum`; `dispatcher.ts:464-466` 되싣기(`#reloadCosts`). 행동 의존 truth(덮기 · 되싣기)는 단일 파일 테스트로 직접 확인 — relay `admin-dispatcher` · `admin-api` · `account-state` · `journal-codec` 4파일 192 passed(직접 실행). dispatcher ⑥-b/⑥-d/⑥-e/⑥-f 가 되싣기 경계(뒤 op 실패 · 87 0 상태 복구 · timeout 뒤 다음 reconcile 복구 · 미설정 계좌 두드리지 않음)를 행사 |
+| 3 | server/shared: 어드민 쓰기 2종(PUT budget · fee · requireAdmin) · 개요에 서버별 예수금·비용률(67 live 우선 · 87 폴백) · 주문가능 계산·표기·% ↔ ppm 은 shared 한 벌 | ✓ VERIFIED | `server/src/routes/admin.ts:610` PUT `…/budget`(`AdminAccountBudgetSchema` 631 fee 동일 구조) → `relay.setAccountBudget/Fee`; `server/src/app.ts` 에서 `/api/pnl` · adminPnlRouter 마운트(112, 129-130); `relay/src/admin/admin-api.ts:930-938` `GET /account-costs` 가 `freshLiveBudget(live, snapshotAtMs)` 로 `liveBudgetKrw` 를 싣고 87 폴백; `packages/shared/src/account-budget.ts:41-56` `availableKrwOf`(예수금 ≤ 0 → null · 보유 `avgPrice×qty` 차감 · 매수 미체결만, `pendingCancelSent` 제외, price 0 이면 `priceOf` 현재가 없으면 0 · 매도 미체결 제외 — 로드맵 계산식과 일치) · `formatManwonFloor`(만원 내림, 음수 0) · `COST_PPM_MAX`. shared `account-budget.test.ts` 57 passed(직접 실행) |
+| 4 | DB: `dma_journal_events` bigint 4열(기본 0) · `dma_journal_apply` 재정의 · 일자 집계 RPC(어드민 계정별/계좌별 · /me 가시성 조인) · REVOKE anon/authenticated | ✓ VERIFIED | `20261028210000_dma_journal_pnl.sql:32-36` `ADD COLUMN avg_price/fee_krw/tax_krw/realized_pnl_krw bigint NOT NULL DEFAULT 0`, `dma_journal_apply` 재정의(47) + REVOKE(199-200); `20261028210100_dma_pnl_rpcs.sql` `dma_pnl_daily_build`·`dma_pnl_daily_for_user`·`dma_pnl_daily_for_admin` 3종 각각 REVOKE PUBLIC · anon/authenticated(162-163, 182-183, 203-204); `relay/src/journal/writer.ts:207-212` 이벤트 키 `avg_price`·`fee_krw`·`tax_krw`·`realized_pnl_krw` = DB 열; 마이그레이션 두 개는 시각을 Phase 35 원격 적용분 뒤(`20261028210000/210100`)로 옮긴 최종본이며 원격 적용은 요청 문맥의 확인된 사실(직접 `db` 조회는 하지 않음) |
+| 5 | webapp: 어드민 카드 「예수금 · 수수료 · 매도세」 상시 행 · 계좌 패널 요약 줄 · 수동주문 「주문가능」 행 + 초과 검증 줄 · 상따 합산 경고 · `/admin/pnl`(계정별 \| 계좌별) · `/me` 「손익」 탭 | ✓ VERIFIED | `account-editor.tsx` `saveBudget`·`saveFee`(814-882) · `budgetKrwToSave`(583) · `useCostDraft`(`dirty` 692); `account-panel.tsx:1714` `BudgetSummaryLine`(`data-slot="account-budget-summary"`, 645 · 1014 호출); `manual-order-form.tsx:1015` `mo-available` · 1077 `manual-order-budget-over`(`useAvailableKrw` 431); `limit-chaser-form.tsx:2001` `lc-budget-over`(`useAvailableKrw` 829); `webapp/src/app/admin/pnl/page.tsx` + `PnlAdminClient`(`fetchAdminPnl`) ; `me-client.tsx:316` `{ v: "pnl", label: "손익" }` · `fetchMyPnl`; `app-sidebar.tsx:201` `NAV_ADMIN_PNL`. 화면 단위 테스트 4파일(`pnl-admin-client` 9 · `pnl-report` 9 · `account-editor` 121 · `me-client` 34) 173 passed(직접 실행) |
+| 6 | 라이브 UAT · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 를 `status: done` 으로 닫기 | ✓ VERIFIED | 두 노트 frontmatter `status: done` 직접 확인. 36-UAT.md `status: complete` — 8건 중 7 pass · 1 skipped(WR-04 deferred follow-up) · issues 0. 라이브 UAT 는 이 검증에서 재현하지 않고 사용자 기록(「모두 pass」)에 의존 |
 
 **Score:** 6/6 truths verified (0 present, behavior-unverified)
 
-행동 의존 truth(66/67 마지막 값 덮기 · 델타 병합)는 `relay/tests/account-state.test.ts` 가 직접 행사하고 통과했다.
+### 리뷰 수정 대조 (SUMMARY 가 아니라 현재 소스를 읽어 확인)
+
+| 건 | 수정이 현재 코드에 있는가 | 증거 |
+|----|--------------------------|------|
+| WR-01 (R1) 만원 표기 vs 원 단위 비교 | 예 | `account-editor.tsx:583-591` `budgetKrwToSave` — 칸 글자가 서버 값의 만원 내림 표기와 같으면 서버 원 값 그대로. `saveBudget` 826 에서 사용 |
+| WR-02 (R1) 67 live 무조건 우선 | 예 | `relay/src/admin/types.ts:222-226` `freshLiveBudget`(live 가 87 수신보다 늦을 때만 live); `subscription-hub.ts:995` `#accountStateAtMs` · `liveBudgetOf` 가 `{krw, atMs}` 반환(2260); `admin-api.ts:930-938` · `dispatcher.ts:587` 두 곳 적용. 테스트 ⑤-b · C2b |
+| WR-03 (R1) 되싣기가 다른 op 실패에 묶임 | 예 | `dispatcher.ts:464` `failure === null \|\| failure.outcome === "failed"`; 테스트 ⑥-b |
+| WR-05 (R1) `/me` priceOf 없음 | 예 (R2 로 구독 방식으로 대체·보강) | `me-client.tsx:412-413,537` `priceIsinsOf` + `useSubscribedPriceOf` → `<AccountPanel priceOf={priceOf}>`. 테스트 B4c · B4d |
+| CR-01 (R2) 「확인 전」 빈 칸 Enter 로 해제 | 예 | `account-editor.tsx:819-824` 확인 전 빈 예수금 → 요청 없음; 853-870 확인 전 수수료·매도세는 한 칸이라도 비면 보내지 않음. 테스트 `(CR-01)` 접두 |
+| WR-01 (R2) 불일치 상태 안 고친 Enter | 예 | `useCostDraft` `dirty: edited \|\| hold`(692); `saveBudget` 814 · `saveFee` 846 이 `!dirty` 면 「변경 없음」·요청 없음 |
+| WR-02 (R2) `/me` 시세 미구독 · 굳은 값 | 예 | `use-available-krw.ts:62-76` `priceIsinsOf`, 93-156 `useSubscribedPriceOf` — 구독 뒤 새로 온 시세 객체(`q !== h.base`)만 사용, 키 집합 변경 시 새 키 먼저 잡고 빠진 키만 해제, 언마운트 시 전부 해제 |
+| WR-03 (R2) timeout 뒤 되싣기 영구 누락 | 예 | `dispatcher.ts:490-545` `#reloadCosts` 가 ① `firstSeen` ② 87 `costsUnsetIn`(예수금·수수료·매도세 전부 0) 대상 분리, `unset` 은 송신 전 op 5 재조회로 재확인(fail closed), 출처 값 전부 0 이면 보내지 않음(멱등). 테스트 ⑥-d/⑥-e/⑥-f |
 
 ### Deferred Items
 
 | # | Item | Addressed In | Evidence |
 |---|------|-------------|----------|
-| 1 | G: STATE 「켜기 전 결정」 에 예수금 갈림 한 줄 반영 | Phase 35 종료 뒤 | 36-09-SUMMARY 49행 「STATE 반영 대기」 — Phase 35 가 아직 executing. 로드맵 SC 에 들어 있지 않은 문서화 항목이라 gap 아님 |
+| 1 | G: STATE 「켜기 전 결정」 에 예수금 갈림 한 줄 반영 | Phase 35 종료 뒤 | 36-09-SUMMARY — 로드맵 SC 에 들어 있지 않은 문서화 항목이라 gap 아님 |
+
+WR-04(공유 계좌 반영 범위)는 후속 phase 가 로드맵에 있지 않아 Step 9b 의 deferred 에 넣지 않았다. 사용자가 36-UAT.md 테스트 4 에서 「4 미룸」 으로 결정한 후속 작업이며 아래 경고에 기록한다.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/shared/src/account-budget.ts` | 주문가능·표기·ppm 한 벌 | ✓ VERIFIED | 실질 구현 · relay/webapp 에서 import · 테스트 57 통과 |
-| `packages/shared/src/pnl.ts` | PnlReport 타입·기간 | ✓ VERIFIED | server schemas · webapp 에서 사용 |
-| `relay/src/admin/dispatcher.ts` | op 6/7 fan-out · 되싣기 | ✓ VERIFIED | `setAccountCost` · `#reloadCosts`(WR-03 경고) |
-| `relay/src/dma/envelope.ts` | 44/86/87/66/67/80 필드 | ✓ VERIFIED | 위 표 참조 |
+| `packages/shared/src/account-budget.ts` | 주문가능·표기·ppm 한 벌 | ✓ VERIFIED | 실질 구현, relay/webapp 사용, 테스트 57 |
+| `packages/shared/src/pnl.ts` | PnlReport 타입·기간 | ✓ VERIFIED | server schemas · webapp(`PnlGroup`·`PNL_RANGES`)에서 사용 |
+| `relay/src/admin/dispatcher.ts` | op 6/7 fan-out · 되싣기 | ✓ VERIFIED | `#applyServer` · `#reloadCosts` · `#costSourceOf` · `#sendCosts` 실질 구현 |
+| `relay/src/admin/types.ts` · `admin-conn.ts` | `freshLiveBudget` · `snapshotReceivedAtMs` | ✓ VERIFIED | 최근 원천 선택 한 벌 |
+| `relay/src/dma/envelope.ts` | 44/86/87/66/67/80 필드 | ✓ VERIFIED | 위 SC2 |
 | `relay/src/hub/subscription-hub.ts` | 67 덮기 · `liveBudgetOf` | ✓ VERIFIED | |
-| `relay/src/journal/writer.ts` | 이벤트 4키 | ✓ VERIFIED | `writer.ts:209-212` snake_case 키 = DB 열 |
-| `supabase/migrations/20261028210000_dma_journal_pnl.sql` | 4열 + apply 재정의 | ✓ VERIFIED | 시각 이동본(36-09 사용자 결정) · 원격 적용 기록 |
-| `supabase/migrations/20261028210100_dma_pnl_rpcs.sql` | RPC 3종 | ✓ VERIFIED | REVOKE 명시 |
+| `relay/src/journal/writer.ts` | 이벤트 4키 | ✓ VERIFIED | 키 = DB 열 |
+| `supabase/migrations/20261028210000_dma_journal_pnl.sql` · `…210100_dma_pnl_rpcs.sql` | 4열 + apply 재정의 · RPC 3종 | ✓ VERIFIED | REVOKE 명시 |
 | `server/src/routes/{admin,pnl,admin-pnl}.ts` | 쓰기 2 + 조회 2 | ✓ VERIFIED | `/api/pnl` requireAuth(p_user_id=req.userId) · `/api/admin/pnl` requireAuth→requireAdmin |
-| `webapp/src/components/admin/account-editor.tsx` | 비용 행 | ✓ VERIFIED | WR-01 결함 있음 |
+| `webapp/src/components/admin/account-editor.tsx` | 비용 행 | ✓ VERIFIED | 위 리뷰 수정 대조 |
 | `webapp/src/components/orderbook/account-panel.tsx` | 요약 줄 | ✓ VERIFIED | |
-| `webapp/src/lib/use-available-krw.ts` | 훅 | ✓ VERIFIED | |
-| `webapp/src/components/pnl/*` · `app/admin/pnl/page.tsx` | 손익 화면 | ✓ VERIFIED | |
+| `webapp/src/lib/use-available-krw.ts` | 훅 3종 | ✓ VERIFIED | `useAvailableKrw` · `priceIsinsOf` · `useSubscribedPriceOf` |
+| `webapp/src/components/pnl/pnl-admin-client.tsx` · `pnl-report.tsx` · `app/admin/pnl/page.tsx` | 손익 화면 + 칩 줄(c1680327) | ✓ VERIFIED | `PnlKeyChips` radiogroup, 「전체」 기본 · `?key=` 가 쿼리 원본 · 묶음 기준 전환 시 키 삭제 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| account-editor | server PUT budget/fee | `admin-api.ts` `setAccountBudget/Fee` | WIRED | |
-| server admin.ts | relay | `relay.setAccountBudget/Fee` → `PUT /internal/admin/dma-users/…/budget|fee` | WIRED | |
-| relay dispatcher | gh-trade 44 op 6/7 | `buildAdminCommandReq` | WIRED | |
-| relay 87 → 개요 | webapp 카드 | `account-costs` + `liveBudgetOf` | WIRED | WR-02: live 우선 순서 위험 |
+| account-editor | server PUT budget/fee | `webapp/src/lib/admin-api.ts` `setAccountBudget/Fee` | WIRED | `budget.run(parsed.krw)` · `cost.run({feePpm, sellTaxPpm})` |
+| server admin.ts | relay | `relay.setAccountBudget/Fee` → relay 내부 PUT | WIRED | |
+| relay dispatcher | gh-trade 44 op 6/7 | `costCommand` → `buildAdminCommandReq` | WIRED | `envelope.ts:3398-3401` |
+| relay 87 → 개요 | webapp 카드 | `GET /account-costs` + `freshLiveBudget` | WIRED | 이전 경고 WR-02 해소 |
 | 66/67 → hub → webapp | 계좌 패널 · 폼 | `budgetKrw` 마지막 값 | WIRED | |
+| `/me` 잔고 탭 | 현재가 | `useSubscribedPriceOf` → relay `subscribe(… "price")` → `AccountPanel priceOf` | WIRED | 이전 경고 WR-05 해소 |
 | 80 저널 → writer → `dma_journal_apply` | 4열 | 이벤트 JSON 키 = DB 열 | WIRED | |
 | `dma_pnl_daily_*` → server → `/admin/pnl` · `/me` 손익 | 화면 | `fetchAdminPnl` · `fetchMyPnl` | WIRED | |
+| `PnlAdminClient` 칩 줄 | 화면 필터 | `?key=` → `shown.groups.filter` | WIRED | 이 기간에 없는 키는 화면만 「전체」 |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| account-panel 요약 줄 | `account.budgetKrw` | relay 66/67 `AccountState.budget_krw` | 예 (UAT 에서 한도 델타로 즉시 갱신 확인) | ✓ FLOWING |
-| 계좌 카드 비용 행 | `account.costs` | relay `GET /internal/admin/account-costs` (87 + 67 live) | 예 | ✓ FLOWING |
-| 손익 화면 | `PnlReport` | `dma_pnl_daily_*` ← `dma_journal_events` 4열 ← 80 `JournalRecord` | 예 (UAT: 체결 뒤 저널 4값 → 매매손익 행) | ✓ FLOWING |
+| account-panel 요약 줄 | `account.budgetKrw` | relay 66/67 `AccountState.budget_krw` | 예 (UAT: 한도 델타로 즉시 갱신) | ✓ FLOWING |
+| 계좌 카드 비용 행 | `account.costs` | relay `GET /account-costs` (87 + 최신 67 live) | 예 | ✓ FLOWING |
+| `/me` 요약 줄 · 잔고 평가 | `priceOf` | relay 시세 구독(구독 뒤 새 값) | 예 (UAT 7 pass) | ✓ FLOWING |
+| 손익 화면 | `PnlReport` | `dma_pnl_daily_*` ← `dma_journal_events` 4열 ← 80 저널 | 예 (UAT: 체결 뒤 저널 4값 → 매매손익 행) | ✓ FLOWING |
+| `/admin/pnl` 칩 | `report.groups` | 같은 `fetchAdminPnl` | 예 (UAT 8 pass) | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| 66/67 덮기 · 저널 코덱 · 디스패처 | `cd relay && npx vitest run tests/account-state.test.ts tests/journal-codec.test.ts tests/admin-dispatcher.test.ts --maxWorkers=2` | 3 파일 101 passed | ✓ PASS |
-| shared 주문가능·표기 | `cd packages/shared && npx vitest run src/__tests__/account-budget.test.ts --maxWorkers=2` | 57 passed | ✓ PASS |
-| 전체 스위트 | (요청대로 재실행 안 함) | 오케스트레이터 기록: relay 1771 · webapp 4964 passed + 1 skip · shared 816 · server 667 | ? 인용만 |
+| 되싣기 · 최근 원천 · 66/67 덮기 · 저널 코덱 | `cd relay && npx vitest run tests/admin-dispatcher.test.ts tests/admin-api.test.ts tests/account-state.test.ts tests/journal-codec.test.ts --maxWorkers=2` | 4 파일 192 passed | ✓ PASS |
+| shared 주문가능 · 표기 | `cd packages/shared && npx vitest run src/__tests__/account-budget.test.ts --maxWorkers=2` | 57 passed | ✓ PASS |
+| 화면 4파일 (손익 · 어드민 카드 · /me) | `cd webapp && npx vitest run src/components/pnl src/components/admin/__tests__/account-editor.test.tsx src/components/trading/__tests__/me-client.test.tsx --maxWorkers=2` | 4 파일 173 passed | ✓ PASS |
+| 전체 스위트 · Playwright | (다른 세션이 테스트를 돌릴 수 있어 재실행 안 함) | 수정 에이전트 기록: relay 1779 · webapp 5011 passed + 1 skip · E2E admin P36 · me 43 passed · admin-pnl 6 passed | ? 인용만 |
 
 ### Probe Execution
 
@@ -141,42 +169,28 @@ Step 7c: SKIPPED — 플랜이 선언한 프로브(`probe-*.sh`) 없음.
 
 ### Requirements Coverage
 
-모든 플랜(36-01 ~ 36-10)의 frontmatter 가 `requirements: []` 이고 `.planning/REQUIREMENTS.md` 에는 Phase 36 에 매핑된 ID 가 없다(ROADMAP 도 `Requirements: TBD`). 누락·고아 요구사항 없음 — 이 phase 는 로드맵 Success Criteria 를 계약으로 검증했다.
+모든 플랜(36-01 ~ 36-10)의 frontmatter 가 `requirements: []` 이고 `.planning/REQUIREMENTS.md` 에는 Phase 36 에 매핑된 ID 가 없다(ROADMAP 도 `Requirements: TBD`). 누락 · 고아 요구사항 없음 — 이 phase 는 로드맵 Success Criteria 를 계약으로 검증했다.
 
 ### Anti-Patterns Found
 
-phase 변경 비테스트 소스 39개(`2f26aea4..711d1a53`)에서 `TBD|FIXME|XXX` 마커 0건. 코드 리뷰(36-REVIEW.md, critical 0 · warning 5 · info 6)를 코드로 대조해 확인한 항목:
+phase 변경 비테스트 소스(`2f26aea4..HEAD`)에서 `TBD|FIXME|XXX` 및 `TODO|HACK|PLACEHOLDER` 마커 0건.
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `webapp/src/components/trading/me-client.tsx` | 519-527 | `<AccountPanel>` 에 `priceOf` 없음 (WR-05 확인) | ⚠️ Warning | `/me` 만 시장가 매수 미체결을 0 으로 계산 — 로드맵 계산식 이탈 |
-| `relay/src/admin/dispatcher.ts` | 454 | `failure === null` 일 때만 되싣기 (WR-03 확인) | ⚠️ Warning | 같은 서버 계획의 다른 op 실패 시 그 계좌 예수금·비용률 되싣기가 영구히 빠짐 |
-| `webapp/src/components/admin/account-editor.tsx` | 784-800, 886 | Enter 저장이 `edited` 미확인 (WR-01) | ⚠️ Warning | 고치지 않은 칸 Enter 로 op 6 가 나가 서버 조정 예수금을 만원 단위로 깎을 수 있음 |
-| `relay/src/hub/subscription-hub.ts` / `admin-api.ts` | 2242 / 929 | 67 live 무조건 우선 (WR-02) | ⚠️ Warning | 저장 직후 재조회에 옛 값 · 거짓 불일치 줄 가능 |
-| `relay/src/admin/dispatcher.ts` | 319-327, 488-490 | 대상 서버 = 해당 DMA 유저 등록 서버 (WR-04) | ⚠️ Warning | 공유 계좌에서 다른 유저만 등록한 서버가 갈라질 수 있음 |
-| IN-01 ~ IN-06 | — | 계좌별 묶음 키 broker 무시 · 「변경 없음」 칩 · 정정 이중 차감 경고 등 | ℹ️ Info | 리뷰대로, 목표 달성에는 영향 없음 (36-REVIEW.md 참조) |
-
-리뷰 경고 중 WR-01 ~ WR-04 는 어드민 쓰기 경로의 경계 조건 결함이고 UAT 의 정상 흐름(설정 → 86 code 0 → 67 델타로 즉시 갱신 → 같은 값 재전송 「변경 없음」)은 통과했다. 따라서 must-have 실패로 올리지 않았다.
+| `relay/src/admin/dispatcher.ts` | 319-327, 488-490 (`costTargetRows` ~900) | 대상 서버 = 해당 DMA 유저 등록 서버 (WR-04, 미해결) | ⚠️ Warning (사용자가 후속으로 미룸) | 공유 계좌를 유저 A 는 KB120·KB121, 유저 B 는 KB120 에만 등록했을 때 B 카드 저장이 KB121 에 닿지 않아 갈릴 수 있다. D-07(「fan-out 대상 = DB 등록 서버 전부」) 현행 설계대로 동작하는 것이므로 SC 위반이 아니라 설계 범위 확장 사안 — 새 RPC + D-03/D-07 개정이 필요해 36-UAT.md 「Deferred Follow-Ups」 에 기록됨 |
+| `relay/src/admin/dispatcher.ts` | `#reloadCosts` ② 대상 | 87 만으로 「한 번도 설정 안 함」 과 「일부러 셋 다 해제」 를 가리지 못함 | ⚠️ Warning (수정자가 36-REVIEW-FIX-R2 에 명시한 알려진 경계) | 예수금·수수료·매도세를 셋 다 0 으로 해제하고 일부 서버가 실패했다면 다음 「다시 반영」 이 남은 서버 값을 해제된 서버에 되싣는다. 예수금만 해제하는 흔한 경우는 해당 없음. 어드민 카드 불일치 줄이 해제 실패를 이미 보여 줌 |
+| `webapp/e2e/specs/admin-pnl.spec.ts` | — | 묶음 칩 줄(c1680327)은 Playwright 스펙이 없고 단위 테스트(`pnl-admin-client` 9건) + UAT 8 pass 로만 덮임 | ℹ️ Info | 목표 달성에 영향 없음. 후속 회귀 보강 후보 |
+| 36-REVIEW.md IN-01~06 · 36-REVIEW-R2.md IN-01~03 | — | 계좌별 묶음 키 broker 무시 · 「변경 없음」 칩 · 정정 이중 차감 · 되싣기가 reconcile 10초 마감 안 순차 · 마감 안 실패 가림 · 벽시계 비교 · op 5 87 계약 관측 장치 없음 | ℹ️ Info | 리뷰 정보 등급, 열려 있음. 목표 달성에 영향 없음 |
 
 ### Human Verification Required
 
-#### 1. WR-05 — /me 주문가능 값 일치
-
-**Test:** 시장가(price 0) 매수 미체결이 있는 계좌를 /me 잔고 탭과 작업대 계좌 패널·수동주문 폼에서 비교.
-**Expected:** 세 곳의 「주문가능」 이 같은 숫자.
-**Why human:** 코드상 /me 는 `priceOf` 없이 0 으로 계산(확인함). 수정 여부와 시점은 사용자 결정 — 제안 수정은 36-REVIEW.md WR-05(`useRelayContext` 의 `quotes` + `holdingQuotePrice` 주입).
-
-#### 2. WR-01 ~ WR-04 후속 fix 시점
-
-**Test:** 36-REVIEW-DISPOSITION.md 의 open 경고 4건을 후속 quick/phase 로 처리할지 결정.
-**Expected:** Enter 만으로 op 6 가 나가지 않고, 되싣기가 다른 op 실패에 묶이지 않으며, 저장 직후 옛 값이 보이지 않는다.
-**Why human:** 우선순위 판단. 특히 WR-01 은 실거래 계좌 예수금에 쓰기가 나가는 경로다.
+없음. 이전 report 의 두 항목(WR-05 처리 결정 · WR-01~04 시점 결정)은 코드로 확인했다: WR-01·02·03·05 는 위 "리뷰 수정 대조" 로 실제 수정이 확인됐고, WR-04 는 사용자가 36-UAT.md 에서 후속으로 결정을 마쳐 더는 열린 판단이 아니다. 행동 의존 truth 는 모두 단일 파일 테스트가 행사하고 통과했으므로 `PRESENT_BEHAVIOR_UNVERIFIED` 도 없다. 라이브 확인(UAT 1~8)은 사용자 「모두 pass」 응답으로 종결됐다.
 
 ### Gaps Summary
 
-must-have 를 FAILED 로 만드는 gap 은 없다. 6개 Success Criteria 모두 코드·마이그레이션·라우트·화면·테스트로 실재하며 배선돼 있고 데이터가 실제로 흐른다. 리뷰 경고 5건은 모두 코드에서 실재함을 확인했으며(특히 WR-03 · WR-05 는 직접 대조), 목표 달성은 막지 않지만 후속 처리 결정이 필요해 status 를 `human_needed` 로 둔다. G(STATE 예수금 갈림 줄)는 Phase 35 종료 뒤로 이월된 문서 항목이다.
+must-have 를 FAILED 로 만드는 gap 이 없다. 6개 Success Criteria 모두 현재 소스에 실재하고 배선돼 있으며 데이터가 실제로 흐른다. 이전 검증 이후의 변경(리뷰 수정 8건 · `/admin/pnl` 칩 줄)에서 회귀는 발견되지 않았고, 이전에 통과했던 truth(66/67 덮기 · 저널 코덱 · shared 환산)는 재실행한 단일 파일 테스트로 다시 통과했다. 열린 경고는 WR-04(사용자 후속 결정)와 알려진 되싣기 경계 1건이며 둘 다 목표 달성을 막지 않는다.
 
 ---
 
-_Verified: 2026-10-28T02:10:00Z_
+_Verified: 2026-10-28T07:05:00Z_
 _Verifier: Claude (gsd-verifier)_
