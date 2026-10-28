@@ -3,7 +3,7 @@ status: complete
 phase: 36-account-budget
 source: [36-VERIFICATION.md, 36-REVIEW-FIX.md]
 started: 2026-10-28T01:37:35Z
-updated: 2026-10-28T02:53:03.313Z
+updated: 2026-10-28T06:56:00Z
 ---
 
 ## Current Test
@@ -29,10 +29,26 @@ expected: 공유 계좌 값이 그 사용자의 등록 서버에만 반영되는
 result: skipped
 reason: "Deferred follow-up: 사용자 결정 「4 미룸」 — 새 RPC · D-03/D-07 범위 결정이 필요해 후속 작업으로"
 
+### 5. 「확인 전」 계좌 칸 Enter (CR-01 수정 확인)
+expected: 서버 값을 모르는 계좌의 비용 칸에서 고치지 않고 Enter → 요청 없음 · 예수금 · 비용률 그대로
+result: pass
+
+### 6. 갈린 계좌 칸 안 고친 Enter (WR-01 R2 수정 확인)
+expected: 서버 간 예수금이 갈린 계좌에서 고치지 않은 Enter → 「변경 없음」 · 요청 없음
+result: pass
+
+### 7. /me 시세 — 새로고침 · 작업대에서 이동 (WR-02 R2 수정 확인)
+expected: 두 경로 모두 현재 시세로 평가 · 주문가능을 그림(굳은 옛 시세 없음)
+result: pass
+
+### 8. /admin/pnl 묶음 칩 줄
+expected: 「전체」 기본 · 계정/계좌 칩으로 하나만 보기 · ?key= 유지 · 묶음 기준 전환 시 선택 해제
+result: pass
+
 ## Summary
 
-total: 4
-passed: 3
+total: 8
+passed: 7
 issues: 0
 pending: 0
 skipped: 1
