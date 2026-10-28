@@ -12,10 +12,10 @@ last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · 
 state_head: f8edd81694eb9a7a113728f0bee6233820938b3a
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 82
-  completed_plans: 79
-  percent: 71
+  completed_plans: 80
+  percent: 86
 ---
 
 # Project State
@@ -33,9 +33,9 @@ Phase: 35 (발사 경계 지도 어드민) — EXECUTING
 Plan: 17 of 19 (35-01~10 · 35-12~17 · 35-19 완료 — 범위 7 로컬 전체 회귀 green · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-18(배포) 남음 · 로컬 커밋까지만 D-35)
 Status: Ready to execute
 Last activity: 2026-10-28 — 35-19 16:00 머리 카드 「다음 발사 계획 첫 조각」 · LAUNCH_PLAN_LIMITS 노트 일치 · 범위 7 전체 회귀 green(로컬 커밋 · push 안 함)
-Phase 36 (계좌별 주문가능 금액): 9 of 10 (36-01~08 · 36-10 완료 · 36-09 배포는 Phase 35 종료 뒤 master 병합과 함께 — 사용자 결정 2026-10-28) · master 병합 2026-10-28(Phase 35 · gh-trade 43 SYNC 흡수)
+Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [███████░░░] 71% (53/53 plans)
+Progress: [█████████░] 86% (53/53 plans)
 
 ## Accumulated Context
 
@@ -56,7 +56,7 @@ Progress: [███████░░░] 71% (53/53 plans)
 
 ### Blockers/Concerns (v1.1 로 이월)
 
-- **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT).
+- **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT). **+ 예수금 갈림(Phase 36 D-03):** 체결 조정이 서버마다 따로 가므로 두 서버 동시 운영 전 서버 간 예수금 동기화 결정 필요(공유 계좌 반영 범위 WR-04 미룸과 함께 — 36-UAT Deferred).
 - **[Phase 30 후속 · 비차단] KB 주문자 IP/MAC.** R3-01 보류 권고는 해제(30-07 · relay:2234a1b5 · 인박스 261010 done). 남은 것: ① KB121 에 gh-trade 261011(공유 계좌 IP/MAC 전파) 배포 여부 확인 — KB121 켤 때 공유 계좌 저장 1회 확인 ② 주문 전문(TCHODR1000 orderInfo · macAddr)에 설정값이 실리는지 회선 관측 없음(gh-trade 단위 테스트 `test_kb_endpoint_race.cpp` 만) — KB 담당 주문번호 조회 · KB120 패킷 캡처 · gh-trade 값 없는 출처 진단 로그 중 택1. 정본 `phases/30-kb-ip-mac/30-07-SUMMARY.md` 「Next Phase Readiness」.
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
 - **`/healthz` 알림 정책 — 사용자 결정 대기.** 게이트웨이가 끊기면 세션 생성 5분 뒤 503 상시화. 후보 4개는 v1.0 phase 16 `deferred-items.md` §16-35.
