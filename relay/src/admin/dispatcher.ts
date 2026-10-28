@@ -372,8 +372,9 @@ export class AdminDispatcher {
    * 중간 실패면 아무것도 지우지 않는다 — 다음 삭제 요청이 87 대조로 남은 것만 다시 보낸다.
    *
    * `reloadCostsFrom`(Phase 36 D-07 · reconcile 만) — 의도 원본. op 3 · op 1(계좌)이 ok 이고 그 계좌가 이 서버 87(전 유저 · 보내기
-   * 직전 87)에 없던 계좌면 `#reloadCosts` 로 다른 서버 값의 op 6 · op 7 을 이어 보낸다(비치명 · 결과 불변). 뒤 op 가 code 로
-   * 실패해도 이미 생긴 계좌는 되싣는다 — 연결 실패(timeout · offline)만 건너뛴다(36 WR-03).
+   * 직전 87)에 없던 계좌면, 또는 이 유저의 active 계좌가 이 서버 87 에서 예수금 · 비용률이 전부 0 이면(36 WR-03 R2 멱등 복구)
+   * `#reloadCosts` 로 다른 서버 값의 op 6 · op 7 을 이어 보낸다(비치명 · 결과 불변). 뒤 op 가 code 로 실패해도 보낸다 — 이번
+   * 호출이 연결 실패(timeout · offline)로 끝났을 때만 건너뛰고, 다음 reconcile 이 87 상태로 거둔다.
    */
   async #applyServer(
     dmaUserId: string,
@@ -397,6 +398,7 @@ export class AdminDispatcher {
     // 캐시에 없으므로 보내기 직전 그 서버 87 을 op 5 로 새로 받아 계획을 **처음부터 다시** 만든다(재계획이 op 를 없애도 따른다).
     // 비밀번호(op 1 passwordOnly) · 제거(op 4) · 유저 삭제(op 2) · 무변경은 IP/MAC 을 싣지 않으니 재조회하지 않는다.
     // 이 왕복도 요청 마감 안이다 — 느린 87 이면 「응답 없음」 뒤 실제 반영이 잦아진다(모듈 머리 「마감 예산」 · 30 IN-05).
+    let refreshed = false;
     if (p.ops.some((op) => op.op === 3 || (op.op === 1 && !("passwordOnly" in op)))) {
       const fresh = await admin.command({ op: ADMIN_OP.ListUsers, userId: "" });
       if (fresh.kind !== "result" || fresh.snapshot === undefined) {
@@ -406,6 +408,7 @@ export class AdminDispatcher {
         return { server: serverKey, outcome: fresh.kind === "timeout" ? "timeout" : "offline" };
       }
       snapshot = fresh.snapshot;
+      refreshed = true;
       p = plan(snapshot);
       if (p.status === "no-snapshot") return { server: serverKey, outcome: "offline" };
     }
@@ -453,11 +456,13 @@ export class AdminDispatcher {
       }
     }
 
-    // WR-03 — 이미 ok 로 생긴 계좌는 뒤 op 실패(code · 비밀번호)와 무관하게 되싣는다. 다음 reconcile 은 그 계좌가 87 에 있어
-    // (`known`) 다시 firstSeen 이 되지 않으므로 여기서 빠지면 그 서버 예수금 · 비용률이 0 으로 남는다. 연결이 끊긴 실패
-    // (timeout · offline)만 건너뛴다 — 보내도 닿지 않는다. 되싣기는 비치명이라 결과 · 기록은 그대로다.
+    // D-07 되싣기 — 대상은 ① 이번 호출에서 처음 생긴 계좌(`firstSeen`)와 ② 이 서버 87 에서 예수금 · 비용률이 전부 0 인 이 유저의
+    // active 계좌(36 WR-03 R2 — 87 상태 기준 멱등 조건). ② 덕분에 앞 호출이 op 3 뒤 되싣기 전에 멈췄어도(뒤 op 의 timeout ·
+    // offline · relay 재기동 · admin 재접속) 다음 reconcile 이 스스로 거둔다 — 실리면 87 이 0 이 아니게 되어 다시 보내지 않는다.
+    // 이번 호출이 연결 실패(timeout · offline)로 끝났으면 여기서는 보내지 않는다(응답 없는 서버에 op 를 더 쌓지 않는다 · ② 가 다음에
+    // 거둔다). 뒤 op 의 code 실패(BUSY · 비밀번호)는 연결이 살아 있으니 보낸다(WR-03). 되싣기는 비치명이라 결과 · 기록은 그대로다.
     if (opts.reloadCostsFrom !== undefined && (failure === null || failure.outcome === "failed")) {
-      for (const accountNo of firstSeen) await this.#reloadCosts(serverKey, admin, accountNo, opts.reloadCostsFrom);
+      await this.#reloadCosts(serverKey, admin, { snapshot, refreshed, firstSeen, intent: opts.reloadCostsFrom });
     }
 
     if (opts.settleUserOnOk === true) {
@@ -469,13 +474,14 @@ export class AdminDispatcher {
   }
 
   /**
-   * D-07 — op 3(또는 op 1 신규 유저 첫 계좌)으로 이 서버에 처음 생긴 계좌(87 예수금 · 비용률 0)에 다른 서버 값을 되싣는다.
+   * D-07 · 36 WR-03 R2 — 이 서버에서 예수금 · 비용률이 비어 있는 이 유저의 계좌에 다른 서버 값을 되싣는다.
    *
-   * 출처 = 같은 (증권사, 정규화 계좌)의 다른 **active** 의도 행 서버 중 켜진 것(레지스트리 순) → `resolveEffectiveOrderServer`
-   * (지정 주문 서버 → 증권사 기본 주문 서버 → 등록 1대)로 고르고, 못 고르면 첫 후보 — 어드민 카드 출처(36-10
-   * `summarizeAccountCosts`)와 같은 규칙. 예수금 = 출처 67 live(`deps.liveBudget` · 출처 87 보다 늦게 받은 것만 · WR-02) · 아니면
-   * 출처 87, 비용률 = 출처 87.
-   * 예수금 > 0 이면 op 6, (수수료, 매도세) ≠ (0, 0) 이면 op 7. 출처가 없거나(다른 서버 미등록) 출처 87 을 모르면 보내지 않는다.
+   * 대상 = ① `firstSeen`(이번 호출의 op 3 · op 1 로 이 서버에 처음 생긴 계좌 — 87 값 0) ② 보내기 전 87(`snapshot`)에서 그 계좌의
+   * 예수금 · 매도세 · 수수료가 **전부 0** 인 이 유저의 active 의도 계좌(`costsUnsetIn` · 칸이 없는 행은 값을 모르니 대상 아님).
+   * 출처 값(`#costSourceOf`)이 전부 0 이면 둘 다 보내지 않는다 — 그래서 미설정 계좌는 reconcile 마다 두드리지 않는다.
+   * ② 는 캐시 87 로 고르므로, 이번 호출에서 87 을 새로 받지 않았으면(`refreshed` false) 보내기 전에 op 5 로 한 번 다시 받아 아직 0 인
+   * 것만 남긴다(relay 밖에서 넣은 값을 덮지 않는다 — R3-01 재조회와 같은 결). 재조회 실패면 ② 는 이번엔 보내지 않는다(fail closed).
+   * 실리면 87 이 0 이 아니게 되므로 다음 reconcile 은 아무것도 보내지 않는다(멱등).
    *
    * **비치명(A5)** — 실패(code · timeout · offline)는 warn 1줄(server · op · code | kind · 마스킹 계좌)뿐, 서버 결과 · 기록은 op 3
    * 결과 그대로다(계좌 추가는 이미 반영됐다 · 값은 어드민이 카드에서 다시 맞출 수 있다). reconcile 은 이 밖에서 예수금 · 비용률을
@@ -484,42 +490,114 @@ export class AdminDispatcher {
   async #reloadCosts(
     serverKey: string,
     admin: AdminConnLike,
-    accountNo: string,
-    intent: readonly AdminIntentRow[],
+    ctx: {
+      snapshot: CostSnapshot;
+      refreshed: boolean;
+      firstSeen: readonly string[];
+      intent: readonly AdminIntentRow[];
+    },
   ): Promise<void> {
-    const account = maskAccountNo(accountNo);
     try {
       const broker = this.#deps.registry.get(serverKey)?.broker;
-      const no = normalizeAccountNo(accountNo);
-      const rows = intent.filter(
-        (r) => r.state === "active" && r.broker === broker && normalizeAccountNo(r.accountNo) === no && r.serverKey !== serverKey,
-      );
-      const registry = this.#deps.registry.all();
-      const order = registry.map((r) => r.key);
-      const keys = new Set(rows.map((r) => r.serverKey).filter((k) => this.#isEnabled(k)));
-      const candidates = [...order.filter((k) => keys.has(k)), ...[...keys].filter((k) => !order.includes(k))];
-      if (candidates.length === 0) return;
-      const designated = rows.find((r) => r.isOrder === true && candidates.includes(r.serverKey))?.serverKey ?? null;
-      const defaultKey = registry.find((r) => r.broker === broker && r.isOrderServer && r.enabled)?.key ?? null;
-      const source = resolveEffectiveOrderServer({ designated, defaultKey, registered: candidates })?.key ?? candidates[0]!;
-
-      const sourceAdmin = this.#deps.pipelines.get(source)?.admin;
-      const src = sourceAdmin
-        ?.currentSnapshot()
-        ?.users.flatMap((u) => u.accounts)
-        .find((a) => normalizeAccountNo(a.accountNo) === no);
-      if (src === undefined) {
-        logger.warn({ server: serverKey, source, account }, "[admin] op 3 뒤 예수금·비용률 되싣기 생략 — 출처 서버 87 에 계좌 없음 · 87 미수신");
-        return;
+      const first = new Set(ctx.firstSeen.map(normalizeAccountNo));
+      const here = new Set<string>();
+      for (const r of ctx.intent) {
+        if (r.state === "active" && r.serverKey === serverKey && r.broker === broker && !first.has(normalizeAccountNo(r.accountNo))) {
+          here.add(r.accountNo);
+        }
       }
-      const live = freshLiveBudget(this.#deps.liveBudget?.(source, src.accountNo), sourceAdmin?.snapshotReceivedAtMs?.());
-      const budgetKrw = live ?? src.budgetKrw ?? 0;
-      const feePpm = src.feePpm ?? 0;
-      const sellTaxPpm = src.sellTaxPpm ?? 0;
-      const costs: AccountCostCommand[] = [];
-      if (budgetKrw > 0) costs.push({ op: 6, budgetKrw });
-      if (feePpm !== 0 || sellTaxPpm !== 0) costs.push({ op: 7, feePpm, sellTaxPpm });
+      const targets: Array<[string, AccountCostCommand[]]> = [];
+      for (const accountNo of ctx.firstSeen) {
+        const costs = this.#costSourceOf(serverKey, accountNo, ctx.intent, true);
+        if (costs !== null) targets.push([accountNo, costs]);
+      }
+      let unset: Array<[string, AccountCostCommand[]]> = [];
+      for (const accountNo of here) {
+        if (!costsUnsetIn(ctx.snapshot, accountNo)) continue;
+        const costs = this.#costSourceOf(serverKey, accountNo, ctx.intent, false);
+        if (costs !== null) unset.push([accountNo, costs]);
+      }
+      if (unset.length > 0 && !ctx.refreshed) {
+        const fresh = await admin.command({ op: ADMIN_OP.ListUsers, userId: "" });
+        if (fresh.kind !== "result" || fresh.snapshot === undefined) {
+          const reason = fresh.kind === "result" ? "no-snapshot" : fresh.kind;
+          logger.warn({ server: serverKey, reason }, "[admin] 예수금·비용률 되싣기 직전 87 재조회 실패 — 이번엔 생략(다음 「다시 반영」 이 거둔다)");
+          unset = [];
+        } else {
+          const snap = fresh.snapshot;
+          unset = unset.filter(([accountNo]) => costsUnsetIn(snap, accountNo));
+        }
+      }
+      for (const [accountNo] of unset) {
+        logger.info({ server: serverKey, account: maskAccountNo(accountNo) }, "[admin] 87 예수금·비용률 0 — 다른 서버 값 되싣기(WR-03 복구)");
+      }
+      for (const [accountNo, costs] of [...targets, ...unset]) await this.#sendCosts(serverKey, admin, accountNo, costs);
+    } catch (err) {
+      logger.warn(
+        { server: serverKey, reason: err instanceof Error ? err.name : "unknown" },
+        "[admin] op 3 뒤 예수금·비용률 되싣기 실패 — 계좌 추가는 반영됨(비치명)",
+      );
+    }
+  }
 
+  /**
+   * 되싣기 출처 값 → 보낼 op 6 · op 7(없으면 null).
+   *
+   * 출처 = 같은 (증권사, 정규화 계좌)의 다른 **active** 의도 행 서버 중 켜진 것(레지스트리 순) → `resolveEffectiveOrderServer`
+   * (지정 주문 서버 → 증권사 기본 주문 서버 → 등록 1대)로 고르고, 못 고르면 첫 후보 — 어드민 카드 출처(36-10
+   * `summarizeAccountCosts`)와 같은 규칙. 예수금 = 출처 67 live(`deps.liveBudget` · 출처 87 보다 늦게 받은 것만 · WR-02) · 아니면
+   * 출처 87, 비용률 = 출처 87.
+   * 예수금 > 0 이면 op 6, (수수료, 매도세) ≠ (0, 0) 이면 op 7. 출처가 없거나(다른 서버 미등록) 출처 87 을 모르면 null —
+   * `warnMissing` 이면 출처 87 에 계좌가 없을 때 warn 1줄(처음 생긴 계좌만 · 상태 기준 대상은 reconcile 마다 같은 줄을 남기지 않는다).
+   */
+  #costSourceOf(
+    serverKey: string,
+    accountNo: string,
+    intent: readonly AdminIntentRow[],
+    warnMissing: boolean,
+  ): AccountCostCommand[] | null {
+    const broker = this.#deps.registry.get(serverKey)?.broker;
+    const no = normalizeAccountNo(accountNo);
+    const rows = intent.filter(
+      (r) => r.state === "active" && r.broker === broker && normalizeAccountNo(r.accountNo) === no && r.serverKey !== serverKey,
+    );
+    const registry = this.#deps.registry.all();
+    const order = registry.map((r) => r.key);
+    const keys = new Set(rows.map((r) => r.serverKey).filter((k) => this.#isEnabled(k)));
+    const candidates = [...order.filter((k) => keys.has(k)), ...[...keys].filter((k) => !order.includes(k))];
+    if (candidates.length === 0) return null;
+    const designated = rows.find((r) => r.isOrder === true && candidates.includes(r.serverKey))?.serverKey ?? null;
+    const defaultKey = registry.find((r) => r.broker === broker && r.isOrderServer && r.enabled)?.key ?? null;
+    const source = resolveEffectiveOrderServer({ designated, defaultKey, registered: candidates })?.key ?? candidates[0]!;
+
+    const sourceAdmin = this.#deps.pipelines.get(source)?.admin;
+    const src = sourceAdmin
+      ?.currentSnapshot()
+      ?.users.flatMap((u) => u.accounts)
+      .find((a) => normalizeAccountNo(a.accountNo) === no);
+    if (src === undefined) {
+      if (warnMissing) {
+        logger.warn(
+          { server: serverKey, source, account: maskAccountNo(accountNo) },
+          "[admin] op 3 뒤 예수금·비용률 되싣기 생략 — 출처 서버 87 에 계좌 없음 · 87 미수신",
+        );
+      }
+      return null;
+    }
+    const live = freshLiveBudget(this.#deps.liveBudget?.(source, src.accountNo), sourceAdmin?.snapshotReceivedAtMs?.());
+    const budgetKrw = live ?? src.budgetKrw ?? 0;
+    const feePpm = src.feePpm ?? 0;
+    const sellTaxPpm = src.sellTaxPpm ?? 0;
+    const costs: AccountCostCommand[] = [];
+    if (budgetKrw > 0) costs.push({ op: 6, budgetKrw });
+    if (feePpm !== 0 || sellTaxPpm !== 0) costs.push({ op: 7, feePpm, sellTaxPpm });
+    return costs.length > 0 ? costs : null;
+  }
+
+  /** 되싣기 op 6 · op 7 송신 — 실패는 warn 1줄씩(비치명). */
+  async #sendCosts(serverKey: string, admin: AdminConnLike, accountNo: string, costs: readonly AccountCostCommand[]): Promise<void> {
+    const account = maskAccountNo(accountNo);
+    try {
       for (const cost of costs) {
         const outcome = await admin.command(costCommand(accountNo, cost));
         const failed =
@@ -800,6 +878,21 @@ function costCommand(accountNo: string, cost: AccountCostCommand): CommandInput 
     account: { accountNo, name: "", branchNo: "", traderId: "", priority: 0 },
     ...(cost.op === 6 ? { budgetKrw: BigInt(cost.budgetKrw) } : { feePpm: cost.feePpm, sellTaxPpm: cost.sellTaxPpm }),
   };
+}
+
+/** 되싣기 판정에 쓰는 87 의 모양(계좌 비용 칸만) — `AdminUsersSnapshot` · `AdminSnapshotView` 둘 다 맞는다. */
+type CostSnapshot = {
+  users: readonly { accounts: readonly { accountNo: string; budgetKrw?: number; feePpm?: number; sellTaxPpm?: number }[] }[];
+};
+
+/**
+ * 이 87 에서 그 계좌(정규화 번호 · 전 유저 행)의 예수금 · 수수료 · 매도세가 **전부 0** 인가(36 WR-03 R2 되싣기 조건). 계좌가 없거나,
+ * 칸이 없는 행(값을 모른다)이 하나라도 있거나, 하나라도 0 이 아니면 false — 모르는 상태로 덮지 않는다.
+ */
+function costsUnsetIn(snapshot: CostSnapshot, accountNo: string): boolean {
+  const no = normalizeAccountNo(accountNo);
+  const rows = snapshot.users.flatMap((u) => u.accounts).filter((a) => normalizeAccountNo(a.accountNo) === no);
+  return rows.length > 0 && rows.every((a) => a.budgetKrw === 0 && a.feePpm === 0 && a.sellTaxPpm === 0);
 }
 
 function costTargetRows(

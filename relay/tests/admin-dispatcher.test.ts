@@ -1552,6 +1552,73 @@ describe("P36 D-07 op 3 뒤 되싣기 (서버 간 예수금 · 비용률)", () =
     expect(costOps(conn)).toEqual([]);
   });
 
+  it("⑥-d (WR-03 R2) 앞 run 에서 되싣기가 빠져 KB121 87 의 A 가 (0,0,0) → 보낼 op 없는 reconcile 도 op 5 재조회 뒤 op 6 · op 7 로 되싣는다 · 다시 reconcile 하면 0회(멱등)", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 }),
+    });
+    seedU1(env, [{ accountNo: A, priority: 1, servers: ["KB120", "KB121"] }]);
+    const first = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(first.map((r) => r.outcome)).toEqual(["ok", "ok"]);
+    expect(costOps(env.conns.KB121!)).toEqual([
+      { op: 6, userId: "", account: acct(A), budgetKrw: 100_000_000n },
+      { op: 7, userId: "", account: acct(A), feePpm: 100, sellTaxPpm: 2000 },
+    ]);
+    expect(env.conns.KB121!.refreshes).toBe(1);
+    expect(env.conns.KB121!.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
+    // 출처(KB120)는 값이 있어 대상이 아니다
+    expect(env.conns.KB120!.sent).toEqual([]);
+    expect(env.conns.KB120!.refreshes).toBe(0);
+
+    // 두 번째 reconcile — 87 이 이미 값을 가져 아무것도 보내지 않는다(재조회도 없음)
+    await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(costOps(env.conns.KB121!)).toHaveLength(2);
+    expect(env.conns.KB121!.refreshes).toBe(1);
+  });
+
+  it("⑥-e (WR-03 R2) 뒤 op 4 가 timeout 이면 이번 호출은 되싣지 않지만 다음 reconcile 이 87 상태(0,0,0)를 보고 A 를 되싣는다", async () => {
+    const C = "1234567803";
+    const kb121 = state({ u1: [kb(B, 2), kb(C, 3)] });
+    // 새로 생기는 A 의 87 비용 칸은 0(신 서버는 미설정도 키를 둔다)
+    withCost(kb121, A, { budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 });
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 }),
+      KB121: kb121,
+    });
+    seedU1(env, [
+      { accountNo: A, priority: 1, servers: ["KB120"] },
+      { accountNo: B, priority: 2, servers: ["KB121"] },
+      { accountNo: C, priority: 3, servers: ["KB121"] },
+    ]);
+    const conn = env.conns.KB121!;
+    const original = conn.command.bind(conn);
+    const spy = vi.spyOn(conn, "command").mockImplementation(async (input) => (input.op === 4 ? { kind: "timeout" } : original(input)));
+    await env.store.putAccount("u1", { broker: "KB", ...kb(A, 1) }, ["KB120", "KB121"]);
+    await env.store.markAccountRemoved("u1", "KB", C);
+    const first = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(first.find((r) => r.server === "KB121")).toMatchObject({ outcome: "timeout" });
+    expect(costOps(conn)).toEqual([]);
+
+    spy.mockRestore();
+    const second = await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(second.find((r) => r.server === "KB121")).toMatchObject({ outcome: "ok" });
+    expect(ops(conn).slice(-3)).toEqual([4, 6, 7]);
+    expect(conn.state.costs?.get(A)).toEqual({ budgetKrw: 100_000_000n, feePpm: 100, sellTaxPpm: 2000 });
+  });
+
+  it("⑥-f (WR-03 R2) 87 이 (0,0,0) 이어도 출처 값이 전부 0(미설정)이면 재조회 · op 6/7 0회 — reconcile 마다 두드리지 않는다", async () => {
+    const env = setup({
+      KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 }),
+      KB121: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0 }),
+    });
+    seedU1(env, [{ accountNo: A, priority: 1, servers: ["KB120", "KB121"] }]);
+    await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    await env.dispatcher.reconcileUser("u1", { adminEmail: ADMIN });
+    expect(env.conns.KB120!.sent).toEqual([]);
+    expect(env.conns.KB121!.sent).toEqual([]);
+    expect(env.conns.KB120!.refreshes + env.conns.KB121!.refreshes).toBe(0);
+  });
+
   it("⑥ 되싣기 결과 없음(timeout · offline)도 비치명 — warn 에 kind", async () => {
     const env = setup({
       KB120: withCost(state({ u1: [kb(A, 1)] }), A, { budgetKrw: 100_000_000n, feePpm: 0, sellTaxPpm: 0 }),
