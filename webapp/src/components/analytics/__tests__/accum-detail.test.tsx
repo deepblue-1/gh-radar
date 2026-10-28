@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render } from '@testing-library/react';
 
 import type { AccumDetailResponse, AccumDetailRow, AccumReportResponse } from '@gh-radar/shared';
@@ -33,6 +33,7 @@ vi.mock('@/lib/auth-fetch', () => ({
 
 import { clearQueryCache } from '@/lib/query-cache';
 import { ACCUM_RULE_LINES_DAY, ACCUM_RULE_LINES_DAY_POS } from '@/lib/accum-report';
+import { touchTipTopOf } from '@/lib/touch-inspect';
 import {
   ACCUM_DATE,
   AC_CARRY,
@@ -199,7 +200,7 @@ describe('AccumChart — 데이터 레이어 (A6 레이어 1~7 · D-15 · D-18)'
       });
     const cx = Number(first.getAttribute('cx'));
     const cy = Number(first.getAttribute('cy'));
-    // 터치는 상자를 띄우지 않는다
+    // 길게 누르지 않은 터치 이동은 상자를 띄우지 않는다
     at(cx, cy, 'touch');
     expect(tip()).toBeNull();
     at(cx, cy);
@@ -1162,5 +1163,126 @@ describe('quick-261026-0ty 누적 판 pos_day', () => {
     fireEvent.click(sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!);
     const lis = Array.from(sec.querySelectorAll('[data-slot="accum-rules"] ul > li')).map((li) => li.textContent);
     expect(lis.slice(1)).toEqual([...ACCUM_RULE_LINES_DAY_POS]);
+  });
+});
+
+describe('quick-261028-ggj 터치 길게 누르기', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 천일고속을 펼친 뒤 fake timers(setTimeout 만) — 손가락 도우미 · first 원(09:01:00 · 홀로) 중심. */
+  async function open() {
+    const sec = await expand(CHEONIL);
+    const svg = chartOf(sec)!;
+    const data = Array.from(svg.querySelectorAll('[data-slot="accum-price-layer"] > circle:not([data-slot])'));
+    const first = data[data.length - 1]!;
+    const cx = Number(first.getAttribute('cx'));
+    const cy = Number(first.getAttribute('cy'));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const finger = (kind: 'down' | 'move' | 'up' | 'cancel', clientX: number, clientY: number, pointerId = 1) =>
+      act(() => {
+        const init = { pointerId, pointerType: 'touch', clientX, clientY };
+        if (kind === 'down') fireEvent.pointerDown(svg, init);
+        else if (kind === 'move') fireEvent.pointerMove(svg, init);
+        else if (kind === 'up') fireEvent.pointerUp(svg, init);
+        else fireEvent.pointerCancel(svg, init);
+      });
+    const wait = (ms: number) =>
+      act(() => {
+        vi.advanceTimersByTime(ms);
+      });
+    const tip = () => sec.querySelector<HTMLElement>('[data-slot="accum-chart-tip"]');
+    return { sec, svg, cx, cy, finger, wait, tip };
+  }
+
+  it('(t1) 300ms 길게 누르면 마우스와 같은 2줄 + 고리 · 차트 안 손가락 위(left 4 · touchTipTopOf) · 떼면 사라진다', async () => {
+    const { sec, svg, cx, cy, finger, wait, tip } = await open();
+    finger('down', cx, cy);
+    wait(299);
+    expect(tip()).toBeNull();
+    wait(1);
+    expect(tip()).not.toBeNull();
+    const lines = tipLinesOf(sec);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    expect(svg.querySelectorAll('[data-slot="accum-order-hover"]')).toHaveLength(1);
+    expect(tip()!.getAttribute('data-touch')).toBe('1');
+    expect(tip()!.style.left).toBe('4px');
+    expect(tip()!.style.top).toBe(`${touchTipTopOf(cy, 0, 472)}px`);
+    expect(tip()!.style.right).toBe('');
+    expect(tip()!.style.bottom).toBe('');
+    finger('up', cx, cy);
+    expect(tip()).toBeNull();
+    expect(svg.querySelector('[data-slot="accum-order-hover"]')).toBeNull();
+  });
+
+  it('(t2) 300ms 전에 8px 넘게 움직이면 끌기로 넘어간다 — 1000ms 뒤에도 툴팁 없음', async () => {
+    const { cx, cy, finger, wait, tip } = await open();
+    finger('down', cx, cy);
+    wait(100);
+    finger('move', cx + 12, cy);
+    wait(1000);
+    expect(tip()).toBeNull();
+  });
+
+  it('(t3) 살펴보기 중 두 번째 손가락(핀치) → 툴팁이 사라진다', async () => {
+    const { cx, cy, finger, wait, tip } = await open();
+    finger('down', cx, cy);
+    wait(300);
+    expect(tip()).not.toBeNull();
+    finger('down', cx + 100, cy, 2);
+    expect(tip()).toBeNull();
+  });
+
+  it('(t4) 비수동 touchmove — 살펴보기 중에만 preventDefault(페이지 스크롤 억제)', async () => {
+    const { svg, cx, cy, finger, wait } = await open();
+    const tm = () => {
+      const e = new Event('touchmove', { bubbles: true, cancelable: true });
+      svg.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    finger('down', cx, cy);
+    expect(tm()).toBe(false);
+    wait(300);
+    expect(tm()).toBe(true);
+    finger('up', cx, cy);
+    expect(tm()).toBe(false);
+  });
+
+  it('(t5) 살펴보기 중 손가락으로 훑기 — 누적 판 → 그 시각 누적 · 다시 원 → 주문 2줄 · pointercancel 이면 사라진다', async () => {
+    const { sec, cx, cy, finger, wait, tip } = await open();
+    finger('down', cx, cy);
+    wait(300);
+    finger('move', cx + 40, 300);
+    expect(tip()!.textContent).toMatch(/^\d\d:\d\d:\d\d · 순매수 누적/);
+    finger('move', cx, cy);
+    expect(tipLinesOf(sec)[0]).toBe('09:01:00 팀 매수 9주 · 0.02억 @174,300 · 1조각 · 팀매수 시작');
+    finger('cancel', cx, cy);
+    expect(tip()).toBeNull();
+  });
+
+  it('(t6) 살펴보기 중 묶음 원으로 훑으면 3줄 + 굵은 고리 1', async () => {
+    const { sec, svg, cx, cy, finger, wait } = await open();
+    const g = findGroup(sec, svg);
+    expect(g).not.toBeNull();
+    act(() => {
+      fireEvent.pointerLeave(svg);
+    });
+    finger('down', cx, cy);
+    wait(300);
+    finger('move', g!.cx, g!.cy);
+    expect(tipLinesOf(sec)).toEqual(g!.lines);
+    expect(svg.querySelectorAll('[data-slot="accum-order-seed"]')).toHaveLength(1);
+  });
+
+  it('(t7) contextmenu(안드로이드 길게 누르기 메뉴)는 살펴보기 중에만 막는다', async () => {
+    const { svg, cx, cy, finger, wait } = await open();
+    finger('down', cx, cy);
+    expect(fireEvent.contextMenu(svg)).toBe(true);
+    wait(300);
+    expect(fireEvent.contextMenu(svg)).toBe(false);
+    finger('up', cx, cy);
+    expect(fireEvent.contextMenu(svg)).toBe(true);
   });
 });
