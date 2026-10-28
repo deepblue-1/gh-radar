@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import type { AccumDetailRow, AccumReportPayload } from '@gh-radar/shared';
 
@@ -48,6 +48,7 @@ import {
   type View,
 } from '@/lib/accum-chart';
 import { fmtEok, kstHm } from '@/lib/teamflow-report';
+import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
 /**
@@ -83,9 +84,17 @@ import { cn } from '@/lib/utils';
  *   **묶음(quick-261028-ggj · gh-trade 261028 규칙 1~6):** 가격 판은 씨앗(`nearestOrderOf`) + 씨앗과 직접 닿는 보이는 원(사슬 없음 ·
  *   `orderGroupOf`)이 묶음이고, 2개 이상이면 3줄(고른 원 줄 · 묶음 요약 · 큰 주문 · `orderGroupTipOf`) · 묶음 원 고리 1.5 · 고른 원만
  *   굵은 고리 2.5(`accum-order-seed`). 상자는 줄바꿈(break-keep · 내어쓰기)으로 래퍼 안에서 접힌다.
- *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · 사이클 세로선 title 은 남는다). 터치는 상자를 띄우지 않는다 —
- *   폰은 KPI 줄 · 사이클 표 · 손익 줄 글자가 수치를 맡는다(D-15).
+ *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · 사이클 세로선 title 은 남는다).
+ * - **터치 살펴보기(quick-261028-ggj):** 손가락을 차트에 대고 300ms 동안 8px 안에 머물면(길게 누르기 · `createTouchInspect`) 살펴보기가
+ *   켜지고, 그 손가락 자리에서 마우스와 같은 판정(`pickAt`)으로 툴팁 · 고리를 띄운다. 켜진 동안 손가락을 움직이면 대상이 따라
+ *   바뀐다(훑기). 그동안 한 손가락 끌기는 창을 옮기지 않고(`useChartGestures` 넷째 인자 `inspectRef`), 페이지 스크롤은 SVG 의
+ *   비수동 touchmove preventDefault 로 막는다. 떼거나 pointercancel 이면 지우고, 두 번째 손가락이 닿으면 끈다(핀치 그대로).
+ *   300ms 전에 8px 넘게 움직이면 지금 그대로 가로 끌기 · 세로 스크롤이다. 툴팁은 차트 안 손가락 위(`touchTipTopOf` · 자리가
+ *   없으면 아래) · left 4 · 최대 폭 W − 8. iOS 콜아웃 · 안드로이드 길게 누르기 메뉴는 막는다.
  */
+
+/** 터치 앵커 — svg 상자 기준 client 오프셋 + 그때 상자 크기(viewBox 변환용). */
+type TouchAnchor = { x: number; y: number; bw: number; bh: number };
 
 const { R, TOP, H1, GAP, H2, H3, H } = ACCUM_CHART;
 /** 누적 판 위끝 · 10분 판 위끝 · 세 판 아래끝. */
@@ -93,6 +102,12 @@ const C_TOP = TOP + H1 + GAP;
 const B_TOP = C_TOP + H2 + GAP;
 const PLOT_BOTTOM = B_TOP + H3;
 const PX_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+
+/** client 좌표 → 터치 앵커(svg 상자 기준 오프셋 + 그때 상자 크기). */
+function anchorOf(el: Element, clientX: number, clientY: number): TouchAnchor {
+  const box = el.getBoundingClientRect();
+  return { x: clientX - box.left, y: clientY - box.top, bw: box.width, bh: box.height };
+}
 
 export function AccumChart({
   row,
@@ -114,11 +129,52 @@ export function AccumChart({
   const rawId = useId();
   const hasPrice = payload !== null && payload.price.idx.length > 0;
   const L = hasPrice ? priceAxisWidthOf(dayMaxPxOf(payload.price, payload.orders)) : priceAxisWidthOf(0);
-  const { dragging } = useChartGestures(svgRef, { L, W, R }, hasPrice ? ctl : null);
+  // 터치 살펴보기 중이면 true — 한 손가락 끌기가 창을 옮기지 않고(훅) 페이지 스크롤을 막는다(touchmove)
+  const inspectRef = useRef(false);
+  const { dragging } = useChartGestures(svgRef, { L, W, R }, hasPrice ? ctl : null, inspectRef);
   const [hoverState, setHover] = useState<(ChartHover & { ax: number; ay: number; vk: string }) | null>(null);
   // 창이 움직이면(휠 · 키 · 프리셋 · 끌기) 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
   const vk = `${view.t0}|${view.t1}`;
   const hover = hoverState !== null && hoverState.vk === vk && !dragging ? hoverState : null;
+
+  // 터치 길게 누르기 살펴보기(quick-261028-ggj) — 상태기는 한 번만 만든다(콜백은 ref · setter 만 만진다)
+  const [touchPt, setTouchPt] = useState<TouchAnchor | null>(null);
+  const [tracker] = useState(() =>
+    createTouchInspect({
+      onStart: (p) => {
+        const el = svgRef.current;
+        if (!el) return;
+        inspectRef.current = true;
+        setTouchPt(anchorOf(el, p.clientX, p.clientY));
+      },
+      onEnd: () => {
+        inspectRef.current = false;
+        setTouchPt(null);
+      },
+    }),
+  );
+  useEffect(() => () => tracker.dispose(), [tracker]);
+
+  // 살펴보기 중 페이지 스크롤 억제 — React onTouchMove 는 루트 passive 리스너라 preventDefault 가 안 먹는다(훅 휠과 같은 이유 ·
+  // Pitfall 11). touch-action 은 터치 시작 때 정해져 도중에 못 바꾸므로 비수동 네이티브 touchmove 에서 막는다.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || !hasPrice) return;
+    const fn = (e: TouchEvent) => {
+      if (inspectRef.current && e.cancelable) e.preventDefault();
+    };
+    el.addEventListener('touchmove', fn, { passive: false });
+    return () => el.removeEventListener('touchmove', fn);
+  }, [hasPrice]);
+
+  // 터치 툴팁 높이 — 그리기 전에 재서 다시 그린다(깜빡임 없음 · 값이 같으면 멈춘다). 터치 툴팁 내용은 touchPt 가 바뀔 때만
+  // 바뀐다(key 가 바뀔 때만 setTouchPt)
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipH, setTipH] = useState(0);
+  useLayoutEffect(() => {
+    const el = tipRef.current;
+    if (el && el.dataset.touch === '1' && el.offsetHeight !== tipH) setTipH(el.offsetHeight);
+  }, [touchPt, tipH]);
   if (!hasPrice) return null;
 
   const clipId = `accum-clip-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -198,9 +254,31 @@ export function AccumChart({
     return null;
   };
 
-  // 마우스 툴팁 — 대상이 바뀔 때만 상태를 바꾼다(key · 묶음이면 씨앗 번호)
+  // 터치 살펴보기 대상 — 앵커 → viewBox 좌표(onPointerMove 와 같은 변환 · 그림 영역 밖이면 없음) · dragging 으로 가리지 않는다
+  const mxOf = (a: TouchAnchor) => (a.x * W) / (a.bw || W);
+  const myOf = (a: TouchAnchor) => (a.y * H) / (a.bh || H);
+  const pickTouch = (a: TouchAnchor) => {
+    const mx = mxOf(a);
+    return mx >= L && mx <= right ? pickAt(mx, myOf(a)) : null;
+  };
+  const touchHover = touchPt === null ? null : pickTouch(touchPt);
+  // 보여줄 대상 — 터치 살펴보기가 마우스보다 앞선다
+  const tip =
+    touchHover !== null && touchPt !== null
+      ? { ...touchHover, ax: mxOf(touchPt), ay: myOf(touchPt), touch: true }
+      : hover !== null
+        ? { ...hover, touch: false }
+        : null;
+
+  // 마우스 툴팁 — 대상이 바뀔 때만 상태를 바꾼다(key · 묶음이면 씨앗 번호). 터치는 살펴보기 중일 때만 손가락을 따른다
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (e.pointerType === 'touch' || dragging) return;
+    if (e.pointerType === 'touch') {
+      if (!tracker.move(e)) return;
+      const a = anchorOf(e.currentTarget, e.clientX, e.clientY);
+      if ((pickTouch(a)?.key ?? null) !== (touchHover?.key ?? null)) setTouchPt(a);
+      return;
+    }
+    if (dragging) return;
     const box = e.currentTarget.getBoundingClientRect();
     const mx = ((e.clientX - box.left) * W) / (box.width || W);
     const my = ((e.clientY - box.top) * H) / (box.height || H);
@@ -210,12 +288,8 @@ export function AccumChart({
   };
 
   // 고리 — 원 하나면 그 원 1.5 · 묶음(2개 이상)이면 고른 원 밖 묶음 원마다 1.5 + 고른 원만 2.5(gh-trade seedRim 이 hoverRim 을 대신)
-  const seedRim = hover?.group ? hover.circle : null;
-  const rims = hover?.group
-    ? hover.group.filter((c) => c.i !== seedRim?.i)
-    : hover?.circle
-      ? [hover.circle]
-      : [];
+  const seedRim = tip?.group ? tip.circle : null;
+  const rims = tip?.group ? tip.group.filter((c) => c.i !== seedRim?.i) : tip?.circle ? [tip.circle] : [];
 
   const name = row.name ?? row.short_code;
   const ariaLabel = `${name} 매집 상세 차트 — ${kstHm(view.t0)}~${kstHm(view.t1)} · 사이클 ${payload.cycles.length}개 · 팀 주문 ${payload.orders.t_ms.length}건 · 하루 순매수 ${fmtEok(row.day_net_krw, { signed: true })}`;
@@ -232,8 +306,15 @@ export function AccumChart({
     >
       <svg
         ref={svgRef}
+        onPointerDown={(e) => tracker.down(e)}
         onPointerMove={onPointerMove}
+        onPointerUp={(e) => tracker.end(e)}
+        onPointerCancel={(e) => tracker.end(e)}
+        onLostPointerCapture={(e) => tracker.end(e)}
         onPointerLeave={() => setHover(null)}
+        onContextMenu={(e) => {
+          if (inspectRef.current) e.preventDefault();
+        }}
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height={H}
@@ -241,7 +322,7 @@ export function AccumChart({
         aria-label={ariaLabel}
         data-slot="accum-chart"
         className={cn('block tabular-nums', dragging ? 'cursor-grabbing' : 'cursor-grab')}
-        style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
+        style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
         fontSize={11}
       >
         <defs>
@@ -571,19 +652,25 @@ export function AccumChart({
           </text>
         )}
       </svg>
-      {hover && (
+      {tip && (
         <div
+          ref={tipRef}
           data-slot="accum-chart-tip"
+          data-touch={tip.touch ? '1' : undefined}
           role="tooltip"
           className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums"
-          style={{
-            left: hover.ax > W / 2 ? undefined : hover.ax + 12,
-            right: hover.ax > W / 2 ? W - hover.ax + 12 : undefined,
-            top: hover.ay > H / 2 ? undefined : hover.ay + 12,
-            bottom: hover.ay > H / 2 ? H - hover.ay + 12 : undefined,
-          }}
+          style={
+            tip.touch
+              ? { left: 4, maxWidth: W - 8, top: touchTipTopOf(tip.ay, tipH, H) }
+              : {
+                  left: tip.ax > W / 2 ? undefined : tip.ax + 12,
+                  right: tip.ax > W / 2 ? W - tip.ax + 12 : undefined,
+                  top: tip.ay > H / 2 ? undefined : tip.ay + 12,
+                  bottom: tip.ay > H / 2 ? H - tip.ay + 12 : undefined,
+                }
+          }
         >
-          {hover.lines.map((line, i) => (
+          {tip.lines.map((line, i) => (
             <div key={i} className="pl-3 -indent-3">
               {line}
             </div>
