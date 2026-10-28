@@ -74,7 +74,7 @@
  *   ⓔ 상태줄은 현황 탭 **안**이다(전 탭 공통 아님 — D-1 · 목업 A).
  */
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import type { PnlRange, RelayAccountState } from "@gh-radar/shared";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -102,7 +102,7 @@ import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
-import { holdingQuotePrice } from "@/lib/use-available-krw";
+import { priceIsinsOf, useSubscribedPriceOf } from "@/lib/use-available-krw";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import { viAccountRunning } from "@/lib/use-relay-socket";
 import {
@@ -344,14 +344,8 @@ export function unfilledCountOf(
 
 /** 탭 셸(위 ⑦ · Phase 36 부터 5탭). `useSearchParams` 를 읽으므로 Suspense 경계 안에서만 렌더한다. */
 function MeTabs() {
-  const { accounts, accountStates, quotes, status, limitChasers, journalRows } = useRelayContext();
+  const { accounts, accountStates, status, limitChasers, journalRows } = useRelayContext();
   const tab = useUrlTab(ME_TAB_VALUES, "status");
-  /*
-    잔고 탭 계좌 패널의 현재가 — 작업대 · 수동주문과 같은 규칙 한 벌(`holdingQuotePrice` · KRX → NXT · 36 WR-05).
-    주문가능 요약 줄(D-11)이 시장가(price 0) 매수 미체결을 이 값으로 세고, 잔고 평가도 같은 값을 쓴다 — 한 계좌에
-    「주문가능」 이 두 숫자가 되지 않게. 시세가 없으면 undefined(미체결은 0 · 평가 「—」 · 종전과 같다).
-  */
-  const priceOf = useCallback((isin: string) => holdingQuotePrice(quotes, isin), [quotes]);
 
   /*
     ── 계좌 칩 (위 ② · Phase 32 D-20) ── 고른 계좌 · 이 화면 기억값 · 작업대 기억 계좌.
@@ -407,6 +401,16 @@ function MeTabs() {
    * `choices.length` 가 아니라 `accounts.length` 다 — 행 계좌만으로 칩이 서면 `accounts[]` 도착 때 칩이 갈린다.
    */
   const shownAccountNo = accounts.length > 0 && meAccountNo !== "" ? meAccountNo : undefined;
+  /*
+    잔고 탭 계좌 패널의 현재가 — 작업대 · 수동주문과 같은 규칙 한 벌(`holdingQuotePrice` · KRX → NXT · 36 WR-05).
+    주문가능 요약 줄(D-11)이 시장가(price 0) 매수 미체결을 이 값으로 세고, 잔고 평가도 같은 값을 쓴다 — 한 계좌에
+    「주문가능」 이 두 숫자가 되지 않게. 이 화면에는 그 종목 카드가 없으므로 잔고 탭이 열려 있는 동안 고른 계좌의 보유 ·
+    시장가 매수 미체결 ISIN 을 직접 price 레벨로 구독하고, 구독 뒤 새로 온 시세만 쓴다(36 WR-02 R2 — 작업대에서 넘어온
+    굳은 옛 시세로 평가 · 손익을 그리지 않는다). 시세가 아직 없으면 undefined(미체결은 0 · 평가 「—」 · 종전과 같다).
+  */
+  const shownAccount = shownAccountNo !== undefined ? (accountStates.get(shownAccountNo) ?? null) : null;
+  const priceIsins = useMemo(() => priceIsinsOf(shownAccount), [shownAccount]);
+  const priceOf = useSubscribedPriceOf(priceIsins, tab.active === "accounts");
   /**
    * 설정 탭 서버(Phase 32 D-24 · S8′) — 고른 계좌의 서버키 · 같은 서버의 다른 계좌 번호(`accounts[]` 순 · 캡션 안내).
    * 목록 밖 계좌는 서버키가 없어 둘 다 비고(키 "" 칸 · 새 relay 에서는 「불러오는 중」 잠금이 fail-safe), 목록 밖

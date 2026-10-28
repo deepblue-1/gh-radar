@@ -583,23 +583,110 @@ describe('261006-pey /me 4탭 (D-1)', () => {
   });
 
   it('B4c (36 WR-05) — 잔고 탭 계좌 패널에 작업대와 같은 현재가 규칙(KRX → NXT)을 넘긴다 — 시장가 매수 미체결 주문가능이 같은 숫자', () => {
+    const holdAcct = {
+      t: 'acct',
+      a: '1111111101',
+      snap: true,
+      hold: ['KR7005930003', 'KR7000660001', 'KR7035420009'].map((isin) => ({ isin, qty: 1, sellableQty: 1, avgPrice: 1 })),
+      unf: [],
+      rm: [],
+      st: '',
+    } as unknown as RelayAccountState;
+    const relayWith = (quotes: Map<string, unknown>) =>
+      ({
+        ...EMPTY_RELAY_VALUE,
+        status: 'ready',
+        accounts: [{ accountNo: '1111111101', name: 'A' }],
+        accountStates: new Map([['1111111101', holdAcct]]),
+        quotes,
+      }) as unknown as RelayContextValue;
     mockSearchParams = new URLSearchParams('tab=accounts');
-    mockRelay = {
-      ...EMPTY_RELAY_VALUE,
-      status: 'ready',
-      accounts: [{ accountNo: '1111111101', name: 'A' }],
-      accountStates: new Map([['1111111101', unfAcct('1111111101', 0)]]),
-      quotes: new Map([
+    mockRelay = relayWith(new Map());
+    const view = render(<MeClient />);
+    // 구독 뒤 시세 도착(36 WR-02 R2 — 구독 뒤 새로 온 값만 쓴다)
+    mockRelay = relayWith(
+      new Map<string, unknown>([
         [relayQuoteKey('KR7005930003', 'KRX'), { p: 70_000 }],
         [relayQuoteKey('KR7005930003', 'NXT'), { p: 70_100 }],
         [relayQuoteKey('KR7000660001', 'NXT'), { p: 200_000 }],
       ]),
-    } as unknown as RelayContextValue;
-    render(<MeClient />);
+    );
+    view.rerender(<MeClient />);
     expect(mockPanelPriceOf).toBeTypeOf('function');
     expect(mockPanelPriceOf?.('KR7005930003')).toBe(70_000);
     expect(mockPanelPriceOf?.('KR7000660001')).toBe(200_000);
     expect(mockPanelPriceOf?.('KR7035420009')).toBeUndefined();
+  });
+
+  it('B4d (36 WR-02 R2) — 잔고 탭은 보유 · 시장가 매수 미체결 ISIN 을 KRX · NXT price 레벨로 구독하고, 구독 뒤 새로 온 시세만 쓴다(굳은 옛 시세 안 씀)', () => {
+    const A = 'KR7005930003'; // 보유
+    const B = 'KR7000660001'; // 시장가(price 0) 매수 미체결
+    const C = 'KR7035420009'; // 지정가 매수 미체결 — 현재가 불필요
+    const D = 'KR7051910008'; // 시장가 매도 미체결 — 주문가능에 안 들어감
+    const subscribe = vi.fn();
+    const unsubscribe = vi.fn();
+    const account: RelayAccountState = {
+      t: 'acct',
+      a: '1111111101',
+      snap: true,
+      hold: [{ isin: A, qty: 10, sellableQty: 10, avgPrice: 60_000 }],
+      unf: [
+        { isin: B, side: 'B', price: 0, unfilledQty: 3 },
+        { isin: C, side: 'B', price: 50_000, unfilledQty: 1 },
+        { isin: D, side: 'S', price: 0, unfilledQty: 1 },
+      ] as unknown as RelayAccountState['unf'],
+      rm: [],
+      st: '',
+    } as unknown as RelayAccountState;
+    // 작업대에서 넘어와 구독이 풀린 키의 굳은 시세(이 화면이 구독하기 전부터 맵에 있던 값)
+    const frozenAKrx = { p: 65_000 };
+    const frozenBKrx = { p: 190_000 };
+    const relayWith = (quotes: Map<string, unknown>): RelayContextValue =>
+      ({
+        ...EMPTY_RELAY_VALUE,
+        status: 'ready',
+        accounts: [{ accountNo: '1111111101', name: 'A' }],
+        accountStates: new Map([['1111111101', account]]),
+        quotes,
+        subscribe,
+        unsubscribe,
+      }) as unknown as RelayContextValue;
+
+    mockSearchParams = new URLSearchParams('tab=accounts');
+    mockRelay = relayWith(
+      new Map<string, unknown>([
+        [relayQuoteKey(A, 'KRX'), frozenAKrx],
+        [relayQuoteKey(B, 'KRX'), frozenBKrx],
+      ]),
+    );
+    const view = render(<MeClient />);
+    const subs = subscribe.mock.calls.map((c) => c.join(' ')).sort();
+    expect(subs).toEqual([`${A} KRX price`, `${A} NXT price`, `${B} KRX price`, `${B} NXT price`].sort());
+    // 구독 뒤 아무 시세도 안 왔다 — 굳은 값을 현재가로 쓰지 않는다
+    expect(mockPanelPriceOf?.(A)).toBeUndefined();
+    expect(mockPanelPriceOf?.(B)).toBeUndefined();
+
+    // 구독 뒤 A KRX · B NXT 새 시세 도착(B KRX 는 여전히 굳은 값 그대로 — 건너뛰고 NXT)
+    mockRelay = relayWith(
+      new Map<string, unknown>([
+        [relayQuoteKey(A, 'KRX'), { p: 71_000 }],
+        [relayQuoteKey(B, 'KRX'), frozenBKrx],
+        [relayQuoteKey(B, 'NXT'), { p: 200_500 }],
+      ]),
+    );
+    view.rerender(<MeClient />);
+    expect(mockPanelPriceOf?.(A)).toBe(71_000);
+    expect(mockPanelPriceOf?.(B)).toBe(200_500);
+    expect(mockPanelPriceOf?.(C)).toBeUndefined();
+    expect(subscribe).toHaveBeenCalledTimes(4);
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    // 다른 탭으로 가면 구독을 놓는다(잔고 탭에서만 시세가 필요하다)
+    mockSearchParams = new URLSearchParams('tab=status');
+    view.rerender(<MeClient />);
+    expect(unsubscribe.mock.calls.map((c) => c.join(' ')).sort()).toEqual(subs);
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(4);
   });
 
   it('B5 — 주문 탭: 미방문 숫자 없음 · 열면 카드 「N건」 수 · 마운트 1회 · 다른 탭으로 가도 숨김으로 유지', () => {
