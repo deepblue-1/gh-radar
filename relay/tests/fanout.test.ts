@@ -2452,6 +2452,22 @@ describe("WsFanout", () => {
       expect(hits[0]![0]).toMatchObject({ unknown: ["noSuchField"], unknownCount: 1 });
       expect(JSON.stringify(hits[0]![0])).not.toContain(SAMPLE_ACCOUNT_NO);
     });
+
+    it("kpg-4 changed [buyOrderAmount] → change_mask = 금액 4 + 짝 수량 5 (gh-trade D-10)", async () => {
+      const { req } = await sendAndRead({ t: "lc.set", cfg: newClientCfg(), changed: ["buyOrderAmount"] });
+      expect(req.buy3Schema).toBe(6);
+      expect(req.changeMask).toBe((1n << 4n) | (1n << 5n));
+    });
+
+    it("kpg-5 changed [sellQtyTrackEnabled] + cfg 추적 OFF → 비트 {33,34,36} (OFF 는 금액 환산 수량으로 돌아간다)", async () => {
+      const { req } = await sendAndRead({
+        t: "lc.set",
+        cfg: newClientCfg({ sellQtyTrackEnabled: false }),
+        changed: ["sellQtyTrackEnabled"],
+      });
+      expect(req.buy3Schema).toBe(6);
+      expect(req.changeMask).toBe((1n << 33n) | (1n << 34n) | (1n << 36n));
+    });
   });
 
   /*

@@ -1069,3 +1069,41 @@ describe("P32 user.settings.set serverKey (D-14a)", () => {
     expect(parseInbound(set({ serverKey: null }))).toBeNull();
   });
 });
+
+describe("quick-261030-kpg lc.set changed — 선택 · string 배열(enum 아님) · 상한 (gh-trade Phase 44)", () => {
+  const withChanged = (changed: unknown): string => JSON.stringify({ t: "lc.set", cfg: lcCfg(), changed });
+
+  it("kpg changed [buyOrderAmount] 통과 · 값 보존", () => {
+    const m = parseInbound(withChanged(["buyOrderAmount"]));
+    if (m?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(m.changed).toEqual(["buyOrderAmount"]);
+  });
+
+  it("kpg changed 생략(구 탭 · 배포 전 webapp) → undefined", () => {
+    const m = parseInbound(lcSet());
+    if (m?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(m.changed).toBeUndefined();
+  });
+
+  it("kpg 비트 표 밖 이름 [noSuchField] 도 통과(zod 위반 = close 4400 이 아니다 — 판정은 fanout)", () => {
+    const m = parseInbound(withChanged(["noSuchField"]));
+    if (m?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(m.changed).toEqual(["noSuchField"]);
+  });
+
+  it("kpg 빈 배열 [] 통과(프로토콜상 마스크 0 · schema 6)", () => {
+    const m = parseInbound(withChanged([]));
+    if (m?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(m.changed).toEqual([]);
+  });
+
+  it("kpg 경계 — 64개 통과 · 65개 · 원소 65자 · 빈 문자열 · 문자열 아님 · 배열 아님은 위반", () => {
+    expect(parseInbound(withChanged(Array.from({ length: 64 }, () => "buyEnabled")))).not.toBeNull();
+    expect(parseInbound(withChanged(["a".repeat(64)]))).not.toBeNull();
+    expect(parseInbound(withChanged(Array.from({ length: 65 }, () => "buyEnabled")))).toBeNull();
+    expect(parseInbound(withChanged(["a".repeat(65)]))).toBeNull();
+    expect(parseInbound(withChanged([""]))).toBeNull();
+    expect(parseInbound(withChanged([3]))).toBeNull();
+    expect(parseInbound(withChanged("buyEnabled"))).toBeNull();
+  });
+});

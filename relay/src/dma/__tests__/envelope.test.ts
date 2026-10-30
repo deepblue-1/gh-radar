@@ -86,6 +86,7 @@ import {
   LC_BURST_RELEASE_BUY3_SCHEMA,
   LC_AUTO_SELL_BUY3_SCHEMA,
   LC_EXTRA_BUY_AUTO_BUY3_SCHEMA,
+  LC_CHANGE_MASK_BUY3_SCHEMA,
   lcBuy3SchemaOf,
   parseUserSettings,
   buildAutoSellCommandReq,
@@ -3307,6 +3308,98 @@ describe("③-extra-auto extra_buy_auto · buy3_schema 5 파생 (quick-261011-0y
         readLc({ ...lcInput({ ...FULL, extraBuyAuto: true }), buy3Schema: forged } as LcBuildInput).buy3Schema(),
       ).toBe(5);
     }
+  });
+});
+
+/*
+  ③-change-mask — 상따 설정 변경 마스크(gh-trade Phase 44 · 55e62638 · vtable 174). buy3_schema 6 은 앞 다섯 조건
+  (postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto) **전부 + changeMask** 일 때만 파생된다 — 마스크가
+  5 이하 세대에 실리면 서버가 읽지 않아 전체 반영되므로, 미달이면 낮은 schema · 마스크 미적재 · 조립기 경고(P-1 단조성).
+*/
+describe("③-change-mask buy3_schema 6 · change_mask(vt 174) 파생 (quick-261030-kpg · gh-trade Phase 44)", () => {
+  const CHANGE_MASK_VT = 174;
+  const FULL = {
+    postBuyAuto: true,
+    extraBuyBurstRelease: true,
+    autoSellEnabled: true,
+    autoSellStartCond: 2,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  it("① FULL + extraBuyAuto + changeMask 0x30 → schema 6 · 174 슬롯 · changeMask() 0x30 · warn 0", () => {
+    expect(LC_CHANGE_MASK_BUY3_SCHEMA).toBe(6);
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, extraBuyAuto: true, changeMask: 0x30n }));
+    expect(t.buy3Schema()).toBe(6);
+    expect(presentSlots(t, [CHANGE_MASK_VT])).toEqual([CHANGE_MASK_VT]);
+    expect(t.changeMask()).toBe(0x30n);
+    // 6 에서도 앞 세대 선택 필드가 실린다(`>=` 꼴).
+    expect(t.extraBuyAuto()).toBe(true);
+    expect(t.postBuyAuto()).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("② changeMask 0n → schema 6 · changeMask() 0n (= 아무 칸도 반영 안 함 · 기본값이라 슬롯은 없어도 동치)", () => {
+    const t = readLc(lcInput({ ...FULL, extraBuyAuto: false, changeMask: 0n }));
+    expect(t.buy3Schema()).toBe(6);
+    expect(t.changeMask()).toBe(0n);
+  });
+
+  it("③ FULL(extraBuyAuto 없음) + changeMask → schema 4 · 174 없음 · warn 「changeMask 가 schema 6 조건」", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, changeMask: 0x8n }));
+    expect(t.buy3Schema()).toBe(LC_AUTO_SELL_BUY3_SCHEMA);
+    expect(presentSlots(t, [CHANGE_MASK_VT])).toEqual([]);
+    expect(t.changeMask()).toBe(0n);
+    const texts = (warn.mock.calls as unknown[][]).map((c) => c[1]);
+    expect(texts.some((m: unknown) => typeof m === "string" && m.includes("changeMask 가 schema 6 조건"))).toBe(true);
+  });
+
+  it("④ lcInput()(선택 필드 없음) + changeMask → schema 1 · 174 없음 · warn 1회 · 필드 [buy3Schema, isin]", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ changeMask: 0x8n }));
+    expect(t.buy3Schema()).toBe(LC_FIXED_BUY3_SCHEMA);
+    expect(presentSlots(t, [CHANGE_MASK_VT])).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [fields, text] = warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(text).toContain("changeMask 가 schema 6 조건");
+    expect(Object.keys(fields).sort()).toEqual(["buy3Schema", "isin"]);
+  });
+
+  it("⑤ changeMask 없음 → schema 5 · 174 없음 (종전 전체 반영)", () => {
+    const t = readLc(lcInput({ ...FULL, extraBuyAuto: true }));
+    expect(t.buy3Schema()).toBe(LC_EXTRA_BUY_AUTO_BUY3_SCHEMA);
+    expect(presentSlots(t, [CHANGE_MASK_VT])).toEqual([]);
+  });
+
+  it("⑥ 50비트 전부((1n << 50n) − 1n) · 64비트 최대값 왕복 정확", () => {
+    for (const mask of [(1n << 50n) - 1n, (1n << 64n) - 1n, 1n << 49n]) {
+      const t = readLc(lcInput({ ...FULL, extraBuyAuto: true, changeMask: mask }));
+      expect(t.changeMask()).toBe(mask);
+    }
+  });
+
+  it("⑦ ulong 범위 밖(−1n · 1n << 64n) → OrderBuildError(ULONG_RANGE)", () => {
+    for (const bad of [-1n, 1n << 64n]) {
+      expect(() =>
+        buildSetLimitChaserReq(lcInput({ ...FULL, extraBuyAuto: true, changeMask: bad })),
+      ).toThrow(OrderBuildError);
+    }
+  });
+
+  it("⑧ lcBuy3SchemaOf — changeMask 존재(값 무관)만 6 을 연다", () => {
+    expect(lcBuy3SchemaOf({ ...FULL, extraBuyAuto: false, changeMask: 0n })).toBe(6);
+    expect(lcBuy3SchemaOf({ ...FULL, extraBuyAuto: false })).toBe(5);
+    expect(lcBuy3SchemaOf({ ...FULL, changeMask: 1n })).toBe(4);
+    expect(lcBuy3SchemaOf({ changeMask: 1n })).toBe(1);
   });
 });
 
