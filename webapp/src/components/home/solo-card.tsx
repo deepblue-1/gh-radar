@@ -17,7 +17,7 @@ import { NewsBlock } from './news-block';
  *   상승이유(있으면 muted 14/400)
  *   근거 뉴스 1건 (label 없이, showLabel=false)
  *
- * 종목 → 상세: 카드 전체가 `/stocks/{code}` 클릭 영역 (stretched-link 패턴).
+ * 종목 → 상세: 카드 전체가 `/stocks/{code}?tab=news`(뉴스토론 탭 착지) 클릭 영역 (stretched-link 패턴).
  *   NewsBlock 내부에 외부 뉴스 <a> 가 있어 카드 전체를 <Link> 로 감싸면 중첩 <a> (invalid).
  *   → 투명 오버레이 Link(absolute inset-0)로 카드 표면을 덮고, 뉴스 블록만 z-index 상향해
  *     오버레이 위로 올려 독립 클릭 유지. 링크 접근성명은 aria-label 로 제공(theme-card C 선례).
@@ -37,7 +37,7 @@ export function SoloCard({ single }: SoloCardProps) {
     <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklab,var(--primary)_30%,var(--border))]">
       {/* stretched-link: 카드 표면 전체를 덮는 투명 종목상세 링크. 뉴스 블록만 z-상향해 위로. */}
       <Link
-        href={`/stocks/${single.code}`}
+        href={`/stocks/${single.code}?tab=news`}
         aria-label={`${single.name} 종목 상세 보기`}
         className="absolute inset-0 z-10 rounded-[var(--r-lg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       />

@@ -4,7 +4,7 @@
  * 계약:
  *   A (인라인 확장) — "+N개 종목 더" 버튼 aria-expanded 토글, 나머지 종목 펼침/접기.
  *   B (바텀시트)   — 헤더 테마명 button(aria-haspopup=dialog) 클릭 → 시트 오픈, 전체 종목.
- *   C (종목 → 상세) — 모든 종목 행이 /stocks/{code} 링크.
+ *   C (종목 → 상세) — 모든 종목 행이 /stocks/{code}?tab=news 링크.
  *
  * Sheet(Radix Dialog)는 document.body 로 portal → screen 루트 조회.
  */
@@ -84,11 +84,11 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('C: 노출된 모든 종목 행이 /stocks/{code} 링크다', () => {
+  it('C: 노출된 모든 종목 행이 /stocks/{code}?tab=news 링크다', () => {
     render(<ThemeCard theme={makeTheme()} />);
 
     const link = screen.getByText('종목16').closest('a');
-    expect(link).toHaveAttribute('href', '/stocks/100016');
+    expect(link).toHaveAttribute('href', '/stocks/100016?tab=news');
   });
 
   it('B: 헤더 테마명은 aria-haspopup=dialog 버튼이고 클릭 시 전체 종목 시트가 열린다', () => {
@@ -106,7 +106,7 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
     // 시트 내 종목 행도 /stocks 링크.
     expect(within(dialog).getByText('종목0').closest('a')).toHaveAttribute(
       'href',
-      '/stocks/100000',
+      '/stocks/100000?tab=news',
     );
   });
 

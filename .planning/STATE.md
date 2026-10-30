@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-11-PLAN.md
-last_updated: "2026-10-30T01:28:24.395Z"
+last_updated: "2026-10-30T06:13:54.008Z"
 last_activity: 2026-10-30
 last_activity_desc: 35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음
-state_head: 030e39d23e688b51c91c6deb9c3775b687b81884
+state_head: 652c7f863f4e22d69ef057b8bc3dbe2b1f21b03a
 progress:
   total_phases: 7
   completed_phases: 6
@@ -115,6 +115,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 29 | 발사 주문 내역 체결 수량 — launch_orders_for_admin 이 dma_account_orders 를 order_no 로 join | 2026-10-30 | e40a4233 | — |
 | 261030-d7b | 발사 A 재확인 회차(09:00:29) 덮어쓰기 — launch_pieces/heads PK 에 fire_base · 주문 내역 A KRX 09:00:00~09:00:30 회차 표시 | 2026-10-30 | 2a81523f | [261030-d7b-launch-a-recheck-fire-base-key](./quick/261030-d7b-launch-a-recheck-fire-base-key/) |
 | 261030-dz7 | 경계지도 16:00 뒤탐침 표시 — 삼각형 · 경계 계산 포함(가격거부=열림 · E127 제외) · 지도 RPC probe/round/result_code | 2026-10-30 | 030e39d2 | [261030-dz7-launch-map-tail-probe](./quick/261030-dz7-launch-map-tail-probe/) |
+| 32 | 홈 급등 종목 클릭 시 종목상세 뉴스토론 탭(?tab=news)으로 착지 | 2026-10-30 | 652c7f86 | — |
 
 ## Session Continuity
 

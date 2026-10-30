@@ -36,7 +36,7 @@ import { NewsBlock } from './news-block';
  * 소속 종목 전체 보기 (Phase 13 후속):
  *   A (인라인 확장) — mini-row 의 "+N개 종목 더" 버튼 클릭 시 카드 안에서 나머지 종목 펼침/접기.
  *   B (바텀시트)   — 헤더 테마명 버튼 클릭 시 하단 시트로 전체 소속 종목(등락% desc) + 근거 뉴스.
- *   C (종목 → 상세) — 인라인/시트 양쪽 모든 종목 행이 `/stocks/{code}` next/link.
+ *   C (종목 → 상세) — 인라인/시트 양쪽 모든 종목 행이 `/stocks/{code}?tab=news`(뉴스토론 탭 착지) next/link.
  *
  * 중첩 <a> 금지: 헤더 테마명은 button(시트 트리거), 종목 행은 Link → affordance 분리.
  *
@@ -50,14 +50,14 @@ export interface ThemeCardProps {
 const TOP_N = 4;
 
 /**
- * 소속 종목 mini-row 1건 — `/stocks/{code}` 링크(C).
+ * 소속 종목 mini-row 1건 — `/stocks/{code}?tab=news` 링크(C).
  * grid 1fr auto: [종목명 800 + 코드 mono caption muted] | [change% mono 800 --up 우정렬].
  * 행 사이 `--border-subtle` hairline. hover 시 종목명 --primary tint.
  */
 function StockRow({ stock }: { stock: HomeSurgeStock }) {
   return (
     <Link
-      href={`/stocks/${stock.code}`}
+      href={`/stocks/${stock.code}?tab=news`}
       className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-[var(--r-sm)] py-[7px] no-underline [&+&]:border-t [&+&]:border-[var(--border-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
     >
       <span className="min-w-0 truncate">

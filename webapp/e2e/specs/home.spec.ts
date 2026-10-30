@@ -175,9 +175,9 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
 
     // 전체 소속 종목(overflow 포함, 접힘 없이) 노출 — 종목 행은 /stocks/{code} href 로 특정.
     // (뉴스 제목 anchor 에도 "SK하이닉스" 가 있어 name 매칭은 strict-mode 충돌 → href 로 구분.)
-    await expect(dialog.locator('a[href="/stocks/000660"]')).toBeVisible(); // SK하이닉스
-    await expect(dialog.locator('a[href="/stocks/399720"]')).toBeVisible(); // 가온칩스(overflow)
-    await expect(dialog.locator('a[href="/stocks/394280"]')).toBeVisible(); // 오픈엣지테크놀로지(overflow)
+    await expect(dialog.locator('a[href="/stocks/000660?tab=news"]')).toBeVisible(); // SK하이닉스
+    await expect(dialog.locator('a[href="/stocks/399720?tab=news"]')).toBeVisible(); // 가온칩스(overflow)
+    await expect(dialog.locator('a[href="/stocks/394280?tab=news"]')).toBeVisible(); // 오픈엣지테크놀로지(overflow)
 
     // 근거 뉴스 목록(dedup 후 3건 unique — 2건 초과). 중복 URL 기사는 미노출.
     await expect(
@@ -194,7 +194,7 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     ).toHaveCount(0);
   });
 
-  test('C(종목 → 상세) — 종목 행이 /stocks/{code} 링크이고 클릭 시 이동한다', async ({
+  test('C(종목 → 상세) — 종목 행이 /stocks/{code}?tab=news 링크이고 클릭 시 이동한다', async ({
     page,
   }) => {
     await mockHomeApi(page, { response: HOME_POPULATED });
@@ -208,13 +208,13 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     const stockLink = page.locator('a[href^="/stocks/"]').first();
     await expect(stockLink).toBeVisible();
 
-    // SK하이닉스(000660) 행 → /stocks/000660.
+    // SK하이닉스(000660) 행 → /stocks/000660?tab=news (뉴스토론 탭 착지).
     const hynixLink = page.getByRole('link', { name: /SK하이닉스/ }).first();
-    await expect(hynixLink).toHaveAttribute('href', '/stocks/000660');
+    await expect(hynixLink).toHaveAttribute('href', '/stocks/000660?tab=news');
 
     // 클릭 시 상세로 이동.
     await hynixLink.click();
-    await expect(page).toHaveURL(/\/stocks\/000660$/);
+    await expect(page).toHaveURL(/\/stocks\/000660\?tab=news$/);
   });
 
   /*

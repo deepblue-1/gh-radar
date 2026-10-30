@@ -2,7 +2,7 @@
  * SoloCard 링크 테스트 — 개별 급등 카드 종목상세 이동.
  *
  * 계약:
- *   - 카드 전체가 /stocks/{code} 링크 (stretched-link 오버레이, aria-label 접근성명).
+ *   - 카드 전체가 /stocks/{code}?tab=news 링크 (stretched-link 오버레이, aria-label 접근성명).
  *   - 내부 뉴스 외부 anchor 는 중첩 <a> 없이 독립 유지 (target=_blank rel=noopener).
  *   - 헤더 등락% 오른쪽 '{종목명} 급등이유 복사' 아이콘 버튼 (quick-260923-cre):
  *     '{종목명} {+x.x%}' + reason(있을 때만) 을 복사. reason 없어도 버튼은 있다.
@@ -28,11 +28,11 @@ function makeSingle(): HomeSurgeSingle {
 }
 
 describe('SoloCard — 종목상세 링크', () => {
-  it('카드가 /stocks/{code} 링크이고 aria-label 로 종목명을 노출한다', () => {
+  it('카드가 /stocks/{code}?tab=news 링크이고 aria-label 로 종목명을 노출한다', () => {
     render(<SoloCard single={makeSingle()} />);
 
     const link = screen.getByRole('link', { name: '삼성전자 종목 상세 보기' });
-    expect(link).toHaveAttribute('href', '/stocks/005930');
+    expect(link).toHaveAttribute('href', '/stocks/005930?tab=news');
   });
 
   it('article 에 isolate 로 내부 z-index 를 격리한다 (헤더 z-10 위로 누수 방지)', () => {
@@ -52,7 +52,7 @@ describe('SoloCard — 종목상세 링크', () => {
     expect(news).toHaveAttribute('target', '_blank');
     expect(news).toHaveAttribute('rel', 'noopener noreferrer');
     // 뉴스 anchor 는 종목상세 링크와 다른 별개 anchor.
-    expect(news).not.toHaveAttribute('href', '/stocks/005930');
+    expect(news).not.toHaveAttribute('href', '/stocks/005930?tab=news');
   });
 });
 
