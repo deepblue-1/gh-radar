@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: d8252f3f
 from_branch: master
 date: 2026-10-27
 fbs_sync_marker: 7824e51b
-done_commit:
+done_commit: 9f51eb45
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -69,3 +69,6 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 - 질문 2(변경 이력): **예 — gh-radar DB 영구 보관**(저장 시도마다 1행) · 패널에 마지막 변경 + 이력 접힘. 서버는 현재 값만.
 - 정식 노트 요구(ⓐ 현재 계획 조회 op ⓑ 09:00:30 µs 기준 ⓒ 거부 code · 멱등 ⓓ 86 적용 발사 ⓔ kind 18 칸)는 gh-trade 인박스 `docs/inbox/from-gh-radar/261027-launch-plan-admin-reply.md` 로 보냈다(+ SendMessage `phase 43: 발사시각 수정`).
 - `status: done` 은 구현 + 라이브 UAT 뒤.
+
+(2026-10-30 추가) **구현 · 배포 · 라이브 UAT 완료 — 닫는다.** 구현: 이력 표 · server 라우트 · 웹 편집 칸/미리보기(35-12 ~ 35-15) · relay op 8/9 · 스냅샷 94 · 라우트(35-16 `a4866ba1` · 35-17 `ac6b6103`) · 노트 범위 대조 · 머리 카드 「다음 발사 계획 첫 조각」(35-19 `9f51eb45`). 배포(10-28 02:27~02:34 KST): relay `2f26aea4` · server `gh-radar-server-00068-5fj` · push `5a81f174..2f26aea4`(gh-trade 43 보다 먼저 — 사용자 결정).
+라이브 UAT: 10-28 02:41~02:50 어드민 저장 6건 outcome ok(plan_rev 증가) → **10-28 · 10-29 16:00** 네 칸(KB120·KYOBO119 × K·Q) 모두 kind 17 첫 조각 `sent_rel_us` = 그 회차 직전 저장 계획 첫 값(예: KB120 코스닥 10-28 −348 · 10-29 −350, 그 사이 계획 [−348,−345,−334] → [−350,−347,−334]) · 조각 묶음도 계획 목록 근처 · 재기동 없음 · kind 18 `next_offset_us` = 계획 첫 조각. **09:00:30 N**(43-07 포함 확인) 10-28 ~ 10-30 세 회차 모두 `offset_used_us` = 직전 저장 값(KB120 −248 → −249, KYOBO119 −200 → −180 → −130). 발사 뒤 저장은 다음 회차부터 적용(10-28 09:04 KYOBO −180 저장 → 10-29 반영). 화면 확인 사용자 답 「맞다」(10-30).
