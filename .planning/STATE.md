@@ -111,6 +111,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261026-0ty | 매집감지 보고서 서버 기준 당일 값 — pos_day_avg_px 열 · payload.pos_day 주선 · 팀 평단(당일) | 2026-10-26 | d9a6c3aa | [261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da](./quick/261026-0ty-accum-flow-pos-day-avg-px-payload-pos-da/) |
 | 261028-ggj | 매집 차트 닿는 원 묶음 툴팁(gh-trade 261028 규칙 1~6) + 모바일 길게 누르기 툴팁 | 2026-10-28 | b1f7a10f | [261028-ggj-accum-chart-group-tooltip-touch](./quick/261028-ggj-accum-chart-group-tooltip-touch/) |
 | 28 | 매집 차트 묶음 판정 가로 ± 5px (gh-trade 261028-accum-chart-group-x5) | 2026-10-28 | f8edd816 | — |
+| 29 | 발사 주문 내역 체결 수량 — launch_orders_for_admin 이 dma_account_orders 를 order_no 로 join | 2026-10-30 | e40a4233 | — |
 
 ## Session Continuity
 

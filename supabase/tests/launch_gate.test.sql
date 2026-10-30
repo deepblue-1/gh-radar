@@ -32,7 +32,7 @@ SET LOCAL search_path = public, extensions;
 
 CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
-SELECT plan(60);
+SELECT plan(61);
 
 -- ── 1. 빈 상태 ─────────────────────────────────────────────────
 SELECT is(
@@ -365,6 +365,24 @@ SELECT is(
   '["09:00:27 KRX A 0","09:00:30 NXT A 0","09:00:30 NXT N 0","09:00:30 NXT N 1","16:00:00 KRX Q16 0"]'::jsonb,
   '(20261022, KB120, 전부, —, K, 순서) pieces = gateway, market, fire_base, fire_exchange, profile, wire 순'
 );
+-- 체결 — kind 17 filled_qty 는 0 고정(모름 → null) · 주문 저널(dma_account_orders)을 order_no 로 join 해 채운다.
+UPDATE public.launch_pieces SET account = '37703857101', order_no = '3404000005', qty = 7
+ WHERE trade_date = '2026-10-22' AND profile = 'A' AND fire_exchange = 'KRX';
+UPDATE public.launch_pieces SET account = '37703857101', order_no = '3404000099', qty = 3
+ WHERE trade_date = '2026-10-22' AND profile = 'N' AND wire = 0;
+INSERT INTO public.dma_account_orders
+  (gateway, trade_date, account_no, order_no, isin, exchange, side, order_type, qty, price, filled_qty, status,
+   first_seq, last_seq, created_at, updated_at)
+VALUES ('KB120', '2026-10-22', '37703857101', '3404000005', 'KR7005930003', 'KRX', 'B', 'N', 7, 1000, 7, 'filled',
+        1, 2, now(), now());
+SELECT is(
+  (SELECT jsonb_agg(jsonb_build_array(e->>'profile', e->>'wire', e->'filled_qty') ORDER BY o)
+     FROM jsonb_array_elements(public.launch_orders_for_admin('20261022')->'pieces') WITH ORDINALITY AS x(e, o)
+    WHERE e->>'fire_base' <> '16:00:00'),
+  '[["A","0",7],["A","0",null],["N","0",null],["N","1",null]]'::jsonb,
+  '(20261022, KB120, A·N, —, K, 체결) 저널에 있는 order_no → filled_qty 7 · 저널에 없는 order_no · order_no null → null'
+);
+
 SELECT throws_ok(
   $$SELECT public.launch_orders_for_admin('2026-10-22')$$,
   '22023', NULL, '(2026-10-22 형식, —, —, —, —, p_date) YYYYMMDD 아니면 22023'
