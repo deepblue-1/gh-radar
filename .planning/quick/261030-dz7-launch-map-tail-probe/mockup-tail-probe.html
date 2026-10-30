@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>뒤탐침 표식 목업</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 5; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 20px 12px 60px; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --border-subtle: #e5e8eb; --card: #ffffff; --primary: #3182f6;
+  --ok: #1f8a5b; --ok-bg: #cfeedd; --bad: #c8402f; --bad-bg: #f6d6d1; --gate: #b7791f; --gate-bg: #f8e7c2; --other: #8a93a2; --grid: #eceff4;
+  width: 760px; max-width: 100%; background: var(--bg); color: var(--fg-2); border-radius: 12px; padding: 16px 18px;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; font-variant-numeric: tabular-nums; word-break: keep-all;
+  box-shadow: 0 0 0 1px #2a2a30;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --border-subtle: #3d3d3d; --card: #151515; --primary: #3485fa;
+  --ok: #3fbf86; --ok-bg: #173a2b; --bad: #ec6a57; --bad-bg: #41221e; --gate: #e9b44a; --gate-bg: #3b3020; --other: #7d8695; --grid: #262a31;
+}
+.opt { font-size: 15px; font-weight: 700; color: var(--fg); margin: 0 0 4px; }
+.opt small { font-weight: 500; color: var(--muted-fg); font-size: 12.5px; margin-left: 6px; }
+.card { background: var(--card); border-radius: 12px; padding: 12px 14px; box-shadow: inset 0 0 0 1px var(--border-subtle); margin-top: 8px; }
+.ph { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ph h3 { margin: 0; font-size: 14px; color: var(--fg); }
+.ph span { font-size: 12px; color: var(--muted-fg); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted-fg); align-items: center; margin: 8px 0 2px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.tip { font-size: 12px; color: var(--muted-fg); margin-top: 6px; line-height: 1.6; }
+.tip b { color: var(--fg); font-weight: 600; }
+.tip code { background: var(--muted); border-radius: 4px; padding: 1px 5px; color: var(--fg-2); font-size: 11.5px; }
+svg text { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <button data-theme="light" class="on">라이트</button>
+  <button data-theme="dark">다크</button>
+  <div id="desc">
+    <b>16:00 뒤탐침 점 모양 A / B / C</b> — 같은 자료(KB 코스닥 4거래일)를 세 표식으로 그렸다. 10/30 은 실조각 3발이 전부 101 이고, 뒤탐침 3발(−260 · −250 · −240µs)이 붙은 날이다.
+    세 안 모두 <b>탐침도 경계 계산에 넣는다</b>(결정됨): 탐침 101 = 거부(lo) · 탐침 접수 · 가격거부 = 열림(hi) · E127 · 무응답 = 경계 밖(속 빈 회색).
+    그래서 10/30 은 「경계는 이보다 뒤 →」 대신 −260 ~ −250 경계 띠가 생긴다. 색 = 결과, 모양 = 실조각/탐침.
+  </div>
+</div>
+<div id="stage"></div>
+
+<script>
+// 자료 — rel µs · 결과(접수 · 101 · 기타 · 열림(탐침 가격거부) · E127) · probe
+const DAYS = [
+  { date: '10/27', pieces: [[-290,'101'],[-286,'101'],[-270,'접수']] },
+  { date: '10/28', pieces: [[-290,'101'],[-286,'101'],[-280,'101']] },
+  { date: '10/29', pieces: [[-300,'101'],[-296,'101'],[-284,'접수']] },
+  { date: '10/30', pieces: [[-290,'101'],[-286,'101'],[-270,'101'],
+                            [-260,'101',1],[-250,'열림',1],[-240,'접수',1]] },
+];
+const PLAN = [-290, -286, -270];
+const isOpen = (r) => r === '접수' || r === '열림';
+const isRej = (r) => r === '101';
+
+const W = 720, L = 52, R = 14, T = 20, RH = 26, GAP = 30, RIB = 34, TICK = 20, DOT = 4.5;
+const XMIN = -306, XMAX = -232;
+const x = (v) => L + ((v - XMIN) / (XMAX - XMIN)) * (W - L - R);
+
+function toneOf(res) {
+  if (isOpen(res)) return { fill: 'var(--ok)', stroke: 'var(--card)' };
+  if (isRej(res)) return { fill: 'var(--bad)', stroke: 'var(--card)' };
+  return { fill: 'none', stroke: 'var(--other)' };
+}
+
+// 표식 그리기 — 실조각은 언제나 원. 탐침만 안마다 다르다.
+const MARK = {
+  A: (cx, cy, res, probe) => {
+    const t = toneOf(res);
+    if (!probe) return circle(cx, cy, DOT, t);
+    const r = 5.6; // 위 꼭짓점 삼각형
+    const d = `M${cx} ${cy - r} L${cx + r * 0.95} ${cy + r * 0.7} L${cx - r * 0.95} ${cy + r * 0.7} Z`;
+    return `<path d="${d}" fill="${t.fill}" stroke="${t.fill === 'none' ? t.stroke : 'var(--card)'}" stroke-width="${t.fill === 'none' ? 1.6 : 1}"/>`;
+  },
+  B: (cx, cy, res, probe) => {
+    const t = toneOf(res);
+    const base = circle(cx, cy, DOT, t);
+    if (!probe) return base;
+    return base + `<circle cx="${cx}" cy="${cy}" r="${DOT + 3}" fill="none" stroke="var(--muted-fg)" stroke-width="1.2" stroke-dasharray="2 2"/>`;
+  },
+  C: (cx, cy, res, probe) => {
+    const t = toneOf(res);
+    if (!probe) return circle(cx, cy, DOT, t);
+    const s = 7.5;
+    return `<rect x="${cx - s / 2}" y="${cy - s / 2}" width="${s}" height="${s}" rx="1" fill="${t.fill}" stroke="${t.fill === 'none' ? t.stroke : 'var(--card)'}" stroke-width="${t.fill === 'none' ? 1.6 : 1}"/>`;
+  },
+};
+function circle(cx, cy, r, t) {
+  const hollow = t.fill === 'none';
+  return `<circle cx="${cx}" cy="${cy}" r="${hollow ? r - 0.7 : r}" fill="${t.fill}" stroke="${t.stroke}" stroke-width="${hollow ? 1.6 : 1}"/>`;
+}
+
+function chart(opt) {
+  const rowsBottom = T + DAYS.length * RH;
+  const ry = rowsBottom + GAP;
+  const H = ry + RIB + TICK;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block">`;
+  const ticks = []; for (let v = -300; v <= -240; v += 10) ticks.push(v);
+  for (const v of ticks) s += `<line x1="${x(v)}" x2="${x(v)}" y1="${T - 6}" y2="${rowsBottom}" stroke="var(--grid)"/>`;
+  const gates = [];
+  DAYS.forEach((d, i) => {
+    const cy = T + i * RH + RH / 2;
+    const lo = Math.max(...d.pieces.filter((p) => isRej(p[1])).map((p) => p[0]), -Infinity);
+    const his = d.pieces.filter((p) => isOpen(p[1])).map((p) => p[0]);
+    const hi = his.length ? Math.min(...his) : null;
+    gates.push({ lo: lo === -Infinity ? null : lo, hi });
+    s += `<text x="${L - 6}" y="${cy + 4}" text-anchor="end" font-size="11" fill="var(--muted-fg)">${d.date}</text>`;
+    s += `<line x1="${L}" x2="${W - R}" y1="${cy}" y2="${cy}" stroke="var(--grid)"/>`;
+    if (lo !== -Infinity && hi !== null) {
+      const x0 = Math.min(x(lo), x(hi));
+      s += `<rect x="${x0}" y="${cy - 9}" width="${Math.max(Math.abs(x(hi) - x(lo)), 2)}" height="18" rx="3" fill="var(--gate-bg)" stroke="var(--gate)"/>`;
+    } else if (lo !== -Infinity) {
+      s += `<rect x="${x(lo)}" y="${cy - 9}" width="${W - R - x(lo)}" height="18" rx="3" fill="var(--bad-bg)" opacity=".7"/>`;
+      s += `<text x="${W - R - 4}" y="${cy + 4}" text-anchor="end" font-size="11" fill="var(--bad)">경계는 이보다 뒤 →</text>`;
+    }
+    for (const [v, res, probe] of d.pieces) s += MARK[opt](x(v), cy, res, !!probe);
+    if (d.date === '10/30') {
+      s += `<text x="${x(-240) + 10}" y="${cy + 4}" font-size="10.5" fill="var(--muted-fg)">뒤탐침 3</text>`;
+    }
+  });
+  // 리본
+  s += `<text x="${L}" y="${ry - 8}" font-size="11" fill="var(--muted-fg)">이 시각에 첫 조각을 쐈다면 — 접수 · 모름 · 거부 날 비율</text>`;
+  for (let v = XMIN; v < XMAX; v += 1) {
+    let ok = 0, bad = 0;
+    for (const g of gates) { if (g.hi !== null && v >= g.hi) ok++; else if (g.lo !== null && v <= g.lo) bad++; }
+    const n = gates.length, w = x(v + 1) - x(v) + 0.4;
+    const hOk = RIB * ok / n, hBad = RIB * bad / n, hUnk = RIB - hOk - hBad;
+    s += `<rect x="${x(v)}" y="${ry}" width="${w}" height="${hOk}" fill="var(--ok)"/>`;
+    s += `<rect x="${x(v)}" y="${ry + hOk}" width="${w}" height="${hUnk}" fill="var(--grid)"/>`;
+    s += `<rect x="${x(v)}" y="${ry + hOk + hUnk}" width="${w}" height="${hBad}" fill="var(--bad)"/>`;
+  }
+  s += `<rect x="${L}" y="${ry}" width="${W - L - R}" height="${RIB}" fill="none" stroke="var(--border-subtle)"/>`;
+  for (const v of PLAN) s += `<path d="M${x(v)} ${T - 4} V${rowsBottom} M${x(v)} ${ry - 2} V${ry + RIB + 2}" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>`;
+  for (const v of ticks) s += `<text x="${x(v)}" y="${H - 5}" text-anchor="middle" font-size="11" fill="var(--muted-fg)">${v}</text>`;
+  return s + '</svg>';
+}
+
+function legendSwatch(opt, res, probe) {
+  return `<svg width="16" height="16" viewBox="0 0 16 16">${MARK[opt](8, 8, res, probe)}</svg>`;
+}
+
+const OPTS = [
+  ['A', '삼각형 ▲', '실조각 = 원, 탐침 = 삼각형. 색은 결과 그대로. 모양 차이가 가장 크다 — 09:00:30 매도 마름모와도 겹치지 않는다.'],
+  ['B', '원 + 점선 고리', '탐침도 원이고 바깥에 점선 고리. 색·크기가 실조각과 같아 「같은 경계 재료」로 읽히고, 고리로만 구분.'],
+  ['C', '작은 네모 ■', '실조각 = 원, 탐침 = 작은 네모. 삼각형보다 조용하고, 칸 수가 많은 날도 덜 튄다.'],
+];
+
+function render(theme) {
+  const stage = document.getElementById('stage');
+  stage.innerHTML = OPTS.map(([k, name, why]) => `
+    <div class="f ${theme}">
+      <p class="opt">${k}안 · ${name}<small>${why}</small></p>
+      <div class="legend">
+        <span>${legendSwatch(k, '접수', false)}실조각 접수</span>
+        <span>${legendSwatch(k, '101', false)}실조각 101</span>
+        <span>${legendSwatch(k, '접수', true)}탐침 열림(접수 · 가격거부)</span>
+        <span>${legendSwatch(k, '101', true)}탐침 101</span>
+        <span>${legendSwatch(k, 'E127', true)}탐침 E127 · 무응답(경계 밖)</span>
+      </div>
+      <div class="card">
+        <div class="ph"><h3>KB · 코스닥</h3><span>경계 잡힌 날 3 · 전부 접수 0 · 전부 거부 1</span></div>
+        ${chart(k)}
+      </div>
+      <div class="tip">점에 마우스: <b>−250µs</b> · <code>10/30 · 뒤탐침 2 · 가격거부(열림) · F083</code> &nbsp; 날짜별 표의 10/30 줄 끝에 「탐침 3」</div>
+    </div>`).join('');
+}
+document.querySelectorAll('#nav button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#nav button').forEach((o) => o.classList.toggle('on', o === b));
+  render(b.dataset.theme === 'dark' ? 'dark' : '');
+}));
+render('');
+</script>
+</body>
+</html>

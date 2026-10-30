@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-11-PLAN.md
-last_updated: "2026-10-30T00:46:33.709Z"
+last_updated: "2026-10-30T01:28:24.395Z"
 last_activity: 2026-10-30
-last_activity_desc: "35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음"
-state_head: 2a81523fc7ecda2ae3810f9758f0ced05319f981
+last_activity_desc: 35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음
+state_head: 030e39d23e688b51c91c6deb9c3775b687b81884
 progress:
   total_phases: 7
   completed_phases: 6
@@ -32,10 +32,11 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
 Plan: 19 of 19 (Phase 35 플랜 전부 완료 — 페이즈 검증 · 완료 처리 남음)
 Status: Ready to execute
-Last activity: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
+Last activity: 2026-10-30 - Completed quick task 261030-dz7: 경계지도 16:00 뒤탐침 표시(삼각형 · 경계 계산 포함 · 지도 RPC 20261030210000 — 원격 db push · push 대기)
+Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [█████████░] 99% (53/53 plans)
+Progress: [██████████] 100% (53/53 plans)
 
 ## Accumulated Context
 
@@ -113,6 +114,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 28 | 매집 차트 묶음 판정 가로 ± 5px (gh-trade 261028-accum-chart-group-x5) | 2026-10-28 | f8edd816 | — |
 | 29 | 발사 주문 내역 체결 수량 — launch_orders_for_admin 이 dma_account_orders 를 order_no 로 join | 2026-10-30 | e40a4233 | — |
 | 261030-d7b | 발사 A 재확인 회차(09:00:29) 덮어쓰기 — launch_pieces/heads PK 에 fire_base · 주문 내역 A KRX 09:00:00~09:00:30 회차 표시 | 2026-10-30 | 2a81523f | [261030-d7b-launch-a-recheck-fire-base-key](./quick/261030-d7b-launch-a-recheck-fire-base-key/) |
+| 261030-dz7 | 경계지도 16:00 뒤탐침 표시 — 삼각형 · 경계 계산 포함(가격거부=열림 · E127 제외) · 지도 RPC probe/round/result_code | 2026-10-30 | 030e39d2 | [261030-dz7-launch-map-tail-probe](./quick/261030-dz7-launch-map-tail-probe/) |
 
 ## Session Continuity
 
