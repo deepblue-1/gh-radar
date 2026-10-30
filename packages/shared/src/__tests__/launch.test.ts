@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isLaunchAccept,
+  isLaunchFireBaseOf,
   isLaunchReject,
   launchDaysOf,
   launchFireBaseOf,
@@ -322,6 +323,29 @@ describe("발사 기준 — launchFireBaseOf · launchFireOf · LAUNCH_FIRES (D-
     expect(launchFireOf({ fire_exchange: "NXT", fire_base: "09:00:30" })).toBe("n0930");
     expect(launchFireOf({ fire_exchange: "KRX", fire_base: "09:00:27" })).toBeNull();
     expect(launchFireOf({ fire_exchange: "NXT", fire_base: "16:00:00" })).toBeNull();
+    // A KRX 재확인 회차(마감선 09:00:29.5 재발사)도 지도 대상이 아니다.
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "09:00:29" })).toBeNull();
+  });
+
+  // quick-261030-d7b — 주문 내역 판정. A KRX 는 본회차 09:00:27 + 재확인 회차(09:00:29 등) — 09:00:00 이상 09:00:30 미만.
+  // 그 밖은 launchFireBaseOf 와 같을 때만. launchFireBaseOf("A", "KRX") 는 여전히 09:00:27(백필 기본값 — 위 단언).
+  it.each([
+    ["A", "KRX", "09:00:27", true],
+    ["A", "KRX", "09:00:29", true],
+    ["A", "KRX", "09:00:25", true],
+    ["A", "KRX", "09:00:30", false],
+    ["A", "KRX", "08:59:59", false],
+    ["A", "KRX", "16:00:00", false],
+    ["Q16", "KRX", "16:00:00", true],
+    ["N", "NXT", "09:00:30", true],
+    ["A", "NXT", "09:00:30", true],
+    ["Q16", "KRX", "16:00:01", false],
+    ["N", "NXT", "09:00:29", false],
+    ["A", "NXT", "09:00:29", false],
+    ["X", "KRX", "09:00:27", false],
+    ["N", "KRX", "09:00:27", false],
+  ] as const)("isLaunchFireBaseOf(%s, %s, %s) → %s", (profile, fireExchange, fireBase, out) => {
+    expect(isLaunchFireBaseOf(profile, fireExchange, fireBase)).toBe(out);
   });
 
   it("LAUNCH_FIRES · LAUNCH_RANGE_DAYS", () => {

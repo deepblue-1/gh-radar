@@ -15,6 +15,8 @@
  *   **이 한 벌**을 쓴다 — SQL 에 두 번째 구현을 두지 않는다(RESEARCH Pattern 6).
  * - 발사 기준 = 거래소 + 기준시각(D-03 · D-17): 16:00:00 KRX(Q16) · 09:00:27 KRX(A 매수 — 주문 내역에만) ·
  *   09:00:30 NXT(N 매수 + A 매도 — 한 지도). 지도 대상은 `LAUNCH_FIRES` 둘뿐이다.
+ *   A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`,
+ *   `launchFireBaseOf` 는 백필 기본값(quick-261030-d7b).
  * - `account` · `dma_user_id` 는 어드민 전용 예외(D-02) — 원문 표의 감사 칸 규칙(T-19-08)과 다르다.
  */
 import type { LimitupDate } from "./limitup-report";
@@ -359,6 +361,8 @@ export function launchRibbonAt(days: readonly LaunchDay<unknown>[], v: number): 
 /**
  * (profile, 거래소) → 발사 기준시각 `"HH:MM:SS"`. Q16 = KRX 16:00:00 · A = KRX 09:00:27(매수 다리) ·
  * N · A = NXT 09:00:30(N 매수 · A 매도 다리). 그 밖 조합은 null(백필 입력이면 거부 사유).
+ * A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`, 이 함수는
+ * relay launch-backfill 이 ndjson 에 fire_base 가 없을 때 쓰는 백필 기본값(백필 입력은 본회차로 정한다).
  */
 export function launchFireBaseOf(profile: string, fireExchange: string): string | null {
   if (fireExchange === "KRX") {
@@ -368,6 +372,28 @@ export function launchFireBaseOf(profile: string, fireExchange: string): string 
   }
   if (fireExchange === "NXT" && (profile === "N" || profile === "A")) return "09:00:30";
   return null;
+}
+
+/** A KRX 매수 회차 기준시각 창 — `[이상, 미만)`. HH:MM:SS 0 패딩 문자열이라 사전순 비교 = 시각 비교. */
+const A_KRX_FIRE_BASE_FROM = "09:00:00";
+const A_KRX_FIRE_BASE_UNTIL = "09:00:30";
+
+/**
+ * 「이 (profile, 거래소) 의 발사로 받아도 되는 기준시각인가」 — 주문 내역 탭 판정(quick-261030-d7b).
+ *
+ * A · KRX 는 `09:00:00` 이상 `09:00:30` 미만이면 true(본회차 09:00:27 · 마감선 재확인 회차 09:00:29 …).
+ * 그 밖은 `launchFireBaseOf` 결과가 null 이 아니고 fireBase 와 같을 때만 true.
+ *
+ * 범위를 09:00:27 이상이 아니라 09:00:00 이상으로 잡는 근거: StockDMA.fbs `case1_fire_ms` 는 09:00:00 기준 설정값
+ * (기본 27000 · 2026-10-24 전 29000 · 25000 미만 또는 29500 이상 거부)이고 마감선 09:00:29.5 재확인 회차가
+ * 09:00:29 로 오므로, A KRX 매수 회차는 설정이 바뀌어도 늘 NXT 다리(09:00:30) 전 09시 정각 창 안이다.
+ */
+export function isLaunchFireBaseOf(profile: string, fireExchange: string, fireBase: string): boolean {
+  if (profile === "A" && fireExchange === "KRX") {
+    return fireBase >= A_KRX_FIRE_BASE_FROM && fireBase < A_KRX_FIRE_BASE_UNTIL;
+  }
+  const base = launchFireBaseOf(profile, fireExchange);
+  return base !== null && base === fireBase;
 }
 
 /** (거래소, 기준시각) → 지도 발사. A 의 KRX 09:00:27 다리는 지도 대상이 아니라 null(주문 내역에만). */

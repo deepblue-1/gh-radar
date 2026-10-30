@@ -141,6 +141,12 @@ const A_KBQ: LaunchPieceRow[] = [
   piece({ gateway: 'KB120', market: 'Q', profile: 'A', fire_exchange: 'KRX', fire_base: '09:00:27', wire: 0, queued_id: 'A', piece_idx: 0, side: 'buy', sent_rel_us: -1200, result: '접수', retry: 0 }),
 ];
 const N_HEAD_KBQ = head({ gateway: 'KB120', market: 'Q', profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', offset_used_us: -245, next_offset_us: -245 });
+/** quick-261030-d7b — A KRX 재확인 회차(마감선 09:00:29.5 재발사 · expected_cum 090029000 · wire 0 부터 다시) 합성 조각 · A 머리 두 회차. */
+const A_RECHECK_KBQ = piece({ gateway: 'KB120', market: 'Q', profile: 'A', fire_exchange: 'KRX', fire_base: '09:00:29', wire: 0, queued_id: 'A', piece_idx: 0, side: 'buy', sent_rel_us: -900, result: '접수', retry: 1 });
+const A_HEADS_KBQ = [
+  head({ gateway: 'KB120', market: 'Q', profile: 'A', fire_exchange: 'KRX', fire_base: '09:00:27', offset_used_us: -1200, n_pieces: 1 }),
+  head({ gateway: 'KB120', market: 'Q', profile: 'A', fire_exchange: 'KRX', fire_base: '09:00:29', offset_used_us: -900, n_pieces: 1 }),
+];
 
 describe('fmtUs — 부호 U+2212 · 천 단위 ko-KR', () => {
   it.each([
@@ -168,6 +174,7 @@ describe('fireLegLabelOf — 발사 다리', () => {
   it.each([
     ['N', 'NXT', '09:00:30', 'N NXT'],
     ['A', 'KRX', '09:00:27', 'A 09:00:27 KRX→'],
+    ['A', 'KRX', '09:00:29', 'A 09:00:29 KRX→'],
     ['A', 'NXT', '09:00:30', 'A NXT'],
     ['Q16', 'KRX', '16:00:00', 'Q16'],
   ] as const)('(%s, %s, %s) → %s', (profile, fire_exchange, fire_base, out) => {
@@ -235,6 +242,23 @@ describe('orderTabPiecesOf — 세그먼트 거름 · 정렬', () => {
       'KYOBO119|Q',
       'KYOBO119|K',
     ]);
+  });
+
+  it('n0930 — A KRX 재확인 회차(09:00:29)도 싣는다 · 09:00:27 뒤 · 09:00:30 NXT 앞 (quick-261030-d7b)', () => {
+    const out = orderTabPiecesOf([A_RECHECK_KBQ, ...all], 'n0930');
+    expect(out.map((p) => fireLegLabelOf(p))).toEqual(['A 09:00:27 KRX→', 'A 09:00:29 KRX→', 'A NXT', 'N NXT', 'N NXT', 'N NXT']);
+  });
+
+  it('q16 에는 재확인 회차가 없다 · A KRX 09:00:30 행은 두 탭 어디에도 없다', () => {
+    const stray = piece({ ...A_RECHECK_KBQ, fire_base: '09:00:30' });
+    const input = [A_RECHECK_KBQ, stray, ...all];
+    expect(orderTabPiecesOf(input, 'q16').some((p) => p.profile === 'A')).toBe(false);
+    expect(orderTabPiecesOf(input, 'n0930').filter((p) => p.profile === 'A' && p.fire_exchange === 'KRX').map((p) => p.fire_base)).toEqual([
+      '09:00:27',
+      '09:00:29',
+    ]);
+    expect(orderTabPiecesOf([stray], 'n0930')).toEqual([]);
+    expect(orderTabPiecesOf([stray], 'q16')).toEqual([]);
   });
 });
 
@@ -329,5 +353,24 @@ describe('launchHeadCardOf(n0930) — 두 다리 · 재전송 합 · 고정 다�
   it('N 머리 없음 → 다음 오프셋 「—」 · 오프셋 = N NXT 최소 wire rel', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'n0930', pieces, heads: [] });
     expect(card).toMatchObject({ fire: 'n0930', next: '—', offset: `${M}20,148µs` });
+  });
+
+  it('A KRX 머리 둘(09:00:27 · 09:00:29) + N 머리 — 6조각 · 재전송 2+1+1+0+1 = 5 · 오프셋 · 다음은 N 머리 그대로 (quick-261030-d7b)', () => {
+    const card = launchHeadCardOf({
+      gateway: 'KB120',
+      market: 'Q',
+      fire: 'n0930',
+      pieces: [...pieces, A_RECHECK_KBQ],
+      heads: [...A_HEADS_KBQ, N_HEAD_KBQ],
+    });
+    expect(card).toMatchObject({
+      fire: 'n0930',
+      count: 6,
+      badLabel: '거부',
+      counts: { ok: 2, bad: 4, other: 0 },
+      offset: `${M}245µs`,
+      retries: 5,
+      next: `고정 ${M}245µs`,
+    });
   });
 });

@@ -12,9 +12,9 @@ import {
   LAUNCH_ORDER,
   brokerOfServerKey,
   isLaunchAccept,
+  isLaunchFireBaseOf,
   isLaunchReject,
   launchDaysOf,
-  launchFireBaseOf,
   type LaunchFire,
   type LaunchHeadRow,
   type LaunchPieceRow,
@@ -71,7 +71,8 @@ export function pieceKeyLabelOf(p: Pick<LaunchPieceRow, 'profile' | 'queued_id' 
 }
 
 /**
- * 발사 다리 — N NXT 「N NXT」 · A KRX 09:00:27 매수 다리 「A 09:00:27 KRX→」 · A NXT 매도 다리 「A NXT」 · Q16 「Q16」.
+ * 발사 다리 — N NXT 「N NXT」 · A KRX 매수 회차(본회차 09:00:27 · 재확인 09:00:29 등 — 실제 fire_base) 「A 09:00:27 KRX→」 ·
+ * A NXT 매도 다리 「A NXT」 · Q16 「Q16」.
  */
 export function fireLegLabelOf(p: FireKey): string {
   if (p.profile === 'Q16') return 'Q16';
@@ -92,9 +93,12 @@ export function brokerMarketLabelOf(gateway: string, market: string): string {
 // 탭 조각 — 발사 세그먼트(16:00 예약 · 09:00:30 개장차익)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 행이 그 세그먼트에 속하는가 — q16 = Q16 · KRX 16:00:00 / n0930 = N · A 의 KRX 09:00:27 · NXT 09:00:30 전부. */
+/**
+ * 행이 그 세그먼트에 속하는가 — q16 = Q16 · KRX 16:00:00 / n0930 = N · A 의 KRX 매수 회차(본회차 09:00:27 · 재확인
+ * 09:00:29 등 — 실제 fire_base) · NXT 09:00:30 전부. 기준시각 판정은 shared `isLaunchFireBaseOf`.
+ */
 export function isOrderTabRow(row: FireKey, fire: LaunchFire): boolean {
-  if (launchFireBaseOf(row.profile, row.fire_exchange) !== row.fire_base) return false;
+  if (!isLaunchFireBaseOf(row.profile, row.fire_exchange, row.fire_base)) return false;
   return fire === 'q16' ? row.profile === 'Q16' : row.profile === 'N' || row.profile === 'A';
 }
 
@@ -214,7 +218,8 @@ function learnLineOf(h: LaunchHeadRow | undefined): { learnLabel: string; learn:
  * q16: 오프셋 = Q16 머리 offset_used_us → 없으면 최소 wire 조각 rel · 경계 = 머리 gate_lo/hi(하나라도 있으면) → 없으면
  * shared `launchDaysOf` 의 그날 1개 · 학습 줄 = 학습값 있는 머리는 correction_before → after · next_offset_us · step_us,
  * 학습값 없는 머리(Phase 43 뒤)는 「다음 발사 계획 첫 조각」 next_offset_us (D-32).
- * n0930: 탭 조각 = N NXT + A 두 다리(KRX 09:00:27 · NXT 09:00:30) · 결과 라벨 「거부」 · 오프셋 = N 머리 offset_used_us →
+ * n0930: 탭 조각 = N NXT + A 두 다리(KRX 매수 회차 — 본회차 09:00:27 · 재확인 09:00:29 등 실제 fire_base · NXT 09:00:30) ·
+ * 결과 라벨 「거부」 · 오프셋 = N 머리 offset_used_us →
  * 없으면 N NXT 최소 wire rel · 재전송 = 탭 조각 retry 합 · 다음 오프셋 = N 머리 「고정 next_offset_usµs」(없으면 「—」).
  */
 export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardModel | null {
