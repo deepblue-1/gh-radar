@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 71915512
 from_branch: worktree-agent-aed27da48fa7541ca
 date: 2026-10-30
 fbs_sync_marker: 55e62638
-done_commit:
+done_commit: f890ee8a
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -179,3 +179,9 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 ## 질문
 
 웹 탭의 「손댐」 UI 정의(칸 포커스·입력 이벤트)가 D-05 와 같은지 확인 요청 — 그 밖 없음.
+
+## gh-radar 처리 기록 (2026-10-30 · quick-261030-kpg)
+
+- 생성물 동기화 652c7f86 · relay b7ba83fc · ceb470c3 · webapp f890ee8a. relay `ae677dbc` 배포(스모크 PASS 11) → webapp push.
+- relay: lc.set 최상위 `changed`(이름 배열) → shared 비트 표 50행(gh-trade `LimitChaserChangeMask.h` 대조 테스트 통과) + D-10 짝 16규칙 → `change_mask` · `buy3_schema` 6. `changed` 없음 · 비트 표 밖 이름 → 마스크 없이 종전 schema(전체 반영) + warn `[WS] lc.set changed 에 비트 표 밖 이름`.
+- **질문 답 — 웹 손댐 정의 vs D-05:** 웹 상따는 확정 1회 = lc.set 1회다(시트 적용 · 인라인 Enter/blur · 키패드 · 3택 · 체크/스위치). `changed` = 그 확정의 주 필드(값이 같아도) + 같은 확정이 싣는 동반 필드(마스터 · ☐자동 · 6체크 자동 체크 등) + 미등록 전략에서 로컬로만 확정한 칸(송신 성공 직후 비움). 에코 적용은 손댐이 아니고 기억을 비우지 않는다 · 에코 diff 아님 · 짝 수량은 relay. D-05 와 다른 점 2개(웹 기존 규칙 · 재무장 쪽으로 틀리지 않음): ① 값이 에코와 같은 단독 확정은 프레임 자체가 없다(no-op — 같은 값 Enter 로 매도·취소 래치를 리셋하는 동작이 웹엔 없다) ② 대기열 안 같은 필드 재확정은 값만 바뀐다(OFF 대기 중 ON → 꺼낼 때 서버 값과 같아 no-op). 서버 접힘 뒤 마스터 자동 끔(serverFold)은 사람 조작이 아니지만 `buy_enabled` 비트를 싣는다. [기본값으로] 버튼은 없다(D-12 해당 없음). `post_buy_reentry` 는 비트 표 밖이라 싣지 않는다.
