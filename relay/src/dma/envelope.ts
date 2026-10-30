@@ -1389,6 +1389,17 @@ function toWireUByte(v: number, field: string): number {
   return v;
 }
 
+/** `ulong` 상한 — 2^64 − 1. */
+const MAX_ULONG = (1n << 64n) - 1n;
+
+/** `ulong` 필드 가드(`change_mask` · quick-261030-kpg). `toWireUint` 와 같은 이유로 표현 범위만 본다. */
+function toWireULong(v: bigint, field: string): bigint {
+  if (v < 0n || v > MAX_ULONG) {
+    throw new OrderBuildError("ULONG_RANGE", `${field} 가 ulong 표현 범위를 벗어났습니다: ${v.toString()}`);
+  }
+  return v;
+}
+
 /**
  * 서버가 12자 버퍼에 `strncpy(…, 12)` 하는 문자열을 **같은 폭으로 절단**한다.
  *
@@ -1443,6 +1454,15 @@ export const LC_AUTO_SELL_BUY3_SCHEMA = 4;
  * 보내면 서버가 그 필드를 부재 기본값으로 읽어 사람이 켠 설정을 지운다).
  */
 export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
+/**
+ * `change_mask`(id 85 · vtable 174 · 「이번 제출에서 사람이 손댄 칸」 uint64)를 싣는 클라 — `buy3_schema` 6
+ * (gh-trade Phase 44 · 55e62638 · quick-261030-kpg). 서버는 6 이상일 때만 마스크를 읽는다 — 6 + 마스크 0 = 아무 칸도
+ * 반영하지 않음(재무장 없음) · ≤5 = 종전 전체 반영 · 재무장. 병합은 기존 전략일 때만이다(신규 등록 · crud D 는 마스크
+ * 무관 전체 반영 — gh-trade D-07). 6 은 앞 다섯 조건 전부(`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
+ * `extraBuyAuto`) + `changeMask` 존재일 때만 파생된다(P-1 단조성 — 6 미만 세대에 마스크를 실으면 서버가 읽지 않아
+ * 전체 반영된다 · 앞 조건 하나라도 빠진 채 6 을 보내면 그 필드를 부재 기본값으로 읽는다).
+ */
+export const LC_CHANGE_MASK_BUY3_SCHEMA = 6;
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
@@ -1466,6 +1486,11 @@ export type LcSetCfg = Omit<
   autoSellStartCond?: number;
   autoSellRatioPct?: number;
   autoSellMethod?: number;
+  /**
+   * `change_mask`(gh-trade Phase 44 · quick-261030-kpg). **relay 내부 전용** — fanout 이 브라우저의 `changed` 이름 배열로
+   * 만든다(`lcChangeMaskOf` · 짝 수량 비트 포함). zod cfg 에 없다 — 브라우저가 값을 고를 수 없다. 존재가 schema 6 을 연다.
+   */
+  changeMask?: bigint;
 };
 
 /**
@@ -1474,16 +1499,18 @@ export type LcSetCfg = Omit<
  *   - `postBuyAuto` 있음 · `extraBuyBurstRelease` 없음 → 2
  *   - 둘 다 있음 · 자동매도 4필드 중 하나라도 없음 → 3
  *   - 둘 다 있음 · 자동매도 4필드 모두 있음 · `extraBuyAuto` 없음 → 4
- *   - 위 여섯 모두 + `extraBuyAuto` 있음 → 5 (`extraBuyAuto` 만 있고 앞 조건 미달이면 낮은 schema · 조립기 경고)
+ *   - 위 여섯 모두 + `extraBuyAuto` 있음 · `changeMask` 없음 → 5 (`extraBuyAuto` 만 있고 앞 조건 미달이면 낮은 schema · 조립기 경고)
+ *   - 위 일곱 모두 + `changeMask` 있음 → 6 (`changeMask` 만 있고 앞 조건 미달이면 낮은 schema · 마스크 미적재 · 조립기 경고)
  */
 export function lcBuy3SchemaOf(
-  cfg: Pick<LcSetCfg, "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto">,
+  cfg: Pick<LcSetCfg, "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | "changeMask">,
 ): number {
   if (cfg.postBuyAuto === undefined) return LC_FIXED_BUY3_SCHEMA;
   if (cfg.extraBuyBurstRelease === undefined) return LC_POST_BUY_AUTO_BUY3_SCHEMA;
   if (!hasAllAutoSellReqFields(cfg)) return LC_BURST_RELEASE_BUY3_SCHEMA;
   if (cfg.extraBuyAuto === undefined) return LC_AUTO_SELL_BUY3_SCHEMA;
-  return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
+  if (cfg.changeMask === undefined) return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
+  return LC_CHANGE_MASK_BUY3_SCHEMA;
 }
 
 function hasAllAutoSellReqFields(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean {
@@ -1514,7 +1541,8 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
  * `buy3_schema`) = 45 필드 + 선택 6(`post_buy_auto` · `extra_buy_burst_release` · 자동매도 요청 4 — 파생 스키마가
- * 허락할 때만) = 최대 51 필드만** 채운다. 나머지는 건드리지 않는다:
+ * 허락할 때만) + `extra_buy_auto` 1(schema 5 이상) + 금액 8 + `change_mask` 1(schema 6 일 때만 · quick-261030-kpg)
+ * 만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 11필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
@@ -1528,10 +1556,12 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
  *
  * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) · 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
- * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`)이고
- * **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯
- * 모두 · 5 는 일곱 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c ·
- * quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb).
+ * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`) ·
+ * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`)이고 **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` ·
+ * `changeMask` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 · 6 은 여덟 모두 · `lcBuy3SchemaOf` ·
+ * gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 · quick-260929-vzy · quick-261003-rc4 · Phase 27 ·
+ * quick-261011-0yb · quick-261030-kpg).
+ * `changeMask` 가 있는데 schema 가 6 미만이면 마스크를 싣지 않고(서버 전체 반영) 경고를 남긴다.
  * `extraBuyAuto` 가 있는데 schema 가 5 미만이면 그 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `extraBuyBurstRelease` 만 있고 `postBuyAuto` 가 없으면 1 로 내리고 그 필드를 싣지 않으며 경고를 남긴다(PC-7).
  * 자동매도 4필드가 (일부라도) 있는데 schema 가 4 가 아니면 그 4필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
@@ -1611,6 +1641,14 @@ export function buildSetLimitChaserReq(
       "[DMA] extraBuyAuto 가 schema 5 조건을 못 채움 — 낮은 buy3_schema 로 내리고 extra_buy_auto 미적재",
     );
   }
+  if (cfg.changeMask !== undefined && buy3Schema < LC_CHANGE_MASK_BUY3_SCHEMA) {
+    // P-1 — 6 은 앞 다섯 조건 전부 + changeMask 일 때만. 미달이면 낮은 schema 로 내리고 change_mask 는 싣지 않는다
+    // (서버가 ≤5 를 종전 전체 반영으로 읽는다). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
+    logger.warn(
+      { isin, buy3Schema },
+      "[DMA] changeMask 가 schema 6 조건을 못 채움 — 낮은 buy3_schema 로 내리고 change_mask 미적재(서버 전체 반영)",
+    );
+  }
 
   const b = new flatbuffers.Builder(512);
   // 문자열 5종을 테이블 열기 전에 만든다.
@@ -1662,7 +1700,7 @@ export function buildSetLimitChaserReq(
   // buy_entry_latched — (deprecated) Phase 24 D-25 로 봉인. 접근자·빌더 없음.
   // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
   // buy3_schema — 브라우저가 고를 수 없다(T-24-01 확장). `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
-  // `extraBuyAuto` 존재로만 1/2/3/4/5 를 파생한다.
+  // `extraBuyAuto` · `changeMask` 존재로만 1/2/3/4/5/6 을 파생한다.
   SetLimitChaser.addBuy3Schema(b, buy3Schema);
   SetLimitChaser.addPreBuyEnabled(b, cfg.preBuyEnabled);
   SetLimitChaser.addExtraBuyEnabled(b, cfg.extraBuyEnabled);
@@ -1723,6 +1761,11 @@ export function buildSetLimitChaserReq(
   SetLimitChaser.addSellWatchAmount(b, toWireUint(cfg.sellWatchAmount ?? 0, "sellWatchAmount"));
   SetLimitChaser.addSellMinTradeAmount(b, toWireUint(cfg.sellMinTradeAmount ?? 0, "sellMinTradeAmount"));
   SetLimitChaser.addCancelWatchAmount(b, toWireUint(cfg.cancelWatchAmount ?? 0, "cancelWatchAmount"));
+  // change_mask — C→S 전용(id 85 · vtable 174 · gh-trade Phase 44 · quick-261030-kpg). schema 6 일 때만 싣는다. 0n 은
+  // 기본값이라 버퍼에 쓰이지 않지만 서버는 부재를 0(= 아무 칸도 반영 안 함)으로 읽으므로 동치다.
+  if (buy3Schema >= LC_CHANGE_MASK_BUY3_SCHEMA && cfg.changeMask !== undefined) {
+    SetLimitChaser.addChangeMask(b, toWireULong(cfg.changeMask, "changeMask"));
+  }
   const table = SetLimitChaser.endSetLimitChaser(b);
 
   Envelope.startEnvelope(b);

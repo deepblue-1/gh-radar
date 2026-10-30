@@ -72,6 +72,7 @@ import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
   readSetLimitChaserRequest,
+  type SetLimitChaserRequest,
   readSetUserSettingsRequest,
   readDisableStrategiesKey,
   readSubscribeRequest,
@@ -2380,6 +2381,76 @@ describe("WsFanout", () => {
         .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
       const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
       expect(req).toMatchObject({ sellWatchQty: 777, sellWatchAmount: 0 });
+    });
+  });
+
+  /*
+    quick-261030-kpg — gh-trade Phase 44 change_mask(vt 174) 트레이서.
+
+    웹 lc.set 의 최상위 `changed`(사람이 손댄 칸 이름 · gh-trade D-05)를 relay 가 shared 비트 표로 uint64 로 바꾸고
+    buy3_schema 6 으로 싣는다. changed 없는 프레임(구 탭 · 배포 전 webapp)은 종전 schema · 마스크 없음이고,
+    모르는 이름은 마스크 없이 종전 전체 반영으로 폴백 + warn 1줄이다(거부 프레임 0 · 소켓 유지).
+  */
+  describe("quick-261030-kpg change_mask 트레이서 (gh-trade Phase 44)", () => {
+    /** 새 클라 cfg — schema 5 조건(postBuyAuto · extraBuyBurstRelease · 자동매도 4 · extraBuyAuto)을 전부 싣는다. */
+    const newClientCfg = (over: Partial<LcSetCfg> = {}): LcSetCfg =>
+      lcInput({
+        postBuyAuto: false,
+        extraBuyBurstRelease: false,
+        autoSellEnabled: false,
+        autoSellStartCond: 0,
+        autoSellRatioPct: 0,
+        autoSellMethod: 0,
+        extraBuyAuto: false,
+        ...over,
+      });
+
+    async function sendAndRead(
+      msg: Record<string, unknown>,
+    ): Promise<{ req: SetLimitChaserRequest; inbox: unknown[] }> {
+      const a = await authed("token-a");
+      a.ws.sendRaw(msg);
+      await waitFor(
+        () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+        "10 수신",
+      );
+      const sets = gateway
+        .strategyRequests()
+        .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+      expect(sets).toHaveLength(1);
+      const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+      if (req === null) throw new Error("10 디코드 실패");
+      expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+      return { req, inbox: a.inbox };
+    }
+
+    it("kpg-1 changed [preBuyEnabled] → buy3_schema 6 · change_mask = 1 << 3 · 거부 프레임 0", async () => {
+      const { req } = await sendAndRead({ t: "lc.set", cfg: newClientCfg(), changed: ["preBuyEnabled"] });
+      expect(req.buy3Schema).toBe(6);
+      expect(req.changeMask).toBe(1n << 3n);
+    });
+
+    it("kpg-2 changed 없음(구 탭 · 배포 전 webapp) → 종전 schema 5 · change_mask 없음(0n)", async () => {
+      const { req } = await sendAndRead({ t: "lc.set", cfg: newClientCfg() });
+      expect(req.buy3Schema).toBe(5);
+      expect(req.changeMask).toBe(0n);
+    });
+
+    it("kpg-3 changed 에 비트 표 밖 이름 → change_mask 없이 종전 schema 5 · warn 1줄(unknown) · 거부 프레임 0", async () => {
+      const warnSpy = vi.spyOn(logger, "warn");
+      const { req } = await sendAndRead({
+        t: "lc.set",
+        cfg: newClientCfg(),
+        changed: ["preBuyEnabled", "noSuchField"],
+      });
+      expect(req.buy3Schema).toBe(5);
+      expect(req.changeMask).toBe(0n);
+      const hits = warnSpy.mock.calls.filter(
+        ([, text]) => typeof text === "string" && text.includes("비트 표 밖 이름"),
+      );
+      expect(hits).toHaveLength(1);
+      expect(hits[0]![0]).toMatchObject({ unknown: ["noSuchField"], unknownCount: 1 });
+      expect(JSON.stringify(hits[0]![0])).not.toContain(SAMPLE_ACCOUNT_NO);
     });
   });
 

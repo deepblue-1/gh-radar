@@ -190,6 +190,7 @@ import {
   type AutoSellActionWire,
   type LcSetCfg,
 } from "../dma/envelope.js";
+import { lcChangeMaskOf } from "../dma/lc-change-mask.js";
 import { MSG } from "../dma/msg-type.js";
 import {
   encode,
@@ -2043,10 +2044,31 @@ export class WsFanout {
       // ②-2 무장 가드도 철거에는 걸리지 않는다 — 판정은 `#strategyArmable` 안에 있다(호출부가
       // 아니라 함수가 소유해야 나중에 호출부가 늘어도 규율이 갈리지 않는다).
       if (!this.#strategyArmable(conn, userId, msg.t, cfg)) return;
+      // ②-3 change_mask (gh-trade Phase 44 · quick-261030-kpg). `changed` 없음(구 탭 · 배포 전 webapp) → 마스크 없음 =
+      //      종전 schema(≤5 = 서버 전체 반영). 있으면 비트 표 + 짝 수량 규칙(gh-trade D-10)으로 uint64 를 만든다 → schema 6.
+      //      철거 · 구 탭 withNeutralBuy3 경로도 이 줄을 지난다(구 탭은 changed 가 없고, 새 탭 철거는 서버가 마스크 무관 — D-07).
+      //
+      //   ★ 비트 표 밖 이름이 하나라도 있으면 **마스크 없이 종전 전체 반영으로 폴백 + warn 1줄**이다(거부하지 않는다):
+      //     ① 사용자 편집이 버려지지 않는다(전체 반영이 그 값을 싣는다 — 일부 비트만 세우면 그 칸이 조용히 버려진다)
+      //     ② 실패 모양 = 지금 운영 동작(서버도 D-14 warn 으로 관측)
+      //     ③ 거부하면 배포 순서가 어긋난 날(webapp 이 새 비트 이름을 relay 보다 먼저 보냄) 웹 상따 수정이 전면 차단된다
+      //     ④ 무로그 fail-safe 금지 — warn 1줄(userId · isin · 이름 최대 5개 · 개수). 계좌번호 · 값 · bigint 는 싣지 않는다(T-16-45).
+      let changeMask: bigint | undefined;
+      if (msg.changed !== undefined) {
+        const { mask, unknown } = lcChangeMaskOf(msg.changed, cfg);
+        if (unknown.length > 0) {
+          logger.warn(
+            { userId, t: msg.t, isin: cfg.isin, unknown: unknown.slice(0, 5), unknownCount: unknown.length },
+            "[WS] lc.set changed 에 비트 표 밖 이름 — change_mask 없이 종전 전체 반영(buy3_schema ≤5)",
+          );
+        } else {
+          changeMask = mask;
+        }
+      }
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         // ★ 시장 구분은 **여기서** 얹는다. 조립기에 기본값을 두지 않는 것이 규율이다 —
         //   기본값 "K" 는 코스닥 전략을 코스피로 등록시킨다 (Pitfall 7).
-        buildSetLimitChaserReq({ ...cfg, market }),
+        buildSetLimitChaserReq({ ...cfg, market, ...(changeMask === undefined ? {} : { changeMask }) }),
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);

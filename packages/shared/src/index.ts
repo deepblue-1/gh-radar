@@ -262,6 +262,8 @@ export * from "./order-server";
 export * from "./order-endpoint";
 // --- Phase 31 상따 금액(만원)↔주 §10 환산 한 벌(gh-trade LimitChaserForm.cs 이식) — webapp 행 · 시트 · 제출 · 검증 · relay 테스트 ---
 export * from "./lc-amount";
+// --- quick-261030-kpg 상따 change_mask 비트 표(gh-trade Phase 44) — relay 마스크 계산 · webapp lc.set changed 타입 ---
+export * from "./lc-change-mask";
 export * from "./account-budget";
 // --- Phase 36 매매손익 계약 — RPC jsonb 타입 · 기간 · 일자 표기(server /api/admin/pnl · /api/me/pnl ↔ webapp) ---
 export * from "./pnl";

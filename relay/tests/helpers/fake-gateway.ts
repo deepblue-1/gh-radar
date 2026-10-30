@@ -596,6 +596,11 @@ export interface SetLimitChaserRequest {
    *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27) ·
    *  5(+ 줄매수 ☐자동 적재 · `LC_EXTRA_BUY_AUTO_BUY3_SCHEMA` · quick-261011-0yb). */
   buy3Schema: number;
+  /**
+   * `change_mask`(id 85 · vt 174 · gh-trade Phase 44 · quick-261030-kpg) — 이번 제출에서 사람이 손댄 칸 비트(+ relay 짝 수량 비트).
+   * 슬롯 부재 = `0n`(서버도 부재 = 0 으로 읽는다). buy3_schema 6 일 때만 실린다.
+   */
+  changeMask: bigint;
   /** 슬롯 부재 = `null`. buy3 요청은 이 슬롯이 없어야 한다. */
   buyWatchSide: string | null;
   preBuyEnabled: boolean;
@@ -722,6 +727,7 @@ export function readSetLimitChaserRequest(
     cancelWatchQty: req.cancelWatchQty(),
     sweepMinTickCount: req.sweepMinTickCount(),
     buy3Schema: req.buy3Schema(),
+    changeMask: req.changeMask(),
     buyWatchSide: readSealedStringSlot(bb, req.bb_pos, BUY_WATCH_SIDE_SEALED_VT),
     preBuyEnabled: req.preBuyEnabled(),
     extraBuyEnabled: req.extraBuyEnabled(),

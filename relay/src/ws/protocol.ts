@@ -153,6 +153,13 @@ export function isRelayExchange(value: string): value is RelayExchange {
  *   필수로 두면 zod 위반 = 연결 종료라 옛 탭의 시세 · 에코 · 수동주문까지 멈춘다. 부재 판정은
  *   fanout 의 `buy3CfgOf` **한 곳**이다. 여기서 기본값을 채우지 않는다 — 채우면 옛 탭 프레임이
  *   조용히 새 클라 등록이 된다. 값이 **있으면** 범위 규칙은 그대로 적용된다.
+ *
+ * ★ **최상위 `changed` — 이번 제출에서 사람이 손댄 칸 이름**(shared `LC_CHANGE_MASK_FIELDS` 의 `key` · gh-trade Phase 44
+ *   D-05 · quick-261030-kpg). relay 가 비트 표 + 짝 수량 규칙(gh-trade D-10)으로 `change_mask` 를 만들어 buy3_schema 6 으로
+ *   싣는다(`lcChangeMaskOf` · fanout). **enum 이 아니다** — 모르는 이름이 zod 위반(= close 4400)이면 그 소켓의 시세 ·
+ *   에코 · 수동주문까지 멈춘다. 판정(모르는 이름 → 마스크 없이 종전 전체 반영 + warn)은 fanout 몫이다.
+ *   **선택이다** — 구 탭 · webapp 배포 전 프레임은 `changed` 가 없어 종전 schema(≤5 = 전체 반영)로 나간다(relay 먼저 배포 가능).
+ *   상한: 원소 64개(비트 64) · 이름 1~64자(가장 긴 이름 21자의 넉넉한 상한).
  */
 export const RelayLcSetSchema = z.object({
   t: z.literal("lc.set"),
@@ -304,6 +311,7 @@ export const RelayLcSetSchema = z.object({
       }
     }
   }),
+  changed: z.array(z.string().min(1).max(64)).max(64).optional(),
 });
 
 /**
