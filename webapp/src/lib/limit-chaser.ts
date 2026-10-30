@@ -48,6 +48,8 @@ import type {
 } from '@gh-radar/shared';
 import {
   AUTO_SELL_METHOD_ORDER,
+  isLcChangeMaskField,
+  type LcChangeMaskField,
   LC_AMOUNT_MAX_MANWON,
   LC_AMOUNT_PAIRS,
   amountFromQty,
@@ -99,6 +101,31 @@ export type LimitChaserFormValues = Omit<
   | 'sweepMinCount'
   | 'sweepMinRate'
 >;
+
+/**
+ * 비트 표(shared `LC_CHANGE_MASK_FIELDS`) 밖의 폼 키 — `postBuyReentry` 하나다(행 없음 · `buildCfg` 가 255 고정 · 서버가
+ * 읽지 않음 · 인계 노트 ② 「식별·고정·봉인」). lc.set `changed` 에 싣지 않는다.
+ */
+export const LC_UNMASKED_FORM_KEYS = ['postBuyReentry'] as const satisfies readonly (keyof LimitChaserFormValues)[];
+
+/**
+ * 컴파일 타임 단언 — 폼 키 ⊆ 비트 표 ∪ `LC_UNMASKED_FORM_KEYS`. 새 폼 칸이 비트 없이 합류하면 이 줄이 typecheck 를 막는다
+ * (그 칸 이름이 `changed` 에서 조용히 빠져 서버가 그 편집을 버리는 일이 생기지 않게 — gh-trade 비트 표에 먼저 넣는다).
+ */
+type LcFormKeysOutsideMask = Exclude<keyof LimitChaserFormValues, LcChangeMaskField | (typeof LC_UNMASKED_FORM_KEYS)[number]>;
+const LC_FORM_KEYS_ALL_MASKED: [LcFormKeysOutsideMask] extends [never] ? true : LcFormKeysOutsideMask = true;
+void LC_FORM_KEYS_ALL_MASKED;
+
+/**
+ * lc.set `changed` — 이번 확정에서 사람이 손댄 폼 키 → 비트 표 이름(quick-261030-kpg · gh-trade Phase 44 D-05).
+ * 처음 본 순서로 중복을 지우고 비트 표 밖 폼 키(`LC_UNMASKED_FORM_KEYS`)만 뺀다 — 위 단언 덕분에 그 밖에 걸릴 이름은 없다.
+ * 짝 수량 비트는 relay 가 세운다(gh-trade D-10) — 여기서 수량 이름을 더하지 않는다.
+ */
+export function lcChangedFieldsOf(keys: Iterable<keyof LimitChaserFormValues>): LcChangeMaskField[] {
+  const out: LcChangeMaskField[] = [];
+  for (const k of keys) if (isLcChangeMaskField(k) && !out.includes(k)) out.push(k);
+  return out;
+}
 
 /** 상한가 시딩이 채우는 가격 5칸. */
 export type LimitChaserSeedPrices = Pick<

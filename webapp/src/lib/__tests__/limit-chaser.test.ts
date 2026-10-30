@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LC_AMOUNT_MAX_MANWON,
   LC_AMOUNT_PAIRS,
+  LC_CHANGE_MASK_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
   amountFromQty,
   echoAmountOf,
@@ -29,6 +30,8 @@ import {
   buyOrderQtyFromAmount,
   crudOf,
   defaultLimitChaserForm,
+  lcChangedFieldsOf,
+  LC_UNMASKED_FORM_KEYS,
   estimatedSellQty,
   exchangeLabeledName,
   formFromServer,
@@ -1800,5 +1803,26 @@ describe('u04 84 선매수 매도잔량 기본값 (gh-trade quick-261012-sd1 · 
     expect(preBuyWatchFixedOf({ ...BASE, preBuyWatchAmount: 0 })).toBe(false);
     expect(preBuyWatchFixedOf(BASE)).toBe(false);
     expect(preBuyWatchFixedOf(undefined)).toBe(false);
+  });
+});
+
+describe('lcChangedFieldsOf — lc.set changed 이름(quick-261030-kpg · gh-trade D-05)', () => {
+  it('처음 본 순서 · 중복 제거', () => {
+    expect(lcChangedFieldsOf(['buyOrderAmount', 'buyEnabled', 'buyOrderAmount'])).toEqual(['buyOrderAmount', 'buyEnabled']);
+  });
+
+  it('비트 표 밖 폼 키(postBuyReentry)만 뺀다', () => {
+    expect(lcChangedFieldsOf(['postBuyReentry', 'sellEnabled'])).toEqual(['sellEnabled']);
+  });
+
+  it('빈 입력 → []', () => {
+    expect(lcChangedFieldsOf([])).toEqual([]);
+  });
+
+  it('폼 키 중 비트 표 밖은 postBuyReentry 뿐이다(런타임 대조 — 타입 단언과 같은 사실)', () => {
+    const maskKeys = new Set<string>(LC_CHANGE_MASK_FIELDS.map((f) => f.key));
+    const outside = Object.keys(defaultLimitChaserForm()).filter((k) => !maskKeys.has(k));
+    expect(outside).toEqual([...LC_UNMASKED_FORM_KEYS]);
+    expect(LC_UNMASKED_FORM_KEYS).toEqual(['postBuyReentry']);
   });
 });

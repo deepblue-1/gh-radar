@@ -141,6 +141,18 @@
  *     신호 증가와 보낸 성공이 한 렌더로 합쳐져 꺼내기가 먼저) — 폼 슬롯으로 기억을 만들면 순서에 따라 비어 버린다.
  *     in-flight 가 실제로 실은 값과 그 답 에코를 같은 실행에서 보는 곳은 이 훅뿐이다.
  *   - T-16-10: 전송을 만들지 않는다 — 싣는 동반만 줄인다.
+ *
+ * ⑭ 손댐(`changed` · gh-trade Phase 44 D-05 · quick-261030-kpg) — 모든 `lc.set` 프레임이 「이번 제출에서 사람이 손댄 칸」
+ *   이름을 싣는다. relay 가 짝 수량 비트를 더해 `change_mask` 로 만들고 서버는 비트 있는 칸만 반영한다 — 금액만 고친
+ *   재제출이 소진된 선·줄매수를 다시 열지 않는다(2026-10-28 사고).
+ *   - 무엇을 세나: 그 확정의 주 필드 + 그 확정이 실제로 싣는 동반 키(⑪ — 송신 시점 계산 결과) + 미등록 전략에서 로컬로만
+ *     확정한 칸(⑥ · `localTouchedRef` — 아직 송신되지 않은 사람 손댐). 더티 누적이 없는 「확정 1회 = 전송 1회」 모델이라
+ *     따로 쌓을 손댐 집합이 없다.
+ *   - 프레임이 나가면 주 필드는 값이 같아도 실린다. 에코 적용은 손댐이 아니고 기억을 비우지도 않는다(에코 diff 아님).
+ *   - 미등록 로컬 손댐 기억은 **송신 성공(`send` true) 직후** 비운다. 끊김(false)이면 남아 다음 송신 프레임에 실린다.
+ *   - 짝 수량 이름은 싣지 않는다(relay 몫 · D-10). `postBuyReentry` 는 비트 표 밖이라 빠진다(lib `lcChangedFieldsOf`).
+ *   - WinForms 와 다른 두 지점(둘 다 이번 변경 전후 동일한 기존 규칙): 값이 서버와 같은 단독 확정은 프레임 자체가 없다
+ *     (no-op) · 대기열 안 같은 필드 재확정은 값만 바뀐다(⑦ — 꺼낼 때 서버 값과 같으면 no-op).
  */
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -153,6 +165,7 @@ import {
   formFromServer,
   isLegacyAmountUnknown,
   isLegacyBuySchema,
+  lcChangedFieldsOf,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
 
@@ -515,6 +528,10 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
    * 동반 필드(원인은 가리지 않는다). 동반 함수 둘째 인자로 넘기고, 흐름이 빈 상태의 새 확정(사람 · serverFold 모두)에서 비운다.
    */
   const laidRef = useRef<Set<LcFieldKey>>(new Set());
+  /**
+   * ⑭ 미등록 로컬 손댐 — 미등록 전략에서 로컬 반영만 한 확정 칸(⑥). 다음 송신 프레임의 `changed` 에 합치고 송신 성공 직후 비운다.
+   */
+  const localTouchedRef = useRef<Set<LcFieldKey>>(new Set());
   /** 거부 통지 답의 에코 유예 타이머(③ · R3-WR-01) — 걸려 있으면 마감을 늘리지 않는다. */
   const rejectGraceTimer = useRef<number | null>(null);
   const clearRejectGrace = useCallback(() => {
@@ -673,11 +690,18 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (server != null && amountUnknownNow()) {
         cfg = { ...cfg, buyOrderAmount: server.buyOrderAmount, buyOrderQty: server.buyOrderQty };
       }
-      if (!send({ t: 'lc.set', cfg })) {
+      // ⑭ 손댐 = 미등록 로컬 손댐 ∪ 주 필드 ∪ 실제로 싣는 동반 키(송신 시점 계산 결과). 짝 수량은 relay 몫(D-10).
+      const changed = lcChangedFieldsOf([
+        ...localTouchedRef.current,
+        p.field,
+        ...(Object.keys(companions ?? {}) as LcFieldKey[]),
+      ]);
+      if (!send({ t: 'lc.set', cfg, changed })) {
         setFailure(p.field, 'disconnected', LC_COMMIT_TEXT.disconnected, p.value);
         if (optimistic) revertToggle(p);
         return 'disconnected';
       }
+      localTouchedRef.current.clear();
       // 사유가 없으면 인자 하나로 부른다 — 받는 쪽에서 둘째 인자는 늘 `undefined` 다(⑫).
       if (p.meta === undefined) onSent?.(cfg);
       else onSent?.(cfg, p.meta);
@@ -714,6 +738,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       //   않는 키의 철거 프레임이 나간다 · Pitfall 2). WR-01.
       if (server == null && !isGateField(p.field)) {
         optsRef.current.setForm((prev) => ({ ...prev, [p.field]: p.value }));
+        localTouchedRef.current.add(p.field);
         markSuccess(p.field);
         continue;
       }
@@ -856,6 +881,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       //   덮어 사용자가 본 편집이 조용히 사라진다. 꺼낼 때 서버가 생겼으면 정상 전송, 여전히 없으면 로컬 반영.
       if (server == null && !isGateField(field) && !busy) {
         setForm((prev) => ({ ...prev, [field]: value }));
+        localTouchedRef.current.add(field);
         markSuccess(field);
         return 'local';
       }

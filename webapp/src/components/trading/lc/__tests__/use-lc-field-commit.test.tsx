@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
+import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
 import { LC_AMOUNT_PAIRS, qtyFromAmount, type LcAmountQtyKey } from '@gh-radar/shared';
 
 import {
@@ -135,7 +135,7 @@ function setup(over: Partial<Opts> = {}) {
       formRef.current = typeof u === 'function' ? u(formRef.current) : u;
     },
   );
-  const send = vi.fn<(msg: { t: 'lc.set'; cfg: RelayLimitChaserInput }) => boolean>(() => true);
+  const send = vi.fn<(msg: RelayLcSetMsg) => boolean>(() => true);
   const onSent = vi.fn();
   let props: Opts = {
     server,
@@ -155,7 +155,9 @@ function setup(over: Partial<Opts> = {}) {
     hook.rerender(props);
   };
   const cfgs = () => send.mock.calls.map(([m]) => m.cfg);
-  return { hook, update, send, setForm, onSent, formRef, cfgs, props: () => props };
+  /** 프레임마다의 `changed`(quick-261030-kpg ⑭). */
+  const changeds = () => send.mock.calls.map(([m]) => m.changed);
+  return { hook, update, send, setForm, onSent, formRef, cfgs, changeds, props: () => props };
 }
 
 beforeEach(() => {
@@ -2197,5 +2199,130 @@ describe('P31 수량 8칸 짝 판정 — 선매수 매도잔량 · 취소 매수
     t.update({ serverAnswerSeq: 1 });
     expect(t.hook.result.current.failures.cancelWatchAmount?.sentQty).toBe(1165);
     expect(t.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * ⑭ 손댐 changed (quick-261030-kpg · gh-trade Phase 44 D-05). 확정 1회 = lc.set 1회의 프레임마다 `changed` =
+ * 그 확정의 주 필드 + 그 확정이 실제로 싣는 동반 키 + 미등록 전략에서 로컬로만 확정한 칸(송신 성공 직후 비움).
+ * 짝 수량 이름은 싣지 않는다(relay 몫 · D-10). no-op · 대기열 · 에코 규칙은 종전 그대로다 — 전송 수를 매번 센다.
+ */
+describe('⑭ 손댐 changed (quick-261030-kpg · gh-trade D-05)', () => {
+  /** 모든 송신 프레임의 changed 는 비어 있지 않다(웹은 빈 배열 = 마스크 0 을 만들지 않는다). */
+  function expectAllNonEmpty(t: ReturnType<typeof setup>) {
+    for (const c of t.changeds()) expect(c.length).toBeGreaterThan(0);
+  }
+
+  it('등록 전략 값 확정 → send 1회 · changed = [buyOrderAmount](수량 이름 없음)', () => {
+    const t = setup();
+    act(() => {
+      expect(t.hook.result.current.commit('buyOrderAmount', 20, 'value')).toBe('sent');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.changeds()[0]).toEqual(['buyOrderAmount']);
+    expectAllNonEmpty(t);
+  });
+
+  it('동반 값 — preBuyEnabled 켬 + { buyEnabled } → changed 집합 = {preBuyEnabled, buyEnabled}', () => {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    act(() => {
+      expect(t.hook.result.current.commit('preBuyEnabled', true, 'toggle', { buyEnabled: true })).toBe('sent');
+    });
+    expect(new Set(t.changeds()[0])).toEqual(new Set(['preBuyEnabled', 'buyEnabled']));
+    expectAllNonEmpty(t);
+  });
+
+  it('동반 함수는 꺼낼 때 계산한 키를 싣는다 — 대기 중 서버 값이 바뀌면 바뀐 키', () => {
+    const t = setup({ server: echo({ buyEnabled: false }) });
+    const fn = vi.fn((base: LimitChaserFormValues): Partial<LimitChaserFormValues> =>
+      base.sweepMinTickCount === 5 ? { sellEnabled: true } : { buyEnabled: true },
+    );
+    act(() => {
+      expect(t.hook.result.current.commit('sweepMinTickCount', 5, 'value')).toBe('sent');
+    });
+    act(() => {
+      expect(t.hook.result.current.commit('extraBuyEnabled', true, 'toggle', fn)).toBe('queued');
+    });
+    t.update({ server: echo({ buyEnabled: false, sweepMinTickCount: 5 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.changeds()[0]).toEqual(['sweepMinTickCount']);
+    expect(new Set(t.changeds()[1])).toEqual(new Set(['extraBuyEnabled', 'sellEnabled']));
+    expectAllNonEmpty(t);
+  });
+
+  it('서버 값과 같은 확정(no-op) → send 0회(종전 그대로)', () => {
+    const t = setup();
+    act(() => {
+      expect(t.hook.result.current.commit('sweepMinTickCount', 3, 'value')).toBe('noop');
+    });
+    expect(t.send).not.toHaveBeenCalled();
+  });
+
+  it('대기열 — A in-flight 중 B 확정 → A 답 뒤 나간 B 프레임의 changed = [B](A 를 싣지 않는다)', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      expect(t.hook.result.current.commit('buyWatchAmount', 8_000, 'value')).toBe('queued');
+    });
+    t.update({ server: echo({ sweepMinTickCount: 5 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.changeds()).toEqual([['sweepMinTickCount'], ['buyWatchAmount']]);
+  });
+
+  it('에코만(확정 없음) → send 0회 · 다음 확정의 changed 는 그 확정 칸뿐(에코는 손댐이 아니다)', () => {
+    const t = setup();
+    t.update({ server: echo({ sellOrderRatio: 50 }), serverAnswerSeq: 1 });
+    expect(t.send).not.toHaveBeenCalled();
+    act(() => {
+      expect(t.hook.result.current.commit('sweepMinTickCount', 5, 'value')).toBe('sent');
+    });
+    expect(t.changeds()).toEqual([['sweepMinTickCount']]);
+  });
+
+  it('미등록 — 로컬 확정 칸은 다음 송신 프레임에 합쳐지고, 그 송신 성공 뒤에는 실리지 않는다', () => {
+    const t = setup({ server: null });
+    act(() => {
+      expect(t.hook.result.current.commit('sellOrderRatio', 50, 'value')).toBe('local');
+    });
+    expect(t.send).not.toHaveBeenCalled();
+    act(() => {
+      expect(t.hook.result.current.commit('buyEnabled', true, 'toggle')).toBe('sent');
+    });
+    expect(new Set(t.changeds()[0])).toEqual(new Set(['sellOrderRatio', 'buyEnabled']));
+    // 등록 에코 · 답 신호 → 흐름이 비고, 다음 확정은 그 칸만 싣는다.
+    t.update({ server: echo({ buyEnabled: true, sellOrderRatio: 50 }) });
+    t.update({ serverAnswerSeq: 1 });
+    act(() => {
+      expect(t.hook.result.current.commit('sweepMinTickCount', 5, 'value')).toBe('sent');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.changeds()[1]).toEqual(['sweepMinTickCount']);
+    expectAllNonEmpty(t);
+  });
+
+  it('미등록 — send 가 false(끊김)면 로컬 손댐 기억이 남아 다음 송신 프레임에 실린다', () => {
+    const t = setup({ server: null });
+    act(() => {
+      expect(t.hook.result.current.commit('sellOrderRatio', 50, 'value')).toBe('local');
+    });
+    t.send.mockReturnValueOnce(false);
+    act(() => {
+      expect(t.hook.result.current.commit('buyEnabled', true, 'toggle')).toBe('disconnected');
+    });
+    act(() => {
+      expect(t.hook.result.current.commit('buyEnabled', true, 'toggle')).toBe('sent');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(new Set(t.changeds()[1])).toEqual(new Set(['sellOrderRatio', 'buyEnabled']));
+  });
+
+  it('serverFold 자동 끔 → changed = [buyEnabled]', () => {
+    const t = setup({ server: echo({ buyEnabled: true }) });
+    act(() => {
+      expect(t.hook.result.current.commit('buyEnabled', false, 'toggle', undefined, { cause: 'serverFold' })).toBe('sent');
+    });
+    expect(t.changeds()).toEqual([['buyEnabled']]);
   });
 });

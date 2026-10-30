@@ -44,6 +44,7 @@
 
 import type { JournalOrderRow } from "./journal";
 import type { RelayQueueProgressItem, StrategyEventRow } from "./strategy-event";
+import type { LcChangeMaskField } from "./lc-change-mask";
 
 // ============================================================
 // 거래소 · 세션 상태
@@ -704,8 +705,13 @@ export type RelayUnsubMsg = { t: "unsub"; isin: string; ex: RelayExchange };
  * D-06 「전체 필드를 현재 표시값으로 전송」이라 부분 갱신이 없다 — `cfg` 는 항상 33필드
  * 전부다. 반영 판정은 **60 에코 수신**이고, 에코가 오지 않는 것 자체가 거부 신호다
  * (Pitfall 8). 자동 재전송은 하지 않는다 — 사용자가 누르지 않은 두 번째 등록이 된다.
+ *
+ * `changed`(gh-trade Phase 44 · quick-261030-kpg) — `cfg` 는 여전히 전체이고, `changed` 는 **이번 제출에서 사람이 손댄
+ * 칸 이름**이다(gh-trade D-05 — 값이 같아도 · 에코 diff 아님). relay 가 짝 수량 비트(D-10)를 더해 `change_mask` 를 만들고
+ * `buy3_schema` 6 으로 보낸다 — 서버는 비트 있는 칸만 반영한다(금액만 고친 재제출이 소진된 선·줄매수를 다시 열지 않는다).
+ * 새 클라 계약이라 필수다(「shared 는 새 클라 계약, relay 와이어는 구 탭 관용」 — relay zod 는 선택).
  */
-export type RelayLcSetMsg = { t: "lc.set"; cfg: RelayLimitChaserInput };
+export type RelayLcSetMsg = { t: "lc.set"; cfg: RelayLimitChaserInput; changed: LcChangeMaskField[] };
 
 /**
  * VI 전략 설정 (`SetVITriggerReq(11)`, D-01).
