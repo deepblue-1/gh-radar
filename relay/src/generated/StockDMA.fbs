@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: f156cb6f
-// synced-date:        2026-10-28
+// server-repo-commit: 55e62638
+// synced-date:        2026-10-30
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -675,6 +675,7 @@ table SetLimitChaser {
                                      // 서버는 3 이상일 때만 읽는다). 서버 에코는 1 그대로 (D-24 판정 정본). vtable 98
                                      // 4 = 자동매도 4필드를 싣는 클라(Phase 28 D-18) — 서버는 >= 4 일 때만 읽는다
                                      // 5 = extra_buy_auto 를 싣는 클라(quick-261010-ub8) — 서버는 >= 5 일 때만 읽는다
+                                     // 6 = change_mask 를 싣는 클라(Phase 44 D-02) — 서버는 >= 6 일 때만 마스크를 읽는다. 5 이하는 전체 반영·재무장(이행기 호환)
     pre_buy_enabled: bool;          // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
@@ -753,6 +754,10 @@ table SetLimitChaser {
                                      // 게이트 없음 — 0 = 클라가 주(sell_min_trade_qty)에서 역산 표시. vtable 170
     cancel_watch_amount: uint;       // 취소 매수잔량 임계(만원) — buy_order_amount 규약(보관·에코·상태파일만, 평가 무접촉). C→S.
                                      // 게이트 없음 — 0 = 클라가 주(cancel_watch_qty)에서 역산 표시. vtable 172
+    // === 이하 Phase 44 추가 (말미 append) ===
+    change_mask: ulong;              // 이번 제출에서 사람이 바꾼 칸 비트마스크 (Phase 44 D-01). C→S 전용 — 서버는 buy3_schema >= 6 일 때만 읽는다.
+                                     // 6 + 0 = 바뀐 칸 없음(무반영·재무장 없음) · 5 이하(구 WinForms·전환 전 relay)는 종전 전체 반영·재무장 · 에코는 0.
+                                     // 비트 표 정본은 server/docs/protocol.md 「SetLimitChaser change_mask 비트 표」(append-only, 64비트가 차면 change_mask_hi 를 append). vtable 174
 }
 
 // VITrigger (VI 발동) 전략 설정

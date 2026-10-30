@@ -407,8 +407,13 @@ cancelWatchAmount():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+changeMask():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 174);
+  return offset ? this.bb!.readUint64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startSetLimitChaser(builder:flatbuffers.Builder) {
-  builder.startObject(85);
+  builder.startObject(86);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -711,12 +716,16 @@ static addCancelWatchAmount(builder:flatbuffers.Builder, cancelWatchAmount:numbe
   builder.addFieldInt32(84, cancelWatchAmount, 0);
 }
 
+static addChangeMask(builder:flatbuffers.Builder, changeMask:bigint) {
+  builder.addFieldInt64(85, changeMask, BigInt('0'));
+}
+
 static endSetLimitChaser(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createSetLimitChaser(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, crudOffset:flatbuffers.Offset, buyOrderPrice:number, buyOrderQty:number, buyWatchPrice:number, buyWatchQty:number, buyMinTradeQty:number, buyTradeQtyEnabled:boolean, buyEnabled:boolean, sellOrderPrice:number, sellOrderQty:number, sellWatchPrice:number, sellWatchQty:number, sellMinTradeQty:number, sellEnabled:boolean, sellTradeQtyEnabled:boolean, sweepWatchPrice:number, sweepEnabled:boolean, sweepMinTickCount:number, sweepRecalcEnabled:boolean, sweepMinCount:number, sweepMinRate:number, exchangeOffset:flatbuffers.Offset, sellOrderRatio:number, sellQtyTrackEnabled:boolean, sellQtyTrackRatio:number, sellQtyTrackBaseline:number, buyOrderAmount:number, sellEntryLatched:boolean, cancelQtyEnabled:boolean, cancelWatchQty:number, cancelTradeEnabled:boolean, cancelQtyTrackEnabled:boolean, cancelQtyTrackBaseline:number, cancelEntryLatched:boolean, buy3Schema:number, preBuyEnabled:boolean, extraBuyEnabled:boolean, extraBuyMinQty:number, extraBuyMaxQty:number, extraBuyOrderAmount:number, extraBuyOrderQty:number, extraBuyAbandoned:boolean, postBuyEnabled:boolean, postBuyReboundPct:number, postBuyFloorQty:number, postBuyReentry:number, postBuyOrderAmount:number, postBuyOrderQty:number, postBuyTriggerQty:number, postBuyReentryLeft:number, postBuyPhase:number, postBuyAuto:boolean, extraBuyAbandonQty:number, postBuyUnlockQty:number, extraBuyBurstRelease:boolean, autoSellEnabled:boolean, autoSellStartCond:number, autoSellRatioPct:number, autoSellMethod:number, autoSellState:number, autoSellSoldQty:number, autoSellBasis:number, autoSellBasisPrice:number, extraBuyAuto:boolean, buyWatchAmount:number, buyMinTradeAmount:number, extraBuyMinAmount:number, extraBuyMaxAmount:number, postBuyFloorAmount:number, sellWatchAmount:number, sellMinTradeAmount:number, cancelWatchAmount:number):flatbuffers.Offset {
+static createSetLimitChaser(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, crudOffset:flatbuffers.Offset, buyOrderPrice:number, buyOrderQty:number, buyWatchPrice:number, buyWatchQty:number, buyMinTradeQty:number, buyTradeQtyEnabled:boolean, buyEnabled:boolean, sellOrderPrice:number, sellOrderQty:number, sellWatchPrice:number, sellWatchQty:number, sellMinTradeQty:number, sellEnabled:boolean, sellTradeQtyEnabled:boolean, sweepWatchPrice:number, sweepEnabled:boolean, sweepMinTickCount:number, sweepRecalcEnabled:boolean, sweepMinCount:number, sweepMinRate:number, exchangeOffset:flatbuffers.Offset, sellOrderRatio:number, sellQtyTrackEnabled:boolean, sellQtyTrackRatio:number, sellQtyTrackBaseline:number, buyOrderAmount:number, sellEntryLatched:boolean, cancelQtyEnabled:boolean, cancelWatchQty:number, cancelTradeEnabled:boolean, cancelQtyTrackEnabled:boolean, cancelQtyTrackBaseline:number, cancelEntryLatched:boolean, buy3Schema:number, preBuyEnabled:boolean, extraBuyEnabled:boolean, extraBuyMinQty:number, extraBuyMaxQty:number, extraBuyOrderAmount:number, extraBuyOrderQty:number, extraBuyAbandoned:boolean, postBuyEnabled:boolean, postBuyReboundPct:number, postBuyFloorQty:number, postBuyReentry:number, postBuyOrderAmount:number, postBuyOrderQty:number, postBuyTriggerQty:number, postBuyReentryLeft:number, postBuyPhase:number, postBuyAuto:boolean, extraBuyAbandonQty:number, postBuyUnlockQty:number, extraBuyBurstRelease:boolean, autoSellEnabled:boolean, autoSellStartCond:number, autoSellRatioPct:number, autoSellMethod:number, autoSellState:number, autoSellSoldQty:number, autoSellBasis:number, autoSellBasisPrice:number, extraBuyAuto:boolean, buyWatchAmount:number, buyMinTradeAmount:number, extraBuyMinAmount:number, extraBuyMaxAmount:number, postBuyFloorAmount:number, sellWatchAmount:number, sellMinTradeAmount:number, cancelWatchAmount:number, changeMask:bigint):flatbuffers.Offset {
   SetLimitChaser.startSetLimitChaser(builder);
   SetLimitChaser.addIsin(builder, isinOffset);
   SetLimitChaser.addAccountNo(builder, accountNoOffset);
@@ -793,6 +802,7 @@ static createSetLimitChaser(builder:flatbuffers.Builder, isinOffset:flatbuffers.
   SetLimitChaser.addSellWatchAmount(builder, sellWatchAmount);
   SetLimitChaser.addSellMinTradeAmount(builder, sellMinTradeAmount);
   SetLimitChaser.addCancelWatchAmount(builder, cancelWatchAmount);
+  SetLimitChaser.addChangeMask(builder, changeMask);
   return SetLimitChaser.endSetLimitChaser(builder);
 }
 }
