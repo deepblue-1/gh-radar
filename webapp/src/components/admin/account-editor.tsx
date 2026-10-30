@@ -3,14 +3,13 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   findSharedAccountHolders,
-  formatManwonFloor,
   formatOrderIp,
   formatOrderMac,
   isValidAccountNoInput,
   normalizeAccountNo,
   normalizeOrderIp,
   normalizeOrderMac,
-  parseBudgetManwon,
+  parseBudgetKrw,
   parseCostPct,
   ppmToPct,
   REFLECT_LABEL,
@@ -186,7 +185,7 @@ export const ACCOUNT_EDITOR_TEXT = {
     `이 계좌를 함께 쓰는 사용자 ${ids.join(" · ")} — 주문자 IP · MAC 이 함께 바뀌어요`,
   // ── Phase 36 (36-UI-SPEC 문구 정본 ①) — 예수금 · 수수료 · 매도세 행 ──
   budgetLabel: "예수금",
-  budgetUnit: "만원",
+  budgetUnit: "원",
   /** KB · 교보 같은 문구(researcher decision 4). */
   costCaption: "예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제",
   /** 예수금이 미설정(0)일 때만 캡션 끝에. */
@@ -196,7 +195,7 @@ export const ACCOUNT_EDITOR_TEXT = {
   feeLabel: "수수료",
   sellTaxLabel: "매도세",
   pctUnit: "%",
-  /** 서버 간 예수금 다름(D-03 · 원인 단정 없음) — v = 「500만」 또는 「미설정」. 키와 조사 사이 한 칸(목업). */
+  /** 서버 간 예수금 다름(D-03 · 원인 단정 없음) — v = 「50,000,000원」 또는 「미설정」. 키와 조사 사이 한 칸(목업). */
   costMismatchBudget: (serverKey: string, v: string) =>
     `${serverKey} ${josaEunNeun(serverKey)} ${v} — 저장하면 등록 서버가 모두 같아져요`,
   /** 서버 간 (수수료, 매도세) 다름 — 예수금 줄과 따로(둘 다 다르면 두 줄). fee · tax 는 % 문자열. */
@@ -562,31 +561,16 @@ function OrderEndpointMismatchLines({ summary }: { summary: OrderEndpointSummary
 /** ko-KR 천단위 콤마. */
 const KO_NUM = new Intl.NumberFormat("ko-KR");
 
-/** 예수금 입력 — 숫자만 남기고(최대 9자리 · 999,999,999만원) 콤마로 다시 쓴다(수동주문 폼 `formatDigits` 결). */
+/** 예수금 입력 — 숫자만 남기고(최대 13자리 · `BUDGET_KRW_MAX`) 콤마로 다시 쓴다(수동주문 폼 `formatDigits` 결). */
 function formatBudgetInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 9);
+  const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 13);
   return digits === "" ? "" : KO_NUM.format(Number(digits));
 }
 
-/** 원 → 칸 표시(만원 내림 콤마) — 0 은 빈 칸(입력 안내 글자가 대신 말한다). */
+/** 원 → 칸 표시(원 그대로 콤마 · 체결 조정 끝자리까지) — 0 은 빈 칸(입력 안내 글자가 대신 말한다). */
 function budgetFieldText(krw: number): string {
-  const manwon = Math.floor(Math.max(0, krw) / 10_000);
-  return manwon === 0 ? "" : KO_NUM.format(manwon);
-}
-
-/**
- * 예수금 칸 글자 → 보낼 원 값(36 WR-01). 칸은 서버 원 값을 **만원 내림**해 보이므로, 칸 글자가 서버 값의 그 표기와 같으면(안 고침 ·
- * 같은 숫자를 다시 침) 서버 원 값을 그대로 돌려준다 — 체결 조정으로 생긴 만원 미만 끝자리(최대 9,999원)를 깎아 덮지 않는다.
- * 그 밖은 칸 값 × 10,000. 「0」 을 직접 치면 표기(빈 칸)와 글자가 달라 0(해제)이 된다. `serverKrw` null = 서버 값을 모른다(확인 전).
- * 숫자가 아니면 `{ ok: false }`(`parseBudgetManwon` 그대로).
- */
-export function budgetKrwToSave(text: string, serverKrw: number | null): { ok: true; krw: number } | { ok: false } {
-  const parsed = parseBudgetManwon(text);
-  if (!parsed.ok) return parsed;
-  if (serverKrw !== null && text.replace(/[,\s]/g, "") === budgetFieldText(serverKrw).replace(/,/g, "")) {
-    return { ok: true, krw: serverKrw };
-  }
-  return parsed;
+  const v = Math.max(0, krw);
+  return v === 0 ? "" : KO_NUM.format(v);
 }
 
 /** 칸 글자가 비었나(콤마 · 공백만 있어도 빈 칸). */
@@ -822,8 +806,8 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
       budgetField.settle(false);
       return;
     }
-    // 칸이 서버 값의 화면 표기(만원 내림)와 같으면 서버 원 값 그대로(WR-01) — 같은 숫자를 다시 쳐도 끝자리를 깎아 덮지 않는다.
-    const parsed = budgetKrwToSave(budgetField.text, known ? summary.budgetKrw : null);
+    // 칸은 원 단위 그대로라 같은 숫자를 다시 쳐도 서버 값과 같다(36 WR-01 의 만원 내림 덮기 문제가 생기지 않는다).
+    const parsed = parseBudgetKrw(budgetField.text);
     if (!parsed.ok) {
       budgetField.settle(true);
       return;
@@ -922,14 +906,14 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
   const errorLines = [...lines.budget, ...lines.fee];
 
   return (
-    // 배치(UI-SPEC ① overflow) — 카드 폭 컨테이너 쿼리: 세 칸이 한 줄에 들어가는 폭(464px · 칸 3 + 라벨 · 단위 · 구분점 ≈ 440)
+    // 배치(UI-SPEC ① overflow) — 카드 폭 컨테이너 쿼리: 세 칸이 한 줄에 들어가는 폭(480px · 칸 3 + 라벨 · 단위 · 구분점 ≈ 460 — 예수금 칸은 13자리 원이라 w-32)
     // 부터 한 줄, 그보다 좁으면 2줄(예수금 basis-full / 수수료 · 매도세 · 칩)이고 1줄 끝 구분점을 숨긴다. 뷰포트가 아니라 카드 폭인 까닭:
     // 데스크톱에서도 편집 시트는 440px 패널이라 뷰포트 sm 으로 한 줄을 시도하면 줄 끝에 「·」 이 매달린 채 꺾인다(36-03 E2E 실측).
     <div data-slot="admin-account-cost" data-account={account.accountNo} className="@container/cost">
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-[var(--muted-fg)]">
         <span
           data-slot="admin-account-cost-budget"
-          className="flex basis-full items-center gap-1 @min-[464px]/cost:basis-auto"
+          className="flex basis-full items-center gap-1 @min-[480px]/cost:basis-auto"
         >
           <label htmlFor={budgetId}>{T.budgetLabel}</label>
           <Input
@@ -940,7 +924,7 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
             aria-label={label(T.budgetLabel, T.budgetUnit)}
             placeholder="—"
             readOnly={budgetLocked}
-            className={cn("w-24", fieldBox, budgetBusy && "opacity-50")}
+            className={cn("w-32", fieldBox, budgetBusy && "opacity-50")}
             value={budgetField.text}
             onFocus={budgetField.onFocus}
             onChange={(e) => {
@@ -958,7 +942,7 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
           <span
             data-slot="admin-account-cost-sep"
             aria-hidden="true"
-            className="hidden text-[var(--faint)] @min-[464px]/cost:inline"
+            className="hidden text-[var(--faint)] @min-[480px]/cost:inline"
           >
             ·
           </span>
@@ -1038,7 +1022,7 @@ function AccountCostRow({ account, dmaUserId, registry, editSaving, onChanged }:
       </p>
       {summary.budgetMismatches.map((m) => (
         <p key={`b-${m.serverKey}`} data-slot="admin-account-cost-mismatch" data-server={m.serverKey} className={WARN_LINE}>
-          {T.costMismatchBudget(m.serverKey, m.budgetKrw === 0 ? T.costBudgetUnset : formatManwonFloor(m.budgetKrw))}
+          {T.costMismatchBudget(m.serverKey, m.budgetKrw === 0 ? T.costBudgetUnset : `${KO_NUM.format(m.budgetKrw)}원`)}
         </p>
       ))}
       {summary.feeMismatches.map((m) => (

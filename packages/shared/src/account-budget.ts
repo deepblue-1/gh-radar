@@ -14,7 +14,7 @@
  * 소비자: webapp 계좌 패널 요약 줄(36-01) · 수동주문 · 상따 경고(36-06).
  *
  * 36-10 추가분(UI-SPEC 「숫자 표기 계약」 · D-02 · D-13 · D-18): 손익 표기 `formatPnlManwon` · `pnlToneOf` · `formatManwon1` ·
- * 비용률 % ↔ ppm `pctToPpm` · `ppmToPct` · 어드민 입력 파서 `parseCostPct` · `parseBudgetManwon` · 상따 매수 금액 합 `lcBuyAmountSumKrw`.
+ * 비용률 % ↔ ppm `pctToPpm` · `ppmToPct` · 어드민 입력 파서 `parseCostPct` · `parseBudgetKrw` · 상따 매수 금액 합 `lcBuyAmountSumKrw`.
  *
  * 순환 금지 — `relay.ts` 는 `import type` 으로만 가져온다.
  */
@@ -28,8 +28,8 @@ const KRW_NUM1 = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 });
 
 /** 비용률 상한 — 1% = 10,000ppm(D-02 · 수수료 · 매도세 각각). 범위는 클라가 막는다 — 서버측 범위 검사 없음. */
 export const COST_PPM_MAX = 10_000;
-/** 예수금 입력 상한 — 9자리 만원(UI-SPEC ① 입력 상한 · ≈ 1e13원 · 안전 정수 범위 안). */
-export const BUDGET_MANWON_MAX = 999_999_999;
+/** 예수금 입력 상한 — 13자리 원(옛 9자리 만원 상한과 같은 자릿수 · ≈ 1e13원 · 안전 정수 범위 안). */
+export const BUDGET_KRW_MAX = 9_999_999_999_999;
 
 /**
  * 주문가능(원). 예수금 미설정(0 · 없음)이면 `null`.
@@ -116,14 +116,14 @@ export function parseCostPct(text: string): { ok: true; ppm: number } | { ok: fa
 }
 
 /**
- * 어드민 예수금 입력(만원) → 원. 콤마 · 공백 제거 · 빈 칸 = 0(해제) · 숫자 1~9자리만(`BUDGET_MANWON_MAX`).
- * 예: "1,000" → 10,000,000 · "" · "0" → 0 · "999,999,999" → ok · "1234567890" · "12a" · "-5" → 실패.
+ * 어드민 예수금 입력(원) → 원. 콤마 · 공백 제거 · 빈 칸 = 0(해제) · 숫자 1~13자리만(`BUDGET_KRW_MAX`).
+ * 예: "10,000,000" → 10,000,000 · "" · "0" → 0 · "9,999,999,999,999" → ok · "12345678901234" · "12a" · "-5" → 실패.
  */
-export function parseBudgetManwon(text: string): { ok: true; krw: number } | { ok: false } {
+export function parseBudgetKrw(text: string): { ok: true; krw: number } | { ok: false } {
   const t = text.replace(/[,\s]/g, "");
   if (t === "") return { ok: true, krw: 0 };
-  if (!/^\d{1,9}$/.test(t)) return { ok: false };
-  return { ok: true, krw: Number(t) * 10_000 };
+  if (!/^\d{1,13}$/.test(t)) return { ok: false };
+  return { ok: true, krw: Number(t) };
 }
 
 /**

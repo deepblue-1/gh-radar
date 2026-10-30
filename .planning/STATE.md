@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-11-PLAN.md
-last_updated: "2026-10-30T06:26:57.071Z"
+last_updated: "2026-10-30T06:49:46.524Z"
 last_activity: 2026-10-30
 last_activity_desc: 35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음
-state_head: f890ee8aa27b6ce224ccf2cca05916d28c25e201
+state_head: ce24519c19c81e648d7abb03d3fb5fbf55b6305a
 progress:
   total_phases: 7
   completed_phases: 6
@@ -117,6 +117,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261030-dz7 | 경계지도 16:00 뒤탐침 표시 — 삼각형 · 경계 계산 포함(가격거부=열림 · E127 제외) · 지도 RPC probe/round/result_code | 2026-10-30 | 030e39d2 | [261030-dz7-launch-map-tail-probe](./quick/261030-dz7-launch-map-tail-probe/) |
 | 32 | 홈 급등 종목 클릭 시 종목상세 뉴스토론 탭(?tab=news)으로 착지 | 2026-10-30 | 652c7f86 | — |
 | 261030-kpg | 상따 SetLimitChaser change_mask 전환 — relay buy3_schema 6 · 웹 손댐 추적 (gh-trade Phase 44) | 2026-10-30 | f890ee8a | [261030-kpg-setlimitchaser-change-mask-relay-buy3-sc](./quick/261030-kpg-setlimitchaser-change-mask-relay-buy3-sc/) |
+| 34 | 어드민 계좌 예수금 칸 편집·표시를 만원 → 원 단위로 | 2026-10-30 | (이 커밋) | — |
 
 ## Session Continuity
 

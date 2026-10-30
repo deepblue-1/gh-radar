@@ -1211,17 +1211,17 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
     await page.goto('/admin/users');
     const sheet = await openUserSheet(page, ALEX);
     const card = accountCard(sheet, ALEX_KB);
-    const budget = field(card, ALEX_KB, 'KB', '예수금(만원)');
+    const budget = field(card, ALEX_KB, 'KB', '예수금(원)');
     const fee = field(card, ALEX_KB, 'KB', '수수료(%)');
     const tax = field(card, ALEX_KB, 'KB', '매도세(%)');
 
     // ① 표시값 = (유효) 주문 서버 KB120 값 · 다른 서버 KB121 은 줄로(예수금 · 비용률 따로)
-    await expect(budget).toHaveValue('10,000');
+    await expect(budget).toHaveValue('100,000,000');
     await expect(fee).toHaveValue('0.01');
     await expect(tax).toHaveValue('0.2');
     const mismatch = costRow(card).locator('[data-slot="admin-account-cost-mismatch"]');
     await expect(mismatch).toHaveText([
-      'KB121 은 5,000만 — 저장하면 등록 서버가 모두 같아져요',
+      'KB121 은 50,000,000원 — 저장하면 등록 서버가 모두 같아져요',
       'KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요',
     ]);
     await expect(costRow(card).locator('[data-slot="admin-account-cost-caption"]')).toHaveText(
@@ -1239,10 +1239,10 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
     const cBox = (await card.boundingBox())!;
     expect(await leavesOverflowing(costRow(card), cBox.x + cBox.width)).toEqual([]);
 
-    // ② 예수금 「12,000」 Enter → PUT 1건(원) → 서버별 칩 → 재조회로 예수금 다름 줄이 사라진다
+    // ② 예수금 「120,000,000」 Enter → PUT 1건(원) → 서버별 칩 → 재조회로 예수금 다름 줄이 사라진다
     await budget.click();
-    await budget.fill('12000');
-    await expect(budget).toHaveValue('12,000');
+    await budget.fill('120000000');
+    await expect(budget).toHaveValue('120,000,000');
     await budget.press('Enter');
     await expect.poll(() => costWrites(api, 'budget').length).toBe(1);
     expect(costWrites(api, 'budget')[0]).toEqual({
@@ -1253,7 +1253,7 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
     await expect(costChips(card)).toHaveText(['KB120', 'KB121']);
     await expect(costChips(card).first()).toHaveAttribute('data-tone', 'ok');
     await expect(mismatch).toHaveText(['KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요']);
-    await expect(budget).toHaveValue('12,000');
+    await expect(budget).toHaveValue('120,000,000');
 
     // ③ 수수료 「1.5」 Enter → 빨간 테두리 + 범위 줄 · 요청 0 · 입력값 유지
     await fee.click();
@@ -1294,7 +1294,7 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
 
     // ⑤ 교보 카드도 같은 행 · 캡션 · KYOBO127 은 87 모름 → 「확인 전」 칩
     const ky = accountCard(sheet, ALEX_KYOBO);
-    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '예수금(만원)')).toHaveValue('70,000');
+    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '예수금(원)')).toHaveValue('700,000,000');
     await expect(field(ky, ALEX_KYOBO, 'KYOBO', '수수료(%)')).toHaveValue('0.05');
     await expect(costChips(ky)).toHaveText(['KYOBO119', 'KYOBO127 · 확인 전']);
     await expect(costChips(ky).last()).toHaveAttribute('data-tone', 'only');
@@ -1321,7 +1321,7 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
     ] as const) {
       const card = accountCard(sheet, accountNo);
       await costRow(card).scrollIntoViewIfNeeded();
-      const budget = field(card, accountNo, broker, '예수금(만원)');
+      const budget = field(card, accountNo, broker, '예수금(원)');
       const fee = field(card, accountNo, broker, '수수료(%)');
       const tax = field(card, accountNo, broker, '매도세(%)');
       const b = (await budget.boundingBox())!;
@@ -1341,12 +1341,12 @@ test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
       expect(await costRow(card).evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
       expect(await scrollOverflowing(page, `${cardSelector(accountNo)} [data-slot="admin-account-cost"]`)).toEqual([]);
     }
-    // 9자리 만원 상한 값이 예수금 칸 안에 들어간다(UI-SPEC 칸 폭 근거)
+    // 13자리 원 상한 값이 예수금 칸 안에 들어간다(UI-SPEC 칸 폭 근거)
     const kb = accountCard(sheet, ALEX_KB);
-    const budget = field(kb, ALEX_KB, 'KB', '예수금(만원)');
+    const budget = field(kb, ALEX_KB, 'KB', '예수금(원)');
     await budget.click();
-    await budget.fill('999999999');
-    await expect(budget).toHaveValue('999,999,999');
+    await budget.fill('9999999999999');
+    await expect(budget).toHaveValue('9,999,999,999,999');
     expect(await ownOverflow(budget)).toBeLessThanOrEqual(0);
 
     await costRow(kb).scrollIntoViewIfNeeded();

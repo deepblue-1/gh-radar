@@ -18,13 +18,13 @@ import { describe, expect, it } from "vitest";
 import type { RelayHolding, RelayUnfilled } from "../relay";
 import {
   availableKrwOf,
-  BUDGET_MANWON_MAX,
+  BUDGET_KRW_MAX,
   COST_PPM_MAX,
   formatManwon1,
   formatManwonFloor,
   formatPnlManwon,
   lcBuyAmountSumKrw,
-  parseBudgetManwon,
+  parseBudgetKrw,
   parseCostPct,
   pctToPpm,
   pnlToneOf,
@@ -179,9 +179,9 @@ describe("pctToPpm · ppmToPct — % ↔ ppm (D-02)", () => {
     expect(ppmToPct(ppm)).toBe(pct);
   });
 
-  it("상한 상수 — 1% = 10,000ppm · 예수금 9자리 만원", () => {
+  it("상한 상수 — 1% = 10,000ppm · 예수금 13자리 원", () => {
     expect(COST_PPM_MAX).toBe(10_000);
-    expect(BUDGET_MANWON_MAX).toBe(999_999_999);
+    expect(BUDGET_KRW_MAX).toBe(9_999_999_999_999);
   });
 });
 
@@ -201,19 +201,20 @@ describe("parseCostPct — 비용률 % 입력(0~1% · 소수 넷째 자리까지
   });
 });
 
-describe("parseBudgetManwon — 예수금 만원 입력(9자리 · 콤마 허용)", () => {
+describe("parseBudgetKrw — 예수금 원 입력(13자리 · 콤마 허용)", () => {
   it.each([
-    ["1,000", 10_000_000],
+    ["10,000,000", 10_000_000],
     ["", 0],
     ["0", 0],
-    ["999,999,999", 9_999_999_990_000],
-    [" 5 000 ", 50_000_000],
+    ["9,999,999,999,999", 9_999_999_999_999],
+    [" 5 000 ", 5_000],
+    ["99,987,654", 99_987_654],
   ] as const)("%j → ok %d", (text, krw) => {
-    expect(parseBudgetManwon(text)).toEqual({ ok: true, krw });
+    expect(parseBudgetKrw(text)).toEqual({ ok: true, krw });
   });
 
-  it.each(["1234567890", "12a", "-5", "1.5"])("%j → 실패", (text) => {
-    expect(parseBudgetManwon(text)).toEqual({ ok: false });
+  it.each(["12345678901234", "12a", "-5", "1.5"])("%j → 실패", (text) => {
+    expect(parseBudgetKrw(text)).toEqual({ ok: false });
   });
 });
 
