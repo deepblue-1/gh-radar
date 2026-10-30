@@ -363,7 +363,7 @@ Plans:
 - [x] 35-12-PLAN.md — 범위 7 노트 전: shared 발사 계획 계약 · 검증/「쐈다면」 판정 + 변경 이력 표 · RPC 2 + pgTAP (W7 · 로컬 커밋만)
 
 **Wave 8** *(blocked on Wave 7 completion)*
-- [ ] 35-11-PLAN.md — Wave B 배포: 매핑 db push · reproject · 라이브 UAT · 두 노트 닫기 — 범위 7 커밋 미배포면 push 는 35-18 로 넘기고 완료 (W8 · 메인 세션)
+- [x] 35-11-PLAN.md — Wave B 배포: 매핑 db push · reproject · 라이브 UAT · 두 노트 닫기 — 범위 7 커밋 미배포면 push 는 35-18 로 넘기고 완료 (W8 · 메인 세션)
 - [x] 35-13-PLAN.md — 범위 7 노트 전: server GET/PUT /api/admin/launch/plan (relay 계약 · 이력 기록 · 가짜 relay) (W8 · 로컬 커밋만)
 - [x] 35-16-PLAN.md — 범위 7 노트 뒤: 정식 노트 op 대조 게이트 → relay op 8/9 · 스냅샷 94 · admin-conn request_id 짝 (W8 · 노트 조건부)
 

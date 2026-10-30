@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: edf5a4eb
 from_branch: master
 date: 2026-10-27
 fbs_sync_marker: 2b86be0a
-done_commit:
+done_commit: 2a81523f
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -83,3 +83,6 @@ gh-radar Phase 35(발사 경계 지도 어드민)로 받는다. 이 노트는 �
 3. **1회 적재 스크립트** — gh-radar 가 만든다(`scripts/launch-backfill.ts` · 기본 dry-run 집계 → `--apply` · Claude 가 실행 — D-09). 첨부 `pieces.json` 196행이 1차 입력이자 자동 대조 기준이고, gh-trade 전체분 ndjson 이 오면 같은 키로 덮는다(멱등).
 4. **표 · 키** — `launch_pieces` 키 `(trade_date, gateway, profile, fire_exchange, market, wire)` · `launch_heads` 키 `(trade_date, gateway, profile, fire_exchange, market)`. 제안의 키(date · broker · profile · market · wire)에 발사 거래소를 더했다 — A 의 09:00:27 KRX 매수 다리와 09:00:30 NXT 매도 다리가 겹치지 않게. 두 표 모두 `source`(`journal` · `backfill`) 열로 출처를 가르고, 같은 키가 다시 오면 최신 seq 가 이긴다(원문 `gateway · journal_epoch · seq` 보관).
 5. **요청 · 정식 매핑 요구** — gh-trade 인박스 `docs/inbox/from-gh-radar/<YYMMDD>-launch-gate-contract.md` 에 적었다: ① 백필 ndjson 지금(두 서버 · 로그 전부 · 16:00 + 09:00:27 + 09:00:30 · 09:00:30 side 포함 요청) ② kind 17 칸 매핑에 발사 기준(`fire_exchange` + `fire_base`) · `side` 필수 · kind 18 에 계산된 `next_offset_us` ③ 질문 5건(A 다리별 wire · A 머리 행 수 · 재송신 epoch 규칙 · kind 18 순서 · 계좌 칸).
+
+(2026-10-30 추가) **정식 매핑 · 라이브 UAT 완료 — 닫는다.** 정식 매핑 `20261028200000_launch_project_mapping`(35-10 `6622b444`) 원격 적용(10-28 01:33) · 첫 reproject projected 0 errors 0(그때 원문 0건). 백필: 첨부 196/33 → 전체 ndjson 254/51(35-09). 라이브: q16 10-28 · 10-29, n0930 10-28 ~ 10-30 당일 조각 · 머리 전부 source journal · 화면 사용자 답 「맞다」(10-30) · 키 수정 배포 뒤 「A 09:00:29 KRX→」 행 「보인다」(10-30).
+키 결함 수정: KYOBO119 A 재확인 재발사(fire_base 09:00:29 · wire 0 부터)가 옛 키(fire_base 없음)에서 09:00:27 회차를 덮던 것 — quick 261030-d7b 로 두 표 PK 에 `fire_base` 추가(`301280e6` · 마이그레이션 `20261030200000_launch_fire_base_key`) · 주문 내역 09:00:30 탭이 A KRX 09:00:00~09:00:30 회차를 받음(`2a81523f`). 10-30 원격 적용 → `--reproject --from 20261028` projected 182 errors 0 → 10-29 코스닥 · 10-30 코스피/코스닥에 09:00:27 · 09:00:29 두 회차 조각 · 머리가 다 남음(덮였던 seq 3160182 · 3160185 · 3372361 · 3372364 · 3372365 ~ 3372367 복구).

@@ -5,17 +5,17 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-18-PLAN.md
+stopped_at: Completed 35-11-PLAN.md
 last_updated: "2026-10-30T00:46:33.709Z"
 last_activity: 2026-10-30
-last_activity_desc: "35-18 라이브 UAT 통과 · 인박스 launch-plan-admin · launch-plan-fix 닫음 — 35-11 은 A 09:00:29 키 결함으로 노트 보류"
+last_activity_desc: "35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음"
 state_head: 2a81523fc7ecda2ae3810f9758f0ced05319f981
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 82
-  completed_plans: 81
-  percent: 99
+  completed_plans: 82
+  percent: 100
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 18 of 19 (35-11 만 남음 — 라이브 적재 확인 · 화면 UAT 「맞다」 · KYOBO119 A 재확인 09:00:29 회차가 launch_pieces/heads 키(fire_base 없음)에서 09:00:27 을 덮는 결함 → 수정 quick · reproject 뒤 두 노트 닫기)
+Plan: 19 of 19 (Phase 35 플랜 전부 완료 — 페이즈 검증 · 완료 처리 남음)
 Status: Ready to execute
-Last activity: 2026-10-30 - Completed quick task 261030-d7b: A 재확인 09:00:29 키 수정(로컬 커밋 301280e6 · 2a81523f — db push · reproject · git push 는 20:00 KST 뒤)
+Last activity: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
 Progress: [█████████░] 99% (53/53 plans)

@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 2e090eb9
 from_branch: worktree-agent-abfa984d3350e0480
 date: 2026-10-28
 fbs_sync_marker: f156cb6f
-done_commit:
+done_commit: 6622b444
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -244,3 +244,5 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 
 (2026-10-30 · 범위 6 — **보류, 이 노트는 열어 둔다**) kind 17/18 매핑(35-10 `20261028200000_launch_project_mapping`)은 원격 적용 · 라이브 적재 정상(10-28 ~ 10-30 당일 행 전부 source journal)이나, **교보 A 재확인 재발사가 gh-radar 키에서 09:00:27 회차를 덮는다** — KYOBO119 10-29 코스닥 · 10-30 코스피/코스닥에 `expected_cum 090029000` · `entry_round` 0 부터인 A kind 17·18 이 오고(마감선 09:00:29.5 폴링 재발사로 본다), `launch_pieces` · `launch_heads` 키에 `fire_base` 가 없어 같은 wire 의 09:00:27 행 · 머리가 덮였다(원문은 남음 — 키 수정 뒤 reproject 로 복구). 웹도 A 를 09:00:27 만 받아 09:00:29 행이 안 보인다. gh-radar 쪽에서 고친 뒤 닫는다.
 역질문 「A 머리 1행(KRX 다리)이면 09:00:27 지도에 충분한가」: KRX 다리 1행이면 충분하다(NXT 다리는 N 머리 합산으로 받는다). 단 위 재확인 회차는 기준시각(`expected_cum`)별 머리 · 조각으로 따로 받는다 — gh-radar 가 키를 고친다. 재확인 회차 `entry_round` 를 이전 회차 뒤로 이어 줄지는 수정 때 정해서 따로 요청한다.
+
+(2026-10-30 추가 · 범위 6 — **닫는다**) 위 보류 결함 수정: quick 261030-d7b — `launch_pieces` · `launch_heads` PK 에 `fire_base`(`301280e6` · 마이그레이션 `20261030200000_launch_fire_base_key`) · 웹 주문 내역 A KRX 재확인 회차 표시(`2a81523f`). 원격 적용 → `launch_reproject`(10-28 ~) projected 182 errors 0 → 09:00:27 · 09:00:29 두 회차 복구 확인. 매핑 마이그레이션 `20261028200000_launch_project_mapping`(`6622b444`) · 라이브 UAT 10-28 ~ 10-30 · 질문 답 ①~⑤ 반영(A 다리 · 머리 1행 · 재송신 1건 · 18 은 17 뒤 · 계좌 칸) · fbs 마커 `f156cb6f` 일치. gh-trade 할 일 없음(재확인 회차 wire 이어 붙이기는 요청하지 않는다 — gh-radar 키로 해결).
