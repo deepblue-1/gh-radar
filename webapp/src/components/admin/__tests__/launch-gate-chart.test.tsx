@@ -360,3 +360,115 @@ describe('LaunchGateChart — 바꿀 계획 draftLines', () => {
     expect(document.querySelectorAll('[data-slot="launch-draft-off"]')).toHaveLength(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261030-dz7 — 16:00 뒤탐침 ▲(목업 A안)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchGateChart — 16:00 뒤탐침 ▲(quick-261030-dz7 · 목업 A안)', () => {
+  const LEG = { gateway: 'KB120', market: 'Q', profile: 'Q16', fire_exchange: 'KRX' } as const;
+  const real = (date: string, wire: number, rel: number, result: string): LaunchMapPiece => ({
+    ...LEG,
+    trade_date: date,
+    side: null,
+    wire,
+    piece_idx: wire,
+    sent_rel_us: rel,
+    result,
+    retry: null,
+  });
+  const tail = (
+    date: string,
+    wire: number,
+    i: number,
+    rel: number,
+    result: string,
+    result_code: string | null,
+  ): LaunchMapPiece => ({
+    ...LEG,
+    trade_date: date,
+    side: 'buy',
+    wire,
+    piece_idx: i,
+    sent_rel_us: rel,
+    result,
+    retry: 0,
+    probe: true,
+    round: -2,
+    result_code,
+  });
+  const PIECES_TP: LaunchMapPiece[] = [
+    real('20261026', 0, -292, '101'),
+    real('20261026', 1, -284, '접수'),
+    tail('20261026', 2, 0, -274, '기타', 'E127'),
+    real('20261027', 0, -290, '101'),
+    real('20261027', 1, -286, '101'),
+    real('20261027', 2, -270, '접수'),
+    real('20261028', 0, -290, '101'),
+    real('20261028', 1, -286, '101'),
+    real('20261028', 2, -280, '101'),
+    real('20261029', 0, -300, '101'),
+    real('20261029', 1, -296, '101'),
+    real('20261029', 2, -284, '접수'),
+    real('20261030', 0, -290, '101'),
+    real('20261030', 1, -286, '101'),
+    real('20261030', 2, -270, '101'),
+    tail('20261030', 3, 0, -260, '101', '101'),
+    tail('20261030', 4, 1, -250, '기타', 'F083'),
+    tail('20261030', 5, 2, -240, '접수', null),
+  ];
+
+  function renderTp() {
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={launchDaysOf(PIECES_TP)} planLines={[]} />);
+    const panel = document.querySelector<HTMLElement>('[data-slot="launch-panel"]')!;
+    const svg = panel.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+    const row = (date: string) => svg.querySelector<SVGGElement>(`[data-slot="launch-day"][data-date="${date}"]`)!;
+    return { panel, svg, row };
+  }
+
+  it('삼각형 4 · 원 14(실조각) · 10/30 톤 bad · ok · ok · 10/26 E127 속 빈 테두리', () => {
+    const { svg, row } = renderTp();
+    expect(svg.querySelectorAll('path[data-shape="triangle"]')).toHaveLength(4);
+    expect(svg.querySelectorAll('circle')).toHaveLength(14);
+    const t30 = [...row('20261030').querySelectorAll('path[data-shape="triangle"]')];
+    expect(t30.map((t) => t.getAttribute('data-tone'))).toEqual(['bad', 'ok', 'ok']);
+    expect(t30[1]!.getAttribute('fill')).toBe('var(--launch-ok)');
+    expect(t30[1]!.getAttribute('stroke')).toBe('var(--card)');
+    const t26 = row('20261026').querySelector('path[data-shape="triangle"]')!;
+    expect(t26.getAttribute('data-tone')).toBe('other');
+    expect(t26.getAttribute('fill')).toBe('none');
+    expect(t26.getAttribute('stroke')).toBe('var(--launch-other)');
+  });
+
+  it('10/30 = 경계 띠(뒤탐침이 잡음) · 「경계는 이보다 뒤 →」 없음 · 패널 머리 경계 4 · 접수 0 · 거부 1', () => {
+    const { panel, row } = renderTp();
+    expect(row('20261030').querySelector('rect[data-band="gate"]')).not.toBeNull();
+    expect(row('20261030').textContent).not.toContain('경계는 이보다 뒤 →');
+    expect(within(panel).getByText('경계 잡힌 날 4 · 전부 접수 0 · 전부 거부 1')).toBeInTheDocument();
+  });
+
+  it('−250 삼각형 감지 칸 호버 → 「−250µs」 · 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」 · title 같은 재료', () => {
+    const { svg, row } = renderTp();
+    const tri = row('20261030').querySelectorAll('path[data-shape="triangle"]')[1]!;
+    expect(tri.querySelector('title')!.textContent).toBe('10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083');
+    const hit = tri.nextElementSibling!;
+    expect(hit.getAttribute('data-slot')).toBe('launch-dot-hit');
+    fireEvent.mouseEnter(hit);
+    const tip = svg.parentElement!.querySelector('[data-slot="launch-dot-tip"]')!;
+    expect(tip.textContent).toBe('−250µs10/30 · 뒤탐침 2 · 가격거부(열림) · F083');
+  });
+
+  it('날짜별 표 — 조각 칸 10/30 「3 · 탐침 3」 · 10/26 「2 · 탐침 1」 · 10/27 「3」', () => {
+    renderTp();
+    const table = document.querySelector('table[data-slot="launch-day-table"]')!;
+    const last = (date: string) => {
+      const tr = [...table.querySelectorAll('tbody tr')].find((r) => r.querySelector('td')!.textContent === date)!;
+      return [...tr.querySelectorAll('td')].at(-1)!;
+    };
+    expect(last('10/30').textContent).toBe('3 · 탐침 3');
+    expect(last('10/30').querySelector('[data-slot="launch-day-probes"]')).not.toBeNull();
+    expect(last('10/26').textContent).toBe('2 · 탐침 1');
+    expect(last('10/27').textContent).toBe('3');
+    expect(last('10/27').querySelector('[data-slot="launch-day-probes"]')).toBeNull();
+  });
+});

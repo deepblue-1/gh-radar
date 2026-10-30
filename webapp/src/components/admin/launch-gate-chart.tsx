@@ -3,7 +3,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 
 import type { LaunchCalcPiece, LaunchDay, LaunchDayKind, LaunchFire, LaunchMarket } from '@gh-radar/shared';
-import { launchPanelStatsOf } from '@gh-radar/shared';
+import { isLaunchTailProbe, launchPanelStatsOf } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { useChartWidth } from '@/hooks/use-chart-width';
@@ -20,6 +20,7 @@ import {
   launchHoverOf,
   launchTicksOf,
   launchTooltipOf,
+  trianglePathOf,
   xOfUs,
   type LaunchBandKind,
   type LaunchOffAxis,
@@ -35,7 +36,7 @@ import { cn } from '@/lib/utils';
  * - 폭: 래퍼 `div` 실측(`useChartWidth` · jsdom 0 → 640) · W = max(640, 실측) 를 viewBox 와 1:1(글자 11px 고정, D-18).
  *   폰 390 은 640 고정 + 래퍼 가로 스크롤 — 폰 폭에 맞춰 줄이지 않는다.
  * - 레이어(아래 → 위): 눈금 세로 격자 → 날짜 행 줄 · 왼쪽 「MM/DD」 → 경계 띠(+ 전부 거부 날 「경계는 이보다 뒤 →」) →
- *   점(같은 µs 는 세로 4px 대칭 쌓기 · 09:00:30 매도 = 마름모 · 각 점 `<title>`) → 「쐈다면」 리본(칸마다 접수 · 모름 · 거부
+ *   점(같은 µs 는 세로 4px 대칭 쌓기 · 09:00:30 매도 = 마름모 · 16:00 뒤탐침 = 삼각형 · 각 점 `<title>`) → 「쐈다면」 리본(칸마다 접수 · 모름 · 거부
  *   세 겹) → 다음 발사 계획 점선(조각마다 1개 · 행과 리본을 지난다 · planLines 가 비면 없음) → x 눈금 글.
  * - 이상치(Pitfall 4): 축은 중앙값 ± 상한 안에서만 잡고, 밖의 점은 축 끝에 고정 + 옆에 「◂」/「▸」 · title 끝 「축 밖」.
  *   계획 값이 축 밖이면 그 값의 점선 대신 축 끝에 「▸ 다음 −245µs」 글(축 밖인 첫 값 하나만).
@@ -48,7 +49,7 @@ import { cn } from '@/lib/utils';
  */
 
 /** 지도 점이 읽는 조각 모양 — shared `LaunchMapPiece` 가 만족한다. */
-export type LaunchChartPiece = LaunchCalcPiece & { side: string | null; retry: number | null };
+export type LaunchChartPiece = LaunchCalcPiece & { side: string | null; retry: number | null; piece_idx?: number | null };
 
 export interface LaunchGateChartProps {
   gateway: string;
@@ -68,7 +69,7 @@ export interface LaunchGateChartProps {
 
 const NO_DRAFT: readonly number[] = [];
 
-const { W_MIN, L, R, T, RH, RIBBON_H, GAP_R, TICK_H, DOT_R } = LAUNCH_CHART;
+const { W_MIN, L, R, T, RH, RIBBON_H, GAP_R, TICK_H, DOT_R, TRI_R } = LAUNCH_CHART;
 
 /** 마름모 꼭짓점 거리 — 원(r 4.5)과 눈으로 같은 크기. */
 const DIAMOND_R = DOT_R + 1;
@@ -229,7 +230,11 @@ function LaunchGateSvg({
                 const paint = hollow
                   ? { fill: 'none', stroke: 'var(--launch-other)', strokeWidth: 1.6 }
                   : { fill: TONE_FILL[mark.tone], stroke: 'var(--card)', strokeWidth: 1 };
-                const dot = mark.shape === 'diamond' ? (
+                const dot = mark.shape === 'triangle' ? (
+                  <path data-shape="triangle" data-tone={mark.tone} d={trianglePathOf(cx, py, TRI_R)} {...paint}>
+                    <title>{tip}</title>
+                  </path>
+                ) : mark.shape === 'diamond' ? (
                   <path
                     data-shape="diamond"
                     data-tone={mark.tone}
@@ -488,6 +493,7 @@ function LaunchDayTable({ days }: { days: readonly LaunchDay<LaunchChartPiece>[]
           <tbody>
             {days.map((d) => {
               const pill = KIND_PILL[d.kind];
+              const nProbes = d.pieces.filter(isLaunchTailProbe).length;
               return (
                 <tr key={d.date}>
                   <td className={cn(TD, 'tabular-nums')}>{launchDateLabelOf(d.date)}</td>
@@ -503,7 +509,14 @@ function LaunchDayTable({ days }: { days: readonly LaunchDay<LaunchChartPiece>[]
                   </td>
                   <td className={cn(TD, NUMERIC)}>{fmtUs(d.hi)}</td>
                   <td className={cn(TD, NUMERIC)}>{gateRangeText(d.lo, d.hi)}</td>
-                  <td className={cn(TD, NUMERIC)}>{d.pieces.length}</td>
+                  <td className={cn(TD, NUMERIC)}>
+                    {d.pieces.length - nProbes}
+                    {nProbes > 0 && (
+                      <span data-slot="launch-day-probes" className="text-[var(--muted-fg)]">
+                        {` · 탐침 ${nProbes}`}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}

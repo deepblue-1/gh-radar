@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   LAUNCH_FIRES,
   LAUNCH_ORDER,
+  isLaunchTailProbe,
   launchDaysOf,
   launchPlanEntryOf,
   launchPanelStatsOf,
@@ -21,7 +22,7 @@ import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
 import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
-import { launchRangeOf } from '@/lib/launch-map';
+import { LAUNCH_CHART, launchRangeOf, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
   panelPlanOf,
@@ -266,6 +267,7 @@ export function LaunchMapView({
   const ready = status === 'ready' && resp !== null;
   const noHistory = ready && resp.days.length === 0;
   const sideless = ready && fire === 'n0930' && resp.pieces.some((p) => p.side === null);
+  const tailProbed = ready && fire === 'q16' && resp.pieces.some(isLaunchTailProbe);
 
   return (
     <div data-slot="launch-map" className="flex min-w-0 flex-col gap-3.5">
@@ -329,7 +331,13 @@ export function LaunchMapView({
 
       {ready && !noHistory && (
         <>
-          <LaunchLegend fire={fire} sideless={sideless} planned={plan.kind === 'ready'} drafting={editing !== null} />
+          <LaunchLegend
+            fire={fire}
+            sideless={sideless}
+            tailProbed={tailProbed}
+            planned={plan.kind === 'ready'}
+            drafting={editing !== null}
+          />
           {plan.kind === 'ready' && (
             <p
               data-slot="launch-apply-note"
@@ -408,9 +416,9 @@ export function LaunchMapView({
 
 const DOT = 'inline-block size-2.5 shrink-0 rounded-full';
 
-function LegendItem({ swatch, children }: { swatch: ReactNode; children: ReactNode }) {
+function LegendItem({ swatch, legend, children }: { swatch: ReactNode; legend?: string; children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+    <span data-legend={legend} className="inline-flex items-center gap-1.5 whitespace-nowrap">
       {swatch}
       {children}
     </span>
@@ -423,14 +431,20 @@ function nextLegendOf(fire: LaunchFire, planned: boolean): string {
   return fire === 'q16' ? '다음 발사 계획(조각마다 점선)' : '다음 발사 계획(시각)';
 }
 
+/** 범례 뒤탐침 견본 — 지도 삼각형과 같은 기하(목업 A안) · 모양만 보이는 회색(09:00:30 마름모 항목과 같은 관례). */
+const TAIL_PROBE_SWATCH = trianglePathOf(6, 6.8, LAUNCH_CHART.TRI_R);
+
 function LaunchLegend({
   fire,
   sideless,
+  tailProbed,
   planned,
   drafting,
 }: {
   fire: LaunchFire;
   sideless: boolean;
+  /** 16:00 응답에 뒤탐침 조각이 있으면 삼각형 항목(quick-261030-dz7 결정 4) */
+  tailProbed: boolean;
   planned: boolean;
   drafting: boolean;
 }) {
@@ -454,6 +468,18 @@ function LaunchLegend({
       {sideless && (
         <LegendItem swatch={<i className={cn(DOT, 'border border-dashed border-[var(--muted-fg)]')} />}>
           구분 없음(백필)
+        </LegendItem>
+      )}
+      {tailProbed && (
+        <LegendItem
+          legend="tail-probe"
+          swatch={
+            <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden className="shrink-0">
+              <path d={TAIL_PROBE_SWATCH} fill="var(--muted-fg)" />
+            </svg>
+          }
+        >
+          삼각형 = 뒤탐침(가격거부도 열림 · E127·무응답은 경계 밖)
         </LegendItem>
       )}
       <LegendItem

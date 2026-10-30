@@ -12,7 +12,11 @@
  */
 
 import {
+  isLaunchAccept,
+  isLaunchReject,
+  isLaunchTailProbe,
   launchFireOf,
+  launchGateSideOf,
   launchRibbonAt,
   type LaunchDay,
   type LaunchFire,
@@ -21,11 +25,12 @@ import {
   type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
-import { fmtUs, resultToneOf, type LaunchResultTone } from './launch-format';
+import { fmtUs, type LaunchResultTone } from './launch-format';
 
 /**
  * 패널 배치 — 그림 영역 x = [L, W − R] · 첫 행 위끝 T · 날짜 행 RH · 행과 리본 사이 GAP_R · 리본 RIBBON_H ·
- * 아래 눈금 글 TICK_H · 점 반지름 DOT_R · 같은 µs 세로 간격 STACK_DY · 눈금 상한 TICK_MAX 개 · 눈금 최소 간격 TICK_MIN_PX.
+ * 아래 눈금 글 TICK_H · 점 반지름 DOT_R · 뒤탐침 삼각형 위 꼭짓점 거리 TRI_R(목업 MARK.A r) · 같은 µs 세로 간격 STACK_DY ·
+ * 눈금 상한 TICK_MAX 개 · 눈금 최소 간격 TICK_MIN_PX.
  */
 export const LAUNCH_CHART = {
   W_MIN: 640,
@@ -37,6 +42,7 @@ export const LAUNCH_CHART = {
   GAP_R: 32,
   TICK_H: 22,
   DOT_R: 4.5,
+  TRI_R: 5.6,
   STACK_DY: 4,
   TICK_MAX: 12,
   TICK_MIN_PX: 28,
@@ -239,18 +245,29 @@ export function launchRibbonCellsOf(
 }
 
 export interface LaunchMark {
-  shape: 'circle' | 'diamond';
+  shape: 'circle' | 'diamond' | 'triangle';
   tone: LaunchResultTone;
 }
 
+/** 표식 · 툴팁이 읽는 뒤탐침 판정 칸(선택 — 없으면 실조각). */
+type ProbeFields = { probe?: boolean | null; round?: number | null; result_code?: string | null };
+
+const GATE_TONE = { open: 'ok', closed: 'bad' } as const;
+
 /**
- * 점 표식(D-17 · 오케스트레이터 결정 5) — 09:00:30 합패널의 매도(A 매도 다리)만 마름모 · 그 밖(N 매수 · side null(D-08) ·
- * 16:00 전부)은 원. 색 축은 결과(`resultToneOf` — 접수 · 101/515 · 기타).
+ * 점 표식(D-17 · 오케스트레이터 결정 5 · quick-261030-dz7 결정 2) — 16:00 뒤탐침(`isLaunchTailProbe`)은 삼각형(목업 A안) ·
+ * 09:00:30 합패널의 매도(A 매도 다리)는 마름모 · 그 밖(N 매수 · side null(D-08) · 16:00 실조각)은 원.
+ * 색 축 = shared `launchGateSideOf`(열림 ok · 거부 bad · 경계 밖 other) — 실조각에선 `resultToneOf` 와 같은 값이고,
+ * 뒤탐침 「기타」 는 판정 한 벌에서 열림(가격거부) / 경계 밖(E127)이 갈린다.
  */
-export function launchMarkOf(piece: { side: string | null; result: string }, fire: LaunchFire): LaunchMark {
+export function launchMarkOf(
+  piece: { side: string | null; result: string } & ProbeFields,
+  fire: LaunchFire,
+): LaunchMark {
+  const side = launchGateSideOf(piece);
   return {
-    shape: fire === 'n0930' && piece.side === 'sell' ? 'diamond' : 'circle',
-    tone: resultToneOf(piece.result),
+    shape: isLaunchTailProbe(piece) ? 'triangle' : fire === 'n0930' && piece.side === 'sell' ? 'diamond' : 'circle',
+    tone: side === null ? 'other' : GATE_TONE[side],
   };
 }
 
@@ -259,43 +276,80 @@ export function diamondPathOf(cx: number, cy: number, r: number): string {
   return `M${cx} ${cy - r} L${cx + r} ${cy} L${cx} ${cy + r} L${cx - r} ${cy} Z`;
 }
 
+/** 뒤탐침 삼각형 경로(목업 MARK.A) — 위 꼭짓점 (cx, cy − r) · 아래 두 꼭짓점 (cx ± 0.95r, cy + 0.7r). */
+export function trianglePathOf(cx: number, cy: number, r: number): string {
+  const dx = tidy(r * 0.95);
+  const dy = tidy(r * 0.7);
+  return `M${tidy(cx)} ${tidy(cy - r)} L${tidy(cx + dx)} ${tidy(cy + dy)} L${tidy(cx - dx)} ${tidy(cy + dy)} Z`;
+}
+
 const SIDE_TIP: Readonly<Record<string, string>> = { buy: '매수', sell: '매도' };
+
+/** 툴팁 · 호버가 읽는 조각 모양 — piece_idx 와 뒤탐침 칸은 선택. */
+type TipPiece = {
+  sent_rel_us: number;
+  wire: number;
+  side: string | null;
+  result: string;
+  retry: number | null;
+  piece_idx?: number | null;
+} & ProbeFields;
+
+/**
+ * 뒤탐침 툴팁 조각 — 「뒤탐침 i+1」 + 결과 글(quick-261030-dz7 결정 3). 접수 · 101/515 = 원문 · 판정 열림(접수 아님) =
+ * 「가격거부(열림)」 · 그 밖 「<원문>(경계 밖)」. 접수 · 거부가 아니고 result_code 가 있으면 원문 코드를 뒤에 붙인다.
+ */
+function tailProbeTipParts(piece: TipPiece): string[] {
+  const parts = [piece.piece_idx == null ? '뒤탐침' : `뒤탐침 ${piece.piece_idx + 1}`];
+  if (isLaunchAccept(piece.result) || isLaunchReject(piece.result)) {
+    parts.push(piece.result);
+    return parts;
+  }
+  parts.push(launchGateSideOf(piece) === 'open' ? '가격거부(열림)' : `${piece.result}(경계 밖)`);
+  if (piece.result_code) parts.push(piece.result_code);
+  return parts;
+}
+
+/** 툴팁 · 호버 공통 꼬리 — 날짜 · (뒤탐침 | wire · 매수/매도 · 결과 · 재전송) · 축 밖. */
+function tipPartsOf(piece: TipPiece, fire: LaunchFire, offAxis: boolean): string[] {
+  const parts: string[] = [];
+  if (isLaunchTailProbe(piece)) {
+    parts.push(...tailProbeTipParts(piece));
+  } else {
+    parts.push(`wire ${piece.wire}`);
+    if (fire === 'n0930') parts.push(piece.side === null ? '구분 없음' : (SIDE_TIP[piece.side] ?? piece.side));
+    parts.push(piece.result);
+    if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
+  }
+  if (offAxis) parts.push('축 밖');
+  return parts;
+}
 
 /**
  * 점 `<title>` — q16 「MM/DD −350µs · wire 2 · 101」 · n0930 「MM/DD −20,148µs · wire 0 · 매수 · 101 · 재전송 2」
  * (side null 「구분 없음」 · retry 0/null 이면 재전송 조각 생략) · 축 밖이면 끝에 「 · 축 밖」.
  * 재전송 1·2·3회는 점을 따로 그리지 않고 여기 횟수로만 싣는다(첫 발 송신 시각 점 하나).
+ * 16:00 뒤탐침은 wire 대신 「10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
-export function launchTooltipOf(
-  date: string,
-  piece: { sent_rel_us: number; wire: number; side: string | null; result: string; retry: number | null },
-  fire: LaunchFire,
-  offAxis = false,
-): string {
-  const parts = [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, `wire ${piece.wire}`];
-  if (fire === 'n0930') parts.push(piece.side === null ? '구분 없음' : (SIDE_TIP[piece.side] ?? piece.side));
-  parts.push(piece.result);
-  if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
-  if (offAxis) parts.push('축 밖');
-  return parts.join(' · ');
+export function launchTooltipOf(date: string, piece: TipPiece, fire: LaunchFire, offAxis = false): string {
+  return [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, ...tipPartsOf(piece, fire, offAxis)].join(' · ');
 }
 
 /**
  * 점 위 즉시 툴팁(사용자 UAT 2026-10-27 — 「점에 마우스를 대면 −247µs 처럼」) — 큰 줄 = 송신 µs 하나,
  * 작은 줄 = 날짜 · wire · (n0930 매수/매도) · 결과 · (재전송) · (축 밖). `<title>` 과 같은 재료를 두 줄로 나눈 것.
+ * 16:00 뒤탐침은 작은 줄 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
 export function launchHoverOf(
   date: string,
-  piece: { sent_rel_us: number; wire: number; side: string | null; result: string; retry: number | null },
+  piece: TipPiece,
   fire: LaunchFire,
   offAxis = false,
 ): { value: string; detail: string } {
-  const parts = [launchDateLabelOf(date), `wire ${piece.wire}`];
-  if (fire === 'n0930') parts.push(piece.side === null ? '구분 없음' : (SIDE_TIP[piece.side] ?? piece.side));
-  parts.push(piece.result);
-  if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
-  if (offAxis) parts.push('축 밖');
-  return { value: `${fmtUs(piece.sent_rel_us)}µs`, detail: parts.join(' · ') };
+  return {
+    value: `${fmtUs(piece.sent_rel_us)}µs`,
+    detail: [launchDateLabelOf(date), ...tipPartsOf(piece, fire, offAxis)].join(' · '),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

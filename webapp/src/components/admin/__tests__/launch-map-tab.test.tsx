@@ -387,3 +387,45 @@ describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
     expect(slots(panelOf(container, 'KB120', 'Q'), 'launch-next')).toHaveLength(1);
   });
 });
+
+describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
+  const lastDay = DAYS[0]!;
+  const withTail: LaunchMapResponse = {
+    ...Q16_ALL,
+    pieces: [
+      ...Q16_PIECES,
+      {
+        trade_date: lastDay,
+        gateway: 'KB120',
+        market: 'Q',
+        profile: 'Q16',
+        fire_exchange: 'KRX',
+        side: 'buy',
+        wire: 99,
+        piece_idx: 0,
+        sent_rel_us: -200,
+        result: '기타',
+        retry: 0,
+        probe: true,
+        round: -2,
+        result_code: 'F083',
+      },
+    ],
+  };
+
+  it('q16 응답에 뒤탐침 있음 → 범례에 「뒤탐침」 항목 1개 · 패널에 삼각형 1', () => {
+    const { container } = view({ resp: withTail });
+    const legend = one(container, '[data-slot="launch-legend"]');
+    expect(legend.textContent!.match(/뒤탐침/g)).toHaveLength(1);
+    expect(legend.querySelector('[data-legend="tail-probe"] svg path')).not.toBeNull();
+    expect(container.querySelectorAll('[data-slot="launch-chart"] path[data-shape="triangle"]')).toHaveLength(1);
+  });
+
+  it('Q16_ALL(탐침 없음) · n0930 → 범례에 「뒤탐침」 없음', () => {
+    const { container, unmount } = view();
+    expect(one(container, '[data-slot="launch-legend"]').textContent).not.toContain('뒤탐침');
+    unmount();
+    const n = view({ resp: n0930(), fire: 'n0930', range: '10d' });
+    expect(one(n.container, '[data-slot="launch-legend"]').textContent).not.toContain('뒤탐침');
+  });
+});

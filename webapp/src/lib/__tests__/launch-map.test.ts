@@ -21,6 +21,7 @@ import {
   launchHoverOf,
   launchTooltipOf,
   mapNextOffsetOf,
+  trianglePathOf,
   xOfUs,
 } from '../launch-map';
 
@@ -326,6 +327,62 @@ describe('launchMarkOf · diamondPathOf', () => {
   });
   it('diamondPathOf(10, 20, 5)', () => {
     expect(diamondPathOf(10, 20, 5)).toBe('M10 15 L15 20 L10 25 L5 20 Z');
+  });
+});
+
+describe('뒤탐침 ▲(quick-261030-dz7 · 목업 A안) — launchMarkOf · trianglePathOf', () => {
+  const tail = (result: string, result_code: string | null = null) => ({
+    side: 'buy',
+    result,
+    probe: true,
+    round: -2,
+    result_code,
+  });
+  it('q16 뒤탐침 — 101 bad · 기타 F083 ok · 접수 ok · 기타 E127 other · 무응답 other (전부 삼각형)', () => {
+    expect(launchMarkOf(tail('101', '101'), 'q16')).toEqual({ shape: 'triangle', tone: 'bad' });
+    expect(launchMarkOf(tail('기타', 'F083'), 'q16')).toEqual({ shape: 'triangle', tone: 'ok' });
+    expect(launchMarkOf(tail('접수'), 'q16')).toEqual({ shape: 'triangle', tone: 'ok' });
+    expect(launchMarkOf(tail('기타', 'E127'), 'q16')).toEqual({ shape: 'triangle', tone: 'other' });
+    expect(launchMarkOf(tail('무응답'), 'q16')).toEqual({ shape: 'triangle', tone: 'other' });
+  });
+  it('앞쪽 탐침(round −1) 기타 F083 → 원 · other(지금 규칙)', () => {
+    expect(
+      launchMarkOf({ side: 'buy', result: '기타', probe: true, round: -1, result_code: 'F083' }, 'q16'),
+    ).toEqual({ shape: 'circle', tone: 'other' });
+  });
+  it('trianglePathOf(10, 20, 10) · TRI_R 5.6', () => {
+    expect(trianglePathOf(10, 20, 10)).toBe('M10 10 L19.5 27 L0.5 27 Z');
+    expect(LAUNCH_CHART.TRI_R).toBe(5.6);
+    expect(trianglePathOf(6, 6.8, LAUNCH_CHART.TRI_R)).toBe('M6 1.2 L11.32 10.72 L0.68 10.72 Z');
+  });
+});
+
+describe('뒤탐침 툴팁 · 호버(quick-261030-dz7)', () => {
+  const p = (result: string, result_code: string | null, piece_idx: number | null = 1) => ({
+    sent_rel_us: -250,
+    wire: 4,
+    piece_idx,
+    side: 'buy',
+    result,
+    retry: 0,
+    probe: true,
+    round: -2,
+    result_code,
+  });
+  it('가격거부 열림 — 호버 「−250µs」 · 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」 · title 같은 재료', () => {
+    expect(launchHoverOf('20261030', p('기타', 'F083'), 'q16')).toEqual({
+      value: '−250µs',
+      detail: '10/30 · 뒤탐침 2 · 가격거부(열림) · F083',
+    });
+    expect(launchTooltipOf('20261030', p('기타', 'F083'), 'q16')).toBe('10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083');
+  });
+  it('결과 글 — 접수 · 101(rc 안 붙임) · E127 경계 밖 · 무응답 경계 밖 · piece_idx 0 → 뒤탐침 1 · 축 밖', () => {
+    expect(launchHoverOf('20261030', p('접수', null, 0), 'q16').detail).toBe('10/30 · 뒤탐침 1 · 접수');
+    expect(launchHoverOf('20261030', p('101', '101'), 'q16').detail).toBe('10/30 · 뒤탐침 2 · 101');
+    expect(launchHoverOf('20261030', p('기타', 'E127'), 'q16').detail).toBe('10/30 · 뒤탐침 2 · 기타(경계 밖) · E127');
+    expect(launchHoverOf('20261030', p('무응답', null), 'q16').detail).toBe('10/30 · 뒤탐침 2 · 무응답(경계 밖)');
+    expect(launchHoverOf('20261030', p('기타', 'F083', null), 'q16').detail).toBe('10/30 · 뒤탐침 · 가격거부(열림) · F083');
+    expect(launchTooltipOf('20261030', p('101', '101'), 'q16', true)).toBe('10/30 −250µs · 뒤탐침 2 · 101 · 축 밖');
   });
 });
 
