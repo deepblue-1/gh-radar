@@ -116,10 +116,10 @@ gh-trade 16:00 뒤탐침(kind 17 · probe true · round −2)을 지도 RPC 가 
 
 ## 메인 세션 체크리스트(executor 는 하지 않았다)
 
-1. 원격 DB: `supabase db push --linked --yes`(20261030210000 — 읽기 함수 재정의뿐이라 장중 무해 · 그래도 관례대로 확인 후).
-2. db push 뒤 git push(= webapp 프로덕션 배포). 순서가 뒤바뀌어도 웹은 세 칸이 없으면 실조각으로 읽어 깨지지 않는다. relay 런타임 배포는 불필요(launch-backfill 은 CLI 도구).
-3. gh-trade 10/30 백필 ndjson 도착 시 기존 `bash scripts/launch-backfill.sh` 로 dry-run → apply — 뒤탐침만 온 묶음도 이제 throw 없이 조각만 적재된다(머리는 journal kind 18 이 정본).
-4. 10/31 16:00 뒤: 요청 노트 「확인 방법」 4항목(뒤탐침 kind 17 건수 · wire 가 실조각 다음 번호 · kind 18 n_pieces 실조각 수 · 지도 16:00 패널 삼각형이 마지막 실조각 오른쪽 +10/20/30µs).
+1. 원격 DB: `supabase db push --linked --yes`(20261030210000 — 읽기 함수 재정의뿐이라 장중 무해 · 그래도 관례대로 확인 후). **완료.**
+2. db push 뒤 git push(= webapp 프로덕션 배포). 순서가 뒤바뀌어도 웹은 세 칸이 없으면 실조각으로 읽어 깨지지 않는다. relay 런타임 배포는 불필요(launch-backfill 은 CLI 도구). **완료**(webapp 프로덕션 Ready).
+3. ~~10/30 백필~~ — 불필요. gh-trade 가 120 · 119 를 10/30 16:00 전(119 15:08 · 120 15:16)에 재기동해 첫날부터 journal 로 왔다.
+4. 확인 4항목 — **10/30 16:00 첫 실물로 통과**(대조 기록 `docs/inbox/from-gh-trade/261030-launch-tail-probe-kind17-done.md`). 뒤탐침 12행 = 서버 로그 12행 · wire 실조각 다음 번호 · kind 18 n_pieces 실조각만 · 지도 RPC 세 칸. K 시장 경계가 탐침으로 닫혔다(120 −270~−260 · 119 −360~−350). 어드민 화면 삼각형은 사용자 육안 확인 몫.
 
 ## Self-Check: PASSED
 
