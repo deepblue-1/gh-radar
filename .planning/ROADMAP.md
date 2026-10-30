@@ -380,7 +380,7 @@ Plans:
 - [x] 35-19-PLAN.md — 범위 7 노트 뒤: D-32 머리 카드 「다음 발사 계획 첫 조각」 · D-34 범위 상수 노트 대조 + 범위 7 전체 회귀 (W12 · 35-17 에서 분리)
 
 **Wave 13** *(blocked on Wave 12 completion)*
-- [ ] 35-18-PLAN.md — 범위 7 배포: gh-trade 43 확인 → DB → relay → server → push · 라이브 UAT(D-33) · 인박스 261027-launch-plan-admin 닫기 (W13 · 메인 세션)
+- [x] 35-18-PLAN.md — 범위 7 배포: gh-trade 43 확인 → DB → relay → server → push · 라이브 UAT(D-33) · 인박스 261027-launch-plan-admin 닫기 (W13 · 메인 세션)
 
 ### Phase 36: 계좌별 주문가능 금액
 

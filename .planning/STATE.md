@@ -5,17 +5,17 @@ milestone_name: 운영 유지보수
 current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
-stopped_at: Completed 35-19-PLAN.md
+stopped_at: Completed 35-18-PLAN.md
 last_updated: "2026-10-28T04:30:37.793Z"
-last_activity: 2026-10-28
-last_activity_desc: 35-10 kind 17·18 정식 칸 매핑(launch_project_event · pgTAP 36) · shared kind/라벨 sync 완료(로컬 커밋)
+last_activity: 2026-10-30
+last_activity_desc: 35-18 라이브 UAT 통과 · 인박스 launch-plan-admin · launch-plan-fix 닫음 — 35-11 은 A 09:00:29 키 결함으로 노트 보류
 state_head: f8edd81694eb9a7a113728f0bee6233820938b3a
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 82
-  completed_plans: 80
-  percent: 86
+  completed_plans: 81
+  percent: 99
 ---
 
 # Project State
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
-Plan: 17 of 19 (35-01~10 · 35-12~17 · 35-19 완료 — 범위 7 로컬 전체 회귀 green · 35-11(원격 적용 · reproject · 라이브 UAT) · 35-18(배포) 남음 · 로컬 커밋까지만 D-35)
+Plan: 18 of 19 (35-11 만 남음 — 라이브 적재 확인 · 화면 UAT 「맞다」 · KYOBO119 A 재확인 09:00:29 회차가 launch_pieces/heads 키(fire_base 없음)에서 09:00:27 을 덮는 결함 → 수정 quick · reproject 뒤 두 노트 닫기)
 Status: Ready to execute
-Last activity: 2026-10-28 — 35-19 16:00 머리 카드 「다음 발사 계획 첫 조각」 · LAUNCH_PLAN_LIMITS 노트 일치 · 범위 7 전체 회귀 green(로컬 커밋 · push 안 함)
+Last activity: 2026-10-30 — 35-18 완료: 16:00(10-28·29) · 09:00:30(10-28~30) 계획 값 반영 실물 확인 · 인박스 261027-launch-plan-admin · 261028-launch-plan-fix done(9f51eb45)
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
 Progress: [█████████░] 86% (53/53 plans)
