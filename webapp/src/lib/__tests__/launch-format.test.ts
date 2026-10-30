@@ -192,6 +192,21 @@ describe('pieceKeyLabelOf — 키 열', () => {
   it('round null → R—', () => {
     expect(pieceKeyLabelOf({ profile: 'Q16', queued_id: 'Q153015001', piece_idx: 0, round: null })).toBe('Q153015001 · j0 · R—');
   });
+  it('Q16 뒤탐침(probe true · round −2) → 「예약 · 뒤탐침 piece_idx+1」(quick-261030-dz7)', () => {
+    expect(
+      pieceKeyLabelOf({ profile: 'Q16', queued_id: 'Q153015001', piece_idx: 1, round: -2, probe: true }),
+    ).toBe('Q153015001 · 뒤탐침 2');
+  });
+  it('뒤탐침 piece_idx null → 「예약 · 뒤탐침」', () => {
+    expect(
+      pieceKeyLabelOf({ profile: 'Q16', queued_id: 'Q153015001', piece_idx: null, round: -2, probe: true }),
+    ).toBe('Q153015001 · 뒤탐침');
+  });
+  it('앞쪽 탐침(round −1) 은 지금처럼 j · R', () => {
+    expect(
+      pieceKeyLabelOf({ profile: 'Q16', queued_id: 'Q153015001', piece_idx: 0, round: -1, probe: true }),
+    ).toBe('Q153015001 · j0 · R-1');
+  });
 });
 
 describe('brokerMarketLabelOf · resultToneOf · sideLabelOf · 쿼리', () => {

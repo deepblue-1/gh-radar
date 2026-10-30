@@ -243,6 +243,30 @@ describe("계획 — --date 필터 · 논리 키 중복", () => {
     expect(plan.pieces.find((p) => p.wire === 0)).toMatchObject({ sent_rel_us: -298, result: "접수" });
     expect(plan.heads[0]).toMatchObject({ n_pieces: 2, n_accepted: 1, n_reject: 1, offset_used_us: -298 });
   });
+
+  it("뒤탐침(quick-261030-dz7) — 머리는 실조각만 · 뒤탐침만 온 묶음은 머리 없이 조각만(throw 없음)", () => {
+    const base = { date: "2026-10-30", gateway: "KB120", profile: "Q16", fire_exchange: "KRX", market: "Q" };
+    const tail = { round: -2, probe: true, side: "buy" };
+    const pieces = [
+      pieceFromNdjson({ ...base, wire: 0, sent_rel_us: -290, result: "101" }),
+      pieceFromNdjson({ ...base, wire: 1, sent_rel_us: -286, result: "101" }),
+      pieceFromNdjson({ ...base, wire: 2, sent_rel_us: -270, result: "101" }),
+      pieceFromNdjson({ ...base, ...tail, wire: 3, piece_idx: 0, sent_rel_us: -260, result: "101", result_code: "101" }),
+      pieceFromNdjson({ ...base, ...tail, wire: 4, piece_idx: 1, sent_rel_us: -250, result: "기타", result_code: "F083" }),
+      pieceFromNdjson({ ...base, ...tail, wire: 5, piece_idx: 2, sent_rel_us: -240, result: "접수" }),
+      pieceFromNdjson({ ...base, ...tail, market: "K", wire: 3, piece_idx: 0, sent_rel_us: -255, result: "기타", result_code: "F083" }),
+    ];
+    expect(pieces[4]).toMatchObject({ round: -2, probe: true, piece_idx: 1, result_code: "F083" });
+    const plan = planLaunchBackfill(pieces);
+    expect(plan.pieces).toHaveLength(7);
+    expect(plan.heads).toHaveLength(1);
+    expect(plan.heads[0]).toMatchObject({ market: "Q", n_pieces: 3, n_reject: 3, n_accepted: 0, gate_hi_us: null });
+    expect(plan.heads.some((h) => h.market === "K")).toBe(false);
+    expect(plan.groups.map((g) => [g.market, g.pieces])).toEqual([
+      ["K", 1],
+      ["Q", 6],
+    ]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

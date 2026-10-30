@@ -14,9 +14,11 @@ import {
   isLaunchAccept,
   isLaunchFireBaseOf,
   isLaunchReject,
+  isLaunchTailProbe,
   launchDaysOf,
   launchFireBaseOf,
   launchFireOf,
+  launchGateSideOf,
   launchHeadOf,
   launchPanelStatsOf,
   launchRibbonAt,
@@ -368,5 +370,126 @@ describe("kind 17 · 18 은 시세 이벤트가 아니다 (D-05)", () => {
     expect(STRATEGY_EVENT_KIND.LaunchHead).toBe(18);
     expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LaunchPiece)).toBe(false);
     expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.LaunchHead)).toBe(false);
+  });
+});
+
+describe("뒤탐침(quick-261030-dz7) — 판정 · 경계 · 머리", () => {
+  type P = LaunchCalcPiece;
+  const real = (d: string, wire: number, rel: number, result: string): P => ({
+    trade_date: d,
+    wire,
+    sent_rel_us: rel,
+    result,
+  });
+  const tail = (d: string, wire: number, rel: number, result: string, result_code: string | null = null): P => ({
+    trade_date: d,
+    wire,
+    sent_rel_us: rel,
+    result,
+    probe: true,
+    round: -2,
+    result_code,
+  });
+  const front = (result: string, result_code: string | null = null): P => ({
+    trade_date: "2026-10-30",
+    wire: 0,
+    sent_rel_us: -300,
+    result,
+    probe: true,
+    round: -1,
+    result_code,
+  });
+
+  /** 목업 4일 — 10/30 실조각 전부 101 + 뒤탐침 3발(wire 3~5). */
+  const MOCK: P[] = [
+    real("2026-10-27", 0, -290, "101"),
+    real("2026-10-27", 1, -286, "101"),
+    real("2026-10-27", 2, -270, "접수"),
+    real("2026-10-28", 0, -290, "101"),
+    real("2026-10-28", 1, -286, "101"),
+    real("2026-10-28", 2, -280, "101"),
+    real("2026-10-29", 0, -300, "101"),
+    real("2026-10-29", 1, -296, "101"),
+    real("2026-10-29", 2, -284, "접수"),
+    real("2026-10-30", 0, -290, "101"),
+    real("2026-10-30", 1, -286, "101"),
+    real("2026-10-30", 2, -270, "101"),
+    tail("2026-10-30", 3, -260, "101", "101"),
+    tail("2026-10-30", 4, -250, "기타", "F083"),
+    tail("2026-10-30", 5, -240, "접수"),
+  ];
+
+  it("isLaunchTailProbe — probe true · round −2 만", () => {
+    expect(isLaunchTailProbe({ probe: true, round: -2 })).toBe(true);
+    expect(isLaunchTailProbe({ probe: true, round: -1 })).toBe(false);
+    expect(isLaunchTailProbe({ probe: null, round: -2 })).toBe(false);
+    expect(isLaunchTailProbe({})).toBe(false);
+  });
+
+  it("launchGateSideOf(뒤탐침) — 101 · 515 거부 · 접수 · 기타(E127 아님) 열림 · 기타 E127 · 무응답 경계 밖", () => {
+    expect(launchGateSideOf(tail("d", 0, 0, "101"))).toBe("closed");
+    expect(launchGateSideOf(tail("d", 0, 0, "515"))).toBe("closed");
+    expect(launchGateSideOf(tail("d", 0, 0, "접수"))).toBe("open");
+    expect(launchGateSideOf(tail("d", 0, 0, "기타", "F083"))).toBe("open");
+    expect(launchGateSideOf(tail("d", 0, 0, "기타", null))).toBe("open");
+    expect(launchGateSideOf(tail("d", 0, 0, "기타", "E127"))).toBeNull();
+    expect(launchGateSideOf(tail("d", 0, 0, "무응답"))).toBeNull();
+  });
+
+  it("launchGateSideOf(실조각 · 앞쪽 탐침) — 지금 규칙 그대로(기타 = 경계 밖)", () => {
+    for (const p of [real("d", 0, 0, "접수"), front("접수")]) expect(launchGateSideOf(p)).toBe("open");
+    for (const r of ["101", "515"]) {
+      expect(launchGateSideOf(real("d", 0, 0, r))).toBe("closed");
+      expect(launchGateSideOf(front(r))).toBe("closed");
+    }
+    expect(launchGateSideOf({ ...real("d", 0, 0, "기타"), result_code: "F083" })).toBeNull();
+    expect(launchGateSideOf(front("기타", "F083"))).toBeNull();
+    expect(launchGateSideOf(real("d", 0, 0, "무응답"))).toBeNull();
+    expect(launchGateSideOf(real("d", 0, 0, "E127"))).toBeNull();
+    expect(launchGateSideOf(front("기타", "E127"))).toBeNull();
+  });
+
+  it("launchDaysOf(목업 4일) — 10/30 = 뒤탐침이 경계를 잡는다(lo −260 · hi −250 · gate)", () => {
+    const days = launchDaysOf(MOCK);
+    expect(days.map((d) => [d.date.slice(5), d.pieces.length, d.lo, d.hi, d.first, d.kind])).toEqual([
+      ["10-27", 3, -286, -270, -290, "gate"],
+      ["10-28", 3, -280, null, -290, "all_reject"],
+      ["10-29", 3, -296, -284, -300, "gate"],
+      ["10-30", 6, -260, -250, -290, "gate"],
+    ]);
+    expect(launchPanelStatsOf(days)).toMatchObject({ n_gate: 3, n_all_accept: 0, n_all_reject: 1 });
+    expect(launchRibbonAt(days, -250)).toEqual({ ok: 3, bad: 0, unknown: 1 });
+  });
+
+  it("대조 — 10/30 에서 뒤탐침을 빼면 전부 거부", () => {
+    const [d] = launchDaysOf(MOCK.filter((p) => p.trade_date === "2026-10-30" && !isLaunchTailProbe(p)));
+    expect(d).toMatchObject({ lo: -270, hi: null, kind: "all_reject" });
+  });
+
+  it("뒤탐침이 E127 기타 · 무응답뿐인 날 → 경계 밖(lo −290 · hi null · all_reject)", () => {
+    const [d] = launchDaysOf([
+      real("2026-10-31", 0, -290, "101"),
+      tail("2026-10-31", 1, -280, "기타", "E127"),
+      tail("2026-10-31", 2, -270, "무응답"),
+    ]);
+    expect(d).toMatchObject({ lo: -290, hi: null, kind: "all_reject" });
+  });
+
+  it("launchHeadOf — 실조각만 센다(뒤탐침 제외) · 뒤탐침만이면 throw · 앞쪽 탐침은 한 조각", () => {
+    const day = MOCK.filter((p) => p.trade_date === "2026-10-30");
+    expect(launchHeadOf(day)).toEqual({
+      n_pieces: 3,
+      n_accepted: 0,
+      n_reject: 3,
+      n_other: 0,
+      first_accept_idx: null,
+      gate_lo_us: -270,
+      gate_hi_us: null,
+      offset_used_us: -290,
+      nonmono: false,
+    });
+    expect(() => launchHeadOf(day.filter(isLaunchTailProbe))).toThrow(/뒤탐침/);
+    const withFront = [front("101"), real("2026-10-30", 1, -290, "접수")];
+    expect(launchHeadOf(withFront)).toMatchObject({ n_pieces: 2, n_reject: 1, n_accepted: 1, offset_used_us: -300 });
   });
 });

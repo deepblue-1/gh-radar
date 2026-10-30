@@ -4,6 +4,8 @@
  * 목적: 서버 로그는 하루치만 남는다 — gh-trade 가 뽑아 준 과거 발사 조각을 지도 · 주문 내역 표에 미리 채운다.
  * 머리는 조각에서 계산한다(D-04) — shared `launchHeadOf`(웹 지도와 같은 한 벌 · 첨부 `group()` 이식). 학습 열 ·
  * `next_offset_us` 는 조각으로 셀 수 없어 null 이다(D-08).
+ * 머리는 실조각만 센다(뒤탐침 제외 · 뒤탐침만 온 발사는 머리 없음 — gh-trade 10/30 백필이 뒤탐침 행만 와도 적재된다 ·
+ * 그 발사 머리 정본은 journal kind 18 · quick-261030-dz7).
  *
  * 입력 두 형식:
  *   ① 첨부 `pieces.json`(배열 · `{date, broker, market, wire, q, j, rel, result}` — 10/12~10/26 16:00 Q16 196행)
@@ -22,6 +24,7 @@
  * 위치(34 IN-04 와 같다): relay 런타임(`src/index.ts` 이하)은 이 모듈을 import 하지 않는다 — CLI 전용 도구라 `src/tools/`.
  */
 import {
+  isLaunchTailProbe,
   launchFireBaseOf,
   launchHeadOf,
   type LaunchFire,
@@ -366,7 +369,10 @@ function headKey(p: LaunchPieceInput): string {
   return [p.trade_date, p.gateway, p.profile, p.fire_exchange, p.market].join("|");
 }
 
-/** 조각 → 적재 계획. 머리는 shared launchHeadOf(웹 지도와 같은 한 벌)로 계산한다. */
+/**
+ * 조각 → 적재 계획. 머리는 shared launchHeadOf(웹 지도와 같은 한 벌)로 계산한다.
+ * 실조각이 없는(뒤탐침만 있는) 묶음은 머리를 만들지 않는다 — 조각 · groups 에는 그대로 남는다.
+ */
 export function planLaunchBackfill(input: readonly LaunchPieceInput[], opts: LaunchPlanOptions = {}): LaunchBackfillPlan {
   const only = opts.dates && opts.dates.length > 0 ? new Set(opts.dates) : null;
   const byKey = new Map<string, LaunchPieceInput>();
@@ -391,29 +397,32 @@ export function planLaunchBackfill(input: readonly LaunchPieceInput[], opts: Lau
   const groups: LaunchPlanGroup[] = [];
   for (const ps of fires.values()) {
     const p0 = ps[0]!;
-    heads.push({
-      trade_date: p0.trade_date,
-      gateway: p0.gateway,
-      profile: p0.profile,
-      fire_exchange: p0.fire_exchange,
-      fire_base: p0.fire_base,
-      market: p0.market,
-      ...launchHeadOf(ps),
-      fire_at_us: null,
-      retries: null,
-      abandoned: null,
-      correction_before_us: null,
-      correction_after_us: null,
-      step_us: null,
-      last_dir: null,
-      bracketed: null,
-      same_dir_run: null,
-      reject_span_us: null,
-      jump: null,
-      one_way_us: null,
-      rtt_min_us: null,
-      next_offset_us: null,
-    });
+    // 실조각 없는(뒤탐침만) 묶음은 머리 없음 — 그 발사 머리 정본은 journal kind 18.
+    if (ps.some((p) => !isLaunchTailProbe(p))) {
+      heads.push({
+        trade_date: p0.trade_date,
+        gateway: p0.gateway,
+        profile: p0.profile,
+        fire_exchange: p0.fire_exchange,
+        fire_base: p0.fire_base,
+        market: p0.market,
+        ...launchHeadOf(ps),
+        fire_at_us: null,
+        retries: null,
+        abandoned: null,
+        correction_before_us: null,
+        correction_after_us: null,
+        step_us: null,
+        last_dir: null,
+        bracketed: null,
+        same_dir_run: null,
+        reject_span_us: null,
+        jump: null,
+        one_way_us: null,
+        rtt_min_us: null,
+        next_offset_us: null,
+      });
+    }
     groups.push({
       trade_date: p0.trade_date,
       gateway: p0.gateway,

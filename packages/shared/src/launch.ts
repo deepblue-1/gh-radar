@@ -10,9 +10,12 @@
  * - 단위: `*_us` = 마이크로초(µs) · `sent_rel_us` = 첫 발 송신 − 발사 기준시각 · `accept_time` = HHMMSSmmm 숫자
  *   (09시대는 앞 0 이 빠진 8자리 — 9자리 패딩 · 시각 표시는 웹 표시층만 한다).
  * - **경계 규칙 정본 = 첨부 `group()`**(launch-gate-map.html) + 목업 확장(거부에 515 포함 · 분류 「전부 거부」 ·
- *   reference/mockup-launch-gate-map.html). lo = 거부(101 · 515) 조각 rel 최댓값 · hi = 접수 조각 rel 최솟값 ·
- *   그 밖 결과(기타 · 무응답 · E127 …)는 경계 계산에서 뺀다. 웹 지도(경계 띠 · 리본)와 relay 백필 머리 계산이
- *   **이 한 벌**을 쓴다 — SQL 에 두 번째 구현을 두지 않는다(RESEARCH Pattern 6).
+ *   reference/mockup-launch-gate-map.html). lo = 거부(101 · 515) 조각 rel 최댓값 · hi = 열림 조각 rel 최솟값 ·
+ *   실조각 · 앞쪽 탐침(round −1)은 접수만 열림이고 그 밖 결과(기타 · 무응답 · E127 …)는 경계 계산에서 뺀다.
+ *   16:00 뒤탐침(probe true · round −2 · quick-261030-dz7)은 「기타」 도 열림이다(gh-trade st7 「개시 = 첫 101 이
+ *   아닌 응답」 — 가격 거부 포함) · 단 result_code E127(교보 조기 도착 거부) · 무응답은 경계 밖. 판정 정본 =
+ *   `launchGateSideOf`. 웹 지도(경계 띠 · 리본)와 relay 백필 머리 계산이 **이 한 벌**을 쓴다 — SQL 에 두 번째
+ *   구현을 두지 않는다(RESEARCH Pattern 6). 백필 머리(`launchHeadOf`)는 실조각만 센다(뒤탐침 제외).
  * - 발사 기준 = 거래소 + 기준시각(D-03 · D-17): 16:00:00 KRX(Q16) · 09:00:27 KRX(A 매수 — 주문 내역에만) ·
  *   09:00:30 NXT(N 매수 + A 매도 — 한 지도). 지도 대상은 `LAUNCH_FIRES` 둘뿐이다.
  *   A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`,
@@ -153,7 +156,11 @@ export interface LaunchHeadRow {
   gw_time_ms: number | null;
 }
 
-/** 지도 조각 — 지도 RPC 가 싣는 열만. */
+/**
+ * 지도 조각 — 지도 RPC 가 싣는 열만. probe · round · result_code(뒤탐침 판정 재료)는 마이그레이션 20261030210000
+ * 뒤 RPC 가 늘 싣지만, db push 전 옛 응답 · 기존 픽스처엔 없을 수 있어 선택 칸이다 — 없으면 실조각으로 읽는다
+ * (배포 순서 무관 · quick-261030-dz7).
+ */
 export type LaunchMapPiece = Pick<
   LaunchPieceRow,
   | "trade_date"
@@ -167,7 +174,8 @@ export type LaunchMapPiece = Pick<
   | "sent_rel_us"
   | "result"
   | "retry"
->;
+> &
+  Partial<Pick<LaunchPieceRow, "probe" | "round" | "result_code">>;
 
 /** 주문 내역 봉투 — dates 는 조각 기준 내림차순 · date = 보여 주는 날(없으면 null). */
 export interface LaunchOrdersResponse {
@@ -200,12 +208,15 @@ export type LaunchHeadInput = Omit<LaunchHeadRow, "source" | "journal_epoch" | "
 // 경계 계산 — 첨부 group() 이식
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 경계 계산이 읽는 최소 모양. */
+/** 경계 계산이 읽는 최소 모양. probe · round · result_code 는 뒤탐침 판정용 선택 칸(없으면 실조각). */
 export interface LaunchCalcPiece {
   trade_date: string;
   wire: number;
   sent_rel_us: number;
   result: string;
+  probe?: boolean | null;
+  round?: number | null;
+  result_code?: string | null;
 }
 
 /** 날 분류 — 경계 · 전부 접수 · 전부 거부 · 판단 불가(조각이 전부 기타). */
@@ -216,9 +227,9 @@ export interface LaunchDay<P> {
   date: string;
   /** wire 오름차순 */
   pieces: P[];
-  /** 거부(101 · 515) 조각 rel 최댓값 */
+  /** 거부(launchGateSideOf 'closed' — 101 · 515) 조각 rel 최댓값 */
   lo: number | null;
-  /** 접수 조각 rel 최솟값 */
+  /** 열림(launchGateSideOf 'open' — 접수 · 뒤탐침 기타(E127 아님)) 조각 rel 최솟값 */
   hi: number | null;
   /** 조각 rel 최솟값 */
   first: number;
@@ -235,6 +246,47 @@ export function isLaunchReject(result: string): boolean {
   return result === "101" || result === "515";
 }
 
+/** 16:00 뒤탐침 회차 — gh-trade kind 17 round(← ev_price) 값. 앞쪽 탐침은 −1. */
+export const LAUNCH_TAIL_PROBE_ROUND = -2;
+
+/**
+ * 뒤탐침 「기타」 중 경계 밖으로 읽는 결과 코드 — gh-trade 회신: 교보 E127 = 조기 도착 거부라 열림 증거가 아니다.
+ */
+export const LAUNCH_TAIL_PROBE_OUTSIDE_CODES: ReadonlySet<string> = new Set(["E127"]);
+
+/**
+ * 16:00 뒤탐침인가 — probe === true && round === −2(quick-261030-dz7).
+ * gh-trade 값 규칙: probe ← has_remaining · round ← ev_price · wire = 그 시장 실조각 수 + i · piece_idx = i.
+ * round −1(앞쪽 탐침)은 뒤탐침이 아니다 — 실조각과 같은 규칙으로 읽는다.
+ */
+export function isLaunchTailProbe(p: { probe?: boolean | null; round?: number | null }): boolean {
+  return p.probe === true && p.round === LAUNCH_TAIL_PROBE_ROUND;
+}
+
+/** 경계 판정 — open = 열림(hi 후보) · closed = 거부(lo 후보). */
+export type LaunchGateSide = "open" | "closed";
+
+/**
+ * 조각 하나의 경계 판정 한 벌 — 접수 → open · 거부(101 · 515) → closed · 뒤탐침 「기타」(result_code 가
+ * `LAUNCH_TAIL_PROBE_OUTSIDE_CODES` 에 없음 · null 포함) → open · 그 밖 → null(경계 밖).
+ * 뒤탐침 기타가 열림인 근거 = gh-trade st7 「개시 = 첫 101 이 아닌 응답(가격 거부 포함)」. 실조각 · 앞쪽 탐침의
+ * 기타 · 무응답 · E127 은 지금처럼 경계 밖.
+ */
+export function launchGateSideOf(
+  p: Pick<LaunchCalcPiece, "result" | "probe" | "round" | "result_code">,
+): LaunchGateSide | null {
+  if (isLaunchAccept(p.result)) return "open";
+  if (isLaunchReject(p.result)) return "closed";
+  if (
+    isLaunchTailProbe(p) &&
+    p.result === "기타" &&
+    !(p.result_code != null && LAUNCH_TAIL_PROBE_OUTSIDE_CODES.has(p.result_code))
+  ) {
+    return "open";
+  }
+  return null;
+}
+
 function maxOrNull(xs: number[]): number | null {
   return xs.length > 0 ? Math.max(...xs) : null;
 }
@@ -245,6 +297,7 @@ function minOrNull(xs: number[]): number | null {
 
 /**
  * 첨부 `group()` — 날짜 오름차순 묶음 · 묶음 안 wire 오름차순 · lo/hi/first/kind.
+ * lo/hi 는 `launchGateSideOf`(뒤탐침 포함). 뒤탐침은 마지막 실조각 뒤라 first 에 영향 없다.
  * 호출부가 서버 × 시장(× 발사 기준)으로 미리 거른다. 입력 배열은 바꾸지 않는다.
  */
 export function launchDaysOf<P extends LaunchCalcPiece>(pieces: readonly P[]): LaunchDay<P>[] {
@@ -257,8 +310,8 @@ export function launchDaysOf<P extends LaunchCalcPiece>(pieces: readonly P[]): L
   const dates = [...byDate.keys()].sort();
   return dates.map((date) => {
     const ps = [...byDate.get(date)!].sort((a, b) => a.wire - b.wire);
-    const lo = maxOrNull(ps.filter((p) => isLaunchReject(p.result)).map((p) => p.sent_rel_us));
-    const hi = minOrNull(ps.filter((p) => isLaunchAccept(p.result)).map((p) => p.sent_rel_us));
+    const lo = maxOrNull(ps.filter((p) => launchGateSideOf(p) === "closed").map((p) => p.sent_rel_us));
+    const hi = minOrNull(ps.filter((p) => launchGateSideOf(p) === "open").map((p) => p.sent_rel_us));
     const first = Math.min(...ps.map((p) => p.sent_rel_us));
     const kind: LaunchDayKind =
       lo !== null && hi !== null ? "gate" : hi !== null ? "all_accept" : lo !== null ? "all_reject" : "unknown";
@@ -268,6 +321,7 @@ export function launchDaysOf<P extends LaunchCalcPiece>(pieces: readonly P[]): L
 
 /** 조각에서 셀 수 있는 머리 값 9개(D-04 백필 머리). 학습 열 · next_offset_us 는 계산하지 않는다. */
 export interface LaunchHeadCalc {
+  /** 실조각 수(뒤탐침 제외 — kind 18 n_pieces 와 같은 정의) */
   n_pieces: number;
   n_accepted: number;
   /** 거부(101 · 515) 수 */
@@ -283,11 +337,17 @@ export interface LaunchHeadCalc {
   nonmono: boolean;
 }
 
-/** 한 발사의 조각들 → 머리 계산값. 빈 배열은 throw(머리 없는 발사는 없다). */
-export function launchHeadOf<P extends Pick<LaunchCalcPiece, "wire" | "sent_rel_us" | "result">>(
-  pieces: readonly P[],
+/**
+ * 한 발사의 조각들 → 머리 계산값. 빈 배열은 throw(머리 없는 발사는 없다).
+ * 실조각만 센다 — 뒤탐침(`isLaunchTailProbe`)은 먼저 뺀다(kind 18 머리와 같은 정의 · 실조각은 기타 = 경계 밖).
+ * 뒤탐침만 남아 실조각이 0 이면 throw. 앞쪽 탐침(round −1)은 한 조각으로 센다.
+ */
+export function launchHeadOf<P extends Pick<LaunchCalcPiece, "wire" | "sent_rel_us" | "result" | "probe" | "round">>(
+  all: readonly P[],
 ): LaunchHeadCalc {
-  if (pieces.length === 0) throw new Error("launchHeadOf: 조각이 없습니다");
+  if (all.length === 0) throw new Error("launchHeadOf: 조각이 없습니다");
+  const pieces = all.filter((p) => !isLaunchTailProbe(p));
+  if (pieces.length === 0) throw new Error("launchHeadOf: 실조각이 없습니다(뒤탐침만)");
   const acc = pieces.filter((p) => isLaunchAccept(p.result));
   const rej = pieces.filter((p) => isLaunchReject(p.result));
   const firstWire = pieces.reduce((a, b) => (b.wire < a.wire ? b : a));
