@@ -2,6 +2,7 @@
 -- Phase 35 Plan 02 — 발사 경계 지도 어드민 저장소(launch_pieces · launch_heads) · 조건부 upsert · 어드민 RPC pgTAP.
 --
 -- 대상 마이그레이션: supabase/migrations/20261027200000_launch_gate.sql
+--                  supabase/migrations/20261030210000_launch_map_tail_probe.sql(지도 조각 probe · round · result_code)
 --
 -- 잠그는 것:
 --   - 트레이서: 첨부 pieces.json 의 한 발사(10/12 KB120 코스피 Q16 16:00 · wire 0~2 · rel −305 · −303 · −302 · 101)가
@@ -15,7 +16,8 @@
 --   - CHECK 없음(result E127 · profile X 통과 · Pitfall 6) · p_source 'other' · 필수 키 누락 → 22023 · 백필 원자성.
 --   - 주문 내역: dates 내림차순 · 행 없는 p_date 는 빈 배열 · stocks 조인 stock_code · stock_name · 조각 순서.
 --   - 경계 지도: q16 p_days 절단(발사 기준별 거래일 · A4) · n0930 = N 매수 + A 매도(KRX 09:00:27 다리 없음) ·
---     지도 열 11개 · 최신 머리(프로파일별 1행) · 모르는 p_fire · p_days 0 → 22023.
+--     지도 열 14개(+ 뒤탐침 판정 재료 probe · round · result_code — quick-261030-dz7) · 뒤탐침 행 값 ·
+--     최신 머리(프로파일별 1행) · 모르는 p_fire · p_days 0 → 22023.
 --   - 권한: 두 표 RLS 켬 · pg_policies 0 · anon/authenticated SELECT 불가 · 함수 5개 EXECUTE
 --     (anon, authenticated, service_role) = (f, f, t).
 --
@@ -32,7 +34,7 @@ SET LOCAL search_path = public, extensions;
 
 CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
-SELECT plan(61);
+SELECT plan(62);
 
 -- ── 1. 빈 상태 ─────────────────────────────────────────────────
 SELECT is(
@@ -408,8 +410,20 @@ SELECT is(
 );
 SELECT is(
   (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(public.launch_map_for_admin('q16')->'pieces'->0) AS k),
-  ARRAY['fire_exchange','gateway','market','piece_idx','profile','result','retry','sent_rel_us','side','trade_date','wire'],
-  '(q16, —, —, —, —, 지도 열) 지도 조각은 11열만(account · dma_user_id · source 없음)'
+  ARRAY['fire_exchange','gateway','market','piece_idx','probe','profile','result','result_code','retry','round','sent_rel_us','side','trade_date','wire'],
+  '(q16, —, —, —, —, 지도 열) 지도 조각은 14열만(account · dma_user_id · source 없음 · quick-261030-dz7 probe · round · result_code)'
+);
+-- 뒤탐침(quick-261030-dz7) — gh-trade 16:00 뒤쪽 탐침은 kind 17 probe true · round −2 · wire = 실조각 수 + i.
+INSERT INTO t_setup SELECT 'fx_probe', public.launch_backfill_apply(
+  '[
+    {"trade_date":"2026-10-22","gateway":"KB120","profile":"Q16","fire_exchange":"KRX","fire_base":"16:00:00","market":"K","wire":1,"piece_idx":0,"round":-2,"probe":true,"side":"buy","sent_rel_us":-140,"result":"기타","result_code":"F083"}
+  ]'::jsonb,
+  '[]'::jsonb);
+SELECT is(
+  (SELECT jsonb_agg(jsonb_build_array(e->'wire', e->'probe', e->'round', e->'result_code') ORDER BY o)
+     FROM jsonb_array_elements(public.launch_map_for_admin('q16', 1)->'pieces') WITH ORDINALITY AS x(e, o)),
+  '[[0,null,null,null],[1,true,-2,"F083"]]'::jsonb,
+  '(20261022, KB120, Q16, KRX, K, 뒤탐침) 실조각 probe · round · result_code null · 뒤탐침 true · −2 · F083'
 );
 SELECT is(
   (SELECT row(m->'days', jsonb_array_length(m->'pieces'),
