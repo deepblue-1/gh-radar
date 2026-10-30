@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-18-PLAN.md
-last_updated: "2026-10-28T04:30:37.793Z"
+last_updated: "2026-10-30T00:46:33.709Z"
 last_activity: 2026-10-30
-last_activity_desc: 35-18 라이브 UAT 통과 · 인박스 launch-plan-admin · launch-plan-fix 닫음 — 35-11 은 A 09:00:29 키 결함으로 노트 보류
-state_head: f8edd81694eb9a7a113728f0bee6233820938b3a
+last_activity_desc: "35-18 라이브 UAT 통과 · 인박스 launch-plan-admin · launch-plan-fix 닫음 — 35-11 은 A 09:00:29 키 결함으로 노트 보류"
+state_head: 2a81523fc7ecda2ae3810f9758f0ced05319f981
 progress:
   total_phases: 7
   completed_phases: 6
@@ -32,10 +32,10 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
 Plan: 18 of 19 (35-11 만 남음 — 라이브 적재 확인 · 화면 UAT 「맞다」 · KYOBO119 A 재확인 09:00:29 회차가 launch_pieces/heads 키(fire_base 없음)에서 09:00:27 을 덮는 결함 → 수정 quick · reproject 뒤 두 노트 닫기)
 Status: Ready to execute
-Last activity: 2026-10-30 — 35-18 완료: 16:00(10-28·29) · 09:00:30(10-28~30) 계획 값 반영 실물 확인 · 인박스 261027-launch-plan-admin · 261028-launch-plan-fix done(9f51eb45)
+Last activity: 2026-10-30 - Completed quick task 261030-d7b: A 재확인 09:00:29 키 수정(로컬 커밋 301280e6 · 2a81523f — db push · reproject · git push 는 20:00 KST 뒤)
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [█████████░] 86% (53/53 plans)
+Progress: [█████████░] 99% (53/53 plans)
 
 ## Accumulated Context
 
@@ -112,6 +112,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261028-ggj | 매집 차트 닿는 원 묶음 툴팁(gh-trade 261028 규칙 1~6) + 모바일 길게 누르기 툴팁 | 2026-10-28 | b1f7a10f | [261028-ggj-accum-chart-group-tooltip-touch](./quick/261028-ggj-accum-chart-group-tooltip-touch/) |
 | 28 | 매집 차트 묶음 판정 가로 ± 5px (gh-trade 261028-accum-chart-group-x5) | 2026-10-28 | f8edd816 | — |
 | 29 | 발사 주문 내역 체결 수량 — launch_orders_for_admin 이 dma_account_orders 를 order_no 로 join | 2026-10-30 | e40a4233 | — |
+| 261030-d7b | 발사 A 재확인 회차(09:00:29) 덮어쓰기 — launch_pieces/heads PK 에 fire_base · 주문 내역 A KRX 09:00:00~09:00:30 회차 표시 | 2026-10-30 | 2a81523f | [261030-d7b-launch-a-recheck-fire-base-key](./quick/261030-d7b-launch-a-recheck-fire-base-key/) |
 
 ## Session Continuity
 
