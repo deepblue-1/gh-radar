@@ -55,6 +55,8 @@ let mockUserSettingsByServer: ReadonlyMap<string, RelayUserSettingsMsg> | null =
 let mockAccounts: RelayAccount[] | null = null;
 /** Phase 36 D-13 — 계좌 상태(66/67 · 예수금). null = `EMPTY_RELAY_VALUE.accountStates`(미수신). */
 let mockAccountStates: ReadonlyMap<string, import('@gh-radar/shared').RelayAccountState> | null = null;
+/** NXT 거래 대상 ISIN 집합(relay nxt.snap · quick-261101-okd). null = `EMPTY_RELAY_VALUE.nxtTradable`(모름). */
+let mockNxtTradable: ReadonlySet<string> | null = null;
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
@@ -67,6 +69,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
         mockUserSettingsByServer ??
         new Map(mockUserSettings === undefined ? [] : [[MOCK_SERVER_KEY, mockUserSettings] as const]),
       accountStates: mockAccountStates ?? actual.EMPTY_RELAY_VALUE.accountStates,
+      nxtTradable: mockNxtTradable ?? actual.EMPTY_RELAY_VALUE.nxtTradable,
     }),
   };
 });
@@ -236,6 +239,7 @@ beforeEach(() => {
   mockUserSettingsByServer = null;
   mockAccounts = null;
   mockAccountStates = null;
+  mockNxtTradable = null;
   sendMock.mockReset();
   // ★ 기본은 「소켓에 실렸다」 — `mockReset()` 뒤 기본 반환 `undefined`(falsy)면 모든 케이스가
   //   「전송 실패」 경로로 떨어진다.
@@ -442,8 +446,8 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
     // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50
-    // + 금액 8(Phase 31 D-11) = 58.
-    expect(Object.keys(lastConfig())).toHaveLength(58);
+    // + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60.
+    expect(Object.keys(lastConfig())).toHaveLength(60);
   });
 });
 
@@ -561,10 +565,13 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 49키 (Pitfall 6
     'sellWatchAmount',
     'sellMinTradeAmount',
     'cancelWatchAmount',
+    // + ○SOR 2(quick-261101-okd — relay 가 존재로 buy3_schema 7 을 파생한다) = 60.
+    'sorBuy',
+    'sorSell',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(58);
+    expect(keys).toHaveLength(60); // + sor 2(quick-261101-okd)
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
@@ -3459,6 +3466,100 @@ describe('줄매수 자동 — 제목줄 체크 · 동반 해제 · 열린 그�
   });
 });
 
+describe('SOR — 매수주문 · 매도주문 제목줄 (quick-261101-okd · D-06)', () => {
+  const buySor = (): HTMLElement => chk('매수 SOR');
+  const sellSor = (): HTMLElement => chk('매도 SOR');
+  /** 마지막 lc.set 의 `changed`(사람이 손댄 칸 · 비트 표 이름). */
+  const lastChanged = (): readonly string[] | undefined => {
+    const sets = sendMock.mock.calls.map(([m]) => m as RelayLcSetMsg).filter((m) => m?.t === 'lc.set');
+    return sets.at(-1)?.changed;
+  };
+
+  it('「매수 SOR」 · 「매도 SOR」 이 각 제목줄 스위치 슬롯의 바로 앞 형제 · 라벨 SOR · 그룹 OFF 여도 enabled · 흐림 0 · 기본 unchecked', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: true }) })} />);
+    for (const [slot, el, id, swName] of [
+      ['buy', buySor(), 'lc-buy-sor', '매수주문 켜기'],
+      ['sell', sellSor(), 'lc-sell-sor', '매도주문 켜기'],
+    ] as const) {
+      const header = group(slot).querySelector('[data-slot="lc-group-header"]') as HTMLElement;
+      const switchSlot = header.lastElementChild as HTMLElement;
+      expect(switchSlot.contains(sw(swName))).toBe(true);
+      expect((switchSlot.previousElementSibling as HTMLElement).contains(el)).toBe(true);
+      expect(el.id).toBe(id);
+      expect(el).toHaveTextContent('SOR');
+      expect(el).toBeEnabled();
+      expect(opacityLayers(el)).toBe(0);
+      expect(el).toHaveAttribute('aria-checked', 'false');
+      expect(el).toHaveAttribute('title', 'KRX·NXT 설정 공용');
+    }
+  });
+
+  it('sor false/false 에서 매수 SOR 클릭 → lc.set 1건 · cfg sor true/true · changed 에 sorBuy · sorSell', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    click(buySor());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sorBuy: true, sorSell: true, buyEnabled: true, sellEnabled: true, crud: 'C' });
+    expect(lastChanged()).toEqual(expect.arrayContaining(['sorBuy', 'sorSell']));
+    expect(buySor()).toHaveAttribute('aria-checked', 'true');
+    expect(sellSor()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('sorSell 이 이미 true 여도 매수 켜기는 sorSell 을 동반으로 싣는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sorSell: true }) })} />);
+    click(buySor());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sorBuy: true, sorSell: true });
+    expect(lastChanged()).toEqual(expect.arrayContaining(['sorBuy', 'sorSell']));
+  });
+
+  it('true/true 에서 매도 클릭 → sorSell false · sorBuy true · changed ["sorSell"] / 매수 클릭 → sorBuy false · sorSell true', () => {
+    const { unmount } = render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sorBuy: true, sorSell: true }) })} />);
+    click(sellSor());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sorBuy: true, sorSell: false });
+    expect(lastChanged()).toEqual(['sorSell']);
+    unmount();
+    sendMock.mockClear();
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sorBuy: true, sorSell: true }) })} />);
+    click(buySor());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sorBuy: false, sorSell: true });
+    expect(lastChanged()).toEqual(['sorBuy']);
+  });
+
+  it('nxtTradable = 다른 isin 만 → 둘 다 비활성 · hint 「NXT 미거래 종목」 · send 0', () => {
+    mockNxtTradable = new Set(['KR7005930003']);
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    for (const el of [buySor(), sellSor()]) {
+      expect(el).toBeDisabled();
+      expect(el).toHaveAttribute('title', 'NXT 미거래 종목');
+      click(el);
+    }
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('같은 잠금 + 서버 sorSell true → 매도 enabled · 클릭 → sorSell false (끄기는 언제나 허용)', () => {
+    mockNxtTradable = new Set(['KR7005930003']);
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sorSell: true }) })} />);
+    expect(buySor()).toBeDisabled();
+    expect(sellSor()).toBeEnabled();
+    click(sellSor());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sorSell: false, sorBuy: false });
+  });
+
+  it('nxtTradable null(모름) → 잠금 없음 · hint 「KRX·NXT 설정 공용」 · 그 isin 이 집합에 있어도 잠금 없음', () => {
+    const { unmount } = render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    expect(buySor()).toBeEnabled();
+    expect(buySor()).toHaveAttribute('title', 'KRX·NXT 설정 공용');
+    unmount();
+    mockNxtTradable = new Set([ISIN]);
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    expect(buySor()).toBeEnabled();
+    expect(sellSor()).toHaveAttribute('title', 'KRX·NXT 설정 공용');
+  });
+});
+
 describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 · 비활성 · 발화 에코 (quick-260929-vzy)', () => {
   const auto = (): HTMLElement => chk('후매수 자동');
   const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
@@ -3598,8 +3699,8 @@ describe('매수주문 「버스트 취소」 체크 — 양방향 설정값 · 
     click(burst());
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyBurstRelease).toBe(true);
-    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58.
-    expect(Object.keys(lastConfig())).toHaveLength(58);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60.
+    expect(Object.keys(lastConfig())).toHaveLength(60);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 

@@ -275,8 +275,11 @@ describe('②-auto GroupHeaderCheck · 제목줄 체크 슬롯 (quick-260929-vzy
       '줄매수가 풀린 뒤(발주 · 포기 · 버스트 취소) 상한가를 벗어나고 잔고가 0 이면 서버가 줄매수를 다시 켜요',
     );
     expect(extraHint).not.toContain('최대');
+    // ○SOR(quick-261101-okd) — 매수주문 · 매도주문 제목줄에도 체크가 선다.
+    expect(groupOf('buy').headerCheck?.field).toBe('sorBuy');
+    expect(groupOf('sell').headerCheck?.field).toBe('sorSell');
     for (const g of [...LC_BUY_GROUPS, ...LC_SELL_GROUPS]) {
-      if (g.slot !== 'post-buy' && g.slot !== 'extra-buy') expect(g.headerCheck).toBeUndefined();
+      if (!['post-buy', 'extra-buy', 'buy', 'sell'].includes(g.slot)) expect(g.headerCheck).toBeUndefined();
     }
   });
 

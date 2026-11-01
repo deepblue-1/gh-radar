@@ -168,12 +168,12 @@ export interface LcGroupSpec {
   /** 제목줄 접기(Phase 24 ⑤ — 선매수 · 줄매수 · 후매수 · Phase 27 D-01 자동매도 · quick-261012-oif 매수취소). */
   collapsible: boolean;
   /**
-   * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 줄매수 ☐자동 quick-261011-0yb) — 그룹 스위치와 같은 지위 · 게이트가
+   * 제목줄 체크(후매수 ☐자동 quick-260929-vzy · 줄매수 ☐자동 quick-261011-0yb · ○SOR 매수 · 매도 quick-261101-okd) — 그룹 스위치와 같은 지위 · 게이트가
    * 꺼져도 흐리지 않는다(WinForms chkAddBuyAuto 는 OptionDimGroup 밖). 어느 행에도 속하지 않고 제목줄에서 스위치 바로
    * 앞에 선다.
    */
   headerCheck?: {
-    field: 'postBuyAuto' | 'extraBuyAuto';
+    field: 'postBuyAuto' | 'extraBuyAuto' | 'sorBuy' | 'sorSell';
     checkId: string;
     label: string;
     ariaLabel: string;
@@ -192,6 +192,8 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     hint: '선매수 · 줄매수 · 후매수가 같이 쓰는 주문가격 · 비교가격',
     dimWhenOff: true,
     collapsible: false,
+    // ○SOR(quick-261101-okd · gh-trade Phase 45 · 목업 A) — 켜면 매수 공통 · 선 · 줄 · 후매수 설정이 KRX · NXT 공용(미러는 서버).
+    headerCheck: { field: 'sorBuy', checkId: 'lc-buy-sor', label: 'SOR', ariaLabel: '매수 SOR', hint: 'KRX·NXT 설정 공용' },
     rows: [
       {
         kind: 'value',
@@ -395,6 +397,8 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
     dimGate: 'sellEnabled',
     dimWhenOff: true,
     collapsible: false,
+    // ○SOR(quick-261101-okd · gh-trade Phase 45 · 목업 A) — 켜면 매도 · 취소 · 봇매도 설정이 KRX · NXT 공용(미러는 서버).
+    headerCheck: { field: 'sorSell', checkId: 'lc-sell-sor', label: 'SOR', ariaLabel: '매도 SOR', hint: 'KRX·NXT 설정 공용' },
     rows: [
       // 주문가격 · 매도비율도 매도주문의 값이다(quick-261001-gjk — 제목줄 아래 한 카드).
       {

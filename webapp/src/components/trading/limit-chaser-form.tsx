@@ -820,7 +820,7 @@ export function LimitChaserForm({
   onAutoSellCommand,
   className,
 }: LimitChaserFormProps) {
-  const { send, userSettingsByServer, accounts } = useRelayContext();
+  const { send, userSettingsByServer, accounts, nxtTradable } = useRelayContext();
   // 카드 계좌 서버의 84(Phase 32 D-14b) — 서버키를 모르거나 그 서버 84 가 아직 없으면 undefined(= 시딩 생략 · 빈 패치).
   // primary 84 로 대신 채우지 않는다(Pitfall 14 — 교보 계좌 카드가 KB 설정으로 시딩된다). 시딩 · `preBuyWatchFixedOf` ·
   // 「줄매수도 같이 켜기」 가 모두 이 한 값을 본다.
@@ -1395,6 +1395,23 @@ export function LimitChaserForm({
    *   않는다). 통과면 자동만 보낸다 — 마스터는 켜지 않는다(발화 때 서버 몫 · WinForms 동형).
    * - 끄는 방향: 무장 해제라 언제나 보낸다(T-16-44).
    */
+  /**
+   * ○SOR 체크(quick-261101-okd · gh-trade Phase 45 D-06 — WinForms 동형). 매수 SOR 켜기는 매도 SOR 을 현재값과 무관하게
+   * 늘 동반으로 싣는다(한 제출 · 비트 50 · 51). 매도 끄기 = 매도만 · 매수 끄기 = 매수만. 미러(복사)는 서버 몫이다.
+   */
+  const commitSor = useCallback(
+    (field: 'sorBuy' | 'sorSell', on: boolean) => {
+      if (field === 'sorBuy' && on) commitField('sorBuy', true, 'toggle', { sorSell: true });
+      else commitField(field, on, 'toggle');
+    },
+    [commitField],
+  );
+  /**
+   * NXT 미거래 종목 — ○SOR 의 OFF→ON 을 잠근다(서버 54 ERROR 를 일부러 부르지 않는다 · gh-trade D-04). 집합을 아직 모르면
+   * (null/undefined) 잠그지 않는다(exchange-choices 「모름 = 전체 허용」 관례).
+   */
+  const sorLocked = nxtTradable != null && isin !== '' && !nxtTradable.has(isin);
+
   const commitPostBuyAuto = useCallback(
     (on: boolean) => {
       if (on) {
@@ -1705,11 +1722,14 @@ export function LimitChaserForm({
    * - 줄매수: 켜기는 세션 · 구서버만 본다(구서버 에코는 켜는 방향을 막는다 — 훅 가드와 같은 결). 사전 검증은 두지
    *   않는다(C# 동형 — 자동은 사람이 이미 켰던 줄매수가 풀린 뒤에만 동작하고, 그 켜기가 사전 검증을 지났다).
    *   게이트가 아니라 미등록이면 훅 ⑥ 이 로컬 반영한다(등록 cfg 에 실린다).
-   * 끄기는 둘 다 세션만 본다(T-16-44).
+   * - ○SOR 매수 · 매도(quick-261101-okd): 켜기는 세션 · 구서버 · NXT 미거래 종목(`sorLocked`)을 본다 — 잠기면 hint 가
+   *   「NXT 미거래 종목」. 매수 켜기는 매도를 동반한다(`commitSor` · D-06).
+   * 끄기는 모두 세션만 본다(T-16-44).
    */
   function renderHeaderCheck(spec: NonNullable<LcGroupSpec['headerCheck']>): ReactNode {
     const field = spec.field;
     const checked = form[field];
+    const isSor = field === 'sorBuy' || field === 'sorSell';
     const disabledNow =
       field === 'postBuyAuto'
         ? checked
@@ -1717,19 +1737,24 @@ export function LimitChaserForm({
           : gateBlocked('postBuyEnabled', true)
         : checked
           ? disabled
-          : disabled || legacy;
+          : disabled || legacy || (isSor && sorLocked);
+    const onToggle = (): void => {
+      if (field === 'postBuyAuto') commitPostBuyAuto(!checked);
+      else if (field === 'extraBuyAuto') commitToggle('extraBuyAuto', !checked);
+      else commitSor(field, !checked);
+    };
     return (
       <GroupHeaderCheck
         id={spec.checkId}
         label={spec.label}
         ariaLabel={spec.ariaLabel}
-        hint={spec.hint}
+        hint={isSor && sorLocked ? 'NXT 미거래 종목' : spec.hint}
         checked={checked}
         busy={isBusy(field)}
         flash={lc.flashField === field}
         failureText={toggleFailureTextOf(field)}
         disabled={disabledNow}
-        onToggle={() => (field === 'postBuyAuto' ? commitPostBuyAuto(!checked) : commitToggle('extraBuyAuto', !checked))}
+        onToggle={onToggle}
       />
     );
   }

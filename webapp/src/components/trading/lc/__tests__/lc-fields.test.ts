@@ -187,6 +187,28 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     );
   });
 
+  it('매수주문 · 매도주문 제목줄 체크 「SOR」 — id lc-buy-sor · lc-sell-sor · 접근성 이름 「매수 SOR」 · 「매도 SOR」 · 요약 kv 없음 (quick-261101-okd)', () => {
+    const buy = LC_BUY_GROUPS.find((x) => x.slot === 'buy')!;
+    const sell = LC_SELL_GROUPS.find((x) => x.slot === 'sell')!;
+    expect(buy.headerCheck).toEqual({
+      field: 'sorBuy',
+      checkId: 'lc-buy-sor',
+      label: 'SOR',
+      ariaLabel: '매수 SOR',
+      hint: 'KRX·NXT 설정 공용',
+    });
+    expect(sell.headerCheck).toEqual({
+      field: 'sorSell',
+      checkId: 'lc-sell-sor',
+      label: 'SOR',
+      ariaLabel: '매도 SOR',
+      hint: 'KRX·NXT 설정 공용',
+    });
+    // 제목줄 체크는 접혀도 보인다 — 요약에 SOR kv 를 넣지 않는다(☐자동과 같은 취급).
+    expect(lcSummaryOf('buy', values({ sorBuy: true }), srv())).toEqual(lcSummaryOf('buy', values({ sorBuy: false }), srv()));
+    expect(lcSummaryOf('sell', values({ sorSell: true }), srv())).toEqual(lcSummaryOf('sell', values({ sorSell: false }), srv()));
+  });
+
   it('매수주문 카드 마지막 행 = 체크 「버스트 취소」 · id lc-extra-buy-burst-release · 매수주문 게이트로 흐림 (quick-261012-oif)', () => {
     const g = LC_BUY_GROUPS.find((x) => x.slot === 'buy')!;
     const row = g.rows.at(-1)!;
