@@ -22,7 +22,7 @@ status: all_fixed
 
 DB 마이그레이션과 배포가 필요한 수정은 없다. `launch_plan_changes.outcome` CHECK 는 이미 `timeout` 을 허용한다. relay · server · webapp 변경은 다음 배포 때 반영된다. 배포는 이 수정에서 하지 않았다.
 
-## 수정한 지적
+## Fixed Issues
 
 ### CR-01: 적용됐을 수 있는 계획 저장을 「offline · 미반영」 으로 확정 보고하고 영구 이력에 그렇게 기록함
 
@@ -45,7 +45,7 @@ DB 마이그레이션과 배포가 필요한 수정은 없다. `launch_plan_chan
 - **보수적 판정:** relay 에서 끊김 때문에 offline 이 된 경우, 아직 송신하지 않고 큐에 있던 항목인지 AdminConn 결과만으로는 가를 수 없다. 그래서 보수적으로 `timeout` 으로 접는다.
 - **늦은 반영 가능성:** 마감 뒤에도 op 8 은 큐에서 계속 진행된다. 그래서 「응답 없음」 을 보인 뒤에 실제로 반영될 수 있다. 화면은 1회 다시 읽기만 한다.
 
-### WR-01: 저장은 ok 인데 relay 가 재조회 값을 못 실으면 화면이 저장 전 계획을 계속 보임
+### WR-01: 저장은 ok 인데 relay 가 재조회 값을 못 실으면 화면이 저장 전 계획을 계속 보임(D-27 「성공 뒤 다시 조회」 미이행)
 
 **수정한 파일:** `webapp/src/components/admin/launch-map-tab.tsx`, `webapp/src/components/admin/__tests__/launch-map-tab.test.tsx`, `webapp/src/lib/launch-plan-view.ts`, `webapp/src/lib/__tests__/launch-plan-view.test.ts`, `webapp/src/lib/launch-api.ts`
 **커밋:** 185f9252
@@ -56,7 +56,7 @@ DB 마이그레이션과 배포가 필요한 수정은 없다. `launch_plan_chan
 
 그래서 다시 읽기 응답이 오기 전에도 점선 · 계획 줄 · 「저장」 · 「되돌리기」 가 저장 전 값을 기준으로 남지 않는다. CR-01 과 같은 `onSave` 분기다.
 
-### WR-02: 백필 계획의 논리 키에 `fire_base` 가 없어 DB PK 와 어긋남
+### WR-02: 백필 계획의 논리 키에 `fire_base` 가 없어 DB PK(20261030200000 뒤)와 어긋남 — A KRX 재확인 회차 조각 · 머리가 섞이거나 버려짐
 
 **수정한 파일:** `relay/src/tools/launch-backfill.ts`, `relay/tests/launch-backfill.test.ts`
 **커밋:** 2d81a7be
@@ -90,7 +90,7 @@ DB 마이그레이션과 배포가 필요한 수정은 없다. `launch_plan_chan
 - 편집 칸 주석을 고쳤다.
 - 「저장 중 −320 으로 고침 → ok 응답 뒤에도 −320 유지」 테스트를 추가했다.
 
-### IN-04: 백필 입력 검증이 느슨함
+### IN-04: 백필 입력 검증이 느슨함 — profile · fire_exchange 미검증, `.json` 은 무조건 첨부 형식
 
 **수정한 파일:** `relay/src/tools/launch-backfill.ts`, `relay/tests/launch-backfill.test.ts`, `scripts/launch-backfill.ts`
 **커밋:** 1ef9a8fe
