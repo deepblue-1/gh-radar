@@ -266,6 +266,24 @@ export function planStateWithReload(
 }
 
 /**
+ * 결과를 모르는 저장 뒤 다시 읽기가 대상 서버에 대해 어떻게 끝났나(35 R3-WR-01) — 결과 줄이 「지금 보이는 계획이 다시 읽은
+ * 값인가」 를 말하게 한다.
+ * - `pending` — 다시 읽는 중.
+ * - `ok` — 대상 서버 값을 다시 읽어 반영했다(`take` 에 듦).
+ * - `superseded` — 대상 서버는 ok 로 왔지만 이 다시 읽기를 보낸 뒤 그 서버에 더 새 세대(그 뒤 저장 · 더 늦게 보낸 다시 읽기)가
+ *   있어 버렸다. 더 새 세대는 값 없이 「바뀌었을 수 있음」 만 표시한 저장일 수도 있어 확인으로 치지 않는다.
+ * - `failed` — 대상 서버 값을 못 가져왔다(그 서버 timeout · offline · failed · 응답에 없음 · 404 · 요청 실패). 보이는 값은
+ *   마지막으로 알던 값 = 저장 전 값일 수 있다.
+ */
+export type LaunchPlanReread = 'pending' | 'ok' | 'superseded' | 'failed';
+
+/** 다시 읽은 응답 · 반영한 서버(`take`) → 대상 서버의 다시 읽기 결과(R3-WR-01). 요청 실패 · 404 는 지도 탭이 `failed` 로 둔다. */
+export function planRereadOf(resp: LaunchPlanResponse, gateway: string, take: ReadonlySet<string>): LaunchPlanReread {
+  if (take.has(gateway)) return 'ok';
+  return resp.servers[gateway]?.status === 'ok' ? 'superseded' : 'failed';
+}
+
+/**
  * 저장 요청을 server 가 4xx 로 거부했다(35 R2-IN-01) — 인증(401 세션 만료) · 인가(403) · 검증(400) 등은 relay 호출 · 이력 기록
  * **전에** 막혀 확정 미반영이다. 「반영됐는지 몰라요」(timeout)가 아니라 「실패」 로 보이고, 지도 탭은 다시 읽지 않는다.
  * 401 · 403 은 고정 문구, 그 밖은 「요청 거부(<status>) · <server 문구>」.
@@ -291,6 +309,17 @@ export interface SaveResultView {
 const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
 
 /**
+ * timeout 결과 줄 꼬리 — 다시 읽기 결과별(35 R3-WR-01). 못 읽었거나(failed) 더 새 저장에 밀렸으면(superseded) 지금 보이는
+ * 계획이 다시 읽은 값이 아니다 — 저장 전 값일 수 있음을 드러내고 새로고침을 권한다(탭 진입 때 계획을 새로 읽는다).
+ */
+export const TIMEOUT_REREAD_TAIL: Record<LaunchPlanReread, string> = {
+  pending: '계획을 다시 읽는 중이에요',
+  ok: '다시 읽은 계획으로 확인',
+  superseded: '그 뒤 새 저장이 있어 다시 읽은 값을 쓰지 않았어요(보이는 값은 이 저장 결과가 아닐 수 있어요) · 잠시 뒤 새로고침',
+  failed: '계획을 다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있어요) · 잠시 뒤 새로고침',
+};
+
+/**
  * gh-trade 86 code 1 고정 문구 중 「op 모름」(구 서버가 44 op 8 · 9 를 모름) — 바이트 그대로 대조한다.
  * 정본: 인박스 `261028-launch-plan-contract.md` ⓒ 86 표. 같은 code 1 의 나머지 고정 문구(대상 밖 · 조각 수 범위 밖 ·
  * N 은 시각 한 값 · 발사 시각 범위 밖 2종 · 같거나 커지는 순서 · fix 노트의 「시각 목록 폭 상한 밖(마지막 − 첫 ≤ 500µs)」)는
@@ -307,18 +336,25 @@ export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
  * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
  * | failed · code 1 · 「알 수 없는 명령입니다」 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
  * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
- * | timeout · 요청 실패(타임아웃 · 네트워크 · 5xx) | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인」 |
+ * | timeout · 요청 실패(타임아웃 · 네트워크 · 5xx) | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — <다시 읽기 꼬리>」(`TIMEOUT_REREAD_TAIL`) |
  * | 요청 4xx 거부(`rejectedSaveResultOf` — failed) | 「KB120 · 실패」 title 문구 | 「KB120 실패: 로그인이 만료됐어요 — …」 · 「KB120 실패: 요청 거부(400) · …」 |
  * | offline | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
  *
  * timeout = 요청은 나갔는데 응답을 못 받음(결과 모름 · 35 CR-01) — 반영됐을 수 있어 「실패」 · 「미반영」 으로 단정하지 않는다
- * (지도 탭이 계획을 다시 읽는다). offline = 요청이 서버에 닿기 전에 막힘(확정 미반영).
+ * (지도 탭이 계획을 다시 읽는다). 줄 꼬리는 그 다시 읽기가 대상 서버를 어떻게 끝냈는지(`reread` · 35 R3-WR-01) — 「다시 읽은
+ * 계획으로 확인」 은 대상 서버 값을 실제로 다시 읽어 반영했을 때(또는 `reread` 없음)만이다. offline = 요청이 서버에 닿기 전에
+ * 막힘(확정 미반영).
  * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
  *
  * 서버 미지원 = 구 서버가 44 op 8 을 모름(code 1 「알 수 없는 명령입니다」) — 서버 업데이트 전까지 저장이 안 된다.
  * 새 서버(gh-trade 43)는 범위 · 순서 · 조각 수 · 폭 거부도 code 1 이라 code 만으로는 가를 수 없다.
  */
-export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at: Date): SaveResultView {
+export function saveResultViewOf(
+  result: AdminServerResult,
+  fire: LaunchFire,
+  at: Date,
+  reread?: LaunchPlanReread,
+): SaveResultView {
   const s = result.server;
   const msg = result.message || null;
   switch (result.outcome) {
@@ -340,7 +376,7 @@ export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at
     case 'timeout':
       return {
         chip: { tone: 'err', text: `${s} · 응답 없음`, title: msg },
-        line: { tone: 'err', text: `${s} 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인` },
+        line: { tone: 'err', text: `${s} 응답 없음: 반영됐는지 몰라요 — ${TIMEOUT_REREAD_TAIL[reread ?? 'ok']}` },
       };
     case 'offline':
       return {

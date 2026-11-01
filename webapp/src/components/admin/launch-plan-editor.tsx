@@ -13,7 +13,13 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { DASH, fmtUs } from '@/lib/launch-format';
-import { sameOffsets, saveResultViewOf, verdictCellText, type SaveTone } from '@/lib/launch-plan-view';
+import {
+  sameOffsets,
+  saveResultViewOf,
+  verdictCellText,
+  type LaunchPlanReread,
+  type SaveTone,
+} from '@/lib/launch-plan-view';
 import { cn } from '@/lib/utils';
 
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './reflect-chip';
@@ -40,6 +46,8 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
 export interface LaunchPlanSaveState {
   result: AdminServerResult;
   at: Date;
+  /** 저장 뒤 다시 읽기의 대상 서버 결과(35 R3-WR-01) — 다시 읽지 않는 저장이면 없음. timeout 줄 꼬리만 바꾼다. */
+  reread?: LaunchPlanReread;
 }
 
 export interface LaunchPlanEditorProps {
@@ -90,7 +98,7 @@ export function LaunchPlanEditor({
   const changed = check.ok && !sameOffsets(check.values, entry.offsets_us);
   const canSave = check.ok && changed && !saving;
   const pristine = draft.length === entry.offsets_us.length && draft.every((s, i) => s === String(entry.offsets_us[i]));
-  const view = result === null ? null : saveResultViewOf(result.result, fire, result.at);
+  const view = result === null ? null : saveResultViewOf(result.result, fire, result.at, result.reread);
 
   const setAt = (i: number, v: string) => onDraft(draft.map((s, j) => (j === i ? v : s)));
   const add = () => onDraft([...draft, draft[draft.length - 1] ?? String(entry.offsets_us[0] ?? 0)]);

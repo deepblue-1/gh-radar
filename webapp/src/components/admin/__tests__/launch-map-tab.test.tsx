@@ -591,9 +591,10 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
         change: null,
       });
     const container = await saveKbq();
+    // R3-WR-01 다시 읽기 비행 중 — 「다시 읽은 계획」 이라고 말하지 않는다.
     await waitFor(() =>
       expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
-        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+        'KB120 응답 없음: 반영됐는지 몰라요 — 계획을 다시 읽는 중이에요',
       ),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2); // 다시 읽기 R 이 나갔다(아직 응답 없음)
@@ -646,6 +647,81 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
       await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
       cleanup();
     }
+  });
+
+  it('R3-WR-01 다시 읽기가 KB120 값을 반영하면 「응답 없음」 줄은 읽는 중 → 「다시 읽은 계획으로 확인」', async () => {
+    let releaseReload!: (v: { kind: 'ready'; resp: LaunchPlanResponse }) => void;
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockReturnValueOnce(new Promise((r) => (releaseReload = r)));
+    vi.mocked(saveLaunchPlan).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null });
+    const container = await saveKbq();
+    const line = () => one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent;
+    await waitFor(() => expect(line()).toBe('KB120 응답 없음: 반영됐는지 몰라요 — 계획을 다시 읽는 중이에요'));
+    releaseReload({ kind: 'ready', resp: reloaded() });
+    await waitFor(() => expect(line()).toBe('KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인'));
+    expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+      `3조각 ${M}350 · ${M}340 · ${M}325µs`,
+    );
+  });
+
+  // R3-WR-01 — 다시 읽기가 대상 서버(KB120) 값을 못 가져오면 보이는 계획은 저장 전 값 그대로이고, 결과 줄이 그 사실을 말한다.
+  const REREAD_FAILED_LINE =
+    'KB120 응답 없음: 반영됐는지 몰라요 — 계획을 다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있어요) · 잠시 뒤 새로고침';
+  type PlanFetch = Awaited<ReturnType<typeof fetchLaunchPlan>>;
+  const REREAD_MISSES: [string, () => Promise<PlanFetch>][] = [
+    ['그 서버 timeout', async () => ({ kind: 'ready', resp: planResp({ KB120: { status: 'timeout' } }) })],
+    ['그 서버 offline', async () => ({ kind: 'ready', resp: planResp({ KB120: { status: 'offline', message: 'x' } }) })],
+    ['그 서버 failed', async () => ({ kind: 'ready', resp: planResp({ KB120: { status: 'failed', code: 10, message: 'x' } }) })],
+    ['404 absent', async () => ({ kind: 'absent' })],
+    ['요청 throw', () => Promise.reject(new Error('network'))],
+  ];
+  const SAVE_UNKNOWNS: [string, () => void][] = [
+    [
+      '응답 timeout',
+      () =>
+        vi.mocked(saveLaunchPlan).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null }),
+    ],
+    ['요청 throw', () => vi.mocked(saveLaunchPlan).mockRejectedValue(new Error('timeout'))],
+  ];
+  it.each(SAVE_UNKNOWNS.flatMap(([s, save]) => REREAD_MISSES.map(([r, reread]) => [s, r, save, reread] as const)))(
+    'R3-WR-01 저장 %s → 다시 읽기 %s → 결과 줄 「다시 읽지 못했어요」 · 계획 줄은 저장 전 값',
+    async (_s, _r, save, reread) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.mocked(fetchLaunchPlan)
+        .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+        .mockImplementationOnce(reread);
+      save();
+      const container = await saveKbq();
+      const kbq = () => panelOf(container, 'KB120', 'Q');
+      await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(REREAD_FAILED_LINE));
+      expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+      expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}345 · ${M}325µs`);
+      warn.mockRestore();
+    },
+  );
+
+  it('R3-WR-01 다시 읽기 결과는 그 저장에만 붙는다 — 같은 칸을 다시 저장했으면 앞 다시 읽기의 결과는 버린다', async () => {
+    let releaseFirst!: (v: PlanFetch) => void;
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockReturnValueOnce(new Promise((r) => (releaseFirst = r)))
+      .mockReturnValueOnce(new Promise(() => {})); // 두 번째 저장의 다시 읽기 — 끝나지 않는다
+    vi.mocked(saveLaunchPlan).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null });
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    const line = () => one(kbq(), '[data-slot="launch-plan-result-line"]')?.textContent;
+    const PENDING = 'KB120 응답 없음: 반영됐는지 몰라요 — 계획을 다시 읽는 중이에요';
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(false));
+    // 같은 칸 다시 저장(입력 그대로 · 서버 값과 다르니 「저장」 이 켜져 있다) — 또 결과 모름.
+    fireEvent.click(one(kbq(), '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(line()).toBe(PENDING));
+    // 앞 다시 읽기가 이제야 못 읽음으로 끝난다 — 두 번째 저장의 줄을 「못 읽음」 으로 바꾸지 않는다.
+    releaseFirst({ kind: 'absent' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(line()).toBe(PENDING);
   });
 
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {

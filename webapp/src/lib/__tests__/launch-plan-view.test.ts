@@ -14,6 +14,7 @@ import {
   planEditWithDraft,
   planLineText,
   planNeedsReload,
+  planRereadOf,
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
@@ -278,6 +279,41 @@ describe('편집 · 저장(35-15)', () => {
     });
     // skipped 사유가 비면 이력 알약 낱말(「꺼진 서버」 · 35-14 changeOutcomeView 와 같은 말)
     expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped' }, 'q16', AT).line.text).toBe('KB120 미반영: 꺼진 서버');
+  });
+
+  it('saveResultViewOf timeout 줄 꼬리 = 다시 읽기 결과(R3-WR-01) — 확인은 대상 서버를 다시 읽어 반영했을 때만', () => {
+    const t = (reread?: 'pending' | 'ok' | 'superseded' | 'failed') =>
+      saveResultViewOf({ server: 'KB120', outcome: 'timeout' }, 'q16', AT, reread).line;
+    const lead = 'KB120 응답 없음: 반영됐는지 몰라요 — ';
+    expect(t()).toEqual({ tone: 'err', text: `${lead}다시 읽은 계획으로 확인` });
+    expect(t('ok')).toEqual({ tone: 'err', text: `${lead}다시 읽은 계획으로 확인` });
+    expect(t('pending')).toEqual({ tone: 'err', text: `${lead}계획을 다시 읽는 중이에요` });
+    expect(t('failed')).toEqual({
+      tone: 'err',
+      text: `${lead}계획을 다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있어요) · 잠시 뒤 새로고침`,
+    });
+    expect(t('superseded').text).toBe(
+      `${lead}그 뒤 새 저장이 있어 다시 읽은 값을 쓰지 않았어요(보이는 값은 이 저장 결과가 아닐 수 있어요) · 잠시 뒤 새로고침`,
+    );
+    // timeout 이 아닌 줄은 다시 읽기 결과와 무관(ok · plan null 은 보낸 값으로 이미 맞췄다 — WR-01)
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'ok' }, 'q16', AT, 'failed').line.text).toMatch(/^저장됨 · /);
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'offline' }, 'q16', AT, 'failed').line.text).toBe(
+      'KB120 미반영: 서버 연결 안 됨',
+    );
+  });
+
+  it('planRereadOf — take 에 들면 ok · 그 서버 ok 인데 take 밖이면 superseded · 그 밖(non-ok · 응답에 없음)은 failed', () => {
+    const ok: LaunchPlanServer = { status: 'ok', plan_rev: 1, updated_at: null, entries: [] };
+    const resp = (kb?: LaunchPlanServer): LaunchPlanResponse => ({
+      servers: kb === undefined ? { KYOBO119: ok } : { KB120: kb, KYOBO119: ok },
+      changes: [],
+    });
+    expect(planRereadOf(resp(ok), 'KB120', new Set(['KB120', 'KYOBO119']))).toBe('ok');
+    expect(planRereadOf(resp(ok), 'KB120', new Set(['KYOBO119']))).toBe('superseded');
+    expect(planRereadOf(resp({ status: 'timeout' }), 'KB120', new Set(['KYOBO119']))).toBe('failed');
+    expect(planRereadOf(resp({ status: 'offline' }), 'KB120', new Set(['KYOBO119']))).toBe('failed');
+    expect(planRereadOf(resp({ status: 'failed', code: 10, message: 'x' }), 'KB120', new Set(['KYOBO119']))).toBe('failed');
+    expect(planRereadOf(resp(), 'KB120', new Set(['KYOBO119']))).toBe('failed');
   });
 
   it('planNeedsReload — plan null 이고 결과 모름(timeout · CR-01) · 저장 ok(WR-01)일 때만 다시 읽는다', () => {

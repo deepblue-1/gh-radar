@@ -30,12 +30,14 @@ import {
   planEditOf,
   planEditWithDraft,
   planNeedsReload,
+  planRereadOf,
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
   rejectedSaveResultOf,
   sameOffsets,
   type LaunchPlanEdit,
+  type LaunchPlanReread,
   type LaunchPlanState,
   type PanelPlan,
 } from '@/lib/launch-plan-view';
@@ -66,6 +68,9 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   없으면(relay 가 후 조회를 건너뜀 · 35 WR-01) 그 칸을 보낸 값으로 먼저 맞추고 편집 칸 기준도 보낸 값으로 다시 연 뒤 1회 다시 읽는다.
  *   다시 읽은 응답은 통째로 덮지 않는다(35 R2-WR-01) — 서버별로 status ok 이고 그 요청 뒤에 더 최신 값(저장 응답 · 더 늦은 다시
  *   읽기)이 반영되지 않은 서버만 바꾸고, 이력은 id 로 합친다. 실패 모양 응답 · 늦게 온 응답이 마지막 값을 지우거나 되돌리지 않는다.
+ *   「응답 없음」 줄 꼬리는 다시 읽기가 대상 서버를 어떻게 끝냈는지 보인다(35 R3-WR-01) — 읽는 중 · 다시 읽은 계획으로 확인(반영함) ·
+ *   다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음) · 더 새 저장에 밀림. 마지막 값을 지키는 것과 그 값이 확인된 값인지 알리는
+ *   것을 가른다.
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
@@ -88,7 +93,9 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
   const [edit, setEdit] = useState<LaunchPlanEdit | null>(null);
   const [saving, setSaving] = useState<string | null>(null); // 저장 중인 칸 키
   // 저장 결과는 대상 칸 키와 함께 둔다 — 응답이 오기 전에 다른 패널을 열었으면 그 패널에 결과를 띄우지 않는다.
-  const [lastSave, setLastSave] = useState<{ key: string; save: LaunchPlanSaveState } | null>(null);
+  // id = 저장 1건 — 다시 읽기 결과(R3-WR-01)는 그 저장의 결과에만 붙인다(그 사이 같은 칸을 다시 저장했으면 버린다).
+  const [lastSave, setLastSave] = useState<{ key: string; id: number; save: LaunchPlanSaveState } | null>(null);
+  const saveSeq = useRef(0);
   const editing = edit !== null && edit.fire === fire ? edit : null;
 
   // 계획은 탭 진입 1회 — fire · range 와 무관(D-25). 404 → absent(배포 전) · 그 밖 실패 → error(대신 값).
@@ -147,15 +154,20 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
     planSeen.current[gateway] = planSeq.current;
   };
 
-  // 저장 결과를 모를 때 · ok 인데 plan 이 없을 때 서버 계획(+ 이력)을 1회 다시 읽는다. 실패 · 404 면 지금 상태 그대로(화면은 이미
-  // 「응답 없음」). 반영은 서버별 — status ok 이고 이 요청 뒤에 더 최신 값이 반영되지 않은 서버만 바꾼다(`planStateWithReload`).
+  // 저장 결과를 모를 때 · ok 인데 plan 이 없을 때 서버 계획(+ 이력)을 1회 다시 읽는다. 실패 · 404 면 계획은 지금 상태 그대로.
+  // 반영은 서버별 — status ok 이고 이 요청 뒤에 더 최신 값이 반영되지 않은 서버만 바꾼다(`planStateWithReload`).
   // 진행 중 요청에 합치지 않는다(`fresh` — 합치면 먼저 나간 요청의 옛 응답을 이 세대 번호로 반영한다).
-  const reloadPlan = () => {
+  // 대상 서버(`gateway`)를 어떻게 끝냈는지는 `settle` 로 알린다(35 R3-WR-01) — 결과 줄이 「다시 읽은 계획」 이라고 말하는 것은
+  // 그 서버 값을 실제로 반영했을 때뿐이다. 못 읽음(그 서버 non-ok · 응답에 없음 · 404 · 요청 실패)은 failed.
+  const reloadPlan = (gateway: string, settle: (reread: LaunchPlanReread) => void) => {
     planSeq.current += 1;
     const seq = planSeq.current;
     fetchLaunchPlan({ fresh: true }).then(
       (r) => {
-        if (r.kind !== 'ready') return;
+        if (r.kind !== 'ready') {
+          settle('failed');
+          return;
+        }
         const take = new Set(
           Object.keys(r.resp.servers).filter(
             (g) => r.resp.servers[g]?.status === 'ok' && seq > (planSeen.current[g] ?? 0),
@@ -163,8 +175,12 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
         );
         for (const g of take) planSeen.current[g] = seq;
         setPlan((s) => planStateWithReload(s, r.resp, take));
+        settle(planRereadOf(r.resp, gateway, take));
       },
-      () => {},
+      (e: unknown) => {
+        console.warn('[launch-map] 저장 뒤 계획 다시 읽기 실패', e);
+        settle('failed');
+      },
     );
   };
 
@@ -181,6 +197,11 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
       e.draft.length === draft.length &&
       e.draft.every((v, i) => v === draft[i]);
     const key = planEditKeyOf(editing);
+    saveSeq.current += 1;
+    const id = saveSeq.current;
+    // 다시 읽기 결과를 이 저장의 결과 줄에 붙인다 — 그 사이 결과가 지워졌거나(다른 패널 · 입력 고침) 다른 저장으로 바뀌었으면 버린다.
+    const settle = (reread: LaunchPlanReread) =>
+      setLastSave((l) => (l !== null && l.id === id ? { ...l, save: { ...l.save, reread } } : l));
     setSaving(key);
     setLastSave(null);
     saveLaunchPlan(gateway, f, market, valid)
@@ -200,21 +221,26 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
           });
           const saved = sentOnly ? valid : ok ? (launchPlanEntryOf(resp.plan ?? undefined, f, market)?.offsets_us ?? null) : null;
           setEdit((e) => (untouched(e) && saved !== null ? planEditOf(gateway, market, f, saved) : e));
-          setLastSave({ key, save: { result: resp.result, at: new Date() } });
-          if (reload) reloadPlan();
+          const at = new Date();
+          setLastSave({ key, id, save: reload ? { result: resp.result, at, reread: 'pending' } : { result: resp.result, at } });
+          if (reload) reloadPlan(gateway, settle);
         },
         (e: unknown) => {
           // server 가 4xx 로 거부(401 세션 만료 · 403 · 400 검증 — relay 호출 · 이력 기록 전) — 확정 미반영(35 R2-IN-01). 「실패」 로
           // 보이고 다시 읽지 않는다(바뀐 것 없음).
           if (e instanceof ApiClientError && e.status >= 400 && e.status < 500) {
-            setLastSave({ key, save: { result: rejectedSaveResultOf(gateway, e.status, e.message), at: new Date() } });
+            setLastSave({ key, id, save: { result: rejectedSaveResultOf(gateway, e.status, e.message), at: new Date() } });
             return;
           }
           // 요청 자체가 실패(브라우저 타임아웃 · 네트워크 · 5xx) — server 는 이미 저장 · 이력 기록을 마쳤을 수 있다(35 CR-01).
           // 「미반영」 으로 단정하지 않고 결과 모름(timeout)으로 보이고 서버 값을 다시 읽는다.
-          setLastSave({ key, save: { result: { server: gateway, outcome: 'timeout' }, at: new Date() } });
+          setLastSave({
+            key,
+            id,
+            save: { result: { server: gateway, outcome: 'timeout' }, at: new Date(), reread: 'pending' },
+          });
           markPlan(gateway);
-          reloadPlan();
+          reloadPlan(gateway, settle);
         },
       )
       .finally(() => setSaving(null));
