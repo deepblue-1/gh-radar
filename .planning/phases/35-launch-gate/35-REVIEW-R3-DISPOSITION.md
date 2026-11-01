@@ -5,7 +5,7 @@ titles: json
 findings:
   - id: R3-WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "다시 읽기가 그 서버 값을 못 가져와도 저장 전 값이 「다시 읽은 계획」 처럼 남음 — 결과 줄은 「다시 읽은 계획으로 확인」 인데 확인할 값이 없음"
   - id: R3-IN-01
     severity: info
@@ -23,18 +23,18 @@ findings:
     severity: info
     disposition: open
     title: "relay VM 이 꺼진 경우(SYN 무응답 → `ECONNABORTED`)는 여전히 timeout(「반영됐을 수 있음」)으로 이력에 쌓임"
-open: 5
+open: 4
 total: 5
-recorded: 2026-11-01T05:45:00.000Z
+recorded: 2026-11-01T06:55:00.000Z
 ---
 
 # Phase 35: Code Review Disposition — 3차(R3)
 
-1차 처리 기록은 `35-REVIEW-DISPOSITION.md`(7/7 fixed), 2차는 `35-REVIEW-R2-DISPOSITION.md`(4/4 fixed)가 정본이다. 이 파일은 2차 수정분을 다시 본 `35-REVIEW-R3.md` 의 findings 만 기록한다. R2 지적 4건은 R3 리뷰에서 모두 닫힘으로 판정됐다.
+1차 처리 기록은 `35-REVIEW-DISPOSITION.md`(7/7 fixed), 2차는 `35-REVIEW-R2-DISPOSITION.md`(4/4 fixed)가 정본이다. 이 파일은 2차 수정분을 다시 본 `35-REVIEW-R3.md` 의 findings 만 기록한다. R2 지적 4건은 R3 리뷰에서 모두 닫힘으로 판정됐다. `--fix`(Critical+Warning 범위)로 R3-WR-01 만 고쳤고, Info 4건은 범위 밖이라 open 으로 남는다.
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| R3-WR-01 | warning | open | 35-REVIEW-R3.md |
+| R3-WR-01 | warning | fixed | 35-REVIEW-FIX-R3.md (4b3f0b6a) |
 | R3-IN-01 | info | open | 35-REVIEW-R3.md |
 | R3-IN-02 | info | open | 35-REVIEW-R3.md |
 | R3-IN-03 | info | open | 35-REVIEW-R3.md |
