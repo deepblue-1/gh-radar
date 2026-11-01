@@ -1,19 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 35-launch-gate
 source: [35-VERIFICATION.md, 35-VERIFICATION-R2.md, 35-VERIFICATION-R3.md, 35-VERIFICATION-R4.md]
 started: 2026-11-01T00:00:00+09:00
-updated: 2026-11-01T17:20:00+09:00
+updated: 2026-11-01T08:41:30.651Z
 ---
 
 ## Current Test
 
-number: 6
-name: 35-REVIEW-R4 처리 결정 — R4-IN-01(offline 칩·이력 알약 글자 「서버 연결 안 됨」 고정) · R4-IN-02(saveRowSeenIn 이 다른 저장 행도 증거로 받음) · R4-IN-03(연결 상한 50ms 테스트 흔들림)
-expected: |
-  셋 다 Info. 고친다면 소형: R4-IN-01 — offline 사유별 칩·알약 글자, R4-IN-03 — 테스트 연결 500ms · 응답 1500ms. R4-IN-02 는 admin_email 로 출처를 좁히거나 주석 정정.
-  안 고친다면 35-REVIEW-R4-DISPOSITION.md 에 각 건 deferred + 사유를 적는다.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -29,7 +24,8 @@ note: 둘 다 「고친다」 로 처리됨 — 185f9252 · 2d81a7be. R2 재검�
 
 ### 3. UI 검토(35-UI-REVIEW 15/24) — µs 입력칸 포커스 링 · 지도 값 hover 전용 · 작은 터치 타깃
 expected: 폰 390 · 키보드 포커스에서 입력칸 포커스가 보이고, 지도 값이 터치에서도 읽힌다.
-result: [pending]
+result: pass
+note: 사용자 확인 2026-11-01 — 「다 문제없어」. 코드 전용 감사(15/24)의 지적은 어드민 전용 화면이라 수용.
 
 ### 4. 35-REVIEW-R2 처리 결정 — R2-WR-01 · R2-WR-02 · R2-WR-03 · R2-IN-01 (35-REVIEW-R2-DISPOSITION.md 4건 open)
 expected: 고친다면 소형 갭 클로징(① 웹 reloadPlan 순번 가드 + 서버별 ok 일 때만 반영 ② relay read() 요청 마감 ③ server 의 확실히 안 보낸 실패는 offline 유지). 안 고친다면 각 건 deferred + 사유.
@@ -43,14 +39,15 @@ note: 5건 모두 「고친다」 로 처리됨 — 4b3f0b6a · 9b14921b · 0963
 
 ### 6. 35-REVIEW-R4 처리 결정 — R4-IN-01 · R4-IN-02 · R4-IN-03 (35-REVIEW-R4-DISPOSITION.md 3건 open, 모두 Info)
 expected: 고친다면 소형(R4-IN-01 사유별 칩·알약 글자 · R4-IN-03 테스트 시간 상한 확대 · R4-IN-02 출처 좁히기 또는 주석 정정). 안 고친다면 각 건 deferred + 사유.
-result: [pending]
+result: pass
+note: 사용자 결정 2026-11-01 — 「다 문제없어 phase 35 닫자」. 3건 모두 고치지 않고 deferred(35-REVIEW-R4-DISPOSITION.md open 0).
 
 ## Summary
 
 total: 6
-passed: 4
+passed: 6
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
