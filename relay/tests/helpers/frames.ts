@@ -1847,7 +1847,8 @@ export type FakeLimitFeatureMemberInput = {
  * 85 `LimitFeature` 입력(34필드 선택). 기본값 = **잠김 시나리오**(lock 1 · 43초째 · 대기 17.3억 · 소진 ∞ ·
  * 누적 매도 6.0억 · 취소 4.6억(위험도 35%) · 매수 창구 00050 · 매도 창구 00002) — e2e P28-1 이 「상한가 · 잠김 43초」 ·
  * 누적 행 「매도 6.0억 | 취소 4.6억 | 위험도 35%」 · title 첫 줄 「잠김 43초째 · 대기 17.3억 · 소진 —」 을 단언하는 근거다.
- * 실서버 값이 아니다. `lockSellKrw` · `lockCancelKrw` 에 0n 을 주면 구 서버 프레임(필드 부재 → 기본값 0)과 같다.
+ * 실서버 값이 아니다. `lockSellKrw` · `lockCancelKrw` · `limitVolQty` 에 0n 을 주면 구 서버 프레임(필드 부재 → 기본값 0)과 같다.
+ * `limitVolQty` 는 **기본이 미기록(0n) = 구 gh-trade 서버(nd7 이전) 프레임**이다(quick-261101-0r3).
  */
 export type FakeLimitFeatureInput = {
   isin?: string;
@@ -1885,6 +1886,11 @@ export type FakeLimitFeatureInput = {
   lockSellKrw?: bigint;
   /** fbs ea8d9171 말미 append — 같은 창 상한가 매수잔량 취소 금액(원, 하한). */
   lockCancelKrw?: bigint;
+  /**
+   * fbs nd7(8f284735) 말미 append — 상한가 거래량(주, 위험도 분자 ÷ qQty). **기본은 미기록 = 구 gh-trade 서버 프레임**
+   * (quick-261101-0r3).
+   */
+  limitVolQty?: bigint;
 };
 
 /** 기본 매수 창구(잠김 시나리오). */
@@ -1955,6 +1961,10 @@ export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8
   LimitFeature.addPHorizonS(b, input.pHorizonS ?? 0);
   LimitFeature.addLockSellKrw(b, input.lockSellKrw ?? 600_000_000n);
   LimitFeature.addLockCancelKrw(b, input.lockCancelKrw ?? 460_000_000n);
+  // 기본 0n(= 필드 부재, 구 gh-trade 서버 모양) — 기본 프레임은 webapp e2e 가 「위험도 35%」 · 「위험도 286%」 를 단언하는
+  // 근거다. 기본을 구 서버 모양으로 두면 shared 위험도 칸 갈래 B(옛 식 lockSellKrw ÷ qKrw)로 가서 e2e · hub 기대가 바뀌지
+  // 않는다(quick-261101-0r3).
+  LimitFeature.addLimitVolQty(b, input.limitVolQty ?? 0n);
   const feature = LimitFeature.endLimitFeature(b);
 
   Envelope.startEnvelope(b);

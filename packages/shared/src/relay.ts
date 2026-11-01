@@ -1877,6 +1877,13 @@ export type RelayLimitFeatureMsg = {
    * upperPx). 유지 · 0 규칙은 `lockSellKrw` 와 같다.
    */
   lockCancelKrw: number;
+  /**
+   * 상한가 거래량(주 · fbs nd7 8f284735 `limit_vol_qty` — A3 누적거래량 − 기준점(직전 매도 체결 직후 누적)). 위험도 분자
+   * (÷ `qQty`). 이 relay(quick-261101-0r3)부터는 늘 실린다 — 구 gh-trade 서버(필드 부재)는 0.
+   * **키 없음** = 이 필드를 모르는 구 relay 또는 kind 15 다리(`limitFeatureOfStrategyEvent`) — 「없음」 과 「0」 을 가르는
+   * 유일한 신호라 optional 로 둔다(required 로 바꾸지 말 것). 표시 갈래는 `limitFeatureCells` 누적 행 위험도 칸.
+   */
+  limitVolQty?: number;
 };
 
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */

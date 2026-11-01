@@ -920,6 +920,8 @@ export function parseQueueProgress(env: Envelope): QueueProgressFrame | null {
  * - 공개 시세 파생값이라 계좌 · 주문자 필드가 없다 — 계좌 스킵 로깅이 필요 없다.
  * - `list_shares` · `team_sim` 은 싣지 않는다(표시 자리 없음 — shared `RelayLimitFeatureMsg` JSDoc).
  * - fbs ea8d9171 — 85 말미 append 2필드(`lock_sell_krw` · `lock_cancel_krw`, 원), 구 서버 프레임은 FlatBuffers 기본값 0(quick-261006-ide).
+ * - fbs nd7(8f284735) — 85 말미 `limit_vol_qty`(주) → `limitVolQty`, 구 서버 프레임은 기본값 0(quick-261101-0r3). nbu(bac82294)
+ *   의 `upper_max_fill_krw` · `upper_max_fill_date` 는 싣지 않는다(사용자 결정). 위험도는 계산하지 않는다(D-19 — shared 표시 함수).
  */
 export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
   const msgType = MSG.LimitFeature;
@@ -986,6 +988,7 @@ export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
     pHorizonS: lf.pHorizonS(),
     lockSellKrw: toNum(lf.lockSellKrw(), "limit_feature.lock_sell_krw"),
     lockCancelKrw: toNum(lf.lockCancelKrw(), "limit_feature.lock_cancel_krw"),
+    limitVolQty: toNum(lf.limitVolQty(), "limit_feature.limit_vol_qty"),
   };
 }
 

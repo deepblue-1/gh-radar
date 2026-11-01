@@ -1612,6 +1612,18 @@ describe("WsFanout", () => {
       expect(framesOf(price.inbox, "limit.feature")).toHaveLength(0);
       expect(h.hub.getLimitFeature(SAMPLE_ISIN, "KRX")).toMatchObject({ lockState: 1 });
     });
+
+    it("LF2 quick-261101-0r3 limit_vol_qty 53,231 → full 소켓 limit.feature 프레임에 limitVolQty 53_231", async () => {
+      const full = await authed("token-a");
+      full.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(SAMPLE_ISIN, "KRX") === 1, "full 구독");
+
+      quoteGateway.sendLimitFeature(quoteSock, { limitVolQty: 53_231n });
+      await waitFor(() => framesOf(full.inbox, "limit.feature").length === 1, "full 소켓 85");
+
+      const frames = framesOf(full.inbox, "limit.feature");
+      expect(frames[0]).toMatchObject({ t: "limit.feature", i: SAMPLE_ISIN, x: "KRX", limitVolQty: 53_231 });
+    });
   });
 
   describe("Phase 28 85 스냅샷 (D-23) — 새 키 full · price→full 승격 직후 q → tape → 85, price 소켓 제외", () => {

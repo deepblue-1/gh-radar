@@ -13,6 +13,8 @@
  * 창구 `message` 파서(total) · 주문로그 한 줄 조각 `limitFeatureLogParts`(UI-SPEC ②-2 정본 — WinForms 에 kind 15 분기 없음).
  * quick-261006-ide — gh-trade gp8 · f1j 동형: 지금 행 → 툴팁 첫 줄(상태 줄), 누적 행(이번 잠김 매도 · 취소 · 위험도) ·
  * 잠김 경과 머리(`limitFeatureRowHeads` — 누적 행 머리를 「m:ss」 로 덮는다).
+ * quick-261101-0r3 — 누적 행 위험도 = limit_vol_qty ÷ q_qty(gh-trade nd7 동형, 잠기기 전에도 표시). 구 relay(키 없음) · 구 서버
+ * (limitVolQty 0 판별)는 옛 식 lockSellKrw ÷ qKrw.
  */
 
 import { memberName } from "./member-codes";
@@ -177,27 +179,52 @@ function limitFeatureStatus(msg: RelayLimitFeatureMsg): [string, string, string]
   return now;
 }
 
+/** 옛 식 위험도 칸 — 누적 매도 ÷ 대기 금액(qKrw 0 → 「위험도 —」). */
+function krwRiskCell(msg: RelayLimitFeatureMsg): LimitFeatureCell {
+  return cell(msg.qKrw === 0 ? `위험도 ${DASH}` : `위험도 ${roundPctHalfEven(msg.lockSellKrw, msg.qKrw)}%`);
+}
+
+/** 누적 행 위험도 칸 3갈래(A 키 없음 · B 구 서버 판별 · C 새 식) — 규칙 · 근거는 `limitFeatureCells` JSDoc. */
+function lockRiskCell(msg: RelayLimitFeatureMsg, noLock: boolean): LimitFeatureCell {
+  const vol = msg.limitVolQty;
+  if (vol === undefined) return noLock ? cell(DASH) : krwRiskCell(msg);
+  if (vol === 0 && msg.lockState !== 0 && msg.lockSellKrw > 0) return krwRiskCell(msg);
+  const noRisk = msg.qQty === 0 || (msg.lockState === 0 && vol === 0);
+  return cell(noRisk ? `위험도 ${DASH}` : `위험도 ${roundPctHalfEven(vol, msg.qQty)}%`);
+}
+
 /**
  * 9칸(행 우선 — `row * 3 + col`: 누적 · 10초 · 창구). null(85 없음 · 아직 안 옴 · 구 서버 · 대상 밖 키 · 접힌 카드)이면
  * 9칸 모두 「—」(faint).
  *
- * 누적 행(WinForms quick-261006-f1j 원문 갈래 — 이번 잠김 누적 매도 · 취소 금액은 서버 값, 위험도는 두 서버 값의 비율):
- *   - 잠김 없음(lock 0, 또는 lock 2 이고 두 금액 모두 0): 「—」 ×3(fg)
- *   - 그 밖: 「매도 {억}」(down) · 「취소 {억}」(down) · 「위험도 NN%」(fg — lockSellKrw ÷ qKrw × 100 짝수 반올림,
- *     100% 초과 가능) / qKrw 0 → 「위험도 —」. lock 1 은 두 금액이 0 이어도 「매도 0」.
+ * 누적 행(WinForms LimitChaserForm 동형 — 이번 잠김 누적 매도 · 취소 금액은 서버 값, 위험도는 두 서버 값의 비율):
+ *   - 매도 · 취소 두 칸(f1j 원문 갈래): 잠김 없음(lock 0, 또는 lock 2 이고 두 금액 모두 0) → 「—」 ×2(fg), 그 밖
+ *     「매도 {억}」(down) · 「취소 {억}」(down). lock 1 은 두 금액이 0 이어도 「매도 0」.
+ *   - 위험도 칸(fg · 짝수 반올림 정수 % · 100% 초과 가능 — quick-261101-0r3, 위에서 처음 맞는 갈래):
+ *     A. `limitVolQty` 키 없음(구 relay · kind 15 다리) — 오늘 규칙 그대로: 잠김 없음 → 「—」, qKrw 0 → 「위험도 —」,
+ *        그 밖 「위험도 {lockSellKrw ÷ qKrw}%」.
+ *     B. limitVolQty 0 ∧ lock ≠ 0 ∧ lockSellKrw > 0(새 relay 뒤 구 gh-trade 서버) — 옛 식 lockSellKrw ÷ qKrw(qKrw 0 → 「—」).
+ *     C. 그 밖(새 식, WinForms nd7 `noRisk` 동형): qQty 0 이거나 (lock 0 ∧ limitVolQty 0) → 「위험도 —」, 그 밖
+ *        「위험도 {limitVolQty ÷ qQty}%」. 잠김 없음이어도(잠기기 전 · 확정 잠김 없는 lock 2) 숫자를 낸다.
+ *
+ * 갈래 B 판별 근거: 새 서버에서는 잠김 중 상한가 매도 주도 체결이 하나라도 있으면(lockSellKrw > 0) 그 매도가 상한가 거래량
+ * 카운터를 동결시키며 셈에 들고, 카운터를 내리는 것은 상한가 미만 체결뿐인데 잠김(매수1 = 상한가) 중에는 상한가 미만 체결이
+ * 날 수 없다 → lock 1 에서 「limitVolQty 0 ∧ lockSellKrw > 0」 은 필드를 싣지 않는 구 서버만 만든다. lock 2(깨짐 뒤)는 새
+ * 서버에서도 상한가 미만 매도 뒤 0 이 될 수 있지만, 그 매도는 그 순간 상한가 매수잔량이 없다는 뜻이라 qQty · qKrw 가 함께 0 →
+ * 두 식 모두 「위험도 —」 로 같다. 남는 차이는 깨진 뒤 상한가 매수가 다시 쌓였는데 아직 상한가 체결이 없는 짧은 순간과 누적
+ * 역행 재시작 같은 이상 데이터뿐이다(그때 옛 식 값이 보인다 — 받아들인 잔여).
+ * WinForms 는 구 서버를 옛 식으로 돌리지 않고 잠긴 뒤 「위험도 0%」 를 보인다 — 웹은 사용자 결정(「구 서버는 옛 식」)에 따라
+ * 갈래 B 로 다르다.
  */
 export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatureCell[] {
   if (msg === null) return Array.from({ length: 9 }, () => ({ ...EMPTY_CELL }));
 
   const noLock =
     msg.lockState === 0 || (msg.lockState === 2 && msg.lockSellKrw === 0 && msg.lockCancelKrw === 0);
+  const risk = lockRiskCell(msg, noLock);
   const cum: LimitFeatureCell[] = noLock
-    ? [cell(DASH), cell(DASH), cell(DASH)]
-    : [
-        cell(`매도 ${formatEok(msg.lockSellKrw)}`, "down"),
-        cell(`취소 ${formatEok(msg.lockCancelKrw)}`, "down"),
-        cell(msg.qKrw === 0 ? `위험도 ${DASH}` : `위험도 ${roundPctHalfEven(msg.lockSellKrw, msg.qKrw)}%`),
-      ];
+    ? [cell(DASH), cell(DASH), risk]
+    : [cell(`매도 ${formatEok(msg.lockSellKrw)}`, "down"), cell(`취소 ${formatEok(msg.lockCancelKrw)}`, "down"), risk];
 
   // 10초 행 — 체결 우세(큰 쪽 비율 · 짝수 반올림) · 잠김 중 잔량 신규/취소, 그 밖 체결 합.
   const led = msg.sellLed10s + msg.buyLed10s;
@@ -341,7 +368,8 @@ function toFeatureMember(m: LimitFeatureMessageMember): RelayLimitFeatureMember 
 /**
  * kind 15 행 → 85 `RelayLimitFeatureMsg` 모양(숫자 슬롯 매핑표 = 특징 사전 ③ 그대로). 행에 없는 값(basePx · burstUpperLimit ·
  * memberDeltaPartial · modelSchemaVersion · pHorizonS · lockSellKrw · lockCancelKrw)은 0/false 다 — 누적 매도 · 취소는
- * kind 15 슬롯에 싣지 않는다(gh-trade 2026-10-06 결정, 슬롯 매핑 무변경). modelState = snap_qty 길이(원소 값은 의미 없다).
+ * kind 15 슬롯에 싣지 않는다(gh-trade 2026-10-06 결정, 슬롯 매핑 무변경). limitVolQty 는 키 자체를 싣지 않는다(위험도 칸
+ * 갈래 A — 오늘과 같은 옛 식 · kind 15 에 슬롯이 없다). modelState = snap_qty 길이(원소 값은 의미 없다).
  * 9칸 숫자 함수와 kind 15 문장이 같은 표기를 쓰게 하는 다리다 — 값을 보정하지 않는다.
  */
 export function limitFeatureOfStrategyEvent(row: StrategyEventRow): RelayLimitFeatureMsg {

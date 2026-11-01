@@ -196,6 +196,82 @@ describe("quick-261006-ide limitFeatureCells — 누적 행 (WinForms f1j 동형
   });
 });
 
+describe("위험도 칸 3갈래 — limitVolQty(quick-261101-0r3 · gh-trade nd7 LimitChaserForm 동형)", () => {
+  const texts = (msg: RelayLimitFeatureMsg) => cumRow(msg).map((c) => c.text);
+
+  describe("갈래 B — 키 있음 · limitVolQty 0 · lock ≠ 0 · lockSellKrw > 0 (구 gh-trade 서버) → 옛 식 lockSellKrw ÷ qKrw", () => {
+    it("lock 1 · 매도 6.0억 · 대기 17.3억 → 「위험도 35%」", () => {
+      expect(cumRow(feature({ limitVolQty: 0 }))[2]).toEqual({ text: "위험도 35%", tone: "fg", narrow: null });
+    });
+    it("lock 2 · qKrw 2.1억 → 「위험도 286%」", () => {
+      expect(texts(feature({ limitVolQty: 0, lockState: 2, qKrw: 210_000_000 }))).toEqual([
+        "매도 6.0억",
+        "취소 4.6억",
+        "위험도 286%",
+      ]);
+    });
+    it("qKrw 0 → 「위험도 —」", () => {
+      expect(texts(feature({ limitVolQty: 0, qKrw: 0 }))[2]).toBe("위험도 —");
+    });
+  });
+
+  describe("갈래 C — 새 식 limitVolQty ÷ qQty(짝수 반올림 정수 %)", () => {
+    it("limitVolQty 53,231 · qQty 133,077 → 「위험도 40%」(같은 프레임 lockSellKrw ÷ qKrw 35% 가 아니다) · tone fg", () => {
+      expect(cumRow(feature({ limitVolQty: 53_231 }))).toEqual([
+        { text: "매도 6.0억", tone: "down", narrow: null },
+        { text: "취소 4.6억", tone: "down", narrow: null },
+        { text: "위험도 40%", tone: "fg", narrow: null },
+      ]);
+    });
+    it("짝수 반올림 — 125/1000 → 12% · 135/1000 → 14%", () => {
+      expect(texts(feature({ limitVolQty: 125, qQty: 1000 }))[2]).toBe("위험도 12%");
+      expect(texts(feature({ limitVolQty: 135, qQty: 1000 }))[2]).toBe("위험도 14%");
+    });
+    it("100% 초과 그대로 — 26,000/10,000 → 「위험도 260%」", () => {
+      expect(texts(feature({ limitVolQty: 26_000, qQty: 10_000 }))[2]).toBe("위험도 260%");
+    });
+    it("잠기기 전(lock 0)에도 위험도만 보인다 — 「—」 · 「—」 · 「위험도 25%」", () => {
+      expect(cumRow(feature({ lockState: 0, limitVolQty: 3_000, qQty: 12_000 }))).toEqual([
+        { text: "—", tone: "fg", narrow: null },
+        { text: "—", tone: "fg", narrow: null },
+        { text: "위험도 25%", tone: "fg", narrow: null },
+      ]);
+    });
+    it("lock 0 · limitVolQty 0 → 「—」 · 「—」 · 「위험도 —」", () => {
+      expect(texts(feature({ lockState: 0, limitVolQty: 0 }))).toEqual(["—", "—", "위험도 —"]);
+    });
+    it("qQty 0 → 「위험도 —」", () => {
+      expect(texts(feature({ limitVolQty: 5_000, qQty: 0 }))[2]).toBe("위험도 —");
+    });
+    it("lock 1 막 잠김(두 금액 0 · limitVolQty 0) → 「매도 0」 · 「취소 0」 · 「위험도 0%」", () => {
+      expect(texts(feature({ limitVolQty: 0, lockSellKrw: 0, lockCancelKrw: 0 }))).toEqual(["매도 0", "취소 0", "위험도 0%"]);
+    });
+    it("lock 2 · 두 금액 0 · limitVolQty 0 → 「—」 · 「—」 · 「위험도 0%」(WinForms 처럼 lock 2 는 숫자)", () => {
+      expect(texts(feature({ lockState: 2, lockSellKrw: 0, lockCancelKrw: 0, limitVolQty: 0 }))).toEqual([
+        "—",
+        "—",
+        "위험도 0%",
+      ]);
+    });
+    it("툴팁 누적 줄도 같은 칸 — 「— · — · 위험도 25%」", () => {
+      expect(limitFeatureTooltip(feature({ lockState: 0, limitVolQty: 3_000, qQty: 12_000 }))).toContain(
+        "— · — · 위험도 25%",
+      );
+    });
+  });
+
+  it("갈래 A — 키 없음 · lock 0 → 누적 행 셋 다 「—」(오늘 결과 그대로)", () => {
+    const msg = feature({ lockState: 0 });
+    expect("limitVolQty" in msg).toBe(false);
+    expect(texts(msg)).toEqual(["—", "—", "—"]);
+  });
+
+  it("kind 15 다리는 limitVolQty 키를 싣지 않는다(갈래 A — 오늘과 같은 옛 식)", () => {
+    const row = STRATEGY_LIMIT_FEATURE_ROWS[0]!;
+    expect("limitVolQty" in limitFeatureOfStrategyEvent(row)).toBe(false);
+  });
+});
+
 describe("quick-261006-ide formatClock — WinForms FormatClock(누적 행 머리 경과)", () => {
   it("0 → 「0:00」 · 43 → 「0:43」 · 63 → 「1:03」 · 3920 → 「1:05:20」 · -5 → 「0:00」", () => {
     expect(formatClock(0)).toBe("0:00");
