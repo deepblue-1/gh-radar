@@ -31,13 +31,18 @@
     {
       "number": "35",
       "name": "발사 경계 지도 어드민",
-      "status": "in_progress"
+      "status": "complete"
+    },
+    {
+      "number": "36",
+      "name": "계좌별 주문가능 금액",
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 35 of 7 · 71% · executing"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-10-27T17:09:10.755Z"
+  "updated_at": "2026-11-01T08:42:15.703Z"
 }
