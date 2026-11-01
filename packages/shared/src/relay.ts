@@ -1904,6 +1904,14 @@ export type RelayLimitFeatureMsg = {
    * 유일한 신호라 optional 로 둔다(required 로 바꾸지 말 것). 표시 갈래는 `limitFeatureCells` 누적 행 위험도 칸.
    */
   limitVolQty?: number;
+  /**
+   * 상한가 최대 체결금액(원 · fbs nbu bac82294 `upper_max_fill_krw` — 한 주문 묶음 안 상한가 매수 체결 금액 합의 오늘 최대,
+   * 그날 첫 잠김에 동결). 오늘 값이 0 이면 그 키가 마지막으로 잠긴 날의 기록, 기록 없음 · 구 gh-trade 서버는 0.
+   * **키 없음** = 구 relay 또는 kind 15 다리 — `limitVolQty` 와 같은 이유로 optional. 표시는 `limitFeatureCells` 창구 셋째 칸.
+   */
+  upperMaxFillKrw?: number;
+  /** 위 값의 KST 거래일 yyyymmdd(fbs nbu `upper_max_fill_date`). 0 = 없음 · 구 서버, 키 없음 = 구 relay · kind 15 다리. */
+  upperMaxFillDate?: number;
 };
 
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */

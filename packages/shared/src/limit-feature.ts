@@ -15,6 +15,8 @@
  * 잠김 경과 머리(`limitFeatureRowHeads` — 누적 행 머리를 「m:ss」 로 덮는다).
  * quick-261101-0r3 — 누적 행 위험도 = limit_vol_qty ÷ q_qty(gh-trade nd7 동형, 잠기기 전에도 표시). 구 relay(키 없음) · 구 서버
  * (limitVolQty 0 판별)는 옛 식 lockSellKrw ÷ qKrw.
+ * quick-261101-owf — 창구 행 셋째 칸 깨짐확률 → 상한가 최대 체결금액(gh-trade nbu bac82294 동형 — 오늘 값 검정 · 지난 잠김 날
+ * 기록 회색 + 툴팁 「최대체결 M/d 기록」 · 0 · 키 없음 「최대체결 —」). 확률 필드는 kind 15 조각에만 남는다.
  */
 
 import { memberName } from "./member-codes";
@@ -28,7 +30,10 @@ export type LimitFeatureTone = "up" | "down" | "fg" | "muted" | "faint";
 export type LimitFeatureCell = {
   text: string;
   tone: LimitFeatureTone;
-  /** 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 만. null = 모든 밴드에서 `text`. */
+  /**
+   * 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 · 값 있는 창구 셋째 칸(「최대 12.3억」 — 웹 전용, WinForms 에
+   * 폰 밴드가 없다) 만. null = 모든 밴드에서 `text`.
+   */
   narrow: string | null;
 };
 
@@ -114,6 +119,37 @@ export function formatManQty(qty: number): string {
 function formatBpPct1(bp: number): string {
   const t = Math.floor((bp + 5) / 10);
   return `${Math.trunc(t / 10)}.${t % 10}`;
+}
+
+/** epoch ms → KST yyyymmdd 정수(UTC+9 고정 — 브라우저 시간대와 무관, WinForms `KstYmdOf`). 0 이하 → 0. */
+function kstYmdOf(epochMs: number): number {
+  if (!(epochMs > 0)) return 0;
+  const d = new Date(epochMs + 9 * 3_600_000);
+  return d.getUTCFullYear() * 10_000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+}
+
+/**
+ * 85 기준 「오늘」 KST yyyymmdd — 서버 1초 틱 시각(gwTimeMs)의 달력 날짜, 0 이면 지금 시각(WinForms `TodayKstYmd` — PC 날짜).
+ * 06:00 리셋과 무관한 달력 날짜다(WinForms 동형).
+ */
+function todayKstYmd(msg: Pick<RelayLimitFeatureMsg, "gwTimeMs">): number {
+  return kstYmdOf(msg.gwTimeMs) || kstYmdOf(Date.now());
+}
+
+/**
+ * 창구 행 셋째 칸 — 상한가 최대 체결금액(WinForms `BuildLimitFeatureCells` [11] · quick-261031-nbu 동형). 값 · 날짜 모두 서버 값,
+ * 오늘 날짜와 비교만 한다(D-19). 0 · 키 없음(구 relay · kind 15 다리) → 「최대체결 —」(muted), 날짜 = 오늘 → fg, 그 밖(지난 잠김
+ * 날 기록) → muted. 폰 밴드는 「최대 {억}」.
+ */
+function maxFillCell(msg: RelayLimitFeatureMsg): LimitFeatureCell {
+  const krw = msg.upperMaxFillKrw ?? 0;
+  if (krw === 0) return cell(`최대체결 ${DASH}`, "muted");
+  const eok = formatEok(krw);
+  return {
+    text: `최대체결 ${eok}`,
+    tone: msg.upperMaxFillDate === todayKstYmd(msg) ? "fg" : "muted",
+    narrow: `최대 ${eok}`,
+  };
 }
 
 /** 창구 목록에서 회원번호가 있는 첫 원소 — 없으면 null (WinForms `FirstMember`). */
@@ -242,15 +278,13 @@ export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatur
     ten = [lead, cell(`체결 ${formatGroup(led)}주`), cell(DASH)];
   }
 
-  // 창구 행 — 매수 · 매도 상위 1(회원번호 있는 첫 원소) + 깨짐확률(모델 적용 중일 때만).
+  // 창구 행 — 매수 · 매도 상위 1(회원번호 있는 첫 원소) + 상한가 최대 체결금액.
   const buy = firstMember(msg.memberBuy);
   const sell = firstMember(msg.memberSell);
   const win = [
     buy ? cell(`매수 ${memberName(buy.memberNo)} ${formatManQty(buy.dQty)}`, "up") : cell(`매수 ${DASH}`),
     sell ? cell(`매도 ${memberName(sell.memberNo)} ${formatManQty(sell.dQty)}`, "down") : cell(`매도 ${DASH}`),
-    msg.modelState === 1 && msg.pBreakBp >= 0
-      ? cell(`깨짐확률 ${formatBpPct1(msg.pBreakBp)}%`)
-      : cell("깨짐확률 관찰 중", "muted"),
+    maxFillCell(msg),
   ];
   return [...cum, ...ten, ...win];
 }
@@ -276,8 +310,8 @@ function formatTimeKstHms(epochMs: number): string {
 /**
  * 표 툴팁(WinForms `ApplyLimitFeatureTable` 동형). 첫 줄 = 상태 줄(옛 지금 행 세 칸 「 · 」 연결) · 이어 줄 3개
  * 「{기본 행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구** · 머리는 경과로 덮지 않은 누적/10초/창구) +
- * 마지막 줄 「HH:mm:ss 기준」(gwTimeMs KST) · 확률 적용 중(modelState 1 · pBreakBp ≥ 0 · pHorizonS > 0)이면
- * 「 · 깨짐확률은 N초 안」. 시각이 없으면 확률 꼬리만 「깨짐확률은 N초 안」 줄로. null(85 없음) → 「」.
+ * 줄 「HH:mm:ss 기준」(gwTimeMs KST · 시각 없으면 생략) + 창구 셋째 칸이 지난 잠김 날 기록이면(최대 체결금액 > 0 ∧ 날짜 ≠ 0
+ * ∧ 날짜 ≠ 오늘) 마지막 줄 「최대체결 M/d 기록」(quick-261101-owf — WinForms nbu 동형, 옛 깨짐확률 꼬리 대체). null(85 없음) → 「」.
  */
 export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
   if (msg === null) return "";
@@ -289,9 +323,12 @@ export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
     ),
   ];
   const time = formatTimeKstHms(msg.gwTimeMs);
-  const horizon = msg.modelState === 1 && msg.pBreakBp >= 0 && msg.pHorizonS > 0;
-  if (time) lines.push(`${time} 기준${horizon ? ` · 깨짐확률은 ${msg.pHorizonS}초 안` : ""}`);
-  else if (horizon) lines.push(`깨짐확률은 ${msg.pHorizonS}초 안`);
+  if (time) lines.push(`${time} 기준`);
+  // 지난 잠김 날 기록이면 그 날짜 — 창구 셋째 칸이 회색인 이유.
+  const fillDate = msg.upperMaxFillDate ?? 0;
+  if ((msg.upperMaxFillKrw ?? 0) > 0 && fillDate !== 0 && fillDate !== todayKstYmd(msg)) {
+    lines.push(`최대체결 ${Math.trunc(fillDate / 100) % 100}/${fillDate % 100} 기록`);
+  }
   return lines.join("\n");
 }
 

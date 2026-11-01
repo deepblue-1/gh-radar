@@ -784,7 +784,7 @@ describe('Phase 28 상한가 탭 (D-01~D-04 · UI-SPEC ①)', () => {
       '취소 -2,300잔량 취소 -2,300',
       '매수 —',
       '매도 —',
-      '깨짐확률 관찰 중',
+      '최대체결 —',
     ]);
     const head = table()!.querySelector('[data-slot="lc-limit-feature-head"]')!;
     expect(head.getAttribute('data-elapsed')).toBe('true');

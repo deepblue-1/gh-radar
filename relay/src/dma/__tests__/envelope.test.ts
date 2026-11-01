@@ -376,17 +376,25 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
       pHorizonS: 0,
       lockSellKrw: 600_000_000,
       lockCancelKrw: 460_000_000,
-      // quick-261101-0r3 — fbs nd7 limit_vol_qty. 기본 프레임은 미기록(구 서버) → 0. upperMaxFill* 은 싣지 않는다(toEqual).
+      // quick-261101-0r3 — fbs nd7 limit_vol_qty. 기본 프레임은 미기록(구 서버) → 0.
       limitVolQty: 0,
+      // quick-261101-owf — fbs nbu upper_max_fill_krw · date. 기본 프레임은 미기록(구 서버) → 0/0.
+      upperMaxFillKrw: 0,
+      upperMaxFillDate: 0,
     });
     expect(droppedEnvelopeCount()).toBe(0);
   });
 
-  it("quick-261101-0r3 limit_vol_qty 53,231 → limitVolQty 53_231(주) · upperMaxFillKrw · upperMaxFillDate 키 없음", () => {
+  it("quick-261101-0r3 limit_vol_qty 53,231 → limitVolQty 53_231(주)", () => {
     const msg = parse(buildLimitFeatureFrame({ limitVolQty: 53_231n }));
     expect(msg?.limitVolQty).toBe(53_231);
-    expect(msg).not.toHaveProperty("upperMaxFillKrw");
-    expect(msg).not.toHaveProperty("upperMaxFillDate");
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("quick-261101-owf upper_max_fill 12.3억 · 20261102 → upperMaxFillKrw 1_230_000_000 · upperMaxFillDate 20261102", () => {
+    const msg = parse(buildLimitFeatureFrame({ upperMaxFillKrw: 1_230_000_000n, upperMaxFillDate: 20261102 }));
+    expect(msg?.upperMaxFillKrw).toBe(1_230_000_000);
+    expect(msg?.upperMaxFillDate).toBe(20261102);
     expect(droppedEnvelopeCount()).toBe(0);
   });
 
@@ -398,14 +406,21 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
     expect(droppedEnvelopeCount()).toBe(0);
   });
 
-  it("누적 매도 · 취소 · 상한가 거래량 2^53 초과 → toNum 클램프(MAX_SAFE_INTEGER)", () => {
+  it("누적 매도 · 취소 · 상한가 거래량 · 최대 체결금액 2^53 초과 → toNum 클램프(MAX_SAFE_INTEGER)", () => {
     const msg = parse(
-      buildLimitFeatureFrame({ lockSellKrw: 2n ** 60n, lockCancelKrw: 2n ** 60n, limitVolQty: 2n ** 60n }),
+      buildLimitFeatureFrame({
+        lockSellKrw: 2n ** 60n,
+        lockCancelKrw: 2n ** 60n,
+        limitVolQty: 2n ** 60n,
+        upperMaxFillKrw: 2n ** 60n,
+      }),
     );
     expect(msg?.lockSellKrw).toBe(Number.MAX_SAFE_INTEGER);
     expect(msg?.lockCancelKrw).toBe(Number.MAX_SAFE_INTEGER);
     // quick-261101-0r3 — limit_vol_qty 도 같은 toNum 경계.
     expect(msg?.limitVolQty).toBe(Number.MAX_SAFE_INTEGER);
+    // quick-261101-owf — upper_max_fill_krw 도 같은 경계.
+    expect(msg?.upperMaxFillKrw).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("bigint 경계 — 2^53 초과 금액은 MAX_SAFE_INTEGER 로 클램프 · 음수 증분 수량은 그대로", () => {

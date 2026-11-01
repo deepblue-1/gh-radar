@@ -1856,6 +1856,7 @@ export type FakeLimitFeatureMemberInput = {
  * 누적 행 「매도 6.0억 | 취소 4.6억 | 위험도 35%」 · title 첫 줄 「잠김 43초째 · 대기 17.3억 · 소진 —」 을 단언하는 근거다.
  * 실서버 값이 아니다. `lockSellKrw` · `lockCancelKrw` · `limitVolQty` 에 0n 을 주면 구 서버 프레임(필드 부재 → 기본값 0)과 같다.
  * `limitVolQty` 는 **기본이 미기록(0n) = 구 gh-trade 서버(nd7 이전) 프레임**이다(quick-261101-0r3).
+ * `upperMaxFillKrw` · `upperMaxFillDate` 도 기본 미기록(0/0) = 구 gh-trade 서버(nbu 이전) 프레임이다(quick-261101-owf).
  */
 export type FakeLimitFeatureInput = {
   isin?: string;
@@ -1898,6 +1899,10 @@ export type FakeLimitFeatureInput = {
    * (quick-261101-0r3).
    */
   limitVolQty?: bigint;
+  /** fbs nbu(bac82294) 말미 append — 상한가 최대 체결금액(원). 기본 미기록 = 구 gh-trade 서버(quick-261101-owf). */
+  upperMaxFillKrw?: bigint;
+  /** fbs nbu 말미 append — 위 값의 KST yyyymmdd. 기본 미기록(0). */
+  upperMaxFillDate?: number;
 };
 
 /** 기본 매수 창구(잠김 시나리오). */
@@ -1972,6 +1977,8 @@ export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8
   // 근거다. 기본을 구 서버 모양으로 두면 shared 위험도 칸 갈래 B(옛 식 lockSellKrw ÷ qKrw)로 가서 e2e · hub 기대가 바뀌지
   // 않는다(quick-261101-0r3).
   LimitFeature.addLimitVolQty(b, input.limitVolQty ?? 0n);
+  LimitFeature.addUpperMaxFillKrw(b, input.upperMaxFillKrw ?? 0n);
+  LimitFeature.addUpperMaxFillDate(b, input.upperMaxFillDate ?? 0);
   const feature = LimitFeature.endLimitFeature(b);
 
   Envelope.startEnvelope(b);

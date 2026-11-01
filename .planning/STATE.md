@@ -119,6 +119,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261030-kpg | 상따 SetLimitChaser change_mask 전환 — relay buy3_schema 6 · 웹 손댐 추적 (gh-trade Phase 44) | 2026-10-30 | f890ee8a | [261030-kpg-setlimitchaser-change-mask-relay-buy3-sc](./quick/261030-kpg-setlimitchaser-change-mask-relay-buy3-sc/) |
 | 34 | 어드민 계좌 예수금 칸 편집·표시를 만원 → 원 단위로 | 2026-10-30 | (이 커밋) | — |
 | 261101-0r3 | 위험도 분자 변경 반영 — relay 85 스키마 재생성 · limit_vol_qty 디코드 · 상따 위험도 새 식 · 보고서 risk_* 20261102 경계 (gh-trade 261031) | 2026-11-01 | 1ef9a8fe | [261101-0r3-relay-85-risk-20261102-gh-trade-261031](./quick/261101-0r3-relay-85-risk-20261102-gh-trade-261031/) |
+| 261101-owf | 상따 카드 85 창구행 셋째 칸 깨짐확률 → 「최대체결 X.X억」 — relay upper_max_fill 디코드 · 오늘 검정/지난 날 회색+툴팁 · 폰 「최대 X.X억」 (gh-trade nbu WinForms 동형) | 2026-11-01 | (이 커밋) | [261101-owf-85-x-x-gh-trade-nbu-winforms](./quick/261101-owf-85-x-x-gh-trade-nbu-winforms/) |
 
 ## Session Continuity
 

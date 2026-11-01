@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>상따 창구행 최대체결 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+/* globals.css 토큰 — 라이트 / 다크 */
+:root {
+  --bg: #ffffff; --fg: #191f28; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border-subtle: #e5e8eb; --card: #ffffff; --up: #f04452; --down: #3182f6;
+  --page: #eef0f3; --nav: #ffffff; --hair: #e5e8eb; --group-bg: #f9fafb;
+}
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --fg: #ffffff; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border-subtle: #3d3d3d; --card: #151515; --up: #f04251; --down: #3485fa;
+  --page: #050505; --nav: #111; --hair: #2a2a2a; --group-bg: #1a1a1a;
+}
+body { background: var(--page); color: var(--fg); font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; }
+#nav { position: sticky; top: 0; z-index: 9; background: var(--nav); border-bottom: 1px solid var(--hair); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; }
+#nav .l { color: var(--muted-fg); font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: var(--group-bg); color: var(--fg); border: 1px solid var(--hair); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+#desc { flex-basis: 100%; color: var(--muted-fg); font-size: 12.5px; line-height: 1.6; }
+#desc b { color: var(--fg); }
+#stage { display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 20px 16px 60px; }
+.case { width: 100%; max-width: 760px; }
+.case h2 { font-size: 15px; margin: 0 0 4px; }
+.case p.why { font-size: 12.5px; color: var(--muted-fg); margin: 0 0 8px; line-height: 1.55; }
+.pair { display: flex; flex-wrap: wrap; gap: 14px; }
+.cardbox { background: var(--card); border-radius: 12px; box-shadow: 0 0 0 1px var(--hair); padding: 8px; flex: none; }
+.cardbox .cap { font-size: 11.5px; color: var(--muted-fg); margin: 0 0 6px 2px; }
+.cardbox.wide { width: 720px; max-width: 100%; }
+.cardbox.narrow { width: 344px; }
+/* LimitFeatureTable — limit-feature-table.tsx 클래스 그대로 */
+table { width: 100%; table-layout: fixed; border-collapse: collapse; height: 72px; }
+col.h { width: 44px; }
+tr + tr { border-top: 1px solid var(--border-subtle); }
+th { background: var(--muted); padding: 0 8px; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted-fg); white-space: nowrap; }
+th.el { padding: 0 2px; text-align: center; font-weight: 400; color: var(--up); }
+td { overflow: hidden; padding: 0 8px; text-align: left; font-size: 12px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+td.up { color: var(--up); } td.down { color: var(--down); } td.muted { color: var(--muted-fg); }
+td.new { box-shadow: inset 0 0 0 1.5px #f5a623; border-radius: 3px; }
+.tip { margin: 6px 2px 0; font-size: 11.5px; color: var(--muted-fg); white-space: pre; line-height: 1.5; font-family: inherit; }
+.tip b { color: var(--fg); font-weight: 600; }
+.cmp { font-size: 11.5px; color: var(--muted-fg); margin: 4px 2px 0; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">테마</span><button data-theme="light" class="on">라이트</button><button data-theme="dark">다크</button></div>
+  <div id="desc">
+    상따 카드 「상한가」 탭 3행 표 · <b>창구 행 셋째 칸</b>(주황 테두리)만 바뀝니다. 「깨짐확률」 → <b>「최대체결 X.X억」</b>(gh-trade bac82294 WinForms 원문 그대로).
+    각 상태마다 왼쪽은 넓은 카드(≥685), 오른쪽은 폰 1열 카드(344) 입니다. 표 위에 마우스를 올리면 실제 title 툴팁이 뜹니다(아래 회색 글은 그 내용).
+    폰에서 칸이 좁아 <b>「최대체결 123.4억」</b>처럼 길어지면 말줄임이 됩니다 — 마지막 줄 A/B 를 비교해 주세요.
+  </div>
+</div>
+<div id="stage"></div>
+
+<script>
+const rows = (third, extraTip, opts = {}) => ({ third, extraTip, ...opts });
+const CASES = [
+  {
+    title: '① 오늘 값 — 검정',
+    why: '오늘 첫 잠김에서 동결된 값(동결 전 첫 묶음부터 바로 검정). 날짜 = 서버 85 시각(gw_time_ms)의 KST 날짜와 같음.',
+    third: { text: '최대체결 12.3억', narrow: null, tone: '' },
+    tip: '',
+  },
+  {
+    title: '② 지난 잠김 날 기록 — 회색 + 툴팁 「최대체결 M/d 기록」',
+    why: '오늘 아직 상한가 체결이 없으면 마지막으로 잠긴 날 확정 기록을 싣습니다. 값은 회색, 날짜는 툴팁 마지막 줄에만.',
+    third: { text: '최대체결 8.4억', narrow: null, tone: 'muted' },
+    tip: '\n최대체결 10/30 기록',
+  },
+  {
+    title: '③ 기록 없음 · 구 서버 · 구 relay — 회색 「최대체결 —」',
+    why: '값 0(기록 없음, 매도잔량 체결 없이 바로 잠긴 날, 구 gh-trade 서버) 이나 두 필드를 모르는 구 relay 는 모두 같은 모양.',
+    third: { text: '최대체결 —', narrow: null, tone: 'muted' },
+    tip: '',
+  },
+];
+const LONG = [
+  { title: 'A. 폰에서도 「최대체결 123.4억」 그대로 — 넘치면 말줄임(…)', third: { text: '최대체결 123.4억', narrow: null, tone: '' } },
+  { title: 'B. 폰 밴드만 「최대 123.4억」 으로 줄임 (10초 행 「잔량 신규」→「신규」 선례와 같은 방식)', third: { text: '최대체결 123.4억', narrow: '최대 123.4억', tone: '' } },
+];
+
+function table(third, narrow) {
+  const thirdText = narrow && third.narrow ? third.narrow : third.text;
+  return `<table><colgroup><col class="h"><col><col><col></colgroup><tbody>
+    <tr><th class="el">0:43</th><td class="down">매도 6.0억</td><td class="down">취소 4.6억</td><td>위험도 35%</td></tr>
+    <tr><th>10초</th><td class="up">매수 우세 63%</td><td>${narrow ? '신규 +1.2만' : '잔량 신규 +12,400'}</td><td class="down">${narrow ? '취소 -2,300' : '잔량 취소 -2,300'}</td></tr>
+    <tr><th>창구</th><td class="up">매수 키움증권 +5.2만</td><td class="down">매도 신한증권 +1.8만</td><td class="new ${third.tone}">${thirdText}</td></tr>
+  </tbody></table>`;
+}
+function tipText(third, extra) {
+  return `잠김 43초째 · 대기 17.3억 · 소진 —\n누적 매도 6.0억 · 취소 4.6억 · 위험도 35%\n10초 매수 우세 63% · 잔량 신규 +12,400 · 잔량 취소 -2,300\n창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · ${third.text}\n09:46:00 기준${extra}`;
+}
+function card(c, narrow, extra) {
+  const tip = tipText(c.third, extra || '');
+  return `<div class="cardbox ${narrow ? 'narrow' : 'wide'}" title="${tip}">
+    <div class="cap">${narrow ? '폰 1열 카드 344' : '넓은 카드 ≥685'}</div>
+    ${table(c.third, narrow)}
+  </div>`;
+}
+function render() {
+  const st = document.getElementById('stage');
+  st.innerHTML =
+    CASES.map(c => `<div class="case"><h2>${c.title}</h2><p class="why">${c.why}</p>
+      <div class="pair">${card(c, false, c.tip)}${card(c, true, c.tip)}</div>
+      <pre class="tip">title 툴팁:\n${tipText(c.third, c.tip).replace(/(최대체결 [^\n]*)/g, '<b>$1</b>')}</pre>
+      ${c.title.startsWith('①') ? '<div class="cmp">지금(바뀌기 전): 「깨짐확률 18.3%」 / 「깨짐확률 관찰 중」(회색) · 툴팁 끝 「09:46:00 기준 · 깨짐확률은 60초 안」 → 「 · 깨짐확률은 …」 꼬리는 없어집니다.</div>' : ''}
+    </div>`).join('') +
+    `<div class="case"><h2>④ 폰에서 긴 값(100억 이상) — A / B 비교</h2>
+      <p class="why">WinForms 는 폰 화면이 없어 원문으로 정해지지 않는 부분입니다. 넓은 카드는 A·B 모두 「최대체결 123.4억」 입니다.</p>
+      ${LONG.map(c => `<p class="why"><b style="color:var(--fg)">${c.title}</b></p><div class="pair">${card(c, true, '')}</div>`).join('')}
+    </div>`;
+}
+document.querySelectorAll('#nav [data-theme]').forEach(b => b.onclick = () => {
+  document.documentElement.dataset.theme = b.dataset.theme;
+  document.querySelectorAll('#nav [data-theme]').forEach(x => x.classList.toggle('on', x === b));
+});
+render();
+</script>
+</body>
+</html>

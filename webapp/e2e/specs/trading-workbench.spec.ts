@@ -3240,7 +3240,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const tabs = card.locator('[data-slot="card-tabs"]').getByRole('tab');
     const limitTab = tabs.nth(3);
 
-    // 잠김 63초(긴 탭 제목) · 10초 신규 12,400 · 취소 2,300 · 창구 매수 00005 +12.3만 · 확률 적용(툴팁 꼬리).
+    // 잠김 63초(긴 탭 제목) · 10초 신규 12,400 · 취소 2,300 · 창구 매수 00005 +12.3만 · 확률 적용(표에는 안 나온다) ·
+    // 오늘(기본 gwTimeMs KST 2026-10-05) 최대체결 123.5억(quick-261101-owf — 폰 「최대 123.5억」).
     const frame = {
       isin: E2E_ISIN,
       exchange: 'KRX',
@@ -3253,6 +3254,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       modelSchemaVersion: 1,
       pBreakBp: 1830,
       pHorizonS: 60,
+      upperMaxFillKrw: 12_345_000_000n,
+      upperMaxFillDate: 20261005,
     };
     const sock = await relay.quoteSocket();
     await expect(async () => {
@@ -3311,6 +3314,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cells.nth(5)).toHaveText('취소 -2,300', { useInnerText: true });
     await expect(cells.nth(4).locator('[data-band="wide"]')).toBeHidden();
     await expect(cells.nth(4).locator('[data-band="narrow"]')).toBeVisible();
+    await expect(cells.nth(8)).toHaveText('최대 123.5억', { useInnerText: true });
 
     // (c2) quick-261006-ide — 누적 머리 = 경과 「1:03」 · 머리와 누적 3칸이 칸 안에서 잘리지 않는다(390).
     const heads = table.locator('[data-slot="lc-limit-feature-head"]');
@@ -3339,7 +3343,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const title = (await table.getAttribute('title')) ?? '';
     expect(title).toContain('매수 미래에셋증권 +12.3만');
     expect(title).toContain('잔량 신규 +12,400 · 잔량 취소 -2,300');
-    expect(title).toMatch(/\n\d{2}:\d{2}:\d{2} 기준 · 깨짐확률은 60초 안$/);
+    expect(title).toContain('최대체결 123.5억');
+    expect(title).toMatch(/\n\d{2}:\d{2}:\d{2} 기준$/);
     expect(await cardHeight(), '말줄임 칸이 있어도 카드 높이 그대로').toBe(before);
 
     // (d2) 1시간 넘는 잠김(3920초) → 누적 머리 「1:05:20」 도 머리 칸에서 잘리지 않는다.

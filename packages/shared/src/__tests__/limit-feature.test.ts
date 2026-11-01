@@ -435,24 +435,41 @@ describe("Phase 28 9칸 완성 — 창구 행", () => {
     expect(rowM({ memberBuy: [member("99998", 3200)] })[0]!.text).toBe("매수 99998 +3,200");
     expect(rowM({ memberBuy: [member("00005", 123000)] })[0]!.text).toBe("매수 미래에셋증권 +12.3만");
   });
-  it("model 1 · pBreak 1830 → 「깨짐확률 18.3%」(fg) · 0 → 「깨짐확률 0.0%」 · 10000 → 「깨짐확률 100.0%」", () => {
-    expect(rowM({ modelState: 1, pBreakBp: 1830, pHorizonS: 60 })[2]).toEqual({
-      text: "깨짐확률 18.3%",
+  // quick-261101-owf — 셋째 칸 = 상한가 최대 체결금액(gh-trade nbu 동형). 기본 gwTimeMs 는 KST 2026-10-05.
+  it("오늘 날짜 값 → 「최대체결 12.3억」(fg) · 폰 「최대 12.3억」 · .05 경계는 0 에서 먼 쪽(1.15억 → 1.2억)", () => {
+    expect(rowM({ upperMaxFillKrw: 1_230_000_000, upperMaxFillDate: 20261005 })[2]).toEqual({
+      text: "최대체결 12.3억",
       tone: "fg",
-      narrow: null,
+      narrow: "최대 12.3억",
     });
-    expect(rowM({ modelState: 1, pBreakBp: 0, pHorizonS: 60 })[2]!.text).toBe("깨짐확률 0.0%");
-    expect(rowM({ modelState: 1, pBreakBp: 10000, pHorizonS: 60 })[2]!.text).toBe("깨짐확률 100.0%");
+    expect(rowM({ upperMaxFillKrw: 115_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대체결 1.2억");
+    expect(rowM({ upperMaxFillKrw: 12_345_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대체결 123.5억");
   });
-  it("model 1 · pBreak −1 · model 0 → 「깨짐확률 관찰 중」(muted)", () => {
-    const watching = { text: "깨짐확률 관찰 중", tone: "muted", narrow: null };
-    expect(rowM({ modelState: 1, pBreakBp: -1 })[2]).toEqual(watching);
-    expect(rowM({ modelState: 0, pBreakBp: 1830 })[2]).toEqual(watching);
+  it("지난 잠김 날 기록 → 같은 문구 · muted", () => {
+    expect(rowM({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 })[2]).toEqual({
+      text: "최대체결 8.4억",
+      tone: "muted",
+      narrow: "최대 8.4억",
+    });
+  });
+  it("0/0(기록 없음 · 구 서버) · 키 없음(구 relay · kind 15 다리) · 0 ∧ 날짜 있음 → 「최대체결 —」(muted) · 확률 필드 무시", () => {
+    const none = { text: "최대체결 —", tone: "muted", narrow: null };
+    expect(rowM({ upperMaxFillKrw: 0, upperMaxFillDate: 0 })[2]).toEqual(none);
+    expect(rowM({ upperMaxFillKrw: 0, upperMaxFillDate: 20261005 })[2]).toEqual(none);
+    expect(rowM({ modelState: 1, pBreakBp: 1830, pHorizonS: 60 })[2]).toEqual(none);
+  });
+  it("「오늘」 = gwTimeMs 의 KST 달력 날짜(자정 넘김 15:00 UTC → 다음 날) · gwTimeMs 0 이면 지금 시각", () => {
+    const midnight = Date.UTC(2026, 9, 5, 15, 0, 5); // KST 2026-10-06 00:00:05
+    expect(rowM({ gwTimeMs: midnight, upperMaxFillKrw: 1e9, upperMaxFillDate: 20261006 })[2]!.tone).toBe("fg");
+    expect(rowM({ gwTimeMs: midnight, upperMaxFillKrw: 1e9, upperMaxFillDate: 20261005 })[2]!.tone).toBe("muted");
+    const now = new Date(Date.now() + 9 * 3_600_000);
+    const today = now.getUTCFullYear() * 10_000 + (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
+    expect(rowM({ gwTimeMs: 0, upperMaxFillKrw: 1e9, upperMaxFillDate: today })[2]!.tone).toBe("fg");
   });
 });
 
 describe("Phase 28 9칸 완성 — 갈래 전체 (WinForms BuildLimitFeatureCells 대조)", () => {
-  it("lock 2 · 단일가 · 매도벽 0 · 창구 없음 · 관찰 중", () => {
+  it("lock 2 · 단일가 · 매도벽 0 · 창구 없음 · 최대체결 없음", () => {
     const msg = feature({
       lockState: 2,
       lockElapsedS: 0,
@@ -471,7 +488,7 @@ describe("Phase 28 9칸 완성 — 갈래 전체 (WinForms BuildLimitFeatureCell
       "—",
       "매수 —",
       "매도 —",
-      "깨짐확률 관찰 중",
+      "최대체결 —",
     ]);
   });
 });
@@ -484,22 +501,32 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
     modelState: 1,
     pBreakBp: 1830,
     pHorizonS: 60,
+    upperMaxFillKrw: 1_230_000_000,
+    upperMaxFillDate: 20261005,
   });
 
-  it("lock 1 · 확률 적용 → 상태 줄 + 넓은 밴드 문구 3줄 + 「09:46:00 기준 · 깨짐확률은 60초 안」", () => {
+  it("lock 1 · 오늘 최대체결 → 상태 줄 + 넓은 밴드 문구 3줄 + 「09:46:00 기준」(확률 꼬리 없음 — quick-261101-owf)", () => {
     expect(limitFeatureTooltip(full)).toBe(
       "잠김 43초째 · 대기 17.3억 · 소진 —\n" +
         "누적 매도 6.0억 · 취소 4.6억 · 위험도 35%\n" +
         "10초 매수 우세 63% · 잔량 신규 +12,400 · 잔량 취소 -2,300\n" +
-        "창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 깨짐확률 18.3%\n" +
-        "09:46:00 기준 · 깨짐확률은 60초 안",
+        "창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대체결 12.3억\n" +
+        "09:46:00 기준",
     );
   });
-  it("model 0 → 마지막 줄 「09:46:00 기준」 만 · 밀리초는 잘라낸다", () => {
-    const tip = limitFeatureTooltip({ ...full, modelState: 0, pBreakBp: -1, pHorizonS: 0, gwTimeMs: GW_0946_KST + 999 });
-    expect(tip.split("\n")).toHaveLength(5);
-    expect(tip.endsWith("\n09:46:00 기준")).toBe(true);
-    expect(tip).toContain("창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 깨짐확률 관찰 중");
+  it("지난 잠김 날 기록 → 마지막 줄 「최대체결 M/d 기록」(앞자리 0 없음) · 밀리초는 잘라낸다", () => {
+    const tip = limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20260930, gwTimeMs: GW_0946_KST + 999 });
+    expect(tip.split("\n")).toHaveLength(6);
+    expect(tip).toContain("창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대체결 8.4억");
+    expect(tip.endsWith("\n09:46:00 기준\n최대체결 9/30 기록")).toBe(true);
+    expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 })).toMatch(
+      /\n최대체결 10\/2 기록$/,
+    );
+  });
+  it("기록 줄은 값 > 0 ∧ 날짜 ≠ 0 ∧ 날짜 ≠ 오늘 일 때만", () => {
+    expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: 0, upperMaxFillDate: 20261002 })).not.toContain("기록");
+    expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 0 })).not.toContain("기록");
+    expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: undefined, upperMaxFillDate: undefined })).not.toContain("기록");
   });
   it("lock 0 · 매도벽 0 · 자정 넘김 KST(15:00 UTC → 00:00:05)", () => {
     const tip = limitFeatureTooltip(
@@ -509,12 +536,13 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
     expect(tip.split("\n")[1]).toBe("누적 — · — · —");
     expect(tip.endsWith("\n00:00:05 기준")).toBe(true);
   });
-  it("gwTimeMs 0 → 시각 줄 없음 · 확률 적용이면 「깨짐확률은 60초 안」 줄만", () => {
-    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0 }).split("\n")[4]).toBe("깨짐확률은 60초 안");
-    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, modelState: 0 }).split("\n")).toHaveLength(4);
-  });
-  it("pHorizonS 0 이면 확률이 있어도 꼬리 없음", () => {
-    expect(limitFeatureTooltip({ ...full, pHorizonS: 0 }).endsWith("\n09:46:00 기준")).toBe(true);
+  it("gwTimeMs 0 → 시각 줄 없음 · 오늘(지금 시각) 기준 지난 날 기록이면 「최대체결 M/d 기록」 줄만", () => {
+    const now = new Date(Date.now() + 9 * 3_600_000);
+    const today = now.getUTCFullYear() * 10_000 + (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
+    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, upperMaxFillDate: today }).split("\n")).toHaveLength(4);
+    expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, upperMaxFillDate: 20261002 }).split("\n")[4]).toBe(
+      "최대체결 10/2 기록",
+    );
   });
   it("85 없음(null) → 「」", () => {
     expect(limitFeatureTooltip(null)).toBe("");
@@ -525,6 +553,7 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
   });
   it("폰 문구(narrow)는 툴팁에 쓰지 않는다 — 늘 넓은 밴드 문구", () => {
     expect(limitFeatureTooltip(full)).not.toContain("신규 +1.2만");
+    expect(limitFeatureTooltip(full)).not.toContain("최대 12.3억");
   });
 });
 
