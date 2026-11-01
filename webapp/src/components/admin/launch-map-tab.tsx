@@ -144,8 +144,16 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
 
   const onSave = () => {
     if (editing === null || saving !== null) return;
-    const { gateway, market, fire: f, valid } = editing;
-    const same = (e: LaunchPlanEdit | null) => e !== null && e.gateway === gateway && e.market === market && e.fire === f;
+    const { gateway, market, fire: f, valid, draft } = editing;
+    // 응답 때 편집 칸을 저장 값으로 다시 열어도 되나 — 같은 칸이고 저장 중에 입력을 고치지 않았을 때만(35 IN-03 · 저장 중
+    // 친 초안을 덮어쓰지 않는다).
+    const untouched = (e: LaunchPlanEdit | null) =>
+      e !== null &&
+      e.gateway === gateway &&
+      e.market === market &&
+      e.fire === f &&
+      e.draft.length === draft.length &&
+      e.draft.every((v, i) => v === draft[i]);
     const key = planEditKeyOf(editing);
     setSaving(key);
     setLastSave(null);
@@ -161,7 +169,7 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
             return sentOnly ? planStateWithSentEntry(next, gateway, f, market, valid) : next;
           });
           const saved = sentOnly ? valid : ok ? (launchPlanEntryOf(resp.plan ?? undefined, f, market)?.offsets_us ?? null) : null;
-          setEdit((e) => (same(e) && saved !== null ? planEditOf(gateway, market, f, saved) : e));
+          setEdit((e) => (untouched(e) && saved !== null ? planEditOf(gateway, market, f, saved) : e));
           setLastSave({ key, save: { result: resp.result, at: new Date() } });
           if (planNeedsReload(resp)) reloadPlan();
         },

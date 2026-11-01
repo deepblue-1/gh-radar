@@ -528,6 +528,27 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true));
   });
 
+  it('IN-03 저장 중에 고친 입력은 ok 응답(서버 값)이 와도 덮어쓰지 않는다(안 고친 경우의 다시 열기는 WR-01 단언)', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+    let answer!: (v: Awaited<ReturnType<typeof saveLaunchPlan>>) => void;
+    vi.mocked(saveLaunchPlan).mockReturnValue(new Promise((r) => (answer = r)));
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    const in3 = () => within(kbq()).getByLabelText('3번 조각 시각(µs)') as HTMLInputElement;
+    // 저장 중 — 3번을 −320 으로 고친다.
+    fireEvent.change(in3(), { target: { value: '-320' } });
+    answer({
+      result: { server: 'KB120', outcome: 'ok', usersRev: '12' },
+      plan: okServer([-340, -335, -320], NEW_Q, -245),
+      change: null,
+    });
+    await waitFor(() =>
+      expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`),
+    );
+    expect(in3().value).toBe('-320');
+    expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(false);
+  });
+
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {
     vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
     vi.mocked(saveLaunchPlan).mockResolvedValue({
