@@ -274,13 +274,51 @@ export function planStateWithReload(
  *   있어 버렸다. 더 새 세대는 값 없이 「바뀌었을 수 있음」 만 표시한 저장일 수도 있어 확인으로 치지 않는다.
  * - `failed` — 대상 서버 값을 못 가져왔다(그 서버 timeout · offline · failed · 응답에 없음 · 404 · 요청 실패). 보이는 값은
  *   마지막으로 알던 값 = 저장 전 값일 수 있다.
+ * - `unproven` — 대상 서버 값을 반영했지만 그 값이 server 가 이 저장을 처리한 **뒤** 읽은 값인지 모른다(35 R3-IN-01). 저장
+ *   요청이 throw 한 경로에서만 생긴다 — 요청이 server 에 닿아 아직 처리 중이면 다시 읽기의 조회가 저장보다 먼저 그 서버 FIFO 에
+ *   들어가 저장 전 값을 받을 수 있다. 응답 이력에 이 저장의 행이 보이면(`saveRowSeenIn`) 처리가 끝났다는 뜻이라 `ok` 다.
  */
-export type LaunchPlanReread = 'pending' | 'ok' | 'superseded' | 'failed';
+export type LaunchPlanReread = 'pending' | 'ok' | 'superseded' | 'failed' | 'unproven';
 
-/** 다시 읽은 응답 · 반영한 서버(`take`) → 대상 서버의 다시 읽기 결과(R3-WR-01). 요청 실패 · 404 는 지도 탭이 `failed` 로 둔다. */
-export function planRereadOf(resp: LaunchPlanResponse, gateway: string, take: ReadonlySet<string>): LaunchPlanReread {
-  if (take.has(gateway)) return 'ok';
+/**
+ * 다시 읽은 응답 · 반영한 서버(`take`) → 대상 서버의 다시 읽기 결과(R3-WR-01). 요청 실패 · 404 는 지도 탭이 `failed` 로 둔다.
+ * `ordered` = 이 다시 읽기가 저장 처리 뒤에 읽은 것이 확실한가(35 R3-IN-01) — 저장 응답을 받은 경로는 항상 참(server 가 relay
+ * 저장을 마친 뒤 답한다), 요청 throw 경로는 `saveRowSeenIn` 결과. 거짓이면 반영했어도 `ok` 가 아니라 `unproven`.
+ */
+export function planRereadOf(
+  resp: LaunchPlanResponse,
+  gateway: string,
+  take: ReadonlySet<string>,
+  ordered = true,
+): LaunchPlanReread {
+  if (take.has(gateway)) return ordered ? 'ok' : 'unproven';
   return resp.servers[gateway]?.status === 'ok' ? 'superseded' : 'failed';
+}
+
+/** 계획 상태가 아는 이력 행 id 의 최댓값 — 없으면 0. 저장 직전에 재 두고 `saveRowSeenIn` 의 기준으로 쓴다(35 R3-IN-01). */
+export function maxChangeIdOf(state: LaunchPlanState): number {
+  if (state.kind !== 'ready') return 0;
+  return state.resp.changes.reduce((m, c) => (c.id > m ? c.id : m), 0);
+}
+
+/**
+ * 다시 읽은 이력에 이 저장의 행이 보이나(35 R3-IN-01) — 같은 (서버, 발사, 시장) · 같은 보낸 값 · 저장 직전에 알던 id(`afterId`)보다
+ * 새 행. server 는 relay 저장이 끝난 뒤에 이력 행을 쓰고, `GET /plan` 은 relay 조회와 이력 읽기를 함께 보내므로 이 행이 보이면
+ * 다시 읽기의 조회는 그 저장 처리 뒤에 나갔다. 같은 값을 그 사이 다시 보낸 다른 저장의 행이어도 보이는 값은 같다.
+ * 이력 기록이 실패한 저장(change null)은 행이 없어 늘 거짓 — 「확인」 이라고 말하지 않는 쪽으로 틀린다.
+ */
+export function saveRowSeenIn(
+  changes: readonly LaunchPlanChangeRow[],
+  save: { gateway: string; fire: LaunchFire; market: LaunchMarket; offsets: readonly number[]; afterId: number },
+): boolean {
+  return changes.some(
+    (c) =>
+      c.id > save.afterId &&
+      c.gateway === save.gateway &&
+      c.fire === save.fire &&
+      c.market === save.market &&
+      sameOffsets(c.after_us, save.offsets),
+  );
 }
 
 /**
@@ -311,12 +349,14 @@ const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30'
 /**
  * timeout 결과 줄 꼬리 — 다시 읽기 결과별(35 R3-WR-01). 못 읽었거나(failed) 더 새 저장에 밀렸으면(superseded) 지금 보이는
  * 계획이 다시 읽은 값이 아니다 — 저장 전 값일 수 있음을 드러내고 새로고침을 권한다(탭 진입 때 계획을 새로 읽는다).
+ * 다시 읽었어도 저장 처리 뒤에 읽었는지 모르면(unproven · 요청 throw 경로 · 35 R3-IN-01) 「확인」 이라고 말하지 않는다.
  */
 export const TIMEOUT_REREAD_TAIL: Record<LaunchPlanReread, string> = {
   pending: '계획을 다시 읽는 중이에요',
   ok: '다시 읽은 계획으로 확인',
   superseded: '그 뒤 새 저장이 있어 다시 읽은 값을 쓰지 않았어요(보이는 값은 이 저장 결과가 아닐 수 있어요) · 잠시 뒤 새로고침',
   failed: '계획을 다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있어요) · 잠시 뒤 새로고침',
+  unproven: '다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침',
 };
 
 /**

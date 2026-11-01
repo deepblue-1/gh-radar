@@ -9,6 +9,7 @@ import {
   changeValuesText,
   fallbackLineText,
   lastChangeText,
+  maxChangeIdOf,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
@@ -20,6 +21,7 @@ import {
   planStateWithSentEntry,
   rejectedSaveResultOf,
   saveResultViewOf,
+  saveRowSeenIn,
 } from '../launch-plan-view';
 
 /**
@@ -282,7 +284,7 @@ describe('편집 · 저장(35-15)', () => {
   });
 
   it('saveResultViewOf timeout 줄 꼬리 = 다시 읽기 결과(R3-WR-01) — 확인은 대상 서버를 다시 읽어 반영했을 때만', () => {
-    const t = (reread?: 'pending' | 'ok' | 'superseded' | 'failed') =>
+    const t = (reread?: 'pending' | 'ok' | 'superseded' | 'failed' | 'unproven') =>
       saveResultViewOf({ server: 'KB120', outcome: 'timeout' }, 'q16', AT, reread).line;
     const lead = 'KB120 응답 없음: 반영됐는지 몰라요 — ';
     expect(t()).toEqual({ tone: 'err', text: `${lead}다시 읽은 계획으로 확인` });
@@ -292,6 +294,8 @@ describe('편집 · 저장(35-15)', () => {
       tone: 'err',
       text: `${lead}계획을 다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있어요) · 잠시 뒤 새로고침`,
     });
+    // R3-IN-01 — 다시 읽었지만 저장 처리 뒤에 읽었는지 모름(요청 throw 경로 · 이력에 이 저장 행 없음)
+    expect(t('unproven').text).toBe(`${lead}다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침`);
     expect(t('superseded').text).toBe(
       `${lead}그 뒤 새 저장이 있어 다시 읽은 값을 쓰지 않았어요(보이는 값은 이 저장 결과가 아닐 수 있어요) · 잠시 뒤 새로고침`,
     );
@@ -314,6 +318,26 @@ describe('편집 · 저장(35-15)', () => {
     expect(planRereadOf(resp({ status: 'offline' }), 'KB120', new Set(['KYOBO119']))).toBe('failed');
     expect(planRereadOf(resp({ status: 'failed', code: 10, message: 'x' }), 'KB120', new Set(['KYOBO119']))).toBe('failed');
     expect(planRereadOf(resp(), 'KB120', new Set(['KYOBO119']))).toBe('failed');
+    // R3-IN-01 — 저장 처리 뒤에 읽었는지 모르면(ordered false) 반영했어도 ok 가 아니다. 반영 못 한 경우는 그대로.
+    expect(planRereadOf(resp(ok), 'KB120', new Set(['KB120']), false)).toBe('unproven');
+    expect(planRereadOf(resp(ok), 'KB120', new Set(['KYOBO119']), false)).toBe('superseded');
+    expect(planRereadOf(resp({ status: 'timeout' }), 'KB120', new Set(['KYOBO119']), false)).toBe('failed');
+  });
+
+  it('R3-IN-01 maxChangeIdOf · saveRowSeenIn — 같은 칸 · 같은 보낸 값 · 저장 전 id 보다 새 행만 증거', () => {
+    expect(maxChangeIdOf({ kind: 'loading' })).toBe(0);
+    expect(maxChangeIdOf(ready({}, []))).toBe(0);
+    expect(maxChangeIdOf(ready({}, [row({ id: 3 }), row({ id: 9 }), row({ id: 4 })]))).toBe(9);
+    const save = { gateway: 'KB120', fire: 'q16', market: 'Q', offsets: [-350, -345, -325], afterId: 9 } as const;
+    expect(saveRowSeenIn([row({ id: 10 })], save)).toBe(true);
+    expect(saveRowSeenIn([], save)).toBe(false);
+    expect(saveRowSeenIn([row({ id: 9 })], save)).toBe(false); // 저장 전에 알던 행
+    expect(saveRowSeenIn([row({ id: 10, gateway: 'KYOBO119' })], save)).toBe(false);
+    expect(saveRowSeenIn([row({ id: 10, fire: 'n0930' })], save)).toBe(false);
+    expect(saveRowSeenIn([row({ id: 10, market: 'K' })], save)).toBe(false);
+    expect(saveRowSeenIn([row({ id: 10, after_us: [-350, -345] })], save)).toBe(false);
+    // 결과와 무관 — server 가 처리를 마쳤다는 신호다(timeout · failed 행도 증거).
+    expect(saveRowSeenIn([row({ id: 10, outcome: 'timeout' })], save)).toBe(true);
   });
 
   it('planNeedsReload — plan null 이고 결과 모름(timeout · CR-01) · 저장 ok(WR-01)일 때만 다시 읽는다', () => {

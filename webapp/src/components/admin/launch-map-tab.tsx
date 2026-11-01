@@ -15,6 +15,7 @@ import {
   type LaunchMapResponse,
   type LaunchMarket,
   type LaunchPanelStats,
+  type LaunchPlanResponse,
   type LaunchRange,
 } from '@gh-radar/shared';
 
@@ -26,6 +27,7 @@ import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { LAUNCH_CHART, launchRangeOf, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
+  maxChangeIdOf,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
@@ -36,6 +38,7 @@ import {
   planStateWithSentEntry,
   rejectedSaveResultOf,
   sameOffsets,
+  saveRowSeenIn,
   type LaunchPlanEdit,
   type LaunchPlanReread,
   type LaunchPlanState,
@@ -70,7 +73,8 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   읽기)이 반영되지 않은 서버만 바꾸고, 이력은 id 로 합친다. 실패 모양 응답 · 늦게 온 응답이 마지막 값을 지우거나 되돌리지 않는다.
  *   「응답 없음」 줄 꼬리는 다시 읽기가 대상 서버를 어떻게 끝냈는지 보인다(35 R3-WR-01) — 읽는 중 · 다시 읽은 계획으로 확인(반영함) ·
  *   다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음) · 더 새 저장에 밀림. 마지막 값을 지키는 것과 그 값이 확인된 값인지 알리는
- *   것을 가른다.
+ *   것을 가른다. 요청 throw 경로는 다시 읽은 응답 이력에 이 저장의 행이 보일 때만 「확인」 이고, 아니면 「서버가 이 저장을 처리하기
+ *   전 값일 수 있어요」(35 R3-IN-01 — server 가 아직 PUT 을 처리 중이면 조회가 저장보다 먼저 닿을 수 있다).
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
@@ -159,7 +163,13 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
   // 진행 중 요청에 합치지 않는다(`fresh` — 합치면 먼저 나간 요청의 옛 응답을 이 세대 번호로 반영한다).
   // 대상 서버(`gateway`)를 어떻게 끝냈는지는 `settle` 로 알린다(35 R3-WR-01) — 결과 줄이 「다시 읽은 계획」 이라고 말하는 것은
   // 그 서버 값을 실제로 반영했을 때뿐이다. 못 읽음(그 서버 non-ok · 응답에 없음 · 404 · 요청 실패)은 failed.
-  const reloadPlan = (gateway: string, settle: (reread: LaunchPlanReread) => void) => {
+  // `ordered` = 이 응답이 저장 처리 뒤에 읽은 값인가(35 R3-IN-01) — 저장 응답을 받은 경로는 늘 참. 요청 throw 경로는 응답 이력에
+  // 이 저장의 행이 보일 때만 참이고, 아니면 반영은 하되 결과 줄은 「처리 전 값일 수 있어요」(unproven).
+  const reloadPlan = (
+    gateway: string,
+    settle: (reread: LaunchPlanReread) => void,
+    ordered: (resp: LaunchPlanResponse) => boolean = () => true,
+  ) => {
     planSeq.current += 1;
     const seq = planSeq.current;
     fetchLaunchPlan({ fresh: true }).then(
@@ -175,7 +185,7 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
         );
         for (const g of take) planSeen.current[g] = seq;
         setPlan((s) => planStateWithReload(s, r.resp, take));
-        settle(planRereadOf(r.resp, gateway, take));
+        settle(planRereadOf(r.resp, gateway, take, ordered(r.resp)));
       },
       (e: unknown) => {
         console.warn('[launch-map] 저장 뒤 계획 다시 읽기 실패', e);
@@ -197,6 +207,8 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
       e.draft.length === draft.length &&
       e.draft.every((v, i) => v === draft[i]);
     const key = planEditKeyOf(editing);
+    // 저장 직전에 알던 이력 id 최댓값 — 요청 throw 경로의 다시 읽기가 이 저장의 행을 보았는지 가른다(35 R3-IN-01).
+    const afterId = maxChangeIdOf(plan);
     saveSeq.current += 1;
     const id = saveSeq.current;
     // 다시 읽기 결과를 이 저장의 결과 줄에 붙인다 — 그 사이 결과가 지워졌거나(다른 패널 · 입력 고침) 다른 저장으로 바뀌었으면 버린다.
@@ -234,13 +246,17 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
           }
           // 요청 자체가 실패(브라우저 타임아웃 · 네트워크 · 5xx) — server 는 이미 저장 · 이력 기록을 마쳤을 수 있다(35 CR-01).
           // 「미반영」 으로 단정하지 않고 결과 모름(timeout)으로 보이고 서버 값을 다시 읽는다.
+          // server 가 아직 이 PUT 을 처리 중일 수 있어(Express 는 브라우저 연결이 끊겨도 핸들러를 멈추지 않는다) 다시 읽기의 조회가
+          // 저장보다 먼저 그 서버에 닿을 수 있다 — 응답 이력에 이 저장의 행이 보일 때만 「다시 읽은 계획으로 확인」(35 R3-IN-01).
           setLastSave({
             key,
             id,
             save: { result: { server: gateway, outcome: 'timeout' }, at: new Date(), reread: 'pending' },
           });
           markPlan(gateway);
-          reloadPlan(gateway, settle);
+          reloadPlan(gateway, settle, (resp) =>
+            saveRowSeenIn(resp.changes, { gateway, fire: f, market, offsets: valid, afterId }),
+          );
         },
       )
       .finally(() => setSaving(null));

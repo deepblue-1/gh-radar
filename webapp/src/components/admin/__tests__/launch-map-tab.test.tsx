@@ -8,6 +8,7 @@ import type {
   LaunchHeadRow,
   LaunchMapPiece,
   LaunchMapResponse,
+  LaunchPlanChangeRow,
   LaunchPlanResponse,
   LaunchPlanServer,
 } from '@gh-radar/shared';
@@ -444,6 +445,23 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
   const NEW_Q = [-350, -340, -325];
   const reloaded = (): LaunchPlanResponse =>
     planResp({ KB120: okServer([-340, -335, -320], NEW_Q, -245) });
+  /** server 가 이 저장(KB 코스닥 → NEW_Q)을 처리하고 남긴 이력 행 — 요청 throw 경로의 「처리 뒤에 읽었음」 증거(R3-IN-01). */
+  const savedRow = (over: Partial<LaunchPlanChangeRow> = {}): LaunchPlanChangeRow => ({
+    id: 101,
+    at: '2026-11-01T06:00:00Z',
+    admin_email: 'a@b.c',
+    gateway: 'KB120',
+    fire: 'q16',
+    market: 'Q',
+    before_us: [-350, -345, -325],
+    after_us: NEW_Q,
+    outcome: 'ok',
+    code: null,
+    message: null,
+    plan_rev: 8,
+    ...over,
+  });
+  const UNPROVEN_LINE = 'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침';
 
   afterEach(() => {
     vi.mocked(fetchLaunchMap).mockReset();
@@ -470,7 +488,7 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
   it('요청 자체 실패(throw) → 「KB120 응답 없음: …」(「미반영」 아님) · GET /plan 1회 더 · 다시 읽은 값으로 줄 갱신', async () => {
     vi.mocked(fetchLaunchPlan)
       .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
-      .mockResolvedValueOnce({ kind: 'ready', resp: reloaded() });
+      .mockResolvedValueOnce({ kind: 'ready', resp: { ...reloaded(), changes: [savedRow()] } });
     vi.mocked(saveLaunchPlan).mockRejectedValue(new Error('timeout'));
     const container = await saveKbq();
     const kbq = () => panelOf(container, 'KB120', 'Q');
@@ -485,6 +503,37 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
       expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  // R3-IN-01 — 요청 throw 는 server 가 아직 PUT 을 처리 중일 수 있다. 다시 읽은 이력에 이 저장의 행이 없으면 반영은 하되
+  // 「확인」 이라고 말하지 않는다. 같은 칸 · 같은 보낸 값 · 저장 전에 알던 id 보다 새 행만 증거다.
+  it.each<[string, LaunchPlanChangeRow[]]>([
+    ['이력 행 없음', []],
+    ['다른 시장 행', [savedRow({ market: 'K' })]],
+    ['다른 보낸 값', [savedRow({ after_us: [-350, -345, -325] })]],
+    ['저장 전에 알던 행(id 그대로)', [savedRow({ id: 5 })]],
+  ])('R3-IN-01 요청 throw → 다시 읽기 ok 인데 %s → 값은 반영 · 줄은 「처리하기 전 값일 수 있어요」', async (_l, changes) => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: { ...planResp(), changes: [savedRow({ id: 5, after_us: [-355, -350, -330] })] } })
+      .mockResolvedValueOnce({ kind: 'ready', resp: { ...reloaded(), changes } });
+    vi.mocked(saveLaunchPlan).mockRejectedValue(new Error('network'));
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(UNPROVEN_LINE));
+    expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`);
+  });
+
+  it('R3-IN-01 응답 timeout(server 가 처리를 마치고 답함) 은 이력 행 없이도 「다시 읽은 계획으로 확인」', async () => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: reloaded() });
+    vi.mocked(saveLaunchPlan).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null });
+    const container = await saveKbq();
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      ),
+    );
   });
 
   it('응답 timeout · plan null → 계획 다시 읽기 · failed(plan null)는 다시 읽지 않는다', async () => {
@@ -639,10 +688,9 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
       vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
       vi.mocked(saveLaunchPlan).mockRejectedValue(new ApiClientError({ code: 'X', message: 'x', status }));
       const container = await saveKbq();
+      // 다시 읽기(planResp · 이력 행 없음)는 저장 처리 뒤인지 모른다 — 「확인」 아님(R3-IN-01).
       await waitFor(() =>
-        expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
-          'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
-        ),
+        expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(UNPROVEN_LINE),
       );
       await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
       cleanup();
