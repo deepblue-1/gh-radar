@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: executing
 stopped_at: Completed 35-11-PLAN.md
-last_updated: "2026-10-30T06:49:46.524Z"
+last_updated: "2026-11-01T01:06:43.859Z"
 last_activity: 2026-10-30
 last_activity_desc: 35-11 완료 — A 재확인 키 수정 원격 적용 · reproject 182 복구 · 인박스 launch-gate-admin · launch-plan-contract 닫음
-state_head: ce24519c19c81e648d7abb03d3fb5fbf55b6305a
+state_head: 1ef9a8fe6e30c5d1cdb9123278f0815bce892335
 progress:
   total_phases: 7
   completed_phases: 6
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 35 (발사 경계 지도 어드민) — EXECUTING
 Plan: 19 of 19 (Phase 35 플랜 전부 완료 — 페이즈 검증 · 완료 처리 남음)
 Status: Ready to execute
-Last activity: 2026-10-30 - Completed quick task 261030-kpg: 상따 change_mask 전환(relay buy3_schema 6 · 웹 손댐 changed) — relay·webapp 배포 대기(gh-trade 서버 120·119 배포 뒤)
+Last activity: 2026-11-01 - Completed quick task 261101-0r3: 위험도 분자 변경 반영(relay 85 limit_vol_qty · 상따 위험도 새 식 · 보고서 risk_* 20261102 경계) — relay·webapp 배포 대기
 Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
@@ -118,6 +118,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 32 | 홈 급등 종목 클릭 시 종목상세 뉴스토론 탭(?tab=news)으로 착지 | 2026-10-30 | 652c7f86 | — |
 | 261030-kpg | 상따 SetLimitChaser change_mask 전환 — relay buy3_schema 6 · 웹 손댐 추적 (gh-trade Phase 44) | 2026-10-30 | f890ee8a | [261030-kpg-setlimitchaser-change-mask-relay-buy3-sc](./quick/261030-kpg-setlimitchaser-change-mask-relay-buy3-sc/) |
 | 34 | 어드민 계좌 예수금 칸 편집·표시를 만원 → 원 단위로 | 2026-10-30 | (이 커밋) | — |
+| 261101-0r3 | 위험도 분자 변경 반영 — relay 85 스키마 재생성 · limit_vol_qty 디코드 · 상따 위험도 새 식 · 보고서 risk_* 20261102 경계 (gh-trade 261031) | 2026-11-01 | 1ef9a8fe | [261101-0r3-relay-85-risk-20261102-gh-trade-261031](./quick/261101-0r3-relay-85-risk-20261102-gh-trade-261031/) |
 
 ## Session Continuity
 
