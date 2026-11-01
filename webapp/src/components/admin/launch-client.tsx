@@ -22,7 +22,7 @@ import { LaunchOrdersTab } from './launch-orders-tab';
  *   탭 전환은 `router.replace` 이고 다른 키(d · fire · range)를 보존한다 — 두 탭이 같은 `fire` 를 본다.
  * - `d` — YYYYMMDD(`parseYmdParam`). 없으면 최신(server 가 정한다). 형식 오류는 `router.replace` 로 d 만 지운다.
  *   날짜 이동 = `router.push`(뒤로 가기로 이전 날).
- * - `fire` — q16(기본) · n0930. 두 탭 공용. 주문 내역은 전환해도 다시 받지 않고(한 응답에 두 발사가 다 있다),
+ * - `fire` — q16(기본) · n0930. 그 밖 값은 `router.replace` 로 지운다. 두 탭 공용. 주문 내역은 전환해도 다시 받지 않고(한 응답에 두 발사가 다 있다),
  *   경계 지도는 발사 기준별 응답이라 전환마다 1건 받는다.
  * - `range` — 경계 지도 프리셋 10d(기본) · 20d · all. 잘못된 값은 `router.replace` 로 지운다. 칩 전환 = `router.replace`.
  * 갱신은 언제나 다른 키를 보존한 URLSearchParams 로 한다.
@@ -46,7 +46,10 @@ export function LaunchClient() {
   const d = parseYmdParam(rawD);
   const badD = rawD !== null && d === null;
 
-  const fire: LaunchFire = launchFireParamOf(searchParams.get('fire')) ?? 'q16';
+  const rawFire = searchParams.get('fire');
+  const parsedFire = launchFireParamOf(rawFire);
+  const fire: LaunchFire = parsedFire ?? 'q16';
+  const badFire = rawFire !== null && parsedFire === null;
 
   const rawRange = searchParams.get('range');
   const parsedRange = launchRangeParamOf(rawRange);
@@ -64,17 +67,18 @@ export function LaunchClient() {
     [searchParams],
   );
 
-  // 잘못된 tab · d · range → 그 키만 지운다(정본화).
+  // 잘못된 tab · d · fire · range → 그 키만 지운다(정본화 — 공유 주소와 화면이 갈라지지 않게).
   useEffect(() => {
-    if (!badTab && !badD && !badRange) return;
+    if (!badTab && !badD && !badFire && !badRange) return;
     router.replace(
       hrefWith((p) => {
         if (badTab) p.delete('tab');
         if (badD) p.delete('d');
+        if (badFire) p.delete('fire');
         if (badRange) p.delete('range');
       }),
     );
-  }, [badTab, badD, badRange, hrefWith, router]);
+  }, [badTab, badD, badFire, badRange, hrefWith, router]);
 
   useEffect(() => {
     document.title = d === null ? TITLE : `${TITLE} · ${fmtYmdShort(d)}`;
