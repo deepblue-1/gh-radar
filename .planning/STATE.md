@@ -6,10 +6,10 @@ current_phase: 35
 current_phase_name: 발사 경계 지도 어드민
 status: completed
 stopped_at: Phase 35 complete — all phases complete
-last_updated: "2026-11-01T08:42:15.689Z"
+last_updated: "2026-11-01T09:26:07.824Z"
 last_activity: 2026-11-01
 last_activity_desc: Phase 35 complete
-state_head: d1c5e2b2f5db160a24d4f8bf1730f76ee0c02afb
+state_head: 4e46a3593a1ea4f2c5a9dd2923b57274b80bf09d
 progress:
   total_phases: 7
   completed_phases: 7
@@ -120,6 +120,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 34 | 어드민 계좌 예수금 칸 편집·표시를 만원 → 원 단위로 | 2026-10-30 | (이 커밋) | — |
 | 261101-0r3 | 위험도 분자 변경 반영 — relay 85 스키마 재생성 · limit_vol_qty 디코드 · 상따 위험도 새 식 · 보고서 risk_* 20261102 경계 (gh-trade 261031) | 2026-11-01 | 1ef9a8fe | [261101-0r3-relay-85-risk-20261102-gh-trade-261031](./quick/261101-0r3-relay-85-risk-20261102-gh-trade-261031/) |
 | 261101-owf | 상따 카드 85 창구행 셋째 칸 깨짐확률 → 「최대체결 X.X억」 — relay upper_max_fill 디코드 · 오늘 검정/지난 날 회색+툴팁 · 폰 「최대 X.X억」 (gh-trade nbu WinForms 동형) | 2026-11-01 | (이 커밋) | [261101-owf-85-x-x-gh-trade-nbu-winforms](./quick/261101-owf-85-x-x-gh-trade-nbu-winforms/) |
+| 261101-okd | 상따 SOR 전환 — relay buy3_schema 7 (sor_buy·sor_sell) · 웹 ○SOR 매수·매도 (D-06 동반 · NXT 미거래 잠금) · 키별 에코 맵 (gh-trade Phase 45) | 2026-11-01 | 4e46a359 | [261101-okd-sor-relay-buy3-schema-7-sor-gh-trade-pha](./quick/261101-okd-sor-relay-buy3-schema-7-sor-gh-trade-pha/) |
 
 ## Session Continuity
 

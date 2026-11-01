@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>상따 ☐SOR 배치 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+/* globals.css 토큰 — 라이트 / 다크 */
+:root {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --primary: #3182f6; --group-bg: #f9fafb; --switch-off: #d1d6db; --up: #f04452; --down: #3182f6;
+  --page: #eef0f3; --nav: #ffffff; --hair: #e5e8eb;
+}
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted-fg: #9e9e9e; --faint: #636363;
+  --primary: #3485fa; --group-bg: #1a1a1a; --switch-off: #4e4e4e; --up: #f04251; --down: #3485fa;
+  --page: #050505; --nav: #111; --hair: #2a2a2a;
+}
+body { background: var(--page); color: var(--fg); font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; }
+#nav { position: sticky; top: 0; z-index: 9; background: var(--nav); border-bottom: 1px solid var(--hair); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; }
+#nav .l { color: var(--muted-fg); font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: var(--group-bg); color: var(--fg-2); border: 1px solid var(--hair); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+#desc { flex-basis: 100%; color: var(--muted-fg); font-size: 12.5px; line-height: 1.6; }
+#desc b { color: var(--fg); }
+#stage { display: flex; flex-wrap: wrap; gap: 28px; justify-content: center; padding: 20px 16px 60px; }
+.variant { width: 100%; max-width: 720px; }
+.variant h2 { font-size: 15px; margin: 0 0 4px; }
+.variant p.why { font-size: 12.5px; color: var(--muted-fg); margin: 0 0 10px; line-height: 1.55; }
+.screen { background: var(--bg); border-radius: 14px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; box-shadow: 0 0 0 1px var(--hair); }
+.screen.narrow { grid-template-columns: 1fr; max-width: 360px; }
+.col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.colhead { font-size: 12px; color: var(--muted-fg); padding: 0 4px; }
+/* SettingGroup */
+.group { background: var(--group-bg); border-radius: 16px; padding: 10px 10px 4px; min-width: 0; }
+.ghead { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 2px 2px; }
+.gtitle { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.gtitle .st { font-size: 12px; font-weight: 400; color: var(--muted-fg); margin-left: 4px; white-space: nowrap; }
+.gtitle .st.on { color: var(--primary); }
+.switch { position: relative; width: 40px; height: 24px; border-radius: 999px; background: var(--switch-off); flex: none; cursor: pointer; border: 0; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch.on { background: var(--primary); }
+.switch.on::after { transform: translateX(16px); }
+/* GroupHeaderCheck / 체크 원형 */
+.hcheck { display: flex; align-items: center; gap: 4px; min-height: 32px; margin-left: -8px; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; white-space: nowrap; }
+.circle { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--switch-off); display: flex; align-items: center; justify-content: center; flex: none; }
+.circle.on { border-color: var(--primary); background: var(--primary); }
+.circle.on::after { content: ''; width: 9px; height: 5px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: translateY(-1px) rotate(-45deg); }
+.hcheck .lb { font-size: 13px; font-weight: 500; color: var(--muted-fg); }
+.hcheck.on .lb { color: var(--fg); }
+.hcheck[disabled], .crow[disabled], .bar[disabled] { opacity: .5; cursor: not-allowed; }
+/* 값 행 */
+.row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 4px; gap: 6px; }
+.row .k { font-size: 14px; color: var(--muted-fg); white-space: nowrap; }
+.row .v { font-size: 15px; font-weight: 500; color: var(--fg-2); white-space: nowrap; }
+.row .v::after { content: ' ›'; color: var(--faint); }
+.crow { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 4px; width: 100%; background: none; border: 0; font: inherit; cursor: pointer; text-align: left; }
+.crow .lb { font-size: 14px; color: var(--muted-fg); }
+.crow.on .lb { color: var(--fg-2); }
+.crow .sub { margin-left: auto; font-size: 12px; color: var(--faint); white-space: nowrap; }
+/* C: 컬럼 맨 위 독립 줄 */
+.bar { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: 12px; background: var(--group-bg); border: 0; font: inherit; cursor: pointer; width: 100%; text-align: left; }
+.bar .lb { font-size: 14px; font-weight: 600; color: var(--muted-fg); }
+.bar.on .lb { color: var(--fg); }
+.bar .sub { margin-left: auto; font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.bar.on .sub { color: var(--primary); }
+.note { font-size: 12px; color: var(--muted-fg); padding: 2px 4px 0; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">테마</span><button data-theme="light" class="on">라이트</button><button data-theme="dark">다크</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="wide" class="on">2열(≥685)</button><button data-w="narrow">폰 1열(344)</button></div>
+  <div class="g"><span class="l">종목</span><button data-nxt="1" class="on">NXT 거래 종목</button><button data-nxt="0">NXT 비거래 종목</button></div>
+  <div id="desc">
+    ○SOR 을 눌러 보세요. <b>매수 SOR 을 켜면 매도 SOR 도 같이 켜지고</b>, 매도 SOR 만 끄면 매수 SOR 은 남습니다(gh-trade D-06 · WinForms 와 같음).
+    <b>NXT 비거래 종목</b>에서는 ○SOR 이 비활성입니다. 켜면 그 그룹 설정이 KRX·NXT 공용 한 벌이 되고, 복사는 서버가 합니다.
+  </div>
+</div>
+<div id="stage"></div>
+<script>
+const S = { buy: false, sell: false, nxt: true, w: 'wide' };
+function toggle(which) {
+  if (!S.nxt) return;
+  if (which === 'buy') { const next = !S.buy; S.buy = next; if (next) S.sell = true; }
+  else { S.sell = !S.sell; }
+  render();
+}
+const circle = (on) => `<span class="circle ${on ? 'on' : ''}"></span>`;
+const dis = () => (S.nxt ? '' : 'disabled');
+const hint = () => (S.nxt ? 'KRX·NXT 설정 공용' : 'NXT 미거래 종목');
+const st = (on, txt) => `<span class="st ${on ? 'on' : ''}">${txt}</span>`;
+
+function buyRows() {
+  return `<div class="row"><span class="k">주문가격</span><span class="v">13,000원</span></div>
+    <div class="row"><span class="k">비교가격</span><span class="v">13,000원</span></div>
+    <button class="crow"><span class="circle"></span><span class="lb">버스트 취소</span></button>`;
+}
+function sellRows() {
+  return `<div class="row"><span class="k">주문가격</span><span class="v">13,000원</span></div>
+    <div class="row"><span class="k">비교가격</span><span class="v">13,000원</span></div>
+    <div class="row"><span class="k">매도비율</span><span class="v">100%</span></div>`;
+}
+function hcheck(which) {
+  const on = S[which];
+  return `<button class="hcheck ${on ? 'on' : ''}" ${dis()} title="${hint()}" onclick="toggle('${which}')">${circle(on)}<span class="lb">SOR</span></button>`;
+}
+function group(title, statusOn, statusTxt, extraHead, rows, foot = '') {
+  return `<section class="group"><div class="ghead"><span class="gtitle">${title}${st(statusOn, statusTxt)}</span>${extraHead}<button class="switch on"></button></div>${rows}${foot}</section>`;
+}
+function other(title) { return `<section class="group"><div class="ghead"><span class="gtitle">${title}</span><button class="switch"></button></div></section>`; }
+
+const VARIANTS = [
+  {
+    key: 'A', title: 'A — 매수주문 · 매도주문 제목줄 「○ SOR」 (권장)',
+    why: '후매수 「○ 자동」과 같은 제목줄 체크입니다. 각 열 맨 위 카드라 WinForms 「패널 맨 위」와 위치가 맞고, 새 부품이 없습니다. 켜지면 제목 옆 상태에 「KRX·NXT 공용」이 붙습니다.',
+    buy: () => group('매수주문', S.buy, S.buy ? 'KRX·NXT 공용' : '무장', hcheck('buy'), buyRows()),
+    sell: () => group('매도주문', S.sell, S.sell ? 'KRX·NXT 공용' : '무장', hcheck('sell'), sellRows()),
+  },
+  {
+    key: 'B', title: 'B — 매수주문 · 매도주문 카드 맨 아래 체크 행',
+    why: '「버스트 취소」와 같은 체크 행입니다. 행 높이 44 라 누르기 쉽지만, 카드가 꺼져(흐림) 있으면 같이 흐려 보이고 「설정 범위 전체」라는 지위가 덜 드러납니다.',
+    buy: () => group('매수주문', S.buy, '무장', '', buyRows(),
+      `<button class="crow ${S.buy ? 'on' : ''}" ${dis()} onclick="toggle('buy')">${circle(S.buy)}<span class="lb">SOR</span><span class="sub">${hint()}</span></button>`),
+    sell: () => group('매도주문', S.sell, '무장', '', sellRows(),
+      `<button class="crow ${S.sell ? 'on' : ''}" ${dis()} onclick="toggle('sell')">${circle(S.sell)}<span class="lb">SOR</span><span class="sub">${hint()}</span></button>`),
+  },
+  {
+    key: 'C', title: 'C — 각 열 맨 위 독립 줄 (카드 밖)',
+    why: '매수 열 · 매도 열 맨 위에 카드와 떨어진 한 줄입니다. 「이 열 전체(선 · 줄 · 후 / 매도 · 취소 · 자동매도)에 걸린다」가 가장 분명하지만, 새 부품이 생기고 세로 40px 를 더 씁니다.',
+    buyTop: () => `<button class="bar ${S.buy ? 'on' : ''}" ${dis()} onclick="toggle('buy')">${circle(S.buy)}<span class="lb">SOR 매수</span><span class="sub">${hint()}</span></button>`,
+    sellTop: () => `<button class="bar ${S.sell ? 'on' : ''}" ${dis()} onclick="toggle('sell')">${circle(S.sell)}<span class="lb">SOR 매도</span><span class="sub">${hint()}</span></button>`,
+    buy: () => group('매수주문', S.buy, '무장', '', buyRows()),
+    sell: () => group('매도주문', S.sell, '무장', '', sellRows()),
+  },
+];
+
+function render() {
+  document.getElementById('stage').innerHTML = VARIANTS.map((v) => `
+    <div class="variant">
+      <h2>${v.title}</h2><p class="why">${v.why}</p>
+      <div class="screen ${S.w === 'narrow' ? 'narrow' : ''}">
+        <div class="col"><div class="colhead">매수</div>${v.buyTop ? v.buyTop() : ''}${v.buy()}${other('선매수')}${other('줄매수')}${other('후매수')}</div>
+        <div class="col"><div class="colhead">매도</div>${v.sellTop ? v.sellTop() : ''}${v.sell()}${other('매수취소')}${other('자동매도')}</div>
+      </div>
+    </div>`).join('');
+}
+function bindGroup(attr, apply) {
+  document.querySelectorAll(`#nav button[data-${attr}]`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#nav button[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === b));
+    apply(b.dataset[attr]); render();
+  }));
+}
+bindGroup('theme', (t) => { document.documentElement.dataset.theme = t; });
+bindGroup('w', (w) => { S.w = w; });
+bindGroup('nxt', (n) => { S.nxt = n === '1'; if (!S.nxt) { S.buy = false; S.sell = false; } });
+render();
+</script>
+</body>
+</html>
