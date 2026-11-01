@@ -14,6 +14,7 @@ import {
   planEditWithDraft,
   planLineText,
   planNeedsReload,
+  planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
   saveResultViewOf,
@@ -317,6 +318,31 @@ describe('편집 · 저장(35-15)', () => {
     });
     expect(planStateWithSentEntry(s0, 'KYOBO119', 'q16', 'Q', [-1])).toBe(s0);
     expect(planStateWithSentEntry({ kind: 'error' }, 'KB120', 'q16', 'Q', [-1])).toEqual({ kind: 'error' });
+  });
+
+  it('planStateWithReload — take 안 · status ok 인 서버만 바꾼다 · 실패 모양은 마지막 값 유지 · 이력은 id 로 합침 · ready 아니면 응답 그대로(R2-WR-01)', () => {
+    const NEW_KB: LaunchPlanServer = { ...OK_KB, plan_rev: 8, entries: [{ profile: 'Q16', market: 'Q', offsets_us: [-350, -340, -325] }] };
+    const OK_KY: LaunchPlanServer = { status: 'ok', plan_rev: 2, updated_at: null, entries: [{ profile: 'Q16', market: 'Q', offsets_us: [-530] }] };
+    const OLD_KY: LaunchPlanServer = { ...OK_KY, plan_rev: 1, entries: [{ profile: 'Q16', market: 'Q', offsets_us: [-500] }] };
+    const mine = row({ gateway: 'KYOBO119' }); // 그 뒤 저장 응답으로 넣은 행
+    const shared = row({});
+    const s0 = ready({ KB120: OK_KB, KYOBO119: OK_KY }, [mine, shared]);
+
+    // 실패 모양(relay 실패 → 두 서버 offline 200) — take 에 있어도 ok 가 아니면 바꾸지 않는다.
+    const offline = { servers: { KB120: { status: 'offline' as const }, KYOBO119: { status: 'offline' as const } }, changes: [] };
+    const s1 = planStateWithReload(s0, offline, new Set(['KB120', 'KYOBO119']));
+    expect(s1.kind === 'ready' && s1.resp.servers).toEqual({ KB120: OK_KB, KYOBO119: OK_KY });
+    expect(s1.kind === 'ready' && s1.resp.changes).toEqual([mine, shared]);
+
+    // 늦게 온 응답 — KYOBO119 는 take 밖(더 최신 저장이 반영됨)이라 옛 값으로 되돌리지 않는다 · KB120 만 새 값.
+    const added = row({});
+    const late = { servers: { KB120: NEW_KB, KYOBO119: OLD_KY }, changes: [added, shared] };
+    const s2 = planStateWithReload(s0, late, new Set(['KB120']));
+    expect(s2.kind === 'ready' && s2.resp.servers).toEqual({ KB120: NEW_KB, KYOBO119: OK_KY });
+    expect(s2.kind === 'ready' && s2.resp.changes.map((c) => c.id)).toEqual([mine.id, shared.id, added.id]);
+
+    // 지킬 마지막 값이 없으면 응답 그대로.
+    expect(planStateWithReload({ kind: 'error' }, late, new Set())).toEqual({ kind: 'ready', resp: late });
   });
 
   it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {

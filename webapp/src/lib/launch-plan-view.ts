@@ -239,6 +239,31 @@ export function planStateWithSentEntry(
   return { kind: 'ready', resp: { ...state.resp, servers: { ...state.resp.servers, [gateway]: { ...server, entries } } } };
 }
 
+/**
+ * 저장 뒤 다시 읽은 응답 → 계획 상태(35 R2-WR-01). 통째로 덮어쓰지 않는다:
+ * - 서버 값은 `take` 에 든 서버만 바꾼다. 지도 탭이 「그 서버 status ok · 이 다시 읽기를 보낸 뒤 그 서버에 더 최신 값(저장 응답 ·
+ *   더 늦게 보낸 다시 읽기)이 반영되지 않았음」 으로 고른다. 실패 모양(relay 실패 → 두 서버 offline 200 · timeout · failed)이나
+ *   늦게 온 응답은 마지막으로 알던 계획 · 편집 칸 기준을 지우거나 되돌리지 않는다.
+ * - 이력은 id 로 합친다(행은 바뀌지 않는다) — 늦게 온 응답이 그 뒤 저장 응답으로 넣은 행을 지우지 않는다. 순서는 `panelPlanOf` 가
+ *   at 내림차순으로 맞춘다.
+ * ready 가 아니면(지킬 마지막 값이 없다) 응답 그대로.
+ */
+export function planStateWithReload(
+  state: LaunchPlanState,
+  resp: LaunchPlanResponse,
+  take: ReadonlySet<string>,
+): LaunchPlanState {
+  if (state.kind !== 'ready') return { kind: 'ready', resp };
+  const servers = { ...state.resp.servers };
+  for (const g of take) {
+    const v = resp.servers[g];
+    if (v !== undefined && v.status === 'ok') servers[g] = v;
+  }
+  const seen = new Set(state.resp.changes.map((c) => c.id));
+  const changes = [...state.resp.changes, ...resp.changes.filter((c) => !seen.has(c.id))];
+  return { kind: 'ready', resp: { servers, changes } };
+}
+
 export type SaveTone = 'ok' | 'err' | 'warn';
 
 /** 저장 결과 그림 — 칩(Admin 칩 한 벌 · title = 상세) + 결과 줄. */

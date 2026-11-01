@@ -549,6 +549,75 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(false);
   });
 
+  it('R2-WR-01 다시 읽기가 실패 모양(두 서버 offline 200) → 보낸 값 · 편집 칸 · 결과 줄 · 다른 서버 계획 유지', async () => {
+    const offline: LaunchPlanResponse = {
+      servers: { KB120: { status: 'offline', message: 'relay 처리에 실패했어요' }, KYOBO119: { status: 'offline' } },
+      changes: [],
+    };
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: offline });
+    vi.mocked(saveLaunchPlan).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'ok', usersRev: '12' },
+      plan: null,
+      change: null,
+    });
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenLastCalledWith({ fresh: true }));
+    // 다시 읽기 응답이 반영될 틈을 준 뒤에도 그대로다.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`);
+    expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toMatch(/^저장됨 · /);
+    expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
+    expect(one(panelOf(container, 'KYOBO119', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+      `3조각 ${M}530 · ${M}520 · ${M}500µs`,
+    );
+  });
+
+  it('R2-WR-01 늦게 온 다시 읽기는 그 뒤 저장한 서버 값을 되돌리지 않는다(그 서버만 버리고 다른 서버는 반영)', async () => {
+    let releaseReload!: (v: { kind: 'ready'; resp: LaunchPlanResponse }) => void;
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockReturnValueOnce(new Promise((r) => (releaseReload = r)));
+    const NEW_KYQ = [-530, -515, -500];
+    vi.mocked(saveLaunchPlan)
+      .mockResolvedValueOnce({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null })
+      .mockResolvedValueOnce({
+        result: { server: 'KYOBO119', outcome: 'ok', usersRev: '3' },
+        plan: okServer([-410, -400, -380], NEW_KYQ, -200),
+        change: null,
+      });
+    const container = await saveKbq();
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      ),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2); // 다시 읽기 R 이 나갔다(아직 응답 없음)
+
+    // R 이 비행 중에 교보 코스닥을 저장 — 응답이 먼저 온다.
+    const kyq = () => panelOf(container, 'KYOBO119', 'Q');
+    fireEvent.click(one(kyq(), '[data-slot="launch-plan-edit-toggle"]'));
+    fireEvent.change(within(kyq()).getByLabelText('2번 조각 시각(µs)'), { target: { value: '-515' } });
+    fireEvent.click(one(kyq(), '[data-slot="launch-plan-save"]'));
+    await waitFor(() =>
+      expect(one(kyq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`),
+    );
+
+    // R 이 늦게 도착 — KB120 은 새 값, KYOBO119 는 교보 저장 이전 값.
+    releaseReload({ kind: 'ready', resp: planResp({ KB120: okServer([-340, -335, -320], NEW_Q, -245) }) });
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+        `3조각 ${M}350 · ${M}340 · ${M}325µs`,
+      ),
+    );
+    expect(one(kyq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`);
+    expect(one(kyq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {
     vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
     vi.mocked(saveLaunchPlan).mockResolvedValue({

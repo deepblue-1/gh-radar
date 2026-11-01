@@ -59,9 +59,14 @@ export type LaunchPlanFetch = { kind: 'ready'; resp: LaunchPlanResponse } | { ki
  *
  * 404 = gh-radar server 가 이 라우트를 모름 = 배포 전(D-35) — 화면에서 계획 기능을 숨긴다(`{ kind: 'absent' }`).
  * 그 밖 오류(5xx · 네트워크 · 타임아웃)는 그대로 throw — 지도 탭이 「대신 값」 경로로 접는다.
+ *
+ * `fresh` = 진행 중 요청에 합치지 않고 새로 보낸다(저장 뒤 다시 읽기 · 35 R2-WR-01). 합치면 먼저 나간 요청의 응답 — 그 뒤
+ * 저장 이전 값일 수 있다 — 을 나중에 요청한 쪽이 받아, 세대 가드가 옛 값을 새 값으로 잘못 반영한다.
  */
-export function fetchLaunchPlan(): Promise<LaunchPlanFetch> {
-  return joined<LaunchPlanResponse>('/api/admin/launch/plan').then(
+export function fetchLaunchPlan(opts?: { fresh?: boolean }): Promise<LaunchPlanFetch> {
+  const path = '/api/admin/launch/plan';
+  const req = opts?.fresh === true ? authFetch<LaunchPlanResponse>(path) : joined<LaunchPlanResponse>(path);
+  return req.then(
     (resp): LaunchPlanFetch => ({ kind: 'ready', resp }),
     (e: unknown): LaunchPlanFetch => {
       if (e instanceof ApiClientError && e.status === 404) return { kind: 'absent' };
