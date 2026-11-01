@@ -229,11 +229,32 @@ function relayNotSent(r: RelayAdminResponse<unknown>): boolean {
   return r.status === 503 && isRelayErrorBody(r.data) && r.data.error.code === "LAUNCH_PLAN_UNAVAILABLE";
 }
 
+/** 이력 · 화면에 실어도 되는 오류 코드 모양 — 대문자 · 숫자 · 밑줄만(relay 오류 code · 네트워크 오류 코드). 아니면 싣지 않는다. */
+const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/**
+ * `relayNotSent` 저장의 offline 문구 — 원인을 싣는다(35 R3-IN-02). 이 문구가 이력 `message` 로 남아(D-29) 「relay 재기동 중 거부」 와
+ * 「공유 비밀 어긋남」 을 이력만으로 가를 수 있고, 화면 결과 줄은 「KB120 미반영: <이 문구>」 다(gh-trade 서버 연결 문제로 읽히지 않게).
+ *   - status 0(연결 단계에서 막힘 — `ECONNREFUSED` 등) → 「relay 에 연결하지 못했어요(<코드>). 잠시 뒤 다시 시도하세요.」
+ *     relay 재배포 · 재기동 중이면 시간이 지나 풀린다.
+ *   - 400 · 401 · 404 · 503 → 「relay 가 거부했어요(<status> <relay 오류 code>). relay 설정 · 배포를 확인하세요.」 — 다시 시도로는
+ *     풀리지 않는 설정 · 배포 결함(비밀 불일치 · 스키마 어긋남 · 구 relay).
+ * 바디 원문(message)은 싣지 않는다 — code 만(`SAFE_CODE` 모양일 때).
+ */
+function relayNotSentMessage(r: RelayAdminResponse<unknown>): string {
+  if (r.status === 0) {
+    const code = r.netCode !== undefined && SAFE_CODE.test(r.netCode) ? `(${r.netCode})` : "";
+    return `relay 에 연결하지 못했어요${code}. 잠시 뒤 다시 시도하세요.`;
+  }
+  const code = isRelayErrorBody(r.data) && SAFE_CODE.test(r.data.error.code) ? ` ${r.data.error.code}` : "";
+  return `relay 가 거부했어요(${r.status}${code}). relay 설정 · 배포를 확인하세요.`;
+}
+
 /**
  * 계획 저장(D-27) — relay `setLaunchPlan` 1회. **throw 하지 않는다** — 호출부가 이 결과로 이력 1행을 남긴다(D-29).
  *   - relay 미설정 → `offline`(`RELAY_NOT_CONFIGURED_MESSAGE`) — 요청을 보내지 않았으니 확정 미반영.
  *   - relay 에 닿지 못했거나 relay 가 핸들러 앞단에서 거절(`relayNotSent` — 연결 거부 · 400 · 401 · 404 · 503
- *     `LAUNCH_PLAN_UNAVAILABLE`) → `offline`(`RELAY_FAILED_MESSAGE`) — op 8 이 나가지 않은 것이 확실하다(35 R2-WR-03). timeout 으로
+ *     `LAUNCH_PLAN_UNAVAILABLE`) → `offline`(`relayNotSentMessage` — 원인 · 35 R3-IN-02) — op 8 이 나가지 않은 것이 확실하다(35 R2-WR-03). timeout 으로
  *     적으면 이력이 「반영됐을 수 있음」 으로 쌓여(relay 롤백 중이면 모든 저장) D-29 대조에 잡음이 된다.
  *   - 그 밖 요청을 보낸 뒤의 실패(타임아웃 · 연결 리셋(status 0) · 다른 비200 · 모양 위반) → `timeout`(= 결과 모름 ·
  *     `RELAY_UNKNOWN_SAVE_MESSAGE`) — relay 가 op 8 을 이미 보냈을 수 있다(35 CR-01). offline 으로 적으면 이력에 「서버 연결 안 됨」
@@ -260,7 +281,7 @@ export async function saveLaunchPlanViaRelay(
         { relay: { op: "launch-plan-put", status, ...(r.netCode !== undefined ? { code: r.netCode } : {}) } },
         "[admin-launch] 발사 계획 저장 relay 가 보내기 전에 막힘 → offline(확정 미반영)",
       );
-      return { result: { server: gateway, outcome: "offline", message: RELAY_FAILED_MESSAGE }, before_us: null, plan: null };
+      return { result: { server: gateway, outcome: "offline", message: relayNotSentMessage(r) }, before_us: null, plan: null };
     }
     const d: unknown = r.data;
     if (

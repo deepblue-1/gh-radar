@@ -183,6 +183,12 @@ describe('표기', () => {
     });
     expect(changeOutcomeView(row({ outcome: 'timeout' }))).toEqual({ tone: 'err', text: '응답 없음' });
     expect(changeOutcomeView(row({ outcome: 'offline' }))).toEqual({ tone: 'warn', text: '서버 연결 안 됨' });
+    // R3-IN-02 — offline 사유(relay 거부 · 연결 실패 원인)는 title 로
+    expect(changeOutcomeView(row({ outcome: 'offline', message: 'relay 가 거부했어요(401 UNAUTHORIZED). relay 설정 · 배포를 확인하세요.' }))).toEqual({
+      tone: 'warn',
+      text: '서버 연결 안 됨',
+      title: 'relay 가 거부했어요(401 UNAUTHORIZED). relay 설정 · 배포를 확인하세요.',
+    });
     expect(changeOutcomeView(row({ outcome: 'skipped' }))).toEqual({ tone: 'warn', text: '꺼진 서버' });
   });
 
@@ -271,9 +277,10 @@ describe('편집 · 저장(35-15)', () => {
       chip: { tone: 'warn', text: 'KB120 · 서버 연결 안 됨', title: null },
       line: { tone: 'warn', text: 'KB120 미반영: 서버 연결 안 됨' },
     });
+    // R3-IN-02 — 사유(server 가 실은 relay 거부 · 연결 실패 원인)가 있으면 줄에 원문 그대로(gh-trade 서버 연결 문제로 읽히지 않게)
     expect(saveResultViewOf({ server: 'KB120', outcome: 'offline', message: 'relay 응답이 없어요' }, 'q16', AT)).toEqual({
       chip: { tone: 'warn', text: 'KB120 · 서버 연결 안 됨', title: 'relay 응답이 없어요' },
-      line: { tone: 'warn', text: 'KB120 미반영: 서버 연결 안 됨' },
+      line: { tone: 'warn', text: 'KB120 미반영: relay 응답이 없어요' },
     });
     expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped', message: '꺼진 서버' }, 'q16', AT)).toEqual({
       chip: { tone: 'warn', text: 'KB120 · 미반영', title: '꺼진 서버' },

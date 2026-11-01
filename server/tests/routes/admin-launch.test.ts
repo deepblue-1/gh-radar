@@ -13,7 +13,7 @@ import type {
 import { createApp } from "../../src/app";
 import { logger } from "../../src/logger";
 import { RELAY_UNKNOWN_SAVE_MESSAGE } from "../../src/services/admin-launch";
-import { RELAY_FAILED_MESSAGE, type RelayAdminClient } from "../../src/services/relay-admin-client";
+import type { RelayAdminClient } from "../../src/services/relay-admin-client";
 import {
   ADMIN_EMAIL,
   ADMIN_TOKEN,
@@ -600,24 +600,45 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
     });
   });
 
+  // R3-IN-02 — 확정 미반영이라는 판정은 그대로, message 에 원인(relay status · 오류 code · 네트워크 코드)을 싣는다. 바디 원문
+  // (error.message)은 싣지 않는다. 이력 message 로 남아 「relay 재기동 중 거부」 와 「비밀 어긋남」 을 가른다.
+  const RETRY = "잠시 뒤 다시 시도하세요.";
+  const CONFIG = "relay 설정 · 배포를 확인하세요.";
   it.each([
-    ["연결 거부(ECONNREFUSED)", { status: 0, data: null, netCode: "ECONNREFUSED" }],
-    ["이름 못 찾음(ENOTFOUND)", { status: 0, data: null, netCode: "ENOTFOUND" }],
-    ["401 공유 비밀 불일치", { status: 401, data: { error: { code: "UNAUTHORIZED", message: "x" } } }],
-    ["400 검증 실패", { status: 400, data: { error: { code: "VALIDATION_FAILED", message: "x" } } }],
-    ["404 라우트 없음(구 relay)", { status: 404, data: null }],
-    ["503 LAUNCH_PLAN_UNAVAILABLE", { status: 503, data: { error: { code: "LAUNCH_PLAN_UNAVAILABLE", message: "x" } } }],
-  ])("P35-S8 relay %s → 200 result offline(확정 미반영 · R2-WR-03) · plan null · 기록 offline 1행", async (_l, r) => {
+    ["연결 거부(ECONNREFUSED)", { status: 0, data: null, netCode: "ECONNREFUSED" }, `relay 에 연결하지 못했어요(ECONNREFUSED). ${RETRY}`],
+    ["이름 못 찾음(ENOTFOUND)", { status: 0, data: null, netCode: "ENOTFOUND" }, `relay 에 연결하지 못했어요(ENOTFOUND). ${RETRY}`],
+    [
+      "401 공유 비밀 불일치",
+      { status: 401, data: { error: { code: "UNAUTHORIZED", message: "secret mismatch x" } } },
+      `relay 가 거부했어요(401 UNAUTHORIZED). ${CONFIG}`,
+    ],
+    [
+      "400 검증 실패",
+      { status: 400, data: { error: { code: "VALIDATION_FAILED", message: "offsets_us x" } } },
+      `relay 가 거부했어요(400 VALIDATION_FAILED). ${CONFIG}`,
+    ],
+    ["404 라우트 없음(구 relay)", { status: 404, data: null }, `relay 가 거부했어요(404). ${CONFIG}`],
+    [
+      "503 LAUNCH_PLAN_UNAVAILABLE",
+      { status: 503, data: { error: { code: "LAUNCH_PLAN_UNAVAILABLE", message: "x" } } },
+      `relay 가 거부했어요(503 LAUNCH_PLAN_UNAVAILABLE). ${CONFIG}`,
+    ],
+    [
+      "401 · 코드 모양 밖(싣지 않음)",
+      { status: 401, data: { error: { code: "bad code<script>", message: "x" } } },
+      `relay 가 거부했어요(401). ${CONFIG}`,
+    ],
+  ])("P35-S8 relay %s → 200 result offline(확정 미반영 · R2-WR-03) · 원인 message(R3-IN-02) · plan null · 기록 offline 1행", async (_l, r, message) => {
     const relay = relayPut(r);
     const { app, rec } = makeApp({}, relay.client);
     const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
     expect(res.status).toBe(200);
-    expect(res.body.result).toEqual({ server: "KB120", outcome: "offline", message: RELAY_FAILED_MESSAGE });
+    expect(res.body.result).toEqual({ server: "KB120", outcome: "offline", message });
     expect(res.body.plan).toBeNull();
     expect(relay.calls).toHaveLength(1);
     expect(recordCalls(rec)).toHaveLength(1);
     expect(recordCalls(rec)[0]!.params).toMatchObject({
-      p: { outcome: "offline", message: RELAY_FAILED_MESSAGE, before_us: null, plan_rev: null, code: null },
+      p: { outcome: "offline", message, before_us: null, plan_rev: null, code: null },
     });
   });
 

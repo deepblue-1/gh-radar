@@ -139,11 +139,14 @@ export type ChangeOutcomeTone = 'ok' | 'warn' | 'err';
 export interface ChangeOutcomeView {
   tone: ChangeOutcomeTone;
   text: string;
-  /** 실패 상세(서버 거부 원문) — failed 일 때만. */
+  /** 상세 — failed 서버 거부 원문 · offline 사유(35 R3-IN-02). 그 밖엔 없음. */
   title?: string;
 }
 
-/** 이력 결과 알약 — ok 저장됨 · failed 실패(title = message) · timeout 응답 없음 · offline 서버 연결 안 됨 · skipped 꺼진 서버. */
+/**
+ * 이력 결과 알약 — ok 저장됨 · failed 실패(title = message) · timeout 응답 없음 · offline 서버 연결 안 됨(title = message · relay 거부 ·
+ * 연결 실패 원인 · 35 R3-IN-02) · skipped 꺼진 서버.
+ */
 export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'message'>): ChangeOutcomeView {
   switch (row.outcome) {
     case 'ok':
@@ -153,7 +156,7 @@ export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'me
     case 'timeout':
       return { tone: 'err', text: '응답 없음' };
     case 'offline':
-      return { tone: 'warn', text: '서버 연결 안 됨' };
+      return row.message ? { tone: 'warn', text: '서버 연결 안 됨', title: row.message } : { tone: 'warn', text: '서버 연결 안 됨' };
     case 'skipped':
       return { tone: 'warn', text: '꺼진 서버' };
   }
@@ -378,12 +381,14 @@ export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
  * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
  * | timeout · 요청 실패(타임아웃 · 네트워크 · 5xx) | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — <다시 읽기 꼬리>」(`TIMEOUT_REREAD_TAIL`) |
  * | 요청 4xx 거부(`rejectedSaveResultOf` — failed) | 「KB120 · 실패」 title 문구 | 「KB120 실패: 로그인이 만료됐어요 — …」 · 「KB120 실패: 요청 거부(400) · …」 |
- * | offline | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
+ * | offline | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: <message · 없으면 서버 연결 안 됨>」 |
  *
  * timeout = 요청은 나갔는데 응답을 못 받음(결과 모름 · 35 CR-01) — 반영됐을 수 있어 「실패」 · 「미반영」 으로 단정하지 않는다
  * (지도 탭이 계획을 다시 읽는다). 줄 꼬리는 그 다시 읽기가 대상 서버를 어떻게 끝냈는지(`reread` · 35 R3-WR-01) — 「다시 읽은
  * 계획으로 확인」 은 대상 서버 값을 실제로 다시 읽어 반영했을 때(또는 `reread` 없음)만이다. offline = 요청이 서버에 닿기 전에
- * 막힘(확정 미반영).
+ * 막힘(확정 미반영). offline 사유가 있으면 줄에 원문을 싣는다(35 R3-IN-02 — server 가 relay 거부 · 연결 실패 원인을 message 에
+ * 싣는다 · Admin 계좌 편집 「<서버> 미반영: <사유 · 없으면 서버 연결 안 됨>」 과 같은 말). 사유 없음 = relay 가 본 gh-trade 서버 연결
+ * 없음.
  * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
  *
  * 서버 미지원 = 구 서버가 44 op 8 을 모름(code 1 「알 수 없는 명령입니다」) — 서버 업데이트 전까지 저장이 안 된다.
@@ -421,7 +426,7 @@ export function saveResultViewOf(
     case 'offline':
       return {
         chip: { tone: 'warn', text: `${s} · 서버 연결 안 됨`, title: msg },
-        line: { tone: 'warn', text: `${s} 미반영: 서버 연결 안 됨` },
+        line: { tone: 'warn', text: `${s} 미반영: ${msg ?? '서버 연결 안 됨'}` },
       };
     case 'skipped':
       return {
