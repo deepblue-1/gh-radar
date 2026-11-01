@@ -409,7 +409,7 @@ test.describe('Phase 28 Plan 13 — 상한가 보고서 (로컬 relay)', () => {
       await expect(chip('risk')).toContainText('+60초 —');
       await expect(dk.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveCount(1);
       await expect(dk.locator('[data-slot="limitup-lock-risk-caption"]')).toHaveText(
-        '위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다',
+        '위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다 · 2026.11.02 전 정의',
       );
       // 칩 줄은 레인 제목 아래 · 차트(레인 또는 로딩 자리) 위.
       const laneLock = dk.locator('[data-slot="limitup-lane-lock"]');

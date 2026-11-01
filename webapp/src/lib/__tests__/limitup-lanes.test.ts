@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } from '@gh-radar/shared';
+import { LIMITUP_RISK_QTY_FROM, type LimitupFactRow, type LimitupGridCol, type LimitupGridFile, type LimitupMarkRow } from '@gh-radar/shared';
 
 /**
  * Phase 28 Plan 13 Task 1 — 사건 카드 레인 · 표 계산 lib (D-11 · D-12 · gh-trade `_section_a_cards` 창 · 마커 규칙).
@@ -15,6 +15,7 @@ import type { LimitupFactRow, LimitupGridCol, LimitupGridFile, LimitupMarkRow } 
  *  - laneLockOf: 창 [첫 start − 120, 마지막 end + 60] · 음영 · 번호 마커(q_max 사실 krw · 창 끝 뒤 고정) · ▼ · ✕ title 만
  *  - memberBarsOf(+ range) · fingerprintRowsOf · yesterdayRowsOf
  *  - quick-261006-ide(스케치 012-A): lockRiskRowsOf 잠김별 요약 칩 줄 — 누적 매도 · 취소 · 위험도 4시점, 6값 전부 null 이면 줄 없음
+ *  - quick-261101-0r3: lockRiskCaptionOf 위험도 정의 경계 — LIMITUP_RISK_QTY_FROM(20261102) 전 krw · 부터 qty
  * 입력은 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달)와 합성 행.
  */
 
@@ -29,6 +30,7 @@ import {
   gridSeries,
   laneEntryOf,
   laneLockOf,
+  lockRiskCaptionOf,
   lockRiskRowsOf,
   layoutEventBand,
   memberBarsOf,
@@ -761,5 +763,34 @@ describe('lockRiskRowsOf — 잠김 구간 요약 칩 줄(스케치 012-A · qui
     expect(row!.sell).toBe('7,000만');
     expect(row!.cancel).toBe('—');
     expect(row!.risks[0]!.value).toBe(`${Math.round(0.355 * 100)}%`);
+  });
+});
+
+describe('lockRiskCaptionOf — 위험도 정의 경계(LIMITUP_RISK_QTY_FROM · gh-trade quick-261031-nd7)', () => {
+  const KRW = '위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다 · 2026.11.02 전 정의';
+  const QTY = '위험도 = 그 시점 상한가 거래량 ÷ 그 시점 대기 수량 · 100% 를 넘을 수 있다 · 2026.11.02 부터 정의';
+
+  it('경계 상수는 @gh-radar/shared 의 20261102', () => {
+    expect(LIMITUP_RISK_QTY_FROM).toBe('20261102');
+  });
+
+  it('20261030 → krw(옛 정의) 문구', () => {
+    expect(lockRiskCaptionOf('20261030')).toEqual({ def: 'krw', text: KRW });
+  });
+
+  it('20261102 → qty(새 정의) 문구', () => {
+    expect(lockRiskCaptionOf('20261102')).toEqual({ def: 'qty', text: QTY });
+  });
+
+  it('경계 바로 앞뒤 — 20261101 krw · 20261103 qty', () => {
+    expect(lockRiskCaptionOf('20261101').def).toBe('krw');
+    expect(lockRiskCaptionOf('20261103').def).toBe('qty');
+  });
+
+  it('칩 서식은 정의와 무관 — 같은 risk_pre 1.92 는 경계 양쪽 날짜 행 모두 「192%」', () => {
+    for (const date of ['20261030', '20261102']) {
+      const [row] = lockRiskRowsOf([lockRow({ isin: 'KR7000000001', date, lock_id: 1, broke: false, risk_pre: 1.92 })]);
+      expect(row!.risks[3]!.value).toBe('192%');
+    }
   });
 });

@@ -222,6 +222,7 @@ export type {
   LimitupGridCols,
   LimitupGridFile,
 } from "./limitup-report";
+export { LIMITUP_RISK_QTY_FROM } from "./limitup-report";
 // --- Phase 33 팀 매집 보고서 계약 — server /api/teamflow/report ↔ webapp (행 키 = export 열 이름) ---
 export type {
   TeamflowBand,

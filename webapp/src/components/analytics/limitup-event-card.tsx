@@ -9,6 +9,7 @@ import {
   eventsOf,
   laneEntryOf,
   laneLockOf,
+  lockRiskCaptionOf,
   lockRiskRowsOf,
   lockWindowOf,
   memberBarsOf,
@@ -234,6 +235,7 @@ export function LimitupEventCard({
   const bars = useMemo(() => memberBarsOf(facts, locks, entry), [facts, locks, entry]);
   // 보고서 응답 값이라 격자 로딩 · 에러와 무관하게 보인다(스케치 012-A).
   const lockRisk = useMemo(() => lockRiskRowsOf(locks), [locks]);
+  const riskCaption = useMemo(() => lockRiskCaptionOf(date), [date]);
 
   const lockSpan = useMemo(() => {
     const lk = locks.filter((l) => l.start_ms != null);
@@ -333,8 +335,12 @@ export function LimitupEventCard({
                   />
                 )}
                 {lockRisk.length > 0 && (
-                  <p data-slot="limitup-lock-risk-caption" className={cn(CAPTION, 'm-0 mt-1.5 break-keep')}>
-                    위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다
+                  <p
+                    data-slot="limitup-lock-risk-caption"
+                    data-risk-def={riskCaption.def}
+                    className={cn(CAPTION, 'm-0 mt-1.5 break-keep')}
+                  >
+                    {riskCaption.text}
                   </p>
                 )}
               </>

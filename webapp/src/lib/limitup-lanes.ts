@@ -24,6 +24,7 @@
  */
 
 import {
+  LIMITUP_RISK_QTY_FROM,
   formatEok,
   formatGroup,
   memberName,
@@ -131,9 +132,10 @@ const LOCK_RISK_KEYS = ['sell_krw', 'cancel_krw', 'risk_3s', 'risk_10s', 'risk_6
 /**
  * 보고서 「잠김 구간」 요약 칩 줄 뷰 모델 — 스케치 012-A 채택(2026-10-06 · quick-261006-ide).
  *
- * 출처는 gh-trade ea8d9171 locks export 새 키(sell_krw · cancel_krw · risk_3s/10s/60s · risk_pre)다. 위험도 = 그 시점까지
- * 누적 매도 ÷ 그 시점 대기 금액(q_krw) — **판정 기준이 아닌 비율 수치**라 색 없이 정수 %(round(r × 100), 100% 초과 그대로)로만
- * 적는다. 입력은 한 종목의 locks, lock_id 오름차순으로 돈다. 6값이 모두 null/undefined(옛 날짜 · 마이그레이션 전 응답)인
+ * 출처는 gh-trade ea8d9171 locks export 새 키(sell_krw · cancel_krw · risk_3s/10s/60s · risk_pre)다. 위험도 정의는 날짜로
+ * 갈린다 — LIMITUP_RISK_QTY_FROM(20261102) 부터 그 시점 상한가 거래량 ÷ q_qty(주 ÷ 주), 그 전 누적 매도 ÷ q_krw(gh-trade
+ * quick-261031-nd7). 캡션은 {@link lockRiskCaptionOf}. 칩 서식은 두 정의가 같다 — **판정 기준이 아닌 비율 수치**라 색 없이
+ * 정수 %(round(r × 100), 100% 초과 그대로)로만 적는다. 입력은 한 종목의 locks, lock_id 오름차순으로 돈다. 6값이 모두 null/undefined(옛 날짜 · 마이그레이션 전 응답)인
  * 잠김은 줄을 만들지 않는다 — 전부 그렇다면 [] 이고 카드는 칩 영역 · 캡션을 그리지 않는다.
  */
 export function lockRiskRowsOf(locks: readonly LimitupLockRow[]): LockRiskRow[] {
@@ -155,6 +157,32 @@ export function lockRiskRowsOf(locks: readonly LimitupLockRow[]): LockRiskRow[] 
         { label: l.broke === true ? '깨짐 3초 전' : '끝 3초 전', value: pct(l.risk_pre) },
       ],
     }));
+}
+
+/** 위험도 정의 — 'krw' = 누적 매도 ÷ q_krw(경계 전) · 'qty' = 상한가 거래량 ÷ q_qty(경계부터). */
+export type LockRiskDef = 'krw' | 'qty';
+
+/** 경계 라벨 「YYYY.MM.DD」 — 상수에서 만든다(날짜 리터럴을 이 파일에 다시 쓰지 않는다). */
+const RISK_QTY_FROM_LABEL = `${LIMITUP_RISK_QTY_FROM.slice(0, 4)}.${LIMITUP_RISK_QTY_FROM.slice(4, 6)}.${LIMITUP_RISK_QTY_FROM.slice(6, 8)}`;
+
+/**
+ * 보고서 사건 카드 위험도 캡션 — 카드 거래일의 정의를 적는다(quick-261101-0r3 · gh-trade quick-261031-nd7).
+ *
+ * `date >= LIMITUP_RISK_QTY_FROM` 이면 'qty'(그 시점 상한가 거래량 ÷ 그 시점 대기 수량), 아니면 'krw'(그 시점까지 누적 매도 ÷
+ * 그 시점 대기 금액). schema_version 이 1 그대로라 날짜로만 가른다. 경계에 연도를 넣는 이유 — 화면의 다른 날짜는 연도 없는
+ * 「MM/DD」 지만, 경계는 해가 바뀌어도 오독되면 안 된다.
+ */
+export function lockRiskCaptionOf(date: LimitupDate): { def: LockRiskDef; text: string } {
+  if (date >= LIMITUP_RISK_QTY_FROM) {
+    return {
+      def: 'qty',
+      text: `위험도 = 그 시점 상한가 거래량 ÷ 그 시점 대기 수량 · 100% 를 넘을 수 있다 · ${RISK_QTY_FROM_LABEL} 부터 정의`,
+    };
+  }
+  return {
+    def: 'krw',
+    text: `위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다 · ${RISK_QTY_FROM_LABEL} 전 정의`,
+  };
 }
 
 /** 사실 문장 앞 「HH:MM:SS.mmm 」 하나만 뗀다(시각 칸과 중복 — D-04). */

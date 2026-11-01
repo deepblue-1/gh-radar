@@ -12,6 +12,18 @@
 /** `YYYYMMDD` 날짜 문자열. */
 export type LimitupDate = string;
 
+/**
+ * locks `risk_3s` / `risk_10s` / `risk_60s` / `risk_pre` 위험도 **분자 정의 경계**(gh-trade quick-261031-nd7 · 인박스
+ * `261031-risk-limit-vol` (나)). 경계 날짜 정본은 여기 하나다 — 다른 곳에 날짜를 다시 쓰지 말 것.
+ *
+ * - `date >= LIMITUP_RISK_QTY_FROM` — 그 시점 상한가 거래량 ÷ 그 시점 `q_qty`(주 ÷ 주, 소수).
+ * - `date <  LIMITUP_RISK_QTY_FROM` — 그 시점까지 누적 매도 주도 상한가 체결 금액 ÷ 그 시점 `q_krw`(금액 ÷ 금액, 소수).
+ * - `schema_version` 은 1 그대로라 **날짜로만** 가른다(올리면 limitup-sync 가 그날을 건너뛴다).
+ * - 옛 날짜 행은 gh-trade 가 재생성하지 않는 한 옛 정의다.
+ * - `YYYYMMDD` 문자열이라 문자열 비교 = 날짜 비교.
+ */
+export const LIMITUP_RISK_QTY_FROM: LimitupDate = "20261102";
+
 /** entries (35열) — 종목별 그날 진입 요약. PK (date, isin). */
 export interface LimitupEntryRow {
   date: LimitupDate;
@@ -86,15 +98,20 @@ export interface LimitupLockRow {
   /** 그 잠김 상한가 매수잔량 취소 금액(원, 하한). gh-trade ea8d9171 · 옛 날짜 null. */
   cancel_krw?: number | null;
   /**
-   * 잠김 시작 +3초 위험도 = 그 시점까지 누적 매도 ÷ 그 시점 q_krw, **소수**(0.36 = 36% — 100% 초과면 1 초과). 잠김 밖 ·
-   * q_krw 0 이면 null. gh-trade ea8d9171 · 옛 날짜 null.
+   * 잠김 시작 +3초 위험도, **소수**(0.36 = 36% — 100% 초과면 1 초과). 정의는 {@link LIMITUP_RISK_QTY_FROM} 으로 갈린다
+   * (gh-trade quick-261031-nd7 · schema_version 1 그대로):
+   * - 20261102 부터 = 그 시점 상한가 거래량(KRX G1 A3 `cum_volume` − 직전 매도 체결 직후 누적, 85 `limit_vol_qty` 와 같은
+   *   규칙) ÷ 그 시점 `q_qty`(주 ÷ 주). 그 시점까지 체결이 없으면 null.
+   * - 그 전 = 그 시점까지 누적 매도 ÷ 그 시점 `q_krw`(금액 ÷ 금액).
+   *
+   * 공통 null: 잠김 밖 · 잠김 시작 전 · q 0. gh-trade ea8d9171 · 옛 날짜 null.
    */
   risk_3s?: number | null;
-  /** 잠김 시작 +10초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  /** 잠김 시작 +10초 위험도(소수 — 100% 초과면 1 초과). risk_3s 와 같은 정의 · 같은 경계(LIMITUP_RISK_QTY_FROM). gh-trade ea8d9171 · 옛 날짜 null. */
   risk_10s?: number | null;
-  /** 잠김 시작 +60초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  /** 잠김 시작 +60초 위험도(소수 — 100% 초과면 1 초과). risk_3s 와 같은 정의 · 같은 경계(LIMITUP_RISK_QTY_FROM). gh-trade ea8d9171 · 옛 날짜 null. */
   risk_60s?: number | null;
-  /** 깨짐(유지면 끝) −3초 위험도(소수 — 100% 초과면 1 초과). gh-trade ea8d9171 · 옛 날짜 null. */
+  /** 깨짐(유지면 끝) −3초 위험도(소수 — 100% 초과면 1 초과). risk_3s 와 같은 정의 · 같은 경계(LIMITUP_RISK_QTY_FROM). gh-trade ea8d9171 · 옛 날짜 null. */
   risk_pre?: number | null;
 }
 

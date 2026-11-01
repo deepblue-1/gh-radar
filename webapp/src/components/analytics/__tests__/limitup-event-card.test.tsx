@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
  * 그대로 · 빈 문구 · 마운트 즉시 격자 로드 · 로딩/에러/다시 시도 ·
  * **색 감사**(SVG stroke/fill 허용 집합 · 오버레이 마커 색 · 초록 상태 토큰 0 · SVG 안 글자 요소 0).
  * quick-261006-ide(스케치 012-A): 「잠김 구간」 요약 칩 줄 · 「잠김 N」 머리 · 6값 전부 null 이면 칩 · 캡션 0 · broke 별 라벨 · 192%.
+ * quick-261101-0r3: 캡션이 카드 날짜로 위험도 정의(data-risk-def krw / qty)를 가른다 — 경계 LIMITUP_RISK_QTY_FROM.
  * 입력 = 실 export 20261002(덕우전자 깨짐 · 엑시온그룹 유지 · 형지글로벌 미도달 = 목록 밖) + 실 격자 gzip.
  */
 
@@ -348,11 +349,11 @@ describe('LimitupEventCard — 잠김 구간 요약 칩(스케치 012-A · quick
     risk_pre: 0.25,
   };
 
-  function renderWithLocks(isin: string, locksOf: (ls: readonly LimitupLockRow[]) => LimitupLockRow[]) {
+  function renderWithLocks(isin: string, locksOf: (ls: readonly LimitupLockRow[]) => LimitupLockRow[], date: string = D) {
     const base = rowOf(isin);
     return render(
       <LimitupEventCard
-        date={D}
+        date={date}
         row={{ ...base, locks: locksOf(base.locks) }}
         entry={entries.find((e) => e.isin === isin) ?? null}
         facts={facts.filter((f) => f.isin === isin)}
@@ -361,6 +362,8 @@ describe('LimitupEventCard — 잠김 구간 요약 칩(스케치 012-A · quick
     );
   }
 
+  const CAPTION_KRW = '위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다 · 2026.11.02 전 정의';
+  const CAPTION_QTY = '위험도 = 그 시점 상한가 거래량 ÷ 그 시점 대기 수량 · 100% 를 넘을 수 있다 · 2026.11.02 부터 정의';
   const chipsOf = (isin: string) => card(isin).querySelector('[data-slot="limitup-lock-risk"]');
   const captionsOf = (isin: string) => card(isin).querySelectorAll('[data-slot="limitup-lock-risk-caption"]');
 
@@ -392,7 +395,22 @@ describe('LimitupEventCard — 잠김 구간 요약 칩(스케치 012-A · quick
     // 잠김 1개 → 줄 머리 없음.
     expect(rowsEl[0]!.textContent!.startsWith('누적 매도')).toBe(true);
     expect(captionsOf(DUKWOO)).toHaveLength(1);
-    expect(captionsOf(DUKWOO)[0]!.textContent).toBe('위험도 = 그 시점까지 누적 매도 ÷ 그 시점 대기 금액 · 100% 를 넘을 수 있다');
+    expect(captionsOf(DUKWOO)[0]!.textContent).toBe(CAPTION_KRW);
+    expect(captionsOf(DUKWOO)[0]!.getAttribute('data-risk-def')).toBe('krw');
+  });
+
+  it.each([
+    ['20261030', 'krw', CAPTION_KRW],
+    ['20261102', 'qty', CAPTION_QTY],
+  ] as const)('카드 날짜 %s → 캡션 정의 %s(quick-261101-0r3 · 칩 텍스트는 같다)', (date, def, text) => {
+    urlsOk();
+    renderWithLocks(DUKWOO, (ls) => ls.map((l) => ({ ...l, date, ...RISK_DUKWOO })), date);
+    const caps = captionsOf(DUKWOO);
+    expect(caps).toHaveLength(1);
+    expect(caps[0]!.textContent).toBe(text);
+    expect(caps[0]!.getAttribute('data-risk-def')).toBe(def);
+    const risk = chipsOf(DUKWOO)!.querySelector('[data-slot="limitup-lock-risk-chip"][data-kind="risk"]')!;
+    expect(risk.textContent).toBe('위험도+3초 4%·+10초 40%·+60초 —·깨짐 3초 전 25%');
   });
 
   it('엑시온(유지 · broke false) → 「끝 3초 전 192%」(100% 초과 그대로)', () => {
