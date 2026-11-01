@@ -1,6 +1,6 @@
 ---
 phase: 35-launch-gate
-verified: 2026-11-01T06:00:00Z
+verified: 2026-11-01T08:20:00Z
 status: human_needed
 score: 7/7 must-haves verified
 covered_files:
@@ -42,10 +42,11 @@ covered_files:
   - .planning/phases/35-launch-gate/35-18-SUMMARY.md
   - .planning/phases/35-launch-gate/35-19-PLAN.md
   - .planning/phases/35-launch-gate/35-19-SUMMARY.md
-  - .planning/phases/35-launch-gate/35-REVIEW-R2-DISPOSITION.md
   - .planning/phases/35-launch-gate/35-REVIEW-R2.md
   - .planning/phases/35-launch-gate/35-REVIEW-R3-DISPOSITION.md
   - .planning/phases/35-launch-gate/35-REVIEW-R3.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R4-DISPOSITION.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R4.md
   - relay/src/admin/admin-api.ts
   - relay/src/admin/launch-plan.ts
   - relay/src/tools/launch-backfill.ts
@@ -54,12 +55,28 @@ covered_files:
   - server/src/services/relay-admin-client.ts
   - supabase/migrations/20261028200000_launch_project_mapping.sql
   - webapp/src/components/admin/launch-map-tab.tsx
+  - webapp/src/components/admin/launch-plan-editor.tsx
   - webapp/src/lib/launch-api.ts
   - webapp/src/lib/launch-plan-view.ts
-covered_digest: "v3:sha256:109245a3a8283592a2dda73d78c7364b3e7f8099e1d7e1ace38b4f23e3290b7d"
+covered_digest: "v3:sha256:69e139bf8e6ebbe6da3be4f07a0f2d87eef69fc703206a235b07b745a2d48b73"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+  - test: "R4-IN-01 · R4-IN-02 · R4-IN-03 처리 결정 (35-REVIEW-R4-DISPOSITION.md 3건 모두 open · 모두 Info)"
+    expected: "고친다면 소형 묶음 1회: R4-IN-01 — offline 사유가 있으면 결과 칩 · 이력 알약 글자를 「서버 연결 안 됨」 대신 「미반영」(title = 사유)으로, R4-IN-02 — saveRowSeenIn 증거를 이 어드민(admin_email)이 보낸 행으로 좁히거나 주석에 한계 명시, R4-IN-03 — relay-admin-client.test.ts 의 connectTimeoutMs 50 → 500 · timeoutMs 비율 유지. 안 고친다면 각 건 deferred + 사유를 35-REVIEW-R4-DISPOSITION.md 에 기록."
+    why_human: "세 건 모두 코드에 리뷰 서술 그대로 존재함을 확인했다(launch-plan-view.ts:158-159 · 426-428 · 313-325, relay-admin-client.test.ts 연결 상한 50ms). 그러나 R4-IN-01 은 원인 가시성(판정 · 이력 message 칸 기록은 맞음), R4-IN-02 는 서로 다른 두 세션이 같은 칸에 같은 값을 거의 동시에 보내는 창, R4-IN-03 은 테스트 신뢰성이며 SC1~7 의 행동 부재가 아니다. 고칠지 미룰지는 운영 판단이다."
+  - test: "UI 검토(35-UI-REVIEW 15/24, 코드 전용) — 폰 390 · 키보드 포커스에서 µs 입력칸 포커스 링 · 지도 값의 터치 가독성 · 터치 타깃 크기 (35-UAT.md test 3 pending)"
+    expected: "포커스가 보이고 값이 hover 없이도 읽힌다."
+    why_human: "시각 · 접근성은 grep 으로 확인할 수 없다. 목표 달성을 막는 항목은 아니다."
+  - test: "35-UAT.md test 5(R3 처리 결정) 정리"
+    expected: "R3 5건은 모두 수정 커밋으로 닫혔고(35-REVIEW-R3-DISPOSITION.md 5/5 fixed) R4 리뷰가 코드로 확인했다. UAT test 5 를 pass 로 갱신하고 R4 결정(위 1번)을 새 항목으로 이관한다."
+    why_human: "UAT 문서 갱신은 사용자 응답이 필요한 상태(awaiting user response)다."
+superseded_by: 35-VERIFICATION-R4.md (정본 본문은 1차 기록 그대로 · 프런트매터만 R4 승계)
+round3_verified: 2026-11-01T06:00:00Z
+round3_status: human_needed
+round3_score: 7/7 must-haves verified
+round3_covered_digest: "v3:sha256:109245a3a8283592a2dda73d78c7364b3e7f8099e1d7e1ace38b4f23e3290b7d"
+round3_human_verification:
   - test: "R3-WR-01 · R3-IN-01 · R3-IN-02 · R3-IN-03 · R3-IN-04 처리 결정 (35-REVIEW-R3-DISPOSITION.md 5건 모두 open)"
     expected: "고친다면 소형 갭 클로징: R3-WR-01 — reloadPlan 이 대상 서버의 다시 읽기 결과(반영 · 대체됨 · 못 읽음)를 저장 결과 줄에 덧붙여, 못 읽었을 때 「다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음)」 로 표시. R3-IN-01~04 는 같이 묶거나 deferred. 안 고친다면 각 건 deferred + 사유를 35-REVIEW-R3-DISPOSITION.md 에 기록."
     why_human: "R3-WR-01 은 코드에 리뷰 서술 그대로 존재함을 확인했다(launch-map-tab.tsx:153-168 · 204 · 216-217). 그러나 결과를 모르는 저장(응답 timeout · 요청 throw) 직후 다시 읽기가 그 서버 값을 못 가져오는 예외 경로에서만 나온다. 정상 경로(ok + plan · ok + plan null 의 보낸 값 맞춤 · failed · 4xx)는 영향이 없고 라이브 UAT 로 입증돼 SC1~7 을 막지 않는다. 실거래 발사 시각 설정 화면에서 「반영됐는데 미반영으로 읽힘」 을 운영자가 감수할지는 코드로 판정할 수 없는 운영 판단이다."
@@ -69,7 +86,7 @@ human_verification:
   - test: "35-UAT.md test 4(R2 처리 결정) 정리"
     expected: "R2 4건은 수정 커밋으로 닫혔고 R3 리뷰가 코드로 확인했다(아래). UAT test 4 를 pass 로 갱신하고, R3 결정(위 1번)을 새 항목으로 이관한다."
     why_human: "UAT 문서 갱신은 사용자 응답이 필요한 상태(awaiting user response)다."
-superseded_by: 35-VERIFICATION-R3.md (정본 본문은 1차 기록 그대로 · 프런트매터만 R3 승계)
+round3_report: 35-VERIFICATION-R3.md
 round2_verified: 2026-11-01T02:00:00Z
 round2_status: human_needed
 round2_score: 7/7 must-haves verified

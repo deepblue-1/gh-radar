@@ -1,18 +1,18 @@
 ---
 status: testing
 phase: 35-launch-gate
-source: [35-VERIFICATION.md, 35-VERIFICATION-R2.md, 35-VERIFICATION-R3.md]
+source: [35-VERIFICATION.md, 35-VERIFICATION-R2.md, 35-VERIFICATION-R3.md, 35-VERIFICATION-R4.md]
 started: 2026-11-01T00:00:00+09:00
-updated: 2026-11-01T15:10:00+09:00
+updated: 2026-11-01T17:20:00+09:00
 ---
 
 ## Current Test
 
-number: 5
-name: 35-REVIEW-R3 처리 결정 — R3-WR-01(다시 읽기가 그 서버 값을 못 가져와도 저장 전 값이 「다시 읽은 계획」 처럼 남음) · R3-IN-01~04
+number: 6
+name: 35-REVIEW-R4 처리 결정 — R4-IN-01(offline 칩·이력 알약 글자 「서버 연결 안 됨」 고정) · R4-IN-02(saveRowSeenIn 이 다른 저장 행도 증거로 받음) · R4-IN-03(연결 상한 50ms 테스트 흔들림)
 expected: |
-  고친다면 소형 갭 클로징: R3-WR-01 — reloadPlan 이 대상 서버의 다시 읽기 결과(반영 · 대체됨 · 못 읽음)를 저장 결과 줄에 덧붙여, 못 읽었을 때 「다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음)」 로 표시. R3-IN-01~04 는 같이 묶거나 deferred.
-  안 고친다면 35-REVIEW-R3-DISPOSITION.md 에 각 건 deferred + 사유를 적는다.
+  셋 다 Info. 고친다면 소형: R4-IN-01 — offline 사유별 칩·알약 글자, R4-IN-03 — 테스트 연결 500ms · 응답 1500ms. R4-IN-02 는 admin_email 로 출처를 좁히거나 주석 정정.
+  안 고친다면 35-REVIEW-R4-DISPOSITION.md 에 각 건 deferred + 사유를 적는다.
 awaiting: user response
 
 ## Tests
@@ -38,12 +38,17 @@ note: 4건 모두 「고친다」 로 처리됨 — 5b190db2 · 9e2ebeb6 · d630
 
 ### 5. 35-REVIEW-R3 처리 결정 — R3-WR-01 · R3-IN-01 · R3-IN-02 · R3-IN-03 · R3-IN-04 (35-REVIEW-R3-DISPOSITION.md 5건 open)
 expected: 고친다면 소형 갭 클로징(R3-WR-01 — 다시 읽기 결과를 저장 결과 줄에 반영, 못 읽으면 「다시 읽지 못했어요」). R3-IN-01~04 는 같이 묶거나 deferred. 안 고친다면 각 건 deferred + 사유.
+result: pass
+note: 5건 모두 「고친다」 로 처리됨 — 4b3f0b6a · 9b14921b · 09638968 · 1f10aff4 · cc55feb2(35-REVIEW-FIX-R3.md · 35-REVIEW-FIX-R3-INFO.md, 처리 기록 5/5 fixed). 35-REVIEW-R4 와 R4 재검증이 5건 닫힘을 코드로 확인. R3-IN-02 의 남은 부분(칩·알약 글자)은 6번 R4-IN-01 로 이관.
+
+### 6. 35-REVIEW-R4 처리 결정 — R4-IN-01 · R4-IN-02 · R4-IN-03 (35-REVIEW-R4-DISPOSITION.md 3건 open, 모두 Info)
+expected: 고친다면 소형(R4-IN-01 사유별 칩·알약 글자 · R4-IN-03 테스트 시간 상한 확대 · R4-IN-02 출처 좁히기 또는 주석 정정). 안 고친다면 각 건 deferred + 사유.
 result: [pending]
 
 ## Summary
 
-total: 5
-passed: 3
+total: 6
+passed: 4
 issues: 0
 pending: 2
 skipped: 0
