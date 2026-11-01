@@ -304,6 +304,20 @@ describe('launchHeadCardOf(q16) — 머리 우선 · 조각 폴백', () => {
     });
   });
 
+  it('뒤탐침은 count · counts 에서 빼고 probes 로 따로 센다(머리 n_pieces 와 같은 정의 · 35 IN-02)', () => {
+    const base = { gateway: 'KB120', market: 'Q' } as const;
+    const tail = { probe: true, round: -2 } as const;
+    const pieces = [
+      piece({ ...base, wire: 0, sent_rel_us: -290, result: '101' }),
+      piece({ ...base, wire: 1, sent_rel_us: -286, result: '접수' }),
+      piece({ ...base, ...tail, wire: 2, piece_idx: 0, sent_rel_us: -260, result: '기타', result_code: 'F083' }),
+      piece({ ...base, ...tail, wire: 3, piece_idx: 1, sent_rel_us: -250, result: '접수' }),
+    ];
+    const card = launchHeadCardOf({ ...base, fire: 'q16', pieces, heads: [] });
+    expect(card).toMatchObject({ count: 2, counts: { ok: 1, bad: 1, other: 0 }, probes: 2 });
+    expect(launchHeadCardOf({ ...base, fire: 'q16', pieces: pieces.slice(0, 2), heads: [] })?.probes).toBe(0);
+  });
+
   it('머리 없음 → 경계 = launchDaysOf 폴백(10/14 KB 코스닥) · 오프셋 = 최소 wire rel · 다음 발사 계획 첫 조각 「—」', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'q16', pieces: attached('2026-10-14', 'KB', '코스닥'), heads: [] });
     expect(card).toMatchObject({ gate: `${M}350 ~ ${M}342`, offset: `${M}352µs`, learnLabel: '다음 발사 계획 첫 조각', learn: '—', count: 5 });

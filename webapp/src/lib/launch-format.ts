@@ -149,9 +149,15 @@ interface LaunchHeadCardBase {
   market: string;
   /** 「KB 코스닥」 */
   title: string;
-  /** 탭 조각 수(표 행 수와 같다) */
+  /**
+   * 실조각 수 — 뒤탐침 제외(35 IN-02). 머리 `n_pieces` · 백필 `launchHeadOf` 와 같은 정의라 카드 「N조각」 이 머리와 어긋나지
+   * 않는다. 표 행 수 = `count + probes`.
+   */
   count: number;
+  /** 실조각 결과 수(뒤탐침 제외 — 뒤탐침 「기타」 가 회색 「기타」 로 섞이지 않게). */
   counts: LaunchResultCounts;
+  /** 뒤탐침 수 — 카드에 「· 탐침 n」 으로 따로(경계 지도 날짜별 표 `launch-day-probes` 와 같은 꼴). 없으면 0. */
+  probes: number;
   /** 거부 수 라벨 — q16 「101」 · n0930 「거부」(101 · 515) */
   badLabel: '101' | '거부';
   /** 오프셋(발사 기준) — 「−332µs」 · 없으면 「—」 */
@@ -238,12 +244,14 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
   const heads = input.heads.filter((h) => mine(h) && isOrderTabRow(h, fire));
   if (pieces.length === 0 && heads.length === 0) return null;
 
+  const real = pieces.filter((p) => !isLaunchTailProbe(p));
   const base = {
     gateway,
     market,
     title: brokerMarketLabelOf(gateway, market),
-    count: pieces.length,
-    counts: countsOf(pieces),
+    count: real.length,
+    counts: countsOf(real),
+    probes: pieces.length - real.length,
   };
 
   if (fire === 'n0930') {

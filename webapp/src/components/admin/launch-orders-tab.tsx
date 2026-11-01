@@ -294,6 +294,7 @@ export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) 
         {model.title}
         <small className="text-[12px] font-medium text-[var(--muted-fg)]">
           {model.count}조각 · {model.fire === 'q16' ? 'Q16' : 'N·A'}
+          {model.probes > 0 && <span data-slot="launch-card-probes">{` · 탐침 ${model.probes}`}</span>}
         </small>
       </div>
       <CardRow label="결과">

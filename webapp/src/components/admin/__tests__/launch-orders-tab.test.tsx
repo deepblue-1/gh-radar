@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { LaunchHeadRow, LaunchOrdersResponse, LaunchPieceRow } from '@gh-radar/shared';
 
-import { LaunchOrdersView, type LaunchOrdersViewProps } from '../launch-orders-tab';
+import { LaunchHeadCard, LaunchOrdersView, type LaunchOrdersViewProps } from '../launch-orders-tab';
 
 /**
  * Phase 35 (35-06) — 주문 내역 탭 순수 렌더 `LaunchOrdersView` (D-12 · D-13 · D-02 · 채택 목업 변형 A).
@@ -230,5 +230,30 @@ describe('LaunchOrdersView — 빈 상태 · 오류', () => {
     const { props } = view();
     fireEvent.click(screen.getByRole('button', { name: '09:00:30 개장차익' }));
     expect(props.onFire).toHaveBeenCalledWith('n0930');
+  });
+});
+
+describe('LaunchHeadCard — 뒤탐침 표기(35 IN-02)', () => {
+  const model = {
+    gateway: 'KB120',
+    market: 'Q',
+    title: 'KB 코스닥',
+    count: 10,
+    counts: { ok: 3, bad: 7, other: 0 },
+    probes: 3,
+    badLabel: '101',
+    offset: `${M}332µs`,
+    fire: 'q16',
+    gate: `${M}360 ~ ${M}350`,
+    learnLabel: '다음 발사 계획 첫 조각',
+    learn: '—',
+  } as const;
+
+  it('실조각 수 + 「· 탐침 n」 따로 · 탐침 0 이면 없음', () => {
+    const { container, rerender } = render(<LaunchHeadCard gateway="KB120" market="Q" model={model} />);
+    expect(container).toHaveTextContent('10조각 · Q16 · 탐침 3');
+    rerender(<LaunchHeadCard gateway="KB120" market="Q" model={{ ...model, probes: 0 }} />);
+    expect(container.querySelector('[data-slot="launch-card-probes"]')).toBeNull();
+    expect(container).toHaveTextContent('10조각 · Q16');
   });
 });
