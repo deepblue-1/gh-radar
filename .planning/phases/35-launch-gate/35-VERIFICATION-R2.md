@@ -1,7 +1,7 @@
 ---
 phase: 35-launch-gate
 verified: 2026-11-01T02:00:00Z
-status: human_needed
+status: passed
 score: 7/7 must-haves verified
 covered_files:
   - .planning/phases/35-launch-gate/35-01-PLAN.md
@@ -64,6 +64,7 @@ human_verification:
   - test: "UI 검토(35-UI-REVIEW 15/24, 코드 전용) — 폰 390 · 키보드 포커스에서 µs 입력칸 포커스 링 · 지도 값의 터치 가독성 · 터치 타깃 크기, 35-UAT.md pending 3건"
     expected: "포커스가 보이고 값이 hover 없이도 읽힌다."
     why_human: "시각 · 접근성은 grep 으로 확인할 수 없다. 목표 달성을 막는 항목은 아니다. (1차 human 항목 중 CR-01 · WR-01 · WR-02 처리 결정은 1ef9a8fe 까지의 수정으로 해소됐고 위 R2 항목으로 대체됐다.)"
+human_verification_resolved: 2026-11-01 35-UAT.md 6/6 pass — 사용자 「다 문제없어 phase 35 닫자」 · R4 Info 3건 deferred
 ---
 
 # Phase 35: 발사 경계 지도 어드민 — 2차(R2) 재검증 보고서

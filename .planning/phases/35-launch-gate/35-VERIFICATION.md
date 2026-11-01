@@ -1,7 +1,7 @@
 ---
 phase: 35-launch-gate
 verified: 2026-11-01T08:20:00Z
-status: human_needed
+status: passed
 score: 7/7 must-haves verified
 covered_files:
   - .planning/phases/35-launch-gate/35-01-PLAN.md
@@ -58,7 +58,7 @@ covered_files:
   - webapp/src/components/admin/launch-plan-editor.tsx
   - webapp/src/lib/launch-api.ts
   - webapp/src/lib/launch-plan-view.ts
-covered_digest: "v3:sha256:69e139bf8e6ebbe6da3be4f07a0f2d87eef69fc703206a235b07b745a2d48b73"
+covered_digest: "v3:sha256:182bd937dd9ab8a82237ec5491cd83c4d7b1a39f5a6a6e40333be9e6e730b82f"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
@@ -113,6 +113,7 @@ round1_human_verification:
   - test: "UI 검토(35-UI-REVIEW 15/24) — µs 입력칸 포커스 링 · 지도 값 hover 전용 · 작은 터치 타깃"
     expected: "폰 390 · 키보드 포커스에서 입력칸 포커스가 보이고, 지도 값이 터치에서도 읽힌다."
     why_human: "시각·접근성은 grep 으로 확인할 수 없다. 코드 전용 검토 결과이며 목표 달성을 막는 항목은 아니다."
+human_verification_resolved: 2026-11-01 35-UAT.md 6/6 pass — 사용자 「다 문제없어 phase 35 닫자」 · R4 Info 3건 deferred
 ---
 
 # Phase 35: 발사 경계 지도 어드민 Verification Report
