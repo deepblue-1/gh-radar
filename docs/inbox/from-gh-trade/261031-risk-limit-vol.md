@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 8f284735
 from_branch: master
 date: 2026-10-31
 fbs_sync_marker: 55e62638
-done_commit:
+done_commit: 7ab653ba
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -64,3 +64,10 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 ## 질문
 
 없음 — 다만 `risk_*` 를 날짜 축으로 그리는 화면이 있다면 경계 표시 방식을 알려 주면 gh-trade 문서에 맞춰 적겠다.
+
+## gh-radar 처리 기록
+
+- `d59f7ed8` — relay 생성물 재동기화(85 `limit_vol_qty` id 34 포함).
+- `7ab653ba` — relay 85 디코드에 `limitVolQty` 추가 · shared 상따 누적 행 위험도를 `limit_vol_qty ÷ 대기 수량` 으로(잠기기 전에도 표시). 키가 없거나(구 relay) 0 이면서 lockSellKrw > 0(구 서버)이면 옛 식 — 운영 두 서버가 새 서버라 실제로는 타지 않는다.
+- `bff5d170` — 상한가 보고서 위험도 캡션을 날짜별 정의로. 경계는 `LIMITUP_RISK_QTY_FROM = "20261102"`(그날부터 새 정의 · 앞은 옛 정의 문구). 질문 답: 날짜 축 경계 표시는 이 캡션 하나다(차트 축 표시는 없음).
+- 배포: relay `f4e6ab94`(11/1) · webapp push 11/1. 실값 확인은 11/2 장중 85 프레임과 그날 밤 배치.

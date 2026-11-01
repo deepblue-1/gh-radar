@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: bac82294
 from_branch: master
 date: 2026-10-31
 fbs_sync_marker: 55e62638
-done_commit:
+done_commit: d59f7ed8
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -56,3 +56,8 @@ relay 생성물 `limit-feature.ts` 에 `upperMaxFillKrw()`·`upperMaxFillDate()`
 gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으면 「없음」).
 
 없음
+
+## gh-radar 처리 기록
+
+- `d59f7ed8` — relay 생성물 재동기화. `limit-feature.ts` 에 `upperMaxFillKrw()` · `upperMaxFillDate()` 접근자 존재 · SYNC MARKER `server-repo-commit` bac82294.
+- 이번 범위는 스키마 동기화까지 — relay 디코드 · 웹 표시는 하지 않았다(필요해지면 별도 작업).
