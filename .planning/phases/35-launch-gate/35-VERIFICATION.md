@@ -1,6 +1,6 @@
 ---
 phase: 35-launch-gate
-verified: 2026-11-01T02:00:00Z
+verified: 2026-11-01T06:00:00Z
 status: human_needed
 score: 7/7 must-haves verified
 covered_files:
@@ -44,6 +44,8 @@ covered_files:
   - .planning/phases/35-launch-gate/35-19-SUMMARY.md
   - .planning/phases/35-launch-gate/35-REVIEW-R2-DISPOSITION.md
   - .planning/phases/35-launch-gate/35-REVIEW-R2.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R3-DISPOSITION.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R3.md
   - relay/src/admin/admin-api.ts
   - relay/src/admin/launch-plan.ts
   - relay/src/tools/launch-backfill.ts
@@ -52,18 +54,34 @@ covered_files:
   - server/src/services/relay-admin-client.ts
   - supabase/migrations/20261028200000_launch_project_mapping.sql
   - webapp/src/components/admin/launch-map-tab.tsx
+  - webapp/src/lib/launch-api.ts
   - webapp/src/lib/launch-plan-view.ts
-covered_digest: "v3:sha256:aa6e3ba0c685fa5e534a785ca603e55a3a8ebda4e7193a3bbe72ad87face04d4"
+covered_digest: "v3:sha256:109245a3a8283592a2dda73d78c7364b3e7f8099e1d7e1ace38b4f23e3290b7d"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+  - test: "R3-WR-01 · R3-IN-01 · R3-IN-02 · R3-IN-03 · R3-IN-04 처리 결정 (35-REVIEW-R3-DISPOSITION.md 5건 모두 open)"
+    expected: "고친다면 소형 갭 클로징: R3-WR-01 — reloadPlan 이 대상 서버의 다시 읽기 결과(반영 · 대체됨 · 못 읽음)를 저장 결과 줄에 덧붙여, 못 읽었을 때 「다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음)」 로 표시. R3-IN-01~04 는 같이 묶거나 deferred. 안 고친다면 각 건 deferred + 사유를 35-REVIEW-R3-DISPOSITION.md 에 기록."
+    why_human: "R3-WR-01 은 코드에 리뷰 서술 그대로 존재함을 확인했다(launch-map-tab.tsx:153-168 · 204 · 216-217). 그러나 결과를 모르는 저장(응답 timeout · 요청 throw) 직후 다시 읽기가 그 서버 값을 못 가져오는 예외 경로에서만 나온다. 정상 경로(ok + plan · ok + plan null 의 보낸 값 맞춤 · failed · 4xx)는 영향이 없고 라이브 UAT 로 입증돼 SC1~7 을 막지 않는다. 실거래 발사 시각 설정 화면에서 「반영됐는데 미반영으로 읽힘」 을 운영자가 감수할지는 코드로 판정할 수 없는 운영 판단이다."
+  - test: "UI 검토(35-UI-REVIEW 15/24, 코드 전용) — 폰 390 · 키보드 포커스에서 µs 입력칸 포커스 링 · 지도 값의 터치 가독성 · 터치 타깃 크기 (35-UAT.md test 3 pending)"
+    expected: "포커스가 보이고 값이 hover 없이도 읽힌다."
+    why_human: "시각 · 접근성은 grep 으로 확인할 수 없다. 목표 달성을 막는 항목은 아니다."
+  - test: "35-UAT.md test 4(R2 처리 결정) 정리"
+    expected: "R2 4건은 수정 커밋으로 닫혔고 R3 리뷰가 코드로 확인했다(아래). UAT test 4 를 pass 로 갱신하고, R3 결정(위 1번)을 새 항목으로 이관한다."
+    why_human: "UAT 문서 갱신은 사용자 응답이 필요한 상태(awaiting user response)다."
+superseded_by: 35-VERIFICATION-R3.md (정본 본문은 1차 기록 그대로 · 프런트매터만 R3 승계)
+round2_verified: 2026-11-01T02:00:00Z
+round2_status: human_needed
+round2_score: 7/7 must-haves verified
+round2_covered_digest: "v3:sha256:aa6e3ba0c685fa5e534a785ca603e55a3a8ebda4e7193a3bbe72ad87face04d4"
+round2_human_verification:
   - test: "R2-WR-01 · R2-WR-02 · R2-WR-03 · R2-IN-01 처리 결정 (35-REVIEW-R2-DISPOSITION.md 4건 모두 open)"
     expected: "고친다면 갭 클로징(소형): ① 웹 reloadPlan 에 순번 가드 + 서버별 ok 일 때만 반영 ② relay read() 에 요청 마감 · 서버별 timeout 접기 ③ server 의 「확실히 안 보낸」 실패(ECONNREFUSED · 401 · 503 LAUNCH_PLAN_UNAVAILABLE · 400)는 offline 유지. 안 고친다면 각 건을 deferred + 사유로 기록."
     why_human: "세 건 모두 코드에 리뷰 서술 그대로 존재함을 확인했다. 그러나 전부 저장 timeout · relay 혼잡 · relay 거절이라는 예외 경로에서만 나오고, 정상 경로(조회 · 편집 · 저장 · 이력 · 다음 발사부터 반영)는 라이브 UAT 로 입증돼 phase 목표(SC1~7)를 막지 않는다. 실거래 발사 시각 설정 화면의 오표시를 운영자가 감수할지는 코드로 판정할 수 없는 운영 판단이다."
   - test: "UI 검토(35-UI-REVIEW 15/24, 코드 전용) — 폰 390 · 키보드 포커스에서 µs 입력칸 포커스 링 · 지도 값의 터치 가독성 · 터치 타깃 크기, 35-UAT.md pending 3건"
     expected: "포커스가 보이고 값이 hover 없이도 읽힌다."
     why_human: "시각 · 접근성은 grep 으로 확인할 수 없다. 목표 달성을 막는 항목은 아니다. (1차 human 항목 중 CR-01 · WR-01 · WR-02 처리 결정은 1ef9a8fe 까지의 수정으로 해소됐고 위 R2 항목으로 대체됐다.)"
-superseded_by: 35-VERIFICATION-R2.md (정본 본문은 1차 기록 그대로 · 프런트매터만 R2 승계)
+round2_report: 35-VERIFICATION-R2.md
 round1_verified: 2026-11-01T00:00:00Z
 round1_status: human_needed
 round1_score: 7/7 must-haves verified

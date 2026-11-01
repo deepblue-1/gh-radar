@@ -1,18 +1,18 @@
 ---
 status: testing
 phase: 35-launch-gate
-source: [35-VERIFICATION.md, 35-VERIFICATION-R2.md]
+source: [35-VERIFICATION.md, 35-VERIFICATION-R2.md, 35-VERIFICATION-R3.md]
 started: 2026-11-01T00:00:00+09:00
-updated: 2026-11-01T11:00:00+09:00
+updated: 2026-11-01T15:10:00+09:00
 ---
 
 ## Current Test
 
-number: 4
-name: 35-REVIEW-R2 처리 결정 — R2-WR-01(다시 읽기가 응답을 통째로 덮어씀) · R2-WR-02(GET /launch-plan 마감 없음) · R2-WR-03(확실히 안 보낸 저장까지 timeout 이력) · R2-IN-01(4xx 도 「반영됐는지 몰라요」)
+number: 5
+name: 35-REVIEW-R3 처리 결정 — R3-WR-01(다시 읽기가 그 서버 값을 못 가져와도 저장 전 값이 「다시 읽은 계획」 처럼 남음) · R3-IN-01~04
 expected: |
-  고친다면 소형 갭 클로징: ① 웹 reloadPlan 에 순번 가드 + 서버별 ok 일 때만 반영 ② relay read() 에 요청 마감 · 서버별 timeout 접기 ③ server 의 확실히 안 보낸 실패는 offline 유지.
-  안 고친다면 35-REVIEW-R2-DISPOSITION.md 에 각 건 deferred + 사유를 적는다.
+  고친다면 소형 갭 클로징: R3-WR-01 — reloadPlan 이 대상 서버의 다시 읽기 결과(반영 · 대체됨 · 못 읽음)를 저장 결과 줄에 덧붙여, 못 읽었을 때 「다시 읽지 못했어요(보이는 값은 저장 전 값일 수 있음)」 로 표시. R3-IN-01~04 는 같이 묶거나 deferred.
+  안 고친다면 35-REVIEW-R3-DISPOSITION.md 에 각 건 deferred + 사유를 적는다.
 awaiting: user response
 
 ## Tests
@@ -33,12 +33,17 @@ result: [pending]
 
 ### 4. 35-REVIEW-R2 처리 결정 — R2-WR-01 · R2-WR-02 · R2-WR-03 · R2-IN-01 (35-REVIEW-R2-DISPOSITION.md 4건 open)
 expected: 고친다면 소형 갭 클로징(① 웹 reloadPlan 순번 가드 + 서버별 ok 일 때만 반영 ② relay read() 요청 마감 ③ server 의 확실히 안 보낸 실패는 offline 유지). 안 고친다면 각 건 deferred + 사유.
+result: pass
+note: 4건 모두 「고친다」 로 처리됨 — 5b190db2 · 9e2ebeb6 · d6307858 · 588f44cc(35-REVIEW-FIX-R2.md, 처리 기록 4/4 fixed). 35-REVIEW-R3 와 R3 재검증이 4건 닫힘을 코드로 확인. R2-WR-01 수정이 만든 회귀(R3-WR-01)는 5번으로 이관.
+
+### 5. 35-REVIEW-R3 처리 결정 — R3-WR-01 · R3-IN-01 · R3-IN-02 · R3-IN-03 · R3-IN-04 (35-REVIEW-R3-DISPOSITION.md 5건 open)
+expected: 고친다면 소형 갭 클로징(R3-WR-01 — 다시 읽기 결과를 저장 결과 줄에 반영, 못 읽으면 「다시 읽지 못했어요」). R3-IN-01~04 는 같이 묶거나 deferred. 안 고친다면 각 건 deferred + 사유.
 result: [pending]
 
 ## Summary
 
-total: 4
-passed: 2
+total: 5
+passed: 3
 issues: 0
 pending: 2
 skipped: 0
