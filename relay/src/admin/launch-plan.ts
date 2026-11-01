@@ -12,7 +12,7 @@
  *   - 레지스트리에 없음 · 꺼짐 → `skipped`(`SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE`) · 44 0건
  *   - 파이프라인 · admin 연결 없음 · `isReady` 아님 → `offline` · 44 0건. **87 수신 여부로 판정하지 않는다**(S4) — 발사 계획은
  *     users.toml 과 무관하니 87 캐시가 비어도 op 9 는 답한다.
- *   - command `timeout` · `offline` → 그 상태 그대로
+ *   - command `timeout` · `offline` → 그 상태 그대로(조회는 아무것도 바꾸지 않는다 — 저장의 offline 은 아래 「결과 모름」)
  *   - 같은 request_id 86 code ≠ 0(구 서버 code 1 「알 수 없는 명령입니다」 · 10 · 11) → `failed { code, message 원문 }`
  *   - 94 스냅샷 → `ok { plan_rev, updated_at, entries }` — entries 는 Q16|N × K|Q 행만(모르는 행은 warn 후 뺀다) · plan_rev 가
  *     안전 정수를 넘으면 null + warn · updated_at 빈 문자열(손으로 만든 파일) → null
@@ -20,11 +20,16 @@
  * 저장(`set` · D-27 · D-29) — 판정 앞단(skipped · offline)은 조회와 같다(44 0건). 그다음 같은 연결 FIFO 로 조회(전 값) → op 8 저장 →
  * (code 0 이면) 조회(후 값):
  *   - 전 조회 실패(구 서버 code 1 등)는 `before_us` null 로 두고 저장을 계속 보낸다 — 거부 문구는 저장 86 이 말한다.
- *   - 저장 86: timeout · offline → 그 outcome · code ≠ 0 → `failed { code, message 원문 }`(warn) · code 0(같은 값 「변경 없음」 포함) → ok.
+ *   - 저장 86: code ≠ 0 → `failed { code, message 원문 }`(warn) · code 0(같은 값 「변경 없음」 포함) → ok.
  *     op 8 뒤 서버가 보내는 94 는 짝 없음으로 버려지므로(35-16) 새 값은 후 조회로 다시 읽는다.
- *   - 마감 — 저장이 끝난 시각 + `ADMIN_COMMAND_TIMEOUT_MS` 가 요청 마감(`deadlineAt` · 라우트 도착 + 10초)을 넘으면 후 조회를
- *     건너뛰고 `plan` null(저장 결과는 싣는다 · 웹이 다시 읽는다). 이 경로는 기록이 없어 dispatcher 의 「뒤에서 계속 반영」 접기를
- *     쓰지 않는다 — 저장 86 을 받은 뒤에만 응답한다(전 조회 5초 + 저장 5초 = 마감 10초 안 · server PUT 상한 15초).
+ *   - 결과 모름(35 CR-01) — op 8 을 큐에 넣은 뒤의 timeout · offline(비행 중 끊김) · 마감 초과는 op 8 이 이미 반영됐을 수 있어
+ *     전부 `timeout`(= 모름)으로 돌려준다. `offline`(확정 미반영)은 op 8 을 넣기 전 판정(앞단 · 전 조회 사이 끊김)만이다 —
+ *     offline 이 이력(D-29)에 「서버 연결 안 됨」 으로 굳으면 「경계가 언제부터 바뀌었나」 대조가 틀어진다.
+ *   - 마감(`deadlineAt` · 라우트 도착 + 10초 · server PUT 상한 15초 안) — AdminConn 의 5초 타이머는 **송신 시점**에 시작해 FIFO
+ *     대기(앞선 dispatcher op · 다른 탭의 op 9)가 더해지므로 각 단계를 마감으로 묶는다: 전 조회는 `deadlineAt − ADMIN_COMMAND_TIMEOUT_MS`
+ *     까지만 기다리고(넘으면 `before_us` null · 남은 시간이 없으면 보내지 않는다), 저장 86 은 `deadlineAt` 까지(넘으면 timeout ·
+ *     op 8 은 뒤에서 계속 · 늦은 결과는 warn), 저장이 끝난 시각 + `ADMIN_COMMAND_TIMEOUT_MS` 가 마감을 넘으면 후 조회를 건너뛰고
+ *     `plan` null(저장 결과는 싣는다 · 웹이 다시 읽는다 — 35 WR-01). 후 조회도 마감까지만 기다린다.
  *
  * 범위 · 순서 · 조각 수는 보지 않는다 — gh-trade 가 code 1 + 고정 문구로 말한다(D-26 · D-34). relay 는 int32 구조만(admin-api zod).
  */
@@ -101,20 +106,40 @@ export class LaunchPlanService {
     }
     const { admin } = t;
 
-    const before = await this.#readVia(serverKey, admin);
+    // 전 조회는 저장 몫(ADMIN_COMMAND_TIMEOUT_MS)을 남긴 시각까지만 기다린다 — FIFO 대기가 길면 before_us null 로 저장을 보낸다.
+    //   남은 시간이 그보다 짧으면 전 조회를 아예 보내지 않는다.
+    const beforeUntil = opts.deadlineAt - ADMIN_COMMAND_TIMEOUT_MS;
+    const before = this.#now() < beforeUntil ? await this.#within(this.#readVia(serverKey, admin), beforeUntil) : null;
     const beforeUs =
-      before.status === "ok"
+      before !== null && before.status === "ok"
         ? (before.entries.find((e) => e.profile === body.profile && e.market === body.market)?.offsets_us ?? null)
         : null;
 
-    const out = await admin.command({
+    // 송신 전 판정 — 전 조회 사이에 연결이 끊겼으면 op 8 은 나가지 않는다(command 가 곧바로 offline) → 확정 미반영.
+    if (!admin.isReady) return { result: { server: serverKey, outcome: "offline" }, before_us: beforeUs, plan: null };
+
+    const sent = admin.command({
       op: ADMIN_OP.SetLaunchPlan,
       userId: "",
       launchProfile: body.profile,
       launchMarket: body.market,
       launchOffsetsUs: body.offsets_us,
     });
-    if (out.kind !== "result") return { result: { server: serverKey, outcome: out.kind }, before_us: beforeUs, plan: null };
+    const out = await this.#within(sent, opts.deadlineAt);
+    if (out === null || out.kind !== "result") {
+      // 여기부터는 op 8 이 이미 나갔을 수 있다(비행 중 끊김 · 86 타임아웃 · 마감까지 FIFO 대기) — 반영 여부를 모른다.
+      // offline(확정 미반영)으로 보고하면 화면 · 이력(D-29)이 「미반영」 으로 굳으므로 timeout 으로 돌려준다(웹이 다시 읽는다).
+      if (out === null) {
+        logger.warn({ server: serverKey }, "[admin] 발사 계획 저장 — 요청 마감까지 86 없음 · 결과 모름(timeout) · 저장은 뒤에서 계속");
+        void sent.then((late) =>
+          logger.warn(
+            { server: serverKey, outcome: late.kind, code: late.kind === "result" ? late.result.code : undefined },
+            "[admin] 발사 계획 저장 — 마감 뒤 도착한 결과",
+          ),
+        );
+      }
+      return { result: { server: serverKey, outcome: "timeout" }, before_us: beforeUs, plan: null };
+    }
     const r = out.result;
     if (interpretAdminResult(ADMIN_OP.SetLaunchPlan, r.code) === "failed") {
       logger.warn({ server: serverKey, code: r.code, message: r.message }, "[admin] 발사 계획 저장 거부(86)");
@@ -126,12 +151,31 @@ export class LaunchPlanService {
       logger.info({ server: serverKey }, "[admin] 발사 계획 저장 뒤 조회 건너뜀 — 요청 마감 안에 끝나지 않는다");
       return { result, before_us: beforeUs, plan: null };
     }
-    const after = await this.#readVia(serverKey, admin);
-    return { result, before_us: beforeUs, plan: after.status === "ok" ? after : null };
+    const after = await this.#within(this.#readVia(serverKey, admin), opts.deadlineAt);
+    return { result, before_us: beforeUs, plan: after !== null && after.status === "ok" ? after : null };
   }
 
   #now(): number {
     return this.#deps.now?.() ?? Date.now();
+  }
+
+  /**
+   * `work` 를 `until`(ms 시각)까지만 기다린다 — 넘으면 null(작업은 취소하지 않는다 · AdminConn FIFO 가 끝까지 처리).
+   * 이미 지났으면 기다리지 않고 null.
+   */
+  async #within<T>(work: Promise<T>, until: number): Promise<T | null> {
+    const ms = until - this.#now();
+    if (ms <= 0) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([work, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   #target(serverKey: string): Target {

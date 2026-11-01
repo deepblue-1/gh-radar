@@ -17,7 +17,8 @@
  *   S1  set('KB120', Q16/Q [-340,-335,-322]) — 송신 순서 op 9 → op 8(세 필드) → op 9 · { result ok usersRev, before_us = 전 스냅샷
  *       Q16/Q, plan = 후 스냅샷 ok }
  *   S2  전 조회 86 code 1 → before_us null 로 계속 저장 · 저장 86 code 1 문구 → result failed code 1 · message 원문 · plan null ·
- *       후 조회 없음 · warn(server · code · message) / 저장 timeout · offline → 그 outcome · plan null
+ *       후 조회 없음 · warn(server · code · message) / 저장 timeout · offline(비행 중 끊김) → 결과 모름 timeout · plan null(CR-01)
+ *   S2c 전 조회 사이 끊김 → op 8 안 보냄 · offline / S2d 저장 86 마감 초과 → timeout · 늦은 결과 warn / S2e 전 조회 마감 → before_us null
  *   S3  같은 값 재저장(86 code 0 「변경 없음」) → ok · 후 조회 그대로 · 후 조회 실패 → plan null(결과는 ok)
  *   S4  마감 — 저장이 끝난 시각 + ADMIN_COMMAND_TIMEOUT_MS 가 deadlineAt 을 넘으면 후 조회를 건너뛰고 plan null · 같으면 보낸다
  *   S5  skipped(꺼진 · 없는 서버) · offline(연결 없음 · ready 아님) → 그 결과 · before_us null · plan null · command 0회
@@ -315,13 +316,52 @@ describe("P35 LaunchPlanService.set (35-17 Task 2)", () => {
 
   it.each([
     ["timeout", { kind: "timeout" }],
-    ["offline", { kind: "offline" }],
-  ] as const)("S2b 저장 %s → 그 outcome · plan null · 후 조회 없음", async (outcome, reply) => {
+    ["offline(비행 중 끊김)", { kind: "offline" }],
+  ] as const)("S2b 저장 %s → 결과 모름 timeout(CR-01 — offline 확정 미반영으로 보고하지 않는다) · plan null · 후 조회 없음", async (_l, reply) => {
     const kb = new FakeAdmin([snapshotOutcome({ entries: BEFORE_ENTRIES }), reply]);
     const { svc, clock } = rig({ admins: { KB120: kb } });
     const out = await svc.set("KB120", body(), { deadlineAt: clock.t + 10_000 });
-    expect(out).toEqual({ result: { server: "KB120", outcome }, before_us: [-350, -345, -325], plan: null });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before_us: [-350, -345, -325], plan: null });
     expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan, ADMIN_OP.SetLaunchPlan]);
+  });
+
+  it("S2c 전 조회 사이에 연결이 끊김(isReady false) → op 8 을 보내지 않고 offline(확정 미반영)", async () => {
+    const kb = new FakeAdmin([
+      async () => {
+        kb.isReady = false;
+        return { kind: "offline" } as AdminCommandOutcome;
+      },
+    ]);
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    const out = await svc.set("KB120", body(), { deadlineAt: clock.t + 10_000 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "offline" }, before_us: null, plan: null });
+    expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan]);
+  });
+
+  it("S2d 마감 — 저장 86 이 deadlineAt 까지 안 오면 timeout(결과 모름) · 늦은 결과는 warn · 남은 시간이 저장 몫뿐이면 전 조회 안 보냄", async () => {
+    let release!: (o: AdminCommandOutcome) => void;
+    const kb = new FakeAdmin([() => new Promise<AdminCommandOutcome>((r) => (release = r))]);
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    // 남은 50ms < ADMIN_COMMAND_TIMEOUT_MS → 전 조회 없이 op 8 만 · 50ms 뒤 timeout.
+    const out = await svc.set("KB120", body(), { deadlineAt: clock.t + 50 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before_us: null, plan: null });
+    expect(kb.ops()).toEqual([ADMIN_OP.SetLaunchPlan]);
+    expect(logs.filter((c) => c.level === "warn")).toHaveLength(1);
+    release(respOutcome(0, ""));
+    await vi.waitFor(() => expect(logs.filter((c) => c.level === "warn")).toHaveLength(2));
+    expect(logs.filter((c) => c.level === "warn")[1]!.args[0]).toEqual({ server: "KB120", outcome: "result", code: 0 });
+  });
+
+  it("S2e 전 조회가 FIFO 에 묶이면 deadlineAt − 저장 몫까지만 기다리고 before_us null 로 저장을 보낸다", async () => {
+    const kb = new FakeAdmin([() => new Promise<AdminCommandOutcome>(() => {}), respOutcome(0, ""), snapshotOutcome({ planRev: 5n })]);
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    const out = await svc.set("KB120", body(), { deadlineAt: clock.t + ADMIN_COMMAND_TIMEOUT_MS + 50 });
+    expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan, ADMIN_OP.SetLaunchPlan, ADMIN_OP.GetLaunchPlan]);
+    expect(out).toEqual({
+      result: { server: "KB120", outcome: "ok", usersRev: "12" },
+      before_us: null,
+      plan: { status: "ok", plan_rev: 5, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES },
+    });
   });
 
   it("S3 같은 값 재저장(code 0 「변경 없음」) → ok · 후 조회 보낸다 · 후 조회 실패면 plan null", async () => {

@@ -13,6 +13,7 @@ import {
   planEditOf,
   planEditWithDraft,
   planLineText,
+  planNeedsReload,
   planStateWithSave,
   saveResultViewOf,
 } from '../launch-plan-view';
@@ -252,10 +253,14 @@ describe('편집 · 저장(35-15)', () => {
   });
 
   it('saveResultViewOf timeout · offline · skipped', () => {
+    // timeout = 결과 모름(CR-01) — 「실패」 · 「미반영」 으로 단정하지 않는다 · message 는 칩 title
     expect(saveResultViewOf({ server: 'KB120', outcome: 'timeout' }, 'q16', AT)).toEqual({
       chip: { tone: 'err', text: 'KB120 · 응답 없음', title: null },
-      line: { tone: 'err', text: 'KB120 실패: 응답 없음' },
+      line: { tone: 'err', text: 'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인' },
     });
+    expect(saveResultViewOf({ server: 'KB120', outcome: 'timeout', message: '반영됐을 수 있어요' }, 'q16', AT).chip.title).toBe(
+      '반영됐을 수 있어요',
+    );
     expect(saveResultViewOf({ server: 'KB120', outcome: 'offline' }, 'q16', AT)).toEqual({
       chip: { tone: 'warn', text: 'KB120 · 서버 연결 안 됨', title: null },
       line: { tone: 'warn', text: 'KB120 미반영: 서버 연결 안 됨' },
@@ -270,6 +275,15 @@ describe('편집 · 저장(35-15)', () => {
     });
     // skipped 사유가 비면 이력 알약 낱말(「꺼진 서버」 · 35-14 changeOutcomeView 와 같은 말)
     expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped' }, 'q16', AT).line.text).toBe('KB120 미반영: 꺼진 서버');
+  });
+
+  it('planNeedsReload — plan null 이고 결과 모름(timeout)일 때만 다시 읽는다(CR-01)', () => {
+    const r = (outcome: 'ok' | 'failed' | 'timeout' | 'offline' | 'skipped') => ({ server: 'KB120', outcome }) as const;
+    expect(planNeedsReload({ result: r('timeout'), plan: null })).toBe(true);
+    expect(planNeedsReload({ result: r('failed'), plan: null })).toBe(false);
+    expect(planNeedsReload({ result: r('offline'), plan: null })).toBe(false);
+    expect(planNeedsReload({ result: r('skipped'), plan: null })).toBe(false);
+    expect(planNeedsReload({ result: r('timeout'), plan: { status: 'timeout' } })).toBe(false);
   });
 
   it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {

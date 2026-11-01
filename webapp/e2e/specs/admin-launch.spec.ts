@@ -29,8 +29,8 @@ import { launchPlanFixture, launchPlanSaveOk, mockLaunchApi } from '../fixtures/
  *   404(배포 전) = 계획 기능 숨김(35-08 그대로). 계획 값은 합성(`launchPlanFixture`).
  *
  * ⑧ 발사 계획 고치기(35-15 · D-24 ~ D-28 · D-34) — 패널 「계획 고치기」 → 편집 칸 → 「저장」 = PUT 1건 → 결과 줄 · 줄 · 점선이
- *   응답 plan 값으로(지도 · 계획 재요청 0). 순서 · 범위 오류는 저장 전에 칸에서 막고, 서버 거부(code 1) · 연결 실패는 정해진
- *   문형. 저장 응답은 `savePlan` 목(기본 = 바디 값 ok · 합성).
+ *   응답 plan 값으로(지도 · 계획 재요청 0). 순서 · 범위 오류는 저장 전에 칸에서 막고, 서버 거부(code 1) · 요청 실패(결과 모름 ·
+ *   계획 1회 다시 읽기 — 35 CR-01)는 정해진 문형. 저장 응답은 `savePlan` 목(기본 = 바디 값 ok · 합성).
  */
 
 const MINUS = '\u2212';
@@ -534,7 +534,7 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     expect(api.planGets(), '계획 재요청 없음').toHaveLength(getsBefore);
   });
 
-  test('P35-P4 1280 — ① 순서 오류(alert · 저장 비활성 · 실선은 직전 유효 값) ② 서버 거부 code 1 ③ 502 → 서버 연결 안 됨', async ({ page }) => {
+  test('P35-P4 1280 — ① 순서 오류(alert · 저장 비활성 · 실선은 직전 유효 값) ② 서버 거부 code 1 ③ 502 → 응답 없음(결과 모름) · 다시 읽기', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     let mode: 'code1' | '502' = 'code1';
     const api = await mockLaunchApi(page, {
@@ -599,15 +599,18 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(kbq.locator('[data-slot="launch-plan-history-fold"] summary')).toHaveText('변경 이력 3');
     await page.screenshot({ path: test.info().outputPath('launch-plan-code1-1280.png'), fullPage: true });
 
-    // ③ 502(요청 자체 실패) → 「KB120 미반영: 서버 연결 안 됨」
+    // ③ 502(요청 자체 실패) → 결과 모름 「KB120 응답 없음: …」(「미반영」 으로 단정하지 않는다 · 35 CR-01) · 계획 1회 다시 읽기
     mode = '502';
+    const getsBefore502 = api.planGets().length;
     await ed.locator('[data-slot="launch-plan-save"]').click();
-    await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toHaveText('KB120 미반영: 서버 연결 안 됨', {
-      timeout: 15_000,
-    });
-    await expect(chip).toHaveText('KB120 · 서버 연결 안 됨');
+    await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toHaveText(
+      'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      { timeout: 15_000 },
+    );
+    await expect(chip).toHaveText('KB120 · 응답 없음');
     await expect(in2).toHaveValue('-340');
     expect(api.planPuts()).toHaveLength(2);
+    await expect.poll(() => api.planGets().length, { message: '결과 모름 → GET /plan 1회 더' }).toBe(getsBefore502 + 1);
   });
 
   test('P35-P5 1280 — 09:00:30 KYOBO119 코스피 · 발사 시각 한 칸 · 2500 범위 오류 → −190 · P2 1행 · 바디 [−190]', async ({ page }) => {

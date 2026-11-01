@@ -28,6 +28,7 @@ import {
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
+  planNeedsReload,
   planStateWithSave,
   sameOffsets,
   type LaunchPlanEdit,
@@ -55,7 +56,8 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   35-08 그대로 머리 값 점선만. 상수로 박지 않는다 — 머리가 없거나 값이 null 이면 「—」 · 점선 없음.
  * - 계획 고치기(범위 7 · D-24 ~ D-28): 편집 칸은 한 번에 한 패널 — 다른 패널을 열면 앞 편집이 닫히고, 발사 세그먼트가
  *   바뀌면 닫힌다(편집의 fire 가 지금 fire 와 다르면 닫힌 것으로 본다). 「저장」 = PUT 1건 → 응답 plan · change 로 계획 상태만
- *   바꾼다(Pitfall S6 — 지도 · 계획 재조회 없음). 요청 자체가 실패하면(throw) 결과 = offline(「서버 연결 안 됨」).
+ *   바꾼다(Pitfall S6 — 지도 재조회 없음). 결과를 모르면(응답 timeout · 요청 자체 실패(throw) — 35 CR-01) 「응답 없음」 으로
+ *   보이고 계획을 1회 다시 읽는다(`planNeedsReload` · 요청 실패는 늘). 「미반영」 으로 단정하지 않는다.
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
@@ -128,6 +130,16 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
     setEdit((e) => (e === null ? e : planEditWithDraft(e, draft)));
   };
 
+  // 저장 결과를 모를 때 서버 계획(+ 이력)을 1회 다시 읽는다. 실패 · 404 면 지금 상태 그대로(화면은 이미 「응답 없음」).
+  const reloadPlan = () => {
+    fetchLaunchPlan().then(
+      (r) => {
+        if (r.kind === 'ready') setPlan({ kind: 'ready', resp: r.resp });
+      },
+      () => {},
+    );
+  };
+
   const onSave = () => {
     if (editing === null || saving !== null) return;
     const { gateway, market, fire: f, valid } = editing;
@@ -142,8 +154,14 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
           const saved = resp.result.outcome === 'ok' ? launchPlanEntryOf(resp.plan ?? undefined, f, market) : null;
           setEdit((e) => (same(e) && saved !== null ? planEditOf(gateway, market, f, saved.offsets_us) : e));
           setLastSave({ key, save: { result: resp.result, at: new Date() } });
+          if (planNeedsReload(resp)) reloadPlan();
         },
-        () => setLastSave({ key, save: { result: { server: gateway, outcome: 'offline' }, at: new Date() } }),
+        () => {
+          // 요청 자체가 실패(브라우저 타임아웃 · 네트워크 · 5xx) — server 는 이미 저장 · 이력 기록을 마쳤을 수 있다(35 CR-01).
+          // 「미반영」 으로 단정하지 않고 결과 모름(timeout)으로 보이고 서버 값을 다시 읽는다.
+          setLastSave({ key, save: { result: { server: gateway, outcome: 'timeout' }, at: new Date() } });
+          reloadPlan();
+        },
       )
       .finally(() => setSaving(null));
   };

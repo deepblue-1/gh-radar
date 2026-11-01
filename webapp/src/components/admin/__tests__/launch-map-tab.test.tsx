@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type {
   LaunchHeadRow,
@@ -12,7 +12,12 @@ import type {
   LaunchPlanServer,
 } from '@gh-radar/shared';
 
-import { LaunchMapView, type LaunchMapViewProps } from '../launch-map-tab';
+import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
+
+import { LaunchMapTab, LaunchMapView, type LaunchMapViewProps } from '../launch-map-tab';
+
+// LaunchMapTab(받기 · 저장) 블록만 쓴다 — LaunchMapView 는 API 를 부르지 않는다.
+vi.mock('@/lib/launch-api', () => ({ fetchLaunchMap: vi.fn(), fetchLaunchPlan: vi.fn(), saveLaunchPlan: vi.fn() }));
 
 /**
  * Phase 35 (35-08) — 경계 지도 탭 순수 렌더 `LaunchMapView` (D-15 ~ D-18 · 채택 목업 프리셋 칩 · 09:00:30 합패널).
@@ -427,5 +432,91 @@ describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
     unmount();
     const n = view({ resp: n0930(), fire: 'n0930', range: '10d' });
     expect(one(n.container, '[data-slot="launch-legend"]').textContent).not.toContain('뒤탐침');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 35 REVIEW — 저장 뒤 계획 다시 읽기(CR-01 결과 모름)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchMapTab — 저장 결과를 모르면 「응답 없음」 + 계획 다시 읽기(35 CR-01)', () => {
+  const NEW_Q = [-350, -340, -325];
+  const reloaded = (): LaunchPlanResponse =>
+    planResp({ KB120: okServer([-340, -335, -320], NEW_Q, -245) });
+
+  afterEach(() => {
+    vi.mocked(fetchLaunchMap).mockReset();
+    vi.mocked(fetchLaunchPlan).mockReset();
+    vi.mocked(saveLaunchPlan).mockReset();
+  });
+
+  /** 지도 탭을 띄우고 KB 코스닥 편집 칸을 열어 2번을 −340 으로 바꾼 뒤 「저장」. */
+  async function saveKbq(): Promise<HTMLElement> {
+    vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
+    const { container } = render(<LaunchMapTab fire="q16" range="all" onFire={vi.fn()} onRange={vi.fn()} />);
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+        `3조각 ${M}350 · ${M}345 · ${M}325µs`,
+      ),
+    );
+    const kbq = panelOf(container, 'KB120', 'Q');
+    fireEvent.click(one(kbq, '[data-slot="launch-plan-edit-toggle"]'));
+    fireEvent.change(within(kbq).getByLabelText('2번 조각 시각(µs)'), { target: { value: '-340' } });
+    fireEvent.click(one(kbq, '[data-slot="launch-plan-save"]'));
+    return container;
+  }
+
+  it('요청 자체 실패(throw) → 「KB120 응답 없음: …」(「미반영」 아님) · GET /plan 1회 더 · 다시 읽은 값으로 줄 갱신', async () => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: reloaded() });
+    vi.mocked(saveLaunchPlan).mockRejectedValue(new Error('timeout'));
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+
+    await waitFor(() =>
+      expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      ),
+    );
+    expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).not.toContain('미반영');
+    await waitFor(() =>
+      expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it('응답 timeout · plan null → 계획 다시 읽기 · failed(plan null)는 다시 읽지 않는다', async () => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: reloaded() });
+    vi.mocked(saveLaunchPlan).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'timeout', message: '반영됐을 수 있어요' },
+      plan: null,
+      change: null,
+    });
+    const container = await saveKbq();
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+        `3조각 ${M}350 · ${M}340 · ${M}325µs`,
+      ),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+    vi.mocked(saveLaunchPlan).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'failed', code: 1, message: '발사 시각 범위 밖' },
+      plan: null,
+      change: null,
+    });
+    const container = await saveKbq();
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+        'KB120 실패: 발사 시각 범위 밖',
+      ),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
   });
 });

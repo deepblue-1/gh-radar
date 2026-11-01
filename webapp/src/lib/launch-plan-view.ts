@@ -206,6 +206,14 @@ export function planStateWithSave(
   return { kind: 'ready', resp: { servers, changes } };
 }
 
+/**
+ * 저장 응답 뒤 계획을 다시 읽어야 하나 — 응답 plan 이 없고 결과를 모를 때(timeout · 35 CR-01). relay 가 op 8 을 보냈는지
+ * 모르니 서버 값을 다시 읽어 화면을 맞춘다. 요청 자체가 실패(throw)한 경우는 지도 탭이 늘 다시 읽는다.
+ */
+export function planNeedsReload(resp: Pick<LaunchPlanSaveResponse, 'result' | 'plan'>): boolean {
+  return resp.plan === null && resp.result.outcome === 'timeout';
+}
+
 export type SaveTone = 'ok' | 'err' | 'warn';
 
 /** 저장 결과 그림 — 칩(Admin 칩 한 벌 · title = 상세) + 결과 줄. */
@@ -233,8 +241,11 @@ export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
  * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
  * | failed · code 1 · 「알 수 없는 명령입니다」 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
  * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
- * | timeout | 「KB120 · 응답 없음」 | 「KB120 실패: 응답 없음」 |
- * | offline · 요청 실패 | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
+ * | timeout · 요청 실패 | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인」 |
+ * | offline | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
+ *
+ * timeout = 요청은 나갔는데 응답을 못 받음(결과 모름 · 35 CR-01) — 반영됐을 수 있어 「실패」 · 「미반영」 으로 단정하지 않는다
+ * (지도 탭이 계획을 다시 읽는다). offline = 요청이 서버에 닿기 전에 막힘(확정 미반영).
  * | skipped | 「KB120 · 미반영」 title message | 「KB120 미반영: <message · 없으면 꺼진 서버>」 |
  *
  * 서버 미지원 = 구 서버가 44 op 8 을 모름(code 1 「알 수 없는 명령입니다」) — 서버 업데이트 전까지 저장이 안 된다.
@@ -260,7 +271,10 @@ export function saveResultViewOf(result: AdminServerResult, fire: LaunchFire, at
       return { chip: { tone: 'err', text: `${s} · 실패`, title: msg }, line: { tone: 'err', text: `${s} 실패: ${msg ?? '실패'}` } };
     }
     case 'timeout':
-      return { chip: { tone: 'err', text: `${s} · 응답 없음`, title: null }, line: { tone: 'err', text: `${s} 실패: 응답 없음` } };
+      return {
+        chip: { tone: 'err', text: `${s} · 응답 없음`, title: msg },
+        line: { tone: 'err', text: `${s} 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인` },
+      };
     case 'offline':
       return {
         chip: { tone: 'warn', text: `${s} · 서버 연결 안 됨`, title: msg },

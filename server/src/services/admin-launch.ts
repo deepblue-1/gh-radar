@@ -103,6 +103,9 @@ export async function getLaunchMap(
 /** relay 클라이언트가 없을 때(env 미설정 · 로컬) 서버 칸 문구. */
 export const RELAY_NOT_CONFIGURED_MESSAGE = "relay 연결이 설정되지 않았어요";
 
+/** 저장 요청을 relay 로 보낸 뒤 응답을 못 받았을 때(결과 모름 · timeout) 문구 — 반영됐을 수 있다(35 CR-01). */
+export const RELAY_UNKNOWN_SAVE_MESSAGE = "relay 응답을 받지 못했어요 — 반영됐을 수 있어요. 지금 계획을 다시 읽어 확인하세요.";
+
 /** 이력 읽기 한도 — 조합(gateway × fire × market)별 최근 N(+ 마지막 ok · 35-12 RPC). */
 export const LAUNCH_PLAN_CHANGES_LIMIT = 20;
 
@@ -208,9 +211,12 @@ function isServerResultOf(v: unknown, gateway: string): v is AdminServerResult {
 const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every((x) => typeof x === "number");
 
 /**
- * 계획 저장(D-27) — relay `setLaunchPlan` 1회. **throw 하지 않는다**: relay 없음 · 못 닿음(0) · 비200 · 모양 위반은
- * `{ result: { server, outcome: "offline", message }, before_us: null, plan: null }` — 호출부가 이 결과로 이력 1행을 남긴다(D-29).
- * relay 의 plan 은 op 8 뒤 재조회 값 — 웹이 다시 부르지 않게 그대로 싣는다. 로그에는 relay status 만(바디 원문 금지).
+ * 계획 저장(D-27) — relay `setLaunchPlan` 1회. **throw 하지 않는다** — 호출부가 이 결과로 이력 1행을 남긴다(D-29).
+ *   - relay 미설정 → `offline`(`RELAY_NOT_CONFIGURED_MESSAGE`) — 요청을 보내지 않았으니 확정 미반영.
+ *   - 요청을 보낸 뒤의 실패(못 닿음 · 타임아웃 · 연결 리셋(status 0) · 비200 · 모양 위반) → `timeout`(= 결과 모름 ·
+ *     `RELAY_UNKNOWN_SAVE_MESSAGE`) — relay 가 op 8 을 이미 보냈을 수 있다(35 CR-01). offline 으로 적으면 이력에 「서버 연결 안 됨」
+ *     으로 굳어 D-29 대조가 틀어진다. 웹은 timeout 이면 계획을 다시 읽는다.
+ *   `before_us` · `plan` 은 둘 다 null. relay 의 plan 은 op 8 뒤 재조회 값 — 그대로 싣는다. 로그에는 relay status 만(바디 원문 금지).
  */
 export async function saveLaunchPlanViaRelay(
   relay: RelayAdminClient | undefined,
@@ -220,12 +226,9 @@ export async function saveLaunchPlanViaRelay(
   market: LaunchMarket,
   offsets_us: number[],
 ): Promise<LaunchPlanRelaySetResponse> {
-  const offline = (message: string): LaunchPlanRelaySetResponse => ({
-    result: { server: gateway, outcome: "offline", message },
-    before_us: null,
-    plan: null,
-  });
-  if (!relay) return offline(RELAY_NOT_CONFIGURED_MESSAGE);
+  if (!relay) {
+    return { result: { server: gateway, outcome: "offline", message: RELAY_NOT_CONFIGURED_MESSAGE }, before_us: null, plan: null };
+  }
   let status = 0;
   try {
     const r = await relay.setLaunchPlan(gateway, { profile: launchPlanProfileOf(fire), market, offsets_us }, adminEmail);
@@ -243,6 +246,6 @@ export async function saveLaunchPlanViaRelay(
   } catch {
     // 닿지 못함과 같게 본다(status 0).
   }
-  logger.warn({ relay: { op: "launch-plan-put", status } }, "[admin-launch] 발사 계획 저장 relay 실패 → offline");
-  return offline(RELAY_FAILED_MESSAGE);
+  logger.warn({ relay: { op: "launch-plan-put", status } }, "[admin-launch] 발사 계획 저장 relay 실패 → timeout(결과 모름)");
+  return { result: { server: gateway, outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE }, before_us: null, plan: null };
 }

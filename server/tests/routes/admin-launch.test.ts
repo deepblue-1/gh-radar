@@ -12,6 +12,7 @@ import type {
 
 import { createApp } from "../../src/app";
 import { logger } from "../../src/logger";
+import { RELAY_UNKNOWN_SAVE_MESSAGE } from "../../src/services/admin-launch";
 import type { RelayAdminClient } from "../../src/services/relay-admin-client";
 import {
   ADMIN_EMAIL,
@@ -575,18 +576,24 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
     ["모양 위반(result 없음)", { status: 200, data: { plan: null } }],
     ["모양 위반(다른 서버 결과)", { status: 200, data: { result: { server: "KYOBO119", outcome: "ok" }, before_us: null, plan: null } }],
     ["모양 위반(outcome 어휘 밖)", { status: 200, data: { result: { server: "KB120", outcome: "done" }, before_us: null, plan: null } }],
-  ])("P35-S8 relay %s → 200 result offline · plan null · 기록 offline 1행(before_us null)", async (_l, r) => {
+  ])("P35-S8 relay %s → 200 result timeout(결과 모름 · CR-01) · plan null · 기록 timeout 1행(offline 아님 · before_us null)", async (_l, r) => {
     const relay = relayPut(r);
     const { app, rec } = makeApp({}, relay.client);
     const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
     expect(res.status).toBe(200);
-    expect(res.body.result).toMatchObject({ server: "KB120", outcome: "offline" });
-    expect(typeof res.body.result.message).toBe("string");
+    expect(res.body.result).toEqual({ server: "KB120", outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE });
     expect(res.body.plan).toBeNull();
     expect(relay.calls).toHaveLength(1);
     expect(recordCalls(rec)).toHaveLength(1);
     expect(recordCalls(rec)[0]!.params).toMatchObject({
-      p: { outcome: "offline", before_us: null, plan_rev: null, after_us: [-340, -335, -322], code: null },
+      p: {
+        outcome: "timeout",
+        message: RELAY_UNKNOWN_SAVE_MESSAGE,
+        before_us: null,
+        plan_rev: null,
+        after_us: [-340, -335, -322],
+        code: null,
+      },
     });
   });
 
