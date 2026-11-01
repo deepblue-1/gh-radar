@@ -13,6 +13,7 @@
  *   - 파이프라인 · admin 연결 없음 · `isReady` 아님 → `offline` · 44 0건. **87 수신 여부로 판정하지 않는다**(S4) — 발사 계획은
  *     users.toml 과 무관하니 87 캐시가 비어도 op 9 는 답한다.
  *   - command `timeout` · `offline` → 그 상태 그대로(조회는 아무것도 바꾸지 않는다 — 저장의 offline 은 아래 「결과 모름」)
+ *   - 조회 요청 마감(`LAUNCH_PLAN_READ_DEADLINE_MS` · 35 R2-WR-02)까지 답이 없음 → 그 서버만 `timeout`(다른 서버 결과는 산다)
  *   - 같은 request_id 86 code ≠ 0(구 서버 code 1 「알 수 없는 명령입니다」 · 10 · 11) → `failed { code, message 원문 }`
  *   - 94 스냅샷 → `ok { plan_rev, updated_at, entries }` — entries 는 Q16|N × K|Q 행만(모르는 행은 warn 후 뺀다) · plan_rev 가
  *     안전 정수를 넘으면 null + warn · updated_at 빈 문자열(손으로 만든 파일) → null
@@ -50,6 +51,14 @@ import { ADMIN_OP, type LaunchPlanSnapshot } from "./types.js";
 /** 레지스트리에서 꺼진 · 없는 서버의 `skipped` 사유 — dispatcher `SKIPPED_DISABLED_*` 와 결이 같다(화면이 그대로 보인다). */
 export const SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE = "사용이 꺼진 서버 — 켜면 발사 계획을 읽고 바꿀 수 있어요";
 
+/**
+ * 조회(`GET /launch-plan`) 요청 마감(ms · 라우트 도착부터 · 35 R2-WR-02). server `RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS`(6초)보다 짧아야
+ * 한다 — 넘으면 server 가 relay 응답 전체를 버리고 **두 서버 모두** offline 으로 접어 건강한 서버의 계획까지 잃는다. AdminConn 의 5초
+ * 타이머는 송신 시점에 시작해 FIFO 대기(저장 op 8 · 다른 탭 op 9)가 더해지므로, 서버별로 이 마감에 끊어 그 서버만 `timeout` 으로
+ * 접는다. 6초 − 응답 · 네트워크 여유 1초.
+ */
+export const LAUNCH_PLAN_READ_DEADLINE_MS = 5_000;
+
 /** 발사 계획이 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. `AdminConn` 이 만족한다. */
 export type LaunchPlanAdminConn = Pick<AdminConn, "isReady" | "command">;
 
@@ -76,10 +85,24 @@ export class LaunchPlanService {
     this.#deps = deps;
   }
 
-  /** 서버마다 op 9 를 **병렬로** 보내 서버별 계획을 돌려준다. 키 순서 = 입력 순서(중복은 한 번만 묻는다). */
-  async read(serverKeys: readonly string[]): Promise<Record<string, LaunchPlanServer>> {
+  /**
+   * 서버마다 op 9 를 **병렬로** 보내 서버별 계획을 돌려준다. 키 순서 = 입력 순서(중복은 한 번만 묻는다).
+   * `deadlineAt`(라우트 도착 + `LAUNCH_PLAN_READ_DEADLINE_MS`)을 주면 그때까지 답이 없는 서버만 `timeout` 으로 접는다 — 다른 서버
+   * 결과는 그대로 싣는다(35 R2-WR-02). op 9 는 취소하지 않는다(AdminConn FIFO 가 끝까지 처리 · 조회라 바뀌는 것 없음).
+   */
+  async read(serverKeys: readonly string[], opts?: { deadlineAt: number }): Promise<Record<string, LaunchPlanServer>> {
     const keys = [...new Set(serverKeys)];
-    const values = await Promise.all(keys.map((k) => this.#readOne(k)));
+    const late: string[] = [];
+    const values = await Promise.all(
+      keys.map(async (k): Promise<LaunchPlanServer> => {
+        if (opts === undefined) return this.#readOne(k);
+        const v = await this.#within(this.#readOne(k), opts.deadlineAt);
+        if (v !== null) return v;
+        late.push(k);
+        return { status: "timeout" };
+      }),
+    );
+    if (late.length > 0) logger.info({ servers: late }, "[admin] 발사 계획 조회 — 요청 마감까지 답 없음 · 그 서버만 timeout");
     const out: Record<string, LaunchPlanServer> = {};
     keys.forEach((k, i) => {
       out[k] = values[i]!;

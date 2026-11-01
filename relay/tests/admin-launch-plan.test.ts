@@ -12,6 +12,7 @@
  *       skipped · offline 판정은 command 0회(87 수신 여부로 판정하지 않는다 · S4)
  *   R3  스냅샷의 모르는 행(profile 'X' · market 'Z')은 그 행만 빠지고 warn 1줄 · updated_at 빈 문자열 → null ·
  *       plan_rev 2**53 넘음 → null + warn
+ *   R4  요청 마감(R2-WR-02) — deadlineAt 까지 답 없는 서버만 timeout(다른 서버 결과는 그대로) · info 1줄 · 마감 안의 답은 그대로
  *
  * 잠그는 것 (Task 2 — set):
  *   S1  set('KB120', Q16/Q [-340,-335,-322]) — 송신 순서 op 9 → op 8(세 필드) → op 9 · { result ok usersRev, before_us = 전 스냅샷
@@ -27,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_COMMAND_TIMEOUT_MS, type AdminCommandOutcome, type AdminConn } from "../src/admin/admin-conn.js";
 import {
+  LAUNCH_PLAN_READ_DEADLINE_MS,
   LaunchPlanService,
   SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE,
   type LaunchPlanServiceDeps,
@@ -172,6 +174,33 @@ describe("P35 LaunchPlanService.read (35-17 Task 1 트레이서)", () => {
     expect(kb.inputs).toEqual([{ op: ADMIN_OP.GetLaunchPlan, userId: "" }]);
     expect(kyobo.inputs).toEqual([{ op: ADMIN_OP.GetLaunchPlan, userId: "" }]);
     expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("R4 요청 마감(R2-WR-02) — FIFO 에 묶여 deadlineAt 까지 답 없는 서버만 timeout · 다른 서버 결과는 그대로 · info 1줄", async () => {
+    const kb = new FakeAdmin([() => new Promise<AdminCommandOutcome>(() => {})]); // 앞선 op 8 뒤에 줄 선 op 9
+    const kyobo = new FakeAdmin([snapshotOutcome()]);
+    const { svc, clock } = rig({ admins: { KB120: kb, KYOBO119: kyobo } });
+
+    const out = await svc.read(["KB120", "KYOBO119"], { deadlineAt: clock.t + 30 });
+    expect(out).toEqual({
+      KB120: { status: "timeout" },
+      KYOBO119: { status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES },
+    });
+    expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan]);
+    const infos = logs.filter((c) => c.level === "info");
+    expect(infos).toHaveLength(1);
+    expect(infos[0]!.args[0]).toEqual({ servers: ["KB120"] });
+    expect(LAUNCH_PLAN_READ_DEADLINE_MS).toBeLessThan(6_000); // server RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS 안
+  });
+
+  it("R4b 마감 안에 온 답은 그대로 · 마감 판정 앞단(skipped · offline)은 command 0회 그대로", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ planRev: 9n })]);
+    const { svc, clock } = rig({ rows: [serverRow("KB120"), serverRow("KYOBO119", false)], admins: { KB120: kb } });
+    expect(await svc.read(["KB120", "KYOBO119"], { deadlineAt: clock.t + 1_000 })).toEqual({
+      KB120: { status: "ok", plan_rev: 9, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES },
+      KYOBO119: { status: "skipped", message: SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE },
+    });
+    expect(logs.filter((c) => c.level === "info")).toEqual([]);
   });
 
   it("R1b code 10 · 11 도 failed 원문 그대로", async () => {

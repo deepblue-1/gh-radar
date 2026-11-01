@@ -71,6 +71,8 @@ export const RELAY_ORDER_ENDPOINTS_TIMEOUT_MS = 2_000;
  * `GET /internal/admin/launch-plan?servers=` 상한(35-13 · D-25). relay 는 서버마다 op 9(계획 조회)를 병렬로 보내고 서버별 상한 5초에
  * `timeout` 으로 접는다 — 그 5초 + 네트워크 여유. 쓰기용 기본 15초를 물려받지 않는다(orderEndpoints 결 — relay VM 이 안 닿으면
  * 화면 첫 조회가 15초 멈춘다). 넘으면 status 0 → 두 서버 offline 200(웹은 대신 값으로 그린다).
+ * relay 는 이보다 짧은 요청 마감(`LAUNCH_PLAN_READ_DEADLINE_MS` 5초 · 35 R2-WR-02)에서 느린 서버만 `timeout` 으로 접어 답한다 —
+ * 이 값을 줄이면 relay 쪽 마감도 같이 줄여야 한다(아니면 FIFO 대기 한 건에 두 서버가 통째로 offline).
  */
 export const RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS = 6_000;
 

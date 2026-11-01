@@ -47,7 +47,8 @@
  * (`awaitWithinDeadline`) — 지면 응답부터 하고 재적재는 취소 없이 뒤에서 끝까지 간다. 지정 라우트(PUT order-server)도 도착 시각 마감.
  *
  * 발사 계획(Phase 35 범위 7 · 35-17 · D-25 · D-30) — 서버 키 단위 `LaunchPlanService`(dispatcher `#serial` 밖 · DB 무관 — 이력은
- * server). `GET /launch-plan?servers=KB120,KYOBO119`(쉼표 1~8개 · 키 형식 밖 400) → 서버마다 op 9 병렬 → 200
+ * server). `GET /launch-plan?servers=KB120,KYOBO119`(쉼표 1~8개 · 키 형식 밖 400) → 서버마다 op 9 병렬 · 요청 도착 마감
+ * (`LAUNCH_PLAN_READ_DEADLINE_MS` 5초 — 넘긴 서버만 timeout · 35 R2-WR-02) → 200
  * `{ servers: Record<키, LaunchPlanServer> }`(요청 키 전부 · 순서 그대로 · 감사 없음). `PUT /launch-plan/:server` body
  * `{ profile: Q16|N, market: K|Q, offsets_us: int32[1..64] }`(추가 키 400 · **순서 · 범위는 막지 않는다** — gh-trade code 1 고정 문구가
  * 말한다 · D-26) → 그 서버 1대에 조회(전) → op 8 → 조회(후) · 요청 도착 마감(10초) → 200 `{ result, before_us, plan }`
@@ -98,7 +99,7 @@ import type { QuoteSwitchResult } from "../quote/quote-switch.js";
 import type { AdminConn } from "./admin-conn.js";
 import { ADMIN_REQUEST_DEADLINE_MS, type AdminDispatcher } from "./dispatcher.js";
 import { IntentError, type AdminIntentStore } from "./intent-store.js";
-import type { LaunchPlanService } from "./launch-plan.js";
+import { LAUNCH_PLAN_READ_DEADLINE_MS, type LaunchPlanService } from "./launch-plan.js";
 import { ADMIN_OP, freshLiveBudget, type AdminUsersSnapshot, type LiveBudget } from "./types.js";
 
 // ============================================================
@@ -816,10 +817,12 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
   };
 
   // 조회 — 서버마다 op 9 병렬 · 요청 키 전부를 그 순서로 싣는다(server 35-13 이 모양을 검사한다). 읽기라 감사 줄 없음.
+  //   마감 = 도착 + LAUNCH_PLAN_READ_DEADLINE_MS(server 6초 상한 안 · 35 R2-WR-02) — 넘긴 서버만 timeout 으로 접는다.
   router.get("/launch-plan", async (req, res) => {
+    const deadlineAt = (deps.now?.() ?? Date.now()) + LAUNCH_PLAN_READ_DEADLINE_MS;
     const launchPlan = launchPlanOf();
     const { servers } = LaunchPlanServersQuery.parse(req.query);
-    res.status(200).json({ servers: await launchPlan.read(servers) });
+    res.status(200).json({ servers: await launchPlan.read(servers, { deadlineAt }) });
   });
 
   // 저장 — 그 서버 1대 · 조회(전) → op 8 → 조회(후) · 요청 도착 마감. relay 는 DB 를 쓰지 않는다(이력은 server · D-29).

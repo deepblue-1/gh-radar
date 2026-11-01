@@ -65,7 +65,7 @@ import { AdminConn } from "../src/admin/admin-conn.js";
 import { createAdminRouter, type AdminApiDeps } from "../src/admin/admin-api.js";
 import { AdminDispatcher } from "../src/admin/dispatcher.js";
 import { AdminIntentStore } from "../src/admin/intent-store.js";
-import { LaunchPlanService } from "../src/admin/launch-plan.js";
+import { LAUNCH_PLAN_READ_DEADLINE_MS, LaunchPlanService } from "../src/admin/launch-plan.js";
 import type { LiveBudget } from "../src/admin/types.js";
 import { createOrderApi } from "../src/order/order-api.js";
 import type { QuoteSwitchResult } from "../src/quote/quote-switch.js";
@@ -1736,6 +1736,7 @@ describe("P30 주문자 IP/MAC 쓰기 경로 (IPMAC-02 · D-07 · D-10)", () => 
  *       KYOBO119: failed code 1 } } · 키 순서 = 요청 순서 · 감사 줄 없음(읽기)
  *   L2  servers 누락 · 빈 값 · 9개 · 「KB 120」 → 400 VALIDATION_FAILED · 44 0건 · x-admin-email 없음 → 400(기존 관문)
  *   L3  launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE
+ *   L4  read 에 deadlineAt = 도착 + LAUNCH_PLAN_READ_DEADLINE_MS(R2-WR-02)
  */
 describe("P35 발사 계획 조회 GET /launch-plan (35-17 Task 1)", () => {
   const PATH = "/internal/admin/launch-plan";
@@ -1804,6 +1805,15 @@ describe("P35 발사 계획 조회 GET /launch-plan (35-17 Task 1)", () => {
     expect(((await noEmail.json()) as { error: { code: string } }).error.code).toBe("ADMIN_EMAIL_REQUIRED");
     expect(h.commands("KB120")).toEqual([]);
     expect(h.commands("KB121")).toEqual([]);
+  });
+
+  it("L4 read 에 deadlineAt = 도착 + LAUNCH_PLAN_READ_DEADLINE_MS 를 넘긴다(R2-WR-02 · server 6초 상한 안)", async () => {
+    const read = vi.fn<NonNullable<AdminApiDeps["launchPlan"]>["read"]>(async () => ({ KB120: { status: "timeout" } }));
+    h = await startHarness({ launchPlan: { read, set: vi.fn() }, now: () => 1_000_000 });
+    const res = await call(h, "GET", `${PATH}?servers=KB120`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ servers: { KB120: { status: "timeout" } } });
+    expect(read).toHaveBeenCalledWith(["KB120"], { deadlineAt: 1_000_000 + LAUNCH_PLAN_READ_DEADLINE_MS });
   });
 
   it("L3 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE", async () => {
