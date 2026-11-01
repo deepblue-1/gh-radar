@@ -244,6 +244,26 @@ describe("계획 — --date 필터 · 논리 키 중복", () => {
     expect(plan.heads[0]).toMatchObject({ n_pieces: 2, n_accepted: 1, n_reject: 1, offset_used_us: -298 });
   });
 
+  it("WR-02 같은 날 A KRX 본회차 09:00:27 · 재확인 회차 09:00:29 의 wire 0 → 두 조각 · 두 머리(fire_base 가 논리 키 · DB PK 20261030200000)", () => {
+    const line = { date: "2026-10-30", gateway: "KYOBO119", profile: "A", fire_exchange: "KRX", market: "Q", side: "buy", wire: 0 };
+    const pieces = [
+      pieceFromNdjson({ ...line, fire_base: "09:00:27", sent_rel_us: -300, result: "101" }),
+      pieceFromNdjson({ ...line, fire_base: "09:00:27", wire: 1, sent_rel_us: -290, result: "접수" }),
+      pieceFromNdjson({ ...line, fire_base: "09:00:29", sent_rel_us: -280, result: "접수" }),
+    ];
+    const plan = planLaunchBackfill(pieces);
+    expect(plan.duplicates).toBe(0);
+    expect(plan.pieces).toHaveLength(3);
+    expect(plan.heads.map((h) => [h.fire_base, h.n_pieces])).toEqual([
+      ["09:00:27", 2],
+      ["09:00:29", 1],
+    ]);
+    expect(plan.groups.map((g) => [g.fire_base, g.pieces])).toEqual([
+      ["09:00:27", 2],
+      ["09:00:29", 1],
+    ]);
+  });
+
   it("뒤탐침(quick-261030-dz7) — 머리는 실조각만 · 뒤탐침만 온 묶음은 머리 없이 조각만(throw 없음)", () => {
     const base = { date: "2026-10-30", gateway: "KB120", profile: "Q16", fire_exchange: "KRX", market: "Q" };
     const tail = { round: -2, probe: true, side: "buy" };

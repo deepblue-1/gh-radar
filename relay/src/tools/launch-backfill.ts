@@ -350,7 +350,7 @@ export interface LaunchBackfillPlan {
   heads: LaunchHeadInput[];
   /** 같은 논리 키가 다시 나온 수(마지막 것이 이긴다) */
   duplicates: number;
-  /** (날짜, 서버, 시장, profile, 거래소) 정렬 */
+  /** (날짜, 서버, 시장, profile, 거래소, 기준시각) 정렬 */
   groups: LaunchPlanGroup[];
 }
 
@@ -359,14 +359,17 @@ export interface LaunchPlanOptions {
   dates?: readonly string[];
 }
 
-/** 조각 논리 키 = (trade_date, gateway, profile, fire_exchange, market, wire) — DB PK 와 같다. */
+/**
+ * 조각 논리 키 = (trade_date, gateway, profile, fire_exchange, fire_base, market, wire) — DB PK(20261030200000)와 같다.
+ * fire_base 가 빠지면 A KRX 본회차(09:00:27)와 재확인 회차(09:00:29)의 같은 wire 가 충돌해 한쪽이 중복으로 버려진다(35 WR-02).
+ */
 function pieceKey(p: LaunchPieceInput): string {
-  return [p.trade_date, p.gateway, p.profile, p.fire_exchange, p.market, p.wire].join("|");
+  return [p.trade_date, p.gateway, p.profile, p.fire_exchange, p.fire_base, p.market, p.wire].join("|");
 }
 
-/** 머리 논리 키 = (trade_date, gateway, profile, fire_exchange, market). */
+/** 머리 논리 키 = (trade_date, gateway, profile, fire_exchange, fire_base, market) — DB PK 와 같다(회차마다 머리 1행). */
 function headKey(p: LaunchPieceInput): string {
-  return [p.trade_date, p.gateway, p.profile, p.fire_exchange, p.market].join("|");
+  return [p.trade_date, p.gateway, p.profile, p.fire_exchange, p.fire_base, p.market].join("|");
 }
 
 /**
@@ -433,7 +436,7 @@ export function planLaunchBackfill(input: readonly LaunchPieceInput[], opts: Lau
       pieces: ps.length,
     });
   }
-  const order = (g: LaunchPlanGroup) => [g.trade_date, g.gateway, g.market, g.profile, g.fire_exchange].join("|");
+  const order = (g: LaunchPlanGroup) => [g.trade_date, g.gateway, g.market, g.profile, g.fire_exchange, g.fire_base].join("|");
   groups.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
   return { pieces, heads, duplicates, groups };
 }
