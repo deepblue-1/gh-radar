@@ -1,6 +1,6 @@
 ---
 phase: 35-launch-gate
-verified: 2026-11-01T00:00:00Z
+verified: 2026-11-01T02:00:00Z
 status: human_needed
 score: 7/7 must-haves verified
 covered_files:
@@ -42,16 +42,33 @@ covered_files:
   - .planning/phases/35-launch-gate/35-18-SUMMARY.md
   - .planning/phases/35-launch-gate/35-19-PLAN.md
   - .planning/phases/35-launch-gate/35-19-SUMMARY.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R2-DISPOSITION.md
+  - .planning/phases/35-launch-gate/35-REVIEW-R2.md
+  - relay/src/admin/admin-api.ts
   - relay/src/admin/launch-plan.ts
   - relay/src/tools/launch-backfill.ts
   - server/src/routes/admin-launch.ts
   - server/src/services/admin-launch.ts
+  - server/src/services/relay-admin-client.ts
   - supabase/migrations/20261028200000_launch_project_mapping.sql
   - webapp/src/components/admin/launch-map-tab.tsx
-covered_digest: "v3:sha256:d3bee23e61093d127141d92793c51f91e3465e57509e6c60569d70a65cfde5bf"
+  - webapp/src/lib/launch-plan-view.ts
+covered_digest: "v3:sha256:aa6e3ba0c685fa5e534a785ca603e55a3a8ebda4e7193a3bbe72ad87face04d4"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+  - test: "R2-WR-01 · R2-WR-02 · R2-WR-03 · R2-IN-01 처리 결정 (35-REVIEW-R2-DISPOSITION.md 4건 모두 open)"
+    expected: "고친다면 갭 클로징(소형): ① 웹 reloadPlan 에 순번 가드 + 서버별 ok 일 때만 반영 ② relay read() 에 요청 마감 · 서버별 timeout 접기 ③ server 의 「확실히 안 보낸」 실패(ECONNREFUSED · 401 · 503 LAUNCH_PLAN_UNAVAILABLE · 400)는 offline 유지. 안 고친다면 각 건을 deferred + 사유로 기록."
+    why_human: "세 건 모두 코드에 리뷰 서술 그대로 존재함을 확인했다. 그러나 전부 저장 timeout · relay 혼잡 · relay 거절이라는 예외 경로에서만 나오고, 정상 경로(조회 · 편집 · 저장 · 이력 · 다음 발사부터 반영)는 라이브 UAT 로 입증돼 phase 목표(SC1~7)를 막지 않는다. 실거래 발사 시각 설정 화면의 오표시를 운영자가 감수할지는 코드로 판정할 수 없는 운영 판단이다."
+  - test: "UI 검토(35-UI-REVIEW 15/24, 코드 전용) — 폰 390 · 키보드 포커스에서 µs 입력칸 포커스 링 · 지도 값의 터치 가독성 · 터치 타깃 크기, 35-UAT.md pending 3건"
+    expected: "포커스가 보이고 값이 hover 없이도 읽힌다."
+    why_human: "시각 · 접근성은 grep 으로 확인할 수 없다. 목표 달성을 막는 항목은 아니다. (1차 human 항목 중 CR-01 · WR-01 · WR-02 처리 결정은 1ef9a8fe 까지의 수정으로 해소됐고 위 R2 항목으로 대체됐다.)"
+superseded_by: 35-VERIFICATION-R2.md (정본 본문은 1차 기록 그대로 · 프런트매터만 R2 승계)
+round1_verified: 2026-11-01T00:00:00Z
+round1_status: human_needed
+round1_score: 7/7 must-haves verified
+round1_covered_digest: "v3:sha256:d3bee23e61093d127141d92793c51f91e3465e57509e6c60569d70a65cfde5bf"
+round1_human_verification:
   - test: "35-REVIEW CR-01 처리 결정 — 발사 계획 저장에서 「송신 뒤 결과 불명」 을 offline(미반영) 으로 확정 보고하는 경로를 고칠지, 알려진 한계로 받아들일지"
     expected: "고친다면 relay/server/webapp 세 곳에서 송신 뒤 실패를 timeout(모름)으로 보고하고 웹이 계획을 재조회한다. 받아들인다면 35-REVIEW-DISPOSITION.md 에 deferred + 사유를 적는다."
     why_human: "코드는 리뷰가 지적한 그대로 존재한다(검증함). 정상 경로는 라이브 UAT 로 입증됐고 이 결함은 연결 끊김·타임아웃 같은 예외 경로에서만 나온다. 이 결함이 phase 목표를 막는지, 아니면 후속 quick 으로 미룰지는 실거래 설정 안전에 대한 운영자 판단이다."
