@@ -17,6 +17,7 @@ import {
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
+  rejectedSaveResultOf,
   saveResultViewOf,
 } from '../launch-plan-view';
 
@@ -343,6 +344,22 @@ describe('편집 · 저장(35-15)', () => {
 
     // 지킬 마지막 값이 없으면 응답 그대로.
     expect(planStateWithReload({ kind: 'error' }, late, new Set())).toEqual({ kind: 'ready', resp: late });
+  });
+
+  it('rejectedSaveResultOf — 4xx 거부는 failed(확정 실패) · 401 · 403 고정 문구 · 그 밖은 「요청 거부(status) · 문구」(R2-IN-01)', () => {
+    const at = new Date('2026-10-27T13:41:00Z');
+    const line = (status: number, message: string) =>
+      saveResultViewOf(rejectedSaveResultOf('KB120', status, message), 'q16', at).line;
+    expect(rejectedSaveResultOf('KB120', 401, '로그인이 필요합니다.')).toEqual({
+      server: 'KB120',
+      outcome: 'failed',
+      message: '로그인이 만료됐어요 — 다시 로그인한 뒤 저장하세요',
+    });
+    expect(line(401, 'x')).toEqual({ tone: 'err', text: 'KB120 실패: 로그인이 만료됐어요 — 다시 로그인한 뒤 저장하세요' });
+    expect(line(403, 'x').text).toBe('KB120 실패: 권한이 없어요');
+    expect(line(400, 'offsets_us: 비었음').text).toBe('KB120 실패: 요청 거부(400) · offsets_us: 비었음');
+    expect(line(404, '').text).toBe('KB120 실패: 요청 거부(404)');
+    for (const s of [401, 400]) expect(line(s, 'x').text).not.toContain('몰라요');
   });
 
   it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {

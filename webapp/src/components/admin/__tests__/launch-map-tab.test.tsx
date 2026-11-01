@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type {
   LaunchHeadRow,
@@ -12,6 +12,7 @@ import type {
   LaunchPlanServer,
 } from '@gh-radar/shared';
 
+import { ApiClientError } from '@/lib/api';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
 
 import { LaunchMapTab, LaunchMapView, type LaunchMapViewProps } from '../launch-map-tab';
@@ -616,6 +617,35 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     expect(one(kyq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`);
     expect(one(kyq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [401, 'UNAUTHENTICATED', '로그인이 필요합니다.', 'KB120 실패: 로그인이 만료됐어요 — 다시 로그인한 뒤 저장하세요'],
+    [400, 'VALIDATION_FAILED', 'offsets_us: 비었음', 'KB120 실패: 요청 거부(400) · offsets_us: 비었음'],
+  ])('R2-IN-01 server %i 거부 → 확정 실패 문구(「몰라요」 아님) · 다시 읽지 않는다', async (status, code, message, text) => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+    vi.mocked(saveLaunchPlan).mockRejectedValue(new ApiClientError({ code, message, status }));
+    const container = await saveKbq();
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(text),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('R2-IN-01 5xx · 타임아웃(status 0) ApiClientError 는 그대로 결과 모름 · 다시 읽기', async () => {
+    for (const status of [502, 0]) {
+      vi.mocked(fetchLaunchPlan).mockReset();
+      vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+      vi.mocked(saveLaunchPlan).mockRejectedValue(new ApiClientError({ code: 'X', message: 'x', status }));
+      const container = await saveKbq();
+      await waitFor(() =>
+        expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+          'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+        ),
+      );
+      await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
+      cleanup();
+    }
   });
 
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {

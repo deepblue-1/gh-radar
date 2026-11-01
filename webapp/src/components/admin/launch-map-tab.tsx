@@ -20,6 +20,7 @@ import {
 
 import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ApiClientError } from '@/lib/api';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
 import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { LAUNCH_CHART, launchRangeOf, trianglePathOf } from '@/lib/launch-map';
@@ -32,6 +33,7 @@ import {
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
+  rejectedSaveResultOf,
   sameOffsets,
   type LaunchPlanEdit,
   type LaunchPlanState,
@@ -58,7 +60,8 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   35-08 그대로 머리 값 점선만. 상수로 박지 않는다 — 머리가 없거나 값이 null 이면 「—」 · 점선 없음.
  * - 계획 고치기(범위 7 · D-24 ~ D-28): 편집 칸은 한 번에 한 패널 — 다른 패널을 열면 앞 편집이 닫히고, 발사 세그먼트가
  *   바뀌면 닫힌다(편집의 fire 가 지금 fire 와 다르면 닫힌 것으로 본다). 「저장」 = PUT 1건 → 응답 plan · change 로 계획 상태만
- *   바꾼다(Pitfall S6 — 지도 재조회 없음). 결과를 모르면(응답 timeout · 요청 자체 실패(throw) — 35 CR-01) 「응답 없음」 으로
+ *   바꾼다(Pitfall S6 — 지도 재조회 없음). server 가 4xx 로 거부하면(401 세션 만료 · 400 등 — 35 R2-IN-01) 확정 「실패」 로
+ *   보이고 다시 읽지 않는다. 결과를 모르면(응답 timeout · 그 밖 요청 실패(throw) — 35 CR-01) 「응답 없음」 으로
  *   보이고 계획을 1회 다시 읽는다(`planNeedsReload` · 요청 실패는 늘). 「미반영」 으로 단정하지 않는다. 저장 ok 인데 응답 plan 이
  *   없으면(relay 가 후 조회를 건너뜀 · 35 WR-01) 그 칸을 보낸 값으로 먼저 맞추고 편집 칸 기준도 보낸 값으로 다시 연 뒤 1회 다시 읽는다.
  *   다시 읽은 응답은 통째로 덮지 않는다(35 R2-WR-01) — 서버별로 status ok 이고 그 요청 뒤에 더 최신 값(저장 응답 · 더 늦은 다시
@@ -200,7 +203,13 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
           setLastSave({ key, save: { result: resp.result, at: new Date() } });
           if (reload) reloadPlan();
         },
-        () => {
+        (e: unknown) => {
+          // server 가 4xx 로 거부(401 세션 만료 · 403 · 400 검증 — relay 호출 · 이력 기록 전) — 확정 미반영(35 R2-IN-01). 「실패」 로
+          // 보이고 다시 읽지 않는다(바뀐 것 없음).
+          if (e instanceof ApiClientError && e.status >= 400 && e.status < 500) {
+            setLastSave({ key, save: { result: rejectedSaveResultOf(gateway, e.status, e.message), at: new Date() } });
+            return;
+          }
           // 요청 자체가 실패(브라우저 타임아웃 · 네트워크 · 5xx) — server 는 이미 저장 · 이력 기록을 마쳤을 수 있다(35 CR-01).
           // 「미반영」 으로 단정하지 않고 결과 모름(timeout)으로 보이고 서버 값을 다시 읽는다.
           setLastSave({ key, save: { result: { server: gateway, outcome: 'timeout' }, at: new Date() } });

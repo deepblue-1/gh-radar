@@ -211,7 +211,8 @@ export function planStateWithSave(
  * 저장 응답 뒤 계획을 다시 읽어야 하나 — 응답 plan 이 없는데
  * - 결과를 모를 때(timeout · 35 CR-01): relay 가 op 8 을 보냈는지 모르니 서버 값을 다시 읽어 화면을 맞춘다.
  * - 저장 ok 일 때(35 WR-01): relay 가 마감 · 후 조회 실패로 새 값을 못 실었다(D-27 「성공 뒤 다시 조회」).
- * failed · offline · skipped 는 바뀐 것이 없어 읽지 않는다. 요청 자체가 실패(throw)한 경우는 지도 탭이 늘 다시 읽는다.
+ * failed · offline · skipped 는 바뀐 것이 없어 읽지 않는다. 요청 자체가 실패(throw)한 경우는 지도 탭이 다시 읽는다(4xx 거부는
+ * 확정 미반영이라 빼고 · 35 R2-IN-01 `rejectedSaveResultOf`).
  */
 export function planNeedsReload(resp: Pick<LaunchPlanSaveResponse, 'result' | 'plan'>): boolean {
   return resp.plan === null && (resp.result.outcome === 'timeout' || resp.result.outcome === 'ok');
@@ -264,6 +265,21 @@ export function planStateWithReload(
   return { kind: 'ready', resp: { servers, changes } };
 }
 
+/**
+ * 저장 요청을 server 가 4xx 로 거부했다(35 R2-IN-01) — 인증(401 세션 만료) · 인가(403) · 검증(400) 등은 relay 호출 · 이력 기록
+ * **전에** 막혀 확정 미반영이다. 「반영됐는지 몰라요」(timeout)가 아니라 「실패」 로 보이고, 지도 탭은 다시 읽지 않는다.
+ * 401 · 403 은 고정 문구, 그 밖은 「요청 거부(<status>) · <server 문구>」.
+ */
+export function rejectedSaveResultOf(gateway: string, status: number, message: string): AdminServerResult {
+  const why =
+    status === 401
+      ? '로그인이 만료됐어요 — 다시 로그인한 뒤 저장하세요'
+      : status === 403
+        ? '권한이 없어요'
+        : `요청 거부(${status})${message ? ` · ${message}` : ''}`;
+  return { server: gateway, outcome: 'failed', message: why };
+}
+
 export type SaveTone = 'ok' | 'err' | 'warn';
 
 /** 저장 결과 그림 — 칩(Admin 칩 한 벌 · title = 상세) + 결과 줄. */
@@ -291,7 +307,8 @@ export const LAUNCH_PLAN_UNKNOWN_OP_MESSAGE = '알 수 없는 명령입니다';
  * | ok | 「KB120」 | 「저장됨 · HH:MM(KST) · 다음 16:00 발사부터」(09:00:30 은 「다음 09:00:30 발사부터」) |
  * | failed · code 1 · 「알 수 없는 명령입니다」 | 「KB120 · 실패」 title 「서버 미지원 · <message>」 | 「KB120 실패: 서버 미지원 · <message> — 서버 업데이트 뒤 다시 저장」 |
  * | failed(그 밖 — code 1 입력 거부 고정 문구 · 10 · 11 …) | 「KB120 · 실패」 title message | 「KB120 실패: <message · 없으면 실패>」 |
- * | timeout · 요청 실패 | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인」 |
+ * | timeout · 요청 실패(타임아웃 · 네트워크 · 5xx) | 「KB120 · 응답 없음」 title message | 「KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인」 |
+ * | 요청 4xx 거부(`rejectedSaveResultOf` — failed) | 「KB120 · 실패」 title 문구 | 「KB120 실패: 로그인이 만료됐어요 — …」 · 「KB120 실패: 요청 거부(400) · …」 |
  * | offline | 「KB120 · 서버 연결 안 됨」 title message | 「KB120 미반영: 서버 연결 안 됨」 |
  *
  * timeout = 요청은 나갔는데 응답을 못 받음(결과 모름 · 35 CR-01) — 반영됐을 수 있어 「실패」 · 「미반영」 으로 단정하지 않는다
