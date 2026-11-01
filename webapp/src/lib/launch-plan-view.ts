@@ -17,6 +17,7 @@
 
 import {
   launchPlanEntryOf,
+  launchPlanProfileOf,
   validateLaunchPlanDraft,
   type AdminServerResult,
   type LaunchFire,
@@ -192,7 +193,7 @@ export function sameOffsets(a: readonly number[], b: readonly number[]): boolean
 }
 
 /**
- * 저장 응답 → 계획 상태(Pitfall S6 · 재조회 없음). 응답 plan 이 있으면 그 서버 계획을 통째로 바꾸고(실패여도 relay 가 다시
+ * 저장 응답 → 계획 상태(Pitfall S6 — 응답 plan 이 있으면 재조회 없음 · 없을 때는 `planNeedsReload`). 응답 plan 이 있으면 그 서버 계획을 통째로 바꾸고(실패여도 relay 가 다시
  * 읽은 값이면 그것이 지금 값), change 가 있으면 이력 맨 앞에 넣는다(null = 기록 실패 · 늘리지 않는다). ready 가 아니면 그대로.
  */
 export function planStateWithSave(
@@ -207,11 +208,35 @@ export function planStateWithSave(
 }
 
 /**
- * 저장 응답 뒤 계획을 다시 읽어야 하나 — 응답 plan 이 없고 결과를 모를 때(timeout · 35 CR-01). relay 가 op 8 을 보냈는지
- * 모르니 서버 값을 다시 읽어 화면을 맞춘다. 요청 자체가 실패(throw)한 경우는 지도 탭이 늘 다시 읽는다.
+ * 저장 응답 뒤 계획을 다시 읽어야 하나 — 응답 plan 이 없는데
+ * - 결과를 모를 때(timeout · 35 CR-01): relay 가 op 8 을 보냈는지 모르니 서버 값을 다시 읽어 화면을 맞춘다.
+ * - 저장 ok 일 때(35 WR-01): relay 가 마감 · 후 조회 실패로 새 값을 못 실었다(D-27 「성공 뒤 다시 조회」).
+ * failed · offline · skipped 는 바뀐 것이 없어 읽지 않는다. 요청 자체가 실패(throw)한 경우는 지도 탭이 늘 다시 읽는다.
  */
 export function planNeedsReload(resp: Pick<LaunchPlanSaveResponse, 'result' | 'plan'>): boolean {
-  return resp.plan === null && resp.result.outcome === 'timeout';
+  return resp.plan === null && (resp.result.outcome === 'timeout' || resp.result.outcome === 'ok');
+}
+
+/**
+ * 저장 ok · 응답 plan 없음(35 WR-01) — 그 서버 계획의 (fire, market) 칸만 보낸 값으로 바꾼다(code 0 = 그 값이 들어갔다).
+ * 다시 읽기가 오기 전에도 점선 · 계획 줄 · 편집 칸 기준이 저장 전 값으로 남지 않게 한다. ready 가 아니거나 그 서버가 ok 가
+ * 아니면 그대로(그 칸 기준이 없다).
+ */
+export function planStateWithSentEntry(
+  state: LaunchPlanState,
+  gateway: string,
+  fire: LaunchFire,
+  market: LaunchMarket,
+  offsets: readonly number[],
+): LaunchPlanState {
+  if (state.kind !== 'ready') return state;
+  const server = state.resp.servers[gateway];
+  if (server === undefined || server.status !== 'ok') return state;
+  const profile = launchPlanProfileOf(fire);
+  const entry: LaunchPlanEntry = { profile, market, offsets_us: [...offsets] };
+  const hit = (e: LaunchPlanEntry) => e.profile === profile && e.market === market;
+  const entries = server.entries.some(hit) ? server.entries.map((e) => (hit(e) ? entry : e)) : [...server.entries, entry];
+  return { kind: 'ready', resp: { ...state.resp, servers: { ...state.resp.servers, [gateway]: { ...server, entries } } } };
 }
 
 export type SaveTone = 'ok' | 'err' | 'warn';

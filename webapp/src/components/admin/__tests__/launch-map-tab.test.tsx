@@ -436,10 +436,10 @@ describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 35 REVIEW — 저장 뒤 계획 다시 읽기(CR-01 결과 모름)
+// 35 REVIEW — 저장 뒤 계획 다시 읽기(CR-01 결과 모름 · WR-01 ok 인데 plan 없음)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('LaunchMapTab — 저장 결과를 모르면 「응답 없음」 + 계획 다시 읽기(35 CR-01)', () => {
+describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모름 · WR-01 ok 인데 plan 없음)', () => {
   const NEW_Q = [-350, -340, -325];
   const reloaded = (): LaunchPlanResponse =>
     planResp({ KB120: okServer([-340, -335, -320], NEW_Q, -245) });
@@ -502,6 +502,30 @@ describe('LaunchMapTab — 저장 결과를 모르면 「응답 없음」 + 계�
       ),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it('저장 ok · plan null(WR-01) → 줄 · 편집 칸 기준이 곧바로 보낸 값(저장 · 되돌리기 비활성) · GET /plan 1회 더', async () => {
+    let releaseReload!: (v: { kind: 'ready'; resp: LaunchPlanResponse }) => void;
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockReturnValueOnce(new Promise((r) => (releaseReload = r)));
+    vi.mocked(saveLaunchPlan).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'ok', usersRev: '12' },
+      plan: null,
+      change: null,
+    });
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    // 다시 읽기가 오기 전 — 보낸 값으로 이미 맞춰져 있다(저장 전 값이 남지 않는다).
+    await waitFor(() =>
+      expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`),
+    );
+    expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toMatch(/^저장됨 · /);
+    expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
+    expect(one(kbq(), '[data-slot="launch-plan-revert"]').hasAttribute('disabled')).toBe(true);
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+    releaseReload({ kind: 'ready', resp: reloaded() });
+    await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true));
   });
 
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {

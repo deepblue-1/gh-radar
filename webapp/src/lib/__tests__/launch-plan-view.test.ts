@@ -15,6 +15,7 @@ import {
   planLineText,
   planNeedsReload,
   planStateWithSave,
+  planStateWithSentEntry,
   saveResultViewOf,
 } from '../launch-plan-view';
 
@@ -277,13 +278,45 @@ describe('편집 · 저장(35-15)', () => {
     expect(saveResultViewOf({ server: 'KB120', outcome: 'skipped' }, 'q16', AT).line.text).toBe('KB120 미반영: 꺼진 서버');
   });
 
-  it('planNeedsReload — plan null 이고 결과 모름(timeout)일 때만 다시 읽는다(CR-01)', () => {
+  it('planNeedsReload — plan null 이고 결과 모름(timeout · CR-01) · 저장 ok(WR-01)일 때만 다시 읽는다', () => {
     const r = (outcome: 'ok' | 'failed' | 'timeout' | 'offline' | 'skipped') => ({ server: 'KB120', outcome }) as const;
     expect(planNeedsReload({ result: r('timeout'), plan: null })).toBe(true);
+    expect(planNeedsReload({ result: r('ok'), plan: null })).toBe(true);
+    expect(planNeedsReload({ result: r('ok'), plan: { status: 'ok', plan_rev: 4, updated_at: null, entries: [] } })).toBe(false);
     expect(planNeedsReload({ result: r('failed'), plan: null })).toBe(false);
     expect(planNeedsReload({ result: r('offline'), plan: null })).toBe(false);
     expect(planNeedsReload({ result: r('skipped'), plan: null })).toBe(false);
     expect(planNeedsReload({ result: r('timeout'), plan: { status: 'timeout' } })).toBe(false);
+  });
+
+  it('planStateWithSentEntry — 그 서버 (fire, market) 칸만 보낸 값으로 · 칸이 없으면 덧붙임 · 서버 ok 아님 · ready 아님은 그대로(WR-01)', () => {
+    const okKb: LaunchPlanServer = {
+      status: 'ok',
+      plan_rev: 3,
+      updated_at: null,
+      entries: [
+        { profile: 'Q16', market: 'K', offsets_us: [-340] },
+        { profile: 'Q16', market: 'Q', offsets_us: [-350, -345, -325] },
+      ],
+    };
+    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: okKb, KYOBO119: { status: 'offline' as const } }, changes: [] } };
+    const s1 = planStateWithSentEntry(s0, 'KB120', 'q16', 'Q', [-350, -340, -325]);
+    expect(s1.kind === 'ready' && s1.resp.servers.KB120).toEqual({
+      ...okKb,
+      entries: [
+        { profile: 'Q16', market: 'K', offsets_us: [-340] },
+        { profile: 'Q16', market: 'Q', offsets_us: [-350, -340, -325] },
+      ],
+    });
+    expect(okKb.entries[1]!.offsets_us).toEqual([-350, -345, -325]); // 원본 불변
+    const s2 = planStateWithSentEntry(s0, 'KB120', 'n0930', 'Q', [-245]);
+    expect(s2.kind === 'ready' && s2.resp.servers.KB120!.status === 'ok' && s2.resp.servers.KB120!.entries.at(-1)).toEqual({
+      profile: 'N',
+      market: 'Q',
+      offsets_us: [-245],
+    });
+    expect(planStateWithSentEntry(s0, 'KYOBO119', 'q16', 'Q', [-1])).toBe(s0);
+    expect(planStateWithSentEntry({ kind: 'error' }, 'KB120', 'q16', 'Q', [-1])).toEqual({ kind: 'error' });
   });
 
   it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {

@@ -74,7 +74,8 @@ export function fetchLaunchPlan(): Promise<LaunchPlanFetch> {
  * 발사 계획 한 칸 저장(35-13 `PUT /api/admin/launch/plan/:gateway/:fire/:market` · D-27).
  *
  * relay 가 실패해도 server 는 200 이다 — 화면은 `result.outcome` · `code` 로만 가른다(문장 대조 없음). 응답 `plan` 은
- * 저장 뒤 다시 읽은 값이라 웹은 지도도 계획도 다시 부르지 않는다. `change === null` = 이력 기록 실패(이력을 늘리지 않는다).
+ * 저장 뒤 다시 읽은 값이라 있으면 웹은 지도도 계획도 다시 부르지 않는다(없으면서 ok · timeout 이면 계획만 1회 다시 읽는다 —
+ * `planNeedsReload` · 35 CR-01 · WR-01). `change === null` = 이력 기록 실패(이력을 늘리지 않는다).
  * 순서 · 범위 검사는 server 가 하지 않는다 — 부르기 전에 `validateLaunchPlanDraft` 로 막는다(편집 칸).
  */
 export function saveLaunchPlan(

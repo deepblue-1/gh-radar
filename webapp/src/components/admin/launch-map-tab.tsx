@@ -30,6 +30,7 @@ import {
   planEditWithDraft,
   planNeedsReload,
   planStateWithSave,
+  planStateWithSentEntry,
   sameOffsets,
   type LaunchPlanEdit,
   type LaunchPlanState,
@@ -57,7 +58,8 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  * - 계획 고치기(범위 7 · D-24 ~ D-28): 편집 칸은 한 번에 한 패널 — 다른 패널을 열면 앞 편집이 닫히고, 발사 세그먼트가
  *   바뀌면 닫힌다(편집의 fire 가 지금 fire 와 다르면 닫힌 것으로 본다). 「저장」 = PUT 1건 → 응답 plan · change 로 계획 상태만
  *   바꾼다(Pitfall S6 — 지도 재조회 없음). 결과를 모르면(응답 timeout · 요청 자체 실패(throw) — 35 CR-01) 「응답 없음」 으로
- *   보이고 계획을 1회 다시 읽는다(`planNeedsReload` · 요청 실패는 늘). 「미반영」 으로 단정하지 않는다.
+ *   보이고 계획을 1회 다시 읽는다(`planNeedsReload` · 요청 실패는 늘). 「미반영」 으로 단정하지 않는다. 저장 ok 인데 응답 plan 이
+ *   없으면(relay 가 후 조회를 건너뜀 · 35 WR-01) 그 칸을 보낸 값으로 먼저 맞추고 편집 칸 기준도 보낸 값으로 다시 연 뒤 1회 다시 읽는다.
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
@@ -150,9 +152,16 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
     saveLaunchPlan(gateway, f, market, valid)
       .then(
         (resp) => {
-          setPlan((s) => planStateWithSave(s, gateway, resp));
-          const saved = resp.result.outcome === 'ok' ? launchPlanEntryOf(resp.plan ?? undefined, f, market) : null;
-          setEdit((e) => (same(e) && saved !== null ? planEditOf(gateway, market, f, saved.offsets_us) : e));
+          const ok = resp.result.outcome === 'ok';
+          // ok 인데 relay 가 다시 읽은 값을 못 실음(plan null · 35 WR-01) — code 0 = 보낸 값이 그대로 들어갔다. 그 칸을 보낸 값으로
+          // 먼저 맞추고(저장 전 값이 남아 「저장」 · 「되돌리기」 가 옛 값 기준이 되지 않게) 아래에서 다시 읽는다.
+          const sentOnly = ok && resp.plan === null;
+          setPlan((s) => {
+            const next = planStateWithSave(s, gateway, resp);
+            return sentOnly ? planStateWithSentEntry(next, gateway, f, market, valid) : next;
+          });
+          const saved = sentOnly ? valid : ok ? (launchPlanEntryOf(resp.plan ?? undefined, f, market)?.offsets_us ?? null) : null;
+          setEdit((e) => (same(e) && saved !== null ? planEditOf(gateway, market, f, saved) : e));
           setLastSave({ key, save: { result: resp.result, at: new Date() } });
           if (planNeedsReload(resp)) reloadPlan();
         },
