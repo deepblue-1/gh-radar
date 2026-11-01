@@ -1,10 +1,13 @@
 import { afterEach, beforeAll, afterAll, describe, it, expect, vi } from "vitest";
+import dns from "node:dns";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
   assertRelayUrl,
   createRelayAdminClient,
+  RELAY_CONNECT_TIMEOUT_CODE,
+  RELAY_CONNECT_TIMEOUT_MS,
   RELAY_ORDER_ENDPOINTS_TIMEOUT_MS,
 } from "../../src/services/relay-admin-client";
 import { logger } from "../../src/logger";
@@ -184,6 +187,40 @@ describe("createRelayAdminClient — 요청 계약", () => {
     const c = createRelayAdminClient({ baseUrl: `http://127.0.0.1:${port}`, secret: SECRET, timeoutMs: 1000, nodeEnv: "test" });
     // 연결 단계 오류 코드 — 호출부가 「안 보냄」 을 가른다(35 R2-WR-03).
     expect(await c.reloadAccess(ADMIN)).toEqual({ status: 0, data: null, netCode: "ECONNREFUSED" });
+  });
+
+  // 35 R3-IN-04 — relay VM 정지(SYN 무응답)처럼 TCP 연결이 맺어지지 않는 경우. 테스트는 이름 풀이가 끝나지 않게 해 소켓을
+  // 「연결 중」 에 묶는다(SYN 무응답과 같이 'connect' 가 오지 않는다). 연결 전에 끊었으니 relay 는 요청을 받지 못한다.
+  it("R3-IN-04 연결 단계 상한 — 연결이 안 맺어지면 CONNECT_TIMEOUT(응답 타임아웃 ECONNABORTED 와 다름) · relay 는 요청 0건", async () => {
+    expect(RELAY_CONNECT_TIMEOUT_MS).toBe(3_000);
+    expect(RELAY_CONNECT_TIMEOUT_CODE).toBe("CONNECT_TIMEOUT");
+    const lookup = vi.spyOn(dns, "lookup").mockImplementation((() => {}) as unknown as typeof dns.lookup);
+    const port = (server.address() as AddressInfo).port;
+    const c = createRelayAdminClient({
+      baseUrl: `http://localhost:${port}`,
+      secret: SECRET,
+      timeoutMs: 2_000,
+      nodeEnv: "test",
+      connectTimeoutMs: 100,
+    });
+    const t0 = Date.now();
+    const r = await c.setLaunchPlan("KB120", { profile: "Q16", market: "Q", offsets_us: [-340] }, ADMIN);
+    expect(r).toEqual({ status: 0, data: null, netCode: "CONNECT_TIMEOUT" });
+    expect(lookup).toHaveBeenCalled();
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("R3-IN-04 연결된 뒤의 응답 대기 타임아웃은 그대로 ECONNABORTED(결과 모름) — 연결 상한은 연결 단계에만 건다", async () => {
+    reply = (_req, res) => {
+      setTimeout(() => json(res, 200, { ok: true, changed: false }), 600).unref();
+    };
+    const c = createRelayAdminClient({ baseUrl: base, secret: SECRET, timeoutMs: 300, nodeEnv: "test", connectTimeoutMs: 50 });
+    const t0 = Date.now();
+    const r = await c.reloadAccess(ADMIN);
+    expect(r).toEqual({ status: 0, data: null, netCode: "ECONNABORTED" });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(250); // 연결 상한 50ms 가 아니라 응답 상한 300ms 에서 끊겼다
+    expect(seen).toHaveLength(1); // 요청은 relay 에 닿았다
   });
 
   it("경로는 /internal/admin/ 아래만 — 다른 내부 경로로 공유 비밀을 보내지 않는다", async () => {

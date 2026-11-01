@@ -1,3 +1,7 @@
+import http from "node:http";
+import net from "node:net";
+import type { Duplex } from "node:stream";
+
 import axios, { type AxiosInstance } from "axios";
 import type {
   AdminAccountBudgetBody,
@@ -41,7 +45,7 @@ export type RelayAdminMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /**
  * relay 응답. `status = 0` 은 「relay 에 닿지 못함」(네트워크 오류 · 타임아웃) — 그때 `netCode` 에 오류 코드(`ECONNREFUSED` ·
- * `ECONNABORTED` · …, 모르면 `UNKNOWN`)를 싣는다. 호출부가 「연결 단계에서 막혀 요청이 안 나감」 과 「보낸 뒤 응답 못 받음」 을
+ * `ECONNABORTED` · 연결 단계 상한 `CONNECT_TIMEOUT`(35 R3-IN-04) · …, 모르면 `UNKNOWN`)를 싣는다. 호출부가 「연결 단계에서 막혀 요청이 안 나감」 과 「보낸 뒤 응답 못 받음」 을
  * 가를 때 쓴다(35 R2-WR-03 발사 계획 저장). status 0 이 아니면 없다.
  */
 export type RelayAdminResponse<T> = { status: number; data: T | null; netCode?: string };
@@ -79,6 +83,58 @@ export const RELAY_ORDER_ENDPOINTS_TIMEOUT_MS = 2_000;
  * 이 값을 줄이면 relay 쪽 마감도 같이 줄여야 한다(아니면 FIFO 대기 한 건에 두 서버가 통째로 offline).
  */
 export const RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS = 6_000;
+
+/**
+ * relay 로 가는 TCP 연결 단계 상한(35 R3-IN-04). relay VM 이 꺼져 SYN 이 응답 없이 떨어지면 연결이 맺어지지 않는다 — 이 상한 안에
+ * 연결되지 않은 소켓은 이 클라이언트가 직접 끊고 `netCode` = `RELAY_CONNECT_TIMEOUT_CODE` 로 돌려준다.
+ *
+ * 왜 따로 재나: axios `timeout` 은 연결 단계와 응답 대기를 한 상한으로 재고 둘 다 `ECONNABORTED` 를 낸다(실측 — 연결이 끝나지 않는
+ * 소켓도 timeout 에서 ECONNABORTED). 그러면 「연결도 못 함(확정 안 보냄)」 과 「보낸 뒤 응답 못 받음(결과 모름)」 이 한 코드가 된다.
+ * 연결 전에 끊은 소켓은 요청 바이트를 하나도 쓰지 않았다(net.Socket 은 'connect' 전 쓰기를 JS 안에 쌓아 두고, 끊으면 버린다) —
+ * 그래서 이 코드는 「안 보냄」 이 확실하다. 같은 VPC 안 연결은 ms 단위라 SYN 재전송 1회(초기 RTO 1초)까지 기다린다.
+ * 호출 상한이 이 값보다 짧은 호출(`orderEndpoints` 2초)은 axios 가 먼저 끊어 `ECONNABORTED` 그대로다(그 호출은 둘을 가르지 않는다).
+ */
+export const RELAY_CONNECT_TIMEOUT_MS = 3_000;
+
+/** 연결 단계 상한에 걸림 — TCP 연결 전에 끊었다(요청 바이트 미송신 · 35 R3-IN-04). 호출부가 「확정 안 보냄」 으로 가를 때 쓴다. */
+export const RELAY_CONNECT_TIMEOUT_CODE = "CONNECT_TIMEOUT";
+
+/**
+ * relay 전용 http Agent — 새 소켓에 연결 단계 상한을 건다(35 R3-IN-04). 그 밖의 옵션은 Node 19+ http 기본 Agent 와 같다
+ * (keepAlive · lifo · 소켓 상한 5초) — 기본 Agent 를 쓰던 때와 연결 재사용 · 유휴 소켓 정리 동작을 바꾸지 않는다.
+ * 재사용하는 keep-alive 소켓은 이미 연결돼 있어 상한이 걸리지 않는다.
+ */
+export class RelayConnectCapAgent extends http.Agent {
+  readonly #connectMs: number;
+
+  constructor(connectMs: number) {
+    super({ keepAlive: true, scheduling: "lifo", timeout: 5_000 });
+    this.#connectMs = connectMs;
+  }
+
+  override createConnection(
+    options: http.ClientRequestArgs,
+    callback?: (err: Error | null, stream: Duplex) => void,
+  ): Duplex | null | undefined {
+    const socket = super.createConnection(options, callback);
+    if (socket instanceof net.Socket && socket.connecting) {
+      const timer = setTimeout(() => {
+        // 'connect' 전이면 아직 아무것도 쓰지 않았다 — 끊어도 relay 는 요청을 받지 못한다.
+        if (socket.connecting) {
+          const err = Object.assign(new Error(`relay connect timeout after ${this.#connectMs}ms`), {
+            code: RELAY_CONNECT_TIMEOUT_CODE,
+          });
+          socket.destroy(err);
+        }
+      }, this.#connectMs);
+      timer.unref();
+      const clear = () => clearTimeout(timer);
+      socket.once("connect", clear);
+      socket.once("close", clear);
+    }
+    return socket;
+  }
+}
 
 /** `POST /internal/admin/dma-users` 바디(29-11) — 웹 사용자 이메일 + `AdminDmaInput`. */
 export type RelayCreateDmaUserBody = { email: string } & AdminDmaInput;
@@ -308,11 +364,15 @@ export function createRelayAdminClient(opts: {
   secret: string;
   timeoutMs: number;
   nodeEnv: string;
+  /** 연결 단계 상한(35 R3-IN-04) — 없으면 `RELAY_CONNECT_TIMEOUT_MS`. 테스트가 줄인다. */
+  connectTimeoutMs?: number;
 }): RelayAdminClient {
   const url = assertRelayUrl(opts.baseUrl, opts.nodeEnv);
-  const http: AxiosInstance = axios.create({
+  const client: AxiosInstance = axios.create({
     baseURL: url.origin,
     timeout: opts.timeoutMs,
+    // 연결 단계 상한 — 연결도 못 한 실패를 응답 타임아웃(ECONNABORTED)과 다른 코드로 가른다(35 R3-IN-04). relay 는 http(VPC 사설 주소).
+    httpAgent: new RelayConnectCapAgent(opts.connectTimeoutMs ?? RELAY_CONNECT_TIMEOUT_MS),
     headers: {
       "content-type": "application/json",
       // T-15-06 — relay 관문의 공유 비밀. 상수시간 비교는 relay 쪽 소관.
@@ -334,7 +394,7 @@ export function createRelayAdminClient(opts: {
     }
     if (!adminEmail) throw new Error("relay admin request requires adminEmail");
     try {
-      const res = await http.request({
+      const res = await client.request({
         method,
         url: path,
         data: body,

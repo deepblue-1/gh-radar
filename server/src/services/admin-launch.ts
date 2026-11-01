@@ -16,7 +16,13 @@ import {
 
 import { ApiError } from "../errors.js";
 import { logger } from "../logger.js";
-import { RELAY_FAILED_MESSAGE, isRelayErrorBody, type RelayAdminClient, type RelayAdminResponse } from "./relay-admin-client.js";
+import {
+  RELAY_CONNECT_TIMEOUT_CODE,
+  RELAY_FAILED_MESSAGE,
+  isRelayErrorBody,
+  type RelayAdminClient,
+  type RelayAdminResponse,
+} from "./relay-admin-client.js";
 
 /**
  * Phase 35 D-20 — 발사 경계 지도 어드민 **조회 전용** 서비스.
@@ -213,12 +219,19 @@ const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every
 /**
  * 연결 단계 오류 코드 — 요청이 relay 에 닿지 않았다(확정 미반영 · 35 R2-WR-03). 타임아웃(`ECONNABORTED` · `ETIMEDOUT`) ·
  * `ECONNRESET` · `UNKNOWN` 은 보낸 뒤일 수 있어 넣지 않는다(결과 모름 = timeout).
+ * `CONNECT_TIMEOUT`(35 R3-IN-04) = relay 클라이언트가 TCP 연결 전에 끊었다(relay VM 정지 · SYN 무응답) — 요청 바이트를 하나도 쓰지
+ * 않았다(`RelayConnectCapAgent`). 응답 대기 타임아웃은 여전히 `ECONNABORTED`(결과 모름)다.
  */
-const NOT_SENT_NET_CODES: ReadonlySet<string> = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+const NOT_SENT_NET_CODES: ReadonlySet<string> = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  RELAY_CONNECT_TIMEOUT_CODE,
+]);
 
 /**
  * relay 가 `launchPlan.set()` 을 부르기 **전에** 거절한 응답인가 — 그렇다면 op 8 은 나가지 않았다(확정 미반영 · 35 R2-WR-03).
- *   - status 0 + 연결 단계 오류 코드(`NOT_SENT_NET_CODES` — relay 재배포 · 재기동 중 연결 거부 등)
+ *   - status 0 + 연결 단계 오류 코드(`NOT_SENT_NET_CODES` — relay 재배포 · 재기동 중 연결 거부 · relay VM 정지로 연결 단계 상한 등)
  *   - 400(zod 경로 · 바디 · 요청자 이메일) · 401(공유 비밀 불일치) · 404(라우트 없음 = 구 relay) — 모두 핸들러 앞단
  *   - 503 `LAUNCH_PLAN_UNAVAILABLE`(relay 에 발사 계획 경로가 결선되지 않음 — `launchPlanOf` 가 set 전에 던진다)
  * 그 밖(타임아웃 · 연결 리셋 · 다른 5xx · 모양 위반)은 relay 가 op 8 을 보냈을 수 있다 — 호출부가 timeout 으로 접는다.

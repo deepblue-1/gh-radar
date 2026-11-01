@@ -608,6 +608,11 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
     ["연결 거부(ECONNREFUSED)", { status: 0, data: null, netCode: "ECONNREFUSED" }, `relay 에 연결하지 못했어요(ECONNREFUSED). ${RETRY}`],
     ["이름 못 찾음(ENOTFOUND)", { status: 0, data: null, netCode: "ENOTFOUND" }, `relay 에 연결하지 못했어요(ENOTFOUND). ${RETRY}`],
     [
+      "연결 단계 상한(CONNECT_TIMEOUT · relay VM 정지 · R3-IN-04)",
+      { status: 0, data: null, netCode: "CONNECT_TIMEOUT" },
+      `relay 에 연결하지 못했어요(CONNECT_TIMEOUT). ${RETRY}`,
+    ],
+    [
       "401 공유 비밀 불일치",
       { status: 401, data: { error: { code: "UNAUTHORIZED", message: "secret mismatch x" } } },
       `relay 가 거부했어요(401 UNAUTHORIZED). ${CONFIG}`,
