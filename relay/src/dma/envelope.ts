@@ -1466,6 +1466,15 @@ export const LC_EXTRA_BUY_AUTO_BUY3_SCHEMA = 5;
  * 전체 반영된다 · 앞 조건 하나라도 빠진 채 6 을 보내면 그 필드를 부재 기본값으로 읽는다).
  */
 export const LC_CHANGE_MASK_BUY3_SCHEMA = 6;
+/**
+ * `sor_buy`(id 86 · vtable 176) · `sor_sell`(id 87 · vtable 178 · ○SOR 매수 · 매도)를 싣는 클라 — `buy3_schema` 7
+ * (gh-trade Phase 45 · 21d692a1 · quick-261101-okd). 서버는 7 이상일 때만 두 필드를 읽고, 6 이하는 그 키의 서버 값을 유지한다
+ * (≤ 5 의 전체 반영에서도 keep 블록이 SOR 을 지킨다 — gh-trade `[sor] G2`). 7 은 6 의 마스크 규칙을 그대로 포함한다.
+ * 7 은 앞 여섯 조건 전부(`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask`) +
+ * `sorBuy` · `sorSell` **둘 다** 있을 때만 파생된다(P-1 단조성 — 하나라도 빠진 채 7 을 보내면 서버가 빠진 필드를 부재
+ * 기본값으로 읽는다).
+ */
+export const LC_SOR_BUY3_SCHEMA = 7;
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
@@ -1480,7 +1489,7 @@ type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatio
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
-  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | LcAmountKey
+  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | LcAmountKey | "sorBuy" | "sorSell"
 > & Partial<Pick<RelayLimitChaserInput, LcAmountKey>> & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
@@ -1489,6 +1498,9 @@ export type LcSetCfg = Omit<
   autoSellStartCond?: number;
   autoSellRatioPct?: number;
   autoSellMethod?: number;
+  /** ○SOR 매수 · 매도(gh-trade Phase 45 · quick-261101-okd). 구 탭 관용으로 선택 — 둘 다 있고 앞 조건 전부일 때 schema 7. */
+  sorBuy?: boolean;
+  sorSell?: boolean;
   /**
    * `change_mask`(gh-trade Phase 44 · quick-261030-kpg). **relay 내부 전용** — fanout 이 브라우저의 `changed` 이름 배열로
    * 만든다(`lcChangeMaskOf` · 짝 수량 비트 포함). zod cfg 에 없다 — 브라우저가 값을 고를 수 없다. 존재가 schema 6 을 연다.
@@ -1503,17 +1515,23 @@ export type LcSetCfg = Omit<
  *   - 둘 다 있음 · 자동매도 4필드 중 하나라도 없음 → 3
  *   - 둘 다 있음 · 자동매도 4필드 모두 있음 · `extraBuyAuto` 없음 → 4
  *   - 위 여섯 모두 + `extraBuyAuto` 있음 · `changeMask` 없음 → 5 (`extraBuyAuto` 만 있고 앞 조건 미달이면 낮은 schema · 조립기 경고)
- *   - 위 일곱 모두 + `changeMask` 있음 → 6 (`changeMask` 만 있고 앞 조건 미달이면 낮은 schema · 마스크 미적재 · 조립기 경고)
+ *   - 위 일곱 모두 + `changeMask` 있음 · `sorBuy` · `sorSell` 중 하나라도 없음 → 6 (`changeMask` 만 있고 앞 조건 미달이면
+ *     낮은 schema · 마스크 미적재 · 조립기 경고)
+ *   - 위 여덟 모두 + `sorBuy` · `sorSell` 둘 다 있음 → 7 (SOR 만 있고 앞 조건 미달이면 낮은 schema · SOR 미적재 · 조립기 경고)
  */
 export function lcBuy3SchemaOf(
-  cfg: Pick<LcSetCfg, "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | "changeMask">,
+  cfg: Pick<
+    LcSetCfg,
+    "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | "changeMask" | "sorBuy" | "sorSell"
+  >,
 ): number {
   if (cfg.postBuyAuto === undefined) return LC_FIXED_BUY3_SCHEMA;
   if (cfg.extraBuyBurstRelease === undefined) return LC_POST_BUY_AUTO_BUY3_SCHEMA;
   if (!hasAllAutoSellReqFields(cfg)) return LC_BURST_RELEASE_BUY3_SCHEMA;
   if (cfg.extraBuyAuto === undefined) return LC_AUTO_SELL_BUY3_SCHEMA;
   if (cfg.changeMask === undefined) return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
-  return LC_CHANGE_MASK_BUY3_SCHEMA;
+  if (cfg.sorBuy === undefined || cfg.sorSell === undefined) return LC_CHANGE_MASK_BUY3_SCHEMA;
+  return LC_SOR_BUY3_SCHEMA;
 }
 
 function hasAllAutoSellReqFields(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean {
@@ -1544,8 +1562,8 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
  * `buy3_schema`) = 45 필드 + 선택 6(`post_buy_auto` · `extra_buy_burst_release` · 자동매도 요청 4 — 파생 스키마가
- * 허락할 때만) + `extra_buy_auto` 1(schema 5 이상) + 금액 8 + `change_mask` 1(schema 6 일 때만 · quick-261030-kpg)
- * 만** 채운다. 나머지는 건드리지 않는다:
+ * 허락할 때만) + `extra_buy_auto` 1(schema 5 이상) + 금액 8 + `change_mask` 1(schema 6 이상 · quick-261030-kpg)
+ * + `sor_buy` · `sor_sell` 2(schema 7 일 때만 · quick-261101-okd) 만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 11필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
@@ -1560,10 +1578,11 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *
  * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) · 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
  * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`) ·
- * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`)이고 **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` ·
- * `changeMask` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 · 6 은 여덟 모두 · `lcBuy3SchemaOf` ·
- * gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 · quick-260929-vzy · quick-261003-rc4 · Phase 27 ·
- * quick-261011-0yb · quick-261030-kpg).
+ * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`) · 7(`LC_SOR_BUY3_SCHEMA`)이고 **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
+ * `extraBuyAuto` · `changeMask` · `sorBuy` · `sorSell` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 ·
+ * 6 은 여덟 모두 · 7 은 열 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 ·
+ * 21d692a1 · quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb · quick-261030-kpg · quick-261101-okd).
+ * `sorBuy` · `sorSell` 이 (하나라도) 있는데 schema 가 7 미만이면 두 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `changeMask` 가 있는데 schema 가 6 미만이면 마스크를 싣지 않고(서버 전체 반영) 경고를 남긴다.
  * `extraBuyAuto` 가 있는데 schema 가 5 미만이면 그 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `extraBuyBurstRelease` 만 있고 `postBuyAuto` 가 없으면 1 로 내리고 그 필드를 싣지 않으며 경고를 남긴다(PC-7).
@@ -1650,6 +1669,14 @@ export function buildSetLimitChaserReq(
     logger.warn(
       { isin, buy3Schema },
       "[DMA] changeMask 가 schema 6 조건을 못 채움 — 낮은 buy3_schema 로 내리고 change_mask 미적재(서버 전체 반영)",
+    );
+  }
+  if ((cfg.sorBuy !== undefined || cfg.sorSell !== undefined) && buy3Schema < LC_SOR_BUY3_SCHEMA) {
+    // P-1 — 7 은 앞 여섯 조건 전부 + sorBuy · sorSell 둘 다일 때만. 미달이면 낮은 schema 로 내리고 두 필드는 싣지 않는다
+    // (서버가 ≤ 6 에서 SOR 값을 유지한다). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
+    logger.warn(
+      { isin, buy3Schema },
+      "[DMA] sorBuy/sorSell 이 schema 7 조건을 못 채움 — 낮은 buy3_schema 로 내리고 sor_buy·sor_sell 미적재(서버 값 유지)",
     );
   }
 
@@ -1768,6 +1795,11 @@ export function buildSetLimitChaserReq(
   // 기본값이라 버퍼에 쓰이지 않지만 서버는 부재를 0(= 아무 칸도 반영 안 함)으로 읽으므로 동치다.
   if (buy3Schema >= LC_CHANGE_MASK_BUY3_SCHEMA && cfg.changeMask !== undefined) {
     SetLimitChaser.addChangeMask(b, toWireULong(cfg.changeMask, "changeMask"));
+  }
+  // ○SOR 매수 · 매도 — 양방향(id 86/87 · vtable 176/178 · gh-trade Phase 45 · quick-261101-okd). schema 7 일 때만 싣는다.
+  if (buy3Schema >= LC_SOR_BUY3_SCHEMA && cfg.sorBuy !== undefined && cfg.sorSell !== undefined) {
+    SetLimitChaser.addSorBuy(b, cfg.sorBuy);
+    SetLimitChaser.addSorSell(b, cfg.sorSell);
   }
   const table = SetLimitChaser.endSetLimitChaser(b);
 
@@ -2736,6 +2768,9 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       extraBuyBurstRelease: t.extraBuyBurstRelease(),
       // 양방향 — 줄매수 ☐자동(vtable 156 · quick-261011-0yb). 에코는 설정값. 슬롯 부재(구서버) = false.
       extraBuyAuto: t.extraBuyAuto(),
+      // 양방향 — ○SOR 매수 · 매도(vtable 176 · 178 · quick-261101-okd). 에코는 설정값. 슬롯 부재(구서버) = false.
+      sorBuy: t.sorBuy(),
+      sorSell: t.sorSell(),
       // 자동매도 8필드(Phase 27 · vtable 140~154). 슬롯 부재(구서버) = false/0 — 계산하지 않는다.
       // 양방향 — ☐자동매도 · 시작조건 · 비율 · 방법.
       autoSellEnabled: t.autoSellEnabled(),

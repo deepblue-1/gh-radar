@@ -693,6 +693,10 @@ export type FakeLimitChaserInput = {
   autoSellBasisPrice?: number;
   /** 줄매수 ☐자동 — 양방향(vtable 156 · quick-261011-0yb). 서버 에코는 설정값(부재 기본 false). */
   extraBuyAuto?: boolean;
+  /** ○SOR 매수 — 양방향(vtable 176 · quick-261101-okd). 서버 에코는 설정값(부재 기본 false). */
+  sorBuy?: boolean;
+  /** ○SOR 매도 — 양방향(vtable 178 · quick-261101-okd). 서버 에코는 설정값(부재 기본 false). */
+  sorSell?: boolean;
 };
 
 /**
@@ -839,6 +843,9 @@ function emitSetLimitChaser(
   SetLimitChaser.addSellWatchAmount(b, input.sellWatchAmount ?? 0);
   SetLimitChaser.addSellMinTradeAmount(b, input.sellMinTradeAmount ?? 0);
   SetLimitChaser.addCancelWatchAmount(b, input.cancelWatchAmount ?? 0);
+  // === ○SOR 2필드(vtable 176 · 178 · quick-261101-okd) — 부재 기본 false = 구 서버 ===
+  SetLimitChaser.addSorBuy(b, input.sorBuy ?? false);
+  SetLimitChaser.addSorSell(b, input.sorSell ?? false);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 

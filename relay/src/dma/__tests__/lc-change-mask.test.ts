@@ -2,8 +2,9 @@
  * quick-261030-kpg — 상따 change_mask 비트 표 · 짝 수량 규칙(gh-trade Phase 44 · D-10).
  *
  * 못박는 것:
- *   ① shared `LC_CHANGE_MASK_FIELDS` 50행 = 인계 노트 ② 리터럴(append-only 잠금) · key/wire 유일 · wire = camel→snake
- *   ② (gh-trade 저장소가 있으면) `LimitChaserChangeMask.h` 의 비트 상수 50줄과 비트 · 와이어 이름이 같다
+ *   ① shared `LC_CHANGE_MASK_FIELDS` 52행 = 인계 노트 ② 리터럴(append-only 잠금 · 50·51 SOR = quick-261101-okd) · key/wire 유일 ·
+ *     wire = camel→snake
+ *   ② (gh-trade 저장소가 있으면) `LimitChaserChangeMask.h` 의 비트 상수 52줄과 비트 · 와이어 이름이 같다
  *   ③ `lcChangeMaskOf` — 자기 비트 · 짝 16규칙 · 추적 OFF 조건부 · 조합 · 중복 · 빈 배열 · 모르는 이름
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -21,7 +22,7 @@ function bitsOf(mask: bigint): number[] {
 
 const camelToSnake = (s: string): string => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
-/** 인계 노트 ② 사본 — 바꾸지 말 것(append-only). 새 칸은 50 부터 뒤에 붙인다. */
+/** 인계 노트 ② 사본 — 바꾸지 말 것(append-only). 새 칸은 52 부터 뒤에 붙인다. */
 const NOTE_TABLE: readonly (readonly [number, string])[] = [
   [0, "buy_enabled"],
   [1, "buy_order_price"],
@@ -73,19 +74,22 @@ const NOTE_TABLE: readonly (readonly [number, string])[] = [
   [47, "auto_sell_start_cond"],
   [48, "auto_sell_ratio_pct"],
   [49, "auto_sell_method"],
+  // gh-trade Phase 45 · 인계 노트 261101-limitchaser-sor.md ② (quick-261101-okd)
+  [50, "sor_buy"],
+  [51, "sor_sell"],
 ];
 
 describe("LC_CHANGE_MASK_FIELDS 비트 표 (인계 노트 ②)", () => {
-  it("50행 · key 유일 · wire 유일 · wire = key 의 camel→snake", () => {
-    expect(LC_CHANGE_MASK_FIELDS).toHaveLength(50);
+  it("52행 · key 유일 · wire 유일 · wire = key 의 camel→snake", () => {
+    expect(LC_CHANGE_MASK_FIELDS).toHaveLength(52);
     const keys = LC_CHANGE_MASK_FIELDS.map((f) => f.key);
     const wires = LC_CHANGE_MASK_FIELDS.map((f) => f.wire);
-    expect(new Set(keys).size).toBe(50);
-    expect(new Set(wires).size).toBe(50);
+    expect(new Set(keys).size).toBe(52);
+    expect(new Set(wires).size).toBe(52);
     for (const f of LC_CHANGE_MASK_FIELDS) expect(f.wire, f.key).toBe(camelToSnake(f.key));
   });
 
-  it("[인덱스, wire] 50쌍 = 노트 ② 리터럴(append-only)", () => {
+  it("[인덱스, wire] 52쌍 = 노트 ② 리터럴(append-only)", () => {
     expect(LC_CHANGE_MASK_FIELDS.map((f, i) => [i, f.wire])).toEqual(NOTE_TABLE.map(([b, w]) => [b, w]));
   });
 
@@ -104,12 +108,12 @@ const MASK_HEADER = `${GH_TRADE_DIR.replace(/\/$/, "")}/server/src/trade/strateg
 const HAS_GH_TRADE = existsSync(MASK_HEADER);
 
 describe.skipIf(!HAS_GH_TRADE)("gh-trade LimitChaserChangeMask.h 대조 (파일이 있을 때만)", () => {
-  it("비트 상수 50줄의 [비트, 와이어 이름] = LC_CHANGE_MASK_FIELDS · 비트 집합 = 0..49", () => {
+  it("비트 상수 52줄의 [비트, 와이어 이름] = LC_CHANGE_MASK_FIELDS · 비트 집합 = 0..51", () => {
     const src = readFileSync(MASK_HEADER, "utf8");
     const re = /^inline constexpr uint64_t kMask\w+ = 1ULL << (\d+);\s*\/\/ (\w+)\s*$/gm;
     const rows = [...src.matchAll(re)].map((m) => [Number(m[1]), m[2]!] as const);
-    expect(rows).toHaveLength(50);
-    expect(rows.map(([b]) => b).sort((x, y) => x - y)).toEqual(Array.from({ length: 50 }, (_, i) => i));
+    expect(rows).toHaveLength(52);
+    expect(rows.map(([b]) => b).sort((x, y) => x - y)).toEqual(Array.from({ length: 52 }, (_, i) => i));
     for (const [bit, wire] of rows) expect(LC_CHANGE_MASK_FIELDS[bit]!.wire, `bit ${bit}`).toBe(wire);
   });
 });
@@ -157,7 +161,7 @@ describe("lcChangeMaskOf — 자기 비트 · 짝 수량 규칙(gh-trade D-10)",
     expect(lcChangeMaskOf(["autoSellMethod"], ON).mask).toBe(562949953421312n);
   });
 
-  it("짝 규칙이 없는 칸은 50칸 중 34칸 — 그 칸들은 자기 비트 하나뿐이다", () => {
+  it("짝 규칙이 없는 칸은 52칸 중 36칸 — 그 칸들은 자기 비트 하나뿐이다", () => {
     const ruled = new Set(LC_CHANGE_MASK_PAIR_RULES.map((r) => r.from));
     expect(ruled.size).toBe(16);
     for (const [i, f] of LC_CHANGE_MASK_FIELDS.entries()) {

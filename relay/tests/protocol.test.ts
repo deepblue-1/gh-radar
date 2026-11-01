@@ -838,6 +838,30 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
     // 형식 위반은 스키마 위반이다.
     expect(parseInbound(lcSet({ extraBuyAuto: "true" }))).toBeNull();
   });
+
+  /*
+    quick-261101-okd — ○SOR 매수 · 매도(vtable 176 · 178). 둘 다 선택이고 12필드 존재 판정 밖이다.
+    buy3_schema 7 은 조립기가 필드 존재로만 파생한다.
+  */
+  it("①-sor sorBuy · sorSell 은 통과하고 52키 · 없어도 통과(키 안 만듦)", () => {
+    const base = { postBuyAuto: false, extraBuyBurstRelease: false, ...AUTO, autoSellEnabled: false, extraBuyAuto: false };
+    const full = parseInbound(lcSet({ ...base, sorBuy: true, sorSell: true }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.sorBuy).toBe(true);
+    expect(full.cfg.sorSell).toBe(true);
+    expect(Object.keys(full.cfg)).toHaveLength(52);
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+
+    // 구 탭 — sor 없음도 통과 · 키를 만들지 않는다.
+    const old = parseInbound(lcSet(base));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("sorBuy");
+    expect(old.cfg).not.toHaveProperty("sorSell");
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("sorBuy");
+
+    // 형식 위반은 스키마 위반이다.
+    expect(parseInbound(lcSet({ sorBuy: "true" }))).toBeNull();
+  });
 });
 
 describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", () => {

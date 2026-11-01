@@ -2126,7 +2126,7 @@ describe("WsFanout", () => {
     // 활성 59(+ postBuyAuto · quick-260929-vzy · extraBuyAbandonQty · quick-260930-fi4 · postBuyUnlockQty · quick-261002-fim
     // · extraBuyBurstRelease · quick-261003-rc4 · 자동매도 8 · Phase 27 · extraBuyAuto · quick-261011-0yb · 금액 8(Phase 31 D-11))
     // + key — 봉인된 매수 진입 래치는 없다.
-    expect(Object.keys(item)).toHaveLength(77);
+    expect(Object.keys(item)).toHaveLength(79); // + sor 2(quick-261101-okd)
   });
 
   describe("P31 트레이서 — lc.set 금액 → 10 → 60 에코 → lc (D-10 · D-11)", () => {
@@ -2479,6 +2479,79 @@ describe("WsFanout", () => {
       });
       expect(req.buy3Schema).toBe(6);
       expect(req.changeMask).toBe((1n << 33n) | (1n << 34n) | (1n << 36n));
+    });
+
+    /*
+      quick-261101-okd — gh-trade Phase 45 ○SOR(vt 176 · 178) · buy3_schema 7. 웹 매수 SOR 켜기 = cfg sor true/true +
+      changed [sorBuy, sorSell](D-06). 미러는 서버 — relay 는 자기 키 Set 하나만 보내고, 서버가 민 두 키 에코를 키별로 중계한다.
+    */
+    describe("quick-261101-okd SOR schema 7 (gh-trade Phase 45)", () => {
+      it("okd-1 sor true/true + changed [sorBuy, sorSell] → schema 7 · sor true/true · change_mask 비트 50·51 · 거부 0", async () => {
+        const { req } = await sendAndRead({
+          t: "lc.set",
+          cfg: newClientCfg({ sorBuy: true, sorSell: true }),
+          changed: ["sorBuy", "sorSell"],
+        });
+        expect(req.buy3Schema).toBe(7);
+        expect(req.sorBuy).toBe(true);
+        expect(req.sorSell).toBe(true);
+        expect(req.changeMask).toBe((1n << 50n) | (1n << 51n));
+      });
+
+      it("okd-2 sorBuy 만 + changed [preBuyEnabled] → schema 6 · sorBuy false(미적재) · warn 「schema 7 조건」 1건(계좌번호 없음)", async () => {
+        const warnSpy = vi.spyOn(logger, "warn");
+        const { req } = await sendAndRead({
+          t: "lc.set",
+          cfg: newClientCfg({ sorBuy: true }),
+          changed: ["preBuyEnabled"],
+        });
+        expect(req.buy3Schema).toBe(6);
+        expect(req.sorBuy).toBe(false);
+        expect(req.sorSell).toBe(false);
+        const hits = warnSpy.mock.calls.filter(
+          ([, text]) => typeof text === "string" && text.includes("schema 7 조건"),
+        );
+        expect(hits).toHaveLength(1);
+        expect(JSON.stringify(hits[0]![0])).not.toContain(SAMPLE_ACCOUNT_NO);
+      });
+
+      it("okd-3 sor 없음(구 탭) + changed → 종전 schema 6 · 「schema 7 조건」 warn 0", async () => {
+        const warnSpy = vi.spyOn(logger, "warn");
+        const { req } = await sendAndRead({ t: "lc.set", cfg: newClientCfg(), changed: ["preBuyEnabled"] });
+        expect(req.buy3Schema).toBe(6);
+        expect(req.sorBuy).toBe(false);
+        const hits = warnSpy.mock.calls.filter(
+          ([, text]) => typeof text === "string" && text.includes("schema 7 조건"),
+        );
+        expect(hits).toHaveLength(0);
+      });
+
+      it("okd-4 같은 isin · 계좌의 KRX → NXT 에코 2건(sor true/true) → 브라우저 lc 2건 · 키 …:KRX / …:NXT · 둘 다 sor true", async () => {
+        const a = await authed("token-a");
+        const sock = gateway.sockets[0];
+        if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+        for (const exchange of ["KRX", "NXT"] as const) {
+          gateway.pushLimitChaserEcho(sock, {
+            isin: SAMPLE_ISIN,
+            accountNo: SAMPLE_ACCOUNT_NO,
+            exchange,
+            buyEnabled: true,
+            sorBuy: true,
+            sorSell: true,
+          });
+        }
+        await waitFor(() => framesOf(a.inbox, "lc").length >= 2, "lc 에코 프레임 2건");
+        const items = framesOf(a.inbox, "lc").map((f) => f.item);
+        expect(items).toHaveLength(2);
+        expect(items.map((i) => i.key)).toEqual([
+          `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}:KRX`,
+          `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}:NXT`,
+        ]);
+        for (const i of items) {
+          expect(i.sorBuy).toBe(true);
+          expect(i.sorSell).toBe(true);
+        }
+      });
     });
   });
 
@@ -2888,7 +2961,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.extraBuyBurstRelease).toBe(true);
-    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(item)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
   });
 
   /*
@@ -2937,7 +3010,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.extraBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(item)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
   });
 
   it("⑰-burst-b 게이트 4종 OFF + postBuyAuto false + extraBuyBurstRelease true(crud C)는 철거다 — 모르는 ISIN 이어도 10 으로 나간다 (#isTeardown 무변경)", async () => {
@@ -3078,7 +3151,7 @@ describe("WsFanout", () => {
       autoSellBasis: 1,
       autoSellBasisPrice: 13_000,
     });
-    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(item)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
   });
 
   it("⑰-auto-c 60 에코 postBuyAuto true → ws lc 프레임 item.postBuyAuto true · 68키 (D-01)", async () => {
@@ -3099,7 +3172,7 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(a.inbox, "lc").length > 0, "lc 에코 프레임");
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyAuto).toBe(true);
-    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(item)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
   });
 
   it("⑰-unlock 60 에코 postBuyUnlockQty 264000 → ws lc 프레임 item 그대로 · 68키 (quick-261002-fim)", async () => {
@@ -3124,7 +3197,7 @@ describe("WsFanout", () => {
     const item = framesOf(a.inbox, "lc").at(-1)!.item;
     expect(item.postBuyUnlockQty).toBe(264_000);
     expect(item.postBuyTriggerQty).toBe(0);
-    expect(Object.keys(item)).toHaveLength(77); // + 금액 8(Phase 31 D-11)
+    expect(Object.keys(item)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
   });
 
   it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {

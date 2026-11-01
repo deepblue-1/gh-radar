@@ -259,6 +259,13 @@ export const RelayLcSetSchema = z.object({
     //     postBuyAuto · extraBuyBurstRelease · 자동매도 4필드와 모두 있을 때만 buy3_schema 5(조립기 `lcBuy3SchemaOf`).
     //   - superRefine 완결성 검사를 넣지 않는다 — 아무것도 즉시 무장하지 않는 설정값이다.
     extraBuyAuto: z.boolean().optional(),
+    // === ○SOR 매수 · 매도(양방향 · gh-trade Phase 45 21d692a1 vtable 176 · 178 · quick-261101-okd) — 12필드 블록 **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
+    //   - 부재는 relay 가 종전 schema(≤ 6)로 싣는다(서버 값 유지 — 구 탭이 WinForms 에서 켠 SOR 을 지우지 않는다).
+    //     앞 조건 전부 + 둘 다 있을 때만 buy3_schema 7(조립기 `lcBuy3SchemaOf`).
+    //   - superRefine 검사를 넣지 않는다 — NXT 비거래 종목의 OFF→ON 은 서버가 54 ERROR 로 거부한다(웹은 토글을 잠근다).
+    sorBuy: z.boolean().optional(),
+    sorSell: z.boolean().optional(),
     // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
     //     넣지 않는다. 부재 = fanout `lc.set` 이 그 키의 에코 원값(짝이 맞을 때) 또는 0 으로 채운다(구 탭 관용 · D-11 ·
     //     WR-01). 기본값을 여기서 채우지 않는다.

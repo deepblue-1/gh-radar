@@ -345,6 +345,10 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 줄매수 ☐자동(quick-261011-0yb) — 새 폼은 OFF(WinForms 종목 전환 · 전략 없음 리셋 동형).
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다(C# AnyArmed 제외).
     extraBuyAuto: false,
+    // ○SOR 매수 · 매도(quick-261101-okd · gh-trade Phase 45 D-08) — 새 폼은 OFF · /me 기본설정 항목 없음(84 시딩 없음).
+    // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
+    sorBuy: false,
+    sorSell: false,
     postBuyEnabled: false,
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
@@ -812,6 +816,10 @@ export function formFromServer(
     // 에코 그대로 — 설정값(서버는 재체크 때 이 값이 아니라 extraBuyEnabled 를 올린다 · quick-261011-0yb). 이 값이 모든
     // 재제출에 되실려 relay 가 schema 5 로 보낸다 — 웹은 C# 이 켠 ☐자동을 지우지 않는다.
     extraBuyAuto: server.extraBuyAuto,
+    // 에코 그대로 — 설정값(quick-261101-okd). 모든 재제출에 되실려 relay 가 schema 7 로 보내지만, 7 은 마스크 규칙을 포함해
+    // 비트 50 · 51 이 없는 제출(다른 칸 편집)은 서버가 SOR 을 바꾸지 않는다.
+    sorBuy: server.sorBuy,
+    sorSell: server.sorSell,
     postBuyEnabled: server.postBuyEnabled,
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,

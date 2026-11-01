@@ -5,7 +5,7 @@
  * Phase 24 매수 3종 17필드(C→S 12 + S→C 5 · quick-260929-vzy 로 `postBuyAuto` 합류해 18 · quick-260930-fi4 로
  * `extraBuyAbandonQty` 합류해 19 · quick-261002-fim 으로 `postBuyUnlockQty` 합류해 20 · quick-261003-rc4 로
  * `extraBuyBurstRelease` 합류해 21 · Phase 27 자동매도 8필드 합류해 29 · quick-261011-0yb 로 `extraBuyAuto` 합류해 30 ·
- * Phase 31 금액 8필드 합류해 38)가 계약에 합류하면서 인라인 팩토리 17곳이 같은
+ * Phase 31 금액 8필드 합류해 38 · quick-261101-okd ○SOR 2필드 합류해 40)가 계약에 합류하면서 인라인 팩토리 17곳이 같은
  * 기본값을 각자 적어야 했다. 기본값을 한 곳에 두지 않으면 다음 필드 합류 때 17곳이 갈라진다 —
  * 신필드 기본값은 여기 `LC_BUY3_ECHO_DEFAULTS` 하나가 정본이다.
  */
@@ -15,7 +15,8 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  * Phase 24 신필드 17개 + 후매수 자동 1(quick-260929-vzy) + 줄매수 포기 수량 1(quick-260930-fi4)
  * + 후매수 잠금 해제선 1(quick-261002-fim) + 줄매수 버스트 시 해제 1(quick-261003-rc4) + 줄매수 자동 1(quick-261011-0yb) = 22개
  * + Phase 27 자동매도 8필드(요청 4 · 에코 전용 4) = 30개
- * + Phase 31 금액 8필드(만원 · vtable 158~172) = 38개.
+ * + Phase 31 금액 8필드(만원 · vtable 158~172) = 38개
+ * + ○SOR 매수 · 매도(quick-261101-okd · vtable 176 · 178) = 40개.
  */
 type Buy3EchoFields = Pick<
   RelayLimitChaser,
@@ -30,6 +31,8 @@ type Buy3EchoFields = Pick<
   | 'extraBuyAbandonQty'
   | 'extraBuyBurstRelease'
   | 'extraBuyAuto'
+  | 'sorBuy'
+  | 'sorSell'
   | 'postBuyEnabled'
   | 'postBuyReboundPct'
   | 'postBuyFloorQty'
@@ -75,6 +78,8 @@ export const LC_BUY3_ECHO_DEFAULTS: Buy3EchoFields = {
   extraBuyAbandonQty: 0,
   extraBuyBurstRelease: false,
   extraBuyAuto: false,
+  sorBuy: false,
+  sorSell: false,
   postBuyEnabled: false,
   postBuyReboundPct: 0,
   postBuyFloorQty: 0,

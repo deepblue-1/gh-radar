@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: bac82294
-// synced-date:        2026-10-31
+// server-repo-commit: 21d692a1
+// synced-date:        2026-11-01
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -676,6 +676,7 @@ table SetLimitChaser {
                                      // 4 = 자동매도 4필드를 싣는 클라(Phase 28 D-18) — 서버는 >= 4 일 때만 읽는다
                                      // 5 = extra_buy_auto 를 싣는 클라(quick-261010-ub8) — 서버는 >= 5 일 때만 읽는다
                                      // 6 = change_mask 를 싣는 클라(Phase 44 D-02) — 서버는 >= 6 일 때만 마스크를 읽는다. 5 이하는 전체 반영·재무장(이행기 호환)
+                                     // 7 = sor_buy·sor_sell 을 싣는 클라(Phase 45 D-01) — 서버는 >= 7 일 때만 두 필드를 읽는다. 6 이하는 서버 값 유지
     pre_buy_enabled: bool;          // 선매수 체크 (양방향) — 에코는 무장과 접힌다(D-03). vtable 100
     // ★ 아래 6필드의 와이어 이름은 extra_buy_* 다 (Phase 24 D-29 — C# 생성물의 buy_* 빌더 메서드와 이름 충돌
     //   회피로 add_→extra_). 선언 위치·형·순서·vtable 슬롯(102~112)은 그대로라 와이어 바이트가 같다.
@@ -758,6 +759,12 @@ table SetLimitChaser {
     change_mask: ulong;              // 이번 제출에서 사람이 바꾼 칸 비트마스크 (Phase 44 D-01). C→S 전용 — 서버는 buy3_schema >= 6 일 때만 읽는다.
                                      // 6 + 0 = 바뀐 칸 없음(무반영·재무장 없음) · 5 이하(구 WinForms·전환 전 relay)는 종전 전체 반영·재무장 · 에코는 0.
                                      // 비트 표 정본은 server/docs/protocol.md 「SetLimitChaser change_mask 비트 표」(append-only, 64비트가 차면 change_mask_hi 를 append). vtable 174
+    // === 이하 Phase 45 추가 (말미 append) ===
+    sor_buy: bool;                   // 매수 SOR (Phase 45 D-01) — 양방향. 서버는 buy3_schema >= 7 일 때만 읽고 6 이하(이 클라 세대 전·relay 전환 전)는 서버 값 유지(2·3·4·5·6 관례).
+                                     // 에코는 설정값(D-02). 켜면 매수(공통·선·줄·후) 설정이 KRX·NXT 공용 한 벌 + 어느 거래소 틱이든 성립 시 양 시장 비교 라우팅 1건 —
+                                     // 미러·라우팅은 전부 서버(D-03·D-15), 규칙은 server/docs/protocol.md 「SOR 미러·합산·라우팅 요약」. 변경 마스크 비트 50. vtable 176
+    sor_sell: bool;                  // 매도 SOR (Phase 45 D-01) — 양방향 · 세대 7 규약 위와 같다. 켜면 매도·취소·봇매도 설정 공용 + KRX·NXT 상한가 매수잔량 합산 판정·
+                                     // 양쪽 취소·매도 나눔(D-09~D-14). 매수 SOR 을 켜는 클라는 이 필드도 함께 켠다(D-06, 서버는 독립 저장). 변경 마스크 비트 51. vtable 178
 }
 
 // VITrigger (VI 발동) 전략 설정

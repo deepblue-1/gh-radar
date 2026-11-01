@@ -117,7 +117,7 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 68필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 70필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
  *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
@@ -126,7 +126,8 @@ export type RelayLcWatchSide = "0" | "1";
  *  57 → 58: `postBuyUnlockQty`(quick-261002-fim).
  *  58 → 59: `extraBuyBurstRelease`(quick-261003-rc4).
  *  59 → 67: 자동매도 8필드(Phase 27 · gh-trade 2404509b) — 양방향 4(vtable 140~146) + S→C 전용 4(148~154).
- *  67 → 68: +1 extraBuyAuto(quick-261011-0yb · gh-trade 8c7d4c5c vtable 156).)
+ *  67 → 68: +1 extraBuyAuto(quick-261011-0yb · gh-trade 8c7d4c5c vtable 156).
+ *  68 → 70: +2 sorBuy · sorSell(quick-261101-okd · gh-trade Phase 45 21d692a1 vtable 176 · 178).)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
@@ -345,6 +346,19 @@ export type RelayLimitChaser = {
    */
   extraBuyAuto: boolean;
   /**
+   * ○SOR 매수(양방향 · gh-trade Phase 45 · 21d692a1 vtable 176 · quick-261101-okd). ON 이면 매수 공통 · 선 · 줄 · 후매수
+   * 그룹 설정이 KRX · NXT 공용 한 벌이 된다 — **미러는 서버**(relay · 웹은 자기 키의 Set 만 보낸다). 에코는
+   * **설정값 그대로**다. 구서버 에코(슬롯 부재) = false. 요청에는 relay 가 `buy3_schema` 7 과 함께 싣는다(서버는 7 이상에서만
+   * 읽고 6 이하는 서버 값 유지). **게이트가 아니다** — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
+   */
+  sorBuy: boolean;
+  /**
+   * ○SOR 매도(양방향 · gh-trade Phase 45 · vtable 178 · quick-261101-okd). ON 이면 매도 · 취소 · 봇매도 그룹이 KRX · NXT
+   * 공용이고 매도는 두 거래소 상한가 매수잔량 합산으로 판정한다. 그 밖 규율은 `sorBuy` 와 같다(에코 = 설정값 · 부재 false ·
+   * 미러는 서버 · 요청은 schema 7 만 · 게이트 아님).
+   */
+  sorSell: boolean;
+  /**
    * 후매수 체크(양방향). 에코는 `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진` 으로 서버가 이미 접어 보낸다
    * (gh-trade D-31 · D-32). relay · 웹은 다시 접지 않는다(D-21). 무장 여부는 `postBuyPhase`.
    */
@@ -505,7 +519,7 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
 
 /**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드
- * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드 + extra_buy_auto = 50필드**.
+ * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드 + extra_buy_auto = 50필드 + sor_buy · sor_sell = 52필드**.
  *
  * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
  *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
@@ -519,6 +533,12 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
  * ⚠️ **`extraBuyAuto` 도 새 클라 입력에서 필수다**(quick-261011-0yb). 빠뜨리면 relay 가 `buy3_schema` 4 로 싣고
  *    서버가 값을 유지해 체크가 서버에 닿지 않는다. 반대로 5 로 올릴 때는 반드시 에코값을 실어야 한다(부재 = false 로
  *    읽혀 사람이 켠 자동이 꺼진다). 양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
+ *
+ * ⚠️ **`sorBuy` · `sorSell` 도 새 클라 입력에서 필수다**(quick-261101-okd · gh-trade Phase 45). relay 가 둘 다의 **존재**와
+ *    앞 조건 전부(`changeMask` 포함)로 `buy3_schema` 7 을 파생한다 — 하나라도 빠지면 6 이하로 싣고 서버가 SOR 값을 유지해
+ *    토글이 서버에 닿지 않는다. 7 로 올릴 때는 반드시 에코값을 실어야 한다(부재 = false 로 읽혀 켠 SOR 이 꺼질 수 있다 —
+ *    다만 7 은 6 의 마스크 규칙을 포함하므로 비트 50 · 51 이 없으면 서버가 반영하지 않는다). 양방향이라
+ *    `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
  *
  * ⚠️ **자동매도 4필드(`autoSellEnabled` · `autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)도 새 클라
  *    입력에서 필수다**(Phase 27). relay 가 넷의 **존재**로 `buy3_schema` 4 를 파생한다 — 하나라도 빠지면 3 으로
