@@ -376,6 +376,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   limitChasers: [],
   // 서버가 답한 적이 **없다**. Provider 밖에는 소켓이 없으므로 60 에코도 없다.
   lastLimitChaserEcho: null,
+  // 키별 마지막 에코도 없다(quick-261101-okd).
+  limitChaserEchoByKey: new Map(),
   // Provider 밖에는 소켓도 비활성화 요청도 없다 — 귀속할 에코가 없다(quick-260926-nr2).
   limitChaserDisableEchoes: EMPTY_LC_DISABLE_ECHOES,
   // VI 슬롯 전부 미조회다(웹은 VI 를 (계좌, 거래소) 슬롯으로만 읽는다 · Phase 32 D-17).

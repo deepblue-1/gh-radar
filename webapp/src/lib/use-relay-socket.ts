@@ -564,6 +564,13 @@ export interface RelayConnectionState {
    */
   lastLimitChaserEcho: RelayLimitChaser | null;
   /**
+   * 전략 키 → 그 키의 **마지막 60 에코**(quick-261101-okd · gh-trade Phase 45 SOR 에코 2건). `lastLimitChaserEcho` 와 같은
+   * 규율이다(crud 무관 · 64 스냅샷 미포함 · 목록을 만들지 않음). 다른 점은 하나 — 두 WS 메시지가 한 React 렌더 배치로 겹쳐도
+   * **키마다 남는다.** SOR 미러는 요청 키 에코에 이어 다른 거래소 키 에코를 한 건 더 보내므로, 단일 슬롯이면 뒤 에코가 요청
+   * 카드의 답을 가린다. 카드의 「서버가 답했는가」 채널은 이 맵에서 자기 키만 읽는다.
+   */
+  limitChaserEchoByKey: ReadonlyMap<string, RelayLimitChaser>;
+  /**
    * 「이 60 에코는 발주가 아니라 **비활성화의 결과**다」 — 전략 키 → 그 에코 객체 + 원인
    * (quick-260926-nr2).
    *
@@ -800,6 +807,8 @@ interface RelayData {
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
   lastLimitChaserEcho: RelayLimitChaser | null;
+  /** 위 `RelayConnectionState.limitChaserEchoByKey` 문서 참조. */
+  limitChaserEchoByKey: ReadonlyMap<string, RelayLimitChaser>;
   /** 위 `RelayConnectionState.limitChaserDisableEchoes` 문서 참조. */
   limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
@@ -857,6 +866,7 @@ const INITIAL_DATA: RelayData = {
   limitChasers: [],
   // 「아직 아무 답도 못 받았다」 — 이 값은 **응답 유무**만 말하고 목록을 만들지 않는다.
   lastLimitChaserEcho: null,
+  limitChaserEchoByKey: new Map(),
   limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
   killSwitchInFlight: EMPTY_IN_FLIGHT,
   marketCloseReleaseKeys: EMPTY_KEYS,
@@ -1150,6 +1160,7 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         ...state,
         limitChasers: upsertLimitChaser(state.limitChasers, frame.item),
         lastLimitChaserEcho: frame.item,
+        limitChaserEchoByKey: new Map(state.limitChaserEchoByKey).set(frame.item.key, frame.item),
         ...attributeDisableEcho(state, frame.item),
       };
 
@@ -2355,6 +2366,7 @@ export function useRelayConnection({
       isStale: data.isStale,
       limitChasers: data.limitChasers,
       lastLimitChaserEcho: data.lastLimitChaserEcho,
+      limitChaserEchoByKey: data.limitChaserEchoByKey,
       limitChaserDisableEchoes: data.limitChaserDisableEchoes,
       viSlots: data.viSlots,
       viOrders: data.viOrders,

@@ -1773,6 +1773,50 @@ describe('vi.list 순서 — 최신 발동이 맨 앞 (quick-260923-dmb)', () =>
   });
 });
 
+describe('limitChaserEchoByKey — 키별 마지막 60 에코 (quick-261101-okd · SOR 에코 2건)', () => {
+  const ISIN = 'KR7086520004';
+  const keyAt = (x: string) => `${ISIN}:12345678-01:${x}`;
+  const lcItem = (exchange: 'KRX' | 'NXT', over: Record<string, unknown> = {}) => ({
+    isin: ISIN,
+    accountNo: '12345678-01',
+    exchange,
+    key: keyAt(exchange),
+    crud: 'C',
+    buyEnabled: true,
+    sellEnabled: false,
+    sweepEnabled: false,
+    sorBuy: true,
+    sorSell: true,
+    ...over,
+  });
+
+  it('한 배치의 KRX → NXT 에코 → 단일 슬롯은 NXT · 맵은 두 키 모두 · lc.snap 은 맵에 담지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    expect(hook.result.current.limitChaserEchoByKey.size).toBe(0);
+
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem('KRX') });
+      ws.push({ t: 'lc', item: lcItem('NXT') });
+    });
+    const map = hook.result.current.limitChaserEchoByKey;
+    expect(hook.result.current.lastLimitChaserEcho?.key).toBe(keyAt('NXT'));
+    expect([...map.keys()].sort()).toEqual([keyAt('KRX'), keyAt('NXT')]);
+    expect(map.get(keyAt('KRX'))?.exchange).toBe('KRX');
+    // crud 무관 — 철거 에코도 그 키의 마지막 답이다.
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem('KRX', { crud: 'D' }) });
+    });
+    expect(hook.result.current.limitChaserEchoByKey.get(keyAt('KRX'))?.crud).toBe('D');
+    // 64 스냅샷은 재접속 복원이지 답이 아니다(lastLimitChaserEcho 와 같은 규율).
+    const before = hook.result.current.limitChaserEchoByKey;
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem('KRX', { buyEnabled: false })] });
+    });
+    expect(hook.result.current.limitChaserEchoByKey).toBe(before);
+  });
+});
+
 describe('limitChaserSnapSeq — 64 스냅샷 적용 횟수 (WR-07 · 18-22)', () => {
   const ISIN = 'KR7086520004';
   function lcItem(over: Record<string, unknown> = {}) {

@@ -93,6 +93,8 @@ const unsubscribe = vi.fn();
 const send = vi.fn(() => true);
 
 function relay(over: Partial<RelayContextValue> = {}): RelayContextValue {
+  // 키별 에코 맵(quick-261101-okd)을 주지 않으면 `lastLimitChaserEcho` 한 건으로 만든다 — 리듀서는 늘 둘을 같이 쓴다.
+  const last = over.lastLimitChaserEcho ?? null;
   return {
     ...EMPTY_RELAY_VALUE,
     status: 'ready',
@@ -101,6 +103,7 @@ function relay(over: Partial<RelayContextValue> = {}): RelayContextValue {
     subscribe,
     unsubscribe,
     send,
+    limitChaserEchoByKey: new Map(last === null ? [] : [[last.key, last] as const]),
     ...over,
   } as RelayContextValue;
 }
@@ -358,6 +361,109 @@ describe('StrategyCard', () => {
     // A 의 에코로 B 의 답 카운터가 움직이지 않는다.
     expect(probeB().querySelector('[data-part="answer"]')?.textContent).toBe(answerB0);
     expect(Number(probeA().querySelector('[data-part="answer"]')?.textContent)).toBeGreaterThan(0);
+  });
+
+  describe('SOR 에코 2건 — KRX 요청 뒤 NXT 키 에코가 이어 와도 KRX 카드가 제 답을 확정 (quick-261101-okd)', () => {
+    /*
+      gh-trade Phase 45 — SOR 미러가 돌면 서버는 요청 키(KRX) 에코에 이어 다른 거래소 키(NXT) 에코를 한 건 더 보낸다.
+      (i) 두 에코가 따로 렌더되는 경우 · (ii) 두 WS 메시지가 React 렌더 태스크 전에 dispatch 돼 한 렌더에 최종 상태만
+      보이는 경우 — 둘 다 요청한 KRX 카드는 제 답을 확정해야 한다(미반영이 서면 안 된다).
+    */
+    const cardAt = (exchange: RelayExchange) =>
+      document.querySelector(`[data-slot="strategy-card"][data-key="${keyOf(ISIN_A, exchange)}"]`) as HTMLElement;
+    const answerOf = (exchange: RelayExchange) =>
+      Number(screen.getByTestId(`probe-${keyOf(ISIN_A, exchange)}`).querySelector('[data-part="answer"]')?.textContent);
+    function Harness({ value }: { value: RelayContextValue }) {
+      return (
+        <RelayContext.Provider value={value}>
+          <StrategyCard {...baseProps} isin={ISIN_A} exchange="KRX" body={probeBody} />
+          <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_A} exchange="NXT" body={probeBody} />
+        </RelayContext.Provider>
+      );
+    }
+    const krx0 = echo(ISIN_A, { exchange: 'KRX' });
+    const nxt0 = echo(ISIN_A, { exchange: 'NXT' });
+    // 요청(buyOrderQty 2)이 KRX 에 반영되고 서버 미러가 NXT 에도 같은 값을 쓴다.
+    const krx1 = echo(ISIN_A, { exchange: 'KRX', buyOrderQty: 2, sorBuy: true, sorSell: true });
+    const nxt1 = echo(ISIN_A, { exchange: 'NXT', buyOrderQty: 2, sorBuy: true, sorSell: true });
+    const sendKrx = () => {
+      const btn = Array.from(cardAt('KRX').querySelectorAll('button')).find((b) => b.textContent === '보내기');
+      if (btn === undefined) throw new Error('KRX 카드 보내기 버튼 없음');
+      fireEvent.click(btn);
+    };
+
+    it('(i) 따로 렌더: KRX 에코 → NXT 에코 → ACK_TIMEOUT 뒤에도 KRX 미반영 없음 · KRX answer > 0', () => {
+      const { rerender } = render(<Harness value={relay({ limitChasers: [krx0, nxt0] })} />);
+      sendKrx();
+      rerender(<Harness value={relay({ limitChasers: [krx1, nxt0], lastLimitChaserEcho: krx1 })} />);
+      rerender(
+        <Harness
+          value={relay({
+            limitChasers: [krx1, nxt1],
+            lastLimitChaserEcho: nxt1,
+            limitChaserEchoByKey: new Map([
+              [krx1.key, krx1],
+              [nxt1.key, nxt1],
+            ]),
+          })}
+        />,
+      );
+      act(() => {
+        vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      });
+      expect(cardAt('KRX').querySelector('[data-slot="card-unacked"]')).toBeNull();
+      expect(answerOf('KRX')).toBeGreaterThan(0);
+    });
+
+    it('(ii) 같은 배치: KRX 보내기 → 한 렌더에 [KRX, NXT] 최종 상태(마지막 에코 = NXT) → ACK_TIMEOUT 뒤에도 KRX 미반영 없음', () => {
+      const { rerender } = render(<Harness value={relay({ limitChasers: [krx0, nxt0] })} />);
+      sendKrx();
+      rerender(
+        <Harness
+          value={relay({
+            limitChasers: [krx1, nxt1],
+            lastLimitChaserEcho: nxt1,
+            limitChaserEchoByKey: new Map([
+              [krx1.key, krx1],
+              [nxt1.key, nxt1],
+            ]),
+          })}
+        />,
+      );
+      act(() => {
+        vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      });
+      expect(cardAt('KRX').querySelector('[data-slot="card-unacked"]')).toBeNull();
+      expect(answerOf('KRX')).toBeGreaterThan(0);
+    });
+
+    /*
+      (iii) KRX 답이 **내용상 새것이 없는** 에코(멱등 답 — 이미 무장된 lc.arm · 같은 값 재제출)면 `server` 이펙트는 답으로
+      세지 않고(`isRuntimeOnlyEcho`) 키 일치 에코 채널만 답을 거둔다. 그 채널이 단일 슬롯이면 같은 배치의 NXT 에코가 KRX 답을
+      가린다 — 키별 에코 맵이면 남는다.
+    */
+    it('(iii) 같은 배치 · KRX 멱등 답: 내용 같은 KRX 에코 + 바뀐 NXT 에코가 한 렌더 → ACK_TIMEOUT 뒤에도 KRX 미반영 없음', () => {
+      const { rerender } = render(<Harness value={relay({ limitChasers: [krx0, nxt0] })} />);
+      sendKrx();
+      const krxSame = { ...krx0 };
+      rerender(
+        <Harness
+          value={relay({
+            limitChasers: [krxSame, nxt1],
+            lastLimitChaserEcho: nxt1,
+            limitChaserEchoByKey: new Map([
+              [krxSame.key, krxSame],
+              [nxt1.key, nxt1],
+            ]),
+          })}
+        />,
+      );
+      act(() => {
+        vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      });
+      expect(cardAt('KRX').querySelector('[data-slot="card-unacked"]')).toBeNull();
+      expect(answerOf('KRX')).toBeGreaterThan(0);
+    });
   });
 
   it('한 번도 펼친 적 없이 open=false 면 헤더만 남고 10칸·본문이 렌더되지 않는다', () => {

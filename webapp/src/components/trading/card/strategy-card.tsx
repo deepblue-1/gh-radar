@@ -21,7 +21,7 @@
  *   ★ 카드 안에 뷰포트 브레이크포인트를 섞지 않는다 — §2.2b 가 기록한 255px 역전이 되살아난다.
  *
  * ② ★ 카드는 서버 에코를 **자기 `key`(ISIN:계좌:거래소)로만** 읽는다 (D-27 · T-18-25)
- *   `limitChasers.find(c => c.key === key)` 와 `lastLimitChaserEcho.key === key` 가 카드
+ *   `limitChasers.find(c => c.key === key)` 와 `limitChaserEchoByKey.get(key)` 가 카드
  *   인스턴스마다 돈다. 작업대가 에코를 받아 카드에 **분배하지 않는다** — 분배 로직이 상관의
  *   두 번째 벌이 되고, 그 순간 「다른 카드의 에코로 내 더티가 지워지는」 경로가 생긴다.
  *   `pendingRef`·`unacked`·`ackTimer` 도 전부 인스턴스별이다.
@@ -294,7 +294,7 @@ export function useStrategyCardState({
 }: UseStrategyCardStateOptions): StrategyCardState {
   const {
     limitChasers,
-    lastLimitChaserEcho,
+    limitChaserEchoByKey,
     limitChaserDisableEchoes,
     messages,
     send,
@@ -316,6 +316,12 @@ export function useStrategyCardState({
     isin === "" || accountNo === ""
       ? ""
       : strategyKey(isin, accountNo, exchange);
+  /**
+   * 「서버가 답했는가」 채널 — 내 키의 마지막 60 에코(crud 무관 · quick-261101-okd). 단일 슬롯 `lastLimitChaserEcho` 를 키로
+   * 거르던 옛 판은 SOR 미러의 다른 거래소 키 에코가 같은 렌더 배치로 겹치면 내 답을 잃었다 — 키별 맵은 배치 뒤에도 남는다.
+   * `?.` — 소켓 상태를 부분만 흉내 내는 소비자(테스트 스텁 · 옛 모양)에서도 「답 없음」 으로 수렴한다.
+   */
+  const ownEcho = key === "" ? null : (limitChaserEchoByKey?.get(key) ?? null);
   const server = useMemo(
     () =>
       key === "" ? null : (limitChasers.find((c) => c.key === key) ?? null),
@@ -548,12 +554,11 @@ export function useStrategyCardState({
    *   없었던 철거에 폼을 비우면 사용자가 방금 입력한 값을 우리가 지우는 것이 된다.
    */
   useEffect(() => {
-    if (key === "" || lastLimitChaserEcho === null) return;
-    if (lastLimitChaserEcho.key !== key) return;
+    if (ownEcho === null) return;
     // 그 키의 에코는 내 lc.arm 에 대한 답이기도 하다(성공·멱등 = 즉답 60 에코).
     armInFlightRef.current = false;
     acceptAnswer();
-  }, [lastLimitChaserEcho, key, acceptAnswer]);
+  }, [ownEcho, acceptAnswer]);
 
   /*
     ★ 41 해제 — 그 키의 에코가 **기대 전이**를 실었을 때만(⑥ · D-08). 위 이펙트가 아무 에코에나 `acceptAnswer` 로
@@ -573,15 +578,13 @@ export function useStrategyCardState({
     [setAutoSellCmd, clearAutoSellUnacked],
   );
   useEffect(() => {
-    if (key === "" || lastLimitChaserEcho === null) return;
-    if (lastLimitChaserEcho.key !== key) return;
-    settleAutoSell(lastLimitChaserEcho);
-  }, [lastLimitChaserEcho, key, settleAutoSell]);
+    if (ownEcho === null) return;
+    settleAutoSell(ownEcho);
+  }, [ownEcho, settleAutoSell]);
   /*
-    ★ 41 해제 둘째 입력 — 키별 정본 `server`(27-REVIEW WR-02). `lastLimitChaserEcho` 는 리듀서가 매 `lc` 프레임마다
-      덮어쓰는 **단일 슬롯**이라, 서버 300ms 플러시 틱에 여러 키의 에코가 한 React 배치로 들어오면 내 기대 전이
-      에코가 남의 키 에코에 가려진다(위 이펙트는 key 불일치로 return). `server` 는 `limitChasers` 에서 내 키만 뽑은
-      값이라 그 배치 뒤에도 내 최신 상태를 싣는다. 판정은 같은 `isAutoSellCommandSettled` 하나다.
+    ★ 41 해제 둘째 입력 — 키별 정본 `server`(27-REVIEW WR-02). 위 이펙트의 입력은 이제 키별 맵(`ownEcho` ·
+      quick-261101-okd)이라 한 배치에 겹친 남의 키 에코에 가려지지 않지만, `server` 입력도 그대로 둔다 — `limitChasers` 에서
+      내 키만 뽑은 최신 상태라 같은 판정(`isAutoSellCommandSettled`)을 한 번 더 해도 무해하다.
       ★ 위 이펙트를 걷지 않는다 — `crud:"D"` 철거 에코는 `server` 를 null 로 두어 여기서는 안 보이지만
         stop 의 기대 전이(!enabled)를 실을 수 있다.
   */
@@ -649,7 +652,7 @@ export function useStrategyCardState({
         (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 와도 내 요청 변화를 싣지 않으면 pendingRef 를
              소비하지 않는다(`echoAnswersSent` — GC-WR-01). 내가 요청한 게이트 값과 우연히 같은 푸시만 남는
              경합이다.
-        `acceptAnswer` 도 부르지 않는다 — 응답 채널은 위 키 일치 `lastLimitChaserEcho` 이펙트다
+        `acceptAnswer` 도 부르지 않는다 — 응답 채널은 위 `ownEcho`(키별 마지막 에코) 이펙트다
         (같은 내용의 lc.snap 을 답으로 세면 재접속만으로 미반영이 거둬진다 — use-relay-socket
         `lastLimitChaserEcho` 문서와 같은 규율).
     */

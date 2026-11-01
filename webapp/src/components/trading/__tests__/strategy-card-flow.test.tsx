@@ -149,10 +149,13 @@ function quote(over: Record<string, unknown> = {}) {
 }
 
 function setRelay(over: Record<string, unknown>): void {
+  // 키별 에코 맵(quick-261101-okd)을 주지 않으면 `lastLimitChaserEcho` 한 건으로 만든다 — 리듀서는 늘 둘을 같이 쓴다.
+  const last = (over.lastLimitChaserEcho ?? null) as RelayLimitChaser | null;
   relayValue = {
     status: 'ready',
     statusLabel: '실시간',
     accounts: [{ accountNo: ACCOUNT, name: 'KB 위탁종합' }],
+    limitChaserEchoByKey: new Map(last === null ? [] : [[last.key, last] as const]),
     ...over,
   };
 }
