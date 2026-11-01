@@ -39,8 +39,12 @@ import { logger } from "../logger.js";
 
 export type RelayAdminMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-/** relay 응답. `status = 0` 은 「relay 에 닿지 못함」(네트워크 오류 · 타임아웃). */
-export type RelayAdminResponse<T> = { status: number; data: T | null };
+/**
+ * relay 응답. `status = 0` 은 「relay 에 닿지 못함」(네트워크 오류 · 타임아웃) — 그때 `netCode` 에 오류 코드(`ECONNREFUSED` ·
+ * `ECONNABORTED` · …, 모르면 `UNKNOWN`)를 싣는다. 호출부가 「연결 단계에서 막혀 요청이 안 나감」 과 「보낸 뒤 응답 못 받음」 을
+ * 가를 때 쓴다(35 R2-WR-03 발사 계획 저장). status 0 이 아니면 없다.
+ */
+export type RelayAdminResponse<T> = { status: number; data: T | null; netCode?: string };
 
 /** `POST /internal/admin/{access,registry}/reload` 응답(29-11). */
 export type RelayReloadResult = { ok: boolean; changed: boolean };
@@ -219,7 +223,7 @@ export type RelayProxyResult<T> =
 
 export const RELAY_FAILED_MESSAGE = "relay 처리에 실패했어요. 잠시 뒤 다시 시도하세요.";
 
-function isRelayErrorBody(v: unknown): v is RelayErrorBody {
+export function isRelayErrorBody(v: unknown): v is RelayErrorBody {
   const e = (v as { error?: { code?: unknown; message?: unknown } } | null)?.error;
   return !!e && typeof e.code === "string" && typeof e.message === "string";
 }
@@ -343,11 +347,9 @@ export function createRelayAdminClient(opts: {
     } catch (err) {
       // 오류 객체 통째 금지(config.headers = 공유 비밀 · config.data = 비밀번호). 코드만.
       const code = (err as { code?: unknown })?.code;
-      logger.warn(
-        { relay: { method, path, code: typeof code === "string" ? code : "UNKNOWN" } },
-        "[relay-admin] relay 에 닿지 못함 (네트워크 오류 · 타임아웃)",
-      );
-      return { status: 0, data: null };
+      const netCode = typeof code === "string" ? code : "UNKNOWN";
+      logger.warn({ relay: { method, path, code: netCode } }, "[relay-admin] relay 에 닿지 못함 (네트워크 오류 · 타임아웃)");
+      return { status: 0, data: null, netCode };
     }
   }
 

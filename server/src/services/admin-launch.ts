@@ -16,7 +16,7 @@ import {
 
 import { ApiError } from "../errors.js";
 import { logger } from "../logger.js";
-import { RELAY_FAILED_MESSAGE, type RelayAdminClient } from "./relay-admin-client.js";
+import { RELAY_FAILED_MESSAGE, isRelayErrorBody, type RelayAdminClient, type RelayAdminResponse } from "./relay-admin-client.js";
 
 /**
  * Phase 35 D-20 — 발사 경계 지도 어드민 **조회 전용** 서비스.
@@ -211,9 +211,31 @@ function isServerResultOf(v: unknown, gateway: string): v is AdminServerResult {
 const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every((x) => typeof x === "number");
 
 /**
+ * 연결 단계 오류 코드 — 요청이 relay 에 닿지 않았다(확정 미반영 · 35 R2-WR-03). 타임아웃(`ECONNABORTED` · `ETIMEDOUT`) ·
+ * `ECONNRESET` · `UNKNOWN` 은 보낸 뒤일 수 있어 넣지 않는다(결과 모름 = timeout).
+ */
+const NOT_SENT_NET_CODES: ReadonlySet<string> = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+
+/**
+ * relay 가 `launchPlan.set()` 을 부르기 **전에** 거절한 응답인가 — 그렇다면 op 8 은 나가지 않았다(확정 미반영 · 35 R2-WR-03).
+ *   - status 0 + 연결 단계 오류 코드(`NOT_SENT_NET_CODES` — relay 재배포 · 재기동 중 연결 거부 등)
+ *   - 400(zod 경로 · 바디 · 요청자 이메일) · 401(공유 비밀 불일치) · 404(라우트 없음 = 구 relay) — 모두 핸들러 앞단
+ *   - 503 `LAUNCH_PLAN_UNAVAILABLE`(relay 에 발사 계획 경로가 결선되지 않음 — `launchPlanOf` 가 set 전에 던진다)
+ * 그 밖(타임아웃 · 연결 리셋 · 다른 5xx · 모양 위반)은 relay 가 op 8 을 보냈을 수 있다 — 호출부가 timeout 으로 접는다.
+ */
+function relayNotSent(r: RelayAdminResponse<unknown>): boolean {
+  if (r.status === 0) return r.netCode !== undefined && NOT_SENT_NET_CODES.has(r.netCode);
+  if (r.status === 400 || r.status === 401 || r.status === 404) return true;
+  return r.status === 503 && isRelayErrorBody(r.data) && r.data.error.code === "LAUNCH_PLAN_UNAVAILABLE";
+}
+
+/**
  * 계획 저장(D-27) — relay `setLaunchPlan` 1회. **throw 하지 않는다** — 호출부가 이 결과로 이력 1행을 남긴다(D-29).
  *   - relay 미설정 → `offline`(`RELAY_NOT_CONFIGURED_MESSAGE`) — 요청을 보내지 않았으니 확정 미반영.
- *   - 요청을 보낸 뒤의 실패(못 닿음 · 타임아웃 · 연결 리셋(status 0) · 비200 · 모양 위반) → `timeout`(= 결과 모름 ·
+ *   - relay 에 닿지 못했거나 relay 가 핸들러 앞단에서 거절(`relayNotSent` — 연결 거부 · 400 · 401 · 404 · 503
+ *     `LAUNCH_PLAN_UNAVAILABLE`) → `offline`(`RELAY_FAILED_MESSAGE`) — op 8 이 나가지 않은 것이 확실하다(35 R2-WR-03). timeout 으로
+ *     적으면 이력이 「반영됐을 수 있음」 으로 쌓여(relay 롤백 중이면 모든 저장) D-29 대조에 잡음이 된다.
+ *   - 그 밖 요청을 보낸 뒤의 실패(타임아웃 · 연결 리셋(status 0) · 다른 비200 · 모양 위반) → `timeout`(= 결과 모름 ·
  *     `RELAY_UNKNOWN_SAVE_MESSAGE`) — relay 가 op 8 을 이미 보냈을 수 있다(35 CR-01). offline 으로 적으면 이력에 「서버 연결 안 됨」
  *     으로 굳어 D-29 대조가 틀어진다. 웹은 timeout 이면 계획을 다시 읽는다.
  *   `before_us` · `plan` 은 둘 다 null. relay 의 plan 은 op 8 뒤 재조회 값 — 그대로 싣는다. 로그에는 relay status 만(바디 원문 금지).
@@ -233,6 +255,13 @@ export async function saveLaunchPlanViaRelay(
   try {
     const r = await relay.setLaunchPlan(gateway, { profile: launchPlanProfileOf(fire), market, offsets_us }, adminEmail);
     status = r.status;
+    if (relayNotSent(r)) {
+      logger.warn(
+        { relay: { op: "launch-plan-put", status, ...(r.netCode !== undefined ? { code: r.netCode } : {}) } },
+        "[admin-launch] 발사 계획 저장 relay 가 보내기 전에 막힘 → offline(확정 미반영)",
+      );
+      return { result: { server: gateway, outcome: "offline", message: RELAY_FAILED_MESSAGE }, before_us: null, plan: null };
+    }
     const d: unknown = r.data;
     if (
       r.status === 200 &&

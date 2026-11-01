@@ -144,7 +144,7 @@ describe("createRelayAdminClient — 요청 계약", () => {
     const t0 = Date.now();
     const r = await client(100).reloadAccess(ADMIN);
     const elapsed = Date.now() - t0;
-    expect(r).toEqual({ status: 0, data: null });
+    expect(r).toEqual({ status: 0, data: null, netCode: "ECONNABORTED" }); // 타임아웃 = 보낸 뒤일 수 있다
     expect(elapsed).toBeLessThan(500);
     expect(warn).toHaveBeenCalledTimes(1);
     const logged = JSON.stringify(warn.mock.calls);
@@ -161,7 +161,7 @@ describe("createRelayAdminClient — 요청 계약", () => {
     const t0 = Date.now();
     const r = await client(15_000).orderEndpoints(ADMIN);
     const elapsed = Date.now() - t0;
-    expect(r).toEqual({ status: 0, data: null });
+    expect(r).toEqual({ status: 0, data: null, netCode: "ECONNABORTED" }); // 타임아웃 = 보낸 뒤일 수 있다
     expect(elapsed).toBeGreaterThanOrEqual(RELAY_ORDER_ENDPOINTS_TIMEOUT_MS - 100);
     expect(elapsed).toBeLessThan(RELAY_ORDER_ENDPOINTS_TIMEOUT_MS + 1_000);
   });
@@ -172,7 +172,7 @@ describe("createRelayAdminClient — 요청 계약", () => {
     };
     const t0 = Date.now();
     const r = await client(100).orderEndpoints(ADMIN);
-    expect(r).toEqual({ status: 0, data: null });
+    expect(r).toEqual({ status: 0, data: null, netCode: "ECONNABORTED" }); // 타임아웃 = 보낸 뒤일 수 있다
     expect(Date.now() - t0).toBeLessThan(500);
   });
 
@@ -182,7 +182,8 @@ describe("createRelayAdminClient — 요청 계약", () => {
     const port = (dead.address() as AddressInfo).port;
     await new Promise<void>((r) => dead.close(() => r()));
     const c = createRelayAdminClient({ baseUrl: `http://127.0.0.1:${port}`, secret: SECRET, timeoutMs: 1000, nodeEnv: "test" });
-    expect(await c.reloadAccess(ADMIN)).toEqual({ status: 0, data: null });
+    // 연결 단계 오류 코드 — 호출부가 「안 보냄」 을 가른다(35 R2-WR-03).
+    expect(await c.reloadAccess(ADMIN)).toEqual({ status: 0, data: null, netCode: "ECONNREFUSED" });
   });
 
   it("경로는 /internal/admin/ 아래만 — 다른 내부 경로로 공유 비밀을 보내지 않는다", async () => {

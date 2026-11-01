@@ -13,7 +13,7 @@ import type {
 import { createApp } from "../../src/app";
 import { logger } from "../../src/logger";
 import { RELAY_UNKNOWN_SAVE_MESSAGE } from "../../src/services/admin-launch";
-import type { RelayAdminClient } from "../../src/services/relay-admin-client";
+import { RELAY_FAILED_MESSAGE, type RelayAdminClient } from "../../src/services/relay-admin-client";
 import {
   ADMIN_EMAIL,
   ADMIN_TOKEN,
@@ -468,7 +468,7 @@ const kb120After: LaunchPlanServer = {
 };
 
 /** relay PUT 만 r 로 — 그 밖은 가짜 기본. */
-const relayPut = (r: { status: number; data: unknown } | (() => never)) =>
+const relayPut = (r: { status: number; data: unknown; netCode?: string } | (() => never)) =>
   makeFakeRelay((c) => {
     if (c.method !== "PUT" || !c.path.startsWith("/internal/admin/launch-plan/")) return undefined;
     return typeof r === "function" ? r() : r;
@@ -572,7 +572,10 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
 
   it.each([
     ["status 0", { status: 0, data: null }],
+    ["status 0 타임아웃(ECONNABORTED)", { status: 0, data: null, netCode: "ECONNABORTED" }],
+    ["status 0 연결 리셋(ECONNRESET)", { status: 0, data: null, netCode: "ECONNRESET" }],
     ["502", { status: 502, data: { error: { code: "RELAY_FAILED", message: "x" } } }],
+    ["503 다른 코드", { status: 503, data: { error: { code: "SOMETHING_ELSE", message: "x" } } }],
     ["모양 위반(result 없음)", { status: 200, data: { plan: null } }],
     ["모양 위반(다른 서버 결과)", { status: 200, data: { result: { server: "KYOBO119", outcome: "ok" }, before_us: null, plan: null } }],
     ["모양 위반(outcome 어휘 밖)", { status: 200, data: { result: { server: "KB120", outcome: "done" }, before_us: null, plan: null } }],
@@ -594,6 +597,27 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
         after_us: [-340, -335, -322],
         code: null,
       },
+    });
+  });
+
+  it.each([
+    ["연결 거부(ECONNREFUSED)", { status: 0, data: null, netCode: "ECONNREFUSED" }],
+    ["이름 못 찾음(ENOTFOUND)", { status: 0, data: null, netCode: "ENOTFOUND" }],
+    ["401 공유 비밀 불일치", { status: 401, data: { error: { code: "UNAUTHORIZED", message: "x" } } }],
+    ["400 검증 실패", { status: 400, data: { error: { code: "VALIDATION_FAILED", message: "x" } } }],
+    ["404 라우트 없음(구 relay)", { status: 404, data: null }],
+    ["503 LAUNCH_PLAN_UNAVAILABLE", { status: 503, data: { error: { code: "LAUNCH_PLAN_UNAVAILABLE", message: "x" } } }],
+  ])("P35-S8 relay %s → 200 result offline(확정 미반영 · R2-WR-03) · plan null · 기록 offline 1행", async (_l, r) => {
+    const relay = relayPut(r);
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(PUT_PATH)).send({ offsets_us: [-340, -335, -322] });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual({ server: "KB120", outcome: "offline", message: RELAY_FAILED_MESSAGE });
+    expect(res.body.plan).toBeNull();
+    expect(relay.calls).toHaveLength(1);
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { outcome: "offline", message: RELAY_FAILED_MESSAGE, before_us: null, plan_rev: null, code: null },
     });
   });
 
