@@ -176,11 +176,12 @@ describe("gh-trade ndjson 입력", () => {
     expect(aSell).toMatchObject({ gateway: "KYOBO119", profile: "A", fire_exchange: "NXT", fire_base: "09:00:30", side: "sell", abandoned: true });
   });
 
-  it("A 두 다리는 다른 논리 키 — 계획에서 둘 다 남고 머리도 따로", () => {
+  it("A 두 다리는 다른 논리 키 — 계획에서 둘 다 남고 머리도 따로 · A NXT 머리 수는 aNxtHeads 로 알린다(IN-04)", () => {
     const plan = planLaunchBackfill(parsed.pieces);
     expect(plan.pieces).toHaveLength(4);
     expect(plan.duplicates).toBe(0);
     expect(plan.heads).toHaveLength(4);
+    expect(plan.aNxtHeads).toBe(1);
     const aHeads = plan.heads.filter((h) => h.profile === "A").map((h) => [h.fire_exchange, h.fire_base]);
     expect(aHeads).toEqual([
       ["KRX", "09:00:27"],
@@ -211,6 +212,30 @@ describe("gh-trade ndjson 입력", () => {
     expect(pieceFromNdjson({ ...base, result: "515", result_code: 515 }).result_code).toBe("515");
     expect(pieceFromNdjson({ ...base, result: "접수", result_code: 0 }).result_code).toBe("0");
     expect(pieceFromNdjson(base).result_code).toBeNull();
+  });
+
+  it("IN-04 profile · fire_exchange 어휘 밖 · 기준시각이 발사 조합과 안 맞음 → 거부", () => {
+    const base = { date: "2026-10-27", gateway: "KB120", profile: "Q16", fire_exchange: "KRX", market: "K", wire: 0, sent_rel_us: -1, result: "101" };
+    expect(() => pieceFromNdjson({ ...base, profile: "q16" })).toThrow("모르는 profile(Q16 · N · A): q16");
+    expect(() => pieceFromNdjson({ ...base, fire_exchange: "nxt" })).toThrow("모르는 fire_exchange(KRX · NXT): nxt");
+    expect(() => pieceFromNdjson({ ...base, profile: "N", fire_exchange: "NXT", fire_base: "16:00:00" })).toThrow(
+      /fire_base 가 발사 조합과 맞지 않습니다/,
+    );
+    expect(() => pieceFromNdjson({ ...base, profile: "A", fire_base: "09:00:30" })).toThrow(/fire_base 가 발사 조합과/);
+    // A KRX 재확인 회차(09:00:29)는 창 안 — 받는다.
+    expect(pieceFromNdjson({ ...base, profile: "A", fire_base: "09:00:29" }).fire_base).toBe("09:00:29");
+  });
+
+  it("IN-04 .json 배열의 ndjson 필드 객체(sent_rel_us 있음)도 읽는다 · 첨부 원소와 섞여도 원소마다", () => {
+    const ndRow = { date: "2026-10-27", gateway: "KB120", profile: "Q16", fire_exchange: "KRX", market: "K", wire: 0, sent_rel_us: -300, result: "101", extra: 1 };
+    const attachRow = { date: "2026-10-12", broker: "KB", market: "코스피", wire: 0, j: 0, rel: -350, result: "101" };
+    const r = parseLaunchFile("/tmp/fields.json", JSON.stringify([ndRow, { ...ndRow, profile: "nxt" }, attachRow]));
+    expect(r.pieces.map((p) => [p.trade_date, p.sent_rel_us])).toEqual([
+      ["2026-10-27", -300],
+      ["2026-10-12", -350],
+    ]);
+    expect(r.rejects).toEqual([{ where: "/tmp/fields.json#1", reason: "모르는 profile(Q16 · N · A): nxt" }]);
+    expect(r.unknownKeys).toEqual(["extra"]);
   });
 
   it("parseLaunchFile — 모르는 확장자는 throw", () => {

@@ -24,6 +24,7 @@
  * 위치(34 IN-04 와 같다): relay 런타임(`src/index.ts` 이하)은 이 모듈을 import 하지 않는다 — CLI 전용 도구라 `src/tools/`.
  */
 import {
+  isLaunchFireBaseOf,
   isLaunchTailProbe,
   launchFireBaseOf,
   launchHeadOf,
@@ -70,6 +71,10 @@ export const LAUNCH_NDJSON_KEYS = [
 ] as const;
 
 const NDJSON_KEY_SET: ReadonlySet<string> = new Set(LAUNCH_NDJSON_KEYS);
+
+/** ndjson 이 받을 수 있는 profile · fire_exchange — 대소문자 그대로(35 IN-04). */
+const NDJSON_PROFILES: ReadonlySet<string> = new Set(["Q16", "N", "A"]);
+const NDJSON_FIRE_EXCHANGES: ReadonlySet<string> = new Set(["KRX", "NXT"]);
 
 /** 파싱에서 버린 줄 — where = `<경로>#<원소 번호>` 또는 `<경로>:<줄 번호>`. */
 export interface LaunchReject {
@@ -225,8 +230,11 @@ export function pieceFromNdjson(obj: unknown): LaunchPieceInput {
   const gateway = gwRaw === "KB120" || gwRaw === "KYOBO119" ? gwRaw : NDJSON_GATEWAY[gwRaw.toLowerCase()];
   if (!gateway) throw new Error(`모르는 gateway: ${gwRaw}`);
 
+  // 지도 · 주문 내역이 아는 키만 받는다(35 IN-04) — 「nxt」 같은 값은 어디에도 걸리지 않는 키로 영구 적재된다.
   const profile = reqStr(obj, "profile");
+  if (!NDJSON_PROFILES.has(profile)) throw new Error(`모르는 profile(Q16 · N · A): ${profile}`);
   const fire_exchange = reqStr(obj, "fire_exchange");
+  if (!NDJSON_FIRE_EXCHANGES.has(fire_exchange)) throw new Error(`모르는 fire_exchange(KRX · NXT): ${fire_exchange}`);
 
   const mkRaw = reqStr(obj, "market");
   const market = NDJSON_MARKET[mkRaw];
@@ -238,6 +246,8 @@ export function pieceFromNdjson(obj: unknown): LaunchPieceInput {
     if (fire_base === null) throw new Error(`fire_base 를 정할 수 없습니다(profile ${profile} · ${fire_exchange})`);
   } else if (!/^\d{2}:\d{2}:\d{2}$/.test(fire_base)) {
     throw new Error(`fire_base 형식 오류(HH:MM:SS): ${fire_base}`);
+  } else if (!isLaunchFireBaseOf(profile, fire_exchange, fire_base)) {
+    throw new Error(`fire_base 가 발사 조합과 맞지 않습니다(profile ${profile} · ${fire_exchange} · ${fire_base})`);
   }
 
   const sideRaw = optStr(obj, "side");
@@ -277,7 +287,10 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 파일 하나를 읽는다 — 확장자로 형식을 고른다(`.json` = 첨부 배열 · `.ndjson` · `.jsonl` = gh-trade 한 줄 = 조각). */
+/**
+ * 파일 하나를 읽는다 — 확장자로 형식을 고른다(`.json` = 배열 · `.ndjson` · `.jsonl` = gh-trade 한 줄 = 조각).
+ * `.json` 배열의 원소는 `sent_rel_us` 키가 있으면 ndjson 필드 객체(`pieceFromNdjson`), 없으면 첨부 pieces.json 원소(35 IN-04).
+ */
 export function parseLaunchFile(path: string, text: string): LaunchParseResult {
   const lower = path.toLowerCase();
   if (lower.endsWith(".json")) return parseAttachJson(path, text);
@@ -317,17 +330,20 @@ function parseAttachJson(path: string, text: string): LaunchParseResult {
   } catch (err) {
     throw new Error(`${path}: JSON 파싱 실패 — ${errText(err)}`);
   }
-  if (!Array.isArray(data)) throw new Error(`${path}: 최상위가 배열이 아닙니다(첨부 pieces.json 형식)`);
+  if (!Array.isArray(data)) throw new Error(`${path}: 최상위가 배열이 아닙니다(첨부 pieces.json · ndjson 필드 객체 배열)`);
   const pieces: LaunchPieceInput[] = [];
   const rejects: LaunchReject[] = [];
+  const unknown = new Set<string>();
   data.forEach((row, i) => {
+    const ndjson = isObject(row) && "sent_rel_us" in row;
+    if (ndjson) for (const k of Object.keys(row)) if (!NDJSON_KEY_SET.has(k)) unknown.add(k);
     try {
-      pieces.push(pieceFromAttach(row));
+      pieces.push(ndjson ? pieceFromNdjson(row) : pieceFromAttach(row));
     } catch (err) {
       rejects.push({ where: `${path}#${i}`, reason: errText(err) });
     }
   });
-  return { pieces, rejects, unknownKeys: [] };
+  return { pieces, rejects, unknownKeys: [...unknown].sort() };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,6 +368,11 @@ export interface LaunchBackfillPlan {
   duplicates: number;
   /** (날짜, 서버, 시장, profile, 거래소, 기준시각) 정렬 */
   groups: LaunchPlanGroup[];
+  /**
+   * 백필이 따로 만든 A NXT 매도 다리 머리 수(35 IN-04). 라이브 kind 18 은 NXT 쪽을 N 머리 1행에 합치므로 같은 날 두 출처의
+   * 머리 정의가 다르다 — dry-run 이 이 수를 알린다(머리 정의 자체는 바꾸지 않는다).
+   */
+  aNxtHeads: number;
 }
 
 export interface LaunchPlanOptions {
@@ -438,7 +459,8 @@ export function planLaunchBackfill(input: readonly LaunchPieceInput[], opts: Lau
   }
   const order = (g: LaunchPlanGroup) => [g.trade_date, g.gateway, g.market, g.profile, g.fire_exchange, g.fire_base].join("|");
   groups.sort((a, b) => (order(a) < order(b) ? -1 : order(a) > order(b) ? 1 : 0));
-  return { pieces, heads, duplicates, groups };
+  const aNxtHeads = heads.filter((h) => h.profile === "A" && h.fire_exchange === "NXT").length;
+  return { pieces, heads, duplicates, groups, aNxtHeads };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

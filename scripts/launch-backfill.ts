@@ -38,7 +38,7 @@ const USAGE = [
   "  launch-backfill.ts --file <경로> [--file <경로> …] [--date YYYYMMDD …] [--apply]   # 파일 백필(기본 dry-run)",
   "  launch-backfill.ts --status                                                        # 원격 상태(읽기 전용)",
   "  launch-backfill.ts --reproject [--from YYYYMMDD] [--to YYYYMMDD] [--apply]         # kind 17·18 재해석",
-  "  --file <경로>      첨부 pieces.json(배열) 또는 gh-trade ndjson(.ndjson · .jsonl) — 여러 번 · 상대 경로는 호출 cwd 기준",
+  "  --file <경로>      첨부 pieces.json · ndjson 필드 객체 배열(.json) 또는 gh-trade ndjson(.ndjson · .jsonl) — 여러 번 · 상대 경로는 호출 cwd 기준",
   "  --date YYYYMMDD    그 날짜 조각만(여러 번)",
   "  --apply            실제로 쓴다(파일 = launch_backfill_apply 500행 청크 · --reproject = launch_reproject)",
   "  --status           launch_map_for_admin(q16 · n0930, 전체)으로 원격 날짜 · 조각 · 머리 수",
@@ -137,6 +137,11 @@ async function runFiles(args: Args): Promise<void> {
   console.log(
     `합계: 조각 ${plan.pieces.length} · 머리 ${plan.heads.length} · 날짜 ${days} · 중복 ${plan.duplicates} · 거부 ${rejects.length}`,
   );
+  if (plan.aNxtHeads > 0) {
+    console.log(
+      `주의: A NXT 매도 다리 머리 ${plan.aNxtHeads}행은 백필 정의 — 라이브 kind 18 은 NXT 쪽을 N 머리 1행에 합친다(같은 날 두 출처의 머리 정의가 다르다)`,
+    );
+  }
 
   if (!args.apply) {
     console.log("dry-run — 쓰지 않았습니다(--apply 로 적재)");
