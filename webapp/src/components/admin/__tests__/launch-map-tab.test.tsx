@@ -772,6 +772,51 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     expect(line()).toBe(PENDING);
   });
 
+  it('R3-IN-03 요청 throw 는 그 전에 나간 다시 읽기의 그 서버 값을 버린다(다른 서버 값은 반영) · 뒤 다시 읽기가 확인', async () => {
+    let releaseFirst!: (v: PlanFetch) => void;
+    let releaseSecond!: (v: PlanFetch) => void;
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: planResp() })
+      .mockReturnValueOnce(new Promise((r) => (releaseFirst = r)))
+      .mockReturnValueOnce(new Promise((r) => (releaseSecond = r)));
+    vi.mocked(saveLaunchPlan)
+      .mockResolvedValueOnce({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null })
+      .mockRejectedValueOnce(new Error('network'));
+    const container = await saveKbq();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    const kyq = () => panelOf(container, 'KYOBO119', 'Q');
+    const planLine = (p: HTMLElement) => one(p, '[data-slot="launch-plan-line"]').textContent;
+    const PENDING = 'KB120 응답 없음: 반영됐는지 몰라요 — 계획을 다시 읽는 중이에요';
+    // 저장 1(응답 timeout) → 다시 읽기 R1 비행 중.
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(false));
+    // 같은 칸 저장 2 — 요청 throw. 그 서버 세대를 올리고 다시 읽기 R2 를 보낸다.
+    fireEvent.click(one(kbq(), '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(PENDING));
+
+    // R1 이 늦게 도착 — KB120 은 저장 2 이전에 읽은 값(버려야 함), KYOBO119 는 이 탭이 바꾼 적 없는 새 값(반영).
+    releaseFirst({
+      kind: 'ready',
+      resp: planResp({
+        KB120: okServer([-340, -335, -320], [-360, -355, -330], -245),
+        KYOBO119: okServer([-410, -400, -380], [-530, -515, -500], -200),
+      }),
+    });
+    await waitFor(() => expect(planLine(kyq())).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`));
+    expect(planLine(kbq())).toBe(`3조각 ${M}350 · ${M}345 · ${M}325µs`); // 저장 전 값 그대로 — R1 의 KB120 값은 버렸다
+    expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(PENDING); // R1 결과는 저장 1 몫 — 버린다
+
+    // R2 — 이 저장의 이력 행이 보인다 → 반영 · 확인.
+    releaseSecond({ kind: 'ready', resp: { ...reloaded(), changes: [savedRow()] } });
+    await waitFor(() =>
+      expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(
+        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      ),
+    );
+    expect(planLine(kbq())).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`);
+  });
+
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {
     vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
     vi.mocked(saveLaunchPlan).mockResolvedValue({
