@@ -57,6 +57,14 @@ export type AppConfig = {
    * DB RPC · 네트워크 여유. 브라우저 상한(webapp `RELAY_TIMEOUT_MS` 20초)보다 작다.
    */
   relayAdminTimeoutMs: number;
+  /**
+   * Phase 37 D-03 — 요청 변환 Job 전체 이름 `projects/<p>/locations/<r>/jobs/<j>`(`TICK_CONVERT_JOB`). 빈 문자열 = 미설정 →
+   * server.ts 가 트리거를 만들지 않고 POST /api/ticks/convert 의 Job 실행 분기만 503. 값이 형식에 안 맞으면 부팅 throw
+   * (잘못된 경로로 Admin API 를 두드리다 502 를 쌓는 것보다 안 뜨는 편이 낫다).
+   */
+  tickConvertJob: string | undefined;
+  /** Phase 37 D-03 — 요청 변환 전역 하루 상한(`TICK_REQUEST_DAILY_CAP` · 기본 20 · 사용자별 아님 — 비용 가드). */
+  tickRequestDailyCap: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -111,7 +119,20 @@ export function loadConfig(): AppConfig {
     relayInternalUrl: process.env.RELAY_INTERNAL_URL || undefined,
     relayOrderSecret: process.env.RELAY_ORDER_SECRET || undefined,
     relayAdminTimeoutMs: positiveIntOr(process.env.RELAY_ADMIN_TIMEOUT_MS, 15_000),
+    tickConvertJob: tickConvertJobOrThrow(process.env.TICK_CONVERT_JOB),
+    tickRequestDailyCap: positiveIntOr(process.env.TICK_REQUEST_DAILY_CAP, 20),
   };
+}
+
+const TICK_CONVERT_JOB_RE = /^projects\/[^/]+\/locations\/[^/]+\/jobs\/[^/]+$/;
+
+/** `TICK_CONVERT_JOB` — 비었으면 미설정(undefined) · 형식이 아니면 부팅 throw. */
+function tickConvertJobOrThrow(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (!TICK_CONVERT_JOB_RE.test(raw)) {
+    throw new Error("TICK_CONVERT_JOB must be projects/<project>/locations/<region>/jobs/<job>");
+  }
+  return raw;
 }
 
 /** 양의 정수 env — 비었거나 숫자가 아니면 기본값(NaN 타임아웃이 axios 에 들어가 「무제한 대기」 가 되지 않게). */

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  TickCancelResponse,
+  TickConvertRequest,
+  TickConvertResponse,
   TickDayResponse,
   TickOpenGrid,
   TickOpenResponse,
@@ -7,7 +10,8 @@ import type {
 } from "@gh-radar/shared";
 
 import { ApiError, DmaUnmapped } from "../errors.js";
-import type { TickOpenQueryT } from "../schemas/ticks.js";
+import type { TickConvertBodyT, TickOpenQueryT } from "../schemas/ticks.js";
+import type { TickConvertTrigger } from "./tick-convert-trigger.js";
 
 /**
  * Phase 37 — 틱 전문 뷰어 과거 경로 서비스 (D-03 · D-08 · D-09 · D-15).
@@ -24,7 +28,11 @@ import type { TickOpenQueryT } from "../schemas/ticks.js";
  *   T-15-07  DB · Storage 오류 원문은 응답에 싣지 않는다(고정 문구 DB_ERROR). 원문은 `cause` 로 실어 errorHandler 가 warn 로그에만.
  *   비노출   격자 Storage 경로(`object_path`)는 응답에 싣지 않는다 — 서명 URL 만.
  *
+ *   D-03     요청 변환은 RPC 가 `should_trigger: true` 를 준 호출에서만 Admin API `jobs:run` 을 부른다 — 같은 (날짜, 거래소)를
+ *            N 명이 요청해도 Job 실행 1회(판정은 RPC 안 advisory 잠금). 상한 · 업로드 전 날짜 판정도 RPC 안이다.
+ *
  * ★ Cloud Run → Supabase 왕복이 지연을 지배하므로 요청 하나 = RPC **1회**(+ 격자가 있을 때만 `createSignedUrl` 1회).
+ *   요청 변환은 RPC 1회 + (should_trigger 일 때만) Admin API 1회 + (그게 실패했을 때만) 되돌림 RPC 1회.
  */
 
 const DbError = (msg: string, cause: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
@@ -147,4 +155,109 @@ export async function openTick(
     accum: (out.accum ?? null) as TickOpenResponse["accum"],
     eta_s: out.eta_s as number,
   };
+}
+
+// ── 요청 변환 (D-03) ────────────────────────────────────────────────
+
+/** 하루 상한 기본값 — config `TICK_REQUEST_DAILY_CAP`(전역 · 사용자별 아님 · 비용 가드). */
+export const TICK_REQUEST_DAILY_CAP_DEFAULT = 20;
+
+/** 429 — 오늘(KST) 깨운 요청 수가 전역 상한 이상(RPC capped). */
+export const TickConvertCapped = () =>
+  new ApiError(429, "TICK_CONVERT_CAPPED", "오늘 요청 변환 한도에 도달했어요. 내일 다시 시도해 주세요.");
+/** 502 — Admin API jobs:run 실패(권한 · 네트워크 · 타임아웃). 원문은 cause 로 로그에만. */
+export const TickConvertTriggerFailed = (cause: unknown) =>
+  new ApiError(502, "TICK_CONVERT_TRIGGER_FAILED", "변환 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.", cause);
+/** 503 — `TICK_CONVERT_JOB` 미설정(트리거 미결선). */
+export const TickConvertUnavailable = (cause?: unknown) =>
+  new ApiError(503, "TICK_CONVERT_UNAVAILABLE", "요청 변환을 지금 쓸 수 없어요.", cause);
+
+const req = (v: unknown) => (v ?? null) as TickConvertRequest | null;
+
+/**
+ * 깨우기 실패 — 찍어 둔 triggered_at 을 되돌려 다음 요청(또는 open 의 stale)이 다시 깨울 수 있게 한다.
+ * 되돌림 자체가 실패해도 사용자 응답은 원래 오류 그대로(되돌림 원문은 cause 로 로그에만 · stale 2분이 결국 다시 깨운다).
+ */
+async function rollbackTrigger(
+  supabase: SupabaseClient,
+  body: TickConvertBodyT,
+  code: string,
+): Promise<Record<string, unknown> | undefined> {
+  const { error } = await supabase.rpc("tick_request_trigger_failed", {
+    p_date: body.d,
+    p_ex: body.ex,
+    p_error: code,
+  });
+  return error ? causeOf(error) : undefined;
+}
+
+/**
+ * 요청 변환 — RPC `tick_request_convert_for_user` 1회로 큐에 넣고 should_trigger 를 받는다.
+ * - capped → 429 · not_uploaded / grid_ready → 200(Job 0회)
+ * - should_trigger → trigger.run(날짜, 거래소) 1회. 트리거 미결선 → 되돌림(TRIGGER_DISABLED) + 503 · 실패 → 되돌림 + 502.
+ */
+export async function requestTickConvert(
+  supabase: SupabaseClient,
+  userId: string,
+  body: TickConvertBodyT,
+  deps: { trigger?: TickConvertTrigger; dailyCap: number },
+): Promise<TickConvertResponse> {
+  const { data, error } = await supabase.rpc("tick_request_convert_for_user", {
+    p_user_id: userId,
+    p_date: body.d,
+    p_isin: body.isin,
+    p_ex: body.ex,
+    p_daily_cap: deps.dailyCap,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_request_convert_for_user", data);
+  for (const k of ["should_trigger", "capped", "grid_ready", "not_uploaded"] as const) {
+    if (typeof out[k] !== "boolean") throw DbError(FAIL, shapeCause(`tick_request_convert_for_user.${k}`, out[k]));
+  }
+  if (out.capped === true) throw TickConvertCapped();
+
+  let triggered = false;
+  if (out.should_trigger === true) {
+    if (!deps.trigger) {
+      const rollback = await rollbackTrigger(supabase, body, "TRIGGER_DISABLED");
+      throw TickConvertUnavailable({ reason: "TICK_CONVERT_JOB 미설정", ...(rollback ? { rollback } : {}) });
+    }
+    const r = await deps.trigger.run(body.d, body.ex);
+    if (!r.ok) {
+      const rollback = await rollbackTrigger(supabase, body, `TRIGGER_FAILED:${r.status}`);
+      throw TickConvertTriggerFailed({ status: r.status, error: r.error, ...(rollback ? { rollback } : {}) });
+    }
+    triggered = true;
+  }
+
+  return {
+    access: true,
+    grid_ready: out.grid_ready as boolean,
+    capped: false,
+    triggered,
+    not_uploaded: out.not_uploaded as boolean,
+    retry_after: (out.retry_after ?? null) as string | null,
+    request: req(out.request),
+    ...(typeof out.eta_s === "number" ? { eta_s: out.eta_s } : {}),
+  };
+}
+
+/** 요청 취소 — 본인이 요청한 pending 만 cancelled(판정은 RPC 안). 그 밖이면 200 `cancelled: false`. */
+export async function cancelTickConvert(
+  supabase: SupabaseClient,
+  userId: string,
+  body: TickConvertBodyT,
+): Promise<TickCancelResponse> {
+  const { data, error } = await supabase.rpc("tick_cancel_convert_for_user", {
+    p_user_id: userId,
+    p_date: body.d,
+    p_isin: body.isin,
+    p_ex: body.ex,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_cancel_convert_for_user", data);
+  if (typeof out.cancelled !== "boolean") {
+    throw DbError(FAIL, shapeCause("tick_cancel_convert_for_user.cancelled", out.cancelled));
+  }
+  return { access: true, cancelled: out.cancelled, request: req(out.request) };
 }

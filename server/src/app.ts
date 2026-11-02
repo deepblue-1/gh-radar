@@ -5,6 +5,7 @@ import cors from "cors";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AxiosInstance } from "axios";
 import type { RelayAdminClient } from "./services/relay-admin-client.js";
+import type { TickConvertTrigger } from "./services/tick-convert-trigger.js";
 import { requestId } from "./middleware/request-id.js";
 import { apiRateLimiter } from "./middleware/rate-limit.js";
 import { httpLogger } from "./middleware/pino-http.js";
@@ -54,6 +55,11 @@ export type AppDeps = {
   // Phase 29 D-07 — Admin 명령 전용 relay 클라이언트. 미주입(env 미설정 · 테스트) 시 허용/역할 쓰기는
   // `relayNotified: false` 로 성공하고, relay 의존 라우트(29-13)는 503 RELAY_UNAVAILABLE.
   relayAdmin?: RelayAdminClient;
+  // Phase 37 D-03 — 요청 변환 Job 트리거(Admin API v2 jobs:run). 미주입(TICK_CONVERT_JOB 미설정 · 테스트) 시
+  // POST /api/ticks/convert 는 should_trigger 일 때만 503 TICK_CONVERT_UNAVAILABLE(그 밖 분기는 200).
+  tickConvertTrigger?: TickConvertTrigger;
+  // Phase 37 D-03 — 요청 변환 전역 하루 상한(TICK_REQUEST_DAILY_CAP · 미주입 = 20).
+  tickRequestDailyCap?: number;
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -70,6 +76,8 @@ export function createApp(deps: AppDeps): Express {
   app.locals.brightdataApiKey = deps.brightdataApiKey;
   app.locals.brightdataZone = deps.brightdataZone;
   app.locals.relayAdmin = deps.relayAdmin;
+  app.locals.tickConvertTrigger = deps.tickConvertTrigger;
+  app.locals.tickRequestDailyCap = deps.tickRequestDailyCap;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());
