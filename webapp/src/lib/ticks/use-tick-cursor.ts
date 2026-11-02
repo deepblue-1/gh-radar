@@ -22,6 +22,9 @@ export type TickOrderMode = 'exchange' | 'recv';
 export const PLAY_SPEEDS = [1, 10, 'max'] as const;
 export type TickPlaySpeed = (typeof PLAY_SPEEDS)[number];
 
+/** 재생 1× 에서 다음 틱까지 기다리는 최대 시간(ms) — 수신 간격이 길면 2초로 자른다. */
+export const PLAY_MAX_GAP_MS = 2_000;
+
 /** URL `t` 갱신 스로틀(ms). */
 export const TICK_URL_THROTTLE_MS = 250;
 
