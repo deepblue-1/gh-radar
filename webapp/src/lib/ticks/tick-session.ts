@@ -46,6 +46,8 @@ import {
   type ViSpan,
 } from '@gh-radar/shared';
 
+import { buildTeamModel, type TeamModel } from './team-model';
+
 /** 판정 범위 — KRX 는 `accum`(G1+G4 · 뷰어 기본) · NXT 는 런 규칙. */
 export type ViewScope = TeamScope | 'nxt';
 
@@ -130,6 +132,10 @@ export interface TickSession {
   lastA3: Int32Array;
   /** 기준가(체결 `px − 부호×chg` 최빈값 · DayRateTracker) — 없으면 null. */
   basePx: number | null;
+
+  // ── 37-14 팀 모델(차트 팀 레이어 · 팀 거래정보 KPI) ──
+  /** 팀 체결 · 손익 접두 · 당일 계단 · 10분 막대 · 주문 원 — 세션 생성 때 한 번(`buildTeamModel`). */
+  team: TeamModel;
 }
 
 export function tickSessionKeyOf(date: string, ex: TickExchange, isin: string): string {
@@ -359,7 +365,7 @@ export function buildTickSession(
     tracker.add(pct === 32 ? '' : String.fromCharCode(pct), a3.chg[j]!, a3.px[j]!);
   }
 
-  return {
+  const session: Omit<TickSession, 'team'> & { team?: TeamModel } = {
     key: tickSessionKeyOf(date, ex, isin),
     date,
     ex,
@@ -386,6 +392,9 @@ export function buildTickSession(
     lastA3,
     basePx: a3.n > 0 ? tracker.base() : null,
   };
+  // 팀 모델은 위 표(주문 판정 · 거래소순 끝 자리 · 마지막 A3)를 읽는다 — 세션을 먼저 만들고 붙인다.
+  session.team = buildTeamModel(session as TickSession);
+  return session as TickSession;
 }
 
 /**

@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { dayStartNs } from '@gh-radar/shared';
+import { buildPnlPrefix, dayStartNs, type TeamFill } from '@gh-radar/shared';
 
-import { TICK_FIXTURE_DATE, tickGridBytes } from '@/test-fixtures/tick-grid';
+import { TICK_FIXTURE_DATE, tickFixtureBytes, tickGridBytes } from '@/test-fixtures/tick-grid';
+import { SYNTH_DATE, inversionSession, r8Msg, synthSession } from '@/test-fixtures/tick-synth';
 
 import {
+  TEAM_BUCKETS,
   TICK_CHART,
+  cumNetRangeOf,
+  cumPointsOf,
   cursorXOf,
+  dayNetRangeOf,
+  lastRecvMsOf,
+  teamAvgPathOf,
+  teamBucketsOf,
+  teamDayStairsOf,
+  viBandsOf,
+  yOfNet,
   decimatedIdxOf,
   priceSeriesOf,
   pricePathDecimated,
@@ -150,5 +161,102 @@ describe('컷 13시 KRX 세션 — 열 수 상한 · 가격 범위 · 커서 x',
     expect(cursorXOf(view, x, B.T0 + 4 * H)).toBeNull();
     expect(cursorXOf(view, x, null)).toBeNull();
     expect(tOfTick(view, 52, 592)(322)).toBeCloseTo(B.T0 + 5.5 * H, 3);
+  });
+});
+
+describe('팀 레이어 기하(Task 2) — 당일 계단 · 누적 점 · 10분 막대 72칸 · VI 띠 · 평단', () => {
+  const P = tickPanelsOf(TICK_CHART.desktop);
+  const view = { t0: B.T0, t1: B.T2000 };
+  const x = xOfTick(view, 52, 592);
+
+  it('teamDayStairsOf — 0 에서 시작(x = 08:00) · 주문마다 H·V · 끝 = max(마지막 계단, endMs) · 없으면 빈 문자열', () => {
+    const model = { dayStairs: [{ tMs: B.T0 + 5 * H, net: 100, qty: 1 }, { tMs: B.T0 + 6 * H, net: -50, qty: -1 }] };
+    const range = dayNetRangeOf(model);
+    expect(range).toEqual({ min: -50, max: 100 });
+    const y = yOfNet(range, P);
+    const d = teamDayStairsOf(model, x, y, B.T0, B.T0 + 7 * H);
+    expect(d).toBe(
+      `M52.0,${y(0).toFixed(1)}H277.0V${y(100).toFixed(1)}H322.0V${y(-50).toFixed(1)}H367.0`,
+    );
+    expect(teamDayStairsOf({ dayStairs: [] }, x, y, B.T0, B.T2000)).toBe('');
+  });
+
+  it('yOfNet — 범위 0(팀 없음)이면 판 가운데 · 0 포함 범위는 판 안', () => {
+    const flat = yOfNet({ min: 0, max: 0 }, P);
+    expect(flat(0)).toBe(P.y2a + 3 + (P.y2b - P.y2a - 6) / 2);
+    const y = yOfNet({ min: -10, max: 30 }, P);
+    expect(y(30)).toBe(P.y2a + 3);
+    expect(y(-10)).toBe(P.y2b - 3);
+  });
+
+  it('cumPointsOf — 당일 화면 · accum 없음 · 모양 어긋남 → [] · pos_net 있으면 점(0 포함 범위)', () => {
+    const accum = { reg_time_ms: null, pos_net: { t_ms: [B.T0900], net_krw: [5e8], cycle: [1] } };
+    expect(cumPointsOf(accum, true)).toEqual([]);
+    expect(cumPointsOf(null, false)).toEqual([]);
+    expect(cumPointsOf({ reg_time_ms: null, pos_net: 'x' }, false)).toEqual([]);
+    const pts = cumPointsOf(accum, false);
+    expect(pts).toEqual([{ t: B.T0900, net: 5e8, cycle: 1, end: 0 }]);
+    expect(cumNetRangeOf(pts)).toEqual({ min: 0, max: 5e8 });
+  });
+
+  it('teamBucketsOf — 72칸 모델에서 값 있는 칸만 막대 쌍(매수 왼쪽 · 매도 오른쪽 · 바닥 = 판 아래선)', () => {
+    const buy = new Float64Array(TEAM_BUCKETS);
+    const sell = new Float64Array(TEAM_BUCKETS);
+    buy[30] = 200;
+    sell[30] = 100;
+    sell[71] = 50;
+    const bars = teamBucketsOf({ buckets: { buy, sell } }, view, x, B.T0, P);
+    expect(TEAM_BUCKETS).toBe(72);
+    expect(bars.map((b) => b.slot)).toEqual([30, 71]);
+    expect(bars[0]!.buy!.y + bars[0]!.buy!.h).toBeCloseTo(P.y3b, 9);
+    expect(bars[0]!.sell!.h).toBeCloseTo(bars[0]!.buy!.h / 2, 9);
+    expect(bars[0]!.sell!.x).toBeGreaterThan(bars[0]!.buy!.x);
+    expect(bars[1]!.buy).toBeNull();
+    expect(bars[0]!.title).toBe('13:00~13:10 팀 매수 200원 · 팀 매도 100원');
+  });
+
+  it('천일 10/14 세션 — 모델 막대 72칸 · 막대 수 ≤ 72', () => {
+    const s = buildTickSession(tickFixtureBytes('chunil-1014-a3.ticks.zst'), { date: '20261014', ex: 'KRX' });
+    expect(s.team.buckets.buy.length).toBe(72);
+    const b = tickBoundsOf('20261014');
+    const bars = teamBucketsOf(s.team, { t0: b.T0, t1: b.T2000 }, xOfTick({ t0: b.T0, t1: b.T2000 }, 52, 592), b.T0, P);
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.length).toBeLessThanOrEqual(72);
+  });
+
+  it('viBandsOf — 발동 ~ 해제 수신 · 해제 없으면 진행 중(끝 = 세션 마지막 수신)', () => {
+    const closed = viBandsOf(inversionSession());
+    expect(closed).toHaveLength(1);
+    expect(closed[0]!.open).toBe(false);
+    expect(closed[0]!.t1 - closed[0]!.t0).toBeCloseTo(1, 3); // 14ms → 15ms(ms double 해상도 ≈ 0.25µs)
+    const s = synthSession([
+      [0, r8Msg({ seq: 1, status: '1', triggerPx: 18040 })],
+      [250, r8Msg({ seq: 2, status: '1', triggerPx: 18040 })],
+    ]);
+    const open = viBandsOf(s);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.open).toBe(true);
+    expect(open[0]!.t1).toBe(lastRecvMsOf(s));
+    expect(open[0]!.t1 - open[0]!.t0).toBeCloseTo(250, 3);
+    expect(SYNTH_DATE).toBe('20261016');
+  });
+
+  it('teamAvgPathOf — 잔량 > 0 동안 평단 계단 · 잔량 0 에서 끊김 · 열린 끝은 endMs 까지', () => {
+    const T = 1_760_000_000_000_000_000n;
+    const fills: TeamFill[] = [
+      { rec: 0, tNs: T, bs: '2', px: 100, qty: 10 },
+      { rec: 1, tNs: T + 1n, bs: '2', px: 200, qty: 10 },
+      { rec: 2, tNs: T + 2n, bs: '1', px: 150, qty: 20 },
+      { rec: 3, tNs: T + 3n, bs: '2', px: 120, qty: 5 },
+    ];
+    const prefix = buildPnlPrefix(fills);
+    const fillMs = Float64Array.from([B.T0 + H, B.T0 + 2 * H, B.T0 + 3 * H, B.T0 + 4 * H]);
+    const y = (v: number) => v;
+    const d = teamAvgPathOf({ fills, prefix, fillMs }, x, y, { lo: 0, hi: 1000 }, B.T0 + 5 * H);
+    // 08+1h 평단 100 → 08+2h 150 → 08+3h 잔량 0(끊김) → 08+4h 120 새 조각 → 끝 08+5h
+    expect(d).toBe('M97.0,100.0H142.0V150.0H187.0M232.0,120.0H277.0');
+    // 판 범위 밖 평단은 클램프
+    const c = teamAvgPathOf({ fills, prefix, fillMs }, x, y, { lo: 0, hi: 120 }, B.T0 + 5 * H);
+    expect(c).toContain('V120.0');
   });
 });

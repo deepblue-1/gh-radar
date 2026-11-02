@@ -47,6 +47,12 @@ describe('천일고속 10/14 — 마지막 틱 KPI = shared teamPnlOf 전체값 
     expect(kpi.dayNetQty).toBe(golden.accum.buy_qty - golden.accum.sell_qty);
   });
 
+  it('세션 생성 때 한 번 붙는다(TickSession.team = buildTeamModel 결과와 같은 값)', () => {
+    expect(session.team.fills.length).toBe(model.fills.length);
+    expect(session.team.prefix.n).toBe(model.prefix.n);
+    expect(session.team.dayStairs.length).toBe(model.dayStairs.length);
+  });
+
   it('당일 계단 끝값 = 당일 순매수 · 10분 막대 72칸 합 = 매수 · 매도 금액', () => {
     const last = model.dayStairs[model.dayStairs.length - 1]!;
     expect(last.net).toBe(golden.accum.buy_val - golden.accum.sell_val);

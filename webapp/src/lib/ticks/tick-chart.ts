@@ -9,12 +9,13 @@
  * ④ 컴포넌트(`components/ticks/tick-chart.tsx`)는 그리기만 하고 기하는 여기서 테스트가 잠근다.
  */
 
-import { dayStartNs } from '@gh-radar/shared';
+import { dayStartNs, type AccumReportPayload, type TickOpenResponse } from '@gh-radar/shared';
 
-import type { View } from '@/lib/accum-chart';
+import { posNetPathOf, posNetPointsOf, type PosNetPoint, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
 import { kstHm } from '@/lib/teamflow-report';
 
+import type { TeamModel } from './team-model';
 import type { TickSession } from './tick-session';
 
 const SEC = 1000;
@@ -81,9 +82,9 @@ export function tickBoundsOf(ymd: string): TickBounds {
   return { T0, T0900: T0 + HOUR, T1530: T0 + 7.5 * HOUR, T1600: T0 + 8 * HOUR, T2000: T0 + 12 * HOUR };
 }
 
-/** 수신 ns → ms(소수 · 커서 · 점 x 공통). */
+/** 수신 ns → ms(소수 · 커서 · 점 x 공통). µs 까지 정수로 자른 뒤 나눈다(ns 그대로 Number 로 바꾸면 2^53 을 넘는다). */
 export function msOfNs(ns: bigint): number {
-  return Number(ns) / 1e6;
+  return Number(ns / 1000n) / 1000;
 }
 
 /** 시각 → x · view.t0 = L · view.t1 = xr(= W − R). */
@@ -336,4 +337,212 @@ export function lastRecvMsOf(session: TickSession): number | null {
   const n = session.recvOrder.length;
   if (n === 0) return null;
   return msOfNs(session.index.recvNs[session.recvOrder[n - 1]!]!);
+}
+
+// ---------------------------------------------------------------------------
+// 팀 레이어(Task 2) — 당일 계단 · 누적 계단 · 10분 막대 · VI 띠 · 평단
+// ---------------------------------------------------------------------------
+
+/** 값 범위(0 포함) — 순매수 계단 축. */
+export interface NetRange {
+  min: number;
+  max: number;
+}
+
+/** 순매수 → y(순매수 판 [y2a, y2b] 안 · 위아래 3px 여유) · 범위 0 이면 0 이 판 가운데. */
+export function yOfNet(range: NetRange, p: TickPanels): (v: number) => number {
+  const top = p.y2a + 3;
+  const h = p.y2b - p.y2a - 6;
+  const span = range.max - range.min;
+  if (!(span > 0)) return () => top + h / 2;
+  return (v) => top + ((range.max - v) / span) * h;
+}
+
+/** 당일 팀 순매수 범위 = 하루 전체 계단 값 ∪ 0(창과 무관하게 고정 · 매집감지 cumRangeOf 와 같은 규칙). */
+export function dayNetRangeOf(model: Pick<TeamModel, 'dayStairs'>): NetRange {
+  let min = 0;
+  let max = 0;
+  for (const s of model.dayStairs) {
+    if (s.net < min) min = s.net;
+    if (s.net > max) max = s.net;
+  }
+  return { min, max };
+}
+
+/**
+ * 누적(이월 포함) 점(D-09) — 열기 응답 `accum.pos_net` 을 매집감지 `posNetPointsOf` 로 방어해 읽는다. 당일 화면(`isToday`)은
+ * 늘 [](당일 선만 · 라이브 kind 16 으로 보강하지 않는다) · accum 없음 · 모양 어긋남도 [].
+ */
+export function cumPointsOf(accum: TickOpenResponse['accum'] | null | undefined, isToday: boolean): PosNetPoint[] {
+  if (isToday || accum === null || accum === undefined) return [];
+  return posNetPointsOf({ pos_net: accum.pos_net } as Pick<AccumReportPayload, 'pos_net'>);
+}
+
+/** 누적(pos_net) 범위 = 점 값 ∪ 0(독립 범위 · 스케치 018 ②). */
+export function cumNetRangeOf(points: readonly Pick<PosNetPoint, 'net'>[]): NetRange {
+  let min = 0;
+  let max = 0;
+  for (const p of points) {
+    if (p.net < min) min = p.net;
+    if (p.net > max) max = p.net;
+  }
+  return { min, max };
+}
+
+/**
+ * 당일 팀 순매수 보라 계단 — 0 에서 시작(x = T0) · 팀 주문 끝 시각마다 `H x V y` · 끝 = max(마지막 계단, endMs).
+ * 계단이 없으면 ''(판 가운데 「팀 체결 없음」). 창 밖은 클립이 자른다(계단은 창 시작 값이 앞 점에 달려 있다).
+ */
+export function teamDayStairsOf(
+  model: Pick<TeamModel, 'dayStairs'>,
+  x: (t: number) => number,
+  y: (v: number) => number,
+  T0: number,
+  endMs: number,
+): string {
+  if (model.dayStairs.length === 0) return '';
+  let d = `M${f1(x(T0))},${f1(y(0))}`;
+  let lastT = T0;
+  for (const s of model.dayStairs) {
+    d += `H${f1(x(s.tMs))}V${f1(y(s.net))}`;
+    lastT = s.tMs;
+  }
+  return `${d}H${f1(x(Math.max(lastT, endMs)))}`;
+}
+
+/**
+ * 누적(이월 포함) 회색 계단 — 매집감지 `posNetPathOf` 그대로(cycle · end 끊김 · 열린 끝 20:00 · T0 앞 점은 T0 에 붙임).
+ * 틱 뷰어 T0 = 08:00.
+ */
+export function cumStairsOf(
+  points: readonly PosNetPoint[],
+  x: (t: number) => number,
+  y: (v: number) => number,
+  T0: number,
+  T2000: number,
+): string {
+  return posNetPathOf(points, x, y, T0, T2000);
+}
+
+/** 10분 칸 수 — 08:00 ~ 20:00. */
+export const TEAM_BUCKETS = 72;
+const SLOT_MS = 10 * MIN;
+
+export interface TeamBucketBar {
+  slot: number;
+  /** 칸 시작 ms. */
+  t0: number;
+  buy: { x: number; y: number; w: number; h: number } | null;
+  sell: { x: number; y: number; w: number; h: number } | null;
+  title: string;
+}
+
+/** 칸 값 최대(하루 · 창과 무관). */
+export function bucketMaxOfModel(model: Pick<TeamModel, 'buckets'>): number {
+  let mx = 0;
+  for (let k = 0; k < model.buckets.buy.length; k++) {
+    if (model.buckets.buy[k]! > mx) mx = model.buckets.buy[k]!;
+    if (model.buckets.sell[k]! > mx) mx = model.buckets.sell[k]!;
+  }
+  return mx;
+}
+
+const BAR_RATIO = 0.42;
+const BAR_MIN_W = 1.5;
+
+/**
+ * 10분 팀 매수/매도 막대 쌍(매집감지 `bucketBarsOf` 와 같은 모양) — 칸 폭 × 0.42(최소 1.5) · 매수 왼쪽 · 매도 오른쪽 · 바닥 =
+ * 판 아래선 · 높이 = 값 ÷ 하루 최대 × 판 높이 · 0 은 없음 · 창 밖 칸은 뺀다.
+ */
+export function teamBucketsOf(
+  model: Pick<TeamModel, 'buckets'>,
+  view: View,
+  x: (t: number) => number,
+  T0: number,
+  p: TickPanels,
+): TeamBucketBar[] {
+  const mx = bucketMaxOfModel(model);
+  const top = p.y3a + 2;
+  const h = p.y3b - top;
+  const scale = mx > 0 ? h / mx : 0;
+  const out: TeamBucketBar[] = [];
+  for (let k = 0; k < TEAM_BUCKETS; k++) {
+    const buy = model.buckets.buy[k]!;
+    const sell = model.buckets.sell[k]!;
+    if (buy <= 0 && sell <= 0) continue;
+    const s0 = T0 + k * SLOT_MS;
+    const s1 = s0 + SLOT_MS;
+    if (s1 < view.t0 || s0 > view.t1) continue;
+    const x0 = x(s0);
+    const bw = Math.max(BAR_MIN_W, (x(s1) - x0) * BAR_RATIO);
+    const bar = (v: number, bx: number) => (v > 0 ? { x: bx, y: p.y3b - v * scale, w: bw, h: v * scale } : null);
+    out.push({
+      slot: k,
+      t0: s0,
+      buy: bar(buy, x0 + 1),
+      sell: bar(sell, x0 + 1 + bw + 1),
+      title: `${kstHm(s0)}~${kstHm(s1)} 팀 매수 ${fmtWon(buy)} · 팀 매도 ${fmtWon(sell)}`,
+    });
+  }
+  return out;
+}
+
+/** VI 띠(수신 ms) — 해제가 없으면(진행 중) 끝 = 세션 마지막 수신. */
+export interface ViBand {
+  t0: number;
+  t1: number;
+  open: boolean;
+}
+
+export function viBandsOf(session: TickSession): ViBand[] {
+  const end = lastRecvMsOf(session);
+  return session.vi.map((v) => {
+    const t0 = msOfNs(v.startNs);
+    const open = v.endNs === null;
+    return { t0, t1: open ? Math.max(t0, end ?? t0) : msOfNs(v.endNs!), open };
+  });
+}
+
+/**
+ * 팀 평단 계단(`--up` 점점선) — 팀 체결마다 잔량 > 0 이면 평단(원가 ÷ 잔량) · 잔량 0 이면 끊는다 · 끝 = endMs.
+ * 가격 판 범위 [lo, hi] 로 클램프(판 위/아래 끝에 붙는다 · 매집감지 avgPxPathOf 와 같은 규칙).
+ */
+export function teamAvgPathOf(
+  model: Pick<TeamModel, 'fills' | 'prefix' | 'fillMs'>,
+  x: (t: number) => number,
+  y: (px: number) => number,
+  range: Pick<TickPriceRange, 'lo' | 'hi'>,
+  endMs: number,
+): string {
+  const { prefix, fillMs } = model;
+  let d = '';
+  let open = false;
+  let lastAvg = Number.NaN;
+  let lastT = 0;
+  const clamp = (v: number) => Math.max(range.lo, Math.min(range.hi, v));
+  for (let k = 1; k <= prefix.n; k++) {
+    const t = fillMs[k - 1]!;
+    const hold = prefix.hold[k]!;
+    if (hold > 0) {
+      const avg = prefix.cost[k]! / hold;
+      if (!open) {
+        d += `M${f1(x(t))},${f1(y(clamp(avg)))}`;
+        open = true;
+      } else if (avg !== lastAvg) d += `H${f1(x(t))}V${f1(y(clamp(avg)))}`;
+      lastAvg = avg;
+      lastT = t;
+    } else if (open) {
+      d += `H${f1(x(t))}`;
+      open = false;
+    }
+  }
+  if (open) d += `H${f1(x(Math.max(lastT, endMs)))}`;
+  return d;
+}
+
+const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+
+/** 툴팁 금액 — 원 정수 콤마(차트 title 전용 · 화면 금액은 fmtAmountC). */
+function fmtWon(v: number): string {
+  return `${INT.format(Math.round(v))}원`;
 }

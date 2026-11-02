@@ -2,14 +2,28 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 
+import type { TickOpenResponse } from '@gh-radar/shared';
+
 import { CARD } from '@/components/layout/page-layout';
 import { useChartGestures, useChartView } from '@/hooks/use-chart-view';
 import { useChartWidth } from '@/hooks/use-chart-width';
-import { panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
+import { orderRadiusOf, panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
+import { teamCirclesOf } from '@/lib/ticks/team-model';
 import {
   TICK_CHART,
+  bucketMaxOfModel,
+  cumNetRangeOf,
+  cumPointsOf,
+  cumStairsOf,
   cursorXOf,
+  dayNetRangeOf,
+  lastRecvMsOf,
+  teamAvgPathOf,
+  teamBucketsOf,
+  teamDayStairsOf,
+  viBandsOf,
+  yOfNet,
   lastTradeMsOfSession,
   msOfNs,
   priceSeriesOf,
@@ -22,14 +36,20 @@ import {
   xOfTick,
   yOfTickPrice,
 } from '@/lib/ticks/tick-chart';
+import { fmtAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
 
 /**
  * 틱 뷰어 3판 차트 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트와 같은 레이어 순서 · 순수 SVG · viewBox 1:1 · 글자 11px).
  *
- * ① 판 — 가격 선(열별 4점 솎음) | 당일 팀 순매수 · 누적 | 10분 팀 매수/매도(팀 레이어는 37-14 Task 2). 현재 틱 커서가 세 판을
- *   관통하고 아래 눈금 띠에 시각 라벨을 단다.
+ * ① 레이어(아래 → 위): 장전 음영(08:00~09:00) · 빈 띠(15:30~16:00) · VI 띠(`--vi` 옅게 · 진행 중이면 끝까지) → 시각 격자 →
+ *   ② 당일 팀 순매수 판 0선 · 누적(이월 포함) 회색 계단(왼쪽 회색 축 · 0 포함 독립 범위 · pos_net 있을 때만 — D-09) ·
+ *   당일 보라 계단(오른쪽 보라 축 · 하루 범위 고정) → ③ 10분 팀 매수/매도 막대 쌍 → ① 가격 선(열별 4점 솎음) · 팀 평단
+ *   `--up` 점점선(잔량 있을 때만) · 팀 주문 원 ≥ 500만(매수 빨강 · 매도 파랑 · 크기 = 금액 · 큰 원 먼저 · 툴팁 <title>) →
+ *   현재 틱 커서(세 판 관통 + 아래 시각 라벨). 커서가 든 주문의 원은 --fg 고리.
+ *   범례(머리): pos_net 없음 「누적 자료 없음(매집감지 미등록)」 · NXT 「매집감지 포지션(KRX+NXT 합산)」(Open Question 3) ·
+ *   당일 화면은 누적 선 없음(D-09). NXT 도 팀 레이어를 그린다(그 거래소 런 팀 · D-13).
  * ② 조작 — 휠 = 확대/축소 · 끌기 = 이동(`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs`) ·
  *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
@@ -38,6 +58,10 @@ import { cn } from '@/lib/utils';
 
 export interface TickChartProps {
   session: TickSession;
+  /** 열기 응답 `accum`(매집감지 등록 종목의 pos_net · 없으면 null — D-09). */
+  accum?: TickOpenResponse['accum'];
+  /** 당일 화면 — 누적 선을 그리지 않는다(D-09). */
+  isToday?: boolean;
   cursorRec: number;
   /** 차트 빈 곳 클릭 — 그 시각(수신 ms) 이후 첫 틱으로. */
   onSeekMs: (ms: number) => void;
@@ -60,7 +84,26 @@ function fmtSpan(ms: number): string {
   return `${Math.round(ms / 1e3)}초`;
 }
 
-export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, className }: TickChartProps) {
+/** 누적 범례(D-09 · Open Question 3) — 당일이면 null. */
+function cumLegendOf(accum: TickOpenResponse['accum'] | undefined, isToday: boolean, hasCum: boolean, nxt: boolean) {
+  if (isToday) return null;
+  if (accum === null || accum === undefined) return '누적 자료 없음(매집감지 미등록)';
+  if (!hasCum) return '누적 자료 없음(매집감지 포지션 없음)';
+  return nxt ? '누적 = 매집감지 포지션(KRX+NXT 합산)' : '누적 = 매집감지 포지션(이월 포함)';
+}
+
+const SIDE_WORD = { B: '매수', S: '매도' } as const;
+
+export function TickChart({
+  session,
+  accum = null,
+  isToday = false,
+  cursorRec,
+  onSeekMs,
+  onJumpRec,
+  height,
+  className,
+}: TickChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
   const svgRef = useRef<SVGSVGElement>(null);
   const clipId = useId().replace(/:/g, '');
@@ -100,6 +143,38 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
   const priceD = pricePathDecimated(session, view, x, y, plotW);
   const ticks = tickTicksOf(view, plotW);
   const cx = cursorXOf(view, x, cursorMs);
+
+  // 팀 레이어
+  const team = session.team;
+  const endMs = lastRecvMsOf(session) ?? bounds.T2000;
+  const cumPts = useMemo(() => cumPointsOf(accum, isToday), [accum, isToday]);
+  const hasCum = cumPts.length > 0;
+  const legend = cumLegendOf(accum, isToday, hasCum, session.ex === 'NXT');
+  const dayRange = useMemo(() => dayNetRangeOf(team), [team]);
+  const yN = yOfNet(dayRange, P);
+  const cumRange = useMemo(() => cumNetRangeOf(cumPts), [cumPts]);
+  const yC = yOfNet(cumRange, P);
+  const dayD = teamDayStairsOf(team, x, yN, bounds.T0, endMs);
+  const cumD = hasCum ? cumStairsOf(cumPts, x, yC, bounds.T0, bounds.T2000) : '';
+  const avgD = teamAvgPathOf(team, x, y, range, endMs);
+  const bars = teamBucketsOf(team, view, x, bounds.T0, P);
+  const bucketMax = bucketMaxOfModel(team);
+  const vis = useMemo(() => viBandsOf(session), [session]);
+  const circlesAll = useMemo(() => teamCirclesOf(team), [team]);
+  const pad = (view.t1 - view.t0) * 0.02;
+  const circles = circlesAll
+    .filter((c) => c.tMs >= view.t0 - pad && c.tMs <= view.t1 + pad)
+    .sort((a, b) => b.val - a.val);
+  const curOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
+  const noTeam = team.fills.length === 0;
+  const band = (t0: number, t1: number) => {
+    const a = Math.max(L, x(t0));
+    const b = Math.min(xr, x(t1));
+    return b > a ? { x: a, w: Math.max(1.5, b - a) } : null;
+  };
+  const pre = band(bounds.T0, bounds.T0900);
+  const gap = band(bounds.T1530, bounds.T1600);
+  const midX = (L + xr) / 2;
 
   // 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각. 끌기(4px 넘게 움직임)는 클릭이 아니다.
   const downRef = useRef<{ x: number; y: number; orderRec: number | null } | null>(null);
@@ -158,6 +233,11 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
             매수/매도 · <span className="text-[var(--vi)]">VI</span>
           </span>
         )}
+        {legend !== null && (
+          <span data-slot="tick-chart-legend" className="truncate text-[11px] text-[var(--muted-fg)]">
+            {legend}
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-0.5">
           <span data-slot="tick-chart-span" className="mono px-1.5 text-[11px] text-[var(--muted-fg)]">
             {fmtSpan(span)}
@@ -214,6 +294,32 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
           </defs>
 
           <g clipPath={`url(#${clipId})`}>
+            {/* 장전 음영 · 빈 띠 · VI 띠 — 세 판 공통 */}
+            {pre && (
+              <rect data-slot="tick-pre-shade" x={pre.x} y={P.y1a} width={pre.w} height={P.y3b - P.y1a} fill="var(--accum-shade)" />
+            )}
+            {gap && (
+              <rect data-slot="tick-gap-band" x={gap.x} y={P.y1a} width={gap.w} height={P.y3b - P.y1a} fill="var(--accum-gap)" />
+            )}
+            {vis.map((v) => {
+              const b = band(v.t0, v.t1);
+              return b === null ? null : (
+                <rect
+                  key={v.t0}
+                  data-slot="tick-vi-band"
+                  data-open={v.open ? '1' : '0'}
+                  x={b.x}
+                  y={P.y1a}
+                  width={b.w}
+                  height={P.y3b - P.y1a}
+                  fill="var(--vi)"
+                  fillOpacity={0.14}
+                >
+                  <title>{`VI ${kstClock(v.t0)} ~ ${v.open ? '진행 중' : kstClock(v.t1)}`}</title>
+                </rect>
+              );
+            })}
+
             {/* 시각 격자 */}
             {ticks.map((tk) => (
               <line
@@ -227,7 +333,53 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
               />
             ))}
 
-            {/* 가격 선 */}
+            {/* ② 당일 팀 순매수 판 — 0선 · 누적 회색(아래) · 당일 보라(위) */}
+            {!noTeam && (
+              <line
+                data-slot="tick-net-zero"
+                x1={L}
+                x2={xr}
+                y1={yN(0)}
+                y2={yN(0)}
+                stroke="var(--faint)"
+                strokeWidth={1}
+                strokeDasharray="2 3"
+              />
+            )}
+            {cumD !== '' && (
+              <path
+                data-slot="tick-cum-path"
+                d={cumD}
+                fill="none"
+                stroke="var(--muted-fg)"
+                strokeWidth={1}
+                strokeOpacity={0.7}
+                pointerEvents="none"
+              />
+            )}
+            {dayD !== '' && (
+              <path
+                data-slot="tick-day-path"
+                d={dayD}
+                fill="none"
+                stroke="var(--team)"
+                strokeWidth={1.75}
+                pointerEvents="none"
+              />
+            )}
+
+            {/* ③ 10분 팀 매수/매도 막대 쌍 */}
+            {bars.map((b) => (
+              <g key={b.slot} data-slot="tick-bucket">
+                <title>{b.title}</title>
+                {b.buy && <rect x={b.buy.x} y={b.buy.y} width={b.buy.w} height={b.buy.h} fill="var(--up)" fillOpacity={0.7} />}
+                {b.sell && (
+                  <rect x={b.sell.x} y={b.sell.y} width={b.sell.w} height={b.sell.h} fill="var(--down)" fillOpacity={0.7} />
+                )}
+              </g>
+            ))}
+
+            {/* ① 가격 선 · 팀 평단 점점선 · 팀 주문 원 — 가격 판 높이 클립 */}
             <g data-slot="tick-price-layer" clipPath={`url(#${clipId}-px)`}>
               <path
                 data-slot="tick-price-path"
@@ -237,6 +389,42 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
                 strokeWidth={1.25}
                 strokeLinejoin="round"
               />
+              {avgD !== '' && (
+                <path
+                  data-slot="tick-team-avg-path"
+                  d={avgD}
+                  fill="none"
+                  stroke="var(--up)"
+                  strokeWidth={1.25}
+                  strokeDasharray="1 2"
+                  pointerEvents="none"
+                />
+              )}
+              {circles.map((c) => {
+                const color = c.side === 'B' ? 'var(--up)' : 'var(--down)';
+                const on = c.order.id === curOrder;
+                return (
+                  <circle
+                    key={c.order.id}
+                    data-slot="tick-order-circle"
+                    data-order-rec={c.lastRec}
+                    data-side={c.side}
+                    cx={x(c.tMs)}
+                    cy={y(c.px)}
+                    r={orderRadiusOf(c.val)}
+                    fill={color}
+                    fillOpacity={0.55}
+                    stroke={on ? 'var(--fg)' : color}
+                    strokeOpacity={0.9}
+                    strokeWidth={on ? 2.5 : 1}
+                    className="cursor-pointer"
+                  >
+                    <title>
+                      {`${kstClock(c.tMs)} 팀 ${SIDE_WORD[c.side]} ${PX_FMT.format(c.qty)}주 · ${fmtAmountC(c.val)} @${PX_FMT.format(c.px)} · ${c.order.pieces}조각`}
+                    </title>
+                  </circle>
+                );
+              })}
             </g>
 
             {/* 현재 틱 커서 — 세 판 관통 */}
@@ -284,10 +472,66 @@ export function TickChart({ session, cursorRec, onSeekMs, onJumpRec, height, cla
             ))}
           </g>
 
-          {!phone && (
-            <text x={L + 4} y={P.y1a + 11} fill="var(--fg-2)" fontWeight={600} aria-hidden="true">
-              가격
+          {/* ② 오른쪽 보라 축(당일 · 하루 범위) · 왼쪽 회색 축(누적 · pos_net 있을 때만) */}
+          {!noTeam && (
+            <g data-slot="tick-day-axis" fill="var(--team)" aria-hidden="true">
+              <text x={xr + 4} y={P.y2a + 9}>
+                {fmtAmountC(dayRange.max)}
+              </text>
+              {dayRange.min !== dayRange.max && (
+                <text x={xr + 4} y={P.y2b - 1}>
+                  {fmtAmountC(dayRange.min)}
+                </text>
+              )}
+            </g>
+          )}
+          {hasCum && (
+            <g data-slot="tick-cum-axis" fill="var(--muted-fg)" aria-hidden="true">
+              <text x={L - 4} y={P.y2a + 9} textAnchor="end">
+                {fmtAmountC(cumRange.max)}
+              </text>
+              {cumRange.min !== cumRange.max && (
+                <text x={L - 4} y={P.y2b - 1} textAnchor="end">
+                  {fmtAmountC(cumRange.min)}
+                </text>
+              )}
+            </g>
+          )}
+          {bucketMax > 0 && (
+            <text data-slot="tick-bucket-max" x={xr + 4} y={P.y3a + 9} fill="var(--muted-fg)" aria-hidden="true">
+              {fmtAmountC(bucketMax)}
             </text>
+          )}
+          {noTeam && (
+            <g fill="var(--muted-fg)" aria-hidden="true">
+              <text x={midX} y={(P.y2a + P.y2b) / 2 + 4} textAnchor="middle">
+                팀 체결 없음
+              </text>
+              <text x={midX} y={(P.y3a + P.y3b) / 2 + 4} textAnchor="middle">
+                팀 체결 없음
+              </text>
+            </g>
+          )}
+
+          {/* 판 제목(데스크톱만 · 폰은 생략 — 스케치 019) */}
+          {!phone && (
+            <g fontWeight={600} aria-hidden="true">
+              <text x={L + 4} y={P.y1a + 11} fill="var(--fg-2)">
+                가격 · <tspan fill="var(--up)">팀 평단</tspan> · 팀 주문 원(≥500만)
+              </text>
+              <text x={L + 4} y={P.y2a + 10} fill="var(--team)">
+                당일 팀 순매수
+                {hasCum && (
+                  <tspan fill="var(--muted-fg)" fontWeight={400}>
+                    {' '}
+                    · 누적(이월 포함 · 왼쪽 회색 축)
+                  </tspan>
+                )}
+              </text>
+              <text x={L + 4} y={P.y3a + 10} fill="var(--fg-2)">
+                10분 팀 매수 / 매도
+              </text>
+            </g>
           )}
 
           {/* 커서 시각 라벨(아래 눈금 띠) */}

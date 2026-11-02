@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { fmtTickTime } from '@gh-radar/shared';
+import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
@@ -37,6 +37,10 @@ export interface TickViewerProps {
   /** 열기 시점의 URL `t` — 열린 뒤 URL 이 바뀌어도 다시 읽지 않는다. */
   initialT: string | null;
   onTick?: (label: { time: string; seq: number | null }) => void;
+  /** 열기 응답 `accum`(차트 누적 선 · 팀 패널 누적 — D-09). */
+  accum?: TickOpenResponse['accum'];
+  /** 당일 화면 — 누적 선 없음(D-09). */
+  isToday?: boolean;
 }
 
 /** HTS 칸 렌더 문맥 — 칸마다 같은 세션 · 커서를 본다. */
@@ -99,7 +103,7 @@ const HTS_PANES: readonly HtsPane[] = [
   },
 ];
 
-export function TickViewer({ session, urlState, initialT, onTick }: TickViewerProps) {
+export function TickViewer({ session, urlState, initialT, onTick, accum = null, isToday = false }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState });
   const { rec } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
@@ -118,6 +122,8 @@ export function TickViewer({ session, urlState, initialT, onTick }: TickViewerPr
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
       <TickChart
         session={session}
+        accum={accum}
+        isToday={isToday}
         cursorRec={rec}
         onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
         onJumpRec={cursor.jumpToRec}
