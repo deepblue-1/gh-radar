@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 37 목업 — 틱 전문 뷰어 진입 · 빈 상태</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* gh-radar globals.css 토큰 — 스케치 019 와 같은 사본 */
+.f {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border-subtle:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f1ff; --flat:#6b7684; --team:#a234c7; --team-bg:#f9f0fc;
+  --vi:#d97706; --vi-bg:#fff4e6; --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da; --primary:#3182f6; --primary-fg:#fff;
+  --font:'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); flex: none; overflow: hidden; display: flex; flex-direction: column;
+}
+.f.dark { --bg:#0a0a0a; --surface:#0a0a0a; --card:#151515; --muted:#2d2d2d; --raised-2:#3d3d3d; --fg:#ffffff; --fg-2:#e4e4e4; --muted-fg:#9e9e9e; --faint:#636363;
+  --border-subtle:#3d3d3d; --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16); --flat:#9e9e9e; --team:#c353e5; --team-bg:rgba(174,61,209,.16);
+  --vi:#ffb020; --vi-bg:rgba(255,176,32,.16); --pill-on-bg:#4e4e4e; --pill-on-fg:#fff; --primary:#3485fa; }
+.f.phone { width: 390px; height: 800px; }
+.f.desktop { width: 1280px; height: 800px; }
+.num { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .mf { color: var(--muted-fg); } .team-c { color: var(--team); }
+
+/* 머리 (019 동형) */
+.hdr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px 8px; }
+.phone .hdr { padding: 10px 12px 6px; gap: 6px 10px; }
+.hdr h1 { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.phone .hdr h1 { font-size: 15px; }
+.src { display: inline-flex; align-items: center; background: var(--muted); color: var(--muted-fg); border-radius: 6px; padding: 2px 8px; font-size: 11px; white-space: nowrap; font-weight: 500; }
+.src.live { background: var(--up-bg); color: var(--up); }
+.sel { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pill { font: inherit; font-size: 12.5px; font-weight: 600; background: var(--card); color: var(--fg); border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.pill small { color: var(--muted-fg); font-weight: 500; }
+.pill .arr { color: var(--muted-fg); font-size: 11px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; }
+.seg button { font: inherit; font-size: 11.5px; font-weight: 600; border: 0; background: transparent; color: var(--fg-2); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.seg button.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+
+/* 검색 입력 */
+.srch { position: relative; display: flex; align-items: center; height: 36px; border-radius: 12px; background: var(--card); padding: 0 12px; gap: 8px; min-width: 280px; }
+.phone .srch { min-width: 0; flex: 1 1 100%; }
+.srch svg { width: 15px; height: 15px; color: var(--muted-fg); flex: none; }
+.srch input { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--fg); flex: 1; min-width: 0; outline: 0; }
+.srch input::placeholder { color: var(--faint); }
+.srch kbd { font: inherit; font-size: 10px; color: var(--faint); border: 1px solid var(--border-subtle); border-radius: 5px; padding: 1px 5px; }
+.phone .srch kbd { display: none; }
+.srch.big { height: 52px; border-radius: 16px; font-size: 15px; width: 100%; max-width: 520px; box-shadow: 0 0 0 1px var(--border-subtle); }
+.srch.big input { font-size: 15px; }
+.srch.big svg { width: 18px; height: 18px; }
+.sug { position: absolute; top: 40px; left: 0; right: 0; background: var(--card); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25), 0 0 0 1px var(--border-subtle); padding: 6px; z-index: 5; }
+.sug div { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.sug div:hover, .sug div.on { background: var(--muted); }
+.sug b { font-weight: 600; }
+.sug small { color: var(--muted-fg); font-size: 11px; }
+.sug .st { margin-left: auto; font-size: 10.5px; }
+
+/* 본문 */
+.body { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 16px; }
+.phone .body { padding: 4px 12px 12px; }
+.panel { background: var(--card); border-radius: 14px; overflow: hidden; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12.5px; font-weight: 700; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.ph small { font-weight: 500; color: var(--muted-fg); font-size: 11px; }
+.ph .seg { margin-left: auto; }
+.ph .seg button { padding: 3px 9px; font-size: 11px; }
+
+/* 격자 종목 목록 */
+table.lst { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.lst th { font-size: 10.5px; font-weight: 600; color: var(--muted-fg); background: var(--muted); padding: 6px 12px; text-align: left; white-space: nowrap; }
+.lst th.r, .lst td.r { text-align: right; }
+.lst td { height: 40px; padding: 0 12px; white-space: nowrap; border-top: 1px solid var(--border-subtle); cursor: pointer; }
+.lst tr:hover td { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+.lst td.nm b { font-weight: 600; }
+.lst td.nm small { color: var(--muted-fg); font-size: 11px; margin-left: 6px; }
+.phone .lst td.nm small { display: block; margin: 0; }
+.lst td.rt { font-weight: 700; }
+.tag { display: inline-flex; align-items: center; height: 18px; border-radius: 5px; padding: 0 6px; font-size: 10px; font-weight: 700; margin-right: 4px; white-space: nowrap; }
+.tag.acc { background: var(--team-bg); color: var(--team); }
+.tag.r15 { background: var(--up-bg); color: var(--up); }
+.tag.req { background: var(--muted); color: var(--muted-fg); }
+.tag.live { background: var(--up-bg); color: var(--up); }
+.tag.conv { background: var(--vi-bg); color: var(--vi); }
+.tag.nxt { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.lst td.go { color: var(--faint); text-align: right; width: 24px; }
+.phone .lst .hide-p { display: none; }
+
+/* 빈 상태 / 상태 카드 */
+.center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 48px 16px; }
+.center h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.center p { margin: 0; font-size: 12.5px; color: var(--muted-fg); line-height: 1.6; max-width: 420px; }
+.center .ico { width: 44px; height: 44px; border-radius: 14px; background: var(--muted); display: flex; align-items: center; justify-content: center; color: var(--muted-fg); font-size: 20px; }
+.state { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+.state .ico { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex: none; font-size: 18px; }
+.state .ico.conv { background: var(--vi-bg); color: var(--vi); }
+.state .ico.live { background: var(--up-bg); color: var(--up); }
+.state .ico.ok { background: var(--team-bg); color: var(--team); }
+.state b { font-size: 13.5px; }
+.state p { margin: 2px 0 0; font-size: 12px; color: var(--muted-fg); line-height: 1.5; }
+.state .act { margin-left: auto; display: flex; gap: 6px; }
+.phone .state { flex-wrap: wrap; }
+.phone .state .act { margin-left: 54px; }
+.tb { font: inherit; font-size: 12px; font-weight: 600; height: 30px; border-radius: 9px; border: 0; background: var(--muted); color: var(--fg); padding: 0 12px; cursor: pointer; }
+.tb.pri { background: var(--primary); color: var(--primary-fg); }
+.prog { height: 4px; background: var(--muted); border-radius: 2px; overflow: hidden; margin: 0 16px 14px; }
+.prog i { display: block; height: 100%; width: 38%; background: var(--vi); border-radius: 2px; animation: ind 1.6s ease-in-out infinite; }
+@keyframes ind { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+/* 최근 본 */
+.recent { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; padding: 12px; }
+.phone .recent { grid-template-columns: 1fr; }
+.rc { background: var(--muted); border-radius: 12px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.rc b { font-size: 13px; }
+.rc small { font-size: 11px; color: var(--muted-fg); }
+.rc .t { font-size: 11px; color: var(--fg-2); }
+
+/* 아래 HTS 3단 자리 (흐림) */
+.ghost { margin-top: 10px; display: grid; grid-template-columns: 300px 1fr 300px; gap: 10px; opacity: .35; filter: blur(.4px); pointer-events: none; }
+.phone .ghost { grid-template-columns: 1fr; }
+.ghost .panel { height: 180px; }
+.cap { font-size: 11px; color: var(--faint); padding: 10px 2px 0; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span><button data-v="A" class="on">A 검색 + 그날 격자 목록</button><button data-v="B">B 검색창만</button><button data-v="C">C 검색 + 최근 본</button></div>
+  <div class="g"><span class="l">상태</span><button data-s="empty" class="on">빈 상태</button><button data-s="typing">검색 중</button><button data-s="conv">미변환 종목 고름</button><button data-s="today">당일 종목</button><button data-s="nodata">그 날짜 자료 없음</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="desktop" class="on">데스크톱 1280</button><button data-w="phone">폰 390</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const DESC = {
+  A: '<b>A 검색 + 그날 격자 목록</b> — 머리에 종목 검색(기존 전역 검색 재사용 · 이름/코드), 날짜 알약(보고서 동형 ‹ › + 달력), KRX|NXT. 빈 상태는 <b>그 날짜에 이미 격자가 있는 종목</b>을 등락률순으로 — 출처 칩(매집감지 · 15%↑ · 요청 변환 · 오늘은 라이브). 클릭하면 바로 열린다. 검색으로 고른 미변환 종목은 「변환 중」 상태 카드.',
+  B: '<b>B 검색창만</b> — 빈 상태는 가운데 큰 검색 입력 하나. 목록 없음. 가장 단순 · 어떤 종목이 준비돼 있는지는 검색해 봐야 안다(제안 목록의 상태 칩으로만).',
+  C: '<b>C 검색 + 최근 본</b> — 빈 상태는 이 기기에서 최근 열어 본 (종목, 날짜) 카드 10장(localStorage). 격자 목록은 없고 「다시 이어 보기」 에 최적.',
+};
+const STATE_DESC = {
+  empty: '종목을 아직 고르지 않은 진입 화면.',
+  typing: '검색 입력 중 — 제안 행마다 그 날짜의 준비 상태 칩(격자 있음 · 변환 필요 · 오늘 라이브).',
+  conv: '격자에 없는 (종목, 날짜)를 골랐다 — Cloud Run Job 을 그 종목만 켜고 기다린다. 끝나면 격자에 남아 다음부터 바로.',
+  today: '오늘 날짜 종목 — 119 에 08:00~지금 하루치를 한 번 요청해 받는 중(기록 1초 + 전송 · 동시 1~2건이라 줄 설 수 있음).',
+  nodata: '휴장일·보관 기간(90일) 밖·GCS 에 아직 없는 날짜(오늘 밤 22:00 이후).',
+};
+let V='A', S='empty', W='desktop', T='dark';
+
+const DATE = '2026-10-30';
+const GRID = [
+  ['101360','한선엔지니어링',  'KRX', 29.9, ['acc','r15'], 'A'],
+  ['065370','제이아이테크',   'KRX', 29.8, ['acc','r15'], 'A'],
+  ['091120','이엠텍',        'KRX', 24.1, ['r15'], 'A'],
+  ['052260','SK증권',        'KRX', 21.7, ['acc','r15'], 'A'],
+  ['036190','금화피에스시',    'KRX', 18.4, ['r15'], 'A'],
+  ['005930','삼성전자',       'KRX',  3.2, ['acc'], 'A'],
+  ['000660','SK하이닉스',     'KRX',  1.8, ['req'], 'A'],
+  ['462510','에스티아이',     'NXT', 15.6, ['r15','nxt'], 'A'],
+  ['214870','뉴지랩파마',     'KRX', 16.9, ['acc','r15'], 'A'],
+  ['035720','카카오',        'KRX', -0.9, ['req'], 'A'],
+];
+const TAG = { acc:'매집감지', r15:'15%↑', req:'요청 변환', live:'라이브', conv:'변환 중', nxt:'NXT' };
+const RECENT = [
+  ['한선엔지니어링','101360','2026-10-22','09:07:50.300'],
+  ['빅텍','065450','2026-10-22','13:41:02.118'],
+  ['SK증권','052260','2026-10-29','10:12:33.004'],
+  ['제이아이테크','065370','2026-10-30','09:03:15.771'],
+  ['삼성전자','005930','2026-11-02','09:31:08.512'],
+  ['에스티아이','462510','2026-10-16','13:00:41.090'],
+];
+
+function hdr(opts) {
+  const today = S==='today';
+  const date = today ? '2026-11-02' : (S==='nodata' ? '2026-11-01' : DATE);
+  const big = V==='B' && S==='empty';
+  const srch = big ? '' : '<div class="srch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input placeholder="종목명 · 코드" value="'+(S==='typing'?'한선':'')+'"><kbd>/</kbd>'+
+    (S==='typing' ? '<div class="sug">'+
+      '<div class="on"><b>한선엔지니어링</b><small>101360 · 코스닥</small><span class="st tag acc">격자 있음</span></div>'+
+      '<div><b>한선</b><small>— · 상장폐지</small><span class="st tag req">변환 필요 · 약 4분</span></div>'+
+      '<div><b>한선물산</b><small>233240</small><span class="st tag live">오늘 · 라이브</span></div></div>' : '')+'</div>';
+  return '<div class="hdr"><h1>틱 전문 뷰어 '+(today?'<span class="src live">당일 · 요청형</span>':'<span class="src">과거 · 격자</span>')+'</h1>'+
+    srch+
+    '<div class="sel"><button class="pill"><span class="arr">‹</span>'+date+'<small>'+(today?'오늘':'목')+'</small><span class="arr">›</span></button>'+
+    '<span class="seg"><button class="on">KRX</button><button>NXT</button></span></div></div>';
+}
+
+function stateCard() {
+  if (S==='conv') return '<div class="panel"><div class="state"><div class="ico conv">⟳</div><div><b>SK하이닉스 · 2026-10-30 변환 중</b><p>원본(GCS)에서 이 종목만 꺼내 격자로 만들고 있어요 · 약 4분 · 끝나면 자동으로 열려요. 한 번 변환하면 90일 동안 바로 열려요.</p></div><div class="act"><button class="tb">취소</button></div></div><div class="prog"><i></i></div></div>';
+  if (S==='today') return '<div class="panel"><div class="state"><div class="ico live">●</div><div><b>삼성전자 · 오늘 · 08:00~지금 하루치 받는 중</b><p>119 에서 전문을 가져오고 있어요 · 지금 1건 앞에 대기 · 받은 뒤에는 5초마다 새 틱만 이어 받아요(끝 틱을 보고 있을 때만).</p></div><div class="act"><button class="tb">취소</button></div></div><div class="prog"><i></i></div></div>';
+  if (S==='nodata') return '<div class="panel"><div class="center"><div class="ico">∅</div><h2>2026-11-01 (토) 자료가 없어요</h2><p>거래일이 아니거나, 아직 원본이 올라오지 않았거나(당일 22:00 이후), 보관 기간 90일 밖이에요.</p><button class="tb">최근 거래일 10-31 로</button></div></div>';
+  return '';
+}
+
+function listA() {
+  const rows = GRID.map(r => {
+    const rate = r[3]; const cls = rate>0?'up':(rate<0?'down':'mf');
+    const tags = r[4].map(t => '<span class="tag '+t+'">'+TAG[t]+'</span>').join('');
+    return '<tr><td class="nm"><b>'+r[1]+'</b><small>'+r[0]+' · '+r[2]+'</small></td><td class="rt r '+cls+' num">'+(rate>0?'+':'')+rate.toFixed(1)+'%</td><td class="hide-p">'+tags+'</td><td class="go">›</td></tr>';
+  }).join('');
+  return '<div class="panel"><div class="ph">'+DATE+' 격자 종목 <small>'+GRID.length+'종목 · 매집감지 등록 + 15%↑ 자동 · 요청 변환분</small><span class="seg"><button class="on">등락률</button><button>이름</button></span></div>'+
+    '<table class="lst"><thead><tr><th>종목</th><th class="r">등락률</th><th class="hide-p">출처</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="cap">목록에 없는 종목은 위 검색으로 — 그 종목만 변환해서 열어요(약 4분 · GCS 읽기 요금).</div>';
+}
+function emptyB() {
+  return '<div class="panel"><div class="center"><div class="ico">⌕</div><h2>종목을 검색하세요</h2>'+
+    '<div class="srch big"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input placeholder="종목명 · 코드 — 어느 종목이든 KRX · NXT"></div>'+
+    '<p>'+DATE+' 의 틱 전문을 열어요. 아직 변환되지 않은 종목은 그 종목만 변환해서(약 4분) 열어요.</p></div></div>';
+}
+function recentC() {
+  const cards = RECENT.map(r => '<div class="rc"><b>'+r[0]+' <small>'+r[1]+'</small></b><span class="t">'+r[2]+' · '+r[3]+'</span><small>'+(r[2]==='2026-11-02'?'오늘 · 라이브':'격자 있음')+' · 이어 보기</small></div>').join('');
+  return '<div class="panel"><div class="ph">최근 본 종목 <small>이 기기 · 마지막 틱 시각으로 이어서</small></div><div class="recent">'+cards+'</div></div>'+
+    '<div class="cap">처음이면 위 검색으로 — 어느 종목이든 KRX · NXT.</div>';
+}
+
+function ghost() {
+  return '<div class="ghost"><div class="panel"><div class="ph">호가 10단</div></div><div class="panel"><div class="ph">전문 목록</div></div><div class="panel"><div class="ph">이 주문 · 거래대금 · 팀</div></div></div>';
+}
+
+function render() {
+  const f = document.createElement('div');
+  f.className = 'f '+W+' '+T;
+  let body = '';
+  const st = stateCard();
+  if (st) body = st + ghost();
+  else if (S==='typing') body = (V==='A'?listA():(V==='B'?emptyB():recentC()));
+  else body = (V==='A'?listA():(V==='B'?emptyB():recentC()));
+  f.innerHTML = hdr() + '<div class="body">' + body + '</div>';
+  const stage = document.getElementById('stage'); stage.innerHTML=''; stage.appendChild(f);
+  document.getElementById('desc').innerHTML = DESC[V] + '<br>상태 — ' + STATE_DESC[S];
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  const g = b.parentElement; g.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  if (b.dataset.v) V=b.dataset.v; if (b.dataset.s) S=b.dataset.s; if (b.dataset.w) W=b.dataset.w; if (b.dataset.t) T=b.dataset.t;
+  render();
+}));
+render();
+</script>
+</body>
+</html>
