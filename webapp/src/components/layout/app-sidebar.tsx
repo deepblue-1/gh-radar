@@ -184,6 +184,8 @@ const NAV_LIMITUP_REPORT = { href: "/analytics/limitup", label: "상한가 보�
 const NAV_TEAMFLOW = { href: "/analytics/teamflow", label: "팀 매집 보고서" } as const;
 // Phase 34 D-27 — 분석 하위 · 팀 매집 보고서 다음 · AI 애널리스트 앞. 차단은 server RPC 게이트(403 DMA_UNMAPPED) + DmaGate(위 ④).
 const NAV_ACCUM = { href: "/analytics/accum", label: "매집감지 보고서" } as const;
+// Phase 37 D-14 — 분석 하위 · 매집감지 보고서 다음 · AI 애널리스트 앞. 차단은 server RPC 게이트(403 DMA_UNMAPPED) + DmaGate(위 ④).
+const NAV_TICKS = { href: "/analytics/ticks", label: "틱 전문 뷰어" } as const;
 
 /**
  * 「Admin」 그룹 제목 = `/admin/users` 링크(Phase 29 D-13). 하위 = 사용자 · 서버 · 발사(Phase 35 D-11) · 매매손익(Phase 36 D-17). 위치는 「분석」 뒤 · My page 앞(목업 A
@@ -605,6 +607,7 @@ export function AppSidebar() {
   const limitupActive = pathname.startsWith(NAV_LIMITUP_REPORT.href);
   const teamflowActive = pathname.startsWith(NAV_TEAMFLOW.href);
   const accumActive = pathname.startsWith(NAV_ACCUM.href);
+  const ticksActive = pathname.startsWith(NAV_TICKS.href);
   const inAdmin = pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`);
   /*
     사이드바에는 **켜진 전략**(`isActiveStrategy` — 매수·매도 스위치 또는 취소잔량)만 싣는다
@@ -704,6 +707,15 @@ export function AppSidebar() {
                     label={NAV_ACCUM.label}
                     item="accum"
                     active={accumActive}
+                    rail={rail}
+                  />
+                </li>
+                <li>
+                  <SubNavLink
+                    href={NAV_TICKS.href}
+                    label={NAV_TICKS.label}
+                    item="ticks"
+                    active={ticksActive}
                     rail={rail}
                   />
                 </li>
