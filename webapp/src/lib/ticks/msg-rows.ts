@@ -221,6 +221,26 @@ export function orderShapeLabel(order: Pick<ViewOrder, 'kind'>): string {
   }
 }
 
+/** 먼저 온 B6 행 꼬리말 — (37-13 Task 2 에서 채운다). */
+export function inversionText(_mode: TickOrderMode, _leadNs: bigint): string {
+  return '';
+}
+
+/** 꼬리 줄 뒤집힘 말 — (37-13 Task 2 에서 채운다). */
+export function tailInversionText(_mode: TickOrderMode, _leadNs: bigint): string {
+  return '';
+}
+
+/** 점선 「⋯ 거래소순 자리」 줄 — (37-13 Task 2 에서 채운다). */
+export function slotText(_session: TickSession, _model: MsgRowsModel, _b6Rec: number): string {
+  return '';
+}
+
+/** B9 · C3 · R8 · A0 · 기타 행 — (37-13 Task 2 에서 채운다). */
+export function fmtOtherRow(_session: TickSession, _rec: number): string {
+  return '';
+}
+
 /** 꼬리 줄 본문 — 「┗ n조각 k단 · 수량주 · 금액 · 지속」(모양 칩 · 뒤집힘 말은 따로 붙인다). */
 export function tailText(order: ViewOrder): string {
   return `┗ ${order.pieces}조각 ${order.nPx}단 · ${fmtQty(order.qty)}주 · ${fmtAmountC(order.val)} · ${fmtDurNs(order.lastNs - order.firstNs)}`;

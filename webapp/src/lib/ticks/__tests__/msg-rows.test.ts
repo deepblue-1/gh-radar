@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { TICK_FIXTURE_DATE, TICK_FIXTURE_ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
-import { a3Msg, b6Msg, synthSession } from '@/test-fixtures/tick-synth';
+import { a3Msg, b6Msg, inversionSession, synthSession } from '@/test-fixtures/tick-synth';
 
 import {
   MSG_ITEM,
@@ -13,9 +13,14 @@ import {
   fmtA3Row,
   fmtB6Row,
   fmtDurNs,
+  fmtLeadMs,
+  fmtOtherRow,
+  inversionText,
   itemIdxOf,
   itemKindOf,
   orderShapeLabel,
+  slotText,
+  tailInversionText,
   tailText,
 } from '../msg-rows';
 import { buildTickSession, recentOrdersOf } from '../tick-session';
@@ -120,6 +125,59 @@ describe('buildMsgRows — 70조각 주문은 71행 + 꼬리 1행', () => {
     expect(s.orders).toHaveLength(1);
     expect(s.orders[0]!.kind).toBe('자전거래방지');
     expect(tailText(s.orders[0]!)).toBe('┗ 70조각 1단 · 7,000주 · 1.20억 · 6.2ms');
+  });
+});
+
+describe('뒤집힘 3 — 수신순 점선 자리 · ↕ 꼬리말 두 꼴 · 다음 역전 (Task 2)', () => {
+  const s = inversionSession();
+
+  it('세션 — 닫는 B6 104 가 9.0ms 먼저(leadNs = 마지막 조각 − B6 수신) · 중복 B6 106', () => {
+    expect(s.inversions).toHaveLength(1);
+    const inv = s.inversionOfB6.get(1)!;
+    expect(inv.leadNs).toBe(9_000_000n);
+    expect(fmtLeadMs(inv.leadNs)).toBe('9.0ms');
+    expect(fmtLeadMs(400_000n)).toBe('0.4ms');
+    expect(s.duplicates[13]).toBe(1);
+    expect(s.duplicates[6]).toBe(0);
+  });
+
+  it('수신순 — B6 는 조각 앞(실제 수신 자리) · 마지막 조각 바로 뒤 SLOT · 그 뒤 꼬리', () => {
+    const m = buildMsgRows(s, 'recv');
+    expect(shapeOf(s, m.items).slice(0, 8)).toEqual(['R100', 'R104', 'R101', 'R102', 'R103', 'S104', 'T0', 'R105']);
+    expect(m.items.length).toBe(s.index.n + 2);
+  });
+
+  it('거래소순 — 제자리라 SLOT 없음 · 꼬리는 닫는 B6 뒤', () => {
+    const m = buildMsgRows(s, 'exchange');
+    const shape = shapeOf(s, m.items);
+    expect(shape.slice(0, 6)).toEqual(['R100', 'R101', 'R102', 'R103', 'R104', 'T0']);
+    expect(shape.some((x) => x.startsWith('S'))).toBe(false);
+  });
+
+  it('꼬리말 두 꼴 · 꼬리 줄 · 점선 문구', () => {
+    expect(inversionText('recv', 9_000_000n)).toBe('↕ 9.0ms 먼저 수신');
+    expect(inversionText('exchange', 9_000_000n)).toBe('↕ 수신은 9.0ms 먼저');
+    expect(tailInversionText('exchange', 9_000_000n)).toBe('· 닫는 B6 ↕ 9.0ms 먼저');
+    expect(tailInversionText('recv', 9_000_000n)).toBe('· 닫는 B6 ↕ 9.0ms 먼저 수신');
+    const m = buildMsgRows(s, 'recv');
+    expect(slotText(s, m, 1)).toBe('⋯ 거래소순 자리 — 이 B6 는 9.0ms 먼저 수신돼 위 4행에 있음');
+  });
+
+  it('다음 역전 — 자리 뒤 첫 역전 B6 · 없으면 -1', () => {
+    const ex = buildMsgRows(s, 'exchange');
+    expect(ex.nextInversionFrom(0)).toBe(ex.posOfRec[1]);
+    expect(ex.nextInversionFrom(ex.posOfRec[1]!)).toBe(-1);
+    const rv = buildMsgRows(s, 'recv');
+    expect(rv.nextInversionFrom(0)).toBe(1);
+  });
+
+  it('기타 · B9 · C3 · R8 · A0 행 문구', () => {
+    expect(fmtOtherRow(s, 7)).toBe('거래원 매수1 교보 3,400 · 매도1 한국 1,200');
+    expect(fmtOtherRow(s, 8)).toBe('프로그램 순매수 차익 +600 · 비차익 −500');
+    expect(fmtOtherRow(s, 9)).toBe('VI 발동(정적) 기준가 16,400 · 발동가 18,040');
+    expect(fmtOtherRow(s, 10)).toBe('VI 해제');
+    expect(fmtOtherRow(s, 11)).toBe('종목 정보 ECOANDDREAM');
+    expect(fmtOtherRow(s, 12)).toBe('기타 · A3 · 01S · 150B');
   });
 });
 

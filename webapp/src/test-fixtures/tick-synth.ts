@@ -191,6 +191,31 @@ export function synthNs(ms: number): bigint {
   return dayStartNs(SYNTH_DATE, '1300') + BigInt(Math.round(ms * 1e6));
 }
 
+/**
+ * 뒤집힘 · 기타 행 합성 하루(rec = 목록 순서 = 수신순).
+ *  0 B6 100 · 1 B6 104(닫는 B6 — 9.0ms 먼저 수신) · 2~4 A3 101~103(팀 SMP 3조각 · 마지막 10.0ms) ·
+ *  5 A3 105(1조각 매도) · 6 B6 106 · 7 B9 · 8 C3 · 9 R8 107 발동 · 10 R8 108 해제 · 11 A0 · 12 길이 틀린 A3(기타) ·
+ *  13 B6 106 다시(중복).
+ */
+export function inversionSession(): TickSession {
+  return synthSession([
+    [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121] })],
+    [1, b6Msg({ seq: 104, ask1: [16450, 10], bid1: [16400, 20] })],
+    [1.05, a3Msg({ seq: 101, bs: '2', px: 16400, qty: 100, time: '130000001000' })],
+    [1.1, a3Msg({ seq: 102, bs: '2', px: 16400, qty: 200, time: '130000001100' })],
+    [10, a3Msg({ seq: 103, bs: '2', px: 16400, qty: 300, time: '130000001264' })],
+    [11, a3Msg({ seq: 105, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000011000' })],
+    [11.5, b6Msg({ seq: 106, ask1: [16400, 1], bid1: [16350, 2] })],
+    [12, b9Msg({ sell: [['00003', 1200]], buy: [['00001', 3400]] })],
+    [13, c3Msg({ buyArb: 1000, sellArb: 400, buyNonArb: 200, sellNonArb: 700 })],
+    [14, r8Msg({ seq: 107, status: '1', type: '1', basePx: 16400, triggerPx: 18040 })],
+    [15, r8Msg({ seq: 108, status: '2', type: '1', basePx: 16400 })],
+    [16, a0Msg({ name: 'ECOANDDREAM' })],
+    [17, rawMsg('A3', 150)],
+    [18, b6Msg({ seq: 106, ask1: [16400, 1], bid1: [16350, 2] })],
+  ]);
+}
+
 /** (수신 ms, 전문) 목록 → 세션. 파일 순서 = 목록 순서. */
 export function synthSession(msgs: readonly [number, Uint8Array][], ex: TickExchange = 'KRX'): TickSession {
   const buf = concatBytes(msgs.map(([ms, p]) => encodeRecord(synthNs(ms), p)));
