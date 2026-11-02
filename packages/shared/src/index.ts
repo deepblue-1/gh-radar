@@ -272,3 +272,5 @@ export * from "./pnl";
 export * from "./launch";
 // --- Phase 35 범위 7 발사 계획 어드민 — 서버 1대의 4칸 계획 · 변경 이력 행 · 편집 검증 · 「쐈다면」 판정 한 벌 ---
 export * from "./launch-plan";
+// --- Phase 37 틱 전문 뷰어 — 레코드 프레이밍 · LAYOUTS · 디코더(gh-trade tickana packets.py · pcap2parquet 이식) ---
+export * from "./ticks/index";
