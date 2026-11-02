@@ -1,0 +1,150 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type {
+  TickDayResponse,
+  TickOpenGrid,
+  TickOpenResponse,
+  TickTodayResponse,
+} from "@gh-radar/shared";
+
+import { ApiError, DmaUnmapped } from "../errors.js";
+import type { TickOpenQueryT } from "../schemas/ticks.js";
+
+/**
+ * Phase 37 — 틱 전문 뷰어 과거 경로 서비스 (D-03 · D-08 · D-09 · D-15).
+ *
+ * 서비스롤 `SupabaseClient` 를 인자로 받는 순수 함수 모듈(`accum-report.ts` 규약 — 헬퍼는 공용화하지 않고 복제).
+ * 브라우저는 격자 바이트를 서명 URL 로 Storage 에서 직접 받는다(Cloud Run 무경유 · limitup-grid 선례).
+ * server 는 게이트 · 서명 · 요청 변환 트리거만 맡는다.
+ *
+ * ── 방어선 ──────────────────────────────────────────────────
+ *   D-08     게이트는 RPC 안의 `dma_visible_accounts(p_user_id)` 존재 검사가 정본이다. RPC 가 `{access:false}` 를 주면
+ *            403 `DMA_UNMAPPED`. 그 밖의 모양 위반(access 가 boolean 아님 · 배열 아님 · grid 가 null/객체 아님)은 500 `DB_ERROR`.
+ *   T-19-17  인증된 `userId` 하나만 RPC 에 넘긴다(라우트가 requireAuth 로 확정한 값).
+ *   T-19-01  RPC EXECUTE 는 service_role 전용(anon · authenticated 명시 REVOKE — 37-04).
+ *   T-15-07  DB · Storage 오류 원문은 응답에 싣지 않는다(고정 문구 DB_ERROR). 원문은 `cause` 로 실어 errorHandler 가 warn 로그에만.
+ *   비노출   격자 Storage 경로(`object_path`)는 응답에 싣지 않는다 — 서명 URL 만.
+ *
+ * ★ Cloud Run → Supabase 왕복이 지연을 지배하므로 요청 하나 = RPC **1회**(+ 격자가 있을 때만 `createSignedUrl` 1회).
+ */
+
+const DbError = (msg: string, cause: unknown) => new ApiError(500, "DB_ERROR", msg, cause);
+
+/** PostgREST 오류에서 로그에 남길 필드만 — 객체 통째로 싣지 않는다. */
+const causeOf = (e: { message?: string; code?: string; details?: string | null; hint?: string | null }) => ({
+  code: e.code,
+  message: e.message,
+  details: e.details ?? undefined,
+  hint: e.hint ?? undefined,
+});
+/** 응답 모양 위반 — 무엇이 왔는지(타입)만. */
+const shapeCause = (what: string, v: unknown) => ({
+  reason: `${what} 모양 위반`,
+  type: Array.isArray(v) ? "array" : v === null ? "null" : typeof v,
+});
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const FAIL = "틱 전문 뷰어 조회에 실패했습니다.";
+
+/** 비공개 버킷(37-04 마이그레이션이 만든다) · 객체 경로 `grid/<D>/<EX>/<isin>.<mode>.ticks.zst`(변환 Job 이 올린다). */
+export const TICK_GRID_BUCKET = "tick-grid";
+/** 서명 URL 수명(초) — 상한가 격자와 같은 600. 웹은 만료 전까지 쓰고 실패 시 open 을 다시 부른다. */
+export const TICK_GRID_URL_TTL_S = 600;
+
+/** RPC 가 준 jsonb 를 게이트 · 모양 검사한다 — access false → 403 · 그 밖의 위반 → 500. */
+function gate(fn: string, data: unknown): Record<string, unknown> {
+  if (!isObject(data)) throw DbError(FAIL, shapeCause(fn, data));
+  // 403 은 RPC 가 명시적으로 `access:false` 를 줄 때만 — 모양 위반을 게이트로 숨기지 않는다.
+  if (data.access === false) throw DmaUnmapped();
+  if (data.access !== true) throw DbError(FAIL, shapeCause(`${fn}.access`, data.access));
+  return data;
+}
+
+/** 하루 목록 한 장. `d` 생략 = 최신 격자 날짜. 이력 0 이면 200 `date: null · rows: []`. */
+export async function getTickDay(supabase: SupabaseClient, userId: string, d?: string): Promise<TickDayResponse> {
+  const { data, error } = await supabase.rpc("tick_day_for_user", { p_user_id: userId, p_date: d ?? null });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_day_for_user", data);
+  for (const k of ["dates", "rows", "requests"] as const) {
+    if (!Array.isArray(out[k])) throw DbError(FAIL, shapeCause(`tick_day_for_user.${k}`, out[k]));
+  }
+  return out as unknown as TickDayResponse;
+}
+
+/**
+ * 오늘 목록(매집감지 등록 ∪ 고가 +15%). `live` = 당일 바이트 경로가 결선됐는지 — RPC 가 아니라 server 가 덧붙인다
+ * (tickgw 결선 전엔 false → 웹 「당일 자료 준비 중」).
+ */
+export async function getTickToday(
+  supabase: SupabaseClient,
+  userId: string,
+  live: boolean,
+): Promise<TickTodayResponse> {
+  const { data, error } = await supabase.rpc("tick_today_for_user", { p_user_id: userId });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_today_for_user", data);
+  if (!Array.isArray(out.rows)) throw DbError(FAIL, shapeCause("tick_today_for_user.rows", out.rows));
+  return { ...(out as unknown as Omit<TickTodayResponse, "live">), live };
+}
+
+/**
+ * 한 종목 열기. 격자가 있으면 그 객체 하나에 서명 URL 을 붙인다(`object_path` 는 응답에서 뺀다).
+ * 격자가 없으면 서명 0회 · `grid: null` — 웹은 `request`(stale 포함)를 보고 요청 변환을 부른다.
+ */
+export async function openTick(
+  supabase: SupabaseClient,
+  userId: string,
+  q: TickOpenQueryT,
+): Promise<TickOpenResponse> {
+  const { data, error } = await supabase.rpc("tick_open_for_user", {
+    p_user_id: userId,
+    p_date: q.d,
+    p_isin: q.isin,
+    p_ex: q.ex,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_open_for_user", data);
+  const raw = out.grid;
+  if (raw !== null && !isObject(raw)) throw DbError(FAIL, shapeCause("tick_open_for_user.grid", raw));
+
+  let grid: TickOpenGrid | null = null;
+  if (raw) {
+    const path = raw.object_path;
+    if (typeof path !== "string" || path === "") {
+      throw DbError(FAIL, shapeCause("tick_open_for_user.grid.object_path", path));
+    }
+    const signed = await supabase.storage.from(TICK_GRID_BUCKET).createSignedUrl(path, TICK_GRID_URL_TTL_S);
+    if (signed.error || !signed.data?.signedUrl) {
+      throw DbError(
+        "틱 격자 주소 발급에 실패했습니다.",
+        signed.error ? { storage: signed.error.message } : shapeCause("createSignedUrl", signed.data),
+      );
+    }
+    grid = {
+      url: signed.data.signedUrl,
+      expiresIn: TICK_GRID_URL_TTL_S,
+      bytes: raw.bytes as number,
+      records: raw.records as number,
+      a3_count: raw.a3_count as number,
+      mode: raw.mode as TickOpenGrid["mode"],
+      sources: raw.sources as TickOpenGrid["sources"],
+      fmt: raw.fmt as string,
+      first_recv_ms: (raw.first_recv_ms ?? null) as number | null,
+      last_recv_ms: (raw.last_recv_ms ?? null) as number | null,
+      created_at: raw.created_at as string,
+    };
+  }
+
+  return {
+    access: true,
+    date: out.date as string,
+    exchange: out.exchange as TickOpenResponse["exchange"],
+    isin: out.isin as string,
+    stock: (out.stock ?? null) as TickOpenResponse["stock"],
+    grid,
+    request: (out.request ?? null) as TickOpenResponse["request"],
+    accum: (out.accum ?? null) as TickOpenResponse["accum"],
+    eta_s: out.eta_s as number,
+  };
+}

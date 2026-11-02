@@ -274,3 +274,5 @@ export * from "./launch";
 export * from "./launch-plan";
 // --- Phase 37 틱 전문 뷰어 — 레코드 프레이밍 · LAYOUTS · 디코더(gh-trade tickana packets.py · pcap2parquet 이식) ---
 export * from "./ticks/index";
+// --- Phase 37 (37-07) 틱 뷰어 과거 경로 API 계약 — server /api/ticks/{day,today,open,convert,convert/cancel} ↔ webapp (RPC 모양 그대로) ---
+export * from "./tick-api";

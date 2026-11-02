@@ -24,6 +24,7 @@ import { limitupRouter } from "./routes/limitup-report.js";
 import { teamflowRouter } from "./routes/teamflow-report.js";
 import { accumReportRouter } from "./routes/accum-report.js";
 import { accumSignalsRouter } from "./routes/accum-signals.js";
+import { ticksRouter } from "./routes/ticks.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
 import { adminLaunchRouter } from "./routes/admin-launch.js";
@@ -120,6 +121,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/accum", accumReportRouter);
   // quick-261018-rfy — kind 16 매집감지 조회 전용(작업대 「매집」 패널 복원 · isin 별 최신 1행). 적재는 relay 관찰자 기록기.
   app.use("/api/accum-signals", accumSignalsRouter);
+  // Phase 37 D-08 — 틱 전문 뷰어 과거 경로(day · today · open · convert) · 게이트는 RPC 안 · 격자는 서명 URL 로 브라우저가 Storage 에서 직접.
+  app.use("/api/ticks", ticksRouter);
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
   // 걸므로 순서가 반대면 /servers 요청이 역할 조회를 두 번 한다(Cloud Run → Supabase 왕복 +1).
