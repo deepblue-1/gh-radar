@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import type { TeamflowRow } from '@gh-radar/shared';
 
 import { windowKeyTestOf } from '@/lib/teamflow-chart';
@@ -16,6 +18,7 @@ import {
   summaryPartsOf,
   toneOf,
 } from '@/lib/teamflow-report';
+import { TICK_LINK_PILL, teamflowJumpMs, tickHrefOf } from '@/lib/ticks/tick-link';
 import { cn } from '@/lib/utils';
 
 import { TeamflowBandChart } from './teamflow-band-chart';
@@ -45,6 +48,8 @@ const RULES = [
 /**
  * 팀 매집 펼친 상세 (Phase 33 · UI-SPEC T5 — 요약 블록 · D-14).
  *
+ * - (Phase 37 D-17) 머리 오른쪽 「틱 보기 ›」 알약(`tick-link`) — 그 종목 · 그 날짜 · 상한가 도달(reach.t_ms ?? first_limit_ms)
+ *   · 없으면 첫 20% 도달(t20_ms) 시각으로 틱 뷰어를 연다. 링크라 펼침 상태를 바꾸지 않는다.
  * - 루트 `section#tf-{isin}` · `aria-labelledby` = 행 버튼 id(`labelledBy` — 부모 DayGrid 가 `teamflowRowButtonId` 로 준다 ·
  *   import 순환을 피하려 prop 으로 받는다) · 열린 행 바로 아래에만 마운트된다(접으면 언마운트).
  * - 요약 상자: `summary_lines` 번호 목록(1~N · export 순서 · 개수 제한 없음 — 상자가 세로로 늘어난다) → 사실 줄.
@@ -85,6 +90,15 @@ export function TeamflowDetail({ row, labelledBy }: { row: TeamflowRow; labelled
       data-slot="teamflow-detail"
       className="flex flex-col gap-4 px-2 pt-1 pb-6"
     >
+      <div data-slot="teamflow-detail-head" className="flex justify-end">
+        <Link
+          href={tickHrefOf({ isin: row.isin, date: row.date, ms: teamflowJumpMs(row) })}
+          data-slot="tick-link"
+          className={TICK_LINK_PILL}
+        >
+          틱 보기&nbsp;<span aria-hidden="true">›</span>
+        </Link>
+      </div>
       {hasSummary && (
         <div
           data-slot="teamflow-summary"

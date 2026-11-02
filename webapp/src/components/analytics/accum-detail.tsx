@@ -1,6 +1,7 @@
 'use client';
 
 import { Component, Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 
 import type { AccumDetailResponse, AccumDetailRow, AccumReportPayload, TeamflowPnl } from '@gh-radar/shared';
 
@@ -33,6 +34,7 @@ import {
 } from '@/lib/accum-report';
 import { fmtYmdShort } from '@/lib/limitup-report';
 import { TONE_TEXT, fmtEok, fmtPnl, isNum, pnlOf, toneOf } from '@/lib/teamflow-report';
+import { TICK_LINK_PILL, accumJumpMs, tickHrefOf } from '@/lib/ticks/tick-link';
 import { cn } from '@/lib/utils';
 
 import { AccumChart } from './accum-chart';
@@ -44,6 +46,8 @@ import { TeamflowToggle } from './teamflow-toggle';
  *
  * - 루트 `section#ac-{isin}` · `aria-labelledby` = 행 버튼 id(`labelledBy` — 부모 DayGrid 가 `accumRowButtonId` 로 준다 ·
  *   import 순환을 피하려 prop 으로 받는다) · 열린 행 바로 아래에만 마운트된다(접으면 언마운트).
+ * - (Phase 37 D-17) 머리 오른쪽 「틱 보기 ›」 알약(`tick-link`) — 마지막 사이클 등록 시각(`reg_time_ms` · 목록 행 prop
+ *   `regTimeMs`)으로 틱 뷰어를 연다. 이월 행처럼 등록이 그날이 아니면 `t` 없이(08:00 첫 틱). 게이트 상태만 숨긴다.
  * - **지연 로드(D-06):** 마운트 때 `fetchAccumDetail(date, isin)`. 캐시(`accum-detail:{date}:{isin}` · 30분 · 행 있는 응답만)에 있으면 첫 렌더부터
  *   그 값으로 그린다(재펼침 = 요청 0 · 스켈레톤 깜빡임 없음). 언마운트 뒤 도착한 응답은 setState 하지 않는다(캐시에만 남는다).
  * - 상태: 로딩 = 실제 배치 높이 스켈레톤(KPI 줄 → 범례 → 프리셋 → 차트 472 · 사이 8px) + sr 전용 「상세 불러오는 중…」 /
@@ -94,10 +98,16 @@ export function AccumDetail({
   dayAxis = false,
   dayAvg = false,
   prev = null,
+  regTimeMs = null,
 }: {
   date: string;
   isin: string;
   labelledBy: string;
+  /**
+   * 목록 행의 마지막 사이클 등록 시각(Phase 37 D-17) — 「틱 보기 ›」 시각. 로딩 · 오류 중에도 알약이 같은 href 로
+   * 보이게 목록 행에서 받는다(같은 표 같은 행이라 상세 행 값과 같다 · 없으면 준비된 상세 행 값).
+   */
+  regTimeMs?: number | null;
   /** 당일 축 날짜(quick-261026-01h) — KPI 줄 · 판정 기준 본문이 당일 축 모양. */
   dayAxis?: boolean;
   /** 그날 당일 평단 열이 실렸나(quick-261026-0ty · 부모가 dayAxis && hasDayAvgOf(rows)) — KPI 줄에 「당일 평단」. */
@@ -133,6 +143,8 @@ export function AccumDetail({
     setAttempt((n) => n + 1);
   };
 
+  const jumpMs = accumJumpMs({ reg_time_ms: regTimeMs ?? (phase.kind === 'ready' ? phase.row.reg_time_ms : null) });
+
   return (
     <section
       id={`ac-${isin}`}
@@ -140,6 +152,14 @@ export function AccumDetail({
       data-slot="accum-detail"
       className="flex flex-col gap-4 px-2 pt-1 pb-6"
     >
+      {/* Phase 37 D-17 — 그 종목 · 날짜만으로 링크가 성립해 로딩 · 오류 · 자료 없음에서도 보인다(게이트면 뷰어도 막혀 숨김) */}
+      {phase.kind !== 'gate' && (
+        <div data-slot="accum-detail-head" className="flex justify-end">
+          <Link href={tickHrefOf({ isin, date, ms: jumpMs })} data-slot="tick-link" className={TICK_LINK_PILL}>
+            틱 보기&nbsp;<span aria-hidden="true">›</span>
+          </Link>
+        </div>
+      )}
       {phase.kind === 'loading' && (
         <div data-slot="accum-detail-skeleton" className="flex flex-col gap-2">
           <p role="status" aria-live="polite" className="sr-only">

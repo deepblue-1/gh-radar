@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 
 import type { LimitupDate, LimitupEntryRow, LimitupFactRow, LimitupMarkRow } from '@gh-radar/shared';
 
@@ -19,6 +20,7 @@ import {
   type MemberBarGroup,
 } from '@/lib/limitup-lanes';
 import { kstClock, type LimitupDayRow } from '@/lib/limitup-report';
+import { TICK_LINK_PILL, limitupJumpMs, tickHrefOf } from '@/lib/ticks/tick-link';
 import { useLimitupGrid } from '@/lib/use-limitup-grid';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +39,8 @@ import { LimitupLane, eventBandHeight } from './limitup-lane';
  *   두 레인과 사실 목록이 나눠 써서, 마커/문장 어느 쪽에 마우스를 올려도 같은 번호가 함께 강조된다(데스크톱).
  * - 사실 문장 = 원문에서 앞 시각 「HH:MM:SS.mmm 」 만 뗀 것(시각 칸과 중복) · 창구 사실은 머리만 「상한가 직전 1분 매수
  *   창구 (from~to): 」 로 바꾼다(D-04 승인 범위) · 출처 배지 = `facts.source` 글자 그대로.
+ * - (Phase 37 D-17) 카드 머리 오른쪽 「틱 보기 ›」 알약(`tick-link`) — 첫 상한 도달(`first_upper_ms`) · 미도달이면 첫 20% 도달
+ *   (`t20_ms`) 시각으로 틱 뷰어를 연다(entries 행 없으면 `t` 없이). 카드가 펼쳤을 때만 마운트되므로 접힌 행에는 없다.
  * - 카드는 열렸을 때만 마운트되므로 격자 파일을 바로 받는다(`useLimitupGrid`). 로딩 = 높이를 지킨 빈 면 + 「불러오는 중…」 ·
  *   실패 = 「곡선을 불러오지 못했어요」 + 「다시 시도」. 요약 · 사실 문장 · 창구 막대는 보고서 응답이라 격자와 무관하게 보인다.
  */
@@ -258,6 +262,15 @@ export function LimitupEventCard({
       data-isin={row.isin}
       className="min-w-0 px-2 pt-1 pb-5"
     >
+      <div data-slot="limitup-event-head" className="mb-3 flex justify-end">
+        <Link
+          href={tickHrefOf({ isin: row.isin, date, ms: entry ? limitupJumpMs(entry) : null })}
+          data-slot="tick-link"
+          className={TICK_LINK_PILL}
+        >
+          틱 보기&nbsp;<span aria-hidden="true">›</span>
+        </Link>
+      </div>
       {story !== null && (
         <div
           data-slot="limitup-story"

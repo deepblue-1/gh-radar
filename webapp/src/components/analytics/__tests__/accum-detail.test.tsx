@@ -50,6 +50,7 @@ import {
   accumDetailFixture,
   accumReportFixture,
   accumSyntheticDetail,
+  accumSyntheticListRows,
 } from '@/test-fixtures/accum-export';
 
 import { AccumReport } from '../accum-report';
@@ -1296,5 +1297,46 @@ describe('quick-261028-ggj 터치 길게 누르기', () => {
     expect(fireEvent.contextMenu(svg)).toBe(false);
     finger('up', cx, cy);
     expect(fireEvent.contextMenu(svg)).toBe(true);
+  });
+});
+
+describe('AccumDetail 머리 — 「틱 보기 ›」 알약 (Phase 37 D-17)', () => {
+  const linkOf = (sec: HTMLElement) => sec.querySelector<HTMLAnchorElement>('a[data-slot="tick-link"]');
+  const base = (isin: string) => `/analytics/ticks?isin=${isin}&d=${ACCUM_DATE}`;
+
+  it('그날 등록 행 → 마지막 사이클 등록 시각(reg_time_ms 09:12:40) · 상세 머리 · 접근 이름 「틱 보기」', async () => {
+    listOver = accumReportFixture({ rows: accumSyntheticListRows() });
+    const sec = await expand(AC_LIVE);
+    const link = linkOf(sec);
+    expect(link).toBeTruthy();
+    expect(link!.getAttribute('href')).toBe(`${base(AC_LIVE)}&t=09%3A12%3A40.000`);
+    expect(link!.textContent?.replace(/\u00a0/g, ' ')).toBe('틱 보기 ›');
+    expect(link!.closest('[data-slot="accum-detail-head"]')).toBeTruthy();
+    // 알약은 링크 — 누르기 전 상세는 펼친 채(행 버튼 aria-expanded true)
+    expect(document.getElementById(`accum-row-${AC_LIVE}`)!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('이월 행(등록 = 10/10 · 그날 아님) → t 없이(뷰어 기본 08:00 첫 틱)', async () => {
+    listOver = accumReportFixture({ rows: accumSyntheticListRows() });
+    const sec = await expand(AC_CARRY);
+    expect(linkOf(sec)!.getAttribute('href')).toBe(base(AC_CARRY));
+  });
+
+  it('로딩 중에도 목록 행 시각으로 같은 href', async () => {
+    listOver = accumReportFixture({ rows: accumSyntheticListRows() });
+    authFetchMock.mockImplementation((path: string) =>
+      DETAIL_RE.test(path) ? new Promise(() => {}) : routeFetch(path),
+    );
+    const sec = await expand(AC_LIVE);
+    expect(sec.querySelector('[data-slot="accum-detail-skeleton"]')).toBeTruthy();
+    expect(linkOf(sec)!.getAttribute('href')).toBe(`${base(AC_LIVE)}&t=09%3A12%3A40.000`);
+  });
+
+  it('게이트(상세 {access:false}) → 알약 없음', async () => {
+    authFetchMock.mockImplementation((path: string) =>
+      DETAIL_RE.test(path) ? Promise.resolve({ access: false }) : routeFetch(path),
+    );
+    const sec = await expand(CHEONIL);
+    expect(linkOf(sec)).toBeNull();
   });
 });

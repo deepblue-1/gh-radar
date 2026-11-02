@@ -1,7 +1,7 @@
 -- ============================================================
 -- Phase 33 Plan 02 — 팀 매집 보고서 RPC teamflow_report_for_user pgTAP.
 --
--- 대상: 20261016200100_teamflow_report_rpc.sql. 적재는 20261016200000 의 stage → limitup_commit_day(team_flow 쌍)로 채운다.
+-- 대상: 20261016200100_teamflow_report_rpc.sql · 20261102200200_teamflow_report_t20.sql(Phase 37 D-17 행 t20_ms 재정의). 적재는 20261016200000 의 stage → limitup_commit_day(team_flow 쌍)로 채운다.
 --
 -- 잠그는 것(D-05 · D-07):
 --   - 게이트: 가시 계좌(dma_visible_accounts) 없는 사용자 · NULL → {"access": false} 만
@@ -9,6 +9,7 @@
 --   - dates = team_flow 행이 있는 날짜 내림차순 — 0행 commit 날짜 · 옛 워커 적재 날짜(키 없음)는 빠진다
 --   - p_date 없음 = 최신 행 있는 날짜 · 행 없는 날짜 p_date → rows [] (date 는 그 값 · dates 그대로)
 --   - 정렬 team_net_val DESC NULLS LAST, isin · rows[] = 평평한 열(snake_case) + payload 중첩 그대로
+--   - (Phase 37 D-17) rows[].t20_ms = 그날 limitup_entries (date, isin) 의 t20_ms · entries 없으면 키 있음 · null
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · STABLE
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/teamflow_report.test.sql`
@@ -21,7 +22,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(28);
+SELECT plan(30);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -91,7 +92,9 @@ SELECT public.limitup_commit_day('20261013', 'mf-1013', 'sig-1013', 1, '{"team_f
 SELECT pg_temp.st('20261014', 'team_flow', 1, pg_temp.tf('KR7000000223', 500000000, 0.2));
 SELECT pg_temp.st('20261014', 'team_flow', 2, pg_temp.tf('KR7000000222', NULL, NULL));
 SELECT pg_temp.st('20261014', 'team_flow', 3, pg_temp.tf('KR7000000221', 500000000, 0.26));
-SELECT public.limitup_commit_day('20261014', 'mf-1014', 'sig-1014', 1, '{"team_flow":3}');
+-- Phase 37 D-17 — isin 21 만 entries(t20_ms) · 23 · 22 는 entries 없음
+SELECT pg_temp.st('20261014', 'entries', 1, '{"isin":"KR7000000221","schema_version":1,"t20_ms":1792130100000}');
+SELECT public.limitup_commit_day('20261014', 'mf-1014', 'sig-1014', 1, '{"entries":1,"team_flow":3}');
 -- 20261010: team_flow 0 commit(파일 없는 날짜 — 이력은 있다) · 20261011: 옛 워커 commit(team_flow 키 없음)
 SELECT pg_temp.st('20261010', 'entries', 1, '{"isin":"KR7000000210","schema_version":1}');
 SELECT public.limitup_commit_day('20261010', 'mf-1010', 'sig-1010', 1, '{"entries":1,"team_flow":0}');
@@ -139,6 +142,13 @@ SELECT ok(pg_temp.r('latest')->'rows'->0 ? 'first_limit_ms'
           AND jsonb_typeof(pg_temp.r('latest')->'rows'->0->'first_limit_ms') = 'null',
           'G rows[0].first_limit_ms 키 있음 · null');
 SELECT is(jsonb_typeof(pg_temp.r('latest')->'rows'->2->'team_net_val'), 'null', 'G rows[2].team_net_val null(맨 뒤 행)');
+
+-- ── I. (Phase 37 D-17) 행 t20_ms — limitup_entries LEFT JOIN ─────────
+SELECT is((pg_temp.r('latest')->'rows'->0->>'t20_ms')::bigint, 1792130100000::bigint,
+          'I rows[0](KR7000000221 · entries 있음).t20_ms = entries 값');
+SELECT ok(pg_temp.r('latest')->'rows'->1 ? 't20_ms'
+          AND jsonb_typeof(pg_temp.r('latest')->'rows'->1->'t20_ms') = 'null',
+          'I rows[1](KR7000000223 · entries 없음).t20_ms 키 있음 · null');
 
 -- ── H. 권한 · 함수 속성 ────────────────────────────────────────────
 SELECT is(has_function_privilege(r.role, 'public.teamflow_report_for_user(uuid,text)', 'EXECUTE'), r.expect,
