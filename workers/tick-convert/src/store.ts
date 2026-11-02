@@ -15,6 +15,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const GRID_BUCKET = "tick-grid";
 export const GRID_CONTENT_TYPE = "application/zstd";
+/** 격자 파일 상한 — 버킷 `tick-grid` file_size_limit(50MB · 37-04)와 같다. 넘으면 올리지 않고 「너무 큼」 으로 건너뛴다
+ *  (10/30 KR7420610008 실측 — 브라우저가 수백 MB 를 푸는 것도 막는다 · 사용자 결정 2026-11-02). */
+export const GRID_MAX_BYTES = 52_428_800;
 
 export type GridMode = "nightly" | "request" | "promoted";
 export type Exchange = "KRX" | "NXT";

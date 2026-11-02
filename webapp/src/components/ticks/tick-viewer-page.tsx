@@ -90,6 +90,9 @@ function gateOf(err: unknown): DmaGateReason | null {
 const etaMinOf = (s: number | undefined) => Math.max(1, Math.ceil((s ?? 0) / 60));
 const isActive = (r: TickConvertRequest | null) => r !== null && (r.status === 'pending' || r.status === 'running');
 const isNotUploaded = (r: TickConvertRequest | null) => r !== null && r.status === 'failed' && r.error === 'NOT_UPLOADED';
+/** 격자가 상한(50MB)을 넘어 변환하지 않은 종목 — 다시 시도해도 같으니 재시도 없는 카드(2026-11-02 · 10/30 실측). */
+const isTooLarge = (r: TickConvertRequest | null) => r !== null && r.status === 'failed' && r.error === 'TOO_LARGE';
+const TOO_LARGE_MESSAGE = '이 종목은 그날 전문이 너무 많아 뷰어로 열 수 없어요';
 
 /** 변환 상태 폴링 — `active` 동안 `intervalMs` 마다 `tick`. 숨은 탭은 멈추고, 다시 보이면 즉시 1회. */
 function useConvertPolling(active: boolean, tick: () => Promise<void>, intervalMs: number) {
@@ -266,6 +269,7 @@ export function TickViewerPage() {
         return;
       }
       if (isNotUploaded(r)) return void convert(run, resp);
+      if (isTooLarge(r)) return setView({ kind: 'blocked', resp, message: TOO_LARGE_MESSAGE, retry: false });
       if (r !== null && r.status === 'failed') return setView({ kind: 'failed', resp });
       const reason = nodataReasonOf(shown, new Date());
       if (reason !== null) return setView({ kind: 'nodata', resp, reason });
@@ -302,6 +306,7 @@ export function TickViewerPage() {
     const r = resp.request;
     if (resp.grid !== null) return setView({ kind: 'loaded', resp });
     if (isNotUploaded(r)) return setView({ kind: 'nodata', resp, reason: 'not-uploaded' });
+    if (isTooLarge(r)) return setView({ kind: 'blocked', resp, message: TOO_LARGE_MESSAGE, retry: false });
     if (r !== null && (r.status === 'failed' || r.status === 'cancelled' || r.status === 'done')) {
       return setView({ kind: 'failed', resp });
     }

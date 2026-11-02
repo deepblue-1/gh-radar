@@ -37,8 +37,8 @@ import {
 } from "../archive";
 import { scanObjects } from "../scan";
 import { RecordSink, buildGridFile } from "../grid-file";
-import { gridObjectPath, type Exchange, type GridStore } from "../store";
-import { NOT_UPLOADED, NO_RECORDS, createMeta, type FinishResult, type GridRow, type Meta } from "../meta";
+import { GRID_MAX_BYTES, gridObjectPath, type Exchange, type GridStore } from "../store";
+import { NOT_UPLOADED, NO_RECORDS, TOO_LARGE, createMeta, type FinishResult, type GridRow, type Meta } from "../meta";
 
 /** 모드 공용 의존성 — main 이 만들고 테스트가 가짜를 넣는다(37-18 nightly · 37-12 promote 가 같은 모양을 쓴다). */
 export type JobDeps = {
@@ -67,6 +67,8 @@ export type RequestRunResult = {
   noRecords: number;
   /** NOT_UPLOADED 로 닫은 종목 수(실패 아님). */
   notUploaded: number;
+  /** TOO_LARGE 로 닫은 종목 수(`GRID_MAX_BYTES` 초과 · 실패 아님). */
+  tooLarge: number;
   /** 실패로 세는 종목 수(업로드 · 메타 · 통독) — NO_RECORDS 제외. 0 이 아니면 종료 1. */
   failed: number;
   bytesRead: number;
@@ -169,6 +171,13 @@ async function convertClaimed(
       const path = gridObjectPath(date, ex, isin, "request");
       try {
         const g = buildGridFile(st.sink.bytes(), deps.config.zstdLevel);
+        if (g.bytes.length > GRID_MAX_BYTES) {
+          logger.warn({ date, ex, isin, bytes: g.bytes.length, max: GRID_MAX_BYTES }, "tick-convert request grid too large — TOO_LARGE(실패 아님)");
+          results.push({ isin, ok: false, error: TOO_LARGE });
+          res.tooLarge += 1;
+          want.delete(isin);
+          continue;
+        }
         await deps.store.upload(path, g.bytes);
         rows.push({
           date,
@@ -236,6 +245,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
     written: 0,
     noRecords: 0,
     notUploaded: 0,
+    tooLarge: 0,
     failed: 0,
     bytesRead: 0,
     packets: 0,
@@ -287,7 +297,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
   logger.info(
     { result: res },
     `[tick-convert] mode=request date=${date} ex=${ex} ready=${res.ready ?? "-"} targets=${res.targets} ` +
-      `written=${res.written} no_records=${res.noRecords} not_uploaded=${res.notUploaded} failed=${res.failed} ` +
+      `written=${res.written} no_records=${res.noRecords} not_uploaded=${res.notUploaded} too_large=${res.tooLarge} failed=${res.failed} ` +
       `bytes_read=${res.bytesRead} ms=${res.durationMs}`,
   );
   return res;

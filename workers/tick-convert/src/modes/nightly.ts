@@ -42,7 +42,7 @@ import { buildGridFile } from "../grid-file";
 import { KeyStager } from "../stage";
 import { selectTargets, sourcesOf } from "../select";
 import { purgeOld } from "../purge";
-import { gridObjectPath, type Exchange } from "../store";
+import { GRID_MAX_BYTES, gridObjectPath, type Exchange } from "../store";
 import { createMeta, type GridRow, type Meta, type RunSince } from "../meta";
 import { UsageError, validYmd, type JobDeps } from "./request";
 
@@ -106,6 +106,8 @@ export type ExchangeResult = {
   /** 격자를 만들려고 한 대상 키 수(그 거래소에 레코드가 있는 대상 ISIN). */
   targets: number;
   written: number;
+  /** `GRID_MAX_BYTES` 를 넘어 건너뛴 키 수(실패 아님). */
+  tooLarge: number;
   failed: number;
   bytesRead: number;
   error: string | null;
@@ -146,7 +148,7 @@ function msgOf(err: unknown): string {
 }
 
 function emptyEx(exchange: Exchange): ExchangeResult {
-  return { exchange, targets: 0, written: 0, failed: 0, bytesRead: 0, error: null };
+  return { exchange, targets: 0, written: 0, tooLarge: 0, failed: 0, bytesRead: 0, error: null };
 }
 
 function judgeDay(root: string, date: string, now: Date): DayReady {
@@ -199,6 +201,11 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       const path = gridObjectPath(date, ex, isin, "nightly");
       try {
         const g = buildGridFile(stager.take(key), cfg.zstdLevel);
+        if (g.bytes.length > GRID_MAX_BYTES) {
+          logger.warn({ date, ex, isin, bytes: g.bytes.length, max: GRID_MAX_BYTES }, "tick-convert nightly grid too large — 건너뜀(실패 아님)");
+          er.tooLarge += 1;
+          continue;
+        }
         await deps.store.upload(path, g.bytes);
         const tr = rates.get(key);
         rows.push({
@@ -310,7 +317,7 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     }
     logger.info(
       { date, ex: er.exchange, result: er },
-      `[tick-convert] mode=nightly date=${date} ex=${er.exchange} targets=${er.targets} written=${er.written} ` +
+      `[tick-convert] mode=nightly date=${date} ex=${er.exchange} targets=${er.targets} written=${er.written} too_large=${er.tooLarge} ` +
         `bytes_read=${er.bytesRead} staged=${day.stagedPeak} ready=${day.ready} ms=${day.durationMs}` +
         (er.error ? ` error=${er.error}` : ""),
     );

@@ -358,6 +358,17 @@ describe('TickViewerPage — 요청 변환 흐름 (D-03)', () => {
     expect(api.postTickConvert).toHaveBeenCalledTimes(1);
   });
 
+  it('TOO_LARGE(격자 50MB 초과) → convert 0 · 「너무 많아」 카드 · 재시도 없음', async () => {
+    openSeq(openResp({ request: req({ status: 'failed', error: 'TOO_LARGE' }) }));
+    await mount(`isin=${ISIN}&d=${D}`);
+    expect(screen.getByText(/전문이 너무 많아 뷰어로 열 수 없어요/)).toBeInTheDocument();
+    expect(screen.queryByText(/변환에 실패했어요/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /다시 시도/ })).toBeNull();
+    await tick(30_000);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(0);
+    expect(api.fetchTickOpen).toHaveBeenCalledTimes(1);
+  });
+
   it('NOT_UPLOADED 상태로 다시 열면 convert 1회 → not_uploaded → 같은 카드(누계 1 · 실패 문구 0)', async () => {
     openSeq(openResp({ request: req({ status: 'failed', error: 'NOT_UPLOADED' }) }));
     api.postTickConvert.mockResolvedValue(

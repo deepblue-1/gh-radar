@@ -18,6 +18,8 @@ import type { Exchange, GridMode } from "./store";
 export const NO_RECORDS = "NO_RECORDS";
 /** 요청 결과 코드 — 그 (날짜, 라벨) 원본이 아직 다 올라오지 않았다(업로드 전 · 하루 상한 비소모 · 37-04). */
 export const NOT_UPLOADED = "NOT_UPLOADED";
+/** 요청 결과 코드 — 격자가 `GRID_MAX_BYTES` 를 넘어 올리지 않았다(실패 아님 · 웹은 재시도 없이 「너무 큼」 카드). */
+export const TOO_LARGE = "TOO_LARGE";
 
 export type FinishResult = { isin: string; ok: boolean; error: string | null };
 
