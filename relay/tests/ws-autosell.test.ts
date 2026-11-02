@@ -395,7 +395,8 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
     expect(gateway.strategyRequests().filter((r) => r.msgType === MSG.SetUserSettingsReq)).toHaveLength(1);
     const { presentSlotEmpty, ...values } = settingsReqs()[0]!;
     // post_buy_floor_qty 는 봉인(Phase 32 D-08) — 요청이 120000 을 실어도 relay 는 늘 0 을 싣는다.
-    expect(values).toEqual({ ...SETTINGS, postBuyFloorQty: 0 });
+    // burstRatioPct 키가 없으면 슬롯 부재(null) = 서버 저장값 유지 — 0 을 지어 싣지 않는다(quick-261102-epl).
+    expect(values).toEqual({ ...SETTINGS, postBuyFloorQty: 0, burstRatioPct: null });
     expect(presentSlotEmpty).toBe(true);
   });
 
@@ -414,8 +415,22 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
 
     // P32 D-14a — 그 84 를 보낸 서버의 서버키를 싣는다(레지스트리 없는 하네스 = 증권사 이름 「KB」).
     expect(framesOf(inbox, "user.settings")).toEqual([
-      { t: "user.settings", present: true, serverKey: "KB", ...SETTINGS, autoSellPeriodSec: 5 },
+      // 버스트 슬롯 없는 84(구 서버 모양) → burstRatioPct 0(quick-261102-epl).
+      { t: "user.settings", present: true, serverKey: "KB", ...SETTINGS, autoSellPeriodSec: 5, burstRatioPct: 0 },
     ]);
+  });
+
+  it("③-2b 버스트 판정 비율 — set(burstRatioPct 85) → 42 디코드 85 · 84(85) → user.settings.burstRatioPct 85 (quick-261102-epl)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "user.settings.set", s: { ...SETTINGS, burstRatioPct: 85 } });
+    await waitFor(() => settingsReqs().length === 1, "42 송신");
+    expect(settingsReqs()[0]!.burstRatioPct).toBe(85);
+    expect(ws.closeInfo).toBeNull();
+
+    gateway.sendUserSettings(gatewaySocket(), { ...SETTINGS, present: true, burstRatioPct: 85 });
+    await waitFor(() => framesOf(inbox, "user.settings").length === 1, "84 팬아웃");
+    expect(framesOf(inbox, "user.settings")[0]!.burstRatioPct).toBe(85);
   });
 
   it("③-3 범위 밖(매도 주기 61)은 zod 위반 close(4400) · 게이트웨이 42 0건", async () => {
@@ -498,6 +513,8 @@ describe("Phase 27 autosell.cmd · user.settings.set", () => {
         postBuyFloorAmount: 300,
         preBuyWatchAmount: null,
         preBuyAutoAddBuy: null,
+        // 버스트 판정 비율도 84 캐시로 지어내지 않는다 — 슬롯 부재(null) = 서버 저장값 유지(quick-261102-epl).
+        burstRatioPct: null,
       });
       expect(framesOf(inbox, "msg")).toHaveLength(0);
       expect(ws.closeInfo).toBeNull();

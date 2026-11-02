@@ -1459,6 +1459,8 @@ describe("WsFanout", () => {
         // quick-261012-u04 — 선매수 2필드도 늘 싣는다(84 슬롯 부재 = 구 서버 = 0 · false).
         preBuyWatchAmount: 0,
         preBuyAutoAddBuy: false,
+        // quick-261102-epl — 버스트 판정 비율도 늘 싣는다(84 슬롯 부재 = 구 서버 = 0).
+        burstRatioPct: 0,
       },
     ]);
     const order = tabB.inbox.map((m) => m.t);

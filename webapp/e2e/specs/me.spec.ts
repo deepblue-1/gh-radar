@@ -1714,6 +1714,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
    * 42 의 12값 기대 — 서버 내장 기본값(fixture `buildUserSettingsFrame` 기본 = fbs 주석) + 84 의 후매수 최소 금액(LC84).
    * 봉인 `postBuyFloorQty` 는 웹이 늘 0 을 싣는다(Phase 31 · gh-trade Phase 32 D-08 — 84 의 100,000 을 되싣지 않는다).
    * 선매수 2필드: 픽스처 84 는 두 슬롯 없음(구 서버 모양) → relay 0/false → 웹 42 가 늘 싣는다(quick-261012-u04).
+   * 픽스처 84 는 버스트 슬롯 없음(구 서버 모양) → relay 0 → 웹 42 는 싣지 않는다(부재 = 저장값 유지 · 0 을 보내지 않는다 · quick-261102-epl).
    */
   const USER_SETTINGS_BUILTIN = {
     preBuyAmount: 4000,
@@ -1730,6 +1731,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     postBuyFloorAmount: LC84.postBuyFloorAmount,
     preBuyWatchAmount: 0,
     preBuyAutoAddBuy: false,
+    burstRatioPct: null,
   } as const;
 
   test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-12 · D-13 · 261006-pey D-2)', async ({

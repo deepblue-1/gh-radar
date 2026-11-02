@@ -3255,6 +3255,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
       postBuyFloorAmount: 0,
       preBuyWatchAmount: 0,
       preBuyAutoAddBuy: false,
+      burstRatioPct: 0,
     });
     // present 기본 false — 서버 내장 기본값.
     expect(parseUserSettings(inbound(buildUserSettingsFrame()).env)!.present).toBe(false);
@@ -3694,10 +3695,14 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
   });
 
   it("USER_SETTINGS_RANGES — 키 = RelayUserSettingsValues 의 숫자 키 · 값은 fbs 주석 범위 그대로", () => {
-    const numericKeys = Object.entries(SETTINGS)
-      .filter(([, v]) => typeof v === "number")
-      .map(([k]) => k);
-    expect(numericKeys).toHaveLength(13);
+    // 선택 숫자 키 burstRatioPct(quick-261102-epl)는 SETTINGS 에 없다 — 범위 표에는 있어야 한다(UserSettingsNumericKey `-?` 파생).
+    const numericKeys = [
+      ...Object.entries(SETTINGS)
+        .filter(([, v]) => typeof v === "number")
+        .map(([k]) => k),
+      "burstRatioPct",
+    ];
+    expect(numericKeys).toHaveLength(14);
     expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(numericKeys.sort());
     expect(USER_SETTINGS_RANGES).toEqual({
       preBuyAmount: { min: 0, max: 999_999_999 },
@@ -3713,6 +3718,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       autoSellMethodDefault: { min: 1, max: 3 },
       postBuyFloorAmount: { min: 0, max: 999_999_999 },
       preBuyWatchAmount: { min: 0, max: 999_999_999 },
+      burstRatioPct: { min: 1, max: 100 },
     });
   });
 });
@@ -3862,6 +3868,75 @@ describe("quick-261012-u04 UserSettings 선매수 2필드 (vtable 30 · 32)", ()
     expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: -1 })).toThrow(OrderBuildError);
     expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 1.5 })).toThrow(OrderBuildError);
     expect(() => buildSetUserSettingsReq({ ...BASE, preBuyWatchAmount: 2 ** 32 })).toThrow(OrderBuildError);
+  });
+});
+
+/**
+ * quick-261102-epl — UserSettings 버스트 판정 비율(gh-trade quick-261101-t7c · fbs `= null` · vtable 34).
+ *
+ * 못박는 것: ① 84 슬롯이 있으면 그 값 · 없으면(구 서버) 0 — 키는 늘 있다 ② 42 는 값이 있을 때만 슬롯을 싣는다 · 빠지면
+ * 슬롯 부재(= 서버 저장값 유지) — 0 을 지어 싣지 않는다(서버는 0 을 범위 밖으로 42 전체를 거부한다).
+ */
+describe("quick-261102-epl UserSettings 버스트 판정 비율 (vtable 34)", () => {
+  const BASE = {
+    preBuyAmount: 5000,
+    addBuyAmount: 3000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 40,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 84,
+    preBuyWatchAmount: 0,
+    preBuyAutoAddBuy: false,
+  };
+  const BURST_VT = 34;
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  function readSettings(bytes: Uint8Array): UserSettings {
+    const env = readBack(bytes);
+    expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
+    const u = env.userSettings(new UserSettings());
+    expect(u).not.toBeNull();
+    return u!;
+  }
+
+  it("84 파서 — 슬롯이 실린 84(85) 는 burstRatioPct 85", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true, burstRatioPct: 85 })).env);
+    expect(parsed).toHaveProperty("burstRatioPct", 85);
+  });
+
+  it("84 파서 — 슬롯 부재(구 서버 모양) 는 0(키는 늘 있다)", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true })).env);
+    expect(parsed).toHaveProperty("burstRatioPct", 0);
+  });
+
+  it("42 조립 — burstRatioPct 85 는 그 값으로 슬롯이 선다 · 선매수 2필드 그대로", () => {
+    const u = readSettings(buildSetUserSettingsReq({ ...BASE, burstRatioPct: 85 }));
+    expect(u.burstRatioPct()).toBe(85);
+    expect(u.bb!.__offset(u.bb_pos, BURST_VT)).not.toBe(0);
+    expect(u.preBuyWatchAmount()).toBe(0);
+    expect(u.preBuyAutoAddBuy()).toBe(false);
+  });
+
+  it("42 조립 — 키가 없으면 슬롯 부재 = getter null(서버 저장값 유지 · 0 을 싣지 않는다)", () => {
+    const u = readSettings(buildSetUserSettingsReq(BASE));
+    expect(u.burstRatioPct()).toBeNull();
+    expect(u.bb!.__offset(u.bb_pos, BURST_VT)).toBe(0);
+  });
+
+  it("42 조립 — ubyte 표현 범위 밖 · 소수는 송신 전 OrderBuildError", () => {
+    expect(() => buildSetUserSettingsReq({ ...BASE, burstRatioPct: 256 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...BASE, burstRatioPct: 1.5 })).toThrow(OrderBuildError);
   });
 });
 

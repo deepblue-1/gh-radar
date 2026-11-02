@@ -800,6 +800,9 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
  *
  * 선매수 2필드(`preBuyWatchAmount` vtable 30 · `preBuyAutoAddBuy` vtable 32 — fbs `= null`)도 늘 싣는다. 84 슬롯 부재 =
  * 구 서버(예: 미배포 KB 121) → 0 · false(gh-trade 261012 「84 에 없으면 0·false」).
+ *
+ * `burstRatioPct`(vtable 34 · fbs `= null` · quick-261102-epl · gh-trade quick-261101-t7c)도 늘 싣는다. 84 슬롯 부재 = 구 서버 → 0
+ * (웹은 0 을 「모름」 으로 읽어 내장 70 을 보이고 42 에는 싣지 않는다).
  */
 export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
   const u = env.userSettings();
@@ -823,6 +826,7 @@ export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
     postBuyFloorAmount: u.postBuyFloorAmount(), // vtable 28 · 구 84(부재) = 0
     preBuyWatchAmount: u.preBuyWatchAmount() ?? 0, // vtable 30 · 구 서버(부재) = 0
     preBuyAutoAddBuy: u.preBuyAutoAddBuy() ?? false, // vtable 32 · 구 서버(부재) = false
+    burstRatioPct: u.burstRatioPct() ?? 0, // vtable 34 · 구 서버(부재) = 0 → 웹 내장 70
   };
 }
 
@@ -2154,7 +2158,12 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
  *
  * 선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy` — fbs `= null` · quick-261012-u04)는 **값이 있을 때만** 슬롯을
  * 싣는다. 슬롯 부재 = 서버가 저장값을 유지한다(구 탭 · relay 선배포 창). 0 · false 로 지우려면 **실어야** 한다 — 새 웹은
- * 늘 싣는다(gh-trade 261012). 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
+ * 늘 싣는다(gh-trade 261012).
+ *
+ * `burstRatioPct`(fbs `= null` · quick-261102-epl)도 **값이 있을 때만** 슬롯을 싣는다 — 부재 = 서버 저장값 유지. 0 은 zod(1~100)가
+ * 먼저 막는다(서버는 0 을 범위 밖으로 요청 전체를 거부한다) · 웹은 84 값이 1~100 일 때만 싣는다.
+ *
+ * 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
  * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
  * 성공을 지어내지 않는다(84 를 합성하지 않는다).
  *
@@ -2187,6 +2196,10 @@ export function buildSetUserSettingsReq(
   }
   if (s.preBuyAutoAddBuy !== undefined) {
     UserSettings.addPreBuyAutoAddBuy(b, s.preBuyAutoAddBuy);
+  }
+  // 버스트 판정 비율 — 부재 = 슬롯 부재 = 서버 저장값 유지(0 을 지어내 싣지 않는다 · quick-261102-epl).
+  if (s.burstRatioPct !== undefined) {
+    UserSettings.addBurstRatioPct(b, toWireUByte(s.burstRatioPct, "burstRatioPct"));
   }
   // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
   const table = UserSettings.endUserSettings(b);

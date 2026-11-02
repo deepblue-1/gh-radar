@@ -967,6 +967,18 @@ describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", ()
     expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: 1 }))).toBeNull();
     expect(parseInbound(set({ ...SETTINGS, preBuyAutoAddBuy: "true" }))).toBeNull();
   });
+
+  it("quick-261102-epl burstRatioPct — 1 · 70 · 100 통과 · 0 · 101 · 1.5 · \"70\" · null 거부 · 부재는 통과하고 키를 만들지 않는다", () => {
+    for (const ok of [1, 70, 100]) {
+      expect(parseInbound(set({ ...SETTINGS, burstRatioPct: ok })), String(ok)).toMatchObject({ s: { burstRatioPct: ok } });
+    }
+    for (const bad of [0, 101, 1.5, "70", null]) {
+      expect(parseInbound(set({ ...SETTINGS, burstRatioPct: bad })), String(bad)).toBeNull();
+    }
+    const absent = parseInbound(set({ ...SETTINGS, postBuyFloorAmount: 0, preBuyWatchAmount: 0, preBuyAutoAddBuy: false }));
+    if (absent?.t !== "user.settings.set") throw new Error("user.settings.set 으로 좁혀지지 않았습니다");
+    expect(absent.s).not.toHaveProperty("burstRatioPct");
+  });
 });
 
 describe("P31 lc.set 금액 8필드 선택 (D-11)", () => {

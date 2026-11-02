@@ -2157,6 +2157,7 @@ export class WsFanout {
     // 캐시도 없으면 게이트웨이 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 — 끊으면 시세 · 에코 · 수동주문까지
     // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
     // 선매수 2필드(quick-261012-u04)는 그대로 통과 — 부재 = 42 슬롯 부재 = 서버 저장값 유지(되싣기 불필요).
+    // burstRatioPct(quick-261102-epl)도 통과 — 부재 = 서버 저장값 유지 · 84 캐시로 채우지 않는다(0 을 지어 싣지 않는다).
     if (msg.t === "user.settings.set") {
       const target =
         msg.serverKey === undefined

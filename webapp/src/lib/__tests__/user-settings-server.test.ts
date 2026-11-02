@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { RelayAccount, RelayUserSettingsMsg } from '@gh-radar/shared';
-import { firstServerKeyOf, userSettingsForAccount, userSettingsForServer } from '../user-settings-server';
+import {
+  BURST_RATIO_DEFAULT_PCT,
+  burstRatioPctOf,
+  burstRatioThresholdOf,
+  firstServerKeyOf,
+  userSettingsForAccount,
+  userSettingsForServer,
+} from '../user-settings-server';
 
 /** 84 한 건 — 서버를 가르는 값은 `preBuyAmount` 하나로 본다. */
 function us(serverKey: string | undefined, preBuyAmount: number): RelayUserSettingsMsg {
@@ -123,5 +130,33 @@ describe('P32 서버별 84 조회 (D-14a · D-14b · Pitfall 14)', () => {
     it('첫 서버 계좌도 "" 칸으로 대신 채우지 않는다(/me 관용과 다르다)', () => {
       expect(userSettingsForAccount(new Map([['', LEGACY]]), '111', ACCOUNTS)).toBeUndefined();
     });
+  });
+});
+
+describe('버스트 판정 비율 해석 (quick-261102-epl)', () => {
+  it('BURST_RATIO_DEFAULT_PCT 는 내장 70 (gh-trade 「부재 = 0 → 클라 내장 70」)', () => {
+    expect(BURST_RATIO_DEFAULT_PCT).toBe(70);
+  });
+
+  it('burstRatioPctOf — 1~100 정수만 그 값 · 0 · 101 · 소수 · 키 부재 · 84 미수신은 undefined', () => {
+    expect(burstRatioPctOf({ burstRatioPct: 85 })).toBe(85);
+    expect(burstRatioPctOf({ burstRatioPct: 1 })).toBe(1);
+    expect(burstRatioPctOf({ burstRatioPct: 100 })).toBe(100);
+    expect(burstRatioPctOf({ burstRatioPct: 0 })).toBeUndefined();
+    expect(burstRatioPctOf({ burstRatioPct: 101 })).toBeUndefined();
+    expect(burstRatioPctOf({ burstRatioPct: 1.5 })).toBeUndefined();
+    expect(burstRatioPctOf({})).toBeUndefined();
+    expect(burstRatioPctOf(undefined)).toBeUndefined();
+  });
+
+  it('burstRatioThresholdOf — 같은 입력에서 값 또는 70', () => {
+    expect(burstRatioThresholdOf({ burstRatioPct: 85 })).toBe(85);
+    expect(burstRatioThresholdOf({ burstRatioPct: 1 })).toBe(1);
+    expect(burstRatioThresholdOf({ burstRatioPct: 100 })).toBe(100);
+    expect(burstRatioThresholdOf({ burstRatioPct: 0 })).toBe(70);
+    expect(burstRatioThresholdOf({ burstRatioPct: 101 })).toBe(70);
+    expect(burstRatioThresholdOf({ burstRatioPct: 1.5 })).toBe(70);
+    expect(burstRatioThresholdOf({})).toBe(70);
+    expect(burstRatioThresholdOf(undefined)).toBe(70);
   });
 });

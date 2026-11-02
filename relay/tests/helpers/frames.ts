@@ -1317,6 +1317,11 @@ export type FakeUserSettingsInput = {
   preBuyWatchAmount?: number;
   /** 「줄매수도 같이 켜기」 · fbs vtable 32(`= null`). 주어졌을 때만 슬롯을 쓴다(기본 부재 → relay false). */
   preBuyAutoAddBuy?: boolean;
+  /**
+   * 버스트 판정 비율 % · fbs vtable 34(`= null` · quick-261102-epl). **주어졌을 때만** 슬롯을 쓴다 — 기본은 구 서버 모양
+   * (슬롯 부재 → relay 0)이라 「부재 = 0 → 웹 내장 70」 경로가 기본으로 시험된다.
+   */
+  burstRatioPct?: number;
 };
 
 /**
@@ -1343,6 +1348,7 @@ export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8
   UserSettings.addPostBuyFloorAmount(b, input.postBuyFloorAmount ?? 0);
   if (input.preBuyWatchAmount !== undefined) UserSettings.addPreBuyWatchAmount(b, input.preBuyWatchAmount);
   if (input.preBuyAutoAddBuy !== undefined) UserSettings.addPreBuyAutoAddBuy(b, input.preBuyAutoAddBuy);
+  if (input.burstRatioPct !== undefined) UserSettings.addBurstRatioPct(b, input.burstRatioPct);
   const settings = UserSettings.endUserSettings(b);
 
   Envelope.startEnvelope(b);

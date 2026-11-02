@@ -803,6 +803,8 @@ export type RelayAutoSellCmdMsg = {
  * 봉인 `postBuyFloorQty` 는 relay 42 조립기가 입력과 무관하게 늘 0 을 싣는다(Phase 32 D-08).
  * 선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy`)는 웹이 **늘 싣는다**(gh-trade 261012 — 부재 = 서버 저장값 유지라
  * 0 · false 로 지우려면 실어야 한다).
+ * `burstRatioPct`(quick-261102-epl · gh-trade quick-261101-t7c)는 **반대**다 — 84 값이 1~100 일 때만 싣고 0(구 서버 · 모름)이면
+ * 키를 싣지 않는다(부재 = 서버 저장값 유지 · 0 은 서버가 범위 밖으로 42 전체를 거부한다).
  *
  * 조립 기준은 서버 캐시(84 `user.settings`) + 바꾼 1칸이다(화면 로컬 값 금지 · T-20-03 동형). 범위는
  * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
@@ -1535,8 +1537,8 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
- * 사용자 설정 14값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08 ·
- * quick-261012-u04 — 선매수 2필드 gh-trade 261012).
+ * 사용자 설정 14값 + 선택 1값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08 ·
+ * quick-261012-u04 — 선매수 2필드 gh-trade 261012 · quick-261102-epl — 선택 `burstRatioPct` gh-trade quick-261101-t7c).
  * 사용자(DMA 로그인 id)별 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
  * 금액 4칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
  */
@@ -1578,13 +1580,22 @@ export type RelayUserSettingsValues = {
    * 같은 제출로 켠다. 서버는 보관 · 에코만 — 동작은 클라 몫.
    */
   preBuyAutoAddBuy: boolean;
+  /**
+   * 버스트 판정 비율 % · 1~100 · 기본 70 · fbs vtable 34 (`= null` · gh-trade quick-261101-t7c). 호가창 「버스트 NN%」 판정과
+   * 서버 상따 ☐버스트 취소(`burst_ratio_pct ≥ 이 값` 일 때 판정당 1회)의 기준이다.
+   *
+   * ⚠️ **선택**인 이유: 42 부재 = 서버 저장값 유지이고, 0 은 서버가 범위 밖으로 **요청 전체를 거부**한다 — 모르는 값은 0 이
+   *    아니라 **부재**로 보낸다. 웹은 84 값이 1~100 일 때만 싣는다.
+   */
+  burstRatioPct?: number;
 };
 
 /**
  * `RelayUserSettingsValues` 중 값이 숫자인 키 — 범위 표(`USER_SETTINGS_RANGES`) · 숫자 칸 키의 정본(파생 · 손 목록 금지).
+ * 선택 숫자 키(`burstRatioPct?`)도 포함한다 — `-?` 로 선택성을 벗기고 `NonNullable` 로 `undefined` 를 뺀 뒤 판정한다.
  */
 export type UserSettingsNumericKey = {
-  [K in keyof RelayUserSettingsValues]: RelayUserSettingsValues[K] extends number ? K : never;
+  [K in keyof RelayUserSettingsValues]-?: NonNullable<RelayUserSettingsValues[K]> extends number ? K : never;
 }[keyof RelayUserSettingsValues];
 
 /**
@@ -1600,6 +1611,10 @@ export type UserSettingsNumericKey = {
  * `preBuyWatchAmount` · `preBuyAutoAddBuy` 도 타입에서 **선택**이지만 부재의 뜻이 다르다 — **0 · false 로 읽는다**
  * (gh-trade 261012 「84 에 없으면 0·false」). 새 relay 는 늘 싣고(84 슬롯 부재 = 구 서버 = 0 · false), 키 부재는 이
  * 동기화보다 오래된 relay 뿐이다. 「불러오는 중」 으로 두지 않는다.
+ *
+ * `burstRatioPct` 도 **선택**이다(quick-261102-epl) — 새 relay 는 늘 싣고 84 슬롯 부재(구 서버) = 0, 키 부재는 이 동기화 이전
+ * relay 뿐이다. 웹은 0 · 부재 · 범위 밖을 「모름」 으로 읽어 **표시는 내장 70 · 42 에는 싣지 않는다**(「불러오는 중」 으로 두지
+ * 않는다 · gh-trade 「부재 = 0 → 클라 내장 70」).
  */
 export type RelayUserSettingsMsg = {
   t: "user.settings";
@@ -1615,7 +1630,7 @@ export type RelayUserSettingsMsg = {
 > & { postBuyFloorAmount?: number; preBuyWatchAmount?: number; preBuyAutoAddBuy?: boolean };
 
 /**
- * 사용자 설정 숫자 13칸의 서버 42 검증 범위 (Phase 27 · Phase 31 · quick-261012-u04 — bool `preBuyAutoAddBuy` 는 범위 없음) — **fbs `table UserSettings` 주석 원문 그대로**.
+ * 사용자 설정 숫자 14칸의 서버 42 검증 범위 (Phase 27 · Phase 31 · quick-261012-u04 · quick-261102-epl — bool `preBuyAutoAddBuy` 는 범위 없음) — **fbs `table UserSettings` 주석 원문 그대로**.
  *
  * relay zod(`user.settings.set`)와 webapp `/me` 시트가 이 한 벌을 읽는다 — 두 곳에 적으면 언젠가 갈라진다.
  * `lc.set` 범위와 다르다(잔량추적 · 반등은 여기서 0 허용) — 새 폼 시딩은 lc 범위 밖이면 D-04 상수로 폴백한다(27-07).
@@ -1634,6 +1649,7 @@ export const USER_SETTINGS_RANGES = {
   autoSellMethodDefault: { min: 1, max: 3 },
   postBuyFloorAmount: { min: 0, max: 999_999_999 },
   preBuyWatchAmount: { min: 0, max: 999_999_999 },
+  burstRatioPct: { min: 1, max: 100 },
 } as const satisfies Readonly<Record<UserSettingsNumericKey, { readonly min: number; readonly max: number }>>;
 
 /**

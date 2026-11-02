@@ -30,7 +30,8 @@
  * ⑤ 저장 = 행 확정마다 즉시 42(D-12 변형 C · 저장 버튼 없음 · 낙관 반영 없음) — `useUserSettingsSave`.
  *    - 조립 = **84 캐시 14값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
  *      봉인 `postBuyFloorQty` 는 84 값을 읽지 않고 늘 0 을 싣는다(Phase 32 D-08 · D-13). 선매수 2필드는 84 부재면
- *      0 · false 로 채워 **늘 싣는다**(gh-trade 261012). bool 칸(「줄매수도 같이 켜기」)도 같은 저장 기계를 탄다 —
+ *      0 · false 로 채워 **늘 싣는다**(gh-trade 261012). `burstRatioPct` 는 **84 가 1~100 일 때만** 싣는다 — 0(구 서버 ·
+ *      모름)은 부재다(서버는 0 을 범위 밖으로 42 전체를 거부한다 · gh-trade quick-261101-t7c · quick-261102-epl). bool 칸(「줄매수도 같이 켜기」)도 같은 저장 기계를 탄다 —
  *      토글 = 그 bool 만 뒤집은 42 1건 · 84 가 실어야 체크가 바뀐다(낙관 반영 없음).
  *    - 한 번에 1건 비행. 비행 중 다른 행 확정은 행당 1건 대기열(같은 행 재확정은 값만 교체)에 서고, 앞 건의 84 를
  *      받은 **뒤 새 캐시로 다시 조립**해 보낸다(RESEARCH Pitfall 8 — 낡은 캐시로 앞 칸을 되돌리지 않는다).
@@ -77,7 +78,7 @@ import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
-import { userSettingsForServer } from "@/lib/user-settings-server";
+import { burstRatioPctOf, userSettingsForServer } from "@/lib/user-settings-server";
 import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
@@ -255,8 +256,9 @@ export function userSettingsRangeIssue(key: UserSettingsNumericKey, value: numbe
 }
 
 /**
- * 42 본문 숫자 행 11칸(값 10 · 방법 1) 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은
- * 늘 0 이라 보지 않고, bool 칸(체크 행)은 범위가 없어 건너뛴다.
+ * 42 본문 숫자 행 전부의 범위 검사 — 첫 위반 칸의 문장 · 전부 안이면 null (27-REVIEW IN-02). 봉인 칸은
+ * 늘 0 이라 보지 않고, bool 칸(체크 행)은 범위가 없어 건너뛴다. 값이 undefined 인 숫자 칸(`burstRatioPct` 부재 = 보내지 않는
+ * 칸)도 건너뛴다.
  *
  * 42 는 84 캐시 14값 + 바뀐 1칸으로 조립한다. 바뀐 칸만 보면 캐시의 나머지 칸이 범위 밖일 때 relay zod 가
  * close(4400)로 **앱 소켓 전체**를 끊는다(상따 카드 `lcRangeIssue` 가 cfg 전체를 보는 것과 같은 이유).
@@ -265,7 +267,9 @@ export function userSettingsRangeIssue(key: UserSettingsNumericKey, value: numbe
 export function userSettingsValuesIssue(s: RelayUserSettingsValues, changed: UserSettingsKey): string | null {
   for (const row of USER_SETTINGS_ROWS) {
     if (row.kind === "check") continue;
-    const issue = userSettingsRangeIssue(row.key, s[row.key], row.kind === "value" ? row.unit : "");
+    const value = s[row.key];
+    if (value === undefined) continue;
+    const issue = userSettingsRangeIssue(row.key, value, row.kind === "value" ? row.unit : "");
     if (issue !== null) return row.key === changed ? issue : `${row.label} ${issue}`;
   }
   return null;
@@ -283,8 +287,10 @@ export function usableUserSettingsOf(s: RelayUserSettingsMsg | undefined): Usabl
 }
 
 /**
- * 84 에서 42 본문 14값만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). 선매수 2필드는 84 부재면 0 · false 로
+ * 84 에서 42 본문 14값(+ 선택 1값)만 뽑는다(`t` · `present` 제외 — `present` 는 84 전용). 선매수 2필드는 84 부재면 0 · false 로
  * 채워 **늘 싣는다**(gh-trade 261012 — 42 부재는 서버 「저장값 유지」 라 지우려면 실어야 한다 · quick-261012-u04).
+ * `burstRatioPct` 는 **84 가 1~100 일 때만** 키를 싣는다(`burstRatioPctOf`) — 0(구 서버 · 모름) · 부재 · 범위 밖이면 키 자체가
+ * 없다(undefined 값을 가진 키도 만들지 않는다). 서버는 0 을 범위 밖으로 42 전체를 거부한다(gh-trade quick-261101-t7c).
  */
 export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsValues {
   return {
@@ -302,7 +308,14 @@ export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsVa
     postBuyFloorAmount: s.postBuyFloorAmount,
     preBuyWatchAmount: s.preBuyWatchAmount ?? 0,
     preBuyAutoAddBuy: s.preBuyAutoAddBuy ?? false,
+    ...burstRatioOf(s),
   };
+}
+
+/** `burstRatioPct` 조건부 스프레드 조각 — 1~100 이면 `{ burstRatioPct }`, 아니면 빈 객체. */
+function burstRatioOf(s: UsableUserSettings): Pick<RelayUserSettingsValues, "burstRatioPct"> {
+  const v = burstRatioPctOf(s);
+  return v === undefined ? {} : { burstRatioPct: v };
 }
 
 /**
@@ -833,7 +846,7 @@ export function LimitChaserDefaultsSection({
                                 id={row.id}
                                 label={row.label}
                                 unit={row.unit}
-                                initialValue={values[row.key]}
+                                initialValue={values[row.key] ?? null}
                                 validate={(v) => userSettingsRangeIssue(row.key, v, row.unit)}
                                 onSave={(v) => {
                                   save.commit(row.key, v);
@@ -887,8 +900,8 @@ export function LimitChaserDefaultsSection({
         description={sheetRow === null ? "" : rangeLabel(sheetRow.key, sheetUnit)}
         unit={sheetUnit}
         purpose="apply"
-        initialValue={sheetRow === null || values === undefined ? null : values[sheetRow.key]}
-        serverValue={sheetRow === null || values === undefined ? null : values[sheetRow.key]}
+        initialValue={sheetRow === null || values === undefined ? null : (values[sheetRow.key] ?? null)}
+        serverValue={sheetRow === null || values === undefined ? null : (values[sheetRow.key] ?? null)}
         ctx={{ current: 0, upper: 0 }}
         validate={(v) => (sheetRow === null ? null : userSettingsRangeIssue(sheetRow.key, v, sheetUnit))}
         returnFocusRef={sheetReturnRef}

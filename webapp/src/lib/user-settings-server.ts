@@ -11,8 +11,11 @@
  *    primary 84 로 대신 채우면 교보 계좌 카드가 KB 설정으로 시딩된다(Pitfall 14).
  *
  * 둘 다 Map 을 직접 `.get` 하지 않게 하는 단일 출입구다 — 관용 규칙이 여러 곳에 흩어지면 갈린다.
+ *
+ * 버스트 판정 비율(84 `burstRatioPct` · quick-261102-epl)의 해석도 여기 한 곳이다 — `burstRatioPctOf`(1~100 이면 그 값 · 아니면
+ * 「모름」 undefined → /me 42 조립은 싣지 않는다) · `burstRatioThresholdOf`(그 값 또는 내장 70 → /me 표시 · 상따 호가 사다리 기준).
  */
-import type { RelayAccount, RelayUserSettingsMsg } from "@gh-radar/shared";
+import { USER_SETTINGS_RANGES, type RelayAccount, type RelayUserSettingsMsg } from "@gh-radar/shared";
 
 /** 서버키 → 마지막 84. 키 `""` = 서버키 없는 84(구 relay · primary 것). */
 export type UserSettingsByServer = ReadonlyMap<string, RelayUserSettingsMsg>;
@@ -66,3 +69,19 @@ export function userSettingsForAccount(
  * /me 표시와 상따 호가 사다리 기준이 이 상수 하나를 읽는다 — 다른 파일에 70 을 다시 적지 않는다.
  */
 export const BURST_RATIO_DEFAULT_PCT = 70;
+
+/**
+ * 84 의 버스트 판정 비율 — 정수이고 `USER_SETTINGS_RANGES.burstRatioPct`(1~100) 안이면 그 값, 아니면 undefined(「모름」).
+ * 0(구 서버 · 슬롯 부재) · 키 부재(옛 relay) · 범위 밖 · 84 미수신이 모두 undefined 다 — 42 에는 싣지 않는다(부재 = 서버 저장값
+ * 유지 · 0 은 서버가 범위 밖으로 42 전체를 거부한다 · gh-trade quick-261101-t7c).
+ */
+export function burstRatioPctOf(us: Pick<RelayUserSettingsMsg, "burstRatioPct"> | undefined): number | undefined {
+  const v = us?.burstRatioPct;
+  const r = USER_SETTINGS_RANGES.burstRatioPct;
+  return typeof v === "number" && Number.isInteger(v) && v >= r.min && v <= r.max ? v : undefined;
+}
+
+/** 버스트 판정 기준 — `burstRatioPctOf` 값, 「모름」 이면 `BURST_RATIO_DEFAULT_PCT`(70). /me 표시와 호가 사다리 기준이 읽는다. */
+export function burstRatioThresholdOf(us: Pick<RelayUserSettingsMsg, "burstRatioPct"> | undefined): number {
+  return burstRatioPctOf(us) ?? BURST_RATIO_DEFAULT_PCT;
+}

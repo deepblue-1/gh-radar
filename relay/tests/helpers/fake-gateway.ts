@@ -908,6 +908,8 @@ export type SetUserSettingsRequest = {
   preBuyWatchAmount: number | null;
   /** 「줄매수도 같이 켜기」 · vtable 32. `null` = 슬롯 부재(서버 저장값 유지). */
   preBuyAutoAddBuy: boolean | null;
+  /** 버스트 판정 비율 % · vtable 34(quick-261102-epl). `null` = 슬롯 부재(서버 저장값 유지). */
+  burstRatioPct: number | null;
   presentSlotEmpty: boolean;
 };
 
@@ -936,6 +938,7 @@ export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequ
     postBuyFloorAmount: u.postBuyFloorAmount(),
     preBuyWatchAmount: u.preBuyWatchAmount(),
     preBuyAutoAddBuy: u.preBuyAutoAddBuy(),
+    burstRatioPct: u.burstRatioPct(),
     presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
   };
 }

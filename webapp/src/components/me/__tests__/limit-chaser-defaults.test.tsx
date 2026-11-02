@@ -236,6 +236,27 @@ describe('Phase 27 상따 기본설정 즉시 저장(42)', () => {
     expect(sentPayloads()[0]!.s).toMatchObject({ autoSellPeriodSec: 5, preBuyWatchAmount: 50, preBuyAutoAddBuy: true });
   });
 
+  it('epl — 84 burstRatioPct 85 에서 매도 주기 3 → 5 확정 = s.burstRatioPct 85 그대로 실린다 (quick-261102-epl)', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s).toMatchObject({ autoSellPeriodSec: 5, burstRatioPct: 85 });
+  });
+
+  it.each([
+    ['0(구 서버 슬롯 부재)', { burstRatioPct: 0 }],
+    ['키 부재(옛 relay)', {}],
+    ['범위 밖 101', { burstRatioPct: 101 }],
+  ] as const)('epl — 84 burstRatioPct %s 에서 매도 주기 확정 = s 에 burstRatioPct 키가 없다(0 을 싣지 않는다)', (_name, patch) => {
+    mockRelay = relay(settings(true, patch));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s.autoSellPeriodSec).toBe(5);
+    expect(sentPayloads()[0]!.s).not.toHaveProperty('burstRatioPct');
+  });
+
   it('42 — 시트에서 61 → 적용 비활성 · 「1~60초 사이여야 해요」 · 전송 0 / 잔량추적 0 은 허용(서버 범위 0~90)', () => {
     mockEditMode = 'sheet';
     const base = settings(true);

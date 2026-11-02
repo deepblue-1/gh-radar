@@ -461,6 +461,10 @@ export const RelayUserSettingsSetSchema = z.object({
     postBuyFloorAmount: userSettingInt("postBuyFloorAmount").optional(),
     preBuyWatchAmount: userSettingInt("preBuyWatchAmount").optional(),
     preBuyAutoAddBuy: z.boolean().optional(),
+    // 버스트 판정 비율(quick-261102-epl · gh-trade quick-261101-t7c) — 선매수 2필드와 같은 optional 규율. 부재는 42 슬롯 부재로
+    // 나가 서버가 저장값을 유지한다 · 84 캐시로 되싣지 않는다. 0 은 범위(1~100) 밖이라 close(4400) — 웹이 같은 범위로 먼저 막고,
+    // 애초에 0 을 싣지 않는다.
+    burstRatioPct: userSettingInt("burstRatioPct").optional(),
   }),
 });
 
