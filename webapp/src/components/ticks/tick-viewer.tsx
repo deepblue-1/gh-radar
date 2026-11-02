@@ -10,6 +10,7 @@ import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
 import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
+import { TickMsgList } from './tick-msg-list';
 import { TickSlider } from './tick-slider';
 
 /**
@@ -57,6 +58,22 @@ const HTS_PANES: readonly HtsPane[] = [
     desktop: 'min-[641px]:w-[300px] min-[641px]:flex-none',
     render: ({ session, cursor, unit, setUnit }) => (
       <TickBook session={session} rec={cursor.rec} unit={unit} onUnit={setUnit} className="h-full" />
+    ),
+  },
+  {
+    // 전문 목록 — 남는 폭을 먼저 가져간다(flex-grow 999). 높이는 고정(창 가상화 · 호가 10단과 같은 줄 높이).
+    id: 'msg',
+    label: '전문',
+    desktop: 'min-[641px]:flex-[999_1_360px]',
+    render: ({ session, cursor }) => (
+      <TickMsgList
+        session={session}
+        cursorRec={cursor.rec}
+        onSelect={cursor.jumpToRec}
+        mode={cursor.mode}
+        onMode={cursor.setMode}
+        className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
+      />
     ),
   },
 ];
@@ -109,7 +126,7 @@ export function TickViewer({ session, urlState, initialT, onTick }: TickViewerPr
         </div>
       </div>
 
-      <div data-slot="tick-hts" className="flex min-w-0 gap-2.5 max-[640px]:flex-col">
+      <div data-slot="tick-hts" className="flex min-w-0 flex-wrap gap-2.5 max-[640px]:flex-col max-[640px]:flex-nowrap">
         {HTS_PANES.map((p) => (
           <div
             key={p.id}
