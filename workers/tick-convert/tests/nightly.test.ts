@@ -178,6 +178,14 @@ describe("KeyStager — 키별 원시 버퍼 → zstd 1 청크 · take = RecordS
     expect(st.keys()).toEqual([]);
     expect(st.take("없음")).toHaveLength(0);
   });
+
+  it("압축 청크는 제 길이만큼만 메모리를 잡는다 — zstdCompressSync 결과의 64KB 출력 버퍼를 붙잡지 않는다(10/30 실측 OOM)", () => {
+    const st = new KeyStager(4096);
+    for (let i = 0; i < 400; i++) st.add(`${R}|KRX`, BigInt(i), a3Payload({ isin: R, label: "krx", seq: i + 1 }));
+    const entry = (st as unknown as { map: Map<string, { chunks: Uint8Array[] }> }).map.get(`${R}|KRX`)!;
+    expect(entry.chunks.length).toBeGreaterThan(0);
+    for (const c of entry.chunks) expect(c.buffer.byteLength).toBe(c.byteLength);
+  });
 });
 
 // ── 트레이서 ────────────────────────────────────────────────

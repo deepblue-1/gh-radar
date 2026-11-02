@@ -46,7 +46,11 @@ export class KeyStager {
     this.raw += grew;
     e.rawBytes += grew;
     if (e.tail.byteLength >= this.chunkBytes) {
-      const c = zlib.zstdCompressSync(e.tail.bytes(), { params: { [zlib.constants.ZSTD_c_compressionLevel]: 1 } });
+      // zstdCompressSync 결과는 출력 버퍼(64KB)의 slice 라 그대로 두면 청크마다 64KB 를 붙잡는다 —
+      // 압축해도 메모리가 원시 크기만큼 늘어 10/30 실측이 8Gi 에서 OOM(signal 9)으로 죽었다. 제 길이로 복사해 둔다.
+      const c = Uint8Array.prototype.slice.call(
+        zlib.zstdCompressSync(e.tail.bytes(), { params: { [zlib.constants.ZSTD_c_compressionLevel]: 1 } }),
+      );
       e.chunks.push(c);
       e.chunkBytes += c.length;
       this.compressed += c.length;
