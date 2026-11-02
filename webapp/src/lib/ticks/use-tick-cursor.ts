@@ -6,7 +6,9 @@
  * ① 커서 정본 = 레코드 색인 `rec`. 자리 `pos` 는 표시 순서(기본 거래소순 · 수신순)에서의 위치다 — 순서를 바꿔도 같은 틱에 머문다.
  * ② 초기 커서: `initialT`(URL `t`) → `parseTickTime` → 수신순 `lowerBoundRecv`(그 시각 이후 첫 틱) · 없으면 08:00 이후 첫 틱.
  *   모두 그보다 이르면 마지막 틱.
- * ③ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
+ * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Space` 재생/정지(입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
+ *   10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에서 정지.
+ * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
  *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게.
  * recv_ns 는 BigInt 그대로 다룬다.
  */
@@ -41,6 +43,21 @@ export interface TickCursor {
   speed: TickPlaySpeed;
   togglePlay: () => void;
   setSpeed: (s: TickPlaySpeed) => void;
+}
+
+/** 글자 입력 중인 요소(input · textarea · select · contenteditable) — 키를 가로채지 않는다. */
+function isTypingTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  if (t.isContentEditable) return true;
+  const ce = t.getAttribute('contenteditable');
+  if (ce !== null && ce !== 'false') return true;
+  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+}
+
+/** Space 로 스스로 동작하는 요소(버튼 · 링크) — Space 는 그 요소에 맡긴다. */
+function isActivatable(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  return t.tagName === 'BUTTON' || t.tagName === 'A' || t.getAttribute('role') === 'button';
 }
 
 /** 수신순 lower_bound(≥ ns) → rec. 모두 이르면 마지막 · 빈 세션이면 -1. */
@@ -107,6 +124,43 @@ export function useTickCursor(
   );
 
   const togglePlay = useCallback(() => setPlaying((p) => !p), []);
+
+  // 키 — ← → 한 행 · Shift 10행 · Space 재생/정지. 입력창 · 버튼(Space 는 버튼 자체 동작) · 수정자 키는 가로채지 않는다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const n = e.shiftKey ? 10 : 1;
+        step(e.key === 'ArrowRight' ? n : -n);
+      } else if (e.key === ' ' || e.key === 'Spacebar') {
+        if (isActivatable(e.target)) return;
+        e.preventDefault();
+        togglePlay();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [step, togglePlay]);
+
+  // 재생 — 1× = 다음 틱까지 실제 수신 간격(2초 상한) · 10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에 닿으면 정지.
+  useEffect(() => {
+    if (!playing || rec < 0) return;
+    const p = posOf[rec]!;
+    if (p >= order.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const next = order[p + 1]!;
+    if (speed === 'max') {
+      const id = requestAnimationFrame(() => setRec(next));
+      return () => cancelAnimationFrame(id);
+    }
+    const gapMs = Number(session.index.recvNs[next]! - session.index.recvNs[rec]!) / 1e6;
+    const delay = Math.max(0, Math.min(PLAY_MAX_GAP_MS, gapMs)) / (speed === 10 ? 10 : 1);
+    const id = setTimeout(() => setRec(next), delay);
+    return () => clearTimeout(id);
+  }, [playing, rec, speed, order, posOf, session]);
 
   // URL `t` — 250ms 스로틀 replaceState(첫 커서는 쓰지 않는다).
   const urlRef = useRef(urlState);
