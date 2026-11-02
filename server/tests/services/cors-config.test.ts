@@ -50,3 +50,23 @@ describe("corsOptions().origin", () => {
     expect(cb).toHaveBeenCalledWith(null, true);
   });
 });
+
+describe("corsOptions().exposedHeaders", () => {
+  it("기존 3종 유지 + X-Tick-* 6종(37-15 D-07 — 브라우저가 /api/ticks/live 커서 · 상태를 읽는다)", () => {
+    const exposed = corsOptions().exposedHeaders as string[];
+    for (const h of ["X-Last-Updated-At", "X-Request-Id", "Retry-After"]) {
+      expect(exposed).toContain(h);
+    }
+    for (const h of [
+      "X-Tick-Epoch",
+      "X-Tick-Offset-End",
+      "X-Tick-Last-Recv-Ns",
+      "X-Tick-State",
+      "X-Tick-Queue",
+      "X-Tick-Complete",
+    ]) {
+      expect(exposed).toContain(h);
+    }
+    expect(new Set(exposed).size).toBe(exposed.length);
+  });
+});
