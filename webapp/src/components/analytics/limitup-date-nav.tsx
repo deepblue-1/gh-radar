@@ -17,17 +17,27 @@ export interface LimitupDateNavProps {
   prev: LimitupDate | null;
   next: LimitupDate | null;
   onGo: (d: LimitupDate) => void;
+  /** ‹ › 접근성 이름 — 기본 「이전 보고서」 · 「다음 보고서」(틱 전문 뷰어는 「이전 날짜」 · 「다음 날짜」). */
+  prevLabel?: string;
+  nextLabel?: string;
 }
 
 const ARROW =
   'grid size-8 place-items-center rounded-full text-[length:var(--t-sm)] text-[var(--muted-fg)] hover:bg-[var(--raised-2)] disabled:text-[var(--faint)] disabled:hover:bg-transparent';
 
-export function LimitupDateNav({ date, prev, next, onGo }: LimitupDateNavProps) {
+export function LimitupDateNav({
+  date,
+  prev,
+  next,
+  onGo,
+  prevLabel = '이전 보고서',
+  nextLabel = '다음 보고서',
+}: LimitupDateNavProps) {
   return (
     <div data-slot="limitup-date-nav" className="inline-flex items-center rounded-full bg-[var(--muted)] p-1">
       <button
         type="button"
-        aria-label="이전 보고서"
+        aria-label={prevLabel}
         disabled={prev === null}
         onClick={() => prev !== null && onGo(prev)}
         className={ARROW}
@@ -42,7 +52,7 @@ export function LimitupDateNav({ date, prev, next, onGo }: LimitupDateNavProps) 
       </span>
       <button
         type="button"
-        aria-label="다음 보고서"
+        aria-label={nextLabel}
         disabled={next === null}
         onClick={() => next !== null && onGo(next)}
         className={ARROW}
