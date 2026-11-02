@@ -144,7 +144,11 @@ function info(layout: Layout): Uint8Array {
   return b;
 }
 
-export function b9Msg(s: { sell: [string, number][]; buy: [string, number][] }): Uint8Array {
+/** B9 — 단계마다 [창구, 수량, 금액(선택 · 37-14)]. 금액을 빼면 0. */
+export function b9Msg(s: {
+  sell: [string, number, number?][];
+  buy: [string, number, number?][];
+}): Uint8Array {
   const L = B9_LAYOUT;
   const b = info(L);
   for (let i = 1; i <= 5; i++) {
@@ -152,8 +156,10 @@ export function b9Msg(s: { sell: [string, number][]; buy: [string, number][] }):
     const by = s.buy[i - 1];
     setStr(b, L, `lv${i}_sell_member`, sl?.[0] ?? '');
     setNum(b, L, `lv${i}_sell_qty`, sl?.[1] ?? 0);
+    setNum(b, L, `lv${i}_sell_value`, sl?.[2] ?? 0);
     setStr(b, L, `lv${i}_buy_member`, by?.[0] ?? '');
     setNum(b, L, `lv${i}_buy_qty`, by?.[1] ?? 0);
+    setNum(b, L, `lv${i}_buy_value`, by?.[2] ?? 0);
   }
   return b;
 }

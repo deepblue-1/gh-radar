@@ -15,6 +15,7 @@ import { TickChart } from './tick-chart';
 import { TickMsgList } from './tick-msg-list';
 import { TickOrderCard } from './tick-order-card';
 import { TickSlider } from './tick-slider';
+import { TickTeamPanel } from './tick-team-panel';
 
 /**
  * 틱 뷰어 본문 (Phase 37 D-00 · 스케치 019 D 「종합 A+B」).
@@ -49,6 +50,8 @@ interface PaneCtx {
   cursor: TickCursor;
   unit: TickBookUnit;
   setUnit: (u: TickBookUnit) => void;
+  accum: TickOpenResponse['accum'];
+  isToday: boolean;
 }
 
 interface HtsPane {
@@ -87,17 +90,18 @@ const HTS_PANES: readonly HtsPane[] = [
     ),
   },
   {
-    // 오른쪽 열 — 이 주문 · 거래대금(팀 카드는 37-14). 한 줄이면 330 폭에 세로로 · 아래 줄로 내려가면 두 열.
+    // 오른쪽 열 — 이 주문 · 거래대금 · 팀 거래정보(37-14). 한 줄이면 330 폭에 세로로 · 아래 줄로 내려가면 두 열.
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({ session, cursor }) => (
+    render: ({ session, cursor, accum, isToday }) => (
       <div
         data-slot="tick-side"
         className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
       >
         <TickOrderCard session={session} cursorRec={cursor.rec} onJump={cursor.jumpToRec} />
         <TickAmountCard session={session} cursorRec={cursor.rec} />
+        <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
       </div>
     ),
   },
@@ -116,7 +120,7 @@ export function TickViewer({ session, urlState, initialT, onTick, accum = null, 
     onTick?.({ time, seq });
   }, [onTick, time, seq]);
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit };
+  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
