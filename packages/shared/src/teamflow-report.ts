@@ -196,6 +196,11 @@ export interface TeamflowRow {
   high_ms: number | null;
   schema_version: number | null;
   payload: TeamflowPayload | null;
+  /**
+   * 첫 20% 도달 시각(epoch ms) — Phase 37 D-17 · RPC 가 그날 limitup_entries (date, isin) 를 LEFT JOIN 해 싣는다
+   * (entries 없으면 null). 옛 RPC(20261016200100) 응답엔 키 없음.
+   */
+  t20_ms?: number | null;
 }
 
 /**

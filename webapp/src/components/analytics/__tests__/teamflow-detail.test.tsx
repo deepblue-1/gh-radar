@@ -677,3 +677,50 @@ describe('TeamflowDetail — 팀 당일 손익 (C-10 · C-11 · quick 261018-j17
     expect(pnlBox()!.textContent).toContain('−0.08억(−1.3%)');
   });
 });
+
+describe('TeamflowDetail — 「틱 보기 ›」 알약 (Phase 37 D-17)', () => {
+  /** 시각 세 키만 바꾼 합성 행(날짜 · isin 은 픽스처 그대로). */
+  const timed = (reachMs: number | null, firstLimitMs: number | null, t20Ms?: number | null): TeamflowRow => {
+    const base = rowOf(SMBEXCEL);
+    return {
+      ...withPayload(base, { reach: reachMs === null ? null : { t_ms: reachMs, buy: 1, team: 1, team_val: 1 } }),
+      first_limit_ms: firstLimitMs,
+      ...(t20Ms === undefined ? {} : { t20_ms: t20Ms }),
+    };
+  };
+  const hrefOf = (row: TeamflowRow) => {
+    renderDetail(row);
+    const link = screen.getByRole('link', { name: '틱 보기' });
+    expect(link.getAttribute('data-slot')).toBe('tick-link');
+    return link.getAttribute('href');
+  };
+  const base = `/analytics/ticks?isin=${SMBEXCEL}&d=${rowOf(SMBEXCEL).date}`;
+  const kst = (hms: string) => Date.parse(`2026-10-16T${hms}+09:00`);
+
+  it('reach 있음 → reach.t_ms 시각', () => {
+    expect(hrefOf(timed(kst('10:21:05.120'), kst('11:00:00.000'), kst('09:30:00.000')))).toBe(
+      `${base}&t=10%3A21%3A05.120`,
+    );
+  });
+
+  it('reach 없음 + first_limit_ms → 상한가 도달 시각', () => {
+    expect(hrefOf(timed(null, kst('11:00:00.000'), kst('09:30:00.000')))).toBe(`${base}&t=11%3A00%3A00.000`);
+  });
+
+  it('상한가 미도달 + t20_ms → 첫 20% 도달 시각', () => {
+    expect(hrefOf(timed(null, null, kst('09:30:00.007')))).toBe(`${base}&t=09%3A30%3A00.007`);
+  });
+
+  it('전부 없음(옛 RPC — t20_ms 키 없음) → t 없이', () => {
+    expect(hrefOf(timed(null, null))).toBe(base);
+  });
+
+  it('알약은 상세 머리(요약 블록 위)에 있다', () => {
+    renderDetail(timed(null, null));
+    const head = document.querySelector('[data-slot="teamflow-detail-head"]')!;
+    expect(head.querySelector('[data-slot="tick-link"]')).not.toBeNull();
+    const summary = document.querySelector('[data-slot="teamflow-summary"]');
+    expect(summary).not.toBeNull();
+    expect(head.compareDocumentPosition(summary!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
