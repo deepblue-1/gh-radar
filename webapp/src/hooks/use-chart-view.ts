@@ -11,6 +11,7 @@ import { MIN_VIEW_MS, clampView, panBy, presetOf, zoomAt, type ChartPreset, type
  *   wheel · pointerdown/move/up. 코드 analog 없음(PATTERNS 「No Analog」).
  * - **훅이 아는 것은 시각뿐 — 픽셀 변환은 차트가 넘긴다**(`useChartGestures` 의 `geom` = 가격 축 폭 L · viewBox 폭 W).
  *   창 = epoch ms `{ t0, t1 }` · 하루 경계는 `price.t0_ms` 에서 온다 · 모든 창은 `clampView`(최소 10분 · 09:00~20:00 안).
+ *   최소 창은 `minViewMs` 선택 인자(기본 `MIN_VIEW_MS` 10분)로 바꿀 수 있다 — 틱 뷰어(37-14)는 10초 · 08:00~20:00.
  * - 기본 창 = 「전체」. 프리셋 전환은 애니메이션 없이 즉시. 휠 · 끌기 · 키보드로 창을 바꾸면 프리셋 셋 다 꺼진다
  *   (목업 `vp = null` — 창이 우연히 프리셋과 같아져도 켜지 않는다).
  * - **rAF 합치기:** 휠 · 포인터 · 키 이벤트는 `schedule` 로 대기 창에 합성되고 프레임당 한 번만 setState 한다(트랙패드 관성 휠이
@@ -34,6 +35,8 @@ export interface ChartBounds {
 
 export interface ChartViewControl {
   view: View;
+  /** 최소 창(ms) — 기본 `MIN_VIEW_MS`(10분) · 틱 뷰어 10초. 휠 · 핀치 · 키 확대가 이 폭에서 멈춘다. */
+  minViewMs: number;
   /** 켜진 프리셋 — 휠 · 끌기 · 키보드로 창을 바꾸면 null */
   preset: ChartPreset | null;
   bounds: ChartBounds;
@@ -59,12 +62,12 @@ const SAME_EPS_MS = 1;
 const sameView = (a: View, b: View) => Math.abs(a.t0 - b.t0) < SAME_EPS_MS && Math.abs(a.t1 - b.t1) < SAME_EPS_MS;
 
 /**
- * tc 기준 k 배 확대/축소 — 폭은 [10분, 하루] 로 먼저 자른 정확한 값(10분 창에서 더 확대해도 창이 옆으로 밀리지 않고
+ * tc 기준 k 배 확대/축소 — 폭은 [최소 창, 하루] 로 먼저 자른 정확한 값(최소 창에서 더 확대해도 창이 옆으로 밀리지 않고
  * 「변화 없음」 이 되어 휠이 페이지로 넘어간다).
  */
-function zoomView(v: View, tc: number, k: number, b: ChartBounds): View {
+function zoomView(v: View, tc: number, k: number, b: ChartBounds, minViewMs: number = MIN_VIEW_MS): View {
   const span = v.t1 - v.t0;
-  const w = Math.min(b.T2000 - b.T0, Math.max(MIN_VIEW_MS, span * k));
+  const w = Math.min(b.T2000 - b.T0, Math.max(minViewMs, span * k));
   const z = zoomAt(v, tc, w / span);
   return { t0: z.t0, t1: z.t0 + w };
 }
@@ -85,9 +88,12 @@ function cancelFrame(h: FrameHandle) {
 export function useChartView({
   bounds,
   lastTradeMs,
+  minViewMs = MIN_VIEW_MS,
 }: {
   bounds: ChartBounds;
   lastTradeMs: number | null;
+  /** 최소 창(ms) — 생략하면 `MIN_VIEW_MS`(10분 · 매집감지 그대로). */
+  minViewMs?: number;
 }): ChartViewControl {
   const [state, setState] = useState<{ view: View; preset: ChartPreset | null }>(() => ({
     view: presetOf('full', bounds, lastTradeMs),
@@ -138,7 +144,7 @@ export function useChartView({
   const schedule = useCallback(
     (fn: (v: View) => View) => {
       const base = pendingRef.current ?? viewRef.current;
-      const next = clampView(fn(base), bounds.T0, bounds.T2000);
+      const next = clampView(fn(base), bounds.T0, bounds.T2000, minViewMs);
       if (sameView(next, base)) return false;
       pendingRef.current = next;
       if (frameRef.current === null) {
@@ -149,7 +155,7 @@ export function useChartView({
       }
       return true;
     },
-    [bounds, flush],
+    [bounds, minViewMs, flush],
   );
 
   const onKeyDown = useCallback(
@@ -166,12 +172,12 @@ export function useChartView({
           break;
         case '+':
         case '=':
-          changed = schedule((v) => zoomView(v, center(v), 0.5, bounds));
+          changed = schedule((v) => zoomView(v, center(v), 0.5, bounds, minViewMs));
           break;
         case '-':
         case '_':
         case '−':
-          changed = schedule((v) => zoomView(v, center(v), 2, bounds));
+          changed = schedule((v) => zoomView(v, center(v), 2, bounds, minViewMs));
           break;
         case '0':
           setPreset('full');
@@ -183,10 +189,10 @@ export function useChartView({
       // 창이 그대로면 넘긴다 — 창 끝에서 ← / → 가 페이지 스크롤로 간다(IN-05)
       if (changed) e.preventDefault();
     },
-    [bounds, schedule, setPreset],
+    [bounds, minViewMs, schedule, setPreset],
   );
 
-  return { view: state.view, preset: state.preset, bounds, setPreset, schedule, onKeyDown };
+  return { view: state.view, preset: state.preset, minViewMs, bounds, setPreset, schedule, onKeyDown };
 }
 
 /** 차트 그림 영역 기하 — L = 왼쪽 가격 축 폭 · W = viewBox 폭(측정 폭 1:1) · 그림 영역 = [L, W − 56]. */
@@ -251,7 +257,7 @@ export function useChartGestures(
           ? c.schedule((v) => panBy(v, fracOfPx(dx) * (v.t1 - v.t0)))
           : c.schedule((v) => {
               const tc = v.t0 + fracAt(e.clientX) * (v.t1 - v.t0);
-              return zoomView(v, tc, Math.exp(dy * WHEEL_K), c.bounds);
+              return zoomView(v, tc, Math.exp(dy * WHEEL_K), c.bounds, c.minViewMs);
             });
       if (changed || e.ctrlKey) e.preventDefault();
     };
@@ -288,7 +294,7 @@ export function useChartGestures(
         c.schedule((v) => {
           // 손가락 중점 아래 시각(tA)을 기준으로 거리 비만큼 확대한 뒤, tA 를 새 중점 자리로 옮긴다
           const tA = v.t0 + fPrev * (v.t1 - v.t0);
-          const z = zoomView(v, tA, before.dist / after.dist, c.bounds);
+          const z = zoomView(v, tA, before.dist / after.dist, c.bounds, c.minViewMs);
           return panBy(z, (fPrev - fCur) * (z.t1 - z.t0));
         });
         return;

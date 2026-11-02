@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { fmtTickTime } from '@gh-radar/shared';
+import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
@@ -11,14 +11,16 @@ import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
 import { TickAmountCard } from './tick-amount-card';
+import { TickChart } from './tick-chart';
 import { TickMsgList } from './tick-msg-list';
 import { TickOrderCard } from './tick-order-card';
 import { TickSlider } from './tick-slider';
+import { TickTeamPanel } from './tick-team-panel';
 
 /**
  * 틱 뷰어 본문 (Phase 37 D-00 · 스케치 019 D 「종합 A+B」).
  *
- * ① 배치(위 → 아래): (매집 3판 차트 · 37-14) → **슬라이더 카드** → **HTS 행**(호가 10단 | 전문 목록 · 37-13 |
+ * ① 배치(위 → 아래): **매집감지 3판 차트**(37-14 · 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각) → **슬라이더 카드** → **HTS 행**(호가 10단 | 전문 목록 · 37-13 |
  *   이 주문 · 거래대금 · 팀 · 37-13/14). 커서(`useTickCursor`)가 이 화면의 정본이고, 현재 틱 시각 · seq 는 `onTick` 으로
  *   머리에 올린다.
  * ② HTS 칸은 `HTS_PANES` 배열 한 곳에서 그린다 — 뒤 플랜이 원소(전문 · 버스트 · 팀)를 더하면 데스크톱 행과 폰 세그먼트가
@@ -36,6 +38,10 @@ export interface TickViewerProps {
   /** 열기 시점의 URL `t` — 열린 뒤 URL 이 바뀌어도 다시 읽지 않는다. */
   initialT: string | null;
   onTick?: (label: { time: string; seq: number | null }) => void;
+  /** 열기 응답 `accum`(차트 누적 선 · 팀 패널 누적 — D-09). */
+  accum?: TickOpenResponse['accum'];
+  /** 당일 화면 — 누적 선 없음(D-09). */
+  isToday?: boolean;
 }
 
 /** HTS 칸 렌더 문맥 — 칸마다 같은 세션 · 커서를 본다. */
@@ -44,6 +50,8 @@ interface PaneCtx {
   cursor: TickCursor;
   unit: TickBookUnit;
   setUnit: (u: TickBookUnit) => void;
+  accum: TickOpenResponse['accum'];
+  isToday: boolean;
 }
 
 interface HtsPane {
@@ -82,23 +90,24 @@ const HTS_PANES: readonly HtsPane[] = [
     ),
   },
   {
-    // 오른쪽 열 — 이 주문 · 거래대금(팀 카드는 37-14). 한 줄이면 330 폭에 세로로 · 아래 줄로 내려가면 두 열.
+    // 오른쪽 열 — 이 주문 · 거래대금 · 팀 거래정보(37-14). 한 줄이면 330 폭에 세로로 · 아래 줄로 내려가면 두 열.
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({ session, cursor }) => (
+    render: ({ session, cursor, accum, isToday }) => (
       <div
         data-slot="tick-side"
         className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
       >
         <TickOrderCard session={session} cursorRec={cursor.rec} onJump={cursor.jumpToRec} />
         <TickAmountCard session={session} cursorRec={cursor.rec} />
+        <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
       </div>
     ),
   },
 ];
 
-export function TickViewer({ session, urlState, initialT, onTick }: TickViewerProps) {
+export function TickViewer({ session, urlState, initialT, onTick, accum = null, isToday = false }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState });
   const { rec } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
@@ -111,10 +120,19 @@ export function TickViewer({ session, urlState, initialT, onTick }: TickViewerPr
     onTick?.({ time, seq });
   }, [onTick, time, seq]);
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit };
+  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
+      <TickChart
+        session={session}
+        accum={accum}
+        isToday={isToday}
+        cursorRec={rec}
+        onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
+        onJumpRec={cursor.jumpToRec}
+      />
+
       <TickSlider
         session={session}
         rec={rec}

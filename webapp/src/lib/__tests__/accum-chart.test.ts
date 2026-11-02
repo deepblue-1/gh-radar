@@ -97,6 +97,13 @@ describe('accum-chart — 창 · x (D-14)', () => {
     expect(clampView({ t0: T2000 - 10 * M, t1: T2000 + 50 * M }, T0, T2000)).toEqual({ t0: T2000 - H, t1: T2000 });
   });
 
+  it('clampView minViewMs 인자(37-14) — 넘기면 그 폭까지 · 생략하면 MIN_VIEW_MS 그대로', () => {
+    const { T2000 } = dayBoundsOf(T0);
+    expect(clampView({ t0: T0 + H, t1: T0 + H + 5_000 }, T0, T2000, 10_000)).toEqual({ t0: T0 + H, t1: T0 + H + 10_000 });
+    expect(clampView({ t0: T0 + H, t1: T0 + H + 30_000 }, T0, T2000, 10_000)).toEqual({ t0: T0 + H, t1: T0 + H + 30_000 });
+    expect(clampView({ t0: T0 + H, t1: T0 + H + 30_000 }, T0, T2000)).toEqual({ t0: T0 + H, t1: T0 + H + 10 * M });
+  });
+
   it('xOfView — view.t0 = L · view.t1 = W − 56 (R)', () => {
     const v = { t0: T0, t1: T0 + 11 * H };
     const x = xOfView(v, 52, 640);

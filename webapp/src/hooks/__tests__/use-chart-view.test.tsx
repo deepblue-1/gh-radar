@@ -41,8 +41,10 @@ let rafCalls = 0;
 /** quick-261028-ggj — 차트 길게 누르기 살펴보기 플래그(true 면 한 손가락 이동이 창을 옮기지 않는다). */
 const inspectFlag = { current: false };
 
-function Harness() {
-  const c = useChartView({ bounds: B, lastTradeMs: LAST });
+function Harness({ minViewMs }: { minViewMs?: number } = {}) {
+  const c = useChartView(
+    minViewMs === undefined ? { bounds: B, lastTradeMs: LAST } : { bounds: B, lastTradeMs: LAST, minViewMs },
+  );
   const ref = useRef<SVGSVGElement>(null);
   const { dragging } = useChartGestures(ref, { L, W, R: 56 }, c, inspectFlag);
   ctl = c;
@@ -316,5 +318,40 @@ describe('useChartView — 키보드 · rAF 합치기 (UI-SPEC 접근성 보강)
     flushFrame();
     expect(err).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+describe('useChartView — minViewMs 선택 인자 (37-14 틱 뷰어 · 생략 = 매집감지 10분 그대로)', () => {
+  function setupWith(minViewMs?: number) {
+    const r = render(<Harness minViewMs={minViewMs} />);
+    return r.getByTestId('wrap');
+  }
+  function zoomInTimes(wrap: HTMLElement, n: number) {
+    for (let i = 0; i < n; i++) {
+      fireEvent.keyDown(wrap, { key: '+' });
+      flushFrame();
+    }
+  }
+
+  it('(m1) minViewMs 10초면 + 키를 거듭 눌러 10초까지 확대되고 거기서 멈춘다(더 누르면 넘김)', () => {
+    const wrap = setupWith(10_000);
+    expect(ctl.minViewMs).toBe(10_000);
+    zoomInTimes(wrap, 20);
+    expect(width(ctl.view)).toBe(10_000);
+    expect(fireEvent.keyDown(wrap, { key: '+' })).toBe(true);
+  });
+
+  it('(m2) 생략하면 10분에서 멈춘다(매집감지 동작 그대로)', () => {
+    const wrap = setupWith();
+    expect(ctl.minViewMs).toBe(MIN_VIEW_MS);
+    zoomInTimes(wrap, 20);
+    expect(width(ctl.view)).toBe(MIN_VIEW_MS);
+  });
+
+  it('(m3) minViewMs 10초 — schedule 로 5초 창을 요청해도 clampView 가 10초로 넓힌다', () => {
+    setupWith(10_000);
+    act(() => void ctl.schedule(() => ({ t0: T0 + H, t1: T0 + H + 5_000 })));
+    flushFrame();
+    expect(ctl.view).toEqual({ t0: T0 + H, t1: T0 + H + 10_000 });
   });
 });

@@ -388,3 +388,95 @@ test.describe('틱 전문 뷰어 전문 목록 — 행 그룹 · 뒤집힘 · �
     await expectNoHorizontalScroll(page, '폰 버스트');
   });
 });
+
+test.describe('틱 전문 뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 ① · D-09 ~ D-12 · 37-14)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  const OPEN_URL = `${BASE}?isin=${ECO.isin}&d=${TICK_DATE}`;
+  const chart = (page: Page) => page.locator('[data-slot="tick-chart"]');
+  const svg = (page: Page) => page.locator('[data-slot="tick-chart-svg"]');
+  const span = (page: Page) => page.locator('[data-slot="tick-chart-span"]');
+  const curTime = async (page: Page) =>
+    ((await page.locator('[data-slot="tick-current"]').textContent()) ?? '').trim().slice(0, 12);
+  /** 하루 전체 창 08:00~20:00 · 그림 영역 [L, W − 52] · L = 52(가격 < 100만) — 시각(시간 단위 08시 기준) → svg 안 x. */
+  async function xAt(page: Page, hoursFrom0800: number): Promise<number> {
+    const box = (await svg(page).boundingBox())!;
+    const L = 52;
+    return L + (box.width - L - 52) * (hoursFrom0800 / 12);
+  }
+
+  test('차트 — 클릭 → 그 시각 이후 첫 틱(머리 시각 이동) · 데스크톱 230 · 누적 범례 · 가로 넘침 0', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(svg(page)).toBeVisible({ timeout: 30_000 });
+    await expect(svg(page)).toHaveAttribute('data-dims', 'desktop');
+    await expect(svg(page)).toHaveAttribute('height', '230');
+    // 픽스처 accum = null → 누적 자료 없음(D-09)
+    await expect(chart(page).locator('[data-slot="tick-chart-legend"]')).toHaveText('누적 자료 없음(매집감지 미등록)');
+    await expect(span(page)).toHaveText('하루 전체');
+
+    // 13:24 = 08시 + 5.4h · y 200 = 10분 막대 판(원 · 커서 선을 피해 시각 클릭)
+    await svg(page).click({ position: { x: await xAt(page, 5.4), y: 200 } });
+    await expect.poll(() => curTime(page)).toMatch(/^13:2\d:/);
+    await expect(page.locator('[data-slot="tick-chart-cursor"]')).toHaveCount(1);
+    await expect(page.locator('[data-slot="tick-chart-cursor-label"]')).toContainText(/^13:2\d:\d\d$/);
+    await expectNoHorizontalScroll(page, '차트 1280');
+  });
+
+  test('차트 — 휠 확대 10회 오류 0 · 「10초」 버튼 = 커서 중심 10초 창 · 0 키 = 하루 전체', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(svg(page)).toBeVisible({ timeout: 30_000 });
+
+    const box = (await svg(page).boundingBox())!;
+    await page.mouse.move(box.x + (await xAt(page, 5.5)), box.y + 60);
+    for (let i = 0; i < 10; i++) await page.mouse.wheel(0, -240);
+    await expect(span(page)).not.toHaveText('하루 전체');
+
+    await chart(page).getByRole('button', { name: '10초', exact: true }).click();
+    await expect(span(page)).toHaveText('10초');
+    // 커서 중심 창 — 커서 선 · 라벨이 보인다
+    await expect(page.locator('[data-slot="tick-chart-cursor"]')).toHaveCount(1);
+
+    await chart(page).getByRole('button', { name: '1분', exact: true }).click();
+    await expect(span(page)).toHaveText('1분');
+    await page.locator('[data-slot="tick-chart-wrap"]').focus();
+    await page.keyboard.press('0');
+    await expect(span(page)).toHaveText('하루 전체');
+    expect(errors, '페이지 오류 0').toEqual([]);
+  });
+
+  test('팀 거래정보 — 캡션(최소치 · ≈1분 해상도) · 틱 이동 시 KPI 가 따라 바뀐다', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    const panel = page.locator('[data-slot="tick-team-panel"]');
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel).toContainText('우리 체결 포함 · 호가 걸어 둔 팀 주문 미포함(최소치)');
+    await expect(panel).toContainText('≈1분 해상도');
+    await expect(panel).not.toContainText('NXT 런 규칙');
+
+    // 13:57 근처(08시 + 5.95h) — 컷 13시 팀 주문 126건이 쌓인 뒤
+    await svg(page).click({ position: { x: await xAt(page, 5.95), y: 200 } });
+    await expect.poll(() => curTime(page)).toMatch(/^13:5\d:/);
+    await expect(panel.locator('[data-slot="tick-team-day-net"]')).not.toHaveText('—');
+    await expect(panel.locator('[data-slot="tick-team-avg"]')).toBeVisible();
+    await expectNoHorizontalScroll(page, '팀 패널 1280');
+  });
+});

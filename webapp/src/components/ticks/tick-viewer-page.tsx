@@ -514,6 +514,8 @@ export function TickViewerPage() {
               urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
               initialT={initialT}
               onTick={setTickLabel}
+              accum={view.resp.accum}
+              isToday={view.resp.date === today}
             />
           </section>
         );
