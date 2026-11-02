@@ -8,6 +8,7 @@ import {
   SAMSUNG,
   TICK_DATE,
   lastSaturday,
+  tickGridUrl,
   mockTickApi,
   recentTradingDay,
   tickOpenFixture,
@@ -28,6 +29,10 @@ import {
  *   틱 API 는 `page.route` 목이다(server · RPC 는 이 e2e 밖 — 37-07 단위 시험).
  * ③ 날짜: 진입은 고정 20261016(격자가 있으면 보관 판정을 타지 않는다). 변환 · 자료 없음은 실행 날짜에서 계산한다
  *   (`recentTradingDay` · `lastSaturday` — 고정 날짜는 90일 뒤 「보관 밖」 카드로 바뀐다).
+ * ④ (37-10) 뷰어 본문: 서명 URL(`storage.test`)을 `page.route` 로 가로채 shared 골든 픽스처 `cut1300-krx.ticks.zst`
+ *   (에코앤드림 10/16 13:00~13:59 · 11,990 레코드 · 단일 보드 G1 이라 거래소순 = msg_seq 순 · 한 행 = seq +1)를 준다.
+ *   실브라우저에서만 보이는 것 — fzstd 스트리밍 해제 · 창 키 처리 · `history.replaceState` 의 URL `t`(Next 15 동기화) ·
+ *   새로고침 뒤 같은 시각 · 서명 만료 403 → open 재호출 1회.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -83,8 +88,10 @@ test.describe('틱 전문 뷰어 진입 (Phase 37 D-16)', () => {
     await expect(header.getByRole('heading')).toContainText(ECO.name);
     await expect(header.locator('[data-slot="tick-supply"]')).toHaveText('과거 격자 · GCS 원본');
     await expect(header.getByRole('button', { name: 'NXT' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('[data-slot="tick-body"]')).toContainText('레코드 48,210건');
+    // 37-10 — 열리면 서명 URL 격자를 받아 호가 10단까지 그린다(NXT 픽스처 바이트).
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
     expect(rec.open).toEqual([`${ECO.isin}/${TICK_DATE}/NXT`]);
+    expect(rec.grid).toHaveLength(1);
     expect(rec.convert).toHaveLength(0);
 
     await page.goBack();
@@ -141,5 +148,125 @@ test.describe('틱 전문 뷰어 진입 (Phase 37 D-16)', () => {
     await card.getByRole('button', { name: '최근 거래일로' }).click();
     await expect(page).toHaveURL(new RegExp(`${BASE}\\?d=${TICK_DATE}$`));
     await expect(entryRows(page)).toHaveCount(3);
+  });
+});
+
+test.describe('틱 전문 뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 · D-18)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  const OPEN_URL = `${BASE}?isin=${ECO.isin}&d=${TICK_DATE}`;
+  const current = (page: Page) => page.locator('[data-slot="tick-current"]');
+  /** 머리 「HH:MM:SS.mmm · #seq」 → { time, seq }. */
+  async function tickOf(page: Page): Promise<{ time: string; seq: number }> {
+    const text = (await current(page).textContent()) ?? '';
+    const m = /^(\d{2}:\d{2}:\d{2}\.\d{3}) · #(\d+)$/.exec(text.trim());
+    expect(m, `머리 틱 라벨 형식: ${text}`).not.toBeNull();
+    return { time: m![1]!, seq: Number(m![2]) };
+  }
+  const tParam = (page: Page) => new URL(page.url()).searchParams.get('t');
+
+  test('열기 — 서명 URL 격자 → 호가 10단 · 머리 시각 13:…', async ({ page }) => {
+    const rec = await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    const book = page.locator('[data-slot="tick-book"]');
+    await expect(book).toBeVisible({ timeout: 30_000 });
+    await expect(current(page)).toHaveText(/^13:\d{2}:\d{2}\.\d{3} · #\d+$/);
+    expect(rec.grid).toEqual([tickGridUrl({ isin: ECO.isin, d: TICK_DATE, ex: 'KRX' })]);
+    expect(rec.open).toHaveLength(1);
+    // 호가 20행 + 바닥 줄 · 슬라이더 밀도 144
+    await expect(book.locator('[data-slot="tick-book-row"]')).toHaveCount(20);
+    await expect(page.locator('[data-slot="tick-density-bar"]')).toHaveCount(144);
+    // 「주 | 금액」
+    await book.getByRole('button', { name: '금액' }).click();
+    await expect(book.locator('[data-slot="tick-book-total"]')).toContainText('합산 금액');
+    await expectNoHorizontalScroll(page, '뷰어 1280');
+    // 열기만으로는 URL 에 t 를 쓰지 않는다
+    expect(tParam(page)).toBeNull();
+  });
+
+  test('키 — → 세 번 → URL t 갱신 · history.length 그대로 · Shift+→ 10행', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    // 포커스를 본문으로(입력창에 있으면 키를 가로채지 않는 것이 계약이다)
+    await page.locator('[data-slot="tick-book"] h2').click();
+    const before = await tickOf(page);
+    const histBefore = await page.evaluate(() => history.length);
+
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await tickOf(page)).seq).toBe(before.seq + 3);
+    const after3 = await tickOf(page);
+    await expect.poll(() => tParam(page)).toBe(after3.time);
+    expect(await page.evaluate(() => history.length)).toBe(histBefore);
+
+    await page.keyboard.press('Shift+ArrowRight');
+    await expect.poll(async () => (await tickOf(page)).seq).toBe(before.seq + 13);
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(async () => (await tickOf(page)).seq).toBe(before.seq + 12);
+    const now = await tickOf(page);
+    await expect.poll(() => tParam(page)).toBe(now.time);
+    expect(await page.evaluate(() => history.length)).toBe(histBefore);
+  });
+
+  test('딥링크 — t=13:30:00.000 → 그 시각 이후 첫 틱 · 새로고침해도 같은 시각', async ({ page }) => {
+    const rec = await mockTickApi(page);
+    await page.goto(`${OPEN_URL}&t=13:30:00.000`);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    const first = await tickOf(page);
+    expect(first.time >= '13:30:00.000').toBe(true);
+    expect(first.time < '13:31:00.000').toBe(true);
+
+    // 한 틱 옮겨 URL t 를 그 틱 시각으로 → 새로고침 → 같은 시각
+    await page.locator('[data-slot="tick-book"] h2').click();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await tickOf(page)).seq).toBe(first.seq + 1);
+    const moved = await tickOf(page);
+    await expect.poll(() => tParam(page)).toBe(moved.time);
+    await page.reload();
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await tickOf(page)).time).toBe(moved.time);
+    expect(rec.open.length).toBe(2); // 처음 + 새로고침 — 틱 이동으로 다시 열지 않는다
+  });
+
+  test('점프 — 시각 입력 13:45:00 + Enter → 그 시각 이후 첫 틱 · 잘못된 형식은 빨간 테두리', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    const input = page.getByRole('textbox', { name: '틱 시각' });
+    await input.fill('13:45:00');
+    await input.press('Enter');
+    await expect.poll(async () => (await tickOf(page)).time.slice(0, 5)).toBe('13:45');
+    const t = await tickOf(page);
+    expect(t.time >= '13:45:00.000').toBe(true);
+    await expect.poll(() => tParam(page)).toBe(t.time);
+
+    await input.fill('25:99');
+    await input.press('Enter');
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect((await tickOf(page)).seq).toBe(t.seq);
+  });
+
+  test('만료 — 첫 격자 요청 403 → open 재호출 1회 → 새 URL 로 열림', async ({ page }) => {
+    const rec = await mockTickApi(page, { expireFirstGrid: true });
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    const q = { isin: ECO.isin, d: TICK_DATE, ex: 'KRX' as const };
+    expect(rec.grid).toEqual([tickGridUrl(q, 1), tickGridUrl(q, 2)]);
+    expect(rec.open).toEqual([`${ECO.isin}/${TICK_DATE}/KRX`, `${ECO.isin}/${TICK_DATE}/KRX`]);
   });
 });
