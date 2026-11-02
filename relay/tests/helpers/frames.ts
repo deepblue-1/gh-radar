@@ -105,6 +105,11 @@ export type FakeQuoteInput = {
    * 기본 `false` — 구 서버(필드 부재)와 같다.
    */
   burstUpperLimit?: boolean;
+  /**
+   * 버스트 비율 판정 % (`QuoteState.burst_ratio_pct` · gh-trade quick-261101-t7c). 서버 판정 · 거래소별 · 1~100.
+   * 기본 `0` — 구 서버(필드 부재) · 판정 없음과 같다(flatbuffers 가 기본값 0 은 슬롯을 쓰지 않는다).
+   */
+  burstRatioPct?: number;
 };
 
 const TEN = (base: bigint, step: bigint): bigint[] =>
@@ -152,6 +157,7 @@ export function buildQuoteStateFrame(input: FakeQuoteInput = {}): Uint8Array {
   QuoteState.addIsSnapshot(b, snapshot);
   QuoteState.addKrxClosePrice(b, input.krxClosePrice ?? 0n);
   QuoteState.addBurstUpperLimit(b, input.burstUpperLimit ?? false);
+  QuoteState.addBurstRatioPct(b, input.burstRatioPct ?? 0);
   const quote = QuoteState.endQuoteState(b);
 
   Envelope.startEnvelope(b);

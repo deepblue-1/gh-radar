@@ -50,6 +50,7 @@ function quote(over: Partial<RelayQuote> = {}): RelayQuote {
     vid: 9_000,
     kc: 0,
     bul: false,
+    brp: 0,
     ls: 50_000_000,
     et: '',
     ...over,

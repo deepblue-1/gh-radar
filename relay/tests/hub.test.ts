@@ -1655,12 +1655,12 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
     expect(PRICE_MIN_INTERVAL_MS).toBe(100);
   });
 
-  it("P2 samePriceSection — 호가 6칸 · 체결 시각만 다르면 같다 · 가격 섹션 13칸(+ bul) 중 하나라도 다르면 다르다", () => {
+  it("P2 samePriceSection — 호가 6칸 · 체결 시각만 다르면 같다 · 가격 섹션 13칸(+ bul · brp) 중 하나라도 다르면 다르다", () => {
     const base = {
       t: "q", i: SAMPLE_ISIN, x: "KRX", snap: false,
       p: 70_950, o: 70_000, h: 71_500, l: 69_800, c: 950, cs: "2", cr: 1.36, v: 1, va: 2,
       ap: [1], aq: [1], bp: [1], bq: [1], ta: 1, tb: 1, ul: 91_000, ll: 49_000, base: 70_000,
-      viu: 77_000, vid: 63_000, kc: 0, bul: false, ls: 5, et: "093015123456",
+      viu: 77_000, vid: 63_000, kc: 0, bul: false, brp: 0, ls: 5, et: "093015123456",
     } as const;
     const q = { ...base, ap: [...base.ap], aq: [...base.aq], bp: [...base.bp], bq: [...base.bq] };
     expect(samePriceSection(q, { ...q, ap: [2], aq: [2], bp: [2], bq: [2], ta: 9, tb: 9, et: "093016000000" })).toBe(true);
@@ -1672,6 +1672,9 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
     // 버스트 상한가 — 서버가 체결 섹션(kDirtyTrade)으로 표시한다(QuoteStore ResetAllBurstLimit · quick-261003-rc4 P-8).
     expect(samePriceSection(q, { ...q, bul: !q.bul })).toBe(false);
     expect(samePriceSection({ ...q, bul: true }, { ...q, bul: true })).toBe(true);
+    // 버스트 비율 판정 — 같은 체결 섹션(kDirtyTrade)이다. 비율만 바뀐 59 도 다른 가격 섹션이다 (quick-261101-t7c).
+    expect(samePriceSection(q, { ...q, brp: 85 })).toBe(false);
+    expect(samePriceSection({ ...q, brp: 85 }, { ...q, brp: 85 })).toBe(true);
   });
 
   it("Q3 59 burstUpperLimit true → FULL · PRICE 소켓 q 프레임에 bul true 가 실린다 (hub 는 객체 그대로 캐시 · 팬아웃)", () => {
@@ -1683,6 +1686,24 @@ describe("PRICE 판정 (D-05 · D-06)", () => {
 
     expect(last()).toMatchObject({ key: KEY, full: true, price: true });
     expect((last()!.msg as RelayQuote).bul).toBe(true);
+  });
+
+  it("Q3b 비율만 바뀐 59(brp 40 → 85 · 다른 칸 동일)도 PRICE 소켓에 간다 — q 프레임에 brp 85 (quick-261101-t7c)", () => {
+    mixedWithSnapshot();
+    expect((last()!.msg as RelayQuote).brp).toBe(0);
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+
+    push59({ burstRatioPct: 40 });
+    expect(last()).toMatchObject({ key: KEY, full: true, price: true });
+    expect((last()!.msg as RelayQuote).brp).toBe(40);
+    vi.advanceTimersByTime(PRICE_MIN_INTERVAL_MS);
+
+    const before = quotes().length;
+    push59({ burstRatioPct: 85 });
+
+    expect(quotes()).toHaveLength(before + 1);
+    expect(last()).toMatchObject({ key: KEY, full: true, price: true });
+    expect((last()!.msg as RelayQuote).brp).toBe(85);
   });
 
   it("P3 58 은 full · price 모두 통과한다", () => {

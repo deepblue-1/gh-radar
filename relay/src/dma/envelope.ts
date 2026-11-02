@@ -641,6 +641,8 @@ export function parseQuoteState(env: Envelope, isSnapshot: boolean): RelayQuote 
     kc: toNum(q.krxClosePrice(), "krx_close_price"),
     // 버스트 상한가 — 서버 권위값 · 거래소별(이 프레임의 x) · 계산 없음. 부재(구 서버) = false (quick-261003-rc4).
     bul: q.burstUpperLimit(),
+    // 버스트 비율 판정 % — 서버 권위값 · 거래소별 · 계산 · 클램프 없음. 부재(구 서버) = 0 (quick-261101-t7c).
+    brp: q.burstRatioPct(),
     // 해석하지 않고 원문 그대로 흘린다 — 신선도 판정의 원천 (D-34).
     et: q.exchangeTime() ?? "",
   };

@@ -58,3 +58,11 @@ export function userSettingsForAccount(
   const serverKey = accounts.find((a) => a.accountNo === accountNo)?.serverKey;
   return serverKey ? map.get(serverKey) : undefined;
 }
+
+/**
+ * 버스트 판정 비율의 **내장 기본값** % — 84 `burstRatioPct` 가 0(구 서버 · 슬롯 부재) · 범위 밖 · 미수신일 때 쓴다
+ * (gh-trade protocol 84 「부재 = 0 → 클라 내장 70」 · WinForms 동형 · quick-261101-t7c).
+ *
+ * /me 표시와 상따 호가 사다리 기준이 이 상수 하나를 읽는다 — 다른 파일에 70 을 다시 적지 않는다.
+ */
+export const BURST_RATIO_DEFAULT_PCT = 70;

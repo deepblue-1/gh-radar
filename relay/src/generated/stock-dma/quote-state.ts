@@ -212,8 +212,13 @@ burstUpperLimit():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+burstRatioPct():number {
+  const offset = this.bb!.__offset(this.bb_pos, 68);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startQuoteState(builder:flatbuffers.Builder) {
-  builder.startObject(32);
+  builder.startObject(33);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -392,12 +397,16 @@ static addBurstUpperLimit(builder:flatbuffers.Builder, burstUpperLimit:boolean) 
   builder.addFieldInt8(31, +burstUpperLimit, +false);
 }
 
+static addBurstRatioPct(builder:flatbuffers.Builder, burstRatioPct:number) {
+  builder.addFieldInt8(32, burstRatioPct, 0);
+}
+
 static endQuoteState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createQuoteState(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, lastPrice:bigint, openPrice:bigint, highPrice:bigint, lowPrice:bigint, change:bigint, changeSignOffset:flatbuffers.Offset, changeRate:number, cumVolume:bigint, cumValue:bigint, askPricesOffset:flatbuffers.Offset, askQtysOffset:flatbuffers.Offset, bidPricesOffset:flatbuffers.Offset, bidQtysOffset:flatbuffers.Offset, totalAskQty:bigint, totalBidQty:bigint, upperLimit:bigint, lowerLimit:bigint, basePrice:bigint, viUpPrice:bigint, viDownPrice:bigint, listShares:bigint, estPrice:bigint, estQty:bigint, exchangeTimeOffset:flatbuffers.Offset, serverTimeOffset:flatbuffers.Offset, isSnapshot:boolean, krxClosePrice:bigint, offHoursCloseAskQty:bigint, offHoursCloseBidQty:bigint, burstUpperLimit:boolean):flatbuffers.Offset {
+static createQuoteState(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, lastPrice:bigint, openPrice:bigint, highPrice:bigint, lowPrice:bigint, change:bigint, changeSignOffset:flatbuffers.Offset, changeRate:number, cumVolume:bigint, cumValue:bigint, askPricesOffset:flatbuffers.Offset, askQtysOffset:flatbuffers.Offset, bidPricesOffset:flatbuffers.Offset, bidQtysOffset:flatbuffers.Offset, totalAskQty:bigint, totalBidQty:bigint, upperLimit:bigint, lowerLimit:bigint, basePrice:bigint, viUpPrice:bigint, viDownPrice:bigint, listShares:bigint, estPrice:bigint, estQty:bigint, exchangeTimeOffset:flatbuffers.Offset, serverTimeOffset:flatbuffers.Offset, isSnapshot:boolean, krxClosePrice:bigint, offHoursCloseAskQty:bigint, offHoursCloseBidQty:bigint, burstUpperLimit:boolean, burstRatioPct:number):flatbuffers.Offset {
   QuoteState.startQuoteState(builder);
   QuoteState.addIsin(builder, isinOffset);
   QuoteState.addExchange(builder, exchangeOffset);
@@ -431,6 +440,7 @@ static createQuoteState(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offs
   QuoteState.addOffHoursCloseAskQty(builder, offHoursCloseAskQty);
   QuoteState.addOffHoursCloseBidQty(builder, offHoursCloseBidQty);
   QuoteState.addBurstUpperLimit(builder, burstUpperLimit);
+  QuoteState.addBurstRatioPct(builder, burstRatioPct);
   return QuoteState.endQuoteState(builder);
 }
 }

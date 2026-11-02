@@ -613,6 +613,19 @@ describe("parseQuoteState", () => {
     expect([nxt!.x, nxt!.bul]).toEqual(["NXT", true]);
     expect([krx!.x, krx!.bul]).toEqual(["KRX", false]);
   });
+  it("Q2 버스트 비율 판정 brp 를 거래소별 프레임 값 그대로 나른다 — 부재(구 서버) 0 · NXT 85 / KRX 0 이 섞이지 않는다 (quick-261101-t7c)", () => {
+    const on = parseQuote(buildQuoteStateFrame({ burstRatioPct: 85 }));
+    expect(on!.brp).toBe(85);
+    expect(typeof on!.brp).toBe("number");
+
+    const absent = parseQuote(buildQuoteStateFrame({}), false);
+    expect(absent!.brp).toBe(0);
+
+    const nxt = parseQuote(buildQuoteStateFrame({ exchange: "NXT", burstRatioPct: 85, snapshot: false }), false);
+    const krx = parseQuote(buildQuoteStateFrame({ exchange: "KRX", burstRatioPct: 0, snapshot: false }), false);
+    expect([nxt!.x, nxt!.brp]).toEqual(["NXT", 85]);
+    expect([krx!.x, krx!.brp]).toEqual(["KRX", 0]);
+  });
 });
 
 describe("parseTradeTape", () => {

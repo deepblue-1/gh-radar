@@ -64,10 +64,17 @@
  *                         ★ **범례 줄은 없다** — 방향·상한가·최근 체결가는 각 행의 보조
  *                           텍스트가 말한다. 그 텍스트가 WCAG 1.4.1 을 잇는 유일한 채널이므로
  *                           함께 지우면 그 순간 색 단독 전달이 된다.
- *                         ★ **「버스트」 표식**(quick-261003-rc4 · `BurstMark`) — `quote.bul === true`
- *                           (서버 판정 버스트 상한가 · 거래소별)일 때 세 트리 각각의 매도 10단 블록
- *                           위에 겹쳐 그린다. gh-trade 3c6e6cff 호가창 배치(매도 영역 가운데 빨간
- *                           「버스트」)의 웹 번역이다. 버스트 상한가 상태의 매도호가는 비어 있어 가리는
+ *                         ★ **「버스트」 표식**(quick-261003-rc4 · quick-261102-epl · `burstMarkOf` ·
+ *                           `BurstMark`) — 세 트리 각각의 매도 10단 블록 위에 겹쳐 그린다. 판정은
+ *                           WinForms OrderBookPanel 순서 그대로 4갈래다(gh-trade quick-261101-t7c):
+ *                             · `brp > 0 ∧ brp ≥ 기준` → 빨간 「버스트 NN%」
+ *                             · `0 < brp < 기준`       → 회색 「NN%」(판정은 났지만 기준 미달)
+ *                             · `brp 0 ∧ bul === true` → 빨간 「버스트」(구 서버 — 종전 엄격 판정)
+ *                             · 그 밖                   → 표식 없음
+ *                           `brp`(비율) · `bul`(엄격)은 서버 판정 · 거래소별이고, 기준은 그 카드 계좌
+ *                           서버의 84 `burstRatioPct`(호출자가 `burstThresholdPct` 로 넘긴다 · 0 ·
+ *                           미수신이면 내장 70)다. gh-trade 3c6e6cff 호가창 배치(매도 영역 가운데 큰
+ *                           글자)의 웹 번역이다. 버스트 상한가 상태의 매도호가는 비어 있어 가리는
  *                           값이 없다. absolute 겹침이라 **레이아웃 폭 0**(행 수 · 열 폭 · 마커 슬롯
  *                           불변 — 위 「현재가 표시는 레이아웃 폭을 차지하지 않는 방식」 규율)이고
  *                           `pointer-events-none` 이라 호가 행 클릭(가격 선택)을 가로채지 않는다.
@@ -91,6 +98,7 @@ import {
 } from '@/components/orderbook/trade-tape';
 import { cn } from '@/lib/utils';
 import type { RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
+import { BURST_RATIO_DEFAULT_PCT } from '@/lib/user-settings-server';
 
 /** 호가 단계 수 — 계약상 ap/aq/bp/bq 는 길이 10 고정. */
 const LEVELS = 10;
@@ -162,6 +170,12 @@ export interface OrderbookLadderProps {
    *   스크롤 박스 tab stop 계약(`orderbook-ladder-chaser.test` ⑦)은 그대로다.
    */
   onPriceSelect?: (price: number) => void;
+  /**
+   * `variant="chaser"` **전용** 버스트 판정 기준 % (quick-261102-epl · gh-trade quick-261101-t7c).
+   * 그 카드 계좌 서버의 84 `burstRatioPct` 다 — 호출자가 1~100 으로 정규화해 넘긴다(`burstRatioThresholdOf`).
+   * 미지정 = `BURST_RATIO_DEFAULT_PCT`(70). `quote.brp` 가 이 값 이상이면 빨간 「버스트 NN%」, 미만이면 회색 「NN%」.
+   */
+  burstThresholdPct?: number;
   className?: string;
 }
 
@@ -635,12 +649,45 @@ function MarkerSlot({ kind }: { kind: 'upper' | 'trade' | 'none' }) {
   );
 }
 
+/** 버스트 표식 한 개 — `burstMarkOf` 의 결과. `tone` 빨강 = 버스트 상한가 · 회색 = 기준 미달 비율. */
+export interface BurstMarkSpec {
+  tone: 'up' | 'muted';
+  /** 보이는 글자(aria-hidden). */
+  text: string;
+  /** 스크린리더 문구(sr-only). */
+  srText: string;
+}
+
 /**
- * 「버스트」 겹침 표식(quick-261003-rc4) — 한 트리의 매도 10단 블록(`heightClass` = 그 트리의 행 × 10) 위
- * 가운데에 알약 하나. absolute · `pointer-events-none` 이라 레이아웃 폭 0 · 클릭 무간섭이다. 잔량 바(`z-[1]`)
- * 위에 선다. 글자는 국내 관례 빨강 `--up`(gh-trade 클라 빨간 큰 글자) · 바탕은 `--card` 반투명.
+ * 버스트 표식 판정 (quick-261102-epl) — WinForms OrderBookPanel(gh-trade quick-261101-t7c) 순서 그대로:
+ *  1. `brp > 0 ∧ brp ≥ 기준` → 빨강 「버스트 NN%」 · sr 「버스트 상한가 NN%」
+ *  2. `brp > 0`               → 회색 「NN%」 · sr 「버스트 비율 NN%」 — **비율이 `bul` 보다 먼저**다
+ *  3. `brp 0 ∧ bul === true`  → 빨강 「버스트」 · sr 「버스트 상한가」(구 서버 — 종전 문구 그대로)
+ *  4. 그 밖                   → null(표식 없음)
+ *
+ * `brp` 는 `typeof === 'number'` 로만 읽는다 — 키 없는 옛 relay 프레임은 0(판정 없음)이다.
+ * `bul` 은 `=== true` 로만 본다(종전 규율).
  */
-function BurstMark({ heightClass }: { heightClass: string }) {
+export function burstMarkOf(
+  quote: Pick<RelayQuote, 'bul'> & { brp?: number },
+  thresholdPct: number,
+): BurstMarkSpec | null {
+  const brp = typeof quote.brp === 'number' ? quote.brp : 0;
+  if (brp > 0 && brp >= thresholdPct) {
+    return { tone: 'up', text: `버스트 ${brp}%`, srText: `버스트 상한가 ${brp}%` };
+  }
+  if (brp > 0) return { tone: 'muted', text: `${brp}%`, srText: `버스트 비율 ${brp}%` };
+  if (quote.bul === true) return { tone: 'up', text: '버스트', srText: '버스트 상한가' };
+  return null;
+}
+
+/**
+ * 「버스트」 겹침 표식(quick-261003-rc4 · quick-261102-epl) — 한 트리의 매도 10단 블록(`heightClass` = 그 트리의
+ * 행 × 10) 위 가운데에 알약 하나. absolute · `pointer-events-none` 이라 레이아웃 폭 0 · 클릭 무간섭이다. 잔량 바
+ * (`z-[1]`) 위에 선다. 바탕은 `--card` 반투명. 테두리 · 글자 색은 `mark.tone` — 빨강은 국내 관례 `--up`(gh-trade 클라
+ * 빨간 큰 글자) · 회색은 `--muted-fg`(WinForms 「기준 미달 비율」 회색 · 새 색 토큰 없음). 판정은 `burstMarkOf` 한 곳이다.
+ */
+function BurstMark({ heightClass, mark }: { heightClass: string; mark: BurstMarkSpec }) {
   return (
     <div
       data-slot="ladder-burst"
@@ -649,9 +696,17 @@ function BurstMark({ heightClass }: { heightClass: string }) {
         heightClass,
       )}
     >
-      <span className="rounded-[var(--r-md)] border border-[var(--up)] bg-[color-mix(in_oklab,var(--card)_85%,transparent)] px-3 py-1 text-[length:var(--t-lg)] leading-none font-bold whitespace-nowrap text-[var(--up)]">
-        <span aria-hidden="true">버스트</span>
-        <span className="sr-only">버스트 상한가</span>
+      <span
+        data-tone={mark.tone}
+        className={cn(
+          'rounded-[var(--r-md)] border bg-[color-mix(in_oklab,var(--card)_85%,transparent)] px-3 py-1 text-[length:var(--t-lg)] leading-none font-bold whitespace-nowrap',
+          mark.tone === 'up'
+            ? 'border-[var(--up)] text-[var(--up)]'
+            : 'border-[var(--muted-fg)] text-[var(--muted-fg)]',
+        )}
+      >
+        <span aria-hidden="true">{mark.text}</span>
+        <span className="sr-only">{mark.srText}</span>
       </span>
     </div>
   );
@@ -705,6 +760,7 @@ function ChaserLadder({
   recentTrades = [],
   upperLimit = 0,
   onPriceSelect,
+  burstThresholdPct,
   className,
 }: OrderbookLadderProps) {
   /**
@@ -799,8 +855,11 @@ function ChaserLadder({
   }
 
   const lastTradePrice = recentTrades[0]?.p ?? quote.p;
-  /** 버스트 상한가 — 서버 권위값 · 이 프레임 거래소의 값. `=== true` 로만 본다(키 없는 옛 relay 프레임 안전). */
-  const burst = quote.bul === true;
+  /**
+   * 버스트 표식 — 서버 권위값(`brp` 비율 · `bul` 엄격 · 이 프레임 거래소의 값) × 그 카드 계좌 서버의 기준.
+   * 세 트리가 **이 한 값**을 공유한다 — 트리마다 판정을 다시 적지 않는다.
+   */
+  const burst = burstMarkOf(quote, burstThresholdPct ?? BURST_RATIO_DEFAULT_PCT);
   const asks = rows.filter((r) => r.side === 'ask');
   const bids = rows.filter((r) => r.side === 'bid');
 
@@ -949,7 +1008,7 @@ function ChaserLadder({
       {/* ── 3단 표 (본문 830~) — 32px 행(`LADDER_ROW_H`) · 최근 체결 10건 · 마커 슬롯 ── */}
       <div data-slot="ladder-tree" data-tree="three" className="relative hidden @min-[830px]/lc:block">
         {/* 매도 10단은 표 맨 위(thead 없음)라 10 × 행 = `LADDER_BOX_TWO_H` 와 같은 높이다. */}
-        {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} />}
+        {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} mark={burst} />}
         <table
           aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건"
           className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
@@ -1130,7 +1189,7 @@ function ChaserLadder({
           className={cn(LADDER_BOX_TWO_H, 'relative overflow-x-hidden overflow-y-auto')}
         >
           {/* 스크롤 내용과 함께 움직여 매도 10단 블록에 붙어 있다. */}
-          {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} />}
+          {burst && <BurstMark heightClass={LADDER_BOX_TWO_H} mark={burst} />}
           <table
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
             className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
@@ -1174,7 +1233,7 @@ function ChaserLadder({
           data-slot="ladder-scroll"
           className={cn(LADDER_BOX_ONE_H, 'relative overflow-x-hidden overflow-y-auto')}
         >
-          {burst && <BurstMark heightClass={LADDER_BOX_ONE_H} />}
+          {burst && <BurstMark heightClass={LADDER_BOX_ONE_H} mark={burst} />}
           <ul
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
             className="m-0 flex list-none flex-col p-0"

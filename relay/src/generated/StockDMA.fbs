@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 21d692a1
-// synced-date:        2026-11-01
+// server-repo-commit: b6d3f3ef
+// synced-date:        2026-11-02
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1118,6 +1118,12 @@ table QuoteState {
                                     // (A3 매도1·매수1호가 0/0 으로 이어진 조각들 + 그 마지막 조각)이면 true. 서버 추적기
                                     // (server/src/market/krx/BurstLimit.h) 판정, 거래소별(KRX/NXT 각자). 58/59 매 프레임,
                                     // 상한가 이탈(B6)·06:00 에 false. 구 서버는 필드 부재라 false. 맨 끝 append (quick-261003-phd)
+    burst_ratio_pct: ubyte;         // 버스트 비율 판정 (quick-261101-t7c) — 그 상한가 창에서 상한 매도벽이 사라진 순간
+                                    // 유효 버스트(상한가 조각 ≥ 2) 상한가 수량 ÷ 상한가 매수체결 전체(%) 1~100.
+                                    // 0 = 판정 없음 · 구 서버(필드 부재). 서버 추적기 판정, 거래소별, 58/59 매 프레임,
+                                    // 상한가 이탈(B6)·06:00 에 0. 사용자 기준 비교는 소비자 몫(클라 호가창 「버스트 NN%」/
+                                    // 회색 「NN%」 · 서버 ☐버스트 취소 — UserSettings.burst_ratio_pct). 엄격 판정은
+                                    // burst_upper_limit 그대로(엄격 판정이면 이 값은 100). 맨 끝 append
 }
 
 // 체결 테이프 1건 (D-02)
@@ -1837,7 +1843,7 @@ table AutoSellCommandReq {       // 41 본문 — 자동매도 바로시작/중�
                                  // 그 밖 값은 54 ERROR
 }
 
-table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 14개 + present (D-20 · Phase 32 D-08 · quick-261012-sd1)
+table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 15개 + present (D-20 · Phase 32 D-08 · quick-261012-sd1 · quick-261101-t7c)
     // 기존 클라 settings.ini [LimitChaserDefaults] 7키 — 금액 3칸 단위는 **만원**(클라 LimitChaserDefaults 와 같다)
     pre_buy_amount: uint;        // 선매수 주문금액(만원) 0~999999999
     add_buy_amount: uint;        // 줄매수 주문금액(만원) 0~999999999
@@ -1860,6 +1866,9 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
     //     아닌 값이면 0·false 도 쓴다 — 송신자는 두 필드를 늘 싣는다). 84 는 서버가 늘 싣는다(84 부재 = 구 서버 → 0·false 로 읽는다)
     pre_buy_watch_amount: uint = null;   // 선매수 매도잔량 기본값(만원) 0~999999999, 0 = 종전(상장주식수 × 0.3% 시딩). vtable 30
     pre_buy_auto_add_buy: bool = null;   // ☐줄매수 자동켜짐 — 사람이 상따창 ☐선매수를 켤 때 ☐줄매수도 같은 제출로 켠다(클라 동작, 서버는 보관·에코만). vtable 32
+    // === 이하 quick-261101-t7c — optional 스칼라(`= null`, 위 sd1 과 같은 규약) ===
+    burst_ratio_pct: ubyte = null;       // 버스트 판정 비율 기준 % 1~100, 기본 70 — 호가창 「버스트 NN%」 표시와 상따 ☐버스트 취소의 기준.
+                                         // 42 에 없으면(구 WinForms·스키마 동기화 전 웹) 저장값 유지, 84 는 서버가 늘 싣는다. vtable 34
 }
 
 // ============================================================================

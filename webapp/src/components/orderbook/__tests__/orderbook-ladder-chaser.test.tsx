@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import type { RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
 
-import { OrderbookLadder, ladderPctText, ladderPctTextSigned } from '../orderbook-ladder';
+import { OrderbookLadder, burstMarkOf, ladderPctText, ladderPctTextSigned } from '../orderbook-ladder';
 
 /**
  * Phase 16 Plan 13 Task 1 — 상따 호가 변형 (`variant="chaser"`, A11/A11a).
@@ -60,6 +60,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     ls: 5_969_782_550,
     kc: 0,
     bul: false,
+    brp: 0,
     et: '093015123456',
     ...over,
   };
@@ -806,5 +807,78 @@ describe('OrderbookLadder — 상따 「버스트」 겹침 표식 (quick-261003
     const bidRow = container.querySelector<HTMLElement>('[data-tree="three"] [data-slot="ladder-row"][data-side="bid"]')!;
     bidRow.click();
     expect(onPriceSelect).toHaveBeenCalledWith(99_900);
+  });
+});
+
+/*
+  quick-261102-epl — 버스트 비율 판정(QuoteState.burst_ratio_pct → RelayQuote.brp · gh-trade quick-261101-t7c). WinForms
+  OrderBookPanel 순서 그대로 4갈래: 비율 ≥ 기준 빨강 「버스트 NN%」 · 0 < 비율 < 기준 회색 「NN%」 · 비율 0 ∧ bul 종전 「버스트」 ·
+  그 밖 없음. 기준 = 카드 계좌 서버 84 burstRatioPct(호출자가 burstThresholdPct 로 · 미지정 70).
+*/
+describe('OrderbookLadder — 상따 버스트 비율 판정 (quick-261102-epl)', () => {
+  const marks = (c: HTMLElement) => c.querySelectorAll<HTMLElement>('[data-slot="ladder-burst"]');
+  const pill = (m: HTMLElement) => m.querySelector<HTMLElement>('[data-tone]')!;
+
+  it('E1 burstMarkOf 4갈래 — 비율이 bul 보다 먼저 · 기준 이상(≥)이면 빨강', () => {
+    expect(burstMarkOf({ brp: 85, bul: false }, 70)).toEqual({ tone: 'up', text: '버스트 85%', srText: '버스트 상한가 85%' });
+    expect(burstMarkOf({ brp: 70, bul: false }, 70)).toEqual({ tone: 'up', text: '버스트 70%', srText: '버스트 상한가 70%' });
+    expect(burstMarkOf({ brp: 40, bul: false }, 70)).toEqual({ tone: 'muted', text: '40%', srText: '버스트 비율 40%' });
+    expect(burstMarkOf({ brp: 85, bul: false }, 90)).toEqual({ tone: 'muted', text: '85%', srText: '버스트 비율 85%' });
+    expect(burstMarkOf({ brp: 40, bul: true }, 70)).toEqual({ tone: 'muted', text: '40%', srText: '버스트 비율 40%' });
+    expect(burstMarkOf({ brp: 0, bul: true }, 70)).toEqual({ tone: 'up', text: '버스트', srText: '버스트 상한가' });
+    expect(burstMarkOf({ bul: true }, 70)).toEqual({ tone: 'up', text: '버스트', srText: '버스트 상한가' });
+    expect(burstMarkOf({ brp: 0, bul: false }, 70)).toBeNull();
+  });
+
+  it('E2 brp 85 → 세 트리에 하나씩 · 「버스트 85%」 · --up · sr 「버스트 상한가 85%」 · 레이아웃 불변', () => {
+    const { container } = renderChaser({ quote: makeQuote({ brp: 85 }) });
+    const all = marks(container);
+    expect(all).toHaveLength(3);
+    for (const m of Array.from(all)) {
+      expect(m.className).toContain('absolute');
+      expect(m.className).toContain('pointer-events-none');
+      expect(m.querySelector('[aria-hidden="true"]')?.textContent).toBe('버스트 85%');
+      expect(m.querySelector('.sr-only')?.textContent).toBe('버스트 상한가 85%');
+      expect(pill(m).getAttribute('data-tone')).toBe('up');
+      expect(pill(m).className).toContain('--up');
+      expect(pill(m).className).not.toContain('--muted-fg');
+    }
+    expect(container.querySelectorAll('[data-slot="ladder-row"]')).toHaveLength(20);
+    expect(container.querySelectorAll('[data-slot="ladder-marker"]')).toHaveLength(20);
+  });
+
+  it('E3 brp 40(기본 기준 70) → 회색 「40%」 · --muted-fg · --up 없음 · sr 「버스트 비율 40%」', () => {
+    const { container } = renderChaser({ quote: makeQuote({ brp: 40, bul: true }) });
+    const all = marks(container);
+    expect(all).toHaveLength(3);
+    for (const m of Array.from(all)) {
+      expect(m.querySelector('[aria-hidden="true"]')?.textContent).toBe('40%');
+      expect(m.querySelector('.sr-only')?.textContent).toBe('버스트 비율 40%');
+      expect(pill(m).getAttribute('data-tone')).toBe('muted');
+      expect(pill(m).className).toContain('--muted-fg');
+      expect(pill(m).className).not.toContain('--up');
+    }
+  });
+
+  it('E4 burstThresholdPct 가 기준을 바꾼다 — brp 85 · 기준 90 → 회색 「85%」 · 기준 80 → 빨강', () => {
+    const grey = renderChaser({ quote: makeQuote({ brp: 85 }), burstThresholdPct: 90 });
+    expect(pill(marks(grey.container)[0]!).getAttribute('data-tone')).toBe('muted');
+    expect(marks(grey.container)[0]!.querySelector('[aria-hidden="true"]')?.textContent).toBe('85%');
+    grey.unmount();
+    const red = renderChaser({ quote: makeQuote({ brp: 85 }), burstThresholdPct: 80 });
+    expect(pill(marks(red.container)[0]!).getAttribute('data-tone')).toBe('up');
+  });
+
+  it('E5 brp 키 없는 옛 relay 프레임 · bul true → 종전 「버스트」 · bul false → 표식 0개', () => {
+    const { brp: _brp, ...legacy } = makeQuote({ bul: true });
+    void _brp;
+    const on = renderChaser({ quote: legacy as RelayQuote });
+    expect(marks(on.container)).toHaveLength(3);
+    expect(marks(on.container)[0]!.querySelector('[aria-hidden="true"]')?.textContent).toBe('버스트');
+    on.unmount();
+    const { brp: _b2, ...legacyOff } = makeQuote();
+    void _b2;
+    const off = renderChaser({ quote: legacyOff as RelayQuote });
+    expect(marks(off.container)).toHaveLength(0);
   });
 });

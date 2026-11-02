@@ -135,6 +135,7 @@ function quote(over: Record<string, unknown> = {}) {
     vid: 0,
     kc: 0,
     bul: false,
+    brp: 0,
     ls: 0,
     et: '093000000000',
     base: 116_000,

@@ -97,8 +97,13 @@ preBuyAutoAddBuy():boolean|null {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : null;
 }
 
+burstRatioPct():number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 34);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : null;
+}
+
 static startUserSettings(builder:flatbuffers.Builder) {
-  builder.startObject(15);
+  builder.startObject(16);
 }
 
 static addPreBuyAmount(builder:flatbuffers.Builder, preBuyAmount:number) {
@@ -161,12 +166,16 @@ static addPreBuyAutoAddBuy(builder:flatbuffers.Builder, preBuyAutoAddBuy:boolean
   builder.addFieldInt8(14, +preBuyAutoAddBuy, null);
 }
 
+static addBurstRatioPct(builder:flatbuffers.Builder, burstRatioPct:number) {
+  builder.addFieldInt8(15, burstRatioPct, null);
+}
+
 static endUserSettings(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number, preBuyWatchAmount:number|null, preBuyAutoAddBuy:boolean|null):flatbuffers.Offset {
+static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number, preBuyWatchAmount:number|null, preBuyAutoAddBuy:boolean|null, burstRatioPct:number|null):flatbuffers.Offset {
   UserSettings.startUserSettings(builder);
   UserSettings.addPreBuyAmount(builder, preBuyAmount);
   UserSettings.addAddBuyAmount(builder, addBuyAmount);
@@ -185,6 +194,8 @@ static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addB
     UserSettings.addPreBuyWatchAmount(builder, preBuyWatchAmount);
   if (preBuyAutoAddBuy !== null)
     UserSettings.addPreBuyAutoAddBuy(builder, preBuyAutoAddBuy);
+  if (burstRatioPct !== null)
+    UserSettings.addBurstRatioPct(builder, burstRatioPct);
   return UserSettings.endUserSettings(builder);
 }
 }
