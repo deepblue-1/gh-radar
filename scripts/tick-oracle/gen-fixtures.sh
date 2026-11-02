@@ -2,12 +2,14 @@
 # 틱 뷰어(Phase 37) 오라클 픽스처 생성기 — 맥 전용.
 #
 # 사용법:
-#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders
+#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs
 #
 # 부명령:
 #   decode  레이아웃 덤프(layouts.json) + 디코더 골든 3종(cut1300-krx · cut1300-nxt · raw20k-0900)
 #           → packages/shared/src/__fixtures__/ticks/
 #   orders  컷 13시 KRX classify_orders 주문별 골든(cut1300-krx.orders.json) — 37-03 Task 1
+#   runs    컷 13시 KRX · NXT 런 통계(cut1300-runs.json) + NXT 단독 창 13:30~13:40 팀 주문(cut1300-nxt.window.json)
+#           — 37-03 Task 2. 창 값이 AccumNxtFixtures.h kAccumNxt_Expect(13 · 7901/82023350 · 4632/49348980)와 다르면 종료 1
 #
 # 전제: gh-trade venv(Python 3.14 · compression.zstd · pyarrow)와 로컬 원본 pcap.
 #   GH_TRADE_ANALYSIS (기본 /Users/alex/repos/gh-trade/server/tools/analysis)
@@ -57,8 +59,14 @@ case "$cmd" in
   orders)
     oracle orders "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --out "$FX/cut1300-krx.orders.json"
     ;;
+  runs)
+    oracle runs --krx "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --nxt "$HOME/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst" \
+      --out "$FX/cut1300-runs.json"
+    oracle window "$HOME/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst" --from 13:30:00 --to 13:40:00 \
+      --expect 13,7901,82023350,4632,49348980 --out "$FX/cut1300-nxt.window.json"
+    ;;
   *)
-    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders" >&2
+    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs" >&2
     exit 2
     ;;
 esac

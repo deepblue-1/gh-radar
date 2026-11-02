@@ -10,6 +10,8 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
   gh-trade server/tools/analysis/tickana/pcap2parquet.py:230-345 convert_file · 레코드 루프 · 이더넷/IPv4/UDP 벗김
   gh-trade server/tools/analysis/README.md 「Parquet 표 스키마」
   gh-trade server/tools/analysis/tickana/teamflow.py:68-86 load_day_parquet · :96-134 classify_orders · :242-258 prepare_frame
+  gh-trade server/tools/analysis/tickana/nxt_runs.py:44-127 load_g1 · tag_runs · run_stats · :172-182 summary_line
+  gh-trade server/tools/analysis/tickana/nxt_fixture.py:94-134 TeamOrder · classify_nxt_team_orders · :434-446 nxt_window
 
 부명령:
   layouts --out <json>
@@ -25,6 +27,11 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
       컷 KRX pcap → convert_file → teamflow.load_day_parquet 와 같은 열 · 조건(`board_id='G1' and exchange='KRX'`
       · `order by isin, msg_seq`) → teamflow.prepare_frame → 주문별 [msg_seq, oid, kind, team] JSON.
       (isin, msg_seq) 동률이 있으면 duckdb 정렬이 비결정이라 종료 1.
+  runs --krx <pcap.zst> --nxt <pcap.zst> --out <json>                 (37-03 Task 2)
+      컷 KRX · NXT 각각 → nxt_runs.load_g1 → tag_runs → run_stats → summary_line + 런별 통계 행.
+  window <nxt pcap.zst> --from HH:MM:SS --to HH:MM:SS --out <json> [--expect N,BQ,BV,SQ,SV]   (37-03 Task 2)
+      NXT nxt_fixture.nxt_window(마지막 조각 시각 µs 양끝 포함) → classify_nxt_team_orders → 팀 주문 · 매수/매도 합.
+      --expect 와 다르면 종료 1(AccumNxtFixtures.h kAccumNxt_Expect 원천 확인).
 
 정규화(canon) — TS `packages/shared/src/__tests__/helpers/tick-digest.ts` 와 한 글자도 다르지 않게:
   null/NaN → "~" · bool → "1"/"0" · 정수 → 10진 문자열 · 부동소수(dec6) → format(v, ".6f") · 문자열 → 그대로.
@@ -56,7 +63,8 @@ import pyarrow as pa  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 from compression import zstd  # noqa: E402  (Python 3.14 표준)
 
-from tickana import packets, pcap2parquet, teamflow  # noqa: E402
+from tickana import nxt_fixture, nxt_runs, packets, pcap2parquet, teamflow  # noqa: E402
+from tickana.teamflow_fixture import parse_hms_us  # noqa: E402
 
 HEAD_ROWS = 30
 DROP_COLUMNS = ("dst_ip", "dst_port")
@@ -332,6 +340,97 @@ def cmd_orders(a: argparse.Namespace) -> int:
 
 
 
+# ---------------------------------------------------------------------------
+# runs · window (37-03 Task 2)
+# ---------------------------------------------------------------------------
+
+RUN_COLUMNS = ["run", "n", "bs", "nbs", "npx", "maxsame", "multi_px", "zz", "first_seq", "last_seq", "last_px",
+               "closing_b6_ok", "late_pieces", "all_late"]
+
+
+def _tagged(src: Path, label: str, tmpd: Path):
+    out = tmpd / f"out-{label}"
+    counters = convert_into(src, label, tmpd, out)
+    M = nxt_runs.load_g1(table_file(out, "a3", counters), table_file(out, "b6", counters))
+    M = nxt_runs.tag_runs(M)
+    return M, nxt_runs.run_stats(M)
+
+
+def _summary(label: str, M, S) -> dict:
+    line = nxt_runs.summary_line(label, M, S)
+    multi = S[S["n"] >= 2]
+    multi_ok = multi[multi["closing_b6_ok"]]
+    return {
+        "line": line,
+        "isins": int(M["isin"].nunique()),
+        "a3": int((M["k"] == "A").sum()),
+        "b6": int((M["k"] == "B").sum()),
+        "runs_ge2": int(len(multi)),
+        "smp": int((S["maxsame"] >= 2).sum()),
+        "closing_ok": int(S["closing_b6_ok"].sum()),
+        "runs": int(len(S)),
+        "inverted": int((multi_ok["late_pieces"] > 0).sum()),
+        "inverted_of": int(len(multi_ok)),
+        "all_late": int(multi["all_late"].sum()),
+    }
+
+
+def _run_rows(S) -> list[list]:
+    rows = []
+    for rid, r in S.iterrows():
+        rows.append([int(rid), int(r["n"]), str(r["bs"]), int(r["nbs"]), int(r["npx"]), int(r["maxsame"]), int(r["multi_px"]),
+                     int(r["zz"]), int(r["first_seq"]), int(r["last_seq"]), int(r["last_px"]), int(bool(r["closing_b6_ok"])),
+                     int(r["late_pieces"]), int(bool(r["all_late"]))])
+    return rows
+
+
+def cmd_runs(a: argparse.Namespace) -> int:
+    doc: dict = {"columns": RUN_COLUMNS}
+    with tempfile.TemporaryDirectory(prefix="tick-oracle-") as tmp:
+        tmpd = Path(tmp)
+        for label, path in (("krx", a.krx), ("nxt", a.nxt)):
+            src = Path(path).expanduser().resolve()
+            M, S = _tagged(src, label, tmpd)
+            summ = _summary(label, M, S)
+            doc[label] = {"file": src.name, "summary": summ, "runs": _run_rows(S)}
+            print(f"[oracle] runs {summ['line']}", file=sys.stderr)
+    write_json(Path(a.out), doc)
+    return 0
+
+
+def cmd_window(a: argparse.Namespace) -> int:
+    src = Path(a.input).expanduser().resolve()
+    lo_us, hi_us = parse_hms_us(a.t_from), parse_hms_us(a.t_to)
+    with tempfile.TemporaryDirectory(prefix="tick-oracle-") as tmp:
+        M, S = _tagged(src, "nxt", Path(tmp))
+    W = nxt_fixture.nxt_window(M, S, lo_us, hi_us)
+    orders = nxt_fixture.classify_nxt_team_orders(W)
+    rows = [[str(o.t_ns), o.t_us, o.side, o.qty, o.krw, o.px, o.maxsame, o.pieces, o.n_px, o.first_seq, o.last_seq] for o in orders]
+    buy = [o for o in orders if o.side == "2"]
+    sell = [o for o in orders if o.side == "1"]
+    summary = {
+        "team_orders": len(orders),
+        "buy_qty": sum(o.qty for o in buy), "buy_krw": sum(o.krw for o in buy),
+        "sell_qty": sum(o.qty for o in sell), "sell_krw": sum(o.krw for o in sell),
+    }
+    doc = {
+        "source": {"file": src.name, "from": a.t_from, "to": a.t_to, "lo_us": lo_us, "hi_us": hi_us,
+                   "rule": "nxt_window(마지막 조각 체결 시각 당일 µs ∈ [lo, hi]) → classify_nxt_team_orders"},
+        "summary": summary,
+        "columns": ["t_ns", "t_us", "side", "qty", "krw", "px", "maxsame", "pieces", "n_px", "first_seq", "last_seq"],
+        "orders": rows,
+    }
+    write_json(Path(a.out), doc)
+    print(f"[oracle] window {src.name} {a.t_from}~{a.t_to} {json.dumps(summary)}", file=sys.stderr)
+    if a.expect:
+        want = [int(x) for x in a.expect.split(",")]
+        got = [summary[k] for k in ("team_orders", "buy_qty", "buy_krw", "sell_qty", "sell_krw")]
+        if got != want:
+            print(f"[oracle] window: 기대값 {want} ≠ {got} — AccumNxtFixtures.h 원천과 어긋난다", file=sys.stderr)
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="oracle.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -348,6 +447,18 @@ def main(argv: list[str] | None = None) -> int:
     p_o.add_argument("input")
     p_o.add_argument("--out", required=True)
     p_o.set_defaults(fn=cmd_orders)
+    p_r = sub.add_parser("runs", help="NXT 런(D-01) 요약 · 런별 통계 — KRX · NXT")
+    p_r.add_argument("--krx", required=True)
+    p_r.add_argument("--nxt", required=True)
+    p_r.add_argument("--out", required=True)
+    p_r.set_defaults(fn=cmd_runs)
+    p_w = sub.add_parser("window", help="NXT 단독 창 팀 주문(D-04)")
+    p_w.add_argument("input")
+    p_w.add_argument("--from", dest="t_from", required=True)
+    p_w.add_argument("--to", dest="t_to", required=True)
+    p_w.add_argument("--expect", default=None)
+    p_w.add_argument("--out", required=True)
+    p_w.set_defaults(fn=cmd_window)
     a = ap.parse_args(argv)
     return a.fn(a)
 
