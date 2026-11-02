@@ -432,12 +432,49 @@ Plans:
 **Goal**: 트레이더가 **KRX·NXT 어느 종목이든** 08:00~20:00 의 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 **실제 수신 순서대로 재생**하며 한 틱의 호가창 · 앞뒤 전문 · 체결 버스트 · 거래대금 · 팀 거래정보를 본다. 공급은 두 갈래(gh-trade-ac 와 합의 2026-11-02): ① **당일 장중 = 종목 단위 요청형** — 119 에 기록기와 분리된 소형 인덱서(코어 0 · nice)가 오늘 `.pcap` 꼬리를 (거래소, ISIN) 별로 쪼개 두고, radar-gw 가 ssh 강제 명령 키(tickarc · limitpull 선례)로 「isin · exchange · from_ns · to_ns → 원본 전문 바이트 + recv_ns + 거래소 라벨」 zstd 스트림을 받는다(지연 = 기록 1초 + 전송 · 동시 1~2건 · 응답 크기 상한 · stock-dma · relay 계약 무변경 · 119 구현은 gh-trade). ② **과거 날짜 = GCS 원본 클라우드 변환** — 매일 22:00 부터 올라오는 `gs://gh-trade-tick-archive/raw/<krx|nxt>/<D>/` pcap.zst(하루 4.5GB · 6,900만 건)를 Cloud Run Job 이 정본 디코더(gh-trade tickana `pcap2parquet` 레이아웃)로 변환해 gh-radar 저장소(종목·날짜 격자)에 적재, 119 부하 0. 화면: 상단 종목 · 날짜 · 거래소 선택, 08:00~20:00 슬라이더 + ms 시각 입력 점프 + 키보드 좌우 틱 이동, 그 틱 시점 호가창 10단(msg_seq 순 재구성), 앞뒤 전문 목록(종류 배지 · **수신순 ↔ 거래소순 토글** 또는 뒤집힘 표시 — A3/B6 는 다른 멀티캐스트 그룹이라 최대 수십 ms 뒤집힘), 체결 버스트(주문 묶기 = 같은 종목 A3 msg_seq 직전 +1 · bs 동일 · 모양 A SMP ∪ B 0/0 단독 ∪ C0 = 팀 · 나머지 일반 · 단일가 제외 — 정본 gh-trade `krx-a3-zero-quote.md` §2·§4 · `team-flow.md` §4), 거래대금(A3 cum_value), 팀 거래정보(5창구 교보·한국·유진·신한·NH · 당일 순매수 · 누적 · 당일 평단 · 평단 대비 수익률 — `team-flow.md` §5-1 평균단가법을 gh-radar 가 A3 에서 직접 계산 · 지난 export `payload.pnl` 과 golden 대조 · 창구별은 B9 스윕 차분 ≈1분 해상도 · 호가 걸어둔 팀 주문은 안 보여 최소치라는 한계 표기). 서버 `burst_upper_limit` 은 상한가 벽 전용이라 범용 버스트 기준으로 쓰지 않는다(2차로 「상한가 창 버스트 비율」 표시만 선택). 참고 스크린샷: 사용자 ATMParser(행 = 전문 하나 표) — 전문 목록 패널에만 살리고 호가창은 사다리형 분리
 **Depends on**: Phase 28(radar-gw ↔ 119 rrsync 운반기 · GCS 버킷 · Cloud Run Job 적재 선례) · Phase 33·34(보고서 행 펼침 · 순수 SVG 차트 · export 적재 일반화) · 기존 `components/orderbook`(사다리 · 체결 테이프 색 규칙) · 외부: gh-trade 119 인덱서 + 조회 강제 명령(계약은 discuss 뒤 `scripts/trade-handoff.sh` 인박스로 — gh-trade-ac 2026-11-02 「계약 초안이 오면 그 기준으로 잡겠다」) · `gs://gh-trade-tick-archive` objectViewer(relay SA 보유 · 변환 Job SA 는 추가 바인딩 필요)
 **Requirements**: TBD
-**Success Criteria** (초안 — discuss 에서 확정):
-  1. 목업 A/B/C 검토 · 채택(`/gsd-sketch` 019) — 슬라이더 · 점프 · 좌우 키 · 호가창 · 전문 목록 · 버스트 · 거래대금 · 팀 패널 배치
-  2. gh-trade 계약 인계(요청 인자 · 응답 형식 · 키 · 동시성 상한) · 119 인덱서 배포 뒤 radar-gw 에서 종목 하루치 조회 실측
-  3. 과거 날짜 변환 Job — 10/30 전 종목 변환 시간 · 비용 실측 · 종목·날짜 격자 적재 · 자정 전후 자동
-  4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 수 초 지연)과 과거(격자)가 같은 화면 · 팀 손익 golden 대조 통과 · 버스트 판정 tickana `classify_orders` 와 일치
-**Plans:** 0 plans
+**Success Criteria** (discuss 2026-11-02 확정):
+  1. 목업 검토 · 채택 완료 — 019 D · 020 A+3 · 진입 A(`reference/mockup-ticks-entry.html`). 폰 3판 과함 여부만 실기기 UAT 에서 재확인(미결 유지).
+  2. gh-trade 계약 인계(`scripts/trade-handoff.sh` 인박스 — D-21 항목) · 119 인덱서 배포 뒤 radar-gw 에서 당일 종목 하루치 조회 실측(응답 크기 · 지연 · 이어받기).
+  3. 과거 변환 Job — 10/30 선별 종목(매집감지 등록 + 15%↑) 변환 시간 · GCS 읽기 비용 실측 · 종목·날짜 격자 적재 · 당일 밤 자동 · 요청 변환 경로(그 종목만 · 약 N분) 실측 · 90일 purge.
+  4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 서버 캐시 · 자동 증분)과 과거(격자)가 같은 화면 · DMA 게이트 · 팀 손익 golden 대조 통과(export `payload.pnl`) · 버스트 판정 tickana `classify_orders` 와 일치(KRX) · NXT 런 규칙 오라클 일치 · 세 보고서 「틱 보기」 · URL 딥링크(틱 시각까지).
+
+**배포 순서**(D-22): DB(격자 메타 표 · RPC · 게이트 — `supabase db push --linked --yes` · 08:00~20:00 KST 밖) → 변환 Job(Cloud Run Job + Scheduler · GCS objectViewer 바인딩) → server(과거 경로 · TICKGW 없이) → webapp push(= 프로덕션) — 메인 세션(37-16). 당일 경로(radar-gw tickgw · server TICKGW_URL · 승격 Job)는 gh-trade 119 인덱서 배포 확인 뒤 20:00 KST 이후에만(37-17) · 그 전 화면은 「당일 자료 준비 중」.
+**Plans:** 17 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 37 to break down)
+**Wave 1**
+- [ ] 37-01-PLAN.md — gh-trade 계약 인계(D-21 인박스 ①~⑤) · 격자 저장처 결정(Supabase 플랜) · fzstd legitimacy 확인
+- [ ] 37-02-PLAN.md — shared 디코더 트레이서: 오라클 픽스처 → 레코드 프레이밍 · LAYOUTS 이식 → pcap2parquet 골든 일치(D-19)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 37-03-PLAN.md — shared 판정 · 손익: classify_orders 주문별 일치(트레이서) · NXT 런 179/65 · 182/70 · 평균단가법 천일 10/14 export 골든(D-20)
+- [ ] 37-04-PLAN.md — DB: 격자 메타 · 요청 큐 · 실행 기록 · 게이트 RPC · 90일 purge · pgTAP(트레이서 = upsert → 하루 목록 · 열기)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 37-05-PLAN.md — shared 뷰어 모델: 레코드 인덱스 · 거래소순 순열 · 뒤집힘 · 마지막 B6 호가(트레이서) · 시각 · 밀도 · VI · 5창구
+- [ ] 37-06-PLAN.md — 변환 Job tick-convert: request 모드(트레이서) · nightly(준비 판정 · 스테이징 · 15%∪등록) · IAM/배포/스모크 스크립트
+- [ ] 37-07-PLAN.md — server 과거 경로 API: open(게이트 · 서명 URL · 트레이서) · day · today · 요청 변환 트리거(should_trigger 일 때만)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 37-08-PLAN.md — 진입 화면 목업 A: 격자 목록 → 열기(트레이서) · 검색 피커 · 변환 흐름 · 상태 카드 · 사이드바 · e2e
+- [ ] 37-09-PLAN.md — radar-gw tickgw: 키당 폴러 · 원본 프레임 캐시 · 내부 live HTTP(트레이서) · 호출 규율 · 설치/배포 스크립트
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 37-10-PLAN.md — 뷰어 골격: 서명 URL → fzstd → 세션 → 점프 → 호가 10단 → URL t(트레이서) · 슬라이더 · 키 · e2e 딥링크
+- [ ] 37-11-PLAN.md — 세 보고서 「틱 보기」: 팀 매집 RPC t20_ms → 알약(트레이서) · 매집감지 · 상한가
+- [ ] 37-12-PLAN.md — 20:00 승격 모드: tickgw export → 승격 격자(트레이서) · 승격 Job/Scheduler(당일 경로 켜질 때만)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 37-13-PLAN.md — 전문 목록 020 A+3: 행 그룹 · 고정 높이 창(트레이서) · 뒤집힘 표현 · 이 주문 · 거래대금 카드
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 37-14-PLAN.md — 3판 차트 · 팀 패널: minViewMs 일반화 · 커서 · 클릭 점프(트레이서) · 팀 레이어 · KPI · 5창구
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 37-15-PLAN.md — 당일 경로 server + 웹: /api/ticks/live 중계 → 하루치 → 세션(트레이서) · 폴링 규율 · 새 틱 배지 · e2e
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 37-16-PLAN.md — [BLOCKING] db push → Job(10/30 실측) → server → push · 요청 변환 실측 · 라이브 UAT (메인 세션)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 37-17-PLAN.md — 당일 경로 켜기: gh-trade 회신 대기 → 어댑터 반영 → radar-gw tickgw(20:00 뒤) → server 스위치 · SC 2 실측 · 당일 UAT (메인 세션)
