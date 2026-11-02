@@ -123,6 +123,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261101-owf | 상따 카드 85 창구행 셋째 칸 깨짐확률 → 「최대체결 X.X억」 — relay upper_max_fill 디코드 · 오늘 검정/지난 날 회색+툴팁 · 폰 「최대 X.X억」 (gh-trade nbu WinForms 동형) | 2026-11-01 | (이 커밋) | [261101-owf-85-x-x-gh-trade-nbu-winforms](./quick/261101-owf-85-x-x-gh-trade-nbu-winforms/) |
 | 261101-okd | 상따 SOR 전환 — relay buy3_schema 7 (sor_buy·sor_sell) · 웹 ○SOR 매수·매도 (D-06 동반 · NXT 미거래 잠금) · 키별 에코 맵 (gh-trade Phase 45) | 2026-11-01 | 4e46a359 | [261101-okd-sor-relay-buy3-schema-7-sor-gh-trade-pha](./quick/261101-okd-sor-relay-buy3-schema-7-sor-gh-trade-pha/) |
 | 261102-epl | 버스트 비율 판정 반영 — relay 59 brp · 84/42 burstRatioPct(42 는 1~100 만) · 상따 호가 「버스트 NN%」/회색 「NN%」 · /me 「판정 비율」 칸 · 주문로그 「버스트 상한가 NN%」 (gh-trade t7c · enc) | 2026-11-02 | a441b9be | [261102-epl-relay-burst-ratio-pct-nn-me-gh-trade-t7c](./quick/261102-epl-relay-burst-ratio-pct-nn-me-gh-trade-t7c/) |
+| 261102-f1x | 85 upper_max_fill_auction 반영 — 생성물 재동기화 · relay 85 매핑 · 창구 셋째 칸·툴팁 앞말 「단일가」/「최대」 (gh-trade quick-261102-f1x · WinForms 동형) | 2026-11-02 | 4b2f8828 | — |
 
 ## Session Continuity
 
