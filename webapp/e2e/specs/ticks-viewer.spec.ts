@@ -373,7 +373,7 @@ test.describe('틱 전문 뷰어 전문 목록 — 행 그룹 · 뒤집힘 · �
     await page.setViewportSize({ width: 390, height: 844 });
     await mockTickApi(page);
     await page.goto(OPEN_URL);
-    const seg = page.getByRole('group', { name: '보기' });
+    const seg = page.getByRole('group', { name: '보기', exact: true });
     await expect(seg).toBeVisible({ timeout: 30_000 });
     await expect(seg.getByRole('button')).toHaveText(['호가', '전문', '버스트 · 팀']);
 
@@ -472,9 +472,11 @@ test.describe('틱 전문 뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 
     await expect(panel).toContainText('≈1분 해상도');
     await expect(panel).not.toContainText('NXT 런 규칙');
 
-    // 13:57 근처(08시 + 5.95h) — 컷 13시 팀 주문 126건이 쌓인 뒤
-    await svg(page).click({ position: { x: await xAt(page, 5.95), y: 200 } });
-    await expect.poll(() => curTime(page)).toMatch(/^13:5\d:/);
+    // 13:45 — 컷 13시 픽스처(13:00~13:48)의 팀 주문이 쌓인 뒤. 차트 픽셀 클릭은 판 폭에 따라 흔들려 딥링크로 옮긴다
+    // (차트 클릭 이동 자체는 위 「차트 클릭」 절이 잠근다).
+    await page.goto(`${OPEN_URL}&t=13:45:00.000`);
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => curTime(page)).toMatch(/^13:4[5-8]:/);
     await expect(panel.locator('[data-slot="tick-team-day-net"]')).not.toHaveText('—');
     await expect(panel.locator('[data-slot="tick-team-avg"]')).toBeVisible();
     await expectNoHorizontalScroll(page, '팀 패널 1280');
