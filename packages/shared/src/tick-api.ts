@@ -143,3 +143,43 @@ export type TickCancelResponse = {
   cancelled: boolean;
   request: TickConvertRequest | null;
 };
+
+// ── 당일 바이트 경로(37-15 server ↔ 37-19 웹 · D-05 · D-07) ─────────────────────────────
+
+/**
+ * `X-Tick-State` 값 — tickgw(37-09) 폴러 상태 그대로.
+ * - `loading` — 08:00~지금 하루치를 받는 중(웹 「당일 · 하루치 받는 중」 카드 — D-05)
+ * - `ready` — 증분 폴링 중
+ * - `queued` — 활성 키 상한에 걸려 대기(`X-Tick-Queue` = 대기 순번 k)
+ * - `delayed` — 백오프 · 전역 차단으로 잠시 멈춤
+ * - `blocked` — 인덱서 인자 오류(60초 뒤 재시도)
+ */
+export type TickLiveState = "loading" | "ready" | "queued" | "delayed" | "blocked";
+
+/** `GET /api/ticks/live` 200 응답 헤더를 읽은 값(본문은 원본 zstd 프레임 바이트 · server 는 풀지 않는다). */
+export interface TickLiveMeta {
+  /** 캐시 엔트리 UUID — 바뀌면 offset 0 부터(409 `{epoch}`). */
+  epoch: string;
+  /** 본문 끝 바이트 offset = 다음 요청 `offset`. */
+  offsetEnd: number;
+  /** 마지막 레코드 recv epoch ns(십진 문자열) · 아직 없으면 null(헤더는 빈 문자열). */
+  lastRecvNs: string | null;
+  state: TickLiveState;
+  /** 대기 순번 k(queued 일 때) · 그 밖 0. */
+  queue: number;
+  /** 08:00 부터 끊김 없이 이어졌는가(헤더 문자열 "true" / "false"). */
+  complete: boolean;
+}
+
+/**
+ * `GET /api/ticks/live` 응답 헤더 이름 — server(중계 · CORS exposedHeaders)와 37-19 웹(읽기)이 같은 상수를 쓴다(D-07).
+ * tickgw 내부 계약(37-09 `tickgw/src/server.ts`)과 이름이 같다 — server 는 값을 바꾸지 않고 넘긴다.
+ */
+export const TICK_LIVE_HEADERS = {
+  epoch: "X-Tick-Epoch",
+  offsetEnd: "X-Tick-Offset-End",
+  lastRecvNs: "X-Tick-Last-Recv-Ns",
+  state: "X-Tick-State",
+  queue: "X-Tick-Queue",
+  complete: "X-Tick-Complete",
+} as const;

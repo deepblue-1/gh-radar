@@ -76,6 +76,17 @@ if [[ ! "$RELAY_INTERNAL_URL" =~ ^https?://10\.10\.0\.(0|[1-9][0-9]?)(:[0-9]{1,5
   exit 1
 fi
 
+# Phase 37 D-22 (37-15) — 당일 틱 경로 tickgw 주소. **선택** — 주어졌을 때만 env · 비밀 바인딩을 더한다(아래 Section 5).
+#   server 의 assertTickgwUrl 과 같은 모양 — http · 10.0.0.0/8 호스트(radar-gw 내부 IP:8092). 어긋나면 새 리비전이 부팅을 거부한다.
+if [[ -n "${TICKGW_URL:-}" ]]; then
+  _o='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  if [[ ! "$TICKGW_URL" =~ ^http://10\.${_o}\.${_o}\.${_o}(:[0-9]{1,5})?/?$ ]]; then
+    echo "ERROR: TICKGW_URL 이 사설 대역(http://10.x.x.x[:포트]) 모양이 아닙니다 — server 가 부팅을 거부합니다" >&2
+    exit 1
+  fi
+  unset _o
+fi
+
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
 # ═══════════════════════════════════════════════════════════════
@@ -199,6 +210,21 @@ fi
 #   깨운다 · 실행 SA 에 그 Job 단위 run.jobs.runWithOverrides 는 37-18 deploy-tick-convert.sh 가 준다) ·
 #   `TICK_REQUEST_DAILY_CAP`(전역 하루 상한 20). 둘 다 아래 필수 목록에도 넣었다 — 빠지면 convert 가 503 이 된다.
 #
+# Phase 37 D-22 (37-15) — 당일 틱 경로 env `TICKGW_URL` · secret `TICKGW_SECRET`(Secret gh-radar-tickgw-secret) 은
+#   **`TICKGW_URL` 이 주어졌을 때만** 싣는다. 119 인덱서 배포 확인 뒤 37-17 이
+#   `TICKGW_URL=http://<radar-gw 내부 IP>:8092 bash scripts/deploy-server.sh` 로 다시 배포해 켠다. 그 전(또는 값 없이)
+#   배포하면 server 는 `/api/ticks/live` 503 · `/api/ticks/today` live=false 로 안전하게 선다(웹 「당일 자료 준비 중」).
+#   ⚠️ 끄기: `--set-env-vars` 전량 치환이라 값 없이 재배포하면 `TICKGW_URL` 은 사라진다. 그러나 비밀 바인딩은 병합이라
+#   남는다 — 이미 바인딩된 비밀까지 걷으려면 `gcloud run services update gh-radar-server --region=asia-northeast3
+#   --remove-secrets=TICKGW_SECRET` 를 따로 한다(남아 있어도 URL 이 없으면 server 는 결선하지 않고 warn 만 한다).
+#   accessor(server 런타임 SA → gh-radar-tickgw-secret)는 scripts/setup-tickgw-iam.sh(37-09) 가 준다.
+TICKGW_ENV=""
+TICKGW_SECRET_BINDING=""
+if [[ -n "${TICKGW_URL:-}" ]]; then
+  TICKGW_ENV="@TICKGW_URL=${TICKGW_URL}"
+  TICKGW_SECRET_BINDING=",TICKGW_SECRET=gh-radar-tickgw-secret:latest"
+fi
+#
 # ⚠️⚠️ **스크립트 수정만으로는 실행 중인 리비전이 바뀌지 않는다** (Phase 09.1 KIS 정리
 #      선례와 동형 / 16-RESEARCH §Runtime State Inventory). `--set-env-vars` 는 전량
 #      치환이라 **새 env 는** 이 문자열대로 맞춰지지만, **secret 바인딩(`--update-secrets`)
@@ -221,8 +247,8 @@ gcloud run deploy "$SERVICE" \
   --network="$VPC_NAME" \
   --subnet="$SUBNET_NAME" \
   --vpc-egress=all-traffic \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}@RELAY_INTERNAL_URL=${RELAY_INTERNAL_URL}@TICK_CONVERT_JOB=projects/${EXPECTED_PROJECT}/locations/${REGION}/jobs/gh-radar-tick-convert@TICK_REQUEST_DAILY_CAP=20" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest,RELAY_ORDER_SECRET=gh-radar-relay-order-secret:latest"
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}@RELAY_INTERNAL_URL=${RELAY_INTERNAL_URL}@TICK_CONVERT_JOB=projects/${EXPECTED_PROJECT}/locations/${REGION}/jobs/gh-radar-tick-convert@TICK_REQUEST_DAILY_CAP=20${TICKGW_ENV}" \
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest,RELAY_ORDER_SECRET=gh-radar-relay-order-secret:latest${TICKGW_SECRET_BINDING}"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 5.5: 배포 후 env 대조 (T-15-55 — 전량 치환 사고 감지)
@@ -245,6 +271,10 @@ REQUIRED_ENV_KEYS=(
   RELAY_INTERNAL_URL RELAY_ORDER_SECRET
   TICK_CONVERT_JOB TICK_REQUEST_DAILY_CAP
 )
+# Phase 37 D-22 — 당일 경로를 켠 배포에서만 두 이름을 필수로 본다(안 켠 배포에서 없는 것은 정상).
+if [[ -n "${TICKGW_URL:-}" ]]; then
+  REQUIRED_ENV_KEYS+=(TICKGW_URL TICKGW_SECRET)
+fi
 
 ENV_NAMES=$(gcloud run services describe "$SERVICE" --region="$REGION" \
   --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | sed '/^$/d')
@@ -266,6 +296,11 @@ fi
 #   주문 경로 진단의 첫 단서는 여전히 relay `/healthz`(`scripts/smoke-relay.sh`)와 브라우저 wss 연결 상태이고,
 #   Admin 경로는 server 로그의 「RELAY_INTERNAL_URL/RELAY_ORDER_SECRET not set」 경고 부재로 확인한다.
 echo "✓ relay 결선: RELAY_INTERNAL_URL 설정됨(값 미출력) · RELAY_ORDER_SECRET 바인딩 (gh-radar-relay-order-secret:latest)"
+if [[ -n "${TICKGW_URL:-}" ]]; then
+  echo "✓ 당일 틱 경로 결선: TICKGW_URL 설정됨(값 미출력) · TICKGW_SECRET 바인딩 (gh-radar-tickgw-secret:latest)"
+else
+  echo "ℹ 당일 틱 경로 꺼짐: TICKGW_URL 미지정 — /api/ticks/live 503 · today live=false (D-22 · 켜기는 37-17)"
+fi
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke

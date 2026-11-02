@@ -1,4 +1,5 @@
 import type { CorsOptions } from "cors";
+import { TICK_LIVE_HEADERS } from "@gh-radar/shared";
 
 export function parseAllowedOrigins(
   raw: string | undefined,
@@ -37,6 +38,8 @@ export function corsOptions(): CorsOptions {
     },
     credentials: false,
     maxAge: 600,
-    exposedHeaders: ["X-Last-Updated-At", "X-Request-Id", "Retry-After"],
+    // Phase 37 D-07 (37-15) — /api/ticks/live 의 X-Tick-* 6종. 브라우저가 epoch · offset 커서 · 상태를 읽어야
+    // 37-19 훅이 증분을 잇는다(교차 출처 응답 헤더는 노출 목록에 없으면 JS 에서 안 보인다).
+    exposedHeaders: ["X-Last-Updated-At", "X-Request-Id", "Retry-After", ...Object.values(TICK_LIVE_HEADERS)],
   };
 }

@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { createKiwoomRuntime } from "./services/kiwoom-runtime.js";
 import { createRelayAdminClient, type RelayAdminClient } from "./services/relay-admin-client.js";
 import { createTickConvertTrigger, type TickConvertTrigger } from "./services/tick-convert-trigger.js";
+import { createTickgwClient, type TickgwClient } from "./services/tickgw-client.js";
 
 const config = loadConfig();
 
@@ -96,6 +97,18 @@ if (config.tickConvertJob) {
   logger.warn("TICK_CONVERT_JOB not set — POST /api/ticks/convert 503");
 }
 
+// Phase 37 D-07 · D-22 — 당일 바이트 경로 tickgw 결선. 두 env 가 다 있을 때만 만든다(119 인덱서 배포 확인 뒤 37-17 이 켠다).
+// 가드(assertTickgwUrl — http · 10.0.0.0/8 · 127.0.0.1) 실패는 throw → 부팅 실패: 공유 비밀이 사설 대역 밖으로 나가는 것보다 안 뜨는 편이 낫다.
+let tickgw: TickgwClient | undefined = undefined;
+if (config.tickgwUrl && config.tickgwSecret) {
+  tickgw = createTickgwClient({ baseUrl: config.tickgwUrl, secret: config.tickgwSecret });
+} else {
+  logger.warn(
+    { tickgwUrlSet: Boolean(config.tickgwUrl), tickgwSecretSet: Boolean(config.tickgwSecret) },
+    "TICKGW_URL/TICKGW_SECRET not set — /api/ticks/live 503 (당일 경로 꺼짐 · D-22)",
+  );
+}
+
 const app = createApp({
   supabase,
   kiwoomRuntime,
@@ -106,6 +119,7 @@ const app = createApp({
   relayAdmin,
   tickConvertTrigger,
   tickRequestDailyCap: config.tickRequestDailyCap,
+  tickgw,
 });
 
 app.listen(config.port, () => {
