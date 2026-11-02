@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
 import { TickAmountCard } from './tick-amount-card';
+import { TickChart } from './tick-chart';
 import { TickMsgList } from './tick-msg-list';
 import { TickOrderCard } from './tick-order-card';
 import { TickSlider } from './tick-slider';
@@ -18,7 +19,7 @@ import { TickSlider } from './tick-slider';
 /**
  * 틱 뷰어 본문 (Phase 37 D-00 · 스케치 019 D 「종합 A+B」).
  *
- * ① 배치(위 → 아래): (매집 3판 차트 · 37-14) → **슬라이더 카드** → **HTS 행**(호가 10단 | 전문 목록 · 37-13 |
+ * ① 배치(위 → 아래): **매집감지 3판 차트**(37-14 · 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각) → **슬라이더 카드** → **HTS 행**(호가 10단 | 전문 목록 · 37-13 |
  *   이 주문 · 거래대금 · 팀 · 37-13/14). 커서(`useTickCursor`)가 이 화면의 정본이고, 현재 틱 시각 · seq 는 `onTick` 으로
  *   머리에 올린다.
  * ② HTS 칸은 `HTS_PANES` 배열 한 곳에서 그린다 — 뒤 플랜이 원소(전문 · 버스트 · 팀)를 더하면 데스크톱 행과 폰 세그먼트가
@@ -115,6 +116,13 @@ export function TickViewer({ session, urlState, initialT, onTick }: TickViewerPr
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
+      <TickChart
+        session={session}
+        cursorRec={rec}
+        onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
+        onJumpRec={cursor.jumpToRec}
+      />
+
       <TickSlider
         session={session}
         rec={rec}

@@ -49,9 +49,12 @@ export function dayBoundsOf(t0ms: number) {
   return { T0: t0ms, T1530: t0ms + 6.5 * HOUR, T1600: t0ms + 7 * HOUR, T2000: t0ms + 11 * HOUR };
 }
 
-/** 창 폭 = max(10분, min(하루, v 폭)) · 시작은 [T0, T2000 − 폭] 안(목업 clampView). */
-export function clampView(v: View, T0: number, T2000: number): View {
-  const w = Math.max(MIN_VIEW_MS, Math.min(T2000 - T0, v.t1 - v.t0));
+/**
+ * 창 폭 = max(최소 창, min(하루, v 폭)) · 시작은 [T0, T2000 − 폭] 안(목업 clampView). 최소 창 기본 = `MIN_VIEW_MS`(10분 · 매집감지) ·
+ * 틱 뷰어(37-14)는 10초를 넘긴다.
+ */
+export function clampView(v: View, T0: number, T2000: number, minViewMs = MIN_VIEW_MS): View {
+  const w = Math.max(minViewMs, Math.min(T2000 - T0, v.t1 - v.t0));
   const t0 = Math.max(T0, Math.min(v.t0, T2000 - w));
   return { t0, t1: t0 + w };
 }
