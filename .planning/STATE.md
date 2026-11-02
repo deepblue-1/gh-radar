@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 35
-current_phase_name: 발사 경계 지도 어드민
+current_phase: 37
+current_phase_name: tick-viewer
 status: completed
 stopped_at: Phase 37 context gathered
-last_updated: "2026-11-02T06:22:01.604Z"
+last_updated: "2026-11-02T09:25:02.239Z"
 last_activity: 2026-11-01
 last_activity_desc: Phase 35 complete
-state_head: 4bb343cb094ebeeb8b7e843d85d13275d3782d19
+state_head: cc2268036174fdcf95e31dc51eefac768afab7ca
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 82
+  total_plans: 101
   completed_plans: 82
-  percent: 88
+  percent: 81
 ---
 
 # Project State
@@ -29,14 +29,14 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 ## Current Position
 
-Phase: 35 (발사 경계 지도 어드민) — COMPLETE 2026-11-01
+Phase: 37 (tick-viewer) — READY TO EXECUTE
 Plan: 19 of 19
 Status: v1.1 전 phase 완료 — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 Last activity: 2026-11-01 — Phase 35 완료: 리뷰 4라운드(R4 Info 3건 deferred) · VERIFICATION-R4 7/7 · UAT 6/6 pass · 검증 passed
 Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [█████████░] 88% (82/82 plans)
+Progress: [████████░░] 81% (82/82 plans)
 
 ## Accumulated Context
 

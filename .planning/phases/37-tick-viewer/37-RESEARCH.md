@@ -329,6 +329,8 @@ export function* records(buf: Uint8Array): Generator<RecRef> {
 ### Pattern 11: 변환 Job `gh-radar-tick-convert`(limitup-sync 뼈대)
 - **입력:** GCS 볼륨 마운트(ro) `/mnt/tick/raw/<krx|nxt>/<D>/`.
   - 10/30 실측 목록: KRX 24객체 3,608,355,407B(3.36GiB) · NXT 24객체 836,701,697B. 08~20시 파일이 대부분이고 05~06시 파일(A0)은 0.7~2.9MB 다 `[VERIFIED: gcloud storage ls -l gs://gh-trade-tick-archive/raw/{krx,nxt}/20261030/]`.
+  - **10/30 시각 집합(준비 판정 근거):** 두 라벨 모두 `20261030-0000` ~ `20261030-2300` 매시 1개(24개 · `-N` 없음). 기록기는 게으른 열기(gh-trade `recorder/README.md:38` — 무수신 시간대엔 파일 없음)지만 멀티캐스트가 밤에도 흘러 매시 파일이 생긴다 — KRX 00~04시 ~53KB · 05시 0.71MB · 06시 2.87MB · 07시 67KB · 08시 15.0MB · 09시 849MB · 18시 58.7MB · **19시 96.8MB · 20시 5.4MB**(마지막 체결 ≈ 18:00 이어도) · 21~23시 25~55KB / NXT 00~04시 ~9.6KB · 05~07시 ~290KB · 08시 168MB · 19시 41.3MB · 20시 2.97MB · 21시 294KB · 22~23시 ~9KB. 그래서 「08~20시 두 라벨 매시 존재」 판정(37-06 `isDayReady`)은 정상일에 참이다 · 한 시각이 영영 없는 날(기록기 정지)만 2일 유예 뒤 `partial` `[VERIFIED: gcloud storage ls -l 2026-11-02 플래너 재확인]`.
+  - **업로드 시각(10/30 분 · 10/31 22:00 회차):** KRX 22:00:22 ~ 22:59:48 KST(0900 객체 22:14:50) → NXT 22:59:53 ~ 23:14:22 KST. 시각순 · 라벨순으로 하나씩 올라간다 `[VERIFIED: 같은 목록의 생성 시각]`.
   - 같은 시각에 `-N` 접미 파일이 생길 수 있다(기록기 재기동). 첫 레코드 시각순으로 정렬한다.
   - 읽는 범위 = 05~20시 파일(A0 포함 · 21~23시 제외).
 - **스트리밍:** `fs.createReadStream(…, {highWaterMark: 8 MiB}).pipe(zlib.createZstdDecompress())` → pcap-ns 전역 헤더 검사(magic · linktype 1) → 레코드 순회 → 이더넷/IPv4/UDP 벗김 → 태그별 ISIN 오프셋.
@@ -450,8 +452,8 @@ CREATE TABLE public.tick_convert_requests (
 **How to avoid:** 스테이징은 처음부터 메모리 압축 청크로 설계하고(Pattern 11), 8Gi 로 시작해 SC3 실측으로 줄인다.
 
 ### Pitfall 6: 업로드 진행 중인 날짜를 변환
-**What goes wrong:** tick-archive 가 23:14 까지 올리는 중(10/30 실측: KRX 0900 = 13:14:50Z)인데 Job 이 23:00 에 돌면 시간 파일이 빠진다.
-**How to avoid:** 「08~20시 두 라벨 모두 존재」 준비 판정 + 23:30 · 01:30 두 번 실행 + catch-up 10일.
+**What goes wrong:** tick-archive 가 23:14 까지 올리는 중(10/30 실측: KRX 0900 = 13:14:50Z = 22:14:50 KST · 마지막 NXT 2300 = 14:14:22Z = 23:14:22 KST)인데 Job 이 23:00 에 돌면 NXT 시간 파일이 빠진다.
+**How to avoid:** 「08~20시 두 라벨 모두 존재」 준비 판정 + 23:30 · 01:30 두 번 실행 + catch-up 10일 · 업로드 전 요청 차단 해제 시각(`tick_upload_retry_at`)도 23:30(23:00 이면 NXT 업로드 중 재요청이 다시 NOT_UPLOADED 로 하루 더 막힌다).
 
 ### Pitfall 7: 서명 URL 만료 · 403
 **What goes wrong:** 큰 파일을 받는 도중이나 탭을 오래 열어 둔 뒤 다시 받을 때 URL 이 만료된다.
@@ -556,21 +558,28 @@ cd /Users/alex/repos/gh-trade/server/tools/analysis && .venv/bin/python -I -c \
 | A10 | 브라우저 메인 스레드 인덱싱(한선급 27만 레코드)이 수십 ms 대 | Pattern 2·7 | UAT 에서 끊김이 보이면 Web Worker 로 옮긴다(순수 함수라 이동이 쉽다) |
 | A11 | LINKTYPE 147 = USER0(디버그용 전역 헤더) | Pattern 1 | 디버그 도구만 영향 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 다섯 질문 모두 해소 경로가 플랜에 있다(2026-11-02 플래너 revision). Q1 · Q5 는 「사람 답」 으로 닫히는 게이트라 답이 올 때까지 뒤 플랜이 precondition 으로 멈춘다 — 답 자체는 37-01-SUMMARY 가 정본이다.
 
 1. **Supabase 플랜(A1)**
    - What we know: 조직 JX1 에 프로젝트 2개(weeklywine · gh-radar)가 있다 `[VERIFIED: supabase projects list]`. CLI 키체인 토큰이 없어 플랜을 조회하지 못했다(no observation).
    - Recommendation: 플랜 1(또는 DB 플랜) 앞에 `checkpoint:human-verify` — 「Billing = Pro?」. Free 면 GCS 버킷 + server 중계(작은 파일 · 소수 사용자)로 바꾼다.
+   - **RESOLVED(게이트 — 사용자 답 대기):** 37-01 Task 2 `checkpoint:decision` 이 「저장처: supabase-storage | gcs-bucket」 를 사용자 답으로 정한다. 37-04 · 37-06 · 37-07 · 37-10 · 37-12 · 37-18 의 `<precondition>` 이 그 줄을 grep 하고, gcs-bucket 이면 그 플랜들을 revision 으로 돌린다.
 2. **팀 매집 「틱 보기」의 「첫 20% 도달」 폴백(D-17)**
    - What we know: team_flow 행에는 `payload.reach.t_ms` · `first_limit_ms` · `high_ms` 만 있고, t20 은 `limitup_entries.t20_ms` 에 있다.
    - Recommendation: 팀 매집 상세 RPC 에 `limitup_entries.t20_ms` LEFT JOIN 한 열을 더하는 작은 마이그레이션(DB 웨이브에 같이)으로 한다.
+   - **RESOLVED:** 37-11 — `20261102200200_teamflow_report_t20.sql`(`teamflow_report_for_user` 재정의 · 행에 `t20_ms`) + 「틱 보기」 알약 폴백.
 3. **NXT 화면의 회색 누적 선(D-09)**
    - What we know: `pos_net` 은 서버 포지션(KRX+NXT 합산) 값이다. D-13 은 「뷰어는 거래소 하나」다.
    - Recommendation: NXT 에서도 그리되 범례를 「매집감지 포지션(KRX+NXT 합산)」으로 한다. UI-SPEC 에서 확정한다.
+   - **RESOLVED:** 37-14 — NXT 화면도 회색 누적 선을 그리고 범례 「매집감지 포지션(KRX+NXT 합산)」.
 4. **15% 판정에 NXT 를 넣을지(A7)**
    - Recommendation: KRX G1 ∪ NXT G1 합집합(같은 패스라 비용 0). 사용자 이견이 있으면 KRX 만으로 바꾼다.
+   - **RESOLVED:** 37-18(nightly `select.ts` — 37-06 에서 분할) — KRX G1 ∪ NXT G1 합집합. 37-01 「가정」 에 드러냈고 이견이 오면 판정 집합만 바꾼다.
 5. **IA · B2 · C0 등 기타 태그**
    - 종목 단위인지 알 수 없어 지금은 격자에서 빠진다 → D-21 에 질문을 덧붙인다.
+   - **RESOLVED(게이트 — 사용자 답 대기):** 37-01 Task 1 이 gh-trade 인박스 「질문」 으로 묻고, 37-01 Task 2 가 「D-19 범위: 승인 | 거부」(비종목 태그를 격자 · 당일 캐시에서 빼는 해석)를 사용자 답으로 받는다 — 37-06 · 37-18 이 precondition 으로 읽는다. gh-trade 회신이 종목 단위 태그를 알려 오면 37-17 Task 1 이 사용자에게 다시 묻는다(D-19 범위 재검토).
 
 ## Environment Availability
 

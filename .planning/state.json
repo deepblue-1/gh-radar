@@ -37,12 +37,17 @@
       "number": "36",
       "name": "계좌별 주문가능 금액",
       "status": "complete"
+    },
+    {
+      "number": "37",
+      "name": "틱 전문 뷰어",
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd:new-milestone",
-    "label": "Start a new milestone",
-    "reason": "All phases complete — start a new milestone"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-11-02T02:02:21.755Z"
+  "updated_at": "2026-11-02T09:25:02.252Z"
 }
