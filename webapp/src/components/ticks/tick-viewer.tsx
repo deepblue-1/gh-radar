@@ -10,7 +10,9 @@ import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
 import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
+import { TickAmountCard } from './tick-amount-card';
 import { TickMsgList } from './tick-msg-list';
+import { TickOrderCard } from './tick-order-card';
 import { TickSlider } from './tick-slider';
 
 /**
@@ -22,6 +24,9 @@ import { TickSlider } from './tick-slider';
  * ② HTS 칸은 `HTS_PANES` 배열 한 곳에서 그린다 — 뒤 플랜이 원소(전문 · 버스트 · 팀)를 더하면 데스크톱 행과 폰 세그먼트가
  *   같이 늘어난다. 데스크톱(> 640px) = 칸을 가로로 나란히 · 폰(≤ 640px) = 「호가 | 전문 | 버스트 · 팀」 세그먼트로 하나씩.
  *   세그먼트 상태는 이 컴포넌트가 든다. 판정은 CSS(뷰포트 640px)라 JS 가 폭을 재지 않는다.
+ *   데스크톱 줄은 줄바꿈(flex-wrap)이다 — 호가 300 고정 · 전문 기본 480(남는 폭을 먼저 가져간다) · 오른쪽 열 기본 330.
+ *   본문 폭이 모자라면(사이드바 펼친 1280 등) 오른쪽 열이 아래 줄로 내려가 전체 폭을 쓰고, 그때 카드는 두 열로 놓인다.
+ *   줄 높이 = 전문 목록 고정 높이 640(오른쪽 열은 최대 640 · 넘치면 그 안에서 스크롤).
  * ③ 슬라이더 「끝으로」 는 당일 경로(37-19)가 `showEnd` 를 켠다.
  */
 
@@ -64,7 +69,7 @@ const HTS_PANES: readonly HtsPane[] = [
     // 전문 목록 — 남는 폭을 먼저 가져간다(flex-grow 999). 높이는 고정(창 가상화 · 호가 10단과 같은 줄 높이).
     id: 'msg',
     label: '전문',
-    desktop: 'min-[641px]:flex-[999_1_360px]',
+    desktop: 'min-[641px]:flex-[999_1_480px]',
     render: ({ session, cursor }) => (
       <TickMsgList
         session={session}
@@ -74,6 +79,21 @@ const HTS_PANES: readonly HtsPane[] = [
         onMode={cursor.setMode}
         className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
       />
+    ),
+  },
+  {
+    // 오른쪽 열 — 이 주문 · 거래대금(팀 카드는 37-14). 한 줄이면 330 폭에 세로로 · 아래 줄로 내려가면 두 열.
+    id: 'side',
+    label: '버스트 · 팀',
+    desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
+    render: ({ session, cursor }) => (
+      <div
+        data-slot="tick-side"
+        className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
+      >
+        <TickOrderCard session={session} cursorRec={cursor.rec} onJump={cursor.jumpToRec} />
+        <TickAmountCard session={session} cursorRec={cursor.rec} />
+      </div>
     ),
   },
 ];

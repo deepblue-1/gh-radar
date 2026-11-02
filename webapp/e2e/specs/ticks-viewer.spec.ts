@@ -276,3 +276,115 @@ test.describe('틱 전문 뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37
     expect(rec.open).toEqual([`${ECO.isin}/${TICK_DATE}/KRX`, `${ECO.isin}/${TICK_DATE}/KRX`]);
   });
 });
+
+/**
+ * (37-13) 전문 목록 ↔ 커서 ↔ 호가 · 수신순 토글 · 다음 역전 · 오른쪽 열 카드 · 폰 탭.
+ * 컷 13시 KRX 픽스처는 다조각 역전 84(오라클 inverted 84/182)를 가진다 — 「↕ 다음 역전」 · 점선 자리가 반드시 있다.
+ */
+test.describe('틱 전문 뷰어 전문 목록 — 행 그룹 · 뒤집힘 · 이 주문 (Phase 37 D-00 · D-20)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  const OPEN_URL = `${BASE}?isin=${ECO.isin}&d=${TICK_DATE}`;
+  const msg = (page: Page) => page.locator('[data-slot="tick-msg"]');
+  const selectedRow = (page: Page) => msg(page).locator('[data-slot="tick-msg-row"][aria-selected="true"]');
+  async function curSeq(page: Page): Promise<number> {
+    const text = (await page.locator('[data-slot="tick-current"]').textContent()) ?? '';
+    const m = / · #(\d+)$/.exec(text.trim());
+    expect(m, `머리 틱 라벨: ${text}`).not.toBeNull();
+    return Number(m![1]);
+  }
+  const fmt = (n: number) => n.toLocaleString('ko-KR');
+
+  test('목록 — 행 클릭 → 머리 seq · 호가 기준 seq · 이 주문 카드가 그 틱으로', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(msg(page)).toBeVisible({ timeout: 30_000 });
+    await expect(msg(page)).toHaveAttribute('data-mode', 'exchange');
+    // 가상화 — 1.2만 행이어도 DOM 행은 ~60 이하
+    expect(await msg(page).locator('[data-slot="tick-msg-row"]').count()).toBeLessThan(80);
+    await expect(selectedRow(page)).toHaveCount(1);
+
+    const b6 = msg(page).locator('[data-slot="tick-msg-row"][data-tag="B6"]').nth(3);
+    const seq = Number(await b6.getAttribute('data-seq'));
+    await b6.click();
+    await expect.poll(() => curSeq(page)).toBe(seq);
+    await expect(selectedRow(page)).toHaveAttribute('data-seq', String(seq));
+    await expect(page.locator('[data-slot="tick-book-meta"]')).toContainText(`호가 기준 seq ${fmt(seq)}`);
+    await expect(page.locator('[data-slot="tick-order-card"]')).toBeVisible();
+    await expect(page.locator('[data-slot="tick-amount-value"]')).toBeVisible();
+
+    // 꼬리 줄 — 2조각 이상 주문이 화면 안에 있으면 「┗ n조각」
+    const tail = msg(page).locator('[data-slot="tick-msg-tail"]').first();
+    if ((await tail.count()) > 0) await expect(tail).toContainText(/┗ \d+조각 \d+단/);
+    await expectNoHorizontalScroll(page, '전문 목록 1280');
+  });
+
+  test('↕ 다음 역전 → 먼저 온 B6 · 수신순 토글 → 같은 틱 · 점선 거래소순 자리 → 클릭 = 그 B6', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(msg(page)).toBeVisible({ timeout: 30_000 });
+
+    await msg(page).getByRole('button', { name: '↕ 다음 역전' }).click();
+    const sel = selectedRow(page);
+    await expect(sel).toHaveAttribute('data-tag', 'B6');
+    await expect(sel.locator('[data-slot="tick-msg-inv-mark"]')).toHaveCount(1);
+    await expect(sel).toContainText('↕ 수신은');
+    const invSeq = Number(await sel.getAttribute('data-seq'));
+    await expect.poll(() => curSeq(page)).toBe(invSeq);
+
+    await msg(page).getByRole('button', { name: '수신순' }).click();
+    await expect(msg(page)).toHaveAttribute('data-mode', 'recv');
+    await expect.poll(() => curSeq(page)).toBe(invSeq);
+    await expect(selectedRow(page)).toContainText('먼저 수신');
+    // 그 B6 의 msg_seq 제자리(아래쪽) 점선 줄
+    const invRec = (await selectedRow(page).getAttribute('data-rec'))!;
+    const slot = msg(page).locator(`[data-slot="tick-msg-slot"][data-rec="${invRec}"]`);
+    await expect(slot).toBeVisible();
+    await expect(slot).toContainText('거래소순 자리');
+
+    // 한 틱 옮긴 뒤(수신순 다음 행) 점선 자리 클릭 = 그 B6 로 돌아온다
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => curSeq(page)).not.toBe(invSeq);
+    await slot.click();
+    await expect(selectedRow(page)).toHaveAttribute('data-rec', invRec);
+    await expect.poll(() => curSeq(page)).toBe(invSeq);
+
+    // 거래소순으로 돌아가면 점선 자리는 없다
+    await msg(page).getByRole('button', { name: '거래소순' }).click();
+    await expect(msg(page).locator('[data-slot="tick-msg-slot"]')).toHaveCount(0);
+  });
+
+  test('폰 390 — 세그먼트 「호가 | 전문 | 버스트 · 팀」 · 가로 넘침 0', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    const seg = page.getByRole('group', { name: '보기' });
+    await expect(seg).toBeVisible({ timeout: 30_000 });
+    await expect(seg.getByRole('button')).toHaveText(['호가', '전문', '버스트 · 팀']);
+
+    await seg.getByRole('button', { name: '전문', exact: true }).click();
+    await expect(msg(page)).toBeVisible();
+    await expect(page.locator('[data-slot="tick-book"]')).toBeHidden();
+    await expectNoHorizontalScroll(page, '폰 전문');
+
+    await seg.getByRole('button', { name: '버스트 · 팀' }).click();
+    await expect(page.locator('[data-slot="tick-order-card"]')).toBeVisible();
+    await expect(msg(page)).toBeHidden();
+    await expectNoHorizontalScroll(page, '폰 버스트');
+  });
+});
