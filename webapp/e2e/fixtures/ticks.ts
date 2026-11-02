@@ -3,13 +3,19 @@
  *
  * - 응답 모양 = `@gh-radar/shared` tick-api 계약(server 37-07 이 RPC 반환을 그대로 통과 · snake_case).
  * - `TICK_DATE` 20261016(금) 격자 3행 — 에코앤드림 KRX(매집감지 + 15%↑) · 에코앤드림 NXT(15%↑) · SK하이닉스 KRX(요청 변환).
- *   격자 바이트(서명 URL)는 받지 않는다 — 이 플랜은 머리까지다(본문 디코드는 37-10 · 37-12).
+ * - 격자 바이트(37-10): 서명 URL = 가짜 호스트 `storage.test` 의 `grid/<d>/<ex>/<isin>.nightly.ticks.zst?token=t<n>`
+ *   (n = 그 (isin, d, ex) open 몇 번째 호출). `mockTickApi` 가 그 URL 을 shared 골든 픽스처 바이트로 응답한다 —
+ *   `cut1300-krx.ticks.zst` / `cut1300-nxt.ticks.zst`(에코앤드림 2026-10-16 13:00~13:59 · 37-02 오라클 생성).
+ *   만료 흉내(`expireFirstGrid`) = 첫 격자 요청만 403.
  * - `recentTradingDay()` = 오늘(KST)에서 7일 이상 전 · 90일 보관 안쪽의 거래일 — 요청 변환 케이스가 `nodataReasonOf` 의
  *   보관 밖 · 휴장 판정에 걸리지 않게 실행 날짜에서 계산한다(고정 날짜는 90일 뒤 「보관 밖」 으로 바뀐다).
  * - `mockTickApi` = `page.route` 로 `/api/ticks/{day,today,open,convert,convert/cancel}` 를 잡고 호출을 기록한다.
  *   경로는 URL 판정 함수로 정확히 가른다(glob `*` 는 `/` 를 넘지 않는다 — Pitfall 9).
  * ★ 실계좌 · 사용자 식별 리터럴 없음 — 종목 공개 정보뿐 · 서명 URL 은 가짜 호스트.
  */
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import type { Page, Route } from '@playwright/test';
 import {
@@ -32,6 +38,28 @@ export const SKH = { isin: 'KR7000660001', code: '000660', name: 'SK하이닉스
 export const SAMSUNG = { isin: 'KR7005930003', code: '005930', name: '삼성전자' } as const;
 
 const ETA = { KRX: 240, NXT: 120 } as const;
+
+const TICK_FIXTURE_DIR = path.resolve(__dirname, '../../../packages/shared/src/__fixtures__/ticks');
+/** 픽스처 레코드 수 · A3 수(37-02 표) — 열기 응답 메타가 실제 바이트와 맞게. */
+const TICK_FIXTURE_META = { KRX: { records: 11_990, a3: 3_089 }, NXT: { records: 11_474, a3: 3_219 } } as const;
+const gridBytesCache = new Map<TickExchange, Buffer>();
+
+/** 격자 바이트(zstd) — 컷 13시 픽스처(KRX `cut1300-krx.ticks.zst` · NXT `cut1300-nxt.ticks.zst`). */
+export function tickGridBytes(ex: TickExchange = 'KRX'): Buffer {
+  let b = gridBytesCache.get(ex);
+  if (b === undefined) {
+    b = readFileSync(path.join(TICK_FIXTURE_DIR, ex === 'NXT' ? 'cut1300-nxt.ticks.zst' : 'cut1300-krx.ticks.zst'));
+    gridBytesCache.set(ex, b);
+  }
+  return b;
+}
+
+export const TICK_GRID_HOST = 'storage.test';
+
+/** 서명 URL — `https://storage.test/tick-grid/grid/<d>/<ex>/<isin>.nightly.ticks.zst?token=t<n>`. */
+export function tickGridUrl(q: { isin: string; d: string; ex: TickExchange }, n = 1): string {
+  return `https://${TICK_GRID_HOST}/tick-grid/grid/${q.d}/${q.ex}/${q.isin}.nightly.ticks.zst?token=t${n}`;
+}
 
 function gridRow(
   s: { isin: string; code: string; name: string },
@@ -98,6 +126,7 @@ export function tickRequestOf(over: Partial<TickConvertRequest> & { isin: string
 export function tickOpenFixture(
   kind: 'grid' | 'request' | 'none',
   q: { isin: string; d: string; ex: TickExchange },
+  n = 1,
 ): TickOpenResponse {
   const s = [ECO, SKH, SAMSUNG].find((x) => x.isin === q.isin);
   return {
@@ -109,11 +138,11 @@ export function tickOpenFixture(
     grid:
       kind === 'grid'
         ? {
-            url: 'https://tick-grid.invalid/signed',
+            url: tickGridUrl(q, n),
             expiresIn: 600,
-            bytes: 3_145_728,
-            records: 48_210,
-            a3_count: 9_120,
+            bytes: tickGridBytes(q.ex).length,
+            records: TICK_FIXTURE_META[q.ex].records,
+            a3_count: TICK_FIXTURE_META[q.ex].a3,
             mode: 'nightly',
             sources: ['accum', 'up15'],
             fmt: 'pcapns-rec+zstd/1',
@@ -157,6 +186,8 @@ export function lastSaturday(now = Date.now()): string {
 }
 
 export interface TickApiRecorder {
+  /** 격자 서명 URL 요청(전체 URL) — 만료 흉내 403 포함. */
+  grid: string[];
   day: (string | null)[];
   today: number;
   open: string[];
@@ -171,14 +202,30 @@ export interface MockTickApiOpts {
   open?: (q: { isin: string; d: string; ex: TickExchange }, n: number) => TickOpenResponse;
   convert?: (body: TickConvertBody) => TickConvertResponse;
   today?: { live: boolean; date: string };
+  /** 첫 격자 요청을 403(서명 만료)으로 — 뷰어가 open 을 한 번 다시 불러 새 URL 로 받는다. */
+  expireFirstGrid?: boolean;
 }
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 export async function mockTickApi(page: Page, opts: MockTickApiOpts = {}): Promise<TickApiRecorder> {
-  const rec: TickApiRecorder = { day: [], today: 0, open: [], convert: [], cancel: [] };
+  const rec: TickApiRecorder = { grid: [], day: [], today: 0, open: [], convert: [], cancel: [] };
   const openCount = new Map<string, number>();
+  // 격자(서명 URL) — 브라우저가 Storage 를 직접 받는다(교차 출처라 CORS 헤더를 붙인다).
+  await page.route(
+    (url) => url.hostname === TICK_GRID_HOST,
+    async (route) => {
+      const u = new URL(route.request().url());
+      rec.grid.push(u.toString());
+      const cors = { 'access-control-allow-origin': '*' };
+      if (opts.expireFirstGrid && rec.grid.length === 1) {
+        return route.fulfill({ status: 403, headers: cors, contentType: 'application/json', body: '{"error":"expired"}' });
+      }
+      const ex: TickExchange = u.pathname.includes('/NXT/') ? 'NXT' : 'KRX';
+      return route.fulfill({ status: 200, headers: cors, contentType: 'application/zstd', body: tickGridBytes(ex) });
+    },
+  );
   await page.route(
     (url) => url.pathname.startsWith('/api/ticks/'),
     async (route) => {
@@ -215,7 +262,7 @@ export async function mockTickApi(page: Page, opts: MockTickApiOpts = {}): Promi
           const n = (openCount.get(key) ?? 0) + 1;
           openCount.set(key, n);
           rec.open.push(key);
-          return json(route, 200, opts.open ? opts.open(q, n) : tickOpenFixture('grid', q));
+          return json(route, 200, opts.open ? opts.open(q, n) : tickOpenFixture('grid', q, n));
         }
         case '/api/ticks/convert': {
           const body = req.postDataJSON() as TickConvertBody;
