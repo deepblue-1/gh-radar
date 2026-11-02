@@ -42,6 +42,8 @@ export interface TickViewerProps {
   accum?: TickOpenResponse['accum'];
   /** 당일 화면 — 누적 선 없음(D-09). */
   isToday?: boolean;
+  /** 당일 바이트 경로(37-19) — `t` 없으면 끝 틱에서 연다(D-18). */
+  live?: boolean;
 }
 
 /** HTS 칸 렌더 문맥 — 칸마다 같은 세션 · 커서를 본다. */
@@ -107,8 +109,16 @@ const HTS_PANES: readonly HtsPane[] = [
   },
 ];
 
-export function TickViewer({ session, urlState, initialT, onTick, accum = null, isToday = false }: TickViewerProps) {
-  const cursor = useTickCursor(session, { initialT, urlState });
+export function TickViewer({
+  session,
+  urlState,
+  initialT,
+  onTick,
+  accum = null,
+  isToday = false,
+  live = false,
+}: TickViewerProps) {
+  const cursor = useTickCursor(session, { initialT, urlState, live });
   const { rec } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);

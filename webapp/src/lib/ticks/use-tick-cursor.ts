@@ -4,8 +4,8 @@
  * useTickCursor — 틱 뷰어 커서 · 표시 순서 · 점프 · URL `t` (Phase 37 D-00 · D-18).
  *
  * ① 커서 정본 = 레코드 색인 `rec`. 자리 `pos` 는 표시 순서(기본 거래소순 · 수신순)에서의 위치다 — 순서를 바꿔도 같은 틱에 머문다.
- * ② 초기 커서: `initialT`(URL `t`) → `parseTickTime` → 수신순 `lowerBoundRecv`(그 시각 이후 첫 틱) · 없으면 08:00 이후 첫 틱.
- *   모두 그보다 이르면 마지막 틱.
+ * ② 초기 커서: `initialT`(URL `t`) → `parseTickTime` → 수신순 `lowerBoundRecv`(그 시각 이후 첫 틱) · 없으면 08:00 이후 첫 틱
+ *   (당일 `live` 는 끝 틱 — D-18). 모두 그보다 이르면 마지막 틱.
  * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Space` 재생/정지(입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
  *   10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에서 정지.
  * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
@@ -68,17 +68,24 @@ export function recAtNs(session: TickSession, ns: bigint): number {
   return session.recvOrder[p]!;
 }
 
-/** 열기 직후 커서 — `t` 가 있으면 그 시각 이후 첫 틱, 없으면 08:00 이후 첫 틱. */
-export function initialRecOf(session: TickSession, initialT: string | null): number {
+/** 표시 순서의 끝 틱 rec(빈 세션이면 -1). */
+export function endRecOf(session: TickSession, mode: TickOrderMode = 'exchange'): number {
+  const order = mode === 'exchange' ? session.exOrder : session.recvOrder;
+  return order.length === 0 ? -1 : order[order.length - 1]!;
+}
+
+/** 열기 직후 커서 — `t` 가 있으면 그 시각 이후 첫 틱, 없으면 08:00 이후 첫 틱(`live` 면 끝 틱 — D-18). */
+export function initialRecOf(session: TickSession, initialT: string | null, live = false): number {
   const ns = initialT === null ? null : parseTickTime(initialT, session.date);
+  if (ns === null && live) return endRecOf(session);
   return recAtNs(session, ns ?? session.dayStartNs);
 }
 
 export function useTickCursor(
   session: TickSession,
-  { initialT, urlState }: { initialT: string | null; urlState: Omit<TickUrlState, 't'> },
+  { initialT, urlState, live = false }: { initialT: string | null; urlState: Omit<TickUrlState, 't'>; live?: boolean },
 ): TickCursor {
-  const [rec, setRec] = useState(() => initialRecOf(session, initialT));
+  const [rec, setRec] = useState(() => initialRecOf(session, initialT, live));
   const [mode, setMode] = useState<TickOrderMode>('exchange');
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<TickPlaySpeed>(1);
