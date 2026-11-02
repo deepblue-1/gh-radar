@@ -65,6 +65,13 @@ export type AppConfig = {
   tickConvertJob: string | undefined;
   /** Phase 37 D-03 — 요청 변환 전역 하루 상한(`TICK_REQUEST_DAILY_CAP` · 기본 20 · 사용자별 아님 — 비용 가드). */
   tickRequestDailyCap: number;
+  /**
+   * Phase 37 D-07 · D-22 — 당일 바이트 경로 tickgw 내부 URL(`TICKGW_URL` · 예 `http://<radar-gw 내부 IP>:8092`)과 공유 비밀
+   * (`TICKGW_SECRET`). **둘 다 있어야 결선** — 하나만 있으면 server.ts 가 warn 하고 결선하지 않는다(live 503 · today live=false).
+   * 119 인덱서 배포 확인 뒤 37-17 이 deploy-server.sh 에 `TICKGW_URL` 을 주어 켠다. 사설 대역 밖이면 부팅 throw(assertTickgwUrl).
+   */
+  tickgwUrl: string | undefined;
+  tickgwSecret: string | undefined;
 };
 
 export function loadConfig(): AppConfig {
@@ -121,6 +128,9 @@ export function loadConfig(): AppConfig {
     relayAdminTimeoutMs: positiveIntOr(process.env.RELAY_ADMIN_TIMEOUT_MS, 15_000),
     tickConvertJob: tickConvertJobOrThrow(process.env.TICK_CONVERT_JOB),
     tickRequestDailyCap: positiveIntOr(process.env.TICK_REQUEST_DAILY_CAP, 20),
+    // Phase 37 D-22 — 빈 문자열은 미설정으로 본다(deploy-server.sh 는 TICKGW_URL 이 없으면 둘 다 싣지 않는다).
+    tickgwUrl: process.env.TICKGW_URL || undefined,
+    tickgwSecret: process.env.TICKGW_SECRET || undefined,
   };
 }
 

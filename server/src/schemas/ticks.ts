@@ -20,6 +20,26 @@ export type TickDayQueryT = z.infer<typeof TickDayQuery>;
 export const TickOpenQuery = z.object({ isin: Isin, d: Ymd, ex: TickEx });
 export type TickOpenQueryT = z.infer<typeof TickOpenQuery>;
 
+/**
+ * 당일 바이트 경로(37-15 · D-07) — `isin` · `ex` 필수, `epoch` 선택(≤64 · 빈 값 = 없음), `offset` 음이 아닌 정수(기본 0).
+ * tickgw(37-09) 검사와 같은 집합이라 통과한 요청이 tickgw 에서 400 이 될 일이 없다.
+ */
+export const TickLiveQuery = z.object({
+  isin: Isin,
+  ex: TickEx,
+  epoch: z
+    .string()
+    .max(64, "epoch 는 64자 이하여야 합니다.")
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+  offset: z
+    .string()
+    .regex(/^(0|[1-9]\d{0,14})$/, "offset 은 음이 아닌 정수여야 합니다.")
+    .optional()
+    .transform((v) => (v === undefined ? 0 : Number(v))),
+});
+export type TickLiveQueryT = z.infer<typeof TickLiveQuery>;
+
 /** 요청 변환 · 취소 본문 — 열기와 같은 키(`TickConvertBody`). */
 export const TickConvertBodySchema = TickOpenQuery;
 export type TickConvertBodyT = TickOpenQueryT;

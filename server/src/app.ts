@@ -6,6 +6,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AxiosInstance } from "axios";
 import type { RelayAdminClient } from "./services/relay-admin-client.js";
 import type { TickConvertTrigger } from "./services/tick-convert-trigger.js";
+import type { TickgwClient } from "./services/tickgw-client.js";
+import { createTickGateCache, type TickGateCache } from "./services/tick-gate-cache.js";
 import { requestId } from "./middleware/request-id.js";
 import { apiRateLimiter } from "./middleware/rate-limit.js";
 import { httpLogger } from "./middleware/pino-http.js";
@@ -60,6 +62,11 @@ export type AppDeps = {
   tickConvertTrigger?: TickConvertTrigger;
   // Phase 37 D-03 — 요청 변환 전역 하루 상한(TICK_REQUEST_DAILY_CAP · 미주입 = 20).
   tickRequestDailyCap?: number;
+  // Phase 37 D-07 · D-22 — 당일 바이트 경로 tickgw 클라이언트. 미주입(TICKGW_URL/TICKGW_SECRET 미설정 · 테스트) 시
+  // GET /api/ticks/live 는 503 TICKS_LIVE_UNAVAILABLE · /api/ticks/today 의 live=false.
+  tickgw?: TickgwClient;
+  // Phase 37 D-08 — /api/ticks/live 게이트 사용자별 60초 캐시. 미주입 = 앱마다 새 캐시(테스트는 now 를 주입해 TTL 을 잰다).
+  tickGate?: TickGateCache;
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -78,6 +85,8 @@ export function createApp(deps: AppDeps): Express {
   app.locals.relayAdmin = deps.relayAdmin;
   app.locals.tickConvertTrigger = deps.tickConvertTrigger;
   app.locals.tickRequestDailyCap = deps.tickRequestDailyCap;
+  app.locals.tickgw = deps.tickgw;
+  app.locals.tickGate = deps.tickGate ?? createTickGateCache();
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());
@@ -94,11 +103,17 @@ export function createApp(deps: AppDeps): Express {
   // 6) 응답 압축 — /api/home(≈190KB)·/api/themes(≈160KB) JSON 이 무압축으로 나가던 것.
   //    SSE(/api/chat)는 제외한다: compressible 이 text/event-stream 을 압축 대상으로 보므로
   //    기본 필터를 쓰면 gzip 버퍼에 이벤트가 묶여 스트리밍·keepalive 가 끊긴다.
+  //    application/octet-stream(/api/ticks/live — 이미 zstd 인 tickgw 바이트)도 제외한다(37-15 D-07 · 바이트 그대로).
   app.use(
     compression({
-      filter: (req, res) =>
-        !String(res.getHeader("Content-Type") ?? "").startsWith("text/event-stream") &&
-        compression.filter(req, res),
+      filter: (req, res) => {
+        const type = String(res.getHeader("Content-Type") ?? "");
+        return (
+          !type.startsWith("text/event-stream") &&
+          !type.startsWith("application/octet-stream") &&
+          compression.filter(req, res)
+        );
+      },
     }),
   );
 
@@ -130,6 +145,7 @@ export function createApp(deps: AppDeps): Express {
   // quick-261018-rfy — kind 16 매집감지 조회 전용(작업대 「매집」 패널 복원 · isin 별 최신 1행). 적재는 relay 관찰자 기록기.
   app.use("/api/accum-signals", accumSignalsRouter);
   // Phase 37 D-08 — 틱 전문 뷰어 과거 경로(day · today · open · convert) · 게이트는 RPC 안 · 격자는 서명 URL 로 브라우저가 Storage 에서 직접.
+  // 당일 경로(live)는 tickgw 바이트 중계 · 게이트 60초 캐시(37-15).
   app.use("/api/ticks", ticksRouter);
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
