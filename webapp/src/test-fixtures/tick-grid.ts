@@ -24,3 +24,15 @@ export function tickGridZst(): Uint8Array {
 export function tickGridBytes(): Uint8Array {
   return new Uint8Array(zstdDecompressSync(readFileSync(FILE)));
 }
+
+const FIXTURE_DIR = path.resolve(__dirname, '../../../packages/shared/src/__fixtures__/ticks');
+
+/** shared 골든 픽스처 `<name>`(.ticks.zst · 한 프레임) → 해제한 레코드 프레이밍 바이트(37-14 — 천일 · 컷 NXT). */
+export function tickFixtureBytes(name: string): Uint8Array {
+  return new Uint8Array(zstdDecompressSync(readFileSync(path.join(FIXTURE_DIR, name))));
+}
+
+/** shared 골든 JSON `<name>` 을 읽는다. */
+export function tickFixtureJson<T>(name: string): T {
+  return JSON.parse(readFileSync(path.join(FIXTURE_DIR, name), 'utf8')) as T;
+}
