@@ -436,26 +436,39 @@ describe("Phase 28 9칸 완성 — 창구 행", () => {
     expect(rowM({ memberBuy: [member("00005", 123000)] })[0]!.text).toBe("매수 미래에셋증권 +12.3만");
   });
   // quick-261101-owf — 셋째 칸 = 상한가 최대 체결금액(gh-trade nbu 동형). 기본 gwTimeMs 는 KST 2026-10-05.
-  it("오늘 날짜 값 → 「최대체결 12.3억」(fg) · 폰 「최대 12.3억」 · .05 경계는 0 에서 먼 쪽(1.15억 → 1.2억)", () => {
+  // 인박스 261102(gh-trade f1x) — 앞말은 출처 `upperMaxFillAuction`: 단일가 「단일가」 · 그 밖(키 없음 포함) 「최대」, 폰도 같은 문구.
+  it("오늘 날짜 값 → 「최대 12.3억」(fg · narrow 없음) · .05 경계는 0 에서 먼 쪽(1.15억 → 1.2억)", () => {
     expect(rowM({ upperMaxFillKrw: 1_230_000_000, upperMaxFillDate: 20261005 })[2]).toEqual({
-      text: "최대체결 12.3억",
+      text: "최대 12.3억",
       tone: "fg",
-      narrow: "최대 12.3억",
+      narrow: null,
     });
-    expect(rowM({ upperMaxFillKrw: 115_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대체결 1.2억");
-    expect(rowM({ upperMaxFillKrw: 12_345_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대체결 123.5억");
+    expect(rowM({ upperMaxFillKrw: 115_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대 1.2억");
+    expect(rowM({ upperMaxFillKrw: 12_345_000_000, upperMaxFillDate: 20261005 })[2]!.text).toBe("최대 123.5억");
+  });
+  it("출처 단일가(upperMaxFillAuction true) → 「단일가 8.5억」 · false · 키 없음 → 「최대」", () => {
+    const fill = { upperMaxFillKrw: 850_000_000, upperMaxFillDate: 20261005 };
+    expect(rowM({ ...fill, upperMaxFillAuction: true })[2]).toEqual({ text: "단일가 8.5억", tone: "fg", narrow: null });
+    expect(rowM({ ...fill, upperMaxFillAuction: false })[2]!.text).toBe("최대 8.5억");
+    expect(rowM({ ...fill, upperMaxFillAuction: undefined })[2]!.text).toBe("최대 8.5억");
   });
   it("지난 잠김 날 기록 → 같은 문구 · muted", () => {
     expect(rowM({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 })[2]).toEqual({
-      text: "최대체결 8.4억",
+      text: "최대 8.4억",
       tone: "muted",
-      narrow: "최대 8.4억",
+      narrow: null,
+    });
+    expect(rowM({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002, upperMaxFillAuction: true })[2]).toEqual({
+      text: "단일가 8.4억",
+      tone: "muted",
+      narrow: null,
     });
   });
-  it("0/0(기록 없음 · 구 서버) · 키 없음(구 relay · kind 15 다리) · 0 ∧ 날짜 있음 → 「최대체결 —」(muted) · 확률 필드 무시", () => {
-    const none = { text: "최대체결 —", tone: "muted", narrow: null };
+  it("0/0(기록 없음 · 구 서버) · 키 없음(구 relay · kind 15 다리) · 0 ∧ 날짜 있음 → 「최대 —」(muted · 출처 무관) · 확률 필드 무시", () => {
+    const none = { text: "최대 —", tone: "muted", narrow: null };
     expect(rowM({ upperMaxFillKrw: 0, upperMaxFillDate: 0 })[2]).toEqual(none);
     expect(rowM({ upperMaxFillKrw: 0, upperMaxFillDate: 20261005 })[2]).toEqual(none);
+    expect(rowM({ upperMaxFillKrw: 0, upperMaxFillDate: 20261005, upperMaxFillAuction: true })[2]).toEqual(none);
     expect(rowM({ modelState: 1, pBreakBp: 1830, pHorizonS: 60 })[2]).toEqual(none);
   });
   it("「오늘」 = gwTimeMs 의 KST 달력 날짜(자정 넘김 15:00 UTC → 다음 날) · gwTimeMs 0 이면 지금 시각", () => {
@@ -488,7 +501,7 @@ describe("Phase 28 9칸 완성 — 갈래 전체 (WinForms BuildLimitFeatureCell
       "—",
       "매수 —",
       "매도 —",
-      "최대체결 —",
+      "최대 —",
     ]);
   });
 });
@@ -510,18 +523,21 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
       "잠김 43초째 · 대기 17.3억 · 소진 —\n" +
         "누적 매도 6.0억 · 취소 4.6억 · 위험도 35%\n" +
         "10초 매수 우세 63% · 잔량 신규 +12,400 · 잔량 취소 -2,300\n" +
-        "창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대체결 12.3억\n" +
+        "창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대 12.3억\n" +
         "09:46:00 기준",
     );
   });
-  it("지난 잠김 날 기록 → 마지막 줄 「최대체결 M/d 기록」(앞자리 0 없음) · 밀리초는 잘라낸다", () => {
+  it("지난 잠김 날 기록 → 마지막 줄 「최대 M/d 기록」 · 단일가면 「단일가 M/d 기록」(앞자리 0 없음) · 밀리초는 잘라낸다", () => {
     const tip = limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20260930, gwTimeMs: GW_0946_KST + 999 });
     expect(tip.split("\n")).toHaveLength(6);
-    expect(tip).toContain("창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대체결 8.4억");
-    expect(tip.endsWith("\n09:46:00 기준\n최대체결 9/30 기록")).toBe(true);
+    expect(tip).toContain("창구 매수 키움증권 +5.2만 · 매도 신한증권 +1.8만 · 최대 8.4억");
+    expect(tip.endsWith("\n09:46:00 기준\n최대 9/30 기록")).toBe(true);
     expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 })).toMatch(
-      /\n최대체결 10\/2 기록$/,
+      /\n최대 10\/2 기록$/,
     );
+    expect(
+      limitFeatureTooltip({ ...full, upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002, upperMaxFillAuction: true }),
+    ).toMatch(/· 단일가 8\.4억\n[\s\S]*\n단일가 10\/2 기록$/);
   });
   it("기록 줄은 값 > 0 ∧ 날짜 ≠ 0 ∧ 날짜 ≠ 오늘 일 때만", () => {
     expect(limitFeatureTooltip({ ...full, upperMaxFillKrw: 0, upperMaxFillDate: 20261002 })).not.toContain("기록");
@@ -536,12 +552,12 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
     expect(tip.split("\n")[1]).toBe("누적 — · — · —");
     expect(tip.endsWith("\n00:00:05 기준")).toBe(true);
   });
-  it("gwTimeMs 0 → 시각 줄 없음 · 오늘(지금 시각) 기준 지난 날 기록이면 「최대체결 M/d 기록」 줄만", () => {
+  it("gwTimeMs 0 → 시각 줄 없음 · 오늘(지금 시각) 기준 지난 날 기록이면 「최대 M/d 기록」 줄만", () => {
     const now = new Date(Date.now() + 9 * 3_600_000);
     const today = now.getUTCFullYear() * 10_000 + (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
     expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, upperMaxFillDate: today }).split("\n")).toHaveLength(4);
     expect(limitFeatureTooltip({ ...full, gwTimeMs: 0, upperMaxFillDate: 20261002 }).split("\n")[4]).toBe(
-      "최대체결 10/2 기록",
+      "최대 10/2 기록",
     );
   });
   it("85 없음(null) → 「」", () => {
@@ -553,7 +569,6 @@ describe("Phase 28 9칸 완성 — limitFeatureTooltip (WinForms ApplyLimitFeatu
   });
   it("폰 문구(narrow)는 툴팁에 쓰지 않는다 — 늘 넓은 밴드 문구", () => {
     expect(limitFeatureTooltip(full)).not.toContain("신규 +1.2만");
-    expect(limitFeatureTooltip(full)).not.toContain("최대 12.3억");
   });
 });
 

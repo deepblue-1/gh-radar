@@ -381,6 +381,8 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
       // quick-261101-owf — fbs nbu upper_max_fill_krw · date. 기본 프레임은 미기록(구 서버) → 0/0.
       upperMaxFillKrw: 0,
       upperMaxFillDate: 0,
+      // 인박스 261102 — fbs f1x upper_max_fill_auction. 기본 프레임은 구 서버 → false.
+      upperMaxFillAuction: false,
     });
     expect(droppedEnvelopeCount()).toBe(0);
   });
@@ -395,6 +397,12 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
     const msg = parse(buildLimitFeatureFrame({ upperMaxFillKrw: 1_230_000_000n, upperMaxFillDate: 20261102 }));
     expect(msg?.upperMaxFillKrw).toBe(1_230_000_000);
     expect(msg?.upperMaxFillDate).toBe(20261102);
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("인박스 261102 upper_max_fill_auction true → upperMaxFillAuction true(금액 출처 단일가)", () => {
+    const msg = parse(buildLimitFeatureFrame({ upperMaxFillKrw: 850_000_000n, upperMaxFillDate: 20261102, upperMaxFillAuction: true }));
+    expect(msg?.upperMaxFillAuction).toBe(true);
     expect(droppedEnvelopeCount()).toBe(0);
   });
 

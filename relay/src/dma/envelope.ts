@@ -999,6 +999,7 @@ export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
     limitVolQty: toNum(lf.limitVolQty(), "limit_feature.limit_vol_qty"),
     upperMaxFillKrw: toNum(lf.upperMaxFillKrw(), "limit_feature.upper_max_fill_krw"),
     upperMaxFillDate: lf.upperMaxFillDate(),
+    upperMaxFillAuction: lf.upperMaxFillAuction(),
   };
 }
 

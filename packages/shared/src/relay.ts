@@ -1938,6 +1938,12 @@ export type RelayLimitFeatureMsg = {
   upperMaxFillKrw?: number;
   /** 위 값의 KST 거래일 yyyymmdd(fbs nbu `upper_max_fill_date`). 0 = 없음 · 구 서버, 키 없음 = 구 relay · kind 15 다리. */
   upperMaxFillDate?: number;
+  /**
+   * 위 금액의 출처(fbs f1x 681fb854 `upper_max_fill_auction`) — `true` = 단일가(시가 · VI 단일가) 상한가 체결로 바로 잠긴 날의 그
+   * 단일가 체결 금액, `false` = 한 주문 묶음 최대(기존 규칙) · 구 gh-trade 서버. 키 없음 = 구 relay · kind 15 다리(= false).
+   * 표시는 창구 셋째 칸 · 툴팁 기록 줄의 앞말 「단일가」/「최대」.
+   */
+  upperMaxFillAuction?: boolean;
 };
 
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */

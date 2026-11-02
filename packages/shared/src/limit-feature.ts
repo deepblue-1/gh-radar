@@ -16,7 +16,8 @@
  * quick-261101-0r3 — 누적 행 위험도 = limit_vol_qty ÷ q_qty(gh-trade nd7 동형, 잠기기 전에도 표시). 구 relay(키 없음) · 구 서버
  * (limitVolQty 0 판별)는 옛 식 lockSellKrw ÷ qKrw.
  * quick-261101-owf — 창구 행 셋째 칸 깨짐확률 → 상한가 최대 체결금액(gh-trade nbu bac82294 동형 — 오늘 값 검정 · 지난 잠김 날
- * 기록 회색 + 툴팁 「최대체결 M/d 기록」 · 0 · 키 없음 「최대체결 —」). 확률 필드는 kind 15 조각에만 남는다.
+ * 기록 회색 + 툴팁 「최대 M/d 기록」 · 0 · 키 없음 「최대 —」). 확률 필드는 kind 15 조각에만 남는다.
+ * 인박스 261102(gh-trade quick-261102-f1x) — 앞말을 금액 출처로: `upperMaxFillAuction` 이면 「단일가」, 아니면 「최대」.
  */
 
 import { memberName } from "./member-codes";
@@ -31,8 +32,8 @@ export type LimitFeatureCell = {
   text: string;
   tone: LimitFeatureTone;
   /**
-   * 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 · 값 있는 창구 셋째 칸(「최대 12.3억」 — 웹 전용, WinForms 에
-   * 폰 밴드가 없다) 만. null = 모든 밴드에서 `text`.
+   * 폰 밴드 문구(카드 `lc` < 첫 경계) — 잠김 중 10초 행 칸 2 · 3 만(웹 전용, WinForms 에 폰 밴드가 없다). 창구 셋째 칸은
+   * 261102 부터 문구 자체가 「최대 12.3억」 이라 null. null = 모든 밴드에서 `text`.
    */
   narrow: string | null;
 };
@@ -138,18 +139,18 @@ function todayKstYmd(msg: Pick<RelayLimitFeatureMsg, "gwTimeMs">): number {
 
 /**
  * 창구 행 셋째 칸 — 상한가 최대 체결금액(WinForms `BuildLimitFeatureCells` [11] · quick-261031-nbu 동형). 값 · 날짜 모두 서버 값,
- * 오늘 날짜와 비교만 한다(D-19). 0 · 키 없음(구 relay · kind 15 다리) → 「최대체결 —」(muted), 날짜 = 오늘 → fg, 그 밖(지난 잠김
- * 날 기록) → muted. 폰 밴드는 「최대 {억}」.
+ * 오늘 날짜와 비교만 한다(D-19). 0 · 키 없음(구 relay · kind 15 다리) → 「최대 —」(muted · 출처 무관), 날짜 = 오늘 → fg, 그 밖(지난
+ * 잠김 날 기록) → muted. 앞말은 출처(`maxFillLabel` — gh-trade quick-261102-f1x). 문구가 폰 밴드에도 들어가 `narrow` 가 없다.
  */
 function maxFillCell(msg: RelayLimitFeatureMsg): LimitFeatureCell {
   const krw = msg.upperMaxFillKrw ?? 0;
-  if (krw === 0) return cell(`최대체결 ${DASH}`, "muted");
-  const eok = formatEok(krw);
-  return {
-    text: `최대체결 ${eok}`,
-    tone: msg.upperMaxFillDate === todayKstYmd(msg) ? "fg" : "muted",
-    narrow: `최대 ${eok}`,
-  };
+  if (krw === 0) return cell(`최대 ${DASH}`, "muted");
+  return cell(`${maxFillLabel(msg)} ${formatEok(krw)}`, msg.upperMaxFillDate === todayKstYmd(msg) ? "fg" : "muted");
+}
+
+/** 창구 셋째 칸 · 툴팁 기록 줄의 앞말 — 출처 단일가면 「단일가」, 아니면(키 없음 포함) 「최대」 (WinForms `MaxFillLabel` 동형). */
+function maxFillLabel(msg: RelayLimitFeatureMsg): string {
+  return msg.upperMaxFillAuction === true ? "단일가" : "최대";
 }
 
 /** 창구 목록에서 회원번호가 있는 첫 원소 — 없으면 null (WinForms `FirstMember`). */
@@ -311,7 +312,7 @@ function formatTimeKstHms(epochMs: number): string {
  * 표 툴팁(WinForms `ApplyLimitFeatureTable` 동형). 첫 줄 = 상태 줄(옛 지금 행 세 칸 「 · 」 연결) · 이어 줄 3개
  * 「{기본 행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구** · 머리는 경과로 덮지 않은 누적/10초/창구) +
  * 줄 「HH:mm:ss 기준」(gwTimeMs KST · 시각 없으면 생략) + 창구 셋째 칸이 지난 잠김 날 기록이면(최대 체결금액 > 0 ∧ 날짜 ≠ 0
- * ∧ 날짜 ≠ 오늘) 마지막 줄 「최대체결 M/d 기록」(quick-261101-owf — WinForms nbu 동형, 옛 깨짐확률 꼬리 대체). null(85 없음) → 「」.
+ * ∧ 날짜 ≠ 오늘) 마지막 줄 「최대 M/d 기록」 · 출처 단일가면 「단일가 M/d 기록」(quick-261101-owf · 261102 f1x — WinForms 동형, 옛 깨짐확률 꼬리 대체). null(85 없음) → 「」.
  */
 export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
   if (msg === null) return "";
@@ -327,7 +328,7 @@ export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
   // 지난 잠김 날 기록이면 그 날짜 — 창구 셋째 칸이 회색인 이유.
   const fillDate = msg.upperMaxFillDate ?? 0;
   if ((msg.upperMaxFillKrw ?? 0) > 0 && fillDate !== 0 && fillDate !== todayKstYmd(msg)) {
-    lines.push(`최대체결 ${Math.trunc(fillDate / 100) % 100}/${fillDate % 100} 기록`);
+    lines.push(`${maxFillLabel(msg)} ${Math.trunc(fillDate / 100) % 100}/${fillDate % 100} 기록`);
   }
   return lines.join("\n");
 }

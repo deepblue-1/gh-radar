@@ -1915,6 +1915,8 @@ export type FakeLimitFeatureInput = {
   upperMaxFillKrw?: bigint;
   /** fbs nbu 말미 append — 위 값의 KST yyyymmdd. 기본 미기록(0). */
   upperMaxFillDate?: number;
+  /** fbs f1x `upper_max_fill_auction`(금액 출처 단일가) — 기본 false(= 구 서버 모양). */
+  upperMaxFillAuction?: boolean;
 };
 
 /** 기본 매수 창구(잠김 시나리오). */
@@ -1991,6 +1993,7 @@ export function buildLimitFeatureFrame(input: FakeLimitFeatureInput = {}): Uint8
   LimitFeature.addLimitVolQty(b, input.limitVolQty ?? 0n);
   LimitFeature.addUpperMaxFillKrw(b, input.upperMaxFillKrw ?? 0n);
   LimitFeature.addUpperMaxFillDate(b, input.upperMaxFillDate ?? 0);
+  LimitFeature.addUpperMaxFillAuction(b, input.upperMaxFillAuction ?? false);
   const feature = LimitFeature.endLimitFeature(b);
 
   Envelope.startEnvelope(b);

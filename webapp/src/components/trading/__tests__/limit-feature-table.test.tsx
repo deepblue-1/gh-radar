@@ -10,7 +10,7 @@ import { LimitFeatureTable } from '../card/limit-feature-table';
  * 잠그는 것:
  *   - 85 없음(empty · loading 같은 모양) → 9칸 「—」(--faint) · title 없음 · 스피너 없음
  *   - 잠김 중 10초 칸 2 · 3 · 값 있는 창구 셋째 칸은 같은 칸 안 폰 span(`@min-[685px]/lc:hidden`) + 넓은 span(`hidden @min-[685px]/lc:inline`)
- *   - quick-261101-owf — 창구 셋째 칸 「최대체결 X.X억」(오늘 기본색 · 지난 날 --muted-fg · 없음 「최대체결 —」 --muted-fg)
+ *   - quick-261101-owf — 창구 셋째 칸 「최대 X.X억」 · 출처 단일가 「단일가 X.X억」(오늘 기본색 · 지난 날 --muted-fg · 없음 「최대 —」 --muted-fg · 인박스 261102)
  *   - 표 title = shared `limitFeatureTooltip` 그대로(웹은 문구를 만들지 않는다)
  *   - isStale → data-stale + opacity .55 · 값 유지
  *   - 칸 tone → --up · --down · --muted-fg · --faint
@@ -101,32 +101,35 @@ describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
     expect(cells()[5]!.textContent).toBe('—');
   });
 
-  it('창구 행 「매수 키움증권 +5.2만」(--up) · 「매도 신한증권 +1.8만」(--down) · 오늘 「최대체결 12.3억」(기본색 · 폰 「최대 12.3억」)', () => {
+  it('창구 행 「매수 키움증권 +5.2만」(--up) · 「매도 신한증권 +1.8만」(--down) · 오늘 「최대 12.3억」(기본색 · 폰도 같은 문구 — 두 span 없음)', () => {
     const { cells } = setup(lf());
     const [b, s, p] = cells().slice(6);
     expect(b!.textContent).toBe('매수 키움증권 +5.2만');
     expect(b!.className).toContain('text-[var(--up)]');
     expect(s!.textContent).toBe('매도 신한증권 +1.8만');
     expect(s!.className).toContain('text-[var(--down)]');
-    expect(p!.querySelector('[data-band="narrow"]')!.textContent).toBe('최대 12.3억');
-    expect(p!.querySelector('[data-band="wide"]')!.textContent).toBe('최대체결 12.3억');
+    expect(p!.textContent).toBe('최대 12.3억');
+    expect(p!.querySelector('[data-band]')).toBeNull();
     expect(p!.className).not.toMatch(/text-\[var\(--(up|down|muted-fg|faint)\)\]/);
   });
 
-  it('지난 잠김 날 기록 → 「최대체결 8.4억」(--muted-fg) · 기록 없음 → 「최대체결 —」(--muted-fg · 폰 span 없음) · 창구 없음 → 「매수 —」 · 「매도 —」', () => {
+  it('지난 잠김 날 기록 → 「최대 8.4억」(--muted-fg) · 출처 단일가 → 「단일가 8.4억」 · 기록 없음 → 「최대 —」(--muted-fg · 폰 span 없음) · 창구 없음 → 「매수 —」 · 「매도 —」', () => {
     const past = setup(lf({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 }));
     const pp = past.cells()[8]!;
-    expect(pp.querySelector('[data-band="wide"]')!.textContent).toBe('최대체결 8.4억');
+    expect(pp.textContent).toBe('최대 8.4억');
     expect(pp.className).toContain('text-[var(--muted-fg)]');
     past.unmount();
+    const auction = setup(lf({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002, upperMaxFillAuction: true }));
+    expect(auction.cells()[8]!.textContent).toBe('단일가 8.4억');
+    auction.unmount();
     const { cells } = setup(lf({ upperMaxFillKrw: 0, upperMaxFillDate: 0, memberBuy: [], memberSell: [] }));
     const [b, s, p] = cells().slice(6);
-    expect([b!.textContent, s!.textContent, p!.textContent]).toEqual(['매수 —', '매도 —', '최대체결 —']);
+    expect([b!.textContent, s!.textContent, p!.textContent]).toEqual(['매수 —', '매도 —', '최대 —']);
     expect(p!.querySelector('[data-band]')).toBeNull();
     expect(p!.className).toContain('text-[var(--muted-fg)]');
   });
 
-  it('표 title = shared limitFeatureTooltip 그대로 (넓은 밴드 문구 + 「09:46:00 기준」 · 지난 날이면 「최대체결 10/2 기록」)', () => {
+  it('표 title = shared limitFeatureTooltip 그대로 (넓은 밴드 문구 + 「09:46:00 기준」 · 지난 날이면 「최대 10/2 기록」)', () => {
     const msg = lf();
     const { table, unmount } = setup(msg);
     expect(table.getAttribute('title')).toBe(limitFeatureTooltip(msg));
@@ -134,7 +137,7 @@ describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
     expect(table.getAttribute('title')!.endsWith('\n09:46:00 기준')).toBe(true);
     unmount();
     const past = setup(lf({ upperMaxFillKrw: 840_000_000, upperMaxFillDate: 20261002 }));
-    expect(past.table.getAttribute('title')!.endsWith('\n09:46:00 기준\n최대체결 10/2 기록')).toBe(true);
+    expect(past.table.getAttribute('title')!.endsWith('\n09:46:00 기준\n최대 10/2 기록')).toBe(true);
   });
 
   it('isStale → data-stale="true" · opacity .55 · 값은 지우지 않는다', () => {

@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: b6d3f3ef
+// server-repo-commit: 681fb854
 // synced-date:        2026-11-02
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -1677,6 +1677,8 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
     // === 이하 quick-261031-nbu 추가 (테이블 말미 append — 기존 필드 순서 불변, 저널 kind 15 슬롯에는 싣지 않는다) ===
     upper_max_fill_krw: ulong;   // 상한가 최대 체결금액(원) — 오늘 값(첫 잠김 전 한 주문 묶음 — 상따 선매수 체결량 묶음: KRX 0/0 이어짐 · NXT msg_seq 런 — 안 상한가 매수 체결 금액 합의 오늘 최대, 첫 잠김 뒤 동결)이 > 0 이면 그 값, 아니면 마지막으로 잠긴 날의 확정 기록, 없으면 0 (quick-261031-nbu)
     upper_max_fill_date: uint;   // 위 값의 KST 거래일 yyyymmdd — 오늘 값이면 오늘, 기록이면 그 잠긴 날, 0 = 없음·구 서버. 클라는 오늘 ≠ 이면 회색 (quick-261031-nbu)
+    // === 이하 quick-261102-f1x 추가 (테이블 말미 append — 기존 필드 순서 불변, 저널 kind 15 슬롯에는 싣지 않는다) ===
+    upper_max_fill_auction: bool; // 위 upper_max_fill_krw 의 출처 — true = 단일가 상한가 체결(시가·VI 단일가)로 바로 잠긴 날의 단일가 체결 금액, false = 매수 주도 한 주문 묶음(또는 0·구 서버). 클라는 「단일가 X.X억」/「최대 X.X억」 (quick-261102-f1x)
 }
 
 // ============================================================================

@@ -230,8 +230,13 @@ upperMaxFillDate():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+upperMaxFillAuction():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 78);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startLimitFeature(builder:flatbuffers.Builder) {
-  builder.startObject(37);
+  builder.startObject(38);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -418,12 +423,16 @@ static addUpperMaxFillDate(builder:flatbuffers.Builder, upperMaxFillDate:number)
   builder.addFieldInt32(36, upperMaxFillDate, 0);
 }
 
+static addUpperMaxFillAuction(builder:flatbuffers.Builder, upperMaxFillAuction:boolean) {
+  builder.addFieldInt8(37, +upperMaxFillAuction, +false);
+}
+
 static endLimitFeature(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, featureSchema:number, upperPx:number, lastPx:number, rateBp:number, basePx:number, listShares:bigint, qQty:bigint, qKrw:bigint, wallKrwVisible:bigint, wallQtyHidden:bigint, wallTruncated:boolean, sellLed10s:bigint, buyLed10s:bigint, cancel10s:bigint, new10s:bigint, auctionFill10s:bigint, drainS:number, lockState:number, lockElapsedS:number, burstUpperLimit:boolean, auction:boolean, memberBuyOffset:flatbuffers.Offset, memberSellOffset:flatbuffers.Offset, memberDeltaPartial:boolean, modelState:number, modelSchemaVersion:number, pBreakBp:number, pHorizonS:number, teamSimOffset:flatbuffers.Offset, lockSellKrw:bigint, lockCancelKrw:bigint, limitVolQty:bigint, upperMaxFillKrw:bigint, upperMaxFillDate:number):flatbuffers.Offset {
+static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, gwTimeMs:bigint, featureSchema:number, upperPx:number, lastPx:number, rateBp:number, basePx:number, listShares:bigint, qQty:bigint, qKrw:bigint, wallKrwVisible:bigint, wallQtyHidden:bigint, wallTruncated:boolean, sellLed10s:bigint, buyLed10s:bigint, cancel10s:bigint, new10s:bigint, auctionFill10s:bigint, drainS:number, lockState:number, lockElapsedS:number, burstUpperLimit:boolean, auction:boolean, memberBuyOffset:flatbuffers.Offset, memberSellOffset:flatbuffers.Offset, memberDeltaPartial:boolean, modelState:number, modelSchemaVersion:number, pBreakBp:number, pHorizonS:number, teamSimOffset:flatbuffers.Offset, lockSellKrw:bigint, lockCancelKrw:bigint, limitVolQty:bigint, upperMaxFillKrw:bigint, upperMaxFillDate:number, upperMaxFillAuction:boolean):flatbuffers.Offset {
   LimitFeature.startLimitFeature(builder);
   LimitFeature.addIsin(builder, isinOffset);
   LimitFeature.addExchange(builder, exchangeOffset);
@@ -462,6 +471,7 @@ static createLimitFeature(builder:flatbuffers.Builder, isinOffset:flatbuffers.Of
   LimitFeature.addLimitVolQty(builder, limitVolQty);
   LimitFeature.addUpperMaxFillKrw(builder, upperMaxFillKrw);
   LimitFeature.addUpperMaxFillDate(builder, upperMaxFillDate);
+  LimitFeature.addUpperMaxFillAuction(builder, upperMaxFillAuction);
   return LimitFeature.endLimitFeature(builder);
 }
 }

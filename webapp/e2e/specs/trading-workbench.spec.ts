@@ -3241,7 +3241,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const limitTab = tabs.nth(3);
 
     // 잠김 63초(긴 탭 제목) · 10초 신규 12,400 · 취소 2,300 · 창구 매수 00005 +12.3만 · 확률 적용(표에는 안 나온다) ·
-    // 오늘(기본 gwTimeMs KST 2026-10-05) 최대체결 123.5억(quick-261101-owf — 폰 「최대 123.5억」).
+    // 오늘(기본 gwTimeMs KST 2026-10-05) 「최대 123.5억」(quick-261101-owf · 인박스 261102 — 폰도 같은 문구).
     const frame = {
       isin: E2E_ISIN,
       exchange: 'KRX',
@@ -3343,7 +3343,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const title = (await table.getAttribute('title')) ?? '';
     expect(title).toContain('매수 미래에셋증권 +12.3만');
     expect(title).toContain('잔량 신규 +12,400 · 잔량 취소 -2,300');
-    expect(title).toContain('최대체결 123.5억');
+    expect(title).toContain('최대 123.5억');
     expect(title).toMatch(/\n\d{2}:\d{2}:\d{2} 기준$/);
     expect(await cardHeight(), '말줄임 칸이 있어도 카드 높이 그대로').toBe(before);
 
