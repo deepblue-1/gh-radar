@@ -7,7 +7,8 @@ gh-trade tickana 파이썬 정본(`packets.py` LAYOUTS · `pcap2parquet.py`)이 
 ## 재생성 (맥 전용)
 
 ```bash
-bash scripts/tick-oracle/gen-fixtures.sh decode
+bash scripts/tick-oracle/gen-fixtures.sh decode   # 디코더 골든(37-02)
+bash scripts/tick-oracle/gen-fixtures.sh orders   # KRX 주문 묶기 · 팀 판정 골든(37-03)
 ```
 
 전제: gh-trade venv `$GH_TRADE_ANALYSIS/.venv`(기본 `/Users/alex/repos/gh-trade/server/tools/analysis`, Python 3.14 ·
@@ -22,12 +23,15 @@ bash scripts/tick-oracle/gen-fixtures.sh decode
 | `cut1300-krx.ticks.zst` · `.decode.json` | `~/ticks/cut-101360/src/krx/krx-1300.pcap.zst` | 에코앤드림 KR7101360006 10/16 13시 컷 KRX(A3 · B6) |
 | `cut1300-nxt.ticks.zst` · `.decode.json` | `~/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst` | 같은 컷 NXT(A3 · B6) |
 | `raw20k-0900.ticks.zst` · `.decode.json` | `~/ticks/team-follow/rawpcap/20261014/20261014-0900.pcap.zst` 첫 20,000 프레임 | 10/14 09시 무필터 조각 — 모든 태그 + raw |
+| `cut1300-krx.orders.json` | 컷 KRX(위 `cut1300-krx.ticks.zst` 와 같은 원본) → `teamflow.prepare_frame` | KRX G1 · msg_seq 순 주문별 `[msg_seq, oid, kind, team]` + 요약(주문 2,687 · 팀 126 · 기준가 8,200 · 상한가 10,660) |
 
 - `*.ticks.zst` = 레코드 프레이밍 `pcapns-rec+zstd/1`(레코드 헤더 `<IIII>` 16B + UDP 페이로드 · 전역 헤더 없음 · zstd-19 한 프레임).
   pcap2parquet 레코드 루프와 같은 규칙 · 같은 프레임 수 상한으로 뽑았다.
 - `*.decode.json` = pcap2parquet 표별 Parquet 를 읽은 요약 — `source`(파일 · 라벨 · limit · 프레임 · 레코드 · 카운터) ·
   `tables.<표>`(`rows` · `columns.<열>.{sha256, nulls}` · `head` 앞 30행). 행이 0 인 표는 없다. `dst_ip` · `dst_port` 는 뺐다.
 - 정규화(canon) · 열 digest 규칙은 `scripts/tick-oracle/oracle.py` 머리 주석과 `src/__tests__/helpers/tick-digest.ts` 가 같다.
+- `*.orders.json` 등 행 배열 JSON 은 행마다 한 줄(키 정렬 · indent 1) — diff 가 행 단위로 읽힌다. (isin, msg_seq) 동률이 있으면
+  duckdb 정렬이 비결정이라 오라클이 종료 1 한다.
 - 크기 상한: `.ticks.zst` 하나당 1.5MB. 넘으면 `RAW_LIMIT=10000 bash scripts/tick-oracle/gen-fixtures.sh decode`.
 
 생성일: 2026-11-02 (gh-trade tickana 2026-11-02 원문).

@@ -9,6 +9,7 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
   gh-trade server/tools/analysis/tickana/pcap2parquet.py:84-101 output_stem(라벨 = 부모 디렉터리 이름) · target_path
   gh-trade server/tools/analysis/tickana/pcap2parquet.py:230-345 convert_file · 레코드 루프 · 이더넷/IPv4/UDP 벗김
   gh-trade server/tools/analysis/README.md 「Parquet 표 스키마」
+  gh-trade server/tools/analysis/tickana/teamflow.py:68-86 load_day_parquet · :96-134 classify_orders · :242-258 prepare_frame
 
 부명령:
   layouts --out <json>
@@ -20,6 +21,10 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
          (전역 헤더 없음 — gh-radar 격자 파일 형식 `pcapns-rec+zstd/1`).
       ③ 표마다 {rows, columns: {<열>: {sha256, nulls}}, head: [앞 30행 canon 값]} 을 <접두>.decode.json 에 쓴다.
          dst_ip · dst_port 는 뺀다(레코드 프레이밍에 IP/포트가 없다).
+  orders <pcap.zst> --out <json>                                    (37-03 Task 1)
+      컷 KRX pcap → convert_file → teamflow.load_day_parquet 와 같은 열 · 조건(`board_id='G1' and exchange='KRX'`
+      · `order by isin, msg_seq`) → teamflow.prepare_frame → 주문별 [msg_seq, oid, kind, team] JSON.
+      (isin, msg_seq) 동률이 있으면 duckdb 정렬이 비결정이라 종료 1.
 
 정규화(canon) — TS `packages/shared/src/__tests__/helpers/tick-digest.ts` 와 한 글자도 다르지 않게:
   null/NaN → "~" · bool → "1"/"0" · 정수 → 10진 문자열 · 부동소수(dec6) → format(v, ".6f") · 문자열 → 그대로.
@@ -51,7 +56,7 @@ import pyarrow as pa  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 from compression import zstd  # noqa: E402  (Python 3.14 표준)
 
-from tickana import packets, pcap2parquet  # noqa: E402
+from tickana import packets, pcap2parquet, teamflow  # noqa: E402
 
 HEAD_ROWS = 30
 DROP_COLUMNS = ("dst_ip", "dst_port")
@@ -221,6 +226,112 @@ def cmd_decode(a: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# 공용 (37-03) — 임시 라벨 디렉터리 변환 · 짧은 행 JSON
+# ---------------------------------------------------------------------------
+
+
+def convert_into(src: Path, label: str, tmpd: Path, out: Path) -> dict:
+    """src 를 <tmpd>/<label>/ 아래 심볼릭 링크로 두고(pcap2parquet output_stem 은 부모 디렉터리 이름을 라벨로 쓴다)
+    convert_file 로 <out> 에 표별 Parquet 를 만든다. 카운터를 돌려준다."""
+    link_dir = tmpd / label
+    link_dir.mkdir(exist_ok=True)
+    link = link_dir / src.name
+    link.symlink_to(src)
+    return pcap2parquet.convert_file(link, out, force=True, log=False)
+
+
+def table_file(out: Path, table: str, counters: dict) -> Path:
+    return pcap2parquet.target_path(out, table, counters["date"], counters["label"], counters["hhmm"])
+
+
+def _json_enc(v: object, ind: int) -> str:
+    """indent 1 JSON · 키 정렬 — 단 「리스트의 리스트」(행 배열)는 행마다 한 줄로 쓴다(diff 가 행 단위로 읽히게)."""
+    pad = " " * ind
+    if isinstance(v, dict):
+        if not v:
+            return "{}"
+        items = [f"{pad} {json.dumps(k, ensure_ascii=False)}: {_json_enc(v[k], ind + 1)}" for k in sorted(v)]
+        return "{\n" + ",\n".join(items) + "\n" + pad + "}"
+    if isinstance(v, list) and v and all(isinstance(x, list) for x in v):
+        lines = [pad + " " + json.dumps(x, ensure_ascii=False, separators=(",", ":")) for x in v]
+        return "[\n" + ",\n".join(lines) + "\n" + pad + "]"
+    if isinstance(v, list):
+        return json.dumps(v, ensure_ascii=False, separators=(", ", ": "))
+    return json.dumps(v, ensure_ascii=False)
+
+
+def write_json(path: Path, doc: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json_enc(doc, 0) + "\n", encoding="utf-8")
+
+
+def _py(v: object) -> object:
+    """numpy 스칼라 → 파이썬 기본형(JSON 용)."""
+    return v.item() if hasattr(v, "item") else v
+
+
+A3_SELECT = """select isin, msg_seq, trade_time_ns t, price_change_type pct, price_change chg, trade_price px, trade_qty qty,
+        final_bs_code bs, ask1_px a1, bid1_px b1, market"""
+
+
+def read_krx_a3(a3_glob: str, scope: str):
+    """teamflow(G1 · isin, msg_seq 순 — teamflow.load_day_parquet) 또는 accum(G1+G4 · isin, trade_time_ns, msg_seq 순 —
+    teamflow_accum.load_day_a3) 와 같은 열 · 조건 · 순서로 A3 를 읽는다. duckdb 기본 정렬은 NULLS LAST."""
+    import duckdb
+
+    if scope == "teamflow":
+        where, order = "board_id='G1' and exchange='KRX'", "isin, msg_seq"
+    elif scope == "accum":
+        where, order = "board_id in ('G1','G4') and exchange='KRX'", "isin, trade_time_ns, msg_seq"
+    else:
+        raise ValueError(scope)
+    A = duckdb.sql(f"{A3_SELECT} from '{a3_glob}' where {where} order by {order}").df()
+    key = ["isin", "msg_seq"] if scope == "teamflow" else ["isin", "t", "msg_seq"]
+    dup = int(A.duplicated(subset=key, keep=False).sum())
+    return A, dup
+
+
+def order_rows(P) -> tuple[dict, list[list]]:
+    """prepare_frame 결과 → (요약, 행 [msg_seq, oid, kind, team]). 종류 분포는 주문 단위."""
+    O = P.groupby("oid", sort=True).agg(kind=("kind", "first"), team=("team", "first"))
+    kinds: dict[str, int] = {}
+    for k in O["kind"].tolist():
+        kinds[k] = kinds.get(k, 0) + 1
+    summary = {"orders": int(len(O)), "kinds": kinds, "team_orders": int(O["team"].sum())}
+    rows = [
+        [int(sq), int(o), str(k), int(bool(t))]
+        for sq, o, k, t in zip(P["msg_seq"].tolist(), P["oid"].tolist(), P["kind"].tolist(), P["team"].tolist())
+    ]
+    return summary, rows
+
+
+# ---------------------------------------------------------------------------
+# orders (37-03 Task 1)
+# ---------------------------------------------------------------------------
+
+
+def cmd_orders(a: argparse.Namespace) -> int:
+    src = Path(a.input).expanduser().resolve()
+    with tempfile.TemporaryDirectory(prefix="tick-oracle-") as tmp:
+        tmpd = Path(tmp)
+        out = tmpd / "out"
+        counters = convert_into(src, "krx", tmpd, out)
+        A, dup = read_krx_a3(str(table_file(out, "a3", counters)), "teamflow")
+    if dup:
+        print(f"[oracle] orders: (isin, msg_seq) 동률 {dup}행 — duckdb 정렬이 비결정이라 골든을 만들 수 없다", file=sys.stderr)
+        return 1
+    P, base, upper = teamflow.prepare_frame(A)
+    summary, rows = order_rows(P)
+    summary.update(base=int(base), upper=int(upper), rows=len(rows), isins=sorted(set(P["isin"].tolist())))
+    doc = {"source": {"file": src.name, "scope": "teamflow", "select": "board_id='G1' and exchange='KRX' order by isin, msg_seq"},
+           "summary": summary, "rows": rows}
+    write_json(Path(a.out), doc)
+    print(f"[oracle] orders {src.name} {json.dumps(summary, ensure_ascii=False)}", file=sys.stderr)
+    return 0
+
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="oracle.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -233,6 +344,10 @@ def main(argv: list[str] | None = None) -> int:
     p_d.add_argument("--limit", type=int, default=None)
     p_d.add_argument("--out-prefix", required=True)
     p_d.set_defaults(fn=cmd_decode)
+    p_o = sub.add_parser("orders", help="KRX G1 classify_orders 주문별 골든")
+    p_o.add_argument("input")
+    p_o.add_argument("--out", required=True)
+    p_o.set_defaults(fn=cmd_orders)
     a = ap.parse_args(argv)
     return a.fn(a)
 

@@ -2,11 +2,12 @@
 # 틱 뷰어(Phase 37) 오라클 픽스처 생성기 — 맥 전용.
 #
 # 사용법:
-#   bash scripts/tick-oracle/gen-fixtures.sh decode
+#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders
 #
 # 부명령:
 #   decode  레이아웃 덤프(layouts.json) + 디코더 골든 3종(cut1300-krx · cut1300-nxt · raw20k-0900)
 #           → packages/shared/src/__fixtures__/ticks/
+#   orders  컷 13시 KRX classify_orders 주문별 골든(cut1300-krx.orders.json) — 37-03 Task 1
 #
 # 전제: gh-trade venv(Python 3.14 · compression.zstd · pyarrow)와 로컬 원본 pcap.
 #   GH_TRADE_ANALYSIS (기본 /Users/alex/repos/gh-trade/server/tools/analysis)
@@ -53,8 +54,11 @@ case "$cmd" in
     done
     exit "$over"
     ;;
+  orders)
+    oracle orders "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --out "$FX/cut1300-krx.orders.json"
+    ;;
   *)
-    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode" >&2
+    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders" >&2
     exit 2
     ;;
 esac
