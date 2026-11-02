@@ -188,15 +188,21 @@ test.describe('틱 전문 뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37
     await expect(current(page)).toHaveText(/^13:\d{2}:\d{2}\.\d{3} · #\d+$/);
     expect(rec.grid).toEqual([tickGridUrl({ isin: ECO.isin, d: TICK_DATE, ex: 'KRX' })]);
     expect(rec.open).toHaveLength(1);
-    // 호가 20행 + 바닥 줄 · 슬라이더 밀도 144
-    await expect(book.locator('[data-slot="tick-book-row"]')).toHaveCount(20);
+    // 컷 13시 픽스처의 첫 틱은 A3(seq 70637)이고 첫 B6(70638)보다 먼저 온다 —
+    // 그 앞에 B6 가 없으니 열기 직후 호가는 「호가 없음」 이 맞다.
+    await expect(book.locator('[data-slot="tick-book-empty"]')).toBeVisible();
     await expect(page.locator('[data-slot="tick-density-bar"]')).toHaveCount(144);
-    // 「주 | 금액」
-    await book.getByRole('button', { name: '금액' }).click();
-    await expect(book.locator('[data-slot="tick-book-total"]')).toContainText('합산 금액');
     await expectNoHorizontalScroll(page, '뷰어 1280');
     // 열기만으로는 URL 에 t 를 쓰지 않는다
     expect(tParam(page)).toBeNull();
+    // 한 틱 다음(첫 B6) → 호가 20행 + 바닥 줄
+    await book.locator('h2').click();
+    await page.keyboard.press('ArrowRight');
+    await expect(book.locator('[data-slot="tick-book-row"]')).toHaveCount(20);
+    // 「주 | 금액」
+    await book.getByRole('button', { name: '금액' }).click();
+    await expect(book.locator('[data-slot="tick-book-total"]')).toContainText('합산 금액');
+    await expectNoHorizontalScroll(page, '뷰어 1280 호가');
   });
 
   test('키 — → 세 번 → URL t 갱신 · history.length 그대로 · Shift+→ 10행', async ({ page }) => {
