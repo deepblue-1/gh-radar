@@ -118,6 +118,8 @@ describe('appendTickBytes (37-19 · D-18 · Pitfall 9)', () => {
     expect(typeof b.rebuildMs).toBe('number');
     expect(b.rebuildMs).toBeGreaterThanOrEqual(0);
     expect(once.rebuildMs).toBeNull();
+    // 37-17 UAT 비교값 — 컷 13시 KRX(하루치 6,000 + 증분 5,990 레코드) 재생성 소요
+    console.info(`[append-tick-bytes] 하루치 ${a.rebuildMs!.toFixed(1)}ms · 증분 뒤 전체 재생성 ${b.rebuildMs!.toFixed(1)}ms`);
     // 앞 레코드 rec 는 그대로 — 같은 틱의 recv_ns 가 같다
     expect(b.index.recvNs[5_999]).toBe(a.index.recvNs[5_999]);
   });
