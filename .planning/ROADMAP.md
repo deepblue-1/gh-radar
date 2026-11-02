@@ -64,6 +64,7 @@
 - [x] **Phase 34: 매집감지(accum) 보고서** - gh-trade `accum_flow.ndjson.gz` export 적재(limitup-sync 10번째 표 + payload · 재적재 감지 일반화) · 목록/상세 분리 RPC · `/analytics/accum` 목록 + 펼침 상세(순수 SVG 3판 차트 · 사이클 표 · 손익 · 판정 기준) · 10/19·10/20 소급 · 인박스 `261020-accum-flow-export.md` 닫기 (completed 2026-10-21)
 - [x] **Phase 35: 발사 경계 지도 어드민** - gh-trade 16:00 예약 발사 · 09:00:30 개장차익 발사 결과(조각·머리)를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads`·`launch_pieces` 적재(relay 무변경) · 어드민 메뉴 날짜별 주문 내역 + 날짜 범위 발사 경계 지도(서버×시장 4패널 SVG) · 10/12~10/26 백필 · 인박스 `261027-launch-gate-admin.md` (completed 2026-11-01)
 - [x] **Phase 36: 계좌별 주문가능 금액** - gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87/66/67 예수금 · 저널 손익 4필드) 반영 · 어드민 계좌 카드 예수금·수수료·매도세 · 웹 주문가능 표시·초과 경고 · 저널 손익 DB 적재 · 일자별 매매손익(`/admin/pnl` · `/me` 「손익」 탭) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 닫기 (completed 2026-10-28)
+- [ ] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저
 
 ## Phase Details
 
@@ -208,7 +209,7 @@ Plans:
 | Milestone | Phases | Plans | Status |
 |-----------|--------|-------|--------|
 | v1.0 Launch | 37 | 432 | ✅ Shipped 2026-10-11 |
-| v1.1 운영 유지보수 | 6 | — | 🚧 진행 중 |
+| v1.1 운영 유지보수 | 7 | — | 🚧 진행 중 |
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -219,6 +220,7 @@ Plans:
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
 | 35. 발사 경계 지도 어드민 | v1.1 | 19/19 | Complete | 2026-11-01 |
 | 36. 계좌별 주문가능 금액 | v1.1 | 10/10 | Complete | 2026-10-28 |
+| 37. 틱 전문 뷰어 | v1.1 | 0/? | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -424,3 +426,18 @@ Plans:
 - [x] 36-09-PLAN.md — [BLOCKING] db push → relay → server → push · 라이브 UAT · 두 인박스 닫기 (메인 세션)
 
 **UI hint**: yes
+
+### Phase 37: 틱 전문 뷰어
+
+**Goal**: 트레이더가 **KRX·NXT 어느 종목이든** 08:00~20:00 의 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 **실제 수신 순서대로 재생**하며 한 틱의 호가창 · 앞뒤 전문 · 체결 버스트 · 거래대금 · 팀 거래정보를 본다. 공급은 두 갈래(gh-trade-ac 와 합의 2026-11-02): ① **당일 장중 = 종목 단위 요청형** — 119 에 기록기와 분리된 소형 인덱서(코어 0 · nice)가 오늘 `.pcap` 꼬리를 (거래소, ISIN) 별로 쪼개 두고, radar-gw 가 ssh 강제 명령 키(tickarc · limitpull 선례)로 「isin · exchange · from_ns · to_ns → 원본 전문 바이트 + recv_ns + 거래소 라벨」 zstd 스트림을 받는다(지연 = 기록 1초 + 전송 · 동시 1~2건 · 응답 크기 상한 · stock-dma · relay 계약 무변경 · 119 구현은 gh-trade). ② **과거 날짜 = GCS 원본 클라우드 변환** — 매일 22:00 부터 올라오는 `gs://gh-trade-tick-archive/raw/<krx|nxt>/<D>/` pcap.zst(하루 4.5GB · 6,900만 건)를 Cloud Run Job 이 정본 디코더(gh-trade tickana `pcap2parquet` 레이아웃)로 변환해 gh-radar 저장소(종목·날짜 격자)에 적재, 119 부하 0. 화면: 상단 종목 · 날짜 · 거래소 선택, 08:00~20:00 슬라이더 + ms 시각 입력 점프 + 키보드 좌우 틱 이동, 그 틱 시점 호가창 10단(msg_seq 순 재구성), 앞뒤 전문 목록(종류 배지 · **수신순 ↔ 거래소순 토글** 또는 뒤집힘 표시 — A3/B6 는 다른 멀티캐스트 그룹이라 최대 수십 ms 뒤집힘), 체결 버스트(주문 묶기 = 같은 종목 A3 msg_seq 직전 +1 · bs 동일 · 모양 A SMP ∪ B 0/0 단독 ∪ C0 = 팀 · 나머지 일반 · 단일가 제외 — 정본 gh-trade `krx-a3-zero-quote.md` §2·§4 · `team-flow.md` §4), 거래대금(A3 cum_value), 팀 거래정보(5창구 교보·한국·유진·신한·NH · 당일 순매수 · 누적 · 당일 평단 · 평단 대비 수익률 — `team-flow.md` §5-1 평균단가법을 gh-radar 가 A3 에서 직접 계산 · 지난 export `payload.pnl` 과 golden 대조 · 창구별은 B9 스윕 차분 ≈1분 해상도 · 호가 걸어둔 팀 주문은 안 보여 최소치라는 한계 표기). 서버 `burst_upper_limit` 은 상한가 벽 전용이라 범용 버스트 기준으로 쓰지 않는다(2차로 「상한가 창 버스트 비율」 표시만 선택). 참고 스크린샷: 사용자 ATMParser(행 = 전문 하나 표) — 전문 목록 패널에만 살리고 호가창은 사다리형 분리
+**Depends on**: Phase 28(radar-gw ↔ 119 rrsync 운반기 · GCS 버킷 · Cloud Run Job 적재 선례) · Phase 33·34(보고서 행 펼침 · 순수 SVG 차트 · export 적재 일반화) · 기존 `components/orderbook`(사다리 · 체결 테이프 색 규칙) · 외부: gh-trade 119 인덱서 + 조회 강제 명령(계약은 discuss 뒤 `scripts/trade-handoff.sh` 인박스로 — gh-trade-ac 2026-11-02 「계약 초안이 오면 그 기준으로 잡겠다」) · `gs://gh-trade-tick-archive` objectViewer(relay SA 보유 · 변환 Job SA 는 추가 바인딩 필요)
+**Requirements**: TBD
+**Success Criteria** (초안 — discuss 에서 확정):
+  1. 목업 A/B/C 검토 · 채택(`/gsd-sketch` 019) — 슬라이더 · 점프 · 좌우 키 · 호가창 · 전문 목록 · 버스트 · 거래대금 · 팀 패널 배치
+  2. gh-trade 계약 인계(요청 인자 · 응답 형식 · 키 · 동시성 상한) · 119 인덱서 배포 뒤 radar-gw 에서 종목 하루치 조회 실측
+  3. 과거 날짜 변환 Job — 10/30 전 종목 변환 시간 · 비용 실측 · 종목·날짜 격자 적재 · 자정 전후 자동
+  4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 수 초 지연)과 과거(격자)가 같은 화면 · 팀 손익 golden 대조 통과 · 버스트 판정 tickana `classify_orders` 와 일치
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 37 to break down)
