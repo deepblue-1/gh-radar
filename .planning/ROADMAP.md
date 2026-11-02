@@ -220,7 +220,7 @@ Plans:
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
 | 35. 발사 경계 지도 어드민 | v1.1 | 19/19 | Complete | 2026-11-01 |
 | 36. 계좌별 주문가능 금액 | v1.1 | 10/10 | Complete | 2026-10-28 |
-| 37. 틱 전문 뷰어 | v1.1 | 0/? | Not started | — |
+| 37. 틱 전문 뷰어 | v1.1 | 2/19 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -439,12 +439,12 @@ Plans:
   4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 서버 캐시 · 자동 증분)과 과거(격자)가 같은 화면 · DMA 게이트 · 팀 손익 golden 대조 통과(export `payload.pnl`) · 버스트 판정 tickana `classify_orders` 와 일치(KRX) · NXT 런 규칙 오라클 일치 · 세 보고서 「틱 보기」 · URL 딥링크(틱 시각까지).
 
 **배포 순서**(D-22): DB(격자 메타 표 · RPC · 게이트 — `supabase db push --linked --yes` · 08:00~20:00 KST 밖) → 변환 Job(Cloud Run Job + Scheduler · GCS objectViewer 바인딩) → server(과거 경로 · TICKGW 없이) → webapp push(= 프로덕션) — 메인 세션(37-16). 당일 경로(radar-gw tickgw · server TICKGW_URL · 승격 Job)는 gh-trade 119 인덱서 배포 확인 뒤 20:00 KST 이후에만(37-17) · 그 전 화면은 「당일 자료 준비 중」.
-**Plans:** 19 plans
+**Plans:** 2/19 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 37-01-PLAN.md — gh-trade 계약 인계(D-21 인박스 ①~⑤) · 사람 결정(격자 저장처 Supabase 플랜 · D-19 비종목 태그 범위) · fzstd legitimacy 확인
-- [ ] 37-02-PLAN.md — shared 디코더 트레이서: 오라클 픽스처 → 레코드 프레이밍 · LAYOUTS 이식 → pcap2parquet 골든 일치(D-19)
+- [x] 37-01-PLAN.md — gh-trade 계약 인계(D-21 인박스 ①~⑤) · 사람 결정(격자 저장처 Supabase 플랜 · D-19 비종목 태그 범위) · fzstd legitimacy 확인
+- [x] 37-02-PLAN.md — shared 디코더 트레이서: 오라클 픽스처 → 레코드 프레이밍 · LAYOUTS 이식 → pcap2parquet 골든 일치(D-19)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 37-03-PLAN.md — shared 판정 · 손익: classify_orders 주문별 일치(트레이서) · NXT 런 179/65 · 182/70 · 평균단가법 천일 10/14 export 골든(D-20)

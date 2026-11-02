@@ -3,13 +3,13 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 37
-current_phase_name: tick-viewer
-status: completed
+current_phase_name: 틱 전문 뷰어
+status: executing
 stopped_at: Phase 37 context gathered
-last_updated: "2026-11-02T09:25:02.239Z"
-last_activity: 2026-11-01
-last_activity_desc: Phase 35 complete
-state_head: cc2268036174fdcf95e31dc51eefac768afab7ca
+last_updated: "2026-11-02T09:51:40.774Z"
+last_activity: 2026-11-02
+last_activity_desc: Phase 37 execution started
+state_head: a43ca660900410acb330f4b52166b3a5aec8cc13
 progress:
   total_phases: 8
   completed_phases: 7
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 35 — 발사 경계 지도 어드민
+**Current focus:** Phase 37 — 틱 전문 뷰어
 
 ## Current Position
 
-Phase: 37 (tick-viewer) — READY TO EXECUTE
-Plan: 19 of 19
-Status: v1.1 전 phase 완료 — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
-Last activity: 2026-11-01 — Phase 35 완료: 리뷰 4라운드(R4 Info 3건 deferred) · VERIFICATION-R4 7/7 · UAT 6/6 pass · 검증 passed
+Phase: 37 (틱 전문 뷰어) — EXECUTING
+Plan: 1 of 19
+Status: Executing Phase 37
+Last activity: 2026-11-02 — Phase 37 execution started
 Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
