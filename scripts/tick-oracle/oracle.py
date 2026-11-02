@@ -12,6 +12,8 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
   gh-trade server/tools/analysis/tickana/teamflow.py:68-86 load_day_parquet · :96-134 classify_orders · :242-258 prepare_frame
   gh-trade server/tools/analysis/tickana/nxt_runs.py:44-127 load_g1 · tag_runs · run_stats · :172-182 summary_line
   gh-trade server/tools/analysis/tickana/nxt_fixture.py:94-134 TeamOrder · classify_nxt_team_orders · :434-446 nxt_window
+  gh-trade server/tools/analysis/tickana/teamflow.py:650-699 team_pnl · :259-277 analyze_stock last_px
+  gh-trade server/tools/analysis/tickana/teamflow_accum.py:282-300 load_day_a3 · :470-485 last_px · prepare_frame 호출
 
 부명령:
   layouts --out <json>
@@ -32,6 +34,13 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
   window <nxt pcap.zst> --from HH:MM:SS --to HH:MM:SS --out <json> [--expect N,BQ,BV,SQ,SV]   (37-03 Task 2)
       NXT nxt_fixture.nxt_window(마지막 조각 시각 µs 양끝 포함) → classify_nxt_team_orders → 팀 주문 · 매수/매도 합.
       --expect 와 다르면 종료 1(AccumNxtFixtures.h kAccumNxt_Expect 원천 확인).
+  pnl --isin I --date D --pcap-dir DIR --export EXPDIR --out-prefix P [--hours HHMM,…]   (37-03 Task 3)
+      시간 파일(이름순)에서 그 ISIN 의 A3 전문만(태그 A3 · 오프셋 17 ISIN · 길이 무관) 레코드 프레이밍으로 이어 <P>-a3.ticks.zst.
+      같은 레코드로 합성 pcap 을 만들어 convert_file → teamflow · accum 두 범위 prepare_frame → team_pnl 을 다시 계산하고,
+      export team_flow · accum_flow 의 그 ISIN payload.pnl 과 다르면 종료 1(원천 확인). <P>.pnl.json = export 원문.
+  g4cut --isin I --date D --pcap-dir DIR --hours HHMM,… --out-prefix P                     (37-03 Task 3)
+      pnl 과 같은 추출 → <P>.ticks.zst · 두 범위(accum = G1+G4 (t, seq) 순 · teamflow = G1 seq 순) 주문별 행 + team_pnl
+      → <P>.golden.json. 범위 안 G4 체결이 0 이면 종료 1(골든이 아니다 — 시간을 넓혀 다시).
 
 정규화(canon) — TS `packages/shared/src/__tests__/helpers/tick-digest.ts` 와 한 글자도 다르지 않게:
   null/NaN → "~" · bool → "1"/"0" · 정수 → 10진 문자열 · 부동소수(dec6) → format(v, ".6f") · 문자열 → 그대로.
@@ -431,6 +440,211 @@ def cmd_window(a: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# pnl · g4cut (37-03 Task 3) — 그 ISIN A3 만 추출 → 합성 pcap → convert_file → 두 범위 판정 · 손익
+# ---------------------------------------------------------------------------
+
+A3_ISIN_OFFSET = 17
+_IPV4_UDP = struct.Struct(">BBHHHBBH4s4s")
+_UDP_HDR = struct.Struct(">HHHH")
+_ETH = b"\x01\x00\x5e\x00\x00\x01" + b"\x00" * 6 + b"\x08\x00"
+
+
+def extract_isin_a3(paths: list[Path], isin: str) -> tuple[bytes, int, int]:
+    """시간 파일(주어진 순서)의 UDP 페이로드 중 태그 A3 ∧ 오프셋 17 ISIN 일치(길이 무관)만 레코드 프레이밍으로 잇는다.
+    프레임 판정은 extract_records · pcap2parquet 레코드 루프와 같다. (바이트, 레코드 수, 전체 프레임 수)."""
+    isin_b = isin.encode("ascii")
+    out = bytearray()
+    n = 0
+    frames = 0
+    for path in paths:
+        with pcap2parquet._open(path) as f:
+            pcap2parquet._read_global_header(f)
+            tail = b""
+            while True:
+                chunk = f.read(pcap2parquet.CHUNK)
+                if not chunk:
+                    break
+                buf = tail + chunk if tail else chunk
+                nb = len(buf)
+                pos = 0
+                while pos + 16 <= nb:
+                    ts_s, ts_ns, incl, _orig = _REC.unpack_from(buf, pos)
+                    fr = pos + 16
+                    end = fr + incl
+                    if end > nb:
+                        break
+                    pos = end
+                    frames += 1
+                    if incl < 34 or buf[fr + 12] != 0x08 or buf[fr + 13] != 0x00 or buf[fr + 23] != 17:
+                        continue
+                    ihl = (buf[fr + 14] & 0x0F) * 4
+                    udp = fr + 14 + ihl
+                    if ihl < 20 or udp + 8 > end:
+                        continue
+                    ulen = (buf[udp + 4] << 8) | buf[udp + 5]
+                    p = udp + 8
+                    q = udp + ulen
+                    if ulen < 8 or q > end:
+                        continue
+                    if (q - p >= A3_ISIN_OFFSET + 12 and buf[p] == 0x41 and buf[p + 1] == 0x33
+                            and buf[p + A3_ISIN_OFFSET : p + A3_ISIN_OFFSET + 12] == isin_b):
+                        plen = q - p
+                        out += _REC.pack(ts_s, ts_ns, plen, plen)
+                        out += buf[p:q]
+                        n += 1
+                tail = buf[pos:]
+    return bytes(out), n, frames
+
+
+def write_synthetic_pcap(records: bytes, path: Path) -> int:
+    """레코드 프레이밍 → pcap-ns(이더넷 + IPv4 + UDP 로 감싼다). convert_file 이 같은 페이로드 · 같은 recv_ns 를 본다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with open(path, "wb") as f:
+        f.write(pcap2parquet._GHDR.pack(pcap2parquet.PCAP_MAGIC_NS, 2, 4, 0, 0, 262144, pcap2parquet.LINKTYPE_ETHERNET))
+        pos = 0
+        while pos < len(records):
+            ts_s, ts_ns, plen, _ = _REC.unpack_from(records, pos)
+            pos += 16
+            payload = records[pos : pos + plen]
+            pos += plen
+            ip = _IPV4_UDP.pack(0x45, 0, 28 + plen, 0, 0, 64, 17, 0, b"\x0a\x00\x00\x01", b"\xe0\x00\x00\x01")
+            frame = _ETH + ip + _UDP_HDR.pack(1, 1, 8 + plen, 0) + payload
+            f.write(_REC.pack(ts_s, ts_ns, len(frame), len(frame)))
+            f.write(frame)
+            n += 1
+    return n
+
+
+def hour_files(pcap_dir: Path, date: str, hours: list[str] | None) -> list[Path]:
+    d = Path(pcap_dir).expanduser()
+    if hours:
+        files = [d / f"{date}-{h}.pcap.zst" for h in hours]
+        missing = [str(x) for x in files if not x.exists()]
+        if missing:
+            raise SystemExit(f"[oracle] 원본 없음: {missing}")
+        return files
+    files = sorted(d.glob(f"{date}-*.pcap.zst"))
+    if not files:
+        raise SystemExit(f"[oracle] 원본 없음: {d}/{date}-*.pcap.zst")
+    return files
+
+
+def scoped_frames(records: bytes, date: str, tmpd: Path) -> dict:
+    """합성 pcap → convert_file → 범위 두 벌 {scope: (prepare_frame 결과 P, last_px, g4_trades)}."""
+    import duckdb
+
+    syn = tmpd / "syn" / "krx" / f"{date}-0000.pcap"
+    write_synthetic_pcap(records, syn)
+    out = tmpd / "out"
+    counters = pcap2parquet.convert_file(syn, out, force=True, log=False)
+    a3 = str(table_file(out, "a3", counters))
+    res = {}
+    for scope in ("teamflow", "accum"):
+        A, dup = read_krx_a3(a3, scope)
+        if dup:
+            raise SystemExit(f"[oracle] {scope}: 정렬 키 동률 {dup}행 — duckdb 정렬이 비결정이라 골든을 만들 수 없다")
+        if A.empty:
+            res[scope] = None
+            continue
+        P = teamflow.prepare_frame(A)[0]
+        last_px = int(A["px"].iat[-1])
+        res[scope] = (P, last_px)
+    g4 = duckdb.sql(f"select count(*) from '{a3}' where board_id='G4' and exchange='KRX'").fetchone()[0]
+    res["g4_trades"] = int(g4)
+    res["a3_rows"] = int(duckdb.sql(f"select count(*) from '{a3}'").fetchone()[0])
+    return res
+
+
+def _pnl_json(pnl: dict | None) -> dict | None:
+    return None if pnl is None else {k: _py(v) for k, v in pnl.items()}
+
+
+def export_row(export_dir: Path, kind: str, isin: str) -> dict:
+    import gzip
+
+    path = Path(export_dir).expanduser() / f"{kind}.ndjson.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        for line in fh:
+            r = json.loads(line)
+            if r.get("isin") == isin:
+                return r
+    raise SystemExit(f"[oracle] {path}: {isin} 행 없음")
+
+
+def cmd_pnl(a: argparse.Namespace) -> int:
+    files = hour_files(a.pcap_dir, a.date, a.hours.split(",") if a.hours else None)
+    data, n, frames = extract_isin_a3(files, a.isin)
+    prefix = Path(a.out_prefix)
+    with tempfile.TemporaryDirectory(prefix="tick-oracle-") as tmp:
+        res = scoped_frames(data, a.date, Path(tmp))
+    tf = export_row(a.export, "team_flow", a.isin)
+    ac = export_row(a.export, "accum_flow", a.isin)
+    bad = 0
+    got: dict = {}
+    for scope, ex in (("teamflow", tf), ("accum", ac)):
+        P, last_px = res[scope]
+        mine = _pnl_json(teamflow.team_pnl(P, last_px))
+        got[scope] = {"last_px": last_px, "pnl": mine}
+        want = ex["payload"].get("pnl")
+        if mine != want:
+            print(f"[oracle] pnl {scope}: 재계산 {mine} ≠ export {want}", file=sys.stderr)
+            bad = 1
+        if int(ex["last_px"]) != last_px:
+            print(f"[oracle] pnl {scope}: last_px 재계산 {last_px} ≠ export {ex['last_px']}", file=sys.stderr)
+            bad = 1
+    if bad:
+        return 1
+    zst = prefix.with_name(prefix.name + "-a3.ticks.zst")
+    zst.write_bytes(zstd.compress(data, level=19))
+    doc = {
+        "source": {"isin": a.isin, "date": a.date, "files": [f.name for f in files], "frames": frames, "a3_records": n,
+                   "a3_rows": res["a3_rows"], "g4_trades": res["g4_trades"],
+                   "export": {"dir": str(Path(a.export).name), "team_flow": "payload.pnl", "accum_flow": "payload.pnl"}},
+        "teamflow": tf["payload"]["pnl"],
+        "accum": ac["payload"]["pnl"],
+        "base": int(tf["base"]),
+        "upper": int(tf["upper"]),
+        "last_px": {"teamflow": got["teamflow"]["last_px"], "accum": got["accum"]["last_px"]},
+    }
+    write_json(prefix.with_name(prefix.name + ".pnl.json"), doc)
+    print(f"[oracle] pnl {a.isin} {a.date} files={len(files)} frames={frames} a3={n} g4={res['g4_trades']} "
+          f"teamflow={json.dumps(doc['teamflow'])} accum_buy_val={doc['accum'] and doc['accum']['buy_val']} "
+          f"{zst.name}={zst.stat().st_size}B", file=sys.stderr)
+    return 0
+
+
+def cmd_g4cut(a: argparse.Namespace) -> int:
+    hours = a.hours.split(",")
+    files = hour_files(a.pcap_dir, a.date, hours)
+    data, n, frames = extract_isin_a3(files, a.isin)
+    prefix = Path(a.out_prefix)
+    with tempfile.TemporaryDirectory(prefix="tick-oracle-") as tmp:
+        res = scoped_frames(data, a.date, Path(tmp))
+    if res["g4_trades"] == 0:
+        print(f"[oracle] g4cut: {a.isin} {hours} 에 G4 체결이 없다 — 골든이 아니다(시간을 넓혀 다시)", file=sys.stderr)
+        return 1
+    doc: dict = {"source": {"isin": a.isin, "date": a.date, "hours": hours, "files": [f.name for f in files], "frames": frames,
+                            "a3_records": n, "a3_rows": res["a3_rows"], "g4_trades": res["g4_trades"]}}
+    for scope in ("accum", "teamflow"):
+        P, last_px = res[scope]
+        summary, rows = order_rows(P)
+        summary.update(rows=len(rows), last_px=last_px)
+        doc[scope] = {"summary": summary, "rows": rows}
+        doc[f"pnl_{scope}"] = _pnl_json(teamflow.team_pnl(P, last_px))
+    zst = prefix.with_name(prefix.name + ".ticks.zst")
+    zst.write_bytes(zstd.compress(data, level=19))
+    write_json(prefix.with_name(prefix.name + ".golden.json"), doc)
+    print(f"[oracle] g4cut {a.isin} {a.date} {hours} frames={frames} a3={n} g4={res['g4_trades']} "
+          f"accum={json.dumps(doc['accum']['summary'], ensure_ascii=False)} "
+          f"teamflow={json.dumps(doc['teamflow']['summary'], ensure_ascii=False)} "
+          f"pnl_accum.buy_val={doc['pnl_accum'] and doc['pnl_accum']['buy_val']} "
+          f"pnl_teamflow.buy_val={doc['pnl_teamflow'] and doc['pnl_teamflow']['buy_val']} {zst.name}={zst.stat().st_size}B",
+          file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="oracle.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -459,6 +673,18 @@ def main(argv: list[str] | None = None) -> int:
     p_w.add_argument("--expect", default=None)
     p_w.add_argument("--out", required=True)
     p_w.set_defaults(fn=cmd_window)
+    p_p = sub.add_parser("pnl", help="그 ISIN A3 추출 + export payload.pnl(두 범위) 골든")
+    p_g = sub.add_parser("g4cut", help="G4 포함 조각 — 두 범위 주문별 행 + team_pnl 골든")
+    for sp in (p_p, p_g):
+        sp.add_argument("--isin", required=True)
+        sp.add_argument("--date", required=True)
+        sp.add_argument("--pcap-dir", required=True)
+        sp.add_argument("--out-prefix", required=True)
+    p_p.add_argument("--export", required=True)
+    p_p.add_argument("--hours", default=None)
+    p_p.set_defaults(fn=cmd_pnl)
+    p_g.add_argument("--hours", required=True)
+    p_g.set_defaults(fn=cmd_g4cut)
     a = ap.parse_args(argv)
     return a.fn(a)
 

@@ -1,0 +1,52 @@
+{
+ "accum": {
+  "buy_qty": 12573,
+  "buy_val": 2700694800,
+  "end_cost_val": 759783589,
+  "end_qty": 3406,
+  "realized_qty": 9167,
+  "realized_val": 28621939,
+  "ret": 0.011768212387419711,
+  "sell_qty": 12790,
+  "sell_val": 2763228250,
+  "total_val": 31782350,
+  "unknown_sell_qty": 3623,
+  "unknown_sell_val": 793695100,
+  "unrealized_val": 3160411
+ },
+ "base": 172600,
+ "last_px": {
+  "accum": 224000,
+  "teamflow": 224000
+ },
+ "source": {
+  "a3_records": 10168,
+  "a3_rows": 10168,
+  "date": "20261014",
+  "export": {
+   "accum_flow": "payload.pnl",
+   "dir": "20261014",
+   "team_flow": "payload.pnl"
+  },
+  "files": ["20261014-0800.pcap.zst", "20261014-0900.pcap.zst", "20261014-1000.pcap.zst", "20261014-1100.pcap.zst", "20261014-1200.pcap.zst", "20261014-1300.pcap.zst", "20261014-1400.pcap.zst", "20261014-1500.pcap.zst"],
+  "frames": 49883674,
+  "g4_trades": 0,
+  "isin": "KR7000650002"
+ },
+ "teamflow": {
+  "buy_qty": 12573,
+  "buy_val": 2700694800,
+  "end_cost_val": 759783589,
+  "end_qty": 3406,
+  "realized_qty": 9167,
+  "realized_val": 28621939,
+  "ret": 0.011768212387419711,
+  "sell_qty": 12790,
+  "sell_val": 2763228250,
+  "total_val": 31782350,
+  "unknown_sell_qty": 3623,
+  "unknown_sell_val": 793695100,
+  "unrealized_val": 3160411
+ },
+ "upper": 224000
+}
