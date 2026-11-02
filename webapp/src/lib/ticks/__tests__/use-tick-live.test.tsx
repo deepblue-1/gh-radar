@@ -84,7 +84,8 @@ const calls = () =>
   });
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  // setImmediate · nextTick 은 진짜로 둔다 — Response.json() 본문 읽기가 그걸 쓴다(409 경로).
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -296,9 +297,16 @@ describe('useTickLive — 폴링 규율 (D-06)', () => {
       .mockResolvedValueOnce(liveResponse({ body: Z1, epoch: 'e-2', state: 'loading', offsetEnd: Z1.length }))
       .mockResolvedValueOnce(liveResponse({ body: Z2, epoch: 'e-2', state: 'ready', offsetEnd: Z1.length + Z2.length }));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_000); // 409
     });
-    expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: 'e-2', offset: 0 });
+    // 409 본문 Response.json() 은 진짜 이벤트 루프가 돌아야 풀린다 — vi.waitFor(진짜 타이머)로 기다리며 0ms 타이머(즉시 재요청)를 민다.
+    // 간격은 줄지 않았다: 가짜 시계는 0ms 만 움직인다.
+    await vi.waitFor(async () => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: 'e-2', offset: 0 });
+    });
     // 새 하루치를 받는 동안 이전 세션은 그대로 보인다
     expect(result.current.session).toBe(before);
     await act(async () => {

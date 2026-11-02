@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
+import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
 import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
@@ -29,7 +30,10 @@ import { TickTeamPanel } from './tick-team-panel';
  *   데스크톱 줄은 줄바꿈(flex-wrap)이다 — 호가 300 고정 · 전문 기본 480(남는 폭을 먼저 가져간다) · 오른쪽 열 기본 330.
  *   본문 폭이 모자라면(사이드바 펼친 1280 등) 오른쪽 열이 아래 줄로 내려가 전체 폭을 쓰고, 그때 카드는 두 열로 놓인다.
  *   줄 높이 = 전문 목록 고정 높이 640(오른쪽 열은 최대 640 · 넘치면 그 안에서 스크롤).
- * ③ 슬라이더 「끝으로」 는 당일 경로(37-19)가 `showEnd` 를 켠다.
+ * ③ 당일(`live` · 37-19 · D-06 · D-18): 슬라이더 「끝으로」(`showEnd`) · `t` 없으면 끝 틱에서 연다 · 커서가 끝이면 증분 세션을
+ *   따라간다(`useTickCursor` ⑤) · 끝 여부를 `onAtEnd` 로 올린다(훅이 폴링을 멈추고 잇는다) · 과거 틱이면 전문 목록 끝에
+ *   「새 틱 n건 · 끝으로」 배지(n = 멈춘 사이 붙은 레코드 · 0 이면 「새 틱 받기 멈춤」). 배지 · 「끝으로」 = 커서 끝 + `onGoEnd`
+ *   (즉시 증분 1회).
  */
 
 export interface TickViewerProps {
@@ -42,8 +46,17 @@ export interface TickViewerProps {
   accum?: TickOpenResponse['accum'];
   /** 당일 화면 — 누적 선 없음(D-09). */
   isToday?: boolean;
-  /** 당일 바이트 경로(37-19) — `t` 없으면 끝 틱에서 연다(D-18). */
-  live?: boolean;
+  /** 당일 바이트 경로(37-19) — 없으면 과거 격자. */
+  live?: TickViewerLive;
+}
+
+export interface TickViewerLive {
+  /** 커서가 끝이 아닐 때 붙은 레코드 수. */
+  newCount: number;
+  /** 「끝으로」 · 배지 — 즉시 증분 1회(커서는 뷰어가 끝으로 옮긴다). */
+  onGoEnd: () => void;
+  /** 커서가 끝 틱인지 바뀔 때마다. */
+  onAtEnd: (atEnd: boolean) => void;
 }
 
 /** HTS 칸 렌더 문맥 — 칸마다 같은 세션 · 커서를 본다. */
@@ -54,6 +67,8 @@ interface PaneCtx {
   setUnit: (u: TickBookUnit) => void;
   accum: TickOpenResponse['accum'];
   isToday: boolean;
+  /** 당일 과거 틱 배지(전문 목록 끝) — 끝이면 null. */
+  badge: ReactNode;
 }
 
 interface HtsPane {
@@ -80,15 +95,18 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'msg',
     label: '전문',
     desktop: 'min-[641px]:flex-[999_1_480px]',
-    render: ({ session, cursor }) => (
-      <TickMsgList
-        session={session}
-        cursorRec={cursor.rec}
-        onSelect={cursor.jumpToRec}
-        mode={cursor.mode}
-        onMode={cursor.setMode}
-        className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
-      />
+    render: ({ session, cursor, badge }) => (
+      <div className="relative">
+        <TickMsgList
+          session={session}
+          cursorRec={cursor.rec}
+          onSelect={cursor.jumpToRec}
+          mode={cursor.mode}
+          onMode={cursor.setMode}
+          className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
+        />
+        {badge}
+      </div>
     ),
   },
   {
@@ -116,10 +134,10 @@ export function TickViewer({
   onTick,
   accum = null,
   isToday = false,
-  live = false,
+  live,
 }: TickViewerProps) {
-  const cursor = useTickCursor(session, { initialT, urlState, live });
-  const { rec } = cursor;
+  const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined });
+  const { rec, atEnd } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
 
@@ -130,7 +148,32 @@ export function TickViewer({
     onTick?.({ time, seq });
   }, [onTick, time, seq]);
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday };
+  const onAtEnd = live?.onAtEnd;
+  useEffect(() => {
+    onAtEnd?.(atEnd);
+  }, [onAtEnd, atEnd]);
+
+  const onGoEnd = live?.onGoEnd;
+  const cursorGoEnd = cursor.goEnd;
+  const goEnd = useCallback(() => {
+    cursorGoEnd();
+    onGoEnd?.();
+  }, [cursorGoEnd, onGoEnd]);
+
+  const badge =
+    live !== undefined && !atEnd ? (
+      <button
+        type="button"
+        data-slot="tick-live-badge"
+        onClick={goEnd}
+        title="과거 틱을 보는 동안 새 틱 받기를 멈췄어요"
+        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[var(--up)] px-3 py-1 text-[11.5px] font-semibold whitespace-nowrap text-white shadow-md"
+      >
+        {live.newCount > 0 ? `새 틱 ${fmtQty(live.newCount)}건 · 끝으로` : '새 틱 받기 멈춤 · 끝으로'}
+      </button>
+    ) : null;
+
+  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, badge };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
@@ -153,6 +196,8 @@ export function TickViewer({
         speed={cursor.speed}
         onSpeed={cursor.setSpeed}
         onJump={cursor.jumpTo}
+        showEnd={live !== undefined}
+        onEnd={goEnd}
       />
 
       <div role="group" aria-label="보기" className="min-[641px]:hidden">

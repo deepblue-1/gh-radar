@@ -9,7 +9,10 @@
  * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Space` 재생/정지(입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
  *   10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에서 정지.
  * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
- *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게.
+ *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게. 당일(`live`)에서 끝 틱이면 `t` 를 지운다
+ *   (`t` 없음 = 당일 끝 틱 — 새로고침하면 그때의 끝에서 연다).
+ * ⑤ 당일(`live` · 37-19 · D-06 · D-18): 세션이 바뀌었을 때(증분) 커서가 이전 세션의 끝이었으면 새 끝으로 따라간다 — 과거 틱을
+ *   보고 있으면 제자리(rec 는 이어붙여도 그대로다). `atEnd` = 표시 순서의 마지막 자리 · `goEnd()` = 끝 틱으로.
  * recv_ns 는 BigInt 그대로 다룬다.
  */
 
@@ -43,6 +46,10 @@ export interface TickCursor {
   speed: TickPlaySpeed;
   togglePlay: () => void;
   setSpeed: (s: TickPlaySpeed) => void;
+  /** 커서가 표시 순서의 끝 틱인가(빈 세션이면 true). */
+  atEnd: boolean;
+  /** 끝 틱으로. */
+  goEnd: () => void;
 }
 
 /** 글자 입력 중인 요소(input · textarea · select · contenteditable) — 키를 가로채지 않는다. */
@@ -90,9 +97,28 @@ export function useTickCursor(
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<TickPlaySpeed>(1);
 
+  // 당일 증분 — 세션이 바뀌면(머리 주석 ⑤) 이전 끝이었을 때만 새 끝으로. 렌더 중 이전 값 비교(React 권장 꼴).
+  const [seen, setSeen] = useState(session);
+  if (seen !== session) {
+    setSeen(session);
+    if (live) {
+      const prevOrder = mode === 'exchange' ? seen.exOrder : seen.recvOrder;
+      const prevPos = mode === 'exchange' ? seen.exPos : seen.recvPos;
+      const wasEnd = rec < 0 || rec >= prevPos.length || prevPos[rec] === prevOrder.length - 1;
+      const next = endRecOf(session, mode);
+      if (wasEnd && next !== rec) setRec(next);
+    }
+  }
+
   const order = mode === 'exchange' ? session.exOrder : session.recvOrder;
   const posOf = mode === 'exchange' ? session.exPos : session.recvPos;
-  const pos = rec < 0 ? -1 : posOf[rec]!;
+  const pos = rec < 0 || rec >= posOf.length ? -1 : posOf[rec]!;
+  const atEnd = order.length === 0 || pos === order.length - 1;
+
+  const goEnd = useCallback(() => {
+    const r = endRecOf(session, mode);
+    if (r >= 0) setRec(r);
+  }, [session, mode]);
 
   const step = useCallback(
     (delta: number) => {
@@ -171,8 +197,10 @@ export function useTickCursor(
 
   // URL `t` — 250ms 스로틀 replaceState(첫 커서는 쓰지 않는다).
   const urlRef = useRef(urlState);
+  const modeRef = useRef(mode);
   useEffect(() => {
     urlRef.current = urlState;
+    modeRef.current = mode;
   });
   const firstRec = useRef(rec);
   const lastWrite = useRef(0);
@@ -185,13 +213,20 @@ export function useTickCursor(
       timer.current = null;
       lastWrite.current = Date.now();
       const r = recRef.current;
+      if (live && r === endRecOf(session, modeRef.current)) {
+        // 당일 끝 틱 = `t` 없음(머리 주석 ④) — 이미 없으면 쓰지 않는다(증분마다 replaceState 하지 않게).
+        if (new URL(window.location.href).searchParams.has('t')) {
+          window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current }));
+        }
+        return;
+      }
       const t = fmtTickTime(session.index.recvNs[r]!);
       window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, t }));
     };
     const wait = TICK_URL_THROTTLE_MS - (Date.now() - lastWrite.current);
     if (wait <= 0) write();
     else if (timer.current === null) timer.current = setTimeout(write, wait);
-  }, [rec, session]);
+  }, [rec, session, live]);
   useEffect(
     () => () => {
       if (timer.current !== null) clearTimeout(timer.current);
@@ -199,5 +234,20 @@ export function useTickCursor(
     [],
   );
 
-  return { rec, pos, mode, setMode, step, jumpTo, jumpToRec, seekNs, playing, speed, togglePlay, setSpeed };
+  return {
+    rec,
+    pos,
+    mode,
+    setMode,
+    step,
+    jumpTo,
+    jumpToRec,
+    seekNs,
+    playing,
+    speed,
+    togglePlay,
+    setSpeed,
+    atEnd,
+    goEnd,
+  };
 }

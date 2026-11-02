@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 
-import type { TickExchange } from '@gh-radar/shared';
+import type { TickExchange, TickLiveState } from '@gh-radar/shared';
 
 import { LimitupDateNav } from '@/components/analytics/limitup-date-nav';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,26 @@ import { cn } from '@/lib/utils';
  * 한 줄(넘치면 감김): 제목(진입 = 「틱 전문 뷰어」 · 열린 뒤 = 종목명 + 코드) · 공급 배지(`grid` 「과거 격자 · GCS 원본」 ·
  * `live` 「당일 · 119 요청형」) → 종목 검색(피커 — 열린 뒤에도 머리에 남는다) → 날짜 알약 ‹ › (이동 단위 = 호출부가 준
  * prev/next — 격자가 있는 날짜 + 장중이면 오늘) · KRX|NXT 세그먼트 → 현재 틱 시각/seq 자리(37-10 이 값을 준다).
+ * 당일(37-19 · D-06): 상태 delayed · blocked 면 공급 배지 옆 「당일 자료 지연 · n초 전 마지막 수신」(X-Tick-Last-Recv-Ns 기준) ·
+ * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」.
  */
+
+/** 당일 경로 상태(머리 표시용). */
+export interface TickHeaderLive {
+  state: TickLiveState | null;
+  /** 마지막 레코드 recv epoch ns(십진) · 없으면 null. */
+  lastRecvNs: string | null;
+  /** 연속 오류가 상한을 넘었다. */
+  failing: boolean;
+}
+
+/** 「당일 자료 지연 · n초 전 마지막 수신」 — 2분 이상이면 분 단위. */
+export function liveDelayTextOf(lastRecvNs: string | null, nowMs: number): string {
+  if (lastRecvNs === null) return '당일 자료 지연 · 아직 수신 없음';
+  const sec = Math.max(0, Math.floor((nowMs - Number(BigInt(lastRecvNs) / 1_000_000n)) / 1000));
+  const ago = sec < 120 ? `${sec}초` : `${Math.floor(sec / 60)}분`;
+  return `당일 자료 지연 · ${ago} 전 마지막 수신`;
+}
 
 export interface TickHeaderProps {
   mode: 'entry' | 'loaded';
@@ -27,6 +46,8 @@ export interface TickHeaderProps {
   onDate: (d: string) => void;
   onEx: (ex: TickExchange) => void;
   picker: ReactNode;
+  /** 당일 경로 상태(37-19) — 과거 격자 · 진입이면 없음. */
+  live?: TickHeaderLive | null;
 }
 
 const SUPPLY_TEXT = { grid: '과거 격자 · GCS 원본', live: '당일 · 119 요청형' } as const;
@@ -44,7 +65,9 @@ export function TickHeader({
   onDate,
   onEx,
   picker,
+  live = null,
 }: TickHeaderProps) {
+  const delayed = live !== null && (live.state === 'delayed' || live.state === 'blocked');
   return (
     <header data-slot="tick-header" data-mode={mode} className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
       <h1 className="m-0 flex min-w-0 items-center gap-2 text-[17px] font-bold text-[var(--fg)]">
@@ -69,6 +92,16 @@ export function TickHeader({
           </span>
         )}
       </h1>
+
+      {delayed && (
+        <span
+          data-slot="tick-live-delay"
+          role="status"
+          className="-ml-2 inline-flex items-center rounded-[6px] bg-[var(--vi-bg)] px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-[var(--vi)]"
+        >
+          {liveDelayTextOf(live.lastRecvNs, Date.now())}
+        </span>
+      )}
 
       {picker}
 
@@ -97,6 +130,16 @@ export function TickHeader({
           {tickLabel.time}
           {tickLabel.seq !== null && ` · #${tickLabel.seq}`}
         </span>
+      )}
+
+      {live?.failing && (
+        <p
+          data-slot="tick-live-failing"
+          role="alert"
+          className="m-0 basis-full text-[length:var(--t-caption)] font-medium text-[var(--destructive)]"
+        >
+          당일 자료를 받지 못하고 있어요
+        </p>
       )}
     </header>
   );
