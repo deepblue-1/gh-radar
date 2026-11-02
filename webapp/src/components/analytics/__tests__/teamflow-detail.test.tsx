@@ -695,7 +695,7 @@ describe('TeamflowDetail — 「틱 보기 ›」 알약 (Phase 37 D-17)', () =>
     return link.getAttribute('href');
   };
   const base = `/analytics/ticks?isin=${SMBEXCEL}&d=${rowOf(SMBEXCEL).date}`;
-  const kst = (hms: string) => Date.parse(`2026-10-16T${hms}+09:00`);
+  const kst = (hms: string) => Date.parse(`2026-10-14T${hms}+09:00`); // 픽스처 날짜 TEAMFLOW_DATE 20261014
 
   it('reach 있음 → reach.t_ms 시각', () => {
     expect(hrefOf(timed(kst('10:21:05.120'), kst('11:00:00.000'), kst('09:30:00.000')))).toBe(

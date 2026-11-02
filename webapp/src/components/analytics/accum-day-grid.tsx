@@ -478,6 +478,7 @@ export function AccumDayGrid({
                   dayAxis={dayAxis}
                   dayAvg={dayAvg}
                   prev={prev}
+                  regTimeMs={r.reg_time_ms}
                 />
               )}
             </li>

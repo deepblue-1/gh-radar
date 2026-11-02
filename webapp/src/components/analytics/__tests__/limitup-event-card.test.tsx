@@ -453,3 +453,35 @@ describe('LimitupEventCard — 잠김 구간 요약 칩(스케치 012-A · quick
     expect(captionsOf(DUKWOO)).toHaveLength(1);
   });
 });
+
+describe('LimitupEventCard 머리 — 「틱 보기 ›」 알약 (Phase 37 D-17)', () => {
+  const base = (isin: string) => `/analytics/ticks?isin=${isin}&d=${D}`;
+  const renderWith = (isin: string, entry: (typeof entries)[number] | null) =>
+    render(
+      <LimitupEventCard date={D} row={rowOf(isin)} entry={entry} facts={[]} marks={[]} />,
+    );
+  const hrefIn = (isin: string) =>
+    card(isin).querySelector<HTMLAnchorElement>('[data-slot="limitup-event-head"] a[data-slot="tick-link"]')!.getAttribute('href');
+
+  beforeEach(() => {
+    urlsOk();
+  });
+
+  it('상한가 도달(덕우전자) → 첫 상한 도달 first_upper_ms 09:06:01.938 · 접근 이름 「틱 보기」', () => {
+    renderCard(DUKWOO);
+    expect(hrefIn(DUKWOO)).toBe(`${base(DUKWOO)}&t=09%3A06%3A01.938`);
+    expect(within(card(DUKWOO)).getByRole('link', { name: '틱 보기' })).toBeTruthy();
+  });
+
+  it('미도달(first_upper_ms null) → 첫 20% 도달 t20_ms', () => {
+    const e = entries.find((x) => x.isin === DUKWOO)!;
+    renderWith(DUKWOO, { ...e, first_upper_ms: null });
+    expect(hrefIn(DUKWOO)).toBe(`${base(DUKWOO)}&t=09%3A02%3A26.691`);
+  });
+
+  it('entries 행 없음 · 두 시각 모두 없음 → t 없이', () => {
+    renderWith(AXION, null);
+    expect(hrefIn(AXION)).toBe(base(AXION));
+  });
+});
+

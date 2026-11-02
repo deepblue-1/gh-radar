@@ -29,6 +29,16 @@ describe('tickHrefOf', () => {
     expect(tickHrefOf({ isin: ISIN, date: '20261016' })).toBe(`/analytics/ticks?isin=${ISIN}&d=20261016`);
   });
 
+  it('시각의 KST 날짜가 date 와 다르면(이월 행 등록 시각) t 없이', () => {
+    expect(tickHrefOf({ isin: ISIN, date: '20261016', ms: ms('2026-10-14T13:02:11.000') })).toBe(
+      `/analytics/ticks?isin=${ISIN}&d=20261016`,
+    );
+    // UTC 로는 전날(10/15 23:30Z)이지만 KST 로는 10/16 08:30 — 같은 날로 본다
+    expect(tickHrefOf({ isin: ISIN, date: '20261016', ms: ms('2026-10-16T08:30:00.000') })).toBe(
+      `/analytics/ticks?isin=${ISIN}&d=20261016&t=08%3A30%3A00.000`,
+    );
+  });
+
   it('NXT 는 ex 를 싣는다', () => {
     expect(tickHrefOf({ isin: ISIN, date: '20261016', ms: null, ex: 'NXT' })).toBe(
       `/analytics/ticks?isin=${ISIN}&d=20261016&ex=NXT`,
