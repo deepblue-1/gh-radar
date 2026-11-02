@@ -135,3 +135,32 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
 - **키 등록(119 — gh-trade 사용자).** 설치기는 키 **지문**만 출력한다. 공개키 본문(`sudo cat /var/lib/limitpull/.ssh/id_ed25519.pub`)은 gh-trade 인박스 노트 추기로 1회 전달하고 저장소 파일 · 로그에는 남기지 않는다. 119 등록 줄은 `restrict,command="/usr/local/bin/rrsync -ro /home/smok95/ticks/export" ssh-ed25519 AAAA… radar-gw-pull`(정본: gh-trade `server/tools/analysis/README.md` 「rrsync 읽기 전용 키」). **등록 전까지 타이머는 disabled** — 등록 뒤 `sudo -H -u limitpull env $(cat /etc/limitup-pull.env) /usr/local/lib/limitup-pull/limitup-pull.sh --check` 로 확인하고 `install.sh … --enable-timer`(또는 `systemctl enable --now limitup-pull.timer`)로 켠다.
 - **확인:** `systemctl list-timers limitup-pull.timer --all`(켜진 뒤 NEXT = 12:00 UTC) · `journalctl -u limitup-pull` 요약 줄 `[limitup-pull] dates=… latest=… rsync=ok upload=ok` · `gcloud storage ls gs://gh-radar-limitup-export/export/`. `--dry-run` 은 받을 날짜와 올릴 객체 개수만 보인다(전송 없음, 장중에도 됨). 종료코드 0 정상(건너뜀 포함) · 1 rsync/업로드 실패 · 2 사용법/설정.
 - **변경 시 gh-trade 에 알린다.** 이 운반기의 설치 · 재설치 · 키 교체 · 제거는 같은 호스트를 쓰는 gh-trade 에 인박스 노트 추기로 알린다(이 절 위 규칙과 같다). 되돌리기는 radar-gw 정리(타이머 disable · 유닛 · `limitpull` 제거) + 119 `authorized_keys` 의 `radar-gw-pull` 줄 삭제(gh-trade 사용자)를 함께 맞춘다.
+
+### gh-radar 당일 틱 경로 tickgw (Phase 37)
+
+정본: `tickgw/`(컨테이너 · 계약은 `src/server.ts` · `src/indexer.ts` · 호출 규율은 `src/poller.ts` 머리 주석) · `infra/relay/tickpull/install.sh` · `scripts/setup-tickgw-iam.sh` · `scripts/deploy-tickgw.sh`. 119 에 닿는 곳은 radar-gw 뿐이라(VPN) 당일 틱 조회를 이 호스트에 두되, 주문 경로 relay 와는 **다른 컨테이너 · 다른 사용자 · 다른 포트**로 분리한다(relay 는 384MB 상한 · 주문 경로).
+
+- **무엇.** server(Cloud Run, Direct VPC egress) → radar-gw `:8092` 내부 HTTP(`X-Tickgw-Secret`) → tickgw → ssh 강제 명령으로 119 인덱서. (종목, 거래소, KST 오늘) **키당 폴러 하나** — 브라우저 · server 인스턴스가 몇 개든 119 호출은 키당 같다(CLAUDE.md 「호출량은 사용자 수와 독립」). 첫 요청에 08:00 부터 하루치(has_more 면 이어받기) · 그 뒤 5초(±0.5초) 증분 · 30초 리스(요청이 끊기면 폴링 정지) · 119 호출 전역 동시 1 · 활성 키 8 초과는 「대기 k건」. 실패 5→60초 백오프 · 종료코드 75(바쁨) 2초 재시도 · 119 도달 불가(연결 실패 3연속)는 전역 60초 차단 — 재시도로 두드리지 않는다.
+- **캐시.** 119 가 준 **zstd 프레임 원본 그대로**(풀지 않고 다시 압축하지 않는다 — radar-gw CPU 0) · 전체 128MB LRU · 유휴 15분 삭제 · 응답은 epoch + 바이트 offset 커서(재기동하면 epoch 가 바뀌어 클라이언트가 처음부터 받는다). 극단 종목 하루치 ≈ 7MB · 보통 ≈ 1MB.
+- **20:01 마감 마무리 · 21:00 까지 보존.** KST 20:00 + 60초 뒤 하루 한 번, 08:00 부터 끊김 없이 받은 오늘 키마다 리스와 무관하게 마무리 폴링을 해 `closed` 로 만든다. 승격 Job(`gh-radar-tick-convert promote` · 37-12)은 `GET /internal/ticks/export?date=` 로 **closed 키만** 가져간다(승격본 = 장 마감 하루치 전체 또는 없음). 오늘 complete 키는 21:00 KST(`TICKGW_KEEP_UNTIL`)까지 유휴 삭제에서 빠진다(LRU 상한은 그대로).
+- **자원 상한 — relay 보다 먼저 죽는다.** `docker run --memory=256m --memory-swap=256m --oom-score-adj=500` — gh-trade 소유 유닛 `tick-archive` · 우리 `limitup-pull` 의 `OOMScoreAdjust=500` 과 같은 방향. 메모리가 모자라면 OOM killer 가 주문 경로 relay 보다 tickgw 를 먼저 고른다. `--restart=always` 가 되살리고, 캐시는 비어(epoch 변경) 다음 요청이 하루치를 다시 받는다. 로그는 json-file 10MB × 3(`docker logs tickgw` · Ops Agent tail).
+- **radar-gw 소유물.** 시스템 사용자 `tickpull`(홈 `/var/lib/tickpull`, nologin) · ed25519 키 `/var/lib/tickpull/.ssh/id_ed25519`(주석 `radar-gw-tickpull`) + 119 호스트키 고정 `known_hosts` · 컨테이너 `tickgw`(이미지 `asia-northeast3-docker.pkg.dev/<p>/gh-radar/tickgw:<sha>` · `--network=host` · `--user <tickpull uid>:<gid>` · `-v /var/lib/tickpull/.ssh:/ssh:ro`). 이미지는 빌드 인자 `TICKPULL_UID` · `TICKPULL_GID`(배포 스크립트가 radar-gw `id -u/-g tickpull` 로 읽는다)로 이미지 안에 같은 uid 의 tickpull 을 만든다 — OpenSSH 는 passwd 항목이 없으면 「No user exists for uid」 로 255 종료한다. GCP 쪽: 방화벽 `relay-allow-internal-tickgw`(tcp:8092 ← 10.10.0.0/26 · 태그 radar-gw) · Secret `gh-radar-tickgw-secret`(server 실행 SA · relay SA accessor).
+- **지우지 말 것:** `tickpull` 사용자 · `/var/lib/tickpull` · `tickgw` 컨테이너 · 방화벽 `relay-allow-internal-tickgw` · Secret `gh-radar-tickgw-secret`. 키를 다시 만들면 119 `authorized_keys` 등록을 gh-trade 사용자가 다시 해야 한다(설치기는 키가 없을 때만 만든다). 비밀을 순환하면 tickgw → server 순으로 다시 배포한다(그 사이 몇십 초 401).
+- **설치 · 재설치 · 배포(멱등 · 평일 20:00 KST 이후 · 메인 세션).** 119 지문은 radar-gw 에서 `sudo ssh-keygen -lf /var/lib/tickarc/.ssh/known_hosts`(2026-10-05 `SHA256:7s4iOpsEMcJkjLHD9KpGv7TIDXxJj2ip5Na+hU4aiJY`).
+
+  ```bash
+  # ① (사용자 `!`) 방화벽 · 비밀 · accessor — 값은 화면에 찍히지 않는다
+  GCP_PROJECT_ID=gh-radar bash scripts/setup-tickgw-iam.sh
+  # ② (맥, repo root) 설치기 복사 → 설치. 지문이 다르면 아무것도 쓰지 않고 종료 2
+  gcloud compute scp --tunnel-through-iap --zone asia-northeast3-a \
+    infra/relay/tickpull/install.sh radar-gw:~/tickpull-src/
+  gcloud compute ssh radar-gw --zone asia-northeast3-a --tunnel-through-iap --command \
+    'sudo bash ~/tickpull-src/install.sh --host-fp SHA256:<119 지문>'
+  # ③ 119 등록(gh-trade 사용자) 뒤 배포 — 장중이면 종료 2 · 기동 뒤 healthz · ssh 자기 시험(id -un · ssh -G)
+  GCP_PROJECT_ID=gh-radar bash scripts/deploy-tickgw.sh
+  # ④ server 결선 — TICKGW_URL=http://<radar-gw 내부 IP>:8092 + TICKGW_SECRET (deploy-server.sh · 37-15)
+  ```
+
+- **키 등록(119 — gh-trade 사용자).** 설치기는 키 **지문**과 `TICKPULL_UID/GID` 만 출력한다. 공개키 본문(radar-gw 의 `/var/lib/tickpull/.ssh/id_ed25519.pub`)은 gh-trade 인박스 노트 추기로 1회 전달하고 저장소 · 로그에 남기지 않는다. 119 등록 줄 꼴(37-01 인계 노트 ② 제안 · 질의 명령 경로는 gh-trade 회신이 정본): `restrict,command="/usr/bin/taskset -c 0 /usr/bin/nice -n 19 /usr/bin/ionice -c 3 <질의 명령>" ssh-ed25519 AAAA… radar-gw-tickpull` — 인자 `<isin> <KRX|NXT> <YYYYMMDD> <from_ns> <to_ns>` 는 `SSH_ORIGINAL_COMMAND` 로 받는다.
+- **확인:** radar-gw 에서 `docker logs tickgw`(JSON 한 줄 — `indexer` 줄의 code · records · bytes · ms · `closed` · `close sweep done`) · `curl -s http://127.0.0.1:8092/healthz`(`{ok, keys, bytes}` · 무인증) · `docker stats --no-stream tickgw`. 상태 카드(웹)는 `X-Tick-State` loading · ready · queued · delayed · blocked 로 그린다.
+- **변경 시 gh-trade 에 알린다.** tickgw · tickpull 의 설치 · 재설치 · 키 교체 · 제거 · 폴링 간격 변경은 같은 호스트와 119(실거래 호스트)를 쓰는 gh-trade 에 인박스 노트(`scripts/trade-handoff.sh`)로 알린다. 되돌리기는 `docker rm -f tickgw` · `tickpull` 제거 + 119 `authorized_keys` 의 `radar-gw-tickpull` 줄 삭제(gh-trade 사용자) + server 의 `TICKGW_URL` 제거(→ 503 「당일 자료 준비 중」)를 함께 맞춘다.
