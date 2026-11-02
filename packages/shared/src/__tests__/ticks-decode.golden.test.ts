@@ -20,8 +20,8 @@ import {
 } from "./helpers/tick-digest";
 
 const FIXTURES = ["cut1300-krx", "cut1300-nxt", "raw20k-0900"] as const;
-/** 이 태스크가 대조하는 표. */
-const TABLES_UNDER_TEST: readonly (TickTable | "raw")[] = ["a3"];
+/** 대조하는 표 — pcap2parquet ALL_TABLES 순서. 픽스처 JSON 에 없는 표는 TS 쪽도 0행이어야 한다. */
+const TABLES_UNDER_TEST: readonly (TickTable | "raw")[] = ["a3", "b6", "r8", "b9", "c3", "a0", "raw"];
 
 /** 부동소수(dec6) 열 이름 — 파이썬 float64 열은 `.6f` 로 정규화한다. */
 const FLOAT_COLUMNS: ReadonlySet<string> = new Set(
@@ -48,6 +48,11 @@ describe.each(FIXTURES)("디코더 골든 %s", (name) => {
 
   it("레코드 수 = 오라클 추출 레코드 수", () => {
     expect(fx.records).toBe(fx.golden.source.records);
+  });
+
+  it("오라클 JSON 의 표는 모두 대조 대상이고, TS 가 낸 표는 모두 JSON 에 있다", () => {
+    for (const t of Object.keys(fx.golden.tables)) expect(TABLES_UNDER_TEST).toContain(t);
+    expect([...fx.byTable.keys()].sort()).toEqual(Object.keys(fx.golden.tables).sort());
   });
 
   describe.each(TABLES_UNDER_TEST)("표 %s", (table) => {
