@@ -12,7 +12,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { zstdDecompressSync } from "node:zlib";
-import type { FieldValue } from "../../ticks/decode";
+import { decodeAny, type FieldValue } from "../../ticks/decode";
+import { iterRecords } from "../../ticks/framing";
+import { a3TradeOf, type A3Trade } from "../../ticks/orders-krx";
 
 const FIXTURE_DIR = new URL("../../__fixtures__/ticks/", import.meta.url);
 
@@ -25,6 +27,19 @@ export function tickFixturePath(name: string): string {
 export function readTicksZst(name: string): Uint8Array {
   const buf = zstdDecompressSync(readFileSync(tickFixturePath(name)));
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+}
+
+/** `<name>`(.ticks.zst) → 원본 순서(수신순) A3Trade 배열. `rec` = 레코드 색인(모든 태그 포함). */
+export function readA3Trades(name: string, label: string): A3Trade[] {
+  const bytes = readTicksZst(name);
+  const out: A3Trade[] = [];
+  let rec = 0;
+  for (const r of iterRecords(bytes)) {
+    const { table, row } = decodeAny(bytes.subarray(r.off, r.off + r.len), r.recvNs, label);
+    if (table === "a3") out.push(a3TradeOf(rec, row));
+    rec += 1;
+  }
+  return out;
 }
 
 /** `<name>`(.json) 을 읽는다. */

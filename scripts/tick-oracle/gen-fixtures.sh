@@ -2,11 +2,25 @@
 # 틱 뷰어(Phase 37) 오라클 픽스처 생성기 — 맥 전용.
 #
 # 사용법:
-#   bash scripts/tick-oracle/gen-fixtures.sh decode
+#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl|g4cut
+#   bash scripts/tick-oracle/gen-fixtures.sh pnl --bigtech      (선택 — 빅텍 10/22 하루, GCS 원본 ≈ 3.4GB)
 #
 # 부명령:
 #   decode  레이아웃 덤프(layouts.json) + 디코더 골든 3종(cut1300-krx · cut1300-nxt · raw20k-0900)
 #           → packages/shared/src/__fixtures__/ticks/
+#   orders  컷 13시 KRX classify_orders 주문별 골든(cut1300-krx.orders.json) — 37-03 Task 1
+#   runs    컷 13시 KRX · NXT 런 통계(cut1300-runs.json) + NXT 단독 창 13:30~13:40 팀 주문(cut1300-nxt.window.json)
+#           — 37-03 Task 2. 창 값이 AccumNxtFixtures.h kAccumNxt_Expect(13 · 7901/82023350 · 4632/49348980)와 다르면 종료 1
+#   pnl     천일고속 KR7000650002 10/14 A3 전용 조각(chunil-1014-a3.ticks.zst) + export payload.pnl 두 범위(chunil-1014.pnl.json)
+#           — 37-03 Task 3. 같은 A3 로 파이썬 team_pnl 을 다시 계산해 export 와 다르면 종료 1
+#           --bigtech: 빅텍 KR7065450009 10/22 08~19시(bigtech-1022-a3.ticks.zst · bigtech-1022.pnl.json). A3 조각이 1.5MB 를
+#           넘으면 커밋하지 않는다(그때 테스트는 skip). 원본은 ~/ticks/oracle/20261022/krx/ 에 미리 받아 둔다(아래 GCS 메모).
+#   g4cut   빅텍 KR7065450009 10/22 15~17시 G4 조각(bigtech-1022-g4.ticks.zst · bigtech-1022-g4.golden.json) — 37-03 Task 3(필수).
+#           원본 ~/ticks/oracle/20261022/krx/20261022-{1500,1600,1700}.pcap.zst (GCS 393,017,311B · 아래 메모). G4 체결 0 이면 종료 1
+#
+# GCS 원본 받기(deployer SA · 읽기만 · Archive 꺼내기 ≈ $0.05/GB + 송신):
+#   GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/gh-radar-deployer.json CLOUDSDK_CORE_PROJECT=gh-radar \
+#     gcloud storage cp gs://gh-trade-tick-archive/raw/krx/20261022/20261022-1500.pcap.zst … ~/ticks/oracle/20261022/krx/
 #
 # 전제: gh-trade venv(Python 3.14 · compression.zstd · pyarrow)와 로컬 원본 pcap.
 #   GH_TRADE_ANALYSIS (기본 /Users/alex/repos/gh-trade/server/tools/analysis)
@@ -53,8 +67,36 @@ case "$cmd" in
     done
     exit "$over"
     ;;
+  orders)
+    oracle orders "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --out "$FX/cut1300-krx.orders.json"
+    ;;
+  runs)
+    oracle runs --krx "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --nxt "$HOME/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst" \
+      --out "$FX/cut1300-runs.json"
+    oracle window "$HOME/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst" --from 13:30:00 --to 13:40:00 \
+      --expect 13,7901,82023350,4632,49348980 --out "$FX/cut1300-nxt.window.json"
+    ;;
+  pnl)
+    if [ "${2:-}" = "--bigtech" ]; then
+      oracle pnl --isin KR7065450009 --date 20261022 --pcap-dir "$HOME/ticks/oracle/20261022/krx" \
+        --hours 0800,0900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900 \
+        --export "$HOME/ticks/research/export/20261022" --out-prefix "$FX/bigtech-1022"
+      size=$(wc -c < "$FX/bigtech-1022-a3.ticks.zst" | tr -d ' ')
+      echo "bigtech-1022-a3.ticks.zst ${size}B"
+      if [ "$size" -gt "$MAX_BYTES" ]; then
+        echo "  ↑ 1.5MB 초과 — 커밋하지 않는다(테스트는 skipIf)" >&2
+      fi
+    else
+      oracle pnl --isin KR7000650002 --date 20261014 --pcap-dir "$HOME/ticks/team-follow/rawpcap/20261014" \
+        --export "$HOME/ticks/research/export/20261014" --out-prefix "$FX/chunil-1014"
+    fi
+    ;;
+  g4cut)
+    oracle g4cut --isin KR7065450009 --date 20261022 --pcap-dir "$HOME/ticks/oracle/20261022/krx" \
+      --hours 1500,1600,1700 --out-prefix "$FX/bigtech-1022-g4"
+    ;;
   *)
-    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode" >&2
+    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl [--bigtech]|g4cut" >&2
     exit 2
     ;;
 esac
