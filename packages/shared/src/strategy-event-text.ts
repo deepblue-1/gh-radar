@@ -406,6 +406,8 @@ function queuedBody(ev: StrategyEventRow, allFilled: boolean): string {
  * Cancelled 본문: 취소 사유 표시명 + (has_remaining 이면) `남은 거래량 R (E − C)`(R 은 금액(주) 토큰 · 음수는 U+2212,
  * E · C 는 숫자). E 는 expected_cum 이 있으면
  * 그 값, 없으면 C + R (R = E − C 정의 · 필드 뜻 v0.1). 대기가 아니었으면 has_remaining 거짓 — 조각 없음.
+ * 사유 12 「버스트 상한가」 는 cond_actual 에 판정 비율 %(1~100)가 실리면 「버스트 상한가 NN%」 — 0 = 옛 기록(종전 문구 ·
+ * gh-trade quick-261102-enc · 인박스 261102). 다른 사유는 cond_actual 0 이라 읽지 않는다.
  */
 function cancelledBody(ev: StrategyEventRow): string {
   let remaining: string | null = null;
@@ -415,7 +417,9 @@ function cancelledBody(ev: StrategyEventRow): string {
     const e = ev.expectedCum > 0 ? ev.expectedCum : c + r;
     remaining = `남은 거래량 ${signedQtyAmt(r, ev.price)} (${NUM.format(e)} ${MINUS} ${NUM.format(c)})`;
   }
-  return joinDot([cancelReasonLabel(ev.cancelReason), remaining]);
+  const reason = cancelReasonLabel(ev.cancelReason);
+  const burstPct = ev.cancelReason === 12 && ev.condActual > 0 ? ` ${ev.condActual}%` : "";
+  return joinDot([reason + burstPct, remaining]);
 }
 
 /** 수량형 조건 지표 — 1 Ask1Qty · 2 Bid1Qty · 3 TradeQty · 5 Burst(C# `IsQtyMetric`). */

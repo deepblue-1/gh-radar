@@ -651,6 +651,14 @@ describe("Phase 27 자동매도 조립기", () => {
     expect(strategyEventParts(burst, "log").body.startsWith("버스트 상한가")).toBe(true);
   });
 
+  it("kind 7 — 취소 사유 12 + cond_actual 판정 비율 → 「버스트 상한가 NN%」 · 0 은 종전 (gh-trade 인박스 261102)", () => {
+    const base = { ...row("asCancelBuyFirst"), group: 2, cancelReason: 12, hasRemaining: false };
+    expect(strategyEventParts({ ...base, condActual: 78 }, "log").body).toBe("버스트 상한가 78%");
+    expect(strategyEventParts({ ...base, condActual: 0 }, "log").body).toBe("버스트 상한가");
+    // 다른 사유는 cond_actual 을 읽지 않는다
+    expect(strategyEventParts({ ...base, cancelReason: 10, condActual: 78 }, "log").body).toBe("매수 우선 취소");
+  });
+
   it("kind 11 · 13 · 14 의 빈 주문번호 → F-A 줄 `[—]`", () => {
     for (const name of ["asTriggerN", "asStateOn", "asPauseVI"]) {
       expect(row(name).orderNo).toBe("");
