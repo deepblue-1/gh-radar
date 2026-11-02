@@ -18,24 +18,29 @@ import { dateNavOf, fmtYmdLabel, fmtYmdShort } from '@/lib/limitup-report';
 import { fetchTickDay, fetchTickOpen, fetchTickToday, postTickCancel, postTickConvert } from '@/lib/ticks/tick-api';
 import { fmtBytes, fmtQty } from '@/lib/ticks/tick-format';
 import { defaultTickDateOf, nodataReasonOf, parseTickUrl, tickUrlOf, type NodataReason } from '@/lib/ticks/tick-url';
+import { useTickGrid } from '@/lib/ticks/use-tick-grid';
 import { cn } from '@/lib/utils';
 
 import { TickEntry, type TickEntrySort } from './tick-entry';
 import { TickHeader } from './tick-header';
 import { TickStateCard } from './tick-state-card';
 import { TickStockPicker } from './tick-stock-picker';
+import { TickViewer } from './tick-viewer';
 
 /**
  * 틱 전문 뷰어 페이지 본문 (Phase 37 D-03 · D-08 · D-15 · D-16 · D-18 · D-22).
  *
  * ① URL 정본 = `?isin&d&ex&t`(`parseTickUrl` — 잘못된 값은 기본값). 종목 고르기 · 날짜 · 거래소 이동 = `router.push`
- *   (뒤로 = 목록). 틱 이동 `replaceState` 는 37-10.
+ *   (뒤로 = 목록). 틱 이동은 `useTickCursor` 의 `history.replaceState`(히스토리 안 쌓임).
+ *   **`t` 는 열기 시점에 한 번만 읽는다** — Next 15 는 네이티브 replaceState 를 `useSearchParams` 에 동기화하므로 커서가 바꾼
+ *   `t` 가 이 컴포넌트를 다시 그린다. `t` 는 (isin, d, ex) 키가 바뀔 때만 갱신되는 `initialT` 에 담고, 열기 · 격자 · 세션
+ *   효과의 의존성에는 `t` 를 넣지 않는다(넣으면 틱마다 다시 열기 · 커서 초기화).
  * ② 게이트: `useDmaGateReason()` · server 401/403 → 본문 대신 `DmaGate surface="틱 전문 뷰어"` 만. 표시 장치일 뿐 권한은
  *   server RPC(`tick_*_for_user`)다.
  * ③ 기본 날짜(D-15): d 없음 → KST 거래일 08:00~20:00 이면 오늘(`/api/ticks/today` 목록 · 「라이브」) · 그 밖에는 격자가 있는
  *   최근 날짜(`/api/ticks/day` 를 d 없이 — 응답 date). URL 은 건드리지 않고 화면만 그 날짜다.
  * ④ isin 없음 = 진입(그날 격자 목록 · 행 없고 「자료 없음」 사유가 있으면 상태 카드). isin 있음 = 열기 — `/api/ticks/open` 한 번 →
- *   - grid → 열림(머리 + 본문 자리 · 37-10 이 `TickViewer` 를 넣는다)
+ *   - grid → 열림 — 서명 URL 을 브라우저가 직접 받아 풀고(`useTickGrid` · 진행률) `TickViewer`(37-10)
  *   - request pending/running → 「변환 중」 + 5초 폴링(stale 이면 convert 1회 — server should_trigger 가 Job 을 하나만 깨운다)
  *   - request failed ∧ `NOT_UPLOADED` → convert 1회 → `not_uploaded` 면 「업로드 전」 카드(상한 소모 0) · triggered 면 「변환 중」
  *   - request failed(그 밖) → 「변환에 실패했어요 · 다시 시도」(convert 는 사람이 누를 때만)
@@ -143,6 +148,13 @@ export function TickViewerPage() {
   const [attempt, setAttempt] = useState(0);
   const [sort, setSort] = useState<TickEntrySort>('rate');
   const runRef = useRef<Run>({ alive: false, converting: false });
+  const [tickLabel, setTickLabel] = useState<{ time: string; seq: number | null } | undefined>(undefined);
+
+  // URL `t` 는 (isin, d, ex) 가 바뀔 때만 다시 읽는다(머리 주석 ①).
+  const openKey = `${isin ?? ''}|${d ?? ''}|${ex}`;
+  const [initial, setInitial] = useState({ key: openKey, t: url.t });
+  if (initial.key !== openKey) setInitial({ key: openKey, t: url.t });
+  const initialT = initial.key === openKey ? initial.t : url.t;
 
   const fail = useCallback((err: unknown, set: () => void) => {
     const g = gateOf(err);
@@ -292,6 +304,10 @@ export function TickViewerPage() {
 
   useConvertPolling(view?.kind === 'converting', pollTick, TICK_POLL_MS);
 
+  // 격자 — 열림(loaded)일 때만 받는다. 키 = (d, ex, isin) · 같은 키의 open 응답 identity 변화는 다시 받지 않는다.
+  const grid = useTickGrid(view?.kind === 'loaded' ? view.resp : null);
+  const showTick = view?.kind === 'loaded' && grid.status === 'ready';
+
   useEffect(() => {
     const name = view !== null && 'resp' in view ? view.resp.stock?.name : undefined;
     document.title = name ? `${name} · 틱 전문 뷰어` : '틱 전문 뷰어';
@@ -343,6 +359,7 @@ export function TickViewerPage() {
         date={shown}
         ex={ex}
         supply={shown === null ? null : isToday ? 'live' : 'grid'}
+        tickLabel={showTick ? tickLabel : undefined}
         prev={nav.prev}
         next={nav.next}
         onDate={(to) => go({ d: to })}
@@ -453,11 +470,51 @@ export function TickViewerPage() {
           />
         );
       case 'loaded': {
-        const grid = view.resp.grid!;
-        // 37-10 이 이 자리에 `TickViewer`(슬라이더 · 호가 · 목록 · 차트)를 넣는다.
+        const meta = view.resp.grid!;
+        if (grid.status === 'error') {
+          return (
+            <section data-slot="tick-body" data-state="error">
+              <TickStateCard variant="error" message="격자를 받지 못했어요" onRetry={grid.retry} />
+            </section>
+          );
+        }
+        if (grid.status !== 'ready' || grid.session === null) {
+          const pct = grid.progress === null ? null : Math.round(grid.progress * 100);
+          return (
+            <section
+              data-slot="tick-body"
+              data-state="loading"
+              className={cn(CARD, 'flex flex-col gap-2 px-4 py-3 text-[12.5px] text-[var(--muted-fg)]')}
+            >
+              <p role="status" aria-live="polite" className="m-0">
+                격자 받는 중{pct === null ? '' : ` · ${pct}%`} · 레코드 {fmtQty(meta.records)}건 · 크기 {fmtBytes(meta.bytes)}
+              </p>
+              <div
+                role="progressbar"
+                aria-label="격자 받기"
+                aria-valuemin={pct === null ? undefined : 0}
+                aria-valuemax={pct === null ? undefined : 100}
+                aria-valuenow={pct ?? undefined}
+                className="h-1 overflow-hidden rounded-[2px] bg-[var(--muted)]"
+              >
+                {pct === null ? (
+                  <i className="tick-indeterminate block h-full w-[38%] rounded-[2px] bg-[var(--up)] motion-reduce:animate-none" />
+                ) : (
+                  <i className="block h-full rounded-[2px] bg-[var(--up)]" style={{ width: `${pct}%` }} />
+                )}
+              </div>
+            </section>
+          );
+        }
         return (
-          <section data-slot="tick-body" className={cn(CARD, 'px-4 py-3 text-[12.5px] text-[var(--muted-fg)]')}>
-            격자 준비됨 · 레코드 {fmtQty(grid.records)}건 · 크기 {fmtBytes(grid.bytes)}
+          <section data-slot="tick-body" data-state="ready">
+            <TickViewer
+              key={grid.session.key}
+              session={grid.session}
+              urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
+              initialT={initialT}
+              onTick={setTickLabel}
+            />
           </section>
         );
       }
