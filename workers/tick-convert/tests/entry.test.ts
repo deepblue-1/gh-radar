@@ -51,6 +51,7 @@ describe("이미지 진입점 — ENTRYPOINT [node, dist/index.js] + CMD [nightl
       override: ["nightly", "--date", "20261030"],
       want: { mode: "nightly", date: "20261030" },
     },
+    { name: "승격 Job(--args=promote · Scheduler 20:10 · 20:40)", override: ["promote"], want: { mode: "promote" } },
   ];
 
   for (const c of cases) {

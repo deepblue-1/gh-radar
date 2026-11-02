@@ -1,12 +1,13 @@
 import "dotenv/config";
 import zlib from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadConfig, type Config } from "./config";
+import { ConfigError, loadConfig, type Config } from "./config";
 import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
 import { createSupabaseGridStore, type GridStore } from "./store";
 import { UsageError, parseRequestArgs, runRequest, type JobDeps } from "./modes/request";
 import { parseNightlyArgs, runNightly } from "./modes/nightly";
+import { parsePromoteArgs, runPromote } from "./modes/promote";
 
 /**
  * tick-convert entry — Cloud Run Job `gh-radar-tick-convert`. GCS 원본 아카이브(119 부하 0)를 종목·날짜 격자로 바꾸는
@@ -15,12 +16,12 @@ import { parseNightlyArgs, runNightly } from "./modes/nightly";
  * CLI: `node dist/index.js <mode> [args]` — 모드 표 `MODES` 하나로 고른다:
  *   request --date YYYYMMDD --ex KRX|NXT   — 요청 변환(modes/request.ts)
  *   nightly [--date YYYYMMDD]               — 밤 변환(modes/nightly.ts · 이미지 기본 CMD)
- *   (37-12 가 `promote` 를 같은 표에 한 줄 더한다.)
+ *   promote [--date YYYYMMDD]               — 20:00 승격(modes/promote.ts · tickgw 당일 캐시 → 승격 격자 · 37-12)
  * 이미지는 `ENTRYPOINT ["node", "dist/index.js"]` + `CMD ["nightly"]` 다 — Cloud Run args 오버라이드는 CMD 만 바꾸므로
  * 요청 변환 · 스모크 · 승격 Job 도 늘 `node dist/index.js <모드> …` 로 돈다(Dockerfile 머리 주석 · tests/entry.test.ts).
  *
  * 종료 코드: 0 정상(NO_RECORDS · NO_OBJECTS · 미룬 날짜 포함) · 1 실패 종목 · 실패 날짜 · purge 실패 · 예외 ·
- * 2 잘못된 인자 · 모르는 모드 · Node zstd 없음(Pitfall 4 —
+ * 2 잘못된 인자 · 모르는 모드 · 설정 오류(ConfigError — 공인 TICKGW_URL · promote 에 TICKGW 설정 없음) · Node zstd 없음(Pitfall 4 —
  * 이미지가 22.15 미만이면 `zlib.zstdCompressSync` 가 없다. 기동 즉시 끝내 잘못된 이미지가 요청을 running 으로 붙잡지 않게).
  * vitest import 시에는 main() 미실행 — CLI 진입점만 동작.
  */
@@ -32,6 +33,7 @@ export type ModeOutcome = { failed: number };
 export const MODES: Record<string, (deps: JobDeps, args: string[]) => Promise<ModeOutcome>> = {
   request: (deps, args) => runRequest(deps, parseRequestArgs(args)),
   nightly: (deps, args) => runNightly(deps, parseNightlyArgs(args)),
+  promote: (deps, args) => runPromote(deps, parsePromoteArgs(args)),
 };
 
 /** 공통 플래그(값을 하나 받는다) — 모드별 검증은 각 모드 파서(parseRequestArgs · parseNightlyArgs)가 한다. */
@@ -92,7 +94,7 @@ export async function main(argv: string[] = process.argv.slice(2), opts: MainOpt
     return 2;
   }
   try {
-    const config = opts.config ?? loadConfig();
+    const config = opts.config ?? loadConfig({ mode });
     const sb = opts.sb ?? createSupabaseClient(config);
     const store = opts.store ?? createSupabaseGridStore(sb);
     const out = await run({ sb, store, config, now: opts.now ?? new Date(), clock: opts.clock }, rest);
@@ -102,7 +104,7 @@ export async function main(argv: string[] = process.argv.slice(2), opts: MainOpt
     }
     return 0;
   } catch (err) {
-    if (err instanceof UsageError) {
+    if (err instanceof UsageError || err instanceof ConfigError) {
       logger.error({ mode, argv: rest }, `tick-convert: ${err.message}`);
       return 2;
     }
