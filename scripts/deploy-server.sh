@@ -195,6 +195,10 @@ fi
 #   `RELAY_ORDER_SECRET`. `ORDER_TIMEOUT_MS` 는 돌아오지 않는다(주문은 여전히 wss). Admin 호출 타임아웃은
 #   server 기본값(`RELAY_ADMIN_TIMEOUT_MS` 미설정 = 12000ms)을 쓴다.
 #
+# Phase 37 D-03 (37-07) — 요청 변환 env 2종: `TICK_CONVERT_JOB`(변환 Job 전체 이름 · server 가 Admin API v2 jobs:run 으로
+#   깨운다 · 실행 SA 에 그 Job 단위 run.jobs.runWithOverrides 는 37-18 deploy-tick-convert.sh 가 준다) ·
+#   `TICK_REQUEST_DAILY_CAP`(전역 하루 상한 20). 둘 다 아래 필수 목록에도 넣었다 — 빠지면 convert 가 503 이 된다.
+#
 # ⚠️⚠️ **스크립트 수정만으로는 실행 중인 리비전이 바뀌지 않는다** (Phase 09.1 KIS 정리
 #      선례와 동형 / 16-RESEARCH §Runtime State Inventory). `--set-env-vars` 는 전량
 #      치환이라 **새 env 는** 이 문자열대로 맞춰지지만, **secret 바인딩(`--update-secrets`)
@@ -217,7 +221,7 @@ gcloud run deploy "$SERVICE" \
   --network="$VPC_NAME" \
   --subnet="$SUBNET_NAME" \
   --vpc-egress=all-traffic \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}@RELAY_INTERNAL_URL=${RELAY_INTERNAL_URL}" \
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-false}@RELAY_INTERNAL_URL=${RELAY_INTERNAL_URL}@TICK_CONVERT_JOB=projects/${EXPECTED_PROJECT}/locations/${REGION}/jobs/gh-radar-tick-convert@TICK_REQUEST_DAILY_CAP=20" \
   --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest,RELAY_ORDER_SECRET=gh-radar-relay-order-secret:latest"
 
 # ═══════════════════════════════════════════════════════════════
@@ -239,6 +243,7 @@ REQUIRED_ENV_KEYS=(
   SUPABASE_SERVICE_ROLE_KEY KIWOOM_APPKEY KIWOOM_SECRETKEY
   NAVER_CLIENT_ID NAVER_CLIENT_SECRET BRIGHTDATA_API_KEY ANTHROPIC_API_KEY
   RELAY_INTERNAL_URL RELAY_ORDER_SECRET
+  TICK_CONVERT_JOB TICK_REQUEST_DAILY_CAP
 )
 
 ENV_NAMES=$(gcloud run services describe "$SERVICE" --region="$REGION" \

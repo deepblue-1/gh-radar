@@ -5,6 +5,7 @@ import { logger } from "./logger.js";
 import { loadConfig } from "./config.js";
 import { createKiwoomRuntime } from "./services/kiwoom-runtime.js";
 import { createRelayAdminClient, type RelayAdminClient } from "./services/relay-admin-client.js";
+import { createTickConvertTrigger, type TickConvertTrigger } from "./services/tick-convert-trigger.js";
 
 const config = loadConfig();
 
@@ -86,6 +87,15 @@ if (config.relayInternalUrl && config.relayOrderSecret) {
   );
 }
 
+// Phase 37 D-03 — 요청 변환 Job 트리거(Admin API v2 jobs:run · 메타데이터 서버 토큰). 미설정이면 만들지 않는다 —
+// POST /api/ticks/convert 는 Job 을 깨워야 하는 분기에서만 503(격자 있음 · 업로드 전 · 앞 Job 에 실림은 그대로 200).
+let tickConvertTrigger: TickConvertTrigger | undefined = undefined;
+if (config.tickConvertJob) {
+  tickConvertTrigger = createTickConvertTrigger({ job: config.tickConvertJob });
+} else {
+  logger.warn("TICK_CONVERT_JOB not set — POST /api/ticks/convert 503");
+}
+
 const app = createApp({
   supabase,
   kiwoomRuntime,
@@ -94,6 +104,8 @@ const app = createApp({
   brightdataApiKey: config.brightdataApiKey,
   brightdataZone: config.brightdataZone,
   relayAdmin,
+  tickConvertTrigger,
+  tickRequestDailyCap: config.tickRequestDailyCap,
 });
 
 app.listen(config.port, () => {

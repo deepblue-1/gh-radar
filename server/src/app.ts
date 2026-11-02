@@ -5,6 +5,7 @@ import cors from "cors";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AxiosInstance } from "axios";
 import type { RelayAdminClient } from "./services/relay-admin-client.js";
+import type { TickConvertTrigger } from "./services/tick-convert-trigger.js";
 import { requestId } from "./middleware/request-id.js";
 import { apiRateLimiter } from "./middleware/rate-limit.js";
 import { httpLogger } from "./middleware/pino-http.js";
@@ -24,6 +25,7 @@ import { limitupRouter } from "./routes/limitup-report.js";
 import { teamflowRouter } from "./routes/teamflow-report.js";
 import { accumReportRouter } from "./routes/accum-report.js";
 import { accumSignalsRouter } from "./routes/accum-signals.js";
+import { ticksRouter } from "./routes/ticks.js";
 import { adminRouter } from "./routes/admin.js";
 import { adminServersRouter } from "./routes/admin-servers.js";
 import { adminLaunchRouter } from "./routes/admin-launch.js";
@@ -53,6 +55,11 @@ export type AppDeps = {
   // Phase 29 D-07 — Admin 명령 전용 relay 클라이언트. 미주입(env 미설정 · 테스트) 시 허용/역할 쓰기는
   // `relayNotified: false` 로 성공하고, relay 의존 라우트(29-13)는 503 RELAY_UNAVAILABLE.
   relayAdmin?: RelayAdminClient;
+  // Phase 37 D-03 — 요청 변환 Job 트리거(Admin API v2 jobs:run). 미주입(TICK_CONVERT_JOB 미설정 · 테스트) 시
+  // POST /api/ticks/convert 는 should_trigger 일 때만 503 TICK_CONVERT_UNAVAILABLE(그 밖 분기는 200).
+  tickConvertTrigger?: TickConvertTrigger;
+  // Phase 37 D-03 — 요청 변환 전역 하루 상한(TICK_REQUEST_DAILY_CAP · 미주입 = 20).
+  tickRequestDailyCap?: number;
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -69,6 +76,8 @@ export function createApp(deps: AppDeps): Express {
   app.locals.brightdataApiKey = deps.brightdataApiKey;
   app.locals.brightdataZone = deps.brightdataZone;
   app.locals.relayAdmin = deps.relayAdmin;
+  app.locals.tickConvertTrigger = deps.tickConvertTrigger;
+  app.locals.tickRequestDailyCap = deps.tickRequestDailyCap;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());
@@ -120,6 +129,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/accum", accumReportRouter);
   // quick-261018-rfy — kind 16 매집감지 조회 전용(작업대 「매집」 패널 복원 · isin 별 최신 1행). 적재는 relay 관찰자 기록기.
   app.use("/api/accum-signals", accumSignalsRouter);
+  // Phase 37 D-08 — 틱 전문 뷰어 과거 경로(day · today · open · convert) · 게이트는 RPC 안 · 격자는 서명 URL 로 브라우저가 Storage 에서 직접.
+  app.use("/api/ticks", ticksRouter);
   // Phase 29 D-07 — 웹 Admin(requireAuth → requireAdmin). 쓰기는 Express 가 DB 에 · 즉시 반영은 relay HTTP 로.
   // 서버 레지스트리(D-17)를 먼저 — 그 라우터는 관문을 `/servers` 경로에만 건다. adminRouter 는 라우터 전체에 관문을
   // 걸므로 순서가 반대면 /servers 요청이 역할 조회를 두 번 한다(Cloud Run → Supabase 왕복 +1).
