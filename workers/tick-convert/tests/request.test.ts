@@ -1,6 +1,19 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import zlib from "node:zlib";
 import { statSync } from "node:fs";
+
+// 통독 여부 — scan.ts 의 createReadStream 호출 수(업로드 전 날짜는 0 이어야 한다)
+const fsSpy = vi.hoisted(() => ({ reads: 0 }));
+vi.mock("node:fs", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...orig,
+    createReadStream: ((...a: Parameters<typeof orig.createReadStream>) => {
+      fsSpy.reads += 1;
+      return orig.createReadStream(...a);
+    }) as typeof orig.createReadStream,
+  };
+});
 import { iterRecords, TICK_FMT } from "@gh-radar/shared";
 import { main } from "../src/index";
 import type { Config } from "../src/config";
@@ -63,13 +76,16 @@ const PACKETS: SynthPacket[] = [
 ];
 
 let arch: SynthArchive | null = null;
+beforeEach(() => {
+  fsSpy.reads = 0;
+});
 afterEach(() => {
   arch?.cleanup();
   arch = null;
 });
 
-function archive(): SynthArchive {
-  arch = makeSynthArchive({ date: D, packets: PACKETS });
+function archive(hours?: { krx?: string[]; nxt?: string[] }): SynthArchive {
+  arch = makeSynthArchive({ date: D, packets: PACKETS, hours });
   return arch;
 }
 
@@ -94,8 +110,8 @@ function scannedBytes(a: SynthArchive, label: Label): number {
     .reduce((s, f) => s + statSync(f).size, 0);
 }
 
-const run = (argv: string[], sb: ReturnType<typeof makeFakeSupabase>["sb"], root: string) =>
-  main(argv, { sb, config: cfg(root), now: NOW, clock: () => 0 });
+const run = (argv: string[], sb: ReturnType<typeof makeFakeSupabase>["sb"], root: string, now: Date = NOW) =>
+  main(argv, { sb, config: cfg(root), now, clock: () => 0 });
 
 describe("request 모드 트레이서 — claim → 통독 → 격자 → 업로드 → tick_grid_upsert → finish", () => {
   it("KRX 1종목: 그 ISIN KRX 패킷 전부(B9 · 길이 안 맞는 A3 포함 · 다른 ISIN · NXT · IA 없음)가 격자 파일이 된다", async () => {
@@ -232,6 +248,81 @@ describe("request 모드 트레이서 — claim → 통독 → 격자 → 업로
       written: 0,
       bytes_read: 0,
     });
+  });
+});
+
+/** KST 11/01 12:00 — D(10/30)는 오늘 − 2일(유예 안). */
+const NOW_GRACE = new Date("2026-11-01T03:00:00Z");
+const ALL = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}00`);
+const KRX_REQ = ["request", "--date", D, "--ex", "KRX"];
+
+describe("업로드 판정 — NOT_UPLOADED(업로드 전 · 상한 비소모) · partial(2일 초과)", () => {
+  it("그 라벨 08~20시 객체 0개 → 통독 0 · claim 전부 NOT_UPLOADED · 실행 기록 ok · main 0", async () => {
+    const a = archive({ krx: [] });
+    const { sb, calls } = makeFakeSupabase({ claim: [A, C] });
+    expect(await run(KRX_REQ, sb, a.root)).toBe(0);
+    expect(fsSpy.reads).toBe(0);
+    expect(uploads(calls)).toHaveLength(0);
+    expect(rpcCalls(calls, "tick_grid_upsert")).toHaveLength(0);
+    expect(rpcCalls(calls, "tick_request_finish")[0]!.p_results).toEqual([
+      { isin: A, ok: false, error: "NOT_UPLOADED" },
+      { isin: C, ok: false, error: "NOT_UPLOADED" },
+    ]);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({
+      ok: true,
+      error: "NOT_UPLOADED",
+      targets: 2,
+      written: 0,
+      bytes_read: 0,
+    });
+  });
+
+  it("08~20시 밖(00~07 · 21~23시) 객체만 있으면 객체 0 과 같다 → NOT_UPLOADED", async () => {
+    const a = archive({ krx: ["0000", "0500", "0700", "2100", "2300"] });
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(KRX_REQ, sb, a.root)).toBe(0);
+    expect(fsSpy.reads).toBe(0);
+    expect(rpcCalls(calls, "tick_request_finish")[0]!.p_results).toEqual([{ isin: A, ok: false, error: "NOT_UPLOADED" }]);
+  });
+
+  it("날짜 ≥ KST 오늘 − 2일 ∧ 일부만 올라옴(업로드 진행 중) → 통독 0 · NOT_UPLOADED · main 0", async () => {
+    const a = archive({ krx: ALL.slice(0, 13) }); // 00~12시만
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(KRX_REQ, sb, a.root, NOW_GRACE)).toBe(0);
+    expect(fsSpy.reads).toBe(0);
+    expect(uploads(calls)).toHaveLength(0);
+    expect(rpcCalls(calls, "tick_request_finish")[0]!.p_results).toEqual([{ isin: A, ok: false, error: "NOT_UPLOADED" }]);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: true, error: "NOT_UPLOADED" });
+  });
+
+  it("날짜 < KST 오늘 − 2일 ∧ 일부만(13시 없음) → 있는 객체로 변환 · finish ok · 실행 기록 error partial · main 0", async () => {
+    const a = archive({ krx: ALL.filter((h) => h !== "1300") });
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(KRX_REQ, sb, a.root, NOW)).toBe(0);
+    expect(fsSpy.reads).toBeGreaterThan(0);
+    expect(uploads(calls).map((u) => u.path)).toEqual([`grid/${D}/KRX/${A}.request.ticks.zst`]);
+    expect(rpcCalls(calls, "tick_request_finish")[0]!.p_results).toEqual([{ isin: A, ok: true, error: null }]);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({
+      ok: true,
+      error: "partial",
+      written: 1,
+      bytes_read: scannedBytes(a, "krx"),
+    });
+  });
+
+  it("준비된 날(08~20시 전부)은 유예 안이어도 그대로 변환 — 회귀 0", async () => {
+    const a = archive();
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(KRX_REQ, sb, a.root, NOW_GRACE)).toBe(0);
+    expect(uploads(calls)).toHaveLength(1);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: true, error: null, written: 1 });
+  });
+
+  it("다른 라벨의 준비 상태는 보지 않는다 — NXT 미업로드여도 KRX 요청은 변환", async () => {
+    const a = archive({ nxt: [] });
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(KRX_REQ, sb, a.root, NOW_GRACE)).toBe(0);
+    expect(uploads(calls)).toHaveLength(1);
   });
 });
 

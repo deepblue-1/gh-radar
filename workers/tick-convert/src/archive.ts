@@ -69,6 +69,24 @@ function listAll(root: string, label: Label, ymd: string): Obj[] {
   return out;
 }
 
+/** 업로드 판정 유예(일) — 이 안의 덜 올라온 날은 NOT_UPLOADED, 넘으면 partial 변환(37-18 nightly 와 같은 값). */
+export const READY_GRACE_DAYS = 2;
+
+/** KST 기준 `now − days` 날짜의 `YYYYMMDD`. (RED 뼈대) */
+export function kstYmdDaysAgo(_now: Date, _days: number): string {
+  return "";
+}
+
+/** (RED 뼈대) */
+export function isLabelReady(_root: string, _label: Label, _ymd: string): boolean {
+  return false;
+}
+
+/** (RED 뼈대) */
+export function isDayReady(_root: string, _ymd: string): boolean {
+  return false;
+}
+
 /** 그 날짜 · 라벨에 객체가 있는 시(0~23) 집합 — 업로드 판정(isLabelReady)이 쓴다. */
 export function presentHours(root: string, label: Label, ymd: string): Set<number> {
   return new Set(listAll(root, label, ymd).map((o) => o.hour));
