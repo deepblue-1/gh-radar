@@ -88,6 +88,10 @@
   --accum-sell-bg: #fff4e6;
   --accum-carry: #a16207;
   --accum-carry-bg: #fef9e7;
+  /* 틱 전문 뷰어 「변환 중」 · VI 띠 축(Phase 37 · 진입 목업 A · 스케치 019 사본 값) — 가격 방향 · 팀 · 매집 상태 축과
+     서로 대체하지 마라. 라이트 amber600 / 다크 목업 값 · hex/rgba 만(차트가 oklch 거부). */
+  --vi: #d97706;
+  --vi-bg: #fff4e6;
   /* 「매도경보」 배지(quick-261019-j1w D-01) — --accum-sell 채움 위 글자. 라이트 #fff 5.2:1 · 다크 #111 9.2:1(테마별로 가른다 —
      라이트 #111 은 3.6:1 로 AA 미달). */
   --accum-warn-fg: #ffffff;
@@ -262,6 +266,9 @@
   --accum-sell-bg: rgba(255, 159, 67, 0.16);
   --accum-carry: #ffd43b;
   --accum-carry-bg: rgba(255, 212, 59, 0.16);
+  /* 틱 전문 뷰어 「변환 중」 · VI 띠 축 다크 — 의미는 `:root` 쪽 주석. */
+  --vi: #ffb020;
+  --vi-bg: rgba(255, 176, 32, 0.16);
   --accum-warn-fg: #111111;
   /* 매집감지 차트 시간 띠 축 다크 — 의미는 `:root` 쪽 주석. */
   --accum-shade: rgba(255, 255, 255, 0.07);
@@ -715,6 +722,17 @@ html[lang="ko"] {
 }
 @utility accum-blink {
   animation: accum-blink 1s steps(2, start) infinite;
+}
+/*
+  Phase 37 — 틱 전문 뷰어 상태 카드 불확정 진행 바(진입 목업 A `.prog i`). `@utility` 라 소비처의
+  `motion-reduce:animate-none` 이 이긴다(동작 줄이기 = 정지 · 위 accum-blink 와 같은 이유).
+*/
+@keyframes tick-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@utility tick-indeterminate {
+  animation: tick-indeterminate 1.6s ease-in-out infinite;
 }
 
 /* ─────────────────────────────────────────────────────────────
