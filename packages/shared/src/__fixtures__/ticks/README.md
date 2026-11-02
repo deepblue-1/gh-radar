@@ -9,7 +9,24 @@ gh-trade tickana 파이썬 정본(`packets.py` LAYOUTS · `pcap2parquet.py`)이 
 ```bash
 bash scripts/tick-oracle/gen-fixtures.sh decode   # 디코더 골든(37-02)
 bash scripts/tick-oracle/gen-fixtures.sh orders   # KRX 주문 묶기 · 팀 판정 골든(37-03)
+bash scripts/tick-oracle/gen-fixtures.sh runs     # NXT 런 · 단독 창 골든(37-03)
+bash scripts/tick-oracle/gen-fixtures.sh pnl      # 천일 10/14 팀 손익 골든(37-03 · 로컬 원본 08~15시 ≈ 3.4GB 통독 ≈ 50초)
+bash scripts/tick-oracle/gen-fixtures.sh g4cut    # 빅텍 10/22 G4 조각 골든(37-03 · GCS 원본 3시간 먼저 받기)
+bash scripts/tick-oracle/gen-fixtures.sh pnl --bigtech   # (선택) 빅텍 10/22 하루 — GCS 원본 ≈ 3.4GB
 ```
+
+GCS 원본(빅텍 10/22 — 맥 `~/ticks/team-follow/rawpcap/` 에는 08~15시만 있다)은 deployer SA 로 읽기만 한다:
+
+```bash
+mkdir -p ~/ticks/oracle/20261022/krx
+GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/gh-radar-deployer.json CLOUDSDK_CORE_PROJECT=gh-radar \
+  gcloud storage cp gs://gh-trade-tick-archive/raw/krx/20261022/20261022-1500.pcap.zst \
+    gs://gh-trade-tick-archive/raw/krx/20261022/20261022-1600.pcap.zst \
+    gs://gh-trade-tick-archive/raw/krx/20261022/20261022-1700.pcap.zst ~/ticks/oracle/20261022/krx/
+```
+
+g4cut 세 시간 = 212,358,419 + 94,934,883 + 85,724,009 = 393,017,311B(≈ 0.39GB · Archive 꺼내기 + 송신 ≈ $0.07 일회 ·
+2026-11-02 실측). 하루 전체(`--bigtech`)는 `gcloud storage du -s gs://gh-trade-tick-archive/raw/krx/20261022/` = 3,578,935,444B.
 
 전제: gh-trade venv `$GH_TRADE_ANALYSIS/.venv`(기본 `/Users/alex/repos/gh-trade/server/tools/analysis`, Python 3.14 ·
 `compression.zstd` · pyarrow)와 아래 로컬 원본. 같은 원본 · 같은 venv 면 다시 돌려도 바이트가 같다
@@ -24,12 +41,23 @@ bash scripts/tick-oracle/gen-fixtures.sh orders   # KRX 주문 묶기 · 팀 판
 | `cut1300-nxt.ticks.zst` · `.decode.json` | `~/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst` | 같은 컷 NXT(A3 · B6) |
 | `raw20k-0900.ticks.zst` · `.decode.json` | `~/ticks/team-follow/rawpcap/20261014/20261014-0900.pcap.zst` 첫 20,000 프레임 | 10/14 09시 무필터 조각 — 모든 태그 + raw |
 | `cut1300-krx.orders.json` | 컷 KRX(위 `cut1300-krx.ticks.zst` 와 같은 원본) → `teamflow.prepare_frame` | KRX G1 · msg_seq 순 주문별 `[msg_seq, oid, kind, team]` + 요약(주문 2,687 · 팀 126 · 기준가 8,200 · 상한가 10,660) |
+| `cut1300-runs.json` | 컷 KRX · NXT → `nxt_runs.load_g1` · `tag_runs` · `run_stats` · `summary_line` | 런별 통계 행(`columns`) + 요약 줄 원문(NXT runs>=2=179 smp=65 · KRX 182/70). run 번호는 파이썬 1부터 |
+| `cut1300-nxt.window.json` | 컷 NXT → `nxt_fixture.nxt_window` 13:30:00~13:40:00 → `classify_nxt_team_orders` | 팀 주문 13 · 매수 7,901주/82,023,350원 · 매도 4,632주/49,348,980원(gh-trade `AccumNxtFixtures.h` kAccumNxt_Expect — 다르면 생성기 종료 1) |
+| `chunil-1014-a3.ticks.zst` | `~/ticks/team-follow/rawpcap/20261014/20261014-{0800..1500}.pcap.zst` | 천일고속 KR7000650002 10/14 — 그 ISIN A3 전문만(태그 A3 · 오프셋 17 ISIN · 길이 무관) 10,168건 |
+| `chunil-1014.pnl.json` | `~/ticks/research/export/20261014/{team_flow,accum_flow}.ndjson.gz` | 그 ISIN `payload.pnl` 원문 두 범위 + base · upper · last_px. 같은 A3 로 파이썬 team_pnl 을 다시 계산해 export 와 같음을 생성기가 확인 |
+| `bigtech-1022-g4.ticks.zst` | GCS `raw/krx/20261022/20261022-{1500,1600,1700}.pcap.zst` | 빅텍 KR7065450009 10/22 15~17시 — 그 ISIN A3 만 17,100건(G4 체결 13,792) |
+| `bigtech-1022-g4.golden.json` | 같은 조각 → 합성 pcap → convert_file → 두 범위 `prepare_frame` · `team_pnl` | accum(G1+G4 · (t, seq) 순) · teamflow(G1 · seq 순) 주문별 행 + `pnl_accum` · `pnl_teamflow`. G4 체결 0 이면 생성기 종료 1 |
 
 - `*.ticks.zst` = 레코드 프레이밍 `pcapns-rec+zstd/1`(레코드 헤더 `<IIII>` 16B + UDP 페이로드 · 전역 헤더 없음 · zstd-19 한 프레임).
   pcap2parquet 레코드 루프와 같은 규칙 · 같은 프레임 수 상한으로 뽑았다.
 - `*.decode.json` = pcap2parquet 표별 Parquet 를 읽은 요약 — `source`(파일 · 라벨 · limit · 프레임 · 레코드 · 카운터) ·
   `tables.<표>`(`rows` · `columns.<열>.{sha256, nulls}` · `head` 앞 30행). 행이 0 인 표는 없다. `dst_ip` · `dst_port` 는 뺐다.
 - 정규화(canon) · 열 digest 규칙은 `scripts/tick-oracle/oracle.py` 머리 주석과 `src/__tests__/helpers/tick-digest.ts` 가 같다.
+- `pnl` · `g4cut` 의 파이썬 쪽은 추출한 레코드를 이더넷/IPv4/UDP 로 다시 감싼 **합성 pcap** 을 `convert_file` 에 넣는다 —
+  TS 테스트가 읽는 `.ticks.zst` 와 바이트 · recv_ns 가 같은 입력이다. 범위 조건 · 정렬은 `teamflow.load_day_parquet`(teamflow) ·
+  `teamflow_accum.load_day_a3`(accum) 와 같은 SQL 이다.
+- 빅텍 10/22 하루 골든(`bigtech-1022-a3.ticks.zst` · `bigtech-1022.pnl.json`)은 선택이다. 없으면 `ticks-pnl.golden.test.ts` 의
+  해당 블록만 skip 한다(G4 조각 골든은 skip 없음).
 - `*.orders.json` 등 행 배열 JSON 은 행마다 한 줄(키 정렬 · indent 1) — diff 가 행 단위로 읽힌다. (isin, msg_seq) 동률이 있으면
   duckdb 정렬이 비결정이라 오라클이 종료 1 한다.
 - 크기 상한: `.ticks.zst` 하나당 1.5MB. 넘으면 `RAW_LIMIT=10000 bash scripts/tick-oracle/gen-fixtures.sh decode`.
