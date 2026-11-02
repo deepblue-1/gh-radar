@@ -10,7 +10,9 @@ import {
   lastSaturday,
   tickGridUrl,
   mockTickApi,
+  mockTickLive,
   recentTradingDay,
+  tickLiveChunks,
   tickOpenFixture,
 } from '../fixtures/ticks';
 
@@ -33,6 +35,9 @@ import {
  *   (에코앤드림 10/16 13:00~13:59 · 11,990 레코드 · 단일 보드 G1 이라 거래소순 = msg_seq 순 · 한 행 = seq +1)를 준다.
  *   실브라우저에서만 보이는 것 — fzstd 스트리밍 해제 · 창 키 처리 · `history.replaceState` 의 URL `t`(Next 15 동기화) ·
  *   새로고침 뒤 같은 시각 · 서명 만료 403 → open 재호출 1회.
+ * ⑤ (37-19) 당일: `page.clock.setFixedTime` 으로 「지금」 = 2026-10-16(금) 13:50 KST — 픽스처 날짜가 오늘이 된다(타이머는 진짜 ·
+ *   폴링 간격 5초 · 받는 중 2초를 실제로 기다린다). `/api/ticks/live` 는 `mockTickLive`(컷 13시 KRX 를 13:30 에서 나눈 두 덩이)
+ *   — `mockTickApi` 뒤에 등록해야 그 라우트가 이긴다(나중 등록 우선). 커서 이동은 키(Shift+←)로 한다(픽셀 클릭 금지).
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -480,5 +485,96 @@ test.describe('틱 전문 뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 
     await expect(panel.locator('[data-slot="tick-team-day-net"]')).not.toHaveText('—');
     await expect(panel.locator('[data-slot="tick-team-avg"]')).toBeVisible();
     await expectNoHorizontalScroll(page, '팀 패널 1280');
+  });
+});
+
+test.describe('틱 전문 뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · 끝으로 · 미결선 (Phase 37 D-05 · D-06 · D-18 · D-22 · 37-19)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // 「지금」 = 픽스처 날짜 13:50 KST(장중) — 오늘 경로를 탄다. 타이머는 진짜로 흐른다.
+    await page.clock.setFixedTime(new Date('2026-10-16T13:50:00+09:00'));
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  const TODAY_URL = `${BASE}?isin=${ECO.isin}&d=${TICK_DATE}`;
+  const current = (page: Page) => page.locator('[data-slot="tick-current"]');
+  const curTime = async (page: Page) => ((await current(page).textContent()) ?? '').trim().slice(0, 12);
+  /** 오늘 열기 = 격자 · 요청 없음(당일 경로 대상). */
+  const openNone = (q: { isin: string; d: string; ex: 'KRX' | 'NXT' }) => tickOpenFixture('none', q);
+
+  test('당일 — 받는 중 카드(대기 2건) → 끝 틱 · 증분으로 끝 시각이 늘어남 · 과거 틱이면 요청 멈춤 + 배지 · 끝으로 = 즉시 1회', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await mockTickApi(page, { open: openNone, today: { live: true, date: TICK_DATE } });
+    const live = await mockTickLive(page, { chunks: tickLiveChunks(['13:30:00']), queued: true, queue: 2 });
+    await page.goto(TODAY_URL);
+
+    // ① 받는 중 카드 — release 전까지 queued(대기 2건) · 2초마다 offset 0 이어 받기
+    const card = page.locator('[data-slot="tick-state"][data-variant="live-loading"]');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card).toContainText('하루치 받는 중');
+    await expect(card).toContainText('대기 2건');
+    expect(live.calls[0]).toEqual({ epoch: null, offset: 0 });
+
+    // ② 풀어 주면 다음 이어 받기(2초)에 하루치 → 뷰어 · 끝 틱(13:30 직전) · 공급 배지 「당일」
+    live.release();
+    await expect(page.locator('[data-slot="tick-body"][data-supply="live"]')).toBeVisible({ timeout: 15_000 });
+    // 하루치 요청은 전부 offset 0(queued 는 바이트 없음 · Offset-End 0) · 두 번째부터 epoch 를 싣는다
+    expect(live.calls.every((c) => c.offset === 0)).toBe(true);
+    expect(live.calls.slice(1).every((c) => c.epoch === 'e2e-epoch-1')).toBe(true);
+    await expect.poll(() => curTime(page)).toMatch(/^13:(2\d|30):/);
+    const dayEnd = await curTime(page);
+    expect(dayEnd < '13:30:00.000').toBe(true);
+    await expect(page.locator('[data-slot="tick-supply"]')).toHaveAttribute('data-supply', 'live');
+    await expect(page.getByRole('button', { name: '끝으로', exact: true })).toBeVisible();
+
+    // ③ 새 틱 공개 → 다음 5초 폴링이 가져가고 커서는 끝을 따라간다(끝 시각이 늘어남 · 13:48)
+    live.publish();
+    await expect.poll(() => curTime(page), { timeout: 15_000 }).toMatch(/^13:4[5-8]:/);
+    expect(live.calls.at(-1)!.offset).toBeGreaterThan(0);
+
+    // ④ 과거 틱(Shift+← 두 번 = 20행 뒤로) → 배지 · 이후 요청 0
+    await page.locator('[data-slot="tick-book"] h2').click();
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press('Shift+ArrowLeft');
+    const badge = page.locator('[data-slot="tick-live-badge"]');
+    await expect(badge).toBeVisible();
+    await expect(badge).toContainText('새 틱');
+    const back = await curTime(page);
+    const n = live.calls.length;
+    await page.waitForTimeout(7_000); // 폴링 주기(5초)보다 길게
+    expect(live.calls.length, '과거 틱을 보는 동안 증분 요청 0').toBe(n);
+    expect(await curTime(page)).toBe(back);
+
+    // ⑤ 배지 클릭(= 끝으로) → 즉시 1회(5초 기다리지 않음) · 끝 틱 · 배지 사라짐
+    await badge.click();
+    await expect.poll(() => live.calls.length, { timeout: 2_000 }).toBe(n + 1);
+    await expect(badge).toHaveCount(0);
+    await expect.poll(() => curTime(page)).toMatch(/^13:4[5-8]:/);
+    await expectNoHorizontalScroll(page, '당일 1280');
+  });
+
+  test('미결선 — today live=false → 오늘 종목 열기 → 「당일 자료 준비 중」 · /api/ticks/live 요청 0', async ({ page }) => {
+    await mockTickApi(page, { open: openNone, today: { live: false, date: TICK_DATE } });
+    const live = await mockTickLive(page, { chunks: tickLiveChunks(['13:30:00']) });
+    await page.goto(TODAY_URL);
+    const card = page.locator('[data-slot="tick-state"][data-variant="live-unavailable"]');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card).toContainText('당일 자료 준비 중');
+    await page.waitForTimeout(3_000);
+    expect(live.calls, '미결선이면 당일 요청 0').toEqual([]);
   });
 });

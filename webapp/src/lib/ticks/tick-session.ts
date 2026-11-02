@@ -13,10 +13,17 @@
  *   진행 중(스트림 끝에서 아직 닫히지 않은 주문 · Pitfall 9).
  * ⑤ 뒤집힘 = `inversionsOf`(1조각 런 포함) · 중복 = 같은 보드 · seq 의 두 번째 이후 수신(판정에서 빼지 않는다 · Pitfall 12).
  * recv_ns 는 BigInt64Array 그대로다(Number 금지).
+ * ⑥ 당일 증분(37-19 · D-18 · Pitfall 9) — `appendTickBytes` 가 새 zstd 바이트를 풀어 이전 원시 버퍼 뒤에 잇고 **세션을 처음부터
+ *   다시 만든다**(순열 · 판정 · 팀 모델 전부). 스트림 끝에서 열려 있던 주문은 다음 조각 · 닫는 B6 가 오면 다시 분류돼야 하므로
+ *   부분 갱신을 하지 않는다. 레코드 색인은 버퍼 순서라 이어붙여도 앞 레코드의 rec 는 그대로다(커서가 같은 틱에 남는다).
+ *   소요 ms 는 `rebuildMs`(해제 + 재생성 · 37-17 UAT 가 읽는다).
  */
+
+import { decompress } from 'fzstd';
 
 import {
   DayRateTracker,
+  concatBytes,
   NO_BOARD,
   TAG_CODE,
   a3ColumnsOf,
@@ -136,6 +143,10 @@ export interface TickSession {
   // ── 37-14 팀 모델(차트 팀 레이어 · 팀 거래정보 KPI) ──
   /** 팀 체결 · 손익 접두 · 당일 계단 · 10분 막대 · 주문 원 — 세션 생성 때 한 번(`buildTeamModel`). */
   team: TeamModel;
+
+  // ── 37-19 당일 증분 ──
+  /** `appendTickBytes` 가 만든 세션의 해제 + 재생성 소요(ms) · 격자(`buildTickSession` 직접)는 null. */
+  rebuildMs: number | null;
 }
 
 export function tickSessionKeyOf(date: string, ex: TickExchange, isin: string): string {
@@ -391,10 +402,32 @@ export function buildTickSession(
     ordersByEnd,
     lastA3,
     basePx: a3.n > 0 ? tracker.base() : null,
+    rebuildMs: null,
   };
   // 팀 모델은 위 표(주문 판정 · 거래소순 끝 자리 · 마지막 A3)를 읽는다 — 세션을 먼저 만들고 붙인다.
   session.team = buildTeamModel(session as TickSession);
   return session as TickSession;
+}
+
+const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+/**
+ * 당일 증분 이어붙이기(머리 주석 ⑥) — `zstdBytes`(이어붙인 zstd 프레임 · fzstd 가 모두 푼다)를 풀어 `prev.buf` 뒤에 잇고
+ * `buildTickSession` 으로 전체를 다시 만든다. 빈 바이트면 `prev` 를 그대로 돌려준다(`prev` 도 없으면 빈 세션).
+ */
+export function appendTickBytes(
+  prev: TickSession | null,
+  zstdBytes: Uint8Array,
+  meta: { date: string; ex: TickExchange; isin?: string },
+): TickSession {
+  if (zstdBytes.length === 0 && prev !== null) return prev;
+  const t0 = nowMs();
+  const raw = zstdBytes.length === 0 ? new Uint8Array(0) : decompress(zstdBytes);
+  if (raw.length === 0 && prev !== null) return prev;
+  const buf = prev === null ? raw : concatBytes([prev.buf, raw]);
+  const session = buildTickSession(buf, meta);
+  session.rebuildMs = nowMs() - t0;
+  return session;
 }
 
 /**

@@ -19,6 +19,7 @@ import { fetchTickDay, fetchTickOpen, fetchTickToday, postTickCancel, postTickCo
 import { fmtBytes, fmtQty } from '@/lib/ticks/tick-format';
 import { defaultTickDateOf, nodataReasonOf, parseTickUrl, tickUrlOf, type NodataReason } from '@/lib/ticks/tick-url';
 import { useTickGrid } from '@/lib/ticks/use-tick-grid';
+import { TICK_LIVE_FAILING_AFTER, liveProgressOf, useTickLive } from '@/lib/ticks/use-tick-live';
 import { cn } from '@/lib/utils';
 
 import { TickEntry, type TickEntrySort } from './tick-entry';
@@ -48,6 +49,11 @@ import { TickViewer } from './tick-viewer';
  *     자료 준비 중」) · 그 밖에는 convert 1회 → 「변환 중」. 429 · 503 · 502 는 카드 문구.
  * ⑤ 폴링(`useConvertPolling`): 5초 · 탭이 숨으면 멈추고 보이면 즉시 1회 · 화면을 떠나면 정리. 폴링 중 `NOT_UPLOADED` 가 오면
  *   멈추고 「업로드 전」(재시도 루프 없음).
+ * ⑥ 당일(37-19 · D-05 · D-18 · D-22): 오늘 · 격자 없음 · today.live → `useTickLive`(`/api/ticks/live` 하루치 → 증분) —
+ *   세션 전에는 「하루치 받는 중 · 대기 k건」 카드(진행 = 마지막 수신 시각 / 지금 · 08:00 기준) · 세션이 오면 같은 `TickViewer`
+ *   (`t` 없으면 끝 틱). live=false 면 훅은 요청 0 · 「당일 자료 준비 중」. 훅이 503 을 받아도 같은 카드로 내린다.
+ *   폴링 규율(D-06)은 훅 · 끝 여부는 뷰어가 `onAtEnd` 로 올린다 · epoch 가 바뀌면(generation) 뷰어를 새로 열어 끝 틱 ·
+ *   지연 · 연속 오류는 머리(`live`) · 카드 「취소」 = 훅 정지 + 목록.
  */
 
 /** 변환 상태 폴링 간격 — 5초(D-03). */
@@ -63,7 +69,7 @@ type OpenView =
   | { kind: 'failed'; resp: TickOpenResponse }
   | { kind: 'blocked'; resp: TickOpenResponse; message: string; retry: boolean }
   | { kind: 'live-unavailable'; resp: TickOpenResponse }
-  | { kind: 'live-loading'; resp: TickOpenResponse };
+  | { kind: 'live'; resp: TickOpenResponse };
 
 type Load<T> = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; resp: T };
 
@@ -267,7 +273,7 @@ export function TickViewerPage() {
         try {
           const t = await fetchTickToday();
           if (!run.alive) return;
-          setView({ kind: t.live ? 'live-loading' : 'live-unavailable', resp });
+          setView({ kind: t.live ? 'live' : 'live-unavailable', resp });
         } catch (err) {
           if (run.alive) fail(err, () => setView({ kind: 'error' }));
         }
@@ -306,7 +312,29 @@ export function TickViewerPage() {
 
   // 격자 — 열림(loaded)일 때만 받는다. 키 = (d, ex, isin) · 같은 키의 open 응답 identity 변화는 다시 받지 않는다.
   const grid = useTickGrid(view?.kind === 'loaded' ? view.resp : null);
-  const showTick = view?.kind === 'loaded' && grid.status === 'ready';
+
+  // 당일 — 오늘 · 격자 없음 · today.live 일 때만 요청한다(머리 주석 ⑥ · D-22).
+  const liveResp = view?.kind === 'live' ? view.resp : null;
+  const [liveAtEnd, setLiveAtEnd] = useState(true);
+  const live = useTickLive({
+    isin: liveResp?.isin ?? null,
+    ex: liveResp?.exchange ?? ex,
+    date: liveResp?.date ?? null,
+    enabled: liveResp !== null,
+    atEnd: liveAtEnd,
+  });
+  const liveGoEnd = live.goEnd;
+  const liveViewer = useMemo(
+    () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd }),
+    [live.newCount, liveGoEnd],
+  );
+  const liveOn = liveResp !== null && live.session !== null;
+  const showTick = (view?.kind === 'loaded' && grid.status === 'ready') || liveOn;
+
+  useEffect(() => {
+    if (live.status === 'unauthenticated') setServerGate('unauthenticated');
+    else if (live.status === 'unmapped') setServerGate('unmapped');
+  }, [live.status]);
 
   useEffect(() => {
     const name = view !== null && 'resp' in view ? view.resp.stock?.name : undefined;
@@ -360,6 +388,15 @@ export function TickViewerPage() {
         ex={ex}
         supply={shown === null ? null : isToday ? 'live' : 'grid'}
         tickLabel={showTick ? tickLabel : undefined}
+        live={
+          liveResp !== null && live.status !== 'unavailable'
+            ? {
+                state: live.meta?.state ?? null,
+                lastRecvNs: live.meta?.lastRecvNs ?? null,
+                failing: live.errors >= TICK_LIVE_FAILING_AFTER,
+              }
+            : null
+        }
         prev={nav.prev}
         next={nav.next}
         onDate={(to) => go({ d: to })}
@@ -458,17 +495,37 @@ export function TickViewerPage() {
         );
       case 'live-unavailable':
         return <TickStateCard variant="live-unavailable" onLatest={goLatest} />;
-      case 'live-loading':
-        // 37-19 가 당일 하루치 요청 · 대기열을 결선한다 — 그 전에는 live=true 가 오지 않는다(server 37-15).
+      case 'live': {
+        if (live.status === 'unavailable') return <TickStateCard variant="live-unavailable" onLatest={goLatest} />;
+        if (live.session === null) {
+          return (
+            <TickStateCard
+              variant="live-loading"
+              subject={view.resp.stock?.name ?? view.resp.isin}
+              queued={live.meta?.queue ?? 0}
+              progress={liveProgressOf(live.meta, view.resp.date, Date.now())}
+              onCancel={() => {
+                live.stop();
+                go({ isin: null });
+              }}
+            />
+          );
+        }
         return (
-          <TickStateCard
-            variant="live-loading"
-            subject={view.resp.stock?.name ?? view.resp.isin}
-            queued={0}
-            progress={null}
-            onCancel={() => go({ isin: null })}
-          />
+          <section data-slot="tick-body" data-state="ready" data-supply="live">
+            <TickViewer
+              key={`${live.session.key}|${live.generation}`}
+              session={live.session}
+              urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
+              initialT={live.generation === 0 ? initialT : null}
+              onTick={setTickLabel}
+              accum={view.resp.accum}
+              isToday
+              live={liveViewer}
+            />
+          </section>
         );
+      }
       case 'loaded': {
         const meta = view.resp.grid!;
         if (grid.status === 'error') {

@@ -11,15 +11,20 @@
  *   보관 밖 · 휴장 판정에 걸리지 않게 실행 날짜에서 계산한다(고정 날짜는 90일 뒤 「보관 밖」 으로 바뀐다).
  * - `mockTickApi` = `page.route` 로 `/api/ticks/{day,today,open,convert,convert/cancel}` 를 잡고 호출을 기록한다.
  *   경로는 URL 판정 함수로 정확히 가른다(glob `*` 는 `/` 를 넘지 않는다 — Pitfall 9).
+ * - (37-19) `mockTickLive` = `/api/ticks/live` 가짜 server(37-15 계약 — 헤더 6종 · CORS expose · 409 없음). 컷 13시 KRX 픽스처를
+ *   시각 경계로 나눈 zstd 덩이(`tickLiveChunks`)를 「공개된 만큼」 offset 이후로 내준다 · `queued` 면 `release()` 전까지 대기 k건.
  * ★ 실계좌 · 사용자 식별 리터럴 없음 — 종목 공개 정보뿐 · 서명 URL 은 가짜 호스트.
  */
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 
 import type { Page, Route } from '@playwright/test';
 import {
+  TICK_LIVE_HEADERS,
   isKrxHoliday,
+  iterRecords,
   type TickConvertBody,
   type TickConvertRequest,
   type TickConvertResponse,
@@ -289,6 +294,110 @@ export async function mockTickApi(page: Page, opts: MockTickApiOpts = {}): Promi
         default:
           return json(route, 404, { error: { code: 'NOT_FOUND', message: u.pathname } });
       }
+    },
+  );
+  return rec;
+}
+
+// ── 당일 경로(37-19) ────────────────────────────────────────────────────────────────
+
+const KST_OFF_NS = 9n * 3_600_000_000_000n;
+/** `YYYYMMDD` + `HH:MM:SS` (KST) → epoch ns. */
+function kstNs(ymd: string, hms: string): bigint {
+  const [h, m, s] = hms.split(':').map(Number) as [number, number, number];
+  const utcMs = Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)), h, m, s);
+  return BigInt(utcMs) * 1_000_000n - KST_OFF_NS;
+}
+
+/**
+ * 컷 13시 KRX 픽스처(13:00~13:48)를 시각 경계(`HH:MM:SS` KST · 오름차순)로 나눈 zstd 덩이들 — 경계 수 + 1 개.
+ * 덩이마다 독립 zstd 프레임이라 이어붙여도 유효하다(tickgw 캐시와 같은 꼴). 픽스처는 수신순이 시각순이다.
+ */
+export function tickLiveChunks(cuts: readonly string[], d = TICK_DATE): Buffer[] {
+  const raw = zstdDecompressSync(tickGridBytes('KRX'));
+  const bounds = cuts.map((c) => kstNs(d, c));
+  const offs: number[] = [];
+  let k = 0;
+  for (const r of iterRecords(raw)) {
+    while (k < bounds.length && r.recvNs >= bounds[k]!) {
+      offs.push(r.off - 16);
+      k += 1;
+    }
+  }
+  while (offs.length < bounds.length) offs.push(raw.length);
+  const edges = [0, ...offs, raw.length];
+  const out: Buffer[] = [];
+  for (let i = 0; i + 1 < edges.length; i++) out.push(zstdCompressSync(raw.subarray(edges[i]!, edges[i + 1]!)));
+  return out;
+}
+
+export interface TickLiveRecorder {
+  /** `/api/ticks/live` 요청(OPTIONS 제외) — epoch · offset. */
+  calls: { epoch: string | null; offset: number }[];
+  /** 다음 덩이를 공개한다(새 틱이 119 에 쌓인 흉내) — 다음 폴링이 가져간다. */
+  publish: () => void;
+  /** 대기열에서 풀어 준다(이후 요청은 ready) — 받는 중 카드를 확인한 뒤 부른다(순간 상태 단언 피하기). */
+  release: () => void;
+}
+
+export interface MockTickLiveOpts {
+  /** 덩이(zstd) — 처음에는 `initial` 개가 공개돼 있다. */
+  chunks: readonly Buffer[];
+  initial?: number;
+  /** true 면 `release()` 전까지 모든 요청이 queued(대기 `queue` 건 · 바이트 없음). 기본 false. */
+  queued?: boolean;
+  queue?: number;
+  epoch?: string;
+}
+
+/** `/api/ticks/live` 가짜 server — offset 이후 공개된 바이트 · X-Tick-* 6종(37-15 이름 그대로) · CORS expose. */
+export async function mockTickLive(page: Page, opts: MockTickLiveOpts): Promise<TickLiveRecorder> {
+  const epoch = opts.epoch ?? 'e2e-epoch-1';
+  let published = opts.initial ?? 1;
+  let holding = opts.queued ?? false;
+  const rec: TickLiveRecorder = {
+    calls: [],
+    publish: () => (published = Math.min(opts.chunks.length, published + 1)),
+    release: () => (holding = false),
+  };
+  const exposed = Object.values(TICK_LIVE_HEADERS).join(', ');
+  await page.route(
+    (url) => url.pathname === '/api/ticks/live',
+    async (route) => {
+      const req = route.request();
+      const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': exposed };
+      if (req.method() === 'OPTIONS') {
+        return route.fulfill({
+          status: 204,
+          headers: {
+            ...cors,
+            'access-control-allow-headers': 'authorization, content-type',
+            'access-control-allow-methods': 'GET, OPTIONS',
+          },
+        });
+      }
+      const u = new URL(req.url());
+      const offset = Number(u.searchParams.get('offset') ?? '0');
+      rec.calls.push({ epoch: u.searchParams.get('epoch'), offset });
+      const queued = holding;
+      const all = Buffer.concat(queued ? [] : opts.chunks.slice(0, published));
+      const body = all.subarray(Math.min(offset, all.length));
+      const end = Math.max(offset, all.length);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/octet-stream',
+        headers: {
+          ...cors,
+          'cache-control': 'no-store',
+          [TICK_LIVE_HEADERS.epoch]: epoch,
+          [TICK_LIVE_HEADERS.offsetEnd]: String(end),
+          [TICK_LIVE_HEADERS.lastRecvNs]: '',
+          [TICK_LIVE_HEADERS.state]: queued ? 'queued' : 'ready',
+          [TICK_LIVE_HEADERS.queue]: String(queued ? (opts.queue ?? 2) : 0),
+          [TICK_LIVE_HEADERS.complete]: 'true',
+        },
+        body,
+      });
     },
   );
   return rec;
