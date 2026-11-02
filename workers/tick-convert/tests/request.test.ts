@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import zlib from "node:zlib";
-import { statSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 
 // 통독 여부 — scan.ts 의 createReadStream 호출 수(업로드 전 날짜는 0 이어야 한다)
 const fsSpy = vi.hoisted(() => ({ reads: 0 }));
@@ -234,6 +234,21 @@ describe("request 모드 트레이서 — claim → 통독 → 격자 → 업로
     expect(await run(["request", "--date", D, "--ex", "KRX"], sb, a.root)).toBe(1);
     const res = rpcCalls(calls, "tick_request_finish")[0]!.p_results as { isin: string; ok: boolean; error: string }[];
     expect(res).toEqual([{ isin: A, ok: false, error: "tick_grid_upsert: db down" }]);
+  });
+
+  it("깨진 원본(통독 실패)은 claim 된 종목 전부를 SCAN_FAILED 로 닫는다 · 업로드 없음 · main 1", async () => {
+    const a = archive();
+    writeFileSync(a.files.find((f) => f.endsWith(`/krx/${D}/${D}-1000.pcap.zst`))!, "not zstd");
+    const { sb, calls } = makeFakeSupabase({ claim: [A, C] });
+    expect(await run(["request", "--date", D, "--ex", "KRX"], sb, a.root)).toBe(1);
+    expect(uploads(calls)).toHaveLength(0);
+    const res = rpcCalls(calls, "tick_request_finish")[0]!.p_results as { isin: string; ok: boolean; error: string }[];
+    expect(res.map((r) => [r.isin, r.ok])).toEqual([
+      [A, false],
+      [C, false],
+    ]);
+    expect(res.every((r) => r.error.startsWith("SCAN_FAILED: "))).toBe(true);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: false, written: 0 });
   });
 
   it("claim 이 빈 배열이면 통독 · finish 없이 실행 기록만 · main 0", async () => {
