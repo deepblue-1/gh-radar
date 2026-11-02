@@ -216,11 +216,15 @@ describe('세션 주문 판정 — 컷 13시 KRX = 37-03 오라클(주문 · 종
     expect(new Set(map.values()).size).toBe(map.size);
   });
 
-  it('항목 수 = 전문 + 2조각 이상 주문 꼬리 · 모든 rec 이 한 번씩', () => {
+  it('항목 수 = 전문 + 2조각 이상 주문 꼬리(+ 수신순 점선 자리 = 역전 수) · 모든 rec 이 한 번씩', () => {
+    // 다조각 역전 84(cut1300-runs.json inverted 84/182) · 1조각 런 역전도 점선 자리를 갖는다
+    expect(s.inversions.filter((i) => i.pieces >= 2).length).toBe(84);
     for (const mode of ['exchange', 'recv'] as const) {
       const m = buildMsgRows(s, mode);
       const multi = s.orders.filter((o) => o.pieces >= 2).length;
-      expect(m.items.length).toBe(s.index.n + multi);
+      expect(m.items.length).toBe(s.index.n + multi + (mode === 'recv' ? s.inversions.length : 0));
+      // 점선 자리는 늘 그 B6 행보다 아래
+      for (const [b6, at] of m.slotPosOfB6) expect(at).toBeGreaterThan(m.posOfRec[b6]!);
       const seen = new Uint8Array(s.index.n);
       for (const it of m.items) if (itemKindOf(it) === MSG_ITEM.ROW) seen[itemIdxOf(it)]! += 1;
       expect(seen.every((v) => v === 1)).toBe(true);

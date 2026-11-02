@@ -10,9 +10,13 @@ import {
   buildMsgRows,
   fmtA3Row,
   fmtB6Row,
+  fmtOtherRow,
+  inversionText,
   itemIdxOf,
   itemKindOf,
   orderShapeLabel,
+  slotText,
+  tailInversionText,
   tailText,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
@@ -28,7 +32,10 @@ import { cn } from '@/lib/utils';
  * ① 전문은 전부 한 행씩(ATMParser 식). 한 주문(연속 A3 + 닫는 B6)은 왼쪽 레일(팀 `--team` · 일반 `--faint`)로 잇고 묶음 안
  *   행 사이 선을 없앤다 · 둘째 조각부터 시각을 흐리게 · 닫는 B6 앞 「닫는 B6」 점선 칩 · 묶음 끝 꼬리 줄(모양 칩은 꼬리에만 —
  *   1조각 주문은 그 행).
- * ② 머리 「수신순 | 거래소순」(기본 거래소순 — 커서 훅의 모드를 그대로 쓴다. 키 이동 단위도 같은 순서다).
+ * ② 머리 「수신순 | 거래소순」(기본 거래소순 — 커서 훅의 모드를 그대로 쓴다. 키 이동 단위도 같은 순서다) · 「↕ 다음 역전」.
+ *   뒤집힘 3: 먼저 온 닫는 B6 행 seq 주황 ↕ + 꼬리말(수신순 「↕ 9.0ms 먼저 수신」 · 거래소순 「↕ 수신은 9.0ms 먼저」) ·
+ *   꼬리 줄에도 같은 말 · 수신순에서만 msg_seq 제자리에 점선 「⋯ 거래소순 자리」 줄(클릭 = 그 B6).
+ *   레이아웃 길이가 안 맞는 전문은 「기타」 행(D-19) · 같은 보드 · seq 재수신은 「중복」 칩만(Pitfall 12).
  * ③ 모든 항목이 같은 높이(데스크톱 24px · 폰 22px · 한 줄 말줄임) — `useFixedWindow` 창 가상화. 커서가 바뀌면 그 행이 보이게
  *   스크롤(nearest) · 순서를 바꾸면 가운데로.
  * ④ 행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 마지막 조각. 선택 틱과 같은 주문 행은 옅은 보라 띠(스케치 019).
@@ -121,7 +128,7 @@ function railStyle(order: ViewOrder | null, sel: boolean): CSSProperties | undef
 const DIR_COLOR = { 1: 'text-[var(--up)]', 0: 'text-[var(--flat)]', [-1]: 'text-[var(--down)]' } as const;
 const SIDE_COLOR = { buy: 'text-[var(--up)]', sell: 'text-[var(--down)]', auction: 'text-[var(--muted-fg)]' } as const;
 
-function contentOf(session: TickSession, rec: number, order: ViewOrder | null): ReactNode {
+function contentOf(session: TickSession, rec: number, order: ViewOrder | null, mode: TickOrderMode): ReactNode {
   const tag = session.index.tag[rec];
   if (tag === TAG_CODE.A3) {
     const a = fmtA3Row(session, rec);
@@ -148,6 +155,7 @@ function contentOf(session: TickSession, rec: number, order: ViewOrder | null): 
     const b = fmtB6Row(session, rec);
     if (b) {
       const closing = order !== null && order.pieces >= 2 && order.closingB6Rec === rec;
+      const inv = session.inversionOfB6.get(rec);
       return (
         <>
           {closing && (
@@ -159,15 +167,30 @@ function contentOf(session: TickSession, rec: number, order: ViewOrder | null): 
             </span>
           )}
           <span className="mono text-[var(--fg)]">{b.text}</span>
+          {inv && (
+            <span data-slot="tick-msg-inv" className="ml-1.5 text-[10px] font-semibold text-[var(--vi)]">
+              {inversionText(mode, inv.leadNs)}
+            </span>
+          )}
         </>
       );
     }
   }
-  return <span className="text-[var(--muted-fg)]">{TAG_LABEL[tag ?? TAG_CODE.OTHER]}</span>;
+  const other = fmtOtherRow(session, rec);
+  const tone =
+    session.index.ok[rec] !== 1
+      ? 'text-[var(--muted-fg)]'
+      : tag === TAG_CODE.R8
+        ? 'font-semibold text-[var(--vi)]'
+        : tag === TAG_CODE.B9
+          ? 'text-[var(--fg-2)]'
+          : 'text-[var(--muted-fg)]';
+  return <span className={tone}>{other || TAG_LABEL[tag ?? TAG_CODE.OTHER]}</span>;
 }
 
 interface RowProps {
   session: TickSession;
+  model: MsgRowsModel;
   item: number;
   pos: number;
   /** 직전 항목이 같은 주문 묶음인가(레일 이어짐 · 선 없음). */
@@ -178,9 +201,18 @@ interface RowProps {
   onSelect: (rec: number) => void;
 }
 
-const MsgRow = memo(function MsgRow({ session, item, pos, joined, sel, band, phone, onSelect }: RowProps) {
+const BADGE =
+  'inline-flex h-[17px] items-center rounded-[4px] border border-transparent px-[5px] align-middle text-[9.5px] font-bold';
+
+function seqText(seq: number, phone: boolean): string {
+  if (seq < 0) return '—';
+  return phone ? `…${String(seq).slice(-4)}` : fmtQty(seq);
+}
+
+const MsgRow = memo(function MsgRow({ session, model, item, pos, joined, sel, band, phone, onSelect }: RowProps) {
   const kind = itemKindOf(item);
   const idx = itemIdxOf(item);
+  const { mode } = model;
   const rowCls = cn(
     GRID,
     'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t text-[11.5px]',
@@ -195,6 +227,7 @@ const MsgRow = memo(function MsgRow({ session, item, pos, joined, sel, band, pho
   if (kind === MSG_ITEM.TAIL) {
     const order = session.orders[idx]!;
     const last = order.recs[order.recs.length - 1]!;
+    const inv = order.closingB6Rec === null ? undefined : session.inversionOfB6.get(order.closingB6Rec);
     return (
       <div
         role="option"
@@ -204,24 +237,56 @@ const MsgRow = memo(function MsgRow({ session, item, pos, joined, sel, band, pho
         data-pos={pos}
         onClick={() => onSelect(last)}
         style={railStyle(order, false)}
-        className={cn(rowCls, 'block pl-3.5 text-[10.5px] text-[var(--muted-fg)]')}
+        className={cn(rowCls, 'block truncate pl-3.5 text-[10.5px] text-[var(--muted-fg)]')}
       >
         <span className="mono">{tailText(order)}</span>
         <ShapeChip order={order} className="ml-1" />
         {order.open && <span className={cn(CHIP, 'ml-1 bg-[var(--vi-bg)] text-[var(--vi)]')}>진행 중</span>}
+        {inv && <span className="ml-1 font-semibold text-[var(--vi)]">{tailInversionText(mode, inv.leadNs)}</span>}
+      </div>
+    );
+  }
+
+  if (kind === MSG_ITEM.SLOT) {
+    // 수신순에서만 — 먼저 온 B6 의 msg_seq 제자리(점선 · 주황). 클릭 = 그 B6 선택.
+    const b6 = idx;
+    const oid = session.orderOfRec[b6]!;
+    const order = oid >= 0 ? session.orders[oid]! : null;
+    return (
+      <div
+        role="option"
+        aria-selected={false}
+        data-slot="tick-msg-slot"
+        data-rec={b6}
+        data-pos={pos}
+        onClick={() => onSelect(b6)}
+        style={railStyle(order, false)}
+        className={cn(
+          GRID,
+          'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t border-dashed border-t-[color-mix(in_oklab,var(--vi)_60%,transparent)] bg-[color-mix(in_oklab,var(--vi)_6%,transparent)] text-[10.5px] text-[var(--vi)]',
+        )}
+      >
+        <span className="mono">⋯</span>
+        <span>
+          <span className={cn(BADGE, TAG_BADGE[TAG_CODE.B6], 'opacity-60')}>B6</span>
+        </span>
+        <span className="mono truncate">{seqText(session.index.seq[b6]!, phone)}</span>
+        <span className="min-w-0 truncate">{slotText(session, model, b6)}</span>
       </div>
     );
   }
 
   const rec = idx;
   const { index } = session;
-  const tag = index.tag[rec]!;
+  const ok = index.ok[rec] === 1;
+  const tag = ok ? index.tag[rec]! : TAG_CODE.OTHER;
   const oid = session.orderOfRec[rec]!;
   const order = oid >= 0 ? session.orders[oid]! : null;
   const recvNs = index.recvNs[rec]!;
   const us = String(Number((recvNs / 1000n) % 1000n)).padStart(3, '0');
   const seq = index.seq[rec]!;
   const dimTime = joined && tag === TAG_CODE.A3 && order !== null && order.pieces >= 2;
+  const inverted = session.inversionOfB6.has(rec);
   return (
     <div
       role="option"
@@ -240,20 +305,18 @@ const MsgRow = memo(function MsgRow({ session, item, pos, joined, sel, band, pho
         {!phone && <span className="text-[var(--muted-fg)]"> {us}</span>}
       </span>
       <span>
-        <span
-          className={cn(
-            'inline-flex h-[17px] items-center rounded-[4px] border border-transparent px-[5px] align-middle text-[9.5px] font-bold',
-            TAG_BADGE[tag],
-          )}
-        >
-          {TAG_LABEL[tag]}
-        </span>
+        <span className={cn(BADGE, TAG_BADGE[tag])}>{TAG_LABEL[tag]}</span>
       </span>
-      <span className="mono truncate text-[10.5px] text-[var(--muted-fg)]">
-        {seq >= 0 ? (phone ? `…${String(seq).slice(-4)}` : fmtQty(seq)) : '—'}
+      <span className={cn('mono truncate text-[10.5px]', inverted ? 'font-bold text-[var(--vi)]' : 'text-[var(--muted-fg)]')}>
+        {seqText(seq, phone)}
+        {inverted && (
+          <span data-slot="tick-msg-inv-mark" className="ml-0.5">
+            ↕
+          </span>
+        )}
       </span>
       <span className="min-w-0 truncate">
-        {contentOf(session, rec, order)}
+        {contentOf(session, rec, order, mode)}
         {session.duplicates[rec] === 1 && (
           <span data-slot="tick-msg-dup" className={cn(CHIP, 'bg-[var(--muted)] text-[var(--muted-fg)]')}>
             중복
@@ -310,6 +373,7 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, classN
       <MsgRow
         key={item}
         session={session}
+        model={model}
         item={item}
         pos={k}
         joined={joinedAt(session, model, k)}
@@ -321,6 +385,7 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, classN
     );
   }
 
+  const nextInv = model.nextInversionFrom(selPos);
   const multi = useMemo(() => session.orders.reduce((n, o) => n + (o.pieces >= 2 ? 1 : 0), 0), [session]);
 
   return (
@@ -336,6 +401,15 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, classN
           {fmtQty(session.index.n)}건 · 주문 {fmtQty(multi)}묶음 · 역전 {fmtQty(session.inversions.length)}
         </small>
         <span className="ml-auto inline-flex flex-none items-center gap-1.5">
+          <button
+            type="button"
+            data-slot="tick-msg-next-inv"
+            disabled={nextInv < 0}
+            onClick={() => nextInv >= 0 && onSelect(itemIdxOf(model.items[nextInv]!))}
+            className="inline-flex h-[22px] items-center rounded-[7px] bg-[var(--vi-bg)] px-2 text-[10.5px] font-semibold text-[var(--vi)] disabled:opacity-40"
+          >
+            ↕ 다음 역전
+          </button>
           <span role="group" aria-label="전문 순서" className="inline-flex rounded-full bg-[var(--muted)] p-0.5">
             {MODES.map((m) => (
               <button

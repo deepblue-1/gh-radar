@@ -5,12 +5,27 @@
  *   - ROW  — 전문 한 행(idx = rec). 전문은 **전부** 한 행씩(ATMParser 식) — 70조각 주문도 71행.
  *   - TAIL — 2조각 이상 주문의 꼬리 줄 「┗ n조각 k단 · 수량 · 금액 · 지속 · 모양」(idx = 주문 id).
  *            자리 = 묶음 끝(마지막 조각 · 닫는 B6 중 표시 순서상 뒤) 바로 다음.
+ *   - SLOT — **수신순에서만** 먼저 온 닫는 B6 의 msg_seq 제자리(런 마지막 조각 바로 뒤) 점선 「⋯ 거래소순 자리」 줄
+ *            (idx = 그 B6 rec · 클릭 = 그 B6 선택). 같은 자리에 꼬리가 있으면 점선 줄이 먼저다.
  * ② 순서 = 모드의 순열(거래소순 기본 · 수신순 토글). 묶음은 세션이 판정 입력 순서로 이미 정했다 — 여기서는 다시 묶지 않는다.
  * ③ 행 서식은 스케치 020 Decision — A3 `16,400 +1,064 (1,745만) 매수 · 0/0` · B6 `매도1 16,400 ×283 (464만) 매수1 …`
  *   (금액 = 스케치 010 C 축약 · B6 총잔량은 행에서 뺀다 — 호가 바닥 줄이 보여 준다).
  */
 
-import { TAG_CODE, bookAt, type BookLevel } from '@gh-radar/shared';
+import {
+  A0_LAYOUT,
+  B9_LAYOUT,
+  C3_LAYOUT,
+  R8_LAYOUT,
+  TAG_CODE,
+  TEAM_MEMBER_LABEL,
+  bookAt,
+  decodeFields,
+  parseStr,
+  payloadOf,
+  type BookLevel,
+  type FieldValue,
+} from '@gh-radar/shared';
 
 import { fmtAmountC, fmtQty, MINUS } from './tick-format';
 import type { TickSession, ViewOrder } from './tick-session';
@@ -39,6 +54,8 @@ export interface MsgRowsModel {
   posOfRec: Int32Array;
   /** 주문 id → 꼬리 줄 항목 자리(꼬리 없으면 -1). */
   tailPosOfOrder: Int32Array;
+  /** 먼저 온 B6 rec → 점선 「거래소순 자리」 항목 자리(수신순에서만). */
+  slotPosOfB6: Map<number, number>;
   /** 역전 B6 행의 항목 자리(오름차순). */
   inversionPos: Int32Array;
   /** 항목 자리 pos 뒤 첫 역전 B6 행 자리 · 없으면 -1. */
@@ -73,14 +90,39 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRows
     tails += 1;
   }
 
-  const items = new Int32Array(n + tails);
+  // 점선 「거래소순 자리」 — 수신순에서만, 먼저 온 B6 마다 그 런 마지막 조각(seq) 바로 뒤
+  const slotAfter = new Map<number, number[]>();
+  let slots = 0;
+  if (mode === 'recv') {
+    for (const inv of session.inversions) {
+      // 조각이 수신 순서를 지키면 마지막 조각(seq) = 가장 늦게 온 조각. 어긋나도 점선 줄이 그 B6 위로 가지 않게
+      // 주문 조각 중 가장 늦게 수신된 것 뒤에 둔다.
+      const oid = session.orderOfRec[inv.b6Rec]!;
+      let anchor = inv.lastRec;
+      if (oid >= 0) for (const r of session.orders[oid]!.recs) if (posOf[r]! > posOf[anchor]!) anchor = r;
+      const list = slotAfter.get(anchor);
+      if (list) list.push(inv.b6Rec);
+      else slotAfter.set(anchor, [inv.b6Rec]);
+      slots += 1;
+    }
+  }
+
+  const items = new Int32Array(n + tails + slots);
   const posOfRec = new Int32Array(n);
   const tailPosOfOrder = new Int32Array(session.orders.length).fill(-1);
+  const slotPosOfB6 = new Map<number, number>();
   let k = 0;
   for (let p = 0; p < n; p++) {
     const r = order[p]!;
     posOfRec[r] = k;
     items[k++] = msgItem(MSG_ITEM.ROW, r);
+    const sl = slotAfter.get(r);
+    if (sl) {
+      for (const b6 of sl) {
+        slotPosOfB6.set(b6, k);
+        items[k++] = msgItem(MSG_ITEM.SLOT, b6);
+      }
+    }
     const t = tailAfter[r]!;
     if (t >= 0) {
       tailPosOfOrder[t] = k;
@@ -97,6 +139,7 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRows
     items,
     posOfRec,
     tailPosOfOrder,
+    slotPosOfB6,
     inversionPos,
     nextInversionFrom(pos: number): number {
       let lo = 0;
@@ -221,23 +264,81 @@ export function orderShapeLabel(order: Pick<ViewOrder, 'kind'>): string {
   }
 }
 
-/** 먼저 온 B6 행 꼬리말 — (37-13 Task 2 에서 채운다). */
-export function inversionText(_mode: TickOrderMode, _leadNs: bigint): string {
-  return '';
+/** 먼저 온 B6 행 꼬리말 — 수신순 「↕ 9.0ms 먼저 수신」 · 거래소순 「↕ 수신은 9.0ms 먼저」(스케치 020 뒤집힘 3). */
+export function inversionText(mode: TickOrderMode, leadNs: bigint): string {
+  const ms = fmtLeadMs(leadNs);
+  return mode === 'recv' ? `↕ ${ms} 먼저 수신` : `↕ 수신은 ${ms} 먼저`;
 }
 
-/** 꼬리 줄 뒤집힘 말 — (37-13 Task 2 에서 채운다). */
-export function tailInversionText(_mode: TickOrderMode, _leadNs: bigint): string {
-  return '';
+/** 꼬리 줄 뒤집힘 말 — 「· 닫는 B6 ↕ 9.0ms 먼저」(수신순은 끝에 「수신」). */
+export function tailInversionText(mode: TickOrderMode, leadNs: bigint): string {
+  return `· 닫는 B6 ↕ ${fmtLeadMs(leadNs)} 먼저${mode === 'recv' ? ' 수신' : ''}`;
 }
 
-/** 점선 「⋯ 거래소순 자리」 줄 — (37-13 Task 2 에서 채운다). */
-export function slotText(_session: TickSession, _model: MsgRowsModel, _b6Rec: number): string {
-  return '';
+/** 점선 「⋯ 거래소순 자리 — 이 B6 는 9.0ms 먼저 수신돼 위 n행에 있음」(n = 점선 줄과 그 B6 행의 항목 거리). */
+export function slotText(session: TickSession, model: MsgRowsModel, b6Rec: number): string {
+  const inv = session.inversionOfB6.get(b6Rec);
+  const at = model.slotPosOfB6.get(b6Rec);
+  if (!inv || at === undefined) return '';
+  return `⋯ 거래소순 자리 — 이 B6 는 ${fmtLeadMs(inv.leadNs)} 먼저 수신돼 위 ${at - model.posOfRec[b6Rec]!}행에 있음`;
 }
 
-/** B9 · C3 · R8 · A0 · 기타 행 — (37-13 Task 2 에서 채운다). */
-export function fmtOtherRow(_session: TickSession, _rec: number): string {
+function num(v: FieldValue | undefined): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'bigint') return Number(v);
+  return 0;
+}
+
+function str(v: FieldValue | undefined): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+function signedQty(v: number): string {
+  if (v === 0) return '0';
+  return `${v > 0 ? '+' : MINUS}${fmtQty(Math.abs(v))}`;
+}
+
+function memberLabel(code: string): string {
+  if (code === '') return '—';
+  return (TEAM_MEMBER_LABEL as Record<string, string>)[code] ?? code;
+}
+
+const VI_TYPE: Record<string, string> = { '1': '정적', '2': '동적', '3': '정적+동적', '4': '연장' };
+
+/**
+ * B9 · C3 · R8 · A0 · 기타 행 문구. A3 · B6(ok) 는 빈 문자열(각자 서식 함수).
+ * - 기타(레이아웃 길이가 안 맞는 전문 · D-19) = 「기타 · <태그> · <정보구분> · <길이>B」.
+ * - B9 = 「거래원 매수1 <창구> <수량> · 매도1 <창구> <수량>」(팀 창구는 이름) · C3 = 「프로그램 순매수 차익 ±q · 비차익 ±q」
+ *   (위탁 + 자기 체결 수량) · R8 = 「VI 발동(정적|동적) 기준가 … · 발동가 …」 | 「VI 해제」 · A0 = 「종목 정보 <종목명>」.
+ */
+export function fmtOtherRow(session: TickSession, rec: number): string {
+  const { index, buf } = session;
+  const payload = payloadOf(buf, index, rec);
+  if (index.ok[rec] !== 1) {
+    return `기타 · ${parseStr(payload, 0, 2) || '?'} · ${parseStr(payload, 2, 3) || '—'} · ${fmtQty(payload.length)}B`;
+  }
+  const tag = index.tag[rec];
+  const recv = index.recvNs[rec]!;
+  if (tag === TAG_CODE.B9) {
+    const r = decodeFields(B9_LAYOUT, payload, recv, index.label);
+    return `거래원 매수1 ${memberLabel(str(r['lv1_buy_member']))} ${fmtQty(num(r['lv1_buy_qty']))} · 매도1 ${memberLabel(str(r['lv1_sell_member']))} ${fmtQty(num(r['lv1_sell_qty']))}`;
+  }
+  if (tag === TAG_CODE.C3) {
+    const r = decodeFields(C3_LAYOUT, payload, recv, index.label);
+    const q = (k: string) => num(r[`cons_${k}_exec_qty`]) + num(r[`prop_${k}_exec_qty`]);
+    return `프로그램 순매수 차익 ${signedQty(q('buy_arb') - q('sell_arb'))} · 비차익 ${signedQty(q('buy_nonarb') - q('sell_nonarb'))}`;
+  }
+  if (tag === TAG_CODE.R8) {
+    const r = decodeFields(R8_LAYOUT, payload, recv, index.label);
+    if (str(r['vi_status']) !== '1') return 'VI 해제';
+    const type = str(r['vi_type']);
+    const base = type === '2' ? num(r['base_price_dvi']) : num(r['base_price_svi']);
+    return `VI 발동(${VI_TYPE[type] ?? type}) 기준가 ${fmtQty(base)} · 발동가 ${fmtQty(num(r['trigger_price']))}`;
+  }
+  if (tag === TAG_CODE.A0) {
+    const r = decodeFields(A0_LAYOUT, payload, recv, index.label);
+    return `종목 정보 ${str(r['name'])}`;
+  }
   return '';
 }
 
