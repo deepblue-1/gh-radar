@@ -32,8 +32,12 @@
  *   건넨다. 본문이 들고 있는 것은 화면 국소 상태 둘뿐이다 — 폰 밴드 옵션 탭, 호가 클릭 가격.
  *   ★ 본문은 넘겨받은 **단일** `isin`/`exchange` 의 시세만 그리고, 수동주문 폼도 같은 값을 쓴다
  *     (T-18-48 — 다른 종목 호가로 주문하는 경로가 없다).
- *   ★ 예외 하나 — 호가 단위 잠금 강도(`useTickRule`, D-15a)는 여기서 읽는다. 상따 폼과 수동주문 폼이
- *     **같은 분류 값**을 받는다 — 폼별로 갈라지지 않는다. 종목 마스터를 읽기만 하는 조회다(`lib/tick-rule.ts`).
+ *   ★ 예외 둘 — 여기서 직접 읽는 조회가 두 개다(둘 다 읽기 전용).
+ *     · 호가 단위 잠금 강도(`useTickRule`, D-15a). 상따 폼과 수동주문 폼이 **같은 분류 값**을 받는다 — 폼별로
+ *       갈라지지 않는다. 종목 마스터를 읽기만 하는 조회다(`lib/tick-rule.ts`).
+ *     · 버스트 판정 기준(quick-261102-epl) — **카드 계좌 서버**의 84 `burstRatioPct`(`userSettingsForAccount` →
+ *       `burstRatioThresholdOf` · 0 · 미수신이면 내장 70)를 사다리 `burstThresholdPct` 로 넘긴다. 다른 서버(primary) 값으로
+ *       대신 채우지 않는다(Pitfall 14) — 기준은 그 계좌 서버가 ☐버스트 취소에 쓰는 값이어야 한다.
  *
  * ⑥ ★ 상따 설정에는 더티 바가 없다 (Phase 20 D-04)
  *   옵션 폼은 값 하나를 확정하면 그 한 필드가 곧 전송 1회다 — 더티 누적 · 「수정/되돌리기」 바 ·
@@ -63,7 +67,9 @@ import {
 import type { StrategyCardState } from '@/components/trading/card/strategy-card';
 import { AUTO_SELL_PEND_TEXT, isLegacyBuySchema } from '@/lib/limit-chaser';
 import type { RelayStatus } from '@/lib/use-relay-socket';
+import { useRelayContext } from '@/lib/relay-provider';
 import { useTickRule } from '@/lib/tick-rule';
+import { burstRatioThresholdOf, userSettingsForAccount } from '@/lib/user-settings-server';
 import { cn } from '@/lib/utils';
 
 /** 사다리 단 수 — 계약상 `ap/aq/bp/bq` 는 길이 10 고정. */
@@ -223,6 +229,11 @@ export function CardBody({
   onClearSelection,
   className,
 }: CardBodyProps) {
+  const relay = useRelayContext();
+  /** 버스트 판정 기준 — 카드 계좌 서버의 84(⑤ 예외 둘 · quick-261102-epl). */
+  const burstThresholdPct = burstRatioThresholdOf(
+    userSettingsForAccount(relay.userSettingsByServer, accountNo, relay.accounts),
+  );
   const {
     key,
     server,
@@ -355,6 +366,7 @@ export function CardBody({
           upperLimit={upperLimit}
           recentTrades={tape}
           onPriceSelect={handlePriceSelect}
+          burstThresholdPct={burstThresholdPct}
         />
       </div>
       <div data-slot="card-body-options" className="min-w-0 p-2 @min-[685px]/lc:p-2.5">

@@ -22,6 +22,11 @@ import { amountFromQty, qtyFromAmount } from '@gh-radar/shared';
 
 const sendMock = vi.fn();
 const sendOrderMock = vi.fn();
+/** 테스트별로 바꾸는 84 · 계좌 목록(quick-261102-epl — 버스트 기준 = 카드 계좌 서버 84). 기본은 빈 값 = 기준 70. */
+const relayState = vi.hoisted(() => ({
+  userSettingsByServer: new Map<string, unknown>(),
+  accounts: [] as { accountNo: string; name: string; serverKey?: string }[],
+}));
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
@@ -30,6 +35,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       ...actual.EMPTY_RELAY_VALUE,
       send: sendMock,
       sendOrder: sendOrderMock,
+      userSettingsByServer: relayState.userSettingsByServer,
+      accounts: relayState.accounts,
     }),
   };
 });
@@ -218,6 +225,8 @@ beforeEach(() => {
   sendOrderMock.mockReset();
   clearTickRuleCache();
   master.group = '주권';
+  relayState.userSettingsByServer = new Map();
+  relayState.accounts = [];
 });
 
 describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
@@ -788,5 +797,60 @@ describe('Phase 27 바로시작 · 중지 — 카드 본문 배선 (D-08 칩 전
       fireEvent.click(asGroup().querySelector('[data-slot="lc-auto-sell-start"]') as HTMLElement);
     });
     expect(onAutoSellCommand).toHaveBeenCalledWith('start');
+  });
+});
+
+/*
+  quick-261102-epl — 호가 사다리 버스트 기준 = 카드 계좌(accountNo)의 서버 84 burstRatioPct(`userSettingsForAccount` →
+  `burstRatioThresholdOf`). 다른 서버(primary) 84 로 대신 채우지 않는다(Pitfall 14) · 그 서버 84 없음 · 0 이면 내장 70.
+*/
+describe('⑤ 예외 둘 — 버스트 판정 기준은 카드 계좌 서버의 84 (quick-261102-epl)', () => {
+  const us84 = (serverKey: string, burstRatioPct: number) => ({
+    t: 'user.settings',
+    present: true,
+    serverKey,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+    burstRatioPct,
+  });
+  const mark = (c: HTMLElement) =>
+    orderbookPane(c).querySelector<HTMLElement>('[data-slot="ladder-burst"] [data-tone]');
+
+  it('카드 계좌 서버(KYOBO119) 84 기준 90 · brp 85 → 회색 「85%」', () => {
+    relayState.accounts = [
+      { accountNo: '99999999-01', name: 'KB', serverKey: 'KB120' },
+      { accountNo: ACCOUNT, name: '교보', serverKey: 'KYOBO119' },
+    ];
+    relayState.userSettingsByServer = new Map([
+      ['KB120', us84('KB120', 50)],
+      ['KYOBO119', us84('KYOBO119', 90)],
+    ]);
+    const { container } = render(<CardBody {...props({ card: cardState({ quote: quote({ brp: 85 }) }) })} />);
+    expect(mark(container)).toHaveAttribute('data-tone', 'muted');
+    expect(mark(container)!.querySelector('[aria-hidden="true"]')).toHaveTextContent(/^85%$/);
+  });
+
+  it.each([
+    ['그 서버 84 없음', new Map([['KB120', us84('KB120', 90)]])],
+    ['그 서버 84 가 0(구 서버)', new Map([['KYOBO119', us84('KYOBO119', 0)]])],
+  ] as const)('%s · brp 85 → 빨강 「버스트 85%」(기준 70 · 다른 서버 값으로 대신 쓰지 않는다)', (_name, map) => {
+    relayState.accounts = [
+      { accountNo: '99999999-01', name: 'KB', serverKey: 'KB120' },
+      { accountNo: ACCOUNT, name: '교보', serverKey: 'KYOBO119' },
+    ];
+    relayState.userSettingsByServer = map;
+    const { container } = render(<CardBody {...props({ card: cardState({ quote: quote({ brp: 85 }) }) })} />);
+    expect(mark(container)).toHaveAttribute('data-tone', 'up');
+    expect(mark(container)!.querySelector('[aria-hidden="true"]')).toHaveTextContent(/^버스트 85%$/);
   });
 });

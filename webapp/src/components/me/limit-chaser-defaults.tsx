@@ -16,6 +16,9 @@
  *      42 는 14값 전체 교체라 모르는 금액을 0 으로 지어 보내면 C# 「최소 [ ]만」 원값이 지워진다. 새 문구 없음.
  *      선매수 2필드(`preBuyWatchAmount` · `preBuyAutoAddBuy`) 부재는 **다르다** — 0 · false 로 읽는다(gh-trade 261012
  *      「84 에 없으면 0·false」 · 42 부재는 서버가 저장값을 유지하므로 지어낸 값이 원값을 지우는 함정이 없다).
+ *      `burstRatioPct` 0 · 부재(구 서버 · 모름)는 **표시는 내장 70 · 42 에는 싣지 않는다** — WinForms 「부재 = 0 → 내장 70」
+ *      (gh-trade quick-261101-t7c · quick-261102-epl). 「불러오는 중」 이 아니다. 표시값(`shown`)과 저장 기계 조립값(`values`)이
+ *      갈리는 유일한 칸이다.
  *    - `present: true`  = 서버 저장값 → 「서버 저장값」(ok).
  *    - `present: false` = 저장값 없음 → 「서버 저장값 없음 · 내장 기본값」(warn). 84 가 실은 내장 기본값을 그대로
  *      보이고, **42 를 자동으로 보내지 않는다**(인박스 Q2 — 이전 없음). 사용자가 행을 확정할 때만 42.
@@ -47,10 +50,11 @@
  *    `.planning/quick/261012-u04-gh-trade-261012/mockup-me-prebuy.html` 변형 B′ 열 고정)
  *    제목 · 칩 · 안내는 격자 위에 한 번이고, 묶음(`USER_SETTINGS_GROUPS`)마다 `CARD` 한 장(머리 13px/600 muted)이다.
  *    격자는 1열이 기본이고 **섹션 본문 폭 ≥700** 에서 2열(`align-items:start`)이다. 2열은 **열 고정**이다
- *    (`USER_SETTINGS_COLUMNS`) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 자동매도. 열마다 래퍼
+ *    (`USER_SETTINGS_COLUMNS`) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 버스트 상한가 · 자동매도(quick-261102-epl —
+ *    WinForms 동형 · 매도 다음 · 자동매도 앞). 열마다 래퍼
  *    (`me-lc-defaults-column`)가 ≥700 에서 제 세로 스택(grid)이 되어, 카드 높이가 달라도 행 정렬에 끌려가지 않는다.
  *    1열(폰)에서는 래퍼가 `display: contents` 라 카드가 바깥 격자의 직접 항목이 된다 — DOM 순서 그대로
- *    매수 금액 → 선매수 → 후매수 → 매도 → 자동매도. 판정은 이 섹션 루트의
+ *    매수 금액 → 선매수 → 후매수 → 매도 → 버스트 상한가 → 자동매도. 판정은 이 섹션 루트의
  *    `@container/me` 로 한다 — /me 본문 폭은 사이드바(240/64/없음)·앱 셸 패딩에 따라 뷰포트와 어긋나므로 뷰포트
  *    브레이크포인트로는 「본문 ≥ ~700」 을 말할 수 없다. 700 은 목업 수치이자 작업대 `@container/wb` 700 선례
  *    (`workbench/card-grid.tsx`)와 같다. ★ 컨테이너는 **이 섹션에만** 단다 — 페이지 루트에 달면 `container-type`
@@ -78,7 +82,7 @@ import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
-import { burstRatioPctOf, userSettingsForServer } from "@/lib/user-settings-server";
+import { burstRatioPctOf, burstRatioThresholdOf, userSettingsForServer } from "@/lib/user-settings-server";
 import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +92,7 @@ export type UserSettingsBoolKey = Exclude<UserSettingsKey, UserSettingsNumericKe
 /** 저장 기계가 다루는 칸 값 — 숫자 칸 · bool 칸. */
 type UserSettingsFieldValue = number | boolean;
 
-export type UserSettingsGroup = "매수 금액" | "선매수" | "후매수" | "매도" | "자동매도";
+export type UserSettingsGroup = "매수 금액" | "선매수" | "후매수" | "매도" | "버스트 상한가" | "자동매도";
 
 interface UserSettingsRowBase {
   label: string;
@@ -109,19 +113,20 @@ export type UserSettingsRowSpec =
 export type UserSettingsValueRowSpec = Extract<UserSettingsRowSpec, { kind: "value" }>;
 
 /**
- * 열 고정 2열(채택 목업 B′ · quick-261012-u04) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 자동매도.
+ * 열 고정 2열(채택 목업 B′ · quick-261012-u04) — 왼쪽 매수 금액 · 선매수 · 후매수, 오른쪽 매도 · 버스트 상한가 · 자동매도
+ * (quick-261102-epl — WinForms 동형).
  * 1열(폰)은 이 순서를 평탄화한 순서다. 묶음 순서의 정본이다(`USER_SETTINGS_GROUPS` 는 파생).
  */
 export const USER_SETTINGS_COLUMNS: readonly (readonly UserSettingsGroup[])[] = [
   ["매수 금액", "선매수", "후매수"],
-  ["매도", "자동매도"],
+  ["매도", "버스트 상한가", "자동매도"],
 ];
 
 /** 묶음 순서(D-13 · 목업 `GROUPS` · B′) — 열 정본의 평탄화. */
 export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_COLUMNS.flat();
 
 /**
- * 12행 표(목업 `F` · `GROUPS` 그대로 · 금액 5칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면(DOM · 열) 순서 — 인라인
+ * 13행 표(목업 `F` · `GROUPS` 그대로 · 금액 5칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면(DOM · 열) 순서 — 인라인
  * Tab 이동(`value` 행만)이 이 순서를 따른다. 범위는 여기 두지 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
  * 봉인 `postBuyFloorQty` 는 행이 없다 — 42 에 0 을 싣는다(Phase 32 D-08). 그 자리는 「후매수 최소」(만원)가 교체했다.
  * 「후매수 최대」(`postBuyMaxCount`)는 행이 없다 — 서버가 재진입 횟수를 읽지 않는다(gh-trade 261012 · C# 기본값 창도 삭제). 42 에는 84 값을
@@ -129,6 +134,8 @@ export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_
  * 「선매수」 2행(quick-261012-u04 · gh-trade 261012 · 목업 원문 라벨): 「매도잔량」(만원 · 0 = 상따 폼이 상장주식수 × 0.3% 로
  * 시딩 · > 0 = 그 값으로 선매수 매도잔량 칸을 채움) · 「줄매수도 같이 켜기」(켜 두면 상따 폼에서 사람이 ☐선매수를 켤 때 ☐줄매수도
  * 같은 제출로 켬).
+ * 「버스트 상한가」 1행(quick-261102-epl · gh-trade quick-261101-t7c): 「판정 비율」(% · 1~100 · 기본 70) — 서버 상따 ☐버스트 취소와
+ * 호가창 「버스트 NN%」 의 기준이다. 저장 즉시 그 사용자의 모든 세션에 반영된다(84 브로드캐스트). 84 가 0(구 서버)이면 70 을 보인다.
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { kind: "value", key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
@@ -159,6 +166,14 @@ export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   },
   { kind: "value", key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
   { kind: "value", key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
+  {
+    kind: "value",
+    key: "burstRatioPct",
+    label: "판정 비율",
+    unit: "%",
+    group: "버스트 상한가",
+    id: "me-lc-burst-ratio-pct",
+  },
   { kind: "value", key: "autoSellPeriodSec", label: "매도 주기", unit: "초", group: "자동매도", id: "me-lc-auto-sell-period-sec" },
   {
     kind: "value",
@@ -650,10 +665,19 @@ export function LimitChaserDefaultsSection({
   const text = USER_SETTINGS_STATUS_TEXT[status];
   const save = useUserSettingsSave(userSettings, send, messages, serverKey);
   useBusyReport(save.inflightKey !== null || save.queuedKeys.size > 0, onBusyChange);
-  // 표시 · 시트 초기값은 정규화 14값으로 읽는다 — 선매수 2필드 84 부재 = 0 · false(gh-trade 261012).
+  // 정규화 14값 — 선매수 2필드 84 부재 = 0 · false(gh-trade 261012). burstRatioPct 는 84 가 1~100 일 때만 있다(42 조립값).
   const values = useMemo(
     () => (userSettings === undefined ? undefined : userSettingsValuesOf(userSettings)),
     [userSettings],
+  );
+  /**
+   * 화면 표시 전용 값 — `values` 에 burstRatioPct 를 `burstRatioThresholdOf`(84 가 0 · 부재면 내장 70)로 채운 것. 행 값 · 체크 ·
+   * 인라인 · 시트 초기값은 이것을 읽고, 저장 기계(42 조립 · no-op · 성공 · 플래시 비교)는 `values` 를 읽는다 — 70 을 조립값에
+   * 넣으면 「84 가 0 이면 42 에 싣지 않는다」 가 깨진다(quick-261102-epl).
+   */
+  const shown = useMemo(
+    () => (values === undefined ? undefined : { ...values, burstRatioPct: burstRatioThresholdOf(userSettings) }),
+    [values, userSettings],
   );
 
   const editMode = useEditMode();
@@ -800,9 +824,9 @@ export function LimitChaserDefaultsSection({
                           checkId={row.id}
                           groupTitle={row.group}
                           label={row.label}
-                          checked={values?.[row.key] ?? false}
+                          checked={shown?.[row.key] ?? false}
                           onToggle={() => {
-                            if (values !== undefined) save.commit(row.key, !values[row.key]);
+                            if (shown !== undefined) save.commit(row.key, !shown[row.key]);
                           }}
                           disabled={loading || busy}
                           checkBusy={busy}
@@ -816,7 +840,7 @@ export function LimitChaserDefaultsSection({
                         <ChoiceRow
                           id={row.id}
                           label={row.label}
-                          value={values?.[row.key] ?? 0}
+                          value={shown?.[row.key] ?? 0}
                           options={METHOD_OPTIONS}
                           onSelect={(v) => save.commit(row.key, v)}
                           a11yName={row.label}
@@ -833,20 +857,20 @@ export function LimitChaserDefaultsSection({
                           id={row.id}
                           label={row.label}
                           unit={row.unit}
-                          value={values?.[row.key] ?? null}
+                          value={shown?.[row.key] ?? null}
                           disabled={loading}
                           busy={busy}
                           failed={failed}
                           failureText={failure || null}
-                          editing={editingKey === row.key && values !== undefined}
+                          editing={editingKey === row.key && shown !== undefined}
                           hasPopup={editMode === "sheet"}
                           editor={
-                            values === undefined ? null : (
+                            shown === undefined ? null : (
                               <InlineValueEditor
                                 id={row.id}
                                 label={row.label}
                                 unit={row.unit}
-                                initialValue={values[row.key] ?? null}
+                                initialValue={shown[row.key]}
                                 validate={(v) => userSettingsRangeIssue(row.key, v, row.unit)}
                                 onSave={(v) => {
                                   save.commit(row.key, v);
@@ -900,8 +924,8 @@ export function LimitChaserDefaultsSection({
         description={sheetRow === null ? "" : rangeLabel(sheetRow.key, sheetUnit)}
         unit={sheetUnit}
         purpose="apply"
-        initialValue={sheetRow === null || values === undefined ? null : (values[sheetRow.key] ?? null)}
-        serverValue={sheetRow === null || values === undefined ? null : (values[sheetRow.key] ?? null)}
+        initialValue={sheetRow === null || shown === undefined ? null : shown[sheetRow.key]}
+        serverValue={sheetRow === null || shown === undefined ? null : shown[sheetRow.key]}
         ctx={{ current: 0, upper: 0 }}
         validate={(v) => (sheetRow === null ? null : userSettingsRangeIssue(sheetRow.key, v, sheetUnit))}
         returnFocusRef={sheetReturnRef}

@@ -8,8 +8,8 @@ import type { RelayServerMessageEntry } from '@/lib/use-relay-socket';
 /**
  * Phase 27 (27-06) — `/me` 「상따 기본설정」 섹션 (D-10 · D-12 · D-13 · 인박스 Q1/Q2 · 목업 변형 C).
  *
- * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 5묶음 12행 순서와 값 표기 ·
- * 미수신 흐림/비활성 · present=false 자동 42 없음 · 「선매수」 카드(quick-261012-u04).
+ * 잠그는 것: 84 3상태(미수신 · present true · present false)의 칩 · 안내 원문 · 6묶음 13행 순서와 값 표기 ·
+ * 미수신 흐림/비활성 · present=false 자동 42 없음 · 「선매수」 카드(quick-261012-u04) · 「버스트 상한가」 카드(quick-261102-epl).
  */
 
 let mockRelay: RelayContextValue;
@@ -71,7 +71,7 @@ afterEach(() => {
 });
 
 describe('Phase 27 상따 기본설정 표시', () => {
-  it('84 미수신 — 「불러오는 중」 칩 · 안내 · 10행 흐림 · 값 버튼 비활성', () => {
+  it('84 미수신 — 「불러오는 중」 칩 · 안내 · 13행 흐림 · 값 버튼 비활성', () => {
     mockRelay = relay(undefined);
     render(<LimitChaserDefaultsSection />);
     expect(within(section()).getByRole('heading', { name: '상따 기본설정' })).toBeInTheDocument();
@@ -106,13 +106,13 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('묶음 5개 · 12행 순서 · 값 표기(만원 · % · 초 · 방법 · 체크)', () => {
+  it('묶음 6개 · 13행 순서 · 값 표기(만원 · % · 초 · 방법 · 체크)', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const groups = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group"]')).map(
       (g) => g.textContent,
     );
-    expect(groups).toEqual(['매수 금액', '선매수', '후매수', '매도', '자동매도']);
+    expect(groups).toEqual(['매수 금액', '선매수', '후매수', '매도', '버스트 상한가', '자동매도']);
     const labels = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).map(
       (r) => r.getAttribute('data-label'),
     );
@@ -125,6 +125,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
       '후매수 최소',
       '후매수 반등',
       '매도 잔량추적',
+      '판정 비율',
       '매도 주기',
       '동시호가 매도비율',
       '비율 기본값',
@@ -137,6 +138,8 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(rowValue('post-buy-floor-amount')).toBe('0만원');
     expect(rowValue('post-buy-rebound-pct')).toBe('30%');
     expect(rowValue('sell-qty-track-ratio')).toBe('55%');
+    // 84 에 버스트 슬롯 없음(구 서버) → 내장 70 을 보인다(quick-261102-epl).
+    expect(rowValue('burst-ratio-pct')).toBe('70%');
     expect(rowValue('auto-sell-period-sec')).toBe('3초');
     expect(rowValue('auction-sell-ratio-pct')).toBe('20%');
     expect(rowValue('auto-sell-ratio-default-pct')).toBe('10%');
@@ -471,19 +474,26 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
   const cards = () =>
     Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group-card"]')) as HTMLElement[];
 
-  it('S1-1 — 묶음 카드 5장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·2·1·4', () => {
+  it('S1-1 — 묶음 카드 6장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·2·1·1·4', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const cs = cards();
-    expect(cs).toHaveLength(5);
-    expect(cs.map((c) => c.getAttribute('role'))).toEqual(['group', 'group', 'group', 'group', 'group']);
-    expect(cs.map((c) => c.getAttribute('aria-label'))).toEqual(['매수 금액', '선매수', '후매수', '매도', '자동매도']);
+    expect(cs).toHaveLength(6);
+    expect(cs.map((c) => c.getAttribute('role'))).toEqual(['group', 'group', 'group', 'group', 'group', 'group']);
+    expect(cs.map((c) => c.getAttribute('aria-label'))).toEqual([
+      '매수 금액',
+      '선매수',
+      '후매수',
+      '매도',
+      '버스트 상한가',
+      '자동매도',
+    ]);
     for (const c of cs) {
       expect(c.className).toContain('rounded-[16px]');
       expect(c.className).toContain('bg-[var(--card)]');
     }
-    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 2, 1, 4]);
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(12);
+    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 2, 1, 1, 4]);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(13);
   });
 
   it('S1-2 — 카드마다 행 목록에 @container/lc 하나 · 섹션 루트는 @container/me 이고 카드 면이 아니다', () => {
@@ -510,7 +520,7 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
     expect(rowsEl()).toHaveAttribute('data-dim', 'true');
   });
 
-  it('S1-3b u04 B′ 열 고정 — 열 래퍼 2개(왼쪽 매수 금액 · 선매수 · 후매수 / 오른쪽 매도 · 자동매도) · 1열 contents · ≥700 grid', () => {
+  it('S1-3b u04 B′ 열 고정 — 열 래퍼 2개(왼쪽 매수 금액 · 선매수 · 후매수 / 오른쪽 매도 · 버스트 상한가 · 자동매도) · 1열 contents · ≥700 grid', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const cols = Array.from(rowsEl().children) as HTMLElement[];
@@ -524,7 +534,7 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
     const namesOf = (col: HTMLElement) =>
       Array.from(col.querySelectorAll('[data-slot="me-lc-defaults-group-card"]')).map((c) => c.getAttribute('aria-label'));
     expect(namesOf(cols[0]!)).toEqual(['매수 금액', '선매수', '후매수']);
-    expect(namesOf(cols[1]!)).toEqual(['매도', '자동매도']);
+    expect(namesOf(cols[1]!)).toEqual(['매도', '버스트 상한가', '자동매도']);
   });
 
   it('S1-4 — 제목 · 칩 · 안내는 격자 위에 한 번씩만', () => {
@@ -548,7 +558,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
   const rowButton = (field: string) =>
     section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
 
-  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 12행', () => {
+  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 13행', () => {
     mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
     render(<LimitChaserDefaultsSection />);
     const card = within(section()).getByRole('group', { name: '후매수' });
@@ -559,7 +569,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
     expect(rowValue('post-buy-floor-amount')).toBe('84만원');
     expect(rowButton('post-buy-floor-amount')).toHaveAccessibleName('후매수 최소 84만원');
     expect(section().textContent).not.toContain('하한잔량');
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(12);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(13);
   });
 
   it('84 최소 0 → 「0만원」(의미어 없음)', () => {
@@ -629,6 +639,106 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
       '0~999,999,999만원 사이여야 해요',
     );
     expect(userSettingsValuesIssue({ ...ok, postBuyFloorAmount: 999_999_999 }, 'postBuyFloorAmount')).toBeNull();
+  });
+});
+
+/* ───────────────────────── quick-261102-epl — 「버스트 상한가」 카드(판정 비율) ───────────────────────── */
+
+describe('epl 「버스트 상한가」 카드 (gh-trade quick-261101-t7c · quick-261102-epl)', () => {
+  const rowButton = () => section().querySelector('button[data-lc-field="me-lc-burst-ratio-pct"]') as HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('84 85 → 카드 「버스트 상한가」 · 행 「판정 비율」 · 「85%」', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    const card = within(section()).getByRole('group', { name: '버스트 상한가' });
+    const labels = Array.from(card.querySelectorAll('[data-slot="me-lc-defaults-row"]')).map((r) =>
+      r.getAttribute('data-label'),
+    );
+    expect(labels).toEqual(['판정 비율']);
+    expect(rowValue('burst-ratio-pct')).toBe('85%');
+  });
+
+  it.each([
+    ['0(구 서버)', { burstRatioPct: 0 }],
+    ['키 부재(옛 relay)', {}],
+  ] as const)('84 %s → 「70%」 · 편집 가능(불러오는 중 아님)', (_name, patch) => {
+    mockRelay = relay(settings(true, patch));
+    render(<LimitChaserDefaultsSection />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('burst-ratio-pct')).toBe('70%');
+    expect(rowButton()).toBeEnabled();
+  });
+
+  it('84 미수신 → 흐림 · 값 버튼 비활성', () => {
+    mockRelay = relay(undefined);
+    render(<LimitChaserDefaultsSection />);
+    expect(section().querySelector('[data-slot="me-lc-defaults-rows"]')).toHaveAttribute('data-dim', 'true');
+    expect(rowButton()).toBeDisabled();
+  });
+
+  it('인라인 90 Enter → send 1 · s.burstRatioPct 90 · 나머지는 84 캐시', () => {
+    const base = settings(true, { burstRatioPct: 85 });
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('burst-ratio-pct', '90');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), burstRatioPct: 90 } });
+  });
+
+  it.each(['101', '0'])('인라인 %s Enter → 「1~100% 사이여야 해요」 · send 0', (v) => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('burst-ratio-pct', v);
+    expect(send).not.toHaveBeenCalled();
+    // 말풍선은 포털로 body 에 선다 — 입력은 위반 표시(aria-invalid).
+    expect(document.body).toHaveTextContent('1~100% 사이여야 해요');
+    expect(document.getElementById('me-lc-burst-ratio-pct')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('84 85 에서 85 재확정 → no-op(send 0)', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('burst-ratio-pct', '85');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('84 0 에서 70 확정 → send 1 · s.burstRatioPct 70(비교는 표시값이 아니라 조립값 기준)', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 0 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('burst-ratio-pct', '70');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s.burstRatioPct).toBe(70);
+  });
+
+  it('84(90) 도착 → 그 행 플래시', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('burst-ratio-pct', '90');
+    mockRelay = relay(settings(true, { burstRatioPct: 90 }));
+    view.rerender(<LimitChaserDefaultsSection />);
+    expect(rowWrap('burst-ratio-pct')).toHaveAttribute('data-flash', 'ok');
+    expect(rowValue('burst-ratio-pct')).toBe('90%');
+  });
+
+  it('인라인 Tab 순서 — 매도 잔량추적 → 판정 비율 → 매도 주기', () => {
+    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-sell-qty-track-ratio"]')!);
+    fireEvent.keyDown(document.getElementById('me-lc-sell-qty-track-ratio')!, { key: 'Tab' });
+    const burst = document.getElementById('me-lc-burst-ratio-pct') as HTMLInputElement | null;
+    expect(burst).not.toBeNull();
+    expect(burst!.tagName).toBe('INPUT');
+    fireEvent.keyDown(burst!, { key: 'Tab' });
+    const period = document.getElementById('me-lc-auto-sell-period-sec') as HTMLInputElement | null;
+    expect(period?.tagName).toBe('INPUT');
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

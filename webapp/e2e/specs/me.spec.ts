@@ -1748,15 +1748,16 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     /*
       quick-261006-pey D-2 — 옛 D-10 위치(상태줄 아래 · 전략 현황 위)는 「설정」 탭으로 대체됐다. 여기서는 S1 격자를
-      잰다: 설정 탭에서 상태줄은 보이지 않고, 묶음 카드 5장이 본문 900(≥700)에서 2열이다.
-      quick-261012-u04 B′ 열 고정 — 왼쪽 열 매수 금액 · 선매수 · 후매수(위→아래) / 오른쪽 열 매도 · 자동매도(위→아래).
+      잰다: 설정 탭에서 상태줄은 보이지 않고, 묶음 카드 6장이 본문 900(≥700)에서 2열이다.
+      quick-261012-u04 B′ 열 고정 — 왼쪽 열 매수 금액 · 선매수 · 후매수(위→아래) / 오른쪽 열 매도 · 버스트 상한가 · 자동매도
+      (위→아래 · quick-261102-epl).
     */
     await expect(page.locator('[data-slot="me-status-bar"]')).toBeHidden();
     const groupCards = lcDefaults(page).locator('[data-slot="me-lc-defaults-group-card"]');
-    await expect(groupCards).toHaveCount(5);
+    await expect(groupCards).toHaveCount(6);
     const cardBoxes = [];
-    for (let i = 0; i < 5; i++) cardBoxes.push(await boxOf(groupCards.nth(i)));
-    const [buyBox, preBox, postBox, sellBox, autoBox] = cardBoxes;
+    for (let i = 0; i < 6; i++) cardBoxes.push(await boxOf(groupCards.nth(i)));
+    const [buyBox, preBox, postBox, sellBox, burstBox, autoBox] = cardBoxes;
     // 왼쪽 열 — 같은 x · 위→아래.
     expect(Math.abs(preBox.x - buyBox.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(postBox.x - buyBox.x)).toBeLessThanOrEqual(1);
@@ -1764,10 +1765,12 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(postBox.y).toBeGreaterThan(preBox.y);
     // 오른쪽 열 — x 가 더 크고 위→아래 · 매도 카드 top ≈ 매수 금액 카드 top.
     expect(sellBox.x).toBeGreaterThan(buyBox.x + 1);
+    expect(Math.abs(burstBox.x - sellBox.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(autoBox.x - sellBox.x)).toBeLessThanOrEqual(1);
-    expect(autoBox.y).toBeGreaterThan(sellBox.y);
+    expect(burstBox.y).toBeGreaterThan(sellBox.y);
+    expect(autoBox.y).toBeGreaterThan(burstBox.y);
     expect(Math.abs(sellBox.y - buyBox.y)).toBeLessThanOrEqual(2);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       const groupCard = groupCards.nth(i);
       expect(await leavesOverflowing(groupCard, (await boxOf(groupCard)).right)).toEqual([]);
     }
@@ -1776,6 +1779,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(lcDefaultsChip(page)).toHaveText('서버 저장값', { timeout: 15_000 });
     const period = lcDefaultsRow(page, 'auto-sell-period-sec');
     await expect(period.locator('[data-slot="lc-row-value"]')).toHaveText('3초');
+    // 픽스처 84 는 버스트 슬롯 없음(구 서버) → 「판정 비율」 은 내장 70 을 보인다(quick-261102-epl).
+    await expect(lcDefaultsRow(page, 'burst-ratio-pct').locator('[data-slot="lc-row-value"]')).toHaveText('70%');
     // 84 가 와도 42 를 저절로 보내지 않는다(인박스 Q2).
     expect(setUserSettingsRequests()).toHaveLength(0);
 
@@ -2034,15 +2039,16 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       );
       // 390 — 섹션 잎 요소 잘림 0.
       expect(await leavesOverflowing(lcDefaults(page), (await boxOf(lcDefaults(page))).right)).toEqual([]);
-      // 261006-pey D-2 — 폰은 1열: 카드 5장이 같은 왼쪽 선에서 아래로 쌓인다
-      // (u04 B′ — 매수 금액 → 선매수 → 후매수 → 매도 → 자동매도).
+      // 261006-pey D-2 — 폰은 1열: 카드 6장이 같은 왼쪽 선에서 아래로 쌓인다
+      // (u04 B′ — 매수 금액 → 선매수 → 후매수 → 매도 → 버스트 상한가 → 자동매도 · quick-261102-epl).
       const groupCards = lcDefaults(page).locator('[data-slot="me-lc-defaults-group-card"]');
-      await expect(groupCards).toHaveCount(5);
+      await expect(groupCards).toHaveCount(6);
       await expect(groupCards.nth(1)).toHaveAttribute('aria-label', '선매수');
       await expect(groupCards.nth(3)).toHaveAttribute('aria-label', '매도');
+      await expect(groupCards.nth(4)).toHaveAttribute('aria-label', '버스트 상한가');
       const boxes = [];
-      for (let i = 0; i < 5; i++) boxes.push(await boxOf(groupCards.nth(i)));
-      for (let i = 1; i < 5; i++) {
+      for (let i = 0; i < 6; i++) boxes.push(await boxOf(groupCards.nth(i)));
+      for (let i = 1; i < 6; i++) {
         expect(Math.abs(boxes[i].x - boxes[0].x)).toBeLessThanOrEqual(1);
         expect(boxes[i].y).toBeGreaterThan(boxes[i - 1].y);
       }
