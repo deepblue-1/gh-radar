@@ -325,3 +325,231 @@ describe("GET /api/ticks/day · /today — 통과 모양 (D-15)", () => {
     expect(r2.body.live).toBe(true);
   });
 });
+
+// ── 요청 변환 · 취소 (D-03) ──────────────────────────────────────────
+type RunResult = { ok: true; execution: string | null } | { ok: false; status: number; error: string };
+
+function fakeTrigger(result: RunResult = { ok: true, execution: "exec-1" }) {
+  const runs: { date: string; ex: string }[] = [];
+  return {
+    runs,
+    trigger: {
+      async run(date: string, ex: "KRX" | "NXT"): Promise<RunResult> {
+        runs.push({ date, ex });
+        return result;
+      },
+    },
+  };
+}
+
+/** 요청 행(open 이 아니라 stale 키 없음). */
+const { stale: _stale, ...convReq } = { ...pendingReq, triggered_at: "2026-10-30T01:00:00+00:00" };
+
+/** tick_request_convert_for_user 반환 — 분기와 상관없이 같은 키 집합(37-04). */
+const convReply = (over: Record<string, unknown>) => ({
+  access: true,
+  should_trigger: false,
+  capped: false,
+  grid_ready: false,
+  not_uploaded: false,
+  retry_after: null,
+  eta_s: 300,
+  request: convReq,
+  ...over,
+});
+
+const CONVERT = "/api/ticks/convert";
+const CANCEL = "/api/ticks/convert/cancel";
+const body = { isin: CHUNIL, d: "20261030", ex: "KRX" };
+
+describe("POST /api/ticks/convert — should_trigger 일 때만 Job 실행 (D-03)", () => {
+  it("should_trigger true → RPC {p_user_id, p_date, p_isin, p_ex, p_daily_cap} 1회 · trigger.run(날짜, 거래소) 1회 · triggered true", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, rpc: { tick_request_convert_for_user: convReply({ should_trigger: true }) } });
+    const t = fakeTrigger();
+    const r = await auth(
+      request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send({ ...body, user_id: "x" }),
+    );
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "tick_request_convert_for_user",
+        params: { p_user_id: user.id, p_date: "20261030", p_isin: CHUNIL, p_ex: "KRX", p_daily_cap: 20 },
+      },
+    ]);
+    expect(t.runs).toEqual([{ date: "20261030", ex: "KRX" }]);
+    expect(r.body).toEqual({
+      access: true,
+      grid_ready: false,
+      capped: false,
+      triggered: true,
+      not_uploaded: false,
+      retry_after: null,
+      request: convReq,
+      eta_s: 300,
+    });
+    expect("should_trigger" in r.body).toBe(false);
+  });
+
+  it("should_trigger false(같은 (날짜, 거래소) 앞 요청이 깨움) → run 0회 · triggered false", async () => {
+    const { client } = makeSupabase({ user: nextUser(), rpc: { tick_request_convert_for_user: convReply({}) } });
+    const t = fakeTrigger();
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+    expect(r.body.triggered).toBe(false);
+    expect(t.runs).toHaveLength(0);
+  });
+
+  it("하루 상한 → 429 TICK_CONVERT_CAPPED · run 0회 · p_daily_cap 은 주입값", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_request_convert_for_user: convReply({ capped: true }) } });
+    const t = fakeTrigger();
+    const r = await auth(
+      request(app(client, { tickConvertTrigger: t.trigger, tickRequestDailyCap: 7 })).post(CONVERT).send(body),
+    );
+    expect(r.status).toBe(429);
+    expect(r.body.error.code).toBe("TICK_CONVERT_CAPPED");
+    expect(rec.rpcCalls[0].params.p_daily_cap).toBe(7);
+    expect(t.runs).toHaveLength(0);
+  });
+
+  it("grid_ready → 200 grid_ready true · run 0회", async () => {
+    const { client } = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_request_convert_for_user: convReply({ grid_ready: true, request: null }) },
+    });
+    const t = fakeTrigger();
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+    expect(r.body.grid_ready).toBe(true);
+    expect(r.body.triggered).toBe(false);
+    expect(t.runs).toHaveLength(0);
+  });
+
+  it("not_uploaded → 200 {not_uploaded: true, retry_after} · run 0회 · tick_request_trigger_failed 0회", async () => {
+    const retry = "2026-10-30T14:30:00+00:00";
+    const { client, rec } = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_request_convert_for_user: convReply({ not_uploaded: true, retry_after: retry }) },
+    });
+    const t = fakeTrigger();
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ not_uploaded: true, retry_after: retry, triggered: false });
+    expect(t.runs).toHaveLength(0);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["tick_request_convert_for_user"]);
+  });
+
+  it("run 실패(HTTP 403 · 네트워크) → tick_request_trigger_failed(date, ex, 메시지) 1회 · 502 TICK_CONVERT_TRIGGER_FAILED", async () => {
+    const fails: RunResult[] = [
+      { ok: false, status: 403, error: "Permission 'run.jobs.runWithOverrides' denied" },
+      { ok: false, status: 0, error: "fetch failed" },
+    ];
+    for (const fail of fails) {
+      const { client, rec } = makeSupabase({
+        user: nextUser(),
+        rpc: { tick_request_convert_for_user: convReply({ should_trigger: true }), tick_request_trigger_failed: 1 },
+      });
+      const t = fakeTrigger(fail);
+      const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+      expect(r.status).toBe(502);
+      expect(r.body.error.code).toBe("TICK_CONVERT_TRIGGER_FAILED");
+      expect(JSON.stringify(r.body)).not.toContain("runWithOverrides");
+      expect(t.runs).toHaveLength(1);
+      expect(rec.rpcCalls).toHaveLength(2);
+      expect(rec.rpcCalls[1]).toEqual({
+        fn: "tick_request_trigger_failed",
+        params: { p_date: "20261030", p_ex: "KRX", p_error: `TRIGGER_FAILED:${fail.ok ? "" : fail.status}` },
+      });
+    }
+  });
+
+  it("trigger 미주입(TICK_CONVERT_JOB 없음)인데 should_trigger → trigger_failed(…, TRIGGER_DISABLED) · 503 TICK_CONVERT_UNAVAILABLE", async () => {
+    const { client, rec } = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_request_convert_for_user: convReply({ should_trigger: true }), tick_request_trigger_failed: 1 },
+    });
+    const r = await auth(request(app(client)).post(CONVERT).send(body));
+    expect(r.status).toBe(503);
+    expect(r.body.error.code).toBe("TICK_CONVERT_UNAVAILABLE");
+    expect(rec.rpcCalls[1]).toEqual({
+      fn: "tick_request_trigger_failed",
+      params: { p_date: "20261030", p_ex: "KRX", p_error: "TRIGGER_DISABLED" },
+    });
+  });
+
+  it("되돌림 RPC 자체가 실패해도 502 는 그대로(원문 비노출)", async () => {
+    const { client } = makeSupabase({
+      user: nextUser(),
+      rpc: {
+        tick_request_convert_for_user: convReply({ should_trigger: true }),
+        tick_request_trigger_failed: () => ({ data: null, error: { message: "boom", code: "57014" } }),
+      },
+    });
+    const t = fakeTrigger({ ok: false, status: 500, error: "x" });
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(502);
+    expect(JSON.stringify(r.body)).not.toContain("57014");
+  });
+
+  it("trigger 미주입이어도 should_trigger false 면 200(앞 Job 에 실림)", async () => {
+    const { client } = makeSupabase({ user: nextUser(), rpc: { tick_request_convert_for_user: convReply({}) } });
+    const r = await auth(request(app(client)).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+  });
+
+  it("미인증 401 · access false 403 · 본문 위반 400(RPC 0회)", async () => {
+    const a = makeSupabase({ user: nextUser() });
+    expect((await request(app(a.client)).post(CONVERT).send(body)).status).toBe(401);
+    expect(a.rec.rpcCalls).toHaveLength(0);
+
+    const b = makeSupabase({ user: nextUser(), rpc: { tick_request_convert_for_user: { access: false } } });
+    const t = fakeTrigger();
+    const rb = await auth(request(app(b.client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(rb.status).toBe(403);
+    expect(rb.body.error.code).toBe("DMA_UNMAPPED");
+    expect(t.runs).toHaveLength(0);
+
+    const bads: Record<string, unknown>[] = [
+      { ...body, isin: "kr7000650002" },
+      { ...body, d: "20261332" },
+      { ...body, ex: "KOSPI" },
+      { isin: CHUNIL, d: "20261030" },
+      {},
+    ];
+    for (const bad of bads) {
+      const c = makeSupabase({ user: nextUser(), rpc: { tick_request_convert_for_user: convReply({}) } });
+      const rc = await auth(request(app(c.client)).post(CONVERT).send(bad));
+      expect(rc.status, JSON.stringify(bad)).toBe(400);
+      expect(c.rec.rpcCalls).toHaveLength(0);
+    }
+  });
+});
+
+describe("POST /api/ticks/convert/cancel — 본인 pending 만 (D-03)", () => {
+  it("RPC tick_cancel_convert_for_user {p_user_id, p_date, p_isin, p_ex} 1회 · 본문 그대로", async () => {
+    const user = nextUser();
+    const reply = { access: true, cancelled: true, request: { ...convReq, status: "cancelled" } };
+    const { client, rec } = makeSupabase({ user, rpc: { tick_cancel_convert_for_user: reply } });
+    const r = await auth(request(app(client)).post(CANCEL).send(body));
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toEqual([
+      { fn: "tick_cancel_convert_for_user", params: { p_user_id: user.id, p_date: "20261030", p_isin: CHUNIL, p_ex: "KRX" } },
+    ]);
+    expect(r.body).toEqual(reply);
+  });
+
+  it("access false → 403 · 본문 위반 → 400(RPC 0회)", async () => {
+    const a = makeSupabase({ user: nextUser(), rpc: { tick_cancel_convert_for_user: { access: false } } });
+    const r = await auth(request(app(a.client)).post(CANCEL).send(body));
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+
+    const b = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_cancel_convert_for_user: { access: true, cancelled: false, request: null } },
+    });
+    const r2 = await auth(request(app(b.client)).post(CANCEL).send({ ...body, ex: "X" }));
+    expect(r2.status).toBe(400);
+    expect(b.rec.rpcCalls).toHaveLength(0);
+  });
+});
