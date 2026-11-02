@@ -83,7 +83,7 @@ export class UsageError extends Error {
   }
 }
 
-function validYmd(s: string): boolean {
+export function validYmd(s: string): boolean {
   if (!/^\d{8}$/.test(s)) return false;
   const y = Number(s.slice(0, 4));
   const m = Number(s.slice(4, 6));

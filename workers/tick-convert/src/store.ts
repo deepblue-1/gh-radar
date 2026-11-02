@@ -22,6 +22,7 @@ export type Exchange = "KRX" | "NXT";
 const LIST_LIMIT = 1000;
 const MAX_REMOVE_ROUNDS = 20;
 const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
+const DATE_RE = /^\d{8}$/;
 
 export function gridObjectPath(date: string, ex: Exchange, isin: string, mode: GridMode): string {
   return `grid/${date}/${ex}/${isin}.${mode}.ticks.zst`;
@@ -32,6 +33,8 @@ export interface GridStore {
   upload(path: string, bytes: Uint8Array): Promise<void>;
   /** 날짜 폴더(`grid/<D>/KRX` · `grid/<D>/NXT`)의 객체를 지운다. 반환 = 지운 객체 수. */
   removeDates(dates: readonly string[]): Promise<number>;
+  /** `grid/` 아래 날짜 폴더 이름(`YYYYMMDD`) — 90일 purge 가 메타 행 없는 객체(업로드 뒤 메타 실패)도 지우게(purge.ts). */
+  listDates(): Promise<string[]>;
 }
 
 export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
@@ -61,6 +64,12 @@ export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
         }
       }
       return removed;
+    },
+    async listDates() {
+      // 보존 90일 + 따라잡기 창이라 날짜 폴더는 수백 개를 넘지 않는다 — 한 번에 1,000개.
+      const { data, error } = await bucket().list("grid", { limit: LIST_LIMIT });
+      if (error) throw new Error(`storage list ${GRID_BUCKET}/grid: ${error.message}`);
+      return (data ?? []).map((f) => f.name).filter((n) => DATE_RE.test(n));
     },
   };
 }
