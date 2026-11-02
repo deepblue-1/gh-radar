@@ -13,8 +13,13 @@
  *         X-Tick-Epoch · X-Tick-Offset-End(본문 끝 바이트 offset = 다음 요청 offset) · X-Tick-Last-Recv-Ns(없으면 빈 값) ·
  *         X-Tick-State(loading|ready|queued|delayed|blocked) · X-Tick-Queue(대기 순번 k · 활성이면 0) ·
  *         X-Tick-Complete(true|false — 08:00 부터 끊김 없음)
- *   GET /internal/ticks/export?date=YYYYMMDD              (Task 2)
- *   GET /internal/ticks/export/bytes?date&isin&ex         (Task 2)
+ *   GET /internal/ticks/export?date=YYYYMMDD    — 20:00 승격 Job(37-12) 입력 · 같은 비밀 헤더
+ *       **closed 키만**(20:01 마감 마무리를 마친 하루치 전체 — D-07) →
+ *       `{ date, keys: [{ isin, ex, bytes, records, first_recv_ns, last_recv_ns, closed_through_ns }], unclosed }`
+ *       (ns 는 십진 문자열 · unclosed = 그날 키 중 closed 아닌 수)
+ *       date 가 KST 오늘이 아니면 400 `{ error: "DATE_MISMATCH", today }` — 승격 Job 의 --date 와 캐시 날짜가 어긋나면 거부
+ *   GET /internal/ticks/export/bytes?date&isin&ex — 그 키 전체 바이트(원본 zstd 프레임 이어붙임)
+ *       같은 date 검사(400 DATE_MISMATCH) · closed 아니면 404 `{ error: "NOT_CLOSED" }`
  *
  * 로그 위생: 요청 헤더 · 바디를 로그에 넣지 않는다.
  */
@@ -92,7 +97,62 @@ function handle(cfg: Pick<TickgwConfig, "secret">, deps: ServerDeps, req: http.I
   if (!secretOk(req.headers[SECRET_HEADER], cfg.secret)) return json(res, 401, { error: "UNAUTHORIZED" });
 
   if (url.pathname === "/internal/ticks/live") return live(deps, url, res);
+  if (url.pathname === "/internal/ticks/export") return exportList(deps, url, res);
+  if (url.pathname === "/internal/ticks/export/bytes") return exportBytes(deps, url, res);
   return json(res, 404, { error: "NOT_FOUND" });
+}
+
+/** date 검사 — 형식이 틀리면 400 BAD_REQUEST, KST 오늘이 아니면 400 DATE_MISMATCH. 통과면 date. */
+function checkDate(deps: ServerDeps, url: URL, res: http.ServerResponse): string | null {
+  const date = url.searchParams.get("date") ?? "";
+  if (!/^\d{8}$/.test(date)) {
+    json(res, 400, { error: "BAD_REQUEST" });
+    return null;
+  }
+  const today = kstToday(deps.now());
+  if (date !== today) {
+    json(res, 400, { error: "DATE_MISMATCH", today });
+    return null;
+  }
+  return date;
+}
+
+function exportList(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
+  const date = checkDate(deps, url, res);
+  if (!date) return;
+  const day = deps.cache.values().filter((e) => e.date === date);
+  const keys = day
+    .filter((e) => e.closed)
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map((e) => ({
+      isin: e.isin,
+      ex: e.ex,
+      bytes: e.size,
+      records: e.records,
+      first_recv_ns: e.firstRecvNs === null ? null : String(e.firstRecvNs),
+      last_recv_ns: e.lastRecvNs === null ? null : String(e.lastRecvNs),
+      closed_through_ns: String(e.closedThroughNs),
+    }));
+  json(res, 200, { date, keys, unclosed: day.length - keys.length });
+}
+
+function exportBytes(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
+  const isin = url.searchParams.get("isin") ?? "";
+  const ex = parseEx(url.searchParams.get("ex"));
+  if (!ISIN_RE.test(isin) || !ex) return json(res, 400, { error: "BAD_REQUEST" });
+  const date = checkDate(deps, url, res);
+  if (!date) return;
+  const key = makeKey(isin, ex, date);
+  const entry = deps.cache.get(key);
+  if (!entry || !entry.closed) return json(res, 404, { error: "NOT_CLOSED" });
+  const body = deps.cache.slice(key, 0);
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": body.length,
+    "Cache-Control": "no-store",
+    "X-Tick-Records": String(entry.records),
+  });
+  res.end(body);
 }
 
 function live(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
@@ -133,7 +193,7 @@ function live(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
 
 export function main(): void {
   const cfg = loadConfig();
-  const cache = new TickCache(cfg.cacheBytes, cfg.idleMs);
+  const cache = new TickCache(cfg.cacheBytes, cfg.idleMs, cfg.keepUntilHhmm);
   const poller = new Poller(cfg, {
     cache,
     runIndexer: (args) =>

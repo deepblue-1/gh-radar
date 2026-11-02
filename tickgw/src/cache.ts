@@ -9,10 +9,15 @@
  * - complete = 「08:00 KST 부터 시작 ∧ 이어받기 끊김 없음」. 폴러는 언제나 08:00 부터 시작하므로 만들 때 true,
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기면 false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
+ * - 상한: 전체 `limitBytes`(기본 128MB) 를 넘으면 lastAccess 가 가장 오래된 키부터 지운다(append 마다 · evict 마다).
+ *   LRU 는 면제가 없다 — 밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
+ * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
+ *   유휴 삭제에서 뺀다 — 20:01 마감 마무리 · 승격 Job 의 입력이라 브라우저가 닫혀도 21:00 까지 남겨 둔다.
  */
 
 import { randomUUID } from "node:crypto";
 
+import { kstHhmm, kstToday } from "./config.js";
 import type { Exchange } from "./indexer.js";
 
 export interface CacheEntry {
@@ -57,6 +62,8 @@ export class TickCache {
   constructor(
     readonly limitBytes: number,
     readonly idleMs: number,
+    /** KST hhmm — 오늘 complete 키 유휴 면제 끝(TICKGW_KEEP_UNTIL). */
+    readonly keepUntilHhmm = 2100,
   ) {}
 
   get(key: string): CacheEntry | undefined {
@@ -101,6 +108,21 @@ export class TickCache {
     if (meta.lastRecvNs !== null && (e.lastRecvNs === null || meta.lastRecvNs > e.lastRecvNs)) {
       e.lastRecvNs = meta.lastRecvNs;
     }
+    this.enforceLimit();
+  }
+
+  /** 합계가 상한 이하가 될 때까지 lastAccess 가 가장 오래된 키부터 지운다(면제 없음). */
+  private enforceLimit(): string[] {
+    const removed: string[] = [];
+    while (this.total > this.limitBytes && this.entries.size > 0) {
+      let oldest: CacheEntry | null = null;
+      for (const e of this.entries.values()) {
+        if (!oldest || e.lastAccess < oldest.lastAccess) oldest = e;
+      }
+      this.delete(oldest!.key);
+      removed.push(oldest!.key);
+    }
+    return removed;
   }
 
   /** offset 이후 바이트(최대 `end` 까지). offset 이 범위를 벗어나면 빈 버퍼. */
@@ -130,15 +152,18 @@ export class TickCache {
     return true;
   }
 
-  /** 유휴 키를 지운다. 지운 키 목록을 돌려준다(폴러가 그 키 상태를 버린다). */
+  /** 유휴 키(오늘 complete 는 keepUntil 전 면제)와 상한 초과분을 지운다. 지운 키 목록을 돌려준다(폴러가 그 키 상태를 버린다). */
   evict(now: number): string[] {
     const removed: string[] = [];
+    const today = kstToday(now);
+    const keep = kstHhmm(now) < this.keepUntilHhmm;
     for (const e of [...this.entries.values()]) {
-      if (now - e.lastAccess >= this.idleMs) {
-        this.delete(e.key);
-        removed.push(e.key);
-      }
+      if (now - e.lastAccess < this.idleMs) continue;
+      if (keep && e.complete && e.date === today) continue; // 승격 입력 — 21:00 까지 보존
+      this.delete(e.key);
+      removed.push(e.key);
     }
+    removed.push(...this.enforceLimit());
     return removed;
   }
 

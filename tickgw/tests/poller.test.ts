@@ -296,7 +296,8 @@ describe("Poller — 20:01 마감 마무리(closeSweep)", () => {
     r.cache.get(keyN(2))!.complete = false; // 이어받기 끊긴 키
     closing = true;
     r.clock.t = at("200100");
-    await r.drive({ untilT: at("203000") });
+    await r.drive({ untilT: at("201000") }); // 20:14 이후엔 complete 아닌 키 2 가 유휴 삭제된다
+
     const closeCalls = r.calls.slice(2);
     expect(closeCalls.map((c) => c.args.isin)).toEqual([isinN(1), isinN(1), isinN(1)]);
     expect(r.cache.get(keyN(1))!.closed).toBe(false);
