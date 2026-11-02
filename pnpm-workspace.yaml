@@ -2,6 +2,7 @@ packages:
   - webapp
   - server
   - relay
+  - tickgw
   - workers/*
   - packages/*
   - mobile
