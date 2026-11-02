@@ -500,7 +500,8 @@ test.describe('Phase 34 Plan 10 — 폰 390 · 폭 백스톱 · 빈 상태 · �
       await installAccumMocks(page, { list: () => accumKpiWorstFixture() });
       await page.goto(`${BASE}?d=${ACCUM_BACKSTOP_DATE}`);
       const ended = page.locator('[data-kpi="종료"]');
-      await expect(ended.locator('dd')).toContainText('청산 12 · 탈락 10 · 만료 10', { timeout: 30_000 });
+      // quick-261024-uov 가 종료 보조에 「매집 종료 d」 를 넣었다(최악값 픽스처 = 0).
+      await expect(ended.locator('dd')).toContainText('청산 12 · 매집 종료 0 · 탈락 10 · 만료 10', { timeout: 30_000 });
       const tile = await boxOf(ended, '종료 칸');
       const value = await boxOf(ended.locator('dd > span').nth(0), '종료 값');
       const sub = await boxOf(ended.locator('dd > span').nth(1), '종료 보조');
