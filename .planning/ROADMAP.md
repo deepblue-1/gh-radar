@@ -220,7 +220,7 @@ Plans:
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
 | 35. 발사 경계 지도 어드민 | v1.1 | 19/19 | Complete | 2026-11-01 |
 | 36. 계좌별 주문가능 금액 | v1.1 | 10/10 | Complete | 2026-10-28 |
-| 37. 틱 전문 뷰어 | v1.1 | 7/19 | Not started | — |
+| 37. 틱 전문 뷰어 | v1.1 | 10/19 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -439,7 +439,7 @@ Plans:
   4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 서버 캐시 · 자동 증분)과 과거(격자)가 같은 화면 · DMA 게이트 · 팀 손익 golden 대조 통과(export `payload.pnl`) · 버스트 판정 tickana `classify_orders` 와 일치(KRX) · NXT 런 규칙 오라클 일치 · 세 보고서 「틱 보기」 · URL 딥링크(틱 시각까지).
 
 **배포 순서**(D-22): DB(격자 메타 표 · RPC · 게이트 — `supabase db push --linked --yes` · 08:00~20:00 KST 밖) → 변환 Job(Cloud Run Job + Scheduler · GCS objectViewer 바인딩) → server(과거 경로 · TICKGW 없이) → webapp push(= 프로덕션) — 메인 세션(37-16). 당일 경로(radar-gw tickgw · server TICKGW_URL · 승격 Job)는 gh-trade 119 인덱서 배포 확인 뒤 20:00 KST 이후에만(37-17) · 그 전 화면은 「당일 자료 준비 중」.
-**Plans:** 7/19 plans executed
+**Plans:** 10/19 plans executed
 
 Plans:
 **Wave 1**
@@ -456,9 +456,9 @@ Plans:
 - [x] 37-07-PLAN.md — server 과거 경로 API: open(게이트 · 서명 URL · 트레이서) · day · today · 요청 변환 트리거(should_trigger 일 때만)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 37-08-PLAN.md — 진입 화면 목업 A: 격자 목록 → 열기(트레이서) · 검색 피커 · 변환 흐름 · 상태 카드 · 사이드바 · e2e
-- [ ] 37-09-PLAN.md — radar-gw tickgw: 키당 폴러 · 원본 프레임 캐시 · 내부 live HTTP(트레이서) · 호출 규율 · 20:01 마감 마무리(closed 만 export) · 설치/배포 스크립트(tickpull uid · OOM 500)
-- [ ] 37-18-PLAN.md — 변환 Job nightly(트레이서 — 평일/휴장 · 최신부터 · 시간 예산 · 단일 통독 스테이징 · 15%∪등록 · 90일 purge) · Dockerfile · IAM/배포/스모크 스크립트
+- [x] 37-08-PLAN.md — 진입 화면 목업 A: 격자 목록 → 열기(트레이서) · 검색 피커 · 변환 흐름 · 상태 카드 · 사이드바 · e2e
+- [x] 37-09-PLAN.md — radar-gw tickgw: 키당 폴러 · 원본 프레임 캐시 · 내부 live HTTP(트레이서) · 호출 규율 · 20:01 마감 마무리(closed 만 export) · 설치/배포 스크립트(tickpull uid · OOM 500)
+- [x] 37-18-PLAN.md — 변환 Job nightly(트레이서 — 평일/휴장 · 최신부터 · 시간 예산 · 단일 통독 스테이징 · 15%∪등록 · 90일 purge) · Dockerfile · IAM/배포/스모크 스크립트
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 37-10-PLAN.md — 뷰어 골격: 서명 URL → fzstd → 세션 → 점프 → 호가 10단 → URL t(트레이서) · 슬라이더 · 키 · e2e 딥링크
