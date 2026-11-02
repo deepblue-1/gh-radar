@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 020 — 전문 목록 행 · 뒤집힘 표현 · 버스트 묶음</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* gh-radar globals.css 실제 토큰 (라이트 / 다크) — 019 와 같은 사본 */
+.f {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border-subtle:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f1ff; --flat:#6b7684; --team:#a234c7; --team-bg:#f9f0fc;
+  --vi:#d97706; --vi-bg:#fff4e6; --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da; --primary:#3182f6; --primary-fg:#fff;
+  --font:'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); flex: none; overflow: hidden; display: flex; flex-direction: column;
+}
+.f.dark { --bg:#0a0a0a; --surface:#0a0a0a; --card:#151515; --muted:#2d2d2d; --raised-2:#3d3d3d; --fg:#ffffff; --fg-2:#e4e4e4; --muted-fg:#9e9e9e; --faint:#636363;
+  --border-subtle:#3d3d3d; --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16); --flat:#9e9e9e; --team:#c353e5; --team-bg:rgba(174,61,209,.16);
+  --vi:#ffb020; --vi-bg:rgba(255,176,32,.16); --pill-on-bg:#4e4e4e; --pill-on-fg:#fff; --primary:#3485fa; }
+.f.phone { width: 390px; height: 800px; }
+.f.desktop { width: 1280px; height: 800px; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); } .mf { color: var(--muted-fg); } .team-c { color: var(--team); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* 머리 */
+.hdr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px 8px; }
+.phone .hdr { padding: 10px 12px 6px; gap: 6px 10px; }
+.hdr h1 { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.phone .hdr h1 { font-size: 15px; }
+.src { display: inline-flex; align-items: center; background: var(--muted); color: var(--muted-fg); border-radius: 6px; padding: 2px 8px; font-size: 11px; white-space: nowrap; font-weight: 500; }
+.pill { font: inherit; font-size: 12.5px; font-weight: 600; background: var(--card); color: var(--fg); border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; }
+.seg button { font: inherit; font-size: 11.5px; font-weight: 600; border: 0; background: transparent; color: var(--fg-2); border-radius: 999px; padding: 4px 10px; cursor: pointer; transition: all .15s; }
+.seg button.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.clock { margin-left: auto; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.phone .clock { margin-left: 0; flex-basis: 100%; }
+.clock b { font-size: 22px; font-weight: 700; letter-spacing: -.2px; }
+.phone .clock b { font-size: 19px; }
+.clock span { font-size: 11.5px; color: var(--muted-fg); }
+
+/* 슬라이더 카드 (019 D 자리 — 머리와 패널 사이) */
+.tr { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--card); border-radius: 14px; margin: 0 16px 8px; flex-wrap: wrap; }
+.phone .tr { margin: 0 12px 6px; padding: 6px 10px; gap: 8px; }
+.ib { font: inherit; width: 32px; height: 32px; border-radius: 10px; border: 0; background: var(--muted); color: var(--fg); cursor: pointer; font-size: 15px; font-weight: 700; transition: all .15s; }
+.ib:hover { background: var(--raised-2); }
+.ib.on { background: var(--primary); color: var(--primary-fg); }
+.sl { position: relative; flex: 1 1 200px; height: 34px; min-width: 0; }
+.sl input { position: absolute; left: 0; right: 0; bottom: 2px; width: 100%; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; height: 20px; cursor: pointer; }
+.sl input::-webkit-slider-runnable-track { height: 3px; background: var(--raised-2); border-radius: 2px; }
+.sl input::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); margin-top: -5.5px; box-shadow: 0 0 0 3px var(--card); }
+.ax { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; font-size: 9.5px; color: var(--faint); pointer-events: none; }
+.tin { font: inherit; font-size: 12.5px; width: 118px; height: 32px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg); color: var(--fg); padding: 0 10px; font-variant-numeric: tabular-nums; }
+.tin:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+.tb { font: inherit; font-size: 12px; font-weight: 600; height: 32px; border-radius: 10px; border: 0; background: var(--muted); color: var(--fg); padding: 0 12px; cursor: pointer; }
+.tb.xs { height: 22px; font-size: 10.5px; padding: 0 8px; border-radius: 7px; }
+.tb.xs.vi { color: var(--vi); background: var(--vi-bg); }
+.kb { font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+.phone .kb { display: none; }
+
+/* 패널 */
+.body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0,1fr) 330px; gap: 10px; padding: 0 16px 10px; }
+.phone .grid { display: flex; flex-direction: column; padding: 0 12px 10px; }
+.phone .grid > .p-lad, .phone .grid > .right { display: none; }
+.panel { background: var(--card); border-radius: 14px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.phone .panel.p-msg { flex: 1; }
+.p-lad { background: transparent; box-shadow: inset 0 0 0 1px var(--border-subtle); color: var(--faint); align-items: center; justify-content: center; text-align: center; font-size: 11.5px; line-height: 1.7; padding: 16px; }
+.p-lad b { color: var(--muted-fg); font-weight: 600; display: block; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; font-weight: 700; border-bottom: 1px solid var(--border-subtle); flex: none; flex-wrap: wrap; }
+.ph small { font-weight: 500; color: var(--muted-fg); font-size: 11px; }
+.ph .seg { margin-left: auto; }
+.ph .seg button { padding: 3px 9px; font-size: 11px; }
+.ph .fixed { margin-left: auto; font-size: 10.5px; font-weight: 500; color: var(--muted-fg); background: var(--muted); border-radius: 999px; padding: 3px 9px; }
+.ph .tools { display: inline-flex; gap: 4px; }
+.pb { flex: 1; min-height: 0; overflow: auto; }
+.right { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+.right .panel { flex: none; }
+
+/* 전문 목록 (ATMParser 식 행 = 전문 하나) */
+table.msg { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.msg th { font-size: 10.5px; font-weight: 600; color: var(--muted-fg); background: var(--muted); padding: 5px 8px; text-align: left; position: sticky; top: 0; white-space: nowrap; z-index: 1; }
+.msg td { height: 28px; padding: 0 8px; white-space: nowrap; border-top: 1px solid var(--border-subtle); cursor: pointer; }
+.phone .msg td, .phone .msg th { padding: 0 6px; }
+.phone .msg th { padding: 5px 6px; }
+.msg tr:hover td { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+.msg tr.sel td { background: color-mix(in oklab, var(--fg) 12%, transparent); }
+.msg tr.sel:not(.grp):not(.sum) td:first-child { box-shadow: inset 3px 0 0 var(--fg); }
+.msg tr.runb td { background: color-mix(in oklab, var(--team) 8%, transparent); }
+.msg tr.runb.sel td { background: color-mix(in oklab, var(--fg) 12%, transparent); }
+.msg td.t { color: var(--muted-fg); font-size: 11px; }
+.msg td.t b { color: var(--fg); font-weight: 600; }
+.msg td.t.dim b { color: var(--muted-fg); font-weight: 500; }
+.msg td.s { color: var(--muted-fg); font-size: 10.5px; }
+.msg td.d { overflow: hidden; text-overflow: ellipsis; max-width: 0; width: 100%; }
+.badge { display: inline-flex; align-items: center; height: 17px; border-radius: 4px; padding: 0 5px; font-size: 9.5px; font-weight: 700; border: 1px solid transparent; vertical-align: middle; }
+.bA3 { background: var(--muted); color: var(--fg); }
+.bB6 { background: transparent; color: var(--muted-fg); border-color: var(--border-subtle); }
+.bB9 { background: var(--team-bg); color: var(--team); }
+.bR8 { background: var(--vi-bg); color: var(--vi); }
+.bC3 { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.chip { display: inline-flex; align-items: center; height: 16px; border-radius: 4px; padding: 0 5px; font-size: 9.5px; font-weight: 700; margin-left: 6px; vertical-align: middle; }
+.chip.team { background: var(--team-bg); color: var(--team); }
+.chip.norm { background: var(--muted); color: var(--muted-fg); }
+.chip.auct { background: var(--vi-bg); color: var(--vi); }
+.chip.close { background: transparent; color: var(--muted-fg); border: 1px dashed var(--border-subtle); margin-left: 0; margin-right: 6px; }
+.inv { color: var(--vi); font-size: 10px; margin-left: 6px; font-weight: 600; }
+.buy { color: var(--up); font-weight: 600; } .sellc { color: var(--down); font-weight: 600; }
+.tm { box-shadow: inset 2px 0 0 var(--team); }
+
+/* 조각 번호 배지 (C 주력 · B 펼침 보조) */
+.idx { display: inline-flex; align-items: center; height: 16px; border-radius: 4px; padding: 0 4px; font-size: 9.5px; font-weight: 700; margin-left: 4px; vertical-align: middle; font-variant-numeric: tabular-nums; }
+.idx.team { background: var(--team-bg); color: var(--team); }
+.idx.norm { background: var(--muted); color: var(--muted-fg); }
+.idx.dim { background: transparent; color: var(--faint); border: 1px solid var(--border-subtle); }
+
+/* 주문 묶음 — 레일 · 묶음 꼬리 · 요약 행 · 거래소순 자리 */
+.msg tr.team { --rail: var(--team); } .msg tr.norm { --rail: var(--faint); }
+.msg tr.grp td:first-child, .msg tr.gft td:first-child, .msg tr.sum td:first-child, .msg tr.ghost.grp td:first-child { box-shadow: inset 3px 0 0 var(--rail); }
+.msg tr.grp:not(.first) td, .msg tr.gft td, .msg tr.grp.inb td { border-top-color: transparent; }
+.msg tr.gft td { height: 22px; font-size: 10.5px; color: var(--muted-fg); padding-left: 14px; }
+.msg tr.gft td .chip { margin-left: 4px; }
+.msg tr.sum td { font-weight: 600; }
+.msg tr.sum.team td { background: color-mix(in oklab, var(--team) 5%, transparent); }
+.msg tr.sum.sel td { background: color-mix(in oklab, var(--fg) 12%, transparent); }
+.caret { font: inherit; width: 16px; height: 16px; border: 0; background: transparent; color: var(--muted-fg); cursor: pointer; padding: 0; margin-right: 2px; font-size: 11px; vertical-align: middle; }
+.caret:hover { color: var(--fg); }
+.msg tr.ghost td { height: 22px; font-size: 10.5px; color: var(--vi); border-top: 1px dashed color-mix(in oklab, var(--vi) 60%, transparent); background: color-mix(in oklab, var(--vi) 6%, transparent); }
+.msg tr.ghost td.t { color: var(--vi); }
+.msg tr.ghost td b { color: var(--vi); }
+.msg tr.disp td.s { color: var(--vi); font-weight: 700; }
+
+/* 이 주문 카드 (019 그대로) */
+.card { padding: 12px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.kv .k { font-size: 10.5px; color: var(--muted-fg); }
+.kv .v { font-size: 15px; font-weight: 700; line-height: 1.25; }
+.kv .v small { font-size: 11px; color: var(--muted-fg); font-weight: 500; }
+.sub { font-size: 11px; color: var(--muted-fg); line-height: 1.5; margin-top: 8px; }
+.shape { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.shape .chip { margin-left: 0; height: 18px; font-size: 10.5px; }
+table.rl { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.rl th { font-size: 10px; color: var(--muted-fg); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--border-subtle); }
+.rl th:first-child, .rl td:first-child { text-align: left; }
+.rl td { padding: 0 6px; height: 24px; text-align: right; white-space: nowrap; border-top: 1px solid var(--border-subtle); cursor: pointer; }
+.rl tr.team td:first-child { box-shadow: inset 2px 0 0 var(--team); }
+.rl tr.sel td { background: color-mix(in oklab, var(--fg) 10%, transparent); }
+.rl tr:hover td { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+.rl td.c { text-align: left; }
+.empty { padding: 20px; color: var(--muted-fg); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">버스트 묶음</span><button data-v="a" class="on">A · 행 그룹(레일 + 꼬리) ★ 채택</button><button data-v="b">B · 요약 행 접기</button><button data-v="c">C · 배지(평평한 행)</button></div>
+  <div class="g"><span class="l">뒤집힘 표현</span><button data-r="1">1 · 토글만</button><button data-r="2">2 · 행 안 표시만</button><button data-r="3" class="on">3 · 둘 다 ★ 채택</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="desktop" class="on">데스크톱 1280</button><button data-w="phone">폰 390</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"><div class="f dark desktop" id="frame"></div></div>
+
+<script id="data">
+// ───────── 데이터 생성 — 019 와 같은 하루(한선엔지니어링 101360 · 2026-10-22 · KRX G1) + 09:07:5x 17,100 벽 70조각 주문 하나 ─────────
+function rng(seed){ let a=seed>>>0; return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const R = rng(20261022);
+const ri=(a,b)=>a+Math.floor(R()*(b-a+1));
+const US=1e6, S=US, M=60*US, H=3600*US;
+const T=(h,m=0,s=0,ms=0)=>((h*3600+m*60+s)*1000+ms)*1000;
+const BASE=15550, TICK=50, UPPER=20200;
+const MEMBERS=['교보','한국','유진','신한','NH'], MW=[.34,.22,.18,.14,.12];
+const msgs=[], runs=[];
+let seq=1180000, price=BASE, cum=0, cumBuy=0, cumQty=0, ask1=BASE+TICK, runId=0;
+const qmem=new Map();
+function qty(px){ if(!qmem.has(px)) qmem.set(px, ri(300,7000)); let q=qmem.get(px); q=Math.max(50, Math.round(q*(0.86+R()*0.28))); qmem.set(px,q); return q; }
+function makeBook(){ const asks=[],bids=[]; for(let i=0;i<10;i++){ asks.push({px:ask1+TICK*i,qty:qty(ask1+TICK*i)}); bids.push({px:ask1-TICK*(i+1),qty:qty(ask1-TICK*(i+1))}); } return {asks,bids}; }
+function pushB6(exUs,recvUs,run){ const b=makeBook(); msgs.push({type:'B6',exUs,recvUs,seq:++seq,asks:b.asks,bids:b.bids,run:run==null?null:run}); }
+let lastA3Recv=0; // 같은 멀티캐스트 그룹(A3) 안에서는 수신 순서가 보존된다 — 뒤집힘은 그룹 사이(A3 ↔ B6)에서만
+function pushA3(exUs,recvUs,px,q,bs,zz,run,last){ recvUs=Math.max(recvUs,lastA3Recv+ri(3,40)); lastA3Recv=recvUs; cum+=px*q; cumQty+=q; if(bs==='2') cumBuy+=px*q; msgs.push({type:'A3',exUs,recvUs,seq:++seq,px,qty:q,bs,zz,ask1:zz?0:ask1,bid1:zz?0:ask1-TICK,cum,cumBuy,cumQty,run:run==null?null:run,last:!!last}); price=px; return recvUs; }
+let nextB9=T(9,0,40), nextC3=T(9,2), teamBuyQty=0, teamSellQty=0;
+const memBuy=[0,0,0,0,0], memSell=[0,0,0,0,0], retailB=[0,0,0,0,0], retailS=[0,0,0,0,0];
+let prog=0;
+function pushB9(){
+  for(let i=0;i<5;i++){ retailB[i]+=ri(0,600); retailS[i]+=ri(0,500);
+    memBuy[i]=Math.max(memBuy[i], Math.round(teamBuyQty*MW[i]*(0.95+R()*0.1))+retailB[i]);
+    memSell[i]=Math.max(memSell[i], Math.round(teamSellQty*MW[i]*(0.95+R()*0.1))+retailS[i]); }
+  msgs.push({type:'B9',exUs:nextB9,recvUs:nextB9+60,seq:++seq,buy:memBuy.slice(),sell:memSell.slice()});
+  nextB9+=ri(50,70)*S;
+}
+function pushC3(){ prog+=ri(-3000,6000)*10000; msgs.push({type:'C3',exUs:nextC3,recvUs:nextC3+60,seq:++seq,prog}); nextC3+=ri(100,140)*S; }
+function timers(t){ const END=T(15,30); while(true){ const b=nextB9<=t&&nextB9<=END, c=nextC3<=t&&nextC3<=END; if(!b&&!c) break; if(b&&(!c||nextB9<=nextC3)) pushB9(); else pushC3(); } }
+function target(us){
+  const L=(a,b,x0,x1)=>a+(b-a)*Math.min(1,Math.max(0,(us-x0)/(x1-x0)));
+  if(us<T(9)) return BASE; if(us<T(9,2,41)) return L(BASE,16300,T(9),T(9,2,41));
+  if(us<T(9,4,41)) return 16300; if(us<T(9,8)) return L(16350,17100,T(9,4,41),T(9,8));
+  if(us<T(9,10)) return L(17100,16900,T(9,8),T(9,10));
+  return 16850+300*Math.sin((us-T(9,10))/(48*M))+150*Math.sin((us-T(9,10))/(11*M));
+}
+// 주문 하나 = 같은 종목 A3 msg_seq 연속(+1) · bs 동일 · 뒤에 B6 하나 (krx-a3-zero-quote.md §2) · 마지막 아닌 조각은 0/0
+function emitRun(exUs, bs, shape, pl, invert, invGapUs){
+  const id=++runId; const levels=new Set(pl.map(p=>p.px)).size;
+  let t=exUs, recvLast=0; const pieces=[];
+  pl.forEach((p,i)=>{ if(i) t+=ri(20,180); recvLast=pushA3(t,t+ri(80,400),p.px,p.q,bs,p.zz,id,i===pl.length-1); pieces.push(msgs.length-1); });
+  const lastPx=pl[pl.length-1].px;
+  if(bs==='2') ask1=(levels>1||R()<0.35)?lastPx+TICK:lastPx; else ask1=(levels>1||R()<0.35)?lastPx:lastPx+TICK;
+  ask1=Math.max(BASE-TICK*2, Math.min(UPPER, ask1));
+  const bt=t+ri(30,300); let brecv=Math.max(bt+ri(80,400),recvLast+ri(5,60)), inverted=false;
+  if(invert){ brecv=recvLast-(invGapUs||ri(1000,30000)); inverted=true; }
+  pushB6(bt,brecv,id);
+  const q=pl.reduce((a,p)=>a+p.q,0), v=pl.reduce((a,p)=>a+p.q*p.px,0);
+  const team=shape==='SMP'||shape==='ZZ';
+  if(team){ if(bs==='2') teamBuyQty+=q; else teamSellQty+=q; }
+  runs.push({id,bs,shape,team,pieces,qty:q,value:v,levels,startUs:exUs,endUs:t,closeIdx:msgs.length-1,inverted,px:lastPx,firstPx:pl[0].px,n:pl.length});
+  return bt;
+}
+function genRun(exUs, teamBias){
+  timers(exUs);
+  const tgt=target(exUs); const bp = price<tgt? 0.76 : 0.34;
+  const bs = R()<bp?'2':'1'; const r=R(); const tS=0.22*teamBias, tZ=0.14*teamBias; let shape;
+  if(r<tS) shape='SMP'; else if(r<tS+tZ) shape='ZZ'; else if(r<tS+tZ+0.07) shape='C0'; else if(r<tS+tZ+0.19) shape='SWEEP'; else shape='ONE';
+  const dir=bs==='2'?1:-1; const lvl=bs==='2'?ask1:ask1-TICK;
+  const levels=(shape==='C0'||shape==='SWEEP')? ri(2, shape==='C0'?4:3) : 1;
+  const pl=[];
+  if(shape==='SMP'){ const n=ri(2,6); for(let i=0;i<n;i++) pl.push({px:lvl,q:ri(50,800),zz:i<n-1?true:R()<0.6}); }
+  else if(shape==='ZZ') pl.push({px:lvl,q:ri(100,3000),zz:true});
+  else if(shape==='ONE') pl.push({px:lvl,q:ri(1,1500),zz:false});
+  else for(let i=0;i<levels;i++) pl.push({px:Math.min(UPPER,lvl+dir*TICK*i),q:ri(100,2000),zz:shape==='C0'?true:i<levels-1});
+  return emitRun(exUs, bs, shape, pl, pl.length>1 && R()<0.12);
+}
+// 17,100 벽 — 팀 SMP 한 주문 70조각(krx-a3-zero-quote.md §4 「17,100 원 벽도 한 주문 70·133 조각」) · 닫는 B6 가 8ms 먼저 수신
+function genBig(exUs){ timers(exUs); ask1=17100; const pl=[]; for(let i=0;i<70;i++) pl.push({px:17100,q:ri(50,300),zz:i<69?true:false}); return emitRun(exUs,'2','SMP',pl,true,8000); }
+let bigRun=null;
+for(let t=T(8)+ri(0,20)*S; t<T(9); t+=ri(14,26)*S) pushB6(t,t+ri(80,400),null);
+let t=T(9)+ri(50,400)*1000;
+while(t<T(9,2,41)){ t=genRun(t,1)+ri(150,900)*1000; }
+let viOn=T(9,2,41,120); msgs.push({type:'R8',exUs:viOn,recvUs:viOn+210,seq:++seq,vi:'on',kind:'정적',viPx:16300,until:T(9,4,41)});
+for(t=T(9,2,43); t<T(9,4,41); t+=ri(3,6)*S){ timers(t); pushB6(t,t+ri(80,400),null); }
+let viOff=T(9,4,41,230); timers(viOff); msgs.push({type:'R8',exUs:viOff,recvUs:viOff+190,seq:++seq,vi:'off',kind:'정적',viPx:16300});
+ask1=16400; pushA3(viOff+900, viOff+900+ri(120,400), 16350, ri(20000,40000), '0', false, null, true); pushB6(viOff+1400, viOff+1400+ri(80,400), null);
+t=viOff+ri(800,2500)*1000;
+while(t<T(9,10)){ if(!bigRun && t>=T(9,7,50)){ t=genBig(t)+ri(400,900)*1000; bigRun=runs[runs.length-1]; continue; } t=genRun(t,1)+ri(150,1200)*1000; }
+while(t<T(15,20)){ t=genRun(t,0.45)+ri(15,55)*S; }
+for(t=T(15,20)+ri(2,8)*S; t<T(15,30); t+=ri(12,18)*S){ timers(t); pushB6(t,t+ri(80,400),null); }
+timers(T(15,30)); const closePx=Math.round(price/TICK)*TICK; pushA3(T(15,30,0,310), T(15,30,0,310)+ri(120,400), closePx, ri(30000,60000), '0', false, null, true); pushB6(T(15,30,0,900), T(15,30,0,900)+200, null);
+for(let hm=T(16,10); hm<=T(18,0); hm+=10*M){ ask1=closePx+TICK*ri(-1,1); pushB6(hm-ri(4,9)*S, hm-ri(4,9)*S+300, null); pushA3(hm+ri(100,900)*1000, hm+ri(100,900)*1000+250, ask1-(R()<.5?TICK:0), ri(500,6000), '0', false, null, true); }
+
+// ── 파생 ──
+const N=msgs.length;
+const recvOrder=msgs.map((m,i)=>i).sort((a,b)=>msgs[a].recvUs-msgs[b].recvUs||a-b); // 수신순 (배열 순서 = msg_seq 순)
+const posRecv=new Array(N); recvOrder.forEach((idx,p)=>posRecv[idx]=p);
+const lastRun=new Array(N); { let lr=-1; for(let i=0;i<N;i++){ const m=msgs[i]; if(m.type==='A3'&&m.run!=null&&m.last) lr=m.run-1; lastRun[i]=lr; } }
+// 뒤집힘 = 수신순에서 자기 뒤에 받은 전문 가운데 msg_seq 가 더 작은 것이 있는 전문(= 먼저 와 버린 전문). gap = 그 마지막 전문과의 수신 시각 차 · jumped = 앞질러 선 행 수 · after = 거래소순 자리(이 전문 바로 뒤)
+const disp=new Array(N).fill(null); const ghostAfter=new Map(); let dispCount=0;
+{ const suf=new Int32Array(N+1); suf[N]=N; for(let p=N-1;p>=0;p--) suf[p]=Math.min(recvOrder[p],suf[p+1]);
+  for(let p=0;p<N-1;p++){ const idx=recvOrder[p]; if(suf[p+1]<idx){ let q=p+1,lastQ=-1; while(q<N&&suf[q]<idx){ if(recvOrder[q]<idx) lastQ=q; q++; } const after=recvOrder[lastQ];
+    disp[idx]={gap:msgs[after].recvUs-msgs[idx].recvUs,after,jumped:lastQ-p}; if(!ghostAfter.has(after)) ghostAfter.set(after,[]); ghostAfter.get(after).push(idx); dispCount++; } } }
+const multiRuns=runs.filter(r=>r.n>=2).length;
+</script>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const fN=n=>Math.round(n).toLocaleString('ko-KR');
+function fKRW(v){ const a=Math.abs(v), s=v<0?'−':''; if(a>=1e8) return s+(a/1e8).toFixed(a>=1e10?0:1)+'억'; if(a>=1e4) return s+fN(a/1e4)+'만'; return s+fN(a); }
+const fKRWs=v=>(v>0?'+':'')+fKRW(v);
+function fT(us,micro){ const ms=Math.floor(us/1000), s=Math.floor(ms/1000); const h=Math.floor(s/3600), m=Math.floor(s/60)%60, sec=s%60; const base=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'); if(micro==='none') return base; const mm=String(ms%1000).padStart(3,'0'); if(micro) return base+'.'+mm+' '+String(us%1000).padStart(3,'0'); return base+'.'+mm; }
+function parseT(str){ const m=/^(\d{1,2}):(\d{2}):(\d{2})(?:[.,](\d{1,6}))?$/.exec(str.trim()); if(!m) return null; const frac=(m[4]||'0').padEnd(6,'0'); return ((+m[1]*3600+ +m[2]*60+ +m[3])*1e6)+ +frac; }
+const fGap=us=>us>=1000?(us/1000).toFixed(us>=10000?0:1)+'ms':us+'µs';
+const pxCls=px=>px>BASE?'up':px<BASE?'down':'flat';
+const SHAPE={SMP:['팀 · 자전거래방지 SMP','team'],ZZ:['팀 · 0/0 단독','team'],C0:['일반 · 0/0 스윕 C0','norm'],SWEEP:['일반 · 스윕','norm'],ONE:['일반','norm']};
+const shapeChip=(r,short)=>{ const sh=SHAPE[r.shape]; return '<span class="chip '+sh[1]+'">'+(short?(r.team?'팀'+(r.shape==='SMP'?' SMP':' 0/0'):(r.shape==='C0'?'C0':r.shape==='SWEEP'?'스윕':'일반')):sh[0])+'</span>'; };
+
+const st={v:'a',r:'3',w:'desktop',t:'dark',cur:0,order:'ex',open:new Set(),allOpen:false,playing:false,ex:'KRX'};
+const markers=()=>st.r!=='1', toggleOn=()=>st.r!=='2';
+const isOpen=id=>st.allOpen?!st.open.has(id):st.open.has(id);
+const posOf=i=>st.order==='recv'?posRecv[i]:i;
+const idxAtPos=p=>st.order==='recv'?recvOrder[p]:p;
+function idxAtTime(us){ let lo=0,hi=N-1,ans=0; while(lo<=hi){ const mid=(lo+hi)>>1; const m=msgs[idxAtPos(mid)]; const t=st.order==='recv'?m.recvUs:m.exUs; if(t<=us){ ans=mid; lo=mid+1; } else hi=mid-1; } return idxAtPos(ans); }
+const runOfMsg=m=>{ if((m.type==='A3'||m.type==='B6')&&m.run!=null){ const r=runs[m.run-1]; if(r.n>=2) return r; } return null; };
+const hiddenInB=m=>{ const r=runOfMsg(m); return !!(st.v==='b'&&r&&!isOpen(r.id)&&!(m.type==='A3'&&m.last)); };
+function step(d){ let p=posOf(st.cur); for(let k=0;k<N;k++){ const np=p+d; if(np<0||np>N-1) break; p=np; if(hiddenInB(msgs[idxAtPos(p)])) continue; break; } st.cur=idxAtPos(p); render(); }
+function jumpTime(us){ st.cur=idxAtTime(us); render(); }
+function nextDisp(){ const p0=posOf(st.cur); for(let k=1;k<=N;k++){ const idx=idxAtPos((p0+k)%N); if(disp[idx]){ st.cur=idx; render(); return; } } }
+{ const r0=runs.find(r=>r.team&&r.n>=2&&r.inverted&&r.startUs>=T(9,3))||runs.find(r=>r.inverted); st.cur=r0?r0.pieces[r0.n-1]:0; } // 시작 틱 = 09:03 뒤 첫 「닫는 B6 가 먼저 온」 팀 주문의 마지막 조각
+let timer=null; const frame=$('#frame');
+
+const DESC_V={
+  a:'<b>A · 행 그룹</b> — 전문은 전부 한 행씩 그대로(ATMParser 식). 한 주문(연속 A3 + 닫는 B6)의 행들은 왼쪽 레일(팀 보라 · 일반 회색)로 묶이고 행 사이 선이 사라지며, 묶음 끝에 꼬리 줄 「┗ 조각 · 단 · 수량 · 금액 · 지속 · 모양」이 붙는다. 모양 칩은 마지막 조각이 아니라 꼬리에만. 조각마다 번호 배지는 없다.',
+  b:'<b>B · 요약 행 접기</b> — 2조각 이상 주문은 기본으로 요약 행 하나(▸ 첫 조각 시각 · A3 ×n · seq 범위 · 가격 · 수량 · 단 · 지속 · 모양 · 금액)로 접힌다. ▸ 를 누르면 조각과 닫는 B6 가 그 아래 레일로 펼쳐진다. ← → 는 접힌 주문을 한 걸음으로 건넌다(마지막 조각이 선택됨). 머리 「전부 펼치기 | 접기」.',
+  c:'<b>C · 배지</b> — 019 그대로 평평한 행. 조각마다 종류 배지 옆에 「k/n」 번호 배지(팀 보라 · 일반 회색), 마지막 조각에 모양 칩 + 금액, 닫는 B6 에 「닫음」 배지. 레일 · 꼬리 · 접기 없음.'
+};
+const DESC_R={
+  '1':'<b>뒤집힘 1 · 토글만</b> — 머리의 「수신순 | 거래소순」 세그먼트로 정렬을 바꾼다. 행에는 아무 표시가 없다(먼저 온 B6 는 그냥 그 자리에 있다). 뒤집힘을 알려면 토글을 눌러 비교해야 한다.',
+  '2':'<b>뒤집힘 2 · 행 안 표시만</b> — 정렬은 수신순 고정(실제 재생 순서). 먼저 와 버린 B6 행은 seq 가 주황 ↕ 로 바뀌고 끝에 「↕ 18ms 먼저 수신」, 그리고 msg_seq 상 제자리에는 점선 「⋯ 거래소순 자리」 줄이 끼어든다. 머리 「↕ 다음 역전」 으로 건너뛴다. 토글 없음.',
+  '3':'<b>뒤집힘 3 · 둘 다</b> — 토글 + 행 안 표시. 수신순에서는 2 와 같고, 거래소순에서는 그 B6 행 끝에 「↕ 수신은 18ms 먼저」 만 남는다(제자리에 있으니 점선 줄은 없음).'
+};
+function headerHTML(){ return '<div class="hdr"><h1>한선엔지니어링 <small class="mf" style="font-size:12px;font-weight:500">101360</small> <span class="src">과거 · 격자</span></h1><button class="pill">2026-10-22</button><div class="seg"><button data-ex="KRX" class="'+(st.ex==='KRX'?'on':'')+'">KRX</button><button data-ex="NXT" class="'+(st.ex==='NXT'?'on':'')+'">NXT</button></div><div class="clock"><b class="num" data-role="t-recv"></b><span class="num" data-role="t-ex"></span><span class="num" data-role="t-seq"></span></div></div>'; }
+function transportHTML(){ return '<div class="tr"><button class="ib" data-act="prev" title="← 한 틱 앞">‹</button><button class="ib" data-act="play" title="Space">▶</button><button class="ib" data-act="next" title="→ 한 틱 뒤">›</button><div class="sl"><div class="ax"><span>08</span><span>10</span><span>12</span><span>14</span><span>16</span><span>18</span><span>20</span></div><input type="range" min="'+(T(8)/1000)+'" max="'+(T(20)/1000)+'" step="1" data-role="slider"></div><input class="tin" data-role="tin" placeholder="HH:MM:SS.mmm"><button class="tb" data-act="jump">점프</button><span class="kb">← → 틱 · Shift 10틱 · Space 재생</span></div>'; }
+function msgHeadHTML(){ return '<div class="ph">전문 목록 <small data-role="msg-meta"></small><span class="tools">'+(markers()?'<button class="tb xs vi" data-act="nextdisp">↕ 다음 역전</button>':'')+(st.v==='b'?'<button class="tb xs" data-act="toggleall">'+(st.allOpen?'전부 접기':'전부 펼치기')+'</button>':'')+'</span>'+(toggleOn()?'<div class="seg" data-role="order"><button data-o="recv" class="'+(st.order==='recv'?'on':'')+'">수신순</button><button data-o="ex" class="'+(st.order==='ex'?'on':'')+'">거래소순</button></div>':'<span class="fixed">수신순 고정</span>')+'</div>'; }
+function build(){
+  frame.className='f '+st.t+' '+st.w;
+  frame.innerHTML='<div class="body">'+headerHTML()+transportHTML()+'<div class="grid">'+
+    '<div class="panel p-lad"><div><b>호가 10단</b>스케치 019 그대로<br>(이 스케치에서는 생략 · 폭만 유지)</div></div>'+
+    '<div class="panel p-msg">'+msgHeadHTML()+'<div class="pb" data-role="msg"></div></div>'+
+    '<div class="right"><div class="panel"><div class="ph">이 주문 <small>체결 버스트 · msg_seq +1 묶기</small></div><div data-role="burst"></div></div></div>'+
+    '</div></div>';
+  $('#desc').innerHTML=DESC_V[st.v]+'<br>'+DESC_R[st.r];
+  $$('#nav [data-v]').forEach(b=>b.classList.toggle('on',b.dataset.v===st.v));
+  $$('#nav [data-r]').forEach(b=>b.classList.toggle('on',b.dataset.r===st.r));
+  $$('#nav [data-w]').forEach(b=>b.classList.toggle('on',b.dataset.w===st.w));
+  $$('#nav [data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===st.t));
+  render();
+}
+
+// ── 행 모델: 창(±60) 안의 전문 + (수신순 · 표시 켬) 거래소순 자리 → 변형별 묶음 ──
+function buildRows(i){
+  const p0=posOf(i), from=Math.max(0,p0-100), to=Math.min(N-1,p0+100); const rows=[];
+  for(let p=from;p<=to;p++){ const idx=idxAtPos(p); rows.push({k:'m',idx,run:runOfMsg(msgs[idx])}); if(st.order==='recv'&&markers()&&ghostAfter.has(idx)) for(const g of ghostAfter.get(idx)) rows.push({k:'g',idx:g,run:runOfMsg(msgs[g])}); }
+  const out=[]; let g=null;
+  const flush=()=>{ if(!g) return; const rs=g.rows;
+    if(!rs.some(r=>r.k==='m'&&msgs[r.idx].type==='A3')){ rs.forEach(r=>out.push(r)); g=null; return; }
+    if(st.v==='a'){ rs.forEach((r,k)=>{ r.grp=true; r.first=k===0; out.push(r); }); out.push({k:'f',run:g.run}); }
+    else if(st.v==='b'){ const open=isOpen(g.run.id); out.push({k:'s',run:g.run,open,members:rs}); if(open) rs.forEach(r=>{ r.grp=true; r.inb=true; out.push(r); }); }
+    else rs.forEach(r=>out.push(r));
+    g=null; };
+  for(const r of rows){ if(r.run){ if(g&&g.run.id===r.run.id) g.rows.push(r); else { flush(); g={run:r.run,rows:[r]}; } } else { flush(); out.push(r); } }
+  flush(); return out;
+}
+const fSeq=s=>st.w==='phone'?'…'+String(s).slice(-4):fN(s);
+const timeHTML=us=>{ if(st.w==='phone') return '<b>'+fT(us)+'</b>'; const s=fT(us,true); return '<b>'+s.slice(0,12)+'</b>'+s.slice(12); };
+function runSummary(x){ const dur=x.endUs-x.startUs; const px=x.levels>1?fN(x.firstPx)+'→'+fN(x.px):fN(x.px); return {dur,px}; }
+function invTail(idx){ const d=disp[idx]; if(!d||!markers()) return ''; return st.order==='recv'?'<span class="inv">↕ '+fGap(d.gap)+' 먼저 수신</span>':'<span class="inv">↕ 수신은 '+fGap(d.gap)+' 먼저</span>'; }
+function descHTML(m,r){
+  const run=m.run!=null?runs[m.run-1]:null;
+  if(m.type==='A3'){ let s='<b class="num '+pxCls(m.px)+'">'+fN(m.px)+'</b> <span class="num '+(m.bs==='2'?'buy':m.bs==='1'?'sellc':'mf')+'">'+(m.bs==='2'?'+':m.bs==='1'?'−':'')+fN(m.qty)+'</span><span class="mf num"> ('+fKRW(m.px*m.qty)+')</span> <span class="mf">'+(m.bs==='2'?'매수':m.bs==='1'?'매도':'단일가')+' · '+(m.zz?'0/0':fN(m.ask1)+'/'+fN(m.bid1))+'</span>';
+    if(m.bs==='0') s+='<span class="chip auct">단일가</span>';
+    else if(run&&m.last&&(run.n<2||st.v==='c')) s+=shapeChip(run,true)+(run.n>1?'<span class="mf"> · '+fKRW(run.value)+'</span>':'');
+    return s; }
+  if(m.type==='B6'){ const a=m.asks[0], d=m.bids[0]; const ta=m.asks.reduce((x,q)=>x+q.qty,0), tb=m.bids.reduce((x,q)=>x+q.qty,0);
+    return (r&&r.grp&&st.v==='a'?'<span class="chip close">닫는 B6</span>':'')+'<span class="mf">매도1</span> <span class="num">'+fN(a.px)+'</span><span class="mf num"> ×'+fN(a.qty)+' ('+fKRW(a.px*a.qty)+')</span> <span class="mf">매수1</span> <span class="num">'+fN(d.px)+'</span><span class="mf num"> ×'+fN(d.qty)+' ('+fKRW(d.px*d.qty)+')</span>'+invTail(r?r.idx:-1); }
+  if(m.type==='B9'){ const top=m.buy.map((q,k)=>[MEMBERS[k],q]).sort((a,b)=>b[1]-a[1]).slice(0,3); return '<span class="mf">매수상위</span> '+top.map(x=>x[0]+' <span class="num">'+fN(x[1])+'</span>').join(' · ')+' <span class="mf">· 5창구 스윕</span>'; }
+  if(m.type==='R8') return m.vi==='on'?'<b style="color:var(--vi)">VI 발동</b> <span class="mf">'+m.kind+' · 발동가 <span class="num">'+fN(m.viPx)+'</span> · 해제예정 '+fT(m.until,'none')+'</span>':'<b style="color:var(--vi)">VI 해제</b> <span class="mf">단일가 체결 뒤 연속매매 재개</span>';
+  if(m.type==='C3') return '<span class="mf">프로그램 순매수</span> <b class="num '+(m.prog>=0?'up':'down')+'">'+fKRWs(m.prog)+'</b><span class="mf"> 누적</span>';
+  return '';
+}
+function idxBadge(m,run,kind){ if(!run) return ''; const c=kind==='dim'?'dim':run.team?'team':'norm'; if(m.type==='A3'){ const k=run.pieces.indexOf(msgs.indexOf(m))+1; return '<span class="idx '+c+'">'+k+'/'+run.n+'</span>'; } if(m.type==='B6') return '<span class="idx '+c+'">닫음</span>'; return ''; }
+function rowHTML(r,i,selRun){
+  if(r.k==='f'){ const x=r.run, {dur,px}=runSummary(x); const d=disp[x.closeIdx]; let tail=''; if(d&&markers()) tail=st.order==='recv'?' · <span class="inv" style="margin-left:0">닫는 B6 ↕ '+fGap(d.gap)+' 먼저 수신(위 '+d.jumped+'행)</span>':' · <span class="inv" style="margin-left:0">닫는 B6 는 수신 '+fGap(d.gap)+' 먼저 ↕</span>';
+    return '<tr class="gft '+(x.team?'team':'norm')+(selRun===x.id?' runb':'')+'" data-run="'+x.id+'"><td colspan="4" class="num">┗ '+x.n+'조각 '+x.levels+'단 · '+fN(x.qty)+'주 · '+fKRW(x.value)+' · '+fGap(dur)+shapeChip(x,true)+tail+'</td></tr>'; }
+  if(r.k==='g'){ const m=msgs[r.idx], d=disp[r.idx]; return '<tr class="ghost'+(r.grp?' grp '+(r.run.team?'team':'norm')+(r.inb?' inb':''):'')+'" data-i="'+r.idx+'"><td class="t">⋯</td><td><span class="badge b'+m.type+'" style="opacity:.6">'+m.type+'</span></td><td class="s num">'+fSeq(m.seq)+'</td><td class="d">거래소순 자리 — 이 B6 는 <b>'+fGap(d.gap)+' 먼저</b> 수신돼 위 '+d.jumped+'행에 있음</td></tr>'; }
+  if(r.k==='s'){ const x=r.run, f=msgs[x.pieces[0]], l=msgs[x.pieces[x.n-1]]; const {dur,px}=runSummary(x); const t=st.order==='recv'?f.recvUs:f.exUs;
+    const sel=r.members.some(mm=>mm.k==='m'&&mm.idx===i)||(!r.open&&x.pieces.includes(i)); const d=disp[x.closeIdx]; let tail=''; if(d&&markers()&&!r.open) tail='<span class="inv">↕ 닫는 B6 '+fGap(d.gap)+' 먼저</span>';
+    return '<tr class="sum '+(x.team?'team':'norm')+(sel&&!r.open?' sel':'')+(selRun===x.id?' runb':'')+'" data-run="'+x.id+'"><td class="t num"><button class="caret" data-tog="'+x.id+'" title="조각 '+(r.open?'접기':'펼치기')+'">'+(r.open?'▾':'▸')+'</button>'+timeHTML(t)+'</td><td><span class="badge bA3">A3</span><span class="idx '+(x.team?'team':'norm')+'">×'+x.n+'</span></td><td class="s num">'+fSeq(f.seq)+'~'+String(l.seq).slice(-3)+'</td><td class="d"><b class="num '+pxCls(x.px)+'">'+px+'</b> <span class="num '+(x.bs==='2'?'buy':'sellc')+'">'+(x.bs==='2'?'+':'−')+fN(x.qty)+'</span> <span class="mf">'+(x.bs==='2'?'매수':'매도')+(x.levels>1?' · '+x.levels+'단':'')+' · '+fGap(dur)+'</span>'+shapeChip(x,true)+'<span class="mf"> · '+fKRW(x.value)+'</span>'+tail+'</td></tr>'; }
+  const m=msgs[r.idx], run=m.run!=null?runs[m.run-1]:null, d=disp[r.idx];
+  const cls=[r.idx===i?'sel':'', selRun!=null&&m.run===selRun?'runb':'', r.grp?'grp '+(r.run.team?'team':'norm'):'', r.first?'first':'', r.inb?'inb':'', d&&markers()?'disp':''].join(' ');
+  const dimT=r.grp&&!r.first&&m.type==='A3'&&st.v==='a';
+  const badges=st.v==='c'?idxBadge(m,r.run):st.v==='b'&&r.inb?idxBadge(m,r.run,'dim'):'';
+  return '<tr class="'+cls+'" data-i="'+r.idx+'"><td class="t num'+(dimT?' dim':'')+(st.v==='c'&&run&&run.team?' tm':'')+'">'+timeHTML(st.order==='recv'?m.recvUs:m.exUs)+'</td><td><span class="badge b'+m.type+'">'+m.type+'</span>'+badges+'</td><td class="s num">'+fSeq(m.seq)+(d&&markers()?' <span class="inv" style="margin-left:2px">↕</span>':'')+'</td><td class="d">'+descHTML(m,r)+'</td></tr>';
+}
+function msgListHTML(i){
+  const sel=msgs[i]; const selRun=(sel.type==='A3'||sel.type==='B6')?sel.run:null;
+  let h='<table class="msg"><thead><tr><th>'+(st.order==='recv'?'수신':'거래소')+' 시각</th><th>종류</th><th>seq</th><th>내용</th></tr></thead><tbody>';
+  for(const r of buildRows(i)) h+=rowHTML(r,i,selRun);
+  return h+'</tbody></table>';
+}
+function msgMeta(){ return fN(N)+'건 · 주문 '+fN(multiRuns)+'묶음(2조각+) · 역전 '+dispCount+'건 · '+(st.order==='recv'?'수신순':'msg_seq 순'); }
+
+function burstHTML(i){
+  const m=msgs[i]; let r=null;
+  if((m.type==='A3'||m.type==='B6')&&m.run!=null) r=runs[m.run-1]; else if(lastRun[i]>=0) r=runs[lastRun[i]];
+  let h='<div class="card">';
+  if(m.type==='A3'&&m.bs==='0') h+='<div class="shape"><span class="chip auct">단일가 체결</span></div><div class="sub">단일가 체결은 주문 묶기 · 공격 방향 분류 대상이 아니다(team-flow 규칙 3).</div>';
+  else if(!r) h+='<div class="empty">아직 체결 주문 없음</div>';
+  else { const dur=r.endUs-r.startUs; const cl=msgs[r.closeIdx]; const d=disp[r.closeIdx];
+    h+='<div class="shape">'+shapeChip(r)+'<span class="num '+(r.bs==='2'?'buy':'sellc')+'">'+(r.bs==='2'?'매수':'매도')+'</span></div>'+
+      '<div class="kv" style="margin-top:10px"><div><div class="k">조각 · 단</div><div class="v num">'+r.n+'조각 <small>'+r.levels+'단</small></div></div><div><div class="k">수량</div><div class="v num">'+fN(r.qty)+'<small>주</small></div></div>'+
+      '<div><div class="k">금액</div><div class="v num">'+fKRW(r.value)+'</div></div><div><div class="k">지속</div><div class="v num">'+(dur>=1000?(dur/1000).toFixed(1)+'<small>ms</small>':dur+'<small>µs</small>')+'</div></div></div>'+
+      '<div class="sub">seq '+fN(msgs[r.pieces[0]].seq)+(r.n>1?'~'+fN(msgs[r.pieces[r.n-1]].seq):'')+' · 닫는 B6 '+fN(cl.seq)+(d?' <span class="inv">↕ 닫는 B6 가 마지막 조각보다 '+fGap(d.gap)+' 먼저 수신</span>':'')+'</div>'; }
+  const lr=lastRun[i]; if(lr>=0){ h+='<table class="rl"><thead><tr><th>시각</th><th>구분</th><th>조각</th><th>수량</th><th>금액</th><th>모양</th></tr></thead><tbody>';
+    for(let k=lr;k>Math.max(-1,lr-10);k--){ const x=runs[k]; h+='<tr class="'+(x.team?'team':'')+(r&&x.id===r.id?' sel':'')+'" data-run="'+x.id+'"><td class="c num">'+fT(x.startUs)+'</td><td class="'+(x.bs==='2'?'buy':'sellc')+'">'+(x.bs==='2'?'매수':'매도')+'</td><td class="num">'+x.n+(x.inverted?' <span class="inv" style="margin-left:1px">↕</span>':'')+'</td><td class="num">'+fN(x.qty)+'</td><td class="num">'+fKRW(x.value)+'</td><td>'+shapeChip(x,true)+'</td></tr>'; }
+    h+='</tbody></table>'; }
+  return h+'</div>';
+}
+
+function render(){
+  const i=st.cur, m=msgs[i];
+  $('[data-role=t-recv]',frame).textContent=fT(m.recvUs);
+  $('[data-role=t-ex]',frame).textContent='거래소 '+fT(m.exUs,true);
+  $('[data-role=t-seq]',frame).textContent='seq '+fN(m.seq)+' · '+m.type;
+  $('[data-role=msg]',frame).innerHTML=msgListHTML(i); $('[data-role=msg-meta]',frame).textContent=msgMeta();
+  $('[data-role=burst]',frame).innerHTML=burstHTML(i);
+  const sl=$('[data-role=slider]',frame); const tus=st.order==='recv'?m.recvUs:m.exUs; sl.value=Math.round(tus/1000);
+  const tin=$('[data-role=tin]',frame); if(document.activeElement!==tin) tin.value=fT(tus);
+  const pb=$('[data-act=play]',frame); pb.classList.toggle('on',st.playing); pb.textContent=st.playing?'❚❚':'▶';
+  const box=$('[data-role=msg]',frame), row=$('tr.sel',box); if(row){ box.scrollTop=Math.max(0,row.offsetTop-box.clientHeight/2+row.offsetHeight/2); }
+}
+
+// ── 이벤트 ──
+$('#nav').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.v) st.v=b.dataset.v; if(b.dataset.r){ st.r=b.dataset.r; st.order=st.r==='2'?'recv':'ex'; } if(b.dataset.w) st.w=b.dataset.w; if(b.dataset.t) st.t=b.dataset.t;
+  build(); });
+frame.addEventListener('click',e=>{
+  const tg=e.target.closest('button[data-tog]'); if(tg){ const id=+tg.dataset.tog; if(st.open.has(id)) st.open.delete(id); else st.open.add(id); render(); return; }
+  const row=e.target.closest('tr[data-i]'); if(row){ st.cur=+row.dataset.i; render(); return; }
+  const rr=e.target.closest('tr[data-run]'); if(rr){ const r=runs[+rr.dataset.run-1]; st.cur=r.pieces[r.n-1]; render(); return; }
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.o){ st.order=b.dataset.o; $$('[data-o]',frame).forEach(x=>x.classList.toggle('on',x.dataset.o===st.order)); render(); return; }
+  if(b.dataset.ex){ st.ex=b.dataset.ex; $$('[data-ex]',frame).forEach(x=>x.classList.toggle('on',x.dataset.ex===st.ex)); return; }
+  const act=b.dataset.act;
+  if(act==='prev') step(-1); else if(act==='next') step(1); else if(act==='play') togglePlay();
+  else if(act==='jump'){ const us=parseT($('[data-role=tin]',frame).value); if(us!=null) jumpTime(us); }
+  else if(act==='nextdisp') nextDisp();
+  else if(act==='toggleall'){ st.allOpen=!st.allOpen; st.open.clear(); b.textContent=st.allOpen?'전부 접기':'전부 펼치기'; render(); }
+});
+frame.addEventListener('input',e=>{ if(e.target.dataset.role==='slider') jumpTime(+e.target.value*1000); });
+frame.addEventListener('change',e=>{ if(e.target.dataset.role==='slider') e.target.blur(); });
+frame.addEventListener('keydown',e=>{ if(e.target.dataset.role==='tin'&&e.key==='Enter'){ const us=parseT(e.target.value); if(us!=null){ jumpTime(us); e.target.blur(); } } });
+document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if(e.key==='ArrowLeft'){ e.preventDefault(); step(e.shiftKey?-10:-1); } else if(e.key==='ArrowRight'){ e.preventDefault(); step(e.shiftKey?10:1); } else if(e.key===' '){ e.preventDefault(); togglePlay(); }
+  else if(e.key==='Enter'&&st.v==='b'){ const r=runOfMsg(msgs[st.cur]); if(r){ if(st.open.has(r.id)) st.open.delete(r.id); else st.open.add(r.id); render(); } } });
+function togglePlay(){ st.playing=!st.playing; if(timer){ clearInterval(timer); timer=null; } if(st.playing){ timer=setInterval(()=>{ if(posOf(st.cur)>=N-1){ togglePlay(); return; } step(1); },140); } render(); }
+build();
+</script>
+</body>
+</html>
