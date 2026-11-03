@@ -102,6 +102,13 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`${BASE}\\?d=${TICK_DATE}$`));
     await expect(entryRows(page)).toHaveCount(3);
+    // 머리 ‹ 목록으로(2026-11-03) — 같은 날짜 · 거래소 목록으로(딥링크로 들어와도 동작)
+    await entryRows(page).nth(1).click();
+    await expect(header.getByRole('heading')).toContainText(ECO.name);
+    await header.getByRole('button', { name: '목록으로' }).click();
+    await expect(page).toHaveURL(new RegExp(`${BASE}\\?d=${TICK_DATE}(&ex=NXT)?$`));
+    await expect(entryRows(page)).toHaveCount(3);
+    await expect(header.locator('[data-slot="tick-back"]')).toHaveCount(0);
   });
 
   test('변환 — 검색으로 격자 없는 종목 → convert 1회 → 「변환 중」 → 5초 폴링에서 grid → 열림', async ({ page }) => {

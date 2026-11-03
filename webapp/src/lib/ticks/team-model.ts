@@ -159,10 +159,10 @@ export function teamKpiAt(model: TeamModel, session: TickSession, rec: number): 
   };
 }
 
-/** 차트 주문 원 문턱 — 팀 주문 금액 500만 이상(스케치 019 D). */
-export const TEAM_CIRCLE_MIN_VAL = 5_000_000;
+/** 차트 주문 원 문턱 — 0 = 팀 주문 전부(2026-11-03 사용자 요청 · 스케치 019 D 의 500만 문턱을 걷었다). */
+export const TEAM_CIRCLE_MIN_VAL = 0;
 
-/** 주문 원 — 팀 주문 중 금액 ≥ minVal(기본 500만 · 스케치 019 D). 수신 시각 순. */
+/** 주문 원 — 팀 주문 중 금액 ≥ minVal(기본 0 = 전부). 수신 시각 순. */
 export function teamCirclesOf(model: TeamModel, minVal = TEAM_CIRCLE_MIN_VAL): TeamOrderPoint[] {
   return model.teamOrders.filter((o) => o.val >= minVal);
 }

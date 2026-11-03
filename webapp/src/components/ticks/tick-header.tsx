@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { ChevronLeft } from 'lucide-react';
 
 import type { TickExchange, TickLiveState } from '@gh-radar/shared';
 
@@ -10,7 +11,7 @@ import { cn } from '@/lib/utils';
 /**
  * 틱 전문 뷰어 머리 줄 (Phase 37 D-16 · 진입 목업 A `.hdr` · 스케치 019 D 머리).
  *
- * 한 줄(넘치면 감김): 제목(진입 = 「틱 전문 뷰어」 · 열린 뒤 = 종목명 + 코드) · 공급 배지(`grid` 「과거 격자 · GCS 원본」 ·
+ * 한 줄(넘치면 감김): 제목(진입 = 「틱 전문 뷰어」 · 열린 뒤 = ‹ 목록으로 + 종목명 + 코드 — 2026-11-03 사용자 요청) · 공급 배지(`grid` 「과거 격자 · GCS 원본」 ·
  * `live` 「당일 · 119 요청형」) → 종목 검색(피커 — 열린 뒤에도 머리에 남는다) → 날짜 알약 ‹ › (이동 단위 = 호출부가 준
  * prev/next — 격자가 있는 날짜 + 장중이면 오늘) · KRX|NXT 세그먼트 → 현재 틱 시각/seq 자리(37-10 이 값을 준다).
  * 당일(37-19 · D-06): 상태 delayed · blocked 면 공급 배지 옆 「당일 자료 지연 · n초 전 마지막 수신」(X-Tick-Last-Recv-Ns 기준) ·
@@ -50,6 +51,8 @@ export interface TickHeaderProps {
   picker: ReactNode;
   /** 당일 경로 상태(37-19) — 과거 격자 · 진입이면 없음. */
   live?: TickHeaderLive | null;
+  /** 열린 뒤 종목명 왼쪽 ‹ — 같은 날짜 · 거래소 목록으로(딥링크로 들어와도 동작하게 history.back 이 아니다). */
+  onBack?: () => void;
 }
 
 const SUPPLY_TEXT = { grid: '과거 격자 · GCS 원본', live: '당일 · 119 요청형' } as const;
@@ -69,11 +72,24 @@ export function TickHeader({
   onEx,
   picker,
   live = null,
+  onBack,
 }: TickHeaderProps) {
   const delayed = live !== null && (live.state === 'delayed' || live.state === 'blocked');
   return (
     <header data-slot="tick-header" data-mode={mode} className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
       <h1 className="m-0 flex min-w-0 items-center gap-2 text-[17px] font-bold text-[var(--fg)]">
+        {mode === 'loaded' && onBack !== undefined && (
+          <button
+            type="button"
+            data-slot="tick-back"
+            aria-label="목록으로"
+            title="목록으로"
+            onClick={onBack}
+            className="-mr-1 -ml-1.5 flex size-8 flex-none items-center justify-center rounded-[10px] text-[var(--fg)] transition-colors hover:bg-[color-mix(in_oklab,var(--muted)_60%,transparent)]"
+          >
+            <ChevronLeft className="size-5" aria-hidden="true" />
+          </button>
+        )}
         {mode === 'loaded' && stock !== null ? (
           <span className="flex min-w-0 items-baseline gap-1.5">
             <span className="truncate">{stock.name}</span>

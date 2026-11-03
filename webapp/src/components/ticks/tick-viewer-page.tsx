@@ -407,6 +407,7 @@ export function TickViewerPage() {
         next={nav.next}
         onDate={(to) => go({ d: to })}
         onEx={(x) => go({ ex: x })}
+        onBack={() => go({ isin: null })}
         picker={
           <TickStockPicker
             date={shown}

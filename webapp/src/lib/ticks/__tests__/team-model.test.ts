@@ -118,7 +118,7 @@ describe('합성 — 팀 매수 SMP 3조각(984만) · 일반 1조각 · 팀 매
     expect(model.buckets.buy.reduce((a, b) => a + b, 0)).toBe(9_840_000);
   });
 
-  it('주문 원 — 500만 이상만 · 1천만 문턱이면 0개', () => {
+  it('주문 원 — 기본 = 팀 주문 전부 · 1천만 문턱이면 0개', () => {
     expect(teamCirclesOf(model).map((c) => c.lastRec)).toEqual([recOfSeq(103), recOfSeq(107)]);
     expect(teamCirclesOf(model, 10_000_000)).toEqual([]);
   });

@@ -37,7 +37,7 @@ const B = tickBoundsOf(SYNTH_DATE);
 const T13 = B.T0 + 5 * 3_600_000;
 const P: TickPanels = tickPanelsOf(TICK_CHART.desktop);
 
-/** 팀 주문 4건 — 매수 1,000만 · 매수 505만(0.5초 뒤) · 매도 301.5만(원 문턱 아래) · 매도 2,040만(30초 뒤). 주문당 체결 1개. */
+/** 팀 주문 4건 — 매수 1,000만 · 매수 505만(0.5초 뒤) · 매도 301.5만(옛 500만 문턱 아래 — 지금은 원으로 그린다) · 매도 2,040만(30초 뒤). 주문당 체결 1개. */
 const ORDERS = [
   { t: 0, side: 'B', qty: 1000, px: 10_000, pieces: 3 },
   { t: 500, side: 'B', qty: 500, px: 10_100, pieces: 2 },
@@ -88,9 +88,9 @@ const x = xOfTick(view, 52, 592);
 const y = () => 50;
 
 describe('tick-chart-tip — 원 · 묶음', () => {
-  it('tickCirclesOf — 500만 미만 제외 · 큰 원 먼저 · k = teamOrders 번호', () => {
+  it('tickCirclesOf — 팀 주문 전부(500만 미만 포함 · 2026-11-03) · 큰 원 먼저 · k = teamOrders 번호', () => {
     const c = tickCirclesOf(model(), view, x, y);
-    expect(c.map((v) => v.k)).toEqual([3, 0, 1]);
+    expect(c.map((v) => v.k)).toEqual([3, 0, 1, 2]);
     expect(c[1]!.cx).toBeCloseTo(52, 6);
   });
 
@@ -132,7 +132,7 @@ describe('tick-chart-tip — 원 · 묶음', () => {
     const c = tickCirclesOf(m, day, xd, y);
     const h = tickOrderHoverOf(m, null, c, c.find((v) => v.k === 0)!, day);
     expect(h.lines[1]).toBe(
-      '묶음 3건 13:00:00 ~ 13:00:30 · 팀 매수 2건 1,505만 · 팀 매도 1건 2,040만 · 가격 10,000 → 10,200 (+2.00%)',
+      '묶음 4건 13:00:00 ~ 13:00:30 · 팀 매수 2건 1,505만 · 팀 매도 2건 2,342만 · 가격 10,000 → 10,200 (+2.00%)',
     );
     expect(h.lines[2]).toBe('큰 주문 매도 2,040만@10,200 · 매수 1,000만@10,000 · 매수 505만@10,100');
   });

@@ -53,7 +53,7 @@ export interface TickHover {
   group?: readonly TickCircle[];
 }
 
-/** 주문 원 — 팀 주문 ≥ 500만 · 창 ± 2% 안 · 그리기 순서 = 큰 원 먼저(작은 원이 위). */
+/** 주문 원 — 팀 주문 전부(`TEAM_CIRCLE_MIN_VAL` 0) · 창 ± 2% 안 · 그리기 순서 = 큰 원 먼저(작은 원이 위). */
 export function tickCirclesOf(
   model: Pick<TeamModel, 'teamOrders'>,
   view: View,
