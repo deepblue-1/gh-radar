@@ -25,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(133);
+SELECT plan(137);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -435,6 +435,20 @@ SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX') #>> '{requ
 SELECT ok(NOT (pg_temp.open1('20261013', 'KRX', 'KR7370001001')->'request' ? 'requesters')
           AND NOT (pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20)->'request' ? 'requesters'),
           'J3 open · 요청 응답은 요청자 집합을 내보내지 않는다');
+
+-- ── J4. 합류는 상한 밖(R2-IN-06 · 20261104600100) ───────────────────────
+DELETE FROM public.tick_convert_requests;
+SELECT pg_temp.req(pg_temp.u1(), '20261012', 'KR7370001001', 'KRX', 1); -- 깨움 1회 → 오늘 상한 1 소진
+UPDATE public.tick_convert_requests SET triggered_at = now() - interval '3 minutes' WHERE date = '20261012';
+SELECT is(pg_temp.req(pg_temp.u2(), '20261012', 'KR7370001001', 'KRX', 1)->>'capped', 'true',
+          'J4 stale pending(3분) + 상한 소진 → capped(재트리거는 막는다)');
+SELECT is(pg_temp.who('20261012', 'KRX', 'KR7370001001'), ARRAY[pg_temp.u1(), pg_temp.u2()],
+          'J4 capped 여도 진행 중 회차에는 합류 → 요청자 집합 {u1, u2}(R2-IN-06)');
+SELECT ok((SELECT r.trigger_count = 1 AND r.triggered_at < now() - interval '2 minutes'
+             FROM public.tick_convert_requests r WHERE r.date = '20261012' AND r.isin = 'KR7370001001'),
+          'J4 capped 합류는 깨우지 않는다(trigger_count 1 · triggered_at 그대로)');
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261012', 'KR7370001001', 'KRX') #>> '{request,status}', 'pending',
+          'J4 원래 요청자가 취소해도 합류자가 남아 pending(합류자 화면에 cancelled 없음)');
 
 -- ── K. 실행 기록 · 후보 ───────────────────────────────────────────
 SELECT ok(public.tick_convert_run_record('{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true,
