@@ -51,6 +51,8 @@ export type JobDeps = {
   now: Date;
   /** 소요 측정 시계(ms) — 기본 Date.now. */
   clock?: () => number;
+  /** 짧은 재시도 대기(ms) — 기본 setTimeout(시험 주입 · nightly 끝 기록 재시도 · R3-IN-01). */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export type RequestArgs = { date: string; ex: Exchange };

@@ -6,7 +6,10 @@
  *   − 결정적 실패가 `NIGHTLY_MAX_FAILED_RUNS`(2)회를 넘은 날(WR-36 — 키 하나의 영구 실패 · 깨진 원본 하나로 그 날짜 두 라벨
  *   전량(≈9GB ARCHIVE 꺼내기)을 하루 두 번 · 10일 동안 다시 읽지 않는다). 세는 것(R2-WR-03 · `failedNightlyRunsOf`):
  *     · ok false 기록 중 error 가 `TRANSIENT` 로 시작하지 않는 것 — 원본 · 키 결함(통독 throw · 격자 만들기 · 업로드 4xx 영구 거부)
- *     · 끝 기록 없이 남은 「시작」 기록(ok null · error STARTED) — Job 자체가 죽은 실행(OOM · task timeout)
+ *     · 끝 기록 없이 남은 「시작」 기록(ok null · error STARTED) — Job 자체가 죽은 실행(OOM · task timeout). 그 실행에서
+ *       **첫 번째로 시작한 날짜**만 STARTED 다(R3-IN-01) — 뒤 날짜는 STARTED_LATER 로 남겨 세지 않는다(앞 날짜가 시간을 먹어
+ *       task timeout 에 끊긴 건강한 날짜를 그 날짜의 결함으로 세지 않는다 · 정말 그 날짜가 죽이는 것이면 다음 실행에서 첫
+ *       날짜가 되어 센다). 끝 기록 쓰기는 실패하면 1초 뒤 한 번 더 시도한다(일시 장애가 크래시로 둔갑하지 않게).
  *     안 세는 것: 일시 장애(RPC · Storage 5xx/네트워크 · GCS FUSE 입출력 오류) — ok false 지만 error `TRANSIENT: …` 로 남긴다.
  *   포기한 날짜가 있으면 실행마다 error 로그. 종료 1(알림 정책 = Job 실패 실행)은 **막 포기한** 날짜가 있을 때만
  *   (R3-WR-02 · `freshlyGaveUp` — 그 날짜 마지막 nightly 기록이 `GAVE_UP_ALERT_WINDOW_MS` 22.5시간 안 = 포기를 만든 실행의
@@ -43,7 +46,8 @@
  *   ⑥ 거래소별 `tick_convert_run_record` + 요약 로그 한 줄.
  *
  * 실패 격리: 날짜 하나가 throw 해도(깨진 원본 · RPC 오류) 그 날짜만 실패 기록(ok false — 다음 실행이 다시 고른다)하고 다음
- * 날짜로 간다. 변환을 시작하는 날짜는 먼저 거래소별 「시작」 기록(ok null · STARTED)을 쓴다(크래시 판정 · R2-WR-03).
+ * 날짜로 간다. 변환을 시작하는 날짜는 먼저 거래소별 「시작」 기록(ok null · 그 실행 첫 날짜면 STARTED · 뒤 날짜면 STARTED_LATER)을
+ * 쓴다(크래시 판정 · R2-WR-03 · R3-IN-01).
  * 모든 날짜 뒤 90일 purge 한 번(purge.ts). 실패 날짜 · purge 실패 · 막 포기한 날짜가 하나라도 있으면 종료 1(알림 정책) —
  * 미룬 날짜 · 건너뛴 날짜 · NO_OBJECTS 는 실패가 아니다.
  */
@@ -74,8 +78,12 @@ export const NO_OBJECTS = "NO_OBJECTS";
 export const PARTIAL = "partial";
 /** 실행 기록 error 머리 — 일시 장애로만 실패한 기록(포기 카운트에서 뺀다 · R2-WR-03). */
 export const TRANSIENT = "TRANSIENT";
-/** 「시작」 기록 error(ok null) — 끝 기록이 따라오지 않으면 크래시로 센다(R2-WR-03). */
+/** 「시작」 기록 error(ok null) — 그 실행의 첫 날짜. 끝 기록이 따라오지 않으면 크래시로 센다(R2-WR-03). */
 export const STARTED = "STARTED";
+/** 「시작」 기록 error(ok null) — 그 실행의 두 번째 이후 날짜. 끝 기록이 없어도 크래시로 세지 않는다(R3-IN-01). */
+export const STARTED_LATER = "STARTED_LATER";
+/** 끝 기록 쓰기 재시도 대기(ms · R3-IN-01). */
+export const RUN_RECORD_RETRY_MS = 1_000;
 
 /** 일시 장애로 보는 파일 시스템 오류 코드 — 원본은 GCS FUSE 마운트라 입출력 · 연결 오류가 날 수 있다. */
 const TRANSIENT_FS_CODES = new Set([
@@ -168,27 +176,39 @@ function isoOf(ymd: string): string {
 /**
  * 날짜별 결정적 실패 nightly 실행 수 — 거래소별 (결정적 실패 기록 + 크래시) 의 최댓값(실행 하나가 거래소마다 한 행을 쓴다).
  * 결정적 실패 = ok false ∧ error 가 `TRANSIENT` 로 시작하지 않음(옛 RPC 라 error 가 없으면 결정적으로 센다).
- * 크래시 = 「시작」 기록(ok null · STARTED) 수 − 끝 기록(ok true/false) 수(0 미만은 0) — Job 이 죽어 끝 기록을 못 쓴 실행(R2-WR-03).
+ * 크래시 = 끝 기록(ok true/false)이 따라오지 않은 「시작」 기록(ok null) — Job 이 죽어 끝 기록을 못 쓴 실행(R2-WR-03).
+ *   (날짜, 거래소)마다 기록을 finished_at 순으로 짝짓는다: 「시작」 다음에 끝 기록 없이 또 「시작」 이 오거나 마지막이 「시작」 이면
+ *   앞 「시작」 은 크래시. 그 「시작」 이 STARTED(그 실행의 첫 날짜)일 때만 센다 — STARTED_LATER 는 세지 않는다(R3-IN-01).
  */
 export function failedNightlyRunsOf(runs: readonly RunSince[]): Map<string, number> {
-  const failed = new Map<string, number>();
-  const started = new Map<string, number>();
-  const finished = new Map<string, number>();
-  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  const byKeyRuns = new Map<string, RunSince[]>();
   for (const r of runs) {
     if (r.mode !== "nightly") continue;
     const k = `${r.date}|${r.exchange}`;
-    if (r.ok === null) {
-      if (r.error === STARTED) bump(started, k);
-      continue;
-    }
-    bump(finished, k);
-    if (r.ok === false && !(typeof r.error === "string" && r.error.startsWith(TRANSIENT))) bump(failed, k);
+    const list = byKeyRuns.get(k);
+    if (list) list.push(r);
+    else byKeyRuns.set(k, [r]);
   }
   const byKey = new Map<string, number>();
-  for (const k of new Set([...failed.keys(), ...started.keys()])) {
-    const crashes = Math.max(0, (started.get(k) ?? 0) - (finished.get(k) ?? 0));
-    const n = (failed.get(k) ?? 0) + crashes;
+  for (const [k, list] of byKeyRuns) {
+    // runs_since 가 키 안에서 finished_at 순으로 주지만 한 번 더 맞춘다 — 시각을 못 읽는 행이 있으면 받은 순서 그대로
+    const times = list.map((r) => Date.parse(r.finished_at ?? ""));
+    const ordered = times.some(Number.isNaN)
+      ? list
+      : list.map((r, i) => ({ r, t: times[i]!, i })).sort((a, b) => a.t - b.t || a.i - b.i).map((x) => x.r);
+    let n = 0;
+    let open: string | null = null; // 끝 기록을 기다리는 「시작」 기록의 error
+    for (const r of ordered) {
+      if (r.ok === null) {
+        if (r.error !== STARTED && r.error !== STARTED_LATER) continue;
+        if (open === STARTED) n += 1; // 끝 기록 없이 다음 「시작」 — 앞 실행이 죽었다
+        open = r.error;
+        continue;
+      }
+      open = null;
+      if (r.ok === false && !(typeof r.error === "string" && r.error.startsWith(TRANSIENT))) n += 1;
+    }
+    if (open === STARTED) n += 1;
     if (n > 0) byKey.set(k, n);
   }
   const out = new Map<string, number>();
@@ -487,10 +507,10 @@ function withNote(prev: string | null, note: string): string {
 }
 
 /**
- * 「시작」 기록(거래소별 ok null · error STARTED) — 끝 기록이 따라오지 않으면 다음 실행이 크래시(OOM · task timeout)로 센다
- * (R2-WR-03). 기록 실패는 변환을 막지 않는다(warn — 그 실행이 죽으면 크래시로 못 셀 뿐).
+ * 「시작」 기록(거래소별 ok null · error STARTED | STARTED_LATER) — 끝 기록이 따라오지 않으면 다음 실행이 크래시(OOM · task
+ * timeout)로 센다(R2-WR-03 · STARTED 만 · R3-IN-01). 기록 실패는 변환을 막지 않는다(warn — 그 실행이 죽으면 크래시로 못 셀 뿐).
  */
-async function recordStart(meta: Meta, date: string): Promise<void> {
+async function recordStart(meta: Meta, date: string, marker: typeof STARTED | typeof STARTED_LATER): Promise<void> {
   for (const exchange of EXCHANGES) {
     try {
       await meta.runRecord({
@@ -502,7 +522,7 @@ async function recordStart(meta: Meta, date: string): Promise<void> {
         written: 0,
         bytes_read: 0,
         duration_ms: 0,
-        error: STARTED,
+        error: marker,
       });
     } catch (err) {
       logger.warn({ date, ex: exchange, err }, "tick-convert nightly start record failed — 변환은 계속(크래시 판정만 빠짐)");
@@ -510,8 +530,23 @@ async function recordStart(meta: Meta, date: string): Promise<void> {
   }
 }
 
+/** 끝 기록 — 실패하면 `RUN_RECORD_RETRY_MS` 뒤 한 번 더(R3-IN-01 — 일시 장애 한 번이 크래시 판정으로 둔갑하지 않게). */
+async function recordEnd(deps: JobDeps, meta: Meta, run: Parameters<Meta["runRecord"]>[0]): Promise<void> {
+  try {
+    await meta.runRecord(run);
+  } catch (err) {
+    logger.warn({ date: run.date, ex: run.exchange, err }, "tick-convert nightly run record failed — 한 번 더 시도");
+    const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    await sleep(RUN_RECORD_RETRY_MS);
+    await meta.runRecord(run);
+  }
+}
+
+/** 한 실행 안에서 날짜끼리 나누는 상태 — 「시작」 기록을 쓴 날짜가 있었는가(첫 날짜만 STARTED · R3-IN-01). */
+type RunCtx = { started: boolean };
+
 /** 날짜 하나 — 판정 · 변환 · 실행 기록 · 요약 로그. 날짜 단위 예외는 여기서 실패로 닫는다(다음 날짜를 막지 않는다). */
-async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyDayResult> {
+async function runDay(deps: JobDeps, meta: Meta, date: string, ctx: RunCtx): Promise<NightlyDayResult> {
   const clock = deps.clock ?? Date.now;
   const t0 = clock();
   const day: NightlyDayResult = {
@@ -537,7 +572,9 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     if (day.ready === "none") {
       for (const er of day.exchanges) er.error = NO_OBJECTS;
     } else {
-      await recordStart(meta, date);
+      const marker = ctx.started ? STARTED_LATER : STARTED;
+      ctx.started = true;
+      await recordStart(meta, date, marker);
       await convertDay(deps, meta, date, day);
       if (day.ready === "partial") for (const er of day.exchanges) er.error = er.error === null ? PARTIAL : `${PARTIAL}; ${er.error}`;
     }
@@ -560,7 +597,7 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     const deterministic = (fatal !== null && !fatalTransient) || er.failed > er.transientFailed;
     const error = !ok && !deterministic ? `${TRANSIENT}: ${er.error ?? ""}` : er.error;
     try {
-      await meta.runRecord({
+      await recordEnd(deps, meta, {
         date,
         exchange: er.exchange,
         mode: "nightly",
@@ -572,7 +609,7 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
         error,
       });
     } catch (err) {
-      logger.error({ date, ex: er.exchange, err }, "tick-convert nightly run record failed");
+      logger.error({ date, ex: er.exchange, err }, "tick-convert nightly run record failed (재시도도 실패)");
       day.failed = true;
       day.error = day.error ?? msgOf(err);
     }
@@ -631,6 +668,7 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
     failed: gaveUpFresh.length > 0 ? 1 : 0,
     purgeError: null,
   };
+  const ctx: RunCtx = { started: false };
   for (let i = 0; i < dates.length; i++) {
     // 시간 예산 — 새 날짜를 시작하기 직전에만 본다(시작한 날짜는 끝낸다)
     if (clock() - t0 > cfg.nightlyBudgetMs) {
@@ -641,7 +679,7 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
       );
       break;
     }
-    const day = await runDay(deps, meta, dates[i]!);
+    const day = await runDay(deps, meta, dates[i]!, ctx);
     out.days.push(day);
     if (day.failed) out.failed += 1;
   }

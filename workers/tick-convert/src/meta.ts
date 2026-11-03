@@ -60,7 +60,7 @@ export type RunRow = {
   mode: GridMode;
   started_at?: string;
   finished_at?: string;
-  /** null = 「시작」 기록(nightly 날짜 시작 · error STARTED — 끝 기록 없이 남으면 크래시로 센다 · R2-WR-03). */
+  /** null = 「시작」 기록(nightly 날짜 시작 · error STARTED | STARTED_LATER — 끝 기록 없이 남은 STARTED 는 크래시로 센다 · R2-WR-03 · R3-IN-01). */
   ok: boolean | null;
   targets: number;
   written: number;

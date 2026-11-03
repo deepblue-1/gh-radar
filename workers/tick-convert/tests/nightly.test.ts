@@ -17,7 +17,9 @@ import {
   GAVE_UP_ALERT_WINDOW_MS,
   NIGHTLY_MAX_FAILED_RUNS,
   NO_OBJECTS,
+  RUN_RECORD_RETRY_MS,
   STARTED,
+  STARTED_LATER,
   TRANSIENT,
   failedNightlyRunsOf,
   freshlyGaveUp,
@@ -209,6 +211,79 @@ describe("nightlyDatesOf — 평일 · 휴장 · ok 기록 · 최신부터", () 
       3,
     ]);
     expect(nightlyDatesOf(NOW, 10, runs)).toEqual(["20261102", "20261030", "20261028"]);
+  });
+
+  it("뒤 날짜(STARTED_LATER)의 끝 기록 없는 「시작」 은 세지 않는다 · 기록은 finished_at 순으로 짝짓는다(R3-IN-01)", () => {
+    const r = (date: string, ok: boolean | null, error: string | null, finished_at: string): RunSince => ({
+      date,
+      exchange: "KRX",
+      mode: "nightly",
+      ok,
+      finished_at,
+      error,
+    });
+    const runs = [
+      // 10/30 — 앞 날짜가 시간을 먹어 task timeout 에 끊긴 뒤 날짜 3회 → 0(건강한 날짜를 포기하지 않는다)
+      r("20261030", null, STARTED_LATER, "2026-10-31T15:20:00Z"),
+      r("20261030", null, STARTED_LATER, "2026-11-01T15:20:00Z"),
+      r("20261030", null, STARTED_LATER, "2026-11-02T15:20:00Z"),
+      // 10/29 — 받은 순서가 뒤섞여도 시각 순으로: 첫 날짜 크래시(1) → 뒤 날짜로 시작해 TRANSIENT 끝 → 첫 날짜 크래시(2)
+      r("20261029", null, STARTED, "2026-11-01T14:31:00Z"),
+      r("20261029", false, `${TRANSIENT}: boom`, "2026-10-31T16:00:00Z"),
+      r("20261029", null, STARTED_LATER, "2026-10-31T15:10:00Z"),
+      r("20261029", null, STARTED, "2026-10-30T14:31:00Z"),
+    ];
+    const n = failedNightlyRunsOf(runs);
+    expect(n.get("20261030")).toBeUndefined();
+    expect(n.get("20261029")).toBe(2);
+  });
+
+  it("한 실행에서 첫 번째로 시작한 날짜만 STARTED · 뒤 날짜는 STARTED_LATER(R3-IN-01)", async () => {
+    const root = newRoot();
+    for (const d of ["20261030", "20261029"]) synth(root, d, { hours: { krx: HOURS_08_20, nxt: HOURS_08_20 } });
+    const { sb, calls } = makeFakeSupabase();
+    await runNightly({ sb, store: createSupabaseGridStore(sb), config: cfg(root), now: NOW, clock: () => 0 }, {});
+    const starts = rpcCalls(calls, "tick_convert_run_record")
+      .map((x) => x.p_run as Record<string, unknown>)
+      .filter((x) => x.ok === null)
+      .map((x) => [x.date, x.exchange, x.error]);
+    expect(starts).toEqual([
+      ["20261030", "KRX", STARTED],
+      ["20261030", "NXT", STARTED],
+      ["20261029", "KRX", STARTED_LATER],
+      ["20261029", "NXT", STARTED_LATER],
+    ]);
+  });
+
+  it("끝 기록 쓰기가 한 번 실패하면 1초 뒤 한 번 더 — 성공하면 날짜 실패가 아니다 · 두 번 다 실패면 날짜 실패(R3-IN-01)", async () => {
+    const run = async (failTimes: number) => {
+      const root = newRoot();
+      synth(root, D, { hours: { krx: HOURS_08_20, nxt: HOURS_08_20 } });
+      let left = failTimes;
+      const { sb, calls } = makeFakeSupabase({
+        rpc: {
+          tick_convert_run_record: (a) =>
+            (a.p_run as { ok: unknown; exchange: string }).ok !== null &&
+            (a.p_run as { exchange: string }).exchange === "NXT" &&
+            left-- > 0
+              ? { error: { message: "fetch failed" } }
+              : { data: 1 },
+        },
+      });
+      const sleeps: number[] = [];
+      const out = await runNightly(
+        { sb, store: createSupabaseGridStore(sb), config: cfg(root), now: NOW, clock: () => 0, sleep: async (ms) => void sleeps.push(ms) },
+        { date: D },
+      );
+      return { out, sleeps, nxtFinals: finals(calls).filter((x) => x.exchange === "NXT").length };
+    };
+    const once = await run(1);
+    expect(once.sleeps).toEqual([RUN_RECORD_RETRY_MS]);
+    expect(once.nxtFinals).toBe(2); // 실패 1 + 재시도 1
+    expect(once.out.failed).toBe(0);
+    const twice = await run(2);
+    expect(twice.nxtFinals).toBe(2);
+    expect(twice.out.failed).toBe(1);
   });
 });
 
