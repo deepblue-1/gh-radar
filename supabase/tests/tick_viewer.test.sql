@@ -3,7 +3,8 @@
 --
 -- 대상: 20261102200000_tick_viewer.sql(표 3 · tick_grid_upsert · tick_day_for_user · tick_open_for_user ·
 --       tick_eta_s · tick_trigger_blocked · 버킷) · 20261102200100_tick_viewer_queue.sql(요청 큐 · Job RPC · 오늘 · purge).
---       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기).
+--       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기)
+--       · 20261104300200(IN-06 배치 안 중복 키).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -24,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(128);
+SELECT plan(130);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -166,6 +167,15 @@ SELECT is(public.tick_day_for_user(pg_temp.u1())->'dates', '["20261030", "202610
 SELECT is((SELECT jsonb_agg(e->>'exchange' ORDER BY n)
              FROM jsonb_array_elements(public.tick_day_for_user(pg_temp.u1(), '20261030')->'rows') WITH ORDINALITY x(e, n)),
           '["KRX", "NXT"]'::jsonb, 'E rows 정렬 high_rate DESC(29.9 KRX → 20.0 NXT)');
+-- IN-06(20261104300200) — 한 배치 안 같은 키 두 번은 롤백 없이 마지막 원소 하나만(뒤 절에 영향 없게 그 행은 지운다)
+SELECT is(public.tick_grid_upsert('nightly', jsonb_build_array(
+            pg_temp.grow('20261027', 'NXT', 'KR7370002009', 'nightly', 11.0),
+            pg_temp.grow('20261027', 'NXT', 'KR7370002009', 'nightly', 12.0))),
+          1, 'E 배치 안 같은 키 두 번 → 문장 롤백 없이 1행');
+SELECT is((SELECT g.high_rate FROM public.tick_grids g
+            WHERE g.date = '20261027' AND g.exchange = 'NXT' AND g.isin = 'KR7370002009'),
+          12.0::double precision, 'E 배치 안 중복 키는 마지막 원소가 남는다');
+DELETE FROM public.tick_grids WHERE date = '20261027';
 
 -- ── F. stale 판정(2분 · 25분 · 같은 (날짜, 거래소) running) ───────────
 INSERT INTO public.tick_convert_requests (date, exchange, isin, status, requested_by, triggered_at)
