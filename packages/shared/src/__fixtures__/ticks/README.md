@@ -13,7 +13,13 @@ bash scripts/tick-oracle/gen-fixtures.sh runs     # NXT 런 · 단독 창 골든
 bash scripts/tick-oracle/gen-fixtures.sh pnl      # 천일 10/14 팀 손익 골든(37-03 · 로컬 원본 08~15시 ≈ 3.4GB 통독 ≈ 50초)
 bash scripts/tick-oracle/gen-fixtures.sh g4cut    # 빅텍 10/22 G4 조각 골든(37-03 · GCS 원본 3시간 먼저 받기)
 bash scripts/tick-oracle/gen-fixtures.sh pnl --bigtech   # (선택) 빅텍 10/22 하루 — GCS 원본 ≈ 3.4GB
+pnpm --filter @gh-radar/shared build && node scripts/tick-oracle/gen-own-fixtures.mjs   # 10/30 우리 체결 오라클(38-02 · 아래 own1030 행)
+node scripts/tick-oracle/gen-own-fixtures.mjs --check   # 같은 입력 = 같은 바이트 확인(다르면 exit 1)
 ```
+
+`gen-own-fixtures.mjs` 는 gh-trade venv 가 필요 없다 — 빌드된 `packages/shared/dist` 와 저장소 밖 로컬 사본
+`/Users/alex/gh-radar-own-probe-1030/`(또는 `--in` · `$OWN_PROBE_DIR`)만 읽는다(원격 접근 없음). 원 출처인 Storage 10/30 격자는
+보존 90일이라 2027-01-28 무렵 purge 된다.
 
 GCS 원본(빅텍 10/22 — 맥 `~/ticks/team-follow/rawpcap/` 에는 08~15시만 있다)은 deployer SA 로 읽기만 한다:
 
@@ -47,6 +53,12 @@ g4cut 세 시간 = 212,358,419 + 94,934,883 + 85,724,009 = 393,017,311B(≈ 0.39
 | `chunil-1014.pnl.json` | `~/ticks/research/export/20261014/{team_flow,accum_flow}.ndjson.gz` | 그 ISIN `payload.pnl` 원문 두 범위 + base · upper · last_px. 같은 A3 로 파이썬 team_pnl 을 다시 계산해 export 와 같음을 생성기가 확인 |
 | `bigtech-1022-g4.ticks.zst` | GCS `raw/krx/20261022/20261022-{1500,1600,1700}.pcap.zst` | 빅텍 KR7065450009 10/22 15~17시 — 그 ISIN A3 만 17,100건(G4 체결 13,792) |
 | `bigtech-1022-g4.golden.json` | 같은 조각 → 합성 pcap → convert_file → 두 범위 `prepare_frame` · `team_pnl` | accum(G1+G4 · (t, seq) 순) · teamflow(G1 · seq 순) 주문별 행 + `pnl_accum` · `pnl_teamflow`. G4 체결 0 이면 생성기 종료 1 |
+| `own1030-krx-KR7184230001.ticks.zst` | `/Users/alex/gh-radar-own-probe-1030/KRX_KR7184230001.zst` 사본(원 출처 Storage `tick-grid/grid/20261030/KRX/KR7184230001.nightly.ticks.zst`) | 10/30 창 격자 — 원본 11,130 → 2,199 레코드. 창 = A3∧ok(체결 g 기준 A3 시각 [g−3000, g+1000] ∨ 이벤트 e 기준 수신 [e−3500, e+500] ∨ 이벤트 cum_volume · ev_qty_after 와 같은 cumVolume ∨ 주기매도 (before, after]) + B6∧ok(이벤트 수신 창) |
+| `own1030-krx-KR7011080009.ticks.zst` | 같은 사본 `KRX_KR7011080009.zst`(Storage `…/20261030/KRX/KR7011080009.nightly.ticks.zst`) | 같은 창 규칙 — 6,421 → 460 |
+| `own1030-krx-KR7051630002.ticks.zst` | 같은 사본 `KRX_KR7051630002.zst`(Storage `…/20261030/KRX/KR7051630002.nightly.ticks.zst`) | 같은 창 규칙 — 126,135 → 476 |
+| `own1030-krx-KR7092190008.ticks.zst` | 같은 사본 `KRX_KR7092190008.zst`(Storage `…/20261030/KRX/KR7092190008.nightly.ticks.zst`) | 같은 창 규칙 — 118,990 → 4,458 |
+| `own1030-nxt-KR7046890000.ticks.zst` | 같은 사본 `NXT_KR7046890000.zst`(Storage `…/20261030/NXT/KR7046890000.nightly.ticks.zst`) | 같은 창 규칙 — 587,383 → 7,108 |
+| `own1030.journal.json` | 같은 사본 `fills1030.json`(`dma_journal_events` 10/30 E 행) · `strat1030.json`(`dma_strategy_events` 10/30 kind 3·6) | 위 5키 체결 406(exec_qty > 0) · 이벤트 124 — (gw_time_ms, gateway, seq) 정렬 · seq = 사본 배열 색인 · 계좌 익명 `ACC1…`(체결 첫 등장 순 · 원본 계좌번호 · dma_user_id 없음). 생성기가 키마다 원본 격자와 창 격자의 `matchOwnFills` 결과가 같음을 확인한다(다르면 종료 1) |
 
 - `*.ticks.zst` = 레코드 프레이밍 `pcapns-rec+zstd/1`(레코드 헤더 `<IIII>` 16B + UDP 페이로드 · 전역 헤더 없음 · zstd-19 한 프레임).
   pcap2parquet 레코드 루프와 같은 규칙 · 같은 프레임 수 상한으로 뽑았다.
@@ -62,4 +74,4 @@ g4cut 세 시간 = 212,358,419 + 94,934,883 + 85,724,009 = 393,017,311B(≈ 0.39
   duckdb 정렬이 비결정이라 오라클이 종료 1 한다.
 - 크기 상한: `.ticks.zst` 하나당 1.5MB. 넘으면 `RAW_LIMIT=10000 bash scripts/tick-oracle/gen-fixtures.sh decode`.
 
-생성일: 2026-11-02 (gh-trade tickana 2026-11-02 원문).
+생성일: 2026-11-02 (gh-trade tickana 2026-11-02 원문). `own1030-*` · `own1030.journal.json` 생성일: 2026-11-03 (Phase 38-02).

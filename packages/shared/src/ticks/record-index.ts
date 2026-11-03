@@ -204,6 +204,8 @@ export interface A3Columns {
   b1: Float64Array;
   tNs: BigInt64Array;
   cumValue: Float64Array;
+  /** 누적 거래량 — 근거 · 앵커 조인 키(Phase 38 D-15). 12자리 십진 < 2^53 이라 Number 로 안전. */
+  cumVolume: Float64Array;
   nxt: Uint8Array;
   isin: string[];
   /** 주문 묶기 입력 — `scopeTrades` → `classifyKrxOrders`(파이썬과 같은 입력 순서는 scopeTrades 가 만든다). */
@@ -224,6 +226,7 @@ const A3_OFF = {
   px: fieldOff(A3_LAYOUT, "trade_price"),
   qty: fieldOff(A3_LAYOUT, "trade_qty"),
   cumValue: fieldOff(A3_LAYOUT, "cum_value"),
+  cumVolume: fieldOff(A3_LAYOUT, "cum_volume"),
   bs: fieldOff(A3_LAYOUT, "final_bs_code"),
   a1: fieldOff(A3_LAYOUT, "ask1_px"),
   b1: fieldOff(A3_LAYOUT, "bid1_px"),
@@ -259,6 +262,7 @@ export function a3ColumnsOf(buf: Uint8Array, index: TickIndex): A3Columns {
   const b1 = new Float64Array(n);
   const tNs = new BigInt64Array(n);
   const cumValue = new Float64Array(n);
+  const cumVolume = new Float64Array(n);
   const nxt = new Uint8Array(n);
   const isin: string[] = new Array<string>(n);
   const isinIntern = new Map<string, string>();
@@ -280,6 +284,7 @@ export function a3ColumnsOf(buf: Uint8Array, index: TickIndex): A3Columns {
     b1[k] = toNum(parsePrice(buf, o + A3_OFF.b1));
     tNs[k] = parseTime12Ns(buf, o + A3_OFF.tradeTime, recv) ?? -1n;
     cumValue[k] = toNum(parseValue22(buf, o + A3_OFF.cumValue, 22));
+    cumVolume[k] = toNum(parseUint(buf, o + A3_OFF.cumVolume, 12));
     const c0 = buf[o + 2];
     nxt[k] = c0 === 53 ? 1 : c0 === 48 ? 0 : fallbackNxt;
     const s = parseStr(buf, o + A3_OFF.isin, 12);
@@ -306,6 +311,7 @@ export function a3ColumnsOf(buf: Uint8Array, index: TickIndex): A3Columns {
     b1,
     tNs,
     cumValue,
+    cumVolume,
     nxt,
     isin,
     toTrades(): A3Trade[] {

@@ -199,6 +199,7 @@ describe.each([
       expect(a3.pct[j]).toBe(pct === "" ? 32 : pct.charCodeAt(0));
       expect(a3.chg[j]).toBe(Number(row["price_change"]));
       expect(a3.cumValue[j]).toBe(Number(row["cum_value"]));
+      expect(a3.cumVolume[j]).toBe(Number(row["cum_volume"]));
     }
   });
 
