@@ -7,6 +7,8 @@ import { TAG_CODE, fmtTickTime } from '@gh-radar/shared';
 import { CARD } from '@/components/layout/page-layout';
 import {
   MSG_ITEM,
+  RAIL_HALF,
+  RAIL_NODE,
   buildMsgRows,
   fmtA3Row,
   fmtB6Row,
@@ -16,12 +18,13 @@ import {
   itemKindOf,
   orderShapeLabel,
   ownLineRec,
+  ownRailOf,
   slotText,
   tailInversionText,
   tailText,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
-import { ownChipOf, ownOrderLineText, type OwnModel } from '@/lib/ticks/own-model';
+import { ownChipOf, ownOrderLineText, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
 import { fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession, ViewOrder } from '@/lib/ticks/tick-session';
 import { useFixedWindow } from '@/lib/ticks/use-fixed-window';
@@ -45,7 +48,10 @@ import { cn } from '@/lib/utils';
  *   내용 끝 민트 칩 「n/m」(부분 체결만 분모 · 전량이면 「n」) · 추정이면 옆에 점선 「추정」 칩. 계좌 · 주문번호는 그리지 않는다(D-02).
  * ⑥ 우리 줄(Phase 38 D-05 · D-12): 주문 시각 자리 점선 「● 주문 …」 줄 · 짝 A3 를 못 찾은 체결 점선 「◆ 우리 체결 n주 · 짝 전문 없음」
  *   (당일 대기면 「전문 아직 안 옴」) 줄 — 「⋯ 거래소순 자리」 줄 동형(같은 높이 · 점선 상단선 · 옅은 바탕) · 색만 `--mine`.
- *   계좌 끝 4자리 · 주문번호는 주문 줄에만(D-02).
+ *   계좌 끝 4자리 · 주문번호는 주문 줄에만(D-02). 줄 클릭 = 그 줄 선택(`onOwnSelect` · 민트 18%) + 커서 = 그 줄 다음 전문.
+ * ⑦ 둘째 레일(Phase 38 D-04 · 목업 B): 목록 맨 앞 14px 칸 — 우리 주문마다 ● 주문 줄 → ◆ 체결 행을 민트 세로선(3px)으로
+ *   잇는다(`ownRailOf`) · 추정이 섞인 주문은 점선 · 짝 없음 ◇(대기는 점선 테두리) · 겹치면 선이 겹친다(옆 칸 없음).
+ *   기존 팀/일반 3px 레일(①)은 시각 칸 안쪽에 붙는다. 행 높이 24/22 그대로 · 폰도 14px 칸 유지.
  */
 
 export interface TickMsgListProps {
@@ -54,8 +60,12 @@ export interface TickMsgListProps {
   onSelect: (rec: number) => void;
   mode: TickOrderMode;
   onMode: (m: TickOrderMode) => void;
-  /** 우리 체결 모델(Phase 38) — 없으면 지금과 같은 DOM. */
+  /** 우리 체결 모델(Phase 38) — 없으면 레일 칸은 비어 있고 우리 줄 · 칩이 없다. */
   own?: OwnModel | null;
+  /** 고른 우리 줄(주문 줄 · 짝 없음 줄) — 뷰어가 커서와 맞을 때만 넘긴다(파생). */
+  ownSel?: OwnSel | null;
+  /** 우리 줄 클릭 — 그 줄과 기준 전문 rec(그 줄 다음 첫 전문). 없으면 행 클릭처럼 `onSelect(rec)`. */
+  onOwnSelect?: (sel: OwnSel, rec: number) => void;
   className?: string;
 }
 
@@ -82,9 +92,65 @@ const MODES: readonly { id: TickOrderMode; label: string }[] = [
   { id: 'exchange', label: '거래소순' },
 ];
 
-/** 열 — 시각 · 종류 · seq · 내용(폰은 µs 생략 · seq 끝 4자리). */
+/** 열 — 둘째 레일 14px · 시각 · 종류 · seq · 내용(폰은 µs 생략 · seq 끝 4자리 · 레일 칸 유지). */
 const GRID =
-  'grid grid-cols-[122px_34px_66px_minmax(0,1fr)] max-[640px]:grid-cols-[84px_30px_42px_minmax(0,1fr)] items-center gap-x-1.5 px-2';
+  'grid grid-cols-[14px_122px_34px_66px_minmax(0,1fr)] max-[640px]:grid-cols-[14px_84px_30px_42px_minmax(0,1fr)] items-center gap-x-1.5 px-2';
+
+/**
+ * 시각 칸 — 앞 간격(6px)까지 왼쪽으로 늘려 그 왼쪽 끝에 팀/일반 3px 레일(`railStyle`)을 붙인다. 글자 자리는 Phase 37 과 같고,
+ * 행 높이를 꽉 채워(self-stretch) 묶음 안 레일이 이어진다.
+ */
+const TIME_CELL = '-ml-1.5 flex min-w-0 items-center self-stretch pl-1.5';
+
+/** 둘째 레일 절반 선(목업 `.rail` — left 5px · 3px). 점선 = 3px 칠 · 3px 빔 반복. */
+const RAIL_LINE = 'pointer-events-none absolute left-[5px] h-1/2 w-[3px]';
+const RAIL_DASH: CSSProperties = {
+  background: 'repeating-linear-gradient(to bottom, var(--mine) 0 3px, transparent 3px 6px)',
+};
+const RAIL_NODE_NAME: Record<number, string> = {
+  [RAIL_NODE.ORDER]: 'order',
+  [RAIL_NODE.FILL]: 'fill',
+  [RAIL_NODE.NOFILL]: 'nofill',
+};
+
+/** 둘째 레일 칸 — 위 · 아래 절반 선 + 마디(● 주문 11px 원 · ◆ 체결 9px 45° 채움 · ◇ 짝 없음 9px 45° 빈 · 대기는 점선 테두리). */
+function OwnRailCell({ half, node, pending }: { half: number; node: number; pending: boolean }) {
+  return (
+    <span
+      data-slot="tick-own-rail"
+      data-node={RAIL_NODE_NAME[node]}
+      aria-hidden
+      className="relative self-stretch"
+    >
+      {(half & (RAIL_HALF.TOP | RAIL_HALF.TOP_DASH)) !== 0 && (
+        <span
+          className={cn(RAIL_LINE, 'top-0', half & RAIL_HALF.TOP && 'bg-[var(--mine)]')}
+          style={half & RAIL_HALF.TOP ? undefined : RAIL_DASH}
+        />
+      )}
+      {(half & (RAIL_HALF.BOT | RAIL_HALF.BOT_DASH)) !== 0 && (
+        <span
+          className={cn(RAIL_LINE, 'bottom-0', half & RAIL_HALF.BOT && 'bg-[var(--mine)]')}
+          style={half & RAIL_HALF.BOT ? undefined : RAIL_DASH}
+        />
+      )}
+      {node === RAIL_NODE.ORDER && (
+        <span className="pointer-events-none absolute top-1/2 left-px -mt-[5.5px] size-[11px] rounded-full border-2 border-[var(--mine)] bg-[var(--mine)]" />
+      )}
+      {node === RAIL_NODE.FILL && (
+        <span className="pointer-events-none absolute top-1/2 left-[2px] -mt-[4.5px] size-[9px] rotate-45 rounded-[2px] bg-[var(--mine)]" />
+      )}
+      {node === RAIL_NODE.NOFILL && (
+        <span
+          className={cn(
+            'pointer-events-none absolute top-1/2 left-[2px] -mt-[4.5px] size-[9px] rotate-45 rounded-[2px] border-2 border-[var(--mine)] bg-[var(--card)]',
+            pending && 'border-dashed',
+          )}
+        />
+      )}
+    </span>
+  );
+}
 
 const TAG_LABEL: Record<number, string> = {
   [TAG_CODE.A3]: 'A3',
@@ -214,6 +280,12 @@ interface RowProps {
   ownEst?: boolean;
   /** 우리 모델 — ORDER · NOFILL 줄만 읽는다. */
   own: OwnModel | null;
+  /** 둘째 레일(원시값 — memo 유지) — `RAIL_HALF` 비트 · `RAIL_NODE`. */
+  railHalf: number;
+  railNode: number;
+  /** 이 우리 줄이 골라졌나(ORDER · NOFILL 만). */
+  ownSelected: boolean;
+  onOwnSelect?: (sel: OwnSel, rec: number) => void;
 }
 
 /** 우리 줄(주문 · 짝 없음) — 「⋯ 거래소순 자리」 줄 동형 · 색만 `--mine`. */
@@ -247,11 +319,17 @@ const MsgRow = memo(function MsgRow({
   ownTotal = 0,
   ownEst = false,
   own,
+  railHalf,
+  railNode,
+  ownSelected,
+  onOwnSelect,
 }: RowProps) {
   const kind = itemKindOf(item);
   const idx = itemIdxOf(item);
   const { mode } = model;
   const ours = kind === MSG_ITEM.ROW && ownOur > 0;
+  const pending = kind === MSG_ITEM.NOFILL && own !== null && own.fills[idx]?.state === 'pending';
+  const rail = <OwnRailCell half={railHalf} node={railNode} pending={pending} />;
   const rowCls = cn(
     GRID,
     'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t text-[11.5px]',
@@ -277,13 +355,21 @@ const MsgRow = memo(function MsgRow({
         data-order={idx}
         data-pos={pos}
         onClick={() => onSelect(last)}
-        style={railStyle(order, false)}
-        className={cn(rowCls, 'block truncate pl-3.5 text-[10.5px] text-[var(--muted-fg)]')}
+        className={cn(
+          rowCls,
+          'grid-cols-[14px_minmax(0,1fr)] max-[640px]:grid-cols-[14px_minmax(0,1fr)] text-[10.5px] text-[var(--muted-fg)]',
+        )}
       >
-        <span className="mono">{tailText(order)}</span>
-        <ShapeChip order={order} className="ml-1" />
-        {order.open && <span className={cn(CHIP, 'ml-1 bg-[var(--vi-bg)] text-[var(--vi)]')}>진행 중</span>}
-        {inv && <span className="ml-1 font-semibold text-[var(--vi)]">{tailInversionText(mode, inv.leadNs)}</span>}
+        {rail}
+        {/* 꼬리 글자는 시각 글자보다 14px 안쪽(Phase 37 과 같은 들여쓰기) · 레일은 시각 칸과 같은 자리 */}
+        <span className={cn(TIME_CELL, 'pl-5')} style={railStyle(order, false)}>
+          <span className="min-w-0 truncate">
+            <span className="mono">{tailText(order)}</span>
+            <ShapeChip order={order} className="ml-1" />
+            {order.open && <span className={cn(CHIP, 'ml-1 bg-[var(--vi-bg)] text-[var(--vi)]')}>진행 중</span>}
+            {inv && <span className="ml-1 font-semibold text-[var(--vi)]">{tailInversionText(mode, inv.leadNs)}</span>}
+          </span>
+        </span>
       </div>
     );
   }
@@ -301,13 +387,15 @@ const MsgRow = memo(function MsgRow({
         data-rec={b6}
         data-pos={pos}
         onClick={() => onSelect(b6)}
-        style={railStyle(order, false)}
         className={cn(
           GRID,
           'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t border-dashed border-t-[color-mix(in_oklab,var(--vi)_60%,transparent)] bg-[color-mix(in_oklab,var(--vi)_6%,transparent)] text-[10.5px] text-[var(--vi)]',
         )}
       >
-        <span className="mono">⋯</span>
+        {rail}
+        <span className={TIME_CELL} style={railStyle(order, false)}>
+          <span className="mono">⋯</span>
+        </span>
         <span>
           <span className={cn(BADGE, TAG_BADGE[TAG_CODE.B6], 'opacity-60')}>B6</span>
         </span>
@@ -327,19 +415,24 @@ const MsgRow = memo(function MsgRow({
     return (
       <div
         role="option"
-        aria-selected={false}
+        aria-selected={ownSelected}
         data-slot={isOrder ? 'tick-own-order' : 'tick-own-nofill'}
         data-own-id={idx}
-        data-pending={f?.state === 'pending' ? '1' : undefined}
+        data-pending={pending ? '1' : undefined}
         data-pos={pos}
         onClick={() => {
           const rec = ownLineRec(model, pos);
-          if (rec >= 0) onSelect(rec);
+          if (rec < 0) return;
+          if (onOwnSelect) onOwnSelect({ kind: isOrder ? 'order' : 'fill', id: idx }, rec);
+          else onSelect(rec);
         }}
         title={text}
-        className={cn(GRID, OWN_LINE)}
+        className={cn(GRID, OWN_LINE, ownSelected && 'bg-[color-mix(in_oklab,var(--mine)_18%,transparent)]')}
       >
-        <span className="mono font-semibold">{fmtTickTime(BigInt(gwMs) * 1_000_000n)}</span>
+        {rail}
+        <span className={TIME_CELL}>
+          <span className="mono font-semibold">{fmtTickTime(BigInt(gwMs) * 1_000_000n)}</span>
+        </span>
         <span>
           <span className={cn(BADGE, 'border-[var(--mine)] text-[var(--mine-fg)]')}>{isOrder ? '주문' : '체결'}</span>
         </span>
@@ -371,12 +464,14 @@ const MsgRow = memo(function MsgRow({
       data-pos={pos}
       data-own={ours ? '1' : undefined}
       onClick={() => onSelect(rec)}
-      style={railStyle(order, sel)}
       className={rowCls}
     >
-      <span className={cn('mono text-[11px]', dimTime ? 'text-[var(--muted-fg)]' : 'text-[var(--fg)]')}>
-        {fmtTickTime(recvNs)}
-        {!phone && <span className="text-[var(--muted-fg)]"> {us}</span>}
+      {rail}
+      <span className={TIME_CELL} style={railStyle(order, sel)}>
+        <span className={cn('mono text-[11px]', dimTime ? 'text-[var(--muted-fg)]' : 'text-[var(--fg)]')}>
+          {fmtTickTime(recvNs)}
+          {!phone && <span className="text-[var(--muted-fg)]"> {us}</span>}
+        </span>
       </span>
       <span>
         <span className={cn(BADGE, TAG_BADGE[tag])}>{TAG_LABEL[tag]}</span>
@@ -430,8 +525,25 @@ function joinedAt(session: TickSession, model: MsgRowsModel, k: number): boolean
   return orderAt(model.items[k - 1]!) === a;
 }
 
-export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = null, className }: TickMsgListProps) {
+export function TickMsgList({
+  session,
+  cursorRec,
+  onSelect,
+  mode,
+  onMode,
+  own = null,
+  ownSel = null,
+  onOwnSelect,
+  className,
+}: TickMsgListProps) {
   const model = useMemo(() => buildMsgRows(session, mode, own), [session, mode, own]);
+  const rail = useMemo(() => ownRailOf(model, own), [model, own]);
+  const ownSelPos =
+    ownSel === null
+      ? -1
+      : ownSel.kind === 'order'
+        ? (model.ownPosOfOrder[ownSel.id] ?? -1)
+        : (model.ownPosOfFill[ownSel.id] ?? -1);
   const phone = useIsPhone();
   const rowH = phone ? ROW_H_PHONE : ROW_H_DESKTOP;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -479,6 +591,10 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = 
         ownTotal={chip?.total}
         ownEst={chip?.est}
         own={own}
+        railHalf={rail.half[k] ?? 0}
+        railNode={rail.node[k] ?? 0}
+        ownSelected={k === ownSelPos}
+        onOwnSelect={onOwnSelect}
       />,
     );
   }
@@ -532,6 +648,7 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = 
           'h-6 flex-none bg-[var(--muted)] text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]',
         )}
       >
+        <span aria-hidden />
         <span>수신 시각</span>
         <span>종류</span>
         <span>seq</span>

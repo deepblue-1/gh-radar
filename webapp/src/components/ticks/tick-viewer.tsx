@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
-import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
+import { buildOwnModel, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
@@ -39,7 +39,9 @@ import { TickTeamPanel } from './tick-team-panel';
  * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState)` 가 `GET /api/ticks/own` 을 한 번 부르고
  *   (자동 타이머 없음), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
  *   넣지 않는다). 모델은 `PaneCtx.own` 으로 칸에 내려가 전문 목록이 우리 체결 A3 행에 민트 칩을 그린다. 조회가 실패하면
- *   우리 층만 없고 뷰어는 지금과 같다.
+ *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 막 들어온 짝 없는 체결은 대기로 둔다(38-04 · Pitfall 4).
+ *   주문 줄 · 짝 없음 줄 클릭 = `ownPick`(줄 + 기준 rec) + 커서 이동 · 선택 표시는 커서가 그 rec 일 때만(파생 — ←/→ 로
+ *   커서가 바뀌면 풀린다 · URL 은 rec 기준 그대로).
  */
 
 export interface TickViewerProps {
@@ -80,6 +82,9 @@ interface PaneCtx {
   badge: ReactNode;
   /** 우리 체결 모델(Phase 38) — 조회 전 · 실패면 null. */
   own: OwnModel | null;
+  /** 고른 우리 줄(주문 줄 · 짝 없음 줄) — 커서가 그 줄의 기준 전문일 때만(파생). */
+  ownSel: OwnSel | null;
+  onOwnSelect: (sel: OwnSel, rec: number) => void;
 }
 
 interface HtsPane {
@@ -106,7 +111,7 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'msg',
     label: '전문',
     desktop: 'min-[641px]:flex-[999_1_480px]',
-    render: ({ session, cursor, badge, own }) => (
+    render: ({ session, cursor, badge, own, ownSel, onOwnSelect }) => (
       <div className="relative">
         <TickMsgList
           session={session}
@@ -115,6 +120,8 @@ const HTS_PANES: readonly HtsPane[] = [
           mode={cursor.mode}
           onMode={cursor.setMode}
           own={own}
+          ownSel={ownSel}
+          onOwnSelect={onOwnSelect}
           className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
         />
         {badge}
@@ -154,7 +161,22 @@ export function TickViewer({
   const [unit, setUnit] = useState<TickBookUnit>('qty');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
   const own = useTickOwn(urlState);
-  const ownModel = useMemo(() => (own.own ? buildOwnModel(session, own.own) : null), [session, own.own]);
+  const isLive = live !== undefined;
+  const ownModel = useMemo(
+    () => (own.own ? buildOwnModel(session, own.own, { live: isLive }) : null),
+    [session, own.own, isLive],
+  );
+  // 우리 줄 선택 — 줄 클릭 때 (줄, 기준 rec) 을 기억하고, 커서가 그 rec 일 때만 선택으로 본다(파생 · 효과 없음).
+  const [ownPick, setOwnPick] = useState<{ sel: OwnSel; rec: number } | null>(null);
+  const ownSel = ownPick !== null && ownPick.rec === rec ? ownPick.sel : null;
+  const jumpToRec = cursor.jumpToRec;
+  const onOwnSelect = useCallback(
+    (sel: OwnSel, at: number) => {
+      setOwnPick({ sel, rec: at });
+      jumpToRec(at);
+    },
+    [jumpToRec],
+  );
 
   const time = rec >= 0 ? fmtTickTime(session.index.recvNs[rec]!) : '';
   const seq = rec >= 0 && session.index.seq[rec]! >= 0 ? session.index.seq[rec]! : null;
@@ -188,7 +210,19 @@ export function TickViewer({
       </button>
     ) : null;
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, listingShares, badge, own: ownModel };
+  const ctx: PaneCtx = {
+    session,
+    cursor,
+    unit,
+    setUnit,
+    accum,
+    isToday,
+    listingShares,
+    badge,
+    own: ownModel,
+    ownSel,
+    onOwnSelect,
+  };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">

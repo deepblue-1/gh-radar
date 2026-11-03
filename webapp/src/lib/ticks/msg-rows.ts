@@ -225,6 +225,77 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode, own?: Ow
   };
 }
 
+/** 둘째 레일 절반 선 비트 — 위 실선 · 위 점선 · 아래 실선 · 아래 점선. */
+export const RAIL_HALF = { TOP: 1, TOP_DASH: 2, BOT: 4, BOT_DASH: 8 } as const;
+/** 둘째 레일 마디 — 없음 · ● 주문 줄 · ◆ 우리 체결 A3 행 · ◇ 짝 없음/대기 줄. */
+export const RAIL_NODE = { NONE: 0, ORDER: 1, FILL: 2, NOFILL: 3 } as const;
+
+export interface OwnRail {
+  /** 항목마다 `RAIL_HALF` 비트 합. */
+  half: Uint8Array;
+  /** 항목마다 `RAIL_NODE`. */
+  node: Uint8Array;
+}
+
+/**
+ * 둘째 레일(D-04 · 목업 B) — 우리 주문마다 [주문 줄 · 그 주문 체결 자리(A3 행 = posOfRec · 짝 없음 = ownPosOfFill)] 의
+ * 최소~최대 항목 구간에 민트 세로선. 추정 체결이 하나라도 있으면 그 주문 구간은 점선 · 구간 길이 1 이면 마디만.
+ * 겹침: 경계(항목 k 와 k+1 사이)마다 실선 · 점선 덮임 수를 차분 배열로 세고 실선이 하나라도 있으면 실선 — 옆 칸 추가 없음.
+ * O(항목 + 체결). own 이 없으면 길이 0.
+ */
+export function ownRailOf(rows: MsgRowsModel, own: OwnModel | null): OwnRail {
+  if (!own) return { half: new Uint8Array(0), node: new Uint8Array(0) };
+  const len = rows.items.length;
+  const half = new Uint8Array(len);
+  const node = new Uint8Array(len);
+  // 경계 k(항목 k ↔ k+1) 덮임 수 차분 — 길이 len(마지막 칸은 쓰지 않는다)
+  const solid = new Int32Array(len + 1);
+  const dashed = new Int32Array(len + 1);
+
+  for (const o of own.orders) {
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = Number.NEGATIVE_INFINITY;
+    let est = false;
+    const op = rows.ownPosOfOrder[o.id] ?? -1;
+    if (op >= 0) {
+      lo = hi = op;
+      node[op] = RAIL_NODE.ORDER;
+    }
+    for (const fid of o.fills) {
+      const f = own.fills[fid]!;
+      let p: number;
+      if (f.state === 'matched') {
+        p = rows.posOfRec[f.rec]!;
+        node[p] = RAIL_NODE.FILL;
+        if (f.est) est = true;
+      } else {
+        p = rows.ownPosOfFill[fid] ?? -1;
+        if (p < 0) continue;
+        node[p] = RAIL_NODE.NOFILL;
+      }
+      if (p < lo) lo = p;
+      if (p > hi) hi = p;
+    }
+    if (!(hi > lo)) continue;
+    const d = est ? dashed : solid;
+    d[lo]! += 1;
+    d[hi]! -= 1;
+  }
+
+  let s = 0;
+  let ds = 0;
+  for (let k = 0; k < len; k++) {
+    // 위 절반 = 경계 k−1 · 아래 절반 = 경계 k
+    if (s > 0) half[k]! |= RAIL_HALF.TOP;
+    else if (ds > 0) half[k]! |= RAIL_HALF.TOP_DASH;
+    s += solid[k]!;
+    ds += dashed[k]!;
+    if (s > 0) half[k]! |= RAIL_HALF.BOT;
+    else if (ds > 0) half[k]! |= RAIL_HALF.BOT_DASH;
+  }
+  return { half, node };
+}
+
 /** 우리 줄(주문 · 짝 없음) 자리 pos 의 기준 전문 — 그 줄 다음 첫 ROW 의 rec · 없으면 앞 ROW · 둘 다 없으면 -1. */
 export function ownLineRec(rows: MsgRowsModel, pos: number): number {
   const { items } = rows;

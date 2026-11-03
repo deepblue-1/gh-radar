@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 
-import { a3TimeMs, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
+import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
-import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
+import { buildOwnModel, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickOrderMode } from '@/lib/ticks/use-tick-cursor';
-import { a3Msg, inversionSession, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
+import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
 import { TickMsgList } from '../tick-msg-list';
 
@@ -182,5 +182,122 @@ describe('TickMsgList — 우리 체결 칩(Phase 38)', () => {
     expect(chipOf(container, 0)).toBeNull();
     expect(chipOf(container, 1)).toBe('100');
     expect(rowOf(container, 1)?.querySelector('[data-slot="tick-own-est"]')?.textContent).toBe('추정');
+  });
+});
+
+/**
+ * Phase 38 Plan 04 — 주문 줄 · 짝 없음 줄 · 둘째 레일 · 줄 선택 · 대기(D-04 · D-05 · D-10 · D-12 · Pitfall 4).
+ */
+describe('TickMsgList — 우리 줄 · 둘째 레일(Phase 38-04)', () => {
+  // rec 0 = A3 201(.100 · 1,064) · rec 1 = A3 211(.200 · 500) · rec 2 = B6(수신 3.0005s)
+  const sess = synthSession([
+    [100.5, a3Msg({ seq: 201, bs: '2', px: 16400, qty: 1064, time: '130000100000' })],
+    [200.5, a3Msg({ seq: 211, bs: '1', px: 16400, qty: 500, time: '130000200000' })],
+    [3000.5, b6Msg({ seq: 221, ask1: [16450, 10], bid1: [16400, 20] })],
+  ]);
+  const at = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+  const tA3 = (j: number) => a3TimeMs(sess.index, sess.a3, j);
+
+  function ev(orderNo: string, gwMs: number): TickOwnEvent {
+    return {
+      gateway: 'KB120', seq: 1, gw_time_ms: gwMs, kind: 3, group: 7, account_no: '1234563801', order_no: orderNo,
+      price: 16400, qty: 300, reason_code: '', cond_metric: 0, cond_threshold: 0, cond_actual: 0, ev_kind: 0, ev_price: 0,
+      ev_qty_before: 0, ev_qty_after: 0, ev_trade_qty: 0, cum_volume: 0,
+    };
+  }
+  function fl(orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill {
+    return { gateway: 'KB120', seq, gw_time_ms: gwMs, account_no: '1234563801', order_no: orderNo, side: 'B', exec_price: px, exec_qty: qty };
+  }
+  function modelOf(fills: TickOwnFill[], events: TickOwnEvent[], live = false): OwnModel {
+    return buildOwnModel(
+      sess,
+      { access: true, date: SYNTH_DATE, exchange: 'KRX', isin: SYNTH_ISIN, servers: ['KB120'], fills, events, orders: [] },
+      { live },
+    );
+  }
+  // 주문 O(.050 · 수동) → A3 201 에 300주 · 짝 없는 체결 N(.150 · 7주)
+  const own = modelOf([fl('O', tA3(0) + 30, 16400, 300, 1), fl('N', at(150), 99_999, 7, 2)], [ev('O', at(50))]);
+
+  /** 뷰어와 같은 선택 결선 — ownPick(줄 + rec) · 커서가 그 rec 일 때만 선택(파생). */
+  function Viewerish({ model, spy }: { model: OwnModel | null; spy?: (sel: OwnSel, rec: number) => void }) {
+    const [rec, setRec] = useState(-1);
+    const [pick, setPick] = useState<{ sel: OwnSel; rec: number } | null>(null);
+    return (
+      <>
+        <output data-testid="cursor">{rec}</output>
+        <TickMsgList
+          session={sess}
+          cursorRec={rec}
+          onSelect={setRec}
+          mode="exchange"
+          onMode={() => {}}
+          own={model}
+          ownSel={pick !== null && pick.rec === rec ? pick.sel : null}
+          onOwnSelect={(sel, r) => {
+            spy?.(sel, r);
+            setPick({ sel, rec: r });
+            setRec(r);
+          }}
+        />
+      </>
+    );
+  }
+  const orderLine = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="tick-own-order"]');
+  const nofillLine = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-slot="tick-own-nofill"]');
+  const nodeOf = (el: Element | null) => el?.querySelector('[data-slot="tick-own-rail"]')?.getAttribute('data-node') ?? null;
+
+  it('레일 칸 수 = 보이는 행 수 · ● 주문 줄 · ◆ 짝 A3 행 · ◇ 짝 없음 줄 · 주문 줄 문구', () => {
+    const { container } = render(<Viewerish model={own} />);
+    const options = container.querySelectorAll('[role="option"]');
+    expect(options.length).toBe(5); // O · R201 · N · R211 · R221
+    expect(container.querySelectorAll('[data-slot="tick-own-rail"]')).toHaveLength(options.length);
+    expect(nodeOf(orderLine(container))).toBe('order');
+    expect(nodeOf(rowOf(container, 0))).toBe('fill');
+    expect(nodeOf(nofillLine(container))).toBe('nofill');
+    expect(nodeOf(rowOf(container, 1))).toBeNull();
+    expect(orderLine(container)!.textContent).toContain('● 주문 수동 매수 16,400 ×300 · 조건 없음 · 수동 주문 · KB120 ···3801 #O');
+    expect(nofillLine(container)!.textContent).toContain('◆ 우리 체결 7주 · 짝 전문 없음');
+    expect(nofillLine(container)!.getAttribute('data-pending')).toBeNull();
+    // 머리 행에도 빈 레일 칸(열 수 맞춤) — 계좌 번호 전체는 어디에도 없다(D-02)
+    expect(container.textContent).not.toContain('1234563801');
+  });
+
+  it('주문 줄 클릭 → onOwnSelect({order, id}, 다음 전문 rec) · 선택 표시 · ←/→ 같은 커서 이동이면 풀린다', () => {
+    const calls: [OwnSel, number][] = [];
+    const { container } = render(<Viewerish model={own} spy={(sel, r) => calls.push([sel, r])} />);
+    fireEvent.click(orderLine(container)!);
+    expect(calls).toEqual([[{ kind: 'order', id: 0 }, 0]]);
+    expect(cursor()).toBe(0);
+    expect(orderLine(container)!.getAttribute('aria-selected')).toBe('true');
+    expect(orderLine(container)!.className).toContain('var(--mine)_18%');
+    // 짝 없음 줄 클릭 = 그 줄(fill id) · 기준 전문 = 다음 A3 211
+    fireEvent.click(nofillLine(container)!);
+    expect(calls[1]).toEqual([{ kind: 'fill', id: 1 }, 1]);
+    expect(orderLine(container)!.getAttribute('aria-selected')).toBe('false');
+    expect(nofillLine(container)!.getAttribute('aria-selected')).toBe('true');
+    // 다른 행으로 커서 → 선택 해제(파생)
+    fireEvent.click(rowOf(container, 2)!);
+    expect(nofillLine(container)!.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('당일 대기 — 마지막 수신 직전 체결은 「전문 아직 안 옴」 · ◇ 점선 테두리', () => {
+    const live = modelOf([fl('P', at(2900), 99_999, 3, 1)], [], true);
+    expect(live.fills[0]!.state).toBe('pending');
+    const { container } = render(<Viewerish model={live} />);
+    const line = nofillLine(container)!;
+    expect(line.textContent).toContain('◆ 우리 체결 3주 · 전문 아직 안 옴');
+    expect(line.getAttribute('data-pending')).toBe('1');
+    expect(nodeOf(line)).toBe('nofill');
+    expect(line.querySelector('[data-slot="tick-own-rail"] .border-dashed')).not.toBeNull();
+  });
+
+  it('own 없음 — 레일 칸은 있지만 마디 · 선 0 · 우리 줄 0', () => {
+    const { container } = render(<Viewerish model={null} />);
+    const options = container.querySelectorAll('[role="option"]');
+    expect(container.querySelectorAll('[data-slot="tick-own-rail"]')).toHaveLength(options.length);
+    expect(container.querySelector('[data-slot="tick-own-rail"][data-node]')).toBeNull();
+    expect(container.querySelector('[data-slot="tick-own-rail"] *')).toBeNull();
+    expect(orderLine(container)).toBeNull();
+    expect(nofillLine(container)).toBeNull();
   });
 });
