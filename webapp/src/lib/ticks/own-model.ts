@@ -75,7 +75,11 @@ export type OwnFillState = 'matched' | 'nofill' | 'pending';
 export interface OwnFillView {
   /** 모델 안 순번(정렬 뒤 색인). */
   id: number;
-  /** 안정 키 `${gateway}|${seq}` — own 을 다시 받아 id 가 밀려도 같은 체결(고른 줄 기억 · WR-04). */
+  /**
+   * 안정 키 `${gateway}|${order_no}|${gw_time_ms}|${seq}` — own 을 다시 받아 id 가 밀려도 같은 체결(고른 줄 기억 · WR-04).
+   * 원천 PK 는 (gateway, journal_epoch, seq) 인데 RPC 가 epoch 를 내보내지 않아, 장중 저널 초기화로 seq 가 다시 쓰여도
+   * 갈리도록 주문번호 · gw 시각을 더한다(R2 IN-01 · 계약 그대로).
+   */
   key: string;
   gateway: string;
   accountNo: string;
@@ -135,7 +139,7 @@ export interface OwnOrderView {
 /** 전문 목록 · 카드가 고른 우리 줄 — 주문 줄(order id) 또는 짝 없는 체결 줄(fill id). */
 export type OwnSel = { kind: 'order' | 'fill'; id: number };
 
-/** 고른 우리 줄의 안정 키 — 주문 `${gateway}|${order_no}` · 체결 `${gateway}|${seq}`(id 는 모델마다 다시 매긴다). */
+/** 고른 우리 줄의 안정 키 — 주문 `${gateway}|${order_no}` · 체결 `OwnFillView.key`(id 는 모델마다 다시 매긴다). */
 export type OwnSelKey = { kind: 'order' | 'fill'; key: string };
 
 /** 고른 줄 → 안정 키 · 모델에 그 id 가 없으면 null. */
@@ -360,7 +364,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     const state: OwnFillState = pending ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
     fills[i] = {
       id: i,
-      key: `${f.gateway}|${f.seq}`,
+      key: `${f.gateway}|${f.order_no}|${f.gw_time_ms}|${f.seq}`,
       gateway: f.gateway,
       accountNo: f.account_no,
       orderNo: f.order_no,

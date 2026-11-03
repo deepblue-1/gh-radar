@@ -330,11 +330,23 @@ describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => 
     }),
   );
 
-  it('체결 키 = gateway|seq · 주문 키 = gateway|order_no', () => {
-    expect(first.fills.map((f) => f.key)).toEqual(['KB120|7']);
+  it('체결 키 = gateway|order_no|gw_time_ms|seq · 주문 키 = gateway|order_no', () => {
+    const n5Key = `KB120|N5|${at(160)}|7`;
+    expect(first.fills.map((f) => f.key)).toEqual([n5Key]);
     expect(ownSelKeyOf(first, { kind: 'order', id: byKey(first.orders, 'E1').id })).toEqual({ kind: 'order', key: 'KB120|E1' });
-    expect(ownSelKeyOf(first, { kind: 'fill', id: 0 })).toEqual({ kind: 'fill', key: 'KB120|7' });
+    expect(ownSelKeyOf(first, { kind: 'fill', id: 0 })).toEqual({ kind: 'fill', key: n5Key });
     expect(ownSelKeyOf(first, { kind: 'order', id: 99 })).toBeNull();
+  });
+
+  it('(R2 IN-01) 저널 초기화로 같은 gateway|seq 가 다시 쓰여도 체결 키는 갈리고 고른 체결로 푼다', () => {
+    // 같은 KB120 · seq 7 — 초기화 앞(N5 .160) · 뒤(R1 .170) 두 체결(RPC 는 journal_epoch 를 내보내지 않는다)
+    const two = buildOwnModel(
+      session,
+      ownOf({ fills: [fill('N5', at(160), 99_999, 1, 'B', 7), fill('R1', at(170), 99_999, 1, 'B', 7)] }),
+    );
+    expect(new Set(two.fills.map((f) => f.key)).size).toBe(2);
+    const r1 = ownSelKeyOf(two, { kind: 'fill', id: two.fills.findIndex((f) => f.orderNo === 'R1') })!;
+    expect(two.fills[resolveOwnSel(two, r1)!.id]!.orderNo).toBe('R1');
   });
 
   it('id 가 밀려도 같은 주문 · 체결로 푼다 · 없어지면 null', () => {
