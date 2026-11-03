@@ -609,16 +609,24 @@ export function TickMsgList({
   const selPos = cursorRec >= 0 ? model.posOfRec[cursorRec]! : -1;
   const selOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
 
-  // 커서가 바뀌면 그 행이 보이게 — 처음 · 순서를 바꾼 직후는 가운데로. 모델만 바뀌면(당일 「최신 받기」 새 세션 · 우리 체결
-  // 재조회) 끌어오지 않는다 — 과거 틱을 보며 목록을 훑던 자리를 지킨다(IN-63).
-  const lastView = useRef<{ rec: number; mode: TickOrderMode } | null>(null);
+  // 커서가 바뀌면 그 행이 보이게 — 처음 · 순서를 바꾼 직후 · 숨겨져 있다가(폰 세그먼트 · 높이 0) 보이게 된 직후는 가운데로.
+  // 모델만 바뀌면(당일 「최신 받기」 새 세션 · 우리 체결 재조회) 끌어오지 않는다 — 과거 틱을 보며 목록을 훑던 자리를 지킨다(IN-63).
+  // 다만 커서 행 앞에 줄이 끼거나 빠지면(우리 주문 줄이 뒤늦게 붙음) 그만큼 scrollTop 을 옮겨 보던 화면이 그대로 머물게 한다.
+  const lastView = useRef<{ rec: number; mode: TickOrderMode; pos: number; shown: boolean } | null>(null);
+  const shown = win.height > 0;
   useEffect(() => {
     if (selPos < 0) return;
     const prev = lastView.current;
-    lastView.current = { rec: cursorRec, mode };
-    if (prev !== null && prev.rec === cursorRec && prev.mode === mode) return;
-    scrollToIndex(selPos, prev === null || prev.mode !== mode ? 'center' : 'nearest');
-  }, [selPos, mode, cursorRec, scrollToIndex]);
+    lastView.current = { rec: cursorRec, mode, pos: selPos, shown };
+    // 숨겨진 동안(높이 0)의 가운데 맞춤은 어긋나므로, 보이게 된 첫 순간을 「처음」 처럼 다시 가운데로 맞춘다.
+    const fresh = prev === null || prev.mode !== mode || (shown && !prev.shown);
+    if (!fresh && prev.rec === cursorRec) {
+      const el = scrollRef.current;
+      if (el && selPos !== prev.pos) el.scrollTop = Math.max(0, el.scrollTop + (selPos - prev.pos) * rowH);
+      return;
+    }
+    scrollToIndex(selPos, fresh ? 'center' : 'nearest');
+  }, [selPos, mode, cursorRec, scrollToIndex, rowH, shown]);
 
   const rows: ReactNode[] = [];
   for (let k = win.first; k <= win.last; k++) {

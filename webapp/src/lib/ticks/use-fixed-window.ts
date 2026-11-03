@@ -17,6 +17,8 @@ export interface FixedWindow {
   last: number;
   padTop: number;
   padBottom: number;
+  /** 보이는 높이(px · ResizeObserver) — 숨겨진(display:none) 목록은 0. */
+  height: number;
   scrollToIndex: (i: number, align?: 'nearest' | 'center') => void;
 }
 
@@ -75,7 +77,7 @@ export function useFixedWindow({
     [ref, count, rowH],
   );
 
-  if (count <= 0) return { first: 0, last: -1, padTop: 0, padBottom: 0, scrollToIndex };
+  if (count <= 0) return { first: 0, last: -1, padTop: 0, padBottom: 0, height, scrollToIndex };
   const top = Math.min(count - 1, Math.max(0, Math.floor(scrollTop / rowH)));
   const visible = Math.max(1, Math.ceil(height / rowH));
   const first = Math.max(0, top - overscan);
@@ -85,6 +87,7 @@ export function useFixedWindow({
     last,
     padTop: first * rowH,
     padBottom: (count - 1 - last) * rowH,
+    height,
     scrollToIndex,
   };
 }
