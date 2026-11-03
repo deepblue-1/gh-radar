@@ -82,6 +82,12 @@ export const EVIDENCE_KIND_LABELS: Readonly<Record<number, string>> = {
 };
 
 /**
+ * 체결 근거(ev_kind 2)가 단건이 아니라 주기매도 구간(cumVolume ∈ (before, after])일 때의 근거 종류 낱말
+ * (Phase 38 D-11 · 틱 뷰어 주문 줄 「근거 체결 구간 ↑」 · 카드 「체결 구간 n건 · …」). `EvidenceKind` 값이 아니라 표시 구분이다.
+ */
+export const EVIDENCE_RANGE_LABEL = "체결 구간";
+
+/**
  * `CancelReason` 표시명 (7~9 는 v0.1 밖 말미 추가 — 서버 취소 경로 1:1 · G1 ⓓ). 10 · 11 은 자동매도
  * (gh-trade Phase 28 · 인박스 Q3 답 · WinForms 같은 낱말 — Phase 27 D-16). 12 는 줄매수 「버스트 해제」 —
  * 버스트 상한가 판정으로 서버가 취소한 매수 미체결(gh-trade quick-261007-edj/gwv · 인박스 261007). 인박스 261008

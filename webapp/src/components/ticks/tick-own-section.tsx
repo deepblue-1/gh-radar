@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { OWN_MATCH_EST_MS, fmtTickTime, formatKstMs } from '@gh-radar/shared';
+import { EVIDENCE_RANGE_LABEL, OWN_MATCH_EST_MS, fmtTickTime, formatKstMs } from '@gh-radar/shared';
 
 import {
   ownConditionLineText,
@@ -155,7 +155,7 @@ export function TickOwnSection({ session, own, orderId, cursorRec = -1, onJump, 
   if (o.evidenceRec >= 0) {
     const ev = o.evidence;
     if (ev.kind === 'range') {
-      evidence = `체결 구간 ${fmtQty(ev.n)}건 · ${fmtQty(ev.qty)}주 · ${recvTime(session, o.evidenceFirstRec).slice(0, 8)}~${recvTime(session, o.evidenceRec).slice(0, 8)}`;
+      evidence = `${EVIDENCE_RANGE_LABEL} ${fmtQty(ev.n)}건 · ${fmtQty(ev.qty)}주 · ${recvTime(session, o.evidenceFirstRec).slice(0, 8)}~${recvTime(session, o.evidenceRec).slice(0, 8)}`;
     } else {
       const body = (ownEvidenceText(o) ?? '').replace(/^근거 /, '');
       evidence = body !== '' ? `${recvTime(session, o.evidenceRec)} · ${body}` : recvTime(session, o.evidenceRec);

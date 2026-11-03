@@ -34,6 +34,7 @@
 
 import {
   EVIDENCE_KIND_LABELS,
+  EVIDENCE_RANGE_LABEL,
   OWN_MATCH_DT_MIN_MS,
   OWN_MATCH_EST_MS,
   anchorOf,
@@ -428,7 +429,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
         o.evidenceLabel = EVIDENCE_KIND_LABELS[e.ev_kind] ?? null;
         o.evidenceRec = o.evidenceFirstRec = a3.rec[evidence.j]!;
       } else if (evidence.kind === 'range') {
-        o.evidenceLabel = '체결 구간';
+        o.evidenceLabel = EVIDENCE_RANGE_LABEL;
         o.evidenceRec = a3.rec[evidence.lastJ]!;
         o.evidenceFirstRec = a3.rec[evidence.firstJ]!;
       }

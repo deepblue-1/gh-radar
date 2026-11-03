@@ -10,6 +10,7 @@ import {
   CANCEL_REASON_LABELS,
   COND_METRIC_LABELS,
   EVIDENCE_KIND_LABELS,
+  EVIDENCE_RANGE_LABEL,
   ORDER_CONDITION_LABELS,
   ORDER_GROUP_LABELS,
   ORDER_GROUP_ORIGIN_TEXTS,
@@ -138,6 +139,10 @@ describe("표시명 표 전수 (D-10)", () => {
 
   it("EvidenceKind 1~3", () => {
     expect(EVIDENCE_KIND_LABELS).toEqual({ 1: "호가", 2: "체결", 3: "체결통보" });
+  });
+
+  it("체결 근거 구간 낱말(Phase 38 · 틱 뷰어 주문 줄 · 카드가 같이 쓴다)", () => {
+    expect(EVIDENCE_RANGE_LABEL).toBe("체결 구간");
   });
 
   it("CancelReason 1~12 (7 체결 감시 · 8 재취소 · 9 기타 · 10/11 자동매도 · 12 버스트 상한가 말미 추가) · 모르면 원문 숫자", () => {
