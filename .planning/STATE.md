@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-03-PLAN.md
-last_updated: "2026-11-03T06:19:33.763Z"
+stopped_at: Completed 38-04-PLAN.md
+last_updated: "2026-11-03T06:36:32.189Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: dbe964c53043567ac9e17ca08ec71abd248b599a
+state_head: e5180fdc6c9d98cad140f3f17b3b81dac4a53469
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 104
+  completed_plans: 105
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T06:19:33.639Z
-Stopped at: Completed 38-03-PLAN.md
+Last session: 2026-11-03T06:36:32.060Z
+Stopped at: Completed 38-04-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -205,6 +205,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P01 | 9 min | 1 tasks | 14 files |
 | Phase 38 P02 | 6min | 2 tasks | 12 files |
 | Phase 38 P03 | 5min | 2 tasks | 2 files |
+| Phase 38 P04 | 13min | 2 tasks | 9 files |
 
 ## Decisions
 
@@ -345,3 +346,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-02: 10/30 원본 격자 5종목에 같은 (board, seq) 중복 A3 0건 — 중복 제외 시 수치 = 단언 수치(236/165/5/108)라 Open Q4 는 이 데이터로 판별 불가 · 규칙은 probe 그대로
 - [Phase 38]: 38-03: tick_own_for_user 를 pgTAP 52 단언으로 잠금 — 레지스트리 UPDATE 만으로 KB121 켜면 체결·이벤트·주문·servers 자동 포함 · KYOBO119 끄면 빠짐(끄기는 CHECK 때문에 is_order_server=false 동반)
 - [Phase 38]: 38-03: /api/ticks/own 은 RPC 인자 키 정확히 4개(p_user_id·p_date·p_isin·p_ex) — 쿼리에 p_all_accounts·user_id·account_no 를 더해도 무시됨을 supertest 로 잠금 · 서버에 어드민·가시성 판정 없음(정본 RPC)
+- [Phase 38]: 38-04: 우리 줄 자리 = 수신순 lowerBoundRecv 슬롯(두 순열 공통) ROW 앞 · 다조각 묶음 사이면 그 꼬리 뒤로 민다 · own 없으면 항목 바이트 동일
+- [Phase 38]: 38-04: 둘째 레일 = 주문별 [주문 줄 · 체결 자리] 구간 차분 배열 · 실선 우선 · 팀/일반 3px 레일은 시각 칸으로 · 우리 줄 선택은 (줄, rec) 기억 + 커서 일치 파생
