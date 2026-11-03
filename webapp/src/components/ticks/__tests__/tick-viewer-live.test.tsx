@@ -2,7 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { zstdCompressSync } from 'node:zlib';
 
-import { iterRecords, type TickDayResponse, type TickOpenResponse, type TickTodayResponse } from '@gh-radar/shared';
+import {
+  iterRecords,
+  type TickDayResponse,
+  type TickLiveMeta,
+  type TickOpenResponse,
+  type TickOwnResponse,
+  type TickTodayResponse,
+} from '@gh-radar/shared';
 
 /**
  * Phase 37 Plan 19 Task 2 — 당일 뷰어 결선(D-06 · D-18 · D-22).
@@ -19,6 +26,7 @@ const api = vi.hoisted(() => ({
   postTickConvert: vi.fn(),
   postTickCancel: vi.fn(),
   fetchTickLive: vi.fn(),
+  fetchTickOwn: vi.fn(),
 }));
 vi.mock('@/lib/ticks/tick-api', () => api);
 
@@ -65,6 +73,12 @@ const S2 = appendTickBytes(S1, chunk(6_000, Number.MAX_SAFE_INTEGER), KEY);
 const endTime = (s: TickSession) => fmtTickTime(s.index.recvNs[s.exOrder[s.exOrder.length - 1]!]!);
 
 const URL_STATE = { isin: ISIN, d: D, ex: 'KRX' as const };
+/** 우리 체결 없음(Phase 38) — 뷰어가 열 때 부르는 `/api/ticks/own` 의 기본 응답. */
+const OWN_EMPTY: TickOwnResponse = { access: true, date: D, exchange: 'KRX', isin: ISIN, servers: [], fills: [], events: [], orders: [] };
+
+beforeEach(() => {
+  api.fetchTickOwn.mockResolvedValue(OWN_EMPTY);
+});
 
 function viewer(session: TickSession, live: { newCount: number; onGoEnd: () => void; onAtEnd: (v: boolean) => void }, onTick = vi.fn()) {
   return <TickViewer session={session} urlState={URL_STATE} initialT={null} onTick={onTick} isToday live={live} />;
@@ -200,6 +214,7 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
     push.mockReset();
     api.fetchTickDay.mockResolvedValue(day);
     api.fetchTickOpen.mockResolvedValue(open);
+    api.fetchTickOwn.mockResolvedValue(OWN_EMPTY);
     searchParams = new URLSearchParams({ isin: ISIN, d: D });
   });
 
@@ -260,5 +275,98 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
     expect(api.fetchTickLive.mock.calls.length).toBe(calls);
     fireEvent.click(screen.getByRole('button', { name: '최신 받기' }));
     await waitFor(() => expect(api.fetchTickLive.mock.calls.length).toBe(calls + 1));
+  });
+
+  /**
+   * Phase 38 Plan 08 Task 2 — 우리 체결 조회 호출 수(SC-4 당일 · CLAUDE.md 공식 API 기준 3): 「↻ 최신 받기」 1회 = live 1 + own 1 ·
+   * 자동 타이머 0 · 받는 중 다시 누름 = 둘 다 0 · epoch 교체(뷰어 재마운트) = own 1.
+   */
+  const metaOf = (over: Partial<TickLiveMeta> = {}): TickLiveMeta => ({
+    epoch: 'e',
+    offsetEnd: 10,
+    lastRecvNs: null,
+    state: 'ready',
+    queue: 0,
+    complete: true,
+    ...over,
+  });
+  const FULL = { status: 200, bytes: chunk(0, Number.MAX_SAFE_INTEGER), meta: metaOf() };
+  const NONE = { status: 200, bytes: new Uint8Array(0), meta: metaOf() };
+  const openLive = async () => {
+    api.fetchTickToday.mockResolvedValue(today(true));
+    render(<TickViewerPage />);
+    await waitFor(() => expect(document.querySelector('[data-slot="tick-current"]')).not.toBeNull());
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(1));
+  };
+
+  it('우리 체결 — 열 때 own 1 · 30초 그대로 0 · 「최신 받기」 1회 = live 1 + own 1 · 받는 중 다시 누름 = 둘 다 0', async () => {
+    api.fetchTickLive.mockResolvedValueOnce(FULL);
+    api.fetchTickLive.mockResolvedValue(NONE);
+    await openLive();
+    expect(api.fetchTickOwn).toHaveBeenCalledWith({ isin: ISIN, d: D, ex: 'KRX' });
+    const live0 = api.fetchTickLive.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(api.fetchTickLive.mock.calls.length).toBe(live0);
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '최신 받기' }));
+    await waitFor(() => expect(api.fetchTickLive.mock.calls.length).toBe(live0 + 1));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(2));
+
+    // 받는 중 — live 응답을 붙잡아 두고 다시 누른다
+    let release!: (v: typeof NONE) => void;
+    api.fetchTickLive.mockReturnValueOnce(new Promise((r) => (release = r)));
+    await waitFor(() => expect(screen.getByRole('button', { name: '최신 받기' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '최신 받기' }));
+    await waitFor(() => expect(api.fetchTickLive.mock.calls.length).toBe(live0 + 2));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(3));
+    const busy = await screen.findByRole('button', { name: '받는 중' });
+    fireEvent.click(busy);
+    fireEvent.click(busy);
+    expect(api.fetchTickLive.mock.calls.length).toBe(live0 + 2);
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      release(NONE);
+    });
+    await screen.findByRole('button', { name: '최신 받기' });
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(3);
+  });
+
+  it('우리 체결 — 최신 받기가 409(새 epoch) → 하루치 다시 · 뷰어 재마운트 = own 1 더', async () => {
+    api.fetchTickLive
+      .mockResolvedValueOnce(FULL)
+      .mockResolvedValueOnce({ status: 409, bytes: new Uint8Array(0), meta: metaOf({ epoch: 'e2', offsetEnd: 0 }) })
+      .mockResolvedValueOnce({ ...FULL, meta: metaOf({ epoch: 'e2' }) });
+    api.fetchTickLive.mockResolvedValue({ ...NONE, meta: metaOf({ epoch: 'e2' }) });
+    await openLive();
+    fireEvent.click(screen.getByRole('button', { name: '최신 받기' }));
+    // 클릭 = own 1(refreshKey) · 하루치 다시 받은 뒤 재마운트 = own 1
+    await waitFor(() => expect(api.fetchTickLive).toHaveBeenCalledWith({ isin: ISIN, ex: 'KRX', epoch: 'e2', offset: 0 }));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('TickViewer — 과거 격자 우리 체결 조회(Phase 38-08)', () => {
+  beforeEach(() => {
+    api.fetchTickOwn.mockReset();
+    api.fetchTickOwn.mockResolvedValue(OWN_EMPTY);
+  });
+
+  it('열 때 own 1 · 10분 지나도 그대로(자동 타이머 0) · 재렌더 0', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const v = render(<TickViewer session={S2} urlState={URL_STATE} initialT={null} />);
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(1));
+    expect(api.fetchTickOwn).toHaveBeenCalledWith(URL_STATE);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    v.rerender(<TickViewer session={S2} urlState={{ ...URL_STATE }} initialT={null} />);
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(1);
   });
 });
