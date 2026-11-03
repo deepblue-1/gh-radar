@@ -65,6 +65,7 @@
 - [x] **Phase 35: 발사 경계 지도 어드민** - gh-trade 16:00 예약 발사 · 09:00:30 개장차익 발사 결과(조각·머리)를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads`·`launch_pieces` 적재(relay 무변경) · 어드민 메뉴 날짜별 주문 내역 + 날짜 범위 발사 경계 지도(서버×시장 4패널 SVG) · 10/12~10/26 백필 · 인박스 `261027-launch-gate-admin.md` (completed 2026-11-01)
 - [x] **Phase 36: 계좌별 주문가능 금액** - gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87/66/67 예수금 · 저널 손익 4필드) 반영 · 어드민 계좌 카드 예수금·수수료·매도세 · 웹 주문가능 표시·초과 경고 · 저널 손익 DB 적재 · 일자별 매매손익(`/admin/pnl` · `/me` 「손익」 탭) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 닫기 (completed 2026-10-28)
 - [ ] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저
+- [ ] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저
 
 ## Phase Details
 
@@ -480,3 +481,21 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 37-17-PLAN.md — 당일 경로 켜기: gh-trade 회신 대기 → 어댑터 반영 → radar-gw tickgw(20:00 뒤) → server 스위치 · SC 2 실측 · 당일 UAT (메인 세션)
+
+### Phase 38: 틱뷰어 우리 주문·체결 표시
+
+**Goal**: 트레이더가 틱뷰어(`/analytics/ticks`)에서 **우리 팀 계좌가 낸 주문의 체결이 어느 A3 전문인지**, 그리고 **그 주문의 조건이 어느 호가(B6)·체결(A3) 전문을 보고 걸렸는지**를 전문 목록·차트에서 바로 본다 — 「이 주문은 이 전문을 보고 나갔다」. 원천(2026-11-03 이전 세션 실측 — 다시 재지 않는다): ① 우리 체결 = `dma_journal_events`(exec_qty > 0 · notice_type 'E' — gateway · gw_time · account_no · order_no · isin · exchange · side · exec_price · exec_qty, 게이트웨이 전 계좌 기록 D-11, 계좌 가시성 `dma_account_access` · `dma_visible_accounts(p_user_id)`). 기록이 있는 게이트웨이는 **KB120 · KYOBO119 뿐**(KB121 · KYOBO127 은 10/30 · 11/3 모두 0행 — 「모든 계좌」는 relay/gh-trade 저널 연결 선행). ② 조건 근거 = `dma_strategy_events` kind 3 · 6(주문) — gw_time_ms · order_no · reason_code · cond_metric/threshold/actual · ev_kind(1 호가 · 2 체결 · 3 체결통보 · 0 없음) · ev_price · ev_qty_before/after · ev_trade_qty · cum_volume(그 거래소 누적거래량). 표시명 정본 `packages/shared/src/strategy-event-labels.ts`. ③ A3 에는 계좌 · 주문번호 · 체결번호가 없다 — cum_volume 은 레이아웃 offset 113 · 12자(`packages/shared/src/ticks/layouts.ts`)에 있으나 `A3Columns`(record-index.ts)에 열이 없어 추가 필요. 짝짓기 규칙(10/30 KRX 4종목 + NXT 1종목 격자 실측): 같은 가격 · A3 남은 수량 ≥ 체결 수량 · (gw_time − A3 체결시각) ∈ [−200, +1500]ms 중 가장 가까운 것, 배정한 만큼 A3 수량 차감 → 406건 중 401건(98.8%) · 시각차 p50 0~35ms · p95 ≤ 714ms. 약 40% 는 「큰 A3 의 일부」(A3 = 공격 주문 × 가격 단 합산 → 「우리 n주 / 전체 m주」 표기) · 약 25% 는 20ms 안 같은 가격 후보 둘 이상(「추정」 표시 검토). 조건 근거 ↔ 전문: 호가 근거(ev_kind 1)는 그 시각 −3s ~ +50ms 안 B6 중 ev_price 단 잔량 == ev_qty_after → 29/29 · 체결 근거(ev_kind 2) 단건(스윕 등)은 정확, 주기매도는 「누적 before → after 구간」 집계라 구간 표시 · cum_volume > 0 이벤트는 100/100 같은 누적거래량 A3 존재 → 「주문 직전 마지막 체결」 위치 확정 · 수동 주문 · 장전(cum 0)은 근거 없음 → 주문 시각 위치만. 당일(live) 경로도 저널이 장중 DB 에 바로 쌓이므로 가능.
+**Depends on**: Phase 37(틱 전문 뷰어 — `webapp/src/lib/ticks/tick-session.ts` · `msg-rows.ts` · `components/ticks/tick-msg-list.tsx` · `tick-chart.tsx` 툴팁 `lib/ticks/tick-chart-tip.ts` · server `/api/ticks/*` · RPC `tick_*_for_user`, 37-17 당일 경로 완료 뒤) · Phase 32·36(계좌 가시성 `dma_visible_accounts` · 「오늘 주문」 카드 계좌 규칙) · Phase 35(저널 80 kind 적재 선례) · Cloud Run 왕복 비용 — 체결 · 조건 근거 다중 조회는 RPC 1회로 · 외부(범위에 들면): KB121 · KYOBO127 저널 연결은 gh-trade/relay 작업(`scripts/trade-handoff.sh`)
+**Requirements**: TBD
+**Success Criteria**:
+  1. 목업 검토 · 채택 완료 — 표시 모양(전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등)은 HTML A/B/C 목업으로 사용자가 고른다.
+  2. 우리 체결 ↔ A3 짝짓기 — 10/30 격자 실측 기준 **≥ 98%** (401/406 재현) · 「우리 n주 / 전체 m주」 부분 체결 표기 · 20ms 안 동가 후보 복수면 「추정」 표시 · 짝 없는 체결은 주문 시각 위치로 표시(누락 0).
+  3. 조건 근거 전문 특정 — 호가 근거(ev_kind 1)는 B6 **29/29** 재현(ev_price 단 잔량 == ev_qty_after) · 체결 근거 단건 정확 · 주기매도 구간 표시 · cum_volume 앵커 **100/100** 으로 「주문 직전 마지막 체결」 A3 확정 · `A3Columns` 에 cum_volume 열 추가.
+  4. 과거(격자)와 당일(live) 경로 같은 화면 · 계좌 가시성은 discuss 결정(`dma_visible_accounts` 권고)대로 서버측 강제 · 체결 · 조건 근거는 RPC 1회로 묶어 Cloud Run 왕복 최소.
+  5. KB121 · KYOBO127 포함 여부가 범위에 들면 gh-trade 인박스 노트로 요청하고 저널 연결 확인 뒤 같은 표시 · 아니면 「기록 없는 게이트웨이」 로 명시.
+
+**미결 결정(discuss 에서 사용자에게 — phase 추가 때 정하지 않음)**: ① 계좌 가시성: 「오늘 주문」 카드와 같은 계좌 규칙(`dma_visible_accounts` · 권고) vs 모든 DMA 사용자에게 전 계좌. ② KB121 · KYOBO127 포함 여부(저널 연결 선행 = gh-trade/relay 작업). ③ 표시 모양: 전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등 — HTML A/B/C 목업으로.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 38 to break down)

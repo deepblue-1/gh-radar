@@ -48,6 +48,7 @@ Progress: [████████░░] 81% (82/82 plans)
 - Phase 35 added (2026-10-27): 발사 경계 지도 어드민 — gh-trade 인박스 `261027-launch-gate-admin.md`(상의 단계). 16:00·09:00:30 발사 결과를 저널 80 kind 17·18 로 받아 DB 쪽 해석(relay 무변경) · 어드민 주문 내역 + 경계 지도 · 백필. 채널 답(A · DB 해석 · 백필 ndjson 풀린 이름)은 gh-trade-cc 에 회신 완료 · 계좌 열 노출은 목업 검토 때 사용자 결정
 - Phase 36 added (2026-10-27): 계좌별 주문가능 금액 — gh-trade 인박스 `261027-account-budget.md`(Phase 41 · SYNC 75195b70, 생성물 커밋 b7b25391). 어드민 계좌별 한도(op 6 · 전 서버 fan-out · op 3 뒤 되싣기) + 웹 주문 화면 주문가능 표시(경고만). 계약은 gh-trade-c9 와 합의 완료
 - Phase 37 added (2026-11-02): 틱 전문 뷰어 — KRX·NXT 전 종목 틱 단위 전문 재생 `/analytics/ticks`. 공급 두 갈래(gh-trade-ac 합의): 당일 장중 = 119 소형 인덱서 + radar-gw ssh 강제 명령 종목 단위 요청형(기록 1초 + 전송 · gh-trade 구현) · 과거 = `gs://gh-trade-tick-archive` 원본 Cloud Run Job 변환(tickana 디코더 · 119 부하 0). 버스트 = 주문 묶기(msg_seq+1) · 팀 거래정보 = gh-radar 가 A3 에서 §5-1 평균단가법 직접 계산. 목업 A/B/C 먼저(`/gsd-sketch`), 계약은 discuss 뒤 trade-handoff
+- Phase 38 added (2026-11-03): 틱뷰어 우리 주문·체결 표시 — `/analytics/ticks` A3 에 우리 팀 계좌 체결 표시 + 조건이 걸린 B6/A3 전문 표시(「이 주문은 이 전문을 보고 나갔다」). 원천 `dma_journal_events`(E) · `dma_strategy_events` kind 3·6. 10/30 실측 짝짓기 401/406(98.8%) · 호가 근거 29/29 · cum_volume 앵커 100/100 을 성공 기준으로. 기록 있는 게이트웨이는 KB120·KYOBO119 뿐. 미결(discuss): 계좌 가시성 · KB121/KYOBO127 포함 · 표시 모양 목업 A/B/C
 
 ### Pending Todos
 
