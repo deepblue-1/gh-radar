@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   TAG_CODE,
+  a3TimeMs,
   classifyKrxOrders,
   scopeTrades,
   type TickOwnEvent,
@@ -13,8 +14,6 @@ import path from 'node:path';
 
 import { TICK_FIXTURE_DATE, TICK_FIXTURE_ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
-
-import { buildOwnModel } from '../own-model';
 
 import {
   MSG_ITEM,
@@ -29,11 +28,13 @@ import {
   itemKindOf,
   msgItem,
   orderShapeLabel,
-  slotText,
   ownLineRec,
+  ownRailOf,
+  slotText,
   tailInversionText,
   tailText,
 } from '../msg-rows';
+import { buildOwnModel } from '../own-model';
 import { buildTickSession, recentOrdersOf } from '../tick-session';
 
 /**
@@ -367,5 +368,93 @@ describe('buildMsgRows — 우리 주문 줄 · 짝 없음 줄(Phase 38)', () =>
       expect(shape(m.items).slice(-2)).toEqual(['N0', 'O1']);
       expect(ownLineRec(m, m.items.length - 1)).toBe(itemIdxOf(m.items[m.items.length - 3]!));
     }
+  });
+});
+
+/**
+ * Phase 38 Plan 04 Task 2 — 둘째 레일 계산 `ownRailOf`(D-04). half 비트 1 위 실선 · 2 위 점선 · 4 아래 실선 · 8 아래 점선 ·
+ * node 0 없음 · 1 ● 주문 줄 · 2 ◆ 우리 체결 A3 행 · 3 ◇ 짝 없음/대기 줄.
+ */
+describe('ownRailOf — 둘째 레일(Phase 38 D-04)', () => {
+  const at = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+  // seq 를 띄워 각 A3 가 1조각 주문(꼬리 없음)이 되게 한다
+  const sess = synthSession([
+    [100.5, a3Msg({ seq: 201, bs: '2', px: 16400, qty: 1064, time: '130000100000' })],
+    [105.5, a3Msg({ seq: 211, bs: '2', px: 16400, qty: 100, time: '130000105000' })],
+    [110.5, a3Msg({ seq: 221, bs: '2', px: 17000, qty: 5, time: '130000110000' })],
+    [200.5, a3Msg({ seq: 231, bs: '1', px: 16400, qty: 500, time: '130000200000' })],
+    [400.5, b6Msg({ seq: 241, ask1: [17000, 10], bid1: [16400, 20] })],
+  ]);
+  const tA3 = (j: number) => a3TimeMs(sess.index, sess.a3, j);
+
+  function ev(orderNo: string, gwMs: number): TickOwnEvent {
+    return {
+      gateway: 'KB120', seq: 1, gw_time_ms: gwMs, kind: 3, group: 1, account_no: '1234563801', order_no: orderNo,
+      price: 16400, qty: 100, reason_code: '', cond_metric: 0, cond_threshold: 0, cond_actual: 0, ev_kind: 0, ev_price: 0,
+      ev_qty_before: 0, ev_qty_after: 0, ev_trade_qty: 0, cum_volume: 0,
+    };
+  }
+  function fl(orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill {
+    return { gateway: 'KB120', seq, gw_time_ms: gwMs, account_no: '1234563801', order_no: orderNo, side: 'B', exec_price: px, exec_qty: qty };
+  }
+  function railOf(events: TickOwnEvent[], fills: TickOwnFill[]) {
+    const own = buildOwnModel(sess, {
+      access: true, date: SYNTH_DATE, exchange: 'KRX', isin: SYNTH_ISIN, servers: ['KB120'], fills, events, orders: [],
+    });
+    const rows = buildMsgRows(sess, 'exchange', own);
+    return { own, rows, rail: ownRailOf(rows, own) };
+  }
+  const arr = (a: Uint8Array) => Array.from(a);
+
+  it('own 없음 = 빈 배열 · 줄 없는 own = 항목 수만큼 0', () => {
+    const rows = buildMsgRows(sess, 'exchange');
+    const none = ownRailOf(rows, null);
+    expect([none.half.length, none.node.length]).toEqual([0, 0]);
+    const { rail, rows: r2 } = railOf([], []);
+    expect(rail.half.length).toBe(r2.items.length);
+    expect(arr(rail.half).every((v) => v === 0) && arr(rail.node).every((v) => v === 0)).toBe(true);
+  });
+
+  it('구간 — 주문 줄 ● → 체결 ◆ ◆ 실선(위 절반 · 아래 절반) · 구간 밖 0', () => {
+    // O(.050) → A3 201(.130 · 300주) · A3 231(.210 · 500주) — 항목: O0 R201 R211 R221 R231 R241
+    const { rows, rail } = railOf([ev('O', at(50))], [fl('O', tA3(0) + 30, 16400, 300, 1), fl('O', tA3(3) + 10, 16400, 500, 2)]);
+    expect(rows.ownPosOfOrder[0]).toBe(0);
+    expect(arr(rail.node)).toEqual([1, 2, 0, 0, 2, 0]);
+    expect(arr(rail.half)).toEqual([4, 5, 5, 5, 1, 0]);
+  });
+
+  it('추정 체결이 하나라도 있으면 그 주문 구간은 점선', () => {
+    // 같은 가격 · 수량 A3 201(1064) 은 수량이 달라 후보 아님 — A3 211(100) 단독이면 추정 아님이라, 211 과 같은 값 A3 를 쓰지 않고
+    // 16400 ×100 을 201(.100 · 남은 1064) · 211(.105 · 100) 둘 다 후보로: gw .115 → |dt| 15 · 10 → 211 · 차 5 < 20 → 추정
+    const { own, rail } = railOf([ev('E', at(50))], [fl('E', tA3(0) + 15, 16400, 100, 1)]);
+    expect(own.fills[0]!.est).toBe(true);
+    expect(own.fills[0]!.rec).toBe(1);
+    // 항목: O0 R201 R211 … — 0..2 점선
+    expect(arr(rail.half).slice(0, 4)).toEqual([8, 10, 2, 0]);
+    expect(arr(rail.node).slice(0, 4)).toEqual([1, 0, 2, 0]);
+  });
+
+  it('겹침 — 경계마다 실선이 하나라도 있으면 실선(옆 칸 없음)', () => {
+    // E(점선): O0 → R211 · S(실선): O1 → R221. 항목: O0 O1 R201 R211 R221 R241(…)
+    const { rows, rail } = railOf(
+      [ev('E', at(50)), ev('S', at(50))],
+      [fl('E', tA3(0) + 15, 16400, 100, 1), fl('S', tA3(2) + 3, 17000, 5, 2)],
+    );
+    expect([rows.ownPosOfOrder[0], rows.ownPosOfOrder[1]]).toEqual([0, 1]);
+    expect(arr(rail.half).slice(0, 6)).toEqual([8, 6, 5, 5, 1, 0]);
+    expect(arr(rail.node).slice(0, 6)).toEqual([1, 1, 0, 2, 2, 0]);
+  });
+
+  it('길이 1 — 주문 줄만(미체결) ● · 체결만 ◆ · 짝 없음 ◇ 는 마디만(선 없음)', () => {
+    const { rows, rail } = railOf(
+      [ev('U', at(300))],
+      [fl('F', tA3(2) + 3, 17000, 5, 1), fl('N', at(150), 99_999, 1, 2)],
+    );
+    const uPos = rows.ownPosOfOrder[rows.ownPosOfOrder.length - 1]!;
+    expect(rail.node[uPos]).toBe(1);
+    expect(rail.node[rows.posOfRec[2]!]).toBe(2);
+    const nPos = rows.ownPosOfFill[1]!;
+    expect(rail.node[nPos]).toBe(3);
+    expect(arr(rail.half).every((v) => v === 0)).toBe(true);
   });
 });
