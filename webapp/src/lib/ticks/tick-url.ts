@@ -1,8 +1,10 @@
 /**
  * 틱 전문 뷰어 URL 계약 · 기본 날짜 · 「자료 없음」 사유 (Phase 37 D-15 · D-16 · D-18).
  *
- * ① URL 정본 = `/analytics/ticks?isin=&d=YYYYMMDD&ex=KRX|NXT&t=HH:MM:SS.mmm`. 잘못된 값은 조용히 버린다(기본값) —
- *   딥링크를 손으로 고친 사람에게 오류 화면 대신 진입 화면을 준다. 직렬화 순서는 isin · d · ex · t 이고 빈 값은 뺀다.
+ * ① URL 정본 = `/analytics/ticks?isin=&d=YYYYMMDD&ex=KRX|NXT&t=HH:MM:SS.mmm&k=N`. 잘못된 값은 조용히 버린다(기본값) —
+ *   딥링크를 손으로 고친 사람에게 오류 화면 대신 진입 화면을 준다. 직렬화 순서는 isin · d · ex · t · k 이고 빈 값은 뺀다.
+ *   `k`(WR-65) = 수신 시각이 그 ms(`t`)인 틱 중 수신순 순번(0부터) — 한 ms 안에 몰린 버스트 조각도 같은 틱으로 돌아온다.
+ *   0 이면 뺀다 · `t` 없이 오면 버린다.
  *   `ex` 기본값 KRX 도 뺀다(같은 화면 · 짧은 URL). 틱 이동 `history.replaceState` 는 37-10 몫이다.
  * ② 기본 날짜(D-15): KST 평일 ∧ 휴장 아님 ∧ 08:00 ≤ 지금 < 20:00 이면 오늘(`today` — 오늘 목록 · 「라이브」 칩),
  *   그 밖에는 격자가 있는 최근 날짜(`latest` — server `/api/ticks/day` 를 d 없이).
@@ -19,12 +21,15 @@ export interface TickUrlState {
   d: string | null;
   ex: TickExchange;
   t: string | null;
+  /** 같은 ms(`t`) 안 수신순 순번(WR-65) — 0 · 없음 = null. `t` 가 있을 때만 뜻이 있다. */
+  k?: number | null;
 }
 
 export const TICKS_BASE = '/analytics/ticks';
 
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const T_RE = /^\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/;
+const K_RE = /^[1-9]\d{0,5}$/;
 const KST_OFFSET_MS = 9 * 3600_000;
 const DAY_MS = 86_400_000;
 
@@ -51,21 +56,25 @@ function parseTickTime(raw: string | null): string | null {
 export function parseTickUrl(sp: URLSearchParams): TickUrlState {
   const isin = sp.get('isin');
   const ex = sp.get('ex');
+  const t = parseTickTime(sp.get('t'));
+  const k = sp.get('k');
   return {
     isin: isin !== null && ISIN_RE.test(isin) ? isin : null,
     d: parseTickDate(sp.get('d')),
     ex: ex === 'NXT' ? 'NXT' : 'KRX',
-    t: parseTickTime(sp.get('t')),
+    t,
+    k: t !== null && k !== null && K_RE.test(k) ? Number(k) : null,
   };
 }
 
-/** 상태 → URL. 순서 isin · d · ex · t, 빈 값과 기본 거래소(KRX)는 뺀다. */
+/** 상태 → URL. 순서 isin · d · ex · t · k, 빈 값 · 기본 거래소(KRX) · k 0 은 뺀다(`k` 는 `t` 가 있을 때만). */
 export function tickUrlOf(s: Partial<TickUrlState>): string {
   const q = new URLSearchParams();
   if (s.isin) q.set('isin', s.isin);
   if (s.d) q.set('d', s.d);
   if (s.ex === 'NXT') q.set('ex', 'NXT');
   if (s.t) q.set('t', s.t);
+  if (s.t && s.k != null && Number.isSafeInteger(s.k) && s.k > 0) q.set('k', String(s.k));
   const qs = q.toString();
   return qs === '' ? TICKS_BASE : `${TICKS_BASE}?${qs}`;
 }

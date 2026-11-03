@@ -114,6 +114,12 @@ export function TickSlider({
   const [invalid, setInvalid] = useState(false);
   const jump = () => {
     const v = draft ?? time;
+    // 초안이 지금 틱 시각 그대로면(포커스만 주고 Enter) 움직이지 않는다 — ms 로 잘린 시각으로 뛰면 같은 ms 첫 틱으로 밀린다(WR-65).
+    if (v === time) {
+      setDraft(null);
+      setInvalid(false);
+      return;
+    }
     if (onJump(v)) {
       setDraft(null);
       setInvalid(false);

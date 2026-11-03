@@ -36,7 +36,7 @@ import { TickViewer } from './tick-viewer';
  *   (뒤로 = 목록). 틱 이동은 `useTickCursor` 의 `history.replaceState`(히스토리 안 쌓임). 이동(`go`)이 (isin, d, ex) 를
  *   바꾸면 push 전에 `navRef` 를 올려 뷰어 커서의 URL 쓰기를 멈춘다 — Next 15 는 대기 중인 push 를 replaceState 가 버린다(WR-60).
  *   **`t` 는 열기 시점에 한 번만 읽는다** — Next 15 는 네이티브 replaceState 를 `useSearchParams` 에 동기화하므로 커서가 바꾼
- *   `t` 가 이 컴포넌트를 다시 그린다. `t` 는 (isin, d, ex) 키가 바뀔 때만 갱신되는 `initialT` 에 담고, 열기 · 격자 · 세션
+ *   `t` 가 이 컴포넌트를 다시 그린다. `t` · `k`(WR-65) 는 (isin, d, ex) 키가 바뀔 때만 갱신되는 `initialT` · `initialK` 에 담고, 열기 · 격자 · 세션
  *   효과의 의존성에는 `t` 를 넣지 않는다(넣으면 틱마다 다시 열기 · 커서 초기화).
  * ② 게이트: `useDmaGateReason()` · server 401/403 → 본문 대신 `DmaGate surface="틱뷰어"` 만. 표시 장치일 뿐 권한은
  *   server RPC(`tick_*_for_user`)다.
@@ -168,9 +168,10 @@ export function TickViewerPage() {
 
   // URL `t` 는 (isin, d, ex) 가 바뀔 때만 다시 읽는다(머리 주석 ①).
   const openKey = `${isin ?? ''}|${d ?? ''}|${ex}`;
-  const [initial, setInitial] = useState({ key: openKey, t: url.t });
-  if (initial.key !== openKey) setInitial({ key: openKey, t: url.t });
+  const [initial, setInitial] = useState({ key: openKey, t: url.t, k: url.k ?? null });
+  if (initial.key !== openKey) setInitial({ key: openKey, t: url.t, k: url.k ?? null });
   const initialT = initial.key === openKey ? initial.t : url.t;
+  const initialK = initial.key === openKey ? initial.k : (url.k ?? null);
 
   // 우리 체결 알약(38-08 · D-09) — 뷰어가 올린 상태를 열기 키와 함께 든다 · 종목 · 날짜 · 거래소가 바뀌면 파생으로 null.
   const [ownNavAt, setOwnNavAt] = useState<{ key: string; nav: OwnNavState | null }>({ key: openKey, nav: null });
@@ -564,6 +565,7 @@ export function TickViewerPage() {
               session={live.session}
               urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
               initialT={live.generation === 0 ? initialT : null}
+              initialK={live.generation === 0 ? initialK : null}
               onTick={setTickLabel}
               onOwn={onOwn}
               ownRefreshKey={ownRefreshKey}
@@ -620,6 +622,7 @@ export function TickViewerPage() {
               session={grid.session}
               urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
               initialT={initialT}
+              initialK={initialK}
               onTick={setTickLabel}
               onOwn={onOwn}
               navToken={navRef}

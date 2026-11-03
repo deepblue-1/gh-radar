@@ -17,11 +17,12 @@ describe('parseTickUrl', () => {
       d: '20261016',
       ex: 'NXT',
       t: '09:07:50.300',
+      k: null,
     });
   });
 
   it('빈 쿼리 = 기본값(ex KRX)', () => {
-    expect(parseTickUrl(sp(''))).toEqual({ isin: null, d: null, ex: 'KRX', t: null });
+    expect(parseTickUrl(sp(''))).toEqual({ isin: null, d: null, ex: 'KRX', t: null, k: null });
   });
 
   it('잘못된 값은 버린다', () => {
@@ -30,6 +31,7 @@ describe('parseTickUrl', () => {
       d: null,
       ex: 'KRX',
       t: null,
+      k: null,
     });
     expect(parseTickUrl(sp('isin=KR710136000&d=2026101&t=25:00:00')).isin).toBeNull();
     expect(parseTickUrl(sp('d=20260229')).d).toBeNull(); // 2026 은 윤년이 아니다
@@ -48,11 +50,25 @@ describe('tickUrlOf', () => {
   });
 
   it('왕복 — 직렬화한 URL 을 다시 읽으면 같다', () => {
-    const s = { isin: 'KR7101360006', d: '20261016', ex: 'NXT' as const, t: '13:00:41.090' };
+    const s = { isin: 'KR7101360006', d: '20261016', ex: 'NXT' as const, t: '13:00:41.090', k: null };
     const q = tickUrlOf(s).split('?')[1]!;
     expect(parseTickUrl(sp(q))).toEqual(s);
-    const k = { isin: 'KR7005930003', d: '20261030', ex: 'KRX' as const, t: null };
+    const k = { isin: 'KR7005930003', d: '20261030', ex: 'KRX' as const, t: null, k: null };
     expect(parseTickUrl(sp(tickUrlOf(k).split('?')[1]!))).toEqual(k);
+    const burst = { isin: 'KR7101360006', d: '20261016', ex: 'KRX' as const, t: '13:05:07.123', k: 3 };
+    expect(tickUrlOf(burst)).toBe('/analytics/ticks?isin=KR7101360006&d=20261016&t=13%3A05%3A07.123&k=3');
+    expect(parseTickUrl(sp(tickUrlOf(burst).split('?')[1]!))).toEqual(burst);
+  });
+
+  it('k(WR-65 — 같은 ms 안 순번) — 0 · 없음은 뺀다 · t 없으면 쓰지도 읽지도 않는다 · 잘못된 값은 버린다', () => {
+    expect(tickUrlOf({ isin: 'KR7101360006', t: '13:05:07.123', k: 0 })).toBe(
+      '/analytics/ticks?isin=KR7101360006&t=13%3A05%3A07.123',
+    );
+    expect(tickUrlOf({ isin: 'KR7101360006', t: null, k: 2 })).toBe('/analytics/ticks?isin=KR7101360006');
+    expect(parseTickUrl(sp('k=2')).k).toBeNull();
+    for (const bad of ['0', '-1', '1.5', 'x', '01', '1234567']) {
+      expect(parseTickUrl(sp(`t=13:05:07.123&k=${bad}`)).k).toBeNull();
+    }
   });
 });
 

@@ -316,6 +316,8 @@ test.describe('틱뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 ·
     await page.reload();
     await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
     await expect.poll(async () => (await tickOf(page)).time).toBe(moved.time);
+    // 같은 ms 안 버스트 조각이어도 같은 틱(seq)으로 돌아온다 — URL k(WR-65)
+    expect((await tickOf(page)).seq).toBe(moved.seq);
     expect(rec.open.length).toBe(2); // 처음 + 새로고침 — 틱 이동으로 다시 열지 않는다
   });
 

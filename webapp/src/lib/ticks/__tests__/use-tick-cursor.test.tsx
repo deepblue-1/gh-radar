@@ -6,7 +6,16 @@ import { fmtTickTime, iterRecords, parseTickTime } from '@gh-radar/shared';
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 
 import { buildTickSession } from '../tick-session';
-import { PLAY_MAX_GAP_MS, TICK_URL_THROTTLE_MS, endRecOf, teamJumpRec, useTickCursor } from '../use-tick-cursor';
+import { tickUrlOf } from '../tick-url';
+import {
+  PLAY_MAX_GAP_MS,
+  TICK_URL_THROTTLE_MS,
+  endRecOf,
+  initialRecOf,
+  teamJumpRec,
+  tickUrlPosOf,
+  useTickCursor,
+} from '../use-tick-cursor';
 
 /**
  * Phase 37 Plan 10 Task 2 — 커서 키(← → Shift Space) · 입력 포커스 무시 · 끝/처음 정지 · 재생(1× · 10× · 끝 정지) ·
@@ -241,9 +250,8 @@ describe('useTickCursor — 점프 · URL', () => {
     });
     expect(replaceSpy).toHaveBeenCalledTimes(2);
     const last = replaceSpy.mock.calls[1]![2] as string;
-    expect(last).toBe(
-      `/analytics/ticks?isin=${ISIN}&d=${D}&t=${encodeURIComponent(fmtTickTime(session.index.recvNs[result.current.rec]!))}`,
-    );
+    expect(last).toBe(tickUrlOf({ ...URL_STATE, ...tickUrlPosOf(session, result.current.rec) }));
+    expect(last).toContain(`t=${encodeURIComponent(fmtTickTime(session.index.recvNs[result.current.rec]!))}`);
   });
 
   it('이동 시작(navToken 증가) 뒤에는 대기 타이머 · 새 커서 모두 replaceState 하지 않는다 — Next push 를 버리지 않게(WR-60)', () => {
@@ -294,5 +302,42 @@ describe('useTickCursor — 점프 · URL', () => {
       }),
     ).not.toThrow();
     expect(new URL(window.location.href).searchParams.has('t')).toBe(false);
+  });
+
+  it('버스트 — 한 ms 안 여러 틱도 URL(t + k)로 같은 틱에 돌아온다 · 거래소순 · 수신순 모두(WR-65)', () => {
+    // 픽스처에서 같은 ms 에 틱이 여럿인 자리(k ≥ 1)를 모두 왕복한다
+    let checked = 0;
+    for (let p = 1; p < session.recvOrder.length; p++) {
+      const rec = session.recvOrder[p]!;
+      const pos = tickUrlPosOf(session, rec);
+      if (pos.k === null) continue;
+      expect(initialRecOf(session, pos.t, false, pos.k)).toBe(rec);
+      expect(initialRecOf(session, pos.t, true, pos.k)).toBe(rec);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(0);
+    // k 가 같은 ms 를 넘으면(손으로 고친 링크) 그 ms 첫 틱
+    const first = session.recvOrder[0]!;
+    const t0 = tickUrlPosOf(session, first).t;
+    expect(initialRecOf(session, t0, false, 999_999)).toBe(initialRecOf(session, t0, false, null));
+  });
+
+  it('버스트 조각에서 쓴 URL 을 다시 열면 같은 rec(t 만 쓰던 옛 동작은 같은 ms 첫 틱으로 밀렸다 · WR-65)', () => {
+    vi.useFakeTimers();
+    let target = -1;
+    for (let p = 1; p < session.recvOrder.length && target < 0; p++) {
+      const rec = session.recvOrder[p]!;
+      if (tickUrlPosOf(session, rec).k !== null) target = rec;
+    }
+    expect(target).toBeGreaterThanOrEqual(0);
+    const { result } = mount();
+    act(() => result.current.jumpToRec(target));
+    const url = new URL(String(replaceSpy.mock.calls.at(-1)![2]), 'http://x');
+    const k = url.searchParams.get('k');
+    expect(k).not.toBeNull();
+    const again = renderHook(() =>
+      useTickCursor(session, { initialT: url.searchParams.get('t'), initialK: Number(k), urlState: URL_STATE }),
+    );
+    expect(again.result.current.rec).toBe(target);
   });
 });

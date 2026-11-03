@@ -66,9 +66,11 @@ import { TickTeamPanel } from './tick-team-panel';
 
 export interface TickViewerProps {
   session: TickSession;
-  urlState: Omit<TickUrlState, 't'>;
+  urlState: Omit<TickUrlState, 't' | 'k'>;
   /** 열기 시점의 URL `t` — 열린 뒤 URL 이 바뀌어도 다시 읽지 않는다. */
   initialT: string | null;
+  /** 열기 시점의 URL `k`(같은 ms 안 수신순 순번 · WR-65). */
+  initialK?: number | null;
   onTick?: (label: { time: string; seq: number | null }) => void;
   /** 열기 응답 `accum`(차트 누적 선 · 팀 패널 누적 — D-09). */
   accum?: TickOpenResponse['accum'];
@@ -306,6 +308,7 @@ export function TickViewer({
   session,
   urlState,
   initialT,
+  initialK = null,
   onTick,
   accum = null,
   isToday = false,
@@ -315,7 +318,7 @@ export function TickViewer({
   ownRefreshKey = 0,
   navToken,
 }: TickViewerProps) {
-  const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined, navToken });
+  const cursor = useTickCursor(session, { initialT, initialK, urlState, live: live !== undefined, navToken });
   const { rec, atEnd } = cursor;
   // 호가 잔량 단위 — 기본 금액(2026-11-03 사용자 요청) · 「주 | 금액」 토글은 그대로
   const [unit, setUnit] = useState<TickBookUnit>('amount');

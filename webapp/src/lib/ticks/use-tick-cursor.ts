@@ -5,7 +5,8 @@
  *
  * ① 커서 정본 = 레코드 색인 `rec`. 자리 `pos` 는 표시 순서(기본 거래소순 · 수신순)에서의 위치다 — 순서를 바꿔도 같은 틱에 머문다.
  * ② 초기 커서: `initialT`(URL `t`) → `parseTickTime` → 수신순 `lowerBoundRecv`(그 시각 이후 첫 틱) · 없으면 08:00 이후 첫 틱
- *   (당일 `live` 는 끝 틱 — D-18). 모두 그보다 이르면 마지막 틱.
+ *   (당일 `live` 는 끝 틱 — D-18). 모두 그보다 이르면 마지막 틱. `initialK`(URL `k` · WR-65) 가 있으면 그 자리에서 수신순 k 번째 —
+ *   그 틱도 같은 ms 일 때만(아니면 첫 틱). `t` 는 ms 로 잘리므로 한 ms 안 버스트 조각은 `k` 로 구분한다.
  * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Shift+]` `Shift+[` 다음/이전 팀 주문의 첫 A3 조각(`teamJumpRec` · 맨 `[` `]` 는 우리 체결 — 38 D-09) · `Space` 재생/정지
  *   (입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
  *   10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에서 정지.
@@ -110,29 +111,56 @@ export function endRecOf(session: TickSession, mode: TickOrderMode = 'exchange')
   return order.length === 0 ? -1 : order[order.length - 1]!;
 }
 
-/** 열기 직후 커서 — `t` 가 있으면 그 시각 이후 첫 틱, 없으면 08:00 이후 첫 틱(`live` 면 끝 틱 — D-18). */
-export function initialRecOf(session: TickSession, initialT: string | null, live = false): number {
+const MS_NS = 1_000_000n;
+
+/** 열기 직후 커서 — `t` 가 있으면 그 시각 이후 첫 틱(+ 같은 ms 안 `k` 번째 · WR-65), 없으면 08:00 이후 첫 틱(`live` 면 끝 틱 — D-18). */
+export function initialRecOf(
+  session: TickSession,
+  initialT: string | null,
+  live = false,
+  initialK: number | null = null,
+): number {
   const ns = initialT === null ? null : parseTickTime(initialT, session.date);
   if (ns === null && live) return endRecOf(session);
+  if (ns !== null && initialK !== null && initialK > 0) {
+    const p = lowerBoundRecv(session.index.recvNs, session.recvOrder, ns) + initialK;
+    if (p < session.recvOrder.length) {
+      const r = session.recvOrder[p]!;
+      if (session.index.recvNs[r]! < ns + MS_NS) return r;
+    }
+  }
   return recAtNs(session, ns ?? session.dayStartNs);
+}
+
+/** rec 의 URL 위치(WR-65) — `t` = 수신 시각(ms 절사) · `k` = 같은 ms 안 수신순 순번(0 이면 null). `initialRecOf` 의 역. */
+export function tickUrlPosOf(session: TickSession, rec: number): { t: string; k: number | null } {
+  const ns = session.index.recvNs[rec]!;
+  const t = fmtTickTime(ns);
+  const at = parseTickTime(t, session.date);
+  if (at === null || at > ns) return { t, k: null };
+  const k = session.recvPos[rec]! - lowerBoundRecv(session.index.recvNs, session.recvOrder, at);
+  return { t, k: k > 0 ? k : null };
 }
 
 export function useTickCursor(
   session: TickSession,
   {
     initialT,
+    initialK = null,
     urlState,
     live = false,
     navToken,
   }: {
     initialT: string | null;
-    urlState: Omit<TickUrlState, 't'>;
+    /** 열기 시점의 URL `k`(WR-65 — 같은 ms 안 순번). */
+    initialK?: number | null;
+    urlState: Omit<TickUrlState, 't' | 'k'>;
     live?: boolean;
     /** 페이지 내비게이션 토큰 — 마운트 때 값에서 바뀌면(이동 시작) URL 을 쓰지 않는다(머리 주석 ④ · WR-60). */
     navToken?: { readonly current: number };
   },
 ): TickCursor {
-  const [rec, setRec] = useState(() => initialRecOf(session, initialT, live));
+  const [rec, setRec] = useState(() => initialRecOf(session, initialT, live, initialK));
   const [mode, setMode] = useState<TickOrderMode>('exchange');
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<TickPlaySpeed>(1);
@@ -287,8 +315,7 @@ export function useTickCursor(
         }
         return;
       }
-      const t = fmtTickTime(s.index.recvNs[r]!);
-      window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, t }));
+      window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, ...tickUrlPosOf(s, r) }));
     };
     const wait = TICK_URL_THROTTLE_MS - (Date.now() - lastWrite.current);
     if (wait <= 0) write();

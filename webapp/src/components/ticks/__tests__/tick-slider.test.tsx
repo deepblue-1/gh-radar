@@ -49,6 +49,17 @@ describe('TickSlider', () => {
     expect(input.getAttribute('aria-invalid')).toBeNull();
   });
 
+  it('포커스만 주고 Enter · 「점프」(초안 = 지금 시각) → onJump 없음 — 같은 ms 첫 틱으로 밀리지 않는다(WR-65)', () => {
+    const onJump = vi.fn(() => true);
+    render(<TickSlider {...props({ onJump })} />);
+    const input = screen.getByLabelText('틱 시각') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: '점프' }));
+    expect(onJump).not.toHaveBeenCalled();
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('잘못된 형식 → 입력 테두리 빨강(aria-invalid) · 「점프」 버튼도 같은 경로', () => {
     const onJump = vi.fn(() => false);
     render(<TickSlider {...props({ onJump })} />);
