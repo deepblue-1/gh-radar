@@ -127,6 +127,9 @@ export {
   USER_SETTINGS_RANGES,
   // --- Phase 27 lc.set 자동매도 요청 범위 정본(relay zod · superRefine · webapp lc 행 공용 · 27-REVIEW IN-06) ---
   LC_AUTO_SELL_RANGES,
+  // --- quick-261103-n1s 상따 ☐위험도 기준 범위 · 기본값(relay zod · webapp lc 행 · /me 공용) ---
+  SELL_RISK_PCT_RANGE,
+  SELL_RISK_PCT_DEFAULT,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {

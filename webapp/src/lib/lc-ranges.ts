@@ -20,6 +20,7 @@
  *   - 수량 임계 금액 8칸(`buyWatchAmount` · `buyMinTradeAmount` · `extraBuyMinAmount` · `extraBuyMaxAmount` ·
  *     `postBuyFloorAmount` · `sellWatchAmount` · `sellMinTradeAmount` · `cancelWatchAmount`) 0~999,999,999 — fbs 주석
  *     (만원 · Phase 31 · shared `LC_AMOUNT_MAX_MANWON`). relay `UIntSchema` 보다 좁다(키패드 9자리).
+ *   - `sellRiskPct` 1~999 — shared `SELL_RISK_PCT_RANGE`(relay zod 와 같은 상수 · quick-261103-n1s). 늘 본다(웹은 늘 싣는다).
  * 나머지 값 필드(가격 · 주문 금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
  * 자동매도 3칸(`autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)의 숫자는 shared `LC_AUTO_SELL_RANGES` 가
  * 정본이다 — relay zod · superRefine 도 같은 상수를 읽는다(27-REVIEW IN-06).
@@ -27,7 +28,7 @@
  * `LC_AUTO_SELL_RANGES.autoSellMethod`(1~3)와 같다는 것은 shared 테스트가 잠근다.
  */
 
-import { LC_AMOUNT_MAX_MANWON, LC_AUTO_SELL_RANGES } from '@gh-radar/shared';
+import { LC_AMOUNT_MAX_MANWON, LC_AUTO_SELL_RANGES, SELL_RISK_PCT_RANGE } from '@gh-radar/shared';
 
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
 
@@ -68,6 +69,8 @@ export const LC_FIELD_RANGES = {
   sellWatchAmount: { range: AMOUNT_MANWON },
   sellMinTradeAmount: { range: AMOUNT_MANWON },
   cancelWatchAmount: { range: AMOUNT_MANWON },
+  // 상따 매도 ☐위험도 기준 % 1~999(gh-trade quick-261103-l41 · quick-261103-n1s) — relay zod 와 같은 shared 상수.
+  sellRiskPct: { range: SELL_RISK_PCT_RANGE },
 } as const satisfies Partial<Record<keyof LimitChaserFormValues, LcFieldRange>>;
 
 /** 그 필드의 범위 — 표에 없으면(가격 · 주문 금액) `undefined`. */

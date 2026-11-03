@@ -4,9 +4,10 @@
  * - 정본 = gh-trade `server/docs/protocol.md` 「SetLimitChaser change_mask 비트 표 (Phase 44)」 ·
  *   기계 판 `server/src/trade/strategy/LimitChaserChangeMask.h` `kMaskFields[]`(gh-trade `55e62638` ·
  *   인계 노트 `docs/inbox/from-gh-trade/261030-limitchaser-change-mask.md` ②).
- * - 규칙: **append-only · 재사용 · 재배치 금지 · 새 칸은 52부터.** id 86/87(vt 176/178)은 `sor_buy` · `sor_sell` 이
- *   썼다(gh-trade Phase 45 · 21d692a1 · 인계 노트 `261101-limitchaser-sor.md` ②) — 64비트가 차면 gh-trade 가 `change_mask_hi`
- *   를 **그때의 말미에** append 하고(번호는 그때 정한다) 이 모듈도 그때 확장한다.
+ * - 규칙: **append-only · 재사용 · 재배치 금지 · 새 칸은 54부터.** id 86/87(vt 176/178)은 `sor_buy` · `sor_sell` 이
+ *   썼다(gh-trade Phase 45 · 21d692a1 · 인계 노트 `261101-limitchaser-sor.md` ②) · id 88/89(vt 180/182)는 위험도
+ *   `sell_risk_enabled` · `sell_risk_pct` 가 썼다(gh-trade quick-261103-l41 · e96aef6e · 인계 노트 `261103-sell-risk.md`).
+ *   64비트가 차면 gh-trade 가 `change_mask_hi` 를 **그때의 말미에** append 하고(번호는 그때 정한다) 이 모듈도 그때 확장한다.
  * - **배열 인덱스 = 비트.** `key` = `RelayLimitChaserInput` 의 camelCase 키, `wire` = fbs snake 이름.
  * - 웹은 이 표의 `key` 이름만 보낸다(lc.set `changed`). uint64 마스크(짝 수량 비트 포함)는 relay 가 만든다
  *   (gh-trade D-10 — `relay/src/dma/lc-change-mask.ts`).
@@ -78,7 +79,10 @@ export const LC_CHANGE_MASK_FIELDS = [
   // --- SOR 50-51 (gh-trade Phase 45 · quick-261101-okd) ---
   { key: "sorBuy", wire: "sor_buy" },
   { key: "sorSell", wire: "sor_sell" },
-  // 52~63 예약 — 새 칸은 여기 아래로 append
+  // --- 위험도 52-53 (gh-trade quick-261103-l41 · quick-261103-n1s) ---
+  { key: "sellRiskEnabled", wire: "sell_risk_enabled" },
+  { key: "sellRiskPct", wire: "sell_risk_pct" },
+  // 54~63 예약 — 새 칸은 여기 아래로 append
 ] as const satisfies readonly { key: keyof RelayLimitChaserInput; wire: string }[];
 
 /** 비트 표에 행이 있는 cfg 키 — lc.set `changed` 원소 타입. */

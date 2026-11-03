@@ -4,6 +4,7 @@ import {
   LC_AMOUNT_PAIRS,
   LC_CHANGE_MASK_FIELDS,
   LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  SELL_RISK_PCT_DEFAULT,
   amountFromQty,
   echoAmountOf,
   qtyForSubmit,
@@ -1391,6 +1392,9 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     ['클라 고정 sweepMinRate 2950 ≠ 0', { sweepMinRate: 2_950 }, false],
     ['S→C 전용 필드(매도수량 · 후매수 단계)는 cfg 에 없어 비교하지 않는다', { sellOrderQty: 99, postBuyPhase: 3 }, true],
     ['옛 등록 에코 postBuyReentry 3 — 서버가 읽지 않는 칸은 비교하지 않는다(gh-trade 261012)', { postBuyReentry: 3 }, true],
+    // quick-261103-n1s — 구서버 에코 sellRiskPct 0(슬롯 없음) · 폼은 칸 유지 80 → 다른 클라가 둔 값이 아니다.
+    ['구서버 에코 sellRiskPct 0 · cfg 80 — 1~999 밖 에코는 비교하지 않는다(quick-261103-n1s)', { sellRiskPct: 0 }, true],
+    ['에코 sellRiskPct 120 — 폼도 120 을 들여 같다', { sellRiskPct: 120 }, true],
   ])('%s → %s', (_name, over, expected) => {
     const echo = folded(over);
     expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(expected);
@@ -1433,6 +1437,13 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     expect(cfg.sellWatchQty).toBe(1554);
     expect(cfg.sellWatchAmount).toBe(2000);
     expect(isMasterOnlyDelta(cfg, echo)).toBe(true);
+  });
+
+  it('quick-261103-n1s 에코 sellRiskPct 120 · cfg 80(다른 클라가 둔 값) → false · 에코 0 · cfg 80 → true', () => {
+    const echo = folded({ sellRiskPct: 120 });
+    expect(isMasterOnlyDelta({ ...webCfgOf(echo), sellRiskPct: 80 }, echo)).toBe(false);
+    const old = folded({ sellRiskPct: 0 });
+    expect(isMasterOnlyDelta({ ...webCfgOf(old), sellRiskPct: 80 }, old)).toBe(true);
   });
 
   it('buyEnabled 외 한 필드라도 다르면 false — cfg 의 값을 직접 바꾼 경우', () => {
@@ -1657,7 +1668,7 @@ describe('Phase 27 84 시딩', () => {
     expect(seedFromUserSettings(undefined)).toEqual({});
   });
 
-  it('present true — 9칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 · 봉인 하한잔량(주) 키 없음', () => {
+  it('present true — 10칸 매핑(WinForms ResetStrategyOptionsToDefault 동형) · 매도 주기 · 동시호가 비율 · 봉인 하한잔량(주) 키 없음', () => {
     const seed = seedFromUserSettings(SAVED);
     expect(seed).toEqual({
       buyOrderAmount: 5000,
@@ -1670,6 +1681,8 @@ describe('Phase 27 84 시딩', () => {
       sellQtyTrackRatio: 60,
       autoSellRatioPct: 15,
       autoSellMethod: 1,
+      // 이 픽스처는 구 서버 84(sellRiskPct 키 없음) — 폴백 80(quick-261103-n1s).
+      sellRiskPct: 80,
     });
     expect(Object.keys(seed)).not.toContain('autoSellPeriodSec');
     expect(Object.keys(seed)).not.toContain('postBuyFloorQty');
@@ -1689,6 +1702,7 @@ describe('Phase 27 84 시딩', () => {
       sellQtyTrackRatio: d.sellQtyTrackRatio,
       autoSellRatioPct: d.autoSellRatioPct,
       autoSellMethod: d.autoSellMethod,
+      sellRiskPct: d.sellRiskPct,
     });
   });
 
@@ -1710,6 +1724,7 @@ describe('Phase 27 84 시딩', () => {
       sellQtyTrackRatio: 55,
       autoSellRatioPct: 10,
       autoSellMethod: 3,
+      sellRiskPct: 80,
     });
   });
 
@@ -1824,5 +1839,49 @@ describe('lcChangedFieldsOf — lc.set changed 이름(quick-261030-kpg · gh-tra
     const outside = Object.keys(defaultLimitChaserForm()).filter((k) => !maskKeys.has(k));
     expect(outside).toEqual([...LC_UNMASKED_FORM_KEYS]);
     expect(LC_UNMASKED_FORM_KEYS).toEqual(['postBuyReentry']);
+  });
+});
+
+describe('quick-261103-n1s ☐위험도 — 기본 폼 · 84 시딩 · 에코 (gh-trade quick-261103-l41 · 결정 ①)', () => {
+  const BASE: RelayUserSettingsMsg = {
+    t: 'user.settings',
+    present: true,
+    preBuyAmount: 4000,
+    addBuyAmount: 4000,
+    postBuyAmount: 4000,
+    postBuyMaxCount: 3,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 30,
+    sellQtyTrackRatio: 55,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 0,
+  };
+
+  it('기본 폼 — sellRiskEnabled false · sellRiskPct 80(SELL_RISK_PCT_DEFAULT)', () => {
+    const f = defaultLimitChaserForm();
+    expect(f.sellRiskEnabled).toBe(false);
+    expect(f.sellRiskPct).toBe(80);
+    expect(SELL_RISK_PCT_DEFAULT).toBe(80);
+  });
+
+  it('84 sellRiskPct 120 → 시딩 120 · 0 · 부재 · 1000 → 80 · 시딩은 sellRiskEnabled 를 만들지 않는다', () => {
+    expect(seedFromUserSettings({ ...BASE, sellRiskPct: 120 }).sellRiskPct).toBe(120);
+    expect(seedFromUserSettings({ ...BASE, sellRiskPct: 0 }).sellRiskPct).toBe(80);
+    expect(seedFromUserSettings(BASE).sellRiskPct).toBe(80);
+    expect(seedFromUserSettings({ ...BASE, sellRiskPct: 1000 }).sellRiskPct).toBe(80);
+    expect(seedFromUserSettings({ ...BASE, sellRiskPct: 120 })).not.toHaveProperty('sellRiskEnabled');
+  });
+
+  it('formFromServer — 에코 true/120 → true/120 · 에코 pct 0(구서버) → prev 유지 · 에코 false 는 그대로 false', () => {
+    const prev = { ...defaultLimitChaserForm(), sellRiskEnabled: true, sellRiskPct: 150 };
+    const on = formFromServer(serverEcho({ sellRiskEnabled: true, sellRiskPct: 120 }), prev);
+    expect(on.sellRiskEnabled).toBe(true);
+    expect(on.sellRiskPct).toBe(120);
+    const old = formFromServer(serverEcho({ sellRiskEnabled: false, sellRiskPct: 0 }), prev);
+    expect(old.sellRiskEnabled).toBe(false);
+    expect(old.sellRiskPct).toBe(150);
   });
 });

@@ -703,6 +703,10 @@ export type FakeLimitChaserInput = {
   sorBuy?: boolean;
   /** ○SOR 매도 — 양방향(vtable 178 · quick-261101-okd). 서버 에코는 설정값(부재 기본 false). */
   sorSell?: boolean;
+  /** 상따 매도 ☐위험도 — 양방향(vtable 180 · quick-261103-n1s). 서버 에코는 런타임 값(부재 기본 false). */
+  sellRiskEnabled?: boolean;
+  /** ☐위험도 기준 % — 양방향(vtable 182 · quick-261103-n1s). 서버 에코는 설정값(부재 기본 0 = 구 서버). */
+  sellRiskPct?: number;
 };
 
 /**
@@ -852,6 +856,9 @@ function emitSetLimitChaser(
   // === ○SOR 2필드(vtable 176 · 178 · quick-261101-okd) — 부재 기본 false = 구 서버 ===
   SetLimitChaser.addSorBuy(b, input.sorBuy ?? false);
   SetLimitChaser.addSorSell(b, input.sorSell ?? false);
+  // === ☐위험도 2필드(vtable 180 · 182 · quick-261103-n1s) — 부재 기본 false · 0 = 구 서버 ===
+  SetLimitChaser.addSellRiskEnabled(b, input.sellRiskEnabled ?? false);
+  SetLimitChaser.addSellRiskPct(b, input.sellRiskPct ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -1322,6 +1329,11 @@ export type FakeUserSettingsInput = {
    * (슬롯 부재 → relay 0)이라 「부재 = 0 → 웹 내장 70」 경로가 기본으로 시험된다.
    */
   burstRatioPct?: number;
+  /**
+   * 위험도 기준 % · fbs vtable 36(`= null` · ushort · quick-261103-n1s). **주어졌을 때만** 슬롯을 쓴다 — 기본은 구 서버 모양
+   * (슬롯 부재 → relay 0 → 웹 80 표시).
+   */
+  sellRiskPct?: number;
 };
 
 /**
@@ -1349,6 +1361,7 @@ export function buildUserSettingsFrame(input: FakeUserSettingsInput = {}): Uint8
   if (input.preBuyWatchAmount !== undefined) UserSettings.addPreBuyWatchAmount(b, input.preBuyWatchAmount);
   if (input.preBuyAutoAddBuy !== undefined) UserSettings.addPreBuyAutoAddBuy(b, input.preBuyAutoAddBuy);
   if (input.burstRatioPct !== undefined) UserSettings.addBurstRatioPct(b, input.burstRatioPct);
+  if (input.sellRiskPct !== undefined) UserSettings.addSellRiskPct(b, input.sellRiskPct);
   const settings = UserSettings.endUserSettings(b);
 
   Envelope.startEnvelope(b);

@@ -82,7 +82,13 @@ import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
-import { burstRatioPctOf, burstRatioThresholdOf, userSettingsForServer } from "@/lib/user-settings-server";
+import {
+  burstRatioPctOf,
+  burstRatioThresholdOf,
+  sellRiskPctOf,
+  sellRiskPctOrDefaultOf,
+  userSettingsForServer,
+} from "@/lib/user-settings-server";
 import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
@@ -306,6 +312,7 @@ export function usableUserSettingsOf(s: RelayUserSettingsMsg | undefined): Usabl
  * 채워 **늘 싣는다**(gh-trade 261012 — 42 부재는 서버 「저장값 유지」 라 지우려면 실어야 한다 · quick-261012-u04).
  * `burstRatioPct` 는 **84 가 1~100 일 때만** 키를 싣는다(`burstRatioPctOf`) — 0(구 서버 · 모름) · 부재 · 범위 밖이면 키 자체가
  * 없다(undefined 값을 가진 키도 만들지 않는다). 서버는 0 을 범위 밖으로 42 전체를 거부한다(gh-trade quick-261101-t7c).
+ * `sellRiskPct` 도 같다 — **84 가 1~999 일 때만** 키를 싣는다(`sellRiskPctOf` · quick-261103-n1s · gh-trade quick-261103-l41).
  */
 export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsValues {
   return {
@@ -324,7 +331,14 @@ export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsVa
     preBuyWatchAmount: s.preBuyWatchAmount ?? 0,
     preBuyAutoAddBuy: s.preBuyAutoAddBuy ?? false,
     ...burstRatioOf(s),
+    ...sellRiskOf(s),
   };
+}
+
+/** `sellRiskPct` 조건부 스프레드 조각(quick-261103-n1s) — 1~999 이면 `{ sellRiskPct }`, 아니면 빈 객체(42 에 키 없음). */
+function sellRiskOf(s: UsableUserSettings): Pick<RelayUserSettingsValues, "sellRiskPct"> {
+  const v = sellRiskPctOf(s);
+  return v === undefined ? {} : { sellRiskPct: v };
 }
 
 /** `burstRatioPct` 조건부 스프레드 조각 — 1~100 이면 `{ burstRatioPct }`, 아니면 빈 객체. */
@@ -676,7 +690,15 @@ export function LimitChaserDefaultsSection({
    * 넣으면 「84 가 0 이면 42 에 싣지 않는다」 가 깨진다(quick-261102-epl).
    */
   const shown = useMemo(
-    () => (values === undefined ? undefined : { ...values, burstRatioPct: burstRatioThresholdOf(userSettings) }),
+    () =>
+      values === undefined
+        ? undefined
+        : {
+            ...values,
+            burstRatioPct: burstRatioThresholdOf(userSettings),
+            // ☐위험도 기준(quick-261103-n1s) — 84 가 0 · 부재면 80 표시 · 42 조립(`values`)에는 키가 없다(burstRatioPct 와 같은 규칙).
+            sellRiskPct: sellRiskPctOrDefaultOf(userSettings),
+          },
     [values, userSettings],
   );
 

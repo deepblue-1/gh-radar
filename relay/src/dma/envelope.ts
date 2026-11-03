@@ -803,6 +803,9 @@ export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | nu
  *
  * `burstRatioPct`(vtable 34 · fbs `= null` · quick-261102-epl · gh-trade quick-261101-t7c)도 늘 싣는다. 84 슬롯 부재 = 구 서버 → 0
  * (웹은 0 을 「모름」 으로 읽어 내장 70 을 보이고 42 에는 싣지 않는다).
+ *
+ * `sellRiskPct`(vtable 36 · fbs `= null` · ushort · quick-261103-n1s · gh-trade quick-261103-l41)도 늘 싣는다. 84 슬롯 부재 = 구 서버
+ * → 0(웹은 80 을 보이고 42 에는 싣지 않는다).
  */
 export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
   const u = env.userSettings();
@@ -827,6 +830,7 @@ export function parseUserSettings(env: Envelope): RelayUserSettingsMsg | null {
     preBuyWatchAmount: u.preBuyWatchAmount() ?? 0, // vtable 30 · 구 서버(부재) = 0
     preBuyAutoAddBuy: u.preBuyAutoAddBuy() ?? false, // vtable 32 · 구 서버(부재) = false
     burstRatioPct: u.burstRatioPct() ?? 0, // vtable 34 · 구 서버(부재) = 0 → 웹 내장 70
+    sellRiskPct: u.sellRiskPct() ?? 0, // vtable 36 · 구 서버(부재) = 0 → 웹 80 표시 · 42 미적재
   };
 }
 
@@ -1403,6 +1407,17 @@ function toWireUByte(v: number, field: string): number {
   return v;
 }
 
+/** `ushort` 필드의 와이어 표현 범위. 65536 을 보내면 서버는 0 으로 읽는다. */
+const MAX_USHORT = 65_535;
+
+/** `ushort` 필드 가드(`sell_risk_pct` · quick-261103-n1s). `toWireUint` 와 같은 이유로 표현 범위만 본다. */
+function toWireUShort(v: number, field: string): number {
+  if (!Number.isInteger(v) || v < 0 || v > MAX_USHORT) {
+    throw new OrderBuildError("USHORT_RANGE", `${field} 가 ushort 표현 범위를 벗어났습니다: ${v}`);
+  }
+  return v;
+}
+
 /** `ulong` 상한 — 2^64 − 1. */
 const MAX_ULONG = (1n << 64n) - 1n;
 
@@ -1486,6 +1501,15 @@ export const LC_CHANGE_MASK_BUY3_SCHEMA = 6;
  * 기본값으로 읽는다).
  */
 export const LC_SOR_BUY3_SCHEMA = 7;
+/**
+ * `sell_risk_enabled`(id 88 · vtable 180) · `sell_risk_pct`(id 89 · vtable 182 · 상따 매도 ☐위험도)를 싣는 클라 — `buy3_schema` 8
+ * (gh-trade quick-261103-l41 · e96aef6e · quick-261103-n1s). 서버는 8 이상일 때만 두 필드를 읽고, 7 이하는 그 키의 서버 값을
+ * 유지한다(웹 · 구 탭의 schema 7 재제출이 위험도를 지우지 않는다). 8 은 7 의 마스크 규칙(6 포함)을 그대로 포함한다.
+ * 8 은 앞 일곱 조건 전부(`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask` · `sorBuy`/`sorSell`)
+ * + `sellRiskEnabled` · `sellRiskPct` **둘 다** 있을 때만 파생된다(P-1 단조성 — 하나라도 빠진 채 8 을 보내면 서버가 빠진 필드를
+ * 부재 기본값으로 읽는다).
+ */
+export const LC_SELL_RISK_BUY3_SCHEMA = 8;
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
@@ -1500,7 +1524,15 @@ type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatio
  */
 export type LcSetCfg = Omit<
   RelayLimitChaserInput,
-  "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | LcAmountKey | "sorBuy" | "sorSell"
+  | "postBuyAuto"
+  | "extraBuyBurstRelease"
+  | LcAutoSellReqKey
+  | "extraBuyAuto"
+  | LcAmountKey
+  | "sorBuy"
+  | "sorSell"
+  | "sellRiskEnabled"
+  | "sellRiskPct"
 > & Partial<Pick<RelayLimitChaserInput, LcAmountKey>> & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
@@ -1512,6 +1544,12 @@ export type LcSetCfg = Omit<
   /** ○SOR 매수 · 매도(gh-trade Phase 45 · quick-261101-okd). 구 탭 관용으로 선택 — 둘 다 있고 앞 조건 전부일 때 schema 7. */
   sorBuy?: boolean;
   sorSell?: boolean;
+  /**
+   * 상따 매도 ☐위험도 · 기준 %(gh-trade quick-261103-l41 · quick-261103-n1s). 구 탭 · schema 7 웹 관용으로 선택 — 둘 다 있고 앞 조건
+   * 전부일 때 schema 8.
+   */
+  sellRiskEnabled?: boolean;
+  sellRiskPct?: number;
   /**
    * `change_mask`(gh-trade Phase 44 · quick-261030-kpg). **relay 내부 전용** — fanout 이 브라우저의 `changed` 이름 배열로
    * 만든다(`lcChangeMaskOf` · 짝 수량 비트 포함). zod cfg 에 없다 — 브라우저가 값을 고를 수 없다. 존재가 schema 6 을 연다.
@@ -1528,12 +1566,23 @@ export type LcSetCfg = Omit<
  *   - 위 여섯 모두 + `extraBuyAuto` 있음 · `changeMask` 없음 → 5 (`extraBuyAuto` 만 있고 앞 조건 미달이면 낮은 schema · 조립기 경고)
  *   - 위 일곱 모두 + `changeMask` 있음 · `sorBuy` · `sorSell` 중 하나라도 없음 → 6 (`changeMask` 만 있고 앞 조건 미달이면
  *     낮은 schema · 마스크 미적재 · 조립기 경고)
- *   - 위 여덟 모두 + `sorBuy` · `sorSell` 둘 다 있음 → 7 (SOR 만 있고 앞 조건 미달이면 낮은 schema · SOR 미적재 · 조립기 경고)
+ *   - 위 여덟 모두 + `sorBuy` · `sorSell` 둘 다 있음 · `sellRiskEnabled` · `sellRiskPct` 중 하나라도 없음 → 7 (SOR 만 있고 앞
+ *     조건 미달이면 낮은 schema · SOR 미적재 · 조립기 경고)
+ *   - 위 열 모두 + `sellRiskEnabled` · `sellRiskPct` 둘 다 있음 → 8 (위험도만 있고 앞 조건 미달이면 낮은 schema · 위험도
+ *     미적재 · 조립기 경고 · quick-261103-n1s)
  */
 export function lcBuy3SchemaOf(
   cfg: Pick<
     LcSetCfg,
-    "postBuyAuto" | "extraBuyBurstRelease" | LcAutoSellReqKey | "extraBuyAuto" | "changeMask" | "sorBuy" | "sorSell"
+    | "postBuyAuto"
+    | "extraBuyBurstRelease"
+    | LcAutoSellReqKey
+    | "extraBuyAuto"
+    | "changeMask"
+    | "sorBuy"
+    | "sorSell"
+    | "sellRiskEnabled"
+    | "sellRiskPct"
   >,
 ): number {
   if (cfg.postBuyAuto === undefined) return LC_FIXED_BUY3_SCHEMA;
@@ -1542,7 +1591,8 @@ export function lcBuy3SchemaOf(
   if (cfg.extraBuyAuto === undefined) return LC_AUTO_SELL_BUY3_SCHEMA;
   if (cfg.changeMask === undefined) return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
   if (cfg.sorBuy === undefined || cfg.sorSell === undefined) return LC_CHANGE_MASK_BUY3_SCHEMA;
-  return LC_SOR_BUY3_SCHEMA;
+  if (cfg.sellRiskEnabled === undefined || cfg.sellRiskPct === undefined) return LC_SOR_BUY3_SCHEMA;
+  return LC_SELL_RISK_BUY3_SCHEMA;
 }
 
 function hasAllAutoSellReqFields(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean {
@@ -1574,7 +1624,8 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
  * `buy3_schema`) = 45 필드 + 선택 6(`post_buy_auto` · `extra_buy_burst_release` · 자동매도 요청 4 — 파생 스키마가
  * 허락할 때만) + `extra_buy_auto` 1(schema 5 이상) + 금액 8 + `change_mask` 1(schema 6 이상 · quick-261030-kpg)
- * + `sor_buy` · `sor_sell` 2(schema 7 일 때만 · quick-261101-okd) 만** 채운다. 나머지는 건드리지 않는다:
+ * + `sor_buy` · `sor_sell` 2(schema 7 이상 · quick-261101-okd) + `sell_risk_enabled` · `sell_risk_pct` 2(schema 8 일 때만 ·
+ * quick-261103-n1s) 만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 11필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
@@ -1589,10 +1640,12 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *
  * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) · 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
  * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`) ·
- * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`) · 7(`LC_SOR_BUY3_SCHEMA`)이고 **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
- * `extraBuyAuto` · `changeMask` · `sorBuy` · `sorSell` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 ·
- * 6 은 여덟 모두 · 7 은 열 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 ·
- * 21d692a1 · quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb · quick-261030-kpg · quick-261101-okd).
+ * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`) · 7(`LC_SOR_BUY3_SCHEMA`) · 8(`LC_SELL_RISK_BUY3_SCHEMA`)이고 **`postBuyAuto` ·
+ * `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask` · `sorBuy` · `sorSell` · `sellRiskEnabled` · `sellRiskPct`
+ * 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 · 6 은 여덟 모두 · 7 은 열 모두 · 8 은 열둘 모두 ·
+ * `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 · 21d692a1 · e96aef6e ·
+ * quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb · quick-261030-kpg · quick-261101-okd · quick-261103-n1s).
+ * `sellRiskEnabled` · `sellRiskPct` 가 (하나라도) 있는데 schema 가 8 미만이면 두 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `sorBuy` · `sorSell` 이 (하나라도) 있는데 schema 가 7 미만이면 두 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `changeMask` 가 있는데 schema 가 6 미만이면 마스크를 싣지 않고(서버 전체 반영) 경고를 남긴다.
  * `extraBuyAuto` 가 있는데 schema 가 5 미만이면 그 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
@@ -1688,6 +1741,14 @@ export function buildSetLimitChaserReq(
     logger.warn(
       { isin, buy3Schema },
       "[DMA] sorBuy/sorSell 이 schema 7 조건을 못 채움 — 낮은 buy3_schema 로 내리고 sor_buy·sor_sell 미적재(서버 값 유지)",
+    );
+  }
+  if ((cfg.sellRiskEnabled !== undefined || cfg.sellRiskPct !== undefined) && buy3Schema < LC_SELL_RISK_BUY3_SCHEMA) {
+    // P-1 — 8 은 앞 일곱 조건 전부 + sellRiskEnabled · sellRiskPct 둘 다일 때만. 미달이면 낮은 schema 로 내리고 두 필드는 싣지
+    // 않는다(서버가 ≤ 7 에서 위험도 값을 유지한다). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
+    logger.warn(
+      { isin, buy3Schema },
+      "[DMA] sellRiskEnabled/sellRiskPct 가 schema 8 조건을 못 채움 — 낮은 buy3_schema 로 내리고 sell_risk_enabled·sell_risk_pct 미적재(서버 값 유지)",
     );
   }
 
@@ -1811,6 +1872,11 @@ export function buildSetLimitChaserReq(
   if (buy3Schema >= LC_SOR_BUY3_SCHEMA && cfg.sorBuy !== undefined && cfg.sorSell !== undefined) {
     SetLimitChaser.addSorBuy(b, cfg.sorBuy);
     SetLimitChaser.addSorSell(b, cfg.sorSell);
+  }
+  // 상따 매도 ☐위험도 — 양방향(id 88/89 · vtable 180/182 · gh-trade quick-261103-l41 · quick-261103-n1s). schema 8 일 때만 싣는다.
+  if (buy3Schema >= LC_SELL_RISK_BUY3_SCHEMA && cfg.sellRiskEnabled !== undefined && cfg.sellRiskPct !== undefined) {
+    SetLimitChaser.addSellRiskEnabled(b, cfg.sellRiskEnabled);
+    SetLimitChaser.addSellRiskPct(b, toWireUShort(cfg.sellRiskPct, "sellRiskPct"));
   }
   const table = SetLimitChaser.endSetLimitChaser(b);
 
@@ -2163,6 +2229,7 @@ export function buildAutoSellCommandReq(req: AutoSellCommandInput): Uint8Array {
  *
  * `burstRatioPct`(fbs `= null` · quick-261102-epl)도 **값이 있을 때만** 슬롯을 싣는다 — 부재 = 서버 저장값 유지. 0 은 zod(1~100)가
  * 먼저 막는다(서버는 0 을 범위 밖으로 요청 전체를 거부한다) · 웹은 84 값이 1~100 일 때만 싣는다.
+ * `sellRiskPct`(fbs `= null` · ushort · quick-261103-n1s)도 같다 — 값이 있을 때만 슬롯 · zod 1~999 · 웹은 84 값이 1~999 일 때만.
  *
  * 서버는 범위 밖이 하나라도 있으면 요청 전체를 54 ERROR
  * source `"SetUserSettings"` 로 거부하고, 성공하면 같은 사용자 **전 세션**에 84 를 브로드캐스트한다 — relay 는
@@ -2201,6 +2268,10 @@ export function buildSetUserSettingsReq(
   // 버스트 판정 비율 — 부재 = 슬롯 부재 = 서버 저장값 유지(0 을 지어내 싣지 않는다 · quick-261102-epl).
   if (s.burstRatioPct !== undefined) {
     UserSettings.addBurstRatioPct(b, toWireUByte(s.burstRatioPct, "burstRatioPct"));
+  }
+  // 위험도 기준 — 부재 = 슬롯 부재 = 서버 저장값 유지(0 을 지어내 싣지 않는다 · quick-261103-n1s).
+  if (s.sellRiskPct !== undefined) {
+    UserSettings.addSellRiskPct(b, toWireUShort(s.sellRiskPct, "sellRiskPct"));
   }
   // present — 84 전용(서버가 42 요청값을 읽지 않는다). 싣지 않는다.
   const table = UserSettings.endUserSettings(b);
@@ -2791,6 +2862,10 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 양방향 — ○SOR 매수 · 매도(vtable 176 · 178 · quick-261101-okd). 에코는 설정값. 슬롯 부재(구서버) = false.
       sorBuy: t.sorBuy(),
       sorSell: t.sorSell(),
+      // 양방향 — 상따 매도 ☐위험도 · 기준 %(vtable 180 · 182 · quick-261103-n1s). 에코 = 서버 런타임 값(켜짐) / 설정값(%).
+      // 슬롯 부재(구서버) = false · 0.
+      sellRiskEnabled: t.sellRiskEnabled(),
+      sellRiskPct: t.sellRiskPct(),
       // 자동매도 8필드(Phase 27 · vtable 140~154). 슬롯 부재(구서버) = false/0 — 계산하지 않는다.
       // 양방향 — ☐자동매도 · 시작조건 · 비율 · 방법.
       autoSellEnabled: t.autoSellEnabled(),

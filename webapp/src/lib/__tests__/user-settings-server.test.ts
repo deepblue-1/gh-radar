@@ -5,6 +5,8 @@ import {
   burstRatioPctOf,
   burstRatioThresholdOf,
   firstServerKeyOf,
+  sellRiskPctOf,
+  sellRiskPctOrDefaultOf,
   userSettingsForAccount,
   userSettingsForServer,
 } from '../user-settings-server';
@@ -158,5 +160,29 @@ describe('버스트 판정 비율 해석 (quick-261102-epl)', () => {
     expect(burstRatioThresholdOf({ burstRatioPct: 1.5 })).toBe(70);
     expect(burstRatioThresholdOf({})).toBe(70);
     expect(burstRatioThresholdOf(undefined)).toBe(70);
+  });
+});
+
+describe('위험도 기준 해석 (quick-261103-n1s · burstRatioPct 꼴)', () => {
+  it('sellRiskPctOf — 1~999 정수만 그 값 · 0 · 1000 · 소수 · 키 부재 · 84 미수신은 undefined', () => {
+    expect(sellRiskPctOf({ sellRiskPct: 120 })).toBe(120);
+    expect(sellRiskPctOf({ sellRiskPct: 1 })).toBe(1);
+    expect(sellRiskPctOf({ sellRiskPct: 999 })).toBe(999);
+    expect(sellRiskPctOf({ sellRiskPct: 0 })).toBeUndefined();
+    expect(sellRiskPctOf({ sellRiskPct: 1000 })).toBeUndefined();
+    expect(sellRiskPctOf({ sellRiskPct: 1.5 })).toBeUndefined();
+    expect(sellRiskPctOf({})).toBeUndefined();
+    expect(sellRiskPctOf(undefined)).toBeUndefined();
+  });
+
+  it('sellRiskPctOrDefaultOf — 같은 입력에서 값 또는 80', () => {
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 120 })).toBe(120);
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 1 })).toBe(1);
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 999 })).toBe(999);
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 0 })).toBe(80);
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 1000 })).toBe(80);
+    expect(sellRiskPctOrDefaultOf({ sellRiskPct: 1.5 })).toBe(80);
+    expect(sellRiskPctOrDefaultOf({})).toBe(80);
+    expect(sellRiskPctOrDefaultOf(undefined)).toBe(80);
   });
 });

@@ -1732,6 +1732,8 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     preBuyWatchAmount: 0,
     preBuyAutoAddBuy: false,
     burstRatioPct: null,
+    // quick-261103-n1s — 픽스처 84 에 위험도 슬롯이 없다(→ relay 0) → 42 에 키를 싣지 않는다(슬롯 부재 = null).
+    sellRiskPct: null,
   } as const;
 
   test('P27-M1 상따 기본설정 — 84 표시 → 행 확정 42(캐시 + 1칸) → 84 플래시 · 거부 원문 (D-12 · D-13 · 261006-pey D-2)', async ({
