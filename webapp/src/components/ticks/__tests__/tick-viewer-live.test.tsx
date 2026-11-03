@@ -195,6 +195,15 @@ describe('TickHeader — 당일 지연 · 연속 오류', () => {
     expect(screen.getByRole('button', { name: '다시 받기' })).toBeTruthy();
   });
 
+  it('incomplete(X-Tick-Complete false) → 「당일 자료 일부 빠짐」 배지(role=status) · 없으면 배지 없음(WR-63)', () => {
+    const v = render(<TickHeader {...base} live={{ state: 'ready', lastRecvNs: null, failing: false, incomplete: true }} />);
+    const gap = v.container.querySelector('[data-slot="tick-live-gap"]');
+    expect(gap?.textContent).toBe('당일 자료 일부 빠짐');
+    expect(gap?.getAttribute('role')).toBe('status');
+    v.rerender(<TickHeader {...base} live={{ state: 'ready', lastRecvNs: null, failing: false }} />);
+    expect(v.container.querySelector('[data-slot="tick-live-gap"]')).toBeNull();
+  });
+
   it('우리 알약(38-08 · D-09 · UAT 근거 · 주문 포함) — 「◆ 우리 k/n · 주문 m」 · ‹ › · 끝이면 비활성 · 상태 없으면 알약 없음', () => {
     const next = vi.fn();
     const v = render(<TickHeader {...base} ownNav={{ k: 0, n: 5, orders: 4, prev: null, next }} />);

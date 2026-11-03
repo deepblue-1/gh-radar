@@ -17,7 +17,8 @@ import { cn } from '@/lib/utils';
  * `live` 「당일 · 119 요청형」) → 종목 검색(피커 — 열린 뒤에도 머리에 남는다) → 날짜 알약 ‹ › (이동 단위 = 호출부가 준
  * prev/next — 격자가 있는 날짜 + 장중이면 오늘) · KRX|NXT 세그먼트 → 현재 틱 시각/seq 자리(37-10 이 값을 준다).
  * 당일(37-19 · D-06): 상태 delayed · blocked 면 공급 배지 옆 「당일 자료 지연 · n초 전 마지막 수신」(X-Tick-Last-Recv-Ns 기준) ·
- * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」. 공급 배지 옆 「↻ 최신 받기」 = 증분 1회(자동 갱신
+ * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」. tickgw 가 08:00 부터 끊김을 안다(`X-Tick-Complete`
+ * false · `incomplete`)면 「당일 자료 일부 빠짐」 배지 — 묶기 · 열린 주문 · 팀 손익이 구멍 위에서 계산된다(WR-63). 공급 배지 옆 「↻ 최신 받기」 = 증분 1회(자동 갱신
  * 없음 · 2026-11-03 사용자 요청) — 받는 중이면 아이콘이 돌고 눌리지 않는다 · 실패면 빨간 글자 · title = 마지막으로 받은 시각.
  * 우리 주문 · 체결(38-08 · D-09): KRX|NXT 뒤 · 현재 틱 자리 앞에 「◆ 우리 k/n · 주문 m ‹ ›」 알약(목업 `.mine-pill`) — ‹ › 는
  * 앞뒤 우리 근거 · 주문 줄 · 체결로(끝이면 비활성 · 키 `[` `]` 와 같다). 뷰어가 상태를 주지 않으면(우리 체결 · 주문 없음) 알약 없음.
@@ -37,7 +38,12 @@ export interface TickHeaderLive {
   fetchedAt?: number | null;
   /** 마지막 받기가 실패했다(연속 오류 수 > 0). */
   refreshFailed?: boolean;
+  /** 08:00 부터 끊김 없이 이어지지 않았다(`X-Tick-Complete` false · WR-63) — 「당일 자료 일부 빠짐」. */
+  incomplete?: boolean;
 }
+
+/** 「당일 자료 일부 빠짐」 배지 title — 무엇이 불완전한지(WR-63). */
+export const LIVE_GAP_TITLE = '119 에서 받는 중 끊긴 구간이 있어요 · 버스트 묶기 · 열린 주문 · 팀 손익 판정이 불완전할 수 있어요';
 
 /** 「당일 자료 지연 · n초 전 마지막 수신」 — 2분 이상이면 분 단위. */
 export function liveDelayTextOf(lastRecvNs: string | null, nowMs: number): string {
@@ -158,6 +164,17 @@ export function TickHeader({
           className="-ml-2 inline-flex items-center rounded-[6px] bg-[var(--vi-bg)] px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-[var(--vi)]"
         >
           {liveDelayTextOf(live.lastRecvNs, Date.now())}
+        </span>
+      )}
+
+      {live?.incomplete && (
+        <span
+          data-slot="tick-live-gap"
+          role="status"
+          title={LIVE_GAP_TITLE}
+          className="-ml-2 inline-flex items-center rounded-[6px] bg-[var(--vi-bg)] px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-[var(--vi)]"
+        >
+          당일 자료 일부 빠짐
         </span>
       )}
 
