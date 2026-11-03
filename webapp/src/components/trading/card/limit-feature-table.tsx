@@ -26,6 +26,7 @@ import {
   limitFeatureRowHeads,
   limitFeatureTooltip,
   type LimitFeatureCell,
+  type LimitFeatureSorMerge,
   type LimitFeatureTone,
   type RelayLimitFeatureMsg,
 } from "@gh-radar/shared";
@@ -76,14 +77,20 @@ const LimitFeatureCellView = memo(
 export function LimitFeatureTable({
   feature,
   isStale = false,
+  sorMerge = null,
 }: {
   feature: RelayLimitFeatureMsg | null;
   /** relay 접속 끊김 — 값은 유지하고 감쇠만 한다. */
   isStale?: boolean;
+  /**
+   * 매도 SOR 「위험도(합)」 짝 85(quick-261103-n1s · WinForms D-07) — 넘기면 누적 행 셋째 칸 · 툴팁이 KRX+NXT 합산 문구가 된다.
+   * 없으면(매도 SOR 꺼짐 · 접힌 카드) 종전 단일 칸.
+   */
+  sorMerge?: LimitFeatureSorMerge | null;
 }) {
-  const cells = useMemo(() => limitFeatureCells(feature), [feature]);
+  const cells = useMemo(() => limitFeatureCells(feature, sorMerge), [feature, sorMerge]);
   const heads = useMemo(() => limitFeatureRowHeads(feature), [feature]);
-  const tooltip = useMemo(() => limitFeatureTooltip(feature), [feature]);
+  const tooltip = useMemo(() => limitFeatureTooltip(feature, sorMerge), [feature, sorMerge]);
 
   return (
     <table

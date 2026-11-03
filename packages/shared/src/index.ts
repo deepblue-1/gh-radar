@@ -204,6 +204,8 @@ export type {
   LimitFeatureMessage,
   LimitFeatureMessageMember,
   LimitFeatureLogParts,
+  // --- quick-261103-n1s 매도 SOR 「위험도(합)」 짝 85 ---
+  LimitFeatureSorMerge,
 } from "./limit-feature";
 // --- Phase 28 (28-07) 회원번호 → 회원사명 — gh-trade MemberCodes 이식(카드 탭 · kind 15 · 보고서 공용) ---
 export { MEMBER_CODES, memberName } from "./member-codes";

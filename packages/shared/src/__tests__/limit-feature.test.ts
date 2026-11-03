@@ -762,3 +762,48 @@ describe("Phase 28 kind 15 되돌림 · 문장 (28-09 · UI-SPEC ②-2)", () => 
     });
   });
 });
+
+/**
+ * quick-261103-n1s — 매도 SOR 「위험도(합)」(gh-trade quick-261103-l41 D-07 · WinForms `MergedRiskText` 동형). merge 가 있고 자기
+ * 85 에 limitVolQty 키가 있으면 누적 행 셋째 칸 = 같은 종목 KRX · NXT 85 중 있는 것만 Σ limitVolQty ÷ Σ qQty(짝수 반올림).
+ */
+describe("매도 SOR 위험도(합) — KRX + NXT 85 합산 (quick-261103-n1s)", () => {
+  const krx = feature({ x: "KRX", limitVolQty: 8_000, qQty: 10_000 });
+  const nxt = feature({ x: "NXT", limitVolQty: 2_000, qQty: 5_000 });
+
+  it("자기 KRX(8,000 / 10,000) + NXT(2,000 / 5,000) → 「위험도(합) 67%」", () => {
+    expect(limitFeatureCells(krx, { other: nxt })[2]).toEqual({ text: "위험도(합) 67%", tone: "fg", narrow: null });
+  });
+
+  it("other null(짝 85 아직 없음) → 자기만 「위험도(합) 80%」", () => {
+    expect(limitFeatureCells(krx, { other: null })[2]!.text).toBe("위험도(합) 80%");
+  });
+
+  it("Σ qQty 0 → 「위험도(합) —」", () => {
+    const zero = feature({ limitVolQty: 100, qQty: 0 });
+    expect(limitFeatureCells(zero, { other: feature({ x: "NXT", limitVolQty: 0, qQty: 0 }) })[2]!.text).toBe("위험도(합) —");
+  });
+
+  it("자기 limitVolQty 키 없음(갈래 A) → 종전 문구 · merge 없음 → 종전 「위험도 80%」", () => {
+    const legacy = feature();
+    expect(limitFeatureCells(legacy, { other: nxt })[2]!.text).toBe(limitFeatureCells(legacy)[2]!.text);
+    expect(limitFeatureCells(krx)[2]!.text).toBe("위험도 80%");
+  });
+
+  it("다른 종목 · 같은 거래소 · limitVolQty 키 없는 짝은 더하지 않는다", () => {
+    expect(limitFeatureCells(krx, { other: { ...nxt, i: "KR7000660001" } })[2]!.text).toBe("위험도(합) 80%");
+    expect(limitFeatureCells(krx, { other: { ...nxt, x: "KRX" } })[2]!.text).toBe("위험도(합) 80%");
+    const { limitVolQty: _v, ...noVol } = nxt;
+    expect(limitFeatureCells(krx, { other: noVol })[2]!.text).toBe("위험도(합) 80%");
+  });
+
+  it("반올림은 roundPctHalfEven — 1 ÷ 8 → 「12%」", () => {
+    const a = feature({ limitVolQty: 1, qQty: 4 });
+    const b = feature({ x: "NXT", limitVolQty: 0, qQty: 4 });
+    expect(limitFeatureCells(a, { other: b })[2]!.text).toBe("위험도(합) 12%");
+  });
+
+  it("툴팁 누적 줄도 같은 「위험도(합)」 문구", () => {
+    expect(limitFeatureTooltip(krx, { other: nxt })).toContain("· 위험도(합) 67%");
+  });
+});

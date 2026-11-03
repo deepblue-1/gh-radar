@@ -231,6 +231,28 @@ function lockRiskCell(msg: RelayLimitFeatureMsg, noLock: boolean): LimitFeatureC
 }
 
 /**
+ * 매도 SOR 합산 위험도의 짝 85(quick-261103-n1s · gh-trade quick-261103-l41 D-07). `other` = 같은 종목 · 다른 거래소(KRX ↔ NXT)의
+ * 85 — 아직 안 왔으면 null. 이 인자를 넘기는 것 자체가 「매도 SOR 켜짐」 이다(호출자 몫 — 상따 카드).
+ */
+export interface LimitFeatureSorMerge {
+  other: RelayLimitFeatureMsg | null;
+}
+
+/**
+ * 「위험도(합)」 칸 — 자기 + 짝(같은 종목 · 다른 거래소 · limitVolQty 키 있음) 85 의 Σ limitVolQty ÷ Σ qQty(짝수 반올림 · Σ qQty 0
+ * → 「위험도(합) —」). 잠김 여부와 무관하다 — WinForms `MergedRiskText` 동형(표시용 산술 · 판정은 서버).
+ */
+function mergedRiskCell(msg: RelayLimitFeatureMsg, ownVol: number, other: RelayLimitFeatureMsg | null): LimitFeatureCell {
+  let vol = ownVol;
+  let q = msg.qQty;
+  if (other !== null && other.i === msg.i && other.x !== msg.x && other.limitVolQty !== undefined) {
+    vol += other.limitVolQty;
+    q += other.qQty;
+  }
+  return cell(q === 0 ? `위험도(합) ${DASH}` : `위험도(합) ${roundPctHalfEven(vol, q)}%`);
+}
+
+/**
  * 9칸(행 우선 — `row * 3 + col`: 누적 · 10초 · 창구). null(85 없음 · 아직 안 옴 · 구 서버 · 대상 밖 키 · 접힌 카드)이면
  * 9칸 모두 「—」(faint).
  *
@@ -252,13 +274,18 @@ function lockRiskCell(msg: RelayLimitFeatureMsg, noLock: boolean): LimitFeatureC
  * 역행 재시작 같은 이상 데이터뿐이다(그때 옛 식 값이 보인다 — 받아들인 잔여).
  * WinForms 는 구 서버를 옛 식으로 돌리지 않고 잠긴 뒤 「위험도 0%」 를 보인다 — 웹은 사용자 결정(「구 서버는 옛 식」)에 따라
  * 갈래 B 로 다르다.
+ *
+ * `merge`(매도 SOR 켜짐 · quick-261103-n1s · WinForms quick-261103-l41 D-07)가 있고 자기 85 에 `limitVolQty` 키가 있으면 위험도
+ * 칸만 「위험도(합) N%」(`mergedRiskCell` — 같은 종목 KRX · NXT 85 중 있는 것만 합산)로 바꾼다. 갈래 A(키 없음 · 구 relay) ·
+ * merge 없음은 위 3갈래 그대로. 다른 호출부(인자 생략)는 종전과 같다.
  */
-export function limitFeatureCells(msg: RelayLimitFeatureMsg | null): LimitFeatureCell[] {
+export function limitFeatureCells(msg: RelayLimitFeatureMsg | null, merge?: LimitFeatureSorMerge | null): LimitFeatureCell[] {
   if (msg === null) return Array.from({ length: 9 }, () => ({ ...EMPTY_CELL }));
 
   const noLock =
     msg.lockState === 0 || (msg.lockState === 2 && msg.lockSellKrw === 0 && msg.lockCancelKrw === 0);
-  const risk = lockRiskCell(msg, noLock);
+  const vol = msg.limitVolQty;
+  const risk = merge != null && vol !== undefined ? mergedRiskCell(msg, vol, merge.other) : lockRiskCell(msg, noLock);
   const cum: LimitFeatureCell[] = noLock
     ? [cell(DASH), cell(DASH), risk]
     : [cell(`매도 ${formatEok(msg.lockSellKrw)}`, "down"), cell(`취소 ${formatEok(msg.lockCancelKrw)}`, "down"), risk];
@@ -313,10 +340,11 @@ function formatTimeKstHms(epochMs: number): string {
  * 「{기본 행 머리} {칸1} · {칸2} · {칸3}」(늘 **넓은 밴드 문구** · 머리는 경과로 덮지 않은 누적/10초/창구) +
  * 줄 「HH:mm:ss 기준」(gwTimeMs KST · 시각 없으면 생략) + 창구 셋째 칸이 지난 잠김 날 기록이면(최대 체결금액 > 0 ∧ 날짜 ≠ 0
  * ∧ 날짜 ≠ 오늘) 마지막 줄 「최대 M/d 기록」 · 출처 단일가면 「단일가 M/d 기록」(quick-261101-owf · 261102 f1x — WinForms 동형, 옛 깨짐확률 꼬리 대체). null(85 없음) → 「」.
+ * `merge`(매도 SOR · quick-261103-n1s)는 `limitFeatureCells` 와 같다 — 누적 줄 셋째 칸이 같은 「위험도(합)」 문구가 된다.
  */
-export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null): string {
+export function limitFeatureTooltip(msg: RelayLimitFeatureMsg | null, merge?: LimitFeatureSorMerge | null): string {
   if (msg === null) return "";
-  const cells = limitFeatureCells(msg);
+  const cells = limitFeatureCells(msg, merge);
   const lines = [
     limitFeatureStatus(msg).join(" · "),
     ...LIMIT_FEATURE_ROW_HEADERS.map(

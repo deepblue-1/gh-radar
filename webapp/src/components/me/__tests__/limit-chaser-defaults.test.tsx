@@ -106,7 +106,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('묶음 6개 · 13행 순서 · 값 표기(만원 · % · 초 · 방법 · 체크)', () => {
+  it('묶음 6개 · 14행 순서 · 값 표기(만원 · % · 초 · 방법 · 체크)', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const groups = Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group"]')).map(
@@ -125,6 +125,7 @@ describe('Phase 27 상따 기본설정 표시', () => {
       '후매수 최소',
       '후매수 반등',
       '매도 잔량추적',
+      '위험도 기준',
       '판정 비율',
       '매도 주기',
       '동시호가 매도비율',
@@ -140,6 +141,8 @@ describe('Phase 27 상따 기본설정 표시', () => {
     expect(rowValue('sell-qty-track-ratio')).toBe('55%');
     // 84 에 버스트 슬롯 없음(구 서버) → 내장 70 을 보인다(quick-261102-epl).
     expect(rowValue('burst-ratio-pct')).toBe('70%');
+    // 84 에 위험도 슬롯 없음(구 서버) → 기본 80 을 보인다(quick-261103-n1s).
+    expect(rowValue('sell-risk-pct')).toBe('80%');
     expect(rowValue('auto-sell-period-sec')).toBe('3초');
     expect(rowValue('auction-sell-ratio-pct')).toBe('20%');
     expect(rowValue('auto-sell-ratio-default-pct')).toBe('10%');
@@ -474,7 +477,7 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
   const cards = () =>
     Array.from(section().querySelectorAll('[data-slot="me-lc-defaults-group-card"]')) as HTMLElement[];
 
-  it('S1-1 — 묶음 카드 6장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·2·1·1·4', () => {
+  it('S1-1 — 묶음 카드 6장 · role=group 이름 순서 · CARD 면(radius 16 · --card) · 카드별 행 3·2·2·2·1·4', () => {
     mockRelay = relay(settings(true));
     render(<LimitChaserDefaultsSection />);
     const cs = cards();
@@ -492,8 +495,9 @@ describe('261006-pey 설정 탭 S1 묶음 카드 (D-2 · sketch 013 settings.htm
       expect(c.className).toContain('rounded-[16px]');
       expect(c.className).toContain('bg-[var(--card)]');
     }
-    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 2, 1, 1, 4]);
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(13);
+    // 「매도」 2행 = 매도 잔량추적 · 위험도 기준(quick-261103-n1s).
+    expect(cs.map((c) => c.querySelectorAll('[data-slot="me-lc-defaults-row"]').length)).toEqual([3, 2, 2, 2, 1, 4]);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(14);
   });
 
   it('S1-2 — 카드마다 행 목록에 @container/lc 하나 · 섹션 루트는 @container/me 이고 카드 면이 아니다', () => {
@@ -558,7 +562,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
   const rowButton = (field: string) =>
     section().querySelector(`button[data-lc-field="me-lc-${field}"]`) as HTMLButtonElement;
 
-  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 13행', () => {
+  it('84 최소 84 → 후매수 묶음 「최소 · 반등」 · 「84만원」 · 접근성 이름 「후매수 최소 84만원」 · 하한잔량 글자 0 · 14행', () => {
     mockRelay = relay(settings(true, { postBuyFloorAmount: 84 }));
     render(<LimitChaserDefaultsSection />);
     const card = within(section()).getByRole('group', { name: '후매수' });
@@ -569,7 +573,7 @@ describe('P31 후매수 최소 (D-13 · UI-SPEC S5)', () => {
     expect(rowValue('post-buy-floor-amount')).toBe('84만원');
     expect(rowButton('post-buy-floor-amount')).toHaveAccessibleName('후매수 최소 84만원');
     expect(section().textContent).not.toContain('하한잔량');
-    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(13);
+    expect(section().querySelectorAll('[data-slot="me-lc-defaults-row"]')).toHaveLength(14);
   });
 
   it('84 최소 0 → 「0만원」(의미어 없음)', () => {
@@ -727,17 +731,99 @@ describe('epl 「버스트 상한가」 카드 (gh-trade quick-261101-t7c · qui
     expect(rowValue('burst-ratio-pct')).toBe('90%');
   });
 
-  it('인라인 Tab 순서 — 매도 잔량추적 → 판정 비율 → 매도 주기', () => {
-    mockRelay = relay(settings(true, { burstRatioPct: 85 }));
+  it('인라인 Tab 순서 — 위험도 기준(quick-261103-n1s) → 판정 비율 → 매도 주기', () => {
+    // 위험도 기준은 84 값(120)을 실어 둔다 — 0/부재면 표시 80 ≠ 조립값(부재)이라 Tab 이 그 행을 확정해 보낸다(판정 비율과 같은 규칙).
+    mockRelay = relay(settings(true, { burstRatioPct: 85, sellRiskPct: 120 }));
     render(<LimitChaserDefaultsSection />);
-    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-sell-qty-track-ratio"]')!);
-    fireEvent.keyDown(document.getElementById('me-lc-sell-qty-track-ratio')!, { key: 'Tab' });
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-sell-risk-pct"]')!);
+    fireEvent.keyDown(document.getElementById('me-lc-sell-risk-pct')!, { key: 'Tab' });
     const burst = document.getElementById('me-lc-burst-ratio-pct') as HTMLInputElement | null;
     expect(burst).not.toBeNull();
     expect(burst!.tagName).toBe('INPUT');
     fireEvent.keyDown(burst!, { key: 'Tab' });
     const period = document.getElementById('me-lc-auto-sell-period-sec') as HTMLInputElement | null;
     expect(period?.tagName).toBe('INPUT');
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+/* ───────────────────────── quick-261103-n1s — 「매도」 카드 「위험도 기준」 ───────────────────────── */
+
+describe('n1s 「매도」 카드 「위험도 기준」 (gh-trade quick-261103-l41 · quick-261103-n1s · 결정 ③)', () => {
+  const rowButton = () => section().querySelector('button[data-lc-field="me-lc-sell-risk-pct"]') as HTMLButtonElement;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('「매도」 묶음 행 순서 = 매도 잔량추적 → 위험도 기준 · 84 120 → 「120%」', () => {
+    mockRelay = relay(settings(true, { sellRiskPct: 120 }));
+    render(<LimitChaserDefaultsSection />);
+    const card = within(section()).getByRole('group', { name: '매도' });
+    const labels = Array.from(card.querySelectorAll('[data-slot="me-lc-defaults-row"]')).map((r) =>
+      r.getAttribute('data-label'),
+    );
+    expect(labels).toEqual(['매도 잔량추적', '위험도 기준']);
+    expect(rowValue('sell-risk-pct')).toBe('120%');
+  });
+
+  it.each([
+    ['0(구 서버)', { sellRiskPct: 0 }],
+    ['키 부재(옛 relay)', {}],
+  ] as const)('84 %s → 「80%」 · 편집 가능(불러오는 중 아님)', (_name, patch) => {
+    mockRelay = relay(settings(true, patch));
+    render(<LimitChaserDefaultsSection />);
+    expect(chip()).toHaveTextContent('서버 저장값');
+    expect(rowValue('sell-risk-pct')).toBe('80%');
+    expect(rowButton()).toBeEnabled();
+  });
+
+  it('인라인 150 Enter → send 1 · s.sellRiskPct 150 · 나머지는 84 캐시', () => {
+    const base = settings(true, { sellRiskPct: 120 });
+    mockRelay = relay(base);
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('sell-risk-pct', '150');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]).toEqual({ t: 'user.settings.set', s: { ...VALUES_OF(base), sellRiskPct: 150 } });
+  });
+
+  it.each(['1000', '0'])('인라인 %s Enter → 「1~999% 사이여야 해요」 · send 0', (v) => {
+    mockRelay = relay(settings(true, { sellRiskPct: 120 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('sell-risk-pct', v);
+    expect(send).not.toHaveBeenCalled();
+    expect(document.body).toHaveTextContent('1~999% 사이여야 해요');
+    expect(document.getElementById('me-lc-sell-risk-pct')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('84 sellRiskPct 0 에서 다른 행(매도 주기) 확정 → s 에 sellRiskPct 키 없음 · 84 120 이면 s.sellRiskPct 120', () => {
+    mockRelay = relay(settings(true, { sellRiskPct: 0 }));
+    const view = render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s).not.toHaveProperty('sellRiskPct');
+    view.unmount();
+    send.mockClear();
+    mockRelay = relay(settings(true, { sellRiskPct: 120 }));
+    render(<LimitChaserDefaultsSection />);
+    inlineCommit('auto-sell-period-sec', '5');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sentPayloads()[0]!.s).toMatchObject({ autoSellPeriodSec: 5, sellRiskPct: 120 });
+  });
+
+  it('인라인 Tab 순서 — 매도 잔량추적 → 위험도 기준 → 판정 비율', () => {
+    mockRelay = relay(settings(true, { sellRiskPct: 120, burstRatioPct: 85 }));
+    render(<LimitChaserDefaultsSection />);
+    fireEvent.click(section().querySelector('button[data-lc-field="me-lc-sell-qty-track-ratio"]')!);
+    fireEvent.keyDown(document.getElementById('me-lc-sell-qty-track-ratio')!, { key: 'Tab' });
+    const risk = document.getElementById('me-lc-sell-risk-pct') as HTMLInputElement | null;
+    expect(risk?.tagName).toBe('INPUT');
+    fireEvent.keyDown(risk!, { key: 'Tab' });
+    const burst = document.getElementById('me-lc-burst-ratio-pct') as HTMLInputElement | null;
+    expect(burst?.tagName).toBe('INPUT');
     expect(send).not.toHaveBeenCalled();
   });
 });

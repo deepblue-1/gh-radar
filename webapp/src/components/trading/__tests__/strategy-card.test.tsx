@@ -267,6 +267,54 @@ describe('StrategyCard', () => {
     });
   });
 
+  describe('quick-261103-n1s 매도 SOR 「위험도(합)」 — 짝 거래소 85 구독 · merge.other', () => {
+    const lf = (x: 'KRX' | 'NXT', lockElapsedS: number) =>
+      ({ t: 'limit.feature', i: ISIN_A, x, lockState: 1, lockElapsedS }) as unknown as RelayLimitFeatureMsg;
+    const krx = lf('KRX', 43);
+    const nxt = lf('NXT', 99);
+    const valueWith = (sorSell: boolean) =>
+      relay({
+        limitChasers: [echo(ISIN_A, { sorSell })],
+        limitFeatures: new Map([
+          [relayQuoteKey(ISIN_A, 'KRX'), krx],
+          [relayQuoteKey(ISIN_A, 'NXT'), nxt],
+        ]),
+      });
+    const probeMerge = (s: StrategyCardState): ReactNode => (
+      <span data-testid="probe-merge">
+        {s.limitFeatureMerge === null ? 'none' : s.limitFeatureMerge.other === null ? 'null' : String(s.limitFeatureMerge.other.lockElapsedS)}
+      </span>
+    );
+    const view = (open: boolean, value: RelayContextValue) => (
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} open={open} isin={ISIN_A} exchange="KRX" body={probeMerge} />
+      </RelayContext.Provider>
+    );
+
+    it('에코 sorSell true · 펼침 → subscribe(ISIN_A, NXT, full) · merge.other = NXT 85', () => {
+      render(view(true, valueWith(true)));
+      expect(subscribe.mock.calls).toContainEqual([ISIN_A, 'NXT', 'full']);
+      expect(screen.getByTestId('probe-merge').textContent).toBe('99');
+    });
+
+    it('에코 sorSell false → NXT 구독 없음 · merge null', () => {
+      render(view(true, valueWith(false)));
+      expect(subscribe.mock.calls.filter(([, x]) => x === 'NXT')).toEqual([]);
+      expect(screen.getByTestId('probe-merge').textContent).toBe('none');
+    });
+
+    it('접힌 카드(price) → 짝 구독 없음 · merge null', () => {
+      const value = valueWith(true);
+      const { rerender } = render(view(true, value));
+      rerender(view(false, value));
+      expect(screen.getByTestId('probe-merge').textContent).toBe('none');
+      subscribe.mockClear();
+      unsubscribe.mockClear();
+      render(view(false, valueWith(true)));
+      expect(subscribe.mock.calls.filter(([, x]) => x === 'NXT')).toEqual([]);
+    });
+  });
+
   it('limitChasers 에 다른 키 전략이 여럿 있어도 자기 key 의 것만 읽는다', () => {
     const others = [
       echo(ISIN_B),

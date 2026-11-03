@@ -65,6 +65,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type {
+  LimitFeatureSorMerge,
   RelayAccountState,
   RelayExchange,
   RelayLimitFeatureMsg,
@@ -121,6 +122,10 @@ export interface CardTabsProps {
    * 자기 키의 마지막 85 상한가 특징(⑨). 카드 level 이 `"full"` 이 아니면 null 이다 — 9칸 「—」 · 제목 「상한가」.
    */
   limitFeature: RelayLimitFeatureMsg | null;
+  /**
+   * 매도 SOR 「위험도(합)」 짝 85(quick-261103-n1s) — 카드가 매도 SOR 켜짐 ∧ full 일 때만 값이다(`LimitFeatureTable` 로 통과).
+   */
+  limitFeatureMerge?: LimitFeatureSorMerge | null;
   /** relay 접속 끊김(stale) — 「상한가」 표 · 탭 제목 접미를 `opacity .55` + `data-stale` 로 감쇠한다(값은 유지 · 28-07). */
   isStale?: boolean;
 }
@@ -188,6 +193,7 @@ export function CardTabs({
   stockName,
   orderLogFeed,
   limitFeature,
+  limitFeatureMerge = null,
   isStale = false,
 }: CardTabsProps) {
   const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
@@ -353,7 +359,7 @@ export function CardTabs({
           />
         </TabsContent>
         <TabsContent value="limit" className="h-full min-w-0">
-          <LimitFeatureTable feature={limitFeature} isStale={isStale} />
+          <LimitFeatureTable feature={limitFeature} isStale={isStale} sorMerge={limitFeatureMerge} />
         </TabsContent>
       </div>
     </Tabs>

@@ -866,3 +866,41 @@ describe("conditionTextOf · evidenceTextOf export (Phase 38-04)", () => {
     expect(evidenceTextOf(MANUAL_BUY)).toBeNull();
   });
 });
+
+/**
+ * quick-261103-n1s — gh-trade quick-261103-l41 ☐위험도 사유(`SellRisk`). 새 kind 가 없다: 매도는 kind 6 · group 4(SellQuote) ·
+ * `cond_metric` 0 · `cond_threshold` 기준 % · `cond_actual` 위험도 %(내림), 취소는 kind 7 `cancel_reason` 2(ExitSell).
+ * WinForms `StrategyEventFormatter` 는 cond_metric 0 이면 조건 조각을 그리지 않는다(e96aef6e 가 이 파일을 바꾸지 않았다) —
+ * 웹도 「모름」 폴백이 아니라 보통 매도주문 · 취소(이탈 매도) 줄로 그린다(잠금).
+ */
+describe("☐위험도 SellRisk 사유 (quick-261103-n1s · gh-trade quick-261103-l41)", () => {
+  const SELL_RISK = {
+    ...STRATEGY_DAY_BY_NAME.sell12454!,
+    group: 4,
+    reasonCode: "SellRisk 위험도(상한가거래량×100>=비율×상한가매수잔량)",
+    condMetric: 0,
+    condThreshold: 80,
+    condActual: 82,
+    evKind: 0,
+    evPrice: 0,
+    evQtyBefore: 0,
+    evQtyAfter: 0,
+    evTradeQty: 0,
+  };
+
+  it("kind 6 SellRisk → 「모름」 폴백이 아님 · action 은 매도 주문 라벨 · 본문에 「조건」 조각 없음", () => {
+    const parts = strategyEventParts(SELL_RISK, "log");
+    expect(parts.tone).not.toBe("unknown");
+    expect(parts.action).toBe(strategyKindLabel(6));
+    expect(parts.body).not.toContain("조건");
+    expect(parts.body).toContain("@12,350");
+  });
+
+  it("kind 7 cancel_reason 2(ExitSell) → 본문에 「이탈 매도」", () => {
+    const cancel = { ...STRATEGY_DAY_BY_NAME.cancel12453!, group: 4, cancelReason: 2 };
+    const parts = strategyEventParts(cancel, "log");
+    expect(parts.tone).not.toBe("unknown");
+    expect(parts.action).toBe(strategyKindLabel(7));
+    expect(parts.body).toContain("이탈 매도");
+  });
+});

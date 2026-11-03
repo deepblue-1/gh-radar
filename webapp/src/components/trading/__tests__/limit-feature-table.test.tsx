@@ -222,3 +222,21 @@ describe('Phase 28 LimitFeatureTable — 9칸 표 (28-07)', () => {
     expect(lines[1]).toBe('누적 매도 6.0억 · 취소 4.6억 · 위험도 35%');
   });
 });
+
+describe('quick-261103-n1s 매도 SOR 「위험도(합)」 — sorMerge prop', () => {
+  it('sorMerge 있음 → 누적 셋째 칸 · title 누적 줄이 「위험도(합)」(KRX 8,000/10,000 + NXT 2,000/5,000 = 67%)', () => {
+    const own = lf({ limitVolQty: 8_000, qQty: 10_000 });
+    const other = lf({ x: 'NXT', limitVolQty: 2_000, qQty: 5_000 });
+    const { container } = render(<LimitFeatureTable feature={own} sorMerge={{ other }} />);
+    const table = container.querySelector('[data-slot="lc-limit-feature"]') as HTMLTableElement;
+    const cells = Array.from(table.querySelectorAll('[data-slot="lc-limit-feature-cell"]'));
+    expect(cells[2]!.textContent).toBe('위험도(합) 67%');
+    expect(table.getAttribute('title')!.split('\n')[1]).toBe('누적 매도 6.0억 · 취소 4.6억 · 위험도(합) 67%');
+  });
+
+  it('sorMerge 없음 → 종전 단일 칸 「위험도 80%」', () => {
+    const { container } = render(<LimitFeatureTable feature={lf({ limitVolQty: 8_000, qQty: 10_000 })} />);
+    const cells = Array.from(container.querySelectorAll('[data-slot="lc-limit-feature-cell"]'));
+    expect(cells[2]!.textContent).toBe('위험도 80%');
+  });
+});
