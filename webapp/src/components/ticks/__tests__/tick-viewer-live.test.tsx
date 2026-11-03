@@ -50,7 +50,7 @@ vi.mock('@/hooks/use-debounced-search', () => ({
 
 import { TickHeader, liveDelayTextOf } from '@/components/ticks/tick-header';
 import { TickViewer } from '@/components/ticks/tick-viewer';
-import { TickViewerPage } from '@/components/ticks/tick-viewer-page';
+import { TICK_TODAY_RECHECK_MS, TickViewerPage } from '@/components/ticks/tick-viewer-page';
 import { buildMsgRows, ownLineRec } from '@/lib/ticks/msg-rows';
 import { buildOwnModel } from '@/lib/ticks/own-model';
 import { appendTickBytes, type TickSession } from '@/lib/ticks/tick-session';
@@ -245,6 +245,20 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
     api.fetchTickOpen.mockResolvedValue(open);
     api.fetchTickOwn.mockResolvedValue(OWN_EMPTY);
     searchParams = new URLSearchParams({ isin: ISIN, d: D });
+  });
+
+  it('진입 화면을 20:00 넘겨 열어 두면 「오늘」 을 다시 정한다 — 오늘 목록 → 격자 최근 날짜(IN-60)', async () => {
+    vi.setSystemTime(new Date('2026-10-16T10:59:30Z')); // 19:59:30 KST
+    searchParams = new URLSearchParams();
+    api.fetchTickToday.mockResolvedValue(today(true));
+    render(<TickViewerPage />);
+    await waitFor(() => expect(api.fetchTickToday).toHaveBeenCalled());
+    expect(api.fetchTickDay).toHaveBeenLastCalledWith(D);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_TODAY_RECHECK_MS);
+    });
+    // 20:00:30 — 장 밖이라 d 없이 「격자가 있는 최근 날짜」 를 묻는다
+    await waitFor(() => expect(api.fetchTickDay).toHaveBeenLastCalledWith(undefined));
   });
 
   it('today live=false → 「당일 자료 준비 중」 · /api/ticks/live 요청 0', async () => {

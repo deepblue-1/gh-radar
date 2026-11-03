@@ -41,7 +41,8 @@ import { TickViewer } from './tick-viewer';
  * ② 게이트: `useDmaGateReason()` · server 401/403 → 본문 대신 `DmaGate surface="틱뷰어"` 만. 표시 장치일 뿐 권한은
  *   server RPC(`tick_*_for_user`)다.
  * ③ 기본 날짜(D-15): d 없음 → KST 거래일 08:00~20:00 이면 오늘(`/api/ticks/today` 목록 · 「라이브」) · 그 밖에는 격자가 있는
- *   최근 날짜(`/api/ticks/day` 를 d 없이 — 응답 date). URL 은 건드리지 않고 화면만 그 날짜다.
+ *   최근 날짜(`/api/ticks/day` 를 d 없이 — 응답 date). URL 은 건드리지 않고 화면만 그 날짜다. 「오늘」 은 진입 화면에 있는 동안
+ *   1분마다 · 탭이 다시 보일 때 다시 정한다(IN-60 — 20:00 · 자정을 넘겨 열어 둔 화면) · 열린 뷰어는 흔들지 않는다.
  * ④ isin 없음 = 진입(그날 격자 목록 · 행 없고 「자료 없음」 사유가 있으면 상태 카드). isin 있음 = 열기 — `/api/ticks/open` 한 번 →
  *   - grid → 열림 — 서명 URL 을 브라우저가 직접 받아 풀고(`useTickGrid` · 진행률) `TickViewer`(37-10)
  *   - request pending/running → 「변환 중」 + 5초 폴링(stale 이면 convert 1회 — server should_trigger 가 Job 을 하나만 깨운다)
@@ -63,6 +64,8 @@ import { TickViewer } from './tick-viewer';
 
 /** 변환 상태 폴링 간격 — 5초(D-03). */
 export const TICK_POLL_MS = 5_000;
+/** 「오늘」(기본 날짜 · 장중 여부) 다시 정하는 간격(IN-60). */
+export const TICK_TODAY_RECHECK_MS = 60_000;
 
 type OpenView =
   | { kind: 'loading' }
@@ -152,8 +155,24 @@ export function TickViewerPage() {
   const url = useMemo(() => parseTickUrl(new URLSearchParams(spKey)), [spKey]);
   const { isin, d, ex } = url;
   const gate = useDmaGateReason();
-  const [boot] = useState(() => defaultTickDateOf(new Date()));
+  const [boot, setBoot] = useState(() => defaultTickDateOf(new Date()));
   const today = boot.today;
+  // 「오늘」 다시 정하기(IN-60) — 진입 화면에서만(열린 뷰어의 날짜 · 경로를 장 마감 · 자정에 바꾸지 않는다).
+  useEffect(() => {
+    if (isin !== null) return;
+    const recheck = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const next = defaultTickDateOf(new Date());
+      setBoot((b) => (b.mode === next.mode && b.today === next.today ? b : next));
+    };
+    recheck();
+    const id = setInterval(recheck, TICK_TODAY_RECHECK_MS);
+    document.addEventListener('visibilitychange', recheck);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [isin]);
 
   const [serverGate, setServerGate] = useState<DmaGateReason | null>(null);
   const [day, setDay] = useState<Load<TickDayResponse>>({ kind: 'loading' });
@@ -475,6 +494,8 @@ export function TickViewerPage() {
     if (isToday && todayList !== null) {
       if (todayList.kind === 'loading') return <Loading />;
       if (todayList.kind === 'error') return retry('불러오지 못했어요');
+      // 열기 날짜 = 목록 응답의 날짜(IN-60 — 「오늘」 을 다시 정하기 전 1분 사이에도 목록과 열기가 같은 날)
+      const listDate = todayList.resp.date;
       return (
         <TickEntry
           date={today}
@@ -482,7 +503,7 @@ export function TickViewerPage() {
           todayRows={todayList.resp.rows}
           sort={sort}
           onSort={setSort}
-          onOpen={(i) => go({ isin: i, ex: 'KRX' })}
+          onOpen={(i) => go({ isin: i, ex: 'KRX', d: listDate })}
           etaMin={etaMinOf(resp.eta_s[ex])}
         />
       );
