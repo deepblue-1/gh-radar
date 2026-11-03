@@ -74,8 +74,8 @@ g4cut 세 시간 = 212,358,419 + 94,934,883 + 85,724,009 = 393,017,311B(≈ 0.39
 - `pnl` · `g4cut` 의 파이썬 쪽은 추출한 레코드를 이더넷/IPv4/UDP 로 다시 감싼 **합성 pcap** 을 `convert_file` 에 넣는다 —
   TS 테스트가 읽는 `.ticks.zst` 와 바이트 · recv_ns 가 같은 입력이다. 범위 조건 · 정렬은 `teamflow.load_day_parquet`(teamflow) ·
   `teamflow_accum.load_day_a3`(accum) 와 같은 SQL 이다.
-- 빅텍 10/22 하루 골든(`bigtech-1022-a3.ticks.zst` · `bigtech-1022.pnl.json`)은 선택이다. 없으면 `ticks-pnl.golden.test.ts` 의
-  해당 블록만 skip 한다(G4 조각 골든은 skip 없음).
+- 빅텍 10/22 하루 골든(`bigtech-1022-a3.ticks.zst` · `bigtech-1022.pnl.json`)은 선택이다. 둘 중 하나라도 없으면 `ticks-pnl.golden.test.ts` 의
+  해당 블록만 skip 한다(G4 조각 골든은 skip 없음). A3 조각이 1.5MB 를 넘으면 두 파일 모두 커밋하지 않는다(json 만 커밋 금지).
 - `*.orders.json` 등 행 배열 JSON 은 행마다 한 줄(키 정렬 · indent 1) — diff 가 행 단위로 읽힌다. (isin, msg_seq) 동률이 있으면
   duckdb 정렬이 비결정이라 오라클이 종료 1 한다.
 - 크기 상한: `.ticks.zst` 하나당 1.5MB. 넘으면 `RAW_LIMIT=10000 bash scripts/tick-oracle/gen-fixtures.sh decode`.

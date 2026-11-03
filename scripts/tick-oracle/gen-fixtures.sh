@@ -14,7 +14,8 @@
 #   pnl     천일고속 KR7000650002 10/14 A3 전용 조각(chunil-1014-a3.ticks.zst) + export payload.pnl 두 범위(chunil-1014.pnl.json)
 #           — 37-03 Task 3. 같은 A3 로 파이썬 team_pnl 을 다시 계산해 export 와 다르면 종료 1
 #           --bigtech: 빅텍 KR7065450009 10/22 08~19시(bigtech-1022-a3.ticks.zst · bigtech-1022.pnl.json). A3 조각이 1.5MB 를
-#           넘으면 커밋하지 않는다(그때 테스트는 skip). 원본은 ~/ticks/oracle/20261022/krx/ 에 미리 받아 둔다(아래 GCS 메모).
+#           넘으면 **두 파일 모두** 커밋하지 않는다(로컬 검증용 · 테스트는 두 파일이 다 있을 때만 켜진다 — 그 밖엔 skip).
+#           원본은 ~/ticks/oracle/20261022/krx/ 에 미리 받아 둔다(아래 GCS 메모).
 #   g4cut   빅텍 KR7065450009 10/22 15~17시 G4 조각(bigtech-1022-g4.ticks.zst · bigtech-1022-g4.golden.json) — 37-03 Task 3(필수).
 #           원본 ~/ticks/oracle/20261022/krx/20261022-{1500,1600,1700}.pcap.zst (GCS 393,017,311B · 아래 메모). G4 체결 0 이면 종료 1
 #   launch  발사 대기열 · 체결 런 골든 조각 4개(quick 261103-pei) — 지정 ISIN A3 · B6 · 보드 · 수신 창(oracle.py launchcut)
@@ -90,7 +91,7 @@ case "$cmd" in
       size=$(wc -c < "$FX/bigtech-1022-a3.ticks.zst" | tr -d ' ')
       echo "bigtech-1022-a3.ticks.zst ${size}B"
       if [ "$size" -gt "$MAX_BYTES" ]; then
-        echo "  ↑ 1.5MB 초과 — 커밋하지 않는다(테스트는 skipIf)" >&2
+        echo "  ↑ 1.5MB 초과 — bigtech-1022-a3.ticks.zst · bigtech-1022.pnl.json 둘 다 커밋하지 않는다(테스트는 둘 다 있을 때만 켜진다)" >&2
       fi
     else
       oracle pnl --isin KR7000650002 --date 20261014 --pcap-dir "$HOME/ticks/team-follow/rawpcap/20261014" \
