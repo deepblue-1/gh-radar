@@ -74,6 +74,32 @@ function gate(fn: string, data: unknown): Record<string, unknown> {
   return data;
 }
 
+const GRID_MODES: readonly string[] = ["nightly", "request", "promoted"];
+const EXCHANGES: readonly string[] = ["KRX", "NXT"];
+const isNat = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const isMsOrNull = (v: unknown): boolean => v === null || v === undefined || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * `tick_open_for_user` 응답 모양 검사(IN-34) — 웹이 그대로 쓰는 필드를 `as` 캐스트로 흘리지 않는다. 위반 = 500 DB_ERROR.
+ * grid 가 있으면 서명 **전에** 본다(모양이 틀린 행에 서명 URL 을 발급하지 않는다).
+ */
+function checkOpenShape(out: Record<string, unknown>, raw: Record<string, unknown> | null): void {
+  const bad = (k: string, v: unknown): never => {
+    throw DbError(FAIL, shapeCause(`tick_open_for_user.${k}`, v));
+  };
+  if (typeof out.date !== "string") bad("date", out.date);
+  if (typeof out.exchange !== "string" || !EXCHANGES.includes(out.exchange)) bad("exchange", out.exchange);
+  if (typeof out.isin !== "string") bad("isin", out.isin);
+  if (typeof out.eta_s !== "number" || !Number.isFinite(out.eta_s)) bad("eta_s", out.eta_s);
+  if (raw === null) return;
+  for (const k of ["bytes", "records", "a3_count"] as const) if (!isNat(raw[k])) bad(`grid.${k}`, raw[k]);
+  if (typeof raw.mode !== "string" || !GRID_MODES.includes(raw.mode)) bad("grid.mode", raw.mode);
+  if (!Array.isArray(raw.sources) || !raw.sources.every((x) => typeof x === "string")) bad("grid.sources", raw.sources);
+  if (typeof raw.fmt !== "string") bad("grid.fmt", raw.fmt);
+  if (typeof raw.created_at !== "string") bad("grid.created_at", raw.created_at);
+  for (const k of ["first_recv_ms", "last_recv_ms"] as const) if (!isMsOrNull(raw[k])) bad(`grid.${k}`, raw[k]);
+}
+
 /** 하루 목록 한 장. `d` 생략 = 최신 격자 날짜. 이력 0 이면 200 `date: null · rows: []`. */
 export async function getTickDay(supabase: SupabaseClient, userId: string, d?: string): Promise<TickDayResponse> {
   const { data, error } = await supabase.rpc("tick_day_for_user", { p_user_id: userId, p_date: d ?? null });
@@ -120,6 +146,7 @@ export async function openTick(
   const out = gate("tick_open_for_user", data);
   const raw = out.grid;
   if (raw !== null && !isObject(raw)) throw DbError(FAIL, shapeCause("tick_open_for_user.grid", raw));
+  checkOpenShape(out, raw);
 
   let grid: TickOpenGrid | null = null;
   if (raw) {

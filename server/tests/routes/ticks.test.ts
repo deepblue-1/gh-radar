@@ -284,6 +284,25 @@ describe("GET /api/ticks/open — 서명 URL (D-09 · 트레이서)", () => {
     expect(rec.signCalls).toHaveLength(1);
   });
 
+  it("grid 필드 · 봉투 모양 위반(bytes 문자열 · mode 모름 · sources 아님 · eta_s 없음 · exchange 모름) → 500 · 서명 0회(IN-34)", async () => {
+    const cases: Record<string, unknown>[] = [
+      { ...openWithGrid, grid: { ...gridRow, bytes: "1234567" } },
+      { ...openWithGrid, grid: { ...gridRow, records: undefined } },
+      { ...openWithGrid, grid: { ...gridRow, mode: "weird" } },
+      { ...openWithGrid, grid: { ...gridRow, sources: "accum" } },
+      { ...openWithGrid, grid: { ...gridRow, created_at: null } },
+      { ...openWithGrid, eta_s: undefined },
+      { ...openWithGrid, exchange: "KOSDAQ" },
+    ];
+    for (const data of cases) {
+      const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_open_for_user: data } });
+      const r = await auth(request(app(client)).get(OPEN(okOpenQ)));
+      expect(r.status).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+      expect(rec.signCalls).toHaveLength(0);
+    }
+  });
+
   it("grid 모양 위반(배열 · object_path 없음) → 500 · 서명 0회", async () => {
     for (const grid of [[gridRow], { ...gridRow, object_path: undefined }]) {
       const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_open_for_user: { ...openWithGrid, grid } } });
