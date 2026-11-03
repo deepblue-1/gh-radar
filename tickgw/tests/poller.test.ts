@@ -304,6 +304,41 @@ describe("Poller — 20:01 마감 마무리(closeSweep)", () => {
     expect(r.cache.get(keyN(2))!.closed).toBe(false);
   });
 
+  it("마무리 응답이 compressed_files_skipped > 0(20:00 압축 원본 건너뜀) → complete=false · closed 아님(승격 안 함 · CR-31)", async () => {
+    let skipped = 0;
+    let total = 3;
+    const r = rig((a) => {
+      const res = dayResponse(a, total);
+      return { ...res, meta: { ...res.meta!, compressedFilesSkipped: skipped } };
+    }, {}, at("195900"));
+    r.poller.touch(keyN(1));
+    r.poller.touch(keyN(2));
+    await r.drive({ untilCalls: 2, touch: [keyN(1), keyN(2)] });
+    // 리스가 끝난 뒤 20:00 압축 — 키 1 의 지난 시간 파일이 건너뛰어진다(키 2 는 이미 다 받았다 · 마감 응답에 건너뜀 0)
+    total = 5;
+    r.clock.t = at("200100");
+    const before = r.calls.length;
+    skipped = 2;
+    await r.drive({ untilCalls: before + 1 });
+    expect(makeKey(r.calls.at(-1)!.args.isin, "KRX", DATE)).toBe(keyN(1));
+    skipped = 0;
+    await r.drive({ untilT: at("201000") }); // 20:14 뒤엔 complete 아닌 키 1 이 유휴 삭제된다(면제 대상 아님)
+    const e1 = r.cache.get(keyN(1))!;
+    expect(e1.complete).toBe(false);
+    expect(e1.closed).toBe(false);
+    expect(r.cache.get(keyN(2))!.closed).toBe(true);
+  });
+
+  it("20:00 뒤 처음 연 키도 건너뛴 파일이 있으면 X-Tick-Complete 근거(complete)가 false", async () => {
+    const r = rig((a) => {
+      const res = dayResponse(a, 3);
+      return { ...res, meta: { ...res.meta!, compressedFilesSkipped: 11 } };
+    }, {}, at("203000"));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] });
+    expect(r.cache.get(KEY)!.complete).toBe(false);
+  });
+
   it("차단 중에는 마무리도 기다렸다가 풀린 뒤 한다", async () => {
     const timedOut = "ssh: connect to host 10.16.207.119 port 22: Connection timed out";
     let down = false;

@@ -51,7 +51,7 @@ export interface IndexerMeta {
   lastRecvNs: bigint | null;
   hasMore: boolean;
   nextFromNs: bigint | null;
-  /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없거나 깨졌으면 0. 로그 진단용. */
+  /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없거나 깨졌으면 0. > 0 이면 poller 가 그 키를 complete=false 로(CR-31). */
   compressedFilesSkipped: number;
 }
 

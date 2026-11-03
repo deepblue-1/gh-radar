@@ -31,7 +31,8 @@
  *   | 그 밖                                              | ready   | 0     |
  *
  * ── 20:01 마감 마무리(closeSweep) — 승격본 = 장 마감 하루치 전체 또는 없음(D-07 · D-04) ──
- *   KST 20:00 + CLOSE_DELAY(60초)가 지나면 하루 한 번: 오늘 complete(08:00 시작 ∧ 끊김 없음) 이고 closed 아닌 키마다
+ *   KST 20:00 + CLOSE_DELAY(60초)가 지나면 하루 한 번: 오늘 complete(08:00 시작 ∧ 끊김 없음 ∧ 압축으로 건너뛴 원본 0 — CR-31) 이고
+ *   closed 아닌 키마다
  *   **리스와 무관하게** 마무리 폴링(from = lastRecvNs+1 · to 0 · has_more 면 이어받기)을 같은 동시성 1 · 같은 차단 규율로 돈다.
  *   성공(종료 0 ∧ has_more false)하면 closed · closedThroughNs = 그 폴링 시작 시각 − 2초(기록 지연 여유 · ≥ 그날 20:00:00 KST).
  *   실패는 백오프(5 · 10초)로 최대 3회 뒤 closed 아님 · LRU 로 밀려난 키도 closed 아님 → export 에 안 나와 승격되지 않는다.
@@ -311,6 +312,16 @@ export class Poller {
   private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult): boolean {
     const meta = res.meta!;
     if (meta.records > 0) this.deps.cache.append(run.key, res.stdout, meta);
+    // CR-31 — 119 기록기는 20:00 보류 창이 끝나면 지난 시간 파일을 `zstd --rm` 으로 압축하고, 인덱서는 그 파일을 건너뛰며
+    // `compressed_files_skipped` 로 센다(gh-trade server/tools/indexer/README.md 「운영 경계」). 건너뛴 파일이 하나라도 있으면
+    // 이 키는 더는 「08:00 부터 끊김 없음」 이 아니다 → complete=false(마감 마무리가 closed 로 닫지 않는다 = 승격 안 함 ·
+    // 그날 밤 GCS 변환 몫 · live 는 X-Tick-Complete:false).
+    if (meta.compressedFilesSkipped > 0) {
+      if (entry.complete) {
+        log("warn", "compressed files skipped — not complete", { key: run.key, skipped: meta.compressedFilesSkipped });
+      }
+      entry.complete = false;
+    }
     if (meta.hasMore) {
       if (meta.nextFromNs !== null && meta.nextFromNs > fromNs) {
         run.pendingFrom = meta.nextFromNs;
