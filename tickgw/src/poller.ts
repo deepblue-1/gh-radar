@@ -14,7 +14,7 @@
  *   리스        server 요청(touch)마다 30초 갱신 · 리스가 끝난 키는 폴링하지 않는다(다시 touch 하면 대기열 맨 뒤로 재개)
  *   키 상한     리스가 살아 있는 키를 처음 touch 순서로 세워 앞 MAX_KEYS(8)만 활성 · 나머지는 queued(대기 k = 순번)
  *   실패        ssh 실패 · 시간 초과 · 깨진 응답 → 그 키 5→10→20→40→60→60초 · 성공하면 다시 5초
- *   바쁨 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다
+ *   다시 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다(동시 1 바쁨 · 색인 준비 안 됨 — gh-trade 4f474b1f 가 넓힘)
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
  *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33)
  *   너무 큼     키 하나의 하루치가 캐시 상한을 넘으면 그 키(그날) 폴링을 멈춘다 · blocked · complete=false(승격 안 함 · WR-33)
@@ -361,6 +361,13 @@ export class Poller {
       }
       entry.complete = false;
     }
+    // 인덱서가 범위 안 레코드를 싣지 못했다고 알리면(`skipped_records` · gh-trade 4e9de34b) 그 응답도 완결이 아니다 — 같은 처리.
+    if (meta.skippedRecords > 0) {
+      if (entry.complete) {
+        log("warn", "records skipped — not complete", { key: run.key, skipped_records: meta.skippedRecords });
+      }
+      entry.complete = false;
+    }
     if (meta.hasMore) {
       if (meta.nextFromNs !== null && meta.nextFromNs > fromNs) {
         run.pendingFrom = meta.nextFromNs;
@@ -395,6 +402,7 @@ export class Poller {
       bytes: res.stdout.length,
       has_more: res.meta?.hasMore ?? null,
       skipped: res.meta?.compressedFilesSkipped || undefined,
+      skipped_records: res.meta?.skippedRecords || undefined,
       ms: at - started,
       stderr: okResult(res) ? undefined : res.stderrTail.slice(-200),
     });

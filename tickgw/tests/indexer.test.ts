@@ -74,6 +74,7 @@ describe("runIndexer — 가짜 119", () => {
       hasMore: true,
       nextFromNs: DAY_START + 4_000_000_000n,
       compressedFilesSkipped: 0,
+      skippedRecords: 0,
     });
     const raw = zstdDecompressSync(r.stdout);
     expect(raw.length).toBe(3 * (16 + 40));
@@ -136,7 +137,7 @@ describe("parseMeta", () => {
   it("앞 줄은 자유 · 마지막 비지 않은 줄만 JSON", () => {
     const m = parseMeta('log a\nlog b\n{"fmt":"pcapns-rec/1","records":0,"first_recv_ns":null,"last_recv_ns":null,"has_more":false,"next_from_ns":null}\n\n');
     expect(m).toEqual({
-      fmt: "pcapns-rec/1", records: 0, firstRecvNs: null, lastRecvNs: null, hasMore: false, nextFromNs: null, compressedFilesSkipped: 0,
+      fmt: "pcapns-rec/1", records: 0, firstRecvNs: null, lastRecvNs: null, hasMore: false, nextFromNs: null, compressedFilesSkipped: 0, skippedRecords: 0,
     });
   });
   it("회신 예시 줄 그대로 — ns 세 값 문자열 · compressed_files_skipped", () => {
@@ -145,8 +146,27 @@ describe("parseMeta", () => {
     );
     expect(m).toEqual({
       fmt: "pcapns-rec/1", records: 3, firstRecvNs: 1762045201000000100n, lastRecvNs: 1762045206000000600n,
-      hasMore: false, nextFromNs: 0n, compressedFilesSkipped: 1,
+      hasMore: false, nextFromNs: 0n, compressedFilesSkipped: 1, skippedRecords: 0,
     });
+  });
+  it("gh-trade 4e9de34b 실측 줄 — 끝에 붙은 skipped_records 를 읽는다", () => {
+    const m = parseMeta(
+      '{"fmt":"pcapns-rec/1","records":1,"first_recv_ns":"1762045201000000100","last_recv_ns":"1762045201000000100","has_more":false,"next_from_ns":"0","compressed_files_skipped":0,"skipped_records":4}',
+    );
+    expect(m?.skippedRecords).toBe(4);
+    expect(m?.compressedFilesSkipped).toBe(0);
+  });
+  it("skipped_records 가 음수 · 소수 · 문자열이면 0(옛 응답과 같게)", () => {
+    for (const v of ["-1", "1.5", '"3"']) {
+      const m = parseMeta(`{"fmt":"pcapns-rec/1","records":0,"has_more":false,"skipped_records":${v}}`);
+      expect(m?.skippedRecords).toBe(0);
+    }
+  });
+  it("runIndexer 가 fake 의 skipped_records 를 meta 로 넘긴다", async () => {
+    process.env.FAKE_INDEXER_SKIPPED_RECORDS = "3";
+    const r = await runIndexer(args, opts());
+    expect(r.code).toBe(0);
+    expect(r.meta?.skippedRecords).toBe(3);
   });
   it("2^53 넘는 ns 문자열을 잃지 않는다", () => {
     const m = parseMeta('{"fmt":"pcapns-rec/1","records":1,"first_recv_ns":"1793314801000000123","last_recv_ns":"1793314801000000123","has_more":false}');

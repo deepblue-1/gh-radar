@@ -375,6 +375,26 @@ describe("Poller — 20:01 마감 마무리(closeSweep)", () => {
     expect(r.cache.get(keyN(2))!.closed).toBe(true);
   });
 
+  it("응답이 skipped_records > 0(범위 안 레코드를 싣지 못함 · gh-trade 4e9de34b) → complete=false · 마감 뒤 closed 아님", async () => {
+    let skippedRecords = 0;
+    const r = rig((a) => {
+      const res = dayResponse(a, 3);
+      return { ...res, meta: { ...res.meta!, skippedRecords } };
+    }, {}, at("195900"));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] });
+    expect(r.cache.get(KEY)!.complete).toBe(true);
+    skippedRecords = 2;
+    r.clock.t = at("200100");
+    const before = r.calls.length;
+    await r.drive({ untilCalls: before + 1 });
+    skippedRecords = 0;
+    await r.drive({ untilT: at("201000") });
+    const e = r.cache.get(KEY)!;
+    expect(e.complete).toBe(false);
+    expect(e.closed).toBe(false);
+  });
+
   it("20:00 뒤 처음 연 키도 건너뛴 파일이 있으면 X-Tick-Complete 근거(complete)가 false", async () => {
     const r = rig((a) => {
       const res = dayResponse(a, 3);

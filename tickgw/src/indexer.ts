@@ -11,10 +11,14 @@
  *            내용 = pcap-ns 레코드 `<IIII>` 16B + UDP 페이로드 반복(전역 헤더 없음 · recv 순) ·
  *            압축 16MB **엄격** 상한(넘기 전에 레코드 경계에서 끊는다)
  *   stderr   **마지막 줄** JSON(공백 없음 · ns 는 문자열) `{"fmt":"pcapns-rec/1","records":N,"first_recv_ns":"…",
- *            "last_recv_ns":"…","has_more":bool,"next_from_ns":"…","compressed_files_skipped":N}` —
+ *            "last_recv_ns":"…","has_more":bool,"next_from_ns":"…","compressed_files_skipped":N,"skipped_records":N}` —
  *            next_from_ns = 보내지 않은 첫 레코드 recv_ns(포함 커서 · 같은 recv_ns 묶음은 가르지 않는다) ·
- *            compressed_files_skipped = 20:00 뒤 `.pcap.zst` 로 바뀌어 건너뛴 파일 수(그날 밤부터는 GCS 변환 몫)
- *   종료코드 0 정상(0건 포함) · 75 바쁨(EX_TEMPFAIL · 동시 1 flock) · 64 인자 오류 · 그 밖 실패 · ssh 자체 오류는 255
+ *            compressed_files_skipped = 20:00 뒤 `.pcap.zst` 로 바뀌어 건너뛴 파일 수(그날 밤부터는 GCS 변환 몫) ·
+ *            skipped_records = 범위 안인데 싣지 못한 레코드 수(파일표에 없는 file_id · 헤더/본문 읽기 실패 · 페이로드 없음 —
+ *            gh-trade 4e9de34b · docs/inbox/from-gh-trade/261104-tickgw-redeploy-reply.md ①) — 둘 다 > 0 이면 미완결
+ *   종료코드 0 정상(0건 포함) · 75 다시(EX_TEMPFAIL — 동시 1 flock 바쁨 · 색인 준비 안 됨: 오늘 files.tsv 없음 ·
+ *            serve 따라잡는 중) · 64 인자 오류 · 1 원본 열기 실패(ENOENT 아닌 것) · 그 밖 실패(질의 60초 한도 SIGALRM 포함) ·
+ *            ssh 자체 오류는 255
  *
  *   회신 차이 2건(compressed_files_skipped · 0건 빈 프레임)은 프레이밍을 바꾸지 않는다 — poller 는 records > 0 일 때만
  *   캐시에 붙이므로 빈 프레임은 버려지고, 37-09 「원본 zstd 그대로 · 재압축 없음」 규칙에 예외가 없다.
@@ -53,6 +57,8 @@ export interface IndexerMeta {
   nextFromNs: bigint | null;
   /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없거나 깨졌으면 0. > 0 이면 poller 가 그 키를 complete=false 로(CR-31). */
   compressedFilesSkipped: number;
+  /** 범위 안인데 싣지 못한 레코드 수(gh-trade 4e9de34b `skipped_records`) — 옛 응답 · 깨졌으면 0. > 0 이면 complete=false. */
+  skippedRecords: number;
 }
 
 export interface IndexerResult {
@@ -110,6 +116,11 @@ function nsOrNull(v: unknown): bigint | null {
   return null;
 }
 
+/** 건너뜀 수 필드 — 음 아닌 안전 정수만, 없거나 깨졌으면 0(옛 응답 호환). */
+function countOrZero(v: unknown): number {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0;
+}
+
 /** stderr 전체에서 마지막 비어 있지 않은 줄을 JSON 으로 읽는다. 아니면 null. */
 export function parseMeta(stderr: string): IndexerMeta | null {
   const lines = stderr.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
@@ -133,10 +144,8 @@ export function parseMeta(stderr: string): IndexerMeta | null {
     lastRecvNs: nsOrNull(r.last_recv_ns),
     hasMore: r.has_more,
     nextFromNs: nsOrNull(r.next_from_ns),
-    compressedFilesSkipped:
-      typeof r.compressed_files_skipped === "number" && Number.isSafeInteger(r.compressed_files_skipped) && r.compressed_files_skipped >= 0
-        ? r.compressed_files_skipped
-        : 0,
+    compressedFilesSkipped: countOrZero(r.compressed_files_skipped),
+    skippedRecords: countOrZero(r.skipped_records),
   };
 }
 

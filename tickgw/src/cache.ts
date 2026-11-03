@@ -8,7 +8,7 @@
  * - 커서 = 바이트 offset. `slice(key, offset)` 는 offset 이후 바이트만.
  * - complete = 「08:00 KST 부터 시작 ∧ 이어받기 끊김 없음」. 폴러는 언제나 08:00 부터 시작하므로 만들 때 true,
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기거나, 인덱서가 20:00 압축 원본을 건너뛰었다고 알리면
- *   (`compressed_files_skipped` > 0 · CR-31) false.
+ *   (`compressed_files_skipped` > 0 · CR-31) 또는 싣지 못한 레코드가 있다고 알리면(`skipped_records` > 0) false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
  * - asOfMs = 이 엔트리를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) —
  *   live 응답 헤더 X-Tick-As-Of-Ms. 새 엔트리(새 epoch)는 null 부터.
