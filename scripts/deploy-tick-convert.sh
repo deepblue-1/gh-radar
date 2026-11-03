@@ -109,6 +109,19 @@ echo "✓ gcloud guard + SA + bucket check"
 REGION=asia-northeast3
 REPO=gh-radar
 SHA=$(git rev-parse --short HEAD)
+# IN-33 — 이미지 태그 · APP_VERSION 은 HEAD SHA 인데 빌드는 작업 트리다. 빌드 입력(Dockerfile COPY 경로)이 HEAD 와 다르면
+#   운영 이미지와 커밋이 어긋나므로 막는다. 일부러 그대로 올리려면 ALLOW_DIRTY=1 — 태그 · APP_VERSION 에 -dirty 를 붙인다.
+BUILD_PATHS=(package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json packages/shared workers/tick-convert)
+if [[ -n "$(git status --porcelain -- "${BUILD_PATHS[@]}")" ]]; then
+  if [[ "${ALLOW_DIRTY:-0}" == "1" ]]; then
+    SHA="${SHA}-dirty"
+    echo "⚠ 빌드 입력이 HEAD 와 다르다 — ALLOW_DIRTY=1 · 태그 ${SHA}"
+  else
+    git status --short -- "${BUILD_PATHS[@]}" >&2
+    echo "ERROR: 빌드 입력(${BUILD_PATHS[*]})에 커밋 안 된 변경이 있다 — 커밋하거나 깨끗한 worktree 에서 배포 (그대로 올리려면 ALLOW_DIRTY=1 · 태그 -dirty)" >&2
+    exit 1
+  fi
+fi
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
 IMAGE="${REGISTRY}/tick-convert:${SHA}"
 IMAGE_LATEST="${REGISTRY}/tick-convert:latest"

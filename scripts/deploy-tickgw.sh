@@ -23,6 +23,7 @@ set -euo pipefail
 #   GCP_PROJECT_ID=gh-radar bash scripts/deploy-tickgw.sh
 #   GCP_PROJECT_ID=gh-radar bash scripts/deploy-tickgw.sh --allow-daytime   # 시각 가드 해제 — 시험 전용
 #   bash scripts/deploy-tickgw.sh --self-test                               # 순수 함수 단언(네트워크 · gcloud 없음)
+#   ALLOW_DIRTY=1 …                                                         # 빌드 입력이 HEAD 와 달라도 배포(태그 <sha>-dirty · IN-33)
 #
 # 하는 일:
 #   ① gcloud guard → ② 시각 가드 → ③ radar-gw 에서 `id -u/-g tickpull` 을 먼저 읽는다(없으면 「tickpull 미설치」 종료 2)
@@ -91,7 +92,7 @@ for ARG in "$@"; do
   case "$ARG" in
     --self-test) self_test; exit 0 ;;
     --allow-daytime) ALLOW_DAYTIME=1 ;;
-    -h|--help) sed -n '4,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '4,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument '$ARG'" 2 ;;
   esac
 done
@@ -117,9 +118,13 @@ echo "✓ 시각 가드 통과 (KST dow=${KST_DOW} ${KST_HHMM}$( (( ALLOW_DAYTIM
 
 # ── ③ tickpull uid/gid 를 먼저 읽는다 ───────────────────────────
 echo "▶ radar-gw tickpull uid/gid 조회 ..."
+# 첫 줄 REMOTE_OK = VM 에 닿았다는 표지(IN-33) — 없으면 IAP · ssh · 샌드박스 실패이지 tickpull 미설치가 아니다
+IDS_RC=0
 IDS_RAW=$(gcloud compute ssh "$VM" --zone="$ZONE" --project="$EXPECTED_PROJECT" --tunnel-through-iap \
-  --command 'id -u tickpull && id -g tickpull && sudo test -f /var/lib/tickpull/.ssh/id_ed25519 && sudo test -f /var/lib/tickpull/.ssh/known_hosts && echo KEYS_OK' \
-  2>/dev/null || true)
+  --command 'echo REMOTE_OK; id -u tickpull && id -g tickpull && sudo test -f /var/lib/tickpull/.ssh/id_ed25519 && sudo test -f /var/lib/tickpull/.ssh/known_hosts && echo KEYS_OK' \
+  2>/dev/null) || IDS_RC=$?
+printf '%s\n' "$IDS_RAW" | grep -q '^REMOTE_OK' \
+  || die "IAP SSH 실패(gcloud compute ssh 종료 ${IDS_RC}) — radar-gw 에 닿지 못했다. 샌드박스면 dangerouslyDisableSandbox · IAP 방화벽 · gcloud 인증 확인 (tickpull 설치 여부는 아직 모른다)" 2
 IDS=$(parse_ids "$IDS_RAW") || die "tickpull 미설치 — radar-gw 에서 infra/relay/tickpull/install.sh 먼저 (docs/relay-operations.md 「tickgw」)" 2
 printf '%s\n' "$IDS_RAW" | grep -q '^KEYS_OK' \
   || die "tickpull 키 · known_hosts 없음 — radar-gw 에서 infra/relay/tickpull/install.sh 다시 (키는 없을 때만 만든다)" 2
@@ -134,6 +139,18 @@ echo "✓ secret: $SECRET_NAME (ENABLED 버전 있음)"
 
 # ── ⑤ amd64 빌드 + push ───────────────────────────────────────
 SHA=$(git rev-parse --short HEAD)
+# IN-33 — 이미지 태그 · APP_VERSION 은 HEAD SHA 인데 빌드는 작업 트리다. 빌드 입력(Dockerfile COPY 경로)이 HEAD 와 다르면
+#   운영 이미지와 커밋이 어긋나므로 막는다. 일부러 그대로 올리려면 ALLOW_DIRTY=1 — 태그 · APP_VERSION 에 -dirty 를 붙인다.
+BUILD_PATHS=(package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tickgw)
+if [[ -n "$(git status --porcelain -- "${BUILD_PATHS[@]}")" ]]; then
+  if [[ "${ALLOW_DIRTY:-0}" == "1" ]]; then
+    SHA="${SHA}-dirty"
+    echo "⚠ 빌드 입력이 HEAD 와 다르다 — ALLOW_DIRTY=1 · 태그 ${SHA}"
+  else
+    git status --short -- "${BUILD_PATHS[@]}" >&2
+    die "빌드 입력(${BUILD_PATHS[*]})에 커밋 안 된 변경이 있다 — 커밋하거나 깨끗한 worktree 에서 배포 (그대로 올리려면 ALLOW_DIRTY=1 · 태그 -dirty)" 2
+  fi
+fi
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
 IMAGE="${REGISTRY}/tickgw:${SHA}"
 IMAGE_LATEST="${REGISTRY}/tickgw:latest"
