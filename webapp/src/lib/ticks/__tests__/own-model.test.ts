@@ -166,6 +166,23 @@ describe('buildOwnModel — 주문 묶기 · 주문 시각 · 슬롯(38-04)', ()
   });
 });
 
+describe('buildOwnModel — 체결 순서 = RPC 응답 순서(R1 IN-01)', () => {
+  it('같은 ms 의 다른 게이트웨이 체결은 응답(µs) 순서 그대로 남은 수량을 깎는다 · 다른 ms 는 gw 순으로 방어 정렬', () => {
+    // A3 .100 ×10 하나 — 같은 .105 ms 에 KYOBO119(µs 가 앞) → KB120 순으로 응답. 이름순(KB120 먼저)으로 다시 정렬하지 않는다.
+    const s = synthSession([[100.5, a3Msg({ seq: 801, bs: '2', px: 30000, qty: 10, time: '130000100000' })]]);
+    const kyobo = { ...fill('KY', at(105), 30000, 10, 'B', 5), gateway: 'KYOBO119' };
+    const kb = fill('KB', at(105), 30000, 10, 'B', 1);
+    const m = buildOwnModel(s, ownOf({ fills: [kyobo, kb] }));
+    expect(m.fills.map((f) => [f.gateway, f.state, f.rec])).toEqual([
+      ['KYOBO119', 'matched', 0],
+      ['KB120', 'nofill', -1],
+    ]);
+    // 다른 ms 가 뒤섞여 오면 gw 시각순으로(방어)
+    const late = fill('LT', at(300), 30000, 10, 'B', 2);
+    expect(buildOwnModel(s, ownOf({ fills: [late, kyobo, kb] })).fills.map((f) => f.orderNo)).toEqual(['KY', 'KB', 'LT']);
+  });
+});
+
 describe('buildOwnModel — 당일 대기(Pitfall 4 · OWN_PENDING_GRACE_MS)', () => {
   // 마지막 수신 = 13:00:03.0005 → 3,000ms. 짝 없는 체결 둘: .120(1,320 ≤ 3,000 → 확정) · 2.500(3,700 > 3,000 → 대기)
   const own = ownOf({ fills: [fill('N1', at(120), 99_999, 1, 'B', 1), fill('N2', at(2500), 99_999, 2, 'B', 2)] });

@@ -4,8 +4,9 @@
  *
  * ① 세션과 따로 만든다 — 세션(격자 · 증분)과 저널 도착은 주기가 다르므로 `TickSession` 안에 넣지 않고 뷰어가
  *   `useMemo([session, own])` 로 묶는다(RESEARCH Anti-Pattern).
- * ② 체결 순서 = (gw_time_ms, gateway, seq) — RPC 정렬과 같은 키로 한 번 더 정렬한다(방어 · 남은 수량 차감이 순서 의존 —
- *   Pitfall 2). 정렬은 안정이라 같은 키는 입력 순서를 지킨다.
+ * ② 체결 순서 = RPC 응답 순서(gw_time µs, gateway, seq — 남은 수량 차감 순서의 정본 · Pitfall 2). 방어로 gw_time_ms 하나로만
+ *   안정 정렬한다 — 같은 ms 안은 응답 순서(µs)를 그대로 지킨다. ms 절사 키에 gateway · seq 를 더해 다시 정렬하면 같은 ms 의
+ *   다른 게이트웨이 체결이 µs 순서 대신 이름순이 되어 차감 순서가 RPC 와 갈린다(R1 IN-01).
  *   짝짓기 · 근거 · 앵커 모두 세션 `duplicates`(같은 보드 · seq 재수신)를 뺀다 — 차트와 같은 거름(WR-03).
  * ③ 표시: A3 rec 하나에 붙은 우리 체결 합 `our` 와 그 A3 수량 `total`(부분 체결이면 「n/m」) · 하나라도 추정이면 est.
  *   계좌 · 주문번호는 모델에 있지만 전문 행에 그리지 않는다(D-02 — 주문 줄 「···끝4」 · 카드 · 툴팁에서만).
@@ -214,17 +215,8 @@ function dayDoneOf(session: TickSession, asOfMs: number | null | undefined): boo
 export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?: BuildOwnModelOpts): OwnModel {
   const { index, a3, recvOrder, duplicates } = session;
   const live = opts?.live === true && !dayDoneOf(session, opts.asOfMs);
-  const sorted = own.fills
-    .slice()
-    .sort((x, y) =>
-      x.gw_time_ms !== y.gw_time_ms
-        ? x.gw_time_ms - y.gw_time_ms
-        : x.gateway !== y.gateway
-          ? x.gateway < y.gateway
-            ? -1
-            : 1
-          : x.seq - y.seq,
-    );
+  // ② 방어 정렬은 ms 하나로만(안정 정렬 — 같은 ms 는 응답의 µs 순서 그대로)
+  const sorted = own.fills.slice().sort((x, y) => x.gw_time_ms - y.gw_time_ms);
   // 짝은 늘 다 짓는다 — 과거 격자와 같은 한 번의 호출(오라클 수치 그대로).
   const matches = matchOwnFills(
     index,
