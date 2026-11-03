@@ -12,6 +12,7 @@ import type { Config } from "../src/config";
 import { TOO_LARGE } from "../src/meta";
 import { a3Payload, b6Payload, kstNs, makeSynthArchive, type SynthArchive, type SynthPacket } from "./helpers/synth-archive";
 import { makeFakeSupabase, rpcCalls, uploads } from "./helpers/fake-supabase";
+import { startFakeTickgw, type FakeKey, type FakeTickgw } from "./helpers/fake-tickgw";
 
 const D = "20261030";
 const A = "KR7005930003";
@@ -40,11 +41,33 @@ const PACKETS: SynthPacket[] = [
 ];
 
 let arch: SynthArchive | null = null;
-afterEach(() => {
+let gw: FakeTickgw | null = null;
+afterEach(async () => {
   arch?.cleanup();
   arch = null;
+  await gw?.close();
+  gw = null;
   vi.restoreAllMocks();
 });
+
+/** 승격 키 — 09:00 A3 · B6 두 레코드 · 20:01 closed. */
+function promoteKey(over: Partial<FakeKey> = {}): FakeKey {
+  return {
+    isin: A,
+    ex: "KRX",
+    recs: [
+      { recvNs: kstNs(D, "0900", 10, 1), payload: a3Payload({ isin: A, label: "krx", chg: 2000, px: 12000 }) },
+      { recvNs: kstNs(D, "0900", 11, 1), payload: b6Payload({ isin: A, label: "krx" }) },
+    ],
+    closed: true,
+    closedThroughNs: kstNs(D, "2001", 0),
+    ...over,
+  };
+}
+
+function promoteCfg(url: string): Config {
+  return { ...cfg(""), tickgwUrl: url, tickgwSecret: "s".repeat(40) };
+}
 
 describe("격자 크기 상한 — 넘으면 건너뛴다(실패 아님)", () => {
   it("nightly: 대상 키 격자가 상한을 넘으면 업로드 · 메타 없이 종료 0", async () => {
@@ -89,5 +112,27 @@ describe("격자 크기 상한 — 넘으면 건너뛴다(실패 아님)", () =>
     expect(rpcCalls(calls, "tick_request_finish")).toEqual([
       { p_date: D, p_ex: "KRX", p_results: [{ isin: A, ok: false, error: TOO_LARGE }] },
     ]);
+  });
+
+  it("promote: 다시 압축한 격자가 상한을 넘으면 업로드 · 메타 없이 tooLarge · 종료 0(WR-30)", async () => {
+    // export bytes 는 사전 판정을 통과하게 작게(1B) 속인다 — 받아서 다시 압축한 실제 크기로 거른다
+    gw = await startFakeTickgw({ secret: "s".repeat(40), today: D, keys: [promoteKey({ listPatch: { bytes: 1 } })] });
+    const { sb, calls } = makeFakeSupabase();
+    const now = new Date("2026-10-30T11:10:00Z"); // KST 20:10
+    expect(await main(["promote"], { sb, config: promoteCfg(gw.url), now, clock: () => 0 })).toBe(0);
+    expect(gw.hits.some((h) => h.startsWith("/internal/ticks/export/bytes"))).toBe(true);
+    expect(uploads(calls)).toHaveLength(0);
+    expect(rpcCalls(calls, "tick_grid_upsert")).toHaveLength(0);
+    const runs = rpcCalls(calls, "tick_convert_run_record").map((c) => (c as { p_run: Record<string, unknown> }).p_run);
+    expect(runs.find((r) => r.exchange === "KRX")).toMatchObject({ ok: true, written: 0, error: "too_large 1" });
+  });
+
+  it("promote: export bytes 가 상한 × PREFETCH_FACTOR 를 넘으면 바이트도 당기지 않는다(WR-30)", async () => {
+    gw = await startFakeTickgw({ secret: "s".repeat(40), today: D, keys: [promoteKey()] });
+    const { sb, calls } = makeFakeSupabase();
+    const now = new Date("2026-10-30T11:10:00Z");
+    expect(await main(["promote"], { sb, config: promoteCfg(gw.url), now, clock: () => 0 })).toBe(0);
+    expect(gw.hits.some((h) => h.startsWith("/internal/ticks/export/bytes"))).toBe(false);
+    expect(uploads(calls)).toHaveLength(0);
   });
 });
