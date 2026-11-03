@@ -15,6 +15,7 @@
 //   FAKE_INDEXER_STDERR      종료 전 stderr 에 쓸 줄
 //   FAKE_INDEXER_DELAY_MS    응답 전 지연
 //   FAKE_INDEXER_SKIPPED     stderr JSON compressed_files_skipped 값(기본 0)
+//   FAKE_INDEXER_SKIPPED_RECORDS stderr JSON skipped_records 값(기본 0)
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { zstdCompressSync } from "node:zlib";
 
@@ -85,6 +86,7 @@ async function main() {
     has_more: hasMore,
     next_from_ns: hasMore ? String(all[take.length].ns) : "0",
     compressed_files_skipped: Number(env.FAKE_INDEXER_SKIPPED || 0),
+    skipped_records: Number(env.FAKE_INDEXER_SKIPPED_RECORDS || 0),
   };
   process.stderr.write("fake-indexer: free log line\n" + JSON.stringify(meta) + "\n");
 }

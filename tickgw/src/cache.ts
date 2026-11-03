@@ -8,7 +8,7 @@
  * - 커서 = 바이트 offset. `slice(key, offset)` 는 offset 이후 바이트만.
  * - complete = 「08:00 KST 부터 시작 ∧ 이어받기 끊김 없음」. 폴러는 언제나 08:00 부터 시작하므로 만들 때 true,
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기거나, 인덱서가 20:00 압축 원본을 건너뛰었다고 알리면
- *   (`compressed_files_skipped` > 0 · CR-31) false.
+ *   (`compressed_files_skipped` > 0 · CR-31) 또는 싣지 못한 레코드가 있다고 알리면(`skipped_records` > 0) false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
  * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31). 합계는 상한을 **넘지 않는다**(WR-33):
  *   append 가 상한을 넘기려 하면 먼저 lastAccess 가 가장 오래된 **보호되지 않은** 다른 키부터 지워 자리를 만든다.
