@@ -20,7 +20,9 @@
  * 같은 바이트 덮어쓰기(promoted → promoted · 멱등)다. 20:40 에도 unclosed 인 키는 승격하지 않는다(요약 로그 `unclosed=`).
  *
  * 실패 격리: 키 하나의 실패(바이트 · 해제 · 업로드 · 메타)는 다른 키를 막지 않는다 · 실패가 하나라도 있으면 종료 1.
- * export 목록이 실패하면(401 · DATE_MISMATCH · 응답 date 불일치) 그 run 전체가 실패(throw → 종료 1)다.
+ * export 목록이 실패하면(401 · DATE_MISMATCH · 응답 date 불일치 · 바깥 모양) 그 run 전체가 실패(throw → 종료 1)다.
+ * 목록 안 **키 하나의 모양 위반**은 그 키만 failed(CR-30 — 키 하나가 그날 승격 전체를 죽이지 않는다).
+ * 레코드 0건 closed 키(`first_recv_ns: null` · NXT 비상장 · 거래정지)는 바이트를 당기지 않고 incomplete 로 센다.
  */
 import zlib from "node:zlib";
 import {
@@ -151,6 +153,12 @@ async function promoteKey(
   key: TickgwExportKey,
   out: PromoteKeyResult,
 ): Promise<void> {
+  // 레코드 0건 closed 키(CR-30) — 올릴 하루치가 없다 · 바이트도 당기지 않는다
+  if (key.records === 0 || key.first_recv_ns === null) {
+    out.status = "incomplete";
+    out.reason = "레코드 0(export)";
+    return;
+  }
   // 완결 재확인 1 — 마감 마무리가 그날 20:00:00 KST 까지 닿았는가(받기 전에 — 잘린 키는 바이트도 당기지 않는다)
   if (BigInt(key.closed_through_ns) < closeNs(date)) {
     out.status = "incomplete";
@@ -224,7 +232,7 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
   const out: PromoteOutcome = {
     mode: "promote",
     date,
-    keys: list.keys.length,
+    keys: list.keys.length + list.rejected.length,
     written: 0,
     skipped: 0,
     incomplete: 0,
@@ -236,6 +244,22 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     durationMs: 0,
     results: [],
   };
+
+  // 키 단위 모양 위반(CR-30) — 그 키만 failed · 나머지는 그대로 승격한다
+  for (const rj of list.rejected) {
+    logger.error({ date, ex: rj.ex, isin: rj.isin, reason: rj.reason }, "tick-convert promote: export 키 모양 위반 — 그 키만 실패");
+    out.failed += 1;
+    if (rj.ex === null) continue; // 거래소를 모르면 거래소별 실행 기록에는 못 싣는다(failed 수 · 로그에만)
+    out.results.push({
+      isin: rj.isin ?? "?",
+      ex: rj.ex,
+      status: "failed",
+      reason: rj.reason,
+      bytesRead: 0,
+      teamFailed: false,
+      teamMs: 0,
+    });
+  }
 
   for (const key of list.keys) {
     const r: PromoteKeyResult = {

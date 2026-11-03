@@ -16,7 +16,8 @@
  *   GET /internal/ticks/export?date=YYYYMMDD    — 20:00 승격 Job(37-12) 입력 · 같은 비밀 헤더
  *       **closed 키만**(20:01 마감 마무리를 마친 하루치 전체 — D-07) →
  *       `{ date, keys: [{ isin, ex, bytes, records, first_recv_ns, last_recv_ns, closed_through_ns }], unclosed }`
- *       (ns 는 십진 문자열 · unclosed = 그날 키 중 closed 아닌 수)
+ *       (ns 는 십진 문자열 · 레코드 0건 키는 first_recv_ns · last_recv_ns 가 null — 승격 Job 은 그 키를 incomplete 로 센다(CR-30) ·
+ *        unclosed = 그날 키 중 closed 아닌 수)
  *       date 가 KST 오늘이 아니면 400 `{ error: "DATE_MISMATCH", today }` — 승격 Job 의 --date 와 캐시 날짜가 어긋나면 거부
  *   GET /internal/ticks/export/bytes?date&isin&ex — 그 키 전체 바이트(원본 zstd 프레임 이어붙임)
  *       같은 date 검사(400 DATE_MISMATCH) · closed 아니면 404 `{ error: "NOT_CLOSED" }`
