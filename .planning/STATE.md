@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 38
-current_phase_name: 틱뷰어 우리 주문·체결 표시
-status: verifying
-stopped_at: Completed 38-09-PLAN.md
-last_updated: "2026-11-03T09:30:47.199Z"
+current_phase: 37
+current_phase_name: 틱 전문 뷰어
+status: executing
+stopped_at: Phase 38 complete (Phase 37 still executing in its own session)
+last_updated: "2026-11-03T09:50:30.936Z"
 last_activity: 2026-11-03
-last_activity_desc: Phase 38 execution started
-state_head: 71333d5c52c9d673d586bfe84617f59dc8642692
+last_activity_desc: Phase 38 complete — deployed · UAT ok · verification passed
+state_head: 6d5963c0727d6ea1dab5425cb72a4b18b9123e7c
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
   completed_plans: 111
-  percent: 78
+  percent: 88
 ---
 
 # Project State
@@ -29,16 +29,16 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 ## Current Position
 
-Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 10 of 10
-Status: Phase complete — ready for verification
-Last activity: 2026-11-03 — Phase 38 execution started
-Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
+Phase: 37 (틱 전문 뷰어) — EXECUTING
+Plan: 1 of 19
+Status: Executing Phase 37
+Last activity: 2026-11-03 — Phase 38 완료(별도 worktree 실행) — 37-17 당일 UAT 는 아직 uat-pending
+Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 Warning 5 open
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [████████░░] 78% (82/82 plans)
+Progress: [█████████░] 88% (82/82 plans)
 
 ## Accumulated Context
 
@@ -136,7 +136,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 **Resume file:** None
 
 Last session: 2026-11-03T07:41:51.758Z
-Stopped at: Completed 38-09-PLAN.md
+Stopped at: Phase 38 complete, ready to plan Phase 37
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps

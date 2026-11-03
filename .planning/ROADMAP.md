@@ -65,7 +65,7 @@
 - [x] **Phase 35: 발사 경계 지도 어드민** - gh-trade 16:00 예약 발사 · 09:00:30 개장차익 발사 결과(조각·머리)를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads`·`launch_pieces` 적재(relay 무변경) · 어드민 메뉴 날짜별 주문 내역 + 날짜 범위 발사 경계 지도(서버×시장 4패널 SVG) · 10/12~10/26 백필 · 인박스 `261027-launch-gate-admin.md` (completed 2026-11-01)
 - [x] **Phase 36: 계좌별 주문가능 금액** - gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87/66/67 예수금 · 저널 손익 4필드) 반영 · 어드민 계좌 카드 예수금·수수료·매도세 · 웹 주문가능 표시·초과 경고 · 저널 손익 DB 적재 · 일자별 매매손익(`/admin/pnl` · `/me` 「손익」 탭) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 닫기 (completed 2026-10-28)
 - [ ] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저
-- [ ] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저
+- [x] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저 (completed 2026-11-03)
 
 ## Phase Details
 
@@ -495,7 +495,7 @@ Plans:
   5. (discuss D-03 로 뜻 변경 · 2026-11-03) 대상 게이트웨이 = 어드민에서 켜진 서버(`dma_servers.enabled = true`) 전부 — 하드코딩 없음 · RPC 가 레지스트리와 조인해 켜진 서버 행만 돌려준다. KB121 · KYOBO127 은 꺼져 있어 빠지고 어드민이 켜면 자동 포함된다. gh-trade 인박스 요청 없음 · 「기록 없는 게이트웨이」 안내 없음(「우리 주문」 표 캡션에 그날 켜진 서버 목록만).
 
 **미결 결정(discuss 에서 사용자에게 — phase 추가 때 정하지 않음)**: ① 계좌 가시성: 「오늘 주문」 카드와 같은 계좌 규칙(`dma_visible_accounts` · 권고) vs 모든 DMA 사용자에게 전 계좌. ② KB121 · KYOBO127 포함 여부(저널 연결 선행 = gh-trade/relay 작업). ③ 표시 모양: 전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등 — HTML A/B/C 목업으로. → 2026-11-03 discuss 로 전부 결정(38-CONTEXT D-01 · D-03 · 목업 B 둘째 레일).
-**Plans:** 10/10 plans executed
+**Plans:** 10/10 plans complete
 
 Plans:
 **Wave 1**

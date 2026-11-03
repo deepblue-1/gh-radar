@@ -46,8 +46,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 38 of 9 · 78% · ready to verify"
+    "label": "Phase 37 실행 중(별도 세션) — 이어서 진행",
+    "reason": "Phase 38 complete · Phase 37 executing"
   },
-  "updated_at": "2026-11-03T09:30:47.212Z"
+  "updated_at": "2026-11-03T09:50:30.949Z"
 }
