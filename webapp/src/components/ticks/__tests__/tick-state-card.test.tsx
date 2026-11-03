@@ -45,6 +45,7 @@ const api = vi.hoisted(() => ({
   postTickConvert: vi.fn(),
   postTickCancel: vi.fn(),
   fetchTickOwn: vi.fn(),
+  fetchTickLive: vi.fn(),
 }));
 vi.mock('@/lib/ticks/tick-api', () => api);
 
@@ -533,5 +534,33 @@ describe('TickViewerPage — 당일 · 기본 날짜 (D-15 · D-22)', () => {
     expect(api.postTickConvert).toHaveBeenCalledTimes(0);
     fireEvent.click(screen.getByRole('button', { name: '최근 거래일로' }));
     expect(pushMock).toHaveBeenCalledWith('/analytics/ticks?d=20261030');
+  });
+
+  it('하루치가 늘 풀리지 않으면 3회 뒤 멈추고 「당일 자료를 풀지 못했어요 · 다시 시도」 · 다시 시도 = 1회(R2-WR-31)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.setSystemTime(kst('2026-11-02T10:00:00'));
+    api.fetchTickToday.mockResolvedValue({
+      access: true,
+      date: '20261102',
+      rows: [],
+      live: true,
+    } satisfies TickTodayResponse);
+    api.fetchTickLive.mockResolvedValue({
+      status: 200,
+      bytes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+      meta: { epoch: 'e-1', offsetEnd: 8, lastRecvNs: null, state: 'ready', queue: 0, complete: true },
+    });
+    openSeq(openResp({ date: '20261102' }));
+    await mount(`isin=${ISIN}&d=20261102`);
+    await tick(60_000);
+    expect(api.fetchTickLive).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('당일 자료를 풀지 못했어요')).toBeInTheDocument();
+    await tick(10 * 60_000);
+    expect(api.fetchTickLive).toHaveBeenCalledTimes(3);
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    await tick(10 * 60_000);
+    expect(api.fetchTickLive).toHaveBeenCalledTimes(4);
+    expect(screen.getByText('당일 자료를 풀지 못했어요')).toBeInTheDocument();
+    warn.mockRestore();
   });
 });

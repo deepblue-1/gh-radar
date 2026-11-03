@@ -20,7 +20,10 @@
  *   동안은 `pollMs` 뒤 이어 받고, 증분(버튼)은 다시 누를 때까지 기다린다. 503 = 미결선(status unavailable) ·
  *   401/403 = 게이트(status unauthenticated/unmapped) — 멈춘다.
  *   바이트를 풀지 못하면(잘린 · 깨진 zstd · 세션 재생성 실패 — WR-62) offset · meta 를 앞으로 옮기지 않고 오류로 센다 — 하루치는
- *   offset 0 부터 `pollMs` 뒤 다시 · 증분은 다시 누르면 같은 조각부터.
+ *   offset 0 부터 다시(백오프 `pollMs` × 2^(n−1)) · 증분은 다시 누르면 같은 조각부터.
+ *   하루치가 연속 `TICK_LIVE_FILL_FAIL_MAX` 번 풀리지 않으면(결정적 실패 — R2-WR-31) 스스로 다시 받지 않고 멈춘다(`fillFailed`).
+ *   세션 전이면 페이지가 「당일 자료를 풀지 못했어요 · 다시 시도」 카드 · 409 다시 받기 중이면 이전 세션 그대로 · 「다시 받는 중」
+ *   을 풀고 버튼 「다시 받기」. `retry()`(또는 그 버튼의 `refresh()`) = offset 0 부터 1회 — 또 실패하면 다시 멈춘다.
  * ⑥ `stop()` = 받는 중 카드 「취소」 — 이후 요청 0.
  */
 
@@ -39,6 +42,8 @@ export const TICK_LIVE_LOADING_MS = 2_000;
 export const TICK_LIVE_FAILING_AFTER = 3;
 /** 「최신 받기」 한 번에 `X-Tick-More` 로 이어 받는 최대 추가 요청 수(37 WR-32 — 8MiB × 16 = 128MiB · 무한 고리 방지). */
 export const TICK_LIVE_MORE_MAX = 16;
+/** 하루치를 연속 이 횟수만큼 풀지 못하면 스스로 다시 받지 않는다(R2-WR-31 — 하루치 전체를 끝없이 다시 받지 않게). */
+export const TICK_LIVE_FILL_FAIL_MAX = 3;
 
 export type TickLiveStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'unauthenticated' | 'unmapped';
 
@@ -57,6 +62,8 @@ export interface TickLiveView {
   refreshing: boolean;
   /** epoch 가 바뀌어(409) 하루치를 다시 받는 중 — 이전 세션은 보이지만 「최신 받기」 는 받지 않는다(IN-64). */
   refetching: boolean;
+  /** 하루치를 연속 `TICK_LIVE_FILL_FAIL_MAX` 번 풀지 못해 멈췄다(R2-WR-31) — `retry()` 로 1회 다시. */
+  fillFailed: boolean;
   /** 마지막 200 응답 시각(epoch ms) · 아직 없으면 null. */
   fetchedAt: number | null;
 }
@@ -94,6 +101,7 @@ const IDLE: TickLiveView = {
   errors: 0,
   refreshing: false,
   refetching: false,
+  fillFailed: false,
   fetchedAt: null,
 };
 
@@ -116,9 +124,15 @@ interface Ctl {
   conflicts: number;
   /** 이번 「최신 받기」 에서 `X-Tick-More` 로 이어 받은 횟수(WR-32 · 상한 `TICK_LIVE_MORE_MAX`). */
   moreChain: number;
+  /** 하루치를 연속으로 풀지 못한 횟수(R2-WR-31) — 하루치를 풀어 세션을 만들면 0. */
+  fillFailures: number;
+  /** 연속 실패가 상한에 닿아 하루치 받기를 멈췄다 — 타이머 · 가시성 복귀가 다시 받지 않는다. */
+  fillFailed: boolean;
   fetchedAt: number | null;
   /** 지금 1회 받는다(버튼 · 가시성 복귀). */
   resume: () => void;
+  /** 멈춘 하루치를 offset 0 부터 1회 다시(R2-WR-31) — 시작했으면 true. */
+  retry: () => boolean;
 }
 
 const EMPTY = new Uint8Array(0);
@@ -131,7 +145,7 @@ export function useTickLive({
   atEnd = true,
   pollMs = TICK_LIVE_POLL_MS,
   loadingMs = TICK_LIVE_LOADING_MS,
-}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; refresh: () => boolean; stop: () => void } {
+}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; refresh: () => boolean; retry: () => boolean; stop: () => void } {
   const [view, setView] = useState<TickLiveView>(IDLE);
   const ctlRef = useRef<Ctl | null>(null);
   const atEndRef = useRef(atEnd);
@@ -159,8 +173,11 @@ export function useTickLive({
       newCount: 0,
       conflicts: 0,
       moreChain: 0,
+      fillFailures: 0,
+      fillFailed: false,
       fetchedAt: null,
       resume: () => {},
+      retry: () => false,
     };
     ctlRef.current = c;
 
@@ -175,7 +192,8 @@ export function useTickLive({
         newCount: c.newCount,
         errors: c.errors,
         refreshing: c.running && !filling(),
-        refetching: c.session !== null && c.refetching,
+        refetching: c.session !== null && c.refetching && !c.fillFailed,
+        fillFailed: c.fillFailed,
         fetchedAt: c.fetchedAt,
       });
     publishRef.current = () => publish();
@@ -191,8 +209,27 @@ export function useTickLive({
     };
     /** 하루치(첫 · epoch 교체) 이어 받기만 스스로 잡는다 — 증분은 버튼(머리 주석 ③). */
     const schedule = (ms: number) => {
-      if (c.stopped || c.timer !== null || hidden() || !filling()) return;
+      if (c.stopped || c.fillFailed || c.timer !== null || hidden() || !filling()) return;
       c.timer = setTimeout(() => void tick(), ms);
+    };
+
+    /**
+     * 하루치를 풀지 못함(R2-WR-31) — offset 0 · epoch 없이 처음부터 다시(이전 세션은 그대로 보인다). 연속 횟수를 세어 백오프하고,
+     * 상한에 닿으면 멈춘다(사람이 `retry()` 로 1회). 결정적 실패(그날 자료 · 캐시의 깨진 프레임)에 하루치를 끝없이 다시 받지 않게.
+     */
+    const failFill = () => {
+      c.errors += 1;
+      c.fillFailures += 1;
+      c.pending = [];
+      c.offset = 0;
+      c.epoch = null;
+      if (c.fillFailures >= TICK_LIVE_FILL_FAIL_MAX) {
+        c.fillFailed = true;
+        clear();
+        return publish();
+      }
+      publish();
+      schedule(pollMs * 2 ** (c.fillFailures - 1));
     };
 
     /** 200 을 받아 커서(offset · epoch)와 meta 를 앞으로 — 바이트를 세션에 붙인 **뒤에만** 부른다(WR-62). */
@@ -225,22 +262,17 @@ export function useTickLive({
               : c.session!;
         } catch (e) {
           // 잘린 · 깨진 zstd 프레임 · 세션 재생성 실패 — offset 을 앞으로 옮기지 않는다(조각을 조용히 건너뛰면 틱 구멍).
-          // 하루치는 offset 0 부터 다시(이전 세션은 그대로 보인다) · 증분은 다시 누르면 같은 조각부터 다시 받는다.
+          // 하루치는 offset 0 부터 다시(상한 · 백오프 — R2-WR-31) · 증분은 다시 누르면 같은 조각부터 다시 받는다.
           console.warn('[ticks/live] 바이트를 풀지 못함', e);
+          if (fill) return failFill();
           c.errors += 1;
-          if (fill) {
-            c.pending = [];
-            c.offset = 0;
-            c.epoch = null;
-            publish();
-            return schedule(pollMs);
-          }
           return publish();
         }
         commit(m);
         if (fill) {
           c.session = next;
           c.pending = [];
+          c.fillFailures = 0;
           if (c.refetching) {
             c.refetching = false;
             c.generation += 1;
@@ -294,11 +326,11 @@ export function useTickLive({
       try {
         handle(r);
       } catch (e) {
-        // 마지막 방어선(WR-62) — unhandled rejection 으로 「받는 중」 에 갇히지 않게 오류로 센다.
+        // 마지막 방어선(WR-62) — unhandled rejection 으로 「받는 중」 에 갇히지 않게 오류로 센다. 하루치면 같은 상한을 탄다(R2-WR-31).
         console.warn('[ticks/live] 응답 처리 실패', e);
+        if (filling()) return failFill();
         c.errors += 1;
         publish();
-        schedule(pollMs);
       }
     }
 
@@ -309,10 +341,19 @@ export function useTickLive({
       void tick();
     };
 
-    // 탭이 숨으면 하루치 이어 받기를 멈추고, 다시 보이면 이어 받는다(증분은 버튼이라 무관).
+    c.retry = () => {
+      if (c.stopped || c.running || !c.fillFailed) return false;
+      c.fillFailed = false;
+      c.fillFailures = TICK_LIVE_FILL_FAIL_MAX - 1; // 1회만 — 또 실패하면 다시 멈춘다
+      publish();
+      c.resume();
+      return true;
+    };
+
+    // 탭이 숨으면 하루치 이어 받기를 멈추고, 다시 보이면 이어 받는다(증분은 버튼이라 무관 · 멈춘 하루치는 사람이 다시).
     const onVisibility = () => {
       if (hidden()) clear();
-      else if (c.timer === null && filling()) c.resume();
+      else if (c.timer === null && filling() && !c.fillFailed) c.resume();
     };
 
     publish('loading');
@@ -344,13 +385,21 @@ export function useTickLive({
     publishRef.current();
   }, []);
 
-  /** 「최신 받기」 버튼 — 증분 1회(하루치 받는 동안 · 받는 중이면 무시). 요청을 시작했으면 true(우리 체결도 같이 1회 — 38-08). */
+  /**
+   * 「최신 받기」 버튼 — 증분 1회(하루치 받는 동안 · 받는 중이면 무시). 요청을 시작했으면 true(우리 체결도 같이 1회 — 38-08).
+   * 409 다시 받기가 멈췄으면(R2-WR-31) 그 하루치를 1회 다시(`retry`).
+   */
   const refresh = useCallback((): boolean => {
     const c = ctlRef.current;
-    if (c === null || c.stopped || c.session === null || c.refetching || c.running) return false;
+    if (c === null || c.stopped || c.session === null || c.running) return false;
+    if (c.fillFailed) return c.retry();
+    if (c.refetching) return false;
     c.resume();
     return true;
   }, []);
+
+  /** 멈춘 하루치를 1회 다시(R2-WR-31 — 「당일 자료를 풀지 못했어요 · 다시 시도」). */
+  const retry = useCallback((): boolean => ctlRef.current?.retry() ?? false, []);
 
   const stop = useCallback(() => {
     const c = ctlRef.current;
@@ -360,5 +409,5 @@ export function useTickLive({
     c.timer = null;
   }, []);
 
-  return { ...view, goEnd, refresh, stop };
+  return { ...view, goEnd, refresh, retry, stop };
 }

@@ -58,7 +58,8 @@ import { TickViewer } from './tick-viewer';
  *   세션 전에는 「하루치 받는 중 · 대기 k건」 카드(진행 = 마지막 수신 시각 / 지금 · 08:00 기준) · 세션이 오면 같은 `TickViewer`
  *   (`t` 없으면 끝 틱). live=false 면 훅은 요청 0 · 「당일 자료 준비 중」. 훅이 503 을 받아도 같은 카드로 내린다.
  *   폴링 규율(D-06)은 훅 · 끝 여부는 뷰어가 `onAtEnd` 로 올린다 · epoch 가 바뀌면(generation) 뷰어를 새로 열어 끝 틱 ·
- *   지연 · 연속 오류는 머리(`live`) · 카드 「취소」 = 훅 정지 + 목록.
+ *   지연 · 연속 오류는 머리(`live`) · 카드 「취소」 = 훅 정지 + 목록. 하루치를 연속으로 풀지 못해 훅이 멈추면(`fillFailed` ·
+ *   R2-WR-31) 「당일 자료를 풀지 못했어요」 카드 — 「다시 시도」 = 1회(`live.retry`).
  * ⑦ 우리 체결(Phase 38 · D-09): 뷰어가 `onOwn` 으로 올린 탐색 상태를 제목 줄 「◆ 우리 k/n · 주문 m ‹ ›」 알약에 넘긴다(열기 키가
  *   바뀌면 파생으로 사라짐 · URL 무변경 D-02). 당일 「↻ 최신 받기」 는 live 증분 1회와 함께 `ownRefreshKey` 를 올려 우리 체결도
  *   1회 다시 받는다(자동 타이머 없음 · 과거 격자 뷰어는 열 때 1회뿐).
@@ -588,6 +589,20 @@ export function TickViewerPage() {
         return <TickStateCard variant="live-unavailable" onLatest={goLatest} />;
       case 'live': {
         if (live.status === 'unavailable') return <TickStateCard variant="live-unavailable" onLatest={goLatest} />;
+        if (live.session === null && live.fillFailed) {
+          // 하루치를 연속으로 풀지 못해 멈췄다(R2-WR-31) — 스스로 다시 받지 않는다 · 「다시 시도」 = 1회
+          return (
+            <TickStateCard
+              variant="error"
+              message="당일 자료를 풀지 못했어요"
+              onBack={() => {
+                live.stop();
+                go({ isin: null });
+              }}
+              onRetry={() => void live.retry()}
+            />
+          );
+        }
         if (live.session === null) {
           return (
             <TickStateCard

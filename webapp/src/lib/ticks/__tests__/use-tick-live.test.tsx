@@ -23,7 +23,7 @@ import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, TICK_FIXTURE_RECORDS
 import { appendTickBytes, buildTickSession } from '../tick-session';
 import { endRecOf, initialRecOf } from '../use-tick-cursor';
 import { tickLiveMetaOf } from '../tick-api';
-import { TICK_LIVE_LOADING_MS, TICK_LIVE_MORE_MAX, TICK_LIVE_POLL_MS, useTickLive } from '../use-tick-live';
+import { TICK_LIVE_FILL_FAIL_MAX, TICK_LIVE_LOADING_MS, TICK_LIVE_MORE_MAX, TICK_LIVE_POLL_MS, useTickLive } from '../use-tick-live';
 
 const RAW = tickGridBytes();
 
@@ -202,6 +202,61 @@ describe('useTickLive — 하루치 (D-05 · D-22)', () => {
     warn.mockRestore();
   });
 
+  it('하루치가 늘 깨져 있으면 백오프(5 · 10초) 뒤 3회에서 멈춘다 · fillFailed · retry() = 1회 · 성공하면 풀림(R2-WR-31)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const BAD = Z2.subarray(0, Z2.length - 7);
+    fetchMock.mockImplementation(async () => liveResponse({ body: BAD, state: 'ready', offsetEnd: BAD.length }));
+    const { result } = renderHook(() => useTickLive(opts()));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_LIVE_POLL_MS - 1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_LIVE_POLL_MS * 2 - 1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 둘째 실패 뒤는 2배
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(TICK_LIVE_FILL_FAIL_MAX);
+    expect(result.current.fillFailed).toBe(true);
+    expect(result.current.session).toBeNull();
+    expect(calls().every((c) => c.offset === 0 && c.epoch === null)).toBe(true);
+    // 멈춘 뒤에는 스스로 받지 않는다 — 시간이 가도 · 탭이 다시 보여도
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(TICK_LIVE_FILL_FAIL_MAX);
+
+    // 「다시 시도」 = 1회 — 또 깨져 있으면 곧바로 다시 멈춘다
+    await act(async () => {
+      expect(result.current.retry()).toBe(true);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(TICK_LIVE_FILL_FAIL_MAX + 1);
+    expect(result.current.fillFailed).toBe(true);
+
+    fetchMock.mockImplementation(async () => liveResponse({ body: Z1, state: 'ready', offsetEnd: Z1.length }));
+    await act(async () => {
+      expect(result.current.retry()).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.fillFailed).toBe(false);
+    expect(result.current.status).toBe('ready');
+    expect(result.current.session!.index.n).toBe(6_000);
+    expect(result.current.retry()).toBe(false); // 멈춘 상태가 아니면 아무것도 하지 않는다
+    warn.mockRestore();
+  });
+
   it('하루치가 8MiB 에 잘려 More=true → 2초 기다리지 않고 곧바로 이어 받는다(37 WR-32)', async () => {
     fetchMock
       .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'loading', more: true, offsetEnd: Z1.length }))
@@ -360,6 +415,49 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     expect(result.current.generation).toBe(1);
     expect(result.current.refetching).toBe(false);
     expect(result.current.meta?.epoch).toBe('e-2');
+  });
+
+  it('409 다시 받기가 늘 깨져 있으면 3회에서 멈추고 「다시 받는 중」 을 푼다 · 이전 세션 그대로 · refresh() = 그 하루치 1회(R2-WR-31)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = await openReady();
+    const before = result.current.session;
+    const BAD = Z2.subarray(0, Z2.length - 7);
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ status: 409, body: '{"epoch":"e-2"}' }))
+      .mockImplementation(async () => liveResponse({ body: BAD, epoch: 'e-2', state: 'ready', offsetEnd: BAD.length }));
+    await act(async () => {
+      result.current.refresh(); // 409
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await vi.waitFor(async () => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    expect(result.current.refetching).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2 + TICK_LIVE_FILL_FAIL_MAX);
+    expect(result.current.fillFailed).toBe(true);
+    expect(result.current.refetching).toBe(false); // 버튼이 영구 비활성으로 남지 않는다(IN-64)
+    expect(result.current.session).toBe(before);
+    expect(result.current.errors).toBeGreaterThan(0);
+
+    fetchMock.mockImplementation(async () =>
+      liveResponse({ body: Z1, epoch: 'e-2', state: 'ready', offsetEnd: Z1.length }),
+    );
+    await act(async () => {
+      expect(result.current.refresh()).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls().at(-1)).toEqual({ path: '/api/ticks/live', epoch: null, offset: 0 });
+    expect(result.current.fillFailed).toBe(false);
+    expect(result.current.session).not.toBe(before);
+    expect(result.current.generation).toBe(1);
+    expect(result.current.refetching).toBe(false);
+    warn.mockRestore();
   });
 
   it('delayed → meta.state 노출', async () => {
