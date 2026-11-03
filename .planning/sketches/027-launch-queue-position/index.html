@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>발사 주문 내역 대기열 순번 A/B/C</title>
+<style>
+  :root { --bg:#fff; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1; --border-subtle:#e5e8eb; --card:#fff; --up:#f04452; --down:#3182f6; --ok:#03b26c; --bad:#f04452; --page:#f2f4f6; --primary:#3182f6; --est:#d97706; }
+  :root[data-theme="dark"] { --bg:#0a0a0a; --fg:#fff; --fg-2:#e4e4e4; --muted:#2d2d2d; --muted-fg:#9e9e9e; --faint:#636363; --border-subtle:#3d3d3d; --card:#151515; --up:#f04251; --down:#3485fa; --ok:#1fca83; --bad:#f04251; --page:#0a0a0a; --primary:#3485fa; --est:#ffb020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--fg); font:14px/1.45 Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif; }
+  .bar { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; }
+  .seg { display:inline-flex; background:var(--muted); border-radius:999px; padding:3px; }
+  .seg button { border:0; background:transparent; color:var(--muted-fg); padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .seg button.on { background:var(--card); color:var(--fg); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .wrap { max-width:1240px; margin:0 auto; padding:16px; display:grid; gap:22px; }
+  body.phone .wrap { max-width:390px; }
+  .vt { font-weight:700; font-size:15px; margin:0 0 2px; } .vd { color:var(--muted-fg); font-size:12.5px; margin:0 0 10px; }
+  .card { background:var(--card); border-radius:14px; overflow:hidden; margin-bottom:10px; }
+  .hd { padding:9px 12px; border-bottom:1px solid var(--border-subtle); font-size:12.5px; font-weight:700; display:flex; gap:8px; align-items:baseline; }
+  .hd small { color:var(--muted-fg); font-weight:400; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:12px; white-space:nowrap; }
+  th { background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; text-align:left; padding:6px 8px; }
+  td { padding:6px 8px; border-top:1px solid var(--border-subtle); vertical-align:top; }
+  .r { text-align:right; } .num { font-variant-numeric:tabular-nums; text-align:right; }
+  .dim { color:var(--muted-fg); }
+  .pill { display:inline-flex; height:18px; align-items:center; border-radius:999px; padding:0 7px; font-size:10.5px; font-weight:700; }
+  .acc { background:color-mix(in oklab,var(--ok) 15%,transparent); color:var(--ok); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .sub { display:block; font-size:10.5px; color:var(--muted-fg); margin-top:1px; }
+  .est { color:var(--est); }
+  .rank { display:inline-flex; min-width:30px; height:20px; align-items:center; justify-content:center; border-radius:6px; padding:0 6px; font-weight:700; font-size:11.5px; background:var(--muted); }
+  .rank.first { background:color-mix(in oklab,var(--ok) 18%,transparent); color:var(--ok); }
+  .rank.miss { background:color-mix(in oklab,var(--bad) 14%,transparent); color:var(--bad); }
+  .qbar { position:relative; width:110px; height:8px; background:var(--muted); border-radius:4px; display:inline-block; vertical-align:middle; margin-left:6px; }
+  .qbar i { position:absolute; top:0; bottom:0; left:0; background:var(--faint); border-radius:4px 0 0 4px; }
+  .qbar b { position:absolute; top:-2px; bottom:-2px; width:3px; background:var(--primary); border-radius:2px; }
+  .qbar u { position:absolute; top:0; bottom:0; left:0; border-right:2px dashed var(--est); }
+  .detail td { background:color-mix(in oklab,var(--muted) 55%,transparent); font-size:11.5px; color:var(--fg-2); white-space:normal; }
+  .detail ul { margin:2px 0; padding-left:16px; }
+  tr.click { cursor:pointer; }
+  .note { color:var(--muted-fg); font-size:12px; line-height:1.65; background:var(--card); border-radius:12px; padding:12px 14px; }
+  .note b { color:var(--fg); }
+  .legend { font-size:11.5px; color:var(--muted-fg); padding:8px 12px; border-top:1px solid var(--border-subtle); }
+</style>
+</head>
+<body>
+<div class="bar"><b>발사 주문 내역 — 대기열 순번 · 앞 물량</b>
+  <span class="seg" id="variant"><button class="on" data-v="A">A 한 열 두 줄</button><button data-v="B">B 숫자 열 여럿</button><button data-v="C">C 순번 칩 + 막대 · 펼침</button></span>
+  <span class="seg" id="fire"><button class="on" data-v="q16">16:00 예약</button><button data-v="n0930">09:00:30 개장차익</button></span>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+</div>
+<div class="wrap" id="wrap"></div>
+<script>
+// 실측값(10/30 · 원본 pcap) — 16:00 은 G4 B6 주문 1건당 1전문 · 09:00:30 은 NXT 공격 주문 체결 묶음.
+// 마감 값 = 16시대 끝(16:59) 기준 대기열 재구성(남의 같은 수량 취소는 모호 → 추정)
+const n = (v) => v.toLocaleString('ko-KR');
+const eok = (w) => (w >= 1e8 ? (w / 1e8).toFixed(2) + '억' : n(Math.round(w / 1e4)) + '만');
+const Q16 = [
+  { srv:'KB120 · 코스닥', rows:[
+    { wire:0, key:'Q160000001 · j0 · R0', name:'SGA솔루션즈', code:'184230', px:2575, qty:16666, fill:0, rank:9, total:265, ahead:68808, end:{ n:4, q:30560 } },
+    { wire:1, key:'Q160000002 · j0 · R0', name:'SGA솔루션즈', code:'184230', px:2575, qty:7766, fill:0, rank:13, total:265, ahead:109238, end:{ n:5, q:47226 } },
+    { wire:2, key:'Q160000001 · j1 · R1', name:'SGA솔루션즈', code:'184230', px:2575, qty:16666, fill:0, rank:17, total:265, ahead:144630, end:{ n:6, q:54992 } },
+    { wire:3, key:'Q160000002 · j1 · R1', name:'SGA솔루션즈', code:'184230', px:2575, qty:7766, fill:0, rank:20, total:265, ahead:177272, end:'cancel' },
+    { wire:4, key:'Q160000001 · j2 · R2', name:'SGA솔루션즈', code:'184230', px:2575, qty:16668, fill:0, rank:25, total:265, ahead:224323, end:'cancel' },
+    { wire:6, key:'뒤탐침 · R−2', name:'SGA솔루션즈', code:'184230', px:1387, qty:1, fill:0, rank:1, total:6, ahead:0, end:{ n:0, q:0 }, probe:true },
+  ]},
+  { srv:'KYOBO119 · 코스닥', rows:[
+    { wire:0, key:'Q160000003 · j0 · R0', name:'SGA솔루션즈', code:'184230', px:2575, qty:16666, fill:0, rank:48, total:265, ahead:547600, end:'cancel' },
+    { wire:1, key:'Q160000003 · j1 · R1', name:'SGA솔루션즈', code:'184230', px:2575, qty:16666, fill:0, rank:52, total:265, ahead:640028, end:'cancel' },
+  ]},
+];
+const N = [
+  { srv:'KB120 · 코스피 / 코스닥 (NXT 09:00:30)', rows:[
+    { wire:0, key:'N · 0', name:'삼성전자', code:'005930', side:'buy', px:222500, qty:22, fill:0, rank:null, inN:1, inQ:4861, inA:1082000000 },
+    { wire:1, key:'A · 0', name:'한화에어로스페이스', code:'012450', side:'sell', px:723000, qty:7, fill:0, rank:null, inN:3, inQ:134, inA:98000000 },
+    { wire:4, key:'N · 4', name:'삼성중공업', code:'010140', side:'buy', px:15310, qty:326, fill:0, rank:null, inN:1, inQ:3417, inA:52000000 },
+    { wire:0, key:'A · 0', name:'로킷헬스케어', code:'376900', side:'sell', px:17910, qty:281, fill:281, rank:1, aheadQ:0, aheadA:0, fillPx:'18,000' },
+    { wire:1, key:'N · 1', name:'ISC', code:'095340', side:'buy', px:160100, qty:20, fill:18, rank:2, aheadQ:2, aheadA:318000, fillPx:'159,300~160,100' },
+    { wire:2, key:'N · 2', name:'티에프이', code:'425420', side:'buy', px:84500, qty:59, fill:59, rank:1, aheadQ:0, aheadA:0, fillPx:'84,300~84,500' },
+  ]},
+];
+
+function sideCell(r){ const s=r.side||'buy'; return `<td class="${s==='buy'?'up':'down'}">${s==='buy'?'매수':'매도'}</td>`; }
+function common(r){ return `<td class="num">${r.wire}</td><td class="dim">${r.key}</td><td><span class="pill acc">접수</span></td><td>${r.name} <span class="dim">${r.code}</span></td>${sideCell(r)}<td class="num">${n(r.px)}</td><td class="num">${n(r.qty)} / ${r.fill?n(r.fill):'—'}</td>`; }
+const HEAD = `<th class="r">wire</th><th>예약 · 조각</th><th>결과</th><th>종목</th><th>구분</th><th class="r">가격</th><th class="r">수량/체결</th>`;
+
+// ── 16:00 ───────────────────────────────────────────
+function q16A(r){ const end = r.end==='cancel' ? `<span class="sub">마감 — 취소됨</span>` : `<span class="sub est">마감 앞 ${r.end.n}건 · ${n(r.end.q)}주 · ${eok(r.end.q*r.px)} (추정)</span>`;
+  return `<td><b>${r.rank}번째</b> · 앞 ${n(r.ahead)}주 · ${eok(r.ahead*r.px)}${end}</td>`; }
+function q16B(r){ const e = r.end==='cancel' ? `<td class="dim" colspan="2">취소됨</td>` : `<td class="num est">${r.end.n}건 · ${n(r.end.q)}</td><td class="num est">${eok(r.end.q*r.px)}</td>`;
+  return `<td class="num"><b>${r.rank}</b><span class="dim"> / ${r.total}</span></td><td class="num">${n(r.ahead)}</td><td class="num">${eok(r.ahead*r.px)}</td>${e}`; }
+function q16C(r){ const totQ = r.probe?6:2130000; const pct = Math.min(100, r.ahead/totQ*100);
+  const endPct = r.end==='cancel'||!r.end.q ? null : Math.min(100, r.end.q/totQ*100);
+  return `<td><span class="rank ${r.rank===1?'first':''}">#${r.rank}</span><span class="qbar"><i style="width:${pct}%"></i>${endPct!==null?`<u style="width:${endPct}%"></u>`:''}<b style="left:${pct}%"></b></span></td>`; }
+function q16Detail(r){ return `<tr class="detail"><td colspan="9"><ul>
+  <li>접수 시점: 우리 앞 <b>${r.rank-1}건 · ${n(r.ahead)}주 · ${eok(r.ahead*r.px)}</b> (같은 가격 ${n(r.px)} 매수 대기열, 16:00:00.098 첫 주문부터 셈)</li>
+  <li>${r.end==='cancel'?'마감 전 취소됨':`마감(16:59) 때 앞에 남은 것: <span class="est">${r.end.n}건 · ${n(r.end.q)}주 · ${eok(r.end.q*r.px)} — 추정(남의 같은 수량 취소 중 어느 주문인지 모호한 경우가 있음)</span>`}</li>
+  <li class="dim">근거: KRX G4 호가 전문 seq · 우리 조각 = 잔량 +${n(r.qty)} 인 전문</li></ul></td></tr>`; }
+
+// ── 09:00:30 ────────────────────────────────────────
+function nA(r){ if (r.rank===null) return `<td><b class="down" style="color:var(--bad)">미체결</b> · 앞선 ${r.inN}건이 한도 안 ${n(r.inQ)}주 · ${eok(r.inA)} 가져감<span class="sub">적어도 ${r.inN+1}번째 이후</span></td>`;
+  return `<td><b>${r.rank}번째 체결</b> · 앞 ${n(r.aheadQ)}주${r.aheadA?' · '+eok(r.aheadA):''}<span class="sub">체결 ${n(r.fill)}/${n(r.qty)} @ ${r.fillPx}</span></td>`; }
+function nB(r){ if (r.rank===null) return `<td class="num" style="color:var(--bad)">미체결</td><td class="num">${r.inN}건 · ${n(r.inQ)}</td><td class="num">${eok(r.inA)}</td><td class="num dim">0 / ${n(r.qty)}</td>`;
+  return `<td class="num"><b>${r.rank}</b></td><td class="num">${r.rank-1}건 · ${n(r.aheadQ)}</td><td class="num">${r.aheadA?eok(r.aheadA):'—'}</td><td class="num">${n(r.fill)} / ${n(r.qty)}</td>`; }
+function nC(r){ if (r.rank===null) return `<td><span class="rank miss">늦음</span> <span class="dim">앞 ${r.inN}건</span></td>`;
+  return `<td><span class="rank ${r.rank===1?'first':''}">#${r.rank}</span> <span class="dim">${n(r.fill)}/${n(r.qty)}</span></td>`; }
+function nDetail(r){ return `<tr class="detail"><td colspan="9"><ul>${r.rank===null
+  ? `<li>체결 없음 — 09:00:30 뒤 같은 방향 공격 주문 <b>${r.inN}건</b>이 우리 한도(${n(r.px)}) 안 물량 <b>${n(r.inQ)}주 · ${eok(r.inA)}</b>를 먼저 가져감</li><li class="dim">우리 주문은 시세에 안 보여서 정확한 순번은 모름 — 「적어도 ${r.inN+1}번째」</li>`
+  : `<li>09:00:30 뒤 같은 방향 공격 주문 중 <b>${r.rank}번째</b>로 체결 · 앞선 ${r.rank-1}건이 한도 안 ${n(r.aheadQ)}주 가져감</li><li>체결 ${n(r.fill)}/${n(r.qty)}주 @ ${r.fillPx}</li><li class="dim">근거: NXT 체결 전문 묶음(seq 연속 · µs 인접) = 우리 체결 기록 수량 순서와 일치</li>`}</ul></td></tr>`; }
+
+function table(group, v, fire){
+  const q = fire==='q16';
+  const extraHead = { A:`<th>${q?'대기열 (접수 때 · 마감 때)':'체결 순번'}</th>`,
+    B: q ? `<th class="r">순번</th><th class="r">접수 때 앞 (주)</th><th class="r">금액</th><th class="r">마감 때 앞 (추정)</th><th class="r">금액</th>`
+         : `<th class="r">체결 순번</th><th class="r">앞 (한도 안)</th><th class="r">금액</th><th class="r">체결</th>`,
+    C:`<th>${q?'순번 · 대기열 위치':'체결 순번'}</th>` }[v];
+  const cell = (r) => (q ? {A:q16A,B:q16B,C:q16C} : {A:nA,B:nB,C:nC})[v](r);
+  const rows = group.rows.map((r,i) => {
+    const tr = `<tr class="${v==='C'?'click':''}" data-i="${i}">${common(r)}${cell(r)}</tr>`;
+    return v==='C' && i===0 ? tr + (q?q16Detail(r):nDetail(r)) : tr;
+  }).join('');
+  return `<div class="card"><div class="hd">${group.srv}<small>${q?'16:00:00 KRX 시간외':'09:00:30 NXT'}</small></div><div class="scroll"><table><thead><tr>${HEAD}${extraHead}</tr></thead><tbody>${rows}</tbody></table></div>
+  ${v==='C'?'<div class="legend">행을 누르면 펼침(첫 행 펼친 상태) · 막대: 회색 = 접수 때 앞 물량 · 주황 점선 = 마감 때 앞 남은 물량(추정) · 파란 선 = 우리 자리</div>':''}</div>`;
+}
+const DESC = {
+  A:'기존 표 끝에 「대기열」 열 하나. 첫 줄 = 접수 때(정확), 둘째 줄 작은 글씨 = 마감 때(추정은 주황). 09:00:30 은 「n번째 체결」 / 「미체결 · 앞선 n건이 …」. 폰은 표 가로 스크롤 그대로.',
+  B:'숫자 열 4~5개(순번 / 앞 주 / 금액 / 마감 앞 / 금액). 열끼리 세로로 비교하기 쉽지만 표가 넓어진다.',
+  C:'순번 칩(#9) + 대기열 막대만 표에 두고, 행을 누르면 아래로 설명 펼침. 표는 좁지만 숫자를 보려면 눌러야 한다.',
+};
+function render(){
+  const v=document.querySelector('#variant .on').dataset.v, fire=document.querySelector('#fire .on').dataset.v;
+  const groups = fire==='q16'?Q16:N;
+  document.getElementById('wrap').innerHTML = `<div><p class="vt">${v} — ${{A:'한 열 두 줄',B:'숫자 열 여럿',C:'순번 칩 + 막대 · 펼침'}[v]}</p><p class="vd">${DESC[v]}</p>${groups.map(g=>table(g,v,fire)).join('')}</div>
+  <div class="note"><b>공통</b> — 값은 밤 틱 변환이 계산해 DB 에 넣는다 → 당일 저녁(변환 뒤)부터 보인다. 「마감 때」 = 그 세션 끝 기준.
+  16:00 순번은 같은 가격 매수 대기열에서 16:00:00 첫 주문부터 센 것(우리 다른 조각 · 탐침 포함). 앞 물량 = 접수 직전 그 가격 잔량(더 좋은 가격 포함).
+  09:00:30 순번은 같은 방향 공격 주문(체결 묶음) 중 몇 번째인지. 미체결이면 순번 대신 「앞선 n건이 한도 안 X주 가져감」.
+  예시 숫자는 10/30 실측값(일부 행만).</div>`;
+}
+for (const id of ['variant','fire','theme','width']) document.getElementById(id).addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+  for (const x of e.currentTarget.children) x.classList.toggle('on', x===b);
+  if(id==='theme') document.documentElement.dataset.theme=b.dataset.v; else if(id==='width') document.body.classList.toggle('phone', b.dataset.v==='phone'); else render(); });
+render();
+</script>
+</body>
+</html>
