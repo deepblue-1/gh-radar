@@ -140,15 +140,16 @@ echo "✓ secret: $SECRET_NAME (ENABLED 버전 있음)"
 # ── ⑤ amd64 빌드 + push ───────────────────────────────────────
 SHA=$(git rev-parse --short HEAD)
 # IN-33 — 이미지 태그 · APP_VERSION 은 HEAD SHA 인데 빌드는 작업 트리다. 빌드 입력(Dockerfile COPY 경로)이 HEAD 와 다르면
-#   운영 이미지와 커밋이 어긋나므로 막는다. 일부러 그대로 올리려면 ALLOW_DIRTY=1 — 태그 · APP_VERSION 에 -dirty 를 붙인다.
+#   운영 이미지와 커밋이 어긋나므로 막는다. 일부러 그대로 올리려면 ALLOW_DIRTY=1 — 태그 · APP_VERSION 에 -dirty-<epoch초> 를 붙인다
+#   (R2-IN-07 — 같은 HEAD 에서 두 번 dirty 배포해도 태그가 겹쳐 앞 이미지를 덮지 않게 매번 다른 접미).
 BUILD_PATHS=(package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tickgw)
 if [[ -n "$(git status --porcelain -- "${BUILD_PATHS[@]}")" ]]; then
   if [[ "${ALLOW_DIRTY:-0}" == "1" ]]; then
-    SHA="${SHA}-dirty"
+    SHA="${SHA}-dirty-$(date +%s)"
     echo "⚠ 빌드 입력이 HEAD 와 다르다 — ALLOW_DIRTY=1 · 태그 ${SHA}"
   else
     git status --short -- "${BUILD_PATHS[@]}" >&2
-    die "빌드 입력(${BUILD_PATHS[*]})에 커밋 안 된 변경이 있다 — 커밋하거나 깨끗한 worktree 에서 배포 (그대로 올리려면 ALLOW_DIRTY=1 · 태그 -dirty)" 2
+    die "빌드 입력(${BUILD_PATHS[*]})에 커밋 안 된 변경이 있다 — 커밋하거나 깨끗한 worktree 에서 배포 (그대로 올리려면 ALLOW_DIRTY=1 · 태그 -dirty-<epoch초>)" 2
   fi
 fi
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
@@ -219,9 +220,13 @@ log "비밀 획득 (값은 기록하지 않음)"
 unset TG_SECRET
 
 # ── 컨테이너 교체 — 되돌림용으로 교체 전 이미지를 적어 두고 kill → 3초(Ops Agent 가 옛 로그 끝까지 읽게) → rm ──
-PREV_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)"
+# 되돌림은 태그가 아니라 이미지 ID(sha256:…)로 잡는다(R2-IN-07) — 같은 태그를 다시 pull 해 태그가 새 이미지로 옮겨 가도
+#   교체 전 컨테이너가 쓰던 이미지 그 자체로 되돌린다. 같은 이미지(ID 같음)면 되돌릴 것이 없다.
+PREV_IMAGE="$(docker inspect --format '{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
+PREV_REF="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)"
+TARGET_ID="$(docker image inspect --format '{{.Id}}' "$TARGET_IMAGE" 2>/dev/null || true)"
 if [ -n "$PREV_IMAGE" ]; then
-  log "교체 전 이미지: $PREV_IMAGE"
+  log "교체 전 이미지: $PREV_REF ($PREV_IMAGE)"
   docker kill "$CONTAINER" >/dev/null 2>&1 || true
   sleep 3
 fi
@@ -263,15 +268,15 @@ wait_health() {
 fail_rollback() {
   echo "  [vm] $1" >&2
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-  if [ -n "$PREV_IMAGE" ] && [ "$PREV_IMAGE" != "$TARGET_IMAGE" ]; then
-    log "되돌림: 교체 전 이미지로 다시 기동 — $PREV_IMAGE"
+  if [ -n "$PREV_IMAGE" ] && [ "$PREV_IMAGE" != "$TARGET_ID" ]; then
+    log "되돌림: 교체 전 이미지로 다시 기동 — $PREV_REF ($PREV_IMAGE)"
     if run_container "$PREV_IMAGE" && wait_health; then
       log "되돌림 OK — 옛 tickgw 가 돈다(새 이미지 배포는 실패 · 종료 1)"
     else
       echo "  [vm] 되돌림도 실패 — tickgw 없음(server /api/ticks/live 502). docker logs $CONTAINER 확인" >&2
     fi
   else
-    echo "  [vm] 되돌릴 교체 전 이미지가 없다(첫 배포 · 같은 태그) — tickgw 없음(server /api/ticks/live 502)" >&2
+    echo "  [vm] 되돌릴 교체 전 이미지가 없다(첫 배포 · 같은 이미지 ID) — tickgw 없음(server /api/ticks/live 502)" >&2
   fi
   exit 1
 }
