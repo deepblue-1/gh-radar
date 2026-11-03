@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 38 목업 — 틱뷰어 우리 주문·체결 표시 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* gh-radar globals.css 토큰 사본(019·020 과 같음) + 이 phase 가 새로 쓰는 「우리」 토큰 --mine */
+.f {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border-subtle:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f1ff; --flat:#6b7684; --team:#a234c7; --team-bg:#f9f0fc;
+  --vi:#d97706; --vi-bg:#fff4e6; --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da; --primary:#3182f6; --primary-fg:#fff;
+  --mine:#0f9d8a; --mine-bg:#e3f7f3;
+  --font:'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); flex: none; overflow: hidden; display: flex; flex-direction: column;
+}
+.f.dark { --bg:#0a0a0a; --surface:#0a0a0a; --card:#151515; --muted:#2d2d2d; --raised-2:#3d3d3d; --fg:#ffffff; --fg-2:#e4e4e4; --muted-fg:#9e9e9e; --faint:#636363;
+  --border-subtle:#3d3d3d; --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16); --flat:#9e9e9e; --team:#c353e5; --team-bg:rgba(174,61,209,.16);
+  --vi:#ffb020; --vi-bg:rgba(255,176,32,.16); --pill-on-bg:#4e4e4e; --pill-on-fg:#fff; --primary:#3485fa; --mine:#2fd3bb; --mine-bg:rgba(47,211,187,.16); }
+.f.phone { width: 390px; height: 820px; }
+.f.desktop { width: 1280px; height: 820px; }
+.up { color: var(--up); } .down { color: var(--down); } .mf { color: var(--muted-fg); } .mine-c { color: var(--mine); } .team-c { color: var(--team); }
+.num { font-variant-numeric: tabular-nums; }
+
+.hdr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px 6px; }
+.phone .hdr { padding: 10px 12px 4px; gap: 6px 10px; }
+.hdr h1 { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.phone .hdr h1 { font-size: 15px; }
+.src { display: inline-flex; align-items: center; background: var(--muted); color: var(--muted-fg); border-radius: 6px; padding: 2px 8px; font-size: 11px; white-space: nowrap; font-weight: 500; }
+.pill { font: inherit; font-size: 12.5px; font-weight: 600; background: var(--card); color: var(--fg); border: 0; border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; }
+.seg button { font: inherit; font-size: 11.5px; font-weight: 600; border: 0; background: transparent; color: var(--fg-2); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.seg button.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.clock { margin-left: auto; display: flex; align-items: baseline; gap: 8px; }
+.phone .clock { margin-left: 0; flex-basis: 100%; }
+.clock b { font-size: 20px; font-weight: 700; }
+.clock span { font-size: 11.5px; color: var(--muted-fg); }
+.mine-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--mine); background: var(--mine-bg); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.mine-pill button { font: inherit; font-size: 11px; border: 0; background: transparent; color: var(--mine); cursor: pointer; padding: 0 2px; font-weight: 700; }
+
+/* 차트(가격 판 하나만 — 019 D 3판 중 첫 판) */
+.chart { margin: 0 16px 8px; background: var(--card); border-radius: 14px; padding: 8px 10px 4px; }
+.phone .chart { margin: 0 12px 6px; }
+.chart svg { display: block; width: 100%; height: 150px; }
+.phone .chart svg { height: 120px; }
+.legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--muted-fg); padding: 2px 4px 2px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+
+.body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0,1fr) 340px; gap: 10px; padding: 0 16px 10px; }
+.phone .grid { display: flex; flex-direction: column; padding: 0 12px 10px; }
+.phone .grid > .p-lad, .phone .grid > .right { display: none; }
+.panel { background: var(--card); border-radius: 14px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.phone .panel.p-msg { flex: 1; }
+.p-lad { background: transparent; box-shadow: inset 0 0 0 1px var(--border-subtle); color: var(--faint); align-items: center; justify-content: center; text-align: center; font-size: 11.5px; line-height: 1.7; padding: 16px; }
+.p-lad b { color: var(--muted-fg); font-weight: 600; display: block; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; font-weight: 700; border-bottom: 1px solid var(--border-subtle); flex: none; flex-wrap: wrap; }
+.ph small { font-weight: 500; color: var(--muted-fg); font-size: 11px; }
+.ph .seg { margin-left: auto; }
+.ph .seg button { padding: 3px 9px; font-size: 11px; }
+.tb { font: inherit; font-size: 12px; font-weight: 600; height: 32px; border-radius: 10px; border: 0; background: var(--muted); color: var(--fg); padding: 0 12px; cursor: pointer; }
+.tb.xs { height: 22px; font-size: 10.5px; padding: 0 8px; border-radius: 7px; }
+.tb.xs.mine { color: var(--mine); background: var(--mine-bg); }
+.pb { flex: 1; min-height: 0; overflow: auto; }
+.right { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+.right .panel { flex: none; }
+
+/* 전문 목록 — 020 A 행 그룹 그대로 */
+table.msg { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.msg th { font-size: 10.5px; font-weight: 600; color: var(--muted-fg); background: var(--muted); padding: 5px 8px; text-align: left; position: sticky; top: 0; white-space: nowrap; z-index: 1; }
+.msg td { height: 26px; padding: 0 8px; white-space: nowrap; border-top: 1px solid var(--border-subtle); cursor: pointer; position: relative; }
+.phone .msg td, .phone .msg th { padding: 0 5px; }
+.msg tr:hover td { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+.msg tr.sel td { background: color-mix(in oklab, var(--fg) 12%, transparent); }
+.msg tr.sel:not(.grp) td:first-child { box-shadow: inset 3px 0 0 var(--fg); }
+.msg td.t { color: var(--muted-fg); font-size: 11px; }
+.msg td.t b { color: var(--fg); font-weight: 600; }
+.msg td.t.dim b { color: var(--muted-fg); font-weight: 500; }
+.msg td.s { color: var(--muted-fg); font-size: 10.5px; }
+.msg td.d { overflow: hidden; text-overflow: ellipsis; max-width: 0; width: 100%; }
+.badge { display: inline-flex; align-items: center; height: 17px; border-radius: 4px; padding: 0 5px; font-size: 9.5px; font-weight: 700; border: 1px solid transparent; vertical-align: middle; }
+.bA3 { background: var(--muted); color: var(--fg); }
+.bB6 { background: transparent; color: var(--muted-fg); border-color: var(--border-subtle); }
+.chip { display: inline-flex; align-items: center; height: 16px; border-radius: 4px; padding: 0 5px; font-size: 9.5px; font-weight: 700; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+.chip.team { background: var(--team-bg); color: var(--team); }
+.chip.norm { background: var(--muted); color: var(--muted-fg); }
+.chip.close { background: transparent; color: var(--muted-fg); border: 1px dashed var(--border-subtle); margin-left: 0; margin-right: 6px; }
+.chip.mine { background: var(--mine-bg); color: var(--mine); }
+.chip.mine.est { background: transparent; border: 1px dashed var(--mine); }
+.chip.ev { background: transparent; color: var(--mine); border: 1px dashed var(--mine); }
+.chip.anchor { background: transparent; color: var(--muted-fg); border: 1px dotted var(--faint); }
+.buy { color: var(--up); font-weight: 600; } .sellc { color: var(--down); font-weight: 600; }
+.msg tr.team { --rail: var(--team); } .msg tr.norm { --rail: var(--faint); }
+.msg tr.grp td:first-child, .msg tr.gft td:first-child { box-shadow: inset 3px 0 0 var(--rail); }
+.msg tr.grp:not(.first) td, .msg tr.gft td { border-top-color: transparent; }
+.msg tr.gft td { height: 22px; font-size: 10.5px; color: var(--muted-fg); padding-left: 14px; }
+.msg tr.runb td { background: color-mix(in oklab, var(--team) 8%, transparent); }
+/* 주문 시각 줄(A·B) — 020 「거래소순 자리」 점선 줄 동형, 색만 우리 */
+.msg tr.ord td { height: 22px; font-size: 10.5px; color: var(--mine); border-top: 1px dashed color-mix(in oklab, var(--mine) 60%, transparent); background: color-mix(in oklab, var(--mine) 7%, transparent); }
+.msg tr.ord td b { color: var(--mine); }
+.msg tr.ord.sel td { background: color-mix(in oklab, var(--mine) 18%, transparent); }
+/* 우리 체결 행 배경(옅음 · A·B) */
+.msg tr.ours td { background: color-mix(in oklab, var(--mine) 6%, transparent); }
+.msg tr.ours.sel td { background: color-mix(in oklab, var(--fg) 12%, transparent); }
+/* B · 둘째 레일(목록 왼쪽 바깥 10px 띠) */
+.vb .msg td.rl { width: 14px; min-width: 14px; padding: 0; border-top-color: transparent; cursor: default; }
+.vb .msg th.rl { padding: 0; width: 14px; }
+.rail { position: absolute; left: 5px; top: 0; bottom: 0; width: 3px; background: var(--mine); }
+.rail.est { background: repeating-linear-gradient(to bottom, var(--mine) 0 3px, transparent 3px 6px); }
+.rail.top { top: 50%; } .rail.bot { bottom: 50%; }
+.rk { position: absolute; left: 1px; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; background: var(--card); border: 2px solid var(--mine); }
+.rk.fill { background: var(--mine); border-radius: 2px; transform: rotate(45deg); width: 9px; height: 9px; left: 2px; margin-top: -4.5px; }
+.rk.ord { background: var(--mine); }
+.rk.anc { width: 7px; height: 7px; left: 3px; margin-top: -3.5px; border-color: var(--faint); }
+/* C · 점만 */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+.dot.fill { background: var(--mine); border-radius: 1px; transform: rotate(45deg); width: 7px; height: 7px; }
+.dot.fill.est { background: transparent; border: 1.5px dashed var(--mine); }
+.dot.ev { border: 1.5px solid var(--mine); }
+.dot.anc { border: 1.5px dotted var(--faint); width: 6px; height: 6px; }
+
+/* 카드 */
+.card { padding: 12px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.kv .k { font-size: 10.5px; color: var(--muted-fg); }
+.kv .v { font-size: 15px; font-weight: 700; line-height: 1.25; }
+.kv .v small { font-size: 11px; color: var(--muted-fg); font-weight: 500; }
+.sub { font-size: 11px; color: var(--muted-fg); line-height: 1.5; margin-top: 8px; }
+.shape { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; flex-wrap: wrap; }
+.shape .chip { margin-left: 0; height: 18px; font-size: 10.5px; }
+.sect { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.sect h4 { margin: 0 0 6px; font-size: 11px; color: var(--mine); font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.sect h4 small { color: var(--muted-fg); font-weight: 500; }
+.ln { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; padding: 4px 0; border-top: 1px dashed var(--border-subtle); }
+.ln:first-of-type { border-top: 0; }
+.ln .k { color: var(--muted-fg); flex: none; }
+.ln .v { text-align: right; min-width: 0; }
+.ln .v b { font-weight: 600; }
+.lk { font: inherit; font-size: 10.5px; font-weight: 700; color: var(--mine); background: var(--mine-bg); border: 0; border-radius: 6px; padding: 2px 7px; cursor: pointer; margin-left: 4px; white-space: nowrap; }
+.lk.ghost { background: transparent; border: 1px dashed var(--mine); }
+table.rl2 { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+.rl2 th { font-size: 10px; color: var(--muted-fg); font-weight: 600; text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--border-subtle); }
+.rl2 th:first-child, .rl2 td:first-child { text-align: left; }
+.rl2 td { padding: 0 6px; height: 24px; text-align: right; white-space: nowrap; border-top: 1px solid var(--border-subtle); cursor: pointer; }
+.rl2 tr.sel td { background: color-mix(in oklab, var(--mine) 12%, transparent); }
+.rl2 td.c { text-align: left; }
+.foot { font-size: 10.5px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">표시 모양</span><button data-v="a" class="on">A · 행 칩</button><button data-v="b">B · 둘째 레일(연결 띠)</button><button data-v="c">C · 차트 · 카드 중심</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="desktop" class="on">데스크톱 1280</button><button data-w="phone">폰 390</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div class="g"><span class="l">커서</span><button data-c="7" class="on">부분 체결(팀 조각 안)</button><button data-c="14">추정 체결</button><button data-c="20">수동 주문</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"><div class="f dark desktop" id="frame"></div></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const fN=n=>Math.round(n).toLocaleString('ko-KR');
+function fKRW(v){ const a=Math.abs(v); if(a>=1e8) return (a/1e8).toFixed(a>=1e10?0:2)+'억'; if(a>=1e4) return fN(a/1e4)+'만'; return fN(a); }
+const MN='−';
+// ── 시나리오 (10/30 격자 실측 모양 본뜸 · 값은 가정) — 한선엔지니어링 101360 · KRX · 09:07:49~09:08:42 ──
+// 우리 주문 4건: #1 선매수(근거 호가 · 부분 체결 300/1,064 + 500/500) · #2 체결매도(근거 체결 · 추정 — 12ms 안 동가 후보 2) ·
+// #3 자동매도 주기(근거 = 누적 before→after 구간) · #4 수동(근거 없음 · 주문 시각 위치만)
+const ORDERS={
+ 1:{id:1,no:'0001234',gw:'KB120',acct:'···1234',side:'B',kind:'선매수',px:17100,qty:800,t:'09:07:51.812',cond:'매도잔량 ≤ 5,000',actual:'3,200',ev:{kind:'호가',row:3,text:'09:07:50.980 매도1 17,100 ×3,200'},anchor:{row:4,text:'09:07:51.340 17,100 +120 · 누적 1,234,560'},fills:[{row:7,our:300,total:1064,ms:202},{row:10,our:500,total:500,ms:229}]},
+ 2:{id:2,no:'0002201',gw:'KYOBO119',acct:'···5678',side:'S',kind:'체결매도',px:17100,qty:700,t:'09:08:03.519',cond:'단건 체결 ≥ 3,000',actual:'3,400',ev:{kind:'체결',row:12,text:'09:08:03.502 17,150 +3,400'},anchor:{row:12,text:'같은 체결'},fills:[{row:14,our:700,total:700,ms:12,est:2}]},
+ 3:{id:3,no:'0002310',gw:'KB120',acct:'···1234',side:'S',kind:'자동매도 · 주기',px:17050,qty:300,t:'09:08:20.004',cond:'주기 거래량 12,400 × 2%',actual:'누적 1,201,000 → 1,213,400',ev:{kind:'체결 구간',rows:[12,15,16],text:'09:08:03.502 ~ 09:08:19.880 · 4건 12,400주'},anchor:{row:16,text:'09:08:19.880 17,050 +600'},fills:[{row:18,our:300,total:300,ms:126}]},
+ 4:{id:4,no:'0002355',gw:'KB120',acct:'···1234',side:'B',kind:'수동',px:17000,qty:1000,t:'09:08:41.200',cond:null,actual:null,ev:null,anchor:null,fills:[{row:20,our:1000,total:1000,ms:790}]},
+};
+// 행: k = m(전문) · o(주문 시각 줄). grp = 주문 묶음(020 A) · team = 팀 · ours = {ord, our, total, est} · ev = 근거 주문 id · anchor = 앵커 주문 id
+const ROWS=[
+ {k:'m',t:'09:07:49.102',type:'B6',seq:1181201,d:'<span class="mf">매도1</span> <span class="num">17,100</span><span class="mf num"> ×5,840 (998만)</span> <span class="mf">매수1</span> <span class="num">17,050</span><span class="mf num"> ×2,100 (358만)</span>'},
+ {k:'m',t:'09:07:50.311',type:'A3',seq:1181202,d:a3(17100,600,'B',false)},
+ {k:'m',t:'09:07:50.660',type:'B6',seq:1181203,d:b6(17100,4120,17050,2310)},
+ {k:'m',t:'09:07:50.980',type:'B6',seq:1181204,d:b6(17100,3200,17050,2310),ev:1},
+ {k:'m',t:'09:07:51.340',type:'A3',seq:1181205,d:a3(17100,120,'B',true),anchor:1},
+ {k:'o',ord:1},
+ {k:'m',t:'09:07:51.835',type:'B6',seq:1181206,d:b6(17100,3080,17050,2310)},
+ {k:'m',t:'09:07:52.014',type:'A3',seq:1181207,d:a3(17100,1064,'B',true),grp:'team',first:true,ours:{ord:1,our:300,total:1064}},
+ {k:'m',t:'09:07:52.060',type:'A3',seq:1181208,d:a3(17100,220,'B',false),grp:'team'},
+ {k:'m',t:'09:07:52.090',type:'B6',seq:1181209,d:'<span class="chip close">닫는 B6</span>'+b6(17100,1796,17050,2310),grp:'team'},
+ {k:'f',team:true,text:'┗ 2조각 1단 · 1,284주 · 2,196만 · 46ms',chip:'팀 SMP'},
+ {k:'m',t:'09:07:52.041',type:'A3',seq:1181210,d:a3(17100,500,'B',false),ours:{ord:1,our:500,total:500}},
+ {k:'m',t:'09:07:52.120',type:'B6',seq:1181211,d:b6(17100,1296,17050,2310)},
+ {k:'m',t:'09:08:03.502',type:'A3',seq:1181240,d:a3(17150,3400,'B',false),ev:2,range:3},
+ {k:'o',ord:2},
+ {k:'m',t:'09:08:03.531',type:'A3',seq:1181241,d:a3(17100,700,'S',false),ours:{ord:2,our:700,total:700,est:2},range:3},
+ {k:'m',t:'09:08:03.539',type:'A3',seq:1181242,d:a3(17100,700,'S',false),range:3},
+ {k:'m',t:'09:08:19.880',type:'A3',seq:1181260,d:a3(17050,600,'B',false),range:3,anchor:3},
+ {k:'o',ord:3},
+ {k:'m',t:'09:08:20.130',type:'A3',seq:1181262,d:a3(17050,300,'S',false),ours:{ord:3,our:300,total:300}},
+ {k:'m',t:'09:08:20.300',type:'B6',seq:1181263,d:b6(17050,2440,17000,5100)},
+ {k:'o',ord:4},
+ {k:'m',t:'09:08:41.990',type:'A3',seq:1181290,d:a3(17000,1000,'B',false),ours:{ord:4,our:1000,total:1000}},
+ {k:'m',t:'09:08:42.010',type:'B6',seq:1181291,d:b6(17050,2440,17000,4100)},
+];
+function a3(px,q,side,zz){ const b=side==='B'; return '<b class="num up">'+fN(px)+'</b> <span class="num '+(b?'buy':'sellc')+'">'+(b?'+':MN)+fN(q)+'</span><span class="mf num"> ('+fKRW(px*q)+')</span> <span class="mf">'+(b?'매수':'매도')+(zz?' · 0/0':'')+'</span>'; }
+function b6(ap,aq,bp,bq){ return '<span class="mf">매도1</span> <span class="num">'+fN(ap)+'</span><span class="mf num"> ×'+fN(aq)+' ('+fKRW(ap*aq)+')</span> <span class="mf">매수1</span> <span class="num">'+fN(bp)+'</span><span class="mf num"> ×'+fN(bq)+' ('+fKRW(bp*bq)+')</span>'; }
+// 행 번호(ROWS 색인) ↔ 위 ORDERS 의 row 참조는 ROWS 색인이다(0 기준). 데스크 커서 기본 = 7(팀 조각 안 우리 300주).
+const st={v:'a',w:'desktop',t:'dark',cur:7};
+const DESC={
+ a:'<b>A · 행 칩</b> — 우리 체결 A3 행 끝에 <b>「우리 300 / 1,064 ···1234」</b> 칩(새 색 <b>--mine</b> 민트 · 팀 보라·VI 주황과 구분), 행 바탕 옅은 민트. 근거 전문 행에는 점선 「근거 #1 호가」 칩, 「주문 직전 마지막 체결」(cum_volume 앵커)에는 점 「직전 체결」 칩. 주문 시각 자리에는 020 「거래소순 자리」 동형의 <b>점선 「주문」 줄</b>(조건 · 실제 · 근거 ↑). 추정은 「추정 ·2」 점선 칩. 차트는 우리 체결 ◆ 만.',
+ b:'<b>B · 둘째 레일</b> — 목록 맨 왼쪽에 14px 띠 칸을 두고 우리 주문마다 <b>근거 ○ → 주문 ● → 체결 ◆</b> 를 민트 세로선으로 잇는다(추정은 점선 띠). 행 안 글자는 최소(「300/1,064」 작은 칩만) — 어디서 시작해 어디서 끝났는지가 띠로 읽힌다. 주문 줄은 A 와 같다. 차트는 근거~체결 구간에 옅은 띠 + ◆.',
+ c:'<b>C · 차트 · 카드 중심</b> — 목록은 seq 칸 앞 <b>작은 표식</b>(◆ 체결 · ○ 근거 · ◌ 앵커)만, 주문 줄 없음(주문 시각은 차트 · 카드). 차트에 우리 체결 ◆ 크게 + 근거 ○ 를 곡선으로 이어 「이 전문을 보고 나갔다」 를 차트에서 보여 준다. 「이 주문」 카드 아래 <b>「우리 주문」 섹션</b>이 주인공 — 조건 · 근거 보기 › · 앵커 보기 › · 체결 목록 · ‹ › 우리 주문 넘기기.'
+};
+function build(){
+  const frame=$('#frame'); frame.className='f '+st.t+' '+st.w+' v'+st.v;
+  frame.innerHTML='<div class="body">'+hdr()+chart()+'<div class="grid">'+
+   '<div class="panel p-lad"><div><b>호가 10단</b>019 그대로<br>(생략 · 폭만 유지)</div></div>'+
+   '<div class="panel p-msg"><div class="ph">전문 목록 <small>24건 · 우리 체결 5건 · 주문 4건</small>'+(st.v!=='c'?'<button class="tb xs mine" style="margin-left:6px">◆ 다음 우리 체결</button>':'')+'<div class="seg"><button>수신순</button><button class="on">거래소순</button></div></div><div class="pb" data-role="msg">'+list()+'</div></div>'+
+   '<div class="right"><div class="panel">'+card()+'</div></div></div></div>';
+  $('#desc').innerHTML=DESC[st.v];
+  $$('#nav [data-v]').forEach(b=>b.classList.toggle('on',b.dataset.v===st.v));
+  $$('#nav [data-w]').forEach(b=>b.classList.toggle('on',b.dataset.w===st.w));
+  $$('#nav [data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===st.t));
+  $$('#nav [data-c]').forEach(b=>b.classList.toggle('on',+b.dataset.c===st.cur));
+  const box=$('[data-role=msg]',frame), row=$('tr.sel',box); if(row) box.scrollTop=Math.max(0,row.offsetTop-box.clientHeight/2);
+}
+function hdr(){ const r=ROWS[st.cur]; const t=r.k==='o'?ORDERS[r.ord].t:r.t;
+  return '<div class="hdr"><h1>한선엔지니어링 <small class="mf" style="font-size:12px;font-weight:500">101360</small> <span class="src">과거 · 격자</span></h1><button class="pill">2026-10-30</button><div class="seg"><button class="on">KRX</button><button>NXT</button></div><span class="mine-pill">◆ 우리 체결 5 · 주문 4 <button title="이전 우리 체결">‹</button><button title="다음 우리 체결">›</button></span><div class="clock"><b class="num">'+t+'</b><span class="num">seq '+(r.k==='o'?'—':fN(r.seq))+'</span></div></div>'; }
+// 차트 — 가격 선 + 팀 원(보라) + 우리 ◆(민트) + 근거 ○(C 연결 · B 띠)
+function chart(){
+  const W=1000,H=150, x=i=>40+i*((W-60)/23), py=p=>H-20-(p-16950)/(17200-16950)*(H-40);
+  const prices=[17100,17100,17100,17100,17100,17100,17100,17100,17100,17100,17100,17100,17100,17150,17150,17100,17100,17050,17050,17050,17050,17050,17000,17000];
+  let d=''; prices.forEach((p,i)=>d+=(i?'L':'M')+x(i)+' '+py(p)); 
+  let s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" style="font-family:inherit">';
+  s+='<line x1="40" x2="'+(W-20)+'" y1="'+py(17100)+'" y2="'+py(17100)+'" stroke="var(--border-subtle)" stroke-dasharray="3 3"/>';
+  if(st.v==='b'){ [[3,10],[12,14],[12,18],[21,22]].forEach(([a,b])=>{ s+='<rect x="'+x(a)+'" y="12" width="'+(x(b)-x(a))+'" height="'+(H-32)+'" fill="var(--mine)" fill-opacity=".08"/>'; }); }
+  s+='<path d="'+d+'" fill="none" stroke="var(--fg-2)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>';
+  // 팀 원(기존)
+  s+='<circle cx="'+x(7)+'" cy="'+py(17100)+'" r="13" fill="none" stroke="var(--team)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+  s+='<circle cx="'+x(13)+'" cy="'+py(17150)+'" r="17" fill="none" stroke="var(--team)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+  const R=st.v==='c'?8:6;
+  const dia=(i,p,est)=>'<rect x="'+(x(i)-R)+'" y="'+(py(p)-R)+'" width="'+(2*R)+'" height="'+(2*R)+'" transform="rotate(45 '+x(i)+' '+py(p)+')" fill="'+(est?'var(--card)':'var(--mine)')+'" stroke="var(--mine)" stroke-width="1.6" '+(est?'stroke-dasharray="3 2"':'')+' vector-effect="non-scaling-stroke"/>';
+  const evc=(i,p)=>'<circle cx="'+x(i)+'" cy="'+py(p)+'" r="'+(R-1)+'" fill="var(--card)" stroke="var(--mine)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>';
+  const link=(a,pa,b,pb)=>'<path d="M'+x(a)+' '+py(pa)+' Q '+((x(a)+x(b))/2)+' '+(py(pa)-34)+' '+x(b)+' '+py(pb)+'" fill="none" stroke="var(--mine)" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>';
+  if(st.v==='c'){ s+=link(3,17100,7,17100)+link(12,17150,14,17100)+link(12,17150,18,17050); s+=evc(3,17100)+evc(12,17150); }
+  if(st.v==='b'){ s+=evc(3,17100)+evc(12,17150); }
+  s+=dia(7,17100)+dia(10,17100)+dia(14,17100,true)+dia(18,17050)+dia(21,17000);
+  // 주문 시각 눈금(C 만 — 목록에 주문 줄이 없으므로 차트가 보여 준다)
+  if(st.v==='c'){ [5,13,17,20].forEach(i=>{ s+='<line x1="'+x(i)+'" x2="'+x(i)+'" y1="'+(H-18)+'" y2="'+(H-8)+'" stroke="var(--mine)" stroke-width="2" vector-effect="non-scaling-stroke"/>'; }); }
+  s+='<text x="40" y="'+(H-4)+'" font-size="10" fill="var(--faint)">09:07:49</text><text x="'+(W-70)+'" y="'+(H-4)+'" font-size="10" fill="var(--faint)">09:08:42</text>';
+  s+='</svg>';
+  const lg='<div class="legend"><span><i style="border:1.5px solid var(--team)"></i>팀 주문(기존)</span><span><i style="background:var(--mine);border-radius:1px;transform:rotate(45deg)"></i>우리 체결</span><span><i style="border:1.5px dashed var(--mine)"></i>추정</span>'+(st.v!=='a'?'<span><i style="border:1.5px solid var(--mine)"></i>조건 근거</span>':'')+(st.v==='c'?'<span style="color:var(--mine)">▏주문 시각</span>':'')+'</div>';
+  return '<div class="chart">'+s+lg+'</div>';
+}
+function ordLine(o){ const side=o.side==='B'?'<span class="buy">매수</span>':'<span class="sellc">매도</span>'; const cond=o.cond?o.cond+' <span class="mf">(실제 '+o.actual+')</span>':'<span class="mf">조건 없음 · 수동</span>'; const ev=o.ev?' · 근거 '+o.ev.kind+' ↑':(o.cond?'':''); return '<b>● 주문</b> '+o.kind+' '+side+' <span class="num">'+fN(o.px)+' ×'+fN(o.qty)+'</span> · '+cond+ev+' <span class="mf">· '+o.gw+' '+o.acct+' #'+o.no+'</span>'; }
+function list(){
+  const B=st.v==='b', C=st.v==='c';
+  let h='<table class="msg"><thead><tr>'+(B?'<th class="rl"></th>':'')+'<th>거래소 시각</th><th>종류</th><th>seq</th><th>내용</th></tr></thead><tbody>';
+  ROWS.forEach((r,i)=>{
+    const sel=i===st.cur?' sel':'';
+    if(r.k==='f'){ h+='<tr class="gft team">'+(B?'<td class="rl">'+railCell(i)+'</td>':'')+'<td colspan="4" class="num">'+r.text+'<span class="chip team">'+r.chip+'</span></td></tr>'; return; }
+    if(r.k==='o'){ if(C) return; const o=ORDERS[r.ord]; h+='<tr class="ord'+sel+'" data-i="'+i+'">'+(B?'<td class="rl">'+railCell(i)+'</td>':'')+'<td class="t num"><b>'+o.t+'</b></td><td><span class="badge" style="color:var(--mine);border-color:var(--mine)">주문</span></td><td class="s">—</td><td class="d">'+ordLine(o)+'</td></tr>'; return; }
+    const cls=[sel.trim(), r.grp?'grp '+r.grp:'', r.first?'first':'', (r.ours&&!C)?'ours':''].join(' ');
+    const dim=r.grp&&!r.first&&r.type==='A3';
+    let desc=r.d, seqExtra='';
+    if(r.ours){ const o=ORDERS[r.ours.ord]; const part=r.ours.our!==r.ours.total;
+      if(st.v==='a') desc+='<span class="chip mine">우리 '+fN(r.ours.our)+(part?' / '+fN(r.ours.total):'')+' '+o.acct+'</span>'+(r.ours.est?'<span class="chip mine est">추정 ·'+r.ours.est+'</span>':'');
+      if(B) desc+='<span class="chip mine" style="margin-left:4px">'+fN(r.ours.our)+(part?'/'+fN(r.ours.total):'')+'</span>'+(r.ours.est?'<span class="chip mine est">추정</span>':'');
+      if(C) seqExtra='<span class="dot fill'+(r.ours.est?' est':'')+'" title="우리 체결"></span>'; }
+    if(r.ev){ if(st.v==='a') desc='<span class="chip ev" style="margin-left:0;margin-right:6px">근거 #'+r.ev+' '+ORDERS[r.ev].ev.kind+'</span>'+desc; if(C) seqExtra+='<span class="dot ev" title="조건 근거"></span>'; }
+    if(r.anchor&&!r.ev){ if(st.v==='a') desc+='<span class="chip anchor">직전 체결 #'+r.anchor+'</span>'; if(C) seqExtra+='<span class="dot anc" title="주문 직전 마지막 체결"></span>'; }
+    if(C&&r.ours){ const part=r.ours.our!==r.ours.total; if(part) desc+='<span class="mf"> · 우리 '+fN(r.ours.our)+'/'+fN(r.ours.total)+'</span>'; }
+    h+='<tr class="'+cls+'" data-i="'+i+'">'+(B?'<td class="rl">'+railCell(i)+'</td>':'')+'<td class="t num'+(dim?' dim':'')+'"><b>'+r.t+'</b></td><td><span class="badge b'+r.type+'">'+r.type+'</span></td><td class="s num">'+seqExtra+fN(r.seq)+'</td><td class="d">'+desc+'</td></tr>';
+  });
+  return h+'</tbody></table>';
+}
+// B 레일 — 우리 주문마다 [근거 or 주문 줄] ~ [마지막 체결] 구간에 세로선 · 마디(○ 근거 · ◌ 앵커 · ● 주문 · ◆ 체결)
+const SPAN={1:[3,11],2:[13,15],3:[13,19],4:[21,22]};
+function railCell(i){ let h=''; const r=ROWS[i];
+  for(const id in SPAN){ const [a,b]=SPAN[id]; if(i<a||i>b) continue; const est=id==='2'; const seg=i===a?'top':i===b?'bot':''; if(!(id==='3'&&i<=16&&i!==13)) h+='<span class="rail '+seg+(est?' est':'')+'"></span>'; }
+  if(r.k==='o') h+='<span class="rk ord"></span>'; else if(r.ours) h+='<span class="rk fill"></span>'; else if(r.ev) h+='<span class="rk"></span>'; else if(r.anchor) h+='<span class="rk anc"></span>';
+  return h; }
+function card(){
+  const r=ROWS[st.cur]; const ours=r.k==='o'?{ord:r.ord}:r.ours; const o=ours?ORDERS[ours.ord]:null;
+  let h='<div class="ph">이 주문 <small>체결 버스트 · msg_seq +1 묶기</small></div><div class="card">';
+  if(r.grp==='team'||st.cur===7){ h+='<div class="shape"><span class="chip team">팀 · 자전거래방지 SMP</span><span class="buy">매수</span></div><div class="kv" style="margin-top:10px"><div><div class="k">조각 · 단</div><div class="v num">2조각 <small>1단</small></div></div><div><div class="k">수량</div><div class="v num">1,284<small>주</small></div></div><div><div class="k">금액</div><div class="v num">2,196만</div></div><div><div class="k">지속</div><div class="v num">46<small>ms</small></div></div></div><div class="sub">seq 1,181,207~1,181,208 · 닫는 B6 1,181,209</div>'; }
+  else if(r.k==='o') h+='<div class="shape"><span class="chip mine">우리 주문</span></div><div class="sub">주문 시각 자리 — 이 줄은 전문이 아니라 저널의 주문 이벤트다.</div>';
+  else h+='<div class="shape"><span class="chip norm">일반</span>'+(r.d.includes('매수')?'<span class="buy">매수</span>':'<span class="sellc">매도</span>')+'</div><div class="sub">1조각 1단 · 닫는 B6 다음 행</div>';
+  if(o){ const side=o.side==='B'?'<span class="buy">매수</span>':'<span class="sellc">매도</span>'; const f=r.ours&&r.k!=='o'?r.ours:null;
+    h+='<div class="sect"><h4>◆ 우리 주문 #'+o.no+' <small>'+o.gw+' · 계좌 '+o.acct+'</small>'+(st.v==='c'?'<span style="margin-left:auto"><button class="lk ghost">‹</button><button class="lk ghost">›</button></span>':'')+'</h4>';
+    h+='<div class="ln"><span class="k">주문</span><span class="v">'+o.t+' · '+o.kind+' '+side+' <b class="num">'+fN(o.px)+' ×'+fN(o.qty)+'</b></span></div>';
+    h+='<div class="ln"><span class="k">조건</span><span class="v">'+(o.cond?'<b>'+o.cond+'</b> · 실제 '+o.actual:'<span class="mf">없음 · 수동 주문 — 주문 시각 위치만</span>')+'</span></div>';
+    if(o.ev) h+='<div class="ln"><span class="k">근거 '+o.ev.kind+'</span><span class="v"><span class="num">'+o.ev.text+'</span><button class="lk">보기 ›</button></span></div>';
+    if(o.anchor&&o.anchor.row!==(o.ev&&o.ev.row)) h+='<div class="ln"><span class="k">직전 체결</span><span class="v"><span class="num mf">'+o.anchor.text+'</span><button class="lk ghost">보기 ›</button></span></div>';
+    h+='<div class="ln"><span class="k">체결</span><span class="v">'+o.fills.map(x=>'<span class="num">'+ROWS[x.row].t+' <b>'+fN(x.our)+'</b>'+(x.our!==x.total?' <span class="mf">/ 전체 '+fN(x.total)+'</span>':'')+' <span class="mf">+'+x.ms+'ms</span>'+(x.est?'<span class="chip mine est">추정 · 동가 후보 '+x.est+'</span>':'')+'</span>').join('<br>')+'</span></div>';
+    if(f&&f.our!==f.total) h+='<div class="foot">이 A3 1,064주는 팀 SMP 주문 한 조각이고 그중 300주가 우리 체결이다(A3 = 공격 주문 × 가격 단 합산). 같은 가격 · 남은 수량 ≥ 체결 수량 · 시각차 [−200, +1500]ms 중 가장 가까운 A3.</div>';
+    if(f&&f.est) h+='<div class="foot">12ms 안에 같은 가격 · 같은 수량 A3 가 둘 — 가장 가까운 것을 골랐지만 다른 쪽일 수 있다.</div>';
+    h+='</div>'; }
+  h+='<div class="sect"><h4>우리 주문 <small>이 날 4건 · 체결 5건 · 켜진 서버 KB120 · KYOBO119</small></h4><table class="rl2"><thead><tr><th>주문</th><th>구분</th><th>수량</th><th>체결</th><th>근거</th></tr></thead><tbody>';
+  for(const id in ORDERS){ const q=ORDERS[id]; const filled=q.fills.reduce((a,x)=>a+x.our,0); h+='<tr class="'+(o&&o.id===q.id?'sel':'')+'"><td class="c num">'+q.t.slice(0,8)+'</td><td class="c">'+q.kind+' <span class="'+(q.side==='B'?'buy':'sellc')+'">'+(q.side==='B'?'매수':'매도')+'</span></td><td class="num">'+fN(q.qty)+'</td><td class="num">'+fN(filled)+(q.fills.some(x=>x.est)?' <span class="mine-c">?</span>':'')+'</td><td>'+(q.ev?q.ev.kind:'<span class="mf">—</span>')+'</td></tr>'; }
+  h+='</tbody></table><div class="foot">행 클릭 = 그 주문의 첫 체결로 · 「근거」 클릭 = 근거 전문으로.</div></div>';
+  return h+'</div>';
+}
+$('#nav').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; if(b.dataset.v) st.v=b.dataset.v; if(b.dataset.w) st.w=b.dataset.w; if(b.dataset.t) st.t=b.dataset.t; if(b.dataset.c) st.cur=+b.dataset.c; build(); });
+$('#frame').addEventListener('click',e=>{ const row=e.target.closest('tr[data-i]'); if(row){ st.cur=+row.dataset.i; build(); } });
+build();
+</script>
+</body>
+</html>
