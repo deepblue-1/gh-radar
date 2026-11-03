@@ -12,6 +12,8 @@
  * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
  *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게. 당일(`live`)에서 끝 틱이면 `t` 를 지운다
  *   (`t` 없음 = 당일 끝 틱 — 새로고침하면 그때의 끝에서 연다).
+ *   **떠나는 중에는 쓰지 않는다(WR-60):** Next 15 는 `history.replaceState` 를 `ACTION_RESTORE` 로 바꾸고, 진행 중인
+ *   `router.push` 를 버린다. 페이지가 이동을 시작하며 `navToken` 을 올리면 그 뒤의 쓰기(대기 타이머 포함)는 하지 않는다.
  * ⑤ 당일(`live` · 37-19 · D-06 · D-18): 세션이 바뀌었을 때(증분) 커서가 이전 세션의 끝이었으면 새 끝으로 따라간다 — 과거 틱을
  *   보고 있으면 제자리(rec 는 이어붙여도 그대로다). `atEnd` = 표시 순서의 마지막 자리 · `goEnd()` = 끝 틱으로.
  * recv_ns 는 BigInt 그대로 다룬다.
@@ -117,7 +119,18 @@ export function initialRecOf(session: TickSession, initialT: string | null, live
 
 export function useTickCursor(
   session: TickSession,
-  { initialT, urlState, live = false }: { initialT: string | null; urlState: Omit<TickUrlState, 't'>; live?: boolean },
+  {
+    initialT,
+    urlState,
+    live = false,
+    navToken,
+  }: {
+    initialT: string | null;
+    urlState: Omit<TickUrlState, 't'>;
+    live?: boolean;
+    /** 페이지 내비게이션 토큰 — 마운트 때 값에서 바뀌면(이동 시작) URL 을 쓰지 않는다(머리 주석 ④ · WR-60). */
+    navToken?: { readonly current: number };
+  },
 ): TickCursor {
   const [rec, setRec] = useState(() => initialRecOf(session, initialT, live));
   const [mode, setMode] = useState<TickOrderMode>('exchange');
@@ -238,19 +251,25 @@ export function useTickCursor(
   // URL `t` — 250ms 스로틀 replaceState(첫 커서는 쓰지 않는다).
   const urlRef = useRef(urlState);
   const modeRef = useRef(mode);
+  const navRef = useRef(navToken);
   useEffect(() => {
     urlRef.current = urlState;
     modeRef.current = mode;
+    navRef.current = navToken;
   });
   const firstRec = useRef(rec);
   const lastWrite = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recRef = useRef(rec);
+  const navToken0 = useRef(navToken?.current ?? 0);
   useEffect(() => {
     recRef.current = rec;
     if (rec < 0 || (rec === firstRec.current && lastWrite.current === 0)) return;
     const write = () => {
       timer.current = null;
+      // 이동 중(router.push 대기) — replaceState 가 그 push 를 버리게 하지 않는다(WR-60).
+      const nav = navRef.current;
+      if (nav !== undefined && nav.current !== navToken0.current) return;
       lastWrite.current = Date.now();
       const r = recRef.current;
       if (live && r === endRecOf(session, modeRef.current)) {

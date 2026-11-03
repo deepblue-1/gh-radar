@@ -245,4 +245,23 @@ describe('useTickCursor — 점프 · URL', () => {
       `/analytics/ticks?isin=${ISIN}&d=${D}&t=${encodeURIComponent(fmtTickTime(session.index.recvNs[result.current.rec]!))}`,
     );
   });
+
+  it('이동 시작(navToken 증가) 뒤에는 대기 타이머 · 새 커서 모두 replaceState 하지 않는다 — Next push 를 버리지 않게(WR-60)', () => {
+    vi.useFakeTimers();
+    const navToken = { current: 0 };
+    const { result } = renderHook(() => useTickCursor(session, { initialT: null, urlState: URL_STATE, navToken }));
+    key('ArrowRight');
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    key('ArrowRight'); // 250ms 안 — 대기 타이머
+    navToken.current += 1; // 페이지가 router.push 를 시작했다
+    act(() => {
+      vi.advanceTimersByTime(TICK_URL_THROTTLE_MS);
+    });
+    key('ArrowRight');
+    act(() => {
+      vi.advanceTimersByTime(TICK_URL_THROTTLE_MS * 4);
+    });
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.rec).toBeGreaterThanOrEqual(0);
+  });
 });
