@@ -443,6 +443,18 @@ describe("중복 A3 거르기 skip(WR-03 — 같은 보드 · seq 재수신)", (
     expect(s.locate({ ...ev, evQtyAfter: 190, evTradeQty: 999 })).toEqual({ kind: "range", firstJ: 1, lastJ: 4, n: 3, qty: 90 });
   });
 
+  it("호가 근거 — 같은 B6 를 두 번 받으면 skip 이 있을 때 원본 rec(R2 WR-01 · 사본은 늘 뒤라 「마지막 일치」 가 된다)", () => {
+    const recs: SynthRec[] = [
+      { b6: { seq: 700, recvUs: 100_000, bids: [[1000, 500]] } },
+      { b6: { seq: 700, recvUs: 140_000, bids: [[1000, 500]] } }, // 같은 전문 재수신(rec 1)
+    ];
+    const ev = { gwMs: gw(150), evKind: 1, evPrice: 1000, evQtyAfter: 500 };
+    expect(session(recs).locate(ev)).toEqual({ kind: "b6", rec: 1 });
+    expect(session(recs, [1]).locate(ev)).toEqual({ kind: "b6", rec: 0 });
+    // 사본만 창 안에 있으면 근거 없음 — 원본 대신 사본을 고르지 않는다
+    expect(session(recs, [1]).locate({ ...ev, gwMs: gw(140 + 3000) })).toEqual({ kind: "none" });
+  });
+
   it("cumIndexOf · anchorOf — 중복은 색인에 없다 · 앵커는 원본 j", () => {
     const recs: SynthRec[] = [
       { a3: { seq: 2, px: 1000, qty: 10, timeUs: 1000, cumVolume: 500 } },

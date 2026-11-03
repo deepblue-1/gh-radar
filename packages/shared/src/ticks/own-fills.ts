@@ -13,7 +13,8 @@
  * 정의를 바꾸지 마라 — 10/30 5종목 오라클(짝 401/406 · 추정 108)이 잠근다(RESEARCH Pitfall 1 · 2).
  * 「g ± 20 ms 안 후보 ≥ 2」 같은 다른 읽기는 108 을 재현하지 못한다.
  *
- * 중복 A3(`skip` · rec → 1 = 같은 보드 · seq 의 두 번째 이후 수신 — 웹 세션 `duplicates`)는 후보 · cum 색인 · 구간에서 뺀다.
+ * 중복 A3(`skip` · rec → 1 = 같은 보드 · seq 의 두 번째 이후 수신 — 웹 세션 `duplicates`)는 후보 · cum 색인 · 구간에서 뺀다
+ * (중복 B6 도 호가 근거에서 뺀다 — 아래 `locateBookEvidence`).
  * 원본과 시각 · 가격 · 수량이 같아 늘 둘째 후보(「추정」)가 되고 · 칩을 두 행으로 가르고 · 단건 근거를 hits 2 로 깨기 때문이다
  * (WR-03). 10/30 오라클 픽스처는 중복 0건이라 수치는 그대로다 — 인자를 안 주면 지금과 같다.
  *
@@ -205,8 +206,17 @@ function recvMsOf(index: TickIndex, rec: number): number {
   return Number(index.recvNs[rec]! / 1000n) / 1000;
 }
 
-/** 호가 근거(ev_kind 1) — 창 [g − 3000, g + 50] 안 B6(ok) 중 ev_price 단 잔량 == ev_qty_after 인 마지막 B6 rec · 없으면 −1. */
-function locateBookEvidence(buf: Uint8Array, index: TickIndex, recvOrder: Int32Array, ev: OwnEventIn): number {
+/**
+ * 호가 근거(ev_kind 1) — 창 [g − 3000, g + 50] 안 B6(ok) 중 ev_price 단 잔량 == ev_qty_after 인 마지막 B6 rec · 없으면 −1.
+ * `skip`(rec → 1 · 중복)인 B6 는 근거가 아니다 — 재수신 사본은 원본보다 늦게 와서 「마지막 일치」 가 늘 사본이 된다(R2 WR-01).
+ */
+function locateBookEvidence(
+  buf: Uint8Array,
+  index: TickIndex,
+  recvOrder: Int32Array,
+  ev: OwnEventIn,
+  skip: Uint8Array | undefined,
+): number {
   const lo = ev.gwMs - OWN_B6_BEFORE_MS;
   const hi = ev.gwMs + OWN_B6_AFTER_MS;
   // 시작 자리 = 수신 ≥ lo 인 첫 자리(µs 내림이라 경계 한 칸 앞에서 시작할 수 있다 — 아래에서 ms 로 다시 잰다).
@@ -218,6 +228,7 @@ function locateBookEvidence(buf: Uint8Array, index: TickIndex, recvOrder: Int32A
     if (r > hi) break;
     if (r < lo) continue;
     if (index.tag[rec] !== TAG_CODE.B6 || index.ok[rec] !== 1) continue;
+    if (skip !== undefined && skip[rec] === 1) continue;
     const book = bookAt(buf, index, rec);
     if (!book) continue;
     let lvl = book.bids.find((l) => l.px === ev.evPrice);
@@ -229,7 +240,7 @@ function locateBookEvidence(buf: Uint8Array, index: TickIndex, recvOrder: Int32A
 
 /**
  * 조건 근거 특정(규칙은 위 머리 주석). `recvOrder` = `recvOrderOf(index)` · `cumIdx` = `cumIndexOf(a3, skip)` — 둘 다 세션당 한 번.
- * `skip`(rec → 1 · 중복)은 `cumIdx` 를 만들 때와 같은 것을 넘긴다 — 구간 순회도 중복 A3 를 뺀다.
+ * `skip`(rec → 1 · 중복)은 `cumIdx` 를 만들 때와 같은 것을 넘긴다 — 구간 순회도 중복 A3 를 · 호가 근거도 중복 B6 를 뺀다.
  */
 export function locateEvidence(
   buf: Uint8Array,
@@ -241,7 +252,7 @@ export function locateEvidence(
   skip?: Uint8Array,
 ): OwnEvidence {
   if (ev.evKind === 1) {
-    const rec = locateBookEvidence(buf, index, recvOrder, ev);
+    const rec = locateBookEvidence(buf, index, recvOrder, ev, skip);
     return rec >= 0 ? { kind: "b6", rec } : NONE;
   }
   if (ev.evKind === 2) return locateTradeEvidence(a3, cumIdx, ev, skip);

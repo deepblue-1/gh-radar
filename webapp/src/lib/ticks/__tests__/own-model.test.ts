@@ -240,6 +240,22 @@ describe('buildOwnModel — 중복 A3(같은 보드 · seq 재수신) 거르기(
     expect([e9.evidence.kind, e9.evidenceRec, e9.evidenceLabel]).toEqual(['a3', 0, '체결']);
     expect(byKey(m.orders, 'E8').anchorRec).toBe(0);
   });
+
+  it('호가 근거 — 같은 B6 를 다시 받아도 근거는 원본 행(R2 WR-01 · 사본은 「중복」 칩 행)', () => {
+    // rec 0 = B6 seq 700(.100) · rec 1 = 같은 전문 재수신(.140 · duplicates 1) · 이벤트 gw .150
+    const b6dup = synthSession([
+      [100.5, b6Msg({ seq: 700, ask1: [30000, 500], bid1: [29950, 10] })],
+      [140.5, b6Msg({ seq: 700, ask1: [30000, 500], bid1: [29950, 10] })],
+    ]);
+    expect(Array.from(b6dup.duplicates.slice(0, 2))).toEqual([0, 1]);
+    const m = buildOwnModel(
+      b6dup,
+      ownOf({ events: [event('BB', at(150), { ev_kind: 1, ev_price: 30000, ev_qty_after: 500 })] }),
+    );
+    const o = byKey(m.orders, 'BB');
+    expect([o.evidence, o.evidenceRec]).toEqual([{ kind: 'b6', rec: 0 }, 0]);
+    expect([...m.ordersOfEvidenceRec.keys()]).toEqual([0]);
+  });
 });
 
 describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => {
