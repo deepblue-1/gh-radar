@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-05-PLAN.md
-last_updated: "2026-11-03T06:43:48.446Z"
+stopped_at: Completed 38-06-PLAN.md
+last_updated: "2026-11-03T07:00:24.999Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: 8403ead080f3256c072b37ccde2edc99eb070161
+state_head: 7b4fc762d51f8e24bca85cbc78f2d5d3ba27734e
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 106
+  completed_plans: 107
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T06:43:48.318Z
-Stopped at: Completed 38-05-PLAN.md
+Last session: 2026-11-03T07:00:24.780Z
+Stopped at: Completed 38-06-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -207,6 +207,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P03 | 5min | 2 tasks | 2 files |
 | Phase 38 P04 | 13min | 2 tasks | 9 files |
 | Phase 38 P05 | 5min | 2 tasks | 3 files |
+| Phase 38 P06 | 14 min | 2 tasks | 10 files |
 
 ## Decisions
 
@@ -351,3 +352,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-04: 둘째 레일 = 주문별 [주문 줄 · 체결 자리] 구간 차분 배열 · 실선 우선 · 팀/일반 3px 레일은 시각 칸으로 · 우리 줄 선택은 (줄, rec) 기억 + 커서 일치 파생
 - [Phase 38]: 38-05: 호가 근거 시작 자리는 lowerBoundRecv 에 µs 내림 경계 + 루프 안 probe 식 수신 ms 로 [g − 3000, g + 50] 재검사 — 소수 gw 에도 BigInt 예외 없음 · 경계는 probe 와 같다
 - [Phase 38]: 38-05: 체결 근거 단건 후보 2개 이상(중복 수신 포함)이면 단건 아님 → 구간 (before, after] 규칙 — probe 「정확히 1개」 그대로 · 10/30 분포 a3 2 · range 9 · none 2
+- [Phase 38]: 38-06: 체결통보(ev_kind 3) 근거 = 같은 게이트웨이 · 계좌의 gw ≤ 이벤트 gw ∧ 가격 · 수량 일치 우리 체결 중 마지막 것의 짝 A3 — 그 체결이 짝 없으면 근거 없음(Open Q3 UAT 대상)
+- [Phase 38]: 38-06: 되돌아가기 알약은 주문 묶기 키(gateway|order_no) + 화면 범위(isin|d|ex)로 기억 · 주문 줄 선택 순서 = 주문 줄 → 첫 짝 체결 → 짝 없음 줄 · 카드 근거 줄은 evidenceTextOf 머리 「근거 」 만 뺀다
