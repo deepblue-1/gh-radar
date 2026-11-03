@@ -17,6 +17,8 @@
  * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐이다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 센다 — 하루치 받는
  *   동안은 `pollMs` 뒤 이어 받고, 증분(버튼)은 다시 누를 때까지 기다린다. 503 = 미결선(status unavailable) ·
  *   401/403 = 게이트(status unauthenticated/unmapped) — 멈춘다.
+ *   바이트를 풀지 못하면(잘린 · 깨진 zstd · 세션 재생성 실패 — WR-62) offset · meta 를 앞으로 옮기지 않고 오류로 센다 — 하루치는
+ *   offset 0 부터 `pollMs` 뒤 다시 · 증분은 다시 누르면 같은 조각부터.
  * ⑥ `stop()` = 받는 중 카드 「취소」 — 이후 요청 0.
  */
 
@@ -182,22 +184,51 @@ export function useTickLive({
       c.timer = setTimeout(() => void tick(), ms);
     };
 
+    /** 200 을 받아 커서(offset · epoch)와 meta 를 앞으로 — 바이트를 세션에 붙인 **뒤에만** 부른다(WR-62). */
+    const commit = (m: TickLiveMeta) => {
+      c.errors = 0;
+      c.conflicts = 0;
+      c.fetchedAt = Date.now();
+      c.meta = m;
+      c.epoch = m.epoch;
+      c.offset = m.offsetEnd;
+    };
+
     const handle = (r: TickLiveResult) => {
       if (r.status === 200 && r.meta !== null) {
         const m = r.meta;
-        c.errors = 0;
-        c.conflicts = 0;
-        c.fetchedAt = Date.now();
-        c.meta = m;
-        c.epoch = m.epoch;
-        c.offset = m.offsetEnd;
-        if (filling()) {
+        const fill = filling();
+        if (fill && (m.state === 'loading' || m.state === 'queued')) {
+          // 하루치 이어 받기 — 바이트는 모으기만 한다(해제는 다 모은 뒤 한 번).
           if (r.bytes.length > 0) c.pending.push(r.bytes);
-          if (m.state === 'loading' || m.state === 'queued') {
+          commit(m);
+          publish();
+          return schedule(loadingMs);
+        }
+        let next: TickSession;
+        try {
+          next = fill
+            ? appendTickBytes(null, concatBytes(r.bytes.length > 0 ? [...c.pending, r.bytes] : c.pending), key)
+            : r.bytes.length > 0
+              ? appendTickBytes(c.session, r.bytes, key)
+              : c.session!;
+        } catch (e) {
+          // 잘린 · 깨진 zstd 프레임 · 세션 재생성 실패 — offset 을 앞으로 옮기지 않는다(조각을 조용히 건너뛰면 틱 구멍).
+          // 하루치는 offset 0 부터 다시(이전 세션은 그대로 보인다) · 증분은 다시 누르면 같은 조각부터 다시 받는다.
+          console.warn('[ticks/live] 바이트를 풀지 못함', e);
+          c.errors += 1;
+          if (fill) {
+            c.pending = [];
+            c.offset = 0;
+            c.epoch = null;
             publish();
-            return schedule(loadingMs);
+            return schedule(pollMs);
           }
-          c.session = appendTickBytes(null, concatBytes(c.pending), key);
+          return publish();
+        }
+        commit(m);
+        if (fill) {
+          c.session = next;
           c.pending = [];
           if (c.refetching) {
             c.refetching = false;
@@ -206,11 +237,9 @@ export function useTickLive({
           c.newCount = 0;
           return publish();
         }
-        if (r.bytes.length > 0) {
-          const before = c.session!.index.n;
-          c.session = appendTickBytes(c.session, r.bytes, key);
-          if (!atEndRef.current) c.newCount += c.session.index.n - before;
-        }
+        const before = c.session!.index.n;
+        c.session = next;
+        if (!atEndRef.current) c.newCount += next.index.n - before;
         return publish();
       }
       if (r.status === 409) {
@@ -245,7 +274,15 @@ export function useTickLive({
         c.running = false;
       }
       if (c.stopped) return;
-      handle(r);
+      try {
+        handle(r);
+      } catch (e) {
+        // 마지막 방어선(WR-62) — unhandled rejection 으로 「받는 중」 에 갇히지 않게 오류로 센다.
+        console.warn('[ticks/live] 응답 처리 실패', e);
+        c.errors += 1;
+        publish();
+        schedule(pollMs);
+      }
     }
 
     c.resume = () => {

@@ -23,7 +23,7 @@ import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, TICK_FIXTURE_RECORDS
 import { appendTickBytes, buildTickSession } from '../tick-session';
 import { endRecOf, initialRecOf } from '../use-tick-cursor';
 import { tickLiveMetaOf } from '../tick-api';
-import { TICK_LIVE_LOADING_MS, useTickLive } from '../use-tick-live';
+import { TICK_LIVE_LOADING_MS, TICK_LIVE_POLL_MS, useTickLive } from '../use-tick-live';
 
 const RAW = tickGridBytes();
 
@@ -174,6 +174,29 @@ describe('useTickLive — 하루치 (D-05 · D-22)', () => {
     // D-18 당일 t 없음 = 끝 틱
     expect(initialRecOf(s, null, true)).toBe(endRecOf(s));
     expect(initialRecOf(s, null, true)).toBe(s.exOrder[s.exOrder.length - 1]);
+  });
+
+  it('하루치 본문이 깨지면 「받는 중」 에 갇히지 않는다 — errors 1 · pollMs 뒤 offset 0 · epoch 없이 다시(WR-62)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'loading', offsetEnd: Z1.length }))
+      .mockResolvedValueOnce(liveResponse({ body: Z2.subarray(0, Z2.length - 7), state: 'ready', offsetEnd: Z1.length + Z2.length }))
+      .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'ready', offsetEnd: Z1.length }));
+    const { result } = renderHook(() => useTickLive(opts()));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_LIVE_LOADING_MS);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.errors).toBe(1);
+    expect(result.current.session).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_LIVE_POLL_MS);
+    });
+    expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: null, offset: 0 });
+    expect(result.current.status).toBe('ready');
+    expect(result.current.errors).toBe(0);
+    expect(result.current.session!.index.n).toBe(6_000);
+    warn.mockRestore();
   });
 
   it('503 미결선 → unavailable · 더 요청하지 않는다', async () => {
@@ -352,6 +375,31 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     });
     expect(result.current.errors).toBe(0);
     expect(result.current.status).toBe('ready');
+  });
+
+  it('증분 본문이 깨지면(잘린 zstd) offset 을 옮기지 않는다 · errors 1 · 세션 그대로 · 다시 누르면 같은 offset 부터(WR-62)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = await openReady();
+    const before = result.current.session;
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2.subarray(0, Z2.length - 7), offsetEnd: Z1.length + Z2.length }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(result.current.errors).toBe(1);
+    expect(result.current.session).toBe(before);
+    expect(result.current.refreshing).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 증분은 자동 재시도 없음
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2, offsetEnd: Z1.length + Z2.length }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls()[2]!.offset).toBe(Z1.length);
+    expect(result.current.errors).toBe(0);
+    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('stop → 더 요청하지 않는다(카드 취소)', async () => {
