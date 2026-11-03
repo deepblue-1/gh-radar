@@ -63,8 +63,10 @@ export function exchangeLabelOf(payload: Uint8Array): "KRX" | "NXT" | null {
 /**
  * A3 체결 1건이 기준가 대비 +pctThreshold% 이상인가 — 119 배치 탐지와 같은 정수식.
  * `pct ∈ {'1','2'} ∧ base = px − chg > 0 ∧ chg·100 ≥ base·pctThreshold` (정확히 +15% 포함).
+ * 인자 순서 (pct, chg, px) 는 `DayRateTracker.add` 와 같다(A3 필드 순 price_change_type · price_change · trade_price) —
+ * 둘 다 number 라 바꿔 넣어도 타입 오류가 안 나므로 한 모듈 안에서 순서를 하나로 둔다.
  */
-export function hits15(pct: string, px: number, chg: number, pctThreshold = 15): boolean {
+export function hits15(pct: string, chg: number, px: number, pctThreshold = 15): boolean {
   if (pct !== "1" && pct !== "2") return false;
   const base = px - chg;
   return base > 0 && chg * 100 >= base * pctThreshold;
@@ -95,7 +97,7 @@ export class DayRateTracker {
     this.counts.set(b, (this.counts.get(b) ?? 0) + 1);
     if (this.maxPx === null || px > this.maxPx) this.maxPx = px;
     this.lastPx = px;
-    if (!this.hit15 && hits15(pct, px, chg, this.pctThreshold)) this.hit15 = true;
+    if (!this.hit15 && hits15(pct, chg, px, this.pctThreshold)) this.hit15 = true;
   }
 
   base(): number | null {
