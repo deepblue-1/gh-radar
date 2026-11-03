@@ -463,6 +463,19 @@ describe("POST /api/ticks/convert — should_trigger 일 때만 Job 실행 (D-03
     }
   });
 
+  it("run 타임아웃(status 0 · TIMEOUT) → 되돌리지 않는다(실행이 시작됐을 수 있다) · 200 triggered true(IN-31)", async () => {
+    const { client, rec } = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_request_convert_for_user: convReply({ should_trigger: true }), tick_request_trigger_failed: 1 },
+    });
+    const t = fakeTrigger({ ok: false, status: 0, error: "TIMEOUT" });
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+    expect(r.body.triggered).toBe(true);
+    expect(t.runs).toHaveLength(1);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["tick_request_convert_for_user"]);
+  });
+
   it("trigger 미주입(TICK_CONVERT_JOB 없음)인데 should_trigger → trigger_failed(…, TRIGGER_DISABLED) · 503 TICK_CONVERT_UNAVAILABLE", async () => {
     const { client, rec } = makeSupabase({
       user: nextUser(),

@@ -11,8 +11,9 @@ import type {
 } from "@gh-radar/shared";
 
 import { ApiError, DmaUnmapped } from "../errors.js";
+import { logger } from "../logger.js";
 import type { TickConvertBodyT, TickOpenQueryT } from "../schemas/ticks.js";
-import type { TickConvertTrigger } from "./tick-convert-trigger.js";
+import { isAmbiguousTriggerFailure, type TickConvertTrigger } from "./tick-convert-trigger.js";
 
 /**
  * Phase 37 — 틱 전문 뷰어 과거 경로 서비스 (D-03 · D-08 · D-09 · D-15).
@@ -226,6 +227,9 @@ async function rollbackTrigger(
  * 요청 변환 — RPC `tick_request_convert_for_user` 1회로 큐에 넣고 should_trigger 를 받는다.
  * - capped → 429 · not_uploaded / grid_ready → 200(Job 0회)
  * - should_trigger → trigger.run(날짜, 거래소) 1회. 트리거 미결선 → 되돌림(TRIGGER_DISABLED) + 503 · 실패 → 되돌림 + 502.
+ * - 타임아웃(status 0 · TIMEOUT)은 되돌리지 않는다(IN-31) — Admin API 가 실행을 이미 만들었을 수 있어, 되돌리면 다음 요청이
+ *   Job 을 또 깨워 빈 실행과 상한 소모가 생긴다. triggered_at 을 그대로 두고 stale 2분 규칙(Job 이 claim 하지 않은 pending 을
+ *   다음 요청이 다시 깨운다)에 맡긴다 → 200 triggered true(웹은 「변환 중」 으로 폴링).
  */
 export async function requestTickConvert(
   supabase: SupabaseClient,
@@ -254,7 +258,9 @@ export async function requestTickConvert(
       throw TickConvertUnavailable({ reason: "TICK_CONVERT_JOB 미설정", ...(rollback ? { rollback } : {}) });
     }
     const r = await deps.trigger.run(body.d, body.ex);
-    if (!r.ok) {
+    if (isAmbiguousTriggerFailure(r)) {
+      logger.warn({ date: body.d, ex: body.ex }, "tick convert trigger: 타임아웃 — 실행이 시작됐을 수 있어 되돌리지 않는다(stale 2분 규칙)");
+    } else if (!r.ok) {
       const rollback = await rollbackTrigger(supabase, body, `TRIGGER_FAILED:${r.status}`);
       throw TickConvertTriggerFailed({ status: r.status, error: r.error, ...(rollback ? { rollback } : {}) });
     }
