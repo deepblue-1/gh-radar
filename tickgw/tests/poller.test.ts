@@ -246,13 +246,15 @@ describe("Poller — 캐시 상한 · LRU 보호(WR-33)", () => {
     const fromStart = (k: string) =>
       r.calls.filter((c) => makeKey(c.args.isin, c.args.ex, c.args.date) === k && c.args.fromNs === DAY_START).length;
     expect(fromStart(keyN(1))).toBe(1); // 지워지고 처음부터 다시 받는 고리 없음
-    expect(fromStart(keyN(2))).toBeLessThanOrEqual(4); // 5 · 10 · 20초 백오프
+    // 처음 한 번만 119 를 부르고 버린다 — 그 뒤 백오프(5 · 10 · 20초)는 자리가 없으니 부르지 않는다(R2-IN-03)
+    expect(fromStart(keyN(2))).toBe(1);
     expect(r.poller.touch(keyN(2)).state).toBe("delayed");
 
     // 키 1 리스가 끝나면(보호 해제) 키 2 가 다음 재시도에 자리를 얻는다
     await r.drive({ untilT: t0 + 120_000, touch: [keyN(2)] });
     expect(r.cache.get(keyN(1))).toBeUndefined();
     expect(r.cache.get(keyN(2))!.records).toBe(6);
+    expect(fromStart(keyN(2))).toBe(2); // 자리가 난 뒤 한 번 더 — 그때 붙었다
   });
 
   it("키 하나의 하루치가 상한을 넘으면 지우지 않고 그날 폴링을 멈춘다 — blocked · complete=false · 다시 열어도 처음부터 받지 않는다", async () => {
@@ -668,6 +670,8 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     expect(lines.filter((l) => l.msg === "cache evict")).toEqual([]);
     expect([1, 2, 3].map((i) => r.cache.get(keyN(i))?.closed ?? "evicted")).toEqual([true, true, false]);
     expect(r.cache.totalBytes()).toBeLessThanOrEqual(16_000);
+    // 키 3 마감 마무리 — 버려질 게 확실한 질의는 보내지 않는다(R2-IN-03)
+    expect(r.calls.filter((c) => keyOf(c.args) === keyN(3) && c.at >= at("200000"))).toEqual([]);
   });
 
   it("창이 열린 뒤 리스가 끝난 queued 키(한 번도 못 받음)도 따라잡는다 — 08:00 부터 · 마감 마무리는 마지막 몇 분만(R2-IN-04)", async () => {

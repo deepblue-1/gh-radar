@@ -16,7 +16,9 @@
  *   실패        ssh 실패 · 시간 초과 · 깨진 응답 → 그 키 5→10→20→40→60→60초 · 성공하면 다시 5초
  *   다시 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다(동시 1 바쁨 · 색인 준비 안 됨 — gh-trade 4f474b1f 가 넓힘)
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
- *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33)
+ *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33).
+ *               버린 응답 크기를 기억해, 캐시에 그만큼 자리(cache.headroom)가 날 때까지는 119 를 부르지 않고 백오프만 한다
+ *               (같은 from 의 응답은 그보다 작아지지 않는다 — 버려질 게 확실한 질의를 보내지 않는다 · R2-IN-03)
  *   승격 보호   따라잡기 시작(TICKGW_CATCHUP_AT · 끄면 마감 마무리 시작)부터 오늘 complete 키는 LRU 로 지우지 않는다 —
  *               closed 아님은 그날 마감 마무리가 끝날 때까지 · closed 는 TICKGW_KEEP_UNTIL(21:00 · 승격 Job 20:10 · 20:40)까지.
  *               따라잡기 · 마감 마무리가 붙일 자리를 만들려고 다른 승격 입력(이미 따라잡은 키 포함)을 지우던 것을 막는다(R2-WR-01).
@@ -132,6 +134,8 @@ interface KeyRun {
   argBlocked: boolean;
   /** 그날 하루치가 캐시 상한을 넘는다 — 폴링하지 않는다(WR-33). */
   tooLarge: boolean;
+  /** 마지막으로 「캐시 가득」 으로 버린 응답 바이트(0 = 없음) — 그만큼 자리가 날 때까지 119 를 부르지 않는다(R2-IN-03). */
+  fullNeed: number;
   calls: number;
 }
 
@@ -290,6 +294,7 @@ export class Poller {
         failures: 0,
         argBlocked: false,
         tooLarge: this.tooLargeKeys.has(entry.key),
+        fullNeed: 0,
         calls: 0,
       };
       if (run.tooLarge) entry.complete = false;
@@ -435,9 +440,15 @@ export class Poller {
         return "tooLarge";
       }
       if (a === "full") {
-        log("warn", "cache full (leased keys) — retry later", { key: run.key, total: this.deps.cache.totalBytes() });
+        run.fullNeed = res.stdout.length;
+        log("warn", "cache full (protected keys) — retry later", {
+          key: run.key,
+          need: run.fullNeed,
+          total: this.deps.cache.totalBytes(),
+        });
         return "full"; // 붙이지 않았다 — 커서(pendingFrom · lastRecvNs) 그대로 · 같은 범위를 나중에 다시
       }
+      run.fullNeed = 0;
     }
     // CR-31 — 119 기록기는 20:00 보류 창이 끝나면 지난 시간 파일을 `zstd --rm` 으로 압축하고, 인덱서는 그 파일을 건너뛰며
     // `compressed_files_skipped` 로 센다(gh-trade server/tools/indexer/README.md 「운영 경계」). 건너뛴 파일이 하나라도 있으면
@@ -473,6 +484,15 @@ export class Poller {
     return "done";
   }
 
+  /**
+   * 지난번 「캐시 가득」 으로 버린 만큼 자리가 났는가(R2-IN-03). 아니면 119 를 부르지 않는다 — 같은 from 의 응답은 그보다 작지 않아
+   * 부르면 또 버려진다. 자리는 보호가 풀릴 때(리스 끝 · 승격 창 끝) 난다.
+   */
+  private roomForRetry(run: KeyRun): boolean {
+    if (run.fullNeed <= 0) return true;
+    return this.deps.cache.headroom(run.key) >= run.fullNeed;
+  }
+
   private async call(
     run: KeyRun,
     fromNs: bigint,
@@ -500,6 +520,11 @@ export class Poller {
 
   private async poll(run: KeyRun): Promise<void> {
     const entry0 = this.deps.cache.get(run.key)!;
+    if (!this.roomForRetry(run)) {
+      run.failures += 1; // 여전히 캐시 가득 — 호출 없이 백오프(delayed)
+      run.nextDueAt = this.deps.now() + backoffMs(run.failures);
+      return;
+    }
     const fromNs = this.fromOf(run, entry0);
     const { res, started, at, entry } = await this.call(run, fromNs);
     const kind = this.classify(res, at);
@@ -617,6 +642,12 @@ export class Poller {
   private async catchupOne(item: CatchupItem): Promise<void> {
     const entry0 = this.deps.cache.get(item.key)!;
     const run = this.runOf(entry0, this.deps.now());
+    if (!this.roomForRetry(run)) {
+      // 이미 「캐시 가득」 이던 키 — 부르면 버려진다. 따라잡기 full 과 같이 멈춘다(R2-WR-01 · R2-IN-03)
+      log("warn", "catchup stopped (cache full)", { key: item.key, need: run.fullNeed, total: this.deps.cache.totalBytes() });
+      this.dropCatchup(item);
+      return;
+    }
     const fromNs = this.fromOf(run, entry0);
     const { res, started, at, entry } = await this.call(run, fromNs);
     this.catchupStats.calls += 1;
@@ -707,6 +738,17 @@ export class Poller {
   private async closeOne(item: CloseItem, now: number): Promise<void> {
     const entry0 = this.deps.cache.get(item.key)!;
     const run = this.runOf(entry0, now);
+    if (!this.roomForRetry(run)) {
+      // 여전히 캐시 가득 — 호출 없이 실패 시도로 센다(R2-IN-03)
+      item.attempts += 1;
+      if (item.attempts >= CLOSE_MAX_ATTEMPTS) {
+        this.dropClose(item);
+        log("warn", "close gave up (cache full) — not promoted", { key: item.key, attempts: item.attempts, need: run.fullNeed });
+        return;
+      }
+      item.nextDueAt = now + backoffMs(item.attempts);
+      return;
+    }
     const fromNs = this.fromOf(run, entry0);
     if (item.startedAt === null) item.startedAt = now;
     const { res, started, at, entry } = await this.call(run, fromNs);
