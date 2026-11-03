@@ -299,6 +299,21 @@ test.describe('틱뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 ·
     expect(await page.evaluate(() => history.length)).toBe(histBefore);
   });
 
+  test('재생 중(최대 속도) ‹ 목록으로 → 이동이 버려지지 않는다 · URL 에 isin 없음 · 목록 화면(WR-60)', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    const slider = page.locator('[data-slot="tick-slider"]');
+    await slider.getByRole('group', { name: '재생 속도' }).getByRole('button', { name: '최대' }).click();
+    await slider.getByRole('button', { name: '재생' }).click();
+    // 커서가 움직이며 URL t 를 쓰고 있다(250ms 스로틀 replaceState)
+    await expect.poll(() => tParam(page)).not.toBeNull();
+    await page.locator('[data-slot="tick-header"]').getByRole('button', { name: '목록으로' }).click();
+    await expect(page).toHaveURL(new RegExp(`${BASE}\\?d=${TICK_DATE}$`));
+    await expect(entryRows(page).first()).toBeVisible();
+    await expect(page.locator('[data-slot="tick-book"]')).toHaveCount(0);
+  });
+
   test('딥링크 — t=13:30:00.000 → 그 시각 이후 첫 틱 · 새로고침해도 같은 시각', async ({ page }) => {
     const rec = await mockTickApi(page);
     await page.goto(`${OPEN_URL}&t=13:30:00.000`);
