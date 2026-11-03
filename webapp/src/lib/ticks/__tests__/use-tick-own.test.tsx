@@ -139,6 +139,28 @@ describe('useTickOwn — 늦은 응답 · 실패', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['fills 없음', { fills: undefined }],
+    ['servers 없음', { servers: undefined }],
+    ['events 없음', { events: undefined }],
+    ['orders 없음', { orders: undefined }],
+  ])('(IN-03) 모양 실패(%s) — 처음이면 own null · error · warn 「shape」(렌더 중 예외 없음)', async (_name, over) => {
+    api.fetchTickOwn.mockResolvedValue({ ...respOf('A'), ...over });
+    const { result } = renderHook(() => useTickOwn(Q, 0));
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.own).toBeNull();
+    expect(warn).toHaveBeenCalledWith('[tick-own]', 0, 'shape');
+  });
+
+  it('(R2 WR-03 · IN-03) 성공 → refreshKey +1 모양 실패 → 거부와 같게 직전 own 유지 · status error', async () => {
+    api.fetchTickOwn.mockResolvedValueOnce(respOf('A')).mockResolvedValueOnce({ ...respOf('B'), events: undefined });
+    const { result, rerender } = renderHook(({ k }) => useTickOwn(Q, k), { initialProps: { k: 0 } });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    rerender({ k: 1 });
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.own?.servers).toEqual(['A']);
+  });
+
   it('(WR-05) 다른 종목으로 바꿔 실패하면 직전 종목 own 을 끌어오지 않는다 — null', async () => {
     api.fetchTickOwn.mockResolvedValueOnce(respOf('A')).mockRejectedValueOnce(new TypeError('Failed to fetch'));
     const { result, rerender } = renderHook(({ q }) => useTickOwn(q, 0), { initialProps: { q: Q } });

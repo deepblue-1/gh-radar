@@ -50,7 +50,7 @@ import { TickTeamPanel } from './tick-team-panel';
  * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState, ownRefreshKey)` 가 `GET /api/ticks/own` 을 한 번 부르고
  *   (자동 타이머 없음 · 당일이면 페이지가 「최신 받기」 때마다 `ownRefreshKey` 를 올려 1회 더 — 38-08), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
  *   넣지 않는다). 모델은 `PaneCtx.own` 으로 칸에 내려가 전문 목록이 우리 체결 A3 행에 민트 칩을 그린다. 조회가 실패하면
- *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 짝이 아직 바뀔 수 있는 막 들어온 체결은 대기로 둔다(38-04 · Pitfall 4 ·
+ *   우리 층만 없고 뷰어는 지금과 같다(다시 받다 실패하면 직전 층 + 오른쪽 열 「직전 값」 한 줄 — R2 WR-03). 당일(`live`)이면 짝이 아직 바뀔 수 있는 막 들어온 체결은 대기로 둔다(38-04 · Pitfall 4 ·
  *   장 끝 뒤 받은 세션은 `live.asOfMs` 로 대기 없음 — `buildOwnModel` ⑥).
  *   주문 줄 · 짝 없음 줄 클릭 = `ownPick`(줄 + 기준 rec) + 커서 이동 · 선택 표시는 커서가 그 rec 일 때만(파생 — ←/→ 로
  *   커서가 바뀌면 풀린다 · URL 은 rec 기준 그대로).
@@ -108,6 +108,8 @@ interface PaneCtx {
   badge: ReactNode;
   /** 우리 체결 모델(Phase 38) — 조회 전 · 실패면 null. */
   own: OwnModel | null;
+  /** 다시 받기가 실패해 직전 우리 층을 보이는 중(R2 WR-03 — `useTickOwn` status 'error' ∧ own 있음). */
+  ownStale: boolean;
   /** 고른 우리 줄(주문 줄 · 짝 없음 줄) — 커서가 그 줄의 기준 전문일 때만(파생). */
   ownSel: OwnSel | null;
   onOwnSelect: (sel: OwnSel, rec: number) => void;
@@ -138,7 +140,7 @@ type SideTab = 'this' | 'own';
  * 우리 층(own)이 있으면 맨 위에 「이 주문 · 팀 | 우리 주문 n」 탭(스케치 026 A · 2026-11-03 UAT): 둘째 탭 = 그날 「우리 주문」 표가
  * 열 전체를 쓴다(거르기 칩). 행 클릭 · 근거 · 키 `[` `]` 로 커서가 움직여도 탭은 그대로(목록 자리 유지). 「◆ 우리 주문 #…」 섹션은
  * 첫 탭 이 주문 카드 안. 탭 막대는 데스크톱 열 스크롤 안에서 위에 붙는다(열이 스크롤 컨테이너 · 폰은 페이지 스크롤이라 붙지 않음).
- * own 이 없으면 탭 없이 37 그대로.
+ * own 이 없으면 탭 없이 37 그대로. 다시 받기가 실패해 직전 own 을 보이는 중이면 탭 아래 한 줄 「우리 체결을 받지 못했어요 · 직전 값」.
  */
 function TickSidePane({
   session,
@@ -147,6 +149,7 @@ function TickSidePane({
   isToday,
   listingShares,
   own,
+  ownStale,
   ownSel,
   onOwnOrder,
   onOwnBack,
@@ -210,6 +213,16 @@ function TickSidePane({
             </>,
           )}
         </div>
+      )}
+      {own !== null && ownStale && (
+        // 다시 받기 실패 — 직전 우리 층이 지금 세션보다 낡았을 수 있다(R2 WR-03 · 자동 재시도 없음 · 다시 누를 때까지)
+        <p
+          data-slot="tick-own-stale"
+          role="status"
+          className="col-span-full m-0 text-[length:var(--t-caption)] font-medium text-[var(--destructive)]"
+        >
+          우리 체결을 받지 못했어요 · 직전 값
+        </p>
       )}
       {shown === 'own' && own !== null ? (
         <TickOwnTab
@@ -451,6 +464,7 @@ export function TickViewer({
     listingShares,
     badge,
     own: ownModel,
+    ownStale: own.status === 'error' && own.own !== null,
     ownSel,
     onOwnSelect,
     rows,

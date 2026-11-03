@@ -11,8 +11,10 @@
  * ④ 실패(401 · 403 · 404 · 5xx · 네트워크)는 우리 층만 없앤다 — `own` null · status 'error' · 콘솔 경고 한 줄(상태 코드 포함).
  *   화면 오류 카드는 없다(뷰어는 지금과 같다 · RESEARCH Pitfall 5 — e2e 목이 모르는 경로는 404 다).
  * ⑤ 같은 종목에서 다시 받는 동안(refreshKey 변경)은 직전 결과를 그대로 보여 준다 · 종목이 바뀌면 바로 비운다.
- *   다시 받다가 실패해도(일시 네트워크 · 5xx) 같은 종목이면 직전 `own` 을 지키고 status 만 'error' — 이미 받은 우리 층을
- *   일시 오류로 버리지 않는다(WR-05). 처음 열 때 실패면 ④ 그대로 null.
+ *   다시 받다가 실패해도(일시 네트워크 · 5xx · 응답 모양 검사 실패) 같은 종목이면 직전 `own` 을 지키고 status 만 'error' —
+ *   이미 받은 우리 층을 일시 오류로 버리지 않는다(WR-05 · 두 실패 경로가 같은 규칙 — R2 WR-03 · IN-03). 처음 열 때 실패면
+ *   ④ 그대로 null. 「status 'error' ∧ own 있음」 = 낡은 직전 값 — 뷰어가 「우리 체결을 받지 못했어요 · 직전 값」 을 단다
+ *   (자동 재시도 없음 · 다시 누를 때까지).
  * ⑥ 같은 요청 키(종목 + refreshKey)가 아직 받는 중이면 새로 부르지 않고 그 요청을 나눠 쓴다(38-09 — 개발 StrictMode 의
  *   effect 정리 → 재실행이 요청을 두 번 보내던 것). 끝나면 비운다 — 다시 열기(재마운트) · refreshKey 변경은 그대로 새 요청.
  */
@@ -74,12 +76,22 @@ export function useTickOwn(
       };
       promise.then(clear, clear);
     }
+    // ⑤ 같은 종목을 다시 받다 실패하면 직전 결과를 지킨다 · 다른 종목(처음 열기)이면 null — 거부 · 모양 실패 같은 규칙
+    const fail = () =>
+      setSettled((prev) => ({ key: k, reqKey: rk, own: prev !== null && prev.key === k ? prev.own : null, ok: false }));
     pending.promise.then(
       (own) => {
         if (!current) return;
-        if (!own || !Array.isArray(own.fills) || !Array.isArray(own.servers)) {
+        // buildOwnModel 이 네 배열을 바로 순회한다 — 하나라도 없으면 렌더 중 예외 대신 실패로(IN-03)
+        if (
+          !own ||
+          !Array.isArray(own.fills) ||
+          !Array.isArray(own.servers) ||
+          !Array.isArray(own.events) ||
+          !Array.isArray(own.orders)
+        ) {
           console.warn('[tick-own]', 0, 'shape');
-          setSettled({ key: k, reqKey: rk, own: null, ok: false });
+          fail();
           return;
         }
         setSettled({ key: k, reqKey: rk, own, ok: true });
@@ -87,8 +99,7 @@ export function useTickOwn(
       (e: unknown) => {
         if (!current) return;
         warnOf(e);
-        // ⑤ 같은 종목을 다시 받다 실패하면 직전 결과를 지킨다 · 다른 종목(처음 열기)이면 null
-        setSettled((prev) => ({ key: k, reqKey: rk, own: prev !== null && prev.key === k ? prev.own : null, ok: false }));
+        fail();
       },
     );
     return () => {

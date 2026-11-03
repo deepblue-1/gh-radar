@@ -367,6 +367,49 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
   });
 });
 
+describe('TickViewer — 우리 체결 다시 받기 실패 표시(R2 WR-03)', () => {
+  beforeEach(() => {
+    api.fetchTickOwn.mockReset();
+  });
+
+  it('성공 → ownRefreshKey +1 실패 → 직전 우리 층(탭) 유지 + 「우리 체결을 받지 못했어요 · 직전 값」 · 다시 성공하면 사라짐', async () => {
+    const OWN_A: TickOwnResponse = { ...OWN_EMPTY, servers: ['KB120'] };
+    api.fetchTickOwn
+      .mockResolvedValueOnce(OWN_A)
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(OWN_A);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const live = { newCount: 0, onGoEnd: vi.fn(), onAtEnd: vi.fn() };
+    const at = (k: number) => (
+      <TickViewer session={S2} urlState={URL_STATE} initialT={null} isToday live={live} ownRefreshKey={k} />
+    );
+    const stale = () => document.querySelector('[data-slot="tick-own-stale"]');
+    const v = render(at(0));
+    await waitFor(() => expect(document.querySelector('[data-slot="tick-side-tabs"]')).not.toBeNull());
+    expect(stale()).toBeNull();
+
+    v.rerender(at(1));
+    await waitFor(() => expect(stale()).not.toBeNull());
+    expect(stale()!.textContent).toBe('우리 체결을 받지 못했어요 · 직전 값');
+    expect(document.querySelector('[data-slot="tick-side-tabs"]')).not.toBeNull();
+
+    v.rerender(at(2));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(stale()).toBeNull());
+    warn.mockRestore();
+  });
+
+  it('처음 열기 실패 — 우리 층 없음(탭 · 표시 둘 다 없음 · 37 그대로)', async () => {
+    api.fetchTickOwn.mockRejectedValue(new TypeError('Failed to fetch'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<TickViewer session={S2} urlState={URL_STATE} initialT={null} />);
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(document.querySelector('[data-slot="tick-side-tabs"]')).toBeNull();
+    expect(document.querySelector('[data-slot="tick-own-stale"]')).toBeNull();
+    warn.mockRestore();
+  });
+});
+
 describe('TickViewer — 과거 격자 우리 체결 조회(Phase 38-08)', () => {
   beforeEach(() => {
     api.fetchTickOwn.mockReset();
