@@ -342,6 +342,34 @@ describe("유휴 삭제 뒤 다시 부르면 새 epoch 로 처음부터", () => 
   });
 });
 
+describe("X-Tick-As-Of-Ms — 마지막 완결 폴링 시작 시각(quick-261104-6lh)", () => {
+  it("폴링 전 빈 값 · 첫 완결 폴링 시작 시각 · 새 레코드 0건 증분 폴링도 앞당긴다", async () => {
+    const r = await bootFake(at("1000"));
+    const key = makeKey(ISIN, "KRX", DATE);
+    const first = await get("/internal/ticks/live", { isin: ISIN, ex: "KRX" });
+    expect(first.headers.get("X-Tick-State")).toBe("loading");
+    expect(first.headers.get("X-Tick-As-Of-Ms")).toBe("");
+    const epoch = first.headers.get("X-Tick-Epoch")!;
+    await first.arrayBuffer();
+
+    await r.drain(2); // 08:00 하루치 — has_more 없이 끝남
+    const done = await get("/internal/ticks/live", { isin: ISIN, ex: "KRX", epoch, offset: "0" });
+    expect(done.headers.get("X-Tick-State")).toBe("ready");
+    expect(done.headers.get("X-Tick-As-Of-Ms")).toBe(String(at("1000")));
+    const end = done.headers.get("X-Tick-Offset-End")!;
+    await done.arrayBuffer();
+    const records = r.cache.get(key)!.records;
+
+    r.clock.t = at("1000") + 6_000;
+    await r.poller.step(); // 증분 폴링(lastRecvNs+1 부터) — 한산한 종목: 새 레코드 0건
+    expect(r.cache.get(key)!.records).toBe(records);
+    const quiet = await get("/internal/ticks/live", { isin: ISIN, ex: "KRX", epoch, offset: end });
+    expect(quiet.headers.get("X-Tick-Offset-End")).toBe(end);
+    expect(quiet.headers.get("X-Tick-As-Of-Ms")).toBe(String(at("1000") + 6_000));
+    await quiet.arrayBuffer();
+  });
+});
+
 describe("GET /internal/ticks/export — closed 만 · date 검사", () => {
   async function closedRig(): Promise<FakeRig> {
     const r = await bootFake(at("1959"));

@@ -12,7 +12,9 @@
  *       200 `application/octet-stream` 본문 = offset 이후 원본 zstd 바이트 · `Cache-Control: no-store`
  *         X-Tick-Epoch · X-Tick-Offset-End(본문 끝 바이트 offset = 다음 요청 offset) · X-Tick-Last-Recv-Ns(없으면 빈 값) ·
  *         X-Tick-State(loading|ready|queued|delayed|blocked) · X-Tick-Queue(대기 순번 k · 활성이면 0) ·
- *         X-Tick-Complete(true|false — 08:00 부터 끊김 없음)
+ *         X-Tick-Complete(true|false — 08:00 부터 끊김 없음) ·
+ *         X-Tick-As-Of-Ms(이 키를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각 · tickgw 벽시계 epoch ms ·
+ *         아직 없으면 빈 값 — 캐시는 이 시각 − 기록 지연까지 다 받았다 · quick-261104-6lh)
  *   GET /internal/ticks/export?date=YYYYMMDD    — 20:00 승격 Job(37-12) 입력 · 같은 비밀 헤더
  *       **closed 키만**(20:01 마감 마무리를 마친 하루치 전체 — D-07) →
  *       `{ date, keys: [{ isin, ex, bytes, records, first_recv_ns, last_recv_ns, closed_through_ns }], unclosed }`
@@ -185,6 +187,7 @@ function live(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
     "X-Tick-State": st.state,
     "X-Tick-Queue": String(st.queue),
     "X-Tick-Complete": entry.complete ? "true" : "false",
+    "X-Tick-As-Of-Ms": entry.asOfMs === null ? "" : String(entry.asOfMs),
   });
   res.end(body);
 }

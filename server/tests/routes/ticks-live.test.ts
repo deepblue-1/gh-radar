@@ -90,6 +90,7 @@ const liveHeaders = (over: Record<string, string> = {}) => ({
   "X-Tick-State": "ready",
   "X-Tick-Queue": "0",
   "X-Tick-Complete": "true",
+  "X-Tick-As-Of-Ms": "1762041601500",
   ...over,
 });
 
@@ -101,7 +102,7 @@ const auth = (r: request.Test) => r.set("Authorization", "Bearer tok");
 const LIVE = (q: string) => `/api/ticks/live?${q}`;
 
 describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이언트)", () => {
-  it("offset 0 → 바이트 동일 · X-Tick-* 6종 그대로 · 압축 안 됨 · no-store · 비밀 헤더 · 쿼리 그대로", async () => {
+  it("offset 0 → 바이트 동일 · X-Tick-* 7종 그대로 · 압축 안 됨 · no-store · 비밀 헤더 · 쿼리 그대로", async () => {
     const fake = await startFakeTickgw(() => ({ status: 200, headers: liveHeaders(), body: BYTES }));
     const { client, rpcCalls } = makeSupabase({ user: nextUser() });
     const app = appWith(client, { tickgw: createTickgwClient({ baseUrl: fake.baseUrl, secret: SECRET }) });
@@ -125,6 +126,9 @@ describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이
     for (const name of Object.values(TICK_LIVE_HEADERS)) {
       expect(r.headers[name.toLowerCase()]).toBe(expected[name as keyof typeof expected]);
     }
+    // 루프는 shared 이름과 tickgw 리터럴이 달라도 undefined === undefined 로 통과한다 — 이름 · 값을 따로 잠근다
+    expect(TICK_LIVE_HEADERS.asOfMs).toBe("X-Tick-As-Of-Ms");
+    expect(r.headers["x-tick-as-of-ms"]).toBe("1762041601500");
 
     expect(fake.seen).toHaveLength(1);
     const u = new URL(fake.seen[0].url, "http://x");
@@ -153,6 +157,34 @@ describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이
     expect(r.headers["x-tick-last-recv-ns"]).toBe("");
     const u = new URL(fake.seen[0].url, "http://x");
     expect(Object.fromEntries(u.searchParams)).toEqual({ isin: ISIN, ex: "NXT", offset: "1234", epoch: "e-1" });
+  });
+
+  it("옛 tickgw(X-Tick-As-Of-Ms 없음) → 응답에도 없음 · 나머지 헤더는 그대로", async () => {
+    const { "X-Tick-As-Of-Ms": _omit, ...old } = liveHeaders();
+    const fake = await startFakeTickgw(() => ({ status: 200, headers: old, body: BYTES }));
+    const { client } = makeSupabase({ user: nextUser() });
+    const app = appWith(client, { tickgw: createTickgwClient({ baseUrl: fake.baseUrl, secret: SECRET }) });
+
+    const r = await auth(request(app).get(LIVE(`isin=${ISIN}&ex=KRX&offset=0`)));
+    expect(r.status).toBe(200);
+    expect(r.headers["x-tick-as-of-ms"]).toBeUndefined();
+    expect(r.headers["x-tick-epoch"]).toBe(old["X-Tick-Epoch"]);
+    expect(r.headers["x-tick-offset-end"]).toBe(old["X-Tick-Offset-End"]);
+    expect(r.headers["x-tick-last-recv-ns"]).toBe(old["X-Tick-Last-Recv-Ns"]);
+    expect(r.headers["x-tick-state"]).toBe("ready");
+    expect(r.headers["x-tick-queue"]).toBe("0");
+    expect(r.headers["x-tick-complete"]).toBe("true");
+  });
+
+  it("CORS — 다른 출처 웹이 X-Tick-As-Of-Ms 를 읽도록 노출 목록에 올린다", async () => {
+    const fake = await startFakeTickgw(() => ({ status: 200, headers: liveHeaders(), body: BYTES }));
+    const { client } = makeSupabase({ user: nextUser() });
+    const app = appWith(client, { tickgw: createTickgwClient({ baseUrl: fake.baseUrl, secret: SECRET }) });
+
+    const r = await auth(request(app).get(LIVE(`isin=${ISIN}&ex=KRX&offset=0`))).set("Origin", "http://localhost:3000");
+    expect(r.status).toBe(200);
+    expect(r.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect(r.headers["access-control-expose-headers"]).toMatch(/X-Tick-As-Of-Ms/i);
   });
 
   it("tickgw 409 {epoch} → 409 {epoch}", async () => {

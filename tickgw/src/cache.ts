@@ -9,6 +9,8 @@
  * - complete = 「08:00 KST 부터 시작 ∧ 이어받기 끊김 없음」. 폴러는 언제나 08:00 부터 시작하므로 만들 때 true,
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기면 false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
+ * - asOfMs = 이 엔트리를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) —
+ *   live 응답 헤더 X-Tick-As-Of-Ms. 새 엔트리(새 epoch)는 null 부터.
  * - 상한: 전체 `limitBytes`(기본 128MB) 를 넘으면 lastAccess 가 가장 오래된 키부터 지운다(append 마다 · evict 마다).
  *   LRU 는 면제가 없다 — 밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
  * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
@@ -35,6 +37,11 @@ export interface CacheEntry {
   complete: boolean;
   closed: boolean;
   closedThroughNs: bigint | null;
+  /**
+   * 이 엔트리를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 epoch ms).
+   * 캐시는 이 시각에서 기록 지연(약 1초 + 전송)을 뺀 시각까지 다 받았다. 엔트리를 새로 만들면(새 epoch) 다시 null.
+   */
+  asOfMs: number | null;
   /** 마지막 server 요청(touch) 시각 ms — LRU · 유휴 판정. 폴링 append 는 갱신하지 않는다. */
   lastAccess: number;
 }
@@ -89,6 +96,7 @@ export class TickCache {
       complete: true,
       closed: false,
       closedThroughNs: null,
+      asOfMs: null,
       lastAccess: now,
     };
     this.entries.set(key, e);

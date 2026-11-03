@@ -35,7 +35,7 @@ export type TickLiveHeaderKey = keyof typeof TICK_LIVE_HEADERS;
 
 /**
  * tickgw 응답. `status = 0` 은 「tickgw 에 닿지 못함」(네트워크 오류 · 타임아웃) — 그때 `netCode` 에 오류 코드
- * (`ECONNREFUSED` · `ECONNABORTED` · …, 모르면 `UNKNOWN`)를 싣는다. `headers` 는 X-Tick-* 6종 중 tickgw 가 준 것만(값 그대로).
+ * (`ECONNREFUSED` · `ECONNABORTED` · …, 모르면 `UNKNOWN`)를 싣는다. `headers` 는 X-Tick-* 7종 중 tickgw 가 준 것만(값 그대로 · As-Of 는 옛 tickgw 면 없음).
  */
 export type TickgwLiveResponse = {
   status: number;

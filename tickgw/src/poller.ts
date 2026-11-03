@@ -36,6 +36,11 @@
  *   성공(종료 0 ∧ has_more false)하면 closed · closedThroughNs = 그 폴링 시작 시각 − 2초(기록 지연 여유 · ≥ 그날 20:00:00 KST).
  *   실패는 백오프(5 · 10초)로 최대 3회 뒤 closed 아님 · LRU 로 밀려난 키도 closed 아님 → export 에 안 나와 승격되지 않는다.
  *   closed 키는 더 폴링하지 않는다.
+ *
+ * ── as-of(X-Tick-As-Of-Ms · quick-261104-6lh) ──────────────────────────
+ *   entry.asOfMs = 그 키를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) — 새 레코드 0건이어도
+ *   앞당긴다. 실패 · 바쁨 · 인자 오류 · 전역 차단은 건드리지 않는다(마지막 완결 읽기에 정직하게 멈춘다). 응답 시각이 아닌 까닭:
+ *   캐시는 5초 폴링 · 최대 60초 백오프라 응답 시각보다 수 초~수십 초 늦을 수 있다(closedThroughNs 와 같은 뜻 · 여유는 쓰는 쪽이 뺀다).
  */
 
 import { kstDayStartNs, kstMs, kstToday } from "./config.js";
@@ -308,7 +313,7 @@ export class Poller {
   }
 
   /** 정상 응답을 캐시에 붙인다. has_more 이어받기면 true. */
-  private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult): boolean {
+  private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult, startedMs: number): boolean {
     const meta = res.meta!;
     if (meta.records > 0) this.deps.cache.append(run.key, res.stdout, meta);
     if (meta.hasMore) {
@@ -320,12 +325,18 @@ export class Poller {
       entry.complete = false;
       log("warn", "has_more without next_from_ns", { key: run.key });
     }
+    // 완결 읽기(has_more 없음)만 as-of 를 앞당긴다 — 새 레코드 0건이어도(한산한 종목). append 와 같은 동기 블록이라
+    // 캐시와 원자적이다. 이어받기 중간 · 계약 위반(has_more 인데 커서 없음)은 끝까지 읽은 게 아니라 그대로 둔다.
+    if (!meta.hasMore) entry.asOfMs = startedMs;
     run.pendingFrom = null;
     run.loaded = true;
     return false;
   }
 
-  private async call(run: KeyRun, fromNs: bigint): Promise<{ res: IndexerResult; at: number; entry: CacheEntry | null }> {
+  private async call(
+    run: KeyRun,
+    fromNs: bigint,
+  ): Promise<{ res: IndexerResult; started: number; at: number; entry: CacheEntry | null }> {
     const started = this.deps.now();
     run.calls += 1;
     const res = await this.deps.runIndexer({ isin: run.isin, ex: run.ex, date: run.date, fromNs, toNs: 0n });
@@ -343,20 +354,20 @@ export class Poller {
       stderr: okResult(res) ? undefined : res.stderrTail.slice(-200),
     });
     // 호출 사이 엔트리가 지워짐(유휴 · LRU) — 결과를 버린다
-    return { res, at, entry: entry && entry.epoch === run.epoch ? entry : null };
+    return { res, started, at, entry: entry && entry.epoch === run.epoch ? entry : null };
   }
 
   private async poll(run: KeyRun): Promise<void> {
     const entry0 = this.deps.cache.get(run.key)!;
     const fromNs = this.fromOf(run, entry0);
-    const { res, at, entry } = await this.call(run, fromNs);
+    const { res, started, at, entry } = await this.call(run, fromNs);
     const kind = this.classify(res, at);
     if (!entry) return;
     switch (kind) {
       case "ok":
         run.failures = 0;
         run.argBlocked = false;
-        run.nextDueAt = this.applyOk(run, entry, fromNs, res) ? at : at + this.cfg.pollMs + this.jitter();
+        run.nextDueAt = this.applyOk(run, entry, fromNs, res, started) ? at : at + this.cfg.pollMs + this.jitter();
         return;
       case "busy":
         run.nextDueAt = at + this.busyDelay();
@@ -420,7 +431,7 @@ export class Poller {
     const run = this.runOf(entry0, now);
     const fromNs = this.fromOf(run, entry0);
     if (item.startedAt === null) item.startedAt = now;
-    const { res, at, entry } = await this.call(run, fromNs);
+    const { res, started, at, entry } = await this.call(run, fromNs);
     const kind = this.classify(res, at);
     if (!entry) {
       this.dropClose(item);
@@ -429,7 +440,7 @@ export class Poller {
     if (kind === "ok") {
       run.failures = 0;
       run.argBlocked = false;
-      if (this.applyOk(run, entry, fromNs, res)) {
+      if (this.applyOk(run, entry, fromNs, res, started)) {
         item.nextDueAt = at; // 이어받기 — 같은 마무리 폴링
         return;
       }

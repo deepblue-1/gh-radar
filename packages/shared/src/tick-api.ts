@@ -178,10 +178,16 @@ export interface TickLiveMeta {
   queue: number;
   /** 08:00 부터 끊김 없이 이어졌는가(헤더 문자열 "true" / "false"). */
   complete: boolean;
+  /**
+   * tickgw as-of(`X-Tick-As-Of-Ms`) — 이 키를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각
+   * (tickgw 벽시계 epoch ms). 캐시는 이 시각 − 기록 지연까지 다 받았다. 옛 tickgw · 옛 server 거나 빈 값이면 null.
+   * 웹은 여유(기록 지연 + 호스트 시계 차)를 빼고 당일 대기 판정 cutoff 로 쓴다(quick-261104-6lh). 409 meta 는 없음.
+   */
+  asOfMs?: number | null;
 }
 
 /**
- * `GET /api/ticks/live` 응답 헤더 이름 — server(중계 · CORS exposedHeaders)와 37-19 웹(읽기)이 같은 상수를 쓴다(D-07).
+ * `GET /api/ticks/live` 응답 헤더 이름 7종 — server(중계 · CORS exposedHeaders)와 37-19 웹(읽기)이 같은 상수를 쓴다(D-07).
  * tickgw 내부 계약(37-09 `tickgw/src/server.ts`)과 이름이 같다 — server 는 값을 바꾸지 않고 넘긴다.
  */
 export const TICK_LIVE_HEADERS = {
@@ -191,6 +197,8 @@ export const TICK_LIVE_HEADERS = {
   state: "X-Tick-State",
   queue: "X-Tick-Queue",
   complete: "X-Tick-Complete",
+  /** 7번째 — 옛 tickgw 는 내지 않는다(server 는 값이 없으면 중계하지 않는다 · quick-261104-6lh). */
+  asOfMs: "X-Tick-As-Of-Ms",
 } as const;
 
 // ── 우리 주문 · 체결(Phase 38 · D-01 · D-03 · D-14) ─────────────────────────────

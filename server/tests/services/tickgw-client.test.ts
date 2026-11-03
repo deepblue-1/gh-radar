@@ -80,6 +80,7 @@ describe("createTickgwClient.live", () => {
         "X-Tick-State": "queued",
         "X-Tick-Queue": "3",
         "X-Tick-Complete": "false",
+        "X-Tick-As-Of-Ms": "1762041601500",
         "X-Other": "drop",
       });
       res.end(body);
@@ -97,6 +98,7 @@ describe("createTickgwClient.live", () => {
       state: "queued",
       queue: "3",
       complete: "false",
+      asOfMs: "1762041601500",
     });
     expect(seen[0].headers["x-tickgw-secret"]).toBe("k".repeat(40));
     expect(seen[0].headers["accept-encoding"]).toBe("identity");
