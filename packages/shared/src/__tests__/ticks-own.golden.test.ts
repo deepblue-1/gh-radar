@@ -22,7 +22,15 @@ import {
   type OwnEvidence,
   type OwnFillMatch,
 } from "../ticks/own-fills";
-import { TAG_CODE, a3ColumnsOf, buildTickIndex, recvOrderOf, type A3Columns, type TickIndex } from "../ticks/record-index";
+import {
+  NO_BOARD,
+  TAG_CODE,
+  a3ColumnsOf,
+  buildTickIndex,
+  recvOrderOf,
+  type A3Columns,
+  type TickIndex,
+} from "../ticks/record-index";
 import { readTickJson, readTicksZst } from "./helpers/tick-digest";
 
 interface JournalFill {
@@ -319,46 +327,31 @@ describe("조건 근거 · 앵커 오라클 10/30 (SC-3)", () => {
   });
 });
 
-describe("웹 경로 — 중복 거르기 skip 을 넘겨도 오라클 그대로(WR-03 · 10/30 픽스처 중복 0)", () => {
-  /** `qtyWithoutDuplicates` 와 같은 규칙의 rec → 1 배열(웹 세션 `duplicates` 모양). */
-  function skipOf(index: TickIndex, a3: A3Columns): Uint8Array {
-    const out = new Uint8Array(index.n);
+describe("웹 경로 — 픽스처 중복 0건(WR-03 · R2 WR-01 · R2 IN-02)", () => {
+  /*
+   * 웹은 세션 `duplicates`(같은 보드 · seq 의 두 번째 이후 수신)를 `skip` 으로 넘긴다. shared 의 거름 조건은 모두
+   * `skip[rec] === 1` 이라 중복이 0건이면 skip 이 있든 없든 짝 · cum 색인 · 근거(A3 · B6) · 앵커가 같다 — 그래서
+   * 「skip 있음 == 없음」 을 다시 재지 않고, 웹 경로가 이 픽스처에서 위 오라클 수치를 그대로 내는 전제(중복 0건)만 단언한다.
+   * 규칙은 webapp `tick-session.ts` `duplicatesOf` 그대로 — 수신순 · 전 태그(A3 · B6 …) · 보드 없음 · seq < 0 제외.
+   * (shared 테스트는 webapp 을 import 하지 않는다 — 규칙이 바뀌면 여기도 같이 고친다. skip 동작 자체는 합성 테스트가 잠근다.)
+   */
+  function webDuplicatesOf(index: TickIndex, recvOrder: Int32Array): number {
     const seen = new Set<number>();
-    for (let j = 0; j < a3.n; j++) {
-      const k = a3.board[j]! * 1e9 + a3.seq[j]!;
-      if (seen.has(k)) out[a3.rec[j]!] = 1;
+    let n = 0;
+    for (let p = 0; p < recvOrder.length; p++) {
+      const r = recvOrder[p]!;
+      const b = index.board[r]!;
+      if (b === NO_BOARD || index.seq[r]! < 0) continue;
+      const k = b * 1e9 + index.seq[r]!;
+      if (seen.has(k)) n += 1;
       else seen.add(k);
     }
-    return out;
+    return n;
   }
 
-  it.each(TABLE)("%s — 짝 · 근거 · 앵커가 skip 없을 때와 같다", (key, label, isin) => {
+  it.each(TABLE)("%s — 웹 세션 규칙으로 중복 0건(A3 · B6 모두)", (_key, label, isin) => {
     const buf = readTicksZst(`own1030-${label}-${isin}.ticks.zst`);
     const index = buildTickIndex(buf, label);
-    const recvOrder = recvOrderOf(index);
-    const a3 = a3ColumnsOf(buf, index);
-    const skip = skipOf(index, a3);
-    expect(skip.reduce((n, v) => n + v, 0)).toBe(0);
-    const ins = journal.fills
-      .filter((f) => f.key === key)
-      .map((f) => ({ gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty }));
-    expect(matchOwnFills(index, a3, ins, skip)).toEqual(matchOwnFills(index, a3, ins));
-    const plain = cumIndexOf(a3);
-    const skipped = cumIndexOf(a3, skip);
-    expect(skipped).toEqual(plain);
-    for (const e of journal.events.filter((x) => x.key === key)) {
-      const ev = {
-        gwMs: e.gw_time_ms,
-        evKind: e.ev_kind,
-        evPrice: e.ev_price,
-        evQtyBefore: e.ev_qty_before,
-        evQtyAfter: e.ev_qty_after,
-        evTradeQty: e.ev_trade_qty,
-      };
-      expect(locateEvidence(buf, index, recvOrder, a3, skipped, ev, skip)).toEqual(
-        locateEvidence(buf, index, recvOrder, a3, plain, ev),
-      );
-      expect(anchorOf(skipped, e.cum_volume)).toBe(anchorOf(plain, e.cum_volume));
-    }
+    expect(webDuplicatesOf(index, recvOrderOf(index))).toBe(0);
   });
 });
