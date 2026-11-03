@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 37
-current_phase_name: 틱 전문 뷰어
+current_phase: 38
+current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Phase 38 planned
-last_updated: "2026-11-03T05:39:32.852Z"
+stopped_at: Completed 38-01-PLAN.md
+last_updated: "2026-11-03T06:01:10.550Z"
 last_activity: 2026-11-03
-last_activity_desc: Phase 38 planned (10 plans)
-state_head: 9d8497607a839f127b2f8f2df2fd6d32c2c49295
+last_activity_desc: Phase 38 execution started
+state_head: 4b6409c35050b3d398a61a907356c710ea19ee01
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 101
+  completed_plans: 102
   percent: 78
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 37 — 틱 전문 뷰어
+**Current focus:** Phase 38 — 틱뷰어 우리 주문·체결 표시
 
 ## Current Position
 
-Phase: 37 (틱 전문 뷰어) — EXECUTING
-Plan: 1 of 19
-Status: Executing Phase 37
-Last activity: 2026-11-03 - Phase 38 계획 완료(10 플랜 · 8 웨이브 · 체커 통과, 리비전 1회) — 37-17 당일 UAT 는 아직 uat-pending
+Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
+Plan: 2 of 10
+Status: Ready to execute
+Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
@@ -131,10 +131,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/38-own-orders-on-ticks/38-01-PLAN.md
+**Resume file:** None
 
-Last session: 2026-11-03T04:15:35.114Z
-Stopped at: Phase 38 planned — next /gsd-execute-phase 38
+Last session: 2026-11-03T06:01:10.433Z
+Stopped at: Completed 38-01-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -202,6 +202,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P05 | 10min | 2 tasks | 11 files |
 | Phase 36 P07 | 9min | 2 tasks | 9 files |
 | Phase 36 P08 | 26min | 3 tasks | 15 files |
+| Phase 38 P01 | 9 min | 1 tasks | 14 files |
 
 ## Decisions
 
@@ -336,3 +337,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-08: usePnlReport 상태를 만든 키와 함께 둬 키 변경 첫 렌더는 곧바로 loading(이전 응답을 새 라벨로 비추지 않음)
 - [Phase 36]: 36-08: /admin/pnl 문서 제목은 서버 metadata 정본 — router.replace 가 루트 제목으로 되돌림
 - [Phase 36]: 36-08: 계좌별 증권사 배지 = KB 게이트웨이 하나라도 있으면 KB · BROKER_LABEL export 로 같은 낱말 한 벌
+- [Phase 38]: 38-01: 어드민 판정은 RPC tick_own_for_user 안 dma_app_access_map() role 조회 — 분기 인자 없음(인자 4개 고정)
+- [Phase 38]: 38-01: 우리 체결 짝짓기는 브라우저 shared matchOwnFills · own 조회 실패(동기 throw 포함)는 우리 층만 비우고 콘솔 경고 한 줄
