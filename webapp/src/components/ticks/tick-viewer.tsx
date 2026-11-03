@@ -10,6 +10,7 @@ import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
 import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
+import { useOwnNav, type OwnNavState } from '@/lib/ticks/use-own-nav';
 import { useTickOwn } from '@/lib/ticks/use-tick-own';
 import { cn } from '@/lib/utils';
 
@@ -49,6 +50,8 @@ import { TickTeamPanel } from './tick-team-panel';
  *   덮어씀 · 종목 · 날짜 · 거래소가 바뀌면 사라짐(파생).
  * ⑥ 차트 우리 점(38-07 · D-08): `TickChart own` — ◆ 클릭 = 그 체결 A3 행 · ○ 클릭 = 근거 행 + 같은 알약 · ◇ 클릭 = 그 짝 없음
  *   줄 선택(`rows.ownPosOfFill` → `ownLineRec`).
+ * ⑦ 우리 체결 탐색(38-08 · D-09): `useOwnNav`(rows + own → 탐색 대상 · k/n · ‹ › · 키 `[` `]`)의 상태를 `onOwn` 으로 페이지에
+ *   올려 제목 줄 알약이 그린다(`onTick` 과 같은 꼴 · 상태 객체는 k · n · 주문 수가 바뀔 때만 새것 · 떠나면 null).
  */
 
 export interface TickViewerProps {
@@ -65,6 +68,8 @@ export interface TickViewerProps {
   listingShares?: number | null;
   /** 당일 바이트 경로(37-19) — 없으면 과거 격자. */
   live?: TickViewerLive;
+  /** 우리 체결 탐색 상태(38-08 · D-09) — 제목 줄 알약용. 뷰어가 사라지면 null. */
+  onOwn?: (s: OwnNavState | null) => void;
 }
 
 export interface TickViewerLive {
@@ -205,6 +210,7 @@ export function TickViewer({
   isToday = false,
   listingShares = null,
   live,
+  onOwn,
 }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined });
   const { rec, atEnd } = cursor;
@@ -296,6 +302,22 @@ export function TickViewer({
     },
     [rows, onOwnSelect],
   );
+
+  // 우리 체결 탐색(38-08 · D-09) — 제목 줄 알약 · 키 [ ]. 상태는 원시값이 바뀔 때만 새 객체라 올려도 갱신이 돌지 않는다.
+  // A3 대상으로 갈 때는 고른 줄을 푼다 — 짝 없음 줄의 기준 전문이 바로 다음 대상 행이면 줄 선택이 남아 현재 자리가 줄에 묶인다.
+  const navJump = useCallback(
+    (r: number) => {
+      setOwnPick(null);
+      jumpToRec(r);
+    },
+    [jumpToRec],
+  );
+  const ownNav = useOwnNav({ rows, own: ownModel, cursorRec: rec, ownSel, jumpToRec: navJump, pickLine: onOwnSelect });
+  useEffect(() => {
+    if (!onOwn) return;
+    onOwn(ownNav);
+    return () => onOwn(null);
+  }, [onOwn, ownNav]);
 
   const time = rec >= 0 ? fmtTickTime(session.index.recvNs[rec]!) : '';
   const seq = rec >= 0 && session.index.seq[rec]! >= 0 ? session.index.seq[rec]! : null;

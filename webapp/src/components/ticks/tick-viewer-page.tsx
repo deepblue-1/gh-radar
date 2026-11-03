@@ -18,6 +18,7 @@ import { dateNavOf, fmtYmdLabel, fmtYmdShort } from '@/lib/limitup-report';
 import { fetchTickDay, fetchTickOpen, fetchTickToday, postTickCancel, postTickConvert } from '@/lib/ticks/tick-api';
 import { fmtBytes, fmtQty } from '@/lib/ticks/tick-format';
 import { defaultTickDateOf, nodataReasonOf, parseTickUrl, tickUrlOf, type NodataReason } from '@/lib/ticks/tick-url';
+import type { OwnNavState } from '@/lib/ticks/use-own-nav';
 import { useTickGrid } from '@/lib/ticks/use-tick-grid';
 import { TICK_LIVE_FAILING_AFTER, liveProgressOf, useTickLive } from '@/lib/ticks/use-tick-live';
 import { cn } from '@/lib/utils';
@@ -54,6 +55,8 @@ import { TickViewer } from './tick-viewer';
  *   (`t` 없으면 끝 틱). live=false 면 훅은 요청 0 · 「당일 자료 준비 중」. 훅이 503 을 받아도 같은 카드로 내린다.
  *   폴링 규율(D-06)은 훅 · 끝 여부는 뷰어가 `onAtEnd` 로 올린다 · epoch 가 바뀌면(generation) 뷰어를 새로 열어 끝 틱 ·
  *   지연 · 연속 오류는 머리(`live`) · 카드 「취소」 = 훅 정지 + 목록.
+ * ⑦ 우리 체결(Phase 38 · D-09): 뷰어가 `onOwn` 으로 올린 탐색 상태를 제목 줄 「◆ 우리 체결 k/n ‹ ›」 알약에 넘긴다(열기 키가
+ *   바뀌면 파생으로 사라짐 · URL 무변경 D-02).
  */
 
 /** 변환 상태 폴링 간격 — 5초(D-03). */
@@ -164,6 +167,11 @@ export function TickViewerPage() {
   const [initial, setInitial] = useState({ key: openKey, t: url.t });
   if (initial.key !== openKey) setInitial({ key: openKey, t: url.t });
   const initialT = initial.key === openKey ? initial.t : url.t;
+
+  // 우리 체결 알약(38-08 · D-09) — 뷰어가 올린 상태를 열기 키와 함께 든다 · 종목 · 날짜 · 거래소가 바뀌면 파생으로 null.
+  const [ownNavAt, setOwnNavAt] = useState<{ key: string; nav: OwnNavState | null }>({ key: openKey, nav: null });
+  const ownNav = ownNavAt.key === openKey ? ownNavAt.nav : null;
+  const onOwn = useCallback((nav: OwnNavState | null) => setOwnNavAt({ key: openKey, nav }), [openKey]);
 
   const fail = useCallback((err: unknown, set: () => void) => {
     const g = gateOf(err);
@@ -394,6 +402,7 @@ export function TickViewerPage() {
         ex={ex}
         supply={shown === null ? null : isToday ? 'live' : 'grid'}
         tickLabel={showTick ? tickLabel : undefined}
+        ownNav={showTick ? ownNav : null}
         live={
           liveResp !== null && live.status !== 'unavailable'
             ? {
@@ -531,6 +540,7 @@ export function TickViewerPage() {
               urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
               initialT={live.generation === 0 ? initialT : null}
               onTick={setTickLabel}
+              onOwn={onOwn}
               accum={view.resp.accum}
               isToday
               listingShares={view.resp.stock?.listing_shares ?? null}
@@ -584,6 +594,7 @@ export function TickViewerPage() {
               urlState={{ isin: view.resp.isin, d: view.resp.date, ex: view.resp.exchange }}
               initialT={initialT}
               onTick={setTickLabel}
+              onOwn={onOwn}
               accum={view.resp.accum}
               isToday={view.resp.date === today}
               listingShares={view.resp.stock?.listing_shares ?? null}

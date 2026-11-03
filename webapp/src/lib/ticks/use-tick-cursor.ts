@@ -52,8 +52,8 @@ export interface TickCursor {
   goEnd: () => void;
 }
 
-/** 글자 입력 중인 요소(input · textarea · select · contenteditable) — 키를 가로채지 않는다. */
-function isTypingTarget(t: EventTarget | null): boolean {
+/** 글자 입력 중인 요소(input · textarea · select · contenteditable) — 키를 가로채지 않는다(우리 체결 `[` `]` 도 같이 쓴다 · 38-08). */
+export function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
   if (t.isContentEditable) return true;
   const ce = t.getAttribute('contenteditable');
