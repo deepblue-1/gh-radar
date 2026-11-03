@@ -146,7 +146,11 @@ export type TickConvertResponse = {
   eta_s?: number;
 };
 
-/** `POST /api/ticks/convert/cancel` 200 응답 — 본인 pending 일 때만 cancelled true. */
+/**
+ * `POST /api/ticks/convert/cancel` 200 응답 — 취소 = 「내 몫 빼기」(WR-02 · D-03 합치기).
+ * - `cancelled` — pending 요청의 요청자 집합에서 본인을 뺐다(본인이 기다리던 요청이 아니면 false).
+ * - 요청 자체는 마지막 요청자가 빠질 때만 `cancelled` 가 된다 — 그 상태는 `request.status` 로 본다.
+ */
 export type TickCancelResponse = {
   access: true;
   cancelled: boolean;

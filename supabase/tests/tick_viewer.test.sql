@@ -3,7 +3,7 @@
 --
 -- 대상: 20261102200000_tick_viewer.sql(표 3 · tick_grid_upsert · tick_day_for_user · tick_open_for_user ·
 --       tick_eta_s · tick_trigger_blocked · 버킷) · 20261102200100_tick_viewer_queue.sql(요청 큐 · Job RPC · 오늘 · purge).
---       · 20261104300000(WR-01 하루 상한 = 깨운 횟수).
+--       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -24,7 +24,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(118);
+SELECT plan(128);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -380,6 +380,43 @@ SELECT is(public.tick_request_trigger_failed('20261015', 'KRX', 'boom'), 1, 'J2 
 SELECT is(pg_temp.tc('20261015', 'KRX', 'KR7370001001'), 0, 'J2 깨우기 실패(Job 0회) → 오늘 횟수 되돌림 → 0');
 SELECT is(pg_temp.req(pg_temp.u1(), '20261014', 'KR7370002009', 'KRX', 1)->>'should_trigger', 'true',
           'J2 깨우기 실패분은 상한에 남지 않는다 → cap 1 에서 새 키 트리거');
+
+-- ── J3. 합쳐진 요청의 취소 = 내 몫 빼기(WR-02 · 20261104300100) ──────────
+DELETE FROM public.tick_convert_requests;
+CREATE FUNCTION pg_temp.who(p_date text, p_ex text, p_isin text) RETURNS uuid[] LANGUAGE sql AS $$
+  SELECT r.requesters FROM public.tick_convert_requests r
+   WHERE r.date = p_date AND r.exchange = p_ex AND r.isin = p_isin
+$$;
+CREATE FUNCTION pg_temp.cx(p_user uuid, p_date text, p_isin text, p_ex text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT public.tick_cancel_convert_for_user(p_user, p_date, p_isin, p_ex)
+$$;
+SELECT pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20)->>'should_trigger', 'false',
+          'J3 두 번째 요청자 → 앞 Job 에 합류(should_trigger false)');
+SELECT is(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ARRAY[pg_temp.u1(), pg_temp.u2()],
+          'J3 합류하면 요청자 집합 {u1, u2}');
+SELECT pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(cardinality(pg_temp.who('20261013', 'KRX', 'KR7370001001')), 2, 'J3 같은 사람 재요청은 집합을 늘리지 않는다');
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX') - 'request', '{"access": true, "cancelled": true}'::jsonb,
+          'J3 첫 요청자 취소 → 내 몫만 뺀다(cancelled true)');
+SELECT is(pg_temp.st('20261013', 'KRX', 'KR7370001001') || ' ' || array_to_string(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ','),
+          'pending ' || pg_temp.u2()::text,
+          'J3 다른 요청자가 남으면 요청은 pending 그대로(남의 화면에 실패 없음) · 집합 {u2}');
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX')->>'cancelled', 'false',
+          'J3 이미 뺀 사람의 재취소 → false');
+SELECT pg_temp.cx(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX');
+SELECT ok((SELECT r.status = 'cancelled' AND r.finished_at = now() AND r.requesters = '{}'
+             FROM public.tick_convert_requests r WHERE r.date = '20261013' AND r.isin = 'KR7370001001'),
+          'J3 마지막 요청자 취소 → cancelled · finished_at · 빈 집합');
+SELECT pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.st('20261013', 'KRX', 'KR7370001001') || ' ' || array_to_string(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ','),
+          'pending ' || pg_temp.u2()::text, 'J3 취소된 요청을 다시 올리면 새 회차 · 집합 {본인}');
+SELECT pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX') #>> '{request,status}', 'pending',
+          'J3 두 번째 요청자도 자기 몫을 취소할 수 있다 · 요청은 pending 그대로');
+SELECT ok(NOT (pg_temp.open1('20261013', 'KRX', 'KR7370001001')->'request' ? 'requesters')
+          AND NOT (pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20)->'request' ? 'requesters'),
+          'J3 open · 요청 응답은 요청자 집합을 내보내지 않는다');
 
 -- ── K. 실행 기록 · 후보 ───────────────────────────────────────────
 SELECT ok(public.tick_convert_run_record('{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true,

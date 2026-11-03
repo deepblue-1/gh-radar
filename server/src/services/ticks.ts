@@ -273,7 +273,7 @@ export async function requestTickConvert(
   };
 }
 
-/** 요청 취소 — 본인이 요청한 pending 만 cancelled(판정은 RPC 안). 그 밖이면 200 `cancelled: false`. */
+/** 요청 취소 — pending 요청에서 내 몫만 뺀다 · 마지막 요청자면 요청이 cancelled(판정은 RPC 안 · WR-02). 내 몫이 없으면 200 `cancelled: false`. */
 export async function cancelTickConvert(
   supabase: SupabaseClient,
   userId: string,
