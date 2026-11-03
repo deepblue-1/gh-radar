@@ -10,6 +10,8 @@
  * ② 순매수 판 — 시각 t 이하 마지막 계단 「HH:MM:SS · 당일 순매수 ±X[ · 누적 ±Y(이월 포함) | 누적 —][ · 팀 평단 N원]」.
  *   누적(pos_net)의 끊김 규칙은 매집감지 `cumTipAt` 당일 축 갈래 그대로.
  * ③ 10분 판 — 시각 t 가 든 칸 「HH:MM~HH:MM · 팀 매수 X / 매도 Y / 순 ±Z」(빈 칸은 없음).
+ * ④ 누적 판(스케치 022 A) — 시각 t 이하 마지막 A3 까지 「HH:MM:SS까지 · 거래량 N주 · 거래대금 X(시총 대비 n.n%)」 ·
+ *   「팀 X n.n% · 매수 Y · 매도 Z」(팀 체결 전이면 「팀 체결 없음」). 시총을 모르면 시총 대비를 뺀다.
  *
  * 금액은 이 화면 표기(`fmtAmountC` — 「984만」 「7.96억」), 등락률 · 평단 대비는 매집감지 툴팁처럼 소수 2자리.
  */
@@ -19,7 +21,7 @@ import { kstClock } from '@/lib/limitup-report';
 import { kstHm } from '@/lib/teamflow-report';
 
 import { TEAM_CIRCLE_MIN_VAL, type TeamModel, type TeamOrderPoint } from './team-model';
-import type { TickPanels } from './tick-chart';
+import { turnoverIdxAt, type TickPanels, type TurnoverSeries } from './tick-chart';
 import { MINUS, fmtAmountC } from './tick-format';
 
 /** 원을 그리는 창 여유(창 폭의 2% — 컴포넌트가 그리는 원과 같은 범위). */
@@ -252,4 +254,26 @@ export function tickBucketTipAt(model: Pick<TeamModel, 'buckets'>, T0: number, t
     `${kstHm(s0)}~${kstHm(s0 + SLOT_MS)} · 팀 매수 ${fmtAmountC(buy)} / 매도 ${fmtAmountC(sell)}` +
     ` / 순 ${signedAmount(buy - sell)}`;
   return { key: `b${slot}`, lines: [text], circle: null };
+}
+
+/** 비율 → 「n.n%」(부호 없음). */
+export function pct1(r: number): string {
+  return `${(Math.round(r * 1000) / 10).toFixed(1)}%`;
+}
+
+/** 누적 판 — 시각 t 이하 마지막 A3 까지 누적. 첫 체결 전이면 null. key = `v{색인}`. */
+export function tickTurnoverTipAt(s: TurnoverSeries, t: number, mcap: number | null): TickHover | null {
+  const i = turnoverIdxAt(s, t);
+  if (i < 0) return null;
+  const val = s.val[i]!;
+  const cap = mcap === null ? '' : `(시총 대비 ${pct1(val / mcap)})`;
+  const b = s.teamBuy[i]!;
+  const sl = s.teamSell[i]!;
+  const team =
+    b + sl > 0 ? `팀 ${fmtAmountC(b + sl)} ${pct1(s.share[i]!)} · 매수 ${fmtAmountC(b)} · 매도 ${fmtAmountC(sl)}` : '팀 체결 없음';
+  return {
+    key: `v${i}`,
+    lines: [`${kstClock(s.t[i]!)}까지 · 거래량 ${INT.format(s.qty[i]!)}주 · 거래대금 ${fmtAmountC(val)}${cap}`, team],
+    circle: null,
+  };
 }

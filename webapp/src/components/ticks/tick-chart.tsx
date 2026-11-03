@@ -24,6 +24,7 @@ import {
   viBandsOf,
   yOfNet,
   lastTradeMsOfSession,
+  marketCapOf,
   msOfNs,
   priceSeriesOf,
   pricePathDecimated,
@@ -32,6 +33,8 @@ import {
   tickPanelsOf,
   tickPriceRangeOf,
   tickTicksOf,
+  turnoverPathsOf,
+  turnoverSeriesOf,
   xOfTick,
   yOfTickPrice,
 } from '@/lib/ticks/tick-chart';
@@ -41,6 +44,8 @@ import {
   tickCirclesOf,
   tickNetTipAt,
   tickOrderHoverOf,
+  tickTurnoverTipAt,
+  pct1,
   type TickHover,
 } from '@/lib/ticks/tick-chart-tip';
 import { fmtAmountC } from '@/lib/ticks/tick-format';
@@ -49,21 +54,24 @@ import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
 /**
- * 틱 뷰어 3판 차트 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트와 같은 레이어 순서 · 순수 SVG · viewBox 1:1 · 글자 11px).
+ * 틱 뷰어 타임라인 차트 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트와 같은 레이어 순서 + 스케치 022 A 넷째 판 · 순수 SVG ·
+ * viewBox 1:1 · 글자 11px).
  *
  * ① 레이어(아래 → 위): 장전 음영(08:00~09:00) · 빈 띠(15:30~16:00) · VI 띠(`--vi` 옅게 · 진행 중이면 끝까지) → 시각 격자 →
  *   ② 당일 팀 순매수 판 0선 · 누적(이월 포함) 회색 계단(왼쪽 회색 축 · 0 포함 독립 범위 · pos_net 있을 때만 — D-09) ·
  *   당일 보라 계단(오른쪽 보라 축 · 하루 범위 고정) → ③ 10분 팀 매수/매도 막대 쌍 → ① 가격 선(열별 4점 솎음) · 팀 평단
  *   `--up` 점점선(잔량 있을 때만) · 팀 주문 원 ≥ 500만(매수 빨강 · 매도 파랑 · 크기 = 금액 · 큰 원 먼저) →
- *   현재 틱 커서(세 판 관통 + 아래 시각 라벨). 커서가 든 주문의 원은 --fg 고리.
+ *   ④ 누적 거래대금 회색 영역(왼쪽 축 = 시총 대비 % · 시총 = 기준가 × 상장주식수 · 모르면 금액) + 누적 팀 비중 보라 선(오른쪽 축
+ *   0 ~ 창 안 최대 5% 올림 · 2026-11-03 사용자 요청) → 현재 틱 커서(네 판 관통 + 아래 시각 라벨). 커서가 든 주문의 원은 --fg 고리.
  *   범례(머리): pos_net 없음 「누적 자료 없음(매집감지 미등록)」 · NXT 「매집감지 포지션(KRX+NXT 합산)」(Open Question 3) ·
  *   당일 화면은 누적 선 없음(D-09). NXT 도 팀 레이어를 그린다(그 거래소 런 팀 · D-13).
  * ② 조작 — 휠 = 확대/축소 · 끌기 = 이동(`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs`) ·
  *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
- * ③ 높이 — 측정 폭 < 600 이면 폰 165 · 아니면 데스크톱 230(`height` 로 강제 가능). 폰은 판 제목 글자를 생략한다.
+ * ③ 높이 — 측정 폭 < 600 이면 폰 208 · 아니면 데스크톱 287(`height` 로 강제 가능). 폰은 판 제목 글자를 생략한다.
  * ④ 툴팁(2026-11-03 사용자 요청 · 매집감지 상세 차트 `accum-chart.tsx` 와 같은 규칙 · `lib/ticks/tick-chart-tip.ts`) — 마우스가
- *   움직이면 판마다 대상 하나: 가격 판 = 씨앗 원 + 가로 ± 5px 묶음(2개 이상이면 3줄 합산) · 순매수 판 = 그 시각 계단 · 10분 판 = 그 칸.
+ *   움직이면 판마다 대상 하나: 가격 판 = 씨앗 원 + 가로 ± 5px 묶음(2개 이상이면 3줄 합산) · 순매수 판 = 그 시각 계단 · 10분 판 = 그 칸 ·
+ *   누적 판 = 그 시각까지 거래량 · 거래대금(시총 대비) · 팀 비중.
  *   대상이 바뀔 때만 상태를 바꾸고, 창이 움직이거나 끌기 중 · 포인터가 나가면 지운다. 묶음 원은 고리 1.5 · 고른 원은 2.5.
  *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · VI 띠 title 은 남는다). 폰은 길게 누르기(300ms) 살펴보기
  *   (`createTouchInspect`) — 그동안 한 손가락 끌기는 창을 옮기지 않고, 손을 떼도 그 자리로 커서를 옮기지 않는다.
@@ -80,8 +88,10 @@ export interface TickChartProps {
   onSeekMs: (ms: number) => void;
   /** 주문 원 클릭 — 그 주문 마지막 조각 rec. */
   onJumpRec: (rec: number) => void;
-  /** 판 높이 강제(230 데스크톱 · 165 폰) — 생략하면 측정 폭으로 고른다. */
-  height?: 230 | 165;
+  /** 종목 상장주식수(열기 응답 `stock.listing_shares`) — 시총 대비 축 · 툴팁. 없으면 금액 축. */
+  listingShares?: number | null;
+  /** 판 높이 강제(287 데스크톱 · 208 폰) — 생략하면 측정 폭으로 고른다. */
+  height?: 287 | 208;
   className?: string;
 }
 
@@ -122,6 +132,7 @@ export function TickChart({
   cursorRec,
   onSeekMs,
   onJumpRec,
+  listingShares = null,
   height,
   className,
 }: TickChartProps) {
@@ -135,7 +146,7 @@ export function TickChart({
   const ctl = useChartView({ bounds, lastTradeMs, minViewMs: TICK_CHART.MIN_VIEW_MS });
   const { view } = ctl;
 
-  const phone = height === undefined ? W < TICK_CHART.PHONE_MAX_W : height === 165;
+  const phone = height === undefined ? W < TICK_CHART.PHONE_MAX_W : height === TICK_CHART.phone.H;
   const dims = phone ? TICK_CHART.phone : TICK_CHART.desktop;
   const P = tickPanelsOf(dims);
   const L = priceAxisWidthOf(series.maxPx);
@@ -227,6 +238,10 @@ export function TickChart({
   const bucketMax = bucketMaxOfModel(team);
   const vis = useMemo(() => viBandsOf(session), [session]);
   const circles = tickCirclesOf(team, view, x, y);
+  const turnover = turnoverSeriesOf(session);
+  const mcap = marketCapOf(session.basePx, listingShares);
+  const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
+  const fmtVal = (v: number) => (mcap === null ? fmtAmountC(v) : pct1(v / mcap));
   const curOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
   const noTeam = team.fills.length === 0;
   const band = (t0: number, t1: number) => {
@@ -248,6 +263,7 @@ export function TickChart({
     }
     if (my >= P.y2a && my <= P.y2b) return tickNetTipAt(team, cumPts, t);
     if (my >= P.y3a && my <= P.y3b) return tickBucketTipAt(team, bounds.T0, t);
+    if (my >= P.y4a && my <= P.y4b) return tickTurnoverTipAt(turnover, t, mcap);
     return null;
   };
   const mxOf = (a: TouchAnchor) => (a.x * W) / (a.bw || W);
@@ -337,11 +353,12 @@ export function TickChart({
   return (
     <section data-slot="tick-chart" aria-label="틱 차트" className={cn(CARD, 'min-w-0 overflow-hidden', className)}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-[7px]">
-        <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">매집감지 3판</h2>
+        <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
         {!phone && (
           <span className="truncate text-[11px] text-[var(--muted-fg)]">
             가격 · 팀 평단 · 팀 주문 원 | <span className="text-[var(--team)]">당일 팀 순매수</span> · 누적 | 10분 팀
-            매수/매도 · <span className="text-[var(--vi)]">VI</span>
+            매수/매도 | 누적 거래대금 · <span className="text-[var(--team)]">팀 비중</span> ·{' '}
+            <span className="text-[var(--vi)]">VI</span>
           </span>
         )}
         {legend !== null && (
@@ -405,7 +422,7 @@ export function TickChart({
         >
           <defs>
             <clipPath id={clipId}>
-              <rect x={L} y={0} width={plotW} height={P.y3b} />
+              <rect x={L} y={0} width={plotW} height={P.y4b} />
             </clipPath>
             <clipPath id={`${clipId}-px`}>
               <rect x={L} y={P.y1a - 7} width={plotW} height={P.y1b - P.y1a + 14} />
@@ -413,12 +430,12 @@ export function TickChart({
           </defs>
 
           <g clipPath={`url(#${clipId})`}>
-            {/* 장전 음영 · 빈 띠 · VI 띠 — 세 판 공통 */}
+            {/* 장전 음영 · 빈 띠 · VI 띠 — 네 판 공통 */}
             {pre && (
-              <rect data-slot="tick-pre-shade" x={pre.x} y={P.y1a} width={pre.w} height={P.y3b - P.y1a} fill="var(--accum-shade)" />
+              <rect data-slot="tick-pre-shade" x={pre.x} y={P.y1a} width={pre.w} height={P.y4b - P.y1a} fill="var(--accum-shade)" />
             )}
             {gap && (
-              <rect data-slot="tick-gap-band" x={gap.x} y={P.y1a} width={gap.w} height={P.y3b - P.y1a} fill="var(--accum-gap)" />
+              <rect data-slot="tick-gap-band" x={gap.x} y={P.y1a} width={gap.w} height={P.y4b - P.y1a} fill="var(--accum-gap)" />
             )}
             {vis.map((v) => {
               const b = band(v.t0, v.t1);
@@ -430,7 +447,7 @@ export function TickChart({
                   x={b.x}
                   y={P.y1a}
                   width={b.w}
-                  height={P.y3b - P.y1a}
+                  height={P.y4b - P.y1a}
                   fill="var(--vi)"
                   fillOpacity={0.14}
                 >
@@ -446,7 +463,7 @@ export function TickChart({
                 x1={x(tk.t)}
                 x2={x(tk.t)}
                 y1={P.y1a}
-                y2={P.y3b}
+                y2={P.y4b}
                 stroke="var(--border-subtle)"
                 strokeWidth={1}
               />
@@ -496,6 +513,22 @@ export function TickChart({
                 )}
               </g>
             ))}
+
+            {/* ④ 누적 거래대금 영역 · 누적 팀 비중 선 */}
+            {tv.area !== '' && (
+              <path data-slot="tick-turnover-area" d={tv.area} fill="var(--faint)" fillOpacity={0.45} pointerEvents="none" />
+            )}
+            {tv.share !== '' && (
+              <path
+                data-slot="tick-team-share-path"
+                d={tv.share}
+                fill="none"
+                stroke="var(--team)"
+                strokeWidth={1.75}
+                strokeLinejoin="round"
+                pointerEvents="none"
+              />
+            )}
 
             {/* ① 가격 선 · 팀 평단 점점선 · 팀 주문 원 — 가격 판 높이 클립 */}
             <g data-slot="tick-price-layer" clipPath={`url(#${clipId}-px)`}>
@@ -566,14 +599,14 @@ export function TickChart({
               )}
             </g>
 
-            {/* 현재 틱 커서 — 세 판 관통 */}
+            {/* 현재 틱 커서 — 네 판 관통 */}
             {cx !== null && (
               <line
                 data-slot="tick-chart-cursor"
                 x1={cx}
                 x2={cx}
                 y1={P.y1a}
-                y2={P.y3b}
+                y2={P.y4b}
                 stroke="var(--fg)"
                 strokeWidth={1}
                 pointerEvents="none"
@@ -582,7 +615,7 @@ export function TickChart({
           </g>
 
           {/* 판 아래선 */}
-          {[P.y1b, P.y2b, P.y3b].map((yy) => (
+          {[P.y1b, P.y2b, P.y3b, P.y4b].map((yy) => (
             <line key={yy} x1={L} x2={xr} y1={yy} y2={yy} stroke="var(--border-subtle)" />
           ))}
 
@@ -641,6 +674,26 @@ export function TickChart({
               {fmtAmountC(bucketMax)}
             </text>
           )}
+          {tv.area !== '' && (
+            <g data-slot="tick-turnover-axis" fill="var(--muted-fg)" aria-hidden="true">
+              <text x={L - 4} y={P.y4a + 9} textAnchor="end">
+                {fmtVal(tv.valHi)}
+              </text>
+              <text x={L - 4} y={P.y4b - 1} textAnchor="end">
+                {fmtVal(tv.valLo)}
+              </text>
+            </g>
+          )}
+          {tv.share !== '' && (
+            <g data-slot="tick-share-axis" fill="var(--team)" aria-hidden="true">
+              <text x={xr + 4} y={P.y4a + 9}>
+                {Math.round(tv.shareTop * 100)}%
+              </text>
+              <text x={xr + 4} y={P.y4b - 1}>
+                0%
+              </text>
+            </g>
+          )}
           {noTeam && (
             <g fill="var(--muted-fg)" aria-hidden="true">
               <text x={midX} y={(P.y2a + P.y2b) / 2 + 4} textAnchor="middle">
@@ -670,6 +723,10 @@ export function TickChart({
               <text x={L + 4} y={P.y3a + 10} fill="var(--fg-2)">
                 10분 팀 매수 / 매도
               </text>
+              <text x={L + 4} y={P.y4a + 10} fill="var(--fg-2)">
+                누적 거래대금{mcap !== null ? '(왼쪽 축 = 시총 대비)' : ''} ·{' '}
+                <tspan fill="var(--team)">누적 팀 비중(오른쪽 축)</tspan>
+              </text>
             </g>
           )}
 
@@ -678,7 +735,7 @@ export function TickChart({
             <g data-slot="tick-chart-cursor-label" pointerEvents="none">
               <rect
                 x={Math.min(xr - curLabW, Math.max(L, cx - curLabW / 2))}
-                y={P.y3b + 1}
+                y={P.y4b + 1}
                 width={curLabW}
                 height={13}
                 rx={3}
@@ -686,7 +743,7 @@ export function TickChart({
               />
               <text
                 x={Math.min(xr - curLabW, Math.max(L, cx - curLabW / 2)) + curLabW / 2}
-                y={P.y3b + 11}
+                y={P.y4b + 11}
                 textAnchor="middle"
                 fill="var(--bg)"
                 fontWeight={600}

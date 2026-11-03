@@ -106,7 +106,8 @@ export type TickOpenResponse = {
   date: string;
   exchange: TickExchange;
   isin: string;
-  stock: { code: string; name: string } | null;
+  /** `listing_shares` = 종목 마스터 상장주식수(현재 값 · 차트 · 거래대금 카드 시총 대비) — 옛 응답 · 미상이면 없음/null. */
+  stock: { code: string; name: string; listing_shares?: number | null } | null;
   grid: TickOpenGrid | null;
   request: TickConvertRequest | null;
   accum: { reg_time_ms: number | null; pos_net: unknown } | null;

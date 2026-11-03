@@ -6,7 +6,15 @@ import type { PosNetPoint } from '@/lib/accum-chart';
 import { SYNTH_DATE } from '@/test-fixtures/tick-synth';
 
 import type { TeamModel } from '../team-model';
-import { TEAM_BUCKETS, tickBoundsOf, tickPanelsOf, TICK_CHART, xOfTick, type TickPanels } from '../tick-chart';
+import {
+  TEAM_BUCKETS,
+  tickBoundsOf,
+  tickPanelsOf,
+  TICK_CHART,
+  xOfTick,
+  type TickPanels,
+  type TurnoverSeries,
+} from '../tick-chart';
 import {
   nearestTickCircleOf,
   teamAvgAt,
@@ -15,6 +23,7 @@ import {
   tickCirclesOf,
   tickNetTipAt,
   tickOrderHoverOf,
+  tickTurnoverTipAt,
 } from '../tick-chart-tip';
 
 /**
@@ -160,5 +169,33 @@ describe('tick-chart-tip — 순매수 · 10분 판', () => {
     ]);
     expect(tickBucketTipAt(m, B.T0, T13 + 700_000)).toBeNull();
     expect(tickBucketTipAt(m, B.T0, B.T0 - 1)).toBeNull();
+  });
+});
+
+describe('누적 판 툴팁 — 그 시각까지 거래량 · 거래대금(시총 대비) · 팀 비중', () => {
+  const f = (a: number[]) => Float64Array.from(a);
+  const tv: TurnoverSeries = {
+    n: 3,
+    t: f([T13, T13 + 1000, T13 + 2000]),
+    pos: Int32Array.from([1, 2, 3]),
+    qty: f([100, 600, 1000]),
+    val: f([1_000_000, 6_000_000, 10_000_000]),
+    teamBuy: f([0, 5_000_000, 5_000_000]),
+    teamSell: f([0, 0, 1_000_000]),
+    share: f([0, 5 / 6, 0.6]),
+  };
+
+  it('첫 체결 앞 → null · 팀 체결 전 → 「팀 체결 없음」', () => {
+    expect(tickTurnoverTipAt(tv, T13 - 1, null)).toBeNull();
+    expect(tickTurnoverTipAt(tv, T13 + 500, null)!.lines).toEqual(['13:00:00까지 · 거래량 100주 · 거래대금 100만', '팀 체결 없음']);
+  });
+
+  it('시총을 알면 시총 대비 · 팀 금액 · 비중 · 매수/매도 · key = 점 색인', () => {
+    const h = tickTurnoverTipAt(tv, T13 + 5000, 1_000_000_000)!;
+    expect(h.key).toBe('v2');
+    expect(h.lines).toEqual([
+      '13:00:02까지 · 거래량 1,000주 · 거래대금 1,000만(시총 대비 1.0%)',
+      '팀 600만 60.0% · 매수 500만 · 매도 100만',
+    ]);
   });
 });

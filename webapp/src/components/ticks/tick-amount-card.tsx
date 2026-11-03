@@ -5,6 +5,8 @@ import { useMemo, type ReactNode } from 'react';
 import { A3_LAYOUT, decodeFields, fmtTickTime, payloadOf } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
+import { marketCapOf, turnoverIdxAtPos, turnoverSeriesOf } from '@/lib/ticks/tick-chart';
+import { pct1 } from '@/lib/ticks/tick-chart-tip';
 import { fmtAmountC, fmtQty, fmtRate } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
@@ -15,17 +17,21 @@ import { cn } from '@/lib/utils';
  * 커서 이하(거래소순) 마지막 A3 의 누적 거래대금(`cum_value` · 스케치 010 C 축약) · 체결가 · 등락률(기준가 = 체결
  * `px − 부호×chg` 최빈값 · shared DayRateTracker) · 누적 거래량(그 A3 하나만 `decodeFields` 로 푼다).
  * 아직 체결이 없으면 「아직 체결 없음」.
+ * 큰 숫자 밑 한 줄(스케치 022 ① · 2026-11-03 사용자 요청) — 「시총 대비 n.n% · 팀 X n.n% (매수 Y · 매도 Z)」. 시총 대비 = 그
+ * 누적 거래대금 ÷ (기준가 × 상장주식수 · 모르면 뺀다) · 팀 = 커서(수신순 자리)까지 팀 체결 금액과 그 비중(차트 넷째 판과 같은 계열).
  */
 
 export interface TickAmountCardProps {
   session: TickSession;
   cursorRec: number;
+  /** 종목 상장주식수(열기 응답 `stock.listing_shares`) — 없으면 시총 대비를 뺀다. */
+  listingShares?: number | null;
   className?: string;
 }
 
 const DIR_COLOR = { 1: 'text-[var(--up)]', 0: 'text-[var(--flat)]', [-1]: 'text-[var(--down)]' } as const;
 
-export function TickAmountCard({ session, cursorRec, className }: TickAmountCardProps) {
+export function TickAmountCard({ session, cursorRec, listingShares = null, className }: TickAmountCardProps) {
   const j = cursorRec >= 0 ? session.lastA3[session.exPos[cursorRec]!]! : -1;
   const a3Rec = j >= 0 ? session.a3.rec[j]! : -1;
   const cumVolume = useMemo(() => {
@@ -49,11 +55,34 @@ export function TickAmountCard({ session, cursorRec, className }: TickAmountCard
     const base = session.basePx;
     const rate = base !== null && base > 0 ? (px / base - 1) * 100 : null;
     const dir = rate === null || Math.round(rate * 10) === 0 ? 0 : rate > 0 ? 1 : -1;
+    const mcap = marketCapOf(base, listingShares);
+    const tv = turnoverSeriesOf(session);
+    const i = turnoverIdxAtPos(tv, session.recvPos[cursorRec]!);
+    const tb = i >= 0 ? tv.teamBuy[i]! : 0;
+    const ts = i >= 0 ? tv.teamSell[i]! : 0;
     body = (
       <>
         <div data-slot="tick-amount-value" className="mono text-[20px] leading-tight font-semibold text-[var(--fg)]">
           {fmtAmountC(cumValue)}
         </div>
+        <p data-slot="tick-amount-share" className="mono m-0 mt-1 text-[12px] leading-snug font-semibold text-[var(--team)]">
+          {mcap !== null && (
+            <>
+              <span className="text-[var(--vi)]">시총 대비 {pct1(cumValue / mcap)}</span>
+              {' · '}
+            </>
+          )}
+          {tb + ts > 0 ? (
+            <>
+              팀 {fmtAmountC(tb + ts)} {pct1(tv.share[i]!)}{' '}
+              <span className="font-normal whitespace-nowrap text-[var(--muted-fg)]">
+                (매수 {fmtAmountC(tb)} · 매도 {fmtAmountC(ts)})
+              </span>
+            </>
+          ) : (
+            <span className="font-normal text-[var(--muted-fg)]">팀 체결 없음</span>
+          )}
+        </p>
         <dl className="m-0 mt-2 grid grid-cols-3 gap-x-3 text-[11.5px]">
           <div className="min-w-0">
             <dt className="text-[10.5px] text-[var(--muted-fg)]">현재가</dt>

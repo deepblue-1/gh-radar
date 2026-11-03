@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPnlPrefix, dayStartNs, type TeamFill } from '@gh-radar/shared';
 
 import { TICK_FIXTURE_DATE, tickFixtureBytes, tickGridBytes } from '@/test-fixtures/tick-grid';
-import { SYNTH_DATE, inversionSession, r8Msg, synthSession } from '@/test-fixtures/tick-synth';
+import { SYNTH_DATE, a3Msg, b6Msg, inversionSession, r8Msg, synthSession } from '@/test-fixtures/tick-synth';
 
 import {
   TEAM_BUCKETS,
@@ -13,6 +13,7 @@ import {
   cursorXOf,
   dayNetRangeOf,
   lastRecvMsOf,
+  marketCapOf,
   teamAvgPathOf,
   teamBucketsOf,
   teamDayStairsOf,
@@ -26,6 +27,9 @@ import {
   tickPanelsOf,
   tickPriceRangeOf,
   tickTicksOf,
+  turnoverIdxAtPos,
+  turnoverPathsOf,
+  turnoverSeriesOf,
   xOfTick,
   yOfTickPrice,
 } from '../tick-chart';
@@ -50,11 +54,13 @@ describe('tickBoundsOf · 판 치수', () => {
     expect(B.T2000 - B.T0).toBe(12 * H);
   });
 
-  it('데스크톱 합 230 · 폰 165(스케치 019 D)', () => {
-    expect(tickPanelsOf(TICK_CHART.desktop).H).toBe(230);
-    expect(tickPanelsOf(TICK_CHART.phone).H).toBe(165);
-    expect(TICK_CHART.desktop.H).toBe(230);
-    expect(TICK_CHART.phone.H).toBe(165);
+  it('데스크톱 합 287 · 폰 208(스케치 019 D + 022 넷째 판)', () => {
+    expect(tickPanelsOf(TICK_CHART.desktop).H).toBe(287);
+    expect(tickPanelsOf(TICK_CHART.phone).H).toBe(208);
+    expect(TICK_CHART.desktop.H).toBe(287);
+    expect(TICK_CHART.phone.H).toBe(208);
+    const p = tickPanelsOf(TICK_CHART.desktop);
+    expect([p.y3b, p.y4a, p.y4b]).toEqual([215, 222, 272]);
   });
 });
 
@@ -257,5 +263,95 @@ describe('팀 레이어 기하(Task 2) — 당일 계단 · 누적 점 · 10분 
     // 판 범위 밖 평단은 클램프
     const c = teamAvgPathOf({ fills, prefix, fillMs }, x, y, { lo: 0, hi: 120 }, B.T0 + 5 * H);
     expect(c).toContain('V120.0');
+  });
+});
+
+describe('넷째 판 — 누적 거래대금 · 누적 팀 비중(스케치 022 A)', () => {
+  /** 팀 매수 3조각 984만 · 일반 50주 · 팀 매도 652만(tick-chart.test.tsx 와 같은 하루). */
+  const s = synthSession([
+    [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121] })],
+    [1, a3Msg({ seq: 101, bs: '2', px: 16400, qty: 100, time: '130000001000' })],
+    [1.1, a3Msg({ seq: 102, bs: '2', px: 16400, qty: 200, time: '130000001100' })],
+    [1.2, a3Msg({ seq: 103, bs: '2', px: 16400, qty: 300, time: '130000001200' })],
+    [1.5, b6Msg({ seq: 104, ask1: [16450, 10], bid1: [16400, 20] })],
+    [2, a3Msg({ seq: 105, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000002000' })],
+    [2.5, b6Msg({ seq: 106, ask1: [16400, 1], bid1: [16350, 2] })],
+    [5, a3Msg({ seq: 107, bs: '1', px: 16300, qty: 400, time: '130000005000' })],
+    [5.5, b6Msg({ seq: 108, ask1: [16400, 1], bid1: [16300, 2] })],
+  ]);
+  const BS = tickBoundsOf(SYNTH_DATE);
+
+  it('turnoverSeriesOf — A3 하나마다 누적(수량 · 금액 · 팀 매수/매도) · 비중 = 팀 ÷ 금액 · 세션마다 한 번', () => {
+    const tv = turnoverSeriesOf(s);
+    expect(tv.n).toBe(5);
+    expect(Array.from(tv.qty)).toEqual([100, 300, 600, 650, 1050]);
+    expect(tv.val[4]).toBe(9_840_000 + 817_500 + 6_520_000);
+    expect(tv.teamBuy[4]).toBe(9_840_000);
+    expect(tv.teamSell[4]).toBe(6_520_000);
+    expect(tv.teamSell[3]).toBe(0);
+    expect(tv.share[2]).toBe(1);
+    expect(tv.share[4]).toBeCloseTo(16_360_000 / 17_177_500, 12);
+    expect(turnoverSeriesOf(s)).toBe(tv);
+  });
+
+  it('늦게 시작한 기록 — 시작값 = 첫 A3 거래소 누적 − 그 체결(카드 큰 숫자와 맞는다)', () => {
+    const late = synthSession([
+      [1, a3Msg({ seq: 9, bs: '2', px: 1000, qty: 10, time: '130000001000', cumValue: 5_010_000, cumVolume: 5_010 })],
+      [2, a3Msg({ seq: 10, bs: '1', px: 1000, qty: 5, time: '130000002000', cumValue: 5_015_000, cumVolume: 5_015 })],
+    ]);
+    const tv = turnoverSeriesOf(late);
+    expect(Array.from(tv.val)).toEqual([5_010_000, 5_015_000]);
+    expect(Array.from(tv.qty)).toEqual([5_010, 5_015]);
+  });
+
+  it('turnoverIdxAtPos — 수신순 자리 이하 마지막 점(첫 A3 앞 B6 = −1)', () => {
+    const tv = turnoverSeriesOf(s);
+    expect(turnoverIdxAtPos(tv, 0)).toBe(-1);
+    expect(turnoverIdxAtPos(tv, tv.pos[2]!)).toBe(2);
+    expect(turnoverIdxAtPos(tv, tv.pos[2]! + 1)).toBe(2);
+    expect(turnoverIdxAtPos(tv, 10_000)).toBe(4);
+  });
+
+  it('marketCapOf — 기준가 × 상장주식수 · 하나라도 없거나 0 이하면 null', () => {
+    expect(marketCapOf(15_400, 1_000_000)).toBe(15_400_000_000);
+    expect(marketCapOf(null, 1_000_000)).toBeNull();
+    expect(marketCapOf(15_400, null)).toBeNull();
+    expect(marketCapOf(15_400, undefined)).toBeNull();
+    expect(marketCapOf(15_400, 0)).toBeNull();
+  });
+
+  it('turnoverPathsOf — 영역은 바닥에서 닫히고 · 비중 축 위끝은 5% 올림 · 창 거래대금 범위 = 창 시작 직전 ~ 창 끝', () => {
+    const tv = turnoverSeriesOf(s);
+    const p = tickPanelsOf(TICK_CHART.desktop);
+    const full = { t0: BS.T0, t1: BS.T2000 };
+    const x = xOfTick(full, 52, 588);
+    const out = turnoverPathsOf(tv, full, x, p, 536, BS.T2000);
+    expect(out.area.startsWith('M')).toBe(true);
+    expect(out.area.endsWith(`V${p.y4b.toFixed(1)}Z`)).toBe(true);
+    expect(out.share.startsWith('M')).toBe(true);
+    expect(out.valLo).toBe(0);
+    expect(out.valHi).toBe(tv.val[4]);
+    expect(out.shareTop).toBe(1);
+    // 셋째 체결 뒤부터 보는 창 — 아래끝 = 그 직전 누적
+    const tail = turnoverPathsOf(tv, { t0: (tv.t[2]! + tv.t[3]!) / 2, t1: tv.t[4]! + 10_000 }, x, p, 536, BS.T2000);
+    expect(tail.valLo).toBe(tv.val[2]);
+    expect(tail.valHi).toBe(tv.val[4]);
+  });
+
+  it('팀 체결이 없으면 비중 선 없음 · A3 가 없으면 둘 다 빈 문자열', () => {
+    const p = tickPanelsOf(TICK_CHART.desktop);
+    const full = { t0: BS.T0, t1: BS.T2000 };
+    const x = xOfTick(full, 52, 588);
+    const plain = synthSession([
+      [0, b6Msg({ seq: 1, ask1: [16400, 10], bid1: [16350, 10] })],
+      [1, a3Msg({ seq: 2, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000001000' })],
+      [2, b6Msg({ seq: 3, ask1: [16400, 10], bid1: [16350, 5] })],
+    ]);
+    expect(plain.team.fills).toHaveLength(0);
+    const a = turnoverPathsOf(turnoverSeriesOf(plain), full, x, p, 536, BS.T2000);
+    expect(a.area).not.toBe('');
+    expect(a.share).toBe('');
+    const none = synthSession([[0, b6Msg({ seq: 1, ask1: [1000, 1], bid1: [990, 1] })]]);
+    expect(turnoverPathsOf(turnoverSeriesOf(none), full, x, p, 536, BS.T2000).area).toBe('');
   });
 });

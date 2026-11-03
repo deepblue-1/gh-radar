@@ -527,6 +527,7 @@ export function TickViewerPage() {
               onTick={setTickLabel}
               accum={view.resp.accum}
               isToday
+              listingShares={view.resp.stock?.listing_shares ?? null}
               live={liveViewer}
             />
           </section>
@@ -579,6 +580,7 @@ export function TickViewerPage() {
               onTick={setTickLabel}
               accum={view.resp.accum}
               isToday={view.resp.date === today}
+              listingShares={view.resp.stock?.listing_shares ?? null}
             />
           </section>
         );

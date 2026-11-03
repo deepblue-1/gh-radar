@@ -98,7 +98,7 @@ describe('TickChart — 누적 선 · 범례(D-09 · Open Question 3)', () => {
 describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-03)', () => {
   const box = (svg: SVGSVGElement) => {
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 230, width: 640, height: 230, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
   };
 
   it('원 위 → 씨앗 + 가로 ± 5px 묶음 3줄(하루 전체 창 — 가까운 매수 · 매도가 한 묶음) · 고리 · 나가면 지운다', () => {
@@ -133,6 +133,31 @@ describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-0
     fireEvent.pointerMove(svg, { clientX: cx, clientY: 200, pointerType: 'mouse' });
     expect(q('tick-chart-tip')[0]!.textContent).toBe('13:00~13:10 · 팀 매수 984만 / 매도 652만 / 순 +332만');
   });
+
+  it('누적 판 → 그 시각까지 거래량 · 거래대금 · 팀 비중(상장주식수 없으면 시총 대비 없음 · 금액 축)', () => {
+    const { q } = renderChart();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    expect(q('tick-turnover-area')).toHaveLength(1);
+    expect(q('tick-team-share-path')).toHaveLength(1);
+    expect(q('tick-turnover-axis')[0]!.textContent).toBe('1,718만0');
+    expect(q('tick-share-axis')[0]!.textContent).toBe('100%0%');
+    // 데스크톱 누적 판 [222, 272] · 오른쪽 끝(모든 체결 뒤)
+    fireEvent.pointerMove(svg, { clientX: 580, clientY: 250, pointerType: 'mouse' });
+    const lines = Array.from(q('tick-chart-tip')[0]!.children).map((d) => d.textContent);
+    expect(lines).toEqual(['13:00:00까지 · 거래량 1,050주 · 거래대금 1,718만', '팀 1,636만 95.2% · 매수 984만 · 매도 652만']);
+  });
+
+  it('상장주식수 → 왼쪽 축 · 툴팁이 시총 대비 %', () => {
+    const { q } = renderChart({ listingShares: 1_000_000 });
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    const cap = krx.basePx! * 1_000_000;
+    const pct = `${(Math.round((17_177_500 / cap) * 1000) / 10).toFixed(1)}%`;
+    expect(q('tick-turnover-axis')[0]!.textContent).toBe(`${pct}0.0%`);
+    fireEvent.pointerMove(svg, { clientX: 580, clientY: 250, pointerType: 'mouse' });
+    expect(q('tick-chart-tip')[0]!.children[0]!.textContent).toBe(`13:00:00까지 · 거래량 1,050주 · 거래대금 1,718만(시총 대비 ${pct})`);
+  });
 });
 
 describe('TickChart — 팀 레이어 · 클릭', () => {
@@ -161,7 +186,7 @@ describe('TickChart — 팀 레이어 · 클릭', () => {
     const { q, onSeekMs } = renderChart();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 230, width: 640, height: 230, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     // L = 52 · 그림 끝 = 640 − 52 = 588 · 하루 전체 창 → 가운데 320 = 14:00
     fireEvent.click(svg, { clientX: 320, clientY: 50 });
     expect(onSeekMs).toHaveBeenCalledTimes(1);

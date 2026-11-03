@@ -38,7 +38,8 @@ import {
 export const TICK_DATE = '20261016';
 export const TICK_PREV_DATE = '20261015';
 
-export const ECO = { isin: 'KR7101360006', code: '101360', name: '에코앤드림' } as const;
+/** listingShares = 열기 응답 stock.listing_shares(차트 넷째 판 · 거래대금 카드 시총 대비 — 스케치 022). */
+export const ECO = { isin: 'KR7101360006', code: '101360', name: '에코앤드림', listingShares: 22_000_000 } as const;
 export const SKH = { isin: 'KR7000660001', code: '000660', name: 'SK하이닉스' } as const;
 export const SAMSUNG = { isin: 'KR7005930003', code: '005930', name: '삼성전자' } as const;
 
@@ -139,7 +140,7 @@ export function tickOpenFixture(
     date: q.d,
     exchange: q.ex,
     isin: q.isin,
-    stock: s ? { code: s.code, name: s.name } : null,
+    stock: s ? { code: s.code, name: s.name, listing_shares: s === ECO ? ECO.listingShares : null } : null,
     grid:
       kind === 'grid'
         ? {

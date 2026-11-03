@@ -46,6 +46,8 @@ export interface TickViewerProps {
   accum?: TickOpenResponse['accum'];
   /** 당일 화면 — 누적 선 없음(D-09). */
   isToday?: boolean;
+  /** 종목 상장주식수(열기 응답 `stock.listing_shares`) — 차트 · 거래대금 카드의 시총 대비. */
+  listingShares?: number | null;
   /** 당일 바이트 경로(37-19) — 없으면 과거 격자. */
   live?: TickViewerLive;
 }
@@ -67,6 +69,7 @@ interface PaneCtx {
   setUnit: (u: TickBookUnit) => void;
   accum: TickOpenResponse['accum'];
   isToday: boolean;
+  listingShares: number | null;
   /** 당일 과거 틱 배지(전문 목록 끝) — 끝이면 null. */
   badge: ReactNode;
 }
@@ -114,13 +117,13 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({ session, cursor, accum, isToday }) => (
+    render: ({ session, cursor, accum, isToday, listingShares }) => (
       <div
         data-slot="tick-side"
         className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
       >
         <TickOrderCard session={session} cursorRec={cursor.rec} onJump={cursor.jumpToRec} />
-        <TickAmountCard session={session} cursorRec={cursor.rec} />
+        <TickAmountCard session={session} cursorRec={cursor.rec} listingShares={listingShares} />
         <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
       </div>
     ),
@@ -134,6 +137,7 @@ export function TickViewer({
   onTick,
   accum = null,
   isToday = false,
+  listingShares = null,
   live,
 }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined });
@@ -173,7 +177,7 @@ export function TickViewer({
       </button>
     ) : null;
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, badge };
+  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, listingShares, badge };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
@@ -181,6 +185,7 @@ export function TickViewer({
         session={session}
         accum={accum}
         isToday={isToday}
+        listingShares={listingShares}
         cursorRec={rec}
         onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
         onJumpRec={cursor.jumpToRec}

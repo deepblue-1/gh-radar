@@ -1,15 +1,16 @@
 /**
  * 틱 뷰어 3판 차트 순수 기하 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트 `accum-chart.ts` 와 같은 모양).
  *
- * ① 세 판 — 가격(선 · 팀 평단 · 팀 주문 원) | 당일 팀 순매수 보라 계단 + 누적(pos_net) 회색 계단 | 10분 팀 매수/매도 막대.
- *   판 높이 = 데스크톱 합 230 · 폰 165(스케치 019 D `accDims`). 그림 영역 x = [L, W − R] · 글자 11px · viewBox 1:1.
+ * ① 네 판 — 가격(선 · 팀 평단 · 팀 주문 원) | 당일 팀 순매수 보라 계단 + 누적(pos_net) 회색 계단 | 10분 팀 매수/매도 막대 |
+ *   누적 거래대금 회색 영역(왼쪽 축 = 시총 대비 %) + 누적 팀 비중 보라 선(스케치 022 A · 2026-11-03 사용자 요청).
+ *   판 높이 = 데스크톱 합 287 · 폰 208(스케치 019 D `accDims` + 넷째 판). 그림 영역 x = [L, W − R] · 글자 11px · viewBox 1:1.
  * ② 시각 = epoch ms(수신 시각 · 커서와 같은 축). 하루 경계 = 08:00 ~ 20:00(KST) · 정규장 09:00 · 빈 띠 15:30 ~ 16:00.
  * ③ 가격 선 = 보이는 창의 A3(가격 0 제외 · 단일가 포함)를 **픽셀 열마다 첫 · 최소 · 최대 · 끝 4점**으로 솎는다 — 하루 수십만
  *   체결이어도 경로 점 수 ≤ 4 × (열 수 + 2). 이웃 점이 15분 넘게 떨어지면 끊는다(빈 띠 · 장전 공백을 잇지 않는다).
  * ④ 컴포넌트(`components/ticks/tick-chart.tsx`)는 그리기만 하고 기하는 여기서 테스트가 잠근다.
  */
 
-import { dayStartNs, type AccumReportPayload, type TickOpenResponse } from '@gh-radar/shared';
+import { A3_LAYOUT, dayStartNs, decodeFields, payloadOf, type AccumReportPayload, type TickOpenResponse } from '@gh-radar/shared';
 
 import { posNetPathOf, posNetPointsOf, type PosNetPoint, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
@@ -29,17 +30,19 @@ export interface TickChartDims {
   GAP: number;
   H2: number;
   H3: number;
+  H4: number;
   LB: number;
   H: number;
 }
 
 /**
- * 판 치수(스케치 019 D) — 데스크톱 7 + 104 + 7 + 50 + 7 + 40 + 15 = 230 · 폰 0 + 72 + 7 + 36 + 7 + 28 + 15 = 165.
+ * 판 치수(스케치 019 D + 022) — 데스크톱 7 + 104 + 7 + 50 + 7 + 40 + 7 + 50 + 15 = 287 ·
+ * 폰 0 + 72 + 7 + 36 + 7 + 28 + 7 + 36 + 15 = 208.
  * R = 오른쪽(보라) 축 폭 · 왼쪽 축 폭 L 은 종목마다 `priceAxisWidthOf`(52 / 60).
  */
 export const TICK_CHART = {
-  desktop: { TOP: 7, H1: 104, GAP: 7, H2: 50, H3: 40, LB: 15, H: 230 },
-  phone: { TOP: 0, H1: 72, GAP: 7, H2: 36, H3: 28, LB: 15, H: 165 },
+  desktop: { TOP: 7, H1: 104, GAP: 7, H2: 50, H3: 40, H4: 50, LB: 15, H: 287 },
+  phone: { TOP: 0, H1: 72, GAP: 7, H2: 36, H3: 28, H4: 36, LB: 15, H: 208 },
   R: 52,
   /** 측정 폭이 이보다 좁으면 폰 치수(뷰포트 640 이하 본문 ≈ 360). */
   PHONE_MAX_W: 600,
@@ -47,7 +50,7 @@ export const TICK_CHART = {
   MIN_VIEW_MS: 10 * SEC,
 } as const satisfies { desktop: TickChartDims; phone: TickChartDims; R: number; PHONE_MAX_W: number; MIN_VIEW_MS: number };
 
-/** 판 y 경계 — 가격 [y1a, y1b] · 순매수 [y2a, y2b] · 10분 [y3a, y3b]. */
+/** 판 y 경계 — 가격 [y1a, y1b] · 순매수 [y2a, y2b] · 10분 [y3a, y3b] · 누적 거래대금 [y4a, y4b]. */
 export interface TickPanels {
   y1a: number;
   y1b: number;
@@ -55,6 +58,8 @@ export interface TickPanels {
   y2b: number;
   y3a: number;
   y3b: number;
+  y4a: number;
+  y4b: number;
   H: number;
 }
 
@@ -65,7 +70,9 @@ export function tickPanelsOf(d: TickChartDims): TickPanels {
   const y2b = y2a + d.H2;
   const y3a = y2b + d.GAP;
   const y3b = y3a + d.H3;
-  return { y1a, y1b, y2a, y2b, y3a, y3b, H: y3b + d.LB };
+  const y4a = y3b + d.GAP;
+  const y4b = y4a + d.H4;
+  return { y1a, y1b, y2a, y2b, y3a, y3b, y4a, y4b, H: y4b + d.LB };
 }
 
 /** 그날 경계(epoch ms) — 08:00 · 09:00 · 15:30 · 16:00 · 20:00 KST. `ChartBounds`(T0 · T1530 · T2000) 꼴을 포함한다. */
@@ -536,4 +543,175 @@ export function teamAvgPathOf(
   }
   if (open) d += `H${f1(x(Math.max(lastT, endMs)))}`;
   return d;
+}
+
+// ---------------------------------------------------------------------------
+// 넷째 판 — 누적 거래대금(시총 대비) · 누적 팀 비중 (스케치 022 A · 2026-11-03 사용자 요청)
+// ---------------------------------------------------------------------------
+
+/**
+ * 수신순 누적 계열 — 그 거래소 A3 전부(단일가 포함 · 중복 수신 제외 · 가격/수량 0 제외)를 A3 하나마다 쌓는다(10분 칸 없음).
+ * 시작값 = 첫 A3 의 거래소 누적(cum_value · cum_volume) − 그 체결 — 기록이 늦게 시작한 격자도 카드 큰 숫자(거래소 누적)와
+ * 맞는다(천일 10/14 하루치 실측: 직접 합 vs 거래소 누적 차이 0.006%). 팀 = 팀 모델 체결(`team.fills` — 팀 주문의 조각 ·
+ * 단일가 제외)인 A3. 비중 = 팀 매수 + 매도 금액 ÷ 누적 거래대금.
+ */
+export interface TurnoverSeries {
+  n: number;
+  t: Float64Array;
+  /** 그 점의 수신순 자리(카드가 커서 자리로 찾는다). */
+  pos: Int32Array;
+  qty: Float64Array;
+  val: Float64Array;
+  teamBuy: Float64Array;
+  teamSell: Float64Array;
+  /** (teamBuy + teamSell) ÷ val. */
+  share: Float64Array;
+}
+
+const turnoverCache = new WeakMap<TickSession, TurnoverSeries>();
+
+export function turnoverSeriesOf(session: TickSession): TurnoverSeries {
+  const hit = turnoverCache.get(session);
+  if (hit !== undefined) return hit;
+  const { recvOrder, a3Of, a3, index, duplicates } = session;
+  const side = new Map<number, 'B' | 'S'>();
+  for (const f of session.team.fills) side.set(f.rec, f.bs === '2' ? 'B' : 'S');
+  const t = new Float64Array(a3.n);
+  const pos = new Int32Array(a3.n);
+  const qty = new Float64Array(a3.n);
+  const val = new Float64Array(a3.n);
+  const teamBuy = new Float64Array(a3.n);
+  const teamSell = new Float64Array(a3.n);
+  const share = new Float64Array(a3.n);
+  let n = 0;
+  let q = 0;
+  let v = 0;
+  let b = 0;
+  let s = 0;
+  for (let p = 0; p < recvOrder.length; p++) {
+    const r = recvOrder[p]!;
+    const j = a3Of[r]!;
+    if (j < 0 || duplicates[r] === 1) continue;
+    const px = a3.px[j]!;
+    const k = a3.qty[j]!;
+    if (!(px > 0) || !(k > 0)) continue;
+    if (n === 0) {
+      v = Math.max(0, a3.cumValue[j]! - px * k) || 0;
+      const cv = decodeFields(A3_LAYOUT, payloadOf(session.buf, index, r), index.recvNs[r]!, index.label)['cum_volume'];
+      q = Math.max(0, (typeof cv === 'bigint' ? Number(cv) : typeof cv === 'number' ? cv : 0) - k) || 0;
+    }
+    q += k;
+    v += px * k;
+    const sd = side.get(r);
+    if (sd === 'B') b += px * k;
+    else if (sd === 'S') s += px * k;
+    t[n] = msOfNs(index.recvNs[r]!);
+    pos[n] = p;
+    qty[n] = q;
+    val[n] = v;
+    teamBuy[n] = b;
+    teamSell[n] = s;
+    share[n] = (b + s) / v;
+    n += 1;
+  }
+  const out: TurnoverSeries = {
+    n,
+    t: t.subarray(0, n),
+    pos: pos.subarray(0, n),
+    qty: qty.subarray(0, n),
+    val: val.subarray(0, n),
+    teamBuy: teamBuy.subarray(0, n),
+    teamSell: teamSell.subarray(0, n),
+    share: share.subarray(0, n),
+  };
+  turnoverCache.set(session, out);
+  return out;
+}
+
+/** 시각 t 이하 마지막 점 색인(없으면 −1). */
+export function turnoverIdxAt(s: Pick<TurnoverSeries, 'n' | 't'>, t: number): number {
+  return upperBoundF(s.t, s.n, t) - 1;
+}
+
+/** 수신순 자리 pos 이하 마지막 점 색인(없으면 −1) — 카드 커서. */
+export function turnoverIdxAtPos(s: Pick<TurnoverSeries, 'n' | 'pos'>, pos: number): number {
+  let lo = 0;
+  let hi = s.n;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (s.pos[mid]! <= pos) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo - 1;
+}
+
+/** 시가총액 = 기준가 × 상장주식수 — 둘 중 하나라도 없으면 null(그날 안에서 고정 · 시총 대비 % 는 누적 거래대금에 비례). */
+export function marketCapOf(basePx: number | null, listingShares: number | null | undefined): number | null {
+  if (basePx === null || !(basePx > 0) || listingShares === null || listingShares === undefined || !(listingShares > 0)) return null;
+  return basePx * listingShares;
+}
+
+/** 팀 비중 축 위끝을 고를 때 무시하는 앞부분 — 누적 거래대금이 하루 합의 이 비율 미만인 점(첫 몇 체결의 큰 비중 잡음). */
+const SHARE_WARMUP_RATIO = 0.01;
+/** 팀 비중 축 단위(5%) · 최소 위끝. */
+const SHARE_STEP = 0.05;
+
+export interface TurnoverPaths {
+  /** 누적 거래대금 영역(닫힌 경로 · 없으면 ''). */
+  area: string;
+  /** 누적 팀 비중 선(팀 체결이 하나도 없으면 ''). */
+  share: string;
+  /** 창 거래대금 범위(아래끝 = 창 시작 값 · 위끝 = 창 끝 값). */
+  valLo: number;
+  valHi: number;
+  /** 팀 비중 축 위끝(5% 단위 · 아래끝 0). */
+  shareTop: number;
+}
+
+/**
+ * 넷째 판 경로 — 가격 선처럼 열별 솎음(`decimatedIdxOf` · 비중 기준 첫/최소/최대/끝)으로 고른 점만 잇는다.
+ * 거래대금 축 = 창 시작 직전 값 ~ 창 끝 값(누적이라 창 안에서 단조) · 비중 축 = 0 ~ 창 안 최대(앞 1% 잡음 제외 · 5% 올림) —
+ * 넘는 값은 위끝에 붙는다. 영역 끝 = max(마지막 점, endMs) 까지 평평하게.
+ */
+export function turnoverPathsOf(
+  s: TurnoverSeries,
+  view: View,
+  x: (t: number) => number,
+  p: TickPanels,
+  plotW: number,
+  endMs: number,
+): TurnoverPaths {
+  const empty = { area: '', share: '', valLo: 0, valHi: 0, shareTop: SHARE_STEP };
+  if (s.n === 0) return empty;
+  const idx = decimatedIdxOf({ n: s.n, t: s.t, px: s.share }, view, plotW);
+  if (idx.length === 0) return empty;
+  const a = lowerBoundF(s.t, s.n, view.t0);
+  const b = upperBoundF(s.t, s.n, view.t1);
+  const valLo = a > 0 ? s.val[a - 1]! : 0;
+  const valHi = s.val[Math.max(0, b - 1)]!;
+  const warm = s.val[s.n - 1]! * SHARE_WARMUP_RATIO;
+  let mx = 0;
+  for (const i of idx) if (s.val[i]! >= warm && s.share[i]! > mx) mx = s.share[i]!;
+  const shareTop = Math.max(SHARE_STEP, Math.ceil(mx / SHARE_STEP - 1e-9) * SHARE_STEP);
+
+  const top = p.y4a + 3;
+  const h = p.y4b - top;
+  const span = valHi - valLo;
+  const yV = (v: number) => (span > 0 ? p.y4b - (Math.max(0, v - valLo) / span) * h : p.y4b - h / 2);
+  const yS = (v: number) => p.y4b - (Math.min(v, shareTop) / shareTop) * h;
+
+  const first = idx[0]!;
+  let area = `M${f1(x(s.t[first]!))},${f1(p.y4b)}`;
+  let share = '';
+  const hasTeam = s.teamBuy[s.n - 1]! + s.teamSell[s.n - 1]! > 0;
+  for (const i of idx) {
+    const xx = f1(x(s.t[i]!));
+    area += `L${xx},${f1(yV(s.val[i]!))}`;
+    if (hasTeam) share += `${share === '' ? 'M' : 'L'}${xx},${f1(yS(s.share[i]!))}`;
+  }
+  const last = idx[idx.length - 1]!;
+  const xEnd = f1(x(Math.max(s.t[last]!, endMs)));
+  area += `H${xEnd}V${f1(p.y4b)}Z`;
+  if (hasTeam) share += `H${xEnd}`;
+  return { area, share, valLo, valHi, shareTop };
 }
