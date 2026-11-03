@@ -6,7 +6,8 @@ import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } f
 
 import { buildMsgRows } from '@/lib/ticks/msg-rows';
 import { buildOwnModel, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
-import type { TickSession } from '@/lib/ticks/tick-session';
+import { buildTickSession, type TickSession } from '@/lib/ticks/tick-session';
+import { TICK_FIXTURE_DATE, TICK_FIXTURE_ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 import type { TickOrderMode } from '@/lib/ticks/use-tick-cursor';
 import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
@@ -339,5 +340,34 @@ describe('TickMsgList — 우리 줄 · 둘째 레일(Phase 38-04)', () => {
     );
     expect(orderLine(r2.container)).not.toBeNull();
     expect(r2.container.querySelectorAll('[role="option"]').length).toBe(shared.items.length);
+  });
+
+  it('모델만 바뀌면(증분 · own 재조회) 훑던 스크롤을 커서 행으로 끌어오지 않는다 · 순서 토글은 가운데로(IN-63)', () => {
+    const big = buildTickSession(tickGridBytes(), { date: TICK_FIXTURE_DATE, ex: 'KRX', isin: TICK_FIXTURE_ISIN });
+    const tops = new WeakMap<Element, number>();
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return tops.get(this) ?? 0;
+      },
+      set(this: Element, v: number) {
+        tops.set(this, v);
+      },
+    });
+    try {
+      const rec = big.exOrder[6_000]!;
+      const props = { session: big, cursorRec: rec, onSelect: () => {}, onMode: () => {} };
+      const v = render(<TickMsgList {...props} mode="exchange" rows={buildMsgRows(big, 'exchange')} />);
+      const el = v.container.querySelector<HTMLElement>('[data-slot="tick-msg-scroll"]')!;
+      expect(el.scrollTop).toBeGreaterThan(0); // 처음 = 가운데
+      el.scrollTop = 0; // 사용자가 맨 위로 훑었다
+      v.rerender(<TickMsgList {...props} mode="exchange" rows={buildMsgRows(big, 'exchange')} />);
+      expect(el.scrollTop).toBe(0);
+      v.rerender(<TickMsgList {...props} mode="recv" rows={buildMsgRows(big, 'recv')} />);
+      expect(el.scrollTop).toBeGreaterThan(0); // 순서 토글 = 가운데
+    } finally {
+      if (desc) Object.defineProperty(Element.prototype, 'scrollTop', desc);
+    }
   });
 });
