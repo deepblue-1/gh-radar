@@ -252,10 +252,16 @@ export function useTickCursor(
   const urlRef = useRef(urlState);
   const modeRef = useRef(mode);
   const navRef = useRef(navToken);
+  // 대기 타이머의 `write` 는 예약한 실행의 클로저가 아니라 지금 세션 · live 를 읽는다 — 당일 증분 직후 옛 세션 범위 밖을
+  // 읽어 BigInt TypeError 를 내거나 끝 틱인데 `t` 를 남기지 않게(WR-61).
+  const sessionRef = useRef(session);
+  const liveRef = useRef(live);
   useEffect(() => {
     urlRef.current = urlState;
     modeRef.current = mode;
     navRef.current = navToken;
+    sessionRef.current = session;
+    liveRef.current = live;
   });
   const firstRec = useRef(rec);
   const lastWrite = useRef(0);
@@ -271,15 +277,17 @@ export function useTickCursor(
       const nav = navRef.current;
       if (nav !== undefined && nav.current !== navToken0.current) return;
       lastWrite.current = Date.now();
+      const s = sessionRef.current;
       const r = recRef.current;
-      if (live && r === endRecOf(session, modeRef.current)) {
+      if (r < 0 || r >= s.index.n) return;
+      if (liveRef.current && r === endRecOf(s, modeRef.current)) {
         // 당일 끝 틱 = `t` 없음(머리 주석 ④) — 이미 없으면 쓰지 않는다(증분마다 replaceState 하지 않게).
         if (new URL(window.location.href).searchParams.has('t')) {
           window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current }));
         }
         return;
       }
-      const t = fmtTickTime(session.index.recvNs[r]!);
+      const t = fmtTickTime(s.index.recvNs[r]!);
       window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, t }));
     };
     const wait = TICK_URL_THROTTLE_MS - (Date.now() - lastWrite.current);

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 
-import { fmtTickTime, parseTickTime } from '@gh-radar/shared';
+import { fmtTickTime, iterRecords, parseTickTime } from '@gh-radar/shared';
 
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 
 import { buildTickSession } from '../tick-session';
-import { PLAY_MAX_GAP_MS, TICK_URL_THROTTLE_MS, teamJumpRec, useTickCursor } from '../use-tick-cursor';
+import { PLAY_MAX_GAP_MS, TICK_URL_THROTTLE_MS, endRecOf, teamJumpRec, useTickCursor } from '../use-tick-cursor';
 
 /**
  * Phase 37 Plan 10 Task 2 — 커서 키(← → Shift Space) · 입력 포커스 무시 · 끝/처음 정지 · 재생(1× · 10× · 끝 정지) ·
@@ -263,5 +263,36 @@ describe('useTickCursor — 점프 · URL', () => {
     });
     expect(replaceSpy).toHaveBeenCalledTimes(1);
     expect(result.current.rec).toBeGreaterThanOrEqual(0);
+  });
+
+  it('당일 — 대기 타이머 중 증분 세션(끝 따라감)이 와도 예외 0 · 끝 틱이라 URL 에 t 없음(WR-61)', () => {
+    vi.useFakeTimers();
+    const raw = tickGridBytes();
+    let cut = raw.length;
+    let i = 0;
+    for (const r of iterRecords(raw)) {
+      if (i === 6_000) {
+        cut = r.off - 16;
+        break;
+      }
+      i += 1;
+    }
+    const a = buildTickSession(raw.subarray(0, cut), { date: D, ex: 'KRX', isin: ISIN });
+    const b = buildTickSession(raw, { date: D, ex: 'KRX', isin: ISIN });
+    const hook = renderHook((p: { s: typeof a }) => useTickCursor(p.s, { initialT: null, urlState: URL_STATE, live: true }), {
+      initialProps: { s: a },
+    });
+    expect(hook.result.current.rec).toBe(endRecOf(a));
+    key('ArrowLeft'); // 바로 씀 — t 붙음
+    expect(new URL(window.location.href).searchParams.has('t')).toBe(true);
+    key('ArrowRight'); // 250ms 안 — 끝 틱 쓰기는 대기 타이머
+    hook.rerender({ s: b }); // 증분 — 끝이었으니 새 끝으로 따라간다
+    expect(hook.result.current.rec).toBe(endRecOf(b));
+    expect(() =>
+      act(() => {
+        vi.advanceTimersByTime(TICK_URL_THROTTLE_MS);
+      }),
+    ).not.toThrow();
+    expect(new URL(window.location.href).searchParams.has('t')).toBe(false);
   });
 });
