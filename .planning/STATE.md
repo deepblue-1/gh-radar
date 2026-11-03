@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-06-PLAN.md
-last_updated: "2026-11-03T07:00:24.999Z"
+stopped_at: Completed 38-07-PLAN.md
+last_updated: "2026-11-03T07:12:35.603Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: 7b4fc762d51f8e24bca85cbc78f2d5d3ba27734e
+state_head: acb63a69d84359c9b7bf6f666f8aba8451bb09e3
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 107
+  completed_plans: 108
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 7 of 10
+Plan: 8 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T07:00:24.780Z
-Stopped at: Completed 38-06-PLAN.md
+Last session: 2026-11-03T07:12:35.454Z
+Stopped at: Completed 38-07-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -208,6 +208,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P04 | 13min | 2 tasks | 9 files |
 | Phase 38 P05 | 5min | 2 tasks | 3 files |
 | Phase 38 P06 | 14 min | 2 tasks | 10 files |
+| Phase 38 P07 | 10 min | 2 tasks | 7 files |
 
 ## Decisions
 
@@ -354,3 +355,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-05: 체결 근거 단건 후보 2개 이상(중복 수신 포함)이면 단건 아님 → 구간 (before, after] 규칙 — probe 「정확히 1개」 그대로 · 10/30 분포 a3 2 · range 9 · none 2
 - [Phase 38]: 38-06: 체결통보(ev_kind 3) 근거 = 같은 게이트웨이 · 계좌의 gw ≤ 이벤트 gw ∧ 가격 · 수량 일치 우리 체결 중 마지막 것의 짝 A3 — 그 체결이 짝 없으면 근거 없음(Open Q3 UAT 대상)
 - [Phase 38]: 38-06: 되돌아가기 알약은 주문 묶기 키(gateway|order_no) + 화면 범위(isin|d|ex)로 기억 · 주문 줄 선택 순서 = 주문 줄 → 첫 짝 체결 → 짝 없음 줄 · 카드 근거 줄은 evidenceTextOf 머리 「근거 」 만 뺀다
+- [Phase 38]: 38-07: 차트 ○ 는 evidenceRec 하나에 한 점 — OwnMark.orderIds 로 근거가 같은 주문마다 툴팁 줄 · 클릭 되돌아가기는 첫 주문
+- [Phase 38]: 38-07: 가격 판 범위는 우리 점으로 넓히지 않음(팀 원과 같은 규칙) · 판 밖 점은 툴팁 · 묶음에서도 뺌 — 판 끝 붙이기 필요 여부는 UAT 확인
