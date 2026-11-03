@@ -1,12 +1,34 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPnlPrefix, dayStartNs, type TeamFill } from '@gh-radar/shared';
+import {
+  a3TimeMs,
+  buildPnlPrefix,
+  dayStartNs,
+  type TeamFill,
+  type TickOwnEvent,
+  type TickOwnFill,
+  type TickOwnResponse,
+} from '@gh-radar/shared';
 
 import { TICK_FIXTURE_DATE, tickFixtureBytes, tickGridBytes } from '@/test-fixtures/tick-grid';
-import { SYNTH_DATE, a3Msg, b6Msg, inversionSession, r8Msg, synthSession } from '@/test-fixtures/tick-synth';
-
 import {
+  SYNTH_DATE,
+  SYNTH_ISIN,
+  a3Msg,
+  b6Msg,
+  inversionSession,
+  r8Msg,
+  synthNs,
+  synthSession,
+} from '@/test-fixtures/tick-synth';
+
+import { buildOwnModel } from '../own-model';
+import {
+  OWN_MARK_HIT_PAD,
   TEAM_BUCKETS,
+  msOfNs,
+  ownMarkAt,
+  ownMarksOf,
   TICK_CHART,
   cumNetRangeOf,
   cumPointsOf,
@@ -353,5 +375,134 @@ describe('넷째 판 — 누적 거래대금 · 누적 팀 비중(스케치 022 
     expect(a.share).toBe('');
     const none = synthSession([[0, b6Msg({ seq: 1, ask1: [1000, 1], bid1: [990, 1] })]]);
     expect(turnoverPathsOf(turnoverSeriesOf(none), full, x, p, 536, BS.T2000).area).toBe('');
+  });
+});
+
+/**
+ * Phase 38 Plan 07 Task 1 — 가격 판 우리 점(D-08 · D-11).
+ * 깨지면: 같은 A3 에 붙은 우리 체결이 ◆ 여러 개로 겹치거나 · 추정이 채운 ◆ 로 보이거나 · 짝 없는 체결이 엉뚱한 시각에 서거나 ·
+ * 근거 ○ 가 주문 시각(gw)에 서거나 · 구간 근거가 첫 A3 에 서거나 · ◆ 가 ○ 아래에 깔린다.
+ */
+describe('ownMarksOf — ◆ · ◇ · ○ (Phase 38-07)', () => {
+  // rec 0 A3 .100 16,400 ×100 cum 1,000 · rec 1 B6 .1505(매도1 16,400 ×38,200) · rec 2 A3 .250 ×200 cum 1,200 ·
+  // rec 3 A3 .260 ×300 cum 1,500 · rec 4 A3 .300 16,450 ×50 cum 1,550 · rec 5 B6 .4005
+  const es = synthSession([
+    [100.5, a3Msg({ seq: 401, bs: '2', px: 16400, qty: 100, time: '130000100000', cumVolume: 1000 })],
+    [150.5, b6Msg({ seq: 411, ask1: [16400, 38_200], bid1: [16350, 10] })],
+    [250.5, a3Msg({ seq: 421, bs: '2', px: 16400, qty: 200, time: '130000250000', cumVolume: 1200 })],
+    [260.5, a3Msg({ seq: 431, bs: '2', px: 16400, qty: 300, time: '130000260000', cumVolume: 1500 })],
+    [300.5, a3Msg({ seq: 441, bs: '2', px: 16450, qty: 50, time: '130000300000', cumVolume: 1550 })],
+    [400.5, b6Msg({ seq: 451, ask1: [16450, 10], bid1: [16400, 20] })],
+  ]);
+  const at = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+  const eA3 = (j: number) => a3TimeMs(es.index, es.a3, j);
+  const recvMs = (rec: number) => msOfNs(es.index.recvNs[rec]!);
+  const fill = (orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill => ({
+    gateway: 'KB120',
+    seq,
+    gw_time_ms: gwMs,
+    account_no: '1234563801',
+    order_no: orderNo,
+    side: 'B',
+    exec_price: px,
+    exec_qty: qty,
+  });
+  const event = (orderNo: string, gwMs: number, over: Partial<TickOwnEvent>): TickOwnEvent => ({
+    gateway: 'KB120',
+    seq: 1,
+    gw_time_ms: gwMs,
+    kind: 3,
+    group: 1,
+    account_no: '1234563801',
+    order_no: orderNo,
+    price: 16400,
+    qty: 300,
+    reason_code: '',
+    cond_metric: 0,
+    cond_threshold: 0,
+    cond_actual: 0,
+    ev_kind: 0,
+    ev_price: 0,
+    ev_qty_before: 0,
+    ev_qty_after: 0,
+    ev_trade_qty: 0,
+    cum_volume: 0,
+    ...over,
+  });
+  const own: TickOwnResponse = {
+    access: true,
+    date: SYNTH_DATE,
+    exchange: 'KRX',
+    isin: SYNTH_ISIN,
+    servers: ['KB120'],
+    events: [
+      // 호가 근거 둘(같은 B6 rec 1) — ○ 하나 · 주문 둘
+      event('B6', at(200), { ev_kind: 1, ev_price: 16400, ev_qty_after: 38_200, cum_volume: 1000 }),
+      event('B7', at(210), { ev_kind: 1, ev_price: 16400, ev_qty_after: 38_200, cum_volume: 1000 }),
+      // 주기매도 구간 rec 2 … rec 4 → ○ 는 구간 끝 rec 4 하나
+      event('RG', at(350), { ev_kind: 2, ev_price: 16400, ev_trade_qty: 999, ev_qty_before: 1000, ev_qty_after: 1550, cum_volume: 1500 }),
+    ],
+    // 16,450 은 rec 4 하나뿐 — 두 체결 모두 rec 4 짝(한 점) · 99,999 는 짝 없음
+    fills: [fill('F', eA3(3) + 10, 16450, 20, 1), fill('F', eA3(3) + 20, 16450, 30, 2), fill('N', at(120), 99_999, 1, 3)],
+    orders: [],
+  };
+  const m = buildOwnModel(es, own);
+  const full = { t0: tickBoundsOf(SYNTH_DATE).T0, t1: tickBoundsOf(SYNTH_DATE).T2000 };
+  const id = (v: number) => v;
+
+  it('전제 — 두 체결 rec 4 짝 · 짝 없음 하나 · 근거 b6 rec 1 둘 · 구간 끝 rec 4', () => {
+    expect(m.fills.map((f) => f.rec)).toEqual([-1, 4, 4]);
+    expect(m.orders.filter((o) => o.evidenceRec >= 0).map((o) => [o.orderNo, o.evidenceRec])).toEqual([
+      ['B6', 1],
+      ['B7', 1],
+      ['RG', 4],
+    ]);
+  });
+
+  it('같은 A3 두 체결 = ◆ 한 점(fillIds 둘 · 그 A3 수신 시각 · A3 가격) · 짝 없음 = gw 시각 · 체결가 · rec −1', () => {
+    const marks = ownMarksOf(m, es, full, id, id);
+    const dia = marks.filter((k) => k.kind === 'fill');
+    expect(dia).toHaveLength(1);
+    expect(dia[0]).toMatchObject({ rec: 4, tMs: recvMs(4), px: 16450, cx: recvMs(4), cy: 16450 });
+    expect(dia[0]!.fillIds).toEqual(m.fillsOfRec.get(4));
+    const nf = marks.filter((k) => k.kind === 'nofill');
+    expect(nf).toHaveLength(1);
+    expect(nf[0]).toMatchObject({ rec: -1, tMs: at(120), px: 99_999, fillIds: [0] });
+  });
+
+  it('하나라도 추정이면 est', () => {
+    const ids = m.fillsOfRec.get(4)!;
+    const mixed = { ...m, fills: m.fills.map((f) => (f.id === ids[1] ? { ...f, est: true } : f)) };
+    const marks = ownMarksOf(mixed, es, full, id, id);
+    expect(marks.filter((k) => k.rec === 4 && k.kind !== 'ev').map((k) => k.kind)).toEqual(['est']);
+  });
+
+  it('근거 b6 = 그 B6 수신 시각 · ev_price · 같은 근거 주문 둘 = ○ 한 점(orderIds 둘) · 구간 = 끝 A3 하나', () => {
+    const ev = ownMarksOf(m, es, full, id, id).filter((k) => k.kind === 'ev');
+    expect(ev.map((k) => [k.rec, k.tMs, k.px])).toEqual([
+      [1, recvMs(1), 16400],
+      [4, recvMs(4), 16450],
+    ]);
+    const b6 = m.orders.filter((o) => o.evidenceRec === 1).map((o) => o.id);
+    expect(ev[0]!.orderIds).toEqual(b6);
+    expect(ev[0]!.orderId).toBe(b6[0]);
+    expect(ev[1]!.orderIds).toEqual([m.orders.find((o) => o.orderNo === 'RG')!.id]);
+    expect(ev[1]!.fillIds).toEqual([]);
+  });
+
+  it('그리기 순서 ○ → ◇ → ◆(◆ 가 위) · 창 ± 2% 밖 제외', () => {
+    expect(ownMarksOf(m, es, full, id, id).map((k) => k.kind)).toEqual(['ev', 'ev', 'nofill', 'fill']);
+    // rec 1(.1505) 둘레 ±10ms 창 — 짝 없음(.120) · rec 4(.3005) 는 밖
+    const narrow = { t0: recvMs(1) - 10, t1: recvMs(1) + 10 };
+    expect(ownMarksOf(m, es, narrow, id, id).map((k) => [k.kind, k.rec])).toEqual([['ev', 1]]);
+  });
+
+  it('ownMarkAt — 반지름 + 3px 안 가장 가까운 점 · 겹치면 위에 그린 ◆ · 밖이면 null', () => {
+    const marks = ownMarksOf(m, es, full, id, id);
+    const fillMark = marks.find((k) => k.kind === 'fill')!;
+    expect(ownMarkAt(marks, fillMark.cx, fillMark.cy, 4)?.kind).toBe('fill');
+    expect(ownMarkAt(marks, fillMark.cx + 4 + OWN_MARK_HIT_PAD + 1, fillMark.cy, 4)).toBeNull();
+    const evMark = marks.find((k) => k.kind === 'ev' && k.rec === 1)!;
+    expect(ownMarkAt(marks, evMark.cx + 2, evMark.cy, 4)).toBe(evMark);
   });
 });

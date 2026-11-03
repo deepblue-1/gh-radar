@@ -16,6 +16,7 @@ import { posNetPathOf, posNetPointsOf, type PosNetPoint, type View } from '@/lib
 import { kstClock } from '@/lib/limitup-report';
 import { kstHm } from '@/lib/teamflow-report';
 
+import type { OwnModel } from './own-model';
 import type { TeamModel } from './team-model';
 import type { TickSession } from './tick-session';
 
@@ -714,4 +715,119 @@ export function turnoverPathsOf(
   area += `H${xEnd}V${f1(p.y4b)}Z`;
   if (hasTeam) share += `H${xEnd}`;
   return { area, share, valLo, valHi, shareTop };
+}
+
+// ---------------------------------------------------------------------------
+// 우리 체결 ◆ · 짝 없음 ◇ · 조건 근거 ○ (Phase 38 D-08 · D-10 · 가격 판만)
+// ---------------------------------------------------------------------------
+
+/** 우리 점 반지름(◆ = 2R 정사각을 45° 돌린 것 · ○ = R − 1) — 데스크톱 4 · 폰 3.5. */
+export const OWN_MARK_R = { desktop: 4, phone: 3.5 } as const;
+/** 우리 점 클릭 · 툴팁 판정 여유(반지름 + 3px). */
+export const OWN_MARK_HIT_PAD = 3;
+/** 창 여유(팀 원 `tickCirclesOf` 와 같은 ± 2%). */
+const OWN_VIEW_PAD_RATIO = 0.02;
+
+/**
+ * 가격 판 우리 점 하나.
+ * - 'fill' = 짝 체결(채운 ◆) · 'est' = 같은 A3 에 붙은 체결 중 하나라도 추정(빈 ◆ 점선) — x = 그 A3 수신 ms · y = A3 가격.
+ * - 'nofill' = 짝 전문 없음 · 대기(빈 ◇) — x = 체결 gw 시각 · y = 체결가 · rec −1.
+ * - 'ev' = 조건 근거(○) — B6 = 그 B6 수신 ms · ev_price · 단건 A3 · 체결통보 = 그 A3 · 구간 = 구간 끝 A3 하나(D-11).
+ */
+export interface OwnMark {
+  kind: 'fill' | 'est' | 'nofill' | 'ev';
+  tMs: number;
+  px: number;
+  cx: number;
+  cy: number;
+  /** 클릭이 커서를 옮길 rec(◆ = 그 A3 · ○ = 근거 전문) · ◇ 는 −1(뷰어가 줄 rec 를 rows 로 푼다). */
+  rec: number;
+  /** ◆ · ◇ 의 우리 체결 id(◆ 는 같은 A3 rec 묶음 · ◇ 는 하나) · ○ 는 []. */
+  fillIds: number[];
+  /** 대표 주문 id(◆ · ◇ = 첫 체결의 주문 · ○ = 근거가 같은 주문 중 첫째). */
+  orderId: number;
+  /** ○ 의 주문 id 전부(근거 전문이 같은 주문 여럿 = 한 점 · 툴팁 줄 여럿) · ◆ · ◇ 는 [orderId]. */
+  orderIds: number[];
+}
+
+const OWN_DRAW_RANK: Record<OwnMark['kind'], number> = { ev: 0, nofill: 1, est: 2, fill: 2 };
+
+/**
+ * 창 ± 2% 안 우리 점 — 그리기 순서 ○ → ◇ → ◆(◆ 가 위) · 같은 종류는 시각순. 가격 0 이하는 그리지 않는다.
+ * 짝 체결은 A3 rec 하나에 한 점(`fillsOfRec`) · 근거는 evidenceRec 하나에 한 점(구간이면 끝 rec — 띠는 그리지 않는다 · D-08).
+ */
+export function ownMarksOf(
+  own: Pick<OwnModel, 'fills' | 'fillsOfRec' | 'orders'>,
+  session: Pick<TickSession, 'index' | 'a3' | 'a3Of'>,
+  view: View,
+  x: (t: number) => number,
+  y: (px: number) => number,
+): OwnMark[] {
+  const pad = (view.t1 - view.t0) * OWN_VIEW_PAD_RATIO;
+  const inView = (t: number) => t >= view.t0 - pad && t <= view.t1 + pad;
+  const recvMs = (rec: number) => msOfNs(session.index.recvNs[rec]!);
+  const out: OwnMark[] = [];
+  const push = (m: Omit<OwnMark, 'cx' | 'cy'>) => {
+    if (!(m.px > 0) || !Number.isFinite(m.tMs) || !inView(m.tMs)) return;
+    out.push({ ...m, cx: x(m.tMs), cy: y(m.px) });
+  };
+
+  // ◆ — A3 rec 마다 한 점
+  for (const [rec, ids] of own.fillsOfRec) {
+    if (ids.length === 0) continue;
+    const j = session.a3Of[rec]!;
+    const first = own.fills[ids[0]!]!;
+    push({
+      kind: ids.some((id) => own.fills[id]!.est) ? 'est' : 'fill',
+      tMs: recvMs(rec),
+      px: j >= 0 ? session.a3.px[j]! : first.px,
+      rec,
+      fillIds: ids.slice(),
+      orderId: first.order,
+      orderIds: [first.order],
+    });
+  }
+  // ◇ — 짝 없음 · 대기 체결마다
+  for (const f of own.fills) {
+    if (f.rec >= 0) continue;
+    push({ kind: 'nofill', tMs: f.gwMs, px: f.px, rec: -1, fillIds: [f.id], orderId: f.order, orderIds: [f.order] });
+  }
+  // ○ — 근거 전문 하나에 한 점(주문 id 오름차순)
+  const evOf = new Map<number, number[]>();
+  for (const o of own.orders) {
+    if (o.evidenceRec < 0) continue;
+    const ids = evOf.get(o.evidenceRec);
+    if (ids) ids.push(o.id);
+    else evOf.set(o.evidenceRec, [o.id]);
+  }
+  for (const [rec, ids] of evOf) {
+    const o = own.orders[ids[0]!]!;
+    let px = 0;
+    if (o.evidence.kind === 'b6') {
+      const ev = o.event?.ev_price ?? 0;
+      px = ev > 0 ? ev : (o.px ?? 0);
+    } else {
+      const j = session.a3Of[rec]!;
+      px = j >= 0 ? session.a3.px[j]! : 0;
+    }
+    push({ kind: 'ev', tMs: recvMs(rec), px, rec, fillIds: [], orderId: ids[0]!, orderIds: ids });
+  }
+
+  return out.sort((a, b) => OWN_DRAW_RANK[a.kind] - OWN_DRAW_RANK[b.kind] || a.tMs - b.tMs);
+}
+
+/** 클릭 · 툴팁 판정 — (mx, my) 에서 반지름 + 3px 안 가장 가까운 우리 점(같으면 위에 그린 것) · 없으면 null. */
+export function ownMarkAt(marks: readonly OwnMark[], mx: number, my: number, r: number): OwnMark | null {
+  const lim = r + OWN_MARK_HIT_PAD;
+  let best: OwnMark | null = null;
+  let bestD = Infinity;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const m = marks[i]!;
+    const d = Math.hypot(mx - m.cx, my - m.cy);
+    if (d <= lim && d < bestD) {
+      bestD = d;
+      best = m;
+    }
+  }
+  return best;
 }

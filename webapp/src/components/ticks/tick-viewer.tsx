@@ -47,6 +47,8 @@ import { TickTeamPanel } from './tick-team-panel';
  *   찾기(`ownLineRec`)가 같이 쓴다. 카드 「보기 ›」(근거 · 직전 체결 · 표 근거 칸)는 커서를 옮기고 그 주문을 기억해 side 칸 맨 위에
  *   「‹ 주문 #… 로」 알약(`ownBack`)을 남긴다 — 한 단계 · 누르면 그 주문 줄(없으면 첫 짝 체결)로 가고 사라짐 · 다른 「보기 ›」 가
  *   덮어씀 · 종목 · 날짜 · 거래소가 바뀌면 사라짐(파생).
+ * ⑥ 차트 우리 점(38-07 · D-08): `TickChart own` — ◆ 클릭 = 그 체결 A3 행 · ○ 클릭 = 근거 행 + 같은 알약 · ◇ 클릭 = 그 짝 없음
+ *   줄 선택(`rows.ownPosOfFill` → `ownLineRec`).
  */
 
 export interface TickViewerProps {
@@ -278,6 +280,23 @@ export function TickViewer({
     setOwnBack(null);
   }, [ownBackOrder, onOwnOrder]);
 
+  // 차트 우리 점(38-07 · D-08 · D-10) — ◆ = 그 A3 행 · ○ = 근거 행 + 되돌아가기 알약 · ◇ = 그 짝 없음 줄 선택.
+  const onChartOwnJump = useCallback(
+    (at: number, back?: number) => {
+      if (back !== undefined) onOwnBack(back);
+      jumpToRec(at);
+    },
+    [onOwnBack, jumpToRec],
+  );
+  const onChartOwnFillLine = useCallback(
+    (fid: number) => {
+      const p = rows.ownPosOfFill[fid] ?? -1;
+      const at = p >= 0 ? ownLineRec(rows, p) : -1;
+      if (at >= 0) onOwnSelect({ kind: 'fill', id: fid }, at);
+    },
+    [rows, onOwnSelect],
+  );
+
   const time = rec >= 0 ? fmtTickTime(session.index.recvNs[rec]!) : '';
   const seq = rec >= 0 && session.index.seq[rec]! >= 0 ? session.index.seq[rec]! : null;
 
@@ -339,6 +358,9 @@ export function TickViewer({
         cursorRec={rec}
         onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
         onJumpRec={cursor.jumpToRec}
+        own={ownModel}
+        onOwnJump={onChartOwnJump}
+        onOwnFillLine={onChartOwnFillLine}
       />
 
       <TickSlider

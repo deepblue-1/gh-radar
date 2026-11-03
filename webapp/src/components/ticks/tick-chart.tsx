@@ -10,8 +10,12 @@ import { useChartWidth } from '@/hooks/use-chart-width';
 import { panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
 import {
+  OWN_MARK_R,
   TICK_CHART,
   bucketMaxOfModel,
+  ownMarkAt,
+  ownMarksOf,
+  type OwnMark,
   cumNetRangeOf,
   cumPointsOf,
   cumStairsOf,
@@ -48,6 +52,7 @@ import {
   pct1,
   type TickHover,
 } from '@/lib/ticks/tick-chart-tip';
+import type { OwnModel } from '@/lib/ticks/own-model';
 import { fmtAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
@@ -75,6 +80,10 @@ import { cn } from '@/lib/utils';
  *   대상이 바뀔 때만 상태를 바꾸고, 창이 움직이거나 끌기 중 · 포인터가 나가면 지운다. 묶음 원은 고리 1.5 · 고른 원은 2.5.
  *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · VI 띠 title 은 남는다). 폰은 길게 누르기(300ms) 살펴보기
  *   (`createTouchInspect`) — 그동안 한 손가락 끌기는 창을 옮기지 않고, 손을 떼도 그 자리로 커서를 옮기지 않는다.
+ * ⑤ 우리 체결 · 근거(Phase 38 D-08 · D-10 — `own` 이 있을 때만 · 가격 판만) — 팀 원 위에 ○ 조건 근거(빈 원 · `--mine` 테두리) →
+ *   ◇ 짝 없음 · 대기(빈 ◇ 실선) → ◆ 우리 체결(채움 `--mine` · 추정이면 빈 ◆ 점선 3 2). 구간 띠 · 주문 시각 눈금은 그리지
+ *   않는다(D-08). 클릭은 우리 점(반지름 + 3px)이 팀 원보다 먼저: ◆ = 그 A3 행(`onOwnJump(rec)`) · ◇ = 그 짝 없음 줄
+ *   (`onOwnFillLine(fillId)`) · ○ = 근거 행 + 되돌아가기 주문(`onOwnJump(rec, orderId)`).
  */
 
 export interface TickChartProps {
@@ -92,6 +101,12 @@ export interface TickChartProps {
   listingShares?: number | null;
   /** 판 높이 강제(287 데스크톱 · 208 폰) — 생략하면 측정 폭으로 고른다. */
   height?: 287 | 208;
+  /** 우리 체결 모델(Phase 38) — 없으면 우리 점 · 범례 없음. */
+  own?: OwnModel | null;
+  /** ◆ 클릭 = 그 A3 rec · ○ 클릭 = 근거 rec + 되돌아가기 주문 id(`back`). */
+  onOwnJump?: (rec: number, back?: number) => void;
+  /** ◇(짝 없음 · 대기) 클릭 — 그 체결 id(줄 rec 는 뷰어가 rows 로 푼다). */
+  onOwnFillLine?: (fillId: number) => void;
   className?: string;
 }
 
@@ -125,6 +140,27 @@ function cumLegendOf(accum: TickOpenResponse['accum'] | undefined, isToday: bool
   return nxt ? '누적 = 매집감지 포지션(KRX+NXT 합산)' : '누적 = 매집감지 포지션(이월 포함)';
 }
 
+/** 우리 체결 ◆(채움 `--mine`) · 추정 빈 ◆ 점선 · 짝 없음 · 대기 빈 ◇ 실선 — 2R 정사각을 45° 돌린다(목업 B `dia`). */
+function OwnDiamond({ m, i, r }: { m: OwnMark; i: number; r: number }) {
+  const common = {
+    'data-slot': 'tick-own-mark',
+    'data-own-i': i,
+    'data-kind': m.kind,
+    'data-rec': m.rec,
+    x: m.cx - r,
+    y: m.cy - r,
+    width: 2 * r,
+    height: 2 * r,
+    transform: `rotate(45 ${m.cx} ${m.cy})`,
+    stroke: 'var(--mine)',
+    strokeWidth: 1.6,
+    vectorEffect: 'non-scaling-stroke' as const,
+    className: 'cursor-pointer',
+  };
+  if (m.kind === 'est') return <rect {...common} fill="var(--card)" strokeDasharray="3 2" />;
+  return <rect {...common} fill={m.kind === 'fill' ? 'var(--mine)' : 'var(--card)'} />;
+}
+
 export function TickChart({
   session,
   accum = null,
@@ -134,6 +170,9 @@ export function TickChart({
   onJumpRec,
   listingShares = null,
   height,
+  own = null,
+  onOwnJump,
+  onOwnFillLine,
   className,
 }: TickChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
@@ -238,6 +277,8 @@ export function TickChart({
   const bucketMax = bucketMaxOfModel(team);
   const vis = useMemo(() => viBandsOf(session), [session]);
   const circles = tickCirclesOf(team, view, x, y);
+  const ownR = phone ? OWN_MARK_R.phone : OWN_MARK_R.desktop;
+  const marks: OwnMark[] = own !== null ? ownMarksOf(own, session, view, x, y) : [];
   const turnover = turnoverSeriesOf(session);
   const mcap = marketCapOf(session.basePx, listingShares);
   const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
@@ -297,13 +338,45 @@ export function TickChart({
   const seedRim = tip?.group ? tip.circle : null;
   const rims = tip?.group ? tip.group.filter((c) => c.k !== seedRim?.k) : tip?.circle ? [tip.circle] : [];
 
+  // 우리 점 판정 — 우리 점 요소를 눌렀으면 그 점, 아니면 가격 판 안에서 반지름 + 3px 안 가장 가까운 점(팀 원보다 먼저).
+  const ownHitOf = (target: Element, clientX: number, clientY: number): OwnMark | null => {
+    if (marks.length === 0) return null;
+    const el = target.closest?.('[data-own-i]');
+    if (el) return marks[Number(el.getAttribute('data-own-i'))] ?? null;
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return null;
+    const mx = ((clientX - rect.left) * W) / rect.width;
+    const my = ((clientY - rect.top) * P.H) / rect.height;
+    if (my < P.y1a - 7 || my > P.y1b + 7) return null;
+    return ownMarkAt(marks, mx, my, ownR);
+  };
+  /** 우리 점 클릭 — 그 점의 콜백이 없으면 false(아래 팀 원 · 시각 클릭으로 넘긴다). */
+  const goOwn = (m: OwnMark): boolean => {
+    if (m.kind === 'nofill') {
+      if (!onOwnFillLine) return false;
+      onOwnFillLine(m.fillIds[0]!);
+      return true;
+    }
+    if (!onOwnJump) return false;
+    if (m.kind === 'ev') onOwnJump(m.rec, m.orderId);
+    else onOwnJump(m.rec);
+    return true;
+  };
+
   // 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각. 끌기(4px 넘게 움직임)는 클릭이 아니다.
-  const downRef = useRef<{ x: number; y: number; orderRec: number | null } | null>(null);
+  const downRef = useRef<{ x: number; y: number; orderRec: number | null; own: OwnMark | null } | null>(null);
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
     inspectedRef.current = false;
     tracker.down(e);
     const el = (e.target as Element).closest?.('[data-order-rec]');
-    downRef.current = { x: e.clientX, y: e.clientY, orderRec: el ? Number(el.getAttribute('data-order-rec')) : null };
+    downRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      orderRec: el ? Number(el.getAttribute('data-order-rec')) : null,
+      own: ownHitOf(e.target as Element, e.clientX, e.clientY),
+    };
   };
   const onClick = (e: MouseEvent<SVGSVGElement>) => {
     const down = downRef.current;
@@ -313,6 +386,8 @@ export function TickChart({
       return;
     }
     if (down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
+    const ownHit = down?.own ?? ownHitOf(e.target as Element, e.clientX, e.clientY);
+    if (ownHit !== null && goOwn(ownHit)) return;
     const el = (e.target as Element).closest?.('[data-order-rec]');
     const orderRec = down?.orderRec ?? (el ? Number(el.getAttribute('data-order-rec')) : null);
     if (orderRec !== null && Number.isFinite(orderRec)) {
@@ -596,6 +671,27 @@ export function TickChart({
                   strokeWidth={2.5}
                   pointerEvents="none"
                 />
+              )}
+              {/* 우리 점(Phase 38 D-08) — 팀 원 위 · ○ → ◇ → ◆ 순(◆ 가 맨 위) · 구간 띠 없음 */}
+              {marks.map((m, i) =>
+                m.kind === 'ev' ? (
+                  <circle
+                    key={`ev${m.rec}`}
+                    data-slot="tick-own-ev-mark"
+                    data-own-i={i}
+                    data-rec={m.rec}
+                    cx={m.cx}
+                    cy={m.cy}
+                    r={ownR - 1}
+                    fill="var(--card)"
+                    stroke="var(--mine)"
+                    strokeWidth={1.6}
+                    vectorEffect="non-scaling-stroke"
+                    className="cursor-pointer"
+                  />
+                ) : (
+                  <OwnDiamond key={m.kind === 'nofill' ? `nf${m.fillIds[0]}` : `f${m.rec}`} m={m} i={i} r={ownR} />
+                ),
               )}
             </g>
 

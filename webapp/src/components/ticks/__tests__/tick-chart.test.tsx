@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, waitFor } from '@testing-library/react';
 
-import type { TickOpenResponse } from '@gh-radar/shared';
+import { a3TimeMs, type TickOpenResponse, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
+import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
 import { tickBoundsOf } from '@/lib/ticks/tick-chart';
-import { SYNTH_DATE, a3Msg, b6Msg, synthSession } from '@/test-fixtures/tick-synth';
+import { SYNTH_DATE, SYNTH_ISIN, a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
 import { TickChart } from '../tick-chart';
 
@@ -215,5 +216,136 @@ describe('TickChart — 팀 레이어 · 클릭', () => {
     const { q } = renderChart();
     expect(q('tick-chart-cursor')).toHaveLength(1);
     expect(q('tick-chart-cursor-label')[0]?.textContent).toBe('13:00:00');
+  });
+});
+
+/**
+ * Phase 38 Plan 07 — 차트 우리 점(D-08 · D-10).
+ * 깨지면: ◆ 를 눌러도 그 체결 전문으로 가지 않거나 · ○ 가 되돌아가기 주문을 남기지 않거나 · 짝 없음 ◇ 가 시각 점프로
+ * 새거나 · 추정 ◆ 가 채운 ◆ 로 보이거나 · own 이 없는데 우리 점이 생긴다.
+ */
+const ownFill = (orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill => ({
+  gateway: 'KB120',
+  seq,
+  gw_time_ms: gwMs,
+  account_no: '1234563801',
+  order_no: orderNo,
+  side: 'B',
+  exec_price: px,
+  exec_qty: qty,
+});
+const ownEvent = (orderNo: string, gwMs: number, over: Partial<TickOwnEvent>): TickOwnEvent => ({
+  gateway: 'KB120',
+  seq: 1,
+  gw_time_ms: gwMs,
+  kind: 3,
+  group: 1,
+  account_no: '1234563801',
+  order_no: orderNo,
+  price: 16450,
+  qty: 10,
+  reason_code: '',
+  cond_metric: 0,
+  cond_threshold: 0,
+  cond_actual: 0,
+  ev_kind: 0,
+  ev_price: 0,
+  ev_qty_before: 0,
+  ev_qty_after: 0,
+  ev_trade_qty: 0,
+  cum_volume: 0,
+  ...over,
+});
+const synthAt = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+/** krx 하루 — 우리 매도 체결 16,350 ×50(seq 105 짝 ◆) · 짝 없음 99,999 ×1(◇) · 호가 근거 seq 100(매도1 16,400 ×283 → ○ · 가격 판 범위 안). */
+const krxOwn: OwnModel = buildOwnModel(krx, {
+  access: true,
+  date: SYNTH_DATE,
+  exchange: 'KRX',
+  isin: SYNTH_ISIN,
+  servers: ['KB120'],
+  events: [ownEvent('EV', synthAt(0.5), { ev_kind: 1, ev_price: 16400, ev_qty_after: 283 })],
+  fills: [ownFill('F1', a3TimeMs(krx.index, krx.a3, 3) + 5, 16350, 50, 1), ownFill('N1', synthAt(3), 99_999, 1, 2)],
+  orders: [],
+} satisfies TickOwnResponse);
+
+describe('TickChart — 우리 점 ◆ · ◇ · ○ (Phase 38-07)', () => {
+  const renderOwn = (own: OwnModel | null = krxOwn) => {
+    const onOwnJump = vi.fn();
+    const onOwnFillLine = vi.fn();
+    const r = renderChart({ own, onOwnJump, onOwnFillLine });
+    return { ...r, onOwnJump, onOwnFillLine };
+  };
+
+  it('전제 — 체결 짝 seq 105 · 짝 없음 하나 · 근거 b6 seq 100', () => {
+    expect(krxOwn.fills.map((f) => f.rec).sort()).toEqual([-1, recOfSeq(krx, 105)].sort());
+    expect(krxOwn.orders.find((o) => o.orderNo === 'EV')!.evidenceRec).toBe(recOfSeq(krx, 100));
+  });
+
+  it('own 이 있으면 가격 판 클립 안에 ◆(채움 --mine) · ◇(빈 · 실선) · ○(빈 · --mine 테두리) · own 없으면 없음', () => {
+    const { q } = renderOwn();
+    const dia = Array.from(q('tick-own-mark'));
+    expect(dia.map((d) => d.getAttribute('data-kind')).sort()).toEqual(['fill', 'nofill']);
+    const fill = dia.find((d) => d.getAttribute('data-kind') === 'fill')!;
+    expect(fill.getAttribute('fill')).toBe('var(--mine)');
+    expect(fill.getAttribute('transform')).toMatch(/^rotate\(45 /);
+    expect(fill.getAttribute('stroke-dasharray')).toBeNull();
+    const nf = dia.find((d) => d.getAttribute('data-kind') === 'nofill')!;
+    expect(nf.getAttribute('fill')).toBe('var(--card)');
+    expect(nf.getAttribute('stroke-dasharray')).toBeNull();
+    const ev = q('tick-own-ev-mark');
+    expect(ev).toHaveLength(1);
+    expect(ev[0]!.getAttribute('stroke')).toBe('var(--mine)');
+    expect(ev[0]!.closest('[data-slot="tick-price-layer"]')).not.toBeNull();
+    expect(fill.closest('[data-slot="tick-price-layer"]')).not.toBeNull();
+    // 팀 원 뒤(위)에 그린다
+    const layer = q('tick-price-layer')[0]!;
+    const kids = Array.from(layer.children);
+    expect(kids.indexOf(fill)).toBeGreaterThan(kids.indexOf(q('tick-order-circle')[0]!));
+    const none = renderChart({ own: null });
+    expect(none.q('tick-own-mark')).toHaveLength(0);
+    expect(none.q('tick-own-ev-mark')).toHaveLength(0);
+  });
+
+  it('추정 체결 → 빈 ◆ 점선(3 2)', () => {
+    const est: OwnModel = { ...krxOwn, fills: krxOwn.fills.map((f) => (f.rec >= 0 ? { ...f, est: true } : f)) };
+    const { q } = renderOwn(est);
+    const d = Array.from(q('tick-own-mark')).find((k) => k.getAttribute('data-kind') === 'est')!;
+    expect(d.getAttribute('fill')).toBe('var(--card)');
+    expect(d.getAttribute('stroke-dasharray')).toBe('3 2');
+  });
+
+  it('◆ 클릭 → onOwnJump(그 A3 rec) · 팀 원 점프 · 시각 점프 없음', () => {
+    const { q, onOwnJump, onJumpRec, onSeekMs } = renderOwn();
+    fireEvent.click(Array.from(q('tick-own-mark')).find((d) => d.getAttribute('data-kind') === 'fill')!);
+    expect(onOwnJump).toHaveBeenCalledTimes(1);
+    expect(onOwnJump.mock.calls[0]).toEqual([recOfSeq(krx, 105)]);
+    expect(onJumpRec).not.toHaveBeenCalled();
+    expect(onSeekMs).not.toHaveBeenCalled();
+  });
+
+  it('◇ 클릭 → onOwnFillLine(그 체결 id) · ○ 클릭 → onOwnJump(근거 rec, 주문 id)', () => {
+    const { q, onOwnJump, onOwnFillLine, onSeekMs } = renderOwn();
+    fireEvent.click(Array.from(q('tick-own-mark')).find((d) => d.getAttribute('data-kind') === 'nofill')!);
+    const nofill = krxOwn.fills.find((f) => f.rec < 0)!;
+    expect(onOwnFillLine).toHaveBeenCalledWith(nofill.id);
+    fireEvent.click(q('tick-own-ev-mark')[0]!);
+    const ev = krxOwn.orders.find((o) => o.orderNo === 'EV')!;
+    expect(onOwnJump).toHaveBeenCalledWith(recOfSeq(krx, 100), ev.id);
+    expect(onSeekMs).not.toHaveBeenCalled();
+  });
+
+  it('우리 점 둘레(반지름 + 3px) 빈 곳 클릭도 우리 점이 먼저 · 멀면 시각 점프 그대로', () => {
+    const { q, onOwnJump, onSeekMs } = renderOwn();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const ev = q('tick-own-ev-mark')[0]!;
+    const cx = Number(ev.getAttribute('cx'));
+    const cy = Number(ev.getAttribute('cy'));
+    fireEvent.click(svg, { clientX: cx, clientY: cy + 6 });
+    expect(onOwnJump).toHaveBeenCalledTimes(1);
+    fireEvent.click(svg, { clientX: 100, clientY: 50 });
+    expect(onSeekMs).toHaveBeenCalledTimes(1);
   });
 });
