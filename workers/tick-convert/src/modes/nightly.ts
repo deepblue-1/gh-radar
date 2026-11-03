@@ -2,7 +2,10 @@
  * nightly 모드(D-02 · D-04) — `nightly [--date YYYYMMDD]`. Scheduler 23:30 · 01:30 KST 두 번(오버라이드 없이 이미지 CMD).
  *
  * 날짜 고르기(Pitfall 6 · `nightlyDatesOf`):
- *   후보 = KST 오늘 포함 최근 `TICK_CATCHUP_DAYS`(10)일 중 평일 ∧ !isKrxHoliday − ok nightly 기록이 KRX · NXT 둘 다 있는 날.
+ *   후보 = KST 오늘 포함 최근 `TICK_CATCHUP_DAYS`(10)일 중 평일 ∧ !isKrxHoliday − ok nightly 기록이 KRX · NXT 둘 다 있는 날
+ *   − 실패 nightly 기록(ok false)이 `NIGHTLY_MAX_FAILED_RUNS`(2)회를 넘은 날(WR-36 — 키 하나의 영구 실패 · 깨진 원본 하나로
+ *   그 날짜 두 라벨 전량(≈9GB ARCHIVE 꺼내기)을 하루 두 번 · 10일 동안 다시 읽지 않는다. 포기한 날짜는 실행마다 warn 로그 ·
+ *   이미 올린 격자는 그대로 · 빠진 키는 요청 변환 또는 `--date D` 수동 재변환).
  *   **최신 날짜부터**(새 날짜가 먼저 격자가 되게 — 미룬 날짜는 01:30 · 다음 밤이 잇는다).
  *   `--date D` 는 그 날 하나만(기록 · 요일 · 휴장 무시 · 다시 쓴다 — 스모크 · 수동 재변환).
  *
@@ -63,6 +66,12 @@ export const PARTIAL = "partial";
 
 const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
 
+/**
+ * 날짜 하나의 실패 nightly 실행을 몇 번까지 다시 고르는가(WR-36). 거래소별 ok false 기록 수의 최댓값이 이 값을 넘으면
+ * 그 날짜를 더 고르지 않는다 — 일시 오류(Storage · RPC)는 다음 실행 · 다음 밤에 다시 잡히고, 영구 실패는 3번째에서 멈춘다.
+ */
+export const NIGHTLY_MAX_FAILED_RUNS = 2;
+
 /** launch_queue_set 한 번에 넘기는 행 수. */
 export const LAUNCH_SET_BATCH = 50;
 
@@ -85,11 +94,33 @@ function isoOf(ymd: string): string {
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 }
 
+/** 날짜별 실패 nightly 실행 수 — 거래소별 ok false 기록 수의 최댓값(실행 하나가 거래소마다 한 행을 쓴다). */
+export function failedNightlyRunsOf(runs: readonly RunSince[]): Map<string, number> {
+  const byKey = new Map<string, number>();
+  for (const r of runs) {
+    if (r.mode !== "nightly" || r.ok !== false) continue;
+    const k = `${r.date}|${r.exchange}`;
+    byKey.set(k, (byKey.get(k) ?? 0) + 1);
+  }
+  const out = new Map<string, number>();
+  for (const [k, n] of byKey) {
+    const date = k.slice(0, 8);
+    out.set(date, Math.max(out.get(date) ?? 0, n));
+  }
+  return out;
+}
+
 /**
  * 고를 날짜(최신부터 · 순수 함수). 후보 = KST 오늘 포함 최근 catchupDays 일 중 평일 ∧ 휴장 아님 − ok nightly 기록이
- * KRX · NXT 둘 다 있는 날. `runs` 는 `tick_convert_runs_since` 결과(모든 모드 — nightly ∧ ok true 만 센다).
+ * KRX · NXT 둘 다 있는 날 − 실패 nightly 실행이 `maxFailed` 회를 넘은 날(WR-36).
+ * `runs` 는 `tick_convert_runs_since` 결과(모든 모드 — nightly 만 센다).
  */
-export function nightlyDatesOf(now: Date, catchupDays: number, runs: readonly RunSince[]): string[] {
+export function nightlyDatesOf(
+  now: Date,
+  catchupDays: number,
+  runs: readonly RunSince[],
+  maxFailed: number = NIGHTLY_MAX_FAILED_RUNS,
+): string[] {
   const done = new Map<string, Set<string>>();
   for (const r of runs) {
     if (r.mode !== "nightly" || r.ok !== true) continue;
@@ -97,6 +128,7 @@ export function nightlyDatesOf(now: Date, catchupDays: number, runs: readonly Ru
     if (!s) done.set(r.date, (s = new Set()));
     s.add(r.exchange);
   }
+  const failed = failedNightlyRunsOf(runs);
   const out: string[] = [];
   for (let i = 0; i < catchupDays; i++) {
     const ymd = kstYmdDaysAgo(now, i);
@@ -106,6 +138,7 @@ export function nightlyDatesOf(now: Date, catchupDays: number, runs: readonly Ru
     if (isKrxHoliday(iso)) continue;
     const ex = done.get(ymd);
     if (ex && EXCHANGES.every((e) => ex.has(e))) continue;
+    if ((failed.get(ymd) ?? 0) > maxFailed) continue; // 반복 실패 — 포기(runNightly 가 warn)
     out.push(ymd);
   }
   return out;
@@ -410,10 +443,23 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
   const meta = createMeta(deps.sb);
   const cfg = deps.config;
 
-  const dates =
-    args.date !== undefined
-      ? [args.date]
-      : nightlyDatesOf(deps.now, cfg.catchupDays, await meta.runsSince(kstYmdDaysAgo(deps.now, cfg.catchupDays - 1)));
+  let dates: string[];
+  if (args.date !== undefined) {
+    dates = [args.date];
+  } else {
+    const runs = await meta.runsSince(kstYmdDaysAgo(deps.now, cfg.catchupDays - 1));
+    dates = nightlyDatesOf(deps.now, cfg.catchupDays, runs);
+    // WR-36 — 반복 실패로 포기한 날짜(ok 기록 없이 실패만 쌓인 날)를 실행마다 남긴다(무로그 손실 금지)
+    const uncapped = nightlyDatesOf(deps.now, cfg.catchupDays, runs, Infinity);
+    const gaveUp = uncapped.filter((d) => !dates.includes(d));
+    if (gaveUp.length > 0) {
+      logger.warn(
+        { gaveUp, maxFailed: NIGHTLY_MAX_FAILED_RUNS },
+        `[tick-convert] mode=nightly 실패 ${NIGHTLY_MAX_FAILED_RUNS}회 초과 날짜 ${gaveUp.join(",")} — 다시 고르지 않는다` +
+          ` (원인 확인 뒤 nightly --date D 로 수동 재변환)`,
+      );
+    }
+  }
 
   const out: NightlyOutcome = { mode: "nightly", dates, days: [], deferred: 0, failed: 0, purgeError: null };
   for (let i = 0; i < dates.length; i++) {

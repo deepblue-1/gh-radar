@@ -13,7 +13,7 @@ import { selectTargets } from "../src/select";
 import { createSupabaseGridStore } from "../src/store";
 import { gridTeamOf } from "../src/team-day";
 import { gridLaunchOf } from "../src/launch-queue";
-import { NO_OBJECTS, nightlyDatesOf, runNightly } from "../src/modes/nightly";
+import { NIGHTLY_MAX_FAILED_RUNS, NO_OBJECTS, nightlyDatesOf, runNightly } from "../src/modes/nightly";
 import type { RunSince } from "../src/meta";
 import {
   a3Payload,
@@ -133,6 +133,29 @@ describe("nightlyDatesOf — 평일 · 휴장 · ok 기록 · 최신부터", () 
       run("20261027", "NXT", "request", true),
     ];
     expect(nightlyDatesOf(NOW, 10, runs)).toEqual(["20261102", "20261029", "20261028", "20261027", "20261026"]);
+  });
+
+  it("실패 nightly 실행이 NIGHTLY_MAX_FAILED_RUNS(2)회를 넘은 날은 더 고르지 않는다 — 2회까지는 다시 고른다(WR-36)", () => {
+    const fail = (date: string, exchange: string): RunSince => ({ date, exchange, mode: "nightly", ok: false, finished_at: "2026-11-01T00:00:00Z" });
+    const runs = [
+      // 10/30 — KRX 3회 실패(NXT 는 ok) → 포기
+      fail("20261030", "KRX"),
+      fail("20261030", "KRX"),
+      fail("20261030", "KRX"),
+      { date: "20261030", exchange: "NXT", mode: "nightly" as const, ok: true, finished_at: "2026-11-01T00:00:00Z" },
+      // 10/29 — 두 거래소 2회씩 실패 → 아직 고른다
+      fail("20261029", "KRX"),
+      fail("20261029", "NXT"),
+      fail("20261029", "KRX"),
+      fail("20261029", "NXT"),
+      // 10/28 — request 실패는 세지 않는다
+      { date: "20261028", exchange: "KRX", mode: "request" as const, ok: false, finished_at: null },
+      { date: "20261028", exchange: "KRX", mode: "request" as const, ok: false, finished_at: null },
+      { date: "20261028", exchange: "KRX", mode: "request" as const, ok: false, finished_at: null },
+    ];
+    expect(NIGHTLY_MAX_FAILED_RUNS).toBe(2);
+    expect(nightlyDatesOf(NOW, 10, runs)).toEqual(["20261102", "20261029", "20261028", "20261027", "20261026"]);
+    expect(nightlyDatesOf(NOW, 10, runs, Infinity)).toContain("20261030");
   });
 });
 
