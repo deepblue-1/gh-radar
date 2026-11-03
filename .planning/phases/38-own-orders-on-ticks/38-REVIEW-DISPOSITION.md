@@ -25,24 +25,24 @@ findings:
     title: "「최신 받기」 때 own 조회가 한 번 실패하면 받아 둔 우리 층이 통째로 사라진다"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "클라 재정렬 키가 RPC 정렬(「차감 순서의 정본」)과 다르다"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "카드 「보기 ›」 · 「우리 주문」 표 행 클릭 · `onOwnOrder` 폴백도 고른 줄을 풀지 않는다"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`useTickOwn` 모양 검사가 `events` · `orders` 를 보지 않는다"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "근거 종류 낱말 「체결 구간」 만 shared 라벨 밖에 하드코딩"
-open: 4
-fixed: 5
+open: 0
+fixed: 9
 total: 9
-recorded: 2026-11-04T03:55:00.000Z
+recorded: 2026-11-04T04:32:00.000Z
 ---
 
 # Phase 38: Code Review Disposition
@@ -54,10 +54,10 @@ recorded: 2026-11-04T03:55:00.000Z
 | WR-03 | warning | fixed | 38-REVIEW-FIX.md |
 | WR-04 | warning | fixed | 38-REVIEW-FIX.md |
 | WR-05 | warning | fixed | 38-REVIEW-FIX.md |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
+| IN-01 | info | fixed | 38-REVIEW-FIX-R2.md (R1-IN-01) |
+| IN-02 | info | fixed | 38-REVIEW-FIX-R2.md (R1-IN-02) |
+| IN-03 | info | fixed | 38-REVIEW-FIX-R2.md (R1-IN-03) |
+| IN-04 | info | fixed | 38-REVIEW-FIX-R2.md (R1-IN-04) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
