@@ -5,23 +5,23 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "카드 체결 줄이 음수 시각차를 「+-NNms」 로 그린다 — 짝지은 체결의 약 절반"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "당일 끝자락 체결이 「대기」 가 아니라 더 이른 같은 가격 A3 에 잘못 짝지어진다"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "짝짓기 · 근거 특정이 중복 A3(같은 보드 · seq 재수신)를 거르지 않는다"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "고른 우리 줄(`ownPick`)을 id 로 기억해서 own 을 다시 받으면 다른 주문 · 체결을 가리킬 수 있다"
   - id: WR-05
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "「최신 받기」 때 own 조회가 한 번 실패하면 받아 둔 우리 층이 통째로 사라진다"
   - id: IN-01
     severity: info
@@ -39,20 +39,21 @@ findings:
     severity: info
     disposition: open
     title: "근거 종류 낱말 「체결 구간」 만 shared 라벨 밖에 하드코딩"
-open: 9
+open: 4
+fixed: 5
 total: 9
-recorded: 2026-11-03T10:05:00.000Z
+recorded: 2026-11-04T03:55:00.000Z
 ---
 
 # Phase 38: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
-| WR-05 | warning | open | - |
+| WR-01 | warning | fixed | 38-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 38-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 38-REVIEW-FIX.md |
+| WR-04 | warning | fixed | 38-REVIEW-FIX.md |
+| WR-05 | warning | fixed | 38-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
