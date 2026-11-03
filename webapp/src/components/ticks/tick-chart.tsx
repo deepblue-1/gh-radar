@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 
 import type { TickOpenResponse } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { useChartGestures, useChartView } from '@/hooks/use-chart-view';
 import { useChartWidth } from '@/hooks/use-chart-width';
-import { orderRadiusOf, panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
+import { panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
-import { teamCirclesOf } from '@/lib/ticks/team-model';
 import {
   TICK_CHART,
   bucketMaxOfModel,
@@ -36,8 +35,17 @@ import {
   xOfTick,
   yOfTickPrice,
 } from '@/lib/ticks/tick-chart';
+import {
+  nearestTickCircleOf,
+  tickBucketTipAt,
+  tickCirclesOf,
+  tickNetTipAt,
+  tickOrderHoverOf,
+  type TickHover,
+} from '@/lib/ticks/tick-chart-tip';
 import { fmtAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
+import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
 /**
@@ -46,7 +54,7 @@ import { cn } from '@/lib/utils';
  * ① 레이어(아래 → 위): 장전 음영(08:00~09:00) · 빈 띠(15:30~16:00) · VI 띠(`--vi` 옅게 · 진행 중이면 끝까지) → 시각 격자 →
  *   ② 당일 팀 순매수 판 0선 · 누적(이월 포함) 회색 계단(왼쪽 회색 축 · 0 포함 독립 범위 · pos_net 있을 때만 — D-09) ·
  *   당일 보라 계단(오른쪽 보라 축 · 하루 범위 고정) → ③ 10분 팀 매수/매도 막대 쌍 → ① 가격 선(열별 4점 솎음) · 팀 평단
- *   `--up` 점점선(잔량 있을 때만) · 팀 주문 원 ≥ 500만(매수 빨강 · 매도 파랑 · 크기 = 금액 · 큰 원 먼저 · 툴팁 <title>) →
+ *   `--up` 점점선(잔량 있을 때만) · 팀 주문 원 ≥ 500만(매수 빨강 · 매도 파랑 · 크기 = 금액 · 큰 원 먼저) →
  *   현재 틱 커서(세 판 관통 + 아래 시각 라벨). 커서가 든 주문의 원은 --fg 고리.
  *   범례(머리): pos_net 없음 「누적 자료 없음(매집감지 미등록)」 · NXT 「매집감지 포지션(KRX+NXT 합산)」(Open Question 3) ·
  *   당일 화면은 누적 선 없음(D-09). NXT 도 팀 레이어를 그린다(그 거래소 런 팀 · D-13).
@@ -54,6 +62,11 @@ import { cn } from '@/lib/utils';
  *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
  * ③ 높이 — 측정 폭 < 600 이면 폰 165 · 아니면 데스크톱 230(`height` 로 강제 가능). 폰은 판 제목 글자를 생략한다.
+ * ④ 툴팁(2026-11-03 사용자 요청 · 매집감지 상세 차트 `accum-chart.tsx` 와 같은 규칙 · `lib/ticks/tick-chart-tip.ts`) — 마우스가
+ *   움직이면 판마다 대상 하나: 가격 판 = 씨앗 원 + 가로 ± 5px 묶음(2개 이상이면 3줄 합산) · 순매수 판 = 그 시각 계단 · 10분 판 = 그 칸.
+ *   대상이 바뀔 때만 상태를 바꾸고, 창이 움직이거나 끌기 중 · 포인터가 나가면 지운다. 묶음 원은 고리 1.5 · 고른 원은 2.5.
+ *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · VI 띠 title 은 남는다). 폰은 길게 누르기(300ms) 살펴보기
+ *   (`createTouchInspect`) — 그동안 한 손가락 끌기는 창을 옮기지 않고, 손을 떼도 그 자리로 커서를 옮기지 않는다.
  */
 
 export interface TickChartProps {
@@ -74,6 +87,16 @@ export interface TickChartProps {
 
 /** 클릭으로 볼 끌기 문턱(px) — 이보다 많이 움직였으면 끌기(이동)였다. */
 const CLICK_SLOP_PX = 4;
+/** SVG 위아래 래퍼 여백(py-1) — 툴팁 상자 자리 보정. */
+const WRAP_PAD_Y = 4;
+
+/** 터치 앵커 — svg 상자 기준 client 오프셋 + 그때 상자 크기(viewBox 변환용). */
+type TouchAnchor = { x: number; y: number; bw: number; bh: number };
+
+function anchorOf(el: Element, clientX: number, clientY: number): TouchAnchor {
+  const box = el.getBoundingClientRect();
+  return { x: clientX - box.left, y: clientY - box.top, bw: box.width, bh: box.height };
+}
 const PX_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
 /** 창 폭 글자 — 「하루 전체」 · 「n.n시간」 · 「n분」 · 「n초」. */
@@ -91,8 +114,6 @@ function cumLegendOf(accum: TickOpenResponse['accum'] | undefined, isToday: bool
   if (!hasCum) return '누적 자료 없음(매집감지 포지션 없음)';
   return nxt ? '누적 = 매집감지 포지션(KRX+NXT 합산)' : '누적 = 매집감지 포지션(이월 포함)';
 }
-
-const SIDE_WORD = { B: '매수', S: '매도' } as const;
 
 export function TickChart({
   session,
@@ -120,7 +141,52 @@ export function TickChart({
   const L = priceAxisWidthOf(series.maxPx);
   const xr = W - TICK_CHART.R;
   const plotW = Math.max(1, xr - L);
-  const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl);
+  // 터치 살펴보기 중이면 true — 한 손가락 끌기가 창을 옮기지 않고(훅) 페이지 스크롤을 막는다(touchmove)
+  const inspectRef = useRef(false);
+  // 이번 누름이 살펴보기였으면 뗄 때 클릭(시각 점프)으로 치지 않는다
+  const inspectedRef = useRef(false);
+  const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl, inspectRef);
+  const [hoverState, setHover] = useState<(TickHover & { ax: number; ay: number; vk: string }) | null>(null);
+  // 창이 움직이면 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
+  const vk = `${view.t0}|${view.t1}`;
+  const hover = hoverState !== null && hoverState.vk === vk && !dragging ? hoverState : null;
+
+  const [touchPt, setTouchPt] = useState<TouchAnchor | null>(null);
+  const [tracker] = useState(() =>
+    createTouchInspect({
+      onStart: (p) => {
+        const el = svgRef.current;
+        if (!el) return;
+        inspectRef.current = true;
+        inspectedRef.current = true;
+        setTouchPt(anchorOf(el, p.clientX, p.clientY));
+      },
+      onEnd: () => {
+        inspectRef.current = false;
+        setTouchPt(null);
+      },
+    }),
+  );
+  useEffect(() => () => tracker.dispose(), [tracker]);
+
+  // 살펴보기 중 페이지 스크롤 억제 — React onTouchMove 는 passive 라 비수동 네이티브 리스너로 막는다(매집감지 차트와 같은 이유)
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const fn = (e: TouchEvent) => {
+      if (inspectRef.current && e.cancelable) e.preventDefault();
+    };
+    el.addEventListener('touchmove', fn, { passive: false });
+    return () => el.removeEventListener('touchmove', fn);
+  }, []);
+
+  // 터치 툴팁 높이 — 그리기 전에 재서 손가락 위 자리를 잡는다
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipH, setTipH] = useState(0);
+  useLayoutEffect(() => {
+    const el = tipRef.current;
+    if (el && el.dataset.touch === '1' && el.offsetHeight !== tipH) setTipH(el.offsetHeight);
+  }, [touchPt, tipH]);
 
   const cursorMs = cursorRec >= 0 ? msOfNs(session.index.recvNs[cursorRec]!) : null;
 
@@ -160,11 +226,7 @@ export function TickChart({
   const bars = teamBucketsOf(team, view, x, bounds.T0, P);
   const bucketMax = bucketMaxOfModel(team);
   const vis = useMemo(() => viBandsOf(session), [session]);
-  const circlesAll = useMemo(() => teamCirclesOf(team), [team]);
-  const pad = (view.t1 - view.t0) * 0.02;
-  const circles = circlesAll
-    .filter((c) => c.tMs >= view.t0 - pad && c.tMs <= view.t1 + pad)
-    .sort((a, b) => b.val - a.val);
+  const circles = tickCirclesOf(team, view, x, y);
   const curOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
   const noTeam = team.fills.length === 0;
   const band = (t0: number, t1: number) => {
@@ -176,15 +238,64 @@ export function TickChart({
   const gap = band(bounds.T1530, bounds.T1600);
   const midX = (L + xr) / 2;
 
+  // 판마다 대상 하나 — viewBox 좌표(mx · my) · 그림 영역 안만
+  const pickAt = (mx: number, my: number): TickHover | null => {
+    if (mx < L || mx > xr) return null;
+    const t = tOfTick(view, L, xr)(mx);
+    if (my >= P.y1a && my <= P.y1b) {
+      const c = nearestTickCircleOf(circles, mx, my, P);
+      return c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
+    }
+    if (my >= P.y2a && my <= P.y2b) return tickNetTipAt(team, cumPts, t);
+    if (my >= P.y3a && my <= P.y3b) return tickBucketTipAt(team, bounds.T0, t);
+    return null;
+  };
+  const mxOf = (a: TouchAnchor) => (a.x * W) / (a.bw || W);
+  const myOf = (a: TouchAnchor) => (a.y * P.H) / (a.bh || P.H);
+  const touchHover = touchPt === null ? null : pickAt(mxOf(touchPt), myOf(touchPt));
+  // 보여줄 대상 — 터치 살펴보기가 마우스보다 앞선다
+  const tip =
+    touchHover !== null && touchPt !== null
+      ? { ...touchHover, ax: mxOf(touchPt), ay: myOf(touchPt), touch: true }
+      : hover !== null
+        ? { ...hover, touch: false }
+        : null;
+
+  const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === 'touch') {
+      if (!tracker.move(e)) return;
+      const a = anchorOf(e.currentTarget, e.clientX, e.clientY);
+      if ((pickAt(mxOf(a), myOf(a))?.key ?? null) !== (touchHover?.key ?? null)) setTouchPt(a);
+      return;
+    }
+    if (dragging) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const mx = ((e.clientX - box.left) * W) / (box.width || W);
+    const my = ((e.clientY - box.top) * P.H) / (box.height || P.H);
+    const next = pickAt(mx, my);
+    if ((next?.key ?? null) === (hover?.key ?? null)) return;
+    setHover(next === null ? null : { ...next, ax: mx, ay: my, vk });
+  };
+
+  // 고리 — 원 하나면 그 원 1.5 · 묶음이면 고른 원 밖 묶음 원마다 1.5 + 고른 원만 2.5
+  const seedRim = tip?.group ? tip.circle : null;
+  const rims = tip?.group ? tip.group.filter((c) => c.k !== seedRim?.k) : tip?.circle ? [tip.circle] : [];
+
   // 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각. 끌기(4px 넘게 움직임)는 클릭이 아니다.
   const downRef = useRef<{ x: number; y: number; orderRec: number | null } | null>(null);
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
+    inspectedRef.current = false;
+    tracker.down(e);
     const el = (e.target as Element).closest?.('[data-order-rec]');
     downRef.current = { x: e.clientX, y: e.clientY, orderRec: el ? Number(el.getAttribute('data-order-rec')) : null };
   };
   const onClick = (e: MouseEvent<SVGSVGElement>) => {
     const down = downRef.current;
     downRef.current = null;
+    if (inspectedRef.current) {
+      inspectedRef.current = false;
+      return;
+    }
     if (down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
     const el = (e.target as Element).closest?.('[data-order-rec]');
     const orderRec = down?.orderRec ?? (el ? Number(el.getAttribute('data-order-rec')) : null);
@@ -282,6 +393,14 @@ export function TickChart({
           style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
           fontSize={11}
           onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={(e) => tracker.end(e)}
+          onPointerCancel={(e) => tracker.end(e)}
+          onLostPointerCapture={(e) => tracker.end(e)}
+          onPointerLeave={() => setHover(null)}
+          onContextMenu={(e) => {
+            if (inspectRef.current) e.preventDefault();
+          }}
           onClick={onClick}
         >
           <defs>
@@ -371,7 +490,6 @@ export function TickChart({
             {/* ③ 10분 팀 매수/매도 막대 쌍 */}
             {bars.map((b) => (
               <g key={b.slot} data-slot="tick-bucket">
-                <title>{b.title}</title>
                 {b.buy && <rect x={b.buy.x} y={b.buy.y} width={b.buy.w} height={b.buy.h} fill="var(--up)" fillOpacity={0.7} />}
                 {b.sell && (
                   <rect x={b.sell.x} y={b.sell.y} width={b.sell.w} height={b.sell.h} fill="var(--down)" fillOpacity={0.7} />
@@ -400,31 +518,52 @@ export function TickChart({
                   pointerEvents="none"
                 />
               )}
-              {circles.map((c) => {
-                const color = c.side === 'B' ? 'var(--up)' : 'var(--down)';
-                const on = c.order.id === curOrder;
+              {circles.map(({ o, cx: ox, cy: oy, r }) => {
+                const color = o.side === 'B' ? 'var(--up)' : 'var(--down)';
+                const on = o.order.id === curOrder;
                 return (
                   <circle
-                    key={c.order.id}
+                    key={o.order.id}
                     data-slot="tick-order-circle"
-                    data-order-rec={c.lastRec}
-                    data-side={c.side}
-                    cx={x(c.tMs)}
-                    cy={y(c.px)}
-                    r={orderRadiusOf(c.val)}
+                    data-order-rec={o.lastRec}
+                    data-side={o.side}
+                    cx={ox}
+                    cy={oy}
+                    r={r}
                     fill={color}
                     fillOpacity={0.55}
                     stroke={on ? 'var(--fg)' : color}
                     strokeOpacity={0.9}
                     strokeWidth={on ? 2.5 : 1}
                     className="cursor-pointer"
-                  >
-                    <title>
-                      {`${kstClock(c.tMs)} 팀 ${SIDE_WORD[c.side]} ${PX_FMT.format(c.qty)}주 · ${fmtAmountC(c.val)} @${PX_FMT.format(c.px)} · ${c.order.pieces}조각`}
-                    </title>
-                  </circle>
+                  />
                 );
               })}
+              {rims.map((c) => (
+                <circle
+                  key={`h${c.k}`}
+                  data-slot="tick-order-hover"
+                  cx={c.cx}
+                  cy={c.cy}
+                  r={c.r + 1}
+                  fill="none"
+                  stroke="var(--fg)"
+                  strokeWidth={1.5}
+                  pointerEvents="none"
+                />
+              ))}
+              {seedRim && (
+                <circle
+                  data-slot="tick-order-seed"
+                  cx={seedRim.cx}
+                  cy={seedRim.cy}
+                  r={seedRim.r + 1}
+                  fill="none"
+                  stroke="var(--fg)"
+                  strokeWidth={2.5}
+                  pointerEvents="none"
+                />
+              )}
             </g>
 
             {/* 현재 틱 커서 — 세 판 관통 */}
@@ -557,6 +696,32 @@ export function TickChart({
             </g>
           )}
         </svg>
+        {tip && (
+          <div
+            ref={tipRef}
+            data-slot="tick-chart-tip"
+            data-touch={tip.touch ? '1' : undefined}
+            role="tooltip"
+            className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums"
+            style={
+              tip.touch
+                ? { left: 4, maxWidth: W - 8, top: WRAP_PAD_Y + touchTipTopOf(tip.ay, tipH, P.H) }
+                : {
+                    maxWidth: W - 8,
+                    left: tip.ax > W / 2 ? undefined : tip.ax + 12,
+                    right: tip.ax > W / 2 ? W - tip.ax + 12 : undefined,
+                    top: tip.ay > P.H / 2 ? undefined : WRAP_PAD_Y + tip.ay + 12,
+                    bottom: tip.ay > P.H / 2 ? P.H + WRAP_PAD_Y - tip.ay + 12 : undefined,
+                  }
+            }
+          >
+            {tip.lines.map((line, i) => (
+              <div key={i} className="pl-3 -indent-3">
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

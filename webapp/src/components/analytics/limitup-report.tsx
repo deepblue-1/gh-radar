@@ -134,7 +134,7 @@ export function LimitupReport() {
       <PageHeader
         title="상한가 보고서"
         description="평일 밤 21시쯤 그날 보고서가 올라와요"
-        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} />}
+        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} dates={dates} />}
       />
 
       {phase.kind === 'loading' && (

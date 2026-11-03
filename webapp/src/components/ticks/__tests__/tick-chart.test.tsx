@@ -95,6 +95,46 @@ describe('TickChart — 누적 선 · 범례(D-09 · Open Question 3)', () => {
   });
 });
 
+describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-03)', () => {
+  const box = (svg: SVGSVGElement) => {
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 640, bottom: 230, width: 640, height: 230, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  };
+
+  it('원 위 → 씨앗 + 가로 ± 5px 묶음 3줄(하루 전체 창 — 가까운 매수 · 매도가 한 묶음) · 고리 · 나가면 지운다', () => {
+    const { q } = renderChart();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    const buy = Array.from(q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
+    const cx = Number(buy.getAttribute('cx'));
+    const cy = Number(buy.getAttribute('cy'));
+    fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
+    const tip = q('tick-chart-tip')[0]!;
+    const lines = Array.from(tip.children).map((d) => d.textContent);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('팀 매수 600주 · 984만 @16,400 · 3조각 · 당일 순매수 +984만');
+    expect(lines[1]).toBe('묶음 2건 13:00:00 · 팀 매수 1건 984만 · 팀 매도 1건 652만 · 가격 16,400 → 16,300 (−0.61%)');
+    expect(lines[2]).toBe('큰 주문 매수 984만@16,400 · 매도 652만@16,300');
+    expect(q('tick-order-seed')).toHaveLength(1);
+    expect(q('tick-order-hover')).toHaveLength(1);
+    fireEvent.pointerLeave(svg);
+    expect(q('tick-chart-tip')).toHaveLength(0);
+  });
+
+  it('순매수 판 · 10분 판 → 그 시각 계단 · 그 칸', () => {
+    const { q } = renderChart();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    const buy = Array.from(q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
+    const cx = Number(buy.getAttribute('cx'));
+    // 데스크톱 판: 순매수 [118, 168] · 10분 [175, 215]
+    fireEvent.pointerMove(svg, { clientX: cx + 3, clientY: 140, pointerType: 'mouse' });
+    expect(q('tick-chart-tip')[0]!.textContent).toMatch(/^13:00:00 · 당일 순매수 /);
+    fireEvent.pointerMove(svg, { clientX: cx, clientY: 200, pointerType: 'mouse' });
+    expect(q('tick-chart-tip')[0]!.textContent).toBe('13:00~13:10 · 팀 매수 984만 / 매도 652만 / 순 +332만');
+  });
+});
+
 describe('TickChart — 팀 레이어 · 클릭', () => {
   it('주문 원 = 팀 주문 ≥ 500만 2개(매수 · 매도) · 커서가 든 주문은 --fg 고리 · 10분 막대 · 평단 점점선', () => {
     const { q } = renderChart();
@@ -102,7 +142,7 @@ describe('TickChart — 팀 레이어 · 클릭', () => {
     expect(circles.map((c) => c.getAttribute('data-side')).sort()).toEqual(['B', 'S']);
     const buy = circles.find((c) => c.getAttribute('data-side') === 'B')!;
     expect(buy.getAttribute('stroke')).toBe('var(--fg)');
-    expect(buy.querySelector('title')?.textContent).toContain('팀 매수 600주 · 984만 @16,400 · 3조각');
+    expect(buy.querySelector('title')).toBeNull();
     expect(q('tick-bucket')).toHaveLength(1);
     expect(q('tick-team-avg-path')).toHaveLength(1);
     expect(q('tick-pre-shade')).toHaveLength(1);

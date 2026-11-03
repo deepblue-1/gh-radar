@@ -42,6 +42,8 @@ export interface TickHeaderProps {
   supply: 'grid' | 'live' | null;
   prev: string | null;
   next: string | null;
+  /** 날짜 알약 달력이 고를 수 있는 날(‹ › 판정과 같은 목록). */
+  dates?: readonly string[];
   tickLabel?: { time: string; seq: number | null };
   onDate: (d: string) => void;
   onEx: (ex: TickExchange) => void;
@@ -61,6 +63,7 @@ export function TickHeader({
   supply,
   prev,
   next,
+  dates,
   tickLabel,
   onDate,
   onEx,
@@ -106,7 +109,15 @@ export function TickHeader({
       {picker}
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <LimitupDateNav date={date} prev={prev} next={next} onGo={onDate} prevLabel="이전 날짜" nextLabel="다음 날짜" />
+        <LimitupDateNav
+          date={date}
+          prev={prev}
+          next={next}
+          onGo={onDate}
+          dates={dates}
+          prevLabel="이전 날짜"
+          nextLabel="다음 날짜"
+        />
         <div role="group" aria-label="거래소" className="inline-flex rounded-full bg-[var(--muted)] p-0.5">
           {EXCHANGES.map((x) => (
             <button

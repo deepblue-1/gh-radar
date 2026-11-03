@@ -403,6 +403,7 @@ export function TickViewerPage() {
             : null
         }
         prev={nav.prev}
+        dates={navDates}
         next={nav.next}
         onDate={(to) => go({ d: to })}
         onEx={(x) => go({ ex: x })}

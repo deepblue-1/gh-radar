@@ -131,7 +131,7 @@ export function AccumReport() {
             {' 장중에는 트레이딩 「매집」 패널이 실시간으로 보여줘요'}
           </span>
         }
-        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} />}
+        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} dates={dates} />}
       />
 
       {phase.kind === 'loading' && (

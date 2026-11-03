@@ -434,7 +434,6 @@ export interface TeamBucketBar {
   t0: number;
   buy: { x: number; y: number; w: number; h: number } | null;
   sell: { x: number; y: number; w: number; h: number } | null;
-  title: string;
 }
 
 /** 칸 값 최대(하루 · 창과 무관). */
@@ -481,7 +480,6 @@ export function teamBucketsOf(
       t0: s0,
       buy: bar(buy, x0 + 1),
       sell: bar(sell, x0 + 1 + bw + 1),
-      title: `${kstHm(s0)}~${kstHm(s1)} 팀 매수 ${fmtWon(buy)} · 팀 매도 ${fmtWon(sell)}`,
     });
   }
   return out;
@@ -538,11 +536,4 @@ export function teamAvgPathOf(
   }
   if (open) d += `H${f1(x(Math.max(lastT, endMs)))}`;
   return d;
-}
-
-const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
-
-/** 툴팁 금액 — 원 정수 콤마(차트 title 전용 · 화면 금액은 fmtAmountC). */
-function fmtWon(v: number): string {
-  return `${INT.format(Math.round(v))}원`;
 }

@@ -115,7 +115,7 @@ export function TeamflowReport() {
       <PageHeader
         title="팀 매집"
         description="평일 밤 21시쯤 그날 보고서가 올라와요 · 팀 = 교보 · 한국 · 유진 · 신한 · NH"
-        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} />}
+        actions={<LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={go} dates={dates} />}
       />
 
       {phase.kind === 'loading' && (

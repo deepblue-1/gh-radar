@@ -212,7 +212,6 @@ describe('팀 레이어 기하(Task 2) — 당일 계단 · 누적 점 · 10분 
     expect(bars[0]!.sell!.h).toBeCloseTo(bars[0]!.buy!.h / 2, 9);
     expect(bars[0]!.sell!.x).toBeGreaterThan(bars[0]!.buy!.x);
     expect(bars[1]!.buy).toBeNull();
-    expect(bars[0]!.title).toBe('13:00~13:10 팀 매수 200원 · 팀 매도 100원');
   });
 
   it('천일 10/14 세션 — 모델 막대 72칸 · 막대 수 ≤ 72', () => {

@@ -128,7 +128,8 @@ export function LaunchOrdersView({
   onRetry,
 }: LaunchOrdersViewProps) {
   const shown: LimitupDate | null = d ?? resp?.date ?? null;
-  const nav = dateNavOf(resp?.dates ?? dates ?? [], shown);
+  const navDates = resp?.dates ?? dates ?? [];
+  const nav = dateNavOf(navDates, shown);
   const seg = FIRE_SEGMENTS.find((s) => s.value === fire) ?? FIRE_SEGMENTS[0]!;
 
   const pieces = useMemo(() => (resp === null ? [] : orderTabPiecesOf(resp.pieces, fire)), [resp, fire]);
@@ -151,7 +152,7 @@ export function LaunchOrdersView({
   return (
     <div data-slot="launch-orders" className="flex min-w-0 flex-col gap-3.5">
       <div data-slot="launch-controls" className="flex min-w-0 flex-wrap items-center gap-2.5">
-        <LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={onGoDate} />
+        <LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={onGoDate} dates={navDates} />
         <LaunchFireSeg fire={fire} onFire={onFire} />
         <span
           data-slot="launch-source"
