@@ -126,4 +126,25 @@ describe('useTickOwn — 늦은 응답 · 실패', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toBe('[tick-own]');
   });
+
+  it('(WR-05) 성공 → refreshKey +1 실패 → 같은 종목이면 직전 own 유지 · status error', async () => {
+    api.fetchTickOwn
+      .mockResolvedValueOnce(respOf('A'))
+      .mockRejectedValueOnce(new ApiClientError({ code: 'INTERNAL', message: 'x', status: 503 }));
+    const { result, rerender } = renderHook(({ k }) => useTickOwn(Q, k), { initialProps: { k: 0 } });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    rerender({ k: 1 });
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.own?.servers).toEqual(['A']);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('(WR-05) 다른 종목으로 바꿔 실패하면 직전 종목 own 을 끌어오지 않는다 — null', async () => {
+    api.fetchTickOwn.mockResolvedValueOnce(respOf('A')).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const { result, rerender } = renderHook(({ q }) => useTickOwn(q, 0), { initialProps: { q: Q } });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    rerender({ q: { ...Q, isin: 'KR7005930003' } });
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.own).toBeNull();
+  });
 });
