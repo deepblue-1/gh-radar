@@ -423,6 +423,23 @@ describe("Poller — 20:01 마감 마무리(closeSweep)", () => {
     expect(e.closed).toBe(false);
   });
 
+  it("건너뜀 수 필드 형식 오류(badCounts) → complete=false · 마감 뒤 closed 아님(R2-IN-01 — 조용히 0 으로 승격하지 않는다)", async () => {
+    let bad = false;
+    const r = rig((a) => {
+      const res = dayResponse(a, 3);
+      return bad ? { ...res, meta: { ...res.meta!, badCounts: ["skipped_records"] } } : res;
+    }, {}, at("195900"));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] });
+    expect(r.cache.get(KEY)!.complete).toBe(true);
+    bad = true;
+    r.clock.t = at("200100");
+    await r.drive({ untilT: at("201000") });
+    const e = r.cache.get(KEY)!;
+    expect(e.complete).toBe(false);
+    expect(e.closed).toBe(false);
+  });
+
   it("20:00 뒤 처음 연 키도 건너뛴 파일이 있으면 X-Tick-Complete 근거(complete)가 false", async () => {
     const r = rig((a) => {
       const res = dayResponse(a, 3);

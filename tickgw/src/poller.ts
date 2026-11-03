@@ -502,6 +502,13 @@ export class Poller {
       }
       entry.complete = false;
     }
+    // 건너뜀 수 필드가 있는데 형식이 틀리면(계약 표류) 건너뛴 게 없다고 믿을 수 없다 — 같은 처리(R2-IN-01 · fail-closed)
+    if (meta.badCounts && meta.badCounts.length > 0) {
+      if (entry.complete) {
+        log("warn", "indexer count fields malformed — not complete", { key: run.key, fields: meta.badCounts.join(",") });
+      }
+      entry.complete = false;
+    }
     if (meta.hasMore) {
       if (meta.nextFromNs !== null && meta.nextFromNs > fromNs) {
         run.pendingFrom = meta.nextFromNs;
@@ -546,6 +553,7 @@ export class Poller {
       has_more: res.meta?.hasMore ?? null,
       skipped: res.meta?.compressedFilesSkipped || undefined,
       skipped_records: res.meta?.skippedRecords || undefined,
+      bad_counts: res.meta?.badCounts?.join(","),
       ms: at - started,
       stderr: okResult(res) ? undefined : res.stderrTail.slice(-200),
     });

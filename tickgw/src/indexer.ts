@@ -55,10 +55,15 @@ export interface IndexerMeta {
   lastRecvNs: bigint | null;
   hasMore: boolean;
   nextFromNs: bigint | null;
-  /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없거나 깨졌으면 0. > 0 이면 poller 가 그 키를 complete=false 로(CR-31). */
+  /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없으면 0. > 0 이면 poller 가 그 키를 complete=false 로(CR-31). */
   compressedFilesSkipped: number;
-  /** 범위 안인데 싣지 못한 레코드 수(gh-trade 4e9de34b `skipped_records`) — 옛 응답 · 깨졌으면 0. > 0 이면 complete=false. */
+  /** 범위 안인데 싣지 못한 레코드 수(gh-trade 4e9de34b `skipped_records`) — 옛 응답(필드 없음)이면 0. > 0 이면 complete=false. */
   skippedRecords: number;
+  /**
+   * 건너뜀 수 필드가 **있는데** 형식이 틀린(음 아닌 안전 정수가 아닌) 필드 이름 — 그 값은 0 으로 두되 poller 가 그 키를
+   * complete=false(승격 안 함) + warn 로 다룬다(R2-IN-01 · 계약 표류를 조용히 0 으로 삼키지 않는다). 없으면 생략.
+   */
+  badCounts?: string[];
 }
 
 export interface IndexerResult {
@@ -116,9 +121,13 @@ function nsOrNull(v: unknown): bigint | null {
   return null;
 }
 
-/** 건너뜀 수 필드 — 음 아닌 안전 정수만, 없거나 깨졌으면 0(옛 응답 호환). */
-function countOrZero(v: unknown): number {
-  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0;
+/**
+ * 건너뜀 수 필드 — 없으면(옛 응답 · gh-trade 허용) 0, 음 아닌 안전 정수면 그 값, 그 밖(문자열 · 음수 · 소수 · null)은 null
+ * (형식 오류 — 호출부가 badCounts 에 담는다 · R2-IN-01).
+ */
+function countField(v: unknown): number | null {
+  if (v === undefined) return 0;
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
 }
 
 /** stderr 전체에서 마지막 비어 있지 않은 줄을 JSON 으로 읽는다. 아니면 null. */
@@ -137,6 +146,14 @@ export function parseMeta(stderr: string): IndexerMeta | null {
   if (typeof r.fmt !== "string") return null;
   if (typeof r.records !== "number" || !Number.isSafeInteger(r.records) || r.records < 0) return null;
   if (typeof r.has_more !== "boolean") return null;
+  const bad: string[] = [];
+  const count = (name: string): number => {
+    const v = countField(r[name]);
+    if (v === null) bad.push(name);
+    return v ?? 0;
+  };
+  const compressedFilesSkipped = count("compressed_files_skipped");
+  const skippedRecords = count("skipped_records");
   return {
     fmt: r.fmt,
     records: r.records,
@@ -144,8 +161,9 @@ export function parseMeta(stderr: string): IndexerMeta | null {
     lastRecvNs: nsOrNull(r.last_recv_ns),
     hasMore: r.has_more,
     nextFromNs: nsOrNull(r.next_from_ns),
-    compressedFilesSkipped: countOrZero(r.compressed_files_skipped),
-    skippedRecords: countOrZero(r.skipped_records),
+    compressedFilesSkipped,
+    skippedRecords,
+    ...(bad.length > 0 ? { badCounts: bad } : {}),
   };
 }
 

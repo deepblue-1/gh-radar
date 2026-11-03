@@ -156,11 +156,18 @@ describe("parseMeta", () => {
     expect(m?.skippedRecords).toBe(4);
     expect(m?.compressedFilesSkipped).toBe(0);
   });
-  it("skipped_records 가 음수 · 소수 · 문자열이면 0(옛 응답과 같게)", () => {
-    for (const v of ["-1", "1.5", '"3"']) {
-      const m = parseMeta(`{"fmt":"pcapns-rec/1","records":0,"has_more":false,"skipped_records":${v}}`);
+  it("건너뜀 수 필드가 있는데 음수 · 소수 · 문자열 · null 이면 0 + badCounts 에 이름(R2-IN-01 — poller 가 complete=false)", () => {
+    for (const v of ["-1", "1.5", '"3"', "null"]) {
+      const m = parseMeta(`{"fmt":"pcapns-rec/1","records":0,"has_more":false,"skipped_records":${v},"compressed_files_skipped":${v}}`);
       expect(m?.skippedRecords).toBe(0);
+      expect(m?.compressedFilesSkipped).toBe(0);
+      expect(m?.badCounts).toEqual(["compressed_files_skipped", "skipped_records"]);
     }
+  });
+  it("건너뜀 수 필드가 없으면(옛 응답) 0 · badCounts 없음", () => {
+    const m = parseMeta('{"fmt":"pcapns-rec/1","records":0,"has_more":false}');
+    expect(m?.skippedRecords).toBe(0);
+    expect(m?.badCounts).toBeUndefined();
   });
   it("runIndexer 가 fake 의 skipped_records 를 meta 로 넘긴다", async () => {
     process.env.FAKE_INDEXER_SKIPPED_RECORDS = "3";
