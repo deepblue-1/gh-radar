@@ -13,15 +13,15 @@ findings:
     title: "20:00 원본 압축(`compressed_files_skipped`)을 무시해 잘린 하루를 「완결 · closed」 로 승격한다"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "요청 변환 하루 상한이 「행 수」를 세서, 같은 키를 다시 깨우는 Job 실행이 상한에 잡히지 않음"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "여러 사용자가 합쳐 쓰는 요청을 첫 요청자가 취소하면 다른 사용자 화면에는 「실패」로 보임"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "빅텍 하루 선택 골든은 `.pnl.json` 존재만 보고 켜지는데, 생성기는 크기 초과 `.ticks.zst` 를 「커밋하지 말라」고만 함"
   - id: WR-30
     severity: warning
@@ -77,35 +77,35 @@ findings:
     title: "URL `t` 가 ms 로 잘려 딥링크·새로고침이 같은 틱으로 돌아오지 않는다 — 버스트 조각 안에서 특히"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`hits15(pct, px, chg)` 와 `DayRateTracker.add(pct, chg, px)` 의 숫자 인자 순서가 반대"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "레코드 인덱스 · 거래소순 · 뒤집힘 · 호가 재구성이 「한 파일 = 한 ISIN」을 전제하는데, 이 전제를 검사하거나 적어 두지 않음"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`PcapNsReader` 의 `nonUdp` · `badFrame` 분기가 테스트로 잠기지 않음"
   - id: IN-04
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`a3ColumnsOf` 가 필드 오프셋은 레이아웃에서 찾지만 길이는 숫자로 박아 둠"
   - id: IN-05
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`num()` · `str()` 변환 도우미가 다섯 모듈에 복사돼 있고, `decodeAny` 가 `layoutOf` 를 다시 구현함"
   - id: IN-06
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`tick_grid_upsert` 는 한 배치 안에 같은 (date, exchange, isin) 가 두 번 오면 배치 전체가 실패함"
   - id: IN-07
     severity: info
-    disposition: open
+    disposition: fixed
     title: "오라클 `scoped_frames` 가 빈 범위에 `None` 을 넣는데, `cmd_pnl` · `cmd_g4cut` 은 바로 튜플로 풂"
   - id: IN-08
     severity: info
-    disposition: open
+    disposition: fixed
     title: "생성기 머리의 「.ticks.zst 하나라도 1.5MB 초과면 종료 1」이 decode · launch 에만 적용됨"
   - id: IN-30
     severity: info
@@ -147,9 +147,9 @@ findings:
     severity: info
     disposition: open
     title: "409(epoch 교체)로 하루치를 다시 받는 동안 「최신 받기」 버튼이 눌리지만 아무 일도 하지 않는다"
-open: 36
+open: 25
 total: 36
-recorded: 2026-11-03T19:18:21.974Z
+recorded: 2026-11-03T20:12:21.100Z
 ---
 
 # Phase 37: Code Review Disposition
@@ -158,9 +158,9 @@ recorded: 2026-11-03T19:18:21.974Z
 |---------|----------|-------------|--------|
 | CR-30 | critical | open | - |
 | CR-31 | critical | open | - |
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
+| WR-01 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-30 | warning | open | - |
 | WR-31 | warning | open | - |
 | WR-32 | warning | open | - |
@@ -174,14 +174,14 @@ recorded: 2026-11-03T19:18:21.974Z
 | WR-63 | warning | open | - |
 | WR-64 | warning | open | - |
 | WR-65 | warning | open | - |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
-| IN-05 | info | open | - |
-| IN-06 | info | open | - |
-| IN-07 | info | open | - |
-| IN-08 | info | open | - |
+| IN-01 | info | fixed | 37-REVIEW-FIX.md |
+| IN-02 | info | fixed | 37-REVIEW-FIX.md |
+| IN-03 | info | fixed | 37-REVIEW-FIX.md |
+| IN-04 | info | fixed | 37-REVIEW-FIX.md |
+| IN-05 | info | fixed | 37-REVIEW-FIX.md |
+| IN-06 | info | fixed | 37-REVIEW-FIX.md |
+| IN-07 | info | fixed | 37-REVIEW-FIX.md |
+| IN-08 | info | fixed | 37-REVIEW-FIX.md |
 | IN-30 | info | open | - |
 | IN-31 | info | open | - |
 | IN-32 | info | open | - |
