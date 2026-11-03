@@ -87,6 +87,20 @@ describe('useFixedWindow', () => {
     expect(el.scrollTop).toBe(10 * ROW_H);
   });
 
+  it('scrollToOffset — px 로 맞추고 상태도 바로 올린다(스크롤 이벤트 없이 창이 따라온다) · 0 ~ 끝으로 자른다(R2-IN-30)', () => {
+    let api: ReturnType<typeof useFixedWindow> | null = null;
+    const { getByTestId, container } = render(<List onApi={(a) => (api = a)} />);
+    const el = getByTestId('scroll');
+    act(() => api!.scrollToOffset(50_000 * ROW_H + 3));
+    expect(el.scrollTop).toBe(50_000 * ROW_H + 3);
+    expect(container.querySelector('[data-row="50000"]')).not.toBeNull();
+    expect(parseFloat(getByTestId('pad-top').style.height)).toBe((50_000 - 10) * ROW_H);
+    act(() => api!.scrollToOffset(-5));
+    expect(el.scrollTop).toBe(0);
+    act(() => api!.scrollToOffset(Number.MAX_SAFE_INTEGER));
+    expect(el.scrollTop).toBe(COUNT * ROW_H - HEIGHT);
+  });
+
   it('빈 목록 — 그릴 행 없음', () => {
     const { container } = render(<List count={0} />);
     expect(container.querySelectorAll('[data-row]')).toHaveLength(0);

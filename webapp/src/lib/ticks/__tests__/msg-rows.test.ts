@@ -27,6 +27,7 @@ import {
   inversionText,
   itemIdxOf,
   itemKindOf,
+  keepViewShiftOf,
   msgItem,
   orderShapeLabel,
   ownLineRec,
@@ -596,5 +597,50 @@ describe('팀 주문 간격 · 주문 전 매도비중 · 1호 매도 열(스케
     expect(l1ShareAt(s, recOf(105))).toBeCloseTo(10 / 30, 12);
     expect(l1ShareAt(s, recOf(106))).toBeCloseTo(1 / 5, 12);
     expect(l1ShareAt(s, recOf(108))).toBeCloseTo(1 / 3, 12);
+  });
+});
+
+describe('keepViewShiftOf — 모델만 바뀔 때 보던 화면 지키기(IN-63 · R2-IN-30)', () => {
+  const ROW_H = 20;
+  const H = 10 * ROW_H; // 10행이 보인다
+  /** rec 0..n-1 전문 행 · `ownAt`(rec) 앞마다 우리 주문 줄 1개. */
+  function model(n: number, ownAt: number[] = []) {
+    const items: number[] = [];
+    const posOfRec = new Int32Array(n);
+    for (let r = 0; r < n; r++) {
+      if (ownAt.includes(r)) items.push(msgItem(MSG_ITEM.ORDER, items.length));
+      posOfRec[r] = items.length;
+      items.push(msgItem(MSG_ITEM.ROW, r));
+    }
+    return { items: Int32Array.from(items), posOfRec };
+  }
+  const prev = model(40);
+
+  it('커서가 화면 밖(아래)이고 줄이 화면과 커서 사이에 끼면 화면은 그대로(0) — 옛 커서 기준은 1 밀었다', () => {
+    const next = model(40, [15]);
+    expect(keepViewShiftOf(prev, next, 25, next.posOfRec[25]!, 0, H, ROW_H)).toBe(0);
+  });
+
+  it('커서가 화면 위에 있고 줄이 커서와 화면 사이에 끼면 그만큼 옮긴다(1) — 옛 커서 기준은 0 이라 보던 줄이 밀렸다', () => {
+    const next = model(40, [10]);
+    expect(keepViewShiftOf(prev, next, 2, next.posOfRec[2]!, 20 * ROW_H + 7, H, ROW_H)).toBe(1);
+  });
+
+  it('커서가 화면 안이면 커서 행 기준 — 커서 앞에 줄 둘이 끼면 2', () => {
+    const next = model(40, [2, 4]);
+    expect(keepViewShiftOf(prev, next, 5, next.posOfRec[5]!, 0, H, ROW_H)).toBe(2);
+  });
+
+  it('화면 첫 항목이 우리 줄이면 그 뒤 첫 전문 행이 기준 · 줄이 빠지면 음수', () => {
+    const before = model(40, [20]); // 자리 20 = 주문 줄 · 21 = rec 20
+    const after = model(40);
+    expect(keepViewShiftOf(before, after, 0, 0, 20 * ROW_H, H, ROW_H)).toBe(-1);
+  });
+
+  it('숨김(높이 0)이면 커서 기준을 쓰지 않는다 · 기준 rec 가 새 모델에 없으면 0', () => {
+    const next = model(40, [3]);
+    expect(keepViewShiftOf(prev, next, 5, next.posOfRec[5]!, 0, 0, ROW_H)).toBe(0);
+    expect(keepViewShiftOf(model(40), model(10), 0, 0, 30 * ROW_H, H, ROW_H)).toBe(0);
+    expect(keepViewShiftOf(model(0), model(10), -1, -1, 0, H, ROW_H)).toBe(0);
   });
 });

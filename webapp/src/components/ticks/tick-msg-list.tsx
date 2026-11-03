@@ -17,6 +17,7 @@ import {
   inversionText,
   itemIdxOf,
   itemKindOf,
+  keepViewShiftOf,
   l1ShareAt,
   orderShapeLabel,
   ownLineRec,
@@ -604,29 +605,40 @@ export function TickMsgList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const count = model.items.length;
   const win = useFixedWindow({ count, rowH, ref: scrollRef });
-  const { scrollToIndex } = win;
+  const { scrollToIndex, scrollToOffset } = win;
 
   const selPos = cursorRec >= 0 ? model.posOfRec[cursorRec]! : -1;
   const selOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
 
   // 커서가 바뀌면 그 행이 보이게 — 처음 · 순서를 바꾼 직후 · 숨겨져 있다가(폰 세그먼트 · 높이 0) 보이게 된 직후는 가운데로.
   // 모델만 바뀌면(당일 「최신 받기」 새 세션 · 우리 체결 재조회) 끌어오지 않는다 — 과거 틱을 보며 목록을 훑던 자리를 지킨다(IN-63).
-  // 다만 커서 행 앞에 줄이 끼거나 빠지면(우리 주문 줄이 뒤늦게 붙음) 그만큼 scrollTop 을 옮겨 보던 화면이 그대로 머물게 한다.
-  const lastView = useRef<{ rec: number; mode: TickOrderMode; pos: number; shown: boolean } | null>(null);
+  // 다만 줄이 끼거나 빠지면(우리 주문 줄이 뒤늦게 붙음 · 대기 해제로 자리가 바뀜) 사용자가 보던 것이 같은 자리에 머물게
+  // scrollTop 을 옮긴다(R2-IN-30 · `keepViewShiftOf`) — 커서 행이 화면 안에 있었으면 커서 행 · 아니면 화면 첫 전문 행 기준.
+  const lastView = useRef<{
+    rec: number;
+    mode: TickOrderMode;
+    pos: number;
+    shown: boolean;
+    model: MsgRowsModel;
+  } | null>(null);
   const shown = win.height > 0;
   useEffect(() => {
     if (selPos < 0) return;
     const prev = lastView.current;
-    lastView.current = { rec: cursorRec, mode, pos: selPos, shown };
+    lastView.current = { rec: cursorRec, mode, pos: selPos, shown, model };
     // 숨겨진 동안(높이 0)의 가운데 맞춤은 어긋나므로, 보이게 된 첫 순간을 「처음」 처럼 다시 가운데로 맞춘다.
     const fresh = prev === null || prev.mode !== mode || (shown && !prev.shown);
     if (!fresh && prev.rec === cursorRec) {
       const el = scrollRef.current;
-      if (el && selPos !== prev.pos) el.scrollTop = Math.max(0, el.scrollTop + (selPos - prev.pos) * rowH);
+      if (el && prev.model !== model) {
+        const top = el.scrollTop;
+        const shift = keepViewShiftOf(prev.model, model, prev.pos, selPos, top, el.clientHeight, rowH);
+        if (shift !== 0) scrollToOffset(top + shift * rowH);
+      }
       return;
     }
     scrollToIndex(selPos, fresh ? 'center' : 'nearest');
-  }, [selPos, mode, cursorRec, scrollToIndex, rowH, shown]);
+  }, [selPos, mode, cursorRec, scrollToIndex, scrollToOffset, rowH, shown, model]);
 
   const rows: ReactNode[] = [];
   for (let k = win.first; k <= win.last; k++) {

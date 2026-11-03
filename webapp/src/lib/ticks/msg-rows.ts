@@ -230,6 +230,42 @@ export const RAIL_HALF = { TOP: 1, TOP_DASH: 2, BOT: 4, BOT_DASH: 8 } as const;
 /** 둘째 레일 마디 — 없음 · ● 주문 줄 · ◆ 우리 체결 A3 행 · ◇ 짝 없음/대기 줄 · ○ 근거 전문 행 · ◌ 앵커(직전 체결). */
 export const RAIL_NODE = { NONE: 0, ORDER: 1, FILL: 2, NOFILL: 3, EVIDENCE: 4, ANCHOR: 5 } as const;
 
+/**
+ * 모델만 바뀌었을 때(당일 증분 · 우리 체결 재조회 — IN-63 · R2-IN-30) 보던 화면을 지키려고 scrollTop 을 옮길 행 수.
+ * - 커서 행이 직전 화면 안에 있었으면 커서 행 기준(커서가 화면의 같은 자리에 머문다).
+ * - 아니면 직전 화면의 첫 전문 행(`ROW` — rec 는 모델이 바뀌어도 같다) 기준. 우리 줄 · 꼬리 · 점선 자리는 id 가 모델마다 바뀔 수
+ *   있어 기준으로 쓰지 않는다. 화면 안에 전문 행이 없으면 위로 거슬러 찾는다 · 새 모델에 없으면 0.
+ * `height` 0(숨김)이면 커서 기준을 쓰지 않는다.
+ */
+export function keepViewShiftOf(
+  prev: Pick<MsgRowsModel, 'items' | 'posOfRec'>,
+  next: Pick<MsgRowsModel, 'items' | 'posOfRec'>,
+  prevCursorPos: number,
+  nextCursorPos: number,
+  scrollTop: number,
+  height: number,
+  rowH: number,
+): number {
+  const n = prev.items.length;
+  if (n === 0 || rowH <= 0) return 0;
+  const top = Math.min(n - 1, Math.max(0, Math.floor(scrollTop / rowH)));
+  const visible = Math.max(1, Math.ceil(height / rowH));
+  if (height > 0 && prevCursorPos >= top && prevCursorPos < top + visible && nextCursorPos >= 0) {
+    return nextCursorPos - prevCursorPos;
+  }
+  let k = top;
+  const end = Math.min(n, top + visible);
+  while (k < end && itemKindOf(prev.items[k]!) !== MSG_ITEM.ROW) k++;
+  if (k >= end) {
+    k = top - 1;
+    while (k >= 0 && itemKindOf(prev.items[k]!) !== MSG_ITEM.ROW) k--;
+    if (k < 0) return 0;
+  }
+  const rec = itemIdxOf(prev.items[k]!);
+  if (rec >= next.posOfRec.length) return 0;
+  return next.posOfRec[rec]! - k;
+}
+
 /** 한 항목에 마디가 겹칠 때 우선순위(클수록 앞) — ◆ > ● > ○ > ◇ > ◌. */
 const RAIL_NODE_RANK: readonly number[] = [0, 4, 5, 2, 3, 1];
 

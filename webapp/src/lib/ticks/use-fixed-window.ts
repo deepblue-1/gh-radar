@@ -7,6 +7,7 @@
  *   위아래는 spacer 높이(padTop · padBottom)로 채운다. 하루 27만 건이어도 DOM 은 ~60행이다.
  * ② scroll 이벤트는 rAF 로 한 프레임에 한 번만 상태에 올린다 · 높이는 ResizeObserver.
  * ③ `scrollToIndex(i, "nearest" | "center")` 는 scrollTop 을 직접 맞추고 상태도 바로 올린다(이벤트를 기다리지 않는다).
+ *   `scrollToOffset(px)` 도 같다(R2-IN-30 — 모델 교체 뒤 보던 화면 지키기 · 한 프레임 옛 창으로 빈 spacer 가 보이지 않게).
  */
 
 import { useCallback, useEffect, useState, type RefObject } from 'react';
@@ -20,6 +21,8 @@ export interface FixedWindow {
   /** 보이는 높이(px · ResizeObserver) — 숨겨진(display:none) 목록은 0. */
   height: number;
   scrollToIndex: (i: number, align?: 'nearest' | 'center') => void;
+  /** scrollTop 을 px 로(0 ~ 끝 사이로 자른다) — 상태도 바로 올린다. */
+  scrollToOffset: (px: number) => void;
 }
 
 export function useFixedWindow({
@@ -77,7 +80,18 @@ export function useFixedWindow({
     [ref, count, rowH],
   );
 
-  if (count <= 0) return { first: 0, last: -1, padTop: 0, padBottom: 0, height, scrollToIndex };
+  const scrollToOffset = useCallback(
+    (px: number) => {
+      const el = ref.current;
+      if (!el) return;
+      const next = Math.max(0, Math.min(px, Math.max(0, count * rowH - el.clientHeight)));
+      el.scrollTop = next;
+      setScrollTop(next);
+    },
+    [ref, count, rowH],
+  );
+
+  if (count <= 0) return { first: 0, last: -1, padTop: 0, padBottom: 0, height, scrollToIndex, scrollToOffset };
   const top = Math.min(count - 1, Math.max(0, Math.floor(scrollTop / rowH)));
   const visible = Math.max(1, Math.ceil(height / rowH));
   const first = Math.max(0, top - overscan);
@@ -89,5 +103,6 @@ export function useFixedWindow({
     padBottom: (count - 1 - last) * rowH,
     height,
     scrollToIndex,
+    scrollToOffset,
   };
 }
