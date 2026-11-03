@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TickCache, makeKey } from "../src/cache.js";
-import { kstDayStartNs, kstMs, kstToday } from "../src/config.js";
+import { ConfigError, kstDayStartNs, kstMs, kstToday, loadConfig } from "../src/config.js";
 import type { IndexerArgs, IndexerResult } from "../src/indexer.js";
 import { Poller, type PollerConfig } from "../src/poller.js";
 
@@ -57,7 +57,8 @@ function rig(behavior: Behavior, cfg: Partial<PollerConfig> = {}, startMs = kstM
   const cache = new TickCache(cacheBytes, 15 * 60 * 1000);
   let n = 0;
   const poller = new Poller(
-    { pollMs: 5_000, pollJitterMs: 500, leaseMs: 30_000, maxKeys: 8, closeDelayMs: 60_000, ...cfg },
+    // 따라잡기는 운영 기본(19:55)으로 켠다 — 기존 시나리오도 그 상태에서 그대로여야 한다
+    { pollMs: 5_000, pollJitterMs: 500, leaseMs: 30_000, maxKeys: 8, closeDelayMs: 60_000, catchupHhmm: 1955, ...cfg },
     {
       cache,
       runIndexer: async (a) => {
@@ -75,7 +76,7 @@ function rig(behavior: Behavior, cfg: Partial<PollerConfig> = {}, startMs = kstM
       if (untilT !== undefined && clock.t >= untilT) return;
       for (const k of touch) poller.touch(k);
       const r = await poller.step();
-      if (r.action !== "call" && r.action !== "close") {
+      if (r.action !== "call" && r.action !== "close" && r.action !== "catchup") {
         const next = clock.t + Math.max(1, r.waitMs);
         clock.t = untilT !== undefined ? Math.min(next, untilT) : next;
       }
@@ -422,5 +423,232 @@ describe("Poller — 20:01 마감 마무리(closeSweep)", () => {
     await r.drive({ untilT: at("203000") });
     for (const k of keys) expect(r.cache.get(k)!.closed).toBe(true);
     expect(r.calls.slice(6).every((c) => c.at >= blockedAt + 60_000)).toBe(true);
+  });
+});
+
+describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () => {
+  const at = (hhmmss: string) => kstMs(DATE, hhmmss.slice(0, 4)) + Number(hhmmss.slice(4, 6)) * 1000;
+  const MIN = 60n * SEC;
+  const keyOf = (a: IndexerArgs) => makeKey(a.isin, a.ex, a.date);
+  const AT_1954_30 = kstDayStartNs(DATE, "1954") + 30n * SEC;
+
+  /**
+   * 1분마다 레코드 하나(08:00:30 부터 「지금」 까지 · 레코드당 10B). 20:00 회전 뒤엔 최악을 흉내 — 08~18시 시간 파일이 곧바로
+   * 모두 압축돼 건너뛰고(`compressed_files_skipped` = from 이후에 걸친 그 시간 파일 수), 19시 · 20시 파일만 읽힌다(가장 늦게 압축).
+   */
+  function minuteDay(a: IndexerArgs, nowMs: number, page = Infinity): IndexerResult {
+    const nowNs = BigInt(nowMs) * 1_000_000n;
+    const compressed = nowMs >= kstMs(a.date, "2000");
+    const cut = kstDayStartNs(a.date, "1900");
+    const all: bigint[] = [];
+    for (let ns = kstDayStartNs(a.date) + 30n * SEC; ns <= nowNs; ns += MIN) {
+      if (ns >= a.fromNs && !(compressed && ns < cut)) all.push(ns);
+    }
+    let skippedFiles = 0;
+    if (compressed) {
+      for (let h = 8; h <= 18; h++) {
+        if (kstDayStartNs(a.date, `${String(h + 1).padStart(2, "0")}00`) > a.fromNs) skippedFiles++;
+      }
+    }
+    const take = all.slice(0, page);
+    const hasMore = all.length > take.length;
+    return {
+      code: 0,
+      stdout: Buffer.alloc(take.length * 10, 7),
+      meta: {
+        fmt: "pcapns-rec/1",
+        records: take.length,
+        firstRecvNs: take[0] ?? null,
+        lastRecvNs: take.at(-1) ?? null,
+        hasMore,
+        nextFromNs: hasMore ? all[take.length]! : null,
+        compressedFilesSkipped: skippedFiles,
+        skippedRecords: 0,
+      },
+      stderrTail: "",
+    };
+  }
+
+  /** 10:00 에 열고 닫은(리스 끝) 키 하나 → 19:54:59 로 건너뛴다. */
+  async function openedAt10(cfg: Partial<PollerConfig> = {}): Promise<Rig> {
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t, 200), cfg, at("100000"));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] }); // 08:00:30 ~ 09:59:30 · 120건 · 한 페이지
+    r.clock.t = at("195459");
+    await r.poller.step();
+    expect(r.calls).toHaveLength(1); // 리스가 끝난 뒤 · 따라잡기 전 — 호출 없음
+    return r;
+  }
+
+  it("리스가 끝난 complete 키 → 19:55 에 lastRecvNs+1 부터 has_more 끝까지 → 20:01 마무리는 마지막 몇 분만 · 19시 전 원본이 압축돼도 closed", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const prevLevel = process.env.LOG_LEVEL;
+    const r = await openedAt10();
+    process.env.LOG_LEVEL = "info";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      try {
+        lines.push(JSON.parse(String(chunk)) as Record<string, unknown>);
+      } catch {
+        /* 로그 줄이 아님 */
+      }
+      return true;
+    });
+    try {
+      await r.drive({ untilT: at("200000") });
+    } finally {
+      spy.mockRestore();
+      process.env.LOG_LEVEL = prevLevel;
+    }
+    const cu = r.calls.slice(1);
+    // 10:00:30 ~ 19:54:30 = 595건 → 200 · 200 · 195 세 페이지, 모두 19:55:00(20:00 압축 전)
+    expect(cu.map((c) => c.at)).toEqual([at("195500"), at("195500"), at("195500")]);
+    expect(cu[0]!.args.fromNs).toBe(DAY_START + 30n * SEC + 119n * MIN + 1n);
+    expect(cu.every((c) => c.args.toNs === 0n)).toBe(true);
+    const e = r.cache.get(KEY)!;
+    expect(e.records).toBe(120 + 595);
+    expect(e.lastRecvNs).toBe(AT_1954_30);
+    expect(e.complete).toBe(true);
+    expect(e.closed).toBe(false); // 닫는 건 여전히 20:01 마감 마무리
+    const done = lines.find((l) => l.msg === "catchup done");
+    expect(done).toMatchObject({ keys: 1, caught: 1, left: 0, calls: 3, bytes: 5_950 });
+    expect(typeof done!.ms).toBe("number");
+
+    r.clock.t = at("200100");
+    await r.drive({ untilT: at("203000") });
+    const close = r.calls.slice(4);
+    expect(close).toHaveLength(1);
+    expect(close[0]!.args.fromNs).toBe(AT_1954_30 + 1n); // 19시 파일 — 가장 늦게 압축 · 건너뜀 0
+    expect(e.complete).toBe(true);
+    expect(e.closed).toBe(true);
+    expect(e.records).toBe(120 + 595 + 6); // 19:55:30 ~ 20:00:30
+  });
+
+  it("TICKGW_CATCHUP_AT off → 19:55~20:00 호출 0 · 20:01 마무리가 10시부터 읽다 압축 원본을 건너뛰어 승격 안 됨(CR-31 그대로)", async () => {
+    const r = await openedAt10({ catchupHhmm: null });
+    await r.drive({ untilT: at("200000") });
+    expect(r.calls).toHaveLength(1);
+    const e = r.cache.get(KEY)!;
+    r.clock.t = at("200100");
+    await r.drive({ untilCalls: 2 });
+    expect(r.calls[1]!.args.fromNs).toBe(DAY_START + 30n * SEC + 119n * MIN + 1n);
+    expect(e.complete).toBe(false);
+    expect(e.closed).toBe(false);
+  });
+
+  it("리스가 살아 있는 키는 대상이 아니다 — 5초 간격 그대로 · 따라잡기는 리스 끝난 키만", async () => {
+    const A = keyN(1);
+    const B = keyN(2);
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t, 200), {}, at("100000"));
+    r.poller.touch(A);
+    r.poller.touch(B);
+    await r.drive({ untilCalls: 2, touch: [A, B] });
+    r.clock.t = at("195400"); // B 는 닫힌 채 · A 는 다시 열려 계속 본다
+    await r.drive({ untilT: at("200000"), touch: [A] });
+    const win = r.calls.filter((c) => c.at >= at("195500"));
+    const aCalls = win.filter((c) => keyOf(c.args) === A);
+    const bCalls = win.filter((c) => keyOf(c.args) === B);
+    expect(aCalls).toHaveLength(60); // 19:55:00 ~ 19:59:55
+    expect(gaps(aCalls).every((g) => g === 5_000)).toBe(true);
+    expect(bCalls.map((c) => c.at)).toEqual([at("195500"), at("195500"), at("195500")]);
+    expect(r.calls.filter((c) => keyOf(c.args) === B && c.at < at("195500"))).toHaveLength(1); // 10:00 첫 호출뿐
+    expect(r.cache.get(B)!.lastRecvNs).toBe(AT_1954_30);
+    expect(r.poller.touch(A).state).toBe("ready");
+  });
+
+  it("공정 교대 — 활성 키가 슬롯을 꽉 채워도(3키 × 호출 6초 > 간격 5초) 따라잡기가 한 호출씩 번갈아 얻어 20:00 전에 끝난다", async () => {
+    const live = [1, 2, 3].map(keyN);
+    const B = keyN(4);
+    let slow = false;
+    const r: Rig = rig((a) => {
+      const res = minuteDay(a, r.clock.t, 200);
+      if (slow) r.clock.t += 6_000; // 호출 하나 = 6초
+      return res;
+    }, {}, at("100000"));
+    for (const k of [...live, B]) r.poller.touch(k);
+    await r.drive({ untilCalls: 4, touch: [...live, B] });
+    r.clock.t = at("195400");
+    slow = true;
+    await r.drive({ untilT: at("200000"), touch: live });
+    const win = r.calls.filter((c) => c.at >= at("195500")).map((c) => (keyOf(c.args) === B ? "B" : "A"));
+    // 순수 우선순위면 활성 키가 늘 기다리고 있어 B 는 한 번도 못 간다 — 교대라 B 세 페이지가 활성 호출 하나씩 사이에 낀다
+    expect(win.slice(0, 6)).toEqual(["B", "A", "B", "A", "B", "A"]);
+    expect(win.filter((k) => k === "B")).toHaveLength(3);
+    expect(r.cache.get(B)!.lastRecvNs).toBe(AT_1954_30);
+  });
+
+  it("동시성 1 · 종료코드 75 는 2초 + 지터 뒤 재시도(실패 단계 안 올림) — 같은 호출 슬롯", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let catching = false;
+    let nSeq = 0;
+    const seq = [75, 75, 255];
+    const r: Rig = rig(async (a) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight--;
+      if (catching && keyOf(a) === keyN(1) && nSeq < seq.length) return fail(seq[nSeq++]!);
+      return minuteDay(a, r.clock.t);
+    }, {}, at("100000"));
+    const keys = [1, 2, 3].map(keyN);
+    for (const k of keys) r.poller.touch(k);
+    await r.drive({ untilCalls: 3, touch: keys });
+    r.clock.t = at("195500");
+    catching = true;
+    await Promise.all([r.poller.step(), r.poller.step(), r.poller.step(), r.poller.step()]);
+    expect(maxInFlight).toBe(1);
+    await r.drive({ untilT: at("200000") });
+    const k1 = r.calls.filter((c) => keyOf(c.args) === keyN(1) && c.at >= at("195500"));
+    expect(gaps(k1)).toEqual([2_250, 2_250, 5_000]); // 75 · 75 · 실패(1단계 5초) · 성공
+    for (const k of keys) expect(r.cache.get(k)!.lastRecvNs).toBe(AT_1954_30);
+  });
+
+  it("20:00 까지 못 끝내면 보통 백오프만 · 20:00 뒤 따라잡기 호출 없음(20:01 마감 마무리 몫)", async () => {
+    let down = false;
+    const r: Rig = rig((a) => (down ? fail(255, "Permission denied (publickey).") : minuteDay(a, r.clock.t)), {}, at("100000"));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] });
+    r.clock.t = at("195459");
+    down = true;
+    await r.drive({ untilT: at("200059") });
+    expect(r.calls.slice(1).map((c) => c.at)).toEqual(
+      ["195500", "195505", "195515", "195535", "195615", "195715", "195815", "195915"].map(at),
+    );
+  });
+
+  it("너무 큼(WR-33) 키는 리스가 끝나도 따라잡지 않는다", async () => {
+    const r = rig((a) => dayResponse(a, 20, 5), {}, at("100000"), 100);
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 3, touch: [KEY] });
+    const n = r.calls.length;
+    r.clock.t = at("195450");
+    await r.drive({ untilT: at("203000") });
+    expect(r.calls).toHaveLength(n);
+    expect(r.cache.get(KEY)?.closed ?? false).toBe(false);
+  });
+
+  it("따라잡기 중 그 키 하루치가 캐시 상한을 넘으면 멈춘다 — 다음 페이지를 받지 않는다 · blocked", async () => {
+    // 레코드 10B · 페이지 4건 · 상한 100B — 08:03 에 3건(30B) · 리스 끝 · 19:55 첫 페이지 40B(=70B) · 둘째 40B 에서 too_large
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t, 4), {}, at("080300"), 100);
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 1, touch: [KEY] });
+    const e = r.cache.get(KEY)!;
+    r.clock.t = at("195459");
+    await r.drive({ untilT: at("200000") });
+    expect(r.calls).toHaveLength(3);
+    expect(e.records).toBe(7);
+    expect(e.complete).toBe(false);
+    expect(r.poller.touch(KEY)).toEqual({ state: "blocked", queue: 0 });
+  });
+});
+
+describe("config — TICKGW_CATCHUP_AT", () => {
+  const base = { TICKGW_SECRET: "x".repeat(32) };
+  it("기본 19:55 · off 면 null · 20:00 이후 · 형식 오류는 거부", () => {
+    expect(loadConfig(base).catchupHhmm).toBe(1955);
+    expect(loadConfig({ ...base, TICKGW_CATCHUP_AT: "off" }).catchupHhmm).toBeNull();
+    expect(loadConfig({ ...base, TICKGW_CATCHUP_AT: "19:50" }).catchupHhmm).toBe(1950);
+    expect(() => loadConfig({ ...base, TICKGW_CATCHUP_AT: "20:00" })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...base, TICKGW_CATCHUP_AT: "7:55" })).toThrow(/TICKGW_CATCHUP_AT/);
   });
 });

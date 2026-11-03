@@ -23,6 +23,8 @@
  *   TICKGW_IDLE_MS         기본 900000(15분) — 유휴 키 삭제
  *   TICKGW_CLOSE_DELAY_MS  기본 60000 — KST 20:00 + 이 값 뒤 마감 마무리 1회
  *   TICKGW_KEEP_UNTIL      기본 21:00 — 오늘 complete 키는 이 KST 시각까지 유휴 삭제 면제(승격 입력)
+ *   TICKGW_CATCHUP_AT      기본 19:55 — 이 KST 시각부터 20:00 전까지 하루 한 번, 리스가 끝난 오늘 complete 키를 따라잡는다
+ *                          (poller.ts 「19:55 따라잡기」 · CR-31 후속). `off` 면 끈다. 20:00 이후 값은 거부(창이 비어 뜻이 없다)
  *   TICKGW_INDEXER_TIMEOUT_MS 기본 60000 — ssh 한 번의 상한(넘으면 kill · 실패로 센다)
  *   LOG_LEVEL              info(기본) | silent
  *
@@ -80,6 +82,8 @@ export interface TickgwConfig {
   closeDelayMs: number;
   /** KST hhmm 정수(기본 2100) — TICKGW_KEEP_UNTIL `HH:MM`. */
   keepUntilHhmm: number;
+  /** KST hhmm 정수(기본 1955) — TICKGW_CATCHUP_AT `HH:MM` · `off` 면 null(따라잡기 없음). */
+  catchupHhmm: number | null;
 }
 
 export class ConfigError extends Error {}
@@ -105,14 +109,22 @@ function str(env: NodeJS.ProcessEnv, name: string, def: string): string {
   return raw ? raw : def;
 }
 
-/** `HH:MM` → hhmm 정수. */
-export function parseHhmm(raw: string): number {
+/** `HH:MM` → hhmm 정수. `name` 은 오류 문구의 환경변수 이름. */
+export function parseHhmm(raw: string, name = "TICKGW_KEEP_UNTIL"): number {
   const m = /^(\d{2}):(\d{2})$/.exec(raw.trim());
-  if (!m) throw new ConfigError(`TICKGW_KEEP_UNTIL must be HH:MM`);
+  if (!m) throw new ConfigError(`${name} must be HH:MM`);
   const hh = Number(m[1]);
   const mm = Number(m[2]);
-  if (hh > 23 || mm > 59) throw new ConfigError(`TICKGW_KEEP_UNTIL must be HH:MM`);
+  if (hh > 23 || mm > 59) throw new ConfigError(`${name} must be HH:MM`);
   return hh * 100 + mm;
+}
+
+/** TICKGW_CATCHUP_AT — `off` → null · 그 밖은 20:00 전 `HH:MM`(19:55 따라잡기 창 = [값, 20:00)). */
+export function parseCatchupAt(raw: string): number | null {
+  if (raw.trim().toLowerCase() === "off") return null;
+  const hhmm = parseHhmm(raw, "TICKGW_CATCHUP_AT");
+  if (hhmm >= 2000) throw new ConfigError("TICKGW_CATCHUP_AT must be before 20:00 (or off)");
+  return hhmm;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): TickgwConfig {
@@ -134,5 +146,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): TickgwConfig {
     idleMs: posInt(env, "TICKGW_IDLE_MS", 15 * 60 * 1000),
     closeDelayMs: nonNegInt(env, "TICKGW_CLOSE_DELAY_MS", 60_000),
     keepUntilHhmm: parseHhmm(str(env, "TICKGW_KEEP_UNTIL", "21:00")),
+    catchupHhmm: parseCatchupAt(str(env, "TICKGW_CATCHUP_AT", "19:55")),
   };
 }

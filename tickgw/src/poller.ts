@@ -41,6 +41,24 @@
  *   실패는 백오프(5 · 10초)로 최대 3회 뒤 closed 아님 · LRU 로 밀려난 키도 closed 아님 → export 에 안 나와 승격되지 않는다.
  *   closed 키는 더 폴링하지 않는다.
  *
+ * ── 19:55 따라잡기(catchup · CR-31 후속 — 승격률 보전) ──────────────────────
+ *   왜: 119 기록기는 07:00~20:00 시간 파일을 `.pcap` 으로 쥐고 있다가 20:00 회전부터 오래된 시간 파일부터 하나씩(FIFO)
+ *   `zstd --rm` 으로 압축한다. 압축된 파일은 인덱서가 건너뛰고 `compressed_files_skipped` 로 세며, 그러면 CR-31 이 그 키를
+ *   complete=false(승격 안 함)로 둔다. 낮에 리스가 끝난 키(브라우저를 닫음)는 lastRecvNs 이후 빈 구간을 20:01 마감 마무리에서야
+ *   채우는데, 그때는 이른 시간 파일이 이미 압축 중이라 대부분 승격에서 빠진다.
+ *   무엇: KST TICKGW_CATCHUP_AT(기본 19:55 · `off` 면 끔) 부터 20:00 전까지 하루 한 번 — 그 순간 오늘 complete ∧ closed 아님 ∧
+ *   너무 큼 아님 ∧ **리스가 끝난**(보통 루프가 폴링하지 않는) 키를 모아, 키마다 lastRecvNs+1(이어받기 중이면 그 커서 · 받은 적
+ *   없으면 08:00)부터 to 0 으로 has_more 가 false 가 될 때까지 받는다. 그러면 20:01 마감 마무리는 마지막 몇 분(가장 늦게 압축되는
+ *   19시 · 20시 파일)만 읽는다. 대상은 시작 순간에 고정한다(19:55 뒤 리스가 끝난 키는 이미 몇 분 안쪽까지 받았다).
+ *   규율: 보통 폴링과 **같은 호출 슬롯**(step 사슬 · 동시성 1 · 전역 차단 · 75 = 2초 재시도 · 실패 백오프 5→60초 · 인자 64 = 60초 ·
+ *   캐시 가득 = 붙이지 않고 백오프 · 너무 큼 = 그 키 중단 · WR-33 LRU 보호 그대로).
+ *   공정 교대: 리스가 살아 있는 키와 따라잡기가 **둘 다** 할 일이 있으면 번갈아 한 호출씩 한다(직전 슬롯의 반대편이 간다).
+ *   그래서 활성 키는 따라잡기 호출 하나 이상 기다리지 않고(평소엔 5초 간격 그대로 · 포화 때만 최대 2배), 따라잡기도 활성 키가
+ *   포화돼 있어도 슬롯 절반을 얻는다(순수 우선순위면 활성 8키 포화 때 따라잡기가 굶어 승격률을 못 지킨다).
+ *   도중에 다시 touch 된 키는 보통 루프로 넘기고 따라잡기에서 뺀다. 20:00 까지 못 끝낸 키는 그대로 20:01 마감 마무리 몫이다
+ *   (따로 재시도하지 않는다). 끝(대상 소진 또는 20:00)에 요약 한 줄 `catchup done`(keys · caught · left · calls · bytes · ms).
+ *   119 호출 모양: 19:55 에 한 번 몰리는 연속 호출 — 상한은 「오늘 연 키 수 × 키당 빈 구간(이어받기 페이지 수)」.
+ *
  * ── as-of(X-Tick-As-Of-Ms · quick-261104-6lh) ──────────────────────────
  *   entry.asOfMs = 그 키를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) — 새 레코드 0건이어도
  *   앞당긴다. 실패 · 바쁨 · 인자 오류 · 전역 차단은 건드리지 않는다(마지막 완결 읽기에 정직하게 멈춘다). 응답 시각이 아닌 까닭:
@@ -66,6 +84,8 @@ export interface PollerConfig {
   leaseMs: number;
   maxKeys: number;
   closeDelayMs: number;
+  /** 19:55 따라잡기 시작 KST hhmm(TICKGW_CATCHUP_AT · 기본 1955) — null · 없음 = 끔. */
+  catchupHhmm?: number | null;
 }
 
 export interface PollerDeps {
@@ -77,7 +97,7 @@ export interface PollerDeps {
 }
 
 export interface StepResult {
-  action: "call" | "close" | "idle" | "blocked";
+  action: "call" | "close" | "catchup" | "idle" | "blocked";
   key?: string;
   /** 다음 step 까지 기다릴 ms(0 = 곧바로). */
   waitMs: number;
@@ -114,6 +134,21 @@ interface CloseItem {
   nextDueAt: number;
   /** 이번 마무리 폴링(이어받기 사슬 포함)의 첫 호출 시각 — closedThroughNs 의 기준. */
   startedAt: number | null;
+}
+
+interface CatchupItem {
+  key: string;
+  nextDueAt: number;
+  /** 이 키 따라잡기의 연속 실패 수(백오프 단계) — 보통 폴링의 run.failures 와 따로 센다. */
+  failures: number;
+}
+
+interface CatchupStats {
+  keys: number;
+  caught: number;
+  calls: number;
+  bytes: number;
+  startedAt: number;
 }
 
 /** 아무 키도 할 일이 없을 때 최대 대기(새 touch 는 wake 로 깨운다 · 리스 만료 · 마감 시각을 1초 안에 본다). */
@@ -155,6 +190,13 @@ export class Poller {
   private closeStartedDate: string | null = null;
   private closeDoneDate: string | null = null;
   private closeQueue: CloseItem[] = [];
+  /** 19:55 따라잡기를 시작한 날 · 끝낸 날(KST YYYYMMDD) — 하루 한 번. */
+  private catchupStartedDate: string | null = null;
+  private catchupDoneDate: string | null = null;
+  private catchupQueue: CatchupItem[] = [];
+  private catchupStats: CatchupStats = { keys: 0, caught: 0, calls: 0, bytes: 0, startedAt: 0 };
+  /** 직전 호출 슬롯이 따라잡기였는가 — 활성 키와 둘 다 할 일이 있으면 번갈아 간다(공정 교대). */
+  private lastWasCatchup = false;
   /** 「너무 큼」 판정 키(키에 날짜 포함) — 엔트리가 지워진 뒤 다시 열어도 08:00 부터 다시 받지 않는다(WR-33). */
   private readonly tooLargeKeys = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
@@ -275,10 +317,19 @@ export class Poller {
         soonest = Math.min(soonest, run.nextDueAt);
       }
     }
+    // 19:55 따라잡기 — 같은 호출 슬롯. 둘 다 할 일이 있으면 직전 슬롯의 반대편이 간다(공정 교대 · 머리 주석)
+    const cu = this.catchupDue(now);
+    if (cu && (!pick || !this.lastWasCatchup)) {
+      this.lastWasCatchup = true;
+      await this.catchupOne(cu);
+      return { action: "catchup", key: cu.key, waitMs: 0 };
+    }
     if (!pick) {
       for (const item of this.closeQueue) soonest = Math.min(soonest, item.nextDueAt);
+      for (const item of this.catchupQueue) soonest = Math.min(soonest, item.nextDueAt);
       return { action: "idle", waitMs: Math.max(1, Math.min(IDLE_MAX_MS, soonest - now)) };
     }
+    this.lastWasCatchup = false;
     await this.poll(pick);
     return { action: "call", key: pick.key, waitMs: 0 };
   }
@@ -440,6 +491,118 @@ export class Poller {
       case "fail":
         run.failures += 1;
         run.nextDueAt = at + backoffMs(run.failures);
+        return;
+    }
+  }
+
+  // ---------------------------------------------------------------- 19:55 따라잡기
+
+  /** 따라잡기 대상 — 오늘 · complete · closed 아님 · 너무 큼 아님 · 리스 끝남(보통 루프가 폴링하지 않는 키). */
+  private catchupEligible(e: CacheEntry, today: string, now: number): boolean {
+    if (e.date !== today || !e.complete || e.closed || this.tooLargeKeys.has(e.key)) return false;
+    const run = this.runs.get(e.key);
+    return !(run && run.epoch === e.epoch && run.leaseUntil > now);
+  }
+
+  /**
+   * 지금 따라잡기 할 키(없으면 null). 창 [TICKGW_CATCHUP_AT, 20:00) 안 첫 step 에 대상을 고정하고, 매 step 대상에서 빠진 키
+   * (다시 touch · complete 아님 · 지워짐)를 거른다. 대상이 바닥나거나 20:00 이 되면 요약 한 줄을 남기고 그날은 끝.
+   */
+  private catchupDue(now: number): CatchupItem | null {
+    const at = this.cfg.catchupHhmm;
+    if (at === null || at === undefined) return null;
+    const today = kstToday(now);
+    if (this.catchupDoneDate === today) return null;
+    if (now < kstMs(today, String(at).padStart(4, "0"))) return null;
+    if (now >= kstMs(today, "2000")) {
+      // 창 끝 — 못 끝낸 키는 20:01 마감 마무리 몫(따로 재시도하지 않는다). 창 안에 기동하지 않았으면 아무것도 안 한다.
+      if (this.catchupStartedDate === today) this.finishCatchup(today, now);
+      return null;
+    }
+    if (this.catchupStartedDate !== today) {
+      this.catchupStartedDate = today;
+      this.catchupQueue = this.deps.cache
+        .values()
+        .filter((e) => this.catchupEligible(e, today, now))
+        .map((e) => ({ key: e.key, nextDueAt: now, failures: 0 }));
+      this.catchupStats = { keys: this.catchupQueue.length, caught: 0, calls: 0, bytes: 0, startedAt: now };
+      log("info", "catchup start", { date: today, keys: this.catchupQueue.length });
+    }
+    this.catchupQueue = this.catchupQueue.filter((i) => {
+      const e = this.deps.cache.get(i.key);
+      return !!e && this.catchupEligible(e, today, now);
+    });
+    if (this.catchupQueue.length === 0) {
+      this.finishCatchup(today, now);
+      return null;
+    }
+    let item: CatchupItem | null = null;
+    for (const i of this.catchupQueue) {
+      if (i.nextDueAt <= now && (!item || i.nextDueAt < item.nextDueAt)) item = i;
+    }
+    return item;
+  }
+
+  private finishCatchup(today: string, now: number): void {
+    this.catchupDoneDate = today;
+    const s = this.catchupStats;
+    log("info", "catchup done", {
+      date: today,
+      keys: s.keys,
+      caught: s.caught,
+      left: this.catchupQueue.length,
+      calls: s.calls,
+      bytes: s.bytes,
+      ms: now - s.startedAt,
+    });
+    this.catchupQueue = [];
+  }
+
+  private dropCatchup(item: CatchupItem): void {
+    this.catchupQueue = this.catchupQueue.filter((i) => i !== item);
+  }
+
+  /** 따라잡기 한 호출 — 보통 폴링과 같은 분류 · 같은 캐시 규칙. 끝까지 받으면(has_more false) 대상에서 뺀다. */
+  private async catchupOne(item: CatchupItem): Promise<void> {
+    const entry0 = this.deps.cache.get(item.key)!;
+    const run = this.runOf(entry0, this.deps.now());
+    const fromNs = this.fromOf(run, entry0);
+    const { res, started, at, entry } = await this.call(run, fromNs);
+    this.catchupStats.calls += 1;
+    this.catchupStats.bytes += res.stdout.length;
+    const kind = this.classify(res, at);
+    if (!entry) {
+      this.dropCatchup(item);
+      return;
+    }
+    switch (kind) {
+      case "ok": {
+        run.failures = 0;
+        run.argBlocked = false;
+        const a = this.applyOk(run, entry, fromNs, res, started);
+        if (a === "more") {
+          item.failures = 0;
+          item.nextDueAt = at; // 이어받기 — 곧바로(활성 키와는 교대)
+        } else if (a === "done") {
+          if (entry.complete) this.catchupStats.caught += 1;
+          this.dropCatchup(item);
+        } else if (a === "full") {
+          item.failures += 1; // 붙이지 않았다 — 커서 그대로 · 백오프 뒤 같은 범위(WR-33)
+          item.nextDueAt = at + backoffMs(item.failures);
+        } else {
+          this.dropCatchup(item); // 너무 큼 — 그 키(그날) 중단
+        }
+        return;
+      }
+      case "busy":
+        item.nextDueAt = at + this.busyDelay();
+        return;
+      case "arg":
+        item.nextDueAt = at + ARG_RETRY_MS;
+        return;
+      case "fail":
+        item.failures += 1;
+        item.nextDueAt = at + backoffMs(item.failures);
         return;
     }
   }
