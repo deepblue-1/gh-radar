@@ -13,7 +13,9 @@
  *   - `goEnd()` = `newCount` 0(요청 없음 — 커서는 뷰어가 옮긴다) · 커서가 끝으로 돌아와도 0.
  *   - 받는 중이면 `refreshing` · 마지막 성공 시각 = `fetchedAt`(ms). 하루치 받는 동안 · 이미 받는 중이면 `refresh()` 는 무시.
  *   - 응답이 8MiB 상한에 잘려 `X-Tick-More` 가 true 면(37 WR-32) 버튼 한 번 안에서 곧바로 이어 받는다 — 최대
- *     `TICK_LIVE_MORE_MAX` 번(무한 고리 방지 · 넘으면 멈추고 다음 누름에서 이어 간다). 하루치 받기도 More 면 기다리지 않고 바로.
+ *     `TICK_LIVE_MORE_MAX` 번(무한 고리 방지 · 넘으면 멈추고 `more` = 캐시에 더 있음 → 머리 「이어 받기」 · 다음 누름에서 이어 간다).
+ *     하루치 받기도 More 면 기다리지 않고 바로. 두 경로 모두 `offsetEnd` 가 앞으로 갔을 때만 이어 받는다(R2-IN-31 — More 인데
+ *     제자리면 계약 위반 · 오류로 센다 — 증분은 멈춤, 하루치는 하루치 실패 상한 · 백오프를 탄다).
  * ④ 409 `{epoch}` → 새 epoch 로 offset 0 부터 즉시 다시 받는다. 받는 동안은 이전 세션을 그대로 보이고, 하루치가 다 오면 세션을
  *   바꾸고 `generation` 을 올린다(뷰어 key — 새 세션은 끝 틱에서 연다).
  * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐이다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 센다 — 하루치 받는
@@ -64,6 +66,8 @@ export interface TickLiveView {
   refetching: boolean;
   /** 하루치를 연속 `TICK_LIVE_FILL_FAIL_MAX` 번 풀지 못해 멈췄다(R2-WR-31) — `retry()` 로 1회 다시. */
   fillFailed: boolean;
+  /** 「최신 받기」 한 번의 이어 받기 상한(`TICK_LIVE_MORE_MAX`)에서 멈췄고 캐시에 더 있다(R2-IN-31) — 다시 누르면 이어 받는다. */
+  more: boolean;
   /** 마지막 200 응답 시각(epoch ms) · 아직 없으면 null. */
   fetchedAt: number | null;
 }
@@ -102,6 +106,7 @@ const IDLE: TickLiveView = {
   refreshing: false,
   refetching: false,
   fillFailed: false,
+  more: false,
   fetchedAt: null,
 };
 
@@ -128,10 +133,12 @@ interface Ctl {
   fillFailures: number;
   /** 연속 실패가 상한에 닿아 하루치 받기를 멈췄다 — 타이머 · 가시성 복귀가 다시 받지 않는다. */
   fillFailed: boolean;
+  /** 증분 이어 받기가 상한에서 멈췄고 캐시에 더 있다(R2-IN-31). */
+  moreLeft: boolean;
   fetchedAt: number | null;
   /** 지금 1회 받는다(버튼 · 가시성 복귀). */
   resume: () => void;
-  /** 멈춘 하루치를 offset 0 부터 1회 다시(R2-WR-31) — 시작했으면 true. */
+  /** 멈춘 하루치를 1회 다시(R2-WR-31 · 해제 실패면 offset 0 부터) — 시작했으면 true. */
   retry: () => boolean;
 }
 
@@ -175,6 +182,7 @@ export function useTickLive({
       moreChain: 0,
       fillFailures: 0,
       fillFailed: false,
+      moreLeft: false,
       fetchedAt: null,
       resume: () => {},
       retry: () => false,
@@ -194,6 +202,7 @@ export function useTickLive({
         refreshing: c.running && !filling(),
         refetching: c.session !== null && c.refetching && !c.fillFailed,
         fillFailed: c.fillFailed,
+        more: c.moreLeft && !filling(),
         fetchedAt: c.fetchedAt,
       });
     publishRef.current = () => publish();
@@ -216,13 +225,16 @@ export function useTickLive({
     /**
      * 하루치를 풀지 못함(R2-WR-31) — offset 0 · epoch 없이 처음부터 다시(이전 세션은 그대로 보인다). 연속 횟수를 세어 백오프하고,
      * 상한에 닿으면 멈춘다(사람이 `retry()` 로 1회). 결정적 실패(그날 자료 · 캐시의 깨진 프레임)에 하루치를 끝없이 다시 받지 않게.
+     * `restart` false = 하루치 More 가 제자리(R2-IN-31) — 모은 조각 · offset 은 두고 같은 자리부터 백오프로 다시.
      */
-    const failFill = () => {
+    const failFill = (restart = true) => {
       c.errors += 1;
       c.fillFailures += 1;
-      c.pending = [];
-      c.offset = 0;
-      c.epoch = null;
+      if (restart) {
+        c.pending = [];
+        c.offset = 0;
+        c.epoch = null;
+      }
       if (c.fillFailures >= TICK_LIVE_FILL_FAIL_MAX) {
         c.fillFailed = true;
         clear();
@@ -246,7 +258,13 @@ export function useTickLive({
       if (r.status === 200 && r.meta !== null) {
         const m = r.meta;
         const fill = filling();
+        const prevOffset = c.offset;
         if (fill && (m.more === true || m.state === 'loading' || m.state === 'queued')) {
+          // More 인데 offsetEnd 가 제자리 — 계약 위반(tickgw 는 첫 청크를 늘 싣는다). RTT 간격 무한 요청 대신 실패로 센다(R2-IN-31).
+          if (m.more === true && m.offsetEnd <= prevOffset) {
+            console.warn('[ticks/live] More 인데 offsetEnd 가 앞으로 가지 않음', { offset: prevOffset, offsetEnd: m.offsetEnd });
+            return failFill(false);
+          }
           // 하루치 이어 받기 — 바이트는 모으기만 한다(해제는 다 모은 뒤 한 번). 8MiB 로 잘렸으면(More) 기다리지 않는다.
           if (r.bytes.length > 0) c.pending.push(r.bytes);
           commit(m);
@@ -273,6 +291,7 @@ export function useTickLive({
           c.session = next;
           c.pending = [];
           c.fillFailures = 0;
+          c.moreLeft = false;
           if (c.refetching) {
             c.refetching = false;
             c.generation += 1;
@@ -284,11 +303,25 @@ export function useTickLive({
         c.session = next;
         if (!atEndRef.current) c.newCount += next.index.n - before;
         // 8MiB 로 잘린 증분(WR-32) — 같은 누름 안에서 offsetEnd 부터 곧바로 이어 받는다(다음 tick 이 받는 중으로 publish).
-        if (m.more === true && c.moreChain < TICK_LIVE_MORE_MAX) {
-          c.moreChain += 1;
-          return void tick();
+        // offsetEnd 가 앞으로 갔을 때만(R2-IN-31) · 상한에 닿으면 멈추고 「캐시에 더 있음」 을 남긴다(다음 누름에서 이어 감).
+        if (m.more === true) {
+          if (m.offsetEnd <= prevOffset) {
+            console.warn('[ticks/live] More 인데 offsetEnd 가 앞으로 가지 않음', { offset: prevOffset, offsetEnd: m.offsetEnd });
+            c.errors += 1;
+            c.moreChain = 0;
+            c.moreLeft = false;
+            return publish();
+          }
+          if (c.moreChain < TICK_LIVE_MORE_MAX) {
+            c.moreChain += 1;
+            return void tick();
+          }
+          c.moreChain = 0;
+          c.moreLeft = true;
+          return publish();
         }
         c.moreChain = 0;
+        c.moreLeft = false;
         return publish();
       }
       if (r.status === 409) {

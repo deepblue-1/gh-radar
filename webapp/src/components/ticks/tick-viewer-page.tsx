@@ -471,6 +471,7 @@ export function TickViewerPage() {
                 refetching: live.refetching,
                 fetchedAt: live.fetchedAt,
                 refreshFailed: live.session !== null && live.errors > 0,
+                more: live.more,
                 // tickgw 가 아는 끊김(WR-63) — 세션이 보일 때만(하루치 받는 중 카드에는 머리 배지가 의미 없다)
                 incomplete: live.session !== null && live.meta?.complete === false,
               }

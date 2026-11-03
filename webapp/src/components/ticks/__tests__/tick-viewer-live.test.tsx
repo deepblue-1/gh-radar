@@ -213,6 +213,16 @@ describe('TickHeader — 당일 지연 · 연속 오류', () => {
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
+  it('이어 받기 상한에서 멈춰 캐시에 더 있으면(more) 「이어 받기」 · 누르면 onRefresh(R2-IN-31)', () => {
+    const onRefresh = vi.fn();
+    render(<TickHeader {...base} live={{ state: 'loading', lastRecvNs: null, failing: false, onRefresh, more: true }} />);
+    const btn = screen.getByRole('button', { name: '이어 받기' }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(btn.title).toBe('받을 전문이 더 있어요 — 눌러 이어 받기');
+    fireEvent.click(btn);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
   it('우리 알약(38-08 · D-09 · UAT 근거 · 주문 포함) — 「◆ 우리 k/n · 주문 m」 · ‹ › · 끝이면 비활성 · 상태 없으면 알약 없음', () => {
     const next = vi.fn();
     const v = render(<TickHeader {...base} ownNav={{ k: 0, n: 5, orders: 4, prev: null, next }} />);

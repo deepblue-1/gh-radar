@@ -257,6 +257,26 @@ describe('useTickLive — 하루치 (D-05 · D-22)', () => {
     warn.mockRestore();
   });
 
+  it('하루치 More 인데 offsetEnd 가 제자리 → 곧바로 다시 부르지 않고 백오프 · 같은 offset · 3회에서 멈춤(R2-IN-31)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'loading', more: true, offsetEnd: Z1.length }))
+      .mockImplementation(async () => liveResponse({ state: 'loading', more: true, offsetEnd: Z1.length }));
+    const { result } = renderHook(() => useTickLive(opts()));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2); // 첫 조각은 진행 · 둘째는 제자리
+    expect(result.current.errors).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1 + TICK_LIVE_FILL_FAIL_MAX);
+    expect(calls().slice(1).every((c) => c.offset === Z1.length && c.epoch === EPOCH)).toBe(true);
+    expect(result.current.fillFailed).toBe(true);
+    warn.mockRestore();
+  });
+
   it('하루치가 8MiB 에 잘려 More=true → 2초 기다리지 않고 곧바로 이어 받는다(37 WR-32)', async () => {
     fetchMock
       .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'loading', more: true, offsetEnd: Z1.length }))
@@ -558,21 +578,47 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     expect(fetchMock).toHaveBeenCalledTimes(3); // More=false 면 멈춘다 · 자동 요청 0
   });
 
-  it('More=true 가 끝없이 와도 한 누름의 이어 받기는 TICK_LIVE_MORE_MAX 번에서 멈춘다(37 WR-32)', async () => {
+  it('More=true 가 끝없이 와도 한 누름의 이어 받기는 TICK_LIVE_MORE_MAX 번에서 멈춘다 · 멈추면 more(캐시에 더 있음)(37 WR-32 · R2-IN-31)', async () => {
     const { result } = await openReady();
-    fetchMock.mockImplementation(async () => liveResponse({ more: true, state: 'loading', offsetEnd: Z1.length }));
+    let off = Z1.length;
+    fetchMock.mockImplementation(async () => liveResponse({ more: true, state: 'loading', offsetEnd: ++off }));
     await act(async () => {
       result.current.refresh();
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1 + 1 + TICK_LIVE_MORE_MAX);
     expect(result.current.refreshing).toBe(false);
-    // 다음 누름은 다시 상한까지
+    expect(result.current.more).toBe(true);
+    expect(result.current.errors).toBe(0);
+    // 다음 누름은 다시 상한까지 — 이어 받는 offset 은 마지막 offsetEnd
     await act(async () => {
       result.current.refresh();
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(2 * (1 + TICK_LIVE_MORE_MAX) + 1);
+    expect(calls()[2 + TICK_LIVE_MORE_MAX]!.offset).toBe(Z1.length + 1 + TICK_LIVE_MORE_MAX);
+    // More 없이 끝나면 more 가 풀린다
+    fetchMock.mockImplementation(async () => liveResponse({ state: 'ready', offsetEnd: off }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.more).toBe(false);
+  });
+
+  it('증분 More 인데 offsetEnd 가 제자리 → 이어 받지 않고 오류 1 · more 아님(R2-IN-31)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = await openReady();
+    fetchMock.mockImplementation(async () => liveResponse({ more: true, state: 'loading', offsetEnd: Z1.length }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.errors).toBe(1);
+    expect(result.current.more).toBe(false);
+    expect(result.current.refreshing).toBe(false);
+    warn.mockRestore();
   });
 
   it('stop → 더 요청하지 않는다(카드 취소)', async () => {

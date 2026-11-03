@@ -42,6 +42,8 @@ export interface TickHeaderLive {
   refreshFailed?: boolean;
   /** 08:00 부터 끊김 없이 이어지지 않았다(`X-Tick-Complete` false · WR-63) — 「당일 자료 일부 빠짐」. */
   incomplete?: boolean;
+  /** 한 누름의 이어 받기 상한에서 멈췄고 캐시에 더 있다(R2-IN-31) — 버튼 「이어 받기」. */
+  more?: boolean;
 }
 
 /** 「당일 자료 일부 빠짐」 배지 title — 무엇이 불완전한지(WR-63). */
@@ -147,6 +149,8 @@ export function TickHeader({
               ? '당일 자료가 새로 시작돼 하루치를 다시 받고 있어요'
               : live.refreshFailed
               ? '받지 못했어요 — 다시 눌러 주세요'
+              : live.more
+              ? '받을 전문이 더 있어요 — 눌러 이어 받기'
               : live.fetchedAt
                 ? `마지막으로 받은 시각 ${kstClock(live.fetchedAt)}`
                 : undefined
@@ -160,7 +164,15 @@ export function TickHeader({
             className={cn('size-3.5', (live.refreshing || live.refetching) && 'animate-spin')}
             aria-hidden="true"
           />
-          {live.refetching ? '다시 받는 중' : live.refreshing ? '받는 중' : live.refreshFailed ? '다시 받기' : '최신 받기'}
+          {live.refetching
+            ? '다시 받는 중'
+            : live.refreshing
+              ? '받는 중'
+              : live.refreshFailed
+                ? '다시 받기'
+                : live.more
+                  ? '이어 받기'
+                  : '최신 받기'}
         </button>
       )}
 
