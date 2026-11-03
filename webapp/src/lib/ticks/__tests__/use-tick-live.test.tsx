@@ -447,4 +447,13 @@ describe('tickLiveMetaOf — X-Tick-As-Of-Ms 판독(quick-261104-6lh)', () => {
       expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.asOfMs]: v }))!.asOfMs).toBeNull();
     }
   });
+
+  it('X-Tick-Offset-End 없음 · 공백 · 숫자 아님 · 음수 · 소수 · 안전 정수 밖 → null(호출자는 502) — 0 으로 받지 않는다(WR-64)', () => {
+    const { [TICK_LIVE_HEADERS.offsetEnd]: _omit, ...noEnd } = base;
+    expect(tickLiveMetaOf(new Headers(noEnd))).toBeNull();
+    for (const v of ['', '  ', 'abc', '-1', '1.5', '1e3', '9007199254740993']) {
+      expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.offsetEnd]: v }))).toBeNull();
+    }
+    expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.offsetEnd]: '0' }))!.offsetEnd).toBe(0);
+  });
 });

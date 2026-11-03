@@ -96,8 +96,11 @@ const LIVE_STATES: readonly TickLiveState[] = ['loading', 'ready', 'queued', 'de
 /** 200 응답 헤더 → meta. epoch · offsetEnd 가 없거나 깨졌으면 null(계약 위반 — 호출자는 502 처럼 다룬다). */
 export function tickLiveMetaOf(h: Headers): TickLiveMeta | null {
   const epoch = h.get(TICK_LIVE_HEADERS.epoch) ?? '';
-  const end = Number(h.get(TICK_LIVE_HEADERS.offsetEnd) ?? '');
-  if (epoch === '' || !Number.isSafeInteger(end) || end < 0) return null;
+  // `Number('')` 은 0 이다 — 헤더 없음 · 공백을 offset 0 으로 받으면 다음 증분이 하루치를 다시 이어붙인다(WR-64). 숫자만.
+  const rawEnd = (h.get(TICK_LIVE_HEADERS.offsetEnd) ?? '').trim();
+  if (epoch === '' || !/^\d+$/.test(rawEnd)) return null;
+  const end = Number(rawEnd);
+  if (!Number.isSafeInteger(end)) return null;
   const last = (h.get(TICK_LIVE_HEADERS.lastRecvNs) ?? '').trim();
   const rawState = h.get(TICK_LIVE_HEADERS.state) as TickLiveState | null;
   const queue = Number(h.get(TICK_LIVE_HEADERS.queue) ?? '0');
