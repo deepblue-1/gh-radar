@@ -51,6 +51,8 @@ export interface TickLiveView {
   errors: number;
   /** 버튼으로 증분을 받는 중. */
   refreshing: boolean;
+  /** epoch 가 바뀌어(409) 하루치를 다시 받는 중 — 이전 세션은 보이지만 「최신 받기」 는 받지 않는다(IN-64). */
+  refetching: boolean;
   /** 마지막 200 응답 시각(epoch ms) · 아직 없으면 null. */
   fetchedAt: number | null;
 }
@@ -87,6 +89,7 @@ const IDLE: TickLiveView = {
   newCount: 0,
   errors: 0,
   refreshing: false,
+  refetching: false,
   fetchedAt: null,
 };
 
@@ -165,6 +168,7 @@ export function useTickLive({
         newCount: c.newCount,
         errors: c.errors,
         refreshing: c.running && !filling(),
+        refetching: c.session !== null && c.refetching,
         fetchedAt: c.fetchedAt,
       });
     publishRef.current = () => publish();

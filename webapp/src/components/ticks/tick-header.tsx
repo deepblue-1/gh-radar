@@ -34,6 +34,8 @@ export interface TickHeaderLive {
   /** 「최신 받기」 — 증분 1회(자동 갱신 없음 · 2026-11-03 사용자 요청). 세션 전(하루치 받는 중)이면 없음. */
   onRefresh?: () => void;
   refreshing?: boolean;
+  /** epoch 교체(409)로 하루치를 다시 받는 중 — 버튼은 「다시 받는 중」 비활성(IN-64). */
+  refetching?: boolean;
   /** 마지막으로 받은 시각(epoch ms). */
   fetchedAt?: number | null;
   /** 마지막 받기가 실패했다(연속 오류 수 > 0). */
@@ -138,10 +140,12 @@ export function TickHeader({
           type="button"
           data-slot="tick-live-refresh"
           onClick={live.onRefresh}
-          disabled={live.refreshing === true}
-          aria-busy={live.refreshing === true}
+          disabled={live.refreshing === true || live.refetching === true}
+          aria-busy={live.refreshing === true || live.refetching === true}
           title={
-            live.refreshFailed
+            live.refetching
+              ? '당일 자료가 새로 시작돼 하루치를 다시 받고 있어요'
+              : live.refreshFailed
               ? '받지 못했어요 — 다시 눌러 주세요'
               : live.fetchedAt
                 ? `마지막으로 받은 시각 ${kstClock(live.fetchedAt)}`
@@ -152,8 +156,11 @@ export function TickHeader({
             live.refreshFailed ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]',
           )}
         >
-          <RefreshCw className={cn('size-3.5', live.refreshing && 'animate-spin')} aria-hidden="true" />
-          {live.refreshing ? '받는 중' : live.refreshFailed ? '다시 받기' : '최신 받기'}
+          <RefreshCw
+            className={cn('size-3.5', (live.refreshing || live.refetching) && 'animate-spin')}
+            aria-hidden="true"
+          />
+          {live.refetching ? '다시 받는 중' : live.refreshing ? '받는 중' : live.refreshFailed ? '다시 받기' : '최신 받기'}
         </button>
       )}
 

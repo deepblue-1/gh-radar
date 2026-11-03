@@ -204,6 +204,15 @@ describe('TickHeader — 당일 지연 · 연속 오류', () => {
     expect(v.container.querySelector('[data-slot="tick-live-gap"]')).toBeNull();
   });
 
+  it('하루치 다시 받는 중(409 · refetching) → 「다시 받는 중」 비활성 · 누를 수 없다(IN-64)', () => {
+    const onRefresh = vi.fn();
+    render(<TickHeader {...base} live={{ state: 'loading', lastRecvNs: null, failing: false, onRefresh, refetching: true }} />);
+    const btn = screen.getByRole('button', { name: '다시 받는 중' }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(onRefresh).not.toHaveBeenCalled();
+  });
+
   it('우리 알약(38-08 · D-09 · UAT 근거 · 주문 포함) — 「◆ 우리 k/n · 주문 m」 · ‹ › · 끝이면 비활성 · 상태 없으면 알약 없음', () => {
     const next = vi.fn();
     const v = render(<TickHeader {...base} ownNav={{ k: 0, n: 5, orders: 4, prev: null, next }} />);

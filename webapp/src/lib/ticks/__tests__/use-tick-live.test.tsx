@@ -331,8 +331,10 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
       });
       expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: 'e-2', offset: 0 });
     });
-    // 새 하루치를 받는 동안 이전 세션은 그대로 보인다
+    // 새 하루치를 받는 동안 이전 세션은 그대로 보인다 · 「최신 받기」 는 받지 않는다고 알린다(IN-64)
     expect(result.current.session).toBe(before);
+    expect(result.current.refetching).toBe(true);
+    expect(result.current.refresh()).toBe(false);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(TICK_LIVE_LOADING_MS);
     });
@@ -340,6 +342,7 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     expect(result.current.session).not.toBe(before);
     expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
     expect(result.current.generation).toBe(1);
+    expect(result.current.refetching).toBe(false);
     expect(result.current.meta?.epoch).toBe('e-2');
   });
 
