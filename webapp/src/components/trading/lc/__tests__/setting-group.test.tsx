@@ -90,12 +90,13 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     ]);
   });
 
-  it('매도주문 행 = 주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 % · 체결 · 매수취소 = 매수잔량 · 체결 · 잔량추적 (quick-261001-gjk · 기준선 행 삭제 quick-261012-oif)', () => {
+  it('매도주문 행 = 주문가격 · 비교가격 · 매도비율 · 매수잔량 · 잔량추적 % · 체결 · 위험도 % · 매수취소 = 매수잔량 · 체결 · 잔량추적 (quick-261001-gjk · 기준선 행 삭제 quick-261012-oif · 위험도 quick-261103-n1s)', () => {
     expect(groupOf('sell').rows.map((r) => r.kind)).toEqual([
       'value',
       'value',
       'value',
       'value',
+      'checkValue',
       'checkValue',
       'checkValue',
     ]);
@@ -106,6 +107,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
+      'lc-sell-risk-pct',
     ]);
     expect(groupOf('cancel').rows.map((r) => r.kind)).toEqual(['value', 'check', 'check']);
     expect(groupOf('cancel').rows.map(idOf)).toEqual([
@@ -149,6 +151,8 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       sellQtyTrackEnabled: 'lc-sell-qty-track',
       sellMinTradeAmount: 'lc-sell-min-trade-qty',
       sellTradeQtyEnabled: 'lc-sell-trade',
+      sellRiskPct: 'lc-sell-risk-pct',
+      sellRiskEnabled: 'lc-sell-risk',
       cancelWatchAmount: 'lc-cancel-watch-qty',
       cancelTradeEnabled: 'lc-cancel-trade',
       cancelQtyTrackEnabled: 'lc-cancel-qty-track',
@@ -243,6 +247,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
+      'lc-sell-risk-pct',
     ]);
   });
 

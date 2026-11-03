@@ -1388,6 +1388,26 @@ export function LimitChaserForm({
   );
 
   /**
+   * 매도주문 스위치 — **사람의 스위치 핸들러에서만** 부른다(quick-261103-n1s · gh-trade quick-261103-l41 · 결정 ①).
+   *
+   * - 끄는 방향: 누른 순간 화면(`formRef`)에서 ☐위험도가 켜져 있으면 같은 `lc.set` 에 위험도도 끈다(`sellRiskEnabled: false` ·
+   *   changed 에 둘 다). WinForms `HandleArmToggle` 의 sellRiskOff 동형(D-06③) — 매도를 끈 뒤 위험도가 남아 발동하지 않게 한다.
+   *   값 동반이라 대기열에서 꺼낼 때도 같은 값이고, 실패하면 훅 ⑪ 이 두 컨트롤을 함께 서버 값으로 되돌린다(줄매수 ☐자동
+   *   `autoOff` 꼴). 위험도가 꺼져 있으면 종전 단독 끄기.
+   * - 켜는 방향: 종전 그대로 — 위험도를 건드리지 않는다(켜는 것은 사람뿐).
+   */
+  const commitSellSwitch = useCallback(
+    (on: boolean) => {
+      if (!on && formRef.current.sellRiskEnabled) {
+        commitField('sellEnabled', false, 'toggle', { sellRiskEnabled: false });
+      } else {
+        commitField('sellEnabled', on, 'toggle');
+      }
+    },
+    [commitField],
+  );
+
+  /**
    * 후매수 ☐자동 체크(quick-260929-vzy · P-2) — 판정은 서버다. 폼은 입력을 보내고 에코 값을 보인다.
    *
    * - 켜는 방향: 후매수 켜기와 **같은 사전 검증**(금액 · 수량 · 반등 1~100 · 매도비율)을 지난다 — 서버가 불완전한
@@ -1962,7 +1982,9 @@ export function LimitChaserForm({
                   ? commitGroupSwitch(gate, v)
                   : gate === 'buyEnabled'
                     ? commitMasterSwitch(v)
-                    : commitToggle(gate, v)
+                    : gate === 'sellEnabled'
+                      ? commitSellSwitch(v)
+                      : commitToggle(gate, v)
               }
               failureText={toggleFailureTextOf(gate)}
             />

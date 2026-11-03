@@ -224,6 +224,25 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(extra.rows.some((r) => r.kind === 'check' && r.check === 'extraBuyBurstRelease')).toBe(false);
   });
 
+  it('매도주문 카드 마지막 행 = 체크+값 「위험도」 · ☐체결 바로 아래 · id lc-sell-risk / lc-sell-risk-pct · 1~999 · 매도주문 게이트로 흐림 (quick-261103-n1s)', () => {
+    const g = LC_SELL_GROUPS.find((x) => x.slot === 'sell')!;
+    const row = g.rows.at(-1)!;
+    expect(row).toMatchObject({
+      kind: 'checkValue',
+      check: 'sellRiskEnabled',
+      checkId: 'lc-sell-risk',
+      field: 'sellRiskPct',
+      id: 'lc-sell-risk-pct',
+      label: '위험도',
+      unit: '%',
+      a11yPrefix: '매도',
+      range: { min: 1, max: 999 },
+    });
+    expect(g.rows.at(-2)).toMatchObject({ kind: 'checkValue', check: 'sellTradeQtyEnabled' });
+    expect(lcRowDimOf(g, row, values({ sellEnabled: false, sellRiskEnabled: true }))).toBe(true);
+    expect(lcRowDimOf(g, row, values({ sellEnabled: true, sellRiskEnabled: true }))).toBe(false);
+  });
+
   it('후매수 = 금액 → 최소 → 반등 → 발동잔량(0 「—」 꺼짐 · 값 있으면 정상) — 「최대」 kv 없음(gh-trade 261012)', () => {
     const items = lcSummaryOf('post-buy', values(), srv({ postBuyPhase: 1, postBuyReentryLeft: 2 }));
     expect(items).toEqual([

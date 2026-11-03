@@ -8,7 +8,7 @@
  *
  * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · ☐버스트 취소 · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
  *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 「매도주문」 카드(주문가격 · 비교가격 · 매도비율 ·
- *   매수잔량 · ○잔량추적 · ○체결 · 접기 없음 — quick-261001-gjk 로 한 카드) → 매수취소(접이식 · quick-261012-oif) → 자동매도.
+ *   매수잔량 · ○잔량추적 · ○체결 · ○위험도 · 접기 없음 — quick-261001-gjk 로 한 카드 · ○위험도 quick-261103-n1s) → 매수취소(접이식 · quick-261012-oif) → 자동매도.
  * ★ 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 스위치가 꺼져도 체결 · 잔량추적 체크는 켤 수 있다
  *   (quick-260912-u58 ④). 흐림은 행마다 판정한다(`lcRowDimOf` — 매수취소 「체결」은 자기 체크 축만).
  * ★ 체크가 달린 필드는 체크 행(D-22) — 「○ 라벨 ─ 값 ›」(`checkValue`) 또는 값 없는 「○ 라벨」(`check`).
@@ -60,6 +60,7 @@ export type LcNumField = Extract<
   | 'cancelWatchAmount'
   | 'autoSellStartCond'
   | 'autoSellRatioPct'
+  | 'sellRiskPct'
 >;
 /** 체크 필드 — 누르면 즉시 반영(D-04). 한방(`sweepEnabled`)은 Phase 24 로 선매수 카드 안 체크가 됐다. */
 export type LcBoolField = Extract<
@@ -71,6 +72,7 @@ export type LcBoolField = Extract<
   | 'cancelTradeEnabled'
   | 'cancelQtyTrackEnabled'
   | 'extraBuyBurstRelease'
+  | 'sellRiskEnabled'
 >;
 /** 상따 행 단위 — 키패드 단위 전부(0 허용 — D-30). */
 export type LcUnit = PadUnit;
@@ -463,6 +465,20 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         desc: '체결이 이 금액 이상이면 매도를 넣어요',
         a11yPrefix: '매도',
         ...LC_FIELD_RANGES.sellMinTradeAmount,
+      },
+      // ○위험도(gh-trade quick-261103-l41 · quick-261103-n1s 결정 ① · WinForms ☐체결 줄 바로 아래) — 켜는 것은 사람뿐(새 폼 ·
+      // 시딩 · 동반 규칙은 켜지 않는다). 흐림은 ☐체결과 같다(매도주문 게이트).
+      {
+        kind: 'checkValue',
+        check: 'sellRiskEnabled',
+        checkId: 'lc-sell-risk',
+        field: 'sellRiskPct',
+        id: 'lc-sell-risk-pct',
+        label: '위험도',
+        unit: '%',
+        desc: '상한가 거래량이 상한가 매수잔량의 이 비율 이상이면 매수 미체결을 모두 취소하고 매도해요',
+        a11yPrefix: '매도',
+        ...LC_FIELD_RANGES.sellRiskPct,
       },
     ],
   },

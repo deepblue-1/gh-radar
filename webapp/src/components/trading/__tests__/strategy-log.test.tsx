@@ -265,6 +265,19 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
     expect(strategyLogLine(a, b) ?? '').not.toContain('서버 반영 완료');
   });
 
+  it('quick-261103-n1s — ☐위험도 true → false(서버 발동 · 매도 송신 등 런타임 OFF)만 바뀐 에코는 줄이 없다(「서버 반영 완료」 아님)', () => {
+    const a = at({ sellEnabled: true, sellRiskEnabled: true, sellRiskPct: 80 });
+    const b = { ...a, sellRiskEnabled: false };
+    expect(limitChaserValuesChanged(a, b)).toBe(false);
+    expect(strategyLogLine(a, b)).toBeNull();
+  });
+
+  it('quick-261103-n1s — 위험도 기준 % 만 바뀐 에코(80 → 120)는 설정값 변경이라 「서버 반영 완료」', () => {
+    const a = at({ sellEnabled: true, sellRiskPct: 80 });
+    expect(limitChaserValuesChanged(a, { ...a, sellRiskPct: 120 })).toBe(true);
+    expect(strategyLogLine(a, { ...a, sellRiskPct: 120 })).toBe('서버 반영 완료');
+  });
+
   it.each([
     ['sellOrderQty', { sellOrderQty: 42 }],
     ['sellQtyTrackBaseline', { sellQtyTrackBaseline: 9_000 }],
