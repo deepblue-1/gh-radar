@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: e96aef6e
 from_branch: master
 date: 2026-11-03
 fbs_sync_marker: 681fb854
-done_commit:
+done_commit: 10701459
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -61,3 +61,19 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으면 「없음」).
 
 웹 상따 화면·기본설정에도 ☐위험도 [N]% 를 둘지(둔다면 schema 8 파생·비트 52·53 규약 위와 같다).
+
+## 처리 (gh-radar quick-261103-n1s · 2026-11-03)
+
+커밋:
+
+- `ce06f11e` feat(relay,shared): 생성물 재동기화(마커 e96aef6e — StockDMA.fbs · set-limit-chaser.ts · user-settings.ts 3개만) · shared 비트 표 54행(52 `sell_risk_enabled` · 53 `sell_risk_pct`, gh-trade `LimitChaserChangeMask.h` 대조 초록) ·
+  `lcBuy3SchemaOf` 8(앞 일곱 조건 + `sellRiskEnabled`·`sellRiskPct` 둘 다) · 미달이면 7 이하 + 두 필드 미적재 + 경고 · 에코 파서 · UserSettings 42 `sell_risk_pct`(값 있을 때만) · 84 수신.
+- `b1c076b7` feat(webapp): 상따 매도주문 카드 ☐체결 아래 「☐ 위험도 [N]%」(1~999) · 켜는 것은 사람뿐 · 매도주문 끄면 같은 제출로 함께 끔(실패 시 함께 롤백) · 에코 = 서버 런타임 값.
+- `25da7229` feat(webapp,shared): 상한가 특징 표 매도 SOR 「위험도(합) N%」(KRX+NXT 85 있는 것만 합산 — WinForms D-07 동형) · /me 「매도」 묶음 「위험도 기준」(84 1~999 아니면 80 표시 · 42 미적재) · SellRisk 문구 잠금 테스트.
+- `10701459` fix(webapp): 매도주문 Tab 순서 테스트에 새 값 행.
+
+질문 답:
+
+1. **예, 웹도 둔다(WinForms 동형).** 위 커밋 그대로. 54 `SellRisk` · 전략 이벤트(kind 6 group 4 · kind 7 cancel_reason 2)는 기존 매도 · 이탈 매도 줄로 그려져 웹 변경 없음(잠금 테스트만).
+
+배포: gh-trade 서버 배포 뒤 relay → webapp(push = 프로덕션) 순서. DB 마이그레이션 없음.

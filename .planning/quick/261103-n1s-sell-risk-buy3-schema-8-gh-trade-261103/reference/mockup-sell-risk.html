@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>상따 ☐위험도 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+/* globals.css 토큰 — 라이트 / 다크 (mockup-sor.html 과 같은 값) */
+:root {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --primary: #3182f6; --group-bg: #f9fafb; --switch-off: #d1d6db; --up: #f04452; --down: #3182f6;
+  --page: #eef0f3; --nav: #ffffff; --hair: #e5e8eb; --muted: #f2f4f6;
+}
+:root[data-theme="dark"] {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted-fg: #9e9e9e; --faint: #636363;
+  --primary: #3485fa; --group-bg: #1a1a1a; --switch-off: #4e4e4e; --up: #f04251; --down: #3485fa;
+  --page: #050505; --nav: #111; --hair: #2a2a2a; --muted: #1f1f1f;
+}
+body { background: var(--page); color: var(--fg); font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; }
+#nav { position: sticky; top: 0; z-index: 9; background: var(--nav); border-bottom: 1px solid var(--hair); padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: var(--muted-fg); font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: var(--group-bg); color: var(--fg-2); border: 1px solid var(--hair); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+#nav button.act { background: var(--up); color: #fff; border-color: var(--up); }
+#desc { flex-basis: 100%; color: var(--muted-fg); font-size: 12.5px; line-height: 1.6; }
+#desc b { color: var(--fg); }
+#stage { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 20px 16px 60px; }
+.variant { width: 100%; max-width: 720px; }
+.variant h2 { font-size: 15px; margin: 0 0 4px; }
+.variant p.why { font-size: 12.5px; color: var(--muted-fg); margin: 0 0 10px; line-height: 1.55; }
+.screen { background: var(--bg); border-radius: 14px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; box-shadow: 0 0 0 1px var(--hair); }
+.screen.narrow { grid-template-columns: 1fr; max-width: 360px; }
+.screen.one { grid-template-columns: 1fr; }
+.col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.colhead { font-size: 12px; color: var(--muted-fg); padding: 0 4px; }
+.group { background: var(--group-bg); border-radius: 16px; padding: 10px 10px 4px; min-width: 0; }
+.ghead { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 2px 2px; }
+.gtitle { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.gtitle .st { font-size: 12px; font-weight: 400; color: var(--muted-fg); margin-left: 4px; white-space: nowrap; }
+.gtitle .st.on { color: var(--primary); }
+.switch { position: relative; width: 40px; height: 24px; border-radius: 999px; background: var(--switch-off); flex: none; cursor: pointer; border: 0; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch.on { background: var(--primary); }
+.switch.on::after { transform: translateX(16px); }
+.hcheck { display: flex; align-items: center; gap: 4px; min-height: 32px; margin-left: -8px; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; white-space: nowrap; }
+.circle { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--switch-off); display: flex; align-items: center; justify-content: center; flex: none; }
+.circle.on { border-color: var(--primary); background: var(--primary); }
+.circle.on::after { content: ''; width: 9px; height: 5px; border: solid #fff; border-width: 0 0 2.5px 2.5px; transform: translateY(-1px) rotate(-45deg); }
+.hcheck .lb { font-size: 13px; font-weight: 500; color: var(--muted-fg); }
+.hcheck.on .lb { color: var(--fg); }
+.rows.dim { opacity: .45; }
+.row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 4px; gap: 6px; }
+.row .k { font-size: 14px; color: var(--muted-fg); white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.row .k.ck { cursor: pointer; }
+.row.on .k { color: var(--fg-2); }
+.row .v { font-size: 15px; font-weight: 500; color: var(--fg-2); white-space: nowrap; }
+.row .v::after { content: ' ›'; color: var(--faint); }
+.row.new { box-shadow: inset 0 0 0 1.5px var(--primary); border-radius: 10px; }
+.row.off .v { color: var(--faint); }
+.toast { font-size: 12px; color: var(--up); padding: 2px 6px 6px; }
+/* 85 상한가 특징 표 */
+.lf { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--bg); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px var(--hair); }
+.lf th { width: 44px; background: var(--muted); font-size: 11px; font-weight: 600; color: var(--muted-fg); text-align: left; padding: 0 8px; }
+.lf td { font-size: 12px; color: var(--fg-2); padding: 6px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf tr + tr { border-top: 1px solid var(--hair); }
+.lf td.new { color: var(--primary); font-weight: 600; }
+/* /me 기본설정 */
+.me { background: var(--bg); border-radius: 14px; padding: 16px; box-shadow: 0 0 0 1px var(--hair); display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.me.narrow { grid-template-columns: 1fr; max-width: 360px; }
+.me h3 { font-size: 13px; color: var(--muted-fg); font-weight: 600; margin: 0 0 4px; }
+.me .row { padding: 0; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">테마</span><button data-theme="light" class="on">라이트</button><button data-theme="dark">다크</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="wide" class="on">2열(≥685)</button><button data-w="narrow">폰 1열(344)</button></div>
+  <div class="g"><span class="l">서버 시뮬</span><button id="fire" class="act">위험도 발동(서버가 끔)</button></div>
+  <div id="desc">
+    ☐위험도를 눌러 켜 보세요. 그다음 <b>매도주문 스위치를 끄면 ☐위험도도 같은 제출로 꺼집니다</b>(켤 때는 같이 켜지지 않음 — 위험도는 사람이 직접 켭니다).
+    「위험도 발동」은 서버가 매도를 내고 위험도를 OFF 로 내린 에코를 흉내 냅니다. <b>매도 ○SOR</b> 을 켜면 상한가 특징 표의 위험도 칸이 KRX+NXT 합산 「위험도(합)」 으로 바뀝니다.
+    파란 테두리 = 새로 생기는 자리.
+  </div>
+</div>
+<div id="stage"></div>
+<script>
+const S = { sell: true, risk: false, pct: 80, sor: false, fired: false, w: 'wide' };
+const circle = (on) => `<span class="circle ${on ? 'on' : ''}"></span>`;
+function act(k) {
+  S.fired = false;
+  if (k === 'sell') { S.sell = !S.sell; if (!S.sell) S.risk = false; }
+  if (k === 'risk') S.risk = !S.risk;
+  if (k === 'sor') S.sor = !S.sor;
+  render();
+}
+function valRow(k, v) { return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+function chkRow(label, on, v, extra = '', onclick = '') {
+  return `<div class="row ${on ? 'on' : 'off'} ${extra}"><span class="k ck" ${onclick}>${circle(on)}${label}</span><span class="v">${v}</span></div>`;
+}
+function sellCard() {
+  const st = S.sell ? '<span class="st on">감시 중</span>' : '<span class="st">꺼짐</span>';
+  return `<section class="group">
+    <div class="ghead"><span class="gtitle">매도주문${st}</span>
+      <button class="hcheck ${S.sor ? 'on' : ''}" onclick="act('sor')">${circle(S.sor)}<span class="lb">SOR</span></button>
+      <button class="switch ${S.sell ? 'on' : ''}" onclick="act('sell')"></button></div>
+    <div class="rows ${S.sell ? '' : 'dim'}">
+      ${valRow('주문가격', '13,000원')}${valRow('비교가격', '13,000원')}${valRow('매도비율', '100%')}${valRow('매수잔량', '5,000만')}
+      ${chkRow('잔량추적', true, '70%')}
+      ${chkRow('체결', false, '1,000만')}
+      ${chkRow('위험도', S.risk, S.pct + '%', 'new', `onclick="act('risk')"`)}
+    </div>
+    ${S.fired ? '<div class="toast">매도 1,000주 @13,000 — 위험도(상한가거래량 8,000 ÷ 상한가매수잔량 10,000 = 80% ≥ 80%)</div>' : ''}
+  </section>`;
+}
+function other(t) { return `<section class="group"><div class="ghead"><span class="gtitle">${t}</span><button class="switch"></button></div></section>`; }
+function lfTable() {
+  const risk = S.sor ? '위험도(합) 74%' : '위험도 62%';
+  return `<table class="lf"><tbody>
+    <tr><th>지금</th><td>잠김 12초</td><td>매수잔량 8.2억</td><td>상한가 거래 5.1억</td></tr>
+    <tr><th>누적</th><td>매도 3.4억</td><td>취소 0.9억</td><td class="${S.sor ? 'new' : ''}">${risk}</td></tr>
+  </tbody></table>`;
+}
+function meCard() {
+  return `<div class="me ${S.w === 'narrow' ? 'narrow' : ''}">
+    <div><h3>매수 금액 · 선매수 · 후매수</h3>${valRow('선매수 금액', '1,000만원')}${valRow('후매수 반등', '3%')}</div>
+    <div><h3>매도</h3>${valRow('매도 잔량추적', '70%')}<div class="row new"><span class="k">위험도 기준</span><span class="v">80%</span></div>
+      <h3 style="margin-top:10px">버스트 상한가</h3>${valRow('판정 비율', '70%')}</div>
+  </div>`;
+}
+function render() {
+  const narrow = S.w === 'narrow';
+  document.getElementById('stage').innerHTML = `
+    <div class="variant">
+      <h2>① 상따 화면 — 매도주문 카드 맨 아래 「☐ 위험도 [80]%」</h2>
+      <p class="why">☐잔량추적 · ☐체결과 같은 체크+값 행입니다(WinForms 도 ☐체결 줄 바로 아래 한 줄). 체크는 누르면 바로 제출되고, 값은 기존처럼 키패드/인라인 편집. 범위 1~999%. 새 창 · 새 종목은 늘 꺼진 채로 시작하고 값만 기본설정 「위험도 기준」을 씁니다.</p>
+      <div class="screen ${narrow ? 'narrow' : ''}">
+        <div class="col"><div class="colhead">매수</div>${other('매수주문')}${other('선매수')}${other('줄매수')}${other('후매수')}</div>
+        <div class="col"><div class="colhead">매도</div>${sellCard()}${other('매수취소')}${other('자동매도')}</div>
+      </div>
+    </div>
+    <div class="variant">
+      <h2>② 상한가 특징 표 — 매도 ○SOR 이면 위험도 칸 「위험도(합)」</h2>
+      <p class="why">WinForms D-07 과 같게, 매도 SOR 이 켜져 있으면 같은 종목 KRX · NXT 85 를 더한 Σ상한가 거래량 ÷ Σ상한가 매수잔량을 보입니다(서버 SOR 합산 판정과 같은 식). SOR 이 꺼져 있으면 지금 그대로.</p>
+      <div class="screen one ${narrow ? 'narrow' : ''}">${lfTable()}</div>
+    </div>
+    <div class="variant">
+      <h2>③ 기본설정(/me) 상따 — 「매도」 묶음에 「위험도 기준」 한 줄</h2>
+      <p class="why">「매도 잔량추적」 바로 아래(WinForms 기본설정과 같은 자리). 1~999%, 기본 80. 서버 84 에 값이 없으면(구 서버) 80 을 보이고 42 에는 싣지 않습니다(버스트 판정 비율과 같은 규칙).</p>
+      ${meCard()}
+    </div>`;
+}
+document.getElementById('fire').addEventListener('click', () => { if (S.risk) { S.risk = false; S.fired = true; render(); } });
+function bindGroup(attr, apply) {
+  document.querySelectorAll(`#nav button[data-${attr}]`).forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll(`#nav button[data-${attr}]`).forEach((x) => x.classList.toggle('on', x === b));
+    apply(b.dataset[attr]); render();
+  }));
+}
+bindGroup('theme', (t) => { document.documentElement.dataset.theme = t; });
+bindGroup('w', (w) => { S.w = w; });
+render();
+</script>
+</body>
+</html>
