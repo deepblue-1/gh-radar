@@ -2,7 +2,8 @@
  * tick-api — 틱 전문 뷰어 과거 경로 조회 · 요청 변환 (Phase 37 D-03 · D-08 · D-15).
  *
  * ① 원천: server `GET /api/ticks/day?d=` · `GET /api/ticks/today` · `GET /api/ticks/open?isin=&d=&ex=` ·
- *   `POST /api/ticks/convert` · `POST /api/ticks/convert/cancel`(37-07). 게이트(DMA 매핑)는 server + RPC 가 한다.
+ *   `POST /api/ticks/convert` · `POST /api/ticks/convert/cancel`(37-07) · `GET /api/ticks/own?isin=&d=&ex=`(Phase 38 —
+ *   우리 체결 · 전략 주문 이벤트 · 보조 주문 · 켜진 서버). 게이트(DMA 매핑)는 server + RPC 가 한다.
  * ② 응답은 bare 객체다(envelope 언랩 없음) · 키는 RPC 반환 그대로 snake_case(`@gh-radar/shared` tick-api 계약).
  * ③ 401 · 403 `DMA_UNMAPPED` · 429 `TICK_CONVERT_CAPPED` · 502 `TICK_CONVERT_TRIGGER_FAILED` · 503 `TICK_CONVERT_UNAVAILABLE` 는
  *   `ApiClientError`(status · code)로 올라온다 — 화면이 게이트 · 상태 카드 문구로 바꾼다.
@@ -25,6 +26,7 @@ import type {
   TickDayResponse,
   TickExchange,
   TickOpenResponse,
+  TickOwnResponse,
   TickTodayResponse,
 } from '@gh-radar/shared';
 
@@ -47,6 +49,12 @@ export function fetchTickToday(): Promise<TickTodayResponse> {
 export function fetchTickOpen(q: { isin: string; d: string; ex: TickExchange }): Promise<TickOpenResponse> {
   const params = new URLSearchParams({ isin: q.isin, d: q.d, ex: q.ex });
   return authFetch<TickOpenResponse>(`/api/ticks/open?${params.toString()}`);
+}
+
+/** 우리 체결 · 전략 주문 이벤트 · 보조 주문(Phase 38 D-14) — 가시성 · 어드민 · 켜진 서버 판정은 server RPC 안. */
+export function fetchTickOwn(q: { isin: string; d: string; ex: TickExchange }): Promise<TickOwnResponse> {
+  const params = new URLSearchParams({ isin: q.isin, d: q.d, ex: q.ex });
+  return authFetch<TickOwnResponse>(`/api/ticks/own?${params.toString()}`);
 }
 
 function postJson<T>(path: string, body: TickConvertBody): Promise<T> {

@@ -192,3 +192,77 @@ export const TICK_LIVE_HEADERS = {
   queue: "X-Tick-Queue",
   complete: "X-Tick-Complete",
 } as const;
+
+// ── 우리 주문 · 체결(Phase 38 · D-01 · D-03 · D-14) ─────────────────────────────
+
+/**
+ * `tick_own_for_user.fills[]` — 우리 체결 한 행(dma_journal_events 체결 E · exec_qty > 0).
+ * - 「우리」 = 가시 계좌(어드민은 전 계좌) ∧ 켜진 서버(dma_servers.enabled) — 판정은 RPC 안(클라 입력 없음).
+ * - `gw_time_ms` = 게이트웨이 벽시계 epoch ms(절사) — 짝짓기(`matchOwnFills`) 입력.
+ * - 배열 순서 = (gw_time, gateway, seq) — 남은 수량 차감 순서의 정본이다(바꾸지 마라).
+ * - `dma_user_id` 는 없다(T-19-08).
+ */
+export interface TickOwnFill {
+  gateway: string;
+  seq: number;
+  gw_time_ms: number;
+  account_no: string;
+  order_no: string;
+  /** 'B' | 'S' | ''(원문) */
+  side: string;
+  exec_price: number;
+  exec_qty: number;
+}
+
+/** `tick_own_for_user.events[]` — 우리 전략 주문 이벤트(dma_strategy_events kind 3 · 6 ∧ order_no 있음). 순서 = (gw_time_ms, gateway, seq). */
+export interface TickOwnEvent {
+  gateway: string;
+  seq: number;
+  gw_time_ms: number;
+  kind: number;
+  group: number;
+  account_no: string;
+  order_no: string;
+  price: number;
+  qty: number;
+  reason_code: string;
+  cond_metric: number;
+  cond_threshold: number;
+  cond_actual: number;
+  ev_kind: number;
+  ev_price: number;
+  ev_qty_before: number;
+  ev_qty_after: number;
+  ev_trade_qty: number;
+  cum_volume: number;
+}
+
+/**
+ * `tick_own_for_user.orders[]` — 보조 주문 행(dma_account_orders 신규 · 체결 있음). kind 3·6 이벤트가 없는 체결 주문의
+ * 주문 시각 보조. `created_ms` = 첫 이벤트 gw_time epoch ms(절사). 순서 = (created_at, gateway, order_no).
+ */
+export interface TickOwnOrder {
+  gateway: string;
+  account_no: string;
+  order_no: string;
+  side: string | null;
+  price: number | null;
+  qty: number | null;
+  origin: string | null;
+  created_ms: number;
+}
+
+/**
+ * `GET /api/ticks/own?isin=&d=&ex=` — 한 종목 · 하루의 우리 체결 · 주문 이벤트 · 보조 주문(RPC 1회 · jsonb 한 장).
+ * `servers` = 켜진 서버 키(sort_order 순 · 게이트웨이 키 하드코딩 0 — D-03). 짝짓기는 브라우저(틱 바이트가 거기 있다).
+ */
+export type TickOwnResponse = {
+  access: true;
+  date: string;
+  exchange: TickExchange;
+  isin: string;
+  servers: string[];
+  fills: TickOwnFill[];
+  events: TickOwnEvent[];
+  orders: TickOwnOrder[];
+};

@@ -6,6 +6,7 @@ import type {
   TickDayResponse,
   TickOpenGrid,
   TickOpenResponse,
+  TickOwnResponse,
   TickTodayResponse,
 } from "@gh-radar/shared";
 
@@ -27,6 +28,9 @@ import type { TickConvertTrigger } from "./tick-convert-trigger.js";
  *   T-19-01  RPC EXECUTE 는 service_role 전용(anon · authenticated 명시 REVOKE — 37-04).
  *   T-15-07  DB · Storage 오류 원문은 응답에 싣지 않는다(고정 문구 DB_ERROR). 원문은 `cause` 로 실어 errorHandler 가 warn 로그에만.
  *   비노출   격자 Storage 경로(`object_path`)는 응답에 싣지 않는다 — 서명 URL 만.
+ *   38 D-01  「우리 체결」 가시성(가시 계좌 · 어드민 전 계좌)은 RPC `tick_own_for_user` 안의 판정이다 — 어드민 여부는 RPC 가
+ *            `app_users.role` 로 매 요청 직접 본다(분기 인자 없음). 클라이언트 입력(쿼리 문자열)은 계좌 · 어드민을 켤 수 없다.
+ *   38 D-03  우리 체결 · 이벤트 · 보조 주문은 `dma_servers.enabled` 게이트웨이 행만 — RPC 안 조인(server 에 게이트웨이 키 하드코딩 0).
  *
  *   D-03     요청 변환은 RPC 가 `should_trigger: true` 를 준 호출에서만 Admin API `jobs:run` 을 부른다 — 같은 (날짜, 거래소)를
  *            N 명이 요청해도 Job 실행 1회(판정은 RPC 안 advisory 잠금). 상한 · 업로드 전 날짜 판정도 RPC 안이다.
@@ -155,6 +159,33 @@ export async function openTick(
     accum: (out.accum ?? null) as TickOpenResponse["accum"],
     eta_s: out.eta_s as number,
   };
+}
+
+// ── 우리 주문 · 체결 (Phase 38 · D-01 · D-03 · D-14) ─────────────────────
+
+/**
+ * 한 종목 · 하루의 우리 체결 · 전략 주문 이벤트 · 보조 주문 — RPC `tick_own_for_user` 1회.
+ * 가시성(가시 계좌 · 어드민 전 계좌)과 켜진 서버 거름은 RPC 안이다 — 여기서 행을 거르지도 짝짓지도 않는다
+ * (짝짓기는 틱 바이트가 있는 브라우저의 shared `matchOwnFills`). RPC 인자는 정확히 4개 — 어드민 · 계좌를 고르는
+ * 클라이언트 입력은 RPC 에 실리지 않는다. 캐시 없음(과거는 열 때 1회 · 당일은 사용자 클릭 때 1회).
+ */
+export async function getTickOwn(
+  supabase: SupabaseClient,
+  userId: string,
+  q: TickOpenQueryT,
+): Promise<TickOwnResponse> {
+  const { data, error } = await supabase.rpc("tick_own_for_user", {
+    p_user_id: userId,
+    p_date: q.d,
+    p_isin: q.isin,
+    p_ex: q.ex,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  const out = gate("tick_own_for_user", data);
+  for (const k of ["servers", "fills", "events", "orders"] as const) {
+    if (!Array.isArray(out[k])) throw DbError(FAIL, shapeCause(`tick_own_for_user.${k}`, out[k]));
+  }
+  return out as unknown as TickOwnResponse;
 }
 
 // ── 요청 변환 (D-03) ────────────────────────────────────────────────

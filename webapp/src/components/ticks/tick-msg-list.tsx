@@ -20,6 +20,7 @@ import {
   tailText,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
+import { ownChipOf, type OwnModel } from '@/lib/ticks/own-model';
 import { fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession, ViewOrder } from '@/lib/ticks/tick-session';
 import { useFixedWindow } from '@/lib/ticks/use-fixed-window';
@@ -39,6 +40,8 @@ import { cn } from '@/lib/utils';
  * ③ 모든 항목이 같은 높이(데스크톱 24px · 폰 22px · 한 줄 말줄임) — `useFixedWindow` 창 가상화. 커서가 바뀌면 그 행이 보이게
  *   스크롤(nearest) · 순서를 바꾸면 가운데로.
  * ④ 행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 마지막 조각. 선택 틱과 같은 주문 행은 옅은 보라 띠(스케치 019).
+ * ⑤ 우리 체결(Phase 38 D-04 · 목업 B): 짝이 붙은 A3 행은 옅은 민트 바탕(`--mine` 6% · 선택 > 우리 > 같은 주문 띠) +
+ *   내용 끝 민트 칩 「n/m」(부분 체결만 분모 · 전량이면 「n」) · 추정이면 옆에 점선 「추정」 칩. 계좌 · 주문번호는 그리지 않는다(D-02).
  */
 
 export interface TickMsgListProps {
@@ -47,6 +50,8 @@ export interface TickMsgListProps {
   onSelect: (rec: number) => void;
   mode: TickOrderMode;
   onMode: (m: TickOrderMode) => void;
+  /** 우리 체결 모델(Phase 38) — 없으면 지금과 같은 DOM. */
+  own?: OwnModel | null;
   className?: string;
 }
 
@@ -199,6 +204,10 @@ interface RowProps {
   band: boolean;
   phone: boolean;
   onSelect: (rec: number) => void;
+  /** 우리 체결 칩(ROW 만 · 원시값 — memo 유지) — 우리 수량 · 그 A3 수량 · 추정. ownOur 0 = 칩 없음. */
+  ownOur?: number;
+  ownTotal?: number;
+  ownEst?: boolean;
 }
 
 const BADGE =
@@ -209,19 +218,35 @@ function seqText(seq: number, phone: boolean): string {
   return phone ? `…${String(seq).slice(-4)}` : fmtQty(seq);
 }
 
-const MsgRow = memo(function MsgRow({ session, model, item, pos, joined, sel, band, phone, onSelect }: RowProps) {
+const MsgRow = memo(function MsgRow({
+  session,
+  model,
+  item,
+  pos,
+  joined,
+  sel,
+  band,
+  phone,
+  onSelect,
+  ownOur = 0,
+  ownTotal = 0,
+  ownEst = false,
+}: RowProps) {
   const kind = itemKindOf(item);
   const idx = itemIdxOf(item);
   const { mode } = model;
+  const ours = kind === MSG_ITEM.ROW && ownOur > 0;
   const rowCls = cn(
     GRID,
     'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t text-[11.5px]',
     joined ? 'border-t-transparent' : 'border-[var(--border-subtle)]',
     sel
       ? 'bg-[color-mix(in_oklab,var(--fg)_12%,transparent)]'
-      : band
-        ? 'bg-[color-mix(in_oklab,var(--team)_8%,transparent)]'
-        : 'hover:bg-[color-mix(in_oklab,var(--muted)_70%,transparent)]',
+      : ours
+        ? 'bg-[color-mix(in_oklab,var(--mine)_6%,transparent)]'
+        : band
+          ? 'bg-[color-mix(in_oklab,var(--team)_8%,transparent)]'
+          : 'hover:bg-[color-mix(in_oklab,var(--muted)_70%,transparent)]',
   );
 
   if (kind === MSG_ITEM.TAIL) {
@@ -296,6 +321,7 @@ const MsgRow = memo(function MsgRow({ session, model, item, pos, joined, sel, ba
       data-tag={TAG_LABEL[tag]}
       data-seq={seq >= 0 ? seq : undefined}
       data-pos={pos}
+      data-own={ours ? '1' : undefined}
       onClick={() => onSelect(rec)}
       style={railStyle(order, sel)}
       className={rowCls}
@@ -322,6 +348,19 @@ const MsgRow = memo(function MsgRow({ session, model, item, pos, joined, sel, ba
             중복
           </span>
         )}
+        {ours && (
+          <span data-slot="tick-own-chip" className={cn(CHIP, 'bg-[var(--mine-bg)] text-[var(--mine-fg)]')}>
+            {ownOur < ownTotal ? `${fmtQty(ownOur)}/${fmtQty(ownTotal)}` : fmtQty(ownOur)}
+          </span>
+        )}
+        {ours && ownEst && (
+          <span
+            data-slot="tick-own-est"
+            className={cn(CHIP, 'ml-1 border border-dashed border-[var(--mine)] bg-transparent text-[var(--mine-fg)]')}
+          >
+            추정
+          </span>
+        )}
       </span>
     </div>
   );
@@ -342,7 +381,7 @@ function joinedAt(session: TickSession, model: MsgRowsModel, k: number): boolean
   return orderAt(model.items[k - 1]!) === a;
 }
 
-export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, className }: TickMsgListProps) {
+export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = null, className }: TickMsgListProps) {
   const model = useMemo(() => buildMsgRows(session, mode), [session, mode]);
   const phone = useIsPhone();
   const rowH = phone ? ROW_H_PHONE : ROW_H_DESKTOP;
@@ -369,6 +408,7 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, classN
     const kind = itemKindOf(item);
     const idx = itemIdxOf(item);
     const oid = kind === MSG_ITEM.TAIL ? idx : session.orderOfRec[idx]!;
+    const chip = own !== null && kind === MSG_ITEM.ROW ? ownChipOf(own, idx) : null;
     rows.push(
       <MsgRow
         key={item}
@@ -381,6 +421,9 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, classN
         band={selOrder >= 0 && oid === selOrder}
         phone={phone}
         onSelect={onSelect}
+        ownOur={chip?.our}
+        ownTotal={chip?.total}
+        ownEst={chip?.est}
       />,
     );
   }

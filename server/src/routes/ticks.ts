@@ -10,6 +10,7 @@ import { logger } from "../logger.js";
 import {
   cancelTickConvert,
   getTickDay,
+  getTickOwn,
   getTickToday,
   openTick,
   requestTickConvert,
@@ -32,6 +33,9 @@ import type { TickGateCache } from "../services/tick-gate-cache.js";
  * - GET  /day?d=YYYYMMDD           : 그 날짜 격자 목록 + 요청 상태(`TickDayResponse`). `d` 생략 = 최신 격자 날짜.
  * - GET  /today                    : 오늘 매집감지 등록 ∪ +15% 목록 + `live`(당일 경로 결선 여부 · `TickTodayResponse`).
  * - GET  /open?isin=&d=&ex=        : 격자 서명 URL · 메타 · 요청 상태(stale) · 매집감지 누적 · eta(`TickOpenResponse`).
+ * - GET  /own?isin=&d=&ex=         : 우리 체결 · 전략 주문 이벤트 · 보조 주문 · 켜진 서버(`TickOwnResponse` · Phase 38 D-14).
+ *                                    RPC `tick_own_for_user` 1회 · 가시성 · 어드민 · 켜진 서버는 RPC 안 · `Cache-Control: no-store`
+ *                                    · server 캐시 없음(과거 = 열 때 1회 · 당일 = 사용자 클릭 때 1회).
  * - POST /convert {isin, d, ex}     : 요청 변환 — RPC 가 should_trigger 를 준 호출에서만 Job 실행(`TickConvertResponse`).
  *                                    상한 429 `TICK_CONVERT_CAPPED` · 실행 실패 502 `TICK_CONVERT_TRIGGER_FAILED` ·
  *                                    `TICK_CONVERT_JOB` 미설정 503 `TICK_CONVERT_UNAVAILABLE`.
@@ -152,6 +156,17 @@ ticksRouter.get("/open", requireAuth(), async (req, res, next) => {
     const q = parseOr400(TickOpenQuery, req.query);
     const supabase = req.app.locals.supabase as SupabaseClient;
     res.json(await openTick(supabase, req.userId!, q));
+  } catch (e) {
+    next(e);
+  }
+});
+
+ticksRouter.get("/own", requireAuth(), async (req, res, next) => {
+  try {
+    const q = parseOr400(TickOpenQuery, req.query);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    res.set("Cache-Control", "no-store");
+    res.json(await getTickOwn(supabase, req.userId!, q));
   } catch (e) {
     next(e);
   }

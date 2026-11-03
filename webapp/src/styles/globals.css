@@ -82,6 +82,11 @@
      서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) · 면은 라이트 purple50 / 다크 purple500 rgba .16 (Phase 33). */
   --team: #a234c7;
   --team-bg: #f9f0fc;
+  /* 우리(Phase 38) 축 — 팀(--team) · 가격 방향 · VI 와 서로 대체하지 마라. 선 · 도형 = --mine(흰 바탕 3.38:1 · 비텍스트 3:1 충족) ·
+     글자 = --mine-fg(흰 바탕 5.03:1 · --mine-bg 위 4.52:1) · hex/rgba 만(차트가 oklch 거부 · 목업 B 사본 값). */
+  --mine: #0f9d8a;
+  --mine-bg: #e3f7f3;
+  --mine-fg: #0b7d6e;
   /* 매집 상태 축(quick-261018-rfy · 작업대 「매집」 패널) — 매도중 주황 · 이월 노랑. 가격 방향(--up/--down) · LED · 팀(--team) 축과
      서로 대체하지 마라(매집중 배지는 --team). 라이트 글자/면 대비 4.77:1 · 4.67:1(AA) · 다크는 목업 값. */
   --accum-sell: #c2410c;
@@ -261,6 +266,10 @@
      서로 대체하지 마라. TDS purple 라이트 500 / 다크 600(대비 AA) — 다크 purple500 #ae3dd1 은 --card 위 3.8:1 이라 600. */
   --team: #c353e5;
   --team-bg: rgba(174, 61, 209, 0.16);
+  /* 우리(Phase 38) 축 다크 — 의미는 `:root` 쪽 주석. 다크 --mine 은 글자로도 충분(약 9.5:1)이라 --mine-fg 같은 값. */
+  --mine: #2fd3bb;
+  --mine-bg: rgba(47, 211, 187, 0.16);
+  --mine-fg: #2fd3bb;
   /* 매집 상태 축 다크 — 의미는 `:root` 쪽 주석. */
   --accum-sell: #ff9f43;
   --accum-sell-bg: rgba(255, 159, 67, 0.16);

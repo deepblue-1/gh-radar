@@ -2,8 +2,12 @@ import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 
+import { a3TimeMs, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
+
+import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
+import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickOrderMode } from '@/lib/ticks/use-tick-cursor';
-import { inversionSession } from '@/test-fixtures/tick-synth';
+import { a3Msg, inversionSession, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
 import { TickMsgList } from '../tick-msg-list';
 
@@ -96,5 +100,87 @@ describe('TickMsgList — 뒤집힘 3', () => {
     expect(cursor()).toBe(5);
     fireEvent.click(container.querySelector('[data-slot="tick-msg-tail"]')!);
     expect(cursor()).toBe(4);
+  });
+});
+
+/**
+ * Phase 38 Plan 01 — 우리 체결 칩(D-04 · D-15). 세션 A3 열 + `GET /api/ticks/own` 응답 → `buildOwnModel`(shared
+ * `matchOwnFills`) → 전문 목록 A3 행 민트 바탕(`data-own="1"`) + 「n/m」 칩 · 추정 칩. own 이 없으면 지금과 같은 DOM.
+ */
+describe('TickMsgList — 우리 체결 칩(Phase 38)', () => {
+  // rec 0~2 = A3 세 행(체결 시각 13:00:00.100 · .200 · .300)
+  const ownSession = synthSession([
+    [100.5, a3Msg({ seq: 201, bs: '2', px: 16400, qty: 1064, time: '130000100000' })],
+    [200.5, a3Msg({ seq: 202, bs: '2', px: 16400, qty: 500, time: '130000200000' })],
+    [300.5, a3Msg({ seq: 203, bs: '1', px: 16450, qty: 10, time: '130000300000' })],
+  ]);
+
+  function fill(seq: number, gwMs: number, px: number, qty: number): TickOwnFill {
+    return {
+      gateway: 'KB120',
+      seq,
+      gw_time_ms: gwMs,
+      account_no: '1234563801',
+      order_no: `00003801${seq}`,
+      side: 'B',
+      exec_price: px,
+      exec_qty: qty,
+    };
+  }
+  function ownOf(fills: TickOwnFill[]): TickOwnResponse {
+    return {
+      access: true,
+      date: SYNTH_DATE,
+      exchange: 'KRX',
+      isin: SYNTH_ISIN,
+      servers: ['KB120', 'KYOBO119'],
+      fills,
+      events: [],
+      orders: [],
+    };
+  }
+  const tA3 = (sess: TickSession, j: number) => a3TimeMs(sess.index, sess.a3, j);
+
+  function render1(sess: TickSession, own: OwnModel | null) {
+    return render(
+      <TickMsgList session={sess} cursorRec={-1} onSelect={() => {}} mode="exchange" onMode={() => {}} own={own} />,
+    );
+  }
+  const chipOf = (c: HTMLElement, rec: number) =>
+    rowOf(c, rec)?.querySelector('[data-slot="tick-own-chip"]')?.textContent ?? null;
+
+  it('부분 체결 「300/1,064」 · 전량 「500」 · 짝 없는 A3 칩 없음 · data-own 2행', () => {
+    const own = buildOwnModel(
+      ownSession,
+      ownOf([fill(1, tA3(ownSession, 0) + 30, 16400, 300), fill(2, tA3(ownSession, 1) + 10, 16400, 500)]),
+    );
+    const { container } = render1(ownSession, own);
+    expect(chipOf(container, 0)).toBe('300/1,064');
+    expect(chipOf(container, 1)).toBe('500');
+    expect(chipOf(container, 2)).toBeNull();
+    expect(container.querySelectorAll('[data-own="1"]')).toHaveLength(2);
+    expect(rowOf(container, 0)?.getAttribute('data-own')).toBe('1');
+    expect(container.querySelector('[data-slot="tick-own-est"]')).toBeNull();
+    // 계좌 · 주문번호 글자는 행에 없다(D-02)
+    expect(container.textContent).not.toContain('1234563801');
+  });
+
+  it('own null — 칩 · data-own 0(지금과 같은 DOM)', () => {
+    const { container } = render1(ownSession, null);
+    expect(container.querySelector('[data-slot="tick-own-chip"]')).toBeNull();
+    expect(container.querySelector('[data-own]')).toBeNull();
+  });
+
+  it('같은 가격 · 같은 수량 A3 둘이 gw 기준 15ms · 10ms — 가까운 쪽에 붙고 점선 「추정」 칩', () => {
+    const sess = synthSession([
+      [100.5, a3Msg({ seq: 301, bs: '2', px: 16400, qty: 100, time: '130000100000' })],
+      [105.5, a3Msg({ seq: 302, bs: '1', px: 16400, qty: 100, time: '130000105000' })],
+    ]);
+    const own = buildOwnModel(sess, ownOf([fill(1, tA3(sess, 0) + 15, 16400, 100)]));
+    expect(own.fills[0]!.est).toBe(true);
+    const { container } = render1(sess, own);
+    expect(chipOf(container, 0)).toBeNull();
+    expect(chipOf(container, 1)).toBe('100');
+    expect(rowOf(container, 1)?.querySelector('[data-slot="tick-own-est"]')?.textContent).toBe('추정');
   });
 });

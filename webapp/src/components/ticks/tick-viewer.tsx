@@ -1,13 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
+import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
 import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
+import { useTickOwn } from '@/lib/ticks/use-tick-own';
 import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
@@ -34,6 +36,10 @@ import { TickTeamPanel } from './tick-team-panel';
  *   따라간다(`useTickCursor` ⑤) · 끝 여부를 `onAtEnd` 로 올린다 · 증분은 머리 「최신 받기」 버튼으로만(2026-11-03 — 자동 갱신 없음).
  *   과거 틱을 보는 동안 받은 레코드가 있으면 전문 목록 끝에 「새 틱 n건 · 끝으로」 배지. 배지 · 「끝으로」 = 커서 끝 + `onGoEnd`
  *   (새 틱 수 0 · 요청 없음).
+ * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState)` 가 `GET /api/ticks/own` 을 한 번 부르고
+ *   (자동 타이머 없음), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
+ *   넣지 않는다). 모델은 `PaneCtx.own` 으로 칸에 내려가 전문 목록이 우리 체결 A3 행에 민트 칩을 그린다. 조회가 실패하면
+ *   우리 층만 없고 뷰어는 지금과 같다.
  */
 
 export interface TickViewerProps {
@@ -72,6 +78,8 @@ interface PaneCtx {
   listingShares: number | null;
   /** 당일 과거 틱 배지(전문 목록 끝) — 끝이면 null. */
   badge: ReactNode;
+  /** 우리 체결 모델(Phase 38) — 조회 전 · 실패면 null. */
+  own: OwnModel | null;
 }
 
 interface HtsPane {
@@ -98,7 +106,7 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'msg',
     label: '전문',
     desktop: 'min-[641px]:flex-[999_1_480px]',
-    render: ({ session, cursor, badge }) => (
+    render: ({ session, cursor, badge, own }) => (
       <div className="relative">
         <TickMsgList
           session={session}
@@ -106,6 +114,7 @@ const HTS_PANES: readonly HtsPane[] = [
           onSelect={cursor.jumpToRec}
           mode={cursor.mode}
           onMode={cursor.setMode}
+          own={own}
           className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
         />
         {badge}
@@ -144,6 +153,8 @@ export function TickViewer({
   const { rec, atEnd } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
+  const own = useTickOwn(urlState);
+  const ownModel = useMemo(() => (own.own ? buildOwnModel(session, own.own) : null), [session, own.own]);
 
   const time = rec >= 0 ? fmtTickTime(session.index.recvNs[rec]!) : '';
   const seq = rec >= 0 && session.index.seq[rec]! >= 0 ? session.index.seq[rec]! : null;
@@ -177,7 +188,7 @@ export function TickViewer({
       </button>
     ) : null;
 
-  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, listingShares, badge };
+  const ctx: PaneCtx = { session, cursor, unit, setUnit, accum, isToday, listingShares, badge, own: ownModel };
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
