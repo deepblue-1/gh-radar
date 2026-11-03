@@ -148,6 +148,28 @@ export class TickCache {
     return out;
   }
 
+  /**
+   * offset 에서 시작해 `maxBytes` 안에 드는 **마지막 청크 경계**(WR-32 — 한 응답 상한). 청크 = 119 응답 하나 = zstd 프레임
+   * 하나라 경계에서 끊어야 받는 쪽이 온전한 프레임만 푼다. 첫 청크 하나는 상한을 넘어도 싣는다(계약상 한 프레임 ≤ 16MB)
+   * — 그래서 한 응답은 max(maxBytes, 한 프레임) 를 넘지 않는다. 끝이면 entry.size.
+   */
+  boundedEnd(key: string, offset: number, maxBytes: number): number {
+    const e = this.entries.get(key);
+    if (!e) return 0;
+    if (offset >= e.size) return e.size;
+    let pos = 0;
+    let stop = -1;
+    for (const c of e.chunks) {
+      const cEnd = pos + c.length;
+      pos = cEnd;
+      if (cEnd <= offset) continue;
+      if (stop < 0) stop = cEnd; // 첫 청크(또는 offset 이 걸친 청크의 끝)는 언제나
+      else if (cEnd - offset <= maxBytes) stop = cEnd;
+      else break;
+    }
+    return stop < 0 ? e.size : stop;
+  }
+
   /** offset 이후 바이트(최대 `end` 까지)를 한 버퍼로(복사 — 시험 · 작은 응답용. HTTP 응답은 `parts` 를 쓴다). */
   slice(key: string, offset: number, end?: number): Buffer {
     return Buffer.concat(this.parts(key, offset, end));

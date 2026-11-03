@@ -12,7 +12,7 @@ import { TickCache, makeKey } from "../src/cache.js";
 import { kstDayStartNs, kstMs, kstToday } from "../src/config.js";
 import { runIndexer, sshArgv, type IndexerOptions } from "../src/indexer.js";
 import { Poller } from "../src/poller.js";
-import { createTickgwServer } from "../src/server.js";
+import { LIVE_MAX_BYTES, createTickgwServer } from "../src/server.js";
 
 const FAKE = fileURLToPath(new URL("./fixtures/fake-indexer.mjs", import.meta.url));
 const SECRET = "s".repeat(40);
@@ -335,6 +335,43 @@ function get(path: string, q: Record<string, string>, secret: string | null = SE
   for (const [k, v] of Object.entries(q)) u.searchParams.set(k, v);
   return fetch(u, { headers: secret === null ? {} : { "X-Tickgw-Secret": secret } });
 }
+
+describe("live 한 응답 상한(WR-32) — 청크(프레임) 경계 · LIVE_MAX_BYTES · X-Tick-More", () => {
+  it("남은 바이트가 상한을 넘으면 청크 경계에서 끊고 More:true · ready 여도 State:loading · 이어 받으면 끝까지", async () => {
+    const r = await bootFake(at("1000"));
+    const first = await get("/internal/ticks/live", { isin: ISIN, ex: "KRX" });
+    const epoch = first.headers.get("X-Tick-Epoch")!;
+    await first.arrayBuffer();
+    await r.drain(2);
+    const key = makeKey(ISIN, "KRX", DATE);
+    const base0 = r.cache.get(key)!.size;
+    const MiB = 1024 * 1024;
+    const meta = { records: 1, firstRecvNs: null, lastRecvNs: null };
+    for (const n of [3, 3, 3, 10]) r.cache.append(key, Buffer.alloc(n * MiB, n), meta);
+    const total = r.cache.get(key)!.size;
+
+    const ends: number[] = [];
+    const states: (string | null)[] = [];
+    const mores: (string | null)[] = [];
+    let offset = 0;
+    let got = 0;
+    for (let i = 0; i < 10 && offset < total; i++) {
+      const x = await get("/internal/ticks/live", { isin: ISIN, ex: "KRX", epoch, offset: String(offset) });
+      const body = Buffer.from(await x.arrayBuffer());
+      expect(body.length).toBeLessThanOrEqual(Math.max(LIVE_MAX_BYTES, 10 * MiB));
+      got += body.length;
+      offset = Number(x.headers.get("X-Tick-Offset-End"));
+      ends.push(offset);
+      states.push(x.headers.get("X-Tick-State"));
+      mores.push(x.headers.get("X-Tick-More"));
+    }
+    // base0(작은 청크) + 3 + 3 ≤ 8MiB → 첫 응답 · 그다음 3 · 그다음 10MiB 한 청크(상한보다 커도 프레임을 가르지 않는다)
+    expect(ends).toEqual([base0 + 6 * MiB, base0 + 9 * MiB, total]);
+    expect(mores).toEqual(["true", "true", "false"]);
+    expect(states).toEqual(["loading", "loading", "ready"]);
+    expect(got).toBe(total);
+  });
+});
 
 describe("유휴 삭제 뒤 다시 부르면 새 epoch 로 처음부터", () => {
   it("지운 키 → 옛 epoch 409 · 새 epoch · 08:00 부터 다시", async () => {
