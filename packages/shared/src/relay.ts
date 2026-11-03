@@ -117,7 +117,7 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 70필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 72필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
  *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
@@ -127,7 +127,8 @@ export type RelayLcWatchSide = "0" | "1";
  *  58 → 59: `extraBuyBurstRelease`(quick-261003-rc4).
  *  59 → 67: 자동매도 8필드(Phase 27 · gh-trade 2404509b) — 양방향 4(vtable 140~146) + S→C 전용 4(148~154).
  *  67 → 68: +1 extraBuyAuto(quick-261011-0yb · gh-trade 8c7d4c5c vtable 156).
- *  68 → 70: +2 sorBuy · sorSell(quick-261101-okd · gh-trade Phase 45 21d692a1 vtable 176 · 178).)
+ *  68 → 70: +2 sorBuy · sorSell(quick-261101-okd · gh-trade Phase 45 21d692a1 vtable 176 · 178).
+ *  70 → 72: +2 sellRiskEnabled · sellRiskPct(quick-261103-n1s · gh-trade quick-261103-l41 e96aef6e vtable 180 · 182).)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
@@ -359,6 +360,19 @@ export type RelayLimitChaser = {
    */
   sorSell: boolean;
   /**
+   * 상따 매도 ☐위험도(양방향 · gh-trade quick-261103-l41 · e96aef6e vtable 180 · quick-261103-n1s). ON 이면 서버가 「상한가 거래량 ×
+   * 100 ≥ `sellRiskPct` × 상한가 매수잔량」(SOR 매도면 KRX+NXT 합산)일 때 매수 미체결을 모두 취소하고 매도한다. 에코는 **서버
+   * 런타임 값**이다 — 발동 · 매도 송신 · 상한가 미만 체결 · 매도 OFF · 일괄매도 · 재기동이 OFF 로 내리고, **켜는 것은 사람뿐**이다.
+   * 구서버 에코(슬롯 부재) = false. 요청에는 relay 가 `buy3_schema` 8 과 함께 싣는다(서버는 8 이상에서만 읽고 7 이하는 서버 값
+   * 유지). **게이트가 아니다** — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
+   */
+  sellRiskEnabled: boolean;
+  /**
+   * ☐위험도 기준 %(양방향 · vtable 182 · quick-261103-n1s). 1~999 · 기본 80(`SELL_RISK_PCT_DEFAULT` · 84 `sellRiskPct`). 에코는
+   * **설정값**이다. 0 = 구서버(슬롯 부재) — 웹은 칸을 유지한다. 그 밖 규율은 `sellRiskEnabled` 와 같다(요청은 schema 8 만).
+   */
+  sellRiskPct: number;
+  /**
    * 후매수 체크(양방향). 에코는 `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진` 으로 서버가 이미 접어 보낸다
    * (gh-trade D-31 · D-32). relay · 웹은 다시 접지 않는다(D-21). 무장 여부는 `postBuyPhase`.
    */
@@ -519,7 +533,8 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
 
 /**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드
- * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드 + extra_buy_auto = 50필드 + sor_buy · sor_sell = 52필드**.
+ * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드 + extra_buy_auto = 50필드 + sor_buy · sor_sell = 52필드
+ * + sell_risk_enabled · sell_risk_pct = 54필드**.
  *
  * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
  *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
@@ -539,6 +554,11 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
  *    토글이 서버에 닿지 않는다. 7 로 올릴 때는 반드시 에코값을 실어야 한다(부재 = false 로 읽혀 켠 SOR 이 꺼질 수 있다 —
  *    다만 7 은 6 의 마스크 규칙을 포함하므로 비트 50 · 51 이 없으면 서버가 반영하지 않는다). 양방향이라
  *    `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
+ *
+ * ⚠️ **`sellRiskEnabled` · `sellRiskPct` 도 새 클라 입력에서 필수다**(quick-261103-n1s · gh-trade quick-261103-l41). relay 가 둘
+ *    다의 **존재**와 앞 조건 전부(`changeMask` · `sorBuy` · `sorSell` 포함)로 `buy3_schema` 8 을 파생한다 — 하나라도 빠지면 7 이하로
+ *    싣고 서버가 위험도 값을 유지해 체크가 서버에 닿지 않는다. 8 은 7 의 마스크 규칙을 포함하므로 비트 52 · 53 이 없는 제출은
+ *    서버가 위험도를 바꾸지 않는다. 양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
  *
  * ⚠️ **자동매도 4필드(`autoSellEnabled` · `autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)도 새 클라
  *    입력에서 필수다**(Phase 27). relay 가 넷의 **존재**로 `buy3_schema` 4 를 파생한다 — 하나라도 빠지면 3 으로
@@ -805,6 +825,7 @@ export type RelayAutoSellCmdMsg = {
  * 0 · false 로 지우려면 실어야 한다).
  * `burstRatioPct`(quick-261102-epl · gh-trade quick-261101-t7c)는 **반대**다 — 84 값이 1~100 일 때만 싣고 0(구 서버 · 모름)이면
  * 키를 싣지 않는다(부재 = 서버 저장값 유지 · 0 은 서버가 범위 밖으로 42 전체를 거부한다).
+ * `sellRiskPct`(quick-261103-n1s · gh-trade quick-261103-l41)도 `burstRatioPct` 와 같다 — 84 값이 1~999 일 때만 싣고 0 이면 키 없음.
  *
  * 조립 기준은 서버 캐시(84 `user.settings`) + 바꾼 1칸이다(화면 로컬 값 금지 · T-20-03 동형). 범위는
  * `USER_SETTINGS_RANGES` 하나 — 밖이면 relay zod 가 소켓을 닫으므로(4400) 웹이 같은 범위로 먼저 막는다.
@@ -1537,8 +1558,9 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
- * 사용자 설정 14값 + 선택 1값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08 ·
- * quick-261012-u04 — 선매수 2필드 gh-trade 261012 · quick-261102-epl — 선택 `burstRatioPct` gh-trade quick-261101-t7c).
+ * 사용자 설정 14값 + 선택 2값 (42/84 `UserSettings` 본문 · Phase 27 — gh-trade 2404509b · Phase 31 — 후매수 최소 Phase 32 D-08 ·
+ * quick-261012-u04 — 선매수 2필드 gh-trade 261012 · quick-261102-epl — 선택 `burstRatioPct` gh-trade quick-261101-t7c ·
+ * quick-261103-n1s — 선택 `sellRiskPct` gh-trade quick-261103-l41).
  * 사용자(DMA 로그인 id)별 상따 기본설정이다. 범위는 fbs 주석 그대로(서버가 42 에서 범위 밖 하나면 요청 전체를 거부한다).
  * 금액 4칸은 **단위 만원**(C# `LimitChaserDefaults` 와 같다).
  */
@@ -1588,11 +1610,19 @@ export type RelayUserSettingsValues = {
    *    아니라 **부재**로 보낸다. 웹은 84 값이 1~100 일 때만 싣는다.
    */
   burstRatioPct?: number;
+  /**
+   * 상따 ☐위험도 기준 % · 1~999 · 기본 80(`SELL_RISK_PCT_DEFAULT`) · fbs vtable 36 (`= null` · ushort · gh-trade quick-261103-l41 ·
+   * quick-261103-n1s). 상따 새 창 ☐위험도 값 칸의 초기값이다(체크는 늘 꺼짐 — 켜는 것은 사람뿐).
+   *
+   * ⚠️ **선택**인 이유는 `burstRatioPct` 와 같다: 42 부재 = 서버 저장값 유지이고, 0 은 서버가 범위 밖으로 **요청 전체를 거부**한다
+   *    — 모르는 값은 부재로 보낸다. 웹은 84 값이 1~999 일 때만 싣는다.
+   */
+  sellRiskPct?: number;
 };
 
 /**
  * `RelayUserSettingsValues` 중 값이 숫자인 키 — 범위 표(`USER_SETTINGS_RANGES`) · 숫자 칸 키의 정본(파생 · 손 목록 금지).
- * 선택 숫자 키(`burstRatioPct?`)도 포함한다 — `-?` 로 선택성을 벗기고 `NonNullable` 로 `undefined` 를 뺀 뒤 판정한다.
+ * 선택 숫자 키(`burstRatioPct?` · `sellRiskPct?`)도 포함한다 — `-?` 로 선택성을 벗기고 `NonNullable` 로 `undefined` 를 뺀 뒤 판정한다.
  */
 export type UserSettingsNumericKey = {
   [K in keyof RelayUserSettingsValues]-?: NonNullable<RelayUserSettingsValues[K]> extends number ? K : never;
@@ -1615,6 +1645,8 @@ export type UserSettingsNumericKey = {
  * `burstRatioPct` 도 **선택**이다(quick-261102-epl) — 새 relay 는 늘 싣고 84 슬롯 부재(구 서버) = 0, 키 부재는 이 동기화 이전
  * relay 뿐이다. 웹은 0 · 부재 · 범위 밖을 「모름」 으로 읽어 **표시는 내장 70 · 42 에는 싣지 않는다**(「불러오는 중」 으로 두지
  * 않는다 · gh-trade 「부재 = 0 → 클라 내장 70」).
+ *
+ * `sellRiskPct` 도 같은 규칙이다(quick-261103-n1s) — 84 슬롯 부재(구 서버) = 0 → 웹 표시는 80 · 42 에는 싣지 않는다.
  */
 export type RelayUserSettingsMsg = {
   t: "user.settings";
@@ -1630,7 +1662,17 @@ export type RelayUserSettingsMsg = {
 > & { postBuyFloorAmount?: number; preBuyWatchAmount?: number; preBuyAutoAddBuy?: boolean };
 
 /**
- * 사용자 설정 숫자 14칸의 서버 42 검증 범위 (Phase 27 · Phase 31 · quick-261012-u04 · quick-261102-epl — bool `preBuyAutoAddBuy` 는 범위 없음) — **fbs `table UserSettings` 주석 원문 그대로**.
+ * 상따 ☐위험도 기준 % 범위 1~999(gh-trade quick-261103-l41 · fbs `SetLimitChaser.sell_risk_pct` · `UserSettings.sell_risk_pct` 주석 ·
+ * quick-261103-n1s). relay `lc.set` zod · `user.settings.set` zod(`USER_SETTINGS_RANGES.sellRiskPct`) · 웹 상따 lc 행 · `/me` 가
+ * 이 한 벌을 읽는다. 범위 밖 ON 요청은 서버가 위험도만 끄고 54 ERROR 로 알린다.
+ */
+export const SELL_RISK_PCT_RANGE = { min: 1, max: 999 } as const;
+
+/** 상따 ☐위험도 기준 기본값 % — 서버 내장 기본(84 슬롯 부재 · 0 · 범위 밖일 때 웹이 보이는 값 · quick-261103-n1s). */
+export const SELL_RISK_PCT_DEFAULT = 80;
+
+/**
+ * 사용자 설정 숫자 15칸의 서버 42 검증 범위 (Phase 27 · Phase 31 · quick-261012-u04 · quick-261102-epl · quick-261103-n1s — bool `preBuyAutoAddBuy` 는 범위 없음) — **fbs `table UserSettings` 주석 원문 그대로**.
  *
  * relay zod(`user.settings.set`)와 webapp `/me` 시트가 이 한 벌을 읽는다 — 두 곳에 적으면 언젠가 갈라진다.
  * `lc.set` 범위와 다르다(잔량추적 · 반등은 여기서 0 허용) — 새 폼 시딩은 lc 범위 밖이면 D-04 상수로 폴백한다(27-07).
@@ -1650,6 +1692,7 @@ export const USER_SETTINGS_RANGES = {
   postBuyFloorAmount: { min: 0, max: 999_999_999 },
   preBuyWatchAmount: { min: 0, max: 999_999_999 },
   burstRatioPct: { min: 1, max: 100 },
+  sellRiskPct: SELL_RISK_PCT_RANGE,
 } as const satisfies Readonly<Record<UserSettingsNumericKey, { readonly min: number; readonly max: number }>>;
 
 /**

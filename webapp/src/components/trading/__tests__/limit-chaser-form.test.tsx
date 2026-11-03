@@ -446,8 +446,8 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
     // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50
-    // + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60.
-    expect(Object.keys(lastConfig())).toHaveLength(60);
+    // + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60 + 위험도 2(quick-261103-n1s) = 62.
+    expect(Object.keys(lastConfig())).toHaveLength(62);
   });
 });
 
@@ -568,10 +568,13 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 49키 (Pitfall 6
     // + ○SOR 2(quick-261101-okd — relay 가 존재로 buy3_schema 7 을 파생한다) = 60.
     'sorBuy',
     'sorSell',
+    // + ☐위험도 2(quick-261103-n1s — relay 가 존재로 buy3_schema 8 을 파생한다) = 62.
+    'sellRiskEnabled',
+    'sellRiskPct',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(60); // + sor 2(quick-261101-okd)
+    expect(keys).toHaveLength(62); // + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
@@ -634,6 +637,8 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       'lc-sell-watch-qty',
       'lc-sell-qty-track-ratio',
       'lc-sell-min-trade-qty',
+      // ○위험도(quick-261103-n1s) — ☐체결 바로 아래 · 카드 끝.
+      'lc-sell-risk-pct',
     ]);
   });
 
@@ -649,7 +654,7 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
       'lc-sweep-watch-price',
     ]);
     const sell = rowsOf('sell').map((el) => el.getAttribute('data-slot'));
-    expect(sell.slice(-2)).toEqual(['lc-check-row', 'lc-check-row']);
+    expect(sell.slice(-3)).toEqual(['lc-check-row', 'lc-check-row', 'lc-check-row']);
     const cancel = rowsOf('cancel');
     expect(cancel.map((el) => el.getAttribute('data-slot')).slice(-2)).toEqual(['lc-check-row', 'lc-check-row']);
     // 취소잔량은 값만 있는 일반 행이다(D-21 — 스위치가 됐으므로 체크가 아니다).
@@ -674,10 +679,10 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     );
     // 값 행 18(공통 2 · 선매수 3 · 줄매수 3 · 후매수 3 — 최대 칸 폐지 gh-trade 261012 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
     // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
-    // 체크 행 7(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif) + 발동잔량 1 + 자동매도 누적 · 기준 2 = 30
-    // (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
-    expect(rows).toHaveLength(30);
-    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 21개 44px.
+    // 체크 행 8(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif · + 매도 위험도 · quick-261103-n1s) + 발동잔량 1 +
+    // 자동매도 누적 · 기준 2 = 31 (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
+    expect(rows).toHaveLength(31);
+    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 22개 44px.
     const QTY_IDS = [
       'lc-buy-watch-qty',
       'lc-buy-min-trade-qty',
@@ -3560,6 +3565,98 @@ describe('SOR — 매수주문 · 매도주문 제목줄 (quick-261101-okd · D-
   });
 });
 
+describe('☐위험도 — 매도주문 카드 (quick-261103-n1s · 결정 ①)', () => {
+  const risk = (): HTMLElement => chk('매도주문 위험도');
+  /** 마지막 lc.set 의 `changed`(사람이 손댄 칸 · 비트 표 이름). */
+  const lastChanged = (): readonly string[] | undefined => {
+    const sets = sendMock.mock.calls.map(([m]) => m as RelayLcSetMsg).filter((m) => m?.t === 'lc.set');
+    return sets.at(-1)?.changed;
+  };
+
+  it('84 없음 · 서버 전략 없음 — 체크 꺼짐 · 값 「80%」 · ☐체결 행 바로 아래', () => {
+    render(<LimitChaserForm {...props({ server: null })} />);
+    expect(risk()).toHaveAttribute('aria-checked', 'false');
+    expect(rowText('lc-sell-risk-pct')).toBe('80%');
+    const ids = [...group('sell').querySelectorAll('[data-lc-field]')].map((el) => el.getAttribute('data-lc-field'));
+    const uniq = ids.filter((id, i) => ids.indexOf(id) === i);
+    expect(uniq.indexOf('lc-sell-risk-pct')).toBe(uniq.indexOf('lc-sell-min-trade-qty') + 1);
+    expect(uniq.at(-1)).toBe('lc-sell-risk-pct');
+  });
+
+  it('체크 클릭 → lc.set 1건 · cfg sellRiskEnabled true · sellRiskPct 80 · changed ["sellRiskEnabled"]', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    click(risk());
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sellRiskEnabled: true, sellRiskPct: 80 });
+    expect(lastChanged()).toEqual(['sellRiskEnabled']);
+  });
+
+  it('값 120 확정 → cfg sellRiskPct 120 · changed ["sellRiskPct"] / 0 · 1000 → 범위 문구 · send 0', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    editInline('lc-sell-risk-pct', '0');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toBe('1% 이상 입력해 주세요');
+    blurEditor('lc-sell-risk-pct');
+    editInline('lc-sell-risk-pct', '1000');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    blurEditor('lc-sell-risk-pct');
+    editInline('lc-sell-risk-pct', '120');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sellRiskPct).toBe(120);
+    expect(lastChanged()).toEqual(['sellRiskPct']);
+  });
+
+  it('서버 sellEnabled · sellRiskEnabled true 에서 매도주문 끄기 → lc.set 1건 · 둘 다 false · changed 에 둘 다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sellRiskEnabled: true, sellRiskPct: 90 }) })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sellEnabled: false, sellRiskEnabled: false, sellRiskPct: 90 });
+    expect(lastChanged()).toEqual(expect.arrayContaining(['sellEnabled', 'sellRiskEnabled']));
+    expect(risk()).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('같은 상황 sellRiskEnabled false → 종전 단독 끄기(changed 에 sellRiskEnabled 없음)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true }) })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sellEnabled: false, sellRiskEnabled: false });
+    expect(lastChanged()).toEqual(['sellEnabled']);
+  });
+
+  it('동반 끔 제출 실패(send false) → 매도주문 스위치 · 위험도 체크 둘 다 서버 값으로 되돌아간다', () => {
+    sendMock.mockReturnValue(false);
+    render(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sellRiskEnabled: true }) })} />);
+    click(sw('매도주문 켜기'));
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(risk()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('매도주문 켜기 · 선매수 켜기(매도 자동 체크 동반)는 위험도를 켜지 않는다 — cfg false · changed 에 sellRiskEnabled 없음', () => {
+    const { unmount } = render(<LimitChaserForm {...props({ server: echo() })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sellEnabled: true, sellRiskEnabled: false });
+    expect(lastChanged()).not.toContain('sellRiskEnabled');
+    unmount();
+    sendMock.mockClear();
+    render(<LimitChaserForm {...props({ server: echo() })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sellRiskEnabled).toBe(false);
+    expect(lastChanged()).not.toContain('sellRiskEnabled');
+  });
+
+  it('에코 sellRiskEnabled true → false(서버 발동) 로 체크가 꺼진다', () => {
+    const { rerender } = render(
+      <LimitChaserForm {...props({ server: echo({ sellEnabled: true, sellRiskEnabled: true }) })} />,
+    );
+    expect(risk()).toHaveAttribute('aria-checked', 'true');
+    rerender(<LimitChaserForm {...props({ server: echo({ sellEnabled: true, sellRiskEnabled: false }) })} />);
+    expect(risk()).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
 describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 · 비활성 · 발화 에코 (quick-260929-vzy)', () => {
   const auto = (): HTMLElement => chk('후매수 자동');
   const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
@@ -3699,8 +3796,9 @@ describe('매수주문 「버스트 취소」 체크 — 양방향 설정값 · 
     click(burst());
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyBurstRelease).toBe(true);
-    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60.
-    expect(Object.keys(lastConfig())).toHaveLength(60);
+    // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60
+    // + 위험도 2(quick-261103-n1s) = 62.
+    expect(Object.keys(lastConfig())).toHaveLength(62);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 

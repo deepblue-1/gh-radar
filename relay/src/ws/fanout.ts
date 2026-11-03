@@ -2158,6 +2158,7 @@ export class WsFanout {
     // 끊기고 재접속 루프가 된다 · 구 탭 lc.set 선례).
     // 선매수 2필드(quick-261012-u04)는 그대로 통과 — 부재 = 42 슬롯 부재 = 서버 저장값 유지(되싣기 불필요).
     // burstRatioPct(quick-261102-epl)도 통과 — 부재 = 서버 저장값 유지 · 84 캐시로 채우지 않는다(0 을 지어 싣지 않는다).
+    // sellRiskPct(quick-261103-n1s)도 통과 — 부재 = 서버 저장값 유지 · 84 캐시로 채우지 않는다.
     if (msg.t === "user.settings.set") {
       const target =
         msg.serverKey === undefined

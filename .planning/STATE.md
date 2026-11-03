@@ -129,6 +129,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261102-f1x | 85 upper_max_fill_auction 반영 — 생성물 재동기화 · relay 85 매핑 · 창구 셋째 칸·툴팁 앞말 「단일가」/「최대」 (gh-trade quick-261102-f1x · WinForms 동형) | 2026-11-02 | 4b2f8828 | — |
 | 261103-j4d | 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익(격자 변환 때 계산 · 스케치 023 B) | 2026-11-03 | 5d1ebc87 | [261103-j4d-tick-list-team-day-net-pnl](./quick/261103-j4d-tick-list-team-day-net-pnl/) |
 | 261103-fast | 틱뷰어 Shift+] [ — 다음/이전 팀 주문 첫 A3 조각(맨 [ ] 는 38 우리 체결) · gsd-fast | 2026-11-03 | 3549aff3 | — |
+| 261103-n1s | 상따 매도 ☐위험도 [N]% — relay buy3_schema 8 · 비트 52·53 · UserSettings sell_risk_pct · 웹 매도주문 위험도 행 · 위험도(합) · /me 위험도 기준 (gh-trade 인박스 261103-sell-risk · WinForms 동형) | 2026-11-03 | 10701459 | [261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103](./quick/261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103/) |
 
 ## Session Continuity
 

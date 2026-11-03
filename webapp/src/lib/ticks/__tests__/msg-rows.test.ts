@@ -35,7 +35,9 @@ import {
   tailInversionText,
   tailText,
   fmtGapNs,
-  fmtRatio,
+  fmtShare,
+  l1ShareAt,
+  preBookOf,
   teamBookText,
   teamGapText,
   teamOrderMetaOf,
@@ -541,7 +543,7 @@ describe('ownRailOf — 근거 ○ · 앵커 ◌(Phase 38-06)', () => {
   });
 });
 
-describe('팀 주문 간격 · 주문 전 호가비(스케치 024 C)', () => {
+describe('팀 주문 간격 · 주문 전 매도비중 · 1호 매도 열(스케치 024 C · 025 A)', () => {
   /** 팀 매수 SMP 3조각(13:00:00.001000~) · 일반 1조각 · 팀 매도 0/0 단독(13:00:00.005000). */
   const s = synthSession([
     [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121], total: [5_000, 2_000] })],
@@ -556,27 +558,43 @@ describe('팀 주문 간격 · 주문 전 호가비(스케치 024 C)', () => {
   ]);
   const teams = s.orders.filter((o) => o.team);
 
-  it('첫 팀 주문 = 간격 없음 · 둘째 = 첫 조각 체결시각 차(µs) · 호가비 = 첫 조각 직전 B6', () => {
+  it('첫 팀 주문 = 간격 없음 · 둘째 = 첫 조각 체결시각 차(µs) · 매도비중 = 첫 조각 직전 B6 의 매도 ÷ (매도 + 매수)', () => {
     expect(teams).toHaveLength(2);
     const [buy, sell] = teams;
     const m1 = teamOrderMetaOf(s, buy!.id)!;
     expect(m1.gapNs).toBeNull();
-    expect(m1.totalRatio).toBeCloseTo(2.5, 12);
-    expect(m1.l1Ratio).toBeCloseTo(283 / 121, 12);
+    expect(m1.totalShare).toBeCloseTo(5 / 7, 12);
+    expect(m1.l1Share).toBeCloseTo(283 / 404, 12);
     expect(teamGapText(m1)).toBe('그날 첫 팀 주문');
-    expect(teamBookText(m1)).toBe('주문 전 호가 총 2.50 · 1호 2.34');
+    expect(teamBookText(m1)).toBe('주문 전 매도비중 총 71% · 1호 70%');
     const m2 = teamOrderMetaOf(s, sell!.id)!;
     expect(m2.gapNs).toBe(4_000_000n);
     expect(teamGapText(m2)).toBe('직전 팀 +0.004000s');
-    expect(teamBookText(m2)).toBe('주문 전 호가 총 0.50 · 1호 0.25');
+    expect(teamBookText(m2)).toBe('주문 전 매도비중 총 33% · 1호 20%');
   });
 
-  it('일반 주문 = null · 서식(µs 6자리 · 초 · 음수 · 분모 0 「—」)', () => {
+  it('일반 주문 = 팀 정보 null · 주문 전 매도비중은 있음 · 서식(µs 6자리 · 초 · 음수 · 비중 % · 모름 「—」)', () => {
     const plain = s.orders.find((o) => !o.team)!;
     expect(teamOrderMetaOf(s, plain.id)).toBeNull();
+    const pre = preBookOf(s, plain);
+    // 첫 조각 직전 B6 104 — 총 4,000 · 0(한쪽 0 이어도 100%) · 1호 10 · 20
+    expect(pre.totalShare).toBe(1);
+    expect(teamBookText(pre)).toBe('주문 전 매도비중 총 100% · 1호 33%');
     expect(fmtGapNs(512_304_000n)).toBe('+0.512304s');
     expect(fmtGapNs(12_345_678_999n)).toBe('+12.345678s');
     expect(fmtGapNs(-1_000n)).toBe('−0.000001s');
-    expect(fmtRatio(null)).toBe('—');
+    expect(fmtShare(null)).toBe('—');
+    expect(fmtShare(0)).toBe('0%');
+    expect(fmtShare(1)).toBe('100%');
+  });
+
+  it('1호 매도 열 — 그 행 이하(거래소순) 같은 보드 마지막 B6 의 매도1 ÷ (매도1 + 매수1) · B6 행은 자기 값', () => {
+    const recOf = (seq: number) => Array.from(s.index.seq).indexOf(seq);
+    expect(l1ShareAt(s, recOf(100))).toBeCloseTo(283 / 404, 12);
+    expect(l1ShareAt(s, recOf(101))).toBeCloseTo(283 / 404, 12);
+    expect(l1ShareAt(s, recOf(104))).toBeCloseTo(10 / 30, 12);
+    expect(l1ShareAt(s, recOf(105))).toBeCloseTo(10 / 30, 12);
+    expect(l1ShareAt(s, recOf(106))).toBeCloseTo(1 / 5, 12);
+    expect(l1ShareAt(s, recOf(108))).toBeCloseTo(1 / 3, 12);
   });
 });

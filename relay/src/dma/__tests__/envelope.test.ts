@@ -88,6 +88,7 @@ import {
   LC_EXTRA_BUY_AUTO_BUY3_SCHEMA,
   LC_CHANGE_MASK_BUY3_SCHEMA,
   LC_SOR_BUY3_SCHEMA,
+  LC_SELL_RISK_BUY3_SCHEMA,
   lcBuy3SchemaOf,
   parseUserSettings,
   buildAutoSellCommandReq,
@@ -1897,7 +1898,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb)
     // + 8(금액 · Phase 31 D-11) = 76 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(item!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -2015,8 +2016,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
-    expect(Object.keys(list![0]!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -2037,7 +2038,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(plain!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -2053,7 +2054,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -2068,8 +2069,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
-    expect(Object.keys(list![0]!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
   });
 
   it("⑤-extra-auto 60 · 64 의 extraBuyAuto 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261011-0yb)", () => {
@@ -2083,8 +2084,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
-    expect(Object.keys(list![0]!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -2098,8 +2099,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
-    expect(Object.keys(list![0]!)).toHaveLength(79); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd)
+    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
@@ -3264,6 +3265,7 @@ describe("Phase 27 자동매도 와이어 — schema 1~4 파생 · 에코 슬롯
       preBuyWatchAmount: 0,
       preBuyAutoAddBuy: false,
       burstRatioPct: 0,
+      sellRiskPct: 0,
     });
     // present 기본 false — 서버 내장 기본값.
     expect(parseUserSettings(inbound(buildUserSettingsFrame()).env)!.present).toBe(false);
@@ -3553,6 +3555,113 @@ describe("③-sor buy3_schema 7 · sor_buy(vt 176) · sor_sell(vt 178) (quick-26
   });
 });
 
+/*
+  ③-sellrisk — 상따 매도 ☐위험도(gh-trade quick-261103-l41 · e96aef6e · vtable 180 · 182). buy3_schema 8 은 앞 일곱 조건
+  (postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto · changeMask · sorBuy/sorSell) **전부 + sellRiskEnabled ·
+  sellRiskPct 둘 다** 일 때만 파생된다 — 미달이면 낮은 schema · 위험도 미적재 · 조립기 경고(P-1 단조성 · quick-261103-n1s).
+*/
+describe("③-sellrisk buy3_schema 8 · sell_risk_enabled(vt 180) · sell_risk_pct(vt 182) (quick-261103-n1s · gh-trade quick-261103-l41)", () => {
+  const RISK_VT = [180, 182] as const;
+  const FULL = {
+    postBuyAuto: true,
+    extraBuyBurstRelease: true,
+    autoSellEnabled: true,
+    autoSellStartCond: 2,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
+    extraBuyAuto: true,
+    changeMask: (1n << 52n) | (1n << 53n),
+    sorBuy: false,
+    sorSell: true,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  it("① FULL + sor + 위험도 true/120 → schema 8 · 180 · 182 슬롯 · 값 · sor · 마스크 동반 · warn 0", () => {
+    expect(LC_SELL_RISK_BUY3_SCHEMA).toBe(8);
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, sellRiskEnabled: true, sellRiskPct: 120 }));
+    expect(t.buy3Schema()).toBe(8);
+    expect(presentSlots(t, RISK_VT)).toEqual([...RISK_VT]);
+    expect(t.sellRiskEnabled()).toBe(true);
+    expect(t.sellRiskPct()).toBe(120);
+    // 8 은 7 의 SOR · 6 의 마스크 규칙을 포함한다(`>=` 꼴).
+    expect(t.sorSell()).toBe(true);
+    expect(t.changeMask()).toBe((1n << 52n) | (1n << 53n));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("② FULL + 위험도 false/80 → schema 8 · false · 80 · warn 0", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, sellRiskEnabled: false, sellRiskPct: 80 }));
+    expect(t.buy3Schema()).toBe(8);
+    expect(t.sellRiskEnabled()).toBe(false);
+    expect(t.sellRiskPct()).toBe(80);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("③ FULL + sellRiskPct 만 → schema 7 · 180 · 182 없음 · warn 「schema 8 조건」 · 필드 [buy3Schema, isin]", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, sellRiskPct: 120 }));
+    expect(t.buy3Schema()).toBe(LC_SOR_BUY3_SCHEMA);
+    expect(presentSlots(t, RISK_VT)).toEqual([]);
+    expect(t.sellRiskPct()).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [fields, text] = warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(text).toContain("schema 8 조건");
+    expect(Object.keys(fields).sort()).toEqual(["buy3Schema", "isin"]);
+  });
+
+  it("④ sor 없음 + 위험도 true/120 → schema 6 · 180 · 182 없음 · warn 「schema 8 조건」", () => {
+    warn.mockClear();
+    const { sorBuy: _b, sorSell: _s, ...noSor } = FULL;
+    const t = readLc(lcInput({ ...noSor, sellRiskEnabled: true, sellRiskPct: 120 }));
+    expect(t.buy3Schema()).toBe(LC_CHANGE_MASK_BUY3_SCHEMA);
+    expect(presentSlots(t, RISK_VT)).toEqual([]);
+    const texts = (warn.mock.calls as unknown[][]).map((c) => c[1]);
+    expect(texts.some((m: unknown) => typeof m === "string" && m.includes("schema 8 조건"))).toBe(true);
+  });
+
+  it("⑤ 위험도 없음(schema 7 재제출) → 7 · 180 · 182 없음 · warn 0 (서버 값 유지)", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL }));
+    expect(t.buy3Schema()).toBe(LC_SOR_BUY3_SCHEMA);
+    expect(presentSlots(t, RISK_VT)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("⑥ lcBuy3SchemaOf — sellRiskEnabled · sellRiskPct 둘 다 존재(값 무관)만 8 을 연다", () => {
+    expect(lcBuy3SchemaOf({ ...FULL, sellRiskEnabled: false, sellRiskPct: 0 })).toBe(8);
+    expect(lcBuy3SchemaOf({ ...FULL, sellRiskEnabled: true })).toBe(7);
+    expect(lcBuy3SchemaOf({ ...FULL })).toBe(7);
+    expect(lcBuy3SchemaOf({ sellRiskEnabled: true, sellRiskPct: 80 })).toBe(1);
+  });
+
+  it("⑦ parseLimitChaserEcho 왕복 — 위험도 보존 · 슬롯 없는 버퍼는 false · 0", () => {
+    const on = parseLimitChaserEcho(
+      readBack(buildSetLimitChaserReq(lcInput({ ...FULL, sellRiskEnabled: true, sellRiskPct: 150 }))),
+    );
+    expect(on!.sellRiskEnabled).toBe(true);
+    expect(on!.sellRiskPct).toBe(150);
+    const none = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(lcInput())));
+    expect(none!.sellRiskEnabled).toBe(false);
+    expect(none!.sellRiskPct).toBe(0);
+  });
+
+  it("⑧ sellRiskPct ushort 범위 밖(70000 · −1 · 1.5) → OrderBuildError", () => {
+    for (const bad of [70_000, -1, 1.5]) {
+      expect(() => buildSetLimitChaserReq(lcInput({ ...FULL, sellRiskEnabled: true, sellRiskPct: bad }))).toThrow(
+        OrderBuildError,
+      );
+    }
+  });
+});
+
 /**
  * Phase 27 (27-02) — 요청 조립기 41 · 42 · 43 (gh-trade `limit-chaser.md` §9-3).
  *
@@ -3709,8 +3818,9 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
         .filter(([, v]) => typeof v === "number")
         .map(([k]) => k),
       "burstRatioPct",
+      "sellRiskPct",
     ];
-    expect(numericKeys).toHaveLength(14);
+    expect(numericKeys).toHaveLength(15);
     expect(Object.keys(USER_SETTINGS_RANGES).sort()).toEqual(numericKeys.sort());
     expect(USER_SETTINGS_RANGES).toEqual({
       preBuyAmount: { min: 0, max: 999_999_999 },
@@ -3727,6 +3837,7 @@ describe("Phase 27 요청 조립기 41 · 42 · 43", () => {
       postBuyFloorAmount: { min: 0, max: 999_999_999 },
       preBuyWatchAmount: { min: 0, max: 999_999_999 },
       burstRatioPct: { min: 1, max: 100 },
+      sellRiskPct: { min: 1, max: 999 },
     });
   });
 });
@@ -3945,6 +4056,74 @@ describe("quick-261102-epl UserSettings 버스트 판정 비율 (vtable 34)", ()
   it("42 조립 — ubyte 표현 범위 밖 · 소수는 송신 전 OrderBuildError", () => {
     expect(() => buildSetUserSettingsReq({ ...BASE, burstRatioPct: 256 })).toThrow(OrderBuildError);
     expect(() => buildSetUserSettingsReq({ ...BASE, burstRatioPct: 1.5 })).toThrow(OrderBuildError);
+  });
+});
+
+/**
+ * quick-261103-n1s — UserSettings 위험도 기준(gh-trade quick-261103-l41 · fbs `= null` · ushort · vtable 36).
+ *
+ * 못박는 것: burstRatioPct(epl)와 같다 — ① 84 슬롯 있으면 그 값 · 없으면(구 서버) 0 ② 42 는 값이 있을 때만 슬롯 ·
+ * 키 없음 = 슬롯 부재(서버 저장값 유지) ③ ushort 표현 범위 밖은 송신 전 OrderBuildError.
+ */
+describe("quick-261103-n1s UserSettings 위험도 기준 (vtable 36)", () => {
+  const BASE = {
+    preBuyAmount: 5000,
+    addBuyAmount: 3000,
+    postBuyAmount: 2000,
+    postBuyMaxCount: 4,
+    postBuyFloorQty: 0,
+    postBuyReboundPct: 25,
+    sellQtyTrackRatio: 40,
+    autoSellPeriodSec: 3,
+    auctionSellRatioPct: 20,
+    autoSellRatioDefaultPct: 10,
+    autoSellMethodDefault: 3,
+    postBuyFloorAmount: 84,
+    preBuyWatchAmount: 0,
+    preBuyAutoAddBuy: false,
+  };
+  const RISK_VT = 36;
+
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  function readSettings(bytes: Uint8Array): UserSettings {
+    const env = readBack(bytes);
+    expect(env.msgType()).toBe(MSG.SetUserSettingsReq);
+    const u = env.userSettings(new UserSettings());
+    expect(u).not.toBeNull();
+    return u!;
+  }
+
+  it("84 파서 — 슬롯이 실린 84(120) 는 sellRiskPct 120", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true, sellRiskPct: 120 })).env);
+    expect(parsed).toHaveProperty("sellRiskPct", 120);
+  });
+
+  it("84 파서 — 슬롯 부재(구 서버 모양) 는 0(키는 늘 있다)", () => {
+    const parsed = parseUserSettings(inbound(buildUserSettingsFrame({ present: true })).env);
+    expect(parsed).toHaveProperty("sellRiskPct", 0);
+  });
+
+  it("42 조립 — sellRiskPct 120 은 그 값으로 슬롯이 선다 · burstRatioPct 와 독립", () => {
+    const u = readSettings(buildSetUserSettingsReq({ ...BASE, sellRiskPct: 120 }));
+    expect(u.sellRiskPct()).toBe(120);
+    expect(u.bb!.__offset(u.bb_pos, RISK_VT)).not.toBe(0);
+    expect(u.burstRatioPct()).toBeNull();
+  });
+
+  it("42 조립 — 키가 없으면 슬롯 부재 = getter null(서버 저장값 유지)", () => {
+    const u = readSettings(buildSetUserSettingsReq(BASE));
+    expect(u.sellRiskPct()).toBeNull();
+    expect(u.bb!.__offset(u.bb_pos, RISK_VT)).toBe(0);
+  });
+
+  it("42 조립 — ushort 표현 범위 밖 · 소수는 송신 전 OrderBuildError", () => {
+    expect(() => buildSetUserSettingsReq({ ...BASE, sellRiskPct: 70_000 })).toThrow(OrderBuildError);
+    expect(() => buildSetUserSettingsReq({ ...BASE, sellRiskPct: 1.5 })).toThrow(OrderBuildError);
   });
 });
 

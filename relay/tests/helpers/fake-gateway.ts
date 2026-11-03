@@ -595,7 +595,8 @@ export interface SetLimitChaserRequest {
    *  3(자동 + 버스트 시 해제 적재 · `LC_BURST_RELEASE_BUY3_SCHEMA` · quick-261003-rc4) ·
    *  4(+ 자동매도 요청 4필드 적재 · `LC_AUTO_SELL_BUY3_SCHEMA` · Phase 27) ·
    *  5(+ 줄매수 ☐자동 적재 · `LC_EXTRA_BUY_AUTO_BUY3_SCHEMA` · quick-261011-0yb) ·
-   *  6(+ change_mask · quick-261030-kpg) · 7(+ ○SOR 2필드 · `LC_SOR_BUY3_SCHEMA` · quick-261101-okd). */
+   *  6(+ change_mask · quick-261030-kpg) · 7(+ ○SOR 2필드 · `LC_SOR_BUY3_SCHEMA` · quick-261101-okd) ·
+   *  8(+ ☐위험도 2필드 · `LC_SELL_RISK_BUY3_SCHEMA` · quick-261103-n1s). */
   buy3Schema: number;
   /**
    * `change_mask`(id 85 · vt 174 · gh-trade Phase 44 · quick-261030-kpg) — 이번 제출에서 사람이 손댄 칸 비트(+ relay 짝 수량 비트).
@@ -626,6 +627,10 @@ export interface SetLimitChaserRequest {
   sorBuy: boolean;
   /** ○SOR 매도(quick-261101-okd · vtable 178) — 슬롯 부재(buy3_schema ≤ 6 · 또는 false 기본값) = false. */
   sorSell: boolean;
+  /** 상따 매도 ☐위험도(quick-261103-n1s · vtable 180) — 슬롯 부재(buy3_schema ≤ 7 · 또는 false 기본값) = false. */
+  sellRiskEnabled: boolean;
+  /** ☐위험도 기준 %(quick-261103-n1s · vtable 182) — 슬롯 부재(buy3_schema ≤ 7) = 0. */
+  sellRiskPct: number;
   /** ☐자동매도(Phase 27 · vtable 140) — 슬롯 부재(buy3_schema ≤ 3 · 또는 false 기본값) = false. */
   autoSellEnabled: boolean;
   /** 자동매도 시작조건(vtable 142) — 슬롯 부재 = 0. */
@@ -751,6 +756,8 @@ export function readSetLimitChaserRequest(
     extraBuyAuto: req.extraBuyAuto(),
     sorBuy: req.sorBuy(),
     sorSell: req.sorSell(),
+    sellRiskEnabled: req.sellRiskEnabled(),
+    sellRiskPct: req.sellRiskPct(),
     autoSellEnabled: req.autoSellEnabled(),
     autoSellStartCond: req.autoSellStartCond(),
     autoSellRatioPct: req.autoSellRatioPct(),
@@ -910,6 +917,8 @@ export type SetUserSettingsRequest = {
   preBuyAutoAddBuy: boolean | null;
   /** 버스트 판정 비율 % · vtable 34(quick-261102-epl). `null` = 슬롯 부재(서버 저장값 유지). */
   burstRatioPct: number | null;
+  /** 위험도 기준 % · vtable 36(quick-261103-n1s). `null` = 슬롯 부재(서버 저장값 유지). */
+  sellRiskPct: number | null;
   presentSlotEmpty: boolean;
 };
 
@@ -939,6 +948,7 @@ export function readSetUserSettingsRequest(payload: Buffer): SetUserSettingsRequ
     preBuyWatchAmount: u.preBuyWatchAmount(),
     preBuyAutoAddBuy: u.preBuyAutoAddBuy(),
     burstRatioPct: u.burstRatioPct(),
+    sellRiskPct: u.sellRiskPct(),
     presentSlotEmpty: u.bb.__offset(u.bb_pos, USER_SETTINGS_PRESENT_VT) === 0,
   };
 }

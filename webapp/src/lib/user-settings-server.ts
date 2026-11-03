@@ -14,8 +14,15 @@
  *
  * 버스트 판정 비율(84 `burstRatioPct` · quick-261102-epl)의 해석도 여기 한 곳이다 — `burstRatioPctOf`(1~100 이면 그 값 · 아니면
  * 「모름」 undefined → /me 42 조립은 싣지 않는다) · `burstRatioThresholdOf`(그 값 또는 내장 70 → /me 표시 · 상따 호가 사다리 기준).
+ * 위험도 기준(84 `sellRiskPct` · quick-261103-n1s)도 같은 꼴이다 — `sellRiskPctOf`(1~999 · 아니면 undefined) · `sellRiskPctOrDefaultOf`
+ * (그 값 또는 80).
  */
-import { USER_SETTINGS_RANGES, type RelayAccount, type RelayUserSettingsMsg } from "@gh-radar/shared";
+import {
+  SELL_RISK_PCT_DEFAULT,
+  USER_SETTINGS_RANGES,
+  type RelayAccount,
+  type RelayUserSettingsMsg,
+} from "@gh-radar/shared";
 
 /** 서버키 → 마지막 84. 키 `""` = 서버키 없는 84(구 relay · primary 것). */
 export type UserSettingsByServer = ReadonlyMap<string, RelayUserSettingsMsg>;
@@ -84,4 +91,20 @@ export function burstRatioPctOf(us: Pick<RelayUserSettingsMsg, "burstRatioPct"> 
 /** 버스트 판정 기준 — `burstRatioPctOf` 값, 「모름」 이면 `BURST_RATIO_DEFAULT_PCT`(70). /me 표시와 호가 사다리 기준이 읽는다. */
 export function burstRatioThresholdOf(us: Pick<RelayUserSettingsMsg, "burstRatioPct"> | undefined): number {
   return burstRatioPctOf(us) ?? BURST_RATIO_DEFAULT_PCT;
+}
+
+/**
+ * 84 의 ☐위험도 기준 % — 정수이고 `USER_SETTINGS_RANGES.sellRiskPct`(1~999) 안이면 그 값, 아니면 undefined(「모름」 ·
+ * quick-261103-n1s). 0(구 서버 · 슬롯 부재) · 키 부재 · 범위 밖 · 84 미수신이 모두 undefined 다 — 42 에는 싣지 않는다
+ * (`burstRatioPctOf` 와 같은 규칙 · 서버는 0 을 범위 밖으로 42 전체를 거부한다).
+ */
+export function sellRiskPctOf(us: Pick<RelayUserSettingsMsg, "sellRiskPct"> | undefined): number | undefined {
+  const v = us?.sellRiskPct;
+  const r = USER_SETTINGS_RANGES.sellRiskPct;
+  return typeof v === "number" && Number.isInteger(v) && v >= r.min && v <= r.max ? v : undefined;
+}
+
+/** ☐위험도 기준 표시값 — `sellRiskPctOf` 값, 「모름」 이면 `SELL_RISK_PCT_DEFAULT`(80). /me 표시가 읽는다. */
+export function sellRiskPctOrDefaultOf(us: Pick<RelayUserSettingsMsg, "sellRiskPct"> | undefined): number {
+  return sellRiskPctOf(us) ?? SELL_RISK_PCT_DEFAULT;
 }

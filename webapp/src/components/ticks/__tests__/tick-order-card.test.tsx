@@ -39,10 +39,10 @@ describe('TickOrderCard', () => {
       '↕ 닫는 B6 가 마지막 조각보다 9.0ms 먼저 수신',
     );
     expect(container.querySelector('[data-slot="tick-order-open"]')).toBeNull();
-    // 팀 주문 — 직전 팀 주문 간격 · 주문 전 호가비(스케치 024 C)
-    const meta = card.querySelector('[data-slot="tick-order-team-meta"]')!;
-    expect(meta.textContent).toContain('직전 팀 주문그날 첫 팀 주문');
-    expect(meta.textContent).toMatch(/주문 전 호가매도합\/매수합 (—|[\d.]+) · 매도1\/매수1 2\.34/);
+    // 팀 주문 — 직전 팀 주문 간격(스케치 024 C) · 주문 전 매도비중(스케치 025 — 매도 ÷ (매도 + 매수))
+    const meta = card.querySelector('[data-slot="tick-order-meta"]')!;
+    expect(meta.querySelector('[data-slot="tick-order-gap"]')!.textContent).toBe('그날 첫 팀 주문');
+    expect(meta.querySelector('[data-slot="tick-order-prebook"]')!.textContent).toMatch(/^총잔량 (—|\d+%) · 1호 70%$/);
     // 커서가 주문 가운데 — 최근 표 맨 위가 그 주문(선택 표시)
     const rows = container.querySelectorAll('[data-slot="tick-order-recent-row"]');
     expect(rows).toHaveLength(1);

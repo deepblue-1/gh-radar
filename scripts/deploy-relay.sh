@@ -659,7 +659,9 @@ fi
 FW_RULES=$(gcloud compute firewall-rules list --filter="network=${VPC}" \
   --format='value(name,targetTags.list())' \
   | awk -F'\t' -v tag="$VM" '$2 == "" || index($2, tag) { print $1 }' | sort | tr '\n' ' ')
-EXPECTED_FW="relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-wireguard "
+# 5번째 규칙 relay-allow-internal-tickgw(tcp:8092 ← Cloud Run 서브넷)는 같은 VM 의 tickgw 컨테이너 몫이다(Phase 37 ·
+#   setup-tickgw-iam.sh). relay 가 만들지는 않지만 radar-gw 를 겨냥하므로 기대 목록에 넣는다(빠지면 배포가 통째로 막힌다).
+EXPECTED_FW="relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-internal-tickgw relay-allow-wireguard "
 if [[ "$FW_RULES" != "$EXPECTED_FW" ]]; then
   echo "ERROR: ${VPC} 에서 ${VM} 에 닿는 방화벽 규칙이 기대와 다릅니다." >&2
   echo "  expected: $EXPECTED_FW" >&2
@@ -668,7 +670,7 @@ if [[ "$FW_RULES" != "$EXPECTED_FW" ]]; then
   echo "  $SETUP_HINT" >&2
   exit 1
 fi
-echo "✓ ${VM} 대상 방화벽 4규칙 (포트 80 규칙 없음)"
+echo "✓ ${VM} 대상 방화벽 5규칙 (relay 4 + tickgw 1 · 포트 80 규칙 없음)"
 
 # ───────────────────────────────────────────────────────────────
 # Section 4: amd64 빌드 + push  (rollback 에서는 건너뛴다)

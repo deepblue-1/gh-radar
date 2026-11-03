@@ -862,6 +862,44 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
     // 형식 위반은 스키마 위반이다.
     expect(parseInbound(lcSet({ sorBuy: "true" }))).toBeNull();
   });
+
+  /*
+    quick-261103-n1s — ☐위험도(vtable 180 · 182 · gh-trade quick-261103-l41). 둘 다 선택이고 12필드 존재 판정 밖이다.
+    buy3_schema 8 은 조립기가 필드 존재로만 파생한다. sellRiskPct 는 1~999 정수(SELL_RISK_PCT_RANGE).
+  */
+  it("①-sellrisk sellRiskEnabled · sellRiskPct 는 통과하고 54키 · 없어도 통과(키 안 만듦) · pct 0 · 1000 · 1.5 거부", () => {
+    const base = {
+      postBuyAuto: false,
+      extraBuyBurstRelease: false,
+      ...AUTO,
+      autoSellEnabled: false,
+      extraBuyAuto: false,
+      sorBuy: false,
+      sorSell: false,
+    };
+    const full = parseInbound(lcSet({ ...base, sellRiskEnabled: true, sellRiskPct: 120 }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.sellRiskEnabled).toBe(true);
+    expect(full.cfg.sellRiskPct).toBe(120);
+    expect(Object.keys(full.cfg)).toHaveLength(54);
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+    for (const ok of [1, 80, 999]) {
+      expect(parseInbound(lcSet({ ...base, sellRiskEnabled: false, sellRiskPct: ok })), String(ok)).not.toBeNull();
+    }
+
+    // 구 탭 · schema 7 재제출 — 위험도 없음도 통과 · 키를 만들지 않는다.
+    const old = parseInbound(lcSet(base));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("sellRiskEnabled");
+    expect(old.cfg).not.toHaveProperty("sellRiskPct");
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("sellRiskPct");
+
+    // 범위 · 형식 위반은 스키마 위반이다.
+    for (const bad of [0, 1000, 1.5, "80"]) {
+      expect(parseInbound(lcSet({ ...base, sellRiskEnabled: true, sellRiskPct: bad })), String(bad)).toBeNull();
+    }
+    expect(parseInbound(lcSet({ ...base, sellRiskEnabled: "true", sellRiskPct: 80 }))).toBeNull();
+  });
 });
 
 describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", () => {
@@ -978,6 +1016,18 @@ describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", ()
     const absent = parseInbound(set({ ...SETTINGS, postBuyFloorAmount: 0, preBuyWatchAmount: 0, preBuyAutoAddBuy: false }));
     if (absent?.t !== "user.settings.set") throw new Error("user.settings.set 으로 좁혀지지 않았습니다");
     expect(absent.s).not.toHaveProperty("burstRatioPct");
+  });
+
+  it("quick-261103-n1s sellRiskPct — 1 · 80 · 999 통과 · 0 · 1000 · 1.5 · \"80\" · null 거부 · 부재는 통과하고 키를 만들지 않는다", () => {
+    for (const ok of [1, 80, 999]) {
+      expect(parseInbound(set({ ...SETTINGS, sellRiskPct: ok })), String(ok)).toMatchObject({ s: { sellRiskPct: ok } });
+    }
+    for (const bad of [0, 1000, 1.5, "80", null]) {
+      expect(parseInbound(set({ ...SETTINGS, sellRiskPct: bad })), String(bad)).toBeNull();
+    }
+    const absent = parseInbound(set({ ...SETTINGS, postBuyFloorAmount: 0, preBuyWatchAmount: 0, preBuyAutoAddBuy: false }));
+    if (absent?.t !== "user.settings.set") throw new Error("user.settings.set 으로 좁혀지지 않았습니다");
+    expect(absent.s).not.toHaveProperty("sellRiskPct");
   });
 });
 

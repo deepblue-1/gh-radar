@@ -86,6 +86,7 @@ import {
 } from "react";
 import { serverMsgBadge } from "@gh-radar/shared";
 import type {
+  LimitFeatureSorMerge,
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
@@ -227,6 +228,11 @@ export interface StrategyCardState {
    * 85 를 받지 않으므로 null(얼린 값 방지 · D-05 · UI-SPEC P-1).
    */
   limitFeature: RelayLimitFeatureMsg | null;
+  /**
+   * 매도 SOR 「위험도(합)」 짝 85(quick-261103-n1s · gh-trade quick-261103-l41 D-07). 에코 `sorSell` 켜짐 ∧ 카드 level `"full"` 일
+   * 때만 `{ other: 짝 거래소 85 | null }` · 그 밖 null(종전 단일 칸).
+   */
+  limitFeatureMerge: LimitFeatureSorMerge | null;
   isStale: boolean;
   log: StrategyLogEntry[];
   /** 3초 안에 답이 없었다 — **표시만** 한다. 재전송 경로가 없다(T-16-10). */
@@ -326,6 +332,26 @@ export function useStrategyCardState({
     () =>
       key === "" ? null : (limitChasers.find((c) => c.key === key) ?? null),
     [limitChasers, key],
+  );
+
+  /*
+    매도 SOR 「위험도(합)」(quick-261103-n1s · WinForms MergedRiskText D-07) — 85 는 그 키(isin · 거래소) **full 구독 소켓에만**
+    온다(relay fanout). 짝 거래소 85 를 받으려면 짝 키를 full 로 구독해야 한다 — 매도 SOR 이 켜진 **펼친** 카드에서만 연다
+    (접힌 카드 · SOR 꺼짐은 구독 0 · relay 무변경). 표시용 산술뿐 — 판정은 서버.
+  */
+  const sorSellOn = server?.sorSell === true;
+  const pairExchange: RelayExchange = exchange === "NXT" ? "KRX" : "NXT";
+  const mergeOn = sorSellOn && subLevel === "full";
+  const pairSubscription = useRelaySubscription({
+    isin,
+    exchange: pairExchange,
+    enabled: isin.length > 0 && mergeOn,
+    level: "full",
+  });
+  const pairLimitFeature = mergeOn ? (pairSubscription.limitFeature ?? null) : null;
+  const limitFeatureMerge = useMemo<LimitFeatureSorMerge | null>(
+    () => (mergeOn ? { other: pairLimitFeature } : null),
+    [mergeOn, pairLimitFeature],
   );
 
   /* ── 전략 로그 (브라우저 메모리) ───────────────────────────────────────── */
@@ -921,6 +947,7 @@ export function useStrategyCardState({
     quote,
     tape,
     limitFeature,
+    limitFeatureMerge,
     isStale,
     log,
     unacked,
@@ -1234,6 +1261,7 @@ function StrategyCardImpl({
               stockName={displayName}
               orderLogFeed={orderLogCtx ?? undefined}
               limitFeature={card.limitFeature}
+              limitFeatureMerge={card.limitFeatureMerge}
               isStale={card.isStale}
             />
             <CardNotices card={card} />

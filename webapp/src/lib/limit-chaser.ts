@@ -52,6 +52,8 @@ import {
   type LcChangeMaskField,
   LC_AMOUNT_MAX_MANWON,
   LC_AMOUNT_PAIRS,
+  SELL_RISK_PCT_DEFAULT,
+  SELL_RISK_PCT_RANGE,
   amountFromQty,
   echoAmountOf,
   lcAmountPairOf,
@@ -349,6 +351,10 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
     sorBuy: false,
     sorSell: false,
+    // 상따 매도 ☐위험도(quick-261103-n1s · gh-trade quick-261103-l41 · 결정 ①) — 새 폼은 늘 꺼짐(켜는 것은 사람뿐 · 84 시딩도
+    // 켜지 않는다). 기준 %만 84 `sellRiskPct`(1~999 아니면 80)로 시딩된다. 게이트가 아니다.
+    sellRiskEnabled: false,
+    sellRiskPct: SELL_RISK_PCT_DEFAULT,
     postBuyEnabled: false,
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
@@ -419,7 +425,7 @@ export function seedListSharesDefaults(listShares: number, buyWatchPrice: number
 /* ── 사용자 기본설정(84) 시딩 (Phase 27 · 27-07 · D-11) ───────────────────────────────────────── */
 
 /**
- * 84 사용자 설정이 채우는 새 폼 9칸 + 선매수 매도잔량(> 0 일 때만 · quick-261012-u04). 매도 주기 · 동시호가 비율은 서버
+ * 84 사용자 설정이 채우는 새 폼 10칸(☐위험도 기준 % 합류 · quick-261103-n1s) + 선매수 매도잔량(> 0 일 때만 · quick-261012-u04). 매도 주기 · 동시호가 비율은 서버
  * 전용이라 폼 칸이 없다. 후매수 최소 = 84 `postBuyFloorAmount`(만원 · Phase 31 D-12 · C# F:6159) — 봉인된 주
  * `postBuyFloorQty` 는 폼 키가 아니다.
  */
@@ -435,6 +441,7 @@ export type UserSettingsSeed = Pick<
   | 'sellQtyTrackRatio'
   | 'autoSellRatioPct'
   | 'autoSellMethod'
+  | 'sellRiskPct'
 >;
 
 /** 폼 칸 ← 84 값 — 순서 = WinForms `ResetStrategyOptionsToDefault` 대입 순서가 아니라 화면(매수 → 매도) 순서. */
@@ -450,6 +457,8 @@ const USER_SETTINGS_SEED_MAP: readonly (readonly [Exclude<keyof UserSettingsSeed
   ['sellQtyTrackRatio', 'sellQtyTrackRatio'],
   ['autoSellRatioPct', 'autoSellRatioDefaultPct'],
   ['autoSellMethod', 'autoSellMethodDefault'],
+  // ☐위험도 기준 %(quick-261103-n1s) — 84 가 1~999 가 아니면(구 서버 0 · 부재) 80(`fitsLcRange` 폴백). 체크는 시딩하지 않는다.
+  ['sellRiskPct', 'sellRiskPct'],
 ];
 
 /**
@@ -483,6 +492,7 @@ function fitsLcRange(field: keyof UserSettingsSeed, v: number | undefined): v is
  *   | sellQtyTrackRatio    | sellQtyTrackRatio (%)      | numSellQtyTrackRatio     |
  *   | autoSellRatioPct     | autoSellRatioDefaultPct (%)| 자동매도 비율             |
  *   | autoSellMethod       | autoSellMethodDefault      | 자동매도 방법             |
+ *   | sellRiskPct          | sellRiskPct (%)            | numSellRiskPct (quick-261103-n1s · 체크는 늘 꺼짐) |
  *   | buyWatchAmount       | preBuyWatchAmount (만원 · > 0 일 때만) | numBuyWatchQty (gh-trade quick-261012-sd1) |
  *
  * - 84 미수신(`undefined`)이면 빈 패치 — 폼에는 `defaultLimitChaserForm()` 의 D-04 상수가 남는다.
@@ -820,6 +830,10 @@ export function formFromServer(
     // 비트 50 · 51 이 없는 제출(다른 칸 편집)은 서버가 SOR 을 바꾸지 않는다.
     sorBuy: server.sorBuy,
     sorSell: server.sorSell,
+    // ☐위험도(quick-261103-n1s · 결정 ①) — 체크는 서버 런타임 값 그대로(발동 · 매도 송신 · 상한가 깨짐 · 일괄매도 · 재기동이
+    // OFF 로 내린다). 기준 %는 1~999 일 때만 들인다 — 0 은 구서버(슬롯 없음)라 칸을 유지한다.
+    sellRiskEnabled: server.sellRiskEnabled,
+    sellRiskPct: isSellRiskPctKnown(server.sellRiskPct) ? server.sellRiskPct : prev.sellRiskPct,
     postBuyEnabled: server.postBuyEnabled,
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,
@@ -836,6 +850,11 @@ export function formFromServer(
     //     `buildCfg` 가 에코 메모로 되싣거나 내림 환산한다(D-10).
     ...amountsFromServer(server),
   };
+}
+
+/** 에코 · 84 의 ☐위험도 기준 %가 의미 있는 값(1~999 정수)인가 — 0 · 범위 밖은 구서버 · 모름(quick-261103-n1s). */
+function isSellRiskPctKnown(v: number): boolean {
+  return Number.isInteger(v) && v >= SELL_RISK_PCT_RANGE.min && v <= SELL_RISK_PCT_RANGE.max;
 }
 
 /** 금액 8키 ← 에코 적용값(`echoAmountOf(server, pair).shown`) — `formFromServer` 한 곳만 부른다. */
@@ -856,6 +875,8 @@ function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number
  *   에코 값(다른 클라가 둔 값)이 바뀐다.
  *   예외 `postBuyReentry`: 서버가 이 칸을 읽지 않는다(gh-trade 261012). 옛 등록 에코 값(예: 3)과 웹 고정 255 의 차이는
  *   「다른 클라가 둔 값」이 아니다 — 빼지 않으면 이 변경 전에 등록된 전략은 D-02 자동 끔이 영구히 억제된다.
+ *   예외 `sellRiskPct`(quick-261103-n1s): 에코 값이 1~999 밖(구서버 0)이면 비교에서 뺀다. 폼은 그때 칸을 유지(80 등)하므로
+ *   구서버 에코 0 과의 차이는 「다른 클라가 둔 값」이 아니다 — 빼지 않으면 미배포 서버 전략의 D-02 자동 끔이 영구 억제된다.
  *
  * 비교는 `cfg` 의 키 전부(`buyEnabled` 제외)를 에코의 같은 키와 `===` 로 본다 — 키 목록의 정본은 입력 타입
  * `RelayLimitChaserInput` 이고, 여기에 필드를 나열하지 않는다(필드가 합류할 때 갈라진다).
@@ -866,6 +887,7 @@ function amountsFromServer(server: RelayLimitChaser): Record<LcAmountKey, number
 export function isMasterOnlyDelta(cfg: RelayLimitChaserInput, echo: RelayLimitChaser): boolean {
   for (const key of Object.keys(cfg) as (keyof RelayLimitChaserInput)[]) {
     if (key === 'buyEnabled' || key === 'postBuyReentry') continue;
+    if (key === 'sellRiskPct' && !isSellRiskPctKnown(echo.sellRiskPct)) continue;
     const pair = lcAmountPairOf(key);
     if (pair !== undefined) {
       const applied = echoAmountOf(echo, pair);

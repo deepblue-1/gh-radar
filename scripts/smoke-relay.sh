@@ -631,8 +631,9 @@ check "INV-1 VM ${VM} RUNNING" bash -c '
   [ "$STATUS" = RUNNING ]
 ' _ "$VM" "$ZONE"
 
-# INV-2: ${VM} 에 닿는 방화벽이 정확히 4규칙 + 이름 일치 (포트 80 규칙이 생기면 깨진다)
+# INV-2: ${VM} 에 닿는 방화벽이 정확히 5규칙 + 이름 일치 (포트 80 규칙이 생기면 깨진다)
 #        4번째는 개발기 WireGuard 직결용 udp:51820 이다 (quick-260909-muo).
+#        5번째 relay-allow-internal-tickgw(tcp:8092)는 같은 VM tickgw 몫이다(Phase 37 · setup-tickgw-iam.sh).
 #        GCP 에 그 규칙을 아직 안 만들었으면 여기서 FAIL 하는 것이 정상이다 —
 #        적용 순서는 방화벽 먼저 → 배포다 (infra/relay/README.md §적용 런북).
 #
@@ -641,11 +642,11 @@ check "INV-1 VM ${VM} RUNNING" bash -c '
 #          겨냥하지 않는다. 판정식은 deploy-relay.sh §Section 3 과 **같은 식**이어야
 #          한다 — 한쪽만 고치면 배포는 통과하는데 smoke 가 FAIL 하는 상태가 된다.
 #          태그 없는 규칙(= 전 인스턴스 적용)은 relay VM 에도 걸리므로 포함한다.
-check "INV-2 ${VM} 대상 방화벽 4규칙 (${VPC})" bash -c '
+check "INV-2 ${VM} 대상 방화벽 5규칙 (${VPC})" bash -c '
   RULES=$(gcloud compute firewall-rules list --filter="network=$1" \
     --format="value(name,targetTags.list())" 2>/dev/null \
     | awk -F"\t" -v tag="$2" '"'"'$2 == "" || index($2, tag) { print $1 }'"'"' | sort | tr "\n" " ")
-  [ "$RULES" = "relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-wireguard " ]
+  [ "$RULES" = "relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-internal-tickgw relay-allow-wireguard " ]
 ' _ "$VPC" "$VM"
 
 # INV-3: 예약 고정 IP 가 실제로 VM 에 결선돼 있는가

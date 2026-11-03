@@ -301,6 +301,10 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'extraBuyAuto',
   // ☐자동매도 — 게이트 축(Phase 27). 61 · 54 사유 줄이 말한다.
   'autoSellEnabled',
+  // ☐위험도 — 서버 런타임 OFF(발동 · 매도 송신 · 상한가 깨짐 · 일괄매도 · 재기동)를 「서버 반영 완료」 로 오귀속하지 않는다
+  // (quick-261103-n1s · gh-trade quick-261103-l41). WinForms 는 위험도 체크 변화를 로그로 말하지 않는다 — 사유는 54 줄이 말한다.
+  // 기준 %(`sellRiskPct`)는 설정값이라 여기 넣지 않는다.
+  'sellRiskEnabled',
   // 후매수 재진입 — 서버가 읽지 않는 칸(gh-trade 261012). 옛 등록 에코 값 → 웹 · C# 255 고정 전이를 「서버 반영 완료」로 말하지 않는다.
   'postBuyReentry',
   ...LIMIT_CHASER_SERVER_ONLY_FIELDS,

@@ -28,7 +28,7 @@
  *     이것이고, 그래서 이 파일에는 화이트리스트가 없다.
  */
 import { z } from "zod";
-import { LC_AUTO_SELL_RANGES, MAX_VI_ORDER_AMOUNT_KRW, USER_SETTINGS_RANGES } from "@gh-radar/shared";
+import { LC_AUTO_SELL_RANGES, MAX_VI_ORDER_AMOUNT_KRW, SELL_RISK_PCT_RANGE, USER_SETTINGS_RANGES } from "@gh-radar/shared";
 import type {
   RelayExchange,
   RelayLimitChaserInput,
@@ -266,6 +266,15 @@ export const RelayLcSetSchema = z.object({
     //   - superRefine 검사를 넣지 않는다 — NXT 비거래 종목의 OFF→ON 은 서버가 54 ERROR 로 거부한다(웹은 토글을 잠근다).
     sorBuy: z.boolean().optional(),
     sorSell: z.boolean().optional(),
+    // === 상따 매도 ☐위험도 · 기준 %(양방향 · gh-trade quick-261103-l41 e96aef6e vtable 180 · 182 · quick-261103-n1s) — 12필드 블록
+    //     **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
+    //   - 부재는 relay 가 종전 schema(≤ 7)로 싣는다(서버 값 유지 — 구 탭 · schema 7 웹이 WinForms 에서 켠 위험도를 지우지 않는다).
+    //     앞 조건 전부 + 둘 다 있을 때만 buy3_schema 8(조립기 `lcBuy3SchemaOf`).
+    //   - 웹은 늘 1~999 를 싣는다(에코 0 = 구서버면 칸을 유지한다). 범위 밖은 소켓 종료(4400)라 웹 lc 행이 같은 상수
+    //     (`SELL_RISK_PCT_RANGE`)로 먼저 막는다. superRefine 검사는 넣지 않는다 — 범위 밖 ON 은 서버가 54 ERROR 로 알린다.
+    sellRiskEnabled: z.boolean().optional(),
+    sellRiskPct: z.number().int().min(SELL_RISK_PCT_RANGE.min).max(SELL_RISK_PCT_RANGE.max).optional(),
     // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
     //     넣지 않는다. 부재 = fanout `lc.set` 이 그 키의 에코 원값(짝이 맞을 때) 또는 0 으로 채운다(구 탭 관용 · D-11 ·
     //     WR-01). 기본값을 여기서 채우지 않는다.
@@ -465,6 +474,9 @@ export const RelayUserSettingsSetSchema = z.object({
     // 나가 서버가 저장값을 유지한다 · 84 캐시로 되싣지 않는다. 0 은 범위(1~100) 밖이라 close(4400) — 웹이 같은 범위로 먼저 막고,
     // 애초에 0 을 싣지 않는다.
     burstRatioPct: userSettingInt("burstRatioPct").optional(),
+    // 위험도 기준(quick-261103-n1s · gh-trade quick-261103-l41) — burstRatioPct 와 같은 optional 규율. 부재 = 42 슬롯 부재 = 서버
+    // 저장값 유지 · 84 캐시로 되싣지 않는다. 0 · 1000 은 범위(1~999) 밖이라 close(4400) — 웹이 같은 범위로 먼저 막는다.
+    sellRiskPct: userSettingInt("sellRiskPct").optional(),
   }),
 });
 

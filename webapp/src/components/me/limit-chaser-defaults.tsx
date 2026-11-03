@@ -18,7 +18,7 @@
  *      「84 에 없으면 0·false」 · 42 부재는 서버가 저장값을 유지하므로 지어낸 값이 원값을 지우는 함정이 없다).
  *      `burstRatioPct` 0 · 부재(구 서버 · 모름)는 **표시는 내장 70 · 42 에는 싣지 않는다** — WinForms 「부재 = 0 → 내장 70」
  *      (gh-trade quick-261101-t7c · quick-261102-epl). 「불러오는 중」 이 아니다. 표시값(`shown`)과 저장 기계 조립값(`values`)이
- *      갈리는 유일한 칸이다.
+ *      갈리는 칸이다. `sellRiskPct`(위험도 기준 · quick-261103-n1s)도 같다 — 0 · 부재면 표시 80 · 42 에는 싣지 않는다.
  *    - `present: true`  = 서버 저장값 → 「서버 저장값」(ok).
  *    - `present: false` = 저장값 없음 → 「서버 저장값 없음 · 내장 기본값」(warn). 84 가 실은 내장 기본값을 그대로
  *      보이고, **42 를 자동으로 보내지 않는다**(인박스 Q2 — 이전 없음). 사용자가 행을 확정할 때만 42.
@@ -34,7 +34,8 @@
  *    - 조립 = **84 캐시 14값 + 바뀐 1칸**(화면 로컬 값 금지 · T-20-03 동형 — 다른 탭이 바꾼 칸을 덮지 않는다).
  *      봉인 `postBuyFloorQty` 는 84 값을 읽지 않고 늘 0 을 싣는다(Phase 32 D-08 · D-13). 선매수 2필드는 84 부재면
  *      0 · false 로 채워 **늘 싣는다**(gh-trade 261012). `burstRatioPct` 는 **84 가 1~100 일 때만** 싣는다 — 0(구 서버 ·
- *      모름)은 부재다(서버는 0 을 범위 밖으로 42 전체를 거부한다 · gh-trade quick-261101-t7c · quick-261102-epl). bool 칸(「줄매수도 같이 켜기」)도 같은 저장 기계를 탄다 —
+ *      모름)은 부재다(서버는 0 을 범위 밖으로 42 전체를 거부한다 · gh-trade quick-261101-t7c · quick-261102-epl). `sellRiskPct` 도
+ *      같은 규칙이다(84 가 1~999 일 때만 · quick-261103-n1s). bool 칸(「줄매수도 같이 켜기」)도 같은 저장 기계를 탄다 —
  *      토글 = 그 bool 만 뒤집은 42 1건 · 84 가 실어야 체크가 바뀐다(낙관 반영 없음).
  *    - 한 번에 1건 비행. 비행 중 다른 행 확정은 행당 1건 대기열(같은 행 재확정은 값만 교체)에 서고, 앞 건의 84 를
  *      받은 **뒤 새 캐시로 다시 조립**해 보낸다(RESEARCH Pitfall 8 — 낡은 캐시로 앞 칸을 되돌리지 않는다).
@@ -82,7 +83,13 @@ import { LC_COMMIT_TEXT } from "@/components/trading/lc/use-lc-field-commit";
 import type { PadUnit } from "@/lib/numpad";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
-import { burstRatioPctOf, burstRatioThresholdOf, userSettingsForServer } from "@/lib/user-settings-server";
+import {
+  burstRatioPctOf,
+  burstRatioThresholdOf,
+  sellRiskPctOf,
+  sellRiskPctOrDefaultOf,
+  userSettingsForServer,
+} from "@/lib/user-settings-server";
 import { useEditMode } from "@/lib/use-edit-mode";
 import { cn } from "@/lib/utils";
 
@@ -126,7 +133,7 @@ export const USER_SETTINGS_COLUMNS: readonly (readonly UserSettingsGroup[])[] = 
 export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_COLUMNS.flat();
 
 /**
- * 13행 표(목업 `F` · `GROUPS` 그대로 · 금액 5칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면(DOM · 열) 순서 — 인라인
+ * 14행 표(목업 `F` · `GROUPS` 그대로 · 금액 5칸은 만원 — 인박스 Q1 · Phase 31 D-13). 순서 = 화면(DOM · 열) 순서 — 인라인
  * Tab 이동(`value` 행만)이 이 순서를 따른다. 범위는 여기 두지 않는다 — shared `USER_SETTINGS_RANGES`(서버 42 범위 정본) 하나를 읽는다.
  * 봉인 `postBuyFloorQty` 는 행이 없다 — 42 에 0 을 싣는다(Phase 32 D-08). 그 자리는 「후매수 최소」(만원)가 교체했다.
  * 「후매수 최대」(`postBuyMaxCount`)는 행이 없다 — 서버가 재진입 횟수를 읽지 않는다(gh-trade 261012 · C# 기본값 창도 삭제). 42 에는 84 값을
@@ -136,6 +143,8 @@ export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_
  * 같은 제출로 켬).
  * 「버스트 상한가」 1행(quick-261102-epl · gh-trade quick-261101-t7c): 「판정 비율」(% · 1~100 · 기본 70) — 서버 상따 ☐버스트 취소와
  * 호가창 「버스트 NN%」 의 기준이다. 저장 즉시 그 사용자의 모든 세션에 반영된다(84 브로드캐스트). 84 가 0(구 서버)이면 70 을 보인다.
+ * 「매도」 묶음 「위험도 기준」(quick-261103-n1s · gh-trade quick-261103-l41 · 「매도 잔량추적」 바로 아래): % · 1~999 · 기본 80 — 상따 새 창
+ * ☐위험도 값 칸의 초기값이다(체크는 늘 꺼짐 — 켜는 것은 사람뿐). 84 가 0(구 서버)이면 80 을 보이고 42 에는 싣지 않는다(판정 비율과 같은 규칙).
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { kind: "value", key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },
@@ -166,6 +175,7 @@ export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   },
   { kind: "value", key: "postBuyReboundPct", label: "후매수 반등", unit: "%", group: "후매수", id: "me-lc-post-buy-rebound-pct" },
   { kind: "value", key: "sellQtyTrackRatio", label: "매도 잔량추적", unit: "%", group: "매도", id: "me-lc-sell-qty-track-ratio" },
+  { kind: "value", key: "sellRiskPct", label: "위험도 기준", unit: "%", group: "매도", id: "me-lc-sell-risk-pct" },
   {
     kind: "value",
     key: "burstRatioPct",
@@ -306,6 +316,7 @@ export function usableUserSettingsOf(s: RelayUserSettingsMsg | undefined): Usabl
  * 채워 **늘 싣는다**(gh-trade 261012 — 42 부재는 서버 「저장값 유지」 라 지우려면 실어야 한다 · quick-261012-u04).
  * `burstRatioPct` 는 **84 가 1~100 일 때만** 키를 싣는다(`burstRatioPctOf`) — 0(구 서버 · 모름) · 부재 · 범위 밖이면 키 자체가
  * 없다(undefined 값을 가진 키도 만들지 않는다). 서버는 0 을 범위 밖으로 42 전체를 거부한다(gh-trade quick-261101-t7c).
+ * `sellRiskPct` 도 같다 — **84 가 1~999 일 때만** 키를 싣는다(`sellRiskPctOf` · quick-261103-n1s · gh-trade quick-261103-l41).
  */
 export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsValues {
   return {
@@ -324,7 +335,14 @@ export function userSettingsValuesOf(s: UsableUserSettings): RelayUserSettingsVa
     preBuyWatchAmount: s.preBuyWatchAmount ?? 0,
     preBuyAutoAddBuy: s.preBuyAutoAddBuy ?? false,
     ...burstRatioOf(s),
+    ...sellRiskOf(s),
   };
+}
+
+/** `sellRiskPct` 조건부 스프레드 조각(quick-261103-n1s) — 1~999 이면 `{ sellRiskPct }`, 아니면 빈 객체(42 에 키 없음). */
+function sellRiskOf(s: UsableUserSettings): Pick<RelayUserSettingsValues, "sellRiskPct"> {
+  const v = sellRiskPctOf(s);
+  return v === undefined ? {} : { sellRiskPct: v };
 }
 
 /** `burstRatioPct` 조건부 스프레드 조각 — 1~100 이면 `{ burstRatioPct }`, 아니면 빈 객체. */
@@ -676,7 +694,15 @@ export function LimitChaserDefaultsSection({
    * 넣으면 「84 가 0 이면 42 에 싣지 않는다」 가 깨진다(quick-261102-epl).
    */
   const shown = useMemo(
-    () => (values === undefined ? undefined : { ...values, burstRatioPct: burstRatioThresholdOf(userSettings) }),
+    () =>
+      values === undefined
+        ? undefined
+        : {
+            ...values,
+            burstRatioPct: burstRatioThresholdOf(userSettings),
+            // ☐위험도 기준(quick-261103-n1s) — 84 가 0 · 부재면 80 표시 · 42 조립(`values`)에는 키가 없다(burstRatioPct 와 같은 규칙).
+            sellRiskPct: sellRiskPctOrDefaultOf(userSettings),
+          },
     [values, userSettings],
   );
 
