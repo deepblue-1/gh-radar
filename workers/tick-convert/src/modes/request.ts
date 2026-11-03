@@ -75,6 +75,8 @@ export type RequestRunResult = {
   failed: number;
   bytesRead: number;
   packets: number;
+  /** 끝이 잘린 레코드가 남은 원본 파일 수(실패 아님 · 실행 기록 error 에 note · IN-32). */
+  truncatedFiles: number;
   /** 팀 값 계산 실패 키 수(그 행 팀 값만 null · 실패 아님 · quick 261103-j4d). */
   teamFailed: number;
   /** 팀 값 계산 소요 합(ms). */
@@ -164,6 +166,10 @@ async function convertClaimed(
     });
     res.bytesRead = stats.bytesRead;
     res.packets = stats.packets;
+    res.truncatedFiles = stats.truncatedFiles;
+    if (stats.truncatedFiles > 0) {
+      logger.warn({ date, ex, truncatedFiles: stats.truncatedFiles }, "tick-convert request: 끝이 잘린 원본 파일 — 잘린 레코드는 버림(IN-32)");
+    }
 
     // ③ 격자 파일 → 업로드 → (성공 키만) 메타
     const rows: GridRow[] = [];
@@ -260,6 +266,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
     failed: 0,
     bytesRead: 0,
     packets: 0,
+    truncatedFiles: 0,
     teamFailed: 0,
     teamMs: 0,
     durationMs: 0,
@@ -295,6 +302,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
   res.durationMs = Math.max(0, Math.round(clock() - t0));
   // 실패 수는 다른 사유(통독 실패 메시지)가 없을 때만 적는다 — partial 은 함께 남긴다
   if (res.failed > 0 && !notes.some((n) => n !== "partial")) notes.push(`failed ${res.failed}`);
+  if (res.truncatedFiles > 0) notes.push(`truncated ${res.truncatedFiles}`); // 무로그 손실 금지(IN-32)
   res.error = notes.length > 0 ? notes.join("; ") : null;
   await meta.runRecord({
     date,
@@ -311,7 +319,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
     { result: res },
     `[tick-convert] mode=request date=${date} ex=${ex} ready=${res.ready ?? "-"} targets=${res.targets} ` +
       `written=${res.written} no_records=${res.noRecords} not_uploaded=${res.notUploaded} too_large=${res.tooLarge} failed=${res.failed} ` +
-      `bytes_read=${res.bytesRead} team_failed=${res.teamFailed} team_ms=${res.teamMs} ms=${res.durationMs}`,
+      `bytes_read=${res.bytesRead} truncated=${res.truncatedFiles} team_failed=${res.teamFailed} team_ms=${res.teamMs} ms=${res.durationMs}`,
   );
   return res;
 }

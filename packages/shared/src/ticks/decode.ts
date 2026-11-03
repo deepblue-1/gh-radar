@@ -20,7 +20,7 @@
  *
  * 숫자는 Number 가 정확한 범위(≤ 2^53−1)면 number, 넘으면 bigint 다. recv_ns · `*_ns` 는 언제나 bigint.
  */
-import { LAYOUTS, layoutKey, type Layout, type TickTable } from "./layouts";
+import { layoutOf, type Layout, type TickTable } from "./layouts";
 
 export type FieldValue = number | string | bigint | null;
 
@@ -207,16 +207,25 @@ export function rawHeadOf(payload: Uint8Array, recvNs: bigint, label: string): R
   };
 }
 
-/** 전문 1건 → (표, 행). (태그, 길이)가 정확히 맞지 않으면 raw. */
+/** 전문 1건 → (표, 행). (태그, 길이)가 정확히 맞지 않으면 raw. 레이아웃 조회는 `layoutOf` 하나(IN-05). */
 export function decodeAny(
   payload: Uint8Array,
   recvNs: bigint,
   label: string,
 ): { table: TickTable | "raw"; row: Record<string, FieldValue> } {
-  const layout =
-    payload.length >= 2
-      ? LAYOUTS.get(layoutKey(String.fromCharCode(payload[0]!, payload[1]!), payload.length))
-      : undefined;
+  const layout = layoutOf(payload);
   if (layout) return { table: layout.table, row: decodeFields(layout, payload, recvNs, label) };
   return { table: "raw", row: rawHeadOf(payload, recvNs, label) };
+}
+
+/** decodeFields 값 → number — number 그대로 · bigint 는 Number · 그 밖(문자열 · null · 없음) NaN. 판정 · 호가 · 창구 모듈 공용(IN-05). */
+export function numOf(v: FieldValue | undefined): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "bigint") return Number(v);
+  return Number.NaN;
+}
+
+/** decodeFields 값 → string — 문자열이 아니면 "". */
+export function strOf(v: FieldValue | undefined): string {
+  return typeof v === "string" ? v : "";
 }

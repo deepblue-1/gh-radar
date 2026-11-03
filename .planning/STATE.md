@@ -130,6 +130,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261103-j4d | 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익(격자 변환 때 계산 · 스케치 023 B) | 2026-11-03 | 5d1ebc87 | [261103-j4d-tick-list-team-day-net-pnl](./quick/261103-j4d-tick-list-team-day-net-pnl/) |
 | 261103-fast | 틱뷰어 Shift+] [ — 다음/이전 팀 주문 첫 A3 조각(맨 [ ] 는 38 우리 체결) · gsd-fast | 2026-11-03 | 3549aff3 | — |
 | 261103-n1s | 상따 매도 ☐위험도 [N]% — relay buy3_schema 8 · 비트 52·53 · UserSettings sell_risk_pct · 웹 매도주문 위험도 행 · 위험도(합) · /me 위험도 기준 (gh-trade 인박스 261103-sell-risk · WinForms 동형) | 2026-11-03 | 10701459 | [261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103](./quick/261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103/) |
+| 261103-pei | 발사 주문 내역 대기열 순번 · 앞 물량(16:00 접수 때 정확 · 마감 때 추정 · 09:00 체결 순번) — 틱 변환이 계산해 DB 저장 · 목업 027 A | 2026-11-03 | f944bfc3 | [261103-pei-launch-order-queue-position](./quick/261103-pei-launch-order-queue-position/) |
 | 261104-6lh | Phase 38 리뷰 후속: tickgw as-of 헤더로 당일 대기 판정 · RPC fills journal_epoch 키 | 2026-11-04 | 7c51f4df | [261104-6lh-phase-38-tickgw-as-of-rpc-fills-journal-](./quick/261104-6lh-phase-38-tickgw-as-of-rpc-fills-journal-/) |
 
 ## Session Continuity

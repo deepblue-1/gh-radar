@@ -5,7 +5,7 @@
  * 모든 보드 · 단일가 포함) — 슬라이더가 수신 시간축이라 칸도 수신 시각 기준이다(체결 시각 아님). 막대 높이 정규화
  * (√ · log)는 화면 몫이다. VI 눈금 = R8 `vi_status` '1' 발동 ~ '2' 해제의 수신 시각.
  */
-import { decodeFields, type FieldValue } from "./decode";
+import { decodeFields, numOf as num, type FieldValue } from "./decode";
 import { R8_LAYOUT } from "./layouts";
 import { TAG_CODE, payloadOf, recvOrderOf, type A3Columns, type TickIndex } from "./record-index";
 import { dayStartNs } from "./tick-time";
@@ -38,12 +38,6 @@ export interface ViSpan {
   viType: string;
   /** 발동 전문의 trigger_price. */
   triggerPx: number;
-}
-
-function num(v: FieldValue | undefined): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  return Number.NaN;
 }
 
 /**

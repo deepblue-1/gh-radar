@@ -228,6 +228,44 @@ describe("완결 재확인 — 하루치 전체가 아니면 승격하지 않는
   });
 });
 
+describe("키 단위 격리 — 0건 · 모양 위반 키 하나가 그날 승격 전체를 죽이지 않는다(CR-30)", () => {
+  it("레코드 0건 closed 키(first/last_recv_ns null) + 정상 키 → 정상 키 written · 0건 키 incomplete(바이트 요청 0) · main 0", async () => {
+    const empty = keyOf(B, "NXT", {}, 0);
+    await startGw([empty, keyOf(A, "KRX")]);
+    const f = fake();
+    const out = await runPromote({ sb: f.sb, store: f.store, config: cfg(gw.url), now: NOW }, {});
+    expect(out).toMatchObject({ keys: 2, written: 1, incomplete: 1, failed: 0 });
+    expect(out.results.find((r) => r.isin === B)).toMatchObject({ status: "incomplete", reason: "레코드 0(export)" });
+    expect(gw.hits.some((h) => h.startsWith("/internal/ticks/export/bytes") && h.includes(`isin=${B}`))).toBe(false);
+    expect(uploads(f.calls).map((u) => u.path)).toEqual([`grid/${D}/KRX/${A}.promoted.ticks.zst`]);
+
+    const g2 = fake();
+    expect(await main(["promote"], { sb: g2.sb, store: g2.store, config: cfg(gw.url), now: NOW })).toBe(0);
+  });
+
+  it("export 키 하나가 모양 위반(bytes −1) → 그 키만 failed · 다른 키는 승격 · main 1", async () => {
+    await startGw([keyOf(A, "KRX", { listPatch: { bytes: -1 } }), keyOf(B, "KRX")]);
+    const f = fake();
+    const out = await runPromote({ sb: f.sb, store: f.store, config: cfg(gw.url), now: NOW }, {});
+    expect(out).toMatchObject({ keys: 2, written: 1, failed: 1 });
+    expect(out.results.find((r) => r.isin === A)).toMatchObject({ status: "failed" });
+    expect(uploads(f.calls).map((u) => u.path)).toEqual([`grid/${D}/KRX/${B}.promoted.ticks.zst`]);
+    const runs = rpcCalls(f.calls, "tick_convert_run_record").map((a) => a.p_run as Record<string, unknown>);
+    expect(runs[0]).toMatchObject({ exchange: "KRX", ok: false, targets: 2, written: 1, error: "failed 1" });
+
+    const g2 = fake();
+    expect(await main(["promote"], { sb: g2.sb, store: g2.store, config: cfg(gw.url), now: NOW })).toBe(1);
+  });
+
+  it("거래소를 읽을 수 없는 키 → failed 수에만 · 나머지는 승격", async () => {
+    await startGw([keyOf(A, "KRX", { listPatch: { ex: "XXX" } }), keyOf(B, "KRX")]);
+    const f = fake();
+    const out = await runPromote({ sb: f.sb, store: f.store, config: cfg(gw.url), now: NOW }, {});
+    expect(out).toMatchObject({ keys: 2, written: 1, failed: 1 });
+    expect(out.results.map((r) => r.isin)).toEqual([B]);
+  });
+});
+
 describe("요약 로그 · 실패 격리", () => {
   it("요약 한 줄에 unclosed 수를 남긴다", async () => {
     await startGw([keyOf(A, "KRX"), keyOf(B, "KRX", { closed: false })], { extraUnclosed: 2 });

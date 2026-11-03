@@ -48,7 +48,7 @@ export type TickgwClient = {
   live(q: TickgwLiveQuery): Promise<TickgwLiveResponse>;
 };
 
-/** 브라우저 상한(37-19 웹)보다 작게 — offset 0 하루치 첫 응답도 수 MB 라 VPC 안이면 1초 안쪽이다. */
+/** 브라우저 상한(37-19 웹)보다 작게 — tickgw 가 한 응답을 8MiB(또는 한 프레임 ≤ 16MB)로 자르므로(WR-32) VPC 안이면 수 초 안쪽이다. */
 export const TICKGW_TIMEOUT_MS_DEFAULT = 20_000;
 
 const LIVE_PATH = "/internal/ticks/live";
@@ -129,7 +129,15 @@ export function createTickgwClient(opts: {
         const v = res.headers[name.toLowerCase()];
         if (typeof v === "string") headers[key] = v;
       }
-      const body = res.data ? Buffer.from(res.data) : Buffer.alloc(0);
+      // Node axios(arraybuffer)는 이미 Buffer 를 준다 — Buffer.from 으로 한 번 더 복사하지 않는다(WR-32 · 사용자 수 비례 메모리)
+      const data = res.data as unknown;
+      const body = Buffer.isBuffer(data)
+        ? data
+        : data instanceof ArrayBuffer
+          ? Buffer.from(data)
+          : data
+            ? Buffer.from(data as Uint8Array)
+            : Buffer.alloc(0);
       return { status: res.status, body, headers };
     } catch (err) {
       // 오류 객체 통째 금지(config.headers = 공유 비밀). 경로 · 코드만.

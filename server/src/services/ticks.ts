@@ -11,8 +11,9 @@ import type {
 } from "@gh-radar/shared";
 
 import { ApiError, DmaUnmapped } from "../errors.js";
+import { logger } from "../logger.js";
 import type { TickConvertBodyT, TickOpenQueryT } from "../schemas/ticks.js";
-import type { TickConvertTrigger } from "./tick-convert-trigger.js";
+import { isAmbiguousTriggerFailure, type TickConvertTrigger } from "./tick-convert-trigger.js";
 
 /**
  * Phase 37 — 틱 전문 뷰어 과거 경로 서비스 (D-03 · D-08 · D-09 · D-15).
@@ -73,6 +74,32 @@ function gate(fn: string, data: unknown): Record<string, unknown> {
   return data;
 }
 
+const GRID_MODES: readonly string[] = ["nightly", "request", "promoted"];
+const EXCHANGES: readonly string[] = ["KRX", "NXT"];
+const isNat = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const isMsOrNull = (v: unknown): boolean => v === null || v === undefined || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * `tick_open_for_user` 응답 모양 검사(IN-34) — 웹이 그대로 쓰는 필드를 `as` 캐스트로 흘리지 않는다. 위반 = 500 DB_ERROR.
+ * grid 가 있으면 서명 **전에** 본다(모양이 틀린 행에 서명 URL 을 발급하지 않는다).
+ */
+function checkOpenShape(out: Record<string, unknown>, raw: Record<string, unknown> | null): void {
+  const bad = (k: string, v: unknown): never => {
+    throw DbError(FAIL, shapeCause(`tick_open_for_user.${k}`, v));
+  };
+  if (typeof out.date !== "string") bad("date", out.date);
+  if (typeof out.exchange !== "string" || !EXCHANGES.includes(out.exchange)) bad("exchange", out.exchange);
+  if (typeof out.isin !== "string") bad("isin", out.isin);
+  if (typeof out.eta_s !== "number" || !Number.isFinite(out.eta_s)) bad("eta_s", out.eta_s);
+  if (raw === null) return;
+  for (const k of ["bytes", "records", "a3_count"] as const) if (!isNat(raw[k])) bad(`grid.${k}`, raw[k]);
+  if (typeof raw.mode !== "string" || !GRID_MODES.includes(raw.mode)) bad("grid.mode", raw.mode);
+  if (!Array.isArray(raw.sources) || !raw.sources.every((x) => typeof x === "string")) bad("grid.sources", raw.sources);
+  if (typeof raw.fmt !== "string") bad("grid.fmt", raw.fmt);
+  if (typeof raw.created_at !== "string") bad("grid.created_at", raw.created_at);
+  for (const k of ["first_recv_ms", "last_recv_ms"] as const) if (!isMsOrNull(raw[k])) bad(`grid.${k}`, raw[k]);
+}
+
 /** 하루 목록 한 장. `d` 생략 = 최신 격자 날짜. 이력 0 이면 200 `date: null · rows: []`. */
 export async function getTickDay(supabase: SupabaseClient, userId: string, d?: string): Promise<TickDayResponse> {
   const { data, error } = await supabase.rpc("tick_day_for_user", { p_user_id: userId, p_date: d ?? null });
@@ -119,6 +146,7 @@ export async function openTick(
   const out = gate("tick_open_for_user", data);
   const raw = out.grid;
   if (raw !== null && !isObject(raw)) throw DbError(FAIL, shapeCause("tick_open_for_user.grid", raw));
+  checkOpenShape(out, raw);
 
   let grid: TickOpenGrid | null = null;
   if (raw) {
@@ -226,6 +254,9 @@ async function rollbackTrigger(
  * 요청 변환 — RPC `tick_request_convert_for_user` 1회로 큐에 넣고 should_trigger 를 받는다.
  * - capped → 429 · not_uploaded / grid_ready → 200(Job 0회)
  * - should_trigger → trigger.run(날짜, 거래소) 1회. 트리거 미결선 → 되돌림(TRIGGER_DISABLED) + 503 · 실패 → 되돌림 + 502.
+ * - 타임아웃(status 0 · TIMEOUT)은 되돌리지 않는다(IN-31) — Admin API 가 실행을 이미 만들었을 수 있어, 되돌리면 다음 요청이
+ *   Job 을 또 깨워 빈 실행과 상한 소모가 생긴다. triggered_at 을 그대로 두고 stale 2분 규칙(Job 이 claim 하지 않은 pending 을
+ *   다음 요청이 다시 깨운다)에 맡긴다 → 200 triggered true(웹은 「변환 중」 으로 폴링).
  */
 export async function requestTickConvert(
   supabase: SupabaseClient,
@@ -254,7 +285,9 @@ export async function requestTickConvert(
       throw TickConvertUnavailable({ reason: "TICK_CONVERT_JOB 미설정", ...(rollback ? { rollback } : {}) });
     }
     const r = await deps.trigger.run(body.d, body.ex);
-    if (!r.ok) {
+    if (isAmbiguousTriggerFailure(r)) {
+      logger.warn({ date: body.d, ex: body.ex }, "tick convert trigger: 타임아웃 — 실행이 시작됐을 수 있어 되돌리지 않는다(stale 2분 규칙)");
+    } else if (!r.ok) {
       const rollback = await rollbackTrigger(supabase, body, `TRIGGER_FAILED:${r.status}`);
       throw TickConvertTriggerFailed({ status: r.status, error: r.error, ...(rollback ? { rollback } : {}) });
     }
@@ -273,7 +306,7 @@ export async function requestTickConvert(
   };
 }
 
-/** 요청 취소 — 본인이 요청한 pending 만 cancelled(판정은 RPC 안). 그 밖이면 200 `cancelled: false`. */
+/** 요청 취소 — pending 요청에서 내 몫만 뺀다 · 마지막 요청자면 요청이 cancelled(판정은 RPC 안 · WR-02). 내 몫이 없으면 200 `cancelled: false`. */
 export async function cancelTickConvert(
   supabase: SupabaseClient,
   userId: string,

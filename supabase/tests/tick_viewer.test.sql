@@ -3,6 +3,8 @@
 --
 -- 대상: 20261102200000_tick_viewer.sql(표 3 · tick_grid_upsert · tick_day_for_user · tick_open_for_user ·
 --       tick_eta_s · tick_trigger_blocked · 버킷) · 20261102200100_tick_viewer_queue.sql(요청 큐 · Job RPC · 오늘 · purge).
+--       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기)
+--       · 20261104300200(IN-06 배치 안 중복 키).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -23,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(109);
+SELECT plan(130);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -165,6 +167,15 @@ SELECT is(public.tick_day_for_user(pg_temp.u1())->'dates', '["20261030", "202610
 SELECT is((SELECT jsonb_agg(e->>'exchange' ORDER BY n)
              FROM jsonb_array_elements(public.tick_day_for_user(pg_temp.u1(), '20261030')->'rows') WITH ORDINALITY x(e, n)),
           '["KRX", "NXT"]'::jsonb, 'E rows 정렬 high_rate DESC(29.9 KRX → 20.0 NXT)');
+-- IN-06(20261104300200) — 한 배치 안 같은 키 두 번은 롤백 없이 마지막 원소 하나만(뒤 절에 영향 없게 그 행은 지운다)
+SELECT is(public.tick_grid_upsert('nightly', jsonb_build_array(
+            pg_temp.grow('20261027', 'NXT', 'KR7370002009', 'nightly', 11.0),
+            pg_temp.grow('20261027', 'NXT', 'KR7370002009', 'nightly', 12.0))),
+          1, 'E 배치 안 같은 키 두 번 → 문장 롤백 없이 1행');
+SELECT is((SELECT g.high_rate FROM public.tick_grids g
+            WHERE g.date = '20261027' AND g.exchange = 'NXT' AND g.isin = 'KR7370002009'),
+          12.0::double precision, 'E 배치 안 중복 키는 마지막 원소가 남는다');
+DELETE FROM public.tick_grids WHERE date = '20261027';
 
 -- ── F. stale 판정(2분 · 25분 · 같은 (날짜, 거래소) running) ───────────
 INSERT INTO public.tick_convert_requests (date, exchange, isin, status, requested_by, triggered_at)
@@ -324,7 +335,7 @@ SELECT is(pg_temp.req(pg_temp.u1(), '20261019', 'KR7370003007', 'NXT', 2)->>'cap
           'J cap 2 에서 세 번째 새 키 → capped true');
 SELECT is(pg_temp.st('20261019', 'NXT', 'KR7370003007'), NULL, 'J capped 요청은 행을 만들지 않는다');
 SELECT is(pg_temp.req(pg_temp.u1(), '20261020', 'KR7370002009', 'NXT', 1)->>'capped', 'false',
-          'J 이 키에 pending 이 있으면 상한과 무관(stale 재트리거 허용) → capped 아님');
+          'J 이 키가 2분 안에 깨운 pending 이면 상한과 무관(합류 · Job 0) → capped 아님');
 UPDATE public.tick_convert_requests SET finished_at = '2026-10-31 22:00:00+09'
  WHERE date = '20261024' AND exchange = 'NXT' AND isin = 'KR7370001001';
 SELECT is(pg_temp.req(pg_temp.u1(), '20261024', 'KR7370001001', 'NXT', 20)->>'should_trigger', 'true',
@@ -349,6 +360,74 @@ UPDATE public.tick_convert_requests SET status = 'running' WHERE date = '2026102
 SELECT is(public.tick_cancel_convert_for_user(pg_temp.u1(), '20261023', 'KR7370001001', 'KRX')->>'cancelled', 'false',
           'J 취소 — running 은 못 취소(pending 만)');
 
+-- ── J2. 상한 = 깨운 횟수(WR-01 · 20261104300000) ────────────────────
+DELETE FROM public.tick_convert_requests;
+CREATE FUNCTION pg_temp.tc(p_date text, p_ex text, p_isin text) RETURNS integer LANGUAGE sql AS $$
+  SELECT r.trigger_count FROM public.tick_convert_requests r
+   WHERE r.date = p_date AND r.exchange = p_ex AND r.isin = p_isin AND r.trigger_day = (now() AT TIME ZONE 'Asia/Seoul')::date
+$$;
+SELECT pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2);
+SELECT public.tick_request_claim('20261017', 'KRX');
+SELECT public.tick_request_finish('20261017', 'KRX', '[{"isin": "KR7370001001", "ok": false, "error": "NO_RECORDS"}]'::jsonb);
+SELECT is(pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2)->>'should_trigger', 'true',
+          'J2 같은 키 failed → 재요청 → 다시 트리거');
+SELECT is(pg_temp.tc('20261017', 'KRX', 'KR7370001001'), 2, 'J2 다시 pending 으로 올려도 그날 깨운 횟수는 누적 → 2');
+SELECT is(pg_temp.req(pg_temp.u1(), '20261016', 'KR7370002009', 'KRX', 2)->>'capped', 'true',
+          'J2 같은 키를 두 번 깨운 뒤 cap 2 → 새 키 capped(행 수가 아니라 횟수)');
+UPDATE public.tick_convert_requests SET triggered_at = now() - interval '3 minutes' WHERE date = '20261017';
+SELECT is(pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2)->>'capped', 'true',
+          'J2 stale pending(3분) 재트리거도 상한을 거친다 → capped');
+SELECT is(pg_temp.st('20261017', 'KRX', 'KR7370001001') || ' ' || pg_temp.tc('20261017', 'KRX', 'KR7370001001'), 'pending 2',
+          'J2 capped 재트리거는 행 · 횟수를 그대로 둔다');
+UPDATE public.tick_convert_requests SET triggered_at = now() - interval '1 minute' WHERE date = '20261017';
+SELECT is(pg_temp.req(pg_temp.u2(), '20261017', 'KR7370001001', 'KRX', 2) - 'request' - 'eta_s',
+          '{"access": true, "should_trigger": false, "capped": false, "grid_ready": false,
+            "not_uploaded": false, "retry_after": null}'::jsonb,
+          'J2 2분 안에 깨운 pending 에 합류 → 상한 넘어도 capped 아님 · should_trigger false');
+DELETE FROM public.tick_convert_requests;
+SELECT pg_temp.req(pg_temp.u1(), '20261015', 'KR7370001001', 'KRX', 1);
+SELECT is(public.tick_request_trigger_failed('20261015', 'KRX', 'boom'), 1, 'J2 trigger_failed → pending 1행');
+SELECT is(pg_temp.tc('20261015', 'KRX', 'KR7370001001'), 0, 'J2 깨우기 실패(Job 0회) → 오늘 횟수 되돌림 → 0');
+SELECT is(pg_temp.req(pg_temp.u1(), '20261014', 'KR7370002009', 'KRX', 1)->>'should_trigger', 'true',
+          'J2 깨우기 실패분은 상한에 남지 않는다 → cap 1 에서 새 키 트리거');
+
+-- ── J3. 합쳐진 요청의 취소 = 내 몫 빼기(WR-02 · 20261104300100) ──────────
+DELETE FROM public.tick_convert_requests;
+CREATE FUNCTION pg_temp.who(p_date text, p_ex text, p_isin text) RETURNS uuid[] LANGUAGE sql AS $$
+  SELECT r.requesters FROM public.tick_convert_requests r
+   WHERE r.date = p_date AND r.exchange = p_ex AND r.isin = p_isin
+$$;
+CREATE FUNCTION pg_temp.cx(p_user uuid, p_date text, p_isin text, p_ex text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT public.tick_cancel_convert_for_user(p_user, p_date, p_isin, p_ex)
+$$;
+SELECT pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20)->>'should_trigger', 'false',
+          'J3 두 번째 요청자 → 앞 Job 에 합류(should_trigger false)');
+SELECT is(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ARRAY[pg_temp.u1(), pg_temp.u2()],
+          'J3 합류하면 요청자 집합 {u1, u2}');
+SELECT pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(cardinality(pg_temp.who('20261013', 'KRX', 'KR7370001001')), 2, 'J3 같은 사람 재요청은 집합을 늘리지 않는다');
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX') - 'request', '{"access": true, "cancelled": true}'::jsonb,
+          'J3 첫 요청자 취소 → 내 몫만 뺀다(cancelled true)');
+SELECT is(pg_temp.st('20261013', 'KRX', 'KR7370001001') || ' ' || array_to_string(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ','),
+          'pending ' || pg_temp.u2()::text,
+          'J3 다른 요청자가 남으면 요청은 pending 그대로(남의 화면에 실패 없음) · 집합 {u2}');
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX')->>'cancelled', 'false',
+          'J3 이미 뺀 사람의 재취소 → false');
+SELECT pg_temp.cx(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX');
+SELECT ok((SELECT r.status = 'cancelled' AND r.finished_at = now() AND r.requesters = '{}'
+             FROM public.tick_convert_requests r WHERE r.date = '20261013' AND r.isin = 'KR7370001001'),
+          'J3 마지막 요청자 취소 → cancelled · finished_at · 빈 집합');
+SELECT pg_temp.req(pg_temp.u2(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.st('20261013', 'KRX', 'KR7370001001') || ' ' || array_to_string(pg_temp.who('20261013', 'KRX', 'KR7370001001'), ','),
+          'pending ' || pg_temp.u2()::text, 'J3 취소된 요청을 다시 올리면 새 회차 · 집합 {본인}');
+SELECT pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20);
+SELECT is(pg_temp.cx(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX') #>> '{request,status}', 'pending',
+          'J3 두 번째 요청자도 자기 몫을 취소할 수 있다 · 요청은 pending 그대로');
+SELECT ok(NOT (pg_temp.open1('20261013', 'KRX', 'KR7370001001')->'request' ? 'requesters')
+          AND NOT (pg_temp.req(pg_temp.u1(), '20261013', 'KR7370001001', 'KRX', 20)->'request' ? 'requesters'),
+          'J3 open · 요청 응답은 요청자 집합을 내보내지 않는다');
+
 -- ── K. 실행 기록 · 후보 ───────────────────────────────────────────
 SELECT ok(public.tick_convert_run_record('{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true,
                                             "targets": 3, "written": 3, "bytes_read": 1000, "duration_ms": 5000}'::jsonb) > 0,
@@ -364,8 +443,8 @@ INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date,
   ('KB120', 'tv-ep', 3, '2026-10-30', 1793000000002, 15, 'KRX', 'KR7370004005'),
   ('KB120', 'tv-ep', 4, '2026-10-29', 1792900000000, 16, 'KRX', 'KR7370005002');
 SELECT is(public.tick_convert_candidates('20261030'),
-          '{"accum": ["KR7370001001"], "live16": ["KR7370003007"]}'::jsonb,
-          'K candidates = accum(limitup_accum_flow) ∪ live16(kind 16 · 그날 · DISTINCT)');
+          '{"accum": ["KR7370001001"], "live16": ["KR7370003007"], "launch": []}'::jsonb,
+          'K candidates = accum(limitup_accum_flow) ∪ live16(kind 16 · 그날 · DISTINCT) · launch(발사 조각 없음 → [] · quick 261103-pei)');
 
 -- ── L. 오늘 목록(D-15) ─────────────────────────────────────────────
 DELETE FROM public.stock_quotes;

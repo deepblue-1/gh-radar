@@ -1,7 +1,8 @@
 /**
  * 가짜 tickgw(37-09 export 계약) — node:http 로 127.0.0.1 임의 포트에 뜬다. 승격 시험(37-12)이 진짜 fetch 경로를 그대로 탄다.
  *
- *   GET /internal/ticks/export?date=        → `{date, keys, unclosed}` (closed 키만 · ns 는 십진 문자열)
+ *   GET /internal/ticks/export?date=        → `{date, keys, unclosed}` (closed 키만 · ns 는 십진 문자열 ·
+ *                                              레코드 0건 키는 first/last_recv_ns **null** — 실제 tickgw server.ts exportList 와 같다 · CR-30)
  *   GET /internal/ticks/export/bytes?date&isin&ex → 원본 레코드를 **두 zstd 프레임으로 나눠 이어붙인** 바이트(+X-Tick-Records)
  *   비밀 헤더 `X-Tickgw-Secret` 틀리면 401 · date ≠ today 면 400 DATE_MISMATCH · closed 아니면 404 NOT_CLOSED
  *
@@ -23,6 +24,8 @@ export type FakeKey = {
   recordsOverride?: number;
   /** bytes 응답 상태 코드 덮기(예 500). */
   bytesStatus?: number;
+  /** export 목록 항목에 덮어쓸 필드(계약 위반 키 흉내 — 예 `{ bytes: -1 }`). */
+  listPatch?: Record<string, unknown>;
 };
 
 export type FakeTickgwState = {
@@ -86,10 +89,12 @@ export async function startFakeTickgw(state: FakeTickgwState): Promise<FakeTickg
             ex: k.ex,
             bytes: servedOf(k).length,
             records: k.recordsOverride ?? k.recs.length,
-            first_recv_ns: String(k.recs[0]?.recvNs ?? 0n),
-            last_recv_ns: String(k.recs[k.recs.length - 1]?.recvNs ?? 0n),
+            // 실제 tickgw 계약 — 레코드 0건이면 null(String(0n) = "0" 이 아니다 · CR-30)
+            first_recv_ns: k.recs.length > 0 ? String(k.recs[0]!.recvNs) : null,
+            last_recv_ns: k.recs.length > 0 ? String(k.recs[k.recs.length - 1]!.recvNs) : null,
             closed_through_ns: String(k.closedThroughNs),
             _raw: raw.length, // 계약 밖 필드 — 클라이언트가 무시해야 한다
+            ...k.listPatch,
           };
         }),
         unclosed: state.keys.filter((k) => !k.closed).length + (state.extraUnclosed ?? 0),

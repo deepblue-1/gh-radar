@@ -12,8 +12,14 @@
  *   tick_purge_old(p_keep_days)                  → {cutoff, grids, requests, runs, dates}      (37-18 nightly)
  *   tick_grid_team_pending(p_from, p_to)         → [{date, exchange, isin, object_path, bytes}] (261103-j4d backfill-team)
  *   tick_grid_team_set(p_rows)                   → 갱신 수 — 같은 object_path ∧ 미계산 행만     (261103-j4d backfill-team)
+ *   launch_queue_inputs(p_date)                  → [LaunchInputRow] — 그날 대상 발사 조각 + 우리 체결 (261103-pei nightly · backfill-launch)
+ *   launch_queue_set(p_rows)                     → 쓴 행 수 — 7키 upsert · 격자 경로 가드          (261103-pei)
+ *   launch_queue_pending(p_from, p_to)           → {grids: TeamPendingRow 꼴[], no_grid}          (261103-pei backfill-launch)
+ * `tick_convert_candidates` 의 `launch`(261103-pei) 키가 없으면 옛 RPC(db push 전)로 보고 [] + warn 한 번 — 있는데 모양이 틀리면 throw.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { LaunchPieceQueue, LaunchQueuePieceIn } from "@gh-radar/shared";
+import { logger } from "./logger";
 import type { Exchange, GridMode } from "./store";
 import type { GridTeam } from "./team-day";
 
@@ -63,7 +69,24 @@ export type RunRow = {
 };
 
 export type RunSince = { date: string; exchange: string; mode: GridMode; ok: boolean | null; finished_at: string | null };
-export type Candidates = { accum: string[]; live16: string[] };
+/** `launch` = 그날 접수 발사 조각 ISIN(261103-pei · 출처 칩 없이 nightly 대상). */
+export type Candidates = { accum: string[]; live16: string[]; launch: string[] };
+
+/** 발사 대기열 계산 입력 한 조각(`launch_queue_inputs` 행 — trade_date `YYYYMMDD`). */
+export type LaunchInputRow = LaunchQueuePieceIn & { trade_date: string };
+/** 발사 대기열 값 한 행(`launch_queue_set` 입력) — 7키 + 계산에 쓴 격자 경로(null = 너무 커서 안 올린 격자) + 값 14칸. */
+export type LaunchSetRow = {
+  trade_date: string;
+  gateway: string;
+  profile: string;
+  fire_exchange: string;
+  fire_base: string;
+  market: string;
+  wire: number;
+  object_path: string | null;
+} & LaunchPieceQueue;
+/** backfill-launch 입력 — 값이 없는 격자 · 격자 없는 키 수. */
+export type LaunchPendingOut = { grids: TeamPendingRow[]; no_grid: number };
 export type PurgeOut = { cutoff: string; grids: number; requests: number; runs: number; dates: string[] };
 
 export interface Meta {
@@ -76,6 +99,9 @@ export interface Meta {
   purgeOld(keepDays: number): Promise<PurgeOut>;
   teamPending(from?: string, to?: string): Promise<TeamPendingRow[]>;
   teamSet(rows: readonly TeamSetRow[]): Promise<number>;
+  launchInputs(date: string): Promise<LaunchInputRow[]>;
+  launchSet(rows: readonly LaunchSetRow[]): Promise<number>;
+  launchPending(from?: string, to?: string): Promise<LaunchPendingOut>;
 }
 
 function isStrArray(v: unknown): v is string[] {
@@ -93,6 +119,33 @@ function isPendingRow(v: unknown): v is TeamPendingRow {
     typeof r.bytes === "number"
   );
 }
+
+function isFill(v: unknown): boolean {
+  return Array.isArray(v) && v.length === 2 && typeof v[0] === "number" && typeof v[1] === "number";
+}
+
+function isLaunchInput(v: unknown): v is LaunchInputRow {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.trade_date === "string" &&
+    typeof r.gateway === "string" &&
+    typeof r.profile === "string" &&
+    typeof r.fire_exchange === "string" &&
+    typeof r.fire_base === "string" &&
+    typeof r.market === "string" &&
+    typeof r.wire === "number" &&
+    (r.side === "buy" || r.side === "sell") &&
+    typeof r.isin === "string" &&
+    typeof r.price === "number" &&
+    typeof r.qty === "number" &&
+    Array.isArray(r.fills) &&
+    r.fills.every(isFill)
+  );
+}
+
+/** 옛 RPC(launch 키 없음) 경고는 프로세스에서 한 번만. */
+let warnedNoLaunch = false;
 
 function intOf(name: string, v: unknown): number {
   const n = Number(v);
@@ -131,7 +184,15 @@ export function createMeta(sb: SupabaseClient): Meta {
       if (!d || !isStrArray(d.accum) || !isStrArray(d.live16)) {
         throw new Error(`tick_convert_candidates: {accum, live16} 이 아니다 ${JSON.stringify(d)}`);
       }
-      return { accum: d.accum, live16: d.live16 };
+      if (d.launch === undefined) {
+        if (!warnedNoLaunch) {
+          warnedNoLaunch = true;
+          logger.warn({ date }, "tick_convert_candidates: launch 키 없음 — 옛 RPC(마이그레이션 20261104200000 전) · 발사 대상 [] 로 진행");
+        }
+        return { accum: d.accum, live16: d.live16, launch: [] };
+      }
+      if (!isStrArray(d.launch)) throw new Error(`tick_convert_candidates: launch 가 isin 배열이 아니다 ${JSON.stringify(d.launch)}`);
+      return { accum: d.accum, live16: d.live16, launch: d.launch };
     },
     async purgeOld(keepDays) {
       const d = (await call("tick_purge_old", { p_keep_days: keepDays })) as Partial<PurgeOut> | null;
@@ -155,6 +216,23 @@ export function createMeta(sb: SupabaseClient): Meta {
     },
     async teamSet(rows) {
       return intOf("tick_grid_team_set", await call("tick_grid_team_set", { p_rows: rows }));
+    },
+    async launchInputs(date) {
+      const d = await call("launch_queue_inputs", { p_date: date });
+      if (!Array.isArray(d) || !d.every(isLaunchInput)) {
+        throw new Error(`launch_queue_inputs: 조각 행 배열이 아니다 ${JSON.stringify(d).slice(0, 300)}`);
+      }
+      return d;
+    },
+    async launchSet(rows) {
+      return intOf("launch_queue_set", await call("launch_queue_set", { p_rows: rows }));
+    },
+    async launchPending(from, to) {
+      const d = (await call("launch_queue_pending", { p_from: from ?? null, p_to: to ?? null })) as Partial<LaunchPendingOut> | null;
+      if (!d || !Array.isArray(d.grids) || !d.grids.every(isPendingRow)) {
+        throw new Error(`launch_queue_pending: {grids, no_grid} 가 아니다 ${JSON.stringify(d).slice(0, 300)}`);
+      }
+      return { grids: d.grids, no_grid: intOf("launch_queue_pending.no_grid", d.no_grid) };
     },
   };
 }

@@ -122,6 +122,7 @@ describe("runIndexer — 가짜 119", () => {
     process.env.FAKE_INDEXER_TOTAL = "2000";
     const r = await runIndexer(args, opts({ maxStdoutBytes: 64 }));
     expect(r.code).toBe(-1);
+    expect(r.stdout.length).toBe(0); // 버린다 — 0 으로 채운 꼬리 버퍼를 만들지 않는다(IN-30)
   });
 
   it("실행 파일 없음 — code −1", async () => {

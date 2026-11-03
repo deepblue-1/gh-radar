@@ -22,7 +22,7 @@
  */
 import { parsePrice, parseStr, parseTime12Ns, parseUint, parseValue22 } from "./decode";
 import { iterRecords } from "./framing";
-import { A3_LAYOUT, A0_LAYOUT, B6_LAYOUT, B9_LAYOUT, C3_LAYOUT, R8_LAYOUT, type Layout } from "./layouts";
+import { A3_LAYOUT, A0_LAYOUT, B6_LAYOUT, B9_LAYOUT, C3_LAYOUT, R8_LAYOUT, type FieldKind, type Layout } from "./layouts";
 import type { A3Trade } from "./orders-krx";
 
 /** 태그 코드 — `TickIndex.tag` 값. */
@@ -72,6 +72,12 @@ const BOARD_LEN = 2;
 /**
  * 레코드 프레이밍 바이트 → 레코드 인덱스. iterRecords 한 번(개수) + 한 번(채우기) — 전체 디코딩 없이 머리만 읽는다.
  * 보드 문자열은 decodeFields 와 같은 규칙(parseStr)이고 등장 순서대로 `boards` 에 쌓인다(255종 넘으면 RangeError).
+ *
+ * **단일 ISIN 전제(IN-02):** 보드 키는 board_id 2바이트뿐이다. msg_seq 는 (종목, 보드)마다 따로라서, 이 인덱스 위의
+ * 거래소순(`exchangeOrderOf`) · 뒤집힘(`inversionsOf`) · 마지막 B6(book `lastB6Of`) · 호가 재구성은 버퍼가 **한 ISIN** 일
+ * 때만 맞다 — 여러 ISIN 이 섞이면 다른 종목 seq 를 섞어 정렬하고, 런을 종목 경계 너머로 잇고, 닫는 B6 를 다른 종목에서 찾는다.
+ * 운영 격자 · 당일 캐시는 종목 단위라 늘 맞다. 여러 ISIN 조각(발사 대기열 골든 `launch1030-*-0900` 등)은 먼저 ISIN 별로
+ * 쪼갠 뒤 넣는다(ticks-launch-queue.golden.test.ts 의 `cutOf`). 인덱스 자체(머리 · 수신순)는 섞인 버퍼에도 쓸 수 있어 여기서 막지 않는다(무필터 raw20k 시험).
  */
 export function buildTickIndex(buf: Uint8Array, label: "krx" | "nxt"): TickIndex {
   let n = 0;
@@ -145,7 +151,7 @@ export function recvOrderOf(index: TickIndex): Int32Array {
 /**
  * 거래소순 순열 — 수신순 자리 배열에서 (보드)마다 그 보드 행(seq ≥ 0)이 차지한 자리 목록을 구하고, 그 행들을 msg_seq
  * 오름차순(동률은 수신 순서)으로 자리 오름차순에 다시 채운다. seq -1 행(B9 · C3 · A0 · raw · 길이 안 맞는 행)은 자리 유지.
- * 결과는 순열(모든 rec 한 번씩) · O(n log n).
+ * 결과는 순열(모든 rec 한 번씩) · O(n log n). 단일 ISIN 인덱스 전제(`buildTickIndex` 주석).
  */
 export function exchangeOrderOf(index: TickIndex, recvOrder: Int32Array): Int32Array {
   const out = Int32Array.from(recvOrder);
@@ -212,24 +218,38 @@ export interface A3Columns {
   toTrades(): A3Trade[];
 }
 
-function fieldOff(layout: Layout, name: string): number {
-  const f = layout.fields.find((x) => x.name === name);
-  if (!f) throw new Error(`${layout.table}.${name} 필드가 없다`);
-  return f.offset;
+/** 레이아웃 필드 하나의 자리(오프셋 · 길이) — 길이도 레이아웃에서 읽는다(IN-04). */
+interface FieldAt {
+  offset: number;
+  length: number;
 }
 
-const A3_OFF = {
-  isin: fieldOff(A3_LAYOUT, "isin"),
-  tradeTime: fieldOff(A3_LAYOUT, "trade_time"),
-  pct: fieldOff(A3_LAYOUT, "price_change_type"),
-  chg: fieldOff(A3_LAYOUT, "price_change"),
-  px: fieldOff(A3_LAYOUT, "trade_price"),
-  qty: fieldOff(A3_LAYOUT, "trade_qty"),
-  cumValue: fieldOff(A3_LAYOUT, "cum_value"),
-  cumVolume: fieldOff(A3_LAYOUT, "cum_volume"),
-  bs: fieldOff(A3_LAYOUT, "final_bs_code"),
-  a1: fieldOff(A3_LAYOUT, "ask1_px"),
-  b1: fieldOff(A3_LAYOUT, "bid1_px"),
+/**
+ * 레이아웃에서 필드 `name` 의 자리를 찾고 `kind` 를 확인한다. 고정 폭 파서(price 11 · time12 12 · 한 글자 str 1)를 쓰는
+ * 필드는 `width` 로 길이를 함께 잠근다 — 레이아웃 길이가 바뀌면 모듈을 읽을 때 바로 던진다(조용히 엇갈리지 않게).
+ */
+function fieldOf(layout: Layout, name: string, kind: FieldKind, width?: number): FieldAt {
+  const f = layout.fields.find((x) => x.name === name);
+  if (!f) throw new Error(`${layout.table}.${name} 필드가 없다`);
+  if (f.kind !== kind) throw new Error(`${layout.table}.${name} 는 ${kind} 가 아니다(${f.kind})`);
+  if (width !== undefined && f.length !== width) {
+    throw new Error(`${layout.table}.${name} 길이 ${f.length} ≠ 고정 폭 파서 ${width}`);
+  }
+  return { offset: f.offset, length: f.length };
+}
+
+const A3_F = {
+  isin: fieldOf(A3_LAYOUT, "isin", "str"),
+  tradeTime: fieldOf(A3_LAYOUT, "trade_time", "time12", 12),
+  pct: fieldOf(A3_LAYOUT, "price_change_type", "str", 1),
+  chg: fieldOf(A3_LAYOUT, "price_change", "price", 11),
+  px: fieldOf(A3_LAYOUT, "trade_price", "price", 11),
+  qty: fieldOf(A3_LAYOUT, "trade_qty", "uint"),
+  cumValue: fieldOf(A3_LAYOUT, "cum_value", "value22"),
+  cumVolume: fieldOf(A3_LAYOUT, "cum_volume", "uint"),
+  bs: fieldOf(A3_LAYOUT, "final_bs_code", "str", 1),
+  a1: fieldOf(A3_LAYOUT, "ask1_px", "price", 11),
+  b1: fieldOf(A3_LAYOUT, "bid1_px", "price", 11),
 };
 
 /** parseStr 한 글자 규칙의 문자 코드 — 128 이상 '?' · NUL 공백. */
@@ -275,19 +295,19 @@ export function a3ColumnsOf(buf: Uint8Array, index: TickIndex): A3Columns {
     rec[k] = i;
     seq[k] = index.seq[i]!;
     board[k] = index.board[i]!;
-    bs[k] = charCodeOf(buf[o + A3_OFF.bs]!);
-    pct[k] = charCodeOf(buf[o + A3_OFF.pct]!);
-    chg[k] = toNum(parsePrice(buf, o + A3_OFF.chg));
-    px[k] = toNum(parsePrice(buf, o + A3_OFF.px));
-    qty[k] = toNum(parseUint(buf, o + A3_OFF.qty, 10));
-    a1[k] = toNum(parsePrice(buf, o + A3_OFF.a1));
-    b1[k] = toNum(parsePrice(buf, o + A3_OFF.b1));
-    tNs[k] = parseTime12Ns(buf, o + A3_OFF.tradeTime, recv) ?? -1n;
-    cumValue[k] = toNum(parseValue22(buf, o + A3_OFF.cumValue, 22));
-    cumVolume[k] = toNum(parseUint(buf, o + A3_OFF.cumVolume, 12));
+    bs[k] = charCodeOf(buf[o + A3_F.bs.offset]!);
+    pct[k] = charCodeOf(buf[o + A3_F.pct.offset]!);
+    chg[k] = toNum(parsePrice(buf, o + A3_F.chg.offset));
+    px[k] = toNum(parsePrice(buf, o + A3_F.px.offset));
+    qty[k] = toNum(parseUint(buf, o + A3_F.qty.offset, A3_F.qty.length));
+    a1[k] = toNum(parsePrice(buf, o + A3_F.a1.offset));
+    b1[k] = toNum(parsePrice(buf, o + A3_F.b1.offset));
+    tNs[k] = parseTime12Ns(buf, o + A3_F.tradeTime.offset, recv) ?? -1n;
+    cumValue[k] = toNum(parseValue22(buf, o + A3_F.cumValue.offset, A3_F.cumValue.length));
+    cumVolume[k] = toNum(parseUint(buf, o + A3_F.cumVolume.offset, A3_F.cumVolume.length));
     const c0 = buf[o + 2];
     nxt[k] = c0 === 53 ? 1 : c0 === 48 ? 0 : fallbackNxt;
-    const s = parseStr(buf, o + A3_OFF.isin, 12);
+    const s = parseStr(buf, o + A3_F.isin.offset, A3_F.isin.length);
     let interned = isinIntern.get(s);
     if (interned === undefined) {
       interned = s;
@@ -353,7 +373,7 @@ export interface Inversion {
 /**
  * 거래소순(보드별 seq 순)으로 A3 런을 묶고 닫는 B6(같은 보드 seq = 마지막 + 1 · 거래소순 첫 것)를 찾아, 그 B6 recv 가
  * 런 조각 하나라도보다 이르면 Inversion 으로 낸다. 결과는 닫는 B6 의 거래소순 자리 오름차순. 1조각 런도 포함한다
- * (다조각만 보려면 `pieces >= 2` 로 거른다).
+ * (다조각만 보려면 `pieces >= 2` 로 거른다). 단일 ISIN 인덱스 전제 — 키가 (보드, seq) 라 종목을 가르지 않는다(`buildTickIndex` 주석).
  */
 export function inversionsOf(index: TickIndex, a3: A3Columns, exchange: Int32Array): Inversion[] {
   const a3Of = new Int32Array(index.n).fill(-1);

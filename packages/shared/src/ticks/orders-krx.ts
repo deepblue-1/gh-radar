@@ -18,7 +18,7 @@
  *
  * 중복 수신 전문은 제거하지 않는다(teamflow.py:69-70 「중복 제거는 하지 않는다」 · Pitfall 12) — 골든 호환.
  */
-import type { FieldValue } from "./decode";
+import { numOf as num, strOf as str, type FieldValue } from "./decode";
 
 /** 계산 범위 — teamflow = KRX G1(§5-1 손익 골든) · accum = KRX G1+G4(매집감지 · 뷰어 기본). */
 export type TeamScope = "teamflow" | "accum";
@@ -36,16 +36,6 @@ export interface A3Trade {
   tNs: bigint | null;
   isin: string;
   exchange: "KRX" | "NXT";
-}
-
-function num(v: FieldValue | undefined): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  return Number.NaN;
-}
-
-function str(v: FieldValue | undefined): string {
-  return typeof v === "string" ? v : "";
 }
 
 /** decodeFields(A3) 결과 행 → A3Trade. 열: msg_seq · board_id · final_bs_code · trade_price · trade_qty · ask1_px · bid1_px · trade_time_ns · isin · exchange. */

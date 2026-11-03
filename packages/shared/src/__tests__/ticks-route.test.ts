@@ -92,27 +92,27 @@ describe("tagOf · isinKeyOf · exchangeLabelOf", () => {
   });
 });
 
-describe("hits15 — 119 배치 탐지와 같은 정수식", () => {
+describe("hits15(pct, chg, px) — 119 배치 탐지와 같은 정수식 · DayRateTracker.add 와 같은 인자 순서", () => {
   it("정확히 +15% 는 포함", () => {
-    expect(hits15("2", 11500, 1500)).toBe(true);
+    expect(hits15("2", 1500, 11500)).toBe(true);
   });
   it("+15% 바로 아래는 아님", () => {
-    expect(hits15("2", 11499, 1499)).toBe(false);
+    expect(hits15("2", 1499, 11499)).toBe(false);
   });
   it("상한('1')도 상승으로 본다", () => {
-    expect(hits15("1", 13000, 3000)).toBe(true);
+    expect(hits15("1", 3000, 13000)).toBe(true);
   });
   it("pct 가 '1'/'2' 가 아니면 false", () => {
-    expect(hits15("3", 20000, 5000)).toBe(false);
-    expect(hits15("5", 20000, 5000)).toBe(false);
+    expect(hits15("3", 5000, 20000)).toBe(false);
+    expect(hits15("5", 5000, 20000)).toBe(false);
   });
   it("base ≤ 0 이면 false", () => {
     expect(hits15("2", 1000, 1000)).toBe(false);
-    expect(hits15("2", 1000, 1500)).toBe(false);
+    expect(hits15("2", 1500, 1000)).toBe(false);
   });
   it("임계를 바꿀 수 있다(정수 경계)", () => {
-    expect(hits15("2", 12000, 2000, 20)).toBe(true);
-    expect(hits15("2", 11999, 1999, 20)).toBe(false);
+    expect(hits15("2", 2000, 12000, 20)).toBe(true);
+    expect(hits15("2", 1999, 11999, 20)).toBe(false);
   });
 });
 

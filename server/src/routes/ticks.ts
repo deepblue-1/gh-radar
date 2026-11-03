@@ -39,7 +39,7 @@ import type { TickGateCache } from "../services/tick-gate-cache.js";
  * - POST /convert {isin, d, ex}     : 요청 변환 — RPC 가 should_trigger 를 준 호출에서만 Job 실행(`TickConvertResponse`).
  *                                    상한 429 `TICK_CONVERT_CAPPED` · 실행 실패 502 `TICK_CONVERT_TRIGGER_FAILED` ·
  *                                    `TICK_CONVERT_JOB` 미설정 503 `TICK_CONVERT_UNAVAILABLE`.
- * - POST /convert/cancel {isin, d, ex} : 본인이 요청한 pending 만 취소(`TickCancelResponse`).
+ * - POST /convert/cancel {isin, d, ex} : pending 요청에서 내 몫만 뺀다 · 마지막 요청자면 cancelled(`TickCancelResponse` · WR-02).
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401. 미들웨어는 이것 하나다 — DMA 매핑 미들웨어를 겹치지 않는다

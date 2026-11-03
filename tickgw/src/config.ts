@@ -17,7 +17,8 @@
  *   TICKGW_POLL_MS         기본 5000 — 키당 증분 간격(± TICKGW_POLL_JITTER_MS)
  *   TICKGW_POLL_JITTER_MS  기본 500
  *   TICKGW_LEASE_MS        기본 30000 — server 요청이 이 시간 안 오면 그 키 폴링을 멈춘다
- *   TICKGW_CACHE_BYTES     기본 134217728(128MB) — 전체 캐시 LRU 상한
+ *   TICKGW_CACHE_BYTES     기본 100663296(96MB) — 전체 캐시 LRU 상한. 컨테이너 `--memory=256m` 의 ≤ 40%(WR-31):
+ *                          캐시 96 + Node 기본 ~50 + ssh stdout 모음(≤ 20MB · 끝 concat 한 번 더) + 응답(복사 없음) 여유
  *   TICKGW_MAX_KEYS        기본 8 — 활성 키 상한(넘으면 「대기 k건」)
  *   TICKGW_IDLE_MS         기본 900000(15분) — 유휴 키 삭제
  *   TICKGW_CLOSE_DELAY_MS  기본 60000 — KST 20:00 + 이 값 뒤 마감 마무리 1회
@@ -128,7 +129,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): TickgwConfig {
     pollMs: posInt(env, "TICKGW_POLL_MS", 5_000),
     pollJitterMs: nonNegInt(env, "TICKGW_POLL_JITTER_MS", 500),
     leaseMs: posInt(env, "TICKGW_LEASE_MS", 30_000),
-    cacheBytes: posInt(env, "TICKGW_CACHE_BYTES", 128 * 1024 * 1024),
+    cacheBytes: posInt(env, "TICKGW_CACHE_BYTES", 96 * 1024 * 1024),
     maxKeys: posInt(env, "TICKGW_MAX_KEYS", 8),
     idleMs: posInt(env, "TICKGW_IDLE_MS", 15 * 60 * 1000),
     closeDelayMs: nonNegInt(env, "TICKGW_CLOSE_DELAY_MS", 60_000),

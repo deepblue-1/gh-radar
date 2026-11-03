@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import zlib from "node:zlib";
-import { statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 
 // 통독 여부 — scan.ts 의 createReadStream 호출 수(업로드 전 날짜는 0 이어야 한다)
 const fsSpy = vi.hoisted(() => ({ reads: 0 }));
@@ -271,6 +271,17 @@ describe("request 모드 트레이서 — claim → 통독 → 격자 → 업로
     ]);
     expect(res.every((r) => r.error.startsWith("SCAN_FAILED: "))).toBe(true);
     expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: false, written: 0 });
+  });
+
+  it("끝이 잘린 원본 파일 수를 실행 기록 error 에 truncated n 으로 남긴다 · 실패 아님 · main 0(IN-32)", async () => {
+    const a = archive();
+    // 10시 파일 끝 5바이트를 잘라 다시 압축 — 마지막 레코드가 반쪽이 된다
+    const f = a.files.find((x) => x.endsWith(`/krx/${D}/${D}-1000.pcap.zst`))!;
+    const raw = zlib.zstdDecompressSync(readFileSync(f));
+    writeFileSync(f, zlib.zstdCompressSync(raw.subarray(0, raw.length - 5)));
+    const { sb, calls } = makeFakeSupabase({ claim: [A] });
+    expect(await run(["request", "--date", D, "--ex", "KRX"], sb, a.root)).toBe(0);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: true, error: "truncated 1" });
   });
 
   it("claim 이 빈 배열이면 통독 · finish 없이 실행 기록만 · main 0", async () => {

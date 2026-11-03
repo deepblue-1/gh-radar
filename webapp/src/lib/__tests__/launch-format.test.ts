@@ -2,16 +2,18 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import type { LaunchHeadRow, LaunchPieceRow } from '@gh-radar/shared';
+import type { LaunchHeadRow, LaunchPieceQueue, LaunchPieceRow } from '@gh-radar/shared';
 
 import {
   MINUS,
   brokerMarketLabelOf,
   fireLegLabelOf,
   fmtAcceptTime,
+  fmtEokMan,
   fmtUs,
   launchFireParamOf,
   launchHeadCardOf,
+  launchQueueCellOf,
   launchTabOf,
   orderTabPiecesOf,
   pieceKeyLabelOf,
@@ -401,5 +403,113 @@ describe('launchHeadCardOf(n0930) — 두 다리 · 재전송 합 · 고정 다�
       retries: 5,
       next: `고정 ${M}245µs`,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261103-pei — 대기열 열(목업 027 변형 A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('fmtEokMan — 1억 이상 x.xx억 · 미만 n만(반올림)', () => {
+  it('목업 실측값', () => {
+    expect(fmtEokMan(177_180_600)).toBe('1.77억');
+    expect(fmtEokMan(1_081_572_500)).toBe('10.82억');
+    expect(fmtEokMan(100_000_000)).toBe('1.00억');
+    expect(fmtEokMan(78_692_000)).toBe('7,869만');
+    expect(fmtEokMan(318_000)).toBe('32만');
+    expect(fmtEokMan(0)).toBe('0만');
+    expect(fmtEokMan(null)).toBe('—');
+  });
+});
+
+const QV = (over: Partial<LaunchPieceQueue>): LaunchPieceQueue => ({
+  kind: 'queue',
+  matched: true,
+  rank: null,
+  ahead_n: null,
+  ahead_qty: null,
+  ahead_amt: null,
+  end_state: null,
+  end_n: null,
+  end_qty: null,
+  end_amt: null,
+  fill_qty: null,
+  fill_px_min: null,
+  fill_px_max: null,
+  order_est: false,
+  ...over,
+});
+
+describe('launchQueueCellOf — 16:00 대기열', () => {
+  const base = { kind: 'queue', rank: 9, ahead_qty: 68808, ahead_amt: 177_180_600 } as const;
+  it('open → 「9번째 · 앞 68,808주 · 1.77억」 / 주황 「마감 앞 4건 · 30,560주 · 7,869만 (추정)」', () => {
+    const c = launchQueueCellOf({ qty: 16666, queue: QV({ ...base, end_state: 'open', end_n: 4, end_qty: 30560, end_amt: 78_692_000 }) });
+    expect(c).toEqual({
+      lead: '9번째',
+      leadTone: null,
+      rest: ' · 앞 68,808주 · 1.77억',
+      sub: '마감 앞 4건 · 30,560주 · 7,869만 (추정)',
+      subTone: 'est',
+    });
+  });
+  it('cancelled → 회색 「마감 — 취소됨」 · filled → 둘째 줄 없음', () => {
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'cancelled' }) })).toMatchObject({
+      sub: '마감 — 취소됨',
+      subTone: 'dim',
+    });
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'filled' }) })!.sub).toBeNull();
+  });
+  it('order_est → 첫 줄 끝 「 (추정)」(게이트웨이 순서 가정)', () => {
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'cancelled', order_est: true }) })!.rest).toBe(
+      ' · 앞 68,808주 · 1.77억 (추정)',
+    );
+  });
+});
+
+describe('launchQueueCellOf — 09:00:30 체결 순번', () => {
+  it('체결 → 「2번째 체결 · 앞 2주 · 32만」 / 「체결 18/20 @ 159,300~160,100」', () => {
+    const c = launchQueueCellOf({
+      qty: 20,
+      queue: QV({ kind: 'run', rank: 2, ahead_n: 1, ahead_qty: 2, ahead_amt: 318_000, fill_qty: 18, fill_px_min: 159_300, fill_px_max: 160_100 }),
+    });
+    expect(c).toEqual({
+      lead: '2번째 체결',
+      leadTone: null,
+      rest: ' · 앞 2주 · 32만',
+      sub: '체결 18/20 @ 159,300~160,100',
+      subTone: 'dim',
+    });
+  });
+  it('앞 금액 0 → 금액 생략 · 같은 가격이면 @ 하나', () => {
+    const c = launchQueueCellOf({
+      qty: 281,
+      queue: QV({ kind: 'run', rank: 1, ahead_n: 0, ahead_qty: 0, ahead_amt: 0, fill_qty: 281, fill_px_min: 18_000, fill_px_max: 18_000 }),
+    });
+    expect(c).toMatchObject({ lead: '1번째 체결', rest: ' · 앞 0주', sub: '체결 281/281 @ 18,000' });
+  });
+  it('미체결 → 빨강 「미체결 · 앞선 1건이 한도 안 4,861주 · 10.82억 가져감」 / 「적어도 2번째 이후」', () => {
+    const c = launchQueueCellOf({
+      qty: 22,
+      queue: QV({ kind: 'run', rank: null, ahead_n: 1, ahead_qty: 4861, ahead_amt: 1_081_572_500, fill_qty: 0 }),
+    });
+    expect(c).toEqual({
+      lead: '미체결',
+      leadTone: 'bad',
+      rest: ' · 앞선 1건이 한도 안 4,861주 · 10.82억 가져감',
+      sub: '적어도 2번째 이후',
+      subTone: 'dim',
+    });
+  });
+  it('미체결 · 한도 안 런 0건 → 「 · 1초 안 한도 안 체결 없음」 · 둘째 줄 없음', () => {
+    const c = launchQueueCellOf({ qty: 7, queue: QV({ kind: 'run', rank: null, ahead_n: 0, ahead_qty: 0, ahead_amt: 0, fill_qty: 0 }) });
+    expect(c).toMatchObject({ lead: '미체결', leadTone: 'bad', rest: ' · 1초 안 한도 안 체결 없음', sub: null });
+  });
+});
+
+describe('launchQueueCellOf — 값 없음 → null(「—」)', () => {
+  it('queue 키 없음(옛 RPC) · null(미계산 · 거부) · matched false', () => {
+    expect(launchQueueCellOf({ qty: 1 })).toBeNull();
+    expect(launchQueueCellOf({ qty: 1, queue: null })).toBeNull();
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ matched: false }) })).toBeNull();
   });
 });

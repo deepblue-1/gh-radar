@@ -3,7 +3,7 @@ phase: 37-tick-viewer
 plan: 17
 subsystem: deploy
 tags: [tickgw, radar-gw, tickpull, 119-indexer, cloud-run-job, scheduler, live-path, tick-viewer]
-status: uat-pending
+status: complete
 
 requires:
   - phase: 37-tick-viewer (37-09 · 37-12 · 37-15 · 37-16 · 37-19)
@@ -90,11 +90,15 @@ D-19 재검토 — 사용자 답 원문: 「유지 (권고)」(B2 · B0 넣지 �
 
 ### D-07 승격
 
-- 20:10 · 20:40 실행 결과는 그날 밤 기록(아래 추기)
+- 2026-11-03 밤 확인 — Scheduler 두 번 모두 성공(실행 `gh-radar-tick-convert-promote-nqsb5` 20:10 · `-2nkwj` 20:40 · 둘 다 1/1 · exit 0)
+  - 20:10: `[tick-convert] mode=promote date=20261103 keys=11 written=11 skipped=0 incomplete=0 unclosed=0 failed=0 bytes_read=60518308 team_failed=0 team_ms=9161 ms=40991`
+  - 20:40: 같은 11키 다시 씀(written=11 · failed=0 · team_failed=0 · team_ms=11585 · ms=48962) — bytes_read 동일 · 덮어쓰기
+  - `tick_grids` date=20261103 11행(KRX 8 · NXT 3) 모두 mode=promoted · sources=[promoted] · team_fills · team_day_net_krw · team_day_pnl_krw 채워짐(예: KRX 005930 팀 체결 15,492 · 순매수 6,922,920,250 · 손익 278,940,000)
+  - 로그 경고 「tick-convert team summary 느림」 회당 2~3건 — 실패 아님(team_failed=0)
 
 ## 당일 UAT (D-06)
 
 사용자 답 원문: 「당일 OK」 (2026-11-03 장중)
 
 - 확인 항목 — KRX · NXT 오늘 종목: 끝 틱 자동 증분(5초) · 과거 틱 보기 중 멈춤 + 「새 틱 n건」 · 「끝으로」 · 탭 숨김 정지 · 지연 표시 · 브라우저 둘에서 같은 종목 → tickgw 119 호출 키당 하나.
-- 남은 것: D-07 승격(오늘 20:10 · 20:40) 결과 확인 뒤 status complete.
+- D-07 승격 확인 완료(위) → status complete.

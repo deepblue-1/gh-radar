@@ -20,7 +20,13 @@
  * 같은 바이트 덮어쓰기(promoted → promoted · 멱등)다. 20:40 에도 unclosed 인 키는 승격하지 않는다(요약 로그 `unclosed=`).
  *
  * 실패 격리: 키 하나의 실패(바이트 · 해제 · 업로드 · 메타)는 다른 키를 막지 않는다 · 실패가 하나라도 있으면 종료 1.
- * export 목록이 실패하면(401 · DATE_MISMATCH · 응답 date 불일치) 그 run 전체가 실패(throw → 종료 1)다.
+ * export 목록이 실패하면(401 · DATE_MISMATCH · 응답 date 불일치 · 바깥 모양) 그 run 전체가 실패(throw → 종료 1)다.
+ * 목록 안 **키 하나의 모양 위반**은 그 키만 failed(CR-30 — 키 하나가 그날 승격 전체를 죽이지 않는다).
+ * 레코드 0건 closed 키(`first_recv_ns: null` · NXT 비상장 · 거래정지)는 바이트를 당기지 않고 incomplete 로 센다.
+ *
+ * 격자 크기 상한(WR-30 · nightly · request 와 같은 규칙): 다시 압축한 격자가 `GRID_MAX_BYTES`(버킷 50MB)를 넘으면 올리지 않고
+ * `tooLarge` 로 센다(실패 아님 · 종료 0 · 알림 없음). export `bytes`(119 원본 프레임 합)가 상한의 `PREFETCH_FACTOR` 배를 넘으면
+ * 바이트를 당기기 전에 건너뛴다(2Gi Job 안에서 큰 키 원시를 펼치지 않는다).
  */
 import zlib from "node:zlib";
 import {
@@ -39,7 +45,7 @@ import { requireTickgw } from "../config";
 import { logger } from "../logger";
 import { kstYmdDaysAgo } from "../archive";
 import { buildGridFile } from "../grid-file";
-import { gridObjectPath, type Exchange } from "../store";
+import { GRID_MAX_BYTES, gridObjectPath, type Exchange } from "../store";
 import { createMeta, type GridRow } from "../meta";
 import { gridTeamOf } from "../team-day";
 import { createTickgwExportClient, type TickgwExportClient, type TickgwExportKey } from "../tickgw-export";
@@ -51,7 +57,7 @@ export type PromoteArgs = { date?: string };
 export type PromoteDeps = JobDeps & { tickgw?: TickgwExportClient };
 
 /** 키 하나의 결과. */
-export type KeyStatus = "written" | "skipped" | "incomplete" | "failed";
+export type KeyStatus = "written" | "skipped" | "incomplete" | "tooLarge" | "failed";
 
 export type PromoteKeyResult = {
   isin: string;
@@ -71,6 +77,8 @@ export type PromoteOutcome = {
   written: number;
   skipped: number;
   incomplete: number;
+  /** 격자가 `GRID_MAX_BYTES` 를 넘어 올리지 않은 키 수(실패 아님 · WR-30). */
+  tooLarge: number;
   unclosed: number;
   /** 실패 키 + 실행 기록 실패 — 0 이 아니면 종료 1. */
   failed: number;
@@ -83,6 +91,13 @@ export type PromoteOutcome = {
 };
 
 const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
+
+/**
+ * 받기 전 사전 판정 배수 — export `bytes`(119 원본 zstd 프레임 합 · 낮은 레벨)가 `GRID_MAX_BYTES` × 이 값을 넘으면
+ * 바이트를 당기지 않고 tooLarge. 격자는 같은 원시를 더 높은 레벨 한 프레임으로 다시 압축하므로 원본 합보다 커지기 어렵다 —
+ * 2배는 상한 안에 들 키를 잘못 거르지 않을 보수적 여유다. 이 사이 키는 받아서 다시 압축한 실제 크기로 판정한다.
+ */
+export const PREFETCH_FACTOR = 2;
 
 /** `[--date YYYYMMDD]` — 모르는 플래그 · 빠진 값 · 형식 오류 → UsageError(종료 2). */
 export function parsePromoteArgs(args: readonly string[]): PromoteArgs {
@@ -151,10 +166,22 @@ async function promoteKey(
   key: TickgwExportKey,
   out: PromoteKeyResult,
 ): Promise<void> {
+  // 레코드 0건 closed 키(CR-30) — 올릴 하루치가 없다 · 바이트도 당기지 않는다
+  if (key.records === 0 || key.first_recv_ns === null) {
+    out.status = "incomplete";
+    out.reason = "레코드 0(export)";
+    return;
+  }
   // 완결 재확인 1 — 마감 마무리가 그날 20:00:00 KST 까지 닿았는가(받기 전에 — 잘린 키는 바이트도 당기지 않는다)
   if (BigInt(key.closed_through_ns) < closeNs(date)) {
     out.status = "incomplete";
     out.reason = `closed_through_ns ${key.closed_through_ns} < 20:00 KST`;
+    return;
+  }
+  // 크기 사전 판정(WR-30) — 분명히 상한을 넘을 키는 바이트도 당기지 않는다
+  if (key.bytes > GRID_MAX_BYTES * PREFETCH_FACTOR) {
+    out.status = "tooLarge";
+    out.reason = `TOO_LARGE export ${key.bytes}B > ${GRID_MAX_BYTES * PREFETCH_FACTOR}B(받기 전)`;
     return;
   }
 
@@ -176,6 +203,12 @@ async function promoteKey(
   }
 
   const g = buildGridFile(raw, deps.config.zstdLevel);
+  if (g.bytes.length > GRID_MAX_BYTES) {
+    // nightly · request 와 같은 규칙 — 버킷이 거부할 업로드를 하지 않는다(실패 아님 · 밤 변환도 같은 키를 건너뛴다)
+    out.status = "tooLarge";
+    out.reason = `TOO_LARGE ${g.bytes.length}B > ${GRID_MAX_BYTES}B`;
+    return;
+  }
   const tm = gridTeamOf(raw, key.ex, { date, isin: key.isin, mode: "promoted" });
   out.teamMs = tm.ms;
   out.teamFailed = !tm.ok;
@@ -224,10 +257,11 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
   const out: PromoteOutcome = {
     mode: "promote",
     date,
-    keys: list.keys.length,
+    keys: list.keys.length + list.rejected.length,
     written: 0,
     skipped: 0,
     incomplete: 0,
+    tooLarge: 0,
     unclosed: list.unclosed,
     failed: 0,
     bytesRead: 0,
@@ -236,6 +270,22 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     durationMs: 0,
     results: [],
   };
+
+  // 키 단위 모양 위반(CR-30) — 그 키만 failed · 나머지는 그대로 승격한다
+  for (const rj of list.rejected) {
+    logger.error({ date, ex: rj.ex, isin: rj.isin, reason: rj.reason }, "tick-convert promote: export 키 모양 위반 — 그 키만 실패");
+    out.failed += 1;
+    if (rj.ex === null) continue; // 거래소를 모르면 거래소별 실행 기록에는 못 싣는다(failed 수 · 로그에만)
+    out.results.push({
+      isin: rj.isin ?? "?",
+      ex: rj.ex,
+      status: "failed",
+      reason: rj.reason,
+      bytesRead: 0,
+      teamFailed: false,
+      teamMs: 0,
+    });
+  }
 
   for (const key of list.keys) {
     const r: PromoteKeyResult = {
@@ -257,6 +307,9 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     if (r.status === "incomplete") {
       logger.warn({ date, ex: key.ex, isin: key.isin, reason: r.reason }, "tick-convert promote: 하루치 전체가 아니다 — 승격 안 함");
     }
+    if (r.status === "tooLarge") {
+      logger.warn({ date, ex: key.ex, isin: key.isin, reason: r.reason, max: GRID_MAX_BYTES }, "tick-convert promote grid too large — 건너뜀(실패 아님)");
+    }
     out.results.push(r);
     out.bytesRead += r.bytesRead;
     out.teamMs += r.teamMs;
@@ -273,6 +326,7 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     const notes: string[] = [];
     if (cnt("failed") > 0) notes.push(`failed ${cnt("failed")}`);
     if (cnt("incomplete") > 0) notes.push(`incomplete ${cnt("incomplete")}`);
+    if (cnt("tooLarge") > 0) notes.push(`too_large ${cnt("tooLarge")}`);
     if (cnt("skipped") > 0) notes.push(`skipped ${cnt("skipped")}`);
     try {
       await meta.runRecord({
@@ -295,7 +349,7 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
   logger.info(
     { result: { ...out, results: undefined } },
     `[tick-convert] mode=promote date=${date} keys=${out.keys} written=${out.written} skipped=${out.skipped} ` +
-      `incomplete=${out.incomplete} unclosed=${out.unclosed} failed=${out.failed} bytes_read=${out.bytesRead} ` +
+      `incomplete=${out.incomplete} unclosed=${out.unclosed} failed=${out.failed} too_large=${out.tooLarge} bytes_read=${out.bytesRead} ` +
       `team_failed=${out.teamFailed} team_ms=${out.teamMs} ms=${out.durationMs}`,
   );
   return out;

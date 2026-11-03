@@ -284,6 +284,25 @@ describe("GET /api/ticks/open — 서명 URL (D-09 · 트레이서)", () => {
     expect(rec.signCalls).toHaveLength(1);
   });
 
+  it("grid 필드 · 봉투 모양 위반(bytes 문자열 · mode 모름 · sources 아님 · eta_s 없음 · exchange 모름) → 500 · 서명 0회(IN-34)", async () => {
+    const cases: Record<string, unknown>[] = [
+      { ...openWithGrid, grid: { ...gridRow, bytes: "1234567" } },
+      { ...openWithGrid, grid: { ...gridRow, records: undefined } },
+      { ...openWithGrid, grid: { ...gridRow, mode: "weird" } },
+      { ...openWithGrid, grid: { ...gridRow, sources: "accum" } },
+      { ...openWithGrid, grid: { ...gridRow, created_at: null } },
+      { ...openWithGrid, eta_s: undefined },
+      { ...openWithGrid, exchange: "KOSDAQ" },
+    ];
+    for (const data of cases) {
+      const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_open_for_user: data } });
+      const r = await auth(request(app(client)).get(OPEN(okOpenQ)));
+      expect(r.status).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+      expect(rec.signCalls).toHaveLength(0);
+    }
+  });
+
   it("grid 모양 위반(배열 · object_path 없음) → 500 · 서명 0회", async () => {
     for (const grid of [[gridRow], { ...gridRow, object_path: undefined }]) {
       const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_open_for_user: { ...openWithGrid, grid } } });
@@ -461,6 +480,19 @@ describe("POST /api/ticks/convert — should_trigger 일 때만 Job 실행 (D-03
         params: { p_date: "20261030", p_ex: "KRX", p_error: `TRIGGER_FAILED:${fail.ok ? "" : fail.status}` },
       });
     }
+  });
+
+  it("run 타임아웃(status 0 · TIMEOUT) → 되돌리지 않는다(실행이 시작됐을 수 있다) · 200 triggered true(IN-31)", async () => {
+    const { client, rec } = makeSupabase({
+      user: nextUser(),
+      rpc: { tick_request_convert_for_user: convReply({ should_trigger: true }), tick_request_trigger_failed: 1 },
+    });
+    const t = fakeTrigger({ ok: false, status: 0, error: "TIMEOUT" });
+    const r = await auth(request(app(client, { tickConvertTrigger: t.trigger })).post(CONVERT).send(body));
+    expect(r.status).toBe(200);
+    expect(r.body.triggered).toBe(true);
+    expect(t.runs).toHaveLength(1);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["tick_request_convert_for_user"]);
   });
 
   it("trigger 미주입(TICK_CONVERT_JOB 없음)인데 should_trigger → trigger_failed(…, TRIGGER_DISABLED) · 503 TICK_CONVERT_UNAVAILABLE", async () => {

@@ -64,6 +64,17 @@ export async function metadataAccessToken(fetchImpl: typeof fetch = fetch): Prom
 
 export type TickConvertRunResult = { ok: true; execution: string | null } | { ok: false; status: number; error: string };
 
+/**
+ * 응답을 기다리다 끊은 실패의 error 값(status 0). Admin API 가 실행을 이미 만들었을 수 있다 — 호출자는 이 경우
+ * 되돌리지 않는다(IN-31 · services/ticks.ts requestTickConvert).
+ */
+export const TRIGGER_TIMEOUT = "TIMEOUT";
+
+/** 실행이 시작됐는지 모르는 실패인가(타임아웃). */
+export function isAmbiguousTriggerFailure(r: TickConvertRunResult): boolean {
+  return !r.ok && r.status === 0 && r.error === TRIGGER_TIMEOUT;
+}
+
 export interface TickConvertTrigger {
   run(date: string, ex: "KRX" | "NXT"): Promise<TickConvertRunResult>;
 }
@@ -125,7 +136,7 @@ export function createTickConvertTrigger(opts: {
         return { ok: true, execution };
       } catch (e) {
         const aborted = ac.signal.aborted;
-        const error = aborted ? "TIMEOUT" : `${e instanceof Error ? e.message : String(e)}`.slice(0, ERR_SNIPPET);
+        const error = aborted ? TRIGGER_TIMEOUT : `${e instanceof Error ? e.message : String(e)}`.slice(0, ERR_SNIPPET);
         logger.warn({ ...ctx, status: 0, error }, "tick convert trigger: Admin API 에 닿지 못함");
         return { ok: false, status: 0, error };
       } finally {

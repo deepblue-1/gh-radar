@@ -259,7 +259,9 @@ describe("빅텍 KR7065450009 10/22 15~17시 G4 조각 — accum 범위 커밋 �
   });
 });
 
-const BIGTECH_DAY = existsSync(tickFixturePath("bigtech-1022.pnl.json"));
+// 두 파일이 다 있어야 켠다 — 생성기는 크기 초과 `.ticks.zst` 를 커밋하지 말라고 하므로 json 만 커밋된 트리에서 ENOENT 로 깨지지 않게(WR-03).
+const BIGTECH_DAY =
+  existsSync(tickFixturePath("bigtech-1022.pnl.json")) && existsSync(tickFixturePath("bigtech-1022-a3.ticks.zst"));
 describe.skipIf(!BIGTECH_DAY)("빅텍 10/22 하루 — 두 범위 export payload.pnl(선택 픽스처)", () => {
   it.each(["teamflow", "accum"] as const)("%s 범위", (scope) => {
     const g = readTickJson<ChunilGolden>("bigtech-1022.pnl.json");

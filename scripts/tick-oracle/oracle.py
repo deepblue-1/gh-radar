@@ -41,6 +41,10 @@ TS 이식이 같은 결과를 내는지 대조할 픽스처를 만든다. 「이
   g4cut --isin I --date D --pcap-dir DIR --hours HHMM,… --out-prefix P                     (37-03 Task 3)
       pnl 과 같은 추출 → <P>.ticks.zst · 두 범위(accum = G1+G4 (t, seq) 순 · teamflow = G1 seq 순) 주문별 행 + team_pnl
       → <P>.golden.json. 범위 안 G4 체결이 0 이면 종료 1(골든이 아니다 — 시간을 넓혀 다시).
+  launchcut --pcap P [--pcap P …] --date D --isins I1,I2 [--board G4] [--from HH:MM:SS[.fff]] [--to …] --out <.ticks.zst>
+      (quick 261103-pei) 원본(주어진 순서)에서 태그 A3 · B6 ∧ 오프셋 17 ISIN ∈ 집합 ∧ (보드 지정 시 오프셋 13 일치) ∧
+      수신 시각(KST) ∈ [from, to) 만 레코드 프레이밍으로 이어 zstd-19 한 프레임. 발사 대기열 · 체결 런 골든 픽스처용.
+      표준오류에 ISIN 별 A3 · B6 수 · 바이트. 결정적(같은 원본 = 같은 바이트).
 
 정규화(canon) — TS `packages/shared/src/__tests__/helpers/tick-digest.ts` 와 한 글자도 다르지 않게:
   null/NaN → "~" · bool → "1"/"0" · 정수 → 10진 문자열 · 부동소수(dec6) → format(v, ".6f") · 문자열 → 그대로.
@@ -557,6 +561,14 @@ def scoped_frames(records: bytes, date: str, tmpd: Path) -> dict:
     return res
 
 
+def scope_of(res: dict, scope: str) -> tuple:
+    """scoped_frames 결과에서 범위 하나 (P, last_px) — 범위 A3 0행(None)이면 다른 실패 경로처럼 `[oracle]` 메시지 + 종료 1."""
+    got = res[scope]
+    if got is None:
+        raise SystemExit(f"[oracle] {scope}: 범위 A3 0행 — ISIN · 시간(--hours) · 날짜를 확인")
+    return got
+
+
 def _pnl_json(pnl: dict | None) -> dict | None:
     return None if pnl is None else {k: _py(v) for k, v in pnl.items()}
 
@@ -584,7 +596,7 @@ def cmd_pnl(a: argparse.Namespace) -> int:
     bad = 0
     got: dict = {}
     for scope, ex in (("teamflow", tf), ("accum", ac)):
-        P, last_px = res[scope]
+        P, last_px = scope_of(res, scope)
         mine = _pnl_json(teamflow.team_pnl(P, last_px))
         got[scope] = {"last_px": last_px, "pnl": mine}
         want = ex["payload"].get("pnl")
@@ -628,7 +640,7 @@ def cmd_g4cut(a: argparse.Namespace) -> int:
     doc: dict = {"source": {"isin": a.isin, "date": a.date, "hours": hours, "files": [f.name for f in files], "frames": frames,
                             "a3_records": n, "a3_rows": res["a3_rows"], "g4_trades": res["g4_trades"]}}
     for scope in ("accum", "teamflow"):
-        P, last_px = res[scope]
+        P, last_px = scope_of(res, scope)
         summary, rows = order_rows(P)
         summary.update(rows=len(rows), last_px=last_px)
         doc[scope] = {"summary": summary, "rows": rows}
@@ -642,6 +654,103 @@ def cmd_g4cut(a: argparse.Namespace) -> int:
           f"pnl_accum.buy_val={doc['pnl_accum'] and doc['pnl_accum']['buy_val']} "
           f"pnl_teamflow.buy_val={doc['pnl_teamflow'] and doc['pnl_teamflow']['buy_val']} {zst.name}={zst.stat().st_size}B",
           file=sys.stderr)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# launchcut (quick 261103-pei) — 발사 대기열 · 체결 런 골든용 조각: 지정 ISIN 의 A3 · B6 (보드 · 수신 창)
+# ---------------------------------------------------------------------------
+
+QUOTE_BOARD_OFFSET = 13
+KST_OFFSET_S = 9 * 3600
+
+
+def _kst_ns(date: str, hms: str | None) -> int | None:
+    """`YYYYMMDD` + `HH:MM:SS[.fff]`(KST) → epoch ns. hms 가 None 이면 None."""
+    if hms is None:
+        return None
+    import datetime as _dt
+
+    d = _dt.datetime.strptime(date, "%Y%m%d").replace(tzinfo=_dt.timezone.utc)
+    hh, mm, rest = hms.split(":")
+    sec, _, frac = rest.partition(".")
+    ms = int(frac.ljust(3, "0")[:3]) if frac else 0
+    s = int(d.timestamp()) + int(hh) * 3600 + int(mm) * 60 + int(sec) - KST_OFFSET_S
+    return s * 1_000_000_000 + ms * 1_000_000
+
+
+def extract_launch_cut(paths: list[Path], isins: set[bytes], board: bytes | None, t_from: int | None,
+                       t_to: int | None) -> tuple[bytes, dict]:
+    """주어진 순서의 원본에서 태그 A3 · B6 ∧ 오프셋 17 ISIN ∈ isins ∧ (보드 지정 시 오프셋 13 일치) ∧ 수신 ∈ [from, to)
+    UDP 페이로드만 레코드 프레이밍으로 잇는다. 프레임 판정은 extract_isin_a3 와 같다. (바이트, {isin: {A3, B6, bytes}})."""
+    out = bytearray()
+    stats: dict[str, dict[str, int]] = {}
+    for path in paths:
+        with pcap2parquet._open(path) as f:
+            pcap2parquet._read_global_header(f)
+            tail = b""
+            while True:
+                chunk = f.read(pcap2parquet.CHUNK)
+                if not chunk:
+                    break
+                buf = tail + chunk if tail else chunk
+                nb = len(buf)
+                pos = 0
+                while pos + 16 <= nb:
+                    ts_s, ts_ns, incl, _orig = _REC.unpack_from(buf, pos)
+                    fr = pos + 16
+                    end = fr + incl
+                    if end > nb:
+                        break
+                    pos = end
+                    if incl < 34 or buf[fr + 12] != 0x08 or buf[fr + 13] != 0x00 or buf[fr + 23] != 17:
+                        continue
+                    ihl = (buf[fr + 14] & 0x0F) * 4
+                    udp = fr + 14 + ihl
+                    if ihl < 20 or udp + 8 > end:
+                        continue
+                    ulen = (buf[udp + 4] << 8) | buf[udp + 5]
+                    p = udp + 8
+                    q = udp + ulen
+                    if ulen < 8 or q > end or q - p < A3_ISIN_OFFSET + 12:
+                        continue
+                    tag = bytes(buf[p:p + 2])
+                    if tag not in (b"A3", b"B6"):
+                        continue
+                    isin_b = bytes(buf[p + A3_ISIN_OFFSET:p + A3_ISIN_OFFSET + 12])
+                    if isin_b not in isins:
+                        continue
+                    if board is not None and bytes(buf[p + QUOTE_BOARD_OFFSET:p + QUOTE_BOARD_OFFSET + 2]) != board:
+                        continue
+                    t = ts_s * 1_000_000_000 + ts_ns
+                    if (t_from is not None and t < t_from) or (t_to is not None and t >= t_to):
+                        continue
+                    plen = q - p
+                    out += _REC.pack(ts_s, ts_ns, plen, plen)
+                    out += buf[p:q]
+                    st = stats.setdefault(isin_b.decode("ascii"), {"A3": 0, "B6": 0, "bytes": 0})
+                    st[tag.decode("ascii")] += 1
+                    st["bytes"] += 16 + plen
+                tail = buf[pos:]
+    return bytes(out), stats
+
+
+def cmd_launchcut(a: argparse.Namespace) -> int:
+    paths = [Path(p).expanduser() for p in a.pcap]
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        print(f"[oracle] 원본 없음: {missing}", file=sys.stderr)
+        return 1
+    isins = {x.strip().encode("ascii") for x in a.isins.split(",") if x.strip()}
+    board = a.board.encode("ascii") if a.board else None
+    data, stats = extract_launch_cut(paths, isins, board, _kst_ns(a.date, a.t_from), _kst_ns(a.date, a.t_to))
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(zstd.compress(data, level=19))
+    for isin in sorted(stats):
+        st = stats[isin]
+        print(f"[oracle] launchcut {isin} A3={st['A3']} B6={st['B6']} bytes={st['bytes']}", file=sys.stderr)
+    print(f"[oracle] launchcut {out.name}={out.stat().st_size}B (raw {len(data)}B)", file=sys.stderr)
     return 0
 
 
@@ -685,6 +794,15 @@ def main(argv: list[str] | None = None) -> int:
     p_p.set_defaults(fn=cmd_pnl)
     p_g.add_argument("--hours", required=True)
     p_g.set_defaults(fn=cmd_g4cut)
+    p_c = sub.add_parser("launchcut", help="발사 대기열 · 체결 런 골든 조각 — 지정 ISIN A3 · B6 (보드 · 수신 창)")
+    p_c.add_argument("--pcap", action="append", required=True)
+    p_c.add_argument("--date", required=True)
+    p_c.add_argument("--isins", required=True)
+    p_c.add_argument("--board", default=None)
+    p_c.add_argument("--from", dest="t_from", default=None)
+    p_c.add_argument("--to", dest="t_to", default=None)
+    p_c.add_argument("--out", required=True)
+    p_c.set_defaults(fn=cmd_launchcut)
     a = ap.parse_args(argv)
     return a.fn(a)
 
