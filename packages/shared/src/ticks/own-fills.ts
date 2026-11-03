@@ -230,7 +230,40 @@ export function locateEvidence(
     const rec = locateBookEvidence(buf, index, recvOrder, ev);
     return rec >= 0 ? { kind: "b6", rec } : NONE;
   }
-  void a3;
-  void cumIdx;
+  if (ev.evKind === 2) return locateTradeEvidence(a3, cumIdx, ev);
   return NONE;
+}
+
+/** 체결 근거(ev_kind 2) — 단건 'a3'(정확히 하나) · 아니면 구간 'range'(before, after] · 아니면 'none'. */
+function locateTradeEvidence(a3: A3Columns, cumIdx: Map<number, number[]>, ev: OwnEventIn): OwnEvidence {
+  let single = -1;
+  let hits = 0;
+  for (const j of cumIdx.get(ev.evQtyAfter) ?? []) {
+    if (a3.qty[j] !== ev.evTradeQty || a3.px[j] !== ev.evPrice) continue;
+    hits += 1;
+    single = j;
+  }
+  if (hits === 1) return { kind: "a3", j: single };
+  if (!(ev.evQtyAfter > ev.evQtyBefore)) return NONE;
+  // 주기매도 구간 — 이벤트가 드물어 전 A3 1회 순회(cumIdx 는 다시 만들지 않는다).
+  let firstJ = -1;
+  let lastJ = -1;
+  let n = 0;
+  let qty = 0;
+  for (let j = 0; j < a3.n; j++) {
+    const c = a3.cumVolume[j]!;
+    if (c <= ev.evQtyBefore || c > ev.evQtyAfter) continue;
+    if (firstJ < 0) firstJ = j;
+    lastJ = j;
+    n += 1;
+    qty += a3.qty[j]!;
+  }
+  return n > 0 ? { kind: "range", firstJ, lastJ, n, qty } : NONE;
+}
+
+/** 앵커 = cumVolume == cumVolume 인 A3 중 마지막 j(「주문 직전 마지막 체결」). cum 0 이하 · 일치 없음이면 −1. */
+export function anchorOf(cumIdx: Map<number, number[]>, cumVolume: number): number {
+  if (!(cumVolume > 0)) return -1;
+  const list = cumIdx.get(cumVolume);
+  return list && list.length > 0 ? list[list.length - 1]! : -1;
 }
