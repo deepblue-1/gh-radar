@@ -672,11 +672,11 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
   });
 
   it("따라잡기는 다른 승격 입력(이미 따라잡은 키 포함)을 LRU 로 지우지 않는다 — 자리가 없으면 그 키만 멈춘다 · caught 는 살아 있는 키만(R2-WR-01)", async () => {
-    // 상한 16,000B · 1분 1레코드 10B — 10:00 · 10:01 · 10:02 에 잠깐 연 키 셋(각 ≈1.2KB). 19:55 에 하루치(≈7.1KB)로 불리면
-    // 둘까지만 든다. 고치기 전엔 키 3 의 append 가 방금 따라잡은 키 1 을 지우고 로그는 caught=3 이었다(scratchpad r2probe).
+    // 상한 21,000B(따라잡기 몫 = 75% = 15,750B · R3-WR-01 예비 25% — 둘만 든다 · 셋째 마감 마무리도 자리 없음) · 1분 1레코드 10B — 10:00 · 10:01 · 10:02 에 잠깐 연 키 셋
+    // (각 ≈1.2KB). 19:55 에 하루치(≈7.1KB)로 불리면 둘까지만 든다. 고치기 전엔 키 3 의 append 가 방금 따라잡은 키 1 을 지우고 로그는 caught=3 이었다(scratchpad r2probe).
     const lines: Record<string, unknown>[] = [];
     const prevLevel = process.env.LOG_LEVEL;
-    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 16_000);
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 21_000);
     for (const [i, hhmmss] of [[1, "100000"], [2, "100100"], [3, "100200"]] as const) {
       r.clock.t = Math.max(r.clock.t, at(hhmmss));
       r.poller.touch(keyN(i));
@@ -711,9 +711,31 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     }
     expect(lines.filter((l) => l.msg === "cache evict")).toEqual([]);
     expect([1, 2, 3].map((i) => r.cache.get(keyN(i))?.closed ?? "evicted")).toEqual([true, true, false]);
-    expect(r.cache.totalBytes()).toBeLessThanOrEqual(16_000);
+    expect(r.cache.totalBytes()).toBeLessThanOrEqual(21_000);
     // 키 3 마감 마무리 — 버려질 게 확실한 질의는 보내지 않는다(R2-IN-03)
     expect(r.calls.filter((c) => keyOf(c.args) === keyN(3) && c.at >= at("200000"))).toEqual([]);
+  });
+
+  it("따라잡기는 상한의 25% 를 남긴다 — 지금 보는 키는 19:55~마감 사이에도 5초 증분 · 마감 뒤 승격(R3-WR-01)", async () => {
+    // 상한 15,500B — 키 1 · 2 는 10:00 · 10:01 에 잠깐 연 키(각 ≈1.2KB) · 키 9 는 19:50 에 열고 계속 보는 키(≈7.1KB).
+    // 고치기 전엔 따라잡기가 키 1 을 하루치로 불려 상한을 채웠고, 승격 보호 때문에 아무것도 못 지워 키 9 증분이 full → delayed ·
+    // 20:01 마감 마무리도 「close gave up (cache full)」 로 빠졌다(scratchpad r3probe).
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 15_500);
+    for (const [i, hhmmss] of [[1, "100000"], [2, "100100"]] as const) {
+      r.clock.t = Math.max(r.clock.t, at(hhmmss));
+      r.poller.touch(keyN(i));
+      await r.drive({ untilT: r.clock.t + 2_000 });
+    }
+    r.clock.t = at("195000");
+    r.poller.touch(keyN(9));
+    await r.drive({ untilT: at("195459"), touch: [keyN(9)] });
+    const before = r.cache.get(keyN(9))!.size;
+    await r.drive({ untilT: at("195900"), touch: [keyN(9)] });
+    expect(r.cache.get(keyN(9))!.size).toBeGreaterThan(before); // 따라잡기 창 안에서도 증분이 붙는다
+    expect(r.poller.peek(keyN(9))?.state).not.toBe("delayed");
+    expect(r.cache.totalBytes()).toBeLessThanOrEqual(15_500);
+    await r.drive({ untilT: at("201500"), touch: [keyN(9)] });
+    expect(r.cache.get(keyN(9))?.closed).toBe(true); // 보던 키는 승격 입력이 된다
   });
 
   it("창이 열린 뒤 리스가 끝난 queued 키(한 번도 못 받음)도 따라잡는다 — 08:00 부터 · 마감 마무리는 마지막 몇 분만(R2-IN-04)", async () => {

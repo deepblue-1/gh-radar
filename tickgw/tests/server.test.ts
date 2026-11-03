@@ -247,6 +247,29 @@ describe("TickCache — LRU 128MB · 유휴 15분(오늘 complete 는 KEEP_UNTIL
     expect(c.totalBytes()).toBe(80);
   });
 
+  it("보호 단계(R3-WR-01) — pinned(약)는 live append 만 마지막에 지운다 · catchup append 는 상한의 25% 를 남긴다", () => {
+    const c = new TickCache(100, 15 * 60 * 1000);
+    const p1 = makeKey("KR70000000P1", "KRX", DATE);
+    const lv = makeKey("KR70000000LV", "KRX", DATE);
+    const cu = makeKey("KR70000000CU", "KRX", DATE);
+    for (const [k, t] of [[p1, "1000"], [lv, "1001"], [cu, "1002"]] as const) c.ensure(k, at(t));
+    c.setProtect((e) => (e.key === lv ? true : e.key === p1 ? "pinned" : false));
+    expect(c.append(p1, Buffer.alloc(40), meta)).toBe("ok");
+    // catchup — 예비 25B 를 남긴 75B 안으로만: 40 + 30 = 70 ok · +10 = 80 > 75 → full(아무것도 지우지 않음)
+    expect(c.append(cu, Buffer.alloc(30), meta, at("1003"), "catchup")).toBe("ok");
+    expect(c.append(cu, Buffer.alloc(10), meta, at("1003"), "catchup")).toBe("full");
+    // live 60B — 넘는 30B: 먼저 보호 없는 cu(30B), 그래도 모자라면 pinned p1 은 아직 안 지움(need 충족)
+    expect(c.append(lv, Buffer.alloc(60), meta, at("1004"), "live")).toBe("ok");
+    expect(c.get(cu)).toBeUndefined();
+    expect(c.get(p1)?.size).toBe(40);
+    // normal append 는 pinned 를 못 지운다 → full
+    expect(c.headroom(cu, "normal")).toBe(0);
+    // live 가 더 자라면 pinned p1 을 마지막 순서로 지운다
+    expect(c.append(lv, Buffer.alloc(30), meta, at("1005"), "live")).toBe("ok");
+    expect(c.get(p1)).toBeUndefined();
+    expect(c.get(lv)?.size).toBe(90);
+  });
+
   it("보호 키(setProtect)는 LRU 로 지우지 않는다 · 자리를 못 만들면 full(아무것도 지우지 않음) · 혼자 넘으면 too_large(WR-33)", () => {
     const c = new TickCache(100, 15 * 60 * 1000);
     const a = makeKey("KR70000000A0", "KRX", DATE);

@@ -19,7 +19,8 @@
  *               5 → 15 → 30 → 60초로 늘린다(그동안 모든 키 · 따라잡기 · 마감 마무리 호출 0). 정상 응답(또는 64) 한 번이면 2초로
  *               되돌린다. 실패 단계 · 상태(X-Tick-State)는 건드리지 않는다 — gh-trade 계약 「75 = 다시」 그대로(R2-IN-05)
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
- *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33).
+ *   캐시 가득   리스가 살아 있는 키는 LRU 강 보호 · 승격 입력은 약 보호(지금 보는 키 append 만 마지막에 지움) · 따라잡기는 상한의
+ *               25% 를 남기고 붙인다(R3-WR-01) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33).
  *               버린 응답 크기를 기억해, 캐시에 그만큼 자리(cache.headroom)가 날 때까지는 119 를 부르지 않고 백오프만 한다
  *               (같은 from 의 응답은 그보다 작아지지 않는다 — 버려질 게 확실한 질의를 보내지 않는다 · R2-IN-03)
  *   승격 보호   따라잡기 시작(TICKGW_CATCHUP_AT · 끄면 마감 마무리 시작)부터 오늘 complete 키는 LRU 로 지우지 않는다 —
@@ -82,7 +83,7 @@
 
 import { kstDayStartNs, kstHhmm, kstMs, kstToday } from "./config.js";
 import type { CacheEntry, TickCache } from "./cache.js";
-import { parseKey } from "./cache.js";
+import { CATCHUP_RESERVE, parseKey, type AppendPriority } from "./cache.js";
 import { INDEXER_FMT, type Exchange, type IndexerResult, type RunIndexer } from "./indexer.js";
 import { log } from "./log.js";
 
@@ -238,12 +239,24 @@ export class Poller {
   ) {
     // WR-33 — 리스가 살아 있는 키는 LRU 후보에서 뺀다(폴링 중인 키를 지우고 08:00 부터 다시 받는 고리 방지)
     // R2-WR-01 — 따라잡기 ~ 승격 창의 오늘 complete 키도 뺀다(승격 입력끼리 서로 지우지 않는다)
+    // R3-WR-01 — 둘을 단계로 나눈다: 리스 = 강(누구도 못 지움) · 승격 입력 = 약("pinned" — 지금 보는 키 append 만 마지막에 지움).
+    //   그래야 19:55~마감 사이 아무도 안 보던 키(따라잡기)가 자리를 채워 지금 보는 키가 멈추는 역전이 없다.
     deps.cache.setProtect((e) => {
       const now = this.deps.now();
-      const run = this.runs.get(e.key);
-      if (run && run.epoch === e.epoch && run.leaseUntil > now) return true;
-      return this.promotionPinned(e, now);
+      if (this.leased(e, now)) return true;
+      return this.promotionPinned(e, now) ? "pinned" : false;
     });
+  }
+
+  /** 리스가 살아 있는(지금 누가 보는) 키인가. */
+  private leased(e: CacheEntry, now: number): boolean {
+    const run = this.runs.get(e.key);
+    return !!run && run.epoch === e.epoch && run.leaseUntil > now;
+  }
+
+  /** append 우선순위 — 지금 보는 키는 live(약 보호 키도 마지막에 지울 수 있음) · 아니면 normal(R3-WR-01). */
+  private priorityOf(run: KeyRun): AppendPriority {
+    return run.leaseUntil > this.deps.now() ? "live" : "normal";
   }
 
   /** 승격 창 시작 — 따라잡기 시작 시각(끄면 마감 마무리 시작 시각). */
@@ -462,10 +475,17 @@ export class Poller {
   }
 
   /** 정상 응답을 캐시에 붙인다. startedMs = 이 인덱서 호출의 시작 시각(완결 읽기면 as-of). */
-  private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult, startedMs: number): ApplyResult {
+  private applyOk(
+    run: KeyRun,
+    entry: CacheEntry,
+    fromNs: bigint,
+    res: IndexerResult,
+    startedMs: number,
+    priority: AppendPriority,
+  ): ApplyResult {
     const meta = res.meta!;
     if (meta.records > 0) {
-      const a = this.deps.cache.append(run.key, res.stdout, meta, this.deps.now());
+      const a = this.deps.cache.append(run.key, res.stdout, meta, this.deps.now(), priority);
       if (a === "too_large") {
         // 키 하나의 하루치가 캐시 상한을 넘는다 — 지우고 처음부터 다시 받는 무한 고리 대신 그날 폴링을 멈춘다(WR-33)
         run.tooLarge = true;
@@ -530,9 +550,10 @@ export class Poller {
    * 지난번 「캐시 가득」 으로 버린 만큼 자리가 났는가(R2-IN-03). 아니면 119 를 부르지 않는다 — 같은 from 의 응답은 그보다 작지 않아
    * 부르면 또 버려진다. 자리는 보호가 풀릴 때(리스 끝 · 승격 창 끝) 난다.
    */
-  private roomForRetry(run: KeyRun): boolean {
+  private roomForRetry(run: KeyRun, priority: AppendPriority): boolean {
     if (run.fullNeed <= 0) return true;
-    return this.deps.cache.headroom(run.key) >= run.fullNeed;
+    const reserve = priority === "catchup" ? Math.floor(this.deps.cache.limitBytes * CATCHUP_RESERVE) : 0;
+    return this.deps.cache.headroom(run.key, priority) - reserve >= run.fullNeed;
   }
 
   private async call(
@@ -563,7 +584,7 @@ export class Poller {
 
   private async poll(run: KeyRun): Promise<void> {
     const entry0 = this.deps.cache.get(run.key)!;
-    if (!this.roomForRetry(run)) {
+    if (!this.roomForRetry(run, this.priorityOf(run))) {
       run.failures += 1; // 여전히 캐시 가득 — 호출 없이 백오프(delayed)
       run.nextDueAt = this.deps.now() + backoffMs(run.failures);
       return;
@@ -577,7 +598,7 @@ export class Poller {
         const prevFailures = run.failures;
         run.failures = 0;
         run.argBlocked = false;
-        const a = this.applyOk(run, entry, fromNs, res, started);
+        const a = this.applyOk(run, entry, fromNs, res, started, this.priorityOf(run));
         if (a === "more") run.nextDueAt = at;
         else if (a === "done") run.nextDueAt = at + this.cfg.pollMs + this.jitter();
         else if (a === "full") {
@@ -685,7 +706,7 @@ export class Poller {
   private async catchupOne(item: CatchupItem): Promise<void> {
     const entry0 = this.deps.cache.get(item.key)!;
     const run = this.runOf(entry0, this.deps.now());
-    if (!this.roomForRetry(run)) {
+    if (!this.roomForRetry(run, "catchup")) {
       // 이미 「캐시 가득」 이던 키 — 부르면 버려진다. 따라잡기 full 과 같이 멈춘다(R2-WR-01 · R2-IN-03)
       log("warn", "catchup stopped (cache full)", { key: item.key, need: run.fullNeed, total: this.deps.cache.totalBytes() });
       this.dropCatchup(item);
@@ -704,7 +725,7 @@ export class Poller {
       case "ok": {
         run.failures = 0;
         run.argBlocked = false;
-        const a = this.applyOk(run, entry, fromNs, res, started);
+        const a = this.applyOk(run, entry, fromNs, res, started, "catchup");
         if (a === "more") {
           item.failures = 0;
           item.nextDueAt = at; // 이어받기 — 곧바로(활성 키와는 교대)
@@ -781,7 +802,7 @@ export class Poller {
   private async closeOne(item: CloseItem, now: number): Promise<void> {
     const entry0 = this.deps.cache.get(item.key)!;
     const run = this.runOf(entry0, now);
-    if (!this.roomForRetry(run)) {
+    if (!this.roomForRetry(run, this.priorityOf(run))) {
       // 여전히 캐시 가득 — 호출 없이 실패 시도로 센다(R2-IN-03)
       item.attempts += 1;
       if (item.attempts >= CLOSE_MAX_ATTEMPTS) {
@@ -803,7 +824,7 @@ export class Poller {
     if (kind === "ok") {
       run.failures = 0;
       run.argBlocked = false;
-      const a = this.applyOk(run, entry, fromNs, res, started);
+      const a = this.applyOk(run, entry, fromNs, res, started, this.priorityOf(run));
       if (a === "more") {
         item.nextDueAt = at; // 이어받기 — 같은 마무리 폴링
         return;

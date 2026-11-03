@@ -19,6 +19,9 @@
  *   보호 = `setProtect` 술어(폴러가 「리스가 살아 있는 키」 + 「19:55 따라잡기 ~ 20:01 마감 마무리 동안의 오늘 complete ∧
  *   closed 아닌 키」 로 건다) — 폴링 중인 키를 지우고 08:00 부터 다시 받는 고리와, 승격 입력끼리 서로 지우는 것을 막는다.
  *   자리를 못 만들면 붙이지 않고 `full`, 키 하나가 혼자 상한을 넘으면 `too_large` 를 돌려준다(폴러가 백오프 · 「너무 큼」 처리).
+ *   보호 단계(R3-WR-01): 술어가 `true` = 강(리스가 살아 있는 키 — 누구도 못 지움) · `"pinned"` = 약(승격 입력 — 보통 · 따라잡기
+ *   append 는 못 지우지만 **지금 보는 키(live)** append 는 마지막 순서로 지운다). 따라잡기 append 는 상한의 `CATCHUP_RESERVE`
+ *   (25%)를 지금 보는 키 몫으로 남겨 두고, 그 안으로만 붙인다 — 아무도 안 보던 키가 자리를 다 채워 보던 키가 멈추는 역전을 막는다.
  *   밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
  * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
  *   유휴 삭제에서 뺀다 — 20:01 마감 마무리 · 승격 Job 의 입력이라 브라우저가 닫혀도 21:00 까지 남겨 둔다.
@@ -73,11 +76,18 @@ export function parseKey(key: string): { isin: string; ex: Exchange; date: strin
   return { isin, ex, date };
 }
 
+/** 보호 단계 — false 없음 · "pinned" 약(승격 입력) · true 강(리스 살아 있음). */
+export type ProtectLevel = boolean | "pinned";
+/** append 우선순위 — live(리스 살아 있는 키 · 약 보호 키도 지울 수 있음) · normal · catchup(예비분을 남기고 붙임). */
+export type AppendPriority = "live" | "normal" | "catchup";
+/** 따라잡기 append 가 남겨 두는 몫 — 상한의 25%(지금 보는 키 증분 · 마감 마무리 몫 · R3-WR-01). */
+export const CATCHUP_RESERVE = 0.25;
+
 export class TickCache {
   private readonly entries = new Map<string, CacheEntry>();
   private total = 0;
   /** LRU 후보에서 뺄 엔트리(WR-33) — 기본은 없음. */
-  private protect: (e: CacheEntry) => boolean = () => false;
+  private protect: (e: CacheEntry) => ProtectLevel = () => false;
 
   constructor(
     readonly limitBytes: number,
@@ -87,7 +97,7 @@ export class TickCache {
   ) {}
 
   /** LRU 보호 술어를 건다(폴러 — 리스가 살아 있는 키). */
-  setProtect(fn: (e: CacheEntry) => boolean): void {
+  setProtect(fn: (e: CacheEntry) => ProtectLevel): void {
     this.protect = fn;
   }
 
@@ -125,15 +135,23 @@ export class TickCache {
    * 바이트 · 메타를 붙인다. 상한을 넘기면 보호되지 않은 다른 키를 LRU 로 지워 자리를 만든 뒤 붙인다(WR-33).
    * 그 키 혼자 상한을 넘으면 `too_large` · 자리를 못 만들면 `full` — 둘 다 아무것도 바꾸지 않는다(커서도 그대로).
    */
-  append(key: string, bytes: Buffer, meta: AppendMeta, now: number = Date.now()): AppendResult {
+  append(
+    key: string,
+    bytes: Buffer,
+    meta: AppendMeta,
+    now: number = Date.now(),
+    priority: AppendPriority = "normal",
+  ): AppendResult {
     const e = this.entries.get(key);
     if (!e) return "ok";
     if (bytes.length > 0) {
       if (e.size + bytes.length > this.limitBytes) return "too_large";
-      if (this.total + bytes.length > this.limitBytes) {
+      // 따라잡기는 예비분을 남긴 자리 안으로만(R3-WR-01) — 남은 자리 + 지울 수 있는 몫에서 예비분을 뺀다
+      const reserve = priority === "catchup" ? Math.floor(this.limitBytes * CATCHUP_RESERVE) : 0;
+      if (this.total + bytes.length > this.limitBytes - reserve) {
         // 지울 수 있는 몫이 모자라면 아무것도 지우지 않는다(헛삭제 금지)
-        if (this.headroom(key) < bytes.length) return "full";
-        this.enforceLimit(bytes.length, e, now);
+        if (this.headroom(key, priority) - reserve < bytes.length) return "full";
+        this.enforceLimit(bytes.length + reserve, e, now, priority);
       }
       e.chunks.push(bytes);
       e.size += bytes.length;
@@ -150,14 +168,22 @@ export class TickCache {
   /**
    * 지금 이 키에 붙일 수 있는 최대 바이트 — 남은 자리 + 지울 수 있는(보호되지 않은 다른 키) 몫(R2-IN-03 사전 판정 · append 의 full 판정).
    */
-  headroom(key: string): number {
+  headroom(key: string, priority: AppendPriority = "normal"): number {
     let freeable = 0;
-    for (const o of this.entries.values()) if (o.key !== key && !this.protect(o)) freeable += o.size;
+    for (const o of this.entries.values()) if (o.key !== key && this.evictable(o, priority)) freeable += o.size;
     return this.limitBytes - this.total + freeable;
+  }
+
+  /** 이 우선순위의 append 가 지울 수 있는 키인가 — 강 보호는 아무도 · 약 보호(승격 입력)는 live 만(R3-WR-01). */
+  private evictable(e: CacheEntry, priority: AppendPriority): boolean {
+    const level = this.protect(e);
+    if (level === false) return true;
+    return level === "pinned" && priority === "live";
   }
 
   /** LRU 후보 순위(R2-WR-01) — 0 = 승격 입력 아님(complete 아님 · 다른 날짜) · 1 = 오늘 complete(마지막에 지운다). */
   private victimRank(e: CacheEntry, today: string): number {
+    if (this.protect(e) === "pinned") return 2; // 승격 입력(약 보호) — live append 만, 맨 마지막에
     return e.complete && e.date === today ? 1 : 0;
   }
 
@@ -165,14 +191,19 @@ export class TickCache {
    * 합계 + `need` 가 상한 이하가 될 때까지 **보호되지 않은** 키를 (순위, lastAccess) 오름차순으로 지운다(`keep` 은 제외).
    * 후보가 없으면 멈춘다(보호 키는 지우지 않는다 — WR-33). 지울 때마다 warn 로그(R2-WR-01 — 무로그 삭제 금지).
    */
-  private enforceLimit(need = 0, keep: CacheEntry | null = null, now: number = Date.now()): string[] {
+  private enforceLimit(
+    need = 0,
+    keep: CacheEntry | null = null,
+    now: number = Date.now(),
+    priority: AppendPriority = "normal",
+  ): string[] {
     const removed: string[] = [];
     const today = kstToday(now);
     while (this.total + need > this.limitBytes) {
       let victim: CacheEntry | null = null;
       let victimRank = 0;
       for (const e of this.entries.values()) {
-        if (e === keep || this.protect(e)) continue;
+        if (e === keep || !this.evictable(e, priority)) continue;
         const rank = this.victimRank(e, today);
         if (!victim || rank < victimRank || (rank === victimRank && e.lastAccess < victim.lastAccess)) {
           victim = e;
@@ -185,7 +216,7 @@ export class TickCache {
         size: victim.size,
         complete: victim.complete,
         closed: victim.closed,
-        reason: "lru",
+        reason: this.protect(victim) === "pinned" ? "lru-live" : "lru",
         for_key: keep?.key,
       });
       this.delete(victim.key);
