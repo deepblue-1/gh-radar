@@ -65,3 +65,5 @@
 ## 2026-11-02 — 동시 세션 커밋이 섞인 push
 - 상황: 로드맵 문서 커밋을 push 하는데 master 가 이미 `ahead 4`(옆 세션 relay/webapp 커밋). 그대로 push 해 webapp 프로덕션 배포가 그 세션 의도와 무관하게 시작됐다.
 - 규칙: push 직전 `git status -sb` 의 ahead 수가 내 커밋 수와 다르면 push 중단 → 사용자에게 보고하고 옆 세션에 알린 뒤 진행. 문서만 바꾼 커밋이라도 push 는 전체 배포다.
+
+- **2026-11-04 툴 호출 사이 한 줄 진행 문장도 한글** — gsd-code-review --fix 중 영어 워크플로 스펙을 읽은 직후 「No source changed…」 「Spawning the fixer…」 를 영어로 써서 「한글로」 지적받음. 영어 문서를 읽은 직후일수록 문장을 쓰기 전에 언어를 확인한다. 짧은 상태 문장도 예외 없음.
