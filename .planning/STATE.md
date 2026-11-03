@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-01-PLAN.md
-last_updated: "2026-11-03T06:01:10.550Z"
+stopped_at: Completed 38-02-PLAN.md
+last_updated: "2026-11-03T06:10:42.508Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: 4b6409c35050b3d398a61a907356c710ea19ee01
+state_head: dd1883cee2e92f7770c2dc81a6408344471d5f3e
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 102
+  completed_plans: 103
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T06:01:10.433Z
-Stopped at: Completed 38-01-PLAN.md
+Last session: 2026-11-03T06:10:42.387Z
+Stopped at: Completed 38-02-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -203,6 +203,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 36 P07 | 9min | 2 tasks | 9 files |
 | Phase 36 P08 | 26min | 3 tasks | 15 files |
 | Phase 38 P01 | 9 min | 1 tasks | 14 files |
+| Phase 38 P02 | 6min | 2 tasks | 12 files |
 
 ## Decisions
 
@@ -339,3 +340,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 36]: 36-08: 계좌별 증권사 배지 = KB 게이트웨이 하나라도 있으면 KB · BROKER_LABEL export 로 같은 낱말 한 벌
 - [Phase 38]: 38-01: 어드민 판정은 RPC tick_own_for_user 안 dma_app_access_map() role 조회 — 분기 인자 없음(인자 4개 고정)
 - [Phase 38]: 38-01: 우리 체결 짝짓기는 브라우저 shared matchOwnFills · own 조회 실패(동기 throw 포함)는 우리 층만 비우고 콘솔 경고 한 줄
+- [Phase 38]: 38-02: own1030 오라클 픽스처는 창 격자(원본 레코드 순서 보존 필터) + 생성기 안 원본=창 짝짓기 동일성 자기검사 · 저널 JSON 키는 README 규칙대로 전부 알파벳 정렬
+- [Phase 38]: 38-02: 10/30 원본 격자 5종목에 같은 (board, seq) 중복 A3 0건 — 중복 제외 시 수치 = 단언 수치(236/165/5/108)라 Open Q4 는 이 데이터로 판별 불가 · 규칙은 probe 그대로
