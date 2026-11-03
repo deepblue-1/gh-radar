@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   a3TimeMs,
   conditionTextOf,
+  dayStartNs,
   type TickOwnEvent,
   type TickOwnFill,
   type TickOwnOrder,
@@ -16,6 +17,8 @@ import {
   ownOrderLineText,
   ownSelKeyOf,
   resolveOwnSel,
+  OWN_DAY_END_HHMM,
+  OWN_DAY_END_SETTLE_MS,
   OWN_PENDING_GRACE_MS,
   type OwnOrderView,
 } from '../own-model';
@@ -199,6 +202,57 @@ describe('buildOwnModel — 당일 대기(Pitfall 4 · OWN_PENDING_GRACE_MS)', (
     // 세션이 자라 창(gw + 1,200ms)을 넘기면 모델을 다시 만들 때 짝이 붙는다
     const grown = synthSession([...msgs, [1500.5, b6Msg({ seq: 303, ask1: [30000, 0], bid1: [30000, 900] })]]);
     expect(buildOwnModel(grown, one, { live: true }).fills.map((f) => [f.state, f.rec])).toEqual([['matched', 0]]);
+  });
+
+  // R2 WR-02 — 진짜 A3 가 이미 있으면(|dt| 작음) 그만큼 빨리 확정 · 장 끝 뒤에 받은 세션은 대기 없음
+  const a3At100: [number, Uint8Array] = [100.5, a3Msg({ seq: 311, bs: '2', px: 30000, qty: 10, time: '130000100000' })];
+  const b6At = (ms: number, seq: number): [number, Uint8Array] => [ms, b6Msg({ seq, ask1: [30000, 0], bid1: [30000, 900] })];
+  const near = ownOf({ fills: [fill('NR', at(105), 30000, 10)] }); // dt = 5ms
+
+  it('live — 짝 |dt| 가 작으면 g + |dt| + 20 + 1,000 에서 확정(짝 없음 기준 g + 1,200 보다 이르다) · 1ms 모자라면 대기', () => {
+    // 닿는 거리 = min(5 + 20, 200) = 25 → 마지막 수신 ≥ .105 + 25 + 1,000 = 1.130 이면 더 가까운 A3 는 이미 왔어야 한다
+    const done = buildOwnModel(synthSession([a3At100, b6At(1130.5, 312)]), near, { live: true });
+    expect(done.fills.map((f) => [f.state, f.rec, f.dtMs])).toEqual([['matched', 0, 5]]);
+    const short = buildOwnModel(synthSession([a3At100, b6At(1129.5, 312)]), near, { live: true });
+    expect(short.fills.map((f) => [f.state, f.rec])).toEqual([['pending', -1]]);
+  });
+
+  it('live — 앞 체결이 대기면 뒤 체결도 대기(남은 수량 차감이 순서 의존 · 대기 체결의 잠정 차감은 버린다)', () => {
+    // X .100 ×10 · Y .395 ×5 · 마지막 수신 1.500. h(.400 ×10)는 Y 가 모자라 X(dt 300 · 닿는 거리 200 → 1.600 > 1.500 대기) ·
+    // i(.400 ×5)는 Y(dt 5 · 닿는 거리 25 → 1.425 ≤ 1.500)지만 h 뒤라 대기.
+    const msgs: [number, Uint8Array][] = [
+      a3At100,
+      [395.5, a3Msg({ seq: 313, bs: '2', px: 30000, qty: 5, time: '130000395000' })],
+      b6At(1500.5, 314),
+    ];
+    const hi = ownOf({ fills: [fill('H', at(400), 30000, 10, 'B', 1), fill('I', at(400), 30000, 5, 'B', 2)] });
+    const s = synthSession(msgs);
+    expect(buildOwnModel(s, hi).fills.map((f) => [f.state, f.rec])).toEqual([
+      ['matched', 0],
+      ['matched', 1],
+    ]);
+    expect(buildOwnModel(s, hi, { live: true }).fills.map((f) => f.state)).toEqual(['pending', 'pending']);
+    const onlyI = ownOf({ fills: [fill('I', at(400), 30000, 5, 'B', 2)] });
+    expect(buildOwnModel(s, onlyI, { live: true }).fills.map((f) => [f.state, f.rec])).toEqual([['matched', 1]]);
+  });
+
+  it('live — 장 끝(KRX 18:00 · NXT 20:00) + 5분 뒤에 받은 세션은 대기 없음 · 그 전 · ready 아님(null)은 대기', () => {
+    // 리뷰 재현 — A3 .100 · 마지막 수신 B6 .400 · 우리 체결 .105(진짜 A3 는 .100). 세션이 더 자라지 않는 장 끝 뒤 화면.
+    expect(OWN_DAY_END_HHMM).toEqual({ KRX: '1800', NXT: '2000' });
+    expect(OWN_DAY_END_SETTLE_MS).toBe(300_000);
+    const msgs: [number, Uint8Array][] = [a3At100, b6At(400.5, 312)];
+    const krx = synthSession(msgs);
+    const endOf = (hhmm: string) => Number(dayStartNs(SYNTH_DATE, hhmm) / 1_000_000n) + OWN_DAY_END_SETTLE_MS;
+    const stateAt = (s: typeof krx, asOfMs: number | null) =>
+      buildOwnModel(s, near, { live: true, asOfMs }).fills.map((f) => [f.state, f.rec]);
+    expect(stateAt(krx, null)).toEqual([['pending', -1]]);
+    expect(stateAt(krx, endOf('1800') - 1)).toEqual([['pending', -1]]);
+    expect(stateAt(krx, endOf('1800'))).toEqual([['matched', 0]]);
+    const nxt = synthSession(msgs, 'NXT');
+    expect(stateAt(nxt, endOf('1800'))).toEqual([['pending', -1]]);
+    expect(stateAt(nxt, endOf('2000'))).toEqual([['matched', 0]]);
+    // 과거 격자(live 아님)는 asOfMs 와 무관하게 확정
+    expect(buildOwnModel(krx, near, { asOfMs: null }).fills.map((f) => f.state)).toEqual(['matched']);
   });
 });
 

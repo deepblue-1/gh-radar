@@ -13,9 +13,16 @@
  *   그 주문의 가장 이른 이벤트 → 없으면 보조 주문 행(`orders[]` · created_ms) → 둘 다 없으면 체결만(주문 줄 없음 · gwMs null).
  * ⑤ 슬롯(38-04): 주문 · 짝 없는 체결의 자리 = 수신순 `lowerBoundRecv`(그 시각 이후 첫 전문) — 거래소순은 수신순 자리를
  *   보드별로 다시 채운 순열이라 슬롯 p 하나가 두 순열 공통이다(`exchangeOrderOf`). 전문 목록은 ROW(order[p]) **앞**에 줄을 넣는다.
- * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다 — gw + 1,200ms(짝 창 +200ms + 여유
- *   1,000ms)가 세션 마지막 수신보다 뒤인 체결은 짝짓기에 넣지 않고 'pending'(짝 결과와 무관 · 남은 수량도 안 깎는다 —
- *   상한가처럼 같은 가격 A3 가 흔하면 진짜 A3 대신 더 이른 A3 에 붙는다 · WR-02). 세션이 자라면 모델을 다시 만들어 풀린다.
+ * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다. 그래서 짝은 늘 다 짓되(과거 격자와 같은 한 번의
+ *   `matchOwnFills`), **지금 고른 짝이 더 가까운 A3 가 아직 올 수 있어 바뀔 수 있으면** 대기('pending')로 둔다(R2 WR-02).
+ *   더 나은 A3(|dt| 가 더 작거나 「추정」 을 바꿀 만큼 가까운 것)의 시각은 g + 닿는 거리(짝 있음 = min(|dt| + 20, 200) ·
+ *   짝 없음 = 짝 창 끝 200) 앞이다. 그 A3 는 늦어도 그 시각 + 여유 1,000ms 안에 받았어야 하므로 그 끝이 세션 마지막 수신보다
+ *   뒤면 아직 모른다. 진짜 A3 가 이미 있어 |dt| 가 작은 체결은 그만큼 빨리 확정되고, 진짜 A3 가 없어 더 이른 같은 가격
+ *   A3 에 붙은 체결(상한가 · 원 WR-02)은 대기로 남는다. 짝 없음은 지금과 같다(gw + 1,200ms).
+ *   남은 수량 차감이 순서 의존이라 확정은 앞자리만 — 한 체결이 대기면 그 뒤 체결은 모두 대기(대기 체결의 차감은 버린다).
+ *   장 끝(KRX 18:00 · NXT 20:00 KST) + 5분 뒤에 받은 세션(`asOfMs` = 마지막 성공 응답의 브라우저 시각 · 상태 ready)은
+ *   그날 전문이 다 왔으므로 대기가 없다 — 날짜를 넘기지 않아도 장 끝 체결이 영구 대기로 남지 않는다. 장중에는 브라우저
+ *   시계를 쓰지 않는다(게이트웨이 시계와 어긋날 수 있다 — 서버 시각이 응답에 없다). 세션이 자라면 모델을 다시 만들어 풀린다.
  *   과거 격자는 늘 확정.
  * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3, duplicates)` 한 번 → 이벤트가 있는 주문마다 shared
  *   `locateEvidence`(호가 B6 · 체결 단건 A3 · 주기매도 구간 · 없음) · `anchorOf`(「주문 직전 마지막 체결」). ev_kind 3(체결통보)은
@@ -26,9 +33,12 @@
 
 import {
   EVIDENCE_KIND_LABELS,
+  OWN_MATCH_DT_MIN_MS,
+  OWN_MATCH_EST_MS,
   anchorOf,
   conditionTextOf,
   cumIndexOf,
+  dayStartNs,
   evidenceTextOf,
   locateEvidence,
   lowerBoundRecv,
@@ -38,6 +48,7 @@ import {
   strategyEventSide,
   type OwnEvidence,
   type OwnFillMatch,
+  type TickExchange,
   type TickOwnEvent,
   type TickOwnResponse,
 } from '@gh-radar/shared';
@@ -47,6 +58,15 @@ import type { TickSession } from './tick-session';
 
 /** 짝 창 +200ms + 여유 1,000ms — 이 안의 짝 없는 체결은 당일이면 대기(RESEARCH Pattern 6). */
 export const OWN_PENDING_GRACE_MS = 1200;
+
+/** 여유 1,000ms — A3 시각 뒤 이만큼 안에 받는다고 본다(`OWN_PENDING_GRACE_MS` − 짝 창 +200 · 머리 주석 ⑥). */
+const OWN_PENDING_SLACK_MS = OWN_PENDING_GRACE_MS + OWN_MATCH_DT_MIN_MS;
+
+/** 그날 전문 끝(KST HHMM) — KRX 시간외 단일가 18:00 · NXT 20:00. 이 뒤에 받은 당일 세션은 대기가 없다(⑥ · R2 WR-02). */
+export const OWN_DAY_END_HHMM: Readonly<Record<TickExchange, string>> = { KRX: '1800', NXT: '2000' };
+
+/** 장 끝 뒤 여유(ms) — 브라우저 시계 어긋남 · tickgw 폴링 지연. */
+export const OWN_DAY_END_SETTLE_MS = 5 * 60_000;
 
 /** 체결 상태 — 짝 A3 있음 · 짝 전문 없음(확정) · 전문 아직 안 옴(당일 대기). */
 export type OwnFillState = 'matched' | 'nofill' | 'pending';
@@ -155,7 +175,7 @@ export interface OwnModel {
 
 type EvidenceKeys = 'evidence' | 'evidenceLabel' | 'evidenceRec' | 'evidenceFirstRec' | 'anchorRec';
 
-/** 대기 체결의 짝 자리(짝짓기에 넣지 않음) — 짝 없음과 같은 모양(읽기 전용). */
+/** 대기 체결의 짝 자리(잠정 짝은 버린다) — 짝 없음과 같은 모양(읽기 전용). */
 const PENDING_MATCH: OwnFillMatch = { a3j: -1, est: false, candidates: 0, dtMs: Number.NaN };
 
 /** 근거 없음 — 주문마다 같은 객체를 써도 된다(읽기 전용). */
@@ -173,9 +193,23 @@ interface OrderAcc {
   fills: number[];
 }
 
-export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?: { live?: boolean }): OwnModel {
+export interface BuildOwnModelOpts {
+  /** 당일 바이트 경로 — 대기 판정을 한다(⑥). */
+  live?: boolean;
+  /** 마지막 성공 응답 시각(브라우저 epoch ms · tickgw 상태 ready 일 때만) — 장 끝 뒤면 대기 없음(⑥). */
+  asOfMs?: number | null;
+}
+
+/** 당일 세션이 그날 전문을 다 받았는가 — 장 끝 + 여유 뒤에 받은 응답(⑥). */
+function dayDoneOf(session: TickSession, asOfMs: number | null | undefined): boolean {
+  if (asOfMs === null || asOfMs === undefined) return false;
+  const endMs = Number(dayStartNs(session.date, OWN_DAY_END_HHMM[session.ex]) / 1_000_000n);
+  return asOfMs >= endMs + OWN_DAY_END_SETTLE_MS;
+}
+
+export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?: BuildOwnModelOpts): OwnModel {
   const { index, a3, recvOrder, duplicates } = session;
-  const live = opts?.live === true;
+  const live = opts?.live === true && !dayDoneOf(session, opts.asOfMs);
   const sorted = own.fills
     .slice()
     .sort((x, y) =>
@@ -187,25 +221,29 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
             : 1
           : x.seq - y.seq,
     );
-  // 세션 마지막 수신 ms(대기 판정) — 레코드가 없으면 모두 대기
-  const n = recvOrder.length;
-  const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
-  // 당일 · 짝 창이 세션 끝을 넘는 체결은 짝짓기에 넣지 않는다(⑥) — 진짜 A3 가 아직 안 왔는데 더 이른 같은 가격 A3 에
-  // 붙거나 그 A3 의 남은 수량을 깎지 않도록. 과거 격자(live false)는 전부 넣는다(오라클 수치 그대로).
-  const open = (gwMs: number): boolean => live && gwMs + OWN_PENDING_GRACE_MS > lastRecvMs;
-  const settled: number[] = [];
-  for (let i = 0; i < sorted.length; i++) if (!open(sorted[i]!.gw_time_ms)) settled.push(i);
-  const settledMatches = matchOwnFills(
+  // 짝은 늘 다 짓는다 — 과거 격자와 같은 한 번의 호출(오라클 수치 그대로).
+  const matches = matchOwnFills(
     index,
     a3,
-    settled.map((i) => {
-      const f = sorted[i]!;
-      return { gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty };
-    }),
+    sorted.map((f) => ({ gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty })),
     duplicates,
   );
-  const matches: (OwnFillMatch | null)[] = new Array(sorted.length).fill(null);
-  for (let k = 0; k < settled.length; k++) matches[settled[k]!] = settledMatches[k]!;
+  // 당일 대기(⑥) — 더 가까운 A3 가 아직 올 수 있는 첫 체결부터 끝까지(차감 순서 의존이라 앞자리만 확정).
+  // 세션 마지막 수신 ms — 레코드가 없으면 모두 대기.
+  let settledN = sorted.length;
+  if (live) {
+    const n = recvOrder.length;
+    const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
+    const windowEnd = -OWN_MATCH_DT_MIN_MS;
+    for (let i = 0; i < sorted.length; i++) {
+      const m = matches[i]!;
+      const reach = m.a3j >= 0 ? Math.min(Math.abs(m.dtMs) + OWN_MATCH_EST_MS, windowEnd) : windowEnd;
+      if (sorted[i]!.gw_time_ms + reach + OWN_PENDING_SLACK_MS > lastRecvMs) {
+        settledN = i;
+        break;
+      }
+    }
+  }
 
   // ── 주문 묶기 — 이벤트(가장 이른 것) ∪ 체결의 주문번호 · 보조 주문 행은 시각 보조로만
   const acc = new Map<string, OrderAcc>();
@@ -315,10 +353,11 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
   const slotOfFill = new Int32Array(sorted.length).fill(-1);
   for (let i = 0; i < sorted.length; i++) {
     const f = sorted[i]!;
-    // 짝짓기에 넣지 않은 체결(당일 · 창이 세션 끝을 넘음) = 대기 · 넣었는데 못 찾으면 확정 「짝 전문 없음」
-    const m = matches[i] ?? PENDING_MATCH;
+    // 확정 앞자리 밖(당일 · 짝이 아직 바뀔 수 있음) = 대기 · 확정인데 못 찾으면 「짝 전문 없음」
+    const pending = i >= settledN;
+    const m = pending ? PENDING_MATCH : matches[i]!;
     const rec = m.a3j >= 0 ? a3.rec[m.a3j]! : -1;
-    const state: OwnFillState = matches[i] === null ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
+    const state: OwnFillState = pending ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
     fills[i] = {
       id: i,
       key: `${f.gateway}|${f.seq}`,

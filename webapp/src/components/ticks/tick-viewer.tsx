@@ -50,7 +50,8 @@ import { TickTeamPanel } from './tick-team-panel';
  * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState, ownRefreshKey)` 가 `GET /api/ticks/own` 을 한 번 부르고
  *   (자동 타이머 없음 · 당일이면 페이지가 「최신 받기」 때마다 `ownRefreshKey` 를 올려 1회 더 — 38-08), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
  *   넣지 않는다). 모델은 `PaneCtx.own` 으로 칸에 내려가 전문 목록이 우리 체결 A3 행에 민트 칩을 그린다. 조회가 실패하면
- *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 막 들어온 짝 없는 체결은 대기로 둔다(38-04 · Pitfall 4).
+ *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 짝이 아직 바뀔 수 있는 막 들어온 체결은 대기로 둔다(38-04 · Pitfall 4 ·
+ *   장 끝 뒤 받은 세션은 `live.asOfMs` 로 대기 없음 — `buildOwnModel` ⑥).
  *   주문 줄 · 짝 없음 줄 클릭 = `ownPick`(줄 + 기준 rec) + 커서 이동 · 선택 표시는 커서가 그 rec 일 때만(파생 — ←/→ 로
  *   커서가 바뀌면 풀린다 · URL 은 rec 기준 그대로).
  * ⑤ 근거 · 되돌아가기(38-06 · D-07 · D-10): 전문 목록 항목(`buildMsgRows`)을 여기서 한 번 만들어 목록(`rows` prop)과 주문 줄
@@ -90,6 +91,8 @@ export interface TickViewerLive {
   onGoEnd: () => void;
   /** 커서가 끝 틱인지 바뀔 때마다. */
   onAtEnd: (atEnd: boolean) => void;
+  /** 마지막 성공 응답 시각(브라우저 epoch ms · tickgw 상태 ready 일 때만) — 장 끝 뒤 받은 세션이면 우리 체결 대기 없음(R2 WR-02). */
+  asOfMs?: number | null;
 }
 
 /** HTS 칸 렌더 문맥 — 칸마다 같은 세션 · 커서를 본다. */
@@ -298,9 +301,10 @@ export function TickViewer({
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
   const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;
+  const liveAsOfMs = live?.asOfMs ?? null;
   const ownModel = useMemo(
-    () => (own.own ? buildOwnModel(session, own.own, { live: isLive }) : null),
-    [session, own.own, isLive],
+    () => (own.own ? buildOwnModel(session, own.own, { live: isLive, asOfMs: liveAsOfMs }) : null),
+    [session, own.own, isLive, liveAsOfMs],
   );
   // 우리 줄 선택 — 줄 클릭 때 (줄, 기준 rec) 을 기억하고, 커서가 그 rec 일 때만 선택으로 본다(파생 · 효과 없음).
   // 줄은 안정 키(주문 gateway|order_no · 체결 gateway|seq)로 기억하고 렌더 때 지금 모델 id 로 푼다 — 「최신 받기」 로

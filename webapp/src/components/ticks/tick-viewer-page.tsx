@@ -345,9 +345,11 @@ export function TickViewerPage() {
   const onLiveRefresh = useCallback(() => {
     if (liveRefresh()) setOwnRefreshKey((k) => k + 1);
   }, [liveRefresh]);
+  // 우리 체결 대기 해제 기준(R2 WR-02) — 마지막 성공 응답 시각 · tickgw 가 증분 폴링 중(ready)일 때만 「그때까지 다 왔다」 로 본다.
+  const liveAsOfMs = live.meta?.state === 'ready' ? live.fetchedAt : null;
   const liveViewer = useMemo(
-    () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd }),
-    [live.newCount, liveGoEnd],
+    () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd, asOfMs: liveAsOfMs }),
+    [live.newCount, liveGoEnd, liveAsOfMs],
   );
   const liveOn = liveResp !== null && live.session !== null;
   const showTick = (view?.kind === 'loaded' && grid.status === 'ready') || liveOn;
