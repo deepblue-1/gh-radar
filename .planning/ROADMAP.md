@@ -495,7 +495,7 @@ Plans:
   5. (discuss D-03 로 뜻 변경 · 2026-11-03) 대상 게이트웨이 = 어드민에서 켜진 서버(`dma_servers.enabled = true`) 전부 — 하드코딩 없음 · RPC 가 레지스트리와 조인해 켜진 서버 행만 돌려준다. KB121 · KYOBO127 은 꺼져 있어 빠지고 어드민이 켜면 자동 포함된다. gh-trade 인박스 요청 없음 · 「기록 없는 게이트웨이」 안내 없음(「우리 주문」 표 캡션에 그날 켜진 서버 목록만).
 
 **미결 결정(discuss 에서 사용자에게 — phase 추가 때 정하지 않음)**: ① 계좌 가시성: 「오늘 주문」 카드와 같은 계좌 규칙(`dma_visible_accounts` · 권고) vs 모든 DMA 사용자에게 전 계좌. ② KB121 · KYOBO127 포함 여부(저널 연결 선행 = gh-trade/relay 작업). ③ 표시 모양: 전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등 — HTML A/B/C 목업으로. → 2026-11-03 discuss 로 전부 결정(38-CONTEXT D-01 · D-03 · 목업 B 둘째 레일).
-**Plans:** 2/10 plans executed
+**Plans:** 3/10 plans executed
 
 Plans:
 **Wave 1**
@@ -503,7 +503,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 38-02-PLAN.md — shared 10/30 오라클: A3Columns.cumVolume · 창 픽스처 생성기(로컬 사본 · 익명화 · --check) · 짝짓기 401/406 · 추정 108 재현(트레이서 = 생성기 → 픽스처)
-- [ ] 38-03-PLAN.md — RPC · 라우트 잠금: pgTAP 전체(가시성 · 어드민 · 켜진 서버 켜면 포함 · 필터 · 모양 — 트레이서) · /api/ticks/own supertest
+- [x] 38-03-PLAN.md — RPC · 라우트 잠금: pgTAP 전체(가시성 · 어드민 · 켜진 서버 켜면 포함 · 필터 · 모양 — 트레이서) · /api/ticks/own supertest
 - [ ] 38-04-PLAN.md — 웹 주문 줄 · 짝 없음 줄(MSG_ITEM ORDER/NOFILL · 두 순열 · 트레이서) · 둘째 레일 14px · 줄 선택 · 당일 대기
 
 **Wave 3** *(blocked on Wave 2 completion)*
