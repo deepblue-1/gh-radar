@@ -767,4 +767,95 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
     expect(rec.own).toHaveLength(1);
     await expectNoHorizontalScroll(page, '우리 주문 1280');
   });
+
+  // Pitfall 5 — own 이 실패해도 뷰어(호가 · 전문 목록 · 차트)는 그대로 · 우리 층과 오류 카드만 없다.
+  async function expectOwnFailTolerant(page: Page, fail: { status: number }): Promise<void> {
+    const rec = await mockTickApi(page, { own: () => fail });
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    await expect(msg(page)).toBeVisible();
+    await expect(page.locator('[data-slot="tick-chart-svg"]')).toBeVisible();
+    await expect.poll(() => rec.own.length).toBe(1);
+    // 실패 응답이 반영될 시간을 준 뒤(재시도 없음) 우리 층 전부 0
+    await page.waitForTimeout(1_000);
+    expect(rec.own).toHaveLength(1);
+    await expect(nav(page)).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-own-chip"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-own-order"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-own-rail"][data-node]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-own-table"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-state"]')).toHaveCount(0);
+    // 37 동작 그대로 — 행 클릭 → 커서 · 이 주문 카드
+    const b6 = msg(page).locator('[data-slot="tick-msg-row"][data-tag="B6"]').nth(3);
+    const seq = Number(await b6.getAttribute('data-seq'));
+    await b6.click();
+    await expect.poll(() => curSeq(page)).toBe(seq);
+    await expect(page.locator('[data-slot="tick-order-card"]')).toBeVisible();
+  }
+
+  test('실패 내성 — own 500 → 뷰어 그대로 · 우리 층 · 오류 카드 0', async ({ page }) => {
+    await expectOwnFailTolerant(page, { status: 500 });
+  });
+
+  test('실패 내성 — own 404(목이 모르는 경로와 같음) → 뷰어 그대로 · 우리 층 · 오류 카드 0', async ({ page }) => {
+    await expectOwnFailTolerant(page, { status: 404 });
+  });
+
+  test('당일 — 「↻ 최신 받기」 1회 = live 증분 1 + own 1 · 6초 기다려도 own 추가 0', async ({ page }) => {
+    test.setTimeout(90_000);
+    // 「지금」 = 픽스처 날짜 13:50 KST(장중) — 당일 경로(37 당일 절과 같은 꼴). 타이머는 진짜로 흐른다.
+    await page.clock.setFixedTime(new Date('2026-10-16T13:50:00+09:00'));
+    const rec = await mockTickApi(page, {
+      open: (q) => tickOpenFixture('none', q),
+      today: { live: true, date: TICK_DATE },
+    });
+    const live = await mockTickLive(page, { chunks: tickLiveChunks(['13:30:00']) });
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-body"][data-supply="live"]')).toBeVisible({ timeout: 30_000 });
+    // 끝 틱이 열린 뒤 우리 체결 조회 1회(당일 뷰어 마운트)
+    await expect(nav(page)).toBeVisible();
+    expect(rec.own).toEqual([`${ECO.isin}/${TICK_DATE}/KRX`]);
+    const n0 = live.calls.length;
+
+    live.publish();
+    await page.locator('[data-slot="tick-live-refresh"]').click();
+    await expect.poll(() => live.calls.length, { timeout: 5_000 }).toBe(n0 + 1);
+    await expect.poll(() => rec.own.length, { timeout: 5_000 }).toBe(2);
+
+    // 자동 갱신 없음 — 6초 동안 own · live 추가 0
+    await page.waitForTimeout(6_000);
+    expect(rec.own, '버튼 1회 = own 1회 · 타이머 없음').toHaveLength(2);
+    expect(live.calls.length).toBe(n0 + 1);
+    await expect(nav(page)).toContainText('· 주문 3');
+  });
+
+  test('폰 390 — 「전문」 둘째 레일 14px 칸 · 넘침 0 · 「버스트 · 팀」 우리 주문 표 · 1280 넘침 0', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockTickApi(page);
+    await page.goto(`${OPEN_URL}&t=13:33:29.000`);
+    const seg = page.getByRole('group', { name: '보기', exact: true });
+    await expect(seg).toBeVisible({ timeout: 30_000 });
+
+    await seg.getByRole('button', { name: '전문', exact: true }).click();
+    await expect(msg(page)).toBeVisible();
+    const rail = msg(page).locator('[data-slot="tick-own-rail"]').first();
+    await expect(rail).toBeVisible();
+    const w = (await rail.boundingBox())!.width;
+    expect(Math.round(w), '둘째 레일 칸 14px').toBe(14);
+    // 13:33:29 근처 — 주문 줄 ● · 근거 ○ 마디가 폰 목록에도 있다
+    await expect(msg(page).locator('[data-slot="tick-own-order"]').first()).toBeVisible();
+    await expect(msg(page).locator('[data-slot="tick-own-rail"][data-node="evidence"]')).toHaveCount(1);
+    await expectNoHorizontalScroll(page, '폰 전문 우리 층');
+
+    await seg.getByRole('button', { name: '버스트 · 팀' }).click();
+    await expect(page.locator('[data-slot="tick-own-table"]')).toBeVisible();
+    await expect(page.locator('[data-slot="tick-own-table-caption"]')).toHaveText(
+      '이 날 3건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119',
+    );
+    await expectNoHorizontalScroll(page, '폰 버스트 우리 표');
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(msg(page)).toBeVisible();
+    await expectNoHorizontalScroll(page, '데스크톱 1280 우리 층');
+  });
 });

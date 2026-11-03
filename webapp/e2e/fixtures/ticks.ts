@@ -254,6 +254,7 @@ export function tickOwnFixture(q: { isin: string; d: string; ex: TickExchange })
   };
   if (q.isin !== ECO.isin || q.d !== TICK_DATE || q.ex !== 'KRX') return base;
   const { a, b, c, evidence, anchor } = ECO_OWN;
+  const fill = (gateway: string, account_no: string, order_no: string) => ({ gateway, account_no, order_no, side: 'B' });
   const ev = {
     seq: 0,
     kind: 3,
@@ -274,9 +275,9 @@ export function tickOwnFixture(q: { isin: string; d: string; ex: TickExchange })
   return {
     ...base,
     fills: [
-      { gateway: 'KB120', seq: 501, gw_time_ms: a.gwMs, account_no: '1234560001', order_no: a.orderNo, side: 'B', exec_price: a.px, exec_qty: a.our },
-      { gateway: 'KYOBO119', seq: 502, gw_time_ms: b.gwMs, account_no: '1234560002', order_no: b.orderNo, side: 'B', exec_price: b.px, exec_qty: b.qty },
-      { gateway: 'KB120', seq: 503, gw_time_ms: c.gwMs, account_no: '1234560001', order_no: c.orderNo, side: 'B', exec_price: c.px, exec_qty: c.qty },
+      { ...fill('KB120', '1234560001', a.orderNo), seq: 501, gw_time_ms: a.gwMs, exec_price: a.px, exec_qty: a.our },
+      { ...fill('KYOBO119', '1234560002', b.orderNo), seq: 502, gw_time_ms: b.gwMs, exec_price: b.px, exec_qty: b.qty },
+      { ...fill('KB120', '1234560001', c.orderNo), seq: 503, gw_time_ms: c.gwMs, exec_price: c.px, exec_qty: c.qty },
     ],
     events: [
       {
