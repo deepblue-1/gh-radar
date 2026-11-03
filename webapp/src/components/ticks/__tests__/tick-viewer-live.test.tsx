@@ -189,6 +189,21 @@ describe('TickHeader — 당일 지연 · 연속 오류', () => {
     v.rerender(<TickHeader {...base} live={{ ...live, onRefresh, refreshFailed: true }} />);
     expect(screen.getByRole('button', { name: '다시 받기' })).toBeTruthy();
   });
+
+  it('우리 체결 알약(38-08 · D-09) — 「◆ 우리 체결 k/n · 주문 m」 · ‹ › · 끝이면 비활성 · 상태 없으면 알약 없음', () => {
+    const next = vi.fn();
+    const v = render(<TickHeader {...base} ownNav={{ k: 0, n: 5, orders: 4, prev: null, next }} />);
+    const pill = document.querySelector('[data-slot="tick-own-nav"]')!;
+    expect(pill.textContent).toContain('◆ 우리 체결 0/5 · 주문 4');
+    expect((screen.getByRole('button', { name: '이전 우리 체결' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '다음 우리 체결' }));
+    expect(next).toHaveBeenCalledTimes(1);
+    v.rerender(<TickHeader {...base} ownNav={{ k: 5, n: 5, orders: 4, prev: vi.fn(), next: null }} />);
+    expect((screen.getByRole('button', { name: '다음 우리 체결' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '이전 우리 체결' }) as HTMLButtonElement).disabled).toBe(false);
+    v.rerender(<TickHeader {...base} ownNav={null} />);
+    expect(document.querySelector('[data-slot="tick-own-nav"]')).toBeNull();
+  });
 });
 
 describe('TickViewerPage — 당일 결선 (D-22)', () => {

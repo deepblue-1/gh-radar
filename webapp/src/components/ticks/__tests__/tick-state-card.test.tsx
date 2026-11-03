@@ -44,6 +44,7 @@ const api = vi.hoisted(() => ({
   fetchTickOpen: vi.fn(),
   postTickConvert: vi.fn(),
   postTickCancel: vi.fn(),
+  fetchTickOwn: vi.fn(),
 }));
 vi.mock('@/lib/ticks/tick-api', () => api);
 
@@ -267,6 +268,8 @@ describe('TickViewerPage — 요청 변환 흐름 (D-03)', () => {
     api.fetchTickToday.mockResolvedValue({ access: true, date: '20261102', rows: [], live: false } satisfies TickTodayResponse);
     api.postTickConvert.mockResolvedValue(convertResp());
     api.postTickCancel.mockResolvedValue({ access: true, cancelled: true, request: null });
+    // 격자가 열리면 뷰어가 우리 체결을 1회 부른다(Phase 38) — 이 흐름은 우리 층과 무관하니 빈 응답
+    api.fetchTickOwn.mockResolvedValue({ access: true, date: '', exchange: 'KRX', isin: '', servers: [], fills: [], events: [], orders: [] });
     setHidden(false);
   });
 
