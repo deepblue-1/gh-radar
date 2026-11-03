@@ -246,6 +246,18 @@ describe('TickStateCard', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('cancelled — 「변환 요청이 취소됐어요」 · 실패(alert) 아님 · 「목록으로」 · 「다시 요청」(37 WR-02)', () => {
+    const onRetry = vi.fn();
+    const onBack = vi.fn();
+    render(<TickStateCard variant="cancelled" subject="SK하이닉스 · 10/30" onRetry={onRetry} onBack={onBack} />);
+    expect(screen.getByText('SK하이닉스 · 10/30 변환 요청이 취소됐어요')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '다시 요청' }));
+    fireEvent.click(screen.getByRole('button', { name: '목록으로' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it('진행 바는 동작 줄이기에서 멈춘다(motion-reduce:animate-none)', () => {
     render(<TickStateCard variant="converting" etaMin={1} onCancel={vi.fn()} />);
     const bar = screen.getByRole('progressbar').firstElementChild!;
@@ -300,21 +312,51 @@ describe('TickViewerPage — 요청 변환 흐름 (D-03)', () => {
     expect(api.postTickConvert).toHaveBeenCalledTimes(1);
   });
 
-  it('진행 중 요청(pending)이면 convert 없이 폴링 · stale 이 보이면 convert 를 1회 다시 부른다', async () => {
+  it('진행 중 요청(pending)이면 열 때 합류 convert 1회(WR-02 · Job 0) 뒤 폴링 · stale 이 보이면 convert 를 1회 다시 부른다', async () => {
     openSeq(
       openResp({ request: req() }),
       openResp({ request: req({ stale: true }) }),
       openResp({ request: req({ status: 'running' }) }),
     );
     await mount(`isin=${ISIN}&d=${D}`);
-    expect(api.postTickConvert).toHaveBeenCalledTimes(0);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(1); // 합류 — 요청자 집합에 들어간다
+    expect(api.postTickConvert).toHaveBeenCalledWith({ isin: ISIN, d: D, ex: 'KRX' });
     expect(screen.getByText(/변환 중/)).toBeInTheDocument();
     await tick(5000);
-    expect(api.postTickConvert).toHaveBeenCalledTimes(1);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(2);
     await tick(5000);
     await tick(5000);
-    expect(api.postTickConvert).toHaveBeenCalledTimes(1);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(2);
     expect(api.fetchTickOpen).toHaveBeenCalledTimes(4);
+  });
+
+  it('합류 convert 가 실패해도(502) 「변환 중」 · 폴링 그대로(WR-02)', async () => {
+    openSeq(openResp({ request: req({ status: 'running' }) }));
+    api.postTickConvert.mockRejectedValue(new ApiClientError({ code: 'TICK_CONVERT_TRIGGER_FAILED', message: 'x', status: 502 }));
+    await mount(`isin=${ISIN}&d=${D}`);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/변환 중/)).toBeInTheDocument();
+    expect(screen.queryByText('변환을 시작하지 못했어요')).toBeNull();
+    await tick(5000);
+    expect(api.fetchTickOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it('폴링 중 cancelled(요청자가 모두 빠짐) → 「취소됐어요 · 다시 요청」 카드 · 실패 문구 아님 · 다시 요청 = convert(WR-02)', async () => {
+    openSeq(openResp({ request: req() }), openResp({ request: req({ status: 'cancelled' }) }));
+    await mount(`isin=${ISIN}&d=${D}`);
+    await tick(5000);
+    expect(document.querySelector('[data-slot="tick-state"][data-variant="cancelled"]')).not.toBeNull();
+    expect(screen.getByText(/변환 요청이 취소됐어요/)).toBeInTheDocument();
+    expect(screen.queryByText('변환에 실패했어요')).toBeNull();
+    const n = api.postTickConvert.mock.calls.length;
+    await tick(15_000);
+    expect(api.postTickConvert).toHaveBeenCalledTimes(n); // 폴링 멈춤 · 자동 재요청 없음
+    fireEvent.click(screen.getByRole('button', { name: '다시 요청' }));
+    await flush();
+    expect(api.postTickConvert).toHaveBeenCalledTimes(n + 1);
+    expect(screen.getByText(/변환 중/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await flush();
   });
 
   it('취소 = postTickCancel 후 목록으로', async () => {

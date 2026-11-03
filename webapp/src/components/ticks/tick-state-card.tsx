@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
  *   「이 종목만 변환(약 N분)」 을 함께(D-04 — GCS 원본은 영구라 다시 만들 수 있다). 업로드 전에는 재시도 버튼이 없다.
  * - `live-unavailable` — 「당일 자료 준비 중」(D-22 — 당일 경로가 아직 꺼져 있다 · today 응답 live=false).
  * - `error` — 「변환에 실패했어요」 · 한도 · 미설정 · 불러오기 실패 — 문구는 호출부가 준다.
+ * - `cancelled` — 기다리던 요청 변환이 취소됨(요청자가 모두 빠짐 — 37 WR-02) · 실패가 아니다 · 「목록으로」 + 「다시 요청」.
  * 진행 바는 `tick-indeterminate` 유틸(globals.css) + `motion-reduce:animate-none` — 동작 줄이기면 멈춘다.
  * 진행 중 두 카드(converting · live-loading)의 아이콘은 도는 고리 · 진척을 알면(live-loading) 바 오른쪽에 「N%」(2026-11-03 사용자 요청).
  */
@@ -33,7 +34,8 @@ export type TickStateCardProps =
       etaMin?: number;
     }
   | { variant: 'live-unavailable'; onLatest: (() => void) | null }
-  | { variant: 'error'; message: string; onRetry?: () => void; onBack?: () => void };
+  | { variant: 'error'; message: string; onRetry?: () => void; onBack?: () => void }
+  | { variant: 'cancelled'; subject?: string; onRetry: () => void; onBack: () => void };
 
 const NODATA_BODY: Record<NodataReason, string> = {
   holiday: '거래일이 아니에요(주말 · KRX 휴장일).',
@@ -228,6 +230,22 @@ export function TickStateCard(props: TickStateCardProps) {
               최근 거래일로
             </button>
           )}
+        </CenterCard>
+      );
+    case 'cancelled':
+      return (
+        <CenterCard
+          variant="cancelled"
+          icon="×"
+          title={props.subject ? `${props.subject} 변환 요청이 취소됐어요` : '변환 요청이 취소됐어요'}
+          body="이 변환을 기다리던 요청이 모두 취소돼 멈췄어요 · 다시 요청하면 이 종목만 다시 변환해요"
+        >
+          <button type="button" onClick={props.onBack} className={BTN_SUB}>
+            목록으로
+          </button>
+          <button type="button" onClick={props.onRetry} className={BTN_PRI}>
+            다시 요청
+          </button>
         </CenterCard>
       );
     case 'error':

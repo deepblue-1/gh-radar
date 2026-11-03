@@ -45,13 +45,14 @@ import { TickViewer } from './tick-viewer';
  *   1분마다 · 탭이 다시 보일 때 다시 정한다(IN-60 — 20:00 · 자정을 넘겨 열어 둔 화면) · 열린 뷰어는 흔들지 않는다.
  * ④ isin 없음 = 진입(그날 격자 목록 · 행 없고 「자료 없음」 사유가 있으면 상태 카드). isin 있음 = 열기 — `/api/ticks/open` 한 번 →
  *   - grid → 열림 — 서명 URL 을 브라우저가 직접 받아 풀고(`useTickGrid` · 진행률) `TickViewer`(37-10)
- *   - request pending/running → 「변환 중」 + 5초 폴링(stale 이면 convert 1회 — server should_trigger 가 Job 을 하나만 깨운다)
+ *   - request pending/running → 「변환 중」 + 5초 폴링 · 열 때 convert 1회로 **요청자 집합에 합류**(WR-02 — Job 0 · 상한 0 ·
+ *     합류 실패는 화면을 바꾸지 않는다) · 폴링 중 stale 이면 convert 1회(server should_trigger 가 Job 을 하나만 깨운다)
  *   - request failed ∧ `NOT_UPLOADED` → convert 1회 → `not_uploaded` 면 「업로드 전」 카드(상한 소모 0) · triggered 면 「변환 중」
  *   - request failed(그 밖) → 「변환에 실패했어요 · 다시 시도」(convert 는 사람이 누를 때만)
  *   - 없음 → `nodataReasonOf` 사유가 있으면 「자료 없음」(90일 밖은 「이 종목만 변환」 도) · 오늘이면 today.live(아니면 「당일
  *     자료 준비 중」) · 그 밖에는 convert 1회 → 「변환 중」. 429 · 503 · 502 는 카드 문구.
  * ⑤ 폴링(`useConvertPolling`): 5초 · 탭이 숨으면 멈추고 보이면 즉시 1회 · 화면을 떠나면 정리. 폴링 중 `NOT_UPLOADED` 가 오면
- *   멈추고 「업로드 전」(재시도 루프 없음).
+ *   멈추고 「업로드 전」(재시도 루프 없음). 요청이 `cancelled`(요청자가 모두 빠짐 — WR-02)면 실패가 아니라 「취소됨 · 다시 요청」 카드.
  * ⑥ 당일(37-19 · D-05 · D-18 · D-22): 오늘 · 격자 없음 · today.live → `useTickLive`(`/api/ticks/live` 하루치 → 증분) —
  *   세션 전에는 「하루치 받는 중 · 대기 k건」 카드(진행 = 마지막 수신 시각 / 지금 · 08:00 기준) · 세션이 오면 같은 `TickViewer`
  *   (`t` 없으면 끝 틱). live=false 면 훅은 요청 0 · 「당일 자료 준비 중」. 훅이 503 을 받아도 같은 카드로 내린다.
@@ -75,6 +76,7 @@ type OpenView =
   | { kind: 'converting'; resp: TickOpenResponse; eta_s: number }
   | { kind: 'nodata'; resp: TickOpenResponse; reason: NodataReason }
   | { kind: 'failed'; resp: TickOpenResponse }
+  | { kind: 'cancelled'; resp: TickOpenResponse }
   | { kind: 'blocked'; resp: TickOpenResponse; message: string; retry: boolean }
   | { kind: 'live-unavailable'; resp: TickOpenResponse }
   | { kind: 'live'; resp: TickOpenResponse };
@@ -247,9 +249,12 @@ export function TickViewerPage() {
     };
   }, [isin, isToday, gate, attempt, fail]);
 
-  /** 요청 변환 1회 — 결과에 따라 변환 중 · 업로드 전 · 다시 열기 · 카드 문구. `quiet` = 폴링 중 stale 재요청(화면 유지). */
+  /**
+   * 요청 변환 1회 — 결과에 따라 변환 중 · 업로드 전 · 다시 열기 · 카드 문구. `quiet` = 폴링 중 stale 재요청 · 열 때 합류(화면 유지).
+   * `join` = 이미 진행 중인 요청에 합류만(WR-02) — 실패해도 「변환 중」 화면 · 폴링을 그대로 둔다(Job 은 이미 돈다).
+   */
   const convert = useCallback(
-    async (run: Run, resp: TickOpenResponse, quiet = false) => {
+    async (run: Run, resp: TickOpenResponse, quiet = false, join = false) => {
       if (run.converting) return;
       run.converting = true;
       try {
@@ -271,6 +276,7 @@ export function TickViewerPage() {
           setServerGate(g);
           return;
         }
+        if (join) return; // 합류 실패 — 다음 폴링이 그대로 상태를 본다
         const status = err instanceof ApiClientError ? err.status : 0;
         if (status === 429) setView({ kind: 'blocked', resp, message: '오늘 요청 변환 한도에 도달했어요', retry: false });
         else if (status === 503) setView({ kind: 'blocked', resp, message: '요청 변환을 지금 쓸 수 없어요', retry: false });
@@ -304,7 +310,8 @@ export function TickViewerPage() {
       if (resp.grid !== null) return setView({ kind: 'loaded', resp });
       if (isActive(r)) {
         setView({ kind: 'converting', resp, eta_s: resp.eta_s });
-        if (r!.stale) void convert(run, resp, true);
+        // 요청자 집합에 합류(WR-02) — 그래야 앞선 요청자가 취소해도 이 요청이 남는다. stale 이면 같은 호출이 Job 을 다시 깨운다.
+        void convert(run, resp, true, !r!.stale);
         return;
       }
       if (isNotUploaded(r)) return void convert(run, resp);
@@ -346,7 +353,8 @@ export function TickViewerPage() {
     if (resp.grid !== null) return setView({ kind: 'loaded', resp });
     if (isNotUploaded(r)) return setView({ kind: 'nodata', resp, reason: 'not-uploaded' });
     if (isTooLarge(r)) return setView({ kind: 'blocked', resp, message: TOO_LARGE_MESSAGE, retry: false });
-    if (r !== null && (r.status === 'failed' || r.status === 'cancelled' || r.status === 'done')) {
+    if (r !== null && r.status === 'cancelled') return setView({ kind: 'cancelled', resp });
+    if (r !== null && (r.status === 'failed' || r.status === 'done')) {
       return setView({ kind: 'failed', resp });
     }
     if (r !== null && r.stale) void convert(run, resp, true);
@@ -556,6 +564,15 @@ export function TickViewerPage() {
           <TickStateCard
             variant="error"
             message="변환에 실패했어요"
+            onBack={() => go({ isin: null })}
+            onRetry={() => void convert(run, view.resp)}
+          />
+        );
+      case 'cancelled':
+        return (
+          <TickStateCard
+            variant="cancelled"
+            subject={subject}
             onBack={() => go({ isin: null })}
             onRetry={() => void convert(run, view.resp)}
           />
