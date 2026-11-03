@@ -323,7 +323,7 @@ export function TickViewer({
     [session, own.own, isLive, liveAsOfMs],
   );
   // 우리 줄 선택 — 줄 클릭 때 (줄, 기준 rec) 을 기억하고, 커서가 그 rec 일 때만 선택으로 본다(파생 · 효과 없음).
-  // 줄은 안정 키(주문 gateway|order_no · 체결 gateway|order_no|gw 시각|seq)로 기억하고 렌더 때 지금 모델 id 로 푼다 — 「최신 받기」 로
+  // 줄은 안정 키(주문 gateway|order_no · 체결 gateway|journal_epoch|seq · 없으면 gateway|order_no|gw 시각|seq)로 기억하고 렌더 때 지금 모델 id 로 푼다 — 「최신 받기」 로
   // own 이 바뀌어 id 가 밀려도 다른 주문을 가리키지 않는다(되돌아가기 알약 `ownBack` 과 같은 까닭 · WR-04).
   const [ownPick, setOwnPick] = useState<{ sel: OwnSelKey; rec: number } | null>(null);
 

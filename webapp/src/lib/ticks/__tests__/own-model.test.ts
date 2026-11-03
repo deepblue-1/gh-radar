@@ -347,7 +347,7 @@ describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => 
     }),
   );
 
-  it('체결 키 = gateway|order_no|gw_time_ms|seq · 주문 키 = gateway|order_no', () => {
+  it('체결 키 = gateway|order_no|gw_time_ms|seq(journal_epoch 없음(옛 RPC) — 폴백) · 주문 키 = gateway|order_no', () => {
     const n5Key = `KB120|N5|${at(160)}|7`;
     expect(first.fills.map((f) => f.key)).toEqual([n5Key]);
     expect(ownSelKeyOf(first, { kind: 'order', id: byKey(first.orders, 'E1').id })).toEqual({ kind: 'order', key: 'KB120|E1' });
@@ -356,7 +356,7 @@ describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => 
   });
 
   it('(R2 IN-01) 저널 초기화로 같은 gateway|seq 가 다시 쓰여도 체결 키는 갈리고 고른 체결로 푼다', () => {
-    // 같은 KB120 · seq 7 — 초기화 앞(N5 .160) · 뒤(R1 .170) 두 체결(RPC 는 journal_epoch 를 내보내지 않는다)
+    // 같은 KB120 · seq 7 — 초기화 앞(N5 .160) · 뒤(R1 .170) 두 체결(journal_epoch 없는 옛 응답)
     const two = buildOwnModel(
       session,
       ownOf({ fills: [fill('N5', at(160), 99_999, 1, 'B', 7), fill('R1', at(170), 99_999, 1, 'B', 7)] }),
@@ -364,6 +364,31 @@ describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => 
     expect(new Set(two.fills.map((f) => f.key)).size).toBe(2);
     const r1 = ownSelKeyOf(two, { kind: 'fill', id: two.fills.findIndex((f) => f.orderNo === 'R1') })!;
     expect(two.fills[resolveOwnSel(two, r1)!.id]!.orderNo).toBe('R1');
+  });
+
+  it('(R2 IN-01 후속) journal_epoch 가 있으면 체결 키 = 원천 PK gateway|journal_epoch|seq — epoch 만 달라도 갈리고 고른 체결로 푼다', () => {
+    const ep = (f: TickOwnFill, journal_epoch: string): TickOwnFill => ({ ...f, journal_epoch });
+    // 주문번호 · gw 시각과 무관하게 epoch · seq 로만 키가 정해진다
+    const one = buildOwnModel(session, ownOf({ fills: [ep(fill('N5', at(160), 99_999, 1, 'B', 7), 'ep-a')] }));
+    expect(one.fills[0]!.key).toBe('KB120|ep-a|7');
+    // 같은 KB120 · seq 7 · 같은 주문번호 · 같은 gw 시각 — epoch 만 다르다(같은 날 저널 초기화)
+    const a = ep(fill('N5', at(160), 99_999, 1, 'B', 7), 'ep-a');
+    const b = ep(fill('N5', at(160), 99_999, 1, 'B', 7), 'ep-b');
+    const two = buildOwnModel(session, ownOf({ fills: [a, b] }));
+    expect(two.fills.map((f) => f.key).sort()).toEqual(['KB120|ep-a|7', 'KB120|ep-b|7']);
+    const idB = two.fills.findIndex((f) => f.key === 'KB120|ep-b|7');
+    const kB = ownSelKeyOf(two, { kind: 'fill', id: idB })!;
+    expect(kB).toEqual({ kind: 'fill', key: 'KB120|ep-b|7' });
+    expect(resolveOwnSel(two, kB)).toEqual({ kind: 'fill', id: idB });
+    // 다른 체결이 앞에 끼어 id 가 밀린 응답에서도 같은 체결(ep-b)로 푼다
+    const shifted = buildOwnModel(
+      session,
+      ownOf({ fills: [ep({ ...fill('K0', at(60), 99_999, 2, 'B', 3), gateway: 'KYOBO119' }, 'ep-k'), a, b] }),
+    );
+    const r = resolveOwnSel(shifted, kB)!;
+    expect(r.kind).toBe('fill');
+    expect(r.id).not.toBe(idB);
+    expect(shifted.fills[r.id]!.key).toBe('KB120|ep-b|7');
   });
 
   it('id 가 밀려도 같은 주문 · 체결로 푼다 · 없어지면 null', () => {

@@ -78,9 +78,10 @@ export interface OwnFillView {
   /** 모델 안 순번(정렬 뒤 색인). */
   id: number;
   /**
-   * 안정 키 `${gateway}|${order_no}|${gw_time_ms}|${seq}` — own 을 다시 받아 id 가 밀려도 같은 체결(고른 줄 기억 · WR-04).
-   * 원천 PK 는 (gateway, journal_epoch, seq) 인데 RPC 가 epoch 를 내보내지 않아, 장중 저널 초기화로 seq 가 다시 쓰여도
-   * 갈리도록 주문번호 · gw 시각을 더한다(R2 IN-01 · 계약 그대로).
+   * 안정 키 — own 을 다시 받아 id 가 밀려도 같은 체결(고른 줄 기억 · WR-04).
+   * 응답에 journal_epoch 가 있으면 원천 PK 와 같은 `${gateway}|${journal_epoch}|${seq}` — 장중 저널 초기화로
+   * seq 가 다시 쓰여도 epoch 가 갈라 준다(R2 IN-01 후속 · 20261104500000).
+   * 없으면(옛 RPC 응답) 종전 `${gateway}|${order_no}|${gw_time_ms}|${seq}` 로 폴백한다(주문번호 · gw 시각으로 가른다).
    */
   key: string;
   gateway: string;
@@ -357,7 +358,11 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     const state: OwnFillState = pending ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
     fills[i] = {
       id: i,
-      key: `${f.gateway}|${f.order_no}|${f.gw_time_ms}|${f.seq}`,
+      // 원천 PK 키(조각 3)와 옛 응답 폴백 키(조각 4)는 `|` 조각 수가 달라 서로 겹치지 않는다.
+      key:
+        typeof f.journal_epoch === 'string' && f.journal_epoch !== ''
+          ? `${f.gateway}|${f.journal_epoch}|${f.seq}`
+          : `${f.gateway}|${f.order_no}|${f.gw_time_ms}|${f.seq}`,
       gateway: f.gateway,
       accountNo: f.account_no,
       orderNo: f.order_no,

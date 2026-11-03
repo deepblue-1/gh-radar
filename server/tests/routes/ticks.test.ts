@@ -572,6 +572,7 @@ describe("GET /api/ticks/own (Phase 38 D-01 · D-14)", () => {
       {
         gateway: "KB120",
         seq: 1,
+        journal_epoch: "ep-own",
         gw_time_ms: 1793332800130,
         account_no: "1234563801",
         order_no: "0000380101",

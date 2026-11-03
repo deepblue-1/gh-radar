@@ -205,6 +205,11 @@ export const TICK_LIVE_HEADERS = {
 export interface TickOwnFill {
   gateway: string;
   seq: number;
+  /**
+   * 저널 저장소 신원 — `dma_journal_events.journal_epoch`(text NOT NULL · 저널이 초기화되면 바뀐다).
+   * `(gateway, journal_epoch, seq)` 가 원천 PK 다. 20261104500000 전 RPC 응답에는 없으므로 옵션이다.
+   */
+  journal_epoch?: string | null;
   gw_time_ms: number;
   account_no: string;
   order_no: string;

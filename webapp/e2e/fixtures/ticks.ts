@@ -254,7 +254,14 @@ export function tickOwnFixture(q: { isin: string; d: string; ex: TickExchange })
   };
   if (q.isin !== ECO.isin || q.d !== TICK_DATE || q.ex !== 'KRX') return base;
   const { a, b, c, evidence, anchor } = ECO_OWN;
-  const fill = (gateway: string, account_no: string, order_no: string) => ({ gateway, account_no, order_no, side: 'B' });
+  // journal_epoch — 20261104500000 이관 뒤 RPC fills 모양을 흉내 낸다(quick-261104-6lh).
+  const fill = (gateway: string, account_no: string, order_no: string) => ({
+    gateway,
+    journal_epoch: 'e2e-ep',
+    account_no,
+    order_no,
+    side: 'B',
+  });
   const ev = {
     seq: 0,
     kind: 3,

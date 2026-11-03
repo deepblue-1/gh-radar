@@ -1,7 +1,8 @@
 -- ============================================================
 -- Phase 38 — 틱 뷰어 「우리 주문 · 체결」 RPC pgTAP 전체 행렬(38-01 스모크 9 + 38-03 절 A~H).
 --
--- 대상: 20261104100000_tick_own_for_user.sql(tick_own_for_user · 부분 인덱스 2).
+-- 대상: 20261104100000_tick_own_for_user.sql(tick_own_for_user · 부분 인덱스 2)
+--       + 20261104500000_tick_own_fills_journal_epoch.sql(fills journal_epoch · quick-261104-6lh).
 --
 -- 잠그는 것(D-01 · D-03 · D-14 · SC-4 · SC-5 · T-19-08):
 --   1~9   스모크(38-01) — 함수 · 권한 · 게이트 · 가시 계좌만 · 꺼진 KB121 제외 · servers · dma_user_id 비반환
@@ -10,7 +11,7 @@
 --   C 가시성 — trader 는 자기 가시 계좌의 체결 · 이벤트 · 주문만(U1 ↔ U2 서로 안 보임)
 --   D 어드민 — app_users.role 'admin' + 매핑 있음(U4)이면 전 계좌(켜진 서버 안에서)
 --   F 필터   — 체결 E ∧ exec_qty>0 · 날짜 · isin · 거래소 · 이벤트 kind 3·6 ∧ order_no<>'' · 주문 N ∧ filled_qty>0 ∧ order_no
---   G 모양   — (gw_time, gateway, seq) 정렬 · gw_time_ms ms 절사 · 이벤트 키 19 · 주문 키 8 · 체결 키 8 · dma_user_id 없음
+--   G 모양   — (gw_time, gateway, seq) 정렬 · gw_time_ms ms 절사 · 이벤트 키 19 · 주문 키 8 · 체결 키 9(journal_epoch) · dma_user_id 없음
 --   E 켜진 서버(D-03) — KB121 켜면 같은 호출에 자동 포함 · KYOBO119 끄면 빠짐 · servers 도 레지스트리를 따른다
 --     (하드코딩 없음 — 레지스트리 UPDATE 만으로 바뀐다). E 는 레지스트리를 바꾸므로 맨 뒤(H 앞)에 둔다.
 --   H 인덱스 — 부분 인덱스 2개 (trade_date, isin, exchange)
@@ -34,7 +35,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(52);
+SELECT plan(53);
 
 -- ── 픽스처: 사용자 · 계좌 매핑 ─────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -279,8 +280,11 @@ SELECT is(pg_temp.objkeys(pg_temp.own('00000000-0000-4000-8000-000000003804')->'
           'account_no,created_ms,gateway,order_no,origin,price,qty,side',
           'G39 주문 객체 키 8개(created_ms 포함)');
 SELECT is(pg_temp.objkeys(pg_temp.own('00000000-0000-4000-8000-000000003804')->'fills'->0),
-          'account_no,exec_price,exec_qty,gateway,gw_time_ms,order_no,seq,side',
-          'G40 체결 객체 키 8개');
+          'account_no,exec_price,exec_qty,gateway,gw_time_ms,journal_epoch,order_no,seq,side',
+          'G40 체결 객체 키 9개(journal_epoch 포함)');
+SELECT is(pg_temp.own('00000000-0000-4000-8000-000000003804')->'fills'->0->>'journal_epoch',
+          'ep-own',
+          'G40b 체결 journal_epoch 는 저널 행 값 그대로(원천 PK (gateway, journal_epoch, seq) — quick-261104-6lh)');
 SELECT ok(NOT jsonb_path_exists(pg_temp.own('00000000-0000-4000-8000-000000003804'), '$.**.dma_user_id'),
           'G41 어드민 전 계좌 응답에도 dma_user_id 키 없음');
 
