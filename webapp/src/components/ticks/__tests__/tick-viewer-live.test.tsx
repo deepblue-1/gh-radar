@@ -7,6 +7,9 @@ import {
   type TickDayResponse,
   type TickLiveMeta,
   type TickOpenResponse,
+  type TickOwnEvent,
+  type TickOwnFill,
+  type TickOwnOrder,
   type TickOwnResponse,
   type TickTodayResponse,
 } from '@gh-radar/shared';
@@ -407,6 +410,120 @@ describe('TickViewer — 우리 체결 다시 받기 실패 표시(R2 WR-03)', (
     expect(document.querySelector('[data-slot="tick-side-tabs"]')).toBeNull();
     expect(document.querySelector('[data-slot="tick-own-stale"]')).toBeNull();
     warn.mockRestore();
+  });
+});
+
+describe('TickViewer — 고른 우리 줄 배선(WR-04 · R2 IN-03)', () => {
+  // S2 끝에서 60번째 수신 레코드 시각 근처 — 끝 틱으로 열린 전문 목록 창 안
+  const recvMsAt = (p: number) => Number(S2.index.recvNs[S2.recvOrder[p]!]! / 1_000_000n);
+  const T = recvMsAt(S2.recvOrder.length - 60);
+  const ev = (gateway: string, orderNo: string, gwMs: number): TickOwnEvent => ({
+    gateway,
+    seq: 1,
+    gw_time_ms: gwMs,
+    kind: 3,
+    group: 7,
+    account_no: '1234563801',
+    order_no: orderNo,
+    price: 1000,
+    qty: 10,
+    reason_code: '',
+    cond_metric: 0,
+    cond_threshold: 0,
+    cond_actual: 0,
+    ev_kind: 0,
+    ev_price: 0,
+    ev_qty_before: 0,
+    ev_qty_after: 0,
+    ev_trade_qty: 0,
+    cum_volume: 0,
+  });
+  const aux = (orderNo: string, createdMs: number): TickOwnOrder => ({
+    gateway: 'KB120',
+    account_no: '1234563801',
+    order_no: orderNo,
+    side: 'B',
+    price: 1000,
+    qty: 10,
+    origin: 'manual',
+    created_ms: createdMs,
+  });
+  const live = { newCount: 0, onGoEnd: vi.fn(), onAtEnd: vi.fn() };
+  const at = (k: number) => <TickViewer session={S2} urlState={URL_STATE} initialT={null} isToday live={live} ownRefreshKey={k} />;
+  const selectedLine = () => document.querySelector<HTMLElement>('[data-slot="tick-own-order"][aria-selected="true"]');
+  /** 「우리 주문」 탭 표에서 그 주문(모델 id) 행 클릭 — 체결 없는 주문은 그 주문 줄 선택(onOwnOrder). */
+  async function pickFromTable(id: number) {
+    const tab = await waitFor(() => {
+      const t = document.querySelector<HTMLElement>('[data-slot="tick-side-tab"][data-tab="own"]');
+      expect(t).not.toBeNull();
+      return t!;
+    });
+    fireEvent.click(tab);
+    const row = await waitFor(() => {
+      const r = document.querySelector<HTMLElement>(`[data-slot="tick-own-table-row"][data-order="${id}"]`);
+      expect(r).not.toBeNull();
+      return r!;
+    });
+    fireEvent.click(row);
+  }
+
+  beforeEach(() => {
+    api.fetchTickOwn.mockReset();
+  });
+
+  it('줄 선택 → 다시 받아 id 가 밀린 own(다른 게이트웨이의 더 이른 주문) → 같은 주문 줄이 강조', async () => {
+    api.fetchTickOwn
+      .mockResolvedValueOnce({ ...OWN_EMPTY, servers: ['KB120', 'KYOBO119'], events: [ev('KB120', 'E1', T)] })
+      .mockResolvedValueOnce({
+        ...OWN_EMPTY,
+        servers: ['KB120', 'KYOBO119'],
+        events: [ev('KYOBO119', 'K0', T - 1), ev('KB120', 'E1', T)],
+      });
+    const v = render(at(0));
+    await pickFromTable(0); // E1
+    await waitFor(() => expect(selectedLine()?.textContent).toContain('#E1'));
+    expect(selectedLine()!.getAttribute('data-own-id')).toBe('0');
+
+    v.rerender(at(1));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(2));
+    // E1 의 id 는 0 → 1 로 밀렸지만 강조는 여전히 E1(id 로 기억했다면 K0 를 가리킨다)
+    await waitFor(() => expect(selectedLine()?.getAttribute('data-own-id')).toBe('1'));
+    expect(selectedLine()!.textContent).toContain('#E1');
+  });
+
+  it('줄 선택 → 다시 받아 그 줄 자리(기준 rec)가 옮겨지면 선택을 푼다(커서는 옛 기준 rec)', async () => {
+    // 처음: 짝 없는 체결 + 보조 주문 행(주문 시각 = created_ms T) · 다시: 같은 주문에 더 이른 이벤트가 붙어 줄이 앞으로 옮겨짐
+    // 바로 앞의 다른 ms 수신 레코드 — 옮겨진 줄도 전문 목록 창(커서 ± overscan) 안에 그려진다
+    let pe = S2.recvOrder.length - 61;
+    while (recvMsAt(pe) >= T) pe -= 1;
+    const tEarly = recvMsAt(pe);
+    const nofill: TickOwnFill = {
+      gateway: 'KB120',
+      seq: 9,
+      gw_time_ms: T,
+      account_no: '1234563801',
+      order_no: 'A1',
+      side: 'B',
+      exec_price: 99_999,
+      exec_qty: 1,
+    };
+    const base = { ...OWN_EMPTY, servers: ['KB120'], fills: [nofill], orders: [aux('A1', T)] };
+    api.fetchTickOwn.mockResolvedValueOnce(base).mockResolvedValueOnce({ ...base, events: [ev('KB120', 'A1', tEarly)] });
+    const v = render(at(0));
+    await pickFromTable(0); // A1
+    await waitFor(() => expect(selectedLine()?.textContent).toContain('#A1'));
+
+    const before = selectedLine()!.getAttribute('data-pos');
+
+    v.rerender(at(1));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(2));
+    // 그 주문 줄은 새 자리에 그려져 있지만(같은 주문 · 다른 자리) 선택은 풀렸다
+    await waitFor(() => {
+      const line = document.querySelector<HTMLElement>('[data-slot="tick-own-order"]');
+      expect(line?.textContent).toContain('#A1');
+      expect(line!.getAttribute('data-pos')).not.toBe(before);
+    });
+    expect(selectedLine()).toBeNull();
   });
 });
 

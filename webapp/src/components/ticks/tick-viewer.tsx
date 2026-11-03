@@ -323,10 +323,19 @@ export function TickViewer({
   // 줄은 안정 키(주문 gateway|order_no · 체결 gateway|order_no|gw 시각|seq)로 기억하고 렌더 때 지금 모델 id 로 푼다 — 「최신 받기」 로
   // own 이 바뀌어 id 가 밀려도 다른 주문을 가리키지 않는다(되돌아가기 알약 `ownBack` 과 같은 까닭 · WR-04).
   const [ownPick, setOwnPick] = useState<{ sel: OwnSelKey; rec: number } | null>(null);
-  const ownSel = useMemo(
-    () => (ownPick !== null && ownPick.rec === rec && ownModel !== null ? resolveOwnSel(ownModel, ownPick.sel) : null),
-    [ownPick, rec, ownModel],
-  );
+
+  // 전문 목록 항목 — 한 번 만들어 목록과 주문 줄 찾기(카드 · 알약)가 같이 쓴다(38-06).
+  const rows = useMemo(() => buildMsgRows(session, cursor.mode, ownModel), [session, cursor.mode, ownModel]);
+
+  // 기준 rec 도 지금 항목으로 다시 구한다 — 다시 받아 그 줄 자리가 옮겨졌으면(예: 보조 주문 행만 있던 주문에 이벤트가 붙음)
+  // 커서는 옛 기준 rec 인데 목록 강조 · `[` `]` 현재 자리는 새 자리를 가리키므로 선택을 푼다(R2 IN-03).
+  const ownSel = useMemo(() => {
+    if (ownPick === null || ownPick.rec !== rec || ownModel === null) return null;
+    const sel = resolveOwnSel(ownModel, ownPick.sel);
+    if (sel === null) return null;
+    const pos = (sel.kind === 'order' ? rows.ownPosOfOrder[sel.id] : rows.ownPosOfFill[sel.id]) ?? -1;
+    return pos >= 0 && ownLineRec(rows, pos) === rec ? sel : null;
+  }, [ownPick, rec, ownModel, rows]);
   const jumpToRec = cursor.jumpToRec;
   const onOwnSelect = useCallback(
     (sel: OwnSel, at: number) => {
@@ -336,9 +345,6 @@ export function TickViewer({
     },
     [ownModel, jumpToRec],
   );
-
-  // 전문 목록 항목 — 한 번 만들어 목록과 주문 줄 찾기(카드 · 알약)가 같이 쓴다(38-06).
-  const rows = useMemo(() => buildMsgRows(session, cursor.mode, ownModel), [session, cursor.mode, ownModel]);
 
   // 그 주문 줄 선택 — 주문 줄 → 없으면 첫 짝 체결 A3 → 없으면 첫 짝 없음 줄.
   const onOwnOrder = useCallback(
