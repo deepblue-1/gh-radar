@@ -11,9 +11,11 @@
  * ④ 실패(401 · 403 · 404 · 5xx · 네트워크)는 우리 층만 없앤다 — `own` null · status 'error' · 콘솔 경고 한 줄(상태 코드 포함).
  *   화면 오류 카드는 없다(뷰어는 지금과 같다 · RESEARCH Pitfall 5 — e2e 목이 모르는 경로는 404 다).
  * ⑤ 같은 종목에서 다시 받는 동안(refreshKey 변경)은 직전 결과를 그대로 보여 준다 · 종목이 바뀌면 바로 비운다.
+ * ⑥ 같은 요청 키(종목 + refreshKey)가 아직 받는 중이면 새로 부르지 않고 그 요청을 나눠 쓴다(38-09 — 개발 StrictMode 의
+ *   effect 정리 → 재실행이 요청을 두 번 보내던 것). 끝나면 비운다 — 다시 열기(재마운트) · refreshKey 변경은 그대로 새 요청.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { TickExchange, TickOwnResponse } from '@gh-radar/shared';
 
@@ -49,31 +51,43 @@ export function useTickOwn(
   const key = isin && d ? `${d}|${ex}|${isin}` : null;
   const reqKey = key === null ? null : `${key}#${refreshKey}`;
   const [settled, setSettled] = useState<Settled | null>(null);
+  const pendingRef = useRef<{ reqKey: string; promise: Promise<TickOwnResponse> } | null>(null);
 
   useEffect(() => {
     if (!isin || !d) return;
     const k = `${d}|${ex}|${isin}`;
     const rk = `${k}#${refreshKey}`;
     let current = true; // 이 요청 세대 — 정리되면 늦게 온 응답을 버린다
-    // 동기 throw 도 같은 실패 경로로(뷰어를 깨지 않는다) — Promise 안에서 부른다
-    Promise.resolve()
-      .then(() => fetchTickOwn({ isin, d, ex }))
-      .then(
-        (own) => {
-          if (!current) return;
-          if (!own || !Array.isArray(own.fills) || !Array.isArray(own.servers)) {
-            console.warn('[tick-own]', 0, 'shape');
-            setSettled({ key: k, reqKey: rk, own: null, ok: false });
-            return;
-          }
-          setSettled({ key: k, reqKey: rk, own, ok: true });
-        },
-        (e: unknown) => {
-          if (!current) return;
-          warnOf(e);
+    // ⑥ 같은 요청 키가 아직 받는 중이면 그 요청을 나눠 쓴다 — 개발 StrictMode 가 effect 를 정리 → 다시 실행해도 요청 1회
+    //   (use-tick-grid 의 진행 중 요청 공유와 같은 뜻 · 끝나면 비운다 — 캐시가 아니다).
+    let pending = pendingRef.current;
+    if (pending === null || pending.reqKey !== rk) {
+      // 동기 throw 도 같은 실패 경로로(뷰어를 깨지 않는다) — Promise 안에서 부른다
+      const promise = Promise.resolve().then(() => fetchTickOwn({ isin, d, ex }));
+      pending = { reqKey: rk, promise };
+      pendingRef.current = pending;
+      const mine = pending;
+      const clear = () => {
+        if (pendingRef.current === mine) pendingRef.current = null;
+      };
+      promise.then(clear, clear);
+    }
+    pending.promise.then(
+      (own) => {
+        if (!current) return;
+        if (!own || !Array.isArray(own.fills) || !Array.isArray(own.servers)) {
+          console.warn('[tick-own]', 0, 'shape');
           setSettled({ key: k, reqKey: rk, own: null, ok: false });
-        },
-      );
+          return;
+        }
+        setSettled({ key: k, reqKey: rk, own, ok: true });
+      },
+      (e: unknown) => {
+        if (!current) return;
+        warnOf(e);
+        setSettled({ key: k, reqKey: rk, own: null, ok: false });
+      },
+    );
     return () => {
       current = false;
     };

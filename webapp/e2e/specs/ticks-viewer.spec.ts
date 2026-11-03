@@ -5,6 +5,7 @@ import { mockStockApi } from '../fixtures/mock-api';
 import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
 import {
   ECO,
+  ECO_OWN,
   SAMSUNG,
   SKH,
   TICK_DATE,
@@ -646,5 +647,124 @@ test.describe('틱뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · �
     await expect(card).toContainText('당일 자료 준비 중');
     await page.waitForTimeout(3_000);
     expect(live.calls, '미결선이면 당일 요청 0').toEqual([]);
+  });
+});
+
+/**
+ * (38-09) 우리 주문 · 체결 — `/api/ticks/own` 목(`tickOwnFixture` · 값은 컷 13시 KRX 격자에서 유도 — fixtures `ECO_OWN` 주석)으로
+ * 에코앤드림 10/16 KRX 를 열어 칩 · 주문 줄 · 짝 없음 줄 · 둘째 레일 · 제목 줄 알약 · `]` · 카드 섹션 · 표 · 「보기 ›」 · 되돌아가기를
+ * 한 흐름으로 잠근다(SC-2 · SC-3 · D-04 · D-05 · D-07 · D-09 · D-10 · D-12). own 실패 내성(Pitfall 5) · 당일 「최신 받기」 1회 = own 1회
+ * (SC-4 · 공식 API 기준 3) · 폰 390 레일 · 세그먼트(D-04 · D-07 ④)도 여기서 본다. 37 절은 기본 목이 같은 own 을 주므로 우리 층이
+ * 켜진 화면에서 돈다(둘째 레일 열 추가 회귀).
+ */
+test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockStockApi(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+  });
+
+  const OPEN_URL = `${BASE}?isin=${ECO.isin}&d=${TICK_DATE}`;
+  const msg = (page: Page) => page.locator('[data-slot="tick-msg"]');
+  const selectedRow = (page: Page) => msg(page).locator('[data-slot="tick-msg-row"][aria-selected="true"]');
+  const nav = (page: Page) => page.locator('[data-slot="tick-own-nav"]');
+  async function curSeq(page: Page): Promise<number> {
+    const text = (await page.locator('[data-slot="tick-current"]').textContent()) ?? '';
+    const m = / · #(\d+)$/.exec(text.trim());
+    return m ? Number(m[1]) : -1;
+  }
+  const fmt = (n: number) => n.toLocaleString('ko-KR');
+
+  test('과거 — 칩 · 주문 줄 · 짝 없음 · 레일 · 알약 · ] · 카드 · 표 · 보기 › · 되돌아가기', async ({ page }) => {
+    const rec = await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(msg(page)).toBeVisible({ timeout: 30_000 });
+    // 열 때 우리 체결 조회 정확히 1회
+    await expect(nav(page)).toBeVisible();
+    expect(rec.own).toEqual([`${ECO.isin}/${TICK_DATE}/KRX`]);
+    await expect(nav(page)).toContainText('· 주문 3');
+
+    // 13:30 으로 점프 → 우리 체결 앞(k 0) → ] = 첫 우리 체결 행 (a)
+    const input = page.getByRole('textbox', { name: '틱 시각' });
+    await input.fill('13:30:00');
+    await input.press('Enter');
+    await expect.poll(async () => ((await page.locator('[data-slot="tick-current"]').textContent()) ?? '').slice(0, 5)).toBe('13:30');
+    await page.locator('[data-slot="tick-book"] h2').click();
+    await expect(nav(page)).toContainText('◆ 우리 체결 0/3 · 주문 3');
+    await page.keyboard.press(']');
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.a.seq);
+    await expect(selectedRow(page)).toHaveAttribute('data-seq', String(ECO_OWN.a.seq));
+    await expect(nav(page)).toContainText('◆ 우리 체결 1/3 · 주문 3');
+    // 행 칩 「우리/전체」 · 레일 ◆
+    await expect(selectedRow(page).locator('[data-slot="tick-own-chip"]')).toHaveText(
+      `${fmt(ECO_OWN.a.our)}/${fmt(ECO_OWN.a.total)}`,
+    );
+    await expect(selectedRow(page).locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'fill');
+    // 주문 1 줄(● · 근거 호가 ↑) · 근거 B6 행 ○ · 직전 체결 ◌ — 같은 화면 안
+    const order1 = msg(page).locator('[data-slot="tick-own-order"]', { hasText: `#${ECO_OWN.a.orderNo}` });
+    await expect(order1).toContainText('● 주문 선매수 매수 10,340 ×500');
+    await expect(order1).toContainText('근거 호가 ↑');
+    await expect(order1).toContainText('KB120 ···0001');
+    await expect(order1.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'order');
+    const evRow = msg(page).locator(`[data-slot="tick-msg-row"][data-seq="${ECO_OWN.evidence.seq}"]`);
+    await expect(evRow.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'evidence');
+    const anchorRow = msg(page).locator(`[data-slot="tick-msg-row"][data-seq="${ECO_OWN.anchor.seq}"]`);
+    await expect(anchorRow.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'anchor');
+
+    // 카드 「◆ 우리 주문 #…」 섹션 · 「우리 주문」 표 캡션
+    const section = page.locator('[data-slot="tick-own-section"]');
+    await expect(section).toHaveCount(1);
+    await expect(section).toContainText(`◆ 우리 주문 #${ECO_OWN.a.orderNo}`);
+    await expect(section).toContainText('KB120 · 계좌 ···0001');
+    await expect(section.locator('[data-k="fills"]')).toContainText(`${fmt(ECO_OWN.a.our)} / 전체 ${fmt(ECO_OWN.a.total)}`);
+    await expect(page.locator('[data-slot="tick-own-table-caption"]')).toHaveText(
+      '이 날 3건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119',
+    );
+    await expect(page.locator('[data-slot="tick-own-table-row"]')).toHaveCount(3);
+
+    // 「보기 ›」(근거) → 커서 = 근거 B6 · 되돌아가기 알약 → 누르면 주문 줄로 · 사라짐
+    await section.locator('[data-slot="tick-own-jump"][data-to="evidence"]').click();
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.evidence.seq);
+    await expect(selectedRow(page)).toHaveAttribute('data-tag', 'B6');
+    const back = page.locator('[data-slot="tick-own-back"]');
+    await expect(back).toHaveText(`‹ 주문 #${ECO_OWN.a.orderNo} 로`);
+    await back.click();
+    await expect(back).toHaveCount(0);
+    await expect(msg(page).locator('[data-slot="tick-own-order"][aria-selected="true"]')).toContainText(
+      `#${ECO_OWN.a.orderNo}`,
+    );
+
+    // 주문 줄 선택에서 ] → (a) · ] → (b)(전량 — 분모 없음) · ] → 짝 없음 줄 「짝 전문 없음」 · 끝이면 › 비활성
+    await page.keyboard.press(']');
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.a.seq);
+    await page.keyboard.press(']');
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.b.seq);
+    await expect(nav(page)).toContainText('◆ 우리 체결 2/3');
+    await expect(selectedRow(page).locator('[data-slot="tick-own-chip"]')).toHaveText(fmt(ECO_OWN.b.qty));
+    const order2 = msg(page).locator('[data-slot="tick-own-order"]', { hasText: `#${ECO_OWN.b.orderNo}` });
+    await expect(order2).toContainText('조건 없음 · 수동 주문');
+    await page.keyboard.press(']');
+    const nofill = msg(page).locator('[data-slot="tick-own-nofill"][aria-selected="true"]');
+    await expect(nofill).toContainText(`◆ 우리 체결 ${fmt(ECO_OWN.c.qty)}주 · 짝 전문 없음`);
+    await expect(nofill.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'nofill');
+    await expect(nav(page)).toContainText('◆ 우리 체결 3/3');
+    await expect(nav(page).getByRole('button', { name: '다음 우리 체결' })).toBeDisabled();
+    // 짝 없음 주문(보조 주문 행 · limit_chaser) 줄도 있다
+    await expect(msg(page).locator('[data-slot="tick-own-order"]', { hasText: `#${ECO_OWN.c.orderNo}` })).toBeVisible();
+
+    // 탐색 · 카드 이동으로 다시 부르지 않는다
+    expect(rec.own).toHaveLength(1);
+    await expectNoHorizontalScroll(page, '우리 주문 1280');
   });
 });

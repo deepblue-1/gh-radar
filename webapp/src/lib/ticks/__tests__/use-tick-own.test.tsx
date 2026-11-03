@@ -68,6 +68,21 @@ describe('useTickOwn — 호출 수', () => {
     expect(api.fetchTickOwn).toHaveBeenCalledTimes(1);
   });
 
+  it('(38-09) StrictMode 이중 effect = 요청 1 · 응답 반영 · 끝난 뒤 refreshKey +1 = 1', async () => {
+    api.fetchTickOwn.mockResolvedValue(respOf('A'));
+    const { result, rerender } = renderHook(({ k }) => useTickOwn(Q, k), {
+      initialProps: { k: 0 },
+      reactStrictMode: true,
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(1);
+    expect(result.current.own?.servers).toEqual(['A']);
+    rerender({ k: 1 });
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(2);
+  });
+
   it('isin · d 없음 = 요청 0 · idle', () => {
     const { result } = renderHook(() => useTickOwn({ isin: null, d: Q.d, ex: 'KRX' }, 0));
     expect(result.current).toEqual({ own: null, status: 'idle' });
