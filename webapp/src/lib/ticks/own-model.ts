@@ -6,6 +6,7 @@
  *   `useMemo([session, own])` 로 묶는다(RESEARCH Anti-Pattern).
  * ② 체결 순서 = (gw_time_ms, gateway, seq) — RPC 정렬과 같은 키로 한 번 더 정렬한다(방어 · 남은 수량 차감이 순서 의존 —
  *   Pitfall 2). 정렬은 안정이라 같은 키는 입력 순서를 지킨다.
+ *   짝짓기 · 근거 · 앵커 모두 세션 `duplicates`(같은 보드 · seq 재수신)를 뺀다 — 차트와 같은 거름(WR-03).
  * ③ 표시: A3 rec 하나에 붙은 우리 체결 합 `our` 와 그 A3 수량 `total`(부분 체결이면 「n/m」) · 하나라도 추정이면 est.
  *   계좌 · 주문번호는 모델에 있지만 전문 행에 그리지 않는다(D-02 — 주문 줄 「···끝4」 · 카드 · 툴팁에서만).
  * ④ 주문(38-04): 묶기 키 `${gateway}|${order_no}` — 주문 집합 = 이벤트(kind 3 · 6) ∪ 체결의 주문번호. 주문 시각 · 값은
@@ -16,7 +17,7 @@
  *   1,000ms)가 세션 마지막 수신보다 뒤인 체결은 짝짓기에 넣지 않고 'pending'(짝 결과와 무관 · 남은 수량도 안 깎는다 —
  *   상한가처럼 같은 가격 A3 가 흔하면 진짜 A3 대신 더 이른 A3 에 붙는다 · WR-02). 세션이 자라면 모델을 다시 만들어 풀린다.
  *   과거 격자는 늘 확정.
- * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3)` 한 번 → 이벤트가 있는 주문마다 shared
+ * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3, duplicates)` 한 번 → 이벤트가 있는 주문마다 shared
  *   `locateEvidence`(호가 B6 · 체결 단건 A3 · 주기매도 구간 · 없음) · `anchorOf`(「주문 직전 마지막 체결」). ev_kind 3(체결통보)은
  *   shared 가 none 으로 돌려주므로 여기서 같은 게이트웨이 · 계좌의 그 이전 우리 체결(gw ≤ 이벤트 gw ∧ 가격 == ev_price ∧
  *   수량 == ev_trade_qty) 중 마지막 것의 짝 A3 로 잇는다 — 그 체결이 짝이 없으면 근거 없음(RESEARCH Open Q3 · UAT 확인 대상).
@@ -149,7 +150,7 @@ interface OrderAcc {
 }
 
 export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?: { live?: boolean }): OwnModel {
-  const { index, a3, recvOrder } = session;
+  const { index, a3, recvOrder, duplicates } = session;
   const live = opts?.live === true;
   const sorted = own.fills
     .slice()
@@ -177,6 +178,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
       const f = sorted[i]!;
       return { gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty };
     }),
+    duplicates,
   );
   const matches: (OwnFillMatch | null)[] = new Array(sorted.length).fill(null);
   for (let k = 0; k < settled.length; k++) matches[settled[k]!] = settledMatches[k]!;
@@ -325,7 +327,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
 
   // ── 근거 · 앵커(⑦) — 색인은 세션당 한 번(이벤트가 있을 때만)
   const ordersOfEvidenceRec = new Map<number, number[]>();
-  const cumIdx = own.events.length > 0 ? cumIndexOf(a3) : null;
+  const cumIdx = own.events.length > 0 ? cumIndexOf(a3, duplicates) : null;
   if (cumIdx) {
     for (const o of orders) {
       const e = o.event;
@@ -341,14 +343,22 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
         }
         evidence = last !== null && last.a3j >= 0 ? { kind: 'a3', j: last.a3j } : NO_EVIDENCE;
       } else {
-        evidence = locateEvidence(session.buf, index, recvOrder, a3, cumIdx, {
-          gwMs: e.gw_time_ms,
-          evKind: e.ev_kind,
-          evPrice: e.ev_price,
-          evQtyBefore: e.ev_qty_before,
-          evQtyAfter: e.ev_qty_after,
-          evTradeQty: e.ev_trade_qty,
-        });
+        evidence = locateEvidence(
+          session.buf,
+          index,
+          recvOrder,
+          a3,
+          cumIdx,
+          {
+            gwMs: e.gw_time_ms,
+            evKind: e.ev_kind,
+            evPrice: e.ev_price,
+            evQtyBefore: e.ev_qty_before,
+            evQtyAfter: e.ev_qty_after,
+            evTradeQty: e.ev_trade_qty,
+          },
+          duplicates,
+        );
       }
       o.evidence = evidence;
       if (evidence.kind === 'b6') {

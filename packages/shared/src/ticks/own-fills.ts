@@ -13,6 +13,10 @@
  * 정의를 바꾸지 마라 — 10/30 5종목 오라클(짝 401/406 · 추정 108)이 잠근다(RESEARCH Pitfall 1 · 2).
  * 「g ± 20 ms 안 후보 ≥ 2」 같은 다른 읽기는 108 을 재현하지 못한다.
  *
+ * 중복 A3(`skip` · rec → 1 = 같은 보드 · seq 의 두 번째 이후 수신 — 웹 세션 `duplicates`)는 후보 · cum 색인 · 구간에서 뺀다.
+ * 원본과 시각 · 가격 · 수량이 같아 늘 둘째 후보(「추정」)가 되고 · 칩을 두 행으로 가르고 · 단건 근거를 hits 2 로 깨기 때문이다
+ * (WR-03). 10/30 오라클 픽스처는 중복 0건이라 수치는 그대로다 — 인자를 안 주면 지금과 같다.
+ *
  * 성능: A3 ≤ 수십만 · 체결 ≤ 수백 — A3 시각 배열과 시각 오름차순 순열을 호출마다 한 번 만들고, 체결마다 이분 탐색으로
  * [g − 1500, g + 200] 창만 본다(전 A3 순회 금지). 행 객체를 만들지 않는다(typed array).
  */
@@ -73,9 +77,14 @@ function before(absA: number, ja: number, absB: number, jb: number): boolean {
 
 /**
  * 우리 체결 → A3 짝짓기(규칙은 파일 머리 주석). 입력 순서 그대로 처리 · 결과도 같은 순서.
- * A3 남은 수량은 이 호출 안에서만 깎인다(a3 열은 바꾸지 않는다).
+ * A3 남은 수량은 이 호출 안에서만 깎인다(a3 열은 바꾸지 않는다). `skip`(rec → 1)인 A3 는 후보가 아니다(중복).
  */
-export function matchOwnFills(index: TickIndex, a3: A3Columns, fills: readonly OwnFillIn[]): OwnFillMatch[] {
+export function matchOwnFills(
+  index: TickIndex,
+  a3: A3Columns,
+  fills: readonly OwnFillIn[],
+  skip?: Uint8Array,
+): OwnFillMatch[] {
   const n = a3.n;
   const times = new Float64Array(n);
   for (let j = 0; j < n; j++) times[j] = a3TimeMs(index, a3, j);
@@ -103,6 +112,7 @@ export function matchOwnFills(index: TickIndex, a3: A3Columns, fills: readonly O
       const dt = g - t;
       if (dt < OWN_MATCH_DT_MIN_MS || dt > OWN_MATCH_DT_MAX_MS) continue;
       if (a3.px[j] !== f.px || left[j]! < f.qty) continue;
+      if (skip !== undefined && skip[a3.rec[j]!] === 1) continue;
       candidates += 1;
       const abs = Math.abs(dt);
       if (bestJ < 0 || before(abs, j, bestAbs, bestJ)) {
@@ -174,13 +184,15 @@ export type OwnEvidence =
 const NONE: OwnEvidence = { kind: "none" };
 
 /**
- * 누적거래량 → A3 열 색인 목록(j 오름차순). cumVolume > 0 인 A3 만. 근거 · 앵커 조회용 — 호출자가 세션당 한 번 만든다.
+ * 누적거래량 → A3 열 색인 목록(j 오름차순). cumVolume > 0 인 A3 만 · `skip`(rec → 1 · 중복)은 뺀다.
+ * 근거 · 앵커 조회용 — 호출자가 세션당 한 번 만든다.
  */
-export function cumIndexOf(a3: A3Columns): Map<number, number[]> {
+export function cumIndexOf(a3: A3Columns, skip?: Uint8Array): Map<number, number[]> {
   const m = new Map<number, number[]>();
   for (let j = 0; j < a3.n; j++) {
     const c = a3.cumVolume[j]!;
     if (!(c > 0)) continue;
+    if (skip !== undefined && skip[a3.rec[j]!] === 1) continue;
     const list = m.get(c);
     if (list) list.push(j);
     else m.set(c, [j]);
@@ -216,7 +228,8 @@ function locateBookEvidence(buf: Uint8Array, index: TickIndex, recvOrder: Int32A
 }
 
 /**
- * 조건 근거 특정(규칙은 위 머리 주석). `recvOrder` = `recvOrderOf(index)` · `cumIdx` = `cumIndexOf(a3)` — 둘 다 세션당 한 번.
+ * 조건 근거 특정(규칙은 위 머리 주석). `recvOrder` = `recvOrderOf(index)` · `cumIdx` = `cumIndexOf(a3, skip)` — 둘 다 세션당 한 번.
+ * `skip`(rec → 1 · 중복)은 `cumIdx` 를 만들 때와 같은 것을 넘긴다 — 구간 순회도 중복 A3 를 뺀다.
  */
 export function locateEvidence(
   buf: Uint8Array,
@@ -225,17 +238,23 @@ export function locateEvidence(
   a3: A3Columns,
   cumIdx: Map<number, number[]>,
   ev: OwnEventIn,
+  skip?: Uint8Array,
 ): OwnEvidence {
   if (ev.evKind === 1) {
     const rec = locateBookEvidence(buf, index, recvOrder, ev);
     return rec >= 0 ? { kind: "b6", rec } : NONE;
   }
-  if (ev.evKind === 2) return locateTradeEvidence(a3, cumIdx, ev);
+  if (ev.evKind === 2) return locateTradeEvidence(a3, cumIdx, ev, skip);
   return NONE;
 }
 
 /** 체결 근거(ev_kind 2) — 단건 'a3'(정확히 하나) · 아니면 구간 'range'(before, after] · 아니면 'none'. */
-function locateTradeEvidence(a3: A3Columns, cumIdx: Map<number, number[]>, ev: OwnEventIn): OwnEvidence {
+function locateTradeEvidence(
+  a3: A3Columns,
+  cumIdx: Map<number, number[]>,
+  ev: OwnEventIn,
+  skip: Uint8Array | undefined,
+): OwnEvidence {
   let single = -1;
   let hits = 0;
   for (const j of cumIdx.get(ev.evQtyAfter) ?? []) {
@@ -253,6 +272,7 @@ function locateTradeEvidence(a3: A3Columns, cumIdx: Map<number, number[]>, ev: O
   for (let j = 0; j < a3.n; j++) {
     const c = a3.cumVolume[j]!;
     if (c <= ev.evQtyBefore || c > ev.evQtyAfter) continue;
+    if (skip !== undefined && skip[a3.rec[j]!] === 1) continue;
     if (firstJ < 0) firstJ = j;
     lastJ = j;
     n += 1;

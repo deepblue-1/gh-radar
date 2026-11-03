@@ -105,6 +105,13 @@ function cols(recs: A3Rec[]): { index: TickIndex; a3: A3Columns } {
 /** 13:00:00 + ms 의 gw epoch ms. */
 const gw = (ms: number): number => BASE_MS + ms;
 
+/** 거를 rec 목록 → rec → 1 배열(웹 세션 `duplicates` 모양). */
+function skipOf(index: TickIndex, recs: number[]): Uint8Array {
+  const out = new Uint8Array(index.n);
+  for (const r of recs) out[r] = 1;
+  return out;
+}
+
 describe("matchOwnFills 합성 경계", () => {
   it("합성 헬퍼 — A3 열 값(px · qty · cumVolume · 시각)", () => {
     const { index, a3 } = cols([{ seq: 1, px: 1000, qty: 300, timeUs: 1_500_250, cumVolume: 12_345 }]);
@@ -240,21 +247,33 @@ function b6Rec(s: B6Rec): Uint8Array {
 
 type SynthRec = { a3: A3Rec } | { b6: B6Rec };
 
-/** 파일 순서대로 A3 · B6 를 섞은 세션 → locateEvidence 입력 한 벌(recvOrder · cumIdx 는 세션당 한 번). */
-function session(recs: SynthRec[]) {
+/**
+ * 파일 순서대로 A3 · B6 를 섞은 세션 → locateEvidence 입력 한 벌(recvOrder · cumIdx 는 세션당 한 번).
+ * `skipRecs` = 중복으로 거를 rec(파일 순서 색인) — 웹 세션 `duplicates` 와 같은 rec → 1 배열로 만든다.
+ */
+function session(recs: SynthRec[], skipRecs?: number[]) {
   const buf = concatBytes(recs.map((r) => ("a3" in r ? a3Rec(r.a3) : b6Rec(r.b6))));
   const index = buildTickIndex(buf, "krx");
   const recvOrder = recvOrderOf(index);
   const a3 = a3ColumnsOf(buf, index);
-  const cumIdx = cumIndexOf(a3);
+  const skip = skipRecs ? skipOf(index, skipRecs) : undefined;
+  const cumIdx = cumIndexOf(a3, skip);
   const locate = (ev: Partial<OwnEventIn> & { gwMs: number; evKind: number }) =>
-    locateEvidence(buf, index, recvOrder, a3, cumIdx, {
-      evPrice: 0,
-      evQtyBefore: 0,
-      evQtyAfter: 0,
-      evTradeQty: 0,
-      ...ev,
-    });
+    locateEvidence(
+      buf,
+      index,
+      recvOrder,
+      a3,
+      cumIdx,
+      {
+        evPrice: 0,
+        evQtyBefore: 0,
+        evQtyAfter: 0,
+        evTradeQty: 0,
+        ...ev,
+      },
+      skip,
+    );
   return { buf, index, a3, cumIdx, locate };
 }
 
@@ -388,5 +407,50 @@ describe("locateEvidence · anchorOf 합성 경계", () => {
     expect(anchorOf(s.cumIdx, 0)).toBe(-1);
     expect(anchorOf(s.cumIdx, -5)).toBe(-1);
     expect(anchorOf(s.cumIdx, 505)).toBe(-1);
+  });
+});
+
+describe("중복 A3 거르기 skip(WR-03 — 같은 보드 · seq 재수신)", () => {
+  it("matchOwnFills — 중복은 둘째 후보가 아니다(「추정」 아님) · 원본이 바닥나도 중복으로 넘어가지 않는다", () => {
+    const { index, a3 } = cols([
+      { seq: 1, px: 1000, qty: 100, timeUs: 0 },
+      { seq: 1, px: 1000, qty: 100, timeUs: 0, recvUs: 50_000 }, // 같은 전문 재수신(rec 1)
+    ]);
+    const one = [{ gwMs: gw(5), px: 1000, qty: 10 }];
+    expect(matchOwnFills(index, a3, one)[0]).toMatchObject({ a3j: 0, candidates: 2, est: true });
+    const skip = skipOf(index, [1]);
+    expect(matchOwnFills(index, a3, one, skip)[0]).toMatchObject({ a3j: 0, candidates: 1, est: false, dtMs: 5 });
+    const two = [
+      { gwMs: gw(5), px: 1000, qty: 100 },
+      { gwMs: gw(6), px: 1000, qty: 100 },
+    ];
+    expect(matchOwnFills(index, a3, two).map((m) => m.a3j)).toEqual([0, 1]);
+    expect(matchOwnFills(index, a3, two, skip).map((m) => m.a3j)).toEqual([0, -1]);
+  });
+
+  it("체결 근거 — 중복을 빼면 단건(hits 1) · 구간 n · qty 도 중복 없이", () => {
+    const recs: SynthRec[] = [
+      { a3: { seq: 1, px: 1000, qty: 100, timeUs: 0, cumVolume: 100 } },
+      { a3: { seq: 2, px: 1000, qty: 50, timeUs: 1000, cumVolume: 150 } },
+      { a3: { seq: 3, px: 1000, qty: 30, timeUs: 2000, cumVolume: 180 } },
+      { a3: { seq: 3, px: 1000, qty: 30, timeUs: 2000, cumVolume: 180 } }, // 중복(rec 3)
+      { a3: { seq: 4, px: 1000, qty: 10, timeUs: 3000, cumVolume: 190 } },
+    ];
+    const ev = { gwMs: gw(5), evKind: 2, evPrice: 1000, evQtyBefore: 100, evQtyAfter: 180, evTradeQty: 30 };
+    expect(session(recs).locate(ev)).toEqual({ kind: "range", firstJ: 1, lastJ: 3, n: 3, qty: 110 });
+    const s = session(recs, [3]);
+    expect(s.locate(ev)).toEqual({ kind: "a3", j: 2 });
+    expect(s.locate({ ...ev, evQtyAfter: 190, evTradeQty: 999 })).toEqual({ kind: "range", firstJ: 1, lastJ: 4, n: 3, qty: 90 });
+  });
+
+  it("cumIndexOf · anchorOf — 중복은 색인에 없다 · 앵커는 원본 j", () => {
+    const recs: SynthRec[] = [
+      { a3: { seq: 2, px: 1000, qty: 10, timeUs: 1000, cumVolume: 500 } },
+      { a3: { seq: 2, px: 1000, qty: 10, timeUs: 1000, cumVolume: 500 } }, // 중복(rec 1)
+    ];
+    expect(anchorOf(session(recs).cumIdx, 500)).toBe(1);
+    const s = session(recs, [1]);
+    expect(s.cumIdx.get(500)).toEqual([0]);
+    expect(anchorOf(s.cumIdx, 500)).toBe(0);
   });
 });

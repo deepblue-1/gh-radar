@@ -318,3 +318,47 @@ describe("조건 근거 · 앵커 오라클 10/30 (SC-3)", () => {
     );
   });
 });
+
+describe("웹 경로 — 중복 거르기 skip 을 넘겨도 오라클 그대로(WR-03 · 10/30 픽스처 중복 0)", () => {
+  /** `qtyWithoutDuplicates` 와 같은 규칙의 rec → 1 배열(웹 세션 `duplicates` 모양). */
+  function skipOf(index: TickIndex, a3: A3Columns): Uint8Array {
+    const out = new Uint8Array(index.n);
+    const seen = new Set<number>();
+    for (let j = 0; j < a3.n; j++) {
+      const k = a3.board[j]! * 1e9 + a3.seq[j]!;
+      if (seen.has(k)) out[a3.rec[j]!] = 1;
+      else seen.add(k);
+    }
+    return out;
+  }
+
+  it.each(TABLE)("%s — 짝 · 근거 · 앵커가 skip 없을 때와 같다", (key, label, isin) => {
+    const buf = readTicksZst(`own1030-${label}-${isin}.ticks.zst`);
+    const index = buildTickIndex(buf, label);
+    const recvOrder = recvOrderOf(index);
+    const a3 = a3ColumnsOf(buf, index);
+    const skip = skipOf(index, a3);
+    expect(skip.reduce((n, v) => n + v, 0)).toBe(0);
+    const ins = journal.fills
+      .filter((f) => f.key === key)
+      .map((f) => ({ gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty }));
+    expect(matchOwnFills(index, a3, ins, skip)).toEqual(matchOwnFills(index, a3, ins));
+    const plain = cumIndexOf(a3);
+    const skipped = cumIndexOf(a3, skip);
+    expect(skipped).toEqual(plain);
+    for (const e of journal.events.filter((x) => x.key === key)) {
+      const ev = {
+        gwMs: e.gw_time_ms,
+        evKind: e.ev_kind,
+        evPrice: e.ev_price,
+        evQtyBefore: e.ev_qty_before,
+        evQtyAfter: e.ev_qty_after,
+        evTradeQty: e.ev_trade_qty,
+      };
+      expect(locateEvidence(buf, index, recvOrder, a3, skipped, ev, skip)).toEqual(
+        locateEvidence(buf, index, recvOrder, a3, plain, ev),
+      );
+      expect(anchorOf(skipped, e.cum_volume)).toBe(anchorOf(plain, e.cum_volume));
+    }
+  });
+});

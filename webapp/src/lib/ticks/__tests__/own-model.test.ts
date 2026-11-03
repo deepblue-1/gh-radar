@@ -195,6 +195,46 @@ describe('buildOwnModel — 당일 대기(Pitfall 4 · OWN_PENDING_GRACE_MS)', (
   });
 });
 
+describe('buildOwnModel — 중복 A3(같은 보드 · seq 재수신) 거르기(WR-03)', () => {
+  // rec 0 = A3 seq 501 · rec 1 = 같은 전문 재수신(duplicates 1) · rec 2 = B6
+  const dup = synthSession([
+    [100.5, a3Msg({ seq: 501, bs: '2', px: 30000, qty: 100, time: '130000100000', cumVolume: 900 })],
+    [150.5, a3Msg({ seq: 501, bs: '2', px: 30000, qty: 100, time: '130000100000', cumVolume: 900 })],
+    [3000.5, b6Msg({ seq: 502, ask1: [30000, 0], bid1: [30000, 900] })],
+  ]);
+
+  it('전제 — 둘째 수신이 duplicates', () => {
+    expect(Array.from(dup.duplicates.slice(0, 3))).toEqual([0, 1, 0]);
+  });
+
+  it('짝 — 중복은 둘째 후보가 아니다(추정 아님) · 원본이 바닥나도 중복 행으로 넘어가지 않는다', () => {
+    const m = buildOwnModel(
+      dup,
+      ownOf({ fills: [fill('D1', at(105), 30000, 100, 'B', 1), fill('D2', at(110), 30000, 100, 'B', 2)] }),
+    );
+    expect(m.fills.map((f) => [f.state, f.rec, f.est, f.candidates])).toEqual([
+      ['matched', 0, false, 1],
+      ['nofill', -1, false, 0],
+    ]);
+    expect([...m.fillsOfRec.keys()]).toEqual([0]);
+  });
+
+  it('근거 · 앵커 — 체결 단건 근거는 원본 하나(hits 1) · 앵커도 원본 행', () => {
+    const m = buildOwnModel(
+      dup,
+      ownOf({
+        events: [
+          event('E9', at(200), { ev_kind: 2, ev_price: 30000, ev_trade_qty: 100, ev_qty_before: 800, ev_qty_after: 900 }),
+          event('E8', at(210), { ev_kind: 0, cum_volume: 900 }),
+        ],
+      }),
+    );
+    const e9 = byKey(m.orders, 'E9');
+    expect([e9.evidence.kind, e9.evidenceRec, e9.evidenceLabel]).toEqual(['a3', 0, '체결']);
+    expect(byKey(m.orders, 'E8').anchorRec).toBe(0);
+  });
+});
+
 describe('ownOrderLineText — 주문 줄 문구(D-05 · 25 D-09 문구 정본)', () => {
   const lineOf = (p: Parameters<typeof ownOf>[0], no: string) => {
     const m = buildOwnModel(session, ownOf(p));
