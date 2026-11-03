@@ -1,13 +1,13 @@
 ---
 phase: 37-tick-viewer
-fixed_at: 2026-11-04T05:15:00+09:00
+fixed_at: 2026-11-04T06:40:00+09:00
 review_path: .planning/phases/37-tick-viewer/37-REVIEW.md
-iteration: 1
-findings_in_scope: 25
-fixed: 25
+iteration: 2
+findings_in_scope: 36
+fixed: 36
 skipped: 0
-deferred: 11
-status: partial
+deferred: 0
+status: all_fixed
 ---
 
 # Phase 37: 코드 리뷰 수정 보고
@@ -78,6 +78,116 @@ status: partial
 | 재배포 없음(스크립트만 바뀜) | WR-34 · WR-35 · IN-33 |
 
 ⚠ WR-35 때문에 앞으로 `deploy-server.sh` · `deploy-tick-convert.sh`는 `TICKGW_URL`이 없으면 시작하자마자 종료한다. 끄는 배포만 `TICKGW_DISABLE=1`로 한다. IN-33 때문에 빌드 입력 경로에 커밋 안 된 변경이 있어도 종료한다(`ALLOW_DIRTY=1`이면 `-dirty` 태그로 진행).
+
+## 2라운드 (2026-11-04 · phase 38 병합 120ab5eb 뒤) — Part C webapp 11건 + 후속
+
+- 보류했던 Part C 11건(WR-60 ~ WR-65 · IN-60 ~ IN-64)을 phase 38 병합 위에서 고쳤다(phase 38 에서 해소돼 건너뛴 항목 0). 수정기가 격리 worktree 에서 돌고 오케스트레이터가 master 에 cherry-pick 했다.
+- **오케스트레이터 추가 수정 `90173169`(IN-63 후속):** master 에서 e2e `ticks-viewer.spec.ts` 전체를 돌리자 「폰 390 — 「전문」 둘째 레일」 이 순서 의존으로 실패했다(단독은 통과 · IN-63 을 되돌리면 통과). 원인: 폰 「전문」 목록이 높이 0 으로 숨겨진 채 마운트돼 첫 가운데 맞춤이 어긋나는데, IN-63 이 모델 변경 때 다시 맞추지 않았다. `useFixedWindow` 가 `height` 를 내고, 숨김 → 보임 전환을 처음처럼 가운데로 맞추며, 모델만 바뀌면 커서 행 위치 차만큼 scrollTop 을 옮긴다. 그 뒤 e2e 2회 연속 25/25.
+- **후속 2건:** WR-02-W(합쳐진 요청 취소 화면) · WR-32-W(`X-Tick-More` 웹 연결) — 아래 Follow-ups.
+- **CR-31 후속:** tickgw 19:55 따라잡기(`4d124bf6`) + gh-trade 회신 반영 창 끝 19:59(`794681e6`) · 인덱서 `skipped_records` 미완결 판정(`eb224aa9`).
+- **재검증(master):** webapp vitest 전체 5607(+1 skip) · webapp 틱 407 · tsc 0 · server 753 · shared 1124(+2 skip) · tickgw 62 · e2e ticks-viewer 25/25 ×2 · sidebar-tree/accum/teamflow/limitup 49/49.
+- **배포:** tickgw `2514ff8e`(radar-gw) · server `90173169`(스모크 15/15 · `X-Tick-More` CORS 노출 확인) · webapp push `90173169`(Vercel).
+
+### Part C 검증 기록(수정기)
+
+- **어디서 돌렸나:** 하네스가 만든 격리 worktree(`.claude/worktrees/agent-aa6494c4039f09371`, 브랜치 `worktree-agent-aa6494c4039f09371`)에서 `pnpm install --frozen-lockfile --prefer-offline` 과 shared 빌드를 한 뒤 돌렸다. 메인 체크아웃이 아니다.
+- **webapp 단위:** `vitest run src/lib/ticks src/components/ticks --maxWorkers=2` 결과 26개 파일 · 407건 통과.
+- **webapp tsc:** `tsc --noEmit` 오류 0.
+- **webapp eslint:** 바꾼 소스 11개 오류 0.
+- **server:** `vitest run tests/services/cors-config.test.ts tests/routes/ticks-live.test.ts --maxWorkers=2` 결과 22건 통과. server tsc 오류 0, shared tsc 오류 0.
+- **e2e 미실행:** `playwright test e2e/specs/ticks-viewer.spec.ts --workers=1` 을 돌리지 못했다.
+  - worktree 에 `webapp/.env.local` · `webapp/.env.test.local` 이 없다. auth setup 과 dev 서버에 Supabase env 가 필요하다.
+  - 메인 체크아웃에서 복사하려 했지만 비밀 파일 읽기 가드 훅이 막았다. 가드는 우회하지 않았다.
+  - 이번에 더하거나 고친 e2e 2건(WR-60 재생 중 목록으로 · WR-65 새로고침 seq)도 아직 검증되지 않았다.
+  - master 에 병합한 뒤 메인 체크아웃에서 다음을 실행해야 한다: `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/ticks-viewer.spec.ts --workers=1`
+
+### Part C 재배포 대상(수정기)
+
+| 대상 | 이유 |
+|---|---|
+| **webapp (push = Vercel 배포)** | WR-60 ~ WR-65 · IN-60 ~ IN-64 · WR-02-W · WR-32-W 화면 쪽 |
+| **server (Cloud Run · `deploy-server.sh`)** | WR-32-W — shared `TICK_LIVE_HEADERS` 에 `X-Tick-More` 가 더해져야 server 가 그 헤더를 중계하고 CORS 로 노출한다. server 를 새로 배포하지 않으면 웹은 `more` 를 늘 false 로 읽는다. 그래도 하루치는 tickgw 의 `loading` 상태로 이어 받으므로 깨지지는 않는다. 증분만 예전처럼 두 번 눌러야 한다. |
+| tickgw | 변경 없음(앞 라운드 b3136711 에서 이미 `X-Tick-More` 를 낸다) |
+
+배포 순서는 메모리 규칙(「배포는 relay 먼저 · push 나중」 · 백엔드 먼저)에 맞춰 **server 를 먼저 배포하고 webapp push 를 나중에** 하기를 권한다. 반대 순서여도 웹은 헤더가 없으면 false 로 읽어 안전하게 떨어진다.
+
+## Follow-ups
+
+` 에 따로 적었다.
+
+### CR-31-F: 19:55 따라잡기 — 승격률 보전
+
+**수정 파일:** `tickgw/src/poller.ts`, `tickgw/src/config.ts`, `tickgw/tests/poller.test.ts`, `docs/relay-operations.md`
+**커밋:** 4d124bf6 (worktree 브랜치 `worktree-agent-a4e33185c028359f2` · push/배포 안 함)
+**재배포:** tickgw(평일 21:00 이후 · 메인 세션)
+**상태:** fixed: requires human verification (스케줄링 로직 추가)
+**검증:** 이 worktree 에서 실행했다. `tsc --noEmit` 통과. `vitest run --maxWorkers=2` 결과 62/62 통과(poller 29건 · 새로 9건).
+- 공정 교대 조건을 「순수 우선순위」로 바꾸면 교대 시험이 실패하는 것도 확인했다. 시험이 이 조건을 실제로 가려낸다는 뜻이다. 확인 뒤 원래대로 되돌렸다.
+
+**무엇:**
+- 따라잡기는 KST `TICKGW_CATCHUP_AT`(기본 19:55)부터 20:00 전까지 하루 한 번 돈다.
+  - 값은 `HH:MM` 이고 `off` 면 끈다. 20:00 이후 값은 설정 오류로 거부한다(창이 비기 때문).
+- 창에 들어선 첫 step 에 대상을 고정한다. 대상 조건은 다음과 같다.
+  - 오늘 날짜다.
+  - complete 다.
+  - closed 가 아니다.
+  - 「너무 큼」이 아니다.
+  - 리스가 끝났다.
+- 대상 키마다 `fromOf` 커서부터 `to 0` 으로 받는다. 커서는 lastRecvNs+1 이고, 이어받기 중이면 그 커서, 받은 적이 없으면 08:00 이다.
+  - has_more 면 false 가 될 때까지 이어서 받는다.
+  - 다 받아도 closed 로 만들지 않는다. closed 는 여전히 20:01 마감 마무리가 정한다. 마무리는 아직 압축 전인 마지막 몇 분(19시 · 20시 파일)만 읽는다.
+- 창이 끝나면(대상 소진 또는 20:00) 요약 한 줄 `catchup done` 을 남긴다. 항목은 keys · caught · left · calls · bytes · ms 다. 시작할 때는 `catchup start` 를 남긴다.
+
+**설계 선택:**
+1. **공정 교대(순수 우선순위 아님).** 같은 `step()` 사슬을 쓰므로 동시성 1 이 유지된다.
+   - 리스가 살아 있는 키와 따라잡기가 둘 다 할 일이 있으면, 직전 슬롯의 반대편이 간다. 그래서 열린 키는 따라잡기 호출 하나보다 더 기다리지 않는다.
+   - 평소처럼 호출이 짧으면 5초 간격 그대로다. 시험에서 열린 키 60회 호출의 간격이 모두 5,000ms 였다.
+   - 순수 우선순위를 쓰지 않은 이유는 포화 때문이다. 활성 키가 슬롯을 꽉 채우면 따라잡기가 굶고, 그러면 승격률을 지키지 못한다. 시험은 3키 × 호출 6초 상황에서 B·A·B·A·B 로 번갈아 가는지 확인한다.
+2. **규율은 보통 폴링과 같다.**
+   - 전역 차단이면 아무것도 하지 않는다. 연결 실패가 3회 이어지면 60초 막히고, 탐침이 실패하면 다시 막힌다.
+   - 75 는 2초 + 지터 뒤 재시도하고 실패로 세지 않는다.
+   - 실패는 키별로 5→60초 백오프한다. 카운터는 보통 폴링의 `run.failures` 와 따로 둔다. 그래서 따라잡기 실패가 다시 연 키의 상태 카드를 `delayed` 로 바꾸지 않는다.
+   - 64 는 60초 뒤 재시도한다.
+   - 캐시가 가득하면 붙이지 않고 커서를 그대로 둔 채 백오프한다(WR-33). `too_large` 면 그 키를 그날 중단하고 complete=false 로 둔다.
+   - LRU 보호 술어는 바꾸지 않았다. 보호 대상은 여전히 리스가 살아 있는 키다.
+3. **도중에 대상에서 빠지는 경우.** 매 step 대상을 다시 거른다.
+   - 다시 touch 된 키는 보통 루프로 넘긴다.
+   - complete 가 false 가 된 키, 지워진 키도 뺀다.
+   - 리스는 살아 있지만 활성 8개 밖에서 대기 중인(queued) 키도 대상이 아니다. 활성 키 상한을 우회하지 않으려는 것이다. 이런 키는 20:01 마무리가 리스와 무관하게 처리한다.
+4. **20:00 까지 못 끝낸 키**는 그대로 20:01 마무리 몫이다. 보통 백오프 말고 추가 재시도는 없다. 시험에서 실패가 이어지면 19:55:00 · :05 · :15 · :35 · 56:15 · 57:15 · 58:15 · 59:15 에 호출하고, 20:00 이후에는 따라잡기 호출이 0건이었다.
+5. **창 밖에서 기동한 경우**(20:00 이후 첫 기동 등)에는 따라잡기를 하지 않는다. 창 안에서 재기동하면 캐시가 비어 있으므로 keys 0 으로 바로 끝난다.
+
+**시험(`tickgw/tests/poller.test.ts`):**
+- rig 기본값을 운영과 같게 `catchupHhmm: 1955` 로 켰다. 기존 20건도 이 상태에서 그대로 통과한다.
+- 새 가짜 인덱서 `minuteDay` 를 만들었다. 1분마다 레코드를 내고, 20:00 뒤에는 08~18시 파일이 즉시 압축된 최악의 경우를 흉내 낸다(`compressed_files_skipped`).
+- 새 시험 9건:
+  - 리스가 끝난 키를 19:55 에 3페이지로 따라잡고, 20:01 마무리는 19:54:30+1 부터 읽어 압축을 건너뛴 파일이 0건이며 closed · complete 가 된다. `catchup done` 로그 값도 단언한다.
+  - `off` 면 따라잡기 호출이 0건이고, 마무리가 10시부터 읽다 압축 원본을 건너뛰어 승격되지 않는다. 대조군이다.
+  - 리스가 살아 있는 키는 5초 간격 그대로이고, 따라잡기는 리스가 끝난 키만 대상으로 한다.
+  - 공정 교대(포화 상황).
+  - 동시성 1 과 75 · 75 · 실패 간격 [2250, 2250, 5000].
+  - 창이 끝날 때까지 못 끝낸 경우.
+  - 「너무 큼」 키는 다시 받지 않는다.
+  - 따라잡기 도중 too_large 가 나면 다음 페이지를 받지 않고 blocked 가 된다.
+  - 설정 파싱: 기본값 · off · 19:50 · 20:00 거부 · 형식 오류.
+
+**gh-trade 에 알릴 119 호출 패턴 변경(전달용):**
+- **새 버스트(하루 1회):** tickgw 가 매일 KST 19:55 부터 20:00 전까지, 그날 열었다가 닫힌 키(리스 끝 · 오늘 complete)를 한 번씩 따라잡는다.
+  - 질의 꼴은 기존과 같다: `<isin> <KRX|NXT> <YYYYMMDD> <from_ns> 0`. from 은 그 키가 마지막으로 받은 레코드 +1ns 다.
+  - has_more 면 `next_from_ns` 로 이어서 질의한다.
+  - 상한은 「그날 연 키 수 × 키당 빈 구간의 이어받기 페이지 수」 다. 낮에 열었다 닫은 키는 마지막 수신 이후부터 19:55 까지다. 받은 적이 없는 키는 08:00 부터 하루치다.
+  - 동시성은 여전히 전역 1 이다. 연속 질의로 한 줄로 이어지며, 겹쳐 실행되지 않는다.
+- **의도:** 20:00 압축(`zstd --rm` · 오래된 시간부터 FIFO) 전에 낮 구간을 받아 둔다. 그러면 20:01 마감 마무리 질의는 19:5x 이후 몇 분(19시 · 20시 파일)만 읽는다. 압축 중인 이른 시간 파일을 읽으려는 질의(→ `compressed_files_skipped`)가 줄어든다.
+- **바뀌지 않는 것:**
+  - 장중 5초 증분 · 30초 리스 · 활성 8키 상한.
+  - 75 = 2초 재시도(실패 아님) · 실패 백오프 5→60초 · 연결 실패 3연속이면 전역 60초 차단.
+  - 20:01 마감 마무리.
+  - 끄는 방법: `TICKGW_CATCHUP_AT=off`(tickgw 재배포).
+- **gh-trade 쪽에 묻고 싶은 점(선택):** 19:55~20:00 에 질의가 연속으로 이어지는 것이 기록기의 20:00 회전 · 압축 시작에 영향을 주는가. 질의 래퍼는 코어 0 · nice 19 · ionice idle 이다.
+
+**남은 일:**
+- 운영에서 배포한 뒤 첫 평일 `docker logs tickgw | grep -E 'catchup (start|done)|close sweep done'` 로 caught · left 와 closed 수를 확인한다.
+- `docs/relay-operations.md` tickgw 「캐시」 항목의 「전체 128MB LRU」 는 WR-31 이후 96MB 로 바뀌었는데 문서가 아직 옛 값이다. 이번 범위 밖이라 손대지 않았다.
 
 ## Fixed Issues
 
@@ -418,8 +528,134 @@ status: partial
 - 하나라도 어긋나면 500 DB_ERROR이고 서명은 0회다.
 - 위반 7가지를 시험에 더했다.
 
+
+### WR-60: 재생 중 URL 스로틀 쓰기가 진행 중인 `router.push` 를 버린다 — 「목록으로」·날짜·거래소·종목 이동이 사라짐
+
+**수정한 파일:** `webapp/src/lib/ticks/use-tick-cursor.ts`, `webapp/src/components/ticks/tick-viewer.tsx`, `webapp/src/components/ticks/tick-viewer-page.tsx`, `webapp/src/lib/ticks/__tests__/use-tick-cursor.test.tsx`, `webapp/e2e/specs/ticks-viewer.spec.ts`
+**커밋:** 94452d49 · 9407f999(e2e)
+**적용한 수정:**
+- 페이지에 내비게이션 토큰 `navRef` 를 두었다. `go()` 가 (isin, d, ex) 를 바꾸는 이동이면 `router.push` 전에 토큰을 올린다.
+  - 같은 열기 키로 가는 이동은 토큰을 올리지 않는다. 그런 이동은 뷰어가 다시 마운트되지 않으므로, 토큰을 올리면 URL 쓰기가 영영 멈춘다.
+- `TickViewer` 가 `navToken` 을 `useTickCursor` 에 넘긴다. 커서는 마운트 때의 값을 기억한다. `write()` 가 실행될 때 값이 바뀌어 있으면 `replaceState` 를 하지 않는다. 대기 타이머로 늦게 실행되는 쓰기도 같다.
+- 단위 시험: 토큰을 올린 뒤에는 대기 타이머 쓰기와 새 커서 쓰기가 모두 0건이다.
+- e2e 시험: 최대 속도로 재생하는 중에 「‹ 목록으로」를 누르면 URL 에 isin 이 없고 목록 화면이 뜬다. 이 e2e 는 이번에 돌리지 못했다(아래 「검증」 참고).
+
+### WR-61: 대기 중인 URL 쓰기 타이머가 옛 세션을 붙잡는다 — 당일 증분 직후 BigInt TypeError 또는 틀린 `t`
+
+**수정한 파일:** `webapp/src/lib/ticks/use-tick-cursor.ts`, `webapp/src/lib/ticks/__tests__/use-tick-cursor.test.tsx`
+**커밋:** e73f0d20
+**적용한 수정:**
+- `write()` 는 이제 클로저에 잡힌 값이 아니라 `sessionRef` · `liveRef` 로 지금 세션과 live 여부를 읽는다.
+- `r` 가 세션 범위(`0 ≤ r < index.n`) 밖이면 쓰지 않는다.
+- 시험: 하루치 6,000건 세션에서 끝 틱 쓰기가 대기 중일 때 증분 세션(끝을 따라감)이 들어오는 경우를 만들었다. 결과는 예외 0건이고 URL 에 `t` 가 없다.
+- 이 시험을 옛 코드에 돌리면 리뷰가 적은 `TypeError: Cannot mix BigInt and other types` 가 그대로 난다. 결함을 재현하는 시험임을 확인했다.
+
+### WR-62: 당일 zstd 해제·세션 재생성 예외를 잡지 않는다 — 하루치는 영원히 「받는 중」, 증분은 조각을 조용히 건너뜀
+
+**수정한 파일:** `webapp/src/lib/ticks/use-tick-live.ts`, `webapp/src/lib/ticks/__tests__/use-tick-live.test.tsx`
+**커밋:** 5d4d0f46
+**적용한 수정:**
+- `handle` 안의 `appendTickBytes` 를 try 로 감쌌다. offset · epoch · meta · errors · fetchedAt 은 바이트가 세션에 붙은 **뒤에만** 커밋한다(`commit(m)`).
+- 해제에 실패하면 `errors` 를 1 올리고 `console.warn` 을 남긴다. 그 뒤는 경로에 따라 다르다.
+  - **하루치:** pending · offset · epoch 를 비우고 `pollMs` 뒤 offset 0 부터 다시 받는다. 이전 세션이 있으면 그대로 보인다.
+  - **증분:** offset 을 그대로 둔다. 다시 누르면 같은 조각부터 받는다.
+- `tick()` 의 `handle(r)` 도 try/catch 로 감싸 마지막 방어선을 두었다.
+- 시험 2건을 더했다. 둘 다 잘린 zstd 본문을 쓴다.
+  - 하루치: 「받는 중」에 갇히지 않는다. errors 가 1 이 되고, 5초 뒤 offset 0 · epoch 없이 다시 받아 ready 가 된다.
+  - 증분: 세션은 그대로이고 errors 가 1 이다. 다시 누르면 같은 offset 부터 받는다.
+
+### WR-63: `X-Tick-Complete=false`(알려진 끊김)를 화면 어디에도 보이지 않는다
+
+**수정한 파일:** `webapp/src/components/ticks/tick-header.tsx`, `webapp/src/components/ticks/tick-viewer-page.tsx`, `webapp/src/components/ticks/__tests__/tick-viewer-live.test.tsx`
+**커밋:** 15812dda
+**적용한 수정:**
+- `live.session !== null && live.meta?.complete === false` 이면 머리에 「당일 자료 일부 빠짐」 배지를 띄운다(`data-slot="tick-live-gap"` · `role="status"`). 색은 지연 배지와 같은 `--vi` 다.
+- 배지의 title 은 「버스트 묶기 · 열린 주문 · 팀 손익 판정이 불완전할 수 있어요」다.
+- 팀 패널 캡션에 같은 말을 붙이는 것은 리뷰가 「가능하면」으로 둔 선택 항목이라 하지 않았다. 머리 배지 하나로 알린다.
+
+### WR-64: `tickLiveMetaOf` 가 `X-Tick-Offset-End` 없음을 0 으로 받는다 — 다음 증분이 하루치 전체를 다시 이어붙인다
+
+**수정한 파일:** `webapp/src/lib/ticks/tick-api.ts`, `webapp/src/lib/ticks/__tests__/use-tick-live.test.tsx`
+**커밋:** 154cac7e
+**적용한 수정:**
+- `X-Tick-Offset-End` 는 trim 한 뒤 `/^\d+$/` 와 `Number.isSafeInteger` 를 모두 통과할 때만 받는다. 아니면 null 을 돌려주고, 호출자는 이를 502 로 다룬다.
+- 시험: 헤더가 없거나, 공백 · 숫자 아님 · 음수 · 소수 · `1e3` · 안전 정수 밖이면 null 이다. `'0'` 은 0 으로 받는다.
+
+### WR-65: URL `t` 가 ms 로 잘려 딥링크·새로고침이 같은 틱으로 돌아오지 않는다 — 버스트 조각 안에서 특히
+
+**수정한 파일:** `webapp/src/lib/ticks/tick-url.ts`, `webapp/src/lib/ticks/use-tick-cursor.ts`, `webapp/src/components/ticks/tick-viewer.tsx`, `webapp/src/components/ticks/tick-viewer-page.tsx`, `webapp/src/components/ticks/tick-slider.tsx`, 시험 3개 파일, `webapp/e2e/specs/ticks-viewer.spec.ts`
+**커밋:** 3c0a6a39
+**상태:** fixed: requires human verification(URL 계약에 `k` 를 더했다 — D-18 의 `t` 형식은 그대로다)
+**적용한 수정:**
+- URL 에 `k` 를 더했다. `k` 는 recv 가 그 ms 인 틱들 가운데 수신순 순번(0부터)이다.
+  - 0 이면 쓰지 않는다. `t` 없이 온 `k` 는 버린다. 잘못된 값도 버린다.
+  - 직렬화 순서는 isin · d · ex · t · k 다.
+- 커서가 URL 을 쓸 때 `tickUrlPosOf(session, rec)` 로 `{t, k}` 를 함께 쓴다.
+- 열 때는 `initialRecOf(…, initialK)` 가 lower_bound + k 자리를 찾는다. 그 틱도 같은 ms 일 때만 그 자리로 연다. 아니면 그 ms 의 첫 틱으로 연다.
+- 페이지는 `t` 를 다루는 방식 그대로 `k` 도 열기 키가 바뀔 때만 읽는다(`initialK`).
+- 슬라이더 「점프」는 초안이 지금 시각과 같으면(포커스만 주고 Enter) 아무것도 하지 않는다.
+- 시험:
+  - 픽스처에서 `k ≥ 1` 인 자리 전부를 왕복시켜 같은 rec 로 돌아오는지 본다. 거래소순과 당일 둘 다 확인한다.
+  - k 가 그 ms 를 넘으면 첫 틱으로 연다.
+  - 커서가 쓴 URL 로 다시 열면 같은 rec 다.
+  - 슬라이더에 포커스만 주고 Enter 를 누르면 `onJump` 가 0회다.
+- e2e 「딥링크 → 새로고침」 단언에 같은 seq 확인을 더했다.
+
+### IN-60: 「오늘」이 마운트 때 한 번만 정해져서 20:00·자정을 넘기면 목록과 열기가 엇갈린다
+
+**수정한 파일:** `webapp/src/components/ticks/tick-viewer-page.tsx`, `webapp/src/components/ticks/__tests__/tick-viewer-live.test.tsx`
+**커밋:** 975a7e5d
+**적용한 수정:**
+- **진입 화면에 있을 때만** `defaultTickDateOf` 를 다시 계산한다. 주기는 1분(`TICK_TODAY_RECHECK_MS`)이고, 탭이 다시 보일 때도 한 번 한다.
+  - 열린 뷰어는 흔들지 않는다. 20:00 에 당일 뷰어가 어제 날짜로 튀지 않게 하기 위해서다.
+- 오늘 목록의 행을 열 때는 날짜로 목록 응답의 `date` 를 쓴다.
+- 시험: 19:59:30 에 진입하면 오늘 목록이 뜬다. 60초 뒤에는 `/day` 를 d 없이(최근 격자 날짜로) 다시 묻는다.
+
+### IN-61: 공급 배지가 자료 출처가 아니라 날짜로 정해진다
+
+**수정한 파일:** `webapp/src/components/ticks/tick-viewer-page.tsx`, `webapp/src/components/ticks/__tests__/tick-viewer-live.test.tsx`
+**커밋:** 9a5ef839
+**적용한 수정:**
+- `supplyOf()` 를 두었다. view 가 `live` 면 live, `loaded` 면 grid 이고, 아직 열리지 않았으면 날짜로 정한다.
+- 시험: 오늘 날짜라도 격자로 열면 `data-supply="grid"` 다.
+
+### IN-62: 격자 서명 URL fetch 에 시간 상한·취소가 없다
+
+**수정한 파일:** `webapp/src/lib/ticks/use-tick-grid.ts`, `webapp/src/lib/ticks/__tests__/use-tick-grid.test.tsx`
+**커밋:** 47cbacc9
+**적용한 수정:**
+- 받기마다 `AbortController` 하나와 정지 타이머(`TICK_GRID_STALL_MS` = 30초)를 둔다. 바이트가 올 때마다 타이머를 다시 잰다.
+  - 30초 동안 바이트가 없으면 abort 한다. 결과는 `TickGridLoadError('격자 시간 초과')` 이고, error 카드의 「다시 시도」로 벗어난다.
+  - abort 하면 reader 를 cancel 한다. 그 뒤에는 끊긴 본문으로 세션을 만들지 않는다.
+- 그 키를 보는 훅이 모두 떠나면 받던 것을 abort 하고, 캐시에 넣지 않는다.
+  - 떠남은 0ms 뒤에 확정한다. StrictMode 재마운트나 retry 가 같은 받기를 이어 쓰도록 하기 위해서다.
+- inflight 를 지울 때는 그것이 자기 항목인지 확인한다. 새 받기 항목을 실수로 지우지 않게 하기 위해서다.
+- 시험:
+  - 본문이 멈추면 29초에는 loading, 31초에는 error 다. 다시 시도하면 ready 가 된다.
+  - 훅이 떠나면 signal 이 aborted 되고, 다시 열면 새로 받는다.
+- 기존 단언 하나는 `fetch(url, { signal })` 에 맞게 고쳤다.
+
+### IN-63: 증분·own 재조회마다 전문 목록이 커서 행으로 강제 가운데 스크롤된다
+
+**수정한 파일:** `webapp/src/components/ticks/tick-msg-list.tsx`, `webapp/src/components/ticks/__tests__/tick-msg-list.test.tsx`
+**커밋:** 24035e11
+**적용한 수정:**
+- 직전 (커서 rec, 순서 mode) 를 기억한다. 둘 다 그대로이고 모델만 바뀐 경우(당일 증분 · own 재조회)에는 스크롤하지 않는다.
+- 처음 열 때와 순서를 바꿀 때만 가운데로, 커서가 움직일 때는 nearest 로 스크롤한다.
+- 리뷰는 center 만 막자고 했다. 그런데 nearest 도 훑던 자리를 커서 행으로 끌어오므로, 모델만 바뀐 경우는 스크롤 자체를 하지 않게 했다.
+- 시험: 11,990건 세션에서 사용자가 맨 위로 훑은 뒤 모델만 바뀌면 scrollTop 이 0 그대로다. 순서를 바꾸면 가운데로 간다. 이 시험은 옛 코드에서 실패하는 것을 확인했다.
+
+### IN-64: 409(epoch 교체)로 하루치를 다시 받는 동안 「최신 받기」 버튼이 눌리지만 아무 일도 하지 않는다
+
+**수정한 파일:** `webapp/src/lib/ticks/use-tick-live.ts`, `webapp/src/components/ticks/tick-header.tsx`, `webapp/src/components/ticks/tick-viewer-page.tsx`, 시험 2개 파일
+**커밋:** d1afc53b
+**적용한 수정:**
+- `TickLiveView.refetching` 을 더했다. 머리는 이 값이 true 면 버튼을 「다시 받는 중」으로 바꾸고, 비활성 · aria-busy · 도는 아이콘으로 그린다. title 은 「하루치를 다시 받고 있어요」다.
+- 시험(훅): 409 를 받은 뒤 refetching 이 true 가 되고 `refresh()` 는 false 를 돌려준다. 하루치를 다 받으면 false 로 돌아온다.
+- 시험(머리): 버튼이 비활성이고, 눌러도 onRefresh 가 0회다.
+
 ---
 
-_Fixed: 2026-11-04_
-_Fixer: Claude (gsd-code-fixer × 2 parts)_
-_Iteration: 1_
+_Fixed: 2026-11-04 (R1 · R2)_
+_Fixer: Claude (gsd-code-fixer × 4 parts + orchestrator)_
+_Iteration: 2_
