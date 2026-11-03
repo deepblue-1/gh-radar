@@ -5,6 +5,7 @@ import { buildPnlPrefix, type TeamFill } from '@gh-radar/shared';
 import type { PosNetPoint } from '@/lib/accum-chart';
 import { SYNTH_DATE } from '@/test-fixtures/tick-synth';
 
+import type { OwnFillView, OwnModel, OwnOrderView } from '../own-model';
 import type { TeamModel } from '../team-model';
 import {
   TEAM_BUCKETS,
@@ -12,6 +13,7 @@ import {
   tickPanelsOf,
   TICK_CHART,
   xOfTick,
+  type OwnMark,
   type TickPanels,
   type TurnoverSeries,
 } from '../tick-chart';
@@ -21,8 +23,10 @@ import {
   tickBucketTipAt,
   tickCircleGroupOf,
   tickCirclesOf,
+  tickHoverWithOwn,
   tickNetTipAt,
   tickOrderHoverOf,
+  tickOwnTipOf,
   tickTurnoverTipAt,
 } from '../tick-chart-tip';
 
@@ -197,5 +201,116 @@ describe('누적 판 툴팁 — 그 시각까지 거래량 · 거래대금(시�
       '13:00:02까지 · 거래량 1,000주 · 거래대금 1,000만(시총 대비 1.0%)',
       '팀 600만 60.0% · 매수 500만 · 매도 100만',
     ]);
+  });
+});
+
+/**
+ * Phase 38 Plan 07 Task 2 — 우리 점 툴팁 줄 · 팀 묶음 합치기(D-08 · D-02 · D-16).
+ * 깨지면: ◆ 위에 마우스를 올려도 우리 수량 · 계좌 끝 4 · 주문번호가 안 나오거나 · 계좌 전체 번호가 새거나(D-02) ·
+ * 팀 원 툴팁 문구 · 순서가 바뀌거나(D-16) · 5px 밖 우리 점까지 팀 툴팁에 붙는다.
+ */
+describe('tickOwnTipOf · tickHoverWithOwn — 우리 체결 · 근거 줄(Phase 38-07)', () => {
+  const ACCT = '1234563801';
+  const fillV = (id: number, over: Partial<OwnFillView>): OwnFillView => ({
+    id,
+    gateway: 'KB120',
+    accountNo: ACCT,
+    orderNo: '7788',
+    side: 'B',
+    px: 10_000,
+    qty: 100,
+    gwMs: T13,
+    a3j: 0,
+    rec: 0,
+    est: false,
+    candidates: 1,
+    dtMs: 0,
+    total: 100,
+    order: 0,
+    state: 'matched',
+    ...over,
+  });
+  const orderV = (id: number, orderNo: string, label: string | null): OwnOrderView =>
+    ({ id, key: `KB120|${orderNo}`, gateway: 'KB120', accountNo: ACCT, orderNo, evidenceLabel: label }) as OwnOrderView;
+  const own: Pick<OwnModel, 'fills' | 'orders'> = {
+    fills: [
+      fillV(0, { qty: 300, total: 1064 }),
+      fillV(1, { qty: 50, total: 50, est: true, orderNo: '7790' }),
+      fillV(2, { qty: 7, rec: -1, a3j: -1, total: 0, state: 'nofill', orderNo: '7791' }),
+      fillV(3, { qty: 9, rec: -1, a3j: -1, total: 0, state: 'pending', orderNo: '7792', accountNo: '' }),
+    ],
+    orders: [orderV(0, 'A1', '호가'), orderV(1, 'A2', '호가'), orderV(2, 'R9', '체결 구간')],
+  };
+  const mark = (over: Partial<OwnMark>): OwnMark => ({
+    kind: 'fill',
+    tMs: T13,
+    px: 10_000,
+    cx: 200,
+    cy: 50,
+    rec: 0,
+    fillIds: [],
+    orderId: 0,
+    orderIds: [0],
+    ...over,
+  });
+  const dia = mark({ kind: 'est', fillIds: [0, 1] });
+  const nofill = mark({ kind: 'nofill', cx: 300, rec: -1, fillIds: [2] });
+  const pending = mark({ kind: 'nofill', cx: 400, rec: -1, fillIds: [3] });
+  const ev = mark({ kind: 'ev', cx: 500, rec: 9, orderIds: [0, 1] });
+  const evRange = mark({ kind: 'ev', cx: 600, rec: 12, orderId: 2, orderIds: [2] });
+  const marks = [ev, evRange, nofill, pending, dia];
+
+  it('◆ — 체결마다 「우리 체결 n주[ / 전체 m주 — 부분만] · 계좌 ···끝4 · 주문 #[ · 추정]」 · 계좌 전체 번호는 없다', () => {
+    const t = tickOwnTipOf(marks, own, 200, 50, P)!;
+    expect(t.lines).toEqual([
+      '우리 체결 300주 / 전체 1,064주 · 계좌 ···3801 · 주문 #7788',
+      '우리 체결 50주 · 계좌 ···3801 · 주문 #7790 · 추정',
+    ]);
+    expect(t.lines.join('')).not.toContain(ACCT);
+    expect(t.mark).toBe(dia);
+  });
+
+  it('◇ — 「 · 짝 전문 없음」 · 대기면 「 · 전문 아직 안 옴」 · 계좌 모르면 계좌 조각 생략', () => {
+    expect(tickOwnTipOf(marks, own, 300, 50, P)!.lines).toEqual(['우리 체결 7주 · 계좌 ···3801 · 주문 #7791 · 짝 전문 없음']);
+    expect(tickOwnTipOf(marks, own, 400, 50, P)!.lines).toEqual(['우리 체결 9주 · 주문 #7792 · 전문 아직 안 옴']);
+  });
+
+  it('○ — 주문마다 「조건 근거 {종류} · 주문 #」 · 구간은 「체결 구간」', () => {
+    expect(tickOwnTipOf(marks, own, 500, 50, P)!.lines).toEqual(['조건 근거 호가 · 주문 #A1', '조건 근거 호가 · 주문 #A2']);
+    expect(tickOwnTipOf(marks, own, 600, 50, P)!.lines).toEqual(['조건 근거 체결 구간 · 주문 #R9']);
+  });
+
+  it('가로 R + 3px 밖 · 가격 판 밖 → null · 가로 안 여럿이면 세로로 가장 가까운 점', () => {
+    expect(tickOwnTipOf(marks, own, 200 + 4 + 3 + 1, 50, P)).toBeNull();
+    expect(tickOwnTipOf(marks, own, 200, P.y2a + 5, P)).toBeNull();
+    const lower = mark({ kind: 'nofill', cx: 201, cy: 90, rec: -1, fillIds: [2] });
+    expect(tickOwnTipOf([...marks, lower], own, 200, 85, P)!.mark).toBe(lower);
+    expect(tickOwnTipOf([...marks, lower], own, 200, 52, P)!.mark).toBe(dia);
+  });
+
+  it('팀 툴팁이 뜨는 자리 — 씨앗 가로 ± 5px 안 우리 점 줄을 팀 줄 뒤에 덧붙인다(팀 줄 · 순서 불변) · 밖이면 팀 그대로', () => {
+    const team = { key: 'o3', lines: ['팀 줄 1', '팀 줄 2'], circle: { k: 3, o: {} as never, cx: 196, cy: 20, r: 6 } };
+    const merged = tickHoverWithOwn(team, marks, own, 196, 20, P)!;
+    expect(merged.lines).toEqual([
+      '팀 줄 1',
+      '팀 줄 2',
+      '우리 체결 300주 / 전체 1,064주 · 계좌 ···3801 · 주문 #7788',
+      '우리 체결 50주 · 계좌 ···3801 · 주문 #7790 · 추정',
+    ]);
+    expect(merged.circle).toBe(team.circle);
+    expect(merged.key.startsWith('o3')).toBe(true);
+    expect(merged.key).toContain('own:');
+    const far = { ...team, circle: { ...team.circle, cx: 190 } };
+    expect(tickHoverWithOwn(far, marks, own, 190, 20, P)).toBe(far);
+    expect(team.lines).toEqual(['팀 줄 1', '팀 줄 2']);
+  });
+
+  it('팀 툴팁이 없으면 우리 줄만(key own: 접두 · circle null) · 우리 점이 없으면 팀 그대로 · 둘 다 없으면 null', () => {
+    const h = tickHoverWithOwn(null, marks, own, 500, 50, P)!;
+    expect(h.key.startsWith('own:')).toBe(true);
+    expect(h.circle).toBeNull();
+    expect(h.lines).toEqual(['조건 근거 호가 · 주문 #A1', '조건 근거 호가 · 주문 #A2']);
+    expect(tickHoverWithOwn(null, [], own, 500, 50, P)).toBeNull();
+    expect(tickHoverWithOwn(null, marks, own, 50, 50, P)).toBeNull();
   });
 });

@@ -348,4 +348,33 @@ describe('TickChart — 우리 점 ◆ · ◇ · ○ (Phase 38-07)', () => {
     fireEvent.click(svg, { clientX: 100, clientY: 50 });
     expect(onSeekMs).toHaveBeenCalledTimes(1);
   });
+
+  it('범례 — own 이 있으면 「◆ 우리 체결」 「○ 조건 근거」 두 칸(누적 범례 문구는 그대로) · own 없으면 없음', () => {
+    const { q } = renderOwn();
+    const lg = q('tick-chart-own-legend');
+    expect(lg).toHaveLength(1);
+    expect(Array.from(lg[0]!.children).map((c) => c.textContent)).toEqual(['우리 체결', '조건 근거']);
+    expect(q('tick-chart-legend')[0]?.textContent).toBe('누적 자료 없음(매집감지 미등록)');
+    expect(renderChart({ own: null }).q('tick-chart-own-legend')).toHaveLength(0);
+  });
+
+  it('마우스가 ◆ 위 → 팀 묶음 툴팁 줄 뒤에 우리 줄(판 안 점만 · 근거 ○ → ◆ 순) · 팀 줄은 그대로', () => {
+    const { q } = renderOwn();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const buy = Array.from(q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
+    fireEvent.pointerMove(svg, {
+      clientX: Number(buy.getAttribute('cx')),
+      clientY: Number(buy.getAttribute('cy')),
+      pointerType: 'mouse',
+    });
+    const lines = Array.from(q('tick-chart-tip')[0]!.children).map((d) => d.textContent);
+    expect(lines.slice(0, 3)).toEqual([
+      expect.stringContaining('팀 매수 600주 · 984만 @16,400 · 3조각 · 당일 순매수 +984만'),
+      '묶음 2건 13:00:00 · 팀 매수 1건 984만 · 팀 매도 1건 652만 · 가격 16,400 → 16,300 (−0.61%)',
+      '큰 주문 매수 984만@16,400 · 매도 652만@16,300',
+    ]);
+    expect(lines.slice(3)).toEqual(['조건 근거 호가 · 주문 #EV', '우리 체결 50주 · 계좌 ···3801 · 주문 #F1']);
+  });
 });
