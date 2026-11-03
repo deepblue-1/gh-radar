@@ -38,8 +38,8 @@ import { TickTeamPanel } from './tick-team-panel';
  *   따라간다(`useTickCursor` ⑤) · 끝 여부를 `onAtEnd` 로 올린다 · 증분은 머리 「최신 받기」 버튼으로만(2026-11-03 — 자동 갱신 없음).
  *   과거 틱을 보는 동안 받은 레코드가 있으면 전문 목록 끝에 「새 틱 n건 · 끝으로」 배지. 배지 · 「끝으로」 = 커서 끝 + `onGoEnd`
  *   (새 틱 수 0 · 요청 없음).
- * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState)` 가 `GET /api/ticks/own` 을 한 번 부르고
- *   (자동 타이머 없음), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
+ * ④ 우리 주문 · 체결(Phase 38 · D-14 · D-15): 열 때 `useTickOwn(urlState, ownRefreshKey)` 가 `GET /api/ticks/own` 을 한 번 부르고
+ *   (자동 타이머 없음 · 당일이면 페이지가 「최신 받기」 때마다 `ownRefreshKey` 를 올려 1회 더 — 38-08), 응답을 세션과 따로 `buildOwnModel(session, own)` 으로 짝짓는다(shared `matchOwnFills` · 세션 안에
  *   넣지 않는다). 모델은 `PaneCtx.own` 으로 칸에 내려가 전문 목록이 우리 체결 A3 행에 민트 칩을 그린다. 조회가 실패하면
  *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 막 들어온 짝 없는 체결은 대기로 둔다(38-04 · Pitfall 4).
  *   주문 줄 · 짝 없음 줄 클릭 = `ownPick`(줄 + 기준 rec) + 커서 이동 · 선택 표시는 커서가 그 rec 일 때만(파생 — ←/→ 로
@@ -70,6 +70,8 @@ export interface TickViewerProps {
   live?: TickViewerLive;
   /** 우리 체결 탐색 상태(38-08 · D-09) — 제목 줄 알약용. 뷰어가 사라지면 null. */
   onOwn?: (s: OwnNavState | null) => void;
+  /** 우리 체결 다시 받기 키(38-08 · 당일 「최신 받기」) — 바뀔 때마다 `/api/ticks/own` 1회. 과거 격자는 넘기지 않는다(= 0 · 열 때 1회). */
+  ownRefreshKey?: number;
 }
 
 export interface TickViewerLive {
@@ -211,12 +213,13 @@ export function TickViewer({
   listingShares = null,
   live,
   onOwn,
+  ownRefreshKey = 0,
 }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined });
   const { rec, atEnd } = cursor;
   const [unit, setUnit] = useState<TickBookUnit>('qty');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
-  const own = useTickOwn(urlState);
+  const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;
   const ownModel = useMemo(
     () => (own.own ? buildOwnModel(session, own.own, { live: isLive }) : null),

@@ -120,7 +120,7 @@ export function useTickLive({
   atEnd = true,
   pollMs = TICK_LIVE_POLL_MS,
   loadingMs = TICK_LIVE_LOADING_MS,
-}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; refresh: () => void; stop: () => void } {
+}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; refresh: () => boolean; stop: () => void } {
   const [view, setView] = useState<TickLiveView>(IDLE);
   const ctlRef = useRef<Ctl | null>(null);
   const atEndRef = useRef(atEnd);
@@ -289,11 +289,12 @@ export function useTickLive({
     publishRef.current();
   }, []);
 
-  /** 「최신 받기」 버튼 — 증분 1회(하루치 받는 동안 · 받는 중이면 무시). */
-  const refresh = useCallback(() => {
+  /** 「최신 받기」 버튼 — 증분 1회(하루치 받는 동안 · 받는 중이면 무시). 요청을 시작했으면 true(우리 체결도 같이 1회 — 38-08). */
+  const refresh = useCallback((): boolean => {
     const c = ctlRef.current;
-    if (c === null || c.stopped || c.session === null || c.refetching) return;
+    if (c === null || c.stopped || c.session === null || c.refetching || c.running) return false;
     c.resume();
+    return true;
   }, []);
 
   const stop = useCallback(() => {

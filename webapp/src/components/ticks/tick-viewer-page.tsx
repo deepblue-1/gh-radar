@@ -56,7 +56,8 @@ import { TickViewer } from './tick-viewer';
  *   폴링 규율(D-06)은 훅 · 끝 여부는 뷰어가 `onAtEnd` 로 올린다 · epoch 가 바뀌면(generation) 뷰어를 새로 열어 끝 틱 ·
  *   지연 · 연속 오류는 머리(`live`) · 카드 「취소」 = 훅 정지 + 목록.
  * ⑦ 우리 체결(Phase 38 · D-09): 뷰어가 `onOwn` 으로 올린 탐색 상태를 제목 줄 「◆ 우리 체결 k/n ‹ ›」 알약에 넘긴다(열기 키가
- *   바뀌면 파생으로 사라짐 · URL 무변경 D-02).
+ *   바뀌면 파생으로 사라짐 · URL 무변경 D-02). 당일 「↻ 최신 받기」 는 live 증분 1회와 함께 `ownRefreshKey` 를 올려 우리 체결도
+ *   1회 다시 받는다(자동 타이머 없음 · 과거 격자 뷰어는 열 때 1회뿐).
  */
 
 /** 변환 상태 폴링 간격 — 5초(D-03). */
@@ -338,6 +339,12 @@ export function TickViewerPage() {
   });
   const liveGoEnd = live.goEnd;
   const liveRefresh = live.refresh;
+  // 「↻ 최신 받기」 한 번 = live 증분 1 + 우리 체결 1(38-08 · SC-4 당일). 받는 중 · 하루치 다시 받는 중이면 live 가 거절하고
+  // 우리 체결도 올리지 않는다. 자동 타이머 없음(CLAUDE.md 공식 API 기준 3) · epoch 교체는 뷰어 재마운트가 own 1회.
+  const [ownRefreshKey, setOwnRefreshKey] = useState(0);
+  const onLiveRefresh = useCallback(() => {
+    if (liveRefresh()) setOwnRefreshKey((k) => k + 1);
+  }, [liveRefresh]);
   const liveViewer = useMemo(
     () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd }),
     [live.newCount, liveGoEnd],
@@ -409,7 +416,7 @@ export function TickViewerPage() {
                 state: live.meta?.state ?? null,
                 lastRecvNs: live.meta?.lastRecvNs ?? null,
                 failing: live.errors >= TICK_LIVE_FAILING_AFTER,
-                onRefresh: live.session !== null ? liveRefresh : undefined,
+                onRefresh: live.session !== null ? onLiveRefresh : undefined,
                 refreshing: live.refreshing,
                 fetchedAt: live.fetchedAt,
                 refreshFailed: live.session !== null && live.errors > 0,
@@ -541,6 +548,7 @@ export function TickViewerPage() {
               initialT={live.generation === 0 ? initialT : null}
               onTick={setTickLabel}
               onOwn={onOwn}
+              ownRefreshKey={ownRefreshKey}
               accum={view.resp.accum}
               isToday
               listingShares={view.resp.stock?.listing_shares ?? null}
