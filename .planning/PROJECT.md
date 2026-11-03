@@ -29,6 +29,7 @@
 - [x] 계좌 축 정리 (AXIS-01~05) — Validated in Phase 32: 작업대 계좌 선택 = 화면 범위(전략 카드 · VI 스트립 · VI 설정 행 · 토스트는 전 계좌 + 계좌 줄 · 누르면 계좌 전환) · 상단 줄 한 줄 필(「정규」 배지 · 사운드 토글 제거 → /me 「이 기기」 카드) · /me 탭 위 계좌 칩이 현황 · 잔고 · 주문 · 설정을 거름 · 「이 계좌 끄기」(전체 비활성화 제거) · 매매설정 서버별(relay `serverKey` · 84 캐시 `(userId, serverKey)` · 42 지정 서버 라우팅) · VI 계좌별(gh-trade Phase 33 61 슬롯). 리뷰 수정 WR-01~06 배포 relay·push 57c19e5e, KB120 · KYOBO119 UAT 4/4 pass (2026-10-16)
 - [x] 매집감지 보고서 — Validated in Phase 34: gh-trade 119 밤 배치 `accum_flow.ndjson.gz` → `limitup_accum_flow`(37열 + payload · 90일 purge · commit_day 10번째 쌍) · 선택 파일 재적재 감지 일반화(`accum_flow_backfill`) · 목록/상세 분리 RPC · 「분석 › 매집감지 보고서」 `/analytics/accum`(KPI 4칸 · 배지 · 흐림 · 펼침 시 순수 SVG 3판 차트 · 사이클 표 · 손익 · 판정 기준 · 「KYOBO119 판정 기준」) · 10/19 · 10/20 kind 16 소급(37 · 48행). 배포 워커 b35c0494 · server 00066 · webapp d318ef96, 라이브 UAT 「전부 이상 없음」 (2026-10-21). 리뷰 WARNING 5건은 후속(34-REVIEW-DISPOSITION)
 - [x] 발사 경계 지도 어드민 — Validated in Phase 35: gh-trade 16:00 Q16 · 09:00:30 N/A 발사 결과를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads` · `launch_pieces` 적재(relay 무변경) · 10/12~10/26 백필 · 어드민 날짜별 발사 주문 내역 + 발사 경계 지도(서버×시장 4패널 SVG) · 범위 7 발사 계획 어드민(relay op 8·9·94 · 변경 이력 표 · 저장 결과 offline/timeout 구분과 다시 읽기). 코드 리뷰 4라운드(1~3차 16건 fixed · 4차 Info 3건 deferred), VERIFICATION-R4 7/7, UAT 6/6 pass (2026-11-01)
+- [x] 틱뷰어 우리 주문 · 체결 표시 — Validated in Phase 38: `tick_own_for_user` RPC(가시 계좌 · 어드민 · 켜진 서버 · jsonb 1회) → `GET /api/ticks/own` → 브라우저 shared `matchOwnFills` 짝짓기(10/30 401/406) · 근거 특정(호가 B6 29/29 · 앵커 100/100) → 전문 목록 칩 · 주문 줄 · 짝 없음 줄 · 둘째 레일 · 카드 「◆ 우리 주문 #…」 · 오른쪽 열 「우리 주문 n」 탭 · 차트 ◆ ○ · 제목 줄 알약 [ ]
 
 ### Active
 
@@ -94,6 +95,7 @@
 | 자동매도는 gh-trade 서버(Phase 28)가 진실 원본 — gh-radar 는 relay 중계(41 바로시작/중지 · 42/43/84 사용자 설정 · schema 4 요청 4필드 · 에코 4필드)와 웹 표시·조작만 (Phase 27) | 상태 전이·매도 판단은 서버가 하고 웹은 에코(`auto_sell_state` 등)·저널 kind 11~14 를 그대로 보여 준다. 「미반영」은 낙관 반영 없이 기대 전이로만 해제. /me 기본설정은 84 캐시 + 1칸 전체 교체(42), present=false 면 내장 기본값 표시만 | ✓ Good — 첫 거래일 UAT 5/5 pass · 재검증 R2 passed 12/12 · Nyquist validated (2026-10-10). R2 Warning 2(「미반영」 잔존 표시) 미처리 |
 | 상한가 특징은 gh-trade 가 진실 원본 — 장중 85 LimitFeature 는 relay 가 FULL 구독에만 1초 중계, 밤 보고서는 119 export 를 radar-gw 21:00 pull → GCS → limitup-sync 21:20 날짜 단위 교체 적재 (Phase 28) | 웹이 특징을 재계산하면 WinForms 와 갈라짐 → 값·문장(`facts.text`)은 서버가 정하고 웹은 표시만. 119 는 외부에서 못 들어가 radar-gw 가 읽기 전용 rrsync 키로 당겨 옴. 보고서는 export 열로 자립하고 `limit_up_events` 조인은 종목상세 링크·다음날 이력과 함께 Deferred | ✓ Good — UAT 7/7 pass · 재검증 R2 passed 12/12 · Nyquist validated (2026-10-10) |
 | DMA 다중 서버 — 레지스트리는 gh-radar DB(`dma_servers` · 계좌 등록 의도), 계좌 설정 정본은 gh-trade 서버 users.toml(87 스냅샷) · relay 가 서버별 관리자 연결로 반영 (Phase 29) | 서버 4대를 웹에서 관리하되 서버가 각자 계좌·전략을 소유 → 의도는 DB, 반영 결과는 서버 87 로 대조(칩). 계좌별 주문 서버(G-1)는 지정 ?? 기본 서버 ?? 유일 등록 서버 규칙 한 벌(shared `resolveEffectiveOrderServer`)로 relay · Admin 이 같이 판정 | ✓ Phase 29 (운영은 지정 0 · 두 번째 서버 꺼짐 — 켜기 전 결정 남음) |
+| 우리 주문 · 체결은 틱이 있는 브라우저에서 짝짓는다 — server · RPC 는 저널 행만 (Phase 38) | 틱 격자는 브라우저에만 있고 A3 에는 계좌 · 주문번호가 없다 → 짝짓기 · 근거 특정은 shared 순수 함수(오라클 픽스처로 잠금) · RPC 는 가시성 · 켜진 서버 필터만. 그날 「우리 주문」 표는 UAT 에서 오른쪽 열 탭으로 분리(D-07 뒤집기 · 스케치 026 A) | ✓ Good — 2026-11-03 배포 · UAT ok · 검증 21/21 (리뷰 Warning 5 open) |
 
 ## Evolution
 
@@ -113,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-01 after Phase 35*
+*Last updated: 2026-11-03 after Phase 38*
