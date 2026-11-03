@@ -656,10 +656,10 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
       expect(sizes[0]).toBe(7_150); // 08:00:30 ~ 19:54:30 — 따라잡은 뒤에도 남아 있다
       expect(sizes[1]).toBe(7_150);
       expect(sizes[2]).toBe(1_220); // 08:00:30 ~ 10:01:30 그대로 — 자리가 없어 멈춤 — 다른 키를 지우지 않았다
-      const done = lines.find((l) => l.msg === "catchup done");
-      expect(done).toMatchObject({ keys: 3, caught: 2, lost: 0, left: 0 });
       expect(lines.some((l) => l.msg === "catchup stopped (cache full)" && l.key === keyN(3))).toBe(true);
       await r.drive({ untilT: at("201000") });
+      const done = lines.find((l) => l.msg === "catchup done"); // 창 끝(19:59) 요약
+      expect(done).toMatchObject({ keys: 3, caught: 2, lost: 0, left: 0 });
     } finally {
       out.mockRestore();
       err.mockRestore();
@@ -668,6 +668,27 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     expect(lines.filter((l) => l.msg === "cache evict")).toEqual([]);
     expect([1, 2, 3].map((i) => r.cache.get(keyN(i))?.closed ?? "evicted")).toEqual([true, true, false]);
     expect(r.cache.totalBytes()).toBeLessThanOrEqual(16_000);
+  });
+
+  it("창이 열린 뒤 리스가 끝난 queued 키(한 번도 못 받음)도 따라잡는다 — 08:00 부터 · 마감 마무리는 마지막 몇 분만(R2-IN-04)", async () => {
+    const A = keyN(1);
+    const B = keyN(2);
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), { maxKeys: 1 }, at("195400"));
+    r.poller.touch(A);
+    await r.drive({ untilCalls: 1, touch: [A] });
+    await r.drive({ untilT: at("195530"), touch: [A] });
+    expect(r.poller.touch(B)).toEqual({ state: "queued", queue: 1 }); // 활성 1키 밖 — 폴링되지 않는다 · 리스는 19:56:00 에 끝
+    await r.drive({ untilT: at("195900"), touch: [A] });
+    const bCalls = r.calls.filter((c) => keyOf(c.args) === B);
+    expect(bCalls.length).toBeGreaterThanOrEqual(1);
+    expect(bCalls[0]!.at).toBeGreaterThanOrEqual(at("195600"));
+    expect(bCalls[0]!.args.fromNs).toBe(DAY_START);
+    const e = r.cache.get(B)!;
+    expect(e.complete).toBe(true);
+    expect(e.lastRecvNs! >= kstDayStartNs(DATE, "1955")).toBe(true);
+    r.clock.t = at("200100");
+    await r.drive({ untilT: at("201000") });
+    expect(e.closed).toBe(true); // 20:01 마무리는 19:55 이후만 읽어 압축된 아침 파일을 건너뛰지 않는다
   });
 
   it("승격 창(따라잡기 시작 ~ 21:00) 밖에선 오늘 complete 키도 LRU 후보 · 지우면 cache evict warn 이 남는다", async () => {

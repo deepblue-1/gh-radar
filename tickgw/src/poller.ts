@@ -52,7 +52,9 @@
  *   무엇: KST TICKGW_CATCHUP_AT(기본 19:55 · `off` 면 끔) 부터 19:59:00 전까지 하루 한 번 — 그 순간 오늘 complete ∧ closed 아님 ∧
  *   너무 큼 아님 ∧ **리스가 끝난**(보통 루프가 폴링하지 않는) 키를 모아, 키마다 lastRecvNs+1(이어받기 중이면 그 커서 · 받은 적
  *   없으면 08:00)부터 to 0 으로 has_more 가 false 가 될 때까지 받는다. 그러면 20:01 마감 마무리는 마지막 몇 분(가장 늦게 압축되는
- *   19시 · 20시 파일)만 읽는다. 대상은 시작 순간에 고정한다(19:55 뒤 리스가 끝난 키는 이미 몇 분 안쪽까지 받았다).
+ *   19시 · 20시 파일)만 읽는다. 대상은 창 안 매 step 다시 본다 — 창이 열린 뒤 리스가 끝난 키도 처음 한 번 넣는다(`catchupSeen`).
+ *   활성 8키 밖에서 기다리던(queued) 키 · 실패 백오프 중이던 키는 한 번도(또는 오래) 받지 못했을 수 있어서다(R2-IN-04).
+ *   도중에 다시 touch 돼 빠진 키는 다시 넣지 않는다(리스 동안 보통 루프가 몇 초 안쪽까지 받는다).
  *   규율: 보통 폴링과 **같은 호출 슬롯**(step 사슬 · 동시성 1 · 전역 차단 · 75 = 2초 재시도 · 실패 백오프 5→60초 · 인자 64 = 60초 ·
  *   너무 큼 = 그 키 중단 · WR-33 LRU 보호 그대로). 캐시 가득 = 붙이지 않고 그 키 따라잡기를 멈춘다(승격 보호로 다른 오늘
  *   complete 키를 지우지 않으므로 창 안에선 자리가 나지 않는다 · 남은 구간은 20:01 마감 마무리 몫 · R2-WR-01).
@@ -63,7 +65,7 @@
  *   (따로 재시도하지 않는다 · 이어받기 페이지도 19:59 뒤엔 새로 시작하지 않는다). 창 끝 19:59 = gh-trade 회신
  *   (docs/inbox/from-gh-trade/261104-tickgw-catchup-1955-reply.md) — 20:00 에 기록기 회전 + 하루치 zstd 몰아 압축 · stock-dma
  *   마감 정리가 코어 0 에서 겹치고 질의는 최대 60초라, 19:59 뒤 시작한 호출이 20:00 을 넘지 않게 한다.
- *   끝(대상 소진 또는 19:59)에 요약 한 줄 `catchup done`(keys · caught · lost · left · calls · bytes · ms) — caught 는 그 시점에
+ *   창 끝(19:59)에 요약 한 줄 `catchup done`(keys · caught · lost · left · calls · bytes · ms) — caught 는 그 시점에
  *   캐시에 (같은 epoch · complete 로) 남아 있는 키만 센다 · 끝까지 받았는데 사라졌거나 complete 가 깨진 키는 lost(> 0 이면 warn).
  *   119 호출 모양: 19:55 에 한 번 몰리는 연속 호출 — 상한은 「오늘 연 키 수 × 키당 빈 구간(이어받기 페이지 수)」.
  *
@@ -206,6 +208,8 @@ export class Poller {
   private catchupStats: CatchupStats = { keys: 0, calls: 0, bytes: 0, startedAt: 0 };
   /** 따라잡기를 끝까지 받은 키 → 그때의 epoch. caught 는 요약 시점에 이 엔트리가 (같은 epoch · complete 로) 살아 있는 키만 센다(R2-WR-01). */
   private catchupCaught = new Map<string, string>();
+  /** 그날 따라잡기 대상에 한 번이라도 넣은 키(R2-IN-04 — 창 안에서 리스가 끝난 키를 한 번만 더 넣는다). */
+  private catchupSeen = new Set<string>();
   /** 직전 호출 슬롯이 따라잡기였는가 — 활성 키와 둘 다 할 일이 있으면 번갈아 간다(공정 교대). */
   private lastWasCatchup = false;
   /** 「너무 큼」 판정 키(키에 날짜 포함) — 엔트리가 지워진 뒤 다시 열어도 08:00 부터 다시 받지 않는다(WR-33). */
@@ -538,8 +542,9 @@ export class Poller {
   }
 
   /**
-   * 지금 따라잡기 할 키(없으면 null). 창 [TICKGW_CATCHUP_AT, 19:59) 안 첫 step 에 대상을 고정하고, 매 step 대상에서 빠진 키
-   * (다시 touch · complete 아님 · 지워짐)를 거른다. 대상이 바닥나거나 19:59 가 되면 요약 한 줄을 남기고 그날은 끝.
+   * 지금 따라잡기 할 키(없으면 null). 창 [TICKGW_CATCHUP_AT, 19:59) 안 매 step 「대상 조건을 만족하고 아직 넣은 적 없는」 키를
+   * 더 넣고(R2-IN-04), 대상에서 빠진 키(다시 touch · complete 아님 · 지워짐)를 거른다. 19:59 가 되면 요약 한 줄을 남기고 그날은 끝
+   * (대상이 바닥나도 창 끝까지는 열어 둔다 — 그 사이 리스가 끝나는 키가 있다).
    */
   private catchupDue(now: number): CatchupItem | null {
     const at = this.cfg.catchupHhmm;
@@ -552,24 +557,28 @@ export class Poller {
       if (this.catchupStartedDate === today) this.finishCatchup(today, now);
       return null;
     }
-    if (this.catchupStartedDate !== today) {
+    const first = this.catchupStartedDate !== today;
+    if (first) {
       this.catchupStartedDate = today;
-      this.catchupQueue = this.deps.cache
-        .values()
-        .filter((e) => this.catchupEligible(e, today, now))
-        .map((e) => ({ key: e.key, nextDueAt: now, failures: 0 }));
-      this.catchupStats = { keys: this.catchupQueue.length, calls: 0, bytes: 0, startedAt: now };
+      this.catchupQueue = [];
+      this.catchupSeen = new Set();
+      this.catchupStats = { keys: 0, calls: 0, bytes: 0, startedAt: now };
       this.catchupCaught = new Map();
-      log("info", "catchup start", { date: today, keys: this.catchupQueue.length });
     }
+    let added = 0;
+    for (const e of this.deps.cache.values()) {
+      if (this.catchupSeen.has(e.key) || !this.catchupEligible(e, today, now)) continue;
+      this.catchupSeen.add(e.key);
+      this.catchupQueue.push({ key: e.key, nextDueAt: now, failures: 0 });
+      added += 1;
+    }
+    this.catchupStats.keys += added;
+    if (first) log("info", "catchup start", { date: today, keys: added });
+    else if (added > 0) log("info", "catchup add", { date: today, keys: added });
     this.catchupQueue = this.catchupQueue.filter((i) => {
       const e = this.deps.cache.get(i.key);
       return !!e && this.catchupEligible(e, today, now);
     });
-    if (this.catchupQueue.length === 0) {
-      this.finishCatchup(today, now);
-      return null;
-    }
     let item: CatchupItem | null = null;
     for (const i of this.catchupQueue) {
       if (i.nextDueAt <= now && (!item || i.nextDueAt < item.nextDueAt)) item = i;
