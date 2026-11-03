@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-07-PLAN.md
-last_updated: "2026-11-03T07:12:35.603Z"
+stopped_at: Completed 38-08-PLAN.md
+last_updated: "2026-11-03T07:25:31.335Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: acb63a69d84359c9b7bf6f666f8aba8451bb09e3
+state_head: 2ca1807a7605eb9f5bb6d46471c677e8ce3bf378
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 108
+  completed_plans: 109
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 8 of 10
+Plan: 9 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T07:12:35.454Z
-Stopped at: Completed 38-07-PLAN.md
+Last session: 2026-11-03T07:25:31.178Z
+Stopped at: Completed 38-08-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -209,6 +209,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P05 | 5min | 2 tasks | 3 files |
 | Phase 38 P06 | 14 min | 2 tasks | 10 files |
 | Phase 38 P07 | 10 min | 2 tasks | 7 files |
+| Phase 38 P08 | 12 min | 2 tasks | 11 files |
 
 ## Decisions
 
@@ -357,3 +358,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-06: 되돌아가기 알약은 주문 묶기 키(gateway|order_no) + 화면 범위(isin|d|ex)로 기억 · 주문 줄 선택 순서 = 주문 줄 → 첫 짝 체결 → 짝 없음 줄 · 카드 근거 줄은 evidenceTextOf 머리 「근거 」 만 뺀다
 - [Phase 38]: 38-07: 차트 ○ 는 evidenceRec 하나에 한 점 — OwnMark.orderIds 로 근거가 같은 주문마다 툴팁 줄 · 클릭 되돌아가기는 첫 주문
 - [Phase 38]: 38-07: 가격 판 범위는 우리 점으로 넓히지 않음(팀 원과 같은 규칙) · 판 밖 점은 툴팁 · 묶음에서도 뺌 — 판 끝 붙이기 필요 여부는 UAT 확인
+- [Phase 38]: 38-08: 우리 체결 알약 › 로 A3 대상에 갈 때 뷰어가 고른 줄(ownPick)을 푼다 — 짝 없음 줄의 기준 전문이 다음 대상이면 현재 자리가 줄에 묶여 › 가 맴돈다
+- [Phase 38]: 38-08: 당일 최신 받기는 use-tick-live refresh() 가 요청을 시작했을 때(true)만 ownRefreshKey +1 — epoch 다시 받는 중엔 refreshing 이 false 라 그 플래그로는 own 만 느는 틈이 있었다
