@@ -15,8 +15,8 @@ import {
   buildPnlPrefix,
   fillsUpTo,
   pnlAt,
-  scopeTrades,
   teamFillsOf,
+  teamTradesOf,
   type PnlPrefix,
   type TeamFill,
   type TeamPnl,
@@ -74,9 +74,8 @@ export interface TeamKpi {
 export function buildTeamModel(session: TickSession): TeamModel {
   const { a3, a3Of, index, exOrder, teamOfRec } = session;
 
-  // ① 팀 체결 — 범위 입력 순서 그대로 shared 에 넘긴다(정렬은 teamFillsOf)
-  const all = a3.toTrades();
-  const trades = session.scope === 'nxt' ? all : scopeTrades(all, session.scope);
+  // ① 팀 체결 — 범위 입력 순서 그대로 shared 에 넘긴다(범위 규칙 = shared teamTradesOf · 정렬은 teamFillsOf)
+  const trades = teamTradesOf(a3, session.ex);
   const fills = teamFillsOf(trades, (i) => teamOfRec[trades[i]!.rec] === 1);
   const prefix = buildPnlPrefix(fills);
   const fillMs = new Float64Array(fills.length);

@@ -11,6 +11,7 @@
  *   - NXT = A3 · B6 → `NxtRow` → `tagNxtRuns`(G1 · seq 순) → `nxtRunStats` · `classifyNxtTeamOrders`(팀 = 한 가격 2조각 이상).
  *   공통 출력은 `ViewOrder` — 조각 rec(입력 순서) · 닫는 B6(같은 보드 seq = 마지막 + 1 · 거래소순 첫 것) · 종류 · 팀 ·
  *   진행 중(스트림 끝에서 아직 닫히지 않은 주문 · Pitfall 9).
+ *   - 초안(`krxOrderDraftsOf` · `nxtOrderDraftsOf`)은 shared `ticks/team-day.ts` — 목록 팀 요약(quick 261103-j4d)과 한 벌.
  * ⑤ 뒤집힘 = `inversionsOf`(1조각 런 포함) · 중복 = 같은 보드 · seq 의 두 번째 이후 수신(판정에서 빼지 않는다 · Pitfall 12).
  * recv_ns 는 BigInt64Array 그대로다(Number 금지).
  * ⑥ 당일 증분(37-19 · D-18 · Pitfall 9) — `appendTickBytes` 가 새 zstd 바이트를 풀어 이전 원시 버퍼 뒤에 잇고 **세션을 처음부터
@@ -28,28 +29,25 @@ import {
   TAG_CODE,
   a3ColumnsOf,
   buildTickIndex,
-  classifyKrxOrders,
-  classifyNxtTeamOrders,
   dayStartNs,
   densityOf,
   exchangeOrderOf,
   inversePerm,
   inversionsOf,
+  krxOrderDraftsOf,
   lastB6Of,
   lastB9Of,
-  nxtRunStats,
-  parseStr,
+  nxtOrderDraftsOf,
   recvOrderOf,
-  scopeTrades,
-  tagNxtRuns,
+  teamTradesOf,
   viSpansOf,
   type A3Columns,
   type Inversion,
-  type NxtRow,
-  type OrderKind,
   type TeamScope,
   type TickExchange,
   type TickIndex,
+  type TickOrderDraft,
+  type TickOrderKind,
   type ViSpan,
 } from '@gh-radar/shared';
 
@@ -58,8 +56,8 @@ import { buildTeamModel, type TeamModel } from './team-model';
 /** 판정 범위 — KRX 는 `accum`(G1+G4 · 뷰어 기본) · NXT 는 런 규칙. */
 export type ViewScope = TeamScope | 'nxt';
 
-/** 주문 종류 — KRX 는 teamflow 글자 그대로 · NXT 는 런 규칙의 팀/일반(단일가 bs 는 「단일가」). */
-export type ViewOrderKind = OrderKind | 'NXT팀' | 'NXT일반';
+/** 주문 종류 — KRX 는 teamflow 글자 그대로 · NXT 는 런 규칙의 팀/일반(단일가 bs 는 「단일가」). shared TickOrderKind 별칭. */
+export type ViewOrderKind = TickOrderKind;
 
 /** 화면용 주문 하나(KRX 주문 · NXT 런 공통). */
 export interface ViewOrder {
@@ -164,23 +162,12 @@ function a3TimeNs(index: TickIndex, a3: A3Columns, j: number): bigint {
   return t === -1n ? index.recvNs[a3.rec[j]!]! : t;
 }
 
-/** QuoteHeader 전문(A3 · B6)의 isin 오프셋(layouts.ts). */
-const ISIN_OFF_QUOTE = 17;
-
-interface OrderDraft {
-  recs: number[];
-  bs: string;
-  nPx: number;
-  kind: ViewOrderKind;
-  team: boolean;
-}
-
 function buildOrders(
   index: TickIndex,
   a3: A3Columns,
   a3Of: Int32Array,
   exOrder: Int32Array,
-  drafts: OrderDraft[],
+  drafts: readonly TickOrderDraft[],
 ): Pick<TickSession, 'orders' | 'orderOfRec' | 'teamOfRec' | 'openOrder'> {
   const n = index.n;
   // 닫는 B6 — (보드, seq) → 거래소순 첫 B6 rec · 보드별 최대 seq(진행 중 판정)
@@ -257,66 +244,6 @@ function buildOrders(
   return { orders, orderOfRec, teamOfRec, openOrder };
 }
 
-/** KRX — accum 범위(G1+G4 · (t, seq) 순)로 classifyKrxOrders. */
-function krxDrafts(a3: A3Columns): OrderDraft[] {
-  const scoped = scopeTrades(a3.toTrades(), 'accum');
-  const { orders } = classifyKrxOrders(scoped);
-  return orders.map((o) => {
-    const recs: number[] = [];
-    for (let i = o.first; i <= o.last; i++) recs.push(scoped[i]!.rec);
-    return { recs, bs: o.bs, nPx: o.nPx, kind: o.kind, team: o.team };
-  });
-}
-
-/** NXT — A3 · B6 → NxtRow → tagNxtRuns → 런마다 주문 · classifyNxtTeamOrders 로 팀. */
-function nxtDrafts(buf: Uint8Array, index: TickIndex, a3: A3Columns, a3Of: Int32Array): OrderDraft[] {
-  const rows: NxtRow[] = [];
-  for (let r = 0; r < index.n; r++) {
-    if (index.ok[r] !== 1 || index.board[r] === NO_BOARD) continue;
-    const t = index.tag[r];
-    const base = {
-      rec: r,
-      seq: index.seq[r]!,
-      board: index.boards[index.board[r]!] ?? '',
-      recvNs: index.recvNs[r]!,
-    };
-    if (t === TAG_CODE.B6) {
-      rows.push({ ...base, k: 'B', isin: parseStr(buf, index.off[r]! + ISIN_OFF_QUOTE, 12) });
-    } else if (t === TAG_CODE.A3) {
-      const j = a3Of[r]!;
-      if (j < 0) continue;
-      const bs = a3.bs[j]!;
-      const tNs = a3.tNs[j]!;
-      rows.push({
-        ...base,
-        k: 'A',
-        isin: a3.isin[j]!,
-        bs: bs === 32 ? '' : String.fromCharCode(bs),
-        px: a3.px[j]!,
-        qty: a3.qty[j]!,
-        tNs: tNs === -1n ? null : tNs,
-        a1: a3.a1[j]!,
-        b1: a3.b1[j]!,
-      });
-    }
-  }
-  const tagged = tagNxtRuns(rows);
-  const stats = nxtRunStats(tagged);
-  const teamRuns = new Set(classifyNxtTeamOrders(tagged).map((o) => o.run));
-  const members: number[][] = [];
-  for (let i = 0; i < tagged.runOf.length; i++) {
-    const run = tagged.runOf[i]!;
-    if (run < 0) continue;
-    (members[run] ??= []).push(tagged.sorted[i]!.rec);
-  }
-  return stats.map((st) => {
-    const auction = st.bs !== '1' && st.bs !== '2';
-    const team = !auction && teamRuns.has(st.run);
-    const kind: ViewOrderKind = auction ? '단일가' : team ? 'NXT팀' : 'NXT일반';
-    return { recs: members[st.run] ?? [], bs: st.bs, nPx: st.npx, kind, team };
-  });
-}
-
 /** 같은 보드 · seq 의 두 번째 이후 수신 = 1. */
 function duplicatesOf(index: TickIndex, recvOrder: Int32Array): Uint8Array {
   const out = new Uint8Array(index.n);
@@ -345,7 +272,7 @@ export function buildTickSession(
   for (let j = 0; j < a3.n; j++) a3Of[a3.rec[j]!] = j;
 
   const scope: ViewScope = ex === 'NXT' ? 'nxt' : 'accum';
-  const drafts = ex === 'NXT' ? nxtDrafts(buf, index, a3, a3Of) : krxDrafts(a3);
+  const drafts = ex === 'NXT' ? nxtOrderDraftsOf(buf, index, a3, a3Of) : krxOrderDraftsOf(teamTradesOf(a3, 'KRX'));
   const judged = buildOrders(index, a3, a3Of, exOrder, drafts);
 
   const inversions = inversionsOf(index, a3, exOrder);

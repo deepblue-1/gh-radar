@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { teamPnlOf, type TeamPnl } from '@gh-radar/shared';
+import { teamDaySummaryOf, teamPnlOf, type TeamPnl, type TickExchange } from '@gh-radar/shared';
 
 import { tickFixtureBytes, tickFixtureJson, TICK_FIXTURE_DATE } from '@/test-fixtures/tick-grid';
 import { a3Msg, b6Msg, synthSession } from '@/test-fixtures/tick-synth';
@@ -156,5 +156,27 @@ describe('NXT 컷 13시 — 런 규칙 팀(65건)으로 같은 레이어(D-13 ·
     const kpi = teamKpiAt(model, s, last);
     expect(kpi.k).toBe(model.prefix.n);
     expectPnl(kpi.pnl, teamPnlOf(model.fills, kpi.lastPx!)!);
+  });
+});
+
+describe('목록 요약(teamDaySummaryOf) = 상세 끝 틱 KPI(quick 261103-j4d 결정 1)', () => {
+  // 목록 「당일순매수 · 당일손익」(워커가 tick_grids 에 저장) 과 상세 「팀 거래정보」 끝 틱이 같은 숫자여야 한다.
+  const cases: [string, TickExchange, string][] = [
+    ['chunil-1014-a3.ticks.zst', 'KRX', '20261014'],
+    ['cut1300-krx.ticks.zst', 'KRX', '20261016'],
+    ['cut1300-nxt.ticks.zst', 'NXT', '20261016'],
+    ['bigtech-1022-g4.ticks.zst', 'KRX', '20261022'],
+  ];
+  it.each(cases)('%s (%s) — fills · dayNetVal · dayNetQty · lastPx · pnl 일치', (name, ex, date) => {
+    const buf = tickFixtureBytes(name);
+    const session = buildTickSession(buf, { date, ex });
+    const kpi = teamKpiAt(session.team, session, session.exOrder[session.exOrder.length - 1]!);
+    const sum = teamDaySummaryOf(buf, ex);
+    expect(kpi.k).toBeGreaterThan(0);
+    expect(sum.fills).toBe(kpi.k);
+    expect(sum.dayNetVal).toBe(kpi.dayNetVal);
+    expect(sum.dayNetQty).toBe(kpi.dayNetQty);
+    expect(sum.lastPx).toBe(kpi.lastPx);
+    expect(sum.pnl).toEqual(kpi.pnl);
   });
 });
