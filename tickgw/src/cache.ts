@@ -10,8 +10,11 @@
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기거나, 인덱서가 20:00 압축 원본을 건너뛰었다고 알리면
  *   (`compressed_files_skipped` > 0 · CR-31) false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
- * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31) 를 넘으면 lastAccess 가 가장 오래된 키부터 지운다(append 마다 · evict 마다).
- *   LRU 는 면제가 없다 — 밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
+ * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31). 합계는 상한을 **넘지 않는다**(WR-33):
+ *   append 가 상한을 넘기려 하면 먼저 lastAccess 가 가장 오래된 **보호되지 않은** 다른 키부터 지워 자리를 만든다.
+ *   보호 = `setProtect` 술어(폴러가 「리스가 살아 있는 키」 로 건다) — 폴링 중인 키를 지우고 08:00 부터 다시 받는 고리를 막는다.
+ *   자리를 못 만들면 붙이지 않고 `full`, 키 하나가 혼자 상한을 넘으면 `too_large` 를 돌려준다(폴러가 백오프 · 「너무 큼」 처리).
+ *   밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
  * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
  *   유휴 삭제에서 뺀다 — 20:01 마감 마무리 · 승격 Job 의 입력이라 브라우저가 닫혀도 21:00 까지 남겨 둔다.
  */
@@ -40,6 +43,9 @@ export interface CacheEntry {
   lastAccess: number;
 }
 
+/** append 결과(WR-33) — ok 만 바이트 · 메타를 붙였다. */
+export type AppendResult = "ok" | "full" | "too_large";
+
 export interface AppendMeta {
   records: number;
   firstRecvNs: bigint | null;
@@ -59,6 +65,8 @@ export function parseKey(key: string): { isin: string; ex: Exchange; date: strin
 export class TickCache {
   private readonly entries = new Map<string, CacheEntry>();
   private total = 0;
+  /** LRU 후보에서 뺄 엔트리(WR-33) — 기본은 없음. */
+  private protect: (e: CacheEntry) => boolean = () => false;
 
   constructor(
     readonly limitBytes: number,
@@ -66,6 +74,11 @@ export class TickCache {
     /** KST hhmm — 오늘 complete 키 유휴 면제 끝(TICKGW_KEEP_UNTIL). */
     readonly keepUntilHhmm = 2100,
   ) {}
+
+  /** LRU 보호 술어를 건다(폴러 — 리스가 살아 있는 키). */
+  setProtect(fn: (e: CacheEntry) => boolean): void {
+    this.protect = fn;
+  }
 
   get(key: string): CacheEntry | undefined {
     return this.entries.get(key);
@@ -96,10 +109,23 @@ export class TickCache {
     return e;
   }
 
-  append(key: string, bytes: Buffer, meta: AppendMeta): void {
+  /**
+   * 바이트 · 메타를 붙인다. 상한을 넘기면 보호되지 않은 다른 키를 LRU 로 지워 자리를 만든 뒤 붙인다(WR-33).
+   * 그 키 혼자 상한을 넘으면 `too_large` · 자리를 못 만들면 `full` — 둘 다 아무것도 바꾸지 않는다(커서도 그대로).
+   */
+  append(key: string, bytes: Buffer, meta: AppendMeta): AppendResult {
     const e = this.entries.get(key);
-    if (!e) return;
+    if (!e) return "ok";
     if (bytes.length > 0) {
+      if (e.size + bytes.length > this.limitBytes) return "too_large";
+      const over = this.total + bytes.length - this.limitBytes;
+      if (over > 0) {
+        // 지울 수 있는 몫이 모자라면 아무것도 지우지 않는다(헛삭제 금지)
+        let freeable = 0;
+        for (const o of this.entries.values()) if (o !== e && !this.protect(o)) freeable += o.size;
+        if (freeable < over) return "full";
+        this.enforceLimit(bytes.length, e);
+      }
       e.chunks.push(bytes);
       e.size += bytes.length;
       this.total += bytes.length;
@@ -109,19 +135,24 @@ export class TickCache {
     if (meta.lastRecvNs !== null && (e.lastRecvNs === null || meta.lastRecvNs > e.lastRecvNs)) {
       e.lastRecvNs = meta.lastRecvNs;
     }
-    this.enforceLimit();
+    return "ok";
   }
 
-  /** 합계가 상한 이하가 될 때까지 lastAccess 가 가장 오래된 키부터 지운다(면제 없음). */
-  private enforceLimit(): string[] {
+  /**
+   * 합계 + `need` 가 상한 이하가 될 때까지 lastAccess 가 가장 오래된 **보호되지 않은** 키부터 지운다(`keep` 은 제외).
+   * 후보가 없으면 멈춘다(보호 키는 지우지 않는다 — WR-33).
+   */
+  private enforceLimit(need = 0, keep: CacheEntry | null = null): string[] {
     const removed: string[] = [];
-    while (this.total > this.limitBytes && this.entries.size > 0) {
+    while (this.total + need > this.limitBytes) {
       let oldest: CacheEntry | null = null;
       for (const e of this.entries.values()) {
+        if (e === keep || this.protect(e)) continue;
         if (!oldest || e.lastAccess < oldest.lastAccess) oldest = e;
       }
-      this.delete(oldest!.key);
-      removed.push(oldest!.key);
+      if (!oldest) break;
+      this.delete(oldest.key);
+      removed.push(oldest.key);
     }
     return removed;
   }

@@ -51,10 +51,10 @@ interface Rig {
   drive: (o: { untilCalls?: number; untilT?: number; touch?: string[] }) => Promise<void>;
 }
 
-function rig(behavior: Behavior, cfg: Partial<PollerConfig> = {}, startMs = kstMs(DATE, "1000")): Rig {
+function rig(behavior: Behavior, cfg: Partial<PollerConfig> = {}, startMs = kstMs(DATE, "1000"), cacheBytes = 128 * 1024 * 1024): Rig {
   const clock = { t: startMs };
   const calls: Rig["calls"] = [];
-  const cache = new TickCache(128 * 1024 * 1024, 15 * 60 * 1000);
+  const cache = new TickCache(cacheBytes, 15 * 60 * 1000);
   let n = 0;
   const poller = new Poller(
     { pollMs: 5_000, pollJitterMs: 500, leaseMs: 30_000, maxKeys: 8, closeDelayMs: 60_000, ...cfg },
@@ -226,6 +226,52 @@ describe("Poller — 백오프 · 바쁨 · 차단", () => {
     expect(r.poller.touch(KEY).state).toBe("blocked");
     await r.drive({ untilCalls: 2, touch: [KEY] });
     expect(gaps(r.calls)).toEqual([60_000]);
+  });
+});
+
+describe("Poller — 캐시 상한 · LRU 보호(WR-33)", () => {
+  it("리스가 살아 있는 키는 LRU 로 지우지 않는다 — 자리가 없으면 새 키는 붙이지 않고 백오프 · 앞 키를 08:00 부터 다시 받지 않는다", async () => {
+    // 키당 6레코드 × 10B = 60B · 상한 100B → 둘이 함께는 못 든다
+    const r = rig((a) => dayResponse(a, 6), {}, kstMs(DATE, "1000"), 100);
+    const t0 = r.clock.t;
+    r.poller.touch(keyN(1));
+    await r.drive({ untilCalls: 1, touch: [keyN(1)] });
+    const epoch1 = r.cache.get(keyN(1))!.epoch;
+    await r.drive({ untilT: t0 + 25_000, touch: [keyN(1), keyN(2)] });
+    expect(r.cache.get(keyN(1))!.epoch).toBe(epoch1);
+    expect(r.cache.get(keyN(1))!.records).toBe(6);
+    expect(r.cache.get(keyN(2))!.records).toBe(0);
+    expect(r.cache.totalBytes()).toBeLessThanOrEqual(100);
+    const fromStart = (k: string) =>
+      r.calls.filter((c) => makeKey(c.args.isin, c.args.ex, c.args.date) === k && c.args.fromNs === DAY_START).length;
+    expect(fromStart(keyN(1))).toBe(1); // 지워지고 처음부터 다시 받는 고리 없음
+    expect(fromStart(keyN(2))).toBeLessThanOrEqual(4); // 5 · 10 · 20초 백오프
+    expect(r.poller.touch(keyN(2)).state).toBe("delayed");
+
+    // 키 1 리스가 끝나면(보호 해제) 키 2 가 다음 재시도에 자리를 얻는다
+    await r.drive({ untilT: t0 + 120_000, touch: [keyN(2)] });
+    expect(r.cache.get(keyN(1))).toBeUndefined();
+    expect(r.cache.get(keyN(2))!.records).toBe(6);
+  });
+
+  it("키 하나의 하루치가 상한을 넘으면 지우지 않고 그날 폴링을 멈춘다 — blocked · complete=false · 다시 열어도 처음부터 받지 않는다", async () => {
+    const r = rig((a) => dayResponse(a, 20, 5), {}, kstMs(DATE, "1000"), 100);
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 3, touch: [KEY] });
+    const n = r.calls.length;
+    await r.drive({ untilT: r.clock.t + 60_000, touch: [KEY] });
+    expect(r.calls).toHaveLength(n);
+    const e = r.cache.get(KEY)!;
+    expect(e.records).toBe(10); // 50B + 50B 까지 · 세 번째 50B 는 붙이지 않았다
+    expect(e.complete).toBe(false);
+    expect(r.poller.touch(KEY)).toEqual({ state: "blocked", queue: 0 });
+
+    // 엔트리가 지워진 뒤(유휴 등) 다시 열어도 08:00 부터 다시 받지 않는다
+    r.cache.delete(KEY);
+    await r.poller.step();
+    expect(r.poller.touch(KEY).state).toBe("blocked");
+    await r.drive({ untilT: r.clock.t + 30_000, touch: [KEY] });
+    expect(r.calls).toHaveLength(n);
   });
 });
 

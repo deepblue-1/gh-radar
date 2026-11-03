@@ -247,6 +247,31 @@ describe("TickCache — LRU 128MB · 유휴 15분(오늘 complete 는 KEEP_UNTIL
     expect(c.totalBytes()).toBe(80);
   });
 
+  it("보호 키(setProtect)는 LRU 로 지우지 않는다 · 자리를 못 만들면 full(아무것도 지우지 않음) · 혼자 넘으면 too_large(WR-33)", () => {
+    const c = new TickCache(100, 15 * 60 * 1000);
+    const a = makeKey("KR70000000A0", "KRX", DATE);
+    const b = makeKey("KR70000000B0", "KRX", DATE);
+    const d = makeKey("KR70000000D0", "KRX", DATE);
+    c.ensure(a, at("1000"));
+    c.ensure(b, at("1001"));
+    c.ensure(d, at("1002"));
+    c.setProtect((e) => e.key === a);
+    expect(c.append(a, Buffer.alloc(50), meta)).toBe("ok");
+    expect(c.append(b, Buffer.alloc(30), meta)).toBe("ok");
+    // d 40B — 넘는 20B 를 b(보호 아님)에서 → b 가 밀려난다 · a 는 더 오래됐어도 남는다
+    expect(c.append(d, Buffer.alloc(40), meta)).toBe("ok");
+    expect(c.get(a)?.size).toBe(50);
+    expect(c.get(b)).toBeUndefined();
+    // d 가 20B 더 — 지울 수 있는 몫 0(a 보호 · d 자신) → full · 아무것도 바뀌지 않음
+    expect(c.append(d, Buffer.alloc(20), meta)).toBe("full");
+    expect(c.get(d)?.size).toBe(40);
+    expect(c.get(a)?.size).toBe(50);
+    expect(c.totalBytes()).toBe(90);
+    // a 혼자 101B → too_large
+    expect(c.append(a, Buffer.alloc(51), meta)).toBe("too_large");
+    expect(c.get(a)?.size).toBe(50);
+  });
+
   it("parts 는 청크를 복사하지 않고 subarray 로 준다 — 같은 메모리(WR-31)", () => {
     const c = new TickCache(1 << 20, 15 * 60 * 1000);
     const key = makeKey("KR7101360006", "KRX", DATE);

@@ -16,6 +16,8 @@
  *   실패        ssh 실패 · 시간 초과 · 깨진 응답 → 그 키 5→10→20→40→60→60초 · 성공하면 다시 5초
  *   바쁨 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
+ *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33)
+ *   너무 큼     키 하나의 하루치가 캐시 상한을 넘으면 그 키(그날) 폴링을 멈춘다 · blocked · complete=false(승격 안 함 · WR-33)
  *   도달 불가   ssh 255 + 연결 오류 문구 3회 연속 → 전역 60초 차단(모든 키 delayed · 호출 0) ·
  *               차단이 풀린 뒤 첫 호출(탐침)이 또 연결 실패면 곧바로 다시 60초 차단
  *
@@ -25,6 +27,7 @@
  *   | 엔트리 closed(마감 마무리 끝)                      | ready   | 0     |
  *   | 리스 살아 있는 키 중 순번 > MAX_KEYS               | queued  | k     |
  *   | 전역 차단 중(119 도달 불가)                        | delayed | 0     |
+ *   | 너무 큼(그날 하루치 > 캐시 상한 · WR-33)          | blocked | 0     |
  *   | 인자 오류(64) 뒤 재시도 대기                       | blocked | 0     |
  *   | 실패 백오프 중(failures ≥ 1)                       | delayed | 0     |
  *   | 08:00 하루치(+이어받기) 아직                       | loading | 0     |
@@ -92,8 +95,13 @@ interface KeyRun {
   nextDueAt: number;
   failures: number;
   argBlocked: boolean;
+  /** 그날 하루치가 캐시 상한을 넘는다 — 폴링하지 않는다(WR-33). */
+  tooLarge: boolean;
   calls: number;
 }
+
+/** applyOk 결과 — more 이어받기 · done 끝 · full 캐시 자리 없음(붙이지 않음) · tooLarge 그 키 혼자 상한 초과. */
+type ApplyResult = "more" | "done" | "full" | "tooLarge";
 
 interface CloseItem {
   key: string;
@@ -142,6 +150,8 @@ export class Poller {
   private closeStartedDate: string | null = null;
   private closeDoneDate: string | null = null;
   private closeQueue: CloseItem[] = [];
+  /** 「너무 큼」 판정 키(키에 날짜 포함) — 엔트리가 지워진 뒤 다시 열어도 08:00 부터 다시 받지 않는다(WR-33). */
+  private readonly tooLargeKeys = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = true;
   private wakeResolve: (() => void) | null = null;
@@ -150,7 +160,13 @@ export class Poller {
   constructor(
     private readonly cfg: PollerConfig,
     private readonly deps: PollerDeps,
-  ) {}
+  ) {
+    // WR-33 — 리스가 살아 있는 키는 LRU 후보에서 뺀다(폴링 중인 키를 지우고 08:00 부터 다시 받는 고리 방지)
+    deps.cache.setProtect((e) => {
+      const run = this.runs.get(e.key);
+      return !!run && run.epoch === e.epoch && run.leaseUntil > this.deps.now();
+    });
+  }
 
   // ---------------------------------------------------------------- touch · 상태
 
@@ -189,8 +205,10 @@ export class Poller {
         nextDueAt: now,
         failures: 0,
         argBlocked: false,
+        tooLarge: this.tooLargeKeys.has(entry.key),
         calls: 0,
       };
+      if (run.tooLarge) entry.complete = false;
       this.runs.set(entry.key, run);
     }
     return run;
@@ -201,6 +219,7 @@ export class Poller {
     const out: KeyRun[] = [];
     for (const run of this.runs.values()) {
       if (run.leaseUntil <= now) continue;
+      if (run.tooLarge) continue;
       if (this.deps.cache.get(run.key)?.closed) continue;
       out.push(run);
     }
@@ -209,6 +228,7 @@ export class Poller {
 
   private stateOf(run: KeyRun, now: number): KeyState {
     if (this.deps.cache.get(run.key)?.closed) return { state: "ready", queue: 0 };
+    if (run.tooLarge) return { state: "blocked", queue: 0 };
     const idx = this.liveRuns(now).indexOf(run);
     if (idx >= this.cfg.maxKeys) return { state: "queued", queue: idx - this.cfg.maxKeys + 1 };
     if (now < this.blockedUntil) return { state: "delayed", queue: 0 };
@@ -308,10 +328,24 @@ export class Poller {
     return res.code === 64 ? "arg" : "fail";
   }
 
-  /** 정상 응답을 캐시에 붙인다. has_more 이어받기면 true. */
-  private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult): boolean {
+  /** 정상 응답을 캐시에 붙인다. */
+  private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult): ApplyResult {
     const meta = res.meta!;
-    if (meta.records > 0) this.deps.cache.append(run.key, res.stdout, meta);
+    if (meta.records > 0) {
+      const a = this.deps.cache.append(run.key, res.stdout, meta);
+      if (a === "too_large") {
+        // 키 하나의 하루치가 캐시 상한을 넘는다 — 지우고 처음부터 다시 받는 무한 고리 대신 그날 폴링을 멈춘다(WR-33)
+        run.tooLarge = true;
+        this.tooLargeKeys.add(run.key);
+        entry.complete = false;
+        log("warn", "key too large for cache — polling stopped", { key: run.key, size: entry.size, limit: this.deps.cache.limitBytes });
+        return "tooLarge";
+      }
+      if (a === "full") {
+        log("warn", "cache full (leased keys) — retry later", { key: run.key, total: this.deps.cache.totalBytes() });
+        return "full"; // 붙이지 않았다 — 커서(pendingFrom · lastRecvNs) 그대로 · 같은 범위를 나중에 다시
+      }
+    }
     // CR-31 — 119 기록기는 20:00 보류 창이 끝나면 지난 시간 파일을 `zstd --rm` 으로 압축하고, 인덱서는 그 파일을 건너뛰며
     // `compressed_files_skipped` 로 센다(gh-trade server/tools/indexer/README.md 「운영 경계」). 건너뛴 파일이 하나라도 있으면
     // 이 키는 더는 「08:00 부터 끊김 없음」 이 아니다 → complete=false(마감 마무리가 closed 로 닫지 않는다 = 승격 안 함 ·
@@ -325,7 +359,7 @@ export class Poller {
     if (meta.hasMore) {
       if (meta.nextFromNs !== null && meta.nextFromNs > fromNs) {
         run.pendingFrom = meta.nextFromNs;
-        return true;
+        return "more";
       }
       // 계약 위반 — 이어받을 커서가 없다. 끊김을 기록(complete=false → 승격 안 됨)하고 lastRecvNs+1 증분으로 넘어간다
       entry.complete = false;
@@ -333,7 +367,7 @@ export class Poller {
     }
     run.pendingFrom = null;
     run.loaded = true;
-    return false;
+    return "done";
   }
 
   private async call(run: KeyRun, fromNs: bigint): Promise<{ res: IndexerResult; at: number; entry: CacheEntry | null }> {
@@ -364,11 +398,19 @@ export class Poller {
     const kind = this.classify(res, at);
     if (!entry) return;
     switch (kind) {
-      case "ok":
+      case "ok": {
+        const prevFailures = run.failures;
         run.failures = 0;
         run.argBlocked = false;
-        run.nextDueAt = this.applyOk(run, entry, fromNs, res) ? at : at + this.cfg.pollMs + this.jitter();
+        const a = this.applyOk(run, entry, fromNs, res);
+        if (a === "more") run.nextDueAt = at;
+        else if (a === "done") run.nextDueAt = at + this.cfg.pollMs + this.jitter();
+        else if (a === "full") {
+          run.failures = prevFailures + 1; // delayed · 5 → 10 → … 60초(붙일 자리가 날 때까지)
+          run.nextDueAt = at + backoffMs(run.failures);
+        }
         return;
+      }
       case "busy":
         run.nextDueAt = at + this.busyDelay();
         return;
@@ -396,6 +438,7 @@ export class Poller {
 
     if (this.closeStartedDate !== today) {
       this.closeStartedDate = today;
+      for (const k of this.tooLargeKeys) if (!k.endsWith(`|${today}`)) this.tooLargeKeys.delete(k); // 지난 날 판정 정리
       this.closeQueue = this.deps.cache
         .values()
         .filter((e) => e.date === today && e.complete && !e.closed)
@@ -440,11 +483,24 @@ export class Poller {
     if (kind === "ok") {
       run.failures = 0;
       run.argBlocked = false;
-      if (this.applyOk(run, entry, fromNs, res)) {
+      const a = this.applyOk(run, entry, fromNs, res);
+      if (a === "more") {
         item.nextDueAt = at; // 이어받기 — 같은 마무리 폴링
         return;
       }
-      if (!entry.complete) {
+      if (a === "full") {
+        // 캐시 자리 없음 — 실패 시도로 센다(같은 범위를 백오프 뒤 다시)
+        item.startedAt = null;
+        item.attempts += 1;
+        if (item.attempts >= CLOSE_MAX_ATTEMPTS) {
+          this.dropClose(item);
+          log("warn", "close gave up (cache full) — not promoted", { key: item.key, attempts: item.attempts });
+          return;
+        }
+        item.nextDueAt = at + backoffMs(item.attempts);
+        return;
+      }
+      if (a === "tooLarge" || !entry.complete) {
         this.dropClose(item); // 이어받기가 끊겼다 — 승격하지 않는다
         return;
       }
