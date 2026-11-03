@@ -169,7 +169,8 @@ export function runIndexer(args: IndexerArgs, opts: IndexerOptions): Promise<Ind
       const code = forced ? -1 : (exitCode ?? -1);
       resolve({
         code,
-        stdout: Buffer.concat(chunks, size),
+        // 상한 초과 · 시간 초과(kill)면 버린다 — 모은 청크를 다시 복사하지 않는다(IN-30)
+        stdout: forced ? Buffer.alloc(0) : Buffer.concat(chunks, size),
         meta: code === 0 ? parseMeta(stderr) : null,
         stderrTail: stderr.slice(-500),
       });
@@ -193,11 +194,15 @@ export function runIndexer(args: IndexerArgs, opts: IndexerOptions): Promise<Ind
     const timer = setTimeout(kill, opts.timeoutMs);
 
     child.stdout.on("data", (b: Buffer) => {
-      size += b.length;
-      if (size > maxStdout) {
+      if (forced) return;
+      // size 는 chunks 에 실제로 넣은 바이트만 센다(IN-30 — 넘친 마지막 청크를 size 에만 더해 0 꼬리를 할당하던 것)
+      if (size + b.length > maxStdout) {
         kill();
+        chunks.length = 0;
+        size = 0;
         return;
       }
+      size += b.length;
       chunks.push(b);
     });
     child.stdout.on("end", () => {
@@ -222,8 +227,8 @@ export function runIndexer(args: IndexerArgs, opts: IndexerOptions): Promise<Ind
       exitCode = -1;
       finish();
     });
-    child.on("exit", (code, signal) => {
-      exitCode = code ?? (signal ? -1 : -1);
+    child.on("exit", (code) => {
+      exitCode = code ?? -1; // 신호로 끝나면 code null → −1
       if (forced) {
         // kill 뒤에는 파이프 끝을 기다리지 않는다
         stdoutEnded = true;
