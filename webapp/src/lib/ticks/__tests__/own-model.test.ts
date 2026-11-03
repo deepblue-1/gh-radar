@@ -174,6 +174,25 @@ describe('buildOwnModel — 당일 대기(Pitfall 4 · OWN_PENDING_GRACE_MS)', (
     expect(buildOwnModel(session, own, { live: false }).fills.map((f) => f.state)).toEqual(['nofill', 'nofill']);
     expect(buildOwnModel(session, own).fills.every((f) => f.state !== 'pending')).toBe(true);
   });
+
+  it('live — 짝 창이 세션 끝을 넘는 체결은 같은 가격 A3 가 있어도 짝짓지 않고 대기 · 세션이 자라면 짝(WR-02)', () => {
+    // 상한가 추격 — 같은 가격 A3 .100 이 있고, 우리 체결 .150 의 진짜 A3 는 아직 안 왔다(마지막 수신 .9005)
+    const msgs: [number, Uint8Array][] = [
+      [100.5, a3Msg({ seq: 301, bs: '2', px: 30000, qty: 10, time: '130000100000' })],
+      [900.5, b6Msg({ seq: 302, ask1: [30000, 0], bid1: [30000, 900] })],
+    ];
+    const early = synthSession(msgs);
+    const one = ownOf({ fills: [fill('UL', at(150), 30000, 10)] });
+    const live = buildOwnModel(early, one, { live: true });
+    expect(live.fills.map((f) => [f.state, f.a3j, f.rec, f.est, f.candidates])).toEqual([['pending', -1, -1, false, 0]]);
+    expect(live.fillsOfRec.size).toBe(0);
+    expect(Array.from(live.slotOfFill)).toEqual([1]);
+    // 과거 격자는 그대로 짝(오라클 경로 불변)
+    expect(buildOwnModel(early, one).fills.map((f) => [f.state, f.rec])).toEqual([['matched', 0]]);
+    // 세션이 자라 창(gw + 1,200ms)을 넘기면 모델을 다시 만들 때 짝이 붙는다
+    const grown = synthSession([...msgs, [1500.5, b6Msg({ seq: 303, ask1: [30000, 0], bid1: [30000, 900] })]]);
+    expect(buildOwnModel(grown, one, { live: true }).fills.map((f) => [f.state, f.rec])).toEqual([['matched', 0]]);
+  });
 });
 
 describe('ownOrderLineText — 주문 줄 문구(D-05 · 25 D-09 문구 정본)', () => {

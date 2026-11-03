@@ -12,8 +12,10 @@
  *   그 주문의 가장 이른 이벤트 → 없으면 보조 주문 행(`orders[]` · created_ms) → 둘 다 없으면 체결만(주문 줄 없음 · gwMs null).
  * ⑤ 슬롯(38-04): 주문 · 짝 없는 체결의 자리 = 수신순 `lowerBoundRecv`(그 시각 이후 첫 전문) — 거래소순은 수신순 자리를
  *   보드별로 다시 채운 순열이라 슬롯 p 하나가 두 순열 공통이다(`exchangeOrderOf`). 전문 목록은 ROW(order[p]) **앞**에 줄을 넣는다.
- * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다 — 짝을 못 찾은 체결이라도 gw + 1,200ms
- *   (짝 창 +200ms + 여유 1,000ms)가 세션 마지막 수신보다 뒤면 「짝 전문 없음」 이 아니라 'pending'. 과거 격자는 늘 확정.
+ * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다 — gw + 1,200ms(짝 창 +200ms + 여유
+ *   1,000ms)가 세션 마지막 수신보다 뒤인 체결은 짝짓기에 넣지 않고 'pending'(짝 결과와 무관 · 남은 수량도 안 깎는다 —
+ *   상한가처럼 같은 가격 A3 가 흔하면 진짜 A3 대신 더 이른 A3 에 붙는다 · WR-02). 세션이 자라면 모델을 다시 만들어 풀린다.
+ *   과거 격자는 늘 확정.
  * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3)` 한 번 → 이벤트가 있는 주문마다 shared
  *   `locateEvidence`(호가 B6 · 체결 단건 A3 · 주기매도 구간 · 없음) · `anchorOf`(「주문 직전 마지막 체결」). ev_kind 3(체결통보)은
  *   shared 가 none 으로 돌려주므로 여기서 같은 게이트웨이 · 계좌의 그 이전 우리 체결(gw ≤ 이벤트 gw ∧ 가격 == ev_price ∧
@@ -34,6 +36,7 @@ import {
   orderGroupOriginText,
   strategyEventSide,
   type OwnEvidence,
+  type OwnFillMatch,
   type TickOwnEvent,
   type TickOwnResponse,
 } from '@gh-radar/shared';
@@ -127,6 +130,9 @@ export interface OwnModel {
 
 type EvidenceKeys = 'evidence' | 'evidenceLabel' | 'evidenceRec' | 'evidenceFirstRec' | 'anchorRec';
 
+/** 대기 체결의 짝 자리(짝짓기에 넣지 않음) — 짝 없음과 같은 모양(읽기 전용). */
+const PENDING_MATCH: OwnFillMatch = { a3j: -1, est: false, candidates: 0, dtMs: Number.NaN };
+
 /** 근거 없음 — 주문마다 같은 객체를 써도 된다(읽기 전용). */
 const NO_EVIDENCE: OwnEvidence = { kind: 'none' };
 
@@ -156,11 +162,24 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
             : 1
           : x.seq - y.seq,
     );
-  const matches = matchOwnFills(
+  // 세션 마지막 수신 ms(대기 판정) — 레코드가 없으면 모두 대기
+  const n = recvOrder.length;
+  const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
+  // 당일 · 짝 창이 세션 끝을 넘는 체결은 짝짓기에 넣지 않는다(⑥) — 진짜 A3 가 아직 안 왔는데 더 이른 같은 가격 A3 에
+  // 붙거나 그 A3 의 남은 수량을 깎지 않도록. 과거 격자(live false)는 전부 넣는다(오라클 수치 그대로).
+  const open = (gwMs: number): boolean => live && gwMs + OWN_PENDING_GRACE_MS > lastRecvMs;
+  const settled: number[] = [];
+  for (let i = 0; i < sorted.length; i++) if (!open(sorted[i]!.gw_time_ms)) settled.push(i);
+  const settledMatches = matchOwnFills(
     index,
     a3,
-    sorted.map((f) => ({ gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty })),
+    settled.map((i) => {
+      const f = sorted[i]!;
+      return { gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty };
+    }),
   );
+  const matches: (OwnFillMatch | null)[] = new Array(sorted.length).fill(null);
+  for (let k = 0; k < settled.length; k++) matches[settled[k]!] = settledMatches[k]!;
 
   // ── 주문 묶기 — 이벤트(가장 이른 것) ∪ 체결의 주문번호 · 보조 주문 행은 시각 보조로만
   const acc = new Map<string, OrderAcc>();
@@ -263,9 +282,6 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     for (const fi of d.fills) orderOfFill[fi] = id;
   }
 
-  // 세션 마지막 수신 ms(대기 판정) — 레코드가 없으면 모두 대기
-  const n = recvOrder.length;
-  const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
   const slotAt = (ms: number): number => lowerBoundRecv(index.recvNs, recvOrder, BigInt(Math.trunc(ms)) * 1_000_000n);
 
   const fills: OwnFillView[] = new Array(sorted.length);
@@ -273,10 +289,10 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
   const slotOfFill = new Int32Array(sorted.length).fill(-1);
   for (let i = 0; i < sorted.length; i++) {
     const f = sorted[i]!;
-    const m = matches[i]!;
+    // 짝짓기에 넣지 않은 체결(당일 · 창이 세션 끝을 넘음) = 대기 · 넣었는데 못 찾으면 확정 「짝 전문 없음」
+    const m = matches[i] ?? PENDING_MATCH;
     const rec = m.a3j >= 0 ? a3.rec[m.a3j]! : -1;
-    const state: OwnFillState =
-      m.a3j >= 0 ? 'matched' : live && f.gw_time_ms + OWN_PENDING_GRACE_MS > lastRecvMs ? 'pending' : 'nofill';
+    const state: OwnFillState = matches[i] === null ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
     fills[i] = {
       id: i,
       gateway: f.gateway,
