@@ -6,7 +6,7 @@ import { fmtTickTime, parseTickTime } from '@gh-radar/shared';
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 
 import { buildTickSession } from '../tick-session';
-import { PLAY_MAX_GAP_MS, TICK_URL_THROTTLE_MS, useTickCursor } from '../use-tick-cursor';
+import { PLAY_MAX_GAP_MS, TICK_URL_THROTTLE_MS, teamJumpRec, useTickCursor } from '../use-tick-cursor';
 
 /**
  * Phase 37 Plan 10 Task 2 — 커서 키(← → Shift Space) · 입력 포커스 무시 · 끝/처음 정지 · 재생(1× · 10× · 끝 정지) ·
@@ -92,6 +92,57 @@ describe('useTickCursor — 키', () => {
     expect(result.current.playing).toBe(true);
     key(' ');
     expect(result.current.playing).toBe(false);
+  });
+
+  it('Shift+] = 다음 팀 주문의 첫 A3 조각 · Shift+[ = 이전 팀 주문의 첫 조각 · 같은 주문 조각은 건너뛴다 · 없으면 제자리 · 맨 [ ] 는 무시', () => {
+    // 오라클 — 거래소순으로 팀 A3 조각을 훑어 주문마다 첫 조각 자리.
+    const firsts: number[] = [];
+    const seen = new Set<number>();
+    session.exOrder.forEach((r, p) => {
+      if (session.teamOfRec[r] !== 1 || session.a3Of[r]! < 0) return;
+      const o = session.orderOfRec[r]!;
+      if (!seen.has(o)) firsts.push(p);
+      seen.add(o);
+    });
+    expect(firsts.length).toBeGreaterThan(2);
+    const next = () => key('}', { code: 'BracketRight', shiftKey: true });
+    const prev = () => key('{', { code: 'BracketLeft', shiftKey: true });
+    const { result } = mount();
+    act(() => result.current.jumpToRec(session.exOrder[0]!));
+    key(']', { code: 'BracketRight' });
+    expect(result.current.pos).toBe(0);
+    next();
+    expect(result.current.pos).toBe(firsts[0]);
+    next();
+    expect(result.current.pos).toBe(firsts[1]);
+    next();
+    expect(result.current.pos).toBe(firsts[2]);
+    prev();
+    expect(result.current.pos).toBe(firsts[1]);
+    act(() => result.current.jumpToRec(session.exOrder[firsts.at(-1)!]!));
+    next();
+    expect(result.current.pos).toBe(firsts.at(-1));
+    act(() => result.current.jumpToRec(session.exOrder[0]!));
+    prev();
+    expect(result.current.pos).toBe(0);
+  });
+
+  it('teamJumpRec — 모든 팀 주문 첫 조각을 차례로 밟는다(앞으로 · 뒤로)', () => {
+    const firsts: number[] = [];
+    const seen = new Set<number>();
+    session.exOrder.forEach((r, p) => {
+      if (session.teamOfRec[r] !== 1 || session.a3Of[r]! < 0) return;
+      const o = session.orderOfRec[r]!;
+      if (!seen.has(o)) firsts.push(session.exOrder[p]!);
+      seen.add(o);
+    });
+    const fwd: number[] = [];
+    for (let r = teamJumpRec(session, 'exchange', session.exOrder[0]!, 1); r >= 0; r = teamJumpRec(session, 'exchange', r, 1)) fwd.push(r);
+    const bwd: number[] = [];
+    const end = session.exOrder[session.exOrder.length - 1]!;
+    for (let r = teamJumpRec(session, 'exchange', end, -1); r >= 0; r = teamJumpRec(session, 'exchange', r, -1)) bwd.push(r);
+    expect(fwd).toEqual(firsts);
+    expect(bwd.reverse()).toEqual(firsts);
   });
 
   it('수신순 모드에서는 수신 순서로 움직인다', () => {

@@ -292,7 +292,7 @@ export function TickSlider({
         )}
       </div>
       <span className="text-[10.5px] whitespace-nowrap text-[var(--faint)] max-[640px]:hidden">
-        ← → 1틱 · Shift 10틱 · Space 재생
+        ← → 1틱 · Shift 10틱 · Shift+[ ] 팀 주문 · Space 재생
       </span>
     </section>
   );

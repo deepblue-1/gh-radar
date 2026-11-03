@@ -6,7 +6,8 @@
  * ① 커서 정본 = 레코드 색인 `rec`. 자리 `pos` 는 표시 순서(기본 거래소순 · 수신순)에서의 위치다 — 순서를 바꿔도 같은 틱에 머문다.
  * ② 초기 커서: `initialT`(URL `t`) → `parseTickTime` → 수신순 `lowerBoundRecv`(그 시각 이후 첫 틱) · 없으면 08:00 이후 첫 틱
  *   (당일 `live` 는 끝 틱 — D-18). 모두 그보다 이르면 마지막 틱.
- * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Space` 재생/정지(입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
+ * ③ 키: `←` `→` 한 행 · `Shift+←/→` 10행 · `Shift+]` `Shift+[` 다음/이전 팀 주문의 첫 A3 조각(`teamJumpRec` · 맨 `[` `]` 는 우리 체결 — 38 D-09) · `Space` 재생/정지
+ *   (입력창 포커스 중엔 가로채지 않는다). 재생 1× = 실제 수신 간격(2초 상한) ·
  *   10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에서 정지.
  * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
  *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게. 당일(`live`)에서 끝 틱이면 `t` 를 지운다
@@ -73,6 +74,32 @@ export function recAtNs(session: TickSession, ns: bigint): number {
   if (n === 0) return -1;
   const p = Math.min(n - 1, lowerBoundRecv(session.index.recvNs, session.recvOrder, ns));
   return session.recvOrder[p]!;
+}
+
+/**
+ * 다음(`dir` 1)/이전(-1) 팀 주문의 첫 A3 조각 rec — 표시 순서 기준 · 커서가 든 팀 주문은 건너뛴다 · 없으면 -1.
+ * 팀 A3 조각 = `teamOfRec` ∧ `a3Of ≥ 0`(닫는 B6 제외). 이전은 찾은 주문의 조각을 거슬러 올라가 첫 조각에 선다.
+ */
+export function teamJumpRec(session: TickSession, mode: TickOrderMode, rec: number, dir: 1 | -1): number {
+  const order = mode === 'exchange' ? session.exOrder : session.recvOrder;
+  const posOf = mode === 'exchange' ? session.exPos : session.recvPos;
+  if (rec < 0 || rec >= posOf.length) return -1;
+  const { teamOfRec, a3Of, orderOfRec } = session;
+  const teamA3 = (r: number) => teamOfRec[r] === 1 && a3Of[r]! >= 0;
+  const cur = teamOfRec[rec] === 1 ? orderOfRec[rec]! : -1;
+  let found = -1;
+  for (let p = posOf[rec]! + dir; p >= 0 && p < order.length; p += dir) {
+    const r = order[p]!;
+    if (!teamA3(r)) continue;
+    const o = orderOfRec[r]!;
+    if (found < 0) {
+      if (o === cur) continue;
+      found = r;
+      if (dir === 1) break;
+    } else if (o === orderOfRec[found]!) found = r;
+    else break;
+  }
+  return found;
 }
 
 /** 표시 순서의 끝 틱 rec(빈 세션이면 -1). */
@@ -158,7 +185,17 @@ export function useTickCursor(
 
   const togglePlay = useCallback(() => setPlaying((p) => !p), []);
 
-  // 키 — ← → 한 행 · Shift 10행 · Space 재생/정지. 입력창 · 버튼(Space 는 버튼 자체 동작) · 수정자 키는 가로채지 않는다.
+  const stepTeam = useCallback(
+    (dir: 1 | -1) => {
+      setRec((r) => {
+        const t = teamJumpRec(session, mode, r, dir);
+        return t < 0 ? r : t;
+      });
+    },
+    [session, mode],
+  );
+
+  // 키 — ← → 한 행 · Shift 10행 · Shift+] [ 다음/이전 팀 주문(물리 키 code — Shift 글자 `{` `}` 는 배열마다 다르다) · Space 재생/정지. 입력창 · 버튼(Space 는 버튼 자체 동작) · 수정자 키는 가로채지 않는다.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
@@ -166,6 +203,9 @@ export function useTickCursor(
         e.preventDefault();
         const n = e.shiftKey ? 10 : 1;
         step(e.key === 'ArrowRight' ? n : -n);
+      } else if (e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
+        e.preventDefault();
+        stepTeam(e.code === 'BracketRight' ? 1 : -1);
       } else if (e.key === ' ' || e.key === 'Spacebar') {
         if (isActivatable(e.target)) return;
         e.preventDefault();
@@ -174,7 +214,7 @@ export function useTickCursor(
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, togglePlay]);
+  }, [step, stepTeam, togglePlay]);
 
   // 재생 — 1× = 다음 틱까지 실제 수신 간격(2초 상한) · 10× = 그 1/10 · 최대 = 프레임마다 한 틱 · 끝에 닿으면 정지.
   useEffect(() => {
