@@ -16,7 +16,7 @@
  * 팀(D-04): bs ∈ {'1','2'} ∧ 런 안 한 가격 2조각 이상(SMP 모양)만. NXT 에는 KRX 의 「0/0 단독 · 스윕 끝」 대응물이 없다.
  * 단일가 bs(그 밖의 값)는 버린다(D-05). 같은 ISIN 의 KRX 와 합산하지 않는다 — 뷰어는 거래소 하나(D-13).
  */
-import type { FieldValue } from "./decode";
+import { numOf as num, strOf as str, type FieldValue } from "./decode";
 
 /** NXT 판정 입력 한 행 — A3(k='A') 또는 B6(k='B'). B6 는 체결 열이 없다. `rec` = 원본 레코드 색인. */
 export interface NxtRow {
@@ -32,16 +32,6 @@ export interface NxtRow {
   tNs?: bigint | null;
   a1?: number;
   b1?: number;
-}
-
-function num(v: FieldValue | undefined): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  return Number.NaN;
-}
-
-function str(v: FieldValue | undefined): string {
-  return typeof v === "string" ? v : "";
 }
 
 /** decodeAny 결과(표, 행) → NxtRow. A3 · B6 가 아니면 null. */

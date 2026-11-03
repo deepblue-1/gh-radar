@@ -9,7 +9,7 @@
  * 「주 | 금액」(스케치 019 D): 금액 = 잔량 × 그 단 가격. 바닥 줄은 총잔량(total_ask_qty · total_bid_qty) ↔ 10단 금액 합
  * (`bookAmountOf`). NXT 도 B6 로만 재구성하므로 A3 의 0/0 여부와 무관하다.
  */
-import { decodeFields, type FieldValue } from "./decode";
+import { decodeFields, numOf as num, type FieldValue } from "./decode";
 import { B6_LAYOUT } from "./layouts";
 import { NO_BOARD, TAG_CODE, payloadOf, type TickIndex } from "./record-index";
 
@@ -53,12 +53,6 @@ export interface Book10 {
   totalBid: number;
   estPx: number;
   estQty: number;
-}
-
-function num(v: FieldValue | undefined): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  return Number.NaN;
 }
 
 /** B6 rec → 호가 10단(decodeFields(B6_LAYOUT)). rec < 0 · B6 가 아님 · 길이 안 맞음이면 null(「호가 없음」). */

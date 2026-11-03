@@ -11,7 +11,7 @@
  *
  * 추정 · 배분은 하지 않는다 — 상위 5 밖 창구는 null(화면 「—」)이고, B9 수신 시각을 같이 준다(「B9 기준 HH:MM:SS」).
  */
-import { decodeFields, type FieldValue } from "./decode";
+import { decodeFields, numOf as num, type FieldValue } from "./decode";
 import { B9_LAYOUT } from "./layouts";
 import { TAG_CODE, payloadOf, type TickIndex } from "./record-index";
 
@@ -45,12 +45,6 @@ export interface MemberRow {
   label: string;
   sell: { qty: number; value: number } | null;
   buy: { qty: number; value: number } | null;
-}
-
-function num(v: FieldValue | undefined): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "bigint") return Number(v);
-  return Number.NaN;
 }
 
 /** B9 rec → 다섯 창구 표. rec < 0 · B9 가 아님 · 길이 안 맞음이면 null. */
