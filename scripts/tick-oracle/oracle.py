@@ -561,6 +561,14 @@ def scoped_frames(records: bytes, date: str, tmpd: Path) -> dict:
     return res
 
 
+def scope_of(res: dict, scope: str) -> tuple:
+    """scoped_frames 결과에서 범위 하나 (P, last_px) — 범위 A3 0행(None)이면 다른 실패 경로처럼 `[oracle]` 메시지 + 종료 1."""
+    got = res[scope]
+    if got is None:
+        raise SystemExit(f"[oracle] {scope}: 범위 A3 0행 — ISIN · 시간(--hours) · 날짜를 확인")
+    return got
+
+
 def _pnl_json(pnl: dict | None) -> dict | None:
     return None if pnl is None else {k: _py(v) for k, v in pnl.items()}
 
@@ -588,7 +596,7 @@ def cmd_pnl(a: argparse.Namespace) -> int:
     bad = 0
     got: dict = {}
     for scope, ex in (("teamflow", tf), ("accum", ac)):
-        P, last_px = res[scope]
+        P, last_px = scope_of(res, scope)
         mine = _pnl_json(teamflow.team_pnl(P, last_px))
         got[scope] = {"last_px": last_px, "pnl": mine}
         want = ex["payload"].get("pnl")
@@ -632,7 +640,7 @@ def cmd_g4cut(a: argparse.Namespace) -> int:
     doc: dict = {"source": {"isin": a.isin, "date": a.date, "hours": hours, "files": [f.name for f in files], "frames": frames,
                             "a3_records": n, "a3_rows": res["a3_rows"], "g4_trades": res["g4_trades"]}}
     for scope in ("accum", "teamflow"):
-        P, last_px = res[scope]
+        P, last_px = scope_of(res, scope)
         summary, rows = order_rows(P)
         summary.update(rows=len(rows), last_px=last_px)
         doc[scope] = {"summary": summary, "rows": rows}
