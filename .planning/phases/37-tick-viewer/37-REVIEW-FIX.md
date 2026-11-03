@@ -231,7 +231,7 @@ status: partial
 - decode 는 이제 자기가 만든 세 파일만 잰다. 예전에는 `*.ticks.zst` 전체를 다시 쟀다.
 - 확인은 `bash -n` 과 다시 읽기까지만 했다. 생성기는 원본 pcap 이 있어야 돌아가고, 하네스가 임시 셸 스크립트 실행을 막아 함수 단독 시험도 하지 못했다.
 
-### CR-30: 레코드 0건 closed 키 하나가 그날 승격 전체를 실패시킨다
+### CR-30: 레코드 0건 closed 키 하나가 그날 승격 전체를 실패시킨다 (tickgw export ↔ promote 계약 불일치)
 
 **수정 파일:** `workers/tick-convert/src/tickgw-export.ts`, `workers/tick-convert/src/modes/promote.ts`, `workers/tick-convert/tests/helpers/fake-tickgw.ts`, `workers/tick-convert/tests/promote.test.ts`, `tickgw/src/server.ts`(계약 주석만)
 **커밋:** ea2049f2
@@ -245,7 +245,7 @@ status: partial
 - 가짜 tickgw를 실제 계약에 맞췄다. 빈 키는 `"0"`이 아니라 `null`을 돌려준다. `listPatch`로 계약을 어긴 키도 흉내 낼 수 있게 했다.
 - 시험 3건을 더했다: 0건 키 + 정상 키 → main 0, 모양 위반 키 + 정상 키 → main 1이지만 정상 키는 승격, 거래소를 못 읽는 키.
 
-### CR-31: 20:00 원본 압축(`compressed_files_skipped`)을 무시해 잘린 하루를 「완결 · closed」로 승격
+### CR-31: 20:00 원본 압축(`compressed_files_skipped`)을 무시해 잘린 하루를 「완결 · closed」 로 승격한다
 
 **수정 파일:** `tickgw/src/poller.ts`, `tickgw/src/cache.ts`(주석), `tickgw/src/indexer.ts`(주석), `tickgw/tests/poller.test.ts`
 **커밋:** cf5a424c
@@ -261,7 +261,7 @@ status: partial
 - **남은 일 1 — 승격률:** 이제 18~20시에 리스가 끝난 키는 대부분 승격되지 않는다. 정확성 쪽 최소 조건만 넣었다. 리뷰가 권한 「19:55부터 오늘 complete 키를 리스와 무관하게 따라잡기」 단계는 넣지 않았다. 승격률을 지키려면 후속 작업으로 판단이 필요하다.
 - **남은 일 2 — gh-trade 계약 빈틈:** gh-trade 인덱서 `--query`는 파일표에 없는 `file_id`와 헤더를 읽지 못한 레코드를 경고 로그만 남기고 건너뛴다. 이 둘은 stderr JSON에 세지 않는다(`main.cpp` 범위 순회). 그래서 tickgw는 이런 끊김을 알 수 없다. 필요하면 `scripts/trade-handoff.sh`로 gh-trade에 「건너뛴 레코드 수 필드」를 요청해야 한다.
 
-### WR-30: 승격 경로에 격자 크기 상한(`GRID_MAX_BYTES`)이 없다
+### WR-30: 승격 경로에 격자 크기 상한(`GRID_MAX_BYTES`)이 없다 → 대형 종목은 매일 두 번 실패 · 알림
 
 **수정 파일:** `workers/tick-convert/src/modes/promote.ts`, `workers/tick-convert/tests/too-large.test.ts`
 **커밋:** 4571ded2
@@ -272,7 +272,7 @@ status: partial
 - 받기 전 사전 판정을 더했다. export `bytes`가 `GRID_MAX_BYTES × PREFETCH_FACTOR(2)`를 넘으면 바이트를 당기지 않는다(2Gi Job 메모리 보호).
 - 시험 2건을 더했다(받은 뒤 판정, 받기 전 판정).
 
-### WR-31: tickgw 256MB 컨테이너에서 전체 버퍼 복사가 겹쳐 OOM
+### WR-31: tickgw 256MB 컨테이너에서 전체 버퍼 복사가 겹쳐 OOM → 그날 캐시(승격 입력) 소실
 
 **수정 파일:** `tickgw/src/cache.ts`, `tickgw/src/server.ts`, `tickgw/src/config.ts`, `tickgw/src/indexer.ts`, `tickgw/tests/server.test.ts`
 **커밋:** 56660c00
@@ -284,7 +284,7 @@ status: partial
 - ssh stdout 상한 기본값을 32MB에서 20MB로 낮췄다(계약 16MB + 여유 4MB, `DEFAULT_MAX_STDOUT_BYTES`).
 - 시험을 더했다: subarray가 같은 메모리를 가리키는지 단언.
 
-### WR-32: 당일 첫 응답(하루치)에 크기 상한이 없음
+### WR-32: 당일 첫 응답(08:00~지금 하루치)에 크기 상한이 없어 server 를 통째로 버퍼링해 통과한다
 
 **수정 파일:** `tickgw/src/cache.ts`, `tickgw/src/server.ts`, `tickgw/tests/server.test.ts`, `server/src/services/tickgw-client.ts`
 **커밋:** b3136711
@@ -305,7 +305,7 @@ status: partial
   - 증분(「최신 받기」 버튼)에서 응답이 잘리면 8MiB만 붙고, 사용자가 버튼을 다시 눌러야 한다.
   - shared에 `more` 헤더를 더하고, server CORS expose와 webapp이 More=true면 곧바로 다음 요청을 보내는 것은 Part C/shared 담당의 후속 작업이다.
 
-### WR-33: 활성 키 합이 캐시 상한을 넘으면 LRU가 폴링 중인 키를 지우고 다시 받는 고리
+### WR-33: 활성 키 합이 캐시 상한을 넘으면 LRU 가 폴링 중인 키를 지우고, 그 키를 08:00 부터 다시 받는 고리에 빠진다
 
 **수정 파일:** `tickgw/src/cache.ts`, `tickgw/src/poller.ts`, `tickgw/tests/poller.test.ts`, `tickgw/tests/server.test.ts`
 **커밋:** ddc0c709
@@ -323,7 +323,7 @@ status: partial
   - 지난 날의 판정은 날짜가 바뀌면 정리한다.
 - 시험 3건을 더했다: 보호 · full · too_large 캐시 단위, 폴러 보호와 리스 해제 뒤 자리 얻기, 너무 큰 키 정지와 재오픈.
 
-### WR-34: tickgw 배포 시각 가드가 20:00~21:00 승격 창을 보호하지 않고, 실패 시 되돌림이 없음
+### WR-34: tickgw 배포 시각 가드가 20:00~21:00 승격 창을 보호하지 않고, 실패 시 되돌릴 컨테이너도 없다
 
 **수정 파일:** `scripts/deploy-tickgw.sh`
 **커밋:** 215338d3
@@ -336,7 +336,7 @@ status: partial
   - healthz나 자기 시험이 실패하면 새 컨테이너를 지우고 **교체 전 이미지로 다시 기동**한다.
   - 되돌림에 쓰도록 env-file은 확인이 끝난 뒤에 지운다(tmpfs, 0600, EXIT trap은 그대로).
 
-### WR-35: 선택 env `TICKGW_URL`을 빠뜨린 재배포가 당일 경로를 조용히 끔
+### WR-35: 선택 env `TICKGW_URL` 을 빠뜨린 재배포가 운영 중인 당일 경로를 조용히 끄거나 승격 Job 을 옛 이미지에 묶어 둔다
 
 **수정 파일:** `scripts/deploy-server.sh`, `scripts/deploy-tick-convert.sh`
 **커밋:** c24f0d9f
@@ -349,7 +349,7 @@ status: partial
 - tick-convert가 `TICKGW_DISABLE=1`로 승격을 건너뛸 때, 승격 Job이 이미 있으면 「옛 이미지 그대로 · Scheduler 멈추는 명령」을 stderr로 크게 알린다.
 - 라이브 env 자동 조회는 넣지 않았다. 명시 플래그 방식을 택했다.
 
-### WR-36: nightly에서 키 하나만 실패해도 그 날짜 전량을 반복해서 다시 읽음
+### WR-36: nightly 에서 키 하나만 실패해도(또는 원본 하나가 깨져도) 그 날짜 전량(≈9GB Archive)을 하루 두 번 · 최대 10일 다시 읽는다
 
 **수정 파일:** `workers/tick-convert/src/modes/nightly.ts`, `workers/tick-convert/tests/nightly.test.ts`
 **커밋:** 8202ef9d
@@ -363,7 +363,7 @@ status: partial
 - 시험을 더했다: 3회 실패 날짜는 포기, 2회는 다시 고름, request 실패는 세지 않음.
 - **남은 일:** 리뷰가 권한 「실패 키만 요청 큐로 넘기기」는 supabase 변경이 필요해서 넣지 않았다. 빠진 키는 요청 변환으로 채운다.
 
-### IN-30: `runIndexer` 상한 초과 경로가 0으로 채운 버퍼를 만들고, 종료코드 삼항식은 죽은 코드
+### IN-30: `runIndexer` 의 상한 초과 경로가 0 으로 채운 버퍼를 만들고, 종료코드 삼항식은 죽은 코드다
 
 **수정 파일:** `tickgw/src/indexer.ts`, `tickgw/tests/indexer.test.ts`
 **커밋:** c3f54157
@@ -374,7 +374,7 @@ status: partial
 - `exitCode = code ?? -1`로 줄였다.
 - 시험을 더했다: 상한 초과면 stdout 길이 0.
 
-### IN-31: 요청 변환 트리거 타임아웃 뒤 되돌림이 중복 실행을 낳을 수 있음
+### IN-31: 요청 변환 트리거 타임아웃(10초) 뒤 되돌림이 이미 시작된 실행과 중복 실행을 낳을 수 있다
 
 **수정 파일:** `server/src/services/tick-convert-trigger.ts`, `server/src/services/ticks.ts`, `server/tests/routes/ticks.test.ts`
 **커밋:** 3003b499
@@ -386,7 +386,7 @@ status: partial
 - 다른 실패(403 · 네트워크)는 지금처럼 되돌리고 502를 낸다.
 - 시험을 더했다.
 
-### IN-32: 통독 중 잘린 꼬리 파일 수가 보고되지 않음
+### IN-32: 통독 중 잘린 꼬리 파일 수(`truncatedFiles`)가 어디에도 보고되지 않는다
 
 **수정 파일:** `workers/tick-convert/src/modes/nightly.ts`, `workers/tick-convert/src/modes/request.ts`, `workers/tick-convert/tests/request.test.ts`
 **커밋:** ad85b686
@@ -396,7 +396,7 @@ status: partial
 - 0이 아니면 warn 로그를 남기고, 실행 기록 error에 note `truncated n`을 붙인다(실패는 아니다). 요약 줄에는 `truncated=`가 붙는다.
 - 시험을 더했다: 10시 파일 끝 5B를 자르면 `error: "truncated 1"`이고 main은 0.
 
-### IN-33: 배포 스크립트가 HEAD SHA로 태그하면서 작업 트리를 빌드하고, IAP 실패를 「tickpull 미설치」로 알림
+### IN-33: 배포 스크립트가 HEAD SHA 로 태그하지만 작업 트리를 빌드하고, IAP 실패를 「tickpull 미설치」 로 잘못 알린다
 
 **수정 파일:** `scripts/deploy-tickgw.sh`, `scripts/deploy-tick-convert.sh`
 **커밋:** acb4a707
@@ -406,7 +406,7 @@ status: partial
 - 변경이 있으면 종료한다. `ALLOW_DIRTY=1`이면 태그와 APP_VERSION을 `<sha>-dirty`로 바꿔 진행한다.
 - deploy-tickgw ③은 원격 첫 줄 `REMOTE_OK` 표지로 VM에 닿았는지 판정한다. 표지가 없으면 「IAP SSH 실패(종료 n)」로 따로 알린다. `--help` 출력 범위도 늘어난 머리에 맞췄다.
 
-### IN-34: `openTick`이 RPC 응답 필드 일부를 모양 검사 없이 단언 캐스트함
+### IN-34: `openTick` 이 RPC 응답 필드 일부를 모양 검사 없이 단언 캐스트한다
 
 **수정 파일:** `server/src/services/ticks.ts`, `server/tests/routes/ticks.test.ts`
 **커밋:** 15f7b8ca
