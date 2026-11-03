@@ -156,6 +156,8 @@ export type ExchangeResult = {
   tooLarge: number;
   failed: number;
   bytesRead: number;
+  /** 끝이 잘린 레코드가 남은 원본 파일 수(기록기 비정상 종료 흔적 · 실패 아님 · 실행 기록 error 에 note · IN-32). */
+  truncatedFiles: number;
   /** 팀 값 계산 실패 키 수(그 행 팀 값만 null · 실패 아님 · quick 261103-j4d). */
   teamFailed: number;
   /** 팀 값 계산 소요 합(ms). */
@@ -209,6 +211,7 @@ function emptyEx(exchange: Exchange): ExchangeResult {
     tooLarge: 0,
     failed: 0,
     bytesRead: 0,
+    truncatedFiles: 0,
     teamFailed: 0,
     teamMs: 0,
     launchRows: 0,
@@ -262,6 +265,10 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       tr.add(String(row.price_change_type), toNum(row.price_change), toNum(row.trade_price));
     });
     byEx.get(ex)!.bytesRead = stats.bytesRead;
+    byEx.get(ex)!.truncatedFiles = stats.truncatedFiles;
+    if (stats.truncatedFiles > 0) {
+      logger.warn({ date, ex, truncatedFiles: stats.truncatedFiles }, "tick-convert nightly: 끝이 잘린 원본 파일 — 잘린 레코드는 버림(IN-32)");
+    }
   }
   day.stagedPeak = stager.peakBytes();
   day.rawBytes = stager.rawBytes();
@@ -354,7 +361,10 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
     }
   }
   for (const er of day.exchanges) {
-    if (er.failed > 0) er.error = `failed ${er.failed}`;
+    const notes: string[] = [];
+    if (er.failed > 0) notes.push(`failed ${er.failed}`);
+    if (er.truncatedFiles > 0) notes.push(`truncated ${er.truncatedFiles}`); // 무로그 손실 금지(IN-32)
+    if (notes.length > 0) er.error = notes.join("; ");
   }
   if (errs.length > 0) {
     day.failed = true;
@@ -428,7 +438,8 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     logger.info(
       { date, ex: er.exchange, result: er },
       `[tick-convert] mode=nightly date=${date} ex=${er.exchange} targets=${er.targets} written=${er.written} too_large=${er.tooLarge} ` +
-        `bytes_read=${er.bytesRead} staged=${day.stagedPeak} ready=${day.ready} team_failed=${er.teamFailed} team_ms=${er.teamMs} ` +
+        `bytes_read=${er.bytesRead} truncated=${er.truncatedFiles} staged=${day.stagedPeak} ready=${day.ready} ` +
+        `team_failed=${er.teamFailed} team_ms=${er.teamMs} ` +
         `launch=${er.launchRows} launch_failed=${er.launchFailed} ` +
         `ms=${day.durationMs}` +
         (er.error ? ` error=${er.error}` : ""),
