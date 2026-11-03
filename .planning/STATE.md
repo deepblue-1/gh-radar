@@ -5,15 +5,15 @@ milestone_name: 운영 유지보수
 current_phase: 37
 current_phase_name: 틱 전문 뷰어
 status: executing
-stopped_at: Phase 38 context gathered
-last_updated: "2026-11-03T05:20:49.049Z"
-last_activity: 2026-11-02
-last_activity_desc: Phase 37 execution started
-state_head: 5d1ebc870c292b59bc3906508d5b27825cd56fee
+stopped_at: Phase 38 planned
+last_updated: "2026-11-03T05:39:32.852Z"
+last_activity: 2026-11-03
+last_activity_desc: Phase 38 planned (10 plans)
+state_head: 9d8497607a839f127b2f8f2df2fd6d32c2c49295
 progress:
   total_phases: 9
   completed_phases: 7
-  total_plans: 101
+  total_plans: 111
   completed_plans: 101
   percent: 78
 ---
@@ -32,8 +32,10 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 37 (틱 전문 뷰어) — EXECUTING
 Plan: 1 of 19
 Status: Executing Phase 37
-Last activity: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
-Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
+Last activity: 2026-11-03 - Phase 38 계획 완료(10 플랜 · 8 웨이브 · 체커 통과, 리비전 1회) — 37-17 당일 UAT 는 아직 uat-pending
+Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
+Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
+Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
 Progress: [████████░░] 78% (82/82 plans)
@@ -129,10 +131,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/38-own-orders-on-ticks/38-CONTEXT.md
+**Resume file:** .planning/phases/38-own-orders-on-ticks/38-01-PLAN.md
 
 Last session: 2026-11-03T04:15:35.114Z
-Stopped at: Phase 38 context gathered
+Stopped at: Phase 38 planned — next /gsd-execute-phase 38
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps

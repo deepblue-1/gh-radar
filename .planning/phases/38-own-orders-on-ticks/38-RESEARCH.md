@@ -509,16 +509,25 @@ export type TickOwnResponse = { access: true; date: string; exchange: TickExchan
 | A4 | gh-trade 게이트웨이 시계(gw_time)와 틱 수신 시계(recv)는 같은 기준(probe gw−수신 p50 0ms) | 자리 계산 | 주문 줄 자리가 수십 ms 어긋남 — 표시만 영향 |
 | A5 | 어드민 판정을 RPC 안에서 해도 D-01 의도(서버측 · DB role · 매 요청 · 클라 입력 없음)를 만족한다 | RPC · Open Q1 | 사용자가 「인자로」 를 고집하면 서버 role 조회 +1 왕복 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 2026-11-03 플랜 작성 뒤 6건 모두 결론 · 근거 플랜을 적었다(Q6 은 Pitfall 10 의 선행조건을 질문으로 올린 것).
 
 1. **어드민 분기를 인자(`p_all_accounts`)로 할지 RPC 안 판정으로 할지**
    - What we know: D-01 은 「`p_all_accounts boolean` 류 인자 · 서버가 role 로만 켠다」. `requireAdmin` 은 비어드민을 403 으로 막는 미들웨어라 그대로 못 쓰고(트레이더도 이 경로를 써야 함), 서버가 role 을 따로 읽으면 Supabase 왕복 +1 이다. server 테스트 목은 `from()` 을 금지한다.
    - Recommendation: RPC 안 `dma_app_access_map()` role 판정(같은 원천 `app_users` · 매 요청 · 왕복 1회 유지). 인자를 꼭 두려면 `p_all_accounts` 를 받되 **RPC 가 role 로 다시 검증**(admin 아니면 무시)하는 이중 안전 — 플래너가 CONTEXT 문구와 맞춰 고른다(사용자 확인 불필요 수준의 「how」).
+   - **RESOLVED: 38-01** — RPC 안 `dma_app_access_map()` role 판정 · 어드민용 boolean 인자 없음(인자 4개 `p_user_id, p_date, p_isin, p_ex` · 왕복 1회 · 클라 입력으로 켤 길 0). **38-03** 이 pgTAP(admin 전 계좌 · trader 가시 계좌만)과 supertest(쿼리에 `p_all_accounts` 를 넣어도 RPC 인자 4개 그대로)로 잠근다.
 2. **kind 3·6 행 없는 체결의 주문 시각**
    - Recommendation: 같은 jsonb 에 `orders`(dma_account_orders: gateway · account_no · order_no · created_at → ms · side · price · qty · origin)를 체결이 있는 주문번호만 실어 보조로 쓴다(왕복 그대로 1회). 없으면 주문 줄 대신 「주문 시각 모름」 으로 첫 체결만.
+   - **RESOLVED: 38-01 · 38-04** — 38-01 RPC 가 jsonb `orders` 보조(신규 주문 · 체결 있는 것만 · `created_ms`)를 같은 왕복에 싣는다. 38-04 own-model 이 주문 시각 = 이벤트 `gw_time_ms` → 없으면 보조 `created_ms` → 둘 다 없으면 source `'fill'` · 주문 줄 없이 첫 체결부터(가짜 시각을 만들지 않으려고 「주문 시각 모름」 줄도 두지 않는다 · `own-model.test.ts` 「체결만(주문 줄 없음)」 케이스).
 3. **ev_kind 3(체결통보) 근거** — 10/30 5종목에 없었다(실측 0). 권고: 근거 = 그 계좌의 직전 우리 체결(같은 ev_price · ev_trade_qty 의 E 행)로 잇되, 못 찾으면 「근거 없음 · 앵커만」. 측정 근거가 없으므로 UAT 에서 확인.
+   - **RESOLVED: 38-05 · 38-06 · 38-10** — 38-05 shared `locateEvidence` 는 ev_kind 3 을 `none` 으로 돌려주고, 38-06 웹 모델이 같은 게이트웨이 · 계좌의 그 이전 우리 체결(가격 == ev_price ∧ 수량 == ev_trade_qty) 짝 A3 로 잇는다(없으면 근거 없음 · 앵커만). 실측이 없으므로 38-10 Task 3 C UAT 에서 확인하고 해당 주문이 없으면 「미관측」 으로 기록한다(38-VALIDATION 수동 검증 표).
 4. **중복 수신 A3 제외 여부** — probe 재현이 우선. 픽스처 테스트에 「중복 제외 시」 수치를 같이 찍어 보고 결정.
+   - **RESOLVED: 38-02 — probe 그대로(전 A3 ∧ ok · 중복 포함).** 이 phase 의 오라클 단언(401/406 · 추정 108)과 `matchOwnFills` 는 중복을 빼지 않는다(ROADMAP 수치가 probe 정의로 쟀다 · 38-02 「규칙을 수치에 맞추려고 바꾸지 않는다」 금지). 38-02 Task 2 가 「중복 제외 시」 같은수량 · 일부 · 못찾음 · 추정 합을 `console.info` 한 줄로 찍어 SUMMARY 에 남긴다(단언 아님). 중복 제외 채택은 그 수치와 38-10 UAT 뒤 후속 결정 — 이 phase 에서 규칙을 바꾸지 않는다.
 5. **대기(pending) 표기 모양** — 줄을 숨길지 「대기」 칩 줄로 둘지 UI-SPEC 재량.
+   - **RESOLVED: 38-04** (UI-SPEC 없음 — 38-01 실행 메모 8) — 숨기지 않고 짝 없음 줄과 같은 줄 모양 「◆ 우리 체결 n주 · 전문 아직 안 옴」(당일 · `OWN_PENDING_GRACE_MS = 1200` · 과거 격자는 대기 없음). 같은 상태를 38-06 카드(「전문 아직 안 옴」) · 38-07 차트(빈 ◇ · 툴팁 「전문 아직 안 옴」)가 이어 쓴다.
+6. **선행조건 37-17(당일 경로 켜기) uat-pending(Pitfall 10)** — 당일 경로 e2e · UAT 가 37-17 UAT 종료를 전제로 한다.
+   - **RESOLVED: 38-10 Task 3 F** — 과거 날짜 경로(38-01 ~ 38-09 의 구현 · 테스트)는 37-17 에 기대지 않는다. 당일 화면 UAT 만 38-10 Task 3 F 가 37-17 상태를 확인해 당일 경로가 켜져 있으면 「↻ 최신 받기」 1회 = own 1회를 확인하고, 꺼져 있으면 「당일 UAT 보류(37-17)」 로 기록한다(38-01 실행 메모 10 · 38-VALIDATION 수동 검증 표).
 
 ## Environment Availability
 

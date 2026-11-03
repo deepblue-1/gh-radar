@@ -492,10 +492,34 @@ Plans:
   2. 우리 체결 ↔ A3 짝짓기 — 10/30 격자 실측 기준 **≥ 98%** (401/406 재현) · 「우리 n주 / 전체 m주」 부분 체결 표기 · 20ms 안 동가 후보 복수면 「추정」 표시 · 짝 없는 체결은 주문 시각 위치로 표시(누락 0).
   3. 조건 근거 전문 특정 — 호가 근거(ev_kind 1)는 B6 **29/29** 재현(ev_price 단 잔량 == ev_qty_after) · 체결 근거 단건 정확 · 주기매도 구간 표시 · cum_volume 앵커 **100/100** 으로 「주문 직전 마지막 체결」 A3 확정 · `A3Columns` 에 cum_volume 열 추가.
   4. 과거(격자)와 당일(live) 경로 같은 화면 · 계좌 가시성은 discuss 결정(`dma_visible_accounts` 권고)대로 서버측 강제 · 체결 · 조건 근거는 RPC 1회로 묶어 Cloud Run 왕복 최소.
-  5. KB121 · KYOBO127 포함 여부가 범위에 들면 gh-trade 인박스 노트로 요청하고 저널 연결 확인 뒤 같은 표시 · 아니면 「기록 없는 게이트웨이」 로 명시.
+  5. (discuss D-03 로 뜻 변경 · 2026-11-03) 대상 게이트웨이 = 어드민에서 켜진 서버(`dma_servers.enabled = true`) 전부 — 하드코딩 없음 · RPC 가 레지스트리와 조인해 켜진 서버 행만 돌려준다. KB121 · KYOBO127 은 꺼져 있어 빠지고 어드민이 켜면 자동 포함된다. gh-trade 인박스 요청 없음 · 「기록 없는 게이트웨이」 안내 없음(「우리 주문」 표 캡션에 그날 켜진 서버 목록만).
 
-**미결 결정(discuss 에서 사용자에게 — phase 추가 때 정하지 않음)**: ① 계좌 가시성: 「오늘 주문」 카드와 같은 계좌 규칙(`dma_visible_accounts` · 권고) vs 모든 DMA 사용자에게 전 계좌. ② KB121 · KYOBO127 포함 여부(저널 연결 선행 = gh-trade/relay 작업). ③ 표시 모양: 전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등 — HTML A/B/C 목업으로.
-**Plans:** 0 plans
+**미결 결정(discuss 에서 사용자에게 — phase 추가 때 정하지 않음)**: ① 계좌 가시성: 「오늘 주문」 카드와 같은 계좌 규칙(`dma_visible_accounts` · 권고) vs 모든 DMA 사용자에게 전 계좌. ② KB121 · KYOBO127 포함 여부(저널 연결 선행 = gh-trade/relay 작업). ③ 표시 모양: 전문 목록 행 배지 / 왼쪽 띠 / 차트 표식 등 — HTML A/B/C 목업으로. → 2026-11-03 discuss 로 전부 결정(38-CONTEXT D-01 · D-03 · 목업 B 둘째 레일).
+**Plans:** 10 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 38 to break down)
+**Wave 1**
+- [ ] 38-01-PLAN.md — 트레이서: RPC tick_own_for_user 1회 → GET /api/ticks/own → 브라우저 matchOwnFills → 전문 목록 우리 체결 행 칩 「n/m」 · --mine 토큰(D-01 · D-03 · D-14 · D-15)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 38-02-PLAN.md — shared 10/30 오라클: A3Columns.cumVolume · 창 픽스처 생성기(로컬 사본 · 익명화 · --check) · 짝짓기 401/406 · 추정 108 재현(트레이서 = 생성기 → 픽스처)
+- [ ] 38-03-PLAN.md — RPC · 라우트 잠금: pgTAP 전체(가시성 · 어드민 · 켜진 서버 켜면 포함 · 필터 · 모양 — 트레이서) · /api/ticks/own supertest
+- [ ] 38-04-PLAN.md — 웹 주문 줄 · 짝 없음 줄(MSG_ITEM ORDER/NOFILL · 두 순열 · 트레이서) · 둘째 레일 14px · 줄 선택 · 당일 대기
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 38-05-PLAN.md — shared 조건 근거 · 앵커: locateEvidence B6 29/29(트레이서) · 체결 단건 2 · 구간 9 · 앵커 100/100
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 38-06-PLAN.md — 웹 근거 마디 ○ ◌ · 구간 점선 · 카드 ◆ 우리 주문 섹션 보기 ›(트레이서) · 「우리 주문」 표 · 근거 역참조 · 되돌아가기
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 38-07-PLAN.md — 차트 ◆ · 추정 · ◇ · 근거 ○ · 클릭 이동(트레이서) · 툴팁 우리 체결 줄 · 범례
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 38-08-PLAN.md — 화면 맨 위 제목 줄 「◆ 우리 체결 k/n ‹ ›」 · 키 [ ](트레이서) · 당일 「최신 받기」 1회 = live 1 + own 1
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 38-09-PLAN.md — e2e: 과거 흐름(트레이서) · own 실패 내성 · 당일 버튼 1회 · 폰 390 · 37 회귀
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 38-10-PLAN.md — 전체 회귀 → [BLOCKING] db push(20:00 뒤) → server(라이브 env) → push · 프로덕션 UAT (메인 세션)
