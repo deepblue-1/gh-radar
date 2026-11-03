@@ -18,6 +18,9 @@ import {
   slotText,
   tailInversionText,
   tailText,
+  teamBookText,
+  teamGapText,
+  teamOrderMetaOf,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
 import { fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
@@ -39,6 +42,8 @@ import { cn } from '@/lib/utils';
  * ③ 모든 항목이 같은 높이(데스크톱 24px · 폰 22px · 한 줄 말줄임) — `useFixedWindow` 창 가상화. 커서가 바뀌면 그 행이 보이게
  *   스크롤(nearest) · 순서를 바꾸면 가운데로.
  * ④ 행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 마지막 조각. 선택 틱과 같은 주문 행은 옅은 보라 띠(스케치 019).
+ * ⑤ 팀 주문 보조 말(스케치 024 C · 2026-11-03) — 꼬리 줄(1조각 팀 주문은 그 A3 행) 끝에 「직전 팀 +0.512304s」(직전 팀 주문과의
+ *   첫 조각 체결시각 간격 · µs) · 「주문 전 호가 총 1.84 · 1호 0.35」(매도/매수 총잔량 · 1호가 잔량 비). 값은 `teamOrderMetaOf`.
  */
 
 export interface TickMsgListProps {
@@ -128,6 +133,20 @@ function railStyle(order: ViewOrder | null, sel: boolean): CSSProperties | undef
 const DIR_COLOR = { 1: 'text-[var(--up)]', 0: 'text-[var(--flat)]', [-1]: 'text-[var(--down)]' } as const;
 const SIDE_COLOR = { buy: 'text-[var(--up)]', sell: 'text-[var(--down)]', auction: 'text-[var(--muted-fg)]' } as const;
 
+/** 팀 주문 보조 말(스케치 024 C) — 「 · 직전 팀 +0.512304s · 주문 전 호가 총 1.84 · 1호 0.35」. 팀 주문이 아니면 null. */
+function TeamMeta({ session, order }: { session: TickSession; order: ViewOrder }) {
+  const m = order.team ? teamOrderMetaOf(session, order.id) : null;
+  if (m === null) return null;
+  const book = teamBookText(m);
+  return (
+    <span data-slot="tick-team-meta" className="mono" title={book === '' ? teamGapText(m) : `${teamGapText(m)} · ${book}`}>
+      {' · '}
+      <span className="font-semibold text-[var(--team)]">{teamGapText(m)}</span>
+      {book !== '' && <span className="text-[var(--muted-fg)]">{` · ${book}`}</span>}
+    </span>
+  );
+}
+
 function contentOf(session: TickSession, rec: number, order: ViewOrder | null, mode: TickOrderMode): ReactNode {
   const tag = session.index.tag[rec];
   if (tag === TAG_CODE.A3) {
@@ -147,6 +166,7 @@ function contentOf(session: TickSession, rec: number, order: ViewOrder | null, m
             {a.zz && a.side !== 'auction' ? ' · 0/0' : ''}
           </span>
           {order && order.pieces < 2 && <ShapeChip order={order} />}
+          {order && order.pieces < 2 && <TeamMeta session={session} order={order} />}
         </>
       );
     }
@@ -241,6 +261,7 @@ const MsgRow = memo(function MsgRow({ session, model, item, pos, joined, sel, ba
       >
         <span className="mono">{tailText(order)}</span>
         <ShapeChip order={order} className="ml-1" />
+        <TeamMeta session={session} order={order} />
         {order.open && <span className={cn(CHIP, 'ml-1 bg-[var(--vi-bg)] text-[var(--vi)]')}>진행 중</span>}
         {inv && <span className="ml-1 font-semibold text-[var(--vi)]">{tailInversionText(mode, inv.leadNs)}</span>}
       </div>

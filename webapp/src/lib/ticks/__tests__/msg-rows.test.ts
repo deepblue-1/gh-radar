@@ -22,6 +22,11 @@ import {
   slotText,
   tailInversionText,
   tailText,
+  fmtGapNs,
+  fmtRatio,
+  teamBookText,
+  teamGapText,
+  teamOrderMetaOf,
 } from '../msg-rows';
 import { buildTickSession, recentOrdersOf } from '../tick-session';
 
@@ -235,5 +240,45 @@ describe('세션 주문 판정 — 컷 13시 KRX = 37-03 오라클(주문 · 종
     const tail = m.tailPosOfOrder[o.id]!;
     expect(itemIdxOf(m.items[tail - 1]!)).toBe(o.closingB6Rec);
     expect(s.index.tag[o.closingB6Rec!]).toBe(TAG_CODE.B6);
+  });
+});
+
+describe('팀 주문 간격 · 주문 전 호가비(스케치 024 C)', () => {
+  /** 팀 매수 SMP 3조각(13:00:00.001000~) · 일반 1조각 · 팀 매도 0/0 단독(13:00:00.005000). */
+  const s = synthSession([
+    [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121], total: [5_000, 2_000] })],
+    [1, a3Msg({ seq: 101, bs: '2', px: 16400, qty: 100, time: '130000001000' })],
+    [1.1, a3Msg({ seq: 102, bs: '2', px: 16400, qty: 200, time: '130000001100' })],
+    [1.2, a3Msg({ seq: 103, bs: '2', px: 16400, qty: 300, time: '130000001200' })],
+    [1.5, b6Msg({ seq: 104, ask1: [16450, 10], bid1: [16400, 20], total: [4_000, 0] })],
+    [2, a3Msg({ seq: 105, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000002000' })],
+    [2.5, b6Msg({ seq: 106, ask1: [16400, 1], bid1: [16350, 4], total: [3_000, 6_000] })],
+    [5, a3Msg({ seq: 107, bs: '1', px: 16300, qty: 400, time: '130000005000' })],
+    [5.5, b6Msg({ seq: 108, ask1: [16400, 1], bid1: [16300, 2] })],
+  ]);
+  const teams = s.orders.filter((o) => o.team);
+
+  it('첫 팀 주문 = 간격 없음 · 둘째 = 첫 조각 체결시각 차(µs) · 호가비 = 첫 조각 직전 B6', () => {
+    expect(teams).toHaveLength(2);
+    const [buy, sell] = teams;
+    const m1 = teamOrderMetaOf(s, buy!.id)!;
+    expect(m1.gapNs).toBeNull();
+    expect(m1.totalRatio).toBeCloseTo(2.5, 12);
+    expect(m1.l1Ratio).toBeCloseTo(283 / 121, 12);
+    expect(teamGapText(m1)).toBe('그날 첫 팀 주문');
+    expect(teamBookText(m1)).toBe('주문 전 호가 총 2.50 · 1호 2.34');
+    const m2 = teamOrderMetaOf(s, sell!.id)!;
+    expect(m2.gapNs).toBe(4_000_000n);
+    expect(teamGapText(m2)).toBe('직전 팀 +0.004000s');
+    expect(teamBookText(m2)).toBe('주문 전 호가 총 0.50 · 1호 0.25');
+  });
+
+  it('일반 주문 = null · 서식(µs 6자리 · 초 · 음수 · 분모 0 「—」)', () => {
+    const plain = s.orders.find((o) => !o.team)!;
+    expect(teamOrderMetaOf(s, plain.id)).toBeNull();
+    expect(fmtGapNs(512_304_000n)).toBe('+0.512304s');
+    expect(fmtGapNs(12_345_678_999n)).toBe('+12.345678s');
+    expect(fmtGapNs(-1_000n)).toBe('−0.000001s');
+    expect(fmtRatio(null)).toBe('—');
   });
 });
