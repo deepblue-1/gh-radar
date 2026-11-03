@@ -48,10 +48,12 @@ export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
     async upload(path, bytes) {
       const { error } = await bucket().upload(path, bytes, { contentType: GRID_CONTENT_TYPE, upsert: true });
       if (error) {
-        // HTTP 상태를 싣는다 — nightly 가 4xx(영구 거부)와 그 밖(일시 장애)을 가른다(R2-WR-03)
+        // HTTP 상태를 싣는다 — nightly 가 4xx(영구 거부)와 그 밖(일시 장애)을 가른다(R2-WR-03).
+        // StorageApiError 의 `status` 가 HTTP 상태 정수다 — `statusCode` 는 본문 값(`statusCode || code || String(status)`)이라
+        // "InvalidKey" 같은 문자열일 수 있어 `status` 가 정수가 아닐 때만 쓴다(R3-IN-02).
         const e = new Error(`storage upload ${GRID_BUCKET}/${path}: ${error.message}`) as Error & { status?: number };
         const raw = error as { status?: unknown; statusCode?: unknown };
-        const st = Number(raw.statusCode ?? raw.status);
+        const st = Number.isInteger(raw.status) ? Number(raw.status) : Number(raw.statusCode);
         if (Number.isInteger(st)) e.status = st;
         throw e;
       }

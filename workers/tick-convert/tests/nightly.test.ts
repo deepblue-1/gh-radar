@@ -574,6 +574,24 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
     expect(await runWith("503")).toMatchObject({ ok: false, error: `${TRANSIENT}: failed 1` });
   });
 
+  it("업로드 오류는 HTTP status(정수)를 먼저 본다 — statusCode 가 문자열 코드(InvalidKey)여도 4xx 는 결정적(R3-IN-02)", async () => {
+    const root = newRoot();
+    synth(root, D, { packets: packets(D) });
+    const runWith = async (err: Record<string, unknown>) => {
+      const { sb, calls } = makeFakeSupabase({
+        rpc: { tick_convert_candidates: { data: { accum: [R], live16: [] } } },
+        storage: (_b, op, args) =>
+          op === "upload" && String(args[0]).includes(`NXT/${U}`) ? ({ error: { message: "rejected", ...err } } as never) : undefined,
+      });
+      expect(await main(["nightly", "--date", D], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(1);
+      return finals(calls).find((r) => r.exchange === "NXT")!;
+    };
+    // storage-js StorageApiError — status = HTTP 정수 · statusCode = 본문 statusCode || code || String(status)
+    expect(await runWith({ status: 400, statusCode: "InvalidKey" })).toMatchObject({ ok: false, error: "failed 1" });
+    expect(await runWith({ status: 503, statusCode: "400" })).toMatchObject({ ok: false, error: `${TRANSIENT}: failed 1` });
+    expect(await runWith({ statusCode: "InvalidKey" })).toMatchObject({ ok: false, error: `${TRANSIENT}: failed 1` }); // 상태 없음
+  });
+
   /** 10/30 결정적 실패 3회 — 마지막 기록 시각 `lastAt`(그 앞 두 번은 하루씩 앞). 나머지 날짜는 ok 라 고를 날짜가 11/02(wait)뿐. */
   async function gaveUpRun(lastAt: string) {
     const root = newRoot();
