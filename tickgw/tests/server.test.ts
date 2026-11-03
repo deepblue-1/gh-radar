@@ -301,6 +301,28 @@ describe("TickCache — LRU 128MB · 유휴 15분(오늘 complete 는 KEEP_UNTIL
     expect(c.evict(at("2100"))).toEqual([today]);
   });
 
+  it("LRU 순위 — 승격 입력 아닌 키(complete 아님 · 다른 날짜)를 오늘 complete 키보다 먼저 지운다(R2-WR-01)", () => {
+    const c = new TickCache(100, 15 * 60 * 1000, 2100);
+    const old = makeKey("KR70000000A0", "KRX", DATE); // 오늘 complete · 가장 오래 전에 열었다
+    const broken = makeKey("KR70000000B0", "KRX", DATE);
+    const other = makeKey("KR70000000C0", "KRX", "20261029");
+    const d = makeKey("KR70000000D0", "KRX", DATE);
+    c.ensure(old, at("1000"));
+    c.ensure(broken, at("1001"));
+    c.ensure(other, at("1002"));
+    c.ensure(d, at("1003"));
+    c.get(broken)!.complete = false;
+    const now = at("1500");
+    expect(c.append(old, Buffer.alloc(40), meta, now)).toBe("ok");
+    expect(c.append(broken, Buffer.alloc(30), meta, now)).toBe("ok");
+    expect(c.append(other, Buffer.alloc(30), meta, now)).toBe("ok");
+    expect(c.append(d, Buffer.alloc(50), meta, now)).toBe("ok"); // 넘는 50B — broken · other 순(오늘 complete old 는 남는다)
+    expect(c.get(broken)).toBeUndefined();
+    expect(c.get(other)).toBeUndefined();
+    expect(c.get(old)?.size).toBe(40);
+    expect(c.headroom(d)).toBe(10 + 40);
+  });
+
   it("LRU 는 면제 없이 적용 — 오늘 complete 키도 밀려난다", () => {
     const c = new TickCache(50, 15 * 60 * 1000, 2100);
     const a = makeKey("KR70000000A0", "KRX", DATE);

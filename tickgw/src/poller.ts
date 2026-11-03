@@ -17,6 +17,9 @@
  *   다시 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다(동시 1 바쁨 · 색인 준비 안 됨 — gh-trade 4f474b1f 가 넓힘)
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
  *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33)
+ *   승격 보호   따라잡기 시작(TICKGW_CATCHUP_AT · 끄면 마감 마무리 시작)부터 오늘 complete 키는 LRU 로 지우지 않는다 —
+ *               closed 아님은 그날 마감 마무리가 끝날 때까지 · closed 는 TICKGW_KEEP_UNTIL(21:00 · 승격 Job 20:10 · 20:40)까지.
+ *               따라잡기 · 마감 마무리가 붙일 자리를 만들려고 다른 승격 입력(이미 따라잡은 키 포함)을 지우던 것을 막는다(R2-WR-01).
  *   너무 큼     키 하나의 하루치가 캐시 상한을 넘으면 그 키(그날) 폴링을 멈춘다 · blocked · complete=false(승격 안 함 · WR-33)
  *   도달 불가   ssh 255 + 연결 오류 문구 3회 연속 → 전역 60초 차단(모든 키 delayed · 호출 0) ·
  *               차단이 풀린 뒤 첫 호출(탐침)이 또 연결 실패면 곧바로 다시 60초 차단
@@ -51,7 +54,8 @@
  *   없으면 08:00)부터 to 0 으로 has_more 가 false 가 될 때까지 받는다. 그러면 20:01 마감 마무리는 마지막 몇 분(가장 늦게 압축되는
  *   19시 · 20시 파일)만 읽는다. 대상은 시작 순간에 고정한다(19:55 뒤 리스가 끝난 키는 이미 몇 분 안쪽까지 받았다).
  *   규율: 보통 폴링과 **같은 호출 슬롯**(step 사슬 · 동시성 1 · 전역 차단 · 75 = 2초 재시도 · 실패 백오프 5→60초 · 인자 64 = 60초 ·
- *   캐시 가득 = 붙이지 않고 백오프 · 너무 큼 = 그 키 중단 · WR-33 LRU 보호 그대로).
+ *   너무 큼 = 그 키 중단 · WR-33 LRU 보호 그대로). 캐시 가득 = 붙이지 않고 그 키 따라잡기를 멈춘다(승격 보호로 다른 오늘
+ *   complete 키를 지우지 않으므로 창 안에선 자리가 나지 않는다 · 남은 구간은 20:01 마감 마무리 몫 · R2-WR-01).
  *   공정 교대: 리스가 살아 있는 키와 따라잡기가 **둘 다** 할 일이 있으면 번갈아 한 호출씩 한다(직전 슬롯의 반대편이 간다).
  *   그래서 활성 키는 따라잡기 호출 하나 이상 기다리지 않고(평소엔 5초 간격 그대로 · 포화 때만 최대 2배), 따라잡기도 활성 키가
  *   포화돼 있어도 슬롯 절반을 얻는다(순수 우선순위면 활성 8키 포화 때 따라잡기가 굶어 승격률을 못 지킨다).
@@ -59,7 +63,8 @@
  *   (따로 재시도하지 않는다 · 이어받기 페이지도 19:59 뒤엔 새로 시작하지 않는다). 창 끝 19:59 = gh-trade 회신
  *   (docs/inbox/from-gh-trade/261104-tickgw-catchup-1955-reply.md) — 20:00 에 기록기 회전 + 하루치 zstd 몰아 압축 · stock-dma
  *   마감 정리가 코어 0 에서 겹치고 질의는 최대 60초라, 19:59 뒤 시작한 호출이 20:00 을 넘지 않게 한다.
- *   끝(대상 소진 또는 19:59)에 요약 한 줄 `catchup done`(keys · caught · left · calls · bytes · ms).
+ *   끝(대상 소진 또는 19:59)에 요약 한 줄 `catchup done`(keys · caught · lost · left · calls · bytes · ms) — caught 는 그 시점에
+ *   캐시에 (같은 epoch · complete 로) 남아 있는 키만 센다 · 끝까지 받았는데 사라졌거나 complete 가 깨진 키는 lost(> 0 이면 warn).
  *   119 호출 모양: 19:55 에 한 번 몰리는 연속 호출 — 상한은 「오늘 연 키 수 × 키당 빈 구간(이어받기 페이지 수)」.
  *
  * ── as-of(X-Tick-As-Of-Ms · quick-261104-6lh) ──────────────────────────
@@ -68,7 +73,7 @@
  *   캐시는 5초 폴링 · 최대 60초 백오프라 응답 시각보다 수 초~수십 초 늦을 수 있다(closedThroughNs 와 같은 뜻 · 여유는 쓰는 쪽이 뺀다).
  */
 
-import { kstDayStartNs, kstMs, kstToday } from "./config.js";
+import { kstDayStartNs, kstHhmm, kstMs, kstToday } from "./config.js";
 import type { CacheEntry, TickCache } from "./cache.js";
 import { parseKey } from "./cache.js";
 import { INDEXER_FMT, type Exchange, type IndexerResult, type RunIndexer } from "./indexer.js";
@@ -148,7 +153,6 @@ interface CatchupItem {
 
 interface CatchupStats {
   keys: number;
-  caught: number;
   calls: number;
   bytes: number;
   startedAt: number;
@@ -199,7 +203,9 @@ export class Poller {
   private catchupStartedDate: string | null = null;
   private catchupDoneDate: string | null = null;
   private catchupQueue: CatchupItem[] = [];
-  private catchupStats: CatchupStats = { keys: 0, caught: 0, calls: 0, bytes: 0, startedAt: 0 };
+  private catchupStats: CatchupStats = { keys: 0, calls: 0, bytes: 0, startedAt: 0 };
+  /** 따라잡기를 끝까지 받은 키 → 그때의 epoch. caught 는 요약 시점에 이 엔트리가 (같은 epoch · complete 로) 살아 있는 키만 센다(R2-WR-01). */
+  private catchupCaught = new Map<string, string>();
   /** 직전 호출 슬롯이 따라잡기였는가 — 활성 키와 둘 다 할 일이 있으면 번갈아 간다(공정 교대). */
   private lastWasCatchup = false;
   /** 「너무 큼」 판정 키(키에 날짜 포함) — 엔트리가 지워진 뒤 다시 열어도 08:00 부터 다시 받지 않는다(WR-33). */
@@ -214,10 +220,32 @@ export class Poller {
     private readonly deps: PollerDeps,
   ) {
     // WR-33 — 리스가 살아 있는 키는 LRU 후보에서 뺀다(폴링 중인 키를 지우고 08:00 부터 다시 받는 고리 방지)
+    // R2-WR-01 — 따라잡기 ~ 승격 창의 오늘 complete 키도 뺀다(승격 입력끼리 서로 지우지 않는다)
     deps.cache.setProtect((e) => {
+      const now = this.deps.now();
       const run = this.runs.get(e.key);
-      return !!run && run.epoch === e.epoch && run.leaseUntil > this.deps.now();
+      if (run && run.epoch === e.epoch && run.leaseUntil > now) return true;
+      return this.promotionPinned(e, now);
     });
+  }
+
+  /** 승격 창 시작 — 따라잡기 시작 시각(끄면 마감 마무리 시작 시각). */
+  private promotionStartMs(today: string): number {
+    const at = this.cfg.catchupHhmm;
+    if (at !== null && at !== undefined) return kstMs(today, String(at).padStart(4, "0"));
+    return kstMs(today, "2000") + this.cfg.closeDelayMs;
+  }
+
+  /**
+   * 승격 입력이라 LRU 로 지우지 않는 키(R2-WR-01) — 오늘 complete 이고 승격 창 안:
+   * closed 아님 = 그날 마감 마무리가 끝날 때까지(그 뒤엔 닫히지 못한 키 — 승격 입력 아님) · closed = KEEP_UNTIL(21:00) 전까지.
+   */
+  private promotionPinned(e: CacheEntry, now: number): boolean {
+    const today = kstToday(now);
+    if (e.date !== today || !e.complete) return false;
+    if (now < this.promotionStartMs(today)) return false;
+    if (e.closed) return kstHhmm(now) < this.deps.cache.keepUntilHhmm;
+    return this.closeDoneDate !== today;
   }
 
   // ---------------------------------------------------------------- touch · 상태
@@ -393,7 +421,7 @@ export class Poller {
   private applyOk(run: KeyRun, entry: CacheEntry, fromNs: bigint, res: IndexerResult, startedMs: number): ApplyResult {
     const meta = res.meta!;
     if (meta.records > 0) {
-      const a = this.deps.cache.append(run.key, res.stdout, meta);
+      const a = this.deps.cache.append(run.key, res.stdout, meta, this.deps.now());
       if (a === "too_large") {
         // 키 하나의 하루치가 캐시 상한을 넘는다 — 지우고 처음부터 다시 받는 무한 고리 대신 그날 폴링을 멈춘다(WR-33)
         run.tooLarge = true;
@@ -530,7 +558,8 @@ export class Poller {
         .values()
         .filter((e) => this.catchupEligible(e, today, now))
         .map((e) => ({ key: e.key, nextDueAt: now, failures: 0 }));
-      this.catchupStats = { keys: this.catchupQueue.length, caught: 0, calls: 0, bytes: 0, startedAt: now };
+      this.catchupStats = { keys: this.catchupQueue.length, calls: 0, bytes: 0, startedAt: now };
+      this.catchupCaught = new Map();
       log("info", "catchup start", { date: today, keys: this.catchupQueue.length });
     }
     this.catchupQueue = this.catchupQueue.filter((i) => {
@@ -551,10 +580,18 @@ export class Poller {
   private finishCatchup(today: string, now: number): void {
     this.catchupDoneDate = today;
     const s = this.catchupStats;
-    log("info", "catchup done", {
+    // caught = 끝까지 받은 키 가운데 지금도 같은 epoch · complete 로 남은 키(R2-WR-01 — 지워진 키를 caught 로 세지 않는다)
+    let caught = 0;
+    for (const [key, epoch] of this.catchupCaught) {
+      const e = this.deps.cache.get(key);
+      if (e && e.epoch === epoch && e.complete) caught += 1;
+    }
+    const lost = this.catchupCaught.size - caught;
+    log(lost > 0 ? "warn" : "info", "catchup done", {
       date: today,
       keys: s.keys,
-      caught: s.caught,
+      caught,
+      lost,
       left: this.catchupQueue.length,
       calls: s.calls,
       bytes: s.bytes,
@@ -589,11 +626,13 @@ export class Poller {
           item.failures = 0;
           item.nextDueAt = at; // 이어받기 — 곧바로(활성 키와는 교대)
         } else if (a === "done") {
-          if (entry.complete) this.catchupStats.caught += 1;
+          if (entry.complete) this.catchupCaught.set(entry.key, entry.epoch);
           this.dropCatchup(item);
         } else if (a === "full") {
-          item.failures += 1; // 붙이지 않았다 — 커서 그대로 · 백오프 뒤 같은 범위(WR-33)
-          item.nextDueAt = at + backoffMs(item.failures);
+          // 붙일 자리가 없다 — 다른 승격 입력을 지우지 않고(승격 보호 · R2-WR-01) 이 키 따라잡기를 멈춘다.
+          // 커서 그대로 · 남은 구간은 20:01 마감 마무리 몫. 창 안에선 승격 입력이 줄지 않아 다시 해도 같은 결과라 재시도하지 않는다.
+          log("warn", "catchup stopped (cache full)", { key: item.key, size: entry.size, total: this.deps.cache.totalBytes() });
+          this.dropCatchup(item);
         } else {
           this.dropCatchup(item); // 너무 큼 — 그 키(그날) 중단
         }

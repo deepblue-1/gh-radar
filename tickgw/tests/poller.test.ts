@@ -627,6 +627,80 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     expect(r.cache.get(KEY)?.closed ?? false).toBe(false);
   });
 
+  it("따라잡기는 다른 승격 입력(이미 따라잡은 키 포함)을 LRU 로 지우지 않는다 — 자리가 없으면 그 키만 멈춘다 · caught 는 살아 있는 키만(R2-WR-01)", async () => {
+    // 상한 16,000B · 1분 1레코드 10B — 10:00 · 10:01 · 10:02 에 잠깐 연 키 셋(각 ≈1.2KB). 19:55 에 하루치(≈7.1KB)로 불리면
+    // 둘까지만 든다. 고치기 전엔 키 3 의 append 가 방금 따라잡은 키 1 을 지우고 로그는 caught=3 이었다(scratchpad r2probe).
+    const lines: Record<string, unknown>[] = [];
+    const prevLevel = process.env.LOG_LEVEL;
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 16_000);
+    for (const [i, hhmmss] of [[1, "100000"], [2, "100100"], [3, "100200"]] as const) {
+      r.clock.t = Math.max(r.clock.t, at(hhmmss));
+      r.poller.touch(keyN(i));
+      await r.drive({ untilT: r.clock.t + 2_000 });
+    }
+    r.clock.t = at("195459"); // 리스는 모두 끝났다 — 따라잡기 직전으로
+    process.env.LOG_LEVEL = "info";
+    const capture = (chunk: unknown) => {
+      try {
+        lines.push(JSON.parse(String(chunk)) as Record<string, unknown>);
+      } catch {
+        /* 로그 줄이 아님 */
+      }
+      return true;
+    };
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(capture);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(capture);
+    try {
+      await r.drive({ untilT: at("195900") });
+      const sizes = [1, 2, 3].map((i) => r.cache.get(keyN(i))?.size ?? null);
+      expect(sizes[0]).toBe(7_150); // 08:00:30 ~ 19:54:30 — 따라잡은 뒤에도 남아 있다
+      expect(sizes[1]).toBe(7_150);
+      expect(sizes[2]).toBe(1_220); // 08:00:30 ~ 10:01:30 그대로 — 자리가 없어 멈춤 — 다른 키를 지우지 않았다
+      const done = lines.find((l) => l.msg === "catchup done");
+      expect(done).toMatchObject({ keys: 3, caught: 2, lost: 0, left: 0 });
+      expect(lines.some((l) => l.msg === "catchup stopped (cache full)" && l.key === keyN(3))).toBe(true);
+      await r.drive({ untilT: at("201000") });
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+      process.env.LOG_LEVEL = prevLevel;
+    }
+    expect(lines.filter((l) => l.msg === "cache evict")).toEqual([]);
+    expect([1, 2, 3].map((i) => r.cache.get(keyN(i))?.closed ?? "evicted")).toEqual([true, true, false]);
+    expect(r.cache.totalBytes()).toBeLessThanOrEqual(16_000);
+  });
+
+  it("승격 창(따라잡기 시작 ~ 21:00) 밖에선 오늘 complete 키도 LRU 후보 · 지우면 cache evict warn 이 남는다", async () => {
+    const lines: Record<string, unknown>[] = [];
+    const prevLevel = process.env.LOG_LEVEL;
+    // 키당 6레코드 60B · 상한 100B — 10:00 에 키 1 을 닫고 키 2 를 열면 키 1(리스 끝 · 창 밖)이 밀려난다
+    const r = rig((a) => dayResponse(a, 6), {}, at("100000"), 100);
+    r.poller.touch(keyN(1));
+    await r.drive({ untilCalls: 1, touch: [keyN(1)] });
+    r.clock.t += 31_000;
+    process.env.LOG_LEVEL = "info";
+    const err = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      try {
+        lines.push(JSON.parse(String(chunk)) as Record<string, unknown>);
+      } catch {
+        /* 로그 줄이 아님 */
+      }
+      return true;
+    });
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      r.poller.touch(keyN(2));
+      await r.drive({ untilCalls: 2, touch: [keyN(2)] });
+    } finally {
+      err.mockRestore();
+      out.mockRestore();
+      process.env.LOG_LEVEL = prevLevel;
+    }
+    expect(r.cache.get(keyN(1))).toBeUndefined();
+    expect(r.cache.get(keyN(2))!.records).toBe(6);
+    expect(lines.find((l) => l.msg === "cache evict")).toMatchObject({ key: keyN(1), size: 60, complete: true, reason: "lru" });
+  });
+
   it("따라잡기 중 그 키 하루치가 캐시 상한을 넘으면 멈춘다 — 다음 페이지를 받지 않는다 · blocked", async () => {
     // 레코드 10B · 페이지 4건 · 상한 100B — 08:03 에 3건(30B) · 리스 끝 · 19:55 첫 페이지 40B(=70B) · 둘째 40B 에서 too_large
     const r: Rig = rig((a) => minuteDay(a, r.clock.t, 4), {}, at("080300"), 100);

@@ -13,8 +13,11 @@
  * - asOfMs = 이 엔트리를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) —
  *   live 응답 헤더 X-Tick-As-Of-Ms. 새 엔트리(새 epoch)는 null 부터.
  * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31). 합계는 상한을 **넘지 않는다**(WR-33):
- *   append 가 상한을 넘기려 하면 먼저 lastAccess 가 가장 오래된 **보호되지 않은** 다른 키부터 지워 자리를 만든다.
- *   보호 = `setProtect` 술어(폴러가 「리스가 살아 있는 키」 로 건다) — 폴링 중인 키를 지우고 08:00 부터 다시 받는 고리를 막는다.
+ *   append 가 상한을 넘기려 하면 먼저 **보호되지 않은** 다른 키를 지워 자리를 만든다. 지우는 순서(R2-WR-01):
+ *   ① 승격 입력이 아닌 키(complete 아님 · 다른 날짜) ② 오늘 complete 키 — 각 안에서 lastAccess 오름차순. 지울 때마다
+ *   `cache evict` warn 로그(무로그 삭제 금지).
+ *   보호 = `setProtect` 술어(폴러가 「리스가 살아 있는 키」 + 「19:55 따라잡기 ~ 20:01 마감 마무리 동안의 오늘 complete ∧
+ *   closed 아닌 키」 로 건다) — 폴링 중인 키를 지우고 08:00 부터 다시 받는 고리와, 승격 입력끼리 서로 지우는 것을 막는다.
  *   자리를 못 만들면 붙이지 않고 `full`, 키 하나가 혼자 상한을 넘으면 `too_large` 를 돌려준다(폴러가 백오프 · 「너무 큼」 처리).
  *   밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
  * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
@@ -25,6 +28,7 @@ import { randomUUID } from "node:crypto";
 
 import { kstHhmm, kstToday } from "./config.js";
 import type { Exchange } from "./indexer.js";
+import { log } from "./log.js";
 
 export interface CacheEntry {
   key: string;
@@ -121,18 +125,15 @@ export class TickCache {
    * 바이트 · 메타를 붙인다. 상한을 넘기면 보호되지 않은 다른 키를 LRU 로 지워 자리를 만든 뒤 붙인다(WR-33).
    * 그 키 혼자 상한을 넘으면 `too_large` · 자리를 못 만들면 `full` — 둘 다 아무것도 바꾸지 않는다(커서도 그대로).
    */
-  append(key: string, bytes: Buffer, meta: AppendMeta): AppendResult {
+  append(key: string, bytes: Buffer, meta: AppendMeta, now: number = Date.now()): AppendResult {
     const e = this.entries.get(key);
     if (!e) return "ok";
     if (bytes.length > 0) {
       if (e.size + bytes.length > this.limitBytes) return "too_large";
-      const over = this.total + bytes.length - this.limitBytes;
-      if (over > 0) {
+      if (this.total + bytes.length > this.limitBytes) {
         // 지울 수 있는 몫이 모자라면 아무것도 지우지 않는다(헛삭제 금지)
-        let freeable = 0;
-        for (const o of this.entries.values()) if (o !== e && !this.protect(o)) freeable += o.size;
-        if (freeable < over) return "full";
-        this.enforceLimit(bytes.length, e);
+        if (this.headroom(key) < bytes.length) return "full";
+        this.enforceLimit(bytes.length, e, now);
       }
       e.chunks.push(bytes);
       e.size += bytes.length;
@@ -147,20 +148,48 @@ export class TickCache {
   }
 
   /**
-   * 합계 + `need` 가 상한 이하가 될 때까지 lastAccess 가 가장 오래된 **보호되지 않은** 키부터 지운다(`keep` 은 제외).
-   * 후보가 없으면 멈춘다(보호 키는 지우지 않는다 — WR-33).
+   * 지금 이 키에 붙일 수 있는 최대 바이트 — 남은 자리 + 지울 수 있는(보호되지 않은 다른 키) 몫(R2-IN-03 사전 판정 · append 의 full 판정).
    */
-  private enforceLimit(need = 0, keep: CacheEntry | null = null): string[] {
+  headroom(key: string): number {
+    let freeable = 0;
+    for (const o of this.entries.values()) if (o.key !== key && !this.protect(o)) freeable += o.size;
+    return this.limitBytes - this.total + freeable;
+  }
+
+  /** LRU 후보 순위(R2-WR-01) — 0 = 승격 입력 아님(complete 아님 · 다른 날짜) · 1 = 오늘 complete(마지막에 지운다). */
+  private victimRank(e: CacheEntry, today: string): number {
+    return e.complete && e.date === today ? 1 : 0;
+  }
+
+  /**
+   * 합계 + `need` 가 상한 이하가 될 때까지 **보호되지 않은** 키를 (순위, lastAccess) 오름차순으로 지운다(`keep` 은 제외).
+   * 후보가 없으면 멈춘다(보호 키는 지우지 않는다 — WR-33). 지울 때마다 warn 로그(R2-WR-01 — 무로그 삭제 금지).
+   */
+  private enforceLimit(need = 0, keep: CacheEntry | null = null, now: number = Date.now()): string[] {
     const removed: string[] = [];
+    const today = kstToday(now);
     while (this.total + need > this.limitBytes) {
-      let oldest: CacheEntry | null = null;
+      let victim: CacheEntry | null = null;
+      let victimRank = 0;
       for (const e of this.entries.values()) {
         if (e === keep || this.protect(e)) continue;
-        if (!oldest || e.lastAccess < oldest.lastAccess) oldest = e;
+        const rank = this.victimRank(e, today);
+        if (!victim || rank < victimRank || (rank === victimRank && e.lastAccess < victim.lastAccess)) {
+          victim = e;
+          victimRank = rank;
+        }
       }
-      if (!oldest) break;
-      this.delete(oldest.key);
-      removed.push(oldest.key);
+      if (!victim) break;
+      log("warn", "cache evict", {
+        key: victim.key,
+        size: victim.size,
+        complete: victim.complete,
+        closed: victim.closed,
+        reason: "lru",
+        for_key: keep?.key,
+      });
+      this.delete(victim.key);
+      removed.push(victim.key);
     }
     return removed;
   }
@@ -233,7 +262,7 @@ export class TickCache {
       this.delete(e.key);
       removed.push(e.key);
     }
-    removed.push(...this.enforceLimit());
+    removed.push(...this.enforceLimit(0, null, now));
     return removed;
   }
 
