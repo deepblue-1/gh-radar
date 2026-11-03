@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils';
  *   계좌 끝 4자리 · 주문번호는 주문 줄에만(D-02). 줄 클릭 = 그 줄 선택(`onOwnSelect` · 민트 18%) + 커서 = 그 줄 다음 전문.
  * ⑦ 둘째 레일(Phase 38 D-04 · 목업 B): 목록 맨 앞 14px 칸 — 우리 주문마다 ● 주문 줄 → ◆ 체결 행을 민트 세로선(3px)으로
  *   잇는다(`ownRailOf`) · 추정이 섞인 주문은 점선 · 짝 없음 ◇(대기는 점선 테두리) · 겹치면 선이 겹친다(옆 칸 없음).
+ *   38-06: 근거 전문 행 ○(띠 시작 · 구간 근거는 첫 ○ … 끝 ○ 점선) · 앵커 ◌(마디만 · 글자 없음). 근거 행에 칩은 없다(D-10).
  *   기존 팀/일반 3px 레일(①)은 시각 칸 안쪽에 붙는다. 행 높이 24/22 그대로 · 폰도 14px 칸 유지.
  */
 
@@ -111,9 +112,14 @@ const RAIL_NODE_NAME: Record<number, string> = {
   [RAIL_NODE.ORDER]: 'order',
   [RAIL_NODE.FILL]: 'fill',
   [RAIL_NODE.NOFILL]: 'nofill',
+  [RAIL_NODE.EVIDENCE]: 'evidence',
+  [RAIL_NODE.ANCHOR]: 'anchor',
 };
 
-/** 둘째 레일 칸 — 위 · 아래 절반 선 + 마디(● 주문 11px 원 · ◆ 체결 9px 45° 채움 · ◇ 짝 없음 9px 45° 빈 · 대기는 점선 테두리). */
+/**
+ * 둘째 레일 칸 — 위 · 아래 절반 선 + 마디(● 주문 11px 원 · ◆ 체결 9px 45° 채움 · ◇ 짝 없음 9px 45° 빈 · 대기는 점선 테두리 ·
+ * ○ 근거 11px 빈 원 · ◌ 앵커 7px `--faint` 빈 원 — 목업 `.rk` · `.rk.anc`).
+ */
 function OwnRailCell({ half, node, pending }: { half: number; node: number; pending: boolean }) {
   return (
     <span
@@ -147,6 +153,12 @@ function OwnRailCell({ half, node, pending }: { half: number; node: number; pend
             pending && 'border-dashed',
           )}
         />
+      )}
+      {node === RAIL_NODE.EVIDENCE && (
+        <span className="pointer-events-none absolute top-1/2 left-px -mt-[5.5px] size-[11px] rounded-full border-2 border-[var(--mine)] bg-[var(--card)]" />
+      )}
+      {node === RAIL_NODE.ANCHOR && (
+        <span className="pointer-events-none absolute top-1/2 left-[3px] -mt-[3.5px] size-[7px] rounded-full border-2 border-[var(--faint)] bg-[var(--card)]" />
       )}
     </span>
   );

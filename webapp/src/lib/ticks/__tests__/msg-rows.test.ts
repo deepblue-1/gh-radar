@@ -17,6 +17,7 @@ import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNT
 
 import {
   MSG_ITEM,
+  RAIL_NODE,
   buildMsgRows,
   fmtA3Row,
   fmtB6Row,
@@ -456,5 +457,81 @@ describe('ownRailOf — 둘째 레일(Phase 38 D-04)', () => {
     const nPos = rows.ownPosOfFill[1]!;
     expect(rail.node[nPos]).toBe(3);
     expect(arr(rail.half).every((v) => v === 0)).toBe(true);
+  });
+});
+
+/**
+ * Phase 38 Plan 06 Task 1 — 둘째 레일 근거 마디(D-04 · D-11): node 4 ○ 근거 전문 행 · 5 ◌ 앵커. 띠 = [근거 ○ 또는 주문 ●] → ◆ ·
+ * 구간 근거는 첫 ○ … 끝 ○ 점선 · 앵커는 마디만 · 우선순위 ◆ > ● > ○ > ◇ > ◌.
+ */
+describe('ownRailOf — 근거 ○ · 앵커 ◌(Phase 38-06)', () => {
+  const at = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+  // rec 0 A3 cum 1,000 · rec 1 B6(매도1 16,400 ×38,200) · rec 2 A3 cum 1,200 · rec 3 A3 cum 1,500 · rec 4 A3 cum 1,550 · rec 5 B6
+  // seq 를 띄워 각 A3 가 1조각 주문(꼬리 없음)
+  const es = synthSession([
+    [100.5, a3Msg({ seq: 401, bs: '2', px: 16400, qty: 100, time: '130000100000', cumVolume: 1000 })],
+    [150.5, b6Msg({ seq: 411, ask1: [16400, 38_200], bid1: [16350, 10] })],
+    [250.5, a3Msg({ seq: 421, bs: '2', px: 16400, qty: 200, time: '130000250000', cumVolume: 1200 })],
+    [260.5, a3Msg({ seq: 431, bs: '2', px: 16400, qty: 300, time: '130000260000', cumVolume: 1500 })],
+    [300.5, a3Msg({ seq: 441, bs: '2', px: 16450, qty: 50, time: '130000300000', cumVolume: 1550 })],
+    [400.5, b6Msg({ seq: 451, ask1: [16450, 10], bid1: [16400, 20] })],
+  ]);
+  const eA3 = (j: number) => a3TimeMs(es.index, es.a3, j);
+
+  function ev(orderNo: string, gwMs: number, over: Partial<TickOwnEvent>): TickOwnEvent {
+    return {
+      gateway: 'KB120', seq: 1, gw_time_ms: gwMs, kind: 3, group: 1, account_no: '1234563801', order_no: orderNo,
+      price: 16400, qty: 300, reason_code: '', cond_metric: 0, cond_threshold: 0, cond_actual: 0, ev_kind: 0, ev_price: 0,
+      ev_qty_before: 0, ev_qty_after: 0, ev_trade_qty: 0, cum_volume: 0, ...over,
+    };
+  }
+  function fl(orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill {
+    return { gateway: 'KB120', seq, gw_time_ms: gwMs, account_no: '1234563801', order_no: orderNo, side: 'B', exec_price: px, exec_qty: qty };
+  }
+  function railOf(events: TickOwnEvent[], fills: TickOwnFill[]) {
+    const own = buildOwnModel(es, {
+      access: true, date: SYNTH_DATE, exchange: 'KRX', isin: SYNTH_ISIN, servers: ['KB120'], fills, events, orders: [],
+    });
+    const rows = buildMsgRows(es, 'exchange', own);
+    return { own, rows, rail: ownRailOf(rows, own) };
+  }
+  const arr = (a: Uint8Array) => Array.from(a);
+
+  it('상수 — ○ 4 · ◌ 5', () => {
+    expect([RAIL_NODE.EVIDENCE, RAIL_NODE.ANCHOR]).toEqual([4, 5]);
+  });
+
+  it('호가 근거 — 띠 시작이 근거 행(○) · 주문 ● 을 지나 ◆ 까지 실선 · 앵커 ◌ 는 띠 밖 마디만', () => {
+    // 근거 B6 rec 1 · 앵커 rec 0 · 주문 .200 → R2 앞 · 체결 16,400 ×300 → rec 3. 항목: R0 R1 O0 R2 R3 R4 R5
+    const { own, rows, rail } = railOf(
+      [ev('B', at(200), { ev_kind: 1, ev_price: 16400, ev_qty_after: 38_200, cum_volume: 1000 })],
+      [fl('B', eA3(2) + 5, 16400, 300, 1)],
+    );
+    expect([own.orders[0]!.evidenceRec, own.orders[0]!.anchorRec, own.fills[0]!.rec]).toEqual([1, 0, 3]);
+    expect(rows.ownPosOfOrder[0]).toBe(2);
+    expect(arr(rail.node)).toEqual([5, 4, 1, 0, 2, 0, 0]);
+    expect(arr(rail.half)).toEqual([0, 4, 5, 5, 1, 0, 0]);
+  });
+
+  it('구간 근거 — 첫 ○ … 끝 ○ 점선 · 끝 ○ → 주문 ● 실선 · 구간 안 앵커 ◌', () => {
+    // 구간 rec 2 … rec 4 · 앵커 rec 3 · 주문 .350 → R5 앞. 항목: R0 R1 R2 R3 R4 O0 R5
+    const { own, rail } = railOf(
+      [ev('R', at(350), { ev_kind: 2, ev_price: 16400, ev_trade_qty: 999, ev_qty_before: 1000, ev_qty_after: 1550, cum_volume: 1500 })],
+      [],
+    );
+    expect([own.orders[0]!.evidenceFirstRec, own.orders[0]!.evidenceRec, own.orders[0]!.anchorRec]).toEqual([2, 4, 3]);
+    expect(arr(rail.node)).toEqual([0, 0, 4, 5, 4, 1, 0]);
+    // 2: 아래 점선 · 3: 위·아래 점선 · 4: 위 점선 + 아래 실선 · 5: 위 실선
+    expect(arr(rail.half)).toEqual([0, 0, 8, 10, 6, 1, 0]);
+  });
+
+  it('우선순위 — 근거 행이 우리 체결 행이면 ◆(체결통보 근거 = 우리 체결 짝)', () => {
+    const { own, rows, rail } = railOf(
+      [ev('N', eA3(2) + 50, { ev_kind: 3, ev_price: 16400, ev_trade_qty: 300 })],
+      [fl('P', eA3(2) + 5, 16400, 300, 1)],
+    );
+    const n = own.orders.find((o) => o.orderNo === 'N')!;
+    expect(n.evidenceRec).toBe(3);
+    expect(rail.node[rows.posOfRec[3]!]).toBe(RAIL_NODE.FILL);
   });
 });

@@ -133,12 +133,19 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({ session, cursor, accum, isToday, listingShares }) => (
+    render: ({ session, cursor, accum, isToday, listingShares, own, ownSel }) => (
       <div
         data-slot="tick-side"
         className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
       >
-        <TickOrderCard session={session} cursorRec={cursor.rec} onJump={cursor.jumpToRec} />
+        <TickOrderCard
+          session={session}
+          cursorRec={cursor.rec}
+          onJump={cursor.jumpToRec}
+          own={own}
+          ownSel={ownSel}
+          onOwnJump={cursor.jumpToRec}
+        />
         <TickAmountCard session={session} cursorRec={cursor.rec} listingShares={listingShares} />
         <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
       </div>

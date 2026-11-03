@@ -217,3 +217,110 @@ describe('ownOrderLineText — 주문 줄 문구(D-05 · 25 D-09 문구 정본)'
     ).toBe('● 주문 매수 ×500 · 조건 없음 · KB120 ···3801 #A2');
   });
 });
+
+/**
+ * Phase 38 Plan 06 Task 1 — 근거 · 앵커(D-11 · D-13 · D-15 · SC-3 · RESEARCH Open Q3).
+ *
+ * 깨지면: 주문 줄 · 카드 「근거 … 보기 ›」 가 엉뚱한 전문으로 가거나 · 체결통보 주문이 근거를 잃거나 · 앵커가 근거 행과
+ * 겹쳐 「직전 체결」 이 두 번 보인다.
+ */
+describe('buildOwnModel — 근거 · 앵커(38-06)', () => {
+  // rec 0 A3 .100 cum 1,000 · rec 1 B6 .1505(매도1 16,400 ×38,200) · rec 2 A3 .250 cum 1,200(200주) ·
+  // rec 3 A3 .260 cum 1,500(300주) · rec 4 A3 .300 cum 1,550(16,450 ×50) · rec 5 B6 .4005
+  const es = synthSession([
+    [100.5, a3Msg({ seq: 401, bs: '2', px: 16400, qty: 100, time: '130000100000', cumVolume: 1000 })],
+    [150.5, b6Msg({ seq: 411, ask1: [16400, 38_200], bid1: [16350, 10] })],
+    [250.5, a3Msg({ seq: 421, bs: '2', px: 16400, qty: 200, time: '130000250000', cumVolume: 1200 })],
+    [260.5, a3Msg({ seq: 431, bs: '2', px: 16400, qty: 300, time: '130000260000', cumVolume: 1500 })],
+    [300.5, a3Msg({ seq: 441, bs: '2', px: 16450, qty: 50, time: '130000300000', cumVolume: 1550 })],
+    [400.5, b6Msg({ seq: 451, ask1: [16450, 10], bid1: [16400, 20] })],
+  ]);
+  const eA3 = (j: number) => a3TimeMs(es.index, es.a3, j);
+  const evs = (no: string, gwMs: number, over: Partial<TickOwnEvent>) => event(no, gwMs, over);
+
+  const own = ownOf({
+    events: [
+      // 호가 근거 — 창 [g − 3000, g + 50] 안 B6 rec 1 · 앵커 cum 1,000 → rec 0
+      evs('B6', at(200), { ev_kind: 1, ev_price: 16400, ev_qty_after: 38_200, cum_volume: 1000 }),
+      // 체결 근거 단건 — cum 1,200 ∧ 200주 ∧ 16,400 → rec 2 · 앵커도 rec 2 → 없음
+      evs('S1', at(270), { ev_kind: 2, ev_price: 16400, ev_trade_qty: 200, ev_qty_before: 1000, ev_qty_after: 1200, cum_volume: 1200 }),
+      // 주기매도 구간 — 단건 없음 · cum ∈ (1,000, 1,550] → rec 2 … rec 4(3건 · 550주) · 앵커 cum 1,500 → rec 3
+      evs('RG', at(350), { ev_kind: 2, ev_price: 16400, ev_trade_qty: 999, ev_qty_before: 1000, ev_qty_after: 1550, cum_volume: 1500 }),
+      // 체결통보 — 같은 게이트웨이 · 계좌의 이전 우리 체결(16,400 ×300 · P) 짝 A3 rec 3
+      evs('N3', eA3(2) + 50, { ev_kind: 3, ev_price: 16400, ev_trade_qty: 300, cum_volume: 0 }),
+      // 체결통보 — 다른 계좌면 잇지 않는다
+      evs('NX', eA3(2) + 60, { ev_kind: 3, ev_price: 16400, ev_trade_qty: 300, account_no: '9999990000' }),
+      // 체결통보 — 이전 우리 체결이 없으면(이벤트가 체결보다 앞) 근거 없음
+      evs('NE', eA3(2) - 100, { ev_kind: 3, ev_price: 16400, ev_trade_qty: 300 }),
+      // 근거 없음(수동 · ev_kind 0) — 앵커만
+      evs('MN', at(380), { ev_kind: 0, group: 7, cond_metric: 0, reason_code: '', cum_volume: 1550 }),
+    ],
+    fills: [fill('P', eA3(2) + 5, 16400, 300)],
+  });
+  const m = buildOwnModel(es, own);
+  const ofNo = (no: string) => byKey(m.orders, no);
+
+  it('호가 근거 — b6 rec 1 · 라벨 「호가」 · 앵커 rec 0 · 줄 끝 「 · 근거 호가 ↑」(게이트웨이 앞)', () => {
+    const o = ofNo('B6');
+    expect(o.evidence).toEqual({ kind: 'b6', rec: 1 });
+    expect([o.evidenceLabel, o.evidenceRec, o.evidenceFirstRec, o.anchorRec]).toEqual(['호가', 1, 1, 0]);
+    expect(ownOrderLineText(o)).toBe(
+      `● 주문 선매수 매수 16,400 ×300 · ${conditionTextOf({
+        condMetric: 1,
+        condThreshold: 50_000,
+        condActual: 38_200,
+        reasonCode: 'PreBuy B6Buy3 매물소진(매도1호가==감시가 && 잔량<=감시수량)',
+        group: 1,
+        kind: 3,
+        price: 16400,
+      })} · 근거 호가 ↑ · KB120 ···3801 #B6`,
+    );
+  });
+
+  it('체결 근거 단건 — a3 rec 2 · 라벨 「체결」 · 앵커가 근거 행과 같으면 −1', () => {
+    const o = ofNo('S1');
+    expect(o.evidence).toEqual({ kind: 'a3', j: 1 });
+    expect([o.evidenceLabel, o.evidenceRec, o.evidenceFirstRec, o.anchorRec]).toEqual(['체결', 2, 2, -1]);
+  });
+
+  it('주기매도 구간 — 첫 rec 2 · 끝 rec 4(= evidenceRec) · 3건 550주 · 라벨 「체결 구간」 · 앵커 rec 3', () => {
+    const o = ofNo('RG');
+    expect(o.evidence).toEqual({ kind: 'range', firstJ: 1, lastJ: 3, n: 3, qty: 550 });
+    expect([o.evidenceLabel, o.evidenceRec, o.evidenceFirstRec, o.anchorRec]).toEqual(['체결 구간', 4, 2, 3]);
+    expect(ownOrderLineText(o)).toContain(' · 근거 체결 구간 ↑ · KB120');
+  });
+
+  it('체결통보 — 같은 게이트웨이 · 계좌의 이전 우리 체결 짝 A3(rec 3) · 다른 계좌 · 이전 체결 없음은 근거 없음', () => {
+    expect(m.fills[0]!.rec).toBe(3);
+    const o = ofNo('N3');
+    expect(o.evidence).toEqual({ kind: 'a3', j: 2 });
+    expect([o.evidenceLabel, o.evidenceRec]).toEqual(['체결통보', 3]);
+    for (const no of ['NX', 'NE']) {
+      const x = ofNo(no);
+      expect([x.evidence.kind, x.evidenceLabel, x.evidenceRec, x.evidenceFirstRec]).toEqual(['none', null, -1, -1]);
+      expect(ownOrderLineText(x)).not.toContain('근거');
+    }
+  });
+
+  it('근거 없음(ev_kind 0) — 앵커만 · 줄에 근거 조각 없음 · 이벤트 없는 주문은 전부 없음', () => {
+    const o = ofNo('MN');
+    expect([o.evidence.kind, o.evidenceRec, o.anchorRec]).toEqual(['none', -1, 4]);
+    expect(ownOrderLineText(o)).toBe('● 주문 수동 매수 16,400 ×300 · 조건 없음 · 수동 주문 · KB120 ···3801 #MN');
+    const p = ofNo('P');
+    expect([p.evidence.kind, p.evidenceLabel, p.evidenceRec, p.anchorRec]).toEqual(['none', null, -1, -1]);
+  });
+
+  it('ordersOfEvidenceRec — 근거 rec · 구간 첫 rec 둘 다 키 · 주문 id 오름차순', () => {
+    const id = (no: string) => ofNo(no).id;
+    expect(m.ordersOfEvidenceRec.get(1)).toEqual([id('B6')]);
+    expect(m.ordersOfEvidenceRec.get(2)).toEqual([id('S1'), id('RG')].sort((a, b) => a - b));
+    expect(m.ordersOfEvidenceRec.get(4)).toEqual([id('RG')]);
+    expect(m.ordersOfEvidenceRec.get(3)).toEqual([id('N3')]);
+    expect(m.ordersOfEvidenceRec.has(0)).toBe(false);
+  });
+
+  it('이벤트가 없으면 근거 색인을 만들지 않는다(빈 맵)', () => {
+    const only = buildOwnModel(es, ownOf({ fills: [fill('P', eA3(2) + 5, 16400, 300)] }));
+    expect(only.ordersOfEvidenceRec.size).toBe(0);
+  });
+});

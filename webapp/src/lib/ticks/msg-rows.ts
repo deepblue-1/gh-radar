@@ -227,8 +227,11 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode, own?: Ow
 
 /** 둘째 레일 절반 선 비트 — 위 실선 · 위 점선 · 아래 실선 · 아래 점선. */
 export const RAIL_HALF = { TOP: 1, TOP_DASH: 2, BOT: 4, BOT_DASH: 8 } as const;
-/** 둘째 레일 마디 — 없음 · ● 주문 줄 · ◆ 우리 체결 A3 행 · ◇ 짝 없음/대기 줄. */
-export const RAIL_NODE = { NONE: 0, ORDER: 1, FILL: 2, NOFILL: 3 } as const;
+/** 둘째 레일 마디 — 없음 · ● 주문 줄 · ◆ 우리 체결 A3 행 · ◇ 짝 없음/대기 줄 · ○ 근거 전문 행 · ◌ 앵커(직전 체결). */
+export const RAIL_NODE = { NONE: 0, ORDER: 1, FILL: 2, NOFILL: 3, EVIDENCE: 4, ANCHOR: 5 } as const;
+
+/** 한 항목에 마디가 겹칠 때 우선순위(클수록 앞) — ◆ > ● > ○ > ◇ > ◌. */
+const RAIL_NODE_RANK: readonly number[] = [0, 4, 5, 2, 3, 1];
 
 export interface OwnRail {
   /** 항목마다 `RAIL_HALF` 비트 합. */
@@ -241,6 +244,9 @@ export interface OwnRail {
  * 둘째 레일(D-04 · 목업 B) — 우리 주문마다 [주문 줄 · 그 주문 체결 자리(A3 행 = posOfRec · 짝 없음 = ownPosOfFill)] 의
  * 최소~최대 항목 구간에 민트 세로선. 추정 체결이 하나라도 있으면 그 주문 구간은 점선 · 구간 길이 1 이면 마디만.
  * 겹침: 경계(항목 k 와 k+1 사이)마다 실선 · 점선 덮임 수를 차분 배열로 세고 실선이 하나라도 있으면 실선 — 옆 칸 추가 없음.
+ * 근거(38-06 · D-04 · D-11): 근거 전문 행 ○ 가 구간에 들어간다 — 띠 = [근거 ○ 또는 주문 ●] → 체결 ◆. 구간 근거(주기매도)면
+ * 구간 첫 A3 ○ … 끝 A3 ○ 사이 경계는 점선(실선과 겹치면 실선이 이긴다 — 그래서 실선 구간은 끝 ○ 부터 센다). 앵커 ◌ 는
+ * 마디만(구간에 넣지 않는다). 마디 우선순위 ◆ > ● > ○ > ◇ > ◌.
  * O(항목 + 체결). own 이 없으면 길이 0.
  */
 export function ownRailOf(rows: MsgRowsModel, own: OwnModel | null): OwnRail {
@@ -248,6 +254,9 @@ export function ownRailOf(rows: MsgRowsModel, own: OwnModel | null): OwnRail {
   const len = rows.items.length;
   const half = new Uint8Array(len);
   const node = new Uint8Array(len);
+  const mark = (p: number, v: number): void => {
+    if (RAIL_NODE_RANK[v]! > RAIL_NODE_RANK[node[p]!]!) node[p] = v;
+  };
   // 경계 k(항목 k ↔ k+1) 덮임 수 차분 — 길이 len(마지막 칸은 쓰지 않는다)
   const solid = new Int32Array(len + 1);
   const dashed = new Int32Array(len + 1);
@@ -259,19 +268,35 @@ export function ownRailOf(rows: MsgRowsModel, own: OwnModel | null): OwnRail {
     const op = rows.ownPosOfOrder[o.id] ?? -1;
     if (op >= 0) {
       lo = hi = op;
-      node[op] = RAIL_NODE.ORDER;
+      mark(op, RAIL_NODE.ORDER);
     }
+    if (o.evidenceRec >= 0) {
+      const pe = rows.posOfRec[o.evidenceRec]!;
+      mark(pe, RAIL_NODE.EVIDENCE);
+      if (pe < lo) lo = pe;
+      if (pe > hi) hi = pe;
+      if (o.evidenceFirstRec !== o.evidenceRec) {
+        // 구간 첫 ○ … 끝 ○ — 점선(D-11)
+        const pf = rows.posOfRec[o.evidenceFirstRec]!;
+        mark(pf, RAIL_NODE.EVIDENCE);
+        const a = Math.min(pf, pe);
+        const b = Math.max(pf, pe);
+        dashed[a]! += 1;
+        dashed[b]! -= 1;
+      }
+    }
+    if (o.anchorRec >= 0) mark(rows.posOfRec[o.anchorRec]!, RAIL_NODE.ANCHOR);
     for (const fid of o.fills) {
       const f = own.fills[fid]!;
       let p: number;
       if (f.state === 'matched') {
         p = rows.posOfRec[f.rec]!;
-        node[p] = RAIL_NODE.FILL;
+        mark(p, RAIL_NODE.FILL);
         if (f.est) est = true;
       } else {
         p = rows.ownPosOfFill[fid] ?? -1;
         if (p < 0) continue;
-        node[p] = RAIL_NODE.NOFILL;
+        mark(p, RAIL_NODE.NOFILL);
       }
       if (p < lo) lo = p;
       if (p > hi) hi = p;

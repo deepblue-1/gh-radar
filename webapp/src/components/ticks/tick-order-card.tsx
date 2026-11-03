@@ -6,11 +6,13 @@ import { fmtTickTime } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { fmtDurNs, fmtLeadMs, orderShapeLabel, sideOf } from '@/lib/ticks/msg-rows';
+import type { OwnModel, OwnSel } from '@/lib/ticks/own-model';
 import { fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
 import { recentOrdersOf, type TickSession, type ViewOrder } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
 
 import { ShapeChip } from './tick-msg-list';
+import { TickOwnSection } from './tick-own-section';
 
 /**
  * 틱 뷰어 「이 주문」 카드 (Phase 37 D-00 ① · 스케치 019 · 020 오른쪽 열).
@@ -21,13 +23,37 @@ import { ShapeChip } from './tick-msg-list';
  * ② 「최근 주문 10건」 — 거래소순으로 커서 이하에서 끝난 주문 최신 먼저(커서가 주문 가운데면 그 주문이 맨 위). 행 클릭 =
  *   그 주문 마지막 조각으로 커서 이동.
  * 판정은 세션(shared classifyKrxOrders · NXT 런)이 이미 했다 — 여기서는 보이기만 한다.
+ * ③ 우리 주문(Phase 38 D-07): 커서가 우리 체결 A3 행이거나 우리 줄(주문 · 짝 없음)이 골라져 있으면 본문 아래
+ *   「◆ 우리 주문 #…」 섹션(`TickOwnSection` · 주문이 둘이면 둘).
  */
 
 export interface TickOrderCardProps {
   session: TickSession;
   cursorRec: number;
   onJump: (rec: number) => void;
+  /** 우리 체결 모델(Phase 38) — 없으면 우리 섹션 · 표가 없다(Phase 37 카드 그대로). */
+  own?: OwnModel | null;
+  /** 고른 우리 줄(주문 줄 · 짝 없음 줄 — 뷰어 파생). 있으면 그 주문 섹션을 보인다. */
+  ownSel?: OwnSel | null;
+  /** 우리 섹션 · 표의 「보기 ›」 · 행 클릭 — 커서 이동. 없으면 `onJump`. */
+  onOwnJump?: (rec: number) => void;
+  /** 「보기 ›」 로 떠날 때 되돌아갈 주문 id(D-10 알약). */
+  onOwnBack?: (orderId: number) => void;
   className?: string;
+}
+
+/** 섹션에 보일 우리 주문 — 고른 우리 줄의 주문 · 아니면 커서 A3 rec 에 붙은 우리 체결의 주문들(첫 등장 순 · 중복 없음). */
+export function ownOrdersAt(own: OwnModel, cursorRec: number, ownSel: OwnSel | null): number[] {
+  if (ownSel !== null) {
+    const id = ownSel.kind === 'order' ? ownSel.id : (own.fills[ownSel.id]?.order ?? -1);
+    return id >= 0 ? [id] : [];
+  }
+  const out: number[] = [];
+  for (const fid of own.fillsOfRec.get(cursorRec) ?? []) {
+    const id = own.fills[fid]!.order;
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 const SIDE_TEXT = { buy: '매수', sell: '매도', auction: '단일가' } as const;
@@ -73,7 +99,18 @@ function durNode(ns: bigint) {
   );
 }
 
-export function TickOrderCard({ session, cursorRec, onJump, className }: TickOrderCardProps) {
+export function TickOrderCard({
+  session,
+  cursorRec,
+  onJump,
+  own = null,
+  ownSel = null,
+  onOwnJump,
+  onOwnBack,
+  className,
+}: TickOrderCardProps) {
+  const ownIds = own !== null ? ownOrdersAt(own, cursorRec, ownSel) : [];
+  const ownJump = onOwnJump ?? onJump;
   const oid = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
   const order = oid >= 0 ? session.orders[oid]! : null;
   const recent = useMemo(() => recentOrdersOf(session, cursorRec, 10), [session, cursorRec]);
@@ -146,6 +183,17 @@ export function TickOrderCard({ session, cursorRec, onJump, className }: TickOrd
       </div>
       <div className="px-3 pt-2.5 pb-3">
         {body}
+        {own !== null &&
+          ownIds.map((id) => (
+            <TickOwnSection
+              key={id}
+              session={session}
+              own={own}
+              orderId={id}
+              onJump={ownJump}
+              onBack={onOwnBack}
+            />
+          ))}
         <h3 className="m-0 mt-3 text-[11px] font-semibold text-[var(--muted-fg)]">최근 주문 {recent.length}건</h3>
         {recent.length === 0 ? (
           <p className="m-0 py-2 text-[11.5px] text-[var(--muted-fg)]">아직 체결 주문 없음</p>

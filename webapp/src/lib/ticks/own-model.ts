@@ -14,15 +14,26 @@
  *   보드별로 다시 채운 순열이라 슬롯 p 하나가 두 순열 공통이다(`exchangeOrderOf`). 전문 목록은 ROW(order[p]) **앞**에 줄을 넣는다.
  * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다 — 짝을 못 찾은 체결이라도 gw + 1,200ms
  *   (짝 창 +200ms + 여유 1,000ms)가 세션 마지막 수신보다 뒤면 「짝 전문 없음」 이 아니라 'pending'. 과거 격자는 늘 확정.
+ * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3)` 한 번 → 이벤트가 있는 주문마다 shared
+ *   `locateEvidence`(호가 B6 · 체결 단건 A3 · 주기매도 구간 · 없음) · `anchorOf`(「주문 직전 마지막 체결」). ev_kind 3(체결통보)은
+ *   shared 가 none 으로 돌려주므로 여기서 같은 게이트웨이 · 계좌의 그 이전 우리 체결(gw ≤ 이벤트 gw ∧ 가격 == ev_price ∧
+ *   수량 == ev_trade_qty) 중 마지막 것의 짝 A3 로 잇는다 — 그 체결이 짝이 없으면 근거 없음(RESEARCH Open Q3 · UAT 확인 대상).
+ *   앵커가 근거 행과 같으면 앵커는 없다(−1 · 카드 「직전 체결」 줄 생략).
  */
 
 import {
+  EVIDENCE_KIND_LABELS,
+  anchorOf,
   conditionTextOf,
+  cumIndexOf,
+  evidenceTextOf,
+  locateEvidence,
   lowerBoundRecv,
   matchOwnFills,
   orderGroupLabel,
   orderGroupOriginText,
   strategyEventSide,
+  type OwnEvidence,
   type TickOwnEvent,
   type TickOwnResponse,
 } from '@gh-radar/shared';
@@ -83,6 +94,16 @@ export interface OwnOrderView {
   origin: string | null;
   /** 이 주문의 체결 id(오름차순). */
   fills: number[];
+  /** 조건 근거(shared `locateEvidence` · ev_kind 3 은 우리 체결 짝) — 이벤트 없는 주문은 none. */
+  evidence: OwnEvidence;
+  /** 근거 종류 낱말 — 호가 · 체결 · 체결통보 · 체결 구간 · 없으면 null. */
+  evidenceLabel: string | null;
+  /** 근거 전문 rec(b6 rec · 단건 A3 rec · 구간 끝 A3 rec) · 없으면 −1. */
+  evidenceRec: number;
+  /** 구간 첫 A3 rec · 구간이 아니면 evidenceRec 과 같다. */
+  evidenceFirstRec: number;
+  /** 앵커(「주문 직전 마지막 체결」) A3 rec · 없거나 근거 행과 같으면 −1. */
+  anchorRec: number;
 }
 
 /** 전문 목록 · 카드가 고른 우리 줄 — 주문 줄(order id) 또는 짝 없는 체결 줄(fill id). */
@@ -100,7 +121,14 @@ export interface OwnModel {
   slotOfOrder: Int32Array;
   /** 체결 id → 수신순 슬롯 p — 짝 없음 · 대기만 · 짝 있으면 −1. */
   slotOfFill: Int32Array;
+  /** 근거 전문 rec(evidenceRec · 구간 첫 rec 둘 다) → 그 전문을 보고 나간 주문 id 들(오름차순). */
+  ordersOfEvidenceRec: Map<number, number[]>;
 }
+
+type EvidenceKeys = 'evidence' | 'evidenceLabel' | 'evidenceRec' | 'evidenceFirstRec' | 'anchorRec';
+
+/** 근거 없음 — 주문마다 같은 객체를 써도 된다(읽기 전용). */
+const NO_EVIDENCE: OwnEvidence = { kind: 'none' };
 
 const sideOfCode = (s: string | null): 'buy' | 'sell' | null => (s === 'B' ? 'buy' : s === 'S' ? 'sell' : null);
 
@@ -168,7 +196,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     const e = a.event;
     const o = a.aux;
     const first = a.fills.length > 0 ? sorted[a.fills[0]!]! : null;
-    let view: Omit<OwnOrderView, 'id' | 'fills'>;
+    let view: Omit<OwnOrderView, 'id' | 'fills' | EvidenceKeys>;
     if (e) {
       view = {
         key: a.key,
@@ -222,7 +250,16 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
   const orderOfFill = new Int32Array(sorted.length).fill(-1);
   for (let id = 0; id < draft.length; id++) {
     const d = draft[id]!;
-    orders[id] = { ...d.view, id, fills: d.fills };
+    orders[id] = {
+      ...d.view,
+      id,
+      fills: d.fills,
+      evidence: NO_EVIDENCE,
+      evidenceLabel: null,
+      evidenceRec: -1,
+      evidenceFirstRec: -1,
+      anchorRec: -1,
+    };
     for (const fi of d.fills) orderOfFill[fi] = id;
   }
 
@@ -270,7 +307,59 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
   const slotOfOrder = new Int32Array(orders.length).fill(-1);
   for (const o of orders) if (o.gwMs !== null) slotOfOrder[o.id] = slotAt(o.gwMs);
 
-  return { servers: own.servers, fills, fillsOfRec, orders, slotOfOrder, slotOfFill };
+  // ── 근거 · 앵커(⑦) — 색인은 세션당 한 번(이벤트가 있을 때만)
+  const ordersOfEvidenceRec = new Map<number, number[]>();
+  const cumIdx = own.events.length > 0 ? cumIndexOf(a3) : null;
+  if (cumIdx) {
+    for (const o of orders) {
+      const e = o.event;
+      if (!e) continue;
+      let evidence: OwnEvidence;
+      if (e.ev_kind === 3) {
+        // 체결통보 — 같은 게이트웨이 · 계좌의 그 이전 우리 체결 중 마지막 것(fills 는 gw 시각 오름차순)
+        let last: OwnFillView | null = null;
+        for (const f of fills) {
+          if (f.gwMs > e.gw_time_ms) break;
+          if (f.gateway !== e.gateway || f.accountNo !== e.account_no) continue;
+          if (f.px === e.ev_price && f.qty === e.ev_trade_qty) last = f;
+        }
+        evidence = last !== null && last.a3j >= 0 ? { kind: 'a3', j: last.a3j } : NO_EVIDENCE;
+      } else {
+        evidence = locateEvidence(session.buf, index, recvOrder, a3, cumIdx, {
+          gwMs: e.gw_time_ms,
+          evKind: e.ev_kind,
+          evPrice: e.ev_price,
+          evQtyBefore: e.ev_qty_before,
+          evQtyAfter: e.ev_qty_after,
+          evTradeQty: e.ev_trade_qty,
+        });
+      }
+      o.evidence = evidence;
+      if (evidence.kind === 'b6') {
+        o.evidenceLabel = EVIDENCE_KIND_LABELS[1] ?? null;
+        o.evidenceRec = o.evidenceFirstRec = evidence.rec;
+      } else if (evidence.kind === 'a3') {
+        o.evidenceLabel = EVIDENCE_KIND_LABELS[e.ev_kind] ?? null;
+        o.evidenceRec = o.evidenceFirstRec = a3.rec[evidence.j]!;
+      } else if (evidence.kind === 'range') {
+        o.evidenceLabel = '체결 구간';
+        o.evidenceRec = a3.rec[evidence.lastJ]!;
+        o.evidenceFirstRec = a3.rec[evidence.firstJ]!;
+      }
+      const aj = anchorOf(cumIdx, e.cum_volume);
+      const anchor = aj >= 0 ? a3.rec[aj]! : -1;
+      o.anchorRec = anchor === o.evidenceRec || anchor === o.evidenceFirstRec ? -1 : anchor;
+      if (o.evidenceRec >= 0) {
+        for (const r of o.evidenceFirstRec === o.evidenceRec ? [o.evidenceRec] : [o.evidenceFirstRec, o.evidenceRec]) {
+          const ids = ordersOfEvidenceRec.get(r);
+          if (ids) ids.push(o.id);
+          else ordersOfEvidenceRec.set(r, [o.id]);
+        }
+      }
+    }
+  }
+
+  return { servers: own.servers, fills, fillsOfRec, orders, slotOfOrder, slotOfFill, ordersOfEvidenceRec };
 }
 
 /** 전문 목록 칩 — 그 A3 rec 에 붙은 우리 체결 합 · 그 A3 수량 · 하나라도 추정이면 est. 없으면 null. */
@@ -298,7 +387,8 @@ function originGroupOf(o: OwnOrderView): number {
 /**
  * 주문 줄 문구(D-05) — 「● 주문 {구분} {매수|매도} {가격 ×수량} · {조건 | 조건 없음[ · 출처]} · {게이트웨이} ···{계좌 끝 4} #{주문번호}」.
  * 구분 · 조건 · 출처 낱말은 shared `strategy-event-labels` · `strategy-event-text` 그대로(문장 새로 짓지 않음 — 25 D-09/D-10).
- * 값이 없는 조각은 생략한다(가짜 0 금지 — 가격 · 수량 0 이하도 없는 값). 근거 조각 「· 근거 {호가|체결} ↑」 은 38-06 이 붙인다.
+ * 값이 없는 조각은 생략한다(가짜 0 금지 — 가격 · 수량 0 이하도 없는 값). 근거가 있으면 조건 뒤 · 게이트웨이 앞에
+ * 「 · 근거 {호가|체결|체결통보|체결 구간} ↑」(38-06 · 근거 행은 레일 ○).
  */
 export function ownOrderLineText(o: OwnOrderView): string {
   const g = originGroupOf(o);
@@ -328,7 +418,51 @@ export function ownOrderLineText(o: OwnOrderView): string {
     cond = src ? `조건 없음 · ${src}` : '조건 없음';
   }
 
+  const ev = o.evidenceLabel !== null ? ` · 근거 ${o.evidenceLabel} ↑` : '';
   const last4 = o.accountNo.length > 0 ? ` ···${o.accountNo.slice(-4)}` : '';
   const no = o.orderNo !== '' ? ` #${o.orderNo}` : '';
-  return `${head.join(' ')} · ${cond} · ${o.gateway}${last4}${no}`;
+  return `${head.join(' ')} · ${cond}${ev} · ${o.gateway}${last4}${no}`;
+}
+
+/** 주문 구분 낱말(선매수 · 수동 · VI …) — 주문 줄과 같은 출처 그룹 · 없으면 null. */
+export function ownOrderGroupLabel(o: OwnOrderView): string | null {
+  const g = originGroupOf(o);
+  return g > 0 ? orderGroupLabel(g) : null;
+}
+
+/**
+ * 카드 「조건」 줄(D-07 ① · D-13) — 조건이 있으면 `conditionTextOf` 그대로(「조건 … / 실측 …」) ·
+ * 수동이면 「없음 · 수동 주문 — 주문 시각 위치만」 · 그 밖 「없음 — 주문 시각 위치만」.
+ */
+export function ownConditionLineText(o: OwnOrderView): string {
+  const e = o.event;
+  if (e && e.cond_metric > 0) {
+    const t = conditionTextOf({
+      condMetric: e.cond_metric,
+      condThreshold: e.cond_threshold,
+      condActual: e.cond_actual,
+      reasonCode: e.reason_code,
+      group: e.group,
+      kind: e.kind,
+      price: e.price,
+    });
+    if (t !== null) return t;
+  }
+  return originGroupOf(o) === 7 ? '없음 · 수동 주문 — 주문 시각 위치만' : '없음 — 주문 시각 위치만';
+}
+
+/** 근거 조각(`evidenceTextOf` 그대로 · 예 「근거 호가(매도1잔량 52,100→38,200)」) — 이벤트 · 근거가 없으면 null. */
+export function ownEvidenceText(o: OwnOrderView): string | null {
+  const e = o.event;
+  if (!e || o.evidenceRec < 0) return null;
+  return evidenceTextOf({
+    evKind: e.ev_kind,
+    evPrice: e.ev_price,
+    evQtyBefore: e.ev_qty_before,
+    evQtyAfter: e.ev_qty_after,
+    evTradeQty: e.ev_trade_qty,
+    condMetric: e.cond_metric,
+    group: e.group,
+    kind: e.kind,
+  });
 }
