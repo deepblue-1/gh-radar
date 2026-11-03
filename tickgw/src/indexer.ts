@@ -1,16 +1,24 @@
 /**
  * 119 인덱서 ssh 강제 명령 어댑터 (Phase 37 · D-05 · D-07).
  *
- * ── 계약 = 37-01 인계 노트 ② 제안(gh-trade 회신 전) ─────────────────────
- *   노트: gh-trade docs/inbox/from-gh-radar/261102-tick-viewer-contract.md ②
- *   인자     `<isin(12)> <KRX|NXT> <YYYYMMDD(오늘)> <from_ns> <to_ns>` — ns 는 recv 시각 epoch ns 십진 문자열 · to_ns 0 = 지금까지
- *            강제 명령이라 119 쪽은 `SSH_ORIGINAL_COMMAND` 로 받는다(ssh 가 인자를 공백으로 이어 보낸다 — 모두 [A-Z0-9] 라 안전)
- *   stdout   zstd 프레임 하나 이상 · 내용 = pcap-ns 레코드 `<IIII>` 16B + UDP 페이로드 반복(전역 헤더 없음 · recv 순)
- *   stderr   **마지막 줄** JSON `{"fmt":"pcapns-rec/1","records":N,"first_recv_ns":"…","last_recv_ns":"…","has_more":bool,"next_from_ns":"…"}`
- *   종료코드 0 정상(0건 포함) · 75 바쁨(EX_TEMPFAIL) · 64 인자 오류 · 그 밖 실패 · ssh 자체 오류는 255
+ * ── 계약 = 37-01 제안(①~⑤) + gh-trade 1차 회신(docs/inbox/from-gh-trade/261102-tick-viewer-contract-1.md) ──
+ *   정본: gh-trade server/tools/indexer/README.md 「조회 계약 (gh-radar Phase 37 ②)」 — 글자가 어긋나면 README 가 맞다.
+ *   명령     119 `authorized_keys` 강제 명령 `/home/smok95/gh-trade-server/bin/tick-indexer --query`(taskset 코어 0 · nice 19 ·
+ *            ionice idle) — 인자는 `SSH_ORIGINAL_COMMAND` 를 공백 · 탭으로 나눠 받는다(모두 [A-Z0-9] 라 안전)
+ *   인자     `<isin(12)> <KRX|NXT> <YYYYMMDD(오늘 · 119 로컬 KST)> <from_ns> <to_ns>` — recv epoch ns 십진 ·
+ *            from 포함 · to 배타 · to_ns 0 = 지금까지 · 다른 날짜는 64
+ *   stdout   **항상 정확히 zstd 프레임 1개**(0건이면 빈 프레임 · has_more 로 끊은 응답도 1개 — 응답 N 개 = 프레임 N 개) ·
+ *            내용 = pcap-ns 레코드 `<IIII>` 16B + UDP 페이로드 반복(전역 헤더 없음 · recv 순) ·
+ *            압축 16MB **엄격** 상한(넘기 전에 레코드 경계에서 끊는다)
+ *   stderr   **마지막 줄** JSON(공백 없음 · ns 는 문자열) `{"fmt":"pcapns-rec/1","records":N,"first_recv_ns":"…",
+ *            "last_recv_ns":"…","has_more":bool,"next_from_ns":"…","compressed_files_skipped":N}` —
+ *            next_from_ns = 보내지 않은 첫 레코드 recv_ns(포함 커서 · 같은 recv_ns 묶음은 가르지 않는다) ·
+ *            compressed_files_skipped = 20:00 뒤 `.pcap.zst` 로 바뀌어 건너뛴 파일 수(그날 밤부터는 GCS 변환 몫)
+ *   종료코드 0 정상(0건 포함) · 75 바쁨(EX_TEMPFAIL · 동시 1 flock) · 64 인자 오류 · 그 밖 실패 · ssh 자체 오류는 255
  *
- *   **회신 차이(명령 경로 · 인자 · JSON 키 · 종료코드)는 37-17 이 이 파일만 고친다.** poller · cache · server 는
- *   `IndexerArgs` · `IndexerMeta` · `IndexerResult` 모양만 안다.
+ *   회신 차이 2건(compressed_files_skipped · 0건 빈 프레임)은 프레이밍을 바꾸지 않는다 — poller 는 records > 0 일 때만
+ *   캐시에 붙이므로 빈 프레임은 버려지고, 37-09 「원본 zstd 그대로 · 재압축 없음」 규칙에 예외가 없다.
+ *   poller · cache · server 는 `IndexerArgs` · `IndexerMeta` · `IndexerResult` 모양만 안다.
  *
  * ── ssh 규율 ──────────────────────────────────────────────────────
  *   ControlMaster=auto + ControlPersist=120 — 연결 하나를 유지하고 채널만 다중화한다(5초마다 새 핸드셰이크 금지).
@@ -20,7 +28,8 @@
  * ── 종료 판정 ─────────────────────────────────────────────────────
  *   ControlPersist 로 배경에 남는 마스터 프로세스가 stderr 를 늦게 닫는 OpenSSH 판이 있다. 'close' 만 기다리면
  *   첫 호출이 마스터 수명(120초)만큼 묶일 수 있어 「종료 + stdout 끝」 이면 끝내고 stderr 는 짧게(200ms)만 더 기다린다.
- *   시간 초과면 SIGKILL · code −1. stdout 이 상한(기본 32MB — 계약 16MB 의 두 배)을 넘으면 kill · code −1(컨테이너 256MB 보호).
+ *   시간 초과면 SIGKILL · code −1. stdout 이 상한(기본 32MB — 계약 16MB 엄격 상한의 두 배 · 계약 위반 방어)을 넘으면
+ *   kill · code −1(컨테이너 256MB 보호).
  */
 
 import { spawn } from "node:child_process";
@@ -42,6 +51,8 @@ export interface IndexerMeta {
   lastRecvNs: bigint | null;
   hasMore: boolean;
   nextFromNs: bigint | null;
+  /** 20:00 뒤 압축돼 건너뛴 원본 파일 수(gh-trade 회신 차이 ①) — 없거나 깨졌으면 0. 로그 진단용. */
+  compressedFilesSkipped: number;
 }
 
 export interface IndexerResult {
@@ -119,6 +130,10 @@ export function parseMeta(stderr: string): IndexerMeta | null {
     lastRecvNs: nsOrNull(r.last_recv_ns),
     hasMore: r.has_more,
     nextFromNs: nsOrNull(r.next_from_ns),
+    compressedFilesSkipped:
+      typeof r.compressed_files_skipped === "number" && Number.isSafeInteger(r.compressed_files_skipped) && r.compressed_files_skipped >= 0
+        ? r.compressed_files_skipped
+        : 0,
   };
 }
 

@@ -73,6 +73,7 @@ describe("runIndexer — 가짜 119", () => {
       lastRecvNs: DAY_START + 3_000_000_000n,
       hasMore: true,
       nextFromNs: DAY_START + 4_000_000_000n,
+      compressedFilesSkipped: 0,
     });
     const raw = zstdDecompressSync(r.stdout);
     expect(raw.length).toBe(3 * (16 + 40));
@@ -80,6 +81,16 @@ describe("runIndexer — 가짜 119", () => {
     const ns = BigInt(raw.readUInt32LE(0)) * 1_000_000_000n + BigInt(raw.readUInt32LE(4));
     expect(ns).toBe(DAY_START + 1_000_000_000n);
     expect(raw.readUInt32LE(8)).toBe(40);
+  });
+
+  it("0건 — stdout 은 빈 zstd 프레임 정확히 1개(회신 차이 ②) · compressed_files_skipped 를 읽는다(회신 차이 ①)", async () => {
+    process.env.FAKE_INDEXER_SKIPPED = "2";
+    const r = await runIndexer({ ...args, fromNs: DAY_START + 3_600_000_000_000n }, opts());
+    expect(r.code).toBe(0);
+    expect(r.meta?.records).toBe(0);
+    expect(r.meta?.compressedFilesSkipped).toBe(2);
+    expect(r.stdout.length).toBeGreaterThan(0);
+    expect(zstdDecompressSync(r.stdout).length).toBe(0);
   });
 
   it("종료코드 75(바쁨) — meta 없음 · code 75", async () => {
@@ -123,7 +134,18 @@ describe("runIndexer — 가짜 119", () => {
 describe("parseMeta", () => {
   it("앞 줄은 자유 · 마지막 비지 않은 줄만 JSON", () => {
     const m = parseMeta('log a\nlog b\n{"fmt":"pcapns-rec/1","records":0,"first_recv_ns":null,"last_recv_ns":null,"has_more":false,"next_from_ns":null}\n\n');
-    expect(m).toEqual({ fmt: "pcapns-rec/1", records: 0, firstRecvNs: null, lastRecvNs: null, hasMore: false, nextFromNs: null });
+    expect(m).toEqual({
+      fmt: "pcapns-rec/1", records: 0, firstRecvNs: null, lastRecvNs: null, hasMore: false, nextFromNs: null, compressedFilesSkipped: 0,
+    });
+  });
+  it("회신 예시 줄 그대로 — ns 세 값 문자열 · compressed_files_skipped", () => {
+    const m = parseMeta(
+      '{"fmt":"pcapns-rec/1","records":3,"first_recv_ns":"1762045201000000100","last_recv_ns":"1762045206000000600","has_more":false,"next_from_ns":"0","compressed_files_skipped":1}',
+    );
+    expect(m).toEqual({
+      fmt: "pcapns-rec/1", records: 3, firstRecvNs: 1762045201000000100n, lastRecvNs: 1762045206000000600n,
+      hasMore: false, nextFromNs: 0n, compressedFilesSkipped: 1,
+    });
   });
   it("2^53 넘는 ns 문자열을 잃지 않는다", () => {
     const m = parseMeta('{"fmt":"pcapns-rec/1","records":1,"first_recv_ns":"1793314801000000123","last_recv_ns":"1793314801000000123","has_more":false}');

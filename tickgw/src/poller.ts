@@ -338,6 +338,7 @@ export class Poller {
       records: res.meta?.records ?? null,
       bytes: res.stdout.length,
       has_more: res.meta?.hasMore ?? null,
+      skipped: res.meta?.compressedFilesSkipped || undefined,
       ms: at - started,
       stderr: okResult(res) ? undefined : res.stderrTail.slice(-200),
     });

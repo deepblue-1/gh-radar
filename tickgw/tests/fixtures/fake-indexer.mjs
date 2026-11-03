@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // 가짜 119 강제 명령 — tickgw 가 `ssh <옵션…> <host> <isin> <ex> <date> <from_ns> <to_ns>` 로 부르는 자리에 TICKGW_SSH_BIN 으로 놓는다.
-// 계약(37-01 인계 노트 ②)대로: stdout = zstd 프레임(pcap-ns 레코드 `<IIII>` 16B + 합성 A3 페이로드 반복) ·
-// stderr 마지막 줄 JSON · 종료코드 0/75/64.
+// 계약(37-01 제안 + gh-trade 1차 회신 261102-tick-viewer-contract-1)대로: stdout = 항상 zstd 프레임 정확히 1개
+// (pcap-ns 레코드 `<IIII>` 16B + 합성 A3 페이로드 반복 · 0건이면 빈 프레임) · stderr 마지막 줄 JSON
+// (compressed_files_skipped 포함) · 종료코드 0/75/64.
 //
 // 하루 레코드: 그날 08:00 KST + (i+1)초(i = 0..TOTAL−1) — 결정적이라 같은 인자는 같은 바이트를 낸다.
 //
@@ -13,6 +14,7 @@
 //   FAKE_INDEXER_EXIT        이 종료코드로 바로 끝낸다(출력 없음 · stderr 에 FAKE_INDEXER_STDERR)
 //   FAKE_INDEXER_STDERR      종료 전 stderr 에 쓸 줄
 //   FAKE_INDEXER_DELAY_MS    응답 전 지연
+//   FAKE_INDEXER_SKIPPED     stderr JSON compressed_files_skipped 값(기본 0)
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { zstdCompressSync } from "node:zlib";
 
@@ -72,7 +74,8 @@ async function main() {
     hdr.writeUInt32LE(payload.length, 12);
     parts.push(hdr, payload);
   }
-  const out = take.length > 0 ? zstdCompressSync(Buffer.concat(parts)) : Buffer.alloc(0);
+  // 회신 차이 ②: 0건이어도 빈 프레임 1개 — 응답 N 개 = 프레임 N 개
+  const out = zstdCompressSync(Buffer.concat(parts));
   process.stdout.write(out);
   const meta = {
     fmt: "pcapns-rec/1",
@@ -80,7 +83,8 @@ async function main() {
     first_recv_ns: take.length ? String(take[0].ns) : null,
     last_recv_ns: take.length ? String(take[take.length - 1].ns) : null,
     has_more: hasMore,
-    next_from_ns: hasMore ? String(all[take.length].ns) : null,
+    next_from_ns: hasMore ? String(all[take.length].ns) : "0",
+    compressed_files_skipped: Number(env.FAKE_INDEXER_SKIPPED || 0),
   };
   process.stderr.write("fake-indexer: free log line\n" + JSON.stringify(meta) + "\n");
 }
