@@ -10,9 +10,12 @@
  *   tick_convert_runs_since(p_since)             → [{date, exchange, mode, ok, finished_at}]   (37-18 nightly)
  *   tick_convert_candidates(p_date)              → {accum: isin[], live16: isin[]}             (37-18 nightly)
  *   tick_purge_old(p_keep_days)                  → {cutoff, grids, requests, runs, dates}      (37-18 nightly)
+ *   tick_grid_team_pending(p_from, p_to)         → [{date, exchange, isin, object_path, bytes}] (261103-j4d backfill-team)
+ *   tick_grid_team_set(p_rows)                   → 갱신 수 — 같은 object_path ∧ 미계산 행만     (261103-j4d backfill-team)
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Exchange, GridMode } from "./store";
+import type { GridTeam } from "./team-day";
 
 /** 요청 결과 코드 — 종목에 그날 그 거래소 전문이 없다(정상 결과 · 실패 아님). */
 export const NO_RECORDS = "NO_RECORDS";
@@ -38,7 +41,12 @@ export type GridRow = {
   high_rate: number | null;
   last_rate: number | null;
   fmt: string;
-};
+} & GridTeam;
+
+/** 팀 값 미계산 격자(backfill-team 입력 · 20261103230000). */
+export type TeamPendingRow = { date: string; exchange: Exchange; isin: string; object_path: string; bytes: number };
+/** 팀 값 채우기 한 행 — object_path 가 그 사이 바뀌었으면 RPC 가 쓰지 않는다. */
+export type TeamSetRow = { date: string; exchange: Exchange; isin: string; object_path: string } & GridTeam;
 
 export type RunRow = {
   date: string;
@@ -66,10 +74,24 @@ export interface Meta {
   runsSince(since: string): Promise<RunSince[]>;
   candidates(date: string): Promise<Candidates>;
   purgeOld(keepDays: number): Promise<PurgeOut>;
+  teamPending(from?: string, to?: string): Promise<TeamPendingRow[]>;
+  teamSet(rows: readonly TeamSetRow[]): Promise<number>;
 }
 
 function isStrArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isPendingRow(v: unknown): v is TeamPendingRow {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.date === "string" &&
+    (r.exchange === "KRX" || r.exchange === "NXT") &&
+    typeof r.isin === "string" &&
+    typeof r.object_path === "string" &&
+    typeof r.bytes === "number"
+  );
 }
 
 function intOf(name: string, v: unknown): number {
@@ -123,6 +145,16 @@ export function createMeta(sb: SupabaseClient): Meta {
         runs: intOf("tick_purge_old.runs", d.runs),
         dates: d.dates,
       };
+    },
+    async teamPending(from, to) {
+      const d = await call("tick_grid_team_pending", { p_from: from ?? null, p_to: to ?? null });
+      if (!Array.isArray(d) || !d.every(isPendingRow)) {
+        throw new Error(`tick_grid_team_pending: [{date, exchange, isin, object_path, bytes}] 가 아니다 ${JSON.stringify(d).slice(0, 300)}`);
+      }
+      return d;
+    },
+    async teamSet(rows) {
+      return intOf("tick_grid_team_set", await call("tick_grid_team_set", { p_rows: rows }));
     },
   };
 }

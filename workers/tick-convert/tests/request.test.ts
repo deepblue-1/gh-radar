@@ -14,7 +14,20 @@ vi.mock("node:fs", async (importOriginal) => {
     }) as typeof orig.createReadStream,
   };
 });
-import { iterRecords, TICK_FMT } from "@gh-radar/shared";
+// 팀 값 계산 실패 주입(quick 261103-j4d 결정 4) — 켜면 shared teamDaySummaryOf 가 throw 한다(꺼져 있으면 원래 함수)
+const teamSpy = vi.hoisted(() => ({ boom: false }));
+vi.mock("@gh-radar/shared", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@gh-radar/shared")>();
+  return {
+    ...orig,
+    teamDaySummaryOf: ((...a: Parameters<typeof orig.teamDaySummaryOf>) => {
+      if (teamSpy.boom) throw new Error("team boom");
+      return orig.teamDaySummaryOf(...a);
+    }) as typeof orig.teamDaySummaryOf,
+  };
+});
+import { iterRecords, TICK_FMT, teamDaySummaryOf } from "@gh-radar/shared";
+import { logger } from "../src/logger";
 import { main } from "../src/index";
 import type { Config } from "../src/config";
 import {
@@ -78,6 +91,7 @@ const PACKETS: SynthPacket[] = [
 let arch: SynthArchive | null = null;
 beforeEach(() => {
   fsSpy.reads = 0;
+  teamSpy.boom = false;
 });
 afterEach(() => {
   arch?.cleanup();
@@ -151,6 +165,14 @@ describe("request 모드 트레이서 — claim → 통독 → 격자 → 업로
     });
     expect(rows[0]!.high_rate as number).toBeCloseTo(15, 9);
     expect(rows[0]!.last_rate as number).toBeCloseTo(5, 9);
+    // 팀 3칸(quick 261103-j4d) — 올린 격자를 풀어 shared 로 계산한 값(합성 A3 는 팀 판정이 없을 수 있다 — 규칙대로 매핑)
+    const raw = zlib.zstdDecompressSync(ups[0]!.bytes);
+    const sum = teamDaySummaryOf(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength), "KRX");
+    expect({ team_fills: rows[0]!.team_fills, team_day_net_krw: rows[0]!.team_day_net_krw, team_day_pnl_krw: rows[0]!.team_day_pnl_krw }).toEqual({
+      team_fills: sum.fills,
+      team_day_net_krw: sum.fills > 0 ? sum.dayNetVal : null,
+      team_day_pnl_krw: sum.fills > 0 ? sum.pnl!.total_val : null,
+    });
 
     expect(rpcCalls(calls, "tick_request_claim")).toEqual([{ p_date: D, p_ex: "KRX" }]);
     expect(rpcCalls(calls, "tick_request_finish")).toEqual([
@@ -367,3 +389,29 @@ function isinOf(payload: Uint8Array): string {
   const off = tag === "B9" || tag === "C3" ? 5 : 17;
   return Buffer.from(payload.subarray(off, off + 12)).toString("ascii");
 }
+
+describe("팀 값 계산 실패 격리(quick 261103-j4d 결정 4)", () => {
+  it("teamDaySummaryOf 가 throw 해도 업로드 · upsert · finish ok · 실행 기록 ok 그대로 — 그 행 팀 3칸만 null + 에러 로그", async () => {
+    const a = archive();
+    teamSpy.boom = true;
+    const err = vi.spyOn(logger, "error").mockImplementation(() => undefined as never);
+    const { sb, calls } = makeFakeSupabase({ claim: [A, B] });
+    expect(await run(["request", "--date", D, "--ex", "NXT"], sb, a.root)).toBe(0);
+
+    expect(uploads(calls)).toHaveLength(2);
+    const rows = rpcCalls(calls, "tick_grid_upsert")[0]!.p_rows as Record<string, unknown>[];
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r).toMatchObject({ team_fills: null, team_day_net_krw: null, team_day_pnl_krw: null });
+      expect(r.records).toBe(6);
+    }
+    expect(rpcCalls(calls, "tick_request_finish")[0]!.p_results).toEqual([
+      { isin: A, ok: true, error: null },
+      { isin: B, ok: true, error: null },
+    ]);
+    expect(rpcCalls(calls, "tick_convert_run_record")[0]!.p_run).toMatchObject({ ok: true, written: 2, error: null });
+    const teamErrs = err.mock.calls.filter((c) => String(c[1]).includes("team summary failed"));
+    expect(teamErrs).toHaveLength(2);
+    expect(teamErrs[0]![0]).toMatchObject({ date: D, ex: "NXT", isin: A, mode: "request" });
+  });
+});

@@ -10,6 +10,7 @@
  * - `TICKGW_URL` · `TICKGW_SECRET`(37-12 promote) — radar-gw tickgw 내부 HTTP(Direct VPC). 값이 있으면 URL 은 사설 대역
  *   `http://10.…` · `http://127.…` 만(공인 주소로 비밀 헤더를 내보내지 않는다 — relay-admin-client 가드 정신). promote 모드는
  *   둘 다 필수(없으면 ConfigError → 종료 2) · TICK_ARCHIVE_DIR 은 promote 에서 필요 없다(승격 Job 은 GCS 볼륨이 없다).
+ * - backfill-team(quick 261103-j4d)도 TICK_ARCHIVE_DIR 이 필요 없다(Storage 격자만 읽는다).
  */
 export type Config = {
   supabaseUrl: string;
@@ -83,8 +84,8 @@ function positiveInt(name: string, fallback: number): number {
 
 export function loadConfig({ dryRun = false, mode }: { dryRun?: boolean; mode?: string } = {}): Config {
   const archiveDir = process.env.TICK_ARCHIVE_DIR ?? "";
-  // 승격 Job 은 원본 아카이브를 읽지 않는다(tickgw export 만) — GCS 볼륨이 없어도 된다
-  if (!dryRun && mode !== "promote" && !archiveDir) throw new Error("TICK_ARCHIVE_DIR must be set");
+  // 승격 Job 은 원본 아카이브를 읽지 않는다(tickgw export 만) · backfill-team 은 Storage 격자만 읽는다 — GCS 볼륨이 없어도 된다
+  if (!dryRun && mode !== "promote" && mode !== "backfill-team" && !archiveDir) throw new Error("TICK_ARCHIVE_DIR must be set");
   const tickgwUrl = checkTickgwUrl(process.env.TICKGW_URL);
   const tickgwSecret = process.env.TICKGW_SECRET ?? "";
   if (mode === "promote") requireTickgw({ tickgwUrl, tickgwSecret });

@@ -11,6 +11,7 @@
  *
  * 한 키: export/bytes(이어붙인 zstd 프레임) → `splitZstdFrames` 로 나눠 프레임마다 풀기(Node zstd 는 첫 프레임만 푼다 · 37-02)
  *   → 레코드 수 · A3 · 첫/끝 recv · DayRateTracker(A3 ∧ G1) → 재확인 → `buildGridFile`(level TICK_ZSTD_LEVEL · 한 프레임)
+ *   → 팀 값(team-day.ts gridTeamOf · quick 261103-j4d — 계산 실패는 그 행 팀 값만 null)
  *   → 업로드 `grid/<D>/<EX>/<isin>.promoted.ticks.zst` → `tick_grid_upsert('promoted', [row])`(sources ['promoted']).
  *   upsert 반환 0 = 그 키에 nightly · request 격자가 있다(RPC 모드 규칙 — promoted 는 promoted 위에만) → `skipped`.
  *   밤 변환본이 나중에 승격본을 덮는다. 모드별 객체 경로라 다른 모드 객체를 지우지 않는다.
@@ -40,6 +41,7 @@ import { kstYmdDaysAgo } from "../archive";
 import { buildGridFile } from "../grid-file";
 import { gridObjectPath, type Exchange } from "../store";
 import { createMeta, type GridRow } from "../meta";
+import { gridTeamOf } from "../team-day";
 import { createTickgwExportClient, type TickgwExportClient, type TickgwExportKey } from "../tickgw-export";
 import { UsageError, validYmd, type JobDeps } from "./request";
 
@@ -51,7 +53,16 @@ export type PromoteDeps = JobDeps & { tickgw?: TickgwExportClient };
 /** 키 하나의 결과. */
 export type KeyStatus = "written" | "skipped" | "incomplete" | "failed";
 
-export type PromoteKeyResult = { isin: string; ex: Exchange; status: KeyStatus; reason: string | null; bytesRead: number };
+export type PromoteKeyResult = {
+  isin: string;
+  ex: Exchange;
+  status: KeyStatus;
+  reason: string | null;
+  bytesRead: number;
+  /** 팀 값 계산 실패(그 행 팀 값만 null · 실패 아님 · quick 261103-j4d). */
+  teamFailed: boolean;
+  teamMs: number;
+};
 
 export type PromoteOutcome = {
   mode: "promote";
@@ -64,6 +75,9 @@ export type PromoteOutcome = {
   /** 실패 키 + 실행 기록 실패 — 0 이 아니면 종료 1. */
   failed: number;
   bytesRead: number;
+  /** 팀 값 계산 실패 키 수 · 소요 합(ms) — 실패로 세지 않는다(quick 261103-j4d). */
+  teamFailed: number;
+  teamMs: number;
   durationMs: number;
   results: PromoteKeyResult[];
 };
@@ -162,6 +176,9 @@ async function promoteKey(
   }
 
   const g = buildGridFile(raw, deps.config.zstdLevel);
+  const tm = gridTeamOf(raw, key.ex, { date, isin: key.isin, mode: "promoted" });
+  out.teamMs = tm.ms;
+  out.teamFailed = !tm.ok;
   const path = gridObjectPath(date, key.ex, key.isin, "promoted");
   await deps.store.upload(path, g.bytes);
   const row: GridRow = {
@@ -179,6 +196,7 @@ async function promoteKey(
     high_rate: s.rate.highRate(),
     last_rate: s.rate.lastRate(),
     fmt: TICK_FMT,
+    ...tm.team,
   };
   const n = await meta.upsertGrids("promoted", [row]);
   if (n === 0) {
@@ -213,12 +231,22 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     unclosed: list.unclosed,
     failed: 0,
     bytesRead: 0,
+    teamFailed: 0,
+    teamMs: 0,
     durationMs: 0,
     results: [],
   };
 
   for (const key of list.keys) {
-    const r: PromoteKeyResult = { isin: key.isin, ex: key.ex, status: "failed", reason: null, bytesRead: 0 };
+    const r: PromoteKeyResult = {
+      isin: key.isin,
+      ex: key.ex,
+      status: "failed",
+      reason: null,
+      bytesRead: 0,
+      teamFailed: false,
+      teamMs: 0,
+    };
     try {
       await promoteKey(deps, client, meta, date, key, r);
     } catch (err) {
@@ -231,6 +259,8 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
     }
     out.results.push(r);
     out.bytesRead += r.bytesRead;
+    out.teamMs += r.teamMs;
+    if (r.teamFailed) out.teamFailed += 1;
     out[r.status] += 1; // KeyStatus 이름 = 결과 카운터 이름
   }
 
@@ -265,7 +295,8 @@ export async function runPromote(deps: PromoteDeps, args: PromoteArgs = {}): Pro
   logger.info(
     { result: { ...out, results: undefined } },
     `[tick-convert] mode=promote date=${date} keys=${out.keys} written=${out.written} skipped=${out.skipped} ` +
-      `incomplete=${out.incomplete} unclosed=${out.unclosed} failed=${out.failed} bytes_read=${out.bytesRead} ms=${out.durationMs}`,
+      `incomplete=${out.incomplete} unclosed=${out.unclosed} failed=${out.failed} bytes_read=${out.bytesRead} ` +
+      `team_failed=${out.teamFailed} team_ms=${out.teamMs} ms=${out.durationMs}`,
   );
   return out;
 }

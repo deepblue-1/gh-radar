@@ -5,19 +5,22 @@
  *   tick_request_claim → [] · tick_request_finish → p_results 길이 · tick_grid_upsert → p_rows 길이 ·
  *   tick_convert_run_record → 1 · tick_convert_runs_since → [] · tick_convert_candidates → {accum: [], live16: []} ·
  *   tick_purge_old → {cutoff: "", grids: 0, requests: 0, runs: 0, dates: []}
- * `rpc` 키로 덮는다(함수면 args 로 계산). `storage` 는 (bucket, op, args) 로 응답 — undefined 면 기본(성공 · list 는 []).
+ * `rpc` 키로 덮는다(함수면 args 로 계산). `storage` 는 (bucket, op, args) 로 응답 — undefined 면 기본(성공 · list 는 [] ·
+ * download 는 null — 테스트가 Blob 을 준다).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type Call =
   | { kind: "rpc"; name: string; args: Record<string, unknown> }
-  | { kind: "storage"; bucket: string; op: "upload" | "list" | "remove"; args: unknown[] };
+  | { kind: "storage"; bucket: string; op: StorageOp; args: unknown[] };
+
+export type StorageOp = "upload" | "list" | "remove" | "download";
 
 type Resp = { data?: unknown; error?: { message: string } | null };
 
 export type FakeOptions = {
   rpc?: Record<string, Resp | ((args: Record<string, unknown>) => Resp)>;
-  storage?: (bucket: string, op: "upload" | "list" | "remove", args: unknown[]) => Resp | undefined;
+  storage?: (bucket: string, op: StorageOp, args: unknown[]) => Resp | undefined;
   /** tick_request_claim 이 돌려줄 isin 배열(편의 — `rpc.tick_request_claim` 이 있으면 그쪽이 이긴다). */
   claim?: string[];
 };
@@ -46,11 +49,11 @@ export function makeFakeSupabase(opts: FakeOptions = {}): { sb: SupabaseClient; 
     },
     storage: {
       from(bucket: string) {
-        const rec = (op: "upload" | "list" | "remove") => (...args: unknown[]) => {
+        const rec = (op: StorageOp) => (...args: unknown[]) => {
           calls.push({ kind: "storage", bucket, op, args });
           return done(opts.storage?.(bucket, op, args), { data: op === "list" ? [] : null, error: null });
         };
-        return { upload: rec("upload"), list: rec("list"), remove: rec("remove") };
+        return { upload: rec("upload"), list: rec("list"), remove: rec("remove"), download: rec("download") };
       },
     },
   };

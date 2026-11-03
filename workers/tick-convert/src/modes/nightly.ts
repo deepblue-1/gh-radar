@@ -20,6 +20,8 @@
  *      스테이징하고, 같은 패스에서 A3 ∧ 보드 G1 체결로 키별 DayRateTracker(15% 판정 · 기준가 · 등락률)를 갱신한다.
  *   ④ selectTargets — 등록 ∪ (KRX G1 ∪ NXT G1 에서 hits15). 비대상 키를 먼저 버리고(메모리), 대상 ISIN 은 레코드가 있는
  *      거래소마다 take → 격자 파일(zstd 9) → 업로드(`grid/<D>/<EX>/<isin>.nightly.ticks.zst`).
+ *      크기 판정 뒤 · 업로드 전에 팀 값(team-day.ts gridTeamOf — 상세 「팀 거래정보」 끝 틱 · quick 261103-j4d)을 계산해 행에 싣는다.
+ *      계산 실패는 그 행 팀 값만 null + 에러 로그(team_failed) — 업로드 · upsert · 실행 기록 ok 에 영향 없음.
  *   ⑤ 업로드 성공 행만 `tick_grid_upsert('nightly')`(nightly 는 승격 · 요청 격자를 덮는다 — RPC 모드 규칙).
  *   ⑥ 거래소별 `tick_convert_run_record` + 요약 로그 한 줄.
  *
@@ -44,6 +46,7 @@ import { selectTargets, sourcesOf } from "../select";
 import { purgeOld } from "../purge";
 import { GRID_MAX_BYTES, gridObjectPath, type Exchange } from "../store";
 import { createMeta, type GridRow, type Meta, type RunSince } from "../meta";
+import { gridTeamOf } from "../team-day";
 import { UsageError, validYmd, type JobDeps } from "./request";
 
 /** 실행 기록 코드 — 2일 유예가 지났는데 두 라벨 모두 08~20시 객체가 없다(ok · 다시 고르지 않는다). */
@@ -110,6 +113,10 @@ export type ExchangeResult = {
   tooLarge: number;
   failed: number;
   bytesRead: number;
+  /** 팀 값 계산 실패 키 수(그 행 팀 값만 null · 실패 아님 · quick 261103-j4d). */
+  teamFailed: number;
+  /** 팀 값 계산 소요 합(ms). */
+  teamMs: number;
   error: string | null;
 };
 
@@ -148,7 +155,7 @@ function msgOf(err: unknown): string {
 }
 
 function emptyEx(exchange: Exchange): ExchangeResult {
-  return { exchange, targets: 0, written: 0, tooLarge: 0, failed: 0, bytesRead: 0, error: null };
+  return { exchange, targets: 0, written: 0, tooLarge: 0, failed: 0, bytesRead: 0, teamFailed: 0, teamMs: 0, error: null };
 }
 
 function judgeDay(root: string, date: string, now: Date): DayReady {
@@ -200,12 +207,16 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       er.targets += 1;
       const path = gridObjectPath(date, ex, isin, "nightly");
       try {
-        const g = buildGridFile(stager.take(key), cfg.zstdLevel);
+        const raw = stager.take(key);
+        const g = buildGridFile(raw, cfg.zstdLevel);
         if (g.bytes.length > GRID_MAX_BYTES) {
           logger.warn({ date, ex, isin, bytes: g.bytes.length, max: GRID_MAX_BYTES }, "tick-convert nightly grid too large — 건너뜀(실패 아님)");
           er.tooLarge += 1;
           continue;
         }
+        const tm = gridTeamOf(raw, ex, { date, isin, mode: "nightly" });
+        er.teamMs += tm.ms;
+        if (!tm.ok) er.teamFailed += 1;
         await deps.store.upload(path, g.bytes);
         const tr = rates.get(key);
         rows.push({
@@ -223,6 +234,7 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
           high_rate: tr?.highRate() ?? null,
           last_rate: tr?.lastRate() ?? null,
           fmt: TICK_FMT,
+          ...tm.team,
         });
       } catch (err) {
         logger.error({ date, ex, isin, path, err }, "tick-convert nightly upload failed — 그 종목만 실패");
@@ -318,7 +330,8 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     logger.info(
       { date, ex: er.exchange, result: er },
       `[tick-convert] mode=nightly date=${date} ex=${er.exchange} targets=${er.targets} written=${er.written} too_large=${er.tooLarge} ` +
-        `bytes_read=${er.bytesRead} staged=${day.stagedPeak} ready=${day.ready} ms=${day.durationMs}` +
+        `bytes_read=${er.bytesRead} staged=${day.stagedPeak} ready=${day.ready} team_failed=${er.teamFailed} team_ms=${er.teamMs} ` +
+        `ms=${day.durationMs}` +
         (er.error ? ` error=${er.error}` : ""),
     );
   }

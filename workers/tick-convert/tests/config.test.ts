@@ -36,6 +36,15 @@ describe("loadConfig (tick-convert)", () => {
     expect(loadConfig({ dryRun: true }).archiveDir).toBe("");
   });
 
+  it("backfill-team 은 TICK_ARCHIVE_DIR 없이 통과(Storage 격자만 읽는다 · quick 261103-j4d) · Supabase 는 여전히 필수", () => {
+    process.env.SUPABASE_URL = "https://x.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "k";
+    expect(loadConfig({ mode: "backfill-team" }).archiveDir).toBe("");
+    expect(() => loadConfig({ mode: "nightly" })).toThrow(/TICK_ARCHIVE_DIR/);
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    expect(() => loadConfig({ mode: "backfill-team" })).toThrow(/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+  });
+
   it("dry-run 이 아니면 SUPABASE_URL/SERVICE_ROLE_KEY 필수", () => {
     process.env.TICK_ARCHIVE_DIR = "/mnt/tick/raw";
     expect(() => loadConfig()).toThrow(/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);

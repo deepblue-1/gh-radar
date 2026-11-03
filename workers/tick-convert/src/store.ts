@@ -38,6 +38,8 @@ export interface GridStore {
   removeDates(dates: readonly string[]): Promise<number>;
   /** `grid/` 아래 날짜 폴더 이름(`YYYYMMDD`) — 90일 purge 가 메타 행 없는 객체(업로드 뒤 메타 실패)도 지우게(purge.ts). */
   listDates(): Promise<string[]>;
+  /** 객체 하나 내려받기(격자 zstd 바이트 그대로 · backfill-team 261103-j4d). 실패면 경로를 담아 throw. */
+  download(path: string): Promise<Uint8Array>;
 }
 
 export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
@@ -73,6 +75,11 @@ export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
       const { data, error } = await bucket().list("grid", { limit: LIST_LIMIT });
       if (error) throw new Error(`storage list ${GRID_BUCKET}/grid: ${error.message}`);
       return (data ?? []).map((f) => f.name).filter((n) => DATE_RE.test(n));
+    },
+    async download(path) {
+      const { data, error } = await bucket().download(path);
+      if (error || !data) throw new Error(`storage download ${GRID_BUCKET}/${path}: ${error?.message ?? "빈 응답"}`);
+      return new Uint8Array(await data.arrayBuffer());
     },
   };
 }

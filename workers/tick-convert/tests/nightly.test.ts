@@ -11,6 +11,7 @@ import { RecordSink } from "../src/grid-file";
 import { KeyStager } from "../src/stage";
 import { selectTargets } from "../src/select";
 import { createSupabaseGridStore } from "../src/store";
+import { gridTeamOf } from "../src/team-day";
 import { NO_OBJECTS, nightlyDatesOf, runNightly } from "../src/modes/nightly";
 import type { RunSince } from "../src/meta";
 import {
@@ -223,6 +224,14 @@ describe("nightly 트레이서 — 날짜 → 단일 통독 스테이징 → 대
     const rKrx = rows.find((r) => r.isin === R && r.exchange === "KRX")!;
     expect(rKrx.records).toBe(22);
     expect(rKrx.a3_count).toBe(20);
+    // 팀 3칸(quick 261103-j4d) — 올린 격자를 풀어 shared 로 계산한 값과 같다
+    for (const r of rows) {
+      const bytes = ups.find((u) => u.path === r.object_path)!.bytes;
+      const { team } = gridTeamOf(decode(bytes), r.exchange as "KRX" | "NXT", { date: D, isin: r.isin as string, mode: "t" });
+      expect(r).toHaveProperty("team_fills");
+      expect({ team_fills: r.team_fills, team_day_net_krw: r.team_day_net_krw, team_day_pnl_krw: r.team_day_pnl_krw }).toEqual(team);
+      expect(team.team_fills).not.toBeNull();
+    }
 
     // 실행 기록 — 거래소별 ok · written 2 · bytes_read = 그 라벨 05~20시 파일 크기 합
     const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseArgv } from "../src/index";
+import { MODES, parseArgv } from "../src/index";
+import { UsageError } from "../src/modes/request";
 
 /**
  * 이미지 진입점 — Dockerfile ENTRYPOINT/CMD 를 읽어 Cloud Run 합성 규칙으로 컨테이너 argv 를 만들고, 앞 두 원소가 실행 파일
@@ -52,6 +53,7 @@ describe("이미지 진입점 — ENTRYPOINT [node, dist/index.js] + CMD [nightl
       want: { mode: "nightly", date: "20261030" },
     },
     { name: "승격 Job(--args=promote · Scheduler 20:10 · 20:40)", override: ["promote"], want: { mode: "promote" } },
+    { name: "팀 값 백필(--args=backfill-team,--dry-run · quick 261103-j4d)", override: ["backfill-team", "--dry-run"], want: { mode: "backfill-team" } },
   ];
 
   for (const c of cases) {
@@ -73,5 +75,26 @@ describe("이미지 진입점 — ENTRYPOINT [node, dist/index.js] + CMD [nightl
     const broken = containerArgv([], ["node", "dist/index.js", "nightly"], ["request", "--date", "20261030", "--ex", "KRX"]);
     expect(broken[0]).toBe("request");
     expect(() => parseArgv(["--date", "20261030"])).toThrow(/모드가 없다/);
+  });
+});
+
+describe("parseArgv — backfill-team(quick 261103-j4d)", () => {
+  it("MODES 에 backfill-team 이 있다", () => {
+    expect(Object.keys(MODES)).toEqual(["request", "nightly", "promote", "backfill-team"]);
+  });
+  it("--from · --to 값 플래그 + 한 칸짜리 --dry-run(어느 자리든)", () => {
+    expect(parseArgv(["backfill-team", "--from", "20261020", "--to", "20261103", "--dry-run"])).toEqual({
+      mode: "backfill-team",
+      from: "20261020",
+      to: "20261103",
+      dryRun: true,
+      rest: ["--from", "20261020", "--to", "20261103", "--dry-run"],
+    });
+    expect(parseArgv(["backfill-team", "--dry-run", "--from", "20261020"])).toMatchObject({ from: "20261020", dryRun: true });
+  });
+  it("모르는 플래그 · 값 없는 --from 은 여전히 UsageError", () => {
+    expect(() => parseArgv(["backfill-team", "--bogus"])).toThrow(UsageError);
+    expect(() => parseArgv(["backfill-team", "--from"])).toThrow(UsageError);
+    expect(() => parseArgv(["backfill-team", "--from", "--dry-run"])).toThrow(UsageError);
   });
 });

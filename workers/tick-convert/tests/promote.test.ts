@@ -6,6 +6,7 @@ import { checkTickgwUrl, type Config } from "../src/config";
 import { logger } from "../src/logger";
 import { closeNs, decompressFrames, parsePromoteArgs, runPromote } from "../src/modes/promote";
 import { createSupabaseGridStore } from "../src/store";
+import { gridTeamOf } from "../src/team-day";
 import { a3Payload, b6Payload, kstNs, type Label } from "./helpers/synth-archive";
 import { makeFakeSupabase, rpcCalls, uploads, type FakeOptions } from "./helpers/fake-supabase";
 import { rawOf, servedOf, startFakeTickgw, type FakeKey, type FakeTickgw } from "./helpers/fake-tickgw";
@@ -127,6 +128,11 @@ describe("runPromote 트레이서 — 가짜 tickgw export → 승격 격자", (
     expect(ups2.length).toBe(2);
     expect(ups2.every((a) => a.p_mode === "promoted")).toBe(true);
     const rowA = (ups2[0]!.p_rows as Record<string, unknown>[])[0]!;
+    // 팀 3칸(quick 261103-j4d) — 승격 원시 바이트로 계산한 값
+    expect({ team_fills: rowA.team_fills, team_day_net_krw: rowA.team_day_net_krw, team_day_pnl_krw: rowA.team_day_pnl_krw }).toEqual(
+      gridTeamOf(gw.rawOf(kA), "KRX", { date: D, isin: A, mode: "t" }).team,
+    );
+    expect(rowA.team_fills).not.toBeNull();
     expect(rowA).toMatchObject({
       date: D,
       exchange: "KRX",

@@ -16,6 +16,7 @@
  *      같은 패스에서 A3 ∧ 보드 G1 체결로 `DayRateTracker`(기준가 최빈값 · 고가 · 마지막 등락률)를 갱신한다.
  *   ③ 종목마다 격자 파일(`pcapns-rec+zstd/1`) → Storage 업로드(`grid/<D>/<EX>/<isin>.request.ticks.zst`) —
  *      **업로드 성공 키만** `tick_grid_upsert('request', rows)`(nightly 행은 RPC 모드 규칙이 지킨다).
+ *      크기 판정 뒤 · 업로드 전에 팀 값(team-day.ts gridTeamOf · quick 261103-j4d)을 행에 싣는다 — 계산 실패는 그 행 팀 값만 null.
  *   ④ `tick_request_finish` — 종목마다 done | failed(`NO_RECORDS` · 업로드/메타 실패 메시지).
  *   ⑤ `tick_convert_run_record` + 요약 로그 한 줄.
  *
@@ -39,6 +40,7 @@ import { scanObjects } from "../scan";
 import { RecordSink, buildGridFile } from "../grid-file";
 import { GRID_MAX_BYTES, gridObjectPath, type Exchange, type GridStore } from "../store";
 import { NOT_UPLOADED, NO_RECORDS, TOO_LARGE, createMeta, type FinishResult, type GridRow, type Meta } from "../meta";
+import { gridTeamOf } from "../team-day";
 
 /** 모드 공용 의존성 — main 이 만들고 테스트가 가짜를 넣는다(37-18 nightly · 37-12 promote 가 같은 모양을 쓴다). */
 export type JobDeps = {
@@ -73,6 +75,10 @@ export type RequestRunResult = {
   failed: number;
   bytesRead: number;
   packets: number;
+  /** 팀 값 계산 실패 키 수(그 행 팀 값만 null · 실패 아님 · quick 261103-j4d). */
+  teamFailed: number;
+  /** 팀 값 계산 소요 합(ms). */
+  teamMs: number;
   durationMs: number;
   error: string | null;
 };
@@ -170,7 +176,8 @@ async function convertClaimed(
       }
       const path = gridObjectPath(date, ex, isin, "request");
       try {
-        const g = buildGridFile(st.sink.bytes(), deps.config.zstdLevel);
+        const raw = st.sink.bytes();
+        const g = buildGridFile(raw, deps.config.zstdLevel);
         if (g.bytes.length > GRID_MAX_BYTES) {
           logger.warn({ date, ex, isin, bytes: g.bytes.length, max: GRID_MAX_BYTES }, "tick-convert request grid too large — TOO_LARGE(실패 아님)");
           results.push({ isin, ok: false, error: TOO_LARGE });
@@ -178,6 +185,9 @@ async function convertClaimed(
           want.delete(isin);
           continue;
         }
+        const tm = gridTeamOf(raw, ex, { date, isin, mode: "request" });
+        res.teamMs += tm.ms;
+        if (!tm.ok) res.teamFailed += 1;
         await deps.store.upload(path, g.bytes);
         rows.push({
           date,
@@ -194,6 +204,7 @@ async function convertClaimed(
           high_rate: st.rate.highRate(),
           last_rate: st.rate.lastRate(),
           fmt: TICK_FMT,
+          ...tm.team,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -249,6 +260,8 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
     failed: 0,
     bytesRead: 0,
     packets: 0,
+    teamFailed: 0,
+    teamMs: 0,
     durationMs: 0,
     error: null,
   };
@@ -298,7 +311,7 @@ export async function runRequest(deps: JobDeps, args: RequestArgs): Promise<Requ
     { result: res },
     `[tick-convert] mode=request date=${date} ex=${ex} ready=${res.ready ?? "-"} targets=${res.targets} ` +
       `written=${res.written} no_records=${res.noRecords} not_uploaded=${res.notUploaded} too_large=${res.tooLarge} failed=${res.failed} ` +
-      `bytes_read=${res.bytesRead} ms=${res.durationMs}`,
+      `bytes_read=${res.bytesRead} team_failed=${res.teamFailed} team_ms=${res.teamMs} ms=${res.durationMs}`,
   );
   return res;
 }

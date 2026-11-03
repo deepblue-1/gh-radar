@@ -111,8 +111,8 @@ SELECT is(public.tick_day_for_user(pg_temp.u1())->'eta_s', '{"KRX": 120, "NXT": 
           'C eta_s 이력 0 → KRX 120 · NXT 90');
 SELECT is(pg_temp.open1('20261030', 'NXT', 'KR7370001001') - 'eta_s',
           '{"access": true, "date": "20261030", "exchange": "NXT", "isin": "KR7370001001",
-            "grid": null, "request": null, "accum": null, "stock": {"code": "370001", "name": "틱종목일"}}'::jsonb,
-          'C open 격자 · 요청 · 매집 없음 → grid · request · accum null · stock 은 있음');
+            "grid": null, "request": null, "accum": null, "stock": {"code": "370001", "name": "틱종목일", "listing_shares": null}}'::jsonb,
+          'C open 격자 · 요청 · 매집 없음 → grid · request · accum null · stock 은 있음(listing_shares — 20261103210000)');
 SELECT is((pg_temp.open1('20261030', 'NXT', 'KR7370001001')->>'eta_s')::int, 90, 'C open eta_s NXT 기본 90');
 
 -- ── D. nightly upsert → day · open ────────────────────────────────
@@ -122,8 +122,9 @@ SELECT is(jsonb_array_length(public.tick_day_for_user(pg_temp.u1())->'rows'), 1,
 SELECT is((public.tick_day_for_user(pg_temp.u1())->'rows'->0) - 'created_at',
           '{"date": "20261030", "exchange": "KRX", "isin": "KR7370001001", "code": "370001", "name": "틱종목일",
             "mode": "nightly", "sources": ["accum"], "bytes": 1000, "records": 50, "a3_count": 20,
-            "high_rate": 29.9, "last_rate": 12.5}'::jsonb,
-          'D day rows[0] = 격자 열 + stocks code · name(object_path 없음)');
+            "high_rate": 29.9, "last_rate": 12.5,
+            "team_fills": null, "team_day_net_krw": null, "team_day_pnl_krw": null, "accum_pos_net_krw": null}'::jsonb,
+          'D day rows[0] = 격자 열 + stocks code · name(object_path 없음) + 팀 3칸 · 누적(20261103230000 · 옛 행 null)');
 SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'grid'->>'object_path',
           'grid/20261030/KRX/KR7370001001.nightly.ticks.zst', 'D open grid.object_path');
 SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum', 'null'::jsonb, 'D open accum — limitup_accum_flow 행 없음 → null');

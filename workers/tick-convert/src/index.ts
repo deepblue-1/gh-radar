@@ -8,6 +8,7 @@ import { createSupabaseGridStore, type GridStore } from "./store";
 import { UsageError, parseRequestArgs, runRequest, type JobDeps } from "./modes/request";
 import { parseNightlyArgs, runNightly } from "./modes/nightly";
 import { parsePromoteArgs, runPromote } from "./modes/promote";
+import { parseBackfillTeamArgs, runBackfillTeam } from "./modes/backfill-team";
 
 /**
  * tick-convert entry — Cloud Run Job `gh-radar-tick-convert`. GCS 원본 아카이브(119 부하 0)를 종목·날짜 격자로 바꾸는
@@ -17,6 +18,7 @@ import { parsePromoteArgs, runPromote } from "./modes/promote";
  *   request --date YYYYMMDD --ex KRX|NXT   — 요청 변환(modes/request.ts)
  *   nightly [--date YYYYMMDD]               — 밤 변환(modes/nightly.ts · 이미지 기본 CMD)
  *   promote [--date YYYYMMDD]               — 20:00 승격(modes/promote.ts · tickgw 당일 캐시 → 승격 격자 · 37-12)
+ *   backfill-team [--from D] [--to D] [--dry-run] — 옛 격자 팀 값 백필(modes/backfill-team.ts · quick 261103-j4d)
  * 이미지는 `ENTRYPOINT ["node", "dist/index.js"]` + `CMD ["nightly"]` 다 — Cloud Run args 오버라이드는 CMD 만 바꾸므로
  * 요청 변환 · 스모크 · 승격 Job 도 늘 `node dist/index.js <모드> …` 로 돈다(Dockerfile 머리 주석 · tests/entry.test.ts).
  *
@@ -34,12 +36,20 @@ export const MODES: Record<string, (deps: JobDeps, args: string[]) => Promise<Mo
   request: (deps, args) => runRequest(deps, parseRequestArgs(args)),
   nightly: (deps, args) => runNightly(deps, parseNightlyArgs(args)),
   promote: (deps, args) => runPromote(deps, parsePromoteArgs(args)),
+  "backfill-team": (deps, args) => runBackfillTeam(deps, parseBackfillTeamArgs(args)),
 };
 
-/** 공통 플래그(값을 하나 받는다) — 모드별 검증은 각 모드 파서(parseRequestArgs · parseNightlyArgs)가 한다. */
-const VALUE_FLAGS: Readonly<Record<string, "date" | "ex">> = { "--date": "date", "--ex": "ex" };
+/** 공통 플래그(값을 하나 받는다) — 모드별 검증은 각 모드 파서(parseRequestArgs · parseNightlyArgs …)가 한다. */
+const VALUE_FLAGS: Readonly<Record<string, "date" | "ex" | "from" | "to">> = {
+  "--date": "date",
+  "--ex": "ex",
+  "--from": "from",
+  "--to": "to",
+};
+/** 값 없는 불리언 플래그(한 칸) — backfill-team `--dry-run`. */
+const BOOL_FLAGS: Readonly<Record<string, "dryRun">> = { "--dry-run": "dryRun" };
 
-export type ParsedArgv = { mode: string; date?: string; ex?: string; rest: string[] };
+export type ParsedArgv = { mode: string; date?: string; ex?: string; from?: string; to?: string; dryRun?: boolean; rest: string[] };
 
 /**
  * argv(`process.argv.slice(2)` — 모드부터) → 모드 + 공통 플래그. 모드가 없거나 `--` 로 시작(실행 파일 자리가 어긋난 argv)
@@ -50,6 +60,12 @@ export function parseArgv(argv: readonly string[]): ParsedArgv {
   if (mode === undefined || mode === "" || mode.startsWith("-")) throw new UsageError(`모드가 없다 (argv ${JSON.stringify(argv)})`);
   const out: ParsedArgv = { mode, rest };
   for (let i = 0; i < rest.length; i += 2) {
+    const flag = BOOL_FLAGS[rest[i]!];
+    if (flag !== undefined) {
+      out[flag] = true;
+      i -= 1; // 한 칸짜리
+      continue;
+    }
     const key = VALUE_FLAGS[rest[i]!];
     const val = rest[i + 1];
     if (key === undefined) throw new UsageError(`${mode}: 모르는 인자 ${rest[i]}`);
