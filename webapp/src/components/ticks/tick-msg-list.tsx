@@ -13,9 +13,11 @@ import {
   fmtA3Row,
   fmtB6Row,
   fmtOtherRow,
+  fmtShare,
   inversionText,
   itemIdxOf,
   itemKindOf,
+  l1ShareAt,
   orderShapeLabel,
   ownLineRec,
   ownRailOf,
@@ -57,7 +59,10 @@ import { cn } from '@/lib/utils';
  *   38-06: 근거 전문 행 ○(띠 시작 · 구간 근거는 첫 ○ … 끝 ○ 점선) · 앵커 ◌(마디만 · 글자 없음). 근거 행에 칩은 없다(D-10).
  *   기존 팀/일반 3px 레일(①)은 시각 칸 안쪽에 붙는다. 행 높이 24/22 그대로 · 폰도 14px 칸 유지.
  * ⑧ 팀 주문 보조 말(스케치 024 C · 2026-11-03) — 꼬리 줄(1조각 팀 주문은 그 A3 행) 끝에 「직전 팀 +0.512304s」(직전 팀 주문과의
- *   첫 조각 체결시각 간격 · µs) · 「주문 전 호가 총 1.84 · 1호 0.35」(매도/매수 총잔량 · 1호가 잔량 비). 값은 `teamOrderMetaOf`.
+ *   첫 조각 체결시각 간격 · µs) · 「주문 전 매도비중 총 65% · 1호 26%」(첫 조각 직전 B6 의 매도 ÷ (매도 + 매수) — 총잔량 · 1호 잔량).
+ *   값은 `teamOrderMetaOf`.
+ * ⑨ 오른쪽 「1호 매도」 열(스케치 025 A · 2026-11-03) — 전문 행마다 그 순간 호가의 매도1 ÷ (매도1 + 매수1) 잔량 비중(`l1ShareAt`).
+ *   B6 행은 자기 값이라 진하게 · 나머지 행은 이어받은 값이라 흐리게. 꼬리 · 점선 · 우리 줄은 비운다.
  */
 
 export interface TickMsgListProps {
@@ -103,9 +108,11 @@ const MODES: readonly { id: TickOrderMode; label: string }[] = [
   { id: 'exchange', label: '거래소순' },
 ];
 
-/** 열 — 둘째 레일 14px · 시각 · 종류 · seq · 내용(폰은 µs 생략 · seq 끝 4자리 · 레일 칸 유지). */
+/** 열 — 둘째 레일 14px · 시각 · 종류 · seq · 내용 · 1호 매도(폰은 µs 생략 · seq 끝 4자리 · 레일 칸 유지). */
 const GRID =
-  'grid grid-cols-[14px_122px_34px_66px_minmax(0,1fr)] max-[640px]:grid-cols-[14px_84px_30px_42px_minmax(0,1fr)] items-center gap-x-1.5 px-2';
+  'grid grid-cols-[14px_122px_34px_66px_minmax(0,1fr)_44px] max-[640px]:grid-cols-[14px_84px_30px_42px_minmax(0,1fr)_30px] items-center gap-x-1.5 px-2';
+
+const L1_SHARE_TITLE = '1호 매도 = 매도1 잔량 ÷ (매도1 + 매수1 잔량) · 그 순간 호가(B6 행은 자기 값)';
 
 /**
  * 시각 칸 — 앞 간격(6px)까지 왼쪽으로 늘려 그 왼쪽 끝에 팀/일반 3px 레일(`railStyle`)을 붙인다. 글자 자리는 Phase 37 과 같고,
@@ -225,7 +232,7 @@ function railStyle(order: ViewOrder | null, sel: boolean): CSSProperties | undef
 const DIR_COLOR = { 1: 'text-[var(--up)]', 0: 'text-[var(--flat)]', [-1]: 'text-[var(--down)]' } as const;
 const SIDE_COLOR = { buy: 'text-[var(--up)]', sell: 'text-[var(--down)]', auction: 'text-[var(--muted-fg)]' } as const;
 
-/** 팀 주문 보조 말(스케치 024 C) — 「 · 직전 팀 +0.512304s · 주문 전 호가 총 1.84 · 1호 0.35」. 팀 주문이 아니면 null. */
+/** 팀 주문 보조 말(스케치 024 C) — 「 · 직전 팀 +0.512304s · 주문 전 매도비중 총 65% · 1호 26%」. 팀 주문이 아니면 null. */
 function TeamMeta({ session, order }: { session: TickSession; order: ViewOrder }) {
   const m = order.team ? teamOrderMetaOf(session, order.id) : null;
   if (m === null) return null;
@@ -543,6 +550,15 @@ const MsgRow = memo(function MsgRow({
           </span>
         )}
       </span>
+      <span
+        data-slot="tick-msg-l1"
+        className={cn(
+          'mono text-right text-[10.5px]',
+          tag === TAG_CODE.B6 ? 'font-semibold text-[var(--fg)]' : 'text-[var(--muted-fg)]',
+        )}
+      >
+        {fmtShare(l1ShareAt(session, rec))}
+      </span>
     </div>
   );
 });
@@ -692,6 +708,9 @@ export function TickMsgList({
         <span>종류</span>
         <span>seq</span>
         <span>내용</span>
+        <span className="text-right" title={L1_SHARE_TITLE}>
+          {phone ? '1호' : '1호 매도'}
+        </span>
       </div>
       <div
         ref={scrollRef}

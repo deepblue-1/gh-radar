@@ -526,21 +526,75 @@ export function tailText(order: ViewOrder): string {
   return `┗ ${order.pieces}조각 ${order.nPx}단 · ${fmtQty(order.qty)}주 · ${fmtAmountC(order.val)} · ${fmtDurNs(order.lastNs - order.firstNs)}`;
 }
 
-// ── 팀 주문 간격 · 주문 전 호가비 (스케치 024 C · 2026-11-03 사용자 요청) ─────────────────
+// ── 호가 매도 비중 · 팀 주문 간격 (스케치 024 C · 025 A · 2026-11-03 사용자 요청) ─────────────────
+
+/**
+ * 매도 비중 = 매도 ÷ (매도 + 매수) — 0 ~ 1 · 0.5 가 균형 · 위면 매도 쪽이 두껍다(2026-11-03 사용자 결정 — 나눗셈 비 매도/매수 는
+ * 0 ~ ∞ 로 한쪽이 튀고 대칭이 아니라 비중으로 통일). 둘 다 0 이면 null.
+ */
+export function askShareOf(ask: number, bid: number): number | null {
+  return ask + bid > 0 ? ask / (ask + bid) : null;
+}
+
+/** 비중 — 「26%」(반올림 정수) · 모름 「—」. */
+export function fmtShare(s: number | null): string {
+  return s === null ? '—' : `${Math.round(s * 100)}%`;
+}
+
+/**
+ * 전문 행 「1호 매도」 열(스케치 025 A) — 그 행 시점(거래소순으로 그 행 이하) 같은 보드 마지막 B6 의 매도1 잔량 비중.
+ * B6 행은 자기 값. 그날 첫 B6 전이면 null. 행 서식 캐시(`fmtB6Row`)를 그대로 쓴다.
+ */
+export function l1ShareAt(session: TickSession, rec: number): number | null {
+  const b6 = session.lastB6[session.exPos[rec]!] ?? -1;
+  if (b6 < 0) return null;
+  const b = fmtB6Row(session, b6);
+  return b ? askShareOf(b.ask.qty, b.bid.qty) : null;
+}
+
+/**
+ * 주문 전 호가 — 첫 조각 직전(거래소순) 같은 보드 마지막 B6 의 매도 비중(총잔량 · 1호 잔량). 모든 주문(「이 주문」 카드) ·
+ * 팀 주문 꼬리 줄이 같은 값을 쓴다. 그 B6 가 없으면 bookRec -1 · 비중 null.
+ */
+export interface PreBook {
+  /** 주문 전 B6 rec(없으면 -1). */
+  bookRec: number;
+  totalShare: number | null;
+  l1Share: number | null;
+}
+
+const preBookCache = new WeakMap<TickSession, Map<number, PreBook>>();
+
+export function preBookOf(session: TickSession, order: ViewOrder): PreBook {
+  let cache = preBookCache.get(session);
+  if (!cache) {
+    cache = new Map();
+    preBookCache.set(session, cache);
+  }
+  const hit = cache.get(order.id);
+  if (hit) return hit;
+  // 첫 조각 = 거래소순 자리가 가장 앞인 조각 → 그 자리 이하 같은 보드 마지막 B6(조각 자신은 A3 라 그 앞 B6)
+  let first = order.recs[0]!;
+  for (const r of order.recs) if (session.exPos[r]! < session.exPos[first]!) first = r;
+  const bookRec = session.lastB6[session.exPos[first]!] ?? -1;
+  const book = bookRec >= 0 ? bookAt(session.buf, session.index, bookRec) : null;
+  const out: PreBook = {
+    bookRec: book ? bookRec : -1,
+    totalShare: book ? askShareOf(book.totalAsk, book.totalBid) : null,
+    l1Share: book ? askShareOf(book.asks[0]!.qty, book.bids[0]!.qty) : null,
+  };
+  cache.set(order.id, out);
+  return out;
+}
 
 /**
  * 팀 주문 하나의 보조 정보 — 꼬리 줄 · 1조각 팀 주문 행 · 「이 주문」 카드가 같은 값을 쓴다.
  * - gapNs = 이 주문 첫 조각 체결시각 − 직전 팀 주문(매수 · 매도 무관 · 첫 조각 체결시각 순) 첫 조각 체결시각 · 그날 첫 팀 주문이면 null.
  *   체결시각은 A3 trade_time(µs) — 못 읽은 조각은 수신 시각(ViewOrder.firstNs 규칙).
- * - totalRatio = 매도 총잔량 ÷ 매수 총잔량 · l1Ratio = 매도1 잔량 ÷ 매수1 잔량 — 첫 조각 직전(거래소순) 같은 보드 마지막 B6.
- *   그 B6 가 없거나 분모 0 이면 null.
+ * - 주문 전 호가 매도 비중 = `preBookOf`.
  */
-export interface TeamOrderMeta {
+export interface TeamOrderMeta extends PreBook {
   gapNs: bigint | null;
-  totalRatio: number | null;
-  l1Ratio: number | null;
-  /** 주문 전 B6 rec(없으면 -1). */
-  bookRec: number;
 }
 
 const teamMetaCache = new WeakMap<TickSession, Map<number, TeamOrderMeta>>();
@@ -553,18 +607,7 @@ function teamMetaMapOf(session: TickSession): Map<number, TeamOrderMeta> {
   const out = new Map<number, TeamOrderMeta>();
   let prev: bigint | null = null;
   for (const o of team) {
-    // 첫 조각 = 거래소순 자리가 가장 앞인 조각 → 그 자리 이하 같은 보드 마지막 B6(조각 자신은 A3 라 그 앞 B6)
-    let first = o.recs[0]!;
-    for (const r of o.recs) if (session.exPos[r]! < session.exPos[first]!) first = r;
-    const bookRec = session.lastB6[session.exPos[first]!] ?? -1;
-    const book = bookRec >= 0 ? bookAt(session.buf, session.index, bookRec) : null;
-    const ratio = (a: number, b: number) => (b > 0 ? a / b : null);
-    out.set(o.id, {
-      gapNs: prev === null ? null : o.firstNs - prev,
-      totalRatio: book ? ratio(book.totalAsk, book.totalBid) : null,
-      l1Ratio: book ? ratio(book.asks[0]!.qty, book.bids[0]!.qty) : null,
-      bookRec,
-    });
+    out.set(o.id, { ...preBookOf(session, o), gapNs: prev === null ? null : o.firstNs - prev });
     prev = o.firstNs;
   }
   teamMetaCache.set(session, out);
@@ -582,17 +625,12 @@ export function fmtGapNs(ns: bigint): string {
   return `${ns < 0n ? MINUS : '+'}${us / 1_000_000n}.${String(us % 1_000_000n).padStart(6, '0')}s`;
 }
 
-/** 호가비 소수 2자리 · 모름 「—」. */
-export function fmtRatio(r: number | null): string {
-  return r === null ? '—' : r.toFixed(2);
-}
-
 /** 간격 말 — 「직전 팀 +0.512304s」 · 첫 팀 주문은 「그날 첫 팀 주문」. */
 export function teamGapText(m: TeamOrderMeta): string {
   return m.gapNs === null ? '그날 첫 팀 주문' : `직전 팀 ${fmtGapNs(m.gapNs)}`;
 }
 
-/** 호가비 말 — 「주문 전 호가 총 1.84 · 1호 0.35」 · 주문 전 B6 가 없으면 ''. */
-export function teamBookText(m: TeamOrderMeta): string {
-  return m.bookRec < 0 ? '' : `주문 전 호가 총 ${fmtRatio(m.totalRatio)} · 1호 ${fmtRatio(m.l1Ratio)}`;
+/** 주문 전 호가 말 — 「주문 전 매도비중 총 65% · 1호 26%」 · 주문 전 B6 가 없으면 ''. */
+export function teamBookText(m: PreBook): string {
+  return m.bookRec < 0 ? '' : `주문 전 매도비중 총 ${fmtShare(m.totalShare)} · 1호 ${fmtShare(m.l1Share)}`;
 }

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>전문 목록 매도합/매수합 A/B/C</title>
+<style>
+  :root { --bg:#fff; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1; --border-subtle:#e5e8eb; --card:#fff; --up:#f04452; --down:#3182f6; --team:#a234c7; --team-bg:#f6ebfa; --vi:#d97706; --page:#f2f4f6; }
+  :root[data-theme="dark"] { --bg:#0a0a0a; --fg:#fff; --fg-2:#e4e4e4; --muted:#2d2d2d; --muted-fg:#9e9e9e; --faint:#636363; --border-subtle:#3d3d3d; --card:#151515; --up:#f04251; --down:#3485fa; --team:#c353e5; --team-bg:#2e1a36; --vi:#ffb020; --page:#0a0a0a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--fg); font:14px/1.45 Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif; }
+  .bar { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; }
+  .seg { display:inline-flex; background:var(--muted); border-radius:999px; padding:3px; }
+  .seg button { border:0; background:transparent; color:var(--muted-fg); padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .seg button.on { background:var(--card); color:var(--fg); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(540px,1fr)); }
+  body.phone .wrap { grid-template-columns:370px; justify-content:center; }
+  .vt { font-weight:700; font-size:15px; margin:0 0 2px; } .vd { color:var(--muted-fg); font-size:12.5px; margin:0 0 10px; min-height:54px; }
+  .card { background:var(--card); border-radius:14px; overflow:hidden; }
+  .hd { padding:9px 12px; border-bottom:1px solid var(--border-subtle); font-size:12.5px; font-weight:700; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+  .row { display:grid; align-items:center; gap:6px; height:24px; padding:0 8px 0 12px; font-size:11.5px; white-space:nowrap; overflow:hidden; border-top:1px solid var(--border-subtle); }
+  .row.hdr { background:var(--muted); color:var(--muted-fg); font-size:10.5px; font-weight:600; border-top:0; }
+  .row.j { border-top-color:transparent; }
+  .row.team { box-shadow:inset 3px 0 0 var(--team); }
+  .row.sel { background:color-mix(in oklab,var(--fg) 12%,transparent); }
+  .t { color:var(--fg-2); } .t small { color:var(--muted-fg); font-size:10px; } .dim { opacity:.45; }
+  .b { display:inline-flex; height:17px; align-items:center; border-radius:4px; padding:0 5px; font-size:9.5px; font-weight:700; }
+  .A3 { background:var(--muted); color:var(--fg); } .B6 { border:1px solid var(--border-subtle); color:var(--muted-fg); } .B9 { background:var(--team-bg); color:var(--team); }
+  .seq { color:var(--muted-fg); }
+  .txt { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .up { color:var(--up); } .down { color:var(--down); } .mf { color:var(--muted-fg); }
+  .chip { display:inline-flex; height:16px; align-items:center; border-radius:4px; padding:0 4px; font-size:9.5px; font-weight:700; margin-left:4px; background:var(--team-bg); color:var(--team); }
+  .tail { padding-left:14px; font-size:10.5px; color:var(--muted-fg); display:block; line-height:24px; }
+  .col { text-align:right; font-size:10.5px; }
+  .chg { color:var(--fg); font-weight:700; } .same { color:var(--faint); }
+  .rb { display:flex; align-items:center; gap:4px; justify-content:flex-end; }
+  .bar2 { position:relative; width:30px; height:6px; border-radius:3px; background:var(--muted); overflow:hidden; }
+  .bar2 i { position:absolute; top:0; bottom:0; }
+  .bar2::after { content:''; position:absolute; left:50%; top:-1px; bottom:-1px; width:1px; background:var(--faint); }
+  .pill { display:inline-flex; height:16px; align-items:center; border-radius:4px; padding:0 4px; font-size:9.5px; font-weight:700; margin-right:5px; background:var(--muted); color:var(--muted-fg); }
+  .note { grid-column:1/-1; color:var(--muted-fg); font-size:12px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="bar"><b>전문 목록 — 모든 행에 매도합/매수합(총잔량 비)</b>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+</div>
+<div class="wrap" id="wrap"></div>
+<script>
+// ta/tb = 그 행 시점(그 행 이하 같은 보드 마지막 B6) 매도 · 매수 총잔량. chg = 이 행(B6)에서 값이 바뀜
+const ROWS = [
+  { k:'b6', t:'13:21:04.118', us:'402', seq:'186,601', a:[10210,412], b:[10200,1180], ta:58210, tb:31440, chg:true },
+  { k:'b9', t:'13:21:04.120', us:'017', seq:'—', text:'거래원 매수1 키움 12,400 · 매도1 미래 8,210', ta:58210, tb:31440 },
+  { k:'a3', t:'13:21:04.523', us:'118', seq:'186,602', px:10210, q:350, side:'buy', team:true, ta:58210, tb:31440 },
+  { k:'a3', t:'13:21:04.523', us:'121', seq:'186,603', px:10210, q:62, side:'buy', team:true, j:true, ta:58210, tb:31440 },
+  { k:'b6', t:'13:21:04.523', us:'140', seq:'186,604', a:[10220,955], b:[10210,40], ta:57798, tb:31480, team:true, j:true, chg:true },
+  { k:'tail', team:true, text:'┗ 2조각 1단 · 412주 · 421만 · 3µs · 팀 SMP · 직전 팀 +0.512304s' },
+  { k:'a3', t:'13:21:04.871', us:'009', seq:'186,605', px:10200, q:15, side:'sell', ta:57798, tb:31480 },
+  { k:'b6', t:'13:21:04.871', us:'030', seq:'186,606', a:[10220,955], b:[10200,1165], ta:57798, tb:31465, chg:true },
+  { k:'a3', t:'13:21:05.034', us:'772', seq:'186,607', px:10220, q:955, side:'buy', team:true, sel:true, ta:57798, tb:31465 },
+  { k:'b6', t:'13:21:05.034', us:'790', seq:'186,608', a:[10230,1320], b:[10220,10], ta:56843, tb:61475, team:true, j:true, chg:true },
+  { k:'a3', t:'13:21:05.402', us:'301', seq:'186,609', px:10220, q:5, side:'sell', ta:56843, tb:61475 },
+];
+const fq = (v) => v.toLocaleString('ko-KR');
+const r2 = (a, b) => (b > 0 ? (a / b).toFixed(2) : '—');
+const TAG = { b6:'B6', a3:'A3', b9:'B9' };
+const time = (r) => `<span class="mono t${r.j && r.k === 'a3' ? ' dim' : ''}">${r.t}<small> ${r.us}</small></span>`;
+function body(r) {
+  if (r.k === 'b6') return `매도1 ${fq(r.a[0])} ×${fq(r.a[1])} 매수1 ${fq(r.b[0])} ×${fq(r.b[1])}`;
+  if (r.k === 'b9') return `<span class="mf">${r.text}</span>`;
+  return `<b class="up">${fq(r.px)}</b> <span class="${r.side === 'buy' ? 'up' : 'down'}">${r.side === 'buy' ? '+' : '−'}${fq(r.q)}</span> <span class="mf">${r.side === 'buy' ? '매수' : '매도'}</span>`;
+}
+const cls = (r) => `row${r.j ? ' j' : ''}${r.team ? ' team' : ''}${r.sel ? ' sel' : ''}`;
+function bar(ta, tb) {
+  // 1 이 가운데 · log2 ±2(0.25 ~ 4) 를 양끝으로. 1 보다 크면(매도 두꺼움) 오른쪽 파랑 · 작으면 왼쪽 빨강
+  const x = Math.max(-2, Math.min(2, Math.log2(ta / tb))) / 2;
+  const w = Math.abs(x) * 50;
+  return x >= 0 ? `<span class="bar2"><i style="left:50%;width:${w}%;background:var(--down)"></i></span>` : `<span class="bar2"><i style="right:50%;width:${w}%;background:var(--up)"></i></span>`;
+}
+function rowOf(v, r, phone) {
+  const cols = phone
+    ? (v === 'C' ? '84px 30px minmax(0,1fr)' : `84px 30px minmax(0,1fr) ${v === 'B' ? '70px' : '36px'}`)
+    : (v === 'C' ? '122px 34px 66px minmax(0,1fr)' : `122px 34px 66px minmax(0,1fr) ${v === 'B' ? '80px' : '52px'}`);
+  if (r.k === 'tail') return `<div class="${cls(r)}" style="display:block"><span class="tail mono">${r.text}</span></div>`;
+  const ratio = r2(r.ta, r.tb);
+  const seq = phone ? '' : `<span class="mono seq">${r.seq}</span>`;
+  const head = `${time(r)}<span><span class="b ${TAG[r.k]}">${TAG[r.k]}</span></span>${seq}`;
+  if (v === 'A') return `<div class="${cls(r)}" style="grid-template-columns:${cols}">${head}<span class="txt mono">${body(r)}</span><span class="col mono ${r.chg ? 'chg' : 'same'}">${ratio}</span></div>`;
+  if (v === 'B') return `<div class="${cls(r)}" style="grid-template-columns:${cols}">${head}<span class="txt mono">${body(r)}</span><span class="col mono rb ${r.chg ? 'chg' : 'same'}">${ratio}${bar(r.ta, r.tb)}</span></div>`;
+  return `<div class="${cls(r)}" style="grid-template-columns:${cols}">${head}<span class="txt mono"><span class="pill mono">${ratio}</span>${body(r)}</span></div>`;
+}
+function hdrOf(v, phone) {
+  const cols = phone
+    ? (v === 'C' ? '84px 30px minmax(0,1fr)' : `84px 30px minmax(0,1fr) ${v === 'B' ? '70px' : '36px'}`)
+    : (v === 'C' ? '122px 34px 66px minmax(0,1fr)' : `122px 34px 66px minmax(0,1fr) ${v === 'B' ? '80px' : '52px'}`);
+  const last = v === 'C' ? '' : `<span class="col">${phone ? '매도/수' : '매도/매수'}</span>`;
+  return `<div class="row hdr" style="grid-template-columns:${cols}"><span>수신 시각</span><span>종류</span>${phone ? '' : '<span>seq</span>'}<span>${v === 'C' ? '내용 (앞 칩 = 매도합/매수합)' : '내용'}</span>${last}</div>`;
+}
+const V = [
+  ['A · 오른쪽 고정 열(숫자만)', '맨 오른쪽 「매도/매수」 열 — 모든 전문 행(A3 · B6 · B9 · C3 · R8)에 그 순간 호가의 매도 총잔량 ÷ 매수 총잔량. 값이 새로 바뀐 B6 행은 진하게, 그대로 이어지는 행은 흐리게. 꼬리 줄은 비움.'],
+  ['B · 열 + 작은 막대', 'A 와 같은 열에 1 을 가운데로 한 작은 막대를 붙임 — 매도가 두꺼우면(1 초과) 오른쪽 파랑, 매수가 두꺼우면 왼쪽 빨강. 숫자를 읽지 않고 쏠림을 훑을 수 있지만 열이 넓어짐.'],
+  ['C · 내용 맨 앞 칩', '열을 늘리지 않고 내용 칸 맨 앞에 회색 칩 「1.85」. 폰에서도 같은 모양. 대신 내용이 칩만큼 오른쪽으로 밀리고, 숫자가 세로로 줄 맞춰지지 않음.'],
+];
+function render() {
+  const phone = document.body.classList.contains('phone');
+  document.getElementById('wrap').innerHTML = V.map(([t, d], i) => { const v = 'ABC'[i]; return `<section><p class="vt">${t}</p><p class="vd">${d}</p><div class="card"><div class="hd">전문 · 거래소순</div>${hdrOf(v, phone)}${ROWS.map((r) => rowOf(v, r, phone)).join('')}</div></section>`; }).join('') +
+    `<p class="note">공통: 값 = 그 행 시점(거래소순으로 그 행 이하) 같은 보드의 마지막 B6 의 매도 총잔량 ÷ 매수 총잔량, 소수 2자리. 1 보다 크면 매도 쪽이 두꺼움. 그날 첫 B6 전 행 · 매수 총잔량 0 이면 「—」. 기존 팀 주문 꼬리 줄의 「주문 전 호가 총 · 1호」는 그대로 둔다.</p>`;
+}
+for (const id of ['theme','width']) document.getElementById(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); if (id === 'theme') document.documentElement.dataset.theme = b.dataset.v; else document.body.classList.toggle('phone', b.dataset.v === 'phone'); render(); });
+render();
+</script>
+</body>
+</html>

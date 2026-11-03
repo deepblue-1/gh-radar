@@ -60,8 +60,16 @@ describe('TickMsgList — 뒤집힘 3', () => {
     expect(tail?.textContent).toContain('┗ 3조각 1단');
     expect(tail?.textContent).toContain('· 닫는 B6 ↕ 9.0ms 먼저');
     expect(container.querySelector('[data-slot="tick-msg-slot"]')).toBeNull();
-    // 팀 주문 꼬리 줄 — 직전 팀 간격 · 주문 전 호가비(스케치 024 C)
-    expect(tail!.querySelector('[data-slot="tick-team-meta"]')!.textContent).toMatch(/^ · 그날 첫 팀 주문 · 주문 전 호가 총 (—|[\d.]+) · 1호 2\.34$/);
+    // 팀 주문 꼬리 줄 — 직전 팀 간격 · 주문 전 매도비중(스케치 024 C · 025)
+    expect(tail!.querySelector('[data-slot="tick-team-meta"]')!.textContent).toMatch(/^ · 그날 첫 팀 주문 · 주문 전 매도비중 총 (—|\d+%) · 1호 70%$/);
+    // 1호 매도 열(스케치 025 A) — 모든 전문 행 · B6 행은 자기 값
+    const l1 = (rec: number) => rowOf(container, rec)!.querySelector('[data-slot="tick-msg-l1"]')!.textContent;
+    expect(l1(0)).toBe('70%'); // B6 100 — 283 ÷ (283 + 121)
+    expect(l1(2)).toBe('70%'); // A3 101 — 거래소순 직전 B6 100 을 이어받음
+    expect(l1(1)).toBe('33%'); // 닫는 B6 104 — 10 ÷ 30
+    expect(l1(7)).toBe('33%'); // B9 — 보드 없는 행도 직전 보드 값
+    expect(rowOf(container, 1)!.querySelector('[data-slot="tick-msg-l1"]')!.className).toContain('font-semibold');
+    expect(rowOf(container, 2)!.querySelector('[data-slot="tick-msg-l1"]')!.className).not.toContain('font-semibold');
   });
 
   it('수신순 토글 — 커서 rec 유지 · 점선 「⋯ 거래소순 자리」 줄 · 클릭 = 그 B6 선택', () => {

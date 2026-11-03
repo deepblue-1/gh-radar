@@ -9,8 +9,9 @@ import {
   fmtDurNs,
   fmtGapNs,
   fmtLeadMs,
-  fmtRatio,
+  fmtShare,
   orderShapeLabel,
+  preBookOf,
   sideOf,
   teamOrderMetaOf,
 } from '@/lib/ticks/msg-rows';
@@ -30,8 +31,9 @@ import { TickOwnEvidenceOrders, TickOwnSection, TickOwnTable } from './tick-own-
  *   주문 밖 전문이면 「주문 밖 전문」 과 최근 주문 표만.
  * ② 「최근 주문 10건」 — 거래소순으로 커서 이하에서 끝난 주문 최신 먼저(커서가 주문 가운데면 그 주문이 맨 위). 행 클릭 =
  *   그 주문 마지막 조각으로 커서 이동.
- * ③ 팀 주문이면 「직전 팀 주문」(첫 조각 체결시각 간격 µs · 그날 첫 팀 주문이면 그 말) · 「주문 전 호가」(첫 조각 직전 B6 의
- *   매도합/매수합 · 매도1/매수1 잔량 비) 두 줄(스케치 024 C · 2026-11-03 — 팀 주문 주기 · 호가 비율 확인용).
+ * ③ 팀 주문이면 「직전 팀 주문」(첫 조각 체결시각 간격 µs · 그날 첫 팀 주문이면 그 말 — 스케치 024 C). 모든 주문에
+ *   「주문 전 매도비중」(첫 조각 직전 B6 의 매도 ÷ (매도 + 매수) — 총잔량 · 1호 잔량 · 스케치 025 · 2026-11-03 — 어떤 호가
+ *   쏠림에서 주문이 나갔는지 확인용).
  * 판정은 세션(shared classifyKrxOrders · NXT 런)이 이미 했다 — 여기서는 보이기만 한다.
  * ③ 우리 주문(Phase 38 D-07): 배치 = 본문 → 「◆ 우리 주문 #…」 섹션(커서가 우리 체결 A3 행이거나 우리 줄이 골라졌을 때 ·
  *   주문이 둘이면 둘) 또는 근거 역참조 「이 전문을 보고 나간 주문 n건」(커서가 근거 전문 행일 때) → 「우리 주문」 표(own 이
@@ -144,6 +146,7 @@ export function TickOrderCard({
     const inv = order.closingB6Rec === null ? undefined : session.inversionOfB6.get(order.closingB6Rec);
     const detail = KIND_DETAIL[order.kind];
     const meta = order.team ? teamOrderMetaOf(session, order.id) : null;
+    const pre = preBookOf(session, order);
     body = (
       <div data-slot="tick-order-this" data-order={order.id}>
         <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-bold">
@@ -170,27 +173,27 @@ export function TickOrderCard({
           <Kv k="금액">{fmtAmountC(order.val)}</Kv>
           <Kv k="지속">{durNode(order.lastNs - order.firstNs)}</Kv>
         </div>
-        {meta !== null && (
-          <dl data-slot="tick-order-team-meta" className="mono m-0 mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-            <dt className="font-sans text-[11px] text-[var(--muted-fg)]">직전 팀 주문</dt>
-            <dd className="m-0 font-semibold text-[var(--team)]">
-              {meta.gapNs === null ? '그날 첫 팀 주문' : fmtGapNs(meta.gapNs)}
-            </dd>
-            <dt className="font-sans text-[11px] text-[var(--muted-fg)]">주문 전 호가</dt>
-            <dd className="m-0 text-[var(--fg)]">
-              {meta.bookRec < 0 ? (
-                '—'
-              ) : (
-                <>
-                  <span className="font-sans text-[11px] text-[var(--muted-fg)]">매도합/매수합</span>{' '}
-                  <b>{fmtRatio(meta.totalRatio)}</b> ·{' '}
-                  <span className="font-sans text-[11px] text-[var(--muted-fg)]">매도1/매수1</span>{' '}
-                  <b>{fmtRatio(meta.l1Ratio)}</b>
-                </>
-              )}
-            </dd>
-          </dl>
-        )}
+        <dl data-slot="tick-order-meta" className="mono m-0 mt-2.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
+          {meta !== null && (
+            <>
+              <dt className="font-sans text-[11px] text-[var(--muted-fg)]">직전 팀 주문</dt>
+              <dd data-slot="tick-order-gap" className="m-0 font-semibold text-[var(--team)]">
+                {meta.gapNs === null ? '그날 첫 팀 주문' : fmtGapNs(meta.gapNs)}
+              </dd>
+            </>
+          )}
+          <dt className="font-sans text-[11px] text-[var(--muted-fg)]">주문 전 매도비중</dt>
+          <dd data-slot="tick-order-prebook" className="m-0 text-[var(--fg)]">
+            {pre.bookRec < 0 ? (
+              '—'
+            ) : (
+              <>
+                <span className="font-sans text-[11px] text-[var(--muted-fg)]">총잔량</span> <b>{fmtShare(pre.totalShare)}</b> ·{' '}
+                <span className="font-sans text-[11px] text-[var(--muted-fg)]">1호</span> <b>{fmtShare(pre.l1Share)}</b>
+              </>
+            )}
+          </dd>
+        </dl>
         <p data-slot="tick-order-seq" className="mono m-0 mt-2 text-[11px] leading-normal text-[var(--muted-fg)]">
           seq {fmtQty(order.firstSeq)}
           {order.pieces > 1 ? `~${fmtQty(order.lastSeq)}` : ''} ·{' '}
