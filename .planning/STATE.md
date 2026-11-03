@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-08-PLAN.md
-last_updated: "2026-11-03T07:25:31.335Z"
+stopped_at: Completed 38-09-PLAN.md
+last_updated: "2026-11-03T07:41:51.878Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: 2ca1807a7605eb9f5bb6d46471c677e8ce3bf378
+state_head: 8a48b5b4f114ae15f2e79cbea720196bd110afaa
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 109
+  completed_plans: 110
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 9 of 10
+Plan: 10 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T07:25:31.178Z
-Stopped at: Completed 38-08-PLAN.md
+Last session: 2026-11-03T07:41:51.758Z
+Stopped at: Completed 38-09-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -210,6 +210,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P06 | 14 min | 2 tasks | 10 files |
 | Phase 38 P07 | 10 min | 2 tasks | 7 files |
 | Phase 38 P08 | 12 min | 2 tasks | 11 files |
+| Phase 38 P09 | 13min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -360,3 +361,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-07: 가격 판 범위는 우리 점으로 넓히지 않음(팀 원과 같은 규칙) · 판 밖 점은 툴팁 · 묶음에서도 뺌 — 판 끝 붙이기 필요 여부는 UAT 확인
 - [Phase 38]: 38-08: 우리 체결 알약 › 로 A3 대상에 갈 때 뷰어가 고른 줄(ownPick)을 푼다 — 짝 없음 줄의 기준 전문이 다음 대상이면 현재 자리가 줄에 묶여 › 가 맴돈다
 - [Phase 38]: 38-08: 당일 최신 받기는 use-tick-live refresh() 가 요청을 시작했을 때(true)만 ownRefreshKey +1 — epoch 다시 받는 중엔 refreshing 이 false 라 그 플래그로는 own 만 느는 틈이 있었다
+- [Phase 38]: 38-09: useTickOwn 진행 중 요청 공유는 컴포넌트 ref(모듈 캐시 아님) — 개발 StrictMode 정리→재실행만 묶어 열기 1회, 재마운트·refreshKey 는 새 요청
+- [Phase 38]: 38-09: e2e mockTickApi 기본 own = tickOwnFixture(컷 13시 KRX 유도 합성) — 37 절도 우리 층 켜진 화면으로 회귀, 404 경로는 실패 내성 테스트가 명시
