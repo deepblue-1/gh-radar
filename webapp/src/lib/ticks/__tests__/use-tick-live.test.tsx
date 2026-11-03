@@ -54,6 +54,8 @@ interface FakeResp {
   epoch?: string;
   /** `X-Tick-More`(37 WR-32) — 없으면 헤더 없음(옛 tickgw). */
   more?: boolean;
+  /** `X-Tick-Complete` — 기본 true. */
+  complete?: boolean;
 }
 
 function liveResponse(r: FakeResp): Response {
@@ -74,7 +76,7 @@ function liveResponse(r: FakeResp): Response {
       [TICK_LIVE_HEADERS.lastRecvNs]: r.lastRecvNs ?? '',
       [TICK_LIVE_HEADERS.state]: r.state ?? 'ready',
       [TICK_LIVE_HEADERS.queue]: String(r.queue ?? 0),
-      [TICK_LIVE_HEADERS.complete]: 'true',
+      [TICK_LIVE_HEADERS.complete]: r.complete === false ? 'false' : 'true',
       ...(r.more === undefined ? {} : { [TICK_LIVE_HEADERS.more]: r.more ? 'true' : 'false' }),
     },
   });
@@ -478,6 +480,52 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     expect(result.current.generation).toBe(1);
     expect(result.current.refetching).toBe(false);
     warn.mockRestore();
+  });
+
+  it('sessionComplete = 보이는 세션을 만든 응답 기준 — 409 다시 받기 중 새 epoch 의 중간 meta 로 바뀌지 않는다(R2-IN-32)', async () => {
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z1, state: 'ready', offsetEnd: Z1.length, complete: false }));
+    const { result } = renderHook(() => useTickLive(opts()));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.sessionComplete).toBe(false);
+    const before = result.current.session;
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ status: 409, body: '{"epoch":"e-2"}' }))
+      .mockResolvedValueOnce(liveResponse({ body: Z1, epoch: 'e-2', state: 'loading', offsetEnd: Z1.length, complete: true }))
+      .mockResolvedValueOnce(
+        liveResponse({ body: Z2, epoch: 'e-2', state: 'ready', offsetEnd: Z1.length + Z2.length, complete: true }),
+      );
+    await act(async () => {
+      result.current.refresh(); // 409
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await vi.waitFor(async () => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    // 다시 받는 중 — meta 는 새 epoch 의 중간 응답(complete true)이지만 보이는 세션은 옛것(끊김 있음)
+    expect(result.current.refetching).toBe(true);
+    expect(result.current.session).toBe(before);
+    expect(result.current.meta?.complete).toBe(true);
+    expect(result.current.sessionComplete).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TICK_LIVE_LOADING_MS);
+    });
+    expect(result.current.session).not.toBe(before);
+    expect(result.current.sessionComplete).toBe(true);
+
+    // 같은 epoch 증분이 끊김을 알리면(0바이트여도) 보이는 세션의 값이 바뀐다
+    fetchMock.mockResolvedValueOnce(
+      liveResponse({ epoch: 'e-2', state: 'ready', offsetEnd: Z1.length + Z2.length, complete: false }),
+    );
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.sessionComplete).toBe(false);
   });
 
   it('delayed → meta.state 노출', async () => {

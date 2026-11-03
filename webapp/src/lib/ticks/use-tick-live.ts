@@ -68,6 +68,11 @@ export interface TickLiveView {
   fillFailed: boolean;
   /** 「최신 받기」 한 번의 이어 받기 상한(`TICK_LIVE_MORE_MAX`)에서 멈췄고 캐시에 더 있다(R2-IN-31) — 다시 누르면 이어 받는다. */
   more: boolean;
+  /**
+   * 보이는 세션(`session`)을 만든 응답의 `X-Tick-Complete`(R2-IN-32) · 세션 전이면 null. `meta.complete` 는 409 다시 받기 중
+   * 새 epoch 의 중간 응답으로 바뀌지만 이 값은 세션을 바꿀 때만 바뀐다 — 「당일 자료 일부 빠짐」 배지는 이것을 읽는다.
+   */
+  sessionComplete: boolean | null;
   /** 마지막 200 응답 시각(epoch ms) · 아직 없으면 null. */
   fetchedAt: number | null;
 }
@@ -107,6 +112,7 @@ const IDLE: TickLiveView = {
   refetching: false,
   fillFailed: false,
   more: false,
+  sessionComplete: null,
   fetchedAt: null,
 };
 
@@ -135,6 +141,8 @@ interface Ctl {
   fillFailed: boolean;
   /** 증분 이어 받기가 상한에서 멈췄고 캐시에 더 있다(R2-IN-31). */
   moreLeft: boolean;
+  /** 보이는 세션을 만든(같은 epoch 에서 이어 붙인) 응답의 complete(R2-IN-32). */
+  sessionComplete: boolean | null;
   fetchedAt: number | null;
   /** 지금 1회 받는다(버튼 · 가시성 복귀). */
   resume: () => void;
@@ -183,6 +191,7 @@ export function useTickLive({
       fillFailures: 0,
       fillFailed: false,
       moreLeft: false,
+      sessionComplete: null,
       fetchedAt: null,
       resume: () => {},
       retry: () => false,
@@ -203,6 +212,7 @@ export function useTickLive({
         refetching: c.session !== null && c.refetching && !c.fillFailed,
         fillFailed: c.fillFailed,
         more: c.moreLeft && !filling(),
+        sessionComplete: c.session === null ? null : c.sessionComplete,
         fetchedAt: c.fetchedAt,
       });
     publishRef.current = () => publish();
@@ -287,6 +297,8 @@ export function useTickLive({
           return publish();
         }
         commit(m);
+        // 세션을 바꾸는(또는 같은 epoch 에서 이어 붙이는) 응답만 배지 출처로 — 다시 받기 중간 meta 는 아니다(R2-IN-32)
+        c.sessionComplete = m.complete;
         if (fill) {
           c.session = next;
           c.pending = [];

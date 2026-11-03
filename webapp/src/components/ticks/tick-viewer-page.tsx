@@ -472,8 +472,9 @@ export function TickViewerPage() {
                 fetchedAt: live.fetchedAt,
                 refreshFailed: live.session !== null && live.errors > 0,
                 more: live.more,
-                // tickgw 가 아는 끊김(WR-63) — 세션이 보일 때만(하루치 받는 중 카드에는 머리 배지가 의미 없다)
-                incomplete: live.session !== null && live.meta?.complete === false,
+                // tickgw 가 아는 끊김(WR-63) — 세션이 보일 때만(하루치 받는 중 카드에는 머리 배지가 의미 없다) · 보이는 세션을 만든
+                // 응답 기준(R2-IN-32 — 409 다시 받기 중 새 epoch 의 중간 meta 로 깜박이지 않게)
+                incomplete: live.session !== null && live.sessionComplete === false,
               }
             : null
         }
