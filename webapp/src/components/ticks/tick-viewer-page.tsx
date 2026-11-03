@@ -36,7 +36,7 @@ import { TickViewer } from './tick-viewer';
  *   **`t` 는 열기 시점에 한 번만 읽는다** — Next 15 는 네이티브 replaceState 를 `useSearchParams` 에 동기화하므로 커서가 바꾼
  *   `t` 가 이 컴포넌트를 다시 그린다. `t` 는 (isin, d, ex) 키가 바뀔 때만 갱신되는 `initialT` 에 담고, 열기 · 격자 · 세션
  *   효과의 의존성에는 `t` 를 넣지 않는다(넣으면 틱마다 다시 열기 · 커서 초기화).
- * ② 게이트: `useDmaGateReason()` · server 401/403 → 본문 대신 `DmaGate surface="틱 전문 뷰어"` 만. 표시 장치일 뿐 권한은
+ * ② 게이트: `useDmaGateReason()` · server 401/403 → 본문 대신 `DmaGate surface="틱뷰어"` 만. 표시 장치일 뿐 권한은
  *   server RPC(`tick_*_for_user`)다.
  * ③ 기본 날짜(D-15): d 없음 → KST 거래일 08:00~20:00 이면 오늘(`/api/ticks/today` 목록 · 「라이브」) · 그 밖에는 격자가 있는
  *   최근 날짜(`/api/ticks/day` 를 d 없이 — 응답 date). URL 은 건드리지 않고 화면만 그 날짜다.
@@ -343,14 +343,14 @@ export function TickViewerPage() {
 
   useEffect(() => {
     const name = view !== null && 'resp' in view ? view.resp.stock?.name : undefined;
-    document.title = name ? `${name} · 틱 전문 뷰어` : '틱 전문 뷰어';
+    document.title = name ? `${name} · 틱뷰어` : '틱뷰어';
   }, [view]);
 
   const gateReason = gate ?? serverGate;
   if (gateReason !== null) {
     return (
       <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4">
-        <DmaGate reason={gateReason} surface="틱 전문 뷰어" />
+        <DmaGate reason={gateReason} surface="틱뷰어" />
       </div>
     );
   }

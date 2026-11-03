@@ -81,8 +81,8 @@ const LED_TONES: readonly (readonly string[])[] = [
  * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다. 검색 허브 하위 3페이지는
  * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
  * 전략 3건은 「트레이딩」 바로 아래에 선다(VI 미가동 — VI 줄 없음). 그 다음이 「분석」 그룹 제목 + 하위
- * 「상한가 보고서」 · 「팀 매집」 · 「매집감지」 · 「틱 전문 뷰어」 · 「AI 애널리스트」(Phase 28 D-09 · Phase 33 TEAM-02 · Phase 34 D-27 ·
- * Phase 37 D-14 · quick-261005-vk1 D-01 — AI 애널리스트 · 팀 매집 · 매집감지 · 틱 전문 뷰어 = 분석 하위 · 트레이딩과 같은 노출 조건), 그 다음이 「Admin」 그룹 제목 + 하위 「사용자」 · 「서버」 · 「발사」 · 「매매손익」(Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 — e2e 계정은
+ * 「틱뷰어」 · 「상한가 보고서」 · 「팀 매집」 · 「매집감지」 · 「AI 애널리스트」(Phase 28 D-09 · Phase 33 TEAM-02 · Phase 34 D-27 ·
+ * Phase 37 D-14 · quick-261005-vk1 D-01 — AI 애널리스트 · 팀 매집 · 매집감지 · 틱뷰어 = 분석 하위 · 트레이딩과 같은 노출 조건), 그 다음이 「Admin」 그룹 제목 + 하위 「사용자」 · 「서버」 · 「발사」 · 「매매손익」(Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 — e2e 계정은
  * admin 시드(29-07)라 보인다 · 노출은 역할만 본다), 그 뒤 My page.
  */
 const TREE_LINKS = [
@@ -90,10 +90,10 @@ const TREE_LINKS = [
   '검색',
   '트레이딩',
   '분석',
+  '틱뷰어',
   '상한가 보고서',
   '팀 매집 보고서',
   '매집감지 보고서',
-  '틱 전문 뷰어',
   'AI 애널리스트',
   'Admin',
   '사용자',
@@ -356,7 +356,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       (route) =>
         route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'DMA_UNMAPPED', message: 'x' } }) }),
     );
-    // Phase 37 D-08 — 틱 전문 뷰어도 같다. day · today · open · convert 전부 막는다.
+    // Phase 37 D-08 — 틱뷰어도 같다. day · today · open · convert 전부 막는다.
     await page.route(
       (url) => url.pathname.startsWith('/api/ticks/'),
       (route) =>
@@ -384,7 +384,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       }
       if (path === '/analytics/ticks') {
         await expect(gate).toContainText(
-          '틱 전문 뷰어는 증권사 계정이 연결된 사용자만 이용할 수 있어요. 관리자에게 연결을 요청하세요.',
+          '틱뷰어는 증권사 계정이 연결된 사용자만 이용할 수 있어요. 관리자에게 연결을 요청하세요.',
         );
         await expect(page.locator('[data-slot="tick-entry"]')).toHaveCount(0);
       }

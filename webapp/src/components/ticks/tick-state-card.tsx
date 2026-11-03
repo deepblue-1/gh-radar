@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
  * - `live-unavailable` — 「당일 자료 준비 중」(D-22 — 당일 경로가 아직 꺼져 있다 · today 응답 live=false).
  * - `error` — 「변환에 실패했어요」 · 한도 · 미설정 · 불러오기 실패 — 문구는 호출부가 준다.
  * 진행 바는 `tick-indeterminate` 유틸(globals.css) + `motion-reduce:animate-none` — 동작 줄이기면 멈춘다.
+ * 진행 중 두 카드(converting · live-loading)의 아이콘은 도는 고리 · 진척을 알면(live-loading) 바 오른쪽에 「N%」(2026-11-03 사용자 요청).
  */
 
 export type TickStateCardProps =
@@ -49,27 +50,49 @@ function Progress({ tone, value }: { tone: 'vi' | 'up'; value: number | null }) 
   const fill = tone === 'vi' ? 'bg-[var(--vi)]' : 'bg-[var(--up)]';
   const pct = value === null ? null : Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
-    <div
-      role="progressbar"
-      aria-label="진행"
-      aria-valuemin={pct === null ? undefined : 0}
-      aria-valuemax={pct === null ? undefined : 100}
-      aria-valuenow={pct ?? undefined}
-      className="mx-4 mb-3.5 h-1 overflow-hidden rounded-[2px] bg-[var(--muted)]"
-    >
-      {pct === null ? (
-        <i className={cn('block h-full w-[38%] rounded-[2px]', fill, 'tick-indeterminate motion-reduce:animate-none')} />
-      ) : (
-        <i className={cn('block h-full rounded-[2px]', fill)} style={{ width: `${pct}%` }} />
+    <div className="mx-4 mb-3.5 flex items-center gap-2.5">
+      <div
+        role="progressbar"
+        aria-label="진행"
+        aria-valuemin={pct === null ? undefined : 0}
+        aria-valuemax={pct === null ? undefined : 100}
+        aria-valuenow={pct ?? undefined}
+        className="h-1 min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[var(--muted)]"
+      >
+        {pct === null ? (
+          <i className={cn('block h-full w-[38%] rounded-[2px]', fill, 'tick-indeterminate motion-reduce:animate-none')} />
+        ) : (
+          <i className={cn('block h-full rounded-[2px] transition-[width] duration-500', fill)} style={{ width: `${pct}%` }} />
+        )}
+      </div>
+      {pct !== null && (
+        <span
+          data-slot="tick-state-pct"
+          className={cn(
+            'flex-none text-[12px] font-bold tabular-nums',
+            tone === 'vi' ? 'text-[var(--vi)]' : 'text-[var(--up)]',
+          )}
+        >
+          {pct}%
+        </span>
       )}
     </div>
+  );
+}
+
+/** 진행 중 카드 아이콘 — 도는 고리(동작 줄이기면 멈춘다). 진행 중이라는 것만 말하고 진척은 아래 바 · % 가 말한다. */
+function Spinner() {
+  return (
+    <span
+      data-slot="tick-state-spinner"
+      className="block size-[18px] animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+    />
   );
 }
 
 function RowCard({
   variant,
   tone,
-  icon,
   title,
   body,
   onCancel,
@@ -77,7 +100,6 @@ function RowCard({
 }: {
   variant: string;
   tone: 'vi' | 'up';
-  icon: string;
   title: string;
   body: string;
   onCancel: () => void;
@@ -98,7 +120,7 @@ function RowCard({
             tone === 'vi' ? 'bg-[var(--vi-bg)] text-[var(--vi)]' : 'bg-[var(--up-bg)] text-[var(--up)]',
           )}
         >
-          {icon}
+          <Spinner />
         </span>
         <div className="min-w-0 flex-1">
           <b className="text-[13.5px] font-bold break-keep text-[var(--fg)]">{title}</b>
@@ -159,7 +181,6 @@ export function TickStateCard(props: TickStateCardProps) {
         <RowCard
           variant="converting"
           tone="vi"
-          icon="⟳"
           title={props.subject ? `${props.subject} 변환 중` : '변환 중'}
           body={`원본(GCS)에서 이 종목만 꺼내 격자로 만들고 있어요 · 약 ${props.etaMin}분 · 끝나면 자동으로 열려요. 한 번 변환하면 90일 동안 바로 열려요.`}
           onCancel={props.onCancel}
@@ -171,7 +192,6 @@ export function TickStateCard(props: TickStateCardProps) {
         <RowCard
           variant="live-loading"
           tone="up"
-          icon="●"
           title={`${props.subject ? `${props.subject} · ` : ''}오늘 · 08:00~지금 하루치 받는 중`}
           body={`119 에서 전문을 가져오고 있어요 · 지금 대기 ${props.queued}건 · 받은 뒤에는 5초마다 새 틱만 이어 받아요(끝 틱을 보고 있을 때만).`}
           onCancel={props.onCancel}

@@ -183,6 +183,19 @@ describe('TickStateCard', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('live-loading — 도는 아이콘 · 진척을 알면 바 오른쪽 「N%」 · 모르면 % 없음', () => {
+    const { rerender } = render(
+      <TickStateCard variant="live-loading" subject="삼성전자" queued={0} progress={0.374} onCancel={vi.fn()} />,
+    );
+    const spinner = document.querySelector('[data-slot="tick-state-spinner"]')!;
+    expect(spinner.className).toContain('animate-spin');
+    expect(spinner.className).toContain('motion-reduce:animate-none');
+    expect(screen.getByText('37%')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '37');
+    rerender(<TickStateCard variant="live-loading" subject="삼성전자" queued={0} progress={null} onCancel={vi.fn()} />);
+    expect(document.querySelector('[data-slot="tick-state-pct"]')).toBeNull();
+  });
+
   it('nodata holiday — 「자료가 없어요」 · 「최근 거래일로」 · 변환 버튼 없음', () => {
     const onLatest = vi.fn();
     render(<TickStateCard variant="nodata" reason="holiday" dateLabel="10/31 (토)" onLatest={onLatest} />);

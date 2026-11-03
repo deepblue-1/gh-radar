@@ -23,7 +23,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(104);
+SELECT plan(109);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -393,6 +393,33 @@ SELECT is(public.tick_today_for_user(pg_temp.u1())->'rows'->2->'sources', '["acc
           'L today kind 16 만(시세 없음) → sources [accum] · rate null 맨 뒤');
 SELECT is(public.tick_today_for_user(pg_temp.u1())->>'date', to_char((now() AT TIME ZONE 'Asia/Seoul')::date, 'YYYYMMDD'),
           'L today date = KST 오늘');
+
+-- ── L2. 오늘 고가 신선도(20261103090000 · 2026-11-03 사고) ─────────────────
+-- 6 = 값은 맞아 보이지만(+20%) 고가가 며칠 전 값(ohlc_updated_at 5일 전) → 제외
+-- 7 = 고가는 오늘 찍혔지만 현재가 < 저가(한양디지텍꼴 섞임) → 제외
+INSERT INTO public.stocks (code, name, market, isin) VALUES
+  ('370006', '틱종목육', 'KOSDAQ', 'KR7370006009'),
+  ('370007', '틱종목칠', 'KOSDAQ', 'KR7370007007');
+INSERT INTO public.stock_quotes (code, price, change_amount, change_rate, open, high, low, upper_limit, lower_limit, updated_at) VALUES
+  ('370006', 11000, 1000, 10.0, 10000, 12000, 10000, 13000, 7000, now()),
+  ('370007', 10000, -500, -4.76, 12500, 13000, 12000, 13650, 7350, now());
+SELECT is((SELECT ohlc_updated_at FROM public.stock_quotes WHERE code = '370006'), now(),
+          'L2 트리거 — INSERT 에 OHLC 가 있으면 ohlc_updated_at = now()');
+UPDATE public.stock_quotes SET ohlc_updated_at = now() - interval '5 days' WHERE code = '370006';
+UPDATE public.stock_quotes SET price = 11100, change_amount = 1100, change_rate = 11.0 WHERE code = '370006';
+SELECT is((SELECT ohlc_updated_at FROM public.stock_quotes WHERE code = '370006'), now() - interval '5 days',
+          'L2 트리거 — OHLC 를 안 바꾸는 갱신(STEP1)은 ohlc_updated_at 을 올리지 않는다');
+SELECT is((SELECT jsonb_agg(e->>'isin' ORDER BY n) FROM jsonb_array_elements(public.tick_today_for_user(pg_temp.u1())->'rows')
+             WITH ORDINALITY x(e, n)),
+          '["KR7370001001", "KR7370003007", "KR7370002009"]'::jsonb,
+          'L2 today — 묵은 고가(5일 전) · 현재가 < 저가 는 +15% 로 세지 않는다');
+UPDATE public.stock_quotes SET high = 12100 WHERE code = '370006';
+SELECT is((SELECT ohlc_updated_at FROM public.stock_quotes WHERE code = '370006'), now(),
+          'L2 트리거 — 고가가 바뀌면 ohlc_updated_at = now()');
+SELECT is((SELECT e->'high_rate' FROM jsonb_array_elements(public.tick_today_for_user(pg_temp.u1())->'rows') e
+            WHERE e->>'isin' = 'KR7370006009'),
+          to_jsonb(((12100 - 10000) * 100 / 10000.0)::double precision),
+          'L2 today — 고가가 오늘 값이 되면 up15 로 들어온다(high_rate 21)');
 
 -- ── M. purge(D-04 · 90일) ─────────────────────────────────────────
 DELETE FROM public.tick_grids; DELETE FROM public.tick_convert_requests; DELETE FROM public.tick_convert_runs;

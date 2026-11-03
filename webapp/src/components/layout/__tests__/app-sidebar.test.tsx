@@ -1254,7 +1254,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(screen.queryByText("상한가 보고서")).toBeNull();
   });
 
-  it("tradingVisible 참 → 트레이딩 그룹(제목 + 3단) 다음 · 하위 = 상한가 보고서 · 팀 매집 · 매집감지 · 틱 전문 뷰어 · AI 애널리스트 · 링크는 /analytics/limitup", () => {
+  it("tradingVisible 참 → 트레이딩 그룹(제목 + 3단) 다음 · 하위 = 틱뷰어 · 상한가 보고서 · 팀 매집 · 매집감지 · AI 애널리스트 · 링크는 /analytics/limitup", () => {
     setupReady();
     render(<AppSidebar />);
     expect(analytics()).toHaveAttribute("href", "/analytics/limitup");
@@ -1271,10 +1271,10 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
       "strategy",
       "strategy",
       "분석",
+      "틱뷰어",
       "상한가 보고서",
       "팀 매집 보고서",
       "매집감지 보고서",
-      "틱 전문 뷰어",
       "AI 애널리스트",
       "My page",
     ]);
@@ -1284,19 +1284,19 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(sub.querySelector("ul")!.className).toContain("border-l");
     expect(report()!.hasAttribute("data-nav-item")).toBe(true);
     expect(analytics()!.hasAttribute("data-nav-item")).toBe(true);
-    // 「팀 매집」(Phase 33 TEAM-02) = 두 번째 · 「매집감지」(Phase 34 D-27) = 세 번째 · 「틱 전문 뷰어」(Phase 37 D-14) = 네 번째 ·
+    // 「틱뷰어」(Phase 37 D-14 · 2026-11-03 맨 위) = 첫 번째 · 「팀 매집」(Phase 33 TEAM-02) = 세 번째 · 「매집감지」(Phase 34 D-27) = 네 번째 ·
     // 「AI 애널리스트」 = 다섯 번째(quick-261005-vk1 D-01) — 같은 SUB_LIST
     const subLinks = Array.from(sub.querySelectorAll("ul > li > a"));
     expect(subLinks.map((a) => a.getAttribute("data-sidebar-item"))).toEqual([
+      "ticks",
       "limitup-report",
       "teamflow",
       "accum",
-      "ticks",
       "chat",
     ]);
-    expect(subLinks[1]).toHaveAttribute("href", "/analytics/teamflow");
-    expect(subLinks[2]).toHaveAttribute("href", "/analytics/accum");
-    expect(subLinks[3]).toHaveAttribute("href", "/analytics/ticks");
+    expect(subLinks[0]).toHaveAttribute("href", "/analytics/ticks");
+    expect(subLinks[2]).toHaveAttribute("href", "/analytics/teamflow");
+    expect(subLinks[3]).toHaveAttribute("href", "/analytics/accum");
     const chat = screen.getByRole("link", { name: "AI 애널리스트" });
     expect(chat).toBe(subLinks[4]);
     expect(chat).toHaveAttribute("href", "/chat");
@@ -1407,7 +1407,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
 
-  it("tradingVisible 거짓 → 「틱 전문 뷰어」 미렌더(비로그인 · unauthorized · 판정 전) — Phase 37 D-14", () => {
+  it("tradingVisible 거짓 → 「틱뷰어」 미렌더(비로그인 · unauthorized · 판정 전) — Phase 37 D-14", () => {
     for (const [auth, status] of [
       [guest(), "ready"],
       [authed(), "unauthorized"],
@@ -1416,17 +1416,17 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
       mockAuth = auth;
       mockRelay = relayState({ status });
       const r = render(<AppSidebar />);
-      expect(screen.queryByText("틱 전문 뷰어")).toBeNull();
+      expect(screen.queryByText("틱뷰어")).toBeNull();
       expect(document.querySelector('[data-sidebar-item="ticks"]')).toBeNull();
       r.unmount();
     }
   });
 
-  it("/analytics/ticks → 하위 「틱 전문 뷰어」 만 활성 · 「매집감지」 · 「상한가 보고서」 는 꺼짐 — Phase 37 D-14", () => {
+  it("/analytics/ticks → 하위 「틱뷰어」 만 활성 · 「매집감지」 · 「상한가 보고서」 는 꺼짐 — Phase 37 D-14", () => {
     mockPathname = "/analytics/ticks";
     setupReady();
     render(<AppSidebar />);
-    const ticks = screen.getByRole("link", { name: "틱 전문 뷰어" });
+    const ticks = screen.getByRole("link", { name: "틱뷰어" });
     expect(ticks).toHaveAttribute("href", "/analytics/ticks");
     expect(ticks).toHaveAttribute("data-sidebar-item", "ticks");
     expect(ticks).toHaveAttribute("aria-current", "page");
@@ -1542,10 +1542,10 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손
       "strategy",
       "strategy",
       "분석",
+      "틱뷰어",
       "상한가 보고서",
       "팀 매집 보고서",
       "매집감지 보고서",
-      "틱 전문 뷰어",
       "AI 애널리스트",
       "Admin",
       "사용자",

@@ -77,7 +77,7 @@ export function TickHeader({
             <small className="mono text-[length:var(--t-caption)] font-medium text-[var(--muted-fg)]">{stock.code}</small>
           </span>
         ) : (
-          <span>틱 전문 뷰어</span>
+          <span>틱뷰어</span>
         )}
         {supply !== null && (
           <span

@@ -17,7 +17,7 @@ import {
 } from '../fixtures/ticks';
 
 /**
- * Phase 37 Plan 08 Task 3 — 틱 전문 뷰어 진입 실브라우저 E2E (D-03 · D-08 · D-16 · D-18).
+ * Phase 37 Plan 08 Task 3 — 틱뷰어 진입 실브라우저 E2E (D-03 · D-08 · D-16 · D-18).
  *
  * ① 무엇을 증명하는가(1280 데스크톱)
  *   - 진입: `/analytics/ticks?d=20261016` → 그날 격자 목록(목업 A 패널) → 행 클릭 → URL `isin · d · ex` → open 정확히 1회 →
@@ -55,7 +55,7 @@ async function expectNoHorizontalScroll(page: Page, tag: string): Promise<void> 
   expect(o.main, `${tag} main 가로 스크롤 0`).toBeLessThanOrEqual(0);
 }
 
-test.describe('틱 전문 뷰어 진입 (Phase 37 D-16)', () => {
+test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -133,12 +133,12 @@ test.describe('틱 전문 뷰어 진입 (Phase 37 D-16)', () => {
     expect(rec.open.filter((k) => k === `${SAMSUNG.isin}/${d}/KRX`).length).toBe(3);
   });
 
-  test('게이트 — /api/ticks 403 → DmaGate 「틱 전문 뷰어는 …」', async ({ page }) => {
+  test('게이트 — /api/ticks 403 → DmaGate 「틱뷰어는 …」', async ({ page }) => {
     await mockTickApi(page, { forbid: true });
     await page.goto(`${BASE}?d=${TICK_DATE}`);
     const gate = page.locator('[data-slot="dma-gate"]');
     await expect(gate).toBeVisible({ timeout: 30_000 });
-    await expect(gate).toContainText('틱 전문 뷰어는 증권사 계정이 연결된 사용자만 이용할 수 있어요.');
+    await expect(gate).toContainText('틱뷰어는 증권사 계정이 연결된 사용자만 이용할 수 있어요.');
     await expect(page.locator('[data-slot="tick-entry"]')).toHaveCount(0);
   });
 
@@ -156,7 +156,7 @@ test.describe('틱 전문 뷰어 진입 (Phase 37 D-16)', () => {
   });
 });
 
-test.describe('틱 전문 뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 · D-18)', () => {
+test.describe('틱뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 · D-18)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -286,7 +286,7 @@ test.describe('틱 전문 뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37
  * (37-13) 전문 목록 ↔ 커서 ↔ 호가 · 수신순 토글 · 다음 역전 · 오른쪽 열 카드 · 폰 탭.
  * 컷 13시 KRX 픽스처는 다조각 역전 84(오라클 inverted 84/182)를 가진다 — 「↕ 다음 역전」 · 점선 자리가 반드시 있다.
  */
-test.describe('틱 전문 뷰어 전문 목록 — 행 그룹 · 뒤집힘 · 이 주문 (Phase 37 D-00 · D-20)', () => {
+test.describe('틱뷰어 전문 목록 — 행 그룹 · 뒤집힘 · 이 주문 (Phase 37 D-00 · D-20)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -394,7 +394,7 @@ test.describe('틱 전문 뷰어 전문 목록 — 행 그룹 · 뒤집힘 · �
   });
 });
 
-test.describe('틱 전문 뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 ① · D-09 ~ D-12 · 37-14)', () => {
+test.describe('틱뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 ① · D-09 ~ D-12 · 37-14)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -488,7 +488,7 @@ test.describe('틱 전문 뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 
   });
 });
 
-test.describe('틱 전문 뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · 끝으로 · 미결선 (Phase 37 D-05 · D-06 · D-18 · D-22 · 37-19)', () => {
+test.describe('틱뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · 끝으로 · 미결선 (Phase 37 D-05 · D-06 · D-18 · D-22 · 37-19)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
