@@ -271,8 +271,8 @@ function limitEnteredBody(ev: StrategyEventRow): string {
 function buyOrderBody(ev: StrategyEventRow): string {
   const omitLimitBid = ev.limitBidQty === 0 && orderGroupOriginText(ev.group) !== null;
   return joinDot([
-    conditionText(ev),
-    evidenceText(ev),
+    conditionTextOf(ev),
+    evidenceTextOf(ev),
     omitLimitBid ? null : `상한가 매수잔량 ${qtyAmt(ev.limitBidQty, ev.price)}`,
     qtyAtPrice(ev.qty, ev.price),
     latencyText(ev),
@@ -282,8 +282,8 @@ function buyOrderBody(ev: StrategyEventRow): string {
 /** SellOrder 본문: 조건 · 근거 · (매수1 가격·잔량) · 금액(수량) @가격 방식 · 접수 지연. */
 function sellOrderBody(ev: StrategyEventRow): string {
   return joinDot([
-    conditionText(ev),
-    evidenceText(ev),
+    conditionTextOf(ev),
+    evidenceTextOf(ev),
     bid1Text(ev),
     `${qtyAtPrice(ev.qty, ev.price)}${methodSuffix(ev)}`,
     latencyText(ev),
@@ -439,15 +439,21 @@ function conditionValue(metric: number, v: number, price: number): string {
  * 조건 자리의 출처 문구 — 조건이 빈(cond_metric 0) 수동 · VI 주문이면 「수동 주문」/「VI 자동주문」, 아니면 null.
  * 조건 조각과 펼침 접두 판정이 이 한 규칙을 같이 쓴다(본문이 출처를 말하면 접두를 붙이지 않는다).
  */
-function originInCondition(ev: StrategyEventRow): string | null {
+function originInCondition(ev: Pick<StrategyEventRow, "condMetric" | "group">): string | null {
   return ev.condMetric === 0 ? orderGroupOriginText(ev.group) : null;
 }
 
+/** 조건 조각이 읽는 칸 — 전략 이벤트 행 전체가 없는 표면(틱 뷰어 주문 줄 · Phase 38)도 같은 문구를 쓴다. */
+export type ConditionTextInput = Pick<
+  StrategyEventRow,
+  "condMetric" | "condThreshold" | "condActual" | "reasonCode" | "group" | "kind" | "price"
+>;
+
 /**
  * 조건 조각 `조건 {지표}{연산자}{설정} / 실측 {실측}`. cond_metric 0 이면 수동 · VI 는 출처 문구
- * (수동 주문 · VI 자동주문), 그 밖은 null(조각 생략).
+ * (수동 주문 · VI 자동주문), 그 밖은 null(조각 생략). 주문 본문 · 틱 뷰어 주문 줄(Phase 38)이 같이 부른다 — 문구 정본 한 곳.
  */
-function conditionText(ev: StrategyEventRow): string | null {
+export function conditionTextOf(ev: ConditionTextInput): string | null {
   if (ev.condMetric === 0) return originInCondition(ev);
   const op = reasonOperator(ev.reasonCode);
   const metric = condMetricLabel(ev.condMetric, strategyEventSide(ev.group, ev.kind));
@@ -460,11 +466,18 @@ function latencyText(ev: StrategyEventRow): string | null {
   return ev.acceptLatencyUs > 0 ? `접수 +${Math.round(ev.acceptLatencyUs / 1000)}ms` : null;
 }
 
+/** 근거 조각이 읽는 칸. */
+export type EvidenceTextInput = Pick<
+  StrategyEventRow,
+  "evKind" | "evPrice" | "evQtyBefore" | "evQtyAfter" | "evTradeQty" | "condMetric" | "group" | "kind"
+>;
+
 /**
  * 근거 틱 조각. 호가(1) 근거는 지표로 매도/매수 1호가를 가르고(before→after 숫자 그대로), 체결(2)은 매도 방향이면
  * 「매도체결」 · 수량은 `formatQtyAmt(ev_trade_qty, ev_price)`(C# 505), 체결통보(3)는 가격 · 수량 숫자만. 0 · 모르는 값이면 null(조각 생략).
+ * 주문 본문 · 틱 뷰어 근거(Phase 38)가 같이 부른다 — 문구 정본 한 곳.
  */
-function evidenceText(ev: StrategyEventRow): string | null {
+export function evidenceTextOf(ev: EvidenceTextInput): string | null {
   if (ev.evKind === 1) {
     const before = NUM.format(ev.evQtyBefore);
     const after = NUM.format(ev.evQtyAfter);

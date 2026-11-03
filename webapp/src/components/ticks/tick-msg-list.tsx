@@ -15,12 +15,13 @@ import {
   itemIdxOf,
   itemKindOf,
   orderShapeLabel,
+  ownLineRec,
   slotText,
   tailInversionText,
   tailText,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
-import { ownChipOf, type OwnModel } from '@/lib/ticks/own-model';
+import { ownChipOf, ownOrderLineText, type OwnModel } from '@/lib/ticks/own-model';
 import { fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession, ViewOrder } from '@/lib/ticks/tick-session';
 import { useFixedWindow } from '@/lib/ticks/use-fixed-window';
@@ -42,6 +43,9 @@ import { cn } from '@/lib/utils';
  * ④ 행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 마지막 조각. 선택 틱과 같은 주문 행은 옅은 보라 띠(스케치 019).
  * ⑤ 우리 체결(Phase 38 D-04 · 목업 B): 짝이 붙은 A3 행은 옅은 민트 바탕(`--mine` 6% · 선택 > 우리 > 같은 주문 띠) +
  *   내용 끝 민트 칩 「n/m」(부분 체결만 분모 · 전량이면 「n」) · 추정이면 옆에 점선 「추정」 칩. 계좌 · 주문번호는 그리지 않는다(D-02).
+ * ⑥ 우리 줄(Phase 38 D-05 · D-12): 주문 시각 자리 점선 「● 주문 …」 줄 · 짝 A3 를 못 찾은 체결 점선 「◆ 우리 체결 n주 · 짝 전문 없음」
+ *   (당일 대기면 「전문 아직 안 옴」) 줄 — 「⋯ 거래소순 자리」 줄 동형(같은 높이 · 점선 상단선 · 옅은 바탕) · 색만 `--mine`.
+ *   계좌 끝 4자리 · 주문번호는 주문 줄에만(D-02).
  */
 
 export interface TickMsgListProps {
@@ -208,6 +212,17 @@ interface RowProps {
   ownOur?: number;
   ownTotal?: number;
   ownEst?: boolean;
+  /** 우리 모델 — ORDER · NOFILL 줄만 읽는다. */
+  own: OwnModel | null;
+}
+
+/** 우리 줄(주문 · 짝 없음) — 「⋯ 거래소순 자리」 줄 동형 · 색만 `--mine`. */
+const OWN_LINE =
+  'h-6 max-[640px]:h-[22px] cursor-pointer overflow-hidden whitespace-nowrap border-t border-dashed border-t-[color-mix(in_oklab,var(--mine)_60%,transparent)] bg-[color-mix(in_oklab,var(--mine)_7%,transparent)] text-[10.5px] text-[var(--mine-fg)]';
+
+/** 짝 없는 · 대기 체결 줄 문구(D-12 · Pitfall 4). */
+function ownNoFillText(qty: number, pending: boolean): string {
+  return `◆ 우리 체결 ${fmtQty(qty)}주 · ${pending ? '전문 아직 안 옴' : '짝 전문 없음'}`;
 }
 
 const BADGE =
@@ -231,6 +246,7 @@ const MsgRow = memo(function MsgRow({
   ownOur = 0,
   ownTotal = 0,
   ownEst = false,
+  own,
 }: RowProps) {
   const kind = itemKindOf(item);
   const idx = itemIdxOf(item);
@@ -297,6 +313,38 @@ const MsgRow = memo(function MsgRow({
         </span>
         <span className="mono truncate">{seqText(session.index.seq[b6]!, phone)}</span>
         <span className="min-w-0 truncate">{slotText(session, model, b6)}</span>
+      </div>
+    );
+  }
+
+  if ((kind === MSG_ITEM.ORDER || kind === MSG_ITEM.NOFILL) && own !== null) {
+    // 우리 줄 — 주문 시각 「● 주문 …」 · 짝 없는 체결 「◆ 우리 체결 n주 · 짝 전문 없음」. 클릭 = 그 줄 다음 전문.
+    const isOrder = kind === MSG_ITEM.ORDER;
+    const o = isOrder ? own.orders[idx]! : null;
+    const f = isOrder ? null : own.fills[idx]!;
+    const gwMs = isOrder ? o!.gwMs! : f!.gwMs;
+    const text = isOrder ? ownOrderLineText(o!) : ownNoFillText(f!.qty, f!.state === 'pending');
+    return (
+      <div
+        role="option"
+        aria-selected={false}
+        data-slot={isOrder ? 'tick-own-order' : 'tick-own-nofill'}
+        data-own-id={idx}
+        data-pending={f?.state === 'pending' ? '1' : undefined}
+        data-pos={pos}
+        onClick={() => {
+          const rec = ownLineRec(model, pos);
+          if (rec >= 0) onSelect(rec);
+        }}
+        title={text}
+        className={cn(GRID, OWN_LINE)}
+      >
+        <span className="mono font-semibold">{fmtTickTime(BigInt(gwMs) * 1_000_000n)}</span>
+        <span>
+          <span className={cn(BADGE, 'border-[var(--mine)] text-[var(--mine-fg)]')}>{isOrder ? '주문' : '체결'}</span>
+        </span>
+        <span className="mono">—</span>
+        <span className="min-w-0 truncate">{text}</span>
       </div>
     );
   }
@@ -373,7 +421,8 @@ function joinedAt(session: TickSession, model: MsgRowsModel, k: number): boolean
     const kind = itemKindOf(item);
     const idx = itemIdxOf(item);
     if (kind === MSG_ITEM.TAIL) return idx;
-    if (kind === MSG_ITEM.SLOT) return session.orderOfRec[idx]!;
+    // 우리 줄은 전문 묶음 밖 — 묶음 한가운데에 오지 않게 buildMsgRows 가 꼬리 뒤로 민다(Pitfall 3)
+    if (kind === MSG_ITEM.ORDER || kind === MSG_ITEM.NOFILL) return -1;
     return session.orderOfRec[idx]!;
   };
   const a = orderAt(model.items[k]!);
@@ -382,7 +431,7 @@ function joinedAt(session: TickSession, model: MsgRowsModel, k: number): boolean
 }
 
 export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = null, className }: TickMsgListProps) {
-  const model = useMemo(() => buildMsgRows(session, mode), [session, mode]);
+  const model = useMemo(() => buildMsgRows(session, mode, own), [session, mode, own]);
   const phone = useIsPhone();
   const rowH = phone ? ROW_H_PHONE : ROW_H_DESKTOP;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -407,7 +456,12 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = 
     const item = model.items[k]!;
     const kind = itemKindOf(item);
     const idx = itemIdxOf(item);
-    const oid = kind === MSG_ITEM.TAIL ? idx : session.orderOfRec[idx]!;
+    const oid =
+      kind === MSG_ITEM.TAIL
+        ? idx
+        : kind === MSG_ITEM.ORDER || kind === MSG_ITEM.NOFILL
+          ? -1
+          : session.orderOfRec[idx]!;
     const chip = own !== null && kind === MSG_ITEM.ROW ? ownChipOf(own, idx) : null;
     rows.push(
       <MsgRow
@@ -424,6 +478,7 @@ export function TickMsgList({ session, cursorRec, onSelect, mode, onMode, own = 
         ownOur={chip?.our}
         ownTotal={chip?.total}
         ownEst={chip?.est}
+        own={own}
       />,
     );
   }

@@ -1,18 +1,40 @@
 /**
- * 틱 뷰어 「우리 체결」 모델 (Phase 38 D-02 · D-04 · D-15) — 세션 A3 열과 `GET /api/ticks/own` 응답을 shared
- * `matchOwnFills` 로 짝지어 전문 목록 · 차트 · 카드가 같이 읽는 모델을 만든다.
+ * 틱 뷰어 「우리 체결」 모델 (Phase 38 D-02 · D-04 · D-05 · D-12 · D-13 · D-15) — 세션 A3 열과 `GET /api/ticks/own` 응답을
+ * shared `matchOwnFills` 로 짝지어 전문 목록 · 차트 · 카드가 같이 읽는 모델을 만든다.
  *
  * ① 세션과 따로 만든다 — 세션(격자 · 증분)과 저널 도착은 주기가 다르므로 `TickSession` 안에 넣지 않고 뷰어가
  *   `useMemo([session, own])` 로 묶는다(RESEARCH Anti-Pattern).
  * ② 체결 순서 = (gw_time_ms, gateway, seq) — RPC 정렬과 같은 키로 한 번 더 정렬한다(방어 · 남은 수량 차감이 순서 의존 —
  *   Pitfall 2). 정렬은 안정이라 같은 키는 입력 순서를 지킨다.
  * ③ 표시: A3 rec 하나에 붙은 우리 체결 합 `our` 와 그 A3 수량 `total`(부분 체결이면 「n/m」) · 하나라도 추정이면 est.
- *   계좌 · 주문번호는 모델에 있지만 행에 그리지 않는다(D-02).
+ *   계좌 · 주문번호는 모델에 있지만 전문 행에 그리지 않는다(D-02 — 주문 줄 「···끝4」 · 카드 · 툴팁에서만).
+ * ④ 주문(38-04): 묶기 키 `${gateway}|${order_no}` — 주문 집합 = 이벤트(kind 3 · 6) ∪ 체결의 주문번호. 주문 시각 · 값은
+ *   그 주문의 가장 이른 이벤트 → 없으면 보조 주문 행(`orders[]` · created_ms) → 둘 다 없으면 체결만(주문 줄 없음 · gwMs null).
+ * ⑤ 슬롯(38-04): 주문 · 짝 없는 체결의 자리 = 수신순 `lowerBoundRecv`(그 시각 이후 첫 전문) — 거래소순은 수신순 자리를
+ *   보드별로 다시 채운 순열이라 슬롯 p 하나가 두 순열 공통이다(`exchangeOrderOf`). 전문 목록은 ROW(order[p]) **앞**에 줄을 넣는다.
+ * ⑥ 대기(38-04 · Pitfall 4): 당일(`live`)에는 저널이 틱보다 먼저 올 수 있다 — 짝을 못 찾은 체결이라도 gw + 1,200ms
+ *   (짝 창 +200ms + 여유 1,000ms)가 세션 마지막 수신보다 뒤면 「짝 전문 없음」 이 아니라 'pending'. 과거 격자는 늘 확정.
  */
 
-import { matchOwnFills, type TickOwnResponse } from '@gh-radar/shared';
+import {
+  conditionTextOf,
+  lowerBoundRecv,
+  matchOwnFills,
+  orderGroupLabel,
+  orderGroupOriginText,
+  strategyEventSide,
+  type TickOwnEvent,
+  type TickOwnResponse,
+} from '@gh-radar/shared';
 
+import { fmtQty } from './tick-format';
 import type { TickSession } from './tick-session';
+
+/** 짝 창 +200ms + 여유 1,000ms — 이 안의 짝 없는 체결은 당일이면 대기(RESEARCH Pattern 6). */
+export const OWN_PENDING_GRACE_MS = 1200;
+
+/** 체결 상태 — 짝 A3 있음 · 짝 전문 없음(확정) · 전문 아직 안 옴(당일 대기). */
+export type OwnFillState = 'matched' | 'nofill' | 'pending';
 
 /** 우리 체결 한 건 — 짝 결과 포함(`a3j` −1 = 짝 전문 없음). */
 export interface OwnFillView {
@@ -35,7 +57,36 @@ export interface OwnFillView {
   dtMs: number;
   /** 짝 A3 수량(「n/m」 의 m) · 못 찾으면 0. */
   total: number;
+  /** 이 체결의 주문 id(`OwnModel.orders` 색인). */
+  order: number;
+  state: OwnFillState;
 }
+
+/** 우리 주문 한 건 — 주문 줄(●) · 레일 구간의 단위. */
+export interface OwnOrderView {
+  /** 모델 안 순번(주문 시각 순). */
+  id: number;
+  /** 묶기 키 `${gateway}|${order_no}`. */
+  key: string;
+  gateway: string;
+  accountNo: string;
+  orderNo: string;
+  side: 'buy' | 'sell' | null;
+  px: number | null;
+  qty: number | null;
+  /** 주문 시각(이벤트 gw_time_ms · 없으면 보조 주문 created_ms) · 체결만 있는 주문은 null(주문 줄 없음). */
+  gwMs: number | null;
+  source: 'event' | 'order' | 'fill';
+  /** 그 주문의 가장 이른 kind 3 · 6 이벤트 · 없으면 null. */
+  event: TickOwnEvent | null;
+  /** 보조 주문 행 출처(`manual` · `limit_chaser` · `vi`) · 없으면 null. */
+  origin: string | null;
+  /** 이 주문의 체결 id(오름차순). */
+  fills: number[];
+}
+
+/** 전문 목록 · 카드가 고른 우리 줄 — 주문 줄(order id) 또는 짝 없는 체결 줄(fill id). */
+export type OwnSel = { kind: 'order' | 'fill'; id: number };
 
 export interface OwnModel {
   /** 켜진 서버 키(sort_order 순 — 응답 그대로). */
@@ -43,10 +94,29 @@ export interface OwnModel {
   fills: OwnFillView[];
   /** A3 rec → 그 rec 에 붙은 우리 체결 id 들(오름차순). */
   fillsOfRec: Map<number, number[]>;
+  /** 주문(주문 시각 순 · 시각 없는 주문은 첫 체결 시각으로 끼운다). */
+  orders: OwnOrderView[];
+  /** 주문 id → 수신순 슬롯 p(그 시각 이후 첫 전문 자리 · 0..n) · 주문 시각이 없으면 −1. */
+  slotOfOrder: Int32Array;
+  /** 체결 id → 수신순 슬롯 p — 짝 없음 · 대기만 · 짝 있으면 −1. */
+  slotOfFill: Int32Array;
 }
 
-export function buildOwnModel(session: TickSession, own: TickOwnResponse): OwnModel {
-  const { index, a3 } = session;
+const sideOfCode = (s: string | null): 'buy' | 'sell' | null => (s === 'B' ? 'buy' : s === 'S' ? 'sell' : null);
+
+interface OrderAcc {
+  key: string;
+  gateway: string;
+  accountNo: string;
+  orderNo: string;
+  event: TickOwnEvent | null;
+  aux: TickOwnResponse['orders'][number] | null;
+  fills: number[];
+}
+
+export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?: { live?: boolean }): OwnModel {
+  const { index, a3, recvOrder } = session;
+  const live = opts?.live === true;
   const sorted = own.fills
     .slice()
     .sort((x, y) =>
@@ -64,12 +134,112 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse): OwnMo
     sorted.map((f) => ({ gwMs: f.gw_time_ms, px: f.exec_price, qty: f.exec_qty })),
   );
 
+  // ── 주문 묶기 — 이벤트(가장 이른 것) ∪ 체결의 주문번호 · 보조 주문 행은 시각 보조로만
+  const acc = new Map<string, OrderAcc>();
+  const accOf = (gateway: string, orderNo: string, accountNo: string): OrderAcc => {
+    const key = `${gateway}|${orderNo}`;
+    let a = acc.get(key);
+    if (!a) {
+      a = { key, gateway, accountNo, orderNo, event: null, aux: null, fills: [] };
+      acc.set(key, a);
+    }
+    return a;
+  };
+  for (const e of own.events) {
+    const a = accOf(e.gateway, e.order_no, e.account_no);
+    if (
+      a.event === null ||
+      e.gw_time_ms < a.event.gw_time_ms ||
+      (e.gw_time_ms === a.event.gw_time_ms && e.seq < a.event.seq)
+    ) {
+      a.event = e;
+    }
+  }
+  for (let i = 0; i < sorted.length; i++) {
+    const f = sorted[i]!;
+    accOf(f.gateway, f.order_no, f.account_no).fills.push(i);
+  }
+  for (const o of own.orders) {
+    const a = acc.get(`${o.gateway}|${o.order_no}`);
+    if (a && a.aux === null) a.aux = o;
+  }
+
+  const draft = Array.from(acc.values(), (a) => {
+    const e = a.event;
+    const o = a.aux;
+    const first = a.fills.length > 0 ? sorted[a.fills[0]!]! : null;
+    let view: Omit<OwnOrderView, 'id' | 'fills'>;
+    if (e) {
+      view = {
+        key: a.key,
+        gateway: a.gateway,
+        accountNo: a.accountNo,
+        orderNo: a.orderNo,
+        side: strategyEventSide(e.group, e.kind),
+        px: e.price,
+        qty: e.qty,
+        gwMs: e.gw_time_ms,
+        source: 'event',
+        event: e,
+        origin: o?.origin ?? null,
+      };
+    } else if (o) {
+      view = {
+        key: a.key,
+        gateway: a.gateway,
+        accountNo: a.accountNo,
+        orderNo: a.orderNo,
+        side: sideOfCode(o.side),
+        px: o.price,
+        qty: o.qty,
+        gwMs: o.created_ms,
+        source: 'order',
+        event: null,
+        origin: o.origin,
+      };
+    } else {
+      view = {
+        key: a.key,
+        gateway: a.gateway,
+        accountNo: a.accountNo,
+        orderNo: a.orderNo,
+        side: first ? sideOfCode(first.side) : null,
+        px: null,
+        qty: null,
+        gwMs: null,
+        source: 'fill',
+        event: null,
+        origin: null,
+      };
+    }
+    // 정렬 시각 — 주문 시각 · 없으면 첫 체결 시각
+    const sortMs = view.gwMs ?? (first ? first.gw_time_ms : Number.MAX_SAFE_INTEGER);
+    return { view, fills: a.fills, sortMs };
+  });
+  draft.sort((x, y) => x.sortMs - y.sortMs || (x.view.key < y.view.key ? -1 : x.view.key > y.view.key ? 1 : 0));
+
+  const orders: OwnOrderView[] = new Array(draft.length);
+  const orderOfFill = new Int32Array(sorted.length).fill(-1);
+  for (let id = 0; id < draft.length; id++) {
+    const d = draft[id]!;
+    orders[id] = { ...d.view, id, fills: d.fills };
+    for (const fi of d.fills) orderOfFill[fi] = id;
+  }
+
+  // 세션 마지막 수신 ms(대기 판정) — 레코드가 없으면 모두 대기
+  const n = recvOrder.length;
+  const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
+  const slotAt = (ms: number): number => lowerBoundRecv(index.recvNs, recvOrder, BigInt(Math.trunc(ms)) * 1_000_000n);
+
   const fills: OwnFillView[] = new Array(sorted.length);
   const fillsOfRec = new Map<number, number[]>();
+  const slotOfFill = new Int32Array(sorted.length).fill(-1);
   for (let i = 0; i < sorted.length; i++) {
     const f = sorted[i]!;
     const m = matches[i]!;
     const rec = m.a3j >= 0 ? a3.rec[m.a3j]! : -1;
+    const state: OwnFillState =
+      m.a3j >= 0 ? 'matched' : live && f.gw_time_ms + OWN_PENDING_GRACE_MS > lastRecvMs ? 'pending' : 'nofill';
     fills[i] = {
       id: i,
       gateway: f.gateway,
@@ -85,14 +255,22 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse): OwnMo
       candidates: m.candidates,
       dtMs: m.dtMs,
       total: m.a3j >= 0 ? a3.qty[m.a3j]! : 0,
+      order: orderOfFill[i]!,
+      state,
     };
     if (rec >= 0) {
       const ids = fillsOfRec.get(rec);
       if (ids) ids.push(i);
       else fillsOfRec.set(rec, [i]);
+    } else {
+      slotOfFill[i] = slotAt(f.gw_time_ms);
     }
   }
-  return { servers: own.servers, fills, fillsOfRec };
+
+  const slotOfOrder = new Int32Array(orders.length).fill(-1);
+  for (const o of orders) if (o.gwMs !== null) slotOfOrder[o.id] = slotAt(o.gwMs);
+
+  return { servers: own.servers, fills, fillsOfRec, orders, slotOfOrder, slotOfFill };
 }
 
 /** 전문 목록 칩 — 그 A3 rec 에 붙은 우리 체결 합 · 그 A3 수량 · 하나라도 추정이면 est. 없으면 null. */
@@ -107,4 +285,50 @@ export function ownChipOf(model: OwnModel, rec: number): { our: number; total: n
     if (f.est) est = true;
   }
   return { our, total: model.fills[ids[0]!]!.total, est };
+}
+
+/** 출처 그룹 — 이벤트 group · 이벤트가 없으면 보조 주문 출처(manual 7 · vi 8) · 그 밖 0(구분 · 출처 생략). */
+function originGroupOf(o: OwnOrderView): number {
+  if (o.event) return o.event.group;
+  if (o.origin === 'manual') return 7;
+  if (o.origin === 'vi') return 8;
+  return 0;
+}
+
+/**
+ * 주문 줄 문구(D-05) — 「● 주문 {구분} {매수|매도} {가격 ×수량} · {조건 | 조건 없음[ · 출처]} · {게이트웨이} ···{계좌 끝 4} #{주문번호}」.
+ * 구분 · 조건 · 출처 낱말은 shared `strategy-event-labels` · `strategy-event-text` 그대로(문장 새로 짓지 않음 — 25 D-09/D-10).
+ * 값이 없는 조각은 생략한다(가짜 0 금지 — 가격 · 수량 0 이하도 없는 값). 근거 조각 「· 근거 {호가|체결} ↑」 은 38-06 이 붙인다.
+ */
+export function ownOrderLineText(o: OwnOrderView): string {
+  const g = originGroupOf(o);
+  const head: string[] = ['● 주문'];
+  const label = g > 0 ? orderGroupLabel(g) : null;
+  if (label) head.push(label);
+  if (o.side) head.push(o.side === 'buy' ? '매수' : '매도');
+  const px = o.px !== null && o.px > 0 ? fmtQty(o.px) : null;
+  const qty = o.qty !== null && o.qty > 0 ? `×${fmtQty(o.qty)}` : null;
+  if (px !== null || qty !== null) head.push([px, qty].filter((s) => s !== null).join(' '));
+
+  const e = o.event;
+  let cond: string | null = null;
+  if (e && e.cond_metric > 0) {
+    cond = conditionTextOf({
+      condMetric: e.cond_metric,
+      condThreshold: e.cond_threshold,
+      condActual: e.cond_actual,
+      reasonCode: e.reason_code,
+      group: e.group,
+      kind: e.kind,
+      price: e.price,
+    });
+  }
+  if (cond === null) {
+    const src = g > 0 ? orderGroupOriginText(g) : null;
+    cond = src ? `조건 없음 · ${src}` : '조건 없음';
+  }
+
+  const last4 = o.accountNo.length > 0 ? ` ···${o.accountNo.slice(-4)}` : '';
+  const no = o.orderNo !== '' ? ` #${o.orderNo}` : '';
+  return `${head.join(' ')} · ${cond} · ${o.gateway}${last4}${no}`;
 }

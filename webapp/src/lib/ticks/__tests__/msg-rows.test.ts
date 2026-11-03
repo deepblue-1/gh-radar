@@ -1,11 +1,20 @@
 import { describe, it, expect } from 'vitest';
 
-import { TAG_CODE, classifyKrxOrders, scopeTrades } from '@gh-radar/shared';
+import {
+  TAG_CODE,
+  classifyKrxOrders,
+  scopeTrades,
+  type TickOwnEvent,
+  type TickOwnFill,
+  type TickOwnResponse,
+} from '@gh-radar/shared';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { TICK_FIXTURE_DATE, TICK_FIXTURE_ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
-import { a3Msg, b6Msg, inversionSession, synthSession } from '@/test-fixtures/tick-synth';
+import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
+
+import { buildOwnModel } from '../own-model';
 
 import {
   MSG_ITEM,
@@ -18,8 +27,10 @@ import {
   inversionText,
   itemIdxOf,
   itemKindOf,
+  msgItem,
   orderShapeLabel,
   slotText,
+  ownLineRec,
   tailInversionText,
   tailText,
 } from '../msg-rows';
@@ -235,5 +246,126 @@ describe('세션 주문 판정 — 컷 13시 KRX = 37-03 오라클(주문 · 종
     const tail = m.tailPosOfOrder[o.id]!;
     expect(itemIdxOf(m.items[tail - 1]!)).toBe(o.closingB6Rec);
     expect(s.index.tag[o.closingB6Rec!]).toBe(TAG_CODE.B6);
+  });
+});
+
+/**
+ * Phase 38 Plan 04 Task 1 — 우리 줄 ORDER · NOFILL(D-05 · D-12 · Pitfall 3).
+ * 뒤집힘 세션(수신 0 B6 100 · 1 B6 104 닫는 · 1.05/1.1/10 A3 101~103 팀 SMP 3조각 · 11 A3 105 …).
+ */
+describe('buildMsgRows — 우리 주문 줄 · 짝 없음 줄(Phase 38)', () => {
+  const s = inversionSession();
+  /** 13:00:00.000 + ms → epoch ms(정수). */
+  const at = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+
+  function ev(orderNo: string, gwMs: number): TickOwnEvent {
+    return {
+      gateway: 'KB120',
+      seq: 1,
+      gw_time_ms: gwMs,
+      kind: 3,
+      group: 7,
+      account_no: '1234563801',
+      order_no: orderNo,
+      price: 16400,
+      qty: 100,
+      reason_code: '',
+      cond_metric: 0,
+      cond_threshold: 0,
+      cond_actual: 0,
+      ev_kind: 0,
+      ev_price: 0,
+      ev_qty_before: 0,
+      ev_qty_after: 0,
+      ev_trade_qty: 0,
+      cum_volume: 0,
+    };
+  }
+  function nofill(orderNo: string, gwMs: number, seq: number): TickOwnFill {
+    return { gateway: 'KB120', seq, gw_time_ms: gwMs, account_no: '1234563801', order_no: orderNo, side: 'B', exec_price: 99_999, exec_qty: 7 };
+  }
+  function ownOf(events: TickOwnEvent[], fills: TickOwnFill[] = []): TickOwnResponse {
+    return { access: true, date: SYNTH_DATE, exchange: 'KRX', isin: SYNTH_ISIN, servers: ['KB120'], fills, events, orders: [] };
+  }
+  /** 항목 → R<seq> · T<order> · S<seq> · O<우리 주문 id> · N<우리 체결 id>. */
+  function shape(items: Int32Array): string[] {
+    return Array.from(items, (it) => {
+      const k = itemKindOf(it);
+      const i = itemIdxOf(it);
+      if (k === MSG_ITEM.TAIL) return `T${i}`;
+      if (k === MSG_ITEM.ORDER) return `O${i}`;
+      if (k === MSG_ITEM.NOFILL) return `N${i}`;
+      return `${k === MSG_ITEM.SLOT ? 'S' : 'R'}${s.index.seq[i]}`;
+    });
+  }
+
+  it('항목 종류 상수 — ORDER 3 · NOFILL 4 · 종류 비트가 Int32 양수', () => {
+    expect([MSG_ITEM.ORDER, MSG_ITEM.NOFILL]).toEqual([3, 4]);
+    expect(itemKindOf(msgItem(MSG_ITEM.NOFILL, 12345))).toBe(MSG_ITEM.NOFILL);
+    expect(itemIdxOf(msgItem(MSG_ITEM.NOFILL, 12345))).toBe(12345);
+    expect(msgItem(MSG_ITEM.NOFILL, 0)).toBeGreaterThan(0);
+  });
+
+  it('own 없음 · null · 줄 0인 own = Phase 37 과 같은 항목 · 색인', () => {
+    for (const mode of ['exchange', 'recv'] as const) {
+      const base = buildMsgRows(s, mode);
+      for (const m of [buildMsgRows(s, mode, null), buildMsgRows(s, mode, buildOwnModel(s, ownOf([])))]) {
+        expect(Array.from(m.items)).toEqual(Array.from(base.items));
+        expect(Array.from(m.posOfRec)).toEqual(Array.from(base.posOfRec));
+        expect(Array.from(m.tailPosOfOrder)).toEqual(Array.from(base.tailPosOfOrder));
+        expect([...m.slotPosOfB6]).toEqual([...base.slotPosOfB6]);
+        expect(Array.from(m.inversionPos)).toEqual(Array.from(base.inversionPos));
+      }
+      expect(base.ownPosOfOrder.length).toBe(0);
+      expect(base.ownPosOfFill.length).toBe(0);
+    }
+  });
+
+  it('주문 줄 = 그 시각 이후 첫 전문 앞 — 수신순(B6 104 앞) · 거래소순(같은 슬롯 = A3 101 앞)', () => {
+    const own = buildOwnModel(s, ownOf([ev('O1', at(1))]));
+    expect(own.slotOfOrder[0]).toBe(1);
+    const rv = buildMsgRows(s, 'recv', own);
+    expect(shape(rv.items).slice(0, 3)).toEqual(['R100', 'O0', 'R104']);
+    expect(rv.ownPosOfOrder[0]).toBe(1);
+    const ex = buildMsgRows(s, 'exchange', own);
+    expect(shape(ex.items).slice(0, 3)).toEqual(['R100', 'O0', 'R101']);
+    expect(ex.items.length).toBe(buildMsgRows(s, 'exchange').items.length + 1);
+    // 그 줄의 기준 전문 = 다음 첫 ROW
+    expect(ownLineRec(rv, 1)).toBe(1);
+    expect(ownLineRec(ex, 1)).toBe(2);
+    // posOfRec 은 항목 자리 그대로 따라간다
+    for (let r = 0; r < s.index.n; r++) expect(itemIdxOf(ex.items[ex.posOfRec[r]!]!)).toBe(r);
+  });
+
+  it('Pitfall 3 — 3조각 주문 가운데 시각(2ms → 슬롯 = 조각 사이)은 그 묶음 꼬리 뒤로(두 순열)', () => {
+    const own = buildOwnModel(s, ownOf([ev('O1', at(2))]));
+    const rv = buildMsgRows(s, 'recv', own);
+    expect(shape(rv.items).slice(0, 9)).toEqual(['R100', 'R104', 'R101', 'R102', 'R103', 'S104', 'T0', 'O0', 'R105']);
+    const ex = buildMsgRows(s, 'exchange', own);
+    expect(shape(ex.items).slice(0, 8)).toEqual(['R100', 'R101', 'R102', 'R103', 'R104', 'T0', 'O0', 'R105']);
+    expect(ex.ownPosOfOrder[0]).toBe(ex.tailPosOfOrder[0]! + 1);
+  });
+
+  it('같은 슬롯 둘 — 시각 오름차순 · 동률이면 주문 먼저 · 짝 없음 자리는 ownPosOfFill', () => {
+    // 11ms 슬롯(A3 105 앞 · 앞 행은 꼬리라 밀기 없음)에 주문 둘 · 짝 없는 체결 하나 — 모두 같은 시각
+    const own = buildOwnModel(s, ownOf([ev('B', at(11)), ev('A', at(11))], [nofill('X', at(11), 1)]));
+    // 주문 id 는 시각 · 키 순 — A(0) · B(1) · X(2 · 체결만)
+    expect(own.orders.map((o) => o.orderNo)).toEqual(['A', 'B', 'X']);
+    expect(own.fills[0]!.state).toBe('nofill');
+    const ex = buildMsgRows(s, 'exchange', own);
+    const sh = shape(ex.items);
+    const i = sh.indexOf('R105');
+    expect(sh.slice(i - 3, i + 1)).toEqual(['O0', 'O1', 'N0', 'R105']);
+    expect(ex.ownPosOfFill[0]).toBe(i - 1);
+    expect(ex.ownPosOfOrder[2]).toBe(-1); // 체결만 — 주문 줄 없음
+  });
+
+  it('p = n — 마지막 전문보다 늦은 줄은 목록 끝', () => {
+    const own = buildOwnModel(s, ownOf([ev('Z', at(100))], [nofill('Y', at(99), 2)]));
+    for (const mode of ['exchange', 'recv'] as const) {
+      const m = buildMsgRows(s, mode, own);
+      expect(shape(m.items).slice(-2)).toEqual(['N0', 'O1']);
+      expect(ownLineRec(m, m.items.length - 1)).toBe(itemIdxOf(m.items[m.items.length - 3]!));
+    }
   });
 });

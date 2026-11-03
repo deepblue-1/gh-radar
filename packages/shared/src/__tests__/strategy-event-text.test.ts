@@ -15,7 +15,15 @@ import {
   strategyEventSide,
   strategyKindLabel,
 } from "../strategy-event-labels";
-import { formatKstMs, formatSigned, orderLogLineText, strategyEventParts, timelineStrategyText } from "../strategy-event-text";
+import {
+  conditionTextOf,
+  evidenceTextOf,
+  formatKstMs,
+  formatSigned,
+  orderLogLineText,
+  strategyEventParts,
+  timelineStrategyText,
+} from "../strategy-event-text";
 import {
   FIXTURE_STOCK_NAME,
   STRATEGY_AUTO_SELL_GOLDEN,
@@ -829,5 +837,32 @@ describe("P31 ⑦ 금액 표기 (D-19 · C# 예시 ①~⑨)", () => {
     expect(orderLogLineText(D.buy12451!, FIXTURE_STOCK_NAME)).toBe(
       "[09:45:02.861][12451][선매수] KRX | ○○전자 | 주문 · 조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주) · 근거 호가(매도1잔량 52,100→38,200) · 상한가 매수잔량 0주 · 371만(300주) @12,350 · 접수 +18ms | 누적 861,800",
     );
+  });
+});
+
+/**
+ * Phase 38-04 — 틱 뷰어 주문 줄이 쓰는 조건 · 근거 조각 export. 좁은 입력(필요한 칸만)으로 불러도 주문 본문 골든과 같은 문구.
+ */
+describe("conditionTextOf · evidenceTextOf export (Phase 38-04)", () => {
+  const D = STRATEGY_DAY_BY_NAME;
+  const B = STRATEGY_BRANCH_ROWS;
+
+  it("조건 · 근거 호가 · 근거 체결통보 · 수동 출처 — 기존 골든 조각과 같다(좁은 입력)", () => {
+    const buy = D.buy12451!;
+    const cond = conditionTextOf({
+      condMetric: buy.condMetric,
+      condThreshold: buy.condThreshold,
+      condActual: buy.condActual,
+      reasonCode: buy.reasonCode,
+      group: buy.group,
+      kind: buy.kind,
+      price: buy.price,
+    });
+    expect(cond).toBe("조건 매도잔량≤6.2억(50,000주) / 실측 4.7억(38,200주)");
+    expect(evidenceTextOf(buy)).toBe("근거 호가(매도1잔량 52,100→38,200)");
+    expect(strategyEventParts(buy, "log").body.startsWith(`${cond} · ${evidenceTextOf(buy)} · `)).toBe(true);
+    expect(evidenceTextOf(B.sellFillHook!)).toBe("근거 체결통보(12,300 50주)");
+    expect(conditionTextOf(MANUAL_BUY)).toBe("수동 주문");
+    expect(evidenceTextOf(MANUAL_BUY)).toBeNull();
   });
 });

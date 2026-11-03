@@ -7,6 +7,11 @@
  *            자리 = 묶음 끝(마지막 조각 · 닫는 B6 중 표시 순서상 뒤) 바로 다음.
  *   - SLOT — **수신순에서만** 먼저 온 닫는 B6 의 msg_seq 제자리(런 마지막 조각 바로 뒤) 점선 「⋯ 거래소순 자리」 줄
  *            (idx = 그 B6 rec · 클릭 = 그 B6 선택). 같은 자리에 꼬리가 있으면 점선 줄이 먼저다.
+ *   - ORDER  — 우리 주문 시각 점선 「● 주문 …」 줄(Phase 38 D-05 · idx = 우리 주문 id).
+ *   - NOFILL — 짝 A3 를 못 찾은 우리 체결 점선 「◆ 우리 체결 n주 · 짝 전문 없음」 줄(D-12 · idx = 우리 체결 id).
+ *            두 줄 자리 = 수신순 슬롯 p(그 시각 이후 첫 전문 · 두 순열 공통)의 ROW **앞** · 같은 슬롯은 시각 오름차순 · 동률은
+ *            주문 먼저. 그 자리가 2조각 이상 주문의 조각 사이면 그 묶음 꼬리 뒤로 민다(Pitfall 3 — 레일 · 꼬리가 끊기지 않게).
+ *            own 이 없으면 항목 · 색인이 Phase 37 과 바이트 단위로 같다.
  * ② 순서 = 모드의 순열(거래소순 기본 · 수신순 토글). 묶음은 세션이 판정 입력 순서로 이미 정했다 — 여기서는 다시 묶지 않는다.
  * ③ 행 서식은 스케치 020 Decision — A3 `16,400 +1,064 (1,745만) 매수 · 0/0` · B6 `매도1 16,400 ×283 (464만) 매수1 …`
  *   (금액 = 스케치 010 C 축약 · B6 총잔량은 행에서 뺀다 — 호가 바닥 줄이 보여 준다).
@@ -27,11 +32,12 @@ import {
   type FieldValue,
 } from '@gh-radar/shared';
 
+import type { OwnModel } from './own-model';
 import { fmtAmountC, fmtQty, MINUS } from './tick-format';
 import type { TickSession, ViewOrder } from './tick-session';
 import type { TickOrderMode } from './use-tick-cursor';
 
-export const MSG_ITEM = { ROW: 0, TAIL: 1, SLOT: 2 } as const;
+export const MSG_ITEM = { ROW: 0, TAIL: 1, SLOT: 2, ORDER: 3, NOFILL: 4 } as const;
 export type MsgItemKind = (typeof MSG_ITEM)[keyof typeof MSG_ITEM];
 
 const KIND_SHIFT = 28;
@@ -60,6 +66,33 @@ export interface MsgRowsModel {
   inversionPos: Int32Array;
   /** 항목 자리 pos 뒤 첫 역전 B6 행 자리 · 없으면 -1. */
   nextInversionFrom: (pos: number) => number;
+  /** 우리 주문 id → 주문 줄 항목 자리(주문 시각 없음 · own 없음이면 -1 · own 없으면 길이 0). */
+  ownPosOfOrder: Int32Array;
+  /** 우리 체결 id → 짝 없음 · 대기 줄 항목 자리(짝 있으면 -1 · own 없으면 길이 0). */
+  ownPosOfFill: Int32Array;
+}
+
+const EMPTY_I32 = new Int32Array(0);
+
+/** 우리 줄(주문 · 짝 없는 체결) 자리 — 슬롯 p 별로 (시각, 주문 먼저, id) 순. */
+function ownLinesBySlot(own: OwnModel): Map<number, number[]> {
+  const lines: { p: number; ms: number; rank: number; item: number }[] = [];
+  for (const o of own.orders) {
+    const p = own.slotOfOrder[o.id]!;
+    if (p >= 0 && o.gwMs !== null) lines.push({ p, ms: o.gwMs, rank: 0, item: msgItem(MSG_ITEM.ORDER, o.id) });
+  }
+  for (const f of own.fills) {
+    const p = own.slotOfFill[f.id]!;
+    if (p >= 0) lines.push({ p, ms: f.gwMs, rank: 1, item: msgItem(MSG_ITEM.NOFILL, f.id) });
+  }
+  lines.sort((x, y) => x.p - y.p || x.ms - y.ms || x.rank - y.rank || x.item - y.item);
+  const out = new Map<number, number[]>();
+  for (const l of lines) {
+    const list = out.get(l.p);
+    if (list) list.push(l.item);
+    else out.set(l.p, [l.item]);
+  }
+  return out;
 }
 
 /** 묶음 끝 rec — 조각 · 닫는 B6 중 표시 자리가 가장 뒤인 것. */
@@ -76,7 +109,7 @@ function groupEndRec(o: ViewOrder, posOf: Int32Array): number {
   return rec;
 }
 
-export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRowsModel {
+export function buildMsgRows(session: TickSession, mode: TickOrderMode, own?: OwnModel | null): MsgRowsModel {
   const n = session.index.n;
   const order = mode === 'exchange' ? session.exOrder : session.recvOrder;
   const posOf = mode === 'exchange' ? session.exPos : session.recvPos;
@@ -107,13 +140,39 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRows
     }
   }
 
-  const items = new Int32Array(n + tails + slots);
+  // 우리 줄 — 슬롯 p 의 ROW 앞(Phase 38). 묶음 한가운데면 그 주문 꼬리 뒤로 민다(Pitfall 3).
+  const ownAt = own ? ownLinesBySlot(own) : null;
+  let ownLines = 0;
+  if (ownAt) for (const list of ownAt.values()) ownLines += list.length;
+  const ownPosOfOrder = own ? new Int32Array(own.orders.length).fill(-1) : EMPTY_I32;
+  const ownPosOfFill = own ? new Int32Array(own.fills.length).fill(-1) : EMPTY_I32;
+  const ownAfterTail = new Map<number, number[]>();
+
+  const items = new Int32Array(n + tails + slots + ownLines);
   const posOfRec = new Int32Array(n);
   const tailPosOfOrder = new Int32Array(session.orders.length).fill(-1);
   const slotPosOfB6 = new Map<number, number>();
   let k = 0;
+  const putOwn = (list: readonly number[]): void => {
+    for (const it of list) {
+      if (itemKindOf(it) === MSG_ITEM.ORDER) ownPosOfOrder[itemIdxOf(it)] = k;
+      else ownPosOfFill[itemIdxOf(it)] = k;
+      items[k++] = it;
+    }
+  };
   for (let p = 0; p < n; p++) {
     const r = order[p]!;
+    const ol = ownAt?.get(p);
+    if (ol) {
+      const oa = p > 0 ? session.orderOfRec[order[p - 1]!]! : -1;
+      if (oa >= 0 && oa === session.orderOfRec[r]! && session.orders[oa]!.pieces >= 2) {
+        const list = ownAfterTail.get(oa);
+        if (list) list.push(...ol);
+        else ownAfterTail.set(oa, ol.slice());
+      } else {
+        putOwn(ol);
+      }
+    }
     posOfRec[r] = k;
     items[k++] = msgItem(MSG_ITEM.ROW, r);
     const sl = slotAfter.get(r);
@@ -127,8 +186,18 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRows
     if (t >= 0) {
       tailPosOfOrder[t] = k;
       items[k++] = msgItem(MSG_ITEM.TAIL, t);
+      const pushed = ownAfterTail.get(t);
+      if (pushed) {
+        putOwn(pushed);
+        ownAfterTail.delete(t);
+      }
     }
   }
+  // 끝(p = n) — 마지막 전문보다 늦은 우리 줄
+  const atEnd = ownAt?.get(n);
+  if (atEnd) putOwn(atEnd);
+  // 방어 — 꼬리를 못 만난 민 줄(없어야 한다)은 끝에 둔다. 항목 수가 어긋나면 창 가상화가 깨진다.
+  for (const list of ownAfterTail.values()) putOwn(list);
 
   const inv: number[] = [];
   for (const b6 of session.inversionOfB6.keys()) inv.push(posOfRec[b6]!);
@@ -151,7 +220,21 @@ export function buildMsgRows(session: TickSession, mode: TickOrderMode): MsgRows
       }
       return lo < inversionPos.length ? inversionPos[lo]! : -1;
     },
+    ownPosOfOrder,
+    ownPosOfFill,
   };
+}
+
+/** 우리 줄(주문 · 짝 없음) 자리 pos 의 기준 전문 — 그 줄 다음 첫 ROW 의 rec · 없으면 앞 ROW · 둘 다 없으면 -1. */
+export function ownLineRec(rows: MsgRowsModel, pos: number): number {
+  const { items } = rows;
+  for (let k = pos + 1; k < items.length; k++) {
+    if (itemKindOf(items[k]!) === MSG_ITEM.ROW) return itemIdxOf(items[k]!);
+  }
+  for (let k = pos - 1; k >= 0; k--) {
+    if (itemKindOf(items[k]!) === MSG_ITEM.ROW) return itemIdxOf(items[k]!);
+  }
+  return -1;
 }
 
 // ── 서식 ─────────────────────────────────────────────────────────────
