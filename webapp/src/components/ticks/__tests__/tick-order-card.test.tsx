@@ -287,6 +287,15 @@ describe('TickOrderCard — 우리 주문(Phase 38)', () => {
     ]);
   });
 
+  it('⑤-2 음수 시각차 — gw 가 A3 보다 앞서면 「−37ms」(「+-37ms」 아님 · WR-01)', () => {
+    const neg = buildOwnModel(es, ownOf([], [fl('NG', eA3(3) - 37, 16450, 50, 1)]));
+    expect(neg.fills.map((f) => [f.rec, Math.round(f.dtMs)])).toEqual([[4, -37]]);
+    const { container } = render(<TickOrderCard session={es} cursorRec={4} onJump={() => {}} own={neg} />);
+    const sec = q(container, 'tick-own-section')!;
+    expect(line(sec, 'fills')!.textContent).toBe('체결13:00:00.300 50 −37ms');
+    expect(sec.textContent).not.toContain('+-');
+  });
+
   it('⑥ 우리 줄 선택(ownSel) — 수동 「없음 · 수동 주문 — 주문 시각 위치만」 · 짝 없음 · 대기 「전문 아직 안 옴」', () => {
     const { container } = renderCard(5, { ownSel: { kind: 'order', id: 3 } });
     const sec = q(container, 'tick-own-section')!;

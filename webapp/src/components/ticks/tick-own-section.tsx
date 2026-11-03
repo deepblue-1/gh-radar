@@ -46,6 +46,12 @@ function orderHms(own: OwnModel, o: OwnOrderView): string {
   return ms === null ? '—' : formatKstMs(ms).slice(0, 8);
 }
 
+/** 시각차 「+5ms」 · 「−37ms」 — dt = gw − A3 시각 · 짝 창 [−200, +1500]ms 라 음수가 정상 값이다(부호를 늘 붙인다). */
+function dtText(dtMs: number): string {
+  const dt = Math.round(dtMs);
+  return `${dt >= 0 ? '+' : '−'}${Math.abs(dt)}ms`;
+}
+
 /** 「가격 ×수량」 — 0 이하 · 없음은 생략(가짜 0 금지). 둘 다 없으면 null. */
 function pxQtyText(o: OwnOrderView): string | null {
   const parts = [
@@ -224,7 +230,7 @@ export function TickOwnSection({ session, own, orderId, cursorRec = -1, onJump, 
                     {f.qty !== f.total ? (
                       <span className="text-[var(--muted-fg)]">{` / 전체 ${fmtQty(f.total)}`}</span>
                     ) : null}
-                    <span className="text-[var(--muted-fg)]">{` +${Math.round(f.dtMs)}ms`}</span>
+                    <span className="text-[var(--muted-fg)]">{` ${dtText(f.dtMs)}`}</span>
                     {f.est ? (
                       <span
                         data-slot="tick-own-est"
