@@ -91,6 +91,7 @@ const liveHeaders = (over: Record<string, string> = {}) => ({
   "X-Tick-Queue": "0",
   "X-Tick-Complete": "true",
   "X-Tick-As-Of-Ms": "1762041601500",
+  "X-Tick-More": "true",
   ...over,
 });
 
@@ -102,7 +103,7 @@ const auth = (r: request.Test) => r.set("Authorization", "Bearer tok");
 const LIVE = (q: string) => `/api/ticks/live?${q}`;
 
 describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이언트)", () => {
-  it("offset 0 → 바이트 동일 · X-Tick-* 7종 그대로 · 압축 안 됨 · no-store · 비밀 헤더 · 쿼리 그대로", async () => {
+  it("offset 0 → 바이트 동일 · X-Tick-* 8종 그대로 · 압축 안 됨 · no-store · 비밀 헤더 · 쿼리 그대로", async () => {
     const fake = await startFakeTickgw(() => ({ status: 200, headers: liveHeaders(), body: BYTES }));
     const { client, rpcCalls } = makeSupabase({ user: nextUser() });
     const app = appWith(client, { tickgw: createTickgwClient({ baseUrl: fake.baseUrl, secret: SECRET }) });
@@ -129,6 +130,9 @@ describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이
     // 루프는 shared 이름과 tickgw 리터럴이 달라도 undefined === undefined 로 통과한다 — 이름 · 값을 따로 잠근다
     expect(TICK_LIVE_HEADERS.asOfMs).toBe("X-Tick-As-Of-Ms");
     expect(r.headers["x-tick-as-of-ms"]).toBe("1762041601500");
+    // 37 WR-32 — 8MiB 로 잘린 응답의 「더 있음」 도 그대로 중계
+    expect(TICK_LIVE_HEADERS.more).toBe("X-Tick-More");
+    expect(r.headers["x-tick-more"]).toBe("true");
 
     expect(fake.seen).toHaveLength(1);
     const u = new URL(fake.seen[0].url, "http://x");
@@ -185,6 +189,7 @@ describe("GET /api/ticks/live — 트레이서(가짜 tickgw · 진짜 클라이
     expect(r.status).toBe(200);
     expect(r.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
     expect(r.headers["access-control-expose-headers"]).toMatch(/X-Tick-As-Of-Ms/i);
+    expect(r.headers["access-control-expose-headers"]).toMatch(/X-Tick-More/i);
   });
 
   it("tickgw 409 {epoch} → 409 {epoch}", async () => {

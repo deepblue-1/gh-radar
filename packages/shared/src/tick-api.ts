@@ -188,10 +188,16 @@ export interface TickLiveMeta {
    * 웹은 여유(기록 지연 + 호스트 시계 차)를 빼고 당일 대기 판정 cutoff 로 쓴다(quick-261104-6lh). 409 meta 는 없음.
    */
   asOfMs?: number | null;
+  /**
+   * `X-Tick-More` — tickgw 가 한 응답을 8MiB(청크 경계)에서 잘랐고 캐시에 이 응답 뒤 바이트가 더 있다(37 WR-32).
+   * 웹은 true 인 동안 `offsetEnd` 부터 곧바로 이어 받는다. 옛 tickgw · 옛 server 거나 헤더가 없으면 false(없음).
+   */
+  more?: boolean;
 }
 
 /**
- * `GET /api/ticks/live` 응답 헤더 이름 7종 — server(중계 · CORS exposedHeaders)와 37-19 웹(읽기)이 같은 상수를 쓴다(D-07).
+ * `GET /api/ticks/live` 응답 헤더 이름 8종 — server(중계 · CORS exposedHeaders)와 37-19 웹(읽기)이 같은 상수를 쓴다(D-07).
+ * server 는 이 목록에 있는 헤더만 중계하고 노출하므로, tickgw 가 새 헤더를 내면 여기에 더해야 브라우저까지 간다.
  * tickgw 내부 계약(37-09 `tickgw/src/server.ts`)과 이름이 같다 — server 는 값을 바꾸지 않고 넘긴다.
  */
 export const TICK_LIVE_HEADERS = {
@@ -203,6 +209,8 @@ export const TICK_LIVE_HEADERS = {
   complete: "X-Tick-Complete",
   /** 7번째 — 옛 tickgw 는 내지 않는다(server 는 값이 없으면 중계하지 않는다 · quick-261104-6lh). */
   asOfMs: "X-Tick-As-Of-Ms",
+  /** 8번째 — 한 응답 상한(8MiB)에 잘려 더 있음(37 WR-32 · "true" | "false"). 옛 tickgw 는 내지 않는다. */
+  more: "X-Tick-More",
 } as const;
 
 // ── 우리 주문 · 체결(Phase 38 · D-01 · D-03 · D-14) ─────────────────────────────

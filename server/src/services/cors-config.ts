@@ -38,7 +38,7 @@ export function corsOptions(): CorsOptions {
     },
     credentials: false,
     maxAge: 600,
-    // Phase 37 D-07 (37-15) — /api/ticks/live 의 X-Tick-* 7종(As-Of 는 옛 tickgw 면 없음). 브라우저가 epoch · offset 커서 · 상태를 읽어야
+    // Phase 37 D-07 (37-15) — /api/ticks/live 의 X-Tick-* 8종(As-Of · More 는 옛 tickgw 면 없음). 브라우저가 epoch · offset 커서 · 상태 · 더 있음(WR-32)을 읽어야
     // 37-19 훅이 증분을 잇는다(교차 출처 응답 헤더는 노출 목록에 없으면 JS 에서 안 보인다).
     exposedHeaders: ["X-Last-Updated-At", "X-Request-Id", "Retry-After", ...Object.values(TICK_LIVE_HEADERS)],
   };

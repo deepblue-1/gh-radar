@@ -24,7 +24,7 @@ import type { TickGateCache } from "../services/tick-gate-cache.js";
  * Phase 37 — 틱 전문 뷰어 라우트. 과거 경로(D-03 · D-08 · D-09 · D-15) + 당일 바이트 경로 `/live`(37-15 · D-05 · D-07 · D-08 · D-22).
  *
  * - GET  /live?isin=&ex=&epoch=&offset= : tickgw(37-09) 바이트를 **그대로** 중계(풀지도 다시 압축하지도 않음).
- *                                    200 `application/octet-stream` + X-Tick-* 7종 그대로(`TICK_LIVE_HEADERS` · As-Of 는 옛 tickgw 면 없음) + `Cache-Control: no-store`.
+ *                                    200 `application/octet-stream` + X-Tick-* 8종 그대로(`TICK_LIVE_HEADERS` · As-Of · More 는 옛 tickgw 면 없음) + `Cache-Control: no-store`.
  *                                    게이트는 사용자별 60초 캐시(`app.locals.tickGate` → RPC `tick_access_for_user`) — 미매핑 403 `DMA_UNMAPPED`.
  *                                    tickgw 409(epoch 변경) → 409 `{epoch}` · 닿지 못함 · 비정상 응답 → 502 `TICKS_LIVE_UNREACHABLE` ·
  *                                    `TICKGW_URL` 미설정 → 503 `TICKS_LIVE_UNAVAILABLE`(D-22 — 119 인덱서 배포 확인 뒤 37-17 이 켠다).

@@ -9,7 +9,7 @@
  *   `ApiClientError`(status · code)로 올라온다 — 화면이 게이트 · 상태 카드 문구로 바꾼다.
  * ④ 캐시하지 않는다 — open 은 서명 URL(수명 600초)을 싣고, 변환 상태는 폴링마다 새로 봐야 한다.
  * ⑤ 당일 바이트(37-19) — `fetchTickLive` 는 `GET /api/ticks/live`(37-15)를 **같은 Bearer**(authFetch 와 같은 세션 토큰 ·
- *   `resolveBaseUrl`)로 부르고, 본문(zstd 프레임 바이트)과 `TICK_LIVE_HEADERS` 7종(As-Of 는 옛 tickgw · server 면 없음)을 읽는다. JSON 이 아니라서 apiFetch 를
+ *   `resolveBaseUrl`)로 부르고, 본문(zstd 프레임 바이트)과 `TICK_LIVE_HEADERS` 8종(As-Of · More 는 옛 tickgw · server 면 없음)을 읽는다. JSON 이 아니라서 apiFetch 를
  *   거치지 않는다. 오류를 throw 하지 않고 `status` 로 돌려준다 — 409 `{epoch}`(새 epoch 로 offset 0) · 503 미결선(D-22) ·
  *   502 · 0(네트워크) = 다음 주기 · 401/403 = 게이트. 폴링 규율은 `useTickLive` 가 진다.
  */
@@ -83,7 +83,7 @@ export interface TickLiveResult {
   status: number;
   /** 200 본문(zstd 프레임 바이트 · 비어 있을 수 있다). 그 밖은 빈 배열. */
   bytes: Uint8Array;
-  /** 200 = 헤더 7종 · 409 = 본문 `{epoch}` 만 채운 값(epoch 가 없으면 null) · 그 밖 null. */
+  /** 200 = 헤더 8종 · 409 = 본문 `{epoch}` 만 채운 값(epoch 가 없으면 null) · 그 밖 null. */
   meta: TickLiveMeta | null;
 }
 
@@ -115,6 +115,8 @@ export function tickLiveMetaOf(h: Headers): TickLiveMeta | null {
     queue: Number.isFinite(queue) && queue > 0 ? Math.floor(queue) : 0,
     complete: h.get(TICK_LIVE_HEADERS.complete) === 'true',
     asOfMs: Number.isSafeInteger(asOf) ? asOf : null,
+    // 8MiB 로 잘린 응답 — 캐시에 더 있다(37 WR-32) · 옛 tickgw · server 면 헤더 없음 = false
+    more: h.get(TICK_LIVE_HEADERS.more) === 'true',
   };
 }
 
@@ -163,7 +165,9 @@ export async function fetchTickLive(q: {
         status: 409,
         bytes: EMPTY,
         meta:
-          epoch === null ? null : { epoch, offsetEnd: 0, lastRecvNs: null, state: 'loading', queue: 0, complete: false, asOfMs: null },
+          epoch === null
+            ? null
+            : { epoch, offsetEnd: 0, lastRecvNs: null, state: 'loading', queue: 0, complete: false, asOfMs: null, more: false },
       };
     }
     return { status: res.status, bytes: EMPTY, meta: null };

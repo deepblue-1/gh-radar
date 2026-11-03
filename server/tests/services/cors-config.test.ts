@@ -52,7 +52,7 @@ describe("corsOptions().origin", () => {
 });
 
 describe("corsOptions().exposedHeaders", () => {
-  it("기존 3종 유지 + X-Tick-* 6종(37-15 D-07 — 브라우저가 /api/ticks/live 커서 · 상태를 읽는다)", () => {
+  it("기존 3종 유지 + X-Tick-* 8종(37-15 D-07 — 브라우저가 /api/ticks/live 커서 · 상태 · as-of · 더 있음을 읽는다)", () => {
     const exposed = corsOptions().exposedHeaders as string[];
     for (const h of ["X-Last-Updated-At", "X-Request-Id", "Retry-After"]) {
       expect(exposed).toContain(h);
@@ -64,6 +64,9 @@ describe("corsOptions().exposedHeaders", () => {
       "X-Tick-State",
       "X-Tick-Queue",
       "X-Tick-Complete",
+      "X-Tick-As-Of-Ms",
+      // 37 WR-32 — 8MiB 로 잘린 응답의 「더 있음」. 노출하지 않으면 웹이 이어 받기를 몰라 버튼을 두 번 눌러야 한다
+      "X-Tick-More",
     ]) {
       expect(exposed).toContain(h);
     }

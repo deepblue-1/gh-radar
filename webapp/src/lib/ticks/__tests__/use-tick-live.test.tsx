@@ -23,7 +23,7 @@ import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, TICK_FIXTURE_RECORDS
 import { appendTickBytes, buildTickSession } from '../tick-session';
 import { endRecOf, initialRecOf } from '../use-tick-cursor';
 import { tickLiveMetaOf } from '../tick-api';
-import { TICK_LIVE_LOADING_MS, TICK_LIVE_POLL_MS, useTickLive } from '../use-tick-live';
+import { TICK_LIVE_LOADING_MS, TICK_LIVE_MORE_MAX, TICK_LIVE_POLL_MS, useTickLive } from '../use-tick-live';
 
 const RAW = tickGridBytes();
 
@@ -52,6 +52,8 @@ interface FakeResp {
   offsetEnd?: number;
   lastRecvNs?: string;
   epoch?: string;
+  /** `X-Tick-More`(37 WR-32) — 없으면 헤더 없음(옛 tickgw). */
+  more?: boolean;
 }
 
 function liveResponse(r: FakeResp): Response {
@@ -73,6 +75,7 @@ function liveResponse(r: FakeResp): Response {
       [TICK_LIVE_HEADERS.state]: r.state ?? 'ready',
       [TICK_LIVE_HEADERS.queue]: String(r.queue ?? 0),
       [TICK_LIVE_HEADERS.complete]: 'true',
+      ...(r.more === undefined ? {} : { [TICK_LIVE_HEADERS.more]: r.more ? 'true' : 'false' }),
     },
   });
 }
@@ -197,6 +200,19 @@ describe('useTickLive — 하루치 (D-05 · D-22)', () => {
     expect(result.current.errors).toBe(0);
     expect(result.current.session!.index.n).toBe(6_000);
     warn.mockRestore();
+  });
+
+  it('하루치가 8MiB 에 잘려 More=true → 2초 기다리지 않고 곧바로 이어 받는다(37 WR-32)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ body: Z1, state: 'loading', more: true, offsetEnd: Z1.length }))
+      .mockResolvedValueOnce(liveResponse({ body: Z2, state: 'ready', more: false, offsetEnd: Z1.length + Z2.length }));
+    const { result } = renderHook(() => useTickLive(opts()));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls()[1]).toEqual({ path: '/api/ticks/live', epoch: EPOCH, offset: Z1.length });
+    expect(result.current.status).toBe('ready');
+    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
   });
 
   it('503 미결선 → unavailable · 더 요청하지 않는다', async () => {
@@ -405,6 +421,62 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     warn.mockRestore();
   });
 
+  it('「최신 받기」 응답이 8MiB 에 잘려 More=true → 같은 누름 안에서 offsetEnd 부터 곧바로 이어 받음 · 그동안 받는 중(37 WR-32)', async () => {
+    const { result } = await openReady();
+    const [A, B] = (() => {
+      // Z2 를 레코드 경계 둘로(두 zstd 프레임 — tickgw 청크 = 119 프레임)
+      const raw = RAW;
+      let i = 0;
+      const cuts: number[] = [];
+      for (const r of iterRecords(raw)) {
+        if (i === 6_000 || i === 9_000) cuts.push(r.off - 16);
+        i += 1;
+      }
+      return [
+        new Uint8Array(zstdCompressSync(raw.subarray(cuts[0], cuts[1]))),
+        new Uint8Array(zstdCompressSync(raw.subarray(cuts[1]))),
+      ];
+    })();
+    let release!: (r: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(liveResponse({ body: A, state: 'loading', more: true, offsetEnd: Z1.length + A.length }))
+      .mockImplementationOnce(() => new Promise<Response>((res) => (release = res)));
+    let started = false;
+    await act(async () => {
+      started = result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(started).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: EPOCH, offset: Z1.length + A.length });
+    expect(result.current.refreshing).toBe(true); // 이어 받는 동안 버튼은 받는 중
+    expect(result.current.session!.index.n).toBe(9_000);
+    await act(async () => {
+      release(liveResponse({ body: B, more: false, offsetEnd: Z1.length + A.length + B.length }));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
+    expect(fetchMock).toHaveBeenCalledTimes(3); // More=false 면 멈춘다 · 자동 요청 0
+  });
+
+  it('More=true 가 끝없이 와도 한 누름의 이어 받기는 TICK_LIVE_MORE_MAX 번에서 멈춘다(37 WR-32)', async () => {
+    const { result } = await openReady();
+    fetchMock.mockImplementation(async () => liveResponse({ more: true, state: 'loading', offsetEnd: Z1.length }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1 + 1 + TICK_LIVE_MORE_MAX);
+    expect(result.current.refreshing).toBe(false);
+    // 다음 누름은 다시 상한까지
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2 * (1 + TICK_LIVE_MORE_MAX) + 1);
+  });
+
   it('stop → 더 요청하지 않는다(카드 취소)', async () => {
     fetchMock.mockResolvedValue(liveResponse({ body: Z1, state: 'loading', offsetEnd: Z1.length }));
     const { result } = renderHook(() => useTickLive(opts()));
@@ -435,6 +507,7 @@ describe('tickLiveMetaOf — X-Tick-As-Of-Ms 판독(quick-261104-6lh)', () => {
     state: 'queued',
     queue: 2,
     complete: true,
+    more: false,
   };
 
   it('숫자 문자열 → epoch ms · 다른 6종 판독은 그대로', () => {
@@ -458,5 +531,11 @@ describe('tickLiveMetaOf — X-Tick-As-Of-Ms 판독(quick-261104-6lh)', () => {
       expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.offsetEnd]: v }))).toBeNull();
     }
     expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.offsetEnd]: '0' }))!.offsetEnd).toBe(0);
+  });
+
+  it('X-Tick-More "true" → more true · "false" · 없음(옛 tickgw · server) → false(37 WR-32)', () => {
+    expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.more]: 'true' }))!.more).toBe(true);
+    expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.more]: 'false' }))!.more).toBe(false);
+    expect(tickLiveMetaOf(new Headers(base))!.more).toBe(false);
   });
 });

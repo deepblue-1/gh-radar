@@ -12,6 +12,8 @@
  *   - 커서가 끝이면 뷰어가 새 끝으로 따라가고(useTickCursor ⑤), 과거 틱이면 커서는 그대로 · 붙은 레코드 수 = `newCount`(「새 틱 n건」).
  *   - `goEnd()` = `newCount` 0(요청 없음 — 커서는 뷰어가 옮긴다) · 커서가 끝으로 돌아와도 0.
  *   - 받는 중이면 `refreshing` · 마지막 성공 시각 = `fetchedAt`(ms). 하루치 받는 동안 · 이미 받는 중이면 `refresh()` 는 무시.
+ *   - 응답이 8MiB 상한에 잘려 `X-Tick-More` 가 true 면(37 WR-32) 버튼 한 번 안에서 곧바로 이어 받는다 — 최대
+ *     `TICK_LIVE_MORE_MAX` 번(무한 고리 방지 · 넘으면 멈추고 다음 누름에서 이어 간다). 하루치 받기도 More 면 기다리지 않고 바로.
  * ④ 409 `{epoch}` → 새 epoch 로 offset 0 부터 즉시 다시 받는다. 받는 동안은 이전 세션을 그대로 보이고, 하루치가 다 오면 세션을
  *   바꾸고 `generation` 을 올린다(뷰어 key — 새 세션은 끝 틱에서 연다).
  * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐이다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 센다 — 하루치 받는
@@ -35,6 +37,8 @@ export const TICK_LIVE_POLL_MS = 5_000;
 export const TICK_LIVE_LOADING_MS = 2_000;
 /** 연속 오류가 이 수 이상이면 머리에 「당일 자료를 받지 못하고 있어요」. */
 export const TICK_LIVE_FAILING_AFTER = 3;
+/** 「최신 받기」 한 번에 `X-Tick-More` 로 이어 받는 최대 추가 요청 수(37 WR-32 — 8MiB × 16 = 128MiB · 무한 고리 방지). */
+export const TICK_LIVE_MORE_MAX = 16;
 
 export type TickLiveStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'unauthenticated' | 'unmapped';
 
@@ -110,6 +114,8 @@ interface Ctl {
   newCount: number;
   /** 연속 409 — 비정상 루프면 즉시 대신 `pollMs` 로. */
   conflicts: number;
+  /** 이번 「최신 받기」 에서 `X-Tick-More` 로 이어 받은 횟수(WR-32 · 상한 `TICK_LIVE_MORE_MAX`). */
+  moreChain: number;
   fetchedAt: number | null;
   /** 지금 1회 받는다(버튼 · 가시성 복귀). */
   resume: () => void;
@@ -152,6 +158,7 @@ export function useTickLive({
       errors: 0,
       newCount: 0,
       conflicts: 0,
+      moreChain: 0,
       fetchedAt: null,
       resume: () => {},
     };
@@ -202,12 +209,12 @@ export function useTickLive({
       if (r.status === 200 && r.meta !== null) {
         const m = r.meta;
         const fill = filling();
-        if (fill && (m.state === 'loading' || m.state === 'queued')) {
-          // 하루치 이어 받기 — 바이트는 모으기만 한다(해제는 다 모은 뒤 한 번).
+        if (fill && (m.more === true || m.state === 'loading' || m.state === 'queued')) {
+          // 하루치 이어 받기 — 바이트는 모으기만 한다(해제는 다 모은 뒤 한 번). 8MiB 로 잘렸으면(More) 기다리지 않는다.
           if (r.bytes.length > 0) c.pending.push(r.bytes);
           commit(m);
           publish();
-          return schedule(loadingMs);
+          return schedule(m.more === true ? 0 : loadingMs);
         }
         let next: TickSession;
         try {
@@ -244,6 +251,12 @@ export function useTickLive({
         const before = c.session!.index.n;
         c.session = next;
         if (!atEndRef.current) c.newCount += next.index.n - before;
+        // 8MiB 로 잘린 증분(WR-32) — 같은 누름 안에서 offsetEnd 부터 곧바로 이어 받는다(다음 tick 이 받는 중으로 publish).
+        if (m.more === true && c.moreChain < TICK_LIVE_MORE_MAX) {
+          c.moreChain += 1;
+          return void tick();
+        }
+        c.moreChain = 0;
         return publish();
       }
       if (r.status === 409) {
@@ -292,6 +305,7 @@ export function useTickLive({
     c.resume = () => {
       if (c.stopped || c.running) return;
       clear();
+      c.moreChain = 0;
       void tick();
     };
 
