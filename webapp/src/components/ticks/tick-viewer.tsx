@@ -31,9 +31,9 @@ import { TickTeamPanel } from './tick-team-panel';
  *   본문 폭이 모자라면(사이드바 펼친 1280 등) 오른쪽 열이 아래 줄로 내려가 전체 폭을 쓰고, 그때 카드는 두 열로 놓인다.
  *   줄 높이 = 전문 목록 고정 높이 640(오른쪽 열은 최대 640 · 넘치면 그 안에서 스크롤).
  * ③ 당일(`live` · 37-19 · D-06 · D-18): 슬라이더 「끝으로」(`showEnd`) · `t` 없으면 끝 틱에서 연다 · 커서가 끝이면 증분 세션을
- *   따라간다(`useTickCursor` ⑤) · 끝 여부를 `onAtEnd` 로 올린다(훅이 폴링을 멈추고 잇는다) · 과거 틱이면 전문 목록 끝에
- *   「새 틱 n건 · 끝으로」 배지(n = 멈춘 사이 붙은 레코드 · 0 이면 「새 틱 받기 멈춤」). 배지 · 「끝으로」 = 커서 끝 + `onGoEnd`
- *   (즉시 증분 1회).
+ *   따라간다(`useTickCursor` ⑤) · 끝 여부를 `onAtEnd` 로 올린다 · 증분은 머리 「최신 받기」 버튼으로만(2026-11-03 — 자동 갱신 없음).
+ *   과거 틱을 보는 동안 받은 레코드가 있으면 전문 목록 끝에 「새 틱 n건 · 끝으로」 배지. 배지 · 「끝으로」 = 커서 끝 + `onGoEnd`
+ *   (새 틱 수 0 · 요청 없음).
  */
 
 export interface TickViewerProps {
@@ -55,7 +55,7 @@ export interface TickViewerProps {
 export interface TickViewerLive {
   /** 커서가 끝이 아닐 때 붙은 레코드 수. */
   newCount: number;
-  /** 「끝으로」 · 배지 — 즉시 증분 1회(커서는 뷰어가 끝으로 옮긴다). */
+  /** 「끝으로」 · 배지 — 새 틱 수를 비운다(요청 없음 · 커서는 뷰어가 끝으로 옮긴다). */
   onGoEnd: () => void;
   /** 커서가 끝 틱인지 바뀔 때마다. */
   onAtEnd: (atEnd: boolean) => void;
@@ -164,16 +164,16 @@ export function TickViewer({
     onGoEnd?.();
   }, [cursorGoEnd, onGoEnd]);
 
+  // 과거 틱을 보는 동안 「최신 받기」로 붙은 레코드가 있으면 배지(누르면 끝 틱으로 · 요청 없음)
   const badge =
-    live !== undefined && !atEnd ? (
+    live !== undefined && !atEnd && live.newCount > 0 ? (
       <button
         type="button"
         data-slot="tick-live-badge"
         onClick={goEnd}
-        title="과거 틱을 보는 동안 새 틱 받기를 멈췄어요"
         className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-[var(--up)] px-3 py-1 text-[11.5px] font-semibold whitespace-nowrap text-white shadow-md"
       >
-        {live.newCount > 0 ? `새 틱 ${fmtQty(live.newCount)}건 · 끝으로` : '새 틱 받기 멈춤 · 끝으로'}
+        {`새 틱 ${fmtQty(live.newCount)}건 · 끝으로`}
       </button>
     ) : null;
 

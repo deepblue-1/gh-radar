@@ -91,7 +91,7 @@ describe('TickViewer — 당일(live)', () => {
     expect(onAtEnd).toHaveBeenLastCalledWith(true);
   });
 
-  it('과거 틱 → onAtEnd(false) · 「새 틱 n건」 배지 · 증분이 와도 커서 제자리 · 배지 클릭 = onGoEnd + 끝 틱', async () => {
+  it('과거 틱 → onAtEnd(false) · 새 틱이 없으면 배지 없음 · 증분이 와도 커서 제자리 · 「새 틱 n건」 클릭 = onGoEnd + 끝 틱', async () => {
     const onTick = vi.fn();
     const onAtEnd = vi.fn();
     const onGoEnd = vi.fn();
@@ -102,7 +102,7 @@ describe('TickViewer — 당일(live)', () => {
     });
     await waitFor(() => expect(onAtEnd).toHaveBeenLastCalledWith(false));
     const back = onTick.mock.lastCall![0].time as string;
-    expect(screen.getByRole('button', { name: /새 틱/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /새 틱/ })).toBeNull();
 
     v.rerender(viewer(S2, { newCount: 5_990, onGoEnd, onAtEnd }, onTick));
     const badge = await screen.findByRole('button', { name: /새 틱 5,990건/ });
@@ -158,6 +158,22 @@ describe('TickHeader — 당일 지연 · 연속 오류', () => {
     v.rerender(<TickHeader {...base} live={{ state: 'ready', lastRecvNs: null, failing: true }} />);
     expect(screen.queryByText(/^당일 자료 지연/)).toBeNull();
     expect(screen.getByText('당일 자료를 받지 못하고 있어요')).toBeTruthy();
+  });
+
+  it('「최신 받기」 — 누르면 onRefresh · 받는 중이면 「받는 중」 비활성 · 실패면 「다시 받기」 · 콜백 없으면 버튼 없음', () => {
+    const onRefresh = vi.fn();
+    const live = { state: 'ready' as const, lastRecvNs: null, failing: false };
+    const v = render(<TickHeader {...base} live={live} />);
+    expect(screen.queryByRole('button', { name: '최신 받기' })).toBeNull();
+    v.rerender(<TickHeader {...base} live={{ ...live, onRefresh, fetchedAt: Date.UTC(2026, 9, 16, 4, 50, 0) }} />);
+    const btn = screen.getByRole('button', { name: '최신 받기' });
+    expect(btn.getAttribute('title')).toBe('마지막으로 받은 시각 13:50:00');
+    fireEvent.click(btn);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    v.rerender(<TickHeader {...base} live={{ ...live, onRefresh, refreshing: true }} />);
+    expect((screen.getByRole('button', { name: '받는 중' }) as HTMLButtonElement).disabled).toBe(true);
+    v.rerender(<TickHeader {...base} live={{ ...live, onRefresh, refreshFailed: true }} />);
+    expect(screen.getByRole('button', { name: '다시 받기' })).toBeTruthy();
   });
 });
 
@@ -236,5 +252,13 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
       ),
     );
     expect(document.querySelector('[data-slot="tick-supply"]')?.getAttribute('data-supply')).toBe('live');
+    // 자동 갱신 없음 — 「최신 받기」 를 눌러야 증분 1회(2026-11-03)
+    const calls = api.fetchTickLive.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(api.fetchTickLive.mock.calls.length).toBe(calls);
+    fireEvent.click(screen.getByRole('button', { name: '최신 받기' }));
+    await waitFor(() => expect(api.fetchTickLive.mock.calls.length).toBe(calls + 1));
   });
 });

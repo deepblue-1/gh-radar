@@ -210,87 +210,85 @@ function setVisibility(v: DocumentVisibilityState) {
   document.dispatchEvent(new Event('visibilitychange'));
 }
 
-describe('useTickLive — 폴링 규율 (D-06)', () => {
+describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 갱신 걷음)', () => {
   beforeEach(() => {
     visibility = 'visible';
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
   });
 
-  it('보임 ∧ 끝 → 5초마다 offsetEnd 증분 · 바이트가 오면 세션 갱신', async () => {
+  it('ready 뒤 자동 요청 0 · refresh() = offsetEnd 증분 1회 · 바이트가 오면 세션 갱신 · refreshing · fetchedAt', async () => {
     const { result } = await openReady();
-    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2, offsetEnd: Z1.length + Z2.length }));
+    const first = result.current.fetchedAt;
+    expect(typeof first).toBe('number');
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(4_999);
+      await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(calls()[1]).toEqual({ path: '/api/ticks/live', epoch: EPOCH, offset: Z1.length });
-    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
-    expect(result.current.newCount).toBe(0);
-    // 빈 증분 → 세션 그대로(identity)
-    const s = result.current.session;
-    fetchMock.mockResolvedValueOnce(liveResponse({ offsetEnd: Z1.length + Z2.length }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    expect(calls()[2]!.offset).toBe(Z1.length + Z2.length);
-    expect(result.current.session).toBe(s);
-  });
-
-  it('커서가 과거 틱 → 요청 0 · 그사이 도착한 레코드 = 새 틱 n건 · 끝으로 → 즉시 1회 · 폴링 재개', async () => {
-    const hook = await openReady();
     let release!: (r: Response) => void;
     fetchMock.mockImplementationOnce(() => new Promise<Response>((res) => (release = res)));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000); // 증분 요청이 떠 있는 동안
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(result.current.refreshing).toBe(true);
+    act(() => result.current.refresh()); // 받는 중이면 무시
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    hook.rerender(opts({ atEnd: false })); // 과거 틱으로
     await act(async () => {
       release(liveResponse({ body: Z2, offsetEnd: Z1.length + Z2.length }));
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(hook.result.current.newCount).toBe(TICK_FIXTURE_RECORDS - 6_000);
+    expect(calls()[1]).toEqual({ path: '/api/ticks/live', epoch: EPOCH, offset: Z1.length });
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS);
+    expect(result.current.newCount).toBe(0);
+    expect(result.current.fetchedAt).toBeGreaterThanOrEqual(first!);
+    // 빈 증분 → 세션 그대로(identity) · 그 뒤도 자동 요청 0
+    const s = result.current.session;
+    fetchMock.mockResolvedValueOnce(liveResponse({ offsetEnd: Z1.length + Z2.length }));
     await act(async () => {
+      result.current.refresh();
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2); // 멈춘 동안 요청 0
-    fetchMock.mockResolvedValue(liveResponse({ offsetEnd: Z1.length + Z2.length }));
-    await act(async () => {
-      hook.result.current.goEnd();
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(3); // 즉시 1회
-    expect(hook.result.current.newCount).toBe(0);
-    hook.rerender(opts({ atEnd: true })); // 뷰어가 끝으로 옮겼다
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(4); // 폴링 재개(간격 5초)
+    expect(calls()[2]!.offset).toBe(Z1.length + Z2.length);
+    expect(result.current.session).toBe(s);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('탭 숨김 → 요청 0 · 다시 보이면 즉시 1회', async () => {
-    await openReady();
-    fetchMock.mockResolvedValue(liveResponse({ offsetEnd: Z1.length }));
-    act(() => setVisibility('hidden'));
+  it('과거 틱에서 refresh → 붙은 레코드 = 새 틱 n건 · goEnd = 0(요청 없음) · 끝 복귀도 0', async () => {
+    const hook = await openReady();
+    hook.rerender(opts({ atEnd: false }));
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2, offsetEnd: Z1.length + Z2.length }));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_000);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      setVisibility('visible');
+      hook.result.current.refresh();
       await vi.advanceTimersByTimeAsync(0);
     });
+    expect(hook.result.current.newCount).toBe(TICK_FIXTURE_RECORDS - 6_000);
+    act(() => hook.result.current.goEnd());
+    expect(hook.result.current.newCount).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    fetchMock.mockResolvedValueOnce(liveResponse({ offsetEnd: Z1.length + Z2.length }));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      hook.result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    hook.rerender(opts({ atEnd: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('409 → 새 epoch 로 offset 0 부터 다시 · 세션 교체 · generation +1', async () => {
+  it('탭 숨김 · 다시 보임 → 증분 요청 0', async () => {
+    await openReady();
+    act(() => setVisibility('hidden'));
+    await act(async () => {
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refresh 가 409 → 새 epoch 로 offset 0 부터 하루치를 스스로 이어 받음 · 세션 교체 · generation +1', async () => {
     const { result } = await openReady();
     const before = result.current.session;
     expect(result.current.generation).toBe(0);
@@ -299,10 +297,10 @@ describe('useTickLive — 폴링 규율 (D-06)', () => {
       .mockResolvedValueOnce(liveResponse({ body: Z1, epoch: 'e-2', state: 'loading', offsetEnd: Z1.length }))
       .mockResolvedValueOnce(liveResponse({ body: Z2, epoch: 'e-2', state: 'ready', offsetEnd: Z1.length + Z2.length }));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000); // 409
+      result.current.refresh(); // 409
+      await vi.advanceTimersByTimeAsync(0);
     });
     // 409 본문 Response.json() 은 진짜 이벤트 루프가 돌아야 풀린다 — vi.waitFor(진짜 타이머)로 기다리며 0ms 타이머(즉시 재요청)를 민다.
-    // 간격은 줄지 않았다: 가짜 시계는 0ms 만 움직인다.
     await vi.waitFor(async () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
@@ -321,44 +319,35 @@ describe('useTickLive — 폴링 규율 (D-06)', () => {
     expect(result.current.meta?.epoch).toBe('e-2');
   });
 
-  it('delayed · blocked → meta.state 노출 · 간격은 그대로 5초', async () => {
+  it('delayed → meta.state 노출', async () => {
     const { result } = await openReady();
     fetchMock.mockResolvedValue(
       liveResponse({ state: 'delayed', offsetEnd: Z1.length, lastRecvNs: '1760590000000000000' }),
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
     });
     expect(result.current.meta?.state).toBe('delayed');
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4_999);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('오류(502 · 네트워크 · 500) → 다음 주기까지 기다림 · 연속 3회 errors 3 · 간격 줄이지 않음 · 성공하면 0', async () => {
+  it('오류(502 · 네트워크) → errors 를 세고 자동 재시도 없음 · 다시 눌러 성공하면 0', async () => {
     const { result } = await openReady();
     fetchMock
       .mockResolvedValueOnce(liveResponse({ status: 502, body: '{}' }))
       .mockRejectedValueOnce(new TypeError('network'))
-      .mockResolvedValueOnce(liveResponse({ status: 500, body: '{}' }))
       .mockResolvedValueOnce(liveResponse({ offsetEnd: Z1.length }));
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 2; i++) {
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(4_999);
+        result.current.refresh();
+        await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(fetchMock).toHaveBeenCalledTimes(i);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1);
-      });
+      expect(fetchMock).toHaveBeenCalledTimes(i + 1);
       expect(result.current.errors).toBe(i);
     }
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
     });
     expect(result.current.errors).toBe(0);
     expect(result.current.status).toBe('ready');

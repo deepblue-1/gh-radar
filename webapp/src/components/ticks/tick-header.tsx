@@ -1,11 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, RefreshCw } from 'lucide-react';
 
 import type { TickExchange, TickLiveState } from '@gh-radar/shared';
 
 import { LimitupDateNav } from '@/components/analytics/limitup-date-nav';
+import { kstClock } from '@/lib/limitup-report';
 import { cn } from '@/lib/utils';
 
 /**
@@ -15,7 +16,8 @@ import { cn } from '@/lib/utils';
  * `live` 「당일 · 119 요청형」) → 종목 검색(피커 — 열린 뒤에도 머리에 남는다) → 날짜 알약 ‹ › (이동 단위 = 호출부가 준
  * prev/next — 격자가 있는 날짜 + 장중이면 오늘) · KRX|NXT 세그먼트 → 현재 틱 시각/seq 자리(37-10 이 값을 준다).
  * 당일(37-19 · D-06): 상태 delayed · blocked 면 공급 배지 옆 「당일 자료 지연 · n초 전 마지막 수신」(X-Tick-Last-Recv-Ns 기준) ·
- * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」.
+ * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」. 공급 배지 옆 「↻ 최신 받기」 = 증분 1회(자동 갱신
+ * 없음 · 2026-11-03 사용자 요청) — 받는 중이면 아이콘이 돌고 눌리지 않는다 · 실패면 빨간 글자 · title = 마지막으로 받은 시각.
  */
 
 /** 당일 경로 상태(머리 표시용). */
@@ -25,6 +27,13 @@ export interface TickHeaderLive {
   lastRecvNs: string | null;
   /** 연속 오류가 상한을 넘었다. */
   failing: boolean;
+  /** 「최신 받기」 — 증분 1회(자동 갱신 없음 · 2026-11-03 사용자 요청). 세션 전(하루치 받는 중)이면 없음. */
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  /** 마지막으로 받은 시각(epoch ms). */
+  fetchedAt?: number | null;
+  /** 마지막 받기가 실패했다(연속 오류 수 > 0). */
+  refreshFailed?: boolean;
 }
 
 /** 「당일 자료 지연 · n초 전 마지막 수신」 — 2분 이상이면 분 단위. */
@@ -111,6 +120,30 @@ export function TickHeader({
           </span>
         )}
       </h1>
+
+      {live?.onRefresh !== undefined && (
+        <button
+          type="button"
+          data-slot="tick-live-refresh"
+          onClick={live.onRefresh}
+          disabled={live.refreshing === true}
+          aria-busy={live.refreshing === true}
+          title={
+            live.refreshFailed
+              ? '받지 못했어요 — 다시 눌러 주세요'
+              : live.fetchedAt
+                ? `마지막으로 받은 시각 ${kstClock(live.fetchedAt)}`
+                : undefined
+          }
+          className={cn(
+            '-ml-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--muted)] px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap hover:bg-[var(--raised-2)] disabled:opacity-70',
+            live.refreshFailed ? 'text-[var(--destructive)]' : 'text-[var(--fg-2)]',
+          )}
+        >
+          <RefreshCw className={cn('size-3.5', live.refreshing && 'animate-spin')} aria-hidden="true" />
+          {live.refreshing ? '받는 중' : live.refreshFailed ? '다시 받기' : '최신 받기'}
+        </button>
+      )}
 
       {delayed && (
         <span

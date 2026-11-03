@@ -193,7 +193,7 @@ export function TickStateCard(props: TickStateCardProps) {
           variant="live-loading"
           tone="up"
           title={`${props.subject ? `${props.subject} · ` : ''}오늘 · 08:00~지금 하루치 받는 중`}
-          body={`119 에서 전문을 가져오고 있어요 · 지금 대기 ${props.queued}건 · 받은 뒤에는 5초마다 새 틱만 이어 받아요(끝 틱을 보고 있을 때만).`}
+          body={`119 에서 전문을 가져오고 있어요 · 지금 대기 ${props.queued}건 · 받은 뒤 새 틱은 위 「최신 받기」 로 받아요.`}
           onCancel={props.onCancel}
           progress={props.progress}
         />

@@ -7,15 +7,15 @@
  * ② 하루치(D-05): offset 0 · epoch 없이 시작 → 응답 바이트를 모으며 `X-Tick-State` 가 loading/queued 인 동안 `loadingMs`(2초)
  *   뒤 `X-Tick-Offset-End` 부터 이어 받는다(카드 「하루치 받는 중 · 대기 k건」 = `meta.queue`). 그 밖 상태가 오면 모은 바이트로
  *   `appendTickBytes(null, …)` → 세션(status ready).
- * ③ 증분(D-06): `document.visibilityState === 'visible'` ∧ `atEnd`(커서가 끝 틱 — 뷰어가 알린다)일 때만 `pollMs`(5초)마다
- *   offset = 마지막 offsetEnd. 바이트가 오면 `appendTickBytes` 로 세션을 다시 만든다(열린 주문 재분류 — Pitfall 9).
- *   - 과거 틱을 보면 멈춘다(요청 0). 멈추기 직전에 떠 있던 요청이 가져온 레코드는 `newCount`(「새 틱 n건」).
- *   - `goEnd()` = 즉시 1회(+ `newCount` 0) · 뷰어가 커서를 끝으로 옮기면 `atEnd` 가 true 로 돌아와 폴링이 이어진다.
- *   - 탭이 숨으면 멈추고, 다시 보이면 즉시 1회.
+ * ③ 증분 = **버튼(`refresh()`)을 눌렀을 때만 1회**(2026-11-03 사용자 요청 「자동 업데이트가 불편 — 버튼으로」 · 옛 5초 자동
+ *   폴링을 걷었다). offset = 마지막 offsetEnd. 바이트가 오면 `appendTickBytes` 로 세션을 다시 만든다(열린 주문 재분류 — Pitfall 9).
+ *   - 커서가 끝이면 뷰어가 새 끝으로 따라가고(useTickCursor ⑤), 과거 틱이면 커서는 그대로 · 붙은 레코드 수 = `newCount`(「새 틱 n건」).
+ *   - `goEnd()` = `newCount` 0(요청 없음 — 커서는 뷰어가 옮긴다) · 커서가 끝으로 돌아와도 0.
+ *   - 받는 중이면 `refreshing` · 마지막 성공 시각 = `fetchedAt`(ms). 하루치 받는 동안 · 이미 받는 중이면 `refresh()` 는 무시.
  * ④ 409 `{epoch}` → 새 epoch 로 offset 0 부터 즉시 다시 받는다. 받는 동안은 이전 세션을 그대로 보이고, 하루치가 다 오면 세션을
  *   바꾸고 `generation` 을 올린다(뷰어 key — 새 세션은 끝 틱에서 연다).
- * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐 간격은 그대로다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 세고
- *   다음 주기(`pollMs`)까지 기다린다 — 재시도로 두드리지 않고 간격을 줄이지 않는다. 503 = 미결선(status unavailable) ·
+ * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐이다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 센다 — 하루치 받는
+ *   동안은 `pollMs` 뒤 이어 받고, 증분(버튼)은 다시 누를 때까지 기다린다. 503 = 미결선(status unavailable) ·
  *   401/403 = 게이트(status unauthenticated/unmapped) — 멈춘다.
  * ⑥ `stop()` = 받는 중 카드 「취소」 — 이후 요청 0.
  */
@@ -27,7 +27,7 @@ import { concatBytes, dayStartNs, type TickExchange, type TickLiveMeta } from '@
 import { fetchTickLive, type TickLiveResult } from './tick-api';
 import { appendTickBytes, type TickSession } from './tick-session';
 
-/** 증분 폴링 간격 — 5초(D-06 「5~10초」 안 · RESEARCH Pattern 12). 오류 뒤 간격도 같다. */
+/** 하루치 받는 중 오류 뒤 다시 받기 간격(증분은 버튼으로만 — 머리 주석 ③). */
 export const TICK_LIVE_POLL_MS = 5_000;
 /** 하루치 받는 중(loading · queued) 이어 받기 간격. */
 export const TICK_LIVE_LOADING_MS = 2_000;
@@ -47,6 +47,10 @@ export interface TickLiveView {
   newCount: number;
   /** 연속 오류 수(502 · 500 · 0 등) — 성공하면 0. */
   errors: number;
+  /** 버튼으로 증분을 받는 중. */
+  refreshing: boolean;
+  /** 마지막 200 응답 시각(epoch ms) · 아직 없으면 null. */
+  fetchedAt: number | null;
 }
 
 export interface UseTickLiveOptions {
@@ -73,7 +77,16 @@ export function liveProgressOf(meta: TickLiveMeta | null, date: string, nowMs: n
   return Math.min(1, Math.max(0, (lastMs - startMs) / (nowMs - startMs)));
 }
 
-const IDLE: TickLiveView = { status: 'idle', meta: null, session: null, generation: 0, newCount: 0, errors: 0 };
+const IDLE: TickLiveView = {
+  status: 'idle',
+  meta: null,
+  session: null,
+  generation: 0,
+  newCount: 0,
+  errors: 0,
+  refreshing: false,
+  fetchedAt: null,
+};
 
 interface Ctl {
   stopped: boolean;
@@ -92,8 +105,9 @@ interface Ctl {
   newCount: number;
   /** 연속 409 — 비정상 루프면 즉시 대신 `pollMs` 로. */
   conflicts: number;
-  /** 다음 주기를 다시 잡는다(가시성 · 끝 복귀 · goEnd 가 부른다). */
-  resume: (now: boolean) => void;
+  fetchedAt: number | null;
+  /** 지금 1회 받는다(버튼 · 가시성 복귀). */
+  resume: () => void;
 }
 
 const EMPTY = new Uint8Array(0);
@@ -106,7 +120,7 @@ export function useTickLive({
   atEnd = true,
   pollMs = TICK_LIVE_POLL_MS,
   loadingMs = TICK_LIVE_LOADING_MS,
-}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; stop: () => void } {
+}: UseTickLiveOptions): TickLiveView & { goEnd: () => void; refresh: () => void; stop: () => void } {
   const [view, setView] = useState<TickLiveView>(IDLE);
   const ctlRef = useRef<Ctl | null>(null);
   const atEndRef = useRef(atEnd);
@@ -133,13 +147,12 @@ export function useTickLive({
       errors: 0,
       newCount: 0,
       conflicts: 0,
+      fetchedAt: null,
       resume: () => {},
     };
     ctlRef.current = c;
 
     const filling = () => c.session === null || c.refetching;
-    /** 증분 단계에서 커서가 과거면 멈춘다(하루치 받는 동안은 커서와 무관). */
-    const paused = () => !filling() && !atEndRef.current;
 
     const publish = (status?: TickLiveStatus) =>
       setView({
@@ -149,6 +162,8 @@ export function useTickLive({
         generation: c.generation,
         newCount: c.newCount,
         errors: c.errors,
+        refreshing: c.running && !filling(),
+        fetchedAt: c.fetchedAt,
       });
     publishRef.current = () => publish();
 
@@ -161,8 +176,9 @@ export function useTickLive({
       clear();
       publish(status);
     };
+    /** 하루치(첫 · epoch 교체) 이어 받기만 스스로 잡는다 — 증분은 버튼(머리 주석 ③). */
     const schedule = (ms: number) => {
-      if (c.stopped || c.timer !== null || hidden() || paused()) return;
+      if (c.stopped || c.timer !== null || hidden() || !filling()) return;
       c.timer = setTimeout(() => void tick(), ms);
     };
 
@@ -171,6 +187,7 @@ export function useTickLive({
         const m = r.meta;
         c.errors = 0;
         c.conflicts = 0;
+        c.fetchedAt = Date.now();
         c.meta = m;
         c.epoch = m.epoch;
         c.offset = m.offsetEnd;
@@ -187,16 +204,14 @@ export function useTickLive({
             c.generation += 1;
           }
           c.newCount = 0;
-          publish();
-          return schedule(pollMs);
+          return publish();
         }
         if (r.bytes.length > 0) {
           const before = c.session!.index.n;
           c.session = appendTickBytes(c.session, r.bytes, key);
           if (!atEndRef.current) c.newCount += c.session.index.n - before;
         }
-        publish();
-        return schedule(pollMs);
+        return publish();
       }
       if (r.status === 409) {
         // 새 epoch(캐시 엔트리 교체 · tickgw 재기동) — offset 0 부터 하루치를 다시. 이전 세션은 다 받을 때까지 그대로.
@@ -220,6 +235,7 @@ export function useTickLive({
       c.timer = null;
       if (c.stopped || c.running) return;
       c.running = true;
+      if (!filling()) publish();
       let r: TickLiveResult;
       try {
         r = await fetchTickLive({ isin: isin!, ex, epoch: c.epoch, offset: c.offset });
@@ -232,19 +248,16 @@ export function useTickLive({
       handle(r);
     }
 
-    c.resume = (now: boolean) => {
+    c.resume = () => {
       if (c.stopped || c.running) return;
-      if (now) {
-        clear();
-        void tick();
-      } else {
-        schedule(filling() ? loadingMs : pollMs);
-      }
+      clear();
+      void tick();
     };
 
+    // 탭이 숨으면 하루치 이어 받기를 멈추고, 다시 보이면 이어 받는다(증분은 버튼이라 무관).
     const onVisibility = () => {
       if (hidden()) clear();
-      else if (c.timer === null && !paused()) c.resume(true);
+      else if (c.timer === null && filling()) c.resume();
     };
 
     publish('loading');
@@ -258,29 +271,29 @@ export function useTickLive({
     };
   }, [enabled, isin, ex, date, pollMs, loadingMs]);
 
-  // 커서가 끝으로 돌아오면 새 틱 수를 비우고 다음 주기를 잡는다 · 과거로 가면 잡힌 주기를 걷는다.
+  // 커서가 끝으로 돌아오면 새 틱 수를 비운다.
   useEffect(() => {
     atEndRef.current = atEnd;
     const c = ctlRef.current;
     if (c === null || c.stopped || c.session === null || c.refetching) return;
-    if (atEnd) {
-      if (c.newCount !== 0) {
-        c.newCount = 0;
-        publishRef.current();
-      }
-      c.resume(false);
-    } else if (c.timer !== null) {
-      clearTimeout(c.timer);
-      c.timer = null;
+    if (atEnd && c.newCount !== 0) {
+      c.newCount = 0;
+      publishRef.current();
     }
   }, [atEnd]);
 
   const goEnd = useCallback(() => {
     const c = ctlRef.current;
-    if (c === null || c.stopped) return;
+    if (c === null || c.stopped || c.newCount === 0) return;
     c.newCount = 0;
     publishRef.current();
-    c.resume(true);
+  }, []);
+
+  /** 「최신 받기」 버튼 — 증분 1회(하루치 받는 동안 · 받는 중이면 무시). */
+  const refresh = useCallback(() => {
+    const c = ctlRef.current;
+    if (c === null || c.stopped || c.session === null || c.refetching) return;
+    c.resume();
   }, []);
 
   const stop = useCallback(() => {
@@ -291,5 +304,5 @@ export function useTickLive({
     c.timer = null;
   }, []);
 
-  return { ...view, goEnd, stop };
+  return { ...view, goEnd, refresh, stop };
 }

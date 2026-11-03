@@ -524,7 +524,7 @@ test.describe('틱뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · �
   /** 오늘 열기 = 격자 · 요청 없음(당일 경로 대상). */
   const openNone = (q: { isin: string; d: string; ex: 'KRX' | 'NXT' }) => tickOpenFixture('none', q);
 
-  test('당일 — 받는 중 카드(대기 2건) → 끝 틱 · 증분으로 끝 시각이 늘어남 · 과거 틱이면 요청 멈춤 + 배지 · 끝으로 = 즉시 1회', async ({
+  test('당일 — 받는 중 카드(대기 2건) → 끝 틱 · 자동 갱신 없음 · 「최신 받기」 = 증분 1회 · 과거 틱이면 커서 제자리 + 「새 틱」 배지 · 끝으로', async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -551,29 +551,34 @@ test.describe('틱뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · �
     await expect(page.locator('[data-slot="tick-supply"]')).toHaveAttribute('data-supply', 'live');
     await expect(page.getByRole('button', { name: '끝으로', exact: true })).toBeVisible();
 
-    // ③ 새 틱 공개 → 다음 5초 폴링이 가져가고 커서는 끝을 따라간다(끝 시각이 늘어남 · 13:48)
+    // ③ 새 틱 공개 → 자동으로는 가져가지 않는다(2026-11-03 — 자동 갱신 없음)
     live.publish();
-    await expect.poll(() => curTime(page), { timeout: 15_000 }).toMatch(/^13:4[5-8]:/);
-    expect(live.calls.at(-1)!.offset).toBeGreaterThan(0);
+    const n0 = live.calls.length;
+    await page.waitForTimeout(7_000); // 옛 폴링 주기(5초)보다 길게
+    expect(live.calls.length, '버튼 전 증분 요청 0').toBe(n0);
+    expect(await curTime(page)).toBe(dayEnd);
 
-    // ④ 과거 틱(Shift+← 두 번 = 20행 뒤로) → 배지 · 이후 요청 0
+    // ④ 과거 틱(Shift+← 두 번 = 20행 뒤로) → 「최신 받기」 → 증분 1회 · 커서 제자리 · 「새 틱 n건」 배지
+    const refresh = page.locator('[data-slot="tick-live-refresh"]');
     await page.locator('[data-slot="tick-book"] h2').click();
     await page.keyboard.press('Shift+ArrowLeft');
     await page.keyboard.press('Shift+ArrowLeft');
     const badge = page.locator('[data-slot="tick-live-badge"]');
+    await expect(badge).toHaveCount(0);
+    const back = await curTime(page);
+    await refresh.click();
+    await expect.poll(() => live.calls.length, { timeout: 5_000 }).toBe(n0 + 1);
+    expect(live.calls.at(-1)!.offset).toBeGreaterThan(0);
     await expect(badge).toBeVisible();
     await expect(badge).toContainText('새 틱');
-    const back = await curTime(page);
-    const n = live.calls.length;
-    await page.waitForTimeout(7_000); // 폴링 주기(5초)보다 길게
-    expect(live.calls.length, '과거 틱을 보는 동안 증분 요청 0').toBe(n);
     expect(await curTime(page)).toBe(back);
 
-    // ⑤ 배지 클릭(= 끝으로) → 즉시 1회(5초 기다리지 않음) · 끝 틱 · 배지 사라짐
+    // ⑤ 배지 클릭(= 끝으로) → 요청 없이 새 끝 틱(13:48) · 배지 사라짐
     await badge.click();
-    await expect.poll(() => live.calls.length, { timeout: 2_000 }).toBe(n + 1);
     await expect(badge).toHaveCount(0);
     await expect.poll(() => curTime(page)).toMatch(/^13:4[5-8]:/);
+    expect(live.calls.length).toBe(n0 + 1);
+    await expect(refresh).toHaveText('최신 받기');
     await expectNoHorizontalScroll(page, '당일 1280');
   });
 

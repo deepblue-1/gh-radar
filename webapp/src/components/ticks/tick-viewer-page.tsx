@@ -329,6 +329,7 @@ export function TickViewerPage() {
     atEnd: liveAtEnd,
   });
   const liveGoEnd = live.goEnd;
+  const liveRefresh = live.refresh;
   const liveViewer = useMemo(
     () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd }),
     [live.newCount, liveGoEnd],
@@ -399,6 +400,10 @@ export function TickViewerPage() {
                 state: live.meta?.state ?? null,
                 lastRecvNs: live.meta?.lastRecvNs ?? null,
                 failing: live.errors >= TICK_LIVE_FAILING_AFTER,
+                onRefresh: live.session !== null ? liveRefresh : undefined,
+                refreshing: live.refreshing,
+                fetchedAt: live.fetchedAt,
+                refreshFailed: live.session !== null && live.errors > 0,
               }
             : null
         }
