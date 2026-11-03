@@ -738,18 +738,19 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     expect(r.cache.get(keyN(9))?.closed).toBe(true); // 보던 키는 승격 입력이 된다
   });
 
-  it("창이 열린 뒤 리스가 끝난 queued 키(한 번도 못 받음)도 따라잡는다 — 08:00 부터 · 마감 마무리는 마지막 몇 분만(R2-IN-04)", async () => {
+  it("창이 열린 뒤 들어온 queued 키(한 번도 못 받음)도 따라잡는다 — 08:00 부터 · 마감 마무리는 마지막 몇 분만(R2-IN-04 · R3-IN-03)", async () => {
     const A = keyN(1);
     const B = keyN(2);
     const r: Rig = rig((a) => minuteDay(a, r.clock.t), { maxKeys: 1 }, at("195400"));
     r.poller.touch(A);
     await r.drive({ untilCalls: 1, touch: [A] });
     await r.drive({ untilT: at("195530"), touch: [A] });
-    expect(r.poller.touch(B)).toEqual({ state: "queued", queue: 1 }); // 활성 1키 밖 — 폴링되지 않는다 · 리스는 19:56:00 에 끝
+    expect(r.poller.touch(B)).toEqual({ state: "queued", queue: 1 }); // 활성 1키 밖 — 보통 루프는 돌지 않는다 · 리스는 19:56:00 에 끝
     await r.drive({ untilT: at("195900"), touch: [A] });
     const bCalls = r.calls.filter((c) => keyOf(c.args) === B);
     expect(bCalls.length).toBeGreaterThanOrEqual(1);
-    expect(bCalls[0]!.at).toBeGreaterThanOrEqual(at("195600"));
+    // R2-IN-04 땐 리스가 끝난 19:56:00 뒤에야 넣었다 — R3-IN-03 부터는 queued 가 되는 순간(19:55:30) 넣는다
+    expect(bCalls[0]!.at).toBeGreaterThanOrEqual(at("195530"));
     expect(bCalls[0]!.args.fromNs).toBe(DAY_START);
     const e = r.cache.get(B)!;
     expect(e.complete).toBe(true);
@@ -757,6 +758,31 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     r.clock.t = at("200100");
     await r.drive({ untilT: at("201000") });
     expect(e.closed).toBe(true); // 20:01 마무리는 19:55 이후만 읽어 압축된 아침 파일을 건너뛰지 않는다
+  });
+
+  it("리스가 살아 있는 queued 키(활성 maxKeys 밖)도 19:55 에 따라잡는다 — 활성 키는 그대로 · 20:01 마무리는 마지막 몇 분만 · 승격(R3-IN-03)", async () => {
+    const A = keyN(1);
+    const B = keyN(2);
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), { maxKeys: 1 }, at("195300"));
+    r.poller.touch(A);
+    await r.drive({ untilCalls: 1, touch: [A] });
+    expect(r.poller.touch(B)).toEqual({ state: "queued", queue: 1 }); // 계속 보는 화면 — 리스는 끝나지 않는다
+    await r.drive({ untilT: at("195459"), touch: [A, B] });
+    expect(r.calls.filter((c) => keyOf(c.args) === B)).toEqual([]); // 창 전엔 보통 루프가 돌지 않는다
+    await r.drive({ untilT: at("195900"), touch: [A, B] });
+    const bCalls = r.calls.filter((c) => keyOf(c.args) === B);
+    expect(bCalls.length).toBeGreaterThanOrEqual(1);
+    expect(bCalls[0]!.at).toBe(at("195500"));
+    expect(bCalls[0]!.args.fromNs).toBe(DAY_START); // 받은 적 없음 — 08:00 부터
+    const e = r.cache.get(B)!;
+    expect(e.complete).toBe(true);
+    expect(e.lastRecvNs! >= kstDayStartNs(DATE, "1954")).toBe(true);
+    expect(r.poller.touch(B)).toEqual({ state: "queued", queue: 1 }); // 활성 상한은 그대로
+    const aWin = r.calls.filter((c) => keyOf(c.args) === A && c.at >= at("195500"));
+    expect(aWin.length).toBeGreaterThanOrEqual(40); // 활성 키는 교대로 5초 증분을 계속 받는다
+    await r.drive({ untilT: at("201000"), touch: [A, B] });
+    expect(e.complete).toBe(true);
+    expect(e.closed).toBe(true); // 고치기 전엔 20:01 이 08:00 부터 읽다 압축된 아침 파일을 건너뛰어 complete=false · 승격 안 됨
   });
 
   it("승격 창(따라잡기 시작 ~ 21:00) 밖에선 오늘 complete 키도 LRU 후보 · 지우면 cache evict warn 이 남는다", async () => {

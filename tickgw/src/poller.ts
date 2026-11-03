@@ -56,11 +56,12 @@
  *   complete=false(승격 안 함)로 둔다. 낮에 리스가 끝난 키(브라우저를 닫음)는 lastRecvNs 이후 빈 구간을 20:01 마감 마무리에서야
  *   채우는데, 그때는 이른 시간 파일이 이미 압축 중이라 대부분 승격에서 빠진다.
  *   무엇: KST TICKGW_CATCHUP_AT(기본 19:55 · `off` 면 끔) 부터 19:59:00 전까지 하루 한 번 — 그 순간 오늘 complete ∧ closed 아님 ∧
- *   너무 큼 아님 ∧ **리스가 끝난**(보통 루프가 폴링하지 않는) 키를 모아, 키마다 lastRecvNs+1(이어받기 중이면 그 커서 · 받은 적
+ *   너무 큼 아님 ∧ **보통 루프가 폴링하지 않는**(리스가 끝났거나 · 리스가 살아 있어도 활성 8키 밖 queued — R3-IN-03) 키를 모아, 키마다 lastRecvNs+1(이어받기 중이면 그 커서 · 받은 적
  *   없으면 08:00)부터 to 0 으로 has_more 가 false 가 될 때까지 받는다. 그러면 20:01 마감 마무리는 마지막 몇 분(가장 늦게 압축되는
  *   19시 · 20시 파일)만 읽는다. 대상은 창 안 매 step 다시 본다 — 창이 열린 뒤 리스가 끝난 키도 처음 한 번 넣는다(`catchupSeen`).
  *   활성 8키 밖에서 기다리던(queued) 키 · 실패 백오프 중이던 키는 한 번도(또는 오래) 받지 못했을 수 있어서다(R2-IN-04).
- *   도중에 다시 touch 돼 빠진 키는 다시 넣지 않는다(리스 동안 보통 루프가 몇 초 안쪽까지 받는다).
+ *   리스가 살아 있는 queued 키도 같은 까닭으로 넣는다(R3-IN-03). 도중에 다시 touch 돼(또는 앞 키 리스가 끝나 활성 8키로 올라와)
+ *   빠진 키는 다시 넣지 않는다(보통 루프가 커서부터 몇 초 안쪽까지 받는다).
  *   규율: 보통 폴링과 **같은 호출 슬롯**(step 사슬 · 동시성 1 · 전역 차단 · 75 = 2초 재시도 · 실패 백오프 5→60초 · 인자 64 = 60초 ·
  *   너무 큼 = 그 키 중단 · WR-33 LRU 보호 그대로). 캐시 가득 = 붙이지 않고 그 키 따라잡기를 멈춘다(승격 보호로 다른 오늘
  *   complete 키를 지우지 않으므로 창 안에선 자리가 나지 않는다 · 남은 구간은 20:01 마감 마무리 몫 · R2-WR-01).
@@ -623,11 +624,21 @@ export class Poller {
 
   // ---------------------------------------------------------------- 19:55 따라잡기
 
-  /** 따라잡기 대상 — 오늘 · complete · closed 아님 · 너무 큼 아님 · 리스 끝남(보통 루프가 폴링하지 않는 키). */
-  private catchupEligible(e: CacheEntry, today: string, now: number): boolean {
+  /**
+   * 따라잡기 대상 — 오늘 · complete · closed 아님 · 너무 큼 아님 · 보통 루프가 폴링하지 않는 키:
+   * 리스가 끝났거나, 리스가 살아 있어도 활성 maxKeys 밖에서 기다리는(queued) 키(R3-IN-03 — 그대로 두면 20:01 마감 마무리가
+   * 처음으로 08:00 부터 읽다 압축된 아침 파일을 건너뛰어 승격되지 않는다). 119 호출은 같은 슬롯 하나라 동시성 · 상한 규율은 그대로.
+   */
+  private catchupEligible(e: CacheEntry, today: string, now: number, queued: ReadonlySet<string>): boolean {
     if (e.date !== today || !e.complete || e.closed || this.tooLargeKeys.has(e.key)) return false;
     const run = this.runs.get(e.key);
-    return !(run && run.epoch === e.epoch && run.leaseUntil > now);
+    const leased = !!run && run.epoch === e.epoch && run.leaseUntil > now;
+    return !leased || queued.has(e.key);
+  }
+
+  /** 리스가 살아 있지만 활성 maxKeys 밖이라 보통 루프가 돌지 않는 키(queued · R3-IN-03). */
+  private queuedKeys(now: number): Set<string> {
+    return new Set(this.liveRuns(now).slice(this.cfg.maxKeys).map((r) => r.key));
   }
 
   /**
@@ -654,9 +665,10 @@ export class Poller {
       this.catchupStats = { keys: 0, calls: 0, bytes: 0, startedAt: now };
       this.catchupCaught = new Map();
     }
+    const queued = this.queuedKeys(now);
     let added = 0;
     for (const e of this.deps.cache.values()) {
-      if (this.catchupSeen.has(e.key) || !this.catchupEligible(e, today, now)) continue;
+      if (this.catchupSeen.has(e.key) || !this.catchupEligible(e, today, now, queued)) continue;
       this.catchupSeen.add(e.key);
       this.catchupQueue.push({ key: e.key, nextDueAt: now, failures: 0 });
       added += 1;
@@ -666,7 +678,7 @@ export class Poller {
     else if (added > 0) log("info", "catchup add", { date: today, keys: added });
     this.catchupQueue = this.catchupQueue.filter((i) => {
       const e = this.deps.cache.get(i.key);
-      return !!e && this.catchupEligible(e, today, now);
+      return !!e && this.catchupEligible(e, today, now, queued);
     });
     let item: CatchupItem | null = null;
     for (const i of this.catchupQueue) {
