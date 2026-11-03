@@ -113,6 +113,8 @@ interface PaneCtx {
   /** 고른 우리 줄(주문 줄 · 짝 없음 줄) — 커서가 그 줄의 기준 전문일 때만(파생). */
   ownSel: OwnSel | null;
   onOwnSelect: (sel: OwnSel, rec: number) => void;
+  /** 전문 행으로 커서 이동 + 고른 우리 줄 풀기 — 카드 · 「우리 주문」 표의 이동(R1 IN-02 · `[` `]` 의 navJump 와 같다). */
+  jumpRec: (rec: number) => void;
   /** 전문 목록 항목 모델 — 뷰어가 한 번 만들어 목록 · 되돌아가기가 같이 쓴다(38-06). */
   rows: MsgRowsModel;
   /** 그 주문 줄 선택(없으면 첫 짝 체결 · 짝 없음 줄). */
@@ -151,6 +153,7 @@ function TickSidePane({
   own,
   ownStale,
   ownSel,
+  jumpRec,
   onOwnOrder,
   onOwnBack,
   ownBackOrder,
@@ -229,7 +232,7 @@ function TickSidePane({
           className="col-span-full"
           own={own}
           selected={ownOrdersAt(own, cursor.rec, ownSel)}
-          onJump={cursor.jumpToRec}
+          onJump={jumpRec}
           onOrder={onOwnOrder}
           onBack={onOwnBack}
         />
@@ -238,10 +241,10 @@ function TickSidePane({
           <TickOrderCard
             session={session}
             cursorRec={cursor.rec}
-            onJump={cursor.jumpToRec}
+            onJump={jumpRec}
             own={own}
             ownSel={ownSel}
-            onOwnJump={cursor.jumpToRec}
+            onOwnJump={jumpRec}
             onOwnBack={onOwnBack}
             onOwnOrder={onOwnOrder}
           />
@@ -346,6 +349,16 @@ export function TickViewer({
     [ownModel, jumpToRec],
   );
 
+  // 전문 행으로 갈 때는 고른 줄을 푼다 — 짝 없음 줄의 기준 전문이 바로 그 행이면 줄 선택이 남아 A3 행 대신 줄이 보인다
+  // (`[` `]` · 카드 「보기 ›」 · 「우리 주문」 표 · 첫 짝 체결 폴백이 같이 쓴다 — R1 IN-02).
+  const navJump = useCallback(
+    (r: number) => {
+      setOwnPick(null);
+      jumpToRec(r);
+    },
+    [jumpToRec],
+  );
+
   // 그 주문 줄 선택 — 주문 줄 → 없으면 첫 짝 체결 A3 → 없으면 첫 짝 없음 줄.
   const onOwnOrder = useCallback(
     (id: number) => {
@@ -360,7 +373,7 @@ export function TickViewer({
       for (const fid of o.fills) {
         const f = ownModel.fills[fid]!;
         if (f.rec >= 0) {
-          jumpToRec(f.rec);
+          navJump(f.rec);
           return;
         }
       }
@@ -373,7 +386,7 @@ export function TickViewer({
         }
       }
     },
-    [ownModel, rows, onOwnSelect, jumpToRec],
+    [ownModel, rows, onOwnSelect, navJump],
   );
 
   // 되돌아가기 알약(D-10) — 주문 묶기 키로 기억(증분으로 주문 id 가 밀려도 같은 주문) · 종목 · 날짜 · 거래소가 바뀌면 파생으로 사라진다.
@@ -413,14 +426,7 @@ export function TickViewer({
   );
 
   // 우리 체결 탐색(38-08 · D-09) — 제목 줄 알약 · 키 [ ]. 상태는 원시값이 바뀔 때만 새 객체라 올려도 갱신이 돌지 않는다.
-  // A3 대상으로 갈 때는 고른 줄을 푼다 — 짝 없음 줄의 기준 전문이 바로 다음 대상 행이면 줄 선택이 남아 현재 자리가 줄에 묶인다.
-  const navJump = useCallback(
-    (r: number) => {
-      setOwnPick(null);
-      jumpToRec(r);
-    },
-    [jumpToRec],
-  );
+  // A3 대상으로 갈 때는 고른 줄을 푼다(navJump) — 짝 없음 줄의 기준 전문이 바로 다음 대상 행이면 현재 자리가 줄에 묶인다.
   const ownNav = useOwnNav({ rows, own: ownModel, cursorRec: rec, ownSel, jumpToRec: navJump, pickLine: onOwnSelect });
   useEffect(() => {
     if (!onOwn) return;
@@ -473,6 +479,7 @@ export function TickViewer({
     ownStale: own.status === 'error' && own.own !== null,
     ownSel,
     onOwnSelect,
+    jumpRec: navJump,
     rows,
     onOwnOrder,
     onOwnBack,

@@ -51,9 +51,11 @@ vi.mock('@/hooks/use-debounced-search', () => ({
 import { TickHeader, liveDelayTextOf } from '@/components/ticks/tick-header';
 import { TickViewer } from '@/components/ticks/tick-viewer';
 import { TickViewerPage } from '@/components/ticks/tick-viewer-page';
+import { buildMsgRows, ownLineRec } from '@/lib/ticks/msg-rows';
+import { buildOwnModel } from '@/lib/ticks/own-model';
 import { appendTickBytes, type TickSession } from '@/lib/ticks/tick-session';
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
-import { fmtTickTime } from '@gh-radar/shared';
+import { a3TimeMs, fmtTickTime } from '@gh-radar/shared';
 
 const RAW = tickGridBytes();
 function chunk(fromRec: number, toRec: number): Uint8Array {
@@ -524,6 +526,48 @@ describe('TickViewer — 고른 우리 줄 배선(WR-04 · R2 IN-03)', () => {
       expect(line!.getAttribute('data-pos')).not.toBe(before);
     });
     expect(selectedLine()).toBeNull();
+  });
+
+  it('(R1 IN-02) 짝 없음 줄 선택 → 「우리 주문」 표에서 그 줄의 기준 전문(A3)으로 가는 행 클릭 → 줄 선택이 풀린다', async () => {
+    const fillOf = (orderNo: string, seq: number, gwMs: number, px: number, qty: number): TickOwnFill => ({
+      gateway: 'KB120',
+      seq,
+      gw_time_ms: gwMs,
+      account_no: '1234563801',
+      order_no: orderNo,
+      side: 'B',
+      exec_price: px,
+      exec_qty: qty,
+    });
+    // 짝 없는 체결 F1 의 기준 전문(줄 다음 전문 · 거래소순)이 A3 인 자리를 찾고, 그 A3 에 짝지어질 체결 O2 를 둔다
+    let own: TickOwnResponse | null = null;
+    let base = -1;
+    for (let p = S2.recvOrder.length - 80; p < S2.recvOrder.length - 20 && own === null; p++) {
+      const f1 = fillOf('F1', 1, recvMsAt(p), 99_999, 1);
+      const rows = buildMsgRows(S2, 'exchange', buildOwnModel(S2, { ...OWN_EMPTY, servers: ['KB120'], fills: [f1] }));
+      const b = ownLineRec(rows, rows.ownPosOfFill[0]!);
+      const j = b >= 0 ? S2.a3Of[b]! : -1;
+      if (j < 0) continue;
+      const o2 = fillOf('O2', 2, Math.round(a3TimeMs(S2.index, S2.a3, j)), S2.a3.px[j]!, S2.a3.qty[j]!);
+      const cand: TickOwnResponse = { ...OWN_EMPTY, servers: ['KB120'], fills: [f1, o2] };
+      const m = buildOwnModel(S2, cand);
+      if (m.fills.find((f) => f.orderNo === 'O2')!.rec !== b) continue;
+      own = cand;
+      base = b;
+    }
+    expect(own).not.toBeNull();
+    const m = buildOwnModel(S2, own!);
+    const idOf = (no: string) => m.orders.find((o) => o.orderNo === no)!.id;
+    api.fetchTickOwn.mockResolvedValue(own!);
+    render(<TickViewer session={S2} urlState={URL_STATE} initialT={null} />);
+    const nofillSelected = () => document.querySelector<HTMLElement>('[data-slot="tick-own-nofill"][aria-selected="true"]');
+
+    await pickFromTable(idOf('F1')); // 주문 줄 없음 · 짝 없음 → 그 줄 선택(기준 전문 = base)
+    await waitFor(() => expect(nofillSelected()).not.toBeNull());
+    expect(m.fills.find((f) => f.orderNo === 'O2')!.rec).toBe(base);
+
+    fireEvent.click(document.querySelector<HTMLElement>(`[data-slot="tick-own-table-row"][data-order="${idOf('O2')}"]`)!);
+    await waitFor(() => expect(nofillSelected()).toBeNull());
   });
 });
 
