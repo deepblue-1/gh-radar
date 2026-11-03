@@ -13,6 +13,10 @@
  * ④ 누적 판(스케치 022 A) — 시각 t 이하 마지막 A3 까지 「HH:MM:SS까지 · 거래량 N주 · 거래대금 X(시총 대비 n.n%)」 ·
  *   「팀 X n.n% · 매수 Y · 매도 Z」(팀 체결 전이면 「팀 체결 없음」). 시총을 모르면 시총 대비를 뺀다.
  *
+ * ⑤ 우리 점(Phase 38-07 · D-08 · D-02 · D-16) — ◆ 체결마다 「우리 체결 n주[ / 전체 m주] · 계좌 ···끝4 · 주문 #…[ · 추정]」 ·
+ *   ◇ 「… · 짝 전문 없음」(대기 「… · 전문 아직 안 옴」) · ○ 주문마다 「조건 근거 {종류} · 주문 #…」. 팀 원 툴팁이 뜨는 자리면 씨앗
+ *   가로 ± 5px 안(판 안에 보이는) 우리 점 줄을 팀 줄 **뒤에** 덧붙인다 — 팀 줄 문구 · 순서는 그대로. 계좌는 끝 4자리만(D-02).
+ *
  * 금액은 이 화면 표기(`fmtAmountC` — 「984만」 「7.96억」), 등락률 · 평단 대비는 매집감지 툴팁처럼 소수 2자리.
  */
 
@@ -20,9 +24,10 @@ import { orderRadiusOf, type PosNetPoint, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
 import { kstHm } from '@/lib/teamflow-report';
 
+import type { OwnModel } from './own-model';
 import { TEAM_CIRCLE_MIN_VAL, type TeamModel, type TeamOrderPoint } from './team-model';
-import { turnoverIdxAt, type TickPanels, type TurnoverSeries } from './tick-chart';
-import { MINUS, fmtAmountC } from './tick-format';
+import { OWN_MARK_HIT_PAD, OWN_MARK_R, turnoverIdxAt, type OwnMark, type TickPanels, type TurnoverSeries } from './tick-chart';
+import { MINUS, fmtAmountC, fmtQty } from './tick-format';
 
 /** 원을 그리는 창 여유(창 폭의 2% — 컴포넌트가 그리는 원과 같은 범위). */
 const VIEW_PAD_RATIO = 0.02;
@@ -275,5 +280,103 @@ export function tickTurnoverTipAt(s: TurnoverSeries, t: number, mcap: number | n
     key: `v${i}`,
     lines: [`${kstClock(s.t[i]!)}까지 · 거래량 ${INT.format(s.qty[i]!)}주 · 거래대금 ${fmtAmountC(val)}${cap}`, team],
     circle: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 우리 점(Phase 38-07) — ◆ · ◇ · ○ 툴팁 줄 · 팀 묶음 합치기
+// ---------------------------------------------------------------------------
+
+type OwnTipModel = Pick<OwnModel, 'fills' | 'orders'>;
+
+/** 우리 점 툴팁 — key(대상이 바뀔 때만 다시 그림) · 줄 · 고른 점. */
+export interface TickOwnTip {
+  key: string;
+  lines: string[];
+  mark: OwnMark;
+}
+
+const acctTail = (accountNo: string) => (accountNo.length > 0 ? ` · 계좌 ···${accountNo.slice(-4)}` : '');
+const orderNoText = (orderNo: string) => `주문 #${orderNo !== '' ? orderNo : '—'}`;
+
+/** 점 하나의 줄 — ◆ 체결마다 · ◇ 그 체결 · ○ 주문마다. 계좌는 끝 4자리만(D-02). */
+export function tickOwnLinesOf(own: OwnTipModel, m: OwnMark): string[] {
+  if (m.kind === 'ev') {
+    return m.orderIds.map((id) => {
+      const o = own.orders[id]!;
+      return `조건 근거 ${o.evidenceLabel ?? '—'} · ${orderNoText(o.orderNo)}`;
+    });
+  }
+  return m.fillIds.map((id) => {
+    const f = own.fills[id]!;
+    const head = `우리 체결 ${fmtQty(f.qty)}주`;
+    if (m.kind === 'nofill') {
+      const tail = f.state === 'pending' ? '전문 아직 안 옴' : '짝 전문 없음';
+      return `${head}${acctTail(f.accountNo)} · ${orderNoText(f.orderNo)} · ${tail}`;
+    }
+    const part = f.total > f.qty ? ` / 전체 ${fmtQty(f.total)}주` : '';
+    return `${head}${part}${acctTail(f.accountNo)} · ${orderNoText(f.orderNo)}${f.est ? ' · 추정' : ''}`;
+  });
+}
+
+const ownKeyOf = (m: OwnMark) => (m.kind === 'nofill' ? `nf${m.fillIds[0]}` : `${m.kind === 'ev' ? 'e' : 'f'}${m.rec}`);
+/** 판 안에 보이는 점(가격 판 클립 안) — 판 밖으로 잘린 점은 툴팁에도 올리지 않는다. */
+const ownVisible = (m: OwnMark, p: TickPanels, r: number) => m.cy >= p.y1a - r && m.cy <= p.y1b + r;
+
+/**
+ * 가격 판 안 · 가로 R + 3px 안(판 안에 보이는) 우리 점 중 세로로 가장 가까운 것(같으면 위에 그린 것)의 줄 · 없으면 null.
+ * key = `own:{점}`.
+ */
+export function tickOwnTipOf(
+  marks: readonly OwnMark[],
+  own: OwnTipModel,
+  mx: number,
+  my: number,
+  p: TickPanels,
+  r: number = OWN_MARK_R.desktop,
+): TickOwnTip | null {
+  if (my < p.y1a || my > p.y1b) return null;
+  let best: OwnMark | null = null;
+  let bestDy = Infinity;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const m = marks[i]!;
+    if (Math.abs(mx - m.cx) > r + OWN_MARK_HIT_PAD || !ownVisible(m, p, r)) continue;
+    const dy = Math.abs(my - m.cy);
+    if (dy < bestDy) {
+      bestDy = dy;
+      best = m;
+    }
+  }
+  return best === null ? null : { key: `own:${ownKeyOf(best)}`, lines: tickOwnLinesOf(own, best), mark: best };
+}
+
+/**
+ * 가격 판 hover 에 우리 줄 합치기 — 팀 hover(씨앗 원)가 있으면 씨앗 가로 ± 5px 안 보이는 우리 점(그리기 순서) + 마우스 자리
+ * 우리 점의 줄을 팀 줄 뒤에 덧붙인다(팀 줄 · 고리 그대로 · 없으면 팀 hover 그 객체). 팀 hover 가 없으면 우리 줄만(circle null).
+ */
+export function tickHoverWithOwn(
+  team: TickHover | null,
+  marks: readonly OwnMark[],
+  own: OwnTipModel,
+  mx: number,
+  my: number,
+  p: TickPanels,
+  r: number = OWN_MARK_R.desktop,
+): TickHover | null {
+  if (marks.length === 0) return team;
+  const at = tickOwnTipOf(marks, own, mx, my, p, r);
+  const seed = team?.circle ?? null;
+  if (team === null || seed === null) {
+    if (at === null) return team;
+    return { key: at.key, lines: at.lines, circle: null };
+  }
+  const near = marks.filter(
+    (m) => (Math.abs(m.cx - seed.cx) <= TICK_GROUP_HALF_WIDTH && ownVisible(m, p, r)) || m === at?.mark,
+  );
+  if (near.length === 0) return team;
+  return {
+    ...team,
+    key: `${team.key}|own:${near.map(ownKeyOf).join(',')}`,
+    lines: [...team.lines, ...near.flatMap((m) => tickOwnLinesOf(own, m))],
   };
 }

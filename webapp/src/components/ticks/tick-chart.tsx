@@ -46,6 +46,7 @@ import {
   nearestTickCircleOf,
   tickBucketTipAt,
   tickCirclesOf,
+  tickHoverWithOwn,
   tickNetTipAt,
   tickOrderHoverOf,
   tickTurnoverTipAt,
@@ -279,6 +280,8 @@ export function TickChart({
   const circles = tickCirclesOf(team, view, x, y);
   const ownR = phone ? OWN_MARK_R.phone : OWN_MARK_R.desktop;
   const marks: OwnMark[] = own !== null ? ownMarksOf(own, session, view, x, y) : [];
+  // 범례 두 칸은 하루에 우리 점이 하나라도 있을 때(창과 무관 — 확대/이동으로 범례가 깜박이지 않게)
+  const ownLegend = own !== null && (own.fills.length > 0 || own.orders.some((o) => o.evidenceRec >= 0));
   const turnover = turnoverSeriesOf(session);
   const mcap = marketCapOf(session.basePx, listingShares);
   const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
@@ -300,7 +303,9 @@ export function TickChart({
     const t = tOfTick(view, L, xr)(mx);
     if (my >= P.y1a && my <= P.y1b) {
       const c = nearestTickCircleOf(circles, mx, my, P);
-      return c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
+      const teamHover = c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
+      // 우리 줄은 팀 줄 뒤에 덧붙이기만(D-16 — 팀 줄 문구 · 순서 그대로)
+      return own === null ? teamHover : tickHoverWithOwn(teamHover, marks, own, mx, my, P, ownR);
     }
     if (my >= P.y2a && my <= P.y2b) return tickNetTipAt(team, cumPts, t);
     if (my >= P.y3a && my <= P.y3b) return tickBucketTipAt(team, bounds.T0, t);
@@ -439,6 +444,19 @@ export function TickChart({
         {legend !== null && (
           <span data-slot="tick-chart-legend" className="truncate text-[11px] text-[var(--muted-fg)]">
             {legend}
+          </span>
+        )}
+        {ownLegend && (
+          // 우리 범례(목업 B 범례 꼴) — ◆ = 45° 돌린 채운 작은 정사각 · ○ = 테두리 원 · 민트
+          <span data-slot="tick-chart-own-legend" className="flex items-center gap-2 text-[11px] text-[var(--mine-fg)]">
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <i aria-hidden="true" className="inline-block size-[7px] rotate-45 rounded-[1px] bg-[var(--mine)]" />
+              우리 체결
+            </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <i aria-hidden="true" className="inline-block size-2 rounded-full border-[1.5px] border-[var(--mine)]" />
+              조건 근거
+            </span>
           </span>
         )}
         <span className="ml-auto flex items-center gap-0.5">
