@@ -53,27 +53,27 @@ findings:
     title: "nightly 에서 키 하나만 실패해도(또는 원본 하나가 깨져도) 그 날짜 전량(≈9GB Archive)을 하루 두 번 · 최대 10일 다시 읽는다"
   - id: WR-60
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "재생 중 URL 스로틀 쓰기가 진행 중인 `router.push` 를 버린다 — 「목록으로」·날짜·거래소·종목 이동이 사라짐"
   - id: WR-61
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "대기 중인 URL 쓰기 타이머가 옛 세션을 붙잡는다 — 당일 증분 직후 BigInt TypeError 또는 틀린 `t`"
   - id: WR-62
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "당일 zstd 해제·세션 재생성 예외를 잡지 않는다 — 하루치는 영원히 「받는 중」, 증분은 조각을 조용히 건너뜀"
   - id: WR-63
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`X-Tick-Complete=false`(알려진 끊김)를 화면 어디에도 보이지 않는다"
   - id: WR-64
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`tickLiveMetaOf` 가 `X-Tick-Offset-End` 없음을 0 으로 받는다 — 다음 증분이 하루치 전체를 다시 이어붙인다"
   - id: WR-65
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "URL `t` 가 ms 로 잘려 딥링크·새로고침이 같은 틱으로 돌아오지 않는다 — 버스트 조각 안에서 특히"
   - id: IN-01
     severity: info
@@ -129,27 +129,27 @@ findings:
     title: "`openTick` 이 RPC 응답 필드 일부를 모양 검사 없이 단언 캐스트한다"
   - id: IN-60
     severity: info
-    disposition: open
+    disposition: fixed
     title: "「오늘」이 마운트 때 한 번만 정해져서 20:00·자정을 넘기면 목록과 열기가 엇갈린다"
   - id: IN-61
     severity: info
-    disposition: open
+    disposition: fixed
     title: "공급 배지가 자료 출처가 아니라 날짜로 정해진다"
   - id: IN-62
     severity: info
-    disposition: open
+    disposition: fixed
     title: "격자 서명 URL fetch 에 시간 상한·취소가 없다"
   - id: IN-63
     severity: info
-    disposition: open
+    disposition: fixed
     title: "증분·own 재조회마다 전문 목록이 커서 행으로 강제 가운데 스크롤된다"
   - id: IN-64
     severity: info
-    disposition: open
+    disposition: fixed
     title: "409(epoch 교체)로 하루치를 다시 받는 동안 「최신 받기」 버튼이 눌리지만 아무 일도 하지 않는다"
-open: 11
+open: 0
 total: 36
-recorded: 2026-11-03T20:13:00.765Z
+recorded: 2026-11-03T21:26:41.866Z
 ---
 
 # Phase 37: Code Review Disposition
@@ -168,12 +168,12 @@ recorded: 2026-11-03T20:13:00.765Z
 | WR-34 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-35 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-36 | warning | fixed | 37-REVIEW-FIX.md |
-| WR-60 | warning | open | - |
-| WR-61 | warning | open | - |
-| WR-62 | warning | open | - |
-| WR-63 | warning | open | - |
-| WR-64 | warning | open | - |
-| WR-65 | warning | open | - |
+| WR-60 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-61 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-62 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-63 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-64 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-65 | warning | fixed | 37-REVIEW-FIX.md |
 | IN-01 | info | fixed | 37-REVIEW-FIX.md |
 | IN-02 | info | fixed | 37-REVIEW-FIX.md |
 | IN-03 | info | fixed | 37-REVIEW-FIX.md |
@@ -187,11 +187,11 @@ recorded: 2026-11-03T20:13:00.765Z
 | IN-32 | info | fixed | 37-REVIEW-FIX.md |
 | IN-33 | info | fixed | 37-REVIEW-FIX.md |
 | IN-34 | info | fixed | 37-REVIEW-FIX.md |
-| IN-60 | info | open | - |
-| IN-61 | info | open | - |
-| IN-62 | info | open | - |
-| IN-63 | info | open | - |
-| IN-64 | info | open | - |
+| IN-60 | info | fixed | 37-REVIEW-FIX.md |
+| IN-61 | info | fixed | 37-REVIEW-FIX.md |
+| IN-62 | info | fixed | 37-REVIEW-FIX.md |
+| IN-63 | info | fixed | 37-REVIEW-FIX.md |
+| IN-64 | info | fixed | 37-REVIEW-FIX.md |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
