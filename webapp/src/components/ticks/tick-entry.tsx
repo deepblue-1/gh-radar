@@ -5,7 +5,7 @@ import { useMemo } from 'react';
 import type { TickExchange, TickGridRow, TickGridSource, TickTodayRow } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
-import { fmtRate } from '@/lib/ticks/tick-format';
+import { fmtRate, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -13,13 +13,18 @@ import { cn } from '@/lib/utils';
  *
  * - 과거 날짜: 「{M/D} 격자 종목 · n종목」 — 그날 격자가 있는 (종목, 거래소) 행. 클릭하면 바로 열린다(변환 없음).
  * - 오늘(D-15): 「오늘 종목 · n종목」 — 오늘 매집감지 등록 ∪ 고가 +15% 종목(`/api/ticks/today`) · 「라이브」 칩.
- * - 정렬: 기본 등락률순(그날 고가 등락률 `high_rate` 내림차순 · 없는 행은 뒤) · 「이름순」 토글.
+ * - 팀 열(스케치 023 B · quick 261103-j4d): 등락률 뒤 「당일순매수 · 누적순매수 · 당일손익」 3열(sm 이상) · 폰은 열을 숨기고
+ *   종목명 아래 「순매수 … · 누적 … · 손익 …」 한 줄. 당일 값은 상세 「팀 거래정보」 끝 틱(그 거래소 팀만 · 밤 변환 때 저장) ·
+ *   누적 = 매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산 · 미등록 「—」). 모름(미계산 · 팀 체결 없음 · 옛 RPC 키 없음 ·
+ *   오늘 목록) 「—」 · 0 「0」 · + 빨강 / − 파랑 / 0 · 모름 muted.
+ * - 정렬: 기본 등락률순(그날 고가 등락률 `high_rate` 내림차순) · 순매수순 · 손익순(내림차순) · 이름순 — 값 없는 행은 뒤 ·
+ *   같으면 이름 → 거래소.
  * - 출처 칩: accum 「매집감지」(팀 보라) · up15 「15%↑」(빨강) · request 「요청 변환」 · promoted 「승격」(회색) ·
  *   거래소 NXT 「NXT」(선택 파랑).
  * - 아래 캡션(과거 날짜만): 목록에 없는 종목은 머리 검색으로 — 그 종목만 변환해서 연다(약 N분 = 거래소 예상 대기).
  */
 
-export type TickEntrySort = 'rate' | 'name';
+export type TickEntrySort = 'rate' | 'net' | 'pnl' | 'name';
 
 export interface TickEntryProps {
   /** 목록 날짜(`YYYYMMDD`) — 패널 머리 「M/D」. */
@@ -41,6 +46,10 @@ interface EntryRow {
   name: string | null;
   ex: TickExchange;
   rate: number | null;
+  /** 당일 팀 순매수 · 누적 순매수 · 당일 팀 손익(원) — 모름 null. */
+  dayNet: number | null;
+  cum: number | null;
+  pnl: number | null;
   sources: readonly TickGridSource[];
   live: boolean;
 }
@@ -56,17 +65,43 @@ const TAG = 'mr-1 inline-flex h-[18px] items-center rounded-[5px] px-1.5 text-[1
 
 const COLLATOR = new Intl.Collator('ko-KR');
 
+/** 값 정렬 키 → 값(내림차순 · null 뒤). 이름순은 값 없이 이름 → 거래소. */
+const SORT_VALUE: Record<Exclude<TickEntrySort, 'name'>, (r: EntryRow) => number | null> = {
+  rate: (r) => r.rate,
+  net: (r) => r.dayNet,
+  pnl: (r) => r.pnl,
+};
+
+const SORT_LABELS: readonly (readonly [TickEntrySort, string])[] = [
+  ['rate', '등락률순'],
+  ['net', '순매수순'],
+  ['pnl', '손익순'],
+  ['name', '이름순'],
+];
+
 function sortRows(rows: EntryRow[], sort: TickEntrySort): EntryRow[] {
   const nameOf = (r: EntryRow) => r.name ?? r.code ?? r.isin;
+  const valueOf = sort === 'name' ? null : SORT_VALUE[sort];
   return [...rows].sort((a, b) => {
-    if (sort === 'rate') {
-      if (a.rate === null && b.rate !== null) return 1;
-      if (b.rate === null && a.rate !== null) return -1;
-      if (a.rate !== null && b.rate !== null && a.rate !== b.rate) return b.rate - a.rate;
+    if (valueOf !== null) {
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      if (va === null && vb !== null) return 1;
+      if (vb === null && va !== null) return -1;
+      if (va !== null && vb !== null && va !== vb) return vb - va;
     }
     return COLLATOR.compare(nameOf(a), nameOf(b)) || a.ex.localeCompare(b.ex);
   });
 }
+
+/** 부호 색 — 양 --up · 음 --down · 0 · 모름 --muted-fg(등락률 칸 · 팀 칸 공통). */
+function signCls(v: number | null): string {
+  if (v === null || v === 0) return 'text-[var(--muted-fg)]';
+  return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
+}
+
+const TH = 'bg-[var(--muted)] px-3 py-1.5 text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]';
+const TEAM_TD = 'hidden h-10 border-t border-[var(--border-subtle)] px-3 text-right whitespace-nowrap tabular-nums sm:table-cell';
 
 const mdOf = (ymd: string) => `${Number(ymd.slice(4, 6))}/${Number(ymd.slice(6, 8))}`;
 
@@ -81,6 +116,9 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           name: r.name,
           ex: 'KRX' as const,
           rate: r.high_rate ?? r.rate,
+          dayNet: null,
+          cum: null,
+          pnl: null,
           sources: r.sources,
           live: true,
         }))
@@ -91,6 +129,9 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           name: r.name,
           ex: r.exchange,
           rate: r.high_rate,
+          dayNet: r.team_day_net_krw ?? null,
+          cum: r.accum_pos_net_krw ?? null,
+          pnl: r.team_day_pnl_krw ?? null,
           sources: r.sources,
           live: false,
         }));
@@ -108,12 +149,7 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
             {list.length}종목 · {isToday ? '매집감지 등록 + 15%↑ · 라이브' : '매집감지 등록 + 15%↑ 자동 · 요청 변환분'}
           </small>
           <div role="group" aria-label="정렬" className="ml-auto inline-flex rounded-full bg-[var(--muted)] p-0.5">
-            {(
-              [
-                ['rate', '등락률순'],
-                ['name', '이름순'],
-              ] as const
-            ).map(([k, label]) => (
+            {SORT_LABELS.map(([k, label]) => (
               <button
                 key={k}
                 type="button"
@@ -138,15 +174,12 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           <table className="w-full border-collapse text-[12.5px]">
             <thead>
               <tr>
-                <th className="bg-[var(--muted)] px-3 py-1.5 text-left text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]">
-                  종목
-                </th>
-                <th className="bg-[var(--muted)] px-3 py-1.5 text-right text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]">
-                  등락률
-                </th>
-                <th className="hidden bg-[var(--muted)] px-3 py-1.5 text-left text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)] sm:table-cell">
-                  출처
-                </th>
+                <th className={cn(TH, 'text-left')}>종목</th>
+                <th className={cn(TH, 'text-right')}>등락률</th>
+                <th className={cn(TH, 'hidden text-right sm:table-cell')}>당일순매수</th>
+                <th className={cn(TH, 'hidden text-right sm:table-cell')}>누적순매수</th>
+                <th className={cn(TH, 'hidden text-right sm:table-cell')}>당일손익</th>
+                <th className={cn(TH, 'hidden text-left sm:table-cell')}>출처</th>
                 <th className="w-6 bg-[var(--muted)]" aria-hidden="true" />
               </tr>
             </thead>
@@ -166,20 +199,45 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
                       <small className="block text-[11px] text-[var(--muted-fg)] sm:ml-1.5 sm:inline">
                         {r.code ?? r.isin} · {r.ex}
                       </small>
+                      <span
+                        data-slot="tick-entry-team-line"
+                        className="mt-0.5 block text-[11px] text-[var(--muted-fg)] tabular-nums sm:hidden"
+                      >
+                        순매수 <b className={cn('font-bold', signCls(r.dayNet))}>{fmtSignedAmountC(r.dayNet)}</b> · 누적{' '}
+                        <span className={signCls(r.cum)}>{fmtSignedAmountC(r.cum)}</span> · 손익{' '}
+                        <b className={cn('font-bold', signCls(r.pnl))}>{fmtSignedAmountC(r.pnl)}</b>
+                      </span>
                     </button>
                   </td>
                   <td
                     title="그날 고가 기준"
                     className={cn(
                       'h-10 border-t border-[var(--border-subtle)] px-3 text-right font-bold whitespace-nowrap tabular-nums',
-                      r.rate === null || r.rate === 0
-                        ? 'text-[var(--muted-fg)]'
-                        : r.rate > 0
-                          ? 'text-[var(--up)]'
-                          : 'text-[var(--down)]',
+                      signCls(r.rate),
                     )}
                   >
                     {fmtRate(r.rate)}
+                  </td>
+                  <td
+                    data-slot="tick-entry-day-net"
+                    title="팀 당일 순매수 — 그 거래소 팀만 · 상세 팀 거래정보 끝 틱 값"
+                    className={cn(TEAM_TD, 'font-bold', signCls(r.dayNet))}
+                  >
+                    {fmtSignedAmountC(r.dayNet)}
+                  </td>
+                  <td
+                    data-slot="tick-entry-cum"
+                    title="매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산)"
+                    className={cn(TEAM_TD, signCls(r.cum))}
+                  >
+                    {fmtSignedAmountC(r.cum)}
+                  </td>
+                  <td
+                    data-slot="tick-entry-pnl"
+                    title="팀 당일 손익(실현+미실현) — 끝 틱 기준"
+                    className={cn(TEAM_TD, 'font-bold', signCls(r.pnl))}
+                  >
+                    {fmtSignedAmountC(r.pnl)}
                   </td>
                   <td className="hidden h-10 border-t border-[var(--border-subtle)] px-3 whitespace-nowrap sm:table-cell">
                     {r.sources.map((s) => (

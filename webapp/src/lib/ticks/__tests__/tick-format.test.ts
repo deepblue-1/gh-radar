@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { fmtAmountC, fmtBytes, fmtQty, fmtRate } from '../tick-format';
+import { fmtAmountC, fmtBytes, fmtQty, fmtRate, fmtSignedAmountC } from '../tick-format';
 
 /** Phase 37 Plan 08 — 스케치 010 C 축약 경계 · 등락률 · 수량. */
 
@@ -50,5 +50,21 @@ describe('fmtQty · fmtBytes', () => {
     expect(fmtQty(1234567)).toBe('1,234,567');
     expect(fmtBytes(512 * 1024)).toBe('512.0KB');
     expect(fmtBytes(3.5 * 1024 * 1024)).toBe('3.5MB');
+  });
+});
+
+describe('fmtSignedAmountC — 목록 팀 열 · 상세 팀 패널 부호 금액(quick 261103-j4d)', () => {
+  it('모름 「—」 · 0 「0」', () => {
+    expect(fmtSignedAmountC(null)).toBe('—');
+    expect(fmtSignedAmountC(undefined)).toBe('—');
+    expect(fmtSignedAmountC(Number.NaN)).toBe('—');
+    expect(fmtSignedAmountC(0)).toBe('0');
+  });
+  it('양수 「+」 · 음수 「−」(U+2212)', () => {
+    expect(fmtSignedAmountC(-312_000_000)).toBe('−3.12억');
+    expect(fmtSignedAmountC(4_520_000_000)).toBe('+45.2억');
+    expect(fmtSignedAmountC(89_000_000)).toBe('+8,900만');
+    expect(fmtSignedAmountC(-21_500_000)).toBe('−2,150만');
+    expect(fmtSignedAmountC(184_000_000)).toBe('+1.84억');
   });
 });

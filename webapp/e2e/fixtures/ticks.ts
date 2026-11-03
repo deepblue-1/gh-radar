@@ -73,6 +73,8 @@ function gridRow(
   exchange: TickExchange,
   sources: TickGridRow['sources'],
   high_rate: number,
+  /** 팀 칸(quick 261103-j4d · 20261103230000) — 없으면 키 자체를 싣지 않는다(옛 RPC 모양). */
+  team?: { fills: number | null; net: number | null; pnl: number | null; cum: number | null },
 ): TickGridRow {
   return {
     date,
@@ -88,6 +90,14 @@ function gridRow(
     high_rate,
     last_rate: high_rate - 2,
     created_at: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T15:00:00Z`,
+    ...(team === undefined
+      ? {}
+      : {
+          team_fills: team.fills,
+          team_day_net_krw: team.net,
+          team_day_pnl_krw: team.pnl,
+          accum_pos_net_krw: team.cum,
+        }),
   };
 }
 
@@ -97,9 +107,14 @@ export function tickDayFixture(d: string | null): TickDayResponse {
   const rows =
     date === TICK_DATE
       ? [
-          gridRow(ECO, date, 'KRX', ['accum', 'up15'], 29.9),
-          gridRow(ECO, date, 'NXT', ['up15'], 15.6),
-          gridRow(SKH, date, 'KRX', ['request'], 1.8),
+          gridRow(ECO, date, 'KRX', ['accum', 'up15'], 29.9, {
+            fills: 120,
+            net: -312_000_000,
+            pnl: 184_000_000,
+            cum: 4_520_000_000,
+          }),
+          gridRow(ECO, date, 'NXT', ['up15'], 15.6, { fills: 14, net: 89_000_000, pnl: -21_500_000, cum: 4_520_000_000 }),
+          gridRow(SKH, date, 'KRX', ['request'], 1.8, { fills: 0, net: null, pnl: null, cum: null }),
         ]
       : [];
   return { access: true, dates: [TICK_DATE, TICK_PREV_DATE], date, rows, requests: [], eta_s: { ...ETA } };

@@ -112,3 +112,118 @@ describe('TickEntry', () => {
     expect(screen.queryByText(/목록에 없는 종목은/)).toBeNull();
   });
 });
+
+describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B · quick 261103-j4d)', () => {
+  const TEAM: TickGridRow[] = [
+    row({
+      isin: 'KR7101360006', name: '에코앤드림', high_rate: 29.9, sources: ['accum'],
+      team_fills: 120, team_day_net_krw: -312_000_000, team_day_pnl_krw: 184_000_000, accum_pos_net_krw: 4_520_000_000,
+    }),
+    row({
+      isin: 'KR7101360006', name: '에코앤드림', exchange: 'NXT', high_rate: 15.6,
+      team_fills: 14, team_day_net_krw: 89_000_000, team_day_pnl_krw: -21_500_000, accum_pos_net_krw: 4_520_000_000,
+    }),
+    row({
+      isin: 'KR7000660001', name: 'SK하이닉스', high_rate: 18.0, sources: ['request'],
+      team_fills: 0, team_day_net_krw: null, team_day_pnl_krw: null, accum_pos_net_krw: null,
+    }),
+    // 옛 RPC 행 — 팀 키 없음
+    row({ isin: 'KR7005930003', name: '삼성전자', high_rate: 3.2 }),
+    // 팀이 거래했고 순매수 · 손익이 정확히 0
+    row({
+      isin: 'KR7035720002', name: '카카오', high_rate: -0.9,
+      team_fills: 3, team_day_net_krw: 0, team_day_pnl_krw: 0, accum_pos_net_krw: 0,
+    }),
+  ];
+  const cells = (r: HTMLElement) =>
+    ['tick-entry-day-net', 'tick-entry-cum', 'tick-entry-pnl'].map((s) => r.querySelector(`[data-slot="${s}"]`) as HTMLElement);
+  const rowOf = (isin: string, ex = 'KRX') =>
+    screen.getAllByRole('row').find((r) => r.getAttribute('data-isin') === isin && r.getAttribute('data-ex') === ex)!;
+
+  it('머리 3열(등락률 뒤 · sm 이상) — 당일순매수 · 누적순매수 · 당일손익', () => {
+    renderEntry({ rows: TEAM });
+    const ths = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    expect(ths.slice(0, 6)).toEqual(['종목', '등락률', '당일순매수', '누적순매수', '당일손익', '출처']);
+    for (const name of ['당일순매수', '누적순매수', '당일손익']) {
+      expect(screen.getByRole('columnheader', { name })).toHaveClass('hidden', 'sm:table-cell');
+    }
+  });
+
+  it('3칸 텍스트 · 색 · 굵기 — 순매수 · 손익 굵게 · 누적 보통', () => {
+    renderEntry({ rows: TEAM });
+    const [net, cum, pnl] = cells(rowOf('KR7101360006'));
+    expect([net!.textContent, cum!.textContent, pnl!.textContent]).toEqual(['−3.12억', '+45.2억', '+1.84억']);
+    expect(net).toHaveClass('text-[var(--down)]', 'font-bold', 'hidden', 'sm:table-cell');
+    expect(cum).toHaveClass('text-[var(--up)]');
+    expect(cum).not.toHaveClass('font-bold');
+    expect(pnl).toHaveClass('text-[var(--up)]', 'font-bold');
+    const [nNet, , nPnl] = cells(rowOf('KR7101360006', 'NXT'));
+    expect(nNet!.textContent).toBe('+8,900만');
+    expect(nPnl!.textContent).toBe('−2,150만');
+    expect(nPnl).toHaveClass('text-[var(--down)]');
+  });
+
+  it('모름 「—」(팀 체결 없음 · 미등록 · 옛 RPC 행) · 0 「0」 — 둘 다 muted', () => {
+    renderEntry({ rows: TEAM });
+    for (const isin of ['KR7000660001', 'KR7005930003']) {
+      const cs = cells(rowOf(isin));
+      expect(cs.map((c) => c.textContent)).toEqual(['—', '—', '—']);
+      for (const c of cs) expect(c).toHaveClass('text-[var(--muted-fg)]');
+    }
+    const zero = cells(rowOf('KR7035720002'));
+    expect(zero.map((c) => c.textContent)).toEqual(['0', '0', '0']);
+    for (const c of zero) expect(c).toHaveClass('text-[var(--muted-fg)]');
+  });
+
+  it('폰 한 줄 — 「순매수 … · 누적 … · 손익 …」 · sm:hidden', () => {
+    renderEntry({ rows: TEAM });
+    const line = rowOf('KR7101360006').querySelector('[data-slot="tick-entry-team-line"]') as HTMLElement;
+    expect(line.textContent).toBe('순매수 −3.12억 · 누적 +45.2억 · 손익 +1.84억');
+    expect(line).toHaveClass('sm:hidden');
+    expect(within(line).getByText('−3.12억')).toHaveClass('text-[var(--down)]', 'font-bold');
+    expect(within(line).getByText('+45.2억')).toHaveClass('text-[var(--up)]');
+    expect(within(line).getByText('+45.2억')).not.toHaveClass('font-bold');
+    expect(within(line).getByText('+1.84억')).toHaveClass('text-[var(--up)]', 'font-bold');
+  });
+
+  it('오늘 목록 — 3칸 · 폰 줄 모두 「—」', () => {
+    const today: TickTodayRow[] = [
+      { isin: 'KR7005930003', code: '005930', name: '삼성전자', sources: ['accum'], rate: 1.1, high_rate: 3.2 },
+    ];
+    renderEntry({ todayRows: today });
+    const r = rowOf('KR7005930003');
+    expect(cells(r).map((c) => c.textContent)).toEqual(['—', '—', '—']);
+    expect(r.querySelector('[data-slot="tick-entry-team-line"]')!.textContent).toBe('순매수 — · 누적 — · 손익 —');
+  });
+
+  it('순매수순 — 내림차순 · 값 없는 행 뒤(같으면 이름 → 거래소)', () => {
+    renderEntry({ rows: TEAM, sort: 'net' });
+    expect(names()).toEqual([
+      'KR7101360006:NXT', // +8,900만
+      'KR7035720002:KRX', // 0
+      'KR7101360006:KRX', // −3.12억
+      'KR7005930003:KRX', // 모름 — 이름순(삼성전자 · SK하이닉스)
+      'KR7000660001:KRX',
+    ]);
+  });
+
+  it('손익순 — 내림차순 · 값 없는 행 뒤', () => {
+    renderEntry({ rows: TEAM, sort: 'pnl' });
+    expect(names()).toEqual([
+      'KR7101360006:KRX', // +1.84억
+      'KR7035720002:KRX', // 0
+      'KR7101360006:NXT', // −2,150만
+      'KR7005930003:KRX',
+      'KR7000660001:KRX',
+    ]);
+  });
+
+  it('토글 4개 「등락률순 · 순매수순 · 손익순 · 이름순」 → onSort', () => {
+    const { onSort } = renderEntry({ rows: TEAM });
+    const group = screen.getByRole('group', { name: '정렬' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['등락률순', '순매수순', '손익순', '이름순']);
+    fireEvent.click(screen.getByRole('button', { name: '순매수순' }));
+    fireEvent.click(screen.getByRole('button', { name: '손익순' }));
+    expect(onSort.mock.calls).toEqual([['net'], ['pnl']]);
+  });
+});

@@ -35,6 +35,14 @@ export interface TickGridRow {
   high_rate: number | null;
   last_rate: number | null;
   created_at: string;
+  /** 팀 체결 수(상세 「팀 거래정보」 끝 틱) — null 미계산 · 0 팀 체결 없음. 옛 RPC 면 키 없음(20261103230000 · quick 261103-j4d). */
+  team_fills?: number | null;
+  /** 당일 팀 순매수 원(그 거래소 팀만 · 끝 틱) — 팀 체결 없음 · 미계산이면 null · 옛 RPC 면 키 없음(20261103230000). */
+  team_day_net_krw?: number | null;
+  /** 당일 팀 손익 원(실현+미실현 · 끝 틱) — 팀 체결 없음 · 미계산이면 null · 옛 RPC 면 키 없음(20261103230000). */
+  team_day_pnl_krw?: number | null;
+  /** 매집감지 누적 순매수 원(이월 포함 · KRX+NXT 합산 · limitup_accum_flow.pos_net_krw) — 미등록이면 null · 옛 RPC 면 키 없음(20261103230000). */
+  accum_pos_net_krw?: number | null;
 }
 
 /** 요청 변환 상태. */

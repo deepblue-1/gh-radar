@@ -7,7 +7,7 @@ import { fmtTickTime, memberTableAt, type TickOpenResponse } from '@gh-radar/sha
 import { CARD } from '@/components/layout/page-layout';
 import { teamKpiAt } from '@/lib/ticks/team-model';
 import { cumPointsOf, msOfNs } from '@/lib/ticks/tick-chart';
-import { MINUS, fmtAmountC, fmtQty } from '@/lib/ticks/tick-format';
+import { MINUS, fmtAmountC, fmtQty, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
 
@@ -40,11 +40,6 @@ const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 function signColor(v: number | null): string {
   if (v === null || v === 0) return 'text-[var(--flat)]';
   return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
-}
-
-/** 부호 붙인 금액(+ / −). */
-function signedAmount(v: number): string {
-  return v > 0 ? `+${fmtAmountC(v)}` : fmtAmountC(v);
 }
 
 /** 부호 붙인 수량(+ / −). */
@@ -116,7 +111,7 @@ export function TickTeamPanel({ session, cursorRec, accum = null, isToday = fals
           <Kpi
             label="당일 팀 순매수"
             slot="tick-team-day-net"
-            value={kpi.k === 0 ? DASH : signedAmount(kpi.dayNetVal)}
+            value={kpi.k === 0 ? DASH : fmtSignedAmountC(kpi.dayNetVal)}
             sub={kpi.k === 0 ? undefined : `${signedQty(kpi.dayNetQty)}주`}
             color={kpi.k === 0 ? undefined : signColor(kpi.dayNetVal)}
           />
@@ -124,7 +119,7 @@ export function TickTeamPanel({ session, cursorRec, accum = null, isToday = fals
             <Kpi
               label="누적(이월 포함)"
               slot="tick-team-cum"
-              value={cum === null ? DASH : signedAmount(cum)}
+              value={cum === null ? DASH : fmtSignedAmountC(cum)}
               color={signColor(cum)}
             />
           ) : (
@@ -144,7 +139,7 @@ export function TickTeamPanel({ session, cursorRec, accum = null, isToday = fals
             sub={
               pnl === null
                 ? undefined
-                : `실현 ${signedAmount(pnl.realized_val)} · 미실현 ${signedAmount(pnl.unrealized_val)}`
+                : `실현 ${fmtSignedAmountC(pnl.realized_val)} · 미실현 ${fmtSignedAmountC(pnl.unrealized_val)}`
             }
           />
         </dl>

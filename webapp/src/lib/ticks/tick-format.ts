@@ -4,6 +4,8 @@
  * - `fmtAmountC` — 금액(원). 1억 미만 = 만 단위 반올림 정수 「3,000만」 · 1억~100억 = 유효 3자리 「7.96억」 「19.5억」 ·
  *   100억 이상 = 억 반올림 정수 「1,326억」. 만 반올림이 1억에 닿으면(9,999.5만 이상) 억 쪽으로 올라간다.
  *   1만 미만(호가 한 틱 잔량 등)은 원 정수 「4,000원」 — 「0만」 을 피한다. 음수는 「−」(U+2212) 를 붙인다.
+ * - `fmtSignedAmountC` — 부호 붙인 금액(목록 팀 열 · 상세 팀 패널 한 벌 · quick 261103-j4d). 모름(null · NaN) 「—」 · 0 「0」 ·
+ *   양수 「+」 + fmtAmountC · 음수 fmtAmountC 그대로(「−」).
  * - `fmtRate` — 등락률 % 그대로(30.0 = +30%). 소수 1자리 · 양수 「+」 · 음수 「−」 · null 「—」.
  * - `fmtQty` — 수량 콤마.
  * - `fmtBytes` — 격자 크기(KB · MB 소수 1자리).
@@ -38,6 +40,11 @@ export function fmtAmountC(won: number): string {
   if (won === 0) return '0';
   const s = amountAbs(Math.abs(won));
   return won < 0 ? `${MINUS}${s}` : s;
+}
+
+export function fmtSignedAmountC(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return DASH;
+  return v > 0 ? `+${fmtAmountC(v)}` : fmtAmountC(v);
 }
 
 export function fmtRate(r: number | null | undefined): string {

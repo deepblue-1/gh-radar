@@ -6,6 +6,7 @@ import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
 import {
   ECO,
   SAMSUNG,
+  SKH,
   TICK_DATE,
   lastSaturday,
   tickGridUrl,
@@ -53,6 +54,17 @@ async function expectNoHorizontalScroll(page: Page, tag: string): Promise<void> 
   });
   expect(o.doc, `${tag} 문서 가로 스크롤 0`).toBeLessThanOrEqual(0);
   expect(o.main, `${tag} main 가로 스크롤 0`).toBeLessThanOrEqual(0);
+}
+
+/** 진입 표가 카드(overflow-hidden) 안에 다 들어가는가 — 카드가 잘라 먹으면 문서 가로 스크롤 검사로는 안 잡힌다. */
+async function expectEntryTableFits(page: Page, tag: string): Promise<void> {
+  const o = await page.evaluate(() => {
+    const t = document.querySelector('[data-slot="tick-entry"] table');
+    const card = t?.parentElement ?? null;
+    return t === null || card === null ? null : { table: t.scrollWidth, card: card.clientWidth };
+  });
+  expect(o, `${tag} 진입 표`).not.toBeNull();
+  expect(o!.table, `${tag} 진입 표 폭 ≤ 카드 폭`).toBeLessThanOrEqual(o!.card);
 }
 
 test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
@@ -109,6 +121,49 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
     await expect(page).toHaveURL(new RegExp(`${BASE}\\?d=${TICK_DATE}(&ex=NXT)?$`));
     await expect(entryRows(page)).toHaveCount(3);
     await expect(header.locator('[data-slot="tick-back"]')).toHaveCount(0);
+  });
+
+  test('진입 — 팀 열 · 정렬 · 폰 한 줄(quick 261103-j4d)', async ({ page }) => {
+    await mockTickApi(page);
+    await page.goto(`${BASE}?d=${TICK_DATE}`);
+    await expect(page.getByRole('heading', { name: '10/16 격자 종목' })).toBeVisible({ timeout: 30_000 });
+    await expect(entryRows(page)).toHaveCount(3);
+
+    const teamCells = (i: number) =>
+      ['tick-entry-day-net', 'tick-entry-cum', 'tick-entry-pnl'].map((s) => entryRows(page).nth(i).locator(`[data-slot="${s}"]`));
+    // 1280 — 등락률순 0행 = 에코앤드림 KRX · 3칸
+    for (const [cell, want] of teamCells(0).map((c, k) => [c, ['−3.12억', '+45.2억', '+1.84억'][k]!] as const)) {
+      await expect(cell).toBeVisible();
+      await expect(cell).toHaveText(want);
+    }
+    // SK하이닉스(팀 체결 없음 · 매집감지 미등록) — 「—」 셋
+    for (const cell of teamCells(2)) await expect(cell).toHaveText('—');
+    await expect(entryRows(page).nth(0).locator('[data-slot="tick-entry-team-line"]')).toBeHidden();
+
+    // 순매수순 — NXT(+8,900만) 가 맨 위 · 손익순 — KRX(+1.84억) 맨 위 · 값 없는 SK하이닉스는 맨 뒤
+    await page.getByRole('button', { name: '순매수순' }).click();
+    await expect(entryRows(page).nth(0)).toHaveAttribute('data-ex', 'NXT');
+    await expect(entryRows(page).nth(2)).toHaveAttribute('data-isin', SKH.isin);
+    await page.getByRole('button', { name: '손익순' }).click();
+    await expect(entryRows(page).nth(0)).toHaveAttribute('data-ex', 'KRX');
+    await expect(entryRows(page).nth(0)).toHaveAttribute('data-isin', ECO.isin);
+    await expect(entryRows(page).nth(2)).toHaveAttribute('data-isin', SKH.isin);
+    await expectNoHorizontalScroll(page, '진입 팀 열 1280');
+
+    // 700 — 3열 그대로(sm 이상) · 가로 넘침 0
+    await page.setViewportSize({ width: 700, height: 800 });
+    await expect(teamCells(0)[0]!).toBeVisible();
+    await expectNoHorizontalScroll(page, '진입 팀 열 700');
+    await expectEntryTableFits(page, '진입 팀 열 700');
+
+    // 390 — 3열 숨김 · 이름 밑 한 줄
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(teamCells(0)[0]!).toBeHidden();
+    const line = entryRows(page).nth(0).locator('[data-slot="tick-entry-team-line"]');
+    await expect(line).toBeVisible();
+    await expect(line).toHaveText('순매수 −3.12억 · 누적 +45.2억 · 손익 +1.84억');
+    await expectNoHorizontalScroll(page, '진입 팀 열 390');
+    await expectEntryTableFits(page, '진입 팀 열 390');
   });
 
   test('변환 — 검색으로 격자 없는 종목 → convert 1회 → 「변환 중」 → 5초 폴링에서 grid → 열림', async ({ page }) => {
