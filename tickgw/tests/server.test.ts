@@ -247,6 +247,22 @@ describe("TickCache — LRU 128MB · 유휴 15분(오늘 complete 는 KEEP_UNTIL
     expect(c.totalBytes()).toBe(80);
   });
 
+  it("parts 는 청크를 복사하지 않고 subarray 로 준다 — 같은 메모리(WR-31)", () => {
+    const c = new TickCache(1 << 20, 15 * 60 * 1000);
+    const key = makeKey("KR7101360006", "KRX", DATE);
+    c.ensure(key, at("1000"));
+    const a = Buffer.from([1, 2, 3, 4]);
+    const b = Buffer.from([5, 6, 7]);
+    c.append(key, a, meta);
+    c.append(key, b, meta);
+    const ps = c.parts(key, 2, 6);
+    expect(ps.map((p) => [...p])).toEqual([[3, 4], [5, 6]]);
+    expect(ps[0]!.buffer).toBe(a.buffer);
+    expect(ps[1]!.buffer).toBe(b.buffer);
+    expect([...c.slice(key, 0)]).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(c.parts(key, 7)).toEqual([]);
+  });
+
   it("유휴 15분 — complete 아닌 키 · 다른 날 키는 지운다 · 오늘 complete 키는 21:00 전엔 남긴다", () => {
     const c = new TickCache(1 << 20, 15 * 60 * 1000, 2100);
     const today = makeKey("KR7101360006", "KRX", DATE);

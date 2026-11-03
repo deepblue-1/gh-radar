@@ -10,7 +10,7 @@
  *   계약 위반(has_more 인데 커서 없음 등)으로 이어받기가 끊기거나, 인덱서가 20:00 압축 원본을 건너뛰었다고 알리면
  *   (`compressed_files_skipped` > 0 · CR-31) false.
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
- * - 상한: 전체 `limitBytes`(기본 128MB) 를 넘으면 lastAccess 가 가장 오래된 키부터 지운다(append 마다 · evict 마다).
+ * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31) 를 넘으면 lastAccess 가 가장 오래된 키부터 지운다(append 마다 · evict 마다).
  *   LRU 는 면제가 없다 — 밀려난 키는 closed 가 될 수 없어 export(승격)에 나오지 않는다(잘린 하루를 정본처럼 쓰지 않는다).
  * - 유휴: 마지막 touch 뒤 `idleMs`(15분)면 지운다. 단 「complete ∧ date = KST 오늘 ∧ KST < keepUntil(21:00)」 키는
  *   유휴 삭제에서 뺀다 — 20:01 마감 마무리 · 승격 Job 의 입력이라 브라우저가 닫혀도 21:00 까지 남겨 둔다.
@@ -126,12 +126,15 @@ export class TickCache {
     return removed;
   }
 
-  /** offset 이후 바이트(최대 `end` 까지). offset 이 범위를 벗어나면 빈 버퍼. */
-  slice(key: string, offset: number, end?: number): Buffer {
+  /**
+   * offset 이후 바이트(최대 `end` 까지)를 **복사 없이** 청크 subarray 목록으로(WR-31 — 256MB 컨테이너에서 키 전체를
+   * `Buffer.concat` 으로 다시 복사하지 않는다). offset 이 범위를 벗어나면 빈 목록.
+   */
+  parts(key: string, offset: number, end?: number): Buffer[] {
     const e = this.entries.get(key);
-    if (!e) return Buffer.alloc(0);
+    if (!e) return [];
     const stop = Math.min(end ?? e.size, e.size);
-    if (offset >= stop) return Buffer.alloc(0);
+    if (offset >= stop) return [];
     const out: Buffer[] = [];
     let pos = 0;
     for (const c of e.chunks) {
@@ -142,7 +145,12 @@ export class TickCache {
       pos = cEnd;
       if (pos >= stop) break;
     }
-    return Buffer.concat(out);
+    return out;
+  }
+
+  /** offset 이후 바이트(최대 `end` 까지)를 한 버퍼로(복사 — 시험 · 작은 응답용. HTTP 응답은 `parts` 를 쓴다). */
+  slice(key: string, offset: number, end?: number): Buffer {
+    return Buffer.concat(this.parts(key, offset, end));
   }
 
   delete(key: string): boolean {

@@ -28,8 +28,8 @@
  * ── 종료 판정 ─────────────────────────────────────────────────────
  *   ControlPersist 로 배경에 남는 마스터 프로세스가 stderr 를 늦게 닫는 OpenSSH 판이 있다. 'close' 만 기다리면
  *   첫 호출이 마스터 수명(120초)만큼 묶일 수 있어 「종료 + stdout 끝」 이면 끝내고 stderr 는 짧게(200ms)만 더 기다린다.
- *   시간 초과면 SIGKILL · code −1. stdout 이 상한(기본 32MB — 계약 16MB 엄격 상한의 두 배 · 계약 위반 방어)을 넘으면
- *   kill · code −1(컨테이너 256MB 보호).
+ *   시간 초과면 SIGKILL · code −1. stdout 이 상한(기본 20MB — 계약 16MB 엄격 상한 + 4MB 여유 · 계약 위반 방어)을 넘으면
+ *   kill · code −1(컨테이너 256MB 보호 · WR-31).
  */
 
 import { spawn } from "node:child_process";
@@ -75,6 +75,9 @@ export interface IndexerOptions {
 }
 
 export type RunIndexer = (args: IndexerArgs) => Promise<IndexerResult>;
+
+/** ssh stdout 상한 기본값 — 계약 16MB 엄격 상한 + 4MB 여유(WR-31). */
+export const DEFAULT_MAX_STDOUT_BYTES = 20 * 1024 * 1024;
 
 /** 계약이 기대하는 stderr JSON fmt. */
 export const INDEXER_FMT = "pcapns-rec/1";
@@ -138,7 +141,7 @@ export function parseMeta(stderr: string): IndexerMeta | null {
 }
 
 export function runIndexer(args: IndexerArgs, opts: IndexerOptions): Promise<IndexerResult> {
-  const maxStdout = opts.maxStdoutBytes ?? 32 * 1024 * 1024;
+  const maxStdout = opts.maxStdoutBytes ?? DEFAULT_MAX_STDOUT_BYTES;
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;

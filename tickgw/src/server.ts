@@ -137,6 +137,15 @@ function exportList(deps: ServerDeps, url: URL, res: http.ServerResponse): void 
   json(res, 200, { date, keys, unclosed: day.length - keys.length });
 }
 
+/** 청크 subarray 를 그대로 흘려보낸다 — `Buffer.concat` 복사 없음(WR-31 · 256MB 컨테이너). */
+function sendParts(res: http.ServerResponse, headers: http.OutgoingHttpHeaders, parts: Buffer[]): void {
+  let length = 0;
+  for (const p of parts) length += p.length;
+  res.writeHead(200, { ...headers, "Content-Length": length });
+  for (const p of parts) res.write(p);
+  res.end();
+}
+
 function exportBytes(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
   const isin = url.searchParams.get("isin") ?? "";
   const ex = parseEx(url.searchParams.get("ex"));
@@ -146,14 +155,15 @@ function exportBytes(deps: ServerDeps, url: URL, res: http.ServerResponse): void
   const key = makeKey(isin, ex, date);
   const entry = deps.cache.get(key);
   if (!entry || !entry.closed) return json(res, 404, { error: "NOT_CLOSED" });
-  const body = deps.cache.slice(key, 0);
-  res.writeHead(200, {
-    "Content-Type": "application/octet-stream",
-    "Content-Length": body.length,
-    "Cache-Control": "no-store",
-    "X-Tick-Records": String(entry.records),
-  });
-  res.end(body);
+  sendParts(
+    res,
+    {
+      "Content-Type": "application/octet-stream",
+      "Cache-Control": "no-store",
+      "X-Tick-Records": String(entry.records),
+    },
+    deps.cache.parts(key, 0),
+  );
 }
 
 function live(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
@@ -175,19 +185,20 @@ function live(deps: ServerDeps, url: URL, res: http.ServerResponse): void {
   if ((epoch !== "" && epoch !== entry.epoch) || (epoch === "" && offset > 0) || offset > end) {
     return json(res, 409, { epoch: entry.epoch });
   }
-  const body = deps.cache.slice(key, offset, end);
-  res.writeHead(200, {
-    "Content-Type": "application/octet-stream",
-    "Content-Length": body.length,
-    "Cache-Control": "no-store",
-    "X-Tick-Epoch": entry.epoch,
-    "X-Tick-Offset-End": String(end),
-    "X-Tick-Last-Recv-Ns": entry.lastRecvNs === null ? "" : String(entry.lastRecvNs),
-    "X-Tick-State": st.state,
-    "X-Tick-Queue": String(st.queue),
-    "X-Tick-Complete": entry.complete ? "true" : "false",
-  });
-  res.end(body);
+  sendParts(
+    res,
+    {
+      "Content-Type": "application/octet-stream",
+      "Cache-Control": "no-store",
+      "X-Tick-Epoch": entry.epoch,
+      "X-Tick-Offset-End": String(end),
+      "X-Tick-Last-Recv-Ns": entry.lastRecvNs === null ? "" : String(entry.lastRecvNs),
+      "X-Tick-State": st.state,
+      "X-Tick-Queue": String(st.queue),
+      "X-Tick-Complete": entry.complete ? "true" : "false",
+    },
+    deps.cache.parts(key, offset, end),
+  );
 }
 
 // ---------------------------------------------------------------- 진입
