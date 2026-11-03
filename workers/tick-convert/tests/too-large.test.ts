@@ -59,6 +59,27 @@ describe("격자 크기 상한 — 넘으면 건너뛴다(실패 아님)", () =>
     for (const r of runs) expect(r.ok).toBe(true);
   });
 
+  it("nightly: 너무 큰 격자도 발사 값은 원시 바이트로 계산해 object_path null 로 싣는다(quick 261103-pei)", async () => {
+    arch = makeSynthArchive({ date: D, packets: PACKETS });
+    const piece = {
+      trade_date: D, gateway: "KB120", profile: "N", fire_exchange: "NXT", fire_base: "08:59:00", market: "K", wire: 0,
+      side: "buy", isin: A, price: 12000, qty: 1, fills: [],
+    };
+    const { sb, calls } = makeFakeSupabase({
+      rpc: {
+        tick_convert_candidates: { data: { accum: [], live16: [], launch: [A] } },
+        launch_queue_inputs: { data: [piece] },
+        launch_queue_set: (a) => ({ data: (a.p_rows as unknown[]).length }),
+      },
+    });
+    const now = new Date("2026-11-02T14:30:00Z");
+    expect(await main(["nightly", "--date", D], { sb, config: cfg(arch.root), now, clock: () => 0 })).toBe(0);
+    expect(uploads(calls)).toHaveLength(0);
+    const sets = rpcCalls(calls, "launch_queue_set");
+    expect(sets).toHaveLength(1);
+    expect(sets[0]!.p_rows).toEqual([expect.objectContaining({ gateway: "KB120", profile: "N", kind: "run", object_path: null })]);
+  });
+
   it("request: 상한을 넘으면 TOO_LARGE 로 닫고 종료 0", async () => {
     arch = makeSynthArchive({ date: D, packets: PACKETS });
     const { sb, calls } = makeFakeSupabase({ claim: [A] });

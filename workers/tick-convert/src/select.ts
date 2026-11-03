@@ -6,6 +6,9 @@
  * RESEARCH Open Question 4 RESOLVED). 이견이 오면 이 함수의 집합만 바꾼다.
  *
  * 반환 = isin → 출처 칩 집합(accum · up15). 대상 ISIN 은 호출자가 레코드가 있는 거래소마다 격자를 만든다.
+ *
+ * 발사 종목(quick 261103-pei design_decisions 7): `cands.launch`(그날 접수 발사 조각 ISIN)도 대상이다 — 출처 칩을 새로
+ * 만들지 않고 빈 집합으로 넣는다(행 `sources: []` · CHECK `sources <@ …` 통과 · 목록은 칩 없이 보인다). 이미 있으면 그대로.
  */
 import type { DayRateTracker } from "@gh-radar/shared";
 import type { Candidates } from "./meta";
@@ -28,6 +31,7 @@ export function selectTargets(
   };
   for (const isin of cands.accum) put(isin, "accum");
   for (const isin of cands.live16) put(isin, "accum");
+  for (const isin of cands.launch) if (!out.has(isin)) out.set(isin, new Set());
   for (const [key, tr] of rates) {
     if (!tr.hit15) continue;
     const bar = key.indexOf("|");

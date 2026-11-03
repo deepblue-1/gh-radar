@@ -364,8 +364,8 @@ INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date,
   ('KB120', 'tv-ep', 3, '2026-10-30', 1793000000002, 15, 'KRX', 'KR7370004005'),
   ('KB120', 'tv-ep', 4, '2026-10-29', 1792900000000, 16, 'KRX', 'KR7370005002');
 SELECT is(public.tick_convert_candidates('20261030'),
-          '{"accum": ["KR7370001001"], "live16": ["KR7370003007"]}'::jsonb,
-          'K candidates = accum(limitup_accum_flow) ∪ live16(kind 16 · 그날 · DISTINCT)');
+          '{"accum": ["KR7370001001"], "live16": ["KR7370003007"], "launch": []}'::jsonb,
+          'K candidates = accum(limitup_accum_flow) ∪ live16(kind 16 · 그날 · DISTINCT) · launch(발사 조각 없음 → [] · quick 261103-pei)');
 
 -- ── L. 오늘 목록(D-15) ─────────────────────────────────────────────
 DELETE FROM public.stock_quotes;

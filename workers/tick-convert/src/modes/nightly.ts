@@ -22,7 +22,13 @@
  *      거래소마다 take → 격자 파일(zstd 9) → 업로드(`grid/<D>/<EX>/<isin>.nightly.ticks.zst`).
  *      크기 판정 뒤 · 업로드 전에 팀 값(team-day.ts gridTeamOf — 상세 「팀 거래정보」 끝 틱 · quick 261103-j4d)을 계산해 행에 싣는다.
  *      계산 실패는 그 행 팀 값만 null + 에러 로그(team_failed) — 업로드 · upsert · 실행 기록 ok 에 영향 없음.
- *   ⑤ 업로드 성공 행만 `tick_grid_upsert('nightly')`(nightly 는 승격 · 요청 격자를 덮는다 — RPC 모드 규칙).
+ *      발사 대기열 값(quick 261103-pei · D-3): candidates.launch(그날 접수 발사 조각 ISIN)가 있으면 `launch_queue_inputs(D)` 를
+ *      한 번 불러 (isin, 거래소)로 묶고, 격자 파일을 만든 직후(크기 판정 전) 그 키 조각이 있으면 launch-queue.ts gridLaunchOf
+ *      (shared launchQueueOf)로 값을 계산한다 — 너무 큰 격자도 손에 있는 원시 바이트로 계산해 object_path null 로 싣는다.
+ *      발사 ISIN 은 출처 칩 없이(sources []) 대상에 들어간다(select.ts). inputs · 계산 · set 실패는 에러 로그 + launch_failed —
+ *      격자 업로드 · upsert · 실행 기록 ok 에는 영향 없음(day.failed 에 넣지 않는다).
+ *   ⑤ 업로드 성공 행만 `tick_grid_upsert('nightly')`(nightly 는 승격 · 요청 격자를 덮는다 — RPC 모드 규칙). 그 뒤 모은 발사 값을
+ *      50행씩 `launch_queue_set`(격자 경로 가드 — upsert 가 먼저여야 새 경로가 통과한다).
  *   ⑥ 거래소별 `tick_convert_run_record` + 요약 로그 한 줄.
  *
  * 실패 격리: 날짜 하나가 throw 해도(깨진 원본 · RPC 오류) 그 날짜만 실패 기록(ok false — 다음 실행이 다시 고른다)하고 다음
@@ -45,8 +51,9 @@ import { KeyStager } from "../stage";
 import { selectTargets, sourcesOf } from "../select";
 import { purgeOld } from "../purge";
 import { GRID_MAX_BYTES, gridObjectPath, type Exchange } from "../store";
-import { createMeta, type GridRow, type Meta, type RunSince } from "../meta";
+import { createMeta, type GridRow, type LaunchInputRow, type LaunchSetRow, type Meta, type RunSince } from "../meta";
 import { gridTeamOf } from "../team-day";
+import { gridLaunchOf } from "../launch-queue";
 import { UsageError, validYmd, type JobDeps } from "./request";
 
 /** 실행 기록 코드 — 2일 유예가 지났는데 두 라벨 모두 08~20시 객체가 없다(ok · 다시 고르지 않는다). */
@@ -55,6 +62,9 @@ export const NO_OBJECTS = "NO_OBJECTS";
 export const PARTIAL = "partial";
 
 const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
+
+/** launch_queue_set 한 번에 넘기는 행 수. */
+export const LAUNCH_SET_BATCH = 50;
 
 export type NightlyArgs = { date?: string };
 
@@ -117,6 +127,10 @@ export type ExchangeResult = {
   teamFailed: number;
   /** 팀 값 계산 소요 합(ms). */
   teamMs: number;
+  /** 발사 대기열 값 행 수(계산해 set 에 넘긴 조각 · quick 261103-pei). */
+  launchRows: number;
+  /** 발사 값 실패 — inputs 실패(거래소마다 1) · 키 계산 실패 · set 실패 행(실패 아님 · 로그만). */
+  launchFailed: number;
   error: string | null;
 };
 
@@ -155,7 +169,19 @@ function msgOf(err: unknown): string {
 }
 
 function emptyEx(exchange: Exchange): ExchangeResult {
-  return { exchange, targets: 0, written: 0, tooLarge: 0, failed: 0, bytesRead: 0, teamFailed: 0, teamMs: 0, error: null };
+  return {
+    exchange,
+    targets: 0,
+    written: 0,
+    tooLarge: 0,
+    failed: 0,
+    bytesRead: 0,
+    teamFailed: 0,
+    teamMs: 0,
+    launchRows: 0,
+    launchFailed: 0,
+    error: null,
+  };
 }
 
 function judgeDay(root: string, date: string, now: Date): DayReady {
@@ -169,11 +195,27 @@ function judgeDay(root: string, date: string, now: Date): DayReady {
 async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyDayResult): Promise<void> {
   const cfg = deps.config;
   const cands = await meta.candidates(date);
+  const byEx = new Map<Exchange, ExchangeResult>(day.exchanges.map((e) => [e.exchange, e]));
+
+  // 발사 조각(quick 261103-pei) — 그날 접수 조각이 있을 때만 inputs 1회. 실패하면 그 날짜 발사 값만 건너뛴다(로그).
+  const launchByKey = new Map<string, LaunchInputRow[]>();
+  if (cands.launch.length > 0) {
+    try {
+      for (const p of await meta.launchInputs(date)) {
+        const k = `${p.isin}|${p.fire_exchange}`;
+        const list = launchByKey.get(k);
+        if (list) list.push(p);
+        else launchByKey.set(k, [p]);
+      }
+    } catch (err) {
+      logger.error({ date, err }, "tick-convert nightly launch inputs failed — 그 날짜 발사 값만 건너뜀(변환은 계속)");
+      for (const er of day.exchanges) er.launchFailed += 1;
+    }
+  }
 
   // ③ 단일 통독 — 모든 키 스테이징 + A3 ∧ G1 등락 추적
   const stager = new KeyStager(cfg.stageChunkBytes);
   const rates = new Map<string, DayRateTracker>();
-  const byEx = new Map<Exchange, ExchangeResult>(day.exchanges.map((e) => [e.exchange, e]));
   for (const ex of EXCHANGES) {
     const label = ex.toLowerCase() as Label;
     const files = listDayObjects(cfg.archiveDir, label, date);
@@ -197,6 +239,7 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
   for (const key of stager.keys()) if (!targets.has(key.slice(0, key.indexOf("|")))) stager.drop(key);
 
   const rows: GridRow[] = [];
+  const launchRows: LaunchSetRow[] = [];
   const errs: string[] = [];
   for (const isin of [...targets.keys()].sort()) {
     const sources = sourcesOf(targets.get(isin)!);
@@ -209,9 +252,19 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       try {
         const raw = stager.take(key);
         const g = buildGridFile(raw, cfg.zstdLevel);
-        if (g.bytes.length > GRID_MAX_BYTES) {
+        const tooLarge = g.bytes.length > GRID_MAX_BYTES;
+        // 발사 값 — 너무 큰 격자도 원시 바이트로 계산(object_path null). 올리는 격자는 업로드 성공 뒤에만 싣는다.
+        const pieces = launchByKey.get(key);
+        let keyLaunch: LaunchSetRow[] = [];
+        if (pieces) {
+          const lq = gridLaunchOf(raw, ex, date, pieces, { date, isin, mode: "nightly", objectPath: tooLarge ? null : path });
+          if (lq.ok) keyLaunch = lq.rows;
+          else er.launchFailed += 1;
+        }
+        if (tooLarge) {
           logger.warn({ date, ex, isin, bytes: g.bytes.length, max: GRID_MAX_BYTES }, "tick-convert nightly grid too large — 건너뜀(실패 아님)");
           er.tooLarge += 1;
+          launchRows.push(...keyLaunch);
           continue;
         }
         const tm = gridTeamOf(raw, ex, { date, isin, mode: "nightly" });
@@ -236,6 +289,7 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
           fmt: TICK_FMT,
           ...tm.team,
         });
+        launchRows.push(...keyLaunch);
       } catch (err) {
         logger.error({ date, ex, isin, path, err }, "tick-convert nightly upload failed — 그 종목만 실패");
         er.failed += 1;
@@ -253,6 +307,17 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       logger.error({ date, rows: rows.length, err }, "tick-convert nightly meta upsert failed");
       for (const r of rows) byEx.get(r.exchange)!.failed += 1;
       errs.push(`tick_grid_upsert: ${msgOf(err)}`);
+    }
+  }
+  // ⑤' 발사 값 — upsert 뒤(격자 경로 가드). 실패는 로그 + launch_failed 만(day.failed · 실행 기록 ok 불변).
+  for (let i = 0; i < launchRows.length; i += LAUNCH_SET_BATCH) {
+    const batch = launchRows.slice(i, i + LAUNCH_SET_BATCH);
+    for (const r of batch) byEx.get(r.fire_exchange as Exchange)!.launchRows += 1;
+    try {
+      await meta.launchSet(batch);
+    } catch (err) {
+      logger.error({ date, rows: batch.length, err }, "tick-convert nightly launch_queue_set failed — 발사 값만 실패(변환은 그대로)");
+      for (const r of batch) byEx.get(r.fire_exchange as Exchange)!.launchFailed += 1;
     }
   }
   for (const er of day.exchanges) {
@@ -331,6 +396,7 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
       { date, ex: er.exchange, result: er },
       `[tick-convert] mode=nightly date=${date} ex=${er.exchange} targets=${er.targets} written=${er.written} too_large=${er.tooLarge} ` +
         `bytes_read=${er.bytesRead} staged=${day.stagedPeak} ready=${day.ready} team_failed=${er.teamFailed} team_ms=${er.teamMs} ` +
+        `launch=${er.launchRows} launch_failed=${er.launchFailed} ` +
         `ms=${day.durationMs}` +
         (er.error ? ` error=${er.error}` : ""),
     );

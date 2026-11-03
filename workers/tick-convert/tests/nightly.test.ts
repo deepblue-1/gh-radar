@@ -12,6 +12,7 @@ import { KeyStager } from "../src/stage";
 import { selectTargets } from "../src/select";
 import { createSupabaseGridStore } from "../src/store";
 import { gridTeamOf } from "../src/team-day";
+import { gridLaunchOf } from "../src/launch-queue";
 import { NO_OBJECTS, nightlyDatesOf, runNightly } from "../src/modes/nightly";
 import type { RunSince } from "../src/meta";
 import {
@@ -149,12 +150,18 @@ describe("selectTargets — 등록(accum ∪ live16) ∪ 15%(KRX G1 ∪ NXT G1)"
       [`${N}|KRX`, miss],
       [`${R}|KRX`, hit],
     ]);
-    const t = selectTargets({ accum: [R], live16: ["KR7000270009"] }, rates);
+    const t = selectTargets({ accum: [R], live16: ["KR7000270009"], launch: [] }, rates);
     expect([...t.keys()].sort()).toEqual(["KR7000270009", U, R].sort());
     expect([...t.get(R)!]).toEqual(["accum", "up15"]);
     expect([...t.get(U)!]).toEqual(["up15"]);
     expect([...t.get("KR7000270009")!]).toEqual(["accum"]);
     expect(t.has(N)).toBe(false);
+  });
+
+  it("launch(그날 접수 발사 ISIN) — 출처 칩 없이(빈 집합) 대상 · 이미 대상이면 칩 그대로(quick 261103-pei)", () => {
+    const t = selectTargets({ accum: [R], live16: [], launch: [N, R] }, new Map());
+    expect([...t.get(N)!]).toEqual([]);
+    expect([...t.get(R)!]).toEqual(["accum"]);
   });
 });
 
@@ -435,5 +442,96 @@ describe("시간 예산 — 날짜 시작 직전 경과 > TICK_NIGHTLY_BUDGET_MS
     expect(out.days).toHaveLength(2);
     expect(out.deferred).toBe(4);
     expect(lines.some((l) => l.includes("deferred=4"))).toBe(true);
+  });
+});
+
+// ── 발사 대기열 값(quick 261103-pei) ─────────────────────────────
+
+describe("nightly 발사 대기열 값 — candidates.launch → inputs 1회 → 키마다 gridLaunchOf → upsert 뒤 launch_queue_set", () => {
+  /** N(비대상 · KRX G1 +5%)을 발사 종목으로 — KRX A 매수 조각 하나. */
+  const PIECE = {
+    trade_date: D,
+    gateway: "KB120",
+    profile: "A",
+    fire_exchange: "KRX",
+    fire_base: "08:59:00",
+    market: "K",
+    wire: 0,
+    side: "buy",
+    isin: N,
+    price: 10500,
+    qty: 1,
+    fills: [],
+  };
+  const CANDS = { data: { accum: [R], live16: [], launch: [N] } };
+
+  async function run(rpc: Parameters<typeof makeFakeSupabase>[0]["rpc"]) {
+    const root = newRoot();
+    synth(root, D, { packets: packets(D) });
+    const { sb, calls } = makeFakeSupabase({
+      rpc: {
+        tick_convert_candidates: CANDS,
+        launch_queue_inputs: { data: [PIECE] },
+        launch_queue_set: (a) => ({ data: (a.p_rows as unknown[]).length }),
+        ...rpc,
+      },
+    });
+    const info = vi.spyOn(logger, "info");
+    const error = vi.spyOn(logger, "error");
+    const code = await main(["nightly", "--date", D], { sb, config: cfg(root), now: NOW, clock: () => 0 });
+    const lines = info.mock.calls.map((c) => String(c[1] ?? c[0]));
+    return { code, calls, lines, error };
+  }
+
+  it("발사 전용 ISIN 은 sources [] 격자 · inputs 1회 · set 은 upsert 뒤 · 행 = 올린 격자로 계산한 값(object_path = 그 격자)", async () => {
+    const { code, calls, lines } = await run({});
+    expect(code).toBe(0);
+    expect(rpcCalls(calls, "launch_queue_inputs")).toEqual([{ p_date: D }]);
+    const rows = rpcCalls(calls, "tick_grid_upsert")[0]!.p_rows as Record<string, unknown>[];
+    expect(rows.filter((r) => r.isin === N).map((r) => [r.exchange, r.sources])).toEqual([
+      ["KRX", []],
+      ["NXT", []],
+    ]);
+    const sets = rpcCalls(calls, "launch_queue_set");
+    expect(sets).toHaveLength(1);
+    const path = `grid/${D}/KRX/${N}.nightly.ticks.zst`;
+    const bytes = uploads(calls).find((u) => u.path === path)!.bytes;
+    const { rows: want } = gridLaunchOf(decode(bytes), "KRX", D, [PIECE as never], { date: D, isin: N, mode: "t", objectPath: path });
+    expect(sets[0]!.p_rows).toEqual(want);
+    expect(want).toHaveLength(1);
+    expect(want[0]).toMatchObject({ gateway: "KB120", profile: "A", wire: 0, kind: "run", object_path: path });
+    expect(idx(calls, isRpc("tick_grid_upsert"))).toBeLessThan(idx(calls, isRpc("launch_queue_set")));
+    expect(idx(calls, isRpc("launch_queue_set"))).toBeLessThan(idx(calls, isRpc("tick_convert_run_record")));
+    expect(lines.some((l) => l.includes("ex=KRX") && l.includes("launch=1 launch_failed=0"))).toBe(true);
+  });
+
+  it("inputs 실패 → 발사 값만 건너뜀 · 격자 · 실행 기록 ok · 종료 0 · 에러 로그 · launch_failed", async () => {
+    const { code, calls, lines, error } = await run({ launch_queue_inputs: { error: { message: "inputs down" } } });
+    expect(code).toBe(0);
+    expect(rpcCalls(calls, "launch_queue_set")).toHaveLength(0);
+    expect(uploads(calls).some((u) => u.path.includes(N))).toBe(true); // 발사 ISIN 격자는 그대로 만든다
+    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    expect(recs.every((r) => r.ok === true && r.error === null)).toBe(true);
+    expect(error.mock.calls.some((c) => String(c[1]).includes("launch inputs failed"))).toBe(true);
+    expect(lines.some((l) => l.includes("launch=0 launch_failed=1"))).toBe(true);
+  });
+
+  it("set 실패 → 실행 기록 ok · 종료 0 · 에러 로그 · launch_failed", async () => {
+    const { code, calls, lines, error } = await run({ launch_queue_set: { error: { message: "set down" } } });
+    expect(code).toBe(0);
+    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    expect(recs.every((r) => r.ok === true && r.error === null)).toBe(true);
+    expect(error.mock.calls.some((c) => String(c[1]).includes("launch_queue_set failed"))).toBe(true);
+    expect(lines.some((l) => l.includes("ex=KRX") && l.includes("launch=1 launch_failed=1"))).toBe(true);
+  });
+
+  it("launch 가 비어 있으면 inputs 를 부르지 않는다 · 키 없는 옛 응답은 기존 동작 그대로", async () => {
+    const empty = await run({ tick_convert_candidates: { data: { accum: [R], live16: [], launch: [] } } });
+    expect(rpcCalls(empty.calls, "launch_queue_inputs")).toHaveLength(0);
+    expect(rpcCalls(empty.calls, "launch_queue_set")).toHaveLength(0);
+    const old = await run({ tick_convert_candidates: { data: { accum: [R], live16: [] } } });
+    expect(old.code).toBe(0);
+    expect(rpcCalls(old.calls, "launch_queue_inputs")).toHaveLength(0);
+    expect(uploads(old.calls).some((u) => u.path.includes(N))).toBe(false);
   });
 });
