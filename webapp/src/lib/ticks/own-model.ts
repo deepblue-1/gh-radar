@@ -55,6 +55,8 @@ export type OwnFillState = 'matched' | 'nofill' | 'pending';
 export interface OwnFillView {
   /** 모델 안 순번(정렬 뒤 색인). */
   id: number;
+  /** 안정 키 `${gateway}|${seq}` — own 을 다시 받아 id 가 밀려도 같은 체결(고른 줄 기억 · WR-04). */
+  key: string;
   gateway: string;
   accountNo: string;
   orderNo: string;
@@ -112,6 +114,28 @@ export interface OwnOrderView {
 
 /** 전문 목록 · 카드가 고른 우리 줄 — 주문 줄(order id) 또는 짝 없는 체결 줄(fill id). */
 export type OwnSel = { kind: 'order' | 'fill'; id: number };
+
+/** 고른 우리 줄의 안정 키 — 주문 `${gateway}|${order_no}` · 체결 `${gateway}|${seq}`(id 는 모델마다 다시 매긴다). */
+export type OwnSelKey = { kind: 'order' | 'fill'; key: string };
+
+/** 고른 줄 → 안정 키 · 모델에 그 id 가 없으면 null. */
+export function ownSelKeyOf(model: OwnModel, sel: OwnSel): OwnSelKey | null {
+  const v = sel.kind === 'order' ? model.orders[sel.id] : model.fills[sel.id];
+  return v ? { kind: sel.kind, key: v.key } : null;
+}
+
+/**
+ * 안정 키 → 지금 모델의 고른 줄 — 그 주문 · 체결이 없으면 null. 체결은 아직 줄(짝 없음 · 대기)일 때만 —
+ * 다시 받아 짝이 붙었으면 줄이 없으므로 선택도 없다.
+ */
+export function resolveOwnSel(model: OwnModel, k: OwnSelKey): OwnSel | null {
+  if (k.kind === 'order') {
+    const o = model.orders.find((x) => x.key === k.key);
+    return o ? { kind: 'order', id: o.id } : null;
+  }
+  const f = model.fills.find((x) => x.key === k.key);
+  return f && f.rec < 0 ? { kind: 'fill', id: f.id } : null;
+}
 
 export interface OwnModel {
   /** 켜진 서버 키(sort_order 순 — 응답 그대로). */
@@ -297,6 +321,7 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     const state: OwnFillState = matches[i] === null ? 'pending' : m.a3j >= 0 ? 'matched' : 'nofill';
     fills[i] = {
       id: i,
+      key: `${f.gateway}|${f.seq}`,
       gateway: f.gateway,
       accountNo: f.account_no,
       orderNo: f.order_no,

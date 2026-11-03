@@ -5,7 +5,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
 import { buildMsgRows, ownLineRec, type MsgRowsModel } from '@/lib/ticks/msg-rows';
-import { buildOwnModel, type OwnModel, type OwnOrderView, type OwnSel } from '@/lib/ticks/own-model';
+import {
+  buildOwnModel,
+  ownSelKeyOf,
+  resolveOwnSel,
+  type OwnModel,
+  type OwnOrderView,
+  type OwnSel,
+  type OwnSelKey,
+} from '@/lib/ticks/own-model';
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
@@ -295,15 +303,21 @@ export function TickViewer({
     [session, own.own, isLive],
   );
   // 우리 줄 선택 — 줄 클릭 때 (줄, 기준 rec) 을 기억하고, 커서가 그 rec 일 때만 선택으로 본다(파생 · 효과 없음).
-  const [ownPick, setOwnPick] = useState<{ sel: OwnSel; rec: number } | null>(null);
-  const ownSel = ownPick !== null && ownPick.rec === rec ? ownPick.sel : null;
+  // 줄은 안정 키(주문 gateway|order_no · 체결 gateway|seq)로 기억하고 렌더 때 지금 모델 id 로 푼다 — 「최신 받기」 로
+  // own 이 바뀌어 id 가 밀려도 다른 주문을 가리키지 않는다(되돌아가기 알약 `ownBack` 과 같은 까닭 · WR-04).
+  const [ownPick, setOwnPick] = useState<{ sel: OwnSelKey; rec: number } | null>(null);
+  const ownSel = useMemo(
+    () => (ownPick !== null && ownPick.rec === rec && ownModel !== null ? resolveOwnSel(ownModel, ownPick.sel) : null),
+    [ownPick, rec, ownModel],
+  );
   const jumpToRec = cursor.jumpToRec;
   const onOwnSelect = useCallback(
     (sel: OwnSel, at: number) => {
-      setOwnPick({ sel, rec: at });
+      const k = ownModel !== null ? ownSelKeyOf(ownModel, sel) : null;
+      setOwnPick(k !== null ? { sel: k, rec: at } : null);
       jumpToRec(at);
     },
-    [jumpToRec],
+    [ownModel, jumpToRec],
   );
 
   // 전문 목록 항목 — 한 번 만들어 목록과 주문 줄 찾기(카드 · 알약)가 같이 쓴다(38-06).

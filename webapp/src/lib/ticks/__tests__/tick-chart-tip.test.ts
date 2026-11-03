@@ -213,6 +213,7 @@ describe('tickOwnTipOf · tickHoverWithOwn — 우리 체결 · 근거 줄(Phase
   const ACCT = '1234563801';
   const fillV = (id: number, over: Partial<OwnFillView>): OwnFillView => ({
     id,
+    key: `KB120|${id}`,
     gateway: 'KB120',
     accountNo: ACCT,
     orderNo: '7788',

@@ -11,7 +11,14 @@ import {
 
 import { a3Msg, b6Msg, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
-import { buildOwnModel, ownOrderLineText, OWN_PENDING_GRACE_MS, type OwnOrderView } from '../own-model';
+import {
+  buildOwnModel,
+  ownOrderLineText,
+  ownSelKeyOf,
+  resolveOwnSel,
+  OWN_PENDING_GRACE_MS,
+  type OwnOrderView,
+} from '../own-model';
 
 /**
  * Phase 38 Plan 04 Task 1 — 우리 주문 묶기 · 주문 시각 슬롯 · 짝 없음/대기 · 주문 줄 문구(D-05 · D-12 · D-13 · Pitfall 4).
@@ -232,6 +239,60 @@ describe('buildOwnModel — 중복 A3(같은 보드 · seq 재수신) 거르기(
     const e9 = byKey(m.orders, 'E9');
     expect([e9.evidence.kind, e9.evidenceRec, e9.evidenceLabel]).toEqual(['a3', 0, '체결']);
     expect(byKey(m.orders, 'E8').anchorRec).toBe(0);
+  });
+});
+
+describe('고른 줄 안정 키 — ownSelKeyOf · resolveOwnSel(WR-04)', () => {
+  // 처음 받은 own: 주문 E1(이벤트) · 짝 없는 체결 N5. 다시 받은 own: 다른 게이트웨이의 더 이른 주문 · 짝 없는 체결이 끼어
+  // 주문 · 체결 id 가 하나씩 밀린다.
+  const first = buildOwnModel(
+    session,
+    ownOf({ events: [event('E1', at(150))], fills: [fill('N5', at(160), 99_999, 1, 'B', 7)] }),
+  );
+  const again = buildOwnModel(
+    session,
+    ownOf({
+      events: [event('E1', at(150)), event('K0', at(50), { gateway: 'KYOBO119' })],
+      fills: [
+        { ...fill('K0', at(60), 99_999, 2, 'B', 3), gateway: 'KYOBO119' },
+        fill('N5', at(160), 99_999, 1, 'B', 7),
+      ],
+    }),
+  );
+
+  it('체결 키 = gateway|seq · 주문 키 = gateway|order_no', () => {
+    expect(first.fills.map((f) => f.key)).toEqual(['KB120|7']);
+    expect(ownSelKeyOf(first, { kind: 'order', id: byKey(first.orders, 'E1').id })).toEqual({ kind: 'order', key: 'KB120|E1' });
+    expect(ownSelKeyOf(first, { kind: 'fill', id: 0 })).toEqual({ kind: 'fill', key: 'KB120|7' });
+    expect(ownSelKeyOf(first, { kind: 'order', id: 99 })).toBeNull();
+  });
+
+  it('id 가 밀려도 같은 주문 · 체결로 푼다 · 없어지면 null', () => {
+    const e1 = ownSelKeyOf(first, { kind: 'order', id: byKey(first.orders, 'E1').id })!;
+    const n5 = ownSelKeyOf(first, { kind: 'fill', id: first.fills.findIndex((f) => f.orderNo === 'N5') })!;
+    const o = resolveOwnSel(again, e1)!;
+    expect(again.orders[o.id]!.orderNo).toBe('E1');
+    expect(o.id).not.toBe(byKey(first.orders, 'E1').id);
+    const f = resolveOwnSel(again, n5)!;
+    expect([f.kind, again.fills[f.id]!.orderNo]).toEqual(['fill', 'N5']);
+    expect(f.id).not.toBe(first.fills.findIndex((x) => x.orderNo === 'N5'));
+    expect(resolveOwnSel(buildOwnModel(session, ownOf({})), e1)).toBeNull();
+  });
+
+  it('체결 줄은 아직 줄(짝 없음 · 대기)일 때만 — 세션이 자라 짝이 붙으면 선택 없음', () => {
+    const msgs: [number, Uint8Array][] = [
+      [100.5, a3Msg({ seq: 601, bs: '2', px: 30000, qty: 10, time: '130000100000' })],
+      [900.5, b6Msg({ seq: 602, ask1: [30000, 0], bid1: [30000, 900] })],
+    ];
+    const one = ownOf({ fills: [fill('P1', at(150), 30000, 10, 'B', 9)] });
+    const pending = buildOwnModel(synthSession(msgs), one, { live: true });
+    expect(pending.fills[0]!.state).toBe('pending');
+    const k = ownSelKeyOf(pending, { kind: 'fill', id: 0 })!;
+    expect(resolveOwnSel(pending, k)).toEqual({ kind: 'fill', id: 0 });
+    const grown = synthSession([...msgs, [1500.5, b6Msg({ seq: 603, ask1: [30000, 0], bid1: [30000, 900] })]]);
+    const matched = buildOwnModel(grown, one, { live: true });
+    expect(matched.fills[0]!.state).toBe('matched');
+    expect(resolveOwnSel(matched, k)).toBeNull();
   });
 });
 
