@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: CR-30
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "레코드 0건 closed 키 하나가 그날 승격 전체를 실패시킨다 (tickgw export ↔ promote 계약 불일치)"
   - id: CR-31
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "20:00 원본 압축(`compressed_files_skipped`)을 무시해 잘린 하루를 「완결 · closed」 로 승격한다"
   - id: WR-01
     severity: warning
@@ -25,31 +25,31 @@ findings:
     title: "빅텍 하루 선택 골든은 `.pnl.json` 존재만 보고 켜지는데, 생성기는 크기 초과 `.ticks.zst` 를 「커밋하지 말라」고만 함"
   - id: WR-30
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "승격 경로에 격자 크기 상한(`GRID_MAX_BYTES`)이 없다 → 대형 종목은 매일 두 번 실패 · 알림"
   - id: WR-31
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "tickgw 256MB 컨테이너에서 전체 버퍼 복사가 겹쳐 OOM → 그날 캐시(승격 입력) 소실"
   - id: WR-32
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "당일 첫 응답(08:00~지금 하루치)에 크기 상한이 없어 server 를 통째로 버퍼링해 통과한다"
   - id: WR-33
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "활성 키 합이 캐시 상한을 넘으면 LRU 가 폴링 중인 키를 지우고, 그 키를 08:00 부터 다시 받는 고리에 빠진다"
   - id: WR-34
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "tickgw 배포 시각 가드가 20:00~21:00 승격 창을 보호하지 않고, 실패 시 되돌릴 컨테이너도 없다"
   - id: WR-35
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "선택 env `TICKGW_URL` 을 빠뜨린 재배포가 운영 중인 당일 경로를 조용히 끄거나 승격 Job 을 옛 이미지에 묶어 둔다"
   - id: WR-36
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "nightly 에서 키 하나만 실패해도(또는 원본 하나가 깨져도) 그 날짜 전량(≈9GB Archive)을 하루 두 번 · 최대 10일 다시 읽는다"
   - id: WR-60
     severity: warning
@@ -109,23 +109,23 @@ findings:
     title: "생성기 머리의 「.ticks.zst 하나라도 1.5MB 초과면 종료 1」이 decode · launch 에만 적용됨"
   - id: IN-30
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`runIndexer` 의 상한 초과 경로가 0 으로 채운 버퍼를 만들고, 종료코드 삼항식은 죽은 코드다"
   - id: IN-31
     severity: info
-    disposition: open
+    disposition: fixed
     title: "요청 변환 트리거 타임아웃(10초) 뒤 되돌림이 이미 시작된 실행과 중복 실행을 낳을 수 있다"
   - id: IN-32
     severity: info
-    disposition: open
+    disposition: fixed
     title: "통독 중 잘린 꼬리 파일 수(`truncatedFiles`)가 어디에도 보고되지 않는다"
   - id: IN-33
     severity: info
-    disposition: open
+    disposition: fixed
     title: "배포 스크립트가 HEAD SHA 로 태그하지만 작업 트리를 빌드하고, IAP 실패를 「tickpull 미설치」 로 잘못 알린다"
   - id: IN-34
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`openTick` 이 RPC 응답 필드 일부를 모양 검사 없이 단언 캐스트한다"
   - id: IN-60
     severity: info
@@ -147,27 +147,27 @@ findings:
     severity: info
     disposition: open
     title: "409(epoch 교체)로 하루치를 다시 받는 동안 「최신 받기」 버튼이 눌리지만 아무 일도 하지 않는다"
-open: 25
+open: 11
 total: 36
-recorded: 2026-11-03T20:12:21.100Z
+recorded: 2026-11-03T20:13:00.765Z
 ---
 
 # Phase 37: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-30 | critical | open | - |
-| CR-31 | critical | open | - |
+| CR-30 | critical | fixed | 37-REVIEW-FIX.md |
+| CR-31 | critical | fixed | 37-REVIEW-FIX.md |
 | WR-01 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-02 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-03 | warning | fixed | 37-REVIEW-FIX.md |
-| WR-30 | warning | open | - |
-| WR-31 | warning | open | - |
-| WR-32 | warning | open | - |
-| WR-33 | warning | open | - |
-| WR-34 | warning | open | - |
-| WR-35 | warning | open | - |
-| WR-36 | warning | open | - |
+| WR-30 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-31 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-32 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-33 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-34 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-35 | warning | fixed | 37-REVIEW-FIX.md |
+| WR-36 | warning | fixed | 37-REVIEW-FIX.md |
 | WR-60 | warning | open | - |
 | WR-61 | warning | open | - |
 | WR-62 | warning | open | - |
@@ -182,11 +182,11 @@ recorded: 2026-11-03T20:12:21.100Z
 | IN-06 | info | fixed | 37-REVIEW-FIX.md |
 | IN-07 | info | fixed | 37-REVIEW-FIX.md |
 | IN-08 | info | fixed | 37-REVIEW-FIX.md |
-| IN-30 | info | open | - |
-| IN-31 | info | open | - |
-| IN-32 | info | open | - |
-| IN-33 | info | open | - |
-| IN-34 | info | open | - |
+| IN-30 | info | fixed | 37-REVIEW-FIX.md |
+| IN-31 | info | fixed | 37-REVIEW-FIX.md |
+| IN-32 | info | fixed | 37-REVIEW-FIX.md |
+| IN-33 | info | fixed | 37-REVIEW-FIX.md |
+| IN-34 | info | fixed | 37-REVIEW-FIX.md |
 | IN-60 | info | open | - |
 | IN-61 | info | open | - |
 | IN-62 | info | open | - |
