@@ -15,7 +15,8 @@ import { NO_BOARD, TAG_CODE, payloadOf, type TickIndex } from "./record-index";
 
 /**
  * 거래소순 자리 p → 같은 보드의 p 이하 마지막 B6 rec(없으면 -1). 보드 없는 행(B9 · C3 · raw)은 직전 보드 있는 행의 보드,
- * 그런 행이 아직 없으면 G1(G1 보드가 없으면 -1).
+ * 그런 행이 아직 없으면 G1(G1 보드가 없으면 -1). 단일 ISIN 인덱스 전제 — 보드만 보고 종목을 가르지 않는다
+ * (record-index `buildTickIndex` 주석 · 여러 ISIN 조각은 먼저 쪼갠다).
  */
 export function lastB6Of(index: TickIndex, exchangeOrder: Int32Array): Int32Array {
   const out = new Int32Array(exchangeOrder.length);

@@ -72,6 +72,12 @@ const BOARD_LEN = 2;
 /**
  * 레코드 프레이밍 바이트 → 레코드 인덱스. iterRecords 한 번(개수) + 한 번(채우기) — 전체 디코딩 없이 머리만 읽는다.
  * 보드 문자열은 decodeFields 와 같은 규칙(parseStr)이고 등장 순서대로 `boards` 에 쌓인다(255종 넘으면 RangeError).
+ *
+ * **단일 ISIN 전제(IN-02):** 보드 키는 board_id 2바이트뿐이다. msg_seq 는 (종목, 보드)마다 따로라서, 이 인덱스 위의
+ * 거래소순(`exchangeOrderOf`) · 뒤집힘(`inversionsOf`) · 마지막 B6(book `lastB6Of`) · 호가 재구성은 버퍼가 **한 ISIN** 일
+ * 때만 맞다 — 여러 ISIN 이 섞이면 다른 종목 seq 를 섞어 정렬하고, 런을 종목 경계 너머로 잇고, 닫는 B6 를 다른 종목에서 찾는다.
+ * 운영 격자 · 당일 캐시는 종목 단위라 늘 맞다. 여러 ISIN 조각(발사 대기열 골든 `launch1030-*-0900` 등)은 먼저 ISIN 별로
+ * 쪼갠 뒤 넣는다(ticks-launch-queue.golden.test.ts 의 `cutOf`). 인덱스 자체(머리 · 수신순)는 섞인 버퍼에도 쓸 수 있어 여기서 막지 않는다(무필터 raw20k 시험).
  */
 export function buildTickIndex(buf: Uint8Array, label: "krx" | "nxt"): TickIndex {
   let n = 0;
@@ -145,7 +151,7 @@ export function recvOrderOf(index: TickIndex): Int32Array {
 /**
  * 거래소순 순열 — 수신순 자리 배열에서 (보드)마다 그 보드 행(seq ≥ 0)이 차지한 자리 목록을 구하고, 그 행들을 msg_seq
  * 오름차순(동률은 수신 순서)으로 자리 오름차순에 다시 채운다. seq -1 행(B9 · C3 · A0 · raw · 길이 안 맞는 행)은 자리 유지.
- * 결과는 순열(모든 rec 한 번씩) · O(n log n).
+ * 결과는 순열(모든 rec 한 번씩) · O(n log n). 단일 ISIN 인덱스 전제(`buildTickIndex` 주석).
  */
 export function exchangeOrderOf(index: TickIndex, recvOrder: Int32Array): Int32Array {
   const out = Int32Array.from(recvOrder);
@@ -353,7 +359,7 @@ export interface Inversion {
 /**
  * 거래소순(보드별 seq 순)으로 A3 런을 묶고 닫는 B6(같은 보드 seq = 마지막 + 1 · 거래소순 첫 것)를 찾아, 그 B6 recv 가
  * 런 조각 하나라도보다 이르면 Inversion 으로 낸다. 결과는 닫는 B6 의 거래소순 자리 오름차순. 1조각 런도 포함한다
- * (다조각만 보려면 `pieces >= 2` 로 거른다).
+ * (다조각만 보려면 `pieces >= 2` 로 거른다). 단일 ISIN 인덱스 전제 — 키가 (보드, seq) 라 종목을 가르지 않는다(`buildTickIndex` 주석).
  */
 export function inversionsOf(index: TickIndex, a3: A3Columns, exchange: Int32Array): Inversion[] {
   const a3Of = new Int32Array(index.n).fill(-1);
