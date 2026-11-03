@@ -314,6 +314,61 @@ test.describe('틱뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 ·
     await expect(page.locator('[data-slot="tick-book"]')).toHaveCount(0);
   });
 
+  /** 최대 속도 재생을 켜고 커서가 URL t 를 쓰기 시작할 때까지 기다린다. */
+  async function playMax(page: Page): Promise<void> {
+    const slider = page.locator('[data-slot="tick-slider"]');
+    await slider.getByRole('group', { name: '재생 속도' }).getByRole('button', { name: '최대' }).click();
+    await slider.getByRole('button', { name: '재생' }).click();
+    await expect.poll(() => tParam(page)).not.toBeNull();
+  }
+
+  test('재생 중(최대 속도) 사이드바 「홈」 링크 → 이동이 버려지지 않는다 · 홈 화면 · URL 이 다시 뷰어로 바뀌지 않는다(R2-WR-30)', async ({
+    page,
+  }) => {
+    await mockTickApi(page);
+    await page.goto(OPEN_URL);
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    await playMax(page);
+    await page.getByRole('link', { name: '홈', exact: true }).first().click();
+    await expect(page).toHaveURL((u) => u.pathname === '/' && u.search === '');
+    await expect(page.getByRole('heading', { name: '주도 테마' })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-slot="tick-book"]')).toHaveCount(0);
+    // 내려가던 뷰어의 늦은 쓰기가 새 항목을 덮지 않는다(250ms 스로틀의 몇 배를 기다린다)
+    await page.waitForTimeout(1_000);
+    expect(new URL(page.url()).pathname).toBe('/');
+  });
+
+  test('재생 중(최대 속도) 브라우저 뒤로 → 목록 · history.length 그대로 · 목록 항목이 뷰어 URL 로 덮이지 않는다(R2-WR-30)', async ({
+    page,
+  }) => {
+    await mockTickApi(page);
+    await page.goto(`${BASE}?d=${TICK_DATE}`);
+    await expect(entryRows(page)).toHaveCount(3, { timeout: 30_000 });
+    await entryRows(page).nth(0).click(); // 에코앤드림 KRX — push(목록 항목 위에 뷰어 항목)
+    await expect(page).toHaveURL(new RegExp(`${BASE}\\?isin=${ECO.isin}&d=${TICK_DATE}$`));
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    await playMax(page);
+    const histBefore = await page.evaluate(() => history.length);
+
+    await page.goBack();
+    const LIST_RE = new RegExp(`${BASE}\\?d=${TICK_DATE}$`);
+    await expect(page).toHaveURL(LIST_RE);
+    await expect(entryRows(page)).toHaveCount(3);
+    await expect(page.locator('[data-slot="tick-book"]')).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+    await expect(page).toHaveURL(LIST_RE);
+    await expect(page.locator('[data-slot="tick-book"]')).toHaveCount(0);
+    expect(await page.evaluate(() => history.length)).toBe(histBefore);
+
+    // 두 항목이 모두 살아 있다 — 앞으로 = 뷰어(재생하던 자리 t) · 다시 뒤로 = 목록
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`${BASE}\\?isin=${ECO.isin}&d=${TICK_DATE}(&t=[^&]+)?(&k=\\d+)?$`));
+    await expect(page.locator('[data-slot="tick-book"]')).toBeVisible({ timeout: 30_000 });
+    await page.goBack();
+    await expect(page).toHaveURL(LIST_RE);
+    await expect(entryRows(page)).toHaveCount(3);
+  });
+
   test('딥링크 — t=13:30:00.000 → 그 시각 이후 첫 틱 · 새로고침해도 같은 시각', async ({ page }) => {
     const rec = await mockTickApi(page);
     await page.goto(`${OPEN_URL}&t=13:30:00.000`);

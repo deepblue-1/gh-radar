@@ -33,8 +33,9 @@ import { TickViewer } from './tick-viewer';
  * 틱 전문 뷰어 페이지 본문 (Phase 37 D-03 · D-08 · D-15 · D-16 · D-18 · D-22).
  *
  * ① URL 정본 = `?isin&d&ex&t`(`parseTickUrl` — 잘못된 값은 기본값). 종목 고르기 · 날짜 · 거래소 이동 = `router.push`
- *   (뒤로 = 목록). 틱 이동은 `useTickCursor` 의 `history.replaceState`(히스토리 안 쌓임). 이동(`go`)이 (isin, d, ex) 를
- *   바꾸면 push 전에 `navRef` 를 올려 뷰어 커서의 URL 쓰기를 멈춘다 — Next 15 는 대기 중인 push 를 replaceState 가 버린다(WR-60).
+ *   (뒤로 = 목록). 틱 이동은 `useTickCursor` 의 `history.replaceState`(히스토리 안 쌓임). 이동이 대기 중이면(`go` · 사이드바
+ *   `<Link>` · 뒤로/앞으로 — 모든 앱 라우터 이동) 커서가 스스로 URL 쓰기를 멈춘다 — Next 15 는 대기 중인 이동을 replaceState 가
+ *   버린다(WR-60 · R2-WR-30 · `instrumentation-client` → `router-transition`).
  *   **`t` 는 열기 시점에 한 번만 읽는다** — Next 15 는 네이티브 replaceState 를 `useSearchParams` 에 동기화하므로 커서가 바꾼
  *   `t` 가 이 컴포넌트를 다시 그린다. `t` · `k`(WR-65) 는 (isin, d, ex) 키가 바뀔 때만 갱신되는 `initialT` · `initialK` 에 담고, 열기 · 격자 · 세션
  *   효과의 의존성에는 `t` 를 넣지 않는다(넣으면 틱마다 다시 열기 · 커서 초기화).
@@ -190,8 +191,6 @@ export function TickViewerPage() {
   const [attempt, setAttempt] = useState(0);
   const [sort, setSort] = useState<TickEntrySort>('rate');
   const runRef = useRef<Run>({ alive: false, converting: false });
-  // 내비게이션 토큰(WR-60) — 열기 키를 바꾸는 이동을 시작할 때 올린다 · 뷰어 커서는 마운트 때 값과 다르면 URL 을 쓰지 않는다.
-  const navRef = useRef(0);
   const [tickLabel, setTickLabel] = useState<{ time: string; seq: number | null } | undefined>(undefined);
 
   // URL `t` 는 (isin, d, ex) 가 바뀔 때만 다시 읽는다(머리 주석 ①).
@@ -429,8 +428,7 @@ export function TickViewerPage() {
       d: next.d === undefined ? shown : next.d,
       ex: next.ex ?? ex,
     };
-    // 열린 종목 · 날짜 · 거래소를 떠난다 — 커서 replaceState 가 이 push 를 버리지 않게 먼저 멈춘다(WR-60).
-    if (to.isin !== isin || to.d !== shown || to.ex !== ex) navRef.current += 1;
+    // 커서의 URL 쓰기는 이 push 의 이동 시작 신호로 멈춘다(WR-60 · R2-WR-30 — use-tick-cursor 머리 주석 ④).
     router.push(tickUrlOf(to));
   };
   const goLatest = latest !== null && latest !== shown ? () => go({ isin: null, d: latest }) : null;
@@ -615,7 +613,6 @@ export function TickViewerPage() {
               onTick={setTickLabel}
               onOwn={onOwn}
               ownRefreshKey={ownRefreshKey}
-              navToken={navRef}
               accum={view.resp.accum}
               isToday
               listingShares={view.resp.stock?.listing_shares ?? null}
@@ -671,7 +668,6 @@ export function TickViewerPage() {
               initialK={initialK}
               onTick={setTickLabel}
               onOwn={onOwn}
-              navToken={navRef}
               accum={view.resp.accum}
               isToday={view.resp.date === today}
               listingShares={view.resp.stock?.listing_shares ?? null}

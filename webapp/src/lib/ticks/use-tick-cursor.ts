@@ -13,8 +13,13 @@
  * ④ 커서가 바뀌면 250ms 스로틀로 `history.replaceState` — router 를 거치지 않는다(히스토리 안 쌓임 · 리렌더 최소).
  *   처음 커서(열기 직후)는 쓰지 않는다 — 열기만 해서 URL 이 바뀌지 않게. 당일(`live`)에서 끝 틱이면 `t` 를 지운다
  *   (`t` 없음 = 당일 끝 틱 — 새로고침하면 그때의 끝에서 연다).
- *   **떠나는 중에는 쓰지 않는다(WR-60):** Next 15 는 `history.replaceState` 를 `ACTION_RESTORE` 로 바꾸고, 진행 중인
- *   `router.push` 를 버린다. 페이지가 이동을 시작하며 `navToken` 을 올리면 그 뒤의 쓰기(대기 타이머 포함)는 하지 않는다.
+ *   **이동이 대기 중이면 쓰지 않는다(WR-60 · R2-WR-30):** Next 15 는 `history.replaceState` 를 `ACTION_RESTORE` 로 바꾸고,
+ *   대기 중인 이동(`<Link>` · `router.push` · 뒤로/앞으로)을 버린다. 그래서 모든 앱 라우터 이동의 시작
+ *   (`subscribeRouterTransition` ← `instrumentation-client` `onRouterTransitionStart`)을 듣고 대기 타이머를 지운 뒤 쓰기를 멈춘다.
+ *   다시 쓰는 때 = 지금 URL 이 이 뷰어의 열기 키(경로 · isin · d · ex)이고, 이동 뒤 URL 이 바뀌었을 때(같은 키로 이동이 끝남 ·
+ *   다른 이동이 앞의 이동을 덮고 이 키로 돌아옴). 같은 키로 가는 뒤로/앞으로 · 지금 URL 과 같은 곳으로 가는 이동은 멈추지 않는다
+ *   (버려져도 같은 화면 · 같은 키의 RESTORE 라 결과가 같다). 다른 키로 가는 이동이면 뷰어가 내려갈 때까지 쓰지 않는다 — 뒤로 누른
+ *   뒤의 목록 항목을 뷰어 URL 로 덮지 않는다.
  * ⑤ 당일(`live` · 37-19 · D-06 · D-18): 세션이 바뀌었을 때(증분) 커서가 이전 세션의 끝이었으면 새 끝으로 따라간다 — 과거 틱을
  *   보고 있으면 제자리(rec 는 이어붙여도 그대로다). `atEnd` = 표시 순서의 마지막 자리 · `goEnd()` = 끝 틱으로.
  * recv_ns 는 BigInt 그대로 다룬다.
@@ -24,8 +29,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { fmtTickTime, lowerBoundRecv, parseTickTime } from '@gh-radar/shared';
 
+import { subscribeRouterTransition } from '@/lib/router-transition';
+
 import type { TickSession } from './tick-session';
-import { tickUrlOf, type TickUrlState } from './tick-url';
+import { TICKS_BASE, parseTickUrl, tickUrlOf, type TickUrlState } from './tick-url';
 
 export type TickOrderMode = 'exchange' | 'recv';
 export const PLAY_SPEEDS = [1, 10, 'max'] as const;
@@ -142,6 +149,19 @@ export function tickUrlPosOf(session: TickSession, rec: number): { t: string; k:
   return { t, k: k > 0 ? k : null };
 }
 
+/** `href` 가 틱뷰어 경로이고 열기 키(isin · d · ex)가 `key` 와 같은가(R2-WR-30 — `t` · `k` 는 보지 않는다). */
+export function isSameTickOpenKey(href: string, key: Omit<TickUrlState, 't' | 'k'>): boolean {
+  let u: URL;
+  try {
+    u = new URL(href, 'http://x');
+  } catch {
+    return false;
+  }
+  if (u.pathname !== TICKS_BASE) return false;
+  const p = parseTickUrl(u.searchParams);
+  return p.isin === key.isin && p.d === key.d && p.ex === key.ex;
+}
+
 export function useTickCursor(
   session: TickSession,
   {
@@ -149,15 +169,12 @@ export function useTickCursor(
     initialK = null,
     urlState,
     live = false,
-    navToken,
   }: {
     initialT: string | null;
     /** 열기 시점의 URL `k`(WR-65 — 같은 ms 안 순번). */
     initialK?: number | null;
     urlState: Omit<TickUrlState, 't' | 'k'>;
     live?: boolean;
-    /** 페이지 내비게이션 토큰 — 마운트 때 값에서 바뀌면(이동 시작) URL 을 쓰지 않는다(머리 주석 ④ · WR-60). */
-    navToken?: { readonly current: number };
   },
 ): TickCursor {
   const [rec, setRec] = useState(() => initialRecOf(session, initialT, live, initialK));
@@ -279,7 +296,6 @@ export function useTickCursor(
   // URL `t` — 250ms 스로틀 replaceState(첫 커서는 쓰지 않는다).
   const urlRef = useRef(urlState);
   const modeRef = useRef(mode);
-  const navRef = useRef(navToken);
   // 대기 타이머의 `write` 는 예약한 실행의 클로저가 아니라 지금 세션 · live 를 읽는다 — 당일 증분 직후 옛 세션 범위 밖을
   // 읽어 BigInt TypeError 를 내거나 끝 틱인데 `t` 를 남기지 않게(WR-61).
   const sessionRef = useRef(session);
@@ -287,7 +303,6 @@ export function useTickCursor(
   useEffect(() => {
     urlRef.current = urlState;
     modeRef.current = mode;
-    navRef.current = navToken;
     sessionRef.current = session;
     liveRef.current = live;
   });
@@ -295,15 +310,31 @@ export function useTickCursor(
   const lastWrite = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recRef = useRef(rec);
-  const navToken0 = useRef(navToken?.current ?? 0);
+  // 대기 중인 이동(머리 주석 ④ · R2-WR-30) — from = 이동이 시작될 때의 URL · to = 그 이동의 목적지. 마지막으로 시작된 이동만 든다
+  // (Next 는 새 이동이 앞의 대기 이동을 버린다).
+  const leaveRef = useRef<{ from: string; to: string } | null>(null);
+  useEffect(
+    () =>
+      subscribeRouterTransition((to) => {
+        leaveRef.current = { from: window.location.href, to: to.href };
+        if (timer.current !== null) clearTimeout(timer.current);
+        timer.current = null;
+      }),
+    [],
+  );
   useEffect(() => {
     recRef.current = rec;
     if (rec < 0 || (rec === firstRec.current && lastWrite.current === 0)) return;
     const write = () => {
       timer.current = null;
-      // 이동 중(router.push 대기) — replaceState 가 그 push 를 버리게 하지 않는다(WR-60).
-      const nav = navRef.current;
-      if (nav !== undefined && nav.current !== navToken0.current) return;
+      // 이동 대기 중 — replaceState(= RESTORE)가 그 이동을 버리게 하지 않는다(R2-WR-30). 지금 URL 이 이 뷰어의 열기 키이고
+      // 이동 뒤 URL 이 바뀌었으면(또는 이동 목적지가 그때 URL 그대로면) 이동이 끝난 것 — 다시 쓴다.
+      const lv = leaveRef.current;
+      if (lv !== null) {
+        const here = window.location.href;
+        if (!isSameTickOpenKey(here, urlRef.current) || (here === lv.from && lv.to !== lv.from)) return;
+        leaveRef.current = null;
+      }
       lastWrite.current = Date.now();
       const s = sessionRef.current;
       const r = recRef.current;

@@ -84,8 +84,6 @@ export interface TickViewerProps {
   onOwn?: (s: OwnNavState | null) => void;
   /** 우리 체결 다시 받기 키(38-08 · 당일 「최신 받기」) — 바뀔 때마다 `/api/ticks/own` 1회. 과거 격자는 넘기지 않는다(= 0 · 열 때 1회). */
   ownRefreshKey?: number;
-  /** 페이지 내비게이션 토큰(WR-60) — 페이지가 이동을 시작하며 올리면 커서가 URL `t` 를 더 쓰지 않는다. */
-  navToken?: { readonly current: number };
 }
 
 export interface TickViewerLive {
@@ -316,9 +314,8 @@ export function TickViewer({
   live,
   onOwn,
   ownRefreshKey = 0,
-  navToken,
 }: TickViewerProps) {
-  const cursor = useTickCursor(session, { initialT, initialK, urlState, live: live !== undefined, navToken });
+  const cursor = useTickCursor(session, { initialT, initialK, urlState, live: live !== undefined });
   const { rec, atEnd } = cursor;
   // 호가 잔량 단위 — 기본 금액(2026-11-03 사용자 요청) · 「주 | 금액」 토글은 그대로
   const [unit, setUnit] = useState<TickBookUnit>('amount');

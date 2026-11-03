@@ -5,6 +5,8 @@ import { fmtTickTime, iterRecords, parseTickTime } from '@gh-radar/shared';
 
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 
+import { noteRouterTransitionStart } from '@/lib/router-transition';
+
 import { buildTickSession } from '../tick-session';
 import { tickUrlOf } from '../tick-url';
 import {
@@ -12,6 +14,7 @@ import {
   TICK_URL_THROTTLE_MS,
   endRecOf,
   initialRecOf,
+  isSameTickOpenKey,
   teamJumpRec,
   tickUrlPosOf,
   useTickCursor,
@@ -254,23 +257,95 @@ describe('useTickCursor — 점프 · URL', () => {
     expect(last).toContain(`t=${encodeURIComponent(fmtTickTime(session.index.recvNs[result.current.rec]!))}`);
   });
 
-  it('이동 시작(navToken 증가) 뒤에는 대기 타이머 · 새 커서 모두 replaceState 하지 않는다 — Next push 를 버리지 않게(WR-60)', () => {
-    vi.useFakeTimers();
-    const navToken = { current: 0 };
-    const { result } = renderHook(() => useTickCursor(session, { initialT: null, urlState: URL_STATE, navToken }));
-    key('ArrowRight');
-    expect(replaceSpy).toHaveBeenCalledTimes(1);
-    key('ArrowRight'); // 250ms 안 — 대기 타이머
-    navToken.current += 1; // 페이지가 router.push 를 시작했다
-    act(() => {
-      vi.advanceTimersByTime(TICK_URL_THROTTLE_MS);
+  describe('이동 대기 중에는 URL 을 쓰지 않는다 — Next 가 대기 이동을 RESTORE 로 버리지 않게(WR-60 · R2-WR-30)', () => {
+    const VIEWER = tickUrlOf(URL_STATE);
+    const LIST = tickUrlOf({ d: D, ex: 'KRX' });
+    /** 테스트가 주소를 옮긴다(Next 커밋 흉내) — 스파이 호출 수에서 뺀다. */
+    const goTo = (href: string) => {
+      window.history.replaceState(null, '', href);
+      replaceSpy.mockClear();
+    };
+    const tick = (ms = TICK_URL_THROTTLE_MS * 4) =>
+      act(() => {
+        vi.advanceTimersByTime(ms);
+      });
+    beforeEach(() => {
+      vi.useFakeTimers();
+      goTo(VIEWER);
     });
-    key('ArrowRight');
-    act(() => {
-      vi.advanceTimersByTime(TICK_URL_THROTTLE_MS * 4);
+    afterEach(() => goTo('/'));
+
+    it('다른 화면으로 가는 이동(사이드바 Link · go) → 대기 타이머 · 새 커서 · 커밋 뒤에도 쓰지 않는다', () => {
+      mount();
+      key('ArrowRight');
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      key('ArrowRight'); // 250ms 안 — 대기 타이머
+      act(() => noteRouterTransitionStart('/', 'push'));
+      tick();
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      goTo('/'); // 이동이 커밋됐다(뷰어가 내려가기 전 한 틈)
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).not.toHaveBeenCalled();
+      expect(window.location.pathname).toBe('/');
     });
-    expect(replaceSpy).toHaveBeenCalledTimes(1);
-    expect(result.current.rec).toBeGreaterThanOrEqual(0);
+
+    it('뒤로(traverse)로 목록 항목에 섰다 → 그 항목을 뷰어 URL 로 덮지 않는다', () => {
+      mount();
+      key('ArrowRight');
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      goTo(LIST); // popstate — 브라우저 현재 항목이 이미 목록
+      act(() => noteRouterTransitionStart(window.location.href, 'traverse'));
+      for (let i = 0; i < 5; i++) {
+        key('ArrowRight');
+        tick(TICK_URL_THROTTLE_MS);
+      }
+      expect(replaceSpy).not.toHaveBeenCalled();
+      expect(window.location.href).toBe(new URL(LIST, window.location.href).href);
+    });
+
+    it('같은 열기 키로 가는 이동은 끝날 때까지 기다렸다가(주소가 바뀜) 다시 쓴다', () => {
+      const { result } = mount();
+      key('ArrowRight');
+      const target = tickUrlOf({ ...URL_STATE, t: '13:30:00.000' });
+      act(() => noteRouterTransitionStart(target, 'push'));
+      replaceSpy.mockClear();
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).not.toHaveBeenCalled(); // 아직 대기 — 주소가 그대로
+      goTo(target); // 커밋
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).toHaveBeenCalled();
+      expect(replaceSpy.mock.calls.at(-1)![2]).toBe(tickUrlOf({ ...URL_STATE, ...tickUrlPosOf(session, result.current.rec) }));
+    });
+
+    it('같은 열기 키의 뒤로/앞으로 · 다른 키로 가던 이동을 덮고 이 키로 돌아옴 → 다시 쓴다', () => {
+      mount();
+      key('ArrowRight');
+      act(() => noteRouterTransitionStart(window.location.href, 'traverse')); // 같은 키 항목 — 버려져도 결과가 같다
+      replaceSpy.mockClear();
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+
+      act(() => noteRouterTransitionStart('/', 'push')); // 다른 화면으로 — 멈춤
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      goTo(tickUrlOf({ ...URL_STATE, t: '13:00:00.000' })); // 그 이동이 덮이고 이 키로 돌아왔다
+      key('ArrowRight');
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('언마운트하면 구독을 푼다 — 뒤의 이동 신호가 예외 없이 지나간다', () => {
+      const { unmount } = mount();
+      unmount();
+      expect(() => noteRouterTransitionStart('/', 'push')).not.toThrow();
+    });
   });
 
   it('당일 — 대기 타이머 중 증분 세션(끝 따라감)이 와도 예외 0 · 끝 틱이라 URL 에 t 없음(WR-61)', () => {
@@ -339,5 +414,18 @@ describe('useTickCursor — 점프 · URL', () => {
       useTickCursor(session, { initialT: url.searchParams.get('t'), initialK: Number(k), urlState: URL_STATE }),
     );
     expect(again.result.current.rec).toBe(target);
+  });
+});
+
+describe('isSameTickOpenKey (R2-WR-30)', () => {
+  it('경로 · isin · d · ex 가 같으면 t · k · 순서와 무관하게 같은 키 · 하나라도 다르면 아님', () => {
+    const base = `http://h${tickUrlOf(URL_STATE)}`;
+    expect(isSameTickOpenKey(base, URL_STATE)).toBe(true);
+    expect(isSameTickOpenKey(`${base}&t=13:00:00.000&k=2`, URL_STATE)).toBe(true);
+    expect(isSameTickOpenKey(`/analytics/ticks?d=${D}&isin=${ISIN}&ex=KRX`, URL_STATE)).toBe(true);
+    expect(isSameTickOpenKey(`/analytics/ticks?d=${D}`, URL_STATE)).toBe(false);
+    expect(isSameTickOpenKey(`/analytics/ticks?isin=${ISIN}&d=${D}&ex=NXT`, URL_STATE)).toBe(false);
+    expect(isSameTickOpenKey(`/analytics/ticks?isin=${ISIN}&d=20261015`, URL_STATE)).toBe(false);
+    expect(isSameTickOpenKey('/', URL_STATE)).toBe(false);
   });
 });
