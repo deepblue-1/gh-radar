@@ -603,7 +603,7 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     for (const k of keys) expect(r.cache.get(k)!.lastRecvNs).toBe(AT_1954_30);
   });
 
-  it("20:00 까지 못 끝내면 보통 백오프만 · 20:00 뒤 따라잡기 호출 없음(20:01 마감 마무리 몫)", async () => {
+  it("19:59 까지 못 끝내면 보통 백오프만 · 19:59:00 뒤 따라잡기 호출 없음(gh-trade 회신 · 20:01 마감 마무리 몫)", async () => {
     let down = false;
     const r: Rig = rig((a) => (down ? fail(255, "Permission denied (publickey).") : minuteDay(a, r.clock.t)), {}, at("100000"));
     r.poller.touch(KEY);
@@ -612,7 +612,7 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     down = true;
     await r.drive({ untilT: at("200059") });
     expect(r.calls.slice(1).map((c) => c.at)).toEqual(
-      ["195500", "195505", "195515", "195535", "195615", "195715", "195815", "195915"].map(at),
+      ["195500", "195505", "195515", "195535", "195615", "195715", "195815"].map(at),
     );
   });
 
@@ -644,10 +644,12 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
 
 describe("config — TICKGW_CATCHUP_AT", () => {
   const base = { TICKGW_SECRET: "x".repeat(32) };
-  it("기본 19:55 · off 면 null · 20:00 이후 · 형식 오류는 거부", () => {
+  it("기본 19:55 · off 면 null · 19:59 이후 · 형식 오류는 거부", () => {
     expect(loadConfig(base).catchupHhmm).toBe(1955);
     expect(loadConfig({ ...base, TICKGW_CATCHUP_AT: "off" }).catchupHhmm).toBeNull();
     expect(loadConfig({ ...base, TICKGW_CATCHUP_AT: "19:50" }).catchupHhmm).toBe(1950);
+    expect(loadConfig({ ...base, TICKGW_CATCHUP_AT: "19:58" }).catchupHhmm).toBe(1958);
+    expect(() => loadConfig({ ...base, TICKGW_CATCHUP_AT: "19:59" })).toThrow(ConfigError);
     expect(() => loadConfig({ ...base, TICKGW_CATCHUP_AT: "20:00" })).toThrow(ConfigError);
     expect(() => loadConfig({ ...base, TICKGW_CATCHUP_AT: "7:55" })).toThrow(/TICKGW_CATCHUP_AT/);
   });

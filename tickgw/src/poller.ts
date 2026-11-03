@@ -46,7 +46,7 @@
  *   `zstd --rm` 으로 압축한다. 압축된 파일은 인덱서가 건너뛰고 `compressed_files_skipped` 로 세며, 그러면 CR-31 이 그 키를
  *   complete=false(승격 안 함)로 둔다. 낮에 리스가 끝난 키(브라우저를 닫음)는 lastRecvNs 이후 빈 구간을 20:01 마감 마무리에서야
  *   채우는데, 그때는 이른 시간 파일이 이미 압축 중이라 대부분 승격에서 빠진다.
- *   무엇: KST TICKGW_CATCHUP_AT(기본 19:55 · `off` 면 끔) 부터 20:00 전까지 하루 한 번 — 그 순간 오늘 complete ∧ closed 아님 ∧
+ *   무엇: KST TICKGW_CATCHUP_AT(기본 19:55 · `off` 면 끔) 부터 19:59:00 전까지 하루 한 번 — 그 순간 오늘 complete ∧ closed 아님 ∧
  *   너무 큼 아님 ∧ **리스가 끝난**(보통 루프가 폴링하지 않는) 키를 모아, 키마다 lastRecvNs+1(이어받기 중이면 그 커서 · 받은 적
  *   없으면 08:00)부터 to 0 으로 has_more 가 false 가 될 때까지 받는다. 그러면 20:01 마감 마무리는 마지막 몇 분(가장 늦게 압축되는
  *   19시 · 20시 파일)만 읽는다. 대상은 시작 순간에 고정한다(19:55 뒤 리스가 끝난 키는 이미 몇 분 안쪽까지 받았다).
@@ -55,8 +55,11 @@
  *   공정 교대: 리스가 살아 있는 키와 따라잡기가 **둘 다** 할 일이 있으면 번갈아 한 호출씩 한다(직전 슬롯의 반대편이 간다).
  *   그래서 활성 키는 따라잡기 호출 하나 이상 기다리지 않고(평소엔 5초 간격 그대로 · 포화 때만 최대 2배), 따라잡기도 활성 키가
  *   포화돼 있어도 슬롯 절반을 얻는다(순수 우선순위면 활성 8키 포화 때 따라잡기가 굶어 승격률을 못 지킨다).
- *   도중에 다시 touch 된 키는 보통 루프로 넘기고 따라잡기에서 뺀다. 20:00 까지 못 끝낸 키는 그대로 20:01 마감 마무리 몫이다
- *   (따로 재시도하지 않는다). 끝(대상 소진 또는 20:00)에 요약 한 줄 `catchup done`(keys · caught · left · calls · bytes · ms).
+ *   도중에 다시 touch 된 키는 보통 루프로 넘기고 따라잡기에서 뺀다. 19:59:00 까지 못 끝낸 키는 그대로 20:01 마감 마무리 몫이다
+ *   (따로 재시도하지 않는다 · 이어받기 페이지도 19:59 뒤엔 새로 시작하지 않는다). 창 끝 19:59 = gh-trade 회신
+ *   (docs/inbox/from-gh-trade/261104-tickgw-catchup-1955-reply.md) — 20:00 에 기록기 회전 + 하루치 zstd 몰아 압축 · stock-dma
+ *   마감 정리가 코어 0 에서 겹치고 질의는 최대 60초라, 19:59 뒤 시작한 호출이 20:00 을 넘지 않게 한다.
+ *   끝(대상 소진 또는 19:59)에 요약 한 줄 `catchup done`(keys · caught · left · calls · bytes · ms).
  *   119 호출 모양: 19:55 에 한 번 몰리는 연속 호출 — 상한은 「오늘 연 키 수 × 키당 빈 구간(이어받기 페이지 수)」.
  *
  * ── as-of(X-Tick-As-Of-Ms · quick-261104-6lh) ──────────────────────────
@@ -160,6 +163,8 @@ const BUSY_JITTER_MS = 500;
 const ARG_RETRY_MS = 60_000;
 const GLOBAL_BLOCK_MS = 60_000;
 const UNREACHABLE_STREAK = 3;
+/** 따라잡기 창 끝(배타) KST — 이 시각 뒤엔 따라잡기 호출을 새로 시작하지 않는다(gh-trade 회신 · 질의 최대 60초 < 20:00 경계). */
+const CATCHUP_END_HHMM = "1959";
 const CLOSE_MAX_ATTEMPTS = 3;
 /** 마감 마무리 closedThroughNs 여유 — 기록기 1초 지연 + 전송. */
 const CLOSE_RECORD_LAG_MS = 2_000;
@@ -505,8 +510,8 @@ export class Poller {
   }
 
   /**
-   * 지금 따라잡기 할 키(없으면 null). 창 [TICKGW_CATCHUP_AT, 20:00) 안 첫 step 에 대상을 고정하고, 매 step 대상에서 빠진 키
-   * (다시 touch · complete 아님 · 지워짐)를 거른다. 대상이 바닥나거나 20:00 이 되면 요약 한 줄을 남기고 그날은 끝.
+   * 지금 따라잡기 할 키(없으면 null). 창 [TICKGW_CATCHUP_AT, 19:59) 안 첫 step 에 대상을 고정하고, 매 step 대상에서 빠진 키
+   * (다시 touch · complete 아님 · 지워짐)를 거른다. 대상이 바닥나거나 19:59 가 되면 요약 한 줄을 남기고 그날은 끝.
    */
   private catchupDue(now: number): CatchupItem | null {
     const at = this.cfg.catchupHhmm;
@@ -514,7 +519,7 @@ export class Poller {
     const today = kstToday(now);
     if (this.catchupDoneDate === today) return null;
     if (now < kstMs(today, String(at).padStart(4, "0"))) return null;
-    if (now >= kstMs(today, "2000")) {
+    if (now >= kstMs(today, CATCHUP_END_HHMM)) {
       // 창 끝 — 못 끝낸 키는 20:01 마감 마무리 몫(따로 재시도하지 않는다). 창 안에 기동하지 않았으면 아무것도 안 한다.
       if (this.catchupStartedDate === today) this.finishCatchup(today, now);
       return null;
