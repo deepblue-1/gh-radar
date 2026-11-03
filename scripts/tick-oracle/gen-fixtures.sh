@@ -35,7 +35,8 @@
 #   ~/ticks/team-follow/rawpcap/20261014/20261014-0900.pcap.zst       10/14 09시 무필터(모든 태그 + raw)
 # 생성물(.ticks.zst · .decode.json · layouts.json)만 커밋한다. 원본 .pcap.zst 는 커밋하지 않는다.
 #
-# 크기 규칙: .ticks.zst 가 하나라도 1.5MB(1,572,864B) 를 넘으면 종료 1.
+# 크기 규칙: .ticks.zst 를 만드는 모든 부명령(decode · pnl · g4cut · launch)이 끝에서 check_size 로 재고, 하나라도
+#   1.5MB(1,572,864B) 를 넘으면 종료 1. 예외 하나 — `pnl --bigtech` 는 선택 픽스처라 넘어도 종료 0(경고만 · 두 파일 모두 커밋 금지).
 #   raw20k 가 넘으면 RAW_LIMIT=10000 으로 다시 돌린다(무필터 조각의 첫 N 프레임 — 모든 태그가 남는 한 줄여도 된다).
 #
 # 결정성: 같은 원본 · 같은 venv 면 다시 돌려도 픽스처 바이트가 같다(zstd-19 · JSON 키 정렬).
@@ -54,6 +55,21 @@ MAX_BYTES=1572864
 
 oracle() { "$PY" -I "$ORACLE" "$@"; }
 
+# check_size <넘을 때 안내> <파일…> — 크기를 찍고, 하나라도 MAX_BYTES 를 넘으면 안내를 stderr 로 내고 1 을 돌려준다.
+check_size() {
+  local hint="$1" over=0 f size
+  shift
+  for f in "$@"; do
+    size=$(wc -c < "$f" | tr -d ' ')
+    echo "$(basename "$f") ${size}B"
+    if [ "$size" -gt "$MAX_BYTES" ]; then
+      echo "  ↑ 1.5MB 초과 — $hint" >&2
+      over=1
+    fi
+  done
+  return "$over"
+}
+
 cmd="${1:-}"
 case "$cmd" in
   decode)
@@ -63,16 +79,8 @@ case "$cmd" in
     oracle decode "$HOME/ticks/cut-101360/src/nxt/nxt-1300.pcap.zst" --label nxt --out-prefix "$FX/cut1300-nxt"
     oracle decode "$HOME/ticks/team-follow/rawpcap/20261014/20261014-0900.pcap.zst" --label krx \
       --limit "$RAW_LIMIT" --out-prefix "$FX/raw20k-0900"
-    over=0
-    for f in "$FX"/*.ticks.zst; do
-      size=$(wc -c < "$f" | tr -d ' ')
-      echo "$(basename "$f") ${size}B"
-      if [ "$size" -gt "$MAX_BYTES" ]; then
-        echo "  ↑ 1.5MB 초과 — raw20k 면 RAW_LIMIT=10000 으로 다시 돌린다" >&2
-        over=1
-      fi
-    done
-    exit "$over"
+    check_size "raw20k 면 RAW_LIMIT=10000 으로 다시 돌린다" \
+      "$FX/cut1300-krx.ticks.zst" "$FX/cut1300-nxt.ticks.zst" "$FX/raw20k-0900.ticks.zst"
     ;;
   orders)
     oracle orders "$HOME/ticks/cut-101360/src/krx/krx-1300.pcap.zst" --out "$FX/cut1300-krx.orders.json"
@@ -88,19 +96,19 @@ case "$cmd" in
       oracle pnl --isin KR7065450009 --date 20261022 --pcap-dir "$HOME/ticks/oracle/20261022/krx" \
         --hours 0800,0900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900 \
         --export "$HOME/ticks/research/export/20261022" --out-prefix "$FX/bigtech-1022"
-      size=$(wc -c < "$FX/bigtech-1022-a3.ticks.zst" | tr -d ' ')
-      echo "bigtech-1022-a3.ticks.zst ${size}B"
-      if [ "$size" -gt "$MAX_BYTES" ]; then
-        echo "  ↑ 1.5MB 초과 — bigtech-1022-a3.ticks.zst · bigtech-1022.pnl.json 둘 다 커밋하지 않는다(테스트는 둘 다 있을 때만 켜진다)" >&2
-      fi
+      # 머리 크기 규칙의 예외 — 선택 픽스처라 넘어도 종료 0(경고만)
+      check_size "bigtech-1022-a3.ticks.zst · bigtech-1022.pnl.json 둘 다 커밋하지 않는다(테스트는 둘 다 있을 때만 켜진다)" \
+        "$FX/bigtech-1022-a3.ticks.zst" || true
     else
       oracle pnl --isin KR7000650002 --date 20261014 --pcap-dir "$HOME/ticks/team-follow/rawpcap/20261014" \
         --export "$HOME/ticks/research/export/20261014" --out-prefix "$FX/chunil-1014"
+      check_size "시간 범위를 줄인다" "$FX/chunil-1014-a3.ticks.zst"
     fi
     ;;
   g4cut)
     oracle g4cut --isin KR7065450009 --date 20261022 --pcap-dir "$HOME/ticks/oracle/20261022/krx" \
       --hours 1500,1600,1700 --out-prefix "$FX/bigtech-1022-g4"
+    check_size "시간 범위를 줄인다" "$FX/bigtech-1022-g4.ticks.zst"
     ;;
   launch)
     K22="$HOME/ticks/oracle/20261022/krx"
@@ -116,16 +124,7 @@ case "$cmd" in
     oracle launchcut --pcap "$Q30/nxt-0900.pcap.zst" --date 20261030 \
       --isins KR7425420007,KR7376900007,KR7095340006,KR7005930003,KR7012450003,KR7010140002 \
       --from 09:00:29.500 --to 09:00:32 --out "$FX/launch1030-nxt-0900.ticks.zst"
-    over=0
-    for f in "$FX"/launch10*.ticks.zst; do
-      size=$(wc -c < "$f" | tr -d ' ')
-      echo "$(basename "$f") ${size}B"
-      if [ "$size" -gt "$MAX_BYTES" ]; then
-        echo "  ↑ 1.5MB 초과 — 수신 창을 줄인다" >&2
-        over=1
-      fi
-    done
-    exit "$over"
+    check_size "수신 창을 줄인다" "$FX"/launch10*.ticks.zst
     ;;
   *)
     echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl [--bigtech]|g4cut|launch" >&2
