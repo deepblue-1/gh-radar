@@ -103,6 +103,8 @@ export interface B6Spec {
   ask1: [number, number];
   bid1: [number, number];
   nxt?: boolean;
+  /** [매도 총잔량, 매수 총잔량] — 생략하면 0. */
+  total?: [number, number];
 }
 
 export function b6Msg(s: B6Spec): Uint8Array {
@@ -112,6 +114,10 @@ export function b6Msg(s: B6Spec): Uint8Array {
   setNum(b, L, 'ask1_qty', s.ask1[1]);
   setPrice(b, L, 'bid1_px', s.bid1[0]);
   setNum(b, L, 'bid1_qty', s.bid1[1]);
+  if (s.total) {
+    setNum(b, L, 'total_ask_qty', s.total[0]);
+    setNum(b, L, 'total_bid_qty', s.total[1]);
+  }
   return b;
 }
 

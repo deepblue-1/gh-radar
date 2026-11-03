@@ -60,6 +60,8 @@ describe('TickMsgList — 뒤집힘 3', () => {
     expect(tail?.textContent).toContain('┗ 3조각 1단');
     expect(tail?.textContent).toContain('· 닫는 B6 ↕ 9.0ms 먼저');
     expect(container.querySelector('[data-slot="tick-msg-slot"]')).toBeNull();
+    // 팀 주문 꼬리 줄 — 직전 팀 간격 · 주문 전 호가비(스케치 024 C)
+    expect(tail!.querySelector('[data-slot="tick-team-meta"]')!.textContent).toMatch(/^ · 그날 첫 팀 주문 · 주문 전 호가 총 (—|[\d.]+) · 1호 2\.34$/);
   });
 
   it('수신순 토글 — 커서 rec 유지 · 점선 「⋯ 거래소순 자리」 줄 · 클릭 = 그 B6 선택', () => {

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>전문 목록 팀 간격 · 호가비 A/B/C</title>
+<style>
+  :root { --bg:#fff; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1; --border-subtle:#e5e8eb; --card:#fff; --up:#f04452; --down:#3182f6; --team:#a234c7; --team-bg:#f6ebfa; --vi:#d97706; --page:#f2f4f6; }
+  :root[data-theme="dark"] { --bg:#0a0a0a; --fg:#fff; --fg-2:#e4e4e4; --muted:#2d2d2d; --muted-fg:#9e9e9e; --faint:#636363; --border-subtle:#3d3d3d; --card:#151515; --up:#f04251; --down:#3485fa; --team:#c353e5; --team-bg:#2e1a36; --vi:#ffb020; --page:#0a0a0a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--fg); font:14px/1.45 Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif; }
+  .bar { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; }
+  .seg { display:inline-flex; background:var(--muted); border-radius:999px; padding:3px; }
+  .seg button { border:0; background:transparent; color:var(--muted-fg); padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .seg button.on { background:var(--card); color:var(--fg); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .wrap { max-width:1180px; margin:0 auto; padding:16px; display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(540px,1fr)); }
+  body.phone .wrap { grid-template-columns:370px; justify-content:center; }
+  .vt { font-weight:700; font-size:15px; margin:0 0 2px; } .vd { color:var(--muted-fg); font-size:12.5px; margin:0 0 10px; min-height:54px; }
+  .card { background:var(--card); border-radius:14px; overflow:hidden; }
+  .hd { padding:9px 12px; border-bottom:1px solid var(--border-subtle); font-size:12.5px; font-weight:700; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+  .row { display:grid; align-items:center; gap:6px; height:24px; padding:0 8px 0 12px; font-size:11.5px; white-space:nowrap; overflow:hidden; border-top:1px solid var(--border-subtle); }
+  .row.j { border-top-color:transparent; }
+  .row.team { box-shadow:inset 3px 0 0 var(--team); }
+  .row.sel { background:color-mix(in oklab,var(--fg) 12%,transparent); }
+  .t { color:var(--fg-2); } .t small { color:var(--muted-fg); font-size:10px; } .dim { opacity:.45; }
+  .b { display:inline-flex; height:17px; align-items:center; border-radius:4px; padding:0 5px; font-size:9.5px; font-weight:700; }
+  .A3 { background:color-mix(in oklab,var(--up) 14%,transparent); color:var(--up); } .B6 { background:var(--muted); color:var(--muted-fg); }
+  .seq { color:var(--muted-fg); }
+  .txt { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .up { color:var(--up); } .down { color:var(--down); } .mf { color:var(--muted-fg); } .tm { color:var(--team); font-weight:700; }
+  .chip { display:inline-flex; height:16px; align-items:center; border-radius:4px; padding:0 4px; font-size:9.5px; font-weight:700; margin-left:4px; background:var(--team-bg); color:var(--team); }
+  .tail { padding-left:14px; font-size:10.5px; color:var(--muted-fg); display:block; line-height:24px; }
+  .ratio { font-size:10.5px; color:var(--muted-fg); }
+  .ratio b { font-weight:600; }
+  .col { text-align:right; font-size:10.5px; }
+  .note { grid-column:1/-1; color:var(--muted-fg); font-size:12px; line-height:1.6; }
+  .card2 { margin-top:10px; border:1px solid var(--border-subtle); border-radius:12px; padding:8px 12px; font-size:12px; }
+  .card2 dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin:6px 0 0; } .card2 dt { color:var(--muted-fg); font-size:11px; } .card2 dd { margin:0; }
+</style>
+</head>
+<body>
+<div class="bar"><b>전문 목록 — 팀 주문 간격(µs) · 호가 매도/매수 비율</b>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+</div>
+<div class="wrap" id="wrap"></div>
+<script>
+// 표시 항목 — kind: b6 | a3 | tail. team 주문 = o(주문 번호) · first = 주문 첫 조각
+const ROWS = [
+  { k:'b6', t:'13:21:04.118', us:'402', seq:'186,601', a:[10210,412], b:[10200,1180], ta:58210, tb:31440 },
+  { k:'a3', t:'13:21:04.523', us:'118', seq:'186,602', px:10210, q:350, side:'buy', team:true, o:7, first:true, gap:'0.512304', gapSide:'매수→매수', pre:{ta:58210,tb:31440,a1:412,b1:1180} },
+  { k:'a3', t:'13:21:04.523', us:'121', seq:'186,603', px:10210, q:62, side:'buy', team:true, o:7, j:true },
+  { k:'b6', t:'13:21:04.523', us:'140', seq:'186,604', a:[10220,955], b:[10210,40], ta:57798, tb:31480, team:true, o:7, j:true },
+  { k:'tail', team:true, o:7, text:'┗ 2조각 1단 · 412주 · 421만 · 3µs', gap:'0.512304', pre:{ta:58210,tb:31440,a1:412,b1:1180} },
+  { k:'a3', t:'13:21:04.871', us:'009', seq:'186,605', px:10200, q:15, side:'sell', team:false },
+  { k:'b6', t:'13:21:04.871', us:'030', seq:'186,606', a:[10220,955], b:[10200,1165], ta:57798, tb:31465 },
+  { k:'a3', t:'13:21:05.034', us:'772', seq:'186,607', px:10220, q:955, side:'buy', team:true, o:8, first:true, gap:'0.511654', gapSide:'매수→매수', pre:{ta:57798,tb:31465,a1:955,b1:1165}, sel:true },
+  { k:'b6', t:'13:21:05.034', us:'790', seq:'186,608', a:[10230,1320], b:[10220,10], ta:56843, tb:31475, team:true, o:8, j:true },
+];
+const fq = (v) => v.toLocaleString('ko-KR');
+const r2 = (a, b) => (b > 0 ? (a / b).toFixed(2) : '—');
+const ratioTxt = (ta, tb, a1, b1) => `총 <b>${r2(ta, tb)}</b> · 1호 <b>${r2(a1, b1)}</b>`;
+const time = (r) => `<span class="mono t${r.j ? ' dim' : ''}">${r.t}<small>${r.us}</small></span>`;
+function body(r) {
+  if (r.k === 'b6') return `매도1 ${fq(r.a[0])} ×${fq(r.a[1])} 매수1 ${fq(r.b[0])} ×${fq(r.b[1])}`;
+  return `<span class="${r.side === 'buy' ? 'up' : 'down'}">${fq(r.px)}</span> ${r.side === 'buy' ? '+' : '−'}${fq(r.q)} ${r.side === 'buy' ? '매수' : '매도'}${r.team ? '<span class="chip">팀 SMP</span>' : ''}`;
+}
+function rowA(r) {
+  const cls = `row${r.j ? ' j' : ''}${r.team ? ' team' : ''}${r.sel ? ' sel' : ''}`;
+  if (r.k === 'tail') return `<div class="${cls}" style="display:block"><span class="tail mono">${r.text}</span></div>`;
+  let extra = '';
+  if (r.k === 'b6') extra = ` <span class="ratio mono">· ${ratioTxt(r.ta, r.tb, r.a[1], r.b[1])}</span>`;
+  if (r.k === 'a3' && r.first) extra = ` <span class="tm mono">⟳ +${r.gap}s</span>`;
+  return `<div class="${cls}" style="grid-template-columns:118px 26px 62px minmax(0,1fr)">${time(r)}<span class="b ${r.k === 'b6' ? 'B6' : 'A3'}">${r.k === 'b6' ? 'B6' : 'A3'}</span><span class="mono seq">${r.seq}</span><span class="txt mono">${body(r)}${extra}</span></div>`;
+}
+function rowB(r, phone) {
+  const cls = `row${r.j ? ' j' : ''}${r.team ? ' team' : ''}${r.sel ? ' sel' : ''}`;
+  const cols = phone ? '96px 26px minmax(0,1fr) 62px' : '118px 26px 62px minmax(0,1fr) 96px 92px';
+  if (r.k === 'tail') return `<div class="${cls}" style="display:block"><span class="tail mono">${r.text}</span></div>`;
+  const ta = r.k === 'b6' ? [r.ta, r.tb, r.a[1], r.b[1]] : null;
+  const gap = r.k === 'a3' && r.first ? `<span class="col mono tm">+${r.gap}s</span>` : '<span></span>';
+  const rat = ta ? `<span class="col mono mf">${r2(ta[0], ta[1])} / ${r2(ta[2], ta[3])}</span>` : '<span></span>';
+  if (phone) return `<div class="${cls}" style="grid-template-columns:${cols}">${time(r)}<span class="b ${r.k === 'b6' ? 'B6' : 'A3'}">${r.k === 'b6' ? 'B6' : 'A3'}</span><span class="txt mono">${body(r)}</span>${r.k === 'a3' && r.first ? gap : rat}</div>`;
+  return `<div class="${cls}" style="grid-template-columns:${cols}">${time(r)}<span class="b ${r.k === 'b6' ? 'B6' : 'A3'}">${r.k === 'b6' ? 'B6' : 'A3'}</span><span class="mono seq">${r.seq}</span><span class="txt mono">${body(r)}</span>${gap}${rat}</div>`;
+}
+function rowC(r) {
+  const cls = `row${r.j ? ' j' : ''}${r.team ? ' team' : ''}${r.sel ? ' sel' : ''}`;
+  if (r.k === 'tail') return `<div class="${cls}" style="display:block"><span class="tail mono">${r.text} · <span class="tm">직전 팀 +${r.gap}s</span> · 주문 전 호가 ${ratioTxt(r.pre.ta, r.pre.tb, r.pre.a1, r.pre.b1)}</span></div>`;
+  let extra = '';
+  if (r.k === 'a3' && r.first && r.o === 8) extra = ` <span class="tm mono">⟳ +${r.gap}s</span> <span class="ratio mono">· ${ratioTxt(r.pre.ta, r.pre.tb, r.pre.a1, r.pre.b1)}</span>`;
+  return `<div class="${cls}" style="grid-template-columns:118px 26px 62px minmax(0,1fr)">${time(r)}<span class="b ${r.k === 'b6' ? 'B6' : 'A3'}">${r.k === 'b6' ? 'B6' : 'A3'}</span><span class="mono seq">${r.seq}</span><span class="txt mono">${body(r)}${extra}</span></div>`;
+}
+const card = `<div class="card2"><b>이 주문</b> <span class="chip">팀 SMP</span><dl>
+  <dt>직전 팀 주문</dt><dd class="mono tm">+0.511654s <span class="mf" style="font-weight:400">(13:21:04.523118 매수 412주)</span></dd>
+  <dt>주문 전 호가</dt><dd class="mono">매도합/매수합 <b>1.84</b> · 매도1/매수1 <b>0.82</b></dd></dl></div>`;
+const V = [
+  ['A · 행 안에 이어 붙이기', '팀 주문 첫 조각 A3 끝에 보라 「⟳ +0.512304s」(직전 팀 주문과의 간격 · 체결시각 µs). B6 행 끝에 회색 「총 1.85 · 1호 0.35」(매도/매수 잔량 비). 열 추가 없음 — 좁으면 뒤가 잘림.', (p) => ROWS.map((r) => rowA(r)).join('')],
+  ['B · 오른쪽 고정 열 2개', '「팀 간격」 열(팀 주문 첫 조각만) · 「호가비 총/1호」 열(B6 마다). 숫자가 세로로 줄 맞춰 훑기 쉬움. 폰은 열 하나(팀 행 = 간격 · B6 = 호가비)로 접음.', (p) => ROWS.map((r) => rowB(r, p)).join('')],
+  ['C · 주문 꼬리 줄 · 이 주문 카드', '전문 행은 그대로. 팀 주문 꼬리 줄(┗ …)에 「직전 팀 +0.512304s · 주문 전 호가 총 1.84 · 1호 0.35」. 1조각 주문(꼬리 없음)은 첫 A3 행에. 「이 주문」 카드에도 같은 두 줄. B6 행마다는 안 보임.', (p) => ROWS.map((r) => rowC(r)).join('') ],
+];
+function render() {
+  const phone = document.body.classList.contains('phone');
+  document.getElementById('wrap').innerHTML = V.map(([t, d, f], i) => `<section><p class="vt">${t}</p><p class="vd">${d}</p><div class="card"><div class="hd">전문 · 거래소순</div>${f(phone)}</div>${i === 2 ? card : ''}</section>`).join('') +
+    `<p class="note">공통: 간격 = 이 팀 주문 첫 조각 체결시각 − 직전 팀 주문(매수 · 매도 무관) 첫 조각 체결시각, µs 6자리(1초 넘으면 「+12.345678s」). 호가비 = 매도 총잔량 ÷ 매수 총잔량 · 매도1 잔량 ÷ 매수1 잔량(1 보다 크면 매도 쪽이 두꺼움) — A3 · 주문에는 「주문 직전 마지막 B6」 값을 쓴다. 1호가 잔량 0 이면 「—」.</p>`;
+}
+for (const id of ['theme','width']) document.getElementById(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); if (id === 'theme') document.documentElement.dataset.theme = b.dataset.v; else document.body.classList.toggle('phone', b.dataset.v === 'phone'); render(); });
+render();
+</script>
+</body>
+</html>

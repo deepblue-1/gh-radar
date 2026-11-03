@@ -22,6 +22,9 @@ import {
   slotText,
   tailInversionText,
   tailText,
+  teamBookText,
+  teamGapText,
+  teamOrderMetaOf,
   type MsgRowsModel,
 } from '@/lib/ticks/msg-rows';
 import { ownChipOf, ownOrderLineText, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
@@ -53,6 +56,8 @@ import { cn } from '@/lib/utils';
  *   잇는다(`ownRailOf`) · 추정이 섞인 주문은 점선 · 짝 없음 ◇(대기는 점선 테두리) · 겹치면 선이 겹친다(옆 칸 없음).
  *   38-06: 근거 전문 행 ○(띠 시작 · 구간 근거는 첫 ○ … 끝 ○ 점선) · 앵커 ◌(마디만 · 글자 없음). 근거 행에 칩은 없다(D-10).
  *   기존 팀/일반 3px 레일(①)은 시각 칸 안쪽에 붙는다. 행 높이 24/22 그대로 · 폰도 14px 칸 유지.
+ * ⑧ 팀 주문 보조 말(스케치 024 C · 2026-11-03) — 꼬리 줄(1조각 팀 주문은 그 A3 행) 끝에 「직전 팀 +0.512304s」(직전 팀 주문과의
+ *   첫 조각 체결시각 간격 · µs) · 「주문 전 호가 총 1.84 · 1호 0.35」(매도/매수 총잔량 · 1호가 잔량 비). 값은 `teamOrderMetaOf`.
  */
 
 export interface TickMsgListProps {
@@ -220,6 +225,20 @@ function railStyle(order: ViewOrder | null, sel: boolean): CSSProperties | undef
 const DIR_COLOR = { 1: 'text-[var(--up)]', 0: 'text-[var(--flat)]', [-1]: 'text-[var(--down)]' } as const;
 const SIDE_COLOR = { buy: 'text-[var(--up)]', sell: 'text-[var(--down)]', auction: 'text-[var(--muted-fg)]' } as const;
 
+/** 팀 주문 보조 말(스케치 024 C) — 「 · 직전 팀 +0.512304s · 주문 전 호가 총 1.84 · 1호 0.35」. 팀 주문이 아니면 null. */
+function TeamMeta({ session, order }: { session: TickSession; order: ViewOrder }) {
+  const m = order.team ? teamOrderMetaOf(session, order.id) : null;
+  if (m === null) return null;
+  const book = teamBookText(m);
+  return (
+    <span data-slot="tick-team-meta" className="mono" title={book === '' ? teamGapText(m) : `${teamGapText(m)} · ${book}`}>
+      {' · '}
+      <span className="font-semibold text-[var(--team)]">{teamGapText(m)}</span>
+      {book !== '' && <span className="text-[var(--muted-fg)]">{` · ${book}`}</span>}
+    </span>
+  );
+}
+
 function contentOf(session: TickSession, rec: number, order: ViewOrder | null, mode: TickOrderMode): ReactNode {
   const tag = session.index.tag[rec];
   if (tag === TAG_CODE.A3) {
@@ -239,6 +258,7 @@ function contentOf(session: TickSession, rec: number, order: ViewOrder | null, m
             {a.zz && a.side !== 'auction' ? ' · 0/0' : ''}
           </span>
           {order && order.pieces < 2 && <ShapeChip order={order} />}
+          {order && order.pieces < 2 && <TeamMeta session={session} order={order} />}
         </>
       );
     }
@@ -383,6 +403,7 @@ const MsgRow = memo(function MsgRow({
           <span className="min-w-0 truncate">
             <span className="mono">{tailText(order)}</span>
             <ShapeChip order={order} className="ml-1" />
+            <TeamMeta session={session} order={order} />
             {order.open && <span className={cn(CHIP, 'ml-1 bg-[var(--vi-bg)] text-[var(--vi)]')}>진행 중</span>}
             {inv && <span className="ml-1 font-semibold text-[var(--vi)]">{tailInversionText(mode, inv.leadNs)}</span>}
           </span>

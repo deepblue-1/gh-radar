@@ -128,6 +128,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261102-epl | 버스트 비율 판정 반영 — relay 59 brp · 84/42 burstRatioPct(42 는 1~100 만) · 상따 호가 「버스트 NN%」/회색 「NN%」 · /me 「판정 비율」 칸 · 주문로그 「버스트 상한가 NN%」 (gh-trade t7c · enc) | 2026-11-02 | a441b9be | [261102-epl-relay-burst-ratio-pct-nn-me-gh-trade-t7c](./quick/261102-epl-relay-burst-ratio-pct-nn-me-gh-trade-t7c/) |
 | 261102-f1x | 85 upper_max_fill_auction 반영 — 생성물 재동기화 · relay 85 매핑 · 창구 셋째 칸·툴팁 앞말 「단일가」/「최대」 (gh-trade quick-261102-f1x · WinForms 동형) | 2026-11-02 | 4b2f8828 | — |
 | 261103-j4d | 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익(격자 변환 때 계산 · 스케치 023 B) | 2026-11-03 | 5d1ebc87 | [261103-j4d-tick-list-team-day-net-pnl](./quick/261103-j4d-tick-list-team-day-net-pnl/) |
+| 261103-fast | 틱뷰어 Shift+] [ — 다음/이전 팀 주문 첫 A3 조각(맨 [ ] 는 38 우리 체결) · gsd-fast | 2026-11-03 | 3549aff3 | — |
 
 ## Session Continuity
 
