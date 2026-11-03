@@ -20,6 +20,7 @@ import {
   OWN_DAY_END_HHMM,
   OWN_DAY_END_SETTLE_MS,
   OWN_PENDING_GRACE_MS,
+  OWN_SERVER_AS_OF_LAG_MS,
   type OwnOrderView,
 } from '../own-model';
 
@@ -270,6 +271,32 @@ describe('buildOwnModel — 당일 대기(Pitfall 4 · OWN_PENDING_GRACE_MS)', (
     expect(stateAt(nxt, endOf('2000'))).toEqual([['matched', 0]]);
     // 과거 격자(live 아님)는 asOfMs 와 무관하게 확정
     expect(buildOwnModel(krx, near, { asOfMs: null }).fills.map((f) => f.state)).toEqual(['matched']);
+  });
+
+  it('live — 한산한 종목: tickgw as-of − 2,000 이 g + 닿는 거리 + 1,000 에 닿으면 확정(호출자 예시 +2s 는 여유 0 기준 · 여유 2,000 이라 경계 g + 3,025) · 1ms 모자라면 대기', () => {
+    expect(OWN_SERVER_AS_OF_LAG_MS).toBe(2000);
+    // 리뷰 재현 — 진짜 A3 .100 이 이미 있고 마지막 수신은 B6 .400(+300ms 뿐). 우리 체결 .105 ×10(dt 5 · 닿는 거리 25)
+    const quiet = synthSession([a3At100, b6At(400.5, 312)]);
+    const edge = at(105 + 25 + 1000) + OWN_SERVER_AS_OF_LAG_MS; // = g + 3,025
+    const stateAt = (serverAsOfMs: number | null | undefined) =>
+      buildOwnModel(quiet, near, { live: true, serverAsOfMs }).fills.map((f) => [f.state, f.rec]);
+    expect(stateAt(edge)).toEqual([['matched', 0]]);
+    expect(buildOwnModel(quiet, near, { live: true, serverAsOfMs: edge }).fills[0]!.dtMs).toBe(5);
+    expect(stateAt(edge - 1)).toEqual([['pending', -1]]);
+    // 헤더 없음(옛 tickgw · server) · ready 아님 → 종전 판정(마지막 수신만)
+    expect(stateAt(null)).toEqual([['pending', -1]]);
+    expect(stateAt(undefined)).toEqual([['pending', -1]]);
+  });
+
+  it('live — as-of 가 마지막 수신보다 한참 이르면 max 가 마지막 수신을 고른다(퇴행 없음) · 과거 격자는 as-of 와 무관하게 확정', () => {
+    const done = synthSession([a3At100, b6At(1130.5, 312)]);
+    expect(buildOwnModel(done, near, { live: true, serverAsOfMs: at(0) }).fills.map((f) => [f.state, f.rec])).toEqual([
+      ['matched', 0],
+    ]);
+    const quiet = synthSession([a3At100, b6At(400.5, 312)]);
+    for (const serverAsOfMs of [null, at(0), at(10_000)]) {
+      expect(buildOwnModel(quiet, near, { serverAsOfMs }).fills.map((f) => f.state)).toEqual(['matched']);
+    }
   });
 });
 

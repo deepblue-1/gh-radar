@@ -22,8 +22,11 @@
  *   A3 에 붙은 체결(상한가 · 원 WR-02)은 대기로 남는다. 짝 없음은 지금과 같다(gw + 1,200ms).
  *   남은 수량 차감이 순서 의존이라 확정은 앞자리만 — 한 체결이 대기면 그 뒤 체결은 모두 대기(대기 체결의 차감은 버린다).
  *   장 끝(KRX 18:00 · NXT 20:00 KST) + 5분 뒤에 받은 세션(`asOfMs` = 마지막 성공 응답의 브라우저 시각 · 상태 ready)은
- *   그날 전문이 다 왔으므로 대기가 없다 — 날짜를 넘기지 않아도 장 끝 체결이 영구 대기로 남지 않는다. 장중에는 브라우저
- *   시계를 쓰지 않는다(게이트웨이 시계와 어긋날 수 있다 — 서버 시각이 응답에 없다). 세션이 자라면 모델을 다시 만들어 풀린다.
+ *   그날 전문이 다 왔으므로 대기가 없다 — 날짜를 넘기지 않아도 장 끝 체결이 영구 대기로 남지 않는다. 장중에는
+ *   tickgw as-of(`serverAsOfMs` = 마지막 완결 폴링 시작 · 서버 시각 · 상태 ready) − 2,000 과 세션 마지막 수신 중 큰 값을
+ *   「이 시각까지 다 왔다」 로 본다 — 한산한 종목(체결 뒤 전문이 1초 넘게 끊김)도 「최신 받기」 한 번에 풀린다(R2 WR-02 남은
+ *   한계 · quick-261104-6lh). 헤더가 없으면(옛 tickgw · server) 마지막 수신만 쓴다. 브라우저 시계는 여전히 장 끝 판정에만
+ *   쓴다(게이트웨이 시계와 어긋날 수 있다). 세션이 자라면 모델을 다시 만들어 풀린다.
  *   과거 격자는 늘 확정.
  * ⑦ 근거 · 앵커(38-06 · D-11 · D-13 · D-15 · SC-3): 세션당 `cumIndexOf(a3, duplicates)` 한 번 → 이벤트가 있는 주문마다 shared
  *   `locateEvidence`(호가 B6 · 체결 단건 A3 · 주기매도 구간 · 없음) · `anchorOf`(「주문 직전 마지막 체결」). ev_kind 3(체결통보)은
@@ -69,6 +72,12 @@ export const OWN_DAY_END_HHMM: Readonly<Record<TickExchange, string>> = { KRX: '
 
 /** 장 끝 뒤 여유(ms) — 브라우저 시계 어긋남 · tickgw 폴링 지연. */
 export const OWN_DAY_END_SETTLE_MS = 5 * 60_000;
+
+/**
+ * tickgw as-of 여유(ms) — as-of 는 「마지막 완결 폴링 시작」(tickgw · radar-gw 시계)이고 recv 시각은 119 인덱서 호스트
+ * 시계다. 기록기 지연 약 1초 + 두 호스트 NTP 시계 차를 흡수한다(⑥). tickgw `CLOSE_RECORD_LAG_MS` 와 같은 값 — 바꾸면 같이 본다.
+ */
+export const OWN_SERVER_AS_OF_LAG_MS = 2_000;
 
 /** 체결 상태 — 짝 A3 있음 · 짝 전문 없음(확정) · 전문 아직 안 옴(당일 대기). */
 export type OwnFillState = 'matched' | 'nofill' | 'pending';
@@ -205,6 +214,11 @@ export interface BuildOwnModelOpts {
   live?: boolean;
   /** 마지막 성공 응답 시각(브라우저 epoch ms · tickgw 상태 ready 일 때만) — 장 끝 뒤면 대기 없음(⑥). */
   asOfMs?: number | null;
+  /**
+   * tickgw `X-Tick-As-Of-Ms`(마지막 완결 폴링 시작 · 서버 epoch ms) — 상태 ready 일 때만 넘긴다. 장중 대기 cutoff 를
+   * max(마지막 수신, 이 값 − `OWN_SERVER_AS_OF_LAG_MS`) 로 앞당긴다(⑥). 없으면(옛 tickgw · server) 종전 판정.
+   */
+  serverAsOfMs?: number | null;
 }
 
 /** 당일 세션이 그날 전문을 다 받았는가 — 장 끝 + 여유 뒤에 받은 응답(⑥). */
@@ -227,16 +241,22 @@ export function buildOwnModel(session: TickSession, own: TickOwnResponse, opts?:
     duplicates,
   );
   // 당일 대기(⑥) — 더 가까운 A3 가 아직 올 수 있는 첫 체결부터 끝까지(차감 순서 의존이라 앞자리만 확정).
-  // 세션 마지막 수신 ms — 레코드가 없으면 모두 대기.
+  // 세션 마지막 수신 ms — 레코드가 없으면(as-of 도 없으면) 모두 대기.
   let settledN = sorted.length;
   if (live) {
     const n = recvOrder.length;
     const lastRecvMs = n > 0 ? Number(index.recvNs[recvOrder[n - 1]!]! / 1_000_000n) : Number.NEGATIVE_INFINITY;
+    // 「이 시각까지 다 왔다」 — tickgw as-of(여유를 뺀 값)가 있으면 마지막 수신과 견준 큰 값(한산한 종목 · ⑥)
+    const serverAsOfMs = opts?.serverAsOfMs;
+    const cutoffMs =
+      typeof serverAsOfMs === 'number' && Number.isFinite(serverAsOfMs)
+        ? Math.max(lastRecvMs, serverAsOfMs - OWN_SERVER_AS_OF_LAG_MS)
+        : lastRecvMs;
     const windowEnd = -OWN_MATCH_DT_MIN_MS;
     for (let i = 0; i < sorted.length; i++) {
       const m = matches[i]!;
       const reach = m.a3j >= 0 ? Math.min(Math.abs(m.dtMs) + OWN_MATCH_EST_MS, windowEnd) : windowEnd;
-      if (sorted[i]!.gw_time_ms + reach + OWN_PENDING_SLACK_MS > lastRecvMs) {
+      if (sorted[i]!.gw_time_ms + reach + OWN_PENDING_SLACK_MS > cutoffMs) {
         settledN = i;
         break;
       }

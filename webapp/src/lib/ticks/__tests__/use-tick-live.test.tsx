@@ -22,6 +22,7 @@ import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, TICK_FIXTURE_RECORDS
 
 import { appendTickBytes, buildTickSession } from '../tick-session';
 import { endRecOf, initialRecOf } from '../use-tick-cursor';
+import { tickLiveMetaOf } from '../tick-api';
 import { TICK_LIVE_LOADING_MS, useTickLive } from '../use-tick-live';
 
 const RAW = tickGridBytes();
@@ -364,5 +365,38 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('tickLiveMetaOf — X-Tick-As-Of-Ms 판독(quick-261104-6lh)', () => {
+  const base = {
+    [TICK_LIVE_HEADERS.epoch]: EPOCH,
+    [TICK_LIVE_HEADERS.offsetEnd]: '123',
+    [TICK_LIVE_HEADERS.lastRecvNs]: '1793332800400500000',
+    [TICK_LIVE_HEADERS.state]: 'queued',
+    [TICK_LIVE_HEADERS.queue]: '2',
+    [TICK_LIVE_HEADERS.complete]: 'true',
+  };
+  const others = {
+    epoch: EPOCH,
+    offsetEnd: 123,
+    lastRecvNs: '1793332800400500000',
+    state: 'queued',
+    queue: 2,
+    complete: true,
+  };
+
+  it('숫자 문자열 → epoch ms · 다른 6종 판독은 그대로', () => {
+    expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.asOfMs]: '1793332803130' }))).toEqual({
+      ...others,
+      asOfMs: 1793332803130,
+    });
+  });
+
+  it('빈 값 · 헤더 없음(옛 tickgw · server) · 숫자 아님 · 음수 · 소수 → null', () => {
+    expect(tickLiveMetaOf(new Headers(base))).toEqual({ ...others, asOfMs: null });
+    for (const v of ['', 'abc', '-5', '1.5']) {
+      expect(tickLiveMetaOf(new Headers({ ...base, [TICK_LIVE_HEADERS.asOfMs]: v }))!.asOfMs).toBeNull();
+    }
   });
 });

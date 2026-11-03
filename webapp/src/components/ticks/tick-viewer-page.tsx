@@ -347,9 +347,18 @@ export function TickViewerPage() {
   }, [liveRefresh]);
   // 우리 체결 대기 해제 기준(R2 WR-02) — 마지막 성공 응답 시각 · tickgw 가 증분 폴링 중(ready)일 때만 「그때까지 다 왔다」 로 본다.
   const liveAsOfMs = live.meta?.state === 'ready' ? live.fetchedAt : null;
+  // tickgw as-of(장중 대기 cutoff · quick-261104-6lh) — ready 일 때만. 하루치 받기(첫 로드 · 409 재수신) 중 meta 는 loading ·
+  // queued 응답 것이라 화면 세션과 어긋날 수 있다. ready 면 meta 와 세션이 같은 publish 에서 바뀐다(use-tick-live handle).
+  const liveServerAsOfMs = live.meta?.state === 'ready' ? (live.meta.asOfMs ?? null) : null;
   const liveViewer = useMemo(
-    () => ({ newCount: live.newCount, onGoEnd: liveGoEnd, onAtEnd: setLiveAtEnd, asOfMs: liveAsOfMs }),
-    [live.newCount, liveGoEnd, liveAsOfMs],
+    () => ({
+      newCount: live.newCount,
+      onGoEnd: liveGoEnd,
+      onAtEnd: setLiveAtEnd,
+      asOfMs: liveAsOfMs,
+      serverAsOfMs: liveServerAsOfMs,
+    }),
+    [live.newCount, liveGoEnd, liveAsOfMs, liveServerAsOfMs],
   );
   const liveOn = liveResp !== null && live.session !== null;
   const showTick = (view?.kind === 'loaded' && grid.status === 'ready') || liveOn;

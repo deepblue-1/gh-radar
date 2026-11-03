@@ -9,7 +9,7 @@
  *   `ApiClientError`(status · code)로 올라온다 — 화면이 게이트 · 상태 카드 문구로 바꾼다.
  * ④ 캐시하지 않는다 — open 은 서명 URL(수명 600초)을 싣고, 변환 상태는 폴링마다 새로 봐야 한다.
  * ⑤ 당일 바이트(37-19) — `fetchTickLive` 는 `GET /api/ticks/live`(37-15)를 **같은 Bearer**(authFetch 와 같은 세션 토큰 ·
- *   `resolveBaseUrl`)로 부르고, 본문(zstd 프레임 바이트)과 `TICK_LIVE_HEADERS` 6종을 읽는다. JSON 이 아니라서 apiFetch 를
+ *   `resolveBaseUrl`)로 부르고, 본문(zstd 프레임 바이트)과 `TICK_LIVE_HEADERS` 7종(As-Of 는 옛 tickgw · server 면 없음)을 읽는다. JSON 이 아니라서 apiFetch 를
  *   거치지 않는다. 오류를 throw 하지 않고 `status` 로 돌려준다 — 409 `{epoch}`(새 epoch 로 offset 0) · 503 미결선(D-22) ·
  *   502 · 0(네트워크) = 다음 주기 · 401/403 = 게이트. 폴링 규율은 `useTickLive` 가 진다.
  */
@@ -83,7 +83,7 @@ export interface TickLiveResult {
   status: number;
   /** 200 본문(zstd 프레임 바이트 · 비어 있을 수 있다). 그 밖은 빈 배열. */
   bytes: Uint8Array;
-  /** 200 = 헤더 6종 · 409 = 본문 `{epoch}` 만 채운 값(epoch 가 없으면 null) · 그 밖 null. */
+  /** 200 = 헤더 7종 · 409 = 본문 `{epoch}` 만 채운 값(epoch 가 없으면 null) · 그 밖 null. */
   meta: TickLiveMeta | null;
 }
 
@@ -101,6 +101,9 @@ export function tickLiveMetaOf(h: Headers): TickLiveMeta | null {
   const last = (h.get(TICK_LIVE_HEADERS.lastRecvNs) ?? '').trim();
   const rawState = h.get(TICK_LIVE_HEADERS.state) as TickLiveState | null;
   const queue = Number(h.get(TICK_LIVE_HEADERS.queue) ?? '0');
+  // tickgw as-of(마지막 완결 폴링 시작 · epoch ms) — 빈 값 · 헤더 없음(옛 tickgw · server) · 숫자 아님이면 null
+  const asOfRaw = (h.get(TICK_LIVE_HEADERS.asOfMs) ?? '').trim();
+  const asOf = /^\d+$/.test(asOfRaw) ? Number(asOfRaw) : NaN;
   return {
     epoch,
     offsetEnd: end,
@@ -108,6 +111,7 @@ export function tickLiveMetaOf(h: Headers): TickLiveMeta | null {
     state: rawState !== null && LIVE_STATES.includes(rawState) ? rawState : 'ready',
     queue: Number.isFinite(queue) && queue > 0 ? Math.floor(queue) : 0,
     complete: h.get(TICK_LIVE_HEADERS.complete) === 'true',
+    asOfMs: Number.isSafeInteger(asOf) ? asOf : null,
   };
 }
 
@@ -156,7 +160,7 @@ export async function fetchTickLive(q: {
         status: 409,
         bytes: EMPTY,
         meta:
-          epoch === null ? null : { epoch, offsetEnd: 0, lastRecvNs: null, state: 'loading', queue: 0, complete: false },
+          epoch === null ? null : { epoch, offsetEnd: 0, lastRecvNs: null, state: 'loading', queue: 0, complete: false, asOfMs: null },
       };
     }
     return { status: res.status, bytes: EMPTY, meta: null };
