@@ -47,7 +47,14 @@ export function createSupabaseGridStore(sb: SupabaseClient): GridStore {
   return {
     async upload(path, bytes) {
       const { error } = await bucket().upload(path, bytes, { contentType: GRID_CONTENT_TYPE, upsert: true });
-      if (error) throw new Error(`storage upload ${GRID_BUCKET}/${path}: ${error.message}`);
+      if (error) {
+        // HTTP 상태를 싣는다 — nightly 가 4xx(영구 거부)와 그 밖(일시 장애)을 가른다(R2-WR-03)
+        const e = new Error(`storage upload ${GRID_BUCKET}/${path}: ${error.message}`) as Error & { status?: number };
+        const raw = error as { status?: unknown; statusCode?: unknown };
+        const st = Number(raw.statusCode ?? raw.status);
+        if (Number.isInteger(st)) e.status = st;
+        throw e;
+      }
     },
     async removeDates(dates) {
       let removed = 0;

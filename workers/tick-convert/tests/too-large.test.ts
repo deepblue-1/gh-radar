@@ -77,7 +77,9 @@ describe("격자 크기 상한 — 넘으면 건너뛴다(실패 아님)", () =>
     expect(await main(["nightly", "--date", D], { sb, config: cfg(arch.root), now, clock: () => 0 })).toBe(0);
     expect(uploads(calls)).toHaveLength(0);
     expect(rpcCalls(calls, "tick_grid_upsert")).toHaveLength(0);
-    const runs = rpcCalls(calls, "tick_convert_run_record").map((c) => (c as { p_run: { ok: boolean } }).p_run);
+    const runs = rpcCalls(calls, "tick_convert_run_record")
+      .map((c) => (c as { p_run: { ok: boolean | null } }).p_run)
+      .filter((r) => r.ok !== null); // 「시작」 기록(R2-WR-03) 빼고 끝 기록만
     expect(runs.length).toBeGreaterThan(0);
     for (const r of runs) expect(r.ok).toBe(true);
   });

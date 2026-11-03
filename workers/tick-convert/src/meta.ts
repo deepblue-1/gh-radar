@@ -7,7 +7,7 @@
  *   tick_request_finish(p_date, p_ex, p_results) → 바뀐 행 수                      — {isin, ok, error} · running 행만
  *   tick_grid_upsert(p_mode, p_rows)             → 쓴 행 수                        — 모드 규칙(request 는 nightly 를 못 덮음)
  *   tick_convert_run_record(p_run)               → 새 id
- *   tick_convert_runs_since(p_since)             → [{date, exchange, mode, ok, finished_at}]   (37-18 nightly)
+ *   tick_convert_runs_since(p_since)             → [{date, exchange, mode, ok, finished_at, error}]   (37-18 nightly · error 는 R2-WR-03)
  *   tick_convert_candidates(p_date)              → {accum: isin[], live16: isin[]}             (37-18 nightly)
  *   tick_purge_old(p_keep_days)                  → {cutoff, grids, requests, runs, dates}      (37-18 nightly)
  *   tick_grid_team_pending(p_from, p_to)         → [{date, exchange, isin, object_path, bytes}] (261103-j4d backfill-team)
@@ -60,7 +60,8 @@ export type RunRow = {
   mode: GridMode;
   started_at?: string;
   finished_at?: string;
-  ok: boolean;
+  /** null = 「시작」 기록(nightly 날짜 시작 · error STARTED — 끝 기록 없이 남으면 크래시로 센다 · R2-WR-03). */
+  ok: boolean | null;
   targets: number;
   written: number;
   bytes_read: number;
@@ -68,7 +69,15 @@ export type RunRow = {
   error: string | null;
 };
 
-export type RunSince = { date: string; exchange: string; mode: GridMode; ok: boolean | null; finished_at: string | null };
+/** `error` 는 20261104600200 부터 — 옛 RPC 면 없다(undefined · 실패 분류는 「결정적」 으로 센다 · R2-WR-03). */
+export type RunSince = {
+  date: string;
+  exchange: string;
+  mode: GridMode;
+  ok: boolean | null;
+  finished_at: string | null;
+  error?: string | null;
+};
 /** `launch` = 그날 접수 발사 조각 ISIN(261103-pei · 출처 칩 없이 nightly 대상). */
 export type Candidates = { accum: string[]; live16: string[]; launch: string[] };
 

@@ -25,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(137);
+SELECT plan(138);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -455,9 +455,15 @@ SELECT ok(public.tick_convert_run_record('{"date": "20261030", "exchange": "KRX"
                                             "targets": 3, "written": 3, "bytes_read": 1000, "duration_ms": 5000}'::jsonb) > 0,
           'K run_record → 새 id');
 SELECT is(public.tick_convert_runs_since('20261030') #- '{0,finished_at}',
-          '[{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true}]'::jsonb,
-          'K runs_since → {date, exchange, mode, ok, finished_at}');
+          '[{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true, "error": null}]'::jsonb,
+          'K runs_since → {date, exchange, mode, ok, finished_at, error}(R2-WR-03 · 20261104600200)');
 SELECT is(public.tick_convert_runs_since('20261031'), '[]'::jsonb, 'K runs_since 이후 없음 → []');
+SELECT public.tick_convert_run_record('{"date": "20261101", "exchange": "NXT", "mode": "nightly", "ok": null,
+                                        "targets": 0, "written": 0, "bytes_read": 0, "duration_ms": 0, "error": "STARTED"}'::jsonb);
+SELECT is(public.tick_convert_runs_since('20261101') #- '{0,finished_at}',
+          '[{"date": "20261101", "exchange": "NXT", "mode": "nightly", "ok": null, "error": "STARTED"}]'::jsonb,
+          'K 「시작」 기록(ok null · STARTED) 이 runs_since 에 error 와 함께 나온다(크래시 판정 · R2-WR-03)');
+DELETE FROM public.tick_convert_runs WHERE date = '20261101';
 
 INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, exchange, isin) VALUES
   ('KB120', 'tv-ep', 1, '2026-10-30', 1793000000000, 16, 'KRX', 'KR7370003007'),

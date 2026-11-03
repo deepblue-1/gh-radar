@@ -13,7 +13,15 @@ import { selectTargets } from "../src/select";
 import { createSupabaseGridStore } from "../src/store";
 import { gridTeamOf } from "../src/team-day";
 import { gridLaunchOf } from "../src/launch-queue";
-import { NIGHTLY_MAX_FAILED_RUNS, NO_OBJECTS, nightlyDatesOf, runNightly } from "../src/modes/nightly";
+import {
+  NIGHTLY_MAX_FAILED_RUNS,
+  NO_OBJECTS,
+  STARTED,
+  TRANSIENT,
+  failedNightlyRunsOf,
+  nightlyDatesOf,
+  runNightly,
+} from "../src/modes/nightly";
 import type { RunSince } from "../src/meta";
 import {
   a3Payload,
@@ -101,6 +109,14 @@ function idx(calls: Call[], pred: (c: Call) => boolean): number {
 
 const isRpc = (name: string) => (c: Call) => c.kind === "rpc" && c.name === name;
 
+/** 끝 기록(ok true/false) — 날짜 시작 때 쓰는 「시작」 기록(ok null · STARTED · R2-WR-03)을 뺀다. */
+const finals = (calls: Call[]) =>
+  rpcCalls(calls, "tick_convert_run_record")
+    .map((x) => x.p_run as Record<string, unknown>)
+    .filter((r) => r.ok !== null);
+const isFinalRec = (c: Call) =>
+  c.kind === "rpc" && c.name === "tick_convert_run_record" && (c.args.p_run as { ok: unknown }).ok !== null;
+
 const HOURS_08_20 = Array.from({ length: 13 }, (_, i) => `${String(8 + i).padStart(2, "0")}00`);
 
 // ── 날짜 고르기 ─────────────────────────────────────────────
@@ -156,6 +172,41 @@ describe("nightlyDatesOf — 평일 · 휴장 · ok 기록 · 최신부터", () 
     expect(NIGHTLY_MAX_FAILED_RUNS).toBe(2);
     expect(nightlyDatesOf(NOW, 10, runs)).toEqual(["20261102", "20261029", "20261028", "20261027", "20261026"]);
     expect(nightlyDatesOf(NOW, 10, runs, Infinity)).toContain("20261030");
+  });
+
+  it("일시 장애(TRANSIENT) 기록은 세지 않는다 · 끝 기록 없는 「시작」 기록(크래시)은 센다 · error 없는 옛 기록은 센다(R2-WR-03)", () => {
+    const r = (date: string, exchange: string, ok: boolean | null, error?: string | null): RunSince => ({
+      date,
+      exchange,
+      mode: "nightly",
+      ok,
+      finished_at: "2026-11-01T00:00:00Z",
+      ...(error === undefined ? {} : { error }),
+    });
+    const runs = [
+      // 10/30 — 일시 장애 5회 → 0 · 계속 고른다
+      ...[1, 2, 3, 4, 5].map(() => r("20261030", "KRX", false, `${TRANSIENT}: tick_convert_candidates: fetch failed`)),
+      // 10/29 — 크래시 3회(시작만) → 포기
+      ...[1, 2, 3].map(() => r("20261029", "KRX", null, STARTED)),
+      // 10/28 — 시작 3 · 끝 3(일시 장애) → 크래시 0 · 실패 0
+      ...[1, 2, 3].flatMap(() => [r("20261028", "NXT", null, STARTED), r("20261028", "NXT", false, `${TRANSIENT}: failed 1`)]),
+      // 10/27 — error 없는 옛 기록 3회 → 결정적으로 센다
+      ...[1, 2, 3].map(() => r("20261027", "KRX", false)),
+      // 10/26 — 결정적 1 + 크래시 2 = 3 → 포기
+      r("20261026", "KRX", null, STARTED),
+      r("20261026", "KRX", false, "failed 1"),
+      r("20261026", "KRX", null, STARTED),
+      r("20261026", "KRX", null, STARTED),
+    ];
+    const n = failedNightlyRunsOf(runs);
+    expect([n.get("20261030"), n.get("20261029"), n.get("20261028"), n.get("20261027"), n.get("20261026")]).toEqual([
+      undefined,
+      3,
+      undefined,
+      3,
+      3,
+    ]);
+    expect(nightlyDatesOf(NOW, 10, runs)).toEqual(["20261102", "20261030", "20261028"]);
   });
 });
 
@@ -264,7 +315,7 @@ describe("nightly 트레이서 — 날짜 → 단일 통독 스테이징 → 대
     }
 
     // 실행 기록 — 거래소별 ok · written 2 · bytes_read = 그 라벨 05~20시 파일 크기 합
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
     expect(recs.map((r) => r.exchange)).toEqual(["KRX", "NXT"]);
     for (const r of recs) {
       expect(r).toMatchObject({ date: D, mode: "nightly", ok: true, targets: 2, written: 2, error: null });
@@ -283,8 +334,20 @@ describe("nightly 트레이서 — 날짜 → 단일 통독 스테이징 → 대
     const iCand = idx(calls, isRpc("tick_convert_candidates"));
     const iUp = idx(calls, (c) => c.kind === "storage" && c.op === "upload");
     const iUpsert = idx(calls, isRpc("tick_grid_upsert"));
-    const iRec = idx(calls, isRpc("tick_convert_run_record"));
+    const iStart = idx(calls, isRpc("tick_convert_run_record"));
+    const iRec = idx(calls, isFinalRec);
     const iPurge = idx(calls, isRpc("tick_purge_old"));
+    // 「시작」 기록(R2-WR-03) — 변환 전에 거래소별 ok null · STARTED
+    expect(iStart).toBeLessThan(iCand);
+    expect(
+      rpcCalls(calls, "tick_convert_run_record")
+        .map((x) => x.p_run as Record<string, unknown>)
+        .filter((r) => r.ok === null)
+        .map((r) => [r.exchange, r.error]),
+    ).toEqual([
+      ["KRX", STARTED],
+      ["NXT", STARTED],
+    ]);
     expect(iCand).toBeLessThan(iUp);
     expect(iUp).toBeLessThan(iUpsert);
     expect(iUpsert).toBeLessThan(iRec);
@@ -310,7 +373,7 @@ describe("nightly 트레이서 — 날짜 → 단일 통독 스테이징 → 대
     const { sb, calls } = makeFakeSupabase();
     expect(await main(["nightly", "--date", "20261025"], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(0);
     expect(rpcCalls(calls, "tick_convert_candidates")).toEqual([{ p_date: "20261025" }]);
-    expect(rpcCalls(calls, "tick_convert_run_record").map((x) => (x.p_run as { date: string }).date)).toEqual([
+    expect(finals(calls).map((r) => r.date)).toEqual([
       "20261025",
       "20261025",
     ]);
@@ -345,7 +408,7 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
     // 최신부터 · wait · NO_OBJECTS 날짜는 candidates 를 부르지 않는다
     expect(rpcCalls(calls, "tick_convert_candidates").map((x) => x.p_date)).toEqual(["20261030", "20261028", "20261027"]);
 
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
     const of = (date: string) => recs.filter((r) => r.date === date);
     expect(of("20261102")).toEqual([]); // wait — 기록 없음(다음 실행이 다시 고른다)
     expect(of("20261030").map((r) => [r.ok, r.error, r.written])).toEqual([
@@ -363,9 +426,10 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
       [true, "partial"],
     ]);
     expect(of("20261028")[0]!.written).toBe(1); // 08~10시 KRX 만 — R(09시 · 10시) · U KRX 는 15% 가 NXT 에만 있어 대상 아님
+    // candidates RPC 실패 = 일시 장애 — TRANSIENT 머리(포기 카운트에서 빠진다 · R2-WR-03)
     expect(of("20261027").map((r) => [r.ok, String(r.error)])).toEqual([
-      [false, "tick_convert_candidates: boom"],
-      [false, "tick_convert_candidates: boom"],
+      [false, `${TRANSIENT}: tick_convert_candidates: boom`],
+      [false, `${TRANSIENT}: tick_convert_candidates: boom`],
     ]);
     // 실패 날짜 뒤에도 purge 한 번
     expect(rpcCalls(calls, "tick_purge_old")).toHaveLength(1);
@@ -376,7 +440,7 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
     const root = newRoot();
     const { sb, calls } = makeFakeSupabase();
     expect(await main(["nightly"], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(0);
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
     expect(recs).toHaveLength(10); // 10/30 · 29 · 28 · 27 · 26 × 2 — 11/02 는 wait
     expect(recs.every((r) => r.ok === true && r.error === NO_OBJECTS)).toBe(true);
   });
@@ -407,11 +471,42 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
         op === "upload" && String(args[0]).includes(`NXT/${U}`) ? { error: { message: "upload down" } } : undefined,
     });
     expect(await main(["nightly", "--date", D], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(1);
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
+    // 상태 없는 업로드 오류(네트워크 꼴) = 일시 장애 — TRANSIENT(R2-WR-03)
     expect(recs.map((r) => [r.exchange, r.ok, r.written, r.error])).toEqual([
       ["KRX", true, 2, null],
-      ["NXT", false, 1, "failed 1"],
+      ["NXT", false, 1, `${TRANSIENT}: failed 1`],
     ]);
+  });
+
+  it("업로드 4xx(영구 거부)는 결정적 실패 — TRANSIENT 머리 없음 · 5xx 는 일시 장애(R2-WR-03)", async () => {
+    const root = newRoot();
+    synth(root, D, { packets: packets(D) });
+    const runWith = async (status: string) => {
+      const { sb, calls } = makeFakeSupabase({
+        rpc: { tick_convert_candidates: { data: { accum: [R], live16: [] } } },
+        storage: (_b, op, args) =>
+          op === "upload" && String(args[0]).includes(`NXT/${U}`)
+            ? ({ error: { message: "rejected", statusCode: status } } as never)
+            : undefined,
+      });
+      expect(await main(["nightly", "--date", D], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(1);
+      return finals(calls).find((r) => r.exchange === "NXT")!;
+    };
+    expect(await runWith("400")).toMatchObject({ ok: false, error: "failed 1" });
+    expect(await runWith("503")).toMatchObject({ ok: false, error: `${TRANSIENT}: failed 1` });
+  });
+
+  it("포기한 날짜(결정적 실패 3회)가 있으면 그 날짜를 고르지 않고 error 로그 + 종료 1 — 포기 뒤에도 알림(R2-WR-03)", async () => {
+    const root = newRoot();
+    const fail = { date: "20261030", mode: "nightly", ok: false, finished_at: "x", error: "boom" };
+    const { sb, calls } = makeFakeSupabase({
+      rpc: { tick_convert_runs_since: { data: [1, 2, 3].flatMap(() => [{ ...fail, exchange: "KRX" }, { ...fail, exchange: "NXT" }]) } },
+    });
+    const error = vi.spyOn(logger, "error");
+    expect(await main(["nightly"], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(1);
+    expect(finals(calls).some((r) => r.date === "20261030")).toBe(false);
+    expect(error.mock.calls.some((c) => String(c[1]).includes("20261030") && String(c[1]).includes("다시 고르지 않는다"))).toBe(true);
   });
 });
 
@@ -524,7 +619,7 @@ describe("nightly 발사 대기열 값 — candidates.launch → inputs 1회 →
     expect(want).toHaveLength(1);
     expect(want[0]).toMatchObject({ gateway: "KB120", profile: "A", wire: 0, kind: "run", object_path: path });
     expect(idx(calls, isRpc("tick_grid_upsert"))).toBeLessThan(idx(calls, isRpc("launch_queue_set")));
-    expect(idx(calls, isRpc("launch_queue_set"))).toBeLessThan(idx(calls, isRpc("tick_convert_run_record")));
+    expect(idx(calls, isRpc("launch_queue_set"))).toBeLessThan(idx(calls, isFinalRec));
     expect(lines.some((l) => l.includes("ex=KRX") && l.includes("launch=1 launch_failed=0"))).toBe(true);
   });
 
@@ -533,7 +628,7 @@ describe("nightly 발사 대기열 값 — candidates.launch → inputs 1회 →
     expect(code).toBe(0);
     expect(rpcCalls(calls, "launch_queue_set")).toHaveLength(0);
     expect(uploads(calls).some((u) => u.path.includes(N))).toBe(true); // 발사 ISIN 격자는 그대로 만든다
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
     expect(recs.every((r) => r.ok === true && r.error === null)).toBe(true);
     expect(error.mock.calls.some((c) => String(c[1]).includes("launch inputs failed"))).toBe(true);
     expect(lines.some((l) => l.includes("launch=0 launch_failed=1"))).toBe(true);
@@ -542,7 +637,7 @@ describe("nightly 발사 대기열 값 — candidates.launch → inputs 1회 →
   it("set 실패 → 실행 기록 ok · 종료 0 · 에러 로그 · launch_failed", async () => {
     const { code, calls, lines, error } = await run({ launch_queue_set: { error: { message: "set down" } } });
     expect(code).toBe(0);
-    const recs = rpcCalls(calls, "tick_convert_run_record").map((x) => x.p_run as Record<string, unknown>);
+    const recs = finals(calls);
     expect(recs.every((r) => r.ok === true && r.error === null)).toBe(true);
     expect(error.mock.calls.some((c) => String(c[1]).includes("launch_queue_set failed"))).toBe(true);
     expect(lines.some((l) => l.includes("ex=KRX") && l.includes("launch=1 launch_failed=1"))).toBe(true);

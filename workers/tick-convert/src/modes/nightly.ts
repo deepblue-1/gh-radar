@@ -3,9 +3,13 @@
  *
  * 날짜 고르기(Pitfall 6 · `nightlyDatesOf`):
  *   후보 = KST 오늘 포함 최근 `TICK_CATCHUP_DAYS`(10)일 중 평일 ∧ !isKrxHoliday − ok nightly 기록이 KRX · NXT 둘 다 있는 날
- *   − 실패 nightly 기록(ok false)이 `NIGHTLY_MAX_FAILED_RUNS`(2)회를 넘은 날(WR-36 — 키 하나의 영구 실패 · 깨진 원본 하나로
- *   그 날짜 두 라벨 전량(≈9GB ARCHIVE 꺼내기)을 하루 두 번 · 10일 동안 다시 읽지 않는다. 포기한 날짜는 실행마다 warn 로그 ·
- *   이미 올린 격자는 그대로 · 빠진 키는 요청 변환 또는 `--date D` 수동 재변환).
+ *   − 결정적 실패가 `NIGHTLY_MAX_FAILED_RUNS`(2)회를 넘은 날(WR-36 — 키 하나의 영구 실패 · 깨진 원본 하나로 그 날짜 두 라벨
+ *   전량(≈9GB ARCHIVE 꺼내기)을 하루 두 번 · 10일 동안 다시 읽지 않는다). 세는 것(R2-WR-03 · `failedNightlyRunsOf`):
+ *     · ok false 기록 중 error 가 `TRANSIENT` 로 시작하지 않는 것 — 원본 · 키 결함(통독 throw · 격자 만들기 · 업로드 4xx 영구 거부)
+ *     · 끝 기록 없이 남은 「시작」 기록(ok null · error STARTED) — Job 자체가 죽은 실행(OOM · task timeout)
+ *     안 세는 것: 일시 장애(RPC · Storage 5xx/네트워크 · GCS FUSE 입출력 오류) — ok false 지만 error `TRANSIENT: …` 로 남긴다.
+ *   포기한 날짜가 있으면 실행마다 error 로그 + 종료 1(알림 정책 = Job 실패 실행 — 포기 뒤에도 알림이 계속 온다) ·
+ *   이미 올린 격자는 그대로 · 빠진 키는 요청 변환 또는 `--date D` 수동 재변환(그 날 ok 기록이 생기면 포기 목록에서 빠진다).
  *   **최신 날짜부터**(새 날짜가 먼저 격자가 되게 — 미룬 날짜는 01:30 · 다음 밤이 잇는다).
  *   `--date D` 는 그 날 하나만(기록 · 요일 · 휴장 무시 · 다시 쓴다 — 스모크 · 수동 재변환).
  *
@@ -35,7 +39,8 @@
  *   ⑥ 거래소별 `tick_convert_run_record` + 요약 로그 한 줄.
  *
  * 실패 격리: 날짜 하나가 throw 해도(깨진 원본 · RPC 오류) 그 날짜만 실패 기록(ok false — 다음 실행이 다시 고른다)하고 다음
- * 날짜로 간다. 모든 날짜 뒤 90일 purge 한 번(purge.ts). 실패 날짜 · purge 실패가 하나라도 있으면 종료 1(알림 정책) —
+ * 날짜로 간다. 변환을 시작하는 날짜는 먼저 거래소별 「시작」 기록(ok null · STARTED)을 쓴다(크래시 판정 · R2-WR-03).
+ * 모든 날짜 뒤 90일 purge 한 번(purge.ts). 실패 날짜 · purge 실패 · 포기한 날짜가 하나라도 있으면 종료 1(알림 정책) —
  * 미룬 날짜 · 건너뛴 날짜 · NO_OBJECTS 는 실패가 아니다.
  */
 import { A3_LAYOUT, DayRateTracker, TICK_FMT, decodeFields, isKrxHoliday, layoutOf } from "@gh-radar/shared";
@@ -63,12 +68,46 @@ import { UsageError, validYmd, type JobDeps } from "./request";
 export const NO_OBJECTS = "NO_OBJECTS";
 /** 실행 기록 코드 — 2일 유예가 지났는데 일부 시각만 있어 있는 객체로 변환했다(ok). */
 export const PARTIAL = "partial";
+/** 실행 기록 error 머리 — 일시 장애로만 실패한 기록(포기 카운트에서 뺀다 · R2-WR-03). */
+export const TRANSIENT = "TRANSIENT";
+/** 「시작」 기록 error(ok null) — 끝 기록이 따라오지 않으면 크래시로 센다(R2-WR-03). */
+export const STARTED = "STARTED";
+
+/** 일시 장애로 보는 파일 시스템 오류 코드 — 원본은 GCS FUSE 마운트라 입출력 · 연결 오류가 날 수 있다. */
+const TRANSIENT_FS_CODES = new Set([
+  "EIO", "ETIMEDOUT", "ECONNRESET", "ECONNABORTED", "ENOTCONN", "EAGAIN", "EBUSY", "ESTALE", "EPIPE",
+  "EHOSTUNREACH", "ENETUNREACH",
+]);
+
+/** 일시 장애(RPC · Storage 5xx · 네트워크) 표지 — 포기 카운트에서 빠진다(R2-WR-03). */
+export class TransientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientError";
+  }
+}
+
+/** 일시 장애인가 — TransientError · 일시 장애 fs 코드(EIO 등). 그 밖(zstd · magic · 격자 만들기 오류)은 결정적. */
+export function isTransient(err: unknown): boolean {
+  if (err instanceof TransientError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && TRANSIENT_FS_CODES.has(code);
+}
+
+/** 업로드 실패 분류 — 4xx(408 · 429 빼고)는 영구 거부(결정적), 그 밖(5xx · 상태 없음 = 네트워크)은 일시 장애. */
+function uploadFailure(err: unknown): Error {
+  const st = Number((err as { status?: unknown } | null)?.status);
+  const permanent = Number.isInteger(st) && st >= 400 && st < 500 && st !== 408 && st !== 429;
+  if (permanent) return err instanceof Error ? err : new Error(String(err));
+  return new TransientError(err instanceof Error ? err.message : String(err));
+}
 
 const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
 
 /**
- * 날짜 하나의 실패 nightly 실행을 몇 번까지 다시 고르는가(WR-36). 거래소별 ok false 기록 수의 최댓값이 이 값을 넘으면
- * 그 날짜를 더 고르지 않는다 — 일시 오류(Storage · RPC)는 다음 실행 · 다음 밤에 다시 잡히고, 영구 실패는 3번째에서 멈춘다.
+ * 날짜 하나의 결정적 실패 nightly 실행을 몇 번까지 다시 고르는가(WR-36). 거래소별 (결정적 실패 기록 + 크래시) 수의 최댓값이
+ * 이 값을 넘으면 그 날짜를 더 고르지 않는다 — 일시 장애(Storage 5xx · RPC · 네트워크)는 세지 않아 몇 번이고 다시 잡히고,
+ * 원본 · 키 결함은 3번째에서 멈춘다(R2-WR-03 · `failedNightlyRunsOf`).
  */
 export const NIGHTLY_MAX_FAILED_RUNS = 2;
 
@@ -94,13 +133,31 @@ function isoOf(ymd: string): string {
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 }
 
-/** 날짜별 실패 nightly 실행 수 — 거래소별 ok false 기록 수의 최댓값(실행 하나가 거래소마다 한 행을 쓴다). */
+/**
+ * 날짜별 결정적 실패 nightly 실행 수 — 거래소별 (결정적 실패 기록 + 크래시) 의 최댓값(실행 하나가 거래소마다 한 행을 쓴다).
+ * 결정적 실패 = ok false ∧ error 가 `TRANSIENT` 로 시작하지 않음(옛 RPC 라 error 가 없으면 결정적으로 센다).
+ * 크래시 = 「시작」 기록(ok null · STARTED) 수 − 끝 기록(ok true/false) 수(0 미만은 0) — Job 이 죽어 끝 기록을 못 쓴 실행(R2-WR-03).
+ */
 export function failedNightlyRunsOf(runs: readonly RunSince[]): Map<string, number> {
-  const byKey = new Map<string, number>();
+  const failed = new Map<string, number>();
+  const started = new Map<string, number>();
+  const finished = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
   for (const r of runs) {
-    if (r.mode !== "nightly" || r.ok !== false) continue;
+    if (r.mode !== "nightly") continue;
     const k = `${r.date}|${r.exchange}`;
-    byKey.set(k, (byKey.get(k) ?? 0) + 1);
+    if (r.ok === null) {
+      if (r.error === STARTED) bump(started, k);
+      continue;
+    }
+    bump(finished, k);
+    if (r.ok === false && !(typeof r.error === "string" && r.error.startsWith(TRANSIENT))) bump(failed, k);
+  }
+  const byKey = new Map<string, number>();
+  for (const k of new Set([...failed.keys(), ...started.keys()])) {
+    const crashes = Math.max(0, (started.get(k) ?? 0) - (finished.get(k) ?? 0));
+    const n = (failed.get(k) ?? 0) + crashes;
+    if (n > 0) byKey.set(k, n);
   }
   const out = new Map<string, number>();
   for (const [k, n] of byKey) {
@@ -155,6 +212,8 @@ export type ExchangeResult = {
   /** `GRID_MAX_BYTES` 를 넘어 건너뛴 키 수(실패 아님). */
   tooLarge: number;
   failed: number;
+  /** failed 가운데 일시 장애(업로드 5xx · 네트워크 · 메타 RPC)로 실패한 수 — 모두 일시 장애면 기록 error 가 TRANSIENT(R2-WR-03). */
+  transientFailed: number;
   bytesRead: number;
   /** 끝이 잘린 레코드가 남은 원본 파일 수(기록기 비정상 종료 흔적 · 실패 아님 · 실행 기록 error 에 note · IN-32). */
   truncatedFiles: number;
@@ -190,7 +249,9 @@ export type NightlyOutcome = {
   days: NightlyDayResult[];
   /** 시간 예산으로 미룬 날짜 수(실패 아님). */
   deferred: number;
-  /** 실패 수 = 실패 날짜 + purge 실패(1) — 0 이 아니면 종료 1. */
+  /** 결정적 실패가 상한을 넘어 이번에 고르지 않은 날짜(R2-WR-03 — 있으면 실패 1 로 세어 종료 1 · 알림). */
+  gaveUp: string[];
+  /** 실패 수 = 실패 날짜 + purge 실패(1) + 포기한 날짜가 있으면 1 — 0 이 아니면 종료 1. */
   failed: number;
   purgeError: string | null;
 };
@@ -210,6 +271,7 @@ function emptyEx(exchange: Exchange): ExchangeResult {
     written: 0,
     tooLarge: 0,
     failed: 0,
+    transientFailed: 0,
     bytesRead: 0,
     truncatedFiles: 0,
     teamFailed: 0,
@@ -230,7 +292,12 @@ function judgeDay(root: string, date: string, now: Date): DayReady {
 /** ②~⑤ 단일 통독 · 대상 선별 · 업로드 · 메타. ready = full | partial. throw 하면 호출자가 날짜 실패로 기록한다. */
 async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyDayResult): Promise<void> {
   const cfg = deps.config;
-  const cands = await meta.candidates(date);
+  let cands: Awaited<ReturnType<Meta["candidates"]>>;
+  try {
+    cands = await meta.candidates(date);
+  } catch (err) {
+    throw new TransientError(msgOf(err)); // RPC — 일시 장애(R2-WR-03)
+  }
   const byEx = new Map<Exchange, ExchangeResult>(day.exchanges.map((e) => [e.exchange, e]));
 
   // 발사 조각(quick 261103-pei) — 그날 접수 조각이 있을 때만 inputs 1회. 실패하면 그 날짜 발사 값만 건너뛴다(로그).
@@ -310,7 +377,11 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
         const tm = gridTeamOf(raw, ex, { date, isin, mode: "nightly" });
         er.teamMs += tm.ms;
         if (!tm.ok) er.teamFailed += 1;
-        await deps.store.upload(path, g.bytes);
+        try {
+          await deps.store.upload(path, g.bytes);
+        } catch (err) {
+          throw uploadFailure(err); // 4xx = 영구 거부(결정적) · 그 밖 = 일시 장애(R2-WR-03)
+        }
         const tr = rates.get(key);
         rows.push({
           date,
@@ -331,8 +402,9 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
         });
         launchRows.push(...keyLaunch);
       } catch (err) {
-        logger.error({ date, ex, isin, path, err }, "tick-convert nightly upload failed — 그 종목만 실패");
+        logger.error({ date, ex, isin, path, err, transient: isTransient(err) }, "tick-convert nightly upload failed — 그 종목만 실패");
         er.failed += 1;
+        if (isTransient(err)) er.transientFailed += 1;
         errs.push(`${ex} ${isin}: ${msgOf(err)}`);
       }
     }
@@ -345,7 +417,11 @@ async function convertDay(deps: JobDeps, meta: Meta, date: string, day: NightlyD
       for (const r of rows) byEx.get(r.exchange)!.written += 1;
     } catch (err) {
       logger.error({ date, rows: rows.length, err }, "tick-convert nightly meta upsert failed");
-      for (const r of rows) byEx.get(r.exchange)!.failed += 1;
+      for (const r of rows) {
+        const er = byEx.get(r.exchange)!;
+        er.failed += 1;
+        er.transientFailed += 1; // RPC — 일시 장애(R2-WR-03)
+      }
       errs.push(`tick_grid_upsert: ${msgOf(err)}`);
     }
   }
@@ -376,6 +452,30 @@ function withNote(prev: string | null, note: string): string {
   return prev === null ? note : `${prev}; ${note}`;
 }
 
+/**
+ * 「시작」 기록(거래소별 ok null · error STARTED) — 끝 기록이 따라오지 않으면 다음 실행이 크래시(OOM · task timeout)로 센다
+ * (R2-WR-03). 기록 실패는 변환을 막지 않는다(warn — 그 실행이 죽으면 크래시로 못 셀 뿐).
+ */
+async function recordStart(meta: Meta, date: string): Promise<void> {
+  for (const exchange of EXCHANGES) {
+    try {
+      await meta.runRecord({
+        date,
+        exchange,
+        mode: "nightly",
+        ok: null,
+        targets: 0,
+        written: 0,
+        bytes_read: 0,
+        duration_ms: 0,
+        error: STARTED,
+      });
+    } catch (err) {
+      logger.warn({ date, ex: exchange, err }, "tick-convert nightly start record failed — 변환은 계속(크래시 판정만 빠짐)");
+    }
+  }
+}
+
 /** 날짜 하나 — 판정 · 변환 · 실행 기록 · 요약 로그. 날짜 단위 예외는 여기서 실패로 닫는다(다음 날짜를 막지 않는다). */
 async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyDayResult> {
   const clock = deps.clock ?? Date.now;
@@ -392,6 +492,7 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     durationMs: 0,
   };
   let fatal: string | null = null;
+  let fatalTransient = false;
 
   try {
     day.ready = judgeDay(deps.config.archiveDir, date, deps.now);
@@ -402,13 +503,15 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
     if (day.ready === "none") {
       for (const er of day.exchanges) er.error = NO_OBJECTS;
     } else {
+      await recordStart(meta, date);
       await convertDay(deps, meta, date, day);
       if (day.ready === "partial") for (const er of day.exchanges) er.error = er.error === null ? PARTIAL : `${PARTIAL}; ${er.error}`;
     }
   } catch (err) {
     // 날짜 단위 실패(깨진 원본 · candidates RPC 등) — 두 거래소 모두 실패 기록(다음 실행이 다시 고른다)
     fatal = msgOf(err);
-    logger.error({ date, err }, "tick-convert nightly date failed — 그 날짜만 실패");
+    fatalTransient = isTransient(err);
+    logger.error({ date, err, transient: fatalTransient }, "tick-convert nightly date failed — 그 날짜만 실패");
     day.failed = true;
     day.error = fatal;
     for (const er of day.exchanges) er.error = withNote(er.error, fatal);
@@ -418,17 +521,21 @@ async function runDay(deps: JobDeps, meta: Meta, date: string): Promise<NightlyD
   // ⑥ 거래소별 실행 기록 + 요약 한 줄 — ok 는 거래소별(그 거래소 실패 0 ∧ 날짜 단위 실패 없음). 날짜는 두 거래소 모두 ok 여야
   //    다음 실행이 고르지 않는다. 기록 실패도 그 날짜 실패(ok 기록이 없으면 다음 실행이 다시 고른다).
   for (const er of day.exchanges) {
+    const ok = fatal === null && er.failed === 0;
+    // 실패가 모두 일시 장애면 error 머리에 TRANSIENT — 포기 카운트에서 빠진다(R2-WR-03)
+    const deterministic = (fatal !== null && !fatalTransient) || er.failed > er.transientFailed;
+    const error = !ok && !deterministic ? `${TRANSIENT}: ${er.error ?? ""}` : er.error;
     try {
       await meta.runRecord({
         date,
         exchange: er.exchange,
         mode: "nightly",
-        ok: fatal === null && er.failed === 0,
+        ok,
         targets: er.targets,
         written: er.written,
         bytes_read: er.bytesRead,
         duration_ms: day.durationMs,
-        error: er.error,
+        error,
       });
     } catch (err) {
       logger.error({ date, ex: er.exchange, err }, "tick-convert nightly run record failed");
@@ -455,24 +562,26 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
   const cfg = deps.config;
 
   let dates: string[];
+  let gaveUp: string[] = [];
   if (args.date !== undefined) {
     dates = [args.date];
   } else {
     const runs = await meta.runsSince(kstYmdDaysAgo(deps.now, cfg.catchupDays - 1));
     dates = nightlyDatesOf(deps.now, cfg.catchupDays, runs);
-    // WR-36 — 반복 실패로 포기한 날짜(ok 기록 없이 실패만 쌓인 날)를 실행마다 남긴다(무로그 손실 금지)
+    // WR-36 · R2-WR-03 — 반복 결정적 실패로 포기한 날짜(ok 기록 없이 실패만 쌓인 날)를 실행마다 error 로 남기고 종료 1 로
+    // 알림을 계속 낸다(포기 뒤 침묵 금지 · 알림 정책은 Job 실패 실행만 본다). 그 날 ok 기록이 생기면(--date D) 목록에서 빠진다.
     const uncapped = nightlyDatesOf(deps.now, cfg.catchupDays, runs, Infinity);
-    const gaveUp = uncapped.filter((d) => !dates.includes(d));
+    gaveUp = uncapped.filter((d) => !dates.includes(d));
     if (gaveUp.length > 0) {
-      logger.warn(
+      logger.error(
         { gaveUp, maxFailed: NIGHTLY_MAX_FAILED_RUNS },
         `[tick-convert] mode=nightly 실패 ${NIGHTLY_MAX_FAILED_RUNS}회 초과 날짜 ${gaveUp.join(",")} — 다시 고르지 않는다` +
-          ` (원인 확인 뒤 nightly --date D 로 수동 재변환)`,
+          ` (원인 확인 뒤 nightly --date D 로 수동 재변환 · 그때까지 실행마다 종료 1)`,
       );
     }
   }
 
-  const out: NightlyOutcome = { mode: "nightly", dates, days: [], deferred: 0, failed: 0, purgeError: null };
+  const out: NightlyOutcome = { mode: "nightly", dates, days: [], deferred: 0, gaveUp, failed: gaveUp.length > 0 ? 1 : 0, purgeError: null };
   for (let i = 0; i < dates.length; i++) {
     // 시간 예산 — 새 날짜를 시작하기 직전에만 본다(시작한 날짜는 끝낸다)
     if (clock() - t0 > cfg.nightlyBudgetMs) {
@@ -501,9 +610,9 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
   const waited = out.days.filter((d) => d.ready === "wait").length;
   const noObjects = out.days.filter((d) => d.ready === "none").length;
   logger.info(
-    { dates, deferred: out.deferred, failed: out.failed, purgeError: out.purgeError },
+    { dates, deferred: out.deferred, gaveUp: out.gaveUp, failed: out.failed, purgeError: out.purgeError },
     `[tick-convert] mode=nightly dates=${dates.length} converted=${converted} wait=${waited} no_objects=${noObjects} ` +
-      `failed=${out.failed} deferred=${out.deferred} purge=${out.purgeError === null ? "ok" : "error"} ` +
+      `failed=${out.failed} deferred=${out.deferred} gave_up=${out.gaveUp.length} purge=${out.purgeError === null ? "ok" : "error"} ` +
       `ms=${Math.max(0, Math.round(clock() - t0))}`,
   );
   return out;
