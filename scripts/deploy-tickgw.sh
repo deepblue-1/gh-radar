@@ -6,8 +6,10 @@ set -euo pipefail
 # Phase 37 (D-05 · D-06 · D-07 · D-22) — 당일 틱 경로 컨테이너 tickgw 를 GCE VM radar-gw 에 배포
 #
 # ⚠️ 언제 · 누가:
-#   - **평일 20:00 KST 이후에만.** radar-gw 는 주문 경로 relay 와 gh-trade 운반기가 같이 사는 공유 호스트다
+#   - **평일 21:00 KST 이후에만.** radar-gw 는 주문 경로 relay 와 gh-trade 운반기가 같이 사는 공유 호스트다
 #     (docs/relay-operations.md 「radar-gw 호스트 공유」). 장중에는 시각 가드가 종료 2 로 막는다.
+#     20:00~21:00 도 막는다(WR-34): tickgw 당일 캐시는 메모리뿐이고 20:01 마감 마무리 → 승격 Job 20:10 · 20:40 이 그 메모리를
+#     읽는다(TICKGW_KEEP_UNTIL 21:00 도 같은 전제). 그 사이 컨테이너를 바꾸면 그날 승격 입력이 통째로 사라진다.
 #   - **메인 세션이 돌린다**(서브에이전트 배포는 분류기 차단). IAP SSH 는 샌드박스가 막으므로 dangerouslyDisableSandbox.
 #   - **relay 먼저 · push 나중** — git push 자체가 webapp 프로덕션 배포다. tickgw · server 결선이 끝난 뒤 push.
 #   - D-22: 119 인덱서(gh-trade)가 확인된 뒤에만 켠다. 그 전 server 는 TICKGW_URL 미설정 → 503(「당일 자료 준비 중」).
@@ -27,8 +29,9 @@ set -euo pipefail
 #   → ④ Secret ENABLED 버전 확인 → ⑤ 이미지 빌드(amd64 · 빌드 인자 TICKPULL_UID/GID — 컨테이너 안 ssh 가 tickpull uid 로
 #      getpwuid 에 성공해야 한다) · push → ⑥ IAP SSH 원격 스크립트: VM 메타데이터 자격으로 Secret 을 읽어 tmpfs env-file
 #      (/dev/shm · 0600 · trap 삭제)에 쓰고 docker pull · 기존 tickgw 교체 · docker run(256MB · OOM 점수 500 · tickpull uid ·
-#      키 디렉터리 읽기 전용 마운트) · env-file 삭제 · /healthz 20회 확인 · ssh 자기 시험(`id -un` = tickpull ·
-#      `ssh -G <119>` 설정 해석 — 119 에는 닿지 않는다) 실패면 docker stop · 종료 1 → ⑦ server 결선 안내.
+#      키 디렉터리 읽기 전용 마운트) · /healthz 20회 확인 · ssh 자기 시험(`id -un` = tickpull ·
+#      `ssh -G <119>` 설정 해석 — 119 에는 닿지 않는다) · env-file 삭제. 확인이 실패하면 새 컨테이너를 지우고 **교체 전
+#      이미지로 다시 기동**(되돌림 · WR-34 — tickgw 가 하나도 없는 상태로 남지 않게) · 종료 1 → ⑦ server 결선 안내.
 #
 # 비밀 위생: 값은 Mac 에 오지 않는다 — VM 이 메타데이터 토큰으로 Secret Manager REST 를 읽어 tmpfs 에만 쓴다
 #   (deploy-relay.sh 와 같은 꼴). 명령줄 · 로그에 값이 남지 않는다.
@@ -48,10 +51,11 @@ LOG_LEVEL="${LOG_LEVEL:-info}"
 
 die() { echo "[deploy-tickgw] ERROR $1" >&2; exit "${2:-1}"; }
 
-# daytime_blocked DOW HHMM — 월~금(1~5) 08:00 ≤ HHMM < 20:00 이면 참(0). 호출자는 TZ=Asia/Seoul 로 값을 구한다
+# daytime_blocked DOW HHMM — 월~금(1~5) 08:00 ≤ HHMM < 21:00 이면 참(0). 호출자는 TZ=Asia/Seoul 로 값을 구한다
+#   끝이 21:00 인 근거(WR-34): 20:01 마감 마무리 · 승격 Job 20:10 · 20:40 · TICKGW_KEEP_UNTIL 21:00 이 메모리 캐시를 읽는다
 daytime_blocked() {
   local dow=$1 hhmm=$((10#$2))
-  (( dow >= 1 && dow <= 5 && hhmm >= 800 && hhmm < 2000 ))
+  (( dow >= 1 && dow <= 5 && hhmm >= 800 && hhmm < 2100 ))
 }
 
 # parse_ids TEXT — `id -u` · `id -g` 두 줄에서 숫자 둘을 "UID GID" 로. 아니면 실패
@@ -65,7 +69,7 @@ parse_ids() {
 
 self_test() {
   local n=0 c dow hhmm want rc got
-  for c in '1 0800 1' '1 0759 0' '5 1959 1' '5 2000 0' '6 1200 0' '7 0900 0' '3 2130 0' '2 1200 1'; do
+  for c in '1 0800 1' '1 0759 0' '5 1959 1' '5 2000 1' '5 2059 1' '5 2100 0' '6 1200 0' '7 0900 0' '3 2130 0' '2 1200 1'; do
     read -r dow hhmm want <<<"$c"
     rc=0
     daytime_blocked "$dow" "$hhmm" || rc=1
@@ -103,11 +107,11 @@ if [[ "$ACTIVE_CONFIG" != "$EXPECTED_CONFIG" ]] || [[ "$ACTIVE_PROJECT" != "$EXP
 fi
 echo "✓ guard: config=$ACTIVE_CONFIG project=$ACTIVE_PROJECT"
 
-# ── ② 시각 가드 — 평일 08:00~20:00 KST 금지 ─────────────────────
+# ── ② 시각 가드 — 평일 08:00~21:00 KST 금지(장중 + 승격 창) ──────────
 KST_DOW=$(TZ=Asia/Seoul date +%u)
 KST_HHMM=$(TZ=Asia/Seoul date +%H%M)
 if (( ! ALLOW_DAYTIME )) && daytime_blocked "$KST_DOW" "$KST_HHMM"; then
-  die "장중(평일 08:00~20:00 KST, 지금 ${KST_HHMM}) — radar-gw 공유 호스트 규칙상 20:00 이후에 배포한다 (시험만 --allow-daytime)" 2
+  die "평일 08:00~21:00 KST(지금 ${KST_HHMM}) — 장중은 radar-gw 공유 호스트 규칙, 20:00~21:00 은 승격 창(마감 마무리 20:01 · 승격 Job 20:10 · 20:40 · KEEP_UNTIL 21:00 — 교체하면 그날 승격 입력 소실). 21:00 이후에 배포한다 (시험만 --allow-daytime)" 2
 fi
 echo "✓ 시각 가드 통과 (KST dow=${KST_DOW} ${KST_HHMM}$( (( ALLOW_DAYTIME )) && echo ' · --allow-daytime'))"
 
@@ -197,8 +201,10 @@ log "비밀 획득 (값은 기록하지 않음)"
 } > "$ENV_FILE"
 unset TG_SECRET
 
-# ── 컨테이너 교체 — kill → 3초(Ops Agent 가 옛 로그 끝까지 읽게) → rm ──
-if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+# ── 컨테이너 교체 — 되돌림용으로 교체 전 이미지를 적어 두고 kill → 3초(Ops Agent 가 옛 로그 끝까지 읽게) → rm ──
+PREV_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)"
+if [ -n "$PREV_IMAGE" ]; then
+  log "교체 전 이미지: $PREV_IMAGE"
   docker kill "$CONTAINER" >/dev/null 2>&1 || true
   sleep 3
 fi
@@ -208,58 +214,76 @@ docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 # --memory=256m(스왑 없음) + --oom-score-adj=500: 메모리가 모자라면 주문 경로 relay(384MB)보다 **먼저** 죽는다
 #   — gh-trade 소유 tick-archive · limitup-pull 유닛의 OOMScoreAdjust 500 과 같은 방향(docs/relay-operations.md).
 # --user tickpull uid:gid + /var/lib/tickpull/.ssh 읽기 전용 마운트: 컨테이너 안 ssh 가 tickpull 키만 쓴다.
-docker run -d \
-  --name "$CONTAINER" \
-  --restart=always \
-  --network=host \
-  --memory=256m \
-  --memory-swap=256m \
-  --oom-score-adj=500 \
-  --user "${TICKPULL_UID}:${TICKPULL_GID}" \
-  -v /var/lib/tickpull/.ssh:/ssh:ro \
-  --log-driver=json-file \
-  --log-opt max-size=10m \
-  --log-opt max-file=3 \
-  --env-file "$ENV_FILE" \
-  "$TARGET_IMAGE" >/dev/null
+run_container() {
+  docker run -d \
+    --name "$CONTAINER" \
+    --restart=always \
+    --network=host \
+    --memory=256m \
+    --memory-swap=256m \
+    --oom-score-adj=500 \
+    --user "${TICKPULL_UID}:${TICKPULL_GID}" \
+    -v /var/lib/tickpull/.ssh:/ssh:ro \
+    --log-driver=json-file \
+    --log-opt max-size=10m \
+    --log-opt max-file=3 \
+    --env-file "$ENV_FILE" \
+    "$1" >/dev/null
+}
+
+wait_health() {
+  local _
+  for _ in $(seq 1 20); do
+    if curl -sf --max-time 3 "http://127.0.0.1:${TICKGW_PORT}/healthz" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# fail_rollback MSG — 새 컨테이너를 지우고 교체 전 이미지로 다시 기동한다(WR-34 — tickgw 가 0개로 남지 않게). 언제나 종료 1
+fail_rollback() {
+  echo "  [vm] $1" >&2
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  if [ -n "$PREV_IMAGE" ] && [ "$PREV_IMAGE" != "$TARGET_IMAGE" ]; then
+    log "되돌림: 교체 전 이미지로 다시 기동 — $PREV_IMAGE"
+    if run_container "$PREV_IMAGE" && wait_health; then
+      log "되돌림 OK — 옛 tickgw 가 돈다(새 이미지 배포는 실패 · 종료 1)"
+    else
+      echo "  [vm] 되돌림도 실패 — tickgw 없음(server /api/ticks/live 502). docker logs $CONTAINER 확인" >&2
+    fi
+  else
+    echo "  [vm] 되돌릴 교체 전 이미지가 없다(첫 배포 · 같은 태그) — tickgw 없음(server /api/ticks/live 502)" >&2
+  fi
+  exit 1
+}
+
+run_container "$TARGET_IMAGE" || fail_rollback "docker run 실패"
 log "컨테이너 기동: $CONTAINER"
-rm -f "$ENV_FILE"
 
 # ── 기동 확인 ──
-HEALTH_OK=0
-for _ in $(seq 1 20); do
-  if curl -sf --max-time 3 "http://127.0.0.1:${TICKGW_PORT}/healthz" >/dev/null 2>&1; then
-    HEALTH_OK=1
-    break
-  fi
-  sleep 1
-done
-if [ "$HEALTH_OK" -ne 1 ]; then
+if ! wait_health; then
   echo "  [vm] /healthz 응답 없음 — 최근 로그 40줄:" >&2
   docker logs --tail 40 "$CONTAINER" >&2 || true
-  docker stop "$CONTAINER" >/dev/null 2>&1 || true
-  exit 1
+  fail_rollback "/healthz 실패"
 fi
 log "/healthz 200: $(curl -s --max-time 5 "http://127.0.0.1:${TICKGW_PORT}/healthz")"
 
 # ── ssh 자기 시험 — getpwuid · 설정 해석만(119 에는 닿지 않는다) ──
 WHO="$(docker exec "$CONTAINER" id -un 2>/dev/null || true)"
 if [ "$WHO" != "tickpull" ]; then
-  echo "  [vm] 자기 시험 실패: 컨테이너 사용자 '${WHO}' ≠ tickpull — 정지" >&2
-  docker stop "$CONTAINER" >/dev/null 2>&1 || true
-  exit 1
+  fail_rollback "자기 시험 실패: 컨테이너 사용자 '${WHO}' ≠ tickpull"
 fi
 if ! docker exec "$CONTAINER" ssh -G "$TICKGW_INDEXER_HOST" >/dev/null 2>&1; then
-  echo "  [vm] 자기 시험 실패: ssh -G (No user exists for uid 등) — 정지" >&2
   docker exec "$CONTAINER" ssh -G "$TICKGW_INDEXER_HOST" 2>&1 | tail -3 >&2 || true
-  docker stop "$CONTAINER" >/dev/null 2>&1 || true
-  exit 1
+  fail_rollback "자기 시험 실패: ssh -G (No user exists for uid 등)"
 fi
 if ! docker exec "$CONTAINER" test -r /ssh/id_ed25519; then
-  echo "  [vm] 자기 시험 실패: /ssh/id_ed25519 를 읽을 수 없다(uid · 마운트) — 정지" >&2
-  docker stop "$CONTAINER" >/dev/null 2>&1 || true
-  exit 1
+  fail_rollback "자기 시험 실패: /ssh/id_ed25519 를 읽을 수 없다(uid · 마운트)"
 fi
+# 되돌림이 env-file 을 다시 쓰므로 확인이 끝난 뒤에 지운다(그 사이에도 tmpfs · 0600 · EXIT trap)
+rm -f "$ENV_FILE"
 log "자기 시험 OK (id -un=tickpull · ssh -G · 키 읽기)"
 log "docker ps: $(docker ps --filter "name=${CONTAINER}" --format '{{.Status}}')"
 log "docker stats: $(docker stats --no-stream --format '{{.MemUsage}} cpu={{.CPUPerc}}' "$CONTAINER")"
