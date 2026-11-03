@@ -14,11 +14,13 @@ import { createSupabaseGridStore } from "../src/store";
 import { gridTeamOf } from "../src/team-day";
 import { gridLaunchOf } from "../src/launch-queue";
 import {
+  GAVE_UP_ALERT_WINDOW_MS,
   NIGHTLY_MAX_FAILED_RUNS,
   NO_OBJECTS,
   STARTED,
   TRANSIENT,
   failedNightlyRunsOf,
+  freshlyGaveUp,
   nightlyDatesOf,
   runNightly,
 } from "../src/modes/nightly";
@@ -497,16 +499,65 @@ describe("준비 판정 · 날짜 격리 — wait · NO_OBJECTS · partial · �
     expect(await runWith("503")).toMatchObject({ ok: false, error: `${TRANSIENT}: failed 1` });
   });
 
-  it("포기한 날짜(결정적 실패 3회)가 있으면 그 날짜를 고르지 않고 error 로그 + 종료 1 — 포기 뒤에도 알림(R2-WR-03)", async () => {
+  /** 10/30 결정적 실패 3회 — 마지막 기록 시각 `lastAt`(그 앞 두 번은 하루씩 앞). 나머지 날짜는 ok 라 고를 날짜가 11/02(wait)뿐. */
+  async function gaveUpRun(lastAt: string) {
     const root = newRoot();
-    const fail = { date: "20261030", mode: "nightly", ok: false, finished_at: "x", error: "boom" };
+    const last = Date.parse(lastAt);
+    const at = (daysBefore: number) => new Date(last - daysBefore * 86_400_000).toISOString();
+    const fail = (finished_at: string) =>
+      (["KRX", "NXT"] as const).map((exchange) => ({ date: "20261030", exchange, mode: "nightly", ok: false, finished_at, error: "boom" }));
+    const ok = (date: string) =>
+      (["KRX", "NXT"] as const).map((exchange) => ({ date, exchange, mode: "nightly", ok: true, finished_at: at(3) }));
     const { sb, calls } = makeFakeSupabase({
-      rpc: { tick_convert_runs_since: { data: [1, 2, 3].flatMap(() => [{ ...fail, exchange: "KRX" }, { ...fail, exchange: "NXT" }]) } },
+      rpc: {
+        tick_convert_runs_since: {
+          data: [...fail(at(2)), ...fail(at(1)), ...fail(lastAt), ...["20261029", "20261028", "20261027", "20261026"].flatMap(ok)],
+        },
+      },
     });
     const error = vi.spyOn(logger, "error");
-    expect(await main(["nightly"], { sb, config: cfg(root), now: NOW, clock: () => 0 })).toBe(1);
+    const code = await main(["nightly"], { sb, config: cfg(root), now: NOW, clock: () => 0 });
+    const gaveUpLog = error.mock.calls.find((c) => String(c[1]).includes("다시 고르지 않는다"));
+    return { code, calls, gaveUpLog };
+  }
+
+  it("막 포기한 날짜(마지막 실패가 22.5시간 안 — 포기를 만든 실행 바로 다음)는 고르지 않고 error 로그 + 종료 1(알림 · R3-WR-02)", async () => {
+    // NOW = 11/02 23:30 KST — 마지막 실패는 11/02 01:30 실행이 01:50 KST 에 쓴 기록(21시간 40분 전)
+    const { code, calls, gaveUpLog } = await gaveUpRun("2026-11-01T16:50:00Z");
+    expect(code).toBe(1);
     expect(finals(calls).some((r) => r.date === "20261030")).toBe(false);
-    expect(error.mock.calls.some((c) => String(c[1]).includes("20261030") && String(c[1]).includes("다시 고르지 않는다"))).toBe(true);
+    expect(String(gaveUpLog?.[1])).toContain("20261030");
+    expect(String(gaveUpLog?.[1])).toContain("종료 1");
+    expect(gaveUpLog?.[0]).toMatchObject({ gaveUp: ["20261030"], gaveUpFresh: ["20261030"] });
+  });
+
+  it("이미 알린 포기(마지막 실패가 22.5시간 넘게 전)는 error 로그만 · 종료 0 — 포기 하나가 매일 알림을 내지 않는다(R3-WR-02)", async () => {
+    // 마지막 실패는 11/01 23:30 실행이 23:55 KST 에 쓴 기록(23시간 35분 전) — 11/02 01:30 실행이 이미 알렸다
+    const { code, calls, gaveUpLog } = await gaveUpRun("2026-11-01T14:55:00Z");
+    expect(code).toBe(0);
+    expect(finals(calls).some((r) => r.date === "20261030")).toBe(false);
+    expect(String(gaveUpLog?.[1])).toContain("이미 알린 포기");
+    expect(gaveUpLog?.[0]).toMatchObject({ gaveUp: ["20261030"], gaveUpFresh: [] });
+  });
+
+  it("freshlyGaveUp — 날짜별 가장 늦은 nightly 기록 기준 · request 기록은 안 본다 · 시각을 못 읽으면 막 포기로 본다", () => {
+    const rec = (date: string, mode: RunSince["mode"], finished_at: string | null): RunSince => ({
+      date,
+      exchange: "KRX",
+      mode,
+      ok: false,
+      finished_at,
+    });
+    const now = new Date("2026-11-02T14:30:00Z");
+    const runs = [
+      rec("20261030", "nightly", "2026-10-31T14:30:00Z"),
+      rec("20261030", "nightly", "2026-11-01T17:00:00Z"), // 21.5시간 전 → 막 포기
+      rec("20261029", "nightly", "2026-11-01T14:00:00Z"), // 24.5시간 전 → 이미 알림
+      rec("20261029", "request", "2026-11-02T14:00:00Z"), // request 는 안 본다
+      rec("20261028", "nightly", null), // 못 읽음 → 막 포기
+    ];
+    expect(GAVE_UP_ALERT_WINDOW_MS).toBe(22.5 * 3_600_000);
+    expect(freshlyGaveUp(now, ["20261030", "20261029", "20261028"], runs)).toEqual(["20261030", "20261028"]);
   });
 });
 

@@ -11,6 +11,14 @@ set -uo pipefail
 #   bash scripts/smoke-tick-convert.sh <YYYYMMDD> nightly
 #   bash scripts/smoke-tick-convert.sh <YYYYMMDD> request <KRX|NXT>  # request --date D --ex EX (pending 요청이 없으면 기록만)
 #
+# 크래시로 포기한 날짜의 수동 재변환(R3-WR-02 · 알림 문서 ops/alert-tick-convert-failure.yaml) — 실행 기록에 끝 기록 없는
+# STARTED 만 남은 날짜(OOM · task timeout 3600s)는 같은 한도(8Gi · 3600s)로 돌리면 같은 자리에서 또 죽는다. 한도 override:
+#   TASK_TIMEOUT=7200s bash scripts/smoke-tick-convert.sh <YYYYMMDD>    # 이 실행만 task timeout(execute --task-timeout)
+#   MEMORY=16Gi bash scripts/smoke-tick-convert.sh <YYYYMMDD>            # Job 메모리를 잠시 올리고(jobs update) 끝나면 원래 값으로 되돌린다
+#   CPU=8 MEMORY=32Gi TASK_TIMEOUT=7200s bash scripts/smoke-tick-convert.sh <YYYYMMDD>   # 4 vCPU 는 16Gi 까지 — 그 위는 CPU 도
+#   MEMORY · CPU 는 Job 정의를 바꾼다 — Scheduler 시간(23:00~02:30 KST)은 피한다. 되돌리기에 실패하면 ❌ 와 함께 원래 값을 출력한다
+#   (그때는 `gcloud run jobs update gh-radar-tick-convert --memory=<원래> --cpu=<원래>` 또는 deploy-tick-convert.sh 재실행).
+#
 # 동작: gcloud run jobs execute gh-radar-tick-convert --args=… --wait (이미지 ENTRYPOINT ["node", "dist/index.js"] —
 #       --args 는 CMD 자리만 바꾼다) → 실행 이름 · 소요 · Cloud Logging 의 `[tick-convert]` 요약 줄을 출력한다.
 #       로그 수집 지연(수십 초)은 10초 간격 최대 9회(≈90초) 재조회로 흡수한다(limitup-sync smoke 동형).
@@ -22,7 +30,7 @@ REGION=asia-northeast3
 JOB=gh-radar-tick-convert
 
 usage() {
-  echo "Usage: bash scripts/smoke-tick-convert.sh <YYYYMMDD> [nightly|request <KRX|NXT>]" >&2
+  echo "Usage: [TASK_TIMEOUT=7200s] [MEMORY=16Gi] [CPU=8] bash scripts/smoke-tick-convert.sh <YYYYMMDD> [nightly|request <KRX|NXT>]" >&2
   exit 2
 }
 
@@ -31,6 +39,12 @@ MODE="${2:-nightly}"
 EX="${3:-}"
 
 [[ "$DATE" =~ ^[0-9]{8}$ ]] || usage
+TASK_TIMEOUT="${TASK_TIMEOUT:-}"
+MEMORY="${MEMORY:-}"
+CPU="${CPU:-}"
+[[ -z "$TASK_TIMEOUT" || "$TASK_TIMEOUT" =~ ^[0-9]+[smh]?$ ]] || usage
+[[ -z "$MEMORY" || "$MEMORY" =~ ^[0-9]+(Mi|Gi)$ ]] || usage
+[[ -z "$CPU" || "$CPU" =~ ^[0-9]+$ ]] || usage
 case "$MODE" in
   nightly) ARGS="nightly,--date,${DATE}" ;;
   request)
@@ -42,14 +56,43 @@ esac
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID must be set}"
 
-echo "▶ execute: $JOB --args=$ARGS (--wait)"
+# 한도 override(MEMORY · CPU) — 실행 단위 override 가 없어 Job 정의를 잠시 바꾸고, 끝나면(실패 · 중단 포함) 원래 값으로 되돌린다.
+ORIG_MEM=""
+ORIG_CPU=""
+restore_limits() {
+  [[ -n "$ORIG_MEM" ]] || return 0
+  echo "▶ 한도 되돌리기: memory=${ORIG_MEM} cpu=${ORIG_CPU}"
+  if ! gcloud run jobs update "$JOB" --project="$GCP_PROJECT_ID" --region="$REGION" \
+    --memory="$ORIG_MEM" --cpu="$ORIG_CPU" --quiet >/dev/null; then
+    echo "❌ 한도 되돌리기 실패 — 직접: gcloud run jobs update $JOB --region=$REGION --memory=$ORIG_MEM --cpu=$ORIG_CPU" >&2
+  fi
+}
+if [[ -n "$MEMORY" || -n "$CPU" ]]; then
+  LIMITS=$(gcloud run jobs describe "$JOB" --project="$GCP_PROJECT_ID" --region="$REGION" \
+    --format='value(spec.template.spec.template.spec.containers[0].resources.limits.memory,spec.template.spec.template.spec.containers[0].resources.limits.cpu)' 2>/dev/null)
+  CUR_MEM=$(printf '%s' "$LIMITS" | cut -f1)
+  CUR_CPU=$(printf '%s' "$LIMITS" | cut -f2)
+  if [[ -z "$CUR_MEM" || -z "$CUR_CPU" ]]; then
+    echo "❌ 지금 한도를 읽지 못했다 — 되돌릴 값이 없어 바꾸지 않는다" >&2
+    exit 1
+  fi
+  ORIG_MEM="$CUR_MEM"
+  ORIG_CPU="$CUR_CPU"
+  trap restore_limits EXIT
+  echo "▶ 한도 override: memory=${MEMORY:-$ORIG_MEM} cpu=${CPU:-$ORIG_CPU} (원래 memory=${ORIG_MEM} cpu=${ORIG_CPU})"
+  if ! gcloud run jobs update "$JOB" --project="$GCP_PROJECT_ID" --region="$REGION" \
+    --memory="${MEMORY:-$ORIG_MEM}" --cpu="${CPU:-$ORIG_CPU}" --quiet >/dev/null; then
+    echo "❌ 한도 override 실패" >&2
+    exit 1
+  fi
+fi
+
+EXEC_FLAGS=(--project="$GCP_PROJECT_ID" --region="$REGION" --args="$ARGS" --wait --format='value(metadata.name)')
+[[ -n "$TASK_TIMEOUT" ]] && EXEC_FLAGS+=(--task-timeout="$TASK_TIMEOUT")
+
+echo "▶ execute: $JOB --args=$ARGS${TASK_TIMEOUT:+ --task-timeout=$TASK_TIMEOUT} (--wait)"
 START_EPOCH=$(date +%s)
-EXEC_OUT=$(gcloud run jobs execute "$JOB" \
-  --project="$GCP_PROJECT_ID" \
-  --region="$REGION" \
-  --args="$ARGS" \
-  --wait \
-  --format='value(metadata.name)' 2>&1)
+EXEC_OUT=$(gcloud run jobs execute "$JOB" "${EXEC_FLAGS[@]}" 2>&1)
 EXEC_RC=$?
 END_EPOCH=$(date +%s)
 

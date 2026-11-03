@@ -8,8 +8,12 @@
  *     · ok false 기록 중 error 가 `TRANSIENT` 로 시작하지 않는 것 — 원본 · 키 결함(통독 throw · 격자 만들기 · 업로드 4xx 영구 거부)
  *     · 끝 기록 없이 남은 「시작」 기록(ok null · error STARTED) — Job 자체가 죽은 실행(OOM · task timeout)
  *     안 세는 것: 일시 장애(RPC · Storage 5xx/네트워크 · GCS FUSE 입출력 오류) — ok false 지만 error `TRANSIENT: …` 로 남긴다.
- *   포기한 날짜가 있으면 실행마다 error 로그 + 종료 1(알림 정책 = Job 실패 실행 — 포기 뒤에도 알림이 계속 온다) ·
- *   이미 올린 격자는 그대로 · 빠진 키는 요청 변환 또는 `--date D` 수동 재변환(그 날 ok 기록이 생기면 포기 목록에서 빠진다).
+ *   포기한 날짜가 있으면 실행마다 error 로그. 종료 1(알림 정책 = Job 실패 실행)은 **막 포기한** 날짜가 있을 때만
+ *   (R3-WR-02 · `freshlyGaveUp` — 그 날짜 마지막 nightly 기록이 `GAVE_UP_ALERT_WINDOW_MS` 22.5시간 안 = 포기를 만든 실행의
+ *   바로 다음 실행) — 알림은 날짜 하나에 1~2회로 끝나고, 같은 정책을 쓰는 request · promote 의 새 실패가 묻히지 않는다.
+ *   이미 올린 격자는 그대로 · 빠진 키는 요청 변환 또는 `--date D` 수동 재변환(그 날 ok 기록이 생기면 포기 목록에서 빠진다 ·
+ *   크래시 포기면 smoke-tick-convert.sh 의 TASK_TIMEOUT · MEMORY override). 수동 재변환이 또 실패하면 그 기록이 새로 창을 열어
+ *   다음 실행이 한 번 더 알린다. 포기를 받아들이면 할 일 없음(catch-up 창을 벗어날 때까지 로그 error 만 남는다).
  *   **최신 날짜부터**(새 날짜가 먼저 격자가 되게 — 미룬 날짜는 01:30 · 다음 밤이 잇는다).
  *   `--date D` 는 그 날 하나만(기록 · 요일 · 휴장 무시 · 다시 쓴다 — 스모크 · 수동 재변환).
  *
@@ -40,7 +44,7 @@
  *
  * 실패 격리: 날짜 하나가 throw 해도(깨진 원본 · RPC 오류) 그 날짜만 실패 기록(ok false — 다음 실행이 다시 고른다)하고 다음
  * 날짜로 간다. 변환을 시작하는 날짜는 먼저 거래소별 「시작」 기록(ok null · STARTED)을 쓴다(크래시 판정 · R2-WR-03).
- * 모든 날짜 뒤 90일 purge 한 번(purge.ts). 실패 날짜 · purge 실패 · 포기한 날짜가 하나라도 있으면 종료 1(알림 정책) —
+ * 모든 날짜 뒤 90일 purge 한 번(purge.ts). 실패 날짜 · purge 실패 · 막 포기한 날짜가 하나라도 있으면 종료 1(알림 정책) —
  * 미룬 날짜 · 건너뛴 날짜 · NO_OBJECTS 는 실패가 아니다.
  */
 import { A3_LAYOUT, DayRateTracker, TICK_FMT, decodeFields, isKrxHoliday, layoutOf } from "@gh-radar/shared";
@@ -110,6 +114,34 @@ const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
  * 원본 · 키 결함은 3번째에서 멈춘다(R2-WR-03 · `failedNightlyRunsOf`).
  */
 export const NIGHTLY_MAX_FAILED_RUNS = 2;
+
+/**
+ * 포기 알림 창(R3-WR-02) — 포기한 날짜의 마지막 nightly 기록(실패 · 시작)이 이만큼 안이면 「막 포기」 로 보고 종료 1(알림).
+ * Scheduler 23:30 · 01:30 매일이라 기록을 쓴 실행(시작 뒤 ≤ 60분 · task timeout 3600s)의 다음 실행은 그 기록 뒤 ≤ 22시간,
+ * 그다음 실행은 ≥ 23시간 — 22.5시간이 둘을 가른다(포기를 만든 실행 바로 다음 실행만 알린다).
+ */
+export const GAVE_UP_ALERT_WINDOW_MS = 22.5 * 3_600_000;
+
+/**
+ * 포기한 날짜 가운데 막 포기한 것(순수 함수 · R3-WR-02) — 그 날짜 nightly 기록의 가장 늦은 finished_at 이 `now` 에서
+ * `windowMs` 안. 시각을 하나도 못 읽으면 막 포기로 본다(알림을 끄는 쪽으로 오판하지 않는다).
+ */
+export function freshlyGaveUp(
+  now: Date,
+  gaveUp: readonly string[],
+  runs: readonly RunSince[],
+  windowMs: number = GAVE_UP_ALERT_WINDOW_MS,
+): string[] {
+  return gaveUp.filter((d) => {
+    let last = -Infinity;
+    for (const r of runs) {
+      if (r.mode !== "nightly" || r.date !== d) continue;
+      const t = Date.parse(r.finished_at ?? "");
+      if (!Number.isNaN(t)) last = Math.max(last, t);
+    }
+    return last === -Infinity || now.getTime() - last < windowMs;
+  });
+}
 
 /** launch_queue_set 한 번에 넘기는 행 수. */
 export const LAUNCH_SET_BATCH = 50;
@@ -249,9 +281,11 @@ export type NightlyOutcome = {
   days: NightlyDayResult[];
   /** 시간 예산으로 미룬 날짜 수(실패 아님). */
   deferred: number;
-  /** 결정적 실패가 상한을 넘어 이번에 고르지 않은 날짜(R2-WR-03 — 있으면 실패 1 로 세어 종료 1 · 알림). */
+  /** 결정적 실패가 상한을 넘어 이번에 고르지 않은 날짜(R2-WR-03 — 실행마다 error 로그). */
   gaveUp: string[];
-  /** 실패 수 = 실패 날짜 + purge 실패(1) + 포기한 날짜가 있으면 1 — 0 이 아니면 종료 1. */
+  /** gaveUp 가운데 막 포기한 날짜(R3-WR-02 · `freshlyGaveUp` — 있으면 실패 1 로 세어 종료 1 · 알림). */
+  gaveUpFresh: string[];
+  /** 실패 수 = 실패 날짜 + purge 실패(1) + 막 포기한 날짜가 있으면 1 — 0 이 아니면 종료 1. */
   failed: number;
   purgeError: string | null;
 };
@@ -563,25 +597,40 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
 
   let dates: string[];
   let gaveUp: string[] = [];
+  let gaveUpFresh: string[] = [];
   if (args.date !== undefined) {
     dates = [args.date];
   } else {
     const runs = await meta.runsSince(kstYmdDaysAgo(deps.now, cfg.catchupDays - 1));
     dates = nightlyDatesOf(deps.now, cfg.catchupDays, runs);
-    // WR-36 · R2-WR-03 — 반복 결정적 실패로 포기한 날짜(ok 기록 없이 실패만 쌓인 날)를 실행마다 error 로 남기고 종료 1 로
-    // 알림을 계속 낸다(포기 뒤 침묵 금지 · 알림 정책은 Job 실패 실행만 본다). 그 날 ok 기록이 생기면(--date D) 목록에서 빠진다.
+    // WR-36 · R2-WR-03 · R3-WR-02 — 반복 결정적 실패로 포기한 날짜(ok 기록 없이 실패만 쌓인 날)는 실행마다 error 로그를 남기고,
+    // 막 포기한 날짜가 있을 때만 종료 1(알림 — 날짜 하나에 1~2회 · 포기 뒤 침묵도 매일 알림도 아니다). 그 날 ok 기록이
+    // 생기면(--date D) 목록에서 빠진다.
     const uncapped = nightlyDatesOf(deps.now, cfg.catchupDays, runs, Infinity);
     gaveUp = uncapped.filter((d) => !dates.includes(d));
+    gaveUpFresh = freshlyGaveUp(deps.now, gaveUp, runs);
     if (gaveUp.length > 0) {
       logger.error(
-        { gaveUp, maxFailed: NIGHTLY_MAX_FAILED_RUNS },
+        { gaveUp, gaveUpFresh, maxFailed: NIGHTLY_MAX_FAILED_RUNS },
         `[tick-convert] mode=nightly 실패 ${NIGHTLY_MAX_FAILED_RUNS}회 초과 날짜 ${gaveUp.join(",")} — 다시 고르지 않는다` +
-          ` (원인 확인 뒤 nightly --date D 로 수동 재변환 · 그때까지 실행마다 종료 1)`,
+          (gaveUpFresh.length > 0
+            ? ` · 막 포기 ${gaveUpFresh.join(",")} → 이번 실행 종료 1(알림)`
+            : ` · 이미 알린 포기(종료 0 · catch-up 창을 벗어날 때까지 이 로그만)`) +
+          ` (원인 확인 뒤 nightly --date D 로 수동 재변환 · 크래시 포기면 smoke-tick-convert.sh TASK_TIMEOUT · MEMORY override)`,
       );
     }
   }
 
-  const out: NightlyOutcome = { mode: "nightly", dates, days: [], deferred: 0, gaveUp, failed: gaveUp.length > 0 ? 1 : 0, purgeError: null };
+  const out: NightlyOutcome = {
+    mode: "nightly",
+    dates,
+    days: [],
+    deferred: 0,
+    gaveUp,
+    gaveUpFresh,
+    failed: gaveUpFresh.length > 0 ? 1 : 0,
+    purgeError: null,
+  };
   for (let i = 0; i < dates.length; i++) {
     // 시간 예산 — 새 날짜를 시작하기 직전에만 본다(시작한 날짜는 끝낸다)
     if (clock() - t0 > cfg.nightlyBudgetMs) {
@@ -610,9 +659,10 @@ export async function runNightly(deps: JobDeps, args: NightlyArgs = {}): Promise
   const waited = out.days.filter((d) => d.ready === "wait").length;
   const noObjects = out.days.filter((d) => d.ready === "none").length;
   logger.info(
-    { dates, deferred: out.deferred, gaveUp: out.gaveUp, failed: out.failed, purgeError: out.purgeError },
+    { dates, deferred: out.deferred, gaveUp: out.gaveUp, gaveUpFresh: out.gaveUpFresh, failed: out.failed, purgeError: out.purgeError },
     `[tick-convert] mode=nightly dates=${dates.length} converted=${converted} wait=${waited} no_objects=${noObjects} ` +
-      `failed=${out.failed} deferred=${out.deferred} gave_up=${out.gaveUp.length} purge=${out.purgeError === null ? "ok" : "error"} ` +
+      `failed=${out.failed} deferred=${out.deferred} gave_up=${out.gaveUp.length} gave_up_fresh=${out.gaveUpFresh.length} ` +
+      `purge=${out.purgeError === null ? "ok" : "error"} ` +
       `ms=${Math.max(0, Math.round(clock() - t0))}`,
   );
   return out;
