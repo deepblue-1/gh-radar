@@ -220,7 +220,7 @@ Plans:
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
 | 35. 발사 경계 지도 어드민 | v1.1 | 19/19 | Complete | 2026-11-01 |
 | 36. 계좌별 주문가능 금액 | v1.1 | 10/10 | Complete | 2026-10-28 |
-| 37. 틱 전문 뷰어 | v1.1 | 17/19 | Not started | — |
+| 37. 틱 전문 뷰어 | v1.1 | 18/19 | Not started | — |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
 
@@ -439,7 +439,7 @@ Plans:
   4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 서버 캐시 · 자동 증분)과 과거(격자)가 같은 화면 · DMA 게이트 · 팀 손익 golden 대조 통과(export `payload.pnl`) · 버스트 판정 tickana `classify_orders` 와 일치(KRX) · NXT 런 규칙 오라클 일치 · 세 보고서 「틱 보기」 · URL 딥링크(틱 시각까지).
 
 **배포 순서**(D-22): DB(격자 메타 표 · RPC · 게이트 — `supabase db push --linked --yes` · 08:00~20:00 KST 밖) → 변환 Job(Cloud Run Job + Scheduler · GCS objectViewer 바인딩) → server(과거 경로 · TICKGW 없이) → webapp push(= 프로덕션) — 메인 세션(37-16). 당일 경로(radar-gw tickgw · server TICKGW_URL · 승격 Job)는 gh-trade 119 인덱서 배포 확인 뒤 20:00 KST 이후에만(37-17) · 그 전 화면은 「당일 자료 준비 중」.
-**Plans:** 17/19 plans executed
+**Plans:** 18/19 plans executed
 
 Plans:
 **Wave 1**
@@ -476,7 +476,7 @@ Plans:
 - [x] 37-19-PLAN.md — 당일 경로 웹: /api/ticks/live 하루치 → 세션 → 끝 틱(트레이서) · 폴링 규율 · 새 틱 배지 · 끝으로 · e2e(당일 · 미결선)
 
 **Wave 9** *(blocked on Wave 8 completion)*
-- [ ] 37-16-PLAN.md — [BLOCKING] db push → Job(10/30 실측) → server → push · 요청 변환 실측 · 라이브 UAT (메인 세션)
+- [x] 37-16-PLAN.md — [BLOCKING] db push → Job(10/30 실측) → server → push · 요청 변환 실측 · 라이브 UAT (메인 세션)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 37-17-PLAN.md — 당일 경로 켜기: gh-trade 회신 대기 → 어댑터 반영 → radar-gw tickgw(20:00 뒤) → server 스위치 · SC 2 실측 · 당일 UAT (메인 세션)
