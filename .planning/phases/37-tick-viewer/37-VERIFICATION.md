@@ -1,8 +1,8 @@
 ---
 phase: 37-tick-viewer
-verified: 2026-11-04T04:40:00Z
-status: gaps_found
-score: 10/12 must-haves verified
+verified: 2026-11-04T22:20:00Z
+status: human_needed
+score: 12/12 must-haves verified
 covered_files:
   - .planning/phases/37-tick-viewer/37-01-PLAN.md
   - .planning/phases/37-tick-viewer/37-01-SUMMARY.md
@@ -42,15 +42,21 @@ covered_files:
   - .planning/phases/37-tick-viewer/37-18-SUMMARY.md
   - .planning/phases/37-tick-viewer/37-19-PLAN.md
   - .planning/phases/37-tick-viewer/37-19-SUMMARY.md
-  - packages/shared/src/ticks/layouts.ts
-  - server/src/routes/ticks.ts
+  - tickgw/src/cache.ts
+  - tickgw/src/indexer.ts
   - tickgw/src/poller.ts
   - tickgw/src/server.ts
-  - webapp/src/components/ticks/tick-viewer-page.tsx
+  - tickgw/tests/poller.test.ts
+  - webapp/src/instrumentation-client.ts
+  - webapp/src/lib/router-transition.ts
+  - webapp/src/lib/ticks/tick-url.ts
   - webapp/src/lib/ticks/use-tick-cursor.ts
+  - webapp/src/lib/ticks/use-tick-live.ts
   - workers/tick-convert/src/modes/promote.ts
   - workers/tick-convert/src/tickgw-export.ts
-covered_digest: "v3:sha256:9d70f5cfcb368ab2734b60ffa62b33f64e2c17198c17820ebf6c711a12c29535"
+  - workers/tick-convert/tests/helpers/fake-tickgw.ts
+  - workers/tick-convert/tests/promote.test.ts
+covered_digest: "v4:sha256:07626a84e9ac5d245e4856690e6256b5edf733fd338c5c61f9d7a3562cfb4aa1"
 behavior_unverified: 0
 overrides_applied: 0
 gaps:
@@ -79,6 +85,20 @@ gaps:
       - "list() 의 키 단위 검사 실패를 incomplete/failed 로 내려 run 전체를 죽이지 않게"
       - "fake-tickgw 의 빈 키를 null 로 바꾸고 promote.test 에 '0건 closed 키 + 정상 키' 사례 추가"
 deferred: []
+human_verification:
+  - test: "오늘 밤 19:55 따라잡기 · 20:01 마감 마무리 · 20:10 승격 Job 이 새 코드(tickgw 198d9dc3 · Job 198d9dc3)로 처음 도는 것을 로그로 확인한다"
+    expected: "radar-gw tickgw 로그에 `catchup done keys=N caught=N lost=0`(lost > 0 이면 warn) · `closed` 줄들 · `compressed files skipped` warn 이 있다면 그 키는 closed 가 아님 · 20:10 `[tick-convert] mode=promote … failed=0` · 압축으로 일부가 비면 `incomplete` 가 아니라 export 에서 애초에 빠짐(unclosed 로 센다) · 승격된 키의 `tick_grids.sources` 가 `{promoted}` · 0건 키가 있어도 Job 종료 0"
+    why_human: "런타임 동작이다. 20:00 압축(`zstd --rm`)과 19:55~20:01 스케줄링은 장 마감 뒤에만 실제로 발생하며, 단위 시험은 가짜 인덱서로 그 순서를 흉내 낸 것이다. 오늘 밤 전엔 관측할 수 없다."
+  - test: "요청 변환 실측 수치를 SUMMARY 에 남긴다 (SC 3 기록 공백, 1라운드부터 이월)"
+    expected: "프로덕션에서 격자·승격이 없는 비대상 종목 하나를 열어 「변환 중 · 약 N분 → 자동 열림」 소요와, 같은 종목 동시 요청 시 Cloud Run 실행 1회로 합쳐지는지를 기록한다"
+    why_human: "프로덕션 조작·Cloud Run 실행 이력 확인이 필요하다. 기능 자체는 UAT C(천일고속 10/14)로 동작이 확인되어 있어 목표 달성은 막지 않는다. 수치만 비어 있다."
+  - test: "R2 수정 중 로직 변경으로 표시된 항목의 사람 확인 (R2-WR-01 저녁 새 키 지연 · R2-WR-03 포기 규칙 · R2-IN-03~06)"
+    expected: "(a) 19:55~21:00 에 새로 연 키가 캐시가 가득 찼을 때 `delayed` 가 되는 맞교환(승격 손실 방지 vs 저녁 신규 키 지연)이 수용 가능한지 판단한다. (b) nightly 결정적 실패 2회 초과 날짜가 더 고르지 않고 실행마다 종료 1 + error 로그를 내는 동작이 알림 설계 의도와 맞는지 본다. (c) 75(색인 준비 안 됨) 전역 대기 5→15→30→60초 단계가 장중에 체감 지연을 만들지 않는지 본다."
+    why_human: "정책·운영 판단이다. 시험은 동작을 고정하지만 그 동작이 운영 의도에 맞는지는 사람이 정한다(REVIEW-FIX-R2 가 스스로 `requires human verification` 으로 표시)."
+round1_verified: 2026-11-04T04:40:00Z
+round1_status: gaps_found
+round1_score: 10/12 must-haves verified
+superseded_by: 37-VERIFICATION-R2.md
 ---
 
 # Phase 37: 틱 전문 뷰어 Verification Report

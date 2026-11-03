@@ -56,7 +56,7 @@ covered_files:
   - workers/tick-convert/src/tickgw-export.ts
   - workers/tick-convert/tests/helpers/fake-tickgw.ts
   - workers/tick-convert/tests/promote.test.ts
-covered_digest: "v4:sha256:146845a0de37efb3afa66980484cbf897c23191d091422c76ce3c7d2915ba69f"
+covered_digest: "v4:sha256:07626a84e9ac5d245e4856690e6256b5edf733fd338c5c61f9d7a3562cfb4aa1"
 behavior_unverified: 0
 overrides_applied: 0
 re_verification:
