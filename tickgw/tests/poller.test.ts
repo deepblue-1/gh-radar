@@ -86,6 +86,9 @@ function rig(behavior: Behavior, cfg: Partial<PollerConfig> = {}, startMs = kstM
   return { poller, cache, calls, clock, drive };
 }
 
+/** 75 연속 이 횟수까지는 2초 재시도(poller BUSY_FAST_TRIES). */
+const BUSY_FAST = 5;
+
 const gaps = (calls: { at: number }[]) => calls.slice(1).map((c, i) => c.at - calls[i]!.at);
 
 describe("KST 경계 — 37-12 promote(shared dayStartNs)와 같은 리터럴", () => {
@@ -191,6 +194,28 @@ describe("Poller — 백오프 · 바쁨 · 차단", () => {
     expect(g[1]).toBeGreaterThanOrEqual(2_000);
     expect(g[1]).toBeLessThanOrEqual(2_500);
     expect(g[2]).toBe(5_000); // 75 두 번 뒤 첫 실패 = 1단계(5초)
+  });
+
+  it("75 가 연속 5회를 넘으면 전역 대기를 5 → 15 → 30 → 60초로 늘린다 · 정상 응답이면 2초로 되돌림 · 실패로 세지 않음(R2-IN-05)", async () => {
+    let busy = 10;
+    const r = rig((a) => (busy-- > 0 ? fail(75) : dayResponse(a, 1)));
+    r.poller.touch(KEY);
+    await r.drive({ untilCalls: 11, touch: [KEY] });
+    expect(gaps(r.calls)).toEqual([2_250, 2_250, 2_250, 2_250, 2_250, 5_250, 15_250, 30_250, 60_250, 60_250]);
+    expect(r.poller.touch(KEY).state).toBe("ready"); // 실패 단계 없음 — delayed 아님
+    busy = 1;
+    await r.drive({ untilCalls: 13, touch: [KEY] });
+    expect(gaps(r.calls).slice(-2)).toEqual([5_000, 2_250]); // 다시 처음부터 2초
+  });
+
+  it("75 연속 대기는 전역 — 키가 여럿이어도 느린 단계에선 대기 동안 119 호출 0", async () => {
+    const r = rig(() => fail(75));
+    const keys = [1, 2, 3, 4].map(keyN);
+    for (const k of keys) r.poller.touch(k);
+    await r.drive({ untilT: r.clock.t + 300_000, touch: keys });
+    const slow = r.calls.slice(BUSY_FAST);
+    expect(gaps(slow).every((g) => g >= 5_000)).toBe(true);
+    expect(r.calls.length).toBeLessThan(20); // 키당 2초였다면 5분 동안 ≈ 600회
   });
 
   it("연결 실패 3회 연속 → 전역 60초 차단 · 모든 키 delayed · 차단 중 119 호출 0", async () => {

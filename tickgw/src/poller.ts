@@ -14,7 +14,10 @@
  *   리스        server 요청(touch)마다 30초 갱신 · 리스가 끝난 키는 폴링하지 않는다(다시 touch 하면 대기열 맨 뒤로 재개)
  *   키 상한     리스가 살아 있는 키를 처음 touch 순서로 세워 앞 MAX_KEYS(8)만 활성 · 나머지는 queued(대기 k = 순번)
  *   실패        ssh 실패 · 시간 초과 · 깨진 응답 → 그 키 5→10→20→40→60→60초 · 성공하면 다시 5초
- *   다시 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다(동시 1 바쁨 · 색인 준비 안 됨 — gh-trade 4f474b1f 가 넓힘)
+ *   다시 75     2초 + 0~0.5초 지터 뒤 재시도 · 실패로 세지 않는다(동시 1 바쁨 · 색인 준비 안 됨 — gh-trade 4f474b1f 가 넓힘).
+ *               75 가 (키를 가리지 않고) 연속 5회를 넘으면 「색인 준비 안 됨(재색인 수십 분)」 으로 보고 전역 대기를
+ *               5 → 15 → 30 → 60초로 늘린다(그동안 모든 키 · 따라잡기 · 마감 마무리 호출 0). 정상 응답(또는 64) 한 번이면 2초로
+ *               되돌린다. 실패 단계 · 상태(X-Tick-State)는 건드리지 않는다 — gh-trade 계약 「75 = 다시」 그대로(R2-IN-05)
  *   인자 64     그 키 blocked · 60초 뒤 재시도(날짜 경계 · 계약 차이 — 37-17 이 인덱서 회신으로 맞춘다)
  *   캐시 가득   리스가 살아 있는 키는 LRU 보호(cache.setProtect) — 자리를 못 만들면 붙이지 않고 실패처럼 백오프(커서 그대로 · WR-33).
  *               버린 응답 크기를 기억해, 캐시에 그만큼 자리(cache.headroom)가 날 때까지는 119 를 부르지 않고 백오프만 한다
@@ -170,6 +173,9 @@ const BACKOFF_BASE_MS = 5_000;
 const BACKOFF_MAX_MS = 60_000;
 const BUSY_MS = 2_000;
 const BUSY_JITTER_MS = 500;
+/** 75 연속 이 횟수까지는 2초 재시도 — 넘으면 BUSY_SLOW_MS 단계로 전역 대기(R2-IN-05). */
+const BUSY_FAST_TRIES = 5;
+const BUSY_SLOW_MS = [5_000, 15_000, 30_000, 60_000] as const;
 const ARG_RETRY_MS = 60_000;
 const GLOBAL_BLOCK_MS = 60_000;
 const UNREACHABLE_STREAK = 3;
@@ -201,6 +207,9 @@ export class Poller {
   private blockedUntil = 0;
   private unreachableStreak = 0;
   private probeAfterBlock = false;
+  /** 키를 가리지 않은 75 연속 횟수 · 그로 인한 전역 대기 끝(R2-IN-05). */
+  private busyStreak = 0;
+  private busyUntil = 0;
   /** 마무리를 시작한 날 · 끝낸 날(KST YYYYMMDD) — 하루 한 번. */
   private closeStartedDate: string | null = null;
   private closeDoneDate: string | null = null;
@@ -345,6 +354,8 @@ export class Poller {
     }
 
     if (now < this.blockedUntil) return { action: "blocked", waitMs: this.blockedUntil - now };
+    // 75 연속 → 전역 대기(R2-IN-05) — 실패 · 차단이 아니라 「다시」 를 늦출 뿐
+    if (now < this.busyUntil) return { action: "idle", waitMs: this.busyUntil - now };
 
     const closeKey = await this.closeSweep(now);
     if (closeKey) return { action: "close", key: closeKey, waitMs: 0 };
@@ -386,8 +397,23 @@ export class Poller {
     return Math.round((this.deps.random() * 2 - 1) * this.cfg.pollJitterMs);
   }
 
-  private busyDelay(): number {
-    return BUSY_MS + Math.floor(this.deps.random() * BUSY_JITTER_MS);
+  /**
+   * 75 뒤 대기(R2-IN-05) — 연속 BUSY_FAST_TRIES 회까지는 2초 + 지터, 넘으면 5 → 15 → 30 → 60초 + 지터를 **전역** 대기로 건다
+   * (재색인 같은 긴 「준비 안 됨」 동안 키 수만큼 두드리지 않는다).
+   */
+  private busyDelay(at: number): number {
+    const jitter = Math.floor(this.deps.random() * BUSY_JITTER_MS);
+    if (this.busyStreak <= BUSY_FAST_TRIES) return BUSY_MS + jitter;
+    const step = Math.min(this.busyStreak - BUSY_FAST_TRIES - 1, BUSY_SLOW_MS.length - 1);
+    const ms = BUSY_SLOW_MS[step]! + jitter;
+    this.busyUntil = at + ms;
+    return ms;
+  }
+
+  private noteNotBusy(): void {
+    if (this.busyStreak > BUSY_FAST_TRIES) log("info", "indexer busy cleared", { streak: this.busyStreak });
+    this.busyStreak = 0;
+    this.busyUntil = 0;
   }
 
   // ---------------------------------------------------------------- 도달성(전역)
@@ -411,10 +437,15 @@ export class Poller {
   private classify(res: IndexerResult, at: number): "ok" | "busy" | "arg" | "fail" {
     if (okResult(res)) {
       this.noteReachable();
+      this.noteNotBusy();
       return "ok";
     }
     if (res.code === 75) {
       this.noteReachable();
+      this.busyStreak += 1;
+      if (this.busyStreak === BUSY_FAST_TRIES + 1) {
+        log("warn", "indexer busy streak — slowing down", { streak: this.busyStreak });
+      }
       return "busy";
     }
     if (isUnreachable(res)) {
@@ -423,7 +454,11 @@ export class Poller {
     }
     this.unreachableStreak = 0;
     this.probeAfterBlock = false;
-    return res.code === 64 ? "arg" : "fail";
+    if (res.code === 64) {
+      this.noteNotBusy(); // 인덱서가 75 아닌 답을 했다
+      return "arg";
+    }
+    return "fail";
   }
 
   /** 정상 응답을 캐시에 붙인다. startedMs = 이 인덱서 호출의 시작 시각(완결 읽기면 as-of). */
@@ -544,7 +579,7 @@ export class Poller {
         return;
       }
       case "busy":
-        run.nextDueAt = at + this.busyDelay();
+        run.nextDueAt = at + this.busyDelay(at);
         return;
       case "arg":
         run.argBlocked = true;
@@ -679,7 +714,7 @@ export class Poller {
         return;
       }
       case "busy":
-        item.nextDueAt = at + this.busyDelay();
+        item.nextDueAt = at + this.busyDelay(at);
         return;
       case "arg":
         item.nextDueAt = at + ARG_RETRY_MS;
@@ -791,7 +826,7 @@ export class Poller {
     }
     item.startedAt = null; // 다음 시도는 새 마무리 폴링
     if (kind === "busy") {
-      item.nextDueAt = at + this.busyDelay();
+      item.nextDueAt = at + this.busyDelay(at);
       return;
     }
     item.attempts += 1;
