@@ -177,6 +177,30 @@ describe("PcapNsReader — 원본 pcap-ns(이더넷) → UDP 페이로드", () =
     expect(reader.pending).toBe(0);
   });
 
+  it("비 UDP · 깨진 프레임 분기 — pcap2parquet.py:289-307 과 같은 조건으로 세고 건너뛴 뒤 다음 프레임을 읽는다(IN-03)", () => {
+    const tcp = udpFrame(payloads[0]!);
+    tcp[14 + 9] = 6; // IPv4 프로토콜 TCP
+    const short = udpFrame(payloads[0]!).subarray(0, 20); // 이더넷 IPv4 이지만 incl 20 < 34
+    const longUlen = udpFrame(payloads[0]!);
+    new DataView(longUlen.buffer, longUlen.byteOffset).setUint16(14 + 20 + 4, 8 + payloads[0]!.length + 1, false); // ulen 이 프레임을 넘음
+    const badIhl = udpFrame(payloads[0]!);
+    badIhl[14] = 0x44; // ihl 4 × 4 = 16 < 20
+    const r = new PcapNsReader();
+    const got = r.push(
+      concatBytes([
+        globalHeader(),
+        pcapRecord(1, 1, tcp),
+        pcapRecord(1, 2, short),
+        pcapRecord(1, 3, longUlen),
+        pcapRecord(1, 4, badIhl),
+        pcapRecord(1, 5, udpFrame(payloads[1]!)),
+      ]),
+    );
+    expect(got.map((g) => g.payload)).toEqual([payloads[1]]);
+    expect(r.counters).toEqual({ packets: 5, nonIpv4: 0, nonUdp: 1, badFrame: 3 });
+    expect(r.pending).toBe(0);
+  });
+
   it("magic 이 다르면 PcapFormatError", () => {
     const r = new PcapNsReader();
     expect(() => r.push(concatBytes([globalHeader(0xa1b2c3d4), pcapRecord(1, 1, arpFrame())]))).toThrow(PcapFormatError);
