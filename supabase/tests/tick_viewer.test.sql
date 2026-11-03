@@ -3,6 +3,7 @@
 --
 -- 대상: 20261102200000_tick_viewer.sql(표 3 · tick_grid_upsert · tick_day_for_user · tick_open_for_user ·
 --       tick_eta_s · tick_trigger_blocked · 버킷) · 20261102200100_tick_viewer_queue.sql(요청 큐 · Job RPC · 오늘 · purge).
+--       · 20261104300000(WR-01 하루 상한 = 깨운 횟수).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -23,7 +24,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(109);
+SELECT plan(118);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -324,7 +325,7 @@ SELECT is(pg_temp.req(pg_temp.u1(), '20261019', 'KR7370003007', 'NXT', 2)->>'cap
           'J cap 2 에서 세 번째 새 키 → capped true');
 SELECT is(pg_temp.st('20261019', 'NXT', 'KR7370003007'), NULL, 'J capped 요청은 행을 만들지 않는다');
 SELECT is(pg_temp.req(pg_temp.u1(), '20261020', 'KR7370002009', 'NXT', 1)->>'capped', 'false',
-          'J 이 키에 pending 이 있으면 상한과 무관(stale 재트리거 허용) → capped 아님');
+          'J 이 키가 2분 안에 깨운 pending 이면 상한과 무관(합류 · Job 0) → capped 아님');
 UPDATE public.tick_convert_requests SET finished_at = '2026-10-31 22:00:00+09'
  WHERE date = '20261024' AND exchange = 'NXT' AND isin = 'KR7370001001';
 SELECT is(pg_temp.req(pg_temp.u1(), '20261024', 'KR7370001001', 'NXT', 20)->>'should_trigger', 'true',
@@ -348,6 +349,37 @@ SELECT is(public.tick_cancel_convert_for_user(pg_temp.u1(), '20261023', 'KR73700
 UPDATE public.tick_convert_requests SET status = 'running' WHERE date = '20261023';
 SELECT is(public.tick_cancel_convert_for_user(pg_temp.u1(), '20261023', 'KR7370001001', 'KRX')->>'cancelled', 'false',
           'J 취소 — running 은 못 취소(pending 만)');
+
+-- ── J2. 상한 = 깨운 횟수(WR-01 · 20261104300000) ────────────────────
+DELETE FROM public.tick_convert_requests;
+CREATE FUNCTION pg_temp.tc(p_date text, p_ex text, p_isin text) RETURNS integer LANGUAGE sql AS $$
+  SELECT r.trigger_count FROM public.tick_convert_requests r
+   WHERE r.date = p_date AND r.exchange = p_ex AND r.isin = p_isin AND r.trigger_day = (now() AT TIME ZONE 'Asia/Seoul')::date
+$$;
+SELECT pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2);
+SELECT public.tick_request_claim('20261017', 'KRX');
+SELECT public.tick_request_finish('20261017', 'KRX', '[{"isin": "KR7370001001", "ok": false, "error": "NO_RECORDS"}]'::jsonb);
+SELECT is(pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2)->>'should_trigger', 'true',
+          'J2 같은 키 failed → 재요청 → 다시 트리거');
+SELECT is(pg_temp.tc('20261017', 'KRX', 'KR7370001001'), 2, 'J2 다시 pending 으로 올려도 그날 깨운 횟수는 누적 → 2');
+SELECT is(pg_temp.req(pg_temp.u1(), '20261016', 'KR7370002009', 'KRX', 2)->>'capped', 'true',
+          'J2 같은 키를 두 번 깨운 뒤 cap 2 → 새 키 capped(행 수가 아니라 횟수)');
+UPDATE public.tick_convert_requests SET triggered_at = now() - interval '3 minutes' WHERE date = '20261017';
+SELECT is(pg_temp.req(pg_temp.u1(), '20261017', 'KR7370001001', 'KRX', 2)->>'capped', 'true',
+          'J2 stale pending(3분) 재트리거도 상한을 거친다 → capped');
+SELECT is(pg_temp.st('20261017', 'KRX', 'KR7370001001') || ' ' || pg_temp.tc('20261017', 'KRX', 'KR7370001001'), 'pending 2',
+          'J2 capped 재트리거는 행 · 횟수를 그대로 둔다');
+UPDATE public.tick_convert_requests SET triggered_at = now() - interval '1 minute' WHERE date = '20261017';
+SELECT is(pg_temp.req(pg_temp.u2(), '20261017', 'KR7370001001', 'KRX', 2) - 'request' - 'eta_s',
+          '{"access": true, "should_trigger": false, "capped": false, "grid_ready": false,
+            "not_uploaded": false, "retry_after": null}'::jsonb,
+          'J2 2분 안에 깨운 pending 에 합류 → 상한 넘어도 capped 아님 · should_trigger false');
+DELETE FROM public.tick_convert_requests;
+SELECT pg_temp.req(pg_temp.u1(), '20261015', 'KR7370001001', 'KRX', 1);
+SELECT is(public.tick_request_trigger_failed('20261015', 'KRX', 'boom'), 1, 'J2 trigger_failed → pending 1행');
+SELECT is(pg_temp.tc('20261015', 'KRX', 'KR7370001001'), 0, 'J2 깨우기 실패(Job 0회) → 오늘 횟수 되돌림 → 0');
+SELECT is(pg_temp.req(pg_temp.u1(), '20261014', 'KR7370002009', 'KRX', 1)->>'should_trigger', 'true',
+          'J2 깨우기 실패분은 상한에 남지 않는다 → cap 1 에서 새 키 트리거');
 
 -- ── K. 실행 기록 · 후보 ───────────────────────────────────────────
 SELECT ok(public.tick_convert_run_record('{"date": "20261030", "exchange": "KRX", "mode": "nightly", "ok": true,
