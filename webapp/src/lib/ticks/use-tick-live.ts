@@ -15,7 +15,8 @@
  *   - 응답이 8MiB 상한에 잘려 `X-Tick-More` 가 true 면(37 WR-32) 버튼 한 번 안에서 곧바로 이어 받는다 — 최대
  *     `TICK_LIVE_MORE_MAX` 번(무한 고리 방지 · 넘으면 멈추고 `more` = 캐시에 더 있음 → 머리 「이어 받기」 · 다음 누름에서 이어 간다).
  *     하루치 받기도 More 면 기다리지 않고 바로. 두 경로 모두 `offsetEnd` 가 앞으로 갔을 때만 이어 받는다(R2-IN-31 — More 인데
- *     제자리면 계약 위반 · 오류로 센다 — 증분은 멈춤, 하루치는 하루치 실패 상한 · 백오프를 탄다).
+ *     제자리면 계약 위반 · 오류로 센다 — 증분은 멈춤, 하루치는 하루치 실패 상한 · 백오프를 탄다). 두 경로 모두 바이트를 붙이고
+ *     커서를 옮기기 **전에** 본다(R3-IN-05 — offset 이 뒤로 가 같은 틱을 두 번 붙이지 않게).
  * ④ 409 `{epoch}` → 새 epoch 로 offset 0 부터 즉시 다시 받는다. 받는 동안은 이전 세션을 그대로 보이고, 하루치가 다 오면 세션을
  *   바꾸고 `generation` 을 올린다(뷰어 key — 새 세션은 끝 틱에서 연다).
  * ⑤ 상태 delayed · blocked 는 `meta.state` 로 머리에 알릴 뿐이다. 오류(502 · 500 · 0 네트워크)는 `errors` 를 센다 — 하루치 받는
@@ -281,6 +282,16 @@ export function useTickLive({
           publish();
           return schedule(m.more === true ? 0 : loadingMs);
         }
+        // 증분 More 인데 offsetEnd 가 앞으로 가지 않음 — 계약 위반. 하루치와 같이 바이트를 붙이고 커서를 옮기기 **전에** 오류로 센다
+        // (R3-IN-05 — 뒤에서 보면 offset 이 이미 뒤로 가 있어 다음 누름이 붙인 바이트를 다시 받아 같은 틱을 두 번 붙인다).
+        // offset · 세션은 그대로 · 다음 누름이 같은 자리부터 다시 받는다.
+        if (!fill && m.more === true && m.offsetEnd <= prevOffset) {
+          console.warn('[ticks/live] More 인데 offsetEnd 가 앞으로 가지 않음', { offset: prevOffset, offsetEnd: m.offsetEnd });
+          c.errors += 1;
+          c.moreChain = 0;
+          c.moreLeft = false;
+          return publish();
+        }
         let next: TickSession;
         try {
           next = fill
@@ -315,15 +326,8 @@ export function useTickLive({
         c.session = next;
         if (!atEndRef.current) c.newCount += next.index.n - before;
         // 8MiB 로 잘린 증분(WR-32) — 같은 누름 안에서 offsetEnd 부터 곧바로 이어 받는다(다음 tick 이 받는 중으로 publish).
-        // offsetEnd 가 앞으로 갔을 때만(R2-IN-31) · 상한에 닿으면 멈추고 「캐시에 더 있음」 을 남긴다(다음 누름에서 이어 감).
+        // offsetEnd 가 앞으로 갔을 때만(R2-IN-31 — 위에서 걸렀다) · 상한에 닿으면 멈추고 「캐시에 더 있음」 을 남긴다(다음 누름에서 이어 감).
         if (m.more === true) {
-          if (m.offsetEnd <= prevOffset) {
-            console.warn('[ticks/live] More 인데 offsetEnd 가 앞으로 가지 않음', { offset: prevOffset, offsetEnd: m.offsetEnd });
-            c.errors += 1;
-            c.moreChain = 0;
-            c.moreLeft = false;
-            return publish();
-          }
           if (c.moreChain < TICK_LIVE_MORE_MAX) {
             c.moreChain += 1;
             return void tick();

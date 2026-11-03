@@ -669,6 +669,28 @@ describe('useTickLive — 증분은 버튼으로만 (D-06 · 2026-11-03 자동 �
     warn.mockRestore();
   });
 
+  it('증분 More 인데 offsetEnd 가 뒤로 → 바이트를 붙이지도 offset 을 되돌리지도 않는다 · 다음 누름은 같은 자리부터(R3-IN-05)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = await openReady();
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2, more: true, state: 'ready', offsetEnd: Z1.length - 10 }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current.errors).toBe(1);
+    expect(result.current.session!.index.n).toBe(6_000); // 고치기 전엔 Z2 를 붙인 뒤에야 걸러 offset 만 뒤로 갔다
+    fetchMock.mockResolvedValueOnce(liveResponse({ body: Z2, state: 'ready', offsetEnd: Z1.length + Z2.length }));
+    await act(async () => {
+      result.current.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls()[2]).toEqual({ path: '/api/ticks/live', epoch: EPOCH, offset: Z1.length });
+    expect(result.current.session!.index.n).toBe(TICK_FIXTURE_RECORDS); // 한 번만 붙었다
+    expect(result.current.errors).toBe(0);
+    warn.mockRestore();
+  });
+
   it('stop → 더 요청하지 않는다(카드 취소)', async () => {
     fetchMock.mockResolvedValue(liveResponse({ body: Z1, state: 'loading', offsetEnd: Z1.length }));
     const { result } = renderHook(() => useTickLive(opts()));
