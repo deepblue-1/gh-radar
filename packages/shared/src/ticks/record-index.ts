@@ -22,7 +22,7 @@
  */
 import { parsePrice, parseStr, parseTime12Ns, parseUint, parseValue22 } from "./decode";
 import { iterRecords } from "./framing";
-import { A3_LAYOUT, A0_LAYOUT, B6_LAYOUT, B9_LAYOUT, C3_LAYOUT, R8_LAYOUT, type Layout } from "./layouts";
+import { A3_LAYOUT, A0_LAYOUT, B6_LAYOUT, B9_LAYOUT, C3_LAYOUT, R8_LAYOUT, type FieldKind, type Layout } from "./layouts";
 import type { A3Trade } from "./orders-krx";
 
 /** 태그 코드 — `TickIndex.tag` 값. */
@@ -218,24 +218,38 @@ export interface A3Columns {
   toTrades(): A3Trade[];
 }
 
-function fieldOff(layout: Layout, name: string): number {
-  const f = layout.fields.find((x) => x.name === name);
-  if (!f) throw new Error(`${layout.table}.${name} 필드가 없다`);
-  return f.offset;
+/** 레이아웃 필드 하나의 자리(오프셋 · 길이) — 길이도 레이아웃에서 읽는다(IN-04). */
+interface FieldAt {
+  offset: number;
+  length: number;
 }
 
-const A3_OFF = {
-  isin: fieldOff(A3_LAYOUT, "isin"),
-  tradeTime: fieldOff(A3_LAYOUT, "trade_time"),
-  pct: fieldOff(A3_LAYOUT, "price_change_type"),
-  chg: fieldOff(A3_LAYOUT, "price_change"),
-  px: fieldOff(A3_LAYOUT, "trade_price"),
-  qty: fieldOff(A3_LAYOUT, "trade_qty"),
-  cumValue: fieldOff(A3_LAYOUT, "cum_value"),
-  cumVolume: fieldOff(A3_LAYOUT, "cum_volume"),
-  bs: fieldOff(A3_LAYOUT, "final_bs_code"),
-  a1: fieldOff(A3_LAYOUT, "ask1_px"),
-  b1: fieldOff(A3_LAYOUT, "bid1_px"),
+/**
+ * 레이아웃에서 필드 `name` 의 자리를 찾고 `kind` 를 확인한다. 고정 폭 파서(price 11 · time12 12 · 한 글자 str 1)를 쓰는
+ * 필드는 `width` 로 길이를 함께 잠근다 — 레이아웃 길이가 바뀌면 모듈을 읽을 때 바로 던진다(조용히 엇갈리지 않게).
+ */
+function fieldOf(layout: Layout, name: string, kind: FieldKind, width?: number): FieldAt {
+  const f = layout.fields.find((x) => x.name === name);
+  if (!f) throw new Error(`${layout.table}.${name} 필드가 없다`);
+  if (f.kind !== kind) throw new Error(`${layout.table}.${name} 는 ${kind} 가 아니다(${f.kind})`);
+  if (width !== undefined && f.length !== width) {
+    throw new Error(`${layout.table}.${name} 길이 ${f.length} ≠ 고정 폭 파서 ${width}`);
+  }
+  return { offset: f.offset, length: f.length };
+}
+
+const A3_F = {
+  isin: fieldOf(A3_LAYOUT, "isin", "str"),
+  tradeTime: fieldOf(A3_LAYOUT, "trade_time", "time12", 12),
+  pct: fieldOf(A3_LAYOUT, "price_change_type", "str", 1),
+  chg: fieldOf(A3_LAYOUT, "price_change", "price", 11),
+  px: fieldOf(A3_LAYOUT, "trade_price", "price", 11),
+  qty: fieldOf(A3_LAYOUT, "trade_qty", "uint"),
+  cumValue: fieldOf(A3_LAYOUT, "cum_value", "value22"),
+  cumVolume: fieldOf(A3_LAYOUT, "cum_volume", "uint"),
+  bs: fieldOf(A3_LAYOUT, "final_bs_code", "str", 1),
+  a1: fieldOf(A3_LAYOUT, "ask1_px", "price", 11),
+  b1: fieldOf(A3_LAYOUT, "bid1_px", "price", 11),
 };
 
 /** parseStr 한 글자 규칙의 문자 코드 — 128 이상 '?' · NUL 공백. */
@@ -281,19 +295,19 @@ export function a3ColumnsOf(buf: Uint8Array, index: TickIndex): A3Columns {
     rec[k] = i;
     seq[k] = index.seq[i]!;
     board[k] = index.board[i]!;
-    bs[k] = charCodeOf(buf[o + A3_OFF.bs]!);
-    pct[k] = charCodeOf(buf[o + A3_OFF.pct]!);
-    chg[k] = toNum(parsePrice(buf, o + A3_OFF.chg));
-    px[k] = toNum(parsePrice(buf, o + A3_OFF.px));
-    qty[k] = toNum(parseUint(buf, o + A3_OFF.qty, 10));
-    a1[k] = toNum(parsePrice(buf, o + A3_OFF.a1));
-    b1[k] = toNum(parsePrice(buf, o + A3_OFF.b1));
-    tNs[k] = parseTime12Ns(buf, o + A3_OFF.tradeTime, recv) ?? -1n;
-    cumValue[k] = toNum(parseValue22(buf, o + A3_OFF.cumValue, 22));
-    cumVolume[k] = toNum(parseUint(buf, o + A3_OFF.cumVolume, 12));
+    bs[k] = charCodeOf(buf[o + A3_F.bs.offset]!);
+    pct[k] = charCodeOf(buf[o + A3_F.pct.offset]!);
+    chg[k] = toNum(parsePrice(buf, o + A3_F.chg.offset));
+    px[k] = toNum(parsePrice(buf, o + A3_F.px.offset));
+    qty[k] = toNum(parseUint(buf, o + A3_F.qty.offset, A3_F.qty.length));
+    a1[k] = toNum(parsePrice(buf, o + A3_F.a1.offset));
+    b1[k] = toNum(parsePrice(buf, o + A3_F.b1.offset));
+    tNs[k] = parseTime12Ns(buf, o + A3_F.tradeTime.offset, recv) ?? -1n;
+    cumValue[k] = toNum(parseValue22(buf, o + A3_F.cumValue.offset, A3_F.cumValue.length));
+    cumVolume[k] = toNum(parseUint(buf, o + A3_F.cumVolume.offset, A3_F.cumVolume.length));
     const c0 = buf[o + 2];
     nxt[k] = c0 === 53 ? 1 : c0 === 48 ? 0 : fallbackNxt;
-    const s = parseStr(buf, o + A3_OFF.isin, 12);
+    const s = parseStr(buf, o + A3_F.isin.offset, A3_F.isin.length);
     let interned = isinIntern.get(s);
     if (interned === undefined) {
       interned = s;
