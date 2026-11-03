@@ -95,9 +95,15 @@ const EXCHANGES: readonly Exchange[] = ["KRX", "NXT"];
 /**
  * 받기 전 사전 판정 배수 — export `bytes`(119 원본 zstd 프레임 합 · 낮은 레벨)가 `GRID_MAX_BYTES` × 이 값을 넘으면
  * 바이트를 당기지 않고 tooLarge. 격자는 같은 원시를 더 높은 레벨 한 프레임으로 다시 압축하므로 원본 합보다 커지기 어렵다 —
- * 2배는 상한 안에 들 키를 잘못 거르지 않을 보수적 여유다. 이 사이 키는 받아서 다시 압축한 실제 크기로 판정한다.
+ * 1.2배(≈ 60MiB)는 그 재압축 이득을 감안한 여유다. 이 사이 키는 받아서 다시 압축한 실제 크기로 판정한다.
+ * 문턱은 반드시 tickgw 키 상한(`TICKGW_KEY_LIMIT_BYTES`)보다 작아야 한다 — export 에 실리는 키는 언제나 그 상한 이하라
+ * (넘으면 tickgw 가 too_large → complete=false → closed 아님), 예전 2배(100MiB)는 발동할 수 없었다(R2-IN-02).
+ * 잘못 거른 키는 승격만 빠지고 그날 밤 nightly 가 같은 상한 규칙으로 다시 만든다.
  */
-export const PREFETCH_FACTOR = 2;
+export const PREFETCH_FACTOR = 1.2;
+
+/** tickgw 기본 캐시 상한(TICKGW_CACHE_BYTES 100663296 · 키 하나도 이 이하) — PREFETCH 문턱이 이보다 작은지 시험이 본다. */
+export const TICKGW_KEY_LIMIT_BYTES = 100_663_296;
 
 /** `[--date YYYYMMDD]` — 모르는 플래그 · 빠진 값 · 형식 오류 → UsageError(종료 2). */
 export function parsePromoteArgs(args: readonly string[]): PromoteArgs {

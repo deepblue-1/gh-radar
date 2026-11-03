@@ -4,8 +4,15 @@ import { TICK_FMT, dayStartNs, iterRecords, splitZstdFrames } from "@gh-radar/sh
 import { main } from "../src/index";
 import { checkTickgwUrl, type Config } from "../src/config";
 import { logger } from "../src/logger";
-import { closeNs, decompressFrames, parsePromoteArgs, runPromote } from "../src/modes/promote";
-import { createSupabaseGridStore } from "../src/store";
+import {
+  PREFETCH_FACTOR,
+  TICKGW_KEY_LIMIT_BYTES,
+  closeNs,
+  decompressFrames,
+  parsePromoteArgs,
+  runPromote,
+} from "../src/modes/promote";
+import { GRID_MAX_BYTES, createSupabaseGridStore } from "../src/store";
 import { gridTeamOf } from "../src/team-day";
 import { a3Payload, b6Payload, kstNs, type Label } from "./helpers/synth-archive";
 import { makeFakeSupabase, rpcCalls, uploads, type FakeOptions } from "./helpers/fake-supabase";
@@ -401,5 +408,12 @@ describe("설정 · 인자", () => {
     expect(() => parsePromoteArgs(["--date", "20261332"])).toThrow(/YYYYMMDD/);
     const f = fake();
     expect(await main(["promote", "--ex", "KRX"], { sb: f.sb, store: f.store, config: cfg("http://127.0.0.1:1"), now: NOW })).toBe(2);
+  });
+});
+
+describe("받기 전 크기 문턱(R2-IN-02)", () => {
+  it("GRID_MAX_BYTES × PREFETCH_FACTOR 는 tickgw 키 상한보다 작다 — export 에 실릴 수 있는 크기에서 발동한다", () => {
+    expect(GRID_MAX_BYTES * PREFETCH_FACTOR).toBeLessThan(TICKGW_KEY_LIMIT_BYTES);
+    expect(GRID_MAX_BYTES * PREFETCH_FACTOR).toBeGreaterThan(GRID_MAX_BYTES);
   });
 });
