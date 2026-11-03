@@ -19,13 +19,15 @@
  *   다시 쓰는 때 = 지금 URL 이 이 뷰어의 열기 키(경로 · isin · d · ex)이고, 이동 뒤 URL 이 바뀌었을 때(같은 키로 이동이 끝남 ·
  *   다른 이동이 앞의 이동을 덮고 이 키로 돌아옴). 같은 키로 가는 뒤로/앞으로 · 지금 URL 과 같은 곳으로 가는 이동은 멈추지 않는다
  *   (버려져도 같은 화면 · 같은 키의 RESTORE 라 결과가 같다). 다른 키로 가는 이동이면 뷰어가 내려갈 때까지 쓰지 않는다 — 뒤로 누른
- *   뒤의 목록 항목을 뷰어 URL 로 덮지 않는다.
+ *   뒤의 목록 항목을 뷰어 URL 로 덮지 않는다. 막힌 쓰기는 기억했다가(`pendingWrite`) 이동이 커밋되면(useSearchParams 변화) 커서가
+ *   다시 움직이지 않아도 한 번 다시 쓴다(R3-IN-04).
  * ⑤ 당일(`live` · 37-19 · D-06 · D-18): 세션이 바뀌었을 때(증분) 커서가 이전 세션의 끝이었으면 새 끝으로 따라간다 — 과거 틱을
  *   보고 있으면 제자리(rec 는 이어붙여도 그대로다). `atEnd` = 표시 순서의 마지막 자리 · `goEnd()` = 끝 틱으로.
  * recv_ns 는 BigInt 그대로 다룬다.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 import { fmtTickTime, lowerBoundRecv, parseTickTime } from '@gh-radar/shared';
 
@@ -313,45 +315,65 @@ export function useTickCursor(
   // 대기 중인 이동(머리 주석 ④ · R2-WR-30) — from = 이동이 시작될 때의 URL · to = 그 이동의 목적지. 마지막으로 시작된 이동만 든다
   // (Next 는 새 이동이 앞의 대기 이동을 버린다).
   const leaveRef = useRef<{ from: string; to: string } | null>(null);
+  // 이동 대기로 막힌 쓰기가 있는가(R3-IN-04) — 이동이 커밋되면(searchParams 변화) 커서가 다시 움직이지 않아도 한 번 다시 쓴다.
+  const pendingWrite = useRef(false);
   useEffect(
     () =>
       subscribeRouterTransition((to) => {
         leaveRef.current = { from: window.location.href, to: to.href };
-        if (timer.current !== null) clearTimeout(timer.current);
+        if (timer.current !== null) {
+          clearTimeout(timer.current);
+          pendingWrite.current = true; // 지운 대기 쓰기 — 커밋 뒤 다시
+        }
         timer.current = null;
       }),
     [],
   );
-  useEffect(() => {
-    recRef.current = rec;
-    if (rec < 0 || (rec === firstRec.current && lastWrite.current === 0)) return;
-    const write = () => {
-      timer.current = null;
-      // 이동 대기 중 — replaceState(= RESTORE)가 그 이동을 버리게 하지 않는다(R2-WR-30). 지금 URL 이 이 뷰어의 열기 키이고
-      // 이동 뒤 URL 이 바뀌었으면(또는 이동 목적지가 그때 URL 그대로면) 이동이 끝난 것 — 다시 쓴다.
-      const lv = leaveRef.current;
-      if (lv !== null) {
-        const here = window.location.href;
-        if (!isSameTickOpenKey(here, urlRef.current) || (here === lv.from && lv.to !== lv.from)) return;
-        leaveRef.current = null;
-      }
-      lastWrite.current = Date.now();
-      const s = sessionRef.current;
-      const r = recRef.current;
-      if (r < 0 || r >= s.index.n) return;
-      if (liveRef.current && r === endRecOf(s, modeRef.current)) {
-        // 당일 끝 틱 = `t` 없음(머리 주석 ④) — 이미 없으면 쓰지 않는다(증분마다 replaceState 하지 않게).
-        if (new URL(window.location.href).searchParams.has('t')) {
-          window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current }));
-        }
+  // 쓰기 — 모두 ref 를 읽어 대기 타이머 · 커밋 재시도 어느 쪽에서 불러도 지금 상태를 쓴다(WR-61).
+  const write = useCallback(() => {
+    timer.current = null;
+    // 이동 대기 중 — replaceState(= RESTORE)가 그 이동을 버리게 하지 않는다(R2-WR-30). 지금 URL 이 이 뷰어의 열기 키이고
+    // 이동 뒤 URL 이 바뀌었으면(또는 이동 목적지가 그때 URL 그대로면) 이동이 끝난 것 — 다시 쓴다.
+    const lv = leaveRef.current;
+    if (lv !== null) {
+      const here = window.location.href;
+      if (!isSameTickOpenKey(here, urlRef.current) || (here === lv.from && lv.to !== lv.from)) {
+        pendingWrite.current = true;
         return;
       }
-      window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, ...tickUrlPosOf(s, r) }));
-    };
+      leaveRef.current = null;
+    }
+    pendingWrite.current = false;
+    lastWrite.current = Date.now();
+    const s = sessionRef.current;
+    const r = recRef.current;
+    if (r < 0 || r >= s.index.n) return;
+    if (liveRef.current && r === endRecOf(s, modeRef.current)) {
+      // 당일 끝 틱 = `t` 없음(머리 주석 ④) — 이미 없으면 쓰지 않는다(증분마다 replaceState 하지 않게).
+      if (new URL(window.location.href).searchParams.has('t')) {
+        window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current }));
+      }
+      return;
+    }
+    window.history.replaceState(null, '', tickUrlOf({ ...urlRef.current, ...tickUrlPosOf(s, r) }));
+  }, []);
+  const schedule = useCallback(() => {
     const wait = TICK_URL_THROTTLE_MS - (Date.now() - lastWrite.current);
     if (wait <= 0) write();
     else if (timer.current === null) timer.current = setTimeout(write, wait);
-  }, [rec, session, live]);
+  }, [write]);
+  useEffect(() => {
+    recRef.current = rec;
+    if (rec < 0 || (rec === firstRec.current && lastWrite.current === 0)) return;
+    schedule();
+  }, [rec, session, live, schedule]);
+  // 이동 커밋 — Next 는 커밋한 URL 을 useSearchParams 에 싣는다. 막힌 쓰기가 있으면 다시 예약한다(R3-IN-04 — 같은 키로 가는
+  // 이동 뒤 커서를 그대로 두면 URL `t` 가 옛 자리 · 없음에 머물러 새로고침 · 링크 복사가 다른 틱을 가리켰다). 우리 replaceState 도
+  // 여기로 오지만 그땐 막힌 쓰기가 없어 아무것도 안 한다. 앱 라우터 밖(시험)에선 null 이라 돌지 않는다.
+  const committedSearch = useSearchParams()?.toString() ?? null;
+  useEffect(() => {
+    if (pendingWrite.current) schedule();
+  }, [committedSearch, schedule]);
   useEffect(
     () => () => {
       if (timer.current !== null) clearTimeout(timer.current);

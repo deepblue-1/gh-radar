@@ -7,6 +7,13 @@ import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from
 
 import { noteRouterTransitionStart } from '@/lib/router-transition';
 
+// 이동 커밋 흉내(R3-IN-04) — 기본 null(앱 라우터 밖 · 실제 Next 와 같음). 시험이 값을 바꾸고 rerender 하면 커밋이 실린 것.
+const nav = vi.hoisted(() => ({ search: null as URLSearchParams | null }));
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useSearchParams: () => nav.search,
+}));
+
 import { buildTickSession } from '../tick-session';
 import { tickUrlOf } from '../tick-url';
 import {
@@ -46,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  nav.search = null;
   replaceSpy.mockRestore();
   vi.useRealTimers();
   document.body.innerHTML = '';
@@ -320,6 +328,41 @@ describe('useTickCursor — 점프 · URL', () => {
       tick();
       expect(replaceSpy).toHaveBeenCalled();
       expect(replaceSpy.mock.calls.at(-1)![2]).toBe(tickUrlOf({ ...URL_STATE, ...tickUrlPosOf(session, result.current.rec) }));
+    });
+
+    it('같은 열기 키로 가는 이동이 커밋되면 커서가 그대로여도 막혔던 쓰기를 한 번 다시 한다 — URL t 가 옛 자리에 머물지 않는다(R3-IN-04)', () => {
+      const { result, rerender } = mount();
+      key('ArrowRight');
+      const target = tickUrlOf(URL_STATE); // 지금 날짜 칩 다시 누름 — t 없는 같은 키
+      act(() => noteRouterTransitionStart(target, 'push'));
+      replaceSpy.mockClear();
+      key('ArrowRight'); // 이동 중 한 번 옮기고 그대로 둔다
+      tick();
+      expect(replaceSpy).not.toHaveBeenCalled(); // 대기 — 주소가 그대로
+      goTo(target); // 커밋
+      nav.search = new URL(target, window.location.href).searchParams;
+      rerender();
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      expect(replaceSpy.mock.calls[0]![2]).toBe(tickUrlOf({ ...URL_STATE, ...tickUrlPosOf(session, result.current.rec) }));
+      // 우리 쓰기가 searchParams 를 또 바꿔도(Next 동기화) 막힌 쓰기가 없으니 더 쓰지 않는다
+      nav.search = new URL(window.location.href).searchParams;
+      rerender();
+      tick();
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('다른 화면으로 가는 이동이 커밋돼도(searchParams 변화) 쓰지 않는다 — 막힌 쓰기는 그대로 막힌다(R3-IN-04)', () => {
+      const { rerender } = mount();
+      key('ArrowRight');
+      key('ArrowRight'); // 대기 타이머
+      act(() => noteRouterTransitionStart('/', 'push'));
+      replaceSpy.mockClear();
+      goTo('/?x=1');
+      nav.search = new URLSearchParams('x=1');
+      rerender();
+      tick();
+      expect(replaceSpy).not.toHaveBeenCalled();
     });
 
     it('같은 열기 키의 뒤로/앞으로 · 다른 키로 가던 이동을 덮고 이 키로 돌아옴 → 다시 쓴다', () => {
