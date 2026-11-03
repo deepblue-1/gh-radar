@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
-import { buildOwnModel, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
+import { buildMsgRows, ownLineRec, type MsgRowsModel } from '@/lib/ticks/msg-rows';
+import { buildOwnModel, type OwnModel, type OwnOrderView, type OwnSel } from '@/lib/ticks/own-model';
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
@@ -42,6 +43,10 @@ import { TickTeamPanel } from './tick-team-panel';
  *   우리 층만 없고 뷰어는 지금과 같다. 당일(`live`)이면 막 들어온 짝 없는 체결은 대기로 둔다(38-04 · Pitfall 4).
  *   주문 줄 · 짝 없음 줄 클릭 = `ownPick`(줄 + 기준 rec) + 커서 이동 · 선택 표시는 커서가 그 rec 일 때만(파생 — ←/→ 로
  *   커서가 바뀌면 풀린다 · URL 은 rec 기준 그대로).
+ * ⑤ 근거 · 되돌아가기(38-06 · D-07 · D-10): 전문 목록 항목(`buildMsgRows`)을 여기서 한 번 만들어 목록(`rows` prop)과 주문 줄
+ *   찾기(`ownLineRec`)가 같이 쓴다. 카드 「보기 ›」(근거 · 직전 체결 · 표 근거 칸)는 커서를 옮기고 그 주문을 기억해 side 칸 맨 위에
+ *   「‹ 주문 #… 로」 알약(`ownBack`)을 남긴다 — 한 단계 · 누르면 그 주문 줄(없으면 첫 짝 체결)로 가고 사라짐 · 다른 「보기 ›」 가
+ *   덮어씀 · 종목 · 날짜 · 거래소가 바뀌면 사라짐(파생).
  */
 
 export interface TickViewerProps {
@@ -85,6 +90,15 @@ interface PaneCtx {
   /** 고른 우리 줄(주문 줄 · 짝 없음 줄) — 커서가 그 줄의 기준 전문일 때만(파생). */
   ownSel: OwnSel | null;
   onOwnSelect: (sel: OwnSel, rec: number) => void;
+  /** 전문 목록 항목 모델 — 뷰어가 한 번 만들어 목록 · 되돌아가기가 같이 쓴다(38-06). */
+  rows: MsgRowsModel;
+  /** 그 주문 줄 선택(없으면 첫 짝 체결 · 짝 없음 줄). */
+  onOwnOrder: (orderId: number) => void;
+  /** 카드 「보기 ›」 로 떠날 때 되돌아갈 주문 기억(D-10). */
+  onOwnBack: (orderId: number) => void;
+  /** 되돌아가기 알약의 주문 · 없으면 null. */
+  ownBackOrder: OwnOrderView | null;
+  onOwnBackGo: () => void;
 }
 
 interface HtsPane {
@@ -111,7 +125,7 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'msg',
     label: '전문',
     desktop: 'min-[641px]:flex-[999_1_480px]',
-    render: ({ session, cursor, badge, own, ownSel, onOwnSelect }) => (
+    render: ({ session, cursor, badge, own, ownSel, onOwnSelect, rows }) => (
       <div className="relative">
         <TickMsgList
           session={session}
@@ -122,6 +136,7 @@ const HTS_PANES: readonly HtsPane[] = [
           own={own}
           ownSel={ownSel}
           onOwnSelect={onOwnSelect}
+          rows={rows}
           className="h-[640px] max-[640px]:h-[min(640px,calc(100dvh-240px))] max-[640px]:min-h-[360px]"
         />
         {badge}
@@ -133,11 +148,35 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({ session, cursor, accum, isToday, listingShares, own, ownSel }) => (
+    render: ({
+      session,
+      cursor,
+      accum,
+      isToday,
+      listingShares,
+      own,
+      ownSel,
+      onOwnOrder,
+      onOwnBack,
+      ownBackOrder,
+      onOwnBackGo,
+    }) => (
       <div
         data-slot="tick-side"
         className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
       >
+        {ownBackOrder !== null && (
+          // 되돌아가기 알약(D-10) — 카드 위 · 한 단계. 격자 한 칸을 차지하지 않게 전체 폭 줄에 왼쪽 정렬.
+          <button
+            type="button"
+            data-slot="tick-own-back"
+            data-order={ownBackOrder.id}
+            onClick={onOwnBackGo}
+            className="col-span-full inline-flex h-6 items-center justify-self-start rounded-full bg-[var(--mine-bg)] px-2.5 text-[11.5px] font-semibold whitespace-nowrap text-[var(--mine-fg)]"
+          >
+            {`‹ 주문 #${ownBackOrder.orderNo !== '' ? ownBackOrder.orderNo : '—'} 로`}
+          </button>
+        )}
         <TickOrderCard
           session={session}
           cursorRec={cursor.rec}
@@ -145,6 +184,8 @@ const HTS_PANES: readonly HtsPane[] = [
           own={own}
           ownSel={ownSel}
           onOwnJump={cursor.jumpToRec}
+          onOwnBack={onOwnBack}
+          onOwnOrder={onOwnOrder}
         />
         <TickAmountCard session={session} cursorRec={cursor.rec} listingShares={listingShares} />
         <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
@@ -184,6 +225,58 @@ export function TickViewer({
     },
     [jumpToRec],
   );
+
+  // 전문 목록 항목 — 한 번 만들어 목록과 주문 줄 찾기(카드 · 알약)가 같이 쓴다(38-06).
+  const rows = useMemo(() => buildMsgRows(session, cursor.mode, ownModel), [session, cursor.mode, ownModel]);
+
+  // 그 주문 줄 선택 — 주문 줄 → 없으면 첫 짝 체결 A3 → 없으면 첫 짝 없음 줄.
+  const onOwnOrder = useCallback(
+    (id: number) => {
+      const o = ownModel?.orders[id];
+      if (!ownModel || !o) return;
+      const pos = rows.ownPosOfOrder[id] ?? -1;
+      const at = pos >= 0 ? ownLineRec(rows, pos) : -1;
+      if (at >= 0) {
+        onOwnSelect({ kind: 'order', id }, at);
+        return;
+      }
+      for (const fid of o.fills) {
+        const f = ownModel.fills[fid]!;
+        if (f.rec >= 0) {
+          jumpToRec(f.rec);
+          return;
+        }
+      }
+      for (const fid of o.fills) {
+        const p = rows.ownPosOfFill[fid] ?? -1;
+        const r = p >= 0 ? ownLineRec(rows, p) : -1;
+        if (r >= 0) {
+          onOwnSelect({ kind: 'fill', id: fid }, r);
+          return;
+        }
+      }
+    },
+    [ownModel, rows, onOwnSelect, jumpToRec],
+  );
+
+  // 되돌아가기 알약(D-10) — 주문 묶기 키로 기억(증분으로 주문 id 가 밀려도 같은 주문) · 종목 · 날짜 · 거래소가 바뀌면 파생으로 사라진다.
+  const ownScope = `${urlState.isin ?? ''}|${urlState.d ?? ''}|${urlState.ex}`;
+  const [ownBack, setOwnBack] = useState<{ key: string; scope: string } | null>(null);
+  const ownBackOrder =
+    ownBack !== null && ownBack.scope === ownScope && ownModel !== null
+      ? (ownModel.orders.find((o) => o.key === ownBack.key) ?? null)
+      : null;
+  const onOwnBack = useCallback(
+    (id: number) => {
+      const o = ownModel?.orders[id];
+      if (o) setOwnBack({ key: o.key, scope: ownScope });
+    },
+    [ownModel, ownScope],
+  );
+  const onOwnBackGo = useCallback(() => {
+    if (ownBackOrder !== null) onOwnOrder(ownBackOrder.id);
+    setOwnBack(null);
+  }, [ownBackOrder, onOwnOrder]);
 
   const time = rec >= 0 ? fmtTickTime(session.index.recvNs[rec]!) : '';
   const seq = rec >= 0 && session.index.seq[rec]! >= 0 ? session.index.seq[rec]! : null;
@@ -229,6 +322,11 @@ export function TickViewer({
     own: ownModel,
     ownSel,
     onOwnSelect,
+    rows,
+    onOwnOrder,
+    onOwnBack,
+    ownBackOrder,
+    onOwnBackGo,
   };
 
   return (

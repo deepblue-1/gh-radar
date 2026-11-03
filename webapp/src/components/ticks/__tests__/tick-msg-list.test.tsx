@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
+import { buildMsgRows } from '@/lib/ticks/msg-rows';
 import { buildOwnModel, type OwnModel, type OwnSel } from '@/lib/ticks/own-model';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickOrderMode } from '@/lib/ticks/use-tick-cursor';
@@ -299,5 +300,34 @@ describe('TickMsgList — 우리 줄 · 둘째 레일(Phase 38-04)', () => {
     expect(container.querySelector('[data-slot="tick-own-rail"] *')).toBeNull();
     expect(orderLine(container)).toBeNull();
     expect(nofillLine(container)).toBeNull();
+  });
+
+  it('38-06 — 근거 B6 행 ○ 마디(data-node evidence) · 근거 행에 칩 없음', () => {
+    // 호가 근거: 창 [g − 3000, g + 50] 안 B6 rec 2(매수1 16,400 ×20)
+    const withEv = modelOf(
+      [],
+      [{ ...ev('E', at(3000)), ev_kind: 1, ev_price: 16400, ev_qty_after: 20 }],
+    );
+    expect(withEv.orders[0]!.evidenceRec).toBe(2);
+    const { container } = render(<Viewerish model={withEv} />);
+    const row = rowOf(container, 2)!;
+    expect(nodeOf(row)).toBe('evidence');
+    expect(row.textContent).not.toContain('주문 #');
+    expect(orderLine(container)!.textContent).toContain('· 근거 호가 ↑ ·');
+  });
+
+  it('38-06 — rows prop 을 주면 목록이 스스로 만들지 않고 그것을 쓴다', () => {
+    const plain = buildMsgRows(sess, 'exchange');
+    const { container } = render(
+      <TickMsgList session={sess} cursorRec={-1} onSelect={() => {}} mode="exchange" onMode={() => {}} own={own} rows={plain} />,
+    );
+    // own 이 있어도 넘긴 항목(우리 줄 없음)을 그린다
+    expect(orderLine(container)).toBeNull();
+    const shared = buildMsgRows(sess, 'exchange', own);
+    const r2 = render(
+      <TickMsgList session={sess} cursorRec={-1} onSelect={() => {}} mode="exchange" onMode={() => {}} own={own} rows={shared} />,
+    );
+    expect(orderLine(r2.container)).not.toBeNull();
+    expect(r2.container.querySelectorAll('[role="option"]').length).toBe(shared.items.length);
   });
 });

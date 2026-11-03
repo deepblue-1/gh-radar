@@ -67,6 +67,11 @@ export interface TickMsgListProps {
   ownSel?: OwnSel | null;
   /** 우리 줄 클릭 — 그 줄과 기준 전문 rec(그 줄 다음 첫 전문). 없으면 행 클릭처럼 `onSelect(rec)`. */
   onOwnSelect?: (sel: OwnSel, rec: number) => void;
+  /**
+   * 뷰어가 한 번 만든 항목 모델(38-06 — 목록 · 카드 되돌아가기가 같이 쓴다). `buildMsgRows(session, mode, own)` 과 같은 인자로
+   * 만든 것이어야 한다. 없으면 목록이 스스로 만든다.
+   */
+  rows?: MsgRowsModel;
   className?: string;
 }
 
@@ -546,9 +551,10 @@ export function TickMsgList({
   own = null,
   ownSel = null,
   onOwnSelect,
+  rows: rowsProp,
   className,
 }: TickMsgListProps) {
-  const model = useMemo(() => buildMsgRows(session, mode, own), [session, mode, own]);
+  const model = useMemo(() => rowsProp ?? buildMsgRows(session, mode, own), [rowsProp, session, mode, own]);
   const rail = useMemo(() => ownRailOf(model, own), [model, own]);
   const ownSelPos =
     ownSel === null

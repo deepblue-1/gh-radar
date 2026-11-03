@@ -12,7 +12,7 @@ import { recentOrdersOf, type TickSession, type ViewOrder } from '@/lib/ticks/ti
 import { cn } from '@/lib/utils';
 
 import { ShapeChip } from './tick-msg-list';
-import { TickOwnSection } from './tick-own-section';
+import { TickOwnEvidenceOrders, TickOwnSection, TickOwnTable } from './tick-own-section';
 
 /**
  * 틱 뷰어 「이 주문」 카드 (Phase 37 D-00 ① · 스케치 019 · 020 오른쪽 열).
@@ -23,8 +23,9 @@ import { TickOwnSection } from './tick-own-section';
  * ② 「최근 주문 10건」 — 거래소순으로 커서 이하에서 끝난 주문 최신 먼저(커서가 주문 가운데면 그 주문이 맨 위). 행 클릭 =
  *   그 주문 마지막 조각으로 커서 이동.
  * 판정은 세션(shared classifyKrxOrders · NXT 런)이 이미 했다 — 여기서는 보이기만 한다.
- * ③ 우리 주문(Phase 38 D-07): 커서가 우리 체결 A3 행이거나 우리 줄(주문 · 짝 없음)이 골라져 있으면 본문 아래
- *   「◆ 우리 주문 #…」 섹션(`TickOwnSection` · 주문이 둘이면 둘).
+ * ③ 우리 주문(Phase 38 D-07): 배치 = 본문 → 「◆ 우리 주문 #…」 섹션(커서가 우리 체결 A3 행이거나 우리 줄이 골라졌을 때 ·
+ *   주문이 둘이면 둘) 또는 근거 역참조 「이 전문을 보고 나간 주문 n건」(커서가 근거 전문 행일 때) → 「우리 주문」 표(own 이
+ *   있으면 늘) → 「최근 주문」 표(37 그대로). 폰은 「버스트 · 팀」 세그먼트 안 같은 카드(D-07 ④).
  */
 
 export interface TickOrderCardProps {
@@ -39,6 +40,8 @@ export interface TickOrderCardProps {
   onOwnJump?: (rec: number) => void;
   /** 「보기 ›」 로 떠날 때 되돌아갈 주문 id(D-10 알약). */
   onOwnBack?: (orderId: number) => void;
+  /** 그 주문 줄 선택(근거 역참조 항목 · 짝 체결 없는 표 행) — 뷰어가 주문 줄 자리를 안다. */
+  onOwnOrder?: (orderId: number) => void;
   className?: string;
 }
 
@@ -107,9 +110,12 @@ export function TickOrderCard({
   ownSel = null,
   onOwnJump,
   onOwnBack,
+  onOwnOrder,
   className,
 }: TickOrderCardProps) {
   const ownIds = own !== null ? ownOrdersAt(own, cursorRec, ownSel) : [];
+  // 근거 역참조 — 섹션이 없을 때(우리 체결 행 · 우리 줄이 아닐 때)만
+  const evidenceOf = own !== null && ownIds.length === 0 ? own.ordersOfEvidenceRec.get(cursorRec) : undefined;
   const ownJump = onOwnJump ?? onJump;
   const oid = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
   const order = oid >= 0 ? session.orders[oid]! : null;
@@ -190,10 +196,17 @@ export function TickOrderCard({
               session={session}
               own={own}
               orderId={id}
+              cursorRec={cursorRec}
               onJump={ownJump}
               onBack={onOwnBack}
             />
           ))}
+        {own !== null && evidenceOf !== undefined && evidenceOf.length > 0 && (
+          <TickOwnEvidenceOrders own={own} orderIds={evidenceOf} onOrder={onOwnOrder} />
+        )}
+        {own !== null && (
+          <TickOwnTable own={own} selected={ownIds} onJump={ownJump} onOrder={onOwnOrder} onBack={onOwnBack} />
+        )}
         <h3 className="m-0 mt-3 text-[11px] font-semibold text-[var(--muted-fg)]">최근 주문 {recent.length}건</h3>
         {recent.length === 0 ? (
           <p className="m-0 py-2 text-[11.5px] text-[var(--muted-fg)]">아직 체결 주문 없음</p>
