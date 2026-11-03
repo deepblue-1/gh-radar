@@ -15,6 +15,7 @@ bash scripts/tick-oracle/gen-fixtures.sh g4cut    # 빅텍 10/22 G4 조각 골�
 bash scripts/tick-oracle/gen-fixtures.sh pnl --bigtech   # (선택) 빅텍 10/22 하루 — GCS 원본 ≈ 3.4GB
 pnpm --filter @gh-radar/shared build && node scripts/tick-oracle/gen-own-fixtures.mjs   # 10/30 우리 체결 오라클(38-02 · 아래 own1030 행)
 node scripts/tick-oracle/gen-own-fixtures.mjs --check   # 같은 입력 = 같은 바이트 확인(다르면 exit 1)
+bash scripts/tick-oracle/gen-fixtures.sh launch   # 발사 대기열 · 체결 런 골든 조각 4개(quick 261103-pei · 아래 launch10* 행)
 ```
 
 `gen-own-fixtures.mjs` 는 gh-trade venv 가 필요 없다 — 빌드된 `packages/shared/dist` 와 저장소 밖 로컬 사본
@@ -59,6 +60,11 @@ g4cut 세 시간 = 212,358,419 + 94,934,883 + 85,724,009 = 393,017,311B(≈ 0.39
 | `own1030-krx-KR7092190008.ticks.zst` | 같은 사본 `KRX_KR7092190008.zst`(Storage `…/20261030/KRX/KR7092190008.nightly.ticks.zst`) | 같은 창 규칙 — 118,990 → 4,458 |
 | `own1030-nxt-KR7046890000.ticks.zst` | 같은 사본 `NXT_KR7046890000.zst`(Storage `…/20261030/NXT/KR7046890000.nightly.ticks.zst`) | 같은 창 규칙 — 587,383 → 7,108 |
 | `own1030.journal.json` | 같은 사본 `fills1030.json`(`dma_journal_events` 10/30 E 행) · `strat1030.json`(`dma_strategy_events` 10/30 kind 3·6) | 위 5키 체결 406(exec_qty > 0) · 이벤트 124 — (gw_time_ms, gateway, seq) 정렬 · seq = 사본 배열 색인 · 계좌 익명 `ACC1…`(체결 첫 등장 순 · 원본 계좌번호 · dma_user_id 없음). 생성기가 키마다 원본 격자와 창 격자의 `matchOwnFills` 결과가 같음을 확인한다(다르면 종료 1) |
+
+| `launch1022-krx-g4.ticks.zst` | GCS `raw/krx/20261022/20261022-{1600..2000}.pcap.zst` | 060900 KR7060900008 10/22 G4 A3 · B6(수신 15:59~) — 그날 G4 세션 전부(체결 4,405 = KB #1 filled_qty) |
+| `launch1030-krx-g4.ticks.zst` | `~/ticks/queue-spike/1030/krx-1600.pcap.zst` | 184230 KR7184230001 10/30 G4 A3 · B6(16:00~16:59) |
+| `launch1030-krx-0900.ticks.zst` | `~/ticks/queue-spike/1030/krx-0900.pcap.zst` | 10/30 KRX A 8종목 A3 · B6 수신 09:00:26~09:00:31.500 |
+| `launch1030-nxt-0900.ticks.zst` | `~/ticks/queue-spike/1030/nxt-0900.pcap.zst` | 10/30 NXT N 6종목 A3 · B6 수신 09:00:29.500~09:00:32 |
 
 - `*.ticks.zst` = 레코드 프레이밍 `pcapns-rec+zstd/1`(레코드 헤더 `<IIII>` 16B + UDP 페이로드 · 전역 헤더 없음 · zstd-19 한 프레임).
   pcap2parquet 레코드 루프와 같은 규칙 · 같은 프레임 수 상한으로 뽑았다.

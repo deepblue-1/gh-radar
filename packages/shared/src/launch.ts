@@ -21,6 +21,7 @@
  *   A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`,
  *   `launchFireBaseOf` 는 백필 기본값(quick-261030-d7b).
  * - `account` · `dma_user_id` 는 어드민 전용 예외(D-02) — 원문 표의 감사 칸 규칙(T-19-08)과 다르다.
+ * - quick-261103-pei — 주문 내역 RPC 가 `launch_piece_queue`(밤 틱 변환이 계산한 대기열 · 체결 순번)를 조각의 `queue` 로 싣는다.
  */
 import type { LimitupDate } from "./limitup-report";
 
@@ -109,6 +110,51 @@ export interface LaunchPieceRow {
   stock_code: string | null;
   /** 응답 전용 · 표 열 아님 — 주문 내역 RPC 의 stocks 조인(isin). 없으면 null. */
   stock_name: string | null;
+  /**
+   * 응답 전용 · 표 열 아님 — 주문 내역 RPC 의 `launch_piece_queue` 조인(quick-261103-pei). 값 없음(미계산 · 격자 없음 ·
+   * 거부 조각) = null · 키 없음 = 옛 RPC(db push 전). 화면은 둘 다 「—」.
+   */
+  queue?: LaunchPieceQueue | null;
+}
+
+/** 대기열 값 종류 — queue = 16:00 Q16 매수 대기열(보드 G4) · run = 09:00 N/A 공격 주문 체결 런(보드 G1). */
+export type LaunchQueueKind = "queue" | "run";
+/** 마감 때 우리 조각 — open = 대기열에 남음 · cancelled = 취소로 0 · filled = 체결로 0. */
+export type LaunchQueueEndState = "open" | "cancelled" | "filled";
+
+/**
+ * `launch_piece_queue` 값(quick-261103-pei · DB 칸 이름 = 키). 계산 정본 = `ticks/launch-queue.ts` `launchQueueOf`
+ * (밤 틱 변환 Job 만 부른다 — 웹 · 서버는 읽기만 · D-3). 수량 = 주 · 금액 = 원.
+ */
+export interface LaunchPieceQueue {
+  /** queue(16:00 대기열) · run(09:00 체결 런) */
+  kind: LaunchQueueKind;
+  /** false = 격자에서 우리 조각 · 런을 못 찾음 → 값 전부 null(「—」) */
+  matched: boolean;
+  /** queue = 그 가격 단 증가 이벤트 번호(1부터) · run = 기준시각 뒤 같은 방향 런 중 몇 번째(미체결 null) */
+  rank: number | null;
+  /** run 전용 — 우리 앞(미체결이면 기준시각 뒤 1초 창) 한도 안 체결이 있는 런 수 · queue 는 null */
+  ahead_n: number | null;
+  /** 접수 때 앞 수량(주) — queue = 직전 B6 그 가격 + 더 좋은 가격 단 잔량 · run = 앞 런들의 한도 안 체결 수량 */
+  ahead_qty: number | null;
+  /** 접수 때 앞 금액(원) — 단마다(체결마다) 수량 × 가격의 합 */
+  ahead_amt: number | null;
+  /** queue 전용 — 마감 때 우리 조각 상태(FIFO 재구성 추정) · run 은 null */
+  end_state: LaunchQueueEndState | null;
+  /** queue open 전용 — 마감 때 우리 앞에 남은 주문 수(추정) */
+  end_n: number | null;
+  /** queue open 전용 — 마감 때 우리 앞 남은 수량(주 · 추정) */
+  end_qty: number | null;
+  /** queue open 전용 — 마감 때 우리 앞 남은 금액(원 · end_qty × 가격) */
+  end_amt: number | null;
+  /** run 전용 — 우리 체결 수량 합(주 · 미체결 0) · queue 는 null */
+  fill_qty: number | null;
+  /** run 전용 — 우리 체결가 최저(원 · 미체결 null) */
+  fill_px_min: number | null;
+  /** run 전용 — 우리 체결가 최고(원 · 미체결 null) */
+  fill_px_max: number | null;
+  /** 게이트웨이 순서를 정하지 못해 LAUNCH_ORDER 로 가정했다(두 순서 모두 성립) — 화면은 첫 줄 끝 「(추정)」 */
+  order_est: boolean;
 }
 
 /** `launch_heads` 한 행(어드민 RPC 응답). 논리 키 (trade_date, gateway, profile, fire_exchange, market). */

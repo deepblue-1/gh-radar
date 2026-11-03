@@ -2,7 +2,7 @@
 # 틱 뷰어(Phase 37) 오라클 픽스처 생성기 — 맥 전용.
 #
 # 사용법:
-#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl|g4cut
+#   bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl|g4cut|launch
 #   bash scripts/tick-oracle/gen-fixtures.sh pnl --bigtech      (선택 — 빅텍 10/22 하루, GCS 원본 ≈ 3.4GB)
 #
 # 부명령:
@@ -17,6 +17,12 @@
 #           넘으면 커밋하지 않는다(그때 테스트는 skip). 원본은 ~/ticks/oracle/20261022/krx/ 에 미리 받아 둔다(아래 GCS 메모).
 #   g4cut   빅텍 KR7065450009 10/22 15~17시 G4 조각(bigtech-1022-g4.ticks.zst · bigtech-1022-g4.golden.json) — 37-03 Task 3(필수).
 #           원본 ~/ticks/oracle/20261022/krx/20261022-{1500,1600,1700}.pcap.zst (GCS 393,017,311B · 아래 메모). G4 체결 0 이면 종료 1
+#   launch  발사 대기열 · 체결 런 골든 조각 4개(quick 261103-pei) — 지정 ISIN A3 · B6 · 보드 · 수신 창(oracle.py launchcut)
+#           launch1022-krx-g4   10/22 코스닥 060900 G4 15:59~ — 원본 ~/ticks/oracle/20261022/krx/20261022-{1600..2000}(GCS 메모)
+#           launch1030-krx-g4   10/30 184230 G4 15:59~ — ~/ticks/queue-spike/1030/krx-1600.pcap.zst(16:00~16:59)
+#           launch1030-krx-0900 10/30 KRX 8종목 09:00:26~09:00:31.500 — ~/ticks/queue-spike/1030/krx-0900.pcap.zst
+#           launch1030-nxt-0900 10/30 NXT 6종목 09:00:29.500~09:00:32 — ~/ticks/queue-spike/1030/nxt-0900.pcap.zst
+#           하나라도 1.5MB 를 넘으면 종료 1
 #
 # GCS 원본 받기(deployer SA · 읽기만 · Archive 꺼내기 ≈ $0.05/GB + 송신):
 #   GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/gh-radar-deployer.json CLOUDSDK_CORE_PROJECT=gh-radar \
@@ -95,8 +101,33 @@ case "$cmd" in
     oracle g4cut --isin KR7065450009 --date 20261022 --pcap-dir "$HOME/ticks/oracle/20261022/krx" \
       --hours 1500,1600,1700 --out-prefix "$FX/bigtech-1022-g4"
     ;;
+  launch)
+    K22="$HOME/ticks/oracle/20261022/krx"
+    Q30="$HOME/ticks/queue-spike/1030"
+    oracle launchcut --pcap "$K22/20261022-1600.pcap.zst" --pcap "$K22/20261022-1700.pcap.zst" \
+      --pcap "$K22/20261022-1800.pcap.zst" --pcap "$K22/20261022-1900.pcap.zst" --pcap "$K22/20261022-2000.pcap.zst" \
+      --date 20261022 --isins KR7060900008 --board G4 --from 15:59:00 --out "$FX/launch1022-krx-g4.ticks.zst"
+    oracle launchcut --pcap "$Q30/krx-1600.pcap.zst" --date 20261030 --isins KR7184230001 --board G4 --from 15:59:00 \
+      --out "$FX/launch1030-krx-g4.ticks.zst"
+    oracle launchcut --pcap "$Q30/krx-0900.pcap.zst" --date 20261030 \
+      --isins KR7376900007,KR7033640004,KR7272210006,KR7010060002,KR7012450003,KR7249420001,KR7222800005,KR7445680002 \
+      --from 09:00:26 --to 09:00:31.500 --out "$FX/launch1030-krx-0900.ticks.zst"
+    oracle launchcut --pcap "$Q30/nxt-0900.pcap.zst" --date 20261030 \
+      --isins KR7425420007,KR7376900007,KR7095340006,KR7005930003,KR7012450003,KR7010140002 \
+      --from 09:00:29.500 --to 09:00:32 --out "$FX/launch1030-nxt-0900.ticks.zst"
+    over=0
+    for f in "$FX"/launch10*.ticks.zst; do
+      size=$(wc -c < "$f" | tr -d ' ')
+      echo "$(basename "$f") ${size}B"
+      if [ "$size" -gt "$MAX_BYTES" ]; then
+        echo "  ↑ 1.5MB 초과 — 수신 창을 줄인다" >&2
+        over=1
+      fi
+    done
+    exit "$over"
+    ;;
   *)
-    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl [--bigtech]|g4cut" >&2
+    echo "사용법: bash scripts/tick-oracle/gen-fixtures.sh decode|orders|runs|pnl [--bigtech]|g4cut|launch" >&2
     exit 2
     ;;
 esac
