@@ -16,7 +16,9 @@
  * 성능: A3 ≤ 수십만 · 체결 ≤ 수백 — A3 시각 배열과 시각 오름차순 순열을 호출마다 한 번 만들고, 체결마다 이분 탐색으로
  * [g − 1500, g + 200] 창만 본다(전 A3 순회 금지). 행 객체를 만들지 않는다(typed array).
  */
-import type { A3Columns, TickIndex } from "./record-index";
+import { bookAt } from "./book";
+import { TAG_CODE, type A3Columns, type TickIndex } from "./record-index";
+import { lowerBoundRecv } from "./tick-time";
 
 /** dt = gw − A3 시각 의 하한(ms) — 게이트웨이 시각이 A3 보다 이만큼 앞설 수 있다. */
 export const OWN_MATCH_DT_MIN_MS = -200;
@@ -122,4 +124,113 @@ export function matchOwnFills(index: TickIndex, a3: A3Columns, fills: readonly O
     out[i] = { a3j: bestJ, est, candidates, dtMs: g - times[bestJ]! };
   }
   return out;
+}
+
+/*
+ * ─── 조건 근거 · 앵커 (Phase 38 D-11 · D-13 · D-15 · SC-3) ───────────────────────────────────────────────────────
+ *
+ * 「이 주문은 이 전문을 보고 나갔다」 의 「이 전문」 을 정한다. 규칙(ROADMAP Phase 38 · RESEARCH Pattern 1 (b) —
+ * 이전 세션 own-trigger probe 원문):
+ *   - 호가 근거(ev_kind 1): 수신 ms(µs 절사 → ms 소수) ∈ [g − 3000, g + 50] 인 B6(ok)를 수신순으로 훑어, 그 호가의
+ *     매수 단 다음 매도 단 순으로 가격 == ev_price 인 첫 단의 잔량 == ev_qty_after 이면 그 B6 — 창 안 **마지막** 일치.
+ *   - 체결 근거(ev_kind 2) 단건: cumVolume == ev_qty_after ∧ 수량 == ev_trade_qty ∧ 가격 == ev_price 인 A3 가 정확히 하나.
+ *     그 밖 ev_qty_after > ev_qty_before 이면 cumVolume ∈ (before, after] 인 A3 첫 … 끝 구간(주기매도 — D-11).
+ *     before = after = 0(또는 구간에 A3 없음)이면 근거 없음(D-13 — 앵커만).
+ *   - ev_kind 0 · 3 · 그 밖 = 근거 없음(ev_kind 3 체결통보는 웹 모델이 우리 체결로 잇는다 — 38-06 · RESEARCH Open Q3).
+ *   - 앵커(cum_volume > 0): cumVolume == cum_volume 인 A3 중 **마지막** j = 「주문 직전 마지막 체결」.
+ *
+ * 정의를 바꾸지 마라 — 10/30 5종목 오라클(호가 근거 29/29 · 체결 단건 2 · 구간 9 · 없음 2 · 앵커 100/100)이 잠근다.
+ * 창 · 「마지막 일치」 · 구간 (before, after] 를 수치에 맞추려고 고치지 말고, 다르면 멈추고 보고한다.
+ */
+
+/** 호가 근거 창 하한 — 이벤트 시각 g 보다 이만큼 앞선 B6 까지(ms). */
+export const OWN_B6_BEFORE_MS = 3000;
+/** 호가 근거 창 상한 — 이벤트 시각 g 보다 이만큼 늦은 B6 까지(ms · 게이트웨이 시각이 수신보다 앞설 수 있다). */
+export const OWN_B6_AFTER_MS = 50;
+
+/** 근거 특정 입력 한 건 — 전략 이벤트(gw 시각 epoch ms · ev_kind · ev_price · ev_qty_before/after · ev_trade_qty). */
+export interface OwnEventIn {
+  gwMs: number;
+  evKind: number;
+  evPrice: number;
+  evQtyBefore: number;
+  evQtyAfter: number;
+  evTradeQty: number;
+}
+
+/**
+ * 근거 특정 결과.
+ * - `b6` = 호가 근거 B6 rec
+ * - `a3` = 체결 근거 단건 A3 열 색인 j
+ * - `range` = 주기매도 구간 — cumVolume ∈ (before, after] A3 의 최소 j · 최대 j · 개수 · 수량 합
+ * - `none` = 근거 없음(앵커만 · 있으면)
+ */
+export type OwnEvidence =
+  | { kind: "b6"; rec: number }
+  | { kind: "a3"; j: number }
+  | { kind: "range"; firstJ: number; lastJ: number; n: number; qty: number }
+  | { kind: "none" };
+
+const NONE: OwnEvidence = { kind: "none" };
+
+/**
+ * 누적거래량 → A3 열 색인 목록(j 오름차순). cumVolume > 0 인 A3 만. 근거 · 앵커 조회용 — 호출자가 세션당 한 번 만든다.
+ */
+export function cumIndexOf(a3: A3Columns): Map<number, number[]> {
+  const m = new Map<number, number[]>();
+  for (let j = 0; j < a3.n; j++) {
+    const c = a3.cumVolume[j]!;
+    if (!(c > 0)) continue;
+    const list = m.get(c);
+    if (list) list.push(j);
+    else m.set(c, [j]);
+  }
+  return m;
+}
+
+/** 레코드 수신 ms(소수) — probe 식 그대로 µs 절사 뒤 ms. */
+function recvMsOf(index: TickIndex, rec: number): number {
+  return Number(index.recvNs[rec]! / 1000n) / 1000;
+}
+
+/** 호가 근거(ev_kind 1) — 창 [g − 3000, g + 50] 안 B6(ok) 중 ev_price 단 잔량 == ev_qty_after 인 마지막 B6 rec · 없으면 −1. */
+function locateBookEvidence(buf: Uint8Array, index: TickIndex, recvOrder: Int32Array, ev: OwnEventIn): number {
+  const lo = ev.gwMs - OWN_B6_BEFORE_MS;
+  const hi = ev.gwMs + OWN_B6_AFTER_MS;
+  // 시작 자리 = 수신 ≥ lo 인 첫 자리(µs 내림이라 경계 한 칸 앞에서 시작할 수 있다 — 아래에서 ms 로 다시 잰다).
+  let p = lowerBoundRecv(index.recvNs, recvOrder, BigInt(Math.floor(lo * 1000)) * 1000n);
+  let found = -1;
+  for (; p < recvOrder.length; p++) {
+    const rec = recvOrder[p]!;
+    const r = recvMsOf(index, rec);
+    if (r > hi) break;
+    if (r < lo) continue;
+    if (index.tag[rec] !== TAG_CODE.B6 || index.ok[rec] !== 1) continue;
+    const book = bookAt(buf, index, rec);
+    if (!book) continue;
+    let lvl = book.bids.find((l) => l.px === ev.evPrice);
+    if (!lvl) lvl = book.asks.find((l) => l.px === ev.evPrice);
+    if (lvl && lvl.qty === ev.evQtyAfter) found = rec; // 덮어씀 → 창 안 마지막 일치
+  }
+  return found;
+}
+
+/**
+ * 조건 근거 특정(규칙은 위 머리 주석). `recvOrder` = `recvOrderOf(index)` · `cumIdx` = `cumIndexOf(a3)` — 둘 다 세션당 한 번.
+ */
+export function locateEvidence(
+  buf: Uint8Array,
+  index: TickIndex,
+  recvOrder: Int32Array,
+  a3: A3Columns,
+  cumIdx: Map<number, number[]>,
+  ev: OwnEventIn,
+): OwnEvidence {
+  if (ev.evKind === 1) {
+    const rec = locateBookEvidence(buf, index, recvOrder, ev);
+    return rec >= 0 ? { kind: "b6", rec } : NONE;
+  }
+  void a3;
+  void cumIdx;
+  return NONE;
 }
