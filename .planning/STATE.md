@@ -5,17 +5,17 @@ milestone_name: 운영 유지보수
 current_phase: 37
 current_phase_name: 틱 전문 뷰어
 status: executing
-stopped_at: Phase 37 context gathered
-last_updated: "2026-11-02T09:51:40.774Z"
+stopped_at: Phase 38 context gathered
+last_updated: "2026-11-03T04:15:35.293Z"
 last_activity: 2026-11-02
 last_activity_desc: Phase 37 execution started
-state_head: a43ca660900410acb330f4b52166b3a5aec8cc13
+state_head: 0d4c3123860ff0b3ee4a28d21a8e8085a9287de6
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 7
   total_plans: 101
-  completed_plans: 82
-  percent: 81
+  completed_plans: 101
+  percent: 78
 ---
 
 # Project State
@@ -36,7 +36,7 @@ Last activity: 2026-11-02 — Phase 37 execution started
 Previous: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [████████░░] 81% (82/82 plans)
+Progress: [████████░░] 78% (82/82 plans)
 
 ## Accumulated Context
 
@@ -128,10 +128,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/37-tick-viewer/37-CONTEXT.md
+**Resume file:** .planning/phases/38-own-orders-on-ticks/38-CONTEXT.md
 
-Last session: 2026-11-02T06:22:01.431Z
-Stopped at: Phase 37 context gathered
+Last session: 2026-11-03T04:15:35.114Z
+Stopped at: Phase 38 context gathered
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
