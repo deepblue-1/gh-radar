@@ -553,3 +553,150 @@ describe("POST /api/ticks/convert/cancel — 본인 pending 만 (D-03)", () => {
     expect(b.rec.rpcCalls).toHaveLength(0);
   });
 });
+
+/**
+ * Phase 38 — `/api/ticks/own` (D-01 · D-14). 가시성 · 어드민 · 켜진 서버는 RPC 안이 정본(pgTAP tick_own.test.sql)이라
+ * 여기서는 server 가 지키는 것만 잠근다: 인증 · 입력 400 · 게이트 403 · 오류/모양 500(원문 비노출) · RPC 정확히 1회 ·
+ * 인자 키 정확히 4개 · 클라이언트가 계좌 · 사용자 · 어드민 류 쿼리를 더해도 RPC 인자에 실리지 않음 · no-store.
+ */
+describe("GET /api/ticks/own (Phase 38 D-01 · D-14)", () => {
+  const OWN = (q: string) => `/api/ticks/own?${q}`;
+  const okOwnQ = `isin=${CHUNIL}&d=20261030&ex=KRX`;
+  const ownData = {
+    access: true,
+    date: "20261030",
+    exchange: "KRX",
+    isin: CHUNIL,
+    servers: ["KB120", "KYOBO119"],
+    fills: [
+      {
+        gateway: "KB120",
+        seq: 1,
+        gw_time_ms: 1793332800130,
+        account_no: "1234563801",
+        order_no: "0000380101",
+        side: "B",
+        exec_price: 16400,
+        exec_qty: 300,
+      },
+    ],
+    events: [
+      {
+        gateway: "KB120",
+        seq: 1,
+        gw_time_ms: 1793332800100,
+        kind: 3,
+        group: 1,
+        account_no: "1234563801",
+        order_no: "0000380101",
+        price: 16400,
+        qty: 300,
+        reason_code: "",
+        cond_metric: 0,
+        cond_threshold: 0,
+        cond_actual: 0,
+        ev_kind: 0,
+        ev_price: 0,
+        ev_qty_before: 0,
+        ev_qty_after: 0,
+        ev_trade_qty: 0,
+        cum_volume: 1064,
+      },
+    ],
+    orders: [
+      {
+        gateway: "KB120",
+        account_no: "1234563801",
+        order_no: "0000380101",
+        side: "B",
+        price: 16400,
+        qty: 300,
+        origin: "limit_chaser",
+        created_ms: 1793332800100,
+      },
+    ],
+  };
+
+  it("① Authorization 없음 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_own_for_user: ownData } });
+    const r = await request(app(client)).get(OWN(okOwnQ));
+    expect(r.status).toBe(401);
+    expect(r.body.error.code).toBe("UNAUTHENTICATED");
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("② isin 소문자 · d 하이픈 · ex KOSPI → 각각 400 VALIDATION_FAILED · RPC 0회", async () => {
+    const bads = [
+      OWN(`isin=kr7000650002&d=20261030&ex=KRX`),
+      OWN(`isin=${CHUNIL}&d=2026-10-30&ex=KRX`),
+      OWN(`isin=${CHUNIL}&d=20261030&ex=KOSPI`),
+    ];
+    for (const path of bads) {
+      const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_own_for_user: ownData } });
+      const r = await auth(request(app(client)).get(path));
+      expect(r.status, path).toBe(400);
+      expect(r.body.error.code, path).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls, path).toHaveLength(0);
+    }
+  });
+
+  it("③ RPC {access:false} → 403 DMA_UNMAPPED · RPC 1회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), rpc: { tick_own_for_user: { access: false } } });
+    const r = await auth(request(app(client)).get(OWN(okOwnQ)));
+    expect(r.status).toBe(403);
+    expect(r.body.error.code).toBe("DMA_UNMAPPED");
+    expect(rec.rpcCalls).toHaveLength(1);
+  });
+
+  it("④ RPC 오류 → 500 DB_ERROR · 원문(boom) 비노출", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), rpcError: { message: "boom" } });
+    const r = await auth(request(app(client)).get(OWN(okOwnQ)));
+    expect(r.status).toBe(500);
+    expect(r.body.error.code).toBe("DB_ERROR");
+    expect(JSON.stringify(r.body)).not.toContain("boom");
+    expect(rec.rpcCalls).toHaveLength(1);
+  });
+
+  it("⑤ 배열 모양 위반(fills null · orders 없음) → 500 DB_ERROR", async () => {
+    const { orders: _omit, ...noOrders } = ownData;
+    for (const data of [{ ...ownData, fills: null }, noOrders]) {
+      const { client } = makeSupabase({ user: nextUser(), rpc: { tick_own_for_user: data } });
+      const r = await auth(request(app(client)).get(OWN(okOwnQ)));
+      expect(r.status).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+    }
+  });
+
+  it("⑥ 성공 → 200 · 본문 = RPC data 그대로 · RPC 정확히 1회 · 인자 키 4개 · p_user_id = 인증 사용자", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, rpc: { tick_own_for_user: ownData } });
+    const r = await auth(request(app(client)).get(OWN(okOwnQ)));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(ownData);
+    expect(rec.rpcCalls.length).toBe(1);
+    expect(rec.rpcCalls[0].fn).toBe("tick_own_for_user");
+    expect(Object.keys(rec.rpcCalls[0].params).sort()).toEqual(["p_date", "p_ex", "p_isin", "p_user_id"]);
+    expect(rec.rpcCalls[0].params).toEqual({ p_user_id: user.id, p_date: "20261030", p_isin: CHUNIL, p_ex: "KRX" });
+  });
+
+  it("⑦ 쿼리에 p_all_accounts · user_id · account_no 를 더해도 200 · 인자 키 4개 그대로 · p_user_id = 인증 사용자", async () => {
+    const user = nextUser();
+    const other = nextUser();
+    const { client, rec } = makeSupabase({ user, rpc: { tick_own_for_user: ownData } });
+    const r = await auth(
+      request(app(client)).get(OWN(`${okOwnQ}&p_all_accounts=true&user_id=${other.id}&account_no=1`)),
+    );
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toHaveLength(1);
+    expect(Object.keys(rec.rpcCalls[0].params).sort()).toEqual(["p_date", "p_ex", "p_isin", "p_user_id"]);
+    expect(rec.rpcCalls[0].params.p_user_id).toBe(user.id);
+    expect(JSON.stringify(rec.rpcCalls[0].params)).not.toContain(other.id);
+  });
+
+  it("⑧ 응답 헤더 Cache-Control: no-store", async () => {
+    const { client } = makeSupabase({ user: nextUser(), rpc: { tick_own_for_user: ownData } });
+    const r = await auth(request(app(client)).get(OWN(okOwnQ)));
+    expect(r.status).toBe(200);
+    expect(r.headers["cache-control"]).toContain("no-store");
+  });
+});
