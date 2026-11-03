@@ -25,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(130);
+SELECT plan(133);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -390,6 +390,14 @@ SELECT is(public.tick_request_trigger_failed('20261015', 'KRX', 'boom'), 1, 'J2 
 SELECT is(pg_temp.tc('20261015', 'KRX', 'KR7370001001'), 0, 'J2 깨우기 실패(Job 0회) → 오늘 횟수 되돌림 → 0');
 SELECT is(pg_temp.req(pg_temp.u1(), '20261014', 'KR7370002009', 'KRX', 1)->>'should_trigger', 'true',
           'J2 깨우기 실패분은 상한에 남지 않는다 → cap 1 에서 새 키 트리거');
+-- R2-WR-02 — 깨우기 실패로 triggered_at 이 NULL 인 pending(가장 stale) 도 상한을 거친다(NULL 3값 논리로 단락되지 않는다)
+SELECT is(pg_temp.req(pg_temp.u1(), '20261015', 'KR7370001001', 'KRX', 1)->>'capped', 'true',
+          'J2 triggered_at NULL pending + 상한 소진(cap 1 · 오늘 1회) → capped true(R2-WR-02)');
+SELECT ok((SELECT r.status = 'pending' AND r.triggered_at IS NULL AND r.trigger_count = 0
+             FROM public.tick_convert_requests r WHERE r.date = '20261015' AND r.isin = 'KR7370001001'),
+          'J2 capped → 깨우지 않는다(pending · triggered_at NULL · trigger_count 0 그대로)');
+SELECT is(pg_temp.req(pg_temp.u1(), '20261015', 'KR7370001001', 'KRX', 2)->>'should_trigger', 'true',
+          'J2 상한이 남으면 triggered_at NULL pending 은 다시 깨운다 → should_trigger true');
 
 -- ── J3. 합쳐진 요청의 취소 = 내 몫 빼기(WR-02 · 20261104300100) ──────────
 DELETE FROM public.tick_convert_requests;
