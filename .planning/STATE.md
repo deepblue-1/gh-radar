@@ -5,16 +5,16 @@ milestone_name: 운영 유지보수
 current_phase: 38
 current_phase_name: 틱뷰어 우리 주문·체결 표시
 status: executing
-stopped_at: Completed 38-04-PLAN.md
-last_updated: "2026-11-03T06:36:32.189Z"
+stopped_at: Completed 38-05-PLAN.md
+last_updated: "2026-11-03T06:43:48.446Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 execution started
-state_head: e5180fdc6c9d98cad140f3f17b3b81dac4a53469
+state_head: 8403ead080f3256c072b37ccde2edc99eb070161
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 111
-  completed_plans: 105
+  completed_plans: 106
   percent: 78
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 ## Current Position
 
 Phase: 38 (틱뷰어 우리 주문·체결 표시) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-11-03 — Phase 38 execution started
 Phase 38 (틱뷰어 우리 주문·체결 표시): PLANNED 2026-11-03 — 10 플랜 / 8 웨이브 · 38-10 배포는 메인 세션 전용 · `/gsd-execute-phase 38` 대기
@@ -133,8 +133,8 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 **Resume file:** None
 
-Last session: 2026-11-03T06:36:32.060Z
-Stopped at: Completed 38-04-PLAN.md
+Last session: 2026-11-03T06:43:48.318Z
+Stopped at: Completed 38-05-PLAN.md
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
 ## Operator Next Steps
@@ -206,6 +206,7 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 | Phase 38 P02 | 6min | 2 tasks | 12 files |
 | Phase 38 P03 | 5min | 2 tasks | 2 files |
 | Phase 38 P04 | 13min | 2 tasks | 9 files |
+| Phase 38 P05 | 5min | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -348,3 +349,5 @@ Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-mile
 - [Phase 38]: 38-03: /api/ticks/own 은 RPC 인자 키 정확히 4개(p_user_id·p_date·p_isin·p_ex) — 쿼리에 p_all_accounts·user_id·account_no 를 더해도 무시됨을 supertest 로 잠금 · 서버에 어드민·가시성 판정 없음(정본 RPC)
 - [Phase 38]: 38-04: 우리 줄 자리 = 수신순 lowerBoundRecv 슬롯(두 순열 공통) ROW 앞 · 다조각 묶음 사이면 그 꼬리 뒤로 민다 · own 없으면 항목 바이트 동일
 - [Phase 38]: 38-04: 둘째 레일 = 주문별 [주문 줄 · 체결 자리] 구간 차분 배열 · 실선 우선 · 팀/일반 3px 레일은 시각 칸으로 · 우리 줄 선택은 (줄, rec) 기억 + 커서 일치 파생
+- [Phase 38]: 38-05: 호가 근거 시작 자리는 lowerBoundRecv 에 µs 내림 경계 + 루프 안 probe 식 수신 ms 로 [g − 3000, g + 50] 재검사 — 소수 gw 에도 BigInt 예외 없음 · 경계는 probe 와 같다
+- [Phase 38]: 38-05: 체결 근거 단건 후보 2개 이상(중복 수신 포함)이면 단건 아님 → 구간 (before, after] 규칙 — probe 「정확히 1개」 그대로 · 10/30 분포 a3 2 · range 9 · none 2
