@@ -96,6 +96,13 @@ function gateOf(err: unknown): DmaGateReason | null {
 }
 
 const etaMinOf = (s: number | undefined) => Math.max(1, Math.ceil((s ?? 0) / 60));
+/** 공급 배지 — 열린 경로가 정한다(IN-61 · 오늘이라도 격자로 열었으면 「과거 격자」) · 아직 안 열렸으면 날짜로. */
+function supplyOf(shown: string | null, view: OpenView | null, isToday: boolean): 'live' | 'grid' | null {
+  if (shown === null) return null;
+  if (view?.kind === 'live') return 'live';
+  if (view?.kind === 'loaded') return 'grid';
+  return isToday ? 'live' : 'grid';
+}
 const isActive = (r: TickConvertRequest | null) => r !== null && (r.status === 'pending' || r.status === 'running');
 const isNotUploaded = (r: TickConvertRequest | null) => r !== null && r.status === 'failed' && r.error === 'NOT_UPLOADED';
 /** 격자가 상한(50MB)을 넘어 변환하지 않은 종목 — 다시 시도해도 같으니 재시도 없는 카드(2026-11-02 · 10/30 실측). */
@@ -443,7 +450,7 @@ export function TickViewerPage() {
         stock={openResp?.stock ?? null}
         date={shown}
         ex={ex}
-        supply={shown === null ? null : isToday ? 'live' : 'grid'}
+        supply={supplyOf(shown, view, isToday)}
         tickLabel={showTick ? tickLabel : undefined}
         ownNav={showTick ? ownNav : null}
         live={

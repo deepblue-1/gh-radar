@@ -261,6 +261,33 @@ describe('TickViewerPage — 당일 결선 (D-22)', () => {
     await waitFor(() => expect(api.fetchTickDay).toHaveBeenLastCalledWith(undefined));
   });
 
+  it('오늘이라도 격자(요청 변환 · 승격본)로 열면 공급 배지 = 「과거 격자」(IN-61)', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    api.fetchTickOpen.mockResolvedValue({
+      ...open,
+      grid: {
+        url: 'https://storage.example/grid',
+        expiresIn: 600,
+        bytes: 10,
+        records: 1,
+        a3_count: 0,
+        mode: 'request',
+        sources: [],
+        fmt: 'pcapns-rec+zstd/1',
+        first_recv_ms: null,
+        last_recv_ms: null,
+        created_at: '2026-10-16T05:00:00Z',
+      },
+    } as TickOpenResponse);
+    render(<TickViewerPage />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="tick-body"]')?.getAttribute('data-state')).toBe('loading'),
+    );
+    expect(document.querySelector('[data-slot="tick-supply"]')?.getAttribute('data-supply')).toBe('grid');
+    expect(api.fetchTickToday).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it('today live=false → 「당일 자료 준비 중」 · /api/ticks/live 요청 0', async () => {
     api.fetchTickToday.mockResolvedValue(today(false));
     render(<TickViewerPage />);
