@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { LaunchHeadRow, LaunchOrdersResponse, LaunchPieceRow } from '@gh-radar/shared';
+import type { LaunchHeadRow, LaunchOrdersResponse, LaunchPieceQueue, LaunchPieceRow } from '@gh-radar/shared';
 
 import { LaunchHeadCard, LaunchOrdersView, type LaunchOrdersViewProps } from '../launch-orders-tab';
 
@@ -255,5 +255,78 @@ describe('LaunchHeadCard — 뒤탐침 표기(35 IN-02)', () => {
     rerender(<LaunchHeadCard gateway="KB120" market="Q" model={{ ...model, probes: 0 }} />);
     expect(container.querySelector('[data-slot="launch-card-probes"]')).toBeNull();
     expect(container).toHaveTextContent('10조각 · Q16');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261103-pei — 대기열 열(목업 027 변형 A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const QV = (over: Partial<LaunchPieceQueue>): LaunchPieceQueue => ({
+  kind: 'queue',
+  matched: true,
+  rank: null,
+  ahead_n: null,
+  ahead_qty: null,
+  ahead_amt: null,
+  end_state: null,
+  end_n: null,
+  end_qty: null,
+  end_amt: null,
+  fill_qty: null,
+  fill_px_min: null,
+  fill_px_max: null,
+  order_est: false,
+  ...over,
+});
+
+describe('LaunchOrdersView — 대기열 열(quick-261103-pei)', () => {
+  const Q16_ROWS: LaunchPieceRow[] = [
+    piece({
+      gateway: 'KB120', market: 'Q', wire: 0, sent_rel_us: -332, result: '접수', qty: 16666,
+      queue: QV({ rank: 9, ahead_qty: 68808, ahead_amt: 177_180_600, end_state: 'open', end_n: 4, end_qty: 30560, end_amt: 78_692_000 }),
+    }),
+    piece({
+      gateway: 'KB120', market: 'Q', wire: 1, sent_rel_us: -330, result: '접수', qty: 7766,
+      queue: QV({ rank: 20, ahead_qty: 177272, ahead_amt: 456_475_400, end_state: 'cancelled' }),
+    }),
+    piece({ gateway: 'KB120', market: 'Q', wire: 2, sent_rel_us: -329, result: '101', queue: null }),
+    piece({ gateway: 'KB120', market: 'Q', wire: 3, sent_rel_us: -328, result: '접수' }), // 옛 RPC — queue 키 없음
+  ];
+
+  it('16:00 — 머리글 「대기열 (접수 때 · 마감 때)」 이 주문번호 뒤 마지막 · 두 줄 · 추정 줄 var(--vi) · 값 없으면 「—」', () => {
+    const { container } = view({ resp: { ...RESP, heads: [], pieces: Q16_ROWS } });
+    const table = groupOf(container, 'KB120', 'Q');
+    const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads.slice(-2)).toEqual(['주문번호', '대기열 (접수 때 · 마감 때)']);
+    const cells = Array.from(table.querySelectorAll<HTMLElement>('[data-slot="launch-queue-cell"]'));
+    expect(cells).toHaveLength(4);
+    expect(cells[0]).toHaveTextContent('9번째 · 앞 68,808주 · 1.77억마감 앞 4건 · 30,560주 · 7,869만 (추정)');
+    const sub0 = cells[0]!.querySelector<HTMLElement>('[data-slot="launch-queue-sub"]')!;
+    expect(sub0.className).toContain('text-[var(--vi)]');
+    expect(cells[1]).toHaveTextContent('20번째 · 앞 177,272주 · 4.56억마감 — 취소됨');
+    expect(cells[1]!.querySelector<HTMLElement>('[data-slot="launch-queue-sub"]')!.className).toContain('--muted-fg');
+    expect(cells[2]).toHaveTextContent(/^—$/);
+    expect(cells[3]).toHaveTextContent(/^—$/);
+  });
+
+  it('09:00:30 — 머리글 「체결 순번」 · 체결 / 미체결(빨강) 두 줄', () => {
+    const rows: LaunchPieceRow[] = [
+      piece({
+        gateway: 'KB120', market: 'Q', ...N, wire: 1, sent_rel_us: -20143, result: '접수', qty: 20,
+        queue: QV({ kind: 'run', rank: 2, ahead_n: 1, ahead_qty: 2, ahead_amt: 318_000, fill_qty: 18, fill_px_min: 159_300, fill_px_max: 160_100 }),
+      }),
+      piece({
+        gateway: 'KB120', market: 'Q', ...N, wire: 2, sent_rel_us: -20140, result: '접수', qty: 22,
+        queue: QV({ kind: 'run', rank: null, ahead_n: 1, ahead_qty: 4861, ahead_amt: 1_081_572_500, fill_qty: 0 }),
+      }),
+    ];
+    const { container } = view({ resp: { ...RESP, heads: [], pieces: rows }, fire: 'n0930' });
+    const table = groupOf(container, 'KB120', 'Q');
+    expect(within(table).getAllByRole('columnheader').at(-1)).toHaveTextContent('체결 순번');
+    const cells = Array.from(table.querySelectorAll<HTMLElement>('[data-slot="launch-queue-cell"]'));
+    expect(cells[0]).toHaveTextContent('2번째 체결 · 앞 2주 · 32만체결 18/20 @ 159,300~160,100');
+    expect(cells[1]).toHaveTextContent('미체결 · 앞선 1건이 한도 안 4,861주 · 10.82억 가져감적어도 2번째 이후');
+    expect(cells[1]!.querySelector('b')!.className).toContain('--launch-bad');
   });
 });

@@ -6,6 +6,8 @@
  * ① 숫자 표기 — 음수 부호는 U+2212(MINUS) · 천 단위 ko-KR · 양수는 「+」. null 은 전부 「—」.
  * ② 경계 폴백 · 패널 순서는 shared `launchDaysOf` · `LAUNCH_ORDER` 한 벌(경계 지도와 같은 규칙 — 두 번째 구현 금지).
  * ③ 카드 모델은 **머리 우선 · 조각 폴백**이다. 결과 수는 언제나 탭 조각에서 센다(표와 같은 수).
+ * ④ 대기열 열(quick-261103-pei) = 목업 `.planning/sketches/027-launch-queue-position/index.html` 변형 A(`q16A` · `nA` 문구) —
+ *    값은 DB 저장값(조각 `queue` · 밤 틱 변환이 계산)만 쓴다. 여기서 다시 계산하지 않는다(D-1 · D-3).
  */
 
 import {
@@ -300,4 +302,84 @@ export function launchTabOf(raw: string | null | undefined): LaunchTab | null {
 /** `?fire=` 원문 → 'q16' | 'n0930' (그 밖 null). */
 export function launchFireParamOf(raw: string | null | undefined): LaunchFire | null {
   return raw === 'q16' || raw === 'n0930' ? raw : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 대기열 열 — 목업 027 변형 A (quick-261103-pei · D-1 · D-2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 금액(원) — 1억 이상 「x.xx억」 · 미만 「n만」(만 단위 반올림 · 천 단위 쉼표). null 「—」. */
+export function fmtEokMan(won: number | null | undefined): string {
+  if (won === null || won === undefined || !Number.isFinite(won)) return DASH;
+  if (won >= 1e8) return `${(won / 1e8).toFixed(2)}억`;
+  return `${NUM.format(Math.round(won / 1e4))}만`;
+}
+
+/**
+ * 대기열 칸 — 첫 줄 = `lead`(굵게 · leadTone bad 면 빨강) + `rest` · 둘째 줄 = `sub`(작게 · est 주황 · dim 회색 · 없으면 null).
+ * null = 「—」(값 없음 — 키 없는 옛 RPC · 미계산 · 격자 없음 · 거부 조각 · matched false).
+ */
+export interface LaunchQueueCell {
+  lead: string;
+  leadTone: 'bad' | null;
+  rest: string;
+  sub: string | null;
+  subTone: 'est' | 'dim';
+}
+
+const qn = (v: number | null | undefined): string => (v === null || v === undefined ? DASH : NUM.format(v));
+
+/**
+ * 조각 → 대기열 칸(목업 027 A). kind 로 갈린다(fire 무관):
+ * - queue: `9번째` + ` · 앞 68,808주 · 1.77억` / 주황 `마감 앞 4건 · 30,560주 · 7,869만 (추정)` · 취소 `마감 — 취소됨` · 체결로 0 이면 둘째 줄 없음
+ * - run 체결: `2번째 체결` + ` · 앞 2주 · 32만`(앞 금액 0 이면 금액 생략) / `체결 18/20 @ 159,300~160,100`(같은 가격이면 하나)
+ * - run 미체결: 빨강 `미체결` + ` · 앞선 1건이 한도 안 4,861주 · 10.82억 가져감` / `적어도 2번째 이후` ·
+ *   한도 안 런 0건이면 ` · 1초 안 한도 안 체결 없음`(둘째 줄 없음)
+ * 금액은 저장된 ahead_amt · end_amt 를 그대로 쓴다(더 좋은 가격 단 금액 포함 — 주 × 가격으로 다시 곱하지 않는다).
+ * order_est(게이트웨이 순서 추정)면 첫 줄 끝에 「 (추정)」.
+ */
+export function launchQueueCellOf(p: Pick<LaunchPieceRow, 'qty' | 'queue'>): LaunchQueueCell | null {
+  const q = p.queue;
+  if (q === undefined || q === null || !q.matched) return null;
+  const est = q.order_est ? ' (추정)' : '';
+  if (q.kind === 'queue') {
+    if (q.rank === null) return null;
+    const rest = ` · 앞 ${qn(q.ahead_qty)}주 · ${fmtEokMan(q.ahead_amt)}${est}`;
+    if (q.end_state === 'open') {
+      return {
+        lead: `${q.rank}번째`,
+        leadTone: null,
+        rest,
+        sub: `마감 앞 ${qn(q.end_n)}건 · ${qn(q.end_qty)}주 · ${fmtEokMan(q.end_amt)} (추정)`,
+        subTone: 'est',
+      };
+    }
+    if (q.end_state === 'cancelled') return { lead: `${q.rank}번째`, leadTone: null, rest, sub: '마감 — 취소됨', subTone: 'dim' };
+    return { lead: `${q.rank}번째`, leadTone: null, rest, sub: null, subTone: 'dim' };
+  }
+  if (q.rank !== null) {
+    const amt = q.ahead_amt ? ` · ${fmtEokMan(q.ahead_amt)}` : '';
+    const px =
+      q.fill_px_min === null || q.fill_px_max === null
+        ? DASH
+        : q.fill_px_min === q.fill_px_max
+          ? qn(q.fill_px_min)
+          : `${qn(q.fill_px_min)}~${qn(q.fill_px_max)}`;
+    return {
+      lead: `${q.rank}번째 체결`,
+      leadTone: null,
+      rest: ` · 앞 ${qn(q.ahead_qty)}주${amt}${est}`,
+      sub: `체결 ${qn(q.fill_qty)}/${qn(p.qty)} @ ${px}`,
+      subTone: 'dim',
+    };
+  }
+  const n = q.ahead_n ?? 0;
+  if (n === 0) return { lead: '미체결', leadTone: 'bad', rest: ' · 1초 안 한도 안 체결 없음', sub: null, subTone: 'dim' };
+  return {
+    lead: '미체결',
+    leadTone: 'bad',
+    rest: ` · 앞선 ${n}건이 한도 안 ${qn(q.ahead_qty)}주 · ${fmtEokMan(q.ahead_amt)} 가져감`,
+    sub: `적어도 ${n + 1}번째 이후`,
+    subTone: 'dim',
+  };
 }

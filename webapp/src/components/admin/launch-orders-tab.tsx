@@ -21,6 +21,7 @@ import {
   fmtAcceptTime,
   fmtUs,
   launchHeadCardOf,
+  launchQueueCellOf,
   orderTabPiecesOf,
   pieceKeyLabelOf,
   resultToneOf,
@@ -409,6 +410,7 @@ function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire
           <th className={TH}>계좌</th>
           <th className={TH}>사용자</th>
           <th className={TH}>주문번호</th>
+          <th className={TH}>{q16 ? '대기열 (접수 때 · 마감 때)' : '체결 순번'}</th>
         </tr>
       </thead>
       <tbody>
@@ -452,11 +454,43 @@ function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire
               <td className={cn(TD, DIM, 'tabular-nums')}>{text(p.account)}</td>
               <td className={cn(TD, DIM)}>{text(p.dma_user_id)}</td>
               <td className={cn(TD, DIM, 'tabular-nums')}>{text(p.order_no)}</td>
+              <QueueCell piece={p} />
             </tr>
           );
         })}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * 대기열 칸(quick-261103-pei · 목업 027 변형 A) — 값은 DB 저장값만(launchQueueCellOf). 추정 줄 색은 목업 `--est` 와 같은 값을
+ * 쓰는 `--vi`(#d97706 · 다크 #ffb020)를 빌린다 — globals.css 는 건드리지 않는다(design_decisions 11).
+ */
+const QUEUE_EST = 'text-[var(--vi)]';
+
+function QueueCell({ piece }: { piece: LaunchPieceRow }) {
+  const c = launchQueueCellOf(piece);
+  if (c === null) {
+    return (
+      <td data-slot="launch-queue-cell" className={cn(TD, DIM)}>
+        {DASH}
+      </td>
+    );
+  }
+  return (
+    <td data-slot="launch-queue-cell" className={cn(TD, 'tabular-nums')}>
+      <b className={cn('font-semibold', c.leadTone === 'bad' ? 'text-[var(--launch-bad)]' : 'text-[var(--fg)]')}>{c.lead}</b>
+      {c.rest}
+      {c.sub !== null && (
+        <span
+          data-slot="launch-queue-sub"
+          className={cn('mt-px block text-[10.5px]', c.subTone === 'est' ? QUEUE_EST : 'text-[var(--muted-fg)]')}
+        >
+          {c.sub}
+        </span>
+      )}
+    </td>
   );
 }
 
