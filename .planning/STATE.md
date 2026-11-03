@@ -6,10 +6,10 @@ current_phase: 37
 current_phase_name: 틱 전문 뷰어
 status: executing
 stopped_at: Phase 38 complete (Phase 37 still executing in its own session)
-last_updated: "2026-11-03T09:50:30.936Z"
+last_updated: "2026-11-03T20:12:49.096Z"
 last_activity: 2026-11-03
 last_activity_desc: Phase 38 complete — deployed · UAT ok · verification passed
-state_head: 6d5963c0727d6ea1dab5425cb72a4b18b9123e7c
+state_head: 7c51f4dfe41f19cc87b0f73c153301ff8ad1d60e
 progress:
   total_phases: 9
   completed_phases: 7
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-10-21 after Phase 34)
 Phase: 37 (틱 전문 뷰어) — EXECUTING
 Plan: 1 of 19
 Status: Executing Phase 37
-Last activity: 2026-11-03 — Phase 38 완료(별도 worktree 실행) — 37-17 당일 UAT 는 아직 uat-pending
+Last activity: 2026-11-04 - Completed quick task 261104-6lh: Phase 38 리뷰 후속(tickgw as-of · journal_epoch) — 37-17 당일 UAT 는 아직 uat-pending
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 Warning 5 open
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
@@ -130,6 +130,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261103-j4d | 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익(격자 변환 때 계산 · 스케치 023 B) | 2026-11-03 | 5d1ebc87 | [261103-j4d-tick-list-team-day-net-pnl](./quick/261103-j4d-tick-list-team-day-net-pnl/) |
 | 261103-fast | 틱뷰어 Shift+] [ — 다음/이전 팀 주문 첫 A3 조각(맨 [ ] 는 38 우리 체결) · gsd-fast | 2026-11-03 | 3549aff3 | — |
 | 261103-n1s | 상따 매도 ☐위험도 [N]% — relay buy3_schema 8 · 비트 52·53 · UserSettings sell_risk_pct · 웹 매도주문 위험도 행 · 위험도(합) · /me 위험도 기준 (gh-trade 인박스 261103-sell-risk · WinForms 동형) | 2026-11-03 | 10701459 | [261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103](./quick/261103-n1s-sell-risk-buy3-schema-8-gh-trade-261103/) |
+| 261104-6lh | Phase 38 리뷰 후속: tickgw as-of 헤더로 당일 대기 판정 · RPC fills journal_epoch 키 | 2026-11-04 | 7c51f4df | [261104-6lh-phase-38-tickgw-as-of-rpc-fills-journal-](./quick/261104-6lh-phase-38-tickgw-as-of-rpc-fills-journal-/) |
 
 ## Session Continuity
 
