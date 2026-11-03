@@ -38,7 +38,7 @@ vi.mock('@/hooks/use-debounced-search', () => ({
 import { TickViewerPage } from '@/components/ticks/tick-viewer-page';
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, TICK_FIXTURE_RECORDS, tickGridZst } from '@/test-fixtures/tick-grid';
 
-import { __resetTickGridCache, useTickGrid } from '../use-tick-grid';
+import { TICK_GRID_STALL_MS, __resetTickGridCache, useTickGrid } from '../use-tick-grid';
 
 const ZST = tickGridZst();
 const urlOf = (v: number) => `https://storage.test/tick-grid/grid/${D}/KRX/${ISIN}.nightly.ticks.zst?token=t${v}`;
@@ -119,7 +119,7 @@ describe('useTickGrid', () => {
     expect(result.current.session?.index.n).toBe(TICK_FIXTURE_RECORDS);
     expect(result.current.progress).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(urlOf(1));
+    expect(fetchMock).toHaveBeenCalledWith(urlOf(1), { signal: expect.any(AbortSignal) });
     expect(api.fetchTickOpen).not.toHaveBeenCalled();
   });
 
@@ -157,6 +157,66 @@ describe('useTickGrid', () => {
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(api.fetchTickOpen).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('본문이 30초 멈추면 abort → error(「다시 시도」 로 벗어난다) · 다시 시도 → ready(IN-62)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      // 첫 조각만 주고 멈춘 스토리지 응답
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                c.enqueue(ZST.slice(0, 64));
+              },
+            }),
+            { status: 200 },
+          ),
+      );
+      const { result } = renderHook(() => useTickGrid(openResp(1)));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TICK_GRID_STALL_MS - 1_000);
+      });
+      expect(result.current.status).toBe('loading');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(result.current.status).toBe('error');
+      expect(result.current.session).toBeNull();
+      fetchMock.mockImplementation(async () => zstResponse());
+      act(() => result.current.retry());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await vi.waitFor(() => expect(result.current.status).toBe('ready'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('보던 훅이 떠나면(다른 종목) 받던 격자를 abort — 캐시에 넣지 않는다(IN-62)', async () => {
+    let signal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce(async (_u: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(ZST.slice(0, 64));
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const a = renderHook((o: TickOpenResponse | null) => useTickGrid(o), { initialProps: openResp(1) as TickOpenResponse | null });
+    await waitFor(() => expect(signal).toBeDefined());
+    a.rerender(null);
+    await waitFor(() => expect(signal!.aborted).toBe(true));
+    // 다시 열면 캐시 적중이 아니라 새로 받는다
+    fetchMock.mockImplementation(async () => zstResponse());
+    const b = renderHook(() => useTickGrid(openResp(1)));
+    await waitFor(() => expect(b.result.current.status).toBe('ready'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('같은 키 동시 두 훅 → 격자 fetch 1회 · 둘 다 같은 세션', async () => {

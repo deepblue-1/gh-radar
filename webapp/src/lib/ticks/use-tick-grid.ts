@@ -13,6 +13,9 @@
  *   자동 재시도로 두드리지 않고 사람이 「다시 시도」(retry) 를 누른다.
  * ⑤ 모듈 캐시(페이지 수명): 키 `${d}|${ex}|${isin}` → 세션. 해제한 세션은 수 MB~수십 MB 라 최근 `MAX_TICK_SESSIONS`(2)개만
  *   남긴다. 같은 키를 동시에 여는 훅들은 진행 중 요청 하나를 나눠 쓴다(받기 1회).
+ * ⑥ 시간 상한 · 취소(IN-62): 응답 머리 · 본문 바이트가 `TICK_GRID_STALL_MS`(30초) 동안 하나도 오지 않으면 abort →
+ *   「격자 시간 초과」 error(카드 「다시 시도」). 그 키를 보는 훅이 모두 떠나면(다른 종목 · 날짜) 받던 것을 abort 한다 —
+ *   끝까지 받아 캐시를 밀어내지 않게. 떠남은 0ms 뒤에 확정한다(StrictMode 재마운트 · retry 가 같은 받기를 이어 쓴다).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -28,10 +31,15 @@ export type TickGridStatus = 'idle' | 'loading' | 'ready' | 'error';
 /** 세션을 남기는 최근 키 수 — 보는 종목 + 직전에 본 종목. */
 export const MAX_TICK_SESSIONS = 2;
 
+/** 받기가 이만큼(ms) 아무 바이트 없이 멈추면 abort(IN-62 — 당일 경로 `TICK_LIVE_TIMEOUT_MS` 와 같은 30초). */
+export const TICK_GRID_STALL_MS = 30_000;
+
 interface Inflight {
   promise: Promise<TickSession>;
   progress: number | null;
   listeners: Set<(p: number | null) => void>;
+  /** 받기 중단(보는 훅이 모두 떠남). */
+  abort: () => void;
 }
 
 const sessions = new Map<string, TickSession>();
@@ -66,8 +74,8 @@ export class TickGridLoadError extends Error {
   }
 }
 
-/** 응답 본문을 스트리밍으로 받아 zstd 해제 — 받은 압축 바이트를 `onBytes` 로 알린다. */
-async function inflate(res: Response, onBytes: (received: number) => void): Promise<Uint8Array> {
+/** 응답 본문을 스트리밍으로 받아 zstd 해제 — 받은 압축 바이트를 `onBytes` 로 알린다 · abort 면 읽기를 끊고 throw. */
+async function inflate(res: Response, onBytes: (received: number) => void, signal: AbortSignal): Promise<Uint8Array> {
   const out: Uint8Array[] = [];
   const dz = new Decompress((chunk) => {
     out.push(chunk);
@@ -79,27 +87,39 @@ async function inflate(res: Response, onBytes: (received: number) => void): Prom
     return concatBytes(out);
   }
   const reader = res.body.getReader();
+  const onAbort = () => void reader.cancel().catch(() => {});
+  signal.addEventListener('abort', onAbort);
   let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value === undefined || value.length === 0) continue;
-    received += value.length;
-    dz.push(value);
-    onBytes(received);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      // 끊긴 본문으로 세션을 만들지 않는다 — cancel 은 done 으로 끝난다.
+      if (signal.aborted) throw new TickGridLoadError('격자 받기 중단');
+      if (done) break;
+      if (value === undefined || value.length === 0) continue;
+      received += value.length;
+      dz.push(value);
+      onBytes(received);
+    }
+  } finally {
+    signal.removeEventListener('abort', onAbort);
   }
   dz.push(new Uint8Array(0), true);
   return concatBytes(out);
 }
 
-async function load(open: TickOpenResponse, onProgress: (p: number | null) => void): Promise<TickSession> {
+async function load(
+  open: TickOpenResponse,
+  onProgress: (p: number | null) => void,
+  signal: AbortSignal,
+): Promise<TickSession> {
   let grid = open.grid;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (grid === null) throw new TickGridLoadError('격자 없음');
     const total = grid.bytes;
-    const res = await fetch(grid.url);
+    const res = await fetch(grid.url, { signal });
     if (res.ok) {
-      const bytes = await inflate(res, (n) => onProgress(total > 0 ? Math.min(1, n / total) : null));
+      const bytes = await inflate(res, (n) => onProgress(total > 0 ? Math.min(1, n / total) : null), signal);
       return buildTickSession(bytes, { date: open.date, ex: open.exchange, isin: open.isin });
     }
     // 4xx = 서명 만료 · 거부 — open 을 한 번만 다시 불러 새 URL 로.
@@ -117,19 +137,43 @@ function loadSession(key: string, open: TickOpenResponse): Inflight {
   let entry = inflight.get(key);
   if (entry !== undefined) return entry;
   const listeners = new Set<(p: number | null) => void>();
-  const e: Inflight = { promise: Promise.resolve(null as never), progress: null, listeners };
-  e.promise = load(open, (p) => {
-    e.progress = p;
-    for (const l of listeners) l(p);
-  }).then(
+  const ctl = new AbortController();
+  let stalled = false;
+  let stall: ReturnType<typeof setTimeout> | null = null;
+  const disarm = () => {
+    if (stall !== null) clearTimeout(stall);
+    stall = null;
+  };
+  /** 바이트가 올 때마다 다시 잰다 — 멈춘 지 `TICK_GRID_STALL_MS` 면 abort(IN-62). */
+  const arm = () => {
+    disarm();
+    stall = setTimeout(() => {
+      stalled = true;
+      ctl.abort();
+    }, TICK_GRID_STALL_MS);
+  };
+  const e: Inflight = { promise: Promise.resolve(null as never), progress: null, listeners, abort: () => ctl.abort() };
+  arm();
+  e.promise = load(
+    open,
+    (p) => {
+      arm();
+      e.progress = p;
+      for (const l of listeners) l(p);
+    },
+    ctl.signal,
+  ).then(
     (s) => {
+      disarm();
+      if (inflight.get(key) === e) inflight.delete(key);
+      if (ctl.signal.aborted) throw new TickGridLoadError('격자 받기 중단');
       remember(s);
-      inflight.delete(key);
       return s;
     },
     (err: unknown) => {
-      inflight.delete(key);
-      throw err;
+      disarm();
+      if (inflight.get(key) === e) inflight.delete(key);
+      throw stalled ? new TickGridLoadError('격자 시간 초과') : err;
     },
   );
   inflight.set(key, e);
@@ -187,6 +231,15 @@ export function useTickGrid(open: TickOpenResponse | null): {
     return () => {
       alive = false;
       entry.listeners.delete(onP);
+      // 보는 훅이 모두 떠났으면 받던 것을 끊는다(IN-62) — 0ms 뒤 확정(StrictMode 재마운트 · retry 는 같은 받기를 이어 쓴다).
+      if (entry.listeners.size === 0) {
+        setTimeout(() => {
+          if (entry.listeners.size === 0 && inflight.get(key) === entry) {
+            inflight.delete(key);
+            entry.abort();
+          }
+        }, 0);
+      }
     };
   }, [key, attempt]);
 
