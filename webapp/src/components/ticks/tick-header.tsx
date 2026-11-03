@@ -19,8 +19,8 @@ import { cn } from '@/lib/utils';
  * 당일(37-19 · D-06): 상태 delayed · blocked 면 공급 배지 옆 「당일 자료 지연 · n초 전 마지막 수신」(X-Tick-Last-Recv-Ns 기준) ·
  * 연속 오류가 쌓이면(`failing`) 머리 아래 줄 「당일 자료를 받지 못하고 있어요」. 공급 배지 옆 「↻ 최신 받기」 = 증분 1회(자동 갱신
  * 없음 · 2026-11-03 사용자 요청) — 받는 중이면 아이콘이 돌고 눌리지 않는다 · 실패면 빨간 글자 · title = 마지막으로 받은 시각.
- * 우리 체결(38-08 · D-09): KRX|NXT 뒤 · 현재 틱 자리 앞에 「◆ 우리 체결 k/n · 주문 m ‹ ›」 알약(목업 `.mine-pill`) — ‹ › 는 앞뒤
- * 우리 체결로(끝이면 비활성 · 키 `[` `]` 와 같다). 뷰어가 상태를 주지 않으면(우리 체결 · 주문 없음) 알약 없음.
+ * 우리 주문 · 체결(38-08 · D-09): KRX|NXT 뒤 · 현재 틱 자리 앞에 「◆ 우리 k/n · 주문 m ‹ ›」 알약(목업 `.mine-pill`) — ‹ › 는
+ * 앞뒤 우리 근거 · 주문 줄 · 체결로(끝이면 비활성 · 키 `[` `]` 와 같다). 뷰어가 상태를 주지 않으면(우리 체결 · 주문 없음) 알약 없음.
  */
 
 /** 당일 경로 상태(머리 표시용). */
@@ -65,7 +65,7 @@ export interface TickHeaderProps {
   live?: TickHeaderLive | null;
   /** 열린 뒤 종목명 왼쪽 ‹ — 같은 날짜 · 거래소 목록으로(딥링크로 들어와도 동작하게 history.back 이 아니다). */
   onBack?: () => void;
-  /** 우리 체결 탐색(38-08 · D-09) — 「◆ 우리 체결 k/n · 주문 m ‹ ›」 알약 · 없으면 알약 없음. */
+  /** 우리 주문 · 체결 탐색(38-08 · D-09) — 「◆ 우리 k/n · 주문 m ‹ ›」 알약 · 없으면 알약 없음. */
   ownNav?: OwnNavState | null;
 }
 
@@ -196,11 +196,11 @@ export function TickHeader({
           data-slot="tick-own-nav"
           className="inline-flex items-center gap-[5px] rounded-full bg-[var(--mine-bg)] px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap text-[var(--mine-fg)]"
         >
-          <span className="tabular-nums">{`◆ 우리 체결 ${ownNav.k}/${ownNav.n} · 주문 ${ownNav.orders}`}</span>
+          <span className="tabular-nums">{`◆ 우리 ${ownNav.k}/${ownNav.n} · 주문 ${ownNav.orders}`}</span>
           <button
             type="button"
-            aria-label="이전 우리 체결"
-            title="이전 우리 체결 ["
+            aria-label="이전 우리 근거 · 주문 · 체결"
+            title="이전 우리 근거 · 주문 · 체결 ["
             disabled={ownNav.prev === null}
             onClick={ownNav.prev ?? undefined}
             className="-my-1 px-1 py-1 text-[11px] font-bold disabled:opacity-35"
@@ -209,8 +209,8 @@ export function TickHeader({
           </button>
           <button
             type="button"
-            aria-label="다음 우리 체결"
-            title="다음 우리 체결 ]"
+            aria-label="다음 우리 근거 · 주문 · 체결"
+            title="다음 우리 근거 · 주문 · 체결 ]"
             disabled={ownNav.next === null}
             onClick={ownNav.next ?? undefined}
             className="-my-1 px-1 py-1 text-[11px] font-bold disabled:opacity-35"

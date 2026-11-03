@@ -1,13 +1,15 @@
 'use client';
 
 /**
- * useOwnNav — 제목 줄 「◆ 우리 체결 k/n · 주문 m ‹ ›」 알약 · 키 `[` `]` (Phase 38 D-09).
+ * useOwnNav — 제목 줄 「◆ 우리 k/n · 주문 m ‹ ›」 알약 · 키 `[` `]` (Phase 38 D-09).
  *
- * ① 탐색 대상 = 우리 체결 A3 행 ∪ 짝 없음 · 대기 줄 — 전문 목록 항목 자리(`MsgRowsModel` · 현재 정렬 순열) 오름차순.
- *   같은 A3 에 붙은 체결 여럿은 한 자리(그 행 하나). `ownNavOf` 가 만든다.
+ * ① 탐색 대상 = 조건 근거 행(○ · 구간이면 첫 · 끝) ∪ 「● 주문」 줄 ∪ 우리 체결 A3 행 ∪ 짝 없음 · 대기 줄 — 전문 목록 항목
+ *   자리(`MsgRowsModel` · 현재 정렬 순열) 오름차순(UAT 2026-11-03 — 체결만이 아니라 주문 · 근거도 밟는다).
+ *   같은 자리에 겹친 대상(한 A3 의 체결 여럿 · 근거이자 체결인 행)은 한 자리. `ownNavOf` 가 만든다.
  * ② 현재 자리 = 고른 우리 줄(짝 없음 줄 · 주문 줄)이 있으면 그 줄 자리 · 아니면 커서 rec 의 행 자리.
  *   k = 현재 자리 이하 대상 수 · ‹ = 현재 자리보다 앞 마지막 대상 · › = 뒤 첫 대상(없으면 null — 버튼 비활성).
- * ③ 이동 — 대상이 A3 행이면 커서를 그 rec 로 · 짝 없음 줄이면 그 줄 선택(`pickLine`) + 기준 전문(`ownLineRec`).
+ * ③ 이동 — 대상이 전문 행(체결 A3 · 근거)이면 커서를 그 rec 로 · 주문 줄 · 짝 없음 줄이면 그 줄 선택(`pickLine`) + 기준 전문
+ *   (`ownLineRec`).
  * ④ 키 `[` 이전 · `]` 다음 — 입력칸 포커스 · Ctrl/Meta/Alt · 이미 처리된 이벤트는 가로채지 않는다(`useTickCursor` 가드와 같은 순서).
  *   기존 `←` `→` · `Space` · 차트 `+ − 0` 과 겹치지 않는다.
  * ⑤ 반환 객체는 k · n · 주문 수 · 앞뒤 있음 여부가 바뀔 때만 새로 만든다 — prev/next 는 최신 값을 ref 로 보는 고정 함수라
@@ -24,7 +26,7 @@ import { isTypingTarget } from './use-tick-cursor';
 export interface OwnNavState {
   /** 현재 자리 이하 대상 수(처음 대상 앞이면 0). */
   k: number;
-  /** 탐색 대상 수. */
+  /** 탐색 대상 수(근거 · 주문 줄 · 체결 · 짝 없음 줄). */
   n: number;
   /** 그날 우리 주문 수. */
   orders: number;
@@ -37,9 +39,19 @@ const EMPTY = new Int32Array(0);
 /** 탐색 대상 항목 자리 — 오름차순 · 중복 없음(머리 주석 ①). */
 export function ownNavOf(rows: MsgRowsModel, own: OwnModel): Int32Array {
   const out: number[] = [];
+  const atRec = (rec: number) => {
+    const p = rec >= 0 ? (rows.posOfRec[rec] ?? -1) : -1;
+    if (p >= 0) out.push(p);
+  };
   for (const f of own.fills) {
     const p = f.rec >= 0 ? (rows.posOfRec[f.rec] ?? -1) : (rows.ownPosOfFill[f.id] ?? -1);
     if (p >= 0) out.push(p);
+  }
+  for (const o of own.orders) {
+    const p = rows.ownPosOfOrder[o.id] ?? -1;
+    if (p >= 0) out.push(p);
+    atRec(o.evidenceRec);
+    if (o.evidenceFirstRec !== o.evidenceRec) atRec(o.evidenceFirstRec);
   }
   const sorted = Int32Array.from(out).sort();
   let m = 0;
@@ -95,9 +107,9 @@ export function useOwnNav({ rows, own, cursorRec, ownSel, jumpToRec, pickLine }:
       const kind = itemKindOf(it);
       if (kind === MSG_ITEM.ROW) {
         jumpToRec(itemIdxOf(it));
-      } else if (kind === MSG_ITEM.NOFILL) {
+      } else if (kind === MSG_ITEM.NOFILL || kind === MSG_ITEM.ORDER) {
         const at = ownLineRec(rows, pos);
-        if (at >= 0) pickLine({ kind: 'fill', id: itemIdxOf(it) }, at);
+        if (at >= 0) pickLine({ kind: kind === MSG_ITEM.ORDER ? 'order' : 'fill', id: itemIdxOf(it) }, at);
       }
     },
     [rows, jumpToRec, pickLine],

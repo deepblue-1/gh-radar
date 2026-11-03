@@ -18,7 +18,8 @@ import { TickBook, type TickBookUnit } from './tick-book';
 import { TickAmountCard } from './tick-amount-card';
 import { TickChart } from './tick-chart';
 import { TickMsgList } from './tick-msg-list';
-import { TickOrderCard } from './tick-order-card';
+import { TickOrderCard, ownOrdersAt } from './tick-order-card';
+import { TickOwnTab } from './tick-own-section';
 import { TickSlider } from './tick-slider';
 import { TickTeamPanel } from './tick-team-panel';
 
@@ -119,6 +120,115 @@ interface HtsPane {
   render: (c: PaneCtx) => ReactNode;
 }
 
+type SideTab = 'this' | 'own';
+
+/**
+ * 오른쪽 열(「버스트 · 팀」) — 되돌아가기 알약 · 이 주문 · 거래대금 · 팀 거래정보(37-14).
+ * 우리 층(own)이 있으면 맨 위에 「이 주문 · 팀 | 우리 주문 n」 탭(스케치 026 A · 2026-11-03 UAT): 둘째 탭 = 그날 「우리 주문」 표가
+ * 열 전체를 쓴다(거르기 칩). 행 클릭 · 근거 · 키 `[` `]` 로 커서가 움직여도 탭은 그대로(목록 자리 유지). 「◆ 우리 주문 #…」 섹션은
+ * 첫 탭 이 주문 카드 안. 탭 막대는 데스크톱 열 스크롤 안에서 위에 붙는다(열이 스크롤 컨테이너 · 폰은 페이지 스크롤이라 붙지 않음).
+ * own 이 없으면 탭 없이 37 그대로.
+ */
+function TickSidePane({
+  session,
+  cursor,
+  accum,
+  isToday,
+  listingShares,
+  own,
+  ownSel,
+  onOwnOrder,
+  onOwnBack,
+  ownBackOrder,
+  onOwnBackGo,
+}: PaneCtx) {
+  const [tab, setTab] = useState<SideTab>('this');
+  const shown: SideTab = own === null ? 'this' : tab;
+  const tabBtn = (key: SideTab, label: ReactNode) => (
+    <button
+      type="button"
+      role="tab"
+      data-slot="tick-side-tab"
+      data-tab={key}
+      aria-selected={shown === key}
+      onClick={() => setTab(key)}
+      className={cn(
+        '-mb-px inline-flex h-8 items-center border-b-2 px-2.5 text-[12px] whitespace-nowrap transition-colors',
+        shown === key
+          ? key === 'own'
+            ? 'border-[var(--mine)] font-bold text-[var(--mine-fg)]'
+            : 'border-[var(--fg)] font-bold text-[var(--fg)]'
+          : 'border-transparent text-[var(--muted-fg)] hover:text-[var(--fg)]',
+      )}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      data-slot="tick-side"
+      className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
+    >
+      {ownBackOrder !== null && (
+        // 되돌아가기 알약(D-10) — 탭 위 · 한 단계. 격자 한 칸을 차지하지 않게 전체 폭 줄에 왼쪽 정렬.
+        <button
+          type="button"
+          data-slot="tick-own-back"
+          data-order={ownBackOrder.id}
+          onClick={onOwnBackGo}
+          className="col-span-full inline-flex h-6 items-center justify-self-start rounded-full bg-[var(--mine-bg)] px-2.5 text-[11.5px] font-semibold whitespace-nowrap text-[var(--mine-fg)]"
+        >
+          {`‹ 주문 #${ownBackOrder.orderNo !== '' ? ownBackOrder.orderNo : '—'} 로`}
+        </button>
+      )}
+      {own !== null && (
+        <div
+          role="tablist"
+          aria-label="오른쪽 열"
+          data-slot="tick-side-tabs"
+          className="sticky top-0 z-[2] col-span-full flex gap-0.5 border-b border-[var(--border-subtle)] bg-[var(--bg)]"
+        >
+          {tabBtn('this', '이 주문 · 팀')}
+          {tabBtn(
+            'own',
+            <>
+              우리 주문
+              <span className="ml-1 rounded-full bg-[var(--mine-bg)] px-1.5 text-[10.5px] font-bold text-[var(--mine-fg)] tabular-nums">
+                {fmtQty(own.orders.length)}
+              </span>
+            </>,
+          )}
+        </div>
+      )}
+      {shown === 'own' && own !== null ? (
+        <TickOwnTab
+          className="col-span-full"
+          own={own}
+          selected={ownOrdersAt(own, cursor.rec, ownSel)}
+          onJump={cursor.jumpToRec}
+          onOrder={onOwnOrder}
+          onBack={onOwnBack}
+        />
+      ) : (
+        <>
+          <TickOrderCard
+            session={session}
+            cursorRec={cursor.rec}
+            onJump={cursor.jumpToRec}
+            own={own}
+            ownSel={ownSel}
+            onOwnJump={cursor.jumpToRec}
+            onOwnBack={onOwnBack}
+            onOwnOrder={onOwnOrder}
+          />
+          <TickAmountCard session={session} cursorRec={cursor.rec} listingShares={listingShares} />
+          <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
+        </>
+      )}
+    </div>
+  );
+}
+
 /** HTS 칸 — 37-13(전문 · 버스트) · 37-14(팀)가 원소를 더한다. */
 const HTS_PANES: readonly HtsPane[] = [
   {
@@ -157,49 +267,7 @@ const HTS_PANES: readonly HtsPane[] = [
     id: 'side',
     label: '버스트 · 팀',
     desktop: 'min-[641px]:flex-[1_1_330px] min-[641px]:max-h-[640px] min-[641px]:overflow-auto',
-    render: ({
-      session,
-      cursor,
-      accum,
-      isToday,
-      listingShares,
-      own,
-      ownSel,
-      onOwnOrder,
-      onOwnBack,
-      ownBackOrder,
-      onOwnBackGo,
-    }) => (
-      <div
-        data-slot="tick-side"
-        className="grid content-start gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] max-[640px]:grid-cols-1"
-      >
-        {ownBackOrder !== null && (
-          // 되돌아가기 알약(D-10) — 카드 위 · 한 단계. 격자 한 칸을 차지하지 않게 전체 폭 줄에 왼쪽 정렬.
-          <button
-            type="button"
-            data-slot="tick-own-back"
-            data-order={ownBackOrder.id}
-            onClick={onOwnBackGo}
-            className="col-span-full inline-flex h-6 items-center justify-self-start rounded-full bg-[var(--mine-bg)] px-2.5 text-[11.5px] font-semibold whitespace-nowrap text-[var(--mine-fg)]"
-          >
-            {`‹ 주문 #${ownBackOrder.orderNo !== '' ? ownBackOrder.orderNo : '—'} 로`}
-          </button>
-        )}
-        <TickOrderCard
-          session={session}
-          cursorRec={cursor.rec}
-          onJump={cursor.jumpToRec}
-          own={own}
-          ownSel={ownSel}
-          onOwnJump={cursor.jumpToRec}
-          onOwnBack={onOwnBack}
-          onOwnOrder={onOwnOrder}
-        />
-        <TickAmountCard session={session} cursorRec={cursor.rec} listingShares={listingShares} />
-        <TickTeamPanel session={session} cursorRec={cursor.rec} accum={accum} isToday={isToday} />
-      </div>
-    ),
+    render: (c) => <TickSidePane {...c} />,
   },
 ];
 
@@ -217,7 +285,8 @@ export function TickViewer({
 }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, urlState, live: live !== undefined });
   const { rec, atEnd } = cursor;
-  const [unit, setUnit] = useState<TickBookUnit>('qty');
+  // 호가 잔량 단위 — 기본 금액(2026-11-03 사용자 요청) · 「주 | 금액」 토글은 그대로
+  const [unit, setUnit] = useState<TickBookUnit>('amount');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
   const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;

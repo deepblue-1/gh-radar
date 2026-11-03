@@ -20,7 +20,7 @@ import { recentOrdersOf, type TickSession, type ViewOrder } from '@/lib/ticks/ti
 import { cn } from '@/lib/utils';
 
 import { ShapeChip } from './tick-msg-list';
-import { TickOwnEvidenceOrders, TickOwnSection, TickOwnTable } from './tick-own-section';
+import { TickOwnEvidenceOrders, TickOwnSection } from './tick-own-section';
 
 /**
  * 틱 뷰어 「이 주문」 카드 (Phase 37 D-00 ① · 스케치 019 · 020 오른쪽 열).
@@ -34,8 +34,8 @@ import { TickOwnEvidenceOrders, TickOwnSection, TickOwnTable } from './tick-own-
  *   매도합/매수합 · 매도1/매수1 잔량 비) 두 줄(스케치 024 C · 2026-11-03 — 팀 주문 주기 · 호가 비율 확인용).
  * 판정은 세션(shared classifyKrxOrders · NXT 런)이 이미 했다 — 여기서는 보이기만 한다.
  * ③ 우리 주문(Phase 38 D-07): 배치 = 본문 → 「◆ 우리 주문 #…」 섹션(커서가 우리 체결 A3 행이거나 우리 줄이 골라졌을 때 ·
- *   주문이 둘이면 둘) 또는 근거 역참조 「이 전문을 보고 나간 주문 n건」(커서가 근거 전문 행일 때) → 「우리 주문」 표(own 이
- *   있으면 늘) → 「최근 주문」 표(37 그대로). 폰은 「버스트 · 팀」 세그먼트 안 같은 카드(D-07 ④).
+ *   주문이 둘이면 둘) 또는 근거 역참조 「이 전문을 보고 나간 주문 n건」(커서가 근거 전문 행일 때) → 「최근 주문」 표(37 그대로).
+ *   그날 전체 「우리 주문」 표는 오른쪽 열 「우리 주문 n」 탭으로 옮겼다(스케치 026 A · 2026-11-03 UAT · `TickOwnTab`).
  */
 
 export interface TickOrderCardProps {
@@ -235,9 +235,6 @@ export function TickOrderCard({
           ))}
         {own !== null && evidenceOf !== undefined && evidenceOf.length > 0 && (
           <TickOwnEvidenceOrders own={own} orderIds={evidenceOf} onOrder={onOwnOrder} />
-        )}
-        {own !== null && (
-          <TickOwnTable own={own} selected={ownIds} onJump={ownJump} onOrder={onOwnOrder} onBack={onOwnBack} />
         )}
         <h3 className="m-0 mt-3 text-[11px] font-semibold text-[var(--muted-fg)]">최근 주문 {recent.length}건</h3>
         {recent.length === 0 ? (

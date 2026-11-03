@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>틱뷰어 오른쪽 열 「우리 주문」 탭 A/B/C</title>
+<style>
+  :root { --bg:#fff; --fg:#191f28; --fg-2:#333d4b; --muted:#f2f4f6; --muted-fg:#6b7684; --faint:#b0b8c1; --border-subtle:#e5e8eb; --card:#fff; --up:#f04452; --down:#3182f6; --team:#a234c7; --team-bg:#f6ebfa; --page:#f2f4f6; --mine:#0f9d8a; --mine-bg:#e3f7f3; --mine-fg:#0b7d6e; }
+  :root[data-theme="dark"] { --bg:#0a0a0a; --fg:#fff; --fg-2:#e4e4e4; --muted:#2d2d2d; --muted-fg:#9e9e9e; --faint:#636363; --border-subtle:#3d3d3d; --card:#151515; --up:#f04251; --down:#3485fa; --team:#c353e5; --team-bg:#2e1a36; --page:#0a0a0a; --mine:#2fd3bb; --mine-bg:rgba(47,211,187,.16); --mine-fg:#2fd3bb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--fg); font:14px/1.45 Pretendard,-apple-system,"Apple SD Gothic Neo",sans-serif; }
+  .bar { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; }
+  .seg { display:inline-flex; background:var(--muted); border-radius:999px; padding:3px; }
+  .seg button { border:0; background:transparent; color:var(--muted-fg); padding:4px 12px; border-radius:999px; font:inherit; font-size:12.5px; cursor:pointer; transition:all .15s ease; }
+  .seg button:hover { color:var(--fg); }
+  .seg button.on { background:var(--card); color:var(--fg); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .wrap { max-width:1200px; margin:0 auto; padding:16px; display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(350px,1fr)); align-items:start; }
+  body.phone .wrap { grid-template-columns:370px; justify-content:center; }
+  .vt { font-weight:700; font-size:15px; margin:0 0 2px; } .vd { color:var(--muted-fg); font-size:12.5px; margin:0 0 10px; min-height:72px; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+  .up { color:var(--up); } .down { color:var(--down); } .mf { color:var(--muted-fg); } .mc { color:var(--mine-fg); }
+
+  /* 오른쪽 열 — 실제와 같이 최대 640 · 넘치면 열 스크롤 */
+  .side { background:var(--page); border:1px dashed var(--faint); border-radius:14px; padding:8px; max-height:640px; overflow:auto; display:grid; gap:10px; align-content:start; }
+  body.phone .side { max-height:none; border-style:solid; }
+  .phonehead { display:none; }
+  body.phone .phonehead { display:flex; gap:4px; background:var(--muted); border-radius:999px; padding:3px; margin-bottom:8px; }
+  .phonehead span { flex:1; text-align:center; font-size:12px; padding:4px 0; border-radius:999px; color:var(--muted-fg); }
+  .phonehead span.on { background:var(--card); color:var(--fg); font-weight:600; }
+  .card { background:var(--card); border-radius:14px; padding:10px 12px; }
+  .card h2 { margin:0 0 6px; font-size:12.5px; font-weight:700; }
+  .card h2 small { font-weight:500; color:var(--muted-fg); font-size:11px; margin-left:4px; }
+  dl.kv { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin:0; font-size:11.5px; } dl.kv dt { color:var(--muted-fg); font-size:11px; } dl.kv dd { margin:0; }
+  .own { margin-top:10px; border-top:1px solid var(--border-subtle); padding-top:8px; }
+  .own h3 { margin:0 0 4px; font-size:11.5px; color:var(--mine-fg); }
+  .jump { border:0; background:transparent; color:var(--mine-fg); font:inherit; font-size:11px; font-weight:700; cursor:pointer; padding:0 2px; }
+  .jump:hover { text-decoration:underline; }
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  th { font-size:10px; font-weight:600; color:var(--muted-fg); padding:2px 4px; }
+  td { padding:0 4px; height:24px; border-top:1px solid var(--border-subtle); white-space:nowrap; }
+  tr.r { cursor:pointer; transition:background .15s ease; } tr.r:hover { background:color-mix(in oklab,var(--muted) 70%,transparent); }
+  tr.r.sel { background:color-mix(in oklab,var(--mine) 14%,transparent); }
+  .tl { text-align:left; } .tr { text-align:right; }
+  .cap { font-size:11px; color:var(--muted-fg); font-weight:500; }
+  .ttl { display:flex; flex-wrap:wrap; gap:6px; align-items:baseline; margin:10px 0 2px; font-size:11px; font-weight:600; }
+  .ttl.m { color:var(--mine-fg); } .ttl.g { color:var(--muted-fg); }
+  .ph { height:62px; border-radius:8px; background:repeating-linear-gradient(135deg,var(--muted),var(--muted) 6px,transparent 6px,transparent 12px); display:flex; align-items:center; justify-content:center; color:var(--muted-fg); font-size:11px; }
+
+  /* 탭 — A: 열 맨 위 · B: 카드 안 · 공통 모양 */
+  .tabs { display:flex; gap:2px; border-bottom:1px solid var(--border-subtle); }
+  .tabs button { border:0; background:transparent; color:var(--muted-fg); font:inherit; font-size:12px; padding:6px 10px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .15s ease; }
+  .tabs button:hover { color:var(--fg); }
+  .tabs button.on { color:var(--fg); font-weight:700; border-bottom-color:var(--fg); }
+  .tabs button.mine.on { color:var(--mine-fg); border-bottom-color:var(--mine); }
+  .tabs .n { font-size:10.5px; font-weight:700; margin-left:3px; padding:0 5px; border-radius:999px; background:var(--mine-bg); color:var(--mine-fg); }
+  .tabbar { position:sticky; top:-8px; z-index:2; background:var(--page); padding-top:2px; }
+  .filters { display:flex; gap:4px; margin:6px 0 2px; flex-wrap:wrap; }
+  .chip { border:1px solid var(--border-subtle); background:var(--card); color:var(--muted-fg); border-radius:999px; font:inherit; font-size:11px; padding:1px 8px; cursor:pointer; transition:all .15s ease; }
+  .chip.on { border-color:var(--mine); color:var(--mine-fg); background:var(--mine-bg); font-weight:600; }
+  .scroll { max-height:220px; overflow:auto; border-radius:8px; }
+  .fold { width:100%; display:flex; align-items:center; gap:6px; border:0; background:var(--mine-bg); color:var(--mine-fg); font:inherit; font-size:11.5px; font-weight:600; border-radius:8px; padding:5px 8px; cursor:pointer; margin-top:10px; transition:all .15s ease; }
+  .fold:hover { filter:brightness(.97); }
+  .fold .ar { margin-left:auto; transition:transform .15s ease; } .fold.open .ar { transform:rotate(90deg); }
+  .hint { font-size:10.5px; color:var(--muted-fg); margin-top:4px; }
+  .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; font-size:12px; padding:6px 12px; border-radius:999px; opacity:0; transition:opacity .2s ease; pointer-events:none; }
+  .toast.on { opacity:1; }
+  .note { grid-column:1/-1; color:var(--muted-fg); font-size:12px; line-height:1.65; }
+</style>
+</head>
+<body>
+<div class="bar"><b>틱뷰어 오른쪽 열 — 그날 「우리 주문」 표 분리</b>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+  <span class="seg" id="cnt"><button data-v="3">주문 3건</button><button class="on" data-v="41">주문 41건</button></span>
+</div>
+<div class="wrap" id="wrap"></div>
+<div class="toast" id="toast"></div>
+<script>
+// 10/30 KR7184230001 꼴 합성 — 주문 n 건(시각 · 구분 · 수량 · 체결 · 근거). 첫 건 = 커서가 있는 주문(#100231).
+const GROUPS = ['선매수', '매물소진', '돌파', '수동', '주기매도', '상따'];
+function makeOrders(n) {
+  const out = [];
+  let s = 9 * 3600 + 2 * 60 + 11;
+  for (let i = 0; i < n; i++) {
+    s += 37 + ((i * 97) % 380);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0'), mm = String(Math.floor(s / 60) % 60).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
+    const sell = i % 4 === 3;
+    const qty = [500, 300, 1064, 733, 250, 1200, 90][i % 7];
+    const filled = i % 9 === 5 ? 0 : i % 5 === 2 ? Math.floor(qty / 3) : qty;
+    out.push({ no: String(100100 + i * 13), t: `${hh}:${mm}:${ss}.${String((i * 173) % 1000).padStart(3, '0')}`, g: sell ? (i % 8 === 7 ? '주기매도' : '매도') : GROUPS[i % 4], side: sell ? '매도' : '매수', qty, filled, est: i % 11 === 4, ev: i % 3 === 0 ? '호가' : i % 3 === 1 ? '체결' : null });
+  }
+  out[Math.min(6, n - 1)] = { no: '100231', t: '13:33:29.078', g: '선매수', side: '매수', qty: 500, filled: 166, est: false, ev: '호가' };
+  return out;
+}
+let N = 41;
+let selNo = '100231';
+const fq = (v) => v.toLocaleString('ko-KR');
+
+function ownTable(orders, { scroll = false, filter = 'all' } = {}) {
+  const list = orders.filter((o) => filter === 'all' || (filter === 'filled' ? o.filled > 0 : filter === 'nofill' ? o.filled === 0 : o.side === filter));
+  const rows = list.map((o) => `<tr class="r${o.no === selNo ? ' sel' : ''}" data-no="${o.no}">
+      <td class="mono tl">${o.t.slice(0, 8)}</td>
+      <td class="tl"><span class="${o.side === '매수' ? 'up' : 'down'}">${o.g} ${o.side}</span></td>
+      <td class="mono tr">${fq(o.qty)}</td>
+      <td class="mono tr">${o.filled ? fq(o.filled) : '<span class="mf">0</span>'}${o.est ? '<b class="mc">?</b>' : ''}</td>
+      <td class="tr">${o.ev ? `<button class="jump" data-ev="${o.no}">${o.ev} ↑</button>` : '<span class="mf">—</span>'}</td></tr>`).join('');
+  const t = `<table><thead><tr><th class="tl">주문</th><th class="tl">구분</th><th class="tr">수량</th><th class="tr">체결</th><th class="tr">근거</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return scroll ? `<div class="scroll">${t}</div>` : t;
+}
+const caption = (o) => `이 날 ${o.length}건 · 체결 ${o.reduce((a, x) => a + (x.filled ? 1 : 0), 0) * 3 + 4}건 · 켜진 서버 KB120 · KYOBO119`;
+
+function thisOrderBody() {
+  return `<h2>이 주문 <small class="mono">A3 13:33:29.448 · seq 79,601</small></h2>
+    <dl class="kv"><dt>체결</dt><dd class="mono"><span class="up">10,340</span> +500 매수 · 1조각 · 517만</dd><dt>판정</dt><dd>일반 · 팀 아님</dd></dl>
+    <div class="own"><h3>◆ 우리 주문 #100231 <span class="mf" style="font-weight:500">KB120 · 계좌 ···0001</span></h3>
+      <dl class="kv"><dt>주문</dt><dd class="mono">13:33:29.078 선매수 매수 10,340 ×500</dd>
+      <dt>조건</dt><dd>매물소진 (실제 1,234)</dd>
+      <dt>근거 호가</dt><dd class="mono">B6 13:33:29.055 매도1 10,340 1,308→1,234 <button class="jump" data-go="근거 B6">보기 ›</button></dd>
+      <dt>직전 체결</dt><dd class="mono">A3 13:33:29.055 seq 79,596 <button class="jump" data-go="직전 체결">보기 ›</button></dd>
+      <dt>체결</dt><dd class="mono">166 / 전체 500</dd></dl></div>`;
+}
+const recent = () => `<div class="ttl g">최근 주문 10건</div><table><tbody>${[...Array(4)].map((_, i) => `<tr class="r"><td class="mono tl">13:33:2${8 - i}</td><td class="tl"><span class="${i % 2 ? 'down' : 'up'}">${i % 2 ? '매도' : '매수'}</span></td><td class="mono tr">${fq(120 + i * 230)}</td><td class="mono tr">${i + 1}조각</td></tr>`).join('')}<tr><td colspan="4" class="mf" style="font-size:10.5px">… 6건 더</td></tr></tbody></table>`;
+const amount = `<div class="card"><h2>거래대금</h2><div class="ph">거래대금 · 시총 대비 (그대로)</div></div>`;
+const team = `<div class="card"><h2>팀 거래정보</h2><div class="ph">팀 패널 (그대로)</div></div>`;
+const phonehead = `<div class="phonehead"><span>호가</span><span>전문</span><span class="on">버스트 · 팀</span></div>`;
+
+const V = {
+  a: {
+    title: 'A — 오른쪽 열 맨 위 탭 ★ 채택',
+    desc: '열 맨 위(스크롤해도 붙어 있음)에 「이 주문 · 팀 | 우리 주문 41」. 첫 탭 = 지금 그대로(「◆ 우리 주문 #…」 섹션 포함 · 표만 빠짐). 둘째 탭 = 그날 표가 열 전체 높이를 쓴다 · 거르기 칩. 행 클릭 = 그 행으로 가고 탭은 그대로(목록 자리 유지).',
+    tab: 'this',
+    render(orders, v) {
+      const tabs = `<div class="tabbar"><div class="tabs"><button data-tab="this" class="${v.tab === 'this' ? 'on' : ''}">이 주문 · 팀</button><button data-tab="own" class="mine ${v.tab === 'own' ? 'on' : ''}">우리 주문<span class="n">${orders.length}</span></button></div></div>`;
+      if (v.tab === 'this') return tabs + `<div class="card">${thisOrderBody()}${recent()}</div>` + amount + team;
+      return tabs + `<div class="card"><h2>우리 주문 <small>${caption(orders)}</small></h2>
+        <div class="filters">${[['all', '전체'], ['매수', '매수'], ['매도', '매도'], ['filled', '체결 있음'], ['nofill', '체결 없음']].map(([k, l]) => `<button class="chip${(v.filter || 'all') === k ? ' on' : ''}" data-filter="${k}">${l}</button>`).join('')}</div>
+        ${ownTable(orders, { filter: v.filter || 'all' })}<div class="hint">행 = 그 주문 첫 체결 행으로 · 근거 ↑ = 근거 전문으로 · 고른 주문은 민트 바탕(키 [ ] 와 같이 움직임)</div></div>`;
+    },
+  },
+  b: {
+    title: 'B — 이 주문 카드 안 탭(표 두 개 바꿔 끼우기)',
+    desc: '「◆ 우리 주문 #…」 섹션 아래, 지금 「최근 주문 10건」 자리에 「최근 주문 10 | 우리 주문 41」 탭. 표 높이는 220px 안 스크롤 — 거래대금 · 팀 패널은 늘 같은 자리. 변화가 가장 작다.',
+    tab: 'recent',
+    render(orders, v) {
+      const tabs = `<div class="tabs" style="margin-top:10px"><button data-tab="recent" class="${v.tab === 'recent' ? 'on' : ''}">최근 주문 10</button><button data-tab="own" class="mine ${v.tab === 'own' ? 'on' : ''}">우리 주문<span class="n">${orders.length}</span></button></div>`;
+      const body = v.tab === 'recent' ? recent().replace('<div class="ttl g">최근 주문 10건</div>', '') : `<div class="cap" style="margin:4px 0">${caption(orders)}</div>${ownTable(orders, { scroll: true })}`;
+      return `<div class="card">${thisOrderBody()}${tabs}${body}</div>` + amount + team;
+    },
+  },
+  c: {
+    title: 'C — 탭 없이 접기(비교안)',
+    desc: '탭 대신 「◆ 우리 주문 41건 · 체결 …」 한 줄을 접어 둔다(기본 접힘). 펼치면 220px 안 스크롤. 「이 주문」 맥락과 그날 목록을 한 화면에 같이 볼 수 있지만 열이 길어지는 건 펼쳤을 때 그대로.',
+    open: false,
+    render(orders, v) {
+      const fold = `<button class="fold${v.open ? ' open' : ''}" data-fold="1">◆ 우리 주문 ${orders.length}건 <span class="cap" style="font-weight:500">${caption(orders).replace(/^이 날 \d+건 · /, '')}</span><span class="ar">›</span></button>`;
+      return `<div class="card">${thisOrderBody()}${fold}${v.open ? `<div style="margin-top:4px">${ownTable(orders, { scroll: true })}</div>` : ''}${recent()}</div>` + amount + team;
+    },
+  },
+};
+
+function draw() {
+  const orders = makeOrders(N);
+  document.getElementById('wrap').innerHTML = Object.entries(V).map(([k, v]) => `<section><p class="vt">${v.title}</p><p class="vd">${v.desc}</p>${phonehead}<div class="side" data-v="${k}">${v.render(orders, v)}</div></section>`).join('') +
+    `<p class="note">공통 — 커서에 묶인 「◆ 우리 주문 #…」 섹션(주문 · 조건 · 근거 · 직전 체결 · 체결)은 세 안 모두 「이 주문」 카드 안 그대로. 바뀌는 건 그날 전체 「우리 주문」 표의 자리뿐이다. 폰은 「버스트 · 팀」 세그먼트 안이 같은 모양(네 번째 세그먼트 없음). 위 「주문 3건 / 41건」 으로 적은 날 · 많은 날을 바꿔 본다. 데스크톱 점선 상자 = 실제 오른쪽 열(최대 640px · 넘치면 열 스크롤).</p>`;
+}
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1300); }
+
+document.getElementById('wrap').addEventListener('click', (e) => {
+  const side = e.target.closest('.side'); if (!side) return;
+  const v = V[side.dataset.v];
+  const tab = e.target.closest('[data-tab]'); if (tab) { v.tab = tab.dataset.tab; draw(); return; }
+  const f = e.target.closest('[data-filter]'); if (f) { v.filter = f.dataset.filter; draw(); return; }
+  const fold = e.target.closest('[data-fold]'); if (fold) { v.open = !v.open; draw(); return; }
+  const ev = e.target.closest('[data-ev]'); if (ev) { toast(`주문 #${ev.dataset.ev} 근거 전문으로 커서 이동 + 「‹ 주문 #${ev.dataset.ev} 로」 알약`); return; }
+  const go = e.target.closest('[data-go]'); if (go) { toast(`${go.dataset.go} 행으로 커서 이동 + 되돌아가기 알약`); return; }
+  const tr = e.target.closest('tr.r[data-no]'); if (tr) { selNo = tr.dataset.no; draw(); toast(`주문 #${selNo} 첫 체결 행으로 커서 이동(전문 목록 · 차트)`); }
+});
+for (const [id, fn] of [['theme', (v) => document.documentElement.setAttribute('data-theme', v)], ['width', (v) => document.body.classList.toggle('phone', v === 'phone')], ['cnt', (v) => { N = Number(v); draw(); }]]) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of e.currentTarget.querySelectorAll('button')) x.classList.toggle('on', x === b);
+    fn(b.dataset.v);
+  });
+}
+draw();
+</script>
+</body>
+</html>

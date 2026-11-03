@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
 
-import { a3TimeMs, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
+import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
 import { a3Msg, b6Msg, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
@@ -12,7 +12,7 @@ import type { TickOrderMode } from '../use-tick-cursor';
 import { ownNavOf, useOwnNav } from '../use-own-nav';
 
 /**
- * Phase 38 Plan 08 Task 1 — 우리 체결 탐색(D-09): 대상 = 우리 체결 A3 행 ∪ 짝 없음 줄(같은 A3 여럿 = 한 대상) · 현재 정렬 순열 순 ·
+ * Phase 38 Plan 08 Task 1 — 우리 탐색(D-09): 대상 = 우리 체결 A3 행 ∪ 짝 없음 줄 ∪ 주문 줄 ∪ 조건 근거 행(UAT · 같은 자리 = 한 대상) · 현재 정렬 순열 순 ·
  * k/n · ‹ › 끝 null · 짝 없음 줄 → 줄 선택 · 키 `[` `]`(입력칸 · 수정자 무시) · own 없음 → null.
  *
  * 세션: 수신순 A3 seq 220(16,400 ×1,064) → A3 seq 210(17,000 ×5) 이 뒤집혀 왔다 — 거래소순(seq)이면 210 이 먼저.
@@ -158,6 +158,38 @@ describe('useOwnNav — k/n · ‹ › · 줄 대상', () => {
     const { result } = mount('recv', own, -1);
     act(() => result.current.nav!.next!());
     expect(result.current.cursorRec).toBe(R220);
+  });
+
+  it('주문 줄 · 조건 근거 행도 대상(UAT) — 근거 B6 241 → 주문 D 줄 · › 가 근거는 커서 · 주문 줄은 줄 선택', () => {
+    // D: 호가 근거(ev_kind 1) — B6 241 의 매도 17,000 단 잔량 10 · 이벤트 gw 401ms(창 [g−3000, g+50] 안) · 체결 없음
+    const evD: TickOwnEvent = {
+      gateway: 'KB120', seq: 9, gw_time_ms: at(401), kind: 3, group: 1, account_no: '1234563801', order_no: 'D',
+      price: 17000, qty: 10, reason_code: '', cond_metric: 0, cond_threshold: 0, cond_actual: 0, ev_kind: 1,
+      ev_price: 17000, ev_qty_before: 0, ev_qty_after: 10, ev_trade_qty: 0, cum_volume: 0,
+    };
+    const ownD = buildOwnModel(sess, { ...respOf(FILLS), events: [evD] });
+    const d = ownD.orders.find((o) => o.orderNo === 'D')!;
+    expect(d.evidenceRec).toBe(3);
+    const rows = buildMsgRows(sess, 'exchange', ownD);
+    const shape = Array.from(ownNavOf(rows, ownD), (p) => {
+      const it = rows.items[p]!;
+      const k = itemKindOf(it);
+      return k === MSG_ITEM.ROW ? `R${sess.index.seq[itemIdxOf(it)]}` : k === MSG_ITEM.ORDER ? `O${itemIdxOf(it)}` : `N${itemIdxOf(it)}`;
+    });
+    expect(shape).toEqual(['R210', 'R220', 'N3', 'R231', 'R241', `O${d.id}`]);
+
+    const { result, picks } = mount('exchange', ownD, R231);
+    expect(result.current.nav).toMatchObject({ k: 4, n: 6, orders: 5 });
+    act(() => result.current.nav!.next!());
+    expect(result.current.cursorRec).toBe(3);
+    expect(result.current.ownSel).toBeNull();
+    act(() => result.current.nav!.next!());
+    expect(picks.at(-1)![0]).toEqual({ kind: 'order', id: d.id });
+    expect(result.current.ownSel).toEqual({ kind: 'order', id: d.id });
+    expect(result.current.nav).toMatchObject({ k: 6, next: null });
+    act(() => result.current.nav!.prev!());
+    expect(result.current.cursorRec).toBe(3);
+    expect(result.current.ownSel).toBeNull();
   });
 
   it('own null · 체결 · 주문 없는 own → null', () => {

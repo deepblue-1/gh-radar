@@ -267,9 +267,11 @@ test.describe('틱뷰어 본문 — 격자 · 키 · 딥링크 (Phase 37 D-00 ·
     await book.locator('h2').click();
     await page.keyboard.press('ArrowRight');
     await expect(book.locator('[data-slot="tick-book-row"]')).toHaveCount(20);
-    // 「주 | 금액」
-    await book.getByRole('button', { name: '금액' }).click();
+    // 「주 | 금액」 — 기본 금액(2026-11-03) · 주로 바꾸면 총잔량
+    await expect(book.getByRole('button', { name: '금액' })).toHaveAttribute('aria-pressed', 'true');
     await expect(book.locator('[data-slot="tick-book-total"]')).toContainText('합산 금액');
+    await book.getByRole('button', { name: '주', exact: true }).click();
+    await expect(book.locator('[data-slot="tick-book-total"]')).toContainText('총잔량');
     await expectNoHorizontalScroll(page, '뷰어 1280 호가');
   });
 
@@ -695,17 +697,25 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
     expect(rec.own).toEqual([`${ECO.isin}/${TICK_DATE}/KRX`]);
     await expect(nav(page)).toContainText('· 주문 3');
 
-    // 13:30 으로 점프 → 우리 체결 앞(k 0) → ] = 첫 우리 체결 행 (a)
+    // 13:30 으로 점프 → 우리 대상 앞(k 0) · 대상(UAT) = 근거 B6 → 주문 1 줄 → (a) → 주문 2 줄 → (b) → 주문 3 줄 → 짝 없음 줄
     const input = page.getByRole('textbox', { name: '틱 시각' });
     await input.fill('13:30:00');
     await input.press('Enter');
     await expect.poll(async () => ((await page.locator('[data-slot="tick-current"]').textContent()) ?? '').slice(0, 5)).toBe('13:30');
     await page.locator('[data-slot="tick-book"] h2').click();
-    await expect(nav(page)).toContainText('◆ 우리 체결 0/3 · 주문 3');
+    await expect(nav(page)).toContainText('◆ 우리 0/7 · 주문 3');
+    await page.keyboard.press(']');
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.evidence.seq);
+    await expect(nav(page)).toContainText('◆ 우리 1/7 · 주문 3');
+    await page.keyboard.press(']');
+    await expect(msg(page).locator('[data-slot="tick-own-order"][aria-selected="true"]')).toContainText(
+      `#${ECO_OWN.a.orderNo}`,
+    );
+    await expect(nav(page)).toContainText('◆ 우리 2/7 · 주문 3');
     await page.keyboard.press(']');
     await expect.poll(() => curSeq(page)).toBe(ECO_OWN.a.seq);
     await expect(selectedRow(page)).toHaveAttribute('data-seq', String(ECO_OWN.a.seq));
-    await expect(nav(page)).toContainText('◆ 우리 체결 1/3 · 주문 3');
+    await expect(nav(page)).toContainText('◆ 우리 3/7 · 주문 3');
     // 행 칩 「우리/전체」 · 레일 ◆
     await expect(selectedRow(page).locator('[data-slot="tick-own-chip"]')).toHaveText(
       `${fmt(ECO_OWN.a.our)}/${fmt(ECO_OWN.a.total)}`,
@@ -722,16 +732,43 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
     const anchorRow = msg(page).locator(`[data-slot="tick-msg-row"][data-seq="${ECO_OWN.anchor.seq}"]`);
     await expect(anchorRow.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'anchor');
 
-    // 카드 「◆ 우리 주문 #…」 섹션 · 「우리 주문」 표 캡션
+    // 카드 「◆ 우리 주문 #…」 섹션(첫 탭) · 그날 「우리 주문」 표는 둘째 탭(스케치 026 A)
+    const sideTab = (k: 'this' | 'own') => page.locator(`[data-slot="tick-side-tab"][data-tab="${k}"]`);
+    await expect(sideTab('this')).toHaveAttribute('aria-selected', 'true');
+    await expect(sideTab('own')).toContainText('우리 주문3');
+    await expect(page.locator('[data-slot="tick-own-table"]')).toHaveCount(0);
     const section = page.locator('[data-slot="tick-own-section"]');
     await expect(section).toHaveCount(1);
     await expect(section).toContainText(`◆ 우리 주문 #${ECO_OWN.a.orderNo}`);
     await expect(section).toContainText('KB120 · 계좌 ···0001');
     await expect(section.locator('[data-k="fills"]')).toContainText(`${fmt(ECO_OWN.a.our)} / 전체 ${fmt(ECO_OWN.a.total)}`);
+    await sideTab('own').click();
+    await expect(page.locator('[data-slot="tick-order-card"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="tick-own-table-caption"]')).toHaveText(
       '이 날 3건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119',
     );
     await expect(page.locator('[data-slot="tick-own-table-row"]')).toHaveCount(3);
+    await expect(page.locator(`[data-slot="tick-own-table-row"][aria-selected="true"]`)).toHaveCount(1);
+    // 거르기 — 매도 0 · 체결 있음 3(짝 없음도 체결)
+    await page.locator('[data-slot="tick-own-filter"][data-filter="sell"]').click();
+    await expect(page.locator('[data-slot="tick-own-table-row"]')).toHaveCount(0);
+    await page.locator('[data-slot="tick-own-filter"][data-filter="all"]').click();
+    // 행 클릭 = 그 주문 첫 체결 행으로 · 탭은 그대로
+    await page.locator('[data-slot="tick-own-table-row"]').nth(1).click();
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.b.seq);
+    await expect(sideTab('own')).toHaveAttribute('aria-selected', 'true');
+    // 첫 탭으로 돌아와 (a) 로 · 섹션 이어서
+    await sideTab('this').click();
+    await page.locator('[data-slot="tick-own-table-row"]').first().waitFor({ state: 'detached' });
+    const input2 = page.getByRole('textbox', { name: '틱 시각' });
+    await input2.fill('13:30:00');
+    await input2.press('Enter');
+    await page.locator('[data-slot="tick-book"] h2').click();
+    await page.keyboard.press(']');
+    await page.keyboard.press(']');
+    await page.keyboard.press(']');
+    await expect.poll(() => curSeq(page)).toBe(ECO_OWN.a.seq);
+    await expect(section).toHaveCount(1);
 
     // 「보기 ›」(근거) → 커서 = 근거 B6 · 되돌아가기 알약 → 누르면 주문 줄로 · 사라짐
     await section.locator('[data-slot="tick-own-jump"][data-to="evidence"]').click();
@@ -745,21 +782,31 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
       `#${ECO_OWN.a.orderNo}`,
     );
 
-    // 주문 줄 선택에서 ] → (a) · ] → (b)(전량 — 분모 없음) · ] → 짝 없음 줄 「짝 전문 없음」 · 끝이면 › 비활성
+    // 주문 1 줄 선택에서 ] → (a) · ] → 주문 2 줄 · ] → (b)(전량 — 분모 없음) · ] → 주문 3 줄 · ] → 짝 없음 줄 · 끝이면 › 비활성
+    await expect(nav(page)).toContainText('◆ 우리 2/7');
     await page.keyboard.press(']');
     await expect.poll(() => curSeq(page)).toBe(ECO_OWN.a.seq);
     await page.keyboard.press(']');
+    await expect(msg(page).locator('[data-slot="tick-own-order"][aria-selected="true"]')).toContainText(
+      `#${ECO_OWN.b.orderNo}`,
+    );
+    await page.keyboard.press(']');
     await expect.poll(() => curSeq(page)).toBe(ECO_OWN.b.seq);
-    await expect(nav(page)).toContainText('◆ 우리 체결 2/3');
+    await expect(nav(page)).toContainText('◆ 우리 5/7');
     await expect(selectedRow(page).locator('[data-slot="tick-own-chip"]')).toHaveText(fmt(ECO_OWN.b.qty));
     const order2 = msg(page).locator('[data-slot="tick-own-order"]', { hasText: `#${ECO_OWN.b.orderNo}` });
     await expect(order2).toContainText('조건 없음 · 수동 주문');
     await page.keyboard.press(']');
+    await expect(msg(page).locator('[data-slot="tick-own-order"][aria-selected="true"]')).toContainText(
+      `#${ECO_OWN.c.orderNo}`,
+    );
+    await expect(nav(page)).toContainText('◆ 우리 6/7');
+    await page.keyboard.press(']');
     const nofill = msg(page).locator('[data-slot="tick-own-nofill"][aria-selected="true"]');
     await expect(nofill).toContainText(`◆ 우리 체결 ${fmt(ECO_OWN.c.qty)}주 · 짝 전문 없음`);
     await expect(nofill.locator('[data-slot="tick-own-rail"]')).toHaveAttribute('data-node', 'nofill');
-    await expect(nav(page)).toContainText('◆ 우리 체결 3/3');
-    await expect(nav(page).getByRole('button', { name: '다음 우리 체결' })).toBeDisabled();
+    await expect(nav(page)).toContainText('◆ 우리 7/7');
+    await expect(nav(page).getByRole('button', { name: '다음 우리 근거 · 주문 · 체결' })).toBeDisabled();
     // 짝 없음 주문(보조 주문 행 · limit_chaser) 줄도 있다
     await expect(msg(page).locator('[data-slot="tick-own-order"]', { hasText: `#${ECO_OWN.c.orderNo}` })).toBeVisible();
 
@@ -784,6 +831,7 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
     await expect(page.locator('[data-slot="tick-own-order"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="tick-own-rail"][data-node]')).toHaveCount(0);
     await expect(page.locator('[data-slot="tick-own-table"]')).toHaveCount(0);
+    await expect(page.locator('[data-slot="tick-side-tabs"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="tick-state"]')).toHaveCount(0);
     // 37 동작 그대로 — 행 클릭 → 커서 · 이 주문 카드
     const b6 = msg(page).locator('[data-slot="tick-msg-row"][data-tag="B6"]').nth(3);
@@ -848,6 +896,7 @@ test.describe('틱뷰어 우리 주문 · 체결 (Phase 38)', () => {
     await expectNoHorizontalScroll(page, '폰 전문 우리 층');
 
     await seg.getByRole('button', { name: '버스트 · 팀' }).click();
+    await page.locator('[data-slot="tick-side-tab"][data-tab="own"]').click();
     await expect(page.locator('[data-slot="tick-own-table"]')).toBeVisible();
     await expect(page.locator('[data-slot="tick-own-table-caption"]')).toHaveText(
       '이 날 3건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119',

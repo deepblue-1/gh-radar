@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { OWN_MATCH_EST_MS, fmtTickTime, formatKstMs } from '@gh-radar/shared';
 
@@ -11,6 +11,7 @@ import {
   type OwnModel,
   type OwnOrderView,
 } from '@/lib/ticks/own-model';
+import { CARD } from '@/components/layout/page-layout';
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,9 @@ import { cn } from '@/lib/utils';
  *   근거 행 자체에는 칩을 붙이지 않는다(D-10).
  * ③ `TickOwnTable` — 「우리 주문」 표(own 이 있으면 늘) · 캡션 「이 날 n건 · 체결 n건 · 켜진 서버 …」(그날 켜진 서버만 · D-03) ·
  *   열 주문 · 구분 · 수량 · 체결(추정 있으면 「?」) · 근거 · 행 클릭 = 첫 짝 체결 rec(없으면 주문 줄) · 근거 칸 = 근거 rec.
+ *   고른 주문 행이 바뀌면 그 행이 보이게 스크롤(nearest — 키 `[` `]` 와 같이 움직인다).
+ * ④ `TickOwnTab` — 오른쪽 열 「우리 주문 n」 탭 본문(스케치 026 A · 2026-11-03 UAT — D-07 「카드 안 표」 를 뒤집었다): 카드 하나에
+ *   거르기 칩(전체 · 매수 · 매도 · 체결 있음 · 체결 없음) + 표. 「◆ 우리 주문 #…」 섹션은 그대로 「이 주문」 카드 안.
  * 낱말은 shared `strategy-event-text` 정본 그대로 — 근거 문구의 머리 「근거 」 만 키 칸과 겹쳐 뺀다.
  */
 
@@ -313,13 +317,43 @@ export interface TickOwnTableProps {
   onOrder?: (orderId: number) => void;
   /** 근거 칸 「보기」 로 떠날 때 되돌아갈 주문 id. */
   onBack?: (orderId: number) => void;
+  /** 거르기(④ 탭 칩) — 없으면 전체. */
+  filter?: OwnTableFilter;
 }
+
+/** 「우리 주문」 표 거르기 — 탭 칩. */
+export type OwnTableFilter = 'all' | 'buy' | 'sell' | 'filled' | 'nofill';
+
+const OWN_FILTERS: readonly { key: OwnTableFilter; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'buy', label: '매수' },
+  { key: 'sell', label: '매도' },
+  { key: 'filled', label: '체결 있음' },
+  { key: 'nofill', label: '체결 없음' },
+];
 
 const TH = 'border-b border-[var(--border-subtle)] px-1 py-[3px] font-semibold';
 
 /** 「우리 주문」 표(D-07 ② · D-03) — own 이 있으면 늘 · 주문 0 이면 캡션만. */
-export function TickOwnTable({ own, selected, onJump, onOrder, onBack }: TickOwnTableProps) {
+export function TickOwnTable({ own, selected, onJump, onOrder, onBack, filter = 'all' }: TickOwnTableProps) {
   const servers = own.servers.length > 0 ? own.servers.join(' · ') : '없음';
+  const body = useRef<HTMLTableSectionElement>(null);
+  const firstSel = selected[0] ?? -1;
+  useEffect(() => {
+    if (firstSel < 0) return;
+    const tr = body.current?.querySelector(`[data-order="${firstSel}"]`);
+    // jsdom 에는 scrollIntoView 가 없다
+    if (tr instanceof HTMLElement && typeof tr.scrollIntoView === 'function') tr.scrollIntoView({ block: 'nearest' });
+  }, [firstSel]);
+  const shown = own.orders.filter((o) => {
+    if (filter === 'buy') return o.side === 'buy';
+    if (filter === 'sell') return o.side === 'sell';
+    if (filter === 'filled' || filter === 'nofill') {
+      const any = o.fills.some((fid) => own.fills[fid]!.qty > 0);
+      return filter === 'filled' ? any : !any;
+    }
+    return true;
+  });
   return (
     <div data-slot="tick-own-table" className="mt-3">
       <h3 className="m-0 flex flex-wrap items-baseline gap-1.5 text-[11px] font-semibold text-[var(--mine-fg)]">
@@ -339,8 +373,8 @@ export function TickOwnTable({ own, selected, onJump, onOrder, onBack }: TickOwn
               <th className={cn(TH, 'text-right')}>근거</th>
             </tr>
           </thead>
-          <tbody>
-            {own.orders.map((o) => {
+          <tbody ref={body}>
+            {shown.map((o) => {
               let filled = 0;
               let est = false;
               let firstRec = -1;
@@ -400,5 +434,41 @@ export function TickOwnTable({ own, selected, onJump, onOrder, onBack }: TickOwn
         </table>
       )}
     </div>
+  );
+}
+
+export interface TickOwnTabProps extends Omit<TickOwnTableProps, 'filter'> {
+  className?: string;
+}
+
+/** 오른쪽 열 「우리 주문」 탭 본문(④) — 거르기 칩 + 표. 칩 상태는 탭이 들고 있는 동안 유지된다. */
+export function TickOwnTab({ className, ...table }: TickOwnTabProps) {
+  const [filter, setFilter] = useState<OwnTableFilter>('all');
+  return (
+    <section data-slot="tick-own-tab" aria-label="우리 주문" className={cn(CARD, 'min-w-0 px-3 pt-0.5 pb-3', className)}>
+      {table.own.orders.length > 0 && (
+        <div role="group" aria-label="우리 주문 거르기" className="mt-2.5 flex flex-wrap gap-1">
+          {OWN_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              data-slot="tick-own-filter"
+              data-filter={f.key}
+              aria-pressed={filter === f.key}
+              onClick={() => setFilter(f.key)}
+              className={cn(
+                'h-[22px] rounded-full border px-2 text-[11px] whitespace-nowrap transition-colors',
+                filter === f.key
+                  ? 'border-[var(--mine)] bg-[var(--mine-bg)] font-semibold text-[var(--mine-fg)]'
+                  : 'border-[var(--border-subtle)] text-[var(--muted-fg)] hover:text-[var(--fg)]',
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <TickOwnTable {...table} filter={filter} />
+    </section>
   );
 }

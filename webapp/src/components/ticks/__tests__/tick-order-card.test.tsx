@@ -12,7 +12,8 @@ import {
 import { buildOwnModel } from '@/lib/ticks/own-model';
 import { a3Msg, b6Msg, inversionSession, synthNs, synthSession, SYNTH_DATE, SYNTH_ISIN } from '@/test-fixtures/tick-synth';
 
-import { TickOrderCard } from '../tick-order-card';
+import { TickOrderCard, ownOrdersAt } from '../tick-order-card';
+import { TickOwnTab } from '../tick-own-section';
 
 /**
  * Phase 37 Plan 13 Task 3 — 「이 주문」 카드: 주문 안/밖 · 역전 ↕ · 진행 중 · 최근 주문 10건(행 클릭 = 마지막 조각).
@@ -145,6 +146,12 @@ describe('TickOrderCard — 우리 주문(Phase 38)', () => {
     const r = render(<TickOrderCard session={es} cursorRec={cursorRec} own={own} {...cb} {...extra} />);
     return { ...r, cb };
   }
+  /** 오른쪽 열 「우리 주문」 탭 본문(스케치 026 A) — 커서 rec 의 섹션 주문이 선택. */
+  function renderTab(cursorRec: number, o = own) {
+    const cb = { onJump: vi.fn(), onOrder: vi.fn(), onBack: vi.fn() };
+    const r = render(<TickOwnTab own={o} selected={ownOrdersAt(o, cursorRec, null)} {...cb} />);
+    return { ...r, cb };
+  }
   const q = (root: ParentNode, slot: string) => root.querySelector(`[data-slot="${slot}"]`);
   const line = (sec: Element, k: string) => sec.querySelector(`[data-slot="tick-own-line"][data-k="${k}"]`);
 
@@ -159,8 +166,8 @@ describe('TickOrderCard — 우리 주문(Phase 38)', () => {
     expect([own.orders[2]!.evidenceFirstRec, own.orders[2]!.evidenceRec]).toEqual([2, 4]);
   });
 
-  it('① 「우리 주문」 표 — 늘 표시 · 캡션 정확 · 열 · 시각순 · 「?」 · 근거 「—」 · 커서 주문 선택', () => {
-    const { container } = renderCard(3);
+  it('① 「우리 주문」 표(탭) — 캡션 정확 · 열 · 시각순 · 「?」 · 근거 「—」 · 커서 주문 선택 · 카드에는 표 없음', () => {
+    const { container } = renderTab(3);
     const table = q(container, 'tick-own-table')!;
     expect(q(table, 'tick-own-table-caption')!.textContent).toBe('이 날 4건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119');
     const rows = Array.from(table.querySelectorAll('[data-slot="tick-own-table-row"]'));
@@ -171,38 +178,59 @@ describe('TickOrderCard — 우리 주문(Phase 38)', () => {
     expect(cells(rows[2]!)).toEqual(['13:00:00', '선매수 매수', '300', '0', '체결 구간']);
     expect(cells(rows[3]!)).toEqual(['13:00:00', '수동 매수', '300', '1', '—']);
     expect(rows.map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false', 'false']);
-    // 표는 37 「최근 주문」 표 위
-    const recent = q(container, 'tick-order-recent')!;
-    expect(table.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 그날 표는 오른쪽 열 탭으로 옮겼다(스케치 026 A) — 카드는 섹션 · 최근 주문만
+    const card = renderCard(3).container;
+    expect(q(card, 'tick-own-table')).toBeNull();
+    expect(q(card, 'tick-own-section')).not.toBeNull();
+    expect(q(card, 'tick-order-recent')).not.toBeNull();
+  });
+
+  it('① 탭 거르기 칩 — 전체 · 매수 · 매도 · 체결 있음 · 체결 없음', () => {
+    const { container } = renderTab(3);
+    const ids = () => Array.from(container.querySelectorAll('[data-slot="tick-own-table-row"]'), (r) => r.getAttribute('data-order'));
+    const chip = (k: string) => container.querySelector(`[data-slot="tick-own-filter"][data-filter="${k}"]`)!;
+    expect(chip('all').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(chip('sell'));
+    expect(ids()).toEqual([]);
+    expect(chip('sell').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(chip('buy'));
+    expect(ids()).toEqual(['0', '1', '2', '3']);
+    fireEvent.click(chip('nofill'));
+    expect(ids()).toEqual(['2']);
+    fireEvent.click(chip('filled'));
+    expect(ids()).toEqual(['0', '1', '3']);
+    // 캡션은 거르기와 무관하게 그날 전체
+    expect(q(container, 'tick-own-table-caption')!.textContent).toBe('이 날 4건 · 체결 3건 · 켜진 서버 KB120 · KYOBO119');
   });
 
   it('① 주문 0 이면 캡션만 · own 없으면 표 없음(Phase 37 그대로)', () => {
     const empty = buildOwnModel(es, ownOf([], []));
-    const { container } = render(<TickOrderCard session={es} cursorRec={3} onJump={() => {}} own={empty} />);
+    const { container } = renderTab(3, empty);
     const table = q(container, 'tick-own-table')!;
     expect(q(table, 'tick-own-table-caption')!.textContent).toBe('이 날 0건 · 체결 0건 · 켜진 서버 KB120 · KYOBO119');
     expect(table.querySelector('table')).toBeNull();
+    expect(q(container, 'tick-own-filter')).toBeNull();
     const none = render(<TickOrderCard session={es} cursorRec={3} onJump={() => {}} />);
     expect(q(none.container, 'tick-own-table')).toBeNull();
     expect(q(none.container, 'tick-own-section')).toBeNull();
   });
 
   it('② 표 행 클릭 = 첫 짝 체결 rec · 짝 체결 없으면 주문 줄 선택 · 근거 칸 = 근거 rec + 되돌아가기(행 클릭 안 탐)', () => {
-    const { container, cb } = renderCard(5);
+    const { container, cb } = renderTab(5);
     const rows = container.querySelectorAll('[data-slot="tick-own-table-row"]');
     fireEvent.click(rows[0]!);
-    expect(cb.onOwnJump).toHaveBeenLastCalledWith(3);
+    expect(cb.onJump).toHaveBeenLastCalledWith(3);
     fireEvent.click(rows[2]!);
-    expect(cb.onOwnOrder).toHaveBeenLastCalledWith(2);
+    expect(cb.onOrder).toHaveBeenLastCalledWith(2);
     fireEvent.click(rows[3]!);
-    expect(cb.onOwnOrder).toHaveBeenLastCalledWith(3);
-    cb.onOwnOrder.mockClear();
-    cb.onOwnJump.mockClear();
+    expect(cb.onOrder).toHaveBeenLastCalledWith(3);
+    cb.onOrder.mockClear();
+    cb.onJump.mockClear();
     fireEvent.click(rows[2]!.querySelector('[data-slot="tick-own-jump"][data-to="evidence"]')!);
-    expect(cb.onOwnJump).toHaveBeenCalledTimes(1);
-    expect(cb.onOwnJump).toHaveBeenLastCalledWith(4);
-    expect(cb.onOwnBack).toHaveBeenLastCalledWith(2);
-    expect(cb.onOwnOrder).not.toHaveBeenCalled();
+    expect(cb.onJump).toHaveBeenCalledTimes(1);
+    expect(cb.onJump).toHaveBeenLastCalledWith(4);
+    expect(cb.onBack).toHaveBeenLastCalledWith(2);
+    expect(cb.onOrder).not.toHaveBeenCalled();
     // 근거 없는 행은 근거 칸이 버튼이 아니다
     expect(rows[1]!.querySelector('[data-slot="tick-own-jump"]')).toBeNull();
   });
@@ -280,7 +308,7 @@ describe('TickOrderCard — 우리 주문(Phase 38)', () => {
     const { container } = renderCard(5);
     expect(q(container, 'tick-own-section')).toBeNull();
     expect(q(container, 'tick-own-evidence-orders')).toBeNull();
-    const rows = Array.from(container.querySelectorAll('[data-slot="tick-own-table-row"]'));
+    const rows = Array.from(renderTab(5).container.querySelectorAll('[data-slot="tick-own-table-row"]'));
     expect(rows.every((r) => r.getAttribute('aria-selected') === 'false')).toBe(true);
   });
 });
