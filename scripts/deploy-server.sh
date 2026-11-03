@@ -5,7 +5,7 @@ set -euo pipefail
 # deploy-server.sh — server(Express) Cloud Run 배포
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL · CORS_ALLOWED_ORIGINS(라이브 Cloud Run env 에서 그대로) ·
-#           RELAY_INTERNAL_URL(Phase 29 — 아래)
+#           RELAY_INTERNAL_URL(Phase 29 — 아래) · TICKGW_URL(Phase 37 당일 경로 — 끄는 배포만 TICKGW_DISABLE=1 · WR-35)
 #
 # Phase 29 D-07 (29-24) — relay 결선을 **다시 붙였다.** Phase 16 Plan 16(D-02)이 주문 접수를 relay wss 전용으로 옮기며
 #   server → relay 호출과 그 결선(env · secret 바인딩 · server SA accessor)을 걷어냈는데, Phase 29 의 웹 Admin 명령
@@ -76,8 +76,26 @@ if [[ ! "$RELAY_INTERNAL_URL" =~ ^https?://10\.10\.0\.(0|[1-9][0-9]?)(:[0-9]{1,5
   exit 1
 fi
 
-# Phase 37 D-22 (37-15) — 당일 틱 경로 tickgw 주소. **선택** — 주어졌을 때만 env · 비밀 바인딩을 더한다(아래 Section 5).
+# Phase 37 D-22 (37-15) — 당일 틱 경로 tickgw 주소. 주어졌을 때만 env · 비밀 바인딩을 더한다(아래 Section 5).
 #   server 의 assertTickgwUrl 과 같은 모양 — http · 10.0.0.0/8 호스트(radar-gw 내부 IP:8092). 어긋나면 새 리비전이 부팅을 거부한다.
+# WR-35 — 당일 경로는 켜져 있다(37-17). `--set-env-vars` 전량 치환이라 값 없이 재배포하면(예: 챗봇 수정) 당일 경로가
+#   **조용히** 꺼진다(/api/ticks/live 503 · today live=false). 그래서 RELAY_INTERNAL_URL 처럼 필수로 막고,
+#   끄는 배포(37-16 「당일 경로 꺼짐」 모드)는 `TICKGW_DISABLE=1` 명시로만 허용한다.
+TICKGW_DISABLE="${TICKGW_DISABLE:-0}"
+if [[ "$TICKGW_DISABLE" != "0" && "$TICKGW_DISABLE" != "1" ]]; then
+  echo "ERROR: TICKGW_DISABLE 은 0 또는 1 (받은 값: $TICKGW_DISABLE)" >&2
+  exit 1
+fi
+if [[ "$TICKGW_DISABLE" == "1" && -n "${TICKGW_URL:-}" ]]; then
+  echo "ERROR: TICKGW_URL 과 TICKGW_DISABLE=1 을 함께 줄 수 없다 — 켜려면 TICKGW_URL 만, 끄려면 TICKGW_DISABLE=1 만" >&2
+  exit 1
+fi
+if [[ "$TICKGW_DISABLE" != "1" && -z "${TICKGW_URL:-}" ]]; then
+  echo "ERROR: TICKGW_URL must be set — 값 없이 배포하면 운영 중인 당일 틱 경로가 꺼진다(--set-env-vars 전량 치환 · WR-35)" >&2
+  echo "  값: 라이브 env 그대로 — gcloud run services describe gh-radar-server --region=asia-northeast3 --format=export | grep -A1 'name: TICKGW_URL'" >&2
+  echo "  일부러 끄는 배포(당일 경로 꺼짐 · 37-16)만: TICKGW_DISABLE=1 bash scripts/deploy-server.sh" >&2
+  exit 1
+fi
 if [[ -n "${TICKGW_URL:-}" ]]; then
   _o='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
   if [[ ! "$TICKGW_URL" =~ ^http://10\.${_o}\.${_o}\.${_o}(:[0-9]{1,5})?/?$ ]]; then
@@ -212,9 +230,10 @@ fi
 #
 # Phase 37 D-22 (37-15) — 당일 틱 경로 env `TICKGW_URL` · secret `TICKGW_SECRET`(Secret gh-radar-tickgw-secret) 은
 #   **`TICKGW_URL` 이 주어졌을 때만** 싣는다. 119 인덱서 배포 확인 뒤 37-17 이
-#   `TICKGW_URL=http://<radar-gw 내부 IP>:8092 bash scripts/deploy-server.sh` 로 다시 배포해 켠다. 그 전(또는 값 없이)
-#   배포하면 server 는 `/api/ticks/live` 503 · `/api/ticks/today` live=false 로 안전하게 선다(웹 「당일 자료 준비 중」).
-#   ⚠️ 끄기: `--set-env-vars` 전량 치환이라 값 없이 재배포하면 `TICKGW_URL` 은 사라진다. 그러나 비밀 바인딩은 병합이라
+#   `TICKGW_URL=http://<radar-gw 내부 IP>:8092 bash scripts/deploy-server.sh` 로 다시 배포해 켰다. 끄는 배포는
+#   `TICKGW_DISABLE=1` 명시로만(Section 2 · WR-35) — 그때 server 는 `/api/ticks/live` 503 · `/api/ticks/today` live=false 로
+#   안전하게 선다(웹 「당일 자료 준비 중」). 값도 플래그도 없으면 배포 자체를 거부한다.
+#   ⚠️ 끄기: `--set-env-vars` 전량 치환이라 TICKGW_DISABLE=1 재배포에서 `TICKGW_URL` 은 사라진다. 그러나 비밀 바인딩은 병합이라
 #   남는다 — 이미 바인딩된 비밀까지 걷으려면 `gcloud run services update gh-radar-server --region=asia-northeast3
 #   --remove-secrets=TICKGW_SECRET` 를 따로 한다(남아 있어도 URL 이 없으면 server 는 결선하지 않고 warn 만 한다).
 #   accessor(server 런타임 SA → gh-radar-tickgw-secret)는 scripts/setup-tickgw-iam.sh(37-09) 가 준다.
@@ -299,7 +318,7 @@ echo "✓ relay 결선: RELAY_INTERNAL_URL 설정됨(값 미출력) · RELAY_ORD
 if [[ -n "${TICKGW_URL:-}" ]]; then
   echo "✓ 당일 틱 경로 결선: TICKGW_URL 설정됨(값 미출력) · TICKGW_SECRET 바인딩 (gh-radar-tickgw-secret:latest)"
 else
-  echo "ℹ 당일 틱 경로 꺼짐: TICKGW_URL 미지정 — /api/ticks/live 503 · today live=false (D-22 · 켜기는 37-17)"
+  echo "⚠ 당일 틱 경로를 끈 배포(TICKGW_DISABLE=1) — /api/ticks/live 503 · today live=false (D-22 · 다시 켜기: TICKGW_URL=… bash scripts/deploy-server.sh)"
 fi
 
 # ═══════════════════════════════════════════════════════════════

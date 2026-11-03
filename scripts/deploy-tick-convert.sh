@@ -31,11 +31,16 @@ set -euo pipefail
 #     gh-radar-tickgw-secret → TICKGW_SECRET + Scheduler 둘 `10 20 * * 1-5` · `40 20 * * 1-5` Asia/Seoul.
 #     20:40 두 번째 실행 = 승격 누락 방지 — tickgw 20:01 마감 마무리(동시성 1 · 백오프 · 60초 차단)가 20:10 까지 다 못 닫은
 #     키를 잡는다(그 키는 오늘 complete 라 21:00 전엔 tickgw 유휴 삭제 면제 · 이미 승격된 키는 같은 바이트 덮어쓰기 · 멱등).
-#     TICKGW_URL 이 없으면 승격 Job · Scheduler 를 만들지 않는다(당일 경로 꺼짐).
+#     WR-35: 당일 경로는 켜져 있다(37-17) — TICKGW_URL 이 없으면 Section 7b 를 건너뛰어 nightly 만 새 이미지가 되고
+#     승격 Job 은 옛 SHA 이미지에 묶인다(격자 행 모양이 바뀌어도 승격본만 옛 코드로 써진다). 그래서 TICKGW_URL 을 필수로 막고,
+#     승격을 건너뛰는 배포(당일 경로 꺼짐 · 37-16)는 `TICKGW_DISABLE=1` 명시로만 허용한다(승격 Job 이 이미 있으면 경고).
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL (없으면 시작부터 실패 — 라이브 Cloud Run env 에서 가져온다)
 #           NOTIFICATION_CHANNEL_ID (없으면 마지막 알림 단계만 실패 — Job · Scheduler · 권한은 이미 반영됨)
-# 선택 env: TICKGW_URL — `http://<radar-gw 내부 IP 10.x>:8092` (있으면 승격 Job · Scheduler 를 배포 · 사설 대역 아니면 시작부터 실패)
+#           TICKGW_URL — `http://<radar-gw 내부 IP 10.x>:8092` (승격 Job · Scheduler 를 같은 이미지로 갱신 · 사설 대역 아니면
+#             시작부터 실패 · 값: 승격 Job 의 라이브 env — gcloud run jobs describe gh-radar-tick-convert-promote
+#             --region=asia-northeast3 --format=export | grep -A1 'name: TICKGW_URL')
+# 선택 env: TICKGW_DISABLE=1 — 승격 Job · Scheduler 를 건너뛰는 배포(당일 경로 꺼짐 · TICKGW_URL 과 함께 줄 수 없다)
 # 선행: bash scripts/setup-tick-convert-iam.sh (SA · Secret accessor · 버킷 단위 objectViewer)
 #       승격까지면 bash scripts/setup-tickgw-iam.sh (Secret gh-radar-tickgw-secret) — 37-09
 # ═══════════════════════════════════════════════════════════════
@@ -55,6 +60,22 @@ fi
 # 빌드 · push 전에 거른다(잘못된 값으로 이미지만 올라가고 승격 Job 이 첫 실행에서 종료 2 가 되는 일 방지).
 if [[ -n "${TICKGW_URL:-}" ]] && ! [[ "$TICKGW_URL" =~ ^http://10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(:[0-9]{1,5})?/?$ ]]; then
   echo "ERROR: TICKGW_URL 은 http://10.x.x.x[:port] (radar-gw 내부 주소)만 허용" >&2
+  exit 1
+fi
+# WR-35 — TICKGW_URL 없이 조용히 승격을 건너뛰지 않는다(승격 Job 이 옛 이미지에 묶인다). 끄는 배포는 명시 플래그로만.
+TICKGW_DISABLE="${TICKGW_DISABLE:-0}"
+if [[ "$TICKGW_DISABLE" != "0" && "$TICKGW_DISABLE" != "1" ]]; then
+  echo "ERROR: TICKGW_DISABLE 은 0 또는 1 (받은 값: $TICKGW_DISABLE)" >&2
+  exit 1
+fi
+if [[ "$TICKGW_DISABLE" == "1" && -n "${TICKGW_URL:-}" ]]; then
+  echo "ERROR: TICKGW_URL 과 TICKGW_DISABLE=1 을 함께 줄 수 없다 — 승격 Job 갱신은 TICKGW_URL 만, 건너뛰기는 TICKGW_DISABLE=1 만" >&2
+  exit 1
+fi
+if [[ "$TICKGW_DISABLE" != "1" && -z "${TICKGW_URL:-}" ]]; then
+  echo "ERROR: TICKGW_URL must be set — 없으면 승격 Job 이 옛 이미지에 남는다(nightly 만 새 이미지 · WR-35)" >&2
+  echo "  값: gcloud run jobs describe gh-radar-tick-convert-promote --region=asia-northeast3 --format=export | grep -A1 'name: TICKGW_URL'" >&2
+  echo "  승격을 일부러 건너뛰는 배포(당일 경로 꺼짐 · 37-16)만: TICKGW_DISABLE=1 bash scripts/deploy-tick-convert.sh" >&2
   exit 1
 fi
 
@@ -235,7 +256,7 @@ PROMOTE_CRON_LATE="40 20 * * 1-5"
 TICKGW_SECRET_NAME="gh-radar-tickgw-secret"
 VPC_NAME=gh-radar-vpc
 SUBNET_NAME=gh-radar-subnet-an3
-PROMOTE_STATUS="건너뜀 — TICKGW_URL 미설정(당일 경로 꺼짐 · D-22)"
+PROMOTE_STATUS="건너뜀 — TICKGW_DISABLE=1(당일 경로 꺼짐 · D-22)"
 
 if [[ -n "${TICKGW_URL:-}" ]]; then
   # 선행 — VPC(deploy-server.sh 와 같은 망) · tickgw 비밀(setup-tickgw-iam.sh)
@@ -287,7 +308,15 @@ if [[ -n "${TICKGW_URL:-}" ]]; then
   create_or_update_scheduler "$PROMOTE_SCHED_LATE" "$PROMOTE_JOB" "$PROMOTE_CRON_LATE"
   PROMOTE_STATUS="$PROMOTE_JOB (VPC private-ranges-only · TICKGW_URL=${TICKGW_URL}) · $PROMOTE_SCHED '$PROMOTE_CRON' · $PROMOTE_SCHED_LATE '$PROMOTE_CRON_LATE' Asia/Seoul"
 else
-  echo "승격 Job 건너뜀 — TICKGW_URL 미설정(당일 경로 꺼짐 · D-22)"
+  echo "⚠ 승격 Job 건너뜀 — TICKGW_DISABLE=1(당일 경로 꺼짐 · D-22)"
+  # 이미 있는 승격 Job 은 지우지도 갱신하지도 않는다 — 옛 이미지 · Scheduler 그대로 돈다는 것을 크게 알린다
+  if gcloud run jobs describe "$PROMOTE_JOB" --region="$REGION" >/dev/null 2>&1; then
+    PROMOTE_IMAGE_NOW=$(gcloud run jobs describe "$PROMOTE_JOB" --region="$REGION" \
+      --format='value(spec.template.spec.template.spec.containers[0].image)' 2>/dev/null || true)
+    echo "⚠ 승격 Job $PROMOTE_JOB 은 남아 있고 옛 이미지(${PROMOTE_IMAGE_NOW:-?})로 Scheduler 가 계속 깨운다 — 새 이미지 $IMAGE 와 다르다" >&2
+    echo "  멈추려면: gcloud scheduler jobs pause $PROMOTE_SCHED --location=$REGION · gcloud scheduler jobs pause $PROMOTE_SCHED_LATE --location=$REGION" >&2
+    PROMOTE_STATUS="건너뜀 — TICKGW_DISABLE=1 · ⚠ 기존 $PROMOTE_JOB 는 옛 이미지 그대로"
+  fi
 fi
 
 # Section 8: 완료
