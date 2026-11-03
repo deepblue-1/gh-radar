@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   fetchTickOpen: vi.fn(),
   postTickConvert: vi.fn(),
   postTickCancel: vi.fn(),
+  fetchTickOwn: vi.fn(),
 }));
 vi.mock('@/lib/ticks/tick-api', () => api);
 
@@ -181,6 +182,8 @@ describe('TickViewerPage — URL t 의존성', () => {
     };
     api.fetchTickDay.mockResolvedValue(day);
     api.fetchTickOpen.mockResolvedValue(openResp(1));
+    // 과거 격자 뷰어는 열 때 우리 체결 1회(Phase 38-08) — 빈 응답
+    api.fetchTickOwn.mockResolvedValue({ access: true, date: D, exchange: 'KRX', isin: ISIN, servers: [], fills: [], events: [], orders: [] });
     fetchMock.mockImplementation(async () => zstResponse());
     searchParams = new URLSearchParams({ isin: ISIN, d: D, t: '13:30:00.000' });
 
@@ -201,5 +204,7 @@ describe('TickViewerPage — URL t 의존성', () => {
     expect(current()).toBe(before);
     expect(api.fetchTickOpen).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    // t 만 바뀌어도 우리 체결을 다시 부르지 않는다(열 때 1회 · 38-08)
+    expect(api.fetchTickOwn).toHaveBeenCalledTimes(1);
   });
 });
