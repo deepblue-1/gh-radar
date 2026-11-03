@@ -24,7 +24,8 @@
  *   TICKGW_CLOSE_DELAY_MS  기본 60000 — KST 20:00 + 이 값 뒤 마감 마무리 1회
  *   TICKGW_KEEP_UNTIL      기본 21:00 — 오늘 complete 키는 이 KST 시각까지 유휴 삭제 면제(승격 입력)
  *   TICKGW_CATCHUP_AT      기본 19:55 — 이 KST 시각부터 19:59 전까지 하루 한 번, 리스가 끝난 오늘 complete 키를 따라잡는다
- *                          (poller.ts 「19:55 따라잡기」 · CR-31 후속). `off` 면 끈다. 20:00 이후 값은 거부(창이 비어 뜻이 없다)
+ *                          (poller.ts 「19:55 따라잡기」 · CR-31 후속). `off` 면 끈다. 19:59 이후 값은 거부(창 끝이 19:59 라
+ *                          창이 비어 뜻이 없다 · gh-trade 회신 261104-tickgw-catchup-1955-reply)
  *   TICKGW_INDEXER_TIMEOUT_MS 기본 60000 — ssh 한 번의 상한(넘으면 kill · 실패로 센다)
  *   LOG_LEVEL              info(기본) | silent
  *
