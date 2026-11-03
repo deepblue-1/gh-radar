@@ -2,14 +2,29 @@
  * Phase 38 (D-15 · SC-2) `matchOwnFills` 합성 경계 — 창 [−200, +1500]ms · 남은 수량 차감 · 「추정」 20ms · 동률 = 작은 j ·
  * 가격 불일치 · tNs 없음(수신 시각) · 입력 순서 처리. 정의는 own-fills.ts 머리 주석 · RESEARCH Pattern 1 (a).
  *
- * 합성 A3 는 A3_LAYOUT 필드 이름으로 채운다(매직 오프셋 없음 — webapp tick-synth `a3Msg` 와 같은 꼴).
+ * 38-05: `locateEvidence` · `anchorOf` 합성 경계 — B6 창 [g − 3000, g + 50] · 마지막 일치 · 매수 · 매도 단 · 체결 단건 ·
+ * 주기매도 구간 (before, after] · 근거 없음 · 앵커 마지막 j. 정의는 own-fills.ts 「조건 근거 · 앵커」 머리 주석.
+ *
+ * 합성 A3 는 A3_LAYOUT · 합성 B6 는 B6_LAYOUT 필드 이름으로 채운다(매직 오프셋 없음 — webapp tick-synth `a3Msg` 와 같은 꼴).
  * trade_time 은 수신 시각이 속한 KST 날짜의 HHMMSSuuuuuu 로 풀린다(parseTime12Ns) — 기준 13:00:00 KST.
  */
 import { describe, expect, it } from "vitest";
 import { concatBytes, encodeRecord } from "../ticks/framing";
-import { A3_LAYOUT, type Layout } from "../ticks/layouts";
-import { a3TimeMs, matchOwnFills, OWN_MATCH_DT_MAX_MS, OWN_MATCH_DT_MIN_MS, OWN_MATCH_EST_MS } from "../ticks/own-fills";
-import { a3ColumnsOf, buildTickIndex, type A3Columns, type TickIndex } from "../ticks/record-index";
+import { A3_LAYOUT, B6_LAYOUT, type Layout } from "../ticks/layouts";
+import {
+  a3TimeMs,
+  anchorOf,
+  cumIndexOf,
+  locateEvidence,
+  matchOwnFills,
+  OWN_B6_AFTER_MS,
+  OWN_B6_BEFORE_MS,
+  OWN_MATCH_DT_MAX_MS,
+  OWN_MATCH_DT_MIN_MS,
+  OWN_MATCH_EST_MS,
+  type OwnEventIn,
+} from "../ticks/own-fills";
+import { a3ColumnsOf, buildTickIndex, recvOrderOf, type A3Columns, type TickIndex } from "../ticks/record-index";
 import { dayStartNs } from "../ticks/tick-time";
 
 /** 13:00:00.000 KST(2026-10-30) epoch ns · ms. */
@@ -26,18 +41,18 @@ function field(layout: Layout, name: string): { offset: number; length: number }
   return f;
 }
 
-function setStr(b: Uint8Array, name: string, v: string): void {
-  const f = field(A3_LAYOUT, name);
+function setStr(b: Uint8Array, name: string, v: string, layout: Layout = A3_LAYOUT): void {
+  const f = field(layout, name);
   put(b, f.offset, v.padEnd(f.length, " ").slice(0, f.length));
 }
 
-function setNum(b: Uint8Array, name: string, v: number): void {
-  const f = field(A3_LAYOUT, name);
+function setNum(b: Uint8Array, name: string, v: number, layout: Layout = A3_LAYOUT): void {
+  const f = field(layout, name);
   put(b, f.offset, String(Math.trunc(Math.abs(v))).padStart(f.length, "0"));
 }
 
-function setPrice(b: Uint8Array, name: string, v: number): void {
-  const f = field(A3_LAYOUT, name);
+function setPrice(b: Uint8Array, name: string, v: number, layout: Layout = A3_LAYOUT): void {
+  const f = field(layout, name);
   put(b, f.offset, (v < 0 ? "-0" : "00") + String(Math.abs(v)).padStart(f.length - 2, "0"));
 }
 
@@ -190,5 +205,188 @@ describe("matchOwnFills 합성 경계", () => {
     ]);
     expect(m[0]!.a3j).toBe(0);
     expect(m[1]!.a3j).toBe(-1);
+  });
+});
+
+interface B6Rec {
+  seq: number;
+  /** 수신 시각 — 13:00:00 기준 µs. */
+  recvUs: number;
+  /** 매수 단 [가격, 잔량] — bids[0] = 매수1. 빈 단은 0/0. */
+  bids?: [number, number][];
+  /** 매도 단 [가격, 잔량] — asks[0] = 매도1. */
+  asks?: [number, number][];
+}
+
+/** 테스트 안 지역 헬퍼 — B6_LAYOUT 필드 이름으로 호가 한 건을 채워 레코드 프레이밍 바이트로. */
+function b6Rec(s: B6Rec): Uint8Array {
+  const b = new Uint8Array(B6_LAYOUT.size).fill(48);
+  put(b, 0, B6_LAYOUT.tag);
+  setStr(b, "info_cat", "01S", B6_LAYOUT);
+  setNum(b, "msg_seq", s.seq, B6_LAYOUT);
+  setStr(b, "board_id", "G1", B6_LAYOUT);
+  setStr(b, "isin", "KR7184230001", B6_LAYOUT);
+  setStr(b, "proc_time", timeOf(s.recvUs), B6_LAYOUT);
+  for (let i = 1; i <= 10; i++) {
+    const [bp, bq] = s.bids?.[i - 1] ?? [0, 0];
+    const [ap, aq] = s.asks?.[i - 1] ?? [0, 0];
+    setPrice(b, `bid${i}_px`, bp, B6_LAYOUT);
+    setNum(b, `bid${i}_qty`, bq, B6_LAYOUT);
+    setPrice(b, `ask${i}_px`, ap, B6_LAYOUT);
+    setNum(b, `ask${i}_qty`, aq, B6_LAYOUT);
+  }
+  return encodeRecord(BASE_NS + BigInt(s.recvUs) * 1000n, b);
+}
+
+type SynthRec = { a3: A3Rec } | { b6: B6Rec };
+
+/** 파일 순서대로 A3 · B6 를 섞은 세션 → locateEvidence 입력 한 벌(recvOrder · cumIdx 는 세션당 한 번). */
+function session(recs: SynthRec[]) {
+  const buf = concatBytes(recs.map((r) => ("a3" in r ? a3Rec(r.a3) : b6Rec(r.b6))));
+  const index = buildTickIndex(buf, "krx");
+  const recvOrder = recvOrderOf(index);
+  const a3 = a3ColumnsOf(buf, index);
+  const cumIdx = cumIndexOf(a3);
+  const locate = (ev: Partial<OwnEventIn> & { gwMs: number; evKind: number }) =>
+    locateEvidence(buf, index, recvOrder, a3, cumIdx, {
+      evPrice: 0,
+      evQtyBefore: 0,
+      evQtyAfter: 0,
+      evTradeQty: 0,
+      ...ev,
+    });
+  return { buf, index, a3, cumIdx, locate };
+}
+
+describe("locateEvidence · anchorOf 합성 경계", () => {
+  it("B6 합성 헬퍼 — 매수 · 매도 단이 bookAt 그대로", () => {
+    const s = session([{ b6: { seq: 1, recvUs: 0, bids: [[1000, 500]], asks: [[1005, 700]] } }]);
+    expect(s.index.ok[0]).toBe(1);
+    const v = s.locate({ gwMs: gw(0), evKind: 1, evPrice: 1005, evQtyAfter: 700 });
+    expect(v).toEqual({ kind: "b6", rec: 0 });
+  });
+
+  it("호가 근거 창 — g − 3000 · g + 50 포함 · g − 3001 · g + 51 제외", () => {
+    expect(OWN_B6_BEFORE_MS).toBe(3000);
+    expect(OWN_B6_AFTER_MS).toBe(50);
+    const g = 10_000; // 이벤트 시각(ms 오프셋)
+    const one = (recvMs: number) =>
+      session([{ b6: { seq: 1, recvUs: recvMs * 1000, bids: [[1000, 500]] } }]).locate({
+        gwMs: gw(g),
+        evKind: 1,
+        evPrice: 1000,
+        evQtyAfter: 500,
+      });
+    expect(one(g - 3000)).toEqual({ kind: "b6", rec: 0 });
+    expect(one(g + 50)).toEqual({ kind: "b6", rec: 0 });
+    expect(one(g - 3001)).toEqual({ kind: "none" });
+    expect(one(g + 51)).toEqual({ kind: "none" });
+  });
+
+  it("창 안 일치가 둘이면 뒤(수신순 마지막) 것 · 잔량 다르면 근거 아님", () => {
+    const s = session([
+      { b6: { seq: 1, recvUs: 1_000_000, bids: [[1000, 500]] } },
+      { b6: { seq: 2, recvUs: 2_000_000, bids: [[1000, 500]] } },
+      { b6: { seq: 3, recvUs: 2_500_000, bids: [[1000, 499]] } }, // 더 늦지만 잔량이 다르다
+    ]);
+    expect(s.locate({ gwMs: gw(3000), evKind: 1, evPrice: 1000, evQtyAfter: 500 })).toEqual({ kind: "b6", rec: 1 });
+    expect(s.locate({ gwMs: gw(3000), evKind: 1, evPrice: 1000, evQtyAfter: 499 })).toEqual({ kind: "b6", rec: 2 });
+    expect(s.locate({ gwMs: gw(3000), evKind: 1, evPrice: 1000, evQtyAfter: 1 })).toEqual({ kind: "none" });
+  });
+
+  it("매수 단 · 매도 단 어디서든(10단 안 아무 단)", () => {
+    const s = session([
+      {
+        b6: {
+          seq: 1,
+          recvUs: 0,
+          bids: [
+            [1000, 10],
+            [995, 20],
+            [990, 30],
+          ],
+          asks: [
+            [1005, 40],
+            [1010, 50],
+          ],
+        },
+      },
+    ]);
+    expect(s.locate({ gwMs: gw(0), evKind: 1, evPrice: 990, evQtyAfter: 30 })).toEqual({ kind: "b6", rec: 0 });
+    expect(s.locate({ gwMs: gw(0), evKind: 1, evPrice: 1010, evQtyAfter: 50 })).toEqual({ kind: "b6", rec: 0 });
+    expect(s.locate({ gwMs: gw(0), evKind: 1, evPrice: 1020, evQtyAfter: 50 })).toEqual({ kind: "none" });
+  });
+
+  it("체결 근거 단건 — cum == after ∧ 수량 == trade ∧ 가격 == price 가 정확히 하나", () => {
+    const s = session([
+      { a3: { seq: 1, px: 1000, qty: 50, timeUs: 0, cumVolume: 150 } },
+      { a3: { seq: 2, px: 1000, qty: 30, timeUs: 1000, cumVolume: 180 } },
+      { a3: { seq: 3, px: 1005, qty: 30, timeUs: 2000, cumVolume: 180 } }, // 같은 cum · 가격 다름 → 후보 아님
+    ]);
+    const v = s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1000, evQtyBefore: 100, evQtyAfter: 180, evTradeQty: 30 });
+    expect(v).toEqual({ kind: "a3", j: 1 });
+  });
+
+  it("단건 후보 2개면 단건 아님 → 구간 (before, after] — before 제외 · after 포함", () => {
+    const s = session([
+      { a3: { seq: 1, px: 1000, qty: 100, timeUs: 0, cumVolume: 100 } }, // = before → 제외
+      { a3: { seq: 2, px: 1000, qty: 50, timeUs: 1000, cumVolume: 150 } },
+      { a3: { seq: 3, px: 1000, qty: 30, timeUs: 2000, cumVolume: 180 } }, // = after
+      { a3: { seq: 3, px: 1000, qty: 30, timeUs: 2000, cumVolume: 180 } }, // 같은 전문 중복 수신 → 단건 후보 둘
+      { a3: { seq: 4, px: 1000, qty: 10, timeUs: 3000, cumVolume: 190 } }, // > after → 제외
+    ]);
+    const v = s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1000, evQtyBefore: 100, evQtyAfter: 180, evTradeQty: 30 });
+    expect(v).toEqual({ kind: "range", firstJ: 1, lastJ: 3, n: 3, qty: 110 });
+  });
+
+  it("단건이 없고 after > before 면 구간(주기매도) · 구간에 A3 가 없으면 근거 없음", () => {
+    const s = session([
+      { a3: { seq: 1, px: 1000, qty: 20, timeUs: 0, cumVolume: 70 } },
+      { a3: { seq: 2, px: 1010, qty: 30, timeUs: 1000, cumVolume: 100 } },
+    ]);
+    // 주기매도: trade_qty = after − before(70) — 단건 수량과 다르다
+    const v = s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1010, evQtyBefore: 30, evQtyAfter: 100, evTradeQty: 70 });
+    expect(v).toEqual({ kind: "range", firstJ: 0, lastJ: 1, n: 2, qty: 50 });
+    const empty = s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1010, evQtyBefore: 100, evQtyAfter: 120, evTradeQty: 20 });
+    expect(empty).toEqual({ kind: "none" });
+  });
+
+  it("before = after = 0 → 근거 없음 · after < before → 근거 없음", () => {
+    const s = session([{ a3: { seq: 1, px: 1000, qty: 20, timeUs: 0, cumVolume: 70 } }]);
+    expect(s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1000, evQtyBefore: 0, evQtyAfter: 0, evTradeQty: 0 })).toEqual({
+      kind: "none",
+    });
+    expect(s.locate({ gwMs: gw(5), evKind: 2, evPrice: 1000, evQtyBefore: 90, evQtyAfter: 60, evTradeQty: 20 })).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("ev_kind 0 · 3 · 그 밖은 근거 없음 — 호가 · 체결이 맞아도", () => {
+    const s = session([
+      { b6: { seq: 1, recvUs: 0, bids: [[1000, 500]] } },
+      { a3: { seq: 2, px: 1000, qty: 30, timeUs: 0, cumVolume: 180 } },
+    ]);
+    const base = { gwMs: gw(0), evPrice: 1000, evQtyBefore: 100, evQtyAfter: 180, evTradeQty: 30 };
+    expect(s.locate({ ...base, evKind: 2 })).toEqual({ kind: "a3", j: 0 });
+    for (const k of [0, 3, 4, -1]) expect(s.locate({ ...base, evKind: k })).toEqual({ kind: "none" });
+    expect(s.locate({ ...base, evKind: 1, evQtyAfter: 500 })).toEqual({ kind: "b6", rec: 0 });
+    expect(s.locate({ ...base, evKind: 0, evQtyAfter: 500 })).toEqual({ kind: "none" });
+  });
+
+  it("cumIndexOf · anchorOf — 같은 cum 의 마지막 j · cum 0 이하 · 없는 cum 이면 −1", () => {
+    const s = session([
+      { a3: { seq: 1, px: 1000, qty: 10, timeUs: 0, cumVolume: 0 } },
+      { a3: { seq: 2, px: 1000, qty: 10, timeUs: 1000, cumVolume: 500 } },
+      { b6: { seq: 3, recvUs: 1500, bids: [[1000, 1]] } },
+      { a3: { seq: 2, px: 1000, qty: 10, timeUs: 1000, cumVolume: 500 } }, // 같은 cum 중복 → 마지막
+      { a3: { seq: 4, px: 1000, qty: 10, timeUs: 2000, cumVolume: 510 } },
+    ]);
+    expect(s.cumIdx.has(0)).toBe(false);
+    expect(s.cumIdx.get(500)).toEqual([1, 2]);
+    expect(anchorOf(s.cumIdx, 500)).toBe(2);
+    expect(anchorOf(s.cumIdx, 510)).toBe(3);
+    expect(anchorOf(s.cumIdx, 0)).toBe(-1);
+    expect(anchorOf(s.cumIdx, -5)).toBe(-1);
+    expect(anchorOf(s.cumIdx, 505)).toBe(-1);
   });
 });

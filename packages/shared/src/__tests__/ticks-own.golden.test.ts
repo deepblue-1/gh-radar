@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  anchorOf,
   cumIndexOf,
   locateEvidence,
   matchOwnFills,
@@ -244,6 +245,76 @@ describe("조건 근거 · 앵커 오라클 10/30 (SC-3)", () => {
     lags.sort((x, y) => x - y);
     console.info(
       `[own-oracle] 호가 근거 gw − 수신 p50 ${quantile(lags, 0.5).toFixed(1)} · p95 ${quantile(lags, 0.95).toFixed(1)} · min ${lags[0]!.toFixed(1)} · max ${lags[lags.length - 1]!.toFixed(1)} ms`,
+    );
+  });
+
+  it("분포(ev_kind × 결과) — 1 = b6 29 · 2 = a3 2 · range 9 · none 2 · 0 = none 82", () => {
+    const dist: Record<string, number> = {};
+    for (const r of runs) {
+      r.events.forEach((e, i) => {
+        const k = `${e.ev_kind}:${r.ev[i]!.kind}`;
+        dist[k] = (dist[k] ?? 0) + 1;
+      });
+    }
+    console.info(`[own-oracle] 근거 분포 ${JSON.stringify(dist)}`);
+    expect(dist).toEqual({ "1:b6": 29, "2:a3": 2, "2:range": 9, "2:none": 2, "0:none": 82 });
+  });
+
+  it("체결 근거 — 단건 2(cum · 수량 · 가격 일치 A3) · 구간 9(각 n ≥ 1 · (before, after]) · 없음 2(before = after = 0)", () => {
+    let single = 0;
+    let range = 0;
+    let none = 0;
+    for (const r of runs) {
+      r.events.forEach((e, i) => {
+        if (e.ev_kind !== 2) return;
+        const v = r.ev[i]!;
+        if (v.kind === "a3") {
+          single += 1;
+          expect(r.a3.cumVolume[v.j]).toBe(e.ev_qty_after);
+          expect(r.a3.qty[v.j]).toBe(e.ev_trade_qty);
+          expect(r.a3.px[v.j]).toBe(e.ev_price);
+        } else if (v.kind === "range") {
+          range += 1;
+          expect(v.n).toBeGreaterThanOrEqual(1);
+          expect(v.firstJ).toBeLessThanOrEqual(v.lastJ);
+          for (const j of [v.firstJ, v.lastJ]) {
+            expect(r.a3.cumVolume[j]).toBeGreaterThan(e.ev_qty_before);
+            expect(r.a3.cumVolume[j]).toBeLessThanOrEqual(e.ev_qty_after);
+          }
+        } else if (v.kind === "none") {
+          none += 1;
+          expect([e.ev_qty_before, e.ev_qty_after]).toEqual([0, 0]);
+        }
+      });
+    }
+    expect({ single, range, none }).toEqual({ single: 2, range: 9, none: 2 });
+  });
+
+  it("앵커 — cum_volume > 0 이벤트 100/100 이 같은 누적거래량 A3(마지막 일치)를 가진다", () => {
+    let total = 0;
+    let found = 0;
+    const lags: number[] = [];
+    for (const r of runs) {
+      for (const e of r.events) {
+        if (!(e.cum_volume > 0)) {
+          expect(anchorOf(r.cumIdx, e.cum_volume)).toBe(-1);
+          continue;
+        }
+        total += 1;
+        const j = anchorOf(r.cumIdx, e.cum_volume);
+        if (j < 0) continue;
+        found += 1;
+        expect(r.a3.cumVolume[j]).toBe(e.cum_volume);
+        const list = r.cumIdx.get(e.cum_volume)!;
+        expect(j).toBe(list[list.length - 1]);
+        lags.push(e.gw_time_ms - Number(r.index.recvNs[r.a3.rec[j]!]! / 1000n) / 1000);
+      }
+    }
+    expect(total).toBe(100);
+    expect(found).toBe(100);
+    lags.sort((x, y) => x - y);
+    console.info(
+      `[own-oracle] 앵커 gw − 수신 p50 ${quantile(lags, 0.5).toFixed(1)} · p95 ${quantile(lags, 0.95).toFixed(1)} · max ${lags[lags.length - 1]!.toFixed(1)} ms`,
     );
   });
 });
