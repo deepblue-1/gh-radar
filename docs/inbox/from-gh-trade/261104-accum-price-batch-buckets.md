@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 4632e17a
 from_branch: master
 date: 2026-11-04
 fbs_sync_marker: e96aef6e
-done_commit:
+done_commit: —  # 확인만 · 기능 작업 없음(2026-11-04). relay 는 88·89·90 을 디코드하지 않고(매집은 kind 16 저널 accumSignalOf) 95 는 관찰자 미수신. 생성물 재동기화는 다음 동기화 때.
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
