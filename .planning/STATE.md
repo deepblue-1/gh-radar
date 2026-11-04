@@ -6,10 +6,10 @@ current_phase: 37
 current_phase_name: 틱 전문 뷰어
 status: executing
 stopped_at: Phase 38 complete (Phase 37 still executing in its own session)
-last_updated: "2026-11-04T08:50:04.198Z"
+last_updated: "2026-11-04T11:44:09.232Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 38 complete — deployed · UAT ok · verification passed
-state_head: 7737c8cb9b51c1f256170f074fcd192bfa934140
+state_head: c70564db67c4f8670321911cd37b03b456977fb3
 progress:
   total_phases: 9
   completed_phases: 7
@@ -135,6 +135,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261104-n9h | 틱뷰어 목록 — 오늘 목록 팀 3열(매집감지 kind 16 · 손익 ≈ 추정) + 시가·고가 열(등락률은 종가/현재가 기준) | 2026-11-04 | 9da0dafb | [261104-n9h-tick-list-today-team-cols-open-high-3](./quick/261104-n9h-tick-list-today-team-cols-open-high-3/) |
 | 261104-n7i | 발사 주문 대기열 당일 자동 계산(launch-live) — tickgw 당일 틱으로 16:01·16:03·16:10 · 09:01·09:03 계산 · live 표식(밤 nightly 가 덮음) · 웹 「HH:MM 기준」 | 2026-11-04 | e9b4df39 | [261104-n7i-launch-live](./quick/261104-n7i-launch-live/) |
 | 261104-nxs | 작업대 매집감지 목록 — relay 95 AccumPriceBatch 현재가 원천(95 없는 종목만 구독 폴백) + 등락률·당일 순매수 최소~최대 필터 · 전부 보기 · 필터 밖 N | 2026-11-04 | 7737c8cb | [261104-nxs-relay-95-accumpricebatch](./quick/261104-nxs-relay-95-accumpricebatch/) |
+| 48 | 작업대 매집 줄 /api/accum-signals 50~92초 — dma_accum_signals_for_user_json kind 16 부분 인덱스 직접 읽기(반환·규칙 불변) | 2026-11-04 | c70564db | — |
 
 ## Session Continuity
 
