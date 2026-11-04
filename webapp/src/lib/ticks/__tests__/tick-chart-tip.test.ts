@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { buildPnlPrefix, type TeamFill } from '@gh-radar/shared';
 
 import type { PosNetPoint } from '@/lib/accum-chart';
-import { SYNTH_DATE } from '@/test-fixtures/tick-synth';
+import { SYNTH_DATE, a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
 import type { OwnFillView, OwnModel, OwnOrderView } from '../own-model';
 import type { TeamModel } from '../team-model';
 import {
   TEAM_BUCKETS,
+  msOfNs,
+  priceSeriesOf,
   tickBoundsOf,
   tickPanelsOf,
   TICK_CHART,
@@ -19,6 +21,7 @@ import {
 } from '../tick-chart';
 import {
   cumNetAt,
+  fmtRangeDur,
   nearestTickCircleOf,
   teamAvgAt,
   tickBandAt,
@@ -28,6 +31,7 @@ import {
   tickHoverWithOwn,
   tickOrderHoverOf,
   tickOwnTipOf,
+  tickRangeSumOf,
   type TickBandSource,
 } from '../tick-chart-tip';
 
@@ -240,6 +244,7 @@ describe('tickBandAt — 고정 띠 네 칸(가격 | 당일 팀 | 10분 | 누적
     pos: Int32Array.from([1, 2, 3]),
     qty: f([100, 600, 1000]),
     val: f([1_000_000, 6_000_000, 10_000_000]),
+    val0: 0,
     teamBuy: f([0, 5_000_000, 5_000_000]),
     teamSell: f([0, 0, 1_000_000]),
     share: f([0, 5 / 6, 0.6]),
@@ -292,6 +297,60 @@ describe('tickBandAt — 고정 띠 네 칸(가격 | 당일 팀 | 10분 | 누적
     expect(b.hasCum).toBe(true);
     expect(b.cum).toBe(1_000_000_000);
     expect([b.dayBuy, b.daySell]).toEqual([15_050_000, 3_015_000]);
+  });
+});
+
+/**
+ * 스케치 028 ③ — Shift+끌기 구간 합계. 기준 = 팀 체결 조각 수신 시각(10분 막대 · 넷째 판과 같은 수).
+ * 깨지면: 구간 합계가 10분 막대와 어긋나거나, 경계에 걸친 주문이 통째로 들어가거나 빠지거나, 기록 전 거래대금이 섞인다.
+ */
+describe('tickRangeSumOf · fmtRangeDur — 구간 합계', () => {
+  /** 컴포넌트 테스트 krx 와 같은 하루 — 팀 매수 3조각(984만) · 일반 매도 · 팀 매도 1조각(652만). 오프셋 단위 ms. */
+  const krx = synthSession([
+    [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121] })],
+    [1, a3Msg({ seq: 101, bs: '2', px: 16400, qty: 100, time: '130000001000' })],
+    [1.1, a3Msg({ seq: 102, bs: '2', px: 16400, qty: 200, time: '130000001100' })],
+    [1.2, a3Msg({ seq: 103, bs: '2', px: 16400, qty: 300, time: '130000001200' })],
+    [1.5, b6Msg({ seq: 104, ask1: [16450, 10], bid1: [16400, 20] })],
+    [2, a3Msg({ seq: 105, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000002000' })],
+    [2.5, b6Msg({ seq: 106, ask1: [16400, 1], bid1: [16350, 2] })],
+    [5, a3Msg({ seq: 107, bs: '1', px: 16300, qty: 400, time: '130000005000' })],
+    [5.5, b6Msg({ seq: 108, ask1: [16400, 1], bid1: [16300, 2] })],
+  ]);
+  const at = (ms: number) => msOfNs(synthNs(ms));
+
+  it('첫 A3 앞 ~ 마지막 A3 뒤 — 매수 984만 1건 · 매도 652만 1건 · 순 +332만 · 거래대금 1,718만 · 비중 ≈ 95.2%', () => {
+    const r = tickRangeSumOf(krx, at(0.5), at(6));
+    expect([r.buy, r.nBuy, r.sell, r.nSell]).toEqual([9_840_000, 1, 6_520_000, 1]);
+    expect(r.net).toBe(3_320_000);
+    expect(r.tv).toBe(17_177_500);
+    expect(r.share).toBeCloseTo(16_360_000 / 17_177_500, 9);
+    const price = priceSeriesOf(krx);
+    expect(r.px0).toBe(price.px[0]);
+    expect(r.px1).toBe(price.px[price.n - 1]);
+    expect(r.chgPct).toBeCloseTo(((16_300 - 16_400) / 16_400) * 100, 9);
+  });
+
+  it('seq 101 · 102 만 덮는 구간 — 매수 492만(조각만큼 나뉨) · 1건 · 매도 0', () => {
+    const r = tickRangeSumOf(krx, at(0.95), at(1.15));
+    expect([r.buy, r.nBuy, r.sell, r.nSell]).toEqual([4_920_000, 1, 0, 0]);
+    expect(r.tv).toBe(4_920_000);
+    expect([r.px0, r.px1]).toEqual([16_400, 16_400]);
+  });
+
+  it('체결 없는 구간 — 금액 0 · 거래대금 0 · 비중 null · t0 > t1 도 같은 결과', () => {
+    const r = tickRangeSumOf(krx, at(2.2), at(4.8));
+    expect([r.buy, r.sell, r.tv, r.nBuy, r.nSell]).toEqual([0, 0, 0, 0, 0]);
+    expect(r.share).toBeNull();
+    const before = tickRangeSumOf(krx, at(0.1), at(0.5));
+    expect([before.buy, before.tv, before.px0, before.px1]).toEqual([0, 0, null, null]);
+    expect(tickRangeSumOf(krx, at(6), at(0.5))).toEqual(tickRangeSumOf(krx, at(0.5), at(6)));
+  });
+
+  it('fmtRangeDur — 「h시간 m분」 · 「m분 s초」 · 「s초」', () => {
+    expect(fmtRangeDur(4_200_000)).toBe('1시간 10분');
+    expect(fmtRangeDur(95_000)).toBe('1분 35초');
+    expect(fmtRangeDur(7_000)).toBe('7초');
   });
 });
 

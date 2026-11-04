@@ -29,14 +29,19 @@ import { TEAM_CIRCLE_MIN_VAL, type TeamModel, type TeamOrderPoint } from './team
 import {
   OWN_MARK_HIT_PAD,
   OWN_MARK_R,
+  msOfNs,
   priceIdxAt,
+  priceSeriesOf,
   turnoverIdxAt,
+  turnoverIdxBefore,
+  turnoverSeriesOf,
   type OwnMark,
   type PriceSeries,
   type TickPanels,
   type TurnoverSeries,
 } from './tick-chart';
 import { MINUS, fmtQty } from './tick-format';
+import type { TickSession } from './tick-session';
 
 /** 원을 그리는 창 여유(창 폭의 2% — 컴포넌트가 그리는 원과 같은 범위). */
 const VIEW_PAD_RATIO = 0.02;
@@ -343,6 +348,84 @@ export function tickBandAt(src: TickBandSource, t: number): TickBand {
     share: ti >= 0 ? turnover.share[ti]! : null,
     capRatio: tv !== null && mcap !== null && mcap > 0 ? tv / mcap : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 구간 합계(스케치 028 ③) — Shift+끌기로 고른 [t0, t1] 의 팀 매수 · 매도 · 순매수
+// ---------------------------------------------------------------------------
+
+/** 구간 합계 — 금액은 팀 체결 조각 수신 시각 기준(10분 막대 · 넷째 판과 같은 수 · 경계에 걸친 주문은 조각만큼 나뉜다). */
+export interface TickRangeSum {
+  t0: number;
+  t1: number;
+  buy: number;
+  sell: number;
+  /** 구간 안 조각이 하나라도 있는 팀 주문 수(쪽별). */
+  nBuy: number;
+  nSell: number;
+  net: number;
+  /** 구간 거래대금(그 거래소 A3 전부 · 중복 수신 제외). */
+  tv: number;
+  /** (매수 + 매도) ÷ 구간 거래대금 — 거래대금 0 이면 null. */
+  share: number | null;
+  /** 구간 시작 시각의 가격(없으면 구간 안 첫 가격) · 끝 시각의 가격 · 등락 %. */
+  px0: number | null;
+  px1: number | null;
+  chgPct: number | null;
+}
+
+/** 구간 [t0, t1](순서 무관) 팀 매수 · 매도 · 순매수 · 거래대금 · 팀 비중 · 가격 첫 → 끝. */
+export function tickRangeSumOf(session: TickSession, t0: number, t1: number): TickRangeSum {
+  const lo = Math.min(t0, t1);
+  const hi = Math.max(t0, t1);
+  const s = turnoverSeriesOf(session);
+  const i1 = turnoverIdxAt(s, hi);
+  const i0 = turnoverIdxBefore(s, lo);
+  let buy = 0;
+  let sell = 0;
+  let tv = 0;
+  if (i1 >= 0 && i1 > i0) {
+    buy = s.teamBuy[i1]! - (i0 >= 0 ? s.teamBuy[i0]! : 0);
+    sell = s.teamSell[i1]! - (i0 >= 0 ? s.teamSell[i0]! : 0);
+    tv = s.val[i1]! - (i0 >= 0 ? s.val[i0]! : s.val0);
+  }
+  const buyOrders = new Set<number>();
+  const sellOrders = new Set<number>();
+  for (const f of session.team.fills) {
+    const ms = msOfNs(session.index.recvNs[f.rec]!);
+    if (ms < lo || ms > hi) continue;
+    (f.bs === '2' ? buyOrders : sellOrders).add(session.orderOfRec[f.rec]!);
+  }
+  const price = priceSeriesOf(session);
+  const p0 = priceIdxAt(price, lo);
+  const px0 = p0 >= 0 ? price.px[p0]! : price.n > 0 && price.t[0]! <= hi ? price.px[0]! : null;
+  const p1 = priceIdxAt(price, hi);
+  const px1 = p1 >= 0 ? price.px[p1]! : null;
+  return {
+    t0: lo,
+    t1: hi,
+    buy,
+    sell,
+    nBuy: buyOrders.size,
+    nSell: sellOrders.size,
+    net: buy - sell,
+    tv,
+    share: tv > 0 ? (buy + sell) / tv : null,
+    px0,
+    px1,
+    chgPct: px0 !== null && px1 !== null && px0 > 0 ? ((px1 - px0) / px0) * 100 : null,
+  };
+}
+
+/** 구간 길이 — 「h시간 m분」 · 「m분 s초」 · 「s초」(초 반올림 · 목업 dur). */
+export function fmtRangeDur(ms: number): string {
+  const sec = Math.round(Math.abs(ms) / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const x = sec % 60;
+  if (h > 0) return `${h}시간 ${m}분`;
+  if (m > 0) return `${m}분 ${x}초`;
+  return `${x}초`;
 }
 
 // ---------------------------------------------------------------------------

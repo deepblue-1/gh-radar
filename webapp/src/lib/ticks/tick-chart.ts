@@ -577,6 +577,11 @@ export interface TurnoverSeries {
   pos: Int32Array;
   qty: Float64Array;
   val: Float64Array;
+  /**
+   * 기록 시작 전 거래대금(첫 A3 의 거래소 누적 − 그 체결 · 점이 없으면 0) — 구간 합계가 첫 A3 앞에서 시작해도 기록 전 몫이
+   * 섞이지 않게 빼는 값(스케치 028 ③).
+   */
+  val0: number;
   teamBuy: Float64Array;
   teamSell: Float64Array;
   /** (teamBuy + teamSell) ÷ val. */
@@ -601,6 +606,7 @@ export function turnoverSeriesOf(session: TickSession): TurnoverSeries {
   let n = 0;
   let q = 0;
   let v = 0;
+  let v0 = 0;
   let b = 0;
   let s = 0;
   for (let p = 0; p < recvOrder.length; p++) {
@@ -612,6 +618,7 @@ export function turnoverSeriesOf(session: TickSession): TurnoverSeries {
     if (!(px > 0) || !(k > 0)) continue;
     if (n === 0) {
       v = Math.max(0, a3.cumValue[j]! - px * k) || 0;
+      v0 = v;
       const cv = decodeFields(A3_LAYOUT, payloadOf(session.buf, index, r), index.recvNs[r]!, index.label)['cum_volume'];
       q = Math.max(0, (typeof cv === 'bigint' ? Number(cv) : typeof cv === 'number' ? cv : 0) - k) || 0;
     }
@@ -635,6 +642,7 @@ export function turnoverSeriesOf(session: TickSession): TurnoverSeries {
     pos: pos.subarray(0, n),
     qty: qty.subarray(0, n),
     val: val.subarray(0, n),
+    val0: v0,
     teamBuy: teamBuy.subarray(0, n),
     teamSell: teamSell.subarray(0, n),
     share: share.subarray(0, n),
@@ -646,6 +654,11 @@ export function turnoverSeriesOf(session: TickSession): TurnoverSeries {
 /** 시각 t 이하 마지막 점 색인(없으면 −1). */
 export function turnoverIdxAt(s: Pick<TurnoverSeries, 'n' | 't'>, t: number): number {
   return upperBoundF(s.t, s.n, t) - 1;
+}
+
+/** 시각 t 보다 앞선 마지막 점 색인(없으면 −1) — 구간 합계의 빼는 점(t 자체는 구간 안). */
+export function turnoverIdxBefore(s: Pick<TurnoverSeries, 'n' | 't'>, t: number): number {
+  return lowerBoundF(s.t, s.n, t) - 1;
 }
 
 /** 수신순 자리 pos 이하 마지막 점 색인(없으면 −1) — 카드 커서. */

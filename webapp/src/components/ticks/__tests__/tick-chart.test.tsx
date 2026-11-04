@@ -298,6 +298,102 @@ describe('TickChart — 팀 레이어 · 클릭', () => {
 });
 
 /**
+ * 스케치 028 ③ — Shift+끌기 구간 합계.
+ * 깨지면: 그냥 끌기가 구간을 만들어 창 이동이 막히거나, Shift+끌기 동안 창이 움직이거나, 구간을 지우는 클릭이 커서를 옮기거나,
+ * 결과 줄이 차트 위에 붙어 손을 뗄 때 차트가 밀린다.
+ */
+describe('TickChart — Shift+끌기 구간 합계(스케치 028 ③)', () => {
+  const box = (svg: SVGSVGElement) => {
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 640, bottom: 307, width: 640, height: 307, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  };
+  const setup = (props: Partial<Parameters<typeof TickChart>[0]> = {}) => {
+    const r = renderChart(props);
+    const svg = r.q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    const buy = Array.from(r.q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
+    const cx = Number(buy.getAttribute('cx'));
+    const drag = (x0: number, x1: number, shiftKey = true) => {
+      fireEvent.pointerDown(svg, { shiftKey, button: 0, pointerType: 'mouse', pointerId: 1, clientX: x0, clientY: 50 });
+      fireEvent.pointerMove(svg, { shiftKey, pointerType: 'mouse', pointerId: 1, clientX: (x0 + x1) / 2, clientY: 50 });
+      fireEvent.pointerMove(svg, { shiftKey, pointerType: 'mouse', pointerId: 1, clientX: x1, clientY: 50 });
+      fireEvent.pointerUp(svg, { shiftKey, button: 0, pointerType: 'mouse', pointerId: 1, clientX: x1, clientY: 50 });
+      // 브라우저는 끌기 뒤에도 click 을 낸다 — 끌기 문턱이 걸러야 한다(구간 · 시각 그대로)
+      fireEvent.click(svg, { shiftKey, clientX: x1, clientY: 50 });
+    };
+    return { ...r, svg, cx, drag };
+  };
+
+  it('Shift 누른 채 끌고 떼면 차트 아래 결과 줄 · 범위 띠 · 순 알약 · 시각 이동 없음', () => {
+    const { q, cx, drag, onSeekMs } = setup();
+    expect(q('tick-chart-range')).toHaveLength(0);
+    drag(cx - 20, cx + 20);
+    const rng = q('tick-chart-range')[0]!;
+    expect(rng).toBeDefined();
+    const txt = rng.textContent ?? '';
+    expect(txt).toContain('팀 매수984만1건');
+    expect(txt).toContain('팀 매도652만1건');
+    expect(txt).toContain('팀 순매수+332만');
+    expect(txt).toContain('✕ 지우기 (Esc)');
+    expect(txt).toContain('구간 거래대금 1,718만');
+    expect(q('tick-range-band')).toHaveLength(1);
+    expect(q('tick-range-pill')[0]!.textContent).toBe('순 +332만');
+    expect(onSeekMs).not.toHaveBeenCalled();
+    const wrap = q('tick-chart-wrap')[0]!;
+    expect(wrap.compareDocumentPosition(rng) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrap.contains(rng)).toBe(false);
+  });
+
+  it('그냥 끌기(Shift 없음)는 구간을 만들지 않는다', () => {
+    const { q, cx, drag } = setup();
+    drag(cx - 20, cx + 20, false);
+    expect(q('tick-chart-range')).toHaveLength(0);
+    expect(q('tick-range-band')).toHaveLength(0);
+  });
+
+  it('✕ · Esc · 빈 곳 클릭으로 지운다 — 지우는 클릭은 시각 이동이 아니고 그다음 클릭은 이동', () => {
+    const { q, cx, drag, svg, getByRole, onSeekMs } = setup();
+    drag(cx - 20, cx + 20);
+    fireEvent.click(getByRole('button', { name: '✕ 지우기 (Esc)' }));
+    expect(q('tick-chart-range')).toHaveLength(0);
+
+    drag(cx - 20, cx + 20);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(q('tick-chart-range')).toHaveLength(0);
+
+    drag(cx - 20, cx + 20);
+    fireEvent.click(svg, { clientX: 400, clientY: 50 });
+    expect(q('tick-chart-range')).toHaveLength(0);
+    expect(onSeekMs).not.toHaveBeenCalled();
+    fireEvent.click(svg, { clientX: 400, clientY: 50 });
+    expect(onSeekMs).toHaveBeenCalledTimes(1);
+  });
+
+  it('「1분」 창에서 Shift+끌기 — 창이 움직이지 않는다(커서 x 그대로)', async () => {
+    const { q, getByRole, drag } = setup();
+    fireEvent.click(getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(q('tick-chart-span')[0]!.textContent).toBe('1분'));
+    const x1 = q('tick-chart-cursor')[0]!.getAttribute('x1');
+    drag(200, 400);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(q('tick-chart-cursor')[0]!.getAttribute('x1')).toBe(x1);
+    expect(q('tick-chart-range')).toHaveLength(1);
+  });
+
+  it('폰(height 222) — Shift+끌기는 구간을 만들지 않고 안내 줄도 없다 · 데스크톱은 안내 줄', () => {
+    const desk = setup();
+    expect(desk.q('tick-chart-hint')).toHaveLength(1);
+    expect(desk.q('tick-chart-hint')[0]!.textContent).toContain('Shift+끌기 구간 합계');
+    desk.unmount();
+    const ph = setup({ height: 222 });
+    expect(ph.q('tick-chart-svg')[0]!.getAttribute('height')).toBe('222');
+    ph.drag(ph.cx - 20, ph.cx + 20);
+    expect(ph.q('tick-chart-range')).toHaveLength(0);
+    expect(ph.q('tick-chart-hint')).toHaveLength(0);
+  });
+});
+
+/**
  * Phase 38 Plan 07 — 차트 우리 점(D-08 · D-10).
  * 깨지면: ◆ 를 눌러도 그 체결 전문으로 가지 않거나 · ○ 가 되돌아가기 주문을 남기지 않거나 · 짝 없음 ◇ 가 시각 점프로
  * 새거나 · 추정 ◆ 가 채운 ◆ 로 보이거나 · own 이 없는데 우리 점이 생긴다.

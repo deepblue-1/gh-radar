@@ -49,6 +49,7 @@ import {
   tickCirclesOf,
   tickHoverWithOwn,
   tickOrderHoverOf,
+  tickRangeSumOf,
   pct1,
   pct2,
   type TickGroupTable,
@@ -61,6 +62,7 @@ import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
 import { TickChartBand } from './tick-chart-band';
+import { TickChartRange } from './tick-chart-range';
 
 /**
  * 틱 뷰어 타임라인 차트 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트와 같은 레이어 순서 + 스케치 022 A 넷째 판 · 순수 SVG ·
@@ -76,7 +78,8 @@ import { TickChartBand } from './tick-chart-band';
  *   범례(머리): pos_net 없음 「누적 자료 없음(매집감지 미등록)」 · NXT 「매집감지 포지션(KRX+NXT 합산)」(Open Question 3) ·
  *   당일 화면은 누적 선 없음(D-09). NXT 도 팀 레이어를 그린다(그 거래소 런 팀 · D-13).
  * ② 조작 — 휠 = 확대/축소 · 끌기 = 이동(`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs`) ·
- *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
+ *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · Shift+끌기 = 구간 합계(데스크톱 마우스만 · 스케치 028 ③ — 결과는 차트 아래
+ *   줄 · 끄는 동안 창은 안 움직인다) · Esc/✕/빈 곳 클릭 = 구간 지움(그 클릭은 시각 이동 아님) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
  * ③ 높이 — 측정 폭 < 600 이면 폰 222 · 아니면 데스크톱 307(`height` 로 강제 가능 · 순매수 판 70 / 50 — 스케치 028 ④). 폰은 판 제목
  *   글자를 생략한다.
@@ -166,6 +169,9 @@ function OwnDiamond({ m, i, r }: { m: OwnMark; i: number; r: number }) {
   if (m.kind === 'est') return <rect {...common} fill="var(--card)" strokeDasharray="3 2" />;
   return <rect {...common} fill={m.kind === 'fill' ? 'var(--mine)' : 'var(--card)'} />;
 }
+
+/** 안내 줄 키 이름(목업 .hint kbd). */
+const KBD = 'mono rounded-[4px] bg-[var(--muted)] px-1 text-[var(--fg-2)]';
 
 const sgnCls = (v: number) => (v > 0 ? 'text-[var(--up)]' : v < 0 ? 'text-[var(--down)]' : 'text-[var(--muted-fg)]');
 
@@ -279,7 +285,9 @@ export function TickChart({
   const inspectRef = useRef(false);
   // 이번 누름이 살펴보기였으면 뗄 때 클릭(시각 점프)으로 치지 않는다
   const inspectedRef = useRef(false);
-  const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl, inspectRef);
+  // 창 이동 잠금 — 터치 살펴보기 또는 Shift 구간 끌기 동안 true(훅은 이동할 때마다 읽는다 · 훅 무변경)
+  const panLockRef = useRef(false);
+  const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl, panLockRef);
   // 마우스 자리(viewBox 좌표 · 그림 영역 안만) + 그 자리 가격 판 상자 대상(없으면 null)
   const [hoverState, setHover] = useState<{ mx: number; my: number; vk: string; box: TickHover | null } | null>(null);
   // 창이 움직이면 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
@@ -293,11 +301,13 @@ export function TickChart({
         const el = svgRef.current;
         if (!el) return;
         inspectRef.current = true;
+        panLockRef.current = true;
         inspectedRef.current = true;
         setTouchPt(anchorOf(el, p.clientX, p.clientY));
       },
       onEnd: () => {
         inspectRef.current = false;
+        panLockRef.current = false;
         setTouchPt(null);
       },
     }),
@@ -314,6 +324,32 @@ export function TickChart({
     el.addEventListener('touchmove', fn, { passive: false });
     return () => el.removeEventListener('touchmove', fn);
   }, []);
+
+  // 구간 합계(스케치 028 ③) — 확정 구간은 세션에 묶는다(종목 · 날짜가 바뀌면 지워진 것과 같다 · effect 없이 파생)
+  const [selState, setSel] = useState<{ session: TickSession; t0: number; t1: number } | null>(null);
+  const sel = selState !== null && selState.session === session ? selState : null;
+  const [draft, setDraft] = useState<{ t0: number; t1: number } | null>(null);
+  const rangeDownRef = useRef<{ t0: number; t1: number; clientX: number; moved: boolean } | null>(null);
+  const clearRange = () => {
+    setSel(null);
+    setDraft(null);
+  };
+  const hasRange = sel !== null || draft !== null;
+  // Esc = 구간 지움 — 구간이 있는 동안만 듣는다 · 입력 칸 · 이미 처리된 Esc 는 가로채지 않는다
+  useEffect(() => {
+    if (!hasRange) return;
+    const fn = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      rangeDownRef.current = null;
+      panLockRef.current = false;
+      setSel(null);
+      setDraft(null);
+    };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [hasRange]);
 
   // 터치 툴팁 높이 — 그리기 전에 재서 손가락 위 자리를 잡는다
   const tipRef = useRef<HTMLDivElement>(null);
@@ -432,7 +468,42 @@ export function TickChart({
     if (tv.share !== '' && bandVal.share !== null) hoverDots.push({ y: yOfShare(tv.shareTop, P)(bandVal.share), c: 'var(--team)' });
   }
 
+  // 구간 — 끄는 중이면 그것, 아니면 확정 구간. 합계는 구간 값이 바뀔 때만 다시 센다.
+  const rng = draft ?? sel;
+  const rngT0 = rng?.t0 ?? null;
+  const rngT1 = rng?.t1 ?? null;
+  const rngSum = useMemo(
+    () => (rngT0 === null || rngT1 === null ? null : tickRangeSumOf(session, rngT0, rngT1)),
+    [session, rngT0, rngT1],
+  );
+  const rngBand = (() => {
+    if (rngT0 === null || rngT1 === null || rngSum === null) return null;
+    const a = Math.max(L, x(Math.min(rngT0, rngT1)));
+    const b = Math.min(xr, x(Math.max(rngT0, rngT1)));
+    if (b < a) return null;
+    const label = `순 ${fmtSignedAmountC(rngSum.net)}`;
+    const lw = Math.min(plotW, label.length * 6.4 + 10);
+    const lx = Math.min(xr - lw, Math.max(L, (a + b) / 2 - lw / 2));
+    return { a, b, label, lw, lx };
+  })();
+
+  /** client x → viewBox x(svg 상자 기준). */
+  const vbX = (el: Element, clientX: number) => {
+    const rect = el.getBoundingClientRect();
+    return ((clientX - rect.left) * W) / (rect.width || W);
+  };
+
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    // Shift 구간 끌기 — 호버 · 끌기 검사보다 먼저(창은 panLockRef 가 잡고 있다)
+    const rd = rangeDownRef.current;
+    if (rd !== null) {
+      if (!rd.moved && Math.abs(e.clientX - rd.clientX) > CLICK_SLOP_PX) rd.moved = true;
+      if (rd.moved) {
+        rd.t1 = tAt(Math.min(xr, Math.max(L, vbX(e.currentTarget, e.clientX))));
+        setDraft({ t0: rd.t0, t1: rd.t1 });
+      }
+      return;
+    }
     if (e.pointerType === 'touch') {
       if (!tracker.move(e)) return;
       const a = anchorOf(e.currentTarget, e.clientX, e.clientY);
@@ -488,6 +559,15 @@ export function TickChart({
   // 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각. 끌기(4px 넘게 움직임)는 클릭이 아니다.
   const downRef = useRef<{ x: number; y: number; orderRec: number | null; own: OwnMark | null } | null>(null);
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
+    // Shift+끌기 = 구간(데스크톱 마우스만 · 그림 영역 안에서 누를 때) — 그냥 끌기는 창 이동 그대로
+    if (e.pointerType === 'mouse' && e.button === 0 && e.shiftKey && !phone) {
+      const px = vbX(e.currentTarget, e.clientX);
+      if (px >= L && px <= xr) {
+        const t = tAt(px);
+        rangeDownRef.current = { t0: t, t1: t, clientX: e.clientX, moved: false };
+        panLockRef.current = true;
+      }
+    }
     inspectedRef.current = false;
     tracker.down(e);
     const el = (e.target as Element).closest?.('[data-order-rec]');
@@ -498,6 +578,18 @@ export function TickChart({
       own: ownHitOf(e.target as Element, e.clientX, e.clientY),
     };
   };
+  /** 구간 끌기 끝 — commit(pointerup)이면 움직인 구간을 확정, 아니면(cancel · 캡처 풀림) 끄던 것만 버리고 이전 구간은 둔다. */
+  const endRange = (commit: boolean) => {
+    const rd = rangeDownRef.current;
+    if (rd === null) return;
+    rangeDownRef.current = null;
+    panLockRef.current = inspectRef.current;
+    if (commit && rd.moved && rd.t1 !== rd.t0) {
+      setSel({ session, t0: Math.min(rd.t0, rd.t1), t1: Math.max(rd.t0, rd.t1) });
+    }
+    setDraft(null);
+  };
+
   const onClick = (e: MouseEvent<SVGSVGElement>) => {
     const down = downRef.current;
     downRef.current = null;
@@ -512,6 +604,11 @@ export function TickChart({
     const orderRec = down?.orderRec ?? (el ? Number(el.getAttribute('data-order-rec')) : null);
     if (orderRec !== null && Number.isFinite(orderRec)) {
       onJumpRec(orderRec);
+      return;
+    }
+    // 구간이 있으면 빈 곳 클릭 = 구간 지움(이 클릭은 시각 이동이 아니다 — 스케치 028 ③)
+    if (sel !== null) {
+      setSel(null);
       return;
     }
     const svg = svgRef.current;
@@ -605,7 +702,7 @@ export function TickChart({
         className="relative px-0 py-1"
         role="group"
         tabIndex={0}
-        aria-label="틱 차트 보기 창 — +·− 확대/축소, 0 하루 전체, 클릭하면 그 시각으로 이동"
+        aria-label="틱 차트 보기 창 — +·− 확대/축소, 0 하루 전체, 클릭하면 그 시각으로 이동, Shift+끌기 구간 합계"
         onKeyDown={onKeyDown}
       >
         <svg
@@ -617,14 +714,26 @@ export function TickChart({
           aria-label={`틱 차트 — 보기 창 ${fmtSpan(span)}${cursorLabel ? ` · 현재 틱 ${cursorLabel}` : ''}`}
           data-slot="tick-chart-svg"
           data-dims={phone ? 'phone' : 'desktop'}
-          className={cn('block tabular-nums', dragging ? 'cursor-grabbing' : 'cursor-crosshair')}
+          className={cn(
+            'block tabular-nums',
+            draft !== null ? 'cursor-col-resize' : dragging ? 'cursor-grabbing' : 'cursor-crosshair',
+          )}
           style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
           fontSize={11}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={(e) => tracker.end(e)}
-          onPointerCancel={(e) => tracker.end(e)}
-          onLostPointerCapture={(e) => tracker.end(e)}
+          onPointerUp={(e) => {
+            endRange(true);
+            tracker.end(e);
+          }}
+          onPointerCancel={(e) => {
+            endRange(false);
+            tracker.end(e);
+          }}
+          onLostPointerCapture={(e) => {
+            endRange(false);
+            tracker.end(e);
+          }}
           onPointerLeave={() => setHover(null)}
           onContextMenu={(e) => {
             if (inspectRef.current) e.preventDefault();
@@ -853,6 +962,45 @@ export function TickChart({
               )}
             </g>
 
+            {/* 구간 띠 · 순매수 알약(스케치 028 ③ · 끄는 중이면 그 구간 · 아니면 확정 구간) */}
+            {rngBand !== null && rngSum !== null && (
+              <g data-slot="tick-range" pointerEvents="none">
+                <rect
+                  data-slot="tick-range-band"
+                  x={rngBand.a}
+                  y={P.y1a}
+                  width={Math.max(1, rngBand.b - rngBand.a)}
+                  height={P.y4b - P.y1a}
+                  fill="var(--primary)"
+                  fillOpacity={0.1}
+                />
+                {[rngBand.a, rngBand.b].map((xx, i) => (
+                  <line
+                    key={i}
+                    x1={xx}
+                    x2={xx}
+                    y1={P.y1a}
+                    y2={P.y4b}
+                    stroke="var(--primary)"
+                    strokeOpacity={0.55}
+                  />
+                ))}
+                <g data-slot="tick-range-pill">
+                  <rect x={rngBand.lx} y={P.y2a - 15} width={rngBand.lw} height={14} rx={7} fill="var(--primary)" />
+                  <text
+                    x={rngBand.lx + rngBand.lw / 2}
+                    y={P.y2a - 4.5}
+                    textAnchor="middle"
+                    fill="var(--primary-fg)"
+                    fontWeight={600}
+                    fontSize={10.5}
+                  >
+                    {rngBand.label}
+                  </text>
+                </g>
+              </g>
+            )}
+
             {/* 마우스 · 터치 세로선 + 그 시각 값 점(목업 overlay) — 끌기 중이 아닐 때 */}
             {hoverLine !== null && (
               <g data-slot="tick-chart-hover" pointerEvents="none">
@@ -1072,6 +1220,19 @@ export function TickChart({
           </div>
         )}
       </div>
+
+      {/* 구간 결과 · 안내 — 차트 아래에만(손을 떼도 차트가 밀리지 않는다) */}
+      {rngSum !== null && <TickChartRange sum={rngSum} dragging={draft !== null} onClear={clearRange} />}
+      {!phone && (
+        <div
+          data-slot="tick-chart-hint"
+          className="border-t border-[var(--border-subtle)] px-3 pt-1.5 pb-2 text-[11px] text-[var(--muted-fg)]"
+        >
+          <kbd className={KBD}>Shift</kbd>+<kbd className={KBD}>끌기</kbd> 구간 합계 · <kbd className={KBD}>끌기</kbd> 창 이동 ·{' '}
+          <kbd className={KBD}>휠</kbd> 확대/축소 · <kbd className={KBD}>클릭</kbd> 그 시각으로 · <kbd className={KBD}>Esc</kbd> 구간
+          지움
+        </div>
+      )}
     </section>
   );
 }
