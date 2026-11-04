@@ -5,6 +5,7 @@ documentation:
     nightly(Scheduler 23:30 · 01:30 KST) — 날짜 하나가 실패해도(깨진 원본 · RPC 오류 · 업로드 · 메타 실패) 다른 날짜와 90일 purge 는 진행하고, 실패 날짜 · purge 실패가 있으면 종료 1. 실패 날짜는 ok 기록이 없어 다음 실행이 다시 고른다(catch-up 10일) — 단 **결정적 실패**(원본 · 키 결함 · 업로드 4xx 영구 거부 · 끝 기록 없이 죽은 실행 = OOM · task timeout)가 2회를 넘은 날짜는 더 고르지 않는다. 일시 장애(RPC · Storage 5xx · 네트워크 · GCS 입출력 — 실행 기록 error `TRANSIENT: …`)는 세지 않아 계속 다시 고른다. 포기는 **막 포기한 실행에서만 종료 1**(포기를 만든 실행 바로 다음 실행 — 그 날짜 마지막 nightly 기록이 22.5시간 안 · 날짜 하나에 알림 1~2회 · R3-WR-02). 그 뒤 실행은 종료 0 이고 catch-up 창(10일)을 벗어날 때까지 로그 `jsonPayload.msg:"다시 고르지 않는다"` error(「이미 알린 포기」)만 남긴다 — 그래서 이 알림이 또 오면 새 실패다. 해결: 원인 확인 뒤 `bash scripts/smoke-tick-convert.sh D` 로 수동 재변환한다(ok 기록이 생기면 포기 목록에서 빠진다). **크래시 포기**(실행 기록에 끝 기록 없는 `STARTED` 만 남음 = OOM · task timeout 3600s)는 같은 한도면 같은 자리에서 또 죽는다 — `TASK_TIMEOUT=7200s bash scripts/smoke-tick-convert.sh D`(그 실행만 타임아웃 override) · `MEMORY=16Gi bash scripts/smoke-tick-convert.sh D`(Job 메모리를 잠시 올렸다가 끝나면 되돌린다 · 4 vCPU 는 16Gi 까지, 그 위는 `CPU=8 MEMORY=32Gi` · Scheduler 시간 23:00~02:30 KST 는 피한다). 수동 재변환이 또 실패하면 그 실행이 종료 1 이고, 다음 Scheduler 실행이 한 번 더 알린다. 포기를 받아들이면 할 일이 없다(알림은 더 오지 않는다).
     request(server 요청 변환) — 업로드 · 메타 · 통독 실패 종목이 있으면 종료 1(그 종목은 failed 로 닫힌다).
     promote(Job `gh-radar-tick-convert-promote` · 20:10 · 20:40 평일 · 당일 경로가 켜졌을 때만 · 37-12) — tickgw export 목록 실패(401 · DATE_MISMATCH · 응답 date 불일치)나 키 바이트 · 업로드 · 메타 실패가 있으면 종료 1. 하루치 전체가 아닌 키(incomplete) · nightly 가 이미 있는 키(skipped) · unclosed 는 종료 0.
+    launch-live(Job `gh-radar-tick-convert-launch-live` · 평일 16:01 · 16:03 · 16:10 · 09:01 · 09:03 KST · quick 261104-n7i 당일 발사 대기열) — 종료 1 = tickgw 키 실패(503 · 5xx · 네트워크 · blocked) · 해제 실패 · inputs/set RPC 오류 · tickgw 401(TICKGW_SECRET 불일치). 종료 0 = deferred(queued · incomplete · timeout · budget — 다음 run 이 잇는다) · 계산 실패 launch_failed(로그만) · set_skipped(가드에 막힘 — db push 전이면 전부). 사유 확인: `gcloud logging read 'resource.labels.job_name="gh-radar-tick-convert-launch-live" AND jsonPayload.msg:"launch-live"' --limit 50`. 값은 그날 밤 nightly 가 격자 정본으로 덮어쓴다(놓친 날도 밤에 채워진다).
     종료 0(알림 아님) — NO_RECORDS · NOT_UPLOADED · NO_OBJECTS · 시간 예산으로 미룬 날짜(`deferred=n`) · 이미 알린 포기(`gave_up_fresh=0`).
     사유 확인: `gcloud logging read 'resource.labels.job_name="gh-radar-tick-convert" AND jsonPayload.msg:"tick-convert"' --limit 50` (승격이면 job_name="gh-radar-tick-convert-promote")
     실행 기록: Supabase `tick_convert_runs`(date · exchange · mode · ok · error) — 같은 날짜가 매일 실패하면 원본(gs://gh-trade-tick-archive/raw/<krx|nxt>/<D>/)을 확인한다.
@@ -15,7 +16,7 @@ conditions:
     conditionThreshold:
       filter: |
         resource.type = "cloud_run_job"
-        AND resource.labels.job_name = one_of("gh-radar-tick-convert", "gh-radar-tick-convert-promote")
+        AND resource.labels.job_name = one_of("gh-radar-tick-convert", "gh-radar-tick-convert-promote", "gh-radar-tick-convert-launch-live")
         AND metric.type = "run.googleapis.com/job/completed_execution_count"
         AND metric.labels.result = "failed"
       comparison: COMPARISON_GT

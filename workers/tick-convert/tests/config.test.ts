@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig } from "../src/config";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { ConfigError, loadConfig } from "../src/config";
 
 const ORIG = { ...process.env };
 const KEYS = [
@@ -87,5 +87,25 @@ describe("loadConfig (tick-convert)", () => {
     base();
     process.env[name] = val;
     expect(() => loadConfig()).toThrow(new RegExp(`Invalid ${name}`));
+  });
+
+  it("launch-live(quick 261104-n7i) — TICK_ARCHIVE_DIR 없이 통과 · TICKGW 없으면 ConfigError `launch-live:` · 공인 URL 은 ConfigError", () => {
+    process.env.SUPABASE_URL = "https://x.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "k";
+    vi.stubEnv("TICKGW_URL", "http://10.146.0.2:8092/");
+    vi.stubEnv("TICKGW_SECRET", "s");
+    const c = loadConfig({ mode: "launch-live" });
+    expect(c.archiveDir).toBe("");
+    expect(c.tickgwUrl).toBe("http://10.146.0.2:8092");
+    vi.stubEnv("TICKGW_SECRET", "");
+    expect(() => loadConfig({ mode: "launch-live" })).toThrow(ConfigError);
+    expect(() => loadConfig({ mode: "launch-live" })).toThrow(/^launch-live: TICKGW_URL and TICKGW_SECRET must be set$/);
+    vi.stubEnv("TICKGW_SECRET", "s");
+    vi.stubEnv("TICKGW_URL", "http://34.64.1.2:8092");
+    expect(() => loadConfig({ mode: "launch-live" })).toThrow(ConfigError);
+    // promote 문구는 그대로(requireTickgw 기본 모드 이름)
+    vi.stubEnv("TICKGW_URL", "");
+    expect(() => loadConfig({ mode: "promote" })).toThrow(/^promote: TICKGW_URL and TICKGW_SECRET must be set$/);
+    vi.unstubAllEnvs();
   });
 });

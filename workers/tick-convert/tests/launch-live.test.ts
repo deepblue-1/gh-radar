@@ -11,9 +11,16 @@ import { launchQueueOf } from "@gh-radar/shared";
 import { main } from "../src/index";
 import type { Config } from "../src/config";
 import type { LaunchInputRow } from "../src/meta";
-import { parseLaunchLiveArgs, runLaunchLive } from "../src/modes/launch-live";
+import {
+  LIVE_KEY_SLOTS,
+  LIVE_LEASE_GUARD_MS,
+  LIVE_RUN_BUDGET_MS,
+  parseLaunchLiveArgs,
+  runLaunchLive,
+} from "../src/modes/launch-live";
+import { logger } from "../src/logger";
 import { UsageError } from "../src/modes/request";
-import { createTickgwLiveClient } from "../src/tickgw-live";
+import { TickgwAuthError, createTickgwLiveClient } from "../src/tickgw-live";
 import type { GridStore } from "../src/store";
 import { makeFakeSupabase, rpcCalls } from "./helpers/fake-supabase";
 import { liveFetch, serveDay, virtualClock, type LiveReply, type LiveReq } from "./helpers/fake-tickgw-live";
@@ -126,7 +133,10 @@ function byKey(map: Record<string, (req: LiveReq, i: number) => LiveReply>) {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("parseLaunchLiveArgs", () => {
   it("인자 없음 → {} · 하나라도 있으면 UsageError · CLI 종료 2", async () => {
@@ -223,5 +233,140 @@ describe("runLaunchLive — 대상 없음", () => {
     expect(out).toMatchObject({ keys: 0, failed: 0 });
     const f = fake();
     expect(await main(["launch-live"], { sb: f.sb, store: noStore, config: cfg({ tickgwUrl: "", tickgwSecret: "" }), now: noon })).toBe(0);
+  });
+});
+
+/** 16:00 Q16 조각 — isin 만 바꾼 키 n 개(회계 시험 · 값 검증은 골든이 한다). */
+function manyKeys(n: number): LaunchInputRow[] {
+  return Array.from({ length: n }, (_, i) => ({ ...q("KB120", 0, 100), isin: `KR7${String(100000 + i).padStart(6, "0")}001` }));
+}
+
+function liveDeps(
+  reply: (req: LiveReq, i: number) => LiveReply,
+  opts: { now?: Date; inputs?: LaunchInputRow[]; rpc?: Parameters<typeof makeFakeSupabase>[0]["rpc"] } = {},
+) {
+  const now = opts.now ?? NOW_16;
+  const vc = virtualClock(now.getTime());
+  const at: number[] = [];
+  const { fetchImpl, reqs } = liveFetch((req, i) => {
+    at.push(vc.clock());
+    return reply(req, i);
+  });
+  const f = fake(opts.rpc ?? {}, opts.inputs ?? INPUTS);
+  const deps = {
+    sb: f.sb,
+    store: noStore,
+    config: cfg(),
+    now,
+    clock: vc.clock,
+    sleep: vc.sleep,
+    tickgwLive: createTickgwLiveClient({ url: URL_, secret: SECRET, fetchImpl }),
+  };
+  return { deps, reqs, at, vc, calls: f.calls };
+}
+
+/** CLI 경로(main) — main 은 tickgw 클라이언트를 주입받지 않으므로 전역 fetch 를 가짜로 바꾼다(sleep 은 주입 불가 → 게이트가 안 걸리는 시나리오만). */
+async function mainLive(
+  reply: (req: LiveReq, vc: ReturnType<typeof virtualClock>) => LiveReply,
+  opts: { inputs?: LaunchInputRow[] } = {},
+): Promise<{ code: number; reqs: LiveReq[] }> {
+  const vc = virtualClock(NOW_16.getTime());
+  const { fetchImpl, reqs } = liveFetch((req) => reply(req, vc));
+  vi.stubGlobal("fetch", fetchImpl);
+  const f = fake({}, opts.inputs ?? INPUTS);
+  const code = await main(["launch-live"], { sb: f.sb, store: noStore, config: cfg(), now: NOW_16, clock: vc.clock });
+  return { code, reqs };
+}
+
+describe("runLaunchLive — 운영 규율", () => {
+  it(`리스 인식 게이트 — 키 6개가 바로 끝나도 ${LIVE_KEY_SLOTS + 1}번째 키 첫 요청 ≥ 1번째 키 lastReqAt + ${LIVE_LEASE_GUARD_MS}`, async () => {
+    const inputs = manyKeys(6);
+    const { deps, reqs, at } = liveDeps(() => ({ body: G4_ZST, state: "ready", asOfMs: ASOF_16 }), { inputs });
+    const out = await runLaunchLive(deps, {});
+    expect(reqs.map((r) => r.isin)).toEqual(inputs.map((p) => p.isin)); // 키당 요청 1번 · 입력 순서
+    expect(at[LIVE_KEY_SLOTS]! - at[0]!).toBeGreaterThanOrEqual(LIVE_LEASE_GUARD_MS);
+    // 어느 시점이든 살아 있는 우리 리스 ≤ 4
+    for (const t of at) expect(at.filter((x) => x <= t && x + LIVE_LEASE_GUARD_MS > t).length).toBeLessThanOrEqual(LIVE_KEY_SLOTS);
+    expect(out).toMatchObject({ keys: 6, computed: 6, deferred: 0, failed: 0 });
+  });
+
+  it(`run 예산 — 시작 ${LIVE_RUN_BUDGET_MS / 1000}초 뒤에는 새 키를 열지 않는다 · 남은 키 deferred(budget) · 종료 0`, async () => {
+    const inputs = manyKeys(5);
+    const warn = vi.spyOn(logger, "warn");
+    const box: { vc?: ReturnType<typeof virtualClock> } = {};
+    const { deps, reqs, vc } = liveDeps(() => {
+      box.vc!.advance(30_000); // 키마다 30초 걸리는 하루치 받기
+      return { body: G4_ZST, state: "ready", asOfMs: ASOF_16 };
+    }, { inputs });
+    box.vc = vc;
+    const out = await runLaunchLive(deps, {});
+    expect(reqs).toHaveLength(4); // 0 · 30 · 60 · 90초에 열고 120초에는 열지 않는다
+    expect(out).toMatchObject({ keys: 5, computed: 4, deferred: 1, failed: 0 });
+    expect(warn.mock.calls.some((c) => String(c[1]).includes("run 예산"))).toBe(true);
+    const m = await mainLive((_req, v) => {
+      v.advance(30_000);
+      return { body: G4_ZST, state: "ready", asOfMs: ASOF_16 };
+    }, { inputs });
+    expect(m).toMatchObject({ code: 0 });
+    expect(m.reqs).toHaveLength(4);
+  });
+
+  it("키 하나 failed(500) → failed 1 · 다른 키는 계속 계산 · 저장 · CLI 종료 1", async () => {
+    const inputs = manyKeys(3);
+    const reply = (req: LiveReq): LiveReply =>
+      req.isin === inputs[1]!.isin ? { status: 500, json: { error: "BOOM" } } : { body: G4_ZST, state: "ready", asOfMs: ASOF_16 };
+    const err = vi.spyOn(logger, "error");
+    const { deps, calls } = liveDeps(reply, { inputs });
+    const out = await runLaunchLive(deps, {});
+    expect(out).toMatchObject({ keys: 3, computed: 2, failed: 1 });
+    expect(rpcCalls(calls, "launch_queue_set")).toHaveLength(1);
+    expect(err.mock.calls.some((c) => String(c[1]).includes("키 받기 실패"))).toBe(true);
+    expect((await mainLive(reply, { inputs })).code).toBe(1);
+  });
+
+  it("set RPC 오류 → failed += 보낸 행 수 · error 로그", async () => {
+    const err = vi.spyOn(logger, "error");
+    const { deps } = liveDeps(serveDay(G4_ZST, { asOfMs: ASOF_16 }), { rpc: { launch_queue_set: { error: { message: "db down" } } } });
+    const out = await runLaunchLive(deps, {});
+    expect(out).toMatchObject({ computed: 1, written: 0, failed: 3 });
+    expect(err.mock.calls.some((c) => String(c[1]).includes("set failed"))).toBe(true);
+  });
+
+  it("set 이 일부만 썼다고 답하면 set_skipped = 보낸 − 쓴 · warn 한 줄", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const { deps } = liveDeps(serveDay(G4_ZST, { asOfMs: ASOF_16 }), {
+      rpc: { launch_queue_set: (a) => ({ data: (a.p_rows as unknown[]).length - 1 }) },
+    });
+    const out = await runLaunchLive(deps, {});
+    expect(out).toMatchObject({ written: 2, setSkipped: 1, failed: 0 });
+    expect(warn.mock.calls.some((c) => String(c[1]).includes("격자 값"))).toBe(true);
+  });
+
+  it("fills_empty = 창 안 조각 중 profile N · A 이고 fills 빈 조각 수 · 요약 문자열에 모든 칸", async () => {
+    const info = vi.spyOn(logger, "info");
+    const inputs: LaunchInputRow[] = [
+      N_SELL, // fills 있음
+      { ...N_SELL, wire: 1, fills: [] },
+      { ...N_SELL, profile: "A", fire_exchange: "KRX", fire_base: "09:00:27", fills: [] },
+      { ...q("KB120", 0, 100), fills: [] }, // Q16 은 창 밖(16:00) · 세지 않음
+    ];
+    const { deps } = liveDeps(() => ({ body: NXT_ZST, state: "ready", asOfMs: ASOF_09 }), { now: NOW_09, inputs });
+    const out = await runLaunchLive(deps, {});
+    expect(out).toMatchObject({ keys: 2, fillsEmpty: 2 });
+    const line = info.mock.calls.map((c) => String(c[1])).find((m) => m.includes("mode=launch-live"))!;
+    for (const k of ["date=", "keys=", "computed=", "written=", "set_skipped=", "deferred=", "failed=", "launch_failed=", "fills_empty=2", "ms="]) {
+      expect(line).toContain(k);
+    }
+  });
+
+  it("tickgw 401 → runLaunchLive 가 TickgwAuthError 로 reject · CLI 종료 1", async () => {
+    const { deps } = liveDeps(() => ({ status: 401, json: { error: "UNAUTHORIZED" } }));
+    await expect(runLaunchLive(deps, {})).rejects.toBeInstanceOf(TickgwAuthError);
+    expect((await mainLive(() => ({ status: 401, json: { error: "UNAUTHORIZED" } }))).code).toBe(1);
+  });
+
+  it("inputs RPC 오류 → throw(CLI 종료 1)", async () => {
+    const { deps } = liveDeps(() => new Error("x"), { rpc: { launch_queue_inputs: { error: { message: "db down" } } } });
+    await expect(runLaunchLive(deps, {})).rejects.toThrow();
   });
 });

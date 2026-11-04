@@ -34,6 +34,13 @@ set -euo pipefail
 #     WR-35: 당일 경로는 켜져 있다(37-17) — TICKGW_URL 이 없으면 Section 7b 를 건너뛰어 nightly 만 새 이미지가 되고
 #     승격 Job 은 옛 SHA 이미지에 묶인다(격자 행 모양이 바뀌어도 승격본만 옛 코드로 써진다). 그래서 TICKGW_URL 을 필수로 막고,
 #     승격을 건너뛰는 배포(당일 경로 꺼짐 · 37-16)는 `TICKGW_DISABLE=1` 명시로만 허용한다(승격 Job 이 이미 있으면 경고).
+#   - 당일 발사 대기열(quick 261104-n7i · D-1) — 같은 `TICKGW_URL` 블록 안 Section 7c 가 더한다:
+#     Job gh-radar-tick-convert-launch-live(같은 이미지 · --args=launch-live → `node dist/index.js launch-live` · GCS 볼륨 없음 ·
+#     Direct VPC egress private-ranges-only · TICKGW_SECRET · cpu 1 · 2Gi · task-timeout 300s — 모드 run 예산 100초 + 키 데드라인 90초 +
+#     요청 타임아웃 30초 ≈ 230초) + Scheduler 둘 `1,3,10 16 * * 1-5`(-pm · 16:00 Q16) · `1,3 9 * * 1-5`(-am · 09:00:27/29 A · 09:00:30 N)
+#     Asia/Seoul. 사용자 트리거 없음(호출량은 사용자 수와 독립). 값은 'live:<as-of>' 표식으로 저장되고 밤 nightly 가 덮는다.
+#     DB 마이그레이션 20261104710000(live 표식 가드)을 먼저 push 한다 — 반대 순서면 live 행이 옛 가드에 버려질 뿐(set_skipped · 무해).
+#     배포는 메인 세션만.
 #
 # 필수 env: GCP_PROJECT_ID · SUPABASE_URL (없으면 시작부터 실패 — 라이브 Cloud Run env 에서 가져온다)
 #           NOTIFICATION_CHANNEL_ID (없으면 마지막 알림 단계만 실패 — Job · Scheduler · 권한은 이미 반영됨)
@@ -271,6 +278,13 @@ TICKGW_SECRET_NAME="gh-radar-tickgw-secret"
 VPC_NAME=gh-radar-vpc
 SUBNET_NAME=gh-radar-subnet-an3
 PROMOTE_STATUS="건너뜀 — TICKGW_DISABLE=1(당일 경로 꺼짐 · D-22)"
+# Section 7c 변수(quick 261104-n7i) — 당일 발사 대기열 Job · Scheduler 둘
+LIVE_JOB="gh-radar-tick-convert-launch-live"
+LIVE_SCHED_PM="gh-radar-tick-convert-launch-live-pm"
+LIVE_SCHED_AM="gh-radar-tick-convert-launch-live-am"
+LIVE_CRON_PM="1,3,10 16 * * 1-5"
+LIVE_CRON_AM="1,3 9 * * 1-5"
+LIVE_STATUS="건너뜀 — TICKGW_DISABLE=1(당일 경로 꺼짐)"
 
 if [[ -n "${TICKGW_URL:-}" ]]; then
   # 선행 — VPC(deploy-server.sh 와 같은 망) · tickgw 비밀(setup-tickgw-iam.sh)
@@ -321,6 +335,37 @@ if [[ -n "${TICKGW_URL:-}" ]]; then
   create_or_update_scheduler "$PROMOTE_SCHED" "$PROMOTE_JOB" "$PROMOTE_CRON"
   create_or_update_scheduler "$PROMOTE_SCHED_LATE" "$PROMOTE_JOB" "$PROMOTE_CRON_LATE"
   PROMOTE_STATUS="$PROMOTE_JOB (VPC private-ranges-only · TICKGW_URL=${TICKGW_URL}) · $PROMOTE_SCHED '$PROMOTE_CRON' · $PROMOTE_SCHED_LATE '$PROMOTE_CRON_LATE' Asia/Seoul"
+
+  # Section 7c: 당일 발사 대기열(quick 261104-n7i · D-1) — launch-live Job + Scheduler 평일 16:01·16:03·16:10 · 09:01·09:03
+  # 승격 Job 과 같은 이미지 · VPC · 비밀 · args 오버라이드만 다르다(GCS 볼륨 · TICK_ARCHIVE_DIR 없음 — tickgw live 만 읽는다)
+  echo "▶ deploying Cloud Run Job: $LIVE_JOB (cpu=1, memory=2Gi, timeout=300s, VPC $VPC_NAME private-ranges-only, args=launch-live)..."
+  gcloud run jobs deploy "$LIVE_JOB" \
+    --image="$IMAGE" \
+    --region="$REGION" \
+    --service-account="$RUNTIME_SA" \
+    --cpu=1 \
+    --memory=2Gi \
+    --task-timeout=300s \
+    --max-retries=0 \
+    --parallelism=1 \
+    --tasks=1 \
+    --network="$VPC_NAME" \
+    --subnet="$SUBNET_NAME" \
+    --vpc-egress=private-ranges-only \
+    --args=launch-live \
+    --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@LOG_LEVEL=info@APP_VERSION=${SHA}@TICKGW_URL=${TICKGW_URL}@NODE_OPTIONS=--disable-warning=ExperimentalWarning" \
+    --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,TICKGW_SECRET=${TICKGW_SECRET_NAME}:latest"
+
+  gcloud run jobs add-iam-policy-binding "$LIVE_JOB" \
+    --region="$REGION" \
+    --member="serviceAccount:${SCHED_SA}" \
+    --role=roles/run.invoker >/dev/null
+  echo "✓ run.invoker bound: gh-radar-scheduler-sa → $LIVE_JOB"
+
+  # cron "1,3,10 16 * * 1-5" · "1,3 9 * * 1-5" Asia/Seoul(create_or_update_scheduler 가 Asia/Seoul 고정)
+  create_or_update_scheduler "$LIVE_SCHED_PM" "$LIVE_JOB" "$LIVE_CRON_PM"
+  create_or_update_scheduler "$LIVE_SCHED_AM" "$LIVE_JOB" "$LIVE_CRON_AM"
+  LIVE_STATUS="$LIVE_JOB (VPC private-ranges-only · timeout 300s) · $LIVE_SCHED_PM '$LIVE_CRON_PM' · $LIVE_SCHED_AM '$LIVE_CRON_AM' Asia/Seoul"
 else
   echo "⚠ 승격 Job 건너뜀 — TICKGW_DISABLE=1(당일 경로 꺼짐 · D-22)"
   # 이미 있는 승격 Job 은 지우지도 갱신하지도 않는다 — 옛 이미지 · Scheduler 그대로 돈다는 것을 크게 알린다
@@ -330,6 +375,14 @@ else
     echo "⚠ 승격 Job $PROMOTE_JOB 은 남아 있고 옛 이미지(${PROMOTE_IMAGE_NOW:-?})로 Scheduler 가 계속 깨운다 — 새 이미지 $IMAGE 와 다르다" >&2
     echo "  멈추려면: gcloud scheduler jobs pause $PROMOTE_SCHED --location=$REGION · gcloud scheduler jobs pause $PROMOTE_SCHED_LATE --location=$REGION" >&2
     PROMOTE_STATUS="건너뜀 — TICKGW_DISABLE=1 · ⚠ 기존 $PROMOTE_JOB 는 옛 이미지 그대로"
+  fi
+  # 당일 발사 대기열 Job 도 같은 꼴로 — 지우지도 갱신하지도 않는다
+  if gcloud run jobs describe "$LIVE_JOB" --region="$REGION" >/dev/null 2>&1; then
+    LIVE_IMAGE_NOW=$(gcloud run jobs describe "$LIVE_JOB" --region="$REGION" \
+      --format='value(spec.template.spec.template.spec.containers[0].image)' 2>/dev/null || true)
+    echo "⚠ 당일 발사 대기열 Job $LIVE_JOB 은 남아 있고 옛 이미지(${LIVE_IMAGE_NOW:-?})로 Scheduler 가 계속 깨운다 — 새 이미지 $IMAGE 와 다르다" >&2
+    echo "  멈추려면: gcloud scheduler jobs pause $LIVE_SCHED_PM --location=$REGION · gcloud scheduler jobs pause $LIVE_SCHED_AM --location=$REGION" >&2
+    LIVE_STATUS="건너뜀 — TICKGW_DISABLE=1 · ⚠ 기존 $LIVE_JOB 는 옛 이미지 그대로"
   fi
 fi
 
@@ -342,5 +395,6 @@ echo "   Scheduler: $SCHED (cron '$CRON' Asia/Seoul) · $SCHED_LATE (cron '$CRON
 echo "   Overrides: ${OVERRIDE_ROLE} → $SERVER_SA (Job 단위)"
 echo "   Alert:     $ALERT_NAME"
 echo "   Promote:   $PROMOTE_STATUS"
+echo "   Launch-live: $LIVE_STATUS"
 echo ""
 echo "Next: bash scripts/smoke-tick-convert.sh <YYYYMMDD> [nightly|request <KRX|NXT>]"

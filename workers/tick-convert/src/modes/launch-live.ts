@@ -12,11 +12,24 @@
  *   ② 창 필터 — fire_base(KST) 가 [now − LIVE_WINDOW_MS, now − LIVE_MIN_AGE_MS] 인 조각만(16:xx run 은 Q16 만 · 09:0x 는 N/A 만
  *      자연히 걸린다). fire_base 를 못 읽는 조각 · KRX/NXT 가 아닌 조각은 warn 후 제외.
  *   ③ (isin, fire_exchange) 로 묶는다(입력 순서). 키 0 이면 tickgw 호출 없이 info 요약(휴장일 · 창 밖).
- *   ④ 키마다 순차로 fetchLiveDay(needMs = 그 키 fire_base 최대 + LIVE_NEED_AFTER_MS · 키 데드라인 LIVE_KEY_DEADLINE_MS) →
- *      done 이면 decompressFrames → gridLaunchOf(object_path = 'live:<as-of ISO UTC ms>') · deferred 는 warn · failed 는 error.
+ *   ④ 키마다 순차로 — 리스 인식 게이트(아래) · run 예산 확인 뒤 fetchLiveDay(needMs = 그 키 fire_base 최대 + LIVE_NEED_AFTER_MS ·
+ *      키 데드라인 LIVE_KEY_DEADLINE_MS) → done 이면 decompressFrames → gridLaunchOf(object_path = 'live:<as-of ISO UTC ms>') ·
+ *      deferred 는 warn · failed 는 error.
  *   ⑤ LIVE_SET_BATCH 행마다 · 끝에 `launch_queue_set`(20261104710000 가드 — live 는 KST 오늘만 · live 위에 단조 · 격자 값을 못 덮음).
  *      보낸 − 쓴 = set_skipped(격자 값 · 더 새 live 에 막힘 · 조각 사라짐 · 마이그레이션 전이면 전부).
  *   ⑥ 요약 info 한 줄(keys · computed · written · set_skipped · deferred · failed · launch_failed · fills_empty · ms).
+ *
+ * 운영 규율(tickgw 를 틱뷰어 사용자와 나눠 쓴다 — RESEARCH §2):
+ *   - 리스 인식 게이트: tickgw 활성 키는 MAX_KEYS 8(처음 touch 순)이고 요청마다 리스 30초다. 끝낸 키도 마지막 요청 뒤 30초 동안
+ *     우리 리스로 남는다 → 「lastReqAt + LIVE_LEASE_GUARD_MS(31초) > 지금」 인 우리 키가 LIVE_KEY_SLOTS(4) 이상이면 가장 이른 만료까지
+ *     기다린 뒤 새 키를 연다. 사용자 몫으로 늘 ≥ 4 슬롯이 남는다. 받기는 순차다(119 호출 동시성이 전역 1 이라 동시 받기로 총시간이
+ *     줄지 않는다 · 메모리 · 시험이 단순 · 31초 리스 창이 시간을 지배하는 점은 같다).
+ *   - run 예산: 시작 뒤 LIVE_RUN_BUDGET_MS(100초)가 지나면 새 키를 열지 않는다 — 남은 키는 deferred(budget · warn 한 줄) · 다음 run 이 잇는다.
+ *     Job task-timeout 300s 산식: 예산 100초(게이트 대기 포함) + 마지막 키 데드라인 90초 + 진행 중 요청 타임아웃 30초 + 해제 · 계산 · set
+ *     (키당 ~1초) ≈ 230초 < 300초. 겹친 실행(16:01 이 16:03 까지)도 tickgw 키당 폴러 하나 · DB 단조 가드라 안전.
+ *   - 첫 로딩 실측(37-17 · 08:00 부터): 한 시간치는 키당 대개 1초 안팎 · 대형주 하루치 수 초~수십 초(VPN ~1MB/s) — 키 데드라인 90초.
+ *   - fills_empty: 창 안 조각 중 profile N · A(LAUNCH_RUN_PROFILES) 이고 fills 가 빈 조각 수 — 요약에만(미체결도 0 이라 경고 아님 ·
+ *     relay 저널 지연이면 「미체결」 로 잘못 계산된다 · 09:03 · nightly 가 고친다 — RESEARCH §3).
  *
  * 표식: object_path = 'live:' + new Date(asOfMs).toISOString() — 고정 폭이라 문자열 비교 = 시각 비교. 밤 nightly 가 그날 격자 경로로
  *   덮는다(launch_queue_pending 은 격자가 생기면 live 행을 경로 불일치로 다시 고른다).
@@ -25,7 +38,7 @@
  *   deferred(timeout · queued · incomplete) · 계산 실패 launch_failed(gridLaunchOf 가 error 로그) · set_skipped = 0(로그만).
  * `tick_convert_runs` 에 기록하지 않는다 — 격자 변환이 아니다(모드 CHECK 변경 회피 · 로그만). `deps.store` 를 쓰지 않는다.
  */
-import { parseTickTime } from "@gh-radar/shared";
+import { LAUNCH_RUN_PROFILES, parseTickTime } from "@gh-radar/shared";
 import { requireTickgw } from "../config";
 import { logger } from "../logger";
 import { kstYmdDaysAgo } from "../archive";
@@ -46,6 +59,12 @@ export const LIVE_NEED_AFTER_MS = 20_000;
 export const LIVE_KEY_DEADLINE_MS = 90_000;
 /** set 한 번에 넘기는 행 수. */
 export const LIVE_SET_BATCH = 50;
+/** 우리가 동시에 쥐는 tickgw 리스 키 상한(MAX_KEYS 8 의 절반 — 틱뷰어 사용자 몫 ≥ 4). */
+export const LIVE_KEY_SLOTS = 4;
+/** 우리 리스가 살아 있다고 보는 시간 — tickgw 리스 30초 + 1초 여유(마지막 요청 시각 기준). */
+export const LIVE_LEASE_GUARD_MS = 31_000;
+/** run 시작 뒤 이 시간이 지나면 새 키를 열지 않는다(남은 키 deferred). */
+export const LIVE_RUN_BUDGET_MS = 100_000;
 
 export type LaunchLiveArgs = Record<string, never>;
 
@@ -71,7 +90,7 @@ export type LaunchLiveOutcome = {
   written: number;
   /** set 에 보냈지만 쓰이지 않은 행 수(가드에 막힘 · 로그만). */
   setSkipped: number;
-  /** 미룬 키 수(timeout · queued · incomplete) — 다음 run 이 잇는다. */
+  /** 미룬 키 수(timeout · queued · incomplete · budget) — 다음 run 이 잇는다. */
   deferred: number;
   /** tickgw · 해제 · set 실패(키 수 · set 은 보낸 행 수) — 0 이 아니면 종료 1. */
   failed: number;
@@ -133,6 +152,7 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
       logger.warn({ date, piece: p }, "tick-convert launch-live: fire_exchange 가 KRX/NXT 가 아닌 조각 — 제외");
       continue;
     }
+    if ((LAUNCH_RUN_PROFILES as readonly string[]).includes(p.profile) && p.fills.length === 0) out.fillsEmpty += 1;
     // ③ (isin, fire_exchange) 묶기 — 입력 순서 유지
     const k = `${p.isin}|${p.fire_exchange}`;
     const cur = keys.get(k);
@@ -162,8 +182,34 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
 
   if (keys.size > 0) {
     const client = deps.tickgwLive ?? createTickgwLiveClient(requireTickgw(deps.config, "launch-live"));
+    const list = [...keys.values()];
+    /** 끝낸 키의 마지막 요청 시각 — 리스 인식 게이트 입력. */
+    const leases: number[] = [];
+    const overBudget = (i: number): boolean => {
+      if (clock() - t0 <= LIVE_RUN_BUDGET_MS) return false;
+      const left = list.slice(i);
+      out.deferred += left.length;
+      logger.warn(
+        { date, deferred: left.length, budgetMs: LIVE_RUN_BUDGET_MS, keys: left.map((k) => `${k.ex}/${k.isin}`) },
+        `[tick-convert] mode=launch-live run 예산 초과 — 남은 ${left.length}키는 다음 run 이 잇는다`,
+      );
+      return true;
+    };
+    /** 살아 있는 우리 리스가 LIVE_KEY_SLOTS 이상이면 가장 이른 만료까지 기다린다. */
+    const gate = async (): Promise<void> => {
+      for (;;) {
+        const now = clock();
+        const live = leases.filter((t) => t + LIVE_LEASE_GUARD_MS > now);
+        if (live.length < LIVE_KEY_SLOTS) return;
+        await sleep(Math.max(1, Math.min(...live) + LIVE_LEASE_GUARD_MS - now));
+      }
+    };
     try {
-      for (const key of keys.values()) {
+      for (let i = 0; i < list.length; i++) {
+        if (overBudget(i)) break;
+        await gate();
+        if (overBudget(i)) break;
+        const key = list[i]!;
         const log = { date, isin: key.isin, ex: key.ex, pieces: key.pieces.length };
         // ④ 받기
         const r = await fetchLiveDay(client, {
@@ -174,6 +220,7 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
           clock,
           sleep,
         });
+        leases.push(r.lastReqAt);
         if (r.kind === "deferred") {
           out.deferred += 1;
           logger.warn(
