@@ -64,7 +64,7 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   등록가 · 최고 순매수(`detailKpisOf(row, true)`) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY`. 부모가 `prev`(이월 행 · 목록 RPC
  *   prev 키 + prev_date)를 주면 KPI 줄 바로 뒤 「전날 MM/DD · 순매수 · 매수 / 매도」 한 줄(`accum-prev-line`). 종가 대비 % 는
  *   원천이 없어 없다 · 전날 평단은 prev_pos_day_avg_px > 0 일 때(quick-261026-0ty). 판정 기준 1줄 새 임계 문구는 상세 행
- *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원 문턱은 500만원(gh-trade D-20).
+ *   th_recent_pieces 로 가른다(`thresholdPartsOf`). 원은 팀 주문 전부(gh-trade 261104 — 500만원 문턱 폐지).
  *   그날 pos_day_avg_px 열이 실렸으면(prop `dayAvg` = hasDayAvgOf · quick-261026-0ty) KPI 줄에 「당일 평단」(0 · null 「—」).
  *   그 행 payload.pos_day 점이 있으면(quick-261026-0ty · gh-trade 261026-0q3) 누적 판 보라 주선 = 서버 당일 순매수 · 팀 평단 점선 =
  *   당일 평단(양수 점 있을 때 · 범례 「팀 평단(당일)」) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY_POS`.
@@ -406,7 +406,7 @@ const PRESETS: readonly { name: ChartPreset; label: string }[] = [
 ];
 
 const CAPTION =
-  '원 = 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+  '원 = 팀 주문 전부(크기 = 금액 · 굵은 테두리 = 사이클마다 첫 팀 매수) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
 
 /** 범례 줄 배치 — 로딩 스켈레톤도 같은 줄바꿈으로 높이를 잡는다(34 UI 리뷰). */
 const LEGEND_ROW = 'flex flex-wrap gap-x-3 gap-y-1';

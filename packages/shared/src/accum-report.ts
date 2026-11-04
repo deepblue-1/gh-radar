@@ -118,8 +118,8 @@ export interface AccumReportPrice {
 }
 
 /**
- * payload.orders — 열 지향(같은 길이 · t_ms 오름차순). 500만원 이상 팀 주문(gh-trade D-20 · 2026-10-25 · 그 전 export 는 1천만원 —
- * 재생성으로 바뀐다) ∪ 사이클마다 첫 팀 매수(first=1).
+ * payload.orders — 열 지향(같은 길이 · t_ms 오름차순). 팀 주문 전부(gh-trade 261104 · 금액 하한 없음 — 그 전 export 는 500만원
+ * 이상 ∪ first=1 · 재생성 전까지 그대로). first=1 = 사이클 창마다 첫 팀 매수.
  */
 export interface AccumReportOrders {
   t_ms: number[];

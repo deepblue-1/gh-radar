@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
  * 픽스처 = 10/14 실측 6행(워커 gz 원문) + 합성 7행(`accumSyntheticListRows` — 목업 A 의 상태 조합 · KR79 합성 대역).
  *
  * quick-261026-01h 당일 축 — todayNetOf · prevDayOf · dayAxisOf · sortAccumRows({ dayAxis }) · daySum · metaLineOf/
- * accumRowDescriptionOf/detailKpisOf(row, true) · 새 임계 문구(th_recent_pieces > 0) · ACCUM_RULE_LINES_DAY · 원 문턱 500만원.
+ * accumRowDescriptionOf/detailKpisOf(row, true) · 새 임계 문구(th_recent_pieces > 0) · ACCUM_RULE_LINES_DAY · 원 = 팀 주문 전부(gh-trade 261104).
  * 옵션 없는 호출은 지금 결과와 같다(당일 축 아닌 날짜는 글자 하나 다르지 않다).
  */
 
@@ -408,7 +408,7 @@ describe('판정 기준 — thresholdPartsOf · ACCUM_RULE_LINES (D-22 · A9)', 
     expect(ACCUM_RULE_LINES).toEqual([
       '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
       '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판의 얇은 회색 계단이 이 값이고, 굵은 보라 선은 포지션 순매수(등록 후 · 이월 포함 · 우리 체결 제외 — 목록 · KPI 와 같은 값)예요. 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
-      '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
+      '원은 금액과 무관하게 팀 주문 전부예요(크기 = 금액). 굵은 테두리 원이 사이클마다 첫 팀 매수(「팀매수 시작」)예요.',
       '종료 사유 — 청산(순매수 등록 임계 미만 — 서버는 계속 추적하고 다시 임계 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
     ]);
     expect(ACCUM_RULE_SOURCE).toBe('규칙 원문: gh-trade 매집감지(accum-signal) · 팀 매집 분석 §13');
@@ -547,14 +547,14 @@ describe('당일 축 판정 기준 — 새 임계 문구 · ACCUM_RULE_LINES_DAY
     expect(lineOf(noKeys)).toBe(old);
   });
 
-  it('ACCUM_RULE_LINES_DAY 4줄 — 본문 1 · 2 당일 축용 · 3 · 4 는 ACCUM_RULE_LINES 공유(500만원)', () => {
+  it('ACCUM_RULE_LINES_DAY 4줄 — 본문 1 · 2 당일 축용 · 3 · 4 는 ACCUM_RULE_LINES 공유(원 = 팀 주문 전부)', () => {
     expect(ACCUM_RULE_LINES_DAY).toEqual([
       '당일 순매수는 KYOBO119 서버 상태기 값이에요 — 그날 06:00(또는 새 사이클 시작)부터 팀 매수 − 매도, 우리 서버 체결 제외. 목록 · KPI 의 「순매수(오늘)」이 이 값이에요. 「누적(이월포함)」(pos)은 사이클 시작부터 날을 넘겨 쌓은 값(등록 전 · 이월 포함 · 우리 체결 제외)이고 목록 「누적(이월포함)」 열 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
       '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)이 이 값의 흐름이라 끝값이 목록의 순매수(오늘)와 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
       ACCUM_RULE_LINES[2],
       ACCUM_RULE_LINES[3],
     ]);
-    expect(ACCUM_RULE_LINES_DAY[2]).toContain('500만원 이상');
+    expect(ACCUM_RULE_LINES_DAY[2]).toContain('팀 주문 전부');
   });
 });
 
@@ -610,11 +610,11 @@ describe('전날 평단 — prevDayOf avgPx (quick-261026-0ty)', () => {
 });
 
 describe('ACCUM_RULE_LINES_DAY_POS (quick-261026-0ty)', () => {
-  it('4줄 — 본문 1 = DAY[0] · 본문 2 서버 당일 순매수 보라 · 원 문턱(누적 계단 문장 없음) · 종료 사유 공유', () => {
+  it('4줄 — 본문 1 = DAY[0] · 본문 2 서버 당일 순매수 보라 · 원(ACCUM_RULE_LINES[2] 공유) · 종료 사유 공유', () => {
     expect(ACCUM_RULE_LINES_DAY_POS).toEqual([
       ACCUM_RULE_LINES_DAY[0],
       '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 순매수(오늘)와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
-      '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요.',
+      '원은 금액과 무관하게 팀 주문 전부예요(크기 = 금액). 굵은 테두리 원이 사이클마다 첫 팀 매수(「팀매수 시작」)예요.',
       ACCUM_RULE_LINES[3],
     ]);
   });

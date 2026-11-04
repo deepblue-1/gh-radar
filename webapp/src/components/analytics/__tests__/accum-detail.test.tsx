@@ -422,7 +422,7 @@ describe('AccumChart — 사이클 세로선 · 이월 줄 · 눈금 · 축 글�
 });
 
 const CAPTION =
-  '원 = 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(크기 = 금액) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
+  '원 = 팀 주문 전부(크기 = 금액 · 굵은 테두리 = 사이클마다 첫 팀 매수) · 15:30~16:00 은 체결 없음(정상) · 휠·두 손가락 = 확대/축소 · 끌기 = 이동';
 
 const presetsOf = (sec: HTMLElement) =>
   Array.from(sec.querySelectorAll<HTMLButtonElement>('[data-slot="accum-presets"] button'));
@@ -507,10 +507,10 @@ describe('AccumDetail 차트 블록 머리 — 범례 · 프리셋 · 창 범위
     }
   });
 
-  it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 500만원 이상」 으로 시작', async () => {
+  it('(h3) CJ씨푸드1우(day_cum_net 빔) — 캡션이 「팀 체결 없음 · 원 = 팀 주문 전부」 으로 시작', async () => {
     const sec = await expand(CJSEAFOOD_PREF);
     const cap = sec.querySelector('[data-slot="accum-caption"]')!.textContent ?? '';
-    expect(cap.startsWith('팀 체결 없음 · 원 = 500만원 이상')).toBe(true);
+    expect(cap.startsWith('팀 체결 없음 · 원 = 팀 주문 전부')).toBe(true);
     expect(cap).toBe(`팀 체결 없음 · ${CAPTION}`);
   });
 });
@@ -584,7 +584,7 @@ const RULE_TEXTS = [
   '이 종목의 등록 임계 — 순매수 1.0억 이상 · 한 가격 30조각 이상 · 시총 5,000억 이하 (현재 시총 3,144억)',
   '등록 후 순매수(pos)는 KYOBO119 서버 상태기 값이에요 — 등록 이후 누적, 우리 서버 체결 제외, 마지막 사이클 기준. 목록 · KPI · 사이클 표가 이 값이에요.',
   '하루 순매수(day)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판의 얇은 회색 계단이 이 값이고, 굵은 보라 선은 포지션 순매수(등록 후 · 이월 포함 · 우리 체결 제외 — 목록 · KPI 와 같은 값)예요. 그래서 두 값은 부호까지 다를 수 있고, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 달라요.',
-  '원은 500만원 이상 팀 주문 + 사이클마다 첫 팀 매수(금액 무관 · 「팀매수 시작」)예요. 누적 계단은 전체 팀 주문이에요.',
+  '원은 금액과 무관하게 팀 주문 전부예요(크기 = 금액). 굵은 테두리 원이 사이클마다 첫 팀 매수(「팀매수 시작」)예요.',
   '종료 사유 — 청산(순매수 등록 임계 미만 — 서버는 계속 추적하고 다시 임계 이상이면 같은 사이클로 재등장) / 매집 종료(청산 뒤 순매수가 사이클 최고의 −30% 이하 · 우리 체결 제외 — 다음 등록은 새 사이클) / 이월 탈락(서버 재기동 때 복원 안 됨) / 이월 만료(이월 10일 초과).',
 ];
 const rulesToggleOf = (sec: HTMLElement) =>
@@ -871,7 +871,7 @@ describe('quick-261026-01h — 당일 축 상세 KPI · 전날 줄 · 판정 기
     ]);
   });
 
-  it('(d4) 당일 축 아닌 날짜 — KPI 줄 4항목 · 판정 기준 지금 문구(원 문턱만 500만원) · 전날 줄 없음', async () => {
+  it('(d4) 당일 축 아닌 날짜 — KPI 줄 4항목 · 판정 기준 지금 문구(원 = 팀 주문 전부) · 전날 줄 없음', async () => {
     const sec = await expand(CHEONIL);
     expect(klineLabels(sec)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
     expect(sec.querySelector('[data-slot="accum-prev-line"]')).toBeNull();
