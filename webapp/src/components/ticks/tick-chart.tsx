@@ -40,6 +40,7 @@ import {
   turnoverPathsOf,
   turnoverSeriesOf,
   xOfTick,
+  yOfShare,
   yOfTickPrice,
 } from '@/lib/ticks/tick-chart';
 import {
@@ -49,10 +50,12 @@ import {
   tickHoverWithOwn,
   tickOrderHoverOf,
   pct1,
+  pct2,
+  type TickGroupTable,
   type TickHover,
 } from '@/lib/ticks/tick-chart-tip';
 import type { OwnModel } from '@/lib/ticks/own-model';
-import { fmtAmountC } from '@/lib/ticks/tick-format';
+import { fmtAmountC, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
@@ -65,7 +68,8 @@ import { TickChartBand } from './tick-chart-band';
  *
  * ① 레이어(아래 → 위): 장전 음영(08:00~09:00) · 빈 띠(15:30~16:00) · VI 띠(`--vi` 옅게 · 진행 중이면 끝까지) → 시각 격자 →
  *   ② 당일 팀 순매수 판 0선 · 누적(이월 포함) 회색 계단(왼쪽 회색 축 · 0 포함 독립 범위 · pos_net 있을 때만 — D-09) ·
- *   당일 보라 계단(오른쪽 보라 축 · 하루 범위 고정) → ③ 10분 팀 매수/매도 막대 쌍 → ① 가격 선(열별 4점 솎음) · 팀 평단
+ *   당일 매수 누적 `--up` 계단 · 0선 아래 거울 매도 누적 `--down` 계단(스케치 028 ④) · 당일 보라 순매수 계단(맨 위 · 오른쪽 보라 축 ·
+ *   하루 범위 고정 · 세 선이 다 든다) → ③ 10분 팀 매수/매도 막대 쌍 → ① 가격 선(열별 4점 솎음) · 팀 평단
  *   `--up` 점점선(잔량 있을 때만) · 팀 주문 원 전부(매수 빨강 · 매도 파랑 · 크기 = 금액 · 큰 원 먼저) →
  *   ④ 누적 거래대금 회색 영역(왼쪽 축 = 시총 대비 % · 시총 = 기준가 × 상장주식수 · 모르면 금액) + 누적 팀 비중 보라 선(오른쪽 축
  *   0 ~ 창 안 최대 5% 올림 · 2026-11-03 사용자 요청) → 현재 틱 커서(네 판 관통 + 아래 시각 라벨). 커서가 든 주문의 원은 --fg 고리.
@@ -74,7 +78,8 @@ import { TickChartBand } from './tick-chart-band';
  * ② 조작 — 휠 = 확대/축소 · 끌기 = 이동(`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs`) ·
  *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
- * ③ 높이 — 측정 폭 < 600 이면 폰 208 · 아니면 데스크톱 287(`height` 로 강제 가능). 폰은 판 제목 글자를 생략한다.
+ * ③ 높이 — 측정 폭 < 600 이면 폰 222 · 아니면 데스크톱 307(`height` 로 강제 가능 · 순매수 판 70 / 50 — 스케치 028 ④). 폰은 판 제목
+ *   글자를 생략한다.
  * ④ 고정 띠 B + 가격 판 원 옆 상자(스케치 028 ① · 2026-11-04 채택 · `lib/ticks/tick-chart-tip.ts`) — 판별로 따로 뜨던 툴팁 대신
  *   머리 아래 · 차트 위에 높이 고정 띠 4칸(`TickChartBand` · 가격 | 당일 팀 | 10분 | 누적). 마우스가 그림 영역 위면 그 시각 값,
  *   벗어나면 현재 틱 값. 떠다니는 상자는 가격 판 팀 주문 원(씨앗 + 가로 ± 5px 묶음) · 우리 점 위에서만 뜬다.
@@ -100,8 +105,8 @@ export interface TickChartProps {
   onJumpRec: (rec: number) => void;
   /** 종목 상장주식수(열기 응답 `stock.listing_shares`) — 시총 대비 축 · 툴팁. 없으면 금액 축. */
   listingShares?: number | null;
-  /** 판 높이 강제(287 데스크톱 · 208 폰) — 생략하면 측정 폭으로 고른다. */
-  height?: 287 | 208;
+  /** 판 높이 강제(307 데스크톱 · 222 폰) — 생략하면 측정 폭으로 고른다. */
+  height?: typeof TICK_CHART.desktop.H | typeof TICK_CHART.phone.H;
   /** 우리 체결 모델(Phase 38) — 없으면 우리 점 · 범례 없음. */
   own?: OwnModel | null;
   /** ◆ 클릭 = 그 A3 rec · ○ 클릭 = 근거 rec + 되돌아가기 주문 id(`back`). */
@@ -160,6 +165,84 @@ function OwnDiamond({ m, i, r }: { m: OwnMark; i: number; r: number }) {
   };
   if (m.kind === 'est') return <rect {...common} fill="var(--card)" strokeDasharray="3 2" />;
   return <rect {...common} fill={m.kind === 'fill' ? 'var(--mine)' : 'var(--card)'} />;
+}
+
+const sgnCls = (v: number) => (v > 0 ? 'text-[var(--up)]' : v < 0 ? 'text-[var(--down)]' : 'text-[var(--muted-fg)]');
+
+/** 가격 판 원 옆 작은 상자 — 팀 주문 묶음 표(스케치 028 ② · 목업 groupHtml · 주문마다 한 줄). */
+function TickGroupBox({ table: g }: { table: TickGroupTable }) {
+  const multi = g.count >= 2;
+  return (
+    <div data-slot="tick-chart-group" className="mt-0.5 rounded-[8px] bg-[var(--muted)] px-2 pt-1.5 pb-[5px]">
+      <div className="flex justify-between gap-2 text-[11.5px] font-bold">
+        <span>{multi ? `팀 주문 묶음 ${g.count}건` : '팀 주문 1건'}</span>
+        <small className="mono text-[10.5px] font-normal text-[var(--muted-fg)]">{g.clock}</small>
+      </div>
+      {multi && (
+        <div data-slot="tick-chart-group-sum" className="mt-0.5 flex flex-wrap gap-x-2.5 text-[11px]">
+          {g.buy.n > 0 && (
+            <span className="text-[var(--up)]">
+              매수 {g.buy.n}건 <b className="mono font-semibold">{fmtAmountC(g.buy.val)}</b>
+            </span>
+          )}
+          {g.sell.n > 0 && (
+            <span className="text-[var(--down)]">
+              매도 {g.sell.n}건 <b className="mono font-semibold">{fmtAmountC(g.sell.val)}</b>
+            </span>
+          )}
+          <span>
+            순 <b className={cn('mono font-semibold', sgnCls(g.net))}>{fmtSignedAmountC(g.net)}</b>
+          </span>
+          {g.px0 !== null && g.px1 !== null && (
+            <span className="text-[var(--muted-fg)]">
+              가격{' '}
+              <b className="mono font-semibold text-[var(--fg-2)]">
+                {PX_FMT.format(g.px0)} → {PX_FMT.format(g.px1)}
+              </b>
+              {g.chgPct !== null && ` (${pct2(g.chgPct)})`}
+            </span>
+          )}
+        </div>
+      )}
+      <table className="mono mt-1 w-full border-collapse text-[10.5px]">
+        <tbody>
+          {g.rows.map((r) => (
+            <tr
+              key={r.k}
+              data-slot="tick-chart-group-row"
+              data-seed={r.seed ? '1' : undefined}
+              className={r.seed ? 'font-bold' : undefined}
+            >
+              <td className="py-px whitespace-nowrap">
+                {r.seed && (
+                  <span aria-hidden="true" className="mr-px -ml-[9px]">
+                    ▸
+                  </span>
+                )}
+                {r.clock}
+              </td>
+              <td className="py-px pl-2 whitespace-nowrap">
+                <span className={cn('font-sans font-bold', r.side === 'B' ? 'text-[var(--up)]' : 'text-[var(--down)]')}>
+                  {r.side === 'B' ? '매수' : '매도'}
+                </span>
+              </td>
+              <td className="py-px pl-2 text-right whitespace-nowrap">{fmtAmountC(r.val)}</td>
+              <td className="py-px pl-2 text-right whitespace-nowrap">@{PX_FMT.format(r.px)}</td>
+              <td className="py-px pl-2 text-right whitespace-nowrap">{PX_FMT.format(r.qty)}주</td>
+              <td className="py-px pl-2 text-right whitespace-nowrap text-[var(--muted-fg)]">{r.pieces}조각</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {g.more > 0 && <div className="mt-0.5 text-[10.5px] text-[var(--muted-fg)]">외 {g.more}건</div>}
+      {!multi && g.avgDiffPct !== null && (
+        <div className="mt-0.5 flex gap-x-2.5 text-[11px]">
+          <span className="text-[var(--muted-fg)]">그 시각 평단 대비</span>
+          <b className={cn('mono font-semibold', sgnCls(g.avgDiffPct))}>{pct2(g.avgDiffPct)}</b>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TickChart({
@@ -273,6 +356,9 @@ export function TickChart({
   const cumRange = useMemo(() => cumNetRangeOf(cumPts), [cumPts]);
   const yC = yOfNet(cumRange, P);
   const dayD = teamDayStairsOf(team, x, yN, bounds.T0, endMs);
+  // 매수 누적 · 0선 아래 거울 매도 누적(스케치 028 ④ — 보라 순매수 선 아래)
+  const dayBuyD = teamDayStairsOf(team, x, yN, bounds.T0, endMs, (st) => st.buy);
+  const daySellD = teamDayStairsOf(team, x, yN, bounds.T0, endMs, (st) => -st.sell);
   const cumD = hasCum ? cumStairsOf(cumPts, x, yC, bounds.T0, bounds.T2000) : '';
   const avgD = teamAvgPathOf(team, x, y, range, endMs);
   const bars = teamBucketsOf(team, view, x, bounds.T0, P);
@@ -302,7 +388,7 @@ export function TickChart({
   const pickAt = (mx: number, my: number): TickHover | null => {
     if (mx < L || mx > xr || my < P.y1a || my > P.y1b) return null;
     const c = nearestTickCircleOf(circles, mx, my, P);
-    const teamHover = c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
+    const teamHover = c === null ? null : tickOrderHoverOf(team, circles, c, view);
     // 우리 줄은 팀 줄 뒤에 덧붙이기만(D-16 — 팀 줄 문구 · 순서 그대로)
     return own === null ? teamHover : tickHoverWithOwn(teamHover, marks, own, mx, my, P, ownR);
   };
@@ -331,6 +417,20 @@ export function TickChart({
           { team, cum: cumPts, price: series, turnover, basePx: session.basePx, mcap, T0: bounds.T0 },
           bandT,
         );
+
+  // 세로선 · 값 점 — 호버나 터치가 있고 끌기 중이 아닐 때만
+  const hoverLine = hoverT !== null && !dragging ? x(hoverT) : null;
+  const hoverDots: { y: number; c: string }[] = [];
+  if (hoverLine !== null && bandVal !== null) {
+    if (bandVal.px !== null) hoverDots.push({ y: y(bandVal.px), c: 'var(--fg-2)' });
+    if (bandVal.hasTeam) {
+      hoverDots.push({ y: yN(bandVal.dayBuy), c: 'var(--up)' });
+      hoverDots.push({ y: yN(-bandVal.daySell), c: 'var(--down)' });
+      hoverDots.push({ y: yN(bandVal.dayNet), c: 'var(--team)' });
+    }
+    if (bandVal.hasCum && bandVal.cum !== null) hoverDots.push({ y: yC(bandVal.cum), c: 'var(--muted-fg)' });
+    if (tv.share !== '' && bandVal.share !== null) hoverDots.push({ y: yOfShare(tv.shareTop, P)(bandVal.share), c: 'var(--team)' });
+  }
 
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
     if (e.pointerType === 'touch') {
@@ -451,8 +551,9 @@ export function TickChart({
         <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
         {!phone && (
           <span className="truncate text-[11px] text-[var(--muted-fg)]">
-            가격 · 팀 평단 · 팀 주문 원 | <span className="text-[var(--team)]">당일 팀 순매수</span> · 누적 | 10분 팀
-            매수/매도 | 누적 거래대금 · <span className="text-[var(--team)]">팀 비중</span> ·{' '}
+            가격 · 팀 평단 · 팀 주문 원 | <span className="text-[var(--team)]">당일 팀 순매수</span> ·{' '}
+            <span className="text-[var(--up)]">매수</span>/<span className="text-[var(--down)]">매도</span> 누적 · 누적 | 10분
+            팀 매수/매도 | 누적 거래대금 · <span className="text-[var(--team)]">팀 비중</span> ·{' '}
             <span className="text-[var(--vi)]">VI</span>
           </span>
         )}
@@ -579,7 +680,7 @@ export function TickChart({
               />
             ))}
 
-            {/* ② 당일 팀 순매수 판 — 0선 · 누적 회색(아래) · 당일 보라(위) */}
+            {/* ② 당일 팀 순매수 판 — 0선 · 누적 회색(아래) · 매수 누적 · 거울 매도 누적 · 당일 보라(맨 위) */}
             {!noTeam && (
               <line
                 data-slot="tick-net-zero"
@@ -600,6 +701,28 @@ export function TickChart({
                 stroke="var(--muted-fg)"
                 strokeWidth={1}
                 strokeOpacity={0.7}
+                pointerEvents="none"
+              />
+            )}
+            {!noTeam && dayBuyD !== '' && (
+              <path
+                data-slot="tick-day-buy-path"
+                d={dayBuyD}
+                fill="none"
+                stroke="var(--up)"
+                strokeWidth={1.15}
+                strokeOpacity={0.85}
+                pointerEvents="none"
+              />
+            )}
+            {!noTeam && daySellD !== '' && (
+              <path
+                data-slot="tick-day-sell-path"
+                d={daySellD}
+                fill="none"
+                stroke="var(--down)"
+                strokeWidth={1.15}
+                strokeOpacity={0.85}
                 pointerEvents="none"
               />
             )}
@@ -730,6 +853,34 @@ export function TickChart({
               )}
             </g>
 
+            {/* 마우스 · 터치 세로선 + 그 시각 값 점(목업 overlay) — 끌기 중이 아닐 때 */}
+            {hoverLine !== null && (
+              <g data-slot="tick-chart-hover" pointerEvents="none">
+                <line
+                  data-slot="tick-chart-hover-line"
+                  x1={hoverLine}
+                  x2={hoverLine}
+                  y1={P.y1a}
+                  y2={P.y4b}
+                  stroke="var(--fg-2)"
+                  strokeDasharray="3 3"
+                  strokeOpacity={0.7}
+                />
+                {hoverDots.map((d, i) => (
+                  <circle
+                    key={i}
+                    data-slot="tick-chart-hover-dot"
+                    cx={hoverLine}
+                    cy={d.y}
+                    r={3}
+                    fill={d.c}
+                    stroke="var(--card)"
+                    strokeWidth={1.5}
+                  />
+                ))}
+              </g>
+            )}
+
             {/* 현재 틱 커서 — 네 판 관통 */}
             {cx !== null && (
               <line
@@ -844,6 +995,12 @@ export function TickChart({
               </text>
               <text x={L + 4} y={P.y2a + 10} fill="var(--team)">
                 당일 팀 순매수
+                <tspan fill="var(--fg-2)" fontWeight={400}>
+                  {' · '}
+                  <tspan fill="var(--up)">매수</tspan>
+                  {' · '}
+                  <tspan fill="var(--down)">매도(0선 아래)</tspan> 누적 · 오른쪽 축
+                </tspan>
                 {hasCum && (
                   <tspan fill="var(--muted-fg)" fontWeight={400}>
                     {' '}
@@ -884,13 +1041,16 @@ export function TickChart({
             </g>
           )}
         </svg>
-        {tip && (
+        {tip && (tip.table !== undefined || tip.lines.length > 0) && (
           <div
             ref={tipRef}
             data-slot="tick-chart-tip"
             data-touch={tip.touch ? '1' : undefined}
             role="tooltip"
-            className="pointer-events-none absolute z-10 rounded-[var(--r)] border border-[var(--border)] bg-[var(--popover)] px-2 py-1 text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums"
+            className={cn(
+              'pointer-events-none absolute z-10 rounded-[10px] border border-[var(--border)] bg-[var(--popover)] text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums',
+              tip.table ? 'w-[300px] px-1 pt-0.5 pb-1' : 'px-2 py-1',
+            )}
             style={
               tip.touch
                 ? { left: 4, maxWidth: W - 8, top: WRAP_PAD_Y + touchTipTopOf(tip.ay, tipH, P.H) }
@@ -903,8 +1063,9 @@ export function TickChart({
                   }
             }
           >
+            {tip.table && <TickGroupBox table={tip.table} />}
             {tip.lines.map((line, i) => (
-              <div key={i} className="pl-3 -indent-3">
+              <div key={i} data-slot="tick-chart-own-line" className={cn('pl-3 -indent-3', tip.table && 'mx-1 mt-0.5')}>
                 {line}
               </div>
             ))}

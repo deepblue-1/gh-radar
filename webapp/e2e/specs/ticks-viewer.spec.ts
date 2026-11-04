@@ -595,12 +595,12 @@ test.describe('틱뷰어 3판 차트 · 팀 거래정보 (Phase 37 D-00 ① · D
     return L + (box.width - L - 52) * (hoursFrom0800 / 12);
   }
 
-  test('차트 — 클릭 → 그 시각 이후 첫 틱(머리 시각 이동) · 데스크톱 287 · 누적 범례 · 가로 넘침 0', async ({ page }) => {
+  test('차트 — 클릭 → 그 시각 이후 첫 틱(머리 시각 이동) · 데스크톱 307 · 누적 범례 · 가로 넘침 0', async ({ page }) => {
     await mockTickApi(page);
     await page.goto(OPEN_URL);
     await expect(svg(page)).toBeVisible({ timeout: 30_000 });
     await expect(svg(page)).toHaveAttribute('data-dims', 'desktop');
-    await expect(svg(page)).toHaveAttribute('height', '287');
+    await expect(svg(page)).toHaveAttribute('height', '307');
     // 픽스처 accum = null → 누적 자료 없음(D-09)
     await expect(chart(page).locator('[data-slot="tick-chart-legend"]')).toHaveText('누적 자료 없음(매집감지 미등록)');
     await expect(span(page)).toHaveText('하루 전체');

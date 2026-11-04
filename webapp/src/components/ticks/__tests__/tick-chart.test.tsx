@@ -99,10 +99,10 @@ describe('TickChart — 누적 선 · 범례(D-09 · Open Question 3)', () => {
 describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-03)', () => {
   const box = (svg: SVGSVGElement) => {
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 307, width: 640, height: 307, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
   };
 
-  it('원 위 → 씨앗 + 가로 ± 5px 묶음 3줄(하루 전체 창 — 가까운 매수 · 매도가 한 묶음) · 고리 · 나가면 지운다', () => {
+  it('원 위 → 원 옆 작은 상자 = 묶음 표(스케치 028 ② · 하루 전체 창 — 가까운 매수 · 매도가 한 묶음) · 고리 · 나가면 지운다', () => {
     const { q } = renderChart();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     box(svg);
@@ -111,15 +111,53 @@ describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-0
     const cy = Number(buy.getAttribute('cy'));
     fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
     const tip = q('tick-chart-tip')[0]!;
-    const lines = Array.from(tip.children).map((d) => d.textContent);
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain('팀 매수 600주 · 984만 @16,400 · 3조각 · 당일 순매수 +984만');
-    expect(lines[1]).toBe('묶음 2건 13:00:00 · 팀 매수 1건 984만 · 팀 매도 1건 652만 · 가격 16,400 → 16,300 (−0.61%)');
-    expect(lines[2]).toBe('큰 주문 매수 984만@16,400 · 매도 652만@16,300');
+    const grp = tip.querySelector('[data-slot="tick-chart-group"]')!;
+    expect(grp).not.toBeNull();
+    expect(grp.textContent).toContain('팀 주문 묶음 2건');
+    const sum = grp.querySelector('[data-slot="tick-chart-group-sum"]')!.textContent;
+    expect(sum).toContain('매수 1건 984만');
+    expect(sum).toContain('매도 1건 652만');
+    expect(sum).toContain('순 +332만');
+    expect(sum).toContain('16,400 → 16,300 (−0.61%)');
+    const rows = Array.from(grp.querySelectorAll('[data-slot="tick-chart-group-row"]'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.getAttribute('data-seed')).toBe('1');
+    for (const t of ['매수', '984만', '@16,400', '600주', '3조각']) expect(rows[0]!.textContent).toContain(t);
+    expect(rows[1]!.getAttribute('data-seed')).toBeNull();
+    for (const t of ['매도', '652만', '@16,300', '400주', '1조각']) expect(rows[1]!.textContent).toContain(t);
+    expect(q('tick-chart-own-line')).toHaveLength(0);
     expect(q('tick-order-seed')).toHaveLength(1);
     expect(q('tick-order-hover')).toHaveLength(1);
     fireEvent.pointerLeave(svg);
     expect(q('tick-chart-tip')).toHaveLength(0);
+  });
+
+  it('순매수 판(스케치 028 ④) — 매수 누적 · 거울 매도 누적 선 · 보라가 맨 위 · 데스크톱 높이 307', () => {
+    const { q } = renderChart();
+    expect(q('tick-day-buy-path')).toHaveLength(1);
+    expect(q('tick-day-sell-path')).toHaveLength(1);
+    expect(q('tick-chart-svg')[0]!.getAttribute('height')).toBe('307');
+    const buyP = q('tick-day-buy-path')[0]!;
+    const dayP = q('tick-day-path')[0]!;
+    expect(buyP.compareDocumentPosition(dayP) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 팀 없음 → 두 선도 없음
+    const none = synthSession([[1, a3Msg({ seq: 300, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000001000' })]]);
+    const r = renderChart({ session: none, cursorRec: 0 });
+    expect(r.q('tick-day-buy-path')).toHaveLength(0);
+    expect(r.q('tick-day-sell-path')).toHaveLength(0);
+  });
+
+  it('마우스 세로선 · 값 점 — 호버 동안만', () => {
+    const { q } = renderChart();
+    const svg = q('tick-chart-svg')[0] as SVGSVGElement;
+    box(svg);
+    expect(q('tick-chart-hover-line')).toHaveLength(0);
+    fireEvent.pointerMove(svg, { clientX: 400, clientY: 140, pointerType: 'mouse' });
+    expect(q('tick-chart-hover-line')).toHaveLength(1);
+    // 가격 · 매수 · 거울 매도 · 순 · 비중
+    expect(q('tick-chart-hover-dot')).toHaveLength(5);
+    fireEvent.pointerLeave(svg);
+    expect(q('tick-chart-hover-line')).toHaveLength(0);
   });
 
   const cellOf = (q: (slot: string) => NodeListOf<Element>, cell: string) =>
@@ -227,7 +265,7 @@ describe('TickChart — 팀 레이어 · 클릭', () => {
     const { q, onSeekMs } = renderChart();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 307, width: 640, height: 307, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     // L = 52 · 그림 끝 = 640 − 52 = 588 · 하루 전체 창 → 가운데 320 = 14:00
     fireEvent.click(svg, { clientX: 320, clientY: 50 });
     expect(onSeekMs).toHaveBeenCalledTimes(1);
@@ -379,7 +417,7 @@ describe('TickChart — 우리 점 ◆ · ◇ · ○ (Phase 38-07)', () => {
     const { q, onOwnJump, onSeekMs } = renderOwn();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 307, width: 640, height: 307, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     const ev = q('tick-own-ev-mark')[0]!;
     const cx = Number(ev.getAttribute('cx'));
     const cy = Number(ev.getAttribute('cy'));
@@ -398,23 +436,24 @@ describe('TickChart — 우리 점 ◆ · ◇ · ○ (Phase 38-07)', () => {
     expect(renderChart({ own: null }).q('tick-chart-own-legend')).toHaveLength(0);
   });
 
-  it('마우스가 ◆ 위 → 팀 묶음 툴팁 줄 뒤에 우리 줄(판 안 점만 · 근거 ○ → ◆ 순) · 팀 줄은 그대로', () => {
+  it('마우스가 ◆ 위 → 팀 묶음 표 아래에 우리 줄(판 안 점만 · 근거 ○ → ◆ 순) · 팀 표는 그대로', () => {
     const { q } = renderOwn();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     svg.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, right: 640, bottom: 287, width: 640, height: 287, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+      ({ left: 0, top: 0, right: 640, bottom: 307, width: 640, height: 307, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     const buy = Array.from(q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
     fireEvent.pointerMove(svg, {
       clientX: Number(buy.getAttribute('cx')),
       clientY: Number(buy.getAttribute('cy')),
       pointerType: 'mouse',
     });
-    const lines = Array.from(q('tick-chart-tip')[0]!.children).map((d) => d.textContent);
-    expect(lines.slice(0, 3)).toEqual([
-      expect.stringContaining('팀 매수 600주 · 984만 @16,400 · 3조각 · 당일 순매수 +984만'),
-      '묶음 2건 13:00:00 · 팀 매수 1건 984만 · 팀 매도 1건 652만 · 가격 16,400 → 16,300 (−0.61%)',
-      '큰 주문 매수 984만@16,400 · 매도 652만@16,300',
-    ]);
-    expect(lines.slice(3)).toEqual(['조건 근거 호가 · 주문 #EV', '우리 체결 50주 · 계좌 ···3801 · 주문 #F1']);
+    const tip = q('tick-chart-tip')[0]!;
+    const grp = tip.querySelector('[data-slot="tick-chart-group"]')!;
+    expect(grp.textContent).toContain('팀 주문 묶음 2건');
+    expect(grp.querySelectorAll('[data-slot="tick-chart-group-row"]')).toHaveLength(2);
+    const own = Array.from(q('tick-chart-own-line'));
+    expect(own.map((d) => d.textContent)).toEqual(['조건 근거 호가 · 주문 #EV', '우리 체결 50주 · 계좌 ···3801 · 주문 #F1']);
+    // 표 아래
+    expect(grp.compareDocumentPosition(own[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

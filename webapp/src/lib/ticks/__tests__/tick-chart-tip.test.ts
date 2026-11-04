@@ -24,6 +24,7 @@ import {
   tickBandAt,
   tickCircleGroupOf,
   tickCirclesOf,
+  tickGroupTableOf,
   tickHoverWithOwn,
   tickOrderHoverOf,
   tickOwnTipOf,
@@ -106,40 +107,93 @@ describe('tick-chart-tip — 원 · 묶음', () => {
     expect(nearestTickCircleOf(c, 53, P.y2a + 5, P)).toBeNull();
   });
 
-  it('묶음 = 씨앗 가로 ± 5px(4.5px 떨어진 원 포함 · 270px 떨어진 원 제외) · 3줄 합산', () => {
+  it('묶음 = 씨앗 가로 ± 5px(4.5px 떨어진 원 포함 · 270px 떨어진 원 제외) · hover = 표(줄 비움)', () => {
     const m = model();
     const c = tickCirclesOf(m, view, x, y);
     const seed = c.find((v) => v.k === 0)!;
     expect(tickCircleGroupOf(c, seed, view).map((v) => v.k)).toEqual([0, 1]);
-    const h = tickOrderHoverOf(m, 9_500, c, seed, view);
+    const h = tickOrderHoverOf(m, c, seed, view);
     expect(h.key).toBe('o0');
     expect(h.group?.map((v) => v.k)).toEqual([0, 1]);
-    expect(h.lines).toEqual([
-      '13:00:00 팀 매수 1,000주 · 1,000만 @10,000 · 3조각 · 당일 순매수 +1,000만 · 등락률 +5.26% · 평단 대비 0.00%',
-      '묶음 2건 13:00:00 · 팀 매수 2건 합계 1,505만 · 가격 10,000 → 10,100 (+1.00%)',
-      '큰 주문 1,000만@10,000 · 505만@10,100',
-    ]);
+    expect(h.lines).toEqual([]);
+    expect(h.circle).toBe(seed);
+    expect(h.table?.count).toBe(2);
   });
+});
 
-  it('혼자인 원 = 2줄 · group 없음 · 기준가 없으면 등락률 · 잔량 0 이하면 평단 대비 생략', () => {
+/**
+ * 스케치 028 ② — 원 옆 작은 상자 = 주문마다 한 줄 표.
+ * 깨지면: 묶음 합계 · 건수 · 가격 첫 → 끝이 원과 어긋나거나, 줄 순서가 시간순이 아니거나, 긴 묶음이 상자를 늘린다.
+ */
+describe('tickGroupTableOf — 팀 주문 묶음 표', () => {
+  it('1분 창 · 씨앗 k0 — 2건 · 같은 초 한 시각 · 매수 2건 1,505만 · 가격 10,000 → 10,100(+1.00%) · 줄 2개', () => {
     const m = model();
     const c = tickCirclesOf(m, view, x, y);
-    const h = tickOrderHoverOf(m, null, c, c.find((v) => v.k === 3)!, view);
-    expect(h.group).toBeUndefined();
-    expect(h.lines[0]).toBe('13:00:30 팀 매도 2,000주 · 2,040만 @10,200 · 4조각');
-    expect(h.lines[1]).toBe('당일 순매수 −837만');
+    const seed = c.find((v) => v.k === 0)!;
+    const t = tickGroupTableOf(m, seed, tickCircleGroupOf(c, seed, view));
+    expect(t.count).toBe(2);
+    expect(t.clock).toBe('13:00:00');
+    expect(t.buy).toEqual({ n: 2, val: 15_050_000 });
+    expect(t.sell).toEqual({ n: 0, val: 0 });
+    expect(t.net).toBe(15_050_000);
+    expect([t.px0, t.px1]).toEqual([10_000, 10_100]);
+    expect(t.chgPct).toBeCloseTo(1, 9);
+    expect(t.avgDiffPct).toBeNull();
+    expect(t.rows).toEqual([
+      { k: 0, clock: '13:00:00.000', side: 'B', val: 10_000_000, px: 10_000, qty: 1000, pieces: 3, seed: true },
+      { k: 1, clock: '13:00:00.500', side: 'B', val: 5_050_000, px: 10_100, qty: 500, pieces: 2, seed: false },
+    ]);
+    expect(t.more).toBe(0);
   });
 
-  it('확대 전(하루 전체 창)이면 30초 떨어진 매도까지 묶이고 매수/매도를 나눠 합산한다', () => {
+  it('혼자인 원(k3) — 1건 · 줄 1개 · 가격 첫 → 끝 없음 · 잔량 0 이하면 평단 대비 null', () => {
+    const m = model();
+    const c = tickCirclesOf(m, view, x, y);
+    const seed = c.find((v) => v.k === 3)!;
+    const h = tickOrderHoverOf(m, c, seed, view);
+    expect(h.group).toBeUndefined();
+    const t = h.table!;
+    expect(t.count).toBe(1);
+    expect(t.clock).toBe('13:00:30');
+    expect(t.rows).toHaveLength(1);
+    expect(t.rows[0]).toMatchObject({ k: 3, side: 'S', val: 20_400_000, pieces: 4, seed: true });
+    expect([t.px0, t.px1, t.chgPct]).toEqual([null, null, null]);
+    expect(t.avgDiffPct).toBeNull();
+  });
+
+  it('혼자인 매수 원(평단 있음) — 그 시각 평단 대비 %', () => {
+    const m = model();
+    const c = tickCirclesOf(m, view, x, y);
+    const seed = c.find((v) => v.k === 0)!;
+    const t = tickGroupTableOf(m, seed, [seed]);
+    expect(t.avgDiffPct).toBeCloseTo(0, 9);
+  });
+
+  it('하루 전체 창 · 씨앗 k0 — 4건 「13:00:00 ~ 13:00:30」 · 매수 2건 1,505만 · 매도 2건 2,341.5만', () => {
     const m = model();
     const day = { t0: B.T0, t1: B.T2000 };
     const xd = xOfTick(day, 52, 592);
     const c = tickCirclesOf(m, day, xd, y);
-    const h = tickOrderHoverOf(m, null, c, c.find((v) => v.k === 0)!, day);
-    expect(h.lines[1]).toBe(
-      '묶음 4건 13:00:00 ~ 13:00:30 · 팀 매수 2건 1,505만 · 팀 매도 2건 2,342만 · 가격 10,000 → 10,200 (+2.00%)',
-    );
-    expect(h.lines[2]).toBe('큰 주문 매도 2,040만@10,200 · 매수 1,000만@10,000 · 매수 505만@10,100');
+    const seed = c.find((v) => v.k === 0)!;
+    const t = tickGroupTableOf(m, seed, tickCircleGroupOf(c, seed, day));
+    expect(t.count).toBe(4);
+    expect(t.clock).toBe('13:00:00 ~ 13:00:30');
+    expect(t.buy).toEqual({ n: 2, val: 15_050_000 });
+    expect(t.sell).toEqual({ n: 2, val: 23_415_000 });
+    expect(t.rows.map((r) => r.k)).toEqual([0, 1, 2, 3]);
+    expect([t.px0, t.px1]).toEqual([10_000, 10_200]);
+  });
+
+  it('9건 이상 묶음 — 앞 7줄 + more = count − 7', () => {
+    const m = model();
+    const base = tickCirclesOf(m, view, x, y).find((v) => v.k === 0)!;
+    const g = Array.from({ length: 10 }, (_, i) => ({ ...base, k: 100 + i, o: { ...base.o, tMs: T13 + i } }));
+    const t = tickGroupTableOf(m, g[0]!, g);
+    expect(t.count).toBe(10);
+    expect(t.rows).toHaveLength(7);
+    expect(t.more).toBe(3);
+    const eight = tickGroupTableOf(m, g[0]!, g.slice(0, 8));
+    expect([eight.rows.length, eight.more]).toEqual([8, 0]);
   });
 });
 

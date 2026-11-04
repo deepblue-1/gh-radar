@@ -51,6 +51,7 @@ import {
   tickTicksOf,
   turnoverIdxAtPos,
   turnoverPathsOf,
+  yOfShare,
   turnoverSeriesOf,
   xOfTick,
   yOfTickPrice,
@@ -76,13 +77,23 @@ describe('tickBoundsOf · 판 치수', () => {
     expect(B.T2000 - B.T0).toBe(12 * H);
   });
 
-  it('데스크톱 합 287 · 폰 208(스케치 019 D + 022 넷째 판)', () => {
-    expect(tickPanelsOf(TICK_CHART.desktop).H).toBe(287);
-    expect(tickPanelsOf(TICK_CHART.phone).H).toBe(208);
-    expect(TICK_CHART.desktop.H).toBe(287);
-    expect(TICK_CHART.phone.H).toBe(208);
+  it('데스크톱 합 307 · 폰 222(스케치 019 D + 022 넷째 판 + 028 ④ 순매수 판 70 / 50)', () => {
+    expect(tickPanelsOf(TICK_CHART.desktop).H).toBe(307);
+    expect(tickPanelsOf(TICK_CHART.phone).H).toBe(222);
+    expect(TICK_CHART.desktop.H).toBe(307);
+    expect(TICK_CHART.phone.H).toBe(222);
     const p = tickPanelsOf(TICK_CHART.desktop);
-    expect([p.y3b, p.y4a, p.y4b]).toEqual([215, 222, 272]);
+    expect([p.y1a, p.y1b, p.y2a, p.y2b, p.y3a, p.y3b, p.y4a, p.y4b]).toEqual([7, 111, 118, 188, 195, 235, 242, 292]);
+    const ph = tickPanelsOf(TICK_CHART.phone);
+    expect([ph.y1b, ph.y2a, ph.y2b, ph.y3a, ph.y3b, ph.y4a, ph.y4b]).toEqual([72, 79, 129, 136, 164, 171, 207]);
+  });
+
+  it('yOfShare — 0 = 넷째 판 아래선 · 위끝 = y4a + 3 · 넘는 값은 위끝(선 · 호버 점 한 벌)', () => {
+    const p = tickPanelsOf(TICK_CHART.desktop);
+    const yS = yOfShare(0.1, p);
+    expect(yS(0)).toBe(p.y4b);
+    expect(yS(0.1)).toBeCloseTo(p.y4a + 3, 9);
+    expect(yS(0.5)).toBeCloseTo(p.y4a + 3, 9);
   });
 });
 
@@ -204,12 +215,21 @@ describe('팀 레이어 기하(Task 2) — 당일 계단 · 누적 점 · 10분 
         { tMs: B.T0 + 6 * H, net: -50, qty: -1, buy: 100, sell: 150 },
       ],
     };
+    // 범위 = 순매수 · 매수 누적 · 거울 매도 누적(−150) ∪ 0 — 세 선이 다 축 안(스케치 028 ④)
     const range = dayNetRangeOf(model);
-    expect(range).toEqual({ min: -50, max: 100 });
+    expect(range).toEqual({ min: -150, max: 100 });
     const y = yOfNet(range, P);
     const d = teamDayStairsOf(model, x, y, B.T0, B.T0 + 7 * H);
     expect(d).toBe(
       `M52.0,${y(0).toFixed(1)}H277.0V${y(100).toFixed(1)}H322.0V${y(-50).toFixed(1)}H367.0`,
+    );
+    // pick 생략 = net(위와 같은 문자열) · 매수 · 거울 매도 값 고르기
+    expect(teamDayStairsOf(model, x, y, B.T0, B.T0 + 7 * H, (st) => st.net)).toBe(d);
+    expect(teamDayStairsOf(model, x, y, B.T0, B.T0 + 7 * H, (st) => st.buy)).toBe(
+      `M52.0,${y(0).toFixed(1)}H277.0V${y(100).toFixed(1)}H322.0V${y(100).toFixed(1)}H367.0`,
+    );
+    expect(teamDayStairsOf(model, x, y, B.T0, B.T0 + 7 * H, (st) => -st.sell)).toBe(
+      `M52.0,${y(0).toFixed(1)}H277.0V${y(0).toFixed(1)}H322.0V${y(-150).toFixed(1)}H367.0`,
     );
     expect(teamDayStairsOf({ dayStairs: [] }, x, y, B.T0, B.T2000)).toBe('');
   });

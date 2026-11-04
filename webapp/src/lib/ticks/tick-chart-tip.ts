@@ -5,16 +5,17 @@
  * 판마다 대상 하나, 대상이 바뀔 때만 상자를 다시 그린다(key).
  *
  * ① 가격 판 — 마우스 세로선이 지나는 원(|mx − cx| ≤ r + 2) 중 세로로 가장 가까운 원이 씨앗. 씨앗 중심 가로 ± 5px 안의 보이는 원
- *   (창 안 · 가격 > 0 · 세로 무시 · 사슬 없음 · 매수/매도 섞임)이 묶음. 한 원이면 2줄(주문 사실 · 「당일 순매수 · 등락률 · 평단 대비」),
- *   묶음이면 3줄(고른 원 한 줄 · 「묶음 N건 … 합계 · 가격 첫 → 끝」 · 「큰 주문」 상위 3).
+ *   (창 안 · 가격 > 0 · 세로 무시 · 사슬 없음 · 매수/매도 섞임)이 묶음. 원 옆 작은 상자 = 주문마다 한 줄 표(스케치 028 ② ·
+ *   `tickGroupTableOf` — 시각.ms · 매수/매도 · 금액 · @가격 · 수량 · 조각 · 8건 넘으면 7줄 + 「외 N건」). 묶음이면 매수/매도 건수 ·
+ *   합계 · 순 · 가격 첫 → 끝, 혼자면 그 시각 평단 대비.
  * ②③④ 고정 띠 모델(스케치 028 ① B · `tickBandAt`) — 판별로 따로 뜨던 툴팁을 차트 위 높이 고정 띠 4칸 한 벌로 바꿨다.
  *   시각 t(마우스 = 그 시각 · 떼면 현재 틱)의 가격 · 등락률 · 팀 평단 | 당일 팀 순 · 매수 · 매도 누적 · 누적(이월 포함 · 끊김 규칙
  *   = 매집감지 `cumTipAt` 당일 축 갈래 · `cumNetAt`) | 그 10분 칸 팀 매수 · 매도 | t 이하 마지막 A3 까지 거래대금 · 시총 대비 ·
  *   팀 비중 · 거래량. 그리기는 `components/ticks/tick-chart-band.tsx`.
  *
  * ⑤ 우리 점(Phase 38-07 · D-08 · D-02 · D-16) — ◆ 체결마다 「우리 체결 n주[ / 전체 m주] · 계좌 ···끝4 · 주문 #…[ · 추정]」 ·
- *   ◇ 「… · 짝 전문 없음」(대기 「… · 전문 아직 안 옴」) · ○ 주문마다 「조건 근거 {종류} · 주문 #…」. 팀 원 툴팁이 뜨는 자리면 씨앗
- *   가로 ± 5px 안(판 안에 보이는) 우리 점 줄을 팀 줄 **뒤에** 덧붙인다 — 팀 줄 문구 · 순서는 그대로. 계좌는 끝 4자리만(D-02).
+ *   ◇ 「… · 짝 전문 없음」(대기 「… · 전문 아직 안 옴」) · ○ 주문마다 「조건 근거 {종류} · 주문 #…」. 팀 원 상자가 뜨는 자리면 씨앗
+ *   가로 ± 5px 안(판 안에 보이는) 우리 점 줄을 팀 묶음 표 **아래에** 덧붙인다 — 팀 표는 그대로. 계좌는 끝 4자리만(D-02).
  *
  * 금액은 이 화면 표기(`fmtAmountC` — 「984만」 「7.96억」), 등락률 · 평단 대비는 매집감지 툴팁처럼 소수 2자리.
  */
@@ -35,7 +36,7 @@ import {
   type TickPanels,
   type TurnoverSeries,
 } from './tick-chart';
-import { MINUS, fmtAmountC, fmtQty } from './tick-format';
+import { MINUS, fmtQty } from './tick-format';
 
 /** 원을 그리는 창 여유(창 폭의 2% — 컴포넌트가 그리는 원과 같은 범위). */
 const VIEW_PAD_RATIO = 0.02;
@@ -45,8 +46,6 @@ const HOVER_PAD = 2;
 export const TICK_GROUP_HALF_WIDTH = 5;
 const SLOT_MS = 600_000;
 
-const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
-const SIDE_WORD = { B: '매수', S: '매도' } as const;
 
 /** 그려진 주문 원 하나 — `k` = teamOrders 번호(당일 계단 · 툴팁이 그 주문을 다시 찾는다). */
 export interface TickCircle {
@@ -59,7 +58,10 @@ export interface TickCircle {
 
 export interface TickHover {
   key: string;
+  /** 상자 줄 — 가격 판 팀 원이면 표 아래 우리 줄(없으면 []). */
   lines: string[];
+  /** 팀 주문 묶음 표(스케치 028 ②) — 팀 원 위일 때만. */
+  table?: TickGroupTable;
   /** 가격 판이면 고른 원(씨앗). */
   circle: TickCircle | null;
   /** 묶음(2개 이상 · 시간순 · 씨앗 포함)일 때만. */
@@ -109,11 +111,6 @@ export function tickCircleGroupOf(circles: readonly TickCircle[], seed: TickCirc
   return group.sort((a, b) => a.o.tMs - b.o.tMs || a.k - b.k);
 }
 
-/** 부호 붙은 금액(「+984만」 · 「−1.20억」 · 0 은 「0」). */
-function signedAmount(v: number): string {
-  return v > 0 ? `+${fmtAmountC(v)}` : fmtAmountC(v);
-}
-
 /** 부호 붙은 % 2자리(「+5.13%」 · 음수 U+2212). */
 export function pct2(v: number): string {
   const r = Math.round(v * 100) / 100;
@@ -135,84 +132,106 @@ export function teamAvgAt(model: Pick<TeamModel, 'prefix' | 'fillMs'>, t: number
   return hold !== undefined && hold > 0 ? prefix.cost[lo]! / hold : null;
 }
 
-/** 주문 사실 한 줄 — 「HH:MM:SS 팀 매수 N주 · 984만 @16,400 · N조각」. */
-function orderFactOf(o: TeamOrderPoint): string {
-  return `${kstClock(o.tMs)} 팀 ${SIDE_WORD[o.side]} ${INT.format(o.qty)}주 · ${fmtAmountC(o.val)} @${INT.format(o.px)} · ${o.order.pieces}조각`;
+/** 묶음 표 한 줄 — 주문 하나(시각.ms · 매수/매도 · 금액 · @가격 · 수량 · 조각). */
+export interface TickGroupRow {
+  k: number;
+  /** 「HH:MM:SS.mmm」(수신 시각). */
+  clock: string;
+  side: 'B' | 'S';
+  val: number;
+  px: number;
+  qty: number;
+  pieces: number;
+  /** 고른 원(씨앗) 줄. */
+  seed: boolean;
 }
 
-/** 한 원 2줄 — 주문 사실 · 「당일 순매수(그 주문 포함) · 등락률(기준가 대비) · 평단 대비(그 시각 팀 평단)」. 모르는 항목은 뺀다. */
-export function tickOrderTipOf(
-  model: Pick<TeamModel, 'dayStairs' | 'prefix' | 'fillMs'>,
-  basePx: number | null,
-  c: TickCircle,
-): string[] {
-  const parts: string[] = [];
-  const step = model.dayStairs[c.k];
-  if (step !== undefined) parts.push(`당일 순매수 ${signedAmount(step.net)}`);
-  if (basePx !== null && basePx > 0 && c.o.px > 0) parts.push(`등락률 ${pct2(((c.o.px - basePx) / basePx) * 100)}`);
-  const avg = teamAvgAt(model, c.o.tMs);
-  if (avg !== null && c.o.px > 0) parts.push(`평단 대비 ${pct2(((c.o.px - avg) / avg) * 100)}`);
-  const fact = orderFactOf(c.o);
-  return parts.length > 0 ? [fact, parts.join(' · ')] : [fact];
+/** 가격 판 원 옆 작은 상자(스케치 028 ② · 목업 groupHtml) — 묶음 규칙은 씨앗 가로 ± 5px 그대로 · 주문마다 한 줄. */
+export interface TickGroupTable {
+  count: number;
+  /** 첫 · 끝이 같은 초면 한 시각, 아니면 「a ~ b」. */
+  clock: string;
+  buy: { n: number; val: number };
+  sell: { n: number; val: number };
+  net: number;
+  /** 묶음(2건 이상)일 때만 — 가격 첫 → 끝 · 그 등락 %. 혼자면 null. */
+  px0: number | null;
+  px1: number | null;
+  chgPct: number | null;
+  /** 혼자일 때만 — 씨앗 가격 대비 그 시각 팀 평단 %(평단 없으면 null). */
+  avgDiffPct: number | null;
+  /** 시간순 · 8건 이하면 전부 · 넘으면 앞 7건. */
+  rows: TickGroupRow[];
+  /** count − rows.length(「외 N건」). */
+  more: number;
 }
 
-/** 묶음 툴팁 — 2개 미만이면 한 원 2줄, 아니면 3줄(매집감지 `orderGroupTipOf` 꼴). */
-export function tickGroupTipOf(
-  model: Pick<TeamModel, 'dayStairs' | 'prefix' | 'fillMs'>,
-  basePx: number | null,
+/** 표 줄 수 상한 — 넘으면 앞 7줄 + 「외 N건」. */
+const GROUP_MAX_ROWS = 8;
+
+const msTail = (tMs: number) => String(Math.floor(((tMs % 1000) + 1000) % 1000)).padStart(3, '0');
+
+/** 묶음 표 — group = `tickCircleGroupOf` 결과(시간순 · 씨앗 포함 · 혼자면 [씨앗]). */
+export function tickGroupTableOf(
+  model: Pick<TeamModel, 'prefix' | 'fillMs'>,
   seed: TickCircle,
   group: readonly TickCircle[],
-): string[] {
-  const single = tickOrderTipOf(model, basePx, seed);
-  if (group.length < 2) return single;
-  const first = group[0]!.o;
-  const last = group[group.length - 1]!.o;
+): TickGroupTable {
+  const g = group.length > 0 ? group : [seed];
+  const first = g[0]!.o;
+  const last = g[g.length - 1]!.o;
   const clock =
     Math.floor(first.tMs / 1000) === Math.floor(last.tMs / 1000)
       ? kstClock(first.tMs)
       : `${kstClock(first.tMs)} ~ ${kstClock(last.tMs)}`;
-
-  let b = 0;
-  let s = 0;
-  let bv = 0;
-  let sv = 0;
-  for (const c of group) {
-    if (c.o.side === 'B') {
-      b++;
-      bv += c.o.val;
-    } else {
-      s++;
-      sv += c.o.val;
-    }
+  const buy = { n: 0, val: 0 };
+  const sell = { n: 0, val: 0 };
+  for (const c of g) {
+    const side = c.o.side === 'B' ? buy : sell;
+    side.n += 1;
+    side.val += c.o.val;
   }
-  const mixed = b > 0 && s > 0;
-  const dir = mixed
-    ? `팀 매수 ${b}건 ${fmtAmountC(bv)} · 팀 매도 ${s}건 ${fmtAmountC(sv)}`
-    : b > 0
-      ? `팀 매수 ${b}건 합계 ${fmtAmountC(bv)}`
-      : `팀 매도 ${s}건 합계 ${fmtAmountC(sv)}`;
-  const chg = first.px > 0 ? ((last.px - first.px) / first.px) * 100 : 0;
-  const priceTxt = `가격 ${INT.format(first.px)} → ${INT.format(last.px)} (${pct2(chg)})`;
-
-  const big = [...group]
-    .sort((p, q) => q.o.val - p.o.val)
-    .slice(0, 3)
-    .map((c) => `${mixed ? `${SIDE_WORD[c.o.side]} ` : ''}${fmtAmountC(c.o.val)}@${INT.format(c.o.px)}`)
-    .join(' · ');
-
-  return [single.join(' · '), `묶음 ${group.length}건 ${clock} · ${dir} · ${priceTxt}`, `큰 주문 ${big}`];
+  const multi = g.length >= 2;
+  let avgDiffPct: number | null = null;
+  if (!multi) {
+    const avg = teamAvgAt(model, seed.o.tMs);
+    if (avg !== null && seed.o.px > 0) avgDiffPct = ((seed.o.px - avg) / avg) * 100;
+  }
+  const shown = g.length > GROUP_MAX_ROWS ? g.slice(0, GROUP_MAX_ROWS - 1) : g;
+  const rows = shown.map((c) => ({
+    k: c.k,
+    clock: `${kstClock(c.o.tMs)}.${msTail(c.o.tMs)}`,
+    side: c.o.side,
+    val: c.o.val,
+    px: c.o.px,
+    qty: c.o.qty,
+    pieces: c.o.order.pieces,
+    seed: c.k === seed.k,
+  }));
+  return {
+    count: g.length,
+    clock,
+    buy,
+    sell,
+    net: buy.val - sell.val,
+    px0: multi ? first.px : null,
+    px1: multi ? last.px : null,
+    chgPct: multi && first.px > 0 ? ((last.px - first.px) / first.px) * 100 : null,
+    avgDiffPct,
+    rows,
+    more: g.length - rows.length,
+  };
 }
 
-/** 가격 판 hover — 씨앗에서 묶음 · 줄. key = `o{씨앗 번호}`. */
+/** 가격 판 hover — 씨앗에서 묶음 · 표(줄은 비움 — 우리 줄이 표 아래 lines 로 붙는다). key = `o{씨앗 번호}`. */
 export function tickOrderHoverOf(
-  model: Pick<TeamModel, 'dayStairs' | 'prefix' | 'fillMs'>,
-  basePx: number | null,
+  model: Pick<TeamModel, 'prefix' | 'fillMs'>,
   circles: readonly TickCircle[],
   seed: TickCircle,
   view: View,
 ): TickHover {
   const group = tickCircleGroupOf(circles, seed, view);
-  const hover: TickHover = { key: `o${seed.k}`, lines: tickGroupTipOf(model, basePx, seed, group), circle: seed };
+  const hover: TickHover = { key: `o${seed.k}`, lines: [], table: tickGroupTableOf(model, seed, group), circle: seed };
   if (group.length >= 2) hover.group = group;
   return hover;
 }
@@ -395,7 +414,8 @@ export function tickOwnTipOf(
 
 /**
  * 가격 판 hover 에 우리 줄 합치기 — 팀 hover(씨앗 원)가 있으면 씨앗 가로 ± 5px 안 보이는 우리 점(그리기 순서) + 마우스 자리
- * 우리 점의 줄을 팀 줄 뒤에 덧붙인다(팀 줄 · 고리 그대로 · 없으면 팀 hover 그 객체). 팀 hover 가 없으면 우리 줄만(circle null).
+ * 우리 점의 줄을 팀 줄 뒤에 덧붙인다 — 팀 묶음 표(`table`)는 그대로 넘어가고 우리 줄은 표 아래(lines)에 그린다(고리 그대로 ·
+ * 없으면 팀 hover 그 객체). 팀 hover 가 없으면 우리 줄만(circle null).
  */
 export function tickHoverWithOwn(
   team: TickHover | null,

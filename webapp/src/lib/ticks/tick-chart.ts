@@ -3,7 +3,7 @@
  *
  * ① 네 판 — 가격(선 · 팀 평단 · 팀 주문 원) | 당일 팀 순매수 보라 계단 + 누적(pos_net) 회색 계단 | 10분 팀 매수/매도 막대 |
  *   누적 거래대금 회색 영역(왼쪽 축 = 시총 대비 %) + 누적 팀 비중 보라 선(스케치 022 A · 2026-11-03 사용자 요청).
- *   판 높이 = 데스크톱 합 287 · 폰 208(스케치 019 D `accDims` + 넷째 판). 그림 영역 x = [L, W − R] · 글자 11px · viewBox 1:1.
+ *   판 높이 = 데스크톱 합 307 · 폰 222(스케치 019 D `accDims` + 넷째 판 · 순매수 판 70 / 50 — 스케치 028 ④). 그림 영역 x = [L, W − R] · 글자 11px · viewBox 1:1.
  * ② 시각 = epoch ms(수신 시각 · 커서와 같은 축). 하루 경계 = 08:00 ~ 20:00(KST) · 정규장 09:00 · 빈 띠 15:30 ~ 16:00.
  * ③ 가격 선 = 보이는 창의 A3(가격 0 제외 · 단일가 포함)를 **픽셀 열마다 첫 · 최소 · 최대 · 끝 4점**으로 솎는다 — 하루 수십만
  *   체결이어도 경로 점 수 ≤ 4 × (열 수 + 2). 이웃 점이 15분 넘게 떨어지면 끊는다(빈 띠 · 장전 공백을 잇지 않는다).
@@ -37,13 +37,13 @@ export interface TickChartDims {
 }
 
 /**
- * 판 치수(스케치 019 D + 022) — 데스크톱 7 + 104 + 7 + 50 + 7 + 40 + 7 + 50 + 15 = 287 ·
- * 폰 0 + 72 + 7 + 36 + 7 + 28 + 7 + 36 + 15 = 208.
+ * 판 치수(스케치 019 D + 022 + 028 ④ 순매수 판 50 → 70 · 폰 36 → 50) — 데스크톱 7 + 104 + 7 + 70 + 7 + 40 + 7 + 50 + 15 = 307 ·
+ * 폰 0 + 72 + 7 + 50 + 7 + 28 + 7 + 36 + 15 = 222.
  * R = 오른쪽(보라) 축 폭 · 왼쪽 축 폭 L 은 종목마다 `priceAxisWidthOf`(52 / 60).
  */
 export const TICK_CHART = {
-  desktop: { TOP: 7, H1: 104, GAP: 7, H2: 50, H3: 40, H4: 50, LB: 15, H: 287 },
-  phone: { TOP: 0, H1: 72, GAP: 7, H2: 36, H3: 28, H4: 36, LB: 15, H: 208 },
+  desktop: { TOP: 7, H1: 104, GAP: 7, H2: 70, H3: 40, H4: 50, LB: 15, H: 307 },
+  phone: { TOP: 0, H1: 72, GAP: 7, H2: 50, H3: 28, H4: 36, LB: 15, H: 222 },
   R: 52,
   /** 측정 폭이 이보다 좁으면 폰 치수(뷰포트 640 이하 본문 ≈ 360). */
   PHONE_MAX_W: 600,
@@ -371,13 +371,18 @@ export function yOfNet(range: NetRange, p: TickPanels): (v: number) => number {
   return (v) => top + ((range.max - v) / span) * h;
 }
 
-/** 당일 팀 순매수 범위 = 하루 전체 계단 값 ∪ 0(창과 무관하게 고정 · 매집감지 cumRangeOf 와 같은 규칙). */
+/**
+ * 당일 팀 순매수 판 범위 = 하루 전체 계단의 순매수 · 매수 누적 · 거울 매도 누적(−매도) ∪ 0 — 세 선이 다 축 안에 든다
+ * (창과 무관하게 고정 · 매집감지 cumRangeOf 와 같은 규칙 · 스케치 028 ④ 목업 hi/lo).
+ */
 export function dayNetRangeOf(model: Pick<TeamModel, 'dayStairs'>): NetRange {
   let min = 0;
   let max = 0;
   for (const s of model.dayStairs) {
-    if (s.net < min) min = s.net;
-    if (s.net > max) max = s.net;
+    for (const v of [s.net, s.buy, -s.sell]) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
   }
   return { min, max };
 }
@@ -402,8 +407,11 @@ export function cumNetRangeOf(points: readonly Pick<PosNetPoint, 'net'>[]): NetR
   return { min, max };
 }
 
+type DayStair = TeamModel['dayStairs'][number];
+
 /**
- * 당일 팀 순매수 보라 계단 — 0 에서 시작(x = T0) · 팀 주문 끝 시각마다 `H x V y` · 끝 = max(마지막 계단, endMs).
+ * 당일 팀 계단 — 0 에서 시작(x = T0) · 팀 주문 끝 시각마다 `H x V y` · 끝 = max(마지막 계단, endMs).
+ * `pick` = 계단 → 값(기본 순매수 보라 선 · `s => s.buy` 매수 누적 · `s => −s.sell` 거울 매도 누적 — 스케치 028 ④).
  * 계단이 없으면 ''(판 가운데 「팀 체결 없음」). 창 밖은 클립이 자른다(계단은 창 시작 값이 앞 점에 달려 있다).
  */
 export function teamDayStairsOf(
@@ -412,12 +420,13 @@ export function teamDayStairsOf(
   y: (v: number) => number,
   T0: number,
   endMs: number,
+  pick: (s: DayStair) => number = (s) => s.net,
 ): string {
   if (model.dayStairs.length === 0) return '';
   let d = `M${f1(x(T0))},${f1(y(0))}`;
   let lastT = T0;
   for (const s of model.dayStairs) {
-    d += `H${f1(x(s.tMs))}V${f1(y(s.net))}`;
+    d += `H${f1(x(s.tMs))}V${f1(y(pick(s)))}`;
     lastT = s.tMs;
   }
   return `${d}H${f1(x(Math.max(lastT, endMs)))}`;
@@ -662,6 +671,12 @@ const SHARE_WARMUP_RATIO = 0.01;
 /** 팀 비중 축 단위(5%) · 최소 위끝. */
 const SHARE_STEP = 0.05;
 
+/** 누적 팀 비중 → y(넷째 판 · 0 = 판 아래선 · shareTop = 위끝에서 3px 아래 · 넘는 값은 위끝에 붙는다) — 선 · 호버 점 공용. */
+export function yOfShare(shareTop: number, p: TickPanels): (v: number) => number {
+  const h = p.y4b - (p.y4a + 3);
+  return (v) => p.y4b - (Math.min(v, shareTop) / shareTop) * h;
+}
+
 export interface TurnoverPaths {
   /** 누적 거래대금 영역(닫힌 경로 · 없으면 ''). */
   area: string;
@@ -704,7 +719,7 @@ export function turnoverPathsOf(
   const h = p.y4b - top;
   const span = valHi - valLo;
   const yV = (v: number) => (span > 0 ? p.y4b - (Math.max(0, v - valLo) / span) * h : p.y4b - h / 2);
-  const yS = (v: number) => p.y4b - (Math.min(v, shareTop) / shareTop) * h;
+  const yS = yOfShare(shareTop, p);
 
   const first = idx[0]!;
   let area = `M${f1(x(s.t[first]!))},${f1(p.y4b)}`;
