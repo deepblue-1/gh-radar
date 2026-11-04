@@ -5,7 +5,7 @@ from_commit: 4632e17a
 from_branch: master
 date: 2026-11-04
 fbs_sync_marker: e96aef6e
-done_commit: —  # 확인만 · 기능 작업 없음(2026-11-04). relay 는 88·89·90 을 디코드하지 않고(매집은 kind 16 저널 accumSignalOf) 95 는 관찰자 미수신. 생성물 재동기화는 다음 동기화 때.
+done_commit: —  # 확인만 · 기능 작업 없음(2026-11-04). relay 는 88·89·90 을 디코드하지 않고(매집은 kind 16 저널 accumSignalOf) 95 는 관찰자도 받음(본문 정정 — 웹 작업대 매집 현재가 원천으로 쓸 예정). 생성물 재동기화는 다음 동기화 때.
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -19,6 +19,7 @@ quick 두 건(261104-k9l · 261104-l7i). 모두 append 만 했고, 기존 MsgTyp
    - 본문: `items: [AccumPriceItem { isin, last_price: uint, change_rate: double, base_price: uint }]`, `is_snapshot: bool`
    - 300ms 마다 값이 바뀐 매집 등록 종목만 싣고 Broadcast(큐가 차면 드롭)로 보낸다. 로그인 직후에는 89 뒤에 그 연결에만 `is_snapshot=true` 를 Notice 로 1회 보낸다.
    - 수신 대상은 88 과 같은 사용자 세션이다. quote 관찰자(relay)는 받지 않는다.
+   - **정정(2026-11-04 · gh-trade-22 확인):** 위 문장은 틀렸다. relay quote 관찰자도 받는다. 정기 묶음은 `m_broadcastSink`(`BroadcastAudience::WithQuoteObservers`)로, 로그인 스냅샷(`is_snapshot`)은 관찰자 로그인 89 뒤 `ReplyAccumPriceSnapshot` 로 나간다. gh-trade 코드 변경 없이 relay 에서 디코드해 쓸 수 있다. 구 서버는 95 를 내지 않으므로 relay 는 95 부재를 정상으로 다룬다.
    - 계기: 클라 매집 목록이 종목마다 시세를 구독해 연결당 구독 상한 200 을 채웠고, 11/4 KB120 에서 주문창 시세가 멈췄다. 같은 작업에서 사용자 연결 구독 상한을 200 → 500 으로 올렸고, 관찰자 상한 2000 은 그대로다.
 2. **88 AccumSignal · 89 AccumSnapshot 에서 `buckets` 를 비움** (261104-l7i)
    - 필드는 스키마에 남아 있다. 지금 서버는 채우지 않고, 옛 서버만 채운다. `bucket_base_sec` 는 계속 싣는다.
