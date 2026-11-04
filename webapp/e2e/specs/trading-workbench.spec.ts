@@ -11,6 +11,7 @@ import {
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
+  LC_SELL_RISK_BUY3_SCHEMA,
   RELAY_WS_URL,
   pushLimitFeatureFixture,
   readAutoSellCommandRequest,
@@ -2947,10 +2948,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       .filter((r): r is NonNullable<typeof r> => r !== null);
     const last = sets.at(-1)!;
     expect(last.buyWatchPrice).toBe(next);
-    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드 + extraBuyAuto 를 항상 싣는다 → relay 가
-    // buy3_schema 5 로 파생(quick-261011-0yb · 존재로만 1/2/3/4/5). 4 는 extraBuyAuto 없는 탭, 3 은 자동매도 필드 없는 탭,
-    // 2 는 버스트 해제 없는 탭, 1 은 자동 필드 없는 옛 탭 몫.
-    expect(last.buy3Schema).toBe(5);
+    // 새 웹은 lc.set 에 postBuyAuto · extraBuyBurstRelease · 자동매도 요청 4필드 · extraBuyAuto · changeMask · SOR 2 ·
+    // 매도 위험도 2필드를 항상 싣는다 → relay 가 buy3_schema 8(`LC_SELL_RISK_BUY3_SCHEMA` · quick-261103-n1s)로 파생한다
+    // (존재로만 1~8 · 낮은 값은 그 필드가 없는 옛 탭 몫).
+    expect(last.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect(last.postBuyEnabled).toBe(true);
     // 시드 에코 3 이어도 웹은 255 고정(gh-trade 261012 · 서버가 읽지 않는 칸 · C# 동형).
     expect(last.postBuyReentry).toBe(255);
@@ -3045,10 +3046,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await editLc(page, 'lc-buy-watch-price', String(next));
     await waitForSetAtGateway(relay, before + 1);
 
-    // ② 게이트웨이가 받은 바이트 — schema 5(+ extraBuyAuto · quick-261011-0yb) · 요청 4필드 · 에코 슬롯 없음 · 버스트 동반.
+    // ② 게이트웨이가 받은 바이트 — schema 8(`LC_SELL_RISK_BUY3_SCHEMA` · 웹은 위험도까지 늘 싣는다) · 요청 4필드 · 에코 슬롯 없음 · 버스트 동반.
     const sent = lcSetRequests(relay).at(-1)!;
     expect(sent.buyWatchPrice).toBe(next);
-    expect(sent.buy3Schema).toBe(5);
+    expect(sent.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect([sent.autoSellEnabled, sent.autoSellStartCond, sent.autoSellRatioPct, sent.autoSellMethod]).toEqual([
       true, 2, 10, 3,
     ]);
@@ -3395,7 +3396,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, base + 1);
     const armed = lcSetRequests(relay).at(-1)!;
     expect(armed.autoSellEnabled).toBe(true);
-    expect(armed.buy3Schema).toBe(5);
+    expect(armed.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect([armed.autoSellStartCond, armed.autoSellRatioPct, armed.autoSellMethod]).toEqual([2, 10, 3]);
 
     // ③ 에코 대기(1) → 칩 「대기」 주황 · 헤더 LED 대기.
@@ -3759,7 +3760,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(qtyFromAmount(84, 12_870), 'UI-SPEC 정정표 — 12,870원이면 65주').toBe(65);
   });
 
-  test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코로 풀림 · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
+  test('vzy-1 후매수 「자동」 — 체크 → 10 buy3_schema 3 · post_buy_auto · 에코 표시 · 서버 발화 에코에도 체크 유지(gh-trade 261104 비소비) · [상따] 사유 줄 (quick-260929-vzy 트레이서)', async ({
     page,
   }) => {
     // 금액 · 반등을 명시한다 — 자동 켜기 사전 검증(P-2)이 붙어도 그대로 통과하게(주문가격 71,000 → 수량 563주 · 매도비율 60).
@@ -3796,7 +3797,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await auto.click();
     await waitForSetAtGateway(relay, base + 1);
     const sent = lcSetRequests(relay).at(-1)!;
-    expect(sent.buy3Schema).toBe(5);
+    expect(sent.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect(sent.postBuyAuto).toBe(true);
     expect(sent.postBuyEnabled).toBe(false);
 
@@ -3804,7 +3805,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await relay.pushLimitChaserEcho({ ...seed, postBuyAuto: true });
     await expect(auto).toHaveAttribute('aria-checked', 'true', { timeout: 15_000 });
 
-    // ③ 서버 발화 — 54 INFO 사유 줄 + 발화 에코(자동 false · 후매수 · 마스터 켜짐) → 체크 풀림 · 후매수 켜짐 · 로그 한 줄(D-07).
+    // ③ 서버 발화 — 54 INFO 사유 줄 + 발화 에코(후매수 · 마스터 켜짐 · 자동은 켜진 채 — gh-trade 261104 krm 부터 소비하지 않는다)
+    //    → 체크 유지 · 후매수 켜짐 · 로그 한 줄(D-07).
     await relay.pushServerMessage({
       level: 'INFO',
       source: 'LimitChaser',
@@ -3813,9 +3815,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       message: '후매수 자동 켬 — 잔고 0 · 미체결 없음',
       kind: '',
     });
-    await relay.pushLimitChaserEcho({ ...seed, postBuyAuto: false, postBuyEnabled: true, buyEnabled: true });
-    await expect(auto).toHaveAttribute('aria-checked', 'false', { timeout: 15_000 });
-    await expect(lcSwitch(card, '후매수 켜기')).toBeChecked();
+    await relay.pushLimitChaserEcho({ ...seed, postBuyAuto: true, postBuyEnabled: true, buyEnabled: true });
+    await expect(lcSwitch(card, '후매수 켜기')).toBeChecked({ timeout: 15_000 });
+    await expect(auto).toHaveAttribute('aria-checked', 'true');
     const reason = (await logRows(page)).filter({ hasText: '후매수 자동 켬 — 잔고 0 · 미체결 없음' });
     await expect(reason).toHaveCount(1, { timeout: 15_000 });
     await expect(reason).toContainText('[상따] 서버 통지');
@@ -3906,8 +3908,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForSetAtGateway(relay, before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 · 자동매도 요청 4필드 + extraBuyAuto 동반 → buy3_schema 5 (P24-1 주석 · quick-261011-0yb).
-    expect(sent.buy3Schema).toBe(5);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 · extraBuyAuto · changeMask · SOR · 위험도 동반 → buy3_schema 8 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect(sent.crud).toBe('C');
     expect(sent.preBuyEnabled).toBe(true);
     expect(sent.buyEnabled, 'D-01 — 마스터 동반').toBe(true);
@@ -4892,8 +4894,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lcSetCount(relay), '사람 한 번 = 10 한 건').toBe(before + 1);
 
     const sent = lcSetRequests(relay).at(-1)!;
-    // 자동 · 버스트 해제 · 자동매도 요청 4필드 + extraBuyAuto 동반 → buy3_schema 5 (P24-1 주석 · quick-261011-0yb).
-    expect(sent.buy3Schema).toBe(5);
+    // 자동 · 버스트 해제 · 자동매도 요청 4필드 · extraBuyAuto · changeMask · SOR · 위험도 동반 → buy3_schema 8 (P24-1 주석).
+    expect(sent.buy3Schema).toBe(LC_SELL_RISK_BUY3_SCHEMA);
     expect(sent.crud).toBe('C');
     expect(sent.extraBuyEnabled).toBe(true);
     expect(sent.preBuyEnabled, '줄매수만 켰다 — 선매수는 그대로').toBe(false);

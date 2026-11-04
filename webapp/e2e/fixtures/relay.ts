@@ -130,6 +130,8 @@ import type {
   FakeViTriggerInput,
 } from '../../../relay/tests/helpers/frames.js';
 import { encryptDmaPassword } from '../../../relay/src/store/credentials.js';
+/** relay 가 새 웹 lc.set 에서 파생하는 buy3_schema(정본 relay `lcBuy3SchemaOf`) — 스펙이 숫자를 손으로 들고 있지 않게 한다. */
+export { LC_SELL_RISK_BUY3_SCHEMA } from '../../../relay/src/dma/envelope.js';
 import { MSG } from '../../../relay/src/dma/msg-type.js';
 
 /**
