@@ -265,7 +265,8 @@ const HTS_PANES: readonly HtsPane[] = [
   {
     id: 'book',
     label: '호가',
-    desktop: 'min-[641px]:w-[300px] min-[641px]:flex-none',
+    // 360 = 바깥 「증감」 열 두 개(2026-11-04 · 목업 B) 몫으로 300 에서 넓혔다.
+    desktop: 'min-[641px]:w-[360px] min-[641px]:flex-none',
     render: ({ session, cursor, unit, setUnit }) => (
       <TickBook session={session} rec={cursor.rec} unit={unit} onUnit={setUnit} className="h-full" />
     ),

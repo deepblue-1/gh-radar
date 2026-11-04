@@ -3,10 +3,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TAG_CODE, bookAt } from '@gh-radar/shared';
 
+import { fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import { buildTickSession } from '@/lib/ticks/tick-session';
 import { TICK_FIXTURE_DATE as D, TICK_FIXTURE_ISIN as ISIN, tickGridBytes } from '@/test-fixtures/tick-grid';
 
-import { TickBook } from '../tick-book';
+import { TickBook, bookSideDelta } from '../tick-book';
 
 /**
  * Phase 37 Plan 10 Task 2 — 호가 10단: 매도 10→1 · 매수 1→10 순서 · 「주 | 금액」 전환 시 바 기준 · 바닥 줄 문구 ·
@@ -97,6 +98,90 @@ describe('TickBook', () => {
     expect(screen.getByRole('button', { name: '주' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: '금액' }));
     expect(onUnit).toHaveBeenCalledWith('amount');
+  });
+
+  it('가격 칸 = 기준가 대비 방향색 + 등락률(트레이딩 호가와 같은 ladderPctText) · 기준가 모르면 빈칸 · --fg', () => {
+    const base = s.basePx!;
+    expect(base).toBeGreaterThan(0);
+    render(<TickBook session={s} rec={rec} unit="qty" onUnit={vi.fn()} />);
+    for (const r of rows()) {
+      const px = Number(r.dataset.px);
+      if (!(px > 0)) continue;
+      const pct = r.querySelector<HTMLElement>('[data-slot="tick-book-pct"]')!.textContent;
+      expect(pct).toBe((((px - base) / base) * 100).toFixed(1));
+      const tone = r.querySelector<HTMLElement>('[data-slot="tick-book-px"]')!.className;
+      expect(tone).toContain(px > base ? 'var(--up)' : px < base ? 'var(--down)' : 'var(--flat)');
+    }
+  });
+
+  it('기준가가 없으면 등락률 빈칸 · 가격 --fg', () => {
+    render(<TickBook session={{ ...s, basePx: null }} rec={rec} unit="qty" onUnit={vi.fn()} />);
+    const r = rows()[0]!;
+    expect(r.querySelector('[data-slot="tick-book-pct"]')!.textContent).toBe('');
+    expect(r.querySelector<HTMLElement>('[data-slot="tick-book-px"]')!.className).toContain('var(--fg)');
+  });
+
+  it('증감 열 — 같은 보드 직전 B6 대비 같은 가격 잔량 증감 · 0/모름은 빈칸 · 금액 = 증감 × 가격 · 머리 「증감」 2개', () => {
+    // 직전 B6 가 있고 잔량이 바뀐 단이 있는 B6 를 고른다.
+    const b6s = s.exOrder.filter((r) => s.index.tag[r] === TAG_CODE.B6 && s.index.ok[r] === 1 && s.duplicates[r] !== 1);
+    let cur = -1;
+    let prevRec = -1;
+    for (let i = 1; i < b6s.length; i++) {
+      const a = bookAt(s.buf, s.index, b6s[i - 1]!)!;
+      const b = bookAt(s.buf, s.index, b6s[i]!)!;
+      if (a.board === b.board && b.asks.some((l, k) => l.px === a.asks[k]!.px && l.qty !== a.asks[k]!.qty)) {
+        cur = b6s[i]!;
+        prevRec = b6s[i - 1]!;
+        break;
+      }
+    }
+    expect(cur).toBeGreaterThanOrEqual(0);
+    const now = bookAt(s.buf, s.index, cur)!;
+    const prev = bookAt(s.buf, s.index, prevRec)!;
+    const want = bookSideDelta(now.asks, prev.asks, 'ask');
+    expect(want.some((d) => d !== null && d !== 0)).toBe(true);
+
+    const { unmount } = render(<TickBook session={s} rec={cur} unit="qty" onUnit={vi.fn()} />);
+    expect(screen.getAllByRole('columnheader', { name: '증감' }).length).toBe(2);
+    for (const r of rows().filter((x) => x.dataset.side === 'ask')) {
+      const k = Number(r.dataset.step) - 1;
+      const cell = r.querySelector<HTMLElement>('[data-slot="tick-book-delta"]')!;
+      const d = want[k];
+      if (d === null || d === 0) {
+        expect(cell.textContent).toBe('');
+      } else {
+        expect(cell.textContent).toBe(`${d > 0 ? '+' : '−'}${Math.abs(d).toLocaleString('ko-KR')}`);
+        expect(cell.className).toContain(d > 0 ? 'var(--up)' : 'var(--down)');
+      }
+    }
+    unmount();
+
+    render(<TickBook session={s} rec={cur} unit="amount" onUnit={vi.fn()} />);
+    const k = want.findIndex((d) => d !== null && d !== 0);
+    const row = rows().find((x) => x.dataset.side === 'ask' && Number(x.dataset.step) === k + 1)!;
+    const amt = want[k]! * now.asks[k]!.px;
+    expect(row.querySelector('[data-slot="tick-book-delta"]')!.textContent).toBe(fmtSignedAmountC(amt));
+  });
+
+  it('bookSideDelta — 같은 가격끼리 · 직전 범위 안 새 가격은 0 에서 · 범위 밖 새 단은 null · 직전 없음 null', () => {
+    const lv = (px: number, qty: number) => ({ px, qty, amount: px * qty });
+    const full = (start: number, step: number) => Array.from({ length: 10 }, (_, i) => lv(start + i * step, 100));
+    // 매도: 가격이 한 칸 내려와(9,990 새로 · 10,090 빠짐) 단 번호가 밀린 경우
+    const prevAsk = full(10000, 10);
+    const curAsk = [lv(9990, 50), ...full(10000, 10).slice(0, 9)];
+    curAsk[1] = lv(10000, 130);
+    expect(bookSideDelta(curAsk, prevAsk, 'ask')).toEqual([50, 30, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // 매도: 위로 새 단(직전 10단 밖) → null
+    const upAsk = [...full(10010, 10)];
+    expect(bookSideDelta(upAsk, prevAsk, 'ask').at(-1)).toBeNull();
+    // 매수: 아래로 새 단 → null · 위쪽 새 가격(범위 안) → 0 에서
+    const prevBid = full(9990, -10);
+    const curBid = [lv(10000, 40), ...full(9990, -10).slice(0, 9)];
+    expect(bookSideDelta(curBid, prevBid, 'bid')[0]).toBe(40);
+    expect(bookSideDelta(full(9980, -10), prevBid, 'bid').at(-1)).toBeNull();
+    // 직전 10단이 다 차지 않았으면 그 밖도 0 에서
+    expect(bookSideDelta([lv(10000, 3), lv(20000, 7)], [lv(10000, 1), lv(0, 0)], 'ask')).toEqual([2, 7]);
+    expect(bookSideDelta(curAsk, null, 'ask').every((d) => d === null)).toBe(true);
   });
 
   it('B6 가 아직 없으면 「호가 없음」', () => {
