@@ -41,13 +41,18 @@
     {
       "number": "37",
       "name": "틱 전문 뷰어",
-      "status": "pending"
+      "status": "complete"
+    },
+    {
+      "number": "38",
+      "name": "틱뷰어 우리 주문·체결 표시",
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Phase 37 실행 중(별도 세션) — 이어서 진행",
-    "reason": "Phase 38 complete · Phase 37 executing"
+    "command": "/gsd-new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-03T09:50:30.949Z"
+  "updated_at": "2026-11-04T13:06:57.597Z"
 }

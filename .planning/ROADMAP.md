@@ -64,7 +64,7 @@
 - [x] **Phase 34: 매집감지(accum) 보고서** - gh-trade `accum_flow.ndjson.gz` export 적재(limitup-sync 10번째 표 + payload · 재적재 감지 일반화) · 목록/상세 분리 RPC · `/analytics/accum` 목록 + 펼침 상세(순수 SVG 3판 차트 · 사이클 표 · 손익 · 판정 기준) · 10/19·10/20 소급 · 인박스 `261020-accum-flow-export.md` 닫기 (completed 2026-10-21)
 - [x] **Phase 35: 발사 경계 지도 어드민** - gh-trade 16:00 예약 발사 · 09:00:30 개장차익 발사 결과(조각·머리)를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads`·`launch_pieces` 적재(relay 무변경) · 어드민 메뉴 날짜별 주문 내역 + 날짜 범위 발사 경계 지도(서버×시장 4패널 SVG) · 10/12~10/26 백필 · 인박스 `261027-launch-gate-admin.md` (completed 2026-11-01)
 - [x] **Phase 36: 계좌별 주문가능 금액** - gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87/66/67 예수금 · 저널 손익 4필드) 반영 · 어드민 계좌 카드 예수금·수수료·매도세 · 웹 주문가능 표시·초과 경고 · 저널 손익 DB 적재 · 일자별 매매손익(`/admin/pnl` · `/me` 「손익」 탭) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 닫기 (completed 2026-10-28)
-- [ ] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저
+- [x] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저 (completed 2026-11-04)
 - [x] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저 (completed 2026-11-03)
 
 ## Phase Details
@@ -221,7 +221,7 @@ Plans:
 | 34. 매집감지(accum) 보고서 | v1.1 | 13/13 | Complete | 2026-10-21 |
 | 35. 발사 경계 지도 어드민 | v1.1 | 19/19 | Complete | 2026-11-01 |
 | 36. 계좌별 주문가능 금액 | v1.1 | 10/10 | Complete | 2026-10-28 |
-| 37. 틱 전문 뷰어 | v1.1 | 18/19 | Not started | — |
+| 37. 틱 전문 뷰어 | v1.1 | 19/19 | Complete    | 2026-11-04 |
 | 38. 틱뷰어 우리 주문·체결 표시 | v1.1 | 10/10 | Complete | 2026-11-03 |
 
 ### Phase 33: 팀 매집(teamflow) 보고서
@@ -441,7 +441,7 @@ Plans:
   4. 웹 뷰어 `/analytics/ticks` — 당일(요청형 · 서버 캐시 · 자동 증분)과 과거(격자)가 같은 화면 · DMA 게이트 · 팀 손익 golden 대조 통과(export `payload.pnl`) · 버스트 판정 tickana `classify_orders` 와 일치(KRX) · NXT 런 규칙 오라클 일치 · 세 보고서 「틱 보기」 · URL 딥링크(틱 시각까지).
 
 **배포 순서**(D-22): DB(격자 메타 표 · RPC · 게이트 — `supabase db push --linked --yes` · 08:00~20:00 KST 밖) → 변환 Job(Cloud Run Job + Scheduler · GCS objectViewer 바인딩) → server(과거 경로 · TICKGW 없이) → webapp push(= 프로덕션) — 메인 세션(37-16). 당일 경로(radar-gw tickgw · server TICKGW_URL · 승격 Job)는 gh-trade 119 인덱서 배포 확인 뒤 20:00 KST 이후에만(37-17) · 그 전 화면은 「당일 자료 준비 중」.
-**Plans:** 19/19 plans executed
+**Plans:** 19/19 plans complete
 
 Plans:
 **Wave 1**
