@@ -3677,7 +3677,7 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
     expect(sentConfigs()).toHaveLength(1);
   });
 
-  it('② 마지막 그룹(후매수) 끄기의 D-02 전반 제출은 자동을 에코 값 그대로 싣는다', () => {
+  it('② 마지막 그룹(후매수) 끄기 — 사람의 후매수 끔은 ☐자동도 같은 제출에서 끈다(gh-trade 261104 krm D-05) · 마스터 동반', () => {
     render(
       <LimitChaserForm
         {...props({
@@ -3687,7 +3687,19 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
     );
     click(sw('후매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, buyEnabled: false, postBuyAuto: true });
+    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, buyEnabled: false, postBuyAuto: false });
+    expect(auto()).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('②-b 다른 그룹이 켜져 있으면 후매수 끔 = postBuyAuto false 동반 · 마스터 유지 · 거부면 두 체크가 함께 서버 값으로', () => {
+    const on = echo({ preBuyEnabled: true, postBuyEnabled: true, sellEnabled: true, postBuyOrderAmount: 50, postBuyReboundPct: 30, postBuyAuto: true });
+    const { rerender } = render(<LimitChaserForm {...props({ server: on })} />);
+    click(sw('후매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ postBuyEnabled: false, postBuyAuto: false, buyEnabled: true });
+    rerender(<LimitChaserForm {...props({ server: on, serverAnswerSeq: 1 })} />);
+    expect(sw('후매수 켜기')).toHaveAttribute('aria-checked', 'true');
+    expect(auto()).toHaveAttribute('aria-checked', 'true');
   });
 
   it('⑤ 서버 발화 에코(자동 true→false · 후매수 · 마스터 켜짐)는 아무것도 보내지 않고 체크만 푼다', () => {

@@ -295,7 +295,8 @@ const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Re
   'sellEnabled',
   'cancelQtyEnabled',
   'cancelTradeEnabled',
-  // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버 발화의 false 에코를 「서버 반영 완료」 로 오귀속하지 않는다.
+  // 후매수 ☐자동 — 전이 축(「후매수 자동 체크 / 해제」)이 말한다. 서버가 내린 false 에코(설정 불완전 — gh-trade 261104 부터
+  // 발화로는 소비되지 않는다)를 「서버 반영 완료」 로 오귀속하지 않는다.
   'postBuyAuto',
   // 줄매수 ☐자동 — 전이 축(「줄매수 자동 체크 / 해제」)이 말한다. 「서버 반영 완료」 로 겹쳐 말하지 않는다(quick-261011-0yb).
   'extraBuyAuto',

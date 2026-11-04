@@ -351,7 +351,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       checkId: 'lc-post-buy-auto',
       label: '자동',
       ariaLabel: '후매수 자동',
-      hint: '선매수가 한 주도 체결되지 않고 전량 취소되거나 잔고가 0 이 되면 서버가 후매수를 한 번 켜요 — 매수주문이 꺼져 있으면 함께 켜요',
+      hint: '선매수가 한 주도 체결되지 않고 전량 취소되거나 잔고가 0 이 되면, 그리고 후매수 정리가 끝날 때마다 서버가 후매수를 처음부터 다시 켜요 — 매수주문이 꺼져 있으면 함께 켜요 · 쓰고 나도 체크는 남아요',
     },
     rows: [
       {

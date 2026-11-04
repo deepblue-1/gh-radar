@@ -1348,9 +1348,16 @@ export function LimitChaserForm({
         다른 단말 · WinForms 가 켠 그룹을 사람 손 없이 해제하지 않는다(WR-03 과 같은 꺼낼 때 계산). 즉시 경로에는
         in-flight 가 없어 낙관 표시 = 서버 값이라 ② 가 ① 과 같은 답이다(종전 결과 불변).
       */
-      // 줄매수 끄기 = ☐자동의 종료(addAutoOff 동형) — 누른 순간 화면에서 자동이 켜져 있으면 같은 제출에 끈다.
+      // 줄매수 · 후매수 끄기 = 그 ☐자동의 종료(C# addAutoOff · postAutoOff 동형) — 누른 순간 화면에서 자동이 켜져 있으면
+      // 같은 제출에 끈다. 후매수는 gh-trade quick-261104-krm D-05(인박스 261104-postbuy-one-shot-auto) — ☐자동이 더는
+      // 소비되지 않아(정리 뒤 서버가 후매수를 다시 켠다) 사람이 끈 후매수를 서버가 되살리지 않게 한다. 서버 발동 접힘(에코)은
+      // 이 사람 핸들러를 지나지 않아 ☐자동은 켜진 채 남는다.
       const autoOff: Partial<LimitChaserFormValues> =
-        gate === 'extraBuyEnabled' && f.extraBuyAuto ? { extraBuyAuto: false } : {};
+        gate === 'extraBuyEnabled' && f.extraBuyAuto
+          ? { extraBuyAuto: false }
+          : gate === 'postBuyEnabled' && f.postBuyAuto
+            ? { postBuyAuto: false }
+            : {};
       const pressedLast = f.buyEnabled && BUY_GROUP_GATES.every((g) => g === gate || !buyGroupOpenOf(f, g));
       if (pressedLast) {
         commitField(gate, false, 'toggle', (base) =>
@@ -1358,7 +1365,7 @@ export function LimitChaserForm({
             ? { ...autoOff, buyEnabled: false }
             : autoOff,
         );
-      } else if (autoOff.extraBuyAuto === false) {
+      } else if (Object.keys(autoOff).length > 0) {
         commitField(gate, false, 'toggle', autoOff);
       } else {
         commitField(gate, false, 'toggle');
