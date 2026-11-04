@@ -11,6 +11,7 @@
  *   `http://10.…` · `http://127.…` 만(공인 주소로 비밀 헤더를 내보내지 않는다 — relay-admin-client 가드 정신). promote 모드는
  *   둘 다 필수(없으면 ConfigError → 종료 2) · TICK_ARCHIVE_DIR 은 promote 에서 필요 없다(승격 Job 은 GCS 볼륨이 없다).
  * - backfill-team(quick 261103-j4d) · backfill-launch(quick 261103-pei)도 TICK_ARCHIVE_DIR 이 필요 없다(Storage 격자만 읽는다).
+ * - launch-live(quick 261104-n7i)는 promote 처럼 tickgw 만 읽는다 — TICKGW_URL · TICKGW_SECRET 필수 · TICK_ARCHIVE_DIR 불필요.
  */
 export type Config = {
   supabaseUrl: string;
@@ -62,11 +63,17 @@ export function checkTickgwUrl(raw: string | undefined): string {
   return v.replace(/\/+$/, "");
 }
 
-/** promote 가 쓰는 tickgw 설정 — 둘 중 하나라도 없으면 ConfigError(종료 2). 주입된 Config 도 같은 검사를 거친다. */
-export function requireTickgw(cfg: Pick<Config, "tickgwUrl" | "tickgwSecret">): { url: string; secret: string } {
+/**
+ * tickgw 를 쓰는 모드(promote · launch-live)의 tickgw 설정 — 둘 중 하나라도 없으면 ConfigError(종료 2 · 문구 머리 = 모드 이름).
+ * 주입된 Config 도 같은 검사를 거친다.
+ */
+export function requireTickgw(
+  cfg: Pick<Config, "tickgwUrl" | "tickgwSecret">,
+  mode = "promote",
+): { url: string; secret: string } {
   const url = checkTickgwUrl(cfg.tickgwUrl);
   const secret = cfg.tickgwSecret ?? "";
-  if (url === "" || secret === "") throw new ConfigError("promote: TICKGW_URL and TICKGW_SECRET must be set");
+  if (url === "" || secret === "") throw new ConfigError(`${mode}: TICKGW_URL and TICKGW_SECRET must be set`);
   return { url, secret };
 }
 
@@ -84,12 +91,13 @@ function positiveInt(name: string, fallback: number): number {
 
 export function loadConfig({ dryRun = false, mode }: { dryRun?: boolean; mode?: string } = {}): Config {
   const archiveDir = process.env.TICK_ARCHIVE_DIR ?? "";
-  // 승격 Job 은 원본 아카이브를 읽지 않는다(tickgw export 만) · backfill-team · backfill-launch 는 Storage 격자만 읽는다 — GCS 볼륨이 없어도 된다
-  const noArchive = mode === "promote" || mode === "backfill-team" || mode === "backfill-launch";
+  // 승격 Job 은 원본 아카이브를 읽지 않는다(tickgw export 만) · backfill-team · backfill-launch 는 Storage 격자만 읽는다 ·
+  // launch-live 는 tickgw live 만 읽는다 — GCS 볼륨이 없어도 된다
+  const noArchive = mode === "promote" || mode === "backfill-team" || mode === "backfill-launch" || mode === "launch-live";
   if (!dryRun && !noArchive && !archiveDir) throw new Error("TICK_ARCHIVE_DIR must be set");
   const tickgwUrl = checkTickgwUrl(process.env.TICKGW_URL);
   const tickgwSecret = process.env.TICKGW_SECRET ?? "";
-  if (mode === "promote") requireTickgw({ tickgwUrl, tickgwSecret });
+  if (mode === "promote" || mode === "launch-live") requireTickgw({ tickgwUrl, tickgwSecret }, mode);
 
   const supabaseUrl = process.env.SUPABASE_URL ?? "";
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";

@@ -2,7 +2,9 @@
 -- quick 261103-pei — 발사 조각 대기열 값 표 · RPC pgTAP.
 --
 -- 대상: 20261104200000_launch_piece_queue.sql(launch_piece_queue 표 · launch_queue_inputs · launch_queue_set ·
---       launch_queue_pending 새 함수 · tick_convert_candidates · launch_orders_for_admin 교체).
+--       launch_queue_pending 새 함수 · tick_convert_candidates · launch_orders_for_admin 교체)
+--       + 20261104710000_launch_queue_live.sql(quick 261104-n7i — launch_queue_set live 표식 가드 · launch_orders_for_admin
+--       queue.live_as_of).
 --
 -- 잠그는 것:
 --   - 권한: 함수 5개 anon · authenticated EXECUTE 없음 · service_role 있음 · SECURITY INVOKER · 표는 anon · authenticated SELECT 없음
@@ -13,6 +15,9 @@
 --     CHECK(kind · end_state · run 의 end_* · queue 의 fill_*) 위반은 오류 · 조각을 지우면 값도 지운다(CASCADE)
 --   - pending = 그 격자 경로로 계산된 값이 없는 대상 조각이 있는 격자(date 내림차순 · 범위) + no_grid(격자도 값도 없는 키 수)
 --   - candidates 에 launch 키 · 주문 내역 조각마다 queue(값 있으면 14칸 · 없으면 null)
+--   - (G · 261104-n7i) live 표식 'live:<as-of ISO>' = KST 오늘 조각만 · live 는 live 위에 같거나 더 새 표식일 때만 덮음 ·
+--     격자 값(null · 격자 경로)은 live 를 언제나 덮고 live 는 격자 값을 못 덮음 · 주문 내역 queue.live_as_of 는 live 행만 ·
+--     격자가 생기면 live 행은 pending 에 다시 잡힌다
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/launch_piece_queue.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -24,7 +29,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(31);
+SELECT plan(47);
 
 -- ── 픽스처: 조각 ─────────────────────────────────────────────────
 -- P1 Q16 접수 · P2 Q16 거부(101) · P3 N 매도 접수 · P4 N 매수 접수(order_no null) · P5 모르는 profile 접수 ·
@@ -189,6 +194,62 @@ SELECT ok(public.launch_queue_pending('20261030', '20261030')->'grids' @> '[{"is
 -- ── F. CASCADE ────────────────────────────────────────────────────
 DELETE FROM public.launch_pieces WHERE trade_date = '2026-10-30' AND gateway = 'KB120' AND profile = 'Q16' AND wire = 0;
 SELECT is((SELECT count(*)::int FROM public.launch_piece_queue WHERE profile = 'Q16'), 0, 'F 조각을 지우면 값도 지운다(CASCADE)');
+
+-- ── G. live 표식(quick 261104-n7i) ────────────────────────────────
+-- KST 오늘 조각 2개(Q16 · KB120 · KRX · 16:00:00 · Q · wire 0 / wire 1). 오늘 날짜 문자열은 pg_temp.today().
+CREATE FUNCTION pg_temp.today() RETURNS text LANGUAGE sql AS $$
+  SELECT to_char((now() AT TIME ZONE 'Asia/Seoul')::date, 'YYYYMMDD')
+$$;
+CREATE FUNCTION pg_temp.lrow(p_wire integer, p_path text, p_rank integer) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT pg_temp.qrow('KB120', 'Q16', 'KRX', '16:00:00', 'Q', p_wire, p_path, 'queue', p_rank)
+         || jsonb_build_object('trade_date', pg_temp.today())
+$$;
+INSERT INTO public.launch_pieces
+  (trade_date, gateway, profile, fire_exchange, fire_base, market, wire, side, order_no, sent_rel_us, result,
+   isin, price, qty, account, source)
+VALUES
+  ((now() AT TIME ZONE 'Asia/Seoul')::date, 'KB120', 'Q16', 'KRX', '16:00:00', 'Q', 0, 'buy', 'LPQ-T0', -300, '접수',
+   'KR7184230001', 2575, 100, 'LPQ-ACC1', 'backfill'),
+  ((now() AT TIME ZONE 'Asia/Seoul')::date, 'KB120', 'Q16', 'KRX', '16:00:00', 'Q', 1, 'buy', 'LPQ-T1', -200, '접수',
+   'KR7184230001', 2575, 100, 'LPQ-ACC1', 'backfill');
+
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(0, 'live:2026-11-04T07:01:00.000Z', 5))), 1,
+          'G1 오늘 조각 + live 표식 → 쓴다(1)');
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(0, 'live:2026-11-04T07:00:00.000Z', 4))), 0,
+          'G2 더 이른 live 표식 → 쓰지 않는다(0)');
+SELECT is((SELECT rank FROM public.launch_piece_queue
+            WHERE trade_date = (now() AT TIME ZONE 'Asia/Seoul')::date AND wire = 0), 5,
+          'G2 이른 표식 뒤에도 값 그대로(5)');
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(0, 'live:2026-11-04T07:03:00.000Z', 6))), 1,
+          'G3 더 늦은 live 표식 → 덮는다(1)');
+SELECT is((SELECT rank FROM public.launch_piece_queue
+            WHERE trade_date = (now() AT TIME ZONE 'Asia/Seoul')::date AND wire = 0), 6,
+          'G3 늦은 표식 값으로 덮였다(6)');
+SELECT is(pg_temp.piece(pg_temp.today(), 'KB120', 'Q16', 0, 'Q')->'queue'->>'live_as_of', '2026-11-04T07:03:00.000Z',
+          'G4 주문 내역 queue.live_as_of = live 표식에서 live: 를 뺀 ISO');
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(0, NULL, 7))), 1,
+          'G5 격자 값(object_path null) → live 를 덮는다(1)');
+SELECT ok(NOT (pg_temp.piece(pg_temp.today(), 'KB120', 'Q16', 0, 'Q')->'queue' ? 'live_as_of'),
+          'G5 격자 값이면 queue 에 live_as_of 키 없음');
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(0, 'live:2026-11-04T07:10:00.000Z', 8))), 0,
+          'G6 격자 값 위의 더 늦은 live → 쓰지 않는다(0 · D-4)');
+SELECT is(public.launch_queue_set(jsonb_build_array(
+            pg_temp.qrow('KYOBO119', 'A', 'KRX', '09:00:27', 'Q', 0, 'live:2026-10-30T00:03:00.000Z', 'run', 1))), 0,
+          'G7 지난 날짜(20261030) 조각에 live 표식 → 쓰지 않는다(0 · 오늘만)');
+SELECT is(public.launch_queue_set(jsonb_build_array(pg_temp.lrow(1, 'live:2026-11-04T07:01:00.000Z', 3))), 1,
+          'G8 픽스처 — 오늘 wire 1 live 행');
+SELECT is(public.tick_grid_upsert('nightly', jsonb_build_array(pg_temp.grow(pg_temp.today(), 'KRX', 'KR7184230001', 'nightly'))), 1,
+          'G8 픽스처 — 오늘 KRX 184230 격자');
+SELECT is(public.launch_queue_set(jsonb_build_array(
+            pg_temp.lrow(0, 'grid/' || pg_temp.today() || '/KRX/KR7184230001.nightly.ticks.zst', 9))), 1,
+          'G8 픽스처 — wire 0 은 격자 경로 값(정본)');
+SELECT ok(public.launch_queue_pending(pg_temp.today(), pg_temp.today())->'grids' @> '[{"isin": "KR7184230001"}]'::jsonb,
+          'G8 pending — 격자가 생기면 live 행(wire 1)은 경로 불일치로 다시 대상');
+SELECT is(public.launch_queue_set(jsonb_build_array(
+            pg_temp.lrow(1, 'grid/' || pg_temp.today() || '/KRX/KR7184230001.nightly.ticks.zst', 2))), 1,
+          'G8 격자 경로 값 → live 행을 덮는다(1)');
+SELECT is(public.launch_queue_pending(pg_temp.today(), pg_temp.today())->'grids', '[]'::jsonb,
+          'G8 pending — 모두 격자 정본이면 대상 없음');
 
 SELECT * FROM finish();
 ROLLBACK;

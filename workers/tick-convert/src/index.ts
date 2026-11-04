@@ -10,6 +10,7 @@ import { parseNightlyArgs, runNightly } from "./modes/nightly";
 import { parsePromoteArgs, runPromote } from "./modes/promote";
 import { parseBackfillTeamArgs, runBackfillTeam } from "./modes/backfill-team";
 import { parseBackfillLaunchArgs, runBackfillLaunch } from "./modes/backfill-launch";
+import { parseLaunchLiveArgs, runLaunchLive } from "./modes/launch-live";
 
 /**
  * tick-convert entry — Cloud Run Job `gh-radar-tick-convert`. GCS 원본 아카이브(119 부하 0)를 종목·날짜 격자로 바꾸는
@@ -21,6 +22,7 @@ import { parseBackfillLaunchArgs, runBackfillLaunch } from "./modes/backfill-lau
  *   promote [--date YYYYMMDD]               — 20:00 승격(modes/promote.ts · tickgw 당일 캐시 → 승격 격자 · 37-12)
  *   backfill-team [--from D] [--to D] [--dry-run] — 옛 격자 팀 값 백필(modes/backfill-team.ts · quick 261103-j4d)
  *   backfill-launch [--from D] [--to D] [--dry-run] — 발사 조각 대기열 값 백필(modes/backfill-launch.ts · quick 261103-pei)
+ *   launch-live                              — 당일 발사 대기열(modes/launch-live.ts · quick 261104-n7i · Scheduler 평일 16:01·16:03·16:10 · 09:01·09:03)
  * 이미지는 `ENTRYPOINT ["node", "dist/index.js"]` + `CMD ["nightly"]` 다 — Cloud Run args 오버라이드는 CMD 만 바꾸므로
  * 요청 변환 · 스모크 · 승격 Job 도 늘 `node dist/index.js <모드> …` 로 돈다(Dockerfile 머리 주석 · tests/entry.test.ts).
  *
@@ -40,6 +42,7 @@ export const MODES: Record<string, (deps: JobDeps, args: string[]) => Promise<Mo
   promote: (deps, args) => runPromote(deps, parsePromoteArgs(args)),
   "backfill-team": (deps, args) => runBackfillTeam(deps, parseBackfillTeamArgs(args)),
   "backfill-launch": (deps, args) => runBackfillLaunch(deps, parseBackfillLaunchArgs(args)),
+  "launch-live": (deps, args) => runLaunchLive(deps, parseLaunchLiveArgs(args)),
 };
 
 /** 공통 플래그(값을 하나 받는다) — 모드별 검증은 각 모드 파서(parseRequestArgs · parseNightlyArgs …)가 한다. */

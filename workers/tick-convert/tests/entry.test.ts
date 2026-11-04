@@ -55,6 +55,7 @@ describe("이미지 진입점 — ENTRYPOINT [node, dist/index.js] + CMD [nightl
     { name: "승격 Job(--args=promote · Scheduler 20:10 · 20:40)", override: ["promote"], want: { mode: "promote" } },
     { name: "팀 값 백필(--args=backfill-team,--dry-run · quick 261103-j4d)", override: ["backfill-team", "--dry-run"], want: { mode: "backfill-team" } },
     { name: "발사 값 백필(--args=backfill-launch,--dry-run · quick 261103-pei)", override: ["backfill-launch", "--dry-run"], want: { mode: "backfill-launch" } },
+    { name: "당일 발사 대기열(--args=launch-live · quick 261104-n7i)", override: ["launch-live"], want: { mode: "launch-live" } },
   ];
 
   for (const c of cases) {
@@ -81,7 +82,7 @@ describe("이미지 진입점 — ENTRYPOINT [node, dist/index.js] + CMD [nightl
 
 describe("parseArgv — backfill-team(quick 261103-j4d)", () => {
   it("MODES 에 backfill-team 이 있다", () => {
-    expect(Object.keys(MODES)).toEqual(["request", "nightly", "promote", "backfill-team", "backfill-launch"]);
+    expect(Object.keys(MODES)).toEqual(["request", "nightly", "promote", "backfill-team", "backfill-launch", "launch-live"]);
   });
   it("--from · --to 값 플래그 + 한 칸짜리 --dry-run(어느 자리든)", () => {
     expect(parseArgv(["backfill-team", "--from", "20261020", "--to", "20261103", "--dry-run"])).toEqual({
