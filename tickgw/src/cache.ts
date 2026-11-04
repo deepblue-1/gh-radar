@@ -12,7 +12,7 @@
  * - closed · closedThroughNs = 20:01 마감 마무리(poller.closeSweep)가 채운다 — export 는 closed 만 낸다.
  * - asOfMs = 이 엔트리를 마지막으로 끝까지(has_more 없이) 읽은 인덱서 호출의 시작 시각(tickgw 벽시계 ms) —
  *   live 응답 헤더 X-Tick-As-Of-Ms. 새 엔트리(새 epoch)는 null 부터.
- * - 상한: 전체 `limitBytes`(기본 96MB — 컨테이너 256MB 의 ≤ 40% · WR-31). 합계는 상한을 **넘지 않는다**(WR-33):
+ * - 상한: 전체 `limitBytes`(기본 192MB — 컨테이너 512MB 의 ≤ 40% · WR-31). 합계는 상한을 **넘지 않는다**(WR-33):
  *   append 가 상한을 넘기려 하면 먼저 **보호되지 않은** 다른 키를 지워 자리를 만든다. 지우는 순서(R2-WR-01):
  *   ① 승격 입력이 아닌 키(complete 아님 · 다른 날짜) ② 오늘 complete 키 — 각 안에서 lastAccess 오름차순. 지울 때마다
  *   `cache evict` warn 로그(무로그 삭제 금지).

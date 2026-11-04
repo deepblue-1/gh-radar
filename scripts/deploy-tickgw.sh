@@ -233,7 +233,7 @@ fi
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 # --network=host: 119 경로(WireGuard/VPN 라우팅)를 host 그대로 타고, server(Cloud Run 서브넷)가 radar-gw:8092 로 닿는다.
-# --memory=256m(스왑 없음) + --oom-score-adj=500: 메모리가 모자라면 주문 경로 relay(384MB)보다 **먼저** 죽는다
+# --memory=512m(스왑 없음 · 11-04 캐시 96→192MB 와 함께 256→512) + --oom-score-adj=500: 메모리가 모자라면 주문 경로 relay(384MB)보다 **먼저** 죽는다
 #   — gh-trade 소유 tick-archive · limitup-pull 유닛의 OOMScoreAdjust 500 과 같은 방향(docs/relay-operations.md).
 # --user tickpull uid:gid + /var/lib/tickpull/.ssh 읽기 전용 마운트: 컨테이너 안 ssh 가 tickpull 키만 쓴다.
 run_container() {
@@ -241,8 +241,8 @@ run_container() {
     --name "$CONTAINER" \
     --restart=always \
     --network=host \
-    --memory=256m \
-    --memory-swap=256m \
+    --memory=512m \
+    --memory-swap=512m \
     --oom-score-adj=500 \
     --user "${TICKPULL_UID}:${TICKPULL_GID}" \
     -v /var/lib/tickpull/.ssh:/ssh:ro \
