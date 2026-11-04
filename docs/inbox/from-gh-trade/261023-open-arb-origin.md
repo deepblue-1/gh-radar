@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 53e05292
 from_branch: worktree-agent-a9ab4e63c8e6266eb
 date: 2026-10-23
 fbs_sync_marker: 07a34fe8
-done_commit:
+done_commit: —  # 보류 기록이라 코드 변경 없음 · 사용자 결정 2026-11-04 로 닫음. 미지 origin "OpenArb" 는 relay parseOrderResp 가 originKind "manual" 로 좁혀 저장(파서 안 깨짐). 인계는 실운용 성과 확인 뒤 새 노트로.
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
