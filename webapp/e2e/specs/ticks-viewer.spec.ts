@@ -68,6 +68,20 @@ async function expectEntryTableFits(page: Page, tag: string): Promise<void> {
   expect(o!.table, `${tag} 진입 표 폭 ≤ 카드 폭`).toBeLessThanOrEqual(o!.card);
 }
 
+/**
+ * 시가 · 고가는 카드 폭 문턱(T_OH) 이상이면 열 · 미만이면 등락률 칸 보조 줄 — 행 i 에서 둘 중 정확히 하나만 보인다
+ * (quick 261104-n9h). 어느 쪽인지 돌려준다.
+ */
+async function expectOhExactlyOne(page: Page, i: number, tag: string): Promise<'col' | 'line'> {
+  const row = page.locator('[data-slot="tick-entry-row"]').nth(i);
+  const col = await row.locator('[data-slot="tick-entry-open"]').isVisible();
+  const high = await row.locator('[data-slot="tick-entry-high"]').isVisible();
+  const line = await row.locator('[data-slot="tick-entry-oh-line"]').isVisible();
+  expect(col, `${tag} 시가 · 고가 열은 함께 보이거나 함께 숨는다`).toBe(high);
+  expect(col !== line, `${tag} 시가 · 고가 = 열 또는 보조 줄 중 정확히 하나`).toBe(true);
+  return col ? 'col' : 'line';
+}
+
 test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
   let relay: LocalRelay;
 
@@ -92,7 +106,7 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
 
     await expect(page.getByRole('heading', { name: '10/16 격자 종목' })).toBeVisible({ timeout: 30_000 });
     await expect(entryRows(page)).toHaveCount(3);
-    // 등락률순 — 에코앤드림 KRX(+29.9%) · NXT(+15.6%) · SK하이닉스(+1.8%)
+    // 등락률순(종가 기준) — 에코앤드림 KRX(+27.9%) · NXT(+13.6%) · SK하이닉스(−0.2%)
     await expect(entryRows(page).nth(0)).toHaveAttribute('data-ex', 'KRX');
     await expect(entryRows(page).nth(1)).toHaveAttribute('data-ex', 'NXT');
     await expect(entryRows(page).nth(0)).toContainText('매집감지');
@@ -140,6 +154,15 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
     // SK하이닉스(팀 체결 없음 · 매집감지 미등록) — 「—」 셋
     for (const cell of teamCells(2)) await expect(cell).toHaveText('—');
     await expect(entryRows(page).nth(0).locator('[data-slot="tick-entry-team-line"]')).toBeHidden();
+    // 시가 · 고가 열(quick 261104-n9h) — 1280 카드 폭은 문턱 이상이라 열 · 보조 줄 숨김 · NXT 시가 「—」
+    const row0 = entryRows(page).nth(0);
+    await expect(row0.locator('[data-slot="tick-entry-rate"] b')).toHaveText('+27.9%');
+    await expect(row0.locator('[data-slot="tick-entry-open"]')).toBeVisible();
+    await expect(row0.locator('[data-slot="tick-entry-open"]')).toHaveText('+3.1%');
+    await expect(row0.locator('[data-slot="tick-entry-high"]')).toHaveText('+29.9%');
+    await expect(row0.locator('[data-slot="tick-entry-oh-line"]')).toBeHidden();
+    await expect(entryRows(page).nth(1).locator('[data-slot="tick-entry-open"]')).toHaveText('—');
+    await expectEntryTableFits(page, '진입 팀 열 1280');
 
     // 순매수순 — NXT(+8,900만) 가 맨 위 · 손익순 — KRX(+1.84억) 맨 위 · 값 없는 SK하이닉스는 맨 뒤
     await page.getByRole('button', { name: '순매수순' }).click();
@@ -151,11 +174,14 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
     await expect(entryRows(page).nth(2)).toHaveAttribute('data-isin', SKH.isin);
     await expectNoHorizontalScroll(page, '진입 팀 열 1280');
 
-    // 700 — 3열 그대로(sm 이상) · 가로 넘침 0
-    await page.setViewportSize({ width: 700, height: 800 });
-    await expect(teamCells(0)[0]!).toBeVisible();
-    await expectNoHorizontalScroll(page, '진입 팀 열 700');
-    await expectEntryTableFits(page, '진입 팀 열 700');
+    // 1024 · 700 · 640 — 3열 그대로(sm 이상) · 가로 넘침 0 · 시가 · 고가는 열 또는 보조 줄 중 하나
+    for (const w of [1024, 700, 640]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await expect(teamCells(0)[0]!).toBeVisible();
+      await expectNoHorizontalScroll(page, `진입 팀 열 ${w}`);
+      await expectEntryTableFits(page, `진입 팀 열 ${w}`);
+      await expectOhExactlyOne(page, 0, `진입 ${w}`);
+    }
 
     // 390 — 3열 숨김 · 이름 밑 한 줄
     await page.setViewportSize({ width: 390, height: 844 });
@@ -163,6 +189,13 @@ test.describe('틱뷰어 진입 (Phase 37 D-16)', () => {
     const line = entryRows(page).nth(0).locator('[data-slot="tick-entry-team-line"]');
     await expect(line).toBeVisible();
     await expect(line).toHaveText('순매수 −3.12억 · 누적 +45.2억 · 손익 +1.84억');
+    // 시가 · 고가 칸 숨김 · 등락률 칸 보조 두 줄
+    await expect(entryRows(page).nth(0).locator('[data-slot="tick-entry-open"]')).toBeHidden();
+    await expect(entryRows(page).nth(0).locator('[data-slot="tick-entry-high"]')).toBeHidden();
+    const oh = entryRows(page).nth(0).locator('[data-slot="tick-entry-oh-line"]');
+    await expect(oh).toBeVisible();
+    await expect(oh).toContainText('시 +3.1%');
+    await expect(oh).toContainText('고 +29.9%');
     await expectNoHorizontalScroll(page, '진입 팀 열 390');
     await expectEntryTableFits(page, '진입 팀 열 390');
   });
@@ -710,6 +743,50 @@ test.describe('틱뷰어 당일 — 하루치 → 증분 · 새 틱 배지 · �
     expect(live.calls.length).toBe(n0 + 1);
     await expect(refresh).toHaveText('최신 받기');
     await expectNoHorizontalScroll(page, '당일 1280');
+  });
+
+  test('오늘 목록 — 매집감지 팀 3칸 · ≈ 추정 손익 · 시가 · 고가 · 넘침 0(quick 261104-n9h)', async ({ page }) => {
+    await mockTickApi(page, { today: { live: true, date: TICK_DATE } });
+    await page.goto(BASE);
+    await expect(page.getByRole('heading', { name: '오늘 종목' })).toBeVisible({ timeout: 30_000 });
+    await expect(entryRows(page)).toHaveCount(2);
+
+    // 1280 — 등락률순(현재가) 0행 = 에코앤드림(+22.1%) · 1행 = SK하이닉스(+16.0% · 옛 RPC 모양)
+    const eco = entryRows(page).nth(0);
+    const skh = entryRows(page).nth(1);
+    await expect(eco).toHaveAttribute('data-isin', ECO.isin);
+    await expect(skh).toHaveAttribute('data-isin', SKH.isin);
+    await expect(eco.locator('[data-slot="tick-entry-rate"] b')).toHaveText('+22.1%');
+    await expect(eco.locator('[data-slot="tick-entry-open"]')).toHaveText('+3.0%');
+    await expect(eco.locator('[data-slot="tick-entry-high"]')).toHaveText('+29.9%');
+    await expect(eco.locator('[data-slot="tick-entry-day-net"]')).toHaveText('+4.50억');
+    await expect(eco.locator('[data-slot="tick-entry-cum"]')).toHaveText('+45.2억');
+    const pnl = eco.locator('[data-slot="tick-entry-pnl"]');
+    await expect(pnl).toHaveText('≈+1.50억');
+    await expect(pnl).toHaveAttribute('title', /추정/);
+    for (const s of ['tick-entry-day-net', 'tick-entry-cum', 'tick-entry-pnl', 'tick-entry-open']) {
+      await expect(skh.locator(`[data-slot="${s}"]`)).toHaveText('—');
+    }
+    await expectNoHorizontalScroll(page, '오늘 목록 1280');
+    await expectEntryTableFits(page, '오늘 목록 1280');
+
+    for (const w of [1024, 700, 640]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await expect(eco.locator('[data-slot="tick-entry-day-net"]')).toBeVisible();
+      await expectNoHorizontalScroll(page, `오늘 목록 ${w}`);
+      await expectEntryTableFits(page, `오늘 목록 ${w}`);
+      await expectOhExactlyOne(page, 0, `오늘 목록 ${w}`);
+    }
+
+    // 390 — 폰 한 줄 · 보조 줄
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(eco.locator('[data-slot="tick-entry-team-line"]')).toHaveText('순매수 +4.50억 · 누적 +45.2억 · 손익 ≈+1.50억');
+    const oh = eco.locator('[data-slot="tick-entry-oh-line"]');
+    await expect(oh).toBeVisible();
+    await expect(oh).toContainText('시 +3.0%');
+    await expect(oh).toContainText('고 +29.9%');
+    await expectNoHorizontalScroll(page, '오늘 목록 390');
+    await expectEntryTableFits(page, '오늘 목록 390');
   });
 
   test('미결선 — today live=false → 오늘 종목 열기 → 「당일 자료 준비 중」 · /api/ticks/live 요청 0', async ({ page }) => {

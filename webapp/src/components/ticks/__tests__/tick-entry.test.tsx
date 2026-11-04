@@ -27,10 +27,10 @@ function row(p: Partial<TickGridRow> & Pick<TickGridRow, 'isin' | 'name'>): Tick
 }
 
 const ROWS: TickGridRow[] = [
-  row({ isin: 'KR7005930003', name: '삼성전자', high_rate: 3.2, sources: ['accum'] }),
-  row({ isin: 'KR7101360006', name: '에코앤드림', high_rate: 29.9, sources: ['accum', 'up15'] }),
-  row({ isin: 'KR7101360006', name: '에코앤드림', exchange: 'NXT', high_rate: 15.6, sources: ['up15'] }),
-  row({ isin: 'KR7035720002', name: '카카오', high_rate: -0.9, sources: ['request'] }),
+  row({ isin: 'KR7005930003', name: '삼성전자', high_rate: 3.2, last_rate: 1.1, open_rate: 0.4, sources: ['accum'] }),
+  row({ isin: 'KR7101360006', name: '에코앤드림', high_rate: 29.9, last_rate: 27.9, open_rate: 3.1, sources: ['accum', 'up15'] }),
+  row({ isin: 'KR7101360006', name: '에코앤드림', exchange: 'NXT', high_rate: 15.6, last_rate: 13.6, open_rate: null, sources: ['up15'] }),
+  row({ isin: 'KR7035720002', name: '카카오', high_rate: -0.9, last_rate: -2.0, open_rate: -1.5, sources: ['request'] }),
 ];
 
 const names = () =>
@@ -46,13 +46,13 @@ function renderEntry(over: Partial<Parameters<typeof TickEntry>[0]> = {}) {
 }
 
 describe('TickEntry', () => {
-  it('패널 머리 「10/16 격자 종목」 · n종목 · 등락률순(고가 기준 내림차순)', () => {
+  it('패널 머리 「10/16 격자 종목」 · n종목 · 등락률순(종가 기준 내림차순)', () => {
     renderEntry();
     expect(screen.getByRole('heading', { name: '10/16 격자 종목' })).toBeInTheDocument();
     expect(screen.getByText(/^4종목/)).toBeInTheDocument();
     expect(names()).toEqual(['KR7101360006:KRX', 'KR7101360006:NXT', 'KR7005930003:KRX', 'KR7035720002:KRX']);
-    expect(screen.getByText('+29.9%')).toBeInTheDocument();
-    expect(screen.getByText('−0.9%')).toBeInTheDocument();
+    const rates = screen.getAllByRole('row').slice(1).map((r) => r.querySelector('[data-slot="tick-entry-rate"] b')!.textContent);
+    expect(rates).toEqual(['+27.9%', '+13.6%', '+1.1%', '−2.0%']);
   });
 
   it('이름순 — 가나다', () => {
@@ -140,10 +140,10 @@ describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B ·
   const rowOf = (isin: string, ex = 'KRX') =>
     screen.getAllByRole('row').find((r) => r.getAttribute('data-isin') === isin && r.getAttribute('data-ex') === ex)!;
 
-  it('머리 3열(등락률 뒤 · sm 이상) — 당일순매수 · 누적순매수 · 당일손익', () => {
+  it('머리 3열(고가 뒤 · sm 이상) — 당일순매수 · 누적순매수 · 당일손익', () => {
     renderEntry({ rows: TEAM });
     const ths = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    expect(ths.slice(0, 6)).toEqual(['종목', '등락률', '당일순매수', '누적순매수', '당일손익', '출처']);
+    expect(ths.slice(0, 8)).toEqual(['종목', '등락률', '시가', '고가', '당일순매수', '누적순매수', '당일손익', '출처']);
     for (const name of ['당일순매수', '누적순매수', '당일손익']) {
       expect(screen.getByRole('columnheader', { name })).toHaveClass('hidden', 'sm:table-cell');
     }
@@ -295,5 +295,102 @@ describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B ·
     fireEvent.click(screen.getByRole('button', { name: '순매수순' }));
     fireEvent.click(screen.getByRole('button', { name: '손익순' }));
     expect(onSort.mock.calls).toEqual([['net'], ['pnl']]);
+  });
+});
+
+describe('TickEntry — 시가 · 고가 열 · 등락률 종가/현재가 기준 · 좁은 폭 보조 줄(quick 261104-n9h)', () => {
+  const rowOf = (isin: string, ex = 'KRX') =>
+    screen.getAllByRole('row').find((r) => r.getAttribute('data-isin') === isin && r.getAttribute('data-ex') === ex)!;
+  const slot = (r: HTMLElement, s: string) => r.querySelector(`[data-slot="${s}"]`) as HTMLElement;
+  const CQ_SHOW = /^@min-\[\d+px\]\/tlist:table-cell$/;
+  const CQ_HIDE = /^@min-\[\d+px\]\/tlist:hidden$/;
+  const hasClassLike = (el: HTMLElement, re: RegExp) => [...el.classList].some((c) => re.test(c));
+
+  it('등락률순은 종가(last_rate) 기준 — 고가 순서와 달라도 종가로 정렬', () => {
+    renderEntry({
+      rows: [
+        row({ isin: 'KR7000000001', name: '가', high_rate: 29.9, last_rate: 5.0 }),
+        row({ isin: 'KR7000000002', name: '나', high_rate: 10.0, last_rate: 9.0 }),
+        row({ isin: 'KR7000000003', name: '다', high_rate: 12.0, last_rate: null }),
+      ],
+    });
+    expect(names()).toEqual(['KR7000000002:KRX', 'KR7000000001:KRX', 'KR7000000003:KRX']);
+  });
+
+  it('오늘 등락률은 현재가(rate) 기준 — 고가가 아니다', () => {
+    const today: TickTodayRow[] = [
+      { isin: 'KR7000000001', code: '000001', name: '가', sources: ['up15'], rate: 2.0, high_rate: 29.9 },
+      { isin: 'KR7000000002', code: '000002', name: '나', sources: ['accum'], rate: 22.1, high_rate: 25.0, open_rate: 3.0 },
+    ];
+    renderEntry({ todayRows: today });
+    expect(names()).toEqual(['KR7000000002:KRX', 'KR7000000001:KRX']);
+    const r = rowOf('KR7000000002');
+    expect(slot(r, 'tick-entry-rate').querySelector('b')!.textContent).toBe('+22.1%');
+    expect(slot(r, 'tick-entry-open').textContent).toBe('+3.0%');
+    expect(slot(r, 'tick-entry-high').textContent).toBe('+25.0%');
+    // 키 없는 옛 RPC 행 — 시가 「—」
+    expect(slot(rowOf('KR7000000001'), 'tick-entry-open').textContent).toBe('—');
+  });
+
+  it('시가 · 고가 칸 — 값 · 부호 색 · null 「—」 muted · 보통 굵기', () => {
+    renderEntry();
+    const eco = rowOf('KR7101360006');
+    expect(slot(eco, 'tick-entry-open').textContent).toBe('+3.1%');
+    expect(slot(eco, 'tick-entry-open')).toHaveClass('text-[var(--up)]', 'text-right', 'tabular-nums');
+    expect(slot(eco, 'tick-entry-open')).not.toHaveClass('font-bold');
+    expect(slot(eco, 'tick-entry-high').textContent).toBe('+29.9%');
+    expect(slot(eco, 'tick-entry-high')).toHaveClass('text-[var(--up)]');
+    const nxt = rowOf('KR7101360006', 'NXT');
+    expect(slot(nxt, 'tick-entry-open').textContent).toBe('—');
+    expect(slot(nxt, 'tick-entry-open')).toHaveClass('text-[var(--muted-fg)]');
+    const kakao = rowOf('KR7035720002');
+    expect(slot(kakao, 'tick-entry-open').textContent).toBe('−1.5%');
+    expect(slot(kakao, 'tick-entry-open')).toHaveClass('text-[var(--down)]');
+    expect(slot(kakao, 'tick-entry-high')).toHaveClass('text-[var(--down)]');
+  });
+
+  it('시가 · 고가 머리 · 칸은 카드 폭 문턱 미만에서 숨는다(hidden + 컨테이너 table-cell)', () => {
+    renderEntry();
+    for (const name of ['시가', '고가']) {
+      const th = screen.getByRole('columnheader', { name });
+      expect(th).toHaveClass('hidden');
+      expect(hasClassLike(th, CQ_SHOW)).toBe(true);
+    }
+    for (const s of ['tick-entry-open', 'tick-entry-high']) {
+      const td = slot(rowOf('KR7101360006'), s);
+      expect(td).toHaveClass('hidden');
+      expect(hasClassLike(td, CQ_SHOW)).toBe(true);
+    }
+  });
+
+  it('등락률 칸 보조 두 줄 「시 … / 고 …」 — 문턱 이상에서 숨는 클래스 · 각 값 부호 색', () => {
+    renderEntry();
+    const line = slot(rowOf('KR7101360006'), 'tick-entry-oh-line');
+    expect(hasClassLike(line, CQ_HIDE)).toBe(true);
+    expect(line.children).toHaveLength(2);
+    expect(line.children[0]!.textContent).toBe('시 +3.1%');
+    expect(line.children[1]!.textContent).toBe('고 +29.9%');
+    expect(within(line).getByText('+3.1%')).toHaveClass('text-[var(--up)]');
+    const nxtLine = slot(rowOf('KR7101360006', 'NXT'), 'tick-entry-oh-line');
+    expect(nxtLine.children[0]!.textContent).toBe('시 —');
+    expect(within(nxtLine).getByText('—')).toHaveClass('text-[var(--muted-fg)]');
+    const kakaoLine = slot(rowOf('KR7035720002'), 'tick-entry-oh-line');
+    expect(within(kakaoLine).getByText('−0.9%')).toHaveClass('text-[var(--down)]');
+  });
+
+  it('툴팁 — 과거 = 종가 · 기준가 대비 / 오늘 = 현재가 · 시세 갱신 종목만', () => {
+    const { unmount } = renderEntry();
+    const eco = rowOf('KR7101360006');
+    expect(slot(eco, 'tick-entry-rate')).toHaveAttribute('title', '그날 종가(마지막 체결) 기준 · 기준가 대비');
+    expect(slot(eco, 'tick-entry-open').getAttribute('title')).toMatch(/— 기준가 대비$/);
+    expect(slot(eco, 'tick-entry-high').getAttribute('title')).toMatch(/— 기준가 대비$/);
+    unmount();
+    renderEntry({
+      todayRows: [{ isin: 'KR7000000002', code: '000002', name: '나', sources: ['accum'], rate: 22.1, high_rate: 25.0 }],
+    });
+    const t = rowOf('KR7000000002');
+    expect(slot(t, 'tick-entry-rate')).toHaveAttribute('title', '현재가 기준 · 기준가 대비');
+    expect(slot(t, 'tick-entry-open').getAttribute('title')).toMatch(/— 시세 갱신 종목만\(아니면 —\)$/);
+    expect(slot(t, 'tick-entry-high').getAttribute('title')).toMatch(/— 시세 갱신 종목만\(아니면 —\)$/);
   });
 });

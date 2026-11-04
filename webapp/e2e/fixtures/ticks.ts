@@ -78,6 +78,8 @@ function gridRow(
   high_rate: number,
   /** 팀 칸(quick 261103-j4d · 20261103230000) — 없으면 키 자체를 싣지 않는다(옛 RPC 모양). */
   team?: { fills: number | null; net: number | null; pnl: number | null; cum: number | null },
+  /** 시가 %(quick 261104-n9h · 20261104700000) — undefined 면 키 자체를 싣지 않는다(옛 RPC 모양). */
+  open_rate?: number | null,
 ): TickGridRow {
   return {
     date,
@@ -101,6 +103,7 @@ function gridRow(
           team_day_pnl_krw: team.pnl,
           accum_pos_net_krw: team.cum,
         }),
+    ...(open_rate === undefined ? {} : { open_rate }),
   };
 }
 
@@ -110,14 +113,17 @@ export function tickDayFixture(d: string | null): TickDayResponse {
   const rows =
     date === TICK_DATE
       ? [
-          gridRow(ECO, date, 'KRX', ['accum', 'up15'], 29.9, {
-            fills: 120,
-            net: -312_000_000,
-            pnl: 184_000_000,
-            cum: 4_520_000_000,
-          }),
-          gridRow(ECO, date, 'NXT', ['up15'], 15.6, { fills: 14, net: 89_000_000, pnl: -21_500_000, cum: 4_520_000_000 }),
-          gridRow(SKH, date, 'KRX', ['request'], 1.8, { fills: 0, net: null, pnl: null, cum: null }),
+          gridRow(
+            ECO,
+            date,
+            'KRX',
+            ['accum', 'up15'],
+            29.9,
+            { fills: 120, net: -312_000_000, pnl: 184_000_000, cum: 4_520_000_000 },
+            3.1,
+          ),
+          gridRow(ECO, date, 'NXT', ['up15'], 15.6, { fills: 14, net: 89_000_000, pnl: -21_500_000, cum: 4_520_000_000 }, null),
+          gridRow(SKH, date, 'KRX', ['request'], 1.8, { fills: 0, net: null, pnl: null, cum: null }, -0.5),
         ]
       : [];
   return { access: true, dates: [TICK_DATE, TICK_PREV_DATE], date, rows, requests: [], eta_s: { ...ETA } };
@@ -127,7 +133,27 @@ export function tickTodayFixture(opts: { live: boolean; date: string }): TickTod
   return {
     access: true,
     date: opts.date,
-    rows: [{ isin: ECO.isin, code: ECO.code, name: ECO.name, sources: ['accum', 'up15'], rate: 22.1, high_rate: 29.9 }],
+    rows: [
+      // 매집감지 kind 16 팀 칸(quick 261104-n9h) — 추정 손익 = 5.5억 − 10억 + 50,000 × 12,000 = +1.50억
+      {
+        isin: ECO.isin,
+        code: ECO.code,
+        name: ECO.name,
+        sources: ['accum', 'up15'],
+        rate: 22.1,
+        high_rate: 29.9,
+        open_rate: 3.0,
+        accum_pos_net_krw: 4_520_000_000,
+        team_day_net_krw: 450_000_000,
+        team_day_buy_krw: 1_000_000_000,
+        team_day_sell_krw: 550_000_000,
+        team_day_avg_px: 10_000,
+        team_day_net_qty: 50_000,
+        accum_last_px: 12_000,
+      },
+      // 15%↑ 만 · 옛 RPC 모양(팀 · open 키 없음)
+      { isin: SKH.isin, code: SKH.code, name: SKH.name, sources: ['up15'], rate: 16.0, high_rate: 17.5 },
+    ],
     live: opts.live,
   };
 }

@@ -13,12 +13,21 @@ import { cn } from '@/lib/utils';
  *
  * - 과거 날짜: 「{M/D} 격자 종목 · n종목」 — 그날 격자가 있는 (종목, 거래소) 행. 클릭하면 바로 열린다(변환 없음).
  * - 오늘(D-15): 「오늘 종목 · n종목」 — 오늘 매집감지 등록 ∪ 고가 +15% 종목(`/api/ticks/today`) · 「라이브」 칩.
- * - 팀 열(스케치 023 B · quick 261103-j4d): 등락률 뒤 「당일순매수 · 누적순매수 · 당일손익」 3열(sm 이상) · 폰은 열을 숨기고
- *   종목명 아래 「순매수 … · 누적 … · 손익 …」 한 줄. 당일 값은 상세 「팀 거래정보」 끝 틱(그 거래소 팀만 · 밤 변환 때 저장) ·
- *   누적 = 매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산 · 미등록 「—」). 모름(미계산 · 팀 체결 없음 · 옛 RPC 키 없음 ·
- *   오늘 목록) 「—」 · 0 「0」 · + 빨강 / − 파랑 / 0 · 모름 muted.
- * - 정렬: 기본 등락률순(그날 고가 등락률 `high_rate` 내림차순) · 순매수순 · 손익순(내림차순) · 이름순 — 값 없는 행은 뒤 ·
- *   같으면 이름 → 거래소.
+ * - 열 순서(quick 261104-n9h): 종목 · 등락률 · 시가 · 고가 · 당일순매수 · 누적순매수 · 당일손익 · 출처 · ›.
+ * - 등락률 = 과거 그날 종가(마지막 체결 `last_rate`) · 오늘 현재가(`rate`) 기준 — 기준가 대비 %.
+ * - 시가 · 고가(기준가 대비 % · 등락률과 같은 부호 색): 과거 = `open_rate`(KRX 일봉 시가 · NXT 「—」) · `high_rate`(격자) /
+ *   오늘 = 시세 OHLC 가 오늘 갱신된 종목만(hot set · 아니면 「—」). 카드 폭 컨테이너 쿼리(`@container/tlist`)로 카드가
+ *   T_OH = 800px 미만이면 두 열을 숨기고 등락률 칸 아래 작은 두 줄 「시 … / 고 …」 로 남긴다 — 사이드바가 lg 에서 생겨 뷰포트 폭과
+ *   카드 폭이 단조롭지 않아서 뷰포트가 아니라 카드 폭으로 정한다(T_OH 측정 근거 = quick 261104-n9h SUMMARY 「폭 측정」).
+ * - 팀 열(스케치 023 B · quick 261103-j4d): 「당일순매수 · 누적순매수 · 당일손익」 3열(sm 이상) · 폰은 열을 숨기고
+ *   종목명 아래 「순매수 … · 누적 … · 손익 …」 한 줄.
+ *   과거 = 상세 「팀 거래정보」 끝 틱(그 거래소 팀만 · 밤 변환 때 저장) · 누적 = 매집감지 등록 이후 팀 순매수(이월 포함 ·
+ *   KRX+NXT 합산 · 미등록 「—」).
+ *   오늘(quick 261104-n9h) = 매집감지 kind 16 isin 별 최신 행(1분 갱신 · KRX+NXT 합산 · 우리 체결 제외) — 당일손익은
+ *   estimateTeamDayPnl 추정치라 앞에 「≈」. 매집감지 미등록 · 옛 행 · 가시성 밖은 「—」.
+ *   모름(미계산 · 팀 체결 없음 · 옛 RPC 키 없음) 「—」 · 0 「0」 · + 빨강 / − 파랑 / 0 · 모름 muted.
+ * - 정렬: 기본 등락률순(위 등락률 — 과거 종가 · 오늘 현재가 내림차순) · 순매수순 · 손익순(내림차순 · 오늘은 추정값) · 이름순 —
+ *   값 없는 행은 뒤 · 같으면 이름 → 거래소.
  * - 출처 칩: accum 「매집감지」(팀 보라) · up15 「15%↑」(빨강) · request 「요청 변환」 · promoted 「승격」(회색) ·
  *   거래소 NXT 「NXT」(선택 파랑).
  * - 아래 캡션(과거 날짜만): 목록에 없는 종목은 머리 검색으로 — 그 종목만 변환해서 연다(약 N분 = 거래소 예상 대기).
@@ -45,7 +54,11 @@ interface EntryRow {
   code: string | null;
   name: string | null;
   ex: TickExchange;
+  /** 등락률 % — 과거 종가(last_rate) · 오늘 현재가(rate). */
   rate: number | null;
+  /** 시가 · 고가 % (기준가 대비) — 모름 null. */
+  openRate: number | null;
+  highRate: number | null;
   /** 당일 팀 순매수 · 누적 순매수 · 당일 팀 손익(원) — 모름 null. */
   dayNet: number | null;
   cum: number | null;
@@ -102,8 +115,31 @@ function signCls(v: number | null): string {
   return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
 }
 
-const TH = 'bg-[var(--muted)] px-3 py-1.5 text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]';
-const TEAM_TD = 'hidden h-10 border-t border-[var(--border-subtle)] px-3 text-right whitespace-nowrap tabular-nums sm:table-cell';
+/** 숫자 · 출처 칸 좌우 패딩 — 카드 폭 T_OH 미만은 px-2(오늘 목록 640 에서 › 칸이 눌리던 8px 를 푼다) · 이상은 px-3. */
+const PADX = 'px-2 @min-[800px]/tlist:px-3';
+const TH = 'bg-[var(--muted)] py-1.5 text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]';
+const TEAM_TD = cn(
+  'hidden h-10 border-t border-[var(--border-subtle)] text-right whitespace-nowrap tabular-nums sm:table-cell',
+  PADX,
+);
+/** 시가 · 고가 열 — 카드 폭(@container/tlist) T_OH 이상에서만 · 그 미만은 등락률 칸 보조 두 줄(OH_LINE). */
+const OH_COL = 'hidden @min-[800px]/tlist:table-cell';
+const OH_LINE = 'mt-0.5 block text-[10.5px] leading-[1.3] font-medium @min-[800px]/tlist:hidden';
+const OH_TD = cn(OH_COL, 'h-10 border-t border-[var(--border-subtle)] px-3 text-right whitespace-nowrap tabular-nums');
+
+/** 등락률 · 시가 · 고가 툴팁 — 과거 = 종가 · 일봉 · 격자 / 오늘 = 현재가 · 오늘 시세. */
+const RATE_TITLE = {
+  past: {
+    rate: '그날 종가(마지막 체결) 기준 · 기준가 대비',
+    open: '그날 시가(KRX 일봉 · NXT 는 —) — 기준가 대비',
+    high: '그날 고가 — 기준가 대비',
+  },
+  today: {
+    rate: '현재가 기준 · 기준가 대비',
+    open: '오늘 시가 · 기준가 대비 — 시세 갱신 종목만(아니면 —)',
+    high: '오늘 고가 · 기준가 대비 — 시세 갱신 종목만(아니면 —)',
+  },
+} as const;
 
 /** 손익 표기 — 추정치(오늘)는 값 앞에 「≈」 · 모름은 「—」 그대로. */
 const pnlText = (r: EntryRow) => (r.pnlEstimated && r.pnl !== null ? '≈' : '') + fmtSignedAmountC(r.pnl);
@@ -127,6 +163,7 @@ const mdOf = (ymd: string) => `${Number(ymd.slice(4, 6))}/${Number(ymd.slice(6, 
 export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin }: TickEntryProps) {
   const isToday = todayRows !== undefined;
   const teamTitle = isToday ? TEAM_TITLE.today : TEAM_TITLE.past;
+  const rateTitle = isToday ? RATE_TITLE.today : RATE_TITLE.past;
   const list = useMemo(() => {
     const base: EntryRow[] = isToday
       ? todayRows.map((r) => ({
@@ -135,7 +172,9 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           code: r.code,
           name: r.name,
           ex: 'KRX' as const,
-          rate: r.high_rate ?? r.rate,
+          rate: r.rate,
+          openRate: r.open_rate ?? null,
+          highRate: r.high_rate,
           dayNet: r.team_day_net_krw ?? null,
           cum: r.accum_pos_net_krw ?? null,
           pnl: estimateTeamDayPnl({
@@ -155,7 +194,9 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           code: r.code,
           name: r.name,
           ex: r.exchange,
-          rate: r.high_rate,
+          rate: r.last_rate,
+          openRate: r.open_rate ?? null,
+          highRate: r.high_rate,
           dayNet: r.team_day_net_krw ?? null,
           cum: r.accum_pos_net_krw ?? null,
           pnl: r.team_day_pnl_krw ?? null,
@@ -168,7 +209,7 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
 
   return (
     <div data-slot="tick-entry" className="flex flex-col">
-      <section aria-labelledby="tick-entry-title" className={cn(CARD, 'overflow-hidden rounded-[14px]')}>
+      <section aria-labelledby="tick-entry-title" className={cn(CARD, '@container/tlist overflow-hidden rounded-[14px]')}>
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3.5 py-2.5 text-[12.5px] font-bold">
           <h2 id="tick-entry-title" className="m-0 text-[12.5px] font-bold text-[var(--fg)]">
             {isToday ? '오늘 종목' : `${mdOf(date)} 격자 종목`}
@@ -202,12 +243,14 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           <table className="w-full border-collapse text-[12.5px]">
             <thead>
               <tr>
-                <th className={cn(TH, 'text-left')}>종목</th>
-                <th className={cn(TH, 'text-right')}>등락률</th>
-                <th className={cn(TH, 'hidden text-right sm:table-cell')}>당일순매수</th>
-                <th className={cn(TH, 'hidden text-right sm:table-cell')}>누적순매수</th>
-                <th className={cn(TH, 'hidden text-right sm:table-cell')}>당일손익</th>
-                <th className={cn(TH, 'hidden text-left sm:table-cell')}>출처</th>
+                <th className={cn(TH, 'px-3 text-left')}>종목</th>
+                <th className={cn(TH, PADX, 'text-right')}>등락률</th>
+                <th className={cn(TH, 'px-3', OH_COL, 'text-right')}>시가</th>
+                <th className={cn(TH, 'px-3', OH_COL, 'text-right')}>고가</th>
+                <th className={cn(TH, PADX, 'hidden text-right sm:table-cell')}>당일순매수</th>
+                <th className={cn(TH, PADX, 'hidden text-right sm:table-cell')}>누적순매수</th>
+                <th className={cn(TH, PADX, 'hidden text-right sm:table-cell')}>당일손익</th>
+                <th className={cn(TH, PADX, 'hidden text-left sm:table-cell')}>출처</th>
                 <th className="w-6 bg-[var(--muted)]" aria-hidden="true" />
               </tr>
             </thead>
@@ -238,13 +281,27 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
                     </button>
                   </td>
                   <td
-                    title="그날 고가 기준"
-                    className={cn(
-                      'h-10 border-t border-[var(--border-subtle)] px-3 text-right font-bold whitespace-nowrap tabular-nums',
-                      signCls(r.rate),
-                    )}
+                    data-slot="tick-entry-rate"
+                    title={rateTitle.rate}
+                    className={cn('h-10 border-t border-[var(--border-subtle)] text-right whitespace-nowrap tabular-nums', PADX)}
                   >
-                    {fmtRate(r.rate)}
+                    <b className={cn('font-bold', signCls(r.rate))}>{fmtRate(r.rate)}</b>
+                    <span data-slot="tick-entry-oh-line" className={OH_LINE}>
+                      <span className="block">
+                        <span className="text-[var(--muted-fg)]">시</span>{' '}
+                        <span className={signCls(r.openRate)}>{fmtRate(r.openRate)}</span>
+                      </span>
+                      <span className="block">
+                        <span className="text-[var(--muted-fg)]">고</span>{' '}
+                        <span className={signCls(r.highRate)}>{fmtRate(r.highRate)}</span>
+                      </span>
+                    </span>
+                  </td>
+                  <td data-slot="tick-entry-open" title={rateTitle.open} className={cn(OH_TD, signCls(r.openRate))}>
+                    {fmtRate(r.openRate)}
+                  </td>
+                  <td data-slot="tick-entry-high" title={rateTitle.high} className={cn(OH_TD, signCls(r.highRate))}>
+                    {fmtRate(r.highRate)}
                   </td>
                   <td
                     data-slot="tick-entry-day-net"
@@ -267,7 +324,7 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
                   >
                     {pnlText(r)}
                   </td>
-                  <td className="hidden h-10 border-t border-[var(--border-subtle)] px-3 whitespace-nowrap sm:table-cell">
+                  <td className={cn('hidden h-10 border-t border-[var(--border-subtle)] whitespace-nowrap sm:table-cell', PADX)}>
                     {r.sources.map((s) => (
                       <span key={s} data-chip={s} className={cn(TAG, SOURCE_CHIP[s].cls)}>
                         {SOURCE_CHIP[s].label}
