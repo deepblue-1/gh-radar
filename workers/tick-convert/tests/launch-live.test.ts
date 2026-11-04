@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { launchQueueOf } from "@gh-radar/shared";
-import { main } from "../src/index";
+import { main, parseArgv } from "../src/index";
 import type { Config } from "../src/config";
 import type { LaunchInputRow } from "../src/meta";
 import {
@@ -144,6 +144,10 @@ describe("parseLaunchLiveArgs", () => {
     expect(parseLaunchLiveArgs(["--all-today"])).toEqual({ allToday: true });
     expect(() => parseLaunchLiveArgs(["--all-today", "--x"])).toThrow(UsageError);
     expect(() => parseLaunchLiveArgs(["--date", "20261104"])).toThrow(UsageError);
+    // CLI 공통 파서도 통과해야 한다(배포 첫날 「모르는 인자 --all-today」 회귀)
+    expect(parseArgv(["launch-live", "--all-today"])).toMatchObject({ mode: "launch-live", allToday: true, rest: ["--all-today"] });
+    const noon = new Date("2026-10-30T03:00:00Z");
+    expect(await main(["launch-live", "--all-today"], { sb: fake({}, []).sb, store: noStore, config: cfg(), now: noon })).toBe(0);
     const { sb } = fake();
     expect(await main(["launch-live", "--date", "20261104"], { sb, store: noStore, config: cfg(), now: NOW_16 })).toBe(2);
   });

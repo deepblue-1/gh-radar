@@ -52,10 +52,19 @@ const VALUE_FLAGS: Readonly<Record<string, "date" | "ex" | "from" | "to">> = {
   "--from": "from",
   "--to": "to",
 };
-/** 값 없는 불리언 플래그(한 칸) — backfill-team · backfill-launch 공용 `--dry-run`. */
-const BOOL_FLAGS: Readonly<Record<string, "dryRun">> = { "--dry-run": "dryRun" };
+/** 값 없는 불리언 플래그(한 칸) — backfill-team · backfill-launch 공용 `--dry-run` · launch-live `--all-today`. */
+const BOOL_FLAGS: Readonly<Record<string, "dryRun" | "allToday">> = { "--dry-run": "dryRun", "--all-today": "allToday" };
 
-export type ParsedArgv = { mode: string; date?: string; ex?: string; from?: string; to?: string; dryRun?: boolean; rest: string[] };
+export type ParsedArgv = {
+  mode: string;
+  date?: string;
+  ex?: string;
+  from?: string;
+  to?: string;
+  dryRun?: boolean;
+  allToday?: boolean;
+  rest: string[];
+};
 
 /**
  * argv(`process.argv.slice(2)` — 모드부터) → 모드 + 공통 플래그. 모드가 없거나 `--` 로 시작(실행 파일 자리가 어긋난 argv)
