@@ -62,15 +62,15 @@ describe('TickMsgList — 뒤집힘 3', () => {
     expect(tail?.textContent).toContain('· 닫는 B6 ↕ 9.0ms 먼저');
     expect(container.querySelector('[data-slot="tick-msg-slot"]')).toBeNull();
     // 팀 주문 꼬리 줄 — 직전 팀 간격 · 주문 전 매도비중(스케치 024 C · 025)
-    expect(tail!.querySelector('[data-slot="tick-team-meta"]')!.textContent).toMatch(/^ · 그날 첫 팀 주문 · 주문 전 매도비중 총 (—|\d+%) · 1호 70%$/);
-    // 1호 매도 열(스케치 025 A) — 모든 전문 행 · B6 행은 자기 값
-    const l1 = (rec: number) => rowOf(container, rec)!.querySelector('[data-slot="tick-msg-l1"]')!.textContent;
+    expect(tail!.querySelector('[data-slot="tick-team-meta"]')!.textContent).toMatch(/^ · 호가의 212% 체결 · 그날 첫 팀 주문 · 주문 전 매도비중 총 (—|\d+%) · 1호 70%$/);
+    // 10호 매도 열(스케치 025 A · 11-04 10단 합 — 픽스처 B6 는 1단만) — 모든 전문 행 · B6 행은 자기 값
+    const l1 = (rec: number) => rowOf(container, rec)!.querySelector('[data-slot="tick-msg-book10"]')!.textContent;
     expect(l1(0)).toBe('70%'); // B6 100 — 283 ÷ (283 + 121)
     expect(l1(2)).toBe('70%'); // A3 101 — 거래소순 직전 B6 100 을 이어받음
     expect(l1(1)).toBe('33%'); // 닫는 B6 104 — 10 ÷ 30
     expect(l1(7)).toBe('33%'); // B9 — 보드 없는 행도 직전 보드 값
-    expect(rowOf(container, 1)!.querySelector('[data-slot="tick-msg-l1"]')!.className).toContain('font-semibold');
-    expect(rowOf(container, 2)!.querySelector('[data-slot="tick-msg-l1"]')!.className).not.toContain('font-semibold');
+    expect(rowOf(container, 1)!.querySelector('[data-slot="tick-msg-book10"]')!.className).toContain('font-semibold');
+    expect(rowOf(container, 2)!.querySelector('[data-slot="tick-msg-book10"]')!.className).not.toContain('font-semibold');
   });
 
   it('수신순 토글 — 커서 rec 유지 · 점선 「⋯ 거래소순 자리」 줄 · 클릭 = 그 B6 선택', () => {
@@ -106,12 +106,12 @@ describe('TickMsgList — 뒤집힘 3', () => {
     expect(rowOf(container, 7)?.textContent).toContain('거래원 매수1 교보 3,400');
   });
 
-  it('행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 마지막 조각', () => {
+  it('행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 닫는 B6', () => {
     const { container } = render(<Harness initial={0} />);
     fireEvent.click(rowOf(container, 5)!);
     expect(cursor()).toBe(5);
     fireEvent.click(container.querySelector('[data-slot="tick-msg-tail"]')!);
-    expect(cursor()).toBe(4);
+    expect(cursor()).toBe(1); // 닫는 B6 104(rec 1) — 마지막 조각(rec 4)이 아니라
   });
 });
 

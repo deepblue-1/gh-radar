@@ -43,6 +43,8 @@ describe('TickOrderCard', () => {
     const meta = card.querySelector('[data-slot="tick-order-meta"]')!;
     expect(meta.querySelector('[data-slot="tick-order-gap"]')!.textContent).toBe('그날 첫 팀 주문');
     expect(meta.querySelector('[data-slot="tick-order-prebook"]')!.textContent).toMatch(/^총잔량 (—|\d+%) · 1호 70%$/);
+    // 호가 대비 체결(2026-11-04) — 매수 600 @16,400 ÷ 주문 전 매도1 16,400 ×283 · 1단이라 단 합 말 없음
+    expect(meta.querySelector('[data-slot="tick-order-take"]')!.textContent).toBe('212%');
     // 커서가 주문 가운데 — 최근 표 맨 위가 그 주문(선택 표시)
     const rows = container.querySelectorAll('[data-slot="tick-order-recent-row"]');
     expect(rows).toHaveLength(1);

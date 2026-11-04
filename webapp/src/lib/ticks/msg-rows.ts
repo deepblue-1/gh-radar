@@ -28,6 +28,7 @@ import {
   decodeFields,
   parseStr,
   payloadOf,
+  type Book10,
   type BookLevel,
   type FieldValue,
 } from '@gh-radar/shared';
@@ -430,12 +431,21 @@ export function fmtA3Row(session: TickSession, rec: number): A3RowParts | null {
 export interface B6RowParts {
   ask: BookLevel;
   bid: BookLevel;
+  /** 10단 잔량 합(매도 · 매수) — 「10호 매도」 열. 총잔량 필드(total_*_qty)가 아니라 10단을 직접 더한다. */
+  askSum10: number;
+  bidSum10: number;
   text: string;
 }
 
 /** 세션별 B6 행 캐시 — 보이는 행만 풀고, 커서가 움직일 때 같은 행을 다시 풀지 않는다. */
 const b6Cache = new WeakMap<TickSession, Map<number, B6RowParts | null>>();
 const B6_CACHE_MAX = 4_000;
+
+function qtySumOf(levels: readonly BookLevel[]): number {
+  let n = 0;
+  for (const l of levels) n += l.qty;
+  return n;
+}
 
 /** B6 행 — `매도1 16,400 ×283 (464만) 매수1 16,350 ×121 (198만)`. B6 ∧ ok 가 아니면 null. */
 export function fmtB6Row(session: TickSession, rec: number): B6RowParts | null {
@@ -453,7 +463,13 @@ export function fmtB6Row(session: TickSession, rec: number): B6RowParts | null {
       const ask = book.asks[0]!;
       const bid = book.bids[0]!;
       const lv = (l: BookLevel) => `${fmtQty(l.px)} ×${fmtQty(l.qty)} (${fmtAmountC(l.amount)})`;
-      out = { ask, bid, text: `매도1 ${lv(ask)} 매수1 ${lv(bid)}` };
+      out = {
+        ask,
+        bid,
+        askSum10: qtySumOf(book.asks),
+        bidSum10: qtySumOf(book.bids),
+        text: `매도1 ${lv(ask)} 매수1 ${lv(bid)}`,
+      };
     }
   }
   if (cache.size >= B6_CACHE_MAX) cache.clear();
@@ -578,25 +594,55 @@ export function fmtShare(s: number | null): string {
 }
 
 /**
- * 전문 행 「1호 매도」 열(스케치 025 A) — 그 행 시점(거래소순으로 그 행 이하) 같은 보드 마지막 B6 의 매도1 잔량 비중.
- * B6 행은 자기 값. 그날 첫 B6 전이면 null. 행 서식 캐시(`fmtB6Row`)를 그대로 쓴다.
+ * 전문 행 「10호 매도」 열(스케치 025 A · 2026-11-04 1호 → 10단 합으로 바꿈) — 그 행 시점(거래소순으로 그 행 이하) 같은 보드
+ * 마지막 B6 의 10단 매도 잔량 합 ÷ (10단 매도 합 + 10단 매수 합). B6 행은 자기 값. 그날 첫 B6 전이면 null.
+ * 행 서식 캐시(`fmtB6Row`)를 그대로 쓴다.
  */
-export function l1ShareAt(session: TickSession, rec: number): number | null {
+export function book10ShareAt(session: TickSession, rec: number): number | null {
   const b6 = session.lastB6[session.exPos[rec]!] ?? -1;
   if (b6 < 0) return null;
   const b = fmtB6Row(session, b6);
-  return b ? askShareOf(b.ask.qty, b.bid.qty) : null;
+  return b ? askShareOf(b.askSum10, b.bidSum10) : null;
 }
 
 /**
- * 주문 전 호가 — 첫 조각 직전(거래소순) 같은 보드 마지막 B6 의 매도 비중(총잔량 · 1호 잔량). 모든 주문(「이 주문」 카드) ·
- * 팀 주문 꼬리 줄이 같은 값을 쓴다. 그 B6 가 없으면 bookRec -1 · 비중 null.
+ * 주문 전 호가 — 첫 조각 직전(거래소순) 같은 보드 마지막 B6 의 매도 비중(총잔량 · 1호 잔량) · 호가 대비 체결 비율.
+ * 모든 주문(「이 주문」 카드) · 팀 주문 꼬리 줄이 같은 값을 쓴다. 그 B6 가 없으면 bookRec -1 · 비중 · 비율 null.
  */
 export interface PreBook {
   /** 주문 전 B6 rec(없으면 -1). */
   bookRec: number;
   totalShare: number | null;
   l1Share: number | null;
+  /**
+   * 호가 대비 체결(2026-11-04 사용자 요청) — 이 주문이 주문 전 호가의 해당 가격 잔량 중 몇 할을 먹었나. 매수 = 매도호가 ·
+   * 매도 = 매수호가 쪽. 조각 체결가와 같은 가격의 주문 전 잔량만 센다(분자 · 분모 모두 — 주문 전 10단에 없는 가격의 조각은
+   * 뺀다) · k단 주문이면 그 단들 잔량 합 대비. 단일가 · 맞는 가격이 없으면 null. 호가가 그 사이 늘면 100% 를 넘을 수 있다.
+   */
+  takeShare: number | null;
+}
+
+/** 호가 대비 체결 — 조각 체결가별 수량 ÷ 주문 전 반대편 같은 가격 잔량(`PreBook.takeShare`). */
+function takeShareOf(session: TickSession, order: ViewOrder, book: Book10): number | null {
+  const side = sideOf(order.bs);
+  if (side === 'auction') return null;
+  const levels = side === 'buy' ? book.asks : book.bids;
+  const filled = new Map<number, number>();
+  for (const r of order.recs) {
+    const j = session.a3Of[r] ?? -1;
+    if (j < 0) continue;
+    const px = session.a3.px[j]!;
+    filled.set(px, (filled.get(px) ?? 0) + session.a3.qty[j]!);
+  }
+  let num = 0;
+  let den = 0;
+  for (const [px, q] of filled) {
+    const l = levels.find((x) => x.px === px && x.qty > 0);
+    if (!l) continue;
+    num += q;
+    den += l.qty;
+  }
+  return den > 0 ? num / den : null;
 }
 
 const preBookCache = new WeakMap<TickSession, Map<number, PreBook>>();
@@ -618,6 +664,7 @@ export function preBookOf(session: TickSession, order: ViewOrder): PreBook {
     bookRec: book ? bookRec : -1,
     totalShare: book ? askShareOf(book.totalAsk, book.totalBid) : null,
     l1Share: book ? askShareOf(book.asks[0]!.qty, book.bids[0]!.qty) : null,
+    takeShare: book ? takeShareOf(session, order, book) : null,
   };
   cache.set(order.id, out);
   return out;
@@ -664,6 +711,11 @@ export function fmtGapNs(ns: bigint): string {
 /** 간격 말 — 「직전 팀 +0.512304s」 · 첫 팀 주문은 「그날 첫 팀 주문」. */
 export function teamGapText(m: TeamOrderMeta): string {
   return m.gapNs === null ? '그날 첫 팀 주문' : `직전 팀 ${fmtGapNs(m.gapNs)}`;
+}
+
+/** 호가 대비 체결 말 — 「호가의 52% 체결」 · 모르면 ''. */
+export function takeShareText(m: PreBook): string {
+  return m.takeShare === null ? '' : `호가의 ${fmtShare(m.takeShare)} 체결`;
 }
 
 /** 주문 전 호가 말 — 「주문 전 매도비중 총 65% · 1호 26%」 · 주문 전 B6 가 없으면 ''. */

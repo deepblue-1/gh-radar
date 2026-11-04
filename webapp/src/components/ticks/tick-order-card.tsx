@@ -33,7 +33,8 @@ import { TickOwnEvidenceOrders, TickOwnSection } from './tick-own-section';
  *   그 주문 마지막 조각으로 커서 이동.
  * ③ 팀 주문이면 「직전 팀 주문」(첫 조각 체결시각 간격 µs · 그날 첫 팀 주문이면 그 말 — 스케치 024 C). 모든 주문에
  *   「주문 전 매도비중」(첫 조각 직전 B6 의 매도 ÷ (매도 + 매수) — 총잔량 · 1호 잔량 · 스케치 025 · 2026-11-03 — 어떤 호가
- *   쏠림에서 주문이 나갔는지 확인용).
+ *   쏠림에서 주문이 나갔는지 확인용) · 「호가 대비 체결」(주문 전 같은 가격 반대편 잔량 중 이 주문이 먹은 비율 · k단이면 그 단들 합 ·
+ *   2026-11-04 — 팀 꼬리 줄과 같은 값 `PreBook.takeShare`).
  * 판정은 세션(shared classifyKrxOrders · NXT 런)이 이미 했다 — 여기서는 보이기만 한다.
  * ③ 우리 주문(Phase 38 D-07): 배치 = 본문 → 「◆ 우리 주문 #…」 섹션(커서가 우리 체결 A3 행이거나 우리 줄이 골라졌을 때 ·
  *   주문이 둘이면 둘) 또는 근거 역참조 「이 전문을 보고 나간 주문 n건」(커서가 근거 전문 행일 때) → 「최근 주문」 표(37 그대로).
@@ -179,6 +180,21 @@ export function TickOrderCard({
               <dt className="font-sans text-[11px] text-[var(--muted-fg)]">직전 팀 주문</dt>
               <dd data-slot="tick-order-gap" className="m-0 font-semibold text-[var(--team)]">
                 {meta.gapNs === null ? '그날 첫 팀 주문' : fmtGapNs(meta.gapNs)}
+              </dd>
+            </>
+          )}
+          {pre.takeShare !== null && (
+            <>
+              <dt className="font-sans text-[11px] text-[var(--muted-fg)]">호가 대비 체결</dt>
+              <dd
+                data-slot="tick-order-take"
+                className="m-0 text-[var(--fg)]"
+                title="주문 전 호가에서 체결가와 같은 가격의 반대편 잔량 중 이 주문이 체결한 비율"
+              >
+                <b>{fmtShare(pre.takeShare)}</b>
+                {order.nPx > 1 && (
+                  <span className="font-sans text-[11px] text-[var(--muted-fg)]"> · {order.nPx}단 잔량 합 대비</span>
+                )}
               </dd>
             </>
           )}

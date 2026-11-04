@@ -37,7 +37,8 @@ import {
   tailText,
   fmtGapNs,
   fmtShare,
-  l1ShareAt,
+  book10ShareAt,
+  takeShareText,
   preBookOf,
   teamBookText,
   teamGapText,
@@ -589,14 +590,44 @@ describe('팀 주문 간격 · 주문 전 매도비중 · 1호 매도 열(스케
     expect(fmtShare(1)).toBe('100%');
   });
 
-  it('1호 매도 열 — 그 행 이하(거래소순) 같은 보드 마지막 B6 의 매도1 ÷ (매도1 + 매수1) · B6 행은 자기 값', () => {
+  it('10호 매도 열 — 그 행 이하(거래소순) 같은 보드 마지막 B6 의 10단 매도 합 ÷ (매도 합 + 매수 합) · B6 행은 자기 값(1단만 있는 B6)', () => {
     const recOf = (seq: number) => Array.from(s.index.seq).indexOf(seq);
-    expect(l1ShareAt(s, recOf(100))).toBeCloseTo(283 / 404, 12);
-    expect(l1ShareAt(s, recOf(101))).toBeCloseTo(283 / 404, 12);
-    expect(l1ShareAt(s, recOf(104))).toBeCloseTo(10 / 30, 12);
-    expect(l1ShareAt(s, recOf(105))).toBeCloseTo(10 / 30, 12);
-    expect(l1ShareAt(s, recOf(106))).toBeCloseTo(1 / 5, 12);
-    expect(l1ShareAt(s, recOf(108))).toBeCloseTo(1 / 3, 12);
+    expect(book10ShareAt(s, recOf(100))).toBeCloseTo(283 / 404, 12);
+    expect(book10ShareAt(s, recOf(101))).toBeCloseTo(283 / 404, 12);
+    expect(book10ShareAt(s, recOf(104))).toBeCloseTo(10 / 30, 12);
+    expect(book10ShareAt(s, recOf(105))).toBeCloseTo(10 / 30, 12);
+    expect(book10ShareAt(s, recOf(106))).toBeCloseTo(1 / 5, 12);
+    expect(book10ShareAt(s, recOf(108))).toBeCloseTo(1 / 3, 12);
+  });
+
+  it('호가 대비 체결(1단) — 주문 전 반대편 같은 가격 잔량 대비 · 같은 가격이 없으면 null · 넘치면 100% 초과', () => {
+    const [buy, sell] = teams;
+    const m1 = teamOrderMetaOf(s, buy!.id)!;
+    expect(m1.takeShare).toBeCloseTo(600 / 283, 12); // 매수 600 @16,400 ÷ 매도1 16,400 ×283
+    expect(takeShareText(m1)).toBe('호가의 212% 체결');
+    const m2 = teamOrderMetaOf(s, sell!.id)!;
+    expect(m2.takeShare).toBeNull(); // 매도 @16,300 — 주문 전 매수호가에 16,300 없음
+    expect(takeShareText(m2)).toBe('');
+  });
+
+  it('10단 · 호가 대비 체결(k단) — 10단 합 · 조각 가격들의 주문 전 잔량 합 대비 · 매도는 매수호가 쪽', () => {
+    const m = synthSession([
+      [0, b6Msg({ seq: 200, ask1: [16400, 100], bid1: [16350, 50], asks: [[16450, 200]], bids: [[16300, 80]] })],
+      [1, a3Msg({ seq: 201, bs: '2', px: 16400, qty: 100, time: '130000001000' })],
+      [1.1, a3Msg({ seq: 202, bs: '2', px: 16450, qty: 50, time: '130000001100' })],
+      [1.5, b6Msg({ seq: 203, ask1: [16450, 150], bid1: [16350, 50], bids: [[16300, 80]] })],
+      [2, a3Msg({ seq: 204, bs: '1', px: 16350, qty: 40, time: '130000002000' })],
+      [2.5, b6Msg({ seq: 205, ask1: [16450, 150], bid1: [16350, 10], bids: [[16300, 80]] })],
+    ]);
+    const recOf = (seq: number) => Array.from(m.index.seq).indexOf(seq);
+    expect(book10ShareAt(m, recOf(200))).toBeCloseTo(300 / 430, 12);
+    expect(book10ShareAt(m, recOf(202))).toBeCloseTo(300 / 430, 12);
+    expect(book10ShareAt(m, recOf(205))).toBeCloseTo(150 / 240, 12);
+    const buy = m.orders.find((o) => o.bs === '2')!;
+    const sell = m.orders.find((o) => o.bs === '1')!;
+    expect(buy.nPx).toBe(2);
+    expect(preBookOf(m, buy).takeShare).toBeCloseTo(150 / 300, 12);
+    expect(preBookOf(m, sell).takeShare).toBeCloseTo(40 / 50, 12);
   });
 });
 
