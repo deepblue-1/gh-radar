@@ -41,6 +41,7 @@ import type {
   JournalOrderRow,
   RelayAccountState,
   RelayLimitFeatureMsg,
+  RelayAccumPricesMsg,
   RelayOrderNewMsg,
   RelayQueueProgressItem,
   RelayQuote,
@@ -4074,5 +4075,88 @@ describe('Phase 28 limit.feature (85 상한가 특징 — 시장 배치 · 키�
       await seed(ws, { lockElapsedS: 50 });
       expect(featureOf(hook, ISIN_A, 'KRX')).toMatchObject({ lockElapsedS: 50 });
     });
+  });
+});
+
+describe('quick-261104-nxs accum.prices (95 매집 현재가 — 시장 배치 · 병합 · snap 교체)', () => {
+  const A = 'KR7005930003';
+  const B = 'KR7000660001';
+  const msg = (snap: boolean, items: RelayAccumPricesMsg['items']): RelayAccumPricesMsg => ({
+    t: 'accum.prices',
+    snap,
+    items,
+  });
+
+  it('시장 배치(≤ RELAY_MARKET_BATCH_MS) 뒤 accumPrices 에 들어간다 — 배치 전에는 없다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(msg(true, [{ i: A, p: 12_500, r: 18.2, b: 10_576 }]));
+    });
+    expect(hook.result.current.accumPrices.size).toBe(0);
+    flushMarket();
+    expect(hook.result.current.accumPrices.get(A)).toEqual({ i: A, p: 12_500, r: 18.2, b: 10_576 });
+  });
+
+  it('snap:false 는 병합(같은 isin 덮음 · 다른 isin 유지) · snap:true 는 전량 교체(빈 배열 = 전부 지움)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(msg(true, [{ i: A, p: 12_500, r: 18.2, b: 10_576 }]));
+      ws.push(msg(false, [{ i: B, p: 201_000, r: -1.5, b: 0 }]));
+    });
+    flushMarket();
+    expect([...hook.result.current.accumPrices.keys()].sort()).toEqual([A, B].sort());
+    await act(async () => {
+      ws.push(msg(false, [{ i: A, p: 12_600, r: 19.14, b: 10_576 }]));
+    });
+    flushMarket();
+    expect(hook.result.current.accumPrices.get(A)).toMatchObject({ p: 12_600, r: 19.14 });
+    expect(hook.result.current.accumPrices.get(B)).toMatchObject({ p: 201_000 });
+
+    await act(async () => {
+      ws.push(msg(true, [{ i: B, p: 202_000, r: -1, b: 0 }]));
+    });
+    flushMarket();
+    expect([...hook.result.current.accumPrices.keys()]).toEqual([B]);
+    await act(async () => {
+      ws.push(msg(true, []));
+    });
+    flushMarket();
+    expect(hook.result.current.accumPrices.size).toBe(0);
+  });
+
+  it('accum.prices 만 온 배치는 quotes · tapes · limitFeatures 참조를 바꾸지 않는다 (copy-on-write)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const quotesBefore = hook.result.current.quotes;
+    const tapesBefore = hook.result.current.tapes;
+    const featuresBefore = hook.result.current.limitFeatures;
+    await act(async () => {
+      ws.push(msg(false, [{ i: A, p: 12_500, r: 18.2, b: 10_576 }]));
+    });
+    flushMarket();
+    expect(hook.result.current.accumPrices.size).toBe(1);
+    expect(hook.result.current.quotes).toBe(quotesBefore);
+    expect(hook.result.current.tapes).toBe(tapesBefore);
+    expect(hook.result.current.limitFeatures).toBe(featuresBefore);
+  });
+
+  it('재접속(1006)에도 유지 · enabled false(reset) 뒤 빈 Map', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(msg(false, [{ i: A, p: 12_500, r: 18.2, b: 10_576 }]));
+    });
+    flushMarket();
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.accumPrices.get(A)).toMatchObject({ p: 12_500 });
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.accumPrices.size).toBe(0);
   });
 });

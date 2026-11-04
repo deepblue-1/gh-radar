@@ -37,6 +37,7 @@
  *     해당하는 것만 고르기」는 **소비자 책임**이다(T-16-02). 승격 전의 `wantedKeyRef` 지연
  *     프레임 필터가 `useRelaySubscription` 으로 옮겨진 이유다.
  *  8. **시세·체결·상한가 특징(q/tape/limit.feature)은 `RELAY_MARKET_BATCH_MS` 모아 한 번에 적용한다** (quick-260923-elb · 85 는 Phase 28).
+ *     매집 현재가(accum.prices · 95 · quick-261104-nxs)도 같은 배치를 탄다 — 300ms 주기 변경분이라 따로 커밋하면 상한이 깨진다.
  *     컨텍스트가 1개라 상태가 프레임마다 바뀌면 `/trading` 트리 전체가 **어느 종목의 틱이든**
  *     다시 그려진다 — 돌파 40종목이 붙으면 프레임 600/s 가 커밋 140/s 로 번져 팬리스 노트북
  *     한 코어를 채웠다(debug `trading-cpu-260923`). 배치는 커밋 수에 상한(≈10/s)을 건다.
@@ -91,6 +92,8 @@ import {
   type RelaySubLimitMsg,
   type RelayTape,
   type RelayLimitFeatureMsg,
+  type RelayAccumPriceItem,
+  type RelayAccumPricesMsg,
   type RelayStrategiesDisabledMsg,
   type RelayQueueProgressItem,
   type RelayQueuedWindowMsg,
@@ -435,6 +438,13 @@ export interface RelayConnectionState {
    * 읽는다(D-05 · UI-SPEC P-1 — 접힌 카드는 85 를 받지 않는다).
    */
   limitFeatures: ReadonlyMap<string, RelayLimitFeatureMsg>;
+  /**
+   * isin → 95 매집 현재가 마지막 값 (quick-261104-nxs · relay `accum.prices`). 시장 배치로 갱신 — `snap: true` 는 전량 교체,
+   * `false` 는 병합이다. **재접속에서 지우지 않는다**(규율 5 — relay 가 재인증마다 snap 으로 다시 내린다) · `reset` 만 비운다.
+   * 구 relay 면 늘 빈 Map 이다 → 작업대 매집 패널은 전부 종목별 구독으로 폴백한다. 패널은 직접 읽지 않고 `useAccumPrices`
+   * (≤5Hz 스로틀)로 읽는다.
+   */
+  accumPrices: ReadonlyMap<string, RelayAccumPriceItem>;
   /**
    * **계좌번호 → 병합된 계좌 상태** (16-15). 잔고·미체결 병합 결과이며, 델타는
    * upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다.
@@ -789,6 +799,8 @@ interface RelayData {
   tapes: Map<string, RelayTapeEntry[]>;
   /** 키별 마지막 85 — 시장 배치로 갱신 · 카드는 level full 일 때만 읽는다(D-05). */
   limitFeatures: Map<string, RelayLimitFeatureMsg>;
+  /** isin → 95 매집 현재가 — 시장 배치 · snap 교체 / 병합(quick-261104-nxs). */
+  accumPrices: ReadonlyMap<string, RelayAccumPriceItem>;
   accountStates: Map<string, RelayAccountState>;
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   orders: RelayOrderMsg[];
@@ -841,6 +853,8 @@ const INITIAL_DATA: RelayData = {
   quotes: new Map(),
   tapes: new Map(),
   limitFeatures: new Map(),
+  // 95 값 없음 — 매집 패널은 전부 구독 폴백(quick-261104-nxs). reset 이 이 값으로 되돌린다.
+  accumPrices: new Map(),
   accountStates: new Map(),
   orderIndex: new Map(),
   orders: [],
@@ -888,11 +902,11 @@ const INITIAL_DATA: RelayData = {
   nxtTradable: null,
 };
 
-/** 배치 대상 프레임 — 시세 · 체결 · 상한가 특징(85 · Phase 28) 세 종류뿐이다 (파일 상단 규율 8). */
-type RelayMarketFrame = RelayQuote | RelayTape | RelayLimitFeatureMsg;
+/** 배치 대상 프레임 — 시세 · 체결 · 상한가 특징(85 · Phase 28) · 매집 현재가(95 · quick-261104-nxs) 네 종류뿐이다 (파일 상단 규율 8). */
+type RelayMarketFrame = RelayQuote | RelayTape | RelayLimitFeatureMsg | RelayAccumPricesMsg;
 
 function isMarketFrame(frame: RelayOutbound): frame is RelayMarketFrame {
-  return frame.t === "q" || frame.t === "tape" || frame.t === "limit.feature";
+  return frame.t === "q" || frame.t === "tape" || frame.t === "limit.feature" || frame.t === "accum.prices";
 }
 
 type RelayAction =
@@ -1380,10 +1394,19 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
   let quotes: Map<string, RelayQuote> | null = null;
   let tapes: Map<string, RelayTapeEntry[]> | null = null;
   let limitFeatures: Map<string, RelayLimitFeatureMsg> | null = null;
+  let accumPrices: Map<string, RelayAccumPriceItem> | null = null;
   let isStale = state.isStale;
   let subLimit = state.subLimit;
 
   for (const frame of market) {
+    if (frame.t === "accum.prices") {
+      // 95 는 (isin, exchange) 키가 아니라 isin 키다 — `relayQuoteKey` 앞에서 가른다. snap 은 전량 교체(빈 배열 = 전부 지움),
+      // 아니면 같은 배치 안에서 복사 1번(copy-on-write) 뒤 병합한다(quick-261104-nxs).
+      if (frame.snap) accumPrices = new Map();
+      else accumPrices ??= new Map(state.accumPrices);
+      for (const item of frame.items) accumPrices.set(item.i, item);
+      continue;
+    }
     const key = relayQuoteKey(frame.i, frame.x);
     if (frame.t === "q") {
       // 거부됐던 키의 시세가 온다 = 재시도가 수락됐다 — 구독 한도 표식을 지운다(WR-04).
@@ -1412,6 +1435,7 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
     quotes: quotes ?? state.quotes,
     tapes: tapes ?? state.tapes,
     limitFeatures: limitFeatures ?? state.limitFeatures,
+    accumPrices: accumPrices ?? state.accumPrices,
     isStale,
     subLimit,
   };
@@ -2348,6 +2372,7 @@ export function useRelayConnection({
       quotes: data.quotes,
       tapes: data.tapes,
       limitFeatures: data.limitFeatures,
+      accumPrices: data.accumPrices,
       accountStates: data.accountStates,
       orderIndex: data.orderIndex,
       orders: data.orders,

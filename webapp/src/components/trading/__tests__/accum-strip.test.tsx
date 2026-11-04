@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { AccumSignal, RelayQuote } from '@gh-radar/shared';
+import type { AccumSignal, RelayAccumPriceItem, RelayQuote } from '@gh-radar/shared';
 
 /**
  * quick-261018-rfy D-01 — 작업대 「매집」 패널(돌파 패널 동형 · 목업 mockup-workbench.html 안 A).
@@ -34,6 +34,8 @@ vi.mock('@/lib/stock-names', () => ({
 const subscribeMock = vi.fn();
 const unsubscribeMock = vi.fn();
 let quotesMap: Map<string, RelayQuote> = new Map();
+/** 95 매집 현재가(quick-261104-nxs) — 기본은 빈 Map(= 전부 구독 폴백 · 기존 단언 그대로). */
+let accumPricesMap: Map<string, RelayAccumPriceItem> = new Map();
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
@@ -41,6 +43,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
     useRelayContext: () => ({
       ...actual.EMPTY_RELAY_VALUE,
       quotes: quotesMap,
+      accumPrices: accumPricesMap,
       subscribe: subscribeMock,
       unsubscribe: unsubscribeMock,
     }),
@@ -161,6 +164,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-18T10:20:00+09:00'));
   window.localStorage.clear();
   quotesMap = new Map();
+  accumPricesMap = new Map();
   subscribeMock.mockClear();
   unsubscribeMock.mockClear();
 });
@@ -686,5 +690,83 @@ describe('⑩ 시세 구독 · 서버 기준 (2026-10-19)', () => {
     expect(document.querySelector('[data-slot="accum-gateway"]')?.textContent).toBe('KYOBO119');
     rerender({ gateway: null });
     expect(document.querySelector('[data-slot="accum-gateway"]')).toBeNull();
+  });
+});
+
+describe('quick-261104-nxs 현재가 원천 95 (accum.prices) — 95 없는 종목만 구독 폴백', () => {
+  const A = 'KR7000020008';
+  const B = 'KR7000040006';
+  const C = 'KR7000060004';
+  const item = (i: string, p: number, r: number): RelayAccumPriceItem => ({ i, p, r, b: 10_576 });
+  const rowOf = (isin: string): HTMLElement => {
+    const label = LABELS.get(isin)!.name!;
+    const row = Array.from(rows()).find((r) => within(r as HTMLElement).queryByText(label) !== null);
+    expect(row).toBeDefined();
+    return row as HTMLElement;
+  };
+
+  it('95 값이 있는 활성 KRX 행 → 현재가 = p(천 단위) · 등락률 = r(부호 · 둘째 자리) · 그 isin 은 구독하지 않는다', () => {
+    accumPricesMap = new Map([[A, item(A, 12_500, 18.2)]]);
+    setup({ signals: [sig({ isin: A })] });
+    expect(subscribeMock).not.toHaveBeenCalledWith(A, expect.anything(), expect.anything());
+    openTable();
+    const row = rowOf(A);
+    expect(within(row).getByText('12,500')).toBeInTheDocument();
+    expect(within(row).getByText('+18.20%')).toBeInTheDocument();
+  });
+
+  it('두 활성 행 중 95 에 없는 행만 subscribe(isin, KRX, price) · 그 행은 구독 시세 → 행 값 순', () => {
+    accumPricesMap = new Map([[A, item(A, 12_500, 18.2)]]);
+    const other = sig({ isin: B, cycle: 1, lastPx: 3_000, rateBp: 100 });
+    const { rerender } = setup({ signals: [sig({ isin: A }), other] });
+    expect(subscribeMock).toHaveBeenCalledWith(B, 'KRX', 'price');
+    expect(subscribeMock).not.toHaveBeenCalledWith(A, expect.anything(), expect.anything());
+    openTable();
+    // 시세 전 = 행 값
+    expect(within(rowOf(B)).getByText('3,000')).toBeInTheDocument();
+    quotesMap = new Map([[relayQuoteKey(B, 'KRX'), { t: 'q', i: B, x: 'KRX', snap: false, p: 3_100 } as unknown as RelayQuote]]);
+    rerender({ signals: [sig({ isin: A }), other] });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(within(rowOf(B)).getByText('3,100')).toBeInTheDocument();
+    expect(within(rowOf(B)).getByText(`+${liveRateOf(other, 3_100).toFixed(2)}%`)).toBeInTheDocument();
+  });
+
+  it('95 와 구독 시세가 둘 다 있으면 95 가 이긴다 · 청산 행은 95 값이 있어도 행 값(lastPx · rateBp/100)', () => {
+    accumPricesMap = new Map([
+      [A, item(A, 12_500, 18.2)],
+      [C, item(C, 9_999, 29.9)],
+    ]);
+    quotesMap = new Map([[relayQuoteKey(A, 'KRX'), { t: 'q', i: A, x: 'KRX', snap: false, p: 10_950 } as unknown as RelayQuote]]);
+    const ended = sig({ isin: C, state: 3, endReason: 1, lastPx: 2_210, rateBp: 300 });
+    setup({ signals: [sig({ isin: A }), ended] });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    openTable();
+    expect(within(rowOf(A)).getByText('12,500')).toBeInTheDocument();
+    expect(within(rowOf(A)).queryByText('10,950')).toBeNull();
+    expect(within(rowOf(C)).getByText('2,210')).toBeInTheDocument();
+    expect(within(rowOf(C)).getByText('+3.00%')).toBeInTheDocument();
+    expect(within(rowOf(C)).queryByText('9,999')).toBeNull();
+  });
+
+  it('95 값이 바뀌어도 200ms(BREAKOUT_PRICE_THROTTLE_MS) 전에는 옛 값, 지나면 새 값 (≤5Hz)', () => {
+    accumPricesMap = new Map([[A, item(A, 12_500, 18.2)]]);
+    const { rerender } = setup({ signals: [sig({ isin: A })] });
+    openTable();
+    expect(within(rowOf(A)).getByText('12,500')).toBeInTheDocument();
+    accumPricesMap = new Map([[A, item(A, 12_600, 19.14)]]);
+    rerender({ signals: [sig({ isin: A })] });
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(within(rowOf(A)).getByText('12,500')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(within(rowOf(A)).getByText('12,600')).toBeInTheDocument();
+    expect(within(rowOf(A)).getByText('+19.14%')).toBeInTheDocument();
   });
 });

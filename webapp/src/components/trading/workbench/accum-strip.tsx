@@ -7,10 +7,14 @@
  * 「더보기/접기」) → 펼친 표(행 있을 때만). 원천은 kind 16 매집감지(gh-trade Phase 34) — `useAccumSignals` 가 isin 별
  * 현재 상태를 준다(REST 복원 ∪ relay 별도 목록). 주문로그와는 무관하다.
  *
- * ① 현재가 · 등락률은 **시세 구독**(`useBreakoutQuotes` · price level · 카드 피드 제외 · 돌파와 같은 예산)이다 — 2026-10-19 사용자 제보.
- *   kind 16 행은 누적이 바뀔 때만 오고 가격은 지문 밖이라 행 값(`lastPx` · `rateBp`)은 수십 분 묵는다. 활성(1 · 2) 행만 구독하고,
- *   시세를 모르면(예산 초과 · 미도착) 행 값을 그대로 보인다. 등락률은 행의 기준가(`lastPx / (1 + rateBp/10000)`)로 다시 센다.
- *   청산 행은 구독하지 않는다(행 값 고정). 서버 기준 게이트웨이(`gateway`)는 라벨 옆에 작게 보인다(훅 ④).
+ * ① 현재가 · 등락률 원천은 **relay `accum.prices`**(gh-trade 95 `AccumPriceBatch` · `useAccumPrices` · ≤5Hz · quick-261104-nxs) →
+ *   95 에 값이 없는 활성 행만 **시세 구독**(`useBreakoutQuotes` · price level · 카드 피드 제외 · 돌파와 같은 예산 40) → 그것도 없으면
+ *   행 값(`lastPx` · `rateBp`) 순이다. kind 16 행은 누적이 바뀔 때만 오고 가격은 지문 밖이라 행 값은 수십 분 묵는다(2026-10-19 제보).
+ *   등락률은 95 면 `change_rate` 그대로(59 와 같은 값), 구독 폴백이면 행의 기준가(`lastPx / (1 + rateBp/10000)`)로 다시 센다.
+ *   95 커버리지는 quote 주 서버의 매집 감시 집합이라, 패널이 다른 서버를 보이면 서버 사이 등록 차이만큼은 구독 폴백이다(구 서버 =
+ *   95 부재 = 전부 폴백). 95 는 KRX 체결가라 NXT 행(드묾)은 95 를 쓰지 않고 구독 폴백이다 — 다른 거래소 값으로 바꿔 보이지 않는다
+ *   (breakoutQuotePrice 원칙). 청산 행은 95 · 구독 어느 쪽도 쓰지 않는다(행 값 고정). 서버 기준 게이트웨이(`gateway`)는 라벨 옆에
+ *   작게 보인다(훅 ④).
  * ② 거래소를 표시하지 않는다 — 돌파 D-07 동형. 카드는 행 `exchange`(늘 KRX)로 연다.
  * ③ 칩 = 이름 · 「당일」 · 당일 순매수(dayNetKrw · 억 · 부호 색 · 모르면 「—」 — ⑩) · 상태 배지(매집중 `--team` · 매도중 `--accum-sell`) · 이월 D+n(`--accum-carry` ·
  *   carryDays > 0 만). 청산(state 3)은 **칩에서 빠지고 펼친 표에만 회색**이다 — 배지는 「청산」 하나, 사유(청산 · 매집 종료)는
@@ -67,6 +71,7 @@ import { kstClock } from '@/lib/limitup-report';
 import { useStockNames } from '@/lib/stock-names';
 import { fmtEok, toneOf } from '@/lib/teamflow-report';
 import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
+import { useAccumPrices } from '@/lib/use-accum-prices';
 import { breakoutFeedKey, useBreakoutQuotes, type BreakoutQuoteCandidate } from '@/lib/use-breakout-quotes';
 import { cn } from '@/lib/utils';
 
@@ -118,9 +123,9 @@ interface AccumView {
   trading: boolean;
   highlighted: boolean;
   clock: string;
-  /** 표시 현재가 — 구독 시세, 모르면 행 값(①). */
+  /** 표시 현재가 — 95 → 구독 시세 → 행 값 순(①). 청산 행은 행 값. */
   price: number;
-  /** 표시 등락률(%) — 구독 시세로 다시 센 값, 모르면 행 값(①). */
+  /** 표시 등락률(%) — 95 change_rate → 구독 시세로 다시 센 값 → 행 값 순(①). 청산 행은 행 값. */
   rate: number;
   /** 수익률(당일 · %) — 표시 현재가 ÷ 당일 평단 − 1(⑦). 현재가 · 당일 평단이 없으면 null. */
   profit: number | null;
@@ -205,13 +210,20 @@ export function AccumStrip({
     committedRef.current = { meta, filled };
   }, [meta, filled]);
 
-  // ① 활성 행만 시세 구독(price level) — 카드 피드는 예산에서 뺀다. 최근 갱신 행이 예산 우선.
+  // ① 95 원천 — 활성 KRX 행만(NXT 행은 95 를 쓰지 않는다). covered = 95 값이 지금 보이는 isin.
+  const activeKrx = useMemo(
+    () => visible.filter((s) => s.state !== 3 && s.exchange !== 'NXT').map((s) => s.isin),
+    [visible],
+  );
+  const { prices: accumLive, covered } = useAccumPrices(activeKrx);
+
+  // ① 95 에 없는 활성 행만 시세 구독(price level) — 카드 피드는 예산에서 뺀다. 최근 갱신 행이 예산 우선. 40 예산을 95 가 대체한다.
   const candidates = useMemo<BreakoutQuoteCandidate[]>(
     () =>
       visible
-        .filter((s) => s.state !== 3)
+        .filter((s) => s.state !== 3 && !(s.exchange !== 'NXT' && covered.has(s.isin)))
         .map((s) => ({ isin: s.isin, exchange: s.exchange === 'NXT' ? 'NXT' : 'KRX', addedAt: s.gwTimeMs })),
-    [visible],
+    [visible, covered],
   );
   const { prices } = useBreakoutQuotes(candidates, { excludeFeeds: cardFeeds });
 
@@ -225,7 +237,13 @@ export function AccumStrip({
         const trading = cards.has(sig.isin);
         const until = meta.get(key) ?? null;
         const exchange: RelayExchange = sig.exchange === 'NXT' ? 'NXT' : 'KRX';
-        const price = sig.state === 3 ? sig.lastPx : (prices.get(breakoutFeedKey({ isin: sig.isin, exchange })) ?? sig.lastPx);
+        // ① 청산 행은 행 값 고정 · 활성 KRX 행은 95 먼저 · 없으면 구독 시세 → 행 값.
+        const live = sig.state !== 3 && exchange === 'KRX' ? accumLive.get(sig.isin) : undefined;
+        const price =
+          sig.state === 3
+            ? sig.lastPx
+            : (live?.p ?? prices.get(breakoutFeedKey({ isin: sig.isin, exchange })) ?? sig.lastPx);
+        const rate = live !== undefined ? live.r : liveRateOf(sig, price);
         // ⑩ 당일 축 — dayAvgPx 0(당일 매수 없음) · null(옛 행)이면 평단 · 구간 · 순수량 · 수익률 「—」(누적 폴백 없음).
         const dayBuy = sig.dayAvgPx !== null && sig.dayAvgPx > 0;
         const prevVal = sig.carryDays > 0 ? prevNet.get(sig.isin) : undefined;
@@ -241,7 +259,7 @@ export function AccumStrip({
           highlighted: until !== null && now < until && !trading && sig.state !== 3,
           clock: kstClock(sig.gwTimeMs),
           price,
-          rate: liveRateOf(sig, price),
+          rate,
           profit: teamProfitOf(price, dayBuy ? (sig.dayAvgPx as number) : 0),
           nxtNet: sig.nxtBuyKrw - sig.nxtSellKrw,
           dayNet: sig.dayNetKrw,
@@ -252,7 +270,7 @@ export function AccumStrip({
           prev: prevVal !== undefined && Number.isFinite(prevVal) && prevVal !== 0 ? prevVal : null,
         };
       }),
-    [visible, labels, masterNames, cards, meta, now, prices, prevNet],
+    [visible, labels, masterNames, cards, meta, now, prices, accumLive, prevNet],
   );
   const chipViews = useMemo(() => views.filter((v) => v.sig.state !== 3), [views]);
 

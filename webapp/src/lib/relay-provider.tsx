@@ -94,6 +94,7 @@ import type {
   RelayAccountState,
   RelayExchange,
   RelayLimitFeatureMsg,
+  RelayAccumPriceItem,
   RelayOrderCancelMsg,
   RelayOrderModifyMsg,
   RelayOrderNewMsg,
@@ -316,6 +317,8 @@ const EMPTY_ACCOUNT_STATES: ReadonlyMap<string, RelayAccountState> = new Map();
 const EMPTY_ORDER_INDEX: ReadonlyMap<string, OrderIndexEntry> = new Map();
 const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
 const EMPTY_LIMIT_FEATURES: ReadonlyMap<string, RelayLimitFeatureMsg> = new Map();
+/** 95 매집 현재가 없음(quick-261104-nxs) — 빈 고정 참조. */
+const EMPTY_ACCUM_PRICES: ReadonlyMap<string, RelayAccumPriceItem> = new Map();
 /**
  * VI (계좌, 거래소) 슬롯 전부 모름(빈 Map · Phase 32 D-17)의 고정 참조. Provider 밖에서는 아무것도 조회한 적이 없다 —
  * 매 렌더 새 Map 을 만들면 슬롯을 memo 로 감싼 소비처가 전부 무효화된다.
@@ -350,6 +353,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   quotes: EMPTY_QUOTES,
   tapes: EMPTY_TAPES,
   limitFeatures: EMPTY_LIMIT_FEATURES,
+  // Provider 밖에는 소켓이 없다 — 95 값 없음 = 매집 패널은 전부 구독 폴백(quick-261104-nxs).
+  accumPrices: EMPTY_ACCUM_PRICES,
   accountStates: EMPTY_ACCOUNT_STATES,
   // 본 주문이 없다 — 알림 조인 색인도 비어 있다(quick-260923-pgu).
   orderIndex: EMPTY_ORDER_INDEX,
