@@ -43,6 +43,8 @@ export interface TickGridRow {
   team_day_pnl_krw?: number | null;
   /** 매집감지 누적 순매수 원(이월 포함 · KRX+NXT 합산 · limitup_accum_flow.pos_net_krw) — 미등록이면 null · 옛 RPC 면 키 없음(20261103230000). */
   accum_pos_net_krw?: number | null;
+  /** 기준가 대비 시가 %(그날 KRX 일봉 open · 기준가 = 격자 base_px 우선) — KRX 행만 · NXT · 일봉 없음 null · 옛 RPC 면 키 없음(20261104700000 · quick 261104-n9h). */
+  open_rate?: number | null;
 }
 
 /** 요청 변환 상태. */
@@ -79,6 +81,23 @@ export interface TickTodayRow {
   sources: ("accum" | "up15")[];
   rate: number | null;
   high_rate: number | null;
+  // ── quick 261104-n9h(20261104700000) — 옛 RPC 면 키 없음. 팀 칸 출처 = 매집감지 kind 16 isin 별 최신 행(가시 게이트웨이만) ──
+  /** 기준가 대비 시가 % — 시세 OHLC 가 오늘 갱신 ∧ 저가 ≤ 현재가 ≤ 고가 ∧ 저가 ≤ 시가 ≤ 고가 일 때만 · 아니면 null. */
+  open_rate?: number | null;
+  /** 매집감지 등록 이후 팀 순매수 원(kind 16 cond_threshold · 이월 포함 · KRX+NXT 합산) — 미등록 · 가시성 밖 null. */
+  accum_pos_net_krw?: number | null;
+  /** 당일 팀 순매수 원(매수 − 매도 · KRX+NXT 합산 · 우리 체결 제외) — snap 길이 3 행만 · 아니면 null. */
+  team_day_net_krw?: number | null;
+  /** 당일 팀 매수 금액 원(kind 16 snap_qty[2]) — snap 길이 3 행만. */
+  team_day_buy_krw?: number | null;
+  /** 당일 팀 매도 금액 원(kind 16 snap_cum[2]) — snap 길이 3 행만. */
+  team_day_sell_krw?: number | null;
+  /** 당일 팀 매수 평단(kind 16 accept_latency_us · 0 = 당일 매수 없음) — snap 길이 3 행만. */
+  team_day_avg_px?: number | null;
+  /** 당일 팀 순수량(주 · kind 16 message `day=` 첫 조각 · 음수 가능) — snap 길이 3 행 ∧ message 정상일 때만. */
+  team_day_net_qty?: number | null;
+  /** 지금 KRX 체결가(kind 16 price · 없으면 마지막 팀 체결가 · 0 이면 null). */
+  accum_last_px?: number | null;
 }
 
 /** `GET /api/ticks/today` — `live` = 당일 바이트 경로가 결선됐는지(아니면 웹은 「당일 자료 준비 중」). */

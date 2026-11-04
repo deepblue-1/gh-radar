@@ -99,7 +99,7 @@ VALUES ('20261030', 'KR7410001001', 1793010000000, 4520000000, '{"pos_net": [], 
 
 SELECT is(pg_temp.dayrow('20261030', 'KRX', 'KR7410001001')
             - ARRAY['date', 'exchange', 'isin', 'code', 'name', 'mode', 'sources', 'bytes', 'records', 'a3_count',
-                    'high_rate', 'last_rate', 'created_at'],
+                    'high_rate', 'last_rate', 'created_at', 'open_rate'],
           '{"team_fills": 120, "team_day_net_krw": -312000000, "team_day_pnl_krw": 184000000,
             "accum_pos_net_krw": 4520000000}'::jsonb,
           'C day rows 새 키 4개(KRX · 매집감지 등록)');

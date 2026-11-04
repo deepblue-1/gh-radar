@@ -5,6 +5,7 @@
 --       tick_eta_s · tick_trigger_blocked · 버킷) · 20261102200100_tick_viewer_queue.sql(요청 큐 · Job RPC · 오늘 · purge).
 --       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기)
 --       · 20261104300200(IN-06 배치 안 중복 키).
+--       · 20261104700000(quick 261104-n9h — tick_today_for_user open_rate · kind 16 팀 칸 · tick_day_for_user open_rate).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -125,8 +126,9 @@ SELECT is((public.tick_day_for_user(pg_temp.u1())->'rows'->0) - 'created_at',
           '{"date": "20261030", "exchange": "KRX", "isin": "KR7370001001", "code": "370001", "name": "틱종목일",
             "mode": "nightly", "sources": ["accum"], "bytes": 1000, "records": 50, "a3_count": 20,
             "high_rate": 29.9, "last_rate": 12.5,
-            "team_fills": null, "team_day_net_krw": null, "team_day_pnl_krw": null, "accum_pos_net_krw": null}'::jsonb,
-          'D day rows[0] = 격자 열 + stocks code · name(object_path 없음) + 팀 3칸 · 누적(20261103230000 · 옛 행 null)');
+            "team_fills": null, "team_day_net_krw": null, "team_day_pnl_krw": null, "accum_pos_net_krw": null,
+            "open_rate": null}'::jsonb,
+          'D day rows[0] = 격자 열 + stocks code · name(object_path 없음) + 팀 3칸 · 누적(20261103230000 · 옛 행 null) + open_rate(20261104700000 · 일봉 없음 null)');
 SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'grid'->>'object_path',
           'grid/20261030/KRX/KR7370001001.nightly.ticks.zst', 'D open grid.object_path');
 SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum', 'null'::jsonb, 'D open accum — limitup_accum_flow 행 없음 → null');
@@ -495,8 +497,10 @@ SELECT is((SELECT jsonb_agg(e->>'isin' ORDER BY n) FROM jsonb_array_elements(pub
           'L today = kind 16 ∪ +15%(정확히 +15% 포함 · 14.99% 제외 · 어제 갱신 제외) · rate DESC NULLS LAST');
 SELECT is(public.tick_today_for_user(pg_temp.u1())->'rows'->0,
           '{"isin": "KR7370001001", "code": "370001", "name": "틱종목일", "sources": ["accum", "up15"],
-            "rate": 10.0, "high_rate": 15.0}'::jsonb,
-          'L today 행 — kind 16 + 15% 둘 다면 sources 둘 다 · high_rate');
+            "rate": 10.0, "high_rate": 15.0, "open_rate": null,
+            "accum_pos_net_krw": null, "team_day_net_krw": null, "team_day_buy_krw": null, "team_day_sell_krw": null,
+            "team_day_avg_px": null, "team_day_net_qty": null, "accum_last_px": null}'::jsonb,
+          'L today 행 — kind 16 + 15% 둘 다면 sources 둘 다 · high_rate · 팀 8키 null(kind 16 qty 0 · 시세 open 없음 · 20261104700000)');
 SELECT is(public.tick_today_for_user(pg_temp.u1())->'rows'->2->'sources', '["accum"]'::jsonb,
           'L today kind 16 만(시세 없음) → sources [accum] · rate null 맨 뒤');
 SELECT is(public.tick_today_for_user(pg_temp.u1())->>'date', to_char((now() AT TIME ZONE 'Asia/Seoul')::date, 'YYYYMMDD'),

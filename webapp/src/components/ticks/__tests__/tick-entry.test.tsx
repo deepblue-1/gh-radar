@@ -186,7 +186,7 @@ describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B ·
     expect(within(line).getByText('+1.84억')).toHaveClass('text-[var(--up)]', 'font-bold');
   });
 
-  it('오늘 목록 — 3칸 · 폰 줄 모두 「—」', () => {
+  it('오늘 목록 — 키 없는 옛 RPC 행은 3칸 · 폰 줄 모두 「—」', () => {
     const today: TickTodayRow[] = [
       { isin: 'KR7005930003', code: '005930', name: '삼성전자', sources: ['accum'], rate: 1.1, high_rate: 3.2 },
     ];
@@ -194,6 +194,22 @@ describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B ·
     const r = rowOf('KR7005930003');
     expect(cells(r).map((c) => c.textContent)).toEqual(['—', '—', '—']);
     expect(r.querySelector('[data-slot="tick-entry-team-line"]')!.textContent).toBe('순매수 — · 누적 — · 손익 —');
+  });
+
+  it('오늘 목록 — 매집감지 kind 16 키가 있으면 당일순매수 · 누적순매수 · 폰 줄에 값', () => {
+    const today: TickTodayRow[] = [
+      {
+        isin: 'KR7101360006', code: '101360', name: '에코앤드림', sources: ['accum'], rate: 22.1, high_rate: 29.9,
+        team_day_net_krw: 450_000_000, accum_pos_net_krw: 4_520_000_000,
+      },
+    ];
+    renderEntry({ todayRows: today });
+    const [net, cum] = cells(rowOf('KR7101360006'));
+    expect([net!.textContent, cum!.textContent]).toEqual(['+4.50억', '+45.2억']);
+    expect(net).toHaveClass('text-[var(--up)]', 'font-bold');
+    const line = rowOf('KR7101360006').querySelector('[data-slot="tick-entry-team-line"]') as HTMLElement;
+    expect(within(line).getByText('+4.50억')).toBeInTheDocument();
+    expect(within(line).getByText('+45.2억')).toBeInTheDocument();
   });
 
   it('순매수순 — 내림차순 · 값 없는 행 뒤(같으면 이름 → 거래소)', () => {
