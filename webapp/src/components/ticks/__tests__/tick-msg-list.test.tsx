@@ -370,4 +370,43 @@ describe('TickMsgList — 우리 줄 · 둘째 레일(Phase 38-04)', () => {
       if (desc) Object.defineProperty(Element.prototype, 'scrollTop', desc);
     }
   });
+
+  it('바깥에서 커서를 옮기면(차트 · 화살표 · 우리 주문 탐색) 찾은 전문을 가운데로 · 목록 안 행 클릭은 제자리(2026-11-05)', () => {
+    const big = buildTickSession(tickGridBytes(), { date: TICK_FIXTURE_DATE, ex: 'KRX', isin: TICK_FIXTURE_ISIN });
+    const rows = buildMsgRows(big, 'exchange');
+    const tops = new WeakMap<Element, number>();
+    const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return tops.get(this) ?? 0;
+      },
+      set(this: Element, v: number) {
+        tops.set(this, v);
+      },
+    });
+    try {
+      const at = (pos: number) => big.exOrder[pos]!;
+      const centerOf = (rec: number) => rows.posOfRec[rec]! * 24 + 12 - 300; // 데스크톱 24px · 높이 600
+      let picked = -1;
+      const props = { session: big, onMode: () => {}, mode: 'exchange' as const, rows };
+      const v = render(<TickMsgList {...props} cursorRec={at(6_000)} onSelect={(r) => (picked = r)} />);
+      const el = v.container.querySelector<HTMLElement>('[data-slot="tick-msg-scroll"]')!;
+      // 화살표 한 칸 — 화면 안 이웃 행이어도 가운데로 따라간다(예전 nearest 는 그대로 두었다)
+      v.rerender(<TickMsgList {...props} cursorRec={at(6_001)} onSelect={(r) => (picked = r)} />);
+      expect(el.scrollTop).toBe(centerOf(at(6_001)));
+      // 차트 터치 · 우리 주문 탐색 — 멀리 떨어진 전문도 가운데
+      v.rerender(<TickMsgList {...props} cursorRec={at(2_000)} onSelect={(r) => (picked = r)} />);
+      expect(el.scrollTop).toBe(centerOf(at(2_000)));
+      // 목록 안 행 클릭 — 이미 보이는 행이라 스크롤을 옮기지 않는다
+      const before = el.scrollTop;
+      const target = at(2_005);
+      fireEvent.click(rowOf(v.container, target)!);
+      expect(picked).toBe(target);
+      v.rerender(<TickMsgList {...props} cursorRec={target} onSelect={(r) => (picked = r)} />);
+      expect(el.scrollTop).toBe(before);
+    } finally {
+      if (desc) Object.defineProperty(Element.prototype, 'scrollTop', desc);
+    }
+  });
 });

@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 37
 status: completed
 stopped_at: Phase 37 complete — all phases complete
-last_updated: "2026-11-04T13:35:13.025Z"
+last_updated: "2026-11-04T17:34:00.945Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 37 complete
-state_head: 3cabd1153e203c598beb1e663dcc990337d42525
+state_head: 38be7f931424fc3aa272871f4e773abdbfa9c410
 progress:
   total_phases: 9
   completed_phases: 9
@@ -138,6 +138,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261104-nxs | 작업대 매집감지 목록 — relay 95 AccumPriceBatch 현재가 원천(95 없는 종목만 구독 폴백) + 등락률·당일 순매수 최소~최대 필터 · 전부 보기 · 필터 밖 N | 2026-11-04 | 7737c8cb | [261104-nxs-relay-95-accumpricebatch](./quick/261104-nxs-relay-95-accumpricebatch/) |
 | 48 | 작업대 매집 줄 /api/accum-signals 50~92초 — dma_accum_signals_for_user_json kind 16 부분 인덱스 직접 읽기(반환·규칙 불변) | 2026-11-04 | c70564db | — |
 | 261104-umt | 틱뷰어 타임라인 차트 — 스케치 028 채택안 구현(고정 띠 통합 툴팁 · 묶음 표 · Shift+끌기 구간 합계 · 순매수 판 매수/매도 누적 거울선 · 판 높이 70) | 2026-11-04 | 3cabd115 | [261104-umt-tick-timeline-sketch028](./quick/261104-umt-tick-timeline-sketch028/) |
+| 50 | 틱뷰어 전문 목록: 차트·화살표·우리 주문 탐색으로 찾은 전문을 가운데로 스크롤(목록 안 행 클릭은 제자리) | 2026-11-05 | 38be7f93 | — |
 
 ## Session Continuity
 

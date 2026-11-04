@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import { TAG_CODE, fmtTickTime } from '@gh-radar/shared';
 
@@ -48,8 +48,8 @@ import { cn } from '@/lib/utils';
  *   뒤집힘 3: 먼저 온 닫는 B6 행 seq 주황 ↕ + 꼬리말(수신순 「↕ 9.0ms 먼저 수신」 · 거래소순 「↕ 수신은 9.0ms 먼저」) ·
  *   꼬리 줄에도 같은 말 · 수신순에서만 msg_seq 제자리에 점선 「⋯ 거래소순 자리」 줄(클릭 = 그 B6).
  *   레이아웃 길이가 안 맞는 전문은 「기타」 행(D-19) · 같은 보드 · seq 재수신은 「중복」 칩만(Pitfall 12).
- * ③ 모든 항목이 같은 높이(데스크톱 24px · 폰 22px · 한 줄 말줄임) — `useFixedWindow` 창 가상화. 커서가 바뀌면 그 행이 보이게
- *   스크롤(nearest) · 순서를 바꾸면 가운데로.
+ * ③ 모든 항목이 같은 높이(데스크톱 24px · 폰 22px · 한 줄 말줄임) — `useFixedWindow` 창 가상화. 커서가 바뀌면 그 행을
+ *   가운데로(차트 · 화살표 · 우리 주문 탐색 · 단축키 · 순서 토글) · 목록 안에서 그 행을 직접 누르면 제자리(nearest).
  * ④ 행 클릭 = 그 틱 선택 · 꼬리 클릭 = 그 주문 닫는 B6(없으면 마지막 조각 · 2026-11-04). 선택 틱과 같은 주문 행은 옅은 보라 띠(스케치 019).
  * ⑤ 우리 체결(Phase 38 D-04 · 목업 B): 짝이 붙은 A3 행은 옅은 민트 바탕(`--mine` 6% · 선택 > 우리 > 같은 주문 띠) +
  *   내용 끝 민트 칩 「n/m」(부분 체결만 분모 · 전량이면 「n」) · 추정이면 옆에 점선 「추정」 칩. 계좌 · 주문번호는 그리지 않는다(D-02).
@@ -333,7 +333,8 @@ interface RowProps {
   sel: boolean;
   band: boolean;
   phone: boolean;
-  onSelect: (rec: number) => void;
+  /** here = 목록 안에서 그 행(전문 행 · 우리 줄)을 직접 눌렀다 — 이미 보이는 행이라 스크롤을 옮기지 않는다. */
+  onSelect: (rec: number, here?: boolean) => void;
   /** 우리 체결 칩(ROW 만 · 원시값 — memo 유지) — 우리 수량 · 그 A3 수량 · 추정. ownOur 0 = 칩 없음. */
   ownOur?: number;
   ownTotal?: number;
@@ -486,7 +487,7 @@ const MsgRow = memo(function MsgRow({
           const rec = ownLineRec(model, pos);
           if (rec < 0) return;
           if (onOwnSelect) onOwnSelect({ kind: isOrder ? 'order' : 'fill', id: idx }, rec);
-          else onSelect(rec);
+          else onSelect(rec, true);
         }}
         title={text}
         className={cn(GRID, OWN_LINE, ownSelected && 'bg-[color-mix(in_oklab,var(--mine)_18%,transparent)]')}
@@ -525,7 +526,7 @@ const MsgRow = memo(function MsgRow({
       data-seq={seq >= 0 ? seq : undefined}
       data-pos={pos}
       data-own={ours ? '1' : undefined}
-      onClick={() => onSelect(rec)}
+      onClick={() => onSelect(rec, true)}
       className={rowCls}
     >
       {rail}
@@ -626,7 +627,8 @@ export function TickMsgList({
   const selPos = cursorRec >= 0 ? model.posOfRec[cursorRec]! : -1;
   const selOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
 
-  // 커서가 바뀌면 그 행이 보이게 — 처음 · 순서를 바꾼 직후 · 숨겨져 있다가(폰 세그먼트 · 높이 0) 보이게 된 직후는 가운데로.
+  // 커서가 바뀌면 찾은 전문을 가운데로(2026-11-05 사용자 요청 — 차트 터치 · 화살표 · 재생 · 우리 주문 탐색 · 단축키 · 꼬리 · 다음 역전).
+  // 목록 안에서 그 행을 직접 누른 경우(`pickedHere`)만 제자리(nearest) — 누른 행이 손가락 밑에서 달아나지 않게.
   // 모델만 바뀌면(당일 「최신 받기」 새 세션 · 우리 체결 재조회) 끌어오지 않는다 — 과거 틱을 보며 목록을 훑던 자리를 지킨다(IN-63).
   // 다만 줄이 끼거나 빠지면(우리 주문 줄이 뒤늦게 붙음 · 대기 해제로 자리가 바뀜) 사용자가 보던 것이 같은 자리에 머물게
   // scrollTop 을 옮긴다(R2-IN-30 · `keepViewShiftOf`) — 커서 행이 화면 안에 있었으면 커서 행 · 아니면 화면 첫 전문 행 기준.
@@ -638,7 +640,28 @@ export function TickMsgList({
     model: MsgRowsModel;
   } | null>(null);
   const shown = win.height > 0;
+  // 목록 안 직접 선택이 고른 rec — 다음 커서 효과 한 번만 읽고 지운다(같은 행을 다시 눌러 효과가 돌지 않아도 남은 값은 무해:
+  // 커서가 그 rec 에서 떠나야 효과가 돌고, 그때 지워진다).
+  const pickedHere = useRef(-1);
+  const select = useCallback(
+    (rec: number, here = false) => {
+      pickedHere.current = here ? rec : -1;
+      onSelect(rec);
+    },
+    [onSelect],
+  );
+  const ownSelect = useMemo(
+    () =>
+      onOwnSelect &&
+      ((sel: OwnSel, rec: number) => {
+        pickedHere.current = rec;
+        onOwnSelect(sel, rec);
+      }),
+    [onOwnSelect],
+  );
   useEffect(() => {
+    const here = pickedHere.current;
+    pickedHere.current = -1;
     if (selPos < 0) return;
     const prev = lastView.current;
     lastView.current = { rec: cursorRec, mode, pos: selPos, shown, model };
@@ -653,7 +676,7 @@ export function TickMsgList({
       }
       return;
     }
-    scrollToIndex(selPos, fresh ? 'center' : 'nearest');
+    scrollToIndex(selPos, !fresh && here === cursorRec ? 'nearest' : 'center');
   }, [selPos, mode, cursorRec, scrollToIndex, scrollToOffset, rowH, shown, model]);
 
   const rows: ReactNode[] = [];
@@ -679,7 +702,7 @@ export function TickMsgList({
         sel={k === selPos}
         band={selOrder >= 0 && oid === selOrder}
         phone={phone}
-        onSelect={onSelect}
+        onSelect={select}
         ownOur={chip?.our}
         ownTotal={chip?.total}
         ownEst={chip?.est}
@@ -687,7 +710,7 @@ export function TickMsgList({
         railHalf={rail.half[k] ?? 0}
         railNode={rail.node[k] ?? 0}
         ownSelected={k === ownSelPos}
-        onOwnSelect={onOwnSelect}
+        onOwnSelect={ownSelect}
       />,
     );
   }
