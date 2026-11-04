@@ -67,3 +67,5 @@
 - 규칙: push 직전 `git status -sb` 의 ahead 수가 내 커밋 수와 다르면 push 중단 → 사용자에게 보고하고 옆 세션에 알린 뒤 진행. 문서만 바꾼 커밋이라도 push 는 전체 배포다.
 
 - **2026-11-04 툴 호출 사이 한 줄 진행 문장도 한글** — gsd-code-review --fix 중 영어 워크플로 스펙을 읽은 직후 「No source changed…」 「Spawning the fixer…」 를 영어로 써서 「한글로」 지적받음. 영어 문서를 읽은 직후일수록 문장을 쓰기 전에 언어를 확인한다. 짧은 상태 문장도 예외 없음.
+
+- **2026-11-04 다른 RPC 를 jsonb 래퍼째 재사용하지 않는다** — 틱뷰어 오늘 목록 RPC 가 kind 16 을 `dma_accum_signals_for_user_json` 으로 읽어 60초(전 0.6초) → 「불러오지 못했어요」. 그 래퍼는 `dma_strategy_events_for_user`(그날 **전 kind** 이벤트를 행마다 to_jsonb + 가시성 EXISTS)를 다 펼친 뒤 거른다. pgTAP 은 작은 픽스처라 못 잡는다. 목록·핫패스 RPC 는 원 테이블을 부분 인덱스로 직접 읽고 규칙(가시성 · 자르기)만 옮긴다. 배포 직후 해당 GET 지연을 Cloud Run 요청 로그로 한 번 확인한다.
