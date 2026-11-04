@@ -51,10 +51,17 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { HIGHLIGHT_MS } from '@/lib/breakout-list';
-import { ACCUM_DISMISSED_KEY } from '@/lib/accum-list';
+import { ACCUM_DISMISSED_KEY, ACCUM_FILTER_KEY } from '@/lib/accum-list';
 import { readPanelsPref } from '@/lib/trading-layout';
 import type { IsinLabel } from '@/lib/isin-labels';
-import { ACCUM_EMPTY_TEXT, AccumStrip, liveRateOf, teamProfitOf } from '../workbench/accum-strip';
+import {
+  ACCUM_EMPTY_TEXT,
+  ACCUM_FILTERED_EMPTY_TEXT,
+  ACCUM_FILTERED_TABLE_EMPTY_TEXT,
+  AccumStrip,
+  liveRateOf,
+  teamProfitOf,
+} from '../workbench/accum-strip';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 const T = (hms: string) => Date.parse(`2026-10-18T${hms}+09:00`);
@@ -163,6 +170,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-18T10:20:00+09:00'));
   window.localStorage.clear();
+  // quick-261104-nxs — 기존 단언은 필터 없이 돈다(기본 필터면 sig() 기본 5.12% · 당일 null 행이 전부 걸린다).
+  window.localStorage.setItem(
+    ACCUM_FILTER_KEY,
+    JSON.stringify({ rateMin: null, rateMax: null, dayMin: null, dayMax: null }),
+  );
   quotesMap = new Map();
   accumPricesMap = new Map();
   subscribeMock.mockClear();
@@ -768,5 +780,122 @@ describe('quick-261104-nxs 현재가 원천 95 (accum.prices) — 95 없는 종�
     });
     expect(within(rowOf(A)).getByText('12,600')).toBeInTheDocument();
     expect(within(rowOf(A)).getByText('+19.14%')).toBeInTheDocument();
+  });
+});
+
+describe('quick-261104-nxs 필터 줄(목업 A)', () => {
+  const HOT = 'KR7000020008'; // 천일고속 — 18.2% · 당일 3.82억(통과)
+  const COLD = 'KR7000040006'; // 서산 — 5.12% · 당일 null(걸림)
+  const hot = (over: Partial<AccumSignal> = {}) => sig({ isin: HOT, rateBp: 1820, dayNetKrw: 382_000_000, ...over });
+  const cold = (over: Partial<AccumSignal> = {}) => sig({ isin: COLD, ...over });
+  const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`);
+  const cell = (name: string) => slot(`accum-filter-${name}`) as HTMLInputElement;
+  const chipNames = () => Array.from(chips()).map((c) => c.querySelector('[data-slot="accum-chip-name"]')?.textContent);
+  const rowNames = () => Array.from(rows()).map((r) => r.querySelector('[data-slot="accum-row-name"]')?.textContent);
+
+  beforeEach(() => {
+    window.localStorage.removeItem(ACCUM_FILTER_KEY);
+  });
+
+  it('기본 필터 — 18.2% · 당일 3.82억 행은 칩, 5.12% 행은 칩 없음 · 「매집」 라벨 옆 「필터 밖 1」', () => {
+    setup({ signals: [hot(), cold()] });
+    expect(chipNames()).toEqual(['천일고속']);
+    const pill = slot('accum-label-out');
+    expect(pill?.textContent).toBe('필터 밖 1');
+    expect(pill?.getAttribute('title')).toBe('필터 밖 1종목 숨김');
+  });
+
+  it('더보기 → 필터 줄 칸 값 "15" · "" · "1" · "" · 표에는 통과 행만 · 줄 끝 「필터 밖 1」', () => {
+    setup({ signals: [hot(), cold()] });
+    openTable();
+    expect(slot('accum-filter')?.getAttribute('aria-label')).toBe('매집 필터');
+    expect(cell('rate-min').value).toBe('15');
+    expect(cell('rate-max').value).toBe('');
+    expect(cell('day-min').value).toBe('1');
+    expect(cell('day-max').value).toBe('');
+    expect(cell('rate-min').getAttribute('placeholder')).toBe('최소');
+    expect(cell('rate-max').getAttribute('placeholder')).toBe('최대');
+    expect(rowNames()).toEqual(['천일고속']);
+    expect(slot('accum-filter-out')?.textContent).toBe('필터 밖 1');
+  });
+
+  it('전부 보기 켬 → 걸린 행이 칩에 다시 보임 · 표의 그 행 data-filtered-out · 라벨 알약 사라짐 · 「필터 밖 1 · 흐리게 표시」', () => {
+    setup({ signals: [hot(), cold()] });
+    openTable();
+    const all = slot('accum-filter-all')?.querySelector('input') as HTMLInputElement;
+    fireEvent.click(all);
+    expect(all.checked).toBe(true);
+    expect(chipNames()).toEqual(['천일고속', '서산']);
+    // 칩은 흐리게 하지 않는다.
+    expect(document.querySelector('[data-slot="accum-chip"][data-filtered-out]')).toBeNull();
+    const coldRow = Array.from(rows()).find((r) => r.textContent?.includes('서산')) as HTMLElement;
+    const hotRow = Array.from(rows()).find((r) => r.textContent?.includes('천일고속')) as HTMLElement;
+    expect(coldRow.getAttribute('data-filtered-out')).toBe('true');
+    expect(coldRow.className).toContain('[&>td]:opacity-45');
+    expect(hotRow.getAttribute('data-filtered-out')).toBeNull();
+    expect(slot('accum-label-out')).toBeNull();
+    expect(slot('accum-filter-out')?.textContent).toBe('필터 밖 1 · 흐리게 표시');
+  });
+
+  it('등락률 최소 "5" 입력만 하면 목록 그대로 → Enter 하면 걸렸던 행이 나타남 · 기억 · "abc" 칸 떠남 → 빈 칸 · 제한 없음', () => {
+    setup({ signals: [hot(), cold({ dayNetKrw: 200_000_000 })] });
+    openTable();
+    const min = cell('rate-min');
+    fireEvent.change(min, { target: { value: '5' } });
+    expect(min.value).toBe('5');
+    expect(rowNames()).toEqual(['천일고속']);
+    fireEvent.keyDown(min, { key: 'Enter' });
+    expect(rowNames()).toEqual(['천일고속', '서산']);
+    expect(JSON.parse(window.localStorage.getItem(ACCUM_FILTER_KEY)!)).toMatchObject({ rateMin: 5, dayMin: 1 });
+
+    fireEvent.change(min, { target: { value: 'abc' } });
+    fireEvent.blur(min);
+    expect(min.value).toBe('');
+    expect(JSON.parse(window.localStorage.getItem(ACCUM_FILTER_KEY)!)).toMatchObject({ rateMin: null });
+    // " 7 " 처럼 공백 낀 글자는 정규화된다.
+    const max = cell('rate-max');
+    fireEvent.change(max, { target: { value: ' 1,000 ' } });
+    fireEvent.blur(max);
+    expect(max.value).toBe('1000');
+  });
+
+  it('활성 행이 있는데 전부 걸리면 칩 줄 「필터를 통과한 종목이 없어요」 · 펼친 표 자리 필터 줄 + 안내 · 활성 0 이면 원래 빈 문구', () => {
+    const { rerender } = setup({ signals: [cold()] });
+    const empty = slot('accum-empty');
+    expect(empty?.textContent).toBe(ACCUM_FILTERED_EMPTY_TEXT);
+    expect(empty?.getAttribute('data-filtered')).toBe('true');
+    openTable();
+    expect(slot('accum-filter')).not.toBeNull();
+    expect(rows()).toHaveLength(0);
+    expect(slot('accum-filter-empty')?.textContent).toBe(ACCUM_FILTERED_TABLE_EMPTY_TEXT);
+
+    rerender({ signals: [cold({ state: 3, endReason: 1 })] });
+    expect(slot('accum-empty')?.textContent).toBe(ACCUM_EMPTY_TEXT);
+    expect(slot('accum-empty')?.getAttribute('data-filtered')).toBeNull();
+  });
+
+  it('청산 행도 같은 판정으로 걸린다 · ✕ 로 숨긴 행은 「필터 밖 N」 에 세지 않는다 · 다시 마운트하면 칸 값은 남고 전부 보기는 꺼짐', () => {
+    const ended = sig({ isin: 'KR7000060004', state: 3, endReason: 1, rateBp: 300 });
+    const { unmount } = setup({ signals: [hot(), cold(), ended] });
+    openTable();
+    expect(rowNames()).toEqual(['천일고속']);
+    expect(slot('accum-filter-out')?.textContent).toBe('필터 밖 2');
+
+    // 전부 보기로 걸린 행을 꺼내 ✕ — 숨긴 행은 필터 밖에서 빠진다.
+    const all = slot('accum-filter-all')?.querySelector('input') as HTMLInputElement;
+    fireEvent.click(all);
+    const coldRow = Array.from(rows()).find((r) => r.textContent?.includes('서산')) as HTMLElement;
+    fireEvent.click(within(coldRow).getByRole('button', { name: '서산 숨기기' }));
+    expect(slot('accum-filter-out')?.textContent).toBe('필터 밖 1 · 흐리게 표시');
+
+    fireEvent.change(cell('day-max'), { target: { value: '50' } });
+    fireEvent.keyDown(cell('day-max'), { key: 'Enter' });
+    unmount();
+    setup({ signals: [hot(), cold(), ended] });
+    expect(document.querySelector('[data-slot="accum-filter"]')).not.toBeNull(); // 펼침 기억
+    expect(cell('day-max').value).toBe('50');
+    expect(cell('rate-min').value).toBe('15');
+    expect((slot('accum-filter-all')?.querySelector('input') as HTMLInputElement).checked).toBe(false);
+    expect(slot('accum-label-out')?.textContent).toBe('필터 밖 1');
   });
 });

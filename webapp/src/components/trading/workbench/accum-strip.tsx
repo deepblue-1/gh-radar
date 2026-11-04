@@ -46,6 +46,16 @@
  *   있으면 ≥700 에서 둘째 줄 끝 「 · 전날 ±x.x억」, <700 에서는 보조 줄 「전날 ±x.x억」. 평단 · 수익률 · 매집 구간 · 순수량은
  *   당일 값(dayAvgPx · dayLoPx~dayHiPx · dayNetQty)이고 dayAvgPx 가 0(당일 매수 없음) 또는 null(옛 행)이면 네 칸 모두 「—」 —
  *   누적으로 채우지 않는다. 활성 행 순서는 당일 순매수 큰 순(accum-list ②). NXT 순매수 열은 누적 그대로다(D1 「NXT 유지」).
+ * ⑪ 필터 줄(quick-261104-nxs · 채택 목업 `mockup-filter.html` 안 **A** · gh-trade quick-261104-519 매집감지창 동형) — 「더보기」 로 펼친
+ *   표 **바로 위 한 줄**: `등락률 [최소] ~ [최대] %  당일 순매수 [최소] ~ [최대] 억  ☐ 전부 보기 … 필터 밖 N`. 좁은 폭은 묶음 단위로
+ *   줄을 바꾼다(flex-wrap · 가로 스크롤 없음). 칸 글자는 칸 자체 상태라 타이핑 중에는 목록이 흔들리지 않고, **Enter · 칸 떠남**에만
+ *   적용하며 적용 뒤 칸 글자를 정규화해 다시 쓴다(잘못된 값 → 빈 칸). 판정 정본은 accum-list ⑦(`passesAccumFilter`) 하나 — 칩 ·
+ *   펼친 표 · 회색 청산 행이 같은 판정이고 판정 값은 표시 값(①의 등락률 · 당일 순매수)이다. ✕ 숨김(⑤)이 먼저다.
+ *   「필터 밖 N」 = ✕ 숨김 뒤 행 중 필터에 걸린 행 수. 표를 접어도 필터는 칩에 걸리므로 「매집」 라벨 옆 회색 알약 「필터 밖 N」 을
+ *   N > 0 이고 전부 보기 꺼짐일 때만 보인다. 빈 문구는 두 갈래 — 활성 행이 0 이면 원래 문구(`ACCUM_EMPTY_TEXT`), 있는데 전부 걸리면
+ *   칩 줄 `ACCUM_FILTERED_EMPTY_TEXT` · 펼친 표 자리 `ACCUM_FILTERED_TABLE_EMPTY_TEXT`(펼친 영역 조건은 필터 전 행 기준 그대로).
+ *   「전부 보기」 = 필터 밖 행도 보인다 — 칩은 그대로, 표의 필터 밖 행만 흐리게(opacity .45 · 정렬 그대로). 네 칸은 이 기기에 기억하고
+ *   (마운트 뒤 읽는다 — 하이드레이션), 전부 보기는 기억하지 않는다(매 진입 꺼짐). 강조 · 카드 추가/포커스 · ✕ 동작은 바뀌지 않는다.
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -61,9 +71,16 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
+  DEFAULT_ACCUM_FILTER,
+  formatAccumFilterCell,
   isAccumDismissed,
+  parseAccumFilterCell,
+  passesAccumFilter,
   readAccumDismissed,
+  readAccumFilter,
   sortAccum,
+  writeAccumFilter,
+  type AccumFilter,
   type AccumMeta,
 } from '@/lib/accum-list';
 import type { IsinLabel } from '@/lib/isin-labels';
@@ -84,6 +101,10 @@ const NO_PREV: ReadonlyMap<string, number> = new Map();
 
 /** 빈 상태 — 활성(매집중 · 매도중) 칩이 0 일 때. */
 export const ACCUM_EMPTY_TEXT = '아직 팀 매집으로 등록된 종목이 없어요';
+/** 칩 줄 빈 문구 — 활성 행은 있는데 필터로 전부 걸렸을 때(⑪). */
+export const ACCUM_FILTERED_EMPTY_TEXT = '필터를 통과한 종목이 없어요';
+/** 펼친 표 자리 빈 문구 — 필터 전 행은 있는데 표에 보일 행이 없을 때(⑪). */
+export const ACCUM_FILTERED_TABLE_EMPTY_TEXT = '필터를 통과한 종목이 없어요 — 「전부 보기」로 숨긴 종목을 볼 수 있어요';
 
 export interface AccumStripProps {
   /** `useAccumSignals().signals` — 목록에 싣는 isin 별 현재 상태(훅이 accum-list ②' 로 거름 · 정렬 전). */
@@ -143,6 +164,8 @@ interface AccumView {
   dayQty: string;
   /** 전날 순매수(원) — 이월 행이고 prevNet 값이 0 아닌 수일 때만, 아니면 null(⑩). */
   prev: number | null;
+  /** 필터에 걸렸는가 — 표시 등락률 · 당일 순매수로 판정(⑪ · accum-list ⑦). */
+  filteredOut: boolean;
 }
 
 /** 팀 수익률(%) — 현재가 ÷ 평단 − 1(⑦ · gh-trade `ProfitRateOf` 동형). 어느 하나라도 0 이하면 null. */
@@ -182,6 +205,16 @@ export function AccumStrip({
   useEffect(() => {
     const saved = readPanelsPref().accum;
     if (saved !== undefined) setOpen(saved);
+  }, []);
+  // ⑪ 필터 — 첫 렌더는 기본값, 기억한 값은 마운트 뒤 읽는다(펼침 기억과 같은 하이드레이션 규율). 전부 보기는 기억하지 않는다.
+  const [filter, setFilter] = useState<AccumFilter>(DEFAULT_ACCUM_FILTER);
+  useEffect(() => {
+    setFilter(readAccumFilter());
+  }, []);
+  const [showAll, setShowAll] = useState(false);
+  const applyFilter = useCallback((next: AccumFilter) => {
+    setFilter(next);
+    writeAccumFilter(next);
   }, []);
   const tableId = useId();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => readAccumDismissed());
@@ -268,11 +301,16 @@ export function AccumStrip({
           dayBand: dayBuy ? `${NUM.format(sig.dayLoPx ?? 0)}~${NUM.format(sig.dayHiPx ?? 0)}` : DASH,
           dayQty: dayBuy && sig.dayNetQty !== null ? NUM.format(sig.dayNetQty) : DASH,
           prev: prevVal !== undefined && Number.isFinite(prevVal) && prevVal !== 0 ? prevVal : null,
+          filteredOut: !passesAccumFilter(filter, rate, sig.dayNetKrw),
         };
       }),
-    [visible, labels, masterNames, cards, meta, now, prices, accumLive, prevNet],
+    [visible, labels, masterNames, cards, meta, now, prices, accumLive, prevNet, filter],
   );
-  const chipViews = useMemo(() => views.filter((v) => v.sig.state !== 3), [views]);
+  // ⑪ 파생 — views 는 이미 ✕ 숨김 뒤다. 칩 · 표는 같은 shownViews 에서 나온다.
+  const outCount = useMemo(() => views.filter((v) => v.filteredOut).length, [views]);
+  const shownViews = useMemo(() => (showAll ? views : views.filter((v) => !v.filteredOut)), [views, showAll]);
+  const chipViews = useMemo(() => shownViews.filter((v) => v.sig.state !== 3), [shownViews]);
+  const activeCount = useMemo(() => views.filter((v) => v.sig.state !== 3).length, [views]);
 
   // ④ tick — 강조가 남은 키가 있을 때만 1개(돌파 ⑤).
   const ticking = [...meta.values()].some((until) => until !== null && now < until);
@@ -317,6 +355,15 @@ export function AccumStrip({
               {gateway}
             </span>
           )}
+          {outCount > 0 && !showAll && (
+            <span
+              data-slot="accum-label-out"
+              title={`필터 밖 ${outCount}종목 숨김`}
+              className="rounded-[4px] bg-[var(--muted)] px-[5px] py-px text-[10px] font-semibold whitespace-nowrap text-[var(--muted-fg)]"
+            >
+              필터 밖 {outCount}
+            </span>
+          )}
         </div>
 
         <div
@@ -327,8 +374,12 @@ export function AccumStrip({
           className="flex min-w-0 flex-1 flex-nowrap gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
         >
           {chipViews.length === 0 ? (
-            <span data-slot="accum-empty" className="self-center text-[12px] whitespace-nowrap text-[var(--muted-fg)]">
-              {ACCUM_EMPTY_TEXT}
+            <span
+              data-slot="accum-empty"
+              data-filtered={activeCount > 0 ? 'true' : undefined}
+              className="self-center text-[12px] whitespace-nowrap text-[var(--muted-fg)]"
+            >
+              {activeCount === 0 ? ACCUM_EMPTY_TEXT : ACCUM_FILTERED_EMPTY_TEXT}
             </span>
           ) : (
             chipViews.map((v) => <AccumChip key={v.key} view={v} onActivate={activate} />)
@@ -351,7 +402,7 @@ export function AccumStrip({
         </button>
       </section>
 
-      {/* ── 펼친 표 — 행이 있을 때만 ── */}
+      {/* ── 펼친 표 — 필터 전 행이 있을 때만 · 맨 위 필터 줄(⑪) ── */}
       {showTable && (
         <section
           id={tableId}
@@ -359,7 +410,20 @@ export function AccumStrip({
           aria-label="매집감지 목록"
           className="min-w-0 border-t border-[var(--border-subtle)]"
         >
-          <AccumTable views={views} onActivate={activate} onDismiss={dismiss} />
+          <AccumFilterBar
+            filter={filter}
+            onChange={applyFilter}
+            showAll={showAll}
+            onShowAll={setShowAll}
+            outCount={outCount}
+          />
+          {shownViews.length > 0 ? (
+            <AccumTable views={shownViews} dimOut={showAll} onActivate={activate} onDismiss={dismiss} />
+          ) : (
+            <p data-slot="accum-filter-empty" className="px-2.5 py-3.5 text-[12px] text-[var(--muted-fg)]">
+              {ACCUM_FILTERED_TABLE_EMPTY_TEXT}
+            </p>
+          )}
         </section>
       )}
     </div>
@@ -513,6 +577,132 @@ const AccumChip = memo(function AccumChip({
   );
 });
 
+/* ── 필터 줄 (목업 `.fbar` · 안 A · ⑪) ──────────────────────────────────── */
+
+/**
+ * 필터 칸 하나 — 글자는 칸 자체 상태(draft)라 타이핑 중에는 목록이 흔들리지 않는다. Enter · 칸 떠남에 파싱 → 칸 글자 정규화 →
+ * 값이 달라졌으면 부모 콜백. 부모 값이 바뀌면(저장값 복원 등) 렌더 중에 draft 를 맞춘다(이전 prop 기억 패턴 — effect 없음).
+ */
+function AccumFilterCell({
+  value,
+  onCommit,
+  slot,
+  label,
+  placeholder,
+}: {
+  value: number | null;
+  onCommit: (v: number | null) => void;
+  slot: string;
+  label: string;
+  placeholder: string;
+}) {
+  const [draft, setDraft] = useState(() => formatAccumFilterCell(value));
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
+    setDraft(formatAccumFilterCell(value));
+  }
+  const commit = () => {
+    const next = parseAccumFilterCell(draft);
+    setDraft(formatAccumFilterCell(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      data-slot={slot}
+      aria-label={label}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+      onBlur={commit}
+      className="mono h-6 w-[52px] rounded-[6px] border border-[var(--border-subtle)] bg-[var(--input)] px-1.5 text-right text-[11px] text-[var(--fg)] tabular-nums placeholder:text-[var(--faint)]"
+    />
+  );
+}
+
+const FILTER_GROUP = 'inline-flex items-center gap-1 whitespace-nowrap';
+const FILTER_TITLE = 'mr-0.5 font-semibold text-[var(--fg-2)]';
+
+const AccumFilterBar = memo(function AccumFilterBar({
+  filter,
+  onChange,
+  showAll,
+  onShowAll,
+  outCount,
+}: {
+  filter: AccumFilter;
+  onChange: (next: AccumFilter) => void;
+  showAll: boolean;
+  onShowAll: (on: boolean) => void;
+  outCount: number;
+}) {
+  return (
+    <div
+      data-slot="accum-filter"
+      role="group"
+      aria-label="매집 필터"
+      className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 px-2.5 py-2 text-[11px] text-[var(--muted-fg)]"
+    >
+      <span className={FILTER_GROUP}>
+        <span className={FILTER_TITLE}>등락률</span>
+        <AccumFilterCell
+          value={filter.rateMin}
+          onCommit={(v) => onChange({ ...filter, rateMin: v })}
+          slot="accum-filter-rate-min"
+          label="등락률 최소(%)"
+          placeholder="최소"
+        />
+        ~
+        <AccumFilterCell
+          value={filter.rateMax}
+          onCommit={(v) => onChange({ ...filter, rateMax: v })}
+          slot="accum-filter-rate-max"
+          label="등락률 최대(%)"
+          placeholder="최대"
+        />
+        %
+      </span>
+      <span className={FILTER_GROUP}>
+        <span className={FILTER_TITLE}>당일 순매수</span>
+        <AccumFilterCell
+          value={filter.dayMin}
+          onCommit={(v) => onChange({ ...filter, dayMin: v })}
+          slot="accum-filter-day-min"
+          label="당일 순매수 최소(억)"
+          placeholder="최소"
+        />
+        ~
+        <AccumFilterCell
+          value={filter.dayMax}
+          onCommit={(v) => onChange({ ...filter, dayMax: v })}
+          slot="accum-filter-day-max"
+          label="당일 순매수 최대(억)"
+          placeholder="최대"
+        />
+        억
+      </span>
+      <label data-slot="accum-filter-all" className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-[var(--fg-2)]">
+        <input
+          type="checkbox"
+          checked={showAll}
+          onChange={(e) => onShowAll(e.target.checked)}
+          className="m-0 size-3 flex-none cursor-pointer accent-[var(--primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ring)]"
+        />
+        전부 보기
+      </label>
+      <span data-slot="accum-filter-out" className="ml-auto whitespace-nowrap">
+        필터 밖 <b className="text-[var(--fg-2)]">{outCount}</b>
+        {showAll && ' · 흐리게 표시'}
+      </span>
+    </div>
+  );
+});
+
 /* ── 표 (목업 `table` · 12열) ─────────────────────────────────────────── */
 
 /**
@@ -523,10 +713,13 @@ const AccumChip = memo(function AccumChip({
  */
 const AccumTable = memo(function AccumTable({
   views,
+  dimOut = false,
   onActivate,
   onDismiss,
 }: {
   views: readonly AccumView[];
+  /** 「전부 보기」 — 필터 밖 행을 흐리게(⑪ · 목업 `tr.outrow td { opacity: .45 }`). */
+  dimOut?: boolean;
   onActivate: (v: AccumView) => void;
   onDismiss: (v: AccumView) => void;
 }) {
@@ -571,18 +764,21 @@ const AccumTable = memo(function AccumTable({
         {views.map((v) => {
           const ended = v.sig.state === 3;
           const rate = v.rate;
+          const dimmed = dimOut && v.filteredOut;
           return (
             <TableRow
               key={v.key}
               data-slot="accum-row"
               data-new={v.highlighted ? 'true' : undefined}
               data-trading={v.trading ? 'true' : undefined}
+              data-filtered-out={dimmed ? 'true' : undefined}
               title={ended ? (ACCUM_END_REASON_LABELS[v.sig.endReason] ?? '청산') : undefined}
               onClick={() => onActivate(v)}
               className={cn(
                 v.trading ? 'cursor-default' : 'cursor-pointer',
                 (v.trading || ended) && 'text-[var(--muted-fg)]',
                 v.highlighted && 'bg-[var(--new-bg)] hover:bg-[var(--new-bg)]',
+                dimmed && '[&>td]:opacity-45',
               )}
             >
               <TableCell className={cn(td, 'max-w-[200px]')}>

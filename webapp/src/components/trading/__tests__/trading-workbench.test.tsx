@@ -415,6 +415,12 @@ describe('TradingWorkbench — 카드 추가 (D-07 · D-08)', () => {
       askQtyAtLimit: 0, openAtLimit: false,
     };
     mockRelay = relay({ accumSignalEvents: [exposedLike] });
+    // quick-261104-nxs — 매집 필터 기본값(등락률 15% · 당일 1억 이상)이면 이 행(5.12% · 당일 없음)은 칩에서 걸린다.
+    // 이 테스트는 칩 클릭 → 카드 경로를 잠그므로 필터를 비운다(필터 자체는 accum-strip 테스트가 잠근다).
+    window.localStorage.setItem(
+      'gh-radar:accum-filter',
+      JSON.stringify({ rateMin: null, rateMax: null, dayMin: null, dayMax: null }),
+    );
     render(<TradingWorkbench />);
     // 매집 패널은 돌파 패널 바로 아래다.
     expect(slot('breakout')!.nextElementSibling).toBe(slot('accum'));

@@ -36,6 +36,14 @@
  * ④ 신규 강조 — 돌파 규칙 그대로(`HIGHLIGHT_MS` 30초). 첫 채움(REST 복원)은 무강조, 그 뒤 새로 오른 키(새 isin · 새 사이클 ·
  *   같은 사이클 재등장)만 강조한다. 청산 행은 강조하지 않는다. 청산 행이 최신이면 활성 키가 기록에서 빠지므로 재등장 행은 새 키다.
  *   「직전 커밋 기록 + 현재 입력」 순수 계산 — 컴포넌트가 렌더에서 계산하고 커밋 뒤 옮긴다.
+ *
+ * ⑦ 필터(quick-261104-nxs · gh-trade quick-261104-519 `AccumFilter` · `IsShownRow` 동형) — 등락률(%) · 당일 순매수(억) 「최소 ~ 최대」
+ *   네 칸뿐이다(수익률 · 누적 · 시총 칸은 없다). 판정 값 = **화면에 보이는 값**이다 — 등락률은 패널의 표시 등락률(95 → 구독 시세 →
+ *   행 값)을 소수 둘째 자리 **0에서 먼 쪽**으로 반올림해 비교하고, 당일 순매수는 `dayNetKrw`(null(옛 행) · 비유한수 → 0 — gh-trade
+ *   C-2)를 억 칸 `Math.round(억 × 1e8)` 원과 비교한다. 경계 포함. 빈 칸 = 그쪽 제한 없음, 잘못된 값 · NaN · 무한대 = 빈 칸(예외 없음).
+ *   min > max 는 바꿔 주지 않는다(아무것도 통과 못 함 — 그대로). ✕ 숨김(③)이 먼저 적용되고, 칩 · 펼친 표 · 회색 청산 행이 이 판정
+ *   하나로 걸러진다. 네 칸은 이 기기에 날짜 키 없이 기억하고(`ACCUM_FILTER_KEY` · 처음 = 등락률 최소 15 · 당일 순매수 최소 1억),
+ *   「전부 보기」 는 기억하지 않는다(매 진입 꺼짐).
  */
 
 import type { AccumReportResponse, AccumSignal, StrategyEventRow } from '@gh-radar/shared';
@@ -45,6 +53,94 @@ import { isNum } from './teamflow-report';
 
 /** ✕ 로 숨긴 사이클 집합 — 날짜 키(KST 오늘) 단위. */
 export const ACCUM_DISMISSED_KEY = 'gh-radar:accum-dismissed';
+
+/* ── ⑦ 필터 ─────────────────────────────────────────────────────────── */
+
+/** 필터 4칸 저장 키(⑦) — 날짜 키 없음 · 계속 유지. */
+export const ACCUM_FILTER_KEY = 'gh-radar:accum-filter';
+
+/** 필터 4칸 — 등락률(%) · 당일 순매수(억). null = 그쪽 제한 없음(⑦). */
+export interface AccumFilter {
+  rateMin: number | null;
+  rateMax: number | null;
+  dayMin: number | null;
+  dayMax: number | null;
+}
+
+/** 처음(저장 없음) 값 — 등락률 15% 이상 · 당일 순매수 1억 이상 · 최대 칸은 빈 칸(⑦). */
+export const DEFAULT_ACCUM_FILTER: AccumFilter = { rateMin: 15, rateMax: null, dayMin: 1, dayMax: null };
+
+/** 부호 · 소수 · 지수만 — 16진수 · 여러 점 · 「Infinity」 를 거른다(쉼표는 먼저 지운다). */
+const FILTER_CELL_PATTERN = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;
+
+/** 칸 글자 → 값(⑦). 앞뒤 공백 제거 · 천 단위 쉼표 허용 · 빈 칸 · 잘못된 값 · 비유한수 = null. 예외를 던지지 않는다. */
+export function parseAccumFilterCell(text: string): number | null {
+  const t = text.trim().replace(/,/g, '');
+  if (t === '' || !FILTER_CELL_PATTERN.test(t)) return null;
+  const v = Number(t);
+  return Number.isFinite(v) ? v : null;
+}
+
+/** 값 → 칸 글자(⑦). null 은 빈 칸. */
+export function formatAccumFilterCell(v: number | null): string {
+  return v === null ? '' : String(v);
+}
+
+/** 소수 둘째 자리 반올림 — 0에서 먼 쪽(⑦ · gh-trade `MidpointRounding.AwayFromZero` 동형). */
+export function roundRate2(rate: number): number {
+  return (Math.sign(rate) * Math.round(Math.abs(rate) * 100)) / 100;
+}
+
+/** 필터 통과 여부(⑦) — rate = 표시 등락률(%), dayNetKrw = 당일 순매수(원 · null 은 0). 경계 포함. */
+export function passesAccumFilter(f: AccumFilter, rate: number, dayNetKrw: number | null): boolean {
+  if (f.rateMin !== null || f.rateMax !== null) {
+    if (!Number.isFinite(rate)) return false;
+    const r = roundRate2(rate);
+    if (f.rateMin !== null && r < f.rateMin) return false;
+    if (f.rateMax !== null && r > f.rateMax) return false;
+  }
+  const day = dayNetKrw !== null && Number.isFinite(dayNetKrw) ? dayNetKrw : 0;
+  if (f.dayMin !== null && day < Math.round(f.dayMin * 1e8)) return false;
+  if (f.dayMax !== null && day > Math.round(f.dayMax * 1e8)) return false;
+  return true;
+}
+
+/** 저장값 한 칸 — 유한수면 그 값 · null 이면 null · 그 밖(문자열 · 누락)은 기본값. */
+function filterCellOf(raw: Record<string, unknown>, key: keyof AccumFilter): number | null {
+  const v = raw[key];
+  if (v === null) return null;
+  return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_ACCUM_FILTER[key];
+}
+
+/** 이 기기에 기억한 필터(⑦). 저장 없음 · JSON 깨짐 · 객체 아님 · 저장소 막힘 = 기본값. */
+export function readAccumFilter(): AccumFilter {
+  if (typeof window === 'undefined') return DEFAULT_ACCUM_FILTER;
+  try {
+    const text = window.localStorage.getItem(ACCUM_FILTER_KEY);
+    if (text === null) return DEFAULT_ACCUM_FILTER;
+    const raw: unknown = JSON.parse(text);
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return DEFAULT_ACCUM_FILTER;
+    const obj = raw as Record<string, unknown>;
+    return {
+      rateMin: filterCellOf(obj, 'rateMin'),
+      rateMax: filterCellOf(obj, 'rateMax'),
+      dayMin: filterCellOf(obj, 'dayMin'),
+      dayMax: filterCellOf(obj, 'dayMax'),
+    };
+  } catch {
+    return DEFAULT_ACCUM_FILTER;
+  }
+}
+
+/** 필터를 기억한다(⑦). 저장 실패는 무시한다 — 화면 동작을 막지 않는다. */
+export function writeAccumFilter(f: AccumFilter): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(ACCUM_FILTER_KEY, JSON.stringify(f));
+  } catch {
+    // 저장소 막힘(사생활 모드 · 용량) — 이번 진입 동안은 상태로만 유지된다.
+  }
+}
 
 /** 숨김 · 강조 키 — 사이클 단위 · 청산 행은 `|end`(③ · ④). */
 export function accumDismissKey(sig: Pick<AccumSignal, 'isin' | 'cycle' | 'state'>): string {

@@ -31,6 +31,15 @@ import {
   restoreCutByGateway,
   prevDayNetOf,
   sortAccum,
+  ACCUM_FILTER_KEY,
+  DEFAULT_ACCUM_FILTER,
+  formatAccumFilterCell,
+  parseAccumFilterCell,
+  passesAccumFilter,
+  readAccumFilter,
+  roundRate2,
+  writeAccumFilter,
+  type AccumFilter,
 } from '../accum-list';
 import { HIGHLIGHT_MS } from '../breakout-list';
 
@@ -385,5 +394,88 @@ describe('advanceAccumMeta — 신규 강조', () => {
     expect(ended.has('A|1')).toBe(false);
     const back = advanceAccumMeta(ended, [sig({ isin: 'A', cycle: 1 })], NOW + 2_000, true);
     expect(back.get('A|1')).toBe(NOW + 2_000 + HIGHLIGHT_MS);
+  });
+});
+
+describe('quick-261104-nxs ⑦ 필터 — 칸 파싱 · 정규화 · 판정 · 기억', () => {
+  const NONE: AccumFilter = { rateMin: null, rateMax: null, dayMin: null, dayMax: null };
+
+  it('parseAccumFilterCell — 공백 · 쉼표 · 지수 · 부호 허용, 빈 칸 · 문자 · NaN · Infinity · 여러 점 · 16진수 = null', () => {
+    expect(parseAccumFilterCell('15')).toBe(15);
+    expect(parseAccumFilterCell(' 1,000 ')).toBe(1000);
+    expect(parseAccumFilterCell('1e3')).toBe(1000);
+    expect(parseAccumFilterCell('-5')).toBe(-5);
+    expect(parseAccumFilterCell('1.5')).toBe(1.5);
+    for (const bad of ['', '   ', 'abc', 'NaN', 'Infinity', '1.2.3', '0x10', '1e999']) {
+      expect(parseAccumFilterCell(bad)).toBeNull();
+    }
+  });
+
+  it('formatAccumFilterCell — null → 빈 칸 · 수 → String', () => {
+    expect(formatAccumFilterCell(null)).toBe('');
+    expect(formatAccumFilterCell(15)).toBe('15');
+    expect(formatAccumFilterCell(1.5)).toBe('1.5');
+  });
+
+  it('roundRate2 — 둘째 자리 0에서 먼 쪽 반올림', () => {
+    expect(roundRate2(14.995)).toBeCloseTo(15, 10);
+    expect(roundRate2(-14.996)).toBeCloseTo(-15, 10);
+    expect(roundRate2(14.994)).toBeCloseTo(14.99, 10);
+  });
+
+  it('passesAccumFilter — 등락률 경계 포함 · 둘째 자리 반올림 비교', () => {
+    const f: AccumFilter = { ...NONE, rateMin: 15 };
+    expect(passesAccumFilter(f, 15, null)).toBe(true);
+    expect(passesAccumFilter(f, 14.994, null)).toBe(false);
+    expect(passesAccumFilter(f, 14.996, null)).toBe(true);
+    const g: AccumFilter = { ...NONE, rateMax: 30 };
+    expect(passesAccumFilter(g, 30.004, null)).toBe(true);
+    expect(passesAccumFilter(g, 30.006, null)).toBe(false);
+  });
+
+  it('passesAccumFilter — 당일 순매수 null 은 0 · 억 → 원 반올림 · 경계 포함', () => {
+    const f: AccumFilter = { ...NONE, dayMin: 1 };
+    expect(passesAccumFilter(f, 20, null)).toBe(false);
+    expect(passesAccumFilter(f, 20, 99_999_999)).toBe(false);
+    expect(passesAccumFilter(f, 20, 100_000_000)).toBe(true);
+    expect(passesAccumFilter({ ...NONE, dayMax: 0 }, 20, null)).toBe(true);
+    expect(passesAccumFilter({ ...NONE, dayMax: 0.5 }, 20, 50_000_001)).toBe(false);
+  });
+
+  it('passesAccumFilter — 네 칸 모두 null 이면 무엇이든 통과 · 등락률 제한이 있는데 비유한수면 실패 · min > max 는 그대로(통과 없음)', () => {
+    expect(passesAccumFilter(NONE, Number.NaN, null)).toBe(true);
+    expect(passesAccumFilter(NONE, -50, -1e12)).toBe(true);
+    expect(passesAccumFilter({ ...NONE, rateMin: 15 }, Number.NaN, 1e9)).toBe(false);
+    expect(passesAccumFilter({ ...NONE, rateMax: 30 }, Number.POSITIVE_INFINITY, 1e9)).toBe(false);
+    expect(passesAccumFilter({ ...NONE, rateMin: 20, rateMax: 10 }, 15, null)).toBe(false);
+  });
+
+  describe('readAccumFilter / writeAccumFilter', () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it('저장 없음 · JSON 깨짐 · 객체 아님 → DEFAULT(등락률 최소 15 · 당일 순매수 최소 1)', () => {
+      expect(DEFAULT_ACCUM_FILTER).toEqual({ rateMin: 15, rateMax: null, dayMin: 1, dayMax: null });
+      expect(readAccumFilter()).toEqual(DEFAULT_ACCUM_FILTER);
+      window.localStorage.setItem(ACCUM_FILTER_KEY, '{not json');
+      expect(readAccumFilter()).toEqual(DEFAULT_ACCUM_FILTER);
+      window.localStorage.setItem(ACCUM_FILTER_KEY, '42');
+      expect(readAccumFilter()).toEqual(DEFAULT_ACCUM_FILTER);
+      window.localStorage.setItem(ACCUM_FILTER_KEY, '[1,2]');
+      expect(readAccumFilter()).toEqual(DEFAULT_ACCUM_FILTER);
+    });
+
+    it('저장된 null 은 null 그대로 · 수 아님(문자열 · 누락)은 그 칸만 기본값', () => {
+      window.localStorage.setItem(ACCUM_FILTER_KEY, JSON.stringify({ rateMin: null, rateMax: 30, dayMin: 'x' }));
+      expect(readAccumFilter()).toEqual({ rateMin: null, rateMax: 30, dayMin: 1, dayMax: null });
+    });
+
+    it('write → read 왕복', () => {
+      const f: AccumFilter = { rateMin: 5, rateMax: 29.5, dayMin: null, dayMax: 10 };
+      writeAccumFilter(f);
+      expect(JSON.parse(window.localStorage.getItem(ACCUM_FILTER_KEY)!)).toEqual(f);
+      expect(readAccumFilter()).toEqual(f);
+    });
   });
 });
