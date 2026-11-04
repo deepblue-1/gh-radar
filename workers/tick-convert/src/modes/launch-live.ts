@@ -1,5 +1,7 @@
 /**
- * launch-live 모드(quick 261104-n7i) — `launch-live`(인자 없음).
+ * launch-live 모드(quick 261104-n7i) — `launch-live [--all-today]`.
+ *   --all-today: 수동 따라잡기 — 창 하한 없이 KST 오늘 발사 조각 전부(지금 − 20초까지) · run 예산 LIVE_CATCHUP_BUDGET_MS ·
+ *   키 데드라인 LIVE_CATCHUP_KEY_DEADLINE_MS. 스케줄 run 이 놓친 날 · 배포 첫날용(실행 때 --task-timeout 을 늘려 준다).
  *
  * 목적: 발사 조각 대기열 값(launch_piece_queue)을 밤 nightly 까지 기다리지 않고 **당일 발사 직후** 계산해 둔다(D-1 · D-2).
  *   원본 = radar-gw tickgw `/internal/ticks/live` 당일 바이트(D-3 · tickgw-live.ts) · 계산 = shared `launchQueueOf` 한 벌
@@ -65,15 +67,19 @@ export const LIVE_KEY_SLOTS = 4;
 export const LIVE_LEASE_GUARD_MS = 31_000;
 /** run 시작 뒤 이 시간이 지나면 새 키를 열지 않는다(남은 키 deferred). */
 export const LIVE_RUN_BUDGET_MS = 100_000;
+/** --all-today run 예산(새 키를 여는 마감) — 하루치 첫 로딩이 VPN 약 1MB/s 라 키당 수십 초가 걸릴 수 있다. */
+export const LIVE_CATCHUP_BUDGET_MS = 20 * 60_000;
+/** --all-today 키 하나 받기 데드라인. */
+export const LIVE_CATCHUP_KEY_DEADLINE_MS = 240_000;
 
-export type LaunchLiveArgs = Record<string, never>;
+/** allToday = `--all-today`(수동 따라잡기 · 창 하한 없음). 생략 = 스케줄 run(45분 창). */
+export type LaunchLiveArgs = { allToday?: boolean };
 
-/** 인자를 받지 않는다(tickgw 는 KST 오늘만 · `--date` 없음) — 하나라도 있으면 UsageError(종료 2). */
+/** `--all-today` 하나만 받는다(tickgw 는 KST 오늘만 · `--date` 없음) — 그 밖의 인자는 UsageError(종료 2). */
 export function parseLaunchLiveArgs(args: readonly string[]): LaunchLiveArgs {
-  if (args.length > 0) {
-    throw new UsageError(`launch-live: 인자를 받지 않는다(tickgw 는 KST 오늘만) — 받은 값 ${args.join(" ")}`);
-  }
-  return {};
+  if (args.length === 0) return {};
+  if (args.length === 1 && args[0] === "--all-today") return { allToday: true };
+  throw new UsageError(`launch-live: --all-today 만 받는다(tickgw 는 KST 오늘만) — 받은 값 ${args.join(" ")}`);
 }
 
 /** launch-live 의존성 — tickgw live 클라이언트는 테스트가 바꿔 넣을 수 있다(없으면 config 의 TICKGW_URL · TICKGW_SECRET). */
@@ -111,7 +117,7 @@ function fireMsOf(p: LaunchInputRow, date: string): number | null {
   return ns === null ? null : Number(ns / 1_000_000n);
 }
 
-export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs): Promise<LaunchLiveOutcome> {
+export async function runLaunchLive(deps: LaunchLiveDeps, args: LaunchLiveArgs): Promise<LaunchLiveOutcome> {
   const clock = deps.clock ?? Date.now;
   const sleep = deps.sleep ?? defaultSleep;
   const t0 = clock();
@@ -137,7 +143,10 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
 
   // ② 창 필터
   const nowMs = deps.now.getTime();
-  const lo = nowMs - LIVE_WINDOW_MS;
+  const allToday = args.allToday === true;
+  const lo = allToday ? Number.NEGATIVE_INFINITY : nowMs - LIVE_WINDOW_MS;
+  const runBudgetMs = allToday ? LIVE_CATCHUP_BUDGET_MS : LIVE_RUN_BUDGET_MS;
+  const keyDeadlineMs = allToday ? LIVE_CATCHUP_KEY_DEADLINE_MS : LIVE_KEY_DEADLINE_MS;
   const hi = nowMs - LIVE_MIN_AGE_MS;
   type Key = { isin: string; ex: TickgwEx; pieces: LaunchInputRow[]; maxFireMs: number };
   const keys = new Map<string, Key>();
@@ -186,11 +195,11 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
     /** 끝낸 키의 마지막 요청 시각 — 리스 인식 게이트 입력. */
     const leases: number[] = [];
     const overBudget = (i: number): boolean => {
-      if (clock() - t0 <= LIVE_RUN_BUDGET_MS) return false;
+      if (clock() - t0 <= runBudgetMs) return false;
       const left = list.slice(i);
       out.deferred += left.length;
       logger.warn(
-        { date, deferred: left.length, budgetMs: LIVE_RUN_BUDGET_MS, keys: left.map((k) => `${k.ex}/${k.isin}`) },
+        { date, deferred: left.length, budgetMs: runBudgetMs, keys: left.map((k) => `${k.ex}/${k.isin}`) },
         `[tick-convert] mode=launch-live run 예산 초과 — 남은 ${left.length}키는 다음 run 이 잇는다`,
       );
       return true;
@@ -216,7 +225,7 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
           isin: key.isin,
           ex: key.ex,
           needMs: key.maxFireMs + LIVE_NEED_AFTER_MS,
-          deadlineMs: clock() + LIVE_KEY_DEADLINE_MS,
+          deadlineMs: clock() + keyDeadlineMs,
           clock,
           sleep,
         });
@@ -265,7 +274,7 @@ export async function runLaunchLive(deps: LaunchLiveDeps, _args: LaunchLiveArgs)
   out.durationMs = Math.max(0, Math.round(clock() - t0));
   logger.info(
     { result: { ...out, rows: undefined } },
-    `[tick-convert] mode=launch-live date=${date} keys=${out.keys} computed=${out.computed} written=${out.written} ` +
+    `[tick-convert] mode=launch-live${allToday ? " all_today" : ""} date=${date} keys=${out.keys} computed=${out.computed} written=${out.written} ` +
       `set_skipped=${out.setSkipped} deferred=${out.deferred} failed=${out.failed} launch_failed=${out.launchFailed} ` +
       `fills_empty=${out.fillsEmpty} ms=${out.durationMs}`,
   );

@@ -139,8 +139,10 @@ afterEach(() => {
 });
 
 describe("parseLaunchLiveArgs", () => {
-  it("인자 없음 → {} · 하나라도 있으면 UsageError · CLI 종료 2", async () => {
+  it("인자 없음 → {} · --all-today → allToday · 그 밖은 UsageError · CLI 종료 2", async () => {
     expect(parseLaunchLiveArgs([])).toEqual({});
+    expect(parseLaunchLiveArgs(["--all-today"])).toEqual({ allToday: true });
+    expect(() => parseLaunchLiveArgs(["--all-today", "--x"])).toThrow(UsageError);
     expect(() => parseLaunchLiveArgs(["--date", "20261104"])).toThrow(UsageError);
     const { sb } = fake();
     expect(await main(["launch-live", "--date", "20261104"], { sb, store: noStore, config: cfg(), now: NOW_16 })).toBe(2);
@@ -233,6 +235,32 @@ describe("runLaunchLive — 대상 없음", () => {
     expect(out).toMatchObject({ keys: 0, failed: 0 });
     const f = fake();
     expect(await main(["launch-live"], { sb: f.sb, store: noStore, config: cfg({ tickgwUrl: "", tickgwSecret: "" }), now: noon })).toBe(0);
+  });
+
+  it("--all-today — 45분 창이 지난 17:55 에도 오늘 16:00 · 09:00 조각을 전부 받는다(수동 따라잡기)", async () => {
+    const late = new Date("2026-10-30T08:55:00Z");
+    const { fetchImpl, reqs } = liveFetch(
+      byKey({
+        [`${G4_ISIN}|KRX`]: serveDay(G4_ZST, { asOfMs: late.getTime() - 60_000 }),
+        [`${NXT_ISIN}|NXT`]: serveDay(NXT_ZST, { asOfMs: late.getTime() - 60_000 }),
+      }),
+    );
+    const vc = virtualClock(late.getTime());
+    const deps = {
+      sb: fake().sb,
+      store: noStore,
+      config: cfg(),
+      now: late,
+      clock: vc.clock,
+      sleep: vc.sleep,
+      tickgwLive: createTickgwLiveClient({ url: URL_, secret: SECRET, fetchImpl }),
+    };
+    // 창 run 은 0키
+    expect(await runLaunchLive(deps, {})).toMatchObject({ keys: 0 });
+    expect(reqs).toHaveLength(0);
+    const out = await runLaunchLive({ ...deps, sb: fake().sb }, { allToday: true });
+    expect(out).toMatchObject({ keys: 2, computed: 2, written: 4, failed: 0, deferred: 0 });
+    expect(out.rows[0]).toMatchObject({ gateway: "KB120", wire: 0, rank: 9, ahead_qty: 68808 });
   });
 });
 

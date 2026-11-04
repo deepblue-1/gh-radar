@@ -36,7 +36,7 @@ set -euo pipefail
 #     승격을 건너뛰는 배포(당일 경로 꺼짐 · 37-16)는 `TICKGW_DISABLE=1` 명시로만 허용한다(승격 Job 이 이미 있으면 경고).
 #   - 당일 발사 대기열(quick 261104-n7i · D-1) — 같은 `TICKGW_URL` 블록 안 Section 7c 가 더한다:
 #     Job gh-radar-tick-convert-launch-live(같은 이미지 · --args=launch-live → `node dist/index.js launch-live` · GCS 볼륨 없음 ·
-#     Direct VPC egress private-ranges-only · TICKGW_SECRET · cpu 1 · 2Gi · task-timeout 300s — 모드 run 예산 100초 + 키 데드라인 90초 +
+#     Direct VPC egress private-ranges-only · TICKGW_SECRET · cpu 2 · 8Gi(하루치 해제 여유 — 상한가 대형 키) · task-timeout 300s(수동 --all-today 는 실행 때 늘린다) — 모드 run 예산 100초 + 키 데드라인 90초 +
 #     요청 타임아웃 30초 ≈ 230초) + Scheduler 둘 `1,3,10 16 * * 1-5`(-pm · 16:00 Q16) · `1,3 9 * * 1-5`(-am · 09:00:27/29 A · 09:00:30 N)
 #     Asia/Seoul. 사용자 트리거 없음(호출량은 사용자 수와 독립). 값은 'live:<as-of>' 표식으로 저장되고 밤 nightly 가 덮는다.
 #     DB 마이그레이션 20261104710000(live 표식 가드)을 먼저 push 한다 — 반대 순서면 live 행이 옛 가드에 버려질 뿐(set_skipped · 무해).
@@ -338,13 +338,13 @@ if [[ -n "${TICKGW_URL:-}" ]]; then
 
   # Section 7c: 당일 발사 대기열(quick 261104-n7i · D-1) — launch-live Job + Scheduler 평일 16:01·16:03·16:10 · 09:01·09:03
   # 승격 Job 과 같은 이미지 · VPC · 비밀 · args 오버라이드만 다르다(GCS 볼륨 · TICK_ARCHIVE_DIR 없음 — tickgw live 만 읽는다)
-  echo "▶ deploying Cloud Run Job: $LIVE_JOB (cpu=1, memory=2Gi, timeout=300s, VPC $VPC_NAME private-ranges-only, args=launch-live)..."
+  echo "▶ deploying Cloud Run Job: $LIVE_JOB (cpu=2, memory=8Gi, timeout=300s, VPC $VPC_NAME private-ranges-only, args=launch-live)..."
   gcloud run jobs deploy "$LIVE_JOB" \
     --image="$IMAGE" \
     --region="$REGION" \
     --service-account="$RUNTIME_SA" \
-    --cpu=1 \
-    --memory=2Gi \
+    --cpu=2 \
+    --memory=8Gi \
     --task-timeout=300s \
     --max-retries=0 \
     --parallelism=1 \
