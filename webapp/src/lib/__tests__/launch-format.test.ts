@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import type { LaunchHeadRow, LaunchPieceQueue, LaunchPieceRow } from '@gh-radar/shared';
+import type { LaunchHeadRow, LaunchPieceQueueView, LaunchPieceRow } from '@gh-radar/shared';
 
 import {
   MINUS,
@@ -422,7 +422,7 @@ describe('fmtEokMan — 1억 이상 x.xx억 · 미만 n만(반올림)', () => {
   });
 });
 
-const QV = (over: Partial<LaunchPieceQueue>): LaunchPieceQueue => ({
+const QV = (over: Partial<LaunchPieceQueueView>): LaunchPieceQueueView => ({
   kind: 'queue',
   matched: true,
   rank: null,
@@ -511,5 +511,71 @@ describe('launchQueueCellOf — 값 없음 → null(「—」)', () => {
     expect(launchQueueCellOf({ qty: 1 })).toBeNull();
     expect(launchQueueCellOf({ qty: 1, queue: null })).toBeNull();
     expect(launchQueueCellOf({ qty: 1, queue: QV({ matched: false }) })).toBeNull();
+  });
+});
+
+describe('launchQueueCellOf — 당일 값(live_as_of · quick 261104-n7i D-5)', () => {
+  const base = { kind: 'queue', rank: 9, ahead_qty: 68808, ahead_amt: 177_180_600 } as const;
+  const PM = '2026-11-04T07:03:12.000Z'; // 16:03 KST
+  const AM = '2026-11-04T00:03:05.000Z'; // 09:03 KST
+  it('queue open + live → 둘째 줄 「16:03 기준 앞 4건 · 30,560주 · 7,869만 (추정)」 · 첫 줄 · tone 그대로', () => {
+    const c = launchQueueCellOf({
+      qty: 16666,
+      queue: QV({ ...base, end_state: 'open', end_n: 4, end_qty: 30560, end_amt: 78_692_000, live_as_of: PM }),
+    });
+    expect(c).toEqual({
+      lead: '9번째',
+      leadTone: null,
+      rest: ' · 앞 68,808주 · 1.77억',
+      sub: '16:03 기준 앞 4건 · 30,560주 · 7,869만 (추정)',
+      subTone: 'est',
+    });
+  });
+  it('queue cancelled + live → 「16:03 기준 — 취소됨」 · filled + live → 「16:03 기준」(dim)', () => {
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'cancelled', live_as_of: PM }) })).toMatchObject({
+      sub: '16:03 기준 — 취소됨',
+      subTone: 'dim',
+    });
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'filled', live_as_of: PM }) })).toMatchObject({
+      sub: '16:03 기준',
+      subTone: 'dim',
+    });
+  });
+  it('run 체결 + live → 「체결 18/20 @ 159,300~160,100 · 09:03 기준」', () => {
+    const c = launchQueueCellOf({
+      qty: 20,
+      queue: QV({
+        kind: 'run',
+        rank: 2,
+        ahead_n: 1,
+        ahead_qty: 2,
+        ahead_amt: 318_000,
+        fill_qty: 18,
+        fill_px_min: 159_300,
+        fill_px_max: 160_100,
+        live_as_of: AM,
+      }),
+    });
+    expect(c).toMatchObject({ lead: '2번째 체결', rest: ' · 앞 2주 · 32만', sub: '체결 18/20 @ 159,300~160,100 · 09:03 기준' });
+  });
+  it('run 미체결(n>0) + live → 「적어도 2번째 이후 · 09:03 기준」 · 미체결(n=0) + live → 「09:03 기준」(dim)', () => {
+    expect(
+      launchQueueCellOf({
+        qty: 22,
+        queue: QV({ kind: 'run', rank: null, ahead_n: 1, ahead_qty: 4861, ahead_amt: 1_081_572_500, fill_qty: 0, live_as_of: AM }),
+      }),
+    ).toMatchObject({ lead: '미체결', sub: '적어도 2번째 이후 · 09:03 기준', subTone: 'dim' });
+    expect(
+      launchQueueCellOf({
+        qty: 7,
+        queue: QV({ kind: 'run', rank: null, ahead_n: 0, ahead_qty: 0, ahead_amt: 0, fill_qty: 0, live_as_of: AM }),
+      }),
+    ).toMatchObject({ lead: '미체결', rest: ' · 1초 안 한도 안 체결 없음', sub: '09:03 기준', subTone: 'dim' });
+  });
+  it('live_as_of 가 날짜로 안 읽히면 비 live 와 같다(지금 문구)', () => {
+    expect(
+      launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'cancelled', live_as_of: 'not-a-date' }) })!.sub,
+    ).toBe('마감 — 취소됨');
+    expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'filled', live_as_of: '' }) })!.sub).toBeNull();
   });
 });

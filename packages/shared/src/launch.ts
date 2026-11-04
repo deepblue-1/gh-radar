@@ -113,8 +113,9 @@ export interface LaunchPieceRow {
   /**
    * 응답 전용 · 표 열 아님 — 주문 내역 RPC 의 `launch_piece_queue` 조인(quick-261103-pei). 값 없음(미계산 · 격자 없음 ·
    * 거부 조각) = null · 키 없음 = 옛 RPC(db push 전). 화면은 둘 다 「—」.
+   * 당일 계산 값(quick-261104-n7i launch-live)이면 `live_as_of` 가 실린다 — 화면 둘째 줄 「HH:MM 기준」.
    */
-  queue?: LaunchPieceQueue | null;
+  queue?: LaunchPieceQueueView | null;
 }
 
 /** 대기열 값 종류 — queue = 16:00 Q16 매수 대기열(보드 G4) · run = 09:00 N/A 공격 주문 체결 런(보드 G1). */
@@ -156,6 +157,14 @@ export interface LaunchPieceQueue {
   /** 게이트웨이 순서를 정하지 못해 LAUNCH_ORDER 로 가정했다(두 순서 모두 성립) — 화면은 첫 줄 끝 「(추정)」 */
   order_est: boolean;
 }
+
+/**
+ * 주문 내역 RPC 응답의 조각 queue(quick-261104-n7i) — 계산 출력 `LaunchPieceQueue` + 응답 전용 `live_as_of`.
+ * `live_as_of` = 그 값이 당일 tickgw live 바이트로 계산된 기준 시각(ISO UTC · 표식 `live:<as-of>` 에서 뗀 값) · live 행일 때만 키가 있다.
+ * 밤 nightly 가 그날 격자 정본으로 덮으면 키가 사라진다(화면은 지금 문구 「마감 …」).
+ * `LaunchPieceQueue` 자체는 바꾸지 않는다 — 워커 계산 출력 타입이다(gridLaunchOf 가 펼쳐 쓴다).
+ */
+export type LaunchPieceQueueView = LaunchPieceQueue & { live_as_of?: string };
 
 /** `launch_heads` 한 행(어드민 RPC 응답). 논리 키 (trade_date, gateway, profile, fire_exchange, market). */
 export interface LaunchHeadRow {

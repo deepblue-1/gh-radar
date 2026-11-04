@@ -22,6 +22,7 @@ import {
   type LaunchHeadRow,
   type LaunchPieceRow,
 } from '@gh-radar/shared';
+import { kstHm } from './teamflow-report';
 
 /** 음수 부호(U+2212) — 하이픈과 폭이 달라 숫자 열이 흔들리지 않는다. */
 export const MINUS = '−';
@@ -337,11 +338,18 @@ const qn = (v: number | null | undefined): string => (v === null || v === undefi
  *   한도 안 런 0건이면 ` · 1초 안 한도 안 체결 없음`(둘째 줄 없음)
  * 금액은 저장된 ahead_amt · end_amt 를 그대로 쓴다(더 좋은 가격 단 금액 포함 — 주 × 가격으로 다시 곱하지 않는다).
  * order_est(게이트웨이 순서 추정)면 첫 줄 끝에 「 (추정)」.
+ *
+ * 당일 값(quick 261104-n7i D-5): 조각 queue 에 `live_as_of`(당일 tickgw 바이트로 계산한 기준 시각)가 있으면 세션이 끝나기 전 값이다 —
+ * 둘째 줄에 계산 기준 시각 「HH:MM 기준」(KST)을 보인다. queue open 의 「마감 앞 …」 → 「16:03 기준 앞 …」 · 취소 「16:03 기준 — 취소됨」 ·
+ * 체결로 0 이면 둘째 줄 「16:03 기준」 · run 은 둘째 줄 끝에 「 · 09:03 기준」(둘째 줄이 없던 경우는 「09:03 기준」). 첫 줄 · tone 은 그대로.
+ * 밤 nightly 가 그날 격자 정본으로 덮으면 `live_as_of` 가 사라져 지금 문구로 돌아간다. 날짜로 안 읽히는 값은 비 live 와 같게.
  */
 export function launchQueueCellOf(p: Pick<LaunchPieceRow, 'qty' | 'queue'>): LaunchQueueCell | null {
   const q = p.queue;
   if (q === undefined || q === null || !q.matched) return null;
   const est = q.order_est ? ' (추정)' : '';
+  const asOfMs = typeof q.live_as_of === 'string' ? Date.parse(q.live_as_of) : NaN;
+  const hm = Number.isFinite(asOfMs) ? kstHm(asOfMs) : null;
   if (q.kind === 'queue') {
     if (q.rank === null) return null;
     const rest = ` · 앞 ${qn(q.ahead_qty)}주 · ${fmtEokMan(q.ahead_amt)}${est}`;
@@ -350,13 +358,16 @@ export function launchQueueCellOf(p: Pick<LaunchPieceRow, 'qty' | 'queue'>): Lau
         lead: `${q.rank}번째`,
         leadTone: null,
         rest,
-        sub: `마감 앞 ${qn(q.end_n)}건 · ${qn(q.end_qty)}주 · ${fmtEokMan(q.end_amt)} (추정)`,
+        sub: `${hm === null ? '마감' : `${hm} 기준`} 앞 ${qn(q.end_n)}건 · ${qn(q.end_qty)}주 · ${fmtEokMan(q.end_amt)} (추정)`,
         subTone: 'est',
       };
     }
-    if (q.end_state === 'cancelled') return { lead: `${q.rank}번째`, leadTone: null, rest, sub: '마감 — 취소됨', subTone: 'dim' };
-    return { lead: `${q.rank}번째`, leadTone: null, rest, sub: null, subTone: 'dim' };
+    if (q.end_state === 'cancelled') {
+      return { lead: `${q.rank}번째`, leadTone: null, rest, sub: `${hm === null ? '마감' : `${hm} 기준`} — 취소됨`, subTone: 'dim' };
+    }
+    return { lead: `${q.rank}번째`, leadTone: null, rest, sub: hm === null ? null : `${hm} 기준`, subTone: 'dim' };
   }
+  const at = hm === null ? '' : ` · ${hm} 기준`;
   if (q.rank !== null) {
     const amt = q.ahead_amt ? ` · ${fmtEokMan(q.ahead_amt)}` : '';
     const px =
@@ -369,17 +380,19 @@ export function launchQueueCellOf(p: Pick<LaunchPieceRow, 'qty' | 'queue'>): Lau
       lead: `${q.rank}번째 체결`,
       leadTone: null,
       rest: ` · 앞 ${qn(q.ahead_qty)}주${amt}${est}`,
-      sub: `체결 ${qn(q.fill_qty)}/${qn(p.qty)} @ ${px}`,
+      sub: `체결 ${qn(q.fill_qty)}/${qn(p.qty)} @ ${px}${at}`,
       subTone: 'dim',
     };
   }
   const n = q.ahead_n ?? 0;
-  if (n === 0) return { lead: '미체결', leadTone: 'bad', rest: ' · 1초 안 한도 안 체결 없음', sub: null, subTone: 'dim' };
+  if (n === 0) {
+    return { lead: '미체결', leadTone: 'bad', rest: ' · 1초 안 한도 안 체결 없음', sub: hm === null ? null : `${hm} 기준`, subTone: 'dim' };
+  }
   return {
     lead: '미체결',
     leadTone: 'bad',
     rest: ` · 앞선 ${n}건이 한도 안 ${qn(q.ahead_qty)}주 · ${fmtEokMan(q.ahead_amt)} 가져감`,
-    sub: `적어도 ${n + 1}번째 이후`,
+    sub: `적어도 ${n + 1}번째 이후${at}`,
     subTone: 'dim',
   };
 }
