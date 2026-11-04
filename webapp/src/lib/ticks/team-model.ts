@@ -7,7 +7,8 @@
  * ② 선택 틱 손익(D-10) — 커서 이하(거래소순) 마지막 A3 j 까지 본 체결 시각의 최댓값 `runMaxNs[j]` 를 자르는 시각으로,
  *   `fillsUpTo` 이진 탐색 → `pnlAt(prefix, k, lastPx)` · lastPx = A3 j 체결가. 마지막 틱이면 k = 전체 → `teamPnlOf` 와 같다.
  * ③ 차트 — 당일 계단 · 주문 원 · 10분 막대는 **수신 시각**(커서 · 가격 선과 같은 축). 주문 시각 = 마지막 조각(거래소순 끝 자리)
- *   수신 시각 · 계단은 그 순서로 매수 +금액 · 매도 −금액 누적(0 에서 시작).
+ *   수신 시각 · 계단은 그 순서로 매수 +금액 · 매도 −금액 누적(0 에서 시작). 계단마다 매수 · 매도 금액 누적(buy · sell)도
+ *   함께 쌓는다 — net = buy − sell · 순매수 판 거울선(스케치 028 ④) · 띠 당일 팀 칸(스케치 028 ①).
  * ④ NXT(D-13) — 세션의 NXT 런 팀(한 가격 2조각 이상)으로 같은 레이어. 같은 ISIN KRX 와 합산하지 않는다.
  */
 
@@ -50,8 +51,11 @@ export interface TeamModel {
   runMaxNs: BigInt64Array;
   /** 팀 주문(수신 ms 오름차순). */
   teamOrders: TeamOrderPoint[];
-  /** 당일 팀 순매수 계단 — 주문마다 하나(teamOrders 순서) · net = 금액 누적 · qty = 수량 누적. */
-  dayStairs: { tMs: number; net: number; qty: number }[];
+  /**
+   * 당일 팀 순매수 계단 — 주문마다 하나(teamOrders 순서) · net = 금액 누적 · qty = 수량 누적 ·
+   * buy · sell = 그 주문까지 팀 매수 · 매도 금액 누적(net = buy − sell · 순매수 판 거울선 · 띠 당일 팀 칸).
+   */
+  dayStairs: { tMs: number; net: number; qty: number; buy: number; sell: number }[];
   /** 08:00 ~ 20:00 10분 72칸 팀 매수 · 매도 금액(체결 수신 시각 기준). */
   buckets: { buy: Float64Array; sell: Float64Array };
 }
@@ -117,10 +121,14 @@ export function buildTeamModel(session: TickSession): TeamModel {
   const dayStairs: TeamModel['dayStairs'] = [];
   let net = 0;
   let qty = 0;
+  let buyVal = 0;
+  let sellVal = 0;
   for (const o of teamOrders) {
+    if (o.side === 'B') buyVal += o.val;
+    else sellVal += o.val;
     net += o.side === 'B' ? o.val : -o.val;
     qty += o.side === 'B' ? o.qty : -o.qty;
-    dayStairs.push({ tMs: o.tMs, net, qty });
+    dayStairs.push({ tMs: o.tMs, net, qty, buy: buyVal, sell: sellVal });
   }
 
   // ④ 10분 막대(체결 수신 시각)

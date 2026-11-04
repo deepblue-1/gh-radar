@@ -198,7 +198,12 @@ describe('팀 레이어 기하(Task 2) — 당일 계단 · 누적 점 · 10분 
   const x = xOfTick(view, 52, 592);
 
   it('teamDayStairsOf — 0 에서 시작(x = 08:00) · 주문마다 H·V · 끝 = max(마지막 계단, endMs) · 없으면 빈 문자열', () => {
-    const model = { dayStairs: [{ tMs: B.T0 + 5 * H, net: 100, qty: 1 }, { tMs: B.T0 + 6 * H, net: -50, qty: -1 }] };
+    const model = {
+      dayStairs: [
+        { tMs: B.T0 + 5 * H, net: 100, qty: 1, buy: 100, sell: 0 },
+        { tMs: B.T0 + 6 * H, net: -50, qty: -1, buy: 100, sell: 150 },
+      ],
+    };
     const range = dayNetRangeOf(model);
     expect(range).toEqual({ min: -50, max: 100 });
     const y = yOfNet(range, P);

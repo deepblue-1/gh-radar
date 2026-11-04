@@ -63,6 +63,7 @@ describe('천일고속 10/14 — 마지막 틱 KPI = shared teamPnlOf 전체값 
     for (let i = 1; i < model.dayStairs.length; i++) {
       expect(model.dayStairs[i]!.tMs).toBeGreaterThanOrEqual(model.dayStairs[i - 1]!.tMs);
     }
+    for (const d of model.dayStairs) expect(d.net).toBeCloseTo(d.buy - d.sell, 0);
   });
 
   it('중간 틱 KPI = 그 시각 이하 팀 체결만으로 계산한 teamPnlOf(미래 체결이 섞이지 않는다)', () => {
@@ -110,6 +111,10 @@ describe('합성 — 팀 매수 SMP 3조각(984만) · 일반 1조각 · 팀 매
   it('당일 계단 = 주문 끝 시각 순 매수 +금액 · 매도 −금액(0 에서 시작하는 누적)', () => {
     expect(model.dayStairs.map((d) => d.net)).toEqual([9_840_000, 9_840_000 - 6_520_000]);
     expect(model.dayStairs.map((d) => d.qty)).toEqual([600, 200]);
+    // 매수 · 매도 금액 누적(스케치 028 ④ 거울선 · ① 띠) — net = buy − sell
+    expect(model.dayStairs.map((d) => d.buy)).toEqual([9_840_000, 9_840_000]);
+    expect(model.dayStairs.map((d) => d.sell)).toEqual([0, 6_520_000]);
+    for (const d of model.dayStairs) expect(d.net).toBe(d.buy - d.sell);
   });
 
   it('10분 막대 — 13:00 칸(30) 에 매수 984만 · 매도 652만 · 나머지 0', () => {

@@ -240,6 +240,11 @@ function upperBoundF(t: Float64Array, n: number, v: number): number {
   return lo;
 }
 
+/** 시각 t 이하 마지막 가격 점 색인(없으면 −1) — 띠 · 구간 합계의 그 시각 가격. */
+export function priceIdxAt(s: Pick<PriceSeries, 'n' | 't'>, t: number): number {
+  return upperBoundF(s.t, s.n, t) - 1;
+}
+
 /**
  * 열별 솎음 색인 — 창 [t0, t1] 안 점을 열 `floor((t − t0) / 폭 × plotW)` 로 나눠 열마다 첫 · 최소 · 최대 · 끝(색인 오름차순 ·
  * 중복 제거)을 남긴다. 창 바로 앞 한 점 · 바로 뒤 한 점을 더해 선이 창 경계까지 이어지게 한다(클립이 자른다).

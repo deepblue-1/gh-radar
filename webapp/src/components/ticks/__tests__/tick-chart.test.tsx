@@ -122,20 +122,56 @@ describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-0
     expect(q('tick-chart-tip')).toHaveLength(0);
   });
 
-  it('순매수 판 · 10분 판 → 그 시각 계단 · 그 칸', () => {
+  const cellOf = (q: (slot: string) => NodeListOf<Element>, cell: string) =>
+    Array.from(q('tick-band-cell')).find((c) => c.getAttribute('data-cell') === cell)!.textContent ?? '';
+
+  it('고정 띠(스케치 028 ①) — 마우스 없음 = 현재 틱(커서 13:00:00 · 16,400 · 당일 팀 +984만) · 차트 앞 · 4칸', () => {
+    const { q } = renderChart();
+    const band = q('tick-chart-band')[0]!;
+    expect(band.getAttribute('data-live')).toBe('1');
+    expect(q('tick-band-cell')).toHaveLength(4);
+    const price = cellOf(q, 'price');
+    expect(price).toContain('현재 틱');
+    expect(price).toContain('13:00:00');
+    expect(price).toContain('16,400');
+    const team = cellOf(q, 'team');
+    expect(team).toContain('순+984만');
+    expect(team).toContain('매수984만');
+    expect(team).toContain('매도0');
+    // 띠는 차트 래퍼 앞(밖) — 차트를 가리지 않는다
+    const wrap = q('tick-chart-wrap')[0]!;
+    expect(band.compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrap.contains(band)).toBe(false);
+  });
+
+  it('순매수 판 위 마우스 → 띠가 그 시각(당일 팀 +332만 · 10분 칸 매수/매도/순) · 떠다니는 상자 없음 · 나가면 현재 틱', () => {
     const { q } = renderChart();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     box(svg);
+    const liveCls = q('tick-chart-band')[0]!.className;
     const buy = Array.from(q('tick-order-circle')).find((c) => c.getAttribute('data-side') === 'B')!;
     const cx = Number(buy.getAttribute('cx'));
-    // 데스크톱 판: 순매수 [118, 168] · 10분 [175, 215]
     fireEvent.pointerMove(svg, { clientX: cx + 3, clientY: 140, pointerType: 'mouse' });
-    expect(q('tick-chart-tip')[0]!.textContent).toMatch(/^13:00:00 · 당일 순매수 /);
-    fireEvent.pointerMove(svg, { clientX: cx, clientY: 200, pointerType: 'mouse' });
-    expect(q('tick-chart-tip')[0]!.textContent).toBe('13:00~13:10 · 팀 매수 984만 / 매도 652만 / 순 +332만');
+    const band = q('tick-chart-band')[0]!;
+    expect(band.getAttribute('data-live')).toBeNull();
+    expect(band.className).toBe(liveCls);
+    expect(cellOf(q, 'price')).toMatch(/^가격/);
+    const team = cellOf(q, 'team');
+    expect(team).toContain('순+332만');
+    expect(team).toContain('매수984만');
+    expect(team).toContain('매도652만');
+    const slot = cellOf(q, 'slot');
+    expect(slot).toContain('13:00~13:10');
+    expect(slot).toContain('매수984만');
+    expect(slot).toContain('매도652만');
+    expect(slot).toContain('순+332만');
+    expect(q('tick-chart-tip')).toHaveLength(0);
+    fireEvent.pointerLeave(svg);
+    expect(q('tick-chart-band')[0]!.getAttribute('data-live')).toBe('1');
+    expect(cellOf(q, 'price')).toContain('현재 틱');
   });
 
-  it('누적 판 → 그 시각까지 거래량 · 거래대금 · 팀 비중(상장주식수 없으면 시총 대비 없음 · 금액 축)', () => {
+  it('누적 판 축 · 띠 누적 칸 — 거래대금 · 팀 비중 · 거래량(상장주식수 없으면 시총 없음 · 금액 축)', () => {
     const { q } = renderChart();
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     box(svg);
@@ -143,13 +179,17 @@ describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-0
     expect(q('tick-team-share-path')).toHaveLength(1);
     expect(q('tick-turnover-axis')[0]!.textContent).toBe('1,718만0');
     expect(q('tick-share-axis')[0]!.textContent).toBe('100%0%');
-    // 데스크톱 누적 판 [222, 272] · 오른쪽 끝(모든 체결 뒤)
+    // 오른쪽 끝(모든 체결 뒤) · 누적 판 높이
     fireEvent.pointerMove(svg, { clientX: 580, clientY: 250, pointerType: 'mouse' });
-    const lines = Array.from(q('tick-chart-tip')[0]!.children).map((d) => d.textContent);
-    expect(lines).toEqual(['13:00:00까지 · 거래량 1,050주 · 거래대금 1,718만', '팀 1,636만 95.2% · 매수 984만 · 매도 652만']);
+    const tv = cellOf(q, 'turnover');
+    expect(tv).toContain('거래대금1,718만');
+    expect(tv).toContain('팀95.2%');
+    expect(tv).toContain('거래량1,050주');
+    expect(tv).not.toContain('시총');
+    expect(q('tick-chart-tip')).toHaveLength(0);
   });
 
-  it('상장주식수 → 왼쪽 축 · 툴팁이 시총 대비 %', () => {
+  it('상장주식수 → 왼쪽 축 · 띠 누적 칸이 시총 대비 %', () => {
     const { q } = renderChart({ listingShares: 1_000_000 });
     const svg = q('tick-chart-svg')[0] as SVGSVGElement;
     box(svg);
@@ -157,7 +197,7 @@ describe('TickChart — 툴팁(매집감지 차트와 같은 규칙 · 2026-11-0
     const pct = `${(Math.round((17_177_500 / cap) * 1000) / 10).toFixed(1)}%`;
     expect(q('tick-turnover-axis')[0]!.textContent).toBe(`${pct}0.0%`);
     fireEvent.pointerMove(svg, { clientX: 580, clientY: 250, pointerType: 'mouse' });
-    expect(q('tick-chart-tip')[0]!.children[0]!.textContent).toBe(`13:00:00까지 · 거래량 1,050주 · 거래대금 1,718만(시총 대비 ${pct})`);
+    expect(cellOf(q, 'turnover')).toContain(`시총${pct}`);
   });
 });
 

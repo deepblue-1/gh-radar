@@ -7,11 +7,10 @@
  * ① 가격 판 — 마우스 세로선이 지나는 원(|mx − cx| ≤ r + 2) 중 세로로 가장 가까운 원이 씨앗. 씨앗 중심 가로 ± 5px 안의 보이는 원
  *   (창 안 · 가격 > 0 · 세로 무시 · 사슬 없음 · 매수/매도 섞임)이 묶음. 한 원이면 2줄(주문 사실 · 「당일 순매수 · 등락률 · 평단 대비」),
  *   묶음이면 3줄(고른 원 한 줄 · 「묶음 N건 … 합계 · 가격 첫 → 끝」 · 「큰 주문」 상위 3).
- * ② 순매수 판 — 시각 t 이하 마지막 계단 「HH:MM:SS · 당일 순매수 ±X[ · 누적 ±Y(이월 포함) | 누적 —][ · 팀 평단 N원]」.
- *   누적(pos_net)의 끊김 규칙은 매집감지 `cumTipAt` 당일 축 갈래 그대로.
- * ③ 10분 판 — 시각 t 가 든 칸 「HH:MM~HH:MM · 팀 매수 X / 매도 Y / 순 ±Z」(빈 칸은 없음).
- * ④ 누적 판(스케치 022 A) — 시각 t 이하 마지막 A3 까지 「HH:MM:SS까지 · 거래량 N주 · 거래대금 X(시총 대비 n.n%)」 ·
- *   「팀 X n.n% · 매수 Y · 매도 Z」(팀 체결 전이면 「팀 체결 없음」). 시총을 모르면 시총 대비를 뺀다.
+ * ②③④ 고정 띠 모델(스케치 028 ① B · `tickBandAt`) — 판별로 따로 뜨던 툴팁을 차트 위 높이 고정 띠 4칸 한 벌로 바꿨다.
+ *   시각 t(마우스 = 그 시각 · 떼면 현재 틱)의 가격 · 등락률 · 팀 평단 | 당일 팀 순 · 매수 · 매도 누적 · 누적(이월 포함 · 끊김 규칙
+ *   = 매집감지 `cumTipAt` 당일 축 갈래 · `cumNetAt`) | 그 10분 칸 팀 매수 · 매도 | t 이하 마지막 A3 까지 거래대금 · 시총 대비 ·
+ *   팀 비중 · 거래량. 그리기는 `components/ticks/tick-chart-band.tsx`.
  *
  * ⑤ 우리 점(Phase 38-07 · D-08 · D-02 · D-16) — ◆ 체결마다 「우리 체결 n주[ / 전체 m주] · 계좌 ···끝4 · 주문 #…[ · 추정]」 ·
  *   ◇ 「… · 짝 전문 없음」(대기 「… · 전문 아직 안 옴」) · ○ 주문마다 「조건 근거 {종류} · 주문 #…」. 팀 원 툴팁이 뜨는 자리면 씨앗
@@ -26,7 +25,16 @@ import { kstHm } from '@/lib/teamflow-report';
 
 import type { OwnModel } from './own-model';
 import { TEAM_CIRCLE_MIN_VAL, type TeamModel, type TeamOrderPoint } from './team-model';
-import { OWN_MARK_HIT_PAD, OWN_MARK_R, turnoverIdxAt, type OwnMark, type TickPanels, type TurnoverSeries } from './tick-chart';
+import {
+  OWN_MARK_HIT_PAD,
+  OWN_MARK_R,
+  priceIdxAt,
+  turnoverIdxAt,
+  type OwnMark,
+  type PriceSeries,
+  type TickPanels,
+  type TurnoverSeries,
+} from './tick-chart';
 import { MINUS, fmtAmountC, fmtQty } from './tick-format';
 
 /** 원을 그리는 창 여유(창 폭의 2% — 컴포넌트가 그리는 원과 같은 범위). */
@@ -107,7 +115,7 @@ function signedAmount(v: number): string {
 }
 
 /** 부호 붙은 % 2자리(「+5.13%」 · 음수 U+2212). */
-function pct2(v: number): string {
+export function pct2(v: number): string {
   const r = Math.round(v * 100) / 100;
   if (r === 0) return '0.00%';
   return `${r > 0 ? '+' : MINUS}${Math.abs(r).toFixed(2)}%`;
@@ -209,77 +217,112 @@ export function tickOrderHoverOf(
   return hover;
 }
 
-/**
- * 순매수 판 — 시각 t 의 당일 계단(t 이하 마지막 팀 주문) · 누적(pos_net · 있을 때만) · 팀 평단.
- * 누적 점이 없으면 당일 첫 주문 전은 null. 누적 점이 있으면 둘 다 없을 때만 null · 시각 = 둘 중 늦은 점 · 당일 첫 주문 전 값은 0.
- */
-export function tickNetTipAt(
-  model: Pick<TeamModel, 'dayStairs' | 'prefix' | 'fillMs'>,
-  cum: readonly PosNetPoint[],
-  t: number,
-): TickHover | null {
-  const st = model.dayStairs;
-  let k = -1;
-  for (let i = 0; i < st.length; i++) {
-    if (st[i]!.tMs > t) break;
-    k = i;
-  }
-  let kp = -1;
-  for (let i = 0; i < cum.length; i++) {
-    if (cum[i]!.t > t) break;
-    kp = i;
-  }
-  if (k < 0 && kp < 0) return null;
-  const tk = Math.max(k >= 0 ? st[k]!.tMs : -Infinity, kp >= 0 ? cum[kp]!.t : -Infinity);
-  const avg = teamAvgAt(model, tk);
-  const avgText = avg === null ? '' : ` · 팀 평단 ${INT.format(Math.round(avg))}원`;
-  const day = `당일 순매수 ${signedAmount(k >= 0 ? st[k]!.net : 0)}`;
-  if (cum.length === 0) return { key: `c${k}`, lines: [`${kstClock(tk)} · ${day}${avgText}`], circle: null };
-
-  // 누적 조각 끊김(매집감지 posNetPathOf 짝) — 그 점 뒤인데 end ≠ 0 이거나 다음 점 cycle 이 다르면 값 없음
-  let posVal: number | null = null;
-  if (kp >= 0) {
-    const p = cum[kp]!;
-    const next = cum[kp + 1];
-    const gap = tk > p.t && (p.end !== 0 || (next !== undefined && next.cycle !== p.cycle));
-    if (!gap) posVal = p.net;
-  }
-  const posText = posVal === null ? '누적 —' : `누적 ${signedAmount(posVal)}(이월 포함)`;
-  return { key: `c${k}p${kp}`, lines: [`${kstClock(tk)} · ${day} · ${posText}${avgText}`], circle: null };
-}
-
-/** 10분 판 — 시각 t 가 든 칸(08:00 = 0) · 빈 칸 · 범위 밖은 null. */
-export function tickBucketTipAt(model: Pick<TeamModel, 'buckets'>, T0: number, t: number): TickHover | null {
-  const slot = Math.floor((t - T0) / SLOT_MS);
-  const buy = model.buckets.buy[slot];
-  const sell = model.buckets.sell[slot];
-  if (buy === undefined || sell === undefined || (buy <= 0 && sell <= 0)) return null;
-  const s0 = T0 + slot * SLOT_MS;
-  const text =
-    `${kstHm(s0)}~${kstHm(s0 + SLOT_MS)} · 팀 매수 ${fmtAmountC(buy)} / 매도 ${fmtAmountC(sell)}` +
-    ` / 순 ${signedAmount(buy - sell)}`;
-  return { key: `b${slot}`, lines: [text], circle: null };
-}
-
 /** 비율 → 「n.n%」(부호 없음). */
 export function pct1(r: number): string {
   return `${(Math.round(r * 1000) / 10).toFixed(1)}%`;
 }
 
-/** 누적 판 — 시각 t 이하 마지막 A3 까지 누적. 첫 체결 전이면 null. key = `v{색인}`. */
-export function tickTurnoverTipAt(s: TurnoverSeries, t: number, mcap: number | null): TickHover | null {
-  const i = turnoverIdxAt(s, t);
-  if (i < 0) return null;
-  const val = s.val[i]!;
-  const cap = mcap === null ? '' : `(시총 대비 ${pct1(val / mcap)})`;
-  const b = s.teamBuy[i]!;
-  const sl = s.teamSell[i]!;
-  const team =
-    b + sl > 0 ? `팀 ${fmtAmountC(b + sl)} ${pct1(s.share[i]!)} · 매수 ${fmtAmountC(b)} · 매도 ${fmtAmountC(sl)}` : '팀 체결 없음';
+/**
+ * 누적(pos_net · 이월 포함) 시각 t 의 값 — 매집감지 `cumTipAt` 당일 축 갈래의 끊김 규칙(posNetPathOf 짝).
+ * 점이 없거나 첫 점 전이면 null · 그 점 뒤인데 끝난 조각(end ≠ 0)이거나 다음 점 cycle 이 다르면(틈) null · 아니면 그 점 net.
+ */
+export function cumNetAt(cum: readonly PosNetPoint[], t: number): number | null {
+  let kp = -1;
+  for (let i = 0; i < cum.length; i++) {
+    if (cum[i]!.t > t) break;
+    kp = i;
+  }
+  if (kp < 0) return null;
+  const p = cum[kp]!;
+  const next = cum[kp + 1];
+  const gap = t > p.t && (p.end !== 0 || (next !== undefined && next.cycle !== p.cycle));
+  return gap ? null : p.net;
+}
+
+/** 고정 띠 입력 — 세션 팀 모델 · 누적 점 · 가격 · 누적 계열 · 기준가 · 시총 · 하루 시작(08:00). */
+export interface TickBandSource {
+  team: Pick<TeamModel, 'dayStairs' | 'prefix' | 'fillMs' | 'buckets' | 'fills'>;
+  cum: readonly PosNetPoint[];
+  price: Pick<PriceSeries, 'n' | 't' | 'px'>;
+  turnover: TurnoverSeries;
+  basePx: number | null;
+  mcap: number | null;
+  T0: number;
+}
+
+/** 고정 띠 B 한 시각의 네 칸 값(스케치 028 ①) — 모르는 값은 null. */
+export interface TickBand {
+  t: number;
+  clock: string;
+  /** 가격 칸 — 시각 t 이하 마지막 가격 · 기준가 대비 % · 그 시각 팀 평단 · 가격 대비 평단 %. */
+  px: number | null;
+  chgPct: number | null;
+  avg: number | null;
+  avgDiffPct: number | null;
+  /** 당일 팀 칸 — 팀 체결이 하루에 하나라도 있나 · t 이하 마지막 계단(그 전 0). */
+  hasTeam: boolean;
+  dayNet: number;
+  dayBuy: number;
+  daySell: number;
+  /** 누적(이월 포함) — 점이 있나 · 그 시각 값(끊김이면 null). */
+  hasCum: boolean;
+  cum: number | null;
+  /** 10분 칸 — 「HH:MM~HH:MM」 · 그 칸 팀 매수 · 매도(범위 밖 0). */
+  slotLabel: string;
+  slotBuy: number;
+  slotSell: number;
+  /** 누적 칸 — t 이하 마지막 A3 까지 거래대금 · 거래량 · 팀 비중(첫 체결 전 null) · 시총 대비(시총 모르면 null). */
+  tv: number | null;
+  vol: number | null;
+  share: number | null;
+  capRatio: number | null;
+}
+
+/** 고정 띠 모델 — 시각 t 의 가격 | 당일 팀 | 10분 | 누적 네 칸(마우스 = 그 시각 · 떼면 현재 틱). */
+export function tickBandAt(src: TickBandSource, t: number): TickBand {
+  const { team, cum, price, turnover, basePx, mcap, T0 } = src;
+  const pi = priceIdxAt(price, t);
+  const px = pi >= 0 ? price.px[pi]! : null;
+  const chgPct = px !== null && basePx !== null && basePx > 0 ? ((px - basePx) / basePx) * 100 : null;
+  const avg = teamAvgAt(team, t);
+  const avgDiffPct = avg !== null && px !== null ? ((px - avg) / avg) * 100 : null;
+
+  // t 이하 마지막 계단(이진 탐색 · 계단은 수신 시각 오름차순)
+  const st = team.dayStairs;
+  let lo = 0;
+  let hi = st.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (st[mid]!.tMs <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  const step = lo > 0 ? st[lo - 1]! : null;
+
+  const slot = Math.floor((t - T0) / SLOT_MS);
+  const s0 = T0 + slot * SLOT_MS;
+  const ti = turnoverIdxAt(turnover, t);
+  const tv = ti >= 0 ? turnover.val[ti]! : null;
+
   return {
-    key: `v${i}`,
-    lines: [`${kstClock(s.t[i]!)}까지 · 거래량 ${INT.format(s.qty[i]!)}주 · 거래대금 ${fmtAmountC(val)}${cap}`, team],
-    circle: null,
+    t,
+    clock: kstClock(t),
+    px,
+    chgPct,
+    avg,
+    avgDiffPct,
+    hasTeam: team.fills.length > 0,
+    dayNet: step?.net ?? 0,
+    dayBuy: step?.buy ?? 0,
+    daySell: step?.sell ?? 0,
+    hasCum: cum.length > 0,
+    cum: cumNetAt(cum, t),
+    slotLabel: `${kstHm(s0)}~${kstHm(s0 + SLOT_MS)}`,
+    slotBuy: team.buckets.buy[slot] ?? 0,
+    slotSell: team.buckets.sell[slot] ?? 0,
+    tv,
+    vol: ti >= 0 ? turnover.qty[ti]! : null,
+    share: ti >= 0 ? turnover.share[ti]! : null,
+    capRatio: tv !== null && mcap !== null && mcap > 0 ? tv / mcap : null,
   };
 }
 

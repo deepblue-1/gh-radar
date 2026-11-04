@@ -44,12 +44,10 @@ import {
 } from '@/lib/ticks/tick-chart';
 import {
   nearestTickCircleOf,
-  tickBucketTipAt,
+  tickBandAt,
   tickCirclesOf,
   tickHoverWithOwn,
-  tickNetTipAt,
   tickOrderHoverOf,
-  tickTurnoverTipAt,
   pct1,
   type TickHover,
 } from '@/lib/ticks/tick-chart-tip';
@@ -58,6 +56,8 @@ import { fmtAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
+
+import { TickChartBand } from './tick-chart-band';
 
 /**
  * 틱 뷰어 타임라인 차트 (Phase 37 D-00 ① · 스케치 019 D · 매집감지 상세 차트와 같은 레이어 순서 + 스케치 022 A 넷째 판 · 순수 SVG ·
@@ -75,10 +75,10 @@ import { cn } from '@/lib/utils';
  *   주문 원 클릭 = 그 주문 마지막 조각(`onJumpRec`) · `+` `−` `0` 키(← → 는 커서 이동이라 차트가 가로채지 않는다) ·
  *   「1분」「10초」 버튼 = 커서 중심 창 · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
  * ③ 높이 — 측정 폭 < 600 이면 폰 208 · 아니면 데스크톱 287(`height` 로 강제 가능). 폰은 판 제목 글자를 생략한다.
- * ④ 툴팁(2026-11-03 사용자 요청 · 매집감지 상세 차트 `accum-chart.tsx` 와 같은 규칙 · `lib/ticks/tick-chart-tip.ts`) — 마우스가
- *   움직이면 판마다 대상 하나: 가격 판 = 씨앗 원 + 가로 ± 5px 묶음(2개 이상이면 3줄 합산) · 순매수 판 = 그 시각 계단 · 10분 판 = 그 칸 ·
- *   누적 판 = 그 시각까지 거래량 · 거래대금(시총 대비) · 팀 비중.
- *   대상이 바뀔 때만 상태를 바꾸고, 창이 움직이거나 끌기 중 · 포인터가 나가면 지운다. 묶음 원은 고리 1.5 · 고른 원은 2.5.
+ * ④ 고정 띠 B + 가격 판 원 옆 상자(스케치 028 ① · 2026-11-04 채택 · `lib/ticks/tick-chart-tip.ts`) — 판별로 따로 뜨던 툴팁 대신
+ *   머리 아래 · 차트 위에 높이 고정 띠 4칸(`TickChartBand` · 가격 | 당일 팀 | 10분 | 누적). 마우스가 그림 영역 위면 그 시각 값,
+ *   벗어나면 현재 틱 값. 떠다니는 상자는 가격 판 팀 주문 원(씨앗 + 가로 ± 5px 묶음) · 우리 점 위에서만 뜬다.
+ *   반올림 x 나 상자 대상이 바뀔 때만 상태를 바꾸고, 창이 움직이거나 끌기 중 · 포인터가 나가면 지운다. 묶음 원은 고리 1.5 · 고른 원은 2.5.
  *   원 · 막대의 네이티브 `<title>` 은 뺐다(상자와 겹친다 · VI 띠 title 은 남는다). 폰은 길게 누르기(300ms) 살펴보기
  *   (`createTouchInspect`) — 그동안 한 손가락 끌기는 창을 옮기지 않고, 손을 떼도 그 자리로 커서를 옮기지 않는다.
  * ⑤ 우리 체결 · 근거(Phase 38 D-08 · D-10 — `own` 이 있을 때만 · 가격 판만) — 팀 원 위에 ○ 조건 근거(빈 원 · `--mine` 테두리) →
@@ -197,7 +197,8 @@ export function TickChart({
   // 이번 누름이 살펴보기였으면 뗄 때 클릭(시각 점프)으로 치지 않는다
   const inspectedRef = useRef(false);
   const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl, inspectRef);
-  const [hoverState, setHover] = useState<(TickHover & { ax: number; ay: number; vk: string }) | null>(null);
+  // 마우스 자리(viewBox 좌표 · 그림 영역 안만) + 그 자리 가격 판 상자 대상(없으면 null)
+  const [hoverState, setHover] = useState<{ mx: number; my: number; vk: string; box: TickHover | null } | null>(null);
   // 창이 움직이면 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
   const vk = `${view.t0}|${view.t1}`;
   const hover = hoverState !== null && hoverState.vk === vk && !dragging ? hoverState : null;
@@ -297,46 +298,60 @@ export function TickChart({
   const gap = band(bounds.T1530, bounds.T1600);
   const midX = (L + xr) / 2;
 
-  // 판마다 대상 하나 — viewBox 좌표(mx · my) · 그림 영역 안만
+  // 떠다니는 상자 대상 — 가격 판 전용(팀 원 묶음 · 우리 점). 다른 판은 고정 띠가 대신한다(스케치 028 ①).
   const pickAt = (mx: number, my: number): TickHover | null => {
-    if (mx < L || mx > xr) return null;
-    const t = tOfTick(view, L, xr)(mx);
-    if (my >= P.y1a && my <= P.y1b) {
-      const c = nearestTickCircleOf(circles, mx, my, P);
-      const teamHover = c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
-      // 우리 줄은 팀 줄 뒤에 덧붙이기만(D-16 — 팀 줄 문구 · 순서 그대로)
-      return own === null ? teamHover : tickHoverWithOwn(teamHover, marks, own, mx, my, P, ownR);
-    }
-    if (my >= P.y2a && my <= P.y2b) return tickNetTipAt(team, cumPts, t);
-    if (my >= P.y3a && my <= P.y3b) return tickBucketTipAt(team, bounds.T0, t);
-    if (my >= P.y4a && my <= P.y4b) return tickTurnoverTipAt(turnover, t, mcap);
-    return null;
+    if (mx < L || mx > xr || my < P.y1a || my > P.y1b) return null;
+    const c = nearestTickCircleOf(circles, mx, my, P);
+    const teamHover = c === null ? null : tickOrderHoverOf(team, session.basePx, circles, c, view);
+    // 우리 줄은 팀 줄 뒤에 덧붙이기만(D-16 — 팀 줄 문구 · 순서 그대로)
+    return own === null ? teamHover : tickHoverWithOwn(teamHover, marks, own, mx, my, P, ownR);
   };
+  const inPlot = (mx: number, my: number) => mx >= L && mx <= xr && my >= P.y1a && my <= P.y4b;
+  const tAt = tOfTick(view, L, xr);
   const mxOf = (a: TouchAnchor) => (a.x * W) / (a.bw || W);
   const myOf = (a: TouchAnchor) => (a.y * P.H) / (a.bh || P.H);
-  const touchHover = touchPt === null ? null : pickAt(mxOf(touchPt), myOf(touchPt));
-  // 보여줄 대상 — 터치 살펴보기가 마우스보다 앞선다
+  const touchBox = touchPt === null ? null : pickAt(mxOf(touchPt), myOf(touchPt));
+  // 보여줄 상자 — 터치 살펴보기가 마우스보다 앞선다
   const tip =
-    touchHover !== null && touchPt !== null
-      ? { ...touchHover, ax: mxOf(touchPt), ay: myOf(touchPt), touch: true }
-      : hover !== null
-        ? { ...hover, touch: false }
+    touchBox !== null && touchPt !== null
+      ? { ...touchBox, ax: mxOf(touchPt), ay: myOf(touchPt), touch: true }
+      : hover !== null && hover.box !== null
+        ? { ...hover.box, ax: hover.mx, ay: hover.my, touch: false }
         : null;
+
+  // 띠 시각 — 터치(손가락 x · 그림 영역으로 자름) ?? 마우스 ?? 현재 틱. live = 터치 · 마우스 둘 다 없음.
+  const touchT = touchPt === null ? null : tAt(Math.min(xr, Math.max(L, mxOf(touchPt))));
+  const hoverT = touchT ?? (hover !== null ? tAt(hover.mx) : null);
+  const bandT = hoverT ?? cursorMs;
+  const bandLive = hoverT === null;
+  const bandVal =
+    bandT === null
+      ? null
+      : tickBandAt(
+          { team, cum: cumPts, price: series, turnover, basePx: session.basePx, mcap, T0: bounds.T0 },
+          bandT,
+        );
 
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
     if (e.pointerType === 'touch') {
       if (!tracker.move(e)) return;
       const a = anchorOf(e.currentTarget, e.clientX, e.clientY);
-      if ((pickAt(mxOf(a), myOf(a))?.key ?? null) !== (touchHover?.key ?? null)) setTouchPt(a);
+      const moved = touchPt === null || Math.round(mxOf(a)) !== Math.round(mxOf(touchPt));
+      if (moved || (pickAt(mxOf(a), myOf(a))?.key ?? null) !== (touchBox?.key ?? null)) setTouchPt(a);
       return;
     }
     if (dragging) return;
-    const box = e.currentTarget.getBoundingClientRect();
-    const mx = ((e.clientX - box.left) * W) / (box.width || W);
-    const my = ((e.clientY - box.top) * P.H) / (box.height || P.H);
-    const next = pickAt(mx, my);
-    if ((next?.key ?? null) === (hover?.key ?? null)) return;
-    setHover(next === null ? null : { ...next, ax: mx, ay: my, vk });
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) * W) / (rect.width || W);
+    const my = ((e.clientY - rect.top) * P.H) / (rect.height || P.H);
+    if (!inPlot(mx, my)) {
+      if (hoverState !== null) setHover(null);
+      return;
+    }
+    const box = pickAt(mx, my);
+    // 다시 그리기는 viewBox 1px 당 많아야 한 번(휠 이동 프레임 급) — 값은 정확한 mx 로 계산한다
+    if (hover !== null && Math.round(hover.mx) === Math.round(mx) && (hover.box?.key ?? null) === (box?.key ?? null)) return;
+    setHover({ mx, my, vk, box });
   };
 
   // 고리 — 원 하나면 그 원 1.5 · 묶음이면 고른 원 밖 묶음 원마다 1.5 + 고른 원만 2.5
@@ -480,6 +495,8 @@ export function TickChart({
           </button>
         </span>
       </div>
+
+      <TickChartBand band={bandVal} live={bandLive} phone={phone} />
 
       <div
         ref={wrapRef}

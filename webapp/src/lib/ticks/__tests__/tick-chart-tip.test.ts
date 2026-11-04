@@ -18,23 +18,22 @@ import {
   type TurnoverSeries,
 } from '../tick-chart';
 import {
+  cumNetAt,
   nearestTickCircleOf,
   teamAvgAt,
-  tickBucketTipAt,
+  tickBandAt,
   tickCircleGroupOf,
   tickCirclesOf,
   tickHoverWithOwn,
-  tickNetTipAt,
   tickOrderHoverOf,
   tickOwnTipOf,
-  tickTurnoverTipAt,
+  type TickBandSource,
 } from '../tick-chart-tip';
 
 /**
  * 틱뷰어 차트 툴팁(2026-11-03 · 매집감지 상세 차트 툴팁 · 묶음 규칙 이식).
  *
- * 깨지면: 원 위에 마우스를 올려도 그 주문 · 근처 주문 합계가 안 나오거나, 5px 밖 원까지 묶이거나, 순매수 · 10분 판 툴팁 값이
- * 계단 · 막대와 어긋난다.
+ * 깨지면: 원 위에 마우스를 올려도 그 주문 · 근처 주문 합계가 안 나오거나, 5px 밖 원까지 묶이거나, 띠 값이 계단 · 막대와 어긋난다.
  */
 
 const B = tickBoundsOf(SYNTH_DATE);
@@ -66,10 +65,12 @@ function model(): TeamModel {
     qty: o.qty,
     side: o.side,
   }));
-  let net = 0;
+  let buyV = 0;
+  let sellV = 0;
   const dayStairs = teamOrders.map((o) => {
-    net += o.side === 'B' ? o.val : -o.val;
-    return { tMs: o.tMs, net, qty: 0 };
+    if (o.side === 'B') buyV += o.val;
+    else sellV += o.val;
+    return { tMs: o.tMs, net: buyV - sellV, qty: 0, buy: buyV, sell: sellV };
   });
   const buy = new Float64Array(TEAM_BUCKETS);
   const sell = new Float64Array(TEAM_BUCKETS);
@@ -142,42 +143,43 @@ describe('tick-chart-tip — 원 · 묶음', () => {
   });
 });
 
-describe('tick-chart-tip — 순매수 · 10분 판', () => {
+describe('tick-chart-tip — 팀 평단', () => {
   it('teamAvgAt — 체결 전 null · 매수 둘 뒤 평단', () => {
     const m = model();
     expect(teamAvgAt(m, T13 - 1)).toBeNull();
     expect(teamAvgAt(m, T13 + 600)).toBeCloseTo(15_050_000 / 1500, 6);
   });
+});
 
-  it('누적 없음 — 첫 주문 전 null · 그 뒤 「시각 · 당일 순매수 · 팀 평단」', () => {
-    const m = model();
-    expect(tickNetTipAt(m, [], T13 - 1)).toBeNull();
-    const h = tickNetTipAt(m, [], T13 + 10_000)!;
-    expect(h.key).toBe('c2');
-    expect(h.lines).toEqual(['13:00:01 · 당일 순매수 +1,204만 · 팀 평단 10,033원']);
-  });
-
-  it('누적 있음 — 「누적 ±X(이월 포함)」 · 끝난 조각 뒤는 「누적 —」', () => {
-    const m = model();
+/**
+ * 스케치 028 ① 고정 띠 B — 판별 툴팁을 대신하는 그 시각 네 칸 값.
+ * 깨지면: 띠의 당일 팀 · 10분 · 누적 값이 순매수 계단 · 10분 막대 · 넷째 판과 어긋나거나, 누적이 끊긴 자리에 옛 값이 남는다.
+ */
+describe('cumNetAt — 누적(이월 포함) 끊김 규칙(옛 순매수 판 툴팁 「누적 —」)', () => {
+  it('점이 없음 · 첫 점 전 → null · 점 안 → 그 점 net', () => {
     const open: PosNetPoint[] = [{ t: B.T0900, net: 1_000_000_000, cycle: 1, end: 0 }];
-    expect(tickNetTipAt(m, open, T13 - 1)!.lines[0]).toBe('09:00:00 · 당일 순매수 0 · 누적 +10.0억(이월 포함)');
-    expect(tickNetTipAt(m, open, T13 + 10_000)!.lines[0]).toContain('누적 +10.0억(이월 포함)');
-    const closed: PosNetPoint[] = [{ t: B.T0900, net: 1_000_000_000, cycle: 1, end: 1 }];
-    expect(tickNetTipAt(m, closed, T13 + 10_000)!.lines[0]).toContain('누적 —');
+    expect(cumNetAt([], T13)).toBeNull();
+    expect(cumNetAt(open, B.T0900 - 1)).toBeNull();
+    expect(cumNetAt(open, B.T0900)).toBe(1_000_000_000);
+    expect(cumNetAt(open, T13 + 10_000)).toBe(1_000_000_000);
   });
 
-  it('10분 칸 — 「HH:MM~HH:MM · 팀 매수 / 매도 / 순」 · 빈 칸 · 범위 밖 null', () => {
-    const m = model();
-    expect(tickBucketTipAt(m, B.T0, T13 + 5_000)!.lines).toEqual([
-      '13:00~13:10 · 팀 매수 1,505만 / 매도 2,342만 / 순 −837만',
-    ]);
-    expect(tickBucketTipAt(m, B.T0, T13 + 700_000)).toBeNull();
-    expect(tickBucketTipAt(m, B.T0, B.T0 - 1)).toBeNull();
+  it('끝난 조각(end ≠ 0) 뒤 · cycle 이 바뀌기 전 틈 → null(그 점 시각 자체는 값)', () => {
+    const closed: PosNetPoint[] = [{ t: B.T0900, net: 1_000_000_000, cycle: 1, end: 1 }];
+    expect(cumNetAt(closed, B.T0900)).toBe(1_000_000_000);
+    expect(cumNetAt(closed, T13)).toBeNull();
+    const cyc: PosNetPoint[] = [
+      { t: B.T0900, net: 5, cycle: 1, end: 0 },
+      { t: T13, net: 7, cycle: 2, end: 0 },
+    ];
+    expect(cumNetAt(cyc, T13 - 1)).toBeNull();
+    expect(cumNetAt(cyc, T13)).toBe(7);
   });
 });
 
-describe('누적 판 툴팁 — 그 시각까지 거래량 · 거래대금(시총 대비) · 팀 비중', () => {
+describe('tickBandAt — 고정 띠 네 칸(가격 | 당일 팀 | 10분 | 누적)', () => {
   const f = (a: number[]) => Float64Array.from(a);
+  const price = { n: 3, t: f([T13, T13 + 500, T13 + 1000]), px: f([10_000, 10_100, 10_050]) };
   const tv: TurnoverSeries = {
     n: 3,
     t: f([T13, T13 + 1000, T13 + 2000]),
@@ -188,19 +190,54 @@ describe('누적 판 툴팁 — 그 시각까지 거래량 · 거래대금(시�
     teamSell: f([0, 0, 1_000_000]),
     share: f([0, 5 / 6, 0.6]),
   };
-
-  it('첫 체결 앞 → null · 팀 체결 전 → 「팀 체결 없음」', () => {
-    expect(tickTurnoverTipAt(tv, T13 - 1, null)).toBeNull();
-    expect(tickTurnoverTipAt(tv, T13 + 500, null)!.lines).toEqual(['13:00:00까지 · 거래량 100주 · 거래대금 100만', '팀 체결 없음']);
+  const src = (over: Partial<TickBandSource> = {}): TickBandSource => ({
+    team: model(),
+    cum: [],
+    price,
+    turnover: tv,
+    basePx: 9_500,
+    mcap: null,
+    T0: B.T0,
+    ...over,
   });
 
-  it('시총을 알면 시총 대비 · 팀 금액 · 비중 · 매수/매도 · key = 점 색인', () => {
-    const h = tickTurnoverTipAt(tv, T13 + 5000, 1_000_000_000)!;
-    expect(h.key).toBe('v2');
-    expect(h.lines).toEqual([
-      '13:00:02까지 · 거래량 1,000주 · 거래대금 1,000만(시총 대비 1.0%)',
-      '팀 600만 60.0% · 매수 500만 · 매도 100만',
-    ]);
+  it('첫 체결 전 — 가격 · 거래대금 null · 당일 순/매수/매도 0 · 10분 칸 0', () => {
+    const b = tickBandAt(src(), T13 - 1);
+    expect(b.px).toBeNull();
+    expect(b.chgPct).toBeNull();
+    expect(b.avg).toBeNull();
+    expect([b.dayNet, b.dayBuy, b.daySell]).toEqual([0, 0, 0]);
+    expect([b.tv, b.vol, b.share, b.capRatio]).toEqual([null, null, null, null]);
+    expect([b.slotBuy, b.slotSell]).toEqual([0, 0]);
+    expect(b.slotLabel).toBe('12:50~13:00');
+    expect(b.hasTeam).toBe(true);
+    expect(b.hasCum).toBe(false);
+  });
+
+  it('13:00:00.600 — 당일 매수 1,505만 · 매도 0 · 팀 평단 = teamAvgAt · 10분 칸 = buckets[30] · 누적 = 그 시각 A3', () => {
+    const m = model();
+    const b = tickBandAt(src({ team: m }), T13 + 600);
+    expect(b.clock).toBe('13:00:00');
+    expect(b.px).toBe(10_100);
+    expect(b.chgPct).toBeCloseTo(((10_100 - 9_500) / 9_500) * 100, 9);
+    expect([b.dayBuy, b.daySell, b.dayNet]).toEqual([15_050_000, 0, 15_050_000]);
+    expect(b.avg).toBe(teamAvgAt(m, T13 + 600));
+    expect(b.avgDiffPct).toBeCloseTo(((10_100 - b.avg!) / b.avg!) * 100, 9);
+    expect(b.slotLabel).toBe('13:00~13:10');
+    expect([b.slotBuy, b.slotSell]).toEqual([m.buckets.buy[30], m.buckets.sell[30]]);
+    expect([b.tv, b.vol, b.share]).toEqual([1_000_000, 100, 0]);
+    expect(b.capRatio).toBeNull();
+  });
+
+  it('시총을 알면 capRatio = 거래대금 ÷ 시총 · 기준가 모르면 등락률 null · 누적 점 있으면 hasCum', () => {
+    const cum: PosNetPoint[] = [{ t: B.T0900, net: 1_000_000_000, cycle: 1, end: 0 }];
+    const b = tickBandAt(src({ mcap: 1_000_000_000, basePx: null, cum }), T13 + 5_000);
+    expect(b.capRatio).toBeCloseTo(0.01, 9);
+    expect(b.share).toBeCloseTo(0.6, 9);
+    expect(b.chgPct).toBeNull();
+    expect(b.hasCum).toBe(true);
+    expect(b.cum).toBe(1_000_000_000);
+    expect([b.dayBuy, b.daySell]).toEqual([15_050_000, 3_015_000]);
   });
 });
 
