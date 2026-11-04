@@ -167,6 +167,8 @@
  *   58/59 GetQuoteResp · QuoteUpdate   → 전역 스냅샷 캐시 + `"market"` (q)
  *   69/71 TradeTapeResp · TradeTapePush → 전역 링버퍼 + 전역 200ms 배치 + `"market"` (tape · full 소켓만)
  *   85    LimitFeature                 → 전역 키 캐시(키별 마지막 1프레임) + `"market"` (limit.feature · full 소켓만 · 28-01)
+ *   95    AccumPriceBatch              → 전역 isin 캐시(병합 · ready 마다 비움) + `"accumPrices"` (인증 소켓 전부 · accum.prices ·
+ *                                          quick-261104-nxs). `"market"` 경로가 아니다 — 키 구독자가 아니라 인증 소켓 전부로 간다.
  *   79    ObserverLoginResp            → 무시 (feed 가 스스로 소비한다)
  *   76/78 RateCrossAlert · Snapshot    → 무시 (돌파 원천은 사용자 세션 그대로 — RESEARCH Open Q2 RESOLVED 무시안)
  *   83    QueueProgress                → 무시 (사용자 세션 ② 경로가 계좌 필터 뒤 캐시 — Pattern 10 ① · T-25-24)
@@ -175,6 +177,8 @@
  *   그 밖                              → `default:` — `unhandledFrameCount` 계수 (PC-12 게이트 공유)
  * 반대로 **사용자 세션**으로 58/59/69/71/85 가 오면 구독이 없으니 이상 신호다 — 명시 case warn 뒤 버린다.
  * 86/87(Phase 29 admin 응답)도 사용자 세션 · quote 연결 어느 쪽으로 오든 admin 연결 전용이라 명시 case warn 뒤 버린다.
+ * 95(quick-261104-nxs)는 88 과 같은 접속 연결 전부로 오므로 사용자 세션에도 정상으로 온다 — 명시 case 로 받아 **debug 무시**한다
+ * (원천은 quote 연결 하나 · `unhandledFrameCount` 불변).
  *
  * 캐시에 담는 형태는 **이미 Number 로 좁혀진 wire JSON**(`RelayQuote`/`RelayTapeEntry`)이다.
  * 게이트웨이의 64비트 정수 변환은 `envelope.ts` 파서가 한 번만 하고, 여기서는 매 push 마다
@@ -193,6 +197,8 @@ import { EventEmitter } from "node:events";
 import type {
   RelayAccount,
   RelayAccountState,
+  RelayAccumPriceItem,
+  RelayAccumPricesMsg,
   RelayExchange,
   RelayLimitChaser,
   RelayLimitFeatureMsg,
@@ -228,6 +234,7 @@ import {
   buildSubscribeQuoteReq,
   maskAccountNo,
   parseAccountState,
+  parseAccumPriceBatch,
   parseDisableStrategiesResp,
   parseLimitChaserEcho,
   parseLimitChaserList,
@@ -649,9 +656,12 @@ export interface SubscriptionHub {
   on(event: "fanout", listener: (e: HubFanoutEvent) => void): this;
   on(event: "market", listener: (e: HubMarketEvent) => void): this;
   on(event: "order", listener: (e: HubOrderEvent) => void): this;
+  /** 95 매집 현재가(quick-261104-nxs) — 인증된 브라우저 소켓 **전부**로 간다(키 구독자 경로 `"market"` 과 별개). */
+  on(event: "accumPrices", listener: (msg: RelayAccumPricesMsg) => void): this;
   emit(event: "fanout", e: HubFanoutEvent): boolean;
   emit(event: "market", e: HubMarketEvent): boolean;
   emit(event: "order", e: HubOrderEvent): boolean;
+  emit(event: "accumPrices", msg: RelayAccumPricesMsg): boolean;
 }
 
 /** 플러시 대기 중인 체결 배치 1건. */
@@ -975,6 +985,14 @@ export class SubscriptionHub extends EventEmitter {
    * 「잠김 N초째」 를 지금 값처럼 스냅샷으로 내리고, 서버는 새 구독에 재송신하지 않아 다음 85 까지 그대로 남는다.
    */
   readonly #limitFeatures = new Map<string, RelayLimitFeatureMsg>();
+  /**
+   * 95 매집 현재가 전역 캐시(isin → 마지막 원소 · 1벌 · quick-261104-nxs). 정기 묶음 · 로그인 스냅샷 프레임 모두 **병합만** 하고
+   * 제거하지 않는다(95 에는 제거 의미가 없다) — 크기는 그날 quote 주 서버의 매집 감시 종목 수 이하이고, quote 연결이 새로
+   * ready 될 때마다 비운다(`resubscribeAll`). 웹 소켓 인증 직후 스냅샷(`getAccumPrices`)의 원천이다.
+   */
+  readonly #accumPrices = new Map<string, RelayAccumPriceItem>();
+  /** ready 뒤 첫 비지 않은 95 를 info 1줄로 남겼는가 — 배포 뒤 「구 서버 = 95 없음」 판별용. ready 마다 되돌린다. */
+  #accumPricesSeen = false;
   /** `marketKey` → 플러시 대기 배치 (전역). */
   readonly #pendingTapes = new Map<string, PendingTape>();
   /** 전역 배치 타이머 **1개** (키 · 사용자 단위로 만들지 않는다 — D-35). */
@@ -2070,6 +2088,12 @@ export class SubscriptionHub extends EventEmitter {
     this.#pacer.reset();
     // 새 연결은 85 를 재송신하지 않는다 — 끊긴 동안의 값은 모르므로 키 캐시를 통째로 비운다(WR-A01).
     this.#limitFeatures.clear();
+    // 95 캐시도 비운다(quick-261104-nxs) — 새 연결(재접속 · 시세 주 서버 전환)은 로그인 89 뒤 95 스냅샷으로 다시 채운다.
+    // 옛 서버 값을 남기면 웹이 그 종목의 구독 폴백을 끈 채 묵은 값을 본다. 구 서버는 95 가 없어 웹은 전부 구독 폴백이 된다.
+    // 빈 snap 을 인증 소켓 전부에 내려 웹 쪽 값도 함께 지운다.
+    this.#accumPrices.clear();
+    this.#accumPricesSeen = false;
+    this.emit("accumPrices", { t: "accum.prices", snap: true, items: [] });
     // linger 키(D-10)는 되걸지 않고 정리한다 — 새 연결에는 구독이 없고 소비자도 없다(29(false) 도 보낼 것이 없다).
     const lingered = [...this.#lingering.keys()];
     for (const key of lingered) this.#releaseKey(key, "quote 연결 재접속 — linger 키 정리", false);
@@ -2458,6 +2482,11 @@ export class SubscriptionHub extends EventEmitter {
     return this.#limitFeatures.get(marketKey(isin, exchange));
   }
 
+  /** 95 매집 현재가 캐시 전체의 복사 배열(quick-261104-nxs) — 웹 소켓 인증 직후 `accum.prices` snap 의 원천. */
+  getAccumPrices(): RelayAccumPriceItem[] {
+    return [...this.#accumPrices.values()];
+  }
+
   /** 최근 체결 링버퍼(전역)의 복사본 — 아직 플러시 안 된 대기분까지 포함한 원본 그대로(진단 · 테스트용). */
   getTape(isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
     const ring = this.#tapes.get(marketKey(isin, exchange));
@@ -2638,6 +2667,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#quotes.clear();
     this.#tapes.clear();
     this.#limitFeatures.clear();
+    this.#accumPrices.clear();
     this.#accountStates.clear();
     this.#accountStateAtMs.clear();
     this.#limitChasers.clear();
@@ -2888,6 +2918,12 @@ export class SubscriptionHub extends EventEmitter {
         // warn 을 남기고 버린다(`unhandledFrameCount` 불변).
         logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 admin 전용 프레임 — 무시");
         return;
+      case MSG.AccumPriceBatch:
+        // 95 는 88 과 같은 접속 연결 전부로 오므로 사용자 세션에도 정상으로 온다(quick-261104-nxs · PC-12 같은 커밋).
+        // 매집 현재가 원천은 quote 연결 하나다 — 여기서 캐시 · 방출하면 원천이 둘이 된다(돌파 76/78 이 quote 쪽을 무시하는
+        // 것과 반대 방향의 같은 원칙). 정상 수신이라 warn 이 아니라 debug 다.
+        logger.debug({ userId, msgType: e.msgType }, "[HUB] 사용자 세션 95 — 무시 (매집 현재가 원천은 quote 연결 하나)");
+        return;
       default:
         // 16-04 가 화이트리스트를 19종으로, 17-03 이 22종으로 넓힌 뒤에도 **여기로 조용히
         // 떨어지는 프레임은 0**이다 (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
@@ -3132,6 +3168,13 @@ export class SubscriptionHub extends EventEmitter {
         this.#onLimitFeature(lf);
         return;
       }
+      case MSG.AccumPriceBatch: {
+        const frame = parseAccumPriceBatch(e.env);
+        // null 이면 파서가 이미 사유·카운터를 남겼다.
+        if (frame === null) return;
+        this.#onAccumPrices(frame.items, frame.snapshot);
+        return;
+      }
       case MSG.ObserverLoginResp:
         // feed 가 스스로 소비한다(26-02) — ready 뒤 재수신은 이상하지만 해석할 것이 없다.
         return;
@@ -3190,6 +3233,21 @@ export class SubscriptionHub extends EventEmitter {
     // price 플래그 = PRICE 소켓에 보낼지(D-06 — 키 단위 1회). fanout 은 소켓 level 로만 거른다.
     const price = this.#priceFlag(key, refs, prev, quote);
     this.emit("market", { key, msg: quote, full: true, price });
+  }
+
+  /**
+   * 95 매집 현재가(quick-261104-nxs). 원소를 전역 캐시에 병합하고 `snap: false` 로 인증 소켓 전부에 흘린다 — 정기 묶음과
+   * 로그인 스냅샷(`is_snapshot` · 512개씩 여러 프레임) 둘 다 병합이다(전량 교체는 relay 가 만드는 snap:true 뿐).
+   * 원소 0 프레임은 방출하지 않는다(보낼 것이 없다).
+   */
+  #onAccumPrices(items: RelayAccumPriceItem[], snapshot: boolean): void {
+    if (items.length === 0) return;
+    for (const item of items) this.#accumPrices.set(item.i, item);
+    if (!this.#accumPricesSeen) {
+      this.#accumPricesSeen = true;
+      logger.info({ count: items.length, snapshot }, "[HUB] 매집 현재가 95 수신 — 웹 원천 켜짐");
+    }
+    this.emit("accumPrices", { t: "accum.prices", snap: false, items });
   }
 
   /**

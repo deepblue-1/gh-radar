@@ -77,6 +77,13 @@
  *   (`AdminConn` 이 request_id 로 비행 중 op 9 와 짝짓는다), 사용자 세션 · quote 연결로 오면 86/87 과 같은
  *   **명시 warn case** 가 버린다. 화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
  *
+ *   quick-261104-nxs 가 **95 `AccumPriceBatch`** 를 더한다(32종 — gh-trade quick-261104-k9l · fbs 4695bd48 · Envelope 슬롯
+ *   vtable 114 · 인박스 261104-accum-price-batch-buckets). 하류 책임은 이렇다 — 파서는 `envelope.ts` 의 `parseAccumPriceBatch`
+ *   이고, `SubscriptionHub.#onFeedFrame`(quote 관찰자 연결)에 **명시 `case`** 가 있다. 그 case 가 **전역 isin 캐시**(병합 ·
+ *   ready 마다 비움)에 넣고 `"accumPrices"` 이벤트로 **인증된 브라우저 소켓 전부**에 `{t:"accum.prices"}` 로 흘린다. 95 는
+ *   88 과 같은 접속 연결 전부로도 오므로 사용자 세션(`#onFrame`)에도 오는데, 거기서는 **명시 `case`** 로 받아 debug 후
+ *   무시한다 — 원천을 둘로 만들지 않는다(`unhandledFrameCount()` 불변). 화이트리스트와 명시 case 는 **같은 커밋**이다(PC-12).
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -268,6 +275,12 @@ export const MSG = {
    * **요청 연결(admin)에만** Notice · `request_id` 에코 · op 9 뒤 1프레임(86 없음) · op 8 실제 변경 뒤 86 다음 1프레임.
    */
   LaunchPlanSnapshot: 94,
+  /**
+   * 매집 현재가 묶음 (`accum_price_batch` Envelope 슬롯 vtable 114 · quick-261104-nxs — gh-trade quick-261104-k9l ·
+   * fbs 4695bd48). 정기 묶음 = 300ms 마다 직전 송신 뒤 값이 바뀐 매집 감시 종목만 **Broadcast**(quote 관찰자도 받는다),
+   * 로그인 스냅샷 = 로그인 89 뒤 그 연결에만 `is_snapshot` Notice · 512개씩 여러 프레임. relay 원천은 **quote 연결 하나**다.
+   */
+  AccumPriceBatch: 95,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -286,7 +299,8 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
  *   응답 79·80 을 더해 **25종**, 25-06 이 잔량진행률 83 을 더해 **26종**, 27-01 이 사용자 설정 84 를
  *   더해 **27종**, 28-01 이 상한가 특징 85 를 더해 **28종**, 29-02 가 admin 응답 86·87 을 더해
- *   **30종**, 35-16 이 발사 계획 스냅샷 94 를 더해 **31종**이다. 이 집합은
+ *   **30종**, 35-16 이 발사 계획 스냅샷 94 를 더해 **31종**, quick-261104-nxs 가 매집 현재가 묶음 95 를 더해
+ *   **32종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -323,6 +337,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.AdminCommandResp,
   MSG.AdminUsersSnapshot,
   MSG.LaunchPlanSnapshot,
+  MSG.AccumPriceBatch,
 ]);
 
 /**

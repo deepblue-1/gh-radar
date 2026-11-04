@@ -42,6 +42,7 @@ import type {
   OrderType,
   RelayAccount,
   RelayAccountState,
+  RelayAccumPriceItem,
   RelayExchange,
   RelayHolding,
   RelayKrxSession,
@@ -69,6 +70,7 @@ import type {
 
 import { logger } from "../logger.js";
 import { AccountEntry } from "../generated/stock-dma/account-entry.js";
+import { AccumPriceItem } from "../generated/stock-dma/accum-price-item.js";
 import { AutoSellCommandReq } from "../generated/stock-dma/auto-sell-command-req.js";
 import { ConfirmVIOrderReq } from "../generated/stock-dma/confirm-viorder-req.js";
 import { DirectOrderReq } from "../generated/stock-dma/direct-order-req.js";
@@ -193,6 +195,11 @@ export const MAX_ADMIN_USERS = 2000;
 export const MAX_LAUNCH_PLAN_ENTRIES = 16;
 /** 발사 계획 한 칸의 offsets 벡터 상한 (35-16). 서버 `max_pieces` 허용 1~64(119/120 = 10). */
 export const MAX_LAUNCH_PLAN_OFFSETS = 64;
+/**
+ * 매집 현재가 묶음(95) 1프레임 원소 상한 (quick-261104-nxs · T-nxs-01). 서버 한 프레임 상한 512(로그인 스냅샷을 512개씩
+ * 자른다) 그대로다 — 깨진 벡터 길이로 순회가 폭주하는 것만 막는다(초과분은 앞 512건 · `takeCount` 경고).
+ */
+export const MAX_ACCUM_PRICE_ITEM_COUNT = 512;
 
 /** 12자 ISIN — 앞 2자는 국가코드(영문), 나머지 10자는 영숫자. */
 const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{10}$/;
@@ -1005,6 +1012,49 @@ export function parseLimitFeature(env: Envelope): RelayLimitFeatureMsg | null {
     upperMaxFillDate: lf.upperMaxFillDate(),
     upperMaxFillAuction: lf.upperMaxFillAuction(),
   };
+}
+
+/** 95 한 프레임의 파싱 결과 — `snapshot` 은 본문 `is_snapshot`(로그인 스냅샷 Notice), `items` 는 살아남은 원소. */
+export type AccumPriceBatchFrame = { snapshot: boolean; items: RelayAccumPriceItem[] };
+
+/**
+ * 매집 현재가 묶음 (95 — `accum_price_batch` 슬롯 vtable 114 · quick-261104-nxs).
+ *
+ * ① 원소 = `{ i: isin, p: last_price, r: change_rate, b: base_price }`. uint 두 칸은 flatbuffers TS 에서 number 라
+ *    `toNum` 이 필요 없다. `base_price` 0 = 미상(그대로 싣는다).
+ * ② **원소 단위로 버린다** — null · ISIN 형식 위반 · `last_price`/`change_rate` 비유한수인 원소만 빼고 나머지는 적용한다.
+ *    95 는 병합 전용 스트림(집합 의미 없음)이라 78 과 달리 프레임째 버리면 멀쩡한 종목 값이 다음 값 변화까지 묵는다.
+ *    버린 것이 있으면 프레임당 warn 1줄.
+ * ③ 빈 벡터는 `items: []` 다(null 아님) — 정상 프레임이다.
+ */
+export function parseAccumPriceBatch(env: Envelope): AccumPriceBatchFrame | null {
+  const msgType = MSG.AccumPriceBatch;
+  const batch = env.accumPriceBatch();
+  if (batch === null) return dropField("slot-null", msgType, { slot: "accum_price_batch" });
+
+  const n = takeCount(batch.itemsLength(), MAX_ACCUM_PRICE_ITEM_COUNT, "매집 현재가 묶음");
+  const items: RelayAccumPriceItem[] = [];
+  const scratch = new AccumPriceItem();
+  let skipped = 0;
+  for (let k = 0; k < n; k += 1) {
+    const a = batch.items(k, scratch);
+    if (a === null) {
+      skipped += 1;
+      continue;
+    }
+    const isin = a.isin() ?? "";
+    const p = a.lastPrice();
+    const r = a.changeRate();
+    if (!isValidIsin(isin) || !Number.isFinite(p) || !Number.isFinite(r)) {
+      skipped += 1;
+      continue;
+    }
+    items.push({ i: isin, p, r, b: a.basePrice() });
+  }
+  if (skipped > 0) {
+    logger.warn({ msgType, skipped, total: n }, "[DMA] 95 원소 일부 버림 — 나머지는 적용");
+  }
+  return { snapshot: batch.isSnapshot(), items };
 }
 
 /**

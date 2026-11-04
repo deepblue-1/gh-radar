@@ -8,6 +8,8 @@ export { AccumBucket } from './stock-dma/accum-bucket.js';
 export { AccumChartOrder } from './stock-dma/accum-chart-order.js';
 export { AccumChartResp } from './stock-dma/accum-chart-resp.js';
 export { AccumChartSample } from './stock-dma/accum-chart-sample.js';
+export { AccumPriceBatch } from './stock-dma/accum-price-batch.js';
+export { AccumPriceItem } from './stock-dma/accum-price-item.js';
 export { AccumSignal } from './stock-dma/accum-signal.js';
 export { AccumSnapshot } from './stock-dma/accum-snapshot.js';
 export { AdminAccount } from './stock-dma/admin-account.js';

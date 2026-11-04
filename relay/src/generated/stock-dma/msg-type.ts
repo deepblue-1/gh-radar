@@ -80,5 +80,6 @@ export enum MsgType {
   SetOpenArbResp = 91,
   OpenArbJudgement = 92,
   OpenArbPreview = 93,
-  LaunchPlanSnapshot = 94
+  LaunchPlanSnapshot = 94,
+  AccumPriceBatch = 95
 }

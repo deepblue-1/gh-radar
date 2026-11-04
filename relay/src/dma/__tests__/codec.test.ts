@@ -284,16 +284,23 @@ describe("MSG 상수", () => {
     expect(INBOUND_MSG_TYPES.has(94)).toBe(true);
   });
 
-  it("Phase 35 INBOUND_MSG_TYPES 는 응답 대역(50~94)만 담는다 — 31종", () => {
+  it("quick-261104-nxs 매집 현재가 묶음 95 — 생성 enum 과 같고 수신 화이트리스트에 있다(gh-trade k9l · fbs 4695bd48)", () => {
+    expect(MSG.AccumPriceBatch).toBe(MsgType.AccumPriceBatch);
+    expect(MSG.AccumPriceBatch).toBe(95);
+    expect(INBOUND_MSG_TYPES.has(95)).toBe(true);
+  });
+
+  it("quick-261104-nxs INBOUND_MSG_TYPES 는 응답 대역(50~95)만 담는다 — 32종", () => {
     // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
     // + 19-09 관찰자 응답 79·80 + 25-06 잔량진행률 83 = 26종 + 27-01 사용자 설정 84 = 27종
-    // + 28-01 상한가 특징 85 = 28종 + 29-02 admin 응답 86·87 = 30종 + 35-16 발사 계획 스냅샷 94 = 31종.
+    // + 28-01 상한가 특징 85 = 28종 + 29-02 admin 응답 86·87 = 30종 + 35-16 발사 계획 스냅샷 94 = 31종
+    // + quick-261104-nxs 매집 현재가 묶음 95 = 32종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(31);
+    expect(INBOUND_MSG_TYPES.size).toBe(32);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(94);
+      expect(v).toBeLessThanOrEqual(95);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);

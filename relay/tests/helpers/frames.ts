@@ -14,6 +14,8 @@ import * as flatbuffers from "flatbuffers";
 
 import { AccountEntry } from "../../src/generated/stock-dma/account-entry.js";
 import { AccountState } from "../../src/generated/stock-dma/account-state.js";
+import { AccumPriceBatch } from "../../src/generated/stock-dma/accum-price-batch.js";
+import { AccumPriceItem } from "../../src/generated/stock-dma/accum-price-item.js";
 import { DisableStrategiesResp } from "../../src/generated/stock-dma/disable-strategies-resp.js";
 import { Envelope } from "../../src/generated/stock-dma/envelope.js";
 import { HoldingState } from "../../src/generated/stock-dma/holding-state.js";
@@ -2180,6 +2182,53 @@ export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput 
   // 생성 enum 을 쓴다 — 「94 는 INBOUND 에 있다」 단언이 이 빌더에 기대지 않게.
   Envelope.addMsgType(b, MsgType.LaunchPlanSnapshot);
   Envelope.addLaunchPlanSnapshot(b, snap);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// quick-261104-nxs — 95 매집 현재가 묶음
+// ============================================================
+
+/** 95 원소 1건 입력. 생략한 칸은 기본값(SAMPLE_ISIN · 12,500원 · 18.2% · 기준가 10,576원). */
+export type FakeAccumPriceItemInput = {
+  isin?: string;
+  lastPrice?: number;
+  changeRate?: number;
+  basePrice?: number;
+};
+
+/**
+ * 매집 현재가 묶음 프레임 (95 · `accum_price_batch` 슬롯 vtable 114). `items` 생략 = 기본 원소 1개, `[]` = 빈 벡터.
+ *
+ * 원소 테이블(문자열 포함)을 **전부 끝낸 뒤** 벡터를 만든다 — 테이블 빌드 중에 벡터를 열면 flatbuffers 가 중첩 오류를 낸다
+ * (Pitfall 2 · `buildRateCrossSnapshotFrame` 동형).
+ */
+export function buildAccumPriceBatchFrame(
+  input: { items?: FakeAccumPriceItemInput[]; isSnapshot?: boolean } = {},
+): Uint8Array {
+  const b = new flatbuffers.Builder(1024);
+  const items = input.items ?? [{}];
+
+  const offsets = items.map((item) => {
+    const isin = b.createString(item.isin ?? SAMPLE_ISIN);
+    AccumPriceItem.startAccumPriceItem(b);
+    AccumPriceItem.addIsin(b, isin);
+    AccumPriceItem.addLastPrice(b, item.lastPrice ?? 12_500);
+    AccumPriceItem.addChangeRate(b, item.changeRate ?? 18.2);
+    AccumPriceItem.addBasePrice(b, item.basePrice ?? 10_576);
+    return AccumPriceItem.endAccumPriceItem(b);
+  });
+  const vector = AccumPriceBatch.createItemsVector(b, offsets);
+
+  AccumPriceBatch.startAccumPriceBatch(b);
+  AccumPriceBatch.addItems(b, vector);
+  AccumPriceBatch.addIsSnapshot(b, input.isSnapshot ?? false);
+  const batch = AccumPriceBatch.endAccumPriceBatch(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.AccumPriceBatch);
+  Envelope.addAccumPriceBatch(b, batch);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

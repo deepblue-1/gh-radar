@@ -148,6 +148,7 @@ import type {
   RelayInbound,
   RelayLcArmMsg,
   RelayNxtSnapMsg,
+  RelayAccumPricesMsg,
   RelayJournalStateMsg,
   RelayOutbound,
   RelayQuoteStateMsg,
@@ -797,6 +798,8 @@ export class WsFanout {
     this.#hub.on("fanout", (e) => this.#deliver(e.userId, e.msg));
     // 공개 시세는 키 단위다 (Phase 26 D-12) — 그 키를 잡은 소켓에만, 소켓 level 로 거른다.
     this.#hub.on("market", (e) => this.#deliverMarket(e));
+    // 95 매집 현재가(quick-261104-nxs)는 키 구독과 무관하게 인증된 소켓 전부로 간다.
+    this.#hub.on("accumPrices", (msg) => this.#broadcastAccumPrices(msg));
 
     // 주문 상관 (D-02). `send` 로 `#send` 를 넘기는 것이 핵심이다 — 핸들러가 소켓을 직접
     // 잡으면 전송 경로가 두 벌이 되고, 한쪽이 대상 선택을 틀리는 순간 타인의 체결이 샌다.
@@ -1921,6 +1924,10 @@ export class WsFanout {
     // quote 연결 disabled · 판정 전의 「모름」 을 live/down 으로 지어내지 않는다.
     const quoteFrame = this.#quoteState?.frame() ?? null;
     if (quoteFrame !== null) this.#send(conn, quoteFrame);
+    // ⚠️ `accum.prices` snap:true 는 `rate.cross.snap` 과 같다 — **비어 있어도 1프레임 보낸다** (quick-261104-nxs).
+    //    빈 배열은 「95 값을 아는 종목 없음」 의 확정 정보다 — 웹은 snap 이면 Map 을 전량 교체하므로 옛 소켓의 값이
+    //    지워지고 매집 패널은 그 종목들을 구독 폴백으로 돌린다(구 서버 = 95 부재 = 늘 빈 배열).
+    this.#send(conn, { t: "accum.prices", snap: true, items: this.#hub.getAccumPrices() });
   }
 
   /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */
@@ -1944,6 +1951,19 @@ export class WsFanout {
     if (frame === null) return;
     for (const entry of this.#users.values()) {
       for (const conn of entry.conns) this.#send(conn, frame);
+    }
+  }
+
+  /**
+   * 95 매집 현재가 묶음을 인증된 모든 연결에 내린다 (quick-261104-nxs).
+   *
+   * `#broadcastNxtSnap` 과 같은 순회다 — `#users` 만 돌므로 미인증 · 자격증명 미등록 연결에는 가지 않는다. 싣는 것은
+   * isin · 가격 · 등락률뿐인 공개 시세 파생값이라 T-15-02(사용자 격리)와 무관하다(사용자 데이터 경로 `"fanout"` 과 섞지
+   * 않는다). 정기 묶음은 300ms 마다 값이 바뀐 종목만이라 프레임이 작다 — 백프레셔 규율은 `#send` 가 쥔다.
+   */
+  #broadcastAccumPrices(msg: RelayAccumPricesMsg): void {
+    for (const entry of this.#users.values()) {
+      for (const conn of entry.conns) this.#send(conn, msg);
     }
   }
 

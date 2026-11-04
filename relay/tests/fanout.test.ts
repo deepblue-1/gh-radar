@@ -87,6 +87,7 @@ import {
   SAMPLE_ACCOUNT_NO,
   SAMPLE_ISIN,
   STRATEGY_MSG,
+  buildAccumPriceBatchFrame,
   buildBareEnvelope,
   buildLoginRespFrame,
   buildQueueProgressFrame,
@@ -2009,6 +2010,52 @@ describe("WsFanout", () => {
     // (d) close 가 리스너를 뗀다.
     await nx.close();
     expect(feed.listenerCount("updated")).toBe(0);
+  });
+
+  it("AP1 accum.prices — 인증 묶음 끝 snap:true(빈 배열 포함) · quote 95 는 인증 소켓 전부에 snap:false · 미인증 0 · 뒤에 인증한 소켓은 병합 캐시 전체 (quick-261104-nxs)", async () => {
+    // (a) 95 전에 인증 — 인증 묶음 맨 끝(quote.state 뒤 자리)에 빈 snap 1프레임.
+    const a = await authed("token-a");
+    const b = await authed("token-b");
+    await waitFor(
+      () => framesOf(a.inbox, "accum.prices").length === 1 && framesOf(b.inbox, "accum.prices").length === 1,
+      "인증 직후 accum.prices snap",
+    );
+    expect(framesOf(a.inbox, "accum.prices")).toEqual([{ t: "accum.prices", snap: true, items: [] }]);
+    expect(a.inbox.findIndex((m) => m.t === "accum.prices")).toBeGreaterThan(
+      a.inbox.findIndex((m) => m.t === "unf.progress"),
+    );
+    const anon = await open();
+    await flushIo(4);
+
+    // (b) quote 연결 95 → 인증 소켓 둘 다 snap:false 1프레임 · 미인증 소켓 0.
+    quoteGateway.sendFrame(quoteSock, buildAccumPriceBatchFrame({ isSnapshot: true }));
+    await waitFor(
+      () => framesOf(a.inbox, "accum.prices").length === 2 && framesOf(b.inbox, "accum.prices").length === 2,
+      "95 팬아웃",
+    );
+    const live = { t: "accum.prices", snap: false, items: [{ i: SAMPLE_ISIN, p: 12_500, r: 18.2, b: 10_576 }] };
+    expect(framesOf(a.inbox, "accum.prices")[1]).toEqual(live);
+    expect(framesOf(b.inbox, "accum.prices")[1]).toEqual(live);
+    quoteGateway.sendFrame(
+      quoteSock,
+      buildAccumPriceBatchFrame({ items: [{ isin: OTHER_ISIN, lastPrice: 201_000, changeRate: -1.5, basePrice: 0 }] }),
+    );
+    await waitFor(() => framesOf(a.inbox, "accum.prices").length === 3, "95 두 번째 묶음");
+    await flushIo(20);
+    expect(anon.inbox.filter((m) => m.t === "accum.prices")).toHaveLength(0);
+
+    // (c) 그 뒤 인증한 소켓은 병합된 캐시 전체를 snap:true 로 받는다.
+    const c = await authed("token-a");
+    await waitFor(() => framesOf(c.inbox, "accum.prices").length === 1, "늦은 인증 accum.prices snap");
+    const snap = framesOf(c.inbox, "accum.prices")[0]!;
+    expect(snap.snap).toBe(true);
+    expect([...snap.items].sort((x, y) => x.i.localeCompare(y.i))).toEqual(
+      [
+        { i: SAMPLE_ISIN, p: 12_500, r: 18.2, b: 10_576 },
+        { i: OTHER_ISIN, p: 201_000, r: -1.5, b: 0 },
+      ].sort((x, y) => x.i.localeCompare(y.i)),
+    );
+    expect(h.hub.unhandledFrameCount()).toBe(0);
   });
 
   it("⑮ dma_credentials 미등록은 전략 스냅샷도 전략 전송도 받지 못한다 (D-04)", async () => {

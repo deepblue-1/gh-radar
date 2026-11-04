@@ -1723,6 +1723,28 @@ export const LC_AUTO_SELL_RANGES = {
 export type RelayNxtSnapMsg = { t: "nxt.snap"; isins: string[] };
 
 /**
+ * 매집 현재가 원소 1건(quick-261104-nxs · gh-trade 95 `AccumPriceItem`).
+ *   - `i` ISIN(12자).
+ *   - `p` KRX 마지막 체결가(원) — 59 `QuoteState.last_price` 와 같은 원천.
+ *   - `r` 등락률(%) — 59 `change_rate` 와 같은 값(서버가 마스터 기준가로 센다).
+ *   - `b` 마스터 기준가(원). **0 = 미상**.
+ */
+export type RelayAccumPriceItem = { i: string; p: number; r: number; b: number };
+
+/**
+ * 매집 현재가 묶음(quick-261104-nxs). 원천은 gh-trade 95 `AccumPriceBatch` 이고, relay 는 **quote 관찰자
+ * 연결 하나**에서만 받는다(사용자 세션으로 온 95 는 무시 — 원천을 둘로 만들지 않는다).
+ *   - `snap: true` = relay 가 만든 **전량 교체**다. 웹 소켓 인증 직후 relay 캐시 전체 1프레임(비어 있어도 보낸다 —
+ *     빈 배열 = 「95 값 아는 종목 없음」 확정), quote 연결이 새로 ready 될 때(재접속 · 시세 주 서버 전환) 빈 배열 1프레임.
+ *   - `snap: false` = **병합**이다. 95 정기 묶음(300ms 마다 값이 바뀐 매집 감시 종목만)과 로그인 스냅샷 프레임
+ *     (`is_snapshot` — 512개씩 여러 프레임이라 프레임마다 병합해야 한다) 모두 이쪽이다.
+ *   - 키는 `i`(isin). 제거 의미는 없다 — 95 는 값을 덮을 뿐 원소를 빼지 않는다.
+ *   - 수신 = **인증된 소켓 전부**(시세와 같은 인증 규칙). 계좌 · 주문 필드가 없는 공개 시세 파생값이다.
+ *   - 구 relay 는 보내지 않는다 — 웹은 「95 값 없음」 으로 읽어 매집 패널을 전부 종목별 구독으로 폴백한다.
+ */
+export type RelayAccumPricesMsg = { t: "accum.prices"; snap: boolean; items: RelayAccumPriceItem[] };
+
+/**
  * 전략 일괄 비활성화 집계 (`DisableStrategiesResp(65)`).
  *
  * ⚠️ **완료 신호로만 쓴다.** 서버가 키별 60/61 에코를 세션 전 연결에 먼저 보낸 뒤 이 집계를
@@ -2017,7 +2039,8 @@ export type RelayOutbound =
   | RelaySubLimitMsg
   | RelayJournalEventsMsg
   | RelayUnfProgressMsg
-  | RelayLimitFeatureMsg;
+  | RelayLimitFeatureMsg
+  | RelayAccumPricesMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)

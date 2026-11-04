@@ -86,6 +86,9 @@ export type {
   RelayRateCrossSnapMsg,
   RelayQueuedWindowMsg,
   RelayNxtSnapMsg,
+  // --- quick-261104-nxs 매집 현재가 묶음(95 → accum.prices) ---
+  RelayAccumPriceItem,
+  RelayAccumPricesMsg,
   // --- 19-04 계좌 기준 주문 저널 wss 프레임 2종 (D-03 · D-04) ---
   RelayJournalRowsMsg,
   RelayJournalState,

@@ -24,6 +24,7 @@ import * as flatbuffers from "flatbuffers";
 
 import type {
   RelayAccount,
+  RelayAccumPricesMsg,
   RelayLimitFeatureMsg,
   RelayOutbound,
   RelayQuote,
@@ -68,6 +69,7 @@ import {
   buildAdminCommandRespFrame,
   buildAdminUsersSnapshotFrame,
   buildLaunchPlanSnapshotFrame,
+  buildAccumPriceBatchFrame,
   SAMPLE_ACCOUNT_NO,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
@@ -2636,5 +2638,101 @@ describe("잔량진행률 넛지 (Pattern 10)", () => {
     hub.subscribe("B", K, "KRX");
     sessions.get("B")!.emitReady();
     expect(sentSince(before)).toEqual([]);
+  });
+});
+
+describe("quick-261104-nxs 95 매집 현재가 — quote 연결 캐시 · accumPrices 방출 · ready 비움 · 사용자 세션 무시", () => {
+  const OTHER_ISIN = "KR7000660001";
+  let hub: SubscriptionHub;
+  let feed: FakeFeed;
+  let session: FakeSession;
+  let accum: RelayAccumPricesMsg[];
+  let fanout: HubFanoutEvent[];
+  let market: HubMarketEvent[];
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+    hub = new SubscriptionHub();
+    accum = [];
+    fanout = [];
+    market = [];
+    hub.on("accumPrices", (msg) => accum.push(msg));
+    hub.on("fanout", (e) => fanout.push(e));
+    hub.on("market", (e) => market.push(e));
+    feed = new FakeFeed();
+    hub.attachFeed(feed);
+    session = new FakeSession("user-1");
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("(a) feed 95 → accumPrices snap:false 1건 · 캐시 같은 값 · 같은 isin 은 덮고 다른 isin 은 남는다", () => {
+    feed.pushFrame(buildAccumPriceBatchFrame({ items: [{}, { isin: OTHER_ISIN, lastPrice: 201_000, changeRate: -1.5 }] }));
+    expect(accum).toEqual([
+      {
+        t: "accum.prices",
+        snap: false,
+        items: [
+          { i: SAMPLE_ISIN, p: 12_500, r: 18.2, b: 10_576 },
+          { i: OTHER_ISIN, p: 201_000, r: -1.5, b: 10_576 },
+        ],
+      },
+    ]);
+    expect(hub.getAccumPrices()).toEqual(accum[0]!.items);
+
+    feed.pushFrame(buildAccumPriceBatchFrame({ items: [{ lastPrice: 12_600, changeRate: 19.14 }] }));
+    expect(accum).toHaveLength(2);
+    expect(accum[1]).toEqual({ t: "accum.prices", snap: false, items: [{ i: SAMPLE_ISIN, p: 12_600, r: 19.14, b: 10_576 }] });
+    const byIsin = new Map(hub.getAccumPrices().map((x) => [x.i, x]));
+    expect(byIsin.size).toBe(2);
+    expect(byIsin.get(SAMPLE_ISIN)).toMatchObject({ p: 12_600, r: 19.14 });
+    expect(byIsin.get(OTHER_ISIN)).toMatchObject({ p: 201_000, r: -1.5 });
+    // 키 구독 경로 · 사용자 데이터 경로로는 한 건도 나가지 않는다.
+    expect(market).toEqual([]);
+    expect(fanout.filter((e) => (e.msg as { t: string }).t === "accum.prices")).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("(b) is_snapshot 프레임 둘(서로 다른 isin) → 둘 다 캐시 (스냅샷도 병합 · 방출은 snap:false)", () => {
+    feed.pushFrame(buildAccumPriceBatchFrame({ isSnapshot: true, items: [{}] }));
+    feed.pushFrame(buildAccumPriceBatchFrame({ isSnapshot: true, items: [{ isin: OTHER_ISIN }] }));
+    expect(accum.map((m) => m.snap)).toEqual([false, false]);
+    expect(hub.getAccumPrices().map((x) => x.i).sort()).toEqual([OTHER_ISIN, SAMPLE_ISIN].sort());
+  });
+
+  it("(c) feed ready → snap:true items [] 1건 · 캐시 0", () => {
+    feed.pushFrame(buildAccumPriceBatchFrame());
+    accum.length = 0;
+    feed.emitReady();
+    expect(accum).toEqual([{ t: "accum.prices", snap: true, items: [] }]);
+    expect(hub.getAccumPrices()).toEqual([]);
+  });
+
+  it("(d) 사용자 세션으로 온 95 → 방출 0 · 캐시 무변경 · unhandledFrameCount 0", () => {
+    feed.pushFrame(buildAccumPriceBatchFrame());
+    accum.length = 0;
+    const debug = vi.spyOn(logger, "debug").mockImplementation((() => undefined) as never);
+    session.pushFrame(buildAccumPriceBatchFrame({ items: [{ lastPrice: 99_999 }, { isin: OTHER_ISIN }] }));
+    // 명시 case 에 닿았다(`default:` 아님) — debug 1줄이 그 증거다.
+    const ignored = debug.mock.calls.filter((args) =>
+      args.some((a) => typeof a === "string" && a.includes("사용자 세션 95")),
+    );
+    expect(ignored.map((args) => args[0])).toEqual([{ userId: "user-1", msgType: MSG.AccumPriceBatch }]);
+    expect(accum).toEqual([]);
+    expect(hub.getAccumPrices()).toEqual([{ i: SAMPLE_ISIN, p: 12_500, r: 18.2, b: 10_576 }]);
+    expect(hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("(e) 원소 0 프레임 → 방출 0", () => {
+    feed.pushFrame(buildAccumPriceBatchFrame({ items: [] }));
+    expect(accum).toEqual([]);
+    expect(hub.getAccumPrices()).toEqual([]);
+    expect(hub.unhandledFrameCount()).toBe(0);
   });
 });

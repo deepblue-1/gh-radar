@@ -6,6 +6,7 @@ import * as flatbuffers from 'flatbuffers';
 
 import { AccountState } from '../stock-dma/account-state.js';
 import { AccumChartResp } from '../stock-dma/accum-chart-resp.js';
+import { AccumPriceBatch } from '../stock-dma/accum-price-batch.js';
 import { AccumSignal } from '../stock-dma/accum-signal.js';
 import { AccumSnapshot } from '../stock-dma/accum-snapshot.js';
 import { AdminCommandReq } from '../stock-dma/admin-command-req.js';
@@ -342,8 +343,13 @@ launchPlanSnapshot(obj?:LaunchPlanSnapshot):LaunchPlanSnapshot|null {
   return offset ? (obj || new LaunchPlanSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+accumPriceBatch(obj?:AccumPriceBatch):AccumPriceBatch|null {
+  const offset = this.bb!.__offset(this.bb_pos, 114);
+  return offset ? (obj || new AccumPriceBatch()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(55);
+  builder.startObject(56);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -556,6 +562,10 @@ static addOpenArbPreview(builder:flatbuffers.Builder, openArbPreviewOffset:flatb
 
 static addLaunchPlanSnapshot(builder:flatbuffers.Builder, launchPlanSnapshotOffset:flatbuffers.Offset) {
   builder.addFieldOffset(54, launchPlanSnapshotOffset, 0);
+}
+
+static addAccumPriceBatch(builder:flatbuffers.Builder, accumPriceBatchOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(55, accumPriceBatchOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

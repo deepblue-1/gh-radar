@@ -119,6 +119,7 @@ import {
   parseAdminCommandResp,
   parseAdminUsersSnapshot,
   parseLaunchPlanSnapshot,
+  parseAccumPriceBatch,
   type ViTriggerInput,
   type LcSetCfg,
 } from "../envelope.js";
@@ -149,6 +150,7 @@ import {
   buildAdminCommandRespFrame,
   buildAdminUsersSnapshotFrame,
   buildLaunchPlanSnapshotFrame,
+  buildAccumPriceBatchFrame,
 } from "../../../tests/helpers/frames.js";
 import { AdminCommandReq } from "../../generated/stock-dma/admin-command-req.js";
 import { ADMIN_CODE, ADMIN_OP } from "../../admin/types.js";
@@ -471,6 +473,46 @@ describe("Phase 28 parseLimitFeature (85 · limit_feature 슬롯 90)", () => {
     expect(droppedEnvelopeCount()).toBe(1);
     const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
     expect(fields).toMatchObject({ reason: "slot-null", msgType: 85, slot: "limit_feature" });
+  });
+});
+
+describe("quick-261104-nxs parseAccumPriceBatch (95 · accum_price_batch 슬롯 114)", () => {
+  const parse = (bytes: Uint8Array) => {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parseAccumPriceBatch(parsed!.env);
+  };
+  const OTHER_ISIN = "KR7000660001";
+
+  it("두 원소 → { snapshot: false, items: [{ i, p, r, b }, …] } (uint 는 number 그대로)", () => {
+    const frame = parse(
+      buildAccumPriceBatchFrame({
+        items: [{}, { isin: OTHER_ISIN, lastPrice: 201_000, changeRate: -3.25, basePrice: 0 }],
+      }),
+    );
+    expect(frame).toEqual({
+      snapshot: false,
+      items: [
+        { i: SAMPLE_ISIN, p: 12_500, r: 18.2, b: 10_576 },
+        { i: OTHER_ISIN, p: 201_000, r: -3.25, b: 0 },
+      ],
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("is_snapshot 참 → snapshot: true", () => {
+    expect(parse(buildAccumPriceBatchFrame({ isSnapshot: true }))?.snapshot).toBe(true);
+  });
+
+  it("잘못된 isin 원소 하나만 빠지고 나머지는 남는다 — 프레임당 warn 1줄", () => {
+    const frame = parse(buildAccumPriceBatchFrame({ items: [{ isin: "BAD" }, { isin: OTHER_ISIN }] }));
+    expect(frame?.items.map((x) => x.i)).toEqual([OTHER_ISIN]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatchObject({ msgType: MSG.AccumPriceBatch, skipped: 1, total: 2 });
+  });
+
+  it("빈 벡터 → items: [] (null 아님)", () => {
+    expect(parse(buildAccumPriceBatchFrame({ items: [] }))).toEqual({ snapshot: false, items: [] });
   });
 });
 

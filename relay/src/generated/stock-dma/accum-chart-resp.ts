@@ -4,6 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
+import { AccumBucket } from '../stock-dma/accum-bucket.js';
 import { AccumChartOrder } from '../stock-dma/accum-chart-order.js';
 import { AccumChartSample } from '../stock-dma/accum-chart-sample.js';
 
@@ -90,8 +91,23 @@ sampleBaseSec():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+buckets(index: number, obj?:AccumBucket):AccumBucket|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? (obj || new AccumBucket()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+bucketsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+bucketBaseSec():number {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAccumChartResp(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(12);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -158,12 +174,32 @@ static addSampleBaseSec(builder:flatbuffers.Builder, sampleBaseSec:number) {
   builder.addFieldInt32(9, sampleBaseSec, 0);
 }
 
+static addBuckets(builder:flatbuffers.Builder, bucketsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, bucketsOffset, 0);
+}
+
+static createBucketsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startBucketsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
+static addBucketBaseSec(builder:flatbuffers.Builder, bucketBaseSec:number) {
+  builder.addFieldInt32(11, bucketBaseSec, 0);
+}
+
 static endAccumChartResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint, cycleStartUs:bigint, sampleBaseSec:number):flatbuffers.Offset {
+static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, sinceDateOffset:flatbuffers.Offset, regTimeUs:bigint, samplesOffset:flatbuffers.Offset, ordersOffset:flatbuffers.Offset, droppedOrders:number, cumBuyKrw:bigint, cumSellKrw:bigint, cycleStartUs:bigint, sampleBaseSec:number, bucketsOffset:flatbuffers.Offset, bucketBaseSec:number):flatbuffers.Offset {
   AccumChartResp.startAccumChartResp(builder);
   AccumChartResp.addIsin(builder, isinOffset);
   AccumChartResp.addSinceDate(builder, sinceDateOffset);
@@ -175,6 +211,8 @@ static createAccumChartResp(builder:flatbuffers.Builder, isinOffset:flatbuffers.
   AccumChartResp.addCumSellKrw(builder, cumSellKrw);
   AccumChartResp.addCycleStartUs(builder, cycleStartUs);
   AccumChartResp.addSampleBaseSec(builder, sampleBaseSec);
+  AccumChartResp.addBuckets(builder, bucketsOffset);
+  AccumChartResp.addBucketBaseSec(builder, bucketBaseSec);
   return AccumChartResp.endAccumChartResp(builder);
 }
 }
