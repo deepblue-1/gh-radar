@@ -84,7 +84,7 @@
 
 import { kstDayStartNs, kstHhmm, kstMs, kstToday } from "./config.js";
 import type { CacheEntry, TickCache } from "./cache.js";
-import { CATCHUP_RESERVE, parseKey, type AppendPriority } from "./cache.js";
+import { parseKey, type AppendPriority } from "./cache.js";
 import { INDEXER_FMT, type Exchange, type IndexerResult, type RunIndexer } from "./indexer.js";
 import { log } from "./log.js";
 
@@ -552,8 +552,9 @@ export class Poller {
    * 부르면 또 버려진다. 자리는 보호가 풀릴 때(리스 끝 · 승격 창 끝) 난다.
    */
   private roomForRetry(run: KeyRun, priority: AppendPriority): boolean {
-    if (run.fullNeed <= 0) return true;
-    const reserve = priority === "catchup" ? Math.floor(this.deps.cache.limitBytes * CATCHUP_RESERVE) : 0;
+    const reserve = priority === "catchup" ? this.deps.cache.catchupReserve() : 0;
+    // 따라잡기는 첫 호출 전에도 본다 — 붙일 자리가 아예 없으면 부르지 않는다(UAT 11/4: 16회 · 6.1MB 를 받아 버렸다)
+    if (run.fullNeed <= 0) return priority !== "catchup" || this.deps.cache.headroom(run.key, priority) - reserve > 0;
     return this.deps.cache.headroom(run.key, priority) - reserve >= run.fullNeed;
   }
 

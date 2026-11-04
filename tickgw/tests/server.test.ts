@@ -247,6 +247,20 @@ describe("TickCache — LRU 128MB · 유휴 15분(오늘 complete 는 KEEP_UNTIL
     expect(c.totalBytes()).toBe(80);
   });
 
+  it("따라잡기 예비분은 지금 보는(강 보호) 키가 있을 때만 — 없으면 상한까지 붙인다(UAT 11/4)", () => {
+    const c = new TickCache(100, 15 * 60 * 1000);
+    const cu = makeKey("KR70000000C1", "KRX", DATE);
+    c.ensure(cu, at("1000"));
+    c.setProtect(() => false);
+    expect(c.catchupReserve()).toBe(0);
+    expect(c.append(cu, Buffer.alloc(90), meta, at("1001"), "catchup")).toBe("ok");
+    const lv = makeKey("KR70000000L1", "KRX", DATE);
+    c.ensure(lv, at("1002"));
+    c.setProtect((e) => e.key === lv);
+    expect(c.catchupReserve()).toBe(25);
+    expect(c.append(cu, Buffer.alloc(5), meta, at("1003"), "catchup")).toBe("full");
+  });
+
   it("보호 단계(R3-WR-01) — pinned(약)는 live append 만 마지막에 지운다 · catchup append 는 상한의 25% 를 남긴다", () => {
     const c = new TickCache(100, 15 * 60 * 1000);
     const p1 = makeKey("KR70000000P1", "KRX", DATE);

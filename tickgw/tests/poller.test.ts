@@ -672,11 +672,11 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
   });
 
   it("따라잡기는 다른 승격 입력(이미 따라잡은 키 포함)을 LRU 로 지우지 않는다 — 자리가 없으면 그 키만 멈춘다 · caught 는 살아 있는 키만(R2-WR-01)", async () => {
-    // 상한 21,000B(따라잡기 몫 = 75% = 15,750B · R3-WR-01 예비 25% — 둘만 든다 · 셋째 마감 마무리도 자리 없음) · 1분 1레코드 10B — 10:00 · 10:01 · 10:02 에 잠깐 연 키 셋
+    // 상한 16,000B(보는 키가 없으니 따라잡기 예비분 0 — UAT 11/4 · 둘만 든다 · 셋째 마감 마무리도 자리 없음) · 1분 1레코드 10B — 10:00 · 10:01 · 10:02 에 잠깐 연 키 셋
     // (각 ≈1.2KB). 19:55 에 하루치(≈7.1KB)로 불리면 둘까지만 든다. 고치기 전엔 키 3 의 append 가 방금 따라잡은 키 1 을 지우고 로그는 caught=3 이었다(scratchpad r2probe).
     const lines: Record<string, unknown>[] = [];
     const prevLevel = process.env.LOG_LEVEL;
-    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 21_000);
+    const r: Rig = rig((a) => minuteDay(a, r.clock.t), {}, at("100000"), 16_000);
     for (const [i, hhmmss] of [[1, "100000"], [2, "100100"], [3, "100200"]] as const) {
       r.clock.t = Math.max(r.clock.t, at(hhmmss));
       r.poller.touch(keyN(i));
@@ -711,7 +711,7 @@ describe("Poller — 19:55 따라잡기(CR-31 후속 · 승격률 보전)", () =
     }
     expect(lines.filter((l) => l.msg === "cache evict")).toEqual([]);
     expect([1, 2, 3].map((i) => r.cache.get(keyN(i))?.closed ?? "evicted")).toEqual([true, true, false]);
-    expect(r.cache.totalBytes()).toBeLessThanOrEqual(21_000);
+    expect(r.cache.totalBytes()).toBeLessThanOrEqual(16_000);
     // 키 3 마감 마무리 — 버려질 게 확실한 질의는 보내지 않는다(R2-IN-03)
     expect(r.calls.filter((c) => keyOf(c.args) === keyN(3) && c.at >= at("200000"))).toEqual([]);
   });

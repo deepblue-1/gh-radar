@@ -147,7 +147,7 @@ export class TickCache {
     if (bytes.length > 0) {
       if (e.size + bytes.length > this.limitBytes) return "too_large";
       // 따라잡기는 예비분을 남긴 자리 안으로만(R3-WR-01) — 남은 자리 + 지울 수 있는 몫에서 예비분을 뺀다
-      const reserve = priority === "catchup" ? Math.floor(this.limitBytes * CATCHUP_RESERVE) : 0;
+      const reserve = priority === "catchup" ? this.catchupReserve() : 0;
       if (this.total + bytes.length > this.limitBytes - reserve) {
         // 지울 수 있는 몫이 모자라면 아무것도 지우지 않는다(헛삭제 금지)
         if (this.headroom(key, priority) - reserve < bytes.length) return "full";
@@ -172,6 +172,15 @@ export class TickCache {
     let freeable = 0;
     for (const o of this.entries.values()) if (o.key !== key && this.evictable(o, priority)) freeable += o.size;
     return this.limitBytes - this.total + freeable;
+  }
+
+  /**
+   * 따라잡기가 남겨 둘 몫 — 지금 보는(강 보호) 키가 하나라도 있을 때만 상한의 `CATCHUP_RESERVE`, 없으면 0(UAT 11/4: 보는 키 0 인
+   * 19:55 에 캐시 90MB > 72MB 라 16키 모두 「cache full」 로 멈춰 따라잡기가 헛돌았다 — 지킬 대상이 없으면 남길 이유도 없다).
+   */
+  catchupReserve(): number {
+    for (const e of this.entries.values()) if (this.protect(e) === true) return Math.floor(this.limitBytes * CATCHUP_RESERVE);
+    return 0;
   }
 
   /** 이 우선순위의 append 가 지울 수 있는 키인가 — 강 보호는 아무도 · 약 보호(승격 입력)는 live 만(R3-WR-01). */
