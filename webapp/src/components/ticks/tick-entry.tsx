@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 
-import type { TickExchange, TickGridRow, TickGridSource, TickTodayRow } from '@gh-radar/shared';
+import { estimateTeamDayPnl, type TickExchange, type TickGridRow, type TickGridSource, type TickTodayRow } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { fmtRate, fmtSignedAmountC } from '@/lib/ticks/tick-format';
@@ -50,6 +50,8 @@ interface EntryRow {
   dayNet: number | null;
   cum: number | null;
   pnl: number | null;
+  /** 손익이 추정치(오늘 행 — estimateTeamDayPnl)면 true → 값 앞에 「≈」. */
+  pnlEstimated: boolean;
   sources: readonly TickGridSource[];
   live: boolean;
 }
@@ -103,10 +105,28 @@ function signCls(v: number | null): string {
 const TH = 'bg-[var(--muted)] px-3 py-1.5 text-[10.5px] font-semibold whitespace-nowrap text-[var(--muted-fg)]';
 const TEAM_TD = 'hidden h-10 border-t border-[var(--border-subtle)] px-3 text-right whitespace-nowrap tabular-nums sm:table-cell';
 
+/** 손익 표기 — 추정치(오늘)는 값 앞에 「≈」 · 모름은 「—」 그대로. */
+const pnlText = (r: EntryRow) => (r.pnlEstimated && r.pnl !== null ? '≈' : '') + fmtSignedAmountC(r.pnl);
+
+/** 팀 3칸 툴팁 — 과거 = 격자 끝 틱 · 오늘 = 매집감지 kind 16 실시간(정의가 달라 문구로 밝힌다). */
+const TEAM_TITLE = {
+  past: {
+    net: '팀 당일 순매수 — 그 거래소 팀만 · 상세 팀 거래정보 끝 틱 값',
+    cum: '매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산)',
+    pnl: '팀 당일 손익(실현+미실현) — 끝 틱 기준',
+  },
+  today: {
+    net: '팀 당일 순매수 — 매집감지 실시간(1분) · KRX+NXT 합산 · 우리 체결 제외',
+    cum: '매집감지 등록 이후 팀 순매수(이월 포함) — 매집감지 실시간 · KRX+NXT 합산 · 우리 체결 제외',
+    pnl: '추정 — 매집감지 당일 매수·매도·평단 + 현재가 · KRX+NXT 합산 · 우리 체결 제외 · 장 마감 뒤 격자 값과 다를 수 있음',
+  },
+} as const;
+
 const mdOf = (ymd: string) => `${Number(ymd.slice(4, 6))}/${Number(ymd.slice(6, 8))}`;
 
 export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin }: TickEntryProps) {
   const isToday = todayRows !== undefined;
+  const teamTitle = isToday ? TEAM_TITLE.today : TEAM_TITLE.past;
   const list = useMemo(() => {
     const base: EntryRow[] = isToday
       ? todayRows.map((r) => ({
@@ -118,7 +138,14 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           rate: r.high_rate ?? r.rate,
           dayNet: r.team_day_net_krw ?? null,
           cum: r.accum_pos_net_krw ?? null,
-          pnl: null,
+          pnl: estimateTeamDayPnl({
+            buyKrw: r.team_day_buy_krw,
+            sellKrw: r.team_day_sell_krw,
+            avgPx: r.team_day_avg_px,
+            netQty: r.team_day_net_qty,
+            lastPx: r.accum_last_px,
+          }),
+          pnlEstimated: true,
           sources: r.sources,
           live: true,
         }))
@@ -132,6 +159,7 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
           dayNet: r.team_day_net_krw ?? null,
           cum: r.accum_pos_net_krw ?? null,
           pnl: r.team_day_pnl_krw ?? null,
+          pnlEstimated: false,
           sources: r.sources,
           live: false,
         }));
@@ -205,7 +233,7 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
                       >
                         순매수 <b className={cn('font-bold', signCls(r.dayNet))}>{fmtSignedAmountC(r.dayNet)}</b> · 누적{' '}
                         <span className={signCls(r.cum)}>{fmtSignedAmountC(r.cum)}</span> · 손익{' '}
-                        <b className={cn('font-bold', signCls(r.pnl))}>{fmtSignedAmountC(r.pnl)}</b>
+                        <b className={cn('font-bold', signCls(r.pnl))}>{pnlText(r)}</b>
                       </span>
                     </button>
                   </td>
@@ -220,24 +248,24 @@ export function TickEntry({ date, rows, todayRows, sort, onSort, onOpen, etaMin 
                   </td>
                   <td
                     data-slot="tick-entry-day-net"
-                    title="팀 당일 순매수 — 그 거래소 팀만 · 상세 팀 거래정보 끝 틱 값"
+                    title={teamTitle.net}
                     className={cn(TEAM_TD, 'font-bold', signCls(r.dayNet))}
                   >
                     {fmtSignedAmountC(r.dayNet)}
                   </td>
                   <td
                     data-slot="tick-entry-cum"
-                    title="매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산)"
+                    title={teamTitle.cum}
                     className={cn(TEAM_TD, signCls(r.cum))}
                   >
                     {fmtSignedAmountC(r.cum)}
                   </td>
                   <td
                     data-slot="tick-entry-pnl"
-                    title="팀 당일 손익(실현+미실현) — 끝 틱 기준"
+                    title={teamTitle.pnl}
                     className={cn(TEAM_TD, 'font-bold', signCls(r.pnl))}
                   >
-                    {fmtSignedAmountC(r.pnl)}
+                    {pnlText(r)}
                   </td>
                   <td className="hidden h-10 border-t border-[var(--border-subtle)] px-3 whitespace-nowrap sm:table-cell">
                     {r.sources.map((s) => (

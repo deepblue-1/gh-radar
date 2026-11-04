@@ -212,6 +212,60 @@ describe('TickEntry — 팀 열 · 폰 한 줄 · 정렬 4종(스케치 023 B ·
     expect(within(line).getByText('+45.2억')).toBeInTheDocument();
   });
 
+  const TODAY_ECO: TickTodayRow = {
+    isin: 'KR7101360006', code: '101360', name: '에코앤드림', sources: ['accum'], rate: 22.1, high_rate: 29.9,
+    team_day_net_krw: 450_000_000, accum_pos_net_krw: 4_520_000_000,
+    team_day_buy_krw: 1_000_000_000, team_day_sell_krw: 550_000_000, team_day_avg_px: 10_000, team_day_net_qty: 50_000,
+    accum_last_px: 12_000,
+  };
+
+  it('오늘 목록 — 추정 당일손익 「≈」 · 색 · 굵게 · 폰 줄', () => {
+    renderEntry({ todayRows: [TODAY_ECO] });
+    const r = rowOf('KR7101360006');
+    const [, , pnl] = cells(r);
+    expect(pnl!.textContent).toBe('≈+1.50억');
+    expect(pnl).toHaveClass('text-[var(--up)]', 'font-bold');
+    expect(r.querySelector('[data-slot="tick-entry-team-line"]')!.textContent).toBe(
+      '순매수 +4.50억 · 누적 +45.2억 · 손익 ≈+1.50억',
+    );
+  });
+
+  it('오늘 목록 툴팁 3종은 매집감지 실시간 문구 · 과거 행 툴팁은 그대로', () => {
+    const { unmount } = renderEntry({ todayRows: [TODAY_ECO] });
+    const [net, cum, pnl] = cells(rowOf('KR7101360006'));
+    expect(net).toHaveAttribute('title', '팀 당일 순매수 — 매집감지 실시간(1분) · KRX+NXT 합산 · 우리 체결 제외');
+    expect(cum).toHaveAttribute('title', '매집감지 등록 이후 팀 순매수(이월 포함) — 매집감지 실시간 · KRX+NXT 합산 · 우리 체결 제외');
+    expect(pnl).toHaveAttribute(
+      'title',
+      '추정 — 매집감지 당일 매수·매도·평단 + 현재가 · KRX+NXT 합산 · 우리 체결 제외 · 장 마감 뒤 격자 값과 다를 수 있음',
+    );
+    unmount();
+    renderEntry({ rows: TEAM });
+    const [pNet, pCum, pPnl] = cells(rowOf('KR7101360006'));
+    expect(pNet).toHaveAttribute('title', '팀 당일 순매수 — 그 거래소 팀만 · 상세 팀 거래정보 끝 틱 값');
+    expect(pCum).toHaveAttribute('title', '매집감지 등록 이후 팀 순매수(이월 포함 · KRX+NXT 합산)');
+    expect(pPnl).toHaveAttribute('title', '팀 당일 손익(실현+미실현) — 끝 틱 기준');
+    expect(pPnl!.textContent).toBe('+1.84억');
+  });
+
+  it('오늘 목록 — 당일 매수 · 매도 0 이면 손익 「—」(≈ 없음)', () => {
+    renderEntry({
+      todayRows: [{ ...TODAY_ECO, team_day_net_krw: 0, team_day_buy_krw: 0, team_day_sell_krw: 0, team_day_avg_px: 0, team_day_net_qty: 0 }],
+    });
+    expect(cells(rowOf('KR7101360006'))[2]!.textContent).toBe('—');
+  });
+
+  it('오늘 손익순 — 추정값 내림차순 · 모름 뒤', () => {
+    const today: TickTodayRow[] = [
+      { ...TODAY_ECO, isin: 'KR7000000001', name: '가', team_day_sell_krw: 950_000_000, team_day_net_qty: 10_000 }, // −5천만+1.2억=+7천만
+      { ...TODAY_ECO, isin: 'KR7000000002', name: '나' }, // +1.5억
+      { isin: 'KR7000000003', code: '000003', name: '다', sources: ['up15'], rate: 16, high_rate: 17.5 }, // 모름
+      { ...TODAY_ECO, isin: 'KR7000000004', name: '라', team_day_sell_krw: 100_000_000, team_day_net_qty: 90_000, accum_last_px: 9_000 }, // −9억+8.1억=−9천만
+    ];
+    renderEntry({ todayRows: today, sort: 'pnl' });
+    expect(names()).toEqual(['KR7000000002:KRX', 'KR7000000001:KRX', 'KR7000000004:KRX', 'KR7000000003:KRX']);
+  });
+
   it('순매수순 — 내림차순 · 값 없는 행 뒤(같으면 이름 → 거래소)', () => {
     renderEntry({ rows: TEAM, sort: 'net' });
     expect(names()).toEqual([
