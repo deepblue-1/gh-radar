@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>틱뷰어 타임라인 — 범위 합계 · 통합 툴팁 A/B/C</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+    --border-subtle: #e5e8eb; --border: #e5e8eb; --card: #ffffff; --popover: #ffffff; --popover-fg: #191f28;
+    --primary: #3182f6; --up: #f04452; --down: #3182f6; --team: #a234c7; --vi: #d97706;
+    --accum-shade: rgba(107,118,132,.10); --accum-gap: rgba(107,118,132,.07); --vol: #c4cad1; --page: #f2f4f6;
+    --sel: rgba(49,130,246,.10); --sel-edge: rgba(49,130,246,.55);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+    --border-subtle: #3d3d3d; --border: #3d3d3d; --card: #151515; --popover: #232323; --popover-fg: #ffffff;
+    --up: #f04251; --down: #3485fa; --team: #c353e5; --vi: #ffb020;
+    --accum-shade: rgba(255,255,255,.07); --accum-gap: rgba(255,255,255,.04); --vol: #4a4f56; --page: #0a0a0a;
+    --sel: rgba(52,133,250,.16); --sel-edge: rgba(52,133,250,.7);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--fg); font: 14px/1.45 Pretendard, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px 14px; align-items: center; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; font-size: 12.5px; }
+  .bar b { margin-right: 4px; font-size: 14px; }
+  .bar label { color: var(--muted-fg); }
+  .seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted-fg); padding: 4px 11px; border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; transition: all .15s ease; }
+  .seg button:hover { color: var(--fg); }
+  .seg button.on { background: var(--card); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .vtabs .seg button { font-size: 13px; padding: 5px 14px; }
+  .wrap > * { min-width: 0; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  body.phone .wrap { max-width: 390px; padding: 16px 16px; }
+  .vdesc { background: var(--card); border-radius: 14px; padding: 12px 16px; }
+  .vdesc .vt { font-weight: 700; font-size: 15px; margin: 0 0 2px; }
+  .vdesc .vd { color: var(--muted-fg); font-size: 12.5px; margin: 0; line-height: 1.6; }
+
+  /* 차트 카드(실제 CARD 꼴) */
+  .card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; }
+  .chd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border-bottom: 1px solid var(--border-subtle); padding: 7px 12px; }
+  .chd h2 { margin: 0; font-size: 12.5px; font-weight: 700; }
+  .chd .lg { font-size: 11px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chd .tools { margin-left: auto; display: flex; gap: 2px; align-items: center; font-size: 11px; color: var(--muted-fg); }
+  .chd .tools span { font-family: ui-monospace, monospace; padding: 0 6px; }
+  .chd .tools button { border: 0; background: transparent; color: var(--fg-2); font: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; cursor: pointer; }
+  .chd .tools button:hover { background: var(--muted); }
+  .cw { position: relative; padding: 4px 0; }
+  .cw svg { display: block; font-variant-numeric: tabular-nums; user-select: none; -webkit-user-select: none; }
+  .cw svg.sel-mode { cursor: col-resize; }
+  .cw svg.crosshair { cursor: crosshair; }
+
+  /* 공통 툴팁 상자 */
+  .tt { position: absolute; z-index: 10; pointer-events: none; background: var(--popover); color: var(--popover-fg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.14); font-size: 11.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+  .num { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
+  .up { color: var(--up); } .down { color: var(--down); } .team { color: var(--team); } .mf { color: var(--muted-fg); } .vi { color: var(--vi); }
+  b { font-weight: 600; }
+
+  /* A — 세로 섹션 카드 */
+  .tt-a { width: 268px; padding: 8px 10px 9px; }
+  .tt-a .h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; }
+  .tt-a .h .clk { font-weight: 700; font-size: 12.5px; }
+  .tt-a .sec { margin-top: 6px; font-size: 10.5px; font-weight: 700; color: var(--muted-fg); display: flex; align-items: center; gap: 5px; }
+  .tt-a .sec i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+  .tt-a .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin-top: 2px; }
+  .tt-a .kv > span { color: var(--muted-fg); }
+  .tt-a .kv > b { text-align: right; font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; white-space: nowrap; }
+  .tt-a .kv > b small { color: var(--muted-fg); font-weight: 400; }
+
+  /* C — 판별 행 표 */
+  .tt-c { padding: 6px 4px 6px; }
+  .tt-c .h { display: flex; gap: 10px; align-items: baseline; padding: 0 8px 5px; border-bottom: 1px solid var(--border-subtle); }
+  .tt-c .h .clk { font-weight: 700; font-size: 12.5px; }
+  .tt-c table { border-collapse: collapse; margin-top: 2px; }
+  .tt-c td { padding: 2px 8px; white-space: nowrap; }
+  .tt-c td.rh { font-size: 10.5px; font-weight: 700; color: var(--muted-fg); }
+  .tt-c td.rh i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; margin-right: 4px; vertical-align: 0; }
+  .tt-c td .l { color: var(--muted-fg); margin-right: 4px; font-size: 10.5px; }
+  .tt-c td b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
+  .tt-c tr + tr td { border-top: 1px dashed var(--border-subtle); }
+
+  /* B — 고정 띠 */
+  .strip { display: grid; grid-template-columns: 1.05fr 1.6fr 1.15fr 1.3fr; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; font-variant-numeric: tabular-nums; min-height: 58px; }
+  body.phone .strip { grid-template-columns: 1fr 1fr; }
+  .strip > div { padding: 6px 12px; border-left: 1px solid var(--border-subtle); }
+  .strip > div:first-child { border-left: 0; }
+  body.phone .strip > div:nth-child(3) { border-left: 0; }
+  body.phone .strip > div:nth-child(n+3) { border-top: 1px solid var(--border-subtle); }
+  .strip .st { font-size: 10.5px; font-weight: 700; color: var(--muted-fg); display: flex; gap: 5px; align-items: center; }
+  .strip .st i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+  .strip .st em { font-style: normal; font-weight: 400; margin-left: auto; font-family: ui-monospace, monospace; }
+  .strip .row { display: flex; flex-wrap: wrap; gap: 0 10px; margin-top: 2px; }
+  .strip .row span { color: var(--muted-fg); font-size: 10.5px; margin-right: 3px; }
+  .strip .row b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; white-space: nowrap; }
+  .strip .rest { color: var(--muted-fg); font-weight: 400; }
+  .strip.live .st .now { color: var(--fg); font-weight: 700; }
+
+  /* 팀 주문 묶음 블록(세 안 공통) */
+  .grp { margin: 6px 0 2px; padding: 6px 8px 5px; background: var(--muted); border-radius: 8px; }
+  .tt-c .grp { margin: 6px 6px 0; }
+  .grp .gh { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; font-size: 11.5px; }
+  .grp .gh small { font-weight: 400; color: var(--muted-fg); font-family: ui-monospace, monospace; font-size: 10.5px; }
+  .grp .gs { display: flex; flex-wrap: wrap; gap: 0 10px; margin-top: 2px; font-size: 11px; }
+  .grp .gs b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
+  .grp table { width: 100%; border-collapse: collapse; margin-top: 4px; font-family: ui-monospace, "SF Mono", monospace; font-size: 10.5px; }
+  .grp td { padding: 1px 0; white-space: nowrap; }
+  .grp td + td { padding-left: 8px; }
+  .grp td.r { text-align: right; }
+  .grp tr.seed td { font-weight: 700; }
+  .grp tr.seed td:first-child::before { content: '▸'; margin-left: -9px; margin-right: 1px; }
+  .grp .side { font-family: Pretendard, -apple-system, sans-serif; font-weight: 700; font-size: 10.5px; }
+  .grp .more { color: var(--muted-fg); font-size: 10.5px; margin-top: 2px; }
+  .gfloat { width: 300px; padding: 2px 4px 4px; }
+
+  /* 구간 결과(차트 아래 줄) */
+  .rng { display: none; border-top: 1px solid var(--border-subtle); padding: 8px 12px 10px; font-variant-numeric: tabular-nums; }
+  .rng.on { display: block; }
+  .rng .rh { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .rng .rh b { font-weight: 700; }
+  .rng .rh small { color: var(--muted-fg); font-family: ui-monospace, monospace; font-size: 11px; }
+  .rng .rh button { margin-left: auto; border: 0; background: var(--muted); color: var(--fg-2); border-radius: 999px; font: inherit; font-size: 11px; padding: 2px 9px; cursor: pointer; }
+  .rng .rh button:hover { background: var(--border-subtle); }
+  .rng .big3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+  .rng .big3 > div { background: var(--muted); border-radius: 10px; padding: 6px 10px; }
+  .rng .big3 dt { font-size: 10.5px; color: var(--muted-fg); }
+  .rng .big3 dd { margin: 0; font-family: ui-monospace, "SF Mono", monospace; font-size: 16px; font-weight: 600; line-height: 1.25; }
+  .rng .big3 dd small { font-size: 11px; color: var(--muted-fg); font-weight: 400; margin-left: 4px; }
+  body.phone .rng .big3 dd { font-size: 13.5px; }
+  .rng .foot { margin-top: 6px; font-size: 11px; color: var(--muted-fg); }
+  .rng .foot b { color: var(--fg-2); font-family: ui-monospace, monospace; font-weight: 600; }
+  .hint { padding: 6px 12px 8px; font-size: 11px; color: var(--muted-fg); border-top: 1px solid var(--border-subtle); }
+  .hint kbd { font: inherit; font-family: ui-monospace, monospace; background: var(--muted); border-radius: 4px; padding: 0 4px; color: var(--fg-2); }
+  .toast { position: absolute; z-index: 12; left: 50%; top: 40%; transform: translate(-50%, -50%); background: rgba(25,31,40,.86); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; pointer-events: none; opacity: 0; transition: opacity .2s; }
+  .toast.on { opacity: 1; }
+  .note { color: var(--muted-fg); font-size: 12px; line-height: 1.7; background: var(--card); border-radius: 14px; padding: 12px 16px; }
+  .note h4 { margin: 0 0 4px; color: var(--fg); font-size: 13px; }
+  .note ul { margin: 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>틱뷰어 타임라인 — 범위 합계 · 통합 툴팁</b>
+  <span class="vtabs"><span class="seg" id="variant"><button class="on" data-v="A">A 따라다니는 세로 카드</button><button data-v="B">B 차트 위 고정 띠 ★ 채택</button><button data-v="C">C 판별 행 표</button></span></span>
+</div>
+<div class="bar" style="top:49px;z-index:19;padding-top:6px;padding-bottom:8px">
+  <label>범위 끌기</label>
+  <span class="seg" id="drag"><button class="on" data-v="plain">끌기 = 범위 (이동 = Shift+끌기)</button><button data-v="shift">Shift+끌기 = 범위 (끌기 = 이동 그대로) ★</button></span>
+  <label>순매수 판 매도선</label>
+  <span class="seg" id="mirror"><button class="on" data-v="mirror">0선 아래로(거울) ★</button><button data-v="up">위로 같이</button></span>
+  <label>판 높이</label>
+  <span class="seg" id="h2"><button data-v="50">50(지금)</button><button class="on" data-v="70">70 ★</button></span>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+</div>
+
+<div class="wrap">
+  <div class="vdesc"><p class="vt" id="vt"></p><p class="vd" id="vd"></p></div>
+  <section class="card" id="card">
+    <div class="chd">
+      <h2>타임라인</h2>
+      <span class="lg" id="lg"></span>
+      <span class="tools"><span>하루 전체</span><button>＋</button><button>－</button><button>전체</button><button>1분</button><button>10초</button></span>
+    </div>
+    <div class="strip" id="strip" style="display:none"></div>
+    <div class="cw" id="cw">
+      <svg id="svg"></svg>
+      <div class="tt" id="tt" style="display:none"></div>
+      <div class="toast" id="toast"></div>
+    </div>
+    <div class="rng" id="rng"></div>
+    <div class="hint" id="hint"></div>
+  </section>
+  <div class="note">
+    <h4>보는 법</h4>
+    <ul>
+      <li><b>① 범위</b> — 차트 위를 끌면 파란 띠가 네 판을 관통하고, 손을 떼면 차트 <b>아래 줄</b>에 그 구간 팀 매수 · 매도 · 순매수(건수) + 구간 거래대금 · 팀 비중 · 가격 변화가 고정된다. 띠 위 작은 글자 = 순매수. <kbd>Esc</kbd> · ✕ · 빈 곳 클릭으로 지움(지울 때 그 클릭은 시각 이동으로 치지 않음). 차트가 아래 줄 때문에 위로 밀리지 않게 결과는 차트 <b>아래</b>에 둔다.</li>
+      <li><b>② 묶음</b> — 가격 판에서 원 위를 지나면(지금 규칙 그대로 · 씨앗 원 가로 ±5px) 툴팁 안에 「팀 주문 묶음」 블록: 머리 = 건수 · 시각 범위, 둘째 줄 = 매수/매도 건수·합계 · 순, 셋째 = 가격 첫→끝, 그 아래 <b>주문마다 한 줄 표</b>(시각 · 매수/매도 · 금액 · 가격 · 수량 · 조각, 시간순 · 고른 원 ▸ 굵게 · 8줄 넘으면 「외 n건」). 한 원이면 표 한 줄 + 평단 대비.</li>
+      <li><b>③ 순매수 판</b> — 당일 팀 <span class="team">순매수(보라 · 굵게)</span> + <span class="up">당일 매수 누적(빨강)</span> + <span class="down">당일 매도 누적(파랑)</span> 같은 오른쪽 축 · 누적(이월 포함) 회색은 왼쪽 축 그대로. 「거울」 = 매도를 0선 아래 −로 그려 빨강·파랑 사이 차가 곧 보라선. 「위로 같이」 = 둘 다 0 위(순매수가 납작해짐). 선 4개라 판 높이 50 → 70 제안.</li>
+      <li><b>④ 통합 툴팁</b> — 판 어디에 마우스를 대든 <b>그 시각</b>의 네 판 값이 한 상자에(가격 · 등락률 · 팀 평단 / 당일 팀 순매수 · 매수 · 매도 · 누적 / 그 10분 칸 / 그 시각까지 거래대금 · 시총 대비 · 거래량 · 팀 비중). 점선 세로줄이 네 판을 관통하고 선마다 점. 판별 따로 뜨던 상자는 없어진다.</li>
+      <li>폰 — 길게 누르기(지금 그대로) = 통합 툴팁. 폰 범위 선택은 1차에서 빼는 안(데스크톱 마우스만) — 필요하면 따로.</li>
+      <li>범위 합계 기준 = 팀 <b>체결 조각</b>의 수신 시각이 구간 안(10분 막대와 같은 기준 · 주문이 구간 경계에 걸치면 조각만큼 나뉨). 건수 = 구간 안에 조각이 하나라도 있는 팀 주문 수.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ── 숫자 표기(fmtAmountC 이식) ─────────────────────────────────────────
+const MINUS = '−';
+const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+function amountAbs(w) { const man = Math.round(w / 1e4); if (w < 1e4) return `${INT.format(Math.round(w))}원`; if (man < 1e4) return `${INT.format(man)}만`; const e = man / 1e4; if (e < 10) { const v = Math.round(e * 100) / 100; if (v < 10) return `${v.toFixed(2)}억`; } if (e < 100) { const v = Math.round(e * 10) / 10; if (v < 100) return `${v.toFixed(1)}억`; } return `${INT.format(Math.round(e))}억`; }
+const famt = (w) => (w === 0 ? '0' : (w < 0 ? MINUS : '') + amountAbs(Math.abs(w)));
+const fsig = (w) => (w > 0 ? '+' : '') + famt(w);
+const pct2 = (v) => { const r = Math.round(v * 100) / 100; return r === 0 ? '0.00%' : `${r > 0 ? '+' : MINUS}${Math.abs(r).toFixed(2)}%`; };
+const pct1 = (r) => `${(Math.round(r * 1000) / 10).toFixed(1)}%`;
+const sgnCls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : 'mf');
+const p2 = (n) => String(n).padStart(2, '0');
+const clk = (s) => { const t = Math.floor(28800 + s); return `${p2(Math.floor(t / 3600))}:${p2(Math.floor((t % 3600) / 60))}:${p2(t % 60)}`; };
+const hm = (s) => clk(s).slice(0, 5);
+const dur = (s) => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? `${h}시간 ${m}분` : m ? `${m}분 ${x}초` : `${x}초`; };
+
+// ── 가짜 하루치(초 · 08:00 = 0 ~ 20:00 = 43200) ────────────────────────
+let seed = 29; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const DAY = 43200, STEP = 30, NP = DAY / STEP, BASE = 15600, SHARES = 21_500_000, MCAP = BASE * SHARES, CARRY = 9.84e8;
+const px = [], vol = [];
+let p = 15620;
+for (let i = 0; i < NP; i++) {
+  const t = i * STEP, open = t >= 3600 && t < 27000, gap = t >= 27000 && t < 28800, pre = t < 3600;
+  const drift = t >= 6000 && t < 10200 ? 1.1 : t >= 17400 && t < 20400 ? -0.9 : 0;
+  if (!gap) p = Math.round((p + drift + (rnd() - 0.5) * 9) / 10) * 10;
+  px.push(p);
+  let v = 0;
+  if (pre) v = 300 + rnd() * 900;
+  else if (open) v = (14000 * Math.exp(-(t - 3600) / 6000) + 2200 + rnd() * 1800) * (t >= 6000 && t < 10200 ? 2.1 : t >= 17400 && t < 20400 ? 1.5 : 1);
+  else if (!gap) v = 200 + rnd() * 500;
+  vol.push(Math.round(v));
+}
+const cumV = [], cumA = [];
+{ let a = 0, q = 0; for (let i = 0; i < NP; i++) { q += vol[i]; a += vol[i] * px[i]; cumV.push(q); cumA.push(a); } }
+const pxAt = (t) => px[Math.max(0, Math.min(NP - 1, Math.floor(t / STEP)))];
+const idxAt = (t) => Math.max(0, Math.min(NP - 1, Math.floor(t / STEP)));
+
+const orders = [];
+function burst(t0, side, n, big) {
+  for (let j = 0; j < n; j++) {
+    const t = t0 + rnd() * 4.5, val = big ? 1.5e7 + rnd() * 1.2e8 : 3e6 + rnd() * 3e7, pr = pxAt(t);
+    orders.push({ t, side: rnd() < 0.12 ? (side === 'B' ? 'S' : 'B') : side, val, px: pr, qty: Math.round(val / pr), pieces: 1 + Math.floor(rnd() * 7) });
+  }
+}
+for (let k = 0; k < 24; k++) burst(6000 + rnd() * 4200, 'B', 1 + Math.floor(rnd() * 5), rnd() < 0.4);
+for (let k = 0; k < 16; k++) burst(17400 + rnd() * 3000, 'S', 1 + Math.floor(rnd() * 4), rnd() < 0.35);
+for (let k = 0; k < 12; k++) burst(3700 + rnd() * 23000, rnd() < 0.6 ? 'B' : 'S', 1, rnd() < 0.2);
+for (let k = 0; k < 4; k++) burst(29000 + rnd() * 13000, 'B', 1, false);
+burst(8150, 'B', 6, true); // 큰 묶음 하나(툴팁 보기용)
+orders.sort((a, b) => a.t - b.t);
+let cb = 0, cs = 0, hold = 0, cost = 0;
+for (const o of orders) {
+  if (o.side === 'B') { cb += o.val; hold += o.qty; cost += o.val; }
+  else { const avg = hold > 0 ? cost / hold : o.px; cs += o.val; const q = Math.min(hold, o.qty); cost -= avg * q; hold -= q; }
+  o.cb = cb; o.cs = cs; o.net = cb - cs; o.avg = hold > 0 ? cost / hold : null;
+}
+const lastOrd = (t) => { let lo = 0, hi = orders.length; while (lo < hi) { const m = (lo + hi) >> 1; if (orders[m].t <= t) lo = m + 1; else hi = m; } return lo - 1; };
+const BK = 72, bBuy = new Array(BK).fill(0), bSell = new Array(BK).fill(0);
+for (const o of orders) { const s = Math.floor(o.t / 600); (o.side === 'B' ? bBuy : bSell)[s] += o.val; }
+const CURSOR = 26398; // 15:19:58
+
+// ── 상태 ─────────────────────────────────────────────────────────────
+const S = { v: 'A', drag: 'plain', mirror: 'mirror', h2: 70, phone: false, hover: null, sel: null, dragA: null };
+const VAR = {
+  A: { t: 'A · 따라다니는 세로 카드', d: '마우스 옆 상자 하나 — 머리 = 시각 · 가격 · 등락률, 아래로 「당일 팀」 · 「10분 칸」 · 「누적」 섹션이 라벨 : 값 두 열로 정렬. 원 위면 맨 위에 팀 주문 묶음 표. 폭 268 고정 · 키는 크다(가격 판을 조금 가림).' },
+  B: { t: 'B · 차트 위 고정 띠(트레이딩뷰 범례 꼴)', d: '차트 머리 아래 높이 고정 띠 4칸(가격 | 당일 팀 | 10분 | 누적) — 마우스를 대면 그 시각 값, 떼면 현재 틱 값. 차트를 가리지 않고 띠 높이가 안 변해 차트가 흔들리지 않는다. 팀 주문 묶음만 원 옆 작은 상자로 뜬다. 띠만큼 카드가 58px 커진다.' },
+  C: { t: 'C · 판별 행 표(넓고 낮은 상자)', d: '마우스 옆 상자 하나 · 판마다 한 행(가격 / 당일 팀 / 10분 / 누적) · 행 안 값이 가로로 — 키가 낮아 가격 판을 덜 가린다, 대신 넓다(≈ 470). 원 위면 표 아래 묶음 블록.' },
+};
+
+// ── 판 치수 ───────────────────────────────────────────────────────────
+function dims() {
+  const cw = document.getElementById('cw');
+  document.getElementById('svg').setAttribute('width', '0');
+  const W = Math.max(320, cw.clientWidth), L = 52, R = 52, xr = W - R;
+  const ph = S.phone;
+  const H1 = ph ? 72 : 104, H2 = ph ? Math.round(S.h2 * 0.72) : S.h2, H3 = ph ? 28 : 40, H4 = ph ? 36 : 50, GAP = 7, TOP = ph ? 0 : 7;
+  const y1a = TOP, y1b = y1a + H1, y2a = y1b + GAP, y2b = y2a + H2, y3a = y2b + GAP, y3b = y3a + H3, y4a = y3b + GAP, y4b = y4a + H4;
+  return { W, L, R, xr, pw: xr - L, y1a, y1b, y2a, y2b, y3a, y3b, y4a, y4b, H: y4b + 15, H1, H2, H3, H4 };
+}
+let D, X, T, Yp, Yn, Yc, Ys, circles = [], shTop = 0.05;
+
+// ── 정적 그림 ─────────────────────────────────────────────────────────
+function draw() {
+  D = dims();
+  const { W, L, xr, pw, y1a, y1b, y2a, y2b, y3a, y3b, y4a, y4b, H } = D;
+  X = (t) => L + (t / DAY) * pw; T = (x) => ((x - L) / pw) * DAY;
+  const svg = document.getElementById('svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('font-size', '11');
+  let s = `<rect x="${X(0)}" y="${y1a}" width="${X(3600) - X(0)}" height="${y4b - y1a}" fill="var(--accum-shade)"/>`;
+  s += `<rect x="${X(27000)}" y="${y1a}" width="${X(28800) - X(27000)}" height="${y4b - y1a}" fill="var(--accum-gap)"/>`;
+  for (let h = 9; h <= 20; h += S.phone ? 3 : 1) { const xx = X((h - 8) * 3600); s += `<line x1="${xx}" x2="${xx}" y1="${y1a}" y2="${y4b}" stroke="var(--border-subtle)"/><text x="${xx}" y="${H - 3}" text-anchor="middle" fill="var(--muted-fg)">${h}</text>`; }
+  [y1b, y2b, y3b, y4b].forEach((yy) => (s += `<line x1="${L}" x2="${xr}" y1="${yy}" y2="${yy}" stroke="var(--border-subtle)"/>`));
+  // ① 가격 · 평단 · 원
+  const pmn = Math.min(...px), pmx = Math.max(...px), pad = (pmx - pmn) * 0.08;
+  Yp = (v) => y1a + 3 + ((pmx + pad - v) / (pmx - pmn + 2 * pad)) * (D.H1 - 6);
+  let d = ''; for (let i = 0; i < NP; i++) d += `${i ? 'L' : 'M'}${X(i * STEP).toFixed(1)},${Yp(px[i]).toFixed(1)}`;
+  s += `<path d="${d}" fill="none" stroke="var(--fg-2)" stroke-width="1.25" stroke-linejoin="round"/>`;
+  d = ''; let started = false; orders.forEach((o, k) => { if (o.avg === null) { started = false; return; } const x1 = X(o.t), x2 = X(orders[k + 1]?.t ?? DAY); d += `${started ? 'L' : 'M'}${x1.toFixed(1)},${Yp(o.avg).toFixed(1)}L${x2.toFixed(1)},${Yp(o.avg).toFixed(1)}`; started = true; });
+  s += `<path d="${d}" fill="none" stroke="var(--up)" stroke-width="1.25" stroke-dasharray="1 2"/>`;
+  const rOf = (v) => Math.max(2.5, Math.min(11, 2.2 + Math.sqrt(v / 1e6) * 0.62));
+  circles = orders.map((o, k) => ({ k, o, cx: X(o.t), cy: Yp(o.px), r: rOf(o.val) })).sort((a, b) => b.o.val - a.o.val);
+  for (const c of circles) { const col = c.o.side === 'B' ? 'var(--up)' : 'var(--down)'; s += `<circle cx="${c.cx.toFixed(1)}" cy="${c.cy.toFixed(1)}" r="${c.r.toFixed(1)}" fill="${col}" fill-opacity=".55" stroke="${col}" stroke-opacity=".9"/>`; }
+  s += `<text x="${L - 4}" y="${Yp(pmx) + 4}" text-anchor="end" fill="var(--muted-fg)">${INT.format(pmx)}</text><text x="${L - 4}" y="${Yp(pmn) + 4}" text-anchor="end" fill="var(--muted-fg)">${INT.format(pmn)}</text>`;
+  // ② 당일 순매수 · 매수 누적 · 매도 누적 · 이월 누적(회색 좌축)
+  const mir = S.mirror === 'mirror', BMX = cb, SMX = cs;
+  const nets = orders.map((o) => o.net), hi = Math.max(0, BMX, mir ? 0 : SMX, ...nets), lo = Math.min(0, mir ? -SMX : 0, ...nets);
+  Yn = (v) => y2a + 3 + ((hi - v) / (hi - lo || 1)) * (D.H2 - 6);
+  const cumHi = Math.max(CARRY, ...nets.map((n) => CARRY + n)), cumLo = Math.min(0, CARRY, ...nets.map((n) => CARRY + n));
+  Yc = (v) => y2a + 3 + ((cumHi - v) / (cumHi - cumLo || 1)) * (D.H2 - 6);
+  const stairs = (f, yf, from) => { let a = `M${L},${yf(from).toFixed(1)}`; for (const o of orders) a += `H${X(o.t).toFixed(1)}V${yf(f(o)).toFixed(1)}`; return a + `H${xr}`; };
+  s += `<line x1="${L}" x2="${xr}" y1="${Yn(0)}" y2="${Yn(0)}" stroke="var(--faint)" stroke-dasharray="2 3"/>`;
+  s += `<path d="${stairs((o) => CARRY + o.net, Yc, CARRY)}" fill="none" stroke="var(--muted-fg)" stroke-opacity=".7"/>`;
+  s += `<path d="${stairs((o) => o.cb, Yn, 0)}" fill="none" stroke="var(--up)" stroke-width="1.15" stroke-opacity=".85"/>`;
+  s += `<path d="${stairs((o) => (mir ? -o.cs : o.cs), Yn, 0)}" fill="none" stroke="var(--down)" stroke-width="1.15" stroke-opacity=".85"/>`;
+  s += `<path d="${stairs((o) => o.net, Yn, 0)}" fill="none" stroke="var(--team)" stroke-width="1.75"/>`;
+  s += `<text x="${xr + 4}" y="${y2a + 9}" fill="var(--team)">${famt(hi)}</text>`;
+  if (lo < 0) s += `<text x="${xr + 4}" y="${y2b - 1}" fill="var(--team)">${famt(lo)}</text>`;
+  s += `<text x="${L - 4}" y="${y2a + 9}" text-anchor="end" fill="var(--muted-fg)">${famt(cumHi)}</text><text x="${L - 4}" y="${y2b - 1}" text-anchor="end" fill="var(--muted-fg)">${famt(cumLo)}</text>`;
+  // ③ 10분 막대
+  const cw = pw / BK, bw = Math.max(1.5, cw * 0.42), bmx = Math.max(...bBuy, ...bSell);
+  for (let k = 0; k < BK; k++) {
+    const hb = (bBuy[k] / bmx) * (D.H3 - 2), hs = (bSell[k] / bmx) * (D.H3 - 2), x0 = L + k * cw;
+    if (hb) s += `<rect x="${x0 + 1}" y="${y3b - hb}" width="${bw}" height="${hb}" fill="var(--up)" fill-opacity=".7"/>`;
+    if (hs) s += `<rect x="${x0 + 2 + bw}" y="${y3b - hs}" width="${bw}" height="${hs}" fill="var(--down)" fill-opacity=".7"/>`;
+  }
+  s += `<text x="${xr + 4}" y="${y3a + 9}" fill="var(--muted-fg)">${famt(bmx)}</text>`;
+  // ④ 누적 거래대금 · 팀 비중
+  const vh = y4b - y4a - 4, A = cumA[NP - 1], ya = (v) => y4b - (v / A) * vh;
+  const share = (i) => { const k = lastOrd((i + 1) * STEP); return k < 0 || cumA[i] <= 0 ? null : (orders[k].cb + orders[k].cs) / cumA[i]; };
+  let shMx = 0; for (let i = 0; i < NP; i++) { const v = share(i); if (v !== null && i * STEP > 4000) shMx = Math.max(shMx, v); }
+  shTop = Math.max(0.05, Math.ceil(shMx * 20) / 20); Ys = (v) => y4b - (v / shTop) * vh;
+  d = `M${L},${y4b}`; for (let i = 0; i < NP; i++) d += `L${X((i + 1) * STEP).toFixed(1)},${ya(cumA[i]).toFixed(1)}`;
+  s += `<path d="${d}L${xr},${y4b}Z" fill="var(--faint)" fill-opacity=".45"/>`;
+  d = ''; for (let i = 0; i < NP; i++) { const v = share(i); if (v !== null) d += `${d ? 'L' : 'M'}${X((i + 1) * STEP).toFixed(1)},${Ys(Math.min(v, shTop)).toFixed(1)}`; }
+  s += `<path d="${d}" fill="none" stroke="var(--team)" stroke-width="1.75" stroke-linejoin="round"/>`;
+  s += `<text x="${L - 4}" y="${y4a + 9}" text-anchor="end" fill="var(--muted-fg)">${pct1(A / MCAP)}</text><text x="${L - 4}" y="${y4b - 1}" text-anchor="end" fill="var(--muted-fg)">0%</text>`;
+  s += `<text x="${xr + 4}" y="${y4a + 9}" fill="var(--team)">${Math.round(shTop * 100)}%</text><text x="${xr + 4}" y="${y4b - 1}" fill="var(--team)">0%</text>`;
+  // 판 제목
+  if (!S.phone) {
+    s += `<g font-weight="600"><text x="${L + 4}" y="${y1a + 11}" fill="var(--fg-2)">가격 · <tspan fill="var(--up)">팀 평단</tspan> · 팀 주문 원</text>`;
+    s += `<text x="${L + 4}" y="${y2a + 10}" fill="var(--team)">당일 팀 순매수 <tspan fill="var(--fg-2)" font-weight="400">· <tspan fill="var(--up)">매수</tspan> · <tspan fill="var(--down)">매도${mir ? '(0선 아래)' : ''}</tspan> 누적 · 오른쪽 축</tspan><tspan fill="var(--muted-fg)" font-weight="400"> · 누적(이월 포함 · 왼쪽 회색 축)</tspan></text>`;
+    s += `<text x="${L + 4}" y="${y3a + 10}" fill="var(--fg-2)">10분 팀 매수 / 매도</text>`;
+    s += `<text x="${L + 4}" y="${y4a + 10}" fill="var(--fg-2)">누적 거래대금(왼쪽 축 = 시총 대비) · <tspan fill="var(--team)">누적 팀 비중(오른쪽 축)</tspan></text></g>`;
+  }
+  // 현재 틱 커서
+  const cx = X(CURSOR);
+  s += `<line x1="${cx}" x2="${cx}" y1="${y1a}" y2="${y4b}" stroke="var(--fg)"/>`;
+  s += `<rect x="${cx - 29}" y="${y4b + 1}" width="58" height="13" rx="3" fill="var(--fg)"/><text x="${cx}" y="${y4b + 11}" text-anchor="middle" fill="var(--bg)" font-weight="600">${clk(CURSOR)}</text>`;
+  s += `<g id="ov"></g>`;
+  svg.innerHTML = s;
+  document.getElementById('lg').innerHTML = S.phone ? '' : `가격 · 팀 평단 · 팀 주문 원 | <span class="team">당일 팀 순매수</span> · <span class="up">매수</span>/<span class="down">매도</span> 누적 · 누적 | 10분 팀 매수/매도 | 누적 거래대금 · <span class="team">팀 비중</span>`;
+  overlay();
+}
+
+// ── 그 시각 정보 ──────────────────────────────────────────────────────
+function infoAt(t) {
+  const i = idxAt(t), k = lastOrd(t), o = k >= 0 ? orders[k] : null, slot = Math.floor(t / 600);
+  const pr = px[i], buy = o ? o.cb : 0, sell = o ? o.cs : 0, net = buy - sell, avg = o ? o.avg : null;
+  const tv = cumA[i], team = buy + sell;
+  return {
+    t, clock: clk(t), px: pr, chg: ((pr - BASE) / BASE) * 100, avg, avgDiff: avg ? ((pr - avg) / avg) * 100 : null,
+    buy, sell, net, cum: CARRY + net, slot: `${hm(slot * 600)}~${hm(slot * 600 + 600)}`, sb: bBuy[slot] || 0, ss: bSell[slot] || 0,
+    tv, tvPct: tv / MCAP, vol: cumV[i], share: tv > 0 ? team / tv : 0, team,
+  };
+}
+function groupAt(mx, my) {
+  if (my < D.y1a || my > D.y1b) return null;
+  let best = null, bd = Infinity;
+  for (const c of circles) { if (Math.abs(mx - c.cx) > c.r + 2) continue; const dy = Math.abs(my - c.cy); if (dy < bd) { bd = dy; best = c; } }
+  if (!best) return null;
+  const g = circles.filter((c) => Math.abs(c.cx - best.cx) <= 5).sort((a, b) => a.o.t - b.o.t);
+  return { seed: best, g };
+}
+
+// ── 툴팁 조각 ─────────────────────────────────────────────────────────
+function groupHtml(G) {
+  if (!G) return '';
+  const { seed, g } = G;
+  const row = (c) => { const o = c.o; return `<tr class="${c === seed ? 'seed' : ''}"><td>${clk(o.t)}.${String(Math.floor((o.t % 1) * 1000)).padStart(3, '0')}</td><td><span class="side ${o.side === 'B' ? 'up' : 'down'}">${o.side === 'B' ? '매수' : '매도'}</span></td><td class="r">${famt(o.val)}</td><td class="r">@${INT.format(o.px)}</td><td class="r">${INT.format(o.qty)}주</td><td class="r mf">${o.pieces}조각</td></tr>`; };
+  if (g.length < 2) {
+    const o = seed.o, avg = o.avg ?? null;
+    return `<div class="grp"><div class="gh">팀 주문 1건<small>${clk(o.t)}</small></div><table>${row(seed)}</table>${avg ? `<div class="gs"><span class="mf">그 시각 평단 대비</span><b class="${sgnCls(o.px - avg)}">${pct2(((o.px - avg) / avg) * 100)}</b></div>` : ''}</div>`;
+  }
+  let b = 0, s = 0, bv = 0, sv = 0; for (const c of g) { if (c.o.side === 'B') { b++; bv += c.o.val; } else { s++; sv += c.o.val; } }
+  const f = g[0].o, l = g[g.length - 1].o, MAXR = 8;
+  const rows = g.length > MAXR ? [...g.slice(0, MAXR - 1)] : g;
+  return `<div class="grp"><div class="gh">팀 주문 묶음 ${g.length}건<small>${clk(f.t)} ~ ${clk(l.t)}</small></div>
+    <div class="gs">${b ? `<span class="up">매수 ${b}건 <b>${famt(bv)}</b></span>` : ''}${s ? `<span class="down">매도 ${s}건 <b>${famt(sv)}</b></span>` : ''}<span>순 <b class="${sgnCls(bv - sv)}">${fsig(bv - sv)}</b></span><span class="mf">가격 <b style="color:var(--fg-2)">${INT.format(f.px)} → ${INT.format(l.px)}</b> (${pct2(((l.px - f.px) / f.px) * 100)})</span></div>
+    <table>${rows.map(row).join('')}</table>${g.length > MAXR ? `<div class="more">외 ${g.length - rows.length}건</div>` : ''}</div>`;
+}
+const dot = (c) => `<i style="background:${c}"></i>`;
+function tipA(I, G) {
+  return `<div class="h"><span class="clk">${I.clock}</span><span><b class="num">${INT.format(I.px)}</b> <span class="num ${sgnCls(I.chg)}">${pct2(I.chg)}</span></span></div>
+  ${groupHtml(G)}
+  <div class="sec">${dot('var(--team)')}당일 팀</div>
+  <div class="kv"><span>순매수</span><b class="team">${fsig(I.net)}</b><span>매수 누적</span><b class="up">${famt(I.buy)}</b><span>매도 누적</span><b class="down">${famt(I.sell)}</b>
+  <span>누적(이월 포함)</span><b>${fsig(I.cum)}</b><span>팀 평단</span><b>${I.avg ? `${INT.format(Math.round(I.avg))} <small>(${pct2(I.avgDiff)})</small>` : '—'}</b></div>
+  <div class="sec">${dot('var(--faint)')}10분 칸 <span class="num" style="font-weight:400">${I.slot}</span></div>
+  <div class="kv">${I.sb || I.ss ? `<span>매수 / 매도</span><b><span class="up">${famt(I.sb)}</span> / <span class="down">${famt(I.ss)}</span></b><span>순</span><b class="${sgnCls(I.sb - I.ss)}">${fsig(I.sb - I.ss)}</b>` : `<span>팀 체결 없음</span><b></b>`}</div>
+  <div class="sec">${dot('var(--vol)')}이 시각까지 누적</div>
+  <div class="kv"><span>거래대금</span><b>${famt(I.tv)} <small>시총 ${pct1(I.tvPct)}</small></b><span>거래량</span><b>${INT.format(I.vol)}주</b><span>팀 비중</span><b class="team">${pct1(I.share)} <small>${famt(I.team)}</small></b></div>`;
+}
+function tipC(I, G) {
+  const cell = (l, v) => `<td><span class="l">${l}</span>${v}</td>`;
+  return `<div class="h"><span class="clk">${I.clock}</span><span class="mf" style="font-size:10.5px">가로 = 그 시각 네 판 값</span></div><table>
+  <tr><td class="rh">${dot('var(--fg-2)')}가격</td>${cell('', `<b>${INT.format(I.px)}</b>`)}${cell('등락', `<b class="${sgnCls(I.chg)}">${pct2(I.chg)}</b>`)}${cell('팀 평단', `<b>${I.avg ? INT.format(Math.round(I.avg)) : '—'}</b>`)}${cell('평단 대비', `<b class="${sgnCls(I.avgDiff || 0)}">${I.avgDiff !== null ? pct2(I.avgDiff) : '—'}</b>`)}</tr>
+  <tr><td class="rh">${dot('var(--team)')}당일 팀</td>${cell('순', `<b class="team">${fsig(I.net)}</b>`)}${cell('매수', `<b class="up">${famt(I.buy)}</b>`)}${cell('매도', `<b class="down">${famt(I.sell)}</b>`)}${cell('누적', `<b>${fsig(I.cum)}</b>`)}</tr>
+  <tr><td class="rh">${dot('var(--faint)')}10분 <span class="num" style="font-weight:400">${I.slot.slice(0, 5)}</span></td>${I.sb || I.ss ? `${cell('순', `<b class="${sgnCls(I.sb - I.ss)}">${fsig(I.sb - I.ss)}</b>`)}${cell('매수', `<b class="up">${famt(I.sb)}</b>`)}${cell('매도', `<b class="down">${famt(I.ss)}</b>`)}<td></td>` : `<td colspan="4" class="mf">팀 체결 없음</td>`}</tr>
+  <tr><td class="rh">${dot('var(--vol)')}누적</td>${cell('거래대금', `<b>${famt(I.tv)}</b>`)}${cell('시총 대비', `<b>${pct1(I.tvPct)}</b>`)}${cell('팀 비중', `<b class="team">${pct1(I.share)}</b>`)}${cell('거래량', `<b>${INT.format(I.vol)}</b>`)}</tr></table>${groupHtml(G)}`;
+}
+function stripHtml(I, live) {
+  const st = (c, t, e) => `<div class="st">${dot(c)}${t}${e ? `<em>${e}</em>` : ''}</div>`;
+  const kv = (l, v) => `<b><span>${l}</span>${v}</b>`;
+  return `<div>${st('var(--fg-2)', live ? '<span class="now">현재 틱</span>' : '가격', I.clock)}<div class="row">${kv('', `<span class="num" style="color:var(--fg);font-size:12px;margin:0">${INT.format(I.px)}</span>`)}${kv('', `<span class="${sgnCls(I.chg)}" style="margin:0;font-size:11px">${pct2(I.chg)}</span>`)}</div><div class="row">${kv('평단', I.avg ? `${INT.format(Math.round(I.avg))}` : '—')}${I.avgDiff !== null ? kv('', `<span class="${sgnCls(I.avgDiff)}" style="margin:0;font-size:11px">${pct2(I.avgDiff)}</span>`) : ''}</div></div>
+  <div>${st('var(--team)', '당일 팀')}<div class="row">${kv('순', `<span class="team" style="margin:0;font-size:11px">${fsig(I.net)}</span>`)}${kv('매수', `<span class="up" style="margin:0;font-size:11px">${famt(I.buy)}</span>`)}${kv('매도', `<span class="down" style="margin:0;font-size:11px">${famt(I.sell)}</span>`)}</div><div class="row">${kv('누적(이월 포함)', fsig(I.cum))}</div></div>
+  <div>${st('var(--faint)', '10분', I.slot)}<div class="row">${I.sb || I.ss ? `${kv('매수', `<span class="up" style="margin:0;font-size:11px">${famt(I.sb)}</span>`)}${kv('매도', `<span class="down" style="margin:0;font-size:11px">${famt(I.ss)}</span>`)}` : '<b class="rest">팀 체결 없음</b>'}</div>${I.sb || I.ss ? `<div class="row">${kv('순', `<span class="${sgnCls(I.sb - I.ss)}" style="margin:0;font-size:11px">${fsig(I.sb - I.ss)}</span>`)}</div>` : ''}</div>
+  <div>${st('var(--vol)', '누적')}<div class="row">${kv('거래대금', famt(I.tv))}${kv('시총', pct1(I.tvPct))}</div><div class="row">${kv('팀', `<span class="team" style="margin:0;font-size:11px">${pct1(I.share)}</span>`)}${kv('거래량', INT.format(I.vol))}</div></div>`;
+}
+
+// ── 덧그림(호버 세로선 · 점 · 범위 띠 · 고리) ───────────────────────────
+function overlay() {
+  const ov = document.getElementById('ov'); if (!ov) return;
+  const { y1a, y4b, y2a } = D;
+  let s = '';
+  const sel = S.dragA !== null ? S.dragA : S.sel;
+  if (sel) {
+    const a = X(Math.min(sel.t0, sel.t1)), b = X(Math.max(sel.t0, sel.t1));
+    s += `<rect x="${a}" y="${y1a}" width="${Math.max(1, b - a)}" height="${y4b - y1a}" fill="var(--sel)"/><line x1="${a}" x2="${a}" y1="${y1a}" y2="${y4b}" stroke="var(--sel-edge)"/><line x1="${b}" x2="${b}" y1="${y1a}" y2="${y4b}" stroke="var(--sel-edge)"/>`;
+    const R = rangeOf(sel), lab = `순 ${fsig(R.net)}`, lw = lab.length * 6.4 + 10, lx = Math.min(D.xr - lw, Math.max(D.L, (a + b) / 2 - lw / 2));
+    s += `<rect x="${lx}" y="${y2a - 15}" width="${lw}" height="14" rx="7" fill="var(--primary)"/><text x="${lx + lw / 2}" y="${y2a - 4.5}" text-anchor="middle" fill="#fff" font-weight="600" font-size="10.5">${lab}</text>`;
+  }
+  if (S.hover && S.dragA === null) {
+    const { mx, I, G } = S.hover, x = X(I.t);
+    s += `<line x1="${mx}" x2="${mx}" y1="${y1a}" y2="${y4b}" stroke="var(--fg-2)" stroke-dasharray="3 3" stroke-opacity=".7"/>`;
+    const mir = S.mirror === 'mirror';
+    const pts = [[Yp(I.px), 'var(--fg-2)'], [Yn(I.net), 'var(--team)'], [Yn(I.buy), 'var(--up)'], [Yn(mir ? -I.sell : I.sell), 'var(--down)'], [Yc(I.cum), 'var(--muted-fg)'], [Ys(Math.min(I.share, shTop)), 'var(--team)']];
+    for (const [yy, c] of pts) s += `<circle cx="${mx}" cy="${yy}" r="3" fill="${c}" stroke="var(--card)" stroke-width="1.5"/>`;
+    if (G) for (const c of G.g) s += `<circle cx="${c.cx}" cy="${c.cy}" r="${c.r + 1}" fill="none" stroke="var(--fg)" stroke-width="${c === G.seed ? 2.5 : 1.5}"/>`;
+  }
+  ov.innerHTML = s;
+}
+
+// ── 범위 합계 ─────────────────────────────────────────────────────────
+function rangeOf(sel) {
+  const t0 = Math.min(sel.t0, sel.t1), t1 = Math.max(sel.t0, sel.t1);
+  let b = 0, s = 0, nb = 0, ns = 0;
+  for (const o of orders) { if (o.t < t0 || o.t > t1) continue; if (o.side === 'B') { b += o.val; nb++; } else { s += o.val; ns++; } }
+  const i0 = idxAt(t0), i1 = idxAt(t1), tv = cumA[i1] - (i0 > 0 ? cumA[i0 - 1] : 0), p0 = px[i0], p1 = px[i1];
+  return { t0, t1, b, s, nb, ns, net: b - s, tv, share: tv > 0 ? (b + s) / tv : 0, p0, p1 };
+}
+function renderRange() {
+  const el = document.getElementById('rng');
+  const sel = S.dragA !== null ? S.dragA : S.sel;
+  if (!sel || Math.abs(sel.t1 - sel.t0) < 1) { el.classList.remove('on'); el.innerHTML = ''; return; }
+  const R = rangeOf(sel);
+  el.classList.add('on');
+  el.innerHTML = `<div class="rh"><b>구간 ${clk(R.t0)} ~ ${clk(R.t1)}</b><small>${dur(R.t1 - R.t0)}</small>${S.dragA ? '<small style="color:var(--primary)">끄는 중…</small>' : '<button id="clr">✕ 지우기 (Esc)</button>'}</div>
+    <dl class="big3"><div><dt>팀 매수</dt><dd class="up">${famt(R.b)}<small>${R.nb}건</small></dd></div><div><dt>팀 매도</dt><dd class="down">${famt(R.s)}<small>${R.ns}건</small></dd></div><div><dt>팀 순매수</dt><dd class="${sgnCls(R.net)}">${fsig(R.net)}</dd></div></dl>
+    <div class="foot">구간 거래대금 <b>${famt(R.tv)}</b> · 팀 비중 <b style="color:var(--team)">${pct1(R.share)}</b> · 가격 <b>${INT.format(R.p0)} → ${INT.format(R.p1)}</b> (<span class="${sgnCls(R.p1 - R.p0)}">${pct2(((R.p1 - R.p0) / R.p0) * 100)}</span>)</div>`;
+  const c = document.getElementById('clr'); if (c) c.onclick = () => { S.sel = null; renderRange(); overlay(); };
+}
+
+// ── 툴팁 배치 ─────────────────────────────────────────────────────────
+function renderTip() {
+  const tt = document.getElementById('tt'), strip = document.getElementById('strip');
+  if (S.v === 'B') {
+    strip.style.display = '';
+    const I = S.hover ? S.hover.I : infoAt(CURSOR);
+    strip.className = 'strip' + (S.hover ? '' : ' live');
+    strip.innerHTML = stripHtml(I, !S.hover);
+  } else strip.style.display = 'none';
+  if (!S.hover || S.dragA !== null || (S.v === 'B' && !S.hover.G)) { tt.style.display = 'none'; return; }
+  const { mx, my, I, G } = S.hover;
+  tt.style.display = '';
+  tt.className = 'tt ' + (S.v === 'A' ? 'tt-a' : S.v === 'C' ? 'tt-c' : 'gfloat');
+  tt.innerHTML = S.v === 'A' ? tipA(I, G) : S.v === 'C' ? tipC(I, G) : groupHtml(G);
+  const W = D.W, w = tt.offsetWidth, h = tt.offsetHeight;
+  if (S.phone) { tt.style.left = '4px'; tt.style.right = 'auto'; tt.style.maxWidth = `${W - 8}px`; tt.style.top = `${Math.max(4, my - h - 24)}px`; return; }
+  tt.style.maxWidth = '';
+  const left = mx > W / 2 ? mx - 14 - w : mx + 14;
+  tt.style.left = `${Math.max(4, Math.min(W - w - 4, left))}px`; tt.style.right = 'auto';
+  const top = S.v === 'B' ? my + 14 : 6;
+  tt.style.top = `${Math.max(4, Math.min(D.H - h + 40, top))}px`;
+}
+
+// ── 포인터 ───────────────────────────────────────────────────────────
+const svg = document.getElementById('svg');
+const toast = (msg) => { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 900); };
+const ptOf = (e) => { const r = svg.getBoundingClientRect(); return { mx: ((e.clientX - r.left) * D.W) / r.width, my: ((e.clientY - r.top) * D.H) / r.height }; };
+let down = null;
+svg.addEventListener('pointerdown', (e) => {
+  const { mx, my } = ptOf(e); if (mx < D.L || mx > D.xr) return;
+  const isSel = S.drag === 'plain' ? !e.shiftKey : e.shiftKey;
+  down = { x: e.clientX, mx, isSel, moved: false, hadSel: !!S.sel };
+  svg.setPointerCapture(e.pointerId);
+});
+svg.addEventListener('pointermove', (e) => {
+  const { mx, my } = ptOf(e);
+  if (down) {
+    if (Math.abs(e.clientX - down.x) > 4) down.moved = true;
+    if (down.moved && down.isSel) {
+      S.dragA = { t0: T(down.mx), t1: T(Math.max(D.L, Math.min(D.xr, mx))) };
+      S.hover = null; overlay(); renderRange(); renderTip(); return;
+    }
+    if (down.moved && !down.isSel) { toast('← 창 이동(지금 동작 · 목업에선 생략) →'); return; }
+  }
+  if (mx < D.L || mx > D.xr || my > D.y4b) { S.hover = null; overlay(); renderTip(); return; }
+  const t = Math.max(0, Math.min(DAY - 1, T(mx)));
+  S.hover = { mx, my, I: infoAt(t), G: groupAt(mx, my) };
+  svg.className.baseVal = S.drag === 'plain' && !e.shiftKey ? 'sel-mode' : 'crosshair';
+  overlay(); renderTip();
+});
+svg.addEventListener('pointerup', (e) => {
+  if (down && down.moved && down.isSel && S.dragA) { S.sel = S.dragA; S.dragA = null; }
+  else if (down && !down.moved) {
+    if (down.hadSel) { S.sel = null; toast('구간 지움(이 클릭은 시각 이동 안 함)'); }
+    else toast(`클릭 = ${clk(T(down.mx))} 이후 첫 틱으로 이동(지금 동작)`);
+  }
+  down = null; overlay(); renderRange(); renderTip();
+});
+svg.addEventListener('pointerleave', () => { if (down) return; S.hover = null; overlay(); renderTip(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.sel) { S.sel = null; overlay(); renderRange(); } });
+
+// ── 툴바 ─────────────────────────────────────────────────────────────
+function hint() {
+  document.getElementById('hint').innerHTML = S.drag === 'plain'
+    ? `<kbd>끌기</kbd> 범위 합계 · <kbd>Shift</kbd>+<kbd>끌기</kbd> 창 이동 · <kbd>휠</kbd> 확대/축소 · <kbd>클릭</kbd> 그 시각으로 · <kbd>Esc</kbd> 구간 지움`
+    : `<kbd>Shift</kbd>+<kbd>끌기</kbd> 범위 합계 · <kbd>끌기</kbd> 창 이동(지금 그대로) · <kbd>휠</kbd> 확대/축소 · <kbd>클릭</kbd> 그 시각으로 · <kbd>Esc</kbd> 구간 지움`;
+}
+function applyVariant() { document.getElementById('vt').textContent = VAR[S.v].t; document.getElementById('vd').textContent = VAR[S.v].d; }
+for (const id of ['variant', 'drag', 'mirror', 'h2', 'theme', 'width']) document.getElementById(id).addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b));
+  const v = b.dataset.v;
+  if (id === 'variant') S.v = v; if (id === 'drag') S.drag = v; if (id === 'mirror') S.mirror = v; if (id === 'h2') S.h2 = Number(v);
+  if (id === 'theme') document.documentElement.dataset.theme = v; if (id === 'width') { S.phone = v === 'phone'; document.body.classList.toggle('phone', S.phone); }
+  S.hover = null; applyVariant(); hint(); draw(); renderTip(); renderRange();
+});
+window.addEventListener('resize', () => { draw(); renderTip(); });
+// 처음 화면 — 구간 하나 미리 골라 둠(09:40~10:50 매수 몰린 곳)
+S.sel = { t0: 6000, t1: 10200 };
+applyVariant(); hint(); draw(); renderTip(); renderRange();
+</script>
+</body>
+</html>
