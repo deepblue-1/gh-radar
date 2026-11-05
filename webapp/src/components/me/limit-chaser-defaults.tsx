@@ -144,7 +144,7 @@ export const USER_SETTINGS_GROUPS: readonly UserSettingsGroup[] = USER_SETTINGS_
  * 「버스트 상한가」 1행(quick-261102-epl · gh-trade quick-261101-t7c): 「판정 비율」(% · 1~100 · 기본 70) — 서버 상따 ☐버스트 취소와
  * 호가창 「버스트 NN%」 의 기준이다. 저장 즉시 그 사용자의 모든 세션에 반영된다(84 브로드캐스트). 84 가 0(구 서버)이면 70 을 보인다.
  * 「매도」 묶음 「위험도 기준」(quick-261103-n1s · gh-trade quick-261103-l41 · 「매도 잔량추적」 바로 아래): % · 1~999 · 기본 80 — 상따 새 창
- * ☐위험도 값 칸의 초기값이다(체크는 늘 꺼짐 — 켜는 것은 사람뿐). 84 가 0(구 서버)이면 80 을 보이고 42 에는 싣지 않는다(판정 비율과 같은 규칙).
+ * ☐위험도 값 칸의 초기값이다(체크는 늘 꺼짐 — 켜는 것은 사람의 클릭 · 선 · 줄매수 자동 체크뿐). 84 가 0(구 서버)이면 80 을 보이고 42 에는 싣지 않는다(판정 비율과 같은 규칙).
  */
 export const USER_SETTINGS_ROWS: readonly UserSettingsRowSpec[] = [
   { kind: "value", key: "preBuyAmount", label: "선매수 금액", unit: "만원", group: "매수 금액", id: "me-lc-pre-buy-amount" },

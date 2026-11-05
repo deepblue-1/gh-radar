@@ -466,8 +466,8 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         a11yPrefix: '매도',
         ...LC_FIELD_RANGES.sellMinTradeAmount,
       },
-      // ○위험도(gh-trade quick-261103-l41 · quick-261103-n1s 결정 ① · WinForms ☐체결 줄 바로 아래) — 켜는 것은 사람뿐(새 폼 ·
-      // 시딩 · 동반 규칙은 켜지 않는다). 흐림은 ☐체결과 같다(매도주문 게이트).
+      // ○위험도(gh-trade quick-261103-l41 · quick-261103-n1s 결정 ① · WinForms ☐체결 줄 바로 아래) — 켜는 것은 사람의 클릭 ·
+      // 선 · 줄매수 자동 체크뿐(gh-trade quick-261105-fgg · 새 폼 · 시딩 · ☐매도주문 켬 단독은 켜지 않는다). 흐림은 ☐체결과 같다(매도주문 게이트).
       {
         kind: 'checkValue',
         check: 'sellRiskEnabled',
@@ -476,7 +476,9 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         id: 'lc-sell-risk-pct',
         label: '위험도',
         unit: '%',
-        desc: '상한가 거래량이 상한가 매수잔량의 이 비율 이상이면 매수 미체결을 모두 취소하고 매도해요',
+        // 3초 래치(gh-trade aa331275 · 인박스 261105-sell-risk-latch) — 상한가 매수잔량 > 0 ∧ 위험도 < N 이 3초 이어진 뒤에만 발동.
+        // 상한가가 깨지면 체크는 그대로 두고 래치만 풀린다(다시 잠기면 3초 뒤 재래치).
+        desc: '상한가가 3초 넘게 잠긴 뒤, 상한가 거래량이 상한가 매수잔량의 이 비율 이상이 되면 매수 미체결을 모두 취소하고 매도해요',
         a11yPrefix: '매도',
         ...LC_FIELD_RANGES.sellRiskPct,
       },

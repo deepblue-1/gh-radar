@@ -2342,6 +2342,7 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, ...over });
   const SIX = {
     sellEnabled: true,
+    sellRiskEnabled: true,
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
     cancelQtyEnabled: true,
@@ -2349,7 +2350,7 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
     cancelQtyTrackEnabled: true,
   } as const;
   const FULL_LINE =
-    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
 
   it('마스터 OFF 에서 선매수 클릭 → lc.set 1회 · cfg 에 선매수 · 마스터 · 6체크 · 상한가로 채운 매도 가격 · 매도 스위치 낙관 ON · 확인창 없음', () => {
     const onClientLog = vi.fn();
@@ -2420,6 +2421,7 @@ describe('⑲ 선매수 자동 체크 D-06 · D-07 · D-08 — 사람의 선매�
       buyEnabled: true,
       preBuyEnabled: true,
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelTradeEnabled: true,
@@ -2554,6 +2556,7 @@ describe('WR-03 — 대기열 선매수 켜기의 동반 필드는 꺼내는 순
       preBuyEnabled: true,
       sellWatchPrice: 150_800,
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelQtyEnabled: true,
@@ -2735,6 +2738,7 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, extraBuyOrderAmount: 50, ...over });
   const SIX = {
     sellEnabled: true,
+    sellRiskEnabled: true,
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
     cancelQtyEnabled: true,
@@ -2743,6 +2747,7 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
   } as const;
   const SIX_OFF = {
     sellEnabled: false,
+    sellRiskEnabled: false,
     sellQtyTrackEnabled: false,
     sellTradeQtyEnabled: false,
     cancelQtyEnabled: false,
@@ -2750,7 +2755,7 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
     cancelQtyTrackEnabled: false,
   } as const;
   const FULL_LINE =
-    '줄매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '줄매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
   /** 「켬: a · b · …」 조각의 항목 목록. */
   const turnedOnOf = (text: string): string[] => {
     const m = /켬: ([^/]+)/.exec(text);
@@ -2847,7 +2852,8 @@ describe('D-35 — 줄매수 켬도 선매수처럼 매도 · 취소 6체크를 
     expect(onClientLog).toHaveBeenCalledTimes(1);
     const [text, level] = onClientLog.mock.calls[0]!;
     expect(level).toBe('info');
-    expect(text).toBe('줄매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 · 취소>잔량추적');
+    // 매도주문이 이미 켜져 있으니 위험도는 켠다(gh-trade quick-261105-fgg)
+    expect(text).toBe('줄매수 자동 체크 — 켬: 위험도 · 매도>잔량추적 · 매도>체결 · 취소>체결 · 취소>잔량추적');
     expect(turnedOnOf(text)).not.toContain('매도주문');
     expect(turnedOnOf(text)).not.toContain('취소');
   });
@@ -2935,6 +2941,7 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
     echo({ buyEnabled: false, sellOrderPrice: 0, sellWatchPrice: 0, sellWatchQty: 10, sellWatchAmount: 1000, extraBuyOrderAmount: 50, ...over });
   const SIX = {
     sellEnabled: true,
+    sellRiskEnabled: true,
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
     cancelQtyEnabled: true,
@@ -2943,7 +2950,7 @@ describe('GC-WR-04 — 자동 체크 로그는 그룹별이다 (24-VERIFICATION-
   } as const;
   const CANCEL_THREE = { cancelQtyEnabled: true, cancelTradeEnabled: true, cancelQtyTrackEnabled: true } as const;
   const PRE_FULL_LINE =
-    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
   /** onClientLog 호출 중 자동 체크 줄만. */
   const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
@@ -3180,6 +3187,7 @@ describe('R3-WR-02 — 성공 신호가 한 실행에 겹쳐도 자동 체크 �
     });
   const SIX = {
     sellEnabled: true,
+    sellRiskEnabled: true,
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
     cancelQtyEnabled: true,
@@ -3263,7 +3271,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
   } as const;
   /** 부분 거부 — 에코가 매도주문만 눕혔다. 「켬」 은 에코에 선 항목만 · 에코에 무장으로 서지 않은 항목은 무장 안 됨 · error (R3-G1 · R4-WR-01 · R5-WR-02). */
   const PRE_PARTIAL_LINE =
-    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) · 위험도(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
   const autoLines = (log: ReturnType<typeof vi.fn>): [string, string][] =>
     (log.mock.calls as [string, string][]).filter(([text]) => text.includes('자동 체크'));
   const failedShown = () => (document.body.textContent ?? '').includes('반영하지 못했어요');
@@ -3325,7 +3333,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 선매
     );
     expect(autoLines(onClientLog)).toEqual([
       [PRE_PARTIAL_LINE, 'error'],
-      ['줄매수 자동 체크 — 켜지 않음: 매도주문(무장 안 됨)', 'error'],
+      ['줄매수 자동 체크 — 켜지 않음: 매도주문(무장 안 됨) · 위험도(매도주문 꺼짐)', 'error'],
     ]);
     expect(sentConfigs()).toHaveLength(2);
     expect(failedShown()).toBe(false);
@@ -3632,7 +3640,7 @@ describe('☐위험도 — 매도주문 카드 (quick-261103-n1s · 결정 ①)'
     expect(risk()).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('매도주문 켜기 · 선매수 켜기(매도 자동 체크 동반)는 위험도를 켜지 않는다 — cfg false · changed 에 sellRiskEnabled 없음', () => {
+  it('매도주문 켜기 단독은 위험도를 켜지 않는다 · 선매수 켜기(매도 자동 체크 동반)는 위험도도 켠다(gh-trade quick-261105-fgg)', () => {
     const { unmount } = render(<LimitChaserForm {...props({ server: echo() })} />);
     click(sw('매도주문 켜기'));
     expect(sentConfigs()).toHaveLength(1);
@@ -3643,7 +3651,16 @@ describe('☐위험도 — 매도주문 카드 (quick-261103-n1s · 결정 ①)'
     render(<LimitChaserForm {...props({ server: echo() })} />);
     click(sw('선매수 켜기'));
     expect(sentConfigs()).toHaveLength(1);
-    expect(lastConfig().sellRiskEnabled).toBe(false);
+    expect(lastConfig()).toMatchObject({ preBuyEnabled: true, sellEnabled: true, sellRiskEnabled: true });
+    expect(lastChanged()).toContain('sellRiskEnabled');
+    expect(risk()).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('선매수 켜기에서 매도주문이 켜지지 못하면(상한가 미수신) 위험도도 켜지 않는다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellOrderPrice: 0, sellWatchPrice: 0 }), upperLimit: 0 })} />);
+    click(sw('선매수 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ sellEnabled: false, sellRiskEnabled: false });
     expect(lastChanged()).not.toContain('sellRiskEnabled');
   });
 

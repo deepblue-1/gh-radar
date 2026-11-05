@@ -1235,9 +1235,10 @@ describe('24-06 — 클라 로그 통로 pushClientLog (순서)', () => {
 describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · 거부면 없음)', () => {
   const texts = () =>
     Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
-  const AUTO = '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적';
+  const AUTO = '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적';
   const SIX = {
     sellEnabled: true,
+    sellRiskEnabled: true,
     sellQtyTrackEnabled: true,
     sellTradeQtyEnabled: true,
     cancelQtyEnabled: true,
@@ -1754,7 +1755,7 @@ describe('R3-WR-01 — 부분 거부 ERROR 가 에코보다 먼저 와도 in-fli
   const autoPre = () => texts().filter((x) => x.startsWith('선매수 자동 체크 — '));
   /** 부분 거부 — 에코에 선 항목만 「켬」 · 에코에 무장으로 서지 않은 매도주문은 무장 안 됨(R3-G1 · 24-REVIEW-R4 R4-WR-01 · R5-WR-02). */
   const PRE_PARTIAL =
-    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) · 위험도(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
 
   beforeEach(() => {
     lastCard = null;

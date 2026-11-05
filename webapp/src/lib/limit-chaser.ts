@@ -351,8 +351,8 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 게이트가 아니다 — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
     sorBuy: false,
     sorSell: false,
-    // 상따 매도 ☐위험도(quick-261103-n1s · gh-trade quick-261103-l41 · 결정 ①) — 새 폼은 늘 꺼짐(켜는 것은 사람뿐 · 84 시딩도
-    // 켜지 않는다). 기준 %만 84 `sellRiskPct`(1~999 아니면 80)로 시딩된다. 게이트가 아니다.
+    // 상따 매도 ☐위험도(quick-261103-n1s · gh-trade quick-261103-l41 · 결정 ①) — 새 폼은 늘 꺼짐(켜는 것은 사람의 클릭 ·
+    // 선 · 줄매수 자동 체크뿐 — gh-trade quick-261105-fgg · 84 시딩도 켜지 않는다). 기준 %만 84 `sellRiskPct`(1~999 아니면 80)로 시딩된다. 게이트가 아니다.
     sellRiskEnabled: false,
     sellRiskPct: SELL_RISK_PCT_DEFAULT,
     postBuyEnabled: false,
@@ -537,16 +537,25 @@ export function preBuyWatchFixedOf(us: RelayUserSettingsMsg | undefined): boolea
  */
 export type AutoCheckGate = 'preBuyEnabled' | 'extraBuyEnabled';
 /** 자동 체크 항목(개명 D-09 반영) — 순서가 곧 로그 순서다. */
-export type AutoCheckItem = '매도주문' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
+export type AutoCheckItem = '매도주문' | '위험도' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
 /**
  * 켜지 않은 사유 — UI-SPEC 닫힌 목록. UI-SPEC 닫힌 목록을 먼저 개정하지 않고 사유를 더하거나 바꾸지 않는다(문구 원천이
  * UI-SPEC 이다).
  * 「무장 안 됨」 = 요청했으나 성공 에코에 무장 상태로 서지 않은 항목이다. **원인을 단정하지 않는다** — 서버 §9 부분 거부일
  * 수 있고(이때 서버 ERROR 원문 줄이 함께 선다), 접힌 게이트(매도주문 · 취소 · 취소>체결 — 에코 = cfg ∧ armed)가 무장 직후
  * 발주로 소진된 경우일 수도 있다(이때 ERROR 는 없다 · relay Pitfall 10). 사실의 핵심은 「그 순간 그 방어가 서 있지 않다」 다.
- * 개정 이력: 2026-09-29 quick-260929-htw R3-G1 신설 → quick-260929-k7u R5-WR-02 원인 중립 개정.
+ * 「매도주문 꺼짐」 = ☐위험도 전용 — ☐매도주문이 원래 꺼져 있고 이번에도 켜지 않았다(서버는 매도 OFF 면 위험도를 눕힌다 ·
+ * C# `AutoCheckExitForBuyGroup` 「위험도(매도주문 꺼짐)」 동형 · gh-trade quick-261105-fgg).
+ * 개정 이력: 2026-09-29 quick-260929-htw R3-G1 신설 → quick-260929-k7u R5-WR-02 원인 중립 개정 → 2026-11-05 「매도주문 꺼짐」 추가.
  */
-export type AutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신' | '무장 안 됨';
+export type AutoCheckReason =
+  | '매도 매수잔량 0'
+  | '취소 매수잔량 0'
+  | '매도 체결 0'
+  | '매도비율 0'
+  | '상한가 미수신'
+  | '매도주문 꺼짐'
+  | '무장 안 됨';
 
 export interface GroupAutoCheckResult {
   /** 로그 첫머리 그룹 이름 — `lc-fields.ts` 카드 제목과 같은 문자열(D-35). */
@@ -568,6 +577,7 @@ const AUTO_CHECK_GROUP_LABEL = {
 /** 항목 ↔ 폼 필드. */
 const AUTO_CHECK_FIELD = {
   매도주문: 'sellEnabled',
+  위험도: 'sellRiskEnabled',
   '매도>잔량추적': 'sellQtyTrackEnabled',
   '매도>체결': 'sellTradeQtyEnabled',
   취소: 'cancelQtyEnabled',
@@ -582,7 +592,7 @@ const AUTO_CHECK_ORDER = Object.keys(AUTO_CHECK_FIELD) as AutoCheckItem[];
 const NO_LAID: ReadonlySet<keyof LimitChaserFormValues> = new Set();
 
 /**
- * 선매수 · 줄매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
+ * 선매수 · 줄매수 켬 → 매도 · 취소 6체크 + ☐위험도 자동 켬 — **판정 지점 하나**(순수 함수 · 그룹 인자 한 벌 · D-35).
  *
  * WinForms `AutoCheckExitForPreBuy`(LimitChaserForm.cs) 동형이다. 판정 규칙은 그룹과 무관하다 — `gate` 는 결과의
  * `groupLabel`(로그 첫머리)만 정한다. 선매수 · 줄매수가 판정을 복제하지 않는다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
@@ -592,6 +602,8 @@ const NO_LAID: ReadonlySet<keyof LimitChaserFormValues> = new Set();
  *      상한가를 모르면 채우지 않는다 — 서버에 0 을 넘겨 위임하지 않는다. 판정은 채운 뒤 가격으로 한다.
  *   ② 항목별 켜기 조건(첫 실패 사유 하나 · 우선순위 상한가 미수신 → 매도 매수잔량 0 → 매도비율 0 → 취소 매수잔량 0 → 매도 체결 0):
  *      - 매도주문 = 가격 둘 다 > 0 ∧ 매도 매수잔량 > 0 ∧ 매도비율 > 0
+ *      - 위험도 = 매도주문이 켜짐(이미 켜져 있음 · 이번에 켬) — gh-trade quick-261105-fgg(C# 「위험도(매도주문 꺼짐)」 동형).
+ *        서버는 매도 OFF 면 위험도를 눕힌다. 기준 %(`sellRiskPct`)는 칸 값 그대로(1~999 · 값 검사 없음).
  *      - 매도>잔량추적 = 매도 매수잔량 > 0
  *      - 매도>체결 = 매도 매수잔량 > 0 ∧ 매도 체결 > 0
  *      - 취소 = 매도 비교가격 > 0(취소 비교가격 = 매도 비교가격) ∧ 취소 매수잔량 > 0
@@ -665,11 +677,13 @@ export function groupAutoChecksOf(
     return null;
   };
 
-  decide('매도주문', [
+  const sellReason = decide('매도주문', [
     [pricesMissing, '상한가 미수신'],
     [sellQtyZero, '매도 매수잔량 0'],
     [ratioZero, '매도비율 0'],
   ]);
+  // ☐위험도 — ☐매도주문이 (원래 또는 방금) 켜져 있을 때만(gh-trade quick-261105-fgg · C# ②′).
+  decide('위험도', [[sellReason !== null, '매도주문 꺼짐']]);
   decide('매도>잔량추적', [[sellQtyZero, '매도 매수잔량 0']]);
   decide('매도>체결', [
     [sellQtyZero, '매도 매수잔량 0'],
@@ -692,7 +706,7 @@ export function groupAutoChecksOf(
   return { groupLabel: AUTO_CHECK_GROUP_LABEL[gate], companions, turnedOn, skipped, priceFilled };
 }
 
-/** 사후 확정이 읽는 에코 필드 — 6플래그 + 매도 가격 둘(`RelayLimitChaser` · 폼 값 모두 그대로 들어간다). */
+/** 사후 확정이 읽는 에코 필드 — 7플래그(매도 · 취소 6 + 위험도) + 매도 가격 둘(`RelayLimitChaser` · 폼 값 모두 그대로 들어간다). */
 export type AutoCheckEcho = Pick<
   LimitChaserFormValues,
   (typeof AUTO_CHECK_FIELD)[AutoCheckItem] | 'sellOrderPrice' | 'sellWatchPrice'
@@ -830,8 +844,8 @@ export function formFromServer(
     // 비트 50 · 51 이 없는 제출(다른 칸 편집)은 서버가 SOR 을 바꾸지 않는다.
     sorBuy: server.sorBuy,
     sorSell: server.sorSell,
-    // ☐위험도(quick-261103-n1s · 결정 ①) — 체크는 서버 런타임 값 그대로(발동 · 매도 송신 · 상한가 깨짐 · 일괄매도 · 재기동이
-    // OFF 로 내린다). 기준 %는 1~999 일 때만 들인다 — 0 은 구서버(슬롯 없음)라 칸을 유지한다.
+    // ☐위험도(quick-261103-n1s · 결정 ①) — 체크는 서버 런타임 값 그대로(발동 · 매도 송신 · 매도 OFF · 일괄매도 · 재기동 ·
+    // 후매수 재진입 매도 꺼짐이 OFF 로 내린다 · 상한가 깨짐은 래치만 리셋 — gh-trade aa331275). 기준 %는 1~999 일 때만 들인다 — 0 은 구서버(슬롯 없음)라 칸을 유지한다.
     sellRiskEnabled: server.sellRiskEnabled,
     sellRiskPct: isSellRiskPctKnown(server.sellRiskPct) ? server.sellRiskPct : prev.sellRiskPct,
     postBuyEnabled: server.postBuyEnabled,

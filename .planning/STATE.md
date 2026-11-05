@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 37
 status: completed
 stopped_at: Phase 37 complete — all phases complete
-last_updated: "2026-11-04T17:34:00.945Z"
+last_updated: "2026-11-05T03:05:51.555Z"
 last_activity: 2026-11-04
 last_activity_desc: Phase 37 complete
-state_head: 38be7f931424fc3aa272871f4e773abdbfa9c410
+state_head: 41033add627b916dd84ac685ba87c6a2bedc25a0
 progress:
   total_phases: 9
   completed_phases: 9
@@ -139,6 +139,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 48 | 작업대 매집 줄 /api/accum-signals 50~92초 — dma_accum_signals_for_user_json kind 16 부분 인덱스 직접 읽기(반환·규칙 불변) | 2026-11-04 | c70564db | — |
 | 261104-umt | 틱뷰어 타임라인 차트 — 스케치 028 채택안 구현(고정 띠 통합 툴팁 · 묶음 표 · Shift+끌기 구간 합계 · 순매수 판 매수/매도 누적 거울선 · 판 높이 70) | 2026-11-04 | 3cabd115 | [261104-umt-tick-timeline-sketch028](./quick/261104-umt-tick-timeline-sketch028/) |
 | 50 | 틱뷰어 전문 목록: 차트·화살표·우리 주문 탐색으로 찾은 전문을 가운데로 스크롤(목록 안 행 클릭은 제자리) | 2026-11-05 | 38be7f93 | — |
+| 51 | 상따 ☐위험도 3초 래치 반영(gh-trade aa331275) — 선·줄매수 자동 체크가 ☐위험도도 켬(매도주문 켜짐일 때 · C# 동형) · 위험도 도움말 문구 · OFF 사유 주석 | 2026-11-05 | 41033add | — |
 
 ## Session Continuity
 

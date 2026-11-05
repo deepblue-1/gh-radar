@@ -851,12 +851,14 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
-  const ALL = ['매도주문', '매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적'];
+  // ☐위험도는 매도주문 바로 뒤(gh-trade quick-261105-fgg · C# ②′ 순서)
+  const ALL = ['매도주문', '위험도', '매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적'];
 
-  it('전부 켤 수 있음 · 상한가 13,000 → 6체크 true + 매도 주문가격 · 비교가격 = 상한가 · 순서 고정 · 생략 0', () => {
+  it('전부 켤 수 있음 · 상한가 13,000 → 6체크 + 위험도 true + 매도 주문가격 · 비교가격 = 상한가 · 순서 고정 · 생략 0', () => {
     const r = groupAutoChecksOf('preBuyEnabled', base(), 13_000);
     expect(r.companions).toEqual({
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelQtyEnabled: true,
@@ -877,6 +879,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     expect(r.turnedOn).toEqual([]);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '상한가 미수신' },
+      { item: '위험도', reason: '매도주문 꺼짐' },
       { item: '매도>잔량추적', reason: '매도 매수잔량 0' },
       { item: '매도>체결', reason: '매도 매수잔량 0' },
       { item: '취소', reason: '상한가 미수신' },
@@ -900,6 +903,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     const r = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 0 }), 13_000);
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '매도 매수잔량 0' },
+      { item: '위험도', reason: '매도주문 꺼짐' },
       { item: '매도>잔량추적', reason: '매도 매수잔량 0' },
       { item: '매도>체결', reason: '매도 매수잔량 0' },
     ]);
@@ -911,6 +915,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     const zero = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 12 }), 127_400);
     expect(zero.priceFilled).toBe(127_400);
     expect(zero.skipped).toContainEqual({ item: '매도주문', reason: '매도 매수잔량 0' });
+    expect(zero.skipped).toContainEqual({ item: '위험도', reason: '매도주문 꺼짐' });
     const one = groupAutoChecksOf('preBuyEnabled', base({ sellWatchAmount: 13 }), 127_400);
     expect(one.turnedOn).toContain('매도주문');
     expect(one.skipped).toEqual([]);
@@ -935,7 +940,7 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
       { item: '취소', reason: '취소 매수잔량 0' },
       { item: '취소>잔량추적', reason: '취소 매수잔량 0' },
     ]);
-    expect(r.turnedOn).toEqual(['매도주문', '매도>잔량추적', '매도>체결', '취소>체결']);
+    expect(r.turnedOn).toEqual(['매도주문', '위험도', '매도>잔량추적', '매도>체결', '취소>체결']);
   });
 
   it('취소가 이미 켜져 있으면 취소 매수잔량과 무관하게 취소>잔량추적은 따라 켠다(취소 자신은 건드리지 않는다)', () => {
@@ -951,18 +956,22 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
       { item: '매도>체결', reason: '매도 체결 0' },
       { item: '취소>체결', reason: '매도 체결 0' },
     ]);
-    expect(r.turnedOn).toEqual(['매도주문', '매도>잔량추적', '취소', '취소>잔량추적']);
+    expect(r.turnedOn).toEqual(['매도주문', '위험도', '매도>잔량추적', '취소', '취소>잔량추적']);
   });
 
   it('매도비율 0(레거시) → 매도주문만 「매도비율 0」으로 켜지 않는다', () => {
     const r = groupAutoChecksOf('preBuyEnabled', base({ sellOrderRatio: 0 }), 13_000);
-    expect(r.skipped).toEqual([{ item: '매도주문', reason: '매도비율 0' }]);
+    expect(r.skipped).toEqual([
+      { item: '매도주문', reason: '매도비율 0' },
+      { item: '위험도', reason: '매도주문 꺼짐' },
+    ]);
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
   });
 
   it('이미 켜진 체크는 turnedOn · companions 어디에도 없다 · 전부 켜져 있으면 로그 줄 없음', () => {
     const on = base({
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelQtyEnabled: true,
@@ -980,6 +989,9 @@ describe('groupAutoChecksOf(preBuyEnabled) — 선매수 자동 체크 (24-07 D-
     const some = groupAutoChecksOf('preBuyEnabled', base({ sellEnabled: true, sellOrderPrice: 13_000, sellWatchPrice: 13_000 }), 13_000);
     expect(some.turnedOn).not.toContain('매도주문');
     expect(some.companions).not.toHaveProperty('sellEnabled');
+    // 매도주문이 이미 켜져 있으면 위험도만 켠다(gh-trade quick-261105-fgg — 「원래 또는 방금 켜짐」)
+    expect(some.turnedOn).toContain('위험도');
+    expect(some.companions.sellRiskEnabled).toBe(true);
   });
 
   it('입력 객체를 바꾸지 않는다(순수 함수)', () => {
@@ -1005,7 +1017,7 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
   it('생략 없음 → info · 「켬: …」 + 「매도 주문가격·비교가격 = 상한가 13,000원」', () => {
     expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base(), 13_000))).toEqual({
       level: 'info',
-      text: '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 13,000원',
+      text: '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 13,000원',
     });
   });
 
@@ -1013,13 +1025,13 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
     expect(groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ cancelWatchAmount: 0 }), 13_000))).toEqual({
       level: 'error',
       text:
-        '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
+        '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
     });
   });
 
   it('가격을 채우지 않았으면 가격 조각이 없다 · 한쪽만 채웠으면 그 칸 이름만', () => {
     const noFill = groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ sellOrderPrice: 12_000, sellWatchPrice: 12_000 }), 13_000));
-    expect(noFill?.text).toBe('선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적');
+    expect(noFill?.text).toBe('선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적');
     const orderOnly = groupAutoCheckLogLine(groupAutoChecksOf('preBuyEnabled', base({ sellWatchPrice: 12_000 }), 13_000));
     expect(orderOnly?.text.endsWith(' / 매도 주문가격 = 상한가 13,000원')).toBe(true);
   });
@@ -1037,7 +1049,7 @@ describe('groupAutoCheckLogLine — 자동 체크 로그 한 줄 문법 (UI-SPEC
     );
     expect(groupAutoCheckLogLine(r)).toEqual({
       level: 'error',
-      text: '선매수 자동 체크 — 켜지 않음: 매도주문(매도비율 0) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
+      text: '선매수 자동 체크 — 켜지 않음: 매도주문(매도비율 0) · 위험도(매도주문 꺼짐) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 13,000원',
     });
   });
 });
@@ -1088,20 +1100,21 @@ describe('D-35 — groupAutoChecksOf · groupAutoCheckLogLine 은 그룹 인자 
   it('줄매수 로그 — 생략 없음 → info · 「줄매수 자동 체크 — 켬: … / 매도 주문가격·비교가격 = 상한가 150,800원」', () => {
     expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base(), 150_800))).toEqual({
       level: 'info',
-      text: '줄매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
   it('줄매수 로그 — 생략이 있으면 error · 사유 어휘는 선매수와 같다(D-07 매도 매수잔량 0)', () => {
     expect(groupAutoCheckLogLine(groupAutoChecksOf('extraBuyEnabled', base({ sellWatchAmount: 0 }), 150_800))).toEqual({
       level: 'error',
-      text: '줄매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(매도 매수잔량 0) · 위험도(매도주문 꺼짐) · 매도>잔량추적(매도 매수잔량 0) · 매도>체결(매도 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
   it('줄매수 로그 — 켤 것도 생략도 없으면 null', () => {
     const on = base({
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelQtyEnabled: true,
@@ -1151,10 +1164,11 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
     cancelWatchAmount: 1000, // 만원 — 상한가 150,800원에서도 66주 > 0
     ...over,
   });
-  /** 요청 6체크 + 가격 둘이 전부 선 에코 — over 로 눕힌다. */
+  /** 요청 6체크 + 위험도 + 가격 둘이 전부 선 에코 — over 로 눕힌다(매도가 눕으면 서버는 위험도도 눕힌다). */
   const echoed = (over: Partial<LimitChaserFormValues> = {}): LimitChaserFormValues =>
     base({
       sellEnabled: true,
+      sellRiskEnabled: true,
       sellQtyTrackEnabled: true,
       sellTradeQtyEnabled: true,
       cancelQtyEnabled: true,
@@ -1165,22 +1179,25 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
       ...over,
     });
   const FULL =
-    '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 매도 주문가격·비교가격 = 상한가 150,800원';
   const PARTIAL =
-    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
+    '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) · 위험도(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원';
 
-  it('요청 6 · 에코 6 → 입력과 같은 결과 · 줄은 종전 문장 그대로 info', () => {
+  it('요청 7 · 에코 7 → 입력과 같은 결과 · 줄은 종전 문장 그대로 info', () => {
     const auto = groupAutoChecksOf('preBuyEnabled', base(), 150_800);
     const r = confirmAutoChecks(auto, echoed());
     expect(r).toEqual(auto);
     expect(groupAutoCheckLogLine(r)).toEqual({ text: FULL, level: 'info' });
   });
 
-  it('요청 6 · 에코 5(매도주문만 눕힘 · 가격 섬) → 켬 5 · 매도주문(무장 안 됨) · priceFilled 그대로 · error', () => {
+  it('요청 7 · 에코 5(매도주문 · 위험도 눕힘 · 가격 섬) → 켬 5 · 매도주문 · 위험도(무장 안 됨) · priceFilled 그대로 · error', () => {
     const auto = groupAutoChecksOf('preBuyEnabled', base(), 150_800);
-    const r = confirmAutoChecks(auto, echoed({ sellEnabled: false }));
+    const r = confirmAutoChecks(auto, echoed({ sellEnabled: false, sellRiskEnabled: false }));
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
-    expect(r.skipped).toEqual([{ item: '매도주문', reason: '무장 안 됨' }]);
+    expect(r.skipped).toEqual([
+      { item: '매도주문', reason: '무장 안 됨' },
+      { item: '위험도', reason: '무장 안 됨' },
+    ]);
     expect(r.priceFilled).toBe(150_800);
     expect(r.companions).not.toHaveProperty('sellEnabled');
     expect(groupAutoCheckLogLine(r)).toEqual({ text: PARTIAL, level: 'error' });
@@ -1188,15 +1205,19 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
 
   it('예측 생략(취소 매수잔량 0)과 무장 안 됨(매도주문)이 섞이면 skipped 는 항목 정본 순서다', () => {
     const auto = groupAutoChecksOf('preBuyEnabled', base({ cancelWatchAmount: 0 }), 150_800);
-    const r = confirmAutoChecks(auto, echoed({ sellEnabled: false, cancelQtyEnabled: false, cancelQtyTrackEnabled: false }));
+    const r = confirmAutoChecks(
+      auto,
+      echoed({ sellEnabled: false, sellRiskEnabled: false, cancelQtyEnabled: false, cancelQtyTrackEnabled: false }),
+    );
     expect(r.skipped).toEqual([
       { item: '매도주문', reason: '무장 안 됨' },
+      { item: '위험도', reason: '무장 안 됨' },
       { item: '취소', reason: '취소 매수잔량 0' },
       { item: '취소>잔량추적', reason: '취소 매수잔량 0' },
     ]);
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소>체결']);
     expect(groupAutoCheckLogLine(r)?.text).toBe(
-      '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 매도주문(무장 안 됨) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
+      '선매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소>체결 / 켜지 않음: 매도주문(무장 안 됨) · 위험도(무장 안 됨) · 취소(취소 매수잔량 0) · 취소>잔량추적(취소 매수잔량 0) / 매도 주문가격·비교가격 = 상한가 150,800원',
     );
   });
 
@@ -1213,7 +1234,7 @@ describe('confirmAutoChecks — 자동 체크 예측을 성공 에코로 확정�
     const none = confirmAutoChecks(auto, echoed({ sellOrderPrice: 140_000, sellWatchPrice: 140_000 }));
     expect(none.priceFilled).toBeNull();
     expect(groupAutoCheckLogLine(none)?.text).toBe(
-      '선매수 자동 체크 — 켬: 매도주문 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적',
+      '선매수 자동 체크 — 켬: 매도주문 · 위험도 · 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적',
     );
 
     expect(auto).toEqual(snapshot);
@@ -1245,12 +1266,15 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
 
   it('laid 매도주문 · 예측 조건 모두 통과 → 매도주문(무장 안 됨) · companions 에 sellEnabled 없음 · 나머지는 켠다', () => {
     const r = groupAutoChecksOf('extraBuyEnabled', base(), 150_800, laid('sellEnabled'));
-    expect(r.skipped).toEqual([{ item: '매도주문', reason: '무장 안 됨' }]);
+    expect(r.skipped).toEqual([
+      { item: '매도주문', reason: '무장 안 됨' },
+      { item: '위험도', reason: '매도주문 꺼짐' },
+    ]);
     expect(r.turnedOn).toEqual(['매도>잔량추적', '매도>체결', '취소', '취소>체결', '취소>잔량추적']);
     expect(r.companions).not.toHaveProperty('sellEnabled');
     expect(groupAutoCheckLogLine(r)).toEqual({
       level: 'error',
-      text: '줄매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) / 매도 주문가격·비교가격 = 상한가 150,800원',
+      text: '줄매수 자동 체크 — 켬: 매도>잔량추적 · 매도>체결 · 취소 · 취소>체결 · 취소>잔량추적 / 켜지 않음: 매도주문(무장 안 됨) · 위험도(매도주문 꺼짐) / 매도 주문가격·비교가격 = 상한가 150,800원',
     });
   });
 
@@ -1269,7 +1293,7 @@ describe('groupAutoChecksOf laid — 이 흐름에서 무장되지 않은 동반
       { item: '취소', reason: '무장 안 됨' },
       { item: '취소>잔량추적', reason: '무장 안 됨' },
     ]);
-    expect(r.turnedOn).toEqual(['매도주문', '매도>잔량추적', '매도>체결', '취소>체결']);
+    expect(r.turnedOn).toEqual(['매도주문', '위험도', '매도>잔량추적', '매도>체결', '취소>체결']);
     expect(r.companions).not.toHaveProperty('cancelQtyEnabled');
     expect(r.companions).not.toHaveProperty('cancelQtyTrackEnabled');
   });

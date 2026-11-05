@@ -1300,7 +1300,7 @@ export function LimitChaserForm({
         // D-33 ① 클라 차단 폐기(gh-trade quick-261010-ub8 · 인박스 261010-addbuy-auto) — 상한가 중 켜면 서버가 첫 상한가
         //   B6 에서 구간 판정한다(구간 안 발주 · 최소 미만 대기 · 최대 초과 포기).
         /*
-          D-06 · D-07 · D-08 · D-35 — **사람이** 선매수 · 줄매수를 켜는 이 자리에서만 매도 · 취소 6체크를 같은 `lc.set`
+          D-06 · D-07 · D-08 · D-35 — **사람이** 선매수 · 줄매수를 켜는 이 자리에서만 매도 · 취소 6체크 + ☐위험도를 같은 `lc.set`
           에 동반으로 싣는다(확인창 · 토스트 · 매도 탭 이동 · 링크 없음 · 후매수는 대상 아님 — 마스터 동반만). 에코 · 재접속 ·
           다른 단말 변경으로 그 그룹이 ON 이 되는 경로(서버 값 이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는
           `groupAutoChecksOf` 를 부르지 않는다 — 계산은 이 핸들러가 넘긴 함수 안에서만 돈다. 사전 검증 줄은 위에서 먼저
@@ -1401,7 +1401,8 @@ export function LimitChaserForm({
    *   changed 에 둘 다). WinForms `HandleArmToggle` 의 sellRiskOff 동형(D-06③) — 매도를 끈 뒤 위험도가 남아 발동하지 않게 한다.
    *   값 동반이라 대기열에서 꺼낼 때도 같은 값이고, 실패하면 훅 ⑪ 이 두 컨트롤을 함께 서버 값으로 되돌린다(줄매수 ☐자동
    *   `autoOff` 꼴). 위험도가 꺼져 있으면 종전 단독 끄기.
-   * - 켜는 방향: 종전 그대로 — 위험도를 건드리지 않는다(켜는 것은 사람뿐).
+   * - 켜는 방향: 종전 그대로 — 위험도를 건드리지 않는다(☐매도주문 켬 단독은 동반하지 않는다 — 켜는 것은 사람의 클릭 ·
+   *   선 · 줄매수 자동 체크(`groupAutoChecksOf`)뿐 · gh-trade quick-261105-fgg).
    */
   const commitSellSwitch = useCallback(
     (on: boolean) => {
