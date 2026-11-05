@@ -43,7 +43,7 @@ created: "2026-11-05"
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 39-01-01 | 01 | 1 | SC-4 · D-09 | — | N/A(문서) | 파일 검사 | 43칸 · 토큰 · 「2차 · 이번 구현 제외」 grep 루프 → `NOTE-OK` | ❌ W0(초안 신규) | ⬜ pending |
 | 39-01-02 | 01 | 1 | D-09(costly) | — | N/A | 사용자 검토 | `grep -q "StateTransition = 9" 39-KIND9-NOTE.md` | — | ⬜ pending |
-| 39-01-03 | 01 | 1 | SC-4 · D-11 · 결정 1 | — | N/A | 파일 검사 | gh-trade 노트 open · 인박스 done · ROADMAP 정정 → `SENT-OK` | — | ⬜ pending |
+| 39-01-03 | 01 | 1 | SC-4 · D-11 · D-12 · 결정 1 | — | N/A | 파일 검사 | gh-trade 노트 open · 인박스 done → `SENT-OK` + ROADMAP Phase 39 범위(목록 줄 · 목표 · SC-4 · 미결 ④) 옛 문구 0 · 「해소(D-12)」 → `ROADMAP-OK` | — | ⬜ pending |
 | 39-02-01 | 02 | 1 | SC-4 · D-10 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-labels.test.ts src/__tests__/strategy-event-text.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/relay run typecheck` | ✅(케이스 추가) | ⬜ pending |
 | 39-02-02 | 02 | 1 | D-10 · Pitfall 6 | — | N/A | unit | shared 전체 + relay 2종 + webapp 주문로그 테스트 | ✅ | ⬜ pending |
 | 39-03-01 | 03 | 1 | SC-2 · D-11 | — | 다른 사용자 계좌 0행 · anon/authenticated EXECUTE 없음 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_diagnosis.test.sql` | ❌ W0 | ⬜ pending |
@@ -61,7 +61,7 @@ created: "2026-11-05"
 | 39-07-03 | 07 | 3 | SC-3 · SC-1(opt-in) | — | N/A | unit + 스크립트 skip | `… chat-service.test.ts && pnpm --filter @gh-radar/server exec tsx scripts/diagnosis-live.ts` | ✅ / ❌ W0(스크립트) | ⬜ pending |
 | 39-08-01 | 08 | 3 | SC-1 ①② · D-06 | — | N/A | unit | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis-knowledge.test.ts --maxWorkers=2` | ❌ W0 | ⬜ pending |
 | 39-08-02 | 08 | 3 | D-04 · D-08 · D-11 | — | 인젝션 방어 절 · 지시/면책 금지 | unit | 같은 파일 | ❌ W0 | ⬜ pending |
-| 39-09-01 | 09 | 4 | 전체 · SC-5 | — | 진단 경로 fetch/axios 0 · relay 무변경 | 회귀 + 대조 | Full suite command + `PREDEPLOY-OK` 대조 | ✅ | ⬜ pending |
+| 39-09-01 | 09 | 4 | 전체 · SC-5 | — | 진단 경로 fetch/axios 0 · relay 무변경 | 회귀 + 대조 | Full suite command + `PREDEPLOY-OK` 대조(토큰 정본 = 저장소 안 `39-KIND9-NOTE.md` · `../gh-trade` 사본은 있을 때만 참고 — 판정 무관) | ✅ | ⬜ pending |
 | 39-09-02 | 09 | 4 | SC-2 · SC-4 · 결정 1 | — | N/A | 배포([BLOCKING]) | `supabase migration list --linked` · `git rev-parse master = origin/master` | — | ⬜ pending |
 | 39-09-03 | 09 | 4 | SC-1 ①② · SC-2 · SC-3 · D-01 · D-04 | — | 다른 사용자 계좌 불가(프로덕션) | 수동 UAT | `supabase migration list --linked` | — | ⬜ pending |
 
@@ -78,7 +78,7 @@ created: "2026-11-05"
 - [ ] `server/src/services/specialists/__tests__/diagnosis.test.ts` — 루프 · 모델 · effort · 마감 · refusal · 상한 · usage (39-05 Task 1~2)
 - [ ] `server/src/services/specialists/__tests__/diagnosis-tools.test.ts` — 계좌 칸 0 · userId 클로저 · zod · search_stock · 호출 상한 (39-05 Task 3 · 39-07 Task 2)
 - [ ] `server/src/services/specialists/__tests__/diagnosis-knowledge.test.ts` — 원문 문자열 · 크기 · system 블록 (39-08 Task 1~2)
-- [ ] `server/src/services/__tests__/anthropic-mock.ts` — `makeStreamSequence` · `makeToolUseMessage` · `makeEndTurnMessage` · `makeRefusalMessage` · `makeThinkingBlock` (39-05 Task 1)
+- [ ] 다중 라운드 mock 팩토리 `makeStreamSequence` · `makeToolUseMessage` · `makeEndTurnMessage` · `makeRefusalMessage` · `makeThinkingBlock` — `diagnosis.test.ts` 안 로컬 헬퍼(39-05 Task 1 · 공유 `server/src/services/__tests__/anthropic-mock.ts` 는 export 를 import 만 하고 수정하지 않는다)
 - [ ] 토큰 실측 스파이크(RESEARCH A1) — `server/scripts/measure-diagnosis-tokens.ts` (39-04 Task 3 · 키 없으면 39-09 메인 세션)
 
 ---
