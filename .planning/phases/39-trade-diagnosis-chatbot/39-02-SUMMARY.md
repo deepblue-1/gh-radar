@@ -186,6 +186,9 @@ None - 외부 서비스 설정 없음.
 - 39-06 은 `OrderLogKindFilter` `'state'` 칩 · 그룹 칩에서 kind 9 제외(group 9 자동매도 칩 포함)를 다룬다.
 - 낱말은 초안 — gh-trade 회신 노트가 오면 `STATE_REASON_LABELS` 값만 바꾸면 세 표면이 같이 바뀐다.
 
+## Self-Check: PASSED
+- 커밋 975c8ae1 · 91658ca3 · 27c7f6e2 모두 이 브랜치에 있음 · 수정 파일 7개 존재 · 작업 트리 깨끗함
+
 ---
 *Phase: 39-trade-diagnosis-chatbot*
 *Completed: 2026-11-06*
