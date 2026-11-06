@@ -206,8 +206,8 @@ describe("getMarketTicksText — 지난 날짜 격자 경로(Task 1)", () => {
       memo(),
     );
     const lastK = lines(krx.text).at(-1)!;
-    expect(lastK.startsWith("틱 보기: /analytics/ticks?isin=KR7101360006&d=20261016&t=")).toBe(true);
-    expect(lastK).toBe("틱 보기: /analytics/ticks?isin=KR7101360006&d=20261016&t=13:00:00.013");
+    expect(lastK.startsWith("[틱 보기](/analytics/ticks?isin=KR7101360006&d=20261016&t=")).toBe(true);
+    expect(lastK).toBe("[틱 보기](/analytics/ticks?isin=KR7101360006&d=20261016&t=13:00:00.013)");
 
     const nxt = await getMarketTicksText(
       { ...BASE, exchange: "NXT", from: "13:00:00", to: "13:00:05" },
@@ -215,7 +215,7 @@ describe("getMarketTicksText — 지난 날짜 격자 경로(Task 1)", () => {
       memo(),
     );
     expect(nxt.source).toBe("grid");
-    expect(lines(nxt.text).at(-1)!.startsWith("틱 보기: /analytics/ticks?isin=KR7101360006&d=20261016&ex=NXT&t=")).toBe(
+    expect(lines(nxt.text).at(-1)!.startsWith("[틱 보기](/analytics/ticks?isin=KR7101360006&d=20261016&ex=NXT&t=")).toBe(
       true,
     );
   });
@@ -400,7 +400,7 @@ describe("getMarketTicksText — 오늘 tickgw 경로(Task 2)", () => {
     });
     expect(r.source).toBe("live");
     expect(r.text.split("\n")).toContain(target!.line);
-    expect(r.text.split("\n").at(-1)!.startsWith(`틱 보기: /analytics/ticks?isin=${ISIN}&d=20261106&t=`)).toBe(true);
+    expect(r.text.split("\n").at(-1)!.startsWith(`[틱 보기](/analytics/ticks?isin=${ISIN}&d=20261106&t=`)).toBe(true);
   });
 
   it("같은 memo 로 같은 isin|ex 두 번 → 둘째 호출의 첫 live offset = 첫 호출 offsetEnd(처음부터 다시 받지 않음)", async () => {

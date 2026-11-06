@@ -100,6 +100,19 @@ describe('Phase 39 주문 진단 (D-03 · D-04)', () => {
     expect(link.getAttribute('target')).toBeNull();
   });
 
+  it('맨 경로 「틱 보기: /analytics/ticks?…」 도 같은 탭 링크로 바뀐다(39 UAT) · 이미 링크인 주소는 그대로', () => {
+    const href = '/analytics/ticks?isin=KR718064K016&d=20261106&t=12:08:43.124';
+    render(<MessageAssistant content={`틱 보기: ${href}\n\n또 [틱 보기 ›](${href})`} />);
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveTextContent('틱 보기');
+    for (const l of links) {
+      expect(l).toHaveAttribute('href', href);
+      expect(l.getAttribute('target')).toBeNull();
+    }
+    expect(screen.queryByText(/\/analytics\/ticks/)).toBeNull();
+  });
+
   it('그 밖 내부 경로는 링크 없이 글자만 · 외부 https 는 새 탭 + noreferrer(현행)', () => {
     render(<MessageAssistant content={'[x](/admin/users) 그리고 [y](https://example.com)'} />);
     expect(screen.queryByRole('link', { name: 'x' })).toBeNull();

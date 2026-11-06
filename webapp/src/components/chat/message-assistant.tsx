@@ -49,6 +49,15 @@ function isTickViewerHref(href: string): boolean {
   return href.startsWith(`${TICKS_BASE}?`);
 }
 
+/**
+ * 맨 경로로 온 틱뷰어 주소(`틱 보기: /analytics/ticks?…` 또는 `/analytics/ticks?…`)를 마크다운 링크로 바꾼다.
+ * GFM 자동 링크는 http(s)·www 만 잡아 내부 경로가 글자로 남던 문제(39 UAT) — 이미 `[…](…)` 안인 주소는 건드리지 않는다.
+ */
+const BARE_TICK_PATH = /(틱 보기:\s*)?(?<!\]\()(\/analytics\/ticks\?[^\s)\]]+)/g;
+export function linkifyTickPaths(md: string): string {
+  return md.replace(BARE_TICK_PATH, (_m, _label: string | undefined, path: string) => `[틱 보기](${path})`);
+}
+
 /** react-markdown 요소 → globals.css 토큰 스타일 매핑(채택 목업 기준). */
 const MARKDOWN_COMPONENTS: Components = {
   h1: ({ children }) => (
@@ -145,7 +154,7 @@ export function MessageAssistant({
           remarkPlugins={[remarkGfm]}
           components={MARKDOWN_COMPONENTS}
         >
-          {content}
+          {linkifyTickPaths(content)}
         </ReactMarkdown>
       </div>
 

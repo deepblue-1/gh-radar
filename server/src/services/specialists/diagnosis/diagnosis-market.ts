@@ -272,7 +272,7 @@ function renderWindow(
       `잘렸음: 요청 ${input.from}~${input.to} 중 ${first}~${last} 까지 ${win.lines.length}건 — 범위를 좁혀 다시 부르세요`,
     );
   }
-  out.push(`틱 보기: ${tickViewerPath({ isin: input.isin, d: d8, ex: input.exchange, t: fmtTickTime(win.firstRecvNs) })}`);
+  out.push(`[틱 보기](${tickViewerPath({ isin: input.isin, d: d8, ex: input.exchange, t: fmtTickTime(win.firstRecvNs) })})`);
   return { text: out.join("\n"), records: win.lines.length, truncated };
 }
 
