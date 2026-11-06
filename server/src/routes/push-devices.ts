@@ -1,17 +1,30 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PushDevice } from "@gh-radar/shared";
 import type { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
-import { PushDeviceKeyParam, PushDeviceRegisterBodySchema } from "../schemas/push-devices.js";
-import { ValidationFailed } from "../errors.js";
-import { registerPushDevice } from "../services/push-devices.js";
+import {
+  PushDeviceKeyParam,
+  PushDevicePatchBody,
+  PushDeviceRegisterBodySchema,
+} from "../schemas/push-devices.js";
+import { NotFound, ValidationFailed } from "../errors.js";
+import {
+  deletePushDevice,
+  disablePushDevice,
+  listPushDevices,
+  registerPushDevice,
+} from "../services/push-devices.js";
 
 /**
  * Phase 40 D-12 · D-13 · D-15 — 체결 앱 푸시 기기 API. 표(`dma_push_devices`)는 브라우저가 직접 읽지 않는다
  * (RLS 정책 0) — 앱의 토큰 등록과 웹의 기기 목록 · 끄기 · 지우기는 전부 이 라우트를 거친다.
  *
+ * - GET    /           : 내 기기 목록 → `PushDevice[]`(bare array · token 없음)
  * - PUT    /:deviceKey : 「이 기기 체결 알림 켜기」 · 토큰 갱신(D-12 · D-15) → `PushDevice`(enabled = true)
+ * - PATCH  /:deviceKey : body `{ enabled: false }` 만 — 끄기(D-13). 켜기는 권한이 있는 그 기기 앱의 PUT 로만 → `{ ok: true }`
+ * - DELETE /:deviceKey : 지우기 — 웹 목록 · 앱 로그아웃 정리(D-15) 같은 경로 → `{ ok: true }`
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401
@@ -43,6 +56,49 @@ pushDevicesRouter.put("/:deviceKey", requireAuth(), async (req, res, next) => {
     // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17).
     const row = await registerPushDevice(supabase, req.userId!, params.data.deviceKey, body.data);
     res.json(row);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- GET / — 내 기기 목록 (D-13) ---
+pushDevicesRouter.get("/", requireAuth(), async (req, res, next) => {
+  try {
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const rows: PushDevice[] = await listPushDevices(supabase, req.userId!);
+    // 코드베이스 규약: list 엔드포인트는 bare array.
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PATCH /:deviceKey — 끄기만 (D-13 · 켜기는 그 기기 앱의 PUT) ---
+pushDevicesRouter.patch("/:deviceKey", requireAuth(), async (req, res, next) => {
+  try {
+    const params = PushDeviceKeyParam.safeParse(req.params);
+    if (!params.success) throw firstIssue(params.error);
+    const body = PushDevicePatchBody.safeParse(req.body ?? {});
+    if (!body.success) throw firstIssue(body.error);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const ok = await disablePushDevice(supabase, req.userId!, params.data.deviceKey);
+    // 남의 · 없는 키 — 있는지조차 구분해 주지 않는다(SC-4).
+    if (!ok) throw NotFound();
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- DELETE /:deviceKey — 지우기 (D-13 · D-15 로그아웃 정리도 같은 경로) ---
+pushDevicesRouter.delete("/:deviceKey", requireAuth(), async (req, res, next) => {
+  try {
+    const params = PushDeviceKeyParam.safeParse(req.params);
+    if (!params.success) throw firstIssue(params.error);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const ok = await deletePushDevice(supabase, req.userId!, params.data.deviceKey);
+    if (!ok) throw NotFound();
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

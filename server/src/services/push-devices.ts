@@ -74,3 +74,42 @@ export async function registerPushDevice(
   }
   return row;
 }
+
+/** D-13 — 내 기기 목록(last_seen_at DESC · RPC 순서 유지). */
+export async function listPushDevices(supabase: SupabaseClient, userId: string): Promise<PushDevice[]> {
+  const { data, error } = await supabase.rpc("dma_push_devices_for_user", { p_user_id: userId });
+  if (error) throw DbError("기기 목록 조회에 실패했습니다.", { code: error.code, message: error.message });
+  // RPC 는 늘 배열을 준다(coalesce '[]'). 배열이 아니거나 원소 모양이 어긋나면 계약 위반 — 빈 목록으로 감추지 않는다.
+  if (!Array.isArray(data)) {
+    throw DbError("기기 목록 조회에 실패했습니다.", { reason: "dma_push_devices_for_user 모양 위반", type: typeof data });
+  }
+  const rows = data.map(toPushDevice);
+  if (rows.some((r) => r === null)) {
+    throw DbError("기기 목록 조회에 실패했습니다.", { reason: "dma_push_devices_for_user 원소 모양 위반" });
+  }
+  return rows as PushDevice[];
+}
+
+/** boolean RPC 공통 — true = 그 사용자의 그 키 행이 있었다 · false = 남의 · 없는 키(라우트가 404). */
+async function callOwnedDeviceRpc(
+  supabase: SupabaseClient,
+  fn: "dma_push_device_disable" | "dma_push_device_delete",
+  userId: string,
+  deviceKey: string,
+  failMsg: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc(fn, { p_user_id: userId, p_device_key: deviceKey });
+  if (error) throw DbError(failMsg, { code: error.code, message: error.message });
+  if (typeof data !== "boolean") throw DbError(failMsg, { reason: `${fn} 모양 위반`, type: typeof data });
+  return data;
+}
+
+/** D-13 — 끄기(enabled = false · 토큰은 남긴다). 켜기는 그 기기 앱의 `registerPushDevice` 로만. */
+export function disablePushDevice(supabase: SupabaseClient, userId: string, deviceKey: string): Promise<boolean> {
+  return callOwnedDeviceRpc(supabase, "dma_push_device_disable", userId, deviceKey, "기기 끄기에 실패했습니다.");
+}
+
+/** D-13 · D-15 — 지우기(웹 목록의 지우기 · 앱 로그아웃 정리가 같은 경로). */
+export function deletePushDevice(supabase: SupabaseClient, userId: string, deviceKey: string): Promise<boolean> {
+  return callOwnedDeviceRpc(supabase, "dma_push_device_delete", userId, deviceKey, "기기 지우기에 실패했습니다.");
+}
