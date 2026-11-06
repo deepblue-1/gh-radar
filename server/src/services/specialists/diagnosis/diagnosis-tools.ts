@@ -85,7 +85,14 @@ export async function dispatchDiagnosisTool(
   state: DiagnosisToolState,
 ): Promise<Anthropic.ToolResultBlockParam> {
   const started = Date.now();
-  const result = await runTool(block, state);
+  let result: Anthropic.ToolResultBlockParam;
+  try {
+    result = await runTool(block, state);
+  } catch (err) {
+    // 도구 하나의 예외가 진단 루프 전체를 깨지 않게 — 모델에는 오류 결과, 서버에는 원인.
+    logger.warn({ tool: block.name, err: err instanceof Error ? err.message : String(err) }, "[chat] diagnosis tool failed");
+    result = { type: "tool_result", tool_use_id: block.id, is_error: true, content: "조회 실패: 도구 실행 중 오류" };
+  }
   const content = typeof result.content === "string" ? result.content : "";
   logger.info(
     { tool: block.name, ms: Date.now() - started, chars: content.length, isError: result.is_error === true },

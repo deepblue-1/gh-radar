@@ -9,12 +9,18 @@ import { consultThemeSpecialist } from "./specialists/theme-specialist.js";
 import { consultNewsSpecialist } from "./specialists/news-specialist.js";
 import { consultLimitupSpecialist } from "./specialists/limitup-specialist.js";
 import { consultWebSearchSpecialist } from "./specialists/websearch-specialist.js";
+import {
+  consultDiagnosisSpecialist,
+  DIAGNOSIS_CONTEXT_MISSING_TEXT,
+  type DiagnosisContext,
+  type ModelUsage,
+} from "./specialists/diagnosis/diagnosis-specialist.js";
 
 /**
  * Phase 14 — 팀장 오케스트레이터 코어 (CHAT-01, RESEARCH Pattern 2 agent-as-tool).
  *
  * 두 가지를 제공한다:
- *   1) SPECIALIST_TOOLS — 팀장(Sonnet)에 노출할 5개 전문가 `Anthropic.Tool[]`.
+ *   1) SPECIALIST_TOOLS — 팀장(Sonnet)에 노출할 6개 전문가 `Anthropic.Tool[]`(6번째 = 주문 진단 · Phase 39).
  *      팀장은 질문을 보고 필요한 전문가만 tool_use 로 호출한다.
  *   2) runSpecialist — tool_use.name → 전문가 dispatch → tool_result content 조립.
  *      한 turn 에 여러 tool_use 가 오면 팀장 루프(P06)가 Promise.all 로 병렬 실행한다
@@ -31,11 +37,20 @@ export interface SpecialistInput {
   question: string;
 }
 
-/** runSpecialist 반환 — text 는 팀장 tool_result content, citations(웹서치)는 SSE 별도 전파(D-08). */
+/**
+ * runSpecialist 반환 — text 는 팀장 tool_result content, citations(웹서치)는 SSE 별도 전파(D-08).
+ * display · usage 는 주문 진단 전문가만(Phase 39): display = 화면에 그대로 흘릴 진단문 원문(39-07) ·
+ * usage = 전문가 모델별 토큰(팀장 usage 로그에 합친다).
+ */
 export interface SpecialistRunResult {
   text: string;
   citations?: Array<{ title: string; url: string }>;
+  display?: string;
+  usage?: ModelUsage[];
 }
+
+/** 전문가 실행 맥락 — 인증 사용자 id · 취소 신호 · 시세 도구 의존성. 주문 진단 전문가만 쓴다. */
+export type SpecialistContext = DiagnosisContext;
 
 /** quote/limitup code 미지정 시 graceful skip 텍스트 (D-08 환각방지). */
 const CODE_REQUIRED_SKIP = "종목이 특정되지 않아 시세/상한가 분석을 건너뜁니다.";
@@ -44,7 +59,7 @@ const CODE_REQUIRED_SKIP = "종목이 특정되지 않아 시세/상한가 분�
 const UNKNOWN_TOOL = "해당 전문가를 찾을 수 없습니다.";
 
 /**
- * 팀장에 노출할 5개 전문가 tool 정의 (RESEARCH Pattern 2 verbatim).
+ * 팀장에 노출할 6개 전문가 tool 정의 (RESEARCH Pattern 2 verbatim · 6번째 주문 진단은 Phase 39).
  *
  * - name 은 shared 의 SPECIALIST_TOOL_NAMES 값 사용 (SSE agent_start 라벨 매핑과 정합).
  * - input_schema: code(optional) + question(required). code 를 required 로 올리지 않는 이유 —
@@ -105,6 +120,17 @@ export const SPECIALIST_TOOLS: Anthropic.Tool[] = [
       required: ["question"],
     },
   },
+  {
+    // Phase 39 D-02 — 인자는 question 하나. 날짜 · 종목 · 주문은 전문가가 자기 도구로 특정한다(code 인자 없음).
+    name: SPECIALIST_TOOL_NAMES.diagnosis,
+    description:
+      "내 주문이 왜 나갔는지 · 왜 안 나갔는지 · 내 주문 · 체결 · 발주 사유 · 설정 변경(상태전이)에 대한 질문일 때. question 에 사용자 질문 원문(필요하면 직전 대화 맥락 한 줄 요약)을 그대로 넣는다. 종목 코드는 넘기지 않는다 — 전문가가 스스로 찾는다.",
+    input_schema: {
+      type: "object",
+      properties: { question: { type: "string" } },
+      required: ["question"],
+    },
+  },
 ];
 
 /** tool 이름 → SpecialistId 역매핑 (SSE agent_start 라벨용, P06 재사용). */
@@ -126,6 +152,8 @@ export function toolNameToSpecialistId(name: string): SpecialistId | null {
  * @param name  팀장 tool_use.name (예: "consult_quote_specialist")
  * @param input 팀장이 생성한 tool 인자 { code?, question }
  * @param supabase 서비스롤 클라 (데이터 전문가 조회용, 웹서치는 미사용)
+ * @param ctx 전문가 실행 맥락 — 주문 진단만 쓴다(인증 사용자 id 가 RPC p_user_id 의 유일한 출처 · SC-2).
+ *            없으면 진단은 고정 문구로 끝난다(계좌 범위를 정할 수 없으므로 호출하지 않는다).
  * @returns { text } — 팀장 tool_result content. 웹서치만 { text, citations } 로 citation 분리 노출.
  *
  * - 미지의 name → 안내 텍스트 반환 (throw 안 함 — 팀장 루프가 계속 진행, T-14-04c).
@@ -135,6 +163,7 @@ export async function runSpecialist(
   name: string,
   input: SpecialistInput,
   supabase: SupabaseClient,
+  ctx?: SpecialistContext,
 ): Promise<SpecialistRunResult> {
   const id = toolNameToSpecialistId(name);
   if (id === null) return { text: UNKNOWN_TOOL };
@@ -157,6 +186,9 @@ export async function runSpecialist(
       const out = await consultWebSearchSpecialist({ question: input.question });
       return { text: out.text, citations: out.citations };
     }
+    case "diagnosis":
+      if (!ctx) return { text: DIAGNOSIS_CONTEXT_MISSING_TEXT };
+      return consultDiagnosisSpecialist(supabase, { question: input.question }, ctx);
     default:
       return { text: UNKNOWN_TOOL };
   }
