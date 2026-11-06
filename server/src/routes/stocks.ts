@@ -124,6 +124,28 @@ type StockFloatEmbed = {
 const toNum = (v: number | string | null | undefined): number | null =>
   v === null || v === undefined ? null : Number(v);
 
+// 전 종목 rows 배열 순서 — RPC stock_float_all 의 jsonb_build_array(float_shares, float_rate, listed_shares) 와 같아야 한다.
+const STOCK_FLOAT_FIELDS = ["floatShares", "floatRate", "listedShares"] as const;
+
+// GET /api/stocks/float — 전 종목 압축 JSON. 일반 .from("stock_float").select() 금지(PostgREST 1000행 절단) — RPC 1회.
+stocksRouter.get("/float", async (req, res, next) => {
+  try {
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const { data, error } = await supabase.rpc("stock_float_all");
+    if (error) throw error;
+    const payload = (data ?? null) as { asOf?: string | null; rows?: Record<string, unknown> } | null;
+    res.set("Cache-Control", FLOAT_CACHE_CONTROL);
+    // rows 는 약 4천 항목 — 행마다 다시 만들지 않고 RPC 결과를 그대로 넘긴다.
+    res.json({
+      asOf: payload?.asOf ?? null,
+      fields: STOCK_FLOAT_FIELDS,
+      rows: payload?.rows ?? {},
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 stocksRouter.get("/:code/float", async (req, res, next) => {
   try {
     const code = req.params.code;
