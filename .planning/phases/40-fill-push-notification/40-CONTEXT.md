@@ -59,7 +59,7 @@
 - **APNs/FCM 송신기** — HTTP/2 클라이언트 · .p8 Secret Manager 경로 · FCM v1 OAuth(VM SA) · 재시도(네트워크 1회 · 4xx 토큰 정리 · 5xx 포기) · 송신 큐가 applied 리스너를 막지 않게(비동기 · 예외 격리 — writer 는 이미 리스너 예외를 삼킨다) · 3초 안 도착(성공 기준 1).
 - **기기 토큰 · 설정 API** — server(Express) 경로 · 기기 식별(앱이 주는 기기 id · 모델명) · RLS/RPC(`REVOKE anon/authenticated` 명시) · relay 가 읽는 경로(60초 재적재 vs 송신 시 조회).
 - **앱 쪽** — `@capacitor/push-notifications` 등록 흐름 · 딥링크(탭 → 웹 경로) · Android 알림 채널 · iOS entitlements(aps-environment) · Firebase Android 설정(`google-services.json` 저장소 밖 보관 + 릴리스 스크립트 주입 vs 추적) · 위생 검사 (8) 수정 범위 · `native:release` 통과.
-- **D-20 토스트 숨김 구현** — 토글·권한 상태를 웹이 어떻게 아는지(앱 브리지 vs 서버 조회) · 숨김 범위 상수.
+- **토스트 숨김 구현(D-20 재량)** — 토글·권한 상태를 웹이 어떻게 아는지(앱 브리지 vs 서버 조회) · 숨김 범위 상수.
 - **웹 카드 모양(D-13)** — UI-SPEC/`/gsd-ui-phase` 몫. 기기명 표기 · 마지막 확인 시각 형식 · 지우기 확인.
 - **테스트** — 3조각 체결 → 2건 · 재기동/WR-09 멱등 · 계좌 범위 · 정정 체인 1회 · 당일 밖 버림 · 토큰 410 정리.
 
