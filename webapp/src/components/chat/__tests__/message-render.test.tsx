@@ -113,6 +113,20 @@ describe('Phase 39 주문 진단 (D-03 · D-04)', () => {
     expect(screen.queryByText(/\/analytics\/ticks/)).toBeNull();
   });
 
+  it('```server-log 블록은 「서버 기록 원문」 접힘(details)으로 · 원문 글자 그대로 · 다른 코드 블록은 그대로 <pre>', () => {
+    const raw = '사유="B6Sell1 잔량(매수1호가==감시가 && 잔량<=임계)" · 임계 10566 · 실측 10298';
+    const { container } = render(
+      <MessageAssistant content={`**결론**\n\n\`\`\`server-log\n${raw}\n\`\`\`\n\n\`\`\`\nplain\n\`\`\``} />,
+    );
+    const details = container.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details!.hasAttribute('open')).toBe(false);
+    expect(details!.querySelector('summary')).toHaveTextContent('서버 기록 원문');
+    expect(details!.querySelector('pre')!.textContent).toBe(raw);
+    expect(container.querySelectorAll('details')).toHaveLength(1);
+    expect([...container.querySelectorAll('pre')].some((p) => p.textContent?.includes('plain') && !p.closest('details'))).toBe(true);
+  });
+
   it('그 밖 내부 경로는 링크 없이 글자만 · 외부 https 는 새 탭 + noreferrer(현행)', () => {
     render(<MessageAssistant content={'[x](/admin/users) 그리고 [y](https://example.com)'} />);
     expect(screen.queryByRole('link', { name: 'x' })).toBeNull();

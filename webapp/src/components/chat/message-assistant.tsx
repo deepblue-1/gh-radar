@@ -43,6 +43,17 @@ export interface MessageAssistantProps {
 }
 
 const LINK_CLASS = "text-[var(--primary)] underline underline-offset-2";
+/** 진단문 「틱 보기」 — 알약 버튼(39 UAT 채택 목업 A). */
+const TICK_LINK_CLASS =
+  "my-[var(--s-1)] inline-flex items-center gap-1 rounded-full bg-[var(--pill-on-bg)] px-3 py-1.5 text-[length:var(--t-caption)] font-semibold text-[var(--pill-on-fg)] no-underline";
+
+/** hast 노드의 글자만 모은다(서버 기록 원문 블록용). */
+function hastText(node: unknown): string {
+  if (!node || typeof node !== "object") return "";
+  const n = node as { value?: unknown; children?: unknown[] };
+  if (typeof n.value === "string") return n.value;
+  return Array.isArray(n.children) ? n.children.map(hastText).join("") : "";
+}
 
 /** 진단문 틱뷰어 딥링크(`/analytics/ticks?…`) — 같은 탭 내부 이동을 허용하는 유일한 내부 경로(D-04). */
 function isTickViewerHref(href: string): boolean {
@@ -89,8 +100,9 @@ const MARKDOWN_COMPONENTS: Components = {
   a: ({ href, children }) => {
     if (typeof href === "string" && href.startsWith("/")) {
       return isTickViewerHref(href) ? (
-        <Link href={href} className={LINK_CLASS}>
+        <Link href={href} className={TICK_LINK_CLASS}>
           {children}
+          <span aria-hidden="true">→</span>
         </Link>
       ) : (
         <span>{children}</span>
@@ -101,6 +113,22 @@ const MARKDOWN_COMPONENTS: Components = {
         {children}
       </a>
     );
+  },
+  // 진단문 끝 ```server-log 블록 = 서버 기록 원문 — 접힌 채 작게(39 UAT 채택 목업 A). 그 밖 코드 블록은 기본 <pre>.
+  pre: ({ node, children }) => {
+    const code = (node as { children?: Array<{ tagName?: string; properties?: { className?: unknown } }> } | undefined)?.children?.[0];
+    const cls = code?.properties?.className;
+    if (code?.tagName === "code" && Array.isArray(cls) && cls.includes("language-server-log")) {
+      return (
+        <details className="my-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+          <summary className="cursor-pointer select-none">서버 기록 원문</summary>
+          <pre className="mono mt-[var(--s-1)] whitespace-pre-wrap break-all rounded-[var(--r-sm)] bg-[var(--muted)] px-2 py-1.5 text-[length:11px]">
+            {hastText(code).replace(/\n$/, "")}
+          </pre>
+        </details>
+      );
+    }
+    return <pre className="my-[var(--s-2)] overflow-x-auto">{children}</pre>;
   },
   code: ({ children }) => (
     <code className="mono rounded-[var(--r-sm)] bg-[var(--muted)] px-1 py-0.5 text-[length:11px]">
