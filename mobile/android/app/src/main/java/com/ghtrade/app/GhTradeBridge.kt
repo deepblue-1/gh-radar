@@ -90,6 +90,7 @@ class GhTradeBridge(private val host: MainActivity) {
 
     private companion object {
         const val JS_NAME = "GhTradeBridge"
-        val ALLOWED_TYPES = setOf("ready", "route", "theme", "overlay", "pull")
+        // openSettings — Phase 40 D-14 푸시 권한 거부 뒤 앱 알림 설정 열기(페이로드 없음).
+        val ALLOWED_TYPES = setOf("ready", "route", "theme", "overlay", "pull", "openSettings")
     }
 }

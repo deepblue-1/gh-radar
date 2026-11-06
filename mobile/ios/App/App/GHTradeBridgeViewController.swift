@@ -26,8 +26,9 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     private let log = Logger(subsystem: "com.ghtrade.app", category: "bridge")
 
     /// 웹이 보낼 수 있는 메시지 타입 화이트리스트(V5). 모르는 타입은 무시한다.
+    /// `openSettings` — Phase 40 D-14 푸시 권한 거부 뒤 앱 설정 화면 열기(페이로드 없음).
     enum NativeMessageType: String {
-        case ready, route, theme, overlay, pull
+        case ready, route, theme, overlay, pull, openSettings
     }
 
     static let messageHandlerName = "ghTrade"
@@ -174,6 +175,17 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         case .pull:
             // Android 전용(SwipeRefreshLayout 내부 스크롤 신호). iOS 는 CSS overscroll-behavior 로 체이닝을 끊는다.
             log.debug("message \(rawType, privacy: .public)")
+        case .openSettings:
+            openAppSettings()
+        }
+    }
+
+    /// 이 앱의 설정 화면(알림 항목 포함)을 연다(Phase 40 D-14). minimum iOS 15 라 알림 설정 직행 URL 은 쓰지 않는다.
+    private func openAppSettings() {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            self.log.notice("openSettings")
+            UIApplication.shared.open(url)
         }
     }
 

@@ -1,11 +1,15 @@
 package com.ghtrade.app
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -480,7 +484,27 @@ class MainActivity : BridgeActivity() {
                 val t = payload?.optString("theme")
                 if (t == "dark" || t == "light") applyTheme(t)
             }
+            // Phase 40 D-14: 푸시 권한을 거부한 사용자를 앱 알림 설정으로 보낸다(페이로드 없음).
+            "openSettings" -> openAppNotificationSettings()
             else -> Log.d(TAG, "message type=$type")
+        }
+    }
+
+    /**
+     * 이 앱의 알림 설정 화면을 연다(Phase 40 D-14). API 26+ 는 앱 알림 설정 직행 ·
+     * 그 아래는 앱 정보 화면(알림 항목이 거기 있다). 열 화면이 없으면 크래시 없이 경고 로그만 남긴다.
+     */
+    private fun openAppNotificationSettings() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        }
+        try {
+            startActivity(intent)
+            Log.i(TAG, "openSettings action=${intent.action}")
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "openSettings failed — no settings activity action=${intent.action}", e)
         }
     }
 
