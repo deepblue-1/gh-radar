@@ -20,8 +20,20 @@ vi.mock('@/lib/push/push-devices-api', () => ({
   unregisterThisDeviceBeforeSignOut: vi.fn(async () => {}),
 }));
 
-import { fetchPushDevices, registerThisPushDevice } from '@/lib/push/push-devices-api';
+import { renderToString } from 'react-dom/server';
+
+import {
+  deletePushDevice,
+  disablePushDevice,
+  fetchPushDevices,
+  registerThisPushDevice,
+} from '@/lib/push/push-devices-api';
 import { PUSH_DEVICE_KEY_STORAGE } from '@/lib/push/device-key';
+import {
+  __resetPushDevicesForTest,
+  pushDevicesSnapshot,
+  refreshPushDevices,
+} from '@/lib/push/use-push-devices';
 import { PUSH_DEVICES_TEXT, PushDevicesCard } from '../push-devices-card';
 
 const TOKEN = 'fcm-token-abcdefghijklmnop';
@@ -91,13 +103,18 @@ const thisSwitch = () => screen.getByRole('switch', { name: PUSH_DEVICES_TEXT.th
 
 beforeEach(() => {
   window.localStorage.clear();
+  __resetPushDevicesForTest();
   vi.mocked(fetchPushDevices).mockReset().mockResolvedValue([]);
   vi.mocked(registerThisPushDevice).mockReset();
+  vi.mocked(disablePushDevice).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(deletePushDevice).mockReset().mockResolvedValue({ ok: true });
   vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(ANDROID_UA);
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   delete (window as unknown as { Capacitor?: unknown }).Capacitor;
+  delete (window as unknown as { webkit?: unknown }).webkit;
   document.documentElement.classList.remove('native-app');
   document.documentElement.removeAttribute('data-native-platform');
   vi.restoreAllMocks();
@@ -195,5 +212,222 @@ describe('PushDevicesCard — 앱 안 「이 기기 체결 알림」 켜기 (D-1
     render(<PushDevicesCard />);
     await act(async () => {});
     expect(thisSwitch()).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+const KEY_A = 'aaaaaaaa-1111-4222-8333-444455556666';
+const KEY_B = 'bbbbbbbb-1111-4222-8333-444455556666';
+const rows = () => Array.from(document.querySelectorAll('[data-slot="me-push-device"]')) as HTMLElement[];
+const rowOf = (label: string) => rows().find((r) => r.textContent?.includes(label)) ?? null;
+
+describe('PushDevicesCard — PC 기기 목록 · 끄기 · 지우기 (D-13)', () => {
+  it('PC: 웹 캡션 · 기기명 · 플랫폼 낱말 · 「마지막 확인 11/06 09:00」(KST) · 켜짐/꺼짐 · 스위치 없음', async () => {
+    vi.mocked(fetchPushDevices).mockResolvedValue([
+      device({ deviceKey: KEY_A, label: 'SM-S918N · Android 15', platform: 'android', enabled: true, lastSeenAt: '2026-11-06T00:00:00.000Z' }),
+      device({ deviceKey: KEY_B, label: 'iPhone · iOS 18.1', platform: 'ios', enabled: false, lastSeenAt: '2026-11-05T14:05:00.000Z' }),
+    ]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    expect(screen.getByText(PUSH_DEVICES_TEXT.captionWeb)).toBeTruthy();
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(rows()).toHaveLength(2);
+    const a = rowOf('SM-S918N · Android 15')!;
+    expect(a.textContent).toContain(PUSH_DEVICES_TEXT.platformAndroid);
+    expect(a.textContent).toContain(`${PUSH_DEVICES_TEXT.lastSeen} 11/06 09:00`);
+    expect(a.textContent).toContain(PUSH_DEVICES_TEXT.on);
+    const b = rowOf('iPhone · iOS 18.1')!;
+    expect(b.textContent).toContain(PUSH_DEVICES_TEXT.platformIos);
+    expect(b.textContent).toContain(`${PUSH_DEVICES_TEXT.lastSeen} 11/05 23:05`);
+    expect(b.textContent).toContain(PUSH_DEVICES_TEXT.off);
+    // 꺼진 기기에는 「끄기」 가 없다.
+    expect(b.querySelector('[data-slot="me-push-device-off"]')).toBeNull();
+  });
+
+  it('PC: 켜진 기기 「끄기」 → PATCH → 「꺼짐」 · 끄기 버튼 사라짐 · 목록 다시 읽기', async () => {
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A, enabled: true })]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A, enabled: false })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.turnOff }));
+    });
+    await act(async () => {});
+
+    expect(disablePushDevice).toHaveBeenCalledWith(KEY_A);
+    const row = rows()[0]!;
+    expect(row.textContent).toContain(PUSH_DEVICES_TEXT.off);
+    expect(row.querySelector('[data-slot="me-push-device-off"]')).toBeNull();
+    expect(fetchPushDevices).toHaveBeenCalledTimes(2);
+  });
+
+  it('PC: 「지우기」 첫 클릭 → 「한 번 더 누르면 지워요」(DELETE 없음) · 5초 뒤 원래대로', async () => {
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A })]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.remove }));
+    });
+    expect(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.confirmRemove })).toBeTruthy();
+    expect(deletePushDevice).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.remove })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: PUSH_DEVICES_TEXT.confirmRemove })).toBeNull();
+  });
+
+  it('PC: 「지우기」 두 번 → DELETE → 줄 사라짐 → 0개면 「등록된 기기가 없어요」', async () => {
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A })]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+    vi.mocked(fetchPushDevices).mockResolvedValue([]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.remove }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.confirmRemove }));
+    });
+    await act(async () => {});
+
+    expect(deletePushDevice).toHaveBeenCalledWith(KEY_A);
+    expect(rows()).toHaveLength(0);
+    expect(screen.getByText(PUSH_DEVICES_TEXT.empty)).toBeTruthy();
+  });
+
+  it('PC: 기기 0 → 「등록된 기기가 없어요」 · 스위치 없음', async () => {
+    render(<PushDevicesCard />);
+    await act(async () => {});
+    expect(screen.getByText(PUSH_DEVICES_TEXT.empty)).toBeTruthy();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+});
+
+describe('PushDevicesCard — 앱 안 목록 · 거부 · 옛 앱 · 끄기 (D-13 · D-14 · Pitfall 11)', () => {
+  it('앱: 이 기기 스위치 아래에 다른 기기만 이어진다(이 기기 키 행은 목록에서 뺀다)', async () => {
+    installCapacitor({ platform: 'android', check: 'granted' });
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY_A);
+    vi.mocked(fetchPushDevices).mockResolvedValue([
+      device({ deviceKey: KEY_A, label: '이 폰', enabled: true }),
+      device({ deviceKey: KEY_B, label: '다른 폰', platform: 'ios', enabled: true }),
+    ]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    expect(thisSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(rows()).toHaveLength(1);
+    expect(rowOf('다른 폰')).not.toBeNull();
+    expect(rowOf('이 폰')).toBeNull();
+  });
+
+  it('권한 request 결과 denied → 꺼짐 · 거부 안내 · 「설정 열기」 → openSettings 송신', async () => {
+    const { state } = installCapacitor({ platform: 'ios', check: 'prompt', request: 'denied' });
+    const postMessage = vi.fn();
+    (window as unknown as { webkit?: unknown }).webkit = { messageHandlers: { ghTrade: { postMessage } } };
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(thisSwitch());
+    });
+    await act(async () => {});
+
+    expect(thisSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(PUSH_DEVICES_TEXT.denied)).toBeTruthy();
+    expect(state.calls).not.toContain('PushNotifications.register');
+    expect(registerThisPushDevice).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.openSettings }));
+    });
+    expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'openSettings' }));
+  });
+
+  it('마운트 때 이미 denied → 거부 안내 · 송신 채널이 없으면(false) 「설정 열기」 를 숨기고 문구만', async () => {
+    installCapacitor({ platform: 'android', check: 'denied' });
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    expect(screen.getByText(PUSH_DEVICES_TEXT.denied)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: PUSH_DEVICES_TEXT.openSettings }));
+    });
+    expect(screen.queryByRole('button', { name: PUSH_DEVICES_TEXT.openSettings })).toBeNull();
+    expect(screen.getByText(PUSH_DEVICES_TEXT.denied)).toBeTruthy();
+  });
+
+  it('옛 앱(플러그인 없음) → 스위치 disabled · 「앱을 업데이트하면 켤 수 있어요」 · 플러그인 호출 0', async () => {
+    const { state } = installCapacitor({ platform: 'android', plugin: false });
+    render(<PushDevicesCard />);
+    await act(async () => {});
+
+    expect(thisSwitch()).toBeDisabled();
+    expect(screen.getByText(PUSH_DEVICES_TEXT.updateNeeded)).toBeTruthy();
+    expect(state.calls.filter((c) => c.startsWith('PushNotifications.'))).toEqual([]);
+  });
+
+  it('켜진 스위치 끄기 → PATCH → 꺼짐 · 네이티브 등록 해제는 하지 않는다', async () => {
+    const { state } = installCapacitor({ platform: 'android', check: 'granted' });
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY_A);
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A, enabled: true })]);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A, enabled: false })]);
+
+    await act(async () => {
+      fireEvent.click(thisSwitch());
+    });
+    await act(async () => {});
+
+    expect(disablePushDevice).toHaveBeenCalledWith(KEY_A);
+    expect(thisSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(state.calls).not.toContain('PushNotifications.unregister');
+    expect(state.calls).not.toContain('PushNotifications.register');
+  });
+
+  it('하이드레이션 — 서버 HTML(마운트 전)에는 스위치 켜짐 · 기기 줄이 없다', async () => {
+    installCapacitor({ platform: 'android', check: 'granted' });
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY_A);
+    vi.mocked(fetchPushDevices).mockResolvedValue([
+      device({ deviceKey: KEY_A, enabled: true }),
+      device({ deviceKey: KEY_B, enabled: true }),
+    ]);
+    await refreshPushDevices();
+    expect(pushDevicesSnapshot().devices).toHaveLength(2);
+
+    const html = renderToString(<PushDevicesCard />);
+    expect(html).toContain(PUSH_DEVICES_TEXT.title);
+    expect(html).not.toContain('aria-checked="true"');
+    expect(html).not.toContain('data-slot="me-push-device"');
+  });
+});
+
+describe('usePushDevices 저장소 (40-11 이 읽는다)', () => {
+  it('refreshPushDevices 는 진행 중 요청을 공유한다 · 끝나면 snapshot 에 목록 · loadedAt', async () => {
+    let resolve!: (v: PushDevice[]) => void;
+    vi.mocked(fetchPushDevices).mockImplementation(() => new Promise((r) => (resolve = r)));
+    const p1 = refreshPushDevices();
+    const p2 = refreshPushDevices();
+    expect(fetchPushDevices).toHaveBeenCalledTimes(1);
+    resolve([device({ deviceKey: KEY_A })]);
+    await Promise.all([p1, p2]);
+    const snap = pushDevicesSnapshot();
+    expect(snap.devices.map((d) => d.deviceKey)).toEqual([KEY_A]);
+    expect(snap.loadedAt).not.toBeNull();
+  });
+
+  it('카드 마운트 — 60초 안에 읽은 목록이 있으면 다시 읽지 않는다', async () => {
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A })]);
+    await refreshPushDevices();
+    expect(fetchPushDevices).toHaveBeenCalledTimes(1);
+    render(<PushDevicesCard />);
+    await act(async () => {});
+    expect(fetchPushDevices).toHaveBeenCalledTimes(1);
+    expect(rows()).toHaveLength(1);
   });
 });
