@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { orderLogLineText } from '@gh-radar/shared';
 
 import { OrderLogList } from '../order-log-list';
+import { mergeStrategyEvents } from '@/lib/order-log-feed';
 import {
   FIXTURE_STOCK_NAME,
   STRATEGY_BRANCH_ROWS,
@@ -73,6 +74,45 @@ describe('OrderLogList (panel · F-A)', () => {
     const text = normalize(line.textContent);
     expect(text).toBe('[09:42:13.215][버스트 상한가] KRX | ○○전자 | 조각 3 · 합계 123,456주 | 누적 620,000');
     expect(text).toBe(orderLogLineText(burst, FIXTURE_STOCK_NAME));
+  });
+});
+
+describe('OrderLogList — Phase 39 kind 9 상태전이 줄 (D-10 · SC-4)', () => {
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!; // kind 3 · group 1
+  /** kind 9 · 같은 날 · kind 3 보다 시각이 앞 — 피드(mergeStrategyEvents)가 시간순으로 앞에 놓는다. */
+  const state = {
+    ...buy,
+    seq: 9001,
+    kind: 9,
+    group: 1,
+    orderNo: '',
+    reasonCode: 'CfgSubmit',
+    aheadQty: 1,
+    expectedCum: 3,
+    orderCondition: 'milles',
+    message: '',
+    gwTimeMs: buy.gwTimeMs - 60_000,
+  };
+
+  it('kind 3 + kind 9 → 시간순으로 kind 9 줄이 먼저 · 구분 「상태전이」 회색(--muted-fg · 방향 색 없음) · 「선매수 켜짐」 · 「(milles)」', () => {
+    const rows = mergeStrategyEvents([buy], [state], buy.tradeDate);
+    const { container } = render(<OrderLogList rows={rows} variant="panel" nameOf={() => FIXTURE_STOCK_NAME} />);
+    const lines = container.querySelectorAll('li[data-slot="order-log-line"]');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.getAttribute('data-kind')).toBe('9');
+    expect(lines[1]!.getAttribute('data-kind')).toBe('3');
+    const kind = lines[0]!.querySelector('[data-slot="order-log-kind"]');
+    expect(kind?.textContent).toBe('[상태전이]');
+    expect(kind?.className).toContain('--muted-fg');
+    expect(kind?.className).not.toContain('--up');
+    expect(kind?.className).not.toContain('--down');
+    const text = normalize(lines[0]!.textContent);
+    expect(text).toContain('선매수 켜짐');
+    expect(text).toContain('(milles)');
+    expect(text).toBe(orderLogLineText(state, FIXTURE_STOCK_NAME));
+    // 원문 숫자 행위(「· 9」) 없이 사유 문구 · 다음 줄은 기존 매수 색 그대로
+    expect(text).not.toMatch(/· 9(\s|\||$)/);
+    expect(lines[1]!.querySelector('[data-slot="order-log-kind"]')?.className).toContain('text-[var(--up)]');
   });
 });
 

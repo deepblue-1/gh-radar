@@ -83,10 +83,10 @@ describe('inScope — 공용 패널 범위 (결정 1-A)', () => {
     expect(matchesKind(burst, 'market')).toBe(true);
     expect(matchesKind(burst, 'all')).toBe(true);
     for (const k of ['pre', 'add', 'post', 'sell', 'manual', 'vi'] as const) expect(matchesKind(burst, k)).toBe(false);
-    // 예약 kind 9(계좌 '')는 시세가 아니다 — 계좌가 비어 있어도 다른 계좌 범위 밖 · market 필터 불통과.
-    const reserved = row(exposed, { seq: 901, kind: 9 });
-    expect(inScope(reserved, { accountNo: OTHER_ACCOUNT })).toBe(false);
-    expect(matchesKind(reserved, 'market')).toBe(false);
+    // 상태전이 kind 9(계좌 '')는 시세가 아니다 — 계좌가 비어 있어도 다른 계좌 범위 밖 · market 필터 불통과.
+    const stateRow = row(exposed, { seq: 901, kind: 9 });
+    expect(inScope(stateRow, { accountNo: OTHER_ACCOUNT })).toBe(false);
+    expect(matchesKind(stateRow, 'market')).toBe(false);
   });
 });
 
@@ -126,9 +126,9 @@ describe('matchesKind — 구분 필터 group 축 (D-08)', () => {
     for (const g of [1, 3, 6]) for (const k of ['manual', 'vi'] as const) expect(matchesKind(byGroup(g), k)).toBe(false);
   });
 
-  it('구분 옵션 라벨 = 전체 · 선매수 · 줄매수 · 후매수 · 매도 · 자동매도 · 수동 · VI · 시세', () => {
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
-    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'market']);
+  it('구분 옵션 라벨 = 전체 · 선매수 · 줄매수 · 후매수 · 매도 · 자동매도 · 수동 · VI · 상태전이 · 시세', () => {
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.label)).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '상태전이', '시세']);
+    expect(ORDER_LOG_KIND_FILTERS.map((o) => o.value)).toEqual(['all', 'pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'state', 'market']);
   });
 });
 
@@ -313,7 +313,7 @@ describe('Phase 27 자동매도 필터 (D-14 · 정보성 반영 Q5 · Q8)', () 
 
   it('구분 칩 — 「자동매도」 는 「매도」 바로 뒤 · 「수동」「VI」 유지', () => {
     const labels = ORDER_LOG_KIND_FILTERS.map((o) => o.label);
-    expect(labels).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '시세']);
+    expect(labels).toEqual(['전체', '선매수', '줄매수', '후매수', '매도', '자동매도', '수동', 'VI', '상태전이', '시세']);
     expect(ORDER_LOG_KIND_FILTERS[labels.indexOf('자동매도')]!.value).toBe('auto');
   });
 
@@ -399,5 +399,88 @@ describe('Phase 28 kind 15 상한가 특징 — 시세 = kind (D-07 · Pitfall 4
         expect(matchesKind(r, k)).toBe(false);
       }
     }
+  });
+});
+
+describe('Phase 39 kind 9 「상태전이」 칩 (D-10 · Pitfall 6)', () => {
+  const buy = STRATEGY_DAY_BY_NAME.buy12451!; // kind 3 · group 1
+  /** kind 9 상태전이 — 39-02 shared 문장 테스트와 같은 꼴(CfgSubmit · 0→… 스위치 · 제출자 milles). */
+  const state = (over: Partial<StrategyEventRow> = {}): StrategyEventRow =>
+    row(buy, {
+      seq: 9001,
+      kind: 9,
+      group: 1,
+      orderNo: '',
+      reasonCode: 'CfgSubmit',
+      aheadQty: 1,
+      expectedCum: 3,
+      orderCondition: 'milles',
+      message: '',
+      ...over,
+    });
+  const GROUP_CHIPS = ['pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi'] as const;
+
+  it('구분 칩 값 순서 = all · pre · add · post · sell · auto · manual · vi · state · market — 「상태전이」 는 「시세」 바로 앞', () => {
+    const values = ORDER_LOG_KIND_FILTERS.map((o) => o.value);
+    expect(values).toEqual(['all', 'pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'state', 'market']);
+    expect(ORDER_LOG_KIND_FILTERS.find((o) => o.value === 'state')!.label).toBe('상태전이');
+    expect(values.indexOf('state')).toBe(values.indexOf('market') - 1);
+  });
+
+  it('kind 9 · group 1 → state 참 · pre/market 거짓 · kind 3 · group 1 → state 거짓 · pre 참(기존 유지)', () => {
+    const s = state();
+    expect(matchesKind(s, 'state')).toBe(true);
+    expect(matchesKind(s, 'pre')).toBe(false);
+    expect(matchesKind(s, 'market')).toBe(false);
+    expect(matchesKind(s, 'all')).toBe(true);
+    expect(matchesKind(buy, 'state')).toBe(false);
+    expect(matchesKind(buy, 'pre')).toBe(true);
+  });
+
+  it('kind 9 는 group 무관하게 그룹 칩(선매수 … VI)에 섞이지 않는다 · 시세 · 다른 kind 는 state 거짓', () => {
+    for (const g of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const s = state({ group: g, seq: 9100 + g });
+      expect(matchesKind(s, 'state')).toBe(true);
+      for (const k of GROUP_CHIPS) expect(matchesKind(s, k)).toBe(false);
+    }
+    const rows = [...STRATEGY_DAY_ROWS, ...Object.values(STRATEGY_AUTO_SELL_ROWS), ...STRATEGY_LIMIT_FEATURE_ROWS];
+    for (const r of rows) expect(matchesKind(r, 'state')).toBe(false);
+  });
+
+  it('kind 9 · group 9 → 「자동매도」 칩 · 팝업 자동매도 · 매수 · 매도 거짓 · 팝업 「전체」 만 참', () => {
+    const s9 = state({ group: 9, seq: 9009 });
+    expect(matchesKind(s9, 'auto')).toBe(false);
+    expect(matchesSide(s9, 'auto')).toBe(false);
+    expect(matchesSide(s9, 'buy')).toBe(false);
+    expect(matchesSide(s9, 'sell')).toBe(false);
+    expect(matchesSide(s9, 'market')).toBe(false);
+    expect(matchesSide(s9, 'all')).toBe(true);
+    // group 1 로 와도 매수 색이 아니다(tone state)
+    expect(matchesSide(state(), 'buy')).toBe(false);
+  });
+
+  it('applyOrderLogFilters(kind state) — 하루 흐름 + kind 9 두 행 중 kind 9 만 · 시간순 그대로', () => {
+    const s1 = state({ seq: 9201, gwTimeMs: buy.gwTimeMs - 1000 });
+    const s2 = state({ seq: 9202, group: 9, gwTimeMs: buy.gwTimeMs + 1000 });
+    const merged = mergeStrategyEvents([...STRATEGY_DAY_ROWS, s2, s1], [], FIXTURE_TRADE_DATE);
+    const got = applyOrderLogFilters(merged, { ...DEFAULT_ORDER_LOG_FILTERS, kind: 'state' });
+    expect(got.map((r) => r.seq)).toEqual([9201, 9202]);
+    // 「전체」 에서는 다른 행과 같은 목록에 시간순으로 섞인다
+    const all = applyOrderLogFilters(merged, DEFAULT_ORDER_LOG_FILTERS);
+    expect(all.length).toBe(STRATEGY_DAY_ROWS.length + 2);
+    const at = (r: StrategyEventRow) => all.findIndex((x) => x.seq === r.seq && x.kind === r.kind);
+    expect(at(s1)).toBeGreaterThanOrEqual(0);
+    expect(at(s1)).toBeLessThan(at(buy));
+    expect(at(buy)).toBeLessThan(at(s2));
+  });
+
+  it('창 분리 쿼리 kind=state — 파싱 · 교정 없음 · 정본 문자열 왕복', () => {
+    const today = FIXTURE_TRADE_DATE;
+    const q = parseOrderLogQuery(new URLSearchParams(`account=${FIXTURE_ACCOUNT_NO}&kind=state`), today);
+    expect(q.filters.kind).toBe('state');
+    expect(q.corrected).toBe(false);
+    const qs = orderLogQueryString(q, today);
+    expect(qs).toBe(`account=${FIXTURE_ACCOUNT_NO}&kind=state`);
+    expect(parseOrderLogQuery(new URLSearchParams(qs), today).filters).toEqual(q.filters);
   });
 });
