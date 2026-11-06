@@ -15,7 +15,9 @@ import {
   runSpecialist,
   toolNameToSpecialistId,
   extractStockRefs,
+  type SpecialistInput,
 } from "./chat-orchestrator.js";
+import type { DiagnosisDeps } from "./specialists/diagnosis/diagnosis-specialist.js";
 import {
   loadConversation,
   createConversation,
@@ -65,6 +67,13 @@ export function __resetChatSessionsForTests(): void {
 
 const MAX_RETRIES = 2;
 const MAX_TOOL_RESULT_CHARS = 8_000;
+
+/**
+ * Phase 39 D-01 — 주문 진단 전문가의 진단문은 서버가 SSE text 로 그대로 흘린다(팀장이 요약 · 재서술하지 않는다).
+ * 팀장 tool_result 는 이 머리 + 원문 — 팀장은 이미 화면에 있는 진단문을 다시 쓰지 않고 꼬리말만 붙인다.
+ */
+export const DIAGNOSIS_RELAY_HEADER =
+  "[주문 진단 전문가의 진단문이 이미 사용자 화면에 그대로 표시되었습니다. 다시 쓰거나 요약·재서술하지 말고, 수치·시각을 반복하지 마세요. 필요하면 꼬리말 한두 줄만.]";
 
 // --- SSE 헬퍼 ---
 
@@ -276,6 +285,11 @@ export interface HandleChatOptions {
   conversationId?: string;
   message: string;
   stockCode?: string;
+  /**
+   * Phase 39 — 주문 진단 전문가의 시세 도구 의존성(라우트가 `app.locals` 의 tickgw · 변환 트리거 · 하루 상한을 넘긴다).
+   * 계좌는 여기에 없다 — 계좌 범위는 `userId` 하나로만 정해진다(SC-2).
+   */
+  diagnosisDeps?: DiagnosisDeps;
 }
 
 /**
@@ -456,11 +470,20 @@ export async function handleChatStream(
             if (agentId) {
               sendSSE(res, "agent_start", { agent: agentId, label: SPECIALIST_LABELS[agentId] });
             }
-            const out = await runSpecialist(
-              b.name,
-              b.input as { code?: string; question: string },
-              supabase,
-            );
+            // 인증 사용자 id · 취소 신호 · 시세 의존성은 서버가 정한다 — 팀장 입력엔 계좌 칸이 없다(SC-2).
+            const out = await runSpecialist(b.name, b.input as SpecialistInput, supabase, {
+              userId,
+              signal: effectiveSignal,
+              deps: opts.diagnosisDeps,
+            });
+
+            // D-01 — 진단문은 화면에 글자 그대로. emit 과 누적을 한 자리에서 해 화면 · 저장 · 재시도
+            // 재전송(WR-03 accumulatedText)이 같은 글자가 되게 한다. 병렬 호출이면 끝나는 순서대로 흐른다.
+            if (out.display) {
+              const shown = "\n\n" + out.display + "\n\n";
+              sendSSE(res, "text", { text: shown });
+              accumulatedText += shown;
+            }
             if (agentId) sendSSE(res, "agent_end", { agent: agentId });
 
             // 웹서치 citations → SSE citation + blocks(D-08)
@@ -476,7 +499,8 @@ export async function handleChatStream(
               }
             }
 
-            let content = out.text;
+            // 진단문은 팀장에게 「이미 표시됨 — 재서술 금지」 머리와 함께 준다(절단은 tool_result 에만 · 화면 무관).
+            let content = out.display ? DIAGNOSIS_RELAY_HEADER + "\n\n" + out.display : out.text;
             if (content.length > MAX_TOOL_RESULT_CHARS) {
               content = content.slice(0, MAX_TOOL_RESULT_CHARS) + "...(truncated)";
             }
