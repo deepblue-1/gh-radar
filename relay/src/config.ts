@@ -49,6 +49,8 @@
  *            PEM(`BEGIN PRIVATE KEY`)이며 Key ID 형식이 맞을 때만 `apns` 가 생긴다. **비치명** — 없거나 어긋나면 `apns` 는
  *            undefined · `apnsOffReason` 에 원인 문구(값 · 길이 없음)만 남고 relay 는 iOS 송신기만 빠진 채 뜬다(KYOBO 비밀 꼴).
  *            `APNS_TEAM_ID`(기본 954QPCS3F5) · `APNS_TOPIC`(기본 com.ghtrade.app = 앱 번들 id)은 env 가 있으면 그 값.
+ *   Phase 40 (40-09)  `FCM_PROJECT_ID` = FCM HTTP v1 프로젝트. 있으면 그 값 · 없으면 production 은 `gh-radar` · 그 밖은
+ *            undefined(로컬엔 GCE 메타데이터 서버가 없다). 키 파일은 없다 — 토큰은 VM SA 메타데이터 서버에서 받는다.
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
@@ -79,6 +81,8 @@ export type ApnsConfig = {
 export const APNS_DEFAULT_TEAM_ID = "954QPCS3F5";
 /** APNs topic 기본값 = 앱 번들 id. */
 export const APNS_DEFAULT_TOPIC = "com.ghtrade.app";
+/** FCM 프로젝트 기본값(production — Firebase 프로젝트 = GCP 프로젝트 gh-radar). */
+export const FCM_DEFAULT_PROJECT_ID = "gh-radar";
 
 const APNS_KEY_ID_RE = /^[A-Za-z0-9]{10}$/;
 
@@ -230,6 +234,11 @@ export type RelayConfig = {
   apns: ApnsConfig | undefined;
   /** `apns` 가 undefined 인 이유(부팅 로그 1줄용 · env 이름만 · 값 없음). 켜졌으면 undefined. */
   apnsOffReason: string | undefined;
+  /**
+   * FCM HTTP v1 프로젝트 (Phase 40 — env `FCM_PROJECT_ID`). 있으면 그 값 · 없으면 production 은 `gh-radar` · 그 밖은 undefined
+   * (로컬엔 GCE 메타데이터 서버가 없다 — Android 송신기를 만들지 않는다).
+   */
+  fcmProjectId: string | undefined;
 };
 
 export function loadConfig(): RelayConfig {
@@ -272,6 +281,8 @@ export function loadConfig(): RelayConfig {
   const pushNotify = pushNotifyRaw === undefined ? nodeEnv === "production" : pushNotifyRaw === "on";
   // Phase 40 (40-09) — APNs 송신기 비밀. 비치명(없으면 iOS 송신기만 빠진다).
   const { apns, offReason: apnsOffReason } = apnsConfigOf(process.env);
+  // Phase 40 (40-09) — FCM 프로젝트. 운영 VM 만 기본값(메타데이터 토큰) · 로컬은 env 로만.
+  const fcmProjectId = optional("FCM_PROJECT_ID")?.trim() || (nodeEnv === "production" ? FCM_DEFAULT_PROJECT_ID : undefined);
 
   // Phase 29 D-09 — 레지스트리 원천 게이트. 비밀 필수 검사(위) 뒤에 본다 — production 비밀 부재 사유 문구를 바꾸지 않는다.
   const registryRaw = optional("DMA_REGISTRY_SOURCE");
@@ -372,5 +383,6 @@ export function loadConfig(): RelayConfig {
     pushNotify,
     apns,
     apnsOffReason,
+    fcmProjectId,
   };
 }

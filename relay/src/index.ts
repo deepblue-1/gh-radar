@@ -121,6 +121,7 @@ import { QuoteFeed } from "./quote/feed.js";
 import { QuoteSwitch } from "./quote/quote-switch.js";
 import { QuoteStatus } from "./quote/status.js";
 import { ApnsSender } from "./push/apns.js";
+import { FcmSender } from "./push/fcm.js";
 import { PushNotifier, type PushSender } from "./push/notifier.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
@@ -505,6 +506,14 @@ if (config.apns !== undefined) {
   }
 } else {
   logger.info({ reason: config.apnsOffReason ?? "" }, "[push] APNs 비밀 없음 — iOS 송신 꺼짐");
+}
+if (config.fcmProjectId !== undefined) {
+  const fcm = new FcmSender({ projectId: config.fcmProjectId });
+  pushSenders.push(fcm);
+  // 기동 때 권한(역할 · API · 토큰 범위)을 한 번 확인한다 — 결과는 로그 1줄 · 기동을 막지 않는다(A2 · A10).
+  if (config.pushNotify) void fcm.probe();
+} else {
+  logger.info("[push] FCM 프로젝트 없음 — Android 송신 꺼짐");
 }
 const pushNotifier = new PushNotifier({
   supabase,
