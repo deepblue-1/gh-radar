@@ -143,6 +143,9 @@ type ReportRow = {
   reason: string;
 };
 
+/** 자동매도 사건 한 건 — 판정 RPC 인자(epoch · seq) + 수신자 · 보유 조회 키(계좌 · 종목). */
+type StrategyItem = { accountNo: string; isin: string; journalEpoch: string; seq: number };
+
 /** 게이트웨이 큐 한 개(D-09). */
 type GatewayQueue = {
   gateway: string;
@@ -150,9 +153,15 @@ type GatewayQueue = {
   view: PushPipelineView;
   /** 주문 id → 계좌번호. */
   orders: Map<string, string>;
+  /** `${journalEpoch}:${seq}` → 자동매도 사건. */
+  strategy: Map<string, StrategyItem>;
   timer: NodeJS.Timeout | null;
   inFlight: boolean;
 };
+
+const strategyKeyOf = (journalEpoch: string, seq: number): string => `${journalEpoch}:${seq}`;
+/** 자동매도 send 의 체인 키 접두(40-05 — `'AS:'||journal_epoch||':'||seq`). */
+const AUTOSELL_CHAIN_PREFIX = "AS:";
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -190,6 +199,10 @@ export class PushNotifier {
   readonly #platforms: PushPlatform[];
   readonly #enabled: boolean;
   readonly #settleMs: number;
+  readonly #deferMs: number;
+  readonly #holdingOf: PushNotifierDeps["holdingOf"];
+  /** 짝 대기 재호출 타이머들 — `close()` 가 해제한다. */
+  readonly #deferTimers = new Set<NodeJS.Timeout>();
   readonly #queues = new Map<string, GatewayQueue>();
   /** 재시도 대기 중인 지연들 — `close()` 가 풀어 준다. */
   readonly #waits = new Set<{ timer: NodeJS.Timeout; resolve: () => void }>();
@@ -203,6 +216,8 @@ export class PushNotifier {
     this.#platforms = [...this.#senderOf.keys()];
     this.#enabled = deps.enabled && this.#platforms.length > 0;
     this.#settleMs = deps.settleMs ?? PUSH_SETTLE_MS;
+    this.#deferMs = deps.deferMs ?? PUSH_DEFER_MS;
+    this.#holdingOf = deps.holdingOf;
     if (this.#enabled) {
       logger.info({ platforms: this.#platforms.join(",") }, `[push] 켜짐 platforms=${this.#platforms.join(",")}`);
     } else {
@@ -243,9 +258,20 @@ export class PushNotifier {
   enqueueStrategy(p: PushPipelineView, rows: readonly StrategyEventRow[]): void {
     try {
       if (!this.#enabled || this.#closed) return;
-      const candidates = rows.filter((r) => isAutoSellPushEvent(r));
-      if (candidates.length === 0) return;
-      // 큐 넣기 · 송신은 Task 3(자동매도 사건).
+      const q = this.#queueOf(p);
+      let added = false;
+      for (const r of rows) {
+        // 계좌번호가 빈 행(시세 이벤트 · 형식 이상)은 받을 사람을 정할 수 없다.
+        if (!isAutoSellPushEvent(r) || r.accountNo === "") continue;
+        q.strategy.set(strategyKeyOf(r.journalEpoch, r.seq), {
+          accountNo: r.accountNo,
+          isin: r.isin,
+          journalEpoch: r.journalEpoch,
+          seq: r.seq,
+        });
+        added = true;
+      }
+      if (added) this.#schedule(q);
     } catch (err) {
       logger.error({ gateway: p?.server?.key, err: String(err) }, "[push] enqueue 예외 — 적용 · 팬아웃 무영향");
     }
@@ -259,7 +285,10 @@ export class PushNotifier {
       if (q.timer !== null) clearTimeout(q.timer);
       q.timer = null;
       q.orders.clear();
+      q.strategy.clear();
     }
+    for (const t of this.#deferTimers) clearTimeout(t);
+    this.#deferTimers.clear();
     for (const w of this.#waits) {
       clearTimeout(w.timer);
       w.resolve();
@@ -278,7 +307,7 @@ export class PushNotifier {
     const key = p.server.key;
     let q = this.#queues.get(key);
     if (q === undefined) {
-      q = { gateway: key, view: p, orders: new Map(), timer: null, inFlight: false };
+      q = { gateway: key, view: p, orders: new Map(), strategy: new Map(), timer: null, inFlight: false };
       this.#queues.set(key, q);
     }
     q.view = p;
@@ -288,7 +317,7 @@ export class PushNotifier {
   /** 비행 중이 아니고 타이머가 없을 때만 정착 타이머를 건다 — 비행 중에 들어온 행은 끝난 뒤 다음 묶음으로(D-09). */
   #schedule(q: GatewayQueue): void {
     if (this.#closed || q.inFlight || q.timer !== null) return;
-    if (q.orders.size === 0) return;
+    if (q.orders.size === 0 && q.strategy.size === 0) return;
     q.timer = setTimeout(() => {
       q.timer = null;
       void this.#flush(q);
@@ -299,11 +328,13 @@ export class PushNotifier {
   async #flush(q: GatewayQueue): Promise<void> {
     if (this.#closed || q.inFlight) return;
     const orders = new Map(q.orders);
+    const strategy = new Map(q.strategy);
     q.orders.clear();
-    if (orders.size === 0) return;
+    q.strategy.clear();
+    if (orders.size === 0 && strategy.size === 0) return;
     q.inFlight = true;
     try {
-      await this.#claimAndSend(q, orders, false);
+      await this.#claimAndSend(q, orders, strategy, false);
     } catch (err) {
       logger.error({ gateway: q.gateway, err: String(err) }, "[push] 묶음 예외 — 적용 · 팬아웃 무영향");
     } finally {
@@ -327,21 +358,29 @@ export class PushNotifier {
     return out;
   }
 
-  async #claimAndSend(q: GatewayQueue, orders: Map<string, string>, allowFallback: boolean): Promise<void> {
-    const recipients = this.#recipientsOf(q.view, orders.values());
+  async #claimAndSend(
+    q: GatewayQueue,
+    orders: ReadonlyMap<string, string>,
+    strategy: ReadonlyMap<string, StrategyItem>,
+    allowFallback: boolean,
+  ): Promise<void> {
+    const recipients = this.#recipientsOf(q.view, [...orders.values(), ...[...strategy.values()].map((s) => s.accountNo)]);
     const orderIds = [...orders].filter(([, account]) => recipients.has(account)).map(([id]) => id);
-    if (orderIds.length === 0) return;
+    const strategyItems = [...strategy.values()].filter((s) => recipients.has(s.accountNo));
+    if (orderIds.length === 0 && strategyItems.length === 0) return;
     const args: ClaimArgs = {
       p_gateway: q.gateway,
       p_orders: orderIds,
-      p_strategy: [],
+      p_strategy: strategyItems.map((s) => ({ journal_epoch: s.journalEpoch, seq: s.seq })),
       p_recipients: Object.fromEntries(recipients),
       p_platforms: [...this.#platforms],
       p_allow_fallback: allowFallback,
     };
     const claim = await this.#claim(q.gateway, args);
     if (claim === null || this.#closed) return;
-    const results = await this.#deliver(q.gateway, claim.sends);
+    // D-03 — 짝 이벤트를 아직 못 본 주문은 잠시 뒤 폴백 허용으로 한 번만 다시 묻는다(폴백 호출의 deferred 는 끝).
+    if (!allowFallback && claim.deferred.length > 0) this.#scheduleDeferred(q, orders, claim.deferred);
+    const results = await this.#deliver(q.gateway, claim.sends, strategy);
     if (results.length > 0) await this.#report(q.gateway, results);
     if (claim.sends.length > 0 || claim.deferred.length > 0) {
       logger.info(
@@ -358,6 +397,28 @@ export class PushNotifier {
         "[push] 송신",
       );
     }
+  }
+
+  /**
+   * `deferMs` 뒤 deferred id 만 `p_allow_fallback: true` 로 한 번 더(D-03). 그 시점 매핑으로 수신자를 다시 계산한다. 정착 큐와
+   * 따로 돈다 — 판정은 DB 체인 표의 단조 upsert 라 같은 주문이 정착 묶음과 겹쳐도 한 단계는 한 번만 나간다.
+   */
+  #scheduleDeferred(q: GatewayQueue, orders: ReadonlyMap<string, string>, deferred: readonly string[]): void {
+    const retry = new Map<string, string>();
+    for (const id of deferred) {
+      const account = orders.get(id);
+      if (account !== undefined) retry.set(id, account);
+    }
+    if (retry.size === 0 || this.#closed) return;
+    const timer = setTimeout(() => {
+      this.#deferTimers.delete(timer);
+      if (this.#closed) return;
+      void this.#claimAndSend(q, retry, new Map(), true).catch((err: unknown) =>
+        logger.error({ gateway: q.gateway, err: String(err) }, "[push] 짝 대기 재호출 예외 — 적용 · 팬아웃 무영향"),
+      );
+    }, this.#deferMs);
+    timer.unref?.();
+    this.#deferTimers.add(timer);
   }
 
   /** 판정 RPC — 오류(error · throw · 형식 위반)면 `PUSH_CLAIM_RETRY_MS` 뒤 같은 인자로 1회만 다시. 그래도 실패면 null. */
@@ -389,14 +450,14 @@ export class PushNotifier {
   }
 
   /** send 마다 문안을 만들고 기기마다 그 플랫폼 송신기로 보낸다. `stopRun` 뒤 그 플랫폼 남은 기기는 건너뛴다. */
-  async #deliver(gateway: string, sends: readonly ClaimSend[]): Promise<ReportRow[]> {
+  async #deliver(gateway: string, sends: readonly ClaimSend[], strategy: ReadonlyMap<string, StrategyItem>): Promise<ReportRow[]> {
     const results: ReportRow[] = [];
     const stopped = new Set<PushPlatform>();
     for (const s of sends) {
       if (this.#closed) break;
       let msg: PushSendMessage;
       try {
-        const facts = s.facts;
+        const facts = this.#withHolding(gateway, s, strategy);
         const { title, body } = pushMessageOf(facts);
         msg = { title, body, path: pushTapPathOf(facts), threadId: pushThreadIdOf(facts), collapseId: s.log_id };
       } catch (err) {
@@ -432,6 +493,33 @@ export class PushNotifier {
       }
     }
     return results;
+  }
+
+  /**
+   * D-25 — 자동매도 시작 send 에 relay 계좌 캐시의 보유 수량 · 평단을 얹는다. 체인 키 `AS:epoch:seq` 를 이 묶음의 전략 항목
+   * (계좌 · 종목)으로 되짚는다. 값이 없거나 qty 0 이면 그대로(문안이 보유 조각을 뺀다). 원본 사실은 바꾸지 않는다(사본).
+   */
+  #withHolding(gateway: string, s: ClaimSend, strategy: ReadonlyMap<string, StrategyItem>): PushFacts {
+    const facts = s.facts;
+    if (facts.stage !== "autosell_start" || facts.autosell == null || this.#holdingOf === undefined) return facts;
+    if (!s.chain_key.startsWith(AUTOSELL_CHAIN_PREFIX)) return facts;
+    const item = strategy.get(s.chain_key.slice(AUTOSELL_CHAIN_PREFIX.length));
+    if (item === undefined) return facts;
+    let holding: { qty: number; avgPrice: number } | null = null;
+    try {
+      holding = this.#holdingOf(gateway, item.accountNo, item.isin);
+    } catch (err) {
+      logger.warn({ gateway, err: String(err) }, "[push] 보유 조회 예외 — 보유 조각 없이 보낸다");
+    }
+    if (holding === null || !(holding.qty > 0)) return facts;
+    return {
+      ...facts,
+      autosell: {
+        ...facts.autosell,
+        holdingQty: holding.qty,
+        ...(holding.avgPrice > 0 ? { holdingAvgPrice: holding.avgPrice } : {}),
+      },
+    };
   }
 
   /** 결과 보고 1회 — 오류는 로그만(전달 기록이 빠질 뿐 송신 · 적용에는 영향 없다). */
