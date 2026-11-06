@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 39 목업 — 주문 진단 답변 모양 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; }
+
+/* gh-radar globals.css 토큰 사본 (38 목업과 같음) */
+.f {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f1ff; --vi:#d97706; --vi-bg:#fff4e6;
+  --primary:#3182f6; --primary-fg:#fff; --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da;
+  --font:'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--surface); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); padding: 16px; font-size: 14px; line-height: 1.6;
+}
+.f.dark { --bg:#0a0a0a; --surface:#0a0a0a; --card:#151515; --muted:#2d2d2d; --raised-2:#3d3d3d; --fg:#ffffff; --fg-2:#e4e4e4; --muted-fg:#9e9e9e; --faint:#636363;
+  --border:#3d3d3d; --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16); --vi:#ffb020; --vi-bg:rgba(255,176,32,.16);
+  --primary:#3485fa; --pill-on-bg:#4e4e4e; --pill-on-fg:#fff; }
+.f.phone { width: 390px; }
+.f.desktop { width: 760px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* 챗 말풍선 (실제 화면: 사용자 질문 → 진행 표시 → 답) */
+.q { margin-left: auto; max-width: 80%; width: fit-content; background: var(--primary); color: var(--primary-fg); border-radius: 16px 16px 4px 16px; padding: 8px 12px; margin-bottom: 10px; }
+.step { font-size: 12px; color: var(--muted-fg); margin: 0 0 8px; }
+.step::before { content: "✓ "; color: var(--primary); }
+.a { background: var(--card); border-radius: 4px 16px 16px 16px; padding: 12px 14px; }
+.a p { margin: 6px 0; }
+.a h3 { margin: 12px 0 6px; font-size: 14px; font-weight: 700; }
+.a table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 6px 0; }
+.a th { text-align: left; font-weight: 600; color: var(--muted-fg); background: var(--muted); padding: 6px 8px; border: 1px solid var(--border); }
+.a td { padding: 6px 8px; border: 1px solid var(--border); vertical-align: top; }
+.a .tl { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.small { font-size: 12px; color: var(--muted-fg); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; background: var(--muted); border-radius: 4px; padding: 1px 4px; }
+.linkbtn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--pill-on-fg); background: var(--pill-on-bg); border-radius: 999px; padding: 6px 12px; text-decoration: none; }
+.inlink { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+details { margin-top: 8px; }
+summary { cursor: pointer; font-size: 12px; color: var(--muted-fg); }
+
+/* B 카드 */
+.verdict { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.badge { font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 8px; }
+.badge.sell { color: var(--down); background: var(--down-bg); }
+.badge.why { color: var(--fg-2); background: var(--muted); }
+.vtitle { font-size: 16px; font-weight: 700; margin: 2px 0 4px; }
+.bars { background: var(--muted); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.bar { margin: 6px 0; }
+.bar .lab { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted-fg); }
+.bar .lab b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.track { height: 10px; border-radius: 6px; background: var(--raised-2); overflow: hidden; margin-top: 3px; }
+.fill { height: 100%; border-radius: 6px; }
+.fill.base { background: var(--faint); }
+.fill.now { background: var(--down); }
+.bars .note { font-size: 12px; color: var(--fg-2); margin-top: 6px; }
+.tline { list-style: none; padding: 0; margin: 8px 0 0; }
+.tline li { position: relative; padding: 0 0 10px 18px; }
+.tline li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.tline li.key::before { background: var(--down); }
+.tline li::after { content: ""; position: absolute; left: 7px; top: 16px; bottom: 0; width: 1px; background: var(--border); }
+.tline li:last-child::after { display: none; }
+.tline .t { font-size: 12px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span>
+    <button data-v="A" class="on">A 요약+표</button><button data-v="B">B 카드</button><button data-v="C">C 문단</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="light" class="on">라이트</button><button data-t="dark">다크</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"><div id="f" class="f phone">
+  <div class="q">오늘 12:08 매도 왜 나갔어?</div>
+  <div class="step">주문 진단 전문가</div>
+  <div class="a" id="ans"></div>
+</div></div>
+
+<template id="A">
+  <p><b>매수 대기 물량이 기준보다 줄어서 자동으로 팔았어요.</b></p>
+  <p>상한가에 사려고 줄 서 있던 물량이 <b>10,566주</b>(설정한 기준) 아래로 내려가면 「버팀목이 약해졌다」고 보고 파는 조건이 있어요. 12시 08분 43초에 그 물량이 <b>10,298주</b>로 줄어서 이 조건이 걸렸어요.</p>
+  <h3>무슨 일이 있었나</h3>
+  <table>
+    <tr><th>시각</th><th>무슨 일</th></tr>
+    <tr><td class="tl">12:08:43.124</td><td>상한가 매수 대기 물량이 10,298주로 줄어듦 (기준 10,566주)</td></tr>
+    <tr><td class="tl">12:08:43.125</td><td>매도 조건 성립 → 남은 매수 주문 취소</td></tr>
+    <tr><td class="tl">12:08:43.131</td><td>보유 물량 매도 주문</td></tr>
+  </table>
+  <a class="linkbtn" href="#">틱 보기 · 12:08:43 →</a>
+  <details><summary>서버 기록 원문</summary>
+    <p class="small"><code>B6Sell1 잔량(매수1호가==감시가 &amp;&amp; 잔량&lt;=임계)</code> · 임계 10566 · 실측 10298 · 매도 판정표 1번(지지벽 붕괴)</p>
+  </details>
+</template>
+
+<template id="B">
+  <div class="verdict"><span class="badge sell">매도 나감</span><span class="badge why">지지벽 붕괴</span></div>
+  <div class="vtitle">매수 대기 물량이 기준보다 줄어서 팔았어요</div>
+  <div class="bars">
+    <div class="bar"><div class="lab"><span>기준 (설정값)</span><b>10,566주</b></div><div class="track"><div class="fill base" style="width:100%"></div></div></div>
+    <div class="bar"><div class="lab"><span>그 순간 상한가 매수 대기</span><b>10,298주</b></div><div class="track"><div class="fill now" style="width:97.5%"></div></div></div>
+    <div class="note">기준보다 268주 적어져서 「버팀목이 약해졌다」고 판단했어요.</div>
+  </div>
+  <ul class="tline">
+    <li class="key"><div class="t">12:08:43.124</div>상한가 매수 대기 물량 10,298주로 줄어듦</li>
+    <li><div class="t">12:08:43.125</div>남은 매수 주문 취소</li>
+    <li><div class="t">12:08:43.131</div>보유 물량 매도 주문</li>
+  </ul>
+  <a class="linkbtn" href="#">틱 보기 · 12:08:43 →</a>
+  <details><summary>서버 기록 원문</summary>
+    <p class="small"><code>B6Sell1 잔량(매수1호가==감시가 &amp;&amp; 잔량&lt;=임계)</code> · 임계 10566 · 실측 10298</p>
+  </details>
+</template>
+
+<template id="C">
+  <p><b>매수 대기 물량이 기준보다 줄어서 자동으로 팔았어요.</b></p>
+  <p>이 전략에는 「상한가에 사려고 줄 선 물량이 정해 둔 양보다 적어지면 판다」는 조건이 켜져 있었어요. 기준은 <b>10,566주</b>였는데, 12시 08분 43초에 그 물량이 <b>10,298주</b>까지 줄었어요. 버팀목이 약해졌다고 보고 남은 매수 주문을 먼저 취소한 뒤 보유 물량을 팔았어요.</p>
+  <p>그 순간 호가가 어떻게 움직였는지는 <a class="inlink" href="#">틱 보기</a>에서 확인할 수 있어요.</p>
+</template>
+
+<script>
+const desc = {
+  A: '<b>A 요약+표</b> — 결론 한 줄 → 쉬운 설명 → 시간순 표 → 틱 보기 버튼. 서버 원문 코드는 「서버 기록 원문」을 눌러야 보임. 지금 화면 그대로(마크다운) 만들 수 있어 가장 빠름.',
+  B: '<b>B 카드</b> — 결과·원인 배지 + 기준 대 실제 막대 비교 + 타임라인 + 틱 보기 버튼. 가장 한눈에 들어오지만 답변을 정해진 칸으로 받아 화면이 따로 그려야 해서 작업이 큼.',
+  C: '<b>C 문단</b> — 표 없이 쉬운 문장 2~3단락. 원문 코드는 아예 안 보임. 짧은 질문엔 편하지만 이벤트가 여러 개면 길어짐.'
+};
+const f = document.getElementById('f'), ans = document.getElementById('ans');
+function show(v){ ans.innerHTML = document.getElementById(v).innerHTML; document.getElementById('desc').innerHTML = desc[v] + '<br><span style="color:#777">내용은 예시예요 — 12:08:43 매도 사례로 쓴 문장이고, 시각 .125·.131 줄은 꾸민 값이에요.</span>'; }
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-v]').forEach(x=>x.classList.remove('on'));b.classList.add('on');show(b.dataset.v);});
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-t]').forEach(x=>x.classList.remove('on'));b.classList.add('on');f.classList.toggle('dark',b.dataset.t==='dark');});
+document.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-w]').forEach(x=>x.classList.remove('on'));b.classList.add('on');f.classList.remove('phone','desktop');f.classList.add(b.dataset.w);});
+show('A');
+</script>
+</body>
+</html>
