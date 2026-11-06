@@ -2,10 +2,13 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
-import { describe, expect, it } from "vitest";
-import { concatBytes, encodeRecord, iterRecords, splitZstdFrames } from "@gh-radar/shared";
+import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from "vitest";
+import { concatBytes, decodeAny, encodeRecord, iterRecords, splitZstdFrames } from "@gh-radar/shared";
+
+import type { TickgwClient, TickgwLiveQuery, TickgwLiveResponse } from "../../tickgw-client";
 
 import {
+  formatA3Line,
   getMarketTicksText,
   MARKET_LEGEND,
   MARKET_MAX_RECORDS,
@@ -216,5 +219,197 @@ describe("getMarketTicksText — 지난 날짜 격자 경로(Task 1)", () => {
     const r2 = await getMarketTicksText({ ...BASE, from: "13:00:05", to: "13:00:00" }, deps(b.client), memo());
     expect(r2.text).toBe("자료 없음: 시각 범위가 잘못됨(from ≤ to)");
     expect(b.rec.rpc).toEqual([]);
+  });
+});
+
+// ── 오늘 경로(Task 2) ────────────────────────────────────────────────
+
+const DAY_NS = 86_400_000_000_000n;
+/** 10/16 → 11/06 = 21일. 픽스처 레코드 수신 시각을 오늘로 옮긴다(trade_time_ns 날짜 = 수신 KST 날짜). */
+const SHIFT_NS = 21n * DAY_NS;
+
+/** 픽스처 레코드 전부(수신 시각을 오늘로 옮긴 레코드 프레이밍 바이트 · 원본 순서). */
+function todayRecords(fix: Uint8Array): Uint8Array[] {
+  const raw = new Uint8Array(zlib.zstdDecompressSync(splitZstdFrames(fix)[0]!));
+  const out: Uint8Array[] = [];
+  for (const r of iterRecords(raw)) out.push(encodeRecord(r.recvNs + SHIFT_NS, raw.slice(r.off, r.off + r.len)));
+  return out;
+}
+
+type Script = (q: TickgwLiveQuery, i: number) => TickgwLiveResponse;
+function fakeTickgw(script: Script): TickgwClient & { calls: TickgwLiveQuery[] } {
+  const calls: TickgwLiveQuery[] = [];
+  return {
+    calls,
+    async live(q) {
+      calls.push({ ...q });
+      return script(q, calls.length - 1);
+    },
+  };
+}
+
+const live200 = (
+  body: Uint8Array,
+  h: { epoch?: string; offsetEnd: number; state?: string; more?: boolean },
+): TickgwLiveResponse => ({
+  status: 200,
+  body: Buffer.from(body),
+  headers: {
+    epoch: h.epoch ?? "e1",
+    offsetEnd: String(h.offsetEnd),
+    state: h.state ?? "ready",
+    complete: "true",
+    more: h.more ? "true" : "false",
+  },
+});
+
+/** 가짜 시계 — sleep 이 시계를 민다. */
+function fakeClock(iso: string) {
+  let t = Date.parse(iso);
+  const sleeps: number[] = [];
+  return {
+    now: () => new Date(t),
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+      t += ms;
+    },
+    sleeps,
+  };
+}
+
+/** 2026-11-06(금) 13:30 KST. */
+const TODAY_ISO = "2026-11-06T04:30:00Z";
+const TODAY = { isin: ISIN, exchange: "KRX" as const, date: "2026-11-06" };
+const noSupabase = makeSupabase({}).client;
+
+let fetchSpy: MockInstance;
+beforeAll(() => {
+  fetchSpy = vi.spyOn(globalThis, "fetch");
+});
+afterAll(() => {
+  fetchSpy.mockRestore();
+});
+
+async function runToday(script: Script, win = { from: "13:00:00", to: "13:00:05" }, m: MarketMemo = memo()) {
+  const c = fakeClock(TODAY_ISO);
+  const tg = fakeTickgw(script);
+  const r = await getMarketTicksText({ ...TODAY, ...win }, deps(noSupabase, { tickgw: tg, now: c.now, sleep: c.sleep }), m);
+  return { r, tg, c };
+}
+
+describe("getMarketTicksText — 오늘 tickgw 경로(Task 2)", () => {
+  it("deps.tickgw 없음 → 자료 없음: 당일 시세 경로 꺼짐(TICKS_LIVE_UNAVAILABLE)", async () => {
+    const c = fakeClock(TODAY_ISO);
+    const r = await getMarketTicksText(
+      { ...TODAY, from: "13:00:00", to: "13:00:05" },
+      deps(noSupabase, { now: c.now, sleep: c.sleep }),
+      memo(),
+    );
+    expect(r).toMatchObject({ source: "none", text: "자료 없음: 당일 시세 경로 꺼짐(TICKS_LIVE_UNAVAILABLE)" });
+  });
+
+  it("주말 · 휴장일 · KST 08:00 전 → tickgw 호출 0회 + 자료 없음: 장 시작 전/휴장", async () => {
+    const cases = [
+      { iso: "2026-11-07T03:00:00Z", date: "2026-11-07" }, // 토요일
+      { iso: "2026-12-25T03:00:00Z", date: "2026-12-25" }, // 성탄절
+      { iso: "2026-11-05T22:30:00Z", date: "2026-11-06" }, // 11/06 07:30 KST
+    ];
+    for (const k of cases) {
+      const c = fakeClock(k.iso);
+      const tg = fakeTickgw(() => {
+        throw new Error("호출되면 안 된다");
+      });
+      const r = await getMarketTicksText(
+        { ...TODAY, date: k.date, from: "07:00:00", to: "07:00:05" },
+        deps(noSupabase, { tickgw: tg, now: c.now, sleep: c.sleep }),
+        memo(),
+      );
+      expect(r.text).toBe("자료 없음: 장 시작 전/휴장");
+      expect(tg.calls).toEqual([]);
+    }
+  });
+
+  it("status 0 → UNREACHABLE · blocked → 차단 · queued 20초 넘게 → 대기열", async () => {
+    const u = await runToday(() => ({ status: 0, body: null, headers: {}, netCode: "ECONNREFUSED" }));
+    expect(u.r.text).toBe("자료 없음: 당일 시세 경로 응답 없음(UNREACHABLE)");
+
+    const b = await runToday(() => live200(new Uint8Array(0), { offsetEnd: 0, state: "blocked" }));
+    expect(b.r.text).toBe("자료 없음: 당일 시세 차단");
+
+    const q = await runToday(() => live200(new Uint8Array(0), { offsetEnd: 0, state: "queued" }));
+    expect(q.r.text).toBe("자료 없음: 당일 시세 대기열(잠시 뒤 다시)");
+    const waited = q.c.sleeps.reduce((a, x) => a + x, 0);
+    expect(waited).toBeGreaterThan(20_000);
+    expect(waited).toBeLessThanOrEqual(24_000);
+  });
+
+  it("401 → logger.error 1회 + 자료 없음: 당일 시세 경로 인증 실패(본문은 로그에 없음)", async () => {
+    const { logger } = await import("../../../logger");
+    const spy = vi.spyOn(logger, "error");
+    try {
+      const a = await runToday(() => ({ status: 401, body: Buffer.from("secret-body"), headers: {} }));
+      expect(a.r.text).toBe("자료 없음: 당일 시세 경로 인증 실패");
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(spy.mock.calls)).not.toContain("secret-body");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("이어붙인 두 zstd 프레임(200 · more false) → 둘째 프레임 레코드도 창에 나온다", async () => {
+    const recs = todayRecords(KRX_FIX);
+    const half = Math.floor(recs.length / 2);
+    const body = concatBytes([zst(recs.slice(0, half)), zst(recs.slice(half))]);
+    expect(splitZstdFrames(body).length).toBe(2);
+
+    // 둘째 프레임 안 첫 A3 — 그 거래소 시각이 든 1초 창
+    let target: { line: string; hms: string } | null = null;
+    for (const rec of recs.slice(half)) {
+      const r = iterRecords(rec).next().value!;
+      const d = decodeAny(rec.subarray(r.off, r.off + r.len), r.recvNs, "KRX");
+      if (d.table === "a3") {
+        const tt = String(d.row.trade_time);
+        target = { line: formatA3Line(d.row), hms: `${tt.slice(0, 2)}:${tt.slice(2, 4)}:${tt.slice(4, 6)}` };
+        break;
+      }
+    }
+    expect(target).not.toBeNull();
+
+    const { r } = await runToday(() => live200(body, { offsetEnd: body.length }), {
+      from: target!.hms,
+      to: `${target!.hms}.999`,
+    });
+    expect(r.source).toBe("live");
+    expect(r.text.split("\n")).toContain(target!.line);
+    expect(r.text.split("\n").at(-1)!.startsWith(`틱 보기: /analytics/ticks?isin=${ISIN}&d=20261106&t=`)).toBe(true);
+  });
+
+  it("같은 memo 로 같은 isin|ex 두 번 → 둘째 호출의 첫 live offset = 첫 호출 offsetEnd(처음부터 다시 받지 않음)", async () => {
+    const body = zst(todayRecords(KRX_FIX));
+    const c = fakeClock(TODAY_ISO);
+    const tg = fakeTickgw((q) =>
+      q.offset === 0 ? live200(body, { offsetEnd: body.length }) : live200(new Uint8Array(0), { offsetEnd: body.length }),
+    );
+    const m = memo();
+    const d = deps(noSupabase, { tickgw: tg, now: c.now, sleep: c.sleep });
+    const r1 = await getMarketTicksText({ ...TODAY, from: "13:00:00", to: "13:00:05" }, d, m);
+    expect(r1.source).toBe("live");
+    const firstCalls = tg.calls.length;
+    const r2 = await getMarketTicksText({ ...TODAY, from: "13:00:10", to: "13:00:15" }, d, m);
+    expect(r2.source).toBe("live");
+    expect(tg.calls[0]).toMatchObject({ offset: 0 });
+    expect(tg.calls[firstCalls]).toMatchObject({ isin: ISIN, ex: "KRX", offset: body.length, epoch: "e1" });
+  });
+
+  it("창 안 레코드 0 → 자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)", async () => {
+    const body = zst(todayRecords(KRX_FIX));
+    const { r } = await runToday(() => live200(body, { offsetEnd: body.length }), { from: "09:00:00", to: "09:00:05" });
+    expect(r).toMatchObject({ source: "none", text: "자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)" });
+  });
+});
+
+describe("SC-5 — 시세 도구는 외부 원본을 부르지 않는다", () => {
+  it("이 파일의 모든 호출 동안 globalThis.fetch 0회", () => {
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
