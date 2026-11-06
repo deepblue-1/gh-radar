@@ -30,9 +30,21 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Phase 40 D-18 — FCM 알림 채널은 하나(fills · 이름 「체결 알림」). 채널 생성은 웹이 스위치를 켤 때
+             createChannel 로 한다(40-10) · relay FCM channel_id 와 shared PUSH_CHANNEL_ID 가 같은 값이다.
+             소리는 플랫폼 기본 — 전용 소리 파일 없음(Phase 40 D-17). 소형 아이콘은 흰 단색 벡터. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="fills" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_ghtrade" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Phase 40 SC-1 — Android 13+ 알림 권한. 플러그인 Manifest 병합에 기대지 않고 앱에 명시한다(A9) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
