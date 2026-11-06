@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminServerResult, AdminUsersOverview, AdminUserView, AppRole } from "@gh-radar/shared";
+import type { AdminAccountMaster, AdminServerResult, AdminUsersOverview, AdminUserView, AppRole } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +44,7 @@ import { ROLE_CHIP_CLASS } from "./user-row";
  * (`useFieldSave` — 필드당 1건 비행 · 마지막 값 대기), 응답이 오면 그 자리가 플래시 · 칩으로 바뀌고 목록을 다시 읽는다
  * (`onChanged`). 토스트는 없다.
  *
- * 위험 작업은 확인 1회(D-15): 「사용자 삭제」 와 마지막 계좌 「제거」(= 사용자 삭제 — 서버 409 `LAST_ACCOUNT` 를 기다리지
+ * 위험 작업은 확인 1회(D-15): 「사용자 삭제」 와 마지막 계좌 「연결 해제」(= 사용자 삭제 — 서버 409 `LAST_ACCOUNT` 를 기다리지
  * 않고 화면이 먼저 안다). 삭제가 일부 서버에서 실패하면(`deleted: false`) 시트를 닫지 않고 서버별 칩 · BUSY 줄로 보인다.
  * 등록 서버 중 꺼진 서버가 있으면(29-34 WR-04) 같은 확인 설명에 「꺼진 서버(KB121)의 등록은 DB 에서만 지워요 — 서버를 켜면
  * 「서버에만 있음」 으로 보여요」 를 더하고, 확인하면 `skipDisabled` 로 보낸다(꺼진 서버에는 op 없이 DB 의도만 지운다).
@@ -120,6 +120,11 @@ export interface UserSheetProps {
   user: AdminUserView;
   /** 서버 레지스트리(`AdminUsersOverview.servers`) — 계좌 줄의 등록 서버 토글 후보. */
   servers: AdminUsersOverview["servers"];
+  /**
+   * 계좌 마스터 목록(quick 261106-lwu D-09 · D-10) — 「+ 계좌 연결」 · 「DMA 연결」 첫 계좌 피커 후보. null 이면 못 읽음
+   * (피커만 한 줄 · 나머지 시트는 그대로).
+   */
+  accounts: readonly AdminAccountMaster[] | null;
   /** 쓰기 성공 뒤 목록 재조회. */
   onChanged: () => void;
   onClose: () => void;
@@ -132,7 +137,7 @@ export interface UserSheetProps {
   users?: readonly AdminUserView[];
 }
 
-export function UserSheet({ user, servers, onChanged, onClose, initialResults = null, users }: UserSheetProps) {
+export function UserSheet({ user, servers, accounts, onChanged, onClose, initialResults = null, users }: UserSheetProps) {
   const dma = user.dmaUserId;
 
   const role = useFieldSave<AppRole>(
@@ -261,6 +266,7 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
                 <DmaConnect
                   email={user.email}
                   servers={servers}
+                  accounts={accounts}
                   onConnected={(results) => {
                     setReconcileBatch((prev) => ({ id: (prev?.id ?? 0) + 1, results }));
                     onChanged();
@@ -280,6 +286,7 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
               dmaUserId={dma}
               accounts={user.accounts}
               servers={servers}
+              masterAccounts={accounts}
               onChanged={onChanged}
               onRemoveLast={() => {
                 setDeleteError(null);
@@ -324,12 +331,13 @@ export function UserSheet({ user, servers, onChanged, onClose, initialResults = 
 interface DmaConnectProps {
   email: string;
   servers: AdminUsersOverview["servers"];
+  accounts: readonly AdminAccountMaster[] | null;
   /** 성공 — 서버별 결과(계좌 칩 초기값으로 이어진다) · 부모가 재조회. */
   onConnected: (results: AdminServerResult[]) => void;
 }
 
 /** DMA 연결 없는 trader/admin 의 「DMA 연결」 — 생성 시트와 같은 필드 · 버튼 1개 · 요청 1건. */
-function DmaConnect({ email, servers, onConnected }: DmaConnectProps) {
+function DmaConnect({ email, servers, accounts, onConnected }: DmaConnectProps) {
   const [value, setValue] = useState<DmaConnectValue>(EMPTY_DMA_CONNECT);
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<DmaConnectErrors>({});
@@ -363,6 +371,7 @@ function DmaConnect({ email, servers, onConnected }: DmaConnectProps) {
     <div data-slot="admin-dma-connect-form">
       <DmaConnectFields
         servers={servers}
+        accounts={accounts}
         value={value}
         onChange={(next) => {
           setFieldErrors((prev) => clearChangedErrors(prev, value, next));

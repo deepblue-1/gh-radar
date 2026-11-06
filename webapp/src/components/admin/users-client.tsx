@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AdminServerResult, AdminUsersOverview } from "@gh-radar/shared";
+import type { AdminAccountMaster, AdminServerResult, AdminUsersOverview } from "@gh-radar/shared";
 
 import { CARD, ROW_DIVIDER, SECTION_COUNT, SECTION_TITLE } from "@/components/layout/page-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAdminUsers } from "@/lib/admin-api";
+import { fetchAdminAccounts, fetchAdminUsers } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +34,9 @@ import { UserSheet } from "./user-sheet";
  * - 행을 누르면 `selected` 가 그 이메일이 되고 편집 시트(`UserSheet` — 29-17)가 열린다. 시트의 쓰기가 성공하면
  *   `load()` 로 다시 읽고, 시트는 재조회 결과에서 같은 이메일의 사용자로 내용을 바꿔 그린다(사라졌으면 닫힌다).
  *   시트는 이메일을 key 로 둔다 — 다른 사용자로 바꿔 열면 필드 저장 상태가 새로 시작한다.
+ *   quick 261106-lwu(D-09 · D-10) — 사용자 개요와 계좌 마스터(`GET /api/admin/accounts`)를 **병렬로** 읽어 시트의 계좌 피커
+ *   (「+ 계좌 연결」 · 「첫 계좌」)에 내려 보낸다. 계좌 목록 실패는 null 로 접는다 — 사용자 목록은 그대로 뜨고 피커만 한 줄로 말한다.
+ *   쓰기 뒤 재조회도 둘 다 다시 읽는다(계좌 연결은 「쓰는 사용자」 를 바꾼다).
  *   시트에는 개요 사용자 전체(`users`)도 내려 보낸다 — 계좌 편집의 공유 계좌 안내(D-18)가 개요 데이터만으로 판정한다(추가 요청 없음).
  * - 데스크톱 시트는 비모달(29-31 · UI-REVIEW-2) — 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다. 편집 · 생성 시트는
  *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다). 시트가 열린 동안 본문은 패널 폭을 비워(`AdminPanelPage` — 본문 폭
@@ -42,7 +45,7 @@ import { UserSheet } from "./user-sheet";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "ready"; data: AdminUsersOverview }
+  | { kind: "ready"; data: AdminUsersOverview; accounts: readonly AdminAccountMaster[] | null }
   | { kind: "error"; forbidden: boolean };
 
 export const ADMIN_USERS_TEXT = {
@@ -70,8 +73,15 @@ export function UsersClient() {
   const load = useCallback(async () => {
     const my = ++seq.current;
     try {
-      const data = await fetchAdminUsers();
-      if (seq.current === my) setState({ kind: "ready", data });
+      // 계좌 마스터는 피커 후보일 뿐 — 실패해도 사용자 목록은 띄운다(null 로 접는다).
+      const [data, accounts] = await Promise.all([
+        fetchAdminUsers(),
+        fetchAdminAccounts().then(
+          (r) => r.accounts,
+          () => null,
+        ),
+      ]);
+      if (seq.current === my) setState({ kind: "ready", data, accounts });
     } catch (err) {
       if (seq.current !== my) return;
       const forbidden = err instanceof ApiClientError && err.status === 403;
@@ -158,6 +168,7 @@ export function UsersClient() {
       {state.kind === "ready" && creating && (
         <UserCreateSheet
           servers={state.data.servers}
+          accounts={state.accounts}
           onCreated={(email, results) => {
             setCreating(false);
             setCreated(results && results.length > 0 ? { email, results } : null);
@@ -174,6 +185,7 @@ export function UsersClient() {
           key={selectedUser.email}
           user={selectedUser}
           servers={state.data.servers}
+          accounts={state.accounts}
           users={state.data.users}
           initialResults={created?.email === selectedUser.email ? created.results : null}
           onChanged={() => void load()}

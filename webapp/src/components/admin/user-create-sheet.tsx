@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminCreateUserBody, AdminServerResult, AdminUsersOverview, AppRole } from "@gh-radar/shared";
+import type { AdminAccountMaster, AdminCreateUserBody, AdminServerResult, AdminUsersOverview, AppRole } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +69,8 @@ export function needsDma(role: AppRole): boolean {
 export interface UserCreateSheetProps {
   /** 서버 레지스트리(`AdminUsersOverview.servers`) — 등록 서버 후보. */
   servers: AdminUsersOverview["servers"];
+  /** 계좌 마스터 목록 — 「첫 계좌」 피커 후보(quick 261106-lwu D-10). null 이면 못 읽음. */
+  accounts: readonly AdminAccountMaster[] | null;
   /** 성공 — 이메일(소문자) · 서버별 결과(dma 를 실었을 때만). 부모가 시트를 닫고 재조회 → 편집 시트를 연다. */
   onCreated: (email: string, results: AdminServerResult[] | null) => void;
   /** 실패 — 서버가 허용 행을 이미 썼을 수 있다(relay 409 · 502 는 upsert 뒤) → 부모가 목록을 다시 읽는다. */
@@ -76,7 +78,7 @@ export interface UserCreateSheetProps {
   onClose: () => void;
 }
 
-export function UserCreateSheet({ servers, onCreated, onFailed, onClose }: UserCreateSheetProps) {
+export function UserCreateSheet({ servers, accounts, onCreated, onFailed, onClose }: UserCreateSheetProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<AppRole>("trader");
   const [dma, setDma] = useState<DmaConnectValue>(EMPTY_DMA_CONNECT);
@@ -182,6 +184,7 @@ export function UserCreateSheet({ servers, onCreated, onFailed, onClose }: UserC
         {withDma ? (
           <DmaConnectFields
             servers={servers}
+            accounts={accounts}
             value={dma}
             onChange={(next) => {
               setFieldErrors((prev) => clearChangedErrors(prev, dma, next));

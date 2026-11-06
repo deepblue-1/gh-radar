@@ -5,7 +5,6 @@ import {
   findSharedAccountHolders,
   formatOrderIp,
   formatOrderMac,
-  isValidAccountNoInput,
   normalizeAccountNo,
   normalizeOrderIp,
   normalizeOrderMac,
@@ -18,6 +17,7 @@ import {
   summarizeOrderEndpoint,
   validateOrderEndpointInput,
   type AdminAccountInput,
+  type AdminAccountMaster,
   type AdminAccountView,
   type AdminPutAccountBody,
   type AdminServerResult,
@@ -42,12 +42,20 @@ import {
 } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
+import { AccountPicker, BROKER_BADGE, masterKeyOf } from "./account-picker";
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from "./reflect-chip";
 import { ADMIN_FLASH_CLASS, ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
 import { useFieldSave, type FieldSave } from "./use-field-save";
 
 /**
  * AccountEditor — 편집 시트 「계좌 · 등록 서버」 (Phase 29 D-14 · D-15 · D-23 ③④⑤ · 목업 A `acct()`).
+ *
+ * **quick 261106-lwu(D-04 · D-09) — 계좌는 「계좌」 메뉴의 마스터에서 골라 연결만 한다.** 「+ 계좌 연결」 = 피커(`AccountPicker` ·
+ * 이 사용자에 아직 없는 등록 계좌) + 고른 계좌 증권사의 등록 서버 체크(기본 체크 없음 · 꺼진 서버 비활성) → 기존 `PUT …/accounts`
+ * 1건(계좌 값 = 마스터 값). 카드의 「제거」 는 「연결 해제」(동작 = 기존 DELETE 그대로 · 마스터는 남는다). 편집 모드에 계좌명 칸은
+ * 없다(계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서만 — 메타 줄 안내) · 교보는 편집할 것이 없어 「편집」 을 그리지 않는다.
+ * 아래 설명 중 「계좌명 입력칸」 · 「제거」 · 「+ 계좌 추가」 는 이 결정 이전 문장이다 — 그 밖(서버 토글 · 주문 서버 · IP/MAC · 예수금 ·
+ * 수수료 · 결과 칩 · 공유 계좌 안내) 동작은 그대로다.
  *
  * 계좌 줄 = 증권사 · 계좌번호 · 계좌명 · 「제거」 + 지점 · 트레이더(교보는 「해당 없음」 — D-23 ③) + **그 증권사 서버만**
  * 체크 토글(목업 `.sv` — 체크 · 서버 키 · 상태 칩). 87 에만 있는 계좌는 흐린 「서버에만 있음」 줄로 보기만 한다(D-23 ⑤).
@@ -121,17 +129,20 @@ export function josaEunNeun(serverKey: string): "은" | "는" {
 }
 
 export const ACCOUNT_EDITOR_TEXT = {
-  remove: "제거",
-  add: "+ 계좌 추가",
+  // quick 261106-lwu D-09 — 「제거」 → 「연결 해제」 · 「+ 계좌 추가」(직접 입력) → 「+ 계좌 연결」(등록 계좌 고르기).
+  remove: "연결 해제",
+  add: "+ 계좌 연결",
   notApplicable: "해당 없음",
   minOneServer: "계좌는 서버 1대 이상",
-  lastAccountNote: "마지막 계좌 제거는 유저 삭제로 이어진다.",
-  accountNoInvalid: "계좌번호는 1~12자예요",
-  branchInvalid: "KB 지점번호는 5자예요",
-  traderInvalid: "KB 트레이더 id 는 6자예요",
-  submit: "추가",
+  lastAccountNote:
+    "「연결 해제」 는 이 사용자의 서버에서만 계좌를 뺀다 — 계좌는 「계좌」 목록에 남는다. 마지막 계좌 해제는 지금처럼 사용자 삭제로 이어진다.",
+  /** 편집 가능한 카드의 메타 줄 끝 — 계좌 자체 값은 「계좌」 메뉴(마스터)에서만 고친다. */
+  masterHint: "계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서",
+  linkTitle: "계좌 연결",
+  linkServers: "등록 서버",
+  linkServerDisabled: "사용 꺼진 서버",
+  submit: "연결",
   cancel: "취소",
-  duplicate: "이미 있는 계좌 — 위 계좌 줄에서 서버를 고르세요",
   /** 계좌 줄 컨트롤 이름(29-38) — 증권사 단위는 /admin/servers 의 「기본 주문 서버」. */
   orderServer: "주문 서버",
   orderServerDefault: (defaultKey: string | null) => (defaultKey ? `기본 · ${defaultKey}` : "기본"),
@@ -151,8 +162,6 @@ export const ACCOUNT_EDITOR_TEXT = {
   editSave: "편집 저장",
   /** 다른 카드가 편집 중일 때 「편집」 의 title(D-01 · 한 번에 한 카드). */
   editLocked: "다른 계좌 편집 중",
-  nameLabel: "계좌명",
-  namePlaceholder: "계좌명(선택)",
   /** 편집 저장 결과 줄 — 실패 서버 한 줄(message 는 서버 원문 그대로). */
   editFailedLine: (serverKey: string, message: string) => `${serverKey} 실패: ${message}`,
   /** 계좌명이 빈 값인 읽기 카드 제목줄(--faint). */
@@ -443,8 +452,7 @@ function accountInputOf(a: AdminAccountView): AdminAccountInput {
 
 /** 계좌 카드 — 목업 `.acct`(hairline · r12 · 12px 14px). */
 const ACCOUNT_CARD = "mt-2.5 rounded-[12px] border border-[var(--border-subtle)] px-3.5 py-3";
-/** 증권사 배지 — 목업 `.acct .t .bk`. */
-export const BROKER_BADGE = "rounded-[5px] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--fg-2)]";
+/** 증권사 배지 — 목업 `.acct .t .bk`. 정의는 account-picker(`BROKER_BADGE` — 피커 · 계좌 화면과 같은 모양). */
 /**
  * 계좌 버튼(「제거」 · 「+ 계좌 추가」 · 추가 폼 「취소」 · 「추가」) 높이 — 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 28px
  * (29-31 UI-REVIEW-3).
@@ -480,12 +488,25 @@ function brokerLabel(b: DmaBroker): string {
   return b;
 }
 
-function BranchTrader({ account }: { account: Pick<AdminAccountView, "broker" | "branchNo" | "traderId"> }) {
+function BranchTrader({
+  account,
+  masterHint = false,
+}: {
+  account: Pick<AdminAccountView, "broker" | "branchNo" | "traderId">;
+  /** 편집 가능한 카드 — 줄 끝에 「계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서」(quick 261106-lwu D-09). */
+  masterHint?: boolean;
+}) {
   const na = ACCOUNT_EDITOR_TEXT.notApplicable;
   const kb = account.broker === "KB";
   return (
-    <p data-slot="admin-account-branch" className="mt-1 text-[12px] text-[var(--muted-fg)]">
+    <p data-slot="admin-account-branch" className="mt-1 text-[12px] break-keep text-[var(--muted-fg)]">
       지점 {kb ? account.branchNo || "—" : na} · 트레이더 {kb ? account.traderId || "—" : na}
+      {masterHint && (
+        <span data-slot="admin-account-master-hint" className="text-[var(--faint)]">
+          {" · "}
+          {ACCOUNT_EDITOR_TEXT.masterHint}
+        </span>
+      )}
     </p>
   );
 }
@@ -493,14 +514,11 @@ function BranchTrader({ account }: { account: Pick<AdminAccountView, "broker" | 
 function AccountTitle({
   account,
   noNamePlaceholder = false,
-  hideName = false,
   children,
 }: {
   account: AdminAccountView;
   /** 계좌명이 빈 값이면 그 자리에 흐린 「이름 없음」(편집 가능한 계좌 카드만 — 87 전용 줄은 넘기지 않는다). */
   noNamePlaceholder?: boolean;
-  /** 편집 모드 — 계좌명은 아래 입력칸으로 옮겨 가므로 제목줄에서 숨긴다(UI-SPEC §2-1). */
-  hideName?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -508,7 +526,7 @@ function AccountTitle({
       <span className={BROKER_BADGE}>{brokerLabel(account.broker)}</span>
       {/* 계좌번호는 줄지 않는다 — 말줄임은 계좌명만(UI-SPEC E2). 30-06 폰 390 에서 40자 이름이 계좌번호를 「11…」 로 잘랐다. */}
       <span className="shrink-0 tabular-nums">{account.accountNo}</span>
-      {hideName ? null : account.name ? (
+      {account.name ? (
         <span className="min-w-0 truncate font-medium text-[var(--muted-fg)]">{account.name}</span>
       ) : noNamePlaceholder ? (
         <span className="min-w-0 truncate font-medium text-[var(--faint)]">{ACCOUNT_EDITOR_TEXT.noName}</span>
@@ -1097,7 +1115,6 @@ interface AccountRowProps {
  * 초안은 입력 원문 그대로 쥔다(보낼 때 trim 만 · 정규화는 비교에만 — D-07).
  */
 interface EditFields {
-  name: string;
   ip: string;
   mac: string;
 }
@@ -1105,7 +1122,8 @@ interface EditFields {
 /**
  * 카드 편집 저장 본문(UI-SPEC §3 「보내는 값」 · D-06 · D-07 · D-10) — `null` = 보낼 것 없음(「변경 없음」).
  *
- * - 계좌명은 `trim()` 해서 · 나머지 계좌 필드는 개요 값 · `servers` 는 지금 active 등록 서버 그대로(서버 집합을 바꾸지 않는다).
+ * - 계좌 필드는 개요 값 그대로(계좌명 편집은 「계좌」 메뉴로 옮겼다 — quick 261106-lwu D-09) · `servers` 는 지금 active 등록 서버
+ *   그대로(서버 집합을 바꾸지 않는다). 그래서 IP/MAC 을 실을 때만 바디가 생긴다.
  * - IP/MAC 은 KB 이고 (두 칸이 정규화 비교로 초깃값과 다름 || 등록 서버 간 불일치) 일 때만 최상위 `orderEndpoint` 로 싣는다.
  *   보내는 값은 입력 원문(trim) — 정규화값을 보내지 않는다(D-07 · gh-trade 가 정규화). 두 칸 비움 = 빈 문자열 둘(미설정으로 되돌리기 · D-04).
  * - 초깃값은 87 값의 표시 표기(D-17) 또는 빈 문자열 — 비교는 양쪽 정규화(표시 표기는 왕복 항등이라 정규화하면 87 값 그대로)여서
@@ -1132,10 +1150,9 @@ function editSaveBodyOf(input: {
     (norm(normalizeOrderIp, ip) !== norm(normalizeOrderIp, initial.ip) ||
       norm(normalizeOrderMac, mac) !== norm(normalizeOrderMac, initial.mac));
   const sendEndpoint = kb && (endpointChanged || mismatched);
-  const nameChanged = draft.name.trim() !== initial.name.trim();
-  if (!nameChanged && !sendEndpoint) return null;
+  if (!sendEndpoint) return null;
   return {
-    account: { ...accountInputOf(account), name: draft.name.trim() },
+    account: accountInputOf(account),
     servers,
     ...(sendEndpoint ? { orderEndpoint: { orderIp: draft.ip.trim(), orderMac: draft.mac.trim() } } : {}),
   };
@@ -1160,7 +1177,6 @@ function AccountRow({
 }: AccountRowProps) {
   const T = ACCOUNT_EDITOR_TEXT;
   const key = accountKeyOf(account.broker, account.accountNo);
-  const nameId = useId();
   const ipId = useId();
   const macId = useId();
   const editButtonRef = useRef<HTMLButtonElement>(null);
@@ -1198,15 +1214,11 @@ function AccountRow({
     wasEditing.current = isEditing;
   }, [isEditing]);
 
-  // 이름은 「편집 저장이 쥔 새 이름 ?? 개요 이름」 — 저장 성공 뒤 재조회(`releaseOn`) 전 토글이 옛 이름으로 되돌리지 않게(Pitfall 4).
-  // 30 WR-03 — `editSave.value` 는 저장을 **시작할 때** 채워진다. 비행 중에는 싣지 않는다(실패하면 확정 안 된 이름이 토글로 커밋된다).
-  // 비행 중 토글은 UI 가 잠그지만, 그 전에 대기열에 들어간 토글이 이 사이에 나갈 수 있어 여기서도 막는다.
-  const confirmedName = () =>
-    editSave.state !== "saving" && editSave.value !== undefined ? editSave.value.account.name : account.name;
+  // 계좌 값은 개요 값 그대로 — 서버(Express)가 마스터 값으로 덮어 relay 에 넘긴다(quick 261106-lwu 정합 규칙).
   const toggle = useFieldSave<string[]>(
     (servers) =>
       putDmaAccount(dmaUserId, {
-        account: { ...accountInputOf(account), name: confirmedName() },
+        account: accountInputOf(account),
         servers,
       }),
     {
@@ -1267,7 +1279,7 @@ function AccountRow({
   // 「바뀜」(저장 버튼 기준 · UI-SPEC §3) = 계좌명 trim · IP/MAC 원문(trim) 이 초깃값(표시 표기)과 다름. 다른 표기로 같은 값을 다시 적어도 「바뀜」(누르면 「변경 없음」).
   const endpointEdited =
     kb && draft !== null && (draft.value.ip.trim() !== draft.initial.ip || draft.value.mac.trim() !== draft.initial.mac);
-  const editChanged = draft !== null && (draft.value.name.trim() !== draft.initial.name.trim() || endpointEdited);
+  const editChanged = draft !== null && endpointEdited;
   // 검증은 shared 한 벌(D-04 · 서버 규칙 그대로 · 우선순위 IP → MAC → 짝). 교보는 IP/MAC 이 없어 검증하지 않는다.
   const validation = kb && draft !== null ? validateOrderEndpointInput({ ip: draft.value.ip, mac: draft.value.mac }) : null;
   // 30 IN-01 — 검증은 IP/MAC 을 실을 수 있는 저장(칸을 고쳤거나 D-10 불일치 맞추기 · `editSaveBodyOf` 의 sendEndpoint 상위 집합)만 막는다.
@@ -1282,7 +1294,6 @@ function AccountRow({
   const openEdit = () => {
     const set = endpoint?.state === "set";
     const initial: EditFields = {
-      name: account.name,
       // D-17 — 칸에는 표시 표기(형식 밖은 원문). 비교는 editSaveBodyOf 가 양쪽 정규화로.
       ip: set ? formatOrderIp(endpoint.orderIp) : "",
       mac: set ? formatOrderMac(endpoint.orderMac) : "",
@@ -1330,8 +1341,9 @@ function AccountRow({
         (toggle.state === "flash" || editSave.state === "flash") && ROW_FLASH,
       )}
     >
-      <AccountTitle account={account} noNamePlaceholder hideName={isEditing}>
-        {!isEditing && (
+      <AccountTitle account={account} noNamePlaceholder>
+        {/* 교보는 편집할 것(IP/MAC)이 없다 — 「편집」 을 그리지 않는다(quick 261106-lwu D-09). */}
+        {!isEditing && kb && (
           <Button
             ref={editButtonRef}
             type="button"
@@ -1359,7 +1371,7 @@ function AccountRow({
           {ACCOUNT_EDITOR_TEXT.remove}
         </Button>
       </AccountTitle>
-      <BranchTrader account={account} />
+      <BranchTrader account={account} masterHint />
       {isEditing ? (
         <form
           data-slot="admin-account-edit"
@@ -1369,24 +1381,9 @@ function AccountRow({
             submitEdit();
           }}
         >
-          <label htmlFor={nameId} className="mb-1 block text-[12px] text-[var(--muted-fg)]">
-            {T.nameLabel}
-          </label>
-          <Input
-            id={nameId}
-            size="sm"
-            // UI-SPEC §2 — 「편집」 을 누르면 첫 포커스는 계좌명 칸(편집 블록은 그때 마운트된다).
-            autoFocus
-            maxLength={40}
-            autoComplete="off"
-            placeholder={T.namePlaceholder}
-            readOnly={editSaving}
-            value={draft.value.name}
-            onChange={(e) => setDraftField("name", e.target.value)}
-          />
           {kb ? (
             <>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="min-w-0">
                   <label htmlFor={ipId} className="mb-1 block text-[12px] text-[var(--muted-fg)]">
                     {T.ipLabel}
@@ -1394,6 +1391,8 @@ function AccountRow({
                   <Input
                     id={ipId}
                     size="sm"
+                    // 「편집」 을 누르면 첫 포커스는 주문자 IP 칸(계좌명 칸은 「계좌」 메뉴로 옮겼다 — quick 261106-lwu D-09).
+                    autoFocus
                     inputMode="decimal"
                     autoComplete="off"
                     spellCheck={false}
@@ -1684,40 +1683,43 @@ function ServerOnlyAccountRow({ account }: { account: AdminAccountView }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 계좌 추가
+// 계좌 연결 (quick 261106-lwu D-09 · 목업 ④ 방식 A)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BROKERS: readonly DmaBroker[] = ["KB", "KYOBO"];
-
-interface AccountAddFormProps {
+interface AccountLinkFormProps {
   dmaUserId: string;
+  /** 계좌 마스터 목록(「계좌」 메뉴) — null 이면 못 읽음(피커가 한 줄로 말한다). */
+  masterAccounts: readonly AdminAccountMaster[] | null;
   /**
-   * 이미 있는 의도 계좌의 키(`accountKeyOf`) — 「추가」 는 PUT upsert 1건이라 같은 키를 넣으면 그 계좌의 이름 · 지점 · 등록 서버를
-   * 조용히 덮는다(WR-06). 이 집합에 있으면 막고 계좌 줄로 안내한다. 87 에만 있는 계좌(의도 없음)는 넣지 않는다 — 막지 않는다.
-   * 서버 쪽 create-only 플래그는 두지 않는다: Admin 1명 운영이라 동시 추가 경합이 없고, RPC 시그니처를 바꾸면 오버로드가 생긴다.
+   * 이미 이 사용자 의도에 있는 계좌의 키(`accountKeyOf`) — 후보에서 뺀다. 연결은 PUT upsert 1건이라 같은 계좌를 다시 넣으면
+   * 그 계좌의 등록 서버를 조용히 덮는다(WR-06 과 같은 이유). 87 에만 있는 계좌(의도 없음)는 넣지 않는다 — 막지 않는다.
    */
   existingKeys: ReadonlySet<string>;
-  serverKeysOf: (broker: DmaBroker) => string[];
+  /** 증권사의 레지스트리 서버(꺼진 서버 포함 · 레지스트리 순). */
+  registryOf: (broker: DmaBroker) => AdminUsersOverview["servers"];
   nextPriority: number;
   onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
   onChanged: () => void;
   onClose: () => void;
 }
 
-function AccountAddForm({
+/**
+ * 「+ 계좌 연결」 폼 — 피커(이 사용자에 아직 없는 등록 계좌) + 고른 계좌 증권사의 등록 서버 체크(기본 체크 없음 · 꺼진 서버는 보이되
+ * 고를 수 없음 · 계좌를 바꾸면 체크 초기화) + 취소/「연결」. 「연결」 = 기존 `PUT …/accounts` 1건 — 계좌 값은 마스터 값 · priority 는
+ * 다음 순번 · 서버는 레지스트리 순. 서버가 마스터에 없는 계좌를 409 `ACCOUNT_NOT_REGISTERED` 로 막으면 그 message 를 한 줄로.
+ */
+function AccountLinkForm({
   dmaUserId,
+  masterAccounts,
   existingKeys,
-  serverKeysOf,
+  registryOf,
   nextPriority,
   onResults,
   onChanged,
   onClose,
-}: AccountAddFormProps) {
-  const [broker, setBroker] = useState<DmaBroker>("KB");
-  const [accountNo, setAccountNo] = useState("");
-  const [name, setName] = useState("");
-  const [branchNo, setBranchNo] = useState("");
-  const [traderId, setTraderId] = useState("");
+}: AccountLinkFormProps) {
+  const T = ACCOUNT_EDITOR_TEXT;
+  const [selected, setSelected] = useState<AdminAccountMaster | null>(null);
   const [servers, setServers] = useState<string[]>([]);
 
   const save = useFieldSave<AdminPutAccountBody>((body) => putDmaAccount(dmaUserId, body), {
@@ -1729,145 +1731,85 @@ function AccountAddForm({
     },
   });
 
-  const kb = broker === "KB";
-  const candidates = serverKeysOf(broker);
-  const noInvalid = accountNo.trim() !== "" && !isValidAccountNoInput(accountNo);
-  const branchInvalid = kb && branchNo !== "" && branchNo.length !== 5;
-  const traderInvalid = kb && traderId !== "" && traderId.length !== 6;
-  // 정규화(공백 · 앞 0)한 같은 키의 의도 계좌가 있으면 막는다 — 입력 안내 한 줄(오류 경보 아님).
-  const duplicate = isValidAccountNoInput(accountNo) && existingKeys.has(accountKeyOf(broker, accountNo));
-  const ready =
-    isValidAccountNoInput(accountNo) &&
-    !duplicate &&
-    servers.length > 0 &&
-    (!kb || (branchNo.length === 5 && traderId.length === 6)) &&
-    save.state !== "saving";
+  const registry = selected ? registryOf(selected.broker) : [];
+  const saving = save.state === "saving";
+  const ready = selected !== null && servers.length > 0 && !saving;
 
   const submit = () => {
-    if (!ready) return;
+    if (!ready || selected === null) return;
     save.run({
       account: {
-        broker,
-        accountNo: normalizeAccountNo(accountNo),
-        name: name.trim(),
-        branchNo: kb ? branchNo : "",
-        traderId: kb ? traderId : "",
+        broker: selected.broker,
+        accountNo: selected.accountNo,
+        name: selected.name,
+        branchNo: selected.branchNo,
+        traderId: selected.traderId,
         priority: nextPriority,
       },
-      servers: candidates.filter((k) => servers.includes(k)),
+      servers: registry.map((s) => s.key).filter((k) => servers.includes(k)),
     });
   };
 
   return (
     <form
-      data-slot="admin-account-add"
+      data-slot="admin-account-link"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
       className={cn(ACCOUNT_CARD, "flex flex-col gap-2.5")}
     >
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        value={broker}
-        aria-label="증권사"
-        onValueChange={(v) => {
-          if (v === "KB" || v === "KYOBO") {
-            setBroker(v);
-            setServers([]);
-          }
+      <AccountPicker
+        accounts={masterAccounts}
+        selectedKey={selected ? masterKeyOf(selected) : null}
+        onSelect={(a) => {
+          setSelected(a);
+          setServers([]);
         }}
-        className={ADMIN_SEGMENT_ROOT}
-      >
-        {BROKERS.map((b) => (
-          <ToggleGroupItem key={b} value={b} className={ADMIN_SEGMENT_ITEM}>
-            {brokerLabel(b)}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+        isExcluded={(a) => existingKeys.has(accountKeyOf(a.broker, a.accountNo))}
+        title={T.linkTitle}
+        idPrefix={`admin-link-${dmaUserId}`}
+        disabled={saving}
+      />
 
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          size="sm"
-          aria-label="계좌번호"
-          placeholder="계좌번호"
-          inputMode="numeric"
-          autoComplete="off"
-          value={accountNo}
-          aria-invalid={noInvalid || undefined}
-          onChange={(e) => setAccountNo(e.target.value)}
-        />
-        <Input
-          size="sm"
-          aria-label="계좌명"
-          placeholder="계좌명"
-          autoComplete="off"
-          maxLength={40}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        {kb && (
-          <>
-            <Input
-              size="sm"
-              aria-label="지점"
-              placeholder="지점 (5자)"
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={5}
-              value={branchNo}
-              aria-invalid={branchInvalid || undefined}
-              onChange={(e) => setBranchNo(e.target.value.trim())}
-            />
-            <Input
-              size="sm"
-              aria-label="트레이더"
-              placeholder="트레이더 (6자)"
-              autoComplete="off"
-              maxLength={6}
-              value={traderId}
-              aria-invalid={traderInvalid || undefined}
-              onChange={(e) => setTraderId(e.target.value.trim())}
-            />
-          </>
-        )}
-      </div>
-      {noInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.accountNoInvalid}</p>}
-      {duplicate && (
-        <p data-slot="admin-account-dup" className={ERROR_LINE}>
-          {ACCOUNT_EDITOR_TEXT.duplicate}
-        </p>
+      {selected && (
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[12px] font-semibold text-[var(--muted-fg)]">{T.linkServers}</div>
+          <div role="group" aria-label={T.linkServers} className="flex flex-wrap gap-1.5">
+            {registry.map((s) => (
+              <label
+                key={s.key}
+                data-slot="admin-server-toggle"
+                data-server={s.key}
+                title={s.enabled ? undefined : T.linkServerDisabled}
+                className={cn(SERVER_PILL, "has-disabled:opacity-40")}
+              >
+                <Checkbox
+                  aria-label={s.key}
+                  checked={servers.includes(s.key)}
+                  disabled={!s.enabled || saving}
+                  onCheckedChange={(v) =>
+                    setServers((prev) => (v === true ? [...prev.filter((k) => k !== s.key), s.key] : prev.filter((k) => k !== s.key)))
+                  }
+                />
+                <span>{s.key}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       )}
-      {branchInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.branchInvalid}</p>}
-      {traderInvalid && <p className={ERROR_LINE}>{ACCOUNT_EDITOR_TEXT.traderInvalid}</p>}
-
-      <div className="flex flex-wrap gap-1.5">
-        {candidates.map((serverKey) => (
-          <label key={serverKey} data-slot="admin-server-toggle" data-server={serverKey} className={SERVER_PILL}>
-            <Checkbox
-              aria-label={serverKey}
-              checked={servers.includes(serverKey)}
-              onCheckedChange={(v) =>
-                setServers((prev) => (v === true ? [...prev, serverKey] : prev.filter((k) => k !== serverKey)))
-              }
-            />
-            <span>{serverKey}</span>
-          </label>
-        ))}
-      </div>
 
       {save.error && (
-        <p role="alert" className={ERROR_LINE}>
+        <p role="alert" data-slot="admin-account-link-error" className={ERROR_LINE}>
           {save.error}
         </p>
       )}
       <div className="flex justify-end gap-1.5">
         <Button type="button" size="sm" variant="secondary" onClick={onClose} className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}>
-          {ACCOUNT_EDITOR_TEXT.cancel}
+          {T.cancel}
         </Button>
         <Button type="submit" size="sm" disabled={!ready} className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}>
-          {ACCOUNT_EDITOR_TEXT.submit}
+          {T.submit}
         </Button>
       </div>
     </form>
@@ -1882,9 +1824,11 @@ export interface AccountEditorProps {
   dmaUserId: string;
   accounts: readonly AdminAccountView[];
   servers: AdminUsersOverview["servers"];
+  /** 계좌 마스터 목록(quick 261106-lwu — 「+ 계좌 연결」 피커 후보) · null 이면 못 읽음. */
+  masterAccounts: readonly AdminAccountMaster[] | null;
   /** 쓰기 성공 뒤 목록 재조회. */
   onChanged: () => void;
-  /** 마지막 계좌 「제거」 — 시트가 확인 1회 뒤 사용자 삭제로 간다. */
+  /** 마지막 계좌 「연결 해제」 — 시트가 확인 1회 뒤 사용자 삭제로 간다. */
   onRemoveLast: () => void;
   /** 사용자 전체 결과(「다시 반영」) — `id` 가 바뀔 때마다 한 번 반영한다. */
   serverResults?: { id: number; results: readonly AdminServerResult[] } | null;
@@ -1899,6 +1843,7 @@ export function AccountEditor({
   dmaUserId,
   accounts,
   servers,
+  masterAccounts,
   onChanged,
   onRemoveLast,
   serverResults = null,
@@ -1974,10 +1919,11 @@ export function AccountEditor({
       })}
 
       {adding ? (
-        <AccountAddForm
+        <AccountLinkForm
           dmaUserId={dmaUserId}
+          masterAccounts={masterAccounts}
           existingKeys={new Set(editable.map((a) => accountKeyOf(a.broker, a.accountNo)))}
-          serverKeysOf={serverKeysOf}
+          registryOf={(broker) => servers.filter((s) => s.broker === broker)}
           nextPriority={nextPriority}
           onResults={onResults}
           onChanged={onChanged}

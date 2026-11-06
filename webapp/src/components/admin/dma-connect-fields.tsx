@@ -2,36 +2,34 @@
 
 import {
   brokerOfServerKey,
-  isValidAccountNoInput,
-  normalizeAccountNo,
+  type AdminAccountMaster,
   type AdminDmaInput,
   type AdminUsersOverview,
-  type DmaBroker,
 } from "@gh-radar/shared";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { AccountPicker, masterKeyOf } from "./account-picker";
 import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from "./reflect-chip";
-import { ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
 
 /**
  * DmaConnectFields — 「DMA 연결 · 필수」 그룹 (Phase 29 D-16 · D-23 ③ · 목업 A `dmaGroup(false)`).
  *
- * DMA 사용자 id(모든 서버 공통) → 비밀번호 · 확인 → 첫 계좌(증권사 세그먼트 · 계좌번호 · KB 면 지점 · 트레이더) →
- * 등록 서버 체크 → 안내 문장. 두 자리가 같은 필드를 쓴다:
+ * DMA 사용자 id(모든 서버 공통) → 비밀번호 · 확인 → 첫 계좌(**등록된 계좌에서 고르기** — quick 261106-lwu D-10 · 목업 ⑤
+ * 방식 A `AccountPicker` · 연결/취소 버튼 없이 선택값만) → 고른 계좌 증권사의 등록 서버 체크 → 안내 문장. 생성 바디 모양
+ * (`AdminDmaInput.account`)은 그대로이고 값을 마스터에서 채운다. 두 자리가 같은 필드를 쓴다:
  *
  * - 「+ 사용자」 생성 시트(trader/admin) — `POST /api/admin/users { email, role, dma }`.
  * - DMA 연결이 없는 trader/admin 의 편집 시트 「DMA 연결」 — `POST /api/admin/users/:email/dma`.
  *
  * 제어 컴포넌트다(`value` · `onChange`) — 제출 · 버튼은 부모 몫이고, 부모는 `validateDmaConnect` 로 버튼을 켠다.
  *
- * - **지점 · 트레이더 칸은 KB 일 때만**(D-23 ③ — 목업에는 칸이 없지만 CONTEXT 가 이긴다). 교보 계좌는 두 값이 없다.
- * - **등록 서버는 고른 증권사의 서버만** 보인다. 사용이 꺼진 서버는 보이되 고를 수 없다. 같은 KB 계좌를 두 KB 서버에
- *   동시에 체크할 수 있다. 증권사를 바꾸면 이전 서버 체크는 풀린다(다른 증권사 서버는 이 계좌의 서버가 될 수 없다).
+ * - 계좌번호 · 지점 · 트레이더 입력칸은 없다 — 계좌 자체 값은 「계좌」 메뉴(마스터)에서만 만든다.
+ * - **등록 서버는 고른 계좌 증권사의 서버만** 보인다(계좌를 고르기 전엔 짧은 안내). 사용이 꺼진 서버는 보이되 고를 수 없다.
+ *   같은 KB 계좌를 두 KB 서버에 동시에 체크할 수 있다. 계좌를 바꾸면 서버 체크는 풀린다.
  * - 기본 체크는 없다 — 의도하지 않은 서버 등록을 막는다(29-17 계좌 추가와 같은 결정).
  * - 오류 한 줄은 **채운 칸이 형식에 맞지 않을 때만** 그 칸 아래에 선다(빈 칸은 버튼 비활성으로 말한다).
  *   부모가 주는 `errors`(서버 409 `DMA_USER_EXISTS` → 「이미 있는 DMA id 예요」 등)는 형식 오류보다 앞선다.
@@ -47,13 +45,10 @@ export const DMA_CONNECT_TEXT = {
   passwordHint: "· 저장 뒤 다시 볼 수 없음",
   confirm: "확인",
   firstAccount: "첫 계좌",
-  broker: "증권사",
-  accountNo: "계좌번호",
-  branchNo: "지점",
-  traderId: "트레이더",
   servers: "등록 서버",
   serverDisabled: "사용 꺼진 서버",
-  note: "증권사에 맞는 서버만 고를 수 있다. 같은 KB 계좌를 두 KB 서버에 동시에 등록해도 된다. 교보 계좌는 지점 · 트레이더 값이 없다.",
+  serversPick: "계좌를 고르면 그 증권사의 서버가 보여요",
+  note: "고른 계좌의 증권사 서버만 고를 수 있다. 같은 KB 계좌를 두 KB 서버에 동시에 등록해도 된다.",
   dmaUserExists: "이미 있는 DMA id 예요",
 } as const;
 
@@ -62,28 +57,16 @@ export const DMA_CONNECT_ERROR = {
   dmaUserIdBytes: "DMA id 는 8바이트 이하예요(한글은 1자 3바이트)",
   passwordTooLong: "비밀번호는 64자 이하예요",
   passwordMismatch: "두 값이 달라요",
-  accountNo: "계좌번호는 1~12자예요",
-  branchNo: "KB 지점번호는 5자예요",
-  traderId: "KB 트레이더 id 는 6자예요",
-  servers: "고른 증권사의 사용 중인 서버만 등록할 수 있어요",
+  servers: "고른 계좌 증권사의 사용 중인 서버만 등록할 수 있어요",
 } as const;
-
-const BROKERS: readonly { value: DmaBroker; label: string }[] = [
-  { value: "KB", label: "KB" },
-  { value: "KYOBO", label: "교보" },
-];
 
 /** 폼 값 — 비밀번호 확인까지 들고 있다(제출 바디는 `toDmaInput`). */
 export interface DmaConnectValue {
   dmaUserId: string;
   password: string;
   confirm: string;
-  broker: DmaBroker;
-  accountNo: string;
-  /** KB 5자 — 교보는 쓰지 않는다. */
-  branchNo: string;
-  /** KB 6자 — 교보는 쓰지 않는다. */
-  traderId: string;
+  /** 고른 첫 계좌(마스터 1행) — 고르기 전 null(quick 261106-lwu D-10). */
+  account: AdminAccountMaster | null;
   servers: string[];
 }
 
@@ -91,14 +74,11 @@ export const EMPTY_DMA_CONNECT: DmaConnectValue = {
   dmaUserId: "",
   password: "",
   confirm: "",
-  broker: "KB",
-  accountNo: "",
-  branchNo: "",
-  traderId: "",
+  account: null,
   servers: [],
 };
 
-export type DmaConnectField = "dmaUserId" | "password" | "confirm" | "accountNo" | "branchNo" | "traderId" | "servers";
+export type DmaConnectField = "dmaUserId" | "password" | "confirm" | "account" | "servers";
 export type DmaConnectErrors = Partial<Record<DmaConnectField, string>>;
 
 export interface DmaConnectValidation {
@@ -112,14 +92,14 @@ const utf8Bytes = (s: string) => new TextEncoder().encode(s).length;
 
 /**
  * 순수 검증 — server zod(`AdminDmaInputSchema`)와 같은 규칙: DMA id 1~8바이트 · 공백 불가 · 비밀번호 1~64 · 확인 일치 ·
- * 계좌번호 trim 1~12자 · KB 지점 5 · 트레이더 6 · 서버 1개 이상 · 서버마다 증권사 접두 일치 + 레지스트리에서 사용 중.
+ * 첫 계좌 선택 필수(값은 마스터라 형식 검사가 없다) · 서버 1개 이상 · 서버마다 고른 계좌 증권사 접두 일치 + 레지스트리에서 사용 중.
  */
 export function validateDmaConnect(
   value: DmaConnectValue,
   servers: AdminUsersOverview["servers"],
 ): DmaConnectValidation {
   const errors: DmaConnectErrors = {};
-  const kb = value.broker === "KB";
+  const broker = value.account?.broker ?? null;
 
   if (/\s/.test(value.dmaUserId)) errors.dmaUserId = DMA_CONNECT_ERROR.dmaUserIdSpace;
   else if (utf8Bytes(value.dmaUserId) > 8) errors.dmaUserId = DMA_CONNECT_ERROR.dmaUserIdBytes;
@@ -129,12 +109,8 @@ export function validateDmaConnect(
     errors.confirm = DMA_CONNECT_ERROR.passwordMismatch;
   }
 
-  if (value.accountNo.trim() !== "" && !isValidAccountNoInput(value.accountNo)) errors.accountNo = DMA_CONNECT_ERROR.accountNo;
-  if (kb && value.branchNo !== "" && value.branchNo.length !== 5) errors.branchNo = DMA_CONNECT_ERROR.branchNo;
-  if (kb && value.traderId !== "" && value.traderId.length !== 6) errors.traderId = DMA_CONNECT_ERROR.traderId;
-
-  const usable = new Set(servers.filter((s) => s.enabled && s.broker === value.broker).map((s) => s.key));
-  if (value.servers.some((k) => brokerOfServerKey(k) !== value.broker || !usable.has(k))) {
+  const usable = new Set(servers.filter((s) => s.enabled && s.broker === broker).map((s) => s.key));
+  if (value.servers.some((k) => brokerOfServerKey(k) !== broker || !usable.has(k))) {
     errors.servers = DMA_CONNECT_ERROR.servers;
   }
 
@@ -142,28 +118,28 @@ export function validateDmaConnect(
     value.dmaUserId !== "" &&
     value.password !== "" &&
     value.confirm !== "" &&
-    value.accountNo.trim() !== "" &&
-    (!kb || (value.branchNo !== "" && value.traderId !== "")) &&
+    value.account !== null &&
     value.servers.length > 0;
 
   return { valid: complete && Object.keys(errors).length === 0, errors };
 }
 
 /**
- * 폼 값 → `AdminDmaInput`. 계좌번호는 shared `normalizeAccountNo`(relay 와 같은 키) · 교보는 지점 · 트레이더 빈 값 ·
- * 계좌 이름 없음(목업 A 에 칸이 없다 — 편집 시트에서 단다) · 첫 계좌 priority 0 · 서버는 레지스트리 순.
+ * 폼 값 → `AdminDmaInput`(모양 그대로 · quick 261106-lwu D-10). 계좌 값은 고른 마스터 값(정규화 번호 · 계좌명 · 지점 · 트레이더 —
+ * 서버도 마스터 값으로 덮는다) · 첫 계좌 priority 0 · 서버는 레지스트리 순. 계좌를 고르지 않은 값은 부르지 않는다(`validateDmaConnect`).
  */
 export function toDmaInput(value: DmaConnectValue, servers: AdminUsersOverview["servers"]): AdminDmaInput {
-  const kb = value.broker === "KB";
+  const a = value.account;
+  if (a === null) throw new Error("toDmaInput: 첫 계좌가 없다 — validateDmaConnect 로 먼저 막는다");
   return {
     dmaUserId: value.dmaUserId,
     password: value.password,
     account: {
-      broker: value.broker,
-      accountNo: normalizeAccountNo(value.accountNo),
-      name: "",
-      branchNo: kb ? value.branchNo : "",
-      traderId: kb ? value.traderId : "",
+      broker: a.broker,
+      accountNo: a.accountNo,
+      name: a.name,
+      branchNo: a.branchNo,
+      traderId: a.traderId,
       priority: 0,
     },
     servers: servers.map((s) => s.key).filter((k) => value.servers.includes(k)),
@@ -171,12 +147,16 @@ export function toDmaInput(value: DmaConnectValue, servers: AdminUsersOverview["
 }
 
 /**
- * 제출 실패 → 화면 자리. relay 409 `DMA_USER_EXISTS` 는 DMA id 칸 아래(「이미 있는 DMA id 예요」), 그 밖(400 · 409
+ * 제출 실패 → 화면 자리. relay 409 `DMA_USER_EXISTS` 는 DMA id 칸 아래(「이미 있는 DMA id 예요」), 409 `ACCOUNT_NOT_REGISTERED`
+ * (quick 261106-lwu — 마스터에 없는 계좌)는 첫 계좌 아래 서버 message 그대로, 그 밖(400 · 409
  * `DMA_LINKED` · 502 `RELAY_FAILED` · 503 …)은 하단 한 줄 「<무엇> 하지 못했어요 · <서버 message>」.
  */
 export function dmaConnectFailure(err: unknown, failed: string): { fields: DmaConnectErrors; line: string | null } {
   if (err instanceof ApiClientError && err.code === "DMA_USER_EXISTS") {
     return { fields: { dmaUserId: DMA_CONNECT_TEXT.dmaUserExists }, line: null };
+  }
+  if (err instanceof ApiClientError && err.code === "ACCOUNT_NOT_REGISTERED") {
+    return { fields: { account: err.message }, line: null };
   }
   const detail = err instanceof ApiClientError ? err.message : null;
   return { fields: {}, line: detail ? `${failed} · ${detail}` : failed };
@@ -190,7 +170,12 @@ export function clearChangedErrors(
 ): DmaConnectErrors {
   let out = errors;
   for (const f of Object.keys(errors) as DmaConnectField[]) {
-    const changed = f === "servers" ? prev.servers.join() !== next.servers.join() : prev[f] !== next[f];
+    const changed =
+      f === "servers"
+        ? prev.servers.join() !== next.servers.join()
+        : f === "account"
+          ? (prev.account ? masterKeyOf(prev.account) : null) !== (next.account ? masterKeyOf(next.account) : null)
+          : prev[f] !== next[f];
     if (changed) {
       if (out === errors) out = { ...errors };
       delete out[f];
@@ -229,6 +214,8 @@ function FieldError({ id, text }: { id: string; text: string | undefined }) {
 export interface DmaConnectFieldsProps {
   /** 서버 레지스트리(`AdminUsersOverview.servers`) — 등록 서버 후보. */
   servers: AdminUsersOverview["servers"];
+  /** 계좌 마스터 전체(「첫 계좌」 피커 후보 · quick 261106-lwu D-10) — null 이면 못 읽음. */
+  accounts: readonly AdminAccountMaster[] | null;
   value: DmaConnectValue;
   onChange: (next: DmaConnectValue) => void;
   /** 바깥 오류(서버 응답) — 형식 오류보다 앞선다. */
@@ -244,6 +231,7 @@ export interface DmaConnectFieldsProps {
 
 export function DmaConnectFields({
   servers,
+  accounts,
   value,
   onChange,
   errors: external = {},
@@ -257,11 +245,11 @@ export function DmaConnectFields({
   const set = <K extends keyof DmaConnectValue>(key: K, v: DmaConnectValue[K]) => onChange({ ...value, [key]: v });
   const id = (f: string) => `${idPrefix}-${f}`;
 
-  const kb = value.broker === "KB";
-  const candidates = servers.filter((s) => s.broker === value.broker);
+  const broker = value.account?.broker ?? null;
+  const candidates = broker ? servers.filter((s) => s.broker === broker) : [];
 
   return (
-    <div data-slot="admin-dma-connect" data-broker={value.broker} className={cn(DMA_GROUP, className)}>
+    <div data-slot="admin-dma-connect" data-broker={broker ?? undefined} className={cn(DMA_GROUP, className)}>
       {showTitle && (
         <div className="flex items-center gap-2 pt-2.5 pb-0.5 text-[13px] font-bold text-[var(--fg)]">
           {DMA_CONNECT_TEXT.title}
@@ -323,72 +311,18 @@ export function DmaConnectFields({
       </div>
 
       <div className={FIELD_LAST}>
-        <div className={LABEL}>{DMA_CONNECT_TEXT.firstAccount}</div>
-        <div className="flex items-center gap-2">
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            value={value.broker}
-            aria-label={DMA_CONNECT_TEXT.broker}
-            disabled={disabled}
-            onValueChange={(v) => {
-              // 같은 칸을 다시 누르면 Radix 가 "" 를 준다 — 증권사는 늘 하나.
-              if ((v === "KB" || v === "KYOBO") && v !== value.broker) {
-                onChange({ ...value, broker: v, servers: [] });
-              }
-            }}
-            className={cn(ADMIN_SEGMENT_ROOT, "flex-none")}
-          >
-            {BROKERS.map((b) => (
-              <ToggleGroupItem key={b.value} value={b.value} className={ADMIN_SEGMENT_ITEM}>
-                {b.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <Input
-            aria-label={DMA_CONNECT_TEXT.accountNo}
-            placeholder={DMA_CONNECT_TEXT.accountNo}
-            inputMode="numeric"
-            autoComplete="off"
-            disabled={disabled}
-            value={value.accountNo}
-            aria-invalid={err("accountNo") ? true : undefined}
-            onChange={(e) => set("accountNo", e.target.value)}
-            className={cn(ADMIN_INPUT, "min-w-0 flex-1")}
-          />
-        </div>
-        <FieldError id={id("account-error")} text={err("accountNo")} />
-
-        {kb && (
-          <div data-slot="admin-dma-kb-fields" className="mt-2 grid grid-cols-2 gap-2">
-            <Input
-              aria-label={DMA_CONNECT_TEXT.branchNo}
-              placeholder={`${DMA_CONNECT_TEXT.branchNo} (5자)`}
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={5}
-              disabled={disabled}
-              value={value.branchNo}
-              aria-invalid={err("branchNo") ? true : undefined}
-              onChange={(e) => set("branchNo", e.target.value.trim())}
-              className={ADMIN_INPUT}
-            />
-            <Input
-              aria-label={DMA_CONNECT_TEXT.traderId}
-              placeholder={`${DMA_CONNECT_TEXT.traderId} (6자)`}
-              autoComplete="off"
-              maxLength={6}
-              disabled={disabled}
-              value={value.traderId}
-              aria-invalid={err("traderId") ? true : undefined}
-              onChange={(e) => set("traderId", e.target.value.trim())}
-              className={ADMIN_INPUT}
-            />
-          </div>
-        )}
-        {kb && <FieldError id={id("branch-error")} text={err("branchNo") ?? err("traderId")} />}
+        <AccountPicker
+          accounts={accounts}
+          selectedKey={value.account ? masterKeyOf(value.account) : null}
+          onSelect={(a) => onChange({ ...value, account: a, servers: [] })}
+          title={DMA_CONNECT_TEXT.firstAccount}
+          idPrefix={id("account")}
+          disabled={disabled}
+        />
+        <FieldError id={id("account-error")} text={err("account")} />
 
         <div className={cn(LABEL, "mt-2.5")}>{DMA_CONNECT_TEXT.servers}</div>
+        {broker === null && <p className={NOTE}>{DMA_CONNECT_TEXT.serversPick}</p>}
         <div role="group" aria-label={DMA_CONNECT_TEXT.servers} className="flex flex-wrap gap-1.5">
           {candidates.map((s) => (
             <label

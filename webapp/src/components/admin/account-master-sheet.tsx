@@ -16,7 +16,8 @@ import { createAdminAccount, deleteAdminAccount, saveAdminAccount } from "@/lib/
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-import { BROKER_BADGE, BusyLines, ResultChips, chipOfResult } from "./account-editor";
+import { BusyLines, ResultChips, chipOfResult } from "./account-editor";
+import { BROKER_BADGE, BROKER_LABEL } from "./account-picker";
 import { AdminSheet } from "./admin-sheet";
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
 import { ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
@@ -67,7 +68,6 @@ export const ACCOUNT_MASTER_SHEET_TEXT = {
   saveFailed: "저장하지 못했어요",
 } as const;
 
-export const BROKER_LABEL: Readonly<Record<DmaBroker, string>> = { KB: "KB", KYOBO: "교보" };
 const BROKERS: readonly DmaBroker[] = ["KB", "KYOBO"];
 
 const LABEL = "text-[12.5px] font-semibold text-[var(--muted-fg)]";

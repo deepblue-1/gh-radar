@@ -13,6 +13,7 @@ import { ApiClientError } from '@/lib/api';
  */
 
 const fetchAdminUsersMock = vi.fn();
+const fetchAdminAccountsMock = vi.fn();
 const patchAdminRoleMock = vi.fn();
 const putDmaAccountMock = vi.fn();
 const removeDmaAccountMock = vi.fn();
@@ -21,6 +22,8 @@ const reconcileDmaUserMock = vi.fn();
 const deleteAdminUserMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   fetchAdminUsers: () => fetchAdminUsersMock(),
+  // quick 261106-lwu — UsersClient 가 계좌 마스터를 함께 읽는다(피커 후보).
+  fetchAdminAccounts: () => fetchAdminAccountsMock(),
   upsertAdminUser: vi.fn(),
   patchAdminRole: (email: string, role: string) => patchAdminRoleMock(email, role),
   putDmaAccount: (dma: string, body: unknown) => putDmaAccountMock(dma, body),
@@ -99,6 +102,8 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  fetchAdminAccountsMock.mockReset();
+  fetchAdminAccountsMock.mockResolvedValue({ accounts: [] });
   for (const m of [
     fetchAdminUsersMock,
     patchAdminRoleMock,
@@ -161,7 +166,7 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
     const d = deferred<unknown>();
     patchAdminRoleMock.mockReturnValue(d.promise);
     const onChanged = vi.fn();
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
 
     fireEvent.click(within(roleGroup()).getByRole('radio', { name: 'viewer' }));
     expect(patchAdminRoleMock).toHaveBeenCalledTimes(1);
@@ -193,7 +198,7 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
     const second = deferred<unknown>();
     patchAdminRoleMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const onChanged = vi.fn();
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
 
     fireEvent.click(within(roleGroup()).getByRole('radio', { name: 'viewer' }));
     fireEvent.click(within(roleGroup()).getByRole('radio', { name: 'trader' }));
@@ -219,17 +224,17 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
   it('(29-34 IN-03) 저장 성공 뒤 재조회 값이 정본 — trader → viewer 성공 · 재조회 전 viewer 유지 · 재조회 role admin(다른 Admin) → admin', async () => {
     patchAdminRoleMock.mockResolvedValue({ ok: true, relayNotified: true });
     const onChanged = vi.fn();
-    const { rerender } = render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    const { rerender } = render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
     const radio = (name: string) => within(roleGroup()).getByRole('radio', { name });
 
     fireEvent.click(radio('viewer'));
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
     // 재조회 전(같은 user 객체) — 누른 값 유지(깜빡임 없음)
-    rerender(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    rerender(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
     expect(radio('viewer')).toHaveAttribute('aria-checked', 'true');
 
     // 재조회 도착 — 그 사이 다른 Admin 이 admin 으로 바꿨다 → 재조회 값이 이긴다
-    rerender(<UserSheet user={{ ...KIM, role: 'admin' }} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    rerender(<UserSheet user={{ ...KIM, role: 'admin' }} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
     expect(radio('admin')).toHaveAttribute('aria-checked', 'true');
     expect(radio('viewer')).toHaveAttribute('aria-checked', 'false');
     expect(document.querySelector('[data-slot="admin-role-chip"]')).toHaveAttribute('data-role', 'admin');
@@ -241,7 +246,7 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
     );
     const onChanged = vi.fn();
     const me: AdminUserView = { ...KIM, role: 'admin' };
-    render(<UserSheet user={me} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    render(<UserSheet user={me} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
 
     fireEvent.click(within(roleGroup()).getByRole('radio', { name: 'trader' }));
     const alert = await within(roleField()).findByRole('alert');
@@ -253,7 +258,7 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
   });
 
   it('하단은 「사용자 삭제」 · 「다시 반영」 둘뿐 — 「저장」 버튼 없음 · 목업 문장', () => {
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     const footer = document.querySelector('[data-slot="admin-sheet-footer"]') as HTMLElement;
     expect(within(footer).getAllByRole('button').map((b) => b.textContent)).toEqual(['사용자 삭제', '다시 반영']);
     const dialog = screen.getByRole('dialog', { name: KIM.email });
@@ -265,7 +270,7 @@ describe('UserSheet — 역할 즉시 저장 (D-15)', () => {
 
   it('DMA 연결 없는 사용자 → 「DMA 연결 없음」', () => {
     const park: AdminUserView = { ...KIM, email: 'park@example.invalid', role: 'viewer', dmaUserId: null, accountCount: 0, servers: [], accounts: [] };
-    render(<UserSheet user={park} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={park} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     expect(screen.getByRole('dialog', { name: park.email })).toHaveTextContent('DMA 연결 없음');
   });
 });
@@ -283,7 +288,7 @@ describe('UserSheet — 비밀번호 변경 (D-06 · D-08)', () => {
         { server: 'KYOBO119', outcome: 'offline' },
       ],
     });
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     expect(screen.getByRole('dialog', { name: KIM.email })).toHaveTextContent(
       '비밀번호는 저장 뒤 다시 볼 수 없다. 변경해도 열린 세션은 유지되고 다음 로그인부터 적용.',
     );
@@ -330,7 +335,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
       ),
     };
     const onChanged = vi.fn();
-    render(<UserSheet user={warnKim} servers={SERVERS} onChanged={onChanged} onClose={() => {}} />);
+    render(<UserSheet user={warnKim} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />);
     fireEvent.click(footerBtn('다시 반영'));
     expect(reconcileDmaUserMock).toHaveBeenCalledTimes(1);
     expect(reconcileDmaUserMock).toHaveBeenCalledWith('kimtr');
@@ -349,7 +354,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
     deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true, results: [] });
     const onChanged = vi.fn();
     const onClose = vi.fn();
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={onChanged} onClose={onClose} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={onClose} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     expect(deleteAdminUserMock).not.toHaveBeenCalled();
     const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
@@ -371,7 +376,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
       ],
     });
     const onClose = vi.fn();
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={onClose} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={onClose} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '삭제' }));
     const box = await waitFor(() => {
@@ -398,7 +403,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
         { server: 'KB121', outcome: 'skipped', message: reason },
       ],
     });
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '삭제' }));
     const box = await waitFor(() => {
@@ -432,7 +437,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
       ),
     };
     const onClose = vi.fn();
-    render(<UserSheet user={both} servers={servers} onChanged={() => {}} onClose={onClose} />);
+    render(<UserSheet user={both} servers={servers} accounts={[]} onChanged={() => {}} onClose={onClose} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
     expect(dlg).toHaveTextContent('꺼진 서버(KB121)의 등록은 DB 에서만 지워요 — 서버를 켜면 「서버에만 있음」 으로 보여요');
@@ -445,7 +450,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
   it('(29-34 WR-04) 꺼진 등록 서버가 없으면 확인 문구 · 요청 종전(skipDisabled 없음) — 꺼진 서버가 레지스트리에 있어도 등록이 없으면 무관', () => {
     deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true, results: [] });
     const servers: AdminUsersOverview['servers'] = SERVERS.map((s) => (s.key === 'KYOBO127' ? { ...s, enabled: false } : s));
-    render(<UserSheet user={KIM} servers={servers} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={servers} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     const dlg = screen.getByRole('alertdialog', { name: '사용자를 삭제할까요?' });
     expect(dlg).not.toHaveTextContent('꺼진 서버');
@@ -455,12 +460,12 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
     expect(deleteAdminUserMock.mock.calls[0]).toHaveLength(1);
   });
 
-  it('마지막 계좌 「제거」 → 확인 「마지막 계좌를 지우면 사용자가 삭제돼요」 → DELETE 사용자 1건(계좌 DELETE 없음)', async () => {
+  it('마지막 계좌 「연결 해제」 → 확인 「마지막 계좌를 지우면 사용자가 삭제돼요」 → DELETE 사용자 1건(계좌 DELETE 없음)', async () => {
     deleteAdminUserMock.mockResolvedValue({ ok: true, deleted: true, relayNotified: true });
     const one: AdminUserView = { ...KIM, accountCount: 1, accounts: [KIM.accounts[0]] };
     const onClose = vi.fn();
-    render(<UserSheet user={one} servers={SERVERS} onChanged={() => {}} onClose={onClose} />);
-    fireEvent.click(within(document.querySelector('[data-account="12345678901"]') as HTMLElement).getByRole('button', { name: /제거/ }));
+    render(<UserSheet user={one} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={onClose} />);
+    fireEvent.click(within(document.querySelector('[data-account="12345678901"]') as HTMLElement).getByRole('button', { name: /연결 해제/ }));
     const dlg = screen.getByRole('alertdialog', { name: '마지막 계좌를 지우면 사용자가 삭제돼요' });
     expect(deleteAdminUserMock).not.toHaveBeenCalled();
     fireEvent.click(within(dlg).getByRole('button', { name: '삭제' }));
@@ -470,7 +475,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
   });
 
   it('확인 다이얼로그 「취소」 → 요청 없음', () => {
-    render(<UserSheet user={KIM} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     fireEvent.click(footerBtn('사용자 삭제'));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '취소' }));
     expect(deleteAdminUserMock).not.toHaveBeenCalled();
@@ -479,7 +484,7 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
 
   it('DMA 연결 없는 사용자 → 「다시 반영」 비활성 · 계좌 영역 없음', () => {
     const park: AdminUserView = { ...KIM, email: 'park@example.invalid', role: 'viewer', dmaUserId: null, accountCount: 0, servers: [], accounts: [] };
-    render(<UserSheet user={park} servers={SERVERS} onChanged={() => {}} onClose={() => {}} />);
+    render(<UserSheet user={park} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
     expect(footerBtn('다시 반영')).toBeDisabled();
     expect(footerBtn('사용자 삭제')).not.toBeDisabled();
     expect(document.querySelector('[data-slot="admin-accounts"]')).toBeNull();

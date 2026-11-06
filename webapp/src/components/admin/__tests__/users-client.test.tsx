@@ -14,9 +14,12 @@ import { ApiClientError } from '@/lib/api';
  */
 
 const fetchAdminUsersMock = vi.fn();
+const fetchAdminAccountsMock = vi.fn();
 const upsertAdminUserMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   fetchAdminUsers: () => fetchAdminUsersMock(),
+  // quick 261106-lwu — 계좌 마스터를 사용자 개요와 병렬로 읽는다(시트 피커 후보).
+  fetchAdminAccounts: () => fetchAdminAccountsMock(),
   upsertAdminUser: (body: unknown) => upsertAdminUserMock(body),
 }));
 
@@ -83,6 +86,8 @@ const rowOf = (email: string) => root().querySelector(`[data-email="${email}"]`)
 
 beforeEach(() => {
   fetchAdminUsersMock.mockReset();
+  fetchAdminAccountsMock.mockReset();
+  fetchAdminAccountsMock.mockResolvedValue({ accounts: [] });
   upsertAdminUserMock.mockReset();
 });
 
@@ -437,5 +442,47 @@ describe('UsersClient — P30 공유 계좌 안내 (D-18)', () => {
     expect(document.querySelector('[data-slot="admin-account-edit"]')).not.toBeNull();
     expect(sharedLines()).toHaveLength(0);
     expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('UsersClient — 계좌 마스터 병렬 로드 (quick 261106-lwu D-09 · D-10)', () => {
+  const MASTER = {
+    accounts: [
+      {
+        broker: 'KB' as const,
+        accountNo: '5120009880',
+        name: '주식',
+        branchNo: '00777',
+        traderId: 'T00777',
+        updatedAt: '2026-11-06T00:00:00Z',
+        users: [],
+      },
+    ],
+  };
+
+  it('마운트 시 fetchAdminUsers 와 fetchAdminAccounts 를 함께(앞 응답을 기다리지 않고) 부른다 · 시트 피커에 마스터가 내려간다', async () => {
+    let resolveUsers!: (v: AdminUsersOverview) => void;
+    fetchAdminUsersMock.mockReturnValueOnce(new Promise((r) => (resolveUsers = r)));
+    fetchAdminAccountsMock.mockResolvedValue(MASTER);
+    render(<UsersClient />);
+    // 사용자 개요가 아직 오지 않았어도 계좌 마스터 요청은 이미 나갔다
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
+    expect(fetchAdminAccountsMock).toHaveBeenCalledTimes(1);
+    await act(async () => resolveUsers(OVERVIEW));
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    fireEvent.click(document.querySelector<HTMLElement>('[data-slot="admin-users-create"]')!);
+    await waitFor(() => expect(document.querySelector('[data-key="KB|5120009880"]')).not.toBeNull());
+  });
+
+  it('계좌 마스터 실패 → 사용자 목록은 그대로 · 피커만 「계좌 목록을 불러오지 못했어요」', async () => {
+    fetchAdminUsersMock.mockResolvedValue(OVERVIEW);
+    fetchAdminAccountsMock.mockRejectedValue(new ApiClientError({ code: 'DB_ERROR', message: 'x', status: 500 }));
+    render(<UsersClient />);
+    await waitFor(() => expect(rows()).toHaveLength(4));
+    expect(root().querySelector('[data-slot="admin-users-error"]')).toBeNull();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-slot="admin-users-create"]')!);
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="account-picker-failed"]')).toHaveTextContent('계좌 목록을 불러오지 못했어요'),
+    );
   });
 });

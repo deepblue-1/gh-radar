@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { AdminUsersOverview, AdminUserView } from '@gh-radar/shared';
+import type { AdminAccountMaster, AdminUsersOverview, AdminUserView } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
 
@@ -10,13 +10,16 @@ import { ApiClientError } from '@/lib/api';
  * 잠그는 것: trader 를 고르면 「DMA 연결 · 필수」 그룹 · 전부 채워야 버튼 활성 · 버튼 문구가 체크 수를 말한다 ·
  * 제출 = `upsertAdminUser({ email, role, dma })` 1회(정규화 계좌번호 · 레지스트리 순 서버) · 제출 중 비활성 ·
  * 실패면 시트가 남고 한 줄 · 성공하면 생성 시트가 닫히고 재조회 → 그 이메일의 편집 시트가 결과 칩으로 열린다.
+ * quick 261106-lwu D-10 — 첫 계좌는 등록 계좌 피커로 고른다(계좌번호 · 지점 · 트레이더 입력칸 없음 · 바디 계좌 값 = 마스터 값).
  */
 
 const fetchAdminUsersMock = vi.fn();
+const fetchAdminAccountsMock = vi.fn();
 const upsertAdminUserMock = vi.fn();
 const connectAdminDmaMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   fetchAdminUsers: () => fetchAdminUsersMock(),
+  fetchAdminAccounts: () => fetchAdminAccountsMock(),
   upsertAdminUser: (body: unknown) => upsertAdminUserMock(body),
   connectAdminDma: (email: string, dma: unknown) => connectAdminDmaMock(email, dma),
   patchAdminRole: vi.fn(),
@@ -38,6 +41,20 @@ const SERVERS: AdminUsersOverview['servers'] = [
   { key: 'KB121', broker: 'KB', enabled: true },
   { key: 'KYOBO119', broker: 'KYOBO', enabled: true },
   { key: 'KYOBO127', broker: 'KYOBO', enabled: false },
+];
+
+/** 계좌 마스터(quick 261106-lwu) — 첫 계좌 피커 후보. */
+const master = (over: Partial<AdminAccountMaster> & Pick<AdminAccountMaster, 'broker' | 'accountNo'>): AdminAccountMaster => ({
+  name: '',
+  branchNo: '',
+  traderId: '',
+  updatedAt: '2026-11-06T00:00:00Z',
+  users: [],
+  ...over,
+});
+const MASTER: AdminAccountMaster[] = [
+  master({ broker: 'KB', accountNo: '12345678', name: '주식', branchNo: '00123', traderId: '000789' }),
+  master({ broker: 'KYOBO', accountNo: '98765432' }),
 ];
 
 const NEW_EMAIL = 'lee.new@example.invalid';
@@ -67,9 +84,7 @@ function fillTrader() {
   type(/DMA 사용자 id/, 'leenew');
   type('비밀번호', 'pw-1234');
   type('비밀번호 확인', 'pw-1234');
-  type('계좌번호', ' 0012345678');
-  type('지점', '00123');
-  type('트레이더', '000789');
+  pick('KB 12345678 주식');
   check('KB121');
   check('KB120');
 }
@@ -77,6 +92,7 @@ function fillTrader() {
 function renderSheet(over: Partial<Parameters<typeof UserCreateSheet>[0]> = {}) {
   const props = {
     servers: SERVERS,
+    accounts: MASTER,
     onCreated: vi.fn(),
     onFailed: vi.fn(),
     onClose: vi.fn(),
@@ -88,6 +104,8 @@ function renderSheet(over: Partial<Parameters<typeof UserCreateSheet>[0]> = {}) 
 
 beforeEach(() => {
   fetchAdminUsersMock.mockReset();
+  fetchAdminAccountsMock.mockReset();
+  fetchAdminAccountsMock.mockResolvedValue({ accounts: MASTER });
   upsertAdminUserMock.mockReset();
   connectAdminDmaMock.mockReset();
 });
@@ -110,7 +128,10 @@ describe('UserCreateSheet — trader + DMA + 첫 계좌 한 번에 (D-16 트레�
     expect(group).toHaveTextContent('비밀번호 · 저장 뒤 다시 볼 수 없음');
     expect(group).toHaveTextContent('첫 계좌');
     expect(group).toHaveTextContent('등록 서버');
-    expect(group).toHaveTextContent('증권사에 맞는 서버만 고를 수 있다.');
+    expect(group).toHaveTextContent('고른 계좌의 증권사 서버만 고를 수 있다.');
+    // 첫 계좌 = 등록 계좌 피커(계좌번호 · 지점 · 트레이더 입력칸 없음)
+    expect(within(group).getByRole('radiogroup', { name: '첫 계좌' })).toBeInTheDocument();
+    expect(within(group).queryByRole('textbox', { name: '계좌번호' })).toBeNull();
     // 저장 버튼 · 토스트 같은 목업 밖 요소 없음 — 버튼은 하나
     expect(within(s).getAllByRole('button', { name: /만들기/ })).toHaveLength(1);
   });
@@ -124,9 +145,8 @@ describe('UserCreateSheet — trader + DMA + 첫 계좌 한 번에 (D-16 트레�
     type(/DMA 사용자 id/, 'leenew');
     type('비밀번호', 'pw-1234');
     type('비밀번호 확인', 'pw-1234');
-    type('계좌번호', '12345678');
-    type('지점', '00123');
-    type('트레이더', '000789');
+    expect(submitButton()).toBeDisabled(); // 계좌 미선택
+    pick('KB 12345678 주식');
     expect(submitButton()).toBeDisabled(); // 서버 0
 
     check('KB120');
@@ -140,7 +160,7 @@ describe('UserCreateSheet — trader + DMA + 첫 계좌 한 번에 (D-16 트레�
     expect(submitButton()).toBeDisabled();
   });
 
-  it('제출 = upsertAdminUser 1회 — trim 이메일 · 정규화 계좌번호 · 레지스트리 순 서버 · 이름 없음 · priority 0', async () => {
+  it('제출 = upsertAdminUser 1회 — trim 이메일 · 계좌 값 = 고른 마스터 값 · 레지스트리 순 서버 · priority 0', async () => {
     const d = deferred<{ ok: true; relayNotified: boolean; results: unknown[] }>();
     upsertAdminUserMock.mockReturnValue(d.promise);
     const props = renderSheet();
@@ -154,7 +174,7 @@ describe('UserCreateSheet — trader + DMA + 첫 계좌 한 번에 (D-16 트레�
       dma: {
         dmaUserId: 'leenew',
         password: 'pw-1234',
-        account: { broker: 'KB', accountNo: '12345678', name: '', branchNo: '00123', traderId: '000789', priority: 0 },
+        account: { broker: 'KB', accountNo: '12345678', name: '주식', branchNo: '00123', traderId: '000789', priority: 0 },
         servers: ['KB120', 'KB121'],
       },
     });
@@ -349,7 +369,7 @@ describe('UserSheet — DMA 연결 없는 trader/admin 의 「DMA 연결」 (D-1
 
   function renderEdit(user: AdminUserView) {
     const props = { onChanged: vi.fn(), onClose: vi.fn() };
-    render(<UserSheet user={user} servers={SERVERS} {...props} />);
+    render(<UserSheet user={user} servers={SERVERS} accounts={MASTER} {...props} />);
     return props;
   }
   const edit = () => screen.getByRole('dialog', { name: NODMA.email });
@@ -357,11 +377,10 @@ describe('UserSheet — DMA 연결 없는 trader/admin 의 「DMA 연결」 (D-1
   const fill = () => {
     const g = edit().querySelector('[data-slot="admin-dma-connect"]') as HTMLElement;
     const t = (label: string | RegExp, v: string) => fireEvent.change(within(g).getByLabelText(label), { target: { value: v } });
-    fireEvent.click(within(g).getByRole('radio', { name: '교보' }));
     t(/DMA 사용자 id/, 'choitr');
     t('비밀번호', 'pw-1');
     t('비밀번호 확인', 'pw-1');
-    t('계좌번호', '0098765432');
+    fireEvent.click(within(g).getByRole('radio', { name: '교보 98765432' }));
     fireEvent.click(within(g).getByRole('checkbox', { name: 'KYOBO119' }));
   };
 
