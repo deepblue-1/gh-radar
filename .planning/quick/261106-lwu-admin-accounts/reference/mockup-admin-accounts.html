@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261106-lwu 목업 — 어드민 계좌 메뉴 · 사용자별 계좌 연결</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6; --primary-fg: #fff;
+  --warn: #c2410c; --destructive: #e5484d;
+  --led-armed: #16a34a; --led-latent: #a16207; --seg-on-bg: #fff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.12);
+  --new: #a16207; --new-bg: #fef9e7; --scrim: rgba(0,0,0,.04);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --primary: #3485fa;
+  --warn: #ff9f43; --destructive: #e5484d;
+  --led-armed: #30d158; --led-latent: #ffd43b; --seg-on-bg: #3a3a3c; --seg-on-fg: #fff; --seg-on-shadow: none;
+  --new: #ffd43b; --new-bg: rgba(255,212,59,.16); --scrim: rgba(255,255,255,.02);
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; flex-direction: column; }
+.f.desktop { width: 1240px; min-height: 860px; }
+
+/* 사이드바 */
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 220px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; text-decoration: none; }
+.side a .ic { width: 18px; text-align: center; opacity: .8; font-size: 13px; }
+.side a.grp.on { color: var(--fg); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.side a.mv { box-shadow: inset 0 0 0 1.5px var(--new); }
+.side .tag, .ptag { font-size: 10px; font-weight: 700; color: var(--new); background: var(--new-bg); border-radius: 5px; padding: 1px 5px; margin-left: auto; }
+.ptag { margin-left: 6px; vertical-align: 2px; }
+
+.col { flex: 1; min-width: 0; display: flex; }
+.main { flex: 1; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 28px; }
+.phead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.phead h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--fg); }
+.phead .sub { font-size: 12.5px; color: var(--muted-fg); flex-basis: 100%; order: 3; }
+.phead .sp { flex: 1; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 9px; padding: 7px 12px; cursor: pointer; background: var(--muted); color: var(--fg-2); white-space: nowrap; }
+.btn.pri { background: var(--primary); color: var(--primary-fg); }
+.btn.sm { font-size: 12px; padding: 5px 9px; border-radius: 8px; }
+.btn.danger { color: var(--destructive); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg span { font-size: 13px; font-weight: 500; color: var(--muted-fg); border-radius: 8px; padding: 5px 11px; white-space: nowrap; }
+.seg span.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); font-weight: 600; }
+.seg span small { font-size: 11px; opacity: .75; margin-left: 3px; }
+.ch { display: inline-block; border-radius: 5px; padding: 2px 6px; font-size: 11px; line-height: 1.4; font-weight: 600; white-space: nowrap; }
+.ch.ok { background: color-mix(in srgb, var(--led-armed) 16%, transparent); color: var(--led-armed); }
+.ch.warn { background: color-mix(in srgb, var(--led-latent) 18%, transparent); color: var(--led-latent); }
+.ch.err { background: color-mix(in srgb, var(--destructive) 14%, transparent); color: var(--destructive); }
+.ch.role { background: var(--muted); color: var(--fg-2); }
+.ch.dim { border: 1px dashed var(--border-subtle); padding: 1px 6px; color: var(--faint); font-weight: 500; }
+.bk { font-size: 11px; font-weight: 700; background: var(--muted); color: var(--fg-2); border-radius: 5px; padding: 2px 6px; flex: none; }
+.faint { color: var(--faint); }
+.note { font-size: 12px; line-height: 1.55; color: var(--muted-fg); }
+.line { font-size: 12px; line-height: 1.5; }
+.line.warn { color: var(--led-latent); } .line.err { color: var(--destructive); }
+
+/* 목록 */
+.shead { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; flex-wrap: wrap; }
+.shead h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.shead .cnt { font-size: 13px; color: var(--muted-fg); }
+.shead .r { margin-left: auto; }
+.card { background: var(--card); border-radius: 16px; overflow: hidden; }
+.f:not(.dark) .card { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid var(--border); cursor: pointer; }
+.f.phone .row { padding: 12px 16px; }
+.row:first-child { border-top: 0; }
+.row.sel { background: var(--muted); }
+.row .mid { flex: 1; min-width: 0; }
+.row .t { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+.row .t b { font-weight: 600; color: var(--fg); letter-spacing: -.01em; }
+.row .t .nm { color: var(--fg-2); }
+.row .m { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; color: var(--muted-fg); align-items: center; }
+.row .m b { color: var(--fg-2); font-weight: 600; }
+.row .users { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.row .chev { color: var(--faint); font-size: 16px; }
+
+/* 시트(패널) */
+.panel { width: 420px; flex: none; border-left: 1px solid var(--border-subtle); background: var(--card); display: flex; flex-direction: column; }
+.f.phone .panel { width: 100%; border-left: 0; flex: 1; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border-subtle); }
+.ph h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--fg); display: flex; align-items: center; gap: 7px; }
+.ph .x { margin-left: auto; color: var(--muted-fg); font-size: 18px; }
+.pb { padding: 14px 18px 22px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+.grp { display: flex; flex-direction: column; gap: 8px; }
+.grp > .gt { font-size: 13px; font-weight: 600; color: var(--fg); display: flex; gap: 6px; align-items: baseline; }
+.grp > .gt span { font-size: 12px; font-weight: 400; color: var(--muted-fg); }
+.fld { display: flex; flex-direction: column; gap: 5px; }
+.fld label { font-size: 12.5px; color: var(--muted-fg); }
+.fld label small { color: var(--faint); }
+.in { font: inherit; font-size: 14px; color: var(--fg); background: var(--muted); border: 1px solid transparent; border-radius: 9px; height: 38px; padding: 0 11px; display: flex; align-items: center; }
+.in.ph0 { color: var(--faint); }
+.in.ro { background: transparent; border-color: var(--border-subtle); color: var(--fg-2); }
+.in.focus { border-color: var(--primary); background: var(--bg); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acts { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.acts .l { margin-right: auto; }
+.hr { height: 1px; background: var(--border-subtle); margin: 2px 0; }
+.ulist { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.ulist .u { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.ulist .u:first-child { border-top: 0; }
+.ulist .u b { color: var(--fg); font-weight: 600; }
+.ulist .u .em { color: var(--muted-fg); font-size: 12px; }
+.ulist .u .sv { margin-left: auto; display: inline-flex; gap: 4px; }
+.confirm { border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: color-mix(in srgb, var(--destructive) 5%, transparent); }
+.confirm p { margin: 0; font-size: 13px; color: var(--fg); line-height: 1.5; }
+
+/* 사용자 시트 계좌 카드 (기존 AccountEditor 모양) */
+.acard { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.acard .title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.acard .title b { font-size: 14px; color: var(--fg); font-weight: 600; }
+.acard .title .nm { color: var(--muted-fg); }
+.acard .title .act { margin-left: auto; display: flex; gap: 6px; }
+.acard .meta { font-size: 12.5px; color: var(--muted-fg); }
+.acard .meta b { color: var(--fg-2); font-weight: 500; }
+.srv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted-fg); }
+.srv .sv { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px; color: var(--fg-2); font-weight: 500; }
+.srv .sv i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: inline-block; }
+.srv .sv i.on { background: var(--led-armed); border-color: var(--led-armed); }
+.orow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted-fg); flex-wrap: wrap; }
+.orow .seg span { font-size: 12px; padding: 4px 9px; }
+.lim { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12.5px; color: var(--muted-fg); }
+.lim .v { background: var(--muted); border-radius: 7px; padding: 4px 8px; font-weight: 600; color: var(--fg); }
+.hl { outline: 2px dashed var(--new); outline-offset: 3px; border-radius: 6px; }
+
+/* 연결 피커 */
+.pick { border: 1.5px solid var(--primary); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.pick .pt { font-size: 13px; font-weight: 600; color: var(--fg); }
+.search { display: flex; align-items: center; gap: 8px; background: var(--muted); border-radius: 9px; height: 36px; padding: 0 10px; color: var(--faint); font-size: 13px; }
+.opts { display: flex; flex-direction: column; border: 1px solid var(--border-subtle); border-radius: 10px; max-height: 230px; overflow: auto; }
+.opt { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--border); font-size: 13px; }
+.opt:first-child { border-top: 0; }
+.opt .rd { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; position: relative; }
+.opt.on { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.opt.on .rd { border-color: var(--primary); }
+.opt.on .rd::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--primary); }
+.opt b { color: var(--fg); font-weight: 600; }
+.opt .nm { color: var(--fg-2); }
+.opt .who { margin-left: auto; font-size: 11.5px; color: var(--muted-fg); }
+.opt.dis { opacity: .45; }
+.dd { display: flex; align-items: center; gap: 8px; height: 38px; border: 1px solid var(--primary); border-radius: 9px; padding: 0 11px; font-size: 13.5px; background: var(--bg); }
+.dd b { color: var(--fg); font-weight: 600; }
+.dd .car { margin-left: auto; color: var(--muted-fg); }
+.menu { border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); background: var(--card); overflow: hidden; margin-top: -4px; }
+.menu .mg { font-size: 11px; font-weight: 600; color: var(--muted-fg); padding: 8px 10px 4px; }
+.menu .mi { display: flex; gap: 8px; align-items: center; padding: 8px 10px; font-size: 13px; }
+.menu .mi.on { background: var(--muted); }
+.menu .mi b { color: var(--fg); font-weight: 600; }
+.menu .mi .who { margin-left: auto; font-size: 11.5px; color: var(--muted-fg); }
+.link { color: var(--primary); font-weight: 600; }
+.phone-top { display: none; }
+.f.phone .phone-top { display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px; font-size: 13px; color: var(--muted-fg); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">화면</span>
+    <button data-k="s" data-v="list">① 계좌 목록</button>
+    <button data-k="s" data-v="add">② 계좌 등록</button>
+    <button data-k="s" data-v="edit">③ 계좌 수정 · 삭제</button>
+    <button data-k="s" data-v="user">④ 사용자 — 계좌 연결</button>
+    <button data-k="s" data-v="create">⑤ 사용자 만들기 — 첫 계좌</button>
+  </div>
+  <div class="g" id="g-edit"><span class="l">③ 상태</span>
+    <button data-k="e" data-v="linked">연결 2명 · 저장 결과</button>
+    <button data-k="e" data-v="free">연결 없음 · 삭제 확인</button>
+  </div>
+  <div class="g" id="g-pick"><span class="l">연결 방식</span>
+    <button data-k="p" data-v="A">A 목록 펼침</button>
+    <button data-k="p" data-v="B">B 드롭다운</button>
+  </div>
+  <div class="g"><span class="l">기기</span>
+    <button data-k="w" data-v="desktop">데스크톱</button>
+    <button data-k="w" data-v="phone">폰</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-k="t" data-v="">라이트</button>
+    <button data-k="t" data-v="dark">다크</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const state = { s: 'list', e: 'linked', p: 'A', w: 'desktop', t: '' };
+
+// 계좌 마스터(가짜 값). users = 이 계좌를 쓰는 DMA id 와 등록 서버
+const ACCS = [
+  { bk: 'KB', no: '37728502101', nm: '주식', br: '00001', tr: '000001', users: [['kimtr', ['KB120', 'KB121']], ['leetr', ['KB120']]] },
+  { bk: 'KB', no: '48123456701', nm: '', br: '00001', tr: '000002', users: [['kimtr', ['KB120']]] },
+  { bk: '교보', no: '10279758101', nm: '위탁', br: '', tr: '', users: [['parktr', ['KYOBO119']]] },
+  { bk: 'KB', no: '51200098801', nm: '선물대체', br: '00002', tr: '000007', users: [] },
+  { bk: '교보', no: '10345678901', nm: '투자', br: '', tr: '', users: [] },
+];
+
+const DESC = {
+  list: '<b>① /admin/accounts</b> — Admin 아래 「계좌」 새 메뉴(사용자 다음). 지금 사용자들에게 붙어 있는 계좌를 증권사·계좌번호로 묶어 <b>처음 한 번 이 목록으로 옮겨 둔다</b>(같은 계좌를 여러 사용자가 쓰면 한 줄 · 「쓰는 사용자」 에 모두). 행을 누르면 오른쪽에 수정 시트. 사이드바는 <b>My page 가 위 · Admin 이 아래</b>로 바뀐다(노란 테두리).',
+  add: '<b>② 「+ 계좌」 등록 시트</b> — 계좌 자체 정보만 받는다: 증권사 · 계좌번호 · 계좌명 · (KB) 지점 · 트레이더. <b>등록만으로는 증권사 서버에 아무것도 보내지 않는다</b> — 사용자에게 연결하는 순간 그 사용자의 서버에 올라간다.',
+  edit: '<b>③ 수정 · 삭제</b> — 증권사 · 계좌번호는 바꿀 수 없다(바꾸려면 삭제 뒤 다시 등록). 계좌명 · 지점 · 트레이더를 저장하면 <b>연결된 사용자 모두의 서버 설정에 함께 반영</b>되고 사용자 · 서버마다 결과 칩이 붙는다. 삭제는 <b>연결된 사용자가 없을 때만</b> — 있으면 버튼이 잠기고 「사용자」 에서 먼저 연결을 해제하라고 안내.',
+  user: '<b>④ 사용자 시트 「계좌」</b> — 계좌번호를 직접 치던 「+ 계좌 추가」 가 <b>「+ 계좌 연결」(등록된 계좌에서 고르기)</b>로 바뀐다. 연결별 설정(등록 서버 · 주문 서버 · 주문자 IP/MAC · 예수금 · 수수료)은 지금처럼 이 카드에 남는다. 카드의 「제거」 는 「연결 해제」 로(계좌 자체는 목록에 남음), 계좌명은 「계좌」 메뉴에서만 고친다(노란 점선). <b>A</b> = 검색 + 목록이 펼쳐짐 · <b>B</b> = 드롭다운 한 칸.',
+  create: '<b>⑤ 「+ 사용자」 만들기의 DMA 연결 「첫 계좌」</b> — 증권사 · 계좌번호 · 지점 · 트레이더 입력칸 대신 ④ 와 같은 고르기. 등록 서버는 고른 계좌의 증권사 서버만 보인다(지금과 같음).',
+};
+
+function side() {
+  const adm = state.s !== 'none';
+  return `<nav class="side"><div class="brand">gh-radar</div>
+    <a class="grp"><span class="ic">⌂</span>홈</a>
+    <a class="grp"><span class="ic">↗</span>트레이딩</a>
+    <a class="grp"><span class="ic">▤</span>분석</a>
+    <a class="grp mv"><span class="ic">◉</span>My page<span class="tag">위로</span></a>
+    <a class="grp on mv"><span class="ic">⛨</span>Admin<span class="tag">아래로</span></a>
+    <a class="sub ${state.s === 'user' || state.s === 'create' ? 'cur' : ''}">사용자</a>
+    <a class="sub ${['list', 'add', 'edit'].includes(state.s) ? 'cur' : ''}">계좌<span class="tag">새 메뉴</span></a>
+    <a class="sub">서버</a><a class="sub">발사</a><a class="sub">매매손익</a>
+    <a class="grp" style="margin-top:auto"><span class="ic">✦</span>AI 애널리스트</a>
+  </nav>`;
+}
+
+const accTitle = (a) => `<span class="bk">${a.bk}</span><b>${a.no}</b>${a.nm ? `<span class="nm">${a.nm}</span>` : '<span class="faint">이름 없음</span>'}`;
+const kbMeta = (a) => a.bk === 'KB' ? `지점 <b>${a.br}</b> · 트레이더 <b>${a.tr}</b>` : '<span>지점 · 트레이더 해당 없음</span>';
+
+function listView(selNo) {
+  const kb = ACCS.filter(a => a.bk === 'KB').length;
+  return `<div class="phead"><h1>계좌</h1><span class="sp"></span><button class="btn pri">+ 계좌</button>
+      <div class="sub">관리 계좌 등록 · 수정 · 삭제 — 사용자에게 연결은 「사용자」 메뉴에서</div></div>
+    <div class="shead"><h2>계좌</h2><span class="cnt">${ACCS.length}</span>
+      <span class="r"><span class="seg"><span class="on">전체<small>${ACCS.length}</small></span><span>KB<small>${kb}</small></span><span>교보<small>${ACCS.length - kb}</small></span></span></span></div>
+    <div class="card">${ACCS.map(a => `<div class="row ${selNo === a.no ? 'sel' : ''}">
+        <div class="mid"><div class="t">${accTitle(a)}</div>
+          <div class="m"><span>${kbMeta(a)}</span><span>·</span>
+            ${a.users.length ? `<span>쓰는 사용자</span><span class="users">${a.users.map(u => `<span class="ch role">${u[0]}</span>`).join('')}</span>` : '<span class="ch dim">연결 없음</span>'}
+          </div></div><span class="chev">›</span></div>`).join('')}</div>
+    <div class="note" style="padding:0 4px">연결 없음 계좌는 어느 서버에도 올라가 있지 않다 — 삭제할 수 있다.</div>`;
+}
+
+function addSheet() {
+  return `<div class="panel"><div class="ph"><h3>계좌 등록</h3><span class="x">×</span></div><div class="pb">
+    <div class="fld"><label>증권사</label><span class="seg" style="align-self:flex-start"><span class="on">KB</span><span>교보</span></span></div>
+    <div class="fld"><label>계좌번호 <small>· 등록 뒤 못 바꿈</small></label><div class="in focus">5120009880</div></div>
+    <div class="fld"><label>계좌명 <small>· 선택</small></label><div class="in ph0">예: 주식</div></div>
+    <div class="two"><div class="fld"><label>지점 <small>· 5자</small></label><div class="in ph0">00001</div></div>
+      <div class="fld"><label>트레이더 <small>· 6자</small></label><div class="in ph0">000001</div></div></div>
+    <div class="note">교보 계좌는 지점 · 트레이더 칸이 없다. 등록만으로는 서버에 보내지 않는다 — 「사용자」 에서 연결하면 그 사용자의 서버에 올라간다.</div>
+    <div class="acts"><button class="btn">취소</button><button class="btn pri" disabled>등록</button></div>
+  </div></div>`;
+}
+
+function editSheet() {
+  const a = state.e === 'linked' ? ACCS[0] : ACCS[3];
+  const linked = state.e === 'linked';
+  const users = linked ? `<div class="grp"><div class="gt">쓰는 사용자 <span>${a.users.length}명 · 등록 서버</span></div>
+      <div class="ulist">${a.users.map((u, i) => `<div class="u"><b>${u[0]}</b><span class="em">${['kim@gmail.com', 'lee@gmail.com'][i]}</span>
+        <span class="sv">${u[1].map((s, j) => i === 1 ? `<span class="ch err" title="BUSY: 주문 처리 중">${s} · 실패 · BUSY</span>` : `<span class="ch ok">${s} 반영됨</span>`).join('')}</span></div>`).join('')}</div>
+      <div class="line err">leetr · KB120 실패 · BUSY: 주문 처리 중 — 정리 뒤 「다시 반영」</div></div>`
+    : `<div class="grp"><div class="gt">쓰는 사용자 <span>0명</span></div><div class="note">어느 사용자에게도 연결되지 않은 계좌 — 서버에 올라가 있지 않다.</div></div>`;
+  const del = linked
+    ? `<div class="acts"><span class="l note">연결된 사용자가 있어 삭제할 수 없어요 — 「사용자」 에서 먼저 연결을 해제하세요</span><button class="btn danger" disabled>삭제</button></div>`
+    : `<div class="confirm"><p><b>KB 51200098801 선물대체</b> 계좌를 삭제할까요? 목록에서 사라지고 되돌릴 수 없어요.</p>
+        <div class="acts"><button class="btn">취소</button><button class="btn pri" style="background:var(--destructive)">삭제</button></div></div>`;
+  return `<div class="panel"><div class="ph"><h3>${accTitle(a)}</h3><span class="x">×</span></div><div class="pb">
+    <div class="two"><div class="fld"><label>증권사</label><div class="in ro">${a.bk}</div></div>
+      <div class="fld"><label>계좌번호</label><div class="in ro">${a.no}</div></div></div>
+    <div class="note" style="margin-top:-6px">증권사 · 계좌번호는 못 바꾼다 — 삭제 뒤 다시 등록.</div>
+    <div class="fld"><label>계좌명</label><div class="in ${linked ? 'focus' : ''}">${linked ? '주식 메인' : a.nm}</div></div>
+    <div class="two"><div class="fld"><label>지점</label><div class="in">${a.br}</div></div>
+      <div class="fld"><label>트레이더</label><div class="in">${a.tr}</div></div></div>
+    ${linked ? '<div class="note">저장하면 쓰는 사용자 모두의 서버 설정에 함께 반영돼요.</div>' : ''}
+    <div class="acts"><button class="btn">취소</button><button class="btn pri">저장</button></div>
+    <div class="hr"></div>
+    ${users}
+    <div class="hr"></div>
+    ${del}
+  </div></div>`;
+}
+
+function card(a, opts) {
+  return `<div class="acard">
+    <div class="title">${accTitle(a)}<span class="act"><button class="btn sm">편집</button><button class="btn sm">연결 해제</button></span></div>
+    <div class="meta">${kbMeta(a)} · <span class="hl">계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서</span></div>
+    <div class="srv">등록 서버 ${opts.srv.map(s => `<span class="sv"><i class="${s[1] ? 'on' : ''}"></i>${s[0]} ${s[1] ? '<span class="ch ok">반영됨</span>' : ''}</span>`).join('')}</div>
+    ${opts.srv.length > 1 ? '<div class="orow">주문 서버 <span class="seg"><span class="on">기본 · KB120</span><span>KB120</span><span>KB121</span></span></div>' : '<div class="orow">주문 서버 <b style="color:var(--fg-2)">KB120</b> (기본)</div>'}
+    <div class="meta">주문자 IP <b>10.41.1.124</b> · MAC <b>1C:FD:08:7D:97:8E</b></div>
+    <div class="lim">예수금 <span class="v">1,000</span> 만원 · 수수료 <span class="v">0.01</span> % · 매도세 <span class="v">0.2</span> %</div>
+  </div>`;
+}
+
+function pickerA(forCreate) {
+  const cands = forCreate ? ACCS : ACCS.filter(a => !a.users.some(u => u[0] === 'kimtr'));
+  return `<div class="pick"><div class="pt">${forCreate ? '첫 계좌' : '계좌 연결'}</div>
+    <div class="search">⌕ 계좌번호 · 계좌명 검색</div>
+    <div class="opts">${cands.map((a, i) => `<div class="opt ${i === (forCreate ? 0 : 1) ? 'on' : ''}"><span class="rd"></span><span class="bk">${a.bk}</span><b>${a.no}</b>${a.nm ? `<span class="nm">${a.nm}</span>` : '<span class="faint">이름 없음</span>'}
+      <span class="who">${a.users.length ? a.users.map(u => u[0]).join(' · ') : '연결 없음'}</span></div>`).join('')}</div>
+    ${regServers(forCreate ? 'KB' : 'KB')}
+    <div class="acts"><a class="l note">목록에 없으면 <span class="link">「계좌」 에서 등록</span></a>${forCreate ? '' : '<button class="btn">취소</button><button class="btn pri">연결</button>'}</div>
+  </div>`;
+}
+
+function pickerB(forCreate) {
+  const cands = forCreate ? ACCS : ACCS.filter(a => !a.users.some(u => u[0] === 'kimtr'));
+  const sel = forCreate ? cands[0] : cands[1];
+  const grp = (bk) => cands.filter(a => a.bk === bk).map(a => `<div class="mi ${a === sel ? 'on' : ''}"><b>${a.no}</b>${a.nm ? `<span>${a.nm}</span>` : '<span class="faint">이름 없음</span>'}<span class="who">${a.users.length ? a.users.map(u => u[0]).join(' · ') : '연결 없음'}</span></div>`).join('');
+  return `<div class="pick"><div class="pt">${forCreate ? '첫 계좌' : '계좌 연결'}</div>
+    <div class="dd"><span class="bk">${sel.bk}</span><b>${sel.no}</b><span>${sel.nm}</span><span class="car">▾</span></div>
+    <div class="menu"><div class="mg">KB</div>${grp('KB')}<div class="mg">교보</div>${grp('교보')}</div>
+    ${regServers(sel.bk === 'KB' ? 'KB' : 'KYOBO')}
+    <div class="acts"><a class="l note">목록에 없으면 <span class="link">「계좌」 에서 등록</span></a>${forCreate ? '' : '<button class="btn">취소</button><button class="btn pri">연결</button>'}</div>
+  </div>`;
+}
+
+function regServers(bk) {
+  const s = bk === 'KB' ? [['KB120', true], ['KB121', false]] : [['KYOBO119', true], ['KYOBO127', false]];
+  return `<div class="srv">등록 서버 ${s.map(x => `<span class="sv"><i class="${x[1] ? 'on' : ''}"></i>${x[0]}</span>`).join('')}</div>`;
+}
+
+function userSheet() {
+  const picker = state.p === 'A' ? pickerA(false) : pickerB(false);
+  return `<div class="panel"><div class="ph"><h3>kim@gmail.com</h3><span class="x">×</span></div><div class="pb">
+    <div class="grp"><div class="gt">역할</div><span class="seg" style="align-self:flex-start"><span>viewer</span><span class="on">trader</span><span>admin</span></span></div>
+    <div class="grp"><div class="gt">DMA 연결 <span>kimtr · 비밀번호 변경</span></div></div>
+    <div class="grp"><div class="gt">계좌 <span>2 · 연결별 서버 · 주문 서버 · IP/MAC · 예수금</span></div>
+      ${card(ACCS[0], { srv: [['KB120', true], ['KB121', true]] })}
+      ${card(ACCS[1], { srv: [['KB120', true]] })}
+      ${picker}
+      <div class="note">「연결 해제」 는 이 사용자의 서버에서만 계좌를 뺀다 — 계좌는 「계좌」 목록에 남는다. 마지막 계좌 해제는 지금처럼 사용자 삭제로 이어진다.</div>
+    </div>
+  </div></div>`;
+}
+
+function createSheet() {
+  const picker = state.p === 'A' ? pickerA(true) : pickerB(true);
+  return `<div class="panel"><div class="ph"><h3>사용자 만들기</h3><span class="x">×</span></div><div class="pb">
+    <div class="fld"><label>gmail</label><div class="in">new.trader@gmail.com</div></div>
+    <div class="grp"><div class="gt">역할</div><span class="seg" style="align-self:flex-start"><span>viewer</span><span class="on">trader</span><span>admin</span></span></div>
+    <div class="grp"><div class="gt">DMA 연결 <span>필수</span></div>
+      <div class="two"><div class="fld"><label>DMA 사용자 id</label><div class="in">newtr</div></div><div class="fld"><label>비밀번호</label><div class="in">••••••••</div></div></div>
+      ${picker}
+    </div>
+    <div class="acts"><button class="btn">취소</button><button class="btn pri">만들기</button></div>
+  </div></div>`;
+}
+
+function usersList() {
+  const U = [['kim@gmail.com', 'trader', 'kimtr', 2], ['lee@gmail.com', 'trader', 'leetr', 1], ['park@gmail.com', 'admin', 'parktr', 1]];
+  return `<div class="phead"><h1>사용자</h1><span class="sp"></span><button class="btn pri">+ 사용자</button><div class="sub">허용 gmail · 역할 · DMA 연결</div></div>
+    <div class="shead"><h2>사용자</h2><span class="cnt">${U.length}</span></div>
+    <div class="card">${U.map((u, i) => `<div class="row ${i === 0 && state.s === 'user' ? 'sel' : ''}"><div class="mid"><div class="t"><b>${u[0]}</b></div>
+      <div class="m"><span class="ch role">${u[1]}</span><span>DMA <b>${u[2]}</b> · 계좌 ${u[3]}</span></div></div><span class="chev">›</span></div>`).join('')}</div>`;
+}
+
+function render() {
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', state[b.dataset.k] === b.dataset.v));
+  document.getElementById('g-edit').style.display = state.s === 'edit' ? '' : 'none';
+  document.getElementById('g-pick').style.display = (state.s === 'user' || state.s === 'create') ? '' : 'none';
+  document.getElementById('desc').innerHTML = DESC[state.s];
+  const phone = state.w === 'phone';
+  let main = '', panel = '';
+  if (state.s === 'list') main = listView(null);
+  if (state.s === 'add') { main = listView(null); panel = addSheet(); }
+  if (state.s === 'edit') { main = listView(state.e === 'linked' ? ACCS[0].no : ACCS[3].no); panel = editSheet(); }
+  if (state.s === 'user') { main = usersList(); panel = userSheet(); }
+  if (state.s === 'create') { main = usersList(); panel = createSheet(); }
+  const body = phone && panel
+    ? `<div class="phone-top">‹ ${['user', 'create'].includes(state.s) ? '사용자' : '계좌'}</div>${panel}`
+    : `<div class="col"><div class="main">${main}</div>${panel}</div>`;
+  document.getElementById('stage').innerHTML = `<div class="f ${state.w} ${state.t}">${side()}${body}</div>`;
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => { state[b.dataset.k] = b.dataset.v; render(); }));
+render();
+</script>
+</body>
+</html>
