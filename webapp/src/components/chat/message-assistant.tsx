@@ -10,6 +10,8 @@
  * react-markdown 은 기본적으로 raw HTML 을 렌더하지 않는다(rehype-raw 미사용) — LLM 이
  * 생성한 마크다운 안의 `<script>` 등 HTML 은 텍스트로 이스케이프되어 DOM 주입이 차단된다.
  * 링크(`<a>`)는 rel=noreferrer + target=_blank 로만 노출.
+ * 예외(Phase 39 D-04): 진단문의 「틱 보기」 `/analytics/ticks?…` 는 내부 경로라 `next/link` 같은 탭으로 연다. 그 밖
+ * `/` 로 시작하는 내부 경로(`//host` 포함)는 링크를 풀고 글자만 둔다 — 답변이 임의 내부 화면으로 보내지 못하게.
  *
  * ## blocks (D-07/08/10)
  * SSE 로 수신한 부가물(stock_card/citation/chart)은 본문 아래에 렌더 — 각 하위 컴포넌트
@@ -21,9 +23,12 @@
  * 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 전면 제거.
  */
 
+import Link from "next/link";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { MessageBlock } from "@gh-radar/shared";
+
+import { TICKS_BASE } from "@/lib/ticks/tick-url";
 
 import { MiniStockCard } from "./mini-stock-card";
 import { Citation } from "./citation";
@@ -35,6 +40,13 @@ export interface MessageAssistantProps {
   blocks?: MessageBlock[] | null;
   /** 스트리밍 중 여부 — true 면 blocks 숨김(완성 시 확정). */
   streaming?: boolean;
+}
+
+const LINK_CLASS = "text-[var(--primary)] underline underline-offset-2";
+
+/** 진단문 틱뷰어 딥링크(`/analytics/ticks?…`) — 같은 탭 내부 이동을 허용하는 유일한 내부 경로(D-04). */
+function isTickViewerHref(href: string): boolean {
+  return href.startsWith(`${TICKS_BASE}?`);
 }
 
 /** react-markdown 요소 → globals.css 토큰 스타일 매핑(채택 목업 기준). */
@@ -65,16 +77,22 @@ const MARKDOWN_COMPONENTS: Components = {
   strong: ({ children }) => (
     <strong className="font-semibold">{children}</strong>
   ),
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-[var(--primary)] underline underline-offset-2"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => {
+    if (typeof href === "string" && href.startsWith("/")) {
+      return isTickViewerHref(href) ? (
+        <Link href={href} className={LINK_CLASS}>
+          {children}
+        </Link>
+      ) : (
+        <span>{children}</span>
+      );
+    }
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+        {children}
+      </a>
+    );
+  },
   code: ({ children }) => (
     <code className="mono rounded-[var(--r-sm)] bg-[var(--muted)] px-1 py-0.5 text-[length:11px]">
       {children}
