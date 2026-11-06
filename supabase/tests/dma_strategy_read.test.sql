@@ -15,6 +15,8 @@
 --   - 공개 컬럼: dma_user_id · apply_error · applied_at 없음 · 전략 ev 키 = 공개 45키 (T-19-08 · T-25-16)
 --   - p_order_nos 가 빈 배열 · NULL 이면 행 자신의 주문번호로 대체
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 (Pitfall 13)
+--   - 예약 kind 9(Phase 39 D-11): 주문로그 jsonb 래퍼 dma_strategy_events_for_user_json 은 가시 계좌 kind 9 를 포함하고
+--     계좌가 빈 kind 9 는 누구에게도 안 보인다(함수 변경 없이 고정 — 2026-10-01 픽스처)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_strategy_read.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -106,6 +108,12 @@ INSERT INTO t_setup SELECT 'strategy_kb', public.dma_strategy_apply('KB120', 'ep
     '{"cond_actual":3,"ev_trade_qty":123456,"ev_price":12350}'::jsonb, '2026-09-30'),            -- 시세 BurstLimit(10)
   pg_temp.sev(8, 9, 0, '', '', '10:00:01.000', '{}'::jsonb, '2026-09-30')                        -- 예약 kind 9(계좌 '') 대조군
 ));
+-- Phase 39 D-11 — 주문로그 jsonb 래퍼의 예약 kind 9 고정(함수 변경 없음). 2026-10-01 로 밀어 기존 날짜 단언을 건드리지 않는다.
+INSERT INTO t_setup SELECT 'strategy_kb_k9', public.dma_strategy_apply('KB120', 'ep-25', jsonb_build_array(
+  pg_temp.sev(9, 9, 0, '1234567801', 'Q000000901', '10:00:00.000',
+    '{"order_condition":"milles","reason_code":"CfgSubmit","price":12350,"qty":10}'::jsonb, '2026-10-01'), -- …7801 예약 kind 9
+  pg_temp.sev(10, 9, 0, '', 'Q000000902', '10:00:01.000', '{}'::jsonb, '2026-10-01')                      -- 계좌 '' kind 9
+));
 -- KYOBO 시세 이벤트 1건.
 INSERT INTO t_setup SELECT 'strategy_kyobo', public.dma_strategy_apply('KYOBO119', 'ep-k', jsonb_build_array(
   pg_temp.sev(1, 1, 0, '', '', '09:50:00.000')
@@ -131,7 +139,7 @@ CREATE FUNCTION pg_temp.oid12451() RETURNS uuid LANGUAGE sql AS $$
    WHERE gateway = 'KB120' AND trade_date = '2026-09-29' AND account_no = '1234567801' AND order_no = '12451'
 $$;
 
-SELECT plan(28);
+SELECT plan(30);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT isnt(
@@ -198,6 +206,24 @@ SELECT is_empty(
 SELECT is_empty(
   $$SELECT 1 FROM public.dma_strategy_events_for_user('00000000-0000-4000-8000-000000002504', '2026-09-30')$$,
   '(U4, KYOBO, …7803, 2026-09-30) 0행 — KB BurstLimit 비공개'
+);
+
+-- ── 1c. 주문로그 jsonb 래퍼 — 예약 kind 9 (Phase 39 D-11 · 함수 변경 없음) ───
+SELECT is(
+  (SELECT string_agg((e->>'seq') || ':' || (e->>'kind') || ':' || (e->>'account_no') || ':' || (e->>'order_condition'),
+                     ',' ORDER BY i)
+     FROM jsonb_array_elements(public.dma_strategy_events_for_user_json('00000000-0000-4000-8000-000000002501', '2026-10-01'))
+          WITH ORDINALITY x(e, i)),
+  '9:9:1234567801:milles',
+  '(U1, KB, …7801, 2026-10-01) dma_strategy_events_for_user_json 에 가시 계좌 예약 kind 9 seq 9 포함 · 계좌 빈 seq 10 없음'
+);
+SELECT is(
+  (SELECT count(*)::int
+     FROM unnest(ARRAY['00000000-0000-4000-8000-000000002501', '00000000-0000-4000-8000-000000002502',
+                       '00000000-0000-4000-8000-000000002503', '00000000-0000-4000-8000-000000002504']::uuid[]) u,
+          LATERAL jsonb_array_elements(public.dma_strategy_events_for_user_json(u, '2026-10-01')) e
+    WHERE (e->>'seq')::int = 10),
+  0, '(U1~U4, KB, 계좌 '''', 2026-10-01 예약 kind 9 seq 10) 주문로그 jsonb 래퍼 누구에게도 안 보인다'
 );
 
 -- ── 2. 하루치 평면 목록: 공개 컬럼 ─────────────────────────────────
