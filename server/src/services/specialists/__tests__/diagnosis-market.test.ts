@@ -5,7 +5,15 @@ import zlib from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from "vitest";
 import { concatBytes, decodeAny, encodeRecord, iterRecords, splitZstdFrames } from "@gh-radar/shared";
 
+import type { TickConvertTrigger } from "../../tick-convert-trigger";
 import type { TickgwClient, TickgwLiveQuery, TickgwLiveResponse } from "../../tickgw-client";
+import { requestTickConvert } from "../../ticks";
+
+// requestTickConvert 를 실제 구현 그대로 감싼 스파이 — 호출 인자를 본다(동작은 실제 RPC mock 경로 그대로).
+vi.mock("../../ticks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../ticks")>();
+  return { ...actual, requestTickConvert: vi.fn(actual.requestTickConvert) };
+});
 
 import {
   formatA3Line,
@@ -65,12 +73,23 @@ function gridOpen(over: Record<string, unknown> = {}) {
   };
 }
 
-function makeSupabase(opts: { open?: unknown; grid?: Uint8Array; rpc?: Record<string, unknown> }) {
+function makeSupabase(opts: {
+  open?: unknown;
+  /** open 을 부를 때마다 차례로(마지막 값 반복). */
+  openSeq?: unknown[];
+  grid?: Uint8Array;
+  rpc?: Record<string, unknown>;
+}) {
   const rec: Rec = { rpc: [], downloads: [] };
+  let opens = 0;
   const client = {
     async rpc(fn: string, params: Record<string, unknown>) {
       rec.rpc.push({ fn, params });
-      if (fn === "tick_open_for_user") return { data: opts.open ?? gridOpen(), error: null };
+      if (fn === "tick_open_for_user") {
+        const i = opens++;
+        const v = opts.openSeq ? opts.openSeq[Math.min(i, opts.openSeq.length - 1)] : (opts.open ?? gridOpen());
+        return { data: v, error: null };
+      }
       const v = opts.rpc?.[fn];
       if (v === undefined) return { data: null, error: { message: `unexpected rpc ${fn}` } };
       return { data: v, error: null };
@@ -405,6 +424,118 @@ describe("getMarketTicksText — 오늘 tickgw 경로(Task 2)", () => {
     const body = zst(todayRecords(KRX_FIX));
     const { r } = await runToday(() => live200(body, { offsetEnd: body.length }), { from: "09:00:00", to: "09:00:05" });
     expect(r).toMatchObject({ source: "none", text: "자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)" });
+  });
+});
+
+// ── 격자 없음 → 변환 요청(Task 3) ─────────────────────────────────────
+
+const PAST = { isin: ISIN, exchange: "KRX" as const, date: "2026-11-05", from: "13:00:00", to: "13:00:05" };
+const noGrid = gridOpen({ date: "20261105", grid: null });
+/** `tick_request_convert_for_user` 응답 — 기본은 「이미 진행 중」. */
+const convertRow = (over: Record<string, unknown> = {}) => ({
+  access: true,
+  should_trigger: false,
+  capped: false,
+  grid_ready: false,
+  not_uploaded: false,
+  retry_after: null,
+  request: { exchange: "KRX", isin: ISIN, status: "pending", requested_at: "2026-11-06T03:00:00Z", triggered_at: null, started_at: null, finished_at: null, error: null },
+  eta_s: 120,
+  ...over,
+});
+const okTrigger = (): TickConvertTrigger & { runs: [string, string][] } => {
+  const runs: [string, string][] = [];
+  return {
+    runs,
+    async run(d, ex) {
+      runs.push([d, ex]);
+      return { ok: true, execution: "exec-1" };
+    },
+  };
+};
+
+async function runPast(
+  opts: Parameters<typeof makeSupabase>[0],
+  over: Partial<MarketDeps> = {},
+): Promise<{ r: Awaited<ReturnType<typeof getMarketTicksText>>; rec: Rec; sleep: ReturnType<typeof vi.fn> }> {
+  const { client, rec } = makeSupabase(opts);
+  const sleep = vi.fn(async () => {});
+  const r = await getMarketTicksText(PAST, deps(client, { sleep, ...over }), memo());
+  return { r, rec, sleep };
+}
+
+describe("getMarketTicksText — 격자 없음 → 변환 요청(Task 3)", () => {
+  it("triggered true · eta_s 300 → 「변환 중 · 약 5분 뒤 다시 물어 주세요」 · source none · 대기 없음", async () => {
+    const trigger = okTrigger();
+    const { r, sleep } = await runPast(
+      { open: noGrid, rpc: { tick_request_convert_for_user: convertRow({ should_trigger: true, eta_s: 300 }) } },
+      { trigger },
+    );
+    expect(r).toMatchObject({ source: "none", text: "변환 중 · 약 5분 뒤 다시 물어 주세요" });
+    expect(sleep).not.toHaveBeenCalled();
+    expect(trigger.runs).toEqual([["20261105", "KRX"]]);
+  });
+
+  it("429 → 오늘 변환 한도 소진 · 503 → 변환 경로 꺼짐 · 502 → 변환 요청 실패", async () => {
+    const capped = await runPast({ open: noGrid, rpc: { tick_request_convert_for_user: convertRow({ capped: true }) } });
+    expect(capped.r.text).toBe("자료 없음: 오늘 변환 한도 소진");
+
+    const off = await runPast({
+      open: noGrid,
+      rpc: { tick_request_convert_for_user: convertRow({ should_trigger: true }), tick_request_trigger_failed: null },
+    });
+    expect(off.r.text).toBe("자료 없음: 변환 경로 꺼짐");
+
+    const failing: TickConvertTrigger = { run: async () => ({ ok: false, status: 500, error: "boom" }) };
+    const bad = await runPast(
+      {
+        open: noGrid,
+        rpc: { tick_request_convert_for_user: convertRow({ should_trigger: true }), tick_request_trigger_failed: null },
+      },
+      { trigger: failing },
+    );
+    expect(bad.r.text).toBe("자료 없음: 변환 요청 실패");
+    expect(bad.r.text).not.toContain("boom");
+  });
+
+  it("not_uploaded → 원본 업로드 전 문구 · grid_ready(경합) → 한 번 다시 열어 격자를 읽는다", async () => {
+    const nu = await runPast({ open: noGrid, rpc: { tick_request_convert_for_user: convertRow({ not_uploaded: true }) } });
+    expect(nu.r.text).toBe("자료 없음: 원본 업로드 전(매일 22:00 업로드 · 23:30 뒤 변환)");
+
+    // 픽스처는 10/16 수신 — 11/05 창으로 읽히도록 수신 시각을 20일 뒤로 옮긴 격자
+    const shifted = zst(todayRecords(KRX_FIX).map((rec) => {
+      const r = iterRecords(rec).next().value!;
+      return encodeRecord(r.recvNs - DAY_NS, rec.subarray(r.off, r.off + r.len));
+    }));
+    const race = await runPast({
+      openSeq: [noGrid, gridOpen({ date: "20261105" })],
+      grid: shifted,
+      rpc: { tick_request_convert_for_user: convertRow({ grid_ready: true }) },
+    });
+    expect(race.r.source).toBe("grid");
+    expect(race.r.text.split("\n")[2]).toBe(GOLDEN_B6);
+    expect(race.rec.rpc.filter((c) => c.fn === "tick_open_for_user")).toHaveLength(2);
+    expect(race.rec.downloads).toHaveLength(1);
+  });
+
+  it("이미 진행 중(triggered false · request 있음 · eta_s 120) → 「변환 중 · 약 2분 뒤 다시 물어 주세요」", async () => {
+    const { r } = await runPast({ open: noGrid, rpc: { tick_request_convert_for_user: convertRow() } });
+    expect(r).toMatchObject({ source: "none", text: "변환 중 · 약 2분 뒤 다시 물어 주세요" });
+  });
+
+  it("requestTickConvert 호출 인자 = (supabase, userId, { d, isin, ex }, { trigger, dailyCap })", async () => {
+    const spy = vi.mocked(requestTickConvert);
+    spy.mockClear();
+    const trigger = okTrigger();
+    const { client } = makeSupabase({ open: noGrid, rpc: { tick_request_convert_for_user: convertRow() } });
+    await getMarketTicksText(PAST, deps(client, { trigger, dailyCap: 7 }), memo());
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(client, USER, { d: "20261105", isin: ISIN, ex: "KRX" }, { trigger, dailyCap: 7 });
+  });
+
+  it("tick_open_for_user access false → 자료 없음: DMA 계좌 매핑 없음", async () => {
+    const { r } = await runPast({ open: { access: false } });
+    expect(r).toMatchObject({ source: "none", text: "자료 없음: DMA 계좌 매핑 없음" });
   });
 });
 
