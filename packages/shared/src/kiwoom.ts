@@ -49,6 +49,11 @@ export type KiwoomKa10001Row = {
   upl_pric?: string;        // 상한가 (보통 무부호)
   lst_pric?: string;        // 하한가
   mac?: string;             // 시가총액 — 가설 단위 = 억원 (R2, Plan 04 확정)
+  // quick 261106-ldl — 유통주식수(gh-trade 호가창 「발행1%」). 단위(주 vs 천주) 미확인 —
+  //   workers/intraday-sync/src/pipeline/floatShares.ts 가 stocks.listing_shares 와 비교해 주 단위로 정규화.
+  flo_stk?: string;         // 상장주식
+  dstr_stk?: string;        // 유통주식 (ETF 등은 빈 값)
+  dstr_rt?: string;         // 유통비율 (%)
   // 나머지 38개 필드 (per_rt, eps, bps, trde_qty 등): 본 phase 미사용
   // R3 (Plan 04 fixture 캡처): 누적 거래량/거래대금 동등 필드 존재 시 본 타입 확장
 };

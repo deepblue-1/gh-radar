@@ -109,6 +109,53 @@ stocksRouter.get("/search", async (req, res, next) => {
   }
 });
 
+// quick 261106-ldl — 유통주식수(gh-trade 호가창 「발행1%」). 값은 모두 주 단위, 평일 21:30 KST 야간 배치
+// (intraday-sync JOB_MODE=float)가 stock_float 를 채운다. DB 만 읽는다 — 요청이 키움 호출을 일으키지 않는다.
+// /:code 핸들러보다 먼저 등록.
+const FLOAT_CACHE_CONTROL = "public, max-age=3600";
+
+type StockFloatEmbed = {
+  float_shares: number | string | null;
+  float_rate: number | string | null;
+  listed_shares: number | string | null;
+  as_of: string | null;
+};
+
+const toNum = (v: number | string | null | undefined): number | null =>
+  v === null || v === undefined ? null : Number(v);
+
+stocksRouter.get("/:code/float", async (req, res, next) => {
+  try {
+    const code = req.params.code;
+    if (!/^[A-Za-z0-9]{1,10}$/.test(code)) {
+      throw new ApiError(400, "INVALID_QUERY_PARAM", "code: invalid format");
+    }
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 왕복 1회 — stocks 존재 확인과 stock_float 를 FK embed 로 함께 읽는다.
+    const { data, error } = await supabase
+      .from("stocks")
+      .select("code, stock_float(float_shares, float_rate, listed_shares, as_of)")
+      .eq("code", code)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw StockNotFound(code);
+    // PostgREST 일대일 판정은 버전마다 객체 · 배열로 갈린다 — 첫 행 또는 null 로 정규화.
+    const embed = (data as { stock_float?: StockFloatEmbed | StockFloatEmbed[] | null })
+      .stock_float;
+    const f = (Array.isArray(embed) ? embed[0] : embed) ?? null;
+    res.set("Cache-Control", FLOAT_CACHE_CONTROL);
+    res.json({
+      code,
+      floatShares: toNum(f?.float_shares),
+      floatRate: toNum(f?.float_rate),
+      listedShares: toNum(f?.listed_shares),
+      asOf: f?.as_of ?? null,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 stocksRouter.get("/:code", async (req, res, next) => {
   try {
     const code = req.params.code;
