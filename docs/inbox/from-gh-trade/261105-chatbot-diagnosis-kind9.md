@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 6f22b35a
 from_branch: master
 date: 2026-11-05
 fbs_sync_marker: 4695bd48
-done_commit:
+done_commit: 38dde66a  # 회신 노트 ../gh-trade/docs/inbox/from-gh-radar/261106-chatbot-kind9-mapping.md · 웹 먼저 배포 요청(relay 는 kind 9 를 거르지 않음 — 본문 「구 relay 는 무시」 정정)
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -59,3 +59,9 @@ gh-radar 쪽 순서는 항상 DB → relay → webapp 이고, push 가 곧 webap
 1. 기존 챗봇이 쓰는 모델·도구 호출 방식(API tool use / Agent SDK)과, 저널·이벤트 조회 도구가 이미 있는지
 2. 지난 날짜 시세(GCS)까지 챗봇이 볼 필요가 있는지 — 문의는 대부분 당일이라 1차는 「오늘만」 으로 충분하다고 본다
 3. kind 9 를 하나로 둘지, 설정 변경(사람)과 자동 전이(서버)를 reason_code 로만 가를지
+
+## gh-radar 처리 (2026-11-06)
+
+- **회신 노트:** `../gh-trade/docs/inbox/from-gh-radar/261106-chatbot-kind9-mapping.md`(`status: open` · kind 9 43칸 매핑 · 스위치 비트셋 · `reason_code` 1차 17 / 2차 5 토큰 · 운영 조건 4 · 질문 5 — 사용자 검토 뒤 발송).
+- **질문 답:** ① Anthropic Messages API tool use(팀장 Sonnet 5 + 전문가 5) · 조회 도구 없음 → 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5`)와 조회 도구 신설(계좌는 서버가 `req.userId` 로 묶음) ② 지난 날짜 시세도 연다(D-12 — 격자 있으면 읽고 없으면 변환 요청 · 오늘은 tickgw) ③ kind 9 하나 + `reason_code` 접두 대역(`Cfg*` · `Auto*` · `Sys*`)으로 사람/서버 구분.
+- **배포 순서 정정:** relay 는 kind 화이트리스트가 없어 kind 9 를 거르지 않는다(위 「구 relay 는 모르는 kind 로 무시」 는 사실 아님) — gh-radar webapp 먼저 배포를 확인한 뒤 gh-trade 서버를 켠다 · relay 무변경.
