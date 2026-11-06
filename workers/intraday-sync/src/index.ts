@@ -20,6 +20,7 @@ import { runEodClosePass } from "./pipeline/eodClose";
 import { isDailyWriteWindow, isEodClosePass } from "./marketWindow";
 import { createSupabaseClient } from "./services/supabase";
 import { withRetry } from "./retry";
+import { runFloatSyncJob } from "./floatSync";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
 import {
   isKrxHoliday,
@@ -432,8 +433,23 @@ export async function runIntradayCycle(): Promise<{
   return { step1Count, step2Count: step2UpdatesRaw.length, failed };
 }
 
+/**
+ * 실행 모드 (quick 261106-ldl) — 같은 이미지를 Job 마다 env JOB_MODE 로 가른다.
+ * 미설정/빈 값 → "intraday"(기존 사이클), "float" → 유통주식수 야간 배치. 그 밖 값은 오타로 보고 throw(exit 1).
+ */
+export function resolveJobMode(raw: string | undefined): "intraday" | "float" {
+  if (raw === undefined || raw.trim() === "") return "intraday";
+  if (raw === "float") return "float";
+  throw new Error(`Unknown JOB_MODE: "${raw}" (expected unset or "float")`);
+}
+
 async function main(): Promise<void> {
   try {
+    if (resolveJobMode(process.env.JOB_MODE) === "float") {
+      const floatOut = await runFloatSyncJob();
+      logger.info({ ...floatOut }, "float-sync complete");
+      process.exit(floatOut.aborted ? 1 : 0);
+    }
     const out = await runIntradayCycle();
     logger.info({ ...out }, "intraday-sync complete");
     process.exit(0);

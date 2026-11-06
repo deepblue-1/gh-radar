@@ -10,6 +10,30 @@ import type { KiwoomKa10001Row } from "@gh-radar/shared";
 import { acquireKiwoomRateToken } from "./rateLimiter";
 
 /**
+ * ka10001 종목 1건 호출 (token bucket 대기 포함).
+ * return_code != 0 응답은 return_msg 를 담아 throw. hot set(STEP2) · float-sync(quick 261106-ldl) 공용.
+ */
+export async function fetchKa10001One(
+  client: AxiosInstance,
+  token: string,
+  code: string,
+): Promise<KiwoomKa10001Row> {
+  await acquireKiwoomRateToken();
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "api-id": "ka10001",
+    "content-type": "application/json;charset=utf-8",
+  };
+  const res = await client.post("/api/dostk/stkinfo", { stk_cd: code }, { headers });
+  if (res.data.return_code !== 0) {
+    throw new Error(
+      `ka10001 ${code} return_code=${res.data.return_code}: ${res.data.return_msg}`,
+    );
+  }
+  return res.data as KiwoomKa10001Row;
+}
+
+/**
  * ka10001 hot set 순차 호출.
  *
  * - 각 호출 직전 `acquireKiwoomRateToken()` 호출 → token bucket 강제 (4 req/s default)
@@ -28,25 +52,7 @@ export async function fetchKa10001ForHotSet(
   failures: Array<{ code: string; error: string }>;
 }> {
   const results = await Promise.allSettled(
-    codes.map(async (code) => {
-      await acquireKiwoomRateToken();
-      const headers = {
-        authorization: `Bearer ${token}`,
-        "api-id": "ka10001",
-        "content-type": "application/json;charset=utf-8",
-      };
-      const res = await client.post(
-        "/api/dostk/stkinfo",
-        { stk_cd: code },
-        { headers },
-      );
-      if (res.data.return_code !== 0) {
-        throw new Error(
-          `ka10001 ${code} return_code=${res.data.return_code}: ${res.data.return_msg}`,
-        );
-      }
-      return res.data as KiwoomKa10001Row;
-    }),
+    codes.map((code) => fetchKa10001One(client, token, code)),
   );
 
   const successful: KiwoomKa10001Row[] = [];

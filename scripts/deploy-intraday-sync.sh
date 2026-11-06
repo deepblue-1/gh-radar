@@ -10,6 +10,8 @@ set -euo pipefail
 #   gh-radar-intraday-sync-cron     '* 8-19 * * 1-5'
 #   gh-radar-intraday-sync-cron-20h '0-2 20 * * 1-5'
 # task-timeout 60s
+# float-sync Job (quick 261106-ldl): gh-radar-float-sync — 같은 이미지 + JOB_MODE=float, 유통주식수 야간 배치
+#   gh-radar-float-sync-cron        '30 21 * * 1-5' (Asia/Seoul)
 # Phase 05.1 D-07 lesson — --oauth-service-account-email (OIDC 금지)
 # ═══════════════════════════════════════════════════════════════
 
@@ -130,15 +132,16 @@ SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 
 # 하나의 cron 식으로 08:00~20:02 를 표현할 수 없어 Scheduler 2개로 나눈다 (idempotent update-or-create).
+# 세 번째 인자 uri 는 선택 — 기본값은 intraday Job 의 $URI (float-sync 가 자기 Job URI 를 넘긴다).
 upsert_scheduler_job() {
-  local name="$1" schedule="$2"
+  local name="$1" schedule="$2" uri="${3:-$URI}"
   if gcloud scheduler jobs describe "$name" --location="$REGION" >/dev/null 2>&1; then
     echo "▶ scheduler update: $name ($schedule)..."
     gcloud scheduler jobs update http "$name" \
       --location="$REGION" \
       --schedule="$schedule" \
       --time-zone="Asia/Seoul" \
-      --uri="$URI" \
+      --uri="$uri" \
       --http-method=POST \
       --oauth-service-account-email="$SCHED_SA"
   else
@@ -147,7 +150,7 @@ upsert_scheduler_job() {
       --location="$REGION" \
       --schedule="$schedule" \
       --time-zone="Asia/Seoul" \
-      --uri="$URI" \
+      --uri="$uri" \
       --http-method=POST \
       --oauth-service-account-email="$SCHED_SA"
   fi
@@ -156,6 +159,42 @@ upsert_scheduler_job() {
 
 upsert_scheduler_job "$SCHED" "* 8-19 * * 1-5"
 upsert_scheduler_job "$SCHED_20H" "0-2 20 * * 1-5"
+
+# Section 6b: float-sync Job (quick 261106-ldl)
+#   유통주식수(gh-trade 호가창 「발행1%」) — 키움 ka10001 을 전 종목(상폐 · ELW · ETN 제외) 한 번씩.
+#   같은 이미지에 JOB_MODE=float 만 다르게 준다. 키움은 고정 IP 경유 필수라 같은 VPC all-traffic egress.
+#   21:30 = intraday 창(~20:02) 뒤라 키움 IP 한도(≈4 req/s)를 server on-demand 와만 나눈다 → 배치 몫 3 req/s.
+#   3 req/s × 약 4천 종목 ≈ 22~25분 · task-timeout 3600s 여유.
+#   FLOAT_ENV 는 COMMON_ENV 에 덧붙이지 않는다 — --set-env-vars 는 전량 치환이고 같은 키(KA10001_RATE_LIMIT) 중복을 피한다.
+FLOAT_JOB=gh-radar-float-sync
+FLOAT_SCHED=gh-radar-float-sync-cron
+FLOAT_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@KA10001_RATE_LIMIT=${FLOAT_RATE_LIMIT:-3}@JOB_MODE=float"
+
+echo "▶ deploying Cloud Run Job: $FLOAT_JOB (JOB_MODE=float)..."
+gcloud run jobs deploy "$FLOAT_JOB" \
+  --image="$IMAGE" \
+  --region="$REGION" \
+  --service-account="$RUNTIME_SA" \
+  --cpu=1 \
+  --memory=512Mi \
+  --task-timeout=3600s \
+  --max-retries=0 \
+  --parallelism=1 \
+  --tasks=1 \
+  --network="$VPC_NAME" \
+  --subnet="$SUBNET_NAME" \
+  --vpc-egress=all-traffic \
+  --set-env-vars="$FLOAT_ENV" \
+  --set-secrets="$COMMON_SECRETS"
+
+gcloud run jobs add-iam-policy-binding "$FLOAT_JOB" \
+  --region="$REGION" \
+  --member="serviceAccount:${SCHED_SA}" \
+  --role=roles/run.invoker >/dev/null
+echo "✓ run.invoker bound: gh-radar-scheduler-sa → $FLOAT_JOB"
+
+FLOAT_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${FLOAT_JOB}:run"
+upsert_scheduler_job "$FLOAT_SCHED" "30 21 * * 1-5" "$FLOAT_URI"
 
 # Section 7: Alert policy (idempotent — update-or-create)
 ALERT_FILE="ops/alert-intraday-sync-failure.yaml"
@@ -190,6 +229,12 @@ echo "════════════════════════�
 echo "✅ Deployed @ $IMAGE"
 echo "   Job:       $JOB"
 echo "   Scheduler: $SCHED (cron '* 8-19 * * 1-5') + $SCHED_20H (cron '0-2 20 * * 1-5') Asia/Seoul"
+echo "   Float Job: $FLOAT_JOB (JOB_MODE=float, KA10001_RATE_LIMIT=${FLOAT_RATE_LIMIT:-3})"
+echo "   Float Sch: $FLOAT_SCHED (cron '30 21 * * 1-5') Asia/Seoul"
 echo "   VPC:       $VPC_NAME / Static IP $STATIC_IP"
+echo ""
+echo "float-sync 첫 실행: gcloud run jobs execute $FLOAT_JOB --region=$REGION"
+echo "  → 로그 'float unit multiplier decided' 의 multiplier · votes · sample(005930) 과"
+echo "    'float sync complete' 의 ok/null/failed/aborted 확인"
 echo ""
 echo "Next: bash scripts/smoke-intraday-sync.sh"
