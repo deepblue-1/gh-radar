@@ -232,3 +232,9 @@ None — 새 env 는 모두 코드 기본값(배포 스크립트 수정 불필�
 ---
 *Phase: 39-trade-diagnosis-chatbot*
 *Completed: 2026-11-06*
+
+## Self-Check: PASSED
+
+- 만든 파일 6개 존재 확인(diagnosis/ 4 · __tests__ 2)
+- 커밋 5개(6ba15a6e · 685c3cfe · 2034b767 · 3054bc3a · f589bb3e) HEAD 조상 · 작업 트리 깨끗
+- 수락 기준 Task 1~3 grep 전부 통과 · 플랜 검증(쓰기 호출 0) 통과
