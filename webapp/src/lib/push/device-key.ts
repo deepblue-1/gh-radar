@@ -48,11 +48,13 @@ export function getOrCreatePushDeviceKey(): string {
   const existing = readPushDeviceKey();
   if (existing) return existing;
   const key = newUuid();
-  memoryKey = key;
   try {
-    storage()?.setItem(PUSH_DEVICE_KEY_STORAGE, key);
+    const s = storage();
+    if (!s) throw new Error("no_storage");
+    s.setItem(PUSH_DEVICE_KEY_STORAGE, key);
   } catch {
-    /* 저장 실패 — 메모리 키로 이 탭을 이어 간다 */
+    // 저장 실패 — 메모리 키로 이 탭을 이어 간다(저장이 되는 탭에서는 메모리 키가 저장값을 가리지 않게 여기서만 둔다).
+    memoryKey = key;
   }
   return key;
 }

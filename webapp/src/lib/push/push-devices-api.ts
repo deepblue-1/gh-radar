@@ -9,7 +9,10 @@
 
 import type { PushDevice, PushDeviceRegisterBody } from "@gh-radar/shared";
 
+import { ApiClientError } from "@/lib/api";
 import { authFetch } from "@/lib/auth-fetch";
+import { isNativeApp } from "@/lib/native/native-detect";
+import { readPushDeviceKey } from "@/lib/push/device-key";
 
 const BASE = "/api/push-devices";
 
@@ -48,5 +51,35 @@ export function deletePushDevice(deviceKey: string, opts: { timeoutMs?: number }
   });
 }
 
-/** 로그아웃 전 이 기기 행 지우기(D-15) — 인터페이스만(40-10 Task 3 RED). 구현은 GREEN 커밋. */
-export async function unregisterThisDeviceBeforeSignOut(_timeoutMs = 3_000): Promise<void> {}
+/** 로그아웃 정리를 기다리는 상한 — 넘으면 포기하고 로그아웃을 이어 간다. */
+export const SIGN_OUT_UNREGISTER_TIMEOUT_MS = 3_000;
+
+/**
+ * 로그아웃 전 이 기기 행 지우기(D-15) — 같은 폰에 다른 계정이 로그인해도 앞 사람 체결이 가지 않게.
+ * 앱이 아니거나 기기 키가 없으면 서버를 부르지 않는다. DELETE 가 `timeoutMs` 안에 안 끝나면 포기한다. throw 하지 않는다 —
+ * 실패해도 로그아웃은 진행되고, 남은 행은 토큰 인계 규칙(같은 토큰 → 옛 사용자 행 교체)과 송신 410 정리가 지운다.
+ * 404(이미 없음)는 정상 끝. 로그에는 키 · 토큰을 싣지 않는다.
+ */
+export async function unregisterThisDeviceBeforeSignOut(timeoutMs = SIGN_OUT_UNREGISTER_TIMEOUT_MS): Promise<void> {
+  if (!isNativeApp()) return;
+  const deviceKey = readPushDeviceKey();
+  if (!deviceKey) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+  try {
+    const outcome = await Promise.race([
+      deletePushDevice(deviceKey, { timeoutMs }).then(() => "done" as const),
+      timedOut,
+    ]);
+    if (outcome === "timeout") console.warn("[gh-radar] push 로그아웃 정리 시간 초과 — 로그아웃은 계속");
+  } catch (err) {
+    if (err instanceof ApiClientError && err.status === 404) return;
+    const code = err instanceof ApiClientError ? err.code : err instanceof Error ? err.name : "unknown";
+    console.warn("[gh-radar] push 로그아웃 정리 실패 — 로그아웃은 계속", code);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
