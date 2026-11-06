@@ -148,6 +148,15 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
 .lim { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12.5px; color: var(--muted-fg); }
 .lim .v { background: var(--muted); border-radius: 7px; padding: 4px 8px; font-weight: 600; color: var(--fg); }
 .hl { outline: 2px dashed var(--new); outline-offset: 3px; border-radius: 6px; }
+.new2 { outline: 2px dashed var(--new); outline-offset: 6px; border-radius: 8px; }
+.lim2 { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted-fg); }
+.lim2 .fld { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lim2 .sep { color: var(--faint); }
+.lim2 .inp { display: inline-flex; align-items: center; justify-content: flex-end; height: 30px; padding: 0 8px; border-radius: 7px; background: var(--muted); border: 1px solid transparent; font-weight: 600; color: var(--fg); }
+.lim2 .inp.w1 { width: 104px; } .lim2 .inp.w2 { width: 60px; }
+.lim2 .inp.focus { border-color: var(--primary); }
+.lim2 .inp.ph { color: var(--faint); font-weight: 500; }
+.lim2.dis { opacity: .5; }
 
 /* 연결 피커 */
 .pick { border: 1.5px solid var(--primary); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -222,8 +231,8 @@ const ACCS = [
 const DESC = {
   list: '<b>① /admin/accounts</b> — Admin 아래 「계좌」 새 메뉴(사용자 다음). 지금 사용자들에게 붙어 있는 계좌를 증권사·계좌번호로 묶어 <b>처음 한 번 이 목록으로 옮겨 둔다</b>(같은 계좌를 여러 사용자가 쓰면 한 줄 · 「쓰는 사용자」 에 모두). 행을 누르면 오른쪽에 수정 시트. 사이드바는 <b>My page 가 위 · Admin 이 아래</b>로 바뀐다(노란 테두리).',
   add: '<b>② 「+ 계좌」 등록 시트</b> — 계좌 자체 정보만 받는다: 증권사 · 계좌번호 · 계좌명 · (KB) 지점 · 트레이더. <b>등록만으로는 증권사 서버에 아무것도 보내지 않는다</b> — 사용자에게 연결하는 순간 그 사용자의 서버에 올라간다.',
-  edit: '<b>③ 수정 · 삭제</b> — 증권사 · 계좌번호는 바꿀 수 없다(바꾸려면 삭제 뒤 다시 등록). 계좌명 · 지점 · 트레이더를 저장하면 <b>연결된 사용자 모두의 서버 설정에 함께 반영</b>되고 사용자 · 서버마다 결과 칩이 붙는다. 삭제는 <b>연결된 사용자가 없을 때만</b> — 있으면 버튼이 잠기고 「사용자」 에서 먼저 연결을 해제하라고 안내.',
-  user: '<b>④ 사용자 시트 「계좌」</b> — 계좌번호를 직접 치던 「+ 계좌 추가」 가 <b>「+ 계좌 연결」(등록된 계좌에서 고르기)</b>로 바뀐다. 연결별 설정(등록 서버 · 주문 서버 · 주문자 IP/MAC · 예수금 · 수수료)은 지금처럼 이 카드에 남는다. 카드의 「제거」 는 「연결 해제」 로(계좌 자체는 목록에 남음), 계좌명은 「계좌」 메뉴에서만 고친다(노란 점선). <b>A</b> = 검색 + 목록이 펼쳐짐 · <b>B</b> = 드롭다운 한 칸.',
+  edit: '<b>③ 수정 · 삭제</b> — <b>[추가] 예수금 · 수수료 · 매도세를 이 시트에서 설정</b>(노란 점선): 저장하면 쓰는 사용자 모두의 등록 서버에 같은 값이 들어가고 사용자·서버별 칩이 붙는다. 값이 서로 다른 곳은 경고 한 줄. 연결 없음 계좌는 값을 둘 서버가 없어 잠김(상태 버튼 「연결 없음」). —증권사 · 계좌번호는 바꿀 수 없다(바꾸려면 삭제 뒤 다시 등록). 계좌명 · 지점 · 트레이더를 저장하면 <b>연결된 사용자 모두의 서버 설정에 함께 반영</b>되고 사용자 · 서버마다 결과 칩이 붙는다. 삭제는 <b>연결된 사용자가 없을 때만</b> — 있으면 버튼이 잠기고 「사용자」 에서 먼저 연결을 해제하라고 안내.',
+  user: '<b>④ 사용자 시트 「계좌」</b> — 계좌번호를 직접 치던 「+ 계좌 추가」 가 <b>「+ 계좌 연결」(등록된 계좌에서 고르기)</b>로 바뀐다. 연결별 설정(등록 서버 · 주문 서버)은 지금처럼 이 카드에 남고, <b>[변경] 주문자 IP/MAC · 예수금 · 수수료 · 매도세는 읽기 전용 줄 + 「설정은 「계좌」 메뉴에서」 · 카드 「편집」 버튼 없음</b>. 카드의 「제거」 는 「연결 해제」 로(계좌 자체는 목록에 남음), 계좌명은 「계좌」 메뉴에서만 고친다(노란 점선). <b>A</b> = 검색 + 목록이 펼쳐짐 · <b>B</b> = 드롭다운 한 칸.',
   create: '<b>⑤ 「+ 사용자」 만들기의 DMA 연결 「첫 계좌」</b> — 증권사 · 계좌번호 · 지점 · 트레이더 입력칸 대신 ④ 와 같은 고르기. 등록 서버는 고른 계좌의 증권사 서버만 보인다(지금과 같음).',
 };
 
@@ -235,9 +244,10 @@ function side() {
     <a class="grp"><span class="ic">▤</span>분석</a>
     <a class="grp mv"><span class="ic">◉</span>My page<span class="tag">위로</span></a>
     <a class="grp on mv"><span class="ic">⛨</span>Admin<span class="tag">아래로</span></a>
+    <a class="sub">매매손익</a>
+    <a class="sub ${['list', 'add', 'edit'].includes(state.s) ? 'cur' : ''}">계좌</a>
     <a class="sub ${state.s === 'user' || state.s === 'create' ? 'cur' : ''}">사용자</a>
-    <a class="sub ${['list', 'add', 'edit'].includes(state.s) ? 'cur' : ''}">계좌<span class="tag">새 메뉴</span></a>
-    <a class="sub">서버</a><a class="sub">발사</a><a class="sub">매매손익</a>
+    <a class="sub">서버</a><a class="sub">발사</a>
     <a class="grp" style="margin-top:auto"><span class="ic">✦</span>AI 애널리스트</a>
   </nav>`;
 }
@@ -290,8 +300,14 @@ function editSheet() {
     <div class="fld"><label>계좌명</label><div class="in ${linked ? 'focus' : ''}">${linked ? '주식 메인' : a.nm}</div></div>
     <div class="two"><div class="fld"><label>지점</label><div class="in">${a.br}</div></div>
       <div class="fld"><label>트레이더</label><div class="in">${a.tr}</div></div></div>
-    ${linked ? '<div class="note">저장하면 쓰는 사용자 모두의 서버 설정에 함께 반영돼요.</div>' : ''}
+    <div class="new2 grp"><div class="two"><div class="fld"><label>주문자 IP <span class="ptag">이동</span></label><div class="in ${linked ? '' : 'ph0'}">${linked ? '10.41.1.124' : '미설정(서버 NIC 값)'}</div></div>
+      <div class="fld"><label>MAC 주소</label><div class="in ${linked ? '' : 'ph0'}">${linked ? '1C:FD:08:7D:97:8E' : ''}</div></div></div>
+      <div class="note">같은 서버의 두 계좌가 서로 체결될 수 있으면 계좌마다 서로 다른 사용자 PC 의 IP · MAC 을 적으세요(ipconfig /all). KB 만 — 교보는 칸 없음.${linked ? '' : ' 연결 없음 계좌는 연결된 뒤 설정.'}</div>
+      ${linked ? '<div class="line warn">leetr · KB120 값이 달라요(미설정) — 저장하면 모두 같아져요</div>' : ''}</div>
+    ${linked ? '<div class="note">저장하면 쓰는 사용자 모두의 서버 설정에 함께 반영돼요(계좌명 · 지점 · 트레이더 · IP/MAC).</div>' : ''}
     <div class="acts"><button class="btn">취소</button><button class="btn pri">저장</button></div>
+    <div class="hr"></div>
+    ${costGrp(linked)}
     <div class="hr"></div>
     ${users}
     <div class="hr"></div>
@@ -299,14 +315,27 @@ function editSheet() {
   </div></div>`;
 }
 
+function costGrp(linked) {
+  if (!linked) return `<div class="grp new2"><div class="gt">예수금 · 수수료 <span class="ptag">이동</span></div>
+      <div class="lim2 dis"><span class="fld">예수금 <span class="inp w1 ph">—</span> 원</span><span class="sep">·</span><span class="fld">수수료 <span class="inp w2 ph">—</span> %</span><span class="sep">·</span><span class="fld">매도세 <span class="inp w2 ph">—</span> %</span></div>
+      <div class="note">사용자에게 연결된 뒤 설정할 수 있어요 — 값은 연결된 사용자의 서버에 저장돼요.</div></div>`;
+  return `<div class="grp new2"><div class="gt">예수금 · 수수료 <span>쓰는 사용자 모두의 등록 서버에 즉시 저장</span><span class="ptag">이동</span></div>
+    <div class="lim2"><span class="fld">예수금 <span class="inp w1 focus">10,000,000</span> 원</span><span class="sep">·</span><span class="fld">수수료 <span class="inp w2">0.01</span> %</span><span class="sep">·</span><span class="fld">매도세 <span class="inp w2">0.2</span> %</span></div>
+    <div class="srv">${['kimtr · KB120', 'kimtr · KB121', 'leetr · KB120'].map((s, i) => `<span class="ch ${i === 2 ? 'warn' : 'ok'}">${s}${i === 2 ? ' · 서버 연결 안 됨' : ''}</span>`).join('')}</div>
+    <div class="line warn">leetr · KB120 미반영: 서버 연결 안 됨</div>
+    <div class="line warn">leetr · KB120 은 5,000,000원 — 저장하면 모두 같아져요</div>
+    <div class="note">예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제. 칸마다 Enter · 포커스 이탈 때 바로 저장(저장 버튼 없음 — 지금 사용자 카드와 같음).</div>
+  </div>`;
+}
+
 function card(a, opts) {
   return `<div class="acard">
-    <div class="title">${accTitle(a)}<span class="act"><button class="btn sm">편집</button><button class="btn sm">연결 해제</button></span></div>
+    <div class="title">${accTitle(a)}<span class="act"><button class="btn sm">연결 해제</button></span></div>
     <div class="meta">${kbMeta(a)} · <span class="hl">계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서</span></div>
     <div class="srv">등록 서버 ${opts.srv.map(s => `<span class="sv"><i class="${s[1] ? 'on' : ''}"></i>${s[0]} ${s[1] ? '<span class="ch ok">반영됨</span>' : ''}</span>`).join('')}</div>
     ${opts.srv.length > 1 ? '<div class="orow">주문 서버 <span class="seg"><span class="on">기본 · KB120</span><span>KB120</span><span>KB121</span></span></div>' : '<div class="orow">주문 서버 <b style="color:var(--fg-2)">KB120</b> (기본)</div>'}
-    <div class="meta">주문자 IP <b>10.41.1.124</b> · MAC <b>1C:FD:08:7D:97:8E</b></div>
-    <div class="lim">예수금 <span class="v">1,000</span> 만원 · 수수료 <span class="v">0.01</span> % · 매도세 <span class="v">0.2</span> %</div>
+    <div class="meta">주문자 IP <b>10.41.1.124</b> · MAC <b>1C:FD:08:7D:97:8E</b> · <span class="hl">설정은 「계좌」 메뉴에서</span></div>
+    <div class="meta">예수금 <b>10,000,000원</b> · 수수료 <b>0.01%</b> · 매도세 <b>0.2%</b> · <span class="hl">설정은 「계좌」 메뉴에서</span></div>
   </div>`;
 }
 
