@@ -6,10 +6,10 @@ current_phase: 39
 current_phase_name: 매매진단 챗봇
 status: executing
 stopped_at: Phase 39 context gathered
-last_updated: "2026-11-06T05:29:46.771Z"
+last_updated: "2026-11-06T06:38:50.801Z"
 last_activity: 2026-11-06
 last_activity_desc: Phase 39 execution started
-state_head: ea203df38822e068baa236651dc9b073bfa99d0e
+state_head: bc11d0c08e50f9fee72066d541e70ad97f4ac630
 progress:
   total_phases: 10
   completed_phases: 9
@@ -141,6 +141,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261104-umt | 틱뷰어 타임라인 차트 — 스케치 028 채택안 구현(고정 띠 통합 툴팁 · 묶음 표 · Shift+끌기 구간 합계 · 순매수 판 매수/매도 누적 거울선 · 판 높이 70) | 2026-11-04 | 3cabd115 | [261104-umt-tick-timeline-sketch028](./quick/261104-umt-tick-timeline-sketch028/) |
 | 50 | 틱뷰어 전문 목록: 차트·화살표·우리 주문 탐색으로 찾은 전문을 가운데로 스크롤(목록 안 행 클릭은 제자리) | 2026-11-05 | 38be7f93 | — |
 | 51 | 상따 ☐위험도 3초 래치 반영(gh-trade aa331275) — 선·줄매수 자동 체크가 ☐위험도도 켬(매도주문 켜짐일 때 · C# 동형) · 위험도 도움말 문구 · OFF 사유 주석 | 2026-11-05 | 41033add | — |
+| 261106-ldl | 유통주식수 야간 배치(JOB_MODE=float) + 공개 엔드포인트 2종(GET /api/stocks/float · /:code/float) | 2026-11-06 | bc11d0c0 | [261106-ldl-stock-float](./quick/261106-ldl-stock-float/) |
 
 ## Session Continuity
 
