@@ -27,7 +27,12 @@ export const STRATEGY_EVENT_KIND = {
   SellOrder: 6,
   Cancelled: 7,
   Rejected: 8,
-  // 9 — gh-radar 「상태전이」 예약 번호. 사용 금지(키를 두지 않는다 · 시세 판정에도 넣지 않는다).
+  /**
+   * 상태전이 — gh-radar 회신 노트(39-01) 1차: 설정 변경 이력 + 서버 자동 전이 · 계좌 이벤트(account_no 필수) ·
+   * 시세 판정에 넣지 않는다. 칸 재해석: reason_code 사유 토큰 · ahead_qty/expected_cum 스위치 비트셋 전/후 ·
+   * cond_threshold/cond_actual 단계 전/후 · order_condition 제출자 · message 바뀐 값 요약(39-RESEARCH §Pattern 9).
+   */
+  StateTransition: 9,
   /** 버스트 상한가 — 상한 매도잔량이 버스트 조각만으로 소진(gh-trade 3dabd6ff · 시세 이벤트 · 계좌 없음).
    *  슬롯 재사용: condActual = 조각 수 · evTradeQty = 합계 수량 · evPrice = 상한가 · cumVolume = 누적. */
   BurstLimit: 10,
@@ -124,7 +129,7 @@ export const ORDER_GROUP = {
 /**
  * 시세 이벤트(상한가노출 · 상한가진입 · 버스트 상한가 · 상한가 특징 · 매집감지)인가. 이 이벤트는 계좌가 없어 `account_no` 가
  * 빈 문자열이지만, 판정은 반드시 kind 로 한다 — 빈 계좌번호 비교로 공개 여부를 정하지 않는다(T-25-01).
- * 예약 kind 9 는 시세가 아니다(계좌가 비면 아무에게도 안 보인다).
+ * kind 9 상태전이는 계좌 이벤트라 시세가 아니다(계좌가 비면 아무에게도 안 보인다 · 39 D-11).
  *
  * ★ 같은 집합 {1, 2, 10, 15, 16} 을 조회 RPC `dma_strategy_events_for_user`
  *   (supabase/migrations/20261018120000_dma_strategy_events_accum_signal.sql)가 SQL 로 쓴다 — 하나만 바뀌면

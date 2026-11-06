@@ -25,7 +25,8 @@ export const STRATEGY_EVENT_KIND_LABELS: Readonly<Record<number, string>> = {
   6: "주문",
   7: "취소",
   8: "거부",
-  // 9 — gh-radar 「상태전이」 예약(표에 없다 — 오면 원문 숫자).
+  // 9 — 상태전이(Phase 39 D-10 · 계좌 이벤트 · 방향 없음). 행위 단어는 사유 문구(`stateReasonLabel`).
+  9: "상태전이",
   10: "버스트 상한가",
   // 11~13 — gh-trade Phase 28 자동매도(Phase 27 D-15). 14 는 표 밖 — `cond_actual` 로 행위가 갈린다
   // (`AUTO_SELL_PAUSE_LABELS`).
@@ -144,6 +145,54 @@ export const AUTO_SELL_PAUSE_LABELS: Readonly<Record<number, string>> = {
   2: "동시호가 멈춤",
   3: "재개",
 };
+
+/*
+ * kind 9 상태전이(Phase 39 D-09 · D-10) — 초안 낱말. gh-trade 구현 노트 회신 뒤 낱말로 맞춘다(D-10).
+ * 2차 토큰(매도 · 취소 진입 래치 · 게이트 · VI 미발주)은 넣지 않는다(D-09 Deferred) — 오면 원문 토큰 그대로.
+ * 토큰 정본은 39-RESEARCH §Pattern 9 사유 토큰 표(= 39-01 노트) — 접두 대역 Cfg* 사람 · Auto* 서버 판정 · Sys* 서버 운영.
+ */
+
+/** kind 9 `reason_code` 사유 토큰(1차 17개) → 행위 문구. 정확 일치 조회 전용(`stateReasonLabel`). */
+export const STATE_REASON_LABELS: Readonly<Record<string, string>> = {
+  CfgSubmit: "설정 재제출",
+  CfgRearm: "설정 재제출 · 재무장",
+  AutoPreBuyOff: "선매수 꺼짐(1회 발주)",
+  AutoAddBuyOff: "줄매수 꺼짐(발주)",
+  AutoAddBuyGiveUp: "줄매수 포기(최대 초과)",
+  AutoAddBuyRecheck: "줄매수 자동 재체크",
+  AutoPostBuyUnlock: "후매수 잠금해제",
+  AutoPostBuyRelock: "후매수 다시 잠김",
+  AutoPostBuyFire: "후매수 발동",
+  AutoMasterOff: "마스터 해제",
+  AutoRiskLatchOn: "위험도 래치 켜짐",
+  AutoRiskLatchReset: "위험도 래치 리셋",
+  AutoRiskFire: "위험도 발동",
+  SysCloseOff: "마감 정리",
+  SysKillSwitch: "킬 스위치",
+  SysRestore: "재기동 복원",
+  SysCommand: "서버 명령",
+};
+
+/**
+ * kind 9 스위치 비트셋(`ahead_qty` 전 · `expected_cum` 후) 비트 라벨 — index = bit(0~13). 14~63 은 예약
+ * (append-only) — 표 밖 비트는 문장에 넣지 않는다(뜻을 지어내지 않는다 · D-10).
+ */
+export const STATE_SWITCH_BIT_LABELS: readonly string[] = [
+  "매수",
+  "선매수",
+  "줄매수",
+  "후매수",
+  "매도",
+  "취소",
+  "자동매도",
+  "SOR 매수",
+  "SOR 매도",
+  "위험도",
+  "선매수 체결량",
+  "선매수 한방",
+  "줄매수 자동",
+  "후매수 자동",
+];
 
 /**
  * 자동매도 `reason_code` 첫 토큰 13종 — gh-trade `server/src/trade/strategy/LimitChaser.h:388-400`
@@ -280,4 +329,27 @@ export function autoSellStateLabel(state: number): string {
 /** 자동매도 기준 낱말 — 2 만 「매수가」, 그 밖(0 미정 포함)은 「상한가」(WinForms 「기준 낱말은 basis 만 본다」). */
 export function autoSellBasisLabel(basis: number): string {
   return basis === 2 ? "매수가" : "상한가";
+}
+
+/**
+ * kind 9 사유 문구 — 1차 사전에 있으면 문구, 없으면 원문 토큰 그대로(2차 · 미래 토큰 · D-10), 빈 문자열이면
+ * 「상태전이」. 게이트웨이 원문이라 `"constructor"` 같은 프로토타입 키가 올 수 있다 — 자기 키만 본다.
+ */
+export function stateReasonLabel(token: string): string {
+  if (token === "") return "상태전이";
+  return Object.hasOwn(STATE_REASON_LABELS, token) ? (STATE_REASON_LABELS[token] ?? token) : token;
+}
+
+/**
+ * kind 9 스위치 변화 — bit 0~13 중 전 → 후가 바뀐 비트마다 `${라벨} 켜짐`(0→1) / `${라벨} 꺼짐`(1→0), bit 순서.
+ * 비트 판정은 `Math.floor(v / 2 ** bit) % 2` — 14비트 안이라 Number 로 안전(비트 연산자는 32비트로 잘린다).
+ */
+export function stateSwitchChanges(before: number, after: number): string[] {
+  const out: string[] = [];
+  STATE_SWITCH_BIT_LABELS.forEach((label, bit) => {
+    const b = Math.floor(before / 2 ** bit) % 2;
+    const a = Math.floor(after / 2 ** bit) % 2;
+    if (b !== a) out.push(`${label} ${a === 1 ? "켜짐" : "꺼짐"}`);
+  });
+  return out;
 }

@@ -15,6 +15,8 @@ import {
   ORDER_GROUP_LABELS,
   ORDER_GROUP_ORIGIN_TEXTS,
   REASON_CODE_OPERATORS,
+  STATE_REASON_LABELS,
+  STATE_SWITCH_BIT_LABELS,
   STRATEGY_EVENT_KIND_LABELS,
   autoSellBasisLabel,
   autoSellStateLabel,
@@ -26,6 +28,8 @@ import {
   isAutoSellReason,
   reasonOperator,
   reasonToken,
+  stateReasonLabel,
+  stateSwitchChanges,
   strategyEventSide,
   strategyKindLabel,
 } from "../strategy-event-labels";
@@ -41,7 +45,7 @@ import {
  */
 
 describe("표시명 표 전수 (D-10)", () => {
-  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 15(상한가특징 — Phase 28) · 16(매집감지 — quick-261018-rfy) · 17·18(발사조각 · 발사머리 — Phase 35) · 9 는 예약이라 표에 없다", () => {
+  it("StrategyEventKind 1~8 · 10(버스트 상한가 — quick-261003-rc4) · 11~13(자동매도 — Phase 27) · 15(상한가특징 — Phase 28) · 16(매집감지 — quick-261018-rfy) · 17·18(발사조각 · 발사머리 — Phase 35) · 9(상태전이 — Phase 39 D-10)", () => {
     expect(STRATEGY_EVENT_KIND_LABELS).toEqual({
       1: "상한가노출",
       2: "상한가진입",
@@ -51,6 +55,7 @@ describe("표시명 표 전수 (D-10)", () => {
       6: "주문",
       7: "취소",
       8: "거부",
+      9: "상태전이",
       10: "버스트 상한가",
       11: "발동",
       12: "정정",
@@ -65,7 +70,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(strategyKindLabel(17)).toBe("발사조각");
     expect(strategyKindLabel(18)).toBe("발사머리");
     expect(strategyKindLabel(15)).toBe("상한가특징");
-    expect(strategyKindLabel(9)).toBe("9");
+    expect(strategyKindLabel(9)).toBe("상태전이");
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(strategyKindLabel)).toEqual([
       "상한가노출", "상한가진입", "주문", "대기", "체결", "주문", "취소", "거부",
     ]);
@@ -358,6 +363,62 @@ describe("Phase 27 자동매도 reason_code 토큰 판정 (첫 토큰 정확 일
 
   it("연산자 표(원문 전체 일치)에는 자동매도 사유를 넣지 않는다", () => {
     for (const code of AUTO_SELL_REASON_CODES) expect(reasonOperator(code)).toBeNull();
+  });
+});
+
+describe("Phase 39 kind 9 상태전이 사전 (D-09 · D-10)", () => {
+  const PRIMARY_TOKENS = [
+    "CfgSubmit",
+    "CfgRearm",
+    "AutoPreBuyOff",
+    "AutoAddBuyOff",
+    "AutoAddBuyGiveUp",
+    "AutoAddBuyRecheck",
+    "AutoPostBuyUnlock",
+    "AutoPostBuyRelock",
+    "AutoPostBuyFire",
+    "AutoMasterOff",
+    "AutoRiskLatchOn",
+    "AutoRiskLatchReset",
+    "AutoRiskFire",
+    "SysCloseOff",
+    "SysKillSwitch",
+    "SysRestore",
+    "SysCommand",
+  ];
+
+  it("STATE_REASON_LABELS 키 = 1차 토큰 17개 정확히 · 2차 토큰(Latch/Gate/Vi)은 없다", () => {
+    expect(Object.keys(STATE_REASON_LABELS).sort()).toEqual([...PRIMARY_TOKENS].sort());
+    expect(Object.keys(STATE_REASON_LABELS)).toHaveLength(17);
+    for (const t of ["LatchSellOn", "LatchCancelOn", "GateSessionBlocked", "GateConsumed", "ViNoOrder"]) {
+      expect(Object.hasOwn(STATE_REASON_LABELS, t)).toBe(false);
+    }
+  });
+
+  it("stateReasonLabel — 사전값 · 모르는 토큰은 원문 그대로 · 빈 문자열은 「상태전이」 · 프로토타입 키는 원문", () => {
+    expect(stateReasonLabel("CfgSubmit")).toBe("설정 재제출");
+    expect(stateReasonLabel("AutoPreBuyOff")).toBe("선매수 꺼짐(1회 발주)");
+    expect(stateReasonLabel("Unknown9")).toBe("Unknown9");
+    expect(stateReasonLabel("GateConsumed")).toBe("GateConsumed");
+    expect(stateReasonLabel("")).toBe("상태전이");
+    expect(stateReasonLabel("constructor")).toBe("constructor");
+    expect(stateReasonLabel("__proto__")).toBe("__proto__");
+  });
+
+  it("STATE_SWITCH_BIT_LABELS — bit0~13 14개(index = bit)", () => {
+    expect(STATE_SWITCH_BIT_LABELS).toHaveLength(14);
+    expect(STATE_SWITCH_BIT_LABELS[0]).toBe("매수");
+    expect(STATE_SWITCH_BIT_LABELS[1]).toBe("선매수");
+    expect(STATE_SWITCH_BIT_LABELS[13]).toBe("후매수 자동");
+  });
+
+  it("stateSwitchChanges — 바뀐 비트만 bit 순서로 켜짐/꺼짐 · 같으면 빈 배열 · 14비트 밖은 무시", () => {
+    expect(stateSwitchChanges(1, 3)).toEqual(["선매수 켜짐"]);
+    expect(stateSwitchChanges(3, 1)).toEqual(["선매수 꺼짐"]);
+    expect(stateSwitchChanges(5, 5)).toEqual([]);
+    expect(stateSwitchChanges(0b10011, 0b01100)).toEqual(["매수 꺼짐", "선매수 꺼짐", "줄매수 켜짐", "후매수 켜짐", "매도 꺼짐"]);
+    expect(stateSwitchChanges(0, 2 ** 13)).toEqual(["후매수 자동 켜짐"]);
+    expect(stateSwitchChanges(0, 2 ** 14)).toEqual([]);
   });
 });
 
