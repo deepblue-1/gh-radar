@@ -290,6 +290,8 @@ const BADGE_TONE: Record<StrategyEventParts['tone'], string> = {
   market: 'bg-[var(--accent)] text-[var(--accent-fg)]',
   unknown: 'bg-[var(--muted)] text-[var(--muted-fg)]',
   feature: 'bg-[var(--muted)] text-[var(--muted-fg)]',
+  /** kind 9 상태전이 — 회색 · 방향 색 없음(39 D-10). */
+  state: 'bg-[var(--muted)] text-[var(--muted-fg)]',
 };
 
 /** 내용 칸 글자색 — 거부 `--destructive` · kind 15 상한가 특징 `--muted-fg`(UI-SPEC ②-2) · 그 밖 `--fg-2`. */

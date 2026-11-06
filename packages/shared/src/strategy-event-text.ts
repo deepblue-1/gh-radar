@@ -44,8 +44,12 @@ import {
   orderConditionLabel,
   orderGroupLabel,
   orderGroupOriginText,
+  POST_BUY_STAGE_LABELS,
   reasonOperator,
   reasonToken,
+  RISK_LATCH_LABELS,
+  stateReasonLabel,
+  stateSwitchChanges,
   strategyEventSide,
   strategyKindLabel,
 } from "./strategy-event-labels";
@@ -94,9 +98,10 @@ export type StrategyEventParts = {
   badge: string;
   /**
    * 구분 칸 색 축 — buy `--up` · sell `--down` · market `--accent-fg` · unknown `--muted-fg` ·
-   * feature `--muted-fg` — kind 15 상한가 특징(D-07 · 중립 회색 · 본문도 `--muted-fg`).
+   * feature `--muted-fg` — kind 15 상한가 특징(D-07 · 중립 회색 · 본문도 `--muted-fg`) ·
+   * state `--muted-fg` — kind 9 상태전이(39 D-10 · 회색 · 방향 색 없음 — group 이 1~3 이어도 매수 색 금지).
    */
-  tone: "buy" | "sell" | "market" | "unknown" | "feature";
+  tone: "buy" | "sell" | "market" | "unknown" | "feature" | "state";
   /** 행위 단어(600). 시세 이벤트는 null · 모르는 kind 는 원문 숫자(D-10). */
   action: string | null;
   /** 본문 앞 강조 조각 — 표면이 `--up` 600 으로 그린다. kind 15 잠김 줄만(「잠김 43초」 · 「단일가 · 잠김 12초」). */
@@ -168,6 +173,9 @@ export function strategyEventParts(ev: StrategyEventRow, surface: "log" | "timel
     case 8:
       // 거부 사유는 서버 원문 그대로 — 쪼개 읽거나 판정하지 않는다(D-36 · T-17-33).
       return { ...orderBadge(ev), action: strategyKindLabel(8), body: ev.message, cum };
+    case 9:
+      // 상태전이(39 D-10) — 구분 「상태전이」 · 회색 · 행위 = 사유 문구 · 본문 = 바뀐 스위치 · message · (제출자).
+      return { badge: strategyKindLabel(9), tone: "state", action: stateReasonLabel(ev.reasonCode), body: stateTransitionBody(ev), cum };
     case 11:
       return { ...orderBadge(ev), action: strategyKindLabel(11), body: autoSellTriggeredBody(ev), cum };
     case 12:
@@ -195,6 +203,32 @@ function unknownKindParts(ev: StrategyEventRow, cum: string): StrategyEventParts
 /** 조각을 「 · 」 로 잇는다 — 빈 조각(null · "")은 거른다. 모든 본문 · 두 표면이 이 한 헬퍼를 쓴다(D-09). */
 function joinDot(pieces: ReadonlyArray<string | null | undefined>): string {
   return pieces.filter((p): p is string => typeof p === "string" && p !== "").join(" · ");
+}
+
+/**
+ * kind 9 상태전이 본문 — 바뀐 스위치(`ahead_qty` 전 → `expected_cum` 후) → 단계 전→후 → message(바뀐 값 요약) 를
+ * 「 · 」 로 잇고 제출자(`order_condition` — 사람 제출 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
+ */
+function stateTransitionBody(ev: StrategyEventRow): string {
+  const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), stateStageText(ev), ev.message]);
+  return ev.orderCondition ? `${body}(${ev.orderCondition})` : body;
+}
+
+/**
+ * kind 9 단계 전→후(`cond_threshold` → `cond_actual`) — `AutoPostBuy*` 는 「후매수 단계 감시→보유중」 ·
+ * `AutoRisk*` 는 「위험도 래치 대기→무장」. 다른 사유이거나 전 = 후면 null. 표 밖 값은 원문 숫자(D-10).
+ */
+function stateStageText(ev: StrategyEventRow): string | null {
+  if (ev.condThreshold === ev.condActual) return null;
+  const token = ev.reasonCode;
+  const [title, table] = token.startsWith("AutoPostBuy")
+    ? ["후매수 단계", POST_BUY_STAGE_LABELS]
+    : token.startsWith("AutoRisk")
+      ? ["위험도 래치", RISK_LATCH_LABELS]
+      : [null, null];
+  if (title === null || table === null) return null;
+  const label = (v: number) => table[v] ?? String(v);
+  return `${title} ${label(ev.condThreshold)}→${label(ev.condActual)}`;
 }
 
 /**

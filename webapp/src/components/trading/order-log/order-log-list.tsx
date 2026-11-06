@@ -94,6 +94,8 @@ const TONE_CLASS: Record<StrategyEventParts['tone'], string> = {
   market: 'text-[var(--accent-fg)]',
   unknown: 'text-[var(--muted-fg)]',
   feature: 'text-[var(--muted-fg)]',
+  /** kind 9 상태전이 — 회색 · 방향 색 없음(39 D-10). */
+  state: 'text-[var(--muted-fg)]',
 };
 
 /**
