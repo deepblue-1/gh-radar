@@ -9,6 +9,8 @@
 #     Xcode 가 시뮬레이터용 엔타이틀먼트를 실행 파일의 `__TEXT,__entitlements` 섹션에 넣는다
 #     (시뮬레이터는 코드 서명이 아니라 이 섹션을 읽는다 — 그래서 `codesign -d --entitlements`
 #     에는 보이지 않는다).
+#     Phase 40 — `aps-environment` 도 본다. 엔타이틀먼트가 빠지면 APNs 등록(register())이 실패해
+#     iOS 체결 푸시가 오지 않는다(App.entitlements · CODE_SIGN_ENTITLEMENTS).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,7 +26,11 @@ fi
 ENT="$(otool -arch arm64 -s __TEXT __entitlements -V "${BIN}" 2>/dev/null \
   | sed -n 's/^[^|]*|\(.*\)|$/\1/p' | tr -d '\n' || true)"
 if printf '%s' "${ENT}" | grep -q "<key>application-identifier</key>..<string>${EXPECT}</string>"; then
-  echo "SIM ENTITLEMENTS OK application-identifier=${EXPECT}"
+  if ! printf '%s' "${ENT}" | grep -q "<key>aps-environment</key>"; then
+    echo "SIM ENTITLEMENTS FAIL — aps-environment 없음(App.entitlements · CODE_SIGN_ENTITLEMENTS 확인)" >&2
+    exit 1
+  fi
+  echo "SIM ENTITLEMENTS OK application-identifier=${EXPECT} aps-environment"
   exit 0
 fi
 
