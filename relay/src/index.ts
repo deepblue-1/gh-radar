@@ -75,7 +75,8 @@
  *      새 배치를 받지 않는다 — Phase 19 D-13 · Phase 26). quote 연결의 로그인 타이머 · 재접속 백오프도 여기서 멈춘다.
  *      서버별 admin 연결(29-08 · role 2)도 `pipelines.stopAll()` 안에서 함께 stop 된다(별도 줄 없음).
  *   5. `pipelines.drainAll(2초)` — 전 서버 `writer` · `strategyWriter` drain **병렬** → `pipelines.closeAll()`(기록기 · `access` ·
- *      `status`) · 87 적재(`adminSnapshotSink` — 재시도 타이머) · quote 상태 · 접근 맵 `close()`
+ *      `status`) · 체결 앱 푸시 닫기(`pushNotifier` · Phase 40) · 87 적재(`adminSnapshotSink` — 재시도 타이머) · quote 상태 ·
+ *      접근 맵 `close()`
  *      — 큐에 남은 레코드를 적용 RPC 로 보낸다. 2초 안에 못 끝내도 **유실은 없다** — 커서는 적용 RPC
  *      트랜잭션 안에서만 전진하므로 다음 부팅이 남은 구간을 재생한다(D-12).
  *   6. `hub.closeAll()` · `symbols` · 종목마스터 — 배치·재적재 타이머 정리(남기면 프로세스가 안 내려간다)
@@ -119,6 +120,7 @@ import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteSwitch } from "./quote/quote-switch.js";
 import { QuoteStatus } from "./quote/status.js";
+import { PushNotifier, type PushSender } from "./push/notifier.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -487,6 +489,20 @@ accountOrderServers.on("changed", () => {
 });
 
 /**
+ * 체결 앱 푸시 (Phase 40) — 적용 행 → 판정 RPC(`dma_push_claim`) → 문안 → 송신기 → 결과 보고(`dma_push_report`).
+ * `pushSenders` 는 40-09 가 config 로 만든 APNs · FCM 송신기를 넣는 자리다 — 0 개면 notifier 는 꺼짐 로그 1줄 · RPC 0 이다.
+ * `PUSH_NOTIFY=off`(config `pushNotify` false)도 같다(비상 끄기). 첫 `pipelines.sync`(→ `wirePipeline`)보다 먼저 만든다.
+ */
+const pushSenders: PushSender[] = [];
+const pushNotifier = new PushNotifier({
+  supabase,
+  identities: appAccess,
+  senders: pushSenders,
+  enabled: config.pushNotify,
+  holdingOf: (serverKey, accountNo, isin) => hub.holdingOf(serverKey, accountNo, isin),
+});
+
+/**
  * 서버 파이프라인 결선 (`ServerPipelines.onCreated` — 생성 직후 · 관찰자 start 전). 재생성마다 새 벌에 다시 붙는다.
  *
  * **모든 서버(KB 주문 서버 포함) 같은 모양이다**(Phase 29): 적용 행 · 전략 이벤트는 `{ access: 그 서버 매핑, identities:
@@ -500,6 +516,10 @@ accountOrderServers.on("changed", () => {
 function wirePipeline(p: ServerPipeline): void {
   p.writer.on("applied", (rows) => fanout.deliverJournalRows(rows, { access: p.access, identities: appAccess }));
   p.strategyWriter.on("applied", (rows) => fanout.deliverStrategyEvents(rows, { access: p.access, identities: appAccess }));
+  // Phase 40 — 체결 앱 푸시. fanout 줄 **뒤**에 붙인다(RESEARCH Pitfall 1 — writer 는 emit 전체를 한 번만 감싸 앞 리스너가 throw
+  // 하면 뒤 리스너가 안 불린다). 리스너는 동기 enqueue 만 하고 예외를 스스로 삼킨다 — 적용 · 팬아웃 · 다음 배치 무영향(SC-3).
+  p.writer.on("applied", (rows) => pushNotifier.enqueueOrders(p, rows));
+  p.strategyWriter.on("applied", (rows) => pushNotifier.enqueueStrategy(p, rows));
   orderJournal.watch(p.status);
   // Phase 29-14 — 87 → 그 서버 매핑 즉시 교체(관찰자 재로그인 없이 새 계좌 푸시) + 반영 상태 DB. 새 벌은 새 `DmaClient` 라
   // 연결 세대가 1 부터 다시 센다 — 옛 벌의 세대 눈금으로 첫 87 을 버리지 않게 지우고 붙인다.
@@ -741,6 +761,8 @@ async function shutdown(signal: string): Promise<void> {
     //    전진하므로 다음 부팅이 재생한다. 서버마다 두 기록기(주문 · 전략)를 함께 drain 한다(pipelines.ts).
     const undrained = await pipelines.drainAll(JOURNAL_DRAIN_TIMEOUT_MS);
     pipelines.closeAll();
+    // Phase 40 — drain 이 마지막 applied 를 낸 뒤 푸시를 닫는다(이후 송신 없음 · 진행 중 송신은 끊긴다 — 판정 기록은 이미 DB 에 있다).
+    pushNotifier.close();
     adminSnapshotSink.close();
     quoteStatus.close();
     appAccess.close();

@@ -237,6 +237,20 @@ export class PushNotifier {
     }
   }
 
+  /**
+   * 전략 기록기 `applied` 리스너(동기 · 예외를 던지지 않는다 — SC-3). 자동매도 사건(kind 11 · kind 13 완료)만 거른다.
+   */
+  enqueueStrategy(p: PushPipelineView, rows: readonly StrategyEventRow[]): void {
+    try {
+      if (!this.#enabled || this.#closed) return;
+      const candidates = rows.filter((r) => isAutoSellPushEvent(r));
+      if (candidates.length === 0) return;
+      // 큐 넣기 · 송신은 Task 3(자동매도 사건).
+    } catch (err) {
+      logger.error({ gateway: p?.server?.key, err: String(err) }, "[push] enqueue 예외 — 적용 · 팬아웃 무영향");
+    }
+  }
+
   /** 타이머 해제 · 이후 송신 없음 · 송신기 정리. 진행 중 송신은 끊긴다(판정 기록은 이미 DB 에 있다). */
   close(): void {
     if (this.#closed) return;
