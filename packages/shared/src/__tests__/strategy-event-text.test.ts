@@ -960,6 +960,46 @@ describe("Phase 39 kind 9 상태전이 문장 (D-10)", () => {
     expect(parts.body).toBe("선매수 켜짐 · 감시가 10,000→10,100");
   });
 
+  it("group 1 이어도 tone 은 state — 매수 색이 아니다 · 근거 체결 낱말도 방향을 짓지 않는다", () => {
+    for (const group of [0, 1, 2, 3, 4, 7, 8, 9]) {
+      expect(strategyEventParts({ ...ROW9, group }, "log").tone).toBe("state");
+      expect(strategyEventSide(group, 9)).toBeNull();
+    }
+  });
+
+  it("AutoPostBuyFire · 단계 1→2 → 본문에 「후매수 단계 감시→보유중」(스위치 변화 뒤 · 제출자 앞)", () => {
+    const row = { ...ROW9, reasonCode: "AutoPostBuyFire", condThreshold: 1, condActual: 2, orderCondition: "" };
+    expect(strategyEventParts(row, "log").body).toBe("선매수 켜짐 · 후매수 단계 감시→보유중");
+    const ordered = { ...row, message: "발동잔량 10,000→8,000", orderCondition: "milles" };
+    expect(strategyEventParts(ordered, "log").body).toBe(
+      "선매수 켜짐 · 후매수 단계 감시→보유중 · 발동잔량 10,000→8,000(milles)",
+    );
+  });
+
+  it("AutoRiskLatchOn · 0→1 → 「위험도 래치 대기→무장」 · 모르는 단계 값은 숫자", () => {
+    const row = { ...ROW9, reasonCode: "AutoRiskLatchOn", aheadQty: 0, expectedCum: 0, condThreshold: 0, condActual: 1, orderCondition: "" };
+    expect(strategyEventParts(row, "log").body).toBe("위험도 래치 대기→무장");
+    const odd = { ...row, reasonCode: "AutoPostBuyUnlock", condThreshold: 0, condActual: 7 };
+    expect(strategyEventParts(odd, "log").body).toBe("후매수 단계 꺼짐→7");
+  });
+
+  it("단계 문구 없음 — 다른 사유이거나 condThreshold === condActual", () => {
+    const cfg = { ...ROW9, condThreshold: 1, condActual: 2 };
+    expect(strategyEventParts(cfg, "log").body).not.toContain("단계");
+    expect(strategyEventParts(cfg, "log").body).not.toContain("래치");
+    const same = { ...ROW9, reasonCode: "AutoPostBuyFire", condThreshold: 2, condActual: 2, orderCondition: "" };
+    expect(strategyEventParts(same, "log").body).toBe("선매수 켜짐");
+  });
+
+  it("timelineStrategyText(kind 9) — action 은 사유 문구 · text 에 스위치 변화 · 누적", () => {
+    const t = timelineStrategyText(ROW9);
+    expect(t.action).toBe("설정 재제출");
+    expect(t.text).toContain("선매수 켜짐");
+    expect(t.text).toContain("(milles)");
+    expect(t.text).toContain("누적 ");
+    expect(t.text).not.toContain("선매수 · 선매수");
+  });
+
   it("kind 9 는 시세가 아니다(계좌 이벤트 · D-11)", () => {
     expect(isMarketStrategyEvent(9)).toBe(false);
     expect(isMarketStrategyEvent(STRATEGY_EVENT_KIND.StateTransition)).toBe(false);

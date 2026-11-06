@@ -14,7 +14,9 @@ import {
   ORDER_CONDITION_LABELS,
   ORDER_GROUP_LABELS,
   ORDER_GROUP_ORIGIN_TEXTS,
+  POST_BUY_STAGE_LABELS,
   REASON_CODE_OPERATORS,
+  RISK_LATCH_LABELS,
   STATE_REASON_LABELS,
   STATE_SWITCH_BIT_LABELS,
   STRATEGY_EVENT_KIND_LABELS,
@@ -419,6 +421,25 @@ describe("Phase 39 kind 9 상태전이 사전 (D-09 · D-10)", () => {
     expect(stateSwitchChanges(0b10011, 0b01100)).toEqual(["매수 꺼짐", "선매수 꺼짐", "줄매수 켜짐", "후매수 켜짐", "매도 꺼짐"]);
     expect(stateSwitchChanges(0, 2 ** 13)).toEqual(["후매수 자동 켜짐"]);
     expect(stateSwitchChanges(0, 2 ** 14)).toEqual([]);
+  });
+
+  it("strategyEventSide(*, 9) = null — 상태전이는 방향이 없다(group 1~3 · 4 · 9 여도 · Pitfall 6)", () => {
+    expect(strategyEventSide(1, 9)).toBeNull();
+    expect(strategyEventSide(2, 9)).toBeNull();
+    expect(strategyEventSide(3, 9)).toBeNull();
+    expect(strategyEventSide(4, 9)).toBeNull();
+    expect(strategyEventSide(7, 9)).toBeNull();
+    expect(strategyEventSide(8, 9)).toBeNull();
+    expect(strategyEventSide(9, 9)).toBeNull();
+    expect(strategyEventSide(0, 9)).toBeNull();
+    // 기존 결과 무변경.
+    expect(strategyEventSide(1, 3)).toBe("buy");
+    expect(strategyEventSide(4, 6)).toBe("sell");
+  });
+
+  it("단계 표 — 후매수 0 꺼짐 · 1 감시 · 2 보유중 · 3 소진 / 위험도 래치 0 대기 · 1 무장 · 2 발동", () => {
+    expect(POST_BUY_STAGE_LABELS).toEqual({ 0: "꺼짐", 1: "감시", 2: "보유중", 3: "소진" });
+    expect(RISK_LATCH_LABELS).toEqual({ 0: "대기", 1: "무장", 2: "발동" });
   });
 });
 
