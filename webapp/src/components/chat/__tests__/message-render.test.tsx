@@ -81,6 +81,36 @@ describe('AgentProgress (Task 2)', () => {
   });
 });
 
+describe('Phase 39 주문 진단 (D-03 · D-04)', () => {
+  it('AgentProgress diagnosis active → 「주문 진단 전문가 분석 중…」 · 다른 전문가와 함께면 맨 끝', () => {
+    const { container } = render(
+      <AgentProgress status={{ diagnosis: 'active', quote: 'done', websearch: 'done' }} />,
+    );
+    expect(screen.getByText('주문 진단 전문가 분석 중…')).toBeInTheDocument();
+    const items = [...container.querySelectorAll('li')].map((li) => li.textContent ?? '');
+    expect(items).toHaveLength(3);
+    expect(items[items.length - 1]).toContain('주문 진단 전문가');
+  });
+
+  it('진단문 「틱 보기」 /analytics/ticks? 링크 → 같은 탭(target 없음) · href 그대로', () => {
+    const href = '/analytics/ticks?isin=KR7282720005&d=20261105&t=13:10:30.385';
+    render(<MessageAssistant content={`근거: [틱 보기 ›](${href})`} />);
+    const link = screen.getByRole('link', { name: '틱 보기 ›' });
+    expect(link).toHaveAttribute('href', href);
+    expect(link.getAttribute('target')).toBeNull();
+  });
+
+  it('그 밖 내부 경로는 링크 없이 글자만 · 외부 https 는 새 탭 + noreferrer(현행)', () => {
+    render(<MessageAssistant content={'[x](/admin/users) 그리고 [y](https://example.com)'} />);
+    expect(screen.queryByRole('link', { name: 'x' })).toBeNull();
+    expect(screen.getByText('x').closest('a')).toBeNull();
+    const ext = screen.getByRole('link', { name: 'y' });
+    expect(ext).toHaveAttribute('href', 'https://example.com');
+    expect(ext).toHaveAttribute('target', '_blank');
+    expect(ext).toHaveAttribute('rel', 'noreferrer');
+  });
+});
+
 describe('MiniStockCard (Task 2)', () => {
   it('Test 2 — 상승(changeRate>0) → --up 배지(국내 빨강) + 링크 /stocks/{code}', () => {
     render(

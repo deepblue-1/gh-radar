@@ -17,6 +17,8 @@
  *   시세 = kind 1·2.
  *   모르는 group(0 · 계약 밖)인 주문 이벤트는 「전체」 에만 보인다 — 방향을 지어내지 않는다(D-10).
  *   수동 7 · VI 8 주문 이벤트는 「수동」·「VI」 칩(manual · vi)으로 거른다.
+ *   상태전이(kind 9 · Phase 39 D-10) — group 이 아니라 kind 로 거르는 「상태전이」 칩(state · 「시세」 앞). kind 9 는
+ *   group 칸이 매수 쪽(1~3)이나 9 로 와도 그룹 칩(선매수 … VI)에 섞이지 않는다(RESEARCH Pitfall 6 · A9).
  *
  * ④ R3 창 분리 쿼리 — `account` · `date` · `stock`(ISIN) · `ex` · `kind`, 「전체」 는 생략
  *   화이트리스트 파싱이다(T-25-29): 모르는 값은 무시(전체) · 형식 오류/미래 날짜는 오늘로 교정 · `all` 은 별칭.
@@ -30,12 +32,28 @@
  *   「시세」 는 색이 아니라 kind(`isMarketStrategyEvent`)다 — kind 15 상한가 특징(tone "feature")도 시세다(Phase 28 Pitfall 4).
  */
 
-import { compareStrategyEventAsc, isMarketStrategyEvent, strategyEventKey, strategyEventParts } from '@gh-radar/shared';
+import {
+  STRATEGY_EVENT_KIND,
+  compareStrategyEventAsc,
+  isMarketStrategyEvent,
+  strategyEventKey,
+  strategyEventParts,
+} from '@gh-radar/shared';
 import type { StrategyEventRow } from '@gh-radar/shared';
 
 /* ── 필터 타입 ─────────────────────────────────────────────────────── */
 
-export type OrderLogKindFilter = 'all' | 'pre' | 'add' | 'post' | 'sell' | 'auto' | 'manual' | 'vi' | 'market';
+export type OrderLogKindFilter =
+  | 'all'
+  | 'pre'
+  | 'add'
+  | 'post'
+  | 'sell'
+  | 'auto'
+  | 'manual'
+  | 'vi'
+  | 'state'
+  | 'market';
 export type OrderLogExchangeFilter = 'all' | 'KRX' | 'NXT';
 
 export interface OrderLogFilters {
@@ -47,7 +65,10 @@ export interface OrderLogFilters {
 
 export const DEFAULT_ORDER_LOG_FILTERS: OrderLogFilters = Object.freeze({ stock: 'all', ex: 'all', kind: 'all' });
 
-/** 구분 칩 옵션 — 순서 · 라벨이 UI-SPEC Copywriting 「필터 칩」 행 그대로다. 「자동매도」 는 「매도」 뒤(Phase 27 D-14). */
+/**
+ * 구분 칩 옵션 — 순서 · 라벨이 UI-SPEC Copywriting 「필터 칩」 행 그대로다. 「자동매도」 는 「매도」 뒤(Phase 27 D-14) ·
+ * 「상태전이」 는 「시세」 바로 앞(Phase 39 D-10).
+ */
 export const ORDER_LOG_KIND_FILTERS: ReadonlyArray<{ value: OrderLogKindFilter; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'pre', label: '선매수' },
@@ -57,6 +78,7 @@ export const ORDER_LOG_KIND_FILTERS: ReadonlyArray<{ value: OrderLogKindFilter; 
   { value: 'auto', label: '자동매도' },
   { value: 'manual', label: '수동' },
   { value: 'vi', label: 'VI' },
+  { value: 'state', label: '상태전이' },
   { value: 'market', label: '시세' },
 ];
 
@@ -106,7 +128,7 @@ export function inScope(row: StrategyEventRow, scope: OrderLogScope): boolean {
 
 /* ── ③ 구분 · 필터 ─────────────────────────────────────────────────── */
 
-const KIND_GROUPS: Readonly<Record<Exclude<OrderLogKindFilter, 'all' | 'market'>, readonly number[]>> = {
+const KIND_GROUPS: Readonly<Record<Exclude<OrderLogKindFilter, 'all' | 'market' | 'state'>, readonly number[]>> = {
   pre: [1],
   add: [2],
   post: [3],
@@ -122,9 +144,12 @@ const KIND_GROUPS: Readonly<Record<Exclude<OrderLogKindFilter, 'all' | 'market'>
 
 export function matchesKind(row: StrategyEventRow, kind: OrderLogKindFilter): boolean {
   if (kind === 'all') return true;
+  const state = row.kind === STRATEGY_EVENT_KIND.StateTransition;
+  if (kind === 'state') return state;
   const market = isMarketStrategyEvent(row.kind);
   if (kind === 'market') return market;
-  return !market && KIND_GROUPS[kind].includes(row.group);
+  // 그룹 칩은 주문 이벤트만 — 시세도 상태전이(kind 9)도 아닐 때(Pitfall 6 · group 1~3 · 9 로 와도 섞이지 않는다).
+  return !market && !state && KIND_GROUPS[kind].includes(row.group);
 }
 
 export function applyOrderLogFilters(
@@ -170,6 +195,8 @@ export const ORDER_LOG_SIDE_FILTERS: ReadonlyArray<{ value: OrderLogSideFilter; 
  * 배지 색 축으로 거른다 — 모르는 방향(unknown)은 「전체」 에만 보인다(방향을 지어내지 않는다 · D-10).
  * 예외는 「자동매도」 한 칸: 주문로그 탭 `matchesKind('auto')` 와 같은 group 9 축이다(색이 아니라 서버 group).
  * 자동매도 줄도 매도 색이라 「매도」 는 group 9 를 빼서 두 칩이 겹치지 않게 한다 — 탭의 매도/자동매도 분리와 같은 뜻.
+ * 상태전이(kind 9)는 tone "state" 라 매수/매도에 안 걸리고, 「자동매도」 도 `matchesKind` 가 kind 9 를 그룹 칩에서
+ * 빼므로 group 9 로 와도 안 걸린다 — 「전체」 에만 보인다(Phase 39 D-10 · Pitfall 6).
  */
 export function matchesSide(row: StrategyEventRow, side: OrderLogSideFilter): boolean {
   if (side === 'all') return true;
@@ -238,7 +265,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const ACCOUNT_RE = /^[0-9A-Za-z-]{1,20}$/;
 const EXCHANGES: ReadonlySet<string> = new Set(['KRX', 'NXT']);
-const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'market']);
+const KINDS: ReadonlySet<string> = new Set(['pre', 'add', 'post', 'sell', 'auto', 'manual', 'vi', 'state', 'market']);
 
 /** 형식 + 실제 달력 날짜(`2026-02-30` 거부). */
 function isCalendarDate(v: string): boolean {

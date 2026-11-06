@@ -3,7 +3,7 @@
 /**
  * Phase 14 Plan 09 — 진행 스텝퍼 (C5, CHAT-01, D-04, 채택 = Variant B).
  *
- * 팀장이 전문가 5명(SpecialistId)에게 tool-use 로 위임하는 동안의 진행 상태를 세로
+ * 팀장이 전문가 6명(SpecialistId · 주문 진단 — Phase 39 D-03)에게 tool-use 로 위임하는 동안의 진행 상태를 세로
  * 스텝퍼로 표시한다. done ✓(`--up-bg`) / active ●(`--primary`, blink) / wait ○.
  * 라벨은 SPECIALIST_LABELS(한글). Copywriting: active 스텝은 `{전문가} 분석 중…`.
  *
@@ -30,6 +30,8 @@ const STEP_ORDER: SpecialistId[] = [
   "news",
   "limitup",
   "websearch",
+  // Phase 39 D-03 — 주문 진단은 한 줄(하위 조회 단계 없음). 여기 없는 id 는 표시되지 않는다.
+  "diagnosis",
 ];
 
 const DOT_CLASS: Record<AgentStepStatus, string> = {
