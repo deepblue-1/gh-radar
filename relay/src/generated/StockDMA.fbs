@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 2ca631fc
+// server-repo-commit: 8e0c1417
 // synced-date:        2026-11-06
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -1467,6 +1467,7 @@ enum StrategyEventKind : ubyte {
     StateTransition = 9, // 상태전이 — 설정 변경 이력(Cfg*) + 서버 자동 상태전이(Auto*)(gh-radar Phase 39, quick-261106-kjo).
                          // 저널 80 전용(82·81 없음 — IsObserverOnlyKind). 43칸 매핑은 gh-radar 인박스 노트 261106-chatbot-kind9-mapping.md.
                          // reason_code 접두 대역(Cfg/Auto/Sys/Latch/Gate/Vi)이 사람/서버 구분의 정본 · ahead_qty/expected_cum = 스위치 비트셋 전/후
+                         // Sys 송신(quick-261106-tf8): SysDisableOne = 클라 「해제」 단건 DisableStrategies · SysKillSwitch = 전부 정지 — 스위치 비트셋이 실제로 바뀐 상따만, order_condition = 요청 로그인 id
     BurstLimit = 10,     // 버스트 상한가 — 시세 이벤트, 계좌 없음. cond_actual 조각수 · ev_trade_qty 합계수량 · ev_price 상한가 (quick-261003-phd)
     // 11~14 는 Phase 28 자동매도(group 9 AutoSell) — 28-HANDOFF §4-1 v0.2 칸 재해석(전용 필드 없음, D-33).
     // 단위: 가격 칸은 원 정수 · 수량·누적은 주 정수 · bp 없음. account_no·dma_user_id 를 반드시 채운다(계좌 이벤트).

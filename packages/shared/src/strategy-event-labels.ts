@@ -152,7 +152,7 @@ export const AUTO_SELL_PAUSE_LABELS: Readonly<Record<number, string>> = {
  * 토큰 정본은 39-RESEARCH §Pattern 9 사유 토큰 표(= 39-01 노트) — 접두 대역 Cfg* 사람 · Auto* 서버 판정 · Sys* 서버 운영.
  */
 
-/** kind 9 `reason_code` 사유 토큰(1차 17개) → 행위 문구. 정확 일치 조회 전용(`stateReasonLabel`). */
+/** kind 9 `reason_code` 사유 토큰(1차 17개 + SysDisableOne · gh-trade quick-261106-tf8) → 행위 문구. 정확 일치 조회 전용(`stateReasonLabel`). */
 export const STATE_REASON_LABELS: Readonly<Record<string, string>> = {
   CfgSubmit: "설정 재제출",
   CfgRearm: "설정 재제출 · 재무장",
@@ -167,8 +167,9 @@ export const STATE_REASON_LABELS: Readonly<Record<string, string>> = {
   AutoRiskLatchOn: "위험도 래치 켜짐",
   AutoRiskLatchReset: "위험도 래치 리셋",
   AutoRiskFire: "위험도 발동",
+  SysDisableOne: "해제",
   SysCloseOff: "마감 정리",
-  SysKillSwitch: "킬 스위치",
+  SysKillSwitch: "전부 정지",
   SysRestore: "재기동 복원",
   SysCommand: "서버 명령",
 };

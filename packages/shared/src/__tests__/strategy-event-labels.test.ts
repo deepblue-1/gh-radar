@@ -385,15 +385,16 @@ describe("Phase 39 kind 9 상태전이 사전 (D-09 · D-10)", () => {
     "AutoRiskLatchOn",
     "AutoRiskLatchReset",
     "AutoRiskFire",
+    "SysDisableOne",
     "SysCloseOff",
     "SysKillSwitch",
     "SysRestore",
     "SysCommand",
   ];
 
-  it("STATE_REASON_LABELS 키 = 1차 토큰 17개 정확히 · 2차 토큰(Latch/Gate/Vi)은 없다", () => {
+  it("STATE_REASON_LABELS 키 = 1차 토큰 18개 정확히(SysDisableOne 추가) · 2차 토큰(Latch/Gate/Vi)은 없다", () => {
     expect(Object.keys(STATE_REASON_LABELS).sort()).toEqual([...PRIMARY_TOKENS].sort());
-    expect(Object.keys(STATE_REASON_LABELS)).toHaveLength(17);
+    expect(Object.keys(STATE_REASON_LABELS)).toHaveLength(18);
     for (const t of ["LatchSellOn", "LatchCancelOn", "GateSessionBlocked", "GateConsumed", "ViNoOrder"]) {
       expect(Object.hasOwn(STATE_REASON_LABELS, t)).toBe(false);
     }
@@ -402,6 +403,8 @@ describe("Phase 39 kind 9 상태전이 사전 (D-09 · D-10)", () => {
   it("stateReasonLabel — 사전값 · 모르는 토큰은 원문 그대로 · 빈 문자열은 「상태전이」 · 프로토타입 키는 원문", () => {
     expect(stateReasonLabel("CfgSubmit")).toBe("설정 재제출");
     expect(stateReasonLabel("AutoPreBuyOff")).toBe("선매수 꺼짐(1회 발주)");
+    expect(stateReasonLabel("SysDisableOne")).toBe("해제");
+    expect(stateReasonLabel("SysKillSwitch")).toBe("전부 정지");
     expect(stateReasonLabel("Unknown9")).toBe("Unknown9");
     expect(stateReasonLabel("GateConsumed")).toBe("GateConsumed");
     expect(stateReasonLabel("")).toBe("상태전이");

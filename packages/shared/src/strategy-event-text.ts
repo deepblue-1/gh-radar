@@ -207,7 +207,7 @@ function joinDot(pieces: ReadonlyArray<string | null | undefined>): string {
 
 /**
  * kind 9 상태전이 본문 — 바뀐 스위치(`ahead_qty` 전 → `expected_cum` 후) → 단계 전→후 → message(바뀐 값 요약) 를
- * 「 · 」 로 잇고 제출자(`order_condition` — 사람 제출 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
+ * 「 · 」 로 잇고 제출자(`order_condition` — 사람 제출 · 해제 · 전부 정지 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
  */
 function stateTransitionBody(ev: StrategyEventRow): string {
   const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), stateStageText(ev), ev.message]);
