@@ -14,7 +14,7 @@
  * - **계좌 인자가 없다(SC-4).** 입력 `PushFacts` 에 계좌 칸이 없어 어떤 입력으로도 계좌번호가 문안에 들어갈 수 없다.
  */
 import { amountFromQty, formatManwon } from "./lc-amount";
-import { ORDER_GROUP_LABELS } from "./strategy-event-labels";
+import { CANCEL_REASON_LABELS, ORDER_GROUP_LABELS, autoSellBasisLabel } from "./strategy-event-labels";
 import { PUSH_ORDER_LOG_PATH, type PushFacts } from "./push";
 
 const NUM = new Intl.NumberFormat("ko-KR");
@@ -58,6 +58,21 @@ function amountPart(qty: number | null | undefined, price: number | null | undef
   return ` (${formatManwon(amountFromQty(qty, price))})`;
 }
 
+/** 수량 조각 `500주 (156만)` — 수량이 0 · null 이면 빈 문자열(가격을 모르면 금액 없이 `500주`). */
+function qtyPart(qty: number | null | undefined, price: number | null | undefined): string {
+  return qty != null && qty > 0 ? `${NUM.format(qty)}주${amountPart(qty, price)}` : "";
+}
+
+/**
+ * 손익 % 한 자리(D-23) — 크기를 반올림해 부호를 붙인다(±같은 크기는 같은 숫자 · 음수 부호는 U+2212).
+ * 반올림해 0 이면 부호 없는 `0.0%`.
+ */
+function pnlPctText(pct: number): string {
+  const tenths = Math.round(Math.abs(pct) * 10);
+  if (tenths === 0) return "0.0%";
+  return `${pct < 0 ? "−" : "+"}${(tenths / 10).toFixed(1)}%`;
+}
+
 /** 가격 조각 `3,120` — 0 · null 이면 빈 문자열. */
 function pricePart(price: number | null | undefined, prefix = ""): string {
   return price != null && price > 0 ? `${prefix}${NUM.format(price)}` : "";
@@ -78,13 +93,11 @@ export function pushMessageOf(f: PushFacts): { title: string; body: string } {
   const stock = stockOf(f);
   const word = pushGroupWord(f);
   switch (f.stage) {
-    case "accepted": {
-      const qty = f.qty != null && f.qty > 0 ? `${NUM.format(f.qty)}주${amountPart(f.qty, f.price)}` : "";
+    case "accepted":
       return {
         title: `${stock} · ${word} 접수`,
-        body: join([qty, pricePart(f.price), exchangeTime(f)]),
+        body: join([qtyPart(f.qty, f.price), pricePart(f.price), exchangeTime(f)]),
       };
-    }
     case "first_fill": {
       const remain = f.qty != null ? `잔량 ${NUM.format(Math.max(0, f.qty - f.filledQty))}주` : "";
       return {
@@ -106,8 +119,63 @@ export function pushMessageOf(f: PushFacts): { title: string; body: string } {
           exchangeTime(f),
         ]),
       };
-    default:
-      return { title: `${stock} · ${word}`, body: exchangeTime(f) };
+    case "rejected":
+      // 게이트웨이 사유는 trim 한 원문 한 조각 — 다른 문장과 이어 붙이지 않는다(D-04).
+      return {
+        title: `${stock} · ${word} 거부`,
+        body: join([f.message?.trim() ?? "", qtyPart(f.qty, f.price), pricePart(f.price), exchangeTime(f)]),
+      };
+    case "cancelled": {
+      const reason =
+        f.cancelReason != null && Object.hasOwn(CANCEL_REASON_LABELS, f.cancelReason)
+          ? CANCEL_REASON_LABELS[f.cancelReason]!
+          : "";
+      const remain =
+        f.cancelledQty != null && f.cancelledQty > 0
+          ? `잔량 ${NUM.format(f.cancelledQty)}주${amountPart(f.cancelledQty, f.price)}`
+          : "";
+      const head = reason ? join([reason, remain]) : remain ? `${remain} 취소` : "취소";
+      return { title: `${stock} · ${word} 취소`, body: join([head, exchangeTime(f)]) };
+    }
+    case "autosell_start": {
+      // 구분 낱말은 「자동매도」 고정 · 시각 조각은 거래소 없이 시각만(스케치 029).
+      const a = f.autosell;
+      const time = formatPushKstTime(f.gwTimeMs);
+      const title = `${stock} · 자동매도 시작`;
+      if (!a) return { title, body: time };
+      const basis = autoSellBasisLabel(a.basis);
+      const holding = a.holdingQty ?? 0;
+      if (holding > 0) {
+        // D-25 — 보유 조각은 relay 계좌 캐시에 값이 있을 때만.
+        return { title, body: join([`보유 ${qtyPart(holding, a.holdingAvgPrice)}`, `기준 ${basis}`, time]) };
+      }
+      return {
+        title,
+        body: join([`기준 ${basis}${pricePart(a.basePrice, " ")}`, pricePart(a.triggerPrice, "발동가 "), time]),
+      };
+    }
+    case "autosell_done": {
+      const a = f.autosell;
+      const time = formatPushKstTime(f.gwTimeMs);
+      const title = `${stock} · 자동매도 완료`;
+      if (!a) return { title, body: time };
+      // 평균 매도가가 없으면 금액 · 평균 · 손익 조각을 모두 뺀다(손익 % 는 실현 손익 기준 · 40-05 가 계산 · D-23).
+      const hasAvg = a.avgSellPrice != null && a.avgSellPrice > 0;
+      return {
+        title,
+        body: join([
+          `${NUM.format(a.soldQty)}주${amountPart(a.soldQty, a.avgSellPrice)} 매도`,
+          pricePart(a.avgSellPrice, "평균 "),
+          hasAvg && a.pnlPct != null ? `손익 ${pnlPctText(a.pnlPct)}` : "",
+          time,
+        ]),
+      };
+    }
+    default: {
+      // 빠진 단계는 타입 오류 · 계약 밖 문자열은 조용히 넘기지 않고 던진다(relay 가 잡아 로깅).
+      const unknownStage: never = f.stage;
+      throw new Error(`pushMessageOf: unknown stage ${String(unknownStage)}`);
+    }
   }
 }
 
