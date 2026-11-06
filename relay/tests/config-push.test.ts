@@ -149,3 +149,42 @@ describe("loadConfig — apns (Phase 40 APNs 비밀 · 비치명)", () => {
     expect(c.pushNotify).toBe(true);
   });
 });
+
+/** Phase 40 (40-09) — `loadConfig().fcmProjectId` (env `FCM_PROJECT_ID` · production 기본 `gh-radar`). */
+describe("loadConfig — fcmProjectId (Phase 40 FCM v1)", () => {
+  const KEYS = ["FCM_PROJECT_ID", "DMA_OBSERVER_SECRET", "DMA_REGISTRY_SOURCE"] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("없음 + production → gh-radar(운영 VM 메타데이터 토큰)", () => {
+    process.env.NODE_ENV = "production";
+    process.env.DMA_OBSERVER_SECRET = "observer-secret-test";
+    process.env.DMA_REGISTRY_SOURCE = "db";
+    expect(loadConfig().fcmProjectId).toBe("gh-radar");
+  });
+
+  it("없음 + development · test → undefined(로컬엔 메타데이터 서버가 없다)", () => {
+    process.env.NODE_ENV = "development";
+    expect(loadConfig().fcmProjectId).toBeUndefined();
+    process.env.NODE_ENV = "test";
+    expect(loadConfig().fcmProjectId).toBeUndefined();
+  });
+
+  it("FCM_PROJECT_ID 가 있으면 그 값(NODE_ENV 무관)", () => {
+    process.env.FCM_PROJECT_ID = "other-project";
+    expect(loadConfig().fcmProjectId).toBe("other-project");
+  });
+});
