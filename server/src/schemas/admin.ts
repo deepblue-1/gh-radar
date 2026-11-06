@@ -239,11 +239,15 @@ export const AdminAccountCreateSchema = z
 /**
  * PUT /api/admin/accounts/:broker/:accountNo — `AdminAccountSaveBody`. 증권사별 길이 판정은 경로 broker 를 아는 라우트가
  * `kbAccountIssues` 로 한다(바디에는 증권사가 없다).
+ * quick 261106-ntl N-02 — `orderEndpoint`(KB 만 · 라우트가 교보를 거부)는 연결 사용자마다 relay 계좌 PUT 에 그대로 싣는다.
+ * 형식 검사는 하지 않는다(gh-trade code 13 정본 · `OrderEndpointSchema` 와 같은 계약). ★ 키가 없으면 zod strip 으로 조용히
+ * 사라진다 → 배포는 server 먼저.
  */
 export const AdminAccountSaveSchema = z.object({
   name: AccountNameSchema,
   branchNo: z.string().default(""),
   traderId: z.string().default(""),
+  orderEndpoint: OrderEndpointSchema.optional(),
 });
 
 /** 경로 `:broker/:accountNo`(계좌 마스터) — 계좌번호는 검사 뒤 정규화값으로. */

@@ -1,22 +1,26 @@
-import { Router, type Request, type Router as RouterT } from "express";
+import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   maskDmaUserId,
   type AdminAccountFanout,
   type AdminAccountSaveResponse,
   type AdminAccountsOverview,
+  type AdminCommandResponse,
+  type DmaBroker,
 } from "@gh-radar/shared";
 
 import { requireAuth } from "../middleware/require-auth.js";
 import { requireAdmin } from "../middleware/require-admin.js";
 import { ApiError, ValidationFailed } from "../errors.js";
 import {
+  AdminAccountBudgetSchema,
   AdminAccountCreateSchema,
+  AdminAccountFeeSchema,
   AdminAccountSaveSchema,
   accountMasterParam,
   kbAccountIssues,
 } from "../schemas/admin.js";
-import type { RelayAdminClient } from "../services/relay-admin-client.js";
+import type { RelayAdminClient, RelayAdminResponse } from "../services/relay-admin-client.js";
 import { DbError, audit, parseOrThrow, relayResults } from "./admin.js";
 
 /**
@@ -33,6 +37,13 @@ import { DbError, audit, parseOrThrow, relayResults } from "./admin.js";
  *                                          등록 서버 · priority 그대로 · orderEndpoint 없음 = 87 IP/MAC 보존). 한 사용자 relay
  *                                          거부 · 실패는 그 항목 `error` 로 접고 나머지는 계속한다 — 응답은 200 `{ ok, fanout }`.
  *                                          active 서버가 없는 링크(removing 만)는 부르지 않는다(relay 는 빈 servers 를 거부).
+ *                                          quick 261106-ntl N-02 — 바디에 `orderEndpoint`(KB 만 · 교보면 400)가 있으면 각 사용자
+ *                                          putAccount 바디에 그대로 싣는다(없으면 키 자체를 넣지 않는다 = 87 IP/MAC 보존).
+ * - PUT    /accounts/:broker/:accountNo/budget : 예수금(quick 261106-ntl N-01) — `{ budgetKrw }` → RPC `admin_accounts_raw` 1회로
+ *                                          그 계좌의 active 등록 서버가 있는 사용자를 찾아 사용자마다 기존 relay
+ *                                          `…/dma-users/:dma/accounts/:broker/:accountNo/budget`(op 6) 1회 → 200 `{ ok, fanout }`.
+ * - PUT    /accounts/:broker/:accountNo/fee    : 수수료 · 매도세(quick 261106-ntl N-01) — `{ feePpm, sellTaxPpm }` → 같은 팬아웃(op 7).
+ *                                          0~10000 범위 검사는 하지 않는다(gh-trade code 1 경로 — per-user 경로와 같은 계약).
  * - DELETE /accounts/:broker/:accountNo  : 삭제 — 연결 0명만. 연결 있으면 409 `ACCOUNT_IN_USE`(RPC · FK 23503 모두).
  *
  * 감사 줄에는 계좌번호를 넣지 않는다(증권사만) · DMA id 는 `maskDmaUserId`.
@@ -106,38 +117,55 @@ adminAccountsRouter.post("/accounts", async (req, res, next) => {
 });
 
 /**
- * 링크 1개 relay 반영 — 거부(409) · 실패(502) · 클라이언트 없음은 그 항목 `error` 로 접는다(D-08 — 전체 실패로 만들지 않는다).
+ * 사용자 1명 relay 호출 → 팬아웃 1건. 거부(409) · 실패(502) · 클라이언트 없음은 그 항목 `error` 로 접는다(D-08 — 전체 실패로
+ * 만들지 않는다). 계좌 저장(putAccount) · 예수금(op 6) · 수수료(op 7) 팬아웃이 함께 쓴다(quick 261106-ntl).
  */
 async function fanoutOne(
-  req: Request,
   relay: RelayAdminClient | undefined,
-  account: { broker: "KB" | "KYOBO"; accountNo: string; name: string; branchNo: string; traderId: string },
-  link: AccountLink,
+  dmaUserId: string,
+  op: string,
+  call: (relay: RelayAdminClient) => Promise<RelayAdminResponse<AdminCommandResponse>>,
 ): Promise<AdminAccountFanout> {
   if (!relay) {
     return {
-      dmaUserId: link.dmaUserId,
+      dmaUserId,
       results: [],
       error: { code: "RELAY_UNAVAILABLE", message: "relay 연결이 설정되지 않아 처리할 수 없어요." },
     };
   }
   try {
-    const results = relayResults(
-      await relay.putAccount(
-        link.dmaUserId,
-        { account: { ...account, priority: link.priority }, servers: link.servers },
-        req.adminEmail!,
-      ),
-      "account-save",
-    );
-    return { dmaUserId: link.dmaUserId, results, error: null };
+    const results = relayResults(await call(relay), op);
+    return { dmaUserId, results, error: null };
   } catch (e) {
     const err =
       e instanceof ApiError
         ? { code: e.code, message: e.message }
         : { code: "RELAY_FAILED", message: "relay 처리에 실패했어요. 잠시 뒤 다시 시도하세요." };
-    return { dmaUserId: link.dmaUserId, results: [], error: err };
+    return { dmaUserId, results: [], error: err };
   }
+}
+
+/** 감사 줄의 팬아웃 요약 — `<마스킹 DMA id>:<서버>:<outcome>` · 항목 오류는 `<마스킹 DMA id>:error:<code>`(계좌번호 없음). */
+function fanoutAudit(fanout: AdminAccountFanout[]): string[] {
+  return fanout.flatMap((f) =>
+    f.error
+      ? [`${maskDmaUserId(f.dmaUserId)}:error:${f.error.code}`]
+      : f.results.map((r) => `${maskDmaUserId(f.dmaUserId)}:${r.server}:${r.outcome}`),
+  );
+}
+
+/**
+ * quick 261106-ntl N-01 — 계좌를 쓰는 사용자 중 active 등록 서버가 있는 DMA id(RPC 정렬 = DMA id 오름차순). 기존 RPC
+ * `admin_accounts_raw` 1회를 재사용한다(새 RPC · 표 직접 조회 없음). 목록에 없는 계좌 → 404.
+ */
+async function activeLinkUsers(supabase: SupabaseClient, broker: DmaBroker, accountNo: string): Promise<string[]> {
+  const { data, error } = await supabase.rpc("admin_accounts_raw");
+  if (error) throw DbError("계좌 조회에 실패했습니다.", error);
+  const raw = data as Partial<AdminAccountsOverview> | null;
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.accounts)) throw DbError("계좌 조회에 실패했습니다.");
+  const account = raw.accounts.find((a) => a.broker === broker && a.accountNo === accountNo);
+  if (!account) throw NoSuchAccount();
+  return account.users.filter((u) => u.servers.some((s) => s.state === "active")).map((u) => u.dmaUserId);
 }
 
 // --- PUT /accounts/:broker/:accountNo — 계좌 저장 + 연결 사용자 팬아웃 (D-08) ---
@@ -147,6 +175,11 @@ adminAccountsRouter.put("/accounts/:broker/:accountNo", async (req, res, next) =
     const body = parseOrThrow(AdminAccountSaveSchema, req.body ?? {});
     const issue = kbAccountIssues({ broker, ...body })[0];
     if (issue) throw ValidationFailed(`${issue.path}: ${issue.message}`);
+    // N-02 — 주문자 IP/MAC 은 KB 계좌만(per-user 계좌 PUT 과 같은 규칙) · RPC 전에 거부한다.
+    const orderEndpoint = body.orderEndpoint;
+    if (orderEndpoint && broker === "KYOBO") {
+      throw ValidationFailed("orderEndpoint: 주문자 IP · MAC 은 KB 계좌만이에요");
+    }
     // 교보는 지점 · 트레이더 없음(D-03) — 남은 값이 실려 와도 빈 값으로.
     const values = {
       name: body.name,
@@ -174,17 +207,77 @@ adminAccountsRouter.put("/accounts/:broker/:accountNo", async (req, res, next) =
     const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
     const account = { broker, accountNo, ...values };
     const fanout = await Promise.all(
-      links.filter((l) => l.servers.length > 0).map((l) => fanoutOne(req, relay, account, l)),
+      links
+        .filter((l) => l.servers.length > 0)
+        .map((l) =>
+          fanoutOne(relay, l.dmaUserId, "account-save", (r) =>
+            r.putAccount(
+              l.dmaUserId,
+              {
+                account: { ...account, priority: l.priority },
+                servers: l.servers,
+                ...(orderEndpoint ? { orderEndpoint } : {}),
+              },
+              req.adminEmail!,
+            ),
+          ),
+        ),
     );
 
     audit(req, "account-save", broker, {
       users: links.length,
-      fanout: fanout.flatMap((f) =>
-        f.error
-          ? [`${maskDmaUserId(f.dmaUserId)}:error:${f.error.code}`]
-          : f.results.map((r) => `${maskDmaUserId(f.dmaUserId)}:${r.server}:${r.outcome}`),
-      ),
+      fanout: fanoutAudit(fanout),
+      // 값은 싣지 않는다 — 사용자 PC 식별 정보(로그 금지).
+      ...(orderEndpoint
+        ? { orderEndpoint: orderEndpoint.orderIp === "" && orderEndpoint.orderMac === "" ? "clear" : "set" }
+        : {}),
     });
+    const out: AdminAccountSaveResponse = { ok: true, fanout };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /accounts/:broker/:accountNo/budget — 예수금 팬아웃 (quick 261106-ntl N-01 · op 6) ---
+adminAccountsRouter.put("/accounts/:broker/:accountNo/budget", async (req, res, next) => {
+  try {
+    const { broker, accountNo } = parseOrThrow(accountMasterParam, req.params);
+    const { budgetKrw } = parseOrThrow(AdminAccountBudgetSchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const users = await activeLinkUsers(supabase, broker, accountNo);
+    const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+    const fanout = await Promise.all(
+      users.map((dma) =>
+        fanoutOne(relay, dma, "account-budget", (r) =>
+          r.setAccountBudget(dma, broker, accountNo, { budgetKrw }, req.adminEmail!),
+        ),
+      ),
+    );
+    audit(req, "account-budget", broker, { budgetKrw, users: users.length, fanout: fanoutAudit(fanout) });
+    const out: AdminAccountSaveResponse = { ok: true, fanout };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /accounts/:broker/:accountNo/fee — 수수료 · 매도세 팬아웃 (quick 261106-ntl N-01 · op 7 · 범위 검사 없음) ---
+adminAccountsRouter.put("/accounts/:broker/:accountNo/fee", async (req, res, next) => {
+  try {
+    const { broker, accountNo } = parseOrThrow(accountMasterParam, req.params);
+    const { feePpm, sellTaxPpm } = parseOrThrow(AdminAccountFeeSchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const users = await activeLinkUsers(supabase, broker, accountNo);
+    const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
+    const fanout = await Promise.all(
+      users.map((dma) =>
+        fanoutOne(relay, dma, "account-fee", (r) =>
+          r.setAccountFee(dma, broker, accountNo, { feePpm, sellTaxPpm }, req.adminEmail!),
+        ),
+      ),
+    );
+    audit(req, "account-fee", broker, { feePpm, sellTaxPpm, users: users.length, fanout: fanoutAudit(fanout) });
     const out: AdminAccountSaveResponse = { ok: true, fanout };
     res.json(out);
   } catch (e) {

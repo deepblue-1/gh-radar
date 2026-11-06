@@ -1508,7 +1508,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「My page · Admin › 사용자 · 계좌 · 서버 · 발사 · 매매손익」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02)", () => {
+describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사용자 · 서버 · 발사」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1521,11 +1521,11 @@ describe("AppSidebar — 「My page · Admin › 사용자 · 계좌 · 서버 �
   const pnl = () => screen.queryByRole("link", { name: "매매손익" });
   const accounts = () => document.querySelector<HTMLAnchorElement>('a[data-sidebar-item="admin-accounts"]');
 
-  it("role admin → My page 뒤 「Admin」(/admin/users) + 하위 「사용자」 · 「계좌」 · 「서버」 · 「발사」 · 「매매손익」(맨 뒤) — 목록 맨 끝", () => {
+  it("role admin → My page 뒤 「Admin」(/admin/pnl = 첫 항목) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「발사」 — 목록 맨 끝", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
-    expect(admin()).toHaveAttribute("href", "/admin/users");
+    expect(admin()).toHaveAttribute("href", "/admin/pnl");
     expect(users()).toHaveAttribute("href", "/admin/users");
     expect(servers()).toHaveAttribute("href", "/admin/servers");
     expect(launch()).toHaveAttribute("href", "/admin/launch");
@@ -1552,11 +1552,11 @@ describe("AppSidebar — 「My page · Admin › 사용자 · 계좌 · 서버 �
       "AI 애널리스트",
       "My page",
       "Admin",
-      "사용자",
+      "매매손익",
       "계좌",
+      "사용자",
       "서버",
       "발사",
-      "매매손익",
     ]);
     // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
     const sub = admin()!.closest("li")!.nextElementSibling!;

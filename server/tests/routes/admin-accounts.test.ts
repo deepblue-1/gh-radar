@@ -39,6 +39,28 @@ const overview: AdminAccountsOverview = {
         },
       ],
     },
+    // quick 261106-ntl — 예수금 · 수수료 팬아웃 대상: active 2명 + removing-only 1명.
+    {
+      broker: "KB",
+      accountNo: "8800000002",
+      name: "공유",
+      branchNo: "00123",
+      traderId: "T00001",
+      updatedAt: "2026-11-06T00:00:00+00:00",
+      users: [
+        {
+          dmaUserId: "kim01",
+          emails: ["trader@gmail.com"],
+          priority: 1,
+          servers: [
+            { serverKey: "KB120", state: "active" },
+            { serverKey: "KB121", state: "active" },
+          ],
+        },
+        { dmaUserId: "lee01", emails: [], priority: 4, servers: [{ serverKey: "KB120", state: "active" }] },
+        { dmaUserId: "park01", emails: [], priority: 2, servers: [{ serverKey: "KB121", state: "removing" }] },
+      ],
+    },
     {
       broker: "KYOBO",
       accountNo: "777",
@@ -314,6 +336,44 @@ describe("PUT /api/admin/accounts/:broker/:accountNo — 저장 + 팬아웃 (D-0
     expect(relay.calls).toHaveLength(0);
   });
 
+  it("N-02 orderEndpoint → 각 사용자 putAccount 바디에 trim 값 그대로(표기 보존) · 감사엔 값 없음", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/accounts/KB/8800000001")).send({
+      ...body,
+      orderEndpoint: { orderIp: " 10.41.1.124 ", orderMac: "1c-fd-08-7d-97-8e" },
+    });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toHaveLength(2);
+    for (const c of relay.calls) {
+      expect((c.body as { orderEndpoint: unknown }).orderEndpoint).toEqual({
+        orderIp: "10.41.1.124",
+        orderMac: "1c-fd-08-7d-97-8e",
+      });
+    }
+  });
+
+  it("N-02 orderEndpoint 없는 저장 → putAccount 바디에 키 자체가 없다(87 IP/MAC 보존)", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/accounts/KB/8800000001")).send(body);
+    expect(res.status).toBe(200);
+    for (const c of relay.calls) expect(Object.keys(c.body as object)).not.toContain("orderEndpoint");
+  });
+
+  it("N-02 교보 + orderEndpoint → 400 · RPC 0 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/accounts/KYOBO/777")).send({
+      name: "교",
+      orderEndpoint: { orderIp: "", orderMac: "" },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+
   it("RPC links 모양 위반 → 500 DB_ERROR · relay 0", async () => {
     const relay = makeFakeRelay();
     const { app } = makeApp({ rpc: { dma_admin_update_account: () => ({ data: { links: [{ dmaUserId: 1 }] }, error: null }) } }, relay.client);
@@ -354,5 +414,132 @@ describe("DELETE /api/admin/accounts/:broker/:accountNo — 삭제 (D-08 · 연�
     const res = await auth(request(app).delete("/api/admin/accounts/NH/1"));
     expect(res.status).toBe(400);
     expect(rec.rpcCalls).toHaveLength(0);
+  });
+});
+
+/** quick 261106-ntl N-01 — 예수금(op 6) · 수수료(op 7) 계좌 단위 팬아웃. 대상 = admin_accounts_raw 의 active 링크 사용자. */
+describe.each([
+  {
+    op: "budget",
+    good: { budgetKrw: 15000000 },
+    bad: [
+      ["음수", { budgetKrw: -1 }],
+      ["소수", { budgetKrw: 1.5 }],
+      ["추가 키", { budgetKrw: 1, x: 1 }],
+    ],
+  },
+  {
+    op: "fee",
+    good: { feePpm: 500, sellTaxPpm: 2000 },
+    bad: [
+      ["uint32 밖", { feePpm: 2 ** 32, sellTaxPpm: 0 }],
+      ["한 값 누락", { feePpm: 500 }],
+      ["추가 키", { feePpm: 1, sellTaxPpm: 1, x: 1 }],
+    ],
+  },
+] as const)("PUT /api/admin/accounts/:broker/:accountNo/$op — 계좌 팬아웃 (N-01)", ({ op, good, bad }) => {
+  const url = `/api/admin/accounts/KB/008800000002/${op}`;
+
+  it("active 사용자 2명만 relay 1회씩(바디 그대로) · removing-only 0 · RPC admin_accounts_raw 1회 · 200 { ok, fanout } DMA id 순", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(url)).send(good);
+    expect(res.status).toBe(200);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["admin_accounts_raw"]);
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: `/internal/admin/dma-users/kim01/accounts/KB/8800000002/${op}`,
+        adminEmail: ADMIN_EMAIL,
+        body: good,
+      },
+      {
+        method: "PUT",
+        path: `/internal/admin/dma-users/lee01/accounts/KB/8800000002/${op}`,
+        adminEmail: ADMIN_EMAIL,
+        body: good,
+      },
+    ]);
+    expect(res.body).toEqual({
+      ok: true,
+      fanout: [
+        { dmaUserId: "kim01", results: OK_RESULTS, error: null },
+        { dmaUserId: "lee01", results: OK_RESULTS, error: null },
+      ],
+    });
+  });
+
+  it("한 사용자 relay 409 · 다른 사용자 502 → 200 유지 · 그 항목 error · results []", async () => {
+    const { app } = makeApp(
+      {},
+      makeFakeRelay((c) => {
+        if (c.path.includes("/kim01/")) return relayReject(409, "NO_SUCH_ACCOUNT", "그 사용자에게 없는 계좌예요");
+        if (c.path.includes("/lee01/")) return { status: 0, data: null };
+        return undefined;
+      }).client,
+    );
+    const res = await auth(request(app).put(url)).send(good);
+    expect(res.status).toBe(200);
+    expect(res.body.fanout).toEqual([
+      { dmaUserId: "kim01", results: [], error: { code: "NO_SUCH_ACCOUNT", message: "그 사용자에게 없는 계좌예요" } },
+      { dmaUserId: "lee01", results: [], error: { code: "RELAY_FAILED", message: expect.any(String) } },
+    ]);
+  });
+
+  it("relay 클라이언트 없음 + active 링크 → 각 항목 error RELAY_UNAVAILABLE", async () => {
+    const { app } = makeApp();
+    const res = await auth(request(app).put(url)).send(good);
+    expect(res.status).toBe(200);
+    expect(res.body.fanout.map((f: { dmaUserId: string; error: { code: string } }) => `${f.dmaUserId}:${f.error.code}`)).toEqual([
+      "kim01:RELAY_UNAVAILABLE",
+      "lee01:RELAY_UNAVAILABLE",
+    ]);
+  });
+
+  it("active 링크 0(연결 0명) → relay 0 · fanout []", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(`/api/admin/accounts/KYOBO/777/${op}`)).send(good);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, fanout: [] });
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("목록에 없는 계좌 → 404 NOT_FOUND · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(`/api/admin/accounts/KB/999/${op}`)).send(good);
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("NOT_FOUND");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it.each(bad)("바디 %s → 400 · RPC 0 · relay 0", async (_l, b) => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put(url)).send(b);
+    expect(res.status).toBe(400);
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("trader → 403 · RPC 0", async () => {
+    const { app, rec } = makeApp();
+    const res = await request(app).put(url).set("Authorization", `Bearer ${TRADER_TOKEN}`).send(good);
+    expect(res.status).toBe(403);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+});
+
+describe("PUT …/fee 범위 (N-01)", () => {
+  it("0~10000 밖(20000)은 400 이 아니다 — relay 로 간다(gh-trade code 1 경로)", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/accounts/KB/8800000002/fee")).send({ feePpm: 20000, sellTaxPpm: 0 });
+    expect(res.status).toBe(200);
+    expect(relay.calls.map((c) => c.body)).toEqual([
+      { feePpm: 20000, sellTaxPpm: 0 },
+      { feePpm: 20000, sellTaxPpm: 0 },
+    ]);
   });
 });

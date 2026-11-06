@@ -492,11 +492,13 @@ export interface AdminAccountCreateBody {
   traderId: string;
 }
 
-/** PUT /api/admin/accounts/:broker/:accountNo — 계좌명 · 지점 · 트레이더 저장(D-08). */
+/** PUT /api/admin/accounts/:broker/:accountNo — 계좌명 · 지점 · 트레이더 저장(D-08) + 주문자 IP/MAC(quick 261106-ntl N-02). */
 export interface AdminAccountSaveBody {
   name: string;
   branchNo: string;
   traderId: string;
+  /** KB 만 · 웹 입력 원문(trim) · 있으면 연결 사용자마다 relay 계좌 PUT 에 그대로 싣는다 · 둘 다 "" = 미설정으로 되돌리기 · 로그 금지. */
+  orderEndpoint?: AdminOrderEndpoint;
 }
 
 /** PUT /api/admin/accounts/:broker/:accountNo 팬아웃 1건 — results 는 relay 원문, error 는 그 사용자 relay 거부/실패. */
@@ -506,6 +508,10 @@ export interface AdminAccountFanout {
   error: { code: string; message: string } | null;
 }
 
+/**
+ * PUT /api/admin/accounts/:broker/:accountNo 응답. PUT …/budget · …/fee 팬아웃 응답도 같은 모양(quick 261106-ntl N-01 —
+ * 바디는 `AdminAccountBudgetBody` · `AdminAccountFeeBody`).
+ */
 export interface AdminAccountSaveResponse {
   ok: true;
   fanout: AdminAccountFanout[];
