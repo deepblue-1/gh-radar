@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SERVER_KEY_RE, brokerOfServerKey, isValidAccountNoInput } from "@gh-radar/shared";
+import { SERVER_KEY_RE, brokerOfServerKey, isValidAccountNoInput, normalizeAccountNo } from "@gh-radar/shared";
 
 /**
  * Phase 29 (D-01 · D-03 · D-04) — Admin 허용 / 역할 쓰기 입력 검증.
@@ -49,24 +49,42 @@ export const DmaPasswordSchema = z
  * 정규화(" 00123" → "123")는 relay 가 한다. KB 는 지점 5자 · 트레이더 6자, **교보는 둘 다 빈 값으로 바꿔** 보낸다(D-23 ③ —
  * 화면이 KB 때만 입력 칸을 보이지만, 남은 값이 실려 와도 서버 users.toml 에 쓰레기가 들어가지 않게).
  */
+/** 계좌 이름 — trim · ≤ 40자 · 기본 "". */
+const AccountNameSchema = z.string().trim().max(40, "계좌 이름은 40자 이하예요").default("");
+
+/** 입력 계좌번호 — trim 뒤 1~12자(넘으면 자르지 않고 거부 — shared `isValidAccountNoInput`). */
+const AccountNoInputSchema = z.string().refine(isValidAccountNoInput, "계좌번호는 1~12자예요");
+
+/**
+ * KB 지점 5자 · 트레이더 6자 판정(교보는 판정 없음) — 계좌 입력 · 계좌 마스터 등록 스키마의 superRefine 과
+ * 계좌 마스터 저장 라우트(경로 broker 를 아는 곳)가 같이 쓴다. 위반을 { path, message } 목록으로 돌려준다.
+ */
+export function kbAccountIssues(a: {
+  broker: string;
+  branchNo: string;
+  traderId: string;
+}): { path: "branchNo" | "traderId"; message: string }[] {
+  if (a.broker !== "KB") return [];
+  const out: { path: "branchNo" | "traderId"; message: string }[] = [];
+  if (a.branchNo.length !== 5) out.push({ path: "branchNo", message: "KB 지점번호는 5자예요" });
+  if (a.traderId.length !== 6) out.push({ path: "traderId", message: "KB 트레이더 id 는 6자예요" });
+  return out;
+}
+
+function refineKbAccount(a: { broker: string; branchNo: string; traderId: string }, ctx: z.RefinementCtx): void {
+  for (const i of kbAccountIssues(a)) ctx.addIssue({ code: "custom", path: [i.path], message: i.message });
+}
+
 export const AdminAccountInputSchema = z
   .object({
     broker: DmaBrokerSchema,
-    accountNo: z.string().refine(isValidAccountNoInput, "계좌번호는 1~12자예요"),
-    name: z.string().trim().max(40, "계좌 이름은 40자 이하예요").default(""),
+    accountNo: AccountNoInputSchema,
+    name: AccountNameSchema,
     branchNo: z.string().default(""),
     traderId: z.string().default(""),
     priority: z.number().int().min(0).max(999).default(0),
   })
-  .superRefine((a, ctx) => {
-    if (a.broker !== "KB") return;
-    if (a.branchNo.length !== 5) {
-      ctx.addIssue({ code: "custom", path: ["branchNo"], message: "KB 지점번호는 5자예요" });
-    }
-    if (a.traderId.length !== 6) {
-      ctx.addIssue({ code: "custom", path: ["traderId"], message: "KB 트레이더 id 는 6자예요" });
-    }
-  })
+  .superRefine(refineKbAccount)
   .transform((a) => (a.broker === "KYOBO" ? { ...a, branchNo: "", traderId: "" } : a));
 
 /** 등록 서버 — 1~8개 · 서버 키 형식. 계좌 증권사와의 일치는 바깥 스키마가 본다. */
@@ -140,7 +158,7 @@ export const dmaParam = z.object({ dma: DmaUserIdSchema });
 export const dmaAccountParam = z.object({
   dma: DmaUserIdSchema,
   broker: DmaBrokerSchema,
-  accountNo: z.string().refine(isValidAccountNoInput, "계좌번호는 1~12자예요"),
+  accountNo: AccountNoInputSchema,
 });
 
 /**
@@ -198,6 +216,41 @@ export const AdminPutAccountSchema = z
       ctx.addIssue({ code: "custom", path: ["orderEndpoint"], message: "주문자 IP · MAC 은 KB 계좌만이에요" });
     }
   });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 계좌 마스터 (quick 261106-lwu D-03 · D-07 · D-08) — /api/admin/accounts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/accounts — `AdminAccountCreateBody`. 계좌번호는 검사 뒤 shared `normalizeAccountNo` 정규화값으로 바꾼다
+ * (마스터 키는 정규화값 한 벌 — D-03). KB 는 지점 5 · 트레이더 6, 교보는 둘 다 빈 값으로(입력 계좌와 같은 규칙).
+ */
+export const AdminAccountCreateSchema = z
+  .object({
+    broker: DmaBrokerSchema,
+    accountNo: AccountNoInputSchema.transform(normalizeAccountNo),
+    name: AccountNameSchema,
+    branchNo: z.string().default(""),
+    traderId: z.string().default(""),
+  })
+  .superRefine(refineKbAccount)
+  .transform((a) => (a.broker === "KYOBO" ? { ...a, branchNo: "", traderId: "" } : a));
+
+/**
+ * PUT /api/admin/accounts/:broker/:accountNo — `AdminAccountSaveBody`. 증권사별 길이 판정은 경로 broker 를 아는 라우트가
+ * `kbAccountIssues` 로 한다(바디에는 증권사가 없다).
+ */
+export const AdminAccountSaveSchema = z.object({
+  name: AccountNameSchema,
+  branchNo: z.string().default(""),
+  traderId: z.string().default(""),
+});
+
+/** 경로 `:broker/:accountNo`(계좌 마스터) — 계좌번호는 검사 뒤 정규화값으로. */
+export const accountMasterParam = z.object({
+  broker: DmaBrokerSchema,
+  accountNo: AccountNoInputSchema.transform(normalizeAccountNo),
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 서버 레지스트리 (D-09 · D-17)

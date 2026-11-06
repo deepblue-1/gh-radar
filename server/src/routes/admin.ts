@@ -4,7 +4,9 @@ import {
   brokerOfServerKey,
   deriveAdminUsersOverview,
   maskDmaUserId,
+  normalizeAccountNo,
   type AdminAccountCostRow,
+  type AdminAccountInput,
   type AdminAccountCostsRaw,
   type AdminOrderEndpointRow,
   type AdminOrderEndpointsRaw,
@@ -66,6 +68,9 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *          계좌 주문 서버 지정. relay 가 RPC 저장 · 지정 적재기 즉시 재적재 · 29-36 재수립. Express 는 DB 에 직접 쓰지 않는다)
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/budget : `{ budgetKrw }` → `{ results }` (Phase 36 op 6 · 계좌 예수금)
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/fee    : `{ feePpm, sellTaxPpm }` → `{ results }` (Phase 36 op 7 · uint32 구조 검사만)
+ *   연결 경로 3개(POST /users 의 dma · POST /users/:email/dma · PUT /dma-users/:dma/accounts)는 relay 앞에서 계좌 마스터
+ *   (`dma_accounts`)를 본다(quick 261106-lwu 정합 규칙) — 없으면 409 `ACCOUNT_NOT_REGISTERED`, 있으면 계좌명 · 지점 · 트레이더를
+ *   웹 값 대신 마스터 값으로 · 계좌번호는 정규화값으로 relay 에 넘긴다(`registeredAccount`).
  *   DMA 프록시는 relay 계약(29-11 표)을 1:1 로 부른다 — 409 업무 거부는 그대로, 못 닿음 · 5xx 는 502 `RELAY_FAILED`,
  *   클라이언트 없음은 503 `RELAY_UNAVAILABLE`. 비밀번호 평문은 relay 로만 전달된다(Express 암호화 · 저장 · 로그 없음).
  *
@@ -99,6 +104,8 @@ const DmaLinked = () => new ApiError(409, "DMA_LINKED", "이미 DMA 가 연결�
 const Conflict = () =>
   new ApiError(409, "CONFLICT", "사용자 상태가 방금 바뀌었어요. 목록을 새로 고친 뒤 다시 시도하세요.");
 const UserNotFound = () => new ApiError(404, "NOT_FOUND", "허용 목록에 없는 사용자예요.");
+const AccountNotRegistered = () =>
+  new ApiError(409, "ACCOUNT_NOT_REGISTERED", "「계좌」 메뉴에 등록되지 않은 계좌예요 — 먼저 등록하세요.");
 const RelayUnavailable = () =>
   new ApiError(503, "RELAY_UNAVAILABLE", "relay 연결이 설정되지 않아 처리할 수 없어요.");
 
@@ -190,6 +197,24 @@ async function notifyAccess(req: Request, op: string): Promise<boolean> {
     "[admin] relay access reload 실패 — relay 60초 재적재가 따라잡는다",
   );
   return false;
+}
+
+/**
+ * 연결 시 계좌 마스터 검사(quick 261106-lwu 정합 규칙) — 마스터에 없으면 409 `ACCOUNT_NOT_REGISTERED`(relay · app_users 쓰기 전),
+ * 있으면 계좌명 · 지점 · 트레이더를 마스터 값으로 바꾼 계좌를 돌려준다(priority 는 웹 값 · 계좌번호는 정규화값).
+ */
+async function registeredAccount(supabase: SupabaseClient, account: AdminAccountInput): Promise<AdminAccountInput> {
+  const accountNo = normalizeAccountNo(account.accountNo);
+  const { data, error } = await supabase
+    .from("dma_accounts")
+    .select("broker, account_no, name, branch_no, trader_id")
+    .eq("broker", account.broker)
+    .eq("account_no", accountNo)
+    .maybeSingle();
+  if (error) throw DbError("계좌 조회에 실패했습니다.", error);
+  if (!data) throw AccountNotRegistered();
+  const m = data as { name: string; branch_no: string; trader_id: string };
+  return { ...account, accountNo, name: m.name, branchNo: m.branch_no, traderId: m.trader_id };
 }
 
 /** relay 행 하나의 모양 — 네 필드 모두 문자열. 아니면 shared 파생(`normalizeAccountNo` 등)이 throw 해 개요가 500 이 된다. */
@@ -355,6 +380,8 @@ adminRouter.post("/users", async (req, res, next) => {
         .maybeSingle();
       if (curError) throw DbError("사용자 조회에 실패했습니다.", curError);
       if ((cur as { dma_user_id: string | null } | null)?.dma_user_id) throw DmaLinked();
+      // 마스터에 없는 계좌면 upsert 전에 409 — 허용 행만 남는 반쪽 상태를 만들지 않는다(quick 261106-lwu).
+      body.dma.account = await registeredAccount(supabase, body.dma.account);
     }
 
     const { error } = await supabase
@@ -515,8 +542,12 @@ adminRouter.post("/users/:email/dma", async (req, res, next) => {
     if (cur.role === "viewer") throw ValidationFailed("role: viewer 는 DMA 를 연결할 수 없어요");
     // 이미 연결된 사용자를 다른 DMA id 로 갈아 끼우지 않는다 — 정본 가드는 DB(생성 RPC 의 DMA_LINKED · 29-27), 여기는 앞단.
     if (cur.dma_user_id) throw DmaLinked();
+    const account = await registeredAccount(supabase, dma.account);
 
-    const results = relayResults(await relay.createDmaUser({ email, ...dma }, req.adminEmail!), "dma-link");
+    const results = relayResults(
+      await relay.createDmaUser({ email, ...dma, account }, req.adminEmail!),
+      "dma-link",
+    );
     audit(req, "dma-link", email, { dma: maskDmaUserId(dma.dmaUserId), servers: results.map((x) => `${x.server}:${x.outcome}`) });
     res.json({ results, relayNotified: await notifyAccess(req, "dma-link") });
   } catch (e) {
@@ -542,8 +573,11 @@ adminRouter.post("/dma-users/:dma/password", async (req, res, next) => {
 adminRouter.put("/dma-users/:dma/accounts", async (req, res, next) => {
   try {
     const { dma } = parseOrThrow(dmaParam, req.params);
-    const body = parseOrThrow(AdminPutAccountSchema, req.body ?? {});
+    const parsed = parseOrThrow(AdminPutAccountSchema, req.body ?? {});
     const relay = requireRelayAdmin(req);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 계좌 값은 마스터가 정본(quick 261106-lwu) — orderEndpoint · servers 는 웹 값 그대로.
+    const body = { ...parsed, account: await registeredAccount(supabase, parsed.account) };
     const results = relayResults(await relay.putAccount(dma, body, req.adminEmail!), "dma-account-put");
     audit(req, "dma-account-put", maskDmaUserId(dma), {
       broker: body.account.broker,

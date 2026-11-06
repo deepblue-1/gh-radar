@@ -450,6 +450,68 @@ export interface AdminServerPatchBody {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 계좌 마스터 — /admin/accounts (quick 261106-lwu D-03 · D-06 · D-08)
+//   계좌 = (broker, accountNo) 독립 엔티티. 사용자와는 「연결」(dma_user_accounts) 관계다.
+//   RPC admin_accounts_raw 의 jsonb 키가 이 이름 그대로다(Express 는 파생 없이 통과).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 계좌 마스터를 쓰는 DMA 사용자 1명(quick 261106-lwu D-06 · D-08). */
+export interface AdminAccountMasterUser {
+  dmaUserId: string;
+  /** app_users.dma_user_id 가 이 id 인 이메일(오름차순 · 없으면 []). */
+  emails: string[];
+  /** 그 사용자 연결 행의 priority. */
+  priority: number;
+  /** 등록 서버 — dma_servers.sort_order, key 순. */
+  servers: { serverKey: string; state: "active" | "removing" }[];
+}
+
+/** 계좌 마스터 1행(D-03). accountNo = normalizeAccountNo 정규화값. */
+export interface AdminAccountMaster {
+  broker: DmaBroker;
+  accountNo: string;
+  name: string;
+  branchNo: string;
+  traderId: string;
+  updatedAt: string;
+  /** dmaUserId 오름차순 · 연결 없으면 []. */
+  users: AdminAccountMasterUser[];
+}
+
+/** GET /api/admin/accounts — broker, accountNo 순. */
+export interface AdminAccountsOverview {
+  accounts: AdminAccountMaster[];
+}
+
+/** POST /api/admin/accounts — 등록(D-07 · DB 마스터만 · 증권사 서버 전송 없음). */
+export interface AdminAccountCreateBody {
+  broker: DmaBroker;
+  accountNo: string;
+  name: string;
+  branchNo: string;
+  traderId: string;
+}
+
+/** PUT /api/admin/accounts/:broker/:accountNo — 계좌명 · 지점 · 트레이더 저장(D-08). */
+export interface AdminAccountSaveBody {
+  name: string;
+  branchNo: string;
+  traderId: string;
+}
+
+/** PUT /api/admin/accounts/:broker/:accountNo 팬아웃 1건 — results 는 relay 원문, error 는 그 사용자 relay 거부/실패. */
+export interface AdminAccountFanout {
+  dmaUserId: string;
+  results: AdminServerResult[];
+  error: { code: string; message: string } | null;
+}
+
+export interface AdminAccountSaveResponse {
+  ok: true;
+  fanout: AdminAccountFanout[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 판정 — 의도 대 87 (서버 1대 · 유저 1명)
 // ─────────────────────────────────────────────────────────────────────────────
 

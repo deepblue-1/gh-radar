@@ -23,8 +23,22 @@ import { OK_RESULTS, makeFakeRelay, relayReject, type FakeRelayHandler } from ".
 
 const PASSWORD = "Pw-SECRET-9f3a"; // 로그 · 응답에 나오면 안 되는 표식
 
+/**
+ * quick 261106-lwu — 연결 경로 3개는 relay 앞에서 계좌 마스터(`dma_accounts`)를 본다. 이 파일이 쓰는 계좌들을 웹이 보내는
+ * 값과 같은 값으로 미리 등록해 둔다(기존 단언의 relay 바디가 그대로 나오게 — 마스터 값 = 웹 값).
+ */
+const masterRows = (): Record<string, unknown>[] => [
+  { broker: "KB", account_no: "12345678901", name: "이", branch_no: "00123", trader_id: "T00001" },
+  { broker: "KYOBO", account_no: "777", name: "교", branch_no: "", trader_id: "" },
+];
+
 function makeApp(opts: AdminSupabaseOpts = {}, relayAdmin?: RelayAdminClient) {
-  const sb = makeAdminSupabase({ users: baseUsers, appUsers: baseAppUsers(), ...opts });
+  const sb = makeAdminSupabase({
+    users: baseUsers,
+    appUsers: baseAppUsers(),
+    ...opts,
+    tables: { dma_accounts: masterRows(), ...opts.tables },
+  });
   const app = createApp({ supabase: sb.client, relayAdmin });
   return { app, ...sb };
 }
@@ -325,7 +339,8 @@ describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
         path: "/internal/admin/dma-users/kim01/accounts",
         adminEmail: ADMIN_EMAIL,
         body: {
-          account: { broker: "KYOBO", accountNo: "00777", name: "교", branchNo: "", traderId: "", priority: 3 },
+          // quick 261106-lwu — 계좌번호는 마스터 키(정규화값)로 간다(relay 도 같은 정규화를 한다 · 의미 동일).
+          account: { broker: "KYOBO", accountNo: "777", name: "교", branchNo: "", traderId: "", priority: 3 },
           servers: ["KYOBO119", "KYOBO127"],
         },
       },
@@ -1052,5 +1067,113 @@ describe("P36 PUT …/fee (D-02 · D-06)", () => {
     } finally {
       cap.restore();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick 261106-lwu — 연결 경로 3개의 계좌 마스터 검사(서버측 정합 규칙)
+//   M1 마스터 없음 → 409 ACCOUNT_NOT_REGISTERED · relay 0 · (POST /users) app_users upsert 0
+//   M2 마스터 있음 → relay 바디 account 의 name · branchNo · traderId = 마스터 값(웹 값과 달라도) · accountNo 정규화 ·
+//      priority 는 웹 값 · servers · orderEndpoint 는 웹 값
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("quick 261106-lwu 연결 시 계좌 마스터 검사", () => {
+  const unregistered = { broker: "KB", accountNo: "99999", name: "x", branchNo: "00001", traderId: "000001", priority: 0 };
+  const master = [
+    { broker: "KB", account_no: "123456", name: "마스터명", branch_no: "00777", trader_id: "M00001" },
+  ];
+  const webAccount = { broker: "KB", accountNo: "000123456", name: "웹이름", branchNo: "00001", traderId: "W00001", priority: 7 };
+  const expectedAccount = { broker: "KB", accountNo: "123456", name: "마스터명", branchNo: "00777", traderId: "M00001", priority: 7 };
+
+  it("M1 POST /users + dma(미등록 계좌) → 409 ACCOUNT_NOT_REGISTERED · upsert 0 · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec, rows } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/users")).send({
+      email: "new@gmail.com",
+      role: "trader",
+      dma: kbDma({ account: unregistered }),
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ACCOUNT_NOT_REGISTERED");
+    expect(rec.ops.filter((o) => o.kind === "upsert")).toHaveLength(0);
+    expect(rows.has("new@gmail.com")).toBe(false);
+    expect(relay.calls).toHaveLength(0);
+    // 마스터 조회는 정규화값으로 · 증권사 같이.
+    const q = rec.ops.find((o) => o.table === "dma_accounts")!;
+    expect(q.filters).toEqual([
+      ["eq", "broker", "KB"],
+      ["eq", "account_no", "99999"],
+    ]);
+  });
+
+  it("M1 POST /users/:email/dma(미등록 계좌) → 409 ACCOUNT_NOT_REGISTERED · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp(
+      { appUsers: [...baseAppUsers(), { email: "solo@gmail.com", role: "trader", dma_user_id: null }] },
+      relay.client,
+    );
+    const res = await auth(request(app).post(`/api/admin/users/${encodeURIComponent("solo@gmail.com")}/dma`)).send(
+      kbDma({ account: unregistered }),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ACCOUNT_NOT_REGISTERED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("M1 PUT /dma-users/:dma/accounts(미등록 계좌) → 409 ACCOUNT_NOT_REGISTERED · relay 0", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({
+      account: unregistered,
+      servers: ["KB120"],
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ACCOUNT_NOT_REGISTERED");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("M2 POST /users + dma(등록 계좌) → relay 바디 account = 마스터 값 · 정규화 번호 · 웹 priority", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({ tables: { dma_accounts: master } }, relay.client);
+    const res = await auth(request(app).post("/api/admin/users")).send({
+      email: "m2@gmail.com",
+      role: "trader",
+      dma: kbDma({ account: webAccount }),
+    });
+    expect(res.status).toBe(200);
+    expect((relay.calls[0].body as { account: unknown }).account).toEqual(expectedAccount);
+  });
+
+  it("M2 POST /users/:email/dma(등록 계좌) → relay 바디 account = 마스터 값", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp(
+      {
+        appUsers: [...baseAppUsers(), { email: "solo@gmail.com", role: "trader", dma_user_id: null }],
+        tables: { dma_accounts: master },
+      },
+      relay.client,
+    );
+    const res = await auth(request(app).post(`/api/admin/users/${encodeURIComponent("solo@gmail.com")}/dma`)).send(
+      kbDma({ account: webAccount }),
+    );
+    expect(res.status).toBe(200);
+    expect(relay.calls[0]).toMatchObject({ method: "POST", path: "/internal/admin/dma-users" });
+    expect((relay.calls[0].body as { account: unknown }).account).toEqual(expectedAccount);
+  });
+
+  it("M2 PUT /dma-users/:dma/accounts(등록 계좌) → relay 바디 account = 마스터 값 · servers · orderEndpoint 웹 값", async () => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({ tables: { dma_accounts: master } }, relay.client);
+    const res = await auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({
+      account: webAccount,
+      servers: ["KB121"],
+      orderEndpoint: { orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" },
+    });
+    expect(res.status).toBe(200);
+    expect(relay.calls[0].body).toEqual({
+      account: expectedAccount,
+      servers: ["KB121"],
+      orderEndpoint: { orderIp: "10.41.1.124", orderMac: "1c:fd:08:7d:97:8e" },
+    });
   });
 });
