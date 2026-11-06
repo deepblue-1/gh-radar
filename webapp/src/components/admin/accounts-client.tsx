@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AdminAccountMaster, AdminAccountsOverview, DmaBroker } from "@gh-radar/shared";
+import type { AdminAccountMaster, AdminAccountsOverview, AdminUsersOverview, DmaBroker } from "@gh-radar/shared";
 import { ChevronRight } from "lucide-react";
 
 import { CARD, ROW_DIVIDER, SECTION_COUNT, SECTION_TITLE } from "@/components/layout/page-layout";
@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { fetchAdminAccounts } from "@/lib/admin-api";
+import { fetchAdminAccounts, fetchAdminUsers } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -29,11 +29,13 @@ import { ROLE_CHIP_CLASS } from "./user-row";
  * - 로딩 스켈레톤 · 403 한 줄 · 그 밖 오류 다시 시도. 재조회 실패는 보이던 목록을 지우지 않는다(seq 가드 · users-client 와 같은 규칙).
  * - 행을 누르면 수정 시트, 「+ 계좌」 는 등록 시트 — 한 번에 하나(서로를 닫는다). 쓰기 성공 뒤 재조회하고, 시트는 같은 키
  *   (`${broker}|${accountNo}`)의 최신 행을 받는다(삭제로 사라졌으면 닫힌다). 시트는 그 키를 React key 로 둔다.
+ * - quick 261106-ntl — 사용자 개요(`GET /api/admin/users`)를 계좌 목록과 **병렬로** 읽어 수정 시트에 내려 보낸다(쓰는 사용자 · 서버별
+ *   예수금 · 수수료 · 매도세 · IP/MAC 표시). 개요 실패는 null 로 접는다 — 목록은 그대로 뜨고 시트의 그 값들만 「확인 전」. 재조회도 둘 다.
  */
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "ready"; data: AdminAccountsOverview }
+  | { kind: "ready"; data: AdminAccountsOverview; overview: AdminUsersOverview | null }
   | { kind: "error"; forbidden: boolean };
 
 type Filter = "all" | DmaBroker;
@@ -141,8 +143,15 @@ export function AccountsClient() {
   const load = useCallback(async () => {
     const my = ++seq.current;
     try {
-      const data = await fetchAdminAccounts();
-      if (seq.current === my) setState({ kind: "ready", data });
+      // 사용자 개요는 수정 시트의 값 표시용일 뿐 — 실패해도 계좌 목록은 띄운다(null 로 접는다 · users-client 와 같은 꼴).
+      const [data, overview] = await Promise.all([
+        fetchAdminAccounts(),
+        fetchAdminUsers().then(
+          (r) => r,
+          () => null,
+        ),
+      ]);
+      if (seq.current === my) setState({ kind: "ready", data, overview });
     } catch (err) {
       if (seq.current !== my) return;
       const forbidden = err instanceof ApiClientError && err.status === 403;
@@ -237,6 +246,7 @@ export function AccountsClient() {
           key={accountMasterKey(selectedAccount)}
           mode="edit"
           account={selectedAccount}
+          overview={state.overview}
           onSaved={() => void load()}
           onDeleted={() => {
             setSelected(null);

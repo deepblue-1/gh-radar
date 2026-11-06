@@ -11,6 +11,9 @@
  *   고치지 않고 부르기만 한다 — 그래서 표의 14경로를 지금 전부 둔다.
  *   quick 261106-lwu — 계좌 마스터 4경로(`/api/admin/accounts` GET · POST · `/:broker/:accountNo` PUT · DELETE)를 더했다.
  *   등록 · 삭제는 DB 만, 저장(PUT)은 연결된 사용자마다 relay 를 부른다(팬아웃 → `RELAY_TIMEOUT_MS`).
+ *   quick 261106-ntl N-01 — `PUT /api/admin/accounts/:broker/:accountNo/budget` · `/fee`(예수금 · 수수료 · 매도세 — 연결 사용자마다 op 6/7
+ *   팬아웃). per-user `…/dma-users/:dma/accounts/:b/:n/budget|fee` 는 서버에 남지만(배포 창 호환) 웹은 더 부르지 않는다.
+ *   N-02 — 계좌 저장 바디에 선택 `orderEndpoint`(KB 주문자 IP/MAC · 연결 사용자마다 계좌 PUT 에 실린다).
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -189,41 +192,6 @@ export function setAccountOrderServer(
   );
 }
 
-/**
- * 계좌 예수금(Phase 36 · op 6 · D-01 · D-02) — 원 단위(만원 × 10000) · 0 = 해제. relay 가 그 계좌의 active 등록 서버마다 op 6 을
- * 보내고 서버별 결과를 돌려준다(code 0 만 반영 · D-06 — 해석은 화면). 없는 계좌는 409 `NO_SUCH_ACCOUNT`.
- */
-export function setAccountBudget(
-  dmaUserId: string,
-  broker: DmaBroker,
-  accountNo: string,
-  budgetKrw: number,
-): Promise<AdminCommandResponse> {
-  const body: AdminAccountBudgetBody = { budgetKrw };
-  return authFetch<AdminCommandResponse>(
-    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/budget`,
-    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
-  );
-}
-
-/**
- * 계좌 수수료 · 매도세 ppm(Phase 36 · op 7 · D-02) — 어느 칸을 저장하든 두 값을 함께. 0~10000(1%) 범위는 화면이 막고 보낸다
- * (Express · relay 는 uint32 구조 검사만 · 넘친 값은 서버 code 1 로 돌아온다).
- */
-export function setAccountFee(
-  dmaUserId: string,
-  broker: DmaBroker,
-  accountNo: string,
-  feePpm: number,
-  sellTaxPpm: number,
-): Promise<AdminCommandResponse> {
-  const body: AdminAccountFeeBody = { feePpm, sellTaxPpm };
-  return authFetch<AdminCommandResponse>(
-    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/fee`,
-    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
-  );
-}
-
 /** 「다시 반영」 — DB 의도와 87 의 차이를 다시 보낸다. */
 export function reconcileDmaUser(dmaUserId: string): Promise<AdminCommandResponse> {
   return authFetch<AdminCommandResponse>(`${dmaPath(dmaUserId)}/reconcile`, {
@@ -278,7 +246,7 @@ export function createAdminAccount(body: AdminAccountCreateBody): Promise<{ ok: 
   return authFetch<{ ok: true }>("/api/admin/accounts", jsonInit("POST", body));
 }
 
-/** 계좌명 · 지점 · 트레이더 저장 — 연결된 사용자마다 relay 반영(팬아웃)이라 relay 타임아웃. */
+/** 계좌명 · 지점 · 트레이더(+ KB 주문자 IP/MAC · N-02) 저장 — 연결된 사용자마다 relay 반영(팬아웃)이라 relay 타임아웃. */
 export function saveAdminAccount(
   broker: DmaBroker,
   accountNo: string,
@@ -293,4 +261,34 @@ export function saveAdminAccount(
 /** 계좌 삭제 — 연결된 사용자가 있으면 409 `ACCOUNT_IN_USE`. */
 export function deleteAdminAccount(broker: DmaBroker, accountNo: string): Promise<{ ok: true }> {
   return authFetch<{ ok: true }>(accountPath(broker, accountNo), { method: "DELETE" });
+}
+
+/** 예수금(quick 261106-ntl N-01 · op 6) — 그 계좌를 쓰는 사용자 모두의 active 등록 서버로 팬아웃 · 원 · 0 = 해제. */
+export function setAdminAccountBudget(
+  broker: DmaBroker,
+  accountNo: string,
+  budgetKrw: number,
+): Promise<AdminAccountSaveResponse> {
+  const body: AdminAccountBudgetBody = { budgetKrw };
+  return authFetch<AdminAccountSaveResponse>(
+    `${accountPath(broker, accountNo)}/budget`,
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
+}
+
+/**
+ * 수수료 · 매도세 ppm(quick 261106-ntl N-01 · op 7 · 두 값 함께) — 같은 팬아웃. 0~10000(1%) 범위는 화면이 막고 보낸다
+ * (Express · relay 는 uint32 구조 검사만 · 넘친 값은 서버 code 1 로 돌아온다).
+ */
+export function setAdminAccountFee(
+  broker: DmaBroker,
+  accountNo: string,
+  feePpm: number,
+  sellTaxPpm: number,
+): Promise<AdminAccountSaveResponse> {
+  const body: AdminAccountFeeBody = { feePpm, sellTaxPpm };
+  return authFetch<AdminAccountSaveResponse>(
+    `${accountPath(broker, accountNo)}/fee`,
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
 }

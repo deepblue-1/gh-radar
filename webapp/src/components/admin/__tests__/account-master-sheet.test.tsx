@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { AdminAccountMaster } from '@gh-radar/shared';
+import type { AdminAccountMaster, AdminAccountView, AdminUsersOverview } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
 
@@ -12,20 +12,24 @@ import { ApiClientError } from '@/lib/api';
  * 수정 — 증권사 · 번호 읽기 전용 · 바뀐 값 있을 때만 「저장」 · saveAdminAccount 1회 → 쓰는 사용자 줄마다 결과 칩 · BUSY 줄 ·
  * 사용자 error 한 줄. 삭제 — 연결 있으면 잠김 + 문구 · window.confirm 미사용 · 0명이면 시트 안 확인 박스 → delete → onDeleted ·
  * 409 는 확인 박스 아래 한 줄.
+ * quick 261106-ntl — 「예수금 · 수수료」 그룹(사용자·서버 팬아웃 · 칩 「<DMA id> · <서버>」 · 불일치 · 연결 0명 잠금) · KB 주문자 IP/MAC 칸
+ * (정본 초깃값 · 불일치 맞추기 · 보내기 규칙 · 검증 · 변경 없음 · 교보 없음).
  */
 
 const createAdminAccountMock = vi.fn();
 const saveAdminAccountMock = vi.fn();
 const deleteAdminAccountMock = vi.fn();
 const putDmaAccountMock = vi.fn();
+const setAdminAccountBudgetMock = vi.fn();
+const setAdminAccountFeeMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   createAdminAccount: (body: unknown) => createAdminAccountMock(body),
   saveAdminAccount: (...args: unknown[]) => saveAdminAccountMock(...args),
   deleteAdminAccount: (...args: unknown[]) => deleteAdminAccountMock(...args),
   putDmaAccount: (...args: unknown[]) => putDmaAccountMock(...args),
   removeDmaAccount: vi.fn(),
-  setAccountBudget: vi.fn(),
-  setAccountFee: vi.fn(),
+  setAdminAccountBudget: (...args: unknown[]) => setAdminAccountBudgetMock(...args),
+  setAdminAccountFee: (...args: unknown[]) => setAdminAccountFeeMock(...args),
   setAccountOrderServer: vi.fn(),
 }));
 
@@ -54,6 +58,8 @@ beforeEach(() => {
   saveAdminAccountMock.mockReset();
   deleteAdminAccountMock.mockReset();
   putDmaAccountMock.mockReset();
+  setAdminAccountBudgetMock.mockReset();
+  setAdminAccountFeeMock.mockReset();
 });
 
 describe('등록 시트 (D-07)', () => {
@@ -135,10 +141,12 @@ describe('등록 시트 (D-07)', () => {
 });
 
 describe('수정 시트 (D-08)', () => {
-  const renderEdit = (account: AdminAccountMaster = LINKED) => {
+  const renderEdit = (account: AdminAccountMaster = LINKED, overview: AdminUsersOverview | null = null) => {
     const onSaved = vi.fn();
     const onDeleted = vi.fn();
-    const r = render(<AccountMasterSheet mode="edit" account={account} onSaved={onSaved} onDeleted={onDeleted} onClose={vi.fn()} />);
+    const r = render(
+      <AccountMasterSheet mode="edit" account={account} overview={overview} onSaved={onSaved} onDeleted={onDeleted} onClose={vi.fn()} />,
+    );
     return { onSaved, onDeleted, ...r };
   };
 
@@ -148,7 +156,8 @@ describe('수정 시트 (D-08)', () => {
     expect(document.querySelector('[data-slot="account-sheet-account-no"]')).toHaveTextContent('5120009880');
     expect(screen.queryByRole('textbox', { name: '계좌번호' })).toBeNull();
     expect(screen.getByText(T.readOnlyNote)).toBeInTheDocument();
-    expect(screen.getByText(T.fanoutNote)).toBeInTheDocument();
+    // KB · 연결 있음 → IP/MAC 까지 함께 반영된다는 문장(quick 261106-ntl N-02)
+    expect(screen.getByText(T.fanoutNoteKb)).toBeInTheDocument();
     const save = screen.getByRole('button', { name: '저장' });
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByRole('textbox', { name: '계좌명' }), { target: { value: '주식 메인' } });
@@ -243,5 +252,265 @@ describe('수정 시트 (D-08)', () => {
       expect(document.querySelector('[data-slot="account-sheet-delete-error"]')).toHaveTextContent(T.deleteLocked),
     );
     expect(onDeleted).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick 261106-ntl — 「예수금 · 수수료」 그룹(N-01) · KB 주문자 IP/MAC(N-02)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NO = LINKED.accountNo;
+const EP_A = { orderIp: '010041001124', orderMac: '1CFD087D978E' };
+const EP_UNSET = { orderIp: '', orderMac: '' };
+const cost = (budgetKrw: number, feePpm = 100, sellTaxPpm = 2000) => ({ budgetKrw, feePpm, sellTaxPpm, budgetSource: 'live' as const });
+
+/** 개요의 같은 계좌 뷰 — 계좌번호는 앞 0 붙은 표기(정규화 비교로 맞춘다). */
+function view(servers: string[], over: Partial<AdminAccountView> = {}): AdminAccountView {
+  return {
+    broker: 'KB',
+    accountNo: `00${NO}`,
+    name: '주식',
+    branchNo: '00123',
+    traderId: 'T00001',
+    priority: 0,
+    servers: servers.map((serverKey) => ({ serverKey, tone: 'ok' as const, message: null, state: 'active' as const })),
+    serverOnlyOn: [],
+    orderServer: null,
+    defaultOrderServer: 'KB120',
+    ...over,
+  };
+}
+
+function usersOverview(kim: Partial<AdminAccountView>, lee: Partial<AdminAccountView>): AdminUsersOverview {
+  const u = (email: string, dmaUserId: string, accounts: AdminAccountView[]) => ({
+    email,
+    role: 'trader' as const,
+    dmaUserId,
+    signedUp: true,
+    accountCount: accounts.length,
+    servers: [],
+    accounts,
+  });
+  return {
+    users: [
+      u('kim@example.invalid', 'kimtr', [view(['KB120', 'KB121'], kim)]),
+      u('lee@example.invalid', 'leetr', [view(['KB120'], lee)]),
+    ],
+    pending: [],
+    serverOnly: [],
+    servers: [
+      { key: 'KB120', broker: 'KB', enabled: true },
+      { key: 'KB121', broker: 'KB', enabled: true },
+      { key: 'KYOBO119', broker: 'KYOBO', enabled: true },
+    ],
+  };
+}
+
+/** kimtr KB120 = KB121 = 1천만 · 0.01% · 0.2% · IP/MAC A / leetr KB120 = 5백만 · IP/MAC 미설정. */
+const OV_DIFF = usersOverview(
+  { costs: { KB120: cost(10_000_000), KB121: cost(10_000_000) }, orderEndpoints: { KB120: EP_A, KB121: EP_A } },
+  { costs: { KB120: cost(5_000_000) }, orderEndpoints: { KB120: EP_UNSET } },
+);
+/** 모두 같은 값 — 불일치 없음. */
+const OV_SAME = usersOverview(
+  { costs: { KB120: cost(10_000_000), KB121: cost(10_000_000) }, orderEndpoints: { KB120: EP_A, KB121: EP_A } },
+  { costs: { KB120: cost(10_000_000) }, orderEndpoints: { KB120: EP_A } },
+);
+
+function renderSheet(account: AdminAccountMaster, overview: AdminUsersOverview | null) {
+  const onSaved = vi.fn();
+  render(<AccountMasterSheet mode="edit" account={account} overview={overview} onSaved={onSaved} onDeleted={vi.fn()} onClose={vi.fn()} />);
+  return { onSaved };
+}
+
+const costsSection = () => document.querySelector<HTMLElement>('[data-slot="account-sheet-costs"]')!;
+const budgetInput = (no = NO) => within(costsSection()).getByRole('textbox', { name: `KB ${no} 예수금(원)` }) as HTMLInputElement;
+const feeInput = () => within(costsSection()).getByRole('textbox', { name: `KB ${NO} 수수료(%)` }) as HTMLInputElement;
+const chipTexts = () =>
+  Array.from(costsSection().querySelectorAll('[data-slot="admin-account-cost-chips"] [data-slot="reflect-chip"]')).map((c) => c.textContent);
+const enter = (el: HTMLElement) => fireEvent.keyDown(el, { key: 'Enter' });
+const ipInput = () => screen.getByRole('textbox', { name: '주문자 IP' }) as HTMLInputElement;
+const macInput = () => screen.getByRole('textbox', { name: 'MAC 주소' }) as HTMLInputElement;
+const saveBtn = () => screen.getByRole('button', { name: '저장' });
+
+describe('수정 시트 「예수금 · 수수료」 (quick 261106-ntl N-01)', () => {
+  it('연결 계좌 → 제목 · 부제 · 예수금 「10,000,000」 · 쉬는 칩 「<DMA id> · <서버>」(removing 제외) · 불일치 줄(시트 꼬리)', () => {
+    renderSheet(LINKED, OV_DIFF);
+    expect(costsSection()).toHaveTextContent(T.costTitle);
+    expect(costsSection()).toHaveTextContent(T.costSubtitle);
+    expect(budgetInput()).toHaveValue('10,000,000');
+    expect(feeInput()).toHaveValue('0.01');
+    expect(chipTexts()).toEqual(['kimtr · KB120', 'kimtr · KB121', 'leetr · KB120']);
+    const ms = Array.from(costsSection().querySelectorAll('[data-slot="admin-account-cost-mismatch"]')).map((m) => m.textContent);
+    expect(ms).toEqual(['leetr · KB120 은 5,000,000원 — 저장하면 모두 같아져요']);
+    // 「쓰는 사용자」 섹션 앞
+    const users = document.querySelector<HTMLElement>('[data-slot="account-sheet-users"]')!;
+    expect(costsSection().compareDocumentPosition(users) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('「15000000」 Enter → setAdminAccountBudget(KB, 계좌, 15000000) 1회 → 칩 「<DMA id> · <서버>」 · 미반영 줄 · onSaved', async () => {
+    setAdminAccountBudgetMock.mockResolvedValue({
+      ok: true,
+      fanout: [
+        { dmaUserId: 'kimtr', results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }], error: null },
+        { dmaUserId: 'leetr', results: [{ server: 'KB120', outcome: 'offline' }], error: null },
+      ],
+    });
+    const { onSaved } = renderSheet(LINKED, OV_DIFF);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '15000000' } });
+    enter(budgetInput());
+    expect(setAdminAccountBudgetMock).toHaveBeenCalledTimes(1);
+    expect(setAdminAccountBudgetMock).toHaveBeenCalledWith('KB', NO, 15_000_000);
+    await waitFor(() => expect(chipTexts()).toEqual(['kimtr · KB120', 'kimtr · KB121', 'leetr · KB120 · 서버 연결 안 됨']));
+    const lines = Array.from(costsSection().querySelectorAll('[data-slot="admin-account-cost-line"]')).map((l) => l.textContent);
+    expect(lines).toEqual(['leetr · KB120 미반영: 서버 연결 안 됨']);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(saveAdminAccountMock).not.toHaveBeenCalled();
+  });
+
+  it('수수료 「0.05」 Enter → setAdminAccountFee(KB, 계좌, 500, 2000) · 사용자 error(409) → 「leetr 실패: <message>」 role=alert', async () => {
+    setAdminAccountFeeMock.mockResolvedValue({
+      ok: true,
+      fanout: [
+        { dmaUserId: 'kimtr', results: [{ server: 'KB120', outcome: 'ok' }, { server: 'KB121', outcome: 'ok' }], error: null },
+        { dmaUserId: 'leetr', results: [], error: { code: 'NO_SUCH_ACCOUNT', message: '그 사용자에게 없는 계좌예요' } },
+      ],
+    });
+    renderSheet(LINKED, OV_DIFF);
+    fireEvent.focus(feeInput());
+    fireEvent.change(feeInput(), { target: { value: '0.05' } });
+    enter(feeInput());
+    expect(setAdminAccountFeeMock).toHaveBeenCalledWith('KB', NO, 500, 2000);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('leetr 실패: 그 사용자에게 없는 계좌예요'));
+    expect(chipTexts()).toEqual(['kimtr · KB120', 'kimtr · KB121', 'leetr · 실패']);
+  });
+
+  it('같은 값 Enter + 불일치 없음 → 요청 0 · 「<라벨> · 변경 없음」 칩', () => {
+    renderSheet(LINKED, OV_SAME);
+    fireEvent.focus(budgetInput());
+    fireEvent.change(budgetInput(), { target: { value: '10000000' } });
+    enter(budgetInput());
+    expect(setAdminAccountBudgetMock).not.toHaveBeenCalled();
+    expect(chipTexts()).toEqual(['kimtr · KB120 · 변경 없음', 'kimtr · KB121 · 변경 없음', 'leetr · KB120 · 변경 없음']);
+  });
+
+  it('연결 0명(FREE) → 세 칸 disabled · 안내 · KB IP/MAC 칸도 disabled + 같은 안내 · 어떤 저장 API 도 0회', () => {
+    renderSheet(FREE, OV_DIFF);
+    const inputs = within(costsSection()).getAllByRole('textbox');
+    expect(inputs).toHaveLength(3);
+    for (const el of inputs) {
+      expect(el).toBeDisabled();
+      fireEvent.focus(el);
+      fireEvent.change(el, { target: { value: '1' } });
+      enter(el);
+      fireEvent.blur(el);
+    }
+    expect(costsSection()).toHaveTextContent(T.notLinkedNote);
+    expect(costsSection()).not.toHaveTextContent(T.costSubtitle);
+    expect(ipInput()).toBeDisabled();
+    expect(macInput()).toBeDisabled();
+    expect(document.querySelector('[data-slot="account-sheet-ipmac"]')).toHaveTextContent(T.notLinkedNote);
+    expect(saveBtn()).toBeDisabled();
+    expect(setAdminAccountBudgetMock).not.toHaveBeenCalled();
+    expect(setAdminAccountFeeMock).not.toHaveBeenCalled();
+    expect(saveAdminAccountMock).not.toHaveBeenCalled();
+  });
+
+  it('removing 만 남은 계좌(active 자리 0)도 잠긴다', () => {
+    renderSheet({ ...LINKED, users: [LINKED.users[2]!] }, OV_DIFF);
+    expect(budgetInput()).toBeDisabled();
+    expect(costsSection()).toHaveTextContent(T.notLinkedNote);
+  });
+});
+
+describe('수정 시트 KB 주문자 IP/MAC (quick 261106-ntl N-02)', () => {
+  it('초깃값 = 정본 표시 표기 · leetr 미설정이면 불일치 줄 · 안 바꿔도 「저장」 활성 → orderEndpoint(칸 원문) 실어 저장', async () => {
+    saveAdminAccountMock.mockResolvedValue({ ok: true, fanout: [] });
+    renderSheet(LINKED, OV_DIFF);
+    expect(ipInput()).toHaveValue('10.41.1.124');
+    expect(macInput()).toHaveValue('1C:FD:08:7D:97:8E');
+    expect(ipInput()).toHaveAttribute('inputmode', 'decimal');
+    expect(macInput()).toHaveAttribute('autocapitalize', 'characters');
+    const mm = Array.from(document.querySelectorAll('[data-slot="account-sheet-ipmac-mismatch"]')).map((m) => m.textContent);
+    expect(mm).toEqual(['leetr · KB120 값이 달라요(미설정) — 저장하면 모두 같아져요']);
+    expect(document.querySelector('[data-slot="account-sheet-ipmac-help"]')).toHaveTextContent('ipconfig /all');
+    expect(saveBtn()).toBeEnabled();
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(saveAdminAccountMock).toHaveBeenCalledTimes(1));
+    expect(saveAdminAccountMock).toHaveBeenCalledWith('KB', NO, {
+      name: '주식',
+      branchNo: '00123',
+      traderId: 'T00001',
+      orderEndpoint: { orderIp: '10.41.1.124', orderMac: '1C:FD:08:7D:97:8E' },
+    });
+  });
+
+  it('불일치 없음 · IP 만 바꿔 저장 → orderEndpoint { trim 원문 } + 계좌 값 · 성공 뒤 「저장」 비활성', async () => {
+    saveAdminAccountMock.mockResolvedValue({ ok: true, fanout: [] });
+    const { onSaved } = renderSheet(LINKED, OV_SAME);
+    expect(document.querySelectorAll('[data-slot="account-sheet-ipmac-mismatch"]')).toHaveLength(0);
+    expect(saveBtn()).toBeDisabled();
+    fireEvent.change(ipInput(), { target: { value: ' 10.41.1.200 ' } });
+    expect(saveBtn()).toBeEnabled();
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(saveAdminAccountMock).toHaveBeenCalledWith('KB', NO, {
+      name: '주식',
+      branchNo: '00123',
+      traderId: 'T00001',
+      orderEndpoint: { orderIp: '10.41.1.200', orderMac: '1C:FD:08:7D:97:8E' },
+    });
+    await waitFor(() => expect(saveBtn()).toBeDisabled());
+  });
+
+  it('계좌명만 바꾼 저장(불일치 없음) → 바디에 orderEndpoint 키 없음', async () => {
+    saveAdminAccountMock.mockResolvedValue({ ok: true, fanout: [] });
+    renderSheet(LINKED, OV_SAME);
+    fireEvent.change(screen.getByRole('textbox', { name: '계좌명' }), { target: { value: '주식 메인' } });
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(saveAdminAccountMock).toHaveBeenCalledTimes(1));
+    const body = saveAdminAccountMock.mock.calls[0]![2] as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['branchNo', 'name', 'traderId']);
+  });
+
+  it('IP 만 적고 MAC 비움 → MAC 칸 aria-invalid · 짝 오류 줄(도움말 대신) · 「저장」 비활성', () => {
+    renderSheet(LINKED, OV_SAME);
+    fireEvent.change(macInput(), { target: { value: '' } });
+    expect(macInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(ipInput()).not.toHaveAttribute('aria-invalid');
+    expect(document.querySelector('[data-slot="account-sheet-ipmac-invalid"]')).toHaveTextContent('IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요');
+    expect(document.querySelector('[data-slot="account-sheet-ipmac-help"]')).toBeNull();
+    expect(saveBtn()).toBeDisabled();
+  });
+
+  it('같은 값을 다른 표기로 적고 저장(계좌 값 그대로 · 불일치 없음) → 요청 0 · 「변경 없음」 · 칸을 고치면 지움', () => {
+    renderSheet(LINKED, OV_SAME);
+    fireEvent.change(ipInput(), { target: { value: '010041001124' } });
+    expect(saveBtn()).toBeEnabled();
+    fireEvent.click(saveBtn());
+    expect(saveAdminAccountMock).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-slot="account-sheet-unchanged"]')).toHaveTextContent('변경 없음');
+    fireEvent.change(ipInput(), { target: { value: '10.41.1.12' } });
+    expect(document.querySelector('[data-slot="account-sheet-unchanged"]')).toBeNull();
+  });
+
+  it('개요 없음(확인 전) → 두 칸 빈 채 「저장」 비활성 · 계좌명 저장에 IP/MAC 안 실림', async () => {
+    saveAdminAccountMock.mockResolvedValue({ ok: true, fanout: [] });
+    renderSheet(LINKED, null);
+    expect(ipInput()).toHaveValue('');
+    expect(macInput()).toHaveValue('');
+    expect(saveBtn()).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: '계좌명' }), { target: { value: '주식 메인' } });
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(saveAdminAccountMock).toHaveBeenCalledTimes(1));
+    expect(Object.keys(saveAdminAccountMock.mock.calls[0]![2] as object)).not.toContain('orderEndpoint');
+  });
+
+  it('교보 계좌 → IP/MAC 칸 없음 · 기존 안내 문장', () => {
+    renderSheet({ ...LINKED, broker: 'KYOBO', accountNo: '777', branchNo: '', traderId: '' }, OV_DIFF);
+    expect(screen.queryByRole('textbox', { name: '주문자 IP' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'MAC 주소' })).toBeNull();
+    expect(screen.getByText(T.fanoutNote)).toBeInTheDocument();
   });
 });

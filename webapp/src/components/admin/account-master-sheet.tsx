@@ -2,21 +2,45 @@
 
 import { useState, type ReactNode } from "react";
 import {
+  formatOrderIp,
+  formatOrderMac,
   isValidAccountNoInput,
   normalizeAccountNo,
+  validateOrderEndpointInput,
   type AdminAccountFanout,
   type AdminAccountMaster,
+  type AdminUsersOverview,
   type DmaBroker,
 } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { createAdminAccount, deleteAdminAccount, saveAdminAccount } from "@/lib/admin-api";
+import {
+  createAdminAccount,
+  deleteAdminAccount,
+  saveAdminAccount,
+  setAdminAccountBudget,
+  setAdminAccountFee,
+} from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-import { BusyLines, ResultChips, chipOfResult } from "./account-editor";
+import {
+  ACCOUNT_EDITOR_TEXT,
+  AccountCostFields,
+  BusyLines,
+  ORDER_ENDPOINT_ERROR_TEXT,
+  ResultChips,
+  chipOfResult,
+} from "./account-editor";
+import {
+  flattenFanout,
+  linkedAccountOf,
+  orderEndpointToSend,
+  summarizeLinkedCosts,
+  summarizeLinkedOrderEndpoint,
+} from "./account-linked-summary";
 import { BROKER_BADGE, BROKER_LABEL } from "./account-picker";
 import { AdminSheet } from "./admin-sheet";
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY } from "./reflect-chip";
@@ -33,6 +57,18 @@ import { ADMIN_SEGMENT_ITEM, ADMIN_SEGMENT_ROOT } from "./role-segment";
  *   실패는 `BusyLines`(서버 message 원문) · 사용자 relay 거부는 그 줄 아래 한 줄. 저장 뒤 부모 재조회(시트는 유지).
  * - 삭제: 쓰는 사용자가 있으면 버튼 잠금 + 안내 문장(서버도 409 `ACCOUNT_IN_USE`). 0명이면 시트 안 확인 박스(브라우저 confirm 금지 ·
  *   D-08) → DELETE → 부모가 닫고 재조회. 서버 409 는 확인 박스 아래 message 한 줄. 저장 · 삭제 비행 중엔 버튼을 잠근다.
+ *
+ * **quick 261106-ntl N-02 — KB 주문자 IP/MAC(목업 ③).** 지점 · 트레이더 아래 「주문자 IP」 · 「MAC 주소」 두 칸 + 도움말(검증 오류가 보이면
+ * 그 자리를 오류 줄이 대신 · 규칙은 shared `validateOrderEndpointInput` 한 벌). 초깃값 = 쓰는 사용자 · 서버 중 정본(account-linked-summary)
+ * 의 표시 표기 · 시트를 연 순간 고정. 기존 「저장」 이 계좌명 · 지점 · 트레이더와 함께 보낸다 — IP/MAC 은 정규화 비교로 바뀌었거나
+ * 사용자·서버 간 불일치일 때만 `orderEndpoint`(입력 원문 trim)로 싣는다(계좌명만 바뀐 저장엔 싣지 않음). 보낼 것이 없으면 요청 없이
+ * 「변경 없음」. 서버가 연결 사용자마다 계좌 PUT 에 실어 팬아웃한다. 불일치 줄 「<DMA id> · <서버> 값이 달라요(…) — 저장하면 모두 같아져요」.
+ * 교보는 칸 없음 · 연결 0명이면 칸 비활성 + 안내.
+ *
+ * **N-01 — 「예수금 · 수수료」 그룹(목업 ③).** 저장 버튼 줄 아래 구분선 · 「쓰는 사용자」 앞. 세 칸은 account-editor `AccountCostFields`
+ * (칸마다 Enter · 포커스 이탈 즉시 저장 · 상태기계 그대로) — 저장 = `PUT /api/admin/accounts/:broker/:accountNo/budget · /fee` 팬아웃
+ * (`flattenFanout` 으로 칩 라벨 「<DMA id> · <서버>」). 표시값 · 불일치 · 「확인 전」 은 사용자 개요(`overview` prop)를 사용자마다 집계.
+ * 연결 0명(active 자리 0)은 세 칸 비활성 + 「사용자에게 연결된 뒤 설정할 수 있어요 …」 · 요청 없음.
  */
 
 export const ACCOUNT_MASTER_SHEET_TEXT = {
@@ -58,6 +94,13 @@ export const ACCOUNT_MASTER_SHEET_TEXT = {
   traderInvalid: "KB 트레이더 id 는 6자예요",
   readOnlyNote: "증권사 · 계좌번호는 못 바꾼다 — 삭제 뒤 다시 등록.",
   fanoutNote: "저장하면 쓰는 사용자 모두의 서버 설정에 함께 반영돼요.",
+  /** quick 261106-ntl N-02 — KB 계좌 · 연결 있음(목업 ③). */
+  fanoutNoteKb: "저장하면 쓰는 사용자 모두의 서버 설정에 함께 반영돼요(계좌명 · 지점 · 트레이더 · IP/MAC).",
+  // ── quick 261106-ntl N-01 — 「예수금 · 수수료」 그룹(목업 ③) ──
+  costTitle: "예수금 · 수수료",
+  costSubtitle: "쓰는 사용자 모두의 등록 서버에 즉시 저장",
+  /** 연결 0명 — 값을 둘 서버가 없다(세 칸 · IP/MAC 칸 비활성). */
+  notLinkedNote: "사용자에게 연결된 뒤 설정할 수 있어요 — 값은 연결된 사용자의 서버에 저장돼요",
   usersTitle: "쓰는 사용자",
   usersCount: (n: number) => (n > 0 ? `${n}명 · 등록 서버` : "0명"),
   noUsers: "어느 사용자에게도 연결되지 않은 계좌 — 서버에 올라가 있지 않다.",
@@ -74,6 +117,7 @@ const LABEL = "text-[12.5px] font-semibold text-[var(--muted-fg)]";
 const HINT = "font-normal text-[var(--faint)]";
 const ERROR_LINE = "text-[12.5px] leading-[1.45] break-keep text-[var(--destructive)]";
 const NOTE = "text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]";
+const WARN_LINE = "text-[12px] leading-[1.5] break-keep text-[var(--led-latent)]";
 const READ_ONLY = "text-[15px] font-semibold tabular-nums text-[var(--fg)]";
 const HR = "my-1 border-t border-[var(--border-subtle)]";
 const FORM_ID = "admin-account-sheet-form";
@@ -328,6 +372,11 @@ function CreateSheet({ accounts, onCreated, onClose }: CreateProps) {
 
 interface EditProps {
   account: AdminAccountMaster;
+  /**
+   * 사용자 개요(`GET /api/admin/users`) — 쓰는 사용자 · 서버별 예수금 · 수수료 · 매도세 · IP/MAC 표시용(quick 261106-ntl).
+   * null = 못 읽음(그 값들은 「확인 전」).
+   */
+  overview: AdminUsersOverview | null;
   onSaved: () => void;
   onDeleted: () => void;
   onClose: () => void;
@@ -375,8 +424,11 @@ function UserLine({ user, fanout }: { user: AdminAccountMaster["users"][number];
   );
 }
 
-function EditSheet({ account, onSaved, onDeleted, onClose }: EditProps) {
+type EndpointFields = { ip: string; mac: string };
+
+function EditSheet({ account, overview, onSaved, onDeleted, onClose }: EditProps) {
   const T = ACCOUNT_MASTER_SHEET_TEXT;
+  const E = ACCOUNT_EDITOR_TEXT;
   const kbAccount = account.broker === "KB";
   const [name, setName] = useState(account.name);
   const [branchNo, setBranchNo] = useState(account.branchNo);
@@ -386,24 +438,71 @@ function EditSheet({ account, onSaved, onDeleted, onClose }: EditProps) {
   const [fanout, setFanout] = useState<ReadonlyMap<string, AdminAccountFanout>>(new Map());
   const [confirming, setConfirming] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // 「변경 없음」(D-06 결) — 요청 없이 끝난 저장. 칸을 고치면 지운다.
+  const [unchanged, setUnchanged] = useState(false);
+
+  // N-01 · N-02 — 쓰는 사용자 · 서버(active 자리) 집계. 자리 0 = 값을 둘 서버가 없다(연결 0명 · removing 만).
+  const linkedAccount = linkedAccountOf(account, overview);
+  const settable = linkedAccount.slots.length > 0;
+  const costs = summarizeLinkedCosts(linkedAccount);
+  const endpoint = kbAccount ? summarizeLinkedOrderEndpoint(linkedAccount) : null;
+  const mismatched = settable && endpoint !== null && endpoint.mismatches.length > 0;
+
+  // IP/MAC 초깃값 · 초안 — 시트를 연 순간 정본 표시 표기로 고정(재조회가 덮지 않는다 · D-17).
+  const [endpointDraft, setEndpointDraft] = useState<{ initial: EndpointFields; draft: EndpointFields }>(() => {
+    const set = endpoint?.state === "set";
+    const initial = {
+      ip: set ? formatOrderIp(endpoint.orderIp) : "",
+      mac: set ? formatOrderMac(endpoint.orderMac) : "",
+    };
+    return { initial, draft: initial };
+  });
+  const setEndpointField = (field: keyof EndpointFields, v: string) => {
+    setEndpointDraft((d) => ({ ...d, draft: { ...d.draft, [field]: v } }));
+    setUnchanged(false);
+  };
 
   const kb = kbErrors(account.broker, branchNo, traderId);
-  const changed =
+  const accountChanged =
     name.trim() !== account.name || (kbAccount && (branchNo !== account.branchNo || traderId !== account.traderId));
-  const ready = changed && kb.ok && busy === null;
+  const ipmacOn = kbAccount && settable;
+  // 「바뀜」(저장 버튼 기준) = 칸 원문(trim)이 초깃값과 다름 — 같은 값을 다른 표기로 적어도 「바뀜」(누르면 「변경 없음」).
+  const endpointEdited =
+    ipmacOn &&
+    (endpointDraft.draft.ip.trim() !== endpointDraft.initial.ip ||
+      endpointDraft.draft.mac.trim() !== endpointDraft.initial.mac);
+  // 검증은 IP/MAC 을 실을 수 있는 저장(칸을 고쳤거나 불일치 맞추기)만 막는다(30 IN-01) — 막을 때는 오류 줄이 늘 이유를 보인다.
+  const validation = ipmacOn ? validateOrderEndpointInput(endpointDraft.draft) : null;
+  const shownInvalid = validation !== null && !validation.ok && (endpointEdited || mismatched) ? validation : null;
+  const ready = (accountChanged || endpointEdited || mismatched) && kb.ok && shownInvalid === null && busy === null;
   const linked = account.users.length > 0;
 
   const save = async () => {
     if (!ready) return;
+    const orderEndpoint = ipmacOn
+      ? orderEndpointToSend({ initial: endpointDraft.initial, draft: endpointDraft.draft, mismatched })
+      : null;
+    if (!accountChanged && orderEndpoint === null) {
+      // 정규화 비교로 지금 값과 같고 불일치도 없다 — 요청 없이 「변경 없음」.
+      setUnchanged(true);
+      return;
+    }
     setBusy("save");
     setError(null);
+    setUnchanged(false);
     try {
       const res = await saveAdminAccount(account.broker, account.accountNo, {
         name: name.trim(),
         branchNo: kbAccount ? branchNo : "",
         traderId: kbAccount ? traderId : "",
+        ...(orderEndpoint ? { orderEndpoint } : {}),
       });
       setName(name.trim());
+      if (ipmacOn) {
+        // 초깃값 = 보낸(또는 정규화로 같은) 칸 값 — 「저장」 이 다시 꺼진다.
+        const sent = { ip: endpointDraft.draft.ip.trim(), mac: endpointDraft.draft.mac.trim() };
+        setEndpointDraft({ initial: sent, draft: sent });
+      }
       setFanout(new Map(res.fanout.map((f) => [f.dmaUserId, f])));
       onSaved();
     } catch (err) {
@@ -467,21 +566,90 @@ function EditSheet({ account, onSaved, onDeleted, onClose }: EditProps) {
             maxLength={40}
             value={name}
             disabled={busy !== null}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              setUnchanged(false);
+            }}
           />
         </Field>
         <KbFields
           broker={account.broker}
           branchNo={branchNo}
           traderId={traderId}
-          onBranch={setBranchNo}
-          onTrader={setTraderId}
+          onBranch={(v) => {
+            setBranchNo(v);
+            setUnchanged(false);
+          }}
+          onTrader={(v) => {
+            setTraderId(v);
+            setUnchanged(false);
+          }}
           disabled={busy !== null}
         />
-        {linked && <p className={NOTE}>{T.fanoutNote}</p>}
+        {kbAccount && (
+          <div data-slot="account-sheet-ipmac" className="flex flex-col gap-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={E.ipLabel} slot="ip">
+                <Input
+                  aria-label={E.ipLabel}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={E.ipPlaceholder}
+                  className="tabular-nums"
+                  value={endpointDraft.draft.ip}
+                  disabled={!settable || busy !== null}
+                  aria-invalid={shownInvalid?.field === "ip" || undefined}
+                  onChange={(e) => setEndpointField("ip", e.target.value)}
+                />
+              </Field>
+              <Field label={E.macLabel} slot="mac">
+                <Input
+                  aria-label={E.macLabel}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                  placeholder={E.macPlaceholder}
+                  className="tabular-nums"
+                  value={endpointDraft.draft.mac}
+                  disabled={!settable || busy !== null}
+                  aria-invalid={shownInvalid?.field === "mac" || undefined}
+                  onChange={(e) => setEndpointField("mac", e.target.value)}
+                />
+              </Field>
+            </div>
+            {/* 도움말 자리 — 검증 오류가 보이면 오류 줄이 대신한다(둘이 동시에 나오지 않는다 · 입력마다 바뀌는 줄이라 role 없음). */}
+            {shownInvalid ? (
+              <p data-slot="account-sheet-ipmac-invalid" className={ERROR_LINE}>
+                {ORDER_ENDPOINT_ERROR_TEXT[shownInvalid.error]}
+              </p>
+            ) : (
+              <p data-slot="account-sheet-ipmac-help" className={NOTE}>
+                {E.ipmacHelp}
+              </p>
+            )}
+            {settable ? (
+              endpoint?.mismatches.map((m) => (
+                <p key={m.serverKey} data-slot="account-sheet-ipmac-mismatch" data-server={m.serverKey} className={WARN_LINE}>
+                  {E.ipmacMismatch(m.serverKey, m, E.mismatchTailSheet)}
+                </p>
+              ))
+            ) : (
+              <p data-slot="account-sheet-ipmac-not-linked" className={NOTE}>
+                {T.notLinkedNote}
+              </p>
+            )}
+          </div>
+        )}
+        {linked && <p className={NOTE}>{kbAccount ? T.fanoutNoteKb : T.fanoutNote}</p>}
         {error && (
           <p data-slot="account-sheet-error" role="alert" className={ERROR_LINE}>
             {error}
+          </p>
+        )}
+        {unchanged && (
+          <p data-slot="account-sheet-unchanged" className={NOTE}>
+            {E.unchanged}
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -493,6 +661,33 @@ function EditSheet({ account, onSaved, onDeleted, onClose }: EditProps) {
           </Button>
         </div>
       </form>
+
+      <div className={HR} />
+
+      <section data-slot="account-sheet-costs" className="flex flex-col gap-1">
+        <h3 className="text-[13px] font-semibold text-[var(--fg)]">
+          {T.costTitle}
+          {settable && <span className="ml-2 text-[12px] font-normal text-[var(--muted-fg)]">{T.costSubtitle}</span>}
+        </h3>
+        <AccountCostFields
+          broker={account.broker}
+          accountNo={account.accountNo}
+          summary={costs.summary}
+          slots={costs.slots}
+          saveBudget={(krw) => setAdminAccountBudget(account.broker, account.accountNo, krw).then(flattenFanout)}
+          saveFee={(v) =>
+            setAdminAccountFee(account.broker, account.accountNo, v.feePpm, v.sellTaxPpm).then(flattenFanout)
+          }
+          releaseOn={account}
+          disabled={!settable}
+          onChanged={onSaved}
+        />
+        {!settable && (
+          <p data-slot="account-sheet-costs-not-linked" className={cn("mt-1.5", NOTE)}>
+            {T.notLinkedNote}
+          </p>
+        )}
+      </section>
 
       <div className={HR} />
 
@@ -596,6 +791,12 @@ export function AccountMasterSheet(props: AccountMasterSheetProps) {
     return <CreateSheet accounts={props.accounts} onCreated={props.onCreated} onClose={props.onClose} />;
   }
   return (
-    <EditSheet account={props.account} onSaved={props.onSaved} onDeleted={props.onDeleted} onClose={props.onClose} />
+    <EditSheet
+      account={props.account}
+      overview={props.overview}
+      onSaved={props.onSaved}
+      onDeleted={props.onDeleted}
+      onClose={props.onClose}
+    />
   );
 }

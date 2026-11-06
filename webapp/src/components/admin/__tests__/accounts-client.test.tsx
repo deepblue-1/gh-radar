@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { AdminAccountMaster, AdminAccountsOverview } from '@gh-radar/shared';
+import type { AdminAccountMaster, AdminAccountsOverview, AdminUsersOverview } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
 
@@ -10,14 +10,19 @@ import { ApiClientError } from '@/lib/api';
  * 잠그는 것: 머리(「계좌」 · 부제 · 「+ 계좌」) · 행(배지 · 번호 · 이름/「이름 없음」 · KB 지점·트레이더 / 교보 「해당 없음」 ·
  * 쓰는 사용자 칩 / 점선 「연결 없음」) · 개수 + 증권사 세그먼트 거르기 · 하단 안내 · 로딩 · 403 · 오류 다시 시도 ·
  * 행 → 수정 시트 · 「+ 계좌」 → 등록 시트(한 번에 하나) · 쓰기 뒤 재조회로 시트 내용 갱신 · 삭제로 사라지면 시트 닫힘.
+ * quick 261106-ntl — 사용자 개요(fetchAdminUsers)를 계좌 목록과 병렬로 읽고 실패는 null 로 접는다(시트 비용 칸 「확인 전」) · 재조회도 둘 다.
  */
 
 const fetchAdminAccountsMock = vi.fn();
+const fetchAdminUsersMock = vi.fn();
 const createAdminAccountMock = vi.fn();
 const saveAdminAccountMock = vi.fn();
 const deleteAdminAccountMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
   fetchAdminAccounts: () => fetchAdminAccountsMock(),
+  fetchAdminUsers: () => fetchAdminUsersMock(),
+  setAdminAccountBudget: vi.fn(),
+  setAdminAccountFee: vi.fn(),
   createAdminAccount: (body: unknown) => createAdminAccountMock(body),
   saveAdminAccount: (...args: unknown[]) => saveAdminAccountMock(...args),
   deleteAdminAccount: (...args: unknown[]) => deleteAdminAccountMock(...args),
@@ -52,8 +57,44 @@ const rows = () => Array.from(document.querySelectorAll<HTMLElement>('[data-slot
 const row = (key: string) => document.querySelector<HTMLElement>(`[data-slot="admin-account-row"][data-key="${key}"]`)!;
 const sheet = () => document.querySelector<HTMLElement>('[data-slot="account-sheet"]');
 
+/** 사용자 개요 — kimtr 의 KB 5120009880 뷰(KB120 예수금 1천만)만. */
+function usersOverview(): AdminUsersOverview {
+  return {
+    users: [
+      {
+        email: 'kimtr@example.invalid',
+        role: 'trader',
+        dmaUserId: 'kimtr',
+        signedUp: true,
+        accountCount: 1,
+        servers: [],
+        accounts: [
+          {
+            broker: 'KB',
+            accountNo: '5120009880',
+            name: '주식',
+            branchNo: '00123',
+            traderId: 'T00001',
+            priority: 0,
+            servers: [{ serverKey: 'KB120', tone: 'ok', message: null, state: 'active' }],
+            serverOnlyOn: [],
+            orderServer: null,
+            defaultOrderServer: 'KB120',
+            costs: { KB120: { budgetKrw: 10_000_000, feePpm: 100, sellTaxPpm: 2000, budgetSource: 'live' } },
+          },
+        ],
+      },
+    ],
+    pending: [],
+    serverOnly: [],
+    servers: [{ key: 'KB120', broker: 'KB', enabled: true }],
+  };
+}
+
 beforeEach(() => {
   fetchAdminAccountsMock.mockReset();
+  fetchAdminUsersMock.mockReset();
+  fetchAdminUsersMock.mockResolvedValue(usersOverview());
   createAdminAccountMock.mockReset();
   saveAdminAccountMock.mockReset();
   deleteAdminAccountMock.mockReset();
@@ -186,5 +227,58 @@ describe('AccountsClient — 시트 열기 · 재조회', () => {
     await waitFor(() => expect(row('KYOBO|777')).toHaveTextContent('새이름'));
     // 재조회 값 = 입력값 → 「저장」 다시 비활성.
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
+  });
+});
+
+describe('AccountsClient — 사용자 개요 병렬 로드 (quick 261106-ntl)', () => {
+  const budget = () => screen.getByRole('textbox', { name: 'KB 5120009880 예수금(원)' }) as HTMLInputElement;
+  const costChips = () =>
+    Array.from(document.querySelectorAll('[data-slot="account-sheet-costs"] [data-slot="admin-account-cost-chips"] [data-slot="reflect-chip"]')).map(
+      (c) => c.textContent,
+    );
+
+  it('마운트 시 fetchAdminAccounts 와 fetchAdminUsers 를 함께(앞 응답을 기다리지 않음)', () => {
+    fetchAdminAccountsMock.mockReturnValue(new Promise(() => {}));
+    fetchAdminUsersMock.mockReturnValue(new Promise(() => {}));
+    render(<AccountsClient />);
+    expect(fetchAdminAccountsMock).toHaveBeenCalledTimes(1);
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('개요 성공 → 수정 시트 비용 칸 = 개요 값 · 칩 「<DMA id> · <서버>」(모르는 자리는 확인 전)', async () => {
+    fetchAdminAccountsMock.mockResolvedValue(overview());
+    render(<AccountsClient />);
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    fireEvent.click(row('KB|5120009880'));
+    await waitFor(() => expect(sheet()).toHaveAttribute('data-mode', 'edit'));
+    expect(budget()).toHaveValue('10,000,000');
+    expect(costChips()).toEqual(['kimtr · KB120', 'leetr · KB120 · 확인 전']);
+  });
+
+  it('fetchAdminUsers 실패 → 목록은 그대로 · 시트 비용 칸 「—」 · 칩 「… · 확인 전」', async () => {
+    fetchAdminAccountsMock.mockResolvedValue(overview());
+    fetchAdminUsersMock.mockReset();
+    fetchAdminUsersMock.mockRejectedValue(new ApiClientError({ code: 'DB_ERROR', message: 'x', status: 500 }));
+    render(<AccountsClient />);
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    expect(screen.queryByText(ADMIN_ACCOUNTS_TEXT.loadFailed)).toBeNull();
+    fireEvent.click(row('KB|5120009880'));
+    await waitFor(() => expect(sheet()).toHaveAttribute('data-mode', 'edit'));
+    expect(budget()).toHaveValue('');
+    expect(budget()).toHaveAttribute('placeholder', '—');
+    expect(costChips()).toEqual(['kimtr · KB120 · 확인 전', 'leetr · KB120 · 확인 전']);
+  });
+
+  it('저장 뒤 재조회는 둘 다', async () => {
+    fetchAdminAccountsMock.mockResolvedValue(overview());
+    saveAdminAccountMock.mockResolvedValue({ ok: true, fanout: [] });
+    render(<AccountsClient />);
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    fireEvent.click(row('KYOBO|777'));
+    await waitFor(() => expect(sheet()).toHaveAttribute('data-mode', 'edit'));
+    fireEvent.change(screen.getByRole('textbox', { name: '계좌명' }), { target: { value: '새이름' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(fetchAdminAccountsMock).toHaveBeenCalledTimes(2));
+    expect(fetchAdminUsersMock).toHaveBeenCalledTimes(2);
   });
 });
