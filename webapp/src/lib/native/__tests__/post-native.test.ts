@@ -87,4 +87,17 @@ describe('postNative', () => {
     expect(err).toHaveBeenCalled();
     expect(String(err.mock.calls[0][0])).toContain('[gh-radar]');
   });
+
+  // Phase 40 D-14 — 푸시 권한 거부 뒤 「설정 열기」. 깨지면 거부한 사용자가 앱 안에서 권한을 되살릴 길이 없다.
+  it('6. openSettings 는 페이로드 없이 {"type":"openSettings"} 문자열을 보내고, 채널이 없으면 false', () => {
+    const ios = installIos();
+
+    expect(postNative('openSettings')).toBe(true);
+
+    expect(ios).toHaveBeenCalledTimes(1);
+    expect(ios.mock.calls[0][0]).toBe('{"type":"openSettings"}');
+
+    resetNativeMode();
+    expect(postNative('openSettings')).toBe(false);
+  });
 });

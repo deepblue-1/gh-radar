@@ -42,6 +42,11 @@ const config: CapacitorConfig = {
     SocialLogin: {
       providers: { google: true, facebook: false, apple: false, twitter: false },
     },
+    // Phase 40 D-19 체결 푸시 — 앱이 앞에 떠 있어도 배너를 띄우고 알림 센터에 남긴다(`alert` 는 iOS 폐기 낱말이라 쓰지 않는다).
+    // 앱 아이콘 뱃지는 없다(D-21) — `badge` 를 넣지 않는다. 소리는 플랫폼 기본(D-17 · 전용 소리 파일 없음).
+    PushNotifications: {
+      presentationOptions: ['banner', 'sound', 'list'],
+    },
   },
 };
 
