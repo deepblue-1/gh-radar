@@ -17,7 +17,7 @@ import {
   extractStockRefs,
   type SpecialistInput,
 } from "./chat-orchestrator.js";
-import type { DiagnosisDeps } from "./specialists/diagnosis/diagnosis-specialist.js";
+import type { DiagnosisDeps, ModelUsage } from "./specialists/diagnosis/diagnosis-specialist.js";
 import {
   loadConversation,
   createConversation,
@@ -74,6 +74,28 @@ const MAX_TOOL_RESULT_CHARS = 8_000;
  */
 export const DIAGNOSIS_RELAY_HEADER =
   "[주문 진단 전문가의 진단문이 이미 사용자 화면에 그대로 표시되었습니다. 다시 쓰거나 요약·재서술하지 말고, 수치·시각을 반복하지 마세요. 필요하면 꼬리말 한두 줄만.]";
+
+// --- 모델별 토큰 합 (Phase 39 SC-3) ---
+
+/** `[chat] usage` 의 `models` 값 — 모델 키별 토큰 합(팀장 Sonnet · 진단 Opus 를 따로 본다). */
+type TokenTally = Omit<ModelUsage, "model">;
+
+function tallyFor(models: Record<string, TokenTally>, model: string): TokenTally {
+  return (models[model] ??= {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  });
+}
+
+/** 팀장 라운드 · recovery 콜 usage 를 더한다(null 은 0). */
+function addApiUsage(t: TokenTally, u: Anthropic.Usage): void {
+  t.inputTokens += u.input_tokens ?? 0;
+  t.outputTokens += u.output_tokens ?? 0;
+  t.cacheReadInputTokens += u.cache_read_input_tokens ?? 0;
+  t.cacheCreationInputTokens += u.cache_creation_input_tokens ?? 0;
+}
 
 // --- SSE 헬퍼 ---
 
@@ -385,6 +407,9 @@ export async function handleChatStream(
     let turnTokensIn = 0;
     let turnTokensOut = 0;
     let toolRounds = 0;
+    // 모델별 토큰 — 팀장 키는 늘 있다. 전문가가 돌려준 usage(진단 Opus)는 그 모델 키로 더한다(SC-3).
+    const models: Record<string, TokenTally> = {};
+    tallyFor(models, cfg.chatLeadModel);
 
     // --- 팀장 tool-use 루프 (RESEARCH Code Examples 골격) ---
     for (let round = 0; round < cfg.chatMaxToolRounds; round++) {
@@ -453,6 +478,7 @@ export async function handleChatStream(
       if (finalMessage.usage) {
         turnTokensIn += finalMessage.usage.input_tokens;
         turnTokensOut += finalMessage.usage.output_tokens;
+        addApiUsage(tallyFor(models, cfg.chatLeadModel), finalMessage.usage);
       }
 
       workingMessages.push({ role: "assistant", content: finalMessage.content });
@@ -476,6 +502,13 @@ export async function handleChatStream(
               signal: effectiveSignal,
               deps: opts.diagnosisDeps,
             });
+            for (const u of out.usage ?? []) {
+              const t = tallyFor(models, u.model);
+              t.inputTokens += u.inputTokens;
+              t.outputTokens += u.outputTokens;
+              t.cacheReadInputTokens += u.cacheReadInputTokens;
+              t.cacheCreationInputTokens += u.cacheCreationInputTokens;
+            }
 
             // D-01 — 진단문은 화면에 글자 그대로. emit 과 누적을 한 자리에서 해 화면 · 저장 · 재시도
             // 재전송(WR-03 accumulatedText)이 같은 글자가 되게 한다. 병렬 호출이면 끝나는 순서대로 흐른다.
@@ -559,6 +592,7 @@ export async function handleChatStream(
           if (recoveryMsg.usage) {
             turnTokensIn += recoveryMsg.usage.input_tokens;
             turnTokensOut += recoveryMsg.usage.output_tokens;
+            addApiUsage(tallyFor(models, cfg.chatLeadModel), recoveryMsg.usage);
           }
           break;
         } catch (err) {
@@ -582,7 +616,8 @@ export async function handleChatStream(
     // 종목 미니 카드 (D-07) — 답변 텍스트의 종목 참조 조회 후 emit
     await emitStockCards(res, supabase, finalText, sentCodes, assistantBlocks);
 
-    // 비용 로깅 (Pitfall 4, 메모리 lesson project_claude_haiku_cost_classify)
+    // 비용 로깅 (Pitfall 4, 메모리 lesson project_claude_haiku_cost_classify).
+    // 기존 키(model · inputTokens · outputTokens · toolRounds)는 로그 쿼리 호환으로 그대로 — models 가 모델별 분해(SC-3).
     logger.info(
       {
         conversationId: convId,
@@ -590,6 +625,7 @@ export async function handleChatStream(
         inputTokens: turnTokensIn,
         outputTokens: turnTokensOut,
         toolRounds,
+        models,
       },
       "[chat] usage",
     );
