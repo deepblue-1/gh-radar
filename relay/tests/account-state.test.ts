@@ -474,6 +474,61 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
     });
   });
 
+  // Phase 40 D-25 — 자동매도 시작 푸시의 보유 조각 원천. liveBudgetOf 와 같은 키 해석(서버 · 계좌 칸) · 최신 수신.
+  describe("Phase 40 D-25 holdingOf", () => {
+    class ServerSession extends FakeSession {
+      constructor(userId: string, readonly serverKey: string) {
+        super(userId);
+      }
+    }
+
+    it("hold 에 qty 500 · 평단 3120 → { qty: 500, avgPrice: 3120 } · 다른 서버 · 다른 계좌 · 없는 종목 null", () => {
+      const kb120 = new ServerSession("u1", "KB120");
+      hub.attach(kb120);
+      kb120.pushFrame(
+        buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 500, sellableQty: 500, avgPrice: 3_120 }] }),
+      );
+
+      expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toEqual({ qty: 500, avgPrice: 3_120 });
+      expect(hub.holdingOf("KB120", `00${SAMPLE_ACCOUNT_NO}`, SAMPLE_ISIN)).toEqual({ qty: 500, avgPrice: 3_120 }); // 정규화
+      expect(hub.holdingOf("KB121", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toBeNull();
+      expect(hub.holdingOf("KB1", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toBeNull();
+      expect(hub.holdingOf("KB120", OTHER_ACCOUNT_NO, SAMPLE_ISIN)).toBeNull();
+      expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, "KR7000000000")).toBeNull();
+    });
+
+    it("qty 0 톰스톤(델타)으로 지워지면 null · 웹 세션이 없는 계좌는 null", () => {
+      expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toBeNull();
+      const kb120 = new ServerSession("u1", "KB120");
+      hub.attach(kb120);
+      kb120.pushFrame(buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 500, avgPrice: 3_120 }] }));
+      kb120.pushFrame(
+        buildAccountStateFrame({ snapshot: false, holdings: [{ isin: SAMPLE_ISIN, stockQty: 0, sellableQty: 0, avgPrice: 0 }] }),
+      );
+      expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toBeNull();
+    });
+
+    it("사용자 세션 둘이 같은 서버 같은 계좌면 가장 최근에 받은 값", () => {
+      const now = vi.spyOn(Date, "now");
+      try {
+        const a = new ServerSession("u1", "KB120");
+        const b = new ServerSession("u2", "KB120");
+        hub.attach(a);
+        hub.attach(b);
+        now.mockReturnValue(1_000);
+        a.pushFrame(buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 500, avgPrice: 3_120 }] }));
+        now.mockReturnValue(2_000);
+        b.pushFrame(buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 300, avgPrice: 3_100 }] }));
+        expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toEqual({ qty: 300, avgPrice: 3_100 });
+        now.mockReturnValue(3_000);
+        a.pushFrame(buildAccountStateFrame({ snapshot: false, holdings: [{ isin: SAMPLE_ISIN, stockQty: 200, avgPrice: 3_120 }] }));
+        expect(hub.holdingOf("KB120", SAMPLE_ACCOUNT_NO, SAMPLE_ISIN)).toEqual({ qty: 200, avgPrice: 3_120 });
+      } finally {
+        now.mockRestore();
+      }
+    });
+  });
+
   // Phase 36 D-05 — 어드민 개요 「현재 예수금」 live 원천. 키 `${userId}|${serverKey}|${accountNo}` 의 서버 · 계좌 칸으로 찾는다.
   describe("Phase 36 D-05 liveBudgetOf", () => {
     class ServerSession extends FakeSession {

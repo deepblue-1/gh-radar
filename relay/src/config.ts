@@ -40,6 +40,10 @@
  *   Phase 29 D-04 (29-06)  `APP_ACCESS_REFRESH_MS` = 접근 맵(`AppAccess`) 재적재 주기. 기본 60000. **production 은 env 를
  *            무시하고 60000** 이다(운영 RPC 부하를 env 실수로 키우지 않게 — 즉시 반영은 `reload()` 몫). e2e 는 짧게 준다
  *            (시드를 켜고 끈 전환이 다음 페이지 로드 전에 반영되게). 빈 문자열 · 음수 · 0 · 비숫자는 기동 거부(`QUOTE_LINGER_MS` 규율).
+ *   Phase 40  `PUSH_NOTIFY` = 체결 앱 푸시 켜기/끄기(`on` | `off`). 없으면 production 은 on · 그 밖(로컬 · 테스트 · e2e)은 off
+ *            (실기기로 새지 않게). `off` 는 운영 비상 끄기다(`PUSH_NOTIFY=off bash scripts/deploy-relay.sh` — 40-09). 다른 값은
+ *            기동 거부(오타가 조용히 켜짐/꺼짐이 되지 않게). 켜져도 송신기(APNs · FCM 비밀 — 40-09)가 0 개면 `PushNotifier` 는
+ *            꺼짐 로그 1줄 뒤 RPC 0 이다.
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
@@ -161,6 +165,11 @@ export type RelayConfig = {
    * 빈 문자열 · 0 이하 · 비숫자는 기동을 거부한다.
    */
   appAccessRefreshMs: number;
+  /**
+   * 체결 앱 푸시 켜기 (Phase 40 — env `PUSH_NOTIFY` `on` | `off`). 미설정 시 production 은 true · 그 밖은 false. 다른 값은 기동
+   * 거부. false 면 `PushNotifier` 는 RPC · 송신 0 이다(비상 끄기). 송신기 비밀은 40-09 가 따로 읽는다.
+   */
+  pushNotify: boolean;
 };
 
 export function loadConfig(): RelayConfig {
@@ -194,6 +203,13 @@ export function loadConfig(): RelayConfig {
       throw new Error(`APP_ACCESS_REFRESH_MS must be a finite number > 0 (ms) — got "${appAccessRaw}"`);
     }
   }
+
+  // Phase 40 — 체결 앱 푸시 스위치. 없으면 production 만 켜짐 · on/off 밖의 값은 기동 거부.
+  const pushNotifyRaw = optional("PUSH_NOTIFY");
+  if (pushNotifyRaw !== undefined && pushNotifyRaw !== "on" && pushNotifyRaw !== "off") {
+    throw new Error(`PUSH_NOTIFY must be "on" or "off" — got "${pushNotifyRaw}" (Phase 40)`);
+  }
+  const pushNotify = pushNotifyRaw === undefined ? nodeEnv === "production" : pushNotifyRaw === "on";
 
   // Phase 29 D-09 — 레지스트리 원천 게이트. 비밀 필수 검사(위) 뒤에 본다 — production 비밀 부재 사유 문구를 바꾸지 않는다.
   const registryRaw = optional("DMA_REGISTRY_SOURCE");
@@ -291,5 +307,6 @@ export function loadConfig(): RelayConfig {
     dmaQuoteObserverSecret,
     quoteLingerMs,
     appAccessRefreshMs,
+    pushNotify,
   };
 }

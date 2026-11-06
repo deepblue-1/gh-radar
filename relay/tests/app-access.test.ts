@@ -164,6 +164,37 @@ describe("AppAccess — 접근 맵 적재 (Phase 29 D-02 · D-04)", () => {
     expect(a.userIdOf("dmaZ")).toBe(U1);
   });
 
+  it("userIdsOf(Phase 40 D-06 푸시 받는 사람) — 공유 DMA id 의 admin/trader 전부 · viewer 빠짐 · 재적재로 강등되면 빠짐 · 사본 · 첫 적재 전 []", async () => {
+    const db = fakeDb();
+    db.queue(
+      ok([
+        { user_id: U1, email: "t1@example.com", role: "trader", dma_user_id: "dmaS" },
+        { user_id: U2, email: "t2@example.com", role: "trader", dma_user_id: "dmaS" },
+        { user_id: U3, email: "v@example.com", role: "viewer", dma_user_id: "dmaS" },
+        { user_id: U4, email: "a@example.com", role: "admin", dma_user_id: "dmaT" },
+      ]),
+    );
+    db.queue(
+      ok([
+        { user_id: U1, email: "t1@example.com", role: "viewer", dma_user_id: "dmaS" },
+        { user_id: U2, email: "t2@example.com", role: "trader", dma_user_id: "dmaS" },
+      ]),
+    );
+    const a = make(db);
+    expect(a.userIdsOf("dmaS")).toEqual([]); // 첫 적재 전 fail closed
+    await a.reload();
+    expect(a.userIdsOf("dmaS")).toEqual([U1, U2]); // 같은 DMA id 의 두 trader 둘 다 · viewer U3 빠짐
+    expect(a.userIdsOf("dmaT")).toEqual([U4]);
+    expect(a.userIdsOf("dma-none")).toEqual([]);
+    a.userIdsOf("dmaS").push("mutated"); // 사본 — 내부 색인 무변
+    expect(a.userIdsOf("dmaS")).toEqual([U1, U2]);
+    expect(a.userIdOf("dmaS")).toBe(U1); // 29-44 첫 행 하나는 그대로
+
+    await a.reload(); // U1 강등 · U4 사라짐
+    expect(a.userIdsOf("dmaS")).toEqual([U2]);
+    expect(a.userIdsOf("dmaT")).toEqual([]);
+  });
+
   it("행 가드 — 역할 밖 · 빈 user_id · 비문자 이메일은 건너뛰고, 빈 dma id 는 null", async () => {
     const db = fakeDb();
     db.queue(

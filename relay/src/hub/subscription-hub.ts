@@ -2289,6 +2289,32 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 그 서버 그 계좌 그 종목의 보유 수량 · 평단 (Phase 40 D-25 — 자동매도 시작 푸시의 「보유 500주 (156만)」 조각 원천).
+   *
+   * 키 해석은 `liveBudgetOf` 와 같다 — 캐시 키 `${userId}|${serverKey}|${accountNo}` 의 서버 · 계좌 칸(계좌번호 정규화), 같은
+   * 서버 같은 계좌 키가 여럿(사용자 세션 여럿)이면 가장 최근에 받은 것. 보유는 qty > 0 만(델타 0 행 톰스톤은 병합이 이미 지운다).
+   * **웹 세션이 없는 계좌는 66/67 을 받은 적이 없어 null** → 호출자(`PushNotifier`)가 보유 조각을 뺀다(문안은 shared 가 정한다).
+   * 로그에 싣지 않는다(T-19-14).
+   */
+  holdingOf(serverKey: string, accountNo: string, isin: string): { qty: number; avgPrice: number } | null {
+    const want = normalizeAccountNo(accountNo);
+    let best: { qty: number; avgPrice: number } | null = null;
+    let bestAtMs = Number.NEGATIVE_INFINITY;
+    for (const [key, state] of this.#accountStates) {
+      const parts = key.split("|");
+      if (parts.length !== 3 || parts[1] !== serverKey) continue;
+      if (normalizeAccountNo(parts[2] ?? "") !== want) continue;
+      const atMs = this.#accountStateAtMs.get(key) ?? 0;
+      if (atMs <= bestAtMs) continue;
+      // 그 세션의 최신 66/67 이 이 종목을 갖고 있지 않으면 「없음」 이 그 시점의 사실이다(더 오래된 세션 값으로 내려가지 않는다).
+      const h = state.hold.find((x) => x.isin === isin && x.qty > 0);
+      best = h === undefined ? null : { qty: h.qty, avgPrice: h.avgPrice };
+      bestAtMs = atMs;
+    }
+    return best;
+  }
+
+  /**
    * 그 사용자의 상따 전략 전량 복사본 (D-12).
    *
    * 새 wss 연결이 붙었을 때 `{t:"lc.snap"}` 1프레임으로 목록을 복원하는 데 쓴다 —
