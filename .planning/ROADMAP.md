@@ -539,7 +539,7 @@ Plans:
   5. 챗봇 질의 비용은 사용자 수와 독립인 조회 RPC 만 — 원본 스크래핑·on-demand fetch 없음(CLAUDE.md 운영 기준).
 
 **미결 결정(discuss 에서)**: ① 진단 전문가를 팀장의 도구 하나로 둘지(agent-as-tool · 기존 패턴) vs 「매매진단」 별도 대화 모드로 둘지. ② 당일 틱 조회를 전문가가 직접 부를지(기간·종목 인자) vs 이벤트 시각 ±N초 자동 첨부로 제한할지. ③ kind 9 2차 범위(진입 래치·게이트 차단·VI 미발주)를 이번 phase 에 넣을지. ④ 지난 날짜 시세 범위 — **해소(D-12): 지난 날짜도 연다**(격자 있으면 읽고 없으면 변환 요청 · 오늘은 tickgw).
-**Plans:** 5/9 plans executed
+**Plans:** 8/9 plans executed
 
 Plans:
 **Wave 1**
@@ -552,9 +552,9 @@ Plans:
 - [x] 39-05-PLAN.md — 진단 전문가 코어: Opus 5.5 루프 → get_order_log → RPC(트레이서) · 가드 · 하루 상한 · usage 로그 · 팀장 도구 등록 · search_stock · 계좌 범위 테스트
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 39-06-PLAN.md — 웹: 주문로그 「상태전이」 칩 · 회색 줄(트레이서) · 진행 표시 「주문 진단 전문가」 · 틱 보기 링크 같은 탭
-- [ ] 39-07-PLAN.md — 팀장 연결: 진단문 SSE 그대로 · 저장 일치(트레이서) · get_market_ticks 배선 · 모델별 usage · opt-in 실 API 스크립트
-- [ ] 39-08-PLAN.md — 지식 프롬프트: 선매수 판정 표 · bs 공백 규칙 원문 → system 블록(트레이서) · 나머지 매매 규칙 · kind 9 사전
+- [x] 39-06-PLAN.md — 웹: 주문로그 「상태전이」 칩 · 회색 줄(트레이서) · 진행 표시 「주문 진단 전문가」 · 틱 보기 링크 같은 탭
+- [x] 39-07-PLAN.md — 팀장 연결: 진단문 SSE 그대로 · 저장 일치(트레이서) · get_market_ticks 배선 · 모델별 usage · opt-in 실 API 스크립트
+- [x] 39-08-PLAN.md — 지식 프롬프트: 선매수 판정 표 · bs 공백 규칙 원문 → system 블록(트레이서) · 나머지 매매 규칙 · kind 9 사전
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 39-09-PLAN.md — 전체 회귀 → [BLOCKING] db push(20:00 뒤) → server(조상 확인) → git push(웹 먼저) → gh-trade 알림 → UAT 시험 문항 ①·② (메인 세션)
