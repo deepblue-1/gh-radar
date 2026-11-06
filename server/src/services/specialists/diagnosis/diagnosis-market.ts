@@ -5,6 +5,7 @@ import {
   concatBytes,
   decodeAny,
   fmtTickTime,
+  isKrxHoliday,
   iterRecords,
   kstDateIso,
   parseTickTime,
@@ -15,7 +16,7 @@ import {
 
 import { logger } from "../../../logger.js";
 import type { TickConvertTrigger } from "../../tick-convert-trigger.js";
-import type { LiveFetchMemoEntry } from "../../tick-live-fetch.js";
+import { fetchLiveBytes, type LiveFetchMemoEntry, type LiveUnavailableReason } from "../../tick-live-fetch.js";
 import type { TickgwClient } from "../../tickgw-client.js";
 import { openTickGridForServer, TICK_GRID_BUCKET } from "../../ticks.js";
 
@@ -28,7 +29,9 @@ import { openTickGridForServer, TICK_GRID_BUCKET } from "../../ticks.js";
  * ── 경로 ──────────────────────────────────────────────────────────
  *   지난 날짜  `tick_open_for_user`(openTickGridForServer) → 격자가 있으면 서버가 Storage 에서 받아(브라우저 경유 없음)
  *             프레임마다 스트리밍으로 풀어 창만 남긴다(512Mi · 하루치를 통째로 풀지 않는다 · RESEARCH Pitfall 3).
- *   오늘       tickgw 당일 경로(39-04 Task 2).
+ *   오늘       tickgw 당일 경로(`/api/ticks/live` 와 같은 tickgw · fetchLiveBytes 상태표) — 이어붙인 zstd 프레임은 프레임마다
+ *             푼다. 08:00 전 · 휴장 · 경로 꺼짐 · 응답 없음 · 대기열 20초 초과 · 그 시각 기록 없음이면 「자료 없음: <사유>」
+ *             (거짓 시세를 짓지 못하게). 같은 (isin, ex) 재호출은 실행 단위 memo 로 증분만 받는다.
  *
  * ── 상한(D-05) ────────────────────────────────────────────────────
  *   창은 최대 60초 · 400건. 넘으면 앞에서부터 자르고 「잘렸음: …」 을 붙인다. 응답 첫 줄은 범례, 끝 줄은 틱 보기 링크
@@ -88,8 +91,9 @@ const RECV_SLACK_NS = 5_000n * NS_PER_MS;
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const none = (reason: string): MarketTicksResult => ({
-  text: `자료 없음: ${reason}`,
+/** 자료를 못 준 응답 — `text` 는 완성 문구(「자료 없음: <사유>」 · 「변환 중 · …」) 그대로. */
+const none = (text: string): MarketTicksResult => ({
+  text,
   records: 0,
   truncated: false,
   source: "none",
@@ -224,27 +228,24 @@ function feed(win: TickWindow, tail: Uint8Array, chunk: Uint8Array): { tail: Uin
   return { tail: buf.slice(end), stop: false };
 }
 
-/** 한 zstd 프레임을 스트리밍으로 풀며 창에 먹인다(프레임 하나를 통째로 풀어 들지 않는다). 반환 = 멈춤 여부. */
-async function streamFrame(win: TickWindow, frame: Uint8Array): Promise<boolean> {
-  const dec = zlib.createZstdDecompress();
-  dec.end(frame);
-  let tail: Uint8Array = new Uint8Array(0);
-  try {
-    for await (const chunk of dec as AsyncIterable<Buffer>) {
-      const r = feed(win, tail, new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-      if (r.stop) return true;
-      tail = r.tail;
-    }
-  } finally {
-    dec.destroy();
-  }
-  return false;
-}
-
-/** 이어붙인 zstd 압축 바이트 → 창(프레임마다 스트리밍 해제 · Node zstd 는 첫 프레임만 푼다). */
+/**
+ * 이어붙인 zstd 압축 바이트 → 창. 프레임마다 스트리밍으로 풀며(Node zstd 는 첫 프레임만 푼다 · 프레임 하나를 통째로
+ * 풀어 들지 않는다) 레코드 꼬리를 프레임 경계 너머로 잇는다. 창 끝을 지나면 스트림을 닫고 멈춘다.
+ */
 async function windowOfCompressed(win: TickWindow, compressed: Uint8Array): Promise<void> {
+  let tail: Uint8Array = new Uint8Array(0);
   for (const frame of splitZstdFrames(compressed)) {
-    if (await streamFrame(win, frame)) return;
+    const dec = zlib.createZstdDecompress();
+    dec.end(frame);
+    try {
+      for await (const chunk of dec as AsyncIterable<Buffer>) {
+        const r = feed(win, tail, new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+        if (r.stop) return;
+        tail = r.tail;
+      }
+    } finally {
+      dec.destroy();
+    }
   }
 }
 
@@ -278,13 +279,13 @@ function renderWindow(
 type Prepared = { d8: string; fromNs: bigint; toNs: bigint; windowCut: boolean };
 
 function prepare(input: MarketTicksInput): Prepared | MarketTicksResult {
-  if (!ISIN_RE.test(input.isin)) return none("ISIN 형식이 잘못됨(대문자 · 숫자 12자)");
-  if (input.exchange !== "KRX" && input.exchange !== "NXT") return none("거래소는 KRX 또는 NXT");
-  if (!DATE_RE.test(input.date)) return none("날짜 형식이 잘못됨(YYYY-MM-DD)");
+  if (!ISIN_RE.test(input.isin)) return none("자료 없음: ISIN 형식이 잘못됨(대문자 · 숫자 12자)");
+  if (input.exchange !== "KRX" && input.exchange !== "NXT") return none("자료 없음: 거래소는 KRX 또는 NXT");
+  if (!DATE_RE.test(input.date)) return none("자료 없음: 날짜 형식이 잘못됨(YYYY-MM-DD)");
   const fromNs = parseTickTime(input.from, input.date);
   const toNs0 = parseTickTime(input.to, input.date);
-  if (fromNs === null || toNs0 === null) return none("시각 형식이 잘못됨(HH:MM:SS 또는 HH:MM:SS.mmm)");
-  if (fromNs > toNs0) return none("시각 범위가 잘못됨(from ≤ to)");
+  if (fromNs === null || toNs0 === null) return none("자료 없음: 시각 형식이 잘못됨(HH:MM:SS 또는 HH:MM:SS.mmm)");
+  if (fromNs > toNs0) return none("자료 없음: 시각 범위가 잘못됨(from ≤ to)");
   const maxNs = BigInt(MARKET_WINDOW_MAX_MS) * NS_PER_MS;
   const windowCut = toNs0 - fromNs > maxNs;
   return { d8: input.date.replaceAll("-", ""), fromNs, toNs: windowCut ? fromNs + maxNs : toNs0, windowCut };
@@ -293,27 +294,85 @@ function prepare(input: MarketTicksInput): Prepared | MarketTicksResult {
 async function pastPath(input: MarketTicksInput, deps: MarketDeps, p: Prepared): Promise<MarketTicksResult> {
   const q = { d: p.d8, isin: input.isin, ex: input.exchange };
   const opened = await openTickGridForServer(deps.supabase, deps.userId, q);
-  if (!opened.access) return none("DMA 계좌 매핑 없음");
-  if (!opened.grid) return none("그날 격자 없음");
+  if (!opened.access) return none("자료 없음: DMA 계좌 매핑 없음");
+  if (!opened.grid) return none("자료 없음: 그날 격자 없음");
   const { objectPath, fmt } = opened.grid;
-  if (fmt !== TICK_FMT) return none(`격자 형식 미지원(${fmt})`);
+  if (fmt !== TICK_FMT) return none(`자료 없음: 격자 형식 미지원(${fmt})`);
 
   const dl = await deps.supabase.storage.from(TICK_GRID_BUCKET).download(objectPath);
   if (dl.error || !dl.data) {
     logger.warn({ diagnosis: { tool: "market", d: p.d8, ex: input.exchange, storage: dl.error?.message } }, "[chat] diagnosis market: 격자 내려받기 실패");
-    return none("격자 내려받기 실패");
+    return none("자료 없음: 격자 내려받기 실패");
   }
   const compressed = new Uint8Array(await dl.data.arrayBuffer());
   const win = new TickWindow(input.isin, input.exchange, p.fromNs, p.toNs);
   await windowOfCompressed(win, compressed);
   const r = renderWindow(win, input, p.d8, p.windowCut);
-  if (!r) return none("그 시각 시세 기록 없음(그 종목 미기록일 수 있음)");
+  if (!r) return none("자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)");
   return { ...r, source: "grid" };
 }
 
-async function todayPath(_input: MarketTicksInput, deps: MarketDeps): Promise<MarketTicksResult> {
-  if (!deps.tickgw) return none("당일 시세 경로 꺼짐(TICKS_LIVE_UNAVAILABLE)");
-  return none("당일 시세 경로 꺼짐(TICKS_LIVE_UNAVAILABLE)");
+/** tickgw 사유 → 사용자(모델) 문구. 원문 · 상태 코드는 로그에만. */
+const LIVE_REASON_TEXT: Record<LiveUnavailableReason, string> = {
+  UNREACHABLE: "자료 없음: 당일 시세 경로 응답 없음(UNREACHABLE)",
+  AUTH: "자료 없음: 당일 시세 경로 인증 실패",
+  QUEUED: "자료 없음: 당일 시세 대기열(잠시 뒤 다시)",
+  BLOCKED: "자료 없음: 당일 시세 차단",
+  CONFLICT: "자료 없음: 당일 시세 응답이 계속 바뀜(잠시 뒤 다시)",
+  TIMEOUT: "자료 없음: 당일 시세 응답 지연(잠시 뒤 다시)",
+  BAD_RESPONSE: "자료 없음: 당일 시세 응답 형식 오류",
+};
+
+const KST_OFFSET_MS = 9 * 3600_000;
+
+/** 오늘(KST)이 장 전(08:00 전) · 주말 · KRX 휴장이면 true — tickgw 를 부르지 않는다. */
+function closedNow(now: Date, todayIso: string): boolean {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const dow = kst.getUTCDay();
+  if (dow === 0 || dow === 6 || isKrxHoliday(todayIso)) return true;
+  return kst.getUTCHours() < 8;
+}
+
+async function todayPath(
+  input: MarketTicksInput,
+  deps: MarketDeps,
+  p: Prepared,
+  memo: MarketMemo,
+  now: () => Date,
+  todayIso: string,
+): Promise<MarketTicksResult> {
+  if (!deps.tickgw) return none("자료 없음: 당일 시세 경로 꺼짐(TICKS_LIVE_UNAVAILABLE)");
+  if (closedNow(now(), todayIso)) return none("자료 없음: 장 시작 전/휴장");
+
+  const key = `${input.isin}|${input.exchange}`;
+  const clock = () => now().getTime();
+  const got = await fetchLiveBytes(
+    deps.tickgw,
+    { isin: input.isin, ex: input.exchange },
+    {
+      deadlineAt: clock() + LIVE_WAIT_MAX_MS,
+      memo: memo.get(key),
+      sleep: deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+      clock,
+    },
+  );
+  if (got.kind === "unavailable") {
+    logger.warn({ diagnosis: { tool: "market", ex: input.exchange, reason: got.reason } }, "[chat] diagnosis market: 당일 시세 못 받음");
+    return none(LIVE_REASON_TEXT[got.reason]);
+  }
+  memo.set(key, got.entry);
+
+  // 프레임마다 풀어 바로 창에 먹인다(Node zstd 는 첫 프레임만 푼다 · 풀린 하루치를 통째로 잇지 않는다).
+  const win = new TickWindow(input.isin, input.exchange, p.fromNs, p.toNs);
+  let tail: Uint8Array = new Uint8Array(0);
+  for (const frame of splitZstdFrames(got.entry.bytes)) {
+    const r = feed(win, tail, new Uint8Array(zlib.zstdDecompressSync(frame)));
+    if (r.stop) break;
+    tail = r.tail;
+  }
+  const out = renderWindow(win, input, p.d8, p.windowCut);
+  if (!out) return none("자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)");
+  return { ...out, source: "live" };
 }
 
 /**
@@ -323,24 +382,25 @@ async function todayPath(_input: MarketTicksInput, deps: MarketDeps): Promise<Ma
 export async function getMarketTicksText(
   input: MarketTicksInput,
   deps: MarketDeps,
-  _memo: MarketMemo,
+  memo: MarketMemo,
 ): Promise<MarketTicksResult> {
   try {
     const p = prepare(input);
     if ("source" in p) return p;
     if (!zstdSupported()) {
       logger.error({ node: process.versions.node }, "[chat] diagnosis market: 서버 Node 에 zstd 가 없다(≥ 22.15 필요)");
-      return none("서버 zstd 미지원");
+      return none("자료 없음: 서버 zstd 미지원");
     }
-    const today = kstDateIso((deps.now ?? (() => new Date()))());
+    const now = deps.now ?? (() => new Date());
+    const today = kstDateIso(now());
     if (input.date < today) return await pastPath(input, deps, p);
-    if (input.date === today) return await todayPath(input, deps);
-    return none("미래 날짜");
+    if (input.date === today) return await todayPath(input, deps, p, memo, now, today);
+    return none("자료 없음: 미래 날짜");
   } catch (e) {
     logger.error(
       { diagnosis: { tool: "market", isin: input.isin, ex: input.exchange, date: input.date }, err: e instanceof Error ? e.message : String(e) },
       "[chat] diagnosis market: 시세 조회 실패",
     );
-    return none("시세 조회 실패");
+    return none("자료 없음: 시세 조회 실패");
   }
 }
