@@ -23,6 +23,7 @@ import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
 import { pnlRouter } from "./routes/pnl.js";
 import { strategyEventsRouter } from "./routes/strategy-events.js";
+import { pushDevicesRouter } from "./routes/push-devices.js";
 import { limitupRouter } from "./routes/limitup-report.js";
 import { teamflowRouter } from "./routes/teamflow-report.js";
 import { accumReportRouter } from "./routes/accum-report.js";
@@ -137,6 +138,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/pnl", pnlRouter);
   // Phase 25 D-07 — 하루치 주문로그(상따 전략 이벤트) 조회 전용. 적재는 relay 관찰자 기록기가 한다.
   app.use("/api/strategy-events", strategyEventsRouter);
+  // Phase 40 D-12 · D-13 — 체결 푸시 기기 등록 · 목록 · 끄기 · 지우기. 표는 브라우저 직접 접근 없음(RLS 정책 0 · RPC service_role 전용).
+  app.use("/api/push-devices", pushDevicesRouter);
   // Phase 28 D-10 — 상한가 보고서 조회 전용(DMA 매핑 사용자 · 격자는 인증 뒤 서명 URL). 적재는 workers/limitup-sync.
   app.use("/api/limitup", limitupRouter);
   // Phase 33 D-05 — 팀 매집 보고서 조회 전용 · 게이트는 RPC 안(dma_visible_accounts · 왕복 1회). 적재는 workers/limitup-sync.
