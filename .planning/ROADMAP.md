@@ -576,16 +576,25 @@ Plans:
 **Plans:** 13 plans
 
 Plans:
+**Wave 1**
 - [ ] 40-01-PLAN.md — DB 기기 · 체인 · 송신 로그 · 전달 결과 표 4 + 기기 RPC 4 + 결과 보고 RPC(토큰 인계 · 토큰 일치 삭제) · pgTAP (W1)
 - [ ] 40-02-PLAN.md — shared 문안 정본 `pushMessageOf` · 탭 경로 · 스케치 029 C 안 7종 골든(계좌 칸 없음) (W1)
 - [ ] 40-03-PLAN.md — 앱 셸 공통: `@capacitor/push-notifications@8.1.3` · 포그라운드 배너 · 「설정 열기」 브리지 3곳(웹 · Android · iOS) (W1)
 - [ ] 40-04-PLAN.md — [사용자] 외부 준비물: App ID Push · APNs 키(.p8) · Android google-services.json (W1 · 체크포인트)
+- [ ] 40-13-PLAN.md — iOS Push 셸: `App.entitlements`(aps-environment) · pbxproj 두 구성 · AppDelegate 2 메서드 · 시뮬레이터/IPA 검사 단언 · Fastfile `GHTRADE_FORCE_PROFILE` (W1 · 40-03 에서 분리)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 40-05-PLAN.md — DB 판정 RPC `dma_push_claim`(체인 · 단계 · 짝 대기 · 당일 · 자동매도 · 수신자 · 멱등) · 3조각 → 2건 · 재생 0 pgTAP (W2)
 - [ ] 40-06-PLAN.md — relay `PushNotifier`(fanout 뒤 리스너 · 정착 400ms · 단일 비행 · 수신자 userIdsOf · 보유 조각 · 예외 격리) + `PUSH_NOTIFY` (W2)
 - [ ] 40-07-PLAN.md — server `/api/push-devices` GET · PUT · PATCH(끄기만) · DELETE + 소유권 404 (W2)
 - [ ] 40-08-PLAN.md — Android Firebase: google-services.json 추적 · 위생 검사 (2)(3)(8) 반전 · (11) iOS Firebase 0 · 릴리스 가드 · 채널 fills · 소형 아이콘 (W2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 40-09-PLAN.md — relay 송신기 APNs(http2 · ES256 JWT) · FCM v1(메타데이터 토큰 · probe) + deploy-relay 비치명 비밀 · IAM · 비밀 주입 스크립트 (W3)
 - [ ] 40-10-PLAN.md — webapp 「알림 받는 기기」 카드 · 권한(켤 때만) · 토큰 등록 · PC 목록 끄기/지우기 · 로그아웃 정리 (W3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 40-11-PLAN.md — webapp 탭 착지(계좌 해석) · 작업대 주문 토스트 숨김(D-20) · 앱 시작 토큰 갱신 (W4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 40-12-PLAN.md — 배포 전 게이트(SC-3 diff 0) → [BLOCKING] db push → 비밀 · IAM → relay(20:00 뒤) → git push → native:release → 실기기 UAT (W5 · 체크포인트)
-- [ ] 40-13-PLAN.md — iOS Push 셸: `App.entitlements`(aps-environment) · pbxproj 두 구성 · AppDelegate 2 메서드 · 시뮬레이터/IPA 검사 단언 · Fastfile `GHTRADE_FORCE_PROFILE` (W1 · 40-03 에서 분리)

@@ -13,7 +13,7 @@ state_head: 3c85ad4adf1ea49a00cf0ffd558028b862abdf56
 progress:
   total_phases: 11
   completed_phases: 9
-  total_plans: 120
+  total_plans: 133
   completed_plans: 119
   percent: 82
 ---
@@ -32,6 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-04 after Phase 37)
 Phase: 39 (매매진단 챗봇) — EXECUTING
 Plan: 9 of 9
 Status: Executing Phase 39
+Phase 40 (체결 앱 푸시 알림): PLANNED 2026-11-06 — 13 plans · 5 waves · 체커 통과(R2) · 결정 커버리지 25/25 · 다음 `/gsd-execute-phase 40`
 Last activity: 2026-11-06 - Completed quick task 261106-t8k: 어드민 e2e 새 UI 기준 정비 (세 spec 32개 통과)
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
