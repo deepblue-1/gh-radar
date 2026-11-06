@@ -6,6 +6,8 @@
 #     - Google 로그인이 키체인 -34018 로 실패하거나(application-identifier 누락 · 다른 팀 서명),
 #     - 웹 인스펙터가 켜진 빌드를 받는다(CAPACITOR_DEBUG=true · get-task-allow true).
 #     빌드 번호가 lane 이 주입한 값과 다르면 다음 업로드가 중복 번호로 거절된다(D-09).
+#     Phase 40 — aps-environment 가 production 이 아니면 TestFlight 빌드에서만 체결 푸시가 조용히 안 온다
+#     (App ID Push 미적용 · 옛 프로파일 재사용 — Pitfall 5/6). iOS 는 Firebase 없이 APNs 직접이라(SC-5) 번들에 Firebase 가 있으면 막는다.
 #
 # 사용: bash scripts/check-ipa.sh [IPA] [EXPECTED_BUILD]
 #   기본값 IPA = $GHTRADE_RELEASE_OUT/App.ipa · EXPECTED_BUILD = $GHTRADE_RELEASE_OUT/build_number.txt
@@ -60,6 +62,15 @@ if ! printf '%s\n' "$ENT" | grep -q "<string>$APP_ID</string>"; then
 fi
 if ! printf '%s\n' "$ENT" | grep -A1 "<key>get-task-allow</key>" | grep -q "<false/>"; then
   fail "get-task-allow 가 false 가 아니다 — 디버거 연결이 가능한 빌드다"
+fi
+
+# 푸시 — aps-environment production(Phase 40 · 체결 푸시) · iOS 번들에 Firebase 0(SC-5)
+if ! printf '%s\n' "$ENT" | grep -A1 "<key>aps-environment</key>" | grep -q "<string>production</string>"; then
+  fail "aps-environment 가 production 이 아니다 — 체결 푸시가 오지 않는다(Phase 40 · Pitfall 5/6 — App ID Push · 프로파일 재생성 확인)"
+fi
+if [[ -n "$(find "$APP/Frameworks" -maxdepth 1 -name 'Firebase*' 2>/dev/null | head -1)" ]] \
+  || [[ -n "$(find "$APP" -name 'GoogleService-Info.plist' 2>/dev/null | head -1)" ]]; then
+  fail "iOS 번들에 Firebase 가 있다 — Phase 40 SC-5 · Firebase 는 Android 만"
 fi
 
 # 빌드 번호 — lane 이 주입한 12자리 값
