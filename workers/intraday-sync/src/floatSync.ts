@@ -232,7 +232,6 @@ export async function syncStockFloat(deps: FloatSyncDeps): Promise<FloatSyncResu
 
   log.info(
     {
-      dateIso,
       universe: universe.length,
       ok,
       null: nullCount,
