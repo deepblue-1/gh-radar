@@ -127,6 +127,67 @@ export async function getTickToday(
   return { ...(out as unknown as Omit<TickTodayResponse, "live">), live };
 }
 
+/** `tick_open_for_user` RPC 1회 — 인자는 정확히 4개(인증된 userId 하나 · T-19-17). 오류 원문은 cause 로만. */
+async function callOpen(supabase: SupabaseClient, userId: string, q: TickOpenQueryT): Promise<unknown> {
+  const { data, error } = await supabase.rpc("tick_open_for_user", {
+    p_user_id: userId,
+    p_date: q.d,
+    p_isin: q.isin,
+    p_ex: q.ex,
+  });
+  if (error) throw DbError(FAIL, causeOf(error));
+  return data;
+}
+
+/** 게이트(access false → 403) · 봉투 · grid 모양 검사. grid 는 null 또는 객체. */
+function checkedOpen(data: unknown): { out: Record<string, unknown>; raw: Record<string, unknown> | null } {
+  const out = gate("tick_open_for_user", data);
+  const raw = out.grid;
+  if (raw !== null && !isObject(raw)) throw DbError(FAIL, shapeCause("tick_open_for_user.grid", raw));
+  checkOpenShape(out, raw);
+  return { out, raw };
+}
+
+function objectPathOf(raw: Record<string, unknown>): string {
+  const path = raw.object_path;
+  if (typeof path !== "string" || path === "") {
+    throw DbError(FAIL, shapeCause("tick_open_for_user.grid.object_path", path));
+  }
+  return path;
+}
+
+/** 서버 전용 열기 결과 — 격자 Storage 경로를 지우지 않는다(응답으로 내보내지 않는 서버 안 소비 전용). */
+export type TickGridForServer =
+  | { access: false }
+  | {
+      access: true;
+      grid: { objectPath: string; fmt: string; bytes: number } | null;
+      etaS: number;
+      request: TickConvertRequest | null;
+    };
+
+/**
+ * Phase 39 (D-12) — 진단 전문가의 시세 도구가 격자를 **서버가 직접** Storage 에서 받도록 여는 함수.
+ * `openTick` 과 같은 RPC · 게이트 · 모양 검사를 쓰되 서명 URL 을 만들지 않고 `object_path` 를 돌려준다
+ * (브라우저 경유 없음 · 서명 1회 절약). `access:false` 는 throw 대신 `{access:false}` — 도구가 「자료 없음」 으로 바꾼다.
+ * 이 결과는 HTTP 응답으로 내보내지 않는다(`object_path` 비노출 규칙은 `openTick` 이 그대로 지킨다).
+ */
+export async function openTickGridForServer(
+  supabase: SupabaseClient,
+  userId: string,
+  q: TickOpenQueryT,
+): Promise<TickGridForServer> {
+  const data = await callOpen(supabase, userId, q);
+  if (isObject(data) && data.access === false) return { access: false };
+  const { out, raw } = checkedOpen(data);
+  return {
+    access: true,
+    grid: raw ? { objectPath: objectPathOf(raw), fmt: raw.fmt as string, bytes: raw.bytes as number } : null,
+    etaS: out.eta_s as number,
+    request: req(out.request),
+  };
+}
+
 /**
  * 한 종목 열기. 격자가 있으면 그 객체 하나에 서명 URL 을 붙인다(`object_path` 는 응답에서 뺀다).
  * 격자가 없으면 서명 0회 · `grid: null` — 웹은 `request`(stale 포함)를 보고 요청 변환을 부른다.
@@ -136,24 +197,11 @@ export async function openTick(
   userId: string,
   q: TickOpenQueryT,
 ): Promise<TickOpenResponse> {
-  const { data, error } = await supabase.rpc("tick_open_for_user", {
-    p_user_id: userId,
-    p_date: q.d,
-    p_isin: q.isin,
-    p_ex: q.ex,
-  });
-  if (error) throw DbError(FAIL, causeOf(error));
-  const out = gate("tick_open_for_user", data);
-  const raw = out.grid;
-  if (raw !== null && !isObject(raw)) throw DbError(FAIL, shapeCause("tick_open_for_user.grid", raw));
-  checkOpenShape(out, raw);
+  const { out, raw } = checkedOpen(await callOpen(supabase, userId, q));
 
   let grid: TickOpenGrid | null = null;
   if (raw) {
-    const path = raw.object_path;
-    if (typeof path !== "string" || path === "") {
-      throw DbError(FAIL, shapeCause("tick_open_for_user.grid.object_path", path));
-    }
+    const path = objectPathOf(raw);
     const signed = await supabase.storage.from(TICK_GRID_BUCKET).createSignedUrl(path, TICK_GRID_URL_TTL_S);
     if (signed.error || !signed.data?.signedUrl) {
       throw DbError(
