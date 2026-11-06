@@ -168,3 +168,9 @@ None.
 ---
 *Phase: 39-trade-diagnosis-chatbot*
 *Completed: 2026-11-06*
+
+## Self-Check: PASSED
+
+- 파일 3개 존재(diagnosis-knowledge.ts · diagnosis-knowledge.test.ts · 39-08-SUMMARY.md)
+- 커밋 4e9ea663 · 84ce3c9f · 854256ea HEAD 조상 · 작업 트리 깨끗
+- 수락 기준 Task 1(grep 3종 · behavior 3) · Task 2(grep 2종 · behavior 4) 전부 통과
