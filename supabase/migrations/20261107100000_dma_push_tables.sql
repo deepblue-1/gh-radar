@@ -7,7 +7,9 @@
 --                              판정 RPC `dma_push_claim`(40-05 · 별도 마이그레이션)이 단조 upsert 한다.
 --   - `dma_push_log`         — 사건(체인 × 단계) 1건 = 1행. UNIQUE 로 같은 단계 두 번 기록을 막는다.
 --   - `dma_push_deliveries`  — 기기별 전달 결과 1건 = 1행(ok · failed · token_removed). 토큰 원문은 저장하지 않는다.
---   - RPC `dma_push_device_upsert` · `dma_push_devices_for_user` — server(40-07) 「이 기기 켜기」 · 기기 목록.
+--   - RPC `dma_push_device_upsert` · `dma_push_devices_for_user` · `dma_push_device_disable` · `dma_push_device_delete`
+--     — server(40-07) 「이 기기 켜기」 · 기기 목록 · 끄기 · 지우기(로그아웃 포함).
+--   - RPC `dma_push_report` — relay(40-06) 송신 결과 보고 · 죽은 토큰 정리.
 --
 -- 왜(Phase 40 CONTEXT):
 --   - D-07 「직전 상태는 DB 가 기억한다」 — relay 재기동 · WR-09 재전송(skipped 분기가 같은 행을 다시 돌려준다)에도
@@ -238,6 +240,124 @@ GRANT EXECUTE ON FUNCTION public.dma_push_devices_for_user(uuid) TO service_role
 
 COMMENT ON FUNCTION public.dma_push_devices_for_user(uuid) IS
   'Phase 40 D-13 — 사용자 기기 목록(last_seen_at 내림차순). 원소 = PushDevice(토큰 없음). 없으면 [].';
+
+-- ── RPC: 이 기기 끄기 (D-13 · SC-4) ──────────────────────────────
+-- 토큰은 남긴다 — 다시 켜면 같은 행을 upsert 로 되살린다. 남의 · 없는 기기 키 = false.
+CREATE FUNCTION public.dma_push_device_disable(p_user_id uuid, p_device_key text)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  UPDATE public.dma_push_devices
+     SET enabled = false,
+         updated_at = now()
+   WHERE user_id = p_user_id
+     AND device_key = p_device_key;
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_push_device_disable(uuid, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_push_device_disable(uuid, text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_push_device_disable(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.dma_push_device_disable(uuid, text) IS
+  'Phase 40 D-13 — 그 사용자의 그 기기 키만 enabled = false(토큰 유지). 행이 있었으면 true.';
+
+-- ── RPC: 기기 지우기 · 로그아웃 (D-13 · D-15 · SC-4) ───────────────
+CREATE FUNCTION public.dma_push_device_delete(p_user_id uuid, p_device_key text)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  DELETE FROM public.dma_push_devices
+   WHERE user_id = p_user_id
+     AND device_key = p_device_key;
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_push_device_delete(uuid, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_push_device_delete(uuid, text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_push_device_delete(uuid, text) TO service_role;
+
+COMMENT ON FUNCTION public.dma_push_device_delete(uuid, text) IS
+  'Phase 40 D-13 · D-15 — 그 사용자의 그 기기 키 행만 삭제(목록 지우기 · 로그아웃). 행이 있었으면 true.';
+
+-- ── RPC: 송신 결과 보고 · 죽은 토큰 정리 (D-15 · SC-3) ──────────────
+-- relay(40-06)가 한 묶음의 기기별 결과를 한 번에 보낸다. 원소:
+--   {log_id, device_id, platform, token, result('ok'|'failed'|'token_removed'), http_status, reason}
+-- - 원소마다 dma_push_deliveries 1행(reason 은 200자로 자름). 토큰은 저장하지 않는다.
+-- - token_removed 는 그 기기 id ∧ 보낸 토큰 = 지금 행 토큰일 때만 기기 행을 지운다 — 송신과 보고 사이에
+--   앱이 토큰을 갱신했으면 새 토큰 행은 남는다. 분류(410 Unregistered · FCM 404 UNREGISTERED → token_removed,
+--   400 BadDeviceToken → failed)는 relay 몫이다(RESEARCH Pitfall 5).
+-- - 건너뜀(예외 없음 · recorded 에 안 셈): log_id 가 dma_push_log 에 없음 · 모양이 어긋난 원소
+--   (객체 아님 · uuid 아님 · platform/result 값 밖). 한 원소 때문에 묶음 전체가 실패하지 않게 한다.
+CREATE FUNCTION public.dma_push_report(p_results jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  e         jsonb;
+  v_log     uuid;
+  v_device  uuid;
+  v_result  text;
+  v_status  integer;
+  v_rows    integer;
+  v_recorded integer := 0;
+  v_removed  integer := 0;
+  c_uuid    constant text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+BEGIN
+  IF jsonb_typeof(p_results) IS DISTINCT FROM 'array' THEN
+    RETURN jsonb_build_object('recorded', 0, 'removed', 0);
+  END IF;
+
+  FOR e IN SELECT x FROM jsonb_array_elements(p_results) AS x LOOP
+    CONTINUE WHEN jsonb_typeof(e) IS DISTINCT FROM 'object';
+    CONTINUE WHEN coalesce(e->>'log_id', '') !~ c_uuid OR coalesce(e->>'device_id', '') !~ c_uuid;
+    CONTINUE WHEN coalesce(e->>'platform', '') NOT IN ('ios', 'android');
+    v_result := e->>'result';
+    CONTINUE WHEN coalesce(v_result, '') NOT IN ('ok', 'failed', 'token_removed');
+
+    v_log    := (e->>'log_id')::uuid;
+    v_device := (e->>'device_id')::uuid;
+    CONTINUE WHEN NOT EXISTS (SELECT 1 FROM public.dma_push_log l WHERE l.id = v_log);
+
+    v_status := CASE WHEN jsonb_typeof(e->'http_status') = 'number'
+                     THEN (e->>'http_status')::numeric::integer ELSE 0 END;
+
+    INSERT INTO public.dma_push_deliveries (log_id, device_id, platform, result, http_status, reason)
+    VALUES (v_log, v_device, e->>'platform', v_result, v_status, left(coalesce(e->>'reason', ''), 200));
+    v_recorded := v_recorded + 1;
+
+    IF v_result = 'token_removed' AND coalesce(e->>'token', '') <> '' THEN
+      DELETE FROM public.dma_push_devices
+       WHERE id = v_device
+         AND token = e->>'token';
+      GET DIAGNOSTICS v_rows = ROW_COUNT;
+      v_removed := v_removed + v_rows;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('recorded', v_recorded, 'removed', v_removed);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.dma_push_report(jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_push_report(jsonb) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_push_report(jsonb) TO service_role;
+
+COMMENT ON FUNCTION public.dma_push_report(jsonb) IS
+  'Phase 40 D-15 — 송신 결과 보고. 원소마다 dma_push_deliveries 1행 · token_removed 는 기기 id ∧ 토큰 일치 행만 삭제. 반환 {recorded, removed}.';
 
 NOTIFY pgrst, 'reload schema';
 
