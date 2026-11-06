@@ -23,7 +23,17 @@ vi.mock("../anthropic-client", () => ({
   __resetChatClientForTests: () => {},
 }));
 
-import { consultDiagnosisSpecialist } from "../diagnosis/diagnosis-specialist";
+import { logger } from "../../../logger";
+import { SPECIALIST_UNAVAILABLE } from "../helpers";
+import {
+  consultDiagnosisSpecialist,
+  DIAGNOSIS_CAP_TEXT,
+  DIAGNOSIS_HARD_ABORT_GRACE_MS,
+  DIAGNOSIS_MAX_ROUNDS,
+  DIAGNOSIS_REFUSAL_TEXT,
+  DIAGNOSIS_TIMEOUT_TEXT,
+  DIAGNOSIS_USAGE_CHECK_FAILED_TEXT,
+} from "../diagnosis/diagnosis-specialist";
 import { STATE_TRANSITION_EMPTY_TEXT } from "../diagnosis/diagnosis-order-log";
 
 // ── 로컬 테스트 헬퍼(다중 라운드) ─────────────────────────────────
@@ -76,12 +86,19 @@ type StreamSequence = ((params: unknown, opts?: { signal?: AbortSignal }) => Ret
   signals: Array<AbortSignal | undefined>;
 };
 
-/** 호출될 때마다 다음 메시지를 스트림으로 내준다. 메시지가 떨어지면 throw(루프 과다 호출을 드러낸다). */
-function makeStreamSequence(messages: Anthropic.Message[]): StreamSequence {
+/**
+ * 호출될 때마다 다음 메시지를 스트림으로 내준다. 메시지가 떨어지면 throw(루프 과다 호출을 드러낸다).
+ * `onCall(i)` 은 i 번째(0부터) 호출 직후 실행된다 — 가짜 시계를 밀어 「모델 응답이 오래 걸렸다」 를 흉내 낸다.
+ */
+function makeStreamSequence(
+  messages: Anthropic.Message[],
+  hooks: { onCall?: (index: number) => void } = {},
+): StreamSequence {
   let i = 0;
   const fn = ((params: unknown, opts?: { signal?: AbortSignal }) => {
     fn.calls.push(structuredClone(params) as Record<string, unknown>);
     fn.signals.push(opts?.signal);
+    hooks.onCall?.(i);
     const finalMessage = messages[i++];
     if (!finalMessage) throw new Error(`stream sequence exhausted at call ${i}`);
     return makeStreamMock({ textDeltas: [], finalMessage });
@@ -340,5 +357,235 @@ describe("consultDiagnosisSpecialist — 한 경로 끝까지(Task 1)", () => {
     expect(stateSection.split("\n")[1]).toContain("상태전이");
     expect(stateSection).toContain('사유="CfgSubmit"');
     expect(text).not.toContain(STATE_TRANSITION_EMPTY_TEXT);
+  });
+});
+
+// ── Task 2 — 루프 가드 · 비용 상한 · usage 로그 ──────────────────
+
+const SKIP_TEXT = "상한 도달 — 실행 안 함";
+const FINISH_TEXT = "더 이상 조회할 수 없습니다. 지금까지 자료로 답하세요.";
+
+function okSupabase(usage: { global?: number; user?: number } = {}) {
+  return makeSupabase({
+    dma_diagnosis_for_user: () => ({ data: makeRpcData(), error: null }),
+    incr_api_usage: (p) => ({
+      data: p.p_service === "chat_diagnosis" ? (usage.global ?? 1) : (usage.user ?? 1),
+      error: null,
+    }),
+  });
+}
+
+function orderLogCall(id: string) {
+  return { id, name: "get_order_log", input: { date: DATE, isin: ISIN } };
+}
+
+/** logger 스파이에서 메시지가 msg 인 호출의 첫 인자(객체)를 찾는다. */
+function logged(spy: { mock: { calls: unknown[][] } }, msg: string): Record<string, unknown> | undefined {
+  const call = spy.mock.calls.find((c) => c[1] === msg);
+  return call?.[0] as Record<string, unknown> | undefined;
+}
+
+describe("consultDiagnosisSpecialist — 루프 가드(Task 2)", () => {
+  it(`${DIAGNOSIS_MAX_ROUNDS}라운드 연속 tool_use → ${DIAGNOSIS_MAX_ROUNDS}번째 호출은 tools 그대로 · tool_choice none 마무리 콜`, async () => {
+    const msgs: Anthropic.Message[] = [];
+    for (let r = 1; r < DIAGNOSIS_MAX_ROUNDS; r++) msgs.push(makeToolUseMessage([orderLogCall(`tu_${r}`)], { thinking: true }));
+    msgs.push(makeEndTurnMessage("마무리 진단"));
+    const seq = makeStreamSequence(msgs);
+    streamMock.mockImplementation(seq);
+
+    const out = await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe("마무리 진단");
+    expect(seq.calls).toHaveLength(DIAGNOSIS_MAX_ROUNDS);
+    for (let i = 0; i < DIAGNOSIS_MAX_ROUNDS - 1; i++) expect("tool_choice" in seq.calls[i]).toBe(false);
+    const finish = seq.calls[DIAGNOSIS_MAX_ROUNDS - 1];
+    expect(finish.tool_choice).toEqual({ type: "none" });
+    expect(finish.tools).toEqual(seq.calls[0].tools);
+    expect(finish.system).toEqual(seq.calls[0].system);
+
+    const last = lastMessage(finish);
+    const blocks = last.content as Anthropic.ContentBlockParam[];
+    expect(blocks[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: `tu_${DIAGNOSIS_MAX_ROUNDS - 1}`,
+      content: SKIP_TEXT,
+    });
+    expect(blocks[blocks.length - 1]).toMatchObject({ type: "text", text: FINISH_TEXT });
+  });
+
+  it("마감(150초) 경과 → 다음 호출이 마무리 콜 · 그 라운드 도구는 실행하지 않는다", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T01:00:00Z"));
+    const seq = makeStreamSequence(
+      [makeToolUseMessage([orderLogCall("tu_1")]), makeEndTurnMessage("마감 진단")],
+      { onCall: (i) => i === 0 && vi.setSystemTime(Date.now() + 151_000) },
+    );
+    streamMock.mockImplementation(seq);
+    const sb = okSupabase();
+
+    const out = await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe("마감 진단");
+    expect(seq.calls).toHaveLength(2);
+    expect(seq.calls[1].tool_choice).toEqual({ type: "none" });
+    expect(toolResultText(lastMessage(seq.calls[1]))).toBe(SKIP_TEXT);
+    expect(sb.rpc.mock.calls.filter(([fn]) => fn === "dma_diagnosis_for_user")).toHaveLength(0);
+  });
+
+  it("누적 입력(input + cache_read + cache_creation)이 600,000 을 넘으면 마무리 콜", async () => {
+    const seq = makeStreamSequence([
+      makeToolUseMessage([orderLogCall("tu_1")], {
+        usage: { input_tokens: 400_000, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 50_001 },
+      }),
+      makeEndTurnMessage("가드 진단"),
+    ]);
+    streamMock.mockImplementation(seq);
+
+    const out = await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe("가드 진단");
+    expect(seq.calls[1].tool_choice).toEqual({ type: "none" });
+    expect(out.usage[0]).toMatchObject({
+      inputTokens: 400_000,
+      cacheReadInputTokens: 150_000,
+      cacheCreationInputTokens: 50_001,
+    });
+  });
+
+  it("마감 + 30초 강제 중단 → DIAGNOSIS_TIMEOUT_TEXT + warn 로그", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(logger, "warn");
+    streamMock.mockImplementation((_params: unknown, opts?: { signal?: AbortSignal }) => ({
+      async *[Symbol.asyncIterator]() {},
+      finalMessage: () =>
+        new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("Request was aborted."), { name: "AbortError" })),
+          );
+        }),
+    }));
+
+    const p = consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+    await vi.advanceTimersByTimeAsync(150_000 + DIAGNOSIS_HARD_ABORT_GRACE_MS + 1);
+    const out = await p;
+
+    expect(out.text).toBe(DIAGNOSIS_TIMEOUT_TEXT);
+    expect(out.display).toBeUndefined();
+    expect(warn.mock.calls.some((c) => String(c[1]).includes("diagnosis"))).toBe(true);
+  });
+
+  it("stop_reason refusal → warn(stopReason · usage · 상세) + DIAGNOSIS_REFUSAL_TEXT · 추가 호출 0(대체 모델 없음)", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const refusal = { ...makeRefusalMessage(), stop_details: { type: "refusal", category: "cyber" } } as Anthropic.Message;
+    const seq = makeStreamSequence([refusal]);
+    streamMock.mockImplementation(seq);
+
+    const out = await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe(DIAGNOSIS_REFUSAL_TEXT);
+    expect(out.display).toBeUndefined();
+    expect(seq.calls).toHaveLength(1);
+    expect("fallbacks" in seq.calls[0]).toBe(false);
+    const obj = warn.mock.calls.map((c) => c[0] as Record<string, unknown>).find((o) => o?.stopReason === "refusal");
+    expect(obj).toBeDefined();
+    expect(obj).toHaveProperty("usage");
+    expect(obj?.stopDetails).toEqual({ type: "refusal", category: "cyber" });
+  });
+
+  it("end_turn 인데 text 가 비었으면 warn(stopReason · usage) + SPECIALIST_UNAVAILABLE", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    streamMock.mockImplementation(makeStreamSequence([makeEndTurnMessage("   ")]));
+
+    const out = await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe(SPECIALIST_UNAVAILABLE);
+    const obj = warn.mock.calls.map((c) => c[0] as Record<string, unknown>).find((o) => o?.stopReason === "end_turn");
+    expect(obj).toHaveProperty("usage");
+  });
+
+  it("stop_reason max_tokens → warn(stopReason · usage) + SPECIALIST_UNAVAILABLE", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const cut = { ...makeEndTurnMessage("잘린 진단"), stop_reason: "max_tokens" } as Anthropic.Message;
+    streamMock.mockImplementation(makeStreamSequence([cut]));
+
+    const out = await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe(SPECIALIST_UNAVAILABLE);
+    const obj = warn.mock.calls.map((c) => c[0] as Record<string, unknown>).find((o) => o?.stopReason === "max_tokens");
+    expect(obj).toHaveProperty("usage");
+  });
+});
+
+describe("consultDiagnosisSpecialist — 하루 상한 · usage 로그(Task 2)", () => {
+  it("전역 사용량 201 → DIAGNOSIS_CAP_TEXT · 스트림 0 · [chat] diagnosis capped(scope global)", async () => {
+    const info = vi.spyOn(logger, "info");
+    const sb = okSupabase({ global: 201 });
+
+    const out = await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    expect(out).toEqual({ text: DIAGNOSIS_CAP_TEXT, usage: [] });
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(logged(info, "[chat] diagnosis capped")).toMatchObject({ scope: "global" });
+    const incr = sb.rpc.mock.calls.filter(([fn]) => fn === "incr_api_usage").map(([, p]) => p);
+    const today = kstDateIso(new Date());
+    expect(incr).toEqual(
+      expect.arrayContaining([
+        { p_service: "chat_diagnosis", p_date: today, p_amount: 1 },
+        { p_service: `chat_diagnosis:${USER}`, p_date: today, p_amount: 1 },
+      ]),
+    );
+  });
+
+  it("사용자 사용량 21 → DIAGNOSIS_CAP_TEXT · 스트림 0 · scope user", async () => {
+    const info = vi.spyOn(logger, "info");
+
+    const out = await consultDiagnosisSpecialist(okSupabase({ user: 21 }).client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe(DIAGNOSIS_CAP_TEXT);
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(logged(info, "[chat] diagnosis capped")).toMatchObject({ scope: "user" });
+  });
+
+  it("사용량 RPC 오류 → DIAGNOSIS_USAGE_CHECK_FAILED_TEXT · 스트림 0 · warn(fail-closed)", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const sb = makeSupabase({
+      incr_api_usage: () => ({ data: null, error: { message: "db down" } }),
+    });
+
+    const out = await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe(DIAGNOSIS_USAGE_CHECK_FAILED_TEXT);
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("정상 종료 → [chat] diagnosis usage 1줄(rounds · toolCalls · durationMs · stopReason · models · marketRecords · truncated)", async () => {
+    const info = vi.spyOn(logger, "info");
+    streamMock.mockImplementation(
+      makeStreamSequence([
+        makeToolUseMessage([orderLogCall("tu_1")], { usage: { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 900 } }),
+        makeEndTurnMessage("진단문 원문", { usage: { input_tokens: 300, output_tokens: 700, cache_read_input_tokens: 1900 } }),
+      ]),
+    );
+
+    await consultDiagnosisSpecialist(okSupabase().client, { question: QUESTION }, { userId: USER });
+
+    const usageLogs = info.mock.calls.filter((c) => c[1] === "[chat] diagnosis usage");
+    expect(usageLogs).toHaveLength(1);
+    const obj = usageLogs[0][0] as Record<string, unknown>;
+    expect(obj).toMatchObject({
+      rounds: 2,
+      toolCalls: { get_order_log: 1 },
+      stopReason: "end_turn",
+      marketRecords: 0,
+      truncated: false,
+    });
+    expect(typeof obj.durationMs).toBe("number");
+    expect((obj.models as Record<string, unknown>)["claude-opus-5-5"]).toEqual({
+      inputTokens: 1300,
+      outputTokens: 900,
+      cacheReadInputTokens: 1900,
+      cacheCreationInputTokens: 900,
+    });
   });
 });
