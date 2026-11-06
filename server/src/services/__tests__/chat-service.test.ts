@@ -51,6 +51,7 @@ vi.mock("../chat-history", () => ({
 }));
 
 // mock 이후 import
+import { logger } from "../../logger";
 import {
   handleChatStream,
   sanitizeMessages,
@@ -631,5 +632,123 @@ describe("handleChatStream (주문 진단 D-01)", () => {
 
     expect(textOf(events())).toBe("종합");
     expect(toolResultsSent().map((t) => t.content)).toEqual(["테마 의견", "주문 진단을 지금 쓸 수 없습니다."]);
+  });
+});
+
+// ============================================================
+// 9) [chat] usage 모델별 토큰 맵 (Phase 39 SC-3)
+// ============================================================
+describe("handleChatStream ([chat] usage models 맵 SC-3)", () => {
+  /** 팀장 라운드 usage 를 채운 finalMessage — 공용 mock 은 0 이라 합산을 볼 수 없다. */
+  function withUsage(
+    msg: Anthropic.Message,
+    u: { input: number; output: number; read?: number | null; creation?: number | null },
+  ): Anthropic.Message {
+    return {
+      ...msg,
+      usage: {
+        ...msg.usage,
+        input_tokens: u.input,
+        output_tokens: u.output,
+        cache_read_input_tokens: u.read ?? null,
+        cache_creation_input_tokens: u.creation ?? null,
+      },
+    };
+  }
+
+  function usageLog(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
+    const call = spy.mock.calls.find((c) => c[1] === "[chat] usage");
+    expect(call).toBeDefined();
+    return call![0] as Record<string, unknown>;
+  }
+
+  it("진단 턴: 기존 키 그대로 + models 에 팀장(sonnet) · 진단(opus) 두 키 — opus 값 = 전문가 usage 합", async () => {
+    const info = vi.spyOn(logger, "info");
+    streamMock
+      .mockReturnValueOnce(
+        makeStreamMock({
+          textDeltas: [],
+          finalMessage: withUsage(
+            makeToolUseFinalMessage([
+              { id: "td1", name: SPECIALIST_TOOL_NAMES.diagnosis, input: { question: "왜?" } },
+            ]),
+            { input: 100, output: 10, read: 5, creation: 7 },
+          ),
+        }),
+      )
+      .mockReturnValueOnce(
+        makeStreamMock({
+          textDeltas: ["끝"],
+          finalMessage: withUsage(makeEndTurnFinalMessage("끝"), { input: 200, output: 20, read: null }),
+        }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({
+      text: "진단",
+      display: "진단",
+      usage: [
+        {
+          model: "claude-opus-5-5",
+          inputTokens: 1000,
+          outputTokens: 200,
+          cacheReadInputTokens: 50,
+          cacheCreationInputTokens: 300,
+        },
+      ],
+    });
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "왜?",
+    });
+
+    const log = usageLog(info);
+    expect(log).toMatchObject({
+      conversationId: "conv-new",
+      model: "claude-sonnet-5",
+      inputTokens: 300,
+      outputTokens: 30,
+      toolRounds: 1,
+    });
+    expect(log).toHaveProperty("models");
+    expect(Object.keys(log.models as object).sort()).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+    expect((log.models as Record<string, unknown>)["claude-sonnet-5"]).toEqual({
+      inputTokens: 300,
+      outputTokens: 30,
+      cacheReadInputTokens: 5,
+      cacheCreationInputTokens: 7,
+    });
+    expect((log.models as Record<string, unknown>)["claude-opus-5-5"]).toEqual({
+      inputTokens: 1000,
+      outputTokens: 200,
+      cacheReadInputTokens: 50,
+      cacheCreationInputTokens: 300,
+    });
+  });
+
+  it("진단 없는 턴: models 에 팀장 키 하나뿐", async () => {
+    const info = vi.spyOn(logger, "info");
+    streamMock.mockReturnValueOnce(
+      makeStreamMock({
+        textDeltas: ["안녕"],
+        finalMessage: withUsage(makeEndTurnFinalMessage("안녕"), { input: 40, output: 4 }),
+      }),
+    );
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "안녕",
+    });
+
+    const log = usageLog(info);
+    expect(log.models).toEqual({
+      "claude-sonnet-5": {
+        inputTokens: 40,
+        outputTokens: 4,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+      },
+    });
   });
 });
