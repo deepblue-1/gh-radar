@@ -29,7 +29,7 @@ set -euo pipefail
 #     # (SUPABASE_URL 불필요). 알림 문서(ops/alert-*.yaml)만 고쳤을 때 relay 재배포 없이 쓴다.
 #
 #   bash scripts/deploy-relay.sh --self-test
-#     # 순수 판정 함수(kyobo_presence · registry_cutover_gate) 오프라인 단언. 네트워크 · gcloud · env 불필요.
+#     # 순수 판정 함수(kyobo_presence · registry_cutover_gate · push_notify_value) 오프라인 단언. 네트워크 · gcloud · env 불필요.
 #
 # KYOBO 감시 (quick-260929-sar · Phase 29 RESEARCH Pitfall 3): uptime check `gh-radar-kyobo-observer-healthz`
 #   (JSONPath `$.brokers.KYOBO.alerting` == false) + 정책 `gh-radar-kyobo-observer-down`(ops/alert-kyobo-observer-down.yaml).
@@ -60,7 +60,10 @@ set -euo pipefail
 #   `DMA_REGISTRY_SOURCE` 는 넣지 않는다. 레지스트리 시대 태그로 되돌리는 경로가 아니다(그 태그는 이 플래그로 기동을 거부한다).
 #
 # 선택 env:
-#   LOG_LEVEL  미설정 시 info
+#   LOG_LEVEL    미설정 시 info
+#   PUSH_NOTIFY  체결 앱 푸시 (Phase 40) — `on` | `off`. 비우면 env-file 에 넣지 않는다 = relay 기본(production on).
+#                비상 끄기: `PUSH_NOTIFY=off bash scripts/deploy-relay.sh`. 그 밖 값은 gcloud 에 닿기 전에 exit 1
+#                (relay 도 그 값이면 기동을 거부한다 — 재시작 루프를 배포 전에 막는다).
 #
 # 비밀은 이 스크립트가 만지지 않는다 (T-15-29 · T-19-03):
 #   컨테이너 비밀 4종은 **VM 안에서** 메타데이터 토큰 → Secret Manager REST 로 읽어
@@ -79,6 +82,13 @@ set -euo pipefail
 #                                      ⚠ 한 줄을 남기고 빼고 배포한다 — 그때 레지스트리의 교보 서버는 관찰자 · admin 연결이
 #                                      disabled 다. 값은 교보 서버들의 gh-trade `config/observer.toml` 과 같아야 한다.
 #                                      위 「비밀 4종」 은 치명 4종을 뜻한다 — 이 비밀은 그 밖이다)
+#     gh-radar-apns-auth-key         → APNS_AUTH_KEY_B64  (Phase 40 · **비치명** — APNs .p8 의 base64 **한 줄**. docker
+#                                      `--env-file` 은 여러 줄 값을 못 싣는다(RESEARCH Pitfall 10). 값 주입은 사용자
+#                                      `! bash scripts/setup-push-secrets.sh apns`)
+#     gh-radar-apns-key-id           → APNS_KEY_ID        (Phase 40 · **비치명** — .p8 의 Key ID 10자)
+#                                      두 APNs 비밀은 함께 다닌다 — 하나라도 없거나 ENABLED 버전 · relay SA 접근권이 없으면
+#                                      ⚠ 한 줄 「APNs 비밀 생략 — iOS 체결 푸시 꺼짐」 을 남기고 둘 다 빼고 배포한다
+#                                      (relay 는 iOS 송신기만 빠진 채 뜬다 · Android 는 키 파일 없이 VM SA 토큰).
 # ═══════════════════════════════════════════════════════════════
 
 MODE=deploy
@@ -157,7 +167,21 @@ registry_cutover_gate() {
   fi
 }
 
-# --self-test: 위 두 함수를 표본으로 돌려 기대값과 다르면 exit 1. 네트워크 · gcloud · env 없이 돈다
+# 체결 앱 푸시 스위치 정규화 (Phase 40). 인자: <PUSH_NOTIFY 값> → 한 줄
+#   빈 값        → 빈 출력(env-file 에 넣지 않는다 = relay 기본)
+#   on | off     → 그대로
+#   그 밖         → `invalid`
+# 절대 실패하지 않는다(판정만 한다 — exit 은 호출부가 정한다).
+push_notify_value() {
+  local v="${1-}"
+  case "$v" in
+    "") printf '\n' ;;
+    on | off) printf '%s\n' "$v" ;;
+    *) printf 'invalid\n' ;;
+  esac
+}
+
+# --self-test: 위 세 함수를 표본으로 돌려 기대값과 다르면 exit 1. 네트워크 · gcloud · env 없이 돈다
 # (infra/relay/limitup-pull/limitup-pull.sh --self-test 선례).
 self_test() {
   local n=0 fail=0 got want label body live flag
@@ -193,6 +217,22 @@ db + 플래그 없음|db|0|allow
 env + 플래그 없음|env|0|deny
 값 없음 + --registry-cutover||1|allow
 SAMPLES
+  # 체결 앱 푸시 스위치 — 빈 값 · on · off · 그 밖(yes → invalid)
+  while IFS='|' read -r label body want; do
+    got="$(push_notify_value "$body")"
+    if [[ "$got" == "$want" ]]; then
+      echo "ok   push_notify_value  ${label} → ${got:-<빈 값>}"
+    else
+      echo "FAIL push_notify_value  ${label} → ${got:-<빈 값>} (기대 ${want:-<빈 값>})" >&2
+      fail=1
+    fi
+    n=$((n + 1))
+  done <<'SAMPLES'
+빈 값(relay 기본)||
+on|on|on
+off(비상 끄기)|off|off
+yes(오타)|yes|invalid
+SAMPLES
   if [[ "$fail" != 0 ]]; then
     echo "self-test FAIL ($n cases)" >&2
     exit 1
@@ -203,6 +243,14 @@ SAMPLES
 if [[ "$MODE" == self-test ]]; then
   self_test
   exit 0
+fi
+
+# 체결 앱 푸시 스위치(Phase 40) — gcloud · VM 에 닿기 전에 오프라인으로 거른다. --alert-only 는 컨테이너를 안 건드려 무관.
+PUSH_NOTIFY_VALUE="$(push_notify_value "${PUSH_NOTIFY:-}")"
+if [[ "$MODE" != alert-only && "$PUSH_NOTIFY_VALUE" == invalid ]]; then
+  echo "ERROR: PUSH_NOTIFY 는 on 또는 off(또는 비움 = relay 기본 production on)만 허용한다." >&2
+  echo "  비상 끄기: PUSH_NOTIFY=off bash scripts/deploy-relay.sh" >&2
+  exit 1
 fi
 
 # 롤백은 옛(레거시 env 모드) 이미지라 주소를 명시 주입해야 한다 — gcloud · VM 에 닿기 전에 오프라인으로 거른다(D-12).
@@ -639,6 +687,37 @@ else
   fi
 fi
 
+# APNs 비밀 사전 점검 (Phase 40 — 체결 앱 푸시 iOS) — **비치명**. KYOBO 점검과 같은 꼴이고 절대 exit 하지 않는다.
+# 두 Secret 이 모두 존재 · ENABLED 버전 · relay SA 접근권일 때만 APNS_SECRET_WANTED=1. 아니면 iOS 송신만 꺼진 채 배포한다
+# (Android 는 키 파일 없이 VM SA 메타데이터 토큰 · relay 부팅 로그 「[push] APNs 비밀 없음 — iOS 송신 꺼짐」).
+# 값 주입: 사용자 `! bash scripts/setup-push-secrets.sh apns` · 빈 껍데기 + 접근권: setup-relay-iam.sh.
+APNS_SECRET_WANTED=1
+APNS_SKIP_REASON=""
+for APNS_SECRET_NAME in gh-radar-apns-auth-key gh-radar-apns-key-id; do
+  if ! gcloud secrets describe "$APNS_SECRET_NAME" >/dev/null 2>&1; then
+    APNS_SKIP_REASON="Secret '$APNS_SECRET_NAME' 없음"
+    break
+  fi
+  APNS_VERSION_COUNT=$(gcloud secrets versions list "$APNS_SECRET_NAME" --filter='state=ENABLED' \
+    --format='value(name)' 2>/dev/null | wc -l | tr -d ' ' || true)
+  if [[ "${APNS_VERSION_COUNT:-0}" -lt 1 ]]; then
+    APNS_SKIP_REASON="Secret '$APNS_SECRET_NAME' 에 ENABLED 버전 없음"
+    break
+  fi
+  if ! gcloud secrets get-iam-policy "$APNS_SECRET_NAME" --format='value(bindings.members)' 2>/dev/null \
+      | grep -q "$RELAY_SA"; then
+    APNS_SKIP_REASON="'$RELAY_SA' 에 Secret '$APNS_SECRET_NAME' 접근권 없음"
+    break
+  fi
+done
+if [[ -n "$APNS_SKIP_REASON" ]]; then
+  APNS_SECRET_WANTED=0
+  echo "⚠ APNs 비밀 생략 — iOS 체결 푸시 꺼짐: ${APNS_SKIP_REASON} (값 주입: ! bash scripts/setup-push-secrets.sh apns)" >&2
+else
+  echo "✓ APNs 비밀 확인 (gh-radar-apns-auth-key · gh-radar-apns-key-id · ENABLED · relay SA 접근권)"
+fi
+echo "  체결 앱 푸시 스위치: PUSH_NOTIFY=${PUSH_NOTIFY_VALUE:-<비움 — relay 기본 production on>}"
+
 # relay VM 에 닿는 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09
 # 위반이므로 이름까지 본다.
 # (`--filter='... AND allowed.ports=80'` 형태는 기대대로 걸러지지 않는다 — 목록을 읽는다.)
@@ -709,9 +788,10 @@ fi
 #   원격에서 쓰는 `$VAR` 가 로컬에서 전개되지 않는다. 비밀은 head 에도 body 에도 없다.
 # ───────────────────────────────────────────────────────────────
 # 공통 head — 주소가 없다. RELAY_ENV_MODE(registry | legacy-env)가 원격 env-file 모양을 고른다.
-REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nRELAY_ENV_MODE=%q\nKYOBO_SECRET_WANTED=%q\n' \
+REMOTE_HEAD=$(printf 'PROJECT=%q\nTARGET_IMAGE=%q\nCONTAINER=%q\nAPP_VERSION=%q\nLOG_LEVEL=%q\nSUPABASE_URL=%q\nWS_PORT=%q\nORDER_API_PORT=%q\nRELAY_ENV_MODE=%q\nKYOBO_SECRET_WANTED=%q\nAPNS_SECRET_WANTED=%q\nPUSH_NOTIFY=%q\n' \
   "$EXPECTED_PROJECT" "$TARGET_IMAGE" "$CONTAINER" "$APP_VERSION" "$LOG_LEVEL" \
-  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$RELAY_ENV_MODE" "$KYOBO_SECRET_WANTED")
+  "$SUPABASE_URL" "$WS_PORT" "$ORDER_API_PORT" "$RELAY_ENV_MODE" "$KYOBO_SECRET_WANTED" \
+  "$APNS_SECRET_WANTED" "$PUSH_NOTIFY_VALUE")
 # 롤백 전용 head — 옛 이미지(레거시 env 모드)의 명시 주입 주소. 정상 배포에는 이 줄들이 없다.
 if [[ "$MODE" == rollback ]]; then
   REMOTE_HEAD="${REMOTE_HEAD}
@@ -770,13 +850,27 @@ if [ "$KYOBO_SECRET_WANTED" = 1 ]; then
     if [ "$RELAY_ENV_MODE" = legacy-env ]; then RB_KYOBO_HOST=""; fi
   fi
 fi
+# APNs 비밀 (Phase 40 — 체결 앱 푸시 iOS) — **비치명**. 로컬 사전 점검을 통과한 때만 읽고, 둘 중 하나라도 비면 둘 다 뺀다
+# (relay 는 iOS 송신기만 빠진 채 뜬다). APNS_AUTH_KEY_B64 는 .p8 의 base64 한 줄이라 env-file 한 줄에 들어간다(Pitfall 10).
+APNS_KEY_B64=""
+APNS_KEY_ID_VAL=""
+if [ "$APNS_SECRET_WANTED" = 1 ]; then
+  APNS_KEY_B64="$(fetch_secret gh-radar-apns-auth-key || true)"
+  APNS_KEY_ID_VAL="$(fetch_secret gh-radar-apns-key-id || true)"
+  if [ -z "$APNS_KEY_B64" ] || [ -z "$APNS_KEY_ID_VAL" ]; then
+    log "APNs 비밀 획득 실패 — iOS 체결 푸시 꺼짐 (relay 무영향)"
+    APNS_KEY_B64=""
+    APNS_KEY_ID_VAL=""
+  fi
+fi
+if [ -n "$APNS_KEY_B64" ]; then APNS_NOTE="APNs 비밀 포함"; else APNS_NOTE="APNs 비밀 없음"; fi
 # 빈 값 검사 — 값이 아니라 **어느 키가 비었는지**만 남긴다.
 [ -n "$SB_KEY" ]       || { echo "빈 비밀: supabase service role" >&2; exit 1; }
 [ -n "$CRED_KEY" ]     || { echo "빈 비밀: dma cred key" >&2; exit 1; }
 [ -n "$ORDER_SECRET" ] || { echo "빈 비밀: relay order secret" >&2; exit 1; }
 [ -n "$OBS_SECRET" ]   || { echo "빈 비밀: dma observer secret" >&2; exit 1; }
 if [ -n "$KYOBO_SECRET" ]; then KYOBO_NOTE="KYOBO 비밀 포함"; else KYOBO_NOTE="KYOBO 비밀 없음"; fi
-log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE} · env 모양=${RELAY_ENV_MODE}"
+log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE} · ${APNS_NOTE} · PUSH_NOTIFY=${PUSH_NOTIFY:-기본} · env 모양=${RELAY_ENV_MODE}"
 
 {
   printf 'NODE_ENV=production\n'
@@ -805,6 +899,14 @@ log "비밀 4종 획득 (값은 기록하지 않음) · ${KYOBO_NOTE} · env 모
   # KYOBO 증권사 비밀 — 획득했을 때만. 정상 배포는 레지스트리의 교보 서버들이 이 비밀 하나를 쓴다(증권사별 매핑).
   if [ -n "$KYOBO_SECRET" ]; then
     printf 'DMA_OBSERVER_SECRET_KYOBO=%s\n' "$KYOBO_SECRET"
+  fi
+  # 체결 앱 푸시 (Phase 40) — APNs 비밀은 둘 다 있을 때만 · 스위치는 값이 있을 때만(비우면 relay 기본).
+  if [ -n "$APNS_KEY_B64" ] && [ -n "$APNS_KEY_ID_VAL" ]; then
+    printf 'APNS_AUTH_KEY_B64=%s\n' "$APNS_KEY_B64"
+    printf 'APNS_KEY_ID=%s\n' "$APNS_KEY_ID_VAL"
+  fi
+  if [ -n "$PUSH_NOTIFY" ]; then
+    printf 'PUSH_NOTIFY=%s\n' "$PUSH_NOTIFY"
   fi
 } > "$ENV_FILE"
 

@@ -14,6 +14,11 @@ set -euo pipefail
 #   D-09: SSH 는 IAP 터널만. gh-radar-vpc 에 방화벽 규칙이 0개이므로 여기서 최초 생성한다
 #         (RESEARCH Pitfall 12). 최초 3규칙이었고, quick-260909-muo 가 개발기 WireGuard
 #         직결용 udp:51820 을 더해 **4규칙**이 됐다 — 공인 인바운드는 tcp:443 + udp:51820 둘이다.
+#   Phase 40: 체결 앱 푸시 — Android(FCM HTTP v1)는 키 파일 없이 VM SA 메타데이터 토큰으로 보낸다 → FCM API 사용 설정 +
+#         relay SA 에 FCM 송신 역할(기본 roles/firebasecloudmessaging.admin · env FCM_SENDER_ROLE 로 바꿀 수 있음 —
+#         RESEARCH A4). iOS(APNs) 키는 Secret 2개(gh-radar-apns-auth-key · gh-radar-apns-key-id) 빈 껍데기 + 접근권만
+#         만든다 — 값 주입은 사용자 `! bash scripts/setup-push-secrets.sh apns`. 권한이 실제로 통하는지는 relay 기동 로그
+#         「[push] FCM 권한 확인」 / 「[push] FCM 송신 권한 없음 …」 한 줄이 알려 준다.
 #
 # 멱등 — 재실행 시 기존 리소스 skip.
 # 이 스크립트는 비밀 "값" 을 만들지도 출력하지도 않는다. 값 주입은 사람이 별도 수행한다.
@@ -154,6 +159,8 @@ run gcloud services enable \
   artifactregistry.googleapis.com \
   iap.googleapis.com \
   monitoring.googleapis.com
+# Phase 40 — FCM HTTP v1(체결 앱 푸시 Android). 멱등(이미 켜져 있으면 그대로).
+run gcloud services enable fcm.googleapis.com
 echo "✓ APIs enabled"
 
 # ───────────────────────────────────────────────────────────────
@@ -169,7 +176,9 @@ else
   echo "✓ SA created: $SA_NAME"
 fi
 
-for ROLE in roles/artifactregistry.reader roles/logging.logWriter roles/monitoring.metricWriter; do
+# Phase 40 — FCM 송신 역할(cloudmessaging.messages.create). 더 좁은 역할이 맞으면 FCM_SENDER_ROLE=<역할> 로 바꾼다(A4).
+FCM_SENDER_ROLE="${FCM_SENDER_ROLE:-roles/firebasecloudmessaging.admin}"
+for ROLE in roles/artifactregistry.reader roles/logging.logWriter roles/monitoring.metricWriter "$FCM_SENDER_ROLE"; do
   run_retry gcloud projects add-iam-policy-binding "$EXPECTED_PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
@@ -184,8 +193,10 @@ done
 #   `config/observer.toml` 과 **같은 값**을 넣는다(infra/relay/README.md §Secret 4종 값 주입).
 #   gh-radar-dma-observer-secret-kyobo — **선택** · KYOBO 관찰자(quick-260929-c8e). gh-trade kyobo127
 #   `config/observer.toml` 과 같은 값. 비어 있으면 deploy-relay.sh 가 KYOBO 관찰자만 생략한다(KB 단독 배포).
+#   gh-radar-apns-auth-key · gh-radar-apns-key-id — **선택** · Phase 40 체결 앱 푸시 iOS(APNs .p8 base64 한 줄 · Key ID).
+#   값 주입은 사용자 `! bash scripts/setup-push-secrets.sh apns`(값 비출력). 비어 있으면 deploy-relay.sh 가 iOS 푸시만 끈다.
 # ───────────────────────────────────────────────────────────────
-for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb-vpn-password gh-radar-dma-observer-secret gh-radar-dma-observer-secret-kyobo; do
+for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb-vpn-password gh-radar-dma-observer-secret gh-radar-dma-observer-secret-kyobo gh-radar-apns-auth-key gh-radar-apns-key-id; do
   if gcloud secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
     echo "✓ secret exists: $SECRET_NAME"
   else

@@ -44,6 +44,13 @@
  *            (실기기로 새지 않게). `off` 는 운영 비상 끄기다(`PUSH_NOTIFY=off bash scripts/deploy-relay.sh` — 40-09). 다른 값은
  *            기동 거부(오타가 조용히 켜짐/꺼짐이 되지 않게). 켜져도 송신기(APNs · FCM 비밀 — 40-09)가 0 개면 `PushNotifier` 는
  *            꺼짐 로그 1줄 뒤 RPC 0 이다.
+ *   Phase 40 (40-09)  APNs 송신 키 = `APNS_AUTH_KEY_B64`(.p8 PEM 의 base64 **한 줄** — docker `--env-file` 은 여러 줄 값을
+ *            못 싣는다 · RESEARCH Pitfall 10) + `APNS_KEY_ID`(10자 영숫자 · .p8 파일 이름 `AuthKey_` 뒤). 둘 다 있고 디코드가
+ *            PEM(`BEGIN PRIVATE KEY`)이며 Key ID 형식이 맞을 때만 `apns` 가 생긴다. **비치명** — 없거나 어긋나면 `apns` 는
+ *            undefined · `apnsOffReason` 에 원인 문구(값 · 길이 없음)만 남고 relay 는 iOS 송신기만 빠진 채 뜬다(KYOBO 비밀 꼴).
+ *            `APNS_TEAM_ID`(기본 954QPCS3F5) · `APNS_TOPIC`(기본 com.ghtrade.app = 앱 번들 id)은 env 가 있으면 그 값.
+ *   Phase 40 (40-09)  `FCM_PROJECT_ID` = FCM HTTP v1 프로젝트. 있으면 그 값 · 없으면 production 은 `gh-radar` · 그 밖은
+ *            undefined(로컬엔 GCE 메타데이터 서버가 없다). 키 파일은 없다 — 토큰은 VM SA 메타데이터 서버에서 받는다.
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
@@ -57,6 +64,56 @@ import {
   type DmaBroker,
   type DmaServerRow,
 } from "./registry/registry.js";
+
+/** APNs 송신 설정 (Phase 40 — 40-09 `ApnsSender` 입력). 값을 로그로 내보내지 않는다. */
+export type ApnsConfig = {
+  /** .p8 PEM 원문(`APNS_AUTH_KEY_B64` 디코드). */
+  keyPem: string;
+  /** Key ID(10자 · JWT 헤더 `kid`). */
+  keyId: string;
+  /** Apple 팀 ID(JWT `iss`). */
+  teamId: string;
+  /** `apns-topic` = 앱 번들 id. */
+  topic: string;
+};
+
+/** APNs 팀 ID 기본값(Apple Developer 팀 — 40-04). */
+export const APNS_DEFAULT_TEAM_ID = "954QPCS3F5";
+/** APNs topic 기본값 = 앱 번들 id. */
+export const APNS_DEFAULT_TOPIC = "com.ghtrade.app";
+/** FCM 프로젝트 기본값(production — Firebase 프로젝트 = GCP 프로젝트 gh-radar). */
+export const FCM_DEFAULT_PROJECT_ID = "gh-radar";
+
+const APNS_KEY_ID_RE = /^[A-Za-z0-9]{10}$/;
+
+/**
+ * APNs env → 설정(비치명). 원인 문구에는 env 이름만 담는다 — 값 · 길이를 넣지 않는다(T-19-14).
+ * export 는 테스트용이 아니라 `loadConfig` 한 곳의 규칙을 이름 붙인 것이다.
+ */
+export function apnsConfigOf(env: Readonly<Record<string, string | undefined>>): {
+  apns: ApnsConfig | undefined;
+  offReason: string | undefined;
+} {
+  const keyB64 = env.APNS_AUTH_KEY_B64?.trim() || undefined;
+  const keyId = env.APNS_KEY_ID?.trim() || undefined;
+  if (keyB64 === undefined && keyId === undefined) return { apns: undefined, offReason: "APNs 비밀 없음" };
+  if (keyB64 === undefined) return { apns: undefined, offReason: "APNS_AUTH_KEY_B64 없음(APNS_KEY_ID 만 있음)" };
+  if (keyId === undefined) return { apns: undefined, offReason: "APNS_KEY_ID 없음(APNS_AUTH_KEY_B64 만 있음)" };
+  if (!APNS_KEY_ID_RE.test(keyId)) return { apns: undefined, offReason: "APNS_KEY_ID 형식 아님(10자 영숫자)" };
+  const keyPem = Buffer.from(keyB64, "base64").toString("utf8");
+  if (!keyPem.includes("-----BEGIN PRIVATE KEY-----")) {
+    return { apns: undefined, offReason: "APNS_AUTH_KEY_B64 디코드가 PEM 이 아님" };
+  }
+  return {
+    apns: {
+      keyPem,
+      keyId,
+      teamId: env.APNS_TEAM_ID?.trim() || APNS_DEFAULT_TEAM_ID,
+      topic: env.APNS_TOPIC?.trim() || APNS_DEFAULT_TOPIC,
+    },
+    offReason: undefined,
+  };
+}
 
 /** 레지스트리 원천 (Phase 29 D-09). */
 export type DmaRegistrySource = "env" | "db";
@@ -170,6 +227,18 @@ export type RelayConfig = {
    * 거부. false 면 `PushNotifier` 는 RPC · 송신 0 이다(비상 끄기). 송신기 비밀은 40-09 가 따로 읽는다.
    */
   pushNotify: boolean;
+  /**
+   * APNs 송신 설정 (Phase 40 — `APNS_AUTH_KEY_B64` · `APNS_KEY_ID` · `APNS_TEAM_ID` · `APNS_TOPIC`). 없으면 undefined —
+   * iOS 송신기만 빠진다(비치명). 값을 로그로 내보내지 않는다(logger redact `*.keyPem` 은 실수 방어).
+   */
+  apns: ApnsConfig | undefined;
+  /** `apns` 가 undefined 인 이유(부팅 로그 1줄용 · env 이름만 · 값 없음). 켜졌으면 undefined. */
+  apnsOffReason: string | undefined;
+  /**
+   * FCM HTTP v1 프로젝트 (Phase 40 — env `FCM_PROJECT_ID`). 있으면 그 값 · 없으면 production 은 `gh-radar` · 그 밖은 undefined
+   * (로컬엔 GCE 메타데이터 서버가 없다 — Android 송신기를 만들지 않는다).
+   */
+  fcmProjectId: string | undefined;
 };
 
 export function loadConfig(): RelayConfig {
@@ -210,6 +279,10 @@ export function loadConfig(): RelayConfig {
     throw new Error(`PUSH_NOTIFY must be "on" or "off" — got "${pushNotifyRaw}" (Phase 40)`);
   }
   const pushNotify = pushNotifyRaw === undefined ? nodeEnv === "production" : pushNotifyRaw === "on";
+  // Phase 40 (40-09) — APNs 송신기 비밀. 비치명(없으면 iOS 송신기만 빠진다).
+  const { apns, offReason: apnsOffReason } = apnsConfigOf(process.env);
+  // Phase 40 (40-09) — FCM 프로젝트. 운영 VM 만 기본값(메타데이터 토큰) · 로컬은 env 로만.
+  const fcmProjectId = optional("FCM_PROJECT_ID")?.trim() || (nodeEnv === "production" ? FCM_DEFAULT_PROJECT_ID : undefined);
 
   // Phase 29 D-09 — 레지스트리 원천 게이트. 비밀 필수 검사(위) 뒤에 본다 — production 비밀 부재 사유 문구를 바꾸지 않는다.
   const registryRaw = optional("DMA_REGISTRY_SOURCE");
@@ -308,5 +381,8 @@ export function loadConfig(): RelayConfig {
     quoteLingerMs,
     appAccessRefreshMs,
     pushNotify,
+    apns,
+    apnsOffReason,
+    fcmProjectId,
   };
 }

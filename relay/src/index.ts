@@ -120,6 +120,8 @@ import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
 import { QuoteSwitch } from "./quote/quote-switch.js";
 import { QuoteStatus } from "./quote/status.js";
+import { ApnsSender } from "./push/apns.js";
+import { FcmSender } from "./push/fcm.js";
 import { PushNotifier, type PushSender } from "./push/notifier.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
@@ -494,6 +496,25 @@ accountOrderServers.on("changed", () => {
  * `PUSH_NOTIFY=off`(config `pushNotify` false)도 같다(비상 끄기). 첫 `pipelines.sync`(→ `wirePipeline`)보다 먼저 만든다.
  */
 const pushSenders: PushSender[] = [];
+// 40-09 — 송신기는 notifier 생성 **전에** 넣는다(notifier 는 생성 때 송신기 수로 켜짐을 정한다). 비밀이 없으면 그 플랫폼만 빠진다.
+if (config.apns !== undefined) {
+  try {
+    pushSenders.push(new ApnsSender(config.apns));
+  } catch (err) {
+    // 키 파싱 실패 — 값 · 메시지 원문 없이 코드만(T-19-14).
+    logger.error({ code: (err as { code?: unknown })?.code ?? "" }, "[push] APNs 키 읽기 실패 — iOS 송신 꺼짐");
+  }
+} else {
+  logger.info({ reason: config.apnsOffReason ?? "" }, "[push] APNs 비밀 없음 — iOS 송신 꺼짐");
+}
+if (config.fcmProjectId !== undefined) {
+  const fcm = new FcmSender({ projectId: config.fcmProjectId });
+  pushSenders.push(fcm);
+  // 기동 때 권한(역할 · API · 토큰 범위)을 한 번 확인한다 — 결과는 로그 1줄 · 기동을 막지 않는다(A2 · A10).
+  if (config.pushNotify) void fcm.probe();
+} else {
+  logger.info("[push] FCM 프로젝트 없음 — Android 송신 꺼짐");
+}
 const pushNotifier = new PushNotifier({
   supabase,
   identities: appAccess,
