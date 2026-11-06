@@ -444,7 +444,7 @@ function accountInputOf(a: AdminAccountView): AdminAccountInput {
 /** 계좌 카드 — 목업 `.acct`(hairline · r12 · 12px 14px). */
 const ACCOUNT_CARD = "mt-2.5 rounded-[12px] border border-[var(--border-subtle)] px-3.5 py-3";
 /** 증권사 배지 — 목업 `.acct .t .bk`. */
-const BROKER_BADGE = "rounded-[5px] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--fg-2)]";
+export const BROKER_BADGE = "rounded-[5px] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--fg-2)]";
 /**
  * 계좌 버튼(「제거」 · 「+ 계좌 추가」 · 추가 폼 「취소」 · 「추가」) 높이 — 폰(640 미만) 36px 터치 타깃 · 데스크톱 종전 28px
  * (29-31 UI-REVIEW-3).

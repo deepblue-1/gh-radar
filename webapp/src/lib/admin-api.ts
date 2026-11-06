@@ -9,6 +9,8 @@
  * ② 경로 · 바디 · 응답 모양은 29-13 SUMMARY 「라우트 표」 가 정본이다
  *   타입은 `@gh-radar/shared` 의 Admin 계약을 그대로 쓴다. 뒤 플랜(29-17 · 29-18 · 29-19)은 이 파일을
  *   고치지 않고 부르기만 한다 — 그래서 표의 14경로를 지금 전부 둔다.
+ *   quick 261106-lwu — 계좌 마스터 4경로(`/api/admin/accounts` GET · POST · `/:broker/:accountNo` PUT · DELETE)를 더했다.
+ *   등록 · 삭제는 DB 만, 저장(PUT)은 연결된 사용자마다 relay 를 부른다(팬아웃 → `RELAY_TIMEOUT_MS`).
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -25,6 +27,10 @@
 
 import type {
   AdminAccountBudgetBody,
+  AdminAccountCreateBody,
+  AdminAccountSaveBody,
+  AdminAccountSaveResponse,
+  AdminAccountsOverview,
   AdminAccountFeeBody,
   AdminCommandResponse,
   AdminCreateUserBody,
@@ -89,6 +95,7 @@ function jsonInit(method: string, body: unknown, extra: ApiFetchInit = {}): ApiF
 const userPath = (email: string) => `/api/admin/users/${enc(email)}`;
 const dmaPath = (dmaUserId: string) => `/api/admin/dma-users/${enc(dmaUserId)}`;
 const serverPath = (key: string) => `/api/admin/servers/${enc(key)}`;
+const accountPath = (broker: DmaBroker, accountNo: string) => `/api/admin/accounts/${enc(broker)}/${enc(accountNo)}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 사용자 — 허용 · 역할 · 삭제 · DMA 연결
@@ -255,4 +262,35 @@ export function setQuotePrimary(key: string): Promise<{ ok: true }> {
     method: "PUT",
     timeoutMs: RELAY_TIMEOUT_MS,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 계좌 마스터 (quick 261106-lwu D-06 · D-07 · D-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 계좌 목록 — 계좌마다 쓰는 사용자(DMA id · 이메일 · 등록 서버). */
+export function fetchAdminAccounts(): Promise<AdminAccountsOverview> {
+  return authFetch<AdminAccountsOverview>("/api/admin/accounts");
+}
+
+/** 「+ 계좌」 등록 — DB 마스터만(서버 전송 없음 · D-07). 같은 증권사 · 정규화 번호는 409 `ACCOUNT_EXISTS`. */
+export function createAdminAccount(body: AdminAccountCreateBody): Promise<{ ok: true }> {
+  return authFetch<{ ok: true }>("/api/admin/accounts", jsonInit("POST", body));
+}
+
+/** 계좌명 · 지점 · 트레이더 저장 — 연결된 사용자마다 relay 반영(팬아웃)이라 relay 타임아웃. */
+export function saveAdminAccount(
+  broker: DmaBroker,
+  accountNo: string,
+  body: AdminAccountSaveBody,
+): Promise<AdminAccountSaveResponse> {
+  return authFetch<AdminAccountSaveResponse>(
+    accountPath(broker, accountNo),
+    jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
+  );
+}
+
+/** 계좌 삭제 — 연결된 사용자가 있으면 409 `ACCOUNT_IN_USE`. */
+export function deleteAdminAccount(broker: DmaBroker, accountNo: string): Promise<{ ok: true }> {
+  return authFetch<{ ok: true }>(accountPath(broker, accountNo), { method: "DELETE" });
 }

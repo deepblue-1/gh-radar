@@ -1508,7 +1508,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손익」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17)", () => {
+describe("AppSidebar — 「My page · Admin › 사용자 · 계좌 · 서버 · 발사 · 매매손익」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1519,8 +1519,9 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손
   const servers = () => screen.queryByRole("link", { name: "서버" });
   const launch = () => screen.queryByRole("link", { name: "발사" });
   const pnl = () => screen.queryByRole("link", { name: "매매손익" });
+  const accounts = () => document.querySelector<HTMLAnchorElement>('a[data-sidebar-item="admin-accounts"]');
 
-  it("role admin → 「Admin」(/admin/users) + 하위 「사용자」 · 「서버」 · 「발사」 · 「매매손익」(맨 뒤) — 「분석」 뒤 · My page 앞", () => {
+  it("role admin → My page 뒤 「Admin」(/admin/users) + 하위 「사용자」 · 「계좌」 · 「서버」 · 「발사」 · 「매매손익」(맨 뒤) — 목록 맨 끝", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
@@ -1531,6 +1532,8 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손
     expect(launch()).toHaveAttribute("data-sidebar-item", "admin-launch");
     expect(pnl()).toHaveAttribute("href", "/admin/pnl");
     expect(pnl()).toHaveAttribute("data-sidebar-item", "admin-pnl");
+    expect(accounts()).toHaveAttribute("href", "/admin/accounts");
+    expect(accounts()!.textContent?.trim()).toBe("계좌");
     const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
       const item = a.getAttribute("data-sidebar-item");
       return item === "strategy" ? "strategy" : (a.textContent ?? "").trim();
@@ -1547,18 +1550,19 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손
       "팀 매집 보고서",
       "매집감지 보고서",
       "AI 애널리스트",
+      "My page",
       "Admin",
       "사용자",
+      "계좌",
       "서버",
       "발사",
       "매매손익",
-      "My page",
     ]);
     // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
     const sub = admin()!.closest("li")!.nextElementSibling!;
     expect(sub.className).toContain("rail:hidden");
     expect(sub.querySelector("ul")!.className).toContain("border-l");
-    for (const a of [admin()!, users()!, servers()!, launch()!, pnl()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
+    for (const a of [admin()!, users()!, accounts()!, servers()!, launch()!, pnl()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
   });
 
   it("Admin 노출은 역할만 본다 — 트레이딩이 안 보이는(relay 미연결) admin 에게도 보인다", () => {
@@ -1578,6 +1582,7 @@ describe("AppSidebar — 「Admin › 사용자 · 서버 · 발사 · 매매손
       const r = render(<AppSidebar />);
       expect(admin()).toBeNull();
       expect(users()).toBeNull();
+      expect(accounts()).toBeNull();
       expect(servers()).toBeNull();
       expect(launch()).toBeNull();
       expect(pnl()).toBeNull();
