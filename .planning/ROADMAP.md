@@ -573,15 +573,15 @@ Plans:
   5. 앱 안 Firebase 는 Android 만 — iOS 번들에 Firebase SDK 없음 · 위생 검사가 Android `google-services.json` 을 허용하되 비밀 목록(Firebase SA 키 등)은 종전대로 막는다. 양 플랫폼 `native:release` 통과.
 
 **미결 결정(discuss 에서)**: ① 거부·취소도 보낼지 — 권고: 거부는 보냄 · 취소는 안 보냄. ② 자동매도 「잔량 0」 정의 — 자동매도 주문들의 미체결 잔량 0(전량 체결 또는 취소 확인) vs 계좌 보유 0. ③ 첫/전량 판정 방식 — RPC 가 이전 상태 반환 vs relay 메모리 직전 상태. ④ 설정 단위 — 사용자 1개 토글(모든 기기) vs 기기별. ⑤ 소리·배지 — 기본 소리만 · 장중 묶음(iOS 알림 그룹 thread-id = 종목) 여부.
-**Plans:** 13 plans
+**Plans:** 4/13 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 40-01-PLAN.md — DB 기기 · 체인 · 송신 로그 · 전달 결과 표 4 + 기기 RPC 4 + 결과 보고 RPC(토큰 인계 · 토큰 일치 삭제) · pgTAP (W1)
-- [ ] 40-02-PLAN.md — shared 문안 정본 `pushMessageOf` · 탭 경로 · 스케치 029 C 안 7종 골든(계좌 칸 없음) (W1)
-- [ ] 40-03-PLAN.md — 앱 셸 공통: `@capacitor/push-notifications@8.1.3` · 포그라운드 배너 · 「설정 열기」 브리지 3곳(웹 · Android · iOS) (W1)
+- [x] 40-01-PLAN.md — DB 기기 · 체인 · 송신 로그 · 전달 결과 표 4 + 기기 RPC 4 + 결과 보고 RPC(토큰 인계 · 토큰 일치 삭제) · pgTAP (W1)
+- [x] 40-02-PLAN.md — shared 문안 정본 `pushMessageOf` · 탭 경로 · 스케치 029 C 안 7종 골든(계좌 칸 없음) (W1)
+- [x] 40-03-PLAN.md — 앱 셸 공통: `@capacitor/push-notifications@8.1.3` · 포그라운드 배너 · 「설정 열기」 브리지 3곳(웹 · Android · iOS) (W1)
 - [ ] 40-04-PLAN.md — [사용자] 외부 준비물: App ID Push · APNs 키(.p8) · Android google-services.json (W1 · 체크포인트)
-- [ ] 40-13-PLAN.md — iOS Push 셸: `App.entitlements`(aps-environment) · pbxproj 두 구성 · AppDelegate 2 메서드 · 시뮬레이터/IPA 검사 단언 · Fastfile `GHTRADE_FORCE_PROFILE` (W1 · 40-03 에서 분리)
+- [x] 40-13-PLAN.md — iOS Push 셸: `App.entitlements`(aps-environment) · pbxproj 두 구성 · AppDelegate 2 메서드 · 시뮬레이터/IPA 검사 단언 · Fastfile `GHTRADE_FORCE_PROFILE` (W1 · 40-03 에서 분리)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 40-05-PLAN.md — DB 판정 RPC `dma_push_claim`(체인 · 단계 · 짝 대기 · 당일 · 자동매도 · 수신자 · 멱등) · 3조각 → 2건 · 재생 0 pgTAP (W2)
