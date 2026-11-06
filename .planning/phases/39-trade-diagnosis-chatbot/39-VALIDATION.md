@@ -4,8 +4,8 @@ slug: "trade-diagnosis-chatbot"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-11-05"
 ---
 
@@ -73,13 +73,13 @@ created: "2026-11-05"
 
 프레임워크 설치는 없다(전부 기존). 아래 새 테스트 파일은 별도 Wave 0 플랜이 아니라 각 플랜의 **첫(트레이서) 태스크**가 구현과 함께 만든다 — 트레이서가 끝나면 그 파일이 있다.
 
-- [ ] `supabase/tests/dma_diagnosis.test.sql` — SC-2 · kind 9 가시성 (39-03 Task 1 스모크 · Task 2 전체)
-- [ ] `server/src/services/specialists/__tests__/diagnosis-market.test.ts` — 포맷 골든 · 절단 · 다중 프레임 · 자료 없음 · 변환 분기 · fetch 0 (39-04 Task 1~3)
-- [ ] `server/src/services/specialists/__tests__/diagnosis.test.ts` — 루프 · 모델 · effort · 마감 · refusal · 상한 · usage (39-05 Task 1~2)
-- [ ] `server/src/services/specialists/__tests__/diagnosis-tools.test.ts` — 계좌 칸 0 · userId 클로저 · zod · search_stock · 호출 상한 (39-05 Task 3 · 39-07 Task 2)
-- [ ] `server/src/services/specialists/__tests__/diagnosis-knowledge.test.ts` — 원문 문자열 · 크기 · system 블록 (39-08 Task 1~2)
-- [ ] 다중 라운드 mock 팩토리 `makeStreamSequence` · `makeToolUseMessage` · `makeEndTurnMessage` · `makeRefusalMessage` · `makeThinkingBlock` — `diagnosis.test.ts` 안 로컬 헬퍼(39-05 Task 1 · 공유 `server/src/services/__tests__/anthropic-mock.ts` 는 export 를 import 만 하고 수정하지 않는다)
-- [ ] 토큰 실측 스파이크(RESEARCH A1) — `server/scripts/measure-diagnosis-tokens.ts` (39-04 Task 3 · 키 없으면 39-09 메인 세션)
+- [x] `supabase/tests/dma_diagnosis.test.sql` — SC-2 · kind 9 가시성 (39-03 Task 1 스모크 · Task 2 전체)
+- [x] `server/src/services/specialists/__tests__/diagnosis-market.test.ts` — 포맷 골든 · 절단 · 다중 프레임 · 자료 없음 · 변환 분기 · fetch 0 (39-04 Task 1~3)
+- [x] `server/src/services/specialists/__tests__/diagnosis.test.ts` — 루프 · 모델 · effort · 마감 · refusal · 상한 · usage (39-05 Task 1~2)
+- [x] `server/src/services/specialists/__tests__/diagnosis-tools.test.ts` — 계좌 칸 0 · userId 클로저 · zod · search_stock · 호출 상한 (39-05 Task 3 · 39-07 Task 2)
+- [x] `server/src/services/specialists/__tests__/diagnosis-knowledge.test.ts` — 원문 문자열 · 크기 · system 블록 (39-08 Task 1~2)
+- [x] 다중 라운드 mock 팩토리 `makeStreamSequence` · `makeToolUseMessage` · `makeEndTurnMessage` · `makeRefusalMessage` · `makeThinkingBlock` — `diagnosis.test.ts` 안 로컬 헬퍼(39-05 Task 1 · 공유 `server/src/services/__tests__/anthropic-mock.ts` 는 export 를 import 만 하고 수정하지 않는다)
+- [x] 토큰 실측 스파이크(RESEARCH A1) — `server/scripts/measure-diagnosis-tokens.ts` (39-04 Task 3 · 스크립트 · `--dry` 완료, `countTokens` 실측 1회는 키가 있는 39-09 메인 세션)
 
 ---
 
@@ -98,11 +98,13 @@ created: "2026-11-05"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 39s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 39s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** {pending / approved YYYY-MM-DD}
+**Approval:** approved 2026-11-06
+
+> 39-09 Task 1 전체 회귀(2026-11-06 15:12 KST): shared 44파일 1149 통과(2 skip) · relay 타입검사 2종 · server 타입검사 · server 53파일 831 통과(재실행 green — 첫 실행 2건은 supertest 소켓 끊김 · 타임아웃 간헐 실패, phase 39 시작 커밋 10e66fb8 에서도 같은 종류 간헐 실패 재현) · webapp 타입검사 · webapp 223파일 5703 통과(1 skip) · pgTAP `dma_diagnosis` 61/61 · `dma_strategy_read` 30/30 · `PREDEPLOY-OK`(이미지 Node v22.23.4 zstd 있음).
