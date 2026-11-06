@@ -2,7 +2,7 @@
  * Phase 14 — AI 애널리스트 챗봇 (멀티에이전트) 공유 계약 (CHAT-01).
  *
  * server · webapp 가 공유하는 챗 도메인 타입의 단일 진실 소스.
- * 팀장(Sonnet) + 전문가 5(Haiku: 시세·수급/테마/뉴스·심리/상한가패턴/웹서치)
+ * 팀장(Sonnet) + 전문가 6(시세·수급/테마/뉴스·심리/상한가패턴/웹서치 · 주문 진단 = Opus 5.5 · Phase 39)
  * 오케스트레이션의 SSE 이벤트 계약 · 전문가 ID · 대화/메시지 row 타입을 정의한다.
  *
  * 인터페이스-우선: 이후 서버(P03~P06)와 웹앱(P07~P10)이 이 계약에 대해 병렬 구현한다.
@@ -12,8 +12,8 @@
  * row → 아래 camelCase 타입으로 변환한다.
  */
 
-/** 전문가 에이전트 5종 식별자. 팀장이 tool-use 로 위임한다. */
-export type SpecialistId = "quote" | "theme" | "news" | "limitup" | "websearch";
+/** 전문가 에이전트 6종 식별자. 팀장이 tool-use 로 위임한다. diagnosis = 주문 진단(Phase 39). */
+export type SpecialistId = "quote" | "theme" | "news" | "limitup" | "websearch" | "diagnosis";
 
 /** 팀장 tool 이름 → SpecialistId 매핑용 tool 이름 상수. */
 export const SPECIALIST_TOOL_NAMES: Record<SpecialistId, string> = {
@@ -22,6 +22,7 @@ export const SPECIALIST_TOOL_NAMES: Record<SpecialistId, string> = {
   news: "consult_news_specialist",
   limitup: "consult_limitup_specialist",
   websearch: "consult_websearch_specialist",
+  diagnosis: "consult_diagnosis_specialist",
 };
 
 /** 진행 스텝퍼(D-04/C5) 한글 라벨. UI-SPEC Copywriting 과 일치. */
@@ -31,6 +32,7 @@ export const SPECIALIST_LABELS: Record<SpecialistId, string> = {
   news: "뉴스·심리 전문가",
   limitup: "상한가 패턴 전문가",
   websearch: "실시간 검색 전문가",
+  diagnosis: "주문 진단 전문가",
 };
 
 /** 대화 메시지 역할. */

@@ -6,7 +6,7 @@ import { SPECIALIST_TOOL_NAMES } from "@gh-radar/shared";
  * Phase 14 Plan 05 — 팀장 오케스트레이터 유닛 테스트 (CHAT-01, RESEARCH Pattern 2 agent-as-tool).
  *
  * 검증 핵심:
- *   - SPECIALIST_TOOLS 5종 정의 (name = SPECIALIST_TOOL_NAMES 값, input_schema.type=="object")
+ *   - SPECIALIST_TOOLS 6종 정의 (name = SPECIALIST_TOOL_NAMES 값, input_schema.type=="object") — 6번째 = 주문 진단(Phase 39)
  *   - runSpecialist 이름 기반 dispatch → 해당 consult 전문가 호출
  *   - 웹서치는 { text, citations } 분리 노출 (팀장 tool_result 엔 text 만, citation 은 별도)
  *   - 미지의 tool 이름 → 안내 텍스트 (throw 안 함, 팀장 루프 계속 진행)
@@ -15,12 +15,13 @@ import { SPECIALIST_TOOL_NAMES } from "@gh-radar/shared";
  * 전문가 5종 모듈은 vi.mock 으로 스텁 — 여기선 dispatch/guard 배선만 검증.
  */
 
-const { quoteMock, themeMock, newsMock, limitupMock, websearchMock } = vi.hoisted(() => ({
+const { quoteMock, themeMock, newsMock, limitupMock, websearchMock, diagnosisMock } = vi.hoisted(() => ({
   quoteMock: vi.fn(),
   themeMock: vi.fn(),
   newsMock: vi.fn(),
   limitupMock: vi.fn(),
   websearchMock: vi.fn(),
+  diagnosisMock: vi.fn(),
 }));
 
 vi.mock("../specialists/quote-specialist", () => ({ consultQuoteSpecialist: quoteMock }));
@@ -28,16 +29,22 @@ vi.mock("../specialists/theme-specialist", () => ({ consultThemeSpecialist: them
 vi.mock("../specialists/news-specialist", () => ({ consultNewsSpecialist: newsMock }));
 vi.mock("../specialists/limitup-specialist", () => ({ consultLimitupSpecialist: limitupMock }));
 vi.mock("../specialists/websearch-specialist", () => ({ consultWebSearchSpecialist: websearchMock }));
+// 진단 전문가 — 상수(DIAGNOSIS_CONTEXT_MISSING_TEXT)는 실제 값, 상담 함수만 스텁.
+vi.mock("../specialists/diagnosis/diagnosis-specialist", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../specialists/diagnosis/diagnosis-specialist")>()),
+  consultDiagnosisSpecialist: diagnosisMock,
+}));
 
 // mock 이후 import (orchestrator 가 mock 된 전문가 모듈을 참조).
 import { SPECIALIST_TOOLS, runSpecialist, extractStockRefs } from "../chat-orchestrator";
+import { DIAGNOSIS_CONTEXT_MISSING_TEXT } from "../specialists/diagnosis/diagnosis-specialist";
 
 // 전문가는 mock 이므로 supabase 는 아무 객체나 통과시킨다.
 const sb = {} as unknown as SupabaseClient;
 
 describe("SPECIALIST_TOOLS (팀장에 노출할 전문가 tool 정의)", () => {
-  it("Test 1: 길이 5, 각 name 이 SPECIALIST_TOOL_NAMES 값과 일치, input_schema.type==object", () => {
-    expect(SPECIALIST_TOOLS).toHaveLength(5);
+  it("Test 1: 길이 6, 각 name 이 SPECIALIST_TOOL_NAMES 값과 일치, input_schema.type==object", () => {
+    expect(SPECIALIST_TOOLS).toHaveLength(6);
 
     const toolNames = SPECIALIST_TOOLS.map((t) => t.name).sort();
     const expected = Object.values(SPECIALIST_TOOL_NAMES).sort();
@@ -55,6 +62,42 @@ describe("SPECIALIST_TOOLS (팀장에 노출할 전문가 tool 정의)", () => {
       const tool = SPECIALIST_TOOLS.find((t) => t.name === name);
       expect(tool?.description).toContain("종목 코드");
     }
+  });
+});
+
+describe("주문 진단 전문가 등록(Phase 39 D-01 · D-02)", () => {
+  const USAGE = [
+    { model: "claude-opus-5-5", inputTokens: 10, outputTokens: 20, cacheReadInputTokens: 0, cacheCreationInputTokens: 5 },
+  ];
+
+  beforeEach(() => {
+    diagnosisMock.mockReset().mockResolvedValue({ text: "진단문", display: "진단문", usage: USAGE });
+  });
+
+  it("consult_diagnosis_specialist 의 input_schema 는 question 하나뿐(code 인자 없음 · D-02)", () => {
+    const tool = SPECIALIST_TOOLS.find((t) => t.name === SPECIALIST_TOOL_NAMES.diagnosis);
+    expect(tool).toBeDefined();
+    expect(SPECIALIST_TOOL_NAMES.diagnosis).toBe("consult_diagnosis_specialist");
+    expect(Object.keys(tool?.input_schema.properties ?? {})).toEqual(["question"]);
+    expect(tool?.input_schema.required).toEqual(["question"]);
+  });
+
+  it("ctx 없이 부르면 DIAGNOSIS_CONTEXT_MISSING_TEXT · 진단 상담 미호출", async () => {
+    const out = await runSpecialist("consult_diagnosis_specialist", { question: "왜 나갔어?" }, sb);
+    expect(out.text).toBe(DIAGNOSIS_CONTEXT_MISSING_TEXT);
+    expect(diagnosisMock).not.toHaveBeenCalled();
+  });
+
+  it("ctx 가 있으면 consultDiagnosisSpecialist(supabase, { question }, ctx) 결과의 text · display · usage 를 그대로", async () => {
+    const ctx = { userId: "u-1" };
+    const out = await runSpecialist(
+      "consult_diagnosis_specialist",
+      { code: "282720", question: "왜 나갔어?" },
+      sb,
+      ctx,
+    );
+    expect(out).toEqual({ text: "진단문", display: "진단문", usage: USAGE });
+    expect(diagnosisMock).toHaveBeenCalledWith(sb, { question: "왜 나갔어?" }, ctx);
   });
 });
 

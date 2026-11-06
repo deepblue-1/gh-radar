@@ -41,6 +41,12 @@ export type AppConfig = {
   chatWebSearchModel: string;    // 웹서치 — Sonnet 5 (별도 키, env override 가능)
   chatMaxToolRounds: number;     // 팀장 tool-use 루프 상한
   chatMaxHistoryMessages: number;// pruneHistory 슬라이딩 윈도우
+  // Phase 39 — 주문 진단 전문가(Opus 5.5 도구 루프 · 팀장/다른 전문가와 별도 모델).
+  chatDiagnosisModel: string;            // CHAT_DIAGNOSIS_MODEL · 기본 claude-opus-5-5(사용자 결정)
+  chatDiagnosisEffort: DiagnosisEffort;  // CHAT_DIAGNOSIS_EFFORT · 기본 medium(output_config.effort)
+  chatDiagnosisDeadlineMs: number;       // CHAT_DIAGNOSIS_DEADLINE_MS · 기본 150000 — 넘으면 마무리 콜
+  chatDiagnosisDailyCap: number;         // CHAT_DIAGNOSIS_DAILY_CAP · 전역 하루 상한 기본 200
+  chatDiagnosisUserDailyCap: number;     // CHAT_DIAGNOSIS_USER_DAILY_CAP · 사용자 하루 상한 기본 20
   // Phase 16 Plan 16 — `RELAY_INTERNAL_URL`/`RELAY_ORDER_SECRET`/`ORDER_TIMEOUT_MS` 를
   // 제거했다 (D-02). 셋 다 optional 이었으므로 삭제해도 부팅 검증이 느슨해지지 않는다
   // (required 목록은 `get()` 이 쥐고 있고 거기에는 원래 없었다).
@@ -122,6 +128,15 @@ export function loadConfig(): AppConfig {
     chatWebSearchModel: process.env.CHAT_WEBSEARCH_MODEL ?? "claude-sonnet-5",
     chatMaxToolRounds: Number(process.env.CHAT_MAX_TOOL_ROUNDS ?? "5"),
     chatMaxHistoryMessages: Number(process.env.CHAT_MAX_HISTORY_MESSAGES ?? "30"),
+    // Phase 39 — 주문 진단 전문가(Opus 5.5 도구 루프). 모델은 사용자 결정 — 코드 기본값으로 둔다
+    // (deploy-server.sh 에 CHAT_* env 가 없다 · deploy default 회귀 함정). 팀장 · 다른 전문가 기본값은 위 그대로.
+    chatDiagnosisModel: process.env.CHAT_DIAGNOSIS_MODEL ?? "claude-opus-5-5",
+    chatDiagnosisEffort: effortOr(process.env.CHAT_DIAGNOSIS_EFFORT, "medium"),
+    // 진단 벽시계 마감 — 넘으면 마무리 콜 1회(Cloud Run 300초 − 팀장 앞뒤 라운드 · RESEARCH Pitfall 2).
+    chatDiagnosisDeadlineMs: positiveIntOr(process.env.CHAT_DIAGNOSIS_DEADLINE_MS, 150_000),
+    // 하루 상한(오케스트레이터 결정 2) — 전역 · 사용자별. incr_api_usage 로 원자 증가 뒤 초과면 Opus 호출 0회.
+    chatDiagnosisDailyCap: positiveIntOr(process.env.CHAT_DIAGNOSIS_DAILY_CAP, 200),
+    chatDiagnosisUserDailyCap: positiveIntOr(process.env.CHAT_DIAGNOSIS_USER_DAILY_CAP, 20),
     // Phase 29 D-07 — relay Admin 내부 HTTP. 빈 문자열은 미설정으로 본다.
     relayInternalUrl: process.env.RELAY_INTERNAL_URL || undefined,
     relayOrderSecret: process.env.RELAY_ORDER_SECRET || undefined,
@@ -143,6 +158,16 @@ function tickConvertJobOrThrow(raw: string | undefined): string | undefined {
     throw new Error("TICK_CONVERT_JOB must be projects/<project>/locations/<region>/jobs/<job>");
   }
   return raw;
+}
+
+/** Opus 5.5 `output_config.effort` 값 — 진단 전문가만 쓴다(Phase 39). */
+export type DiagnosisEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+const DIAGNOSIS_EFFORTS: readonly DiagnosisEffort[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** effort env — 다섯 값 중 하나가 아니면 기본값(오타가 400 으로 진단 전체를 끄지 않게). */
+function effortOr(raw: string | undefined, fallback: DiagnosisEffort): DiagnosisEffort {
+  return DIAGNOSIS_EFFORTS.includes(raw as DiagnosisEffort) ? (raw as DiagnosisEffort) : fallback;
 }
 
 /** 양의 정수 env — 비었거나 숫자가 아니면 기본값(NaN 타임아웃이 axios 에 들어가 「무제한 대기」 가 되지 않게). */
