@@ -14,11 +14,12 @@ import {
   type FieldValue,
 } from "@gh-radar/shared";
 
+import { ApiError } from "../../../errors.js";
 import { logger } from "../../../logger.js";
 import type { TickConvertTrigger } from "../../tick-convert-trigger.js";
 import { fetchLiveBytes, type LiveFetchMemoEntry, type LiveUnavailableReason } from "../../tick-live-fetch.js";
 import type { TickgwClient } from "../../tickgw-client.js";
-import { openTickGridForServer, TICK_GRID_BUCKET } from "../../ticks.js";
+import { openTickGridForServer, requestTickConvert, TICK_GRID_BUCKET } from "../../ticks.js";
 
 /**
  * Phase 39 — 진단 전문가의 시세 도구 엔진(D-05 ~ D-08 · D-12). 모델 도구 배선(`get_market_ticks`)은 39-07 이 이 모듈을 부른다.
@@ -29,6 +30,7 @@ import { openTickGridForServer, TICK_GRID_BUCKET } from "../../ticks.js";
  * ── 경로 ──────────────────────────────────────────────────────────
  *   지난 날짜  `tick_open_for_user`(openTickGridForServer) → 격자가 있으면 서버가 Storage 에서 받아(브라우저 경유 없음)
  *             프레임마다 스트리밍으로 풀어 창만 남긴다(512Mi · 하루치를 통째로 풀지 않는다 · RESEARCH Pitfall 3).
+ *             격자가 없으면 기존 `requestTickConvert`(하루 상한 공유)를 걸고 기다리지 않고 「변환 중 · 약 N분 뒤 다시 물어 주세요」.
  *   오늘       tickgw 당일 경로(`/api/ticks/live` 와 같은 tickgw · fetchLiveBytes 상태표) — 이어붙인 zstd 프레임은 프레임마다
  *             푼다. 08:00 전 · 휴장 · 경로 꺼짐 · 응답 없음 · 대기열 20초 초과 · 그 시각 기록 없음이면 「자료 없음: <사유>」
  *             (거짓 시세를 짓지 못하게). 같은 (isin, ex) 재호출은 실행 단위 memo 로 증분만 받는다.
@@ -291,11 +293,56 @@ function prepare(input: MarketTicksInput): Prepared | MarketTicksResult {
   return { d8: input.date.replaceAll("-", ""), fromNs, toNs: windowCut ? fromNs + maxNs : toNs0, windowCut };
 }
 
+/** 변환 대기 문구 — eta 가 있으면 올림 분, 없으면 「잠시」. */
+function convertingText(etaS: number | undefined): string {
+  return typeof etaS === "number" && Number.isFinite(etaS) && etaS > 0
+    ? `변환 중 · 약 ${Math.ceil(etaS / 60)}분 뒤 다시 물어 주세요`
+    : "변환 중 · 잠시 뒤 다시 물어 주세요";
+}
+
+/**
+ * 격자 없음 → 기존 요청 변환(D-08 ② · 37 D-03)을 그대로 건다 — 하루 상한(`TICK_REQUEST_DAILY_CAP`) · (날짜, 거래소)당 Job 1회
+ * 판정은 RPC 안이라 웹 틱뷰어와 공유된다. **기다리지 않는다**(진단 마감 150초 · 변환은 수 분). 90일 밖도 같은 경로(37 D-04).
+ * 반환 `"grid_ready"` = 그사이 격자가 생겼다(경합) — 호출자가 한 번 다시 연다.
+ */
+async function requestConvert(
+  deps: MarketDeps,
+  q: { d: string; isin: string; ex: "KRX" | "NXT" },
+  openEtaS: number,
+): Promise<MarketTicksResult | "grid_ready"> {
+  let res: Awaited<ReturnType<typeof requestTickConvert>>;
+  try {
+    res = await requestTickConvert(deps.supabase, deps.userId, q, { trigger: deps.trigger, dailyCap: deps.dailyCap });
+  } catch (e) {
+    if (!(e instanceof ApiError)) throw e;
+    // 원인은 로그에만 — 사용자(모델) 문구에 원문을 싣지 않는다.
+    logger.warn(
+      { diagnosis: { tool: "market", d: q.d, ex: q.ex, status: e.status, code: e.code }, cause: e.cause },
+      "[chat] diagnosis market: 요청 변환 실패",
+    );
+    if (e.status === 429) return none("자료 없음: 오늘 변환 한도 소진");
+    if (e.status === 503) return none("자료 없음: 변환 경로 꺼짐");
+    if (e.status === 502) return none("자료 없음: 변환 요청 실패");
+    if (e.status === 403) return none("자료 없음: DMA 계좌 매핑 없음");
+    throw e;
+  }
+  if (res.grid_ready) return "grid_ready";
+  if (res.not_uploaded) return none("자료 없음: 원본 업로드 전(매일 22:00 업로드 · 23:30 뒤 변환)");
+  // 방금 깨웠거나(triggered) 이미 진행 중(request) — 어느 쪽이든 「약 N분 뒤」.
+  return none(convertingText(res.eta_s ?? openEtaS));
+}
+
 async function pastPath(input: MarketTicksInput, deps: MarketDeps, p: Prepared): Promise<MarketTicksResult> {
   const q = { d: p.d8, isin: input.isin, ex: input.exchange };
-  const opened = await openTickGridForServer(deps.supabase, deps.userId, q);
+  let opened = await openTickGridForServer(deps.supabase, deps.userId, q);
   if (!opened.access) return none("자료 없음: DMA 계좌 매핑 없음");
-  if (!opened.grid) return none("자료 없음: 그날 격자 없음");
+  if (!opened.grid) {
+    const c = await requestConvert(deps, q, opened.etaS);
+    if (c !== "grid_ready") return c;
+    opened = await openTickGridForServer(deps.supabase, deps.userId, q); // 경합 — 한 번만 다시 연다
+    if (!opened.access) return none("자료 없음: DMA 계좌 매핑 없음");
+    if (!opened.grid) return none(convertingText(opened.etaS));
+  }
   const { objectPath, fmt } = opened.grid;
   if (fmt !== TICK_FMT) return none(`자료 없음: 격자 형식 미지원(${fmt})`);
 
