@@ -23,6 +23,12 @@
 --   |    | manual 은 대기 없음                                                                     |               |
 --   | 16 | 취소 사유 대기: kind 7 없음 · false → deferred / true → cancelReason null                 | D-04          |
 --   | 17 | 자동매도 주문(group 9) 접수 · 전량 · 서버 취소 → sends 0 · suppressed                     | D-22 · D-02   |
+--   | 18 | kind 11 → autosell_start(basis · basePrice · triggerPrice · 키 AS:ep:seq) / kind 13 3→4 →  | D-05 · D-23 · |
+--   |    | autosell_done(soldQty · 발동 뒤 매도 평균 · 실현 손익 %) / 4→4 · →3 · kind 12 · 3 무시 /   | SC-2          |
+--   |    | 같은 kind 11 재호출 0 · 재무장 뒤 두 번째 kind 11 은 1                                    |               |
+--   | 19 | 받는 사람 0 → 기록 없음 · 뒤에 생기면 받음 / p_platforms 밖 0 / 토글 끔 0 / 다른 계좌 0 /  | D-06 · SC-4   |
+--   |    | 그 계좌 사용자 기기만 / 공유 계좌 기기 2                                                  |               |
+--   | 20 | 모든 반환에 account_no · accountNo 키 없음(+ 양성 대조)                                    | SC-4 · T-19-14|
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_push_claim.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -39,7 +45,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(67);
+SELECT plan(90);
 
 -- ── 픽스처 ──────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -64,13 +70,13 @@ CREATE TEMP TABLE t_res (name text PRIMARY KEY, r jsonb) ON COMMIT DROP;
 CREATE PROCEDURE pg_temp.ord(
   p_order_no text, p_type text, p_org text, p_qty integer, p_price integer, p_filled integer, p_status text,
   p_origin text, p_side text, p_hms text, p_requester text DEFAULT NULL, p_date date DEFAULT NULL,
-  p_message text DEFAULT NULL
+  p_message text DEFAULT NULL, p_account text DEFAULT '9900004011'
 ) LANGUAGE sql AS $$
   INSERT INTO public.dma_account_orders (
     gateway, trade_date, account_no, order_no, isin, exchange, side, order_type, org_order_no, qty, price,
     filled_qty, status, origin, requester, message, first_seq, last_seq, created_at, updated_at
   ) VALUES (
-    'KB120', coalesce(p_date, pg_temp.today()), '9900004011', p_order_no, 'KR7282720005', 'KRX', p_side, p_type,
+    'KB120', coalesce(p_date, pg_temp.today()), p_account, p_order_no, 'KR7282720005', 'KRX', p_side, p_type,
     p_org, p_qty, p_price, p_filled, p_status, p_origin, p_requester, p_message, 1, 1,
     pg_temp.kst(p_hms), pg_temp.kst(p_hms)
   );
@@ -492,6 +498,165 @@ SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'a3') -> 'sends')
   '(0004112, group 9 서버 취소) sends 0');
 SELECT is((SELECT outcome FROM public.dma_push_log WHERE chain_key = '0004112'), 'suppressed',
   '(0004112, group 9 서버 취소) 로그 outcome = suppressed');
+
+-- ════════════════════════════════════════════════════════════════
+-- Task 3 — 자동매도 시작/완료 사실 · 수신자 · 플랫폼 · 토글 · 계좌 범위 · 반환 키
+-- ════════════════════════════════════════════════════════════════
+
+-- ── 18절: 자동매도 시작(kind 11) · 완료(kind 13) — D-05 · D-23 ──
+-- 발동 전 매도 1건(09:59:00 · 평균 계산에서 빠져야 한다).
+CALL pg_temp.fill(119, '0004120', 100, 3300, '09:59:00', 'S', 3120, 17000);
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 120, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 3050, 2, 3049);
+INSERT INTO t_res VALUES ('as1', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 120}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is((SELECT r FROM t_res WHERE name = 'as1') #>> '{sends,0,stage}', 'autosell_start',
+  '(kind 11 seq 120) stage = autosell_start');
+SELECT is((SELECT r FROM t_res WHERE name = 'as1') #>> '{sends,0,chain_key}', 'AS:ep-40:120',
+  '(kind 11 seq 120) chain_key = AS:ep-40:120');
+SELECT is(((SELECT r FROM t_res WHERE name = 'as1') #>> '{sends,0,facts,autosell,basis}')::int, 1,
+  '(kind 11) autosell.basis = queue_case 1');
+SELECT is(((SELECT r FROM t_res WHERE name = 'as1') #>> '{sends,0,facts,autosell,basePrice}')::int, 3120,
+  '(kind 11) autosell.basePrice = bid1_price 3120');
+SELECT is(((SELECT r FROM t_res WHERE name = 'as1') #>> '{sends,0,facts,autosell,triggerPrice}')::int, 3050,
+  '(kind 11) autosell.triggerPrice = price 3050');
+
+-- 발동 뒤 매도 2건(300@3110 · 200@3095 · 평단 3120 · 실현 손익 −4,200 · −3,250) + 완료(kind 13 3 → 4 · 누적 500).
+CALL pg_temp.fill(121, '0004121', 300, 3110, '10:00:05', 'S', 3120, -4200);
+CALL pg_temp.fill(122, '0004122', 200, 3095, '10:00:08', 'S', 3120, -3250);
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, price, qty, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 123, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:10')) * 1000)::bigint,
+        13, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 500, 3, 4);
+INSERT INTO t_res VALUES ('as2', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 123}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is((SELECT r FROM t_res WHERE name = 'as2') #>> '{sends,0,stage}', 'autosell_done',
+  '(kind 13 3→4 seq 123) stage = autosell_done');
+SELECT is(((SELECT r FROM t_res WHERE name = 'as2') #>> '{sends,0,facts,autosell,soldQty}')::int, 500,
+  '(kind 13) autosell.soldQty = kind 13 qty 500');
+SELECT is(((SELECT r FROM t_res WHERE name = 'as2') #>> '{sends,0,facts,autosell,avgSellPrice}')::int, 3104,
+  '(kind 13) avgSellPrice = (300×3110 + 200×3095)/500 = 3104 (발동 전 매도 제외)');
+SELECT ok(abs(((SELECT r FROM t_res WHERE name = 'as2') #>> '{sends,0,facts,autosell,pnlPct}')::numeric
+              - (-7450.0 / (500 * 3120) * 100)) <= 0.01,
+  '(kind 13) pnlPct = Σ실현손익 ÷ Σ(qty × 평단) × 100 = −0.48 (±0.01)');
+
+-- 완료가 아닌 전략 행: kind 13 재방송(4→4) · kind 13 3 · kind 12 정정 · kind 3 발주.
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, order_no, price, qty, cond_threshold, cond_actual)
+VALUES
+  ('KB120', 'ep-40', 124, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:11')) * 1000)::bigint,
+   13, 9, 'KRX', 'KR7282720005', '9900004011', '', 3120, 500, 4, 4),
+  ('KB120', 'ep-40', 125, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:12')) * 1000)::bigint,
+   13, 9, 'KRX', 'KR7282720005', '9900004011', '', 3120, 500, 2, 3),
+  ('KB120', 'ep-40', 126, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:13')) * 1000)::bigint,
+   12, 9, 'KRX', 'KR7282720005', '9900004011', '0004121', 3100, 100, 3110, 100),
+  ('KB120', 'ep-40', 127, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:00:14')) * 1000)::bigint,
+   3, 1, 'KRX', 'KR7282720005', '9900004011', '0004129', 3120, 100, 0, 0);
+INSERT INTO t_res VALUES ('as3', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 124}, {"journal_epoch": "ep-40", "seq": 125},
+    {"journal_epoch": "ep-40", "seq": 126}, {"journal_epoch": "ep-40", "seq": 127}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'as3') -> 'sends'), 0,
+  '(kind 13 4→4 · kind 13 →3 · kind 12 · kind 3) sends 0 — 완료 · 발동 밖 전략 행은 무시');
+
+INSERT INTO t_res VALUES ('as4', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 120}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'as4') -> 'sends'), 0,
+  '(kind 11 seq 120 재호출) sends 0 (SC-2)');
+
+-- 완료 → 감시 재무장 뒤 두 번째 발동(다른 seq) — 이벤트마다 1건.
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price)
+VALUES ('KB120', 'ep-40', 128, pg_temp.today(), (extract(epoch FROM pg_temp.kst('10:30:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 2, 3000, 2950);
+INSERT INTO t_res VALUES ('as5', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 128}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'as5') -> 'sends'), 1,
+  '(두 번째 kind 11 seq 128) sends 1 — 재무장 뒤 발동은 새 사건');
+
+-- ── 19절: 수신자 · 토글 · 계좌 범위 · 플랫폼(D-06 · SC-4) ──────
+-- 받는 사람 없음 → 아무것도 쓰지 않는다. 그 뒤 받는 사람이 생기면 같은 단계를 받는다.
+CALL pg_temp.ord('0004131', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '10:40:00');
+INSERT INTO t_res VALUES ('rc1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004131'),
+  '[]'::jsonb, '{}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'rc1') -> 'sends'), 0,
+  '(0004131, p_recipients 에 계좌 없음) sends 0');
+SELECT is((SELECT count(*)::int FROM public.dma_push_chains WHERE chain_key = '0004131'), 0,
+  '(0004131, 받는 사람 0) 체인 행 0 — 나중에 켠 기기가 다음 단계를 받는다');
+INSERT INTO t_res VALUES ('rc2', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004131'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is((SELECT r FROM t_res WHERE name = 'rc2') #>> '{sends,0,stage}', 'accepted',
+  '(0004131, 받는 사람 생긴 뒤 재호출) stage = accepted');
+
+-- 플랫폼: 송신기가 android 만 켜졌는데 U1 기기는 iOS 뿐 → 0 · 체인 0.
+CALL pg_temp.ord('0004135', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '10:41:00');
+INSERT INTO t_res VALUES ('pf1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004135'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'pf1') -> 'sends')
+        + (SELECT count(*)::int FROM public.dma_push_chains WHERE chain_key = '0004135'), 0,
+  '(0004135, p_platforms {android} · U1 은 iOS 만) sends 0 · 체인 0');
+
+-- 토글: U1 기기 끔 → 0.
+INSERT INTO t_res VALUES ('dis_u1', to_jsonb(public.dma_push_device_disable(
+  '00000000-0000-4000-8000-000000004011', '40114011-0000-4000-8000-000000000001')));
+CALL pg_temp.ord('0004132', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '10:42:00');
+INSERT INTO t_res VALUES ('tg1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004132'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'tg1') -> 'sends')
+        + (SELECT count(*)::int FROM public.dma_push_chains WHERE chain_key = '0004132'), 0,
+  '(0004132, U1 기기 토글 꺼짐) sends 0 · 체인 0');
+
+-- 다시 켜고(U1 iOS) · U2 Android 기기 등록.
+INSERT INTO t_res VALUES ('dev_u1_ios_on', public.dma_push_device_upsert(
+  '00000000-0000-4000-8000-000000004011', '40114011-0000-4000-8000-000000000001', 'ios',
+  'ios-token-u1-0000000000000001', 'iPhone'));
+INSERT INTO t_res VALUES ('dev_u2_android', public.dma_push_device_upsert(
+  '00000000-0000-4000-8000-000000004012', '40124012-0000-4000-8000-000000000002', 'android',
+  'android-token-u2-000000000000002', 'Galaxy'));
+
+-- 계좌 범위: U2 계좌(9900004012) 주문을 U1 계좌만 든 recipients 로 → 0 / U2 계좌 recipients 로 → U2 기기만.
+CALL pg_temp.ord('0004133', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '10:43:00',
+                 p_account => '9900004012');
+INSERT INTO t_res VALUES ('sc1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004133'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'sc1') -> 'sends'), 0,
+  '(0004133 · 계좌 9900004012, recipients 는 9900004011 → U1 뿐) sends 0 (SC-4 계좌 범위)');
+INSERT INTO t_res VALUES ('sc2', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004133'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"],
+                 "9900004012": ["00000000-0000-4000-8000-000000004012"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'sc2') #> '{sends,0,devices}'), 1,
+  '(0004133 · 계좌 9900004012 → U2) devices 1');
+SELECT is((SELECT r FROM t_res WHERE name = 'sc2') #>> '{sends,0,devices,0,platform}', 'android',
+  '(0004133 · 계좌 9900004012 → U2) 기기 = U2 Android (U1 iOS 아님)');
+
+-- 공유 계좌: 9900004011 을 U1 · U2 둘 다 본다 → 기기 2.
+CALL pg_temp.ord('0004134', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '10:44:00');
+INSERT INTO t_res VALUES ('sh1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004134'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011", "00000000-0000-4000-8000-000000004012"]}'::jsonb,
+  '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'sh1') #> '{sends,0,devices}'), 2,
+  '(0004134 · 공유 계좌 U1 · U2) devices 2 (D-06)');
+
+-- ── 20절: 반환 어디에도 계좌 키가 없다(SC-4) ─────────────────────
+SELECT ok(jsonb_path_exists('{"sends": [{"facts": {"account_no": "x"}}]}'::jsonb, 'strict $.**.account_no'),
+  '(양성 대조) 경로 검사가 깊은 account_no 키를 찾는다');
+SELECT ok(NOT EXISTS (
+            SELECT 1 FROM t_res
+             WHERE jsonb_path_exists(r, 'strict $.**.account_no') OR jsonb_path_exists(r, 'strict $.**.accountNo')),
+  '(모든 호출 반환) account_no · accountNo 키 없음 (SC-4)');
 
 -- ── 8절: 권한 ────────────────────────────────────────────────────
 SELECT is(
