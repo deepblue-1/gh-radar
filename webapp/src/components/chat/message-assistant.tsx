@@ -43,9 +43,12 @@ export interface MessageAssistantProps {
 }
 
 const LINK_CLASS = "text-[var(--primary)] underline underline-offset-2";
-/** 진단문 「틱 보기」 — 알약 버튼(39 UAT 채택 목업 A). */
+/**
+ * 진단문 틱 링크 — 표 셀 · 문장 안에 바로 붙는 작은 알약(39 UAT 운영자 지적: 끝에 몰린 같은 라벨 칩은 어느 근거인지 모름).
+ * 줄 높이를 밀지 않게 inline · 작은 글자 · 줄바꿈 없음.
+ */
 const TICK_LINK_CLASS =
-  "my-[var(--s-1)] inline-flex items-center gap-1 rounded-full bg-[var(--pill-on-bg)] px-3 py-1.5 text-[length:var(--t-caption)] font-semibold text-[var(--pill-on-fg)] no-underline";
+  "mx-0.5 inline-flex items-center gap-0.5 whitespace-nowrap rounded-full bg-[var(--pill-on-bg)] px-1.5 align-baseline text-[length:11px] font-semibold leading-[1.5] text-[var(--pill-on-fg)] no-underline";
 
 /** hast 노드의 글자만 모은다(서버 기록 원문 블록용). */
 function hastText(node: unknown): string {
