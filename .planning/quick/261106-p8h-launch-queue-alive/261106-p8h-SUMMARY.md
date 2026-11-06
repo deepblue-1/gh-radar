@@ -38,7 +38,7 @@ plan_head_after: f5839077
 
 `launch_queue_inputs` 가 행마다 우리 주문로그 상태(`alive`)를 싣고, shared `queueLevelValuesOf` 가 alive true 주문을 취소 귀속 후보에서 빼고 다시 재생(`fifoReplay` protect), false 주문은 마감 때 계산 전에 0(취소)으로 덮는다 — 11/06 덕성우 교보 53200140 꼴이 합성 재현에서 cancelled → open(end_n 3 · end_qty 7500)으로 바뀐다.
 
-> **커밋 0 은 의도된 것이다** — 이 실행은 오케스트레이터 지시로 커밋하지 않았다(사용자 커밋 메시지 확인이 먼저). 변경은 전부 working tree 에 있다. Task 3(커밋 · db push · tick-convert 배포 · 실데이터 검증)은 오케스트레이터 몫으로 **대기 중**이다.
+> **커밋 · 배포 완료** — executor 는 커밋하지 않았고(사용자 커밋 메시지 확인이 먼저) 오케스트레이터가 Task 3 을 마쳤다: 커밋 `0e91d7a5` · db push · tick-convert 배포 · 실데이터 검증 · push(2026-11-06 19:55 KST).
 
 ## 한 일
 
@@ -79,9 +79,16 @@ pgTAP 은 일회용 로컬 컨테이너(`public.ecr.aws/supabase/postgres:17.6.1
 
 ## 배포 · 실데이터 검증
 
-**대기 중(Task 3 · 오케스트레이터 전용)** — 커밋 확인 → `supabase db push --linked --yes` → `scripts/deploy-tick-convert.sh` → `launch_queue_inputs('20261106')` 의 53200140 alive = true · 141/142/143 false → 재계산 뒤 `launch_orders_for_admin('20261106')` 53200140 end_state = open.
+**완료(Task 3 · 오케스트레이터 · 2026-11-06)**
+- 커밋 `0e91d7a5` (사용자 메시지 확인 후).
+- `supabase migration list --linked` — 미적용은 `20261106400000` 하나 → `supabase db push --linked --yes` 적용.
+- `launch_queue_inputs('20261106')` 덕성우 5380: KB120 wire0(538) alive=true · 나머지 KB false · KYOBO119 wire1(53200140) true · wire2~4(141·142·143) false.
+- 배포 전 운영 이미지 `tick-convert:7257f0a0` 이 HEAD 조상 확인 → `scripts/deploy-tick-convert.sh` → `tick-convert:0e91d7a5` (nightly · promote · launch-live 3 Job).
+- `gh-radar-tick-convert-launch-live --args=launch-live,--all-today` 실행: keys 16 · computed 16 · written 60 · set_skipped 0 · failed 0.
+- `launch_orders_for_admin('20261106')`: 교보 53200140 **end_state open** · rank 94 · end_n 6 · end_qty 39,633 / 141·142 cancelled · 143 matched false / KB 538 open · 나머지 cancelled (as-of 16:10:42 KST).
+- 남은 점: live 값은 16:10 틱 기준인데 alive 는 계산 시점 주문로그라 17:58 취소한 KB 543 이 이미 cancelled — 밤 nightly(장 마감 격자)가 다시 계산하면 일치.
 
 ## Self-Check: PASSED
 
 - 생성 파일 3개 존재 확인(`git status --short` 의 `??` 항목).
-- 커밋 없음(의도 — 오케스트레이터가 커밋).
+- 코드 커밋 `0e91d7a5` 는 오케스트레이터가 했다(executor 는 커밋하지 않음 — 의도).
