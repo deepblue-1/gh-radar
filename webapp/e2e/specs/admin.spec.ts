@@ -3,14 +3,11 @@ import type { AdminUsersOverview } from '@gh-radar/shared';
 
 import {
   ADMIN_BUSY_MESSAGE,
-  ADMIN_CODE13_MESSAGE,
-  ADMIN_CODE7_MESSAGE,
   ADMIN_LONG_ACCOUNT_NAME,
   ADMIN_LONG_NAME_ACCOUNT,
   ADMIN_MISMATCH_ACCOUNT,
   ADMIN_ORDER_IP_DISPLAY,
   ADMIN_ORDER_MAC_DISPLAY,
-  ADMIN_SHARED_ACCOUNT,
   ADMIN_USERS_FIXTURE,
   ADMIN_USERS_FIXTURE_P30,
   ADMIN_USERS_FIXTURE_P36,
@@ -38,18 +35,15 @@ import { leavesOverflowing, scrollOverflowing } from '../overflow';
  *   역할 · 등록 서버 토글 · 다시 반영이 각각 정확히 1건이고, 응답의 서버별 결과(BUSY message 원문)가 그 자리 칩 · 한 줄로
  *   그려지는지 본다. 「저장」 버튼은 없다.
  *
- * ⑤ Phase 30 — KB 계좌별 주문자 IP/MAC(P30-E1 ~ E5 · `ADMIN_USERS_FIXTURE_P30` · 픽스처 머리 주석 ⑤)
- *   읽기 카드 IP/MAC 줄(설정 · 미설정 · 불일치 · 교보 없음) → 카드 편집 → 원문 저장(PUT 1건 · orderEndpoint 원문 · 목이 shared 로
- *   정규화) → 재조회 뒤 표시 표기(D-17) → 같은 값을 다른 표기로 다시 저장하면 요청 없이 「변경 없음」. 클라 짝 검증 · code 13 원문 결과 줄 ·
- *   한 카드 잠금 · 계좌명 편집 · 「+ 계좌 추가」 무변경(D-08). UI-SPEC backstop 3종(E1 overflow · E2 long-text · E4 overflow)은 스크린샷이
- *   아니라 단언으로 잠근다.
- *   P30-E6 · E7(30-09 · D-18) — 공유 계좌 편집 모드 안내 줄 · 저장 뒤 개요 재조회로 함께 쓰는 사용자(kim) 카드도 새 값(목이 gh-trade
- *   전파를 흉내 — 픽스처 머리 주석 ⑥) · gh-trade 전파 배포 전 code 7 은 결과 줄에 서버 문구 원문 그대로(특수 처리 없음).
+ * ⑤ Phase 30 — KB 계좌별 주문자 IP/MAC 읽기 줄(P30-E1 · `ADMIN_USERS_FIXTURE_P30` · 픽스처 머리 주석 ⑤)
+ *   카드는 읽기 전용이다(quick 261106-ntl N-03) — 설정 · 미설정 · 불일치 줄(꼬리 「「계좌」 메뉴에서 저장하면 …」) · 교보 없음 · 줄 끝
+ *   「설정은 「계좌」 메뉴에서」. 카드 버튼은 「연결 해제」 하나 · 「+ 계좌 연결」 은 등록 계좌 피커(quick 261106-lwu D-09).
+ *   UI-SPEC backstop(E1 overflow · E2 long-text)은 스크린샷이 아니라 단언으로 잠근다.
  *
- * ⑥ Phase 36 — 계좌 카드 「예수금 · 수수료 · 매도세」 행(P36-B1 · B2 · `ADMIN_USERS_FIXTURE_P36` · 픽스처 머리 주석 ⑥)
- *   표시값(주문 서버 값) · 서버별 다름 줄 → 예수금 Enter 저장(PUT 1건 · 원 단위) → 서버별 칩 · 재조회 → 범위 밖 수수료는 요청 0 ·
- *   빨간 테두리 → code 1 「서버 미지원」 줄 → 교보 카드 「확인 전」 칩 · 서버 알약 반영 칩 무변경(D-04). 행 배치는 카드 폭 컨테이너
- *   쿼리라 440px 시트에서는 1080 · 390 모두 2줄(예수금 / 수수료 · 매도세) · 줄 끝 「·」 없음 · 가로 넘침 0.
+ * ⑥ Phase 36 — 계좌 카드 「예수금 · 수수료 · 매도세」 읽기 줄(P36-B1 · `ADMIN_USERS_FIXTURE_P36` · 픽스처 머리 주석 ⑥)
+ *   표시값(유효 주문 서버 값) · 서버별 다름 줄 · 「확인 전」 · 입력칸 0 · 가로 넘침 0.
+ *
+ *   IP/MAC · 예수금/수수료 편집 · 저장 동작은 계좌 시트로 옮겨 갔다 — admin-accounts.spec.ts.
  */
 
 const VIEWPORTS = [
@@ -126,9 +120,10 @@ test('P29-A2 승인 대기 → 역할 선택 승인 → 사용자 목록으로 �
   await expect(row.locator('[data-slot="admin-pending-chip"]')).toHaveText('승인 대기');
   await expect(row).toContainText(/오늘 \d{2}:\d{2} 가입/);
 
-  // 사이드바 — Admin 제목 + 사용자(활성) · 서버 (데스크톱 aside)
+  // 사이드바 — Admin 제목(/admin/pnl) + 계좌 · 사용자(활성) · 서버 (데스크톱 aside)
   const nav = page.locator('aside nav[aria-label="주 메뉴"]');
-  await expect(nav.getByRole('link', { name: 'Admin', exact: true })).toHaveAttribute('href', '/admin/users');
+  await expect(nav.getByRole('link', { name: 'Admin', exact: true })).toHaveAttribute('href', '/admin/pnl');
+  await expect(nav.getByRole('link', { name: '계좌', exact: true })).toHaveAttribute('href', '/admin/accounts');
   await expect(nav.getByRole('link', { name: '사용자', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(nav.getByRole('link', { name: '서버', exact: true })).toHaveAttribute('href', '/admin/servers');
 
@@ -390,15 +385,17 @@ for (const vp of [
     for (const r of ['viewer', 'trader', 'admin']) {
       await check(sheet.getByRole('group', { name: '역할' }).getByRole('radio', { name: r }), 28);
     }
-    // 계좌 「제거」 · 「+ 계좌 추가」
+    // 계좌 「연결 해제」 · 「+ 계좌 연결」
     const kb = sheet.locator(`[data-slot="admin-account"][data-account="${KIM_KB}"]`);
-    await check(kb.getByRole('button', { name: /제거$/ }), 28);
-    const add = sheet.getByRole('button', { name: '+ 계좌 추가' });
+    await check(kb.getByRole('button', { name: `KB ${KIM_KB} 연결 해제`, exact: true }), 28);
+    const add = sheet.getByRole('button', { name: '+ 계좌 연결', exact: true });
     await check(add, 28);
-    // 추가 폼 「취소」 · 「추가」
+    // 연결 폼(피커) 「취소」 · 「연결」
     await add.click();
-    await check(sheet.getByRole('button', { name: '취소', exact: true }), 28);
-    await check(sheet.getByRole('button', { name: '추가', exact: true }), 28);
+    const link = sheet.locator('[data-slot="admin-account-link"]');
+    await expect(link.locator('[data-slot="account-picker"]')).toBeVisible();
+    await check(link.getByRole('button', { name: '취소', exact: true }), 28);
+    await check(link.getByRole('button', { name: '연결', exact: true }), 28);
   });
 }
 
@@ -558,9 +555,12 @@ test('P29-A4 생성 시트 — trader + DMA + 첫 계좌 한 번에 → 편집 �
   await group.getByLabel(/DMA 사용자 id/).fill('leenew');
   await group.getByLabel('비밀번호', { exact: true }).fill('pw-1234');
   await group.getByLabel('비밀번호 확인').fill('pw-1234');
-  await group.getByLabel('계좌번호').fill('0012345678');
-  await group.getByLabel('지점').fill('00123');
-  await group.getByLabel('트레이더').fill('000789');
+  // 첫 계좌 = 등록 계좌 피커 — 검색에 kim 의 12345678901 도 걸리므로 라디오는 exact
+  await expect(group.getByRole('checkbox')).toHaveCount(0);
+  await group.getByLabel('계좌번호 · 계좌명 검색').fill('12345678');
+  await expect(group.locator('[data-slot="account-picker-option"]')).toHaveCount(2);
+  await group.getByRole('radio', { name: 'KB 12345678', exact: true }).check();
+  await expect(group.getByRole('checkbox')).toHaveCount(2);
   await group.getByRole('checkbox', { name: 'KB120' }).click();
   await group.getByRole('checkbox', { name: 'KB121' }).click();
   await expect(submit).toBeEnabled();
@@ -642,14 +642,15 @@ test('P29-A5 viewer 생성 → trader 로 올림 → 편집 시트 DMA 연결 ·
   expect(Math.round(box.width)).toBe(390);
   expect(box.height).toBeGreaterThanOrEqual(844 * 0.8);
 
-  // trader(기본) — DMA 그룹 · 교보로 바꾸면 지점 · 트레이더 칸 없음
+  // trader(기본) — DMA 그룹 · 피커에서 교보 계좌를 고르면 등록 서버 후보는 교보 2대뿐
   const group = sheet.locator('[data-slot="admin-dma-connect"]');
   await expect(group).toBeVisible();
-  await expect(group.getByLabel('지점')).toBeVisible();
-  await group.getByRole('radio', { name: '교보' }).click();
-  await expect(group.getByLabel('지점')).toHaveCount(0);
-  await expect(group.getByLabel('트레이더')).toHaveCount(0);
+  await expect(group.getByRole('checkbox')).toHaveCount(0);
+  await group.getByLabel('계좌번호 · 계좌명 검색').fill('98765432');
+  await group.getByRole('radio', { name: '교보 98765432', exact: true }).check();
+  await expect(group).toHaveAttribute('data-broker', 'KYOBO');
   await expect(group.getByRole('checkbox')).toHaveCount(2);
+  await expect(group.getByRole('checkbox', { name: 'KYOBO119' })).toBeVisible();
   await expect(group.getByRole('checkbox', { name: 'KB120' })).toHaveCount(0);
   const body = sheet.locator('[data-slot="admin-sheet-body"]');
   const bodyBox = (await body.boundingBox())!;
@@ -686,11 +687,11 @@ test('P29-A5 viewer 생성 → trader 로 올림 → 편집 시트 DMA 연결 ·
   const connectBtn = edit.locator('[data-slot="admin-dma-connect-submit"]');
   await expect(connectBtn).toBeDisabled();
 
-  await connect.getByRole('radio', { name: '교보' }).click();
   await connect.getByLabel(/DMA 사용자 id/).fill('leenew');
   await connect.getByLabel('비밀번호', { exact: true }).fill('pw-1');
   await connect.getByLabel('비밀번호 확인').fill('pw-1');
-  await connect.getByLabel('계좌번호').fill('0098765432');
+  await connect.getByLabel('계좌번호 · 계좌명 검색').fill('98765432');
+  await connect.getByRole('radio', { name: '교보 98765432', exact: true }).check();
   await connect.getByRole('checkbox', { name: 'KYOBO119' }).click();
   await expect(connectBtn).toHaveText('DMA 유저 + 첫 계좌 만들기 · 서버 1대에 반영');
   await connectBtn.click();
@@ -709,7 +710,9 @@ test('P29-A5 viewer 생성 → trader 로 올림 → 편집 시트 DMA 연결 ·
   });
   const acct = edit.locator('[data-slot="admin-account"][data-account="98765432"]');
   await expect(acct).toBeVisible();
-  await expect(acct).toContainText('지점 해당 없음 · 트레이더 해당 없음');
+  await expect(acct.locator('[data-slot="admin-account-branch"]')).toHaveText(
+    '지점 해당 없음 · 트레이더 해당 없음 · 계좌명 · 지점 · 트레이더는 「계좌」 메뉴에서',
+  );
   await expect(
     acct.locator('[data-slot="admin-server-toggle"][data-server="KYOBO119"] [data-slot="reflect-chip"]'),
   ).toHaveText('반영됨');
@@ -728,10 +731,10 @@ test('P29-A5 viewer 생성 → trader 로 올림 → 편집 시트 DMA 연결 ·
 const ALEX = 'alex@example.invalid';
 const ALEX_KB = '11122233301';
 const ALEX_KYOBO = '5556667701';
-const KIM_KYOBO = '9876543201';
-const IPMAC_SET = `주문자 IP ${ADMIN_ORDER_IP_DISPLAY} · MAC ${ADMIN_ORDER_MAC_DISPLAY}`;
-const IPMAC_UNSET = '주문자 IP · MAC 미설정(서버 NIC 값)';
-const PAIR_INVALID = 'IP 와 MAC 은 둘 다 적거나 둘 다 비워 주세요';
+/** 읽기 줄 끝(quick 261106-ntl N-03 · `ACCOUNT_EDITOR_TEXT.settingsHint`). */
+const SETTINGS_HINT = '설정은 「계좌」 메뉴에서';
+const IPMAC_SET = `주문자 IP ${ADMIN_ORDER_IP_DISPLAY} · MAC ${ADMIN_ORDER_MAC_DISPLAY} · ${SETTINGS_HINT}`;
+const IPMAC_UNSET = `주문자 IP · MAC 미설정(서버 NIC 값) · ${SETTINGS_HINT}`;
 
 /** 사용자 행을 눌러 편집 시트를 열고 슬라이드 인이 끝날 때까지 기다린다. */
 async function openUserSheet(page: Page, email: string): Promise<Locator> {
@@ -777,11 +780,13 @@ for (const vp of VIEWPORTS) {
 
     // 불일치 — 출처(기본 주문 서버 KB120) 값 · 다른 서버 한 줄
     const mmCard = accountCard(sheet, ADMIN_MISMATCH_ACCOUNT);
-    await expect(mmCard.locator('[data-slot="admin-account-ipmac"]')).toHaveText('주문자 IP 10.41.1.125 · MAC 1C:FD:08:7D:97:8F');
+    await expect(mmCard.locator('[data-slot="admin-account-ipmac"]')).toHaveText(
+      `주문자 IP 10.41.1.125 · MAC 1C:FD:08:7D:97:8F · ${SETTINGS_HINT}`,
+    );
     const mmLine = mmCard.locator('[data-slot="admin-account-ipmac-mismatch"]');
     await expect(mmLine).toHaveCount(1);
     await expect(mmLine).toHaveAttribute('data-server', 'KB121');
-    await expect(mmLine).toHaveText('KB121 값이 달라요(미설정) — 편집에서 저장하면 등록 서버가 모두 같아져요');
+    await expect(mmLine).toHaveText('KB121 값이 달라요(미설정) — 「계좌」 메뉴에서 저장하면 모두 같아져요');
 
     // 미설정 — 40자 이름 계좌
     const longCard = accountCard(sheet, ADMIN_LONG_NAME_ACCOUNT);
@@ -808,30 +813,25 @@ for (const vp of VIEWPORTS) {
     }
     expect(await scrollOverflowing(page, `${cardSelector(ADMIN_MISMATCH_ACCOUNT)} [data-slot="admin-account-ipmac-mismatch"]`)).toEqual([]);
 
-    // backstop E2 long-text — 40자 계좌명은 말줄임으로 한 줄 · 「편집」 · 「제거」 와 겹치지 않는다 · 버튼은 줄지 않는다
+    // backstop E2 long-text — 40자 계좌명은 말줄임으로 한 줄 · 「연결 해제」 와 겹치지 않는다 · 버튼 글자는 줄지 않는다
     expect([...ADMIN_LONG_ACCOUNT_NAME]).toHaveLength(40);
     const nameSpan = longCard.getByText(ADMIN_LONG_ACCOUNT_NAME, { exact: true });
     await expect(nameSpan).toBeVisible();
     const titleRow = nameSpan.locator('..');
-    const editBtn = longCard.getByRole('button', { name: `KB ${ADMIN_LONG_NAME_ACCOUNT} 편집`, exact: true });
-    const removeBtn = longCard.getByRole('button', { name: `KB ${ADMIN_LONG_NAME_ACCOUNT} 제거`, exact: true });
+    const unlinkBtn = longCard.getByRole('button', { name: `KB ${ADMIN_LONG_NAME_ACCOUNT} 연결 해제`, exact: true });
     const nameBox = (await nameSpan.boundingBox())!;
     const titleBox = (await titleRow.boundingBox())!;
-    const editBox = (await editBtn.boundingBox())!;
-    const removeBox = (await removeBtn.boundingBox())!;
+    const unlinkBox = (await unlinkBtn.boundingBox())!;
     // 한 줄 — 제목줄 높이가 버튼 높이(+반올림 여유)를 넘지 않는다
-    expect(titleBox.height).toBeLessThanOrEqual(Math.max(editBox.height, removeBox.height) + 2);
+    expect(titleBox.height).toBeLessThanOrEqual(unlinkBox.height + 2);
     // 말줄임이 실제로 걸렸다(잘린 것이 아니라 truncate) — 내용 폭 > 상자 폭 · text-overflow ellipsis
     expect(await ownOverflow(nameSpan)).toBeGreaterThan(0);
     expect(await nameSpan.evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
-    // 겹침 없음 · 버튼 순서 「편집」 → 「제거」
-    expect(disjoint(nameBox, editBox)).toBe(true);
-    expect(disjoint(nameBox, removeBox)).toBe(true);
-    expect(disjoint(editBox, removeBox)).toBe(true);
-    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(editBox.x + 0.5);
-    // 버튼 글자가 줄지 않는다(「편집」 · 「제거」 가 자기 상자 안)
-    expect(await ownOverflow(editBtn)).toBeLessThanOrEqual(1);
-    expect(await ownOverflow(removeBtn)).toBeLessThanOrEqual(1);
+    // 겹침 없음 — 이름은 버튼 왼쪽에서 끝난다
+    expect(disjoint(nameBox, unlinkBox)).toBe(true);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(unlinkBox.x + 0.5);
+    // 버튼 글자가 줄지 않는다(「연결 해제」 가 자기 상자 안)
+    expect(await ownOverflow(unlinkBtn)).toBeLessThanOrEqual(1);
     // 계좌번호는 말줄임 대상이 아니다 — 긴 이름이 계좌번호를 밀어 자르지 않는다
     // (30-06 첫 실행에서 폰 390 계좌번호가 「11…」 로 잘렸다 — 계좌번호 span 도 min-w-0 truncate 라 긴 이름과 함께 줄었다.)
     const accountNoSpan = longCard.getByText(ADMIN_LONG_NAME_ACCOUNT, { exact: true });
@@ -844,513 +844,49 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-for (const vp of VIEWPORTS) {
-  test(`P30-E2 편집 → IP/MAC 저장 → 표시 표기 · 변경 없음 (${vp.name})`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: vp.width, height: vp.height });
-    const api = await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P30 });
-
-    await page.goto('/admin/users');
-    const sheet = await openUserSheet(page, KIM);
-    const card = accountCard(sheet, KIM_KB);
-    const line = card.locator('[data-slot="admin-account-ipmac"]');
-    await expect(line).toHaveText(IPMAC_UNSET);
-
-    await card.getByRole('button', { name: `KB ${KIM_KB} 편집`, exact: true }).click();
-    const form = card.locator('[data-slot="admin-account-edit"]');
-    await expect(form).toBeVisible();
-    const ip = form.getByLabel('주문자 IP', { exact: true });
-    const mac = form.getByLabel('MAC 주소', { exact: true });
-    const save = card.getByRole('button', { name: `KB ${KIM_KB} 편집 저장`, exact: true });
-    await expect(ip).toHaveValue('');
-    await expect(mac).toHaveValue('');
-    await expect(ip).toHaveAttribute('placeholder', '10.41.1.124');
-    await expect(mac).toHaveAttribute('placeholder', '1C:FD:08:7D:97:8E');
-    await expect(save).toBeDisabled();
-
-    // backstop E4 overflow — 2열 칸에 placeholder 문자열을 값으로 넣어 잘리지 않는지 잰 뒤 비운다 · 도움말 줄은 카드 안에서 감긴다
-    await ip.fill('10.41.1.124');
-    await mac.fill('1C:FD:08:7D:97:8E');
-    expect(await ownOverflow(ip)).toBeLessThanOrEqual(0);
-    expect(await ownOverflow(mac)).toBeLessThanOrEqual(0);
-    const help = form.locator('[data-slot="admin-account-edit-help"]');
-    await expect(help).toBeVisible();
-    const cardBox = (await card.boundingBox())!;
-    expect(await leavesOverflowing(help, cardBox.x + cardBox.width)).toEqual([]);
-    expect(await leavesOverflowing(form, cardBox.x + cardBox.width)).toEqual([]);
-    expect(await ownOverflow(help)).toBeLessThanOrEqual(1);
-    await settled(page);
-    await page.screenshot({ path: testInfo.outputPath(`admin-ipmac-edit-${vp.name}.png`) });
-    await ip.fill('');
-    await mac.fill('');
-    await expect(save).toBeDisabled();
-    expect(writes(api)).toHaveLength(0);
-
-    // 원문(점표기 · 소문자 콜론)을 적고 저장 → PUT 1건 · orderEndpoint 는 원문 그대로 · account 에 IP/MAC 키 없음
-    await ip.fill('10.41.1.124');
-    await mac.fill('1c:fd:08:7d:97:8e');
-    await expect(save).toBeEnabled();
-    await save.click();
-    await expect.poll(() => writes(api).length).toBe(1);
-    expect(writes(api)[0]).toEqual({
-      method: 'PUT',
-      path: '/dma-users/kimtr/accounts',
-      body: {
-        account: { broker: 'KB', accountNo: KIM_KB, name: '위탁', branchNo: '00123', traderId: '000789', priority: 1 },
-        servers: ['KB120', 'KB121'],
-        orderEndpoint: { orderIp: '10.41.1.124', orderMac: '1c:fd:08:7d:97:8e' },
-      },
-    });
-
-    // 편집이 닫히고 재조회 값(목이 shared 로 정규화해 저장)이 표시 표기(D-17)로 다시 그려진다
-    await expect(form).toHaveCount(0);
-    await expect(line).toHaveText(IPMAC_SET);
-    await expect(card.locator('[data-slot="admin-account-ipmac-mismatch"]')).toHaveCount(0);
-
-    // 초깃값은 표시 표기 · 같은 값을 다른 표기(12자리 · 구분자 없는 소문자)로 다시 적고 저장 → 요청 없음 · 「변경 없음」
-    await card.getByRole('button', { name: `KB ${KIM_KB} 편집`, exact: true }).click();
-    await expect(ip).toHaveValue(ADMIN_ORDER_IP_DISPLAY);
-    await expect(mac).toHaveValue(ADMIN_ORDER_MAC_DISPLAY);
-    await ip.fill('010041001124');
-    await mac.fill('1cfd087d978e');
-    await expect(save).toBeEnabled();
-    await save.click();
-    await expect(form).toHaveCount(0);
-    const note = card.locator('[data-slot="admin-account-edit-result"][data-tone="note"]');
-    await expect(note).toHaveText('변경 없음');
-    expect(writes(api)).toHaveLength(1);
-    await expect(line).toHaveText(IPMAC_SET);
-  });
-}
-
-test('P30-E3 검증 · code 13 원문 · 한 카드 잠금 (1080)', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1080, height: 800 });
-  // 웹 검증이 형식 오류를 먼저 막으므로 code 13 은 정상 값 PUT 에 서버 실패 결과를 돌려주어 본다.
-  const api = await mockAdminApi(page, {
-    users: ADMIN_USERS_FIXTURE_P30,
-    onRequest: (req) => {
-      if (req.method !== 'PUT' || req.path !== '/dma-users/kimtr/accounts') return undefined;
-      return { body: { results: [{ server: 'KB120', outcome: 'failed', code: 13, message: ADMIN_CODE13_MESSAGE }] } };
-    },
-  });
-
-  await page.goto('/admin/users');
-  const sheet = await openUserSheet(page, KIM);
-  const card = accountCard(sheet, KIM_KB);
-  const kyoboEdit = accountCard(sheet, KIM_KYOBO).getByRole('button', { name: `KYOBO ${KIM_KYOBO} 편집`, exact: true });
-  await expect(kyoboEdit).toBeEnabled();
-
-  await card.getByRole('button', { name: `KB ${KIM_KB} 편집`, exact: true }).click();
-  const form = card.locator('[data-slot="admin-account-edit"]');
-  await expect(form).toBeVisible();
-
-  // D-01 — 한 번에 한 카드: 다른 카드 「편집」 은 disabled · title
-  await expect(kyoboEdit).toBeDisabled();
-  await expect(kyoboEdit).toHaveAttribute('title', '다른 계좌 편집 중');
-
-  // D-04 — IP 만 적으면 비어 있는 MAC 칸이 aria-invalid · 짝 오류 문구 · 저장 disabled
-  const ip = form.getByLabel('주문자 IP', { exact: true });
-  const mac = form.getByLabel('MAC 주소', { exact: true });
-  const save = card.getByRole('button', { name: `KB ${KIM_KB} 편집 저장`, exact: true });
-  await ip.fill('10.41.1.124');
-  await expect(mac).toHaveAttribute('aria-invalid', 'true');
-  await expect(ip).not.toHaveAttribute('aria-invalid', 'true');
-  await expect(form.locator('[data-slot="admin-account-edit-invalid"]')).toHaveText(PAIR_INVALID);
-  await expect(form.locator('[data-slot="admin-account-edit-help"]')).toHaveCount(0);
-  await expect(save).toBeDisabled();
-  expect(writes(api)).toHaveLength(0);
-
-  // 짝을 채우면 저장 가능 → 서버 code 13 → 결과 줄 gh-trade 원문 · 편집 모드 · 입력값 유지
-  await mac.fill('1c:fd:08:7d:97:8e');
-  await expect(mac).not.toHaveAttribute('aria-invalid', 'true');
-  await expect(save).toBeEnabled();
-  await save.click();
-  await expect.poll(() => writes(api).length).toBe(1);
-  expect(writes(api)[0]).toMatchObject({
-    method: 'PUT',
-    path: '/dma-users/kimtr/accounts',
-    body: { orderEndpoint: { orderIp: '10.41.1.124', orderMac: '1c:fd:08:7d:97:8e' } },
-  });
-  const result = card.locator('[data-slot="admin-account-edit-result"][data-server="KB120"]');
-  await expect(result).toHaveText(`KB120 실패: ${ADMIN_CODE13_MESSAGE}`);
-  await expect(result).toHaveAttribute('data-tone', 'err');
-  await expect(form).toBeVisible();
-  await expect(ip).toHaveValue('10.41.1.124');
-  await expect(mac).toHaveValue('1c:fd:08:7d:97:8e');
-  await expect(kyoboEdit).toBeDisabled();
-  // 상태는 그대로 — 카드 값은 바뀌지 않았다(재조회가 와도 미설정)
-  expect(api.state.users.users.find((u) => u.email === KIM)!.accounts[0].orderEndpoints?.KB120).toEqual({ orderIp: '', orderMac: '' });
-
-  await settled(page);
-  await page.screenshot({ path: testInfo.outputPath('admin-ipmac-code13-1080.png') });
-
-  // 취소하면 잠금이 풀린다
-  await card.getByRole('button', { name: `KB ${KIM_KB} 편집 취소`, exact: true }).click();
-  await expect(form).toHaveCount(0);
-  await expect(kyoboEdit).toBeEnabled();
-});
-
-test('P30-E4 계좌명 편집 → 카드 새 이름 (1080)', async ({ page }) => {
-  await page.setViewportSize({ width: 1080, height: 800 });
-  const api = await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P30 });
-
-  await page.goto('/admin/users');
-  const sheet = await openUserSheet(page, ALEX);
-  const card = accountCard(sheet, ALEX_KB);
-  await expect(card.getByText('위탁', { exact: true })).toBeVisible();
-
-  await card.getByRole('button', { name: `KB ${ALEX_KB} 편집`, exact: true }).click();
-  const form = card.locator('[data-slot="admin-account-edit"]');
-  const name = form.getByLabel('계좌명', { exact: true });
-  await expect(name).toBeFocused();
-  await expect(name).toHaveValue('위탁');
-  await name.fill('위탁 메인');
-
-  const getsBefore = api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length;
-  await card.getByRole('button', { name: `KB ${ALEX_KB} 편집 저장`, exact: true }).click();
-  await expect.poll(() => writes(api).length).toBe(1);
-  // 계좌명만 — orderEndpoint 없음(toEqual 은 키까지 같아야 한다) · servers = 기존 active 등록 서버
-  expect(writes(api)[0]).toEqual({
-    method: 'PUT',
-    path: '/dma-users/alexjx/accounts',
-    body: {
-      account: { broker: 'KB', accountNo: ALEX_KB, name: '위탁 메인', branchNo: '00123', traderId: '000456', priority: 1 },
-      servers: ['KB120', 'KB121'],
-    },
-  });
-
-  await expect(form).toHaveCount(0);
-  await expect
-    .poll(() => api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length)
-    .toBeGreaterThan(getsBefore);
-  await expect(card.getByText('위탁 메인', { exact: true })).toBeVisible();
-  await expect(card.locator('[data-slot="admin-account-ipmac"]')).toHaveText(IPMAC_SET);
-  expect(writes(api)).toHaveLength(1);
-});
-
-test('P30-E5 계좌 추가 폼에는 IP/MAC 칸이 없다 (1080)', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1080, height: 800 });
-  await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P30 });
-
-  await page.goto('/admin/users');
-  const sheet = await openUserSheet(page, KIM);
-  await sheet.getByRole('button', { name: '+ 계좌 추가' }).click();
-  const add = sheet.locator('[data-slot="admin-account-add"]');
-  await expect(add).toBeVisible();
-  // KB 를 골라도(지점 · 트레이더 칸이 있는 쪽) IP/MAC 라벨 · 칸 · 문구가 없다(D-08)
-  await add.getByRole('radio', { name: 'KB', exact: true }).click();
-  await expect(add.getByLabel('지점')).toBeVisible();
-  await expect(add.getByLabel('주문자 IP')).toHaveCount(0);
-  await expect(add.getByLabel('MAC 주소')).toHaveCount(0);
-  await expect(add.getByPlaceholder('10.41.1.124')).toHaveCount(0);
-  await expect(add.getByPlaceholder('1C:FD:08:7D:97:8E')).toHaveCount(0);
-  await expect(add).not.toContainText('주문자 IP');
-  await expect(add).not.toContainText('MAC');
-  await settled(page);
-  await page.screenshot({ path: testInfo.outputPath('admin-account-add-1080.png') });
-});
-
-// ── Phase 30 공유 계좌 안내 (30-09 · D-18 · 픽스처 머리 주석 ⑥) ─────────────────────────
-
-const SHARED_NOTE_KIM = '이 계좌를 함께 쓰는 사용자 kimtr — 주문자 IP · MAC 이 함께 바뀌어요';
+// ── Phase 36 예수금 · 비용률 — 카드 읽기 줄(quick 261106-ntl N-03 · 머리 주석 ⑥) ─────────────────────
+// 저장 · 범위 검증 · 서버별 칩은 계좌 시트 몫이다(admin-accounts.spec.ts AC-3 · AC-4).
 
 for (const vp of VIEWPORTS) {
-  test(`P30-E6 공유 계좌 안내 · 저장 뒤 함께 쓰는 사용자 카드 (${vp.name})`, async ({ page }, testInfo) => {
+  test(`P36-B1 카드 비용 읽기 줄 (${vp.name})`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    const api = await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P30 });
-
-    await page.goto('/admin/users');
-    let sheet = await openUserSheet(page, ALEX);
-    const card = accountCard(sheet, ADMIN_SHARED_ACCOUNT);
-    const editBtn = card.getByRole('button', { name: `KB ${ADMIN_SHARED_ACCOUNT} 편집`, exact: true });
-    const cancelBtn = card.getByRole('button', { name: `KB ${ADMIN_SHARED_ACCOUNT} 편집 취소`, exact: true });
-    const sharedLine = card.locator('[data-slot="admin-account-edit-shared"]');
-    // 읽기 카드 — 안내 없음
-    await expect(card.locator('[data-slot="admin-account-ipmac"]')).toHaveText(IPMAC_UNSET);
-    await expect(sheet.locator('[data-slot="admin-account-edit-shared"]')).toHaveCount(0);
-
-    await editBtn.click();
-    const form = card.locator('[data-slot="admin-account-edit"]');
-    await expect(form).toBeVisible();
-    await expect(sharedLine).toHaveText(SHARED_NOTE_KIM);
-    // backstop E7 overflow — 안내 줄이 카드 오른쪽을 넘지 않고(좌표) 자기 상자 안에서도 넘치지 않는다
-    const cardBox = (await card.boundingBox())!;
-    expect(await leavesOverflowing(sharedLine, cardBox.x + cardBox.width)).toEqual([]);
-    expect(await ownOverflow(sharedLine)).toBeLessThanOrEqual(1);
-    await sharedLine.scrollIntoViewIfNeeded();
-    await settled(page);
-    await page.screenshot({ path: testInfo.outputPath(`admin-ipmac-shared-${vp.name}.png`) });
-
-    // 공유 아닌 KB 계좌 편집 — 안내 없음
-    await cancelBtn.click();
-    await expect(form).toHaveCount(0);
-    const alexKb = accountCard(sheet, ALEX_KB);
-    await alexKb.getByRole('button', { name: `KB ${ALEX_KB} 편집`, exact: true }).click();
-    await expect(alexKb.locator('[data-slot="admin-account-edit"]')).toBeVisible();
-    await expect(sheet.locator('[data-slot="admin-account-edit-shared"]')).toHaveCount(0);
-    await alexKb.getByRole('button', { name: `KB ${ALEX_KB} 편집 취소`, exact: true }).click();
-    await expect(alexKb.locator('[data-slot="admin-account-edit"]')).toHaveCount(0);
-
-    // 공유 계좌 IP/MAC 저장 → PUT 1건(이 사용자만 · orderEndpoint 원문) → 편집 닫힘 · 재조회 · 표시 표기
-    await editBtn.click();
-    await expect(sharedLine).toHaveText(SHARED_NOTE_KIM);
-    await form.getByLabel('주문자 IP', { exact: true }).fill('10.41.1.124');
-    await form.getByLabel('MAC 주소', { exact: true }).fill('1c:fd:08:7d:97:8e');
-    const getsBefore = api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length;
-    await card.getByRole('button', { name: `KB ${ADMIN_SHARED_ACCOUNT} 편집 저장`, exact: true }).click();
-    await expect.poll(() => writes(api).length).toBe(1);
-    expect(writes(api)[0]).toEqual({
-      method: 'PUT',
-      path: '/dma-users/alexjx/accounts',
-      body: {
-        account: { broker: 'KB', accountNo: ADMIN_SHARED_ACCOUNT, name: '공유', branchNo: '00123', traderId: '000456', priority: 5 },
-        servers: ['KB120', 'KB121'],
-        orderEndpoint: { orderIp: '10.41.1.124', orderMac: '1c:fd:08:7d:97:8e' },
-      },
-    });
-    await expect(form).toHaveCount(0);
-    await expect
-      .poll(() => api.requests.filter((r) => r.method === 'GET' && r.path === '/users').length)
-      .toBeGreaterThan(getsBefore);
-    await expect(card.locator('[data-slot="admin-account-ipmac"]')).toHaveText(IPMAC_SET);
-    // 목 전파(gh-trade 261011 흉내) — kim 의 같은 계좌 KB120 에 같은 정규화값
-    const kimShared = api.state.users.users
-      .find((u) => u.email === KIM)!
-      .accounts.find((a) => a.accountNo === ADMIN_SHARED_ACCOUNT)!;
-    expect(kimShared.orderEndpoints?.KB120).toEqual({ orderIp: '010041001124', orderMac: '1CFD087D978E' });
-
-    // 시트를 닫고 kim 시트 → 같은 계좌 카드 읽기 줄도 새 값(재조회 데이터)
-    await sheet.getByRole('button', { name: '닫기' }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    sheet = await openUserSheet(page, KIM);
-    await expect(accountCard(sheet, ADMIN_SHARED_ACCOUNT).locator('[data-slot="admin-account-ipmac"]')).toHaveText(IPMAC_SET);
-    expect(writes(api)).toHaveLength(1);
-  });
-}
-
-test('P30-E7 공유 계좌 code 7 원문 · 편집 유지 (1080)', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1080, height: 800 });
-  // gh-trade 전파 배포 전 실서버 — KB120 이 code 7 로 거절(같은 계좌를 kim 이 다른 IP/MAC 으로 보유) · KB121 은 alex 만이라 ok.
-  const api = await mockAdminApi(page, {
-    users: ADMIN_USERS_FIXTURE_P30,
-    onRequest: (req) => {
-      if (req.method !== 'PUT' || req.path !== '/dma-users/alexjx/accounts') return undefined;
-      return {
-        body: {
-          results: [
-            { server: 'KB120', outcome: 'failed', code: 7, message: ADMIN_CODE7_MESSAGE },
-            { server: 'KB121', outcome: 'ok' },
-          ],
-        },
-      };
-    },
-  });
-
-  await page.goto('/admin/users');
-  const sheet = await openUserSheet(page, ALEX);
-  const card = accountCard(sheet, ADMIN_SHARED_ACCOUNT);
-  await card.getByRole('button', { name: `KB ${ADMIN_SHARED_ACCOUNT} 편집`, exact: true }).click();
-  const form = card.locator('[data-slot="admin-account-edit"]');
-  const ip = form.getByLabel('주문자 IP', { exact: true });
-  const mac = form.getByLabel('MAC 주소', { exact: true });
-  const sharedLine = card.locator('[data-slot="admin-account-edit-shared"]');
-  await expect(sharedLine).toHaveText(SHARED_NOTE_KIM);
-  await ip.fill('10.41.1.124');
-  await mac.fill('1c:fd:08:7d:97:8e');
-  await card.getByRole('button', { name: `KB ${ADMIN_SHARED_ACCOUNT} 편집 저장`, exact: true }).click();
-  await expect.poll(() => writes(api).length).toBe(1);
-
-  const result = card.locator('[data-slot="admin-account-edit-result"][data-server="KB120"]');
-  await expect(result).toHaveText(`KB120 실패: ${ADMIN_CODE7_MESSAGE}`);
-  await expect(result).toHaveAttribute('data-tone', 'err');
-  await expect(card.locator('[data-slot="admin-account-edit-result"]')).toHaveCount(1);
-  await expect(form).toBeVisible();
-  await expect(ip).toHaveValue('10.41.1.124');
-  await expect(mac).toHaveValue('1c:fd:08:7d:97:8e');
-  await expect(sharedLine).toHaveText(SHARED_NOTE_KIM);
-  // 상태 그대로 — kim 의 같은 계좌는 미설정
-  const kimShared = api.state.users.users
-    .find((u) => u.email === KIM)!
-    .accounts.find((a) => a.accountNo === ADMIN_SHARED_ACCOUNT)!;
-  expect(kimShared.orderEndpoints?.KB120).toEqual({ orderIp: '', orderMac: '' });
-
-  await result.scrollIntoViewIfNeeded();
-  await settled(page);
-  await page.screenshot({ path: testInfo.outputPath('admin-ipmac-code7-1080.png') });
-});
-
-// ── Phase 36 예수금 · 비용률 (36-03 · 머리 주석 ⑥) ─────────────────────────────────────
-
-const RANGE_INVALID = '수수료 · 매도세는 0~1%, 소수 넷째 자리까지예요';
-
-test.describe('Phase 36 예수금 · 비용률 (D-01 ~ D-06)', () => {
-  const costRow = (card: Locator) => card.locator('[data-slot="admin-account-cost"]');
-  const costChips = (card: Locator) => costRow(card).locator('[data-slot="admin-account-cost-chips"] [data-slot="reflect-chip"]');
-  const pillChips = (card: Locator) => card.locator('[data-slot="admin-server-toggle"] [data-slot="reflect-chip"]');
-  const field = (card: Locator, accountNo: string, broker: string, name: string) =>
-    costRow(card).getByRole('textbox', { name: `${broker} ${accountNo} ${name}`, exact: true });
-  const costWrites = (api: AdminApiMock, op: 'budget' | 'fee') =>
-    writes(api).filter((r) => r.path.endsWith(`/${op}`));
-
-  test('P36-B1 표시 · 서버별 다름 → 예수금 저장 · 범위 밖 수수료 · 서버 미지원 · 교보 확인 전 (1080)', async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 1080, height: 800 });
-    const api = await mockAdminApi(page, {
-      users: ADMIN_USERS_FIXTURE_P36,
-      onRequest: (req) =>
-        req.method === 'PUT' && req.path.endsWith('/fee')
-          ? {
-              body: {
-                results: [
-                  { server: 'KB120', outcome: 'failed', code: 1, message: 'BAD_OP' },
-                  { server: 'KB121', outcome: 'ok' },
-                ],
-              },
-            }
-          : undefined,
-    });
-
-    await page.goto('/admin/users');
-    const sheet = await openUserSheet(page, ALEX);
-    const card = accountCard(sheet, ALEX_KB);
-    const budget = field(card, ALEX_KB, 'KB', '예수금(원)');
-    const fee = field(card, ALEX_KB, 'KB', '수수료(%)');
-    const tax = field(card, ALEX_KB, 'KB', '매도세(%)');
-
-    // ① 표시값 = (유효) 주문 서버 KB120 값 · 다른 서버 KB121 은 줄로(예수금 · 비용률 따로)
-    await expect(budget).toHaveValue('100,000,000');
-    await expect(fee).toHaveValue('0.01');
-    await expect(tax).toHaveValue('0.2');
-    const mismatch = costRow(card).locator('[data-slot="admin-account-cost-mismatch"]');
-    await expect(mismatch).toHaveText([
-      'KB121 은 50,000,000원 — 저장하면 등록 서버가 모두 같아져요',
-      'KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요',
-    ]);
-    await expect(costRow(card).locator('[data-slot="admin-account-cost-caption"]')).toHaveText(
-      '예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제',
-    );
-    await expect(costChips(card)).toHaveText(['KB120', 'KB121']);
-    const pillsBefore = await pillChips(card).allTextContents();
-    // 배치 — 데스크톱에서도 편집 시트는 440px 패널이라 카드 폭 쿼리로 2줄(예수금 / 수수료 · 매도세): 줄 끝에 「·」 이 매달리지 않는다
-    const bBox = (await budget.boundingBox())!;
-    const fBox = (await fee.boundingBox())!;
-    const tBox = (await tax.boundingBox())!;
-    expect(fBox.y).toBeGreaterThan(bBox.y + bBox.height - 1);
-    expect(Math.abs(fBox.y - tBox.y)).toBeLessThanOrEqual(1);
-    await expect(costRow(card).locator('[data-slot="admin-account-cost-sep"]')).toBeHidden();
-    const cBox = (await card.boundingBox())!;
-    expect(await leavesOverflowing(costRow(card), cBox.x + cBox.width)).toEqual([]);
-
-    // ② 예수금 「120,000,000」 Enter → PUT 1건(원) → 서버별 칩 → 재조회로 예수금 다름 줄이 사라진다
-    await budget.click();
-    await budget.fill('120000000');
-    await expect(budget).toHaveValue('120,000,000');
-    await budget.press('Enter');
-    await expect.poll(() => costWrites(api, 'budget').length).toBe(1);
-    expect(costWrites(api, 'budget')[0]).toEqual({
-      method: 'PUT',
-      path: `/dma-users/alexjx/accounts/KB/${ALEX_KB}/budget`,
-      body: { budgetKrw: 120_000_000 },
-    });
-    await expect(costChips(card)).toHaveText(['KB120', 'KB121']);
-    await expect(costChips(card).first()).toHaveAttribute('data-tone', 'ok');
-    await expect(mismatch).toHaveText(['KB121 은 0.05% · 0.2% — 저장하면 등록 서버가 모두 같아져요']);
-    await expect(budget).toHaveValue('120,000,000');
-
-    // ③ 수수료 「1.5」 Enter → 빨간 테두리 + 범위 줄 · 요청 0 · 입력값 유지
-    await fee.click();
-    await fee.fill('1.5');
-    await fee.press('Enter');
-    await expect(fee).toHaveAttribute('aria-invalid', 'true');
-    await expect(costRow(card).locator('[data-slot="admin-account-cost-invalid"]')).toHaveText(RANGE_INVALID);
-    // 빨간 테두리 — 계산된 테두리색이 --destructive 와 같다(테두리 전환 120ms 가 끝날 때까지 기다린다)
-    const destructive = await fee.evaluate((el) => {
-      const probe = document.createElement('span');
-      probe.style.color = 'var(--destructive)';
-      el.parentElement!.appendChild(probe);
-      const c = getComputedStyle(probe).color;
-      probe.remove();
-      return c;
-    });
-    await expect.poll(() => fee.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(destructive);
-    expect(await tax.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe(destructive);
-    await expect(fee).toHaveValue('1.5');
-    expect(costWrites(api, 'fee')).toHaveLength(0);
-
-    // ④ 「0.05」 로 고치면 범위 줄이 사라지고 Enter → op 7 두 값 함께 → code 1 「서버 미지원」 줄(role=alert) · 칩 title
-    await fee.fill('0.05');
-    await expect(fee).not.toHaveAttribute('aria-invalid');
-    await expect(costRow(card).locator('[data-slot="admin-account-cost-invalid"]')).toHaveCount(0);
-    await fee.press('Enter');
-    await expect.poll(() => costWrites(api, 'fee').length).toBe(1);
-    expect(costWrites(api, 'fee')[0].body).toEqual({ feePpm: 500, sellTaxPpm: 2000 });
-    const alert = costRow(card).getByRole('alert');
-    await expect(alert).toHaveText('KB120 실패: 서버 미지원 · BAD_OP — 서버 업데이트 뒤 다시 저장');
-    await expect(costChips(card)).toHaveText(['KB120 · 실패', 'KB121']);
-    await expect(costChips(card).first()).toHaveAttribute('title', '서버 미지원 · BAD_OP');
-    await expect(fee).toHaveValue('0.05');
-
-    // D-04 — 비용 저장은 서버 알약의 users.toml 반영 칩을 바꾸지 않는다 · 토스트 없음
-    expect(await pillChips(card).allTextContents()).toEqual(pillsBefore);
-    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
-
-    // ⑤ 교보 카드도 같은 행 · 캡션 · KYOBO127 은 87 모름 → 「확인 전」 칩
-    const ky = accountCard(sheet, ALEX_KYOBO);
-    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '예수금(원)')).toHaveValue('700,000,000');
-    await expect(field(ky, ALEX_KYOBO, 'KYOBO', '수수료(%)')).toHaveValue('0.05');
-    await expect(costChips(ky)).toHaveText(['KYOBO119', 'KYOBO127 · 확인 전']);
-    await expect(costChips(ky).last()).toHaveAttribute('data-tone', 'only');
-    await expect(costRow(ky).locator('[data-slot="admin-account-cost-mismatch"]')).toHaveCount(0);
-    await expect(costRow(ky).locator('[data-slot="admin-account-cost-caption"]')).toHaveText(
-      '예수금은 체결 손익·수수료·세금만큼 서버가 스스로 조정해요 · 0 = 해제',
-    );
-    // 87 전용 흐린 줄은 없다(이 사용자) — 비용 행은 의도 계좌 카드에만
-
-    await costRow(card).scrollIntoViewIfNeeded();
-    await settled(page);
-    await page.screenshot({ path: testInfo.outputPath('admin-cost-row-1080.png') });
-  });
-
-  test('P36-B2 폰 390 — 예수금 줄 / 수수료 · 매도세 줄 2줄 · 1줄 끝 구분점 숨김 · 가로 넘침 0', async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 390, height: 844 });
     await mockAdminApi(page, { users: ADMIN_USERS_FIXTURE_P36 });
 
     await page.goto('/admin/users');
     const sheet = await openUserSheet(page, ALEX);
-    for (const [accountNo, broker] of [
-      [ALEX_KB, 'KB'],
-      [ALEX_KYOBO, 'KYOBO'],
-    ] as const) {
-      const card = accountCard(sheet, accountNo);
-      await costRow(card).scrollIntoViewIfNeeded();
-      const budget = field(card, accountNo, broker, '예수금(원)');
-      const fee = field(card, accountNo, broker, '수수료(%)');
-      const tax = field(card, accountNo, broker, '매도세(%)');
-      const b = (await budget.boundingBox())!;
-      const f = (await fee.boundingBox())!;
-      const t = (await tax.boundingBox())!;
-      // 2줄 — 수수료 · 매도세는 예수금 아래 같은 줄
-      expect(f.y).toBeGreaterThan(b.y + b.height - 1);
-      expect(Math.abs(f.y - t.y)).toBeLessThanOrEqual(1);
-      // 폰 터치 높이 36px
-      expect(b.height).toBeGreaterThanOrEqual(35.5);
-      // 1줄 끝 구분점은 폰에서 숨김(2줄이 「·」 로 시작하지 않게)
-      await expect(costRow(card).locator('[data-slot="admin-account-cost-sep"]')).toBeHidden();
-      // 가로 넘침 0 — 행 · 칸 값 · 카드 오른쪽
-      const cardBox = (await card.boundingBox())!;
-      const right = cardBox.x + cardBox.width;
-      expect(await leavesOverflowing(costRow(card), right)).toEqual([]);
-      expect(await costRow(card).evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
-      expect(await scrollOverflowing(page, `${cardSelector(accountNo)} [data-slot="admin-account-cost"]`)).toEqual([]);
-    }
-    // 13자리 원 상한 값이 예수금 칸 안에 들어간다(UI-SPEC 칸 폭 근거)
-    const kb = accountCard(sheet, ALEX_KB);
-    const budget = field(kb, ALEX_KB, 'KB', '예수금(원)');
-    await budget.click();
-    await budget.fill('9999999999999');
-    await expect(budget).toHaveValue('9,999,999,999,999');
-    expect(await ownOverflow(budget)).toBeLessThanOrEqual(0);
+    const costRead = (card: Locator) => card.locator('[data-slot="admin-account-cost-read"]');
 
-    await costRow(kb).scrollIntoViewIfNeeded();
+    // KB 위탁 — 출처(유효 주문 서버 KB120) 값 · 다른 서버 KB121 은 경고 줄(카드 꼬리 = 「계좌」 메뉴로)
+    const kb = accountCard(sheet, ALEX_KB);
+    await expect(costRead(kb)).toHaveText(`예수금 100,000,000원 · 수수료 0.01% · 매도세 0.2% · ${SETTINGS_HINT}`);
+    await expect(kb.locator('[data-slot="admin-account-cost-mismatch"]')).toHaveText([
+      'KB121 은 50,000,000원 — 「계좌」 메뉴에서 저장하면 모두 같아져요',
+      'KB121 은 0.05% · 0.2% — 「계좌」 메뉴에서 저장하면 모두 같아져요',
+    ]);
+
+    // 교보 위탁 — KYOBO119 값(KYOBO127 은 87 모름 — 다름 판정 밖) · 다름 줄 없음
+    const ky = accountCard(sheet, ALEX_KYOBO);
+    await expect(costRead(ky)).toHaveText(`예수금 700,000,000원 · 수수료 0.05% · 매도세 0.2% · ${SETTINGS_HINT}`);
+    await expect(ky.locator('[data-slot="admin-account-cost-mismatch"]')).toHaveCount(0);
+
+    // 값을 아는 서버가 없는 계좌 — 「확인 전」
+    const unknown = accountCard(sheet, ADMIN_MISMATCH_ACCOUNT);
+    await expect(costRead(unknown)).toHaveText(`예수금 · 수수료 · 매도세 확인 전 · ${SETTINGS_HINT}`);
+
+    // 카드 안 입력칸 0 · 가로 넘침 0
+    for (const [card, accountNo] of [
+      [kb, ALEX_KB],
+      [ky, ALEX_KYOBO],
+      [unknown, ADMIN_MISMATCH_ACCOUNT],
+    ] as const) {
+      await expect(card.getByRole('textbox')).toHaveCount(0);
+      const box = (await card.boundingBox())!;
+      expect(await leavesOverflowing(card, box.x + box.width)).toEqual([]);
+      expect(await scrollOverflowing(page, `${cardSelector(accountNo)} [data-slot="admin-account-cost-read"]`)).toEqual([]);
+    }
+
+    await costRead(kb).scrollIntoViewIfNeeded();
     await settled(page);
-    await page.screenshot({ path: testInfo.outputPath('admin-cost-row-390.png') });
+    await page.screenshot({ path: testInfo.outputPath(`admin-cost-read-${vp.name}.png`) });
   });
-});
+}

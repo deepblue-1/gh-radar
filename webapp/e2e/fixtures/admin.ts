@@ -50,8 +50,8 @@ import {
  * ⑥ 공유 계좌(30-09 · D-18) — `ADMIN_USERS_FIXTURE_P30` 의 alex(KB120 · KB121) · kim(KB120 만)이 같은 KB 계좌 `ADMIN_SHARED_ACCOUNT`
  *   를 목록 끝에 갖는다(미설정 · 기존 accounts[0] 순서 그대로). 목 PUT 이 IP/MAC 정규화 성공이면 소유자 계좌에 쓴 뒤 **같은 증권사 ·
  *   같은 정규화 계좌번호를 가진 다른 사용자 계좌의 active 서버 중 이번 PUT servers 에 든 서버**에도 같은 정규화값을 쓴다 — gh-trade
- *   261011 op 3 전파(같은 서버 users.toml 안 · 주문자 IP · MAC 만)를 흉내 낸다. 전파 배포 전 실서버는 code 7 로 거절한다 — 그 경로는
- *   spec 이 `onRequest` 로 `ADMIN_CODE7_MESSAGE`(gh-trade 원문) 결과를 돌려주어 본다.
+ *   261011 op 3 전파(같은 서버 users.toml 안 · 주문자 IP · MAC 만)를 흉내 낸다. 전파 배포 전 실서버의 code 7 거절은
+ *   spec 이 필요하면 `onRequest` 로 덮는다(카드 편집이 계좌 시트로 옮겨 가 지금은 그 spec 이 없다 — quick 261106-t8k).
  *
  * ⑥ Phase 36 예수금 · 비용률(36-03) — `ADMIN_USERS_FIXTURE_P36` 은 P30 복제에 alex 계좌별 `costs`(서버별 67/87 병합 값)를 붙인다:
  *   KB 위탁 = KB120 1억 · 0.01% · 0.2%(live) · KB121 5,000만 · 0.05% · 0.2%(snapshot — 서버별 다름 두 줄) · 교보 위탁 = KYOBO119 7억(snapshot) ·
@@ -201,11 +201,6 @@ export const ADMIN_LONG_NAME_ACCOUNT = '11122233303';
 export const ADMIN_LONG_ACCOUNT_NAME = '연금저축 장기투자 배당 성장 혼합 포트폴리오 위탁계좌 분기 리밸런싱 대상';
 /** 공유 KB 계좌(30-09 · D-18) — alex(KB120 · KB121) · kim(KB120) 이 함께 쓴다. 머리 주석 ⑥. */
 export const ADMIN_SHARED_ACCOUNT = '11122233304';
-/**
- * gh-trade code 7 ACCOUNT_CONFLICT 문구 원문(gh-trade master 46a10ce9 — D-12 로 넓힌 문구). 웹 결과 줄은 이 문장을 그대로 싣는다
- * (문장 대조 · code 7 특수 처리 없음 — IPMAC-03).
- */
-export const ADMIN_CODE7_MESSAGE = '다른 사용자가 같은 계좌를 다른 지점번호/거래자ID/주문자 IP·MAC 으로 보유하고 있습니다';
 
 const UNSET = { orderIp: '', orderMac: '' } as const;
 
