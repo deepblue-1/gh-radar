@@ -8,19 +8,24 @@
 #
 # 검사 항목
 #   (1) build.gradle 의 storePassword · keyPassword 에 따옴표 리터럴·기본값 연산자가 없고 env 로만 읽는다
-#   (2) 릴리스 비밀·산출물 샘플 경로(21개 — Firebase SA 키 · google-services.json · 릴리스 APK 포함)가 모두 git ignore 된다
-#   (3) 추적 파일 가운데 비밀·산출물 확장자 · google-services.json 이 없다
+#   (2) 릴리스 비밀·산출물 샘플 경로(20개 — Firebase SA 키 · 릴리스 APK 포함)가 모두 git ignore 된다.
+#       android/app/google-services.json 은 Phase 40 부터 추적 대상이라 샘플에서 뺐다(Phase 22 D-17 Android 만 번복)
+#   (3) 추적 파일 가운데 비밀·산출물 확장자 · google-services.json · GoogleService-Info.plist 가 없다 —
+#       정확한 경로 mobile/android/app/google-services.json 한 줄만 예외(SA 키 차단은 그대로)
 #   (4) 비밀 디렉터리 700 · 그 안의 비밀 파일(Firebase SA 키 포함) 600 — **권한만 본다. 내용은 열지 않는다**
 #   (5) mobile/scripts/*.sh 에 셸 추적 모드를 켜는 줄이 없다(값이 터미널에 찍힌다)
 #   (6) Fastfile 이 빌드 번호를 프로젝트 파일에 쓰는 액션을 쓰지 않는다
 #   (7) mobile/README.md 에 비밀 패턴이 없다
-#   (8) android/app/google-services.json 이 없다 — 있으면 build.gradle 이 google-services 플러그인을 켜고
-#       앱 안 Firebase 금지(D-17)를 깬다(재범위 부록 Pitfall F5)
+#   (8) android/app/google-services.json 이 있어야 하고 모양이 맞아야 한다 — project_id gh-radar ·
+#       Android 클라이언트 package_name com.ghtrade.app 정확히 1개 · private_key · service_account 문자열 없음
+#       (SA 키를 잘못 넣는 실수 방지). 없으면 릴리스 FCM 이 조용히 꺼진다(Phase 40 · Pitfall 7). 값은 출력하지 않는다
 #   (9) android Fastfile 의 Firebase 호출마다 자격(service_credentials_file:)과 업로드 APK 경로
 #       (android_artifact_path:)를 명시한다 — 빠지면 ADC(=owner 키)·「최근 mtime APK」 로 떨어진다(Pitfall F2 · F3)
 #  (10) 업로드 전 검사 순서(REVIEW CR-01 · W-2 회귀 잠금) — lane 단위로, 업로드 액션 앞에 짝 검사가 있어야 한다:
 #       upload_to_testflight ↔ check-ipa.sh · upload_to_play_store ↔ check-aab.sh · firebase_app_distribution ↔ check-apk.sh.
 #       iOS 는 upload_to_testflight 에 ipa: 를 명시해야 한다(검사한 IPA 와 올리는 IPA 가 같아야 한다)
+#  (11) iOS Firebase 0 — ios/App/CapApp-SPM/Package.swift 에 firebase(대소문자 무시)가 없고, 추적 파일에
+#       GoogleService-Info.plist 가 없다(Phase 40 SC-5 — iOS 는 APNs 직접)
 #
 # 사용: bash scripts/check-release-hygiene.sh
 # 통과: 「RELEASE HYGIENE OK …」 한 줄 · exit 0. 위반: 「RELEASE HYGIENE FAIL — …」 줄들 · exit 1.
@@ -56,7 +61,7 @@ for p in App.ipa x.aab x.apk AuthKey_X.p8 a.p12 a.cer a.mobileprovision key.prop
   play-store-key.json play-service-account.json ios/App/fastlane/report.xml ios/App/fastlane/README.md \
   android/fastlane/report.xml vendor/bundle/x .bundle/config App.app.dSYM.zip \
   ghtrade-upload.jks android/app/build/outputs/bundle/release/app-release.aab \
-  firebase-appdistro-service-account.json android/app/google-services.json \
+  firebase-appdistro-service-account.json \
   android/app/build/outputs/apk/release/app-release.apk; do
   if ! git check-ignore -q "$p"; then
     fail "git ignore 되지 않는 릴리스 경로: mobile/$p (mobile/.gitignore 보강)"
@@ -64,7 +69,8 @@ for p in App.ipa x.aab x.apk AuthKey_X.p8 a.p12 a.cer a.mobileprovision key.prop
 done
 
 # ── (3) 추적 파일에 비밀·산출물 없음(저장소 전체) ─────────────────
-tracked="$(git ls-files --full-name -- ':(top)' | grep -E '\.(p8|p12|jks|keystore|mobileprovision|ipa|aab|apk|cer)$|\.dSYM\.zip$|(^|/)key\.properties$|play-store-key\.json$|service-account[^/]*\.json$|(^|/)google-services\.json$' || true)"
+# 정확한 경로 mobile/android/app/google-services.json 만 예외(Phase 40 — 공개 FCM 클라이언트 설정 · 모양은 (8)).
+tracked="$(git ls-files --full-name -- ':(top)' | grep -E '\.(p8|p12|jks|keystore|mobileprovision|ipa|aab|apk|cer)$|\.dSYM\.zip$|(^|/)key\.properties$|play-store-key\.json$|service-account[^/]*\.json$|(^|/)google-services\.json$|(^|/)GoogleService-Info\.plist$' | grep -vx 'mobile/android/app/google-services.json' || true)"
 if [[ -n "$tracked" ]]; then
   fail "추적 중인 비밀·산출물 파일: $(printf '%s' "$tracked" | tr '\n' ' ')"
 fi
@@ -121,9 +127,28 @@ if [[ -f README.md ]]; then
   fi
 fi
 
-# ── (8) google-services.json 부재(D-17 — 앱 안에 Firebase SDK·설정 없음) ──
-if [[ -e android/app/google-services.json ]]; then
-  fail "mobile/android/app/google-services.json 이 있다 — build.gradle 이 google-services 플러그인을 켠다(D-17 · Pitfall F5). 저장소 밖으로 옮기거나 지운다"
+# ── (8) google-services.json(Android) 존재 · 모양(Phase 40 · Phase 22 D-17 Android 만 번복) ──
+# 값은 출력하지 않는다 — node 는 위반 종류만 낸다.
+GSJ="android/app/google-services.json"
+if [[ ! -f "$GSJ" ]]; then
+  fail "mobile/$GSJ 이 없다 — 릴리스에서 Android 체결 푸시(FCM)가 조용히 꺼진다(Phase 40 · Pitfall 7). ~/.config/gh-trade/push/google-services.json 에서 복사한다"
+elif ! gsj_bad="$(node -e '
+  const fs = require("fs");
+  const raw = fs.readFileSync(process.argv[1], "utf8");
+  const bad = [];
+  let j = null;
+  try { j = JSON.parse(raw); } catch { bad.push("JSON 아님"); }
+  if (j) {
+    if ((j.project_info || {}).project_id !== "gh-radar") bad.push("project_id 가 gh-radar 가 아니다");
+    const pkgs = (j.client || []).map((c) => ((c.client_info || {}).android_client_info || {}).package_name);
+    const n = pkgs.filter((p) => p === "com.ghtrade.app").length;
+    if (n !== 1) bad.push(`com.ghtrade.app 클라이언트 ${n}개(기대 1)`);
+  }
+  if (raw.includes("private_key")) bad.push("private_key 문자열이 있다");
+  if (raw.includes("service_account")) bad.push("service_account 문자열이 있다");
+  if (bad.length) { console.log(bad.join(" · ")); process.exit(1); }
+' "$GSJ" 2>&1)"; then
+  fail "mobile/$GSJ 모양이 맞지 않다(SA 키 · 다른 프로젝트 파일이 아닌지 확인): $gsj_bad"
 fi
 
 # ── (9) Firebase 호출 자격·APK 경로 명시(Pitfall F2 · F3) ──────────
@@ -184,6 +209,16 @@ if [[ -f "$FF_IOS" ]]; then
   fi
 fi
 
+# ── (11) iOS Firebase 0(Phase 40 SC-5 — iOS 는 APNs 직접) ─────────────
+SPM="ios/App/CapApp-SPM/Package.swift"
+if [[ -f "$SPM" ]] && grep -qi 'firebase' "$SPM"; then
+  fail "$SPM 에 Firebase 가 있다 — Phase 40 SC-5 · Firebase 는 Android 만"
+fi
+gsi="$(git ls-files --full-name -- ':(top)' | grep -E '(^|/)GoogleService-Info\.plist$' || true)"
+if [[ -n "$gsi" ]]; then
+  fail "GoogleService-Info.plist 가 추적된다 — Phase 40 SC-5 · iOS 는 Firebase 없음: $(printf '%s' "$gsi" | tr '\n' ' ')"
+fi
+
 if [[ -n "$NOTES" ]]; then printf '%s' "$NOTES"; fi
 
 if [[ -n "$FAILS" ]]; then
@@ -193,4 +228,4 @@ if [[ -n "$FAILS" ]]; then
   exit 1
 fi
 
-echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 21경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗 · google-services.json 없음 · Firebase 자격 명시 · 업로드 전 검사 순서"
+echo "RELEASE HYGIENE OK — gradle env 서명 · ignore 20경로 · 추적 비밀 0 · 권한 700/600 · 추적 모드 0 · 번호 주입만 · README 깨끗 · google-services.json(Android) 검증 · iOS Firebase 0 · Firebase 자격 명시 · 업로드 전 검사 순서"

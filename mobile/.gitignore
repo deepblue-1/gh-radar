@@ -38,8 +38,9 @@ play-store-key.json
 *.aab
 *.apk
 *.dSYM.zip
-# Firebase 콘솔이 내려 주는 설정 — 앱에 Firebase SDK 없음(D-17). 있으면 build.gradle 이 google-services 플러그인을 켠다
-google-services.json
+# Phase 40 — Phase 22 D-17(앱에 Firebase SDK 없음)은 Android 만 번복: android/app/google-services.json 은 추적한다(공개 클라이언트 설정)
+# Firebase SA 키는 위 *service-account*.json 으로 계속 차단 · iOS 는 Firebase 없음(APNs 직접 · SC-5)
+GoogleService-Info.plist
 **/fastlane/report.xml
 **/fastlane/README.md
 **/fastlane/Preview.html

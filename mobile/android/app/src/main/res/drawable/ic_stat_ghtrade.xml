@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 알림 소형 아이콘 (Phase 40 · Open Question 4) — 상태바 · 알림 머리는 알파만 쓴다. 런처 아이콘(검은 배경 사각형)을
+     그대로 쓰면 흰 덩어리로 보이므로, resources/icon.svg 심볼(바깥 원 · 안쪽 원 · 바늘 · 가운데 점)만 흰 단색으로
+     24 격자에 옮겼다(축척 ≈ 0.0295 · 그라데이션 · 배경 없음). Manifest default_notification_icon 이 가리킨다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 바깥 원 · 안쪽 원 · 바늘 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M12,2.8a9.2,9.2 0,1 1,0 18.4a9.2,9.2 0,1 1,0 -18.4M12,6.8a5.2,5.2 0,1 1,0 10.4a5.2,5.2 0,1 1,0 -10.4M12,12L20.2,7.28" />
+    <!-- 가운데 점 -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,10.3a1.7,1.7 0,1 1,0 3.4a1.7,1.7 0,1 1,0 -3.4z" />
+</vector>
