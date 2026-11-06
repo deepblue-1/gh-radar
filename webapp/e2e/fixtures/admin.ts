@@ -3,6 +3,11 @@ import {
   normalizeAccountNo,
   normalizeOrderIp,
   normalizeOrderMac,
+  type AdminAccountFanout,
+  type AdminAccountMaster,
+  type AdminAccountMasterUser,
+  type AdminAccountView,
+  type AdminOrderEndpoint,
   type AdminPutAccountBody,
   type AdminServerResult,
   type AdminServersOverview,
@@ -52,6 +57,13 @@ import {
  *   KB 위탁 = KB120 1억 · 0.01% · 0.2%(live) · KB121 5,000만 · 0.05% · 0.2%(snapshot — 서버별 다름 두 줄) · 교보 위탁 = KYOBO119 7억(snapshot) ·
  *   KYOBO127 null(「확인 전」). 목 `PUT …/accounts/:broker/:accountNo/budget|fee` 는 그 계좌 active 등록 서버 중 값을 아는 서버의
  *   `costs` 를 바꾸고(예수금은 live) 서버마다 ok 를 돌려준다 — 재조회가 바뀐 값을 받는다. 실패 · code 1 은 spec 이 `onRequest` 로 덮는다.
+ *
+ * ⑦ 계좌 마스터 `/accounts`(quick 261106-t8k — 261106-lwu 계좌 메뉴 · 261106-ntl 계좌 시트) — 상태 `accounts` = 마스터 행(users 없음).
+ *   기본값은 그 목의 `users` 픽스처 DMA 사용자 계좌를 (broker, 정규화 번호)로 묶어 파생(첫 행 값 · `updatedAt` 고정) + 연결 없는 2행
+ *   `ADMIN_UNLINKED_ACCOUNTS`(KB 12345678 · 교보 98765432 — 피커로 고르는 계좌). GET 은 행마다 `users` 를 **요청 때 현재 사용자 상태에서**
+ *   계산하므로 사용자 화면의 연결 결과가 그대로 보인다. POST 등록(정규화 번호 중복 409 `ACCOUNT_EXISTS`) · DELETE(연결 있으면 409
+ *   `ACCOUNT_IN_USE`). PUT 저장 · …/budget · …/fee 는 연결 사용자마다 그 사용자 계좌에 ⑤ · ⑥ 과 **같은 규칙 한 벌**(내부 함수 공유)을
+ *   적용하고 `{ ok: true, fanout: [{ dmaUserId, results(그 계좌 active 서버별), error: null }] }` 로 답한다.
  */
 
 export const ADMIN_SERVER_KEYS = ['KB120', 'KB121', 'KYOBO119', 'KYOBO127'] as const;
@@ -367,8 +379,52 @@ export interface AdminMockResponse {
   body: unknown;
 }
 
+// ── quick 261106-t8k 계좌 마스터(머리 주석 ⑦) ─────────────────────────────────────────
+
+/** 마스터 행 — `AdminAccountMaster` 에서 `users` 를 뺀 모양(연결은 GET 때 사용자 상태에서 계산). */
+export type AdminAccountMasterRow = Omit<AdminAccountMaster, 'users'>;
+
+export const ADMIN_ACCOUNTS_UPDATED_AT = '2026-11-06T00:00:00.000Z';
+
+/** 어느 사용자에게도 연결되지 않은 계좌 2행 — 사용자 화면 피커가 고르는 계좌(P29-A4 · A5 의 POST 바디 값과 같다). */
+export const ADMIN_UNLINKED_ACCOUNTS: readonly AdminAccountMasterRow[] = [
+  { broker: 'KB', accountNo: '12345678', name: '', branchNo: '00123', traderId: '000789', updatedAt: ADMIN_ACCOUNTS_UPDATED_AT },
+  { broker: 'KYOBO', accountNo: '98765432', name: '', branchNo: '', traderId: '', updatedAt: ADMIN_ACCOUNTS_UPDATED_AT },
+];
+
+const masterKey = (broker: string, accountNo: string) => `${broker}|${normalizeAccountNo(accountNo)}`;
+
+function compareMaster(a: AdminAccountMasterRow, b: AdminAccountMasterRow): number {
+  if (a.broker !== b.broker) return a.broker < b.broker ? -1 : 1;
+  return a.accountNo < b.accountNo ? -1 : a.accountNo > b.accountNo ? 1 : 0;
+}
+
+/** 사용자 픽스처의 DMA 사용자 계좌 → 마스터 행(첫 행 값) + 연결 없는 2행. broker, accountNo 순. */
+export function deriveAdminAccounts(users: AdminUsersOverview): AdminAccountMasterRow[] {
+  const rows = new Map<string, AdminAccountMasterRow>();
+  for (const u of users.users) {
+    if (u.dmaUserId === null) continue;
+    for (const a of u.accounts) {
+      const key = masterKey(a.broker, a.accountNo);
+      if (rows.has(key)) continue;
+      rows.set(key, {
+        broker: a.broker,
+        accountNo: normalizeAccountNo(a.accountNo),
+        name: a.name,
+        branchNo: a.branchNo,
+        traderId: a.traderId,
+        updatedAt: ADMIN_ACCOUNTS_UPDATED_AT,
+      });
+    }
+  }
+  for (const a of ADMIN_UNLINKED_ACCOUNTS) if (!rows.has(masterKey(a.broker, a.accountNo))) rows.set(masterKey(a.broker, a.accountNo), { ...a });
+  return [...rows.values()].sort(compareMaster);
+}
+
 export interface MockAdminApiOptions {
   users?: AdminUsersOverview;
+  /** 계좌 마스터를 통째로 갈아 끼운다(기본 = `deriveAdminAccounts(users)` · 머리 주석 ⑦). */
+  accounts?: AdminAccountMasterRow[];
   servers?: AdminServersOverview;
   /**
    * 요청을 기본 처리 전에 가로챈다 — 응답을 돌려주면 그 응답을 쓰고(상태는 바뀌지 않는다), `undefined` 면
@@ -381,7 +437,7 @@ export interface AdminApiMock {
   /** 들어온 순서대로 모든 요청. */
   requests: AdminRequestRecord[];
   /** 현재 메모리 상태(쓰기가 바꾼다). */
-  state: { users: AdminUsersOverview; servers: AdminServersOverview };
+  state: { users: AdminUsersOverview; servers: AdminServersOverview; accounts: AdminAccountMasterRow[] };
 }
 
 const ROLE_ORDER: Record<AppRole, number> = { admin: 0, trader: 1, viewer: 2 };
@@ -405,6 +461,46 @@ function clone<T>(v: T): T {
 }
 
 /**
+ * ⑤ 주문자 IP/MAC 판정 — 서버(gh-trade)처럼 shared 정규화 · 짝 규칙(한 벌). 성공이면 정규화값, 아니면 null(code 13).
+ * 사용자 계좌 PUT 과 계좌 마스터 PUT(⑦)이 함께 쓴다.
+ */
+function normalizeEndpointPair(oe: AdminOrderEndpoint): AdminOrderEndpoint | null {
+  const ip = normalizeOrderIp(oe.orderIp);
+  const mac = normalizeOrderMac(oe.orderMac);
+  if (ip === null || mac === null || (ip === '') !== (mac === '')) return null;
+  return { orderIp: ip, orderMac: mac };
+}
+
+function code13Results(servers: readonly string[]): AdminServerResult[] {
+  return servers.map((s) => ({ server: s, outcome: 'failed' as const, code: 13, message: ADMIN_CODE13_MESSAGE }));
+}
+
+const activeKeys = (acct: AdminAccountView) => acct.servers.filter((c) => c.state === 'active').map((c) => c.serverKey);
+
+/** 정규화값을 그 계좌 active 등록 서버 전부에 적는다(⑤). */
+function writeEndpoint(acct: AdminAccountView, value: AdminOrderEndpoint): void {
+  const next = { ...(acct.orderEndpoints ?? {}) };
+  for (const k of activeKeys(acct)) next[k] = { ...value };
+  acct.orderEndpoints = next;
+}
+
+/** ⑥ 예수금 · 비용률 — 그 계좌 active 등록 서버 중 값을 아는 서버의 costs 를 바꾼다(예수금은 live). 바꾼 대상 = active 서버 키. */
+function applyCost(acct: AdminAccountView, op: 'budget' | 'fee', body: Record<string, unknown>): string[] {
+  const active = activeKeys(acct);
+  const costs = { ...(acct.costs ?? {}) };
+  for (const k of active) {
+    const cur = costs[k];
+    if (cur == null) continue;
+    costs[k] =
+      op === 'budget'
+        ? { ...cur, budgetKrw: Number(body.budgetKrw), budgetSource: 'live' }
+        : { ...cur, feePpm: Number(body.feePpm), sellTaxPpm: Number(body.sellTaxPpm) };
+  }
+  acct.costs = costs;
+  return active;
+}
+
+/**
  * Admin API 경로 전부(host 무관 glob)를 메모리 상태로 응답한다. 반환값의 `requests` 로 보낸 요청을 단언한다.
  */
 export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): Promise<AdminApiMock> {
@@ -413,8 +509,10 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
     state: {
       users: clone(opts.users ?? ADMIN_USERS_FIXTURE),
       servers: clone(opts.servers ?? ADMIN_SERVERS_FIXTURE),
+      accounts: [],
     },
   };
+  mock.state.accounts = clone(opts.accounts ?? deriveAdminAccounts(mock.state.users));
 
   const handle = (req: AdminRequestRecord): AdminMockResponse => {
     const { users, servers } = mock.state;
@@ -495,18 +593,7 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
       if (seg[2] === 'accounts' && seg.length === 6 && (seg[5] === 'budget' || seg[5] === 'fee') && req.method === 'PUT') {
         const acct = owner?.accounts.find((a) => a.broker === seg[3] && a.accountNo === seg[4]);
         if (!acct) return { status: 409, body: { error: { code: 'NO_SUCH_ACCOUNT', message: '없는 계좌예요' } } };
-        const active = acct.servers.filter((c) => c.state === 'active').map((c) => c.serverKey);
-        const costs = { ...(acct.costs ?? {}) };
-        for (const k of active) {
-          const cur = costs[k];
-          if (cur == null) continue;
-          costs[k] =
-            seg[5] === 'budget'
-              ? { ...cur, budgetKrw: Number(body.budgetKrw), budgetSource: 'live' }
-              : { ...cur, feePpm: Number(body.feePpm), sellTaxPpm: Number(body.sellTaxPpm) };
-        }
-        acct.costs = costs;
-        return { body: { results: okResults(active) } };
+        return { body: { results: okResults(applyCost(acct, seg[5] as 'budget' | 'fee', body)) } };
       }
       if (seg[2] === 'accounts' && req.method === 'PUT') {
         const put = body as Partial<AdminPutAccountBody>;
@@ -520,24 +607,11 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
           : undefined;
         // ⑤ 주문자 IP/MAC — 서버(gh-trade)처럼 정규화 · 짝 규칙. 실패면 상태를 바꾸지 않고 서버마다 code 13.
         if (put.orderEndpoint) {
-          const ip = normalizeOrderIp(put.orderEndpoint.orderIp);
-          const mac = normalizeOrderMac(put.orderEndpoint.orderMac);
-          if (ip === null || mac === null || (ip === '') !== (mac === '')) {
-            return {
-              body: {
-                results: putServers.map((s) => ({
-                  server: s,
-                  outcome: 'failed' as const,
-                  code: 13,
-                  message: ADMIN_CODE13_MESSAGE,
-                })),
-              },
-            };
-          }
+          const value = normalizeEndpointPair(put.orderEndpoint);
+          if (value === null) return { body: { results: code13Results(putServers) } };
+          const { orderIp: ip, orderMac: mac } = value;
           if (acct) {
-            const next = { ...(acct.orderEndpoints ?? {}) };
-            for (const c of acct.servers) if (c.state === 'active') next[c.serverKey] = { orderIp: ip, orderMac: mac };
-            acct.orderEndpoints = next;
+            writeEndpoint(acct, value);
             // ⑥ gh-trade 261011 op 3 전파 흉내 — 같은 증권사 · 같은 정규화 계좌번호를 가진 다른 사용자 계좌의 active 서버 중
             // 이번 PUT servers 에 든 서버(같은 서버 users.toml 안)에 같은 정규화값. 주문자 IP · MAC 만 옮긴다.
             for (const other of users.users) {
@@ -562,6 +636,104 @@ export async function mockAdminApi(page: Page, opts: MockAdminApiOptions = {}): 
         (seg[2] === 'accounts' && seg.length === 5 && req.method === 'DELETE')
       ) {
         return { body: { results: okResults(keys) } };
+      }
+      return notFound();
+    }
+
+    // ── /accounts — 계좌 마스터(⑦) ─────────────────────────────────────────────
+    if (seg[0] === 'accounts') {
+      /** 그 계좌를 가진 DMA 사용자와 그 사용자 계좌(dmaUserId 오름차순 · 같은 DMA id 는 첫 줄 계좌 · 이메일은 모음). */
+      const linkedOf = (broker: string, accountNo: string) => {
+        const key = masterKey(broker, accountNo);
+        const byDma = new Map<string, { emails: string[]; acct: AdminAccountView }>();
+        for (const u of users.users) {
+          if (u.dmaUserId === null) continue;
+          const acct = u.accounts.find((a) => masterKey(a.broker, a.accountNo) === key);
+          if (!acct) continue;
+          const cur = byDma.get(u.dmaUserId);
+          if (cur) cur.emails.push(u.email);
+          else byDma.set(u.dmaUserId, { emails: [u.email], acct });
+        }
+        return [...byDma.entries()]
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([dmaUserId, v]) => ({ dmaUserId, ...v }));
+      };
+      const fanoutOf = (linked: ReturnType<typeof linkedOf>, results: (acct: AdminAccountView) => AdminServerResult[]) => ({
+        body: {
+          ok: true,
+          fanout: linked.map(
+            (l): AdminAccountFanout => ({ dmaUserId: l.dmaUserId, results: results(l.acct), error: null }),
+          ),
+        },
+      });
+
+      if (seg.length === 1 && req.method === 'GET') {
+        const accounts: AdminAccountMaster[] = [...mock.state.accounts].sort(compareMaster).map((row) => ({
+          ...row,
+          users: linkedOf(row.broker, row.accountNo).map(
+            (l): AdminAccountMasterUser => ({
+              dmaUserId: l.dmaUserId,
+              emails: [...l.emails].sort(),
+              priority: l.acct.priority,
+              servers: l.acct.servers.map((c) => ({ serverKey: c.serverKey, state: c.state })),
+            }),
+          ),
+        }));
+        return { body: { accounts } };
+      }
+      if (seg.length === 1 && req.method === 'POST') {
+        const broker = body.broker as DmaBroker;
+        const accountNo = normalizeAccountNo(String(body.accountNo ?? ''));
+        if (mock.state.accounts.some((a) => masterKey(a.broker, a.accountNo) === masterKey(broker, accountNo))) {
+          return { status: 409, body: { error: { code: 'ACCOUNT_EXISTS', message: '이미 등록된 계좌예요.' } } };
+        }
+        mock.state.accounts.push({
+          broker,
+          accountNo,
+          name: String(body.name ?? ''),
+          branchNo: String(body.branchNo ?? ''),
+          traderId: String(body.traderId ?? ''),
+          updatedAt: ADMIN_ACCOUNTS_UPDATED_AT,
+        });
+        return { body: { ok: true } };
+      }
+      const row = seg.length >= 3 ? mock.state.accounts.find((a) => masterKey(a.broker, a.accountNo) === masterKey(seg[1], seg[2])) : undefined;
+      if (!row) return notFound();
+      const linked = linkedOf(row.broker, row.accountNo);
+      if (seg.length === 3 && req.method === 'PUT') {
+        const oe = body.orderEndpoint as AdminOrderEndpoint | undefined;
+        const value = oe ? normalizeEndpointPair(oe) : undefined;
+        // ⑤ 같은 규칙 — 실패면 상태를 바꾸지 않고 사용자마다 active 서버별 code 13.
+        if (value === null) return fanoutOf(linked, (acct) => code13Results(activeKeys(acct)));
+        row.name = String(body.name ?? row.name);
+        row.branchNo = String(body.branchNo ?? row.branchNo);
+        row.traderId = String(body.traderId ?? row.traderId);
+        for (const l of linked) {
+          l.acct.name = row.name;
+          l.acct.branchNo = row.branchNo;
+          l.acct.traderId = row.traderId;
+          if (value) writeEndpoint(l.acct, value);
+        }
+        return fanoutOf(linked, (acct) => okResults(activeKeys(acct)));
+      }
+      if (seg.length === 4 && (seg[3] === 'budget' || seg[3] === 'fee') && req.method === 'PUT') {
+        const op = seg[3] as 'budget' | 'fee';
+        return fanoutOf(linked, (acct) => okResults(applyCost(acct, op, body)));
+      }
+      if (seg.length === 3 && req.method === 'DELETE') {
+        if (linked.length > 0) {
+          return {
+            status: 409,
+            body: {
+              error: {
+                code: 'ACCOUNT_IN_USE',
+                message: '연결된 사용자가 있어 삭제할 수 없어요 — 「사용자」 에서 먼저 연결을 해제하세요',
+              },
+            },
+          };
+        }
+        mock.state.accounts = mock.state.accounts.filter((a) => a !== row);
+        return { body: { ok: true } };
       }
       return notFound();
     }
