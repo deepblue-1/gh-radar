@@ -141,6 +141,12 @@ describe('PnlReportView — data (E5 populated)', () => {
     expect(groups[0]!.querySelectorAll('[aria-expanded="true"]')).toHaveLength(1);
     expect(groups[1]!.querySelectorAll('[aria-expanded="true"]')).toHaveLength(0);
   });
+
+  it('defaultOpenFirst={false}(어드민) — 첫 묶음 첫 행도 닫힘 · 펼침 본문 없음', () => {
+    view({ defaultOpenFirst: false });
+    expect(document.querySelectorAll('[aria-expanded="true"]')).toHaveLength(0);
+    expect(document.querySelector('[data-slot="pnl-day-body"]')).toBeNull();
+  });
 });
 
 describe('PnlReportView — empty · error · loading (E5)', () => {

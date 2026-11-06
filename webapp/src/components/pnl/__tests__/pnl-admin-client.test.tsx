@@ -6,8 +6,8 @@ import type { PnlGroup, PnlReport } from '@gh-radar/shared';
 import { PnlAdminClient } from '../pnl-admin-client';
 
 /*
-  Phase 36-08 Task 2 — /admin/pnl(UI-SPEC ⑤a · D-17 ①). 주소(?group · ?range)가 진실 원본 · router.replace ·
-  잘못된 값은 그 키만 지운다 · 묶음 머리(계정별 = dma_user_id · 미상 / 계좌별 = 증권사 배지 + 계좌번호).
+  Phase 36-08 Task 2 — /admin/pnl(UI-SPEC ⑤a · D-17 ①). 주소(?range · ?key)가 진실 원본 · router.replace ·
+  잘못된 값은 그 키만 지운다 · 묶음은 계좌별 하나(증권사 배지 + 계좌번호) · 옛 ?group 은 지운다(2026-11-06 계정별 제거).
 */
 
 let mockSearchParams = new URLSearchParams();
@@ -34,23 +34,6 @@ function group(over: Partial<PnlGroup>): PnlGroup {
   return { key: 'k', accounts: [], dma_user_ids: [], account_name: null, total: TOTAL, days: [DAY], ...over };
 }
 
-const USER_REPORT: PnlReport = {
-  from: '2026-09-28',
-  to: '2026-10-27',
-  groups: [
-    group({
-      key: 'ezmesya',
-      accounts: [
-        { broker: 'KB', gateway: 'KB120', account_no: '37728502101' },
-        { broker: 'KYOBO', gateway: 'KYOBO119', account_no: '10279758101' },
-      ],
-      dma_user_ids: ['ezmesya'],
-    }),
-    group({ key: 'kim01', accounts: [{ broker: 'KB', gateway: 'KB121', account_no: '37728502102' }], dma_user_ids: ['kim01'] }),
-    group({ key: '', accounts: [{ broker: 'KB', gateway: 'KB120', account_no: '50011122233' }] }),
-  ],
-};
-
 const ACCOUNT_REPORT: PnlReport = {
   from: '2026-09-28',
   to: '2026-10-27',
@@ -76,84 +59,64 @@ beforeEach(() => {
   mockSearchParams = new URLSearchParams();
   mockReplace.mockClear();
   mockFetchAdminPnl.mockReset();
-  mockFetchAdminPnl.mockImplementation((g) => Promise.resolve(g === 'account' ? ACCOUNT_REPORT : USER_REPORT));
+  mockFetchAdminPnl.mockResolvedValue(ACCOUNT_REPORT);
 });
 
 const heads = () => Array.from(document.querySelectorAll('[data-slot="pnl-group-head"]')) as HTMLElement[];
-const seg = () => screen.getByRole('group', { name: '묶음' });
+const chips = () => screen.getByRole('radiogroup', { name: '계좌' });
 
 describe('PnlAdminClient — /admin/pnl', () => {
-  it('① 기본 → fetchAdminPnl("user", "30") 1회 · h1 「매매손익」 · 「계정별」 선택 · 문서 제목', async () => {
+  it('① 기본 → fetchAdminPnl("account", "30") 1회 · h1 「매매손익」 · 묶음 세그먼트 없음 · 문서 제목', async () => {
     render(<PnlAdminClient />);
     expect(screen.getByRole('heading', { level: 1, name: '매매손익' })).toBeInTheDocument();
-    expect(within(seg()).getByRole('button', { name: '계정별' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(seg()).getByRole('button', { name: '계좌별' })).toHaveAttribute('aria-pressed', 'false');
-    await waitFor(() => expect(heads()).toHaveLength(3));
+    expect(screen.queryByRole('group', { name: '묶음' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '계정별' })).toBeNull();
+    await waitFor(() => expect(heads()).toHaveLength(2));
     expect(mockFetchAdminPnl).toHaveBeenCalledTimes(1);
-    expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('user', '30');
+    expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', '30');
     expect(document.title).toBe('매매손익 · Admin');
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it('② 「계좌별」 클릭 → 주소 ?group=account(router.replace) · fetchAdminPnl("account", "30") · 펼침 기본(첫 묶음 첫 행)', async () => {
+  it('② 펼침 기본 — 모든 일자 행 닫힘 · 클릭하면 그 행만 열림', async () => {
     const user = userEvent.setup();
-    const view = render(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(3));
-    // 둘째 묶음 행을 열어 둔다 → 전환 뒤 기본으로 돌아와야 한다.
-    const secondRow = document.querySelectorAll('[data-slot="pnl-group"]')[1]!.querySelector('button[aria-expanded]')!;
-    await user.click(secondRow);
-    expect(document.querySelectorAll('[aria-expanded="true"]')).toHaveLength(2);
-
-    await user.click(within(seg()).getByRole('button', { name: '계좌별' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?group=account');
-    view.rerender(<PnlAdminClient />);
+    render(<PnlAdminClient />);
     await waitFor(() => expect(heads()).toHaveLength(2));
-    expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', '30');
+    expect(document.querySelectorAll('[aria-expanded="true"]')).toHaveLength(0);
+    await user.click(document.querySelector('[data-slot="pnl-group"] button[aria-expanded]')!);
     expect(document.querySelectorAll('[aria-expanded="true"]')).toHaveLength(1);
   });
 
-  it('③ ?group=x&range=90 → group 키만 지워 기본 user · range 90 유지 · ?range=zz → range 만 지움', async () => {
-    mockSearchParams = new URLSearchParams('group=x&range=90');
+  it('③ 옛 주소 ?group=user&key=ezmesya&range=90 → group · 계정 key 지움 · range 유지 / ?group=account&key=… → key 유지', async () => {
+    mockSearchParams = new URLSearchParams('group=user&key=ezmesya&range=90');
     const view = render(<PnlAdminClient />);
     expect(mockReplace).toHaveBeenCalledWith('/admin/pnl?range=90');
-    await waitFor(() => expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('user', '90'));
+    await waitFor(() => expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', '90'));
     expect(screen.getByRole('button', { name: '90일' })).toHaveAttribute('aria-pressed', 'true');
     view.unmount();
 
     mockReplace.mockClear();
-    mockSearchParams = new URLSearchParams('group=account&range=zz');
+    mockSearchParams = new URLSearchParams('group=account&key=10279758101');
     render(<PnlAdminClient />);
-    expect(mockReplace).toHaveBeenCalledWith('/admin/pnl?group=account');
-    await waitFor(() => expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', '30'));
+    expect(mockReplace).toHaveBeenCalledWith('/admin/pnl?key=10279758101');
+    await waitFor(() => expect(heads()).toHaveLength(1));
   });
 
-  it('③b 기간 「이달」 → 주소 ?range=month(다른 키 보존) · 재조회', async () => {
-    mockSearchParams = new URLSearchParams('group=account');
+  it('③b ?range=zz → range 만 지움 · 기간 「이달」 → 주소 ?range=month(다른 키 보존) · 재조회', async () => {
+    mockSearchParams = new URLSearchParams('key=10279758101&range=zz');
     const user = userEvent.setup();
     const view = render(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(2));
+    expect(mockReplace).toHaveBeenCalledWith('/admin/pnl?key=10279758101');
+    view.rerender(<PnlAdminClient />);
+    await waitFor(() => expect(heads()).toHaveLength(1));
     await user.click(screen.getByRole('button', { name: '이달' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?group=account&range=month');
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=10279758101&range=month');
     view.rerender(<PnlAdminClient />);
     await waitFor(() => expect(mockFetchAdminPnl).toHaveBeenLastCalledWith('account', 'month'));
-    expect(await screen.findAllByText('이달 실현손익')).toHaveLength(2);
+    expect(await screen.findAllByText('이달 실현손익')).toHaveLength(1);
   });
 
-  it('④ 계정별 머리 — 제목 dma_user_id(truncate · title) · 부제 「KB 37728502101 · 교보 10279758101」 · 「미상」 맨 뒤 · 부제 「dma_user_id 없는 체결 · 계좌 …」', async () => {
-    render(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(3));
-    const title = (h: HTMLElement) => h.querySelector('[data-slot="pnl-group-title"]') as HTMLElement;
-    const sub = (h: HTMLElement) => h.querySelector('[data-slot="pnl-group-sub"]') as HTMLElement;
-    expect(heads().map((h) => title(h).textContent)).toEqual(['ezmesya', 'kim01', '미상']);
-    expect(title(heads()[0]!)).toHaveAttribute('title', 'ezmesya');
-    expect(title(heads()[0]!).className).toContain('truncate');
-    expect(sub(heads()[0]!)).toHaveTextContent('KB 37728502101 · 교보 10279758101');
-    expect(sub(heads()[0]!).className).toContain('break-keep');
-    expect(sub(heads()[2]!)).toHaveTextContent('dma_user_id 없는 체결 · 계좌 50011122233');
-  });
-
-  it('⑤ 계좌별 머리 — 배지 「KB」/「교보」 + 계좌번호 · 부제 「ezmesya · kim01 · 위탁」(계좌명 없으면 생략)', async () => {
-    mockSearchParams = new URLSearchParams('group=account');
+  it('④ 계좌 머리 — 배지 「KB」/「교보」 + 계좌번호 · 부제 「ezmesya · kim01 · 위탁」(계좌명 없으면 생략) · 「미상」 없음', async () => {
     render(<PnlAdminClient />);
     await waitFor(() => expect(heads()).toHaveLength(2));
     const badge = (h: HTMLElement) => h.querySelector('[data-slot="pnl-broker-badge"]') as HTMLElement;
@@ -164,64 +127,42 @@ describe('PnlAdminClient — /admin/pnl', () => {
     expect(screen.queryByText('미상')).toBeNull();
   });
 
-  it('⑥ 조회 실패 → 오류 상자 · 「다시 시도」 → 같은 키로 재조회 · 세그먼트 · 기간 줄은 그대로', async () => {
+  it('⑤ 조회 실패 → 오류 상자 · 「다시 시도」 → 같은 키로 재조회 · 기간 줄은 그대로', async () => {
     mockFetchAdminPnl.mockReset();
-    mockFetchAdminPnl.mockRejectedValueOnce(new Error('500')).mockResolvedValue(USER_REPORT);
+    mockFetchAdminPnl.mockRejectedValueOnce(new Error('500')).mockResolvedValue(ACCOUNT_REPORT);
     render(<PnlAdminClient />);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('매매손익을 불러오지 못했어요');
-    expect(seg()).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '기간' })).toBeInTheDocument();
     await userEvent.click(within(alert).getByRole('button', { name: '다시 시도' }));
-    await waitFor(() => expect(heads()).toHaveLength(3));
+    await waitFor(() => expect(heads()).toHaveLength(2));
     expect(mockFetchAdminPnl).toHaveBeenCalledTimes(2);
   });
 
-  it('⑦ 묶음 칩 — 「전체」 기본 · 계정 칩 → ?key= 그 묶음만 · 「미상」 칩 → key= 빈 값 · 「전체」 → key 지움', async () => {
+  it('⑥ 계좌 칩 「KB 위탁 37728502101」 · 「교보 10279758101」 · 칩 → ?key= 그 계좌만 · 「전체」 → key 지움 · 없는 key 는 「전체」', async () => {
     const user = userEvent.setup();
     const view = render(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(3));
-    const chips = () => screen.getByRole('radiogroup', { name: '계정' });
-    expect(within(chips()).getAllByRole('radio').map((c) => c.textContent)).toEqual(['전체', 'ezmesya', 'kim01', '미상']);
-    expect(within(chips()).getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
-
-    await user.click(within(chips()).getByRole('radio', { name: 'kim01' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=kim01');
-    view.rerender(<PnlAdminClient />);
-    expect(heads().map((h) => h.querySelector('[data-slot="pnl-group-title"]')!.textContent)).toEqual(['kim01']);
-    expect(within(chips()).getByRole('radio', { name: 'kim01' })).toHaveAttribute('aria-checked', 'true');
-    expect(mockFetchAdminPnl).toHaveBeenCalledTimes(1);
-
-    await user.click(within(chips()).getByRole('radio', { name: '미상' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=');
-    view.rerender(<PnlAdminClient />);
-    expect(heads().map((h) => h.querySelector('[data-slot="pnl-group-title"]')!.textContent)).toEqual(['미상']);
-
-    await user.click(within(chips()).getByRole('radio', { name: '전체' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl');
-    view.rerender(<PnlAdminClient />);
-    expect(heads()).toHaveLength(3);
-  });
-
-  it('⑧ 계좌별 칩 「KB 위탁 37728502101」 · 「교보 10279758101」 · 묶음 전환은 key 를 지운다 · 없는 key 는 「전체」 로 본다', async () => {
-    const user = userEvent.setup();
-    mockSearchParams = new URLSearchParams('group=account&key=10279758101');
-    const view = render(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(1));
-    const chips = () => screen.getByRole('radiogroup', { name: '계좌' });
+    await waitFor(() => expect(heads()).toHaveLength(2));
     expect(within(chips()).getAllByRole('radio').map((c) => c.getAttribute('aria-label') ?? c.textContent)).toEqual([
       '전체',
       'KB 위탁 37728502101',
       '교보 10279758101',
     ]);
-    expect(within(chips()).getByRole('radio', { name: '교보 10279758101' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(chips()).getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
 
-    await user.click(within(seg()).getByRole('button', { name: '계정별' }));
-    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?group=user');
+    await user.click(within(chips()).getByRole('radio', { name: '교보 10279758101' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl?key=10279758101');
+    view.rerender(<PnlAdminClient />);
+    expect(heads().map((h) => h.querySelector('[data-slot="pnl-group-title"]')!.textContent)).toEqual(['10279758101']);
+    expect(within(chips()).getByRole('radio', { name: '교보 10279758101' })).toHaveAttribute('aria-checked', 'true');
+    expect(mockFetchAdminPnl).toHaveBeenCalledTimes(1);
+
+    await user.click(within(chips()).getByRole('radio', { name: '전체' }));
+    expect(mockReplace).toHaveBeenLastCalledWith('/admin/pnl');
 
     mockSearchParams = new URLSearchParams('key=nobody');
     view.rerender(<PnlAdminClient />);
-    await waitFor(() => expect(heads()).toHaveLength(3));
-    expect(screen.getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(heads()).toHaveLength(2));
+    expect(within(chips()).getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
   });
 });

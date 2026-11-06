@@ -79,27 +79,7 @@ export function pnlMeFixture(accountNo: string, range = '30'): PnlReport {
   };
 }
 
-/** 어드민 계정별 — ezmesya · kim01 · 「미상」(맨 뒤 · RPC 순서 그대로). */
-export const PNL_ADMIN_USER_FIXTURE: PnlReport = {
-  from: '2026-09-28',
-  to: '2026-10-27',
-  groups: [
-    group({
-      key: 'ezmesya',
-      accounts: [
-        { broker: 'KB', gateway: 'KB120', account_no: '37728502101' },
-        { broker: 'KYOBO', gateway: 'KYOBO119', account_no: '10279758101' },
-      ],
-      dma_user_ids: ['ezmesya'],
-    }),
-    group({ key: 'kim01', accounts: [{ broker: 'KB', gateway: 'KB121', account_no: '37728502102' }], dma_user_ids: ['kim01'] }, [
-      DAYS[1]!,
-    ]),
-    group({ key: '', accounts: [{ broker: 'KB', gateway: 'KB120', account_no: '50011122233' }] }, [DAYS[1]!]),
-  ],
-};
-
-/** 어드민 계좌별 — KB 계좌(KB120/KB121 한 묶음) · 교보 1. */
+/** 어드민(계좌별 하나 · 2026-11-06 계정별 제거) — KB 계좌(KB120/KB121 한 묶음) · 교보 1. */
 export const PNL_ADMIN_ACCOUNT_FIXTURE: PnlReport = {
   from: '2026-09-28',
   to: '2026-10-27',
@@ -134,7 +114,7 @@ type PnlAnswer = PnlReport | { status: number; body: unknown };
 export interface MockPnlApiOptions {
   /** /me 응답(undefined = 기본 `pnlMeFixture(account, range)`). */
   me?: (query: Record<string, string>) => PnlAnswer | undefined;
-  /** 어드민 응답 — nth = 0 부터 센 어드민 요청 순번(undefined = group 에 따라 계정별 · 계좌별 픽스처). */
+  /** 어드민 응답 — nth = 0 부터 센 어드민 요청 순번(undefined = 계좌별 픽스처). */
   admin?: (query: Record<string, string>, nth: number) => PnlAnswer | undefined;
 }
 
@@ -155,7 +135,7 @@ export async function mockPnlApi(page: Page, opts: MockPnlApiOptions = {}): Prom
       requests.push({ path: isAdmin ? '/api/admin/pnl' : '/api/pnl', query });
       const answer: PnlAnswer = isAdmin
         ? (opts.admin?.(query, adminN++) ??
-          (query.group === 'account' ? PNL_ADMIN_ACCOUNT_FIXTURE : PNL_ADMIN_USER_FIXTURE))
+          PNL_ADMIN_ACCOUNT_FIXTURE)
         : (opts.me?.(query) ?? pnlMeFixture(query.account ?? '', query.range));
       const status = isStatus(answer) ? answer.status : 200;
       const body = isStatus(answer) ? answer.body : answer;

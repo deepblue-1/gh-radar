@@ -6,10 +6,10 @@ current_phase: 39
 current_phase_name: 매매진단 챗봇
 status: executing
 stopped_at: Phase 39 context gathered
-last_updated: "2026-11-06T09:25:18.088Z"
+last_updated: "2026-11-06T11:37:46.689Z"
 last_activity: 2026-11-06
 last_activity_desc: Phase 39 execution started
-state_head: f58390778bc81a8d2a90671eabc649e1e13fd128
+state_head: 0e91d7a50ae84cdc0345b513430c8a9ebfa6bb55
 progress:
   total_phases: 10
   completed_phases: 9
@@ -145,6 +145,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261106-lwu | 어드민 「계좌」 메뉴(등록·수정·삭제) + 사용자별 계좌 연결(고르기 A) + 사이드바 My page↔Admin 순서 | 2026-11-06 | 32725b88 | [261106-lwu-admin-accounts](./quick/261106-lwu-admin-accounts/) |
 | 261106-ntl | 계좌 메뉴에서 예수금·수수료·매도세·주문자 IP/MAC 설정(연결 사용자 팬아웃) · 사용자 카드 읽기 전용 · 사이드바 Admin 하위 순서 | 2026-11-06 | 32bca9e5 | [261106-ntl-account-costs](./quick/261106-ntl-account-costs/) |
 | 261106-p8h | 발사 대기열 마감 때 취소 추정을 우리 주문로그(dma_account_orders)로 바로잡기 — launch_queue_inputs alive · fifoReplay protect · queueLevelValuesOf | 2026-11-06 | f5839077 | [261106-p8h-launch-queue-alive](./quick/261106-p8h-launch-queue-alive/) |
+| 261106-pnl | 매매손익 어드민(/admin/pnl) 계좌별만(계정별 · 「미상」 제거) · 일자 행 기본 닫힘 — gsd-fast | 2026-11-06 | (fix(admin-pnl) 커밋) | — |
 
 ## Session Continuity
 

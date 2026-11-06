@@ -31,8 +31,8 @@ import { cn } from '@/lib/utils';
  *   않는다(옛 체결 0 · 평단 모르는 매도 = −(수수료 + 세금) 은 서버 값 그대로).
  * - 손익색은 실현손익에만(수익 `--up` · 손실 `--down` · 0 `--fg-2`). 수수료 · 세금 · 매수 · 매도에는 방향색이 없다.
  * - 7열 전환은 뷰포트 `lg`(1024 · UI-SPEC researcher decision 20). 폰은 일자 행 2줄 · 가로 스크롤 없음.
- * - 펼침은 행마다 따로(Set). 첫 묶음의 첫(최신) 행만 기본 열림 — 조회가 다시 돌면(기간 · 묶음 · 계좌 변경) 카드가 로딩
- *   상태로 내려갔다 새로 서므로 이 기본으로 되돌아간다.
+ * - 펼침은 행마다 따로(Set). `/me` 는 첫 묶음의 첫(최신) 행만 기본 열림 · 어드민은 전부 닫힘(`defaultOpenFirst={false}`)
+ *   — 조회가 다시 돌면(기간 · 계좌 변경) 카드가 로딩 상태로 내려갔다 새로 서므로 이 기본으로 되돌아간다.
  */
 
 /** 기간 칩 라벨 — 세그먼트 · 요약 행 「{기간} 실현손익」 이 같은 낱말을 쓴다. */
@@ -396,9 +396,18 @@ export interface PnlReportViewProps {
   onRetry: () => void;
   /** 묶음 머리 렌더러(어드민). 없으면 머리 없는 카드(/me). */
   renderHeader?: (group: PnlGroup) => ReactNode;
+  /** 첫 묶음의 첫(최신) 행을 열어 둘지. 기본 true(/me) · 어드민은 false(전부 닫힘). */
+  defaultOpenFirst?: boolean;
 }
 
-export function PnlReportView({ status, report, rangeLabel, onRetry, renderHeader }: PnlReportViewProps) {
+export function PnlReportView({
+  status,
+  report,
+  rangeLabel,
+  onRetry,
+  renderHeader,
+  defaultOpenFirst = true,
+}: PnlReportViewProps) {
   if (status === 'loading') return <PnlSkeleton />;
 
   if (status === 'error' || report === null) {
@@ -444,7 +453,7 @@ export function PnlReportView({ status, report, rangeLabel, onRetry, renderHeade
           group={g}
           header={renderHeader?.(g)}
           rangeLabel={rangeLabel}
-          defaultOpenFirst={i === 0}
+          defaultOpenFirst={defaultOpenFirst && i === 0}
         />
       ))}
     </div>
