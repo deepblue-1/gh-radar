@@ -6,6 +6,7 @@
 #       (GCP Android 클라이언트 = 업로드 SHA-1) 다음 빌드부터 덮어 설치도 안 되거나,
 #     - debuggable 빌드 · 옛 빌드(up-to-date 건너뛰기로 남은 APK)를 받거나,
 #     - dev URL(localhost)을 여는 빈 화면 · WebView 원격 디버깅이 켜진 빌드를 받는다.
+#     - google-services 플러그인이 꺼진 빌드(google_app_id 리소스 없음)를 받아 체결 푸시 토큰을 못 받는다(Phase 40 Pitfall 7).
 #
 # 서명은 apksigner 로만 본다 — minSdk 24 에서 AGP 는 v2 서명만 하므로 JDK 서명 도구로는 인증서가 보이지
 # 않는다(check-aab.sh 의 방법을 복사하면 항상 실패하거나 검사가 무력화된다 · Pitfall F4).
@@ -95,6 +96,11 @@ else
   fi
   if printf '%s\n' "$BADGING" | grep -q '^application-debuggable'; then
     fail "debuggable APK 다(application-debuggable) — 릴리스 빌드가 아니다"
+  fi
+  # 출력이 커서 「printf | grep -q」 는 pipefail + SIGPIPE 로 오판한다 — 셸 패턴 매칭으로 본다.
+  RES="$("$AAPT2" dump resources "$APK" 2>/dev/null || true)"
+  if [[ "$RES" != *"string/google_app_id"* ]]; then
+    fail "google_app_id 리소스가 없다 — google-services 플러그인이 꺼진 빌드다(FCM 토큰을 못 받는다 · Phase 40 Pitfall 7)"
   fi
 fi
 
