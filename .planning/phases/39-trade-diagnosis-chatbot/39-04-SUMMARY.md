@@ -211,3 +211,8 @@ None - 외부 서비스 설정 없음. (토큰 실측은 39-09 메인 세션이 
 ---
 *Phase: 39-trade-diagnosis-chatbot*
 *Completed: 2026-11-06*
+
+## Self-Check: PASSED
+
+- 파일 5개 존재 확인 · 작업 커밋 5개(6a5fee65 · 3571a367 · 349b8eb7 · 0639180d · 86716107)가 이 브랜치에 있음 · 작업 트리 깨끗함
+- 계획 검증: diagnosis-market + ticks + ticks-live + tickgw-client + specialists 테스트 88개 통과 · server typecheck 통과 · SC-5 grep 0줄 · --dry 실행 통과
