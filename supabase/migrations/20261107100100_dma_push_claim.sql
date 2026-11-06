@@ -111,6 +111,15 @@ DECLARE
   v_stock_code  text;
   v_stock_name  text;
 
+  v_sev         public.dma_strategy_events%ROWTYPE;   -- 자동매도 후보 1개
+  v_prev_ms     bigint;
+  v_s_qty       bigint;
+  v_s_amt       numeric;
+  v_s_pnl       numeric;
+  v_s_cost      numeric;
+  v_s_avg       numeric;
+  v_s_pnl_pct   numeric;
+
   v_ev          jsonb;
   v_users       uuid[];
   v_devices     jsonb;
@@ -349,6 +358,98 @@ BEGIN
         'cancelReason',  CASE WHEN v_stage = 'cancelled' THEN v_reason END,
         'message',       CASE WHEN v_stage = 'rejected' THEN v_root.message END,
         'autosell',      NULL
+      )
+    ));
+  END LOOP;
+
+  -- ── ①-b 자동매도 사건 판정 (R10 · D-05 · D-22 · D-23) ─────────────
+  -- 후보 = p_strategy 의 (journal_epoch, seq). kind 11 발동 → 시작 · kind 13 (cond_actual 4 ∧ cond_threshold ≠ 4)
+  -- = 완료(gh-trade 가 보유 0 ∧ 나간 매도 0 일 때만 낸다 · 4→4 재방송 제외). 그 밖 전략 행은 무시한다.
+  -- 체인 키 = 'AS:'||journal_epoch||':'||seq — 하루 여러 번 발동(완료 → 재무장)해도 이벤트마다 1건.
+  FOR v_sev IN
+    SELECT DISTINCT ON (ev.journal_epoch, ev.seq) ev.*
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p_strategy) = 'array' THEN p_strategy ELSE '[]'::jsonb END) AS j(e)
+      JOIN public.dma_strategy_events ev
+        ON ev.gateway = p_gateway
+       AND ev.journal_epoch = CASE WHEN jsonb_typeof(j.e) = 'object' THEN j.e->>'journal_epoch' END
+       AND ev.seq = CASE WHEN jsonb_typeof(j.e) = 'object' AND (j.e->>'seq') ~ '^[0-9]{1,18}$'
+                         THEN (j.e->>'seq')::bigint END
+     WHERE ev.account_no <> ''
+       AND (ev.kind = 11 OR (ev.kind = 13 AND ev.cond_actual = 4 AND ev.cond_threshold <> 4))
+     ORDER BY ev.journal_epoch, ev.seq
+  LOOP
+    v_stage := CASE WHEN v_sev.kind = 11 THEN 'autosell_start' ELSE 'autosell_done' END;
+    v_key_no := 'AS:' || v_sev.journal_epoch || ':' || v_sev.seq;
+
+    v_have := NULL;
+    SELECT ch.sent_rank INTO v_have
+      FROM public.dma_push_chains ch
+     WHERE ch.gateway = p_gateway AND ch.trade_date = v_sev.trade_date
+       AND ch.account_no = v_sev.account_no AND ch.chain_key = v_key_no;
+    CONTINUE WHEN v_have IS NOT NULL;   -- 자동매도 사건은 rank 3 단발 — 기록이 있으면 끝
+
+    v_outcome := CASE WHEN v_sev.trade_date <> v_today THEN 'stale' ELSE 'sent' END;
+
+    v_s_avg := NULL; v_s_pnl_pct := NULL;
+    IF v_sev.kind = 13 THEN
+      -- 평균 · 손익 = 같은 계좌 · 종목 · 거래일에서 이 완료 직전 kind 11 이후 ~ 완료 시각까지의 매도 체결(E).
+      -- 손익 % = Σrealized_pnl_krw ÷ Σ(exec_qty × avg_price) × 100 — 주문로그 손익과 같은 원천(36-05 4열).
+      SELECT max(p.gw_time_ms) INTO v_prev_ms
+        FROM public.dma_strategy_events p
+       WHERE p.gateway = p_gateway AND p.trade_date = v_sev.trade_date AND p.account_no = v_sev.account_no
+         AND p.isin = v_sev.isin AND p.kind = 11 AND p.gw_time_ms <= v_sev.gw_time_ms;
+      SELECT sum(e.exec_qty), sum(e.exec_qty::numeric * e.exec_price),
+             sum(e.realized_pnl_krw), sum(e.exec_qty::numeric * e.avg_price)
+        INTO v_s_qty, v_s_amt, v_s_pnl, v_s_cost
+        FROM public.dma_journal_events e
+       WHERE e.gateway = p_gateway AND e.trade_date = v_sev.trade_date AND e.account_no = v_sev.account_no
+         AND e.isin = v_sev.isin AND e.notice_type = 'E' AND e.side = 'S' AND e.apply_error IS NULL
+         AND e.gw_time >= coalesce(to_timestamp(v_prev_ms / 1000.0), '-infinity'::timestamptz)
+         AND e.gw_time <= to_timestamp(v_sev.gw_time_ms / 1000.0);
+      IF v_s_qty > 0 THEN
+        v_s_avg := round(v_s_amt / v_s_qty);
+      END IF;
+      IF v_s_cost > 0 THEN
+        v_s_pnl_pct := round(v_s_pnl / v_s_cost * 100, 2);
+      END IF;
+    END IF;
+
+    v_stock_code := NULL; v_stock_name := NULL;
+    SELECT st.code, st.name INTO v_stock_code, v_stock_name FROM public.stocks st WHERE st.isin = v_sev.isin LIMIT 1;
+
+    v_events := v_events || jsonb_build_array(jsonb_build_object(
+      'trade_date', v_sev.trade_date,
+      'account_no', v_sev.account_no,
+      'chain_key',  v_key_no,
+      'stage',      v_stage,
+      'outcome',    v_outcome,
+      'facts', jsonb_build_object(
+        'stage',         v_stage,
+        'isin',          v_sev.isin,
+        'stockName',     v_stock_name,
+        'stockCode',     v_stock_code,
+        'exchange',      CASE WHEN v_sev.exchange IN ('KRX', 'NXT') THEN v_sev.exchange ELSE '' END,
+        'tradeDate',     to_char(v_sev.trade_date, 'YYYY-MM-DD'),
+        'gwTimeMs',      v_sev.gw_time_ms,
+        'side',          'S',
+        'group',         NULLIF(v_sev."group", 0),
+        'origin',        'limit_chaser',
+        'qty',           NULL,
+        'price',         NULL,
+        'filledQty',     CASE WHEN v_sev.kind = 13 THEN v_sev.qty ELSE 0 END,
+        'lastFillPrice', NULL,
+        'avgFillPrice',  NULL,
+        'cancelledQty',  NULL,
+        'cancelReason',  NULL,
+        'message',       NULL,
+        'autosell', jsonb_build_object(
+          'basis',        v_sev.queue_case,
+          'basePrice',    CASE WHEN v_sev.kind = 11 THEN v_sev.bid1_price ELSE v_sev.price END,   -- kind 13 price = 기준 가격
+          'triggerPrice', CASE WHEN v_sev.kind = 11 THEN v_sev.price ELSE 0 END,           -- 0 = 모름
+          'soldQty',      CASE WHEN v_sev.kind = 13 THEN v_sev.qty ELSE 0 END,
+          'avgSellPrice', v_s_avg,
+          'pnlPct',       v_s_pnl_pct
+        )
       )
     ));
   END LOOP;
