@@ -5,6 +5,7 @@
 --       launch_queue_pending 새 함수 · tick_convert_candidates · launch_orders_for_admin 교체)
 --       + 20261104710000_launch_queue_live.sql(quick 261104-n7i — launch_queue_set live 표식 가드 · launch_orders_for_admin
 --       queue.live_as_of).
+--       + 20261106400000_launch_queue_inputs_alive.sql(quick 261106-p8h — launch_queue_inputs 행마다 alive).
 --
 -- 잠그는 것:
 --   - 권한: 함수 5개 anon · authenticated EXECUTE 없음 · service_role 있음 · SECURITY INVOKER · 표는 anon · authenticated SELECT 없음
@@ -114,8 +115,9 @@ SELECT is((SELECT jsonb_agg(e->>'fire_exchange' || ' ' || (e->>'isin') || ' ' ||
           'B inputs = 접수 ∧ 대상 profile 조각만(거부 · 모르는 profile 제외) · fire_exchange, isin, fire_base, gateway, wire 순');
 SELECT is((SELECT e FROM jsonb_array_elements(public.launch_queue_inputs('20261030')) e WHERE e->>'profile' = 'Q16'),
           '{"trade_date": "20261030", "gateway": "KB120", "profile": "Q16", "fire_exchange": "KRX", "fire_base": "16:00:00",
-            "market": "Q", "wire": 0, "side": "buy", "isin": "KR7184230001", "price": 2575, "qty": 100, "fills": []}'::jsonb,
-          'B inputs 행 모양 — 7키(YYYYMMDD · HH24:MI:SS) · side · isin · price · qty · fills(저널 없음 → [])');
+            "market": "Q", "wire": 0, "side": "buy", "isin": "KR7184230001", "price": 2575, "qty": 100, "fills": [],
+            "alive": null}'::jsonb,
+          'B inputs 행 모양 — 7키(YYYYMMDD · HH24:MI:SS) · side · isin · price · qty · fills(저널 없음 → []) · alive(주문로그 없음 → null)');
 SELECT is((SELECT e->'fills' FROM jsonb_array_elements(public.launch_queue_inputs('20261030')) e
             WHERE e->>'profile' = 'N' AND e->>'side' = 'sell'),
           '[[18010, 200], [18000, 50], [18000, 31]]'::jsonb,

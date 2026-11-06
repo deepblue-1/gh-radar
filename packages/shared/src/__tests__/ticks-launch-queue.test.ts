@@ -6,8 +6,10 @@ import {
   aggressorRunsOf,
   fifoReplay,
   matchQueuePieces,
+  queueLevelValuesOf,
   runValueOf,
   type AggressorRun,
+  type LaunchQueuePieceIn,
   type QueueEvent,
   type RunRowIn,
 } from "../ticks/launch-queue";
@@ -56,6 +58,171 @@ describe("fifoReplay", () => {
       [0, 0, "cancel"],
     ]);
     expect(r.stats).toEqual({ adds: 2, fills: 2, cancelExact: 1, cancelAmbig: 0, cancelNone: 0 });
+  });
+
+  // quick 261106-p8h — protect = 주문로그가 살아 있다고 한 주문(0부터 색인) · 취소 귀속 후보에서만 빠진다
+  const AMBIG = [B(5), B(12), B(17), B(26), B(19), B(14), B(10)];
+
+  it("protect 주문은 취소 후보가 아니다 — 모호취소 5 가 #1(색인 0)로 간다", () => {
+    const r = fifoReplay(AMBIG, new Set([2]));
+    expect(r.orders.map((o) => [o.rem, o.zeroBy])).toEqual([
+      [0, "cancel"],
+      [0, "cancel"],
+      [5, null],
+      [9, null],
+    ]);
+    expect(r.stats).toEqual({ adds: 4, fills: 0, cancelExact: 2, cancelAmbig: 0, cancelNone: 1 });
+  });
+
+  it("후보가 모두 protect 면 그 감소는 설명불가(무시)", () => {
+    const r = fifoReplay(AMBIG, new Set([0, 2]));
+    expect(r.orders.map((o) => [o.rem, o.zeroBy])).toEqual([
+      [5, null],
+      [0, "cancel"],
+      [5, null],
+      [9, null],
+    ]);
+    expect(r.stats).toEqual({ adds: 4, fills: 0, cancelExact: 1, cancelAmbig: 0, cancelNone: 2 });
+  });
+
+  it("protect 주문도 FIFO 체결은 받는다(protect 없을 때와 같다)", () => {
+    const evs = [B(10), B(30), A(15), B(15)];
+    const r = fifoReplay(evs, new Set([0]));
+    expect(r.orders.map((o) => [o.rem, o.filled, o.zeroBy])).toEqual([
+      [0, 10, "fill"],
+      [15, 5, null],
+    ]);
+    expect(r).toEqual(fifoReplay(evs));
+  });
+
+  it("protect 없음 · 빈 Set = 지금 결과 그대로", () => {
+    for (const evs of [
+      [B(10, 5, 500), B(30, 7, 700), B(31)],
+      [B(10), B(30), A(15), B(15)],
+      AMBIG,
+      [B(10), B(14), A(3), B(7), A(5), B(5)],
+    ]) {
+      expect(fifoReplay(evs, undefined)).toEqual(fifoReplay(evs));
+      expect(fifoReplay(evs, new Set())).toEqual(fifoReplay(evs));
+    }
+  });
+});
+
+const piece = (gateway: string, wire: number, qty: number, alive?: boolean | null, price = 5380): LaunchQueuePieceIn => ({
+  gateway,
+  profile: "Q16",
+  fire_exchange: "KRX",
+  fire_base: "16:00:00",
+  market: "Q",
+  wire,
+  side: "buy",
+  isin: "KR7004831004",
+  price,
+  qty,
+  fills: [],
+  ...(alive === undefined ? {} : { alive }),
+});
+
+describe("queueLevelValuesOf", () => {
+  // 11/06 덕성우 합성 재현(P 5380 · 매수) — 남 1000 · KB wire0..4 · 남 2500 · 교보 wire1..3 · 합쳐진 8000(교보 wire4 + 남)
+  // → 4000 취소 7건(KB 4 + 교보 3)
+  const P = 5380;
+  const EVS = [
+    B(1000),
+    B(5000),
+    B(9000),
+    B(13000),
+    B(17000),
+    B(21000),
+    B(23500),
+    B(27500),
+    B(31500),
+    B(35500),
+    B(43500),
+    B(39500),
+    B(35500),
+    B(31500),
+    B(27500),
+    B(23500),
+    B(19500),
+    B(15500),
+  ];
+  const KB = [0, 1, 2, 3, 4];
+  const KY = [1, 2, 3, 4];
+  const pieces = (kbAlive: (w: number) => boolean | null | undefined, kyAlive: (w: number) => boolean | null | undefined) => [
+    ...KB.map((w) => piece("KB120", w, 4000, kbAlive(w))),
+    ...KY.map((w) => piece("KYOBO119", w, 4000, kyAlive(w))),
+  ];
+  const brief = (v: ReturnType<typeof queueLevelValuesOf>) => v.map((x) => [x.matched, x.rank, x.end_state]);
+
+  it("alive 없음 = 지금 규칙(버그 재현) — 4000 취소 7건이 뒤에서부터 0 으로 만들어 교보 wire1 이 cancelled", () => {
+    const v = queueLevelValuesOf(EVS, P, pieces(() => undefined, () => undefined));
+    expect(brief(v)).toEqual([
+      [true, 2, "open"],
+      [true, 3, "cancelled"],
+      [true, 4, "cancelled"],
+      [true, 5, "cancelled"],
+      [true, 6, "cancelled"],
+      [true, 8, "cancelled"],
+      [true, 9, "cancelled"],
+      [true, 10, "cancelled"],
+      [false, null, null],
+    ]);
+    expect(v[0]).toMatchObject({ end_n: 1, end_qty: 1000, end_amt: 5_380_000 });
+  });
+
+  it("주문로그 alive(실제 꼴) — 교보 wire1(53200140) open · end_n 3 · end_qty 7500", () => {
+    const v = queueLevelValuesOf(EVS, P, pieces((w) => w === 0, (w) => w === 1));
+    expect(brief(v)).toEqual([
+      [true, 2, "open"],
+      [true, 3, "cancelled"],
+      [true, 4, "cancelled"],
+      [true, 5, "cancelled"],
+      [true, 6, "cancelled"],
+      [true, 8, "open"],
+      [true, 9, "cancelled"],
+      [true, 10, "cancelled"],
+      [false, null, null],
+    ]);
+    expect(v[0]).toMatchObject({ end_n: 1, end_qty: 1000, end_amt: 5_380_000 });
+    expect(v[5]).toMatchObject({
+      kind: "queue",
+      end_n: 3,
+      end_qty: 7500,
+      end_amt: 40_350_000,
+      ahead_qty: 23500,
+      ahead_amt: 126_430_000,
+    });
+  });
+
+  it("alive 전부 null = alive 없음 결과", () => {
+    expect(queueLevelValuesOf(EVS, P, pieces(() => null, () => null))).toEqual(
+      queueLevelValuesOf(EVS, P, pieces(() => undefined, () => undefined)),
+    );
+  });
+
+  it("alive false 덮어쓰기가 마감 때 계산보다 먼저 — 뒤 조각 end_n 에서 빠진다", () => {
+    const evs = [B(50), B(150), B(350)];
+    const v = queueLevelValuesOf(evs, 1000, [piece("KB120", 0, 100, false, 1000), piece("KB120", 1, 200, undefined, 1000)]);
+    expect(v[0]).toMatchObject({ matched: true, rank: 2, end_state: "cancelled", end_n: null });
+    expect(v[1]).toMatchObject({ matched: true, rank: 3, end_state: "open", end_n: 1, end_qty: 50, end_amt: 50_000 });
+    const base = queueLevelValuesOf(evs, 1000, [piece("KB120", 0, 100, undefined, 1000), piece("KB120", 1, 200, undefined, 1000)]);
+    expect(base[0]).toMatchObject({ end_state: "open", end_n: 1 });
+    expect(base[1]).toMatchObject({ end_state: "open", end_n: 2, end_qty: 150 });
+  });
+
+  it("체결로 이미 0 이면 alive false 로 덮지 않는다", () => {
+    const v = queueLevelValuesOf([B(100), A(100), B(0)], 1000, [piece("KB120", 0, 100, false, 1000)]);
+    expect(v[0]).toMatchObject({ matched: true, end_state: "filled" });
+  });
+
+  it("B6 없는 사건 — 모든 조각 matched false · kind queue", () => {
+    const ps = [piece("KB120", 0, 100, true, 1000), piece("KYOBO119", 1, 100, false, 1000)];
+    for (const evs of [[], [A(100)]]) {
+      const v = queueLevelValuesOf(evs, 1000, ps);
+      expect(v).toHaveLength(2);
+      for (const x of v) expect(x).toMatchObject({ kind: "queue", matched: false, rank: null, end_state: null });
+    }
   });
 });
 

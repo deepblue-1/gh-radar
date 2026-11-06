@@ -13,12 +13,17 @@
  *     (첫 B6 이면 0). 뒤탐침(1387)은 상한가 대기열이 「더 좋은 가격」 이라 크게 나온다 — 맞다(design_decisions 6).
  *   - 같은 가격 A3 는 쌓아 두었다가 다음 감소에서 먼저 앞에서부터 소진(FIFO 체결). 남은 감소 = 취소 — 남은 수량이
  *     정확히 같은 주문 1개면 그것 · 여럿이면 가장 뒤(모호 → 「마감 때」 가 추정인 이유) · 없으면 설명불가(무시).
+ *     protect 주문(아래 주문로그 덮어쓰기)은 후보 아님.
  *   - 마감 때 = 재생 끝(그 보드 세션 마지막 전문). 우리 주문이 0 이면 0 으로 만든 사건(체결 · 취소) · 아니면
  *     우리 앞 rem > 0 주문 수 · 수량 · 금액(수량 × P).
  *   우리 조각 = 증가분이 조각 수량과 같은 증가 이벤트 — 게이트웨이마다 wire 순, 게이트웨이를 이어 붙인 열을 증가 열의
  *   부분열로 앞에서부터 짝짓는다(`matchQueuePieces`). 게이트웨이 순서는 **성립성**으로 고른다(design_decisions 3 —
  *   순열마다 돌려 모두 짝지어지는 순서 · 동률이면 짝 수 · 그래도 동률이면 LAUNCH_ORDER + `order_est`). sent_rel_us 는
  *   쓰지 않는다(실측 반례: 10/30 184230 교보 송신이 먼저인데 도착은 KB 가 먼저).
+ *   우리 주문로그 덮어쓰기(quick 261106-p8h) — 조각 alive(launch_queue_inputs 가 dma_account_orders 상태로 채운다)가
+ *   true 면 짝지은 뒤 그 주문을 취소 후보에서 빼고 다시 재생(`fifoReplay` protect — 추가 열은 같으므로 짝은 그대로),
+ *   false 면 남은 수량이 있어도 0(취소)으로 — 마감 때 계산 전에. null · 없음 = 위 추정 그대로. 실측 11/06 덕성우
+ *   교보 53200140: 4000 취소 7건이 뒤에서부터 0 으로 만들어 살아 있는 주문을 취소로 냈다(`queueLevelValuesOf`).
  *
  * ── 09:00 N(NXT) · A(KRX) (보드 G1 · 공격 주문) ────────────────────────────────────────────────────────────
  *   공격 주문 1건 = 체결 런 — 같은 보드 거래소순에서 직전 레코드도 A3 ∧ seq = 직전 + 1 ∧ 같은 final_bs_code 인 A3 들
@@ -63,6 +68,12 @@ export interface LaunchQueuePieceIn {
   qty: number;
   /** 우리 체결 [가격, 수량] — 저널 순서(gw_time, seq). 16:00 은 쓰지 않는다. */
   fills: ReadonlyArray<readonly [number, number]>;
+  /**
+   * 우리 주문로그(dma_account_orders) 상태 — 계산 때 기준. true = 취소 안 됨(accepted · partially_filled · filled)
+   * → 취소 귀속 후보에서 뺀다(FIFO 체결은 받는다) · false = cancelled · modified · rejected → 마감 때 우리 주문
+   * 0(취소) · null/없음 = 모름 → 지금 추정 규칙. 16:00 Q16 만 쓴다(run 은 무시).
+   */
+  alive?: boolean | null;
 }
 
 /** 입력과 같은 순서 — value null = 대상 밖(profile 이 Q16 · N · A 가 아님 · 다른 거래소 조각). */
@@ -147,8 +158,11 @@ export interface FifoReplay {
   b6: number;
 }
 
-/** 사건 열 → FIFO 대기열 재구성(규칙은 파일 머리 주석 16:00). */
-export function fifoReplay(events: Iterable<QueueEvent>): FifoReplay {
+/**
+ * 사건 열 → FIFO 대기열 재구성(규칙은 파일 머리 주석 16:00). `protect` = 취소 귀속 후보에서 뺄 주문 색인(0부터 ·
+ * 추가 순서) — 체결 소진은 그대로 받는다. 없거나 비면 지금 규칙 그대로.
+ */
+export function fifoReplay(events: Iterable<QueueEvent>, protect?: ReadonlySet<number>): FifoReplay {
   const orders: FifoOrder[] = [];
   const stats: FifoStats = { adds: 0, fills: 0, cancelExact: 0, cancelAmbig: 0, cancelNone: 0 };
   let prevCur = 0;
@@ -199,7 +213,7 @@ export function fifoReplay(events: Iterable<QueueEvent>): FifoReplay {
         let hit = -1;
         let hits = 0;
         for (let i = head; i < orders.length; i++) {
-          if (orders[i]!.rem === dd) {
+          if (orders[i]!.rem === dd && !protect?.has(i)) {
             hit = i;
             hits += 1;
           }
@@ -517,6 +531,102 @@ export function q16LevelOf(
   return fifoReplay(levelEvents(ctx, level.side, level.price, baseNsOf(level.fire_base, date)));
 }
 
+/**
+ * 한 레벨(같은 방향 · 가격 · 기준시각) 사건 열 + 그 레벨 조각 → 조각별 대기열 값(입력과 같은 길이 · 순서). 규칙은 파일
+ * 머리 주석 16:00(주문로그 덮어쓰기 포함). 배열을 받는 이유 = alive true 가 있으면 protect 로 한 번 더 재생한다.
+ */
+export function queueLevelValuesOf(
+  events: readonly QueueEvent[],
+  price: number,
+  pieces: readonly LaunchQueuePieceIn[],
+): LaunchPieceQueue[] {
+  const P = price;
+  const out: LaunchPieceQueue[] = pieces.map(() => emptyValue("queue"));
+  let rp = fifoReplay(events);
+  if (rp.b6 === 0) return out;
+  // 게이트웨이별 wire 순
+  const byGw = new Map<string, number[]>();
+  for (let i = 0; i < pieces.length; i++) {
+    const g = pieces[i]!.gateway;
+    const l = byGw.get(g);
+    if (l) l.push(i);
+    else byGw.set(g, [i]);
+  }
+  const gws = [...byGw.keys()];
+  const members = gws.map((g) => byGw.get(g)!.sort((x, y) => pieces[x]!.wire - pieces[y]!.wire));
+  const m = matchQueuePieces(
+    rp.orders.map((o) => o.qty),
+    gws.map((g, gi) => ({ gateway: g, qtys: members[gi]!.map((i) => pieces[i]!.qty) })),
+  );
+  // 주문로그 덮어쓰기 ① — alive true 주문은 취소 후보에서 빼고 다시 재생(추가 열은 같다 → 짝 m 그대로)
+  const protect = new Set<number>();
+  for (let gi = 0; gi < gws.length; gi++) {
+    const mem = members[gi]!;
+    for (let k = 0; k < mem.length; k++) {
+      const at = m.at[gi]![k]!;
+      if (at >= 0 && pieces[mem[k]!]!.alive === true) protect.add(at);
+    }
+  }
+  if (protect.size > 0) {
+    const rp2 = fifoReplay(events, protect);
+    if (rp2.orders.length !== rp.orders.length || rp2.orders.some((o, a) => o.qty !== rp.orders[a]!.qty)) {
+      throw new Error("queueLevelValuesOf: protect 재생의 추가 열이 첫 재생과 다르다(불변식 위반)");
+    }
+    rp = rp2;
+  }
+  // 주문로그 덮어쓰기 ② — alive false 주문은 남은 수량이 있어도 0(취소) · 마감 때 계산보다 먼저 전부 적용
+  for (let gi = 0; gi < gws.length; gi++) {
+    const mem = members[gi]!;
+    for (let k = 0; k < mem.length; k++) {
+      const at = m.at[gi]![k]!;
+      if (at < 0 || pieces[mem[k]!]!.alive !== false) continue;
+      const o = rp.orders[at]!;
+      if (o.rem > 0) {
+        o.rem = 0;
+        o.zeroBy = "cancel";
+      }
+    }
+  }
+  for (let gi = 0; gi < gws.length; gi++) {
+    const mem = members[gi]!;
+    for (let k = 0; k < mem.length; k++) {
+      const i = mem[k]!;
+      const at = m.at[gi]![k]!;
+      if (at < 0) {
+        out[i] = emptyValue("queue", m.est);
+        continue;
+      }
+      const o = rp.orders[at]!;
+      const v: LaunchPieceQueue = {
+        ...emptyValue("queue", m.est),
+        matched: true,
+        rank: o.n,
+        ahead_qty: o.prevCur + o.prevBetterQty,
+        ahead_amt: o.prevCur * P + o.prevBetterAmt,
+      };
+      if (o.rem <= 0) {
+        v.end_state = o.zeroBy === "fill" ? "filled" : "cancelled";
+      } else {
+        let n = 0;
+        let q = 0;
+        for (let a = 0; a < at; a++) {
+          const r = rp.orders[a]!.rem;
+          if (r > 0) {
+            n += 1;
+            q += r;
+          }
+        }
+        v.end_state = "open";
+        v.end_n = n;
+        v.end_qty = q;
+        v.end_amt = q * P;
+      }
+      out[i] = v;
+    }
+  }
+  return out;
+}
+
 function queueValuesOf(ctx: GridCtx, pieces: readonly LaunchQueuePieceIn[], idx: number[], out: LaunchQueueOut[]): void {
   // 레벨 = (방향, 가격, 기준시각)
   const levels = new Map<string, number[]>();
@@ -529,63 +639,10 @@ function queueValuesOf(ctx: GridCtx, pieces: readonly LaunchQueuePieceIn[], idx:
   }
   for (const list of levels.values()) {
     const p0 = pieces[list[0]!]!;
-    const P = p0.price;
-    const rp = fifoReplay(levelEvents(ctx, p0.side, P, baseNsOf(p0.fire_base, ctx.date)));
-    if (rp.b6 === 0) {
-      for (const i of list) out[i] = { piece: pieces[i]!, value: emptyValue("queue") };
-      continue;
-    }
-    // 게이트웨이별 wire 순
-    const byGw = new Map<string, number[]>();
-    for (const i of list) {
-      const g = pieces[i]!.gateway;
-      const l = byGw.get(g);
-      if (l) l.push(i);
-      else byGw.set(g, [i]);
-    }
-    const gws = [...byGw.keys()];
-    const members = gws.map((g) => byGw.get(g)!.sort((x, y) => pieces[x]!.wire - pieces[y]!.wire));
-    const m = matchQueuePieces(
-      rp.orders.map((o) => o.qty),
-      gws.map((g, gi) => ({ gateway: g, qtys: members[gi]!.map((i) => pieces[i]!.qty) })),
-    );
-    for (let gi = 0; gi < gws.length; gi++) {
-      const mem = members[gi]!;
-      for (let k = 0; k < mem.length; k++) {
-        const i = mem[k]!;
-        const at = m.at[gi]![k]!;
-        if (at < 0) {
-          out[i] = { piece: pieces[i]!, value: emptyValue("queue", m.est) };
-          continue;
-        }
-        const o = rp.orders[at]!;
-        const v: LaunchPieceQueue = {
-          ...emptyValue("queue", m.est),
-          matched: true,
-          rank: o.n,
-          ahead_qty: o.prevCur + o.prevBetterQty,
-          ahead_amt: o.prevCur * P + o.prevBetterAmt,
-        };
-        if (o.rem <= 0) {
-          v.end_state = o.zeroBy === "fill" ? "filled" : "cancelled";
-        } else {
-          let n = 0;
-          let q = 0;
-          for (let a = 0; a < at; a++) {
-            const r = rp.orders[a]!.rem;
-            if (r > 0) {
-              n += 1;
-              q += r;
-            }
-          }
-          v.end_state = "open";
-          v.end_n = n;
-          v.end_qty = q;
-          v.end_amt = q * P;
-        }
-        out[i] = { piece: pieces[i]!, value: v };
-      }
-    }
+    // 배열로 펼친다 — protect 재생 때 두 번 돈다(제너레이터는 한 번만)
+    const evs = [...levelEvents(ctx, p0.side, p0.price, baseNsOf(p0.fire_base, ctx.date))];
+    const vals = queueLevelValuesOf(evs, p0.price, list.map((i) => pieces[i]!));
+    for (let k = 0; k < list.length; k++) out[list[k]!] = { piece: pieces[list[k]!]!, value: vals[k]! };
   }
 }
 

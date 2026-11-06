@@ -6,10 +6,10 @@ current_phase: 39
 current_phase_name: 매매진단 챗봇
 status: executing
 stopped_at: Phase 39 context gathered
-last_updated: "2026-11-06T08:44:22.844Z"
+last_updated: "2026-11-06T09:25:18.088Z"
 last_activity: 2026-11-06
 last_activity_desc: Phase 39 execution started
-state_head: 32bca9e54b6453a52710cf47d26d146c295ab359
+state_head: f58390778bc81a8d2a90671eabc649e1e13fd128
 progress:
   total_phases: 10
   completed_phases: 9
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-04 after Phase 37)
 Phase: 39 (매매진단 챗봇) — EXECUTING
 Plan: 9 of 9
 Status: Executing Phase 39
-Last activity: 2026-11-06 - Completed quick task 261106-ntl: 계좌 메뉴 예수금·수수료·IP/MAC 설정 + 사이드바 Admin 하위 순서
+Last activity: 2026-11-06 - Completed quick task 261106-p8h: 발사 대기열 마감 때 취소 추정을 주문로그로 바로잡기 (배포 대기)
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -144,6 +144,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261106-ldl | 유통주식수 야간 배치(JOB_MODE=float) + 공개 엔드포인트 2종(GET /api/stocks/float · /:code/float) | 2026-11-06 | bc11d0c0 | [261106-ldl-stock-float](./quick/261106-ldl-stock-float/) |
 | 261106-lwu | 어드민 「계좌」 메뉴(등록·수정·삭제) + 사용자별 계좌 연결(고르기 A) + 사이드바 My page↔Admin 순서 | 2026-11-06 | 32725b88 | [261106-lwu-admin-accounts](./quick/261106-lwu-admin-accounts/) |
 | 261106-ntl | 계좌 메뉴에서 예수금·수수료·매도세·주문자 IP/MAC 설정(연결 사용자 팬아웃) · 사용자 카드 읽기 전용 · 사이드바 Admin 하위 순서 | 2026-11-06 | 32bca9e5 | [261106-ntl-account-costs](./quick/261106-ntl-account-costs/) |
+| 261106-p8h | 발사 대기열 마감 때 취소 추정을 우리 주문로그(dma_account_orders)로 바로잡기 — launch_queue_inputs alive · fifoReplay protect · queueLevelValuesOf | 2026-11-06 | f5839077 | [261106-p8h-launch-queue-alive](./quick/261106-p8h-launch-queue-alive/) |
 
 ## Session Continuity
 

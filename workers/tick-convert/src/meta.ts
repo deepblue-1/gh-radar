@@ -12,7 +12,7 @@
  *   tick_purge_old(p_keep_days)                  → {cutoff, grids, requests, runs, dates}      (37-18 nightly)
  *   tick_grid_team_pending(p_from, p_to)         → [{date, exchange, isin, object_path, bytes}] (261103-j4d backfill-team)
  *   tick_grid_team_set(p_rows)                   → 갱신 수 — 같은 object_path ∧ 미계산 행만     (261103-j4d backfill-team)
- *   launch_queue_inputs(p_date)                  → [LaunchInputRow] — 그날 대상 발사 조각 + 우리 체결 (261103-pei nightly · backfill-launch)
+ *   launch_queue_inputs(p_date)                  → [LaunchInputRow] — 그날 대상 발사 조각 + 우리 체결 (261103-pei nightly · backfill-launch) · alive(주문로그 상태 · 261106-p8h)
  *   launch_queue_set(p_rows)                     → 쓴 행 수 — 7키 upsert · 격자 경로 가드          (261103-pei)
  *   launch_queue_pending(p_from, p_to)           → {grids: TeamPendingRow 꼴[], no_grid}          (261103-pei backfill-launch)
  * `tick_convert_candidates` 의 `launch`(261103-pei) 키가 없으면 옛 RPC(db push 전)로 보고 [] + warn 한 번 — 있는데 모양이 틀리면 throw.
@@ -149,7 +149,8 @@ function isLaunchInput(v: unknown): v is LaunchInputRow {
     typeof r.price === "number" &&
     typeof r.qty === "number" &&
     Array.isArray(r.fills) &&
-    r.fills.every(isFill)
+    r.fills.every(isFill) &&
+    (r.alive === undefined || r.alive === null || typeof r.alive === "boolean")
   );
 }
 
