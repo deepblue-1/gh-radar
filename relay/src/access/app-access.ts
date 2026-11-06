@@ -84,6 +84,18 @@ function reverseIndex(map: ReadonlyMap<string, AppAccessEntry>): Map<string, str
   return out;
 }
 
+/** DMA id → DMA 권한(admin/trader) 웹 user id 전부 (Phase 40 D-06) — 맵 행 순서 · 중복 없음(맵 키가 user id 라 겹치지 않는다). */
+function grantedIndex(map: ReadonlyMap<string, AppAccessEntry>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const e of map.values()) {
+    if (!isDmaGranted(e)) continue;
+    const ids = out.get(e.dmaUserId);
+    if (ids === undefined) out.set(e.dmaUserId, [e.userId]);
+    else ids.push(e.userId);
+  }
+  return out;
+}
+
 /**
  * 재적재 전후 비교로 「권한을 잃은」 사용자인가 (D-04). 직전 행이 있었고:
  *   - 새 맵에서 사라졌거나(허용 해제)
@@ -113,6 +125,8 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
   #map = new Map<string, AppAccessEntry>();
   /** DMA id → 웹 user id (29-44 `userIdOf` 역방향 색인 · `#replace` 가 맵과 함께 교체). */
   #byDma = new Map<string, string>();
+  /** DMA id → DMA 권한(admin/trader) 웹 user id 전부 (Phase 40 D-06 `userIdsOf` · `#replace` 가 맵과 함께 교체). */
+  #byDmaAll = new Map<string, string[]>();
   #loaded = false;
   /** 주기 = `shared()` · 즉시 = `now()`(WR-02 꼬리). */
   readonly #reloader = new TailReload<AppAccessReloadResult>(() => this.#load());
@@ -203,6 +217,15 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
   }
 
   /**
+   * DMA id → 그 DMA id 를 쓰는 **권한 사용자 전부** (Phase 40 D-06 — 체결 푸시 받는 사람). 공유 DMA id 를 admin · trader 여럿이
+   * 쥐면 모두 받는다(웹 토스트 범위 = `dmaUserIdOf` 와 같은 `isDmaGranted` 규칙). viewer · 연결 없음 · 맵 밖 · 첫 적재 전은 빠진다
+   * (fail closed). 맵 행 순서 · 중복 없음 · 사본을 돌려준다. `userIdOf`(29-44 · 첫 행 하나)와 다르다. 로그에 싣지 않는다(T-19-14).
+   */
+  userIdsOf(dmaUserId: string): string[] {
+    return [...(this.#byDmaAll.get(dmaUserId) ?? [])];
+  }
+
+  /**
    * wss 인증용 조회. 맵에 있으면 바로, 없으면 단발 재적재 1회(최소 간격 `missReloadMinMs` · 진행 중이면 그것을 기다린다)
    * 뒤 다시 본다. 첫 적재 전이면 진행 중 적재를 기다린다 — 그래도 미적재면 undefined(호출자가 `loaded` 로 가른다).
    */
@@ -258,6 +281,7 @@ export class AppAccess extends EventEmitter implements GatewayIdentityView {
     }
     this.#map = next;
     this.#byDma = reverseIndex(next);
+    this.#byDmaAll = grantedIndex(next);
     this.#loaded = true;
     if (firstLoad) this.#resolveReady();
     this.#logSummary(next, skipped, firstLoad);
