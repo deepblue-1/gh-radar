@@ -47,3 +47,6 @@ export function deletePushDevice(deviceKey: string, opts: { timeoutMs?: number }
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
   });
 }
+
+/** 로그아웃 전 이 기기 행 지우기(D-15) — 인터페이스만(40-10 Task 3 RED). 구현은 GREEN 커밋. */
+export async function unregisterThisDeviceBeforeSignOut(_timeoutMs = 3_000): Promise<void> {}
