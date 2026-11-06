@@ -89,6 +89,7 @@ import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { MeAccountChips } from "@/components/me/account-chips";
 import { DeviceSettingsCard } from "@/components/me/device-settings-card";
+import { PushDevicesCard } from "@/components/me/push-devices-card";
 import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -577,6 +578,9 @@ function MeTabs() {
         />
         {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
         <DeviceSettingsCard />
+        {/* Phase 40 D-13 — 「알림 받는 기기」 카드(체결 앱 푸시 · 서버 저장 · 기기별). 위 「이 기기」 카드(localStorage)와 별개 ·
+            계좌 칩과 무관(사용자 단위). 앱 안 = 이 기기 스위치 + 다른 기기 목록 · PC = 목록 · 끄기 · 지우기만. */}
+        <PushDevicesCard />
       </TabsContent>
 
       <TabsContent
