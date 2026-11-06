@@ -59,6 +59,11 @@ export const logger = pino(
           // Phase 26 D-17 — 시세 전용 관찰자(quote 연결) 비밀 (T-26-05). env 이름 · 설정 필드 두 표기.
           "*.DMA_QUOTE_OBSERVER_SECRET",
           "*.dmaQuoteObserverSecret",
+          // Phase 40 (40-09) — APNs 인증 키(.p8 base64 · PEM) · Key ID. 실수 방어일 뿐이다 — 송신기는 키 · JWT · 기기 토큰을
+          // 로그 인자로 넘기지 않는 것이 설계다(상태 코드 · reason 만). 기기 토큰은 위 `*.token` 이 막는다.
+          "*.APNS_AUTH_KEY_B64",
+          "*.APNS_KEY_ID",
+          "*.keyPem",
         ],
         censor: "[REDACTED]",
       },
