@@ -37,7 +37,6 @@ import { UserSheet } from "./user-sheet";
  *   quick 261106-lwu(D-09 · D-10) — 사용자 개요와 계좌 마스터(`GET /api/admin/accounts`)를 **병렬로** 읽어 시트의 계좌 피커
  *   (「+ 계좌 연결」 · 「첫 계좌」)에 내려 보낸다. 계좌 목록 실패는 null 로 접는다 — 사용자 목록은 그대로 뜨고 피커만 한 줄로 말한다.
  *   쓰기 뒤 재조회도 둘 다 다시 읽는다(계좌 연결은 「쓰는 사용자」 를 바꾼다).
- *   시트에는 개요 사용자 전체(`users`)도 내려 보낸다 — 계좌 편집의 공유 계좌 안내(D-18)가 개요 데이터만으로 판정한다(추가 요청 없음).
  * - 데스크톱 시트는 비모달(29-31 · UI-REVIEW-2) — 시트를 연 채 다른 행을 누르면 그 사용자로 바뀐다. 편집 · 생성 시트는
  *   한 번에 하나만 연다(겹치지 않게 서로를 닫는다). 시트가 열린 동안 본문은 패널 폭을 비워(`AdminPanelPage` — 본문 폭
  *   784 이상) 목록 · 머리 「+ 사용자」 가 패널 왼쪽에 다 보인다(목업 A 「목록이 왼쪽에 남는다」).
@@ -186,7 +185,6 @@ export function UsersClient() {
           user={selectedUser}
           servers={state.data.servers}
           accounts={state.accounts}
-          users={state.data.users}
           initialResults={created?.email === selectedUser.email ? created.results : null}
           onChanged={() => void load()}
           onClose={() => {
