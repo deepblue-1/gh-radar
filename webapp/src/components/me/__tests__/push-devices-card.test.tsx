@@ -101,6 +101,15 @@ function device(over: Partial<PushDevice> = {}): PushDevice {
 
 const thisSwitch = () => screen.getByRole('switch', { name: PUSH_DEVICES_TEXT.thisDevice });
 
+/** 가짜 서버 — PUT 이 행을 켜짐으로 저장하면 뒤따르는 목록 읽기도 그 행을 돌려준다. */
+function serverRegisters() {
+  vi.mocked(registerThisPushDevice).mockImplementation(async (deviceKey, body) => {
+    const saved = device({ deviceKey, platform: body.platform, label: body.label, enabled: true });
+    vi.mocked(fetchPushDevices).mockResolvedValue([saved]);
+    return saved;
+  });
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   __resetPushDevicesForTest();
@@ -124,9 +133,7 @@ afterEach(() => {
 describe('PushDevicesCard — 앱 안 「이 기기 체결 알림」 켜기 (D-12 · D-14)', () => {
   it('권한 prompt → request granted → (android) 채널 → registration 리스너가 register 보다 먼저 → PUT → 켜짐', async () => {
     const { state } = installCapacitor({ platform: 'android', check: 'prompt', request: 'granted' });
-    vi.mocked(registerThisPushDevice).mockImplementation(async (deviceKey, body) =>
-      device({ deviceKey, platform: body.platform, label: body.label, enabled: true }),
-    );
+    serverRegisters();
 
     render(<PushDevicesCard />);
     await act(async () => {});
@@ -166,9 +173,7 @@ describe('PushDevicesCard — 앱 안 「이 기기 체결 알림」 켜기 (D-1
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
     );
-    vi.mocked(registerThisPushDevice).mockImplementation(async (deviceKey, body) =>
-      device({ deviceKey, platform: body.platform, label: body.label }),
-    );
+    serverRegisters();
 
     render(<PushDevicesCard />);
     await act(async () => {});
