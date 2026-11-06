@@ -108,7 +108,9 @@ describe("표시명 표 전수 (D-10)", () => {
   });
 
   it("strategyEventSide(group, kind) — 0~6 은 kind 무관 옛 규칙 · 8 VI 는 항상 매수 · 7 수동은 kind 로 · 모르는 group 은 null", () => {
-    const KINDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // kind 9 상태전이는 group 무관 null(Phase 39 D-10) — 아래 루프에서 빼고 따로 단언한다.
+    const KINDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10];
+    for (let g = 0; g <= 10; g++) expect(strategyEventSide(g, 9)).toBeNull();
     // 0~6: kind 무관 1~3 매수 · 4~6 매도 · 0 null (기존과 바이트 동일)
     const legacy = (g: number): "buy" | "sell" | null => (g >= 1 && g <= 3 ? "buy" : g >= 4 && g <= 6 ? "sell" : null);
     for (let g = 0; g <= 6; g++) {
@@ -119,7 +121,7 @@ describe("표시명 표 전수 (D-10)", () => {
     // 7 수동 — 매도주문 6 만 매도 · 매수주문 3 · 대기 4 · 첫체결 5 · 취소 7 은 매수 · 그 밖(0·1·2·8 거부·9)은 null
     expect(strategyEventSide(7, 6)).toBe("sell");
     for (const k of [3, 4, 5, 7]) expect(strategyEventSide(7, k)).toBe("buy");
-    for (const k of [0, 1, 2, 8, 9]) expect(strategyEventSide(7, k)).toBeNull();
+    for (const k of [0, 1, 2, 8]) expect(strategyEventSide(7, k)).toBeNull();
     // 9 자동매도 — 매도 전용(Phase 27 D-14)
     for (const k of KINDS) expect(strategyEventSide(9, k)).toBe("sell");
     // 모르는 group — 방향을 지어내지 않는다(D-10)

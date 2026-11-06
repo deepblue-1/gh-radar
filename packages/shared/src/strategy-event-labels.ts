@@ -194,6 +194,21 @@ export const STATE_SWITCH_BIT_LABELS: readonly string[] = [
   "후매수 자동",
 ];
 
+/** kind 9 후매수 단계(`cond_threshold` 전 → `cond_actual` 후 · `AutoPostBuy*` 사유). 표 밖 값은 원문 숫자. */
+export const POST_BUY_STAGE_LABELS: Readonly<Record<number, string>> = {
+  0: "꺼짐",
+  1: "감시",
+  2: "보유중",
+  3: "소진",
+};
+
+/** kind 9 위험도 래치(`cond_threshold` 전 → `cond_actual` 후 · `AutoRisk*` 사유). 표 밖 값은 원문 숫자. */
+export const RISK_LATCH_LABELS: Readonly<Record<number, string>> = {
+  0: "대기",
+  1: "무장",
+  2: "발동",
+};
+
 /**
  * 자동매도 `reason_code` 첫 토큰 13종 — gh-trade `server/src/trade/strategy/LimitChaser.h:388-400`
  * `OrderReasonName` 원문의 첫 공백 앞. 판정은 `isAutoSellReason`(첫 토큰 **정확 일치** — 꼬리 문구는 읽지
@@ -271,8 +286,11 @@ export type StrategyEventSide = "buy" | "sell";
  *   - 7 수동 — 매수 · 매도 겸용이라 kind 로 정한다: 6 매도주문 → 매도 · 3 매수주문 · 4 대기 · 5 첫체결 ·
  *     7 취소 → 매수(대기 · 체결 · 취소는 매수 흐름에서만 온다) · 그 밖(8 거부 등) null.
  *   - 그 밖 group(0 포함 · 모르는 값) null — 방향을 지어내지 않는다(D-10).
+ *   - kind 9 상태전이는 group 과 무관하게 null — 설정 · 자동 전이 이력이지 주문 방향이 아니다(39 D-10).
+ *     `STRATEGY_EVENT_KIND` 는 import 하지 않는다 — 이 파일은 의존 0 의 표 정본이라 숫자 9 와 주석으로 쓴다.
  */
 export function strategyEventSide(group: number, kind: number): StrategyEventSide | null {
+  if (kind === 9) return null; // 상태전이는 방향이 없다 — group 이 1~3 이어도 매수 색 금지(39 D-10 · Pitfall 6).
   if (group >= 1 && group <= 3) return "buy";
   if (group >= 4 && group <= 6) return "sell";
   if (group === 8) return "buy";

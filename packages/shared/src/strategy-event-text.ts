@@ -44,8 +44,10 @@ import {
   orderConditionLabel,
   orderGroupLabel,
   orderGroupOriginText,
+  POST_BUY_STAGE_LABELS,
   reasonOperator,
   reasonToken,
+  RISK_LATCH_LABELS,
   stateReasonLabel,
   stateSwitchChanges,
   strategyEventSide,
@@ -204,12 +206,29 @@ function joinDot(pieces: ReadonlyArray<string | null | undefined>): string {
 }
 
 /**
- * kind 9 상태전이 본문 — 바뀐 스위치(`ahead_qty` 전 → `expected_cum` 후) · message(바뀐 값 요약) 를 「 · 」 로 잇고
- * 제출자(`order_condition` — 사람 제출 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
+ * kind 9 상태전이 본문 — 바뀐 스위치(`ahead_qty` 전 → `expected_cum` 후) → 단계 전→후 → message(바뀐 값 요약) 를
+ * 「 · 」 로 잇고 제출자(`order_condition` — 사람 제출 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
  */
 function stateTransitionBody(ev: StrategyEventRow): string {
-  const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), ev.message]);
+  const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), stateStageText(ev), ev.message]);
   return ev.orderCondition ? `${body}(${ev.orderCondition})` : body;
+}
+
+/**
+ * kind 9 단계 전→후(`cond_threshold` → `cond_actual`) — `AutoPostBuy*` 는 「후매수 단계 감시→보유중」 ·
+ * `AutoRisk*` 는 「위험도 래치 대기→무장」. 다른 사유이거나 전 = 후면 null. 표 밖 값은 원문 숫자(D-10).
+ */
+function stateStageText(ev: StrategyEventRow): string | null {
+  if (ev.condThreshold === ev.condActual) return null;
+  const token = ev.reasonCode;
+  const [title, table] = token.startsWith("AutoPostBuy")
+    ? ["후매수 단계", POST_BUY_STAGE_LABELS]
+    : token.startsWith("AutoRisk")
+      ? ["위험도 래치", RISK_LATCH_LABELS]
+      : [null, null];
+  if (title === null || table === null) return null;
+  const label = (v: number) => table[v] ?? String(v);
+  return `${title} ${label(ev.condThreshold)}→${label(ev.condActual)}`;
 }
 
 /**
