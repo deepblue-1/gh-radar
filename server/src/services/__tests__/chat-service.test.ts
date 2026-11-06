@@ -51,12 +51,14 @@ vi.mock("../chat-history", () => ({
 }));
 
 // mock 이후 import
+import { logger } from "../../logger";
 import {
   handleChatStream,
   sanitizeMessages,
   pruneHistory,
   isRetryableError,
   __resetChatSessionsForTests,
+  DIAGNOSIS_RELAY_HEADER,
 } from "../chat-service";
 
 // --- test helpers ---
@@ -426,5 +428,327 @@ describe("handleChatStream (stock_card D-07)", () => {
     expect(assistantCall![2].blocks).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "stock_card", code: "005930" })]),
     );
+  });
+});
+
+// ============================================================
+// 8) 주문 진단 — 진단문 화면 직접 전달 (Phase 39 D-01 · D-02 · D-03 · SC-2)
+// ============================================================
+describe("handleChatStream (주문 진단 D-01)", () => {
+  /** 진단 전문가가 돌려주는 진단문 — 시각 ms · 수량 · 조건 문구가 글자 그대로 남아야 한다. */
+  const D = [
+    "13:10:30.385 선매수 5,940주 — 사유 PreBuy A3 스윕호가변경",
+    "- 직전 A3 13:10:30.212 체결량 160,463주 · 단일가 아님(bs 공백 b_)",
+    "- 조건: 스윕 임계 150,000주 초과 → 발주",
+  ].join("\n");
+  const HEAD = "확인해 볼게요.";
+  const TAIL = "더 궁금한 점 있으면 물어 주세요.";
+  const DEPS = { tickgw: undefined, tickConvertTrigger: undefined, tickRequestDailyCap: 7 };
+
+  function diagnosisRound1() {
+    return makeStreamMock({
+      textDeltas: [HEAD],
+      finalMessage: {
+        ...makeToolUseFinalMessage([]),
+        content: [
+          { type: "text", text: HEAD, citations: null },
+          {
+            type: "tool_use",
+            id: "td1",
+            name: SPECIALIST_TOOL_NAMES.diagnosis,
+            input: { question: "선매수 왜 나갔어?" },
+          },
+        ],
+      } as Anthropic.Message,
+    });
+  }
+
+  const textOf = (evs: SSEEvent[]) =>
+    evs
+      .filter((e) => e.event === "text")
+      .map((e) => (e.data as { text: string }).text)
+      .join("");
+
+  /** 팀장 루프는 같은 messages 배열을 계속 민다(호출 뒤 assistant 가 붙는다) — tool_result user 메시지를 찾아 읽는다. */
+  const toolResultsSent = (): Anthropic.ToolResultBlockParam[] => {
+    const params = streamMock.mock.calls[1][0] as { messages: Anthropic.MessageParam[] };
+    const msg = params.messages.find(
+      (m) =>
+        m.role === "user" &&
+        Array.isArray(m.content) &&
+        (m.content[0] as { type?: string })?.type === "tool_result",
+    );
+    return msg!.content as Anthropic.ToolResultBlockParam[];
+  };
+
+  const assistantContent = () =>
+    appendMessageMock.mock.calls.find((c) => c[2].role === "assistant")![2].content as string;
+
+  it("SSE 순서: 머리말 → agent_start(diagnosis) → 진단문 그대로 → agent_end → 꼬리말 · 저장 content = 화면 글자", async () => {
+    streamMock
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: [TAIL], finalMessage: makeEndTurnFinalMessage(TAIL) }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({ text: D, display: D, usage: [] });
+
+    const { res, events } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "선매수 왜 나갔어?",
+      diagnosisDeps: DEPS,
+    });
+
+    const evs = events();
+    const seq = evs
+      .filter((e) => ["text", "agent_start", "agent_end"].includes(e.event))
+      .map((e) => (e.event === "text" ? `text:${(e.data as { text: string }).text}` : e.event));
+    expect(seq).toEqual([
+      `text:${HEAD}`,
+      "agent_start",
+      `text:\n\n${D}\n\n`,
+      "agent_end",
+      `text:${TAIL}`,
+    ]);
+    expect(evs.find((e) => e.event === "agent_start")!.data).toEqual({
+      agent: "diagnosis",
+      label: "주문 진단 전문가",
+    });
+    expect(evs.find((e) => e.event === "agent_end")!.data).toEqual({ agent: "diagnosis" });
+
+    expect(assistantContent()).toBe(textOf(evs));
+    expect(assistantContent()).toContain(D);
+  });
+
+  it("2라운드 tool_result content 는 DIAGNOSIS_RELAY_HEADER 로 시작하고 진단문 원문을 담는다", async () => {
+    streamMock
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: [TAIL], finalMessage: makeEndTurnFinalMessage(TAIL) }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({ text: D, display: D, usage: [] });
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "선매수 왜 나갔어?",
+      diagnosisDeps: DEPS,
+    });
+
+    const tr = toolResultsSent()[0];
+    expect(tr.tool_use_id).toBe("td1");
+    expect(typeof tr.content).toBe("string");
+    expect((tr.content as string).startsWith(DIAGNOSIS_RELAY_HEADER)).toBe(true);
+    expect(tr.content as string).toContain(D);
+  });
+
+  it("2라운드 첫 시도가 529 로 부분 delta 뒤 실패 → text_clear 다음 재전송분에 진단문이 있다(Pitfall 9)", async () => {
+    const failing = {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "더 궁" },
+        } as Anthropic.MessageStreamEvent;
+        throw Object.assign(new Error("overloaded"), { status: 529 });
+      },
+      finalMessage: async () => makeEndTurnFinalMessage(""),
+    };
+    streamMock
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(failing)
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: [TAIL], finalMessage: makeEndTurnFinalMessage(TAIL) }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({ text: D, display: D, usage: [] });
+
+    const { res, events } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "선매수 왜 나갔어?",
+      diagnosisDeps: DEPS,
+    });
+
+    const evs = events();
+    const clearIdx = evs.findIndex((e) => e.event === "text_clear");
+    expect(clearIdx).toBeGreaterThan(-1);
+    const resent = evs[clearIdx + 1];
+    expect(resent.event).toBe("text");
+    expect((resent.data as { text: string }).text).toContain(D);
+
+    // text_clear 뒤 화면 누적 == 저장 content (글자 그대로)
+    expect(textOf(evs.slice(clearIdx + 1))).toBe(assistantContent());
+    expect(assistantContent()).toContain(D);
+  });
+
+  it("runSpecialist 넷째 인자 = { userId, signal, deps: opts.diagnosisDeps } — 계좌 인자 없음(SC-2)", async () => {
+    streamMock
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: [TAIL], finalMessage: makeEndTurnFinalMessage(TAIL) }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({ text: D, display: D, usage: [] });
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "선매수 왜 나갔어?",
+      diagnosisDeps: DEPS,
+    });
+
+    expect(runSpecialistMock).toHaveBeenCalledTimes(1);
+    const [name, input, , ctx] = runSpecialistMock.mock.calls[0];
+    expect(name).toBe(SPECIALIST_TOOL_NAMES.diagnosis);
+    expect(input).toEqual({ question: "선매수 왜 나갔어?" });
+    expect(Object.keys(ctx).sort()).toEqual(["deps", "signal", "userId"]);
+    expect(ctx.userId).toBe("user-1");
+    expect(ctx.signal).toBeInstanceOf(AbortSignal);
+    expect(ctx.deps).toBe(DEPS);
+  });
+
+  it("display 없는 결과(다른 전문가 · 진단 고정 문구)는 SSE text 로 흘리지 않는다", async () => {
+    streamMock
+      .mockReturnValueOnce(
+        makeStreamMock({
+          textDeltas: [],
+          finalMessage: makeToolUseFinalMessage([
+            { id: "t1", name: SPECIALIST_TOOL_NAMES.theme, input: { question: "테마?" } },
+            { id: "t2", name: SPECIALIST_TOOL_NAMES.diagnosis, input: { question: "왜 안 나갔어?" } },
+          ]),
+        }),
+      )
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: ["종합"], finalMessage: makeEndTurnFinalMessage("종합") }),
+      );
+    runSpecialistMock
+      .mockResolvedValueOnce({ text: "테마 의견" })
+      .mockResolvedValueOnce({ text: "주문 진단을 지금 쓸 수 없습니다.", usage: [] });
+
+    const { res, events } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "둘 다",
+    });
+
+    expect(textOf(events())).toBe("종합");
+    expect(toolResultsSent().map((t) => t.content)).toEqual(["테마 의견", "주문 진단을 지금 쓸 수 없습니다."]);
+  });
+});
+
+// ============================================================
+// 9) [chat] usage 모델별 토큰 맵 (Phase 39 SC-3)
+// ============================================================
+describe("handleChatStream ([chat] usage models 맵 SC-3)", () => {
+  /** 팀장 라운드 usage 를 채운 finalMessage — 공용 mock 은 0 이라 합산을 볼 수 없다. */
+  function withUsage(
+    msg: Anthropic.Message,
+    u: { input: number; output: number; read?: number | null; creation?: number | null },
+  ): Anthropic.Message {
+    return {
+      ...msg,
+      usage: {
+        ...msg.usage,
+        input_tokens: u.input,
+        output_tokens: u.output,
+        cache_read_input_tokens: u.read ?? null,
+        cache_creation_input_tokens: u.creation ?? null,
+      },
+    };
+  }
+
+  function usageLog(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
+    const call = spy.mock.calls.find((c) => c[1] === "[chat] usage");
+    expect(call).toBeDefined();
+    return call![0] as Record<string, unknown>;
+  }
+
+  it("진단 턴: 기존 키 그대로 + models 에 팀장(sonnet) · 진단(opus) 두 키 — opus 값 = 전문가 usage 합", async () => {
+    const info = vi.spyOn(logger, "info");
+    streamMock
+      .mockReturnValueOnce(
+        makeStreamMock({
+          textDeltas: [],
+          finalMessage: withUsage(
+            makeToolUseFinalMessage([
+              { id: "td1", name: SPECIALIST_TOOL_NAMES.diagnosis, input: { question: "왜?" } },
+            ]),
+            { input: 100, output: 10, read: 5, creation: 7 },
+          ),
+        }),
+      )
+      .mockReturnValueOnce(
+        makeStreamMock({
+          textDeltas: ["끝"],
+          finalMessage: withUsage(makeEndTurnFinalMessage("끝"), { input: 200, output: 20, read: null }),
+        }),
+      );
+    runSpecialistMock.mockResolvedValueOnce({
+      text: "진단",
+      display: "진단",
+      usage: [
+        {
+          model: "claude-opus-5-5",
+          inputTokens: 1000,
+          outputTokens: 200,
+          cacheReadInputTokens: 50,
+          cacheCreationInputTokens: 300,
+        },
+      ],
+    });
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "왜?",
+    });
+
+    const log = usageLog(info);
+    expect(log).toMatchObject({
+      conversationId: "conv-new",
+      model: "claude-sonnet-5",
+      inputTokens: 300,
+      outputTokens: 30,
+      toolRounds: 1,
+    });
+    expect(log).toHaveProperty("models");
+    expect(Object.keys(log.models as object).sort()).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+    expect((log.models as Record<string, unknown>)["claude-sonnet-5"]).toEqual({
+      inputTokens: 300,
+      outputTokens: 30,
+      cacheReadInputTokens: 5,
+      cacheCreationInputTokens: 7,
+    });
+    expect((log.models as Record<string, unknown>)["claude-opus-5-5"]).toEqual({
+      inputTokens: 1000,
+      outputTokens: 200,
+      cacheReadInputTokens: 50,
+      cacheCreationInputTokens: 300,
+    });
+  });
+
+  it("진단 없는 턴: models 에 팀장 키 하나뿐", async () => {
+    const info = vi.spyOn(logger, "info");
+    streamMock.mockReturnValueOnce(
+      makeStreamMock({
+        textDeltas: ["안녕"],
+        finalMessage: withUsage(makeEndTurnFinalMessage("안녕"), { input: 40, output: 4 }),
+      }),
+    );
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "안녕",
+    });
+
+    const log = usageLog(info);
+    expect(log.models).toEqual({
+      "claude-sonnet-5": {
+        inputTokens: 40,
+        outputTokens: 4,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+      },
+    });
   });
 });

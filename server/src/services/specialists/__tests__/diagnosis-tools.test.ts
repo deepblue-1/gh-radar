@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+const { getMarketTicksTextMock } = vi.hoisted(() => ({ getMarketTicksTextMock: vi.fn() }));
+vi.mock("../diagnosis/diagnosis-market", async (importActual) => ({
+  ...(await importActual<typeof import("../diagnosis/diagnosis-market")>()),
+  getMarketTicksText: getMarketTicksTextMock,
+}));
+
+import { TICK_REQUEST_DAILY_CAP_DEFAULT } from "../../ticks";
 import {
   DIAGNOSIS_TOOL_CAPS,
   DIAGNOSIS_TOOLS,
@@ -257,5 +264,105 @@ describe("도구별 호출 상한", () => {
     expect(over.is_error).toBeFalsy();
     expect(text(over)).toBe("종목 검색 상한(4회) 도달 — 지금까지 자료로 답하세요");
     expect(sb.from).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("get_market_ticks (39-07) — 시세 도구 배선", () => {
+  const MT = { isin: ISIN, exchange: "KRX", date: DATE, from: "13:10:20", to: "13:10:35" };
+  const DEPS = { tickgw: { fetchState: vi.fn() }, tickConvertTrigger: vi.fn(), tickRequestDailyCap: 7 } as never;
+
+  beforeEach(() => {
+    getMarketTicksTextMock.mockReset().mockResolvedValue({
+      text: "범례: …\n13:10:30.212 A3 …",
+      records: 0,
+      truncated: false,
+      source: "grid",
+    });
+  });
+
+  it("도구 순서 = get_order_log · search_stock · get_market_ticks · required 5칸 · exchange enum [KRX, NXT]", () => {
+    expect(DIAGNOSIS_TOOLS.map((t) => t.name)).toEqual(["get_order_log", "search_stock", "get_market_ticks"]);
+    const mt = DIAGNOSIS_TOOLS[2];
+    expect(mt.input_schema.required).toEqual(["isin", "exchange", "date", "from", "to"]);
+    const props = mt.input_schema.properties as Record<string, { enum?: string[] }>;
+    expect(Object.keys(props).sort()).toEqual(["date", "exchange", "from", "isin", "to"]);
+    expect(props.exchange.enum).toEqual(["KRX", "NXT"]);
+  });
+
+  it("디스패치 → getMarketTicksText 1회 · 둘째 인자 = state 의존성 · 셋째 = state.marketMemo · 덧붙인 account_no 는 버린다", async () => {
+    const sb = makeSupabase();
+    const state = { ...makeState(sb.client), deps: DEPS };
+    const out = await dispatchDiagnosisTool(
+      toolUse("get_market_ticks", { ...MT, account_no: "9999", user_id: "x" }),
+      state,
+    );
+
+    expect(out.is_error).toBeFalsy();
+    expect(text(out)).toBe("범례: …\n13:10:30.212 A3 …");
+    expect(getMarketTicksTextMock).toHaveBeenCalledTimes(1);
+    const [input, deps, memo] = getMarketTicksTextMock.mock.calls[0];
+    expect(Object.keys(input).sort()).toEqual(["date", "exchange", "from", "isin", "to"]);
+    expect(input).toEqual(MT);
+    const d = DEPS as unknown as { tickgw: unknown; tickConvertTrigger: unknown };
+    expect(deps).toEqual({
+      supabase: state.supabase,
+      userId: state.userId,
+      tickgw: d.tickgw,
+      trigger: d.tickConvertTrigger,
+      dailyCap: 7,
+    });
+    expect(deps.userId).toBe(USER);
+    expect(memo).toBe(state.marketMemo);
+
+    // 같은 실행의 두 번째 호출도 같은 메모 객체
+    await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, "tu_2"), state);
+    expect(getMarketTicksTextMock.mock.calls[1][2]).toBe(state.marketMemo);
+  });
+
+  it("5번째 get_market_ticks → 시세 엔진 호출 없음 · 「시세 조회 상한(4회) 도달 — 지금까지 자료로 답하세요」", async () => {
+    const state = { ...makeState(makeSupabase().client), deps: DEPS };
+    for (let i = 0; i < 4; i++) {
+      await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, `tu_${i}`), state);
+    }
+    expect(getMarketTicksTextMock).toHaveBeenCalledTimes(4);
+    const over = await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, "tu_x"), state);
+    expect(over.is_error).toBeFalsy();
+    expect(text(over)).toBe("시세 조회 상한(4회) 도달 — 지금까지 자료로 답하세요");
+    expect(getMarketTicksTextMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("잘못된 시각(from: \"1310\") → is_error 「입력 오류」 · 시세 엔진 호출 0", async () => {
+    const out = await dispatchDiagnosisTool(
+      toolUse("get_market_ticks", { ...MT, from: "1310" }),
+      { ...makeState(makeSupabase().client), deps: DEPS },
+    );
+    expect(out.is_error).toBe(true);
+    expect(text(out)).toContain("입력 오류");
+    expect(getMarketTicksTextMock).not.toHaveBeenCalled();
+  });
+
+  it("state.deps 없음 → dailyCap 기본값 · tickgw · trigger undefined 로 넘긴다", async () => {
+    const state = makeState(makeSupabase().client);
+    await dispatchDiagnosisTool(toolUse("get_market_ticks", MT), state);
+    const deps = getMarketTicksTextMock.mock.calls[0][1];
+    expect(deps.dailyCap).toBe(TICK_REQUEST_DAILY_CAP_DEFAULT);
+    expect(deps.tickgw).toBeUndefined();
+    expect(deps.trigger).toBeUndefined();
+    expect(deps.userId).toBe(USER);
+  });
+
+  it("결과 records 를 state.marketRecords 에 더하고 truncated 를 OR 로 누적한다", async () => {
+    getMarketTicksTextMock
+      .mockResolvedValueOnce({ text: "a", records: 3, truncated: false, source: "grid" })
+      .mockResolvedValueOnce({ text: "b", records: 5, truncated: true, source: "grid" })
+      .mockResolvedValueOnce({ text: "c", records: 0, truncated: false, source: "none" });
+    const state = { ...makeState(makeSupabase().client), deps: DEPS };
+    await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, "tu_1"), state);
+    await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, "tu_2"), state);
+    expect(state.marketRecords).toBe(8);
+    expect(state.truncated).toBe(true);
+    await dispatchDiagnosisTool(toolUse("get_market_ticks", MT, "tu_3"), state);
+    expect(state.marketRecords).toBe(8);
+    expect(state.truncated).toBe(true);
   });
 });

@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { logger } from "../../../logger.js";
 import { sanitizeSearchTerm } from "../../../schemas/search.js";
-import type { MarketMemo } from "./diagnosis-market.js";
+import { TICK_REQUEST_DAILY_CAP_DEFAULT } from "../../ticks.js";
+import { getMarketTicksText, type MarketMemo } from "./diagnosis-market.js";
 import { getOrderLogText } from "./diagnosis-order-log.js";
 import type { DiagnosisDeps } from "./diagnosis-specialist.js";
 
@@ -48,7 +49,7 @@ const CAP_LABELS: Record<keyof typeof DIAGNOSIS_TOOL_CAPS, string> = {
 const SEARCH_LIMIT = 10;
 
 /**
- * 도구 정의 — 순서 고정(get_order_log → search_stock · 39-07 이 get_market_ticks 를 끝에 붙인다).
+ * 도구 정의 — 순서 고정(get_order_log → search_stock → get_market_ticks · 새 도구는 끝에만 붙인다).
  * 매 요청 같은 배열이어야 prefix 캐시 · preserved thinking 이 산다.
  */
 export const DIAGNOSIS_TOOLS: Anthropic.Tool[] = [
@@ -76,6 +77,23 @@ export const DIAGNOSIS_TOOLS: Anthropic.Tool[] = [
       required: ["query"],
     },
   },
+  {
+    // 39-07 — 계좌 칸 없음. 사용자 범위(tick_open_for_user 등)는 state.userId 로만 정해진다(SC-2).
+    name: "get_market_ticks",
+    description:
+      "체결(A3)+호가(B6) 원본 전문을 시간순 한 줄씩 준다. 최대 60초 · 400건 — 넘으면 잘림 표시가 붙으니 범위를 좁혀 다시 부른다. 처음엔 사건 시각 −10초~+5초로 부른다. 오늘은 당일 경로, 지난 날짜는 저장 격자 — 없으면 변환을 걸고 『변환 중』 을 돌려준다. 『자료 없음』 이면 시세 없이 판단한다.",
+    input_schema: {
+      type: "object",
+      properties: {
+        isin: { type: "string", description: "12자 ISIN" },
+        exchange: { type: "string", enum: ["KRX", "NXT"], description: "거래소" },
+        date: { type: "string", description: "YYYY-MM-DD (KST)" },
+        from: { type: "string", description: "HH:MM:SS(.mmm) KST · 창 시작" },
+        to: { type: "string", description: "HH:MM:SS(.mmm) KST · 창 끝(from 뒤 60초 이내)" },
+      },
+      required: ["isin", "exchange", "date", "from", "to"],
+    },
+  },
 ];
 
 const TIME_RE = /^\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/;
@@ -87,6 +105,16 @@ const OrderLogInput = z
     isin: z.string().regex(/^[A-Z0-9]{12}$/, "12자 ISIN 이어야 합니다").optional(),
     from: z.string().regex(TIME_RE, "HH:MM:SS 형식이어야 합니다").optional(),
     to: z.string().regex(TIME_RE, "HH:MM:SS 형식이어야 합니다").optional(),
+  })
+  .strip();
+
+const MarketTicksInputSchema = z
+  .object({
+    isin: z.string().regex(/^[A-Z0-9]{12}$/, "12자 ISIN 이어야 합니다"),
+    exchange: z.enum(["KRX", "NXT"]),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD 형식이어야 합니다"),
+    from: z.string().regex(TIME_RE, "HH:MM:SS 형식이어야 합니다"),
+    to: z.string().regex(TIME_RE, "HH:MM:SS 형식이어야 합니다"),
   })
   .strip();
 
@@ -182,6 +210,26 @@ async function runTool(block: Anthropic.ToolUseBlock, state: DiagnosisToolState)
         return { type: "tool_result", tool_use_id: block.id, is_error: true, content: "입력 오류: query: 검색할 글자가 없습니다" };
       }
       return textResult(block.id, await searchStockText(state.supabase, term, parsed.data.query));
+    }
+    case "get_market_ticks": {
+      const parsed = MarketTicksInputSchema.safeParse(block.input ?? {});
+      if (!parsed.success) return inputError(block.id, parsed.error);
+      // 의존성은 라우트 app.locals → ctx.deps 에서만 온다. 없으면 시세 엔진이 「자료 없음」 사유를 만든다.
+      const r = await getMarketTicksText(
+        parsed.data,
+        {
+          supabase: state.supabase,
+          userId: state.userId,
+          tickgw: state.deps?.tickgw,
+          trigger: state.deps?.tickConvertTrigger,
+          dailyCap: state.deps?.tickRequestDailyCap ?? TICK_REQUEST_DAILY_CAP_DEFAULT,
+        },
+        state.marketMemo,
+      );
+      // [chat] diagnosis usage 로그(39-05)가 이 두 칸을 그대로 싣는다.
+      state.marketRecords += r.records;
+      state.truncated ||= r.truncated;
+      return textResult(block.id, r.text);
     }
     default:
       return { type: "tool_result", tool_use_id: block.id, is_error: true, content: `모르는 도구: ${block.name}` };

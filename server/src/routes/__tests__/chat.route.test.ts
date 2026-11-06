@@ -141,6 +141,38 @@ describe("POST /api/chat", () => {
     });
     expect(r.text).toContain("event: done");
   });
+
+  it("Phase 39: app.locals 의 tickgw · tickConvertTrigger · tickRequestDailyCap → diagnosisDeps 로 넘긴다", async () => {
+    const T = { fetchState: vi.fn() } as any;
+    const C = vi.fn() as any;
+    const r = await request(
+      createApp({ supabase: makeSupabase({ user: USER }), tickgw: T, tickConvertTrigger: C, tickRequestDailyCap: 7 }),
+    )
+      .post("/api/chat")
+      .set("Authorization", "Bearer tok")
+      .send({ message: "선매수 왜 나갔어?" });
+    expect(r.status).toBe(200);
+    const opts = handleChatStreamMock.mock.calls[0][3] as any;
+    expect(opts.userId).toBe("user-1");
+    expect(opts.diagnosisDeps).toEqual({ tickgw: T, tickConvertTrigger: C, tickRequestDailyCap: 7 });
+    expect(opts.diagnosisDeps.tickgw).toBe(T);
+    expect(opts.diagnosisDeps.tickConvertTrigger).toBe(C);
+    // 계좌 범위는 userId 하나로만 — 옵션 어디에도 계좌 칸이 없다(SC-2)
+    expect(JSON.stringify(Object.keys(opts))).not.toMatch(/account/i);
+  });
+
+  it("Phase 39: tickRequestDailyCap 미주입이면 기본 상한(TICK_REQUEST_DAILY_CAP_DEFAULT=20)", async () => {
+    await request(app(makeSupabase({ user: USER })))
+      .post("/api/chat")
+      .set("Authorization", "Bearer tok")
+      .send({ message: "선매수 왜 나갔어?" });
+    const opts = handleChatStreamMock.mock.calls[0][3] as any;
+    expect(opts.diagnosisDeps).toEqual({
+      tickgw: undefined,
+      tickConvertTrigger: undefined,
+      tickRequestDailyCap: 20,
+    });
+  });
 });
 
 describe("GET /api/chat/conversations", () => {

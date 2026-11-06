@@ -10,6 +10,9 @@ import { ValidationFailed } from "../errors.js";
 import { loadConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { handleChatStream } from "../services/chat-service.js";
+import { TICK_REQUEST_DAILY_CAP_DEFAULT } from "../services/ticks.js";
+import type { TickConvertTrigger } from "../services/tick-convert-trigger.js";
+import type { TickgwClient } from "../services/tickgw-client.js";
 import {
   listConversations,
   loadConversation,
@@ -33,6 +36,9 @@ import {
  * 403 DMA_UNMAPPED(zod 검증 · CHAT_DISABLED 503 · SSE 헤더보다 앞 — Sonnet 호출 0). 판정 원천은 상한가 보고서
  * RPC 게이트와 같은 dma_visible_accounts(p_user_id). 웹 DmaGate · 사이드바 숨김은 표시 장치일 뿐 차단은 여기다.
  * POST 순서: chatRateLimit → requireAuth() → requireDmaMapped() (레이트리밋 맨 앞 유지).
+ *
+ * Phase 39 — 주문 진단 전문가의 시세 도구 의존성(tickgw · 요청 변환 트리거 · 하루 상한)은 `app.locals` 에서만 넘긴다
+ * (`diagnosisDeps`). 계좌 범위는 `req.userId` 하나로만 정해진다 — 팀장 · 전문가 입력 어디에도 계좌 칸이 없다(SC-2).
  */
 
 /** 라우트 전용 rate-limit — /api(200/60s) 위에 챗 POST 만 추가 강화(T-14-04 비용 방어). */
@@ -97,6 +103,12 @@ chatRouter.post("/", chatRateLimit, requireAuth(), requireDmaMapped(), async (re
       conversationId,
       message,
       stockCode,
+      diagnosisDeps: {
+        tickgw: req.app.locals.tickgw as TickgwClient | undefined,
+        tickConvertTrigger: req.app.locals.tickConvertTrigger as TickConvertTrigger | undefined,
+        tickRequestDailyCap:
+          (req.app.locals.tickRequestDailyCap as number | undefined) ?? TICK_REQUEST_DAILY_CAP_DEFAULT,
+      },
     });
   } catch (err) {
     // 클라이언트 연결 종료는 에러 아님
