@@ -20,6 +20,10 @@
  * ④ 폰 밴드 = 루트 폭 < `WB_PHONE_BAND_BELOW`(작업대와 같은 JS 상수 · 새 경계 숫자 없음 — UI-SPEC R5) · 루트가
  *   `@container/wb` 를 선언해 목록 안 `/wb` 쿼리가 작업대와 같이 걸린다(CLAUDE.md §2.2b).
  * ⑤ 문서 제목 `주문로그 · {YYYY-MM-DD}` · 앱 셸 · 사이드바 · 배지 없음(결정 5).
+ * ⑥ `embedded` — 네이티브 앱에서 `AppShell` 안에 놓일 때(체결 알림 탭 착지 · `order-log-route.tsx`). 루트를 `main` 대신
+ *   `div` 로 바꾸고(셸이 이미 `main`), 셸 본문 여백(8 / 768↑ 16 / 1024↑ 24)을 음수 여백으로 걷어 머리줄 아래를 꽉 채운다.
+ *   높이 = 뷰포트 − 셸 머리줄(56 + 상단 안전영역)이라 바깥 스크롤이 생기지 않고 목록 스크롤러 · 핀이 그대로 동작한다.
+ *   아래는 홈 인디케이터만큼 비운다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -58,7 +62,10 @@ function hrefOf(q: OrderLogQuery, today: string): string {
   return qs === '' ? ORDER_LOG_WINDOW_PATH : `${ORDER_LOG_WINDOW_PATH}?${qs}`;
 }
 
-export function OrderLogWindow() {
+const EMBEDDED_CLASS =
+  '-m-2 h-[calc(100dvh-3.5rem-var(--app-safe-top))] pb-[var(--app-safe-bottom)] md:-m-4 lg:-m-6';
+
+export function OrderLogWindow({ embedded = false }: { embedded?: boolean } = {}) {
   const router = useRouter();
   const params = useSearchParams();
   const today = kstDateIso();
@@ -100,7 +107,7 @@ export function OrderLogWindow() {
   }, [date]);
 
   // ④ 폰 밴드 — 작업대와 같은 상수.
-  const rootRef = useRef<HTMLElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [phoneBand, setPhoneBand] = useState<boolean | null>(null);
   useEffect(() => {
     const el = rootRef.current;
@@ -125,11 +132,13 @@ export function OrderLogWindow() {
   const goDate = (next: string) => update({ ...query, date: next });
   const setFilters = (next: OrderLogFilterValue) => update({ ...query, filters: next });
 
+  const Root = embedded ? 'div' : 'main';
+
   return (
-    <main
+    <Root
       ref={rootRef}
       data-slot="order-log-window"
-      className="@container/wb flex h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]"
+      className={`@container/wb flex flex-col bg-[var(--bg)] text-[var(--fg)] ${embedded ? EMBEDDED_CLASS : 'h-dvh'}`}
     >
       <div
         data-slot="order-log-window-bar"
@@ -209,6 +218,6 @@ export function OrderLogWindow() {
           showPin={isToday}
         />
       </div>
-    </main>
+    </Root>
   );
 }

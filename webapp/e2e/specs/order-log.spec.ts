@@ -569,6 +569,18 @@ test.describe('주문로그 탭 — 관찰자 켠 로컬 relay', () => {
       timeout: 30_000,
     });
     await expect(native.locator('[data-slot="order-log-popout"]')).toBeHidden();
+
+    // 앱에서 직접 열린 창(체결 알림 탭 착지) — 앱 셸 머리줄 · 햄버거로 다른 화면에 갈 수 있고, 창은 머리줄 아래를
+    // 채워 바깥 스크롤이 없다(하단 탭바 없는 앱에서 막다른 화면 금지).
+    await native.setViewportSize({ width: 390, height: 844 });
+    await native.goto(`/trading/order-log?account=${E2E_ACCOUNT_NO}`);
+    await expect(native.locator('[data-slot="app-menu-button"]')).toBeVisible({ timeout: 30_000 });
+    await expect(native.locator('[data-slot="order-log-window-bar"]')).toBeVisible();
+    await expect(native.locator('main [data-slot="order-log-window"]')).toHaveCount(1);
+    const overflow = await native.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(overflow).toBeLessThanOrEqual(1);
+    await native.locator('[data-slot="app-menu-button"]').click();
+    await expect(native.getByRole('dialog')).toBeVisible();
     await native.close();
   });
 
