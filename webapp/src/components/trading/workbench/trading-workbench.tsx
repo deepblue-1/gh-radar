@@ -193,6 +193,7 @@ import { exchangeChoicesOf } from "@/lib/exchange-choices";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
+import { useOrderToastSuppression } from "@/lib/push/toast-suppression";
 import { useRelayContext } from "@/lib/relay-provider";
 import { fetchStockDetail } from "@/lib/stock-api";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
@@ -1253,11 +1254,15 @@ function WorkbenchSurface() {
     if (hit === undefined) return;
     setAlertedCardIds((prev) => (prev.has(hit.id) ? prev : new Set(prev).add(hit.id)));
   }, []);
+  // Phase 40 D-20 — 앱에서 이 기기 체결 알림이 켜져 있으면(권한 granted) 배너가 대신 뜬다 → 주문 토스트 · 소리를 숨긴다.
+  //   돌파 토스트 · 카드 표시는 그대로 · 브라우저 · 토글 꺼진 앱은 종전 그대로.
+  const suppressOrderToasts = useOrderToastSuppression();
   const { alerts, dismiss: dismissAlert, notifyBreakouts } = useTradingAlerts({
     orders: relay.orders,
     viNotices: relay.viNotices,
     orderIndex: relay.orderIndex,
     onNew: markAlerted,
+    suppressOrderToasts,
   });
   const accountStatesRef = useRef(accountStates);
   accountStatesRef.current = accountStates;

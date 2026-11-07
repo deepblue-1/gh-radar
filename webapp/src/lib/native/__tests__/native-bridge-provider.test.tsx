@@ -21,6 +21,7 @@ import { renderHook } from '@testing-library/react';
  * 11. pull 신호(Android)       → 깨지면 호가 사다리를 위로 스크롤하다 페이지 전체가 새로고침된다(Pitfall 7)
  * 12a. 탭 경로 프리페치      → 깨지면 앱 탭을 처음 누를 때마다 미들웨어 인증 왕복 + 페이지 데이터 요청을 그 자리에서 기다린다
  * 12. Provider 밖 폴백         → 깨지면 Provider 없이 렌더되는 컴포넌트·테스트가 전부 throw 한다
+ * 15. 푸시 세션(Phase 40)     → 깨지면 알림을 탭해도 주문로그가 안 열리거나(앱), 브라우저에 탭 처리가 붙는다
  *
  * ⚠️ 송신 단언은 **실제 postMessage 인자 배열을 JSON 파싱한 결과**로 한다.
  */
@@ -45,6 +46,13 @@ vi.mock('next/navigation', () => ({
 let mockResolvedTheme: string | undefined = 'light';
 vi.mock('next-themes', () => ({
   useTheme: () => ({ resolvedTheme: mockResolvedTheme, theme: mockResolvedTheme, setTheme: vi.fn() }),
+}));
+
+// --- 푸시 세션 mock — Provider 가 부르는 횟수 · 정리만 본다(탭 처리 자체는 push-tap.test.ts) --------
+const stopPushSessionMock = vi.fn();
+const startPushSessionMock = vi.fn((_opts: { push: (path: string) => void }) => stopPushSessionMock);
+vi.mock('@/lib/push/push-session', () => ({
+  startPushSession: (opts: { push: (path: string) => void }) => startPushSessionMock(opts),
 }));
 
 import {
@@ -94,6 +102,8 @@ beforeEach(() => {
   mockResolvedTheme = 'light';
   pushMock.mockReset();
   prefetchMock.mockReset();
+  startPushSessionMock.mockClear();
+  stopPushSessionMock.mockClear();
 });
 
 afterEach(() => {
@@ -402,5 +412,36 @@ describe('Provider 밖 폴백', () => {
       off();
       release();
     }).not.toThrow();
+  });
+});
+
+describe('푸시 세션(Phase 40 D-21 · D-24)', () => {
+  it('15a. 브라우저에서는 startPushSession 을 부르지 않는다', () => {
+    enterBrowser();
+    const { unmount } = render(<Harness />);
+    unmount();
+    expect(startPushSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('15b. 앱에서는 마운트 때 1회 · 경로가 바뀌어도 다시 부르지 않는다 · 언마운트 때 정리 1회', () => {
+    enterNativeApp('ios');
+    const { rerender, unmount } = render(<Harness />);
+    expect(startPushSessionMock).toHaveBeenCalledTimes(1);
+
+    mockPathname = '/trading';
+    rerender(<Harness />);
+    expect(startPushSessionMock).toHaveBeenCalledTimes(1);
+    expect(stopPushSessionMock).not.toHaveBeenCalled();
+
+    unmount();
+    expect(stopPushSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('15c. 세션의 push 는 router.push 로 이동한다', () => {
+    enterNativeApp('android');
+    render(<Harness />);
+    const opts = startPushSessionMock.mock.calls[0]![0];
+    act(() => opts.push('/trading/order-log?account=B&stock=KR7282720005'));
+    expect(pushMock).toHaveBeenCalledWith('/trading/order-log?account=B&stock=KR7282720005');
   });
 });

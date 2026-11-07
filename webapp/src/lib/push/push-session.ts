@@ -1,0 +1,141 @@
+/**
+ * 앱 세션 푸시 처리 (Phase 40 · D-21 · D-24 · RESEARCH Pattern 6).
+ *
+ * `NativeBridgeProvider` 가 앱일 때 마운트 effect 에서 한 번 부르고, 돌려받은 함수로 정리한다.
+ *
+ * - **탭 리스너:** `pushNotificationActionPerformed` 를 세션마다 한 번 붙인다. iOS 냉시작 탭은 플러그인이 이벤트를
+ *   retain 했다가 리스너가 붙을 때 넘겨 준다 — 그래서 리스너는 앱 셸 최상단(Provider) 마운트 때 붙인다.
+ * - **탭 처리:** payload `data.path` 검증(`parsePushTapPath`) → 날짜가 오늘이고 종목이 있으면 오늘 주문을 읽어
+ *   (실패 · `TAP_ORDERS_TIMEOUT_MS` 초과면 빈 목록 — 계좌 없이라도 연다) → `resolvePushTapPath` → `push(path)`.
+ *   검증 실패면 주문도 읽지 않고 아무것도 하지 않는다.
+ * - **시작 갱신(D-15 · D-13 「마지막 확인」):** 앱이 열릴 때 이 기기 키가 있고 · 권한이 이미 granted 이고 · 서버 목록의 이 기기
+ *   행이 enabled 면 `register()` 로 받은 토큰을 같은 키로 PUT 해 토큰(OS 갱신 · 재설치로 바뀔 수 있다) · 마지막 확인 시각을
+ *   갱신한다. 꺼진 기기 · 행 없음 · 권한 없음이면 아무것도 하지 않는다 — PUT 은 곧 켜짐이라 끈 기기를 되살리지 않고,
+ *   권한은 묻지 않는다(D-14 「켤 때만 묻는다」). 모듈 플래그로 **세션(페이지 로드)당 1회**(Provider 재마운트에도 1회).
+ *   탭 리스너와 독립 — 갱신 실패는 `console.warn` 한 줄(토큰 · 키 없음)이고 탭 처리를 막지 않는다.
+ * - 로그에 토큰 · 계좌 · 경로 값을 남기지 않는다(T-19-14 동형).
+ */
+
+import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
+
+import { isNativeApp, nativePlatform } from '@/lib/native/native-detect';
+import { fetchTodayOrders } from '@/lib/orders-api';
+import { pushDeviceLabel, readPushDeviceKey } from '@/lib/push/device-key';
+import {
+  addPushTapListener,
+  checkPushPermission,
+  isPushPluginAvailable,
+  pushErrorText,
+  registerPushToken,
+} from '@/lib/push/native-push';
+import { registerThisPushDevice } from '@/lib/push/push-devices-api';
+import { parsePushTapPath, resolvePushTapPath } from '@/lib/push/push-tap';
+import {
+  PUSH_DEVICES_STALE_MS,
+  pushDevicesSnapshot,
+  refreshPushDevices,
+  updatePushDevicesLocal,
+} from '@/lib/push/use-push-devices';
+
+/** 탭 착지에서 오늘 주문을 기다리는 상한 — 넘으면 계좌 없이 연다. */
+export const TAP_ORDERS_TIMEOUT_MS = 3_000;
+
+export interface PushSessionOptions {
+  /** 경로 이동(`router.push`). */
+  push: (path: string) => void;
+  /** 오늘 주문 읽기 — 기본 `fetchTodayOrders`(테스트 주입용). */
+  fetchOrders?: () => Promise<JournalOrderRow[]>;
+  /** 지금 — 기본 `new Date()`(테스트 주입용). 오늘 = shared `kstDateIso(now())`. */
+  now?: () => Date;
+}
+
+const NOOP = () => {};
+
+/** 이 페이지 로드에서 시작 갱신을 이미 시작했는가 — 세션당 1회. */
+let startupRefreshStarted = false;
+
+/**
+ * 시작 갱신 한 번 — 켜진 기기 · 권한 granted 일 때만 토큰 재등록(PUT) → 목록 다시 읽기. throw 하지 않는다.
+ */
+async function refreshThisDeviceOnStart(): Promise<void> {
+  const deviceKey = readPushDeviceKey();
+  const platform = nativePlatform();
+  if (!deviceKey || !platform) return;
+  // 묻지 않고 지금 상태만 본다(D-14).
+  if ((await checkPushPermission()) !== 'granted') return;
+
+  const { loadedAt } = pushDevicesSnapshot();
+  if (loadedAt === null || Date.now() - loadedAt > PUSH_DEVICES_STALE_MS) await refreshPushDevices();
+  const mine = pushDevicesSnapshot().devices.find((d) => d.deviceKey === deviceKey);
+  if (!mine?.enabled) return;
+
+  try {
+    const token = await registerPushToken();
+    const device = await registerThisPushDevice(deviceKey, {
+      platform,
+      token,
+      label: pushDeviceLabel(navigator.userAgent),
+    });
+    updatePushDevicesLocal((list) => list.map((d) => (d.deviceKey === device.deviceKey ? device : d)));
+    void refreshPushDevices();
+  } catch (err) {
+    console.warn('[gh-radar] push 시작 갱신 실패 — 탭 처리는 계속', pushErrorText(err));
+  }
+}
+
+async function ordersWithin(fetchOrders: () => Promise<JournalOrderRow[]>, timeoutMs: number): Promise<JournalOrderRow[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([fetchOrders(), timedOut]);
+    if (result === 'timeout') {
+      console.warn('[gh-radar] push 탭 — 오늘 주문 읽기 시간 초과 · 계좌 없이 연다');
+      return [];
+    }
+    return result;
+  } catch (err) {
+    console.warn('[gh-radar] push 탭 — 오늘 주문 읽기 실패 · 계좌 없이 연다', pushErrorText(err));
+    return [];
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * 앱 세션 푸시 처리 시작 — 앱 · 플러그인 있음일 때만 탭 리스너를 붙인다. 돌려준 함수가 리스너를 뗀다.
+ * 브라우저 · 옛 앱(플러그인 없음)은 아무것도 하지 않는다.
+ */
+export function startPushSession(opts: PushSessionOptions): () => void {
+  if (!isNativeApp() || !isPushPluginAvailable()) return NOOP;
+  const fetchOrders = opts.fetchOrders ?? fetchTodayOrders;
+  const now = opts.now ?? (() => new Date());
+
+  const handleTap = async (data: Record<string, unknown>): Promise<void> => {
+    const today = kstDateIso(now());
+    const parsed = parsePushTapPath(data, today);
+    if (parsed === null) return;
+    const orders = parsed.needsOrders ? await ordersWithin(fetchOrders, TAP_ORDERS_TIMEOUT_MS) : [];
+    const path = resolvePushTapPath(data, orders, today);
+    if (path !== null) opts.push(path);
+  };
+
+  const removeTap = addPushTapListener((data) => {
+    void handleTap(data);
+  });
+
+  // 시작 갱신 — 리스너를 먼저 붙인 뒤 비동기로(실패해도 탭은 이미 받는다).
+  if (!startupRefreshStarted) {
+    startupRefreshStarted = true;
+    void refreshThisDeviceOnStart();
+  }
+
+  // 떼고 난 뒤 끝난 탭 처리도 이동은 한다 — 냉시작 탭(retain)이 개발 모드 이중 마운트 사이에 소비돼도 잃지 않게.
+  return removeTap;
+}
+
+/** 테스트 전용 — 세션당 1회 플래그를 처음 상태로. */
+export function __resetPushSessionForTest(): void {
+  startupRefreshStarted = false;
+}
