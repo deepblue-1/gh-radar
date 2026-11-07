@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 8e0c1417
-// synced-date:        2026-11-06
+// server-repo-commit: eac98e43
+// synced-date:        2026-11-07
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1940,6 +1940,8 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
 // Phase 41-03(2026-10-27): 44 AdminCommandReq·87 AdminAccount 말미 fee_ppm·sell_tax_ppm(uint) append, op 7 SetAccountFee — MsgType·슬롯·AdminCode·AccountState 무변경
 // Phase 43(2026-10-27): 44 AdminCommandReq 말미 launch_profile·launch_market·launch_offsets_us append, op 8 SetLaunchPlan·9 GetLaunchPlan,
 // 새 MsgType 94 LaunchPlanSnapshot(테이블 2·Envelope 말미 슬롯), StrategyEventKind 17 LaunchPiece·18 LaunchHead — 기존 번호·슬롯·AdminCode 무변경
+// Phase 47(2026-11-07): 44 AdminCommandReq 말미 launch_tail_probe_count · launch_tail_probe_step_us(int) append, op 10 SetLaunchTailProbe,
+// 94 LaunchPlanSnapshot 말미 tail_probes([LaunchTailProbe]) · 새 테이블 LaunchTailProbe — MsgType · Envelope 슬롯 · AdminCode 무변경
 // ============================================================================
 
 table AdminAccount {             // 계좌 1행 — 44 의 account · 87 의 AdminUser.accounts 공용
@@ -1970,6 +1972,8 @@ table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 
                                  // · 7 SetAccountFee(Phase 41-03 — account.account_no + 말미 fee_ppm·sell_tax_ppm). 8 이상은 86 code 1
                                  // · 8 SetLaunchPlan · 9 GetLaunchPlan(Phase 43 — 아래 launch_* 필드). 10 이상은 86 code 1
                                  //   — 위 줄의 「8 이상」 은 Phase 43 전 서술
+                                 // · 10 SetLaunchTailProbe(Phase 47 — launch_profile + 말미 launch_tail_probe_count · launch_tail_probe_step_us).
+                                 //   11 이상은 86 code 1 — 위 줄의 「10 이상」 은 Phase 47 전 서술
     user_id: string;             // 대상 users.toml user_id (op 1~4). op 5 는 읽지 않는다
     password: string;            // op 1 만 — 기존 유저 + 빈 문자열 = 비밀번호 유지, 신규 유저는 필수(빈 값이면 code 3)
     account: AdminAccount;       // op 3(추가 또는 같은 account_no 갱신) · op 4(account_no 만 읽음) ·
@@ -1997,6 +2001,12 @@ table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 
                                  // **N 값은 저장·조회되고 발사 적용은 Phase 43 마지막 플랜(43-07)부터** — 그 전엔
                                  // [open_arb] nxt_fire_offset_us 로 쏜다. 16:00 조각 수 = Q16 목록 길이(발사 때 재분할 —
                                  // DirectOrderReq.piece_count 는 서버가 무시, D-05). 다른 op 는 이 세 필드를 읽지 않는다
+    // === 이하 Phase 47 추가 (말미 append) ===
+    launch_tail_probe_count: int;    // op 10 SetLaunchTailProbe 전용 — launch_profile("Q16" 16:00 · "N" 09:00:30, 그 밖 거부) +
+    launch_tail_probe_step_us: int;  // 발 수 0..10(0 = 끔) · 간격 µs 1..100. count 0 이어도 step 을 검사·저장한다.
+                                     // 거부는 86 code 1 + 고정 문구(새 code 없음) · 같은 값 code 0 「변경 없음」 rev 불변 94 없음 ·
+                                     // 변경 = 86 「저장 — 다음 발사부터 적용」 → 94. 저장 = log/launch_plan.toml(plan_rev 공유 +1),
+                                     // 적용 = 콜드2 회차 사본(다음 발사부터). 다른 op 는 이 두 칸을 읽지 않는다
 }
 
 table AdminCommandResp {         // 86 본문 — 44 응답 (요청 연결에만 Notice)
@@ -2033,11 +2043,20 @@ table LaunchPlanEntry {          // 94 의 칸 1행 — (발사, 시장) 하나
     offsets_us: [int];           // 발사 시각 목록 µs — Q16 = 조각 수만큼(비감소) · N = 길이 1. 기준·범위는 AdminCommandReq.launch_offsets_us
 }
 
+// === 이하 Phase 47 추가 (뒤탐침 — 94 tail_probes 행) ===
+table LaunchTailProbe {          // 94 의 뒤탐침 1행 — (서버, 발사) 하나. 같은 서버의 K/Q 두 스레드(Q16) · 두 레인(N)이 같은 값
+    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT)
+    count: int;                  // 발 수 0..10 · 0 = 끔
+    step_us: int;                // 발 간격 µs 1..100 — 송신 = 마지막 실조각 계획 시각 + (i+1)·step_us, kind 17 planned_us 같은 식
+}
+
 table LaunchPlanSnapshot {       // 94 본문 — 서버 한 대의 발사 계획 전체 (요청 연결에만 Notice)
     request_id: ulong;           // 44 의 request_id 에코
     plan_rev: ulong;             // 계획 리비전 — 기동 파일 값(처음 1) · 변경마다 +1. users_rev 와 별도 카운터이고 파일(log/launch_plan.toml)에 남는다
     updated_at: string;          // 마지막 변경 시각 "YYYY-MM-DDTHH:MM:SS" KST — 초깃값 생성 직후·변경 이력 없음이면 빈 값일 수 있다
     entries: [LaunchPlanEntry];  // Q16/K · Q16/Q · N/K · N/Q 네 행 고정 순서. N 은 offsets_us 길이 1
+    // === 이하 Phase 47 추가 (말미 append) ===
+    tail_probes: [LaunchTailProbe];  // Q16 · N 두 행 고정 순서. 구 서버는 이 칸이 없다(relay 는 「서버가 뒤탐침 설정을 모름」 읽기 전용)
 }
 
 // ============================================================================
@@ -2331,4 +2350,15 @@ root_type Envelope;
 // 그 버킷(등록 = 포지션 지금 값 · 오늘 청산 = 사본 · 그 밖 빈 벡터). 88 AccumSignal · 89 원소는 buckets 를 비운다(필드 부재 —
 // append-only 라 필드 정의는 남김, bucket_base_sec 28,800 은 계속 싣는다). MsgType·Envelope 슬롯·기존 필드 무변경.
 // 구 클라는 88 에 버킷이 없어 상세 막대가 빈다(표시 전용) → 서버 먼저 배포, 그 직후 클라 발행.
+// ============================================================================
+
+// ============================================================================
+// === Phase 47 (뒤탐침 어드민 설정 op 10) 변경 요약: AdminCommandReq 말미 launch_tail_probe_count ·
+//     launch_tail_probe_step_us · 새 테이블 LaunchTailProbe · LaunchPlanSnapshot 말미 tail_probes ===
+//
+// Phase 47(2026-11-07): 44 AdminCommandReq 말미 launch_tail_probe_count · launch_tail_probe_step_us(int) append, op 10 SetLaunchTailProbe
+// (profile "Q16" · "N", count 0..10 · step_us 1..100, 거부 86 code 1 + 고정 문구 — 새 AdminCode 없음), 94 LaunchPlanSnapshot 말미
+// tail_probes([LaunchTailProbe], Q16 · N 두 행 고정 순서). MsgType · Envelope 슬롯 · 기존 필드 무변경 — append-only.
+// 서버 먼저면 구 relay/웹이 94 새 칸을 무시하고, relay 먼저면 구 서버는 tail_probes 가 없어 읽기 전용 + op 10 → 86 code 1 — 둘 다 안전하다.
+// op 번호 10 · 새 vtable 슬롯은 폐기해도 재사용 금지.
 // ============================================================================

@@ -5,6 +5,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { LaunchPlanEntry } from '../stock-dma/launch-plan-entry.js';
+import { LaunchTailProbe } from '../stock-dma/launch-tail-probe.js';
 
 
 export class LaunchPlanSnapshot {
@@ -52,8 +53,18 @@ entriesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+tailProbes(index: number, obj?:LaunchTailProbe):LaunchTailProbe|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? (obj || new LaunchTailProbe()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+tailProbesLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 static startLaunchPlanSnapshot(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -84,17 +95,34 @@ static startEntriesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addTailProbes(builder:flatbuffers.Builder, tailProbesOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, tailProbesOffset, 0);
+}
+
+static createTailProbesVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startTailProbesVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endLaunchPlanSnapshot(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createLaunchPlanSnapshot(builder:flatbuffers.Builder, requestId:bigint, planRev:bigint, updatedAtOffset:flatbuffers.Offset, entriesOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createLaunchPlanSnapshot(builder:flatbuffers.Builder, requestId:bigint, planRev:bigint, updatedAtOffset:flatbuffers.Offset, entriesOffset:flatbuffers.Offset, tailProbesOffset:flatbuffers.Offset):flatbuffers.Offset {
   LaunchPlanSnapshot.startLaunchPlanSnapshot(builder);
   LaunchPlanSnapshot.addRequestId(builder, requestId);
   LaunchPlanSnapshot.addPlanRev(builder, planRev);
   LaunchPlanSnapshot.addUpdatedAt(builder, updatedAtOffset);
   LaunchPlanSnapshot.addEntries(builder, entriesOffset);
+  LaunchPlanSnapshot.addTailProbes(builder, tailProbesOffset);
   return LaunchPlanSnapshot.endLaunchPlanSnapshot(builder);
 }
 }

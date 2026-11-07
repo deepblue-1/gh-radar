@@ -36,6 +36,7 @@ export { JournalBatch } from './stock-dma/journal-batch.js';
 export { JournalRecord } from './stock-dma/journal-record.js';
 export { LaunchPlanEntry } from './stock-dma/launch-plan-entry.js';
 export { LaunchPlanSnapshot } from './stock-dma/launch-plan-snapshot.js';
+export { LaunchTailProbe } from './stock-dma/launch-tail-probe.js';
 export { LimitChaserList } from './stock-dma/limit-chaser-list.js';
 export { LimitFeature } from './stock-dma/limit-feature.js';
 export { LivePing } from './stock-dma/live-ping.js';

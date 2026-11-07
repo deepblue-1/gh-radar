@@ -98,8 +98,18 @@ launchOffsetsUsArray():Int32Array|null {
   return offset ? new Int32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
 }
 
+launchTailProbeCount():number {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
+}
+
+launchTailProbeStepUs():number {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
+}
+
 static startAdminCommandReq(builder:flatbuffers.Builder) {
-  builder.startObject(11);
+  builder.startObject(13);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -161,6 +171,14 @@ static createLaunchOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|In
 
 static startLaunchOffsetsUsVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
+}
+
+static addLaunchTailProbeCount(builder:flatbuffers.Builder, launchTailProbeCount:number) {
+  builder.addFieldInt32(11, launchTailProbeCount, 0);
+}
+
+static addLaunchTailProbeStepUs(builder:flatbuffers.Builder, launchTailProbeStepUs:number) {
+  builder.addFieldInt32(12, launchTailProbeStepUs, 0);
 }
 
 static endAdminCommandReq(builder:flatbuffers.Builder):flatbuffers.Offset {
