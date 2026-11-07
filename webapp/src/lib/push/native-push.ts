@@ -123,12 +123,11 @@ export function registerPushToken(timeoutMs = 10_000): Promise<string> {
       return;
     }
     const handles: ListenerHandle[] = [];
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let settled = false;
     const finish = (settle: () => void) => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       for (const h of handles) {
         try {
           void h.remove();
@@ -138,6 +137,8 @@ export function registerPushToken(timeoutMs = 10_000): Promise<string> {
       }
       settle();
     };
+    // 타이머는 리스너보다 먼저 잡는다 — 리스너가 동기로 불려도 finish 가 이미 초기화된 timer 를 지운다.
+    const timer = setTimeout(() => finish(() => reject(new Error("push_register_timeout"))), timeoutMs);
 
     handles.push(
       cap.addListener(PLUGIN, "registration", (data) => {
@@ -152,8 +153,6 @@ export function registerPushToken(timeoutMs = 10_000): Promise<string> {
         finish(() => reject(new Error(`push_register_error${detail ? `: ${String(detail)}` : ""}`)));
       }),
     );
-    timer = setTimeout(() => finish(() => reject(new Error("push_register_timeout"))), timeoutMs);
-
     cap.nativePromise.call(cap, PLUGIN, "register").catch((err: unknown) => {
       finish(() => reject(new Error(`push_register_failed: ${pushErrorText(err)}`)));
     });
