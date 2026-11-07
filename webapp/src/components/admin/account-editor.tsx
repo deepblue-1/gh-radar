@@ -55,9 +55,10 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  *
  * 계좌 줄 = 증권사 · 계좌번호 · 계좌명 · 「제거」 + 지점 · 트레이더(교보는 「해당 없음」 — D-23 ③) + **그 증권사 서버만**
  * 체크 토글(목업 `.sv` — 체크 · 서버 키 · 상태 칩). 87 에만 있는 계좌는 흐린 점선 「서버에만 있음」 카드다 — quick 261107-moq(목업 B ·
- * D-01): 칩 아래 설명 한 줄(「<서버> 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요 …」) + 버튼 줄 [이 사용자에 연결] →
- * 같은 자리 파랑 확인 상자 → `POST …/server-only { action: link }` 1건(op 없음) → 재조회 뒤 일반 계좌 카드. 자동 정리는 여전히
- * 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
+ * D-01): 칩 아래 설명 한 줄(「<서버> 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요 …」) + 버튼 줄 [이 사용자에 연결]
+ * [서버에서 빼기] → 같은 자리 확인 상자(파랑 = 연결 · 빨강 = 빼기) → `POST …/server-only { action }` 1건. 연결 = op 없음 → 재조회 뒤
+ * 일반 계좌 카드 · 빼기 = 그 서버 op 4/op 2 → 전부 ok 면 카드가 사라지고 영역에 완료 줄 한 줄 · 거절(BUSY 등)은 removing 등록으로
+ * 돌아온 계좌 카드의 결과 칩 · BUSY 줄(기존 onResults 경로). 자동 정리는 여전히 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
  *
  * 저장은 전부 즉시 · 1요청(D-15): 토글 1회 = `PUT …/accounts { account, servers }`(계좌 단위로 서버 집합 전체) ·
  * 「제거」 = `DELETE …/accounts/:broker/:accountNo` · 「+ 계좌 추가」 = `PUT` 1건. 계좌마다 `useFieldSave` 를 둬
@@ -213,6 +214,18 @@ export const ACCOUNT_EDITOR_TEXT = {
     </>
   ),
   serverOnlyLinkNote: "연결하면 위 계좌들처럼 서버를 켜고 끄거나 연결 해제할 수 있어요.",
+  /** 빼기 확인 본문 — 「**{서버}** 서버 설정에서 {dma} 의 {이름}{을/를} 빼요. {dma} 는 다시 로그인하면 계좌 목록에서 사라져요.」 */
+  serverOnlyRemoveConfirm: (label: string, dma: string, servers: string): ReactNode => (
+    <>
+      <b className="font-semibold">{servers}</b> 서버 설정에서 {dma} 의 {label}
+      {josaEulReul(label)} 빼요. {dma} 는 다시 로그인하면 계좌 목록에서 사라져요.
+    </>
+  ),
+  serverOnlyRemoveNote:
+    "이 계좌에 상따·VI·미체결·예약이 남아 있으면 서버가 거절해요(같은 계좌를 가진 다른 사용자 것도 포함) — 장 마감 뒤에 하세요.",
+  /** 빼기 끝(결과 전부 ok) — 계좌 영역 한 줄(목업 `.res`). */
+  serverOnlyRemoved: (servers: string, label: string, dma: string) =>
+    `✓ ${servers} 에서 ${label}${josaEulReul(label)} 뺐어요 — ${dma} 가 다시 로그인하면 반영돼요.`,
 } as const;
 
 /** shared 검증 오류 종류 → IP/MAC 칸 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기 · 계좌 수정 시트가 쓴다). */
@@ -1413,6 +1426,8 @@ function OrderServerControl({
 const SERVER_ONLY_CONFIRM = "mt-2 flex flex-col gap-2 rounded-[10px] border p-3";
 const SERVER_ONLY_CONFIRM_TONE = {
   link: "border-[color-mix(in_srgb,var(--primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--primary)_5%,transparent)]",
+  // 목업 `.confirm.red`
+  remove: "border-[color-mix(in_srgb,var(--destructive)_40%,transparent)] bg-[color-mix(in_srgb,var(--destructive)_5%,transparent)]",
 } as const;
 
 interface ServerOnlyAccountRowProps {
@@ -1420,31 +1435,42 @@ interface ServerOnlyAccountRowProps {
   dmaUserId: string;
   onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
   onChanged: () => void;
+  /** 빼기 완료 줄(전부 ok 일 때 문장 · 새 동작을 시작하면 null) — 카드가 재조회로 사라져도 영역에 남게 편집기가 쥔다. */
+  onRemoved: (text: string | null) => void;
 }
 
 /**
  * 87 에만 있는 계좌 — 흐린 점선 카드(D-23 ⑤ — 자동으로 지우거나 들이지 않는다). quick 261107-moq(목업 B · D-01): 흐림은 제목 · 칩
- * 줄에만 · 칩 아래 설명 한 줄 · 버튼 줄 [이 사용자에 연결] → 같은 자리 확인 상자(취소 = 버튼 줄로). 「연결」 =
- * `POST …/server-only { action: link }` 1건 → 결과 칩(onResults) · 재조회(onChanged) — 재조회 뒤 그 계좌는 일반 계좌 카드다.
- * 실패는 상자를 연 채 그 아래 오류 줄(「저장하지 못했어요 · <서버 문구>」).
+ * 줄에만 · 칩 아래 설명 한 줄 · 버튼 줄 [이 사용자에 연결] [서버에서 빼기] → 같은 자리 확인 상자(취소 = 버튼 줄로).
+ * 확인 = `POST …/server-only { action }` 1건 → 결과 칩(onResults) · 재조회(onChanged). 연결은 재조회 뒤 일반 계좌 카드 · 빼기는 결과가
+ * 전부 ok 일 때만 완료 줄(onRemoved — timeout · failed · offline 은 removing 등록으로 남아 계좌 카드 칩 · BUSY 줄이 말한다).
+ * 요청 실패는 상자를 연 채 그 아래 오류 줄(「저장하지 못했어요 · <서버 문구>」).
  */
-function ServerOnlyAccountRow({ account, dmaUserId, onResults, onChanged }: ServerOnlyAccountRowProps) {
+function ServerOnlyAccountRow({ account, dmaUserId, onResults, onChanged, onRemoved }: ServerOnlyAccountRowProps) {
   const T = ACCOUNT_EDITOR_TEXT;
-  const [mode, setMode] = useState<"idle" | "link">("idle");
+  const [mode, setMode] = useState<"idle" | ServerOnlyAccountAction>("idle");
+  const label = account.name || account.accountNo;
+  const servers = account.serverOnlyOn.join(" · ");
   const save = useFieldSave<ServerOnlyAccountAction>(
     (action) => serverOnlyAccount(dmaUserId, account.broker, account.accountNo, action),
     {
       retainValue: false,
-      onSuccess: (_action, res) => {
-        if (res) onResults(accountKeyOf(account.broker, account.accountNo), res.results);
+      onSuccess: (action, res) => {
+        const results = res ? res.results : [];
+        if (res) onResults(accountKeyOf(account.broker, account.accountNo), results);
+        if (action === "remove" && results.length > 0 && results.every((r) => r.outcome === "ok")) {
+          onRemoved(T.serverOnlyRemoved(servers, label, dmaUserId));
+        }
         setMode("idle");
         onChanged();
       },
     },
   );
   const saving = save.state === "saving";
-  const label = account.name || account.accountNo;
-  const servers = account.serverOnlyOn.join(" · ");
+  const open = (next: ServerOnlyAccountAction) => {
+    onRemoved(null);
+    setMode(next);
+  };
 
   return (
     <div
@@ -1473,16 +1499,31 @@ function ServerOnlyAccountRow({ account, dmaUserId, onResults, onChanged }: Serv
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => setMode("link")}
+            onClick={() => open("link")}
             className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
           >
             {T.serverOnlyLink}
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => open("remove")}
+            className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON, "text-[var(--destructive)]")}
+          >
+            {T.serverOnlyRemove}
+          </Button>
         </div>
       ) : (
         <div data-slot="admin-server-only-confirm" data-kind={mode} className={cn(SERVER_ONLY_CONFIRM, SERVER_ONLY_CONFIRM_TONE[mode])}>
-          <p className="text-[13px] leading-[1.55] break-keep text-[var(--fg)]">{T.serverOnlyLinkConfirm(label, dmaUserId, servers)}</p>
-          <p className="text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]">{T.serverOnlyLinkNote}</p>
+          <p className="text-[13px] leading-[1.55] break-keep text-[var(--fg)]">
+            {mode === "link"
+              ? T.serverOnlyLinkConfirm(label, dmaUserId, servers)
+              : T.serverOnlyRemoveConfirm(label, dmaUserId, servers)}
+          </p>
+          <p className="text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]">
+            {mode === "link" ? T.serverOnlyLinkNote : T.serverOnlyRemoveNote}
+          </p>
           <div className="flex justify-end gap-1.5">
             <Button
               type="button"
@@ -1494,15 +1535,28 @@ function ServerOnlyAccountRow({ account, dmaUserId, onResults, onChanged }: Serv
             >
               {T.cancel}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={saving}
-              onClick={() => save.run("link")}
-              className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}
-            >
-              {T.submit}
-            </Button>
+            {mode === "link" ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={saving}
+                onClick={() => save.run("link")}
+                className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}
+              >
+                {T.submit}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={saving}
+                onClick={() => save.run("remove")}
+                className={cn(ACCOUNT_BUTTON, "text-[12px] font-semibold")}
+              >
+                {T.serverOnlyRemove}
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -1679,6 +1733,8 @@ export function AccountEditor({
   const [overlay, setOverlay] = useState<Overlay>(() => new Map());
   const [adding, setAdding] = useState(false);
   const [appliedId, setAppliedId] = useState<number | null>(null);
+  /** 「서버에만 있음」 빼기 완료 줄(quick 261107-moq) — 카드가 재조회로 사라져도 남는다 · 새 동작을 시작하면 지운다. */
+  const [serverOnlyRemoved, setServerOnlyRemoved] = useState<string | null>(null);
 
   // 「다시 반영」 결과 — props 로 온 새 묶음을 렌더 중 한 번 반영한다(React 「props 변화로 state 조정」 패턴).
   if (serverResults && serverResults.id !== appliedId) {
@@ -1714,7 +1770,14 @@ export function AccountEditor({
         const k = accountKeyOf(a.broker, a.accountNo);
         if (a.servers.length === 0) {
           return (
-            <ServerOnlyAccountRow key={k} account={a} dmaUserId={dmaUserId} onResults={onResults} onChanged={onChanged} />
+            <ServerOnlyAccountRow
+              key={k}
+              account={a}
+              dmaUserId={dmaUserId}
+              onResults={onResults}
+              onChanged={onChanged}
+              onRemoved={setServerOnlyRemoved}
+            />
           );
         }
         const isActive = a.servers.some((s) => s.state === "active");
@@ -1733,6 +1796,12 @@ export function AccountEditor({
           />
         );
       })}
+
+      {serverOnlyRemoved && (
+        <p data-slot="admin-server-only-removed" className="mt-2.5 text-[12.5px] break-keep text-[var(--led-armed)]">
+          {serverOnlyRemoved}
+        </p>
+      )}
 
       {adding ? (
         <AccountLinkForm

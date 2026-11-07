@@ -454,6 +454,25 @@ describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
     ]);
   });
 
+  it("server-only remove: 바디 { action: remove } 그대로 relay 로 · relay results(failed 포함) 를 200 그대로", async () => {
+    const results = [{ server: "KYOBO112", outcome: "failed", code: 9, message: "미체결 1건 — 먼저 정리" }];
+    const relay = makeFakeRelay(() => ({ status: 200, data: { results } }));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only")).send({
+      action: "remove",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results });
+    expect(relay.calls).toEqual([
+      {
+        method: "POST",
+        path: "/internal/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only",
+        adminEmail: ADMIN_EMAIL,
+        body: { action: "remove" },
+      },
+    ]);
+  });
+
   it("server-only: relay 409 NOT_SERVER_ONLY → 409 그대로(코드 · 문구)", async () => {
     const msg = "서버에만 있는 계좌가 아니에요 — 이미 정리됐거나 화면이 오래됐어요";
     const relay = makeFakeRelay(() => relayReject(409, "NOT_SERVER_ONLY", msg));

@@ -170,7 +170,7 @@ describe('AccountEditor — 계좌 줄', () => {
     expect(only.querySelector('[data-slot="admin-server-only-why"]')).toHaveTextContent(
       'KYOBO127 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요. 그래서 여기서 연결 해제해도 그 서버에는 닿지 않아요.',
     );
-    expect(within(only).getAllByRole('button').map((b) => b.textContent)).toEqual(['이 사용자에 연결']);
+    expect(within(only).getAllByRole('button').map((b) => b.textContent)).toEqual(['이 사용자에 연결', '서버에서 빼기']);
     expect(within(only).queryByRole('checkbox')).toBeNull();
   });
 
@@ -1468,5 +1468,84 @@ describe('quick-261107-moq 서버에만 있음 계좌 — 연결', () => {
     expect(alert).toHaveTextContent(`저장하지 못했어요 · ${msg}`);
     expect(confirmBox()).not.toBeNull();
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('quick-261107-moq 서버에만 있음 계좌 — 서버에서 빼기', () => {
+  const MOQ_BUSY = '이 계좌에 상따·VI·미체결·예약이 남아 있으면 서버가 거절해요(같은 계좌를 가진 다른 사용자 것도 포함) — 장 마감 뒤에 하세요.';
+  const confirmBox = () =>
+    acctRow('5550001')?.querySelector('[data-slot="admin-server-only-confirm"]') as HTMLElement | null;
+  const actions = () => acctRow('5550001')?.querySelector('[data-slot="admin-server-only-actions"]') ?? null;
+  const doneLine = () => document.querySelector('[data-slot="admin-server-only-removed"]');
+
+  function mount(accounts: AdminAccountView[]) {
+    const onChanged = vi.fn();
+    const view = (a: AdminAccountView[]) => (
+      <AccountEditor
+        masterAccounts={MASTER}
+        dmaUserId="kimtr"
+        accounts={a}
+        servers={SERVERS}
+        onChanged={onChanged}
+        onRemoveLast={vi.fn()}
+      />
+    );
+    const r = render(view(accounts));
+    return { onChanged, rerender: (a: AdminAccountView[]) => r.rerender(view(a)) };
+  }
+
+  const openRemove = () => fireEvent.click(within(acctRow('5550001')).getByRole('button', { name: '서버에서 빼기' }));
+
+  it('「서버에서 빼기」 → 빨강 확인 상자(목업 B 문장 + BUSY 안내) · 「취소」 로 복귀 · 호출 0', () => {
+    mount([KYOBO_ACCT, ONLY_ACCT]);
+    openRemove();
+    const box = confirmBox()!;
+    expect(box).toHaveAttribute('data-kind', 'remove');
+    expect(box).toHaveTextContent('KYOBO127 서버 설정에서 kimtr 의 5550001을 빼요. kimtr 는 다시 로그인하면 계좌 목록에서 사라져요.');
+    expect(box).toHaveTextContent(MOQ_BUSY);
+    expect(actions()).toBeNull();
+    fireEvent.click(within(box).getByRole('button', { name: '취소' }));
+    expect(confirmBox()).toBeNull();
+    expect(actions()).not.toBeNull();
+    expect(serverOnlyAccountMock).not.toHaveBeenCalled();
+  });
+
+  it('확인 「서버에서 빼기」 → remove 1회 → 전부 ok 면 onChanged 1회 + 완료 줄 · 그 계좌가 빠진 재조회에도 남는다', async () => {
+    serverOnlyAccountMock.mockResolvedValue({ results: [{ server: 'KYOBO127', outcome: 'ok' }] });
+    const { onChanged, rerender } = mount([KYOBO_ACCT, ONLY_ACCT]);
+    openRemove();
+    fireEvent.click(within(confirmBox()!).getByRole('button', { name: '서버에서 빼기' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(serverOnlyAccountMock).toHaveBeenCalledTimes(1);
+    expect(serverOnlyAccountMock).toHaveBeenCalledWith('kimtr', 'KYOBO', '5550001', 'remove');
+    const done = '✓ KYOBO127 에서 5550001을 뺐어요 — kimtr 가 다시 로그인하면 반영돼요.';
+    expect(doneLine()).toHaveTextContent(done);
+
+    rerender([KYOBO_ACCT]);
+    expect(acctRow('5550001')).toBeNull();
+    expect(doneLine()).toHaveTextContent(done);
+  });
+
+  it('결과에 failed(BUSY) → 완료 줄 없음 · onChanged 1회 · removing 으로 돌아온 계좌 카드에 실패 칩(title) · BUSY 줄', async () => {
+    serverOnlyAccountMock.mockResolvedValue({
+      results: [{ server: 'KYOBO127', outcome: 'failed', code: 9, message: BUSY }],
+    });
+    const { onChanged, rerender } = mount([KYOBO_ACCT, ONLY_ACCT]);
+    openRemove();
+    fireEvent.click(within(confirmBox()!).getByRole('button', { name: '서버에서 빼기' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(doneLine()).toBeNull();
+
+    rerender([
+      KYOBO_ACCT,
+      { ...ONLY_ACCT, servers: [{ serverKey: 'KYOBO127', tone: 'err', message: BUSY, state: 'removing' }], serverOnlyOn: [] },
+    ]);
+    expect(acctRow('5550001')).not.toHaveAttribute('data-server-only');
+    const chip = pill('5550001', 'KYOBO127').querySelector('[data-slot="reflect-chip"]') as HTMLElement;
+    expect(chip).toHaveTextContent('실패 · BUSY');
+    expect(chip).toHaveAttribute('title', BUSY);
+    const lines = [...document.querySelectorAll('[data-slot="admin-busy-line"]')].map((l) => l.textContent);
+    expect(lines).toContain(`KYOBO127 실패 · BUSY: ${BUSY} — 정리 뒤 「다시 반영」`);
+    expect(doneLine()).toBeNull();
   });
 });

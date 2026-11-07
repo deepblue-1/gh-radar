@@ -59,6 +59,11 @@
  *       active · 지정 재적재 0회 · 감사 1줄(route 패턴 · dma · 계좌 마스킹 · action — 원문 없음)
  *   M2  같은 호출 다시 → 409 NOT_SERVER_ONLY · 없는 유저 → 409 NO_DMA_USER
  *   M3  action 밖 값 · 바디 없음 · 추가 키 → 400 VALIDATION_FAILED · RPC 0회
+ *   M4  { action: "remove" } · KB121 87 에 tr01 의 그 계좌만 → RPC(p_remove true) 1회 → KB121 op 2 1건 → 87 에서 tr01 사라짐 →
+ *       KB121 ok · settle 이 등록 행 · 계좌를 지움 · 지정 재적재 1회 · 감사 action remove
+ *   M5  KB121 87 에 tr01 계좌 X · Y(둘 다 의도 없음) → X 만 remove → op 4 X 1건만 · op 2 없음 · Y 는 87 에 남는다(D-23 ⑤)
+ *   M6  KB121 BUSY(X) → KB121 failed + 서버 문구 · X@KB121 removing 행이 남는다 · 그래도 200
+ *   M7  remove 원천 0건 → 409 NOT_SERVER_ONLY · 44 0건 · 재적재 0회
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -2466,6 +2471,96 @@ describe("quick-261107-moq 「서버에만 있음」 계좌 — 연결 · 서버
 
     const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
     expect(audits.slice(-2).map((c) => (c.args[0] as { rejected: string }).rejected)).toEqual(["NOT_SERVER_ONLY", "NO_DMA_USER"]);
+  });
+
+  /** KB121 대역 87 에 tr01 계좌를 넣고(정규화값 — 서버는 정규화해 저장한다) relay 캐시가 받을 때까지 기다린다. */
+  const putOnKb121 = async (accountNos: string[]): Promise<void> => {
+    const state = h.states.KB121!;
+    state.users.set(
+      "tr01",
+      accountNos.map((accountNo, i) => ({ accountNo, name: "서버에만", branchNo: "00077", traderId: "000077", priority: 4 + i })),
+    );
+    state.usersRev += 1n;
+    const gw = h.gateways.KB121!;
+    gw.pushAdminSnapshot(await gw.waitForAdminConnection(), {
+      usersRev: state.usersRev,
+      users: [...state.users].map(([userId, accounts]) => ({ userId, accounts: [...accounts] })),
+    });
+    await waitFor(
+      () => h.conns.KB121!.currentSnapshot()?.users.some((u) => u.userId === "tr01") === true,
+      "KB121 87 에 tr01",
+    );
+  };
+
+  it("M4 remove · KB121 87 에 그 계좌만 → RPC(p_remove true) → KB121 op 2 → ok · settle 이 행 · 계좌 정리 · 재적재 1회", async () => {
+    seed87("KB121", X_RAW);
+    await putOnKb121([X]);
+    const before = h.commands("KB121").length;
+    const res = await call(h, "POST", PATH, { action: "remove" });
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as { results: { server: string; outcome: string }[] };
+    expect(results.find((r) => r.server === "KB121")).toMatchObject({ server: "KB121", outcome: "ok" });
+
+    expect(h.db.callsTo(RPC).map((c) => c.args)).toEqual([
+      { p_dma_user_id: "tr01", p_broker: "KB", p_account_no: X, p_remove: true },
+    ]);
+    const sent = h.commands("KB121").slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ op: 2, userId: "tr01" });
+    expect(h.states.KB121!.users.has("tr01")).toBe(false);
+    expect(h.db.intentOf("tr01").filter((r) => r.accountNo === X)).toEqual([]);
+    expect(h.db.accounts.some((a) => a.dmaUserId === "tr01" && a.accountNo === X)).toBe(false);
+    expect(h.orderServersReload).toHaveBeenCalledTimes(1);
+
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits.at(-1)!.args[0]).toMatchObject({
+      route: "POST /dma-users/:dma/accounts/:broker/:accountNo/server-only",
+      account: "123456****",
+      action: "remove",
+    });
+  });
+
+  it("M5 KB121 87 에 「서버에만 있음」 X · Y → X 만 remove → op 4 X 1건 · op 2 없음 · Y 는 87 에 남는다", async () => {
+    const Y = "1234567810";
+    seed87("KB121", X_RAW);
+    seed87("KB121", Y);
+    await putOnKb121([X, Y]);
+    const before = h.commands("KB121").length;
+    const res = await call(h, "POST", PATH, { action: "remove" });
+    expect(res.status).toBe(200);
+    const sent = h.commands("KB121").slice(before);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ op: 4, userId: "tr01", account: { accountNo: X } });
+    expect(h.states.KB121!.users.get("tr01")!.map((a) => a.accountNo)).toEqual([Y]);
+    expect(h.db.intentOf("tr01").filter((r) => r.accountNo === X)).toEqual([]);
+  });
+
+  it("M6 KB121 BUSY → KB121 failed + 서버 문구 · X@KB121 removing 행 남음 · 200", async () => {
+    seed87("KB121", X_RAW);
+    await putOnKb121([X]);
+    h.states.KB121!.busyAccounts.add(X);
+    const res = await call(h, "POST", PATH, { action: "remove" });
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as { results: { server: string; outcome: string; code?: number; message?: string }[] };
+    expect(results.find((r) => r.server === "KB121")).toMatchObject({
+      server: "KB121",
+      outcome: "failed",
+      code: 9,
+      message: "미체결 1건 등록 — 먼저 정리",
+    });
+    expect(h.db.intentOf("tr01").filter((r) => r.accountNo === X)).toEqual([
+      expect.objectContaining({ accountNo: X, serverKey: "KB121", state: "removing" }),
+    ]);
+    expect(h.states.KB121!.users.has("tr01")).toBe(true);
+  });
+
+  it("M7 remove 원천 0건 → 409 NOT_SERVER_ONLY · 44 0건 · 재적재 0회", async () => {
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    const res = await call(h, "POST", PATH, { action: "remove" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("NOT_SERVER_ONLY");
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
   });
 
   it("M3 action 밖 값 · 바디 없음 · 추가 키 → 400 VALIDATION_FAILED · RPC 0회", async () => {

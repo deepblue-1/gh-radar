@@ -24,10 +24,13 @@
  * 60초 주기를 기다리지 않고 라우팅에. 생성 · 비밀번호 · reconcile 은 지정을 바꾸지 않아 걸지 않는다.
  *
  * 「서버에만 있음」 계좌(quick 261107-moq · D-02 · D-03) `POST /dma-users/:dma/accounts/:broker/:accountNo/server-only` body
- * `{ action: "link" }`(추가 키 · 밖 값 400) → RPC `dma_admin_adopt_server_only_account` 가 87 원천 서버(enabled · 같은 증권사 ·
- * 아직 등록 행 없음)마다 등록 행을 만든다. `link` = active · 44 0건(서버에 이미 같은 값이 있다) · 지정 재적재 없음 → 200
- * `{ results: [] }`. 원천 0건(이미 정리됨 · 오래된 화면) 409 `NOT_SERVER_ONLY` · 없는 DMA id 409 `NO_DMA_USER`. 감사 extra =
- * 증권사 · 마스킹 계좌 · action. 자동 adopt 는 여전히 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
+ * `{ action: "link" | "remove" }`(추가 키 · 밖 값 400) → RPC `dma_admin_adopt_server_only_account` 가 87 원천 서버(enabled · 같은
+ * 증권사 · 아직 등록 행 없음)마다 등록 행을 만든다. `link` = active · 44 0건(서버에 이미 같은 값이 있다) · 지정 재적재 없음 → 200
+ * `{ results: [] }`. `remove` = removing → `dispatcher.reconcileUser`(planner 무변경 — 그 서버에 op 4, 그 서버의 그 유저 87 계좌가
+ * 전부 removing 이면 op 2 · 다른 「서버에만 있음」 계좌가 남으면 op 4 만) → ok 면 settle 이 행 · 계좌를 지운다 · 거절(BUSY 등)은
+ * removing 이 남고 서버별 failed 로 200 → 계좌 제거 라우트처럼 지정 재적재(남은 마감까지) → 200 `{ results }`. 원천 0건(이미
+ * 정리됨 · 오래된 화면) 409 `NOT_SERVER_ONLY` · 없는 DMA id 409 `NO_DMA_USER`(재적재 없음). 감사 extra = 증권사 · 마스킹 계좌 ·
+ * action. 자동 adopt 는 여전히 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
  *
  * 계좌 예수금(Phase 36 · D-01 · D-07) `PUT /dma-users/:dma/accounts/:broker/:accountNo/budget` body `{ budgetKrw }`(원 · 0 = 해제 ·
  * 0..Number.MAX_SAFE_INTEGER 정수 · 그 밖 400) → `dispatcher.setAccountCost` op 6 → 그 계좌 active 등록 서버 전부 44 → 200 `{ results }`
@@ -283,8 +286,8 @@ const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nu
 /** 계좌 예수금(Phase 36 · op 6) — 원 정수 0..Number.MAX_SAFE_INTEGER(0 = 해제). 문자열 · 소수 · 음수 · 추가 키는 400. */
 const BudgetBody = z.object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
 
-/** 「서버에만 있음」 계좌 동작(quick 261107-moq) — `link` 만(추가 키 · 밖 값 · 바디 없음 400). */
-const ServerOnlyBody = z.object({ action: z.enum(["link"]) }).strict();
+/** 「서버에만 있음」 계좌 동작(quick 261107-moq) — `link` · `remove`(추가 키 · 밖 값 · 바디 없음 400). */
+const ServerOnlyBody = z.object({ action: z.enum(["link", "remove"]) }).strict();
 
 /** uint32 정수(0..0xFFFFFFFF) — 와이어 구조 검사만. */
 const Uint32 = z.number().int().min(0).max(0xffff_ffff);
@@ -640,22 +643,28 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     respond(res, results);
   });
 
-  // ── 「서버에만 있음」 계좌 — 이 사용자에 연결 (quick 261107-moq D-02 · D-03 — RPC 만 · 44 없음) ───────────────
+  // ── 「서버에만 있음」 계좌 — 이 사용자에 연결 · 서버에서 빼기 (quick 261107-moq D-02 · D-03) ──────────────────
+  //   link   = RPC(active) 만 · 44 없음 · 재적재 없음(지정 무변경).
+  //   remove = RPC(removing) → reconcile(planner 가 op 4 / op 2 · settle) → 지정 재적재(계좌 제거 라우트와 같은 꼬리).
   router.post("/dma-users/:dma/accounts/:broker/:accountNo/server-only", async (req, res) => {
+    const deadlineAt = deadlineOf();
     const { dma, broker, accountNo } = AccountParam.parse(req.params);
     const { action } = ServerOnlyBody.parse(req.body);
     const route = "POST /dma-users/:dma/accounts/:broker/:accountNo/server-only";
+    const remove = action === "remove";
     const { results } = await audited(
       res,
       route,
       dma,
       async () => {
-        // link — 87 원천 서버마다 active 등록 행. 서버에 이미 같은 값이 있어 op 를 보내지 않는다(지정 무변경 — 재적재 없음).
-        await deps.store.adoptServerOnlyAccount(dma, broker, accountNo, false);
-        return { results: [] as AdminServerResult[] };
+        await deps.store.adoptServerOnlyAccount(dma, broker, accountNo, remove);
+        if (!remove) return { results: [] as AdminServerResult[] };
+        return { results: await deps.dispatcher.reconcileUser(dma, { adminEmail: res.locals.adminEmail as string, deadlineAt }) };
       },
       { broker, account: maskAccountNo(accountNo), action },
     );
+    // remove 만 — settle 이 그 계좌의 등록 행을 지웠을 수 있다(남은 마감까지 · GC-10). link 는 지정을 바꾸지 않는다.
+    if (remove) await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
     respond(res, results);
   });
 
