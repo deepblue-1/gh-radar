@@ -45,7 +45,8 @@ platform :ios do
       api_key: api_key,
       app_identifier: "com.ghtrade.app",
       team_id: "954QPCS3F5",
-      readonly: false,
+      # readonly 는 넘기지 않는다(기본 false) — sigh 는 readonly 와 force 가 둘 다 넘어오면 값이 false 여도
+      # 「You can't enable both :force and :readonly」 로 거부한다(fastlane_core verify_conflicts 는 nil 만 건너뛴다).
       # Phase 40 Pitfall 6 — App ID 에 Push 를 켠 뒤 첫 릴리스 1회만 GHTRADE_FORCE_PROFILE=1 로 프로파일을
       # 다시 만든다(옛 프로파일엔 aps-environment 가 없다). 평소엔 기존 프로파일 재사용.
       force: ENV["GHTRADE_FORCE_PROFILE"] == "1",
