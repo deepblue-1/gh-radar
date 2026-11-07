@@ -16,6 +16,8 @@ import type {
   LaunchPlanRelayReadResponse,
   LaunchPlanRelaySetBody,
   LaunchPlanRelaySetResponse,
+  LaunchTailProbeRelaySetBody,
+  LaunchTailProbeRelaySetResponse,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -256,6 +258,16 @@ export type RelayAdminClient = {
     body: LaunchPlanRelaySetBody,
     adminEmail: string,
   ): Promise<RelayAdminResponse<LaunchPlanRelaySetResponse>>;
+  /**
+   * 뒤탐침 저장(quick-261107-l7w) — `PUT /internal/admin/launch-tail-probe/:server` 바디 `{ profile, count, step_us }`.
+   * relay 가 저장 직전 값을 읽고(before) op 10 으로 저장한 뒤 다시 읽어(plan) `{ result, before, plan }` 로 준다. 기본 상한(쓰기).
+   * relay 와이어 대기(PENDING)면 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(op 10 0건 — 확정 미반영). 이력 기록은 server 몫.
+   */
+  setLaunchTailProbe(
+    server: string,
+    body: LaunchTailProbeRelaySetBody,
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<LaunchTailProbeRelaySetResponse>>;
 };
 
 // ============================================================
@@ -483,6 +495,13 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<LaunchPlanRelaySetResponse>(
         "PUT",
         `/internal/admin/launch-plan/${encodeURIComponent(server)}`,
+        adminEmail,
+        body,
+      ),
+    setLaunchTailProbe: (server, body, adminEmail) =>
+      request<LaunchTailProbeRelaySetResponse>(
+        "PUT",
+        `/internal/admin/launch-tail-probe/${encodeURIComponent(server)}`,
         adminEmail,
         body,
       ),

@@ -13,6 +13,8 @@ import {
   type LaunchPlanServer,
   type LaunchRange,
   type LaunchTailProbeChangeRow,
+  type LaunchTailProbeRelaySetResponse,
+  type LaunchTailProbeValue,
 } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
@@ -262,12 +264,16 @@ const NOT_SENT_NET_CODES: ReadonlySet<string> = new Set([
  *   - status 0 + 연결 단계 오류 코드(`NOT_SENT_NET_CODES` — relay 재배포 · 재기동 중 연결 거부 · relay VM 정지로 연결 단계 상한 등)
  *   - 400(zod 경로 · 바디 · 요청자 이메일) · 401(공유 비밀 불일치) · 404(라우트 없음 = 구 relay) — 모두 핸들러 앞단
  *   - 503 `LAUNCH_PLAN_UNAVAILABLE`(relay 에 발사 계획 경로가 결선되지 않음 — `launchPlanOf` 가 set 전에 던진다)
+ *   - 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(quick-261107-l7w — relay 뒤탐침 와이어 대기 · setTailProbe 전에 던진다 · op 10 0건)
+ *   (404 = 구 relay 가 뒤탐침 경로를 모름 — 위 404 규칙으로 이미 미송신)
  * 그 밖(타임아웃 · 연결 리셋 · 다른 5xx · 모양 위반)은 relay 가 op 8 을 보냈을 수 있다 — 호출부가 timeout 으로 접는다.
  */
+const RELAY_NOT_SENT_503: ReadonlySet<string> = new Set(["LAUNCH_PLAN_UNAVAILABLE", "LAUNCH_TAIL_PROBE_UNAVAILABLE"]);
+
 function relayNotSent(r: RelayAdminResponse<unknown>): boolean {
   if (r.status === 0) return r.netCode !== undefined && NOT_SENT_NET_CODES.has(r.netCode);
   if (r.status === 400 || r.status === 401 || r.status === 404) return true;
-  return r.status === 503 && isRelayErrorBody(r.data) && r.data.error.code === "LAUNCH_PLAN_UNAVAILABLE";
+  return r.status === 503 && isRelayErrorBody(r.data) && RELAY_NOT_SENT_503.has(r.data.error.code);
 }
 
 /** 이력 · 화면에 실어도 되는 오류 코드 모양 — 대문자 · 숫자 · 밑줄만(relay 오류 code · 네트워크 오류 코드). 아니면 싣지 않는다. */
@@ -339,4 +345,79 @@ export async function saveLaunchPlanViaRelay(
   }
   logger.warn({ relay: { op: "launch-plan-put", status } }, "[admin-launch] 발사 계획 저장 relay 실패 → timeout(결과 모름)");
   return { result: { server: gateway, outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE }, before_us: null, plan: null };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 저장 · 이력 기록
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TAIL_PROBE_RECORD_FAIL = "발사 뒤탐침 이력 기록에 실패했습니다.";
+
+/** 뒤탐침 이력 1행 기록(시도마다 · 실패 포함) — RPC `launch_tail_probe_change_record` `{ p }` 1회 → 기록된 행. */
+export async function recordLaunchTailProbeChange(
+  supabase: SupabaseClient,
+  input: Omit<LaunchTailProbeChangeRow, "id" | "at">,
+): Promise<LaunchTailProbeChangeRow> {
+  const { data, error } = await supabase.rpc("launch_tail_probe_change_record", { p: input });
+  if (error) throw DbError(TAIL_PROBE_RECORD_FAIL, causeOf(error));
+  if (!isObject(data)) throw DbError(TAIL_PROBE_RECORD_FAIL, shapeCause("launch_tail_probe_change_record", data));
+  return data as unknown as LaunchTailProbeChangeRow;
+}
+
+const isTailProbeValue = (v: unknown): v is LaunchTailProbeValue =>
+  isObject(v) && typeof v.count === "number" && typeof v.step_us === "number";
+
+/**
+ * 뒤탐침 저장 — relay `setLaunchTailProbe` 1회. 규칙은 `saveLaunchPlanViaRelay` 와 같다(**throw 하지 않는다** — 호출부가 이력 1행):
+ *   - relay 미설정 → offline(`RELAY_NOT_CONFIGURED_MESSAGE`).
+ *   - `relayNotSent`(연결 거부 · 400 · 401 · 404 = 구 relay · 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE` = 와이어 대기 · 503
+ *     `LAUNCH_PLAN_UNAVAILABLE`) → offline(`relayNotSentMessage` — 원인) · op 10 은 나가지 않았다(확정 미반영).
+ *   - 200 모양(result 가 이 서버 · before null 또는 {count, step_us} · plan null 또는 `LaunchPlanServer`) → 그대로.
+ *   - 그 밖(타임아웃 · 리셋 · 다른 5xx · 모양 위반) → timeout(`RELAY_UNKNOWN_SAVE_MESSAGE` — 결과 모름).
+ * 로그에는 relay status 만(바디 원문 금지).
+ */
+export async function saveLaunchTailProbeViaRelay(
+  relay: RelayAdminClient | undefined,
+  adminEmail: string,
+  gateway: string,
+  fire: LaunchFire,
+  value: LaunchTailProbeValue,
+): Promise<LaunchTailProbeRelaySetResponse> {
+  if (!relay) {
+    return { result: { server: gateway, outcome: "offline", message: RELAY_NOT_CONFIGURED_MESSAGE }, before: null, plan: null };
+  }
+  let status = 0;
+  try {
+    const r = await relay.setLaunchTailProbe(
+      gateway,
+      { profile: launchPlanProfileOf(fire), count: value.count, step_us: value.step_us },
+      adminEmail,
+    );
+    status = r.status;
+    if (relayNotSent(r)) {
+      logger.warn(
+        { relay: { op: "launch-tail-probe-put", status, ...(r.netCode !== undefined ? { code: r.netCode } : {}) } },
+        "[admin-launch] 발사 뒤탐침 저장 relay 가 보내기 전에 막힘 → offline(확정 미반영)",
+      );
+      return { result: { server: gateway, outcome: "offline", message: relayNotSentMessage(r) }, before: null, plan: null };
+    }
+    const d: unknown = r.data;
+    if (
+      r.status === 200 &&
+      isObject(d) &&
+      isServerResultOf(d.result, gateway) &&
+      (d.before === null || isTailProbeValue(d.before)) &&
+      (d.plan === null || isLaunchPlanServer(d.plan))
+    ) {
+      return {
+        result: d.result,
+        before: d.before === null ? null : { count: d.before.count, step_us: d.before.step_us },
+        plan: d.plan,
+      };
+    }
+  } catch {
+    // 닿지 못함과 같게 본다(status 0).
+  }
+  logger.warn({ relay: { op: "launch-tail-probe-put", status } }, "[admin-launch] 발사 뒤탐침 저장 relay 실패 → timeout(결과 모름)");
+  return { result: { server: gateway, outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE }, before: null, plan: null };
 }

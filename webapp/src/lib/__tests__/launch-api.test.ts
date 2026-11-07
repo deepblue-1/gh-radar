@@ -14,7 +14,7 @@ const authFetchMock = vi.fn();
 vi.mock('../auth-fetch', () => ({ authFetch: (...args: unknown[]) => authFetchMock(...args) }));
 
 import { ApiClientError } from '../api';
-import { fetchLaunchPlan } from '../launch-api';
+import { fetchLaunchPlan, saveLaunchTailProbe } from '../launch-api';
 
 const PATH = '/api/admin/launch/plan';
 const respOf = (rev: number): LaunchPlanResponse => ({
@@ -122,5 +122,18 @@ describe('fetchLaunchPlan — 뒤탐침 이력 빈 키 채움 (quick-261107-l7w)
       kind: 'ready',
       resp: { servers: {}, changes: [], tail_probe_changes: [row] },
     });
+  });
+});
+
+describe('saveLaunchTailProbe (quick-261107-l7w)', () => {
+  it('PUT /api/admin/launch/tail-probe/:gateway/:fire · 바디 { count, step_us } · 상한 RELAY_TIMEOUT_MS', async () => {
+    authFetchMock.mockResolvedValueOnce({ result: { server: 'KB120', outcome: 'ok' }, plan: null, change: null });
+    await saveLaunchTailProbe('KB120', 'n0930', { count: 3, step_us: 20 });
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    const [path, init] = authFetchMock.mock.calls[0] as [string, { method: string; body: string; timeoutMs: number }];
+    expect(path).toBe('/api/admin/launch/tail-probe/KB120/n0930');
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual({ count: 3, step_us: 20 });
+    expect(init.timeoutMs).toBeGreaterThan(15_000);
   });
 });

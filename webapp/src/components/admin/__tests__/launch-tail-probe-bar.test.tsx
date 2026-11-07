@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 
 import type { LaunchPlanServer, LaunchTailProbe, LaunchTailProbeChangeRow } from '@gh-radar/shared';
 
 import type { LaunchPlanState } from '@/lib/launch-plan-view';
 
-import { LaunchTailProbeBar } from '../launch-tail-probe-bar';
+import { LaunchTailProbeBar, LaunchTailProbeEditor, type LaunchTailProbeEditorProps } from '../launch-tail-probe-bar';
 
 /**
  * quick-261107-l7w — 「<서버> 뒤탐침」 줄 상태(absent · loading · unknown · unsupported · set · off) · 고치기 버튼 조건 ·
@@ -170,5 +170,95 @@ describe('LaunchTailProbeBar — 변경 이력', () => {
   it('이력 없음 → 접힘 없음', () => {
     const { container } = render(<LaunchTailProbeBar gateway="KB120" fire="q16" plan={ready({ KB120: okServer(TP) })} />);
     expect(q(container, 'launch-tail-probe-history-fold')).toBeNull();
+  });
+});
+
+describe('LaunchTailProbeEditor — 편집 칸', () => {
+  function ed(over: Partial<LaunchTailProbeEditorProps> = {}) {
+    const props: LaunchTailProbeEditorProps = {
+      gateway: 'KB120',
+      fire: 'q16',
+      server: { count: 5, step_us: 10 },
+      count: 5,
+      stepRaw: '10',
+      preview: { count: 5, step_us: 10 },
+      onDraft: vi.fn(),
+      onSave: vi.fn(),
+      ...over,
+    };
+    return { ...render(<LaunchTailProbeEditor {...props} />), props };
+  }
+  const btn = (c: HTMLElement, slot: string) => q(c, slot) as HTMLButtonElement;
+
+  it('스테퍼 −/+ 는 0 · 10 에서 비활성 · 누르면 onDraft(count ∓ 1, 원문) · 힌트 「0 ~ 10 · 0 = 끔」', () => {
+    const a = ed({ count: 0, stepRaw: '10', preview: { count: 0, step_us: 10 } });
+    expect(btn(a.container, 'launch-tail-probe-dec').disabled).toBe(true);
+    expect(btn(a.container, 'launch-tail-probe-inc').disabled).toBe(false);
+    expect(a.container.textContent).toContain('0 ~ 10 · 0 = 끔');
+    fireEvent.click(btn(a.container, 'launch-tail-probe-inc'));
+    expect(a.props.onDraft).toHaveBeenCalledWith(1, '10');
+    a.unmount();
+    const b = ed({ count: 10 });
+    expect(btn(b.container, 'launch-tail-probe-inc').disabled).toBe(true);
+    fireEvent.click(btn(b.container, 'launch-tail-probe-dec'));
+    expect(b.props.onDraft).toHaveBeenCalledWith(9, '10');
+  });
+
+  it.each([
+    ['0', '간격은 1 ~ 100µs 사이여야 해요'],
+    ['101', '간격은 1 ~ 100µs 사이여야 해요'],
+    ['1.5', '간격은 정수 µs 여야 해요'],
+    ['', '간격은 정수 µs 여야 해요'],
+  ])('간격 %j → alert 원문 · aria-invalid · 저장 비활성 · 칩은 직전 유효 값', (raw, msg) => {
+    const { container } = ed({ count: 3, stepRaw: raw, preview: { count: 3, step_us: 20 } });
+    expect(q(container, 'launch-tail-probe-alert')!.textContent).toBe(msg);
+    expect(q(container, 'launch-tail-probe-step')!.getAttribute('aria-invalid')).toBe('true');
+    expect(btn(container, 'launch-tail-probe-save').disabled).toBe(true);
+    expect(Array.from(container.querySelectorAll('[data-slot="launch-tail-probe-chip"]')).map((c) => c.textContent)).toEqual([
+      '+20µs',
+      '+40µs',
+      '+60µs',
+    ]);
+  });
+
+  it('예정 칩 3/20 → +20 · +40 · +60µs / count 0 → 「뒤탐침을 쏘지 않아요」', () => {
+    const a = ed({ count: 3, stepRaw: '20', preview: { count: 3, step_us: 20 } });
+    expect(Array.from(a.container.querySelectorAll('[data-slot="launch-tail-probe-chip"]')).map((c) => c.textContent)).toEqual([
+      '+20µs',
+      '+40µs',
+      '+60µs',
+    ]);
+    a.unmount();
+    const b = ed({ count: 0, stepRaw: '10', preview: { count: 0, step_us: 10 } });
+    expect(q(b.container, 'launch-tail-probe-preview-off')!.textContent).toBe('뒤탐침을 쏘지 않아요');
+  });
+
+  it('되돌리기 = 서버 값(같으면 비활성) · 저장 = 유효 · 다름 · 저장 중 아님일 때만 · 입력 onChange → onDraft', () => {
+    const same = ed();
+    expect(btn(same.container, 'launch-tail-probe-revert').disabled).toBe(true);
+    expect(btn(same.container, 'launch-tail-probe-save').disabled).toBe(true);
+    same.unmount();
+    const diff = ed({ count: 3, stepRaw: '20', preview: { count: 3, step_us: 20 } });
+    expect(btn(diff.container, 'launch-tail-probe-save').disabled).toBe(false);
+    fireEvent.click(btn(diff.container, 'launch-tail-probe-save'));
+    expect(diff.props.onSave).toHaveBeenCalledTimes(1);
+    fireEvent.click(btn(diff.container, 'launch-tail-probe-revert'));
+    expect(diff.props.onDraft).toHaveBeenCalledWith(5, '10');
+    fireEvent.change(q(diff.container, 'launch-tail-probe-step')!, { target: { value: '30' } });
+    expect(diff.props.onDraft).toHaveBeenCalledWith(3, '30');
+    diff.unmount();
+    const saving = ed({ count: 3, stepRaw: '20', preview: { count: 3, step_us: 20 }, saving: true });
+    expect(btn(saving.container, 'launch-tail-probe-save').disabled).toBe(true);
+    expect(btn(saving.container, 'launch-tail-probe-save').textContent).toBe('저장 중…');
+  });
+
+  it('결과 줄 — ok 「저장됨 · HH:MM · 다음 09:00:30 발사부터」 · failed code 1 「알 수 없는 명령입니다」 → 서버 미지원', () => {
+    const at = new Date('2026-11-07T06:02:00Z'); // KST 15:02
+    const a = ed({ fire: 'n0930', result: { result: { server: 'KB120', outcome: 'ok' }, at } });
+    expect(q(a.container, 'launch-tail-probe-result-line')!.textContent).toBe('저장됨 · 15:02 · 다음 09:00:30 발사부터');
+    expect(q(a.container, 'reflect-chip')!.textContent).toBe('KB120');
+    a.unmount();
+    const b = ed({ result: { result: { server: 'KB120', outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' }, at } });
+    expect(q(b.container, 'launch-tail-probe-result-line')!.textContent).toContain('서버 미지원');
   });
 });

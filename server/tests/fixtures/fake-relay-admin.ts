@@ -18,6 +18,8 @@ import {
  *   quote-primary → 200 `{ ok: true }`
  *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119, KYOBO112 } }` 셋 다 ok 4칸(35-13 · quick-261107-iep · `LAUNCH_PLAN_DEFAULT`)
  *                    — `opts.tailProbes` 면 서버마다 `tail_probes`(`LAUNCH_TAIL_PROBES_DEFAULT` · quick-261107-l7w). 기본은 없음(구 서버).
+ *   PUT launch-tail-probe/:server → 200 `{ result: { server, outcome: "ok" }, before: { count: 5, step_us: 10 }, plan: 그 서버 기본 계획 +
+ *                    tail_probes(보낸 profile 행만 바디 값) }`(quick-261107-l7w — relay 가 와이어를 붙인 뒤의 모양 · 대기 503 은 handler 로 주입)
  *   PUT launch-plan/:server → 200 `{ result: { server, outcome: "ok" }, before_us: [-350,-345,-325], plan: 그 서버 기본 계획 }`
  */
 
@@ -85,6 +87,28 @@ function defaultResponse(call: FakeRelayCall, opts: FakeRelayOpts = {}): RelayAd
         result: { server, outcome: "ok" },
         before_us: [-350, -345, -325],
         plan: LAUNCH_PLAN_DEFAULT[server] ?? null,
+      },
+    };
+  }
+  if (call.method === "PUT" && call.path.startsWith("/internal/admin/launch-tail-probe/")) {
+    const server = decodeURIComponent(call.path.slice("/internal/admin/launch-tail-probe/".length));
+    const b = call.body as { profile: string; count: number; step_us: number };
+    const base = LAUNCH_PLAN_DEFAULT[server];
+    return {
+      status: 200,
+      data: {
+        result: { server, outcome: "ok" },
+        before: { count: 5, step_us: 10 },
+        plan:
+          base === undefined
+            ? null
+            : {
+                ...base,
+                plan_rev: base.plan_rev + 1,
+                tail_probes: LAUNCH_TAIL_PROBES_DEFAULT.map((t) =>
+                  t.profile === b.profile ? { profile: t.profile, count: b.count, step_us: b.step_us } : t,
+                ),
+              },
       },
     };
   }

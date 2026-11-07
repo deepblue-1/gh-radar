@@ -1972,6 +1972,108 @@ describe("P35 발사 계획 저장 PUT /launch-plan/:server (35-17 Task 2)", () 
 });
 
 /**
+ * 잠그는 것 (quick-261107-l7w — PUT /launch-tail-probe/:server):
+ *   TW1 실 서비스(PENDING 기본) → 503 LAUNCH_TAIL_PROBE_UNAVAILABLE · op 10 0건 · 감사 없음
+ *   TW2 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE
+ *   TW3 바디 · 경로 구조 위반(count 1.5 · step_us "10" · 추가 키 · profile "X" · 키 형식) → 400 · setTailProbe 0회 / 범위 밖은 통과
+ *   TW4 settable 대역 → 200 그대로 · deadlineAt · 감사 1줄(route · server · profile · count · step_us · results)
+ */
+describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () => {
+  const PATH = "/internal/admin/launch-tail-probe";
+  const BODY = { profile: "Q16", count: 3, step_us: 20 };
+  let h: Harness | undefined;
+
+  afterEach(async () => {
+    await h?.close();
+    h = undefined;
+    vi.restoreAllMocks();
+  });
+
+  type Lp = NonNullable<AdminApiDeps["launchPlan"]>;
+  type SetTp = Lp["setTailProbe"];
+
+  function fakeLaunchPlan(settable: boolean, out?: Awaited<ReturnType<SetTp>>) {
+    const setTailProbe = vi.fn<SetTp>(
+      async (server) => out ?? { result: { server, outcome: "ok", usersRev: "12" }, before: { count: 5, step_us: 10 }, plan: null },
+    );
+    const lp: Lp = { read: vi.fn(async () => ({})), set: vi.fn(), setTailProbe, tailProbeSettable: settable };
+    return { lp, setTailProbe };
+  }
+
+  it("TW1 실 서비스(PENDING) → 503 LAUNCH_TAIL_PROBE_UNAVAILABLE · op 10 0건 · 감사 없음", async () => {
+    const logs = await spyLogs();
+    h = await startHarness();
+    const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_TAIL_PROBE_UNAVAILABLE");
+    expect(h.commands("KB120").map((r) => r.op)).not.toContain(10);
+    expect(logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청")).toHaveLength(0);
+  });
+
+  it("TW2 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE", async () => {
+    h = await startHarness({ launchPlan: null });
+    const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_PLAN_UNAVAILABLE");
+  });
+
+  it("TW3 구조 위반 → 400 · setTailProbe 0회 / 범위 밖(count 12 · step 0 · 음수)은 통과", async () => {
+    const { lp, setTailProbe } = fakeLaunchPlan(true);
+    h = await startHarness({ launchPlan: lp });
+    const bad: unknown[] = [
+      { ...BODY, count: 1.5 },
+      { ...BODY, step_us: "10" },
+      { ...BODY, extra: 1 },
+      { ...BODY, profile: "X" },
+      { profile: "Q16", count: 3 },
+      { ...BODY, count: 2 ** 31 },
+    ];
+    for (const b of bad) {
+      const res = await call(h, "PUT", `${PATH}/KB120`, b);
+      expect(res.status, JSON.stringify(b)).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect((await call(h, "PUT", `${PATH}/KB%20120`, BODY)).status).toBe(400);
+    expect(setTailProbe).not.toHaveBeenCalled();
+
+    for (const b of [
+      { ...BODY, count: 12 },
+      { ...BODY, step_us: 0 },
+      { ...BODY, count: -1, step_us: 500 },
+    ]) {
+      expect((await call(h, "PUT", `${PATH}/KB120`, b)).status, JSON.stringify(b)).toBe(200);
+    }
+    expect(setTailProbe).toHaveBeenCalledTimes(3);
+  });
+
+  it("TW4 settable → 200 서비스 결과 그대로 · deadlineAt = 도착 + 마감 · 감사 1줄", async () => {
+    const logs = await spyLogs();
+    const failed = {
+      result: { server: "KYOBO119", outcome: "failed" as const, code: 1, message: "뒤탐침 발 수 범위 밖" },
+      before: { count: 5, step_us: 10 },
+      plan: null,
+    };
+    const { lp, setTailProbe } = fakeLaunchPlan(true, failed);
+    h = await startHarness({ launchPlan: lp, now: () => 1_000_000 });
+    const res = await call(h, "PUT", `${PATH}/KYOBO119`, { profile: "N", count: 12, step_us: 10 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(failed);
+    expect(setTailProbe).toHaveBeenCalledWith("KYOBO119", { profile: "N", count: 12, step_us: 10 }, { deadlineAt: 1_010_000 });
+    const audits = logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.args[0]).toEqual({
+      admin: ADMIN,
+      route: "PUT /launch-tail-probe/:server",
+      server: "KYOBO119",
+      profile: "N",
+      count: 12,
+      step_us: 10,
+      servers: [{ server: "KYOBO119", outcome: "failed", code: 1 }],
+    });
+  });
+});
+
+/**
  * 잠그는 것 (Phase 30 30-03 — GET /order-endpoints · D-09): 머리 잠금 목록 E1~E4.
  */
 describe("P30 GET /order-endpoints (D-09)", () => {

@@ -46,6 +46,8 @@ import {
   type LaunchPlanRelaySetResponse,
   type LaunchPlanServer,
   type LaunchTailProbe,
+  type LaunchTailProbeRelaySetBody,
+  type LaunchTailProbeRelaySetResponse,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -107,6 +109,9 @@ const PROFILES = new Set<string>(["Q16", "N"]);
 const MARKETS = new Set<string>(["K", "Q"]);
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
+/** 조회 ok 결과. */
+type LaunchPlanOk = Extract<LaunchPlanServer, { status: "ok" }>;
+
 /** 판정 앞단 — 보낼 수 있는 admin 연결, 또는 그 서버의 최종 결과(skipped · offline). */
 type Target = { admin: LaunchPlanAdminConn } | { verdict: { status: "skipped"; message: string } | { status: "offline" } };
 
@@ -153,63 +158,118 @@ export class LaunchPlanService {
     body: LaunchPlanRelaySetBody,
     opts: { deadlineAt: number },
   ): Promise<LaunchPlanRelaySetResponse> {
+    const out = await this.#saveVia(serverKey, opts, {
+      input: {
+        op: ADMIN_OP.SetLaunchPlan,
+        userId: "",
+        launchProfile: body.profile,
+        launchMarket: body.market,
+        launchOffsetsUs: body.offsets_us,
+      },
+      op: ADMIN_OP.SetLaunchPlan,
+      beforeOf: (snap) => snap.entries.find((e) => e.profile === body.profile && e.market === body.market)?.offsets_us ?? null,
+      label: "발사 계획 저장",
+    });
+    return { result: out.result, before_us: out.before, plan: out.plan };
+  }
+
+  /** 뒤탐침 op 10 을 와이어에 실을 수 있나 — 어댑터 `canSet`(quick-261107-l7w). 거짓이면 라우트가 503 으로 막는다. */
+  get tailProbeSettable(): boolean {
+    return this.#wire.canSet;
+  }
+
+  /**
+   * 서버 1대의 (profile) 뒤탐침을 저장한다 — 조회(전) → op 10 → (ok 면 · 마감 안이면) 조회(후). 판정 · 마감 · 결과 모름 규칙은 `set`
+   * 과 같은 파이프라인(`#saveVia`). before = 전 조회 ok 의 `tail_probes` 에서 그 profile 행(없으면 null).
+   * `tailProbeSettable` 이 거짓일 때 부르면 던진다(라우트가 먼저 막는다 — 프로그래밍 오류 · op 10 을 빈 칸으로 보내지 않게).
+   */
+  async setTailProbe(
+    serverKey: string,
+    body: LaunchTailProbeRelaySetBody,
+    opts: { deadlineAt: number },
+  ): Promise<LaunchTailProbeRelaySetResponse> {
+    if (!this.#wire.canSet) throw new Error("뒤탐침 와이어 대기 — setTailProbe 를 부르기 전에 tailProbeSettable 을 확인하라");
+    const out = await this.#saveVia(serverKey, opts, {
+      input: {
+        op: ADMIN_OP.SetLaunchTailProbe,
+        userId: "",
+        launchProfile: body.profile,
+        launchTailProbeCount: body.count,
+        launchTailProbeStepUs: body.step_us,
+      },
+      op: ADMIN_OP.SetLaunchTailProbe,
+      beforeOf: (snap) => {
+        const row = snap.tail_probes?.find((t) => t.profile === body.profile);
+        return row === undefined ? null : { count: row.count, step_us: row.step_us };
+      },
+      label: "발사 뒤탐침 저장",
+    });
+    return { result: out.result, before: out.before, plan: out.plan };
+  }
+
+  /**
+   * 저장 파이프라인 한 벌(계획 op 8 · 뒤탐침 op 10) — 모듈 머리 「저장」. 앞단 판정(skipped · offline · 44 0건) → 전 조회(마감 −
+   * ADMIN_COMMAND_TIMEOUT_MS) → 송신 전 isReady → command → 마감 · 결과 모름 timeout · 늦은 결과 warn → interpretAdminResult →
+   * ok 면 마감 안에서 후 조회. `beforeOf` = 전 조회 ok 스냅샷에서 「저장 직전 값」 을 고른다. 로그 문구 = `[admin] <label> …`.
+   */
+  async #saveVia<B>(
+    serverKey: string,
+    opts: { deadlineAt: number },
+    spec: {
+      input: Parameters<LaunchPlanAdminConn["command"]>[0];
+      op: typeof ADMIN_OP.SetLaunchPlan | typeof ADMIN_OP.SetLaunchTailProbe;
+      beforeOf: (snap: LaunchPlanOk) => B | null;
+      label: string;
+    },
+  ): Promise<{ result: AdminServerResult; before: B | null; plan: LaunchPlanOk | null }> {
     const t = this.#target(serverKey);
     if ("verdict" in t) {
       const result: AdminServerResult =
         t.verdict.status === "skipped"
           ? { server: serverKey, outcome: "skipped", message: t.verdict.message }
           : { server: serverKey, outcome: "offline" };
-      return { result, before_us: null, plan: null };
+      return { result, before: null, plan: null };
     }
     const { admin } = t;
 
-    // 전 조회는 저장 몫(ADMIN_COMMAND_TIMEOUT_MS)을 남긴 시각까지만 기다린다 — FIFO 대기가 길면 before_us null 로 저장을 보낸다.
+    // 전 조회는 저장 몫(ADMIN_COMMAND_TIMEOUT_MS)을 남긴 시각까지만 기다린다 — FIFO 대기가 길면 before null 로 저장을 보낸다.
     //   남은 시간이 그보다 짧으면 전 조회를 아예 보내지 않는다.
     const beforeUntil = opts.deadlineAt - ADMIN_COMMAND_TIMEOUT_MS;
-    const before = this.#now() < beforeUntil ? await this.#within(this.#readVia(serverKey, admin), beforeUntil) : null;
-    const beforeUs =
-      before !== null && before.status === "ok"
-        ? (before.entries.find((e) => e.profile === body.profile && e.market === body.market)?.offsets_us ?? null)
-        : null;
+    const snap = this.#now() < beforeUntil ? await this.#within(this.#readVia(serverKey, admin), beforeUntil) : null;
+    const before = snap !== null && snap.status === "ok" ? spec.beforeOf(snap) : null;
 
-    // 송신 전 판정 — 전 조회 사이에 연결이 끊겼으면 op 8 은 나가지 않는다(command 가 곧바로 offline) → 확정 미반영.
-    if (!admin.isReady) return { result: { server: serverKey, outcome: "offline" }, before_us: beforeUs, plan: null };
+    // 송신 전 판정 — 전 조회 사이에 연결이 끊겼으면 저장 op 는 나가지 않는다(command 가 곧바로 offline) → 확정 미반영.
+    if (!admin.isReady) return { result: { server: serverKey, outcome: "offline" }, before, plan: null };
 
-    const sent = admin.command({
-      op: ADMIN_OP.SetLaunchPlan,
-      userId: "",
-      launchProfile: body.profile,
-      launchMarket: body.market,
-      launchOffsetsUs: body.offsets_us,
-    });
+    const sent = admin.command(spec.input);
     const out = await this.#within(sent, opts.deadlineAt);
     if (out === null || out.kind !== "result") {
-      // 여기부터는 op 8 이 이미 나갔을 수 있다(비행 중 끊김 · 86 타임아웃 · 마감까지 FIFO 대기) — 반영 여부를 모른다.
+      // 여기부터는 저장 op 가 이미 나갔을 수 있다(비행 중 끊김 · 86 타임아웃 · 마감까지 FIFO 대기) — 반영 여부를 모른다.
       // offline(확정 미반영)으로 보고하면 화면 · 이력(D-29)이 「미반영」 으로 굳으므로 timeout 으로 돌려준다(웹이 다시 읽는다).
       if (out === null) {
-        logger.warn({ server: serverKey }, "[admin] 발사 계획 저장 — 요청 마감까지 86 없음 · 결과 모름(timeout) · 저장은 뒤에서 계속");
+        logger.warn({ server: serverKey }, `[admin] ${spec.label} — 요청 마감까지 86 없음 · 결과 모름(timeout) · 저장은 뒤에서 계속`);
         void sent.then((late) =>
           logger.warn(
             { server: serverKey, outcome: late.kind, code: late.kind === "result" ? late.result.code : undefined },
-            "[admin] 발사 계획 저장 — 마감 뒤 도착한 결과",
+            `[admin] ${spec.label} — 마감 뒤 도착한 결과`,
           ),
         );
       }
-      return { result: { server: serverKey, outcome: "timeout" }, before_us: beforeUs, plan: null };
+      return { result: { server: serverKey, outcome: "timeout" }, before, plan: null };
     }
     const r = out.result;
-    if (interpretAdminResult(ADMIN_OP.SetLaunchPlan, r.code) === "failed") {
-      logger.warn({ server: serverKey, code: r.code, message: r.message }, "[admin] 발사 계획 저장 거부(86)");
-      return { result: { server: serverKey, outcome: "failed", code: r.code, message: r.message }, before_us: beforeUs, plan: null };
+    if (interpretAdminResult(spec.op, r.code) === "failed") {
+      logger.warn({ server: serverKey, code: r.code, message: r.message }, `[admin] ${spec.label} 거부(86)`);
+      return { result: { server: serverKey, outcome: "failed", code: r.code, message: r.message }, before, plan: null };
     }
     const result: AdminServerResult = { server: serverKey, outcome: "ok", usersRev: r.usersRev.toString() };
 
     if (this.#now() + ADMIN_COMMAND_TIMEOUT_MS > opts.deadlineAt) {
-      logger.info({ server: serverKey }, "[admin] 발사 계획 저장 뒤 조회 건너뜀 — 요청 마감 안에 끝나지 않는다");
-      return { result, before_us: beforeUs, plan: null };
+      logger.info({ server: serverKey }, `[admin] ${spec.label} 뒤 조회 건너뜀 — 요청 마감 안에 끝나지 않는다`);
+      return { result, before, plan: null };
     }
     const after = await this.#within(this.#readVia(serverKey, admin), opts.deadlineAt);
-    return { result, before_us: beforeUs, plan: after !== null && after.status === "ok" ? after : null };
+    return { result, before, plan: after !== null && after.status === "ok" ? after : null };
   }
 
   #now(): number {

@@ -267,6 +267,9 @@ describe("interpretAdminResult — 86 code 해석 (D-23 ⑤)", () => {
     [9, 11, "failed"], // 11 — 관리자 연결 아님
     [8, 8, "failed"], // op 4 의 8 「이미 없음」 예외가 번지지 않는다
     [9, 4, "failed"], // op 2 의 4 「유저 없음」 예외가 번지지 않는다
+    // quick-261107-l7w — op 10 SetLaunchTailProbe: code 0 만 ok(같은 값 「변경 없음」 도 0) · 범위 밖 · 구 서버 = 1.
+    [10, 0, "ok"],
+    [10, 1, "failed"],
   ] as const)("op %i · code %i → %s", (op, code, expected) => {
     expect(interpretAdminResult(op, code)).toBe(expected);
   });

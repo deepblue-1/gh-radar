@@ -557,9 +557,12 @@ export class AdminConn extends EventEmitter {
       },
       "[ADMIN] 명령 결과(86)",
     );
-    // op 8 · 9(발사 계획)는 users.toml 과 무관하다 — 서버는 87 을 쓰지 않으므로 rev 변경 판정(87 대기 · 보정 op 5)에서 뺀다
-    // (35-16 · 노트 「BUSY · 54 · 87 은 없다」). op 8 성공 뒤 오는 94 는 짝이 없어 #onLaunchPlan 이 버린다.
-    const isLaunchPlanOp = f.input.op === ADMIN_OP.SetLaunchPlan || f.input.op === ADMIN_OP.GetLaunchPlan;
+    // op 8 · 9 · 10(발사 계획 · 뒤탐침)은 users.toml 과 무관하다 — 서버는 87 을 쓰지 않으므로 rev 변경 판정(87 대기 · 보정 op 5)에서
+    // 뺀다(35-16 · 노트 「BUSY · 54 · 87 은 없다」 · quick-261107-l7w). op 8 · 10 성공 뒤 오는 94 는 짝이 없어 #onLaunchPlan 이 버린다.
+    const isLaunchPlanOp =
+      f.input.op === ADMIN_OP.SetLaunchPlan ||
+      f.input.op === ADMIN_OP.GetLaunchPlan ||
+      f.input.op === ADMIN_OP.SetLaunchTailProbe;
     const changed = !isLaunchPlanOp && result.ok && (prevRev === null || prevRev !== result.usersRev);
     if (!changed) {
       // 무변경 · 실패 · 발사 계획 op — 서버는 87 을 쓰지 않는다. 기다리지 않는다.

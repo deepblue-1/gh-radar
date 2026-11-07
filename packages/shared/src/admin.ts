@@ -646,8 +646,10 @@ export function diffServerAccounts(input: ServerAccountsDiffInput): ServerAccoun
  *   - op 8 SetLaunchPlan · op 9 GetLaunchPlan(gh-trade 43 · 인박스 261028-launch-plan-contract) — code 0 만 ok · 같은 값 = code 0
  *     「변경 없음」 · 범위 · 순서 · 대상 밖 · 폭 거부는 code 1 + 고정 문구(화면 「KB120 실패: <message>」 · 구 서버 「알 수 없는 명령입니다」 만
  *     「서버 미지원」 — 웹 `saveResultViewOf`) · 10 · 11 도 실패.
+ *   - op 10 SetLaunchTailProbe(quick-261107-l7w · gh-trade-70 합의) — code 0 만 ok · 같은 값 = code 0 「변경 없음」 · 범위 밖 ·
+ *     구 서버(op 모름 「알 수 없는 명령입니다」)는 code 1.
  */
-export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, code: number): "ok" | "failed" {
+export function interpretAdminResult(op: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10, code: number): "ok" | "failed" {
   if (code === 0) return "ok";
   if (op === 4 && code === 8) return "ok";
   if (op === 2 && code === 4) return "ok";

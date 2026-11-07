@@ -29,6 +29,9 @@ export const ADMIN_ROLE = 2;
  *   실제 변경이면 86 뒤 94 1프레임 · 같은 값 = code 0 「변경 없음」(94 없음) · users_rev 와 무관(87 없음) · 구 서버 = code 1
  * - 9 GetLaunchPlan — request_id 만 읽는다 · **94 1프레임만**(86 없음 — op 5 → 87 선례) · 구 서버 = 86 code 1 「알 수 없는 명령입니다」
  *   (gh-trade 43 · fbs f156cb6f · 인박스 docs/inbox/from-gh-trade/261028-launch-plan-contract.md)
+ * - 10 SetLaunchTailProbe — launch_profile("Q16"|"N") + 말미 append launch_tail_probe_count · launch_tail_probe_step_us ·
+ *   실제 변경이면 86 뒤 94 · 같은 값 = code 0 「변경 없음」(94 없음) · users_rev 무관(87 없음) · 범위 밖 · 구 서버 = code 1
+ *   (quick-261107-l7w · gh-trade-70 합의 · **와이어 조립은 후속 quick** — `LaunchTailProbeWire` 체크리스트)
  */
 export const ADMIN_OP = {
   UpsertUser: 1,
@@ -40,6 +43,7 @@ export const ADMIN_OP = {
   SetAccountFee: 7,
   SetLaunchPlan: 8,
   GetLaunchPlan: 9,
+  SetLaunchTailProbe: 10,
 } as const;
 
 /** `ADMIN_OP` 값 유니온. */
@@ -145,6 +149,13 @@ export type AdminCommandInput = {
    * 길이 · 범위 · 순서는 서버 설정값(119/120 = Q16 −3000~1000 · 10조각 · N ±2000)으로 서버가 판정한다 — relay 는 int32 구조만 본다.
    */
   launchOffsetsUs?: readonly number[];
+  /**
+   * op 10 만 — 뒤탐침 발 수(0..10 · 0 = 끔) · 간격 µs(1..100). 범위는 서버가 판정한다(code 1).
+   * **와이어 조립은 후속 quick** — 지금 `buildAdminCommandReq` 는 이 칸을 싣지 않으므로 `LaunchPlanService` 는 어댑터 `canSet` 이
+   * 거짓이면 op 10 을 보내지 않는다(라우트 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
+   */
+  launchTailProbeCount?: number;
+  launchTailProbeStepUs?: number;
 };
 
 /** 발사 계획 프로파일 — 94 의 `profile` · 44 의 `launch_profile`. */

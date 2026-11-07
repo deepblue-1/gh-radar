@@ -55,6 +55,12 @@
  * (`LaunchPlanRelaySetResponse` · result.server = 경로 키) · 감사 1줄(route · server · profile · market · n · outcome · code).
  * deps `launchPlan` 이 없으면 두 라우트 503 `LAUNCH_PLAN_UNAVAILABLE`.
  *
+ * 뒤탐침(quick-261107-l7w) — `PUT /launch-tail-probe/:server` body `{ profile: Q16|N, count: int32, step_us: int32 }`(추가 키 400 ·
+ * **범위는 막지 않는다** — gh-trade code 1 고정 문구가 말한다) → `launchPlan.tailProbeSettable` 이 거짓(와이어 대기 · 운영 기본
+ * `LAUNCH_TAIL_PROBE_WIRE_PENDING`)이면 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(op 10 0건 · 확정 미반영 — server 가 offline 으로 접는다) →
+ * 아니면 조회(전) → op 10 → 조회(후) · 요청 도착 마감 → 200 `{ result, before, plan }`(`LaunchTailProbeRelaySetResponse`) ·
+ * 감사 1줄(route · server · profile · count · step_us · outcome · code). 조회는 `GET /launch-plan` 응답의 `tail_probes`.
+ *
  * 계좌 PUT 의 주문자 IP/MAC(Phase 30 · IPMAC-02 · D-07 · D-10) — body 최상위 선택 `orderEndpoint { orderIp, orderMac }`(계좌 객체
  * 밖). **KB 계좌만**(교보면 400 — 교보 서버는 형식을 보지 않고 저장한다) · 두 키 모두 필수(하나만 오면 400) · **형식 검사 없음**
  * (막으면 gh-trade 86 code 13 이 도달하지 않는다 — IPMAC-03) · **DB 미저장**(RPC `p_account` 에 싣지 않는다 — 87 이 정본) →
@@ -151,7 +157,7 @@ export type AdminApiDeps = {
    * 발사 계획 조회 · 저장(Phase 35 범위 7 · 35-17 · `LaunchPlanService`) — 서버 키 단위. 주지 않으면 두 라우트 503
    * `LAUNCH_PLAN_UNAVAILABLE`.
    */
-  launchPlan?: Pick<LaunchPlanService, "read" | "set">;
+  launchPlan?: Pick<LaunchPlanService, "read" | "set" | "setTailProbe" | "tailProbeSettable">;
   /** 시각 주입구(ms). 기본 `Date.now`. */
   now?: () => number;
   /** 변경 요청 마감(ms · 29-32). 기본 `ADMIN_REQUEST_DEADLINE_MS` — 실 소켓 테스트만 줄인다. */
@@ -313,6 +319,18 @@ const LaunchPlanSetBody = z
     profile: z.enum(["Q16", "N"]),
     market: z.enum(["K", "Q"]),
     offsets_us: z.array(Int32).min(1).max(LAUNCH_PLAN_SERVER_MAX_PIECES),
+  })
+  .strict();
+
+/**
+ * `PUT /launch-tail-probe/:server` 바디(shared `LaunchTailProbeRelaySetBody` · quick-261107-l7w) — 구조만 · 추가 키 거부.
+ * 범위(count 0..10 · step_us 1..100)는 보지 않는다 — gh-trade 86 code 1 고정 문구가 말한다(계획 경로 D-30 결).
+ */
+const LaunchTailProbeSetBody = z
+  .object({
+    profile: z.enum(["Q16", "N"]),
+    count: Int32,
+    step_us: Int32,
   })
   .strict();
 
@@ -837,6 +855,25 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
       profile: body.profile,
       market: body.market,
       n: body.offsets_us.length,
+    });
+    res.status(200).json(out);
+  });
+
+  // 뒤탐침 저장(quick-261107-l7w) — 와이어 대기(어댑터 canSet 거짓)면 op 10 을 보내지 않고 503(확정 미반영). 그 밖은 계획 저장과 같은 흐름.
+  router.put("/launch-tail-probe/:server", async (req, res) => {
+    const deadlineAt = deadlineOf();
+    const launchPlan = launchPlanOf();
+    const { server } = LaunchPlanServerParam.parse(req.params);
+    const body = LaunchTailProbeSetBody.parse(req.body);
+    if (!launchPlan.tailProbeSettable) {
+      throw new RelayApiError(503, "LAUNCH_TAIL_PROBE_UNAVAILABLE", "뒤탐침 설정 와이어가 아직 준비되지 않았습니다");
+    }
+    const out = await launchPlan.setTailProbe(server, body, { deadlineAt });
+    audit(res.locals.adminEmail as string, "PUT /launch-tail-probe/:server", null, { results: [out.result] }, {
+      server,
+      profile: body.profile,
+      count: body.count,
+      step_us: body.step_us,
     });
     res.status(200).json(out);
   });

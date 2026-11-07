@@ -12,15 +12,21 @@ import type {
   LaunchPlanResponse,
   LaunchPlanServer,
   LaunchServer,
+  LaunchTailProbeChangeRow,
 } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
-import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
+import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan, saveLaunchTailProbe } from '@/lib/launch-api';
 
 import { LaunchMapTab, LaunchMapView, type LaunchMapViewProps } from '../launch-map-tab';
 
 // LaunchMapTab(받기 · 저장) 블록만 쓴다 — LaunchMapView 는 API 를 부르지 않는다.
-vi.mock('@/lib/launch-api', () => ({ fetchLaunchMap: vi.fn(), fetchLaunchPlan: vi.fn(), saveLaunchPlan: vi.fn() }));
+vi.mock('@/lib/launch-api', () => ({
+  fetchLaunchMap: vi.fn(),
+  fetchLaunchPlan: vi.fn(),
+  saveLaunchPlan: vi.fn(),
+  saveLaunchTailProbe: vi.fn(),
+}));
 
 /**
  * Phase 35 (35-08) — 경계 지도 탭 순수 렌더 `LaunchMapView` (D-15 ~ D-18 · 채택 목업 프리셋 칩 · 09:00:30 합패널).
@@ -1027,5 +1033,172 @@ describe('LaunchMapTab — 서버 전환(quick-261107-iep)', () => {
     rerender(tab('KB120'));
     expect(container.querySelector('[data-slot="launch-plan-save"]')).toBeNull();
     expect(kbq().querySelector('[data-slot="launch-plan-edit-toggle"]')).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 저장(LaunchMapTab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchMapTab — 뒤탐침 저장(quick-261107-l7w)', () => {
+  afterEach(() => {
+    vi.mocked(fetchLaunchMap).mockReset();
+    vi.mocked(fetchLaunchPlan).mockReset();
+    vi.mocked(saveLaunchPlan).mockReset();
+    vi.mocked(saveLaunchTailProbe).mockReset();
+  });
+
+  const TP = [
+    { profile: 'Q16' as const, count: 5, step_us: 10 },
+    { profile: 'N' as const, count: 0, step_us: 10 },
+  ];
+  const withTp = (kbTp = TP, rows: LaunchTailProbeChangeRow[] = []): LaunchPlanResponse => {
+    const base = planResp();
+    const kb = base.servers.KB120!;
+    return { ...base, servers: { ...base.servers, KB120: kb.status === 'ok' ? { ...kb, tail_probes: kbTp } : kb }, tail_probe_changes: rows };
+  };
+  const tpRow = (over: Partial<LaunchTailProbeChangeRow> = {}): LaunchTailProbeChangeRow => ({
+    id: 301,
+    at: '2026-11-07T06:00:00Z',
+    admin_email: 'a@b.c',
+    gateway: 'KB120',
+    fire: 'q16',
+    before_count: 5,
+    before_step_us: 10,
+    after_count: 3,
+    after_step_us: 20,
+    outcome: 'ok',
+    code: null,
+    message: null,
+    plan_rev: 8,
+    ...over,
+  });
+  const NEW_TP = [
+    { profile: 'Q16' as const, count: 3, step_us: 20 },
+    { profile: 'N' as const, count: 0, step_us: 10 },
+  ];
+  const summary = (c: HTMLElement) => one(c, '[data-slot="launch-tail-probe-summary"]').textContent;
+  const tab = (gw: LaunchServer, fire: 'q16' | 'n0930' = 'q16') => (
+    <LaunchMapTab gw={gw} fire={fire} range="all" onFire={vi.fn()} onRange={vi.fn()} />
+  );
+
+  /** KB120 16:00 뒤탐침 칸을 열어 「−」 두 번(3) · 간격 20 으로 바꾼다. save = 저장까지 누른다. */
+  async function openTp(save = true) {
+    vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
+    const r = render(tab('KB120'));
+    await waitFor(() => expect(summary(r.container)).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'));
+    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-toggle"]'));
+    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-dec"]'));
+    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-dec"]'));
+    fireEvent.change(one(r.container, '[data-slot="launch-tail-probe-step"]'), { target: { value: '20' } });
+    if (save) fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-save"]'));
+    return r;
+  }
+
+  it('저장 ok + plan → PUT 1건(KB120 · q16 · {3,20}) · 결과 줄 · 값 줄 갱신 · 이력 +1 · /map · /plan 재요청 0', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp(TP, [tpRow({ id: 300, after_count: 5, after_step_us: 10 })]) });
+    const after = withTp(NEW_TP).servers.KB120!;
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'ok' }, plan: after, change: tpRow() });
+    const { container } = await openTp();
+    await waitFor(() => expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'));
+    expect(saveLaunchTailProbe).toHaveBeenCalledTimes(1);
+    expect(saveLaunchTailProbe).toHaveBeenCalledWith('KB120', 'q16', { count: 3, step_us: 20 });
+    expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toMatch(/^저장됨 · \d\d:\d\d · 다음 16:00 발사부터$/);
+    expect(one(container, '[data-slot="launch-tail-probe-history-fold"] summary').textContent).toBe('변경 이력 2');
+    // 저장 값으로 다시 열림 — 저장 · 되돌리기 비활성
+    expect(one(container, '[data-slot="launch-tail-probe-save"]').hasAttribute('disabled')).toBe(true);
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+    expect(fetchLaunchMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('저장 ok + plan null → 보낸 값으로 먼저 맞춤 + /plan 1회 다시 읽기', async () => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP) });
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'ok' }, plan: null, change: null });
+    const { container } = await openTp();
+    await waitFor(() => expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'));
+    await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
+  });
+
+  it('응답 timeout → 「응답 없음」 + 다시 읽기', async () => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp() })
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP) });
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null });
+    const { container } = await openTp();
+    await waitFor(() =>
+      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
+        'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      ),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+    expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs');
+  });
+
+  it('4xx → 「실패」 · 다시 읽기 없음', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+    vi.mocked(saveLaunchTailProbe).mockRejectedValue(new ApiClientError({ code: 'VALIDATION_FAILED', message: 'count: 정수', status: 400 }));
+    const { container } = await openTp();
+    await waitFor(() =>
+      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe('KB120 실패: 요청 거부(400) · count: 정수'),
+    );
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, LaunchTailProbeChangeRow[], string]>([
+    ['이 저장 행 보임', [tpRow({ id: 302 })], 'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인'],
+    ['행 없음', [], 'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침'],
+  ])('요청 throw → timeout + 다시 읽기 · %s', async (_l, rows, line) => {
+    vi.mocked(fetchLaunchPlan)
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(TP, [tpRow({ id: 301, after_count: 5, after_step_us: 10 })]) })
+      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP, rows) });
+    vi.mocked(saveLaunchTailProbe).mockRejectedValue(new Error('network'));
+    const { container } = await openTp();
+    await waitFor(() => expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(line));
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it('failed code 1 「알 수 없는 명령입니다」 → 「서버 미지원」 줄', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' },
+      plan: null,
+      change: tpRow({ outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' }),
+    });
+    const { container } = await openTp();
+    await waitFor(() =>
+      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
+        'KB120 실패: 서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장',
+      ),
+    );
+    expect(summary(container)).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs');
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('한 번에 하나 — 뒤탐침 칸을 연 채 계획 고치기 → 뒤탐침 칸 닫힘 · 반대도', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+    const { container } = await openTp(false);
+    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
+    fireEvent.click(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-edit-toggle"]'));
+    expect(slots(container, 'launch-plan-editor')).toHaveLength(1);
+    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(0);
+    fireEvent.click(one(container, '[data-slot="launch-tail-probe-toggle"]'));
+    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
+    expect(slots(container, 'launch-plan-editor')).toHaveLength(0);
+  });
+
+  it('서버 칩 · 발사가 바뀌면 닫힘(돌아와도 닫힌 채)', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+    const r = await openTp(false);
+    expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(1);
+    r.rerender(tab('KYOBO119'));
+    expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
+    r.rerender(tab('KB120'));
+    expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
+    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-toggle"]'));
+    expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(1);
+    r.rerender(tab('KB120', 'n0930'));
+    expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
   });
 });

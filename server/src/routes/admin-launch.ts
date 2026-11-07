@@ -1,6 +1,12 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { LaunchPlanChangeRow, LaunchPlanResponse, LaunchPlanSaveResponse } from "@gh-radar/shared";
+import type {
+  LaunchPlanChangeRow,
+  LaunchPlanResponse,
+  LaunchPlanSaveResponse,
+  LaunchTailProbeChangeRow,
+  LaunchTailProbeSaveResponse,
+} from "@gh-radar/shared";
 
 import { requireAuth } from "../middleware/require-auth.js";
 import { requireAdmin } from "../middleware/require-admin.js";
@@ -11,6 +17,8 @@ import {
   LaunchOrdersQuery,
   LaunchPlanParams,
   LaunchPlanSaveBodySchema,
+  LaunchTailProbeParams,
+  LaunchTailProbeSaveBodySchema,
 } from "../schemas/admin-launch.js";
 import { audit } from "./admin.js";
 import {
@@ -20,7 +28,9 @@ import {
   getLaunchTailProbeChanges,
   readLaunchPlanServers,
   recordLaunchPlanChange,
+  recordLaunchTailProbeChange,
   saveLaunchPlanViaRelay,
+  saveLaunchTailProbeViaRelay,
 } from "../services/admin-launch.js";
 import type { RelayAdminClient } from "../services/relay-admin-client.js";
 
@@ -34,6 +44,9 @@ import type { RelayAdminClient } from "../services/relay-admin-client.js";
  *                      (relay 왕복 1 · Supabase 왕복은 병렬이라 직렬 증가 없음). 서버별 뒤탐침 값은 relay 결과의 `tail_probes`.
  * - PUT /launch/plan/:gateway/:fire/:market `{ offsets_us }` : 계획 한 칸 저장(D-27 · D-29) — relay 저장 1회(저장 직전 값 ·
  *                      저장 뒤 재조회 값까지) → 이력 1행 기록(결과와 무관 · 실패 포함) → `LaunchPlanSaveResponse` 200.
+ * - PUT /launch/tail-probe/:gateway/:fire `{ count, step_us }` : 뒤탐침 저장(quick-261107-l7w) — relay 저장 1회(op 10 · 와이어
+ *                      대기면 relay 503 → offline 확정 미반영) → 이력 1행(`launch_tail_probe_changes` · 실패 포함) →
+ *                      `LaunchTailProbeSaveResponse` 200.
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401.
@@ -49,6 +62,8 @@ import type { RelayAdminClient } from "../services/relay-admin-client.js";
  *            응답을 바꾸지 않고(change null) logger.error — 저장은 이미 서버에 들어갔을 수 있다(무로그 fail-safe 금지).
  *   D-30     PUT 입력은 구조만(gateway · fire · market enum · offsets_us 정수 1~64 · 추가 키 거부) → 400 · relay 0회 · RPC 0회.
  *            순서 · 범위는 웹(D-26 · D-34)과 gh-trade 서버(code 1)가 말한다.
+ *   뒤탐침   PUT /launch/tail-probe 도 같은 규칙 — 입력은 구조만(gateway · fire enum · count · step_us int32 · 추가 키 거부) → 400 ·
+ *            relay 0 · RPC 0. 범위(0~10 · 1~100µs)는 웹 · gh-trade code 1. 어떤 결과든 이력 1행 · 감사 1줄 · 기록 실패는 change null.
  */
 
 export const adminLaunchRouter: RouterT = Router();
@@ -147,6 +162,60 @@ adminLaunchRouter.put("/launch/plan/:gateway/:fire/:market", async (req, res, ne
 
     audit(req, "launch-plan-put", `${gateway}/${fire}/${market}`, { outcome: result.outcome, code: result.code ?? null });
     res.json({ result, plan, change } satisfies LaunchPlanSaveResponse);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminLaunchRouter.put("/launch/tail-probe/:gateway/:fire", async (req, res, next) => {
+  try {
+    const params = LaunchTailProbeParams.safeParse(req.params);
+    if (!params.success) {
+      const issue = params.error.issues[0];
+      throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
+    }
+    const body = LaunchTailProbeSaveBodySchema.safeParse(req.body ?? {});
+    if (!body.success) {
+      const issue = body.error.issues[0];
+      throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
+    }
+    const { gateway, fire } = params.data;
+    const { count, step_us } = body.data;
+    const supabase = req.app.locals.supabase as SupabaseClient;
+
+    const saved = await saveLaunchTailProbeViaRelay(
+      req.app.locals.relayAdmin as RelayAdminClient | undefined,
+      req.adminEmail!,
+      gateway,
+      fire,
+      { count, step_us },
+    );
+    const { result, plan } = saved;
+
+    let change: LaunchTailProbeChangeRow | null = null;
+    try {
+      change = await recordLaunchTailProbeChange(supabase, {
+        admin_email: req.adminEmail!,
+        gateway,
+        fire,
+        before_count: saved.before?.count ?? null,
+        before_step_us: saved.before?.step_us ?? null,
+        after_count: count,
+        after_step_us: step_us,
+        outcome: result.outcome,
+        code: result.code ?? null,
+        message: result.message ?? null,
+        plan_rev: plan?.status === "ok" ? plan.plan_rev : null,
+      });
+    } catch (e) {
+      logger.error(
+        { gateway, fire, outcome: result.outcome, cause: e instanceof ApiError ? e.cause : undefined },
+        "[admin-launch] 발사 뒤탐침 이력 기록 실패",
+      );
+    }
+
+    audit(req, "launch-tail-probe-put", `${gateway}/${fire}`, { outcome: result.outcome, code: result.code ?? null });
+    res.json({ result, plan, change } satisfies LaunchTailProbeSaveResponse);
   } catch (e) {
     next(e);
   }

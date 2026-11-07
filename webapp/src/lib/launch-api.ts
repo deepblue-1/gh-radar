@@ -21,6 +21,9 @@ import type {
   LaunchPlanSaveBody,
   LaunchPlanSaveResponse,
   LaunchRange,
+  LaunchTailProbeSaveBody,
+  LaunchTailProbeSaveResponse,
+  LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
 import { RELAY_TIMEOUT_MS } from './admin-api';
@@ -93,6 +96,26 @@ export function saveLaunchPlan(
   const path = `/api/admin/launch/plan/${encodeURIComponent(gateway)}/${encodeURIComponent(fire)}/${encodeURIComponent(market)}`;
   const body: LaunchPlanSaveBody = { offsets_us: [...offsets] };
   return authFetch<LaunchPlanSaveResponse>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    timeoutMs: RELAY_TIMEOUT_MS,
+  });
+}
+
+/**
+ * 뒤탐침 저장(quick-261107-l7w `PUT /api/admin/launch/tail-probe/:gateway/:fire` · 바디 `{ count, step_us }`). `saveLaunchPlan` 과
+ * 같은 꼴 — relay 가 실패해도 server 는 200(`result.outcome` 로 가른다) · 응답 plan 이 있으면 다시 부르지 않는다 · 상한
+ * `RELAY_TIMEOUT_MS`. 범위 검사는 server 가 하지 않는다 — 부르기 전에 `validateLaunchTailProbeDraft` 로 막는다(편집 칸).
+ */
+export function saveLaunchTailProbe(
+  gateway: string,
+  fire: LaunchFire,
+  value: LaunchTailProbeValue,
+): Promise<LaunchTailProbeSaveResponse> {
+  const path = `/api/admin/launch/tail-probe/${encodeURIComponent(gateway)}/${encodeURIComponent(fire)}`;
+  const body: LaunchTailProbeSaveBody = { count: value.count, step_us: value.step_us };
+  return authFetch<LaunchTailProbeSaveResponse>(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

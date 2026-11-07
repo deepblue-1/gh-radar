@@ -551,3 +551,140 @@ describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 저장(op 10 · 테스트 어댑터 canSet true)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SET_WIRE: LaunchTailProbeWire = { canSet: true, tailProbesOf: (s) => s.tailProbes };
+
+describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
+  let logs: LogCall[];
+  const BODY = { profile: "Q16", count: 3, step_us: 20 } as const;
+  const AFTER_TP = [
+    { profile: "Q16", count: 3, stepUs: 20 },
+    { profile: "N", count: 0, stepUs: 10 },
+  ];
+  const RANGE = "뒤탐침 발 수 범위 밖(0~10)";
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("TP-S1 op 9 → op 10(세 필드) → op 9 · ok · before = 전 Q16 행 {5,10} · plan = 후 스냅샷(tail_probes 포함)", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE }),
+      respOutcome(0, ""),
+      snapshotOutcome({ planRev: 4n, tailProbes: AFTER_TP }),
+    ]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    expect(svc.tailProbeSettable).toBe(true);
+
+    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
+    expect(kb.inputs).toEqual([
+      { op: ADMIN_OP.GetLaunchPlan, userId: "" },
+      { op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "Q16", launchTailProbeCount: 3, launchTailProbeStepUs: 20 },
+      { op: ADMIN_OP.GetLaunchPlan, userId: "" },
+    ]);
+    expect(out).toEqual({
+      result: { server: "KB120", outcome: "ok", usersRev: "12" },
+      before: { count: 5, step_us: 10 },
+      plan: {
+        status: "ok",
+        plan_rev: 4,
+        updated_at: "2026-10-27T22:41:00",
+        entries: WIRE_ENTRIES,
+        tail_probes: [
+          { profile: "Q16", count: 3, step_us: 20 },
+          { profile: "N", count: 0, step_us: 10 },
+        ],
+      },
+    });
+    expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("TP-S2 86 code 1 → failed 원문 · plan null · 후 조회 없음 · warn / 전 스냅샷에 행 없으면 before null", async () => {
+    const kb = new FakeAdmin([snapshotOutcome(), respOutcome(1, RANGE)]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { ...BODY, count: 12 }, { deadlineAt: clock.t + 10_000 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "failed", code: 1, message: RANGE }, before: null, plan: null });
+    expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan, ADMIN_OP.SetLaunchTailProbe]);
+    const warns = logs.filter((c) => c.level === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.args).toEqual([{ server: "KB120", code: 1, message: RANGE }, "[admin] 발사 뒤탐침 저장 거부(86)"]);
+  });
+
+  it("TP-S3 같은 값 code 0 「변경 없음」 → ok · 후 조회", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({ tailProbes: AFTER_TP }),
+      respOutcome(0, "변경 없음"),
+      snapshotOutcome({ tailProbes: AFTER_TP }),
+    ]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
+    expect(out.result.outcome).toBe("ok");
+    expect(out.before).toEqual({ count: 3, step_us: 20 });
+    expect(out.plan).toMatchObject({ status: "ok", tail_probes: [{ profile: "Q16", count: 3, step_us: 20 }, { profile: "N" }] });
+  });
+
+  it.each([
+    ["timeout", { kind: "timeout" }],
+    ["offline(비행 중 끊김)", { kind: "offline" }],
+  ] as const)("TP-S4 저장 %s → 결과 모름 timeout · plan null", async (_l, reply) => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE }), reply]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before: { count: 5, step_us: 10 }, plan: null });
+  });
+
+  it("TP-S4b 마감 초과 → timeout · 늦은 결과 warn", async () => {
+    let release!: (o: AdminCommandOutcome) => void;
+    const kb = new FakeAdmin([() => new Promise<AdminCommandOutcome>((r) => (release = r))]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 50 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before: null, plan: null });
+    expect(kb.ops()).toEqual([ADMIN_OP.SetLaunchTailProbe]);
+    release(respOutcome(0, ""));
+    await vi.waitFor(() => expect(logs.filter((c) => c.level === "warn")).toHaveLength(2));
+    expect(logs.filter((c) => c.level === "warn")[1]!.args[1]).toBe("[admin] 발사 뒤탐침 저장 — 마감 뒤 도착한 결과");
+  });
+
+  it("TP-S5 전 조회 사이 끊김 → op 10 안 보냄 · offline / skipped · offline 앞단 → command 0회", async () => {
+    const kb = new FakeAdmin([
+      async () => {
+        kb.isReady = false;
+        return { kind: "offline" } as AdminCommandOutcome;
+      },
+    ]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    expect(await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 })).toEqual({
+      result: { server: "KB120", outcome: "offline" },
+      before: null,
+      plan: null,
+    });
+    expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan]);
+
+    const off = new FakeAdmin();
+    off.isReady = false;
+    const r2 = rig({ rows: [serverRow("KB120"), serverRow("KYOBO119", false)], admins: { KB120: off }, wire: SET_WIRE });
+    expect((await r2.svc.setTailProbe("KYOBO119", { ...BODY }, { deadlineAt: r2.clock.t + 10_000 })).result).toEqual({
+      server: "KYOBO119",
+      outcome: "skipped",
+      message: SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE,
+    });
+    expect((await r2.svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: r2.clock.t + 10_000 })).result.outcome).toBe("offline");
+    expect(off.inputs).toHaveLength(0);
+  });
+
+  it("TP-S6 PENDING(기본)이면 tailProbeSettable false · setTailProbe 는 던지고 command 0회", async () => {
+    const kb = new FakeAdmin();
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    expect(svc.tailProbeSettable).toBe(false);
+    await expect(svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 })).rejects.toThrow();
+    expect(kb.inputs).toHaveLength(0);
+  });
+});

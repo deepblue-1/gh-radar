@@ -37,6 +37,22 @@ export const LaunchPlanParams = z.object({
 });
 export type LaunchPlanParamsT = z.infer<typeof LaunchPlanParams>;
 
+/**
+ * quick-261107-l7w — `PUT /api/admin/launch/tail-probe/:gateway/:fire` 입력. 어긋나면 400 · relay 0회 · RPC 0회.
+ * **구조만** — gateway ∈ `LAUNCH_PLAN_GATEWAYS` · fire ∈ q16|n0930 · count · step_us 는 int32 정수 · 추가 키 거부.
+ * 범위(count 0~10 · step 1~100µs)는 웹 편집 칸(shared `validateLaunchTailProbeDraft`)과 gh-trade code 1 이 말한다 — server 가 막으면
+ * 서버 거부 문구 경로가 죽는다.
+ */
+export const LaunchTailProbeParams = z.object({
+  gateway: z.enum(LAUNCH_PLAN_GATEWAYS),
+  fire: z.enum(["q16", "n0930"]),
+});
+export type LaunchTailProbeParamsT = z.infer<typeof LaunchTailProbeParams>;
+
+const Int32 = z.number().int().min(-2147483648).max(2147483647);
+
+export const LaunchTailProbeSaveBodySchema = z.object({ count: Int32, step_us: Int32 }).strict();
+
 export const LaunchPlanSaveBodySchema = z
   .object({
     offsets_us: z

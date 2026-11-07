@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { launchPlanFixture, launchPlanFixtureWithTailProbes, launchPlanSaveOk, mockLaunchApi } from '../fixtures/launch';
+import {
+  launchPlanFixture,
+  launchPlanFixtureWithTailProbes,
+  launchPlanSaveOk,
+  mockLaunchApi,
+} from '../fixtures/launch';
 
 /**
  * Phase 35 (35-06) — 웹 Admin `/admin/launch` 주문 내역 탭 E2E (LAUNCH-06 · D-11 ~ D-14 · 채택 목업 변형 A).
@@ -954,5 +959,106 @@ test.describe('어드민 발사 · 뒤탐침 설정', () => {
     await expect.poll(() => api.planGets().length).toBe(1);
     await page.waitForTimeout(500);
     await expect(tpBar(page)).toHaveCount(0);
+  });
+});
+
+const tpEditor = (page: Page) => root(page).locator('[data-slot="launch-tail-probe-editor"]');
+const tpToggle = (page: Page) => root(page).locator('[data-slot="launch-tail-probe-toggle"]');
+
+test.describe('어드민 발사 · 뒤탐침 설정(고치기)', () => {
+  test('TP-S1 1280 — KB120 16:00 고치기 → −2(3) · 간격 20 → 칩 → 저장 → PUT 1건 · 결과 줄 · 값 줄 · 이력 3 · 재요청 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs',
+      { timeout: 15_000 },
+    );
+    await tpToggle(page).click();
+    await expect(tpToggle(page)).toHaveText('닫기');
+    await tpEditor(page).getByRole('button', { name: '발 수 줄이기' }).click();
+    await tpEditor(page).getByRole('button', { name: '발 수 줄이기' }).click();
+    await expect(tpEditor(page).locator('[data-slot="launch-tail-probe-count"]')).toHaveText('3');
+    await tpEditor(page).getByLabel('뒤탐침 간격(µs)').fill('20');
+    await expect(tpEditor(page).locator('[data-slot="launch-tail-probe-chip"]')).toHaveText(['+20µs', '+40µs', '+60µs']);
+    await page.screenshot({ path: test.info().outputPath('tail-probe-edit-1280.png'), fullPage: true });
+    const mapsBefore = api.maps().length;
+    await tpEditor(page).locator('[data-slot="launch-tail-probe-save"]').click();
+
+    await expect(tpEditor(page).locator('[data-slot="launch-tail-probe-result-line"]')).toHaveText(
+      /^저장됨 · \d\d:\d\d · 다음 16:00 발사부터$/,
+      { timeout: 15_000 },
+    );
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs',
+    );
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-history-fold"] summary')).toHaveText('변경 이력 3');
+    expect(api.tailProbePuts()).toHaveLength(1);
+    expect(api.tailProbePuts()[0]!.path).toBe('/tail-probe/KB120/q16');
+    expect(api.tailProbePuts()[0]!.body).toEqual({ count: 3, step_us: 20 });
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(mapsBefore);
+    expect(api.planGets()).toHaveLength(1);
+  });
+
+  test('TP-S2 1280 — 간격 0 · 101 → alert 원문 · 저장 비활성 / 서버 거부 code 1 → 결과 줄에 원문', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, {
+      plan: launchPlanFixtureWithTailProbes,
+      saveTailProbe: (gateway) => ({
+        result: { server: gateway, outcome: 'failed', code: 1, message: '뒤탐침 발 수 범위 밖(0~10)' },
+        plan: null,
+        change: null,
+      }),
+    });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(tpToggle(page)).toBeVisible({ timeout: 15_000 });
+    await tpToggle(page).click();
+    const step = tpEditor(page).getByLabel('뒤탐침 간격(µs)');
+    const save = tpEditor(page).locator('[data-slot="launch-tail-probe-save"]');
+    for (const v of ['0', '101']) {
+      await step.fill(v);
+      await expect(tpEditor(page).getByRole('alert')).toHaveText('간격은 1 ~ 100µs 사이여야 해요');
+      await expect(step).toHaveAttribute('aria-invalid', 'true');
+      await expect(save).toBeDisabled();
+    }
+    await step.fill('15');
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(tpEditor(page).locator('[data-slot="launch-tail-probe-result-line"]')).toHaveText(
+      'KB120 실패: 뒤탐침 발 수 범위 밖(0~10)',
+      { timeout: 15_000 },
+    );
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs',
+    );
+  });
+
+  test('TP-S3 1280 — 한 번에 하나(뒤탐침 ↔ 계획) · 서버 칩 · 09:00:30 세그먼트 → 닫힘', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(tpToggle(page)).toBeVisible({ timeout: 15_000 });
+
+    await tpToggle(page).click();
+    await expect(tpEditor(page)).toHaveCount(1);
+    await editToggle(page, 'KB120', 'Q').click();
+    await expect(editor(page, 'KB120', 'Q')).toHaveCount(1);
+    await expect(tpEditor(page)).toHaveCount(0);
+    await tpToggle(page).click();
+    await expect(tpEditor(page)).toHaveCount(1);
+    await expect(root(page).locator('[data-slot="launch-plan-editor"]')).toHaveCount(0);
+
+    await serverChip(page, '교보119').click();
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-title"]')).toHaveText('교보119 뒤탐침');
+    await expect(tpEditor(page)).toHaveCount(0);
+    await serverChip(page, 'KB120').click();
+    await expect(tpEditor(page)).toHaveCount(0);
+    await tpToggle(page).click();
+    await expect(tpEditor(page)).toHaveCount(1);
+    await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText('꺼짐 · 0발', { timeout: 15_000 });
+    await expect(tpEditor(page)).toHaveCount(0);
   });
 });

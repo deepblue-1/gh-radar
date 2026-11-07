@@ -595,6 +595,37 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     expect(gateway.adminCommandRequests().map((r) => r.op)).toEqual([ADMIN_OP.ListUsers, 9, 8]);
   });
 
+  it("TP-C op 10(뒤탐침) 86 code 0 이 users_rev 를 바꿔 와도(prevRev null 포함) 87 을 기다리지 않고 풀리고 보정 op 5 없음", async () => {
+    // ① prevRev 있음(readyConn 87 rev 3n) → 86 usersRev 9n(바뀐 것처럼 보임)
+    const { c } = await readyConn({ snapshotWaitMs: 50 });
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+    const p10 = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "Q16" });
+    await waitFor(() => commands().length === 1, "op 10");
+    expect(commands()[0]!.op).toBe(10);
+    gateway.respondAdminCommand(sock, { requestId: commands()[0]!.requestId, ok: true, code: 0, message: "저장", usersRev: 9n });
+    const o10 = await p10;
+    expect(o10.kind).toBe("result");
+    expect("snapshot" in o10).toBe(false);
+    await sleep(200);
+    expect(gateway.adminCommandRequests().map((r) => r.op)).toEqual([ADMIN_OP.ListUsers, 10]);
+  });
+
+  it("TP-C2 users_rev null(접속 87 전)이어도 op 10 뒤 op 5 를 다시 보내지 않는다", async () => {
+    gateway.respondAdminLogin({});
+    gateway.onAdminCommand(null);
+    const c = startConn({ snapshotWaitMs: 50 });
+    await waitFor(() => c.state === "ready" && gateway.adminCommandRequests().length === 1, "ready · op 5");
+    const sock = await gateway.waitForAdminConnection();
+    expect(c.health().usersRev).toBeNull();
+    const p10 = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "N" });
+    await waitFor(() => commands().length === 1, "op 10");
+    gateway.respondAdminCommand(sock, { requestId: commands()[0]!.requestId, ok: true, code: 0, message: "저장", usersRev: 3n });
+    expect((await p10).kind).toBe("result");
+    await sleep(200);
+    expect(gateway.adminCommandRequests().map((r) => r.op)).toEqual([ADMIN_OP.ListUsers, 10]);
+  });
+
   it("P35-D op 9 비행 중 끊김 → offline", async () => {
     const { c } = await readyConn();
     gateway.onAdminCommand(null);

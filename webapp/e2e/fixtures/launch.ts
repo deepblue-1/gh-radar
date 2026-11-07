@@ -16,6 +16,8 @@ import type {
   LaunchPlanServer,
   LaunchRange,
   LaunchTailProbe,
+  LaunchTailProbeSaveBody,
+  LaunchTailProbeSaveResponse,
 } from '@gh-radar/shared';
 
 /**
@@ -488,6 +490,47 @@ export function launchPlanSaveOk(gateway: string, fire: LaunchFire, market: Laun
   };
 }
 
+/**
+ * PUT /tail-probe 기본 응답(quick-261107-l7w) — `launchPlanFixtureWithTailProbes()` 의 그 서버에서 그 profile 행만 바디 값으로 바꾼
+ * ok plan(plan_rev +1) + ok 이력 1행(before = 픽스처 값). **합성 · 실서버 값 아님.**
+ */
+export function launchTailProbeSaveOk(gateway: string, fire: LaunchFire, body: LaunchTailProbeSaveBody): LaunchTailProbeSaveResponse {
+  const base = launchPlanFixtureWithTailProbes().servers[gateway];
+  const profile = fire === 'q16' ? 'Q16' : 'N';
+  if (base === undefined || base.status !== 'ok') {
+    return { result: { server: gateway, outcome: 'offline' }, plan: null, change: null };
+  }
+  const before = base.tail_probes?.find((t) => t.profile === profile) ?? null;
+  const rev = (base.plan_rev ?? 0) + 1;
+  const at = new Date().toISOString();
+  return {
+    result: { server: gateway, outcome: 'ok' },
+    plan: {
+      ...base,
+      plan_rev: rev,
+      updated_at: at,
+      tail_probes: (base.tail_probes ?? []).map((t) =>
+        t.profile === profile ? { profile, count: body.count, step_us: body.step_us } : t,
+      ),
+    },
+    change: {
+      id: savedId++,
+      at,
+      admin_email: 'admin@example.com',
+      gateway,
+      fire,
+      before_count: before?.count ?? null,
+      before_step_us: before?.step_us ?? null,
+      after_count: body.count,
+      after_step_us: body.step_us,
+      outcome: 'ok',
+      code: null,
+      message: null,
+      plan_rev: rev,
+    },
+  };
+}
+
 export interface MockLaunchApiOptions {
   /** true = 적재 이력 0(`LAUNCH_ORDERS_EMPTY`). */
   ordersEmpty?: boolean;
@@ -502,6 +545,12 @@ export interface MockLaunchApiOptions {
     market: LaunchMarket,
     body: LaunchPlanSaveBody,
   ) => LaunchPlanSaveResponse | { status: number; body: unknown };
+  /** PUT /tail-probe/:gateway/:fire — 없으면 `launchTailProbeSaveOk`(quick-261107-l7w). */
+  saveTailProbe?: (
+    gateway: string,
+    fire: LaunchFire,
+    body: LaunchTailProbeSaveBody,
+  ) => LaunchTailProbeSaveResponse | { status: number; body: unknown };
 }
 
 export interface LaunchApiMock {
@@ -514,6 +563,8 @@ export interface LaunchApiMock {
   planGets: () => LaunchRequestRecord[];
   /** PUT /plan/... 요청만(바디 포함). */
   planPuts: () => LaunchRequestRecord[];
+  /** PUT /tail-probe/... 요청만(바디 포함 · quick-261107-l7w). */
+  tailProbePuts: () => LaunchRequestRecord[];
 }
 
 function isStatusBody(v: unknown): v is { status: number; body: unknown } {
@@ -572,6 +623,15 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
       } else {
         body = out;
       }
+    } else if (rec.path.startsWith('/tail-probe/') && rec.method === 'PUT') {
+      const [gateway = '', fire = ''] = rec.path.slice('/tail-probe/'.length).split('/').map(decodeURIComponent);
+      const out = (opts.saveTailProbe ?? launchTailProbeSaveOk)(gateway, fire as LaunchFire, rec.body as LaunchTailProbeSaveBody);
+      if (isStatusBody(out)) {
+        status = out.status;
+        body = out.body;
+      } else {
+        body = out;
+      }
     } else {
       status = 404;
       body = { error: { code: 'NOT_FOUND', message: '없는 경로예요' } };
@@ -584,5 +644,6 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
     maps: () => requests.filter((r) => r.method === 'GET' && r.path === '/map'),
     planGets: () => requests.filter((r) => r.method === 'GET' && r.path === '/plan'),
     planPuts: () => requests.filter((r) => r.method === 'PUT' && r.path.startsWith('/plan/')),
+    tailProbePuts: () => requests.filter((r) => r.method === 'PUT' && r.path.startsWith('/tail-probe/')),
   };
 }

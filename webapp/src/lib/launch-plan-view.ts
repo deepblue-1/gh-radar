@@ -19,6 +19,7 @@ import {
   launchPlanEntryOf,
   launchPlanProfileOf,
   validateLaunchPlanDraft,
+  validateLaunchTailProbeDraft,
   type AdminServerResult,
   type LaunchFire,
   type LaunchHeadRow,
@@ -28,7 +29,9 @@ import {
   type LaunchPlanResponse,
   type LaunchPlanSaveResponse,
   type LaunchRibbonCell,
+  type LaunchTailProbe,
   type LaunchTailProbeChangeRow,
+  type LaunchTailProbeSaveResponse,
   type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
@@ -494,4 +497,113 @@ const tpByAtDesc = (a: LaunchTailProbeChangeRow, b: LaunchTailProbeChangeRow): n
 export function tailProbeChangesOf(state: LaunchPlanState, gateway: string, fire: LaunchFire): LaunchTailProbeChangeRow[] {
   if (state.kind !== 'ready') return [];
   return (state.resp.tail_probe_changes ?? []).filter((c) => c.gateway === gateway && c.fire === fire).sort(tpByAtDesc);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 뒤탐침 편집 · 저장(quick-261107-l7w) — 계획 편집 칸(35-15)과 같은 규칙
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 열린 뒤탐침 편집 칸(고른 서버 · 고른 발사 하나). 상태는 지도 탭이 쥔다.
+ * - `count` = 스테퍼 숫자 · `stepRaw` = 간격 입력 원문(숫자로 바꾸지 않는다).
+ * - `valid` = 마지막으로 검증을 통과한 값(S9 결) — 오류 동안에도 예정 칩 · 지도 초안 표식은 이 값을 그린다.
+ * - `error` = 지금 초안의 첫 위반(shared `validateLaunchTailProbeDraft` 문구 원문) · 없으면 null.
+ * - `base` = 칸을 열 때(또는 저장 뒤 다시 열 때)의 서버 값.
+ */
+export interface LaunchTailProbeEdit {
+  gateway: string;
+  fire: LaunchFire;
+  base: LaunchTailProbeValue;
+  count: number;
+  stepRaw: string;
+  valid: LaunchTailProbeValue;
+  error: { field: 'count' | 'step'; message: string } | null;
+}
+
+/** 「뒤탐침 고치기」 — 서버 값으로 칸을 채운다. */
+export function tailProbeEditOf(gateway: string, fire: LaunchFire, base: LaunchTailProbeValue): LaunchTailProbeEdit {
+  return {
+    gateway,
+    fire,
+    base: { ...base },
+    count: base.count,
+    stepRaw: String(base.step_us),
+    valid: { ...base },
+    error: null,
+  };
+}
+
+/** 입력 반영 — 검증이 통과할 때만 `valid` 를 바꾸고, 아니면 `valid` 유지 + error(검증은 shared 한 벌). */
+export function tailProbeEditWithDraft(edit: LaunchTailProbeEdit, count: number, stepRaw: string): LaunchTailProbeEdit {
+  const check = validateLaunchTailProbeDraft(count, stepRaw);
+  return check.ok
+    ? { ...edit, count, stepRaw, valid: check.value, error: null }
+    : { ...edit, count, stepRaw, error: { field: check.field, message: check.message } };
+}
+
+/** 같은 뒤탐침 값인가. */
+export function sameTailProbe(a: LaunchTailProbeValue, b: LaunchTailProbeValue): boolean {
+  return a.count === b.count && a.step_us === b.step_us;
+}
+
+/**
+ * 뒤탐침 저장 응답 → 계획 상태. 응답 plan 이 있으면 그 서버를 통째로 바꾸고(실패여도 relay 가 다시 읽은 값이면 그것이 지금 값),
+ * change 가 있으면 `tail_probe_changes` 맨 앞에 넣는다(null = 기록 실패 · 늘리지 않는다). ready 가 아니면 그대로.
+ */
+export function tailProbeStateWithSave(
+  state: LaunchPlanState,
+  gateway: string,
+  resp: Pick<LaunchTailProbeSaveResponse, 'plan' | 'change'>,
+): LaunchPlanState {
+  if (state.kind !== 'ready') return state;
+  const servers = resp.plan === null ? state.resp.servers : { ...state.resp.servers, [gateway]: resp.plan };
+  const mine = state.resp.tail_probe_changes ?? [];
+  const tail_probe_changes = resp.change === null ? mine : [resp.change, ...mine];
+  return { kind: 'ready', resp: { ...state.resp, servers, tail_probe_changes } };
+}
+
+/**
+ * 뒤탐침 저장 ok · 응답 plan 없음 — 그 서버 `tail_probes` 의 그 profile 행만 보낸 값으로(code 0 = 그 값이 들어갔다). 배열이 없으면
+ * 그 행 하나로 만든다. ready 가 아니거나 그 서버가 ok 가 아니면 그대로.
+ */
+export function tailProbeStateWithSent(
+  state: LaunchPlanState,
+  gateway: string,
+  fire: LaunchFire,
+  value: LaunchTailProbeValue,
+): LaunchPlanState {
+  if (state.kind !== 'ready') return state;
+  const server = state.resp.servers[gateway];
+  if (server === undefined || server.status !== 'ok') return state;
+  const profile = launchPlanProfileOf(fire);
+  const row: LaunchTailProbe = { profile, count: value.count, step_us: value.step_us };
+  const rows = server.tail_probes ?? [];
+  const tail_probes = rows.some((t) => t.profile === profile)
+    ? rows.map((t) => (t.profile === profile ? row : t))
+    : [...rows, row];
+  return { kind: 'ready', resp: { ...state.resp, servers: { ...state.resp.servers, [gateway]: { ...server, tail_probes } } } };
+}
+
+/** 계획 상태가 아는 뒤탐침 이력 id 최댓값 — 없으면 0(`tailProbeSaveRowSeenIn` 기준 · 35 R3-IN-01 결). */
+export function maxTailProbeChangeIdOf(state: LaunchPlanState): number {
+  if (state.kind !== 'ready') return 0;
+  return (state.resp.tail_probe_changes ?? []).reduce((m, c) => (c.id > m ? c.id : m), 0);
+}
+
+/**
+ * 다시 읽은 뒤탐침 이력에 이 저장의 행이 보이나 — 같은 (서버, 발사) · 같은 보낸 값 · 저장 직전에 알던 id(`afterId`)보다 새 행.
+ * 보이면 다시 읽기의 조회가 그 저장 처리 뒤에 나갔다(`saveRowSeenIn` 과 같은 근거).
+ */
+export function tailProbeSaveRowSeenIn(
+  rows: readonly LaunchTailProbeChangeRow[],
+  save: { gateway: string; fire: LaunchFire; value: LaunchTailProbeValue; afterId: number },
+): boolean {
+  return rows.some(
+    (c) =>
+      c.id > save.afterId &&
+      c.gateway === save.gateway &&
+      c.fire === save.fire &&
+      c.after_count === save.value.count &&
+      c.after_step_us === save.value.step_us,
+  );
 }

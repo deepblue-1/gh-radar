@@ -9,6 +9,7 @@ import {
   launchDaysOf,
   launchPlanEntryOf,
   launchPanelStatsOf,
+  launchTailProbeStateOf,
   type LaunchDay,
   type LaunchFire,
   type LaunchMapPiece,
@@ -18,17 +19,19 @@ import {
   type LaunchPlanResponse,
   type LaunchRange,
   type LaunchServer,
+  type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
-import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
+import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan, saveLaunchTailProbe } from '@/lib/launch-api';
 import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { LAUNCH_CHART, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
   maxChangeIdOf,
+  maxTailProbeChangeIdOf,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
@@ -40,9 +43,15 @@ import {
   rejectedSaveResultOf,
   sameOffsets,
   saveRowSeenIn,
+  tailProbeEditOf,
+  tailProbeEditWithDraft,
+  tailProbeSaveRowSeenIn,
+  tailProbeStateWithSave,
+  tailProbeStateWithSent,
   type LaunchPlanEdit,
   type LaunchPlanReread,
   type LaunchPlanState,
+  type LaunchTailProbeEdit,
   type PanelPlan,
 } from '@/lib/launch-plan-view';
 import { cn } from '@/lib/utils';
@@ -51,7 +60,7 @@ import { LaunchGateChart } from './launch-gate-chart';
 import { LaunchFireSeg } from './launch-orders-tab';
 import { LaunchPlanBar } from './launch-plan-bar';
 import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor';
-import { LaunchTailProbeBar } from './launch-tail-probe-bar';
+import { LaunchTailProbeBar, LaunchTailProbeEditor } from './launch-tail-probe-bar';
 
 /**
  * 경계 지도 탭 (Phase 35 · D-15 ~ D-18 · 채택 목업 `mockup-launch-gate-map.html` — 프리셋 칩 · 리본 켬 · 09:00:30 합패널).
@@ -87,6 +96,9 @@ import { LaunchTailProbeBar } from './launch-tail-probe-bar';
  *   「<서버> 뒤탐침」 줄(코스피 · 코스닥 공통 · `LaunchTailProbeBar`). 값은 같은 `GET /plan` 응답의 그 서버 `tail_probes` —
  *   계획 404(absent)면 줄 자체가 없고, 계획을 못 읽었으면 「뒤탐침 값을 읽지 못했어요」, ok 인데 tail_probes 가 없으면
  *   (구 서버 · relay 와이어 대기) 경고색 「이 서버 버전은 뒤탐침 설정을 몰라요 …」 · 고치기 버튼 없음.
+ *   「뒤탐침 고치기」(값 set · off 일 때만) → 인라인 편집 칸 · 「저장」 = PUT `/tail-probe/:gateway/:fire` 1건 — 계획 저장과 같은
+ *   흐름(응답 plan · change 로 상태만 바꾼다 · 결과 모름이면 1회 다시 읽기 · 4xx 는 확정 실패 · 세대 가드 · `reloadPlan` 재사용).
+ *   뒤탐침 칸과 계획 편집 칸은 **한 번에 하나만** 열린다(하나를 열면 다른 하나가 닫힌다). 서버 칩 · 발사 세그먼트를 바꾸면 닫힌다.
  * - 요약 카드는 고른 서버 2장이라 폭과 무관하게 한 줄 2열이다.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
@@ -115,6 +127,11 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
   const saveSeq = useRef(0);
   // 편집 칸은 지금 발사 기준 · 지금 서버의 것만 열려 있다(렌더 즉시 닫힘 — 아래 effect 가 상태도 비운다).
   const editing = edit !== null && edit.fire === fire && edit.gateway === gw ? edit : null;
+  // 뒤탐침 편집 칸(quick-261107-l7w) — 같은 규칙(지금 서버 · 지금 발사 것만 유효). 저장 결과도 대상 키와 함께 둔다.
+  const [tpEdit, setTpEdit] = useState<LaunchTailProbeEdit | null>(null);
+  const [tpSaving, setTpSaving] = useState<string | null>(null);
+  const [tpLastSave, setTpLastSave] = useState<{ key: string; id: number; save: LaunchPlanSaveState } | null>(null);
+  const tpEditing = tpEdit !== null && tpEdit.fire === fire && tpEdit.gateway === gw ? tpEdit : null;
 
   // 서버를 바꾸면 편집 칸 · 결과 줄을 비운다(quick-261107-iep) — 다시 그 서버로 돌아와도 닫힌 채. 저장 비행 중이어도
   // 계획 상태(서버별 키)는 저장 핸들러가 그대로 반영한다.
@@ -124,6 +141,8 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
     prevGw.current = gw;
     setEdit(null);
     setLastSave(null);
+    setTpEdit(null);
+    setTpLastSave(null);
   }, [gw]);
 
   // 계획은 탭 진입 1회 — fire · range 와 무관(D-25). 404 → absent(배포 전) · 그 밖 실패 → error(대신 값).
@@ -161,11 +180,33 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
   const closeEdit = () => {
     setEdit(null);
     setLastSave(null);
+    setTpEdit(null);
+    setTpLastSave(null);
   };
 
   const onEdit = (target: LaunchEditTarget | null) => {
     setLastSave(null);
     setEdit(target === null ? null : planEditOf(target.gateway, target.market, fire, target.offsets));
+    // 한 번에 하나 — 계획 편집 칸을 열면 뒤탐침 칸을 닫는다.
+    if (target !== null) {
+      setTpEdit(null);
+      setTpLastSave(null);
+    }
+  };
+
+  // 「뒤탐침 고치기」(서버 값) · 「닫기」(null). 열면 계획 편집 칸을 닫는다(한 번에 하나).
+  const onTailProbeEdit = (base: LaunchTailProbeValue | null) => {
+    setTpLastSave(null);
+    setTpEdit(base === null ? null : tailProbeEditOf(gw, fire, base));
+    if (base !== null) {
+      setEdit(null);
+      setLastSave(null);
+    }
+  };
+
+  const onTailProbeDraft = (count: number, stepRaw: string) => {
+    setTpLastSave(null);
+    setTpEdit((e) => (e === null ? e : tailProbeEditWithDraft(e, count, stepRaw)));
   };
 
   const onDraft = (draft: string[]) => {
@@ -286,6 +327,59 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
       .finally(() => setSaving(null));
   };
 
+  // 뒤탐침 저장 — `onSave` 와 같은 흐름(세대 가드 · 다시 읽기 · 4xx 확정 실패 · throw = 결과 모름).
+  const onTailProbeSave = () => {
+    if (tpEditing === null || tpSaving !== null) return;
+    const { gateway, fire: f, valid, count, stepRaw } = tpEditing;
+    // 저장 중에 초안을 안 고쳤을 때만 응답 때 칸을 저장 값으로 다시 연다(35 IN-03 결).
+    const untouched = (e: LaunchTailProbeEdit | null) =>
+      e !== null && e.gateway === gateway && e.fire === f && e.count === count && e.stepRaw === stepRaw;
+    const key = tpKeyOf(tpEditing);
+    const afterId = maxTailProbeChangeIdOf(plan);
+    saveSeq.current += 1;
+    const id = saveSeq.current;
+    const settle = (reread: LaunchPlanReread) =>
+      setTpLastSave((l) => (l !== null && l.id === id ? { ...l, save: { ...l.save, reread } } : l));
+    setTpSaving(key);
+    setTpLastSave(null);
+    saveLaunchTailProbe(gateway, f, valid)
+      .then(
+        (resp) => {
+          const ok = resp.result.outcome === 'ok';
+          const reload = planNeedsReload(resp);
+          if (resp.plan !== null || reload) markPlan(gateway);
+          // ok 인데 relay 가 다시 읽은 값을 못 실음 — code 0 = 보낸 값이 들어갔다. 그 행을 보낸 값으로 먼저 맞추고 다시 읽는다.
+          const sentOnly = ok && resp.plan === null;
+          setPlan((s) => {
+            const next = tailProbeStateWithSave(s, gateway, resp);
+            return sentOnly ? tailProbeStateWithSent(next, gateway, f, valid) : next;
+          });
+          const after = ok && resp.plan !== null ? launchTailProbeStateOf(resp.plan, f) : null;
+          const saved = sentOnly ? valid : after !== null && after.kind === 'set' ? after.value : null;
+          setTpEdit((e) => (untouched(e) && saved !== null ? tailProbeEditOf(gateway, f, saved) : e));
+          const at = new Date();
+          setTpLastSave({ key, id, save: reload ? { result: resp.result, at, reread: 'pending' } : { result: resp.result, at } });
+          if (reload) reloadPlan(gateway, settle);
+        },
+        (e: unknown) => {
+          if (e instanceof ApiClientError && e.status >= 400 && e.status < 500) {
+            setTpLastSave({ key, id, save: { result: rejectedSaveResultOf(gateway, e.status, e.message), at: new Date() } });
+            return;
+          }
+          setTpLastSave({
+            key,
+            id,
+            save: { result: { server: gateway, outcome: 'timeout' }, at: new Date(), reread: 'pending' },
+          });
+          markPlan(gateway);
+          reloadPlan(gateway, settle, (resp) =>
+            tailProbeSaveRowSeenIn(resp.tail_probe_changes ?? [], { gateway, fire: f, value: valid, afterId }),
+          );
+        },
+      )
+      .finally(() => setTpSaving(null));
+  };
+
   return (
     <LaunchMapView
       status={phase.kind}
@@ -306,9 +400,17 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
       onSave={onSave}
       saving={editing !== null && saving === planEditKeyOf(editing)}
       lastSave={editing !== null && lastSave?.key === planEditKeyOf(editing) ? lastSave.save : null}
+      tpEditing={tpEditing}
+      onTailProbeEdit={onTailProbeEdit}
+      onTailProbeDraft={onTailProbeDraft}
+      onTailProbeSave={onTailProbeSave}
+      tpSaving={tpEditing !== null && tpSaving === tpKeyOf(tpEditing)}
+      tpLastSave={tpEditing !== null && tpLastSave?.key === tpKeyOf(tpEditing) ? tpLastSave.save : null}
     />
   );
 }
+
+const tpKeyOf = (e: Pick<LaunchTailProbeEdit, 'gateway' | 'fire'>): string => `${e.gateway}|${e.fire}`;
 
 const planEditKeyOf = (e: Pick<LaunchPlanEdit, 'gateway' | 'market' | 'fire'>): string => `${e.gateway}|${e.market}|${e.fire}`;
 
@@ -344,6 +446,14 @@ export interface LaunchMapViewProps {
   onSave?: () => void;
   saving?: boolean;
   lastSave?: LaunchPlanSaveState | null;
+  /** 열린 뒤탐침 편집 칸(quick-261107-l7w) — 기본 null. */
+  tpEditing?: LaunchTailProbeEdit | null;
+  /** 「뒤탐침 고치기」(서버 값) · 「닫기」(null). 없으면 버튼을 그리지 않는다(보기만). */
+  onTailProbeEdit?: (base: LaunchTailProbeValue | null) => void;
+  onTailProbeDraft?: (count: number, stepRaw: string) => void;
+  onTailProbeSave?: () => void;
+  tpSaving?: boolean;
+  tpLastSave?: LaunchPlanSaveState | null;
 }
 
 const PLAN_ABSENT: LaunchPlanState = { kind: 'absent' };
@@ -403,6 +513,12 @@ export function LaunchMapView({
   onSave,
   saving = false,
   lastSave = null,
+  tpEditing = null,
+  onTailProbeEdit,
+  onTailProbeDraft,
+  onTailProbeSave,
+  tpSaving = false,
+  tpLastSave = null,
 }: LaunchMapViewProps) {
   const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, gw, fire, plan)), [resp, gw, fire, plan]);
   const ready = status === 'ready' && resp !== null;
@@ -410,6 +526,9 @@ export function LaunchMapView({
   const mine = ready ? resp.pieces.filter((p) => p.gateway === gw) : [];
   const sideless = ready && fire === 'n0930' && mine.some((p) => p.side === null);
   const tailProbed = ready && fire === 'q16' && mine.some(isLaunchTailProbe);
+  // 고른 서버 · 고른 발사의 뒤탐침 상태(quick-261107-l7w) — 편집 칸 기준 값.
+  const tpState = plan.kind === 'ready' ? launchTailProbeStateOf(plan.resp.servers[gw], fire) : null;
+  const tpValue = tpState !== null && tpState.kind === 'set' ? tpState.value : null;
 
   return (
     <div data-slot="launch-map" className="flex min-w-0 flex-col gap-3.5">
@@ -488,7 +607,34 @@ export function LaunchMapView({
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
             ))}
           </div>
-          {plan.kind !== 'absent' && <LaunchTailProbeBar gateway={gw} fire={fire} plan={plan} />}
+          {plan.kind !== 'absent' && (
+            <LaunchTailProbeBar
+              gateway={gw}
+              fire={fire}
+              plan={plan}
+              editing={tpEditing !== null && tpValue !== null}
+              onToggle={
+                onTailProbeEdit === undefined || tpValue === null
+                  ? undefined
+                  : () => onTailProbeEdit(tpEditing !== null ? null : tpValue)
+              }
+            >
+              {tpEditing !== null && tpValue !== null && (
+                <LaunchTailProbeEditor
+                  gateway={gw}
+                  fire={fire}
+                  server={tpValue}
+                  count={tpEditing.count}
+                  stepRaw={tpEditing.stepRaw}
+                  preview={tpEditing.valid}
+                  onDraft={(c, st) => onTailProbeDraft?.(c, st)}
+                  onSave={() => onTailProbeSave?.()}
+                  saving={tpSaving}
+                  result={tpLastSave}
+                />
+              )}
+            </LaunchTailProbeBar>
+          )}
           <div data-slot="launch-panels" className="flex min-w-0 flex-col gap-3">
             {panels.map((p) => {
               const open = editing !== null && editing.gateway === p.gateway && editing.market === p.market;

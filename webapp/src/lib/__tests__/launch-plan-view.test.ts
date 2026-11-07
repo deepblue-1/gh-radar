@@ -34,6 +34,12 @@ import {
   tailProbeSummaryParts,
   tailProbeSummaryText,
   tailProbeValueText,
+  maxTailProbeChangeIdOf,
+  tailProbeEditOf,
+  tailProbeEditWithDraft,
+  tailProbeSaveRowSeenIn,
+  tailProbeStateWithSave,
+  tailProbeStateWithSent,
 } from '../launch-plan-view';
 
 /**
@@ -542,5 +548,66 @@ describe('뒤탐침 표기(quick-261107-l7w)', () => {
     expect(s1.kind === 'ready' && s1.resp.tail_probe_changes?.map((r) => r.id)).toEqual([mine.id, shared.id, added.id]);
     const s2 = planStateWithReload(s0, { servers: {}, changes: [] }, new Set());
     expect(s2.kind === 'ready' && s2.resp.tail_probe_changes).toEqual([mine, shared]);
+  });
+});
+
+describe('뒤탐침 편집 · 저장 반영(quick-261107-l7w)', () => {
+  const TP_KB: LaunchPlanServer = {
+    ...OK_KB,
+    tail_probes: [
+      { profile: 'Q16', count: 5, step_us: 10 },
+      { profile: 'N', count: 0, step_us: 10 },
+    ],
+  };
+
+  it('tailProbeEditOf · tailProbeEditWithDraft — 유효면 valid 갱신 · 위반이면 valid 유지 + error 원문', () => {
+    const e0 = tailProbeEditOf('KB120', 'q16', { count: 5, step_us: 10 });
+    expect(e0).toMatchObject({ count: 5, stepRaw: '10', valid: { count: 5, step_us: 10 }, error: null });
+    const e1 = tailProbeEditWithDraft(e0, 3, '20');
+    expect(e1).toMatchObject({ count: 3, stepRaw: '20', valid: { count: 3, step_us: 20 }, error: null });
+    const e2 = tailProbeEditWithDraft(e1, 3, '101');
+    expect(e2).toMatchObject({ stepRaw: '101', valid: { count: 3, step_us: 20 } });
+    expect(e2.error).toEqual({ field: 'step', message: '간격은 1 ~ 100µs 사이여야 해요' });
+    expect(tailProbeEditWithDraft(e1, 10, '20').valid).toEqual({ count: 10, step_us: 20 });
+  });
+
+  it('tailProbeStateWithSave — plan 으로 그 서버 교체 · change 는 tail_probe_changes 맨 앞 · 계획 이력은 그대로', () => {
+    const t0 = tpRow({});
+    const pc = row({});
+    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: TP_KB }, changes: [pc], tail_probe_changes: [t0] } };
+    const next: LaunchPlanServer = { ...TP_KB, plan_rev: 9, tail_probes: [{ profile: 'Q16', count: 3, step_us: 20 }] };
+    const t1 = tpRow({});
+    const s1 = tailProbeStateWithSave(s0, 'KB120', { plan: next, change: t1 });
+    expect(s1.kind === 'ready' && s1.resp.servers.KB120).toBe(next);
+    expect(s1.kind === 'ready' && s1.resp.tail_probe_changes?.map((r) => r.id)).toEqual([t1.id, t0.id]);
+    expect(s1.kind === 'ready' && s1.resp.changes).toEqual([pc]);
+    expect(tailProbeStateWithSave(s0, 'KB120', { plan: null, change: null })).toEqual(s0);
+    expect(tailProbeStateWithSave({ kind: 'error' }, 'KB120', { plan: next, change: t1 })).toEqual({ kind: 'error' });
+  });
+
+  it('tailProbeStateWithSent — 그 profile 행만 보낸 값 · 배열 없으면 그 행 하나로 · 서버 non-ok 면 그대로', () => {
+    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: TP_KB, KYOBO119: OK_KB, KYOBO112: { status: 'offline' as const } }, changes: [] } };
+    const s1 = tailProbeStateWithSent(s0, 'KB120', 'n0930', { count: 2, step_us: 15 });
+    expect(s1.kind === 'ready' && s1.resp.servers.KB120?.status === 'ok' && s1.resp.servers.KB120.tail_probes).toEqual([
+      { profile: 'Q16', count: 5, step_us: 10 },
+      { profile: 'N', count: 2, step_us: 15 },
+    ]);
+    const s2 = tailProbeStateWithSent(s0, 'KYOBO119', 'q16', { count: 1, step_us: 5 });
+    expect(s2.kind === 'ready' && s2.resp.servers.KYOBO119?.status === 'ok' && s2.resp.servers.KYOBO119.tail_probes).toEqual([
+      { profile: 'Q16', count: 1, step_us: 5 },
+    ]);
+    expect(tailProbeStateWithSent(s0, 'KYOBO112', 'q16', { count: 1, step_us: 5 })).toBe(s0);
+  });
+
+  it('maxTailProbeChangeIdOf · tailProbeSaveRowSeenIn — 같은 (서버, 발사) · 같은 값 · afterId 보다 새 행만', () => {
+    const a = tpRow({ id: 40 });
+    const b = tpRow({ id: 41 });
+    expect(maxTailProbeChangeIdOf({ kind: 'ready', resp: { servers: {}, changes: [], tail_probe_changes: [b, a] } })).toBe(41);
+    expect(maxTailProbeChangeIdOf({ kind: 'loading' })).toBe(0);
+    const save = { gateway: 'KB120', fire: 'q16' as const, value: { count: 3, step_us: 20 }, afterId: 41 };
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42 })], save)).toBe(true);
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 41 })], save)).toBe(false);
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, fire: 'n0930' })], save)).toBe(false);
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, after_step_us: 10 })], save)).toBe(false);
   });
 });
