@@ -80,6 +80,32 @@ export interface ServerRegistry {
   emit(event: "changed", change: RegistryChange): boolean;
 }
 
+/**
+ * gh-trade WinForms 클라 로그인창 「서버」 콤보 목록 (gh-trade 인박스 261107-login-server-list).
+ *
+ * 공개 경로는 `https://dma.jx1.io/ghtrade/servers.json` — Caddy 가 `/ghtrade/*` 고정 Bearer 관문(`@ghtrade_deny` · 불일치 404)
+ * 뒤에서 relay 8090 으로 넘긴다. 원천은 이 레지스트리 하나(DB 60초 재적재 · Admin 편집 즉시 reload)라 파일 동기화가 없다.
+ * **enabled 행만 · sort_order 오름차순(같으면 원래 순서)**, 칸은 key · broker · host · port 넷뿐이다 — 주문/시세 역할은 클라가
+ * 쓰지 않으므로 싣지 않는다. 모양을 바꾸면 `v` 를 올린다(클라는 `v !== 1` 이면 무시하고 지난 목록을 쓴다).
+ */
+export const GHTRADE_SERVER_LIST_PATH = "/ghtrade/servers.json";
+
+export type GhtradeServerList = {
+  v: 1;
+  servers: { key: string; broker: DmaBroker; host: string; port: number }[];
+};
+
+export function ghtradeServerList(rows: readonly DmaServerRow[]): GhtradeServerList {
+  return {
+    v: 1,
+    servers: rows
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.enabled)
+      .sort((a, b) => a.r.sortOrder - b.r.sortOrder || a.i - b.i)
+      .map(({ r }) => ({ key: r.key, broker: r.broker, host: r.host, port: r.port })),
+  };
+}
+
 /** `dma_servers` select 칸 — 29-01 열 이름 그대로다. */
 const SELECT_COLUMNS = "key, broker, host, port, enabled, is_order_server, is_quote_primary, sort_order";
 

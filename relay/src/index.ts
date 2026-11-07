@@ -94,7 +94,14 @@
 import http from "node:http";
 
 import { loadConfig } from "./config.js";
-import { DMA_BROKERS, ServerRegistry, isDmaBroker, type DmaBroker } from "./registry/registry.js";
+import {
+  DMA_BROKERS,
+  GHTRADE_SERVER_LIST_PATH,
+  ServerRegistry,
+  ghtradeServerList,
+  isDmaBroker,
+  type DmaBroker,
+} from "./registry/registry.js";
 import { ServerPipelines, type ServerPipeline } from "./registry/pipelines.js";
 import { OrderServerJournal } from "./registry/order-journal.js";
 import { logger } from "./logger.js";
@@ -342,9 +349,16 @@ gatewaySymbols.on("updated", () => hub.refreshNames());
  * 업그레이드가 아닌 평문 요청도 반드시 응답해야 한다 — Caddy 는 `dma.jx1.io` 의 **모든**
  * 요청을 이 포트로 넘기므로, `request` 리스너가 없으면 잘못 들어온 GET 이 응답 없이
  * 소켓을 붙들고 있다가 타임아웃난다. 여기서는 정보를 흘리지 않는 404 만 돌려준다
- * (`/healthz` 는 내부 포트 8091 소관이다).
+ * (`/healthz` 는 내부 포트 8091 소관이다). 예외는 `GET /ghtrade/servers.json`(gh-trade 클라 로그인창 서버 목록) 하나다 —
+ * Caddy 가 고정 Bearer 를 확인한 요청만 여기로 넘긴다(Caddyfile `handle /ghtrade/servers.json`).
  */
-const wsServer = http.createServer((_req, res) => {
+const wsServer = http.createServer((req, res) => {
+  // 단 하나의 예외 — gh-trade 클라 로그인창 서버 목록(인증 · 404 은닉은 Caddy `@ghtrade_deny` 가 앞에서 한다).
+  if (req.method === "GET" && new URL(req.url ?? "/", "http://relay.invalid").pathname === GHTRADE_SERVER_LIST_PATH) {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify(ghtradeServerList(registry.all())));
+    return;
+  }
   res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "Route not found" } }));
 });

@@ -18,7 +18,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "../src/logger.js";
-import { REGISTRY_REFRESH_MS, ServerRegistry, type RegistryChange } from "../src/registry/registry.js";
+import {
+  REGISTRY_REFRESH_MS,
+  ServerRegistry,
+  ghtradeServerList,
+  type DmaServerRow,
+  type RegistryChange,
+} from "../src/registry/registry.js";
 
 const REFRESH_MS = 50;
 
@@ -343,5 +349,40 @@ describe("ServerRegistry — env 합성 (Phase 29 D-09)", () => {
     const row = { key: "KB", broker: "KB" as const, host: "127.0.0.1", port: 9100, enabled: true, isOrderServer: true, isQuotePrimary: true, sortOrder: 0 };
     const reg = new ServerRegistry({ source: "env", rows: [row, { ...row, sortOrder: 1 }] });
     expect(() => reg.start()).toThrow(/중복/);
+  });
+});
+
+describe("ghtradeServerList — gh-trade 클라 로그인창 서버 목록 (인박스 261107-login-server-list)", () => {
+  const row = (key: string, enabled: boolean, sortOrder: number): DmaServerRow => ({
+    key,
+    broker: key.startsWith("KB") ? "KB" : "KYOBO",
+    host: `192.0.2.${key.replace(/\D/g, "")}`,
+    port: 9100,
+    enabled,
+    isOrderServer: false,
+    isQuotePrimary: false,
+    sortOrder,
+  });
+
+  it("v 1 · enabled 만 · sort_order 오름차순(같으면 원래 순서) · 칸은 key/broker/host/port 넷", () => {
+    const list = ghtradeServerList([
+      row("KYOBO112", true, 3),
+      row("KB121", false, 2),
+      row("KYOBO119", true, 3),
+      row("KB120", true, 1),
+    ]);
+    expect(list).toEqual({
+      v: 1,
+      servers: [
+        { key: "KB120", broker: "KB", host: "192.0.2.120", port: 9100 },
+        { key: "KYOBO112", broker: "KYOBO", host: "192.0.2.112", port: 9100 },
+        { key: "KYOBO119", broker: "KYOBO", host: "192.0.2.119", port: 9100 },
+      ],
+    });
+  });
+
+  it("레지스트리가 비었거나 전부 꺼지면 빈 배열(클라는 지난 목록 → 내장 기본값)", () => {
+    expect(ghtradeServerList([])).toEqual({ v: 1, servers: [] });
+    expect(ghtradeServerList([row("KB120", false, 1)])).toEqual({ v: 1, servers: [] });
   });
 });
