@@ -607,3 +607,11 @@ export function tailProbeSaveRowSeenIn(
       c.after_step_us === save.value.step_us,
   );
 }
+
+/**
+ * 시장 패널 「다음 발사 계획」 줄 꼬리(목업 변형 C `.plan .pr`) — count > 0 「+ 뒤탐침 5발 · 10µs」 · 0 「· 뒤탐침 꺼짐」.
+ * 구 서버 · 계획 대신 값이면 지도 탭이 꼬리를 주지 않는다.
+ */
+export function tailProbePlanSuffixText(v: LaunchTailProbeValue): string {
+  return v.count > 0 ? `+ 뒤탐침 ${v.count}발 · ${v.step_us}µs` : '· 뒤탐침 꺼짐';
+}

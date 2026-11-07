@@ -326,7 +326,7 @@ export function isLaunchReject(result: string): boolean {
   return result === "101" || result === "515";
 }
 
-/** 16:00 뒤탐침 회차 — gh-trade kind 17 round(← ev_price) 값. 앞쪽 탐침은 −1. */
+/** 뒤탐침 회차(16:00 · 09:00:30) — gh-trade kind 17 round(← ev_price) 값. 앞쪽 탐침은 −1. */
 export const LAUNCH_TAIL_PROBE_ROUND = -2;
 
 /**
@@ -335,7 +335,8 @@ export const LAUNCH_TAIL_PROBE_ROUND = -2;
 export const LAUNCH_TAIL_PROBE_OUTSIDE_CODES: ReadonlySet<string> = new Set(["E127"]);
 
 /**
- * 16:00 뒤탐침인가 — probe === true && round === −2(quick-261030-dz7).
+ * 뒤탐침인가 — 16:00 Q16(profile 1) · 09:00:30 N(profile 3 · NXT · 인박스 261107-nxt-tail-probe-kind17) —
+ * probe === true && round === −2(quick-261030-dz7).
  * gh-trade 값 규칙: probe ← has_remaining · round ← ev_price · wire = 그 시장 실조각 수 + i · piece_idx = i.
  * round −1(앞쪽 탐침)은 뒤탐침이 아니다 — 실조각과 같은 규칙으로 읽는다.
  */

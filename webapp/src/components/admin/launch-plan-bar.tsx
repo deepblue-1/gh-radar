@@ -33,6 +33,9 @@ import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './ref
  * 글자 12.5px · 라벨 `--muted-fg` · tabular-nums · flex-wrap(폰 390 에서 줄바꿈 · 표는 가로 스크롤).
  * `now` 는 「오늘이면 시각만」 판정 기준(테스트 주입 · 기본 지금).
  *
+ * 꼬리(`tail` · quick-261107-l7w 목업 변형 C `.plan .pr`) — source server 이고 칸이 있을 때만 계획 값 바로 뒤(마지막 변경 앞)에
+ * 「+ 뒤탐침 5발 · 10µs」 · 「· 뒤탐침 꺼짐」(`--fg-2` 600). 없음 · null 이면 그리지 않는다.
+ *
  * 「계획 고치기」/「닫기」(35-15 · D-24) — `onToggle` 이 있을 때만 첫 줄 끝에 붙는다. 서버 계획(source server)일 때만 켜지고,
  * 대신 값 · 조회 중이면 비활성 + title(지금 서버 값을 모르면 고칠 기준이 없다). `children` = 편집 칸 자리(첫 줄 바로 아래).
  */
@@ -47,6 +50,8 @@ export interface LaunchPlanBarProps {
   onToggle?: () => void;
   /** 편집 칸(열렸을 때). */
   children?: ReactNode;
+  /** 뒤탐침 꼬리 문구(`tailProbePlanSuffixText`) — 없으면 안 그린다. */
+  tail?: string | null;
 }
 
 /** 서버 계획을 못 읽은 패널의 「계획 고치기」 title. */
@@ -55,7 +60,15 @@ export const LAUNCH_PLAN_EDIT_BLOCKED = '서버 계획을 읽지 못해 고칠 �
 const TH = 'bg-[var(--band)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
 const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
 
-export function LaunchPlanBar({ fire, plan, now = new Date(), editing = false, onToggle, children }: LaunchPlanBarProps) {
+export function LaunchPlanBar({
+  fire,
+  plan,
+  now = new Date(),
+  editing = false,
+  onToggle,
+  children,
+  tail = null,
+}: LaunchPlanBarProps) {
   if (plan.source === 'absent') return null;
   const loading = plan.source === 'loading';
   const editable = plan.source === 'server' && plan.entry !== null;
@@ -82,6 +95,11 @@ export function LaunchPlanBar({ fire, plan, now = new Date(), editing = false, o
             className="font-semibold break-keep text-[var(--led-latent)] tabular-nums"
           >
             {fallbackLineText(plan.fallbackUs)}
+          </span>
+        )}
+        {plan.source === 'server' && plan.entry !== null && tail !== null && tail !== '' && (
+          <span data-slot="launch-plan-tail" className="font-semibold break-keep text-[var(--fg-2)] tabular-nums">
+            {tail}
           </span>
         )}
         {loading && <Skeleton className="h-3.5 w-40" />}

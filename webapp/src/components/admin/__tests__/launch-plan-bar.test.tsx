@@ -131,3 +131,25 @@ describe('LaunchPlanBar', () => {
     expect(q('[data-slot="launch-plan-last"]')).toBeNull();
   });
 });
+
+describe('LaunchPlanBar — 뒤탐침 꼬리(quick-261107-l7w)', () => {
+  it('server + tail → 계획 값 바로 뒤 · 마지막 변경 앞에 꼬리', () => {
+    render(<LaunchPlanBar fire="q16" plan={plan({ lastChange: row() })} now={SAME_DAY_NOW} tail="+ 뒤탐침 5발 · 10µs" />);
+    const kids = Array.from(q('[data-slot="launch-plan-bar"] > div')!.children).map((e) => (e as HTMLElement).dataset.slot);
+    const iLine = kids.indexOf('launch-plan-line');
+    expect(kids[iLine + 1]).toBe('launch-plan-tail');
+    expect(kids[iLine + 2]).toBe('launch-plan-last');
+    expect(q('[data-slot="launch-plan-tail"]')!.textContent).toBe('+ 뒤탐침 5발 · 10µs');
+  });
+
+  it('「· 뒤탐침 꺼짐」 · tail 없음/null · source ≠ server → 꼬리 없음', () => {
+    const a = render(<LaunchPlanBar fire="n0930" plan={plan({})} tail="· 뒤탐침 꺼짐" />);
+    expect(q('[data-slot="launch-plan-tail"]')!.textContent).toBe('· 뒤탐침 꺼짐');
+    a.unmount();
+    const b = render(<LaunchPlanBar fire="q16" plan={plan({})} tail={null} />);
+    expect(qa('[data-slot="launch-plan-tail"]')).toHaveLength(0);
+    b.unmount();
+    render(<LaunchPlanBar fire="q16" plan={plan({ source: 'fallback', entry: null, lines: [-337] })} tail="+ 뒤탐침 5발 · 10µs" />);
+    expect(qa('[data-slot="launch-plan-tail"]')).toHaveLength(0);
+  });
+});

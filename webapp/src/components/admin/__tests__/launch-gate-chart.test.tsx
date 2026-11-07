@@ -472,3 +472,56 @@ describe('LaunchGateChart — 16:00 뒤탐침 ▲(quick-261030-dz7 · 목업 A�
     expect(last('10/27').querySelector('[data-slot="launch-day-probes"]')).toBeNull();
   });
 });
+
+describe('LaunchGateChart — 예정 뒤탐침 tailProbeLines(quick-261107-l7w)', () => {
+  const svgOf = () => document.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+  const plan = [-350, -345, -325];
+
+  it('5개 → launch-tail-probe-planned 5 · data-idx 0..4 · data-src server · title 「예정 뒤탐침 i번」 · 점선 + 빈 삼각형', () => {
+    render(
+      <LaunchGateChart
+        gateway="KB120"
+        market="Q"
+        fire="q16"
+        days={daysOf('KB120', 'Q')}
+        planLines={plan}
+        tailProbeLines={[-315, -305, -295, -285, -275]}
+      />,
+    );
+    const g = [...svgOf().querySelectorAll<SVGGElement>('[data-slot="launch-tail-probe-planned"]')];
+    expect(g.map((e) => e.dataset.idx)).toEqual(['0', '1', '2', '3', '4']);
+    expect(g.every((e) => e.dataset.src === 'server')).toBe(true);
+    expect(g[0]!.querySelector('title')!.textContent).toBe('예정 뒤탐침 1번 −315µs');
+    const [line, tri] = [...g[0]!.querySelectorAll('path')];
+    expect(line!.getAttribute('stroke-dasharray')).toBe('1.5 3');
+    expect(line!.getAttribute('stroke')).toBe('var(--muted-fg)');
+    expect(tri!.getAttribute('fill')).toBe('none');
+    // 기존 점선 · 점 개수 그대로 · 삼각형 점(data-shape)은 늘지 않는다
+    expect(svgOf().querySelectorAll('[data-slot="launch-next"]')).toHaveLength(3);
+    expect(svgOf().querySelectorAll('circle')).toHaveLength(87);
+    expect(svgOf().querySelectorAll('path[data-shape="triangle"]')).toHaveLength(0);
+    // 계획 점선보다 아래 층(먼저 그린다)
+    const all = [...svgOf().querySelectorAll('[data-slot]')];
+    expect(all.indexOf(g[4]!)).toBeLessThan(all.indexOf(svgOf().querySelector('[data-slot="launch-next"]')!));
+  });
+
+  it('data-src draft · 축 밖 값은 그리지 않음 · 비면 0', () => {
+    const { unmount } = render(
+      <LaunchGateChart
+        gateway="KB120"
+        market="Q"
+        fire="q16"
+        days={daysOf('KB120', 'Q')}
+        planLines={plan}
+        tailProbeLines={[-315, 9000]}
+        tailProbeDraft
+      />,
+    );
+    const g = [...svgOf().querySelectorAll<SVGGElement>('[data-slot="launch-tail-probe-planned"]')];
+    expect(g).toHaveLength(1);
+    expect(g[0]!.dataset.src).toBe('draft');
+    unmount();
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} planLines={plan} />);
+    expect(svgOf().querySelectorAll('[data-slot="launch-tail-probe-planned"]')).toHaveLength(0);
+  });
+});

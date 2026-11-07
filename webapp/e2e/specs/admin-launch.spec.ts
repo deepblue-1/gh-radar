@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   launchPlanFixture,
   launchPlanFixtureWithTailProbes,
+  launchMapFixtureWithNTailProbes,
   launchPlanSaveOk,
   mockLaunchApi,
 } from '../fixtures/launch';
@@ -1054,11 +1055,96 @@ test.describe('어드민 발사 · 뒤탐침 설정(고치기)', () => {
     await expect(tpBar(page).locator('[data-slot="launch-tail-probe-title"]')).toHaveText('교보119 뒤탐침');
     await expect(tpEditor(page)).toHaveCount(0);
     await serverChip(page, 'KB120').click();
+    // 주소 갱신이 끝난 뒤 다음 조작(세그먼트가 옛 주소의 gw 를 다시 싣지 않게)
+    await expect(page).not.toHaveURL(/gw=KYOBO119/);
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-title"]')).toHaveText('KB120 뒤탐침');
     await expect(tpEditor(page)).toHaveCount(0);
     await tpToggle(page).click();
     await expect(tpEditor(page)).toHaveCount(1);
     await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
     await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText('꺼짐 · 0발', { timeout: 15_000 });
     await expect(tpEditor(page)).toHaveCount(0);
+  });
+});
+
+const tpPlanned = (page: Page, gateway: string, market: string) =>
+  panel(page, gateway, market).locator('[data-slot="launch-tail-probe-planned"]');
+const planTail = (page: Page, gateway: string, market: string) =>
+  panel(page, gateway, market).locator('[data-slot="launch-plan-tail"]');
+
+test.describe('어드민 발사 · 뒤탐침 설정(지도 · 범례)', () => {
+  test('TP-D1 1280 — KB120 16:00 두 패널 꼬리 · 표식 5 · 범례 예정 뒤탐침 · 고치기 −2 → 표식 3(draft) · 닫기 → 5(server)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    for (const m of ['Q', 'K']) {
+      await expect(planTail(page, 'KB120', m)).toHaveText('+ 뒤탐침 5발 · 10µs', { timeout: 15_000 });
+      await expect(tpPlanned(page, 'KB120', m)).toHaveCount(5);
+    }
+    await expect(root(page).locator('[data-legend="tail-probe-planned"]')).toHaveText('예정 뒤탐침');
+    await page.screenshot({ path: test.info().outputPath('tail-probe-map-1280.png'), fullPage: true });
+
+    await tpToggle(page).click();
+    await tpEditor(page).getByRole('button', { name: '발 수 줄이기' }).click();
+    await tpEditor(page).getByRole('button', { name: '발 수 줄이기' }).click();
+    await expect(tpPlanned(page, 'KB120', 'Q')).toHaveCount(3);
+    await expect(tpPlanned(page, 'KB120', 'Q').first()).toHaveAttribute('data-src', 'draft');
+    await expect(planTail(page, 'KB120', 'Q')).toHaveText('+ 뒤탐침 3발 · 10µs');
+    await tpToggle(page).click();
+    await expect(tpPlanned(page, 'KB120', 'Q')).toHaveCount(5);
+    await expect(tpPlanned(page, 'KB120', 'Q').first()).toHaveAttribute('data-src', 'server');
+  });
+
+  test('TP-D2 1280 — 09:00:30 KB120(N 0발) 꼬리 「· 뒤탐침 꺼짐」 · 표식 0 · 범례 없음', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all&fire=n0930');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('09:00:30');
+    await expect(planTail(page, 'KB120', 'Q')).toHaveText('· 뒤탐침 꺼짐', { timeout: 15_000 });
+    await expect(root(page).locator('[data-slot="launch-tail-probe-planned"]')).toHaveCount(0);
+    await expect(root(page).locator('[data-legend="tail-probe-planned"]')).toHaveCount(0);
+  });
+
+  test('TP-D2b 1280 — 기본 픽스처(구 서버) → 꼬리 0 · 표식 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { plan: launchPlanFixture });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(tpBar(page)).toHaveAttribute('data-state', 'unsupported', { timeout: 15_000 });
+    await expect(root(page).locator('[data-slot="launch-plan-tail"]')).toHaveCount(0);
+    await expect(root(page).locator('[data-slot="launch-tail-probe-planned"]')).toHaveCount(0);
+  });
+
+  test('TP-D3 1280 — 인박스 261107-nxt-tail-probe-kind17 · 09:00:30 N 뒤탐침 조각 → 범례 뒤탐침 견본 · 삼각형 5', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { map: launchMapFixtureWithNTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all&fire=n0930');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(root(page).locator('[data-legend="tail-probe"]')).toBeVisible({ timeout: 15_000 });
+    await expect(panel(page, 'KB120', 'Q').locator('path[data-shape="triangle"]')).toHaveCount(5);
+  });
+
+  test('TP-D4 390 — 뒤탐침 편집 칸 펼침 · 10발 칩 줄바꿈 · 페이지 가로 스크롤 0', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(tpToggle(page)).toBeVisible({ timeout: 15_000 });
+    await tpToggle(page).click();
+    for (let i = 0; i < 5; i++) await tpEditor(page).getByRole('button', { name: '발 수 늘리기' }).click();
+    await expect(tpEditor(page).locator('[data-slot="launch-tail-probe-count"]')).toHaveText('10');
+    await expect(tpEditor(page).getByRole('button', { name: '발 수 늘리기' })).toBeDisabled();
+    const chips = tpEditor(page).locator('[data-slot="launch-tail-probe-chip"]');
+    await expect(chips).toHaveCount(10);
+    const first = (await chips.first().boundingBox())!;
+    const last = (await chips.last().boundingBox())!;
+    expect(last.y, '칩 줄바꿈').toBeGreaterThan(first.y + first.height / 2);
+    const ed = (await tpEditor(page).boundingBox())!;
+    expect(ed.x + ed.width, '편집 칸이 뷰포트 안').toBeLessThanOrEqual(390);
+    const o = await horizontalOverflow(page);
+    expect(o.doc, '문서 가로 넘침 0').toBeLessThanOrEqual(0);
+    expect(o.main, 'main 가로 넘침 0').toBeLessThanOrEqual(0);
+    await page.screenshot({ path: test.info().outputPath('tail-probe-edit-390.png'), fullPage: true });
   });
 });

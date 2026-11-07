@@ -9,6 +9,7 @@ import {
   launchDaysOf,
   launchPlanEntryOf,
   launchPanelStatsOf,
+  launchTailProbeOffsets,
   launchTailProbeStateOf,
   type LaunchDay,
   type LaunchFire,
@@ -48,6 +49,7 @@ import {
   tailProbeSaveRowSeenIn,
   tailProbeStateWithSave,
   tailProbeStateWithSent,
+  tailProbePlanSuffixText,
   type LaunchPlanEdit,
   type LaunchPlanReread,
   type LaunchPlanState,
@@ -72,6 +74,7 @@ import { LaunchTailProbeBar, LaunchTailProbeEditor } from './launch-tail-probe-b
  * - 서버(`gw` · quick-261107-iep)는 탭 줄 아래 서버 칩이 고르고 **클라이언트 필터**다 — 지도 · 계획 effect deps 에 넣지 않는다
  *   (서버 전환에 지도 · 계획 재요청 없음). 「적재 이력 없음」 은 응답 전체 기준 그대로(기존 기록 보존 — 범위를 서버별로
  *   좁히지 않는다). 범례 표식(방향 없음 · 뒤탐침)은 고른 서버 조각만 보고 정한다(안 그린 표식을 범례가 말하지 않게).
+ *   뒤탐침 삼각형 견본은 발사와 무관하다(16:00 Q16 · 09:00:30 N — 인박스 261107-nxt-tail-probe-kind17).
  *   서버를 바꾸면 열린 편집 칸이 닫힌다(발사 세그먼트 규칙과 같게 — 돌아와도 다시 열리지 않는다).
  * - 범위는 프리셋 칩만이다(시작 · 끝 날짜 입력 없음 — D-15 · CONTEXT Deferred). 실제 범위 글은 두지 않는다(quick-261107-jhk).
  * - 다음 발사 계획(범위 7 · D-24 · D-25): 탭 진입 때 `GET /api/admin/launch/plan` 을 지도 요청과 병렬로 **한 번** 부른다
@@ -99,6 +102,9 @@ import { LaunchTailProbeBar, LaunchTailProbeEditor } from './launch-tail-probe-b
  *   「뒤탐침 고치기」(값 set · off 일 때만) → 인라인 편집 칸 · 「저장」 = PUT `/tail-probe/:gateway/:fire` 1건 — 계획 저장과 같은
  *   흐름(응답 plan · change 로 상태만 바꾼다 · 결과 모름이면 1회 다시 읽기 · 4xx 는 확정 실패 · 세대 가드 · `reloadPlan` 재사용).
  *   뒤탐침 칸과 계획 편집 칸은 **한 번에 하나만** 열린다(하나를 열면 다른 하나가 닫힌다). 서버 칩 · 발사 세그먼트를 바꾸면 닫힌다.
+ *   값이 set 이고 패널이 서버 계획이면 그 패널 「다음 발사 계획」 줄 끝에 꼬리(「+ 뒤탐침 5발 · 10µs」 · 「· 뒤탐침 꺼짐」)와 지도 예정
+ *   표식(계획 마지막 조각 + (i+1)·step · muted 점선 + 빈 삼각형 · 범례 「예정 뒤탐침」)을 그린다. 뒤탐침 칸이 열려 있으면 둘 다
+ *   유효 초안 값을 따른다(표식 data-src draft · 기준은 서버 계획 — 두 편집 칸은 동시에 안 열린다).
  * - 요약 카드는 고른 서버 2장이라 폭과 무관하게 한 줄 2열이다.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
@@ -457,6 +463,7 @@ export interface LaunchMapViewProps {
 }
 
 const PLAN_ABSENT: LaunchPlanState = { kind: 'absent' };
+const NO_LINES: readonly number[] = [];
 
 const RANGE_CHIPS: readonly { value: LaunchRange; label: string }[] = [
   { value: '10d', label: '최근 10일' },
@@ -525,10 +532,20 @@ export function LaunchMapView({
   const noHistory = ready && resp.days.length === 0;
   const mine = ready ? resp.pieces.filter((p) => p.gateway === gw) : [];
   const sideless = ready && fire === 'n0930' && mine.some((p) => p.side === null);
-  const tailProbed = ready && fire === 'q16' && mine.some(isLaunchTailProbe);
+  // 범례 뒤탐침 견본 — 고른 서버 조각에 뒤탐침(16:00 Q16 · 09:00:30 N · 인박스 261107-nxt-tail-probe-kind17)이 있으면.
+  const tailProbed = ready && mine.some(isLaunchTailProbe);
   // 고른 서버 · 고른 발사의 뒤탐침 상태(quick-261107-l7w) — 편집 칸 기준 값.
   const tpState = plan.kind === 'ready' ? launchTailProbeStateOf(plan.resp.servers[gw], fire) : null;
   const tpValue = tpState !== null && tpState.kind === 'set' ? tpState.value : null;
+  // 지도 예정 표식 · 계획 줄 꼬리 값 — 뒤탐침 칸이 열려 있으면 유효 초안(data-src draft), 아니면 서버 값.
+  const tpShown = tpValue === null ? null : tpEditing !== null ? tpEditing.valid : tpValue;
+  // 패널별 예정 뒤탐침 = 서버 계획 마지막 조각 + (i+1)·step(서버 계획이 있을 때만 — 대신 값 · 구 서버 · 못 읽음은 없음).
+  const tpLinesOf = (p: MapPanel): readonly number[] => {
+    const e = p.plan.source === 'server' ? p.plan.entry : null;
+    if (e === null || tpShown === null || e.offsets_us.length === 0) return NO_LINES;
+    return launchTailProbeOffsets(e.offsets_us[e.offsets_us.length - 1]!, tpShown);
+  };
+  const tpPlanned = panels.some((p) => tpLinesOf(p).length > 0);
 
   return (
     <div data-slot="launch-map" className="flex min-w-0 flex-col gap-3.5">
@@ -591,6 +608,7 @@ export function LaunchMapView({
             fire={fire}
             sideless={sideless}
             tailProbed={tailProbed}
+            tailProbePlanned={tpPlanned}
             planned={plan.kind === 'ready'}
             drafting={editing !== null}
           />
@@ -650,10 +668,13 @@ export function LaunchMapView({
                   days={p.days}
                   planLines={p.plan.lines}
                   draftLines={draftLines}
+                  tailProbeLines={tpLinesOf(p)}
+                  tailProbeDraft={tpEditing !== null}
                 >
                   <LaunchPlanBar
                     fire={fire}
                     plan={p.plan}
+                    tail={p.plan.source === 'server' && entry !== null && tpShown !== null ? tailProbePlanSuffixText(tpShown) : null}
                     editing={open}
                     onToggle={
                       onEdit === undefined
@@ -717,18 +738,23 @@ function nextLegendOf(fire: LaunchFire, planned: boolean): string {
 
 /** 범례 뒤탐침 견본 — 지도 삼각형과 같은 기하(목업 A안) · 모양만 보이는 회색(09:00:30 마름모 항목과 같은 관례). */
 const TAIL_PROBE_SWATCH = trianglePathOf(6, 6.8, LAUNCH_CHART.TRI_R);
+/** 범례 예정 뒤탐침 견본(quick-261107-l7w) — 짧은 세로 점선 + 빈 삼각형(지도 `launch-tail-probe-planned` 와 같은 결). */
+const TAIL_PROBE_PLANNED_SWATCH = trianglePathOf(6, 8, 3.6);
 
 function LaunchLegend({
   fire,
   sideless,
   tailProbed,
+  tailProbePlanned,
   planned,
   drafting,
 }: {
   fire: LaunchFire;
   sideless: boolean;
-  /** 16:00 응답에 뒤탐침 조각이 있으면 삼각형 항목(quick-261030-dz7 결정 4) */
+  /** 고른 서버 응답(16:00 · 09:00:30 무관)에 뒤탐침 조각이 있으면 삼각형 항목(quick-261030-dz7 결정 4 · 인박스 261107-nxt-tail-probe-kind17) */
   tailProbed: boolean;
+  /** 지도에 예정 뒤탐침 표식이 하나라도 그려지면 「예정 뒤탐침」 항목(quick-261107-l7w) */
+  tailProbePlanned: boolean;
   planned: boolean;
   drafting: boolean;
 }) {
@@ -776,6 +802,19 @@ function LaunchLegend({
       <LegendItem swatch={<i className="inline-block h-3.5 w-0.5 shrink-0 bg-[var(--primary)]" />}>
         {nextLegendOf(fire, planned)}
       </LegendItem>
+      {tailProbePlanned && (
+        <LegendItem
+          legend="tail-probe-planned"
+          swatch={
+            <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden className="shrink-0">
+              <path d="M6 0 V4" stroke="var(--muted-fg)" strokeWidth={1} strokeDasharray="1.5 1.5" fill="none" />
+              <path d={TAIL_PROBE_PLANNED_SWATCH} fill="none" stroke="var(--muted-fg)" strokeWidth={1.2} />
+            </svg>
+          }
+        >
+          예정 뒤탐침
+        </LegendItem>
+      )}
       {drafting && (
         <LegendItem swatch={<i className="inline-block h-3.5 w-[3px] shrink-0 bg-[var(--launch-gate)]" />}>
           바꿀 계획(저장 전 · 번호 = 조각)

@@ -40,6 +40,7 @@ import {
   tailProbeSaveRowSeenIn,
   tailProbeStateWithSave,
   tailProbeStateWithSent,
+  tailProbePlanSuffixText,
 } from '../launch-plan-view';
 
 /**
@@ -609,5 +610,13 @@ describe('뒤탐침 편집 · 저장 반영(quick-261107-l7w)', () => {
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 41 })], save)).toBe(false);
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, fire: 'n0930' })], save)).toBe(false);
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, after_step_us: 10 })], save)).toBe(false);
+  });
+});
+
+describe('tailProbePlanSuffixText(quick-261107-l7w)', () => {
+  it('5/10 → 「+ 뒤탐침 5발 · 10µs」 · 0 → 「· 뒤탐침 꺼짐」 · 10/100', () => {
+    expect(tailProbePlanSuffixText({ count: 5, step_us: 10 })).toBe('+ 뒤탐침 5발 · 10µs');
+    expect(tailProbePlanSuffixText({ count: 0, step_us: 10 })).toBe('· 뒤탐침 꺼짐');
+    expect(tailProbePlanSuffixText({ count: 10, step_us: 100 })).toBe('+ 뒤탐침 10발 · 100µs');
   });
 });

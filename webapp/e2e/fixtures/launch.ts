@@ -302,6 +302,32 @@ export function launchMapFixture(fire: LaunchFire, range: LaunchRange): LaunchMa
   return { days, heads: Q16_MAP_HEADS, pieces };
 }
 
+/**
+ * 09:00:30 지도 + N 뒤탐침 조각(quick-261107-l7w · 인박스 261107-nxt-tail-probe-kind17) — KB120 코스닥 마지막 날 N 실조각 마지막
+ * (−20141µs) 뒤 +10 ~ +50µs 5행 · probe true · round −2 · fire_exchange NXT · 「기타」 E127. q16 은 기본 그대로. **합성.**
+ */
+export function launchMapFixtureWithNTailProbes(fire: LaunchFire, range: LaunchRange): LaunchMapResponse {
+  const base = launchMapFixture(fire, range);
+  if (fire !== 'n0930') return base;
+  const probes: LaunchMapPiece[] = Array.from({ length: 5 }, (_, i) => ({
+    trade_date: '20261026',
+    gateway: 'KB120',
+    market: 'Q',
+    profile: 'N',
+    fire_exchange: 'NXT',
+    side: 'buy',
+    wire: 3 + i,
+    piece_idx: i,
+    sent_rel_us: -20141 + 10 * (i + 1),
+    result: '기타',
+    retry: 0,
+    probe: true,
+    round: -2,
+    result_code: 'E127',
+  }));
+  return { ...base, pieces: [...base.pieces, ...probes] };
+}
+
 /** 적재 이력 0 응답. */
 export const LAUNCH_ORDERS_EMPTY: LaunchOrdersResponse = { dates: [], date: null, heads: [], pieces: [] };
 

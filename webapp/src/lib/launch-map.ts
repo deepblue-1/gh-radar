@@ -255,7 +255,7 @@ type ProbeFields = { probe?: boolean | null; round?: number | null; result_code?
 const GATE_TONE = { open: 'ok', closed: 'bad' } as const;
 
 /**
- * 점 표식(D-17 · 오케스트레이터 결정 5 · quick-261030-dz7 결정 2) — 16:00 뒤탐침(`isLaunchTailProbe`)은 삼각형(목업 A안) ·
+ * 점 표식(D-17 · 오케스트레이터 결정 5 · quick-261030-dz7 결정 2) — 뒤탐침은(16:00 · 09:00:30 · `isLaunchTailProbe`) 삼각형(목업 A안) ·
  * 09:00:30 합패널의 매도(A 매도 다리)는 마름모 · 그 밖(N 매수 · side null(D-08) · 16:00 실조각)은 원.
  * 색 축 = shared `launchGateSideOf`(열림 ok · 거부 bad · 경계 밖 other) — 실조각에선 `resultToneOf` 와 같은 값이고,
  * 뒤탐침 「기타」 는 판정 한 벌에서 열림(가격거부) / 경계 밖(E127)이 갈린다.
@@ -329,7 +329,7 @@ function tipPartsOf(piece: TipPiece, fire: LaunchFire, offAxis: boolean): string
  * 점 `<title>` — q16 「MM/DD −350µs · wire 2 · 101」 · n0930 「MM/DD −20,148µs · wire 0 · 매수 · 101 · 재전송 2」
  * (side null 「구분 없음」 · retry 0/null 이면 재전송 조각 생략) · 축 밖이면 끝에 「 · 축 밖」.
  * 재전송 1·2·3회는 점을 따로 그리지 않고 여기 횟수로만 싣는다(첫 발 송신 시각 점 하나).
- * 16:00 뒤탐침은 wire 대신 「10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
+ * 뒤탐침은(16:00 · 09:00:30) wire 대신 「10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
 export function launchTooltipOf(date: string, piece: TipPiece, fire: LaunchFire, offAxis = false): string {
   return [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, ...tipPartsOf(piece, fire, offAxis)].join(' · ');
@@ -338,7 +338,7 @@ export function launchTooltipOf(date: string, piece: TipPiece, fire: LaunchFire,
 /**
  * 점 위 즉시 툴팁(사용자 UAT 2026-10-27 — 「점에 마우스를 대면 −247µs 처럼」) — 큰 줄 = 송신 µs 하나,
  * 작은 줄 = 날짜 · wire · (n0930 매수/매도) · 결과 · (재전송) · (축 밖). `<title>` 과 같은 재료를 두 줄로 나눈 것.
- * 16:00 뒤탐침은 작은 줄 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
+ * 뒤탐침은(16:00 · 09:00:30) 작은 줄 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
 export function launchHoverOf(
   date: string,
