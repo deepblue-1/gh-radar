@@ -83,7 +83,7 @@ const LED_TONES: readonly (readonly string[])[] = [
  * 전략 3건은 「트레이딩」 바로 아래에 선다(VI 미가동 — VI 줄 없음). 그 다음이 「분석」 그룹 제목 + 하위
  * 「틱뷰어」 · 「상한가 보고서」 · 「팀 매집」 · 「매집감지」 · 「AI 애널리스트」(Phase 28 D-09 · Phase 33 TEAM-02 · Phase 34 D-27 ·
  * Phase 37 D-14 · quick-261005-vk1 D-01 — AI 애널리스트 · 팀 매집 · 매집감지 · 틱뷰어 = 분석 하위 · 트레이딩과 같은 노출 조건), 그 다음이 My page,
- * 맨 끝이 「Admin」 그룹 제목(/admin/pnl) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「발사」(Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 ·
+ * 맨 끝이 「Admin」 그룹 제목(/admin/pnl) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「러쉬 주문」(Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 ·
  * quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04 — e2e 계정은 admin 시드(29-07)라 보인다 · 노출은 역할만 본다).
  */
 const TREE_LINKS = [
@@ -102,7 +102,7 @@ const TREE_LINKS = [
   '계좌',
   '사용자',
   '서버',
-  '발사',
+  '러쉬 주문',
 ];
 
 /** Phase 32 — 두 번째 계좌(로그인 응답 두 계좌 케이스). 첫 계좌 = `E2E_ACCOUNT_NO`. */
