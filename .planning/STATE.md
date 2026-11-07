@@ -6,10 +6,10 @@ current_phase: 40
 current_phase_name: 체결 앱 푸시 알림
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-11-07T04:12:13.534Z"
+last_updated: "2026-11-07T04:50:39.186Z"
 last_activity: 2026-11-07
 last_activity_desc: Phase 40 execution started
-state_head: 8a612976a95de6c33a3fa0636cf4f4acbb71c620
+state_head: 930dd23615dcdaa73c7e9fec158f688768e1d344
 progress:
   total_phases: 11
   completed_phases: 9
@@ -33,7 +33,7 @@ Phase: 40 (체결 앱 푸시 알림) — EXECUTING
 Plan: 1 of 13
 Status: Executing Phase 40
 Phase 40 (체결 앱 푸시 알림): PLANNED 2026-11-06 — 13 plans · 5 waves · 체커 통과(R2) · 결정 커버리지 25/25 · 다음 `/gsd-execute-phase 40`
-Last activity: 2026-11-07 - Completed quick task 261107-fbj: /me 매매 알림 종 · 앱 하단 탭바 제거
+Last activity: 2026-11-07 - Completed quick task 261107-iep: 어드민 발사 서버별 보기 (KB120·교보119·교보112)
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -151,6 +151,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261106-t8k | 어드민 e2e 새 UI 기준 정비 — admin.spec·sidebar-tree 수정 · 계좌 화면 admin-accounts.spec 신설(IP/MAC·예수금/수수료 이동) | 2026-11-06 | 765a3b22 | [261106-t8k-e2e-admin-e2e-ui](./quick/261106-t8k-e2e-admin-e2e-ui/) |
 | 261107-fbj | /me 탭 순서 · 설정 탭 매매 설정만 · 계정 카드 매매 알림 종(스케치 030 A) · 돌파 알림음 끔 · 앱 하단 탭바 제거 · 앱 /trading 공용 패널 복원 | 2026-11-07 | b8ce4b3a | [261107-fbj-mypage-push-bell-remove-app-tabbar](./quick/261107-fbj-mypage-push-bell-remove-app-tabbar/) |
 | 261107-olr | 앱 주문로그 착지(푸시 탭)를 앱 셸로 감싸 막다른 화면 해소 — gsd-fast | 2026-11-07 | 8a612976 | — |
+| 261107-iep | 어드민 발사 서버별 보기 — 서버 칩(KB120·교보119·교보112) · 주문 내역/경계 지도/계획 고치기 서버별 · 교보112 계획 대상 추가 | 2026-11-07 | 930dd236 | [261107-iep-admin-launch-per-server-view](./quick/261107-iep-admin-launch-per-server-view/) |
 
 ## Session Continuity
 

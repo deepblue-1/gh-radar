@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261107-iep 목업 — 발사 어드민 서버별 보기</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 (35 목업과 같은 값) ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6;
+  --ok: #1f8a5b; --ok-bg: #e3f5ea; --bad: #c8402f; --bad-bg: #fbe4e0; --gate: #b7791f; --gate-bg: #fdf3dc; --other: #8a93a2;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --primary: #3485fa;
+  --ok: #3fbf86; --ok-bg: rgba(63,191,134,.16); --bad: #ec6a57; --bad-bg: rgba(236,106,87,.16); --gate: #e9b44a; --gate-bg: rgba(233,180,74,.16); --other: #7d8695;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 900px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; }
+.side a.grp.on { color: var(--fg); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+.phead h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--fg); }
+.phead .sub { font-size: 12.5px; color: var(--muted-fg); margin-top: 4px; }
+.datepill { display: inline-flex; align-items: center; gap: 2px; background: var(--muted); border-radius: 999px; padding: 3px; font-size: 14px; font-weight: 600; color: var(--fg); }
+.datepill button { font: inherit; background: none; border: 0; color: var(--muted-fg); width: 30px; height: 30px; border-radius: 50%; }
+.datepill span { padding: 0 8px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { font: inherit; border: 0; background: none; color: var(--muted-fg); font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--card); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.f.dark .seg button.on { background: #3a3a3a; }
+.seg.srv button { font-size: 14px; padding: 6px 14px; }
+.f { --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.f.dark { --seg-on-bg: #4e4e4e; --seg-on-fg: #ffffff; --seg-on-shadow: none; }
+.srvchips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.srvchips button { font: inherit; border: 0; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; white-space: nowrap; background: var(--muted); color: var(--muted-fg); font-size: 12.5px; font-weight: 600; }
+.srvchips button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.tabsrow { display: flex; align-items: flex-end; gap: 12px; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+.tabs { display: flex; gap: 18px; font-size: 15px; font-weight: 600; }
+.tabs span { padding: 8px 2px 10px; color: var(--muted-fg); cursor: pointer; }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.tabsrow .seg { margin-left: auto; margin-bottom: 6px; }
+.ctl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.src { margin-left: auto; display: inline-flex; align-items: center; font-size: 11.5px; color: var(--muted-fg); background: var(--muted); border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: var(--muted); color: var(--fg-2); }
+.chip.on { background: var(--fg); color: var(--bg); }
+
+.heads { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.f.phone .heads { grid-template-columns: 1fr; }
+.hcard { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.f:not(.dark) .hcard, .f:not(.dark) .panel, .f:not(.dark) .tbl { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.hcard .t { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; color: var(--fg); }
+.hcard .t small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.hcard .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted-fg); }
+.hcard .row b { color: var(--fg); font-weight: 600; }
+.hcard.empty { color: var(--muted-fg); font-size: 13px; justify-content: center; align-items: center; min-height: 96px; }
+.cnt { display: inline-flex; gap: 6px; font-weight: 600; }
+.cnt .ok { color: var(--ok); } .cnt .bad { color: var(--bad); } .cnt .oth { color: var(--other); }
+
+.sec { display: flex; flex-direction: column; gap: 10px; }
+.sech { font-size: 16px; font-weight: 700; color: var(--fg); padding: 6px 2px 0; display: flex; align-items: baseline; gap: 8px; }
+.sech small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+
+.gh { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; color: var(--fg); padding: 2px 4px; }
+.gh small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.tbl { background: var(--card); border-radius: 14px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; white-space: nowrap; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; }
+th { font-size: 11.5px; font-weight: 600; color: var(--muted-fg); background: var(--band); }
+td.n, th.n { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+td.dim { color: var(--muted-fg); }
+.pill { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.bad { background: var(--bad-bg); color: var(--bad); }
+
+.panel { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.panel .t { font-size: 14px; font-weight: 700; color: var(--fg); display: flex; gap: 8px; align-items: baseline; }
+.panel .t small { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.chart { height: 150px; border-radius: 10px; background: var(--band); position: relative; overflow: hidden; }
+.chart .band { position: absolute; top: 0; bottom: 0; left: 46%; width: 9%; background: var(--gate-bg); }
+.chart .plan { position: absolute; top: 0; bottom: 0; left: 49%; border-left: 2px dashed var(--primary); }
+.chart .dot { position: absolute; width: 7px; height: 7px; border-radius: 50%; }
+.planrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted-fg); flex-wrap: wrap; }
+.planrow b { color: var(--fg); }
+.planrow .btn { margin-left: auto; font: inherit; font-size: 12.5px; font-weight: 600; border: 0; border-radius: 8px; padding: 5px 10px; background: var(--muted); color: var(--fg); }
+.foot { font-size: 12px; color: var(--muted-fg); padding: 2px 4px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span>
+    <button data-v="D" class="on">D 탭 위 서버 칩 (My page 계좌 칩 꼴)</button>
+    <button data-v="A">A 탭 위 서버 세그먼트</button>
+    <button data-v="B">B 탭 줄 오른쪽 서버 세그먼트</button>
+    <button data-v="C">C 고르지 않고 서버별로 쌓기</button></div>
+  <div class="g"><span class="l">탭</span><button data-tab="orders" class="on">주문 내역</button><button data-tab="map">경계 지도</button></div>
+  <div class="g"><span class="l">서버</span><button data-s="KB120" class="on">KB120</button><button data-s="KYOBO119">교보119</button><button data-s="KYOBO112">교보112</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+// 숫자는 모양 확인용 합성값. 교보112 는 아직 발사 적재가 없어(11/7 현재 launch_heads 0행) 빈 카드로 그린다.
+const SERVERS = [ ['KB120','KB120'], ['KYOBO119','교보119'], ['KYOBO112','교보112'] ];
+const LABEL = Object.fromEntries(SERVERS);
+const DATA = {
+  KB120:    { Q:{ n:18, ok:16, bad:0, oth:2, off:-332, gate:'전부 접수 (첫 접수 −332µs)', next:'−332 → −337' }, K:{ n:6, ok:4, bad:2, oth:0, off:-410, gate:'−405 ~ −398', next:'−410 → −405' } },
+  KYOBO119: { Q:{ n:9, ok:8, bad:0, oth:1, off:-521, gate:'전부 접수 (첫 접수 −521µs)', next:'−521 → −526' }, K:{ n:6, ok:5, bad:1, oth:0, off:-600, gate:'−602 ~ −590', next:'−600 → −595' } },
+  KYOBO112: { Q:null, K:null },
+};
+const MK = [['Q','코스닥'],['K','코스피']];
+const DESC = {
+  D: '<b>D</b> — 사용자 답 반영: My page 계좌 칩과 같은 꼴(둥근 칩 · 고른 칩만 흰 면 + 그림자 · 줄이 넘치면 가로 스크롤). 자리는 제목 아래 · 탭 위. 고른 서버를 <b>두 탭이 함께</b> 본다(주소 <code>?gw=</code>). 카드 · 지도 패널 · 계획 고치기는 그 서버의 코스닥 · 코스피 2개씩. 순서는 서버 레지스트리 순(KB120 · 교보119 · 교보112), 처음 들어오면 KB120.',
+  A: '<b>A</b> — 페이지 제목 아래 · 탭 위에 서버 세그먼트(KB120 · 교보119 · 교보112). 고른 서버를 <b>두 탭이 함께</b> 본다(주소 <code>?gw=</code>). 카드 · 지도 패널은 그 서버의 코스닥 · 코스피 2개씩. 폰에서 맨 위에 와서 「지금 어느 서버」 가 가장 먼저 보인다.',
+  B: '<b>B</b> — 탭 줄 오른쪽 끝에 서버 세그먼트. A 와 동작은 같고 세로 한 줄을 아낀다. 폰 390 에서는 탭 줄이 좁아 세그먼트가 다음 줄로 내려간다.',
+  C: '<b>C</b> — 고르지 않는다. 서버 3대를 소제목(KB120 · 교보119 · 교보112) 섹션으로 위에서 아래로 쌓는다. 카드 6장 · 지도 패널 6개. 한눈 비교는 쉽지만 폰에서 길다.',
+};
+const state = { v:'D', tab:'orders', s:'KB120', w:'phone', t:'dark' };
+
+const cnt = (h) => `<span class="cnt"><span class="ok">접수 ${h.ok}</span><span class="bad">101 ${h.bad}</span><span class="oth">기타 ${h.oth}</span></span>`;
+function headCard(gw, m, ml) {
+  const h = DATA[gw][m];
+  if (!h) return `<div class="hcard empty">${LABEL[gw]} ${ml} · 이 날 발사 없음</div>`;
+  return `<div class="hcard"><div class="t">${LABEL[gw]} ${ml} <small>${h.n}조각 · Q16</small></div>
+    <div class="row"><span>결과</span>${cnt(h)}</div>
+    <div class="row"><span>오프셋 (발사 기준)</span><b>${h.off}µs</b></div>
+    <div class="row"><span>경계</span><b>${h.gate}</b></div>
+    <div class="row"><span>학습 → 다음 오프셋</span><b>${h.next} (step 5)</b></div></div>`;
+}
+function pieces(gw) {
+  const rows = MK.filter(([m]) => DATA[gw][m]).map(([m, ml]) => {
+    const h = DATA[gw][m];
+    const tr = Array.from({ length: Math.min(h.n, 3) }, (_, i) => `<tr><td class="n">${i}</td><td class="dim">Q15301${5+i}001 · j0 · R0</td><td class="n">${h.off + i}</td><td><span class="pill ok">접수</span></td><td class="dim">16:00:00.000</td><td><b>한선엔지니어링</b></td><td class="dim">12345678-01</td></tr>`).join('');
+    return `<div class="gh">${LABEL[gw]} ${ml}<small>${h.n}조각 · wire 순</small></div>
+      <div class="tbl"><table><tr><th class="n">wire</th><th>예약 · 조각 · 라운드</th><th class="n">송신 µs</th><th>결과</th><th>접수 시각</th><th>종목</th><th>계좌</th></tr>${tr}</table></div>`;
+  }).join('');
+  return rows;
+}
+function panel(gw, m, ml) {
+  const h = DATA[gw][m];
+  const dots = h ? Array.from({ length: 14 }, (_, i) => `<span class="dot" style="left:${30 + (i * 37) % 40}%;top:${10 + (i * 23) % 80}%;background:${i % 5 === 0 ? 'var(--bad)' : 'var(--ok)'}"></span>`).join('') : '';
+  return `<div class="panel"><div class="t">${LABEL[gw]} ${ml} <small>${h ? '10일' : '적재 없음'}</small></div>
+    <div class="chart">${h ? '<div class="band"></div><div class="plan"></div>' : ''}${dots}</div>
+    <div class="planrow">다음 발사 계획 <b>${h ? h.off - 5 + 'µs' : '—'}</b><button class="btn">계획 고치기</button></div></div>`;
+}
+function body(gw) {
+  if (state.tab === 'orders') {
+    return `<div class="heads">${MK.map(([m, ml]) => headCard(gw, m, ml)).join('')}</div>${pieces(gw)}`;
+  }
+  return `<div class="heads">${MK.map(([m, ml]) => panel(gw, m, ml)).join('')}</div>`;
+}
+const srvSeg = () => `<div class="seg srv" role="group" aria-label="서버">${SERVERS.map(([k, l]) => `<button data-pick="${k}" class="${state.s === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const srvChips = () => `<div class="srvchips" role="radiogroup" aria-label="발사 서버">${SERVERS.map(([k, l]) => `<button role="radio" data-pick="${k}" class="${state.s === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const tabs = () => `<div class="tabs"><span data-tab2="orders" class="${state.tab === 'orders' ? 'on' : ''}">주문 내역</span><span data-tab2="map" class="${state.tab === 'map' ? 'on' : ''}">경계 지도</span></div>`;
+function ctl(srcLabel) {
+  const left = state.tab === 'orders'
+    ? `<div class="datepill"><button>‹</button><span>11/06 (금)</span><button>›</button></div>`
+    : `<div class="chips"><span class="chip on">최근 10일</span><span class="chip">20일</span><span class="chip">전체</span></div>`;
+  return `<div class="ctl">${left}<div class="seg"><button class="on">16:00 예약</button><button>09:00:30 개장차익</button></div>${state.tab === 'orders' ? `<span class="src">${srcLabel} 저널 80 · 16:00:01 적재</span>` : ''}</div>`;
+}
+
+function render() {
+  const f = document.createElement('div'); f.className = `f ${state.w} ${state.t}`;
+  const side = `<nav class="side"><div class="brand">gh-radar</div><a class="grp">📈 트레이딩</a><a class="grp">📊 분석</a><a class="grp on">🛡 Admin</a><a class="sub">사용자</a><a class="sub">서버</a><a class="sub cur">발사</a><a class="grp">👤 My page</a></nav>`;
+  const head = `<div class="phead"><h1>발사</h1><div class="sub">gh-trade 서버 발사 결과 · 머리 + 조각</div></div>`;
+  let main;
+  if (state.v === 'D') {
+    main = `${head}${srvChips()}<div class="tabsrow">${tabs()}</div>${ctl(LABEL[state.s])}${body(state.s)}`;
+  } else if (state.v === 'A') {
+    main = `${head}${srvSeg()}<div class="tabsrow">${tabs()}</div>${ctl(LABEL[state.s])}${body(state.s)}`;
+  } else if (state.v === 'B') {
+    main = `${head}<div class="tabsrow">${tabs()}${srvSeg()}</div>${ctl(LABEL[state.s])}${body(state.s)}`;
+  } else {
+    main = `${head}<div class="tabsrow">${tabs()}</div>${ctl('KB120 · 교보119 · 교보112')}` +
+      SERVERS.map(([k, l]) => `<section class="sec"><div class="sech">${l}<small>${DATA[k].Q || DATA[k].K ? '' : '이 날 발사 없음'}</small></div>${body(k)}</section>`).join('');
+  }
+  f.innerHTML = `${side}<div class="col"><div class="main">${main}</div></div>`;
+  const st = document.getElementById('stage'); st.innerHTML = ''; st.appendChild(f);
+  document.getElementById('desc').innerHTML = DESC[state.v];
+  document.querySelectorAll('#nav button').forEach((b) => {
+    const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', state[k === 'w' ? 'w' : k] === b.dataset[k]);
+  });
+  f.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => { state.s = b.dataset.pick; render(); });
+  f.querySelectorAll('[data-tab2]').forEach((b) => b.onclick = () => { state.tab = b.dataset.tab2; render(); });
+}
+document.querySelectorAll('#nav button').forEach((b) => b.onclick = () => { const k = Object.keys(b.dataset)[0]; state[k] = b.dataset[k]; render(); });
+render();
+</script>
+</body>
+</html>
