@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261107-l7w 목업 — 뒤탐침 설정</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --raised-2: #e5e8eb; --primary: #3182f6; --warn: #c98a00;
+  --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.1);
+  --ok: #1f8a5b; --bad: #c8402f; --other: #8a93a2;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --raised-2: #3a3a3a; --primary: #4c9bff; --warn: #e0a526;
+  --seg-on-bg: #4e4e4e; --seg-on-fg: #ffffff; --seg-on-shadow: none;
+  --ok: #3fbf86; --bad: #ec6a57; --other: #7d8695;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 760px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.appbar { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; font-size: 19px; font-weight: 700; color: var(--fg); }
+.f.desktop .appbar { display: none; }
+.main { padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); }
+
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.chip { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 13px; border-radius: 999px; background: var(--muted); color: var(--muted-fg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.chip.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.chip.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
+.chip.wh.on { background: var(--fg); color: var(--bg); }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
+.seg span { font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 8px; color: var(--muted-fg); white-space: nowrap; }
+.seg span.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border-subtle); font-size: 15px; font-weight: 600; }
+.tabs span { padding: 8px 2px 10px; color: var(--muted-fg); }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.sp { flex: 1; }
+.note { font-size: 12px; color: var(--muted-fg); background: var(--band); border-radius: 10px; padding: 8px 12px; line-height: 1.5; }
+.sum { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.f.desktop .sum { grid-template-columns: 1fr 1fr; }
+.card { background: var(--card); border-radius: 14px; padding: 12px 14px; font-size: 12.5px; }
+.f:not(.dark) .card, .f:not(.dark) .panel, .f:not(.dark) .tp { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.card .t { font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+.card .kv { display: flex; justify-content: space-between; color: var(--muted-fg); line-height: 1.7; }
+.card .kv b { color: var(--primary); font-weight: 600; }
+.panel { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+.panel .h { font-weight: 700; color: var(--fg); font-size: 14px; }
+.panel .h small { font-weight: 400; color: var(--muted-fg); font-size: 11.5px; margin-left: 6px; }
+.plan { color: var(--muted-fg); }
+.plan b { color: var(--primary); font-weight: 700; }
+.plan .pr { color: var(--fg-2); font-weight: 600; }
+.btn { display: inline-flex; align-items: center; height: 30px; padding: 0 11px; border-radius: 9px; background: var(--muted); color: var(--fg); font-size: 12.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.btn.pri { background: var(--primary); color: #fff; }
+.btn.ghost { background: transparent; color: var(--muted-fg); }
+.ed { background: var(--band); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.f.dark .ed { background: #0f0f12; }
+.lab { width: 64px; flex: none; color: var(--muted-fg); font-size: 12.5px; }
+.step { display: inline-flex; align-items: center; background: var(--muted); border-radius: 9px; height: 30px; }
+.step i { font-style: normal; width: 28px; text-align: center; color: var(--muted-fg); }
+.step b { width: 22px; text-align: center; color: var(--fg); }
+.inp { display: inline-flex; align-items: center; gap: 4px; background: var(--muted); border-radius: 9px; height: 30px; padding: 0 9px; color: var(--fg); font-weight: 600; }
+.inp small { color: var(--muted-fg); font-weight: 400; font-size: 11px; }
+.hint { font-size: 11.5px; color: var(--muted-fg); }
+.pv { display: flex; gap: 5px; flex-wrap: wrap; }
+.pv span { font-size: 11.5px; background: var(--muted); border-radius: 6px; padding: 2px 6px; color: var(--fg-2); }
+.ok { font-size: 11.5px; color: var(--muted-fg); }
+.ok em { font-style: normal; background: rgba(63,191,134,.18); color: var(--ok); border-radius: 5px; padding: 1px 6px; margin-right: 6px; font-size: 11px; }
+.hist { font-size: 12px; color: var(--muted-fg); }
+.chart { height: 92px; border-radius: 10px; background: var(--band); position: relative; overflow: hidden; }
+.chart .ax { position: absolute; left: 0; right: 0; top: 6px; display: flex; justify-content: space-between; padding: 0 10px; font-size: 10px; color: var(--faint); }
+.chart .ln { position: absolute; top: 18px; bottom: 6px; width: 0; border-left: 1px dashed var(--primary); opacity: .8; }
+.chart .tp { position: absolute; top: 18px; bottom: 6px; width: 0; border-left: 1px dotted var(--muted-fg); }
+.chart .tri { position: absolute; bottom: 8px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid var(--muted-fg); transform: translateX(-5px); opacity: .9; }
+.chart .lg { position: absolute; right: 10px; bottom: 6px; font-size: 10px; color: var(--muted-fg); }
+.tp { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+.tp .h { font-weight: 700; color: var(--fg); font-size: 14px; }
+.tp .h small { font-weight: 400; color: var(--muted-fg); font-size: 11.5px; margin-left: 6px; }
+.tag { display: inline-flex; font-size: 11px; border-radius: 6px; padding: 1px 6px; background: var(--muted); color: var(--muted-fg); }
+.warnline { font-size: 12px; color: var(--warn); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span>
+    <button data-v="A" class="on">A 발사 한 줄(패널 위)</button>
+    <button data-v="B">B 시장 패널 안</button>
+    <button data-v="C">C 한 줄 + 차트 예정 표시</button>
+  </div>
+  <div class="g"><span class="l">상태</span>
+    <button data-s="view" class="on">보기</button>
+    <button data-s="edit">고치는 중</button>
+    <button data-s="saved">저장됨</button>
+    <button data-s="off">꺼짐(0발)</button>
+    <button data-s="old">옛 서버</button>
+  </div>
+  <div class="g"><span class="l">화면</span>
+    <button data-d="phone" class="on">폰 390</button>
+    <button data-d="desktop">데스크톱 1280</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-t="dark" class="on">다크</button>
+    <button data-t="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+const state = { v: 'A', s: 'view', d: 'phone', t: 'dark' };
+const DESC = {
+  A: '<b>A 발사 한 줄</b> — 서버 · 발사(16:00 / 09:00:30)마다 값이 하나라 요약 카드 아래, 시장 패널 위에 「뒤탐침」 줄을 하나 둔다. 「뒤탐침 고치기」 → 발 수(0~5) · 간격(1~100µs) · 미리보기 → 저장. 변경 이력은 이 줄 아래 접기.',
+  B: '<b>B 시장 패널 안</b> — 각 시장 패널의 「계획 고치기」 칸 안에 뒤탐침 줄을 같이 둔다. 값은 코스피 · 코스닥 공통이라 한쪽에서 바꾸면 다른 패널도 같이 바뀐다(「두 시장 공통」 표시). 계획과 한 번에 보이지만 같은 값이 두 번 나온다.',
+  C: '<b>C 한 줄 + 차트 예정 표시</b> — A 의 발사 한 줄에 더해, 각 시장 패널의 다음 발사 계획 줄에 「+ 뒤탐침 5발」 을 붙이고, 지도에 예정 뒤탐침 위치(마지막 조각 + 간격 × i)를 점선 · 빈 삼각형으로 미리 그린다.',
+};
+const MK = { Q: '코스닥', K: '코스피' };
+const PLAN = { Q: [-575, -570, -565, -558, -473], K: [-445, -440, -435, -428, -353] };
+const n = () => (state.s === 'off' ? 0 : 5), stp = () => 10;
+const fmt = (x) => (x < 0 ? '−' + Math.abs(x) : '+' + x);
+
+function preview(c, s) {
+  if (c === 0) return '<span class="hint">뒤탐침을 쏘지 않아요</span>';
+  return '<div class="pv">' + Array.from({ length: c }, (_, i) => `<span>+${(i + 1) * s}µs</span>`).join('') + '</div>';
+}
+function tpSummary() {
+  if (state.s === 'old') return '<span class="warnline">이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요</span>';
+  if (n() === 0) return '<span class="plan"><b style="color:var(--muted-fg)">꺼짐</b> · 0발</span>';
+  return `<span class="plan"><b>${n()}발 · ${stp()}µs 간격</b> · 마지막 조각 뒤 +${stp()} ~ +${n() * stp()}µs</span>`;
+}
+function editor(shared) {
+  return `<div class="ed">
+    <div class="row"><span class="lab">발 수</span><span class="step"><i>−</i><b>${n()}</b><i>+</i></span><span class="hint">0 ~ 5 · 0 = 끔</span></div>
+    <div class="row"><span class="lab">간격</span><span class="inp">${stp()} <small>µs</small></span><span class="hint">1 ~ 100µs · 첫 발 = 마지막 조각 + 간격</span></div>
+    <div class="row"><span class="lab">예정</span>${preview(n(), stp())}</div>
+    ${shared ? '<div class="hint">코스피 · 코스닥 공통 — 여기서 바꾸면 다른 시장 패널도 같이 바뀌어요</div>' : ''}
+    <div class="row">${state.s === 'saved' ? '<span class="ok"><em>KYOBO112</em>저장됨 · 15:02 · 다음 16:00 발사부터</span>' : ''}<span class="sp"></span><span class="btn ghost">되돌리기</span><span class="btn pri">저장</span></div>
+  </div>`;
+}
+function tpBar() {
+  const editing = state.s === 'edit' || state.s === 'saved';
+  return `<div class="tp">
+    <div class="row"><span class="h">교보112 뒤탐침<small>코스피 · 코스닥 공통</small></span></div>
+    <div class="row">${tpSummary()}<span class="sp"></span>${state.s === 'old' ? '' : `<span class="btn">${editing ? '닫기' : '뒤탐침 고치기'}</span>`}</div>
+    ${editing ? editor(false) : ''}
+    <div class="hist">▸ 변경 이력 ${state.s === 'saved' ? 1 : 0}</div>
+  </div>`;
+}
+function chart(m) {
+  const plan = PLAN[m];
+  const min = -600, max = -300, w = (x) => ((x - min) / (max - min)) * 100;
+  let h = '<div class="chart"><div class="ax"><span>−600</span><span>−500</span><span>−400</span><span>−300</span></div>';
+  plan.forEach((x) => (h += `<div class="ln" style="left:${w(x)}%"></div>`));
+  if (state.v === 'C' && state.s !== 'old') {
+    const last = plan[plan.length - 1];
+    for (let i = 1; i <= n(); i++) {
+      const x = last + i * stp();
+      h += `<div class="tp" style="left:${w(x)}%"></div><div class="tri" style="left:${w(x)}%"></div>`;
+    }
+    if (n() > 0) h += '<div class="lg">△ 예정 뒤탐침</div>';
+  }
+  return h + '</div>';
+}
+function panel(m) {
+  const plan = PLAN[m];
+  const editingB = state.v === 'B' && (state.s === 'edit' || state.s === 'saved') && m === 'Q';
+  let planLine = `<span class="plan">다음 발사 계획 <b>${plan.length}조각 ${plan.map(fmt).join(' · ')}µs</b></span>`;
+  if (state.v === 'C' && state.s !== 'old') planLine += n() > 0 ? `<span class="plan"> + <span class="pr">뒤탐침 ${n()}발 · ${stp()}µs</span></span>` : '<span class="plan"> · 뒤탐침 꺼짐</span>';
+  let bLine = '';
+  if (state.v === 'B') {
+    bLine = `<div class="row"><span class="plan">뒤탐침</span> ${tpSummary().replace('<span class="plan">', '<span class="plan">')}<span class="tag">두 시장 공통</span></div>`;
+  }
+  let edB = '';
+  if (editingB) {
+    edB = `<div class="ed">
+      <div class="row"><span class="lab">조각 수</span><span class="step"><i>−</i><b>5</b><i>+</i></span><span class="hint">1 ~ 10</span></div>
+      <div class="row"><span class="lab">조각 시각</span><div class="pv">${plan.map((x, i) => `<span>${i + 1} · ${fmt(x)}µs</span>`).join('')}</div></div>
+      <div style="border-top:1px solid var(--border-subtle)"></div>
+      ${editor(true).replace('<div class="ed">', '<div style="display:flex;flex-direction:column;gap:10px">')}
+    </div>`;
+  }
+  return `<div class="panel">
+    <div class="h">교보112 ${MK[m]}<small>경계 잡힌 날 2</small></div>
+    <div class="row">${planLine}<span class="sp"></span><span class="btn">${editingB ? '닫기' : '계획 고치기'}</span></div>
+    ${bLine}${edB}
+    ${chart(m)}
+  </div>`;
+}
+function body() {
+  const sum = ['Q', 'K'].map((m) => `<div class="card"><div class="t">교보112 ${MK[m]} · 0일</div>
+    <div class="kv"><span>접수된 가장 이른</span><span>—</span></div><div class="kv"><span>거부된 가장 늦은</span><span>—</span></div>
+    <div class="kv"><span>다음 첫 조각</span><b>${fmt(PLAN[m][0])}µs</b></div></div>`).join('');
+  return `
+    <h1>러쉬 주문</h1>
+    <div class="tabs"><span>주문 내역</span><span class="on">경계 지도</span></div>
+    <div class="chips"><span class="chip sm">KB120</span><span class="chip sm">교보119</span><span class="chip sm on">교보112</span></div>
+    <div class="row"><div class="chips"><span class="chip sm wh on">최근 10일</span><span class="chip sm">20일</span><span class="chip sm">전체</span></div><div class="seg"><span class="on">16:00</span><span>09:00:30</span></div></div>
+    <div class="note">저장하면 서버 재기동 없이 다음 발사부터 적용돼요.</div>
+    <div class="sum">${sum}</div>
+    ${state.v === 'B' ? '' : tpBar()}
+    ${panel('Q')}${panel('K')}`;
+}
+function render() {
+  document.getElementById('desc').innerHTML = DESC[state.v];
+  const side = `<div class="side"><div class="brand">GH Trade</div><a>홈</a><a>분석</a><a>Admin</a><a class="sub">매매손익</a><a class="sub">서버</a><a class="sub cur">러쉬 주문</a></div>`;
+  document.getElementById('stage').innerHTML = `<div class="f ${state.d} ${state.t === 'dark' ? 'dark' : ''}">${side}<div class="col"><div class="appbar">☰ GH Trade</div><div class="main">${body()}</div></div></div>`;
+  document.querySelectorAll('#nav button').forEach((b) => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', state[k] === b.dataset[k]); });
+}
+document.querySelectorAll('#nav button').forEach((b) => b.onclick = () => { const k = Object.keys(b.dataset)[0]; state[k] = b.dataset[k]; render(); });
+render();
+</script>
+</body>
+</html>

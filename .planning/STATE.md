@@ -33,7 +33,7 @@ Phase: 40 (체결 앱 푸시 알림) — EXECUTING
 Plan: 1 of 13
 Status: Executing Phase 40
 Phase 40 (체결 앱 푸시 알림): PLANNED 2026-11-06 — 13 plans · 5 waves · 체커 통과(R2) · 결정 커버리지 25/25 · 다음 `/gsd-execute-phase 40`
-Last activity: 2026-11-07 - Completed quick task 261107-jhk: 러쉬 주문 상단 정리
+Last activity: 2026-11-07 - Completed quick task 261107-l7w: 뒤탐침 개수·간격 어드민 설정
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -153,6 +153,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261107-olr | 앱 주문로그 착지(푸시 탭)를 앱 셸로 감싸 막다른 화면 해소 — gsd-fast | 2026-11-07 | 8a612976 | — |
 | 261107-iep | 어드민 발사 서버별 보기 — 서버 칩(KB120·교보119·교보112) · 주문 내역/경계 지도/계획 고치기 서버별 · 교보112 계획 대상 추가 | 2026-11-07 | 930dd236 | [261107-iep-admin-launch-per-server-view](./quick/261107-iep-admin-launch-per-server-view/) |
 | 261107-jhk | 러쉬 주문 상단 정리 — 메뉴·제목 개명 · 탭→서버 칩→날짜+발사 한 줄 · 설명·출처·범위 글 삭제 | 2026-11-07 | c0a96bf0 | [261107-jhk-admin-launch-header-redesign](./quick/261107-jhk-admin-launch-header-redesign/) |
+| 261107-l7w | 뒤탐침 개수(0~10)·간격(1~100µs) 어드민 설정 — 서버별·발사별 · 이력 표 · 지도 예정 뒤탐침 · relay 와이어 대기(gh-trade Phase 47 인계 뒤 연결) · 범례 09:00:30 | 2026-11-07 | 91472266 | [261107-l7w-admin-launch-tail-probe-setting](./quick/261107-l7w-admin-launch-tail-probe-setting/) |
 
 ## Session Continuity
 
