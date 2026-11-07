@@ -7,7 +7,7 @@
  * **앱이 아니면 전부 no-op** 이다 — `window.__ghTrade` 를 만들지 않고 네이티브로 아무것도 보내지 않는다.
  * 브라우저 사용자에게 동작 변화 0.
  *
- * 책임 5가지(21-RESEARCH Pattern 4):
+ * 책임 6가지(21-RESEARCH Pattern 4 · 6번은 Phase 40):
  *  1. `window.__ghTrade = { refresh, navigate, back }` 설치·해제 — 네이티브가 `evaluateJavaScript` 로 부른다.
  *  2. refresh 레지스트리 — `useNativeRefresh(fn)` 으로 등록된 훅을 **전부** 부른다(아래 결정).
  *  3. 오버레이 참조계수 — Sheet·Dialog·NumberPadSheet·Popover Content 안의 `NativeOverlayMarker` 가 올리고 내린다.
@@ -16,6 +16,7 @@
  *     계수가 이미 1 이상이면 탭바가 이미 숨었으므로 추가 신호가 없다.
  *  4. `route {path}` · `theme {theme}` 신호 — 경로 변경마다 · 마운트 후와 `resolvedTheme` 변경 때.
  *  5. `pull {blocked}` 신호(Android) — 터치 시작 지점의 내부 스크롤이 위로 스크롤돼 있으면 문서 당김을 막는다.
+ *  6. 푸시 세션(Phase 40) — 체결 알림 탭 리스너를 세션마다 한 번(`lib/push/push-session.ts`).
  *
  * 레지스트리 의미 — 「스택 · 마지막 등록 우선」(RESEARCH 제안)이 아니라 **등록된 훅 전부 호출**:
  *  종목상세는 시세·뉴스·토론 섹션이 각자 자기 GET 재조회를 등록해야 D-18(외부 호출 경로 금지)을 섹션
@@ -46,6 +47,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { startPushSession } from '@/lib/push/push-session';
 import { isSafeInternalPath } from '@/lib/safe-path';
 
 import { isNativeApp, nativePlatform } from './native-detect';
@@ -241,6 +243,13 @@ export function NativeBridgeProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener('touchstart', onTouch, { capture: true, passive: true });
     return () => document.removeEventListener('touchstart', onTouch, { capture: true });
+  }, [isNative]);
+
+  // 6. push — 앱에서만 탭 리스너(Phase 40 D-21 · D-24). 앱 셸 최상단 마운트 때 한 번 붙여 iOS 냉시작 탭(retain)도 받는다.
+  //    착지 경로는 `startPushSession` 이 검증 · 계좌 해석까지 끝낸 값이다. 브라우저 · 옛 앱은 no-op.
+  useEffect(() => {
+    if (!isNative) return;
+    return startPushSession({ push: (p) => routerRef.current.push(p) });
   }, [isNative]);
 
   const value = useMemo<NativeBridgeValue>(
