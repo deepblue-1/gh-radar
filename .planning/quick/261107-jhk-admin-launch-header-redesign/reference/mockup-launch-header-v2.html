@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261107-jhk 목업 — 러쉬 주문 상단 — 서버 · 탭 위계</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --raised-2: #e5e8eb;
+  --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.1);
+  --ok: #1f8a5b; --bad: #c8402f; --other: #8a93a2;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --raised-2: #3a3a3a;
+  --seg-on-bg: #4e4e4e; --seg-on-fg: #ffffff; --seg-on-shadow: none;
+  --ok: #3fbf86; --bad: #ec6a57; --other: #7d8695;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 760px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; }
+.side a.on { color: var(--fg); font-weight: 600; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.appbar { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; font-size: 19px; font-weight: 700; color: var(--fg); }
+.f.desktop .appbar { display: none; }
+.main { padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); }
+.pdesc { font-size: 13px; color: var(--muted-fg); margin-top: -6px; }
+
+/* 칩 · 세그먼트 · 날짜 */
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.chip { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 13px; border-radius: 999px; background: var(--muted); color: var(--muted-fg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.chip.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.chip.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
+.seg span { font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 8px; color: var(--muted-fg); white-space: nowrap; text-align: center; }
+.seg span.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.seg.full { display: flex; width: 100%; } .seg.full span { flex: 1; }
+.seg.big span { font-size: 14px; padding: 7px 12px; }
+.date { display: inline-flex; align-items: center; background: var(--muted); border-radius: 999px; padding: 3px; flex: none; }
+.date i { font-style: normal; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted-fg); font-size: 14px; }
+.date b { font-size: 14px; font-weight: 600; color: var(--fg); padding: 0 4px; white-space: nowrap; }
+.date b small { font-size: 9px; color: var(--muted-fg); margin-left: 3px; }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border-subtle); font-size: 15px; font-weight: 600; }
+.tabs span { padding: 8px 2px 10px; color: var(--muted-fg); }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.badge { display: inline-flex; font-size: 11.5px; color: var(--muted-fg); background: var(--muted); border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+.cap { font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.row .sp { flex: 1; }
+.card { background: var(--card); border-radius: 14px; padding: 12px 14px; }
+.f:not(.dark) .card, .f:not(.dark) .panel { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.filter { background: var(--band); border-radius: 16px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.f:not(.dark) .filter { background: var(--band); box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.filter .chips .chip { background: var(--muted); }
+
+/* 본문 미리보기 */
+.heads { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.f.phone .heads { grid-template-columns: 1fr; }
+.hcard { display: flex; flex-direction: column; gap: 6px; }
+.hcard .t { font-size: 15px; font-weight: 700; color: var(--fg); display: flex; gap: 8px; align-items: baseline; }
+.hcard .t small { font-size: 12.5px; font-weight: 500; color: var(--muted-fg); }
+.hcard .r { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted-fg); }
+.hcard .r b { color: var(--fg); font-weight: 600; }
+.cnt { display: inline-flex; gap: 8px; font-weight: 600; } .cnt .ok { color: var(--ok); } .cnt .bad { color: var(--bad); } .cnt .oth { color: var(--other); }
+.panel { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.panel .t { font-size: 14px; font-weight: 700; color: var(--fg); }
+.chart { height: 140px; border-radius: 10px; background: var(--band); }
+</style>
+<style>
+.pick { position: relative; flex: none; }
+.pickbtn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 14px; border-radius: 999px; background: var(--muted); color: var(--fg); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.pickbtn small { font-size: 10px; color: var(--muted-fg); }
+.pickbtn .k { font-size: 11.5px; font-weight: 600; color: var(--muted-fg); }
+.menu { position: absolute; z-index: 5; top: 40px; min-width: 160px; background: var(--card); border-radius: 14px; padding: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.35), inset 0 0 0 1px var(--border-subtle); }
+.menu.r { right: 0; } .menu.l { left: 0; }
+.menu div { padding: 9px 12px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--fg-2); display: flex; justify-content: space-between; gap: 12px; }
+.menu div.on { background: var(--muted); color: var(--fg); }
+.menu div small { color: var(--muted-fg); font-weight: 500; font-size: 12px; }
+.lab { font-size: 12px; font-weight: 600; color: var(--muted-fg); flex: none; }
+.ctx { display: flex; flex-direction: column; gap: 10px; }
+.tabs.big span { font-size: 16px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">위계안</span>
+    <button data-v="H0">기준 (지금 결정안)</button>
+    <button data-v="H1" class="on">H1 탭 먼저 · 서버는 필터 줄</button>
+    <button data-v="H2">H2 제목 옆 서버 선택</button>
+    <button data-v="H3">H3 서버 = 컨트롤 줄 첫 칸</button>
+    <button data-v="H4">H4 서버 = 페이지 제목</button></div>
+  <div class="g"><span class="l">탭</span><button data-tab="orders" class="on">주문 내역</button><button data-tab="map">경계 지도</button></div>
+  <div class="g"><span class="l">서버 메뉴</span><button data-open="0" class="on">닫힘</button><button data-open="1">펼침</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+// 공통 결정(사용자 2026-11-07): A 한 줄 컨트롤 · 출처 문구 삭제 · 제목 밑 설명 삭제 · 메뉴명/제목 「러쉬 주문」 ·
+// 발사 세그먼트는 날짜 바로 오른쪽(우정렬 안 함). 경계 지도의 「10/24 ~ 11/06 · 10일」 범위 글도 같은 결로 뺐다.
+const COMMON = '<br>공통 반영: 제목 · 메뉴 「러쉬 주문」 · 설명 문단 없음 · 출처 문구 없음 · 「16:00 | 09:00:30」 은 날짜 바로 옆. (경계 지도의 「10/24 ~ 11/06 · 10일」 범위 글도 같이 뺐어요 — 남기려면 말씀해 주세요.)';
+const DESC = {
+  H0: '<b>기준</b> — 지난번 고른 A 에 이번 수정만 반영한 모양. 서버 칩이 탭 <b>위</b>에 있어 「서버 → 탭」 위계가 어색한 상태 그대로.',
+  H1: '<b>H1 탭 먼저 · 서버는 필터 줄</b> — 탭(어떤 화면)이 맨 위, 그 아래가 「무엇을 볼지」 필터: 1줄 서버 칩, 2줄 날짜 + 발사. 탭 → 필터 순이라 위계가 자연스럽다. 칩 모양은 그대로.',
+  H2: '<b>H2 제목 옆 서버 선택</b> — 서버를 페이지 맥락으로 올린다. 제목 「러쉬 주문」 오른쪽 끝에 「KB120 ▾」 알약 하나 — 누르면 서버 목록이 펼쳐진다. 아래는 탭 → 날짜 + 발사 한 줄. 총 3줄. 대신 다른 서버가 뭐가 있는지 한눈에 안 보인다(누르면 보임).',
+  H3: '<b>H3 서버 = 컨트롤 줄 첫 칸</b> — 탭 아래 컨트롤을 「서버 ▾ · 날짜 · 발사」 로 모두 같은 필터로 다룬다. 폰 390 은 한 줄에 다 안 들어가 서버 · 날짜 한 줄, 발사 다음 줄(데스크톱은 한 줄). 고르는 것들이 한 무리라 일관적.',
+  H4: '<b>H4 서버 = 페이지 제목</b> — 제목 자리가 「러쉬 주문」 작은 윗글 + 큰 「KB120 ▾」. 「지금 어느 서버를 보는가」 가 가장 크게 보인다. 탭 → 날짜 + 발사. 총 3줄. 서버를 자주 바꾸면 탭 한 번 더 필요(목록 펼침).',
+};
+const SERVERS = ['KB120', '교보119', '교보112'];
+const state = { v: 'H1', tab: 'orders', open: '0', w: 'phone', t: 'dark' };
+
+const chips = () => `<div class="chips">${SERVERS.map((s, i) => `<span class="chip ${i === 0 ? 'on' : ''}">${s}</span>`).join('')}</div>`;
+const date = () => `<span class="date"><i>‹</i><b>11/06 (금)<small>▾</small></b><i>›</i></span>`;
+const fire = () => `<span class="seg"><span class="on">16:00</span><span>09:00:30</span></span>`;
+const range = () => `<div class="chips"><span class="chip sm on">최근 10일</span><span class="chip sm">20일</span><span class="chip sm">전체</span></div>`;
+const left = () => (state.tab === 'orders' ? date() : range());
+const ctlRow = () => `<div class="row">${left()}${fire()}</div>`;
+const tabs = () => `<div class="tabs"><span class="${state.tab === 'orders' ? 'on' : ''}">주문 내역</span><span class="${state.tab === 'map' ? 'on' : ''}">경계 지도</span></div>`;
+const menu = (side) => state.open === '1' ? `<div class="menu ${side}">${SERVERS.map((s, i) => `<div class="${i === 0 ? 'on' : ''}">${s}${i === 0 ? '<small>✓</small>' : ''}</div>`).join('')}</div>` : '';
+const pick = (side, big) => `<span class="pick"><span class="pickbtn" ${big ? 'style="height:auto;padding:0;background:none;font-size:24px;gap:6px"' : ''}>${big ? '' : '<span class="k">서버</span>'}KB120<small>▾</small></span>${menu(side)}</span>`;
+
+function header() {
+  switch (state.v) {
+    case 'H0': return `<h1>러쉬 주문</h1>${chips()}${tabs()}${ctlRow()}`;
+    case 'H1': return `<h1>러쉬 주문</h1>${tabs()}<div class="ctx">${chips()}${ctlRow()}</div>`;
+    case 'H2': return `<div class="row" style="flex-wrap:nowrap"><h1>러쉬 주문</h1><span class="sp"></span>${pick('r')}</div>${tabs()}${ctlRow()}`;
+    case 'H3': return `<h1>러쉬 주문</h1>${tabs()}<div class="row">${pick('l')}${left()}${fire()}</div>`;
+    case 'H4': return `<div style="display:flex;flex-direction:column;gap:2px"><span class="lab">러쉬 주문</span><div class="row">${pick('l', true)}</div></div>${tabs()}${ctlRow()}`;
+  }
+}
+function bodyPreview() {
+  if (state.tab === 'orders') {
+    const c = (m, off) => `<div class="card hcard"><div class="t">KB120 ${m}<small>10조각 · Q16 · 탐침 3</small></div>
+      <div class="r"><span>결과</span><span class="cnt"><span class="ok">접수 10</span><span class="bad">101 0</span><span class="oth">기타 0</span></span></div>
+      <div class="r"><span>오프셋 (발사 기준)</span><b>${off}µs</b></div>
+      <div class="r"><span>경계</span><b>전부 접수 (첫 접수 ${off}µs)</b></div>
+      <div class="r"><span>다음 발사 계획 첫 조각</span><b>${off}µs</b></div></div>`;
+    return `<div class="heads">${c('코스닥', '−380')}${c('코스피', '−325')}</div>`;
+  }
+  return `<div class="heads"><div class="panel"><div class="t">KB120 코스닥 · 10일</div><div class="chart"></div></div><div class="panel"><div class="t">KB120 코스피 · 10일</div><div class="chart"></div></div></div>`;
+}
+function render() {
+  const f = document.createElement('div'); f.className = `f ${state.w} ${state.t}`;
+  f.innerHTML = `<nav class="side"><div class="brand">GH Trade</div><a>트레이딩</a><a>분석</a><a class="on">Admin</a><a class="sub">사용자</a><a class="sub">서버</a><a class="sub cur">러쉬 주문</a></nav>
+    <div class="col"><div class="appbar">☰ <span>GH Trade</span></div><div class="main">${header()}${bodyPreview()}</div></div>`;
+  const st = document.getElementById('stage'); st.innerHTML = ''; st.appendChild(f);
+  document.getElementById('desc').innerHTML = DESC[state.v] + COMMON;
+  document.querySelectorAll('#nav button').forEach((b) => { const k = Object.keys(b.dataset)[0]; b.classList.toggle('on', state[k] === b.dataset[k]); });
+}
+document.querySelectorAll('#nav button').forEach((b) => b.onclick = () => { const k = Object.keys(b.dataset)[0]; state[k] = b.dataset[k]; render(); });
+render();
+</script>
+</body>
+</html>
