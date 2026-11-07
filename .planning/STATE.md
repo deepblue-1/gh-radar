@@ -6,10 +6,10 @@ current_phase: 40
 current_phase_name: 체결 앱 푸시 알림
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-11-07T05:24:02.441Z"
+last_updated: "2026-11-07T07:47:36.619Z"
 last_activity: 2026-11-07
 last_activity_desc: Phase 40 execution started
-state_head: c0a96bf01e20f9857deae8ca3261d2e1cd45d303
+state_head: 55b69d6ac0ca6a05fc84f6cbe920547131aeae8c
 progress:
   total_phases: 11
   completed_phases: 9
@@ -154,6 +154,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261107-iep | 어드민 발사 서버별 보기 — 서버 칩(KB120·교보119·교보112) · 주문 내역/경계 지도/계획 고치기 서버별 · 교보112 계획 대상 추가 | 2026-11-07 | 930dd236 | [261107-iep-admin-launch-per-server-view](./quick/261107-iep-admin-launch-per-server-view/) |
 | 261107-jhk | 러쉬 주문 상단 정리 — 메뉴·제목 개명 · 탭→서버 칩→날짜+발사 한 줄 · 설명·출처·범위 글 삭제 | 2026-11-07 | c0a96bf0 | [261107-jhk-admin-launch-header-redesign](./quick/261107-jhk-admin-launch-header-redesign/) |
 | 261107-l7w | 뒤탐침 개수(0~10)·간격(1~100µs) 어드민 설정 — 서버별·발사별 · 이력 표 · 지도 예정 뒤탐침 · relay 와이어 대기(gh-trade Phase 47 인계 뒤 연결) · 범례 09:00:30 | 2026-11-07 | 91472266 | [261107-l7w-admin-launch-tail-probe-setting](./quick/261107-l7w-admin-launch-tail-probe-setting/) |
+| 261107-moq | 어드민 「서버에만 있음」 계좌 카드 — 이 사용자에 연결 · 서버에서 빼기(목업 B) · 교보112 복사 시작 재발 방지 | 2026-11-07 | 55b69d6a | [261107-moq-admin-server-only-account](./quick/261107-moq-admin-server-only-account/) |
 
 ## Session Continuity
 

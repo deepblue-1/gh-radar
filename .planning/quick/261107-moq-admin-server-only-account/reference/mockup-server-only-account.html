@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261107-moq 목업 — 「서버에만 있음」 계좌 줄 동작</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; gap: 28px; flex-wrap: wrap; padding: 20px 12px 60px; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --primary: #3182f6; --primary-fg: #fff;
+  --destructive: #e5484d; --led-armed: #16a34a; --led-latent: #a16207; --new: #a16207;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  background: var(--bg); color: var(--fg-2); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all;
+  font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5);
+  width: 390px; min-height: 760px; border-radius: 30px; overflow: hidden; display: flex; flex-direction: column;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --primary: #3485fa;
+  --led-armed: #30d158; --led-latent: #ffd43b; --new: #ffd43b;
+}
+.cap { text-align: center; color: #9a9aa2; font-size: 12px; margin-bottom: 8px; }
+.ph { display: flex; align-items: center; gap: 8px; padding: 18px 18px 12px; border-bottom: 1px solid var(--border-subtle); }
+.ph h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--fg); }
+.ph .em { font-size: 12px; color: var(--muted-fg); }
+.ph .x { margin-left: auto; color: var(--muted-fg); font-size: 18px; }
+.pb { padding: 14px 16px 22px; display: flex; flex-direction: column; gap: 10px; }
+.gt { font-size: 13px; font-weight: 600; color: var(--fg); display: flex; gap: 6px; align-items: baseline; }
+.gt span { font-size: 12px; font-weight: 400; color: var(--muted-fg); }
+.btn { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 9px; padding: 7px 12px; cursor: pointer; background: var(--muted); color: var(--fg-2); white-space: nowrap; }
+.btn.pri { background: var(--primary); color: var(--primary-fg); }
+.btn.sm { font-size: 12px; padding: 5px 9px; border-radius: 8px; }
+.btn.danger { color: var(--destructive); }
+.btn.dangerfill { background: var(--destructive); color: #fff; }
+.ch { display: inline-block; border-radius: 5px; padding: 2px 6px; font-size: 11px; line-height: 1.4; font-weight: 600; white-space: nowrap; }
+.ch.ok { background: color-mix(in srgb, var(--led-armed) 16%, transparent); color: var(--led-armed); }
+.ch.dim { border: 1px dashed var(--border-subtle); padding: 1px 6px; color: var(--muted-fg); font-weight: 500; }
+.bk { font-size: 11px; font-weight: 700; background: var(--muted); color: var(--fg-2); border-radius: 5px; padding: 2px 6px; flex: none; }
+.acard { border: 1px solid var(--border-subtle); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.acard .title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.acard .title b { font-size: 14px; color: var(--fg); font-weight: 600; }
+.acard .title .no { color: var(--muted-fg); font-size: 12.5px; }
+.acard .title .act { margin-left: auto; display: flex; gap: 6px; }
+.acard.only { border-style: dashed; }
+.acard.only .dimmed { opacity: .6; }
+.srv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted-fg); }
+.srv .sv { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px; color: var(--fg-2); font-weight: 500; }
+.srv .sv i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--faint); display: inline-block; }
+.srv .sv i.on { background: var(--led-armed); border-color: var(--led-armed); }
+.why { font-size: 12.5px; line-height: 1.55; color: var(--muted-fg); margin: 0; }
+.why b { color: var(--fg-2); font-weight: 600; }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.confirm { border-radius: 10px; padding: 11px 12px; display: flex; flex-direction: column; gap: 9px; }
+.confirm.blue { border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent); background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.confirm.red { border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent); background: color-mix(in srgb, var(--destructive) 5%, transparent); }
+.confirm p { margin: 0; font-size: 13px; color: var(--fg); line-height: 1.55; }
+.confirm p.s { font-size: 12px; color: var(--muted-fg); }
+.confirm .acts { justify-content: flex-end; }
+.res { font-size: 12.5px; color: var(--led-armed); }
+.radio { display: flex; flex-direction: column; gap: 6px; }
+.radio label { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--fg); border: 1px solid var(--border-subtle); border-radius: 9px; padding: 9px 10px; }
+.radio label.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.radio .rd { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; margin-top: 1px; position: relative; }
+.radio label.on .rd { border-color: var(--primary); }
+.radio label.on .rd::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--primary); }
+.radio small { display: block; color: var(--muted-fg); font-size: 12px; margin-top: 2px; }
+.hl { outline: 2px dashed var(--new); outline-offset: 4px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span>
+    <button data-k="v" data-v="A">A 제목 줄 버튼</button>
+    <button data-k="v" data-v="B">B 설명 + 버튼 줄</button>
+    <button data-k="v" data-v="C">C 「정리」 하나 → 고르기</button>
+  </div>
+  <div class="g"><span class="l">상태</span>
+    <button data-k="s" data-v="idle">처음</button>
+    <button data-k="s" data-v="link">연결 확인</button>
+    <button data-k="s" data-v="drop">빼기 확인</button>
+    <button data-k="s" data-v="done">빼기 끝</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-k="t" data-v="light">라이트</button>
+    <button data-k="t" data-v="dark">다크</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const S = { v: 'B', s: 'idle', t: 'light' };
+const DESC = {
+  A: '<b>A</b> — 흐린 점선 카드 제목 줄 오른쪽에 <b>연결 · 서버에서 빼기</b> 버튼 둘. 화면 변화가 가장 작다. 대신 왜 이 카드가 흐린지는 칩 「서버에만 있음」 하나로만 말한다.',
+  B: '<b>B</b> — 카드 안에 <b>한 줄 설명</b>(「어느 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요」)을 넣고 그 아래 버튼 줄. 처음 보는 사람도 무엇을 고르는지 안다. 카드가 한 줄 길어진다.',
+  C: '<b>C</b> — 버튼은 「정리…」 하나. 누르면 두 선택지(연결 / 서버에서 빼기)를 설명과 함께 고르고 확인. 실수로 누를 일이 가장 적지만 한 번 더 누른다.',
+};
+const BUSY = '이 계좌에 상따·VI·미체결·예약이 남아 있으면 서버가 거절해요(같은 계좌를 가진 다른 사용자 것도 포함) — 장 마감 뒤에 하세요.';
+
+function normal() {
+  return `<div class="acard">
+    <div class="title"><span class="bk">교보</span><b>교보 정근형</b><span class="no">10083243302</span>
+      <span class="act"><button class="btn sm danger">연결 해제</button></span></div>
+    <div class="srv">서버 <span class="sv"><i class="on"></i>KYOBO112 <span class="ch ok">반영됨</span></span><span class="sv"><i></i>KYOBO119</span></div>
+  </div>`;
+}
+const chips = `<span class="ch dim">KYOBO112 · 서버에만 있음</span>`;
+const title = (act = '') => `<div class="title"><span class="bk">교보</span><b class="dimmed">교보 김현중</b><span class="no dimmed">10279758101</span>${act}</div>`;
+
+function confirmBox(kind) {
+  if (kind === 'link') return `<div class="confirm blue">
+      <p>교보 김현중을 <b>milles</b> 에 연결해요. KYOBO112 서버 설정은 그대로예요.</p>
+      <p class="s">연결하면 위 계좌들처럼 서버를 켜고 끄거나 연결 해제할 수 있어요.</p>
+      <div class="acts"><button class="btn sm">취소</button><button class="btn sm pri">연결</button></div></div>`;
+  if (kind === 'drop') return `<div class="confirm red">
+      <p><b>KYOBO112</b> 서버 설정에서 milles 의 교보 김현중을 빼요. milles 는 다시 로그인하면 계좌 목록에서 사라져요.</p>
+      <p class="s">${BUSY}</p>
+      <div class="acts"><button class="btn sm">취소</button><button class="btn sm dangerfill">서버에서 빼기</button></div></div>`;
+  return '';
+}
+
+function serverOnly() {
+  if (S.s === 'done') return '';
+  const box = confirmBox(S.s);
+  if (S.v === 'A') {
+    const act = `<span class="act hl"><button class="btn sm">연결</button><button class="btn sm danger">서버에서 빼기</button></span>`;
+    return `<div class="acard only">${title(act)}<div class="srv">${chips}</div>${box}</div>`;
+  }
+  if (S.v === 'B') {
+    return `<div class="acard only">${title()}<div class="srv">${chips}</div>
+      <div class="hl" style="display:flex;flex-direction:column;gap:8px">
+        <p class="why"><b>KYOBO112</b> 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요. 그래서 여기서 연결 해제해도 그 서버에는 닿지 않아요.</p>
+        ${box || `<div class="acts"><button class="btn sm">이 사용자에 연결</button><button class="btn sm danger">서버에서 빼기</button></div>`}
+      </div></div>`;
+  }
+  // C
+  const act = `<span class="act hl"><button class="btn sm">정리…</button></span>`;
+  if (S.s === 'idle') return `<div class="acard only">${title(act)}<div class="srv">${chips}</div></div>`;
+  const on = S.s;
+  return `<div class="acard only">${title()}<div class="srv">${chips}</div>
+    <div class="radio hl">
+      <label class="${on === 'link' ? 'on' : ''}"><span class="rd"></span><span>이 사용자에 연결<small>서버 설정은 그대로 · 이제부터 이 화면에서 관리</small></span></label>
+      <label class="${on === 'drop' ? 'on' : ''}"><span class="rd"></span><span>KYOBO112 서버에서 빼기<small>milles 는 다시 로그인하면 목록에서 사라져요. ${BUSY}</small></span></label>
+    </div>
+    <div class="acts" style="justify-content:flex-end"><button class="btn sm">취소</button>${on === 'link' ? '<button class="btn sm pri">연결</button>' : '<button class="btn sm dangerfill">서버에서 빼기</button>'}</div>
+  </div>`;
+}
+
+function frame(theme) {
+  const done = S.s === 'done' ? `<p class="res">✓ KYOBO112 에서 교보 김현중을 뺐어요 — milles 가 다시 로그인하면 반영돼요.</p>` : '';
+  return `<div><div class="cap">${theme === 'dark' ? '다크' : '라이트'} · 사용자 시트(모바일 폭)</div>
+  <div class="f ${theme}">
+    <div class="ph"><h3>milles</h3><span class="em">millesjung@gmail.com</span><span class="x">✕</span></div>
+    <div class="pb">
+      <div class="gt">계좌 <span>2</span></div>
+      ${normal()}
+      ${serverOnly()}
+      ${done}
+      <button class="btn sm" style="align-self:flex-start">+ 계좌 연결</button>
+    </div>
+  </div></div>`;
+}
+
+function render() {
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', S[b.dataset.k] === b.dataset.v));
+  document.getElementById('desc').innerHTML = DESC[S.v] + ' <span style="color:#777">· 노란 점선 = 이번에 바뀌는 곳 · 지금 화면은 흐린 점선 카드에 칩만 있고 아무 동작이 없다.</span>';
+  document.getElementById('stage').innerHTML = frame(S.t);
+}
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => { S[b.dataset.k] = b.dataset.v; render(); }));
+render();
+</script>
+</body>
+</html>
