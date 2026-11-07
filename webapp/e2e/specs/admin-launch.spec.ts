@@ -23,8 +23,9 @@ import { launchPlanFixture, launchPlanSaveOk, mockLaunchApi } from '../fixtures/
  *
  * ⑤ 빈 상태 — 이력 0 · 행 없는 ?d(「최신 보기」 → d 없는 주소) · 형식 오류 ?d(replace 로 d 만 지움 · 다른 키 보존).
  *
- * ⑥ 경계 지도 탭(35-08 · `?tab=map` · D-15 ~ D-18) — 첨부 pieces.json 「전체」 + 첨부 NEXT 픽스처로 KB 코스닥 요약 카드가
- *   10일 · −347 · −322 · −337 이고 4패널 점 합이 196(첨부 지도와 같은 값). 칩 · 세그먼트 하나 = map 요청 1건.
+ * ⑥ 경계 지도 탭(35-08 · `?tab=map` · D-15 ~ D-18) — 첨부 pieces.json 「전체」 + 첨부 NEXT 픽스처로 KB120 코스닥 요약 카드가
+ *   10일 · −347 · −322 · −337 이고 KB120 칩 점 + 교보119 칩 점 합이 196(첨부 지도와 같은 값 · quick-261107-iep 서버별 2패널).
+ *   범위 칩 · 세그먼트 하나 = map 요청 1건 · 서버 칩은 0건(클라이언트 필터).
  *
  * ⑦ 발사 계획 읽기(35-14 · D-24 · D-25 · D-29 · D-35) — 지도 탭 진입 때 GET /plan 1건(칩 · 세그먼트로 다시 부르지 않는다).
  *   서버 ok = 패널 줄 「3조각 …」 + 조각마다 점선 · 서버 실패 = 「서버 연결 안 됨 · 마지막 발사 값」(머리 값) ·
@@ -297,23 +298,22 @@ const kpi = (page: Page, gateway: string, market: string) =>
 const rangeText = (page: Page) => root(page).locator('[data-slot="launch-range-text"]');
 
 test.describe('어드민 발사 · 경계 지도', () => {
-  test('P35-M1 1280 — ?tab=map&range=all · 요청 1건 · 범위 글 · 4패널 순서 · 점 196 · KB 코스닥 카드 · 패널 머리', async ({ page }) => {
+  test('P35-M1 1280 — ?tab=map&range=all · 요청 1건 · 범위 글 · 2패널 순서 · 점 196(두 칩 합) · KB120 코스닥 카드 · 패널 머리', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page);
     await open(page, '/admin/launch?tab=map&range=all');
 
     await expect(root(page).getByRole('tab', { name: '경계 지도' })).toHaveAttribute('aria-selected', 'true');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(rangeText(page)).toHaveText('10/12 ~ 10/26 · 11거래일');
     await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('전체');
 
     const order = await panels(page).evaluateAll((els) =>
       els.map((el) => `${el.getAttribute('data-gateway')}|${el.getAttribute('data-market')}`),
     );
-    expect(order).toEqual(['KB120|Q', 'KB120|K', 'KYOBO119|Q', 'KYOBO119|K']);
+    expect(order).toEqual(['KB120|Q', 'KB120|K']);
 
-    const dots = await root(page).locator('[data-slot="launch-chart"] circle').count();
-    expect(dots, '4패널 점 합 = 첨부 조각 196').toBe(196);
+    const dotsKb = await root(page).locator('[data-slot="launch-chart"] circle').count();
 
     // 점에 마우스를 대면 즉시 µs 툴팁(사용자 UAT 2026-10-27)
     const kbPanel = panel(page, 'KB120', 'Q');
@@ -323,13 +323,21 @@ test.describe('어드민 발사 · 경계 지도', () => {
     await expect(tip).toContainText(/^[−+]?[\d,]+µs/);
 
     const kb = kpi(page, 'KB120', 'Q');
-    await expect(kb).toContainText('KB 코스닥 · 10일');
+    await expect(kb).toContainText('KB120 코스닥 · 10일');
     await expect(kb.locator('[data-kpi="min-accept"]')).toHaveText(`${MINUS}347µs`);
     await expect(kb.locator('[data-kpi="max-reject"]')).toHaveText(`${MINUS}322µs`);
     await expect(kb.locator('[data-kpi="next"]')).toHaveText(`${MINUS}337µs`);
     await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-panel-stats"]')).toHaveText(
       '경계 잡힌 날 4 · 전부 접수 5 · 전부 거부 1',
     );
+
+    // 교보119 칩 = 옛 교보 기록 — 두 칩 점 합 = 첨부 조각 196(기존 기록 보존) · 서버 전환은 지도 재요청 0
+    await serverChip(page, '교보119').click();
+    await expect(page).toHaveURL(/[?&]gw=KYOBO119(&|$)/);
+    await expect(panels(page)).toHaveCount(2);
+    await expect(panel(page, 'KYOBO119', 'Q')).toBeVisible();
+    const dotsKy = await root(page).locator('[data-slot="launch-chart"] circle').count();
+    expect(dotsKb + dotsKy, 'KB120 점 + 교보119 점 = 첨부 조각 196').toBe(196);
 
     await page.waitForTimeout(500);
     expect(api.maps().map((r) => r.query)).toEqual([{ fire: 'q16', range: 'all' }]);
@@ -341,7 +349,7 @@ test.describe('어드민 발사 · 경계 지도', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page);
     await open(page, '/admin/launch?tab=map');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(rangeText(page)).toHaveText('10/13 ~ 10/26 · 10거래일');
     await expect(root(page).locator('[data-slot="launch-range"] button[aria-pressed="true"]')).toHaveText('최근 10일');
     await page.waitForTimeout(500);
@@ -375,27 +383,35 @@ test.describe('어드민 발사 · 경계 지도', () => {
     await expect(legend).toContainText('마름모 = A 매도 · 동그라미 = N 매수');
     await expect(legend).toContainText('구분 없음(백필)');
     await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}245µs`);
-    await expect(kpi(page, 'KYOBO119', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}200µs`);
     await expect(root(page).locator('[data-slot="launch-foot"]')).toHaveText(
       'N 오프셋은 고정값 — 선은 최신 N 머리 값 · 재전송은 첫 발만 점 · 횟수는 툴팁',
     );
     await page.screenshot({ path: test.info().outputPath('launch-map-n0930-1280.png'), fullPage: true });
 
+    // 교보119 코스닥 다음 −200 은 교보119 칩에서(지도 재요청 0)
+    await serverChip(page, '교보119').click();
+    await expect(page).toHaveURL(/gw=KYOBO119/);
+    expect(params()).toEqual({ tab: 'map', range: 'all', fire: 'n0930', gw: 'KYOBO119' });
+    await expect(kpi(page, 'KYOBO119', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}200µs`);
+    await page.waitForTimeout(300);
+    expect(api.maps()).toHaveLength(4);
+
     await root(page).getByRole('tab', { name: '주문 내역' }).click();
     await expect(page).toHaveURL(/tab=orders/);
-    expect(params()).toEqual({ tab: 'orders', range: 'all', fire: 'n0930' });
+    expect(params()).toEqual({ tab: 'orders', range: 'all', fire: 'n0930', gw: 'KYOBO119' });
     await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('09:00:30 개장차익');
-    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(card(page, 'KYOBO119', 'Q')).toBeVisible();
   });
 
-  test('P35-M3 390 — SVG 640 고정 · 패널 래퍼 가로 스크롤 · 요약 카드 2열 · 페이지 가로 스크롤 0', async ({ page }) => {
+  test('P35-M3 390 — SVG 640 고정 · 패널 래퍼 가로 스크롤 · 요약 카드 2장 한 줄 · 서버 칩 줄 · 페이지 가로 스크롤 0', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockLaunchApi(page);
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
 
     const charts = root(page).locator('[data-slot="launch-chart"]');
-    await expect(charts).toHaveCount(4);
+    await expect(charts).toHaveCount(2);
     const fits = await charts.evaluateAll((els) =>
       els.map((el) => {
         const wrap = el.parentElement!;
@@ -408,11 +424,16 @@ test.describe('어드민 발사 · 경계 지도', () => {
     }
 
     const k = root(page).locator('[data-slot="launch-kpi"]');
+    await expect(k).toHaveCount(2);
     const b0 = (await k.nth(0).boundingBox())!;
     const b1 = (await k.nth(1).boundingBox())!;
-    const b2 = (await k.nth(2).boundingBox())!;
-    expect(Math.round(b0.y), '1·2번째 카드 같은 줄').toBe(Math.round(b1.y));
-    expect(b2.y, '3번째 카드 아래 줄').toBeGreaterThan(b0.y + b0.height - 1);
+    expect(Math.round(b0.y), '두 카드 같은 줄(2열)').toBe(Math.round(b1.y));
+    expect(b1.x).toBeGreaterThan(b0.x + 50);
+
+    // 서버 칩 줄은 페이지를 넓히지 않는다(넘치면 자기 줄 안에서만 가로 스크롤)
+    const chipRow = root(page).getByRole('radiogroup', { name: '발사 서버' });
+    const rowBox = (await chipRow.boundingBox())!;
+    expect(rowBox.x + rowBox.width, '서버 칩 줄이 뷰포트 안').toBeLessThanOrEqual(390);
 
     const o = await horizontalOverflow(page);
     expect(o.doc, '문서 가로 넘침 0').toBeLessThanOrEqual(0);
@@ -443,9 +464,46 @@ test.describe('어드민 발사 · 경계 지도', () => {
     const api = await mockLaunchApi(page);
     await open(page, '/admin/launch?tab=map&range=30d&fire=n0930');
     await expect(page).toHaveURL(/\/admin\/launch\?tab=map&fire=n0930$/);
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await page.waitForTimeout(300);
     expect(api.maps().every((r) => r.query.range === '10d')).toBe(true);
+  });
+});
+
+test.describe('어드민 발사 · 경계 지도 · 서버별', () => {
+  test('P-SV2 1280 — 경계 지도 서버별 · 교보112 빈 패널 · 지도 · 계획 재요청 0 · 탭 전환에 gw 보존', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixture });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-plan-line"]')).toContainText('3조각', { timeout: 15_000 });
+
+    await serverChip(page, '교보112').click();
+    await expect(page).toHaveURL(/gw=KYOBO112/);
+    const params = () => Object.fromEntries(new URL(page.url()).searchParams.entries());
+    expect(params()).toEqual({ tab: 'map', range: 'all', gw: 'KYOBO112' });
+    const order = await panels(page).evaluateAll((els) =>
+      els.map((el) => `${el.getAttribute('data-gateway')}|${el.getAttribute('data-market')}`),
+    );
+    expect(order).toEqual(['KYOBO112|Q', 'KYOBO112|K']);
+    for (const m of ['Q', 'K']) {
+      await expect(panel(page, 'KYOBO112', m)).toContainText('이 범위에 발사 없음');
+      await expect(panel(page, 'KYOBO112', m).locator('svg[data-slot="launch-chart"]')).toHaveCount(0);
+    }
+    await expect(kpi(page, 'KYOBO112', 'Q')).toContainText('교보112 코스닥 · 0일');
+    await expect(rangeText(page), '범위 글은 응답 전체 그대로').toHaveText('10/12 ~ 10/26 · 11거래일');
+
+    await page.waitForTimeout(500);
+    expect(api.maps(), '서버 전환은 지도를 다시 받지 않는다').toHaveLength(1);
+    expect(api.planGets(), '서버 전환은 계획을 다시 받지 않는다').toHaveLength(1);
+    await page.screenshot({ path: test.info().outputPath('launch-map-kyobo112-1280.png'), fullPage: true });
+
+    await root(page).getByRole('tab', { name: '주문 내역' }).click();
+    await expect(page).toHaveURL(/tab=orders/);
+    expect(params()).toEqual({ tab: 'orders', range: 'all', gw: 'KYOBO112' });
+    await expect(cards(page)).toHaveText(['교보112 코스닥 · 이 날 발사 없음', '교보112 코스피 · 이 날 발사 없음'], {
+      timeout: 15_000,
+    });
   });
 });
 
@@ -453,11 +511,11 @@ const planBar = (page: Page, gateway: string, market: string) =>
   panel(page, gateway, market).locator('[data-slot="launch-plan-bar"]');
 
 test.describe('어드민 발사 · 발사 계획(읽기)', () => {
-  test('P35-P1 1280 — 서버 ok · KB 코스닥 줄 「3조각」 · 점선 3 · KPI −350 · 마지막 변경 · 변경 이력 2 · /plan 1건', async ({ page }) => {
+  test('P35-P1 1280 — 서버 ok · KB120 코스닥 줄 「3조각」 · 점선 3 · KPI −350 · 마지막 변경 · 변경 이력 2 · /plan 1건', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixture });
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
 
     const kbq = panel(page, 'KB120', 'Q');
     await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(
@@ -504,7 +562,7 @@ test.describe('어드민 발사 · 발사 계획(읽기)', () => {
     await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`);
   });
 
-  test('P35-P2 ① 서버 실패 → 4패널 대신 값(머리) · 점선 각 1 · KPI −337', async ({ page }) => {
+  test('P35-P2 ① 서버 실패 → 두 서버 4패널 대신 값(머리) · 점선 각 1 · KPI −337', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await mockLaunchApi(page, {
       plan: () => ({
@@ -516,20 +574,22 @@ test.describe('어드민 발사 · 발사 계획(읽기)', () => {
       }),
     });
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
 
-    for (const [g, m] of [
-      ['KB120', 'Q'],
-      ['KB120', 'K'],
-      ['KYOBO119', 'Q'],
-      ['KYOBO119', 'K'],
+    for (const [chip, g, m] of [
+      ['KB120', 'KB120', 'Q'],
+      ['KB120', 'KB120', 'K'],
+      ['교보119', 'KYOBO119', 'Q'],
+      ['교보119', 'KYOBO119', 'K'],
     ] as const) {
+      await serverChip(page, chip).click();
       await expect(planBar(page, g, m).locator('[data-slot="launch-plan-line"]')).toContainText(
         '서버 연결 안 됨 · 마지막 발사 값',
         { timeout: 15_000 },
       );
       await expect(panel(page, g, m).locator('[data-slot="launch-next"]')).toHaveCount(1);
     }
+    await serverChip(page, 'KB120').click();
     await expect(planBar(page, 'KB120', 'Q').locator('[data-slot="launch-plan-line"]')).toHaveText(
       `서버 연결 안 됨 · 마지막 발사 값 ${MINUS}337µs`,
     );
@@ -540,7 +600,7 @@ test.describe('어드민 발사 · 발사 계획(읽기)', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page);
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(kpi(page, 'KB120', 'Q').locator('[data-kpi="next"]')).toHaveText(`${MINUS}337µs`);
     await expect.poll(() => api.planGets().length).toBe(1);
     await page.waitForTimeout(500);
@@ -557,11 +617,11 @@ const editToggle = (page: Page, gateway: string, market: string) =>
   panel(page, gateway, market).locator('[data-slot="launch-plan-edit-toggle"]');
 
 test.describe('어드민 발사 · 발사 계획(고치기)', () => {
-  test('P35-P3 1280 — KB 코스닥 「계획 고치기」 → 2번 −340 → 저장 → PUT 1건 · 결과 줄 · 줄 갱신 · 재요청 0', async ({ page }) => {
+  test('P35-P3 1280 — KB120 코스닥 「계획 고치기」 → 2번 −340 → 저장 → PUT 1건 · 결과 줄 · 줄 갱신 · 재요청 0', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixture });
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     const kbq = panel(page, 'KB120', 'Q');
     await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`, {
       timeout: 15_000,
@@ -619,7 +679,7 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
       },
     });
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     const kbq = panel(page, 'KB120', 'Q');
     await expect(kbq.locator('[data-slot="launch-plan-line"]')).toContainText('3조각', { timeout: 15_000 });
     await expect(root(page).locator('[data-slot="launch-apply-note"]')).toHaveText(
@@ -668,12 +728,14 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(kbq.locator('[data-slot="launch-plan-history-fold"] summary')).toHaveText('변경 이력 3');
     await page.screenshot({ path: test.info().outputPath('launch-plan-code1-1280.png'), fullPage: true });
 
-    // ③ 502(요청 자체 실패) → 결과 모름 「KB120 응답 없음: …」(「미반영」 으로 단정하지 않는다 · 35 CR-01) · 계획 1회 다시 읽기
+    // ③ 502(요청 자체 실패) → 결과 모름 「KB120 응답 없음: …」(「미반영」 으로 단정하지 않는다 · 35 CR-01) · 계획 1회 다시 읽기.
+    //    다시 읽은 이력에 이 저장의 행이 없으니(502 = server 가 기록 전일 수 있음) 「확인」 이 아니라 「처리하기 전 값일 수 있어요」
+    //    (35 R3-IN-01 · 9b14921b 가 바꾼 문구 — 단위 테스트 R2-IN-01 5xx 와 같은 기대).
     mode = '502';
     const getsBefore502 = api.planGets().length;
     await ed.locator('[data-slot="launch-plan-save"]').click();
     await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toHaveText(
-      'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
+      'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침',
       { timeout: 15_000 },
     );
     await expect(chip).toHaveText('KB120 · 응답 없음');
@@ -685,8 +747,9 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
   test('P35-P5 1280 — 09:00:30 KYOBO119 코스피 · 발사 시각 한 칸 · 2500 범위 오류 → −190 · P2 1행 · 바디 [−190]', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixture });
-    await open(page, '/admin/launch?tab=map&range=all&fire=n0930');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await open(page, '/admin/launch?tab=map&range=all&fire=n0930&gw=KYOBO119');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(serverChip(page, '교보119')).toHaveAttribute('aria-checked', 'true');
     const kyk = panel(page, 'KYOBO119', 'K');
     await expect(kyk.locator('[data-slot="launch-plan-line"]')).toHaveText(`${MINUS}200µs`, { timeout: 15_000 });
 
@@ -717,11 +780,11 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await page.screenshot({ path: test.info().outputPath('launch-plan-n0930-1280.png'), fullPage: true });
   });
 
-  test('P35-P6 390 — 편집 칸 펼친 KB 코스닥 · 페이지 가로 스크롤 0 · 칸 줄바꿈 · P2 표만 가로 스크롤 · 한 패널만 · 세그먼트 바꾸면 닫힘', async ({ page }) => {
+  test('P35-P6 390 — 편집 칸 펼친 KB120 코스닥 · 페이지 가로 스크롤 0 · 칸 줄바꿈 · P2 표만 가로 스크롤 · 한 패널만 · 세그먼트 · 서버 칩 바꾸면 닫힘', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await mockLaunchApi(page, { plan: launchPlanFixture });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixture });
     await open(page, '/admin/launch?tab=map&range=all');
-    await expect(panels(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(panel(page, 'KB120', 'Q').locator('[data-slot="launch-plan-line"]')).toContainText('3조각', { timeout: 15_000 });
 
     await editToggle(page, 'KB120', 'Q').click();
@@ -774,5 +837,19 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     const o2 = await horizontalOverflow(page);
     expect(o2.doc).toBeLessThanOrEqual(0);
     expect(o2.main).toBeLessThanOrEqual(0);
+
+    // 서버 칩을 바꾸면 닫힌다 — 다시 그 서버로 돌아와도 닫힌 채(quick-261107-iep) · 계획 재요청 0
+    const getsBefore = api.planGets().length;
+    await editToggle(page, 'KB120', 'Q').click();
+    await expect(editor(page, 'KB120', 'Q')).toBeVisible();
+    await serverChip(page, '교보119').click();
+    await expect(panel(page, 'KYOBO119', 'Q')).toBeVisible();
+    await expect(root(page).locator('[data-slot="launch-plan-editor"]')).toHaveCount(0);
+    await serverChip(page, 'KB120').click();
+    await expect(panel(page, 'KB120', 'Q')).toBeVisible();
+    await expect(root(page).locator('[data-slot="launch-plan-editor"]')).toHaveCount(0);
+    await expect(editToggle(page, 'KB120', 'Q')).toHaveText('계획 고치기');
+    await page.waitForTimeout(300);
+    expect(api.planGets(), '서버 전환은 계획을 다시 부르지 않는다').toHaveLength(getsBefore);
   });
 });
