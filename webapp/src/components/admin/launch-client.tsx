@@ -118,7 +118,7 @@ export function LaunchClient() {
           <LaunchOrdersTab gw={gw} d={d} fire={fire} onGoDate={onGoDate} onFire={onFire} onLatest={onLatest} />
         </TabsContent>
         <TabsContent value="map" className="min-w-0">
-          <LaunchMapTab fire={fire} range={range} onFire={onFire} onRange={onRange} />
+          <LaunchMapTab gw={gw} fire={fire} range={range} onFire={onFire} onRange={onRange} />
         </TabsContent>
       </Tabs>
     </div>

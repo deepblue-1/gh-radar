@@ -11,6 +11,7 @@ import type {
   LaunchPlanChangeRow,
   LaunchPlanResponse,
   LaunchPlanServer,
+  LaunchServer,
 } from '@gh-radar/shared';
 
 import { ApiClientError } from '@/lib/api';
@@ -25,7 +26,7 @@ vi.mock('@/lib/launch-api', () => ({ fetchLaunchMap: vi.fn(), fetchLaunchPlan: v
  * Phase 35 (35-08) — 경계 지도 탭 순수 렌더 `LaunchMapView` (D-15 ~ D-18 · 채택 목업 프리셋 칩 · 09:00:30 합패널).
  *
  * 입력 = shared 픽스처(gh-trade 첨부 pieces.json 사본)를 지도 조각으로 옮긴 「전체」 응답 + 첨부 NEXT 머리(합성).
- * 잠그는 것: 칩 3개 · 선택 칩 · 범위 글 · 요약 카드 4장 순서 · 패널 4개 · 범례(16:00 / 09:00:30 · 구분 없음(백필)) ·
+ * 잠그는 것: 칩 3개 · 선택 칩 · 범위 글 · 요약 카드 · 패널 = 고른 서버 2개(quick-261107-iep 서버별 · 서버 라벨) · 범례(16:00 / 09:00:30 · 구분 없음(백필)) ·
  * 마름모 1 · 빈 상태 · 빈 패널 · 다음 오프셋 없음 「—」 · 오류 · 칩/세그먼트 콜백.
  */
 
@@ -149,6 +150,7 @@ function n0930(side: string | null = 'buy'): LaunchMapResponse {
 function view(over: Partial<LaunchMapViewProps> = {}) {
   const props: LaunchMapViewProps = {
     resp: Q16_ALL,
+    gw: 'KB120',
     fire: 'q16',
     range: 'all',
     onFire: vi.fn(),
@@ -176,26 +178,23 @@ describe('LaunchMapView — 16:00 「전체」', () => {
     expect(container.querySelectorAll('input')).toHaveLength(0);
   });
 
-  it('요약 카드 4장 LAUNCH_ORDER 순 · KB 코스닥 = 10일 · −347 · −322 · −337', () => {
+  it('KB120 요약 카드 2장(코스닥 → 코스피) · KB120 코스닥 = 10일 · −347 · −322 · −337', () => {
     const { container } = view();
     const kpis = slots(container, 'launch-kpi');
-    expect(kpis.map((k) => `${k.dataset.gateway}|${k.dataset.market}`)).toEqual([
-      'KB120|Q',
-      'KB120|K',
-      'KYOBO119|Q',
-      'KYOBO119|K',
-    ]);
+    expect(kpis.map((k) => `${k.dataset.gateway}|${k.dataset.market}`)).toEqual(['KB120|Q', 'KB120|K']);
     const kb = kpis[0]!;
-    expect(kb.textContent).toContain('KB 코스닥 · 10일');
+    expect(kb.textContent).toContain('KB120 코스닥 · 10일');
     expect(one(kb, '[data-kpi="min-accept"]').textContent).toBe(`${M}347µs`);
     expect(one(kb, '[data-kpi="max-reject"]').textContent).toBe(`${M}322µs`);
     expect(one(kb, '[data-kpi="next"]').textContent).toBe(`${M}337µs`);
   });
 
-  it('패널 4개 · 점 합 196 · 16:00 범례 · 푸터', () => {
+  it('KB120 패널 2개 · 16:00 범례 · 푸터', () => {
     const { container } = view();
-    expect(slots(container, 'launch-panel')).toHaveLength(4);
-    expect(container.querySelectorAll('[data-slot="launch-chart"] circle')).toHaveLength(196);
+    expect(slots(container, 'launch-panel').map((p) => `${p.dataset.gateway}|${p.dataset.market}`)).toEqual([
+      'KB120|Q',
+      'KB120|K',
+    ]);
     const legend = one(container, '[data-slot="launch-legend"]');
     expect(legend.textContent).toContain('101 거부(너무 이름)');
     expect(legend.textContent).not.toContain('마름모');
@@ -230,6 +229,62 @@ describe('LaunchMapView — 16:00 「전체」', () => {
   });
 });
 
+describe('LaunchMapView — 서버별(quick-261107-iep · 기존 기록 보존)', () => {
+  const dots = (c: HTMLElement) => c.querySelectorAll('[data-slot="launch-chart"] circle').length;
+
+  it('점 합 196 = KB120 점 + KYOBO119 점 · KYOBO112 = 0(첨부 전체가 두 칩에 그대로 나뉜다)', () => {
+    const kb = view();
+    const nKb = dots(kb.container);
+    kb.unmount();
+    const ky = view({ gw: 'KYOBO119' });
+    const nKy = dots(ky.container);
+    ky.unmount();
+    const k2 = view({ gw: 'KYOBO112' });
+    expect(dots(k2.container)).toBe(0);
+    expect(nKb).toBeGreaterThan(0);
+    expect(nKy).toBeGreaterThan(0);
+    expect(nKb + nKy).toBe(196);
+  });
+
+  it('KYOBO119 → 옛 교보 패널 2개 · 요약 「교보119 코스닥 · 11일」 · 다음 −526', () => {
+    const { container } = view({ gw: 'KYOBO119' });
+    expect(slots(container, 'launch-panel').map((p) => `${p.dataset.gateway}|${p.dataset.market}`)).toEqual([
+      'KYOBO119|Q',
+      'KYOBO119|K',
+    ]);
+    const kpi = slots(container, 'launch-kpi')[0]!;
+    expect(kpi.textContent).toContain('교보119 코스닥 · 11일');
+    expect(kpiNextOf(container, 'KYOBO119', 'Q')).toBe(`${M}526µs`);
+    expect(within(panelOf(container, 'KYOBO119', 'K')).getByRole('heading', { name: '교보119 코스피' })).toBeInTheDocument();
+  });
+
+  it('KYOBO112 → 패널 2개 「이 범위에 발사 없음」 · 요약 「교보112 코스닥 · 0일」 · 범위 글은 응답 전체 그대로', () => {
+    const { container } = view({ gw: 'KYOBO112' });
+    const ps = slots(container, 'launch-panel');
+    expect(ps.map((p) => `${p.dataset.gateway}|${p.dataset.market}`)).toEqual(['KYOBO112|Q', 'KYOBO112|K']);
+    for (const p of ps) {
+      expect(p.textContent).toContain('이 범위에 발사 없음');
+      expect(p.querySelectorAll('svg')).toHaveLength(0);
+    }
+    expect(slots(container, 'launch-kpi').map((k) => k.dataset.gateway)).toEqual(['KYOBO112', 'KYOBO112']);
+    expect(slots(container, 'launch-kpi')[0]!.textContent).toContain('교보112 코스닥 · 0일');
+    expect(one(container, '[data-slot="launch-range-text"]').textContent).toBe('10/12 ~ 10/26 · 11거래일');
+  });
+
+  it('범례 「구분 없음(백필)」 은 고른 서버 조각만 본다', () => {
+    const resp = n0930('buy');
+    const mixed: LaunchMapResponse = {
+      ...resp,
+      pieces: resp.pieces.map((p) => (p.gateway === 'KYOBO119' ? { ...p, side: null } : p)),
+    };
+    const kb = view({ resp: mixed, fire: 'n0930', range: '10d' });
+    expect(one(kb.container, '[data-slot="launch-legend"]').textContent).not.toContain('구분 없음(백필)');
+    kb.unmount();
+    const ky = view({ resp: mixed, gw: 'KYOBO119', fire: 'n0930', range: '10d' });
+    expect(one(ky.container, '[data-slot="launch-legend"]').textContent).toContain('구분 없음(백필)');
+  });
+});
+
 describe('LaunchMapView — 09:00:30 합패널', () => {
   it('범례 「마름모 = A 매도 · 동그라미 = N 매수」 · 패널 안 마름모 1 · side 가 다 있으면 「구분 없음(백필)」 없음', () => {
     // N wire 0 과 A 매도 wire 0 이 한 행에 있다 — React 키가 겹치면 안 된다.
@@ -253,19 +308,21 @@ describe('LaunchMapView — 09:00:30 합패널', () => {
     expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('구분 없음(백필)');
   });
 
-  it('다음 첫 조각 = 최신 N 머리 값(KB 코스닥 −245 · 교보 코스닥 −200) · 머리 없는 조합 「—」', () => {
-    const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d' });
-    const next = (g: string, m: string) =>
-      one(container, `[data-slot="launch-kpi"][data-gateway="${g}"][data-market="${m}"] [data-kpi="next"]`).textContent;
-    expect(next('KB120', 'Q')).toBe(`${M}245µs`);
-    expect(next('KYOBO119', 'Q')).toBe(`${M}200µs`);
-    expect(next('KB120', 'K')).toBe('—');
+  it('다음 첫 조각 = 최신 N 머리 값(KB120 코스닥 −245 · 교보119 코스닥 −200) · 머리 없는 조합 「—」', () => {
+    const next = (c: HTMLElement, g: string, m: string) =>
+      one(c, `[data-slot="launch-kpi"][data-gateway="${g}"][data-market="${m}"] [data-kpi="next"]`).textContent;
+    const kb = view({ resp: n0930(), fire: 'n0930', range: '10d' });
+    expect(next(kb.container, 'KB120', 'Q')).toBe(`${M}245µs`);
+    expect(next(kb.container, 'KB120', 'K')).toBe('—');
+    kb.unmount();
+    const ky = view({ resp: n0930(), gw: 'KYOBO119', fire: 'n0930', range: '10d' });
+    expect(next(ky.container, 'KYOBO119', 'Q')).toBe(`${M}200µs`);
   });
 
   it('조각 0 인 조합은 패널 머리 + 「이 범위에 발사 없음」', () => {
     const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d' });
     const kbk = one(container, '[data-slot="launch-panel"][data-gateway="KB120"][data-market="K"]');
-    expect(kbk.textContent).toContain('KB 코스피');
+    expect(kbk.textContent).toContain('KB120 코스피');
     expect(kbk.textContent).toContain('이 범위에 발사 없음');
     expect(kbk.querySelectorAll('svg')).toHaveLength(0);
   });
@@ -346,36 +403,41 @@ describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
     expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사 계획(조각마다 점선)');
   });
 
-  it('plan error → 4패널 모두 「서버 연결 안 됨 · 마지막 발사 값 …」(머리 값) · 점선 각 1개', () => {
-    const { container } = view({ plan: { kind: 'error' } });
+  it('plan error → 각 서버 두 패널 모두 「서버 연결 안 됨 · 마지막 발사 값 …」(머리 값) · 점선 각 1개', () => {
     const want: Record<string, number> = { 'KB120|Q': -337, 'KB120|K': -285, 'KYOBO119|Q': -526, 'KYOBO119|K': -400 };
-    for (const [key, us] of Object.entries(want)) {
-      const [g, m] = key.split('|') as [string, string];
-      const p = panelOf(container, g, m);
-      expect(one(p, '[data-slot="launch-plan-line"]').textContent).toBe(
-        `서버 연결 안 됨 · 마지막 발사 값 ${M}${Math.abs(us)}µs`,
-      );
-      expect(slots(p, 'launch-next')).toHaveLength(1);
+    for (const gw of ['KB120', 'KYOBO119'] as const) {
+      const { container, unmount } = view({ gw, plan: { kind: 'error' } });
+      for (const [key, us] of Object.entries(want).filter(([k]) => k.startsWith(`${gw}|`))) {
+        const [g, m] = key.split('|') as [string, string];
+        const p = panelOf(container, g, m);
+        expect(one(p, '[data-slot="launch-plan-line"]').textContent).toBe(
+          `서버 연결 안 됨 · 마지막 발사 값 ${M}${Math.abs(us)}µs`,
+        );
+        expect(slots(p, 'launch-next')).toHaveLength(1);
+      }
+      expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사의 첫 조각');
+      unmount();
     }
-    expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사의 첫 조각');
   });
 
-  it('plan ready 인데 KYOBO119 failed → 교보 두 패널만 대신 값 · KB 두 패널은 서버 값', () => {
-    const { container } = view({
-      plan: { kind: 'ready', resp: planResp({ KYOBO119: { status: 'failed', code: 1, message: '거부' } }) },
-    });
+  it('plan ready 인데 KYOBO119 failed → 교보119 두 패널만 대신 값 · KB120 두 패널은 서버 값', () => {
+    const plan = { kind: 'ready', resp: planResp({ KYOBO119: { status: 'failed', code: 1, message: '거부' } }) } as const;
+    const kb = view({ plan });
+    const container = kb.container;
     expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
       `3조각 ${M}350 · ${M}345 · ${M}325µs`,
     );
     expect(one(panelOf(container, 'KB120', 'K'), '[data-slot="launch-plan-line"]').textContent).toBe(
       `3조각 ${M}340 · ${M}335 · ${M}320µs`,
     );
+    kb.unmount();
+    const ky = view({ gw: 'KYOBO119', plan });
     for (const m of ['Q', 'K']) {
-      const line = one(panelOf(container, 'KYOBO119', m), '[data-slot="launch-plan-line"]');
+      const line = one(panelOf(ky.container, 'KYOBO119', m), '[data-slot="launch-plan-line"]');
       expect(line.textContent).toContain('서버 연결 안 됨 · 마지막 발사 값');
       expect(line.dataset.tone).toBe('warn');
     }
-    expect(kpiNextOf(container, 'KYOBO119', 'Q')).toBe(`${M}526µs`);
+    expect(kpiNextOf(ky.container, 'KYOBO119', 'Q')).toBe(`${M}526µs`);
   });
 
   it('n0930 + ready → KB 코스닥 줄 「−245µs」 · 점선 1개(축 밖이면 「▸ 다음」 글) · 범례 「다음 발사 계획(시각)」', () => {
@@ -469,10 +531,15 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     vi.mocked(saveLaunchPlan).mockReset();
   });
 
-  /** 지도 탭을 띄우고 KB 코스닥 편집 칸을 열어 2번을 −340 으로 바꾼 뒤 「저장」. */
+  /** 서버 칩 전환 대역 — `saveKbq` 가 띄운 탭을 그 gw 로 다시 그린다(LaunchClient 가 ?gw 를 바꾼 것과 같다). */
+  let switchGw: (gw: LaunchServer) => void = () => {};
+
+  /** 지도 탭(gw KB120)을 띄우고 KB120 코스닥 편집 칸을 열어 2번을 −340 으로 바꾼 뒤 「저장」. */
   async function saveKbq(): Promise<HTMLElement> {
     vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
-    const { container } = render(<LaunchMapTab fire="q16" range="all" onFire={vi.fn()} onRange={vi.fn()} />);
+    const tab = (gw: LaunchServer) => <LaunchMapTab gw={gw} fire="q16" range="all" onFire={vi.fn()} onRange={vi.fn()} />;
+    const { container, rerender } = render(tab('KB120'));
+    switchGw = (gw) => rerender(tab(gw));
     await waitFor(() =>
       expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
         `3조각 ${M}350 · ${M}345 · ${M}325µs`,
@@ -621,6 +688,8 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`);
     expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toMatch(/^저장됨 · /);
     expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
+    // 다른 서버(교보119) 계획은 교보119 칩에서 그대로
+    switchGw('KYOBO119');
     expect(one(panelOf(container, 'KYOBO119', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
       `3조각 ${M}530 · ${M}520 · ${M}500µs`,
     );
@@ -648,7 +717,8 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2); // 다시 읽기 R 이 나갔다(아직 응답 없음)
 
-    // R 이 비행 중에 교보 코스닥을 저장 — 응답이 먼저 온다.
+    // R 이 비행 중에 교보119 칩으로 바꿔 교보119 코스닥을 저장 — 응답이 먼저 온다.
+    switchGw('KYOBO119');
     const kyq = () => panelOf(container, 'KYOBO119', 'Q');
     fireEvent.click(one(kyq(), '[data-slot="launch-plan-edit-toggle"]'));
     fireEvent.change(within(kyq()).getByLabelText('2번 조각 시각(µs)'), { target: { value: '-515' } });
@@ -659,12 +729,18 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
 
     // R 이 늦게 도착 — KB120 은 새 값, KYOBO119 는 교보 저장 이전 값.
     releaseReload({ kind: 'ready', resp: planResp({ KB120: okServer([-340, -335, -320], NEW_Q, -245) }) });
+    switchGw('KB120');
     await waitFor(() =>
       expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
         `3조각 ${M}350 · ${M}340 · ${M}325µs`,
       ),
     );
+    // 교보119 로 돌아오면 교보 저장 값 그대로(늦은 R 이 되돌리지 않음) — 다시 연 편집 칸 기준도 그 값이라 저장 비활성.
+    switchGw('KYOBO119');
     expect(one(kyq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`);
+    expect(kyq().querySelector('[data-slot="launch-plan-save"]')).toBeNull(); // 서버 전환으로 편집 칸은 닫혀 있다
+    fireEvent.click(one(kyq(), '[data-slot="launch-plan-edit-toggle"]'));
+    expect((within(kyq()).getByLabelText('2번 조각 시각(µs)') as HTMLInputElement).value).toBe('-515');
     expect(one(kyq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
   });
@@ -803,18 +879,25 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
         KYOBO119: okServer([-410, -400, -380], [-530, -515, -500], -200),
       }),
     });
-    await waitFor(() => expect(planLine(kyq())).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`));
+    await new Promise((r) => setTimeout(r, 0));
     expect(planLine(kbq())).toBe(`3조각 ${M}350 · ${M}345 · ${M}325µs`); // 저장 전 값 그대로 — R1 의 KB120 값은 버렸다
     expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(PENDING); // R1 결과는 저장 1 몫 — 버린다
 
-    // R2 — 이 저장의 이력 행이 보인다 → 반영 · 확인.
-    releaseSecond({ kind: 'ready', resp: { ...reloaded(), changes: [savedRow()] } });
+    // R2 — 이 저장의 이력 행이 보인다 → 반영 · 확인. (KYOBO119 는 R2 에서 offline — R1 이 반영한 값이 남는지 아래에서 본다)
+    const r2 = reloaded();
+    releaseSecond({
+      kind: 'ready',
+      resp: { ...r2, servers: { ...r2.servers, KYOBO119: { status: 'offline' } }, changes: [savedRow()] },
+    });
     await waitFor(() =>
       expect(one(kbq(), '[data-slot="launch-plan-result-line"]').textContent).toBe(
         'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
       ),
     );
     expect(planLine(kbq())).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`);
+    // R1 의 KYOBO119 새 값(이 탭이 바꾼 적 없는 서버)은 반영됐다 — 교보119 칩에서 확인.
+    switchGw('KYOBO119');
+    expect(planLine(kyq())).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`);
   });
 
   it('failed · plan null → 다시 읽지 않는다(거부 = 바뀐 것 없음)', async () => {
@@ -831,5 +914,58 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
       ),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-iep — 서버 전환(클라이언트 필터 · 편집 칸 닫힘)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchMapTab — 서버 전환(quick-261107-iep)', () => {
+  afterEach(() => {
+    vi.mocked(fetchLaunchMap).mockReset();
+    vi.mocked(fetchLaunchPlan).mockReset();
+    vi.mocked(saveLaunchPlan).mockReset();
+  });
+
+  const tab = (gw: LaunchServer) => <LaunchMapTab gw={gw} fire="q16" range="all" onFire={vi.fn()} onRange={vi.fn()} />;
+
+  async function mount() {
+    vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+    const r = render(tab('KB120'));
+    await waitFor(() =>
+      expect(one(panelOf(r.container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+        `3조각 ${M}350 · ${M}345 · ${M}325µs`,
+      ),
+    );
+    return r;
+  }
+
+  it('gw 를 바꿔 다시 그려도 지도 · 계획 재요청 0 · 패널은 그 서버 2개', async () => {
+    const { container, rerender } = await mount();
+    expect(fetchLaunchMap).toHaveBeenCalledTimes(1);
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+    for (const gw of ['KYOBO119', 'KYOBO112', 'KB120'] as const) {
+      rerender(tab(gw));
+      expect(slots(container, 'launch-panel').map((p) => p.dataset.gateway)).toEqual([gw, gw]);
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchLaunchMap).toHaveBeenCalledTimes(1);
+    expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('KB120 코스닥 편집 칸을 연 채 교보119 로 → 편집 칸 없음 → 다시 KB120 → 여전히 닫힘', async () => {
+    const { container, rerender } = await mount();
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    fireEvent.click(one(kbq(), '[data-slot="launch-plan-edit-toggle"]'));
+    expect(kbq().querySelector('[data-slot="launch-plan-save"]')).not.toBeNull();
+
+    rerender(tab('KYOBO119'));
+    expect(container.querySelector('[data-slot="launch-plan-save"]')).toBeNull();
+
+    rerender(tab('KB120'));
+    expect(container.querySelector('[data-slot="launch-plan-save"]')).toBeNull();
+    expect(kbq().querySelector('[data-slot="launch-plan-edit-toggle"]')).not.toBeNull();
   });
 });

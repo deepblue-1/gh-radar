@@ -9,7 +9,14 @@
  * - 쓰는 쪽 = server(요청자 이메일 · relay 도달 실패 시도도 1행 · D-29). relay 는 이 경로에서 DB 무관.
  */
 import type { AdminOutcome, AdminServerResult } from "./admin";
-import { launchRibbonAt, type LaunchDay, type LaunchFire, type LaunchMarket, type LaunchRibbonCell } from "./launch";
+import {
+  LAUNCH_SERVERS,
+  launchRibbonAt,
+  type LaunchDay,
+  type LaunchFire,
+  type LaunchMarket,
+  type LaunchRibbonCell,
+} from "./launch";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 축 — 프로파일 · 대상 서버
@@ -19,9 +26,11 @@ import { launchRibbonAt, type LaunchDay, type LaunchFire, type LaunchMarket, typ
 export type LaunchPlanProfile = "Q16" | "N";
 
 /**
- * 계획 대상 서버 — `LAUNCH_ORDER` 의 서버 키 순서 그대로. KB121 · KYOBO127 은 대상이 아니다(gh-trade 43 D-02).
+ * 계획 대상 서버 = 발사 서버 한 벌(`LAUNCH_SERVERS` — KB120 · KYOBO119 · KYOBO112 · quick-261107-iep). 목록을 다시 적지 않는다.
+ * - KB121 은 대상이 아니다(gh-trade 43 D-02 · 꺼진 서버).
+ * - KYOBO112 는 119 사본 같은 빌드라 44/94 를 받는다 — 못 받으면 relay 결과 failed 경로로 보인다.
  */
-export const LAUNCH_PLAN_GATEWAYS = ["KB120", "KYOBO119"] as const;
+export const LAUNCH_PLAN_GATEWAYS = LAUNCH_SERVERS;
 export type LaunchPlanGateway = (typeof LAUNCH_PLAN_GATEWAYS)[number];
 
 /** 지도 발사 기준 → 계획 프로파일. */

@@ -17,6 +17,7 @@ import {
   type LaunchPanelStats,
   type LaunchPlanResponse,
   type LaunchRange,
+  type LaunchServer,
 } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
@@ -56,8 +57,12 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *
  * - `LaunchMapTab` = 받기 · 상태(주문 내역 탭과 같은 alive effect 꼴). `fire` 또는 `range` 가 바뀔 때만 요청 1건 —
  *   칩 하나 · 세그먼트 하나 = 요청 1건(server 가 발사 기준 × 범위를 RPC 1회로 거른다).
- * - `LaunchMapView` = 순수 렌더. 컨트롤 줄(프리셋 칩 · 실제 범위 글 · 발사 기준 세그먼트) → 범례 → 요약 카드 4장 →
- *   서버 × 시장 4패널(LAUNCH_ORDER 순 `LaunchGateChart`) → 푸터 한 줄.
+ * - `LaunchMapView` = 순수 렌더. 컨트롤 줄(프리셋 칩 · 실제 범위 글 · 발사 기준 세그먼트) → 범례 → 요약 카드 2장 →
+ *   고른 서버(`gw`)의 시장 2패널(코스닥 → 코스피 · LAUNCH_ORDER 순 `LaunchGateChart`) → 푸터 한 줄.
+ * - 서버(`gw` · quick-261107-iep)는 제목 아래 서버 칩이 고르고 **클라이언트 필터**다 — 지도 · 계획 effect deps 에 넣지 않는다
+ *   (서버 전환에 지도 · 계획 재요청 없음). 범위 글 · 「적재 이력 없음」 은 응답 전체 기준 그대로(기존 기록 보존 — 범위를 서버별로
+ *   좁히지 않는다). 범례 표식(방향 없음 · 뒤탐침)은 고른 서버 조각만 보고 정한다(안 그린 표식을 범례가 말하지 않게).
+ *   서버를 바꾸면 열린 편집 칸이 닫힌다(발사 세그먼트 규칙과 같게 — 돌아와도 다시 열리지 않는다).
  * - 범위는 프리셋 칩만이다(시작 · 끝 날짜 입력 없음 — D-15 · CONTEXT Deferred). 범위 글은 응답 days 기준(실제 덮은 날).
  * - 다음 발사 계획(범위 7 · D-24 · D-25): 탭 진입 때 `GET /api/admin/launch/plan` 을 지도 요청과 병렬로 **한 번** 부른다
  *   (발사 세그먼트 · 범위 칩을 바꿔도 다시 부르지 않는다). 서버 계획이 ok 면 조각마다 점선 + 패널 「다음 발사 계획」 줄,
@@ -77,11 +82,14 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   전 값일 수 있어요」(35 R3-IN-01 — server 가 아직 PUT 을 처리 중이면 조회가 저장보다 먼저 닿을 수 있다).
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
+ * - 요약 카드는 고른 서버 2장이라 폭과 무관하게 한 줄 2열이다.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
  */
 
 export interface LaunchMapTabProps {
+  /** 고른 발사 서버(`?gw`). */
+  gw: LaunchServer;
   fire: LaunchFire;
   range: LaunchRange;
   onFire: (f: LaunchFire) => void;
@@ -90,7 +98,7 @@ export interface LaunchMapTabProps {
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; resp: LaunchMapResponse };
 
-export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps) {
+export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [plan, setPlan] = useState<LaunchPlanState>({ kind: 'loading' });
@@ -100,7 +108,18 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
   // id = 저장 1건 — 다시 읽기 결과(R3-WR-01)는 그 저장의 결과에만 붙인다(그 사이 같은 칸을 다시 저장했으면 버린다).
   const [lastSave, setLastSave] = useState<{ key: string; id: number; save: LaunchPlanSaveState } | null>(null);
   const saveSeq = useRef(0);
-  const editing = edit !== null && edit.fire === fire ? edit : null;
+  // 편집 칸은 지금 발사 기준 · 지금 서버의 것만 열려 있다(렌더 즉시 닫힘 — 아래 effect 가 상태도 비운다).
+  const editing = edit !== null && edit.fire === fire && edit.gateway === gw ? edit : null;
+
+  // 서버를 바꾸면 편집 칸 · 결과 줄을 비운다(quick-261107-iep) — 다시 그 서버로 돌아와도 닫힌 채. 저장 비행 중이어도
+  // 계획 상태(서버별 키)는 저장 핸들러가 그대로 반영한다.
+  const prevGw = useRef(gw);
+  useEffect(() => {
+    if (prevGw.current === gw) return;
+    prevGw.current = gw;
+    setEdit(null);
+    setLastSave(null);
+  }, [gw]);
 
   // 계획은 탭 진입 1회 — fire · range 와 무관(D-25). 404 → absent(배포 전) · 그 밖 실패 → error(대신 값).
   useEffect(() => {
@@ -266,6 +285,7 @@ export function LaunchMapTab({ fire, range, onFire, onRange }: LaunchMapTabProps
     <LaunchMapView
       status={phase.kind}
       resp={phase.kind === 'ready' ? phase.resp : null}
+      gw={gw}
       fire={fire}
       range={range}
       plan={plan}
@@ -300,6 +320,8 @@ export interface LaunchEditTarget {
 
 export interface LaunchMapViewProps {
   resp: LaunchMapResponse | null;
+  /** 고른 발사 서버 — 요약 카드 · 패널이 이 서버의 2개. */
+  gw: LaunchServer;
   fire: LaunchFire;
   range: LaunchRange;
   onFire: (f: LaunchFire) => void;
@@ -341,12 +363,12 @@ interface MapPanel {
 }
 
 /**
- * 응답 → LAUNCH_ORDER 순 4패널. 조각은 (서버, 시장)과 발사 거래소로 거른다(응답이 이미 발사 기준으로 걸러져 온다).
- * 패널 계획(점선 · 줄 · 이력)은 `panelPlanOf` 한 벌.
+ * 응답 → 고른 서버의 2패널(LAUNCH_ORDER 순 — 코스닥 → 코스피). 조각은 (서버, 시장)과 발사 거래소로 거른다(응답이 이미 발사
+ * 기준으로 걸러져 온다). 패널 계획(점선 · 줄 · 이력)은 `panelPlanOf` 한 벌.
  */
-function panelsOf(resp: LaunchMapResponse, fire: LaunchFire, plan: LaunchPlanState): MapPanel[] {
+function panelsOf(resp: LaunchMapResponse, gw: LaunchServer, fire: LaunchFire, plan: LaunchPlanState): MapPanel[] {
   const exchange = LAUNCH_FIRES[fire].fire_exchange;
-  return LAUNCH_ORDER.map(([gateway, market]) => {
+  return LAUNCH_ORDER.filter(([gateway]) => gateway === gw).map(([gateway, market]) => {
     const days = launchDaysOf(
       resp.pieces.filter((p) => p.gateway === gateway && p.market === market && p.fire_exchange === exchange),
     );
@@ -362,6 +384,7 @@ function panelsOf(resp: LaunchMapResponse, fire: LaunchFire, plan: LaunchPlanSta
 
 export function LaunchMapView({
   resp,
+  gw,
   fire,
   range,
   onFire,
@@ -376,12 +399,13 @@ export function LaunchMapView({
   saving = false,
   lastSave = null,
 }: LaunchMapViewProps) {
-  const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, fire, plan)), [resp, fire, plan]);
+  const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, gw, fire, plan)), [resp, gw, fire, plan]);
   const rangeText = resp === null ? null : launchRangeOf(resp.days);
   const ready = status === 'ready' && resp !== null;
   const noHistory = ready && resp.days.length === 0;
-  const sideless = ready && fire === 'n0930' && resp.pieces.some((p) => p.side === null);
-  const tailProbed = ready && fire === 'q16' && resp.pieces.some(isLaunchTailProbe);
+  const mine = ready ? resp.pieces.filter((p) => p.gateway === gw) : [];
+  const sideless = ready && fire === 'n0930' && mine.some((p) => p.side === null);
+  const tailProbed = ready && fire === 'q16' && mine.some(isLaunchTailProbe);
 
   return (
     <div data-slot="launch-map" className="flex min-w-0 flex-col gap-3.5">
@@ -460,7 +484,7 @@ export function LaunchMapView({
               {LAUNCH_PLAN_APPLY_NOTE}
             </p>
           )}
-          <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
+          <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2">
             {panels.map((p) => (
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
             ))}
@@ -655,8 +679,8 @@ function KpiRow({ label, value, tone, slot }: { label: string; value: string; to
 function MapSkeleton() {
   return (
     <div data-slot="launch-loading" aria-busy="true" aria-label="불러오는 중" className="flex min-w-0 flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="grid grid-cols-2 gap-2">
+        {[0, 1].map((i) => (
           <div key={i} className={KPI_FACE}>
             <Skeleton className="h-3.5 w-24" />
             <Skeleton className="h-3.5 w-full" />

@@ -16,7 +16,7 @@ import {
  *   order-endpoints → 200 `{ servers: {} }` (30-03 — 전 서버 「확인 전」)
  *   account-costs   → 200 `{ servers: {} }` (36-04 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
- *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119 } }` 둘 다 ok 4칸(35-13 · `LAUNCH_PLAN_DEFAULT`)
+ *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119, KYOBO112 } }` 셋 다 ok 4칸(35-13 · quick-261107-iep · `LAUNCH_PLAN_DEFAULT`)
  *   PUT launch-plan/:server → 200 `{ result: { server, outcome: "ok" }, before_us: [-350,-345,-325], plan: 그 서버 기본 계획 }`
  */
 
@@ -50,6 +50,7 @@ const planOf = (n: number) => ({
 export const LAUNCH_PLAN_DEFAULT: Record<string, ReturnType<typeof planOf>> = {
   KB120: planOf(-245),
   KYOBO119: planOf(-200),
+  KYOBO112: planOf(-200),
 };
 
 function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {

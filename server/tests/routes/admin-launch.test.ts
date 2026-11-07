@@ -304,7 +304,7 @@ describe("GET /api/admin/launch/map — 경계 지도 (LAUNCH-05 · D-15 · D-20
 // Phase 35 범위 7 (35-13) — 발사 계획 라우트
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PLAN_READ_PATH = "/internal/admin/launch-plan?servers=KB120,KYOBO119";
+const PLAN_READ_PATH = "/internal/admin/launch-plan?servers=KB120,KYOBO119,KYOBO112";
 
 const kb120Plan: LaunchPlanServer = {
   status: "ok",
@@ -318,6 +318,8 @@ const kb120Plan: LaunchPlanServer = {
   ],
 };
 const kyoboFailed: LaunchPlanServer = { status: "failed", code: 1, message: "알 수 없는 명령입니다" };
+/** quick-261107-iep — 교보112(119 사본) 계획. */
+const kyobo112Plan: LaunchPlanServer = { ...kb120Plan, entries: kb120Plan.entries.map((e) => (e.profile === "N" ? { ...e, offsets_us: [-200] } : e)) };
 
 const changeRow: LaunchPlanChangeRow = {
   id: 7,
@@ -344,7 +346,7 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
   it("P35-S1 admin → relay 조회 ‖ 이력 RPC → { servers, changes } · relay 1회(GET · 경로 · 요청자) · RPC 1회 p_limit 20 · 역할 조회 1회", async () => {
     const relay = makeFakeRelay((c) =>
       c.method === "GET" && c.path.startsWith("/internal/admin/launch-plan")
-        ? { status: 200, data: { servers: { KB120: kb120Plan, KYOBO119: kyoboFailed } } }
+        ? { status: 200, data: { servers: { KB120: kb120Plan, KYOBO119: kyoboFailed, KYOBO112: kyobo112Plan } } }
         : undefined,
     );
     const { app, rec } = makeApp(
@@ -353,8 +355,11 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     );
     const res = await auth(request(app).get("/api/admin/launch/plan"));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ servers: { KB120: kb120Plan, KYOBO119: kyoboFailed }, changes: [changeRow] });
-    expect(Object.keys(res.body.servers)).toEqual(["KB120", "KYOBO119"]);
+    expect(res.body).toEqual({
+      servers: { KB120: kb120Plan, KYOBO119: kyoboFailed, KYOBO112: kyobo112Plan },
+      changes: [changeRow],
+    });
+    expect(Object.keys(res.body.servers)).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
     expect(relay.calls).toEqual([{ method: "GET", path: PLAN_READ_PATH, adminEmail: ADMIN_EMAIL }]);
     expect(rec.rpcCalls).toEqual([{ fn: "launch_plan_changes_for_admin", params: { p_limit: 20 } }]);
     expect(roleLookups(rec)).toBe(1);
@@ -374,7 +379,7 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     ["status 0(못 닿음)", { status: 0, data: null }, 0],
     ["502", { status: 502, data: { error: { code: "X", message: "y" } } }, 502],
     ["모양 위반 { servers: 'x' }", { status: 200, data: { servers: "x" } }, 200],
-  ])("P35-S3 relay %s → 200 · 두 서버 offline(message) · changes = RPC 값 · warn 1줄(status 만)", async (_l, r, status) => {
+  ])("P35-S3 relay %s → 200 · 세 서버 offline(message) · changes = RPC 값 · warn 1줄(status 만)", async (_l, r, status) => {
     const warn = vi.spyOn(logger, "warn");
     const relay = makeFakeRelay((c) => (c.path.startsWith("/internal/admin/launch-plan") ? r : undefined));
     const { app } = makeApp(
@@ -383,8 +388,8 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     );
     const res = await auth(request(app).get("/api/admin/launch/plan"));
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body.servers)).toEqual(["KB120", "KYOBO119"]);
-    for (const k of ["KB120", "KYOBO119"]) {
+    expect(Object.keys(res.body.servers)).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
+    for (const k of ["KB120", "KYOBO119", "KYOBO112"]) {
       expect(res.body.servers[k].status).toBe("offline");
       expect(typeof res.body.servers[k].message).toBe("string");
     }
@@ -394,19 +399,20 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     expect(w[0]![0]).toEqual({ relay: { op: "launch-plan-get", status } });
   });
 
-  it("P35-S3 relayAdmin 미설정 → 200 · 두 서버 offline 「relay 연결이 설정되지 않았어요」 · RPC 는 그대로", async () => {
+  it("P35-S3 relayAdmin 미설정 → 200 · 세 서버 offline 「relay 연결이 설정되지 않았어요」 · RPC 는 그대로", async () => {
     const { app, rec } = makeApp({ launch_plan_changes_for_admin: () => ({ data: { changes: [changeRow] }, error: null }) });
     const res = await auth(request(app).get("/api/admin/launch/plan"));
     expect(res.status).toBe(200);
     expect(res.body.servers).toEqual({
       KB120: { status: "offline", message: "relay 연결이 설정되지 않았어요" },
       KYOBO119: { status: "offline", message: "relay 연결이 설정되지 않았어요" },
+      KYOBO112: { status: "offline", message: "relay 연결이 설정되지 않았어요" },
     });
     expect(res.body.changes).toEqual([changeRow]);
     expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["launch_plan_changes_for_admin"]);
   });
 
-  it("P35-S3 relay 가 KYOBO119 를 빠뜨림 · 상태 어휘 밖 값 → 그 서버만 offline", async () => {
+  it("P35-S3 relay 가 KYOBO119 · KYOBO112 를 빠뜨림 · 상태 어휘 밖 값 → 그 서버만 offline", async () => {
     const warn = vi.spyOn(logger, "warn");
     const relay = makeFakeRelay((c) =>
       c.path.startsWith("/internal/admin/launch-plan") ? { status: 200, data: { servers: { KB120: kb120Plan } } } : undefined,
@@ -416,17 +422,33 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     expect(res.status).toBe(200);
     expect(res.body.servers.KB120).toEqual(kb120Plan);
     expect(res.body.servers.KYOBO119.status).toBe("offline");
+    expect(res.body.servers.KYOBO112.status).toBe("offline");
     expect(planWarns(warn)).toHaveLength(1);
+    expect(planWarns(warn)[0]![0]).toEqual({ relay: { op: "launch-plan-get", status: 200, offline: ["KYOBO119", "KYOBO112"] } });
+
+    // relay 가 KYOBO112 만 빠뜨림(옛 relay 응답 · 112 미도달) → 112 만 offline
+    const relay1 = makeFakeRelay((c) =>
+      c.path.startsWith("/internal/admin/launch-plan")
+        ? { status: 200, data: { servers: { KB120: kb120Plan, KYOBO119: kyoboFailed } } }
+        : undefined,
+    );
+    const res1 = await auth(request(makeApp({}, relay1.client).app).get("/api/admin/launch/plan"));
+    expect(res1.status).toBe(200);
+    expect(res1.body.servers.KB120).toEqual(kb120Plan);
+    expect(res1.body.servers.KYOBO119).toEqual(kyoboFailed);
+    expect(res1.body.servers.KYOBO112.status).toBe("offline");
+    expect(planWarns(warn)[1]![0]).toEqual({ relay: { op: "launch-plan-get", status: 200, offline: ["KYOBO112"] } });
 
     const relay2 = makeFakeRelay((c) =>
       c.path.startsWith("/internal/admin/launch-plan")
-        ? { status: 200, data: { servers: { KB120: { status: "ok", entries: "x" }, KYOBO119: { status: "weird" } } } }
+        ? { status: 200, data: { servers: { KB120: { status: "ok", entries: "x" }, KYOBO119: { status: "weird" }, KYOBO112: kyobo112Plan } } }
         : undefined,
     );
     const res2 = await auth(request(makeApp({}, relay2.client).app).get("/api/admin/launch/plan"));
     expect(res2.status).toBe(200);
     expect(res2.body.servers.KB120.status).toBe("offline");
     expect(res2.body.servers.KYOBO119.status).toBe("offline");
+    expect(res2.body.servers.KYOBO112).toEqual(kyobo112Plan);
   });
 
   it("P35-S4 이력 RPC 오류 → 500 DB_ERROR(원문 비노출) / { changes: null } → 500", async () => {
@@ -539,6 +561,27 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
     expect(recordCalls(rec)).toHaveLength(1);
     expect(recordCalls(rec)[0]!.params).toMatchObject({
       p: { gateway: "KYOBO119", fire: "n0930", market: "K", after_us: [-200], outcome: "ok", plan_rev: 3 },
+    });
+  });
+
+  it("quick-261107-iep 교보112 PUT → relay 경로 KYOBO112 · result.server KYOBO112 · 이력 gateway KYOBO112 (가짜 기본 PUT 응답)", async () => {
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/launch/plan/KYOBO112/q16/Q")).send({ offsets_us: [-350, -345, -320] });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/launch-plan/KYOBO112",
+        adminEmail: ADMIN_EMAIL,
+        body: { profile: "Q16", market: "Q", offsets_us: [-350, -345, -320] },
+      },
+    ]);
+    expect(res.body.result).toEqual({ server: "KYOBO112", outcome: "ok" });
+    expect(res.body.plan.status).toBe("ok");
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { gateway: "KYOBO112", fire: "q16", market: "Q", after_us: [-350, -345, -320], outcome: "ok" },
     });
   });
 

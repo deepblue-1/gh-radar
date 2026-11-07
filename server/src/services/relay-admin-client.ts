@@ -241,7 +241,7 @@ export type RelayAdminClient = {
     adminEmail: string,
   ): Promise<RelayAdminResponse<RelayQuotePrimaryResult>>;
   /**
-   * 발사 계획 조회(35-13 · 35-17 relay 계약) — `GET /internal/admin/launch-plan?servers=KB120,KYOBO119`.
+   * 발사 계획 조회(35-13 · 35-17 relay 계약) — `GET /internal/admin/launch-plan?servers=KB120,KYOBO119,KYOBO112`.
    * relay 가 서버마다 op 9 → 94 스냅샷을 파스해 `{ servers: { [key]: LaunchPlanServer } }` 로 준다(서버별 실패는 그 서버 status).
    * 상한 `RELAY_LAUNCH_PLAN_READ_TIMEOUT_MS`.
    */

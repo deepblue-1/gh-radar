@@ -16,7 +16,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(nav.query),
 }));
 vi.mock('../launch-map-tab', () => ({
-  LaunchMapTab: ({ fire, gw }: { fire: string; gw?: string }) => <div data-slot="map" data-fire={fire} data-gw={gw} />,
+  LaunchMapTab: ({ fire, gw }: { fire: string; gw: string }) => <div data-slot="map" data-fire={fire} data-gw={gw} />,
 }));
 vi.mock('../launch-orders-tab', () => ({
   LaunchOrdersTab: ({ fire, gw }: { fire: string; gw: string }) => <div data-slot="orders" data-fire={fire} data-gw={gw} />,
@@ -72,6 +72,13 @@ describe('LaunchClient — 쿼리 정본화', () => {
     expect(container.querySelector('[data-slot="orders"]')?.getAttribute('data-gw')).toBe('KB120');
     expect(nav.replace).toHaveBeenCalledTimes(1);
     expect(nav.replace).toHaveBeenCalledWith('/admin/launch?tab=orders&d=20261026&fire=n0930');
+  });
+
+  it('?tab=map&gw=KYOBO112 → 지도 탭 gw = KYOBO112 · replace 없음', () => {
+    nav.query = 'tab=map&gw=KYOBO112';
+    const { container } = render(<LaunchClient />);
+    expect(container.querySelector('[data-slot="map"]')?.getAttribute('data-gw')).toBe('KYOBO112');
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('잘못된 fire · gw 가 함께면 한 번에 둘 다 지운다', () => {

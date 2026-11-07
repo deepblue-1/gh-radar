@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { LAUNCH_ORDER, launchDaysOf, launchRibbonAt, type LaunchCalcPiece } from "../launch";
+import { LAUNCH_ORDER, LAUNCH_SERVERS, launchDaysOf, launchRibbonAt, type LaunchCalcPiece } from "../launch";
 import {
   LAUNCH_PLAN_CHANGE_COLUMNS,
   LAUNCH_PLAN_GATEWAYS,
@@ -76,8 +76,9 @@ describe("launch-plan 계약", () => {
     expect(launchPlanProfileOf("n0930")).toBe("N");
   });
 
-  it("LAUNCH_PLAN_GATEWAYS = LAUNCH_ORDER 의 서버 키 순서 그대로(KB120 · KYOBO119)", () => {
-    expect([...LAUNCH_PLAN_GATEWAYS]).toEqual(["KB120", "KYOBO119"]);
+  it("LAUNCH_PLAN_GATEWAYS = 발사 서버 한 벌(KB120 · KYOBO119 · KYOBO112) = LAUNCH_ORDER 서버 키 중복 제거", () => {
+    expect([...LAUNCH_PLAN_GATEWAYS]).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
+    expect([...LAUNCH_PLAN_GATEWAYS]).toEqual([...LAUNCH_SERVERS]);
     expect([...LAUNCH_PLAN_GATEWAYS]).toEqual([...new Set(LAUNCH_ORDER.map(([g]) => g))]);
   });
 });

@@ -27,7 +27,8 @@ export type LaunchMapQueryT = z.infer<typeof LaunchMapQuery>;
  * - **구조만 본다** — gateway ∈ `LAUNCH_PLAN_GATEWAYS` · fire ∈ q16|n0930 · market ∈ K|Q · offsets_us 는 int32 정수 1~64칸 · 추가 키 거부.
  * - 순서 · 범위(D-34)는 웹 편집 칸(D-26 · shared `validateLaunchPlanDraft`)과 gh-trade 서버(code 1 문구)가 말한다 — server 가 막으면
  *   서버 거부 문구 경로가 죽는다.
- * - KB121 · KYOBO127 은 계획 대상이 아니다(gh-trade 43 D-02) — `ServerKeySchema` 대신 enum 으로 좁힌다.
+ * - KB121 은 계획 대상이 아니다(gh-trade 43 D-02) — 대상 = shared 발사 서버 한 벌(KB120 · KYOBO119 · KYOBO112 ·
+ *   quick-261107-iep). `ServerKeySchema` 대신 enum 으로 좁힌다.
  */
 export const LaunchPlanParams = z.object({
   gateway: z.enum(LAUNCH_PLAN_GATEWAYS),
