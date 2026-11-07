@@ -5,6 +5,7 @@
  *
  * ① 숫자 표기 — 음수 부호는 U+2212(MINUS) · 천 단위 ko-KR · 양수는 「+」. null 은 전부 「—」.
  * ② 경계 폴백 · 패널 순서는 shared `launchDaysOf` · `LAUNCH_ORDER` 한 벌(경계 지도와 같은 규칙 — 두 번째 구현 금지).
+ *    라벨은 서버 라벨(「KB120 코스닥」 · 「교보119 코스피」 — shared `launchServerLabelOf` · quick-261107-iep).
  * ③ 카드 모델은 **머리 우선 · 조각 폴백**이다. 결과 수는 언제나 탭 조각에서 센다(표와 같은 수).
  * ④ 대기열 열(quick-261103-pei) = 목업 `.planning/sketches/027-launch-queue-position/index.html` 변형 A(`q16A` · `nA` 문구) —
  *    값은 DB 저장값(조각 `queue` · 밤 틱 변환이 계산)만 쓴다. 여기서 다시 계산하지 않는다(D-1 · D-3).
@@ -12,15 +13,17 @@
 
 import {
   LAUNCH_ORDER,
-  brokerOfServerKey,
+  LAUNCH_SERVERS,
   isLaunchAccept,
   isLaunchFireBaseOf,
   isLaunchReject,
   isLaunchTailProbe,
   launchDaysOf,
+  launchServerLabelOf,
   type LaunchFire,
   type LaunchHeadRow,
   type LaunchPieceRow,
+  type LaunchServer,
 } from '@gh-radar/shared';
 import { kstHm } from './teamflow-report';
 
@@ -95,10 +98,12 @@ export function fireLegLabelOf(p: FireKey): string {
 export const BROKER_LABEL = { KB: 'KB', KYOBO: '교보' } as const;
 const MARKET_LABEL: Readonly<Record<string, string>> = { K: '코스피', Q: '코스닥' };
 
-/** (서버 키, 시장) → 「KB 코스닥」 · 「교보 코스피」. 모르는 값은 원문 그대로. */
-export function brokerMarketLabelOf(gateway: string, market: string): string {
-  const broker = brokerOfServerKey(gateway);
-  return `${broker === null ? gateway : BROKER_LABEL[broker]} ${MARKET_LABEL[market] ?? market}`;
+/**
+ * (서버 키, 시장) → 서버 라벨 「KB120 코스닥」 · 「교보119 코스피」 · 「교보112 코스닥」(quick-261107-iep — 증권사 라벨
+ * 「KB 코스닥」 에서 바뀜). 서버 표시 이름은 shared `launchServerLabelOf` 한 벌. 모르는 서버 키 · 시장은 원문 그대로.
+ */
+export function serverMarketLabelOf(gateway: string, market: string): string {
+  return `${launchServerLabelOf(gateway)} ${MARKET_LABEL[market] ?? market}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +155,7 @@ export interface LaunchResultCounts {
 interface LaunchHeadCardBase {
   gateway: string;
   market: string;
-  /** 「KB 코스닥」 */
+  /** 「KB120 코스닥」(서버 라벨) */
   title: string;
   /**
    * 실조각 수 — 뒤탐침 제외(35 IN-02). 머리 `n_pieces` · 백필 `launchHeadOf` 와 같은 정의라 카드 「N조각」 이 머리와 어긋나지
@@ -251,7 +256,7 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
   const base = {
     gateway,
     market,
-    title: brokerMarketLabelOf(gateway, market),
+    title: serverMarketLabelOf(gateway, market),
     count: real.length,
     counts: countsOf(real),
     probes: pieces.length - real.length,
@@ -303,6 +308,14 @@ export function launchTabOf(raw: string | null | undefined): LaunchTab | null {
 /** `?fire=` 원문 → 'q16' | 'n0930' (그 밖 null). */
 export function launchFireParamOf(raw: string | null | undefined): LaunchFire | null {
   return raw === 'q16' || raw === 'n0930' ? raw : null;
+}
+
+/**
+ * `?gw=` 원문 → 발사 서버 키(shared `LAUNCH_SERVERS` 정확 일치 · 대소문자 구분). 그 밖(KB121 · 소문자 · 빈 값) null
+ * (quick-261107-iep).
+ */
+export function launchGatewayParamOf(raw: string | null | undefined): LaunchServer | null {
+  return (LAUNCH_SERVERS as readonly string[]).includes(raw ?? '') ? (raw as LaunchServer) : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

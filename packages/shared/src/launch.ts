@@ -23,6 +23,7 @@
  * - `account` · `dma_user_id` 는 어드민 전용 예외(D-02) — 원문 표의 감사 칸 규칙(T-19-08)과 다르다.
  * - quick-261103-pei — 주문 내역 RPC 가 `launch_piece_queue`(밤 틱 변환이 계산한 대기열 · 체결 순번)를 조각의 `queue` 로 싣는다.
  */
+import { brokerOfServerKey, type DmaBroker } from "./admin";
 import type { LimitupDate } from "./limitup-report";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,14 +47,38 @@ export const LAUNCH_FIRES = {
 } as const satisfies Record<LaunchFire, { fire_exchange: string; fire_base: string }>;
 
 /**
- * 패널 순서 (서버 키, 시장). 첨부 ORDER 와 같다: KB 코스닥 · KB 코스피 · 교보 코스닥 · 교보 코스피.
+ * 발사 서버 목록 한 벌(quick-261107-iep) — 어드민 발사 화면의 서버 칩 · 패널 순서 · 계획 대상(`LAUNCH_PLAN_GATEWAYS`)이
+ * 모두 이 줄을 따른다.
+ * - 순서 = 서버 레지스트리 순(`dma_servers.sort_order` — KB120 → KYOBO119 → KYOBO112).
+ * - KB121 은 꺼진 서버라 넣지 않는다.
+ * - KYOBO112 = gh-trade 2026-11-05 옛 127 기계를 10.16.207.112 로 운영 재투입한 교보 서버(119 사본 · launch 설정 동일).
+ * - 새 발사 서버 추가는 이 줄 한 칸이다. 레지스트리 API 로 동적으로 받지 않는다.
  */
-export const LAUNCH_ORDER = [
-  ["KB120", "Q"],
-  ["KB120", "K"],
-  ["KYOBO119", "Q"],
-  ["KYOBO119", "K"],
-] as const satisfies ReadonlyArray<readonly [string, LaunchMarket]>;
+export const LAUNCH_SERVERS = ["KB120", "KYOBO119", "KYOBO112"] as const;
+export type LaunchServer = (typeof LAUNCH_SERVERS)[number];
+
+/** 표시 이름의 증권사 접두 — KB 는 키 그대로, KYOBO 는 「교보」 + 번호. */
+const LAUNCH_BROKER_DISPLAY: Record<DmaBroker, string> = { KB: "KB", KYOBO: "교보" };
+
+/**
+ * 서버 키 → 표시 이름 — 「KB120」 · 「교보119」 · 「교보112」. 증권사 판정은 `brokerOfServerKey` 한 벌
+ * (서버 키 정규식을 두 벌 두지 않는다). 형식 밖 키는 원문 그대로.
+ */
+export function launchServerLabelOf(key: string): string {
+  const broker = brokerOfServerKey(key);
+  if (broker === null) return key;
+  return LAUNCH_BROKER_DISPLAY[broker] + key.slice(broker.length);
+}
+
+/**
+ * 패널 순서 (서버 키, 시장) = `LAUNCH_SERVERS` × (코스닥 Q → 코스피 K).
+ * - 앞 4쌍 = 첨부 ORDER 그대로(KB120 코스닥 · KB120 코스피 · KYOBO119 코스닥 · KYOBO119 코스피) — 기존 두 서버 순서 불변.
+ * - `ticks/launch-queue` `gatewayRank` 에서 KYOBO112 는 바뀌기 전에도 「모르는 게이트웨이 = rank 2」 였다 → 기존 서버 ·
+ *   112 모두 순열 · `order_est` 결과 불변(모르는 게이트웨이 둘이 동시에 올 때의 이름순 동률만 달라지는데 KB121 은 꺼져 있다).
+ */
+export const LAUNCH_ORDER: ReadonlyArray<readonly [LaunchServer, LaunchMarket]> = LAUNCH_SERVERS.flatMap(
+  (g) => [[g, "Q"], [g, "K"]] as const,
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 행 — 조각 · 머리 (DB 열 − created_at − updated_at)
@@ -63,7 +88,7 @@ export const LAUNCH_ORDER = [
 export interface LaunchPieceRow {
   /** 거래일 `"YYYYMMDD"` */
   trade_date: LimitupDate;
-  /** 서버 키 — KB120 · KYOBO119 */
+  /** 서버 키 — KB120 · KYOBO119 · KYOBO112 */
   gateway: string;
   /** Q16 · N · A (CHECK 없음 — 모르는 값도 그대로) */
   profile: string;

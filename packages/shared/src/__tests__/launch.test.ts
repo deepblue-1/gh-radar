@@ -25,6 +25,8 @@ import {
   LAUNCH_FIRES,
   LAUNCH_ORDER,
   LAUNCH_RANGE_DAYS,
+  LAUNCH_SERVERS,
+  launchServerLabelOf,
   type LaunchCalcPiece,
   type LaunchDayKind,
 } from "../launch";
@@ -51,6 +53,14 @@ const FIXTURE = fileURLToPath(new URL("../__fixtures__/launch-pieces-1012-1026.j
 const RAW = JSON.parse(readFileSync(FIXTURE, "utf8")) as AttachRow[];
 
 const GATEWAY: Record<string, string> = { KB: "KB120", 교보: "KYOBO119" };
+
+/** 첨부 ORDER(4패널) — 정답지(EXPECTED_DAYS · EXPECTED_PANELS · EXPECTED_RIBBON)의 키 순서. */
+const ATTACH_ORDER = [
+  ["KB120", "Q"],
+  ["KB120", "K"],
+  ["KYOBO119", "Q"],
+  ["KYOBO119", "K"],
+] as const;
 const MARKET: Record<string, string> = { 코스피: "K", 코스닥: "Q" };
 
 /** 테스트 어댑터 — broker/market 매핑 · rel → sent_rel_us · date → trade_date. */
@@ -81,13 +91,33 @@ describe("첨부 pieces.json 입력", () => {
     expect(count).toEqual({ 접수: 132, "101": 47, 기타: 17 });
   });
 
-  it("LAUNCH_ORDER = 첨부 ORDER(KB 코스닥 · KB 코스피 · 교보 코스닥 · 교보 코스피)", () => {
+  it("LAUNCH_SERVERS = 레지스트리 순(KB120 → KYOBO119 → KYOBO112)", () => {
+    expect([...LAUNCH_SERVERS]).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
+  });
+
+  it("LAUNCH_ORDER = LAUNCH_SERVERS × (Q, K) 6쌍 · 앞 4쌍 = 첨부 ORDER", () => {
     expect(LAUNCH_ORDER).toEqual([
       ["KB120", "Q"],
       ["KB120", "K"],
       ["KYOBO119", "Q"],
       ["KYOBO119", "K"],
+      ["KYOBO112", "Q"],
+      ["KYOBO112", "K"],
     ]);
+    expect(LAUNCH_ORDER.slice(0, 4)).toEqual(ATTACH_ORDER);
+  });
+});
+
+describe("launchServerLabelOf — 서버 표시 이름", () => {
+  it.each([
+    ["KB120", "KB120"],
+    ["KYOBO119", "교보119"],
+    ["KYOBO112", "교보112"],
+    ["KB121", "KB121"],
+    ["X1", "X1"],
+    ["", ""],
+  ])("%s → %s", (key, label) => {
+    expect(launchServerLabelOf(key)).toBe(label);
   });
 });
 
@@ -168,7 +198,7 @@ const EXPECTED_RIBBON: Record<string, { v: number; ok: number; bad: number; unkn
 };
 
 describe("launchDaysOf — 첨부 group() 이식", () => {
-  for (const [gateway, market] of LAUNCH_ORDER) {
+  for (const [gateway, market] of ATTACH_ORDER) {
     const key = `${gateway}|${market}`;
     it(`${key} — 날짜별 (date, 조각, lo, hi, first, 분류)가 정답지와 같다`, () => {
       expect(tuplesOf(panel(gateway, market))).toEqual(EXPECTED_DAYS[key]);
@@ -265,7 +295,7 @@ describe("launchHeadOf — 백필 머리(D-04)", () => {
 });
 
 describe("launchPanelStatsOf — 4패널 집계", () => {
-  for (const [gateway, market] of LAUNCH_ORDER) {
+  for (const [gateway, market] of ATTACH_ORDER) {
     const key = `${gateway}|${market}`;
     it(`${key} — 조각 ${EXPECTED_PANELS[key]!.pieces} · 집계가 정답지와 같다`, () => {
       const ps = panel(gateway, market);
@@ -288,7 +318,7 @@ describe("launchPanelStatsOf — 4패널 집계", () => {
 });
 
 describe("launchRibbonAt — 첨부 식(v ≥ hi → 접수 · 아니면 v ≤ lo → 거부 · 나머지 모름)", () => {
-  for (const [gateway, market] of LAUNCH_ORDER) {
+  for (const [gateway, market] of ATTACH_ORDER) {
     const key = `${gateway}|${market}`;
     const e = EXPECTED_RIBBON[key]!;
     it(`${key} v=${e.v} → 접수 ${e.ok} · 거부 ${e.bad} · 모름 ${e.unknown}`, () => {

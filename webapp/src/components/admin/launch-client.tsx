@@ -3,16 +3,17 @@
 import { useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import type { LaunchFire, LaunchRange, LimitupDate } from '@gh-radar/shared';
+import { LAUNCH_SERVERS, type LaunchFire, type LaunchRange, type LaunchServer, type LimitupDate } from '@gh-radar/shared';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { launchFireParamOf, launchTabOf, type LaunchTab } from '@/lib/launch-format';
+import { launchFireParamOf, launchGatewayParamOf, launchTabOf, type LaunchTab } from '@/lib/launch-format';
 import { launchRangeParamOf } from '@/lib/launch-map';
 import { fmtYmdShort, parseYmdParam } from '@/lib/limitup-report';
 
 import { LaunchMapTab } from './launch-map-tab';
 import { LaunchOrdersTab } from './launch-orders-tab';
+import { LaunchServerChips } from './launch-server-chips';
 
 /**
  * LaunchClient — `/admin/launch` 본문 (Phase 35 · D-11 · D-12 · 채택 목업 변형 A · 메뉴 1개 + 탭).
@@ -25,6 +26,9 @@ import { LaunchOrdersTab } from './launch-orders-tab';
  * - `fire` — q16(기본) · n0930. 그 밖 값은 `router.replace` 로 지운다. 두 탭 공용. 주문 내역은 전환해도 다시 받지 않고(한 응답에 두 발사가 다 있다),
  *   경계 지도는 발사 기준별 응답이라 전환마다 1건 받는다.
  * - `range` — 경계 지도 프리셋 10d(기본) · 20d · all. 잘못된 값은 `router.replace` 로 지운다. 칩 전환 = `router.replace`.
+ * - `gw` — 발사 서버 키(shared `LAUNCH_SERVERS` — KB120(기본) · KYOBO119 · KYOBO112 · quick-261107-iep). 두 탭 공용이고
+ *   제목 아래 · 탭 위 서버 칩(`LaunchServerChips`)이 고른다(칩 전환 = `router.replace`). 클라이언트 필터라 서버를 바꿔도
+ *   주문 내역 · 지도 · 계획을 다시 받지 않는다. 잘못된 값(KB121 · 소문자 · 빈 값)은 `router.replace` 로 지운다.
  * 갱신은 언제나 다른 키를 보존한 URLSearchParams 로 한다.
  */
 
@@ -56,6 +60,11 @@ export function LaunchClient() {
   const range: LaunchRange = parsedRange ?? '10d';
   const badRange = rawRange !== null && parsedRange === null;
 
+  const rawGw = searchParams.get('gw');
+  const parsedGw = launchGatewayParamOf(rawGw);
+  const gw: LaunchServer = parsedGw ?? LAUNCH_SERVERS[0];
+  const badGw = rawGw !== null && parsedGw === null;
+
   /** 현재 쿼리를 복제해 고친 주소 — 다른 키는 그대로. */
   const hrefWith = useCallback(
     (mutate: (p: URLSearchParams) => void): string => {
@@ -67,18 +76,19 @@ export function LaunchClient() {
     [searchParams],
   );
 
-  // 잘못된 tab · d · fire · range → 그 키만 지운다(정본화 — 공유 주소와 화면이 갈라지지 않게).
+  // 잘못된 tab · d · fire · range · gw → 그 키만 지운다(정본화 — 공유 주소와 화면이 갈라지지 않게).
   useEffect(() => {
-    if (!badTab && !badD && !badFire && !badRange) return;
+    if (!badTab && !badD && !badFire && !badRange && !badGw) return;
     router.replace(
       hrefWith((p) => {
         if (badTab) p.delete('tab');
         if (badD) p.delete('d');
         if (badFire) p.delete('fire');
         if (badRange) p.delete('range');
+        if (badGw) p.delete('gw');
       }),
     );
-  }, [badTab, badD, badFire, badRange, hrefWith, router]);
+  }, [badTab, badD, badFire, badRange, badGw, hrefWith, router]);
 
   useEffect(() => {
     document.title = d === null ? TITLE : `${TITLE} · ${fmtYmdShort(d)}`;
@@ -89,10 +99,12 @@ export function LaunchClient() {
   const onLatest = () => router.push(hrefWith((p) => p.delete('d')));
   const onFire = (f: LaunchFire) => router.replace(hrefWith((p) => p.set('fire', f)));
   const onRange = (r: LaunchRange) => router.replace(hrefWith((p) => p.set('range', r)));
+  const onGw = (g: LaunchServer) => router.replace(hrefWith((p) => p.set('gw', g)));
 
   return (
     <div data-slot="admin-launch" className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-4">
       <PageHeader title="발사" description="gh-trade 서버 발사 결과 · 머리 + 조각" />
+      <LaunchServerChips gw={gw} onGw={onGw} />
       <Tabs data-slot="launch-tabs" value={tab} onValueChange={onTab} className="min-w-0 gap-3.5">
         <TabsList variant="line" className="h-auto gap-4 border-b border-[var(--border-subtle)] p-0">
           <TabsTrigger value="orders" className="flex-none px-0.5 pb-2.5 text-[15px] font-semibold">
@@ -103,7 +115,7 @@ export function LaunchClient() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="orders" className="min-w-0">
-          <LaunchOrdersTab d={d} fire={fire} onGoDate={onGoDate} onFire={onFire} onLatest={onLatest} />
+          <LaunchOrdersTab gw={gw} d={d} fire={fire} onGoDate={onGoDate} onFire={onFire} onLatest={onLatest} />
         </TabsContent>
         <TabsContent value="map" className="min-w-0">
           <LaunchMapTab fire={fire} range={range} onFire={onFire} onRange={onRange} />

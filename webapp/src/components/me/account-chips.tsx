@@ -34,6 +34,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { accountChipLabelOf, accountShortLabelOf, type AccountLabelInput } from "@/lib/account-label";
+import { radioKeyTargetOf } from "@/lib/radio-keys";
 import { cn } from "@/lib/utils";
 
 /** 「줄인 칩」 에서 빠질 부분 — `compact` true 면 렌더하지 않고, null 이면 `wb` < 680 에서 CSS 로 숨긴다(⑤). */
@@ -98,12 +99,8 @@ export function MeAccountChips({
     const buttons = Array.from(rowRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0) return;
-    let to: number;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") to = (at + 1) % buttons.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") to = (at - 1 + buttons.length) % buttons.length;
-    else if (e.key === "Home") to = 0;
-    else if (e.key === "End") to = buttons.length - 1;
-    else return;
+    const to = radioKeyTargetOf(e.key, at, buttons.length);
+    if (to === null) return;
     e.preventDefault();
     const target = buttons[to];
     target?.focus();

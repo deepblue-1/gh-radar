@@ -7,7 +7,9 @@ import { launchPlanFixture, launchPlanSaveOk, mockLaunchApi } from '../fixtures/
  *
  * ① 무엇을 증명하는가
  *   진짜 middleware 가 e2e 계정(admin 시드)을 `/admin/launch` 로 통과시키고, 브라우저가 Express 경로
- *   (`/api/admin/launch/orders`)로 하루치 발사를 받아 머리 카드 4장(LAUNCH_ORDER 순) → 서버 · 시장별 조각 표를 그리는지.
+ *   (`/api/admin/launch/orders`)로 하루치 발사를 받아 머리 카드 2장(고른 서버 · 코스닥 → 코스피) → 그 서버 시장별 조각 표를
+ *   그리는지. 서버는 제목 아래 서버 칩(`?gw` · 기본 KB120 · quick-261107-iep)이 고르고, 전환은 클라이언트 필터(재요청 0)다.
+ *   옛 KB 기록은 KB120 칩, 옛 교보 기록은 교보119 칩에서 그대로 보이고 교보112 는 빈 카드다(픽스처에 KYOBO112 행 0 — 실DB 와 같음).
  *   화면 데이터는 `mockLaunchApi`(`**\/api/admin/launch/**` 전용 page.route — `mockAdminApi` 를 쓰지 않는다)다.
  *
  * ② 쿼리 = 진실 원본 · 요청 수
@@ -53,6 +55,9 @@ const card = (page: Page, gateway: string, market: string) =>
   root(page).locator(`[data-slot="launch-head-card"][data-gateway="${gateway}"][data-market="${market}"]`);
 const group = (page: Page, gateway: string, market: string) =>
   root(page).locator(`[data-slot="launch-group"][data-gateway="${gateway}"][data-market="${market}"]`);
+/** 발사 서버 칩(quick-261107-iep) — 글자 = 표시 이름(KB120 · 교보119 · 교보112). */
+const serverChip = (page: Page, label: string) =>
+  root(page).getByRole('radiogroup', { name: '발사 서버' }).getByRole('radio', { name: label, exact: true });
 
 async function open(page: Page, url = '/admin/launch'): Promise<void> {
   await page.goto(url);
@@ -60,7 +65,7 @@ async function open(page: Page, url = '/admin/launch'): Promise<void> {
 }
 
 test.describe('어드민 발사 · 주문 내역', () => {
-  test('P35-L1 1280 — 16:00 머리 카드 4장 · 빈 카드 · 조각 표 18행 · 날짜 이동 요청 1건', async ({ page }) => {
+  test('P35-L1 1280 — 16:00 머리 카드 2장(KB120) · 빈 카드 · 조각 표 18행 · 날짜 이동 요청 1건', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page);
     await open(page);
@@ -68,16 +73,15 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await expect(root(page).getByRole('tab', { name: '주문 내역' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('[data-slot="limitup-date"]')).toHaveText('10/26 (월)');
     await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('16:00 예약');
-    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KB120 · KYOBO119 저널 80 · 16:00:01 적재');
+    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KB120 저널 80 · 16:00:01 적재');
 
-    // 카드 4 · LAUNCH_ORDER 순
-    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+    // 카드 2 · 기본 서버 KB120(코스닥 → 코스피)
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
     const order = await cards(page).evaluateAll((els) =>
       els.map((el) => `${el.getAttribute('data-gateway')}|${el.getAttribute('data-market')}`),
     );
-    expect(order).toEqual(['KB120|Q', 'KB120|K', 'KYOBO119|Q', 'KYOBO119|K']);
-    await expect(card(page, 'KB120', 'K')).toHaveText('KB 코스피 · 이 날 발사 없음');
-    await expect(card(page, 'KYOBO119', 'K')).toHaveText('교보 코스피 · 이 날 발사 없음');
+    expect(order).toEqual(['KB120|Q', 'KB120|K']);
+    await expect(card(page, 'KB120', 'K')).toHaveText('KB120 코스피 · 이 날 발사 없음');
     // 1280 = 카드 2열(첫 줄 두 장 y 같음 · x 다름)
     const b0 = (await cards(page).nth(0).boundingBox())!;
     const b1 = (await cards(page).nth(1).boundingBox())!;
@@ -91,8 +95,8 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await expect(kbq).toContainText('접수 16');
     await expect(kbq).toContainText('기타 2');
 
-    // 조각 표 — 발사 있는 조합만(KB 코스닥 · 교보 코스닥)
-    await expect(root(page).locator('[data-slot="launch-group"]')).toHaveCount(2);
+    // 조각 표 — 고른 서버(KB120)의 발사 있는 시장만(코스닥)
+    await expect(root(page).locator('[data-slot="launch-group"]')).toHaveCount(1);
     const rows = group(page, 'KB120', 'Q').locator('tbody tr');
     await expect(rows).toHaveCount(18);
     const first = rows.first();
@@ -111,6 +115,10 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await root(page).getByRole('button', { name: '이전 보고서' }).click();
     await expect(page).toHaveURL(/\/admin\/launch\?d=20261023$/);
     await expect(page.locator('[data-slot="limitup-date"]')).toHaveText('10/23 (금)');
+    await expect(group(page, 'KB120', 'K').locator('tbody tr')).toHaveCount(6);
+    // 교보 기록은 교보119 칩에서 그대로(10/23 KYOBO119 코스피 6행) — 칩 전환 = replace · 재요청 0
+    await serverChip(page, '교보119').click();
+    await expect(page).toHaveURL(/\/admin\/launch\?d=20261023&gw=KYOBO119$/);
     await expect(group(page, 'KYOBO119', 'K').locator('tbody tr')).toHaveCount(6);
     await page.waitForTimeout(500);
     expect(api.orders().filter((r) => r.query.d === '20261023')).toHaveLength(1);
@@ -123,14 +131,14 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page);
     await open(page);
-    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
     await page.waitForTimeout(500);
     const before = api.orders().length;
 
     await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
     await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930$/);
     await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('09:00:30 개장차익');
-    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KB120 · KYOBO119 저널 80 · 09:00:31 적재');
+    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KB120 저널 80 · 09:00:31 적재');
 
     const kbq = group(page, 'KB120', 'Q');
     await expect(kbq.getByRole('columnheader', { name: '발사' })).toBeVisible();
@@ -152,6 +160,10 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await expect(kbqCard).toContainText('4회');
     await expect(kbqCard).toContainText('거부 4');
     await expect(card(page, 'KB120', 'K')).toContainText('2조각 · N·A');
+    // 교보 코스닥 고정 −200 은 교보119 칩에서(서버 전환 = 같은 응답 다시 거르기)
+    await serverChip(page, '교보119').click();
+    await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930&gw=KYOBO119$/);
+    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KYOBO119 저널 80 · 09:00:31 적재');
     await expect(card(page, 'KYOBO119', 'Q')).toContainText(`고정 ${MINUS}200µs`);
 
     await page.waitForTimeout(500);
@@ -163,7 +175,7 @@ test.describe('어드민 발사 · 주문 내역', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockLaunchApi(page);
     await open(page);
-    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
 
     const xs = await cards(page).evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)));
     expect(new Set(xs).size, `카드 x ${xs.join(',')}`).toBe(1);
@@ -203,7 +215,7 @@ test.describe('어드민 발사 · 주문 내역', () => {
     expect(api.orders().every((r) => r.query.d === '20261024')).toBe(true);
     await empty.getByRole('button', { name: '최신 보기' }).click();
     await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930$/);
-    await expect(cards(page)).toHaveCount(4);
+    await expect(cards(page)).toHaveCount(2);
   });
 
   test('P35-L6 형식 오류 ?d → replace 로 d 만 지운다', async ({ page }) => {
@@ -211,8 +223,65 @@ test.describe('어드민 발사 · 주문 내역', () => {
     const api = await mockLaunchApi(page);
     await open(page, '/admin/launch?d=2026-10-12&fire=n0930');
     await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930$/);
-    await expect(cards(page)).toHaveCount(4, { timeout: 15_000 });
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
     expect(api.orders().every((r) => r.query.d === undefined)).toBe(true);
+  });
+
+  test('P-SV1 1280 — 서버 칩 · 주문 내역 서버별 · 기존 기록 보존 · 재요청 0 · 잘못된 gw 지움', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page);
+
+    // 칩 3개 — 레지스트리 순 · 기본 KB120 · 제목 아래 · 탭 줄 위
+    const group0 = root(page).getByRole('radiogroup', { name: '발사 서버' });
+    await expect(group0.getByRole('radio')).toHaveText(['KB120', '교보119', '교보112']);
+    await expect(serverChip(page, 'KB120')).toHaveAttribute('aria-checked', 'true');
+    const chipsBox = (await group0.boundingBox())!;
+    const titleBox = (await root(page).getByRole('heading', { level: 1, name: '발사' }).boundingBox())!;
+    const tabBox = (await root(page).getByRole('tab', { name: '주문 내역' }).boundingBox())!;
+    expect(chipsBox.y).toBeGreaterThan(titleBox.y);
+    expect(tabBox.y).toBeGreaterThan(chipsBox.y);
+
+    // KB120 = 옛 KB 기록 그대로(L1 과 같은 값)
+    await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(card(page, 'KB120', 'Q')).toContainText('18조각');
+    await expect(group(page, 'KB120', 'Q').locator('tbody tr')).toHaveCount(18);
+
+    // 교보119 = 옛 교보 기록 그대로
+    await serverChip(page, '교보119').click();
+    await expect(page).toHaveURL(/\/admin\/launch\?gw=KYOBO119$/);
+    await expect(serverChip(page, '교보119')).toHaveAttribute('aria-checked', 'true');
+    const order = await cards(page).evaluateAll((els) =>
+      els.map((el) => `${el.getAttribute('data-gateway')}|${el.getAttribute('data-market')}`),
+    );
+    expect(order).toEqual(['KYOBO119|Q', 'KYOBO119|K']);
+    await expect(card(page, 'KYOBO119', 'Q')).toContainText('9조각');
+    await expect(card(page, 'KYOBO119', 'K')).toHaveText('교보119 코스피 · 이 날 발사 없음');
+    await expect(group(page, 'KYOBO119', 'Q').locator('tbody tr')).toHaveCount(9);
+    await expect(root(page).locator('[data-slot="launch-group"][data-gateway="KB120"]')).toHaveCount(0);
+    await expect(root(page).locator('[data-slot="launch-source"]')).toHaveText('KYOBO119 저널 80 · 16:00:01 적재');
+
+    // 교보112 = 빈 카드 2장 · 묶음 0(날짜 내비는 그대로)
+    await serverChip(page, '교보112').click();
+    await expect(page).toHaveURL(/\/admin\/launch\?gw=KYOBO112$/);
+    await expect(cards(page)).toHaveText(['교보112 코스닥 · 이 날 발사 없음', '교보112 코스피 · 이 날 발사 없음']);
+    await expect(root(page).locator('[data-slot="launch-group"]')).toHaveCount(0);
+    await expect(root(page).getByRole('button', { name: '이전 보고서' })).toBeEnabled();
+
+    await page.waitForTimeout(500);
+    expect(api.orders(), '서버 전환은 다시 받지 않는다').toHaveLength(1);
+
+    // 탭 전환에 gw 보존
+    await root(page).getByRole('tab', { name: '경계 지도' }).click();
+    await expect(page).toHaveURL(/[?&]gw=KYOBO112(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=map(&|$)/);
+
+    // 모르는 gw → replace 로 gw 만 지우고 KB120
+    await open(page, '/admin/launch?gw=KB121&fire=n0930');
+    await expect(page).toHaveURL(/\/admin\/launch\?fire=n0930$/);
+    await expect(serverChip(page, 'KB120')).toHaveAttribute('aria-checked', 'true');
+    await expect(card(page, 'KB120', 'Q')).toBeVisible({ timeout: 15_000 });
+    await page.screenshot({ path: test.info().outputPath('launch-orders-server-chips-1280.png'), fullPage: true });
   });
 });
 

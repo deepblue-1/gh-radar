@@ -7,6 +7,7 @@ import {
   type LaunchFire,
   type LaunchOrdersResponse,
   type LaunchPieceRow,
+  type LaunchServer,
   type LimitupDate,
 } from '@gh-radar/shared';
 
@@ -16,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { fetchLaunchOrders } from '@/lib/launch-api';
 import {
   DASH,
-  brokerMarketLabelOf,
+  serverMarketLabelOf,
   fireLegLabelOf,
   fmtAcceptTime,
   fmtUs,
@@ -39,14 +40,19 @@ import { LimitupDateNav } from '../analytics/limitup-date-nav';
  *
  * - `LaunchOrdersTab` = 받기 · 상태(accum-report 의 alive effect 꼴). `d` 가 바뀔 때만 다시 받는다 — 세그먼트(16:00 / 09:00:30)
  *   전환은 같은 응답을 다시 거른다(한 응답에 그날 발사가 다 있다).
- * - `LaunchOrdersView` = 순수 렌더. 컨트롤 줄(날짜 알약 · 세그먼트 · 출처 칩) → 머리 카드 4장(LAUNCH_ORDER 순 · 발사 없는
- *   조합은 빈 카드) → 발사 있는 조합만 서버 · 시장별 조각 표.
+ * - `LaunchOrdersView` = 순수 렌더. 컨트롤 줄(날짜 알약 · 세그먼트 · 출처 칩) → 머리 카드 = 고른 서버(`gw`)의 2장
+ *   (코스닥 → 코스피 · 발사 없는 시장은 빈 카드) → 그 서버의 발사 있는 시장만 조각 표.
+ * - 서버(`gw` · quick-261107-iep)는 클라이언트 필터다 — 받기 effect deps 에 넣지 않는다(서버 전환 = 같은 응답 다시 거르기).
+ *   날짜 목록 · 「적재 이력 없음」 · 「이 날은 발사가 없어요」 는 응답 전체 기준 그대로(기존 기록 보존 — 날짜를 서버별로
+ *   좁히지 않는다 · 그 날 고른 서버에 발사가 없으면 빈 카드).
  * - 폰 390: 카드 1열 · 조각 표는 자기 래퍼(`launch-pieces` · overflow-x-auto) 안에서만 가로 스크롤 · 부모 `min-w-0` 으로
  *   페이지는 넓어지지 않는다(lessons 2026-09-07).
  * - 계좌 · 사용자는 마스킹하지 않는다(D-02 어드민 전용 예외). null 칸은 전부 「—」.
  */
 
 export interface LaunchOrdersTabProps {
+  /** 고른 발사 서버(`?gw`). */
+  gw: LaunchServer;
   d: LimitupDate | null;
   fire: LaunchFire;
   onGoDate: (d: LimitupDate) => void;
@@ -56,7 +62,7 @@ export interface LaunchOrdersTabProps {
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; resp: LaunchOrdersResponse };
 
-export function LaunchOrdersTab({ d, fire, onGoDate, onFire, onLatest }: LaunchOrdersTabProps) {
+export function LaunchOrdersTab({ gw, d, fire, onGoDate, onFire, onLatest }: LaunchOrdersTabProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [dates, setDates] = useState<readonly LimitupDate[]>([]);
@@ -84,6 +90,7 @@ export function LaunchOrdersTab({ d, fire, onGoDate, onFire, onLatest }: LaunchO
       status={phase.kind}
       resp={phase.kind === 'ready' ? phase.resp : null}
       dates={dates}
+      gw={gw}
       d={d}
       fire={fire}
       onGoDate={onGoDate}
@@ -100,6 +107,8 @@ export function LaunchOrdersTab({ d, fire, onGoDate, onFire, onLatest }: LaunchO
 
 export interface LaunchOrdersViewProps {
   resp: LaunchOrdersResponse | null;
+  /** 고른 발사 서버 — 카드 2장 · 조각 묶음 · 출처 칩이 이 서버만. */
+  gw: LaunchServer;
   fire: LaunchFire;
   d: LimitupDate | null;
   onGoDate: (d: LimitupDate) => void;
@@ -119,6 +128,7 @@ const FIRE_SEGMENTS: readonly { value: LaunchFire; label: string; loaded: string
 
 export function LaunchOrdersView({
   resp,
+  gw,
   fire,
   d,
   onGoDate,
@@ -133,17 +143,20 @@ export function LaunchOrdersView({
   const nav = dateNavOf(navDates, shown);
   const seg = FIRE_SEGMENTS.find((s) => s.value === fire) ?? FIRE_SEGMENTS[0]!;
 
-  const pieces = useMemo(() => (resp === null ? [] : orderTabPiecesOf(resp.pieces, fire)), [resp, fire]);
+  const pieces = useMemo(
+    () => (resp === null ? [] : orderTabPiecesOf(resp.pieces, fire).filter((p) => p.gateway === gw)),
+    [resp, fire, gw],
+  );
   const groups = useMemo(() => groupsOf(pieces), [pieces]);
   const cards = useMemo(
     () =>
-      LAUNCH_ORDER.map(([gateway, market]) => ({
+      LAUNCH_ORDER.filter(([gateway]) => gateway === gw).map(([gateway, market]) => ({
         gateway,
         market,
         model:
           resp === null ? null : launchHeadCardOf({ gateway, market, fire, pieces: resp.pieces, heads: resp.heads }),
       })),
-    [resp, fire],
+    [resp, fire, gw],
   );
 
   const ready = status === 'ready' && resp !== null;
@@ -159,7 +172,7 @@ export function LaunchOrdersView({
           data-slot="launch-source"
           className="ml-auto inline-flex items-center rounded-[6px] bg-[var(--muted)] px-2 py-0.5 text-[11.5px] whitespace-nowrap text-[var(--muted-fg)]"
         >
-          KB120 · KYOBO119 저널 80 · {seg.loaded} 적재
+          {gw} 저널 80 · {seg.loaded} 적재
         </span>
       </div>
 
@@ -210,7 +223,7 @@ export function LaunchOrdersView({
               className="flex min-w-0 flex-col gap-2"
             >
               <h2 className="flex items-baseline gap-2 px-1 text-[14px] font-bold text-[var(--fg)]">
-                {brokerMarketLabelOf(g.gateway, g.market)}
+                {serverMarketLabelOf(g.gateway, g.market)}
                 <small className="text-[12px] font-medium text-[var(--muted-fg)]">{g.pieces.length}조각 · wire 순</small>
               </h2>
               <div
@@ -276,7 +289,7 @@ export interface LaunchHeadCardProps {
 const CARD_FACE = cn(CARD, 'flex min-w-0 flex-col gap-1.5 px-3.5 py-3 ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0');
 
 export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) {
-  const title = brokerMarketLabelOf(gateway, market);
+  const title = serverMarketLabelOf(gateway, market);
   if (model === null) {
     return (
       <div
@@ -506,7 +519,7 @@ function CardsSkeleton() {
       aria-label="불러오는 중"
       className="grid grid-cols-1 gap-2.5 md:grid-cols-2"
     >
-      {[0, 1, 2, 3].map((i) => (
+      {[0, 1].map((i) => (
         <div key={i} className={CARD_FACE}>
           <Skeleton className="h-5 w-28" />
           <Skeleton className="h-3.5 w-full" />

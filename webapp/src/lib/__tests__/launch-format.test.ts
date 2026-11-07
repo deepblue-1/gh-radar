@@ -6,18 +6,19 @@ import type { LaunchHeadRow, LaunchPieceQueueView, LaunchPieceRow } from '@gh-ra
 
 import {
   MINUS,
-  brokerMarketLabelOf,
   fireLegLabelOf,
   fmtAcceptTime,
   fmtEokMan,
   fmtUs,
   launchFireParamOf,
+  launchGatewayParamOf,
   launchHeadCardOf,
   launchQueueCellOf,
   launchTabOf,
   orderTabPiecesOf,
   pieceKeyLabelOf,
   resultToneOf,
+  serverMarketLabelOf,
   sideLabelOf,
 } from '../launch-format';
 
@@ -211,10 +212,13 @@ describe('pieceKeyLabelOf — 키 열', () => {
   });
 });
 
-describe('brokerMarketLabelOf · resultToneOf · sideLabelOf · 쿼리', () => {
-  it('서버 시장 라벨', () => {
-    expect(brokerMarketLabelOf('KB120', 'Q')).toBe('KB 코스닥');
-    expect(brokerMarketLabelOf('KYOBO119', 'K')).toBe('교보 코스피');
+describe('serverMarketLabelOf · resultToneOf · sideLabelOf · 쿼리', () => {
+  it('서버 시장 라벨 — 서버 라벨(quick-261107-iep)', () => {
+    expect(serverMarketLabelOf('KB120', 'Q')).toBe('KB120 코스닥');
+    expect(serverMarketLabelOf('KYOBO119', 'K')).toBe('교보119 코스피');
+    expect(serverMarketLabelOf('KYOBO112', 'Q')).toBe('교보112 코스닥');
+    expect(serverMarketLabelOf('KB120', 'X')).toBe('KB120 X');
+    expect(serverMarketLabelOf('ZZ1', 'K')).toBe('ZZ1 코스피');
   });
   it('결과 색 축', () => {
     expect(['접수', '101', '515', '기타', '무응답', 'E127'].map(resultToneOf)).toEqual(['ok', 'bad', 'bad', 'other', 'other', 'other']);
@@ -227,6 +231,20 @@ describe('brokerMarketLabelOf · resultToneOf · sideLabelOf · 쿼리', () => {
   it('tab · fire 파라미터', () => {
     expect([launchTabOf('orders'), launchTabOf('map'), launchTabOf('x'), launchTabOf(null)]).toEqual(['orders', 'map', null, null]);
     expect([launchFireParamOf('q16'), launchFireParamOf('n0930'), launchFireParamOf('N0930')]).toEqual(['q16', 'n0930', null]);
+  });
+  it('gw 파라미터 — 발사 서버 정확 일치만(quick-261107-iep)', () => {
+    expect([launchGatewayParamOf('KB120'), launchGatewayParamOf('KYOBO119'), launchGatewayParamOf('KYOBO112')]).toEqual([
+      'KB120',
+      'KYOBO119',
+      'KYOBO112',
+    ]);
+    expect([
+      launchGatewayParamOf('KB121'),
+      launchGatewayParamOf('kyobo119'),
+      launchGatewayParamOf(''),
+      launchGatewayParamOf(null),
+      launchGatewayParamOf(undefined),
+    ]).toEqual([null, null, null, null, null]);
   });
 });
 
@@ -246,7 +264,7 @@ describe('orderTabPiecesOf — 세그먼트 거름 · 정렬', () => {
     expect(out.every((p) => p.profile === 'Q16')).toBe(true);
   });
 
-  it('LAUNCH_ORDER 묶음 순 — KB 코스닥 · KB 코스피 · 교보 코스닥 · 교보 코스피', () => {
+  it('LAUNCH_ORDER 묶음 순 — KB120 코스닥 · KB120 코스피 · 교보119 코스닥 · 교보119 코스피', () => {
     const mixed = [
       ...attached('2026-10-23', '교보', '코스피').slice(0, 1),
       ...attached('2026-10-23', '교보', '코스닥').slice(0, 1),
@@ -296,7 +314,7 @@ describe('launchHeadCardOf(q16) — 머리 우선 · 조각 폴백', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'q16', pieces, heads: [h] });
     expect(card).toMatchObject({
       fire: 'q16',
-      title: 'KB 코스닥',
+      title: 'KB120 코스닥',
       count: 18,
       badLabel: '101',
       offset: `${M}332µs`,
@@ -320,7 +338,7 @@ describe('launchHeadCardOf(q16) — 머리 우선 · 조각 폴백', () => {
     expect(launchHeadCardOf({ ...base, fire: 'q16', pieces: pieces.slice(0, 2), heads: [] })?.probes).toBe(0);
   });
 
-  it('머리 없음 → 경계 = launchDaysOf 폴백(10/14 KB 코스닥) · 오프셋 = 최소 wire rel · 다음 발사 계획 첫 조각 「—」', () => {
+  it('머리 없음 → 경계 = launchDaysOf 폴백(10/14 KB120 코스닥) · 오프셋 = 최소 wire rel · 다음 발사 계획 첫 조각 「—」', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'q16', pieces: attached('2026-10-14', 'KB', '코스닥'), heads: [] });
     expect(card).toMatchObject({ gate: `${M}350 ~ ${M}342`, offset: `${M}352µs`, learnLabel: '다음 발사 계획 첫 조각', learn: '—', count: 5 });
   });
@@ -347,7 +365,7 @@ describe('launchHeadCardOf(q16) — 학습 줄 세 갈래 (D-32 · Phase 43 뒤 
     expect(card).toMatchObject({ learnLabel: '다음 발사 계획 첫 조각', learn: '—' });
   });
 
-  it('결과 수 = 탭 조각(10/14 KB 코스피 접수 4 · 101 5 · 기타 1)', () => {
+  it('결과 수 = 탭 조각(10/14 KB120 코스피 접수 4 · 101 5 · 기타 1)', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'K', fire: 'q16', pieces: attached('2026-10-14', 'KB', '코스피'), heads: [] });
     expect(card?.counts).toEqual({ ok: 4, bad: 5, other: 1 });
   });
@@ -368,7 +386,7 @@ describe('launchHeadCardOf(q16) — 학습 줄 세 갈래 (D-32 · Phase 43 뒤 
 describe('launchHeadCardOf(n0930) — 두 다리 · 재전송 합 · 고정 다음 오프셋', () => {
   const pieces = [...attached('2026-10-26', 'KB', '코스닥'), ...N_KBQ, ...A_KBQ];
 
-  it('10/26 KB 코스닥 — 5조각 · 재전송 2+1+1 = 4 · 「고정 −245µs」 · 「거부」', () => {
+  it('10/26 KB120 코스닥 — 5조각 · 재전송 2+1+1 = 4 · 「고정 −245µs」 · 「거부」', () => {
     const card = launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'n0930', pieces, heads: [N_HEAD_KBQ] });
     expect(card).toMatchObject({
       fire: 'n0930',

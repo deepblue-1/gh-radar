@@ -8,7 +8,7 @@ import { LaunchHeadCard, LaunchOrdersView, type LaunchOrdersViewProps } from '..
 /**
  * Phase 35 (35-06) — 주문 내역 탭 순수 렌더 `LaunchOrdersView` (D-12 · D-13 · D-02 · 채택 목업 변형 A).
  *
- * 잠그는 것: 16:00 카드 4장 순서(LAUNCH_ORDER) · 빈 카드 문구 · 학습 → 다음 오프셋 · 계좌 마스킹 없음 · 결과 알약 tone/토큰 ·
+ * 잠그는 것: 16:00 카드 = 고른 서버 2장(LAUNCH_ORDER 순 · quick-261107-iep 서버별) · 서버 라벨 · 출처 칩 · 빈 카드 문구 · 학습 → 다음 오프셋 · 계좌 마스킹 없음 · 결과 알약 tone/토큰 ·
  * 09:00:30 전환 시 「발사」 · 「재전송」 열 · 「A 09:00:27 KRX→」 · 「09:00:30.046」(8자리 패딩) · 「고정 −245µs」 · null 칸 「—」 ·
  * 빈 상태 3종(이력 0 · 행 없는 날 → 최신 보기 · 오류 → 다시 시도). 값은 e2e 픽스처와 같은 꼴(합성 계좌 · 가짜 값).
  */
@@ -112,6 +112,7 @@ const RESP: LaunchOrdersResponse = {
 function view(over: Partial<LaunchOrdersViewProps> = {}) {
   const props: LaunchOrdersViewProps = {
     resp: RESP,
+    gw: 'KB120',
     fire: 'q16',
     d: null,
     onGoDate: vi.fn(),
@@ -128,12 +129,11 @@ const groupOf = (c: HTMLElement, gw: string, mk: string) =>
   c.querySelector<HTMLElement>(`[data-slot="launch-group"][data-gateway="${gw}"][data-market="${mk}"]`)!;
 
 describe('LaunchOrdersView — 16:00 예약', () => {
-  it('카드 4장 LAUNCH_ORDER 순 · 빈 카드 문구 · 학습 → 다음 오프셋', () => {
+  it('KB120 카드 2장(코스닥 → 코스피) · 빈 카드 문구 · 학습 → 다음 오프셋', () => {
     const { container } = view();
     const cards = cardsOf(container);
-    expect(cards.map((c) => `${c.dataset.gateway}|${c.dataset.market}`)).toEqual(['KB120|Q', 'KB120|K', 'KYOBO119|Q', 'KYOBO119|K']);
-    expect(cards[1]).toHaveTextContent('KB 코스피 · 이 날 발사 없음');
-    expect(cards[3]).toHaveTextContent('교보 코스피 · 이 날 발사 없음');
+    expect(cards.map((c) => `${c.dataset.gateway}|${c.dataset.market}`)).toEqual(['KB120|Q', 'KB120|K']);
+    expect(cards[1]).toHaveTextContent('KB120 코스피 · 이 날 발사 없음');
     expect(cards[0]).toHaveTextContent('3조각 · Q16');
     expect(cards[0]).toHaveTextContent(`학습 → 다음 오프셋${M}146 → ${M}151 · 다음 ${M}337µs (step 5)`);
     expect(cards[0]).not.toHaveTextContent('다음 발사 계획 첫 조각');
@@ -160,7 +160,7 @@ describe('LaunchOrdersView — 16:00 예약', () => {
   it('조각 표 — 계좌 그대로 · 접수 시각 · 결과 알약 tone/토큰 · null 칸 「—」', () => {
     const { container } = view();
     const table = groupOf(container, 'KB120', 'Q');
-    expect(table).toHaveTextContent('KB 코스닥3조각 · wire 순');
+    expect(table).toHaveTextContent('KB120 코스닥3조각 · wire 순');
     const rows = within(table).getAllByRole('row').slice(1);
     expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveTextContent('1234567801');
@@ -201,7 +201,63 @@ describe('LaunchOrdersView — 09:00:30 개장차익', () => {
     expect(card).toHaveTextContent(`고정 ${M}245µs`);
     expect(card).toHaveTextContent('재전송3회');
     expect(card).toHaveTextContent('거부 3');
-    expect(cardsOf(container)[2]).toHaveTextContent('교보 코스닥 · 이 날 발사 없음');
+    expect(cardsOf(container)[1]).toHaveTextContent('KB120 코스피 · 이 날 발사 없음');
+  });
+
+  it('교보119 의 09:00:30 은 그 날 발사 없음 — 빈 카드 2장 · 묶음 0', () => {
+    const { container } = view({ fire: 'n0930', gw: 'KYOBO119' });
+    expect(cardsOf(container).map((c) => c.textContent)).toEqual([
+      '교보119 코스닥 · 이 날 발사 없음',
+      '교보119 코스피 · 이 날 발사 없음',
+    ]);
+    expect(container.querySelectorAll('[data-slot="launch-group"]')).toHaveLength(0);
+  });
+});
+
+describe('LaunchOrdersView — 서버별(quick-261107-iep · 기존 기록 보존)', () => {
+  it('KB120 — 카드 · 묶음은 KB120 만 · 교보 조각은 없다 · 출처 칩 「KB120 저널 80 · 16:00:01 적재」', () => {
+    const { container } = view();
+    expect(container.querySelectorAll('[data-slot="launch-group"]')).toHaveLength(1);
+    expect(groupOf(container, 'KB120', 'Q')).not.toBeNull();
+    expect(container.querySelector('[data-gateway="KYOBO119"]')).toBeNull();
+    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KB120 저널 80 · 16:00:01 적재$/);
+  });
+
+  it('KYOBO119 — 옛 교보 기록이 교보119 칩에서 그대로(카드 1조각 · 묶음) · 코스피 빈 카드 · 출처 칩', () => {
+    const { container } = view({ gw: 'KYOBO119' });
+    const cards = cardsOf(container);
+    expect(cards.map((c) => `${c.dataset.gateway}|${c.dataset.market}`)).toEqual(['KYOBO119|Q', 'KYOBO119|K']);
+    expect(cards[0]).toHaveTextContent('교보119 코스닥1조각 · Q16');
+    expect(cards[0]).toHaveTextContent('접수 1101 0기타 0');
+    expect(cards[1]).toHaveTextContent('교보119 코스피 · 이 날 발사 없음');
+    const groups = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="launch-group"]'));
+    expect(groups.map((g) => `${g.dataset.gateway}|${g.dataset.market}`)).toEqual(['KYOBO119|Q']);
+    expect(groups[0]).toHaveTextContent('교보119 코스닥1조각 · wire 순');
+    expect(within(groups[0]!).getAllByRole('row').slice(1)[0]).toHaveTextContent('Q153740001 · j0');
+    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KYOBO119 저널 80 · 16:00:01 적재$/);
+  });
+
+  it('KYOBO112 — 빈 카드 2장 · 묶음 0 · 「이 날은 발사가 없어요」 아님(그 날 다른 서버 발사가 있다)', () => {
+    const { container } = view({ gw: 'KYOBO112' });
+    expect(cardsOf(container).map((c) => c.textContent)).toEqual([
+      '교보112 코스닥 · 이 날 발사 없음',
+      '교보112 코스피 · 이 날 발사 없음',
+    ]);
+    expect(cardsOf(container).every((c) => c.dataset.empty === 'true')).toBe(true);
+    expect(container.querySelectorAll('[data-slot="launch-group"]')).toHaveLength(0);
+    expect(screen.queryByText('이 날은 발사가 없어요')).toBeNull();
+  });
+
+  it('09:00:30 출처 칩 = 「<서버키> 저널 80 · 09:00:31 적재」', () => {
+    const { container } = view({ fire: 'n0930', gw: 'KYOBO112' });
+    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KYOBO112 저널 80 · 09:00:31 적재$/);
+  });
+
+  it('날짜 내비는 서버와 무관하게 응답 날짜 목록 그대로', () => {
+    const { props } = view({ gw: 'KYOBO112', d: '20261026' });
+    // 응답 dates = [20261026, 20261023] — 그 서버 발사가 없어도 이전 날(10/23)로 갈 수 있다(서버별로 좁히지 않는다).
+    fireEvent.click(screen.getByRole('button', { name: '이전 보고서' }));
+    expect(props.onGoDate).toHaveBeenCalledWith('20261023');
   });
 });
 
@@ -237,7 +293,7 @@ describe('LaunchHeadCard — 뒤탐침 표기(35 IN-02)', () => {
   const model = {
     gateway: 'KB120',
     market: 'Q',
-    title: 'KB 코스닥',
+    title: 'KB120 코스닥',
     count: 10,
     counts: { ok: 3, bad: 7, other: 0 },
     probes: 3,

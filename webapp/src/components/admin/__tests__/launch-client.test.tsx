@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { LaunchClient } from '../launch-client';
 
 /**
- * Phase 35 REVIEW IN-01 — `/admin/launch` 쿼리 정본화. 잘못된 `tab` · `d` · `fire` · `range` 는 그 키만 `router.replace` 로
+ * Phase 35 REVIEW IN-01 — `/admin/launch` 쿼리 정본화. 잘못된 `tab` · `d` · `fire` · `range` · `gw`(quick-261107-iep) 는 그 키만 `router.replace` 로
  * 지우고 다른 키는 보존한다(공유 주소와 실제 화면이 갈라지지 않게). 탭 본문은 받기를 하므로 대역으로 바꾼다.
  */
 
@@ -14,9 +15,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: nav.replace, push: nav.push }),
   useSearchParams: () => new URLSearchParams(nav.query),
 }));
-vi.mock('../launch-map-tab', () => ({ LaunchMapTab: ({ fire }: { fire: string }) => <div data-slot="map" data-fire={fire} /> }));
+vi.mock('../launch-map-tab', () => ({
+  LaunchMapTab: ({ fire, gw }: { fire: string; gw?: string }) => <div data-slot="map" data-fire={fire} data-gw={gw} />,
+}));
 vi.mock('../launch-orders-tab', () => ({
-  LaunchOrdersTab: ({ fire }: { fire: string }) => <div data-slot="orders" data-fire={fire} />,
+  LaunchOrdersTab: ({ fire, gw }: { fire: string; gw: string }) => <div data-slot="orders" data-fire={fire} data-gw={gw} />,
 }));
 
 afterEach(() => {
@@ -45,5 +48,57 @@ describe('LaunchClient — 쿼리 정본화', () => {
     render(<LaunchClient />);
     expect(nav.replace).toHaveBeenCalledTimes(1);
     expect(nav.replace).toHaveBeenCalledWith('/admin/launch?tab=map');
+  });
+
+  it('쿼리 없음 → 주문 탭 gw = KB120 · KB120 칩 선택 · replace 없음', () => {
+    nav.query = '';
+    const { container } = render(<LaunchClient />);
+    expect(container.querySelector('[data-slot="orders"]')?.getAttribute('data-gw')).toBe('KB120');
+    expect(screen.getByRole('radio', { name: 'KB120' })).toHaveAttribute('aria-checked', 'true');
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('?gw=KYOBO112 는 그대로 · replace 없음', () => {
+    nav.query = 'gw=KYOBO112&d=20261026';
+    const { container } = render(<LaunchClient />);
+    expect(container.querySelector('[data-slot="orders"]')?.getAttribute('data-gw')).toBe('KYOBO112');
+    expect(screen.getByRole('radio', { name: '교보112' })).toHaveAttribute('aria-checked', 'true');
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it.each(['KB121', 'kyobo119', ''])('잘못된 ?gw=%s → KB120 으로 그리고 gw 만 지운다(다른 키 보존)', (raw) => {
+    nav.query = `tab=orders&gw=${raw}&d=20261026&fire=n0930`;
+    const { container } = render(<LaunchClient />);
+    expect(container.querySelector('[data-slot="orders"]')?.getAttribute('data-gw')).toBe('KB120');
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+    expect(nav.replace).toHaveBeenCalledWith('/admin/launch?tab=orders&d=20261026&fire=n0930');
+  });
+
+  it('잘못된 fire · gw 가 함께면 한 번에 둘 다 지운다', () => {
+    nav.query = 'fire=x&gw=KB121&range=20d';
+    render(<LaunchClient />);
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+    expect(nav.replace).toHaveBeenCalledWith('/admin/launch?range=20d');
+  });
+});
+
+describe('LaunchClient — 서버 칩', () => {
+  it('서버 칩은 제목 아래 · 탭 줄 위', () => {
+    nav.query = '';
+    const { container } = render(<LaunchClient />);
+    const chips = container.querySelector('[data-slot="launch-server-chips"]')!;
+    const tabs = container.querySelector('[data-slot="launch-tabs"]')!;
+    expect(chips).not.toBeNull();
+    expect(chips.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('칩 「교보119」 클릭 → replace 가 다른 키를 보존한 gw=KYOBO119 주소', async () => {
+    const user = userEvent.setup();
+    nav.query = 'tab=orders&d=20261026&fire=n0930';
+    render(<LaunchClient />);
+    await user.click(screen.getByRole('radio', { name: '교보119' }));
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+    expect(nav.replace).toHaveBeenCalledWith('/admin/launch?tab=orders&d=20261026&fire=n0930&gw=KYOBO119');
+    expect(nav.push).not.toHaveBeenCalled();
   });
 });

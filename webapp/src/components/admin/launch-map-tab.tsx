@@ -23,7 +23,7 @@ import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
-import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
+import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { LAUNCH_CHART, launchRangeOf, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
@@ -628,7 +628,7 @@ function LaunchKpiCard({ gateway, market, stats, plan }: MapPanel) {
   return (
     <div data-slot="launch-kpi" data-gateway={gateway} data-market={market} className={KPI_FACE}>
       <div className="text-[12px] font-semibold text-[var(--muted-fg)]">
-        {brokerMarketLabelOf(gateway, market)} · {stats.days}일
+        {serverMarketLabelOf(gateway, market)} · {stats.days}일
       </div>
       <KpiRow label="접수된 가장 이른" tone="text-[var(--launch-ok)]" value={usOrDash(stats.min_accept)} slot="min-accept" />
       <KpiRow label="거부된 가장 늦은" tone="text-[var(--launch-bad)]" value={usOrDash(stats.max_reject)} slot="max-reject" />

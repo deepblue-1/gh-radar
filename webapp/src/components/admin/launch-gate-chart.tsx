@@ -7,7 +7,7 @@ import { isLaunchTailProbe, launchPanelStatsOf } from '@gh-radar/shared';
 
 import { CARD } from '@/components/layout/page-layout';
 import { useChartWidth } from '@/hooks/use-chart-width';
-import { DASH, brokerMarketLabelOf, fmtUs } from '@/lib/launch-format';
+import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import {
   LAUNCH_CHART,
   diamondPathOf,
@@ -99,7 +99,7 @@ export function LaunchGateChart({
   draftLines = NO_DRAFT,
   children,
 }: LaunchGateChartProps) {
-  const title = brokerMarketLabelOf(gateway, market);
+  const title = serverMarketLabelOf(gateway, market);
   const stats = launchPanelStatsOf(days);
 
   return (

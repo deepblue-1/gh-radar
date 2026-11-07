@@ -55,7 +55,7 @@ function daysOf(gateway: string, market: string) {
   return launchDaysOf(PIECES.filter((p) => p.gateway === gateway && p.market === market));
 }
 
-describe('LaunchGateChart — 16:00 KB 코스닥(첨부 10일)', () => {
+describe('LaunchGateChart — 16:00 KB120 코스닥(첨부 10일)', () => {
   function renderKbQ() {
     render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} planLines={[-337]} />);
     const panel = document.querySelector<HTMLElement>('[data-slot="launch-panel"]')!;
@@ -63,11 +63,11 @@ describe('LaunchGateChart — 16:00 KB 코스닥(첨부 10일)', () => {
     return { panel, svg };
   }
 
-  it('패널 머리 — 「KB 코스닥」 · 경계 잡힌 날 4 · 전부 접수 5 · 전부 거부 1', () => {
+  it('패널 머리 — 「KB120 코스닥」 · 경계 잡힌 날 4 · 전부 접수 5 · 전부 거부 1', () => {
     const { panel } = renderKbQ();
     expect(panel.dataset.gateway).toBe('KB120');
     expect(panel.dataset.market).toBe('Q');
-    expect(within(panel).getByRole('heading', { name: 'KB 코스닥' })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: 'KB120 코스닥' })).toBeInTheDocument();
     expect(within(panel).getByText('경계 잡힌 날 4 · 전부 접수 5 · 전부 거부 1')).toBeInTheDocument();
   });
 
@@ -79,7 +79,7 @@ describe('LaunchGateChart — 16:00 KB 코스닥(첨부 10일)', () => {
     // H = T 22 + 10일 × 24 + GAP_R 32 + RIBBON_H 40 + TICK_H 22
     expect(h).toBe(22 + 10 * 24 + 32 + 40 + 22);
     expect(svg).toHaveAttribute('role', 'img');
-    expect(svg).toHaveAttribute('aria-label', 'KB 코스닥 발사 경계 지도');
+    expect(svg).toHaveAttribute('aria-label', 'KB120 코스닥 발사 경계 지도');
   });
 
   it('날짜 행 10개 · 점 87개(circle) · 각 점 title', () => {
@@ -161,7 +161,7 @@ describe('LaunchGateChart — 빈 패널', () => {
   it('days [] → 「이 범위에 발사 없음」 만 · svg 없음', () => {
     render(<LaunchGateChart gateway="KYOBO119" market="K" fire="q16" days={[]} planLines={[-400]} />);
     const panel = document.querySelector<HTMLElement>('[data-slot="launch-panel"]')!;
-    expect(within(panel).getByRole('heading', { name: '교보 코스피' })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: '교보119 코스피' })).toBeInTheDocument();
     expect(screen.getByText('이 범위에 발사 없음')).toBeInTheDocument();
     expect(panel.querySelector('svg')).toBeNull();
   });
@@ -262,7 +262,7 @@ describe('LaunchGateChart — 이상치 점 바깥 표식', () => {
 });
 
 describe('LaunchGateChart — 날짜별 표 보기', () => {
-  it('KB 코스닥 — 접힘 · 행 = days 10 · 10/14 경계 · 10/21 전부 거부', () => {
+  it('KB120 코스닥 — 접힘 · 행 = days 10 · 10/14 경계 · 10/21 전부 거부', () => {
     render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} planLines={[-337]} />);
     const details = document.querySelector('details')!;
     expect(details.open).toBe(false);
@@ -285,7 +285,7 @@ describe('LaunchGateChart — 날짜별 표 보기', () => {
     expect(table.parentElement!.className).toContain('overflow-x-auto');
   });
 
-  it('KB 코스피 10/16 — 결과 알약 「판단 불가」(Pitfall 5) · 경계 「—」', () => {
+  it('KB120 코스피 10/16 — 결과 알약 「판단 불가」(Pitfall 5) · 경계 「—」', () => {
     render(<LaunchGateChart gateway="KB120" market="K" fire="q16" days={daysOf('KB120', 'K')} planLines={[-285]} />);
     const table = document.querySelector('table[data-slot="launch-day-table"]')!;
     const row = [...table.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('td')!.textContent === '10/16')!;
