@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 030 — /me 알림 받는 기기 자리 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .15s; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 36px; padding: 34px 12px 60px; flex-wrap: wrap; }
+
+/* 프레임 — 웹앱 토큰(다크 기본 · 라이트 전환) */
+.f {
+  --bg: #0a0a0a; --surface: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised2: #3d3d3d; --hair: #3d3d3d;
+  --fg: #fff; --fg2: #e4e4e4; --mfg: #9e9e9e; --faint: #636363;
+  --up: #f04251; --primary: #3485fa; --armed: #2fca73; --scrim: rgba(0,0,0,.6); --pop: #1f1f1f;
+  font-variant-numeric: tabular-nums; word-break: keep-all;
+  background: var(--surface); color: var(--fg2); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30;
+  padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 12px; position: relative; overflow: visible;
+}
+.f.light {
+  --bg: #fff; --surface: #f2f4f6; --card: #fff; --muted: #f2f4f6; --raised2: #e5e8eb; --hair: #e5e8eb;
+  --fg: #191f28; --fg2: #333d4b; --mfg: #6b7684; --faint: #b0b8c1;
+  --up: #f04452; --primary: #3182f6; --armed: #03b26c; --scrim: rgba(0,0,0,.35); --pop: #fff;
+}
+.f.desktop { width: 940px; min-height: 620px; }
+.f.phone { width: 390px; min-height: 760px; padding: 14px 14px 28px; border-radius: 28px; overflow: hidden; }
+.f .cap { position: absolute; top: -22px; left: 4px; font-size: 11.5px; color: #777; }
+.ph-title { font-size: 20px; font-weight: 700; color: var(--fg); margin: 4px 0 0; }
+.ph-sub { font-size: 12.5px; color: var(--mfg); margin: 2px 0 2px; }
+
+/* 계정 카드(현행 A) */
+.acct { background: var(--card); border-radius: 16px; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.acct .top { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 14px 16px; }
+.av { width: 44px; height: 44px; border-radius: 50%; background: var(--raised2); display: grid; place-items: center; font-weight: 700; font-size: 17px; color: var(--fg); flex: none; }
+.nm { font-size: 16px; font-weight: 700; color: var(--fg); }
+.em { font-size: 12.5px; color: var(--mfg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who { display: flex; flex-direction: column; min-width: 0; }
+.ic { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.ib { width: 40px; height: 40px; border-radius: 12px; background: var(--muted); display: grid; place-items: center; color: var(--fg); border: 0; cursor: pointer; position: relative; transition: background .15s; }
+.ib:hover { background: var(--raised2); }
+.ib.out { color: var(--up); }
+.ib.act { background: var(--raised2); }
+.ib svg { width: 18px; height: 18px; }
+.ib .bd { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--armed); box-shadow: 0 0 0 2px var(--muted); }
+.ib:hover .bd, .ib.act .bd { box-shadow: 0 0 0 2px var(--raised2); }
+
+/* B — 카드 안 두 번째 줄 */
+.nrow { display: flex; align-items: center; gap: 10px; min-height: 52px; margin: 0 16px; border-top: 1px solid var(--hair); padding: 6px 0; }
+.nrow .bell { width: 32px; height: 32px; border-radius: 10px; background: var(--muted); display: grid; place-items: center; color: var(--fg); flex: none; }
+.nrow .bell svg { width: 16px; height: 16px; }
+.nrow .tx { display: flex; flex-direction: column; min-width: 0; cursor: pointer; }
+.nrow .tx b { font-size: 14px; font-weight: 600; color: var(--fg); }
+.nrow .tx span { font-size: 12px; color: var(--mfg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nrow .end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+.chev { border: 0; background: transparent; color: var(--mfg); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; transition: transform .2s, background .15s; }
+.chev:hover { background: var(--muted); }
+.chev.open { transform: rotate(180deg); }
+.chev svg { width: 16px; height: 16px; }
+.nexp { margin: 0 16px 8px; }
+
+/* C — 가운데 히어로 + 알약 */
+.hero { background: var(--card); border-radius: 20px; padding: 22px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.hero .av { width: 64px; height: 64px; font-size: 24px; margin-bottom: 6px; }
+.hero .nm { font-size: 18px; }
+.pills { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--muted); color: var(--fg); font: inherit; font-size: 13px; font-weight: 600; border: 0; cursor: pointer; transition: background .15s; }
+.pill:hover { background: var(--raised2); }
+.pill svg { width: 15px; height: 15px; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--armed); }
+.pill .dot.off { background: var(--faint); }
+.pill.out { color: var(--up); }
+.f.desktop .hero { flex-direction: row; text-align: left; padding: 18px 20px; gap: 16px; }
+.f.desktop .hero .av { margin: 0; }
+.f.desktop .hero .pills { margin: 0 0 0 auto; }
+
+/* 알림 패널(시트 · 팝오버 · 펼침 공용 본문) */
+.np-h { font-size: 16px; font-weight: 700; color: var(--fg); padding: 0 4px; }
+.np-cap { font-size: 12.5px; line-height: 1.55; color: var(--mfg); padding: 4px 4px 8px; }
+.np-row { display: flex; align-items: center; gap: 8px; min-height: 48px; border-top: 1px solid var(--hair); padding: 4px; flex-wrap: wrap; }
+.np-row .lb { font-size: 14px; color: var(--fg); }
+.np-row .lb small { display: block; font-size: 12px; color: var(--mfg); }
+.np-row .end { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.np-st { font-size: 12.5px; color: var(--mfg); white-space: nowrap; }
+.np-st.on { color: var(--fg); }
+.gb { font: inherit; font-size: 12.5px; font-weight: 600; background: transparent; border: 0; padding: 6px 8px; border-radius: 8px; color: var(--fg2); cursor: pointer; white-space: nowrap; }
+.gb:hover { background: var(--muted); }
+.gb.red { color: var(--up); }
+.np-note { font-size: 12.5px; line-height: 1.5; color: var(--mfg); padding: 0 4px 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.np-note.err { color: var(--up); }
+.np-sec { font-size: 12px; font-weight: 600; color: var(--mfg); padding: 12px 4px 4px; }
+
+.sw { width: 44px; height: 26px; border-radius: 999px; background: var(--raised2); border: 0; position: relative; cursor: pointer; transition: background .15s; flex: none; }
+.sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--primary); }
+.sw.on::after { transform: translateX(18px); }
+.sw:disabled { opacity: .45; cursor: not-allowed; }
+
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 20; border-radius: inherit; animation: fade .18s ease; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--card); border-radius: 22px 22px 0 0; padding: 10px 16px 24px; animation: up .22s ease; }
+.sheet .grab { width: 36px; height: 4px; border-radius: 4px; background: var(--raised2); margin: 0 auto 12px; }
+.pop { position: absolute; z-index: 21; width: 360px; background: var(--pop); border-radius: 16px; padding: 14px 12px 10px; box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px var(--hair); animation: fade .15s ease; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 탭 + 본문 자리 */
+.tabs { display: flex; border-bottom: 1px solid var(--hair); margin-top: 4px; }
+.tabs button { font: inherit; font-size: 15px; font-weight: 600; color: var(--mfg); padding: 10px 4px 9px; margin-right: 18px; background: transparent; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--fg); }
+.tabs button i { font-style: normal; font-size: 12px; color: var(--faint); margin-left: 3px; }
+.f.phone .tabs button { margin-right: 14px; }
+.sbar { display: flex; flex-wrap: wrap; gap: 4px 12px; background: var(--muted); border-radius: 12px; padding: 8px 12px; font-size: 12px; color: var(--mfg); }
+.sbar b { color: var(--fg); font-weight: 600; }
+.sbar .d { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--armed); margin-right: 5px; }
+.ghost { background: var(--card); border-radius: 16px; padding: 14px; min-height: 120px; font-size: 13px; color: var(--mfg); }
+.ghost b { color: var(--fg); font-size: 14px; display: block; margin-bottom: 8px; }
+.sgrid { display: grid; gap: 12px; }
+.f.desktop .sgrid { grid-template-columns: 1fr 1fr; }
+.sg { background: var(--card); border-radius: 16px; padding: 10px 14px 4px; }
+.sg h3 { margin: 0 0 2px; font-size: 13px; color: var(--mfg); font-weight: 600; }
+.sg .r { display: flex; min-height: 40px; align-items: center; font-size: 14px; color: var(--mfg); }
+.sg .r b { margin-left: auto; color: var(--fg); font-weight: 600; }
+.gone { border: 1px dashed var(--faint); border-radius: 12px; padding: 8px 12px; font-size: 12px; color: var(--mfg); }
+.gone s { color: var(--faint); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">자리</span>
+    <button data-v="A" class="on">A 계정 카드 종 아이콘 ★ 채택</button>
+    <button data-v="B">B 계정 카드 안 알림 줄</button>
+    <button data-v="C">C 히어로 + 알약 버튼</button>
+  </div>
+  <div class="g"><span class="l">어디서 보나</span>
+    <button data-m="app" class="on">앱(이 기기 스위치)</button>
+    <button data-m="web">PC 웹(목록만)</button>
+  </div>
+  <div class="g"><span class="l">이 기기</span>
+    <button data-t="on" class="on">켜짐</button>
+    <button data-t="off">꺼짐</button>
+    <button data-t="denied">권한 거부</button>
+  </div>
+  <div class="g"><span class="l">이름</span>
+    <button data-n="매매 알림" class="on">매매 알림</button>
+    <button data-n="주문 알림">주문 알림</button>
+    <button data-n="주문·체결 알림">주문·체결 알림</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-th="dark" class="on">다크</button>
+    <button data-th="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const S = { v: 'A', m: 'app', t: 'on', n: '매매 알림', th: 'dark', tab: 'status',
+  open: { phone: false, desktop: false }, confirm: null, removed: new Set() };
+const DEV = [
+  { k: 'me', label: 'iPhone 16 Pro', pf: 'iOS', last: '11/07 09:12', me: true },
+  { k: 'g', label: 'Galaxy S24', pf: 'Android', last: '11/06 21:40', on: false },
+  { k: 'i', label: 'iPad Air', pf: 'iOS', last: '11/02 18:05', on: true },
+];
+const DESC = {
+  A: '<b>A 종 아이콘</b> — 현행 계정 카드 그대로, 테마 · 로그아웃 옆에 종 버튼 하나만 더한다(40×40 같은 모양). 이 기기가 켜져 있으면 초록 점. 누르면 폰은 <b>바텀 시트</b>, 데스크톱은 <b>팝오버</b>로 「이 기기 스위치 + 다른 기기 목록」. 화면 변화가 가장 작다 — 대신 꺼져 있다는 사실이 점 하나로만 보인다.',
+  B: '<b>B 카드 안 알림 줄</b> — 계정 카드를 두 줄로: 프로필 아래 hairline 뒤 「종 · 매매 알림 · 이 기기 켜짐 · 기기 2대」 + <b>스위치를 바로</b>. 켜고 끄기는 한 번에, 기기 목록은 ⌄ 로 카드 안에서 펼친다. 상태가 늘 글자로 보인다 — 카드 높이 +52.',
+  C: '<b>C 히어로 + 알약</b> — 계정 카드를 히어로로 키운다(폰은 가운데 정렬 아바타 64). 아래 알약 버튼 줄 「● 매매 알림 켜짐 · ☀ 테마 · 로그아웃」. 알림 알약을 누르면 A 와 같은 시트/팝오버. 마이페이지다운 첫인상 — 대신 세로가 가장 길다(폰 +80).',
+};
+const I = {
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+  belloff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>',
+};
+
+/* ── 상태 파생 ── */
+const app = () => S.m === 'app';
+const thisOn = () => app() && S.t === 'on';
+const devs = () => DEV.filter((d) => !S.removed.has(d.k)).map((d) => (d.me ? { ...d, on: S.t === 'on' } : d));
+const others = () => devs().filter((d) => !(app() && d.me));
+const onCount = () => devs().filter((d) => d.on).length;
+const CAPTION = () => app()
+  ? '주문 접수 · 체결 · 거부 · 자동 취소와 자동매도 시작 · 완료를 이 기기로 알려 드려요.'
+  : '주문 접수 · 체결 · 거부 · 자동 취소와 자동매도 소식을 받을 기기예요. 켜기는 그 기기의 GH Trade 앱에서 해요.';
+function summary() {
+  if (!app()) return `기기 ${devs().length}대 중 ${onCount()}대 켜짐`;
+  const me = S.t === 'on' ? '이 기기 켜짐' : S.t === 'denied' ? '권한 꺼짐' : '이 기기 꺼짐';
+  const n = others().length;
+  return n > 0 ? `${me} · 다른 기기 ${n}대` : me;
+}
+const pillOn = () => (app() ? S.t === 'on' : onCount() > 0);
+
+/* ── 알림 패널 본문(공용) ── */
+function panel(withHead = true, withSwitch = true) {
+  let h = '';
+  if (withHead) h += `<div class="np-h">${S.n}</div><div class="np-cap">${CAPTION()}</div>`;
+  if (app() && withSwitch) {
+    h += `<div class="np-row"><span class="lb">이 기기 ${S.n}</span><span class="end"><button class="sw ${S.t === 'on' ? 'on' : ''}" data-act="sw"></button></span></div>`;
+    if (S.t === 'denied') h += `<div class="np-note">알림 권한이 꺼져 있어요. 설정 앱에서 GH Trade 알림을 허용해 주세요. <button class="gb" style="margin-left:auto" data-act="settings">설정 열기</button></div>`;
+  }
+  const list = others();
+  if (app() && list.length) h += `<div class="np-sec">다른 기기</div>`;
+  for (const d of list) {
+    const c = S.confirm === d.k;
+    h += `<div class="np-row"><span class="lb">${d.label}<small>${d.pf} · 마지막 확인 ${d.last}</small></span>
+      <span class="end"><span class="np-st ${d.on ? 'on' : ''}">${d.on ? '켜짐' : '꺼짐'}</span>
+      ${d.on ? `<button class="gb" data-act="off" data-k="${d.k}">끄기</button>` : ''}
+      <button class="gb red" data-act="rm" data-k="${d.k}">${c ? '한 번 더 누르면 지워요' : '지우기'}</button></span></div>`;
+  }
+  if (!app() && !list.length) h += `<div class="np-note" style="border-top:1px solid var(--hair);padding-top:10px">등록된 기기가 없어요.</div>`;
+  return h;
+}
+
+/* ── 히어로 3안 ── */
+function heroA(w) {
+  const on = pillOn();
+  const pop = S.open[w] && w === 'desktop'
+    ? `<div class="pop" style="top:64px;right:56px">${panel()}</div>` : '';
+  return `<section class="acct"><div class="top">
+    <div class="av">E</div><div class="who"><span class="nm">알렉스</span><span class="em">ezmesya@gmail.com</span></div>
+    <div class="ic">
+      <button class="ib ${S.open[w] ? 'act' : ''}" data-act="open" data-w="${w}" title="${S.n} · ${summary()}">${on ? I.bell : I.belloff}${on ? '<i class="bd"></i>' : ''}</button>
+      <button class="ib" title="라이트 테마로">${I.sun}</button>
+      <button class="ib out" title="로그아웃">${I.out}</button>
+    </div></div>${pop}</section>`;
+}
+function heroB(w) {
+  const expanded = S.open[w];
+  const right = app()
+    ? `<button class="sw ${S.t === 'on' ? 'on' : ''}" data-act="sw"></button>` : '';
+  return `<section class="acct"><div class="top">
+    <div class="av">E</div><div class="who"><span class="nm">알렉스</span><span class="em">ezmesya@gmail.com</span></div>
+    <div class="ic"><button class="ib" title="라이트 테마로">${I.sun}</button><button class="ib out" title="로그아웃">${I.out}</button></div></div>
+    <div class="nrow">
+      <span class="bell">${pillOn() ? I.bell : I.belloff}</span>
+      <span class="tx" data-act="open" data-w="${w}"><b>${S.n}</b><span>${summary()}</span></span>
+      <span class="end">${right}<button class="chev ${expanded ? 'open' : ''}" data-act="open" data-w="${w}" title="기기 목록">${I.chev}</button></span>
+    </div>
+    ${app() && S.t === 'denied' && !expanded ? `<div class="nexp"><div class="np-note">알림 권한이 꺼져 있어요. <button class="gb" data-act="settings">설정 열기</button></div></div>` : ''}
+    ${expanded ? `<div class="nexp"><div class="np-cap" style="padding-top:0">${CAPTION()}</div>${panelB()}</div>` : ''}
+  </section>`;
+}
+// B 펼침 — 이 기기 스위치는 위 줄에 있으니 목록만(권한 안내는 펼침 위에서 이미 보인다)
+function panelB() {
+  let h = '';
+  if (app() && S.t === 'denied') h += `<div class="np-note">알림 권한이 꺼져 있어요. 설정 앱에서 GH Trade 알림을 허용해 주세요. <button class="gb" style="margin-left:auto" data-act="settings">설정 열기</button></div>`;
+  return h + panel(false, false);
+}
+function heroC(w) {
+  const on = pillOn();
+  const pop = S.open[w] && w === 'desktop'
+    ? `<div class="pop" style="top:70px;right:20px">${panel()}</div>` : '';
+  return `<section class="hero" style="position:relative">
+    <div class="av">E</div>
+    <div class="who" style="align-items:inherit"><span class="nm">알렉스</span><span class="em">ezmesya@gmail.com</span></div>
+    <div class="pills">
+      <button class="pill" data-act="open" data-w="${w}"><i class="dot ${on ? '' : 'off'}"></i>${S.n} ${app() ? (S.t === 'on' ? '켜짐' : '꺼짐') : `${onCount()}대`}</button>
+      <button class="pill">${I.sun}라이트</button>
+      <button class="pill out">${I.out}로그아웃</button>
+    </div>${pop}</section>`;
+}
+
+/* ── 탭 + 본문 ── */
+const TABS = [['status', '현황'], ['accounts', '잔고', 2], ['orders', '주문', 7], ['pnl', '손익'], ['settings', '설정']];
+function body(w) {
+  if (S.tab === 'settings') {
+    const G = [['매수 금액', [['선매수 금액', '100만원'], ['추가매수 금액', '50만원'], ['후매수 금액', '30만원']]],
+      ['후매수', [['후매수 최대', '3회'], ['후매수 하한잔량', '5,000주']]], ['매도', [['매도 잔량추적', '30%']]],
+      ['자동매도', [['매도 주기', '5초'], ['동시호가 매도비율', '50%']]]];
+    return `<div class="sgrid">${G.map(([t, rs]) => `<div class="sg"><h3>${t}</h3>${rs.map(([a, b]) => `<div class="r">${a}<b>${b}</b></div>`).join('')}</div>`).join('')}</div>
+      <div class="gone">설정 탭 = 매매 설정만 · <s>이 기기(돌파 알림음)</s> 숨김 · <s>알림 받는 기기</s> → 위 계정 카드로 이동</div>`;
+  }
+  if (S.tab === 'status') return `<div class="sbar"><span><i class="d"></i>시세 <b>실시간</b></span><span><i class="d"></i>주문 <b>연결됨</b></span><span>상따 <b>3건</b></span><span>VI <b>가동</b></span></div><div class="ghost"><b>전략 현황</b>삼성전자 · 무장 / 에코프로 · 대기 / 한화오션 · 후매수 대기</div>`;
+  const L = { accounts: '미체결 2 · 잔고 3', orders: '오늘 낸 주문 7건', pnl: '최근 30일 일자별 실현손익' };
+  return `<div class="ghost"><b>${TABS.find((t) => t[0] === S.tab)[1]}</b>${L[S.tab]}</div>`;
+}
+
+function frame(w) {
+  const hero = { A: heroA, B: heroB, C: heroC }[S.v](w);
+  const sheet = S.open[w] && w === 'phone' && S.v !== 'B'
+    ? `<div class="scrim" data-act="close" data-w="${w}"></div><div class="sheet"><div class="grab"></div>${panel()}</div>` : '';
+  return `<div class="f ${w} ${S.th === 'light' ? 'light' : ''}" data-frame="${w}">
+    <span class="cap">${w === 'phone' ? '폰 390' : '데스크톱 900'}</span>
+    <div><div class="ph-title">My page</div><div class="ph-sub">전략 현황 · 미체결 · 잔고</div></div>
+    ${hero}
+    <div class="tabs">${TABS.map(([v, l, c]) => `<button data-tab="${v}" class="${S.tab === v ? 'on' : ''}">${l}${c ? `<i>${c}</i>` : ''}</button>`).join('')}</div>
+    ${body(w)}
+    ${sheet}
+  </div>`;
+}
+
+let confirmTimer = null;
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.getElementById('stage').innerHTML = frame('phone') + frame('desktop');
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const key = ['v', 'm', 't', 'n', 'th'].find((k) => b.dataset[k] !== undefined); if (!key) return;
+  S[key] = b.dataset[key];
+  if (key === 'v') S.open = { phone: false, desktop: false };
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('stage').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act],[data-tab]'); if (!t) return;
+  const w = t.closest('[data-frame]')?.dataset.frame;
+  if (t.dataset.tab) { S.tab = t.dataset.tab; return render(); }
+  const a = t.dataset.act;
+  if (a === 'open') { S.open[w] = !S.open[w]; }
+  if (a === 'close') { S.open[w] = false; }
+  if (a === 'sw' && S.t !== 'denied') { S.t = S.t === 'on' ? 'off' : 'on'; syncNav(); }
+  if (a === 'off') { const d = DEV.find((x) => x.k === t.dataset.k); d.on = false; }
+  if (a === 'settings') { flash(t, '설정 앱으로 이동'); return; }
+  if (a === 'rm') {
+    const k = t.dataset.k;
+    if (S.confirm === k) { S.removed.add(k); S.confirm = null; clearTimeout(confirmTimer); }
+    else { S.confirm = k; clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { S.confirm = null; render(); }, 5000); }
+  }
+  render();
+});
+document.addEventListener('click', (e) => {
+  // 데스크톱 팝오버 — 바깥 클릭이면 닫는다
+  if (!S.open.desktop || S.v === 'B') return;
+  if (e.target.closest('.pop') || e.target.closest('[data-act="open"]') || e.target.closest('#nav')) return;
+  S.open.desktop = false; render();
+});
+function syncNav() { document.querySelectorAll('[data-t]').forEach((x) => x.classList.toggle('on', x.dataset.t === S.t)); }
+function flash(el, msg) { const o = el.textContent; el.textContent = msg; setTimeout(() => { el.textContent = o; }, 1200); }
+render();
+</script>
+</body>
+</html>
