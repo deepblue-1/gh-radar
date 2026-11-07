@@ -12,9 +12,8 @@ set -uo pipefail
 #   bash scripts/smoke-tick-convert.sh <YYYYMMDD> request <KRX|NXT>  # request --date D --ex EX (pending 요청이 없으면 기록만)
 #
 # 크래시로 포기한 날짜의 수동 재변환(R3-WR-02 · 알림 문서 ops/alert-tick-convert-failure.yaml) — 실행 기록에 끝 기록 없는
-# STARTED 만 남은 날짜(OOM · task timeout 3600s)는 같은 한도(8Gi · 3600s)로 돌리면 같은 자리에서 또 죽는다. 한도 override:
+# STARTED 만 남은 날짜(OOM · task timeout 3600s)는 같은 한도(16Gi · 3600s)로 돌리면 같은 자리에서 또 죽는다. 한도 override:
 #   TASK_TIMEOUT=7200s bash scripts/smoke-tick-convert.sh <YYYYMMDD>    # 이 실행만 task timeout(execute --task-timeout)
-#   MEMORY=16Gi bash scripts/smoke-tick-convert.sh <YYYYMMDD>            # Job 메모리를 잠시 올리고(jobs update) 끝나면 원래 값으로 되돌린다
 #   CPU=8 MEMORY=32Gi TASK_TIMEOUT=7200s bash scripts/smoke-tick-convert.sh <YYYYMMDD>   # 4 vCPU 는 16Gi 까지 — 그 위는 CPU 도
 #   MEMORY · CPU 는 Job 정의를 바꾼다 — Scheduler 시간(23:00~02:30 KST)은 피한다. 되돌리기에 실패하면 ❌ 와 함께 원래 값을 출력한다
 #   (그때는 `gcloud run jobs update gh-radar-tick-convert --memory=<원래> --cpu=<원래>` 또는 deploy-tick-convert.sh 재실행).

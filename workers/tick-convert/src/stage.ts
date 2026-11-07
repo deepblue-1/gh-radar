@@ -69,19 +69,25 @@ export class KeyStager {
     return [...this.map.keys()];
   }
 
-  /** 그 키의 원시 레코드 바이트(청크 해제 + 꼬리) — 꺼낸 키는 스테이저에서 빠진다. 없는 키면 빈 배열. */
+  /**
+   * 그 키의 원시 레코드 바이트(청크 해제 + 꼬리) — 꺼낸 키는 스테이저에서 빠진다. 없는 키면 빈 배열.
+   * 청크는 하나씩 풀어 바로 복사하고 버린다 — 전부 푼 뒤 이어붙이면 순간 메모리가 원시 크기의 2배가 되어 11/06 삼성전자
+   * NXT(원시 ≈1.4GB)에서 8Gi OOM(signal 9)으로 죽었다. 지금은 원시 1배 + 청크 하나(≈chunkBytes).
+   */
   take(key: string): Uint8Array {
     const e = this.map.get(key);
     if (!e) return new Uint8Array(0);
     this.forget(key, e);
-    const parts = e.chunks.map((c) => zlib.zstdDecompressSync(c));
     const tail = e.tail.bytes();
     const out = new Uint8Array(e.rawBytes);
     let off = 0;
-    for (const p of parts) {
+    for (const c of e.chunks) {
+      const p = zlib.zstdDecompressSync(c);
+      if (off + p.length > out.length) throw new Error(`KeyStager.take ${key}: 청크 해제 길이가 원시 ${e.rawBytes}B 를 넘는다`);
       out.set(p, off);
       off += p.length;
     }
+    e.chunks.length = 0;
     out.set(tail, off);
     off += tail.length;
     if (off !== e.rawBytes) throw new Error(`KeyStager.take ${key}: ${off}/${e.rawBytes}B — 청크 해제 길이가 어긋난다`);

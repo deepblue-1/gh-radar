@@ -11,7 +11,7 @@ set -euo pipefail
 # 차이 (37-18-PLAN / 37-RESEARCH Pattern 11):
 #   - GCS 볼륨 읽기 전용 마운트(gen2) — gs://gh-trade-tick-archive → /mnt/tick, 워커 env TICK_ARCHIVE_DIR=/mnt/tick/raw
 #     (버킷 접두 raw/<krx|nxt>/<YYYYMMDD>/ — gh-trade tick-archive 가 올린다 · 클래스 ARCHIVE)
-#   - cpu 4 · memory 8Gi(Pitfall 5 — nightly 는 하루 전 종목을 메모리 압축 청크로 스테이징 · SC3 실측으로 줄인다)
+#   - cpu 4 · memory 16Gi(Pitfall 5 — nightly 는 하루 전 종목을 메모리 압축 청크로 스테이징 · 11/06 거래량 급증일 8Gi OOM 두 번 → 16Gi)
 #   - task-timeout 3600s 는 nightly 용 — nightly 는 TICK_NIGHTLY_BUDGET_MS(40분) 뒤 새 날짜를 시작하지 않는다(남은 날짜는
 #     01:30 · 다음 밤이 잇는다). request 실행은 server 가 Job 실행 overrides `timeout: 1200s` 로 줄인다(37-07) — 37-04 의
 #     running 회수 25분(= 1200s + 여유 5분)의 근거다.
@@ -165,13 +165,13 @@ COMMON_SECRETS="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 deploy_job() {
   local job="$1"
-  echo "▶ deploying Cloud Run Job: $job (cpu=4, memory=8Gi, timeout=3600s, volume gs://${BUCKET} → /mnt/tick ro)..."
+  echo "▶ deploying Cloud Run Job: $job (cpu=4, memory=16Gi, timeout=3600s, volume gs://${BUCKET} → /mnt/tick ro)..."
   gcloud run jobs deploy "$job" \
     --image="$IMAGE" \
     --region="$REGION" \
     --service-account="$RUNTIME_SA" \
     --cpu=4 \
-    --memory=8Gi \
+    --memory=16Gi \
     --task-timeout=3600s \
     --max-retries=0 \
     --parallelism=1 \
@@ -390,7 +390,7 @@ fi
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "✅ Deployed @ $IMAGE"
-echo "   Job:       $JOB (cpu 4 · 8Gi · task-timeout 3600s · gen2 · volume gs://${BUCKET} → /mnt/tick ro)"
+echo "   Job:       $JOB (cpu 4 · 16Gi · task-timeout 3600s · gen2 · volume gs://${BUCKET} → /mnt/tick ro)"
 echo "   Scheduler: $SCHED (cron '$CRON' Asia/Seoul) · $SCHED_LATE (cron '$CRON_LATE' Asia/Seoul)"
 echo "   Overrides: ${OVERRIDE_ROLE} → $SERVER_SA (Job 단위)"
 echo "   Alert:     $ALERT_NAME"
