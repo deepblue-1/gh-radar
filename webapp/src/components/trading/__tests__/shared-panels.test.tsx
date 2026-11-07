@@ -120,11 +120,11 @@ function panel(): HTMLElement {
 }
 
 /**
- * 더티 바 예약의 인라인 `bottom` — Phase 21 D-25 부터 앱 탭바 여백 변수를 더한 식이다(브라우저에서 변수는 0px).
+ * 더티 바 예약의 인라인 `bottom` — 예약 px 그대로다(quick-261107-fbj — 앱 하단 크롬 여백 식을 걷었다 · 앱 · 브라우저 공통).
  * 정본은 `shared-panels.tsx` ⑤-c · globals.css §21.
  */
 function reserveBottom(px: number): string {
-  return `calc(var(--native-tabbar-offset, 0px) + ${px}px)`;
+  return `${px}px`;
 }
 
 function result(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultMsg {

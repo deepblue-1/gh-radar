@@ -11,9 +11,8 @@
  *  1. `window.__ghTrade = { refresh, navigate, back }` 설치·해제 — 네이티브가 `evaluateJavaScript` 로 부른다.
  *  2. refresh 레지스트리 — `useNativeRefresh(fn)` 으로 등록된 훅을 **전부** 부른다(아래 결정).
  *  3. 오버레이 참조계수 — Sheet·Dialog·NumberPadSheet·Popover Content 안의 `NativeOverlayMarker` 가 올리고 내린다.
- *     0→1 에서 `overlay {open:true}`, 1→0 에서 `overlay {open:false}` 를 한 번씩만 보낸다(탭바 숨김 · 당김 비활성).
- *     키패드 시트는 immediate 로 획득해 0→1 신호에 `immediate:true` 를 싣는다(D-12a'' — 키보드 대체 = 즉시 숨김).
- *     계수가 이미 1 이상이면 탭바가 이미 숨었으므로 추가 신호가 없다.
+ *     0→1 에서 `overlay {open:true}`, 1→0 에서 `overlay {open:false}` 를 한 번씩만 보낸다(당김 비활성 · back 판정).
+ *     계수가 이미 1 이상이면 네이티브는 이미 열림으로 알고 있으므로 추가 신호가 없다.
  *  4. `route {path}` · `theme {theme}` 신호 — 경로 변경마다 · 마운트 후와 `resolvedTheme` 변경 때.
  *  5. `pull {blocked}` 신호(Android) — 터치 시작 지점의 내부 스크롤이 위로 스크롤돼 있으면 문서 당김을 막는다.
  *  6. 푸시 세션(Phase 40) — 체결 알림 탭 리스너를 세션마다 한 번(`lib/push/push-session.ts`).
@@ -55,21 +54,13 @@ import { postNative } from './post-native';
 
 export type NativeRefreshFn = () => unknown | Promise<unknown>;
 
-export interface OverlayAcquireOptions {
-  /**
-   * 키보드 대체 입력(키패드 시트) — 0→1 열림 신호에 `immediate:true` 를 싣는다(D-12a'').
-   * 네이티브가 D-12 의 150ms 대기·페이드 없이 탭바를 즉시 숨긴다. 다른 오버레이는 쓰지 않는다.
-   */
-  immediate?: boolean;
-}
-
 export interface NativeBridgeValue {
   /** 앱 셸 안인가(마운트 후에만 true — 하이드레이션 일치). */
   isNative: boolean;
   /** 당겨서 새로고침 훅 등록. 반환 = 해제. */
   registerRefresh: (fn: NativeRefreshFn) => () => void;
   /** 오버레이 열림 참조 획득. 반환 = 해제(중복 해제는 무시). */
-  acquireOverlay: (opts?: OverlayAcquireOptions) => () => void;
+  acquireOverlay: () => () => void;
 }
 
 /** 네이티브가 `evaluateJavaScript` 로 부르는 전역 — 앱에서만 존재한다. */
@@ -84,12 +75,12 @@ type GhTradeWindow = Window & { __ghTrade?: GhTradeGlobal };
 const NOOP = () => {};
 
 /**
- * 네이티브 탭바 5탭 경로 — `mobile/android/.../TabRoutes.kt` · `mobile/ios/App/App/TabRoutes.swift` 의 탭 경로와 같아야 한다.
- * 네이티브 탭은 Link 가 아니라 `router.push` 로 이동해 프리페치가 없다. 그래서 탭을 처음 누를 때마다 미들웨어의
- * Supabase 인증 왕복 + 페이지 RSC 를 그 자리에서 기다렸다(운영 실측: CDN 적중인데도 0.3~0.5s, 첫 전환 0.6~1.2s).
- * 앱에서는 이 경로들을 미리 받아 둔다(웹은 사이드바 Link 가 같은 일을 한다).
+ * 앱 주요 목적지 5곳(드로어 사이드바 첫 묶음과 같은 순서). 앱엔 늘 보이는 Link 가 없어(사이드바는 드로어를 열어야
+ * 마운트된다) Next 프리페치가 없고, 처음 이동할 때마다 미들웨어의 Supabase 인증 왕복 + 페이지 RSC 를 그 자리에서
+ * 기다렸다(운영 실측: CDN 적중인데도 0.3~0.5s, 첫 전환 0.6~1.2s). 앱에서는 이 경로들을 미리 받아 둔다 — 드로어 이동 ·
+ * 푸시 착지 `router.push` 가 같은 이득을 본다(웹 브라우저는 고정 사이드바 Link 가 같은 일을 한다).
  */
-const NATIVE_TAB_PATHS = ['/', '/search', '/trading', '/chat', '/me'] as const;
+const NATIVE_PREFETCH_PATHS = ['/', '/search', '/trading', '/chat', '/me'] as const;
 
 /** 로그인 전 경로 — 여기서 프리페치하면 로그인 리다이렉트만 받으므로 건너뛴다. */
 function isAuthPath(path: string): boolean {
@@ -156,12 +147,9 @@ export function NativeBridgeProvider({ children }: { children: ReactNode }) {
 
   // 송신 여부는 DOM 클래스를 직접 읽는다 — Content 가 Provider 의 마운트 effect 보다 먼저 마운트돼도
   // (자식 effect 가 먼저 돈다) 계수와 신호가 어긋나지 않는다.
-  const acquireOverlay = useCallback((opts?: OverlayAcquireOptions) => {
+  const acquireOverlay = useCallback(() => {
     overlayCountRef.current += 1;
-    if (overlayCountRef.current === 1 && isNativeApp()) {
-      // immediate 는 요청됐을 때만 싣는다 — false·undefined 키를 보내지 않는다(계약 최소화 · D-12a'').
-      postNative('overlay', opts?.immediate === true ? { open: true, immediate: true } : { open: true });
-    }
+    if (overlayCountRef.current === 1 && isNativeApp()) postNative('overlay', { open: true });
     let released = false;
     return () => {
       if (released) return;
@@ -211,17 +199,17 @@ export function NativeBridgeProvider({ children }: { children: ReactNode }) {
     };
   }, [isNative]);
 
-  // 4a. route — 경로가 바뀔 때마다 한 번(SPA 이동 뒤 네이티브 탭바 활성 보강 · D-14).
+  // 4a. route — 경로가 바뀔 때마다 한 번(SPA 이동 뒤 네이티브 현재 경로 보강 — Android 뒤로가기 판정 · iOS 는 기록만).
   useEffect(() => {
     if (!isNative || !pathname) return;
     postNative('route', { path: pathname });
   }, [isNative, pathname]);
 
-  // 4a'. 탭 경로 프리페치 — 마운트 뒤와 경로가 바뀔 때마다. 캐시가 살아 있는 경로는 Next 가 다시 요청하지 않고,
+  // 4a'. 주요 목적지 프리페치 — 마운트 뒤와 경로가 바뀔 때마다. 캐시가 살아 있는 경로는 Next 가 다시 요청하지 않고,
   //      만료(정적 5분)된 경로만 다시 받아 둔다.
   useEffect(() => {
     if (!isNative || !pathname || isAuthPath(pathname)) return;
-    for (const p of NATIVE_TAB_PATHS) routerRef.current.prefetch(p);
+    for (const p of NATIVE_PREFETCH_PATHS) routerRef.current.prefetch(p);
   }, [isNative, pathname]);
 
   // 4b. theme — 마운트 후와 resolvedTheme 변경 때 한 번(D-23). 아직 해석 전(undefined)이면 보내지 않는다.

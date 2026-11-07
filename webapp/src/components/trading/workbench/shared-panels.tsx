@@ -60,16 +60,13 @@
  *   페이지 끝 콘텐츠가 패널 밑에 묻히지 않게 한다(sticky 가 페이지 끝에서 하던 일).
  *   폰 밴드 판정은 작업대가 `wb` 폭으로 내려 준다(`phoneBand`). 판정 전(`null`)은 흐름 안이다.
  *
- * ⑤-c Phase 21 D-25 · D-25a — 안전영역 · 앱은 숨김
+ * ⑤-c Phase 21 D-25 · quick-261107-fbj — 안전영역(앱 · 브라우저 공통)
  *   루트에 `data-slot="shared-panels"` · `data-pinned`(폰 밴드 포털) 를, 흐름 안 자리에
- *   `data-slot="shared-panels-spacer"` 를 단다 — globals.css §21 이 이 표식으로 브라우저에서는 폰 밴드 패널
- *   하단에 `--app-safe-bottom` 패딩을 준다. **앱(`html.native-app`)은 패널 · spacer 를 CSS 로 숨긴다**
- *   (D-25a · G-21-R3-2 — 폰 · iPad 공통, 네이티브 탭바와 겹쳐 쌓이던 문제). 전 종목 전략 로그는 /me
- *   전략 현황 카드 「현황 | 로그」 가 대신 보여 준다(`lib/strategy-log-feed.tsx`). 잃는 동작(잔고 행 → 카드 ·
- *   카드 없는 종목 미체결 정정 진입)은 앱에서 범위 밖이다(21-25 사용자 동의).
- *   ★ 숨긴 패널은 `offsetHeight` 가 0 이라 `usePanelHeight` 가 0 을 재고 `--wb-bottom-inset` 도 0 이다 —
- *     따로 앱 분기를 두지 않는다(e2e 「G-21-R3-2」 가 앱 390 에서 0px 을 단언한다). 클래스는 첫 페인트 전에
- *     붙으므로 한 번도 높이가 잡히지 않는다.
+ *   `data-slot="shared-panels-spacer"` 를 단다 — globals.css §21 이 이 표식으로 폰 밴드 패널 하단에
+ *   `--app-safe-bottom` 패딩을 준다(앱 · 브라우저 같은 규칙). 앱에서 패널 · spacer 를 숨기던 규칙(D-25a · G-21-R3-2)은
+ *   quick-261107-fbj 로 걷었다(네이티브 하단 크롬 제거) — 앱 /trading 에서도 미체결 · 잔고 · 전략 로그가 다시 보인다.
+ *   앱 페이지 끝은 globals 의 `main:has(spacer)` 규칙이 8px 로 맞춘다(spacer 가 안전영역 패딩까지 예약하므로
+ *   안전영역을 두 번 비우지 않는다). /me 「현황 | 로그」 는 두 번째 입구로 그대로다(`lib/strategy-log-feed.tsx`).
  *
  * ⑥ 로딩 스피너가 없다 (E13 loading)
  *   미체결·잔고는 인증 직후 relay 스냅샷으로 채워진다(push). 스냅샷 전은 빈 문구이고, 목록 자체의
@@ -256,7 +253,7 @@ export function SharedPanels({
     흐름 안(≥700 · 판정 전): `bottom`(폰 sticky 잔재 — 판정 전 첫 페인트) + `margin-bottom`(페이지
     끝 여백). 포털(폰): `bottom` 만 — 여백은 흐름 안 자리가 대신 갖는다(⑤-b).
   */
-  const reserveBottom = `calc(var(--native-tabbar-offset, 0px) + ${reserve ?? 0}px)`;
+  const reserveBottom = `${reserve ?? 0}px`;
   const reserveStyle: CSSProperties | undefined =
     reserve === null ? undefined : pinned ? { bottom: reserveBottom } : { bottom: reserveBottom, marginBottom: reserve };
 

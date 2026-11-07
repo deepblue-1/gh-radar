@@ -9,17 +9,17 @@ import { renderHook } from '@testing-library/react';
  * **깨졌을 때 사용자가 겪는 일**과 1:1 이다.
  *
  *  1. 브라우저 무변화          → 깨지면 일반 브라우저 사용자 페이지에 `window.__ghTrade` 가 생기고 채널 송신이 난다
- *  2. 전역 설치·해제           → 깨지면 네이티브 탭바·당김·뒤로가기가 웹을 부르지 못하거나, 언마운트 뒤 죽은 훅을 부른다
+ *  2. 전역 설치·해제           → 깨지면 네이티브 당김·뒤로가기가 웹을 부르지 못하거나, 언마운트 뒤 죽은 훅을 부른다
  *  3. refresh 전부 호출        → 깨지면 종목상세에서 시세만 새로고침되고 뉴스·토론은 그대로 남는다
  *  4. refresh 실패 격리        → 깨지면 한 섹션 재조회 실패가 나머지 섹션 새로고침을 막고, 무로그로 사라진다
  *  5. 언마운트 해제            → 깨지면 떠난 페이지의 재조회가 계속 불려 쓸데없는 호출이 쌓인다
  *  6. 등록 0 = reload          → 깨지면 새로고침 훅이 없는 페이지에서 당겨도 아무 일이 안 일어난다
  *  7. navigate 검증            → 깨지면 네이티브가 넘긴 값으로 외부 URL·프로토콜 상대 경로(`//evil`)로 이동한다(T-21-16)
  *  8. 같은 탭 재탭 = 최상단    → 깨지면 탭을 다시 눌러도 스크롤이 그대로다(D-06)
- *  9. route 신호               → 깨지면 SPA 이동 뒤 네이티브 탭바 활성 표시가 옛 탭에 머문다(D-14)
- * 10. theme 신호               → 깨지면 테마를 바꿔도 상태바·탭바 팔레트가 옛 테마로 남는다(D-23)
+ *  9. route 신호               → 깨지면 SPA 이동 뒤 네이티브 현재 경로가 옛 경로에 머물러 Android 뒤로가기 판정(홈으로)이 틀린다
+ * 10. theme 신호               → 깨지면 테마를 바꿔도 상태바·창 배경이 옛 테마로 남는다(D-23)
  * 11. pull 신호(Android)       → 깨지면 호가 사다리를 위로 스크롤하다 페이지 전체가 새로고침된다(Pitfall 7)
- * 12a. 탭 경로 프리페치      → 깨지면 앱 탭을 처음 누를 때마다 미들웨어 인증 왕복 + 페이지 데이터 요청을 그 자리에서 기다린다
+ * 12a. 주요 목적지 프리페치  → 깨지면 앱에서 드로어로 처음 이동할 때마다 미들웨어 인증 왕복 + 페이지 데이터 요청을 그 자리에서 기다린다
  * 12. Provider 밖 폴백         → 깨지면 Provider 없이 렌더되는 컴포넌트·테스트가 전부 throw 한다
  * 15. 푸시 세션(Phase 40)     → 깨지면 알림을 탭해도 주문로그가 안 열리거나(앱), 브라우저에 탭 처리가 붙는다
  *
@@ -275,18 +275,18 @@ describe('앱 — navigate(path)', () => {
   });
 });
 
-describe('앱 — 탭 경로 프리페치', () => {
-  const TABS = ['/', '/search', '/trading', '/chat', '/me'];
+describe('앱 — 주요 목적지 프리페치', () => {
+  const PREFETCH_PATHS = ['/', '/search', '/trading', '/chat', '/me'];
 
-  it('12a. 앱이면 마운트 뒤 네이티브 탭 5개 경로를 전부 prefetch 한다 · 경로가 바뀌면 다시 요청한다', () => {
+  it('12a. 앱이면 마운트 뒤 주요 목적지 5곳(드로어 사이드바 첫 묶음)을 전부 prefetch 한다 · 경로가 바뀌면 다시 요청한다', () => {
     enterNativeApp('android');
     const { rerender } = render(<Harness />);
-    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...TABS].sort());
+    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...PREFETCH_PATHS].sort());
 
     prefetchMock.mockReset();
     mockPathname = '/trading';
     rerender(<Harness />);
-    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...TABS].sort());
+    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...PREFETCH_PATHS].sort());
   });
 
   it('12b. 브라우저에서는 prefetch 0 (웹은 사이드바 Link 가 프리페치한다)', () => {

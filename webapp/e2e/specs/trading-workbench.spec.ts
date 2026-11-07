@@ -1257,23 +1257,18 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(lastCard!.y + lastCard!.height, '맨 아래 — 카드 끝이 패널에 묻히지 않는다').toBeLessThanOrEqual(panelAtEnd!.y + 1);
   });
 
-  test('G-21-R3-2 앱 공용 패널 숨김 — 앱 390 · 1024 는 패널 · spacer 가 없고 탭바 몫은 82px 로 풀린다, 브라우저 390 · 1280 은 그대로 보인다 (D-25a)', async ({
+  test('앱 공용 패널 복원 — 앱 390 패널 · spacer 보임 · 화면 하단 · 안전영역 패딩 · 앱 1024 보임 · 브라우저 그대로 (quick-261107-fbj)', async ({
     page,
   }) => {
     /*
-      앱(html.native-app)은 /trading 하단 공용 패널과 흐름 안 자리(spacer)를 CSS 로 숨긴다(폰 · iPad 공통) —
-      네이티브 탭바 위에 겹쳐 쌓이던 문제. 브라우저는 종전 그대로다(T-21-89).
-      ★ 카드 더티 바 자체는 Phase 20 D-04 이후 렌더되는 곳이 없어(값은 행 확정 = 즉시 전송) UI 로 더티 카드를
-        만들 수 없다. 그래서 바 위치 식(innerHeight − inset − 탭바 몫)은 strategy-card.test 가 잠그고, 여기서는
-        그 식의 입력인 **프로브 계산값**이 실브라우저에서 14 + 60 + 8 = 82px(안전영역 0)로 풀리는지를 본다.
+      quick-261107-fbj — 네이티브 하단 탭바를 걷어 앱에서도 /trading 하단 공용 패널(미체결 · 잔고 · 전략 로그)과 흐름 안
+      자리(spacer)가 다시 보인다(옛 D-25a · G-21-R3-2 앱 숨김 규칙 삭제). 패널은 브라우저와 같은 규칙으로 화면 하단에 붙고
+      `--app-safe-bottom` 만큼 아래 패딩을 가지며, 앱 본문 `main` 하단은 spacer 가 자리를 예약하므로 8px 만 비운다
+      (안전영역을 두 번 비우지 않는다 · globals.css §21). 안전영역은 크롬에서 0 이라 인라인 주입(34px)으로 흉내 낸다.
     */
     relay.seedLimitChasers([{ buyEnabled: true }]);
     const spacer = page.locator('[data-slot="shared-panels-spacer"]');
-    const probeBottom = () =>
-      page.evaluate(() => {
-        const el = document.querySelector('[data-slot="native-tabbar-probe"]');
-        return el === null ? null : getComputedStyle(el).bottom;
-      });
+    const viewportH = PHONE_VIEWPORT.height;
 
     // ① 브라우저 390 · 1280 — 패널이 보인다(폰은 포털 + spacer).
     await page.setViewportSize(PHONE_VIEWPORT);
@@ -1281,40 +1276,51 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(sharedPanels(page)).toBeVisible();
     await expect(sharedPanels(page)).toHaveAttribute('data-pinned', 'true');
     await expect(spacer).toHaveCount(1);
-    expect(await probeBottom(), '브라우저 — 탭바 몫 0').toBe('0px');
     await page.setViewportSize({ width: 1280, height: 900 });
     await expect(sharedPanels(page)).toBeVisible();
 
-    // ② 앱 390 — 패널 · spacer 가 없고, 패널 높이 알림(--wb-bottom-inset)도 0 이다.
+    // ② 앱 390 — 패널 · spacer 가 보이고, 패널은 화면 하단에 붙으며 높이 알림(--wb-bottom-inset)이 선다.
     await installNativeApp(page);
     await page.setViewportSize(PHONE_VIEWPORT);
     await openFocusedCard(page);
     await expect(page.locator('html')).toHaveClass(/native-app/);
-    await expect(sharedPanels(page)).toBeHidden();
-    await expect(spacer).toBeHidden();
-    const inset = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--wb-bottom-inset').trim(),
-    );
-    expect(['', '0px'], `--wb-bottom-inset = ${inset}`).toContain(inset);
-    expect(await probeBottom(), '앱 — 탭바 몫 = 14 + 60 + 8').toBe('82px');
+    await expect(sharedPanels(page)).toBeVisible();
+    await expect(sharedPanels(page)).toHaveAttribute('data-pinned', 'true');
+    await expect(spacer).toHaveCount(1);
+    await expect(spacer).toBeVisible();
+    const panelBox = await sharedPanels(page).boundingBox();
+    expect(panelBox, '공용 패널을 잴 수 없다').not.toBeNull();
+    expect(Math.abs(panelBox!.y + panelBox!.height - viewportH), '앱 — 패널 아랫변 = 화면 아랫변').toBeLessThanOrEqual(1);
+    await expect
+      .poll(() =>
+        page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--wb-bottom-inset').trim()),
+      )
+      .toMatch(/^[1-9]\d*(\.\d+)?px$/);
+    const pb = (sel: string) =>
+      page.evaluate((s) => getComputedStyle(document.querySelector(s)!).paddingBottom, sel);
+    expect(await pb('main'), '앱 — spacer 가 있으면 main 하단 8').toBe('8px');
 
-    // ③ 앱 1024(iPad) — 넓은 폭(격자 아래 일반 섹션)도 숨긴다.
+    await page.evaluate(() => document.documentElement.style.setProperty('--app-safe-bottom', '34px'));
+    expect(await pb('[data-slot="shared-panels"]'), '앱 — 패널 아래 패딩 = 안전영역').toBe('34px');
+    expect(await pb('main'), '앱 — 안전영역을 두 번 비우지 않는다').toBe('8px');
+    await page.evaluate(() => document.documentElement.style.removeProperty('--app-safe-bottom'));
+
+    // ③ 앱 1024(iPad) — 넓은 폭(격자 아래 일반 섹션)도 보인다.
     await page.setViewportSize({ width: 1024, height: 1366 });
     await expect(cardOf(page, E2E_ISIN)).toBeVisible();
-    await expect(sharedPanels(page)).toBeHidden();
-    await expect(spacer).toBeHidden();
+    await expect(sharedPanels(page)).toBeVisible();
   });
 
-  test.describe("앱 모드 터치 키패드(D-12a'')", () => {
+  test.describe('앱 모드 터치 키패드', () => {
     test.use({ hasTouch: true });
 
-    test("D-12a'' 앱 키패드 시트 — 값 행 탭 → overlay 열림 신호에 immediate:true · 닫으면 {open:false} (quick-260926-vk9)", async ({
+    test('앱 키패드 시트 — 값 행 탭 → overlay 열림 신호 {open:true} · 닫으면 {open:false} (quick-260926-vk9 · quick-261107-fbj)', async ({
       page,
     }) => {
       /*
         실제 페이지 · 실제 감지 스크립트 · 실제 Provider · 실제 키패드가 네이티브 채널로 내보내는 바이트를 본다.
-        수량·가격 칸은 시스템 키보드가 아니라 NumberPadSheet 를 연다 → 그 열림 신호만 immediate:true 를 실어
-        네이티브가 탭바를 150ms 대기·페이드 없이 즉시 숨긴다(D-12a''). dev 서버는 StrictMode 라 새로 마운트되는
+        수량·가격 칸은 시스템 키보드가 아니라 NumberPadSheet 를 연다 → 다른 오버레이와 같은 열림 신호 {open:true} 를
+        보낸다(키패드 전용 즉시 필드는 quick-261107-fbj 로 걷었다). dev 서버는 StrictMode 라 새로 마운트되는
         마커 effect 가 획득→해제→획득으로 두 번 돌 수 있다 → 열림 신호 개수는 고정하지 않고 **모두** 같은 모양인지 본다.
       */
       relay.seedLimitChasers([{ buyEnabled: true }]);
@@ -1340,7 +1346,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
         .poll(async () => (await opensSince()).length, { message: '키패드 열림 신호가 1개 이상' })
         .toBeGreaterThanOrEqual(1);
       const opens = await opensSince();
-      for (const p of opens) expect(p, '열림 신호는 모두 immediate:true').toEqual({ open: true, immediate: true });
+      for (const p of opens) expect(p, '열림 신호는 모두 {open:true}').toEqual({ open: true });
 
       await sheet.getByRole('button', { name: '닫기' }).tap();
       await expect(sheet).toHaveCount(0);

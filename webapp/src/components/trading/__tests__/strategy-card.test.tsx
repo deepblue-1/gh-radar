@@ -781,27 +781,17 @@ describe('StrategyCard', () => {
 });
 
 /**
- * G-21-R3-2 · D-25a — 카드 더티 바는 앱에서 네이티브 탭바 몫까지 비킨다.
- * 탭바 몫은 숨은 프로브(`native-tabbar-probe`)의 computed `bottom` px 다(calc 변수는 getPropertyValue 로 못 읽는다).
- * jsdom 은 레이아웃·calc 가 없으므로 기하와 프로브 계산값만 꽂고 **식**(innerHeight − inset − 탭바 몫)을 잠근다 —
- * 실브라우저에서 프로브가 82px(14 + 60 + 8)로 풀리는지는 e2e 「G-21-R3-2」 가 본다.
+ * 카드 더티 바 위치 식 — 화면 아래 = innerHeight − `--wb-bottom-inset`(앱 · 브라우저 공통 · quick-261107-fbj).
+ * jsdom 은 레이아웃이 없으므로 기하만 꽂고 **식**을 잠근다. 앱 하단 크롬 몫을 재던 숨은 프로브는 걷었다.
  */
-describe('StrategyCard 더티 바 탭바 비킴 (G-21-R3-2)', () => {
+describe('StrategyCard 더티 바 화면 아래 붙임 (quick-261107-fbj)', () => {
   const dirtyBody = (s: StrategyCardState): ReactNode => (
     <button type="button" onClick={() => s.setDirtyCount(1)}>
       더티
     </button>
   );
 
-  function mountDirty(tabbarPx: string): HTMLElement {
-    const realGcs = window.getComputedStyle.bind(window);
-    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element, pseudo?: string | null) => {
-      const cs = realGcs(el, pseudo);
-      if ((el as HTMLElement).dataset?.slot !== 'native-tabbar-probe') return cs;
-      return new Proxy(cs, {
-        get: (t, k) => (k === 'bottom' ? tabbarPx : Reflect.get(t, k)),
-      });
-    });
+  function mountDirty(): HTMLElement {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
     const realRect = Element.prototype.getBoundingClientRect;
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
@@ -821,31 +811,20 @@ describe('StrategyCard 더티 바 탭바 비킴 (G-21-R3-2)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    document.querySelectorAll('[data-slot="native-tabbar-probe"]').forEach((n) => n.remove());
+    document.documentElement.style.removeProperty('--wb-bottom-inset');
   });
 
-  it('프로브는 문서에 한 번만 깔린다 — 카드가 둘이어도', () => {
-    render(
-      <RelayContext.Provider value={relay()}>
-        <StrategyCard {...baseProps} isin={ISIN_A} />
-        <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} />
-      </RelayContext.Provider>,
-    );
-    const probes = document.querySelectorAll('[data-slot="native-tabbar-probe"]');
-    expect(probes).toHaveLength(1);
-    expect((probes[0] as HTMLElement).style.position).toBe('fixed');
-    expect((probes[0] as HTMLElement).style.visibility).toBe('hidden');
-  });
-
-  it('앱 — 화면 아래 = innerHeight − 탭바 몫(82) 에 바를 붙인다', () => {
-    const host = mountDirty('82px');
-    // 카드 끝 1500 · 한계 844 − 0 − 82 = 762 → −738 만큼 올린다.
-    expect(host.style.transform).toBe('translateY(-738px)');
-  });
-
-  it('브라우저 — 탭바 몫 0 이면 종전 식(innerHeight − inset) 그대로', () => {
-    const host = mountDirty('0px');
+  it('inset 0 — 한계 = innerHeight(844) → 카드 끝 1500 에서 −656 만큼 올린다 · 프로브 요소가 생기지 않는다', () => {
+    const host = mountDirty();
     expect(host.style.transform).toBe('translateY(-656px)');
+    expect(document.querySelector('[data-slot$="-probe"]')).toBeNull();
+    expect(document.body.querySelectorAll(':scope > [aria-hidden="true"][style*="visibility"]')).toHaveLength(0);
+  });
+
+  it('`--wb-bottom-inset: 120px` — 한계 = 844 − 120 = 724 → −776 만큼 올린다', () => {
+    document.documentElement.style.setProperty('--wb-bottom-inset', '120px');
+    const host = mountDirty();
+    expect(host.style.transform).toBe('translateY(-776px)');
   });
 });
 

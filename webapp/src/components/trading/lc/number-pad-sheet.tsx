@@ -17,8 +17,8 @@
  *   화면은 440 가운데(D-13). 뷰포트 브레이크포인트 분기는 없다. 가운데를 transform 이 아니라
  *   margin 으로 잡아 등장 슬라이드(transform)와 다투지 않게 한다. 하단
  *   `max(10px, var(--app-safe-bottom))` — Phase 21 D-25 로 `viewport-fit=cover` 가 켜져 노치 폰에서는
- *   홈 인디케이터만큼 뜬다. 안전영역은 globals.css §21 `--app-safe-bottom` 으로 읽는다(Android WebView < 140 은
- *   `env()` 가 0 이라 SystemBars 주입 변수가 우선). 키패드가 열리면 앱 탭바는 즉시 숨는다(키보드 대체 · D-12a'').
+ *   홈 인디케이터만큼 뜬다. 안전영역은 globals.css §21 `--app-safe-bottom`(`env()` — 근거는 §21)으로 읽는다.
+ *   키패드 열림 = 오버레이 열림 신호만(당겨서 새로고침 끔 · Android back 이 키패드를 닫는다).
  *
  * ③ 포커스 — 제어형이라 수동 복원
  *   트리거 없는 제어형 Dialog 는 Radix 가 복귀 대상을 모른다(RESEARCH Pitfall 6). 열 때는
@@ -466,9 +466,8 @@ export function LcSheetShell({
             'motion-reduce:data-closed:fade-out-0 motion-reduce:data-closed:duration-150',
           )}
         >
-          {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
-          {/* 키보드 대체 입력 — 탭바를 150ms 대기·페이드 없이 즉시 숨긴다(D-12a'') */}
-          <NativeOverlayMarker immediate />
+          {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(당겨서 새로고침 끔 · back) — 브라우저 no-op */}
+          <NativeOverlayMarker />
           <Dialog.Title className="mb-1 text-[20px] leading-tight font-bold text-[var(--fg)]">{title}</Dialog.Title>
           <Dialog.Description className="mb-[14px] text-[14px] text-[var(--muted-fg)]">
             {description}

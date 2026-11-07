@@ -40,7 +40,7 @@ import { UserSection } from "./user-section";
  *     실제 차단은 server — 상한가 보고서 = 라우트 + RPC, AI 애널리스트 = `requireDmaMapped`(quick-261009-c43))
  *   · My page(트레이딩과 같은 노출 조건 · quick 261106-lwu D-02 로 Admin 위로)
  *   · [Admin = `/admin/pnl` 링크(첫 항목)] 매매손익 · 계좌 · 사용자 · 서버 · 발사 (Phase 29 D-13 · Phase 35 D-11 · quick 261106-lwu
- *     D-01 · quick 261106-ntl N-04 순서 · admin 역할만 · 모바일 탭바 없음)
+ *     D-01 · quick 261106-ntl N-04 순서 · admin 역할만 · 앱 · 좁은 화면은 드로어로)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
  * ① 그룹 제목은 이제 「트레이딩」(링크) 하나뿐이다
@@ -53,8 +53,8 @@ import { UserSection } from "./user-section";
  *    `/trading` 의 활성 표시는 제목 **하나**가 받는다. 3단 항목(VI 0~1 · 전략 N)은 모두 같은
  *    작업대를 가리키므로 활성 표시를 받지 않는다 — 여러 줄이 함께 켜지면 「지금 어디」가
  *    사라진다. `usePathname()` 은 쿼리를 싣지 않으므로 `/trading?focus=…` 에서도 제목이 켜진다.
- *    예외: 검색 허브 하위(상승률 상위 · 테마 · 관심종목 + 테마 상세)에서는 「검색」이 켜진다 — 앱 탭바가
- *    검색 탭을 켜는 것과 같다(`isSearchHubPath` · quick-260926-o2u D1).
+ *    예외: 검색 허브 하위(상승률 상위 · 테마 · 관심종목 + 테마 상세)에서는 「검색」이 켜진다 — 검색이 앱 주요
+ *    목적지 5곳 중 하나로 보이게 한다(`isSearchHubPath` · quick-260926-o2u D1).
  *
  * ③ 전략 키는 `encodeURIComponent` 로 인코딩한다
  *    키가 `{ISIN}:{accountNo}:{exchange}` 라 `:` 를 품는다. `?focus=` 쿼리 값으로 옮길 때도
@@ -177,7 +177,7 @@ function labelInputOf(group: SidebarAccountGroup): AccountLabelInput {
  * 활성 = **하위 항목**이 켠다 — `/analytics/limitup` 은 「상한가 보고서」, `/chat` 은 「AI 애널리스트」(2026-10-06 사용자 요청 —
  * 하위가 둘이 되어 제목만 켜면 어느 화면인지 안 보인다). 한 줄만 켜는 R-7(위 ②)은 그대로라 펼친 상태에서 제목은 켜지 않는다.
  * 레일은 하위 목록이 숨으므로 제목 아이콘이 `/analytics` 접두 일치로 켜진다(`rail` 값 기준 — 배지와 같은 한 박자 지연 수용).
- * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
+ * 앱 · 좁은 화면은 드로어 사이드바로 들어간다.
  */
 const NAV_ANALYTICS: NavLeaf = { href: "/analytics/limitup", label: "분석", icon: ChartLine };
 const NAV_LIMITUP_REPORT = { href: "/analytics/limitup", label: "상한가 보고서" } as const;
@@ -193,7 +193,7 @@ const NAV_TICKS = { href: "/analytics/ticks", label: "틱뷰어" } as const;
  * 매매손익(Phase 36 D-17) · 계좌(quick 261106-lwu D-01) · 사용자 · 서버 · 발사(Phase 35 D-11). 위치는 My page 뒤 = 목록 맨 끝(quick 261106-lwu D-02 — 종전 「분석 뒤 · My page 앞」 을 뒤집었다). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
  * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만)와 Express `requireAdmin` 이다.
  * 활성은 「분석」 규율 그대로 하위 항목이 켠다(펼침에서 제목은 켜지 않음) · 레일은 `/admin` 접두 일치로 제목 아이콘.
- * 모바일 탭바에는 넣지 않는다 — 앱/좁은 화면은 드로어 사이드바로 들어간다.
+ * 앱 · 좁은 화면은 드로어 사이드바로 들어간다.
  */
 const NAV_ADMIN: NavLeaf = { href: "/admin/pnl", label: "Admin", icon: Shield };
 // Phase 36 D-17 ① — 일자별 매매손익(계정별 | 계좌별 · 어드민 전용 · quick 261106-ntl N-04 로 맨 앞).

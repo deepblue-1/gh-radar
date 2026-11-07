@@ -745,56 +745,47 @@ html[lang="ko"] {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   §21 safe-area · 네이티브 탭바 여백 (Phase 21 D-25 · D-27b)
+   §21 safe-area (Phase 21 D-25 · quick-261107-fbj)
    - 안전영역의 **유일한 원천**은 아래 `--app-safe-{top,bottom,left,right}` 네 변수다. 컴포넌트는 `env()` 를
      직접 쓰지 않고 이 변수만 읽는다(`layout.tsx` viewport `viewportFit: 'cover'` 와 짝).
-     · `--safe-area-inset-*` 는 Capacitor 8.5 SystemBars(`insetsHandling: 'css'`)가 Android 에서 `<html>` 인라인
-       스타일로 **주입하는 이름**이다(Android WebView < 140 은 `env()` 가 0 — 21-RESEARCH Pattern 9 · Pitfall 8).
-       ★ 우리가 정의하지 않는다 — `:root` 에 선언하면 폴백 체인이 주입값 대신 우리 값을 읽는 순간이 생긴다.
-     · iOS WKWebView · Safari · 크롬은 주입이 없으니 `env()` 폴백으로 떨어지고, 크롬 데스크톱은 0 이다.
-     · ★ top·left·right 는 주입값을 읽지 않고 `env()` 만 읽는다(debug android-release-apk-no-scroll). SystemBars 는
-       WebView ≥ 140 이면 창이 엣지투엣지가 아니어도(Android ≤ 14) 실제 시스템바 높이를 주입해, 시스템이 이미 상태바
-       아래로 내린 헤더가 한 번 더 비었다(상태바 아래 빈 띠 · upstream capacitor#8623). 주입이 0 이 아닌 경우는 WebView
-       ≥ 140 뿐이고 거기선 `env()` 가 정확하다(S10e 실측: 비-엣지투엣지 env 0 · 엣지투엣지 env 42 ≈ 주입 41).
-       bottom 만 주입값을 유지한다 — 네이티브 탭바(`GhTradeTabBar`)가 같은 주입 인셋으로 자리를 잡아, 웹 offset 을
-       env 로 바꾸면 하단 고정 바가 탭바 밑으로 20px 들어간다. 하단 이중 여백은 네이티브(새 APK)에서 함께 고친다.
-   - 탭바 기하의 정본은 CONTEXT **D-27b** 다(스케치 007 C · D-27a 대체): 높이 60 · 바닥 = 화면 끝에서
-     max(inset − 14, 14) · 위 여유 8 · 웹 본문 하단 여백 98(= 60 + 20 + 18, 폰·iPad 공통). 여기 값을 바꾸면
-     D-27b · 네이티브 상수(iOS
-     `GHTradeTabBar` · Android `GhTradeTabBar`) · `e2e/specs/native-shell.spec.ts` 수치 단언을 같이 고친다.
-     · `--native-tabbar-gap` = 탭바 바닥 여백 · `--native-tabbar-offset` = 하단 고정 바가 설 높이(탭바 윗변 + 8).
-     · 브라우저(`native-app` 없음)에서는 offset·reserve 가 0 — 하단 고정 요소의 `bottom` 식이 종전 값이 된다.
+     · 네 변수 모두 `env()` 만 읽는다. Capacitor 8.5 SystemBars(`insetsHandling: 'css'`)가 Android 에서 `<html>` 인라인
+       스타일로 주입하는 `--safe-area-inset-*` 는 이제 어느 변수도 읽지 않는다 — ★ 우리가 정의하지도 않는다.
+     · 근거(debug android-release-apk-no-scroll · upstream capacitor#8623): 주입이 0 이 아닌 경우는 WebView ≥ 140 뿐이고
+       거기선 `env()` 가 정확하다(S10e 실측: 비-엣지투엣지 env 0 · 엣지투엣지 env 42 ≈ 주입 41). SystemBars 는 창이
+       엣지투엣지가 아니어도(Android ≤ 14) 실제 시스템바 높이를 주입해, 주입값을 읽으면 시스템이 이미 비킨 자리를 한 번 더
+       비운다(상태바 아래 빈 띠 · 하단 고정 바 · 공용 패널 아래가 내비바 높이만큼 이중 여백).
+     · bottom 만 주입값을 유지하던 유일한 이유는 네이티브 탭바가 같은 주입 인셋으로 자리를 잡는 것이었다(quick-261107-fbj) —
+       그 네이티브 크롬을 제거해 bottom 도 top·left·right 와 같은 규칙이 됐다.
+     · iOS WKWebView · Safari · 크롬은 `env()` 그대로이고, 크롬 데스크톱은 0 이다.
+   - quick-261107-fbj — 네이티브 탭바 제거: 앱 하단 고정 요소 · 본문은 브라우저와 같은 안전영역 규칙이다. 앱 `main` 하단은
+     페이지 끝 8px + 안전영역(홈 인디케이터)만 비우고, /trading 폰 밴드처럼 흐름 안 자리(공용 패널 spacer)가 패널 실측 높이
+     (안전영역 패딩 포함)를 이미 예약하는 화면은 8px 만 비운다 — 안전영역을 두 번 비우지 않는다.
    - `html.native-app main` 은 레이어 밖이라 AppShell `main` 의 `p-2 md:p-4 lg:p-6` 중 **하단만** 이긴다.
    - 뷰포트/셸 층 규칙이다 — §2.2b 상따 컨테이너 밴드와 무관하다(밴드 규칙에 safe-area 분기를 넣지 않는다).
    ───────────────────────────────────────────────────────────── */
 :root {
   --app-safe-top: env(safe-area-inset-top, 0px);
-  --app-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-left: env(safe-area-inset-left, 0px);
   --app-safe-right: env(safe-area-inset-right, 0px);
-  --native-tabbar-offset: 0px;
-  --native-body-reserve: 0px;
-}
-html.native-app {
-  --native-tabbar-gap: max(calc(var(--app-safe-bottom) - 14px), 14px);
-  --native-tabbar-offset: calc(var(--native-tabbar-gap) + 60px + 8px);
-  --native-body-reserve: 98px;
 }
 html.native-app main {
-  padding-bottom: var(--native-body-reserve);
+  padding-bottom: calc(var(--s-2) + var(--app-safe-bottom));
+}
+html.native-app main:has([data-slot="shared-panels-spacer"]) {
+  padding-bottom: var(--s-2);
 }
 
 /* §21 하단 고정 요소 (D-25 · 21-RESEARCH Pitfall 10) — 대상: 더티 바(`dirty-action-bar.tsx`) · /trading 폰 하단
-   공용 패널(`shared-panels.tsx` `data-pinned` — 브라우저 전용 · 앱에서는 숨김(D-25a)) · 종목상세 「주문하기」 CTA(`stock-detail-tabs.tsx`) ·
+   공용 패널(`shared-panels.tsx` `data-pinned`) · 종목상세 「주문하기」 CTA(`stock-detail-tabs.tsx` — 식은 컴포넌트 유틸) ·
    사이드/바텀 시트(`ui/sheet.tsx` — 수정 없이 `data-side` 만 읽는다).
    챗 FAB · 키패드 시트 기본 위치는 컴포넌트 유틸에서 `--app-safe-*` 를 직접 읽는다.
-   알림 토스트(`alert-toasts.tsx`)는 quick-260928-cs1 부터 앱 헤더 아래 상단 앵커라 하단 고정 요소가 아니다 — 탭바·홈 인디케이터를 비킬 필요가 없고, 상단 식은 컴포넌트 유틸이 `--app-safe-top` 을 직접 읽는다.
-   - 브라우저·앱 공통: 노치·홈 인디케이터만큼 비켜 선다(크롬·데스크톱은 0 이라 종전 그대로).
-     시트는 **투명 테두리**로 비킨다 — 배경이 border-box 까지 칠해져 시트 면이 상태바·홈 인디케이터 뒤까지
-     이어지고, 소비처 패딩 클래스(`p-3` 등)는 건드리지 않는다.
-   - 앱 전용: 네이티브 탭바(D-27b)가 하단을 차지하므로 하단 고정 바 전부가 `--native-tabbar-offset` 위에 서고
-     자기 safe-area 하단 패딩을 버린다(안전영역은 탭바 몫이다). 오버레이(시트·키패드)가 열리면 탭바가 숨으므로
-     (D-12) 시트는 앱에서도 safe-area 만 비킨다. */
+   알림 토스트(`alert-toasts.tsx`)는 quick-260928-cs1 부터 앱 헤더 아래 상단 앵커라 하단 고정 요소가 아니다 — 홈 인디케이터를
+   비킬 필요가 없고, 상단 식은 컴포넌트 유틸이 `--app-safe-top` 을 직접 읽는다.
+   - 앱 · 브라우저 공통: 노치 · 홈 인디케이터만큼 비켜 선다(크롬 · 데스크톱은 0 이라 종전 그대로). 하단 고정 바는 화면
+     하단(bottom 0)에 서서 자기 safe-area 하단 패딩을 갖는다(quick-261107-fbj — 앱 전용 위치 식 없음).
+     시트는 앱 · 브라우저 모두 **투명 테두리**로 safe-area 만 비킨다 — 배경이 border-box 까지 칠해져 시트 면이 상태바 ·
+     홈 인디케이터 뒤까지 이어지고, 소비처 패딩 클래스(`p-3` 등)는 건드리지 않는다. */
 [data-slot="dirty-action-bar"] {
   padding-bottom: max(var(--s-2), var(--app-safe-bottom));
 }
@@ -811,29 +802,7 @@ html.native-app main {
 }
 /* 앱엔 챗 FAB 이 없다(D-10) — FAB 클리어런스 우측 여백(`CHAT_FAB_CLEARANCE_CLASS`)도 0. */
 html.native-app [data-slot="dirty-action-bar"] {
-  bottom: var(--native-tabbar-offset);
   right: 0;
-  padding-bottom: var(--s-2);
-}
-/* CTA 바 = pt 10 + 버튼 56 + 하단 10 = 76. 식의 정본은 stock-detail-tabs.tsx CTA 주석. */
-html.native-app [data-slot="detail-order-cta-bar"] {
-  bottom: var(--native-tabbar-offset);
-  padding-bottom: 10px;
-}
-@media (max-width: 767.98px) {
-  /* 예약은 CTA 바 높이 76 만 — 탭바 몫은 본문 `main` 의 98 이 따로 진다. */
-  html.native-app [data-order-cta="true"] {
-    padding-bottom: 76px;
-  }
-}
-/* 앱은 /trading 하단 공용 패널(미체결 · 잔고 · 전략 로그)과 흐름 안 자리(spacer)를 숨긴다 — 폰 · iPad 공통
-   (D-25a · G-21-R3-2). 네이티브 탭바가 하단을 차지해 패널이 탭바 위에 겹쳐 쌓였다. 전 종목 전략 로그는
-   /me 전략 현황 카드 「현황 | 로그」 로 옮겼다. 클래스는 첫 페인트 전(`<head>` 감지 스크립트)에 붙어
-   하이드레이션 깜빡임이 없다. 브라우저 규칙(위 `data-pinned` 패딩)은 그대로다. 숨긴 패널은 실측 높이가 0 이라
-   `--wb-bottom-inset` 도 0 이다(shared-panels.tsx ⑤-c). */
-html.native-app [data-slot="shared-panels"],
-html.native-app [data-slot="shared-panels-spacer"] {
-  display: none;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -889,9 +858,9 @@ html.native-app[data-native-platform="ios"] body * {
 
 /* ─────────────────────────────────────────────────────────────
    Phase 21 앱 셸 — 사이드바·햄버거 (D-09 · D-13)
-   - 앱(`html.native-app`)은 네이티브 탭바가 목적지를 가지므로 iPad 가로(≥lg)에서도 고정 사이드바
-     (`app-shell.tsx` `[data-slot="app-aside"]`)를 두지 않고, 헤더 햄버거(`app-header.tsx`
-     `[data-slot="app-menu-button"]`)로 여는 드로어만 쓴다. 탭바 존재를 폭으로 가르는 웹 분기는 없다.
+   - 앱(`html.native-app`)은 iPad 가로(≥lg)에서도 고정 사이드바(`app-shell.tsx` `[data-slot="app-aside"]`)를 두지 않고,
+     헤더 햄버거(`app-header.tsx` `[data-slot="app-menu-button"]`)로 여는 드로어가 유일한 이동 입구다
+     (quick-261107-fbj 네이티브 탭바 제거 뒤에도 유지). 앱을 폭으로 가르는 웹 분기는 없다.
    - Tailwind `native:` 변형 대신 **레이어 밖 규칙**을 쓴다 — `lg:block` · `lg:hidden` 과 커스텀 변형의
      출력 순서는 보장되지 않지만, 레이어 밖 규칙은 `utilities` 레이어를 명시도와 무관하게 항상 이긴다.
    - 뷰포트 브레이크포인트 층(§2.2b 의 「앱 셸·사이드바」)이다 — 상따 컨테이너 쿼리 밴드와 무관하다.

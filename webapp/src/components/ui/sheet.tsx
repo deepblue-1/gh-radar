@@ -96,7 +96,7 @@ function SheetContent({
         )}
         {...props}
       >
-        {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
+        {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(당겨서 새로고침 끔 · back) — 브라우저 no-op */}
         <NativeOverlayMarker />
         {children}
         {showCloseButton && (

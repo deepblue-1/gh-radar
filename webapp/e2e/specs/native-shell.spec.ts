@@ -14,15 +14,15 @@ import { installNativeApp, nativeMessages, type CapturedNativeMsg } from '../fix
  *
  * 무엇을 증명하는가 / 깨지면 사용자가 겪는 일
  *   1. D-09 — 앱에서는 폭과 무관하게(1280 = iPad 가로) 고정 사이드바가 숨고 햄버거가 보여 드로어로만
- *      연다. 깨지면 네이티브 탭바와 사이드바가 같은 목적지를 두 번 보여 주거나, 앱에서 메뉴를 열 수단이 없다.
+ *      연다. 깨지면 앱에서 메뉴를 열 수단이 없다(quick-261107-fbj 부터 드로어가 앱의 유일한 이동 입구).
  *   2. D-10 — 앱 종목상세는 FAB 대신 히어로의 「AI 분석」 버튼이 같은 ChatSheet 를 연다. 깨지면 FAB 이
- *      네이티브 탭바를 가리거나, 앱에서 AI 진입점이 사라진다.
+ *      하단 「트레이딩」 CTA 와 겹치거나, 앱에서 AI 진입점이 사라진다.
  *   3. D-11 — 실제 `<head>` 인라인 감지 스크립트가 `html.native-app` 을 붙이고 첫 메시지로 `ready` 를
- *      보낸다. 깨지면 네이티브가 웹 준비를 모르고 스플래시·탭바 동기화가 멈춘다.
- *   4. D-12 — 드로어·챗 시트 열림/닫힘이 `overlay {open}` 으로 나간다. 깨지면 시트 위로 탭바가 남거나
- *      뒤로가기가 시트 대신 페이지를 떠난다.
+ *      보낸다. 깨지면 네이티브가 웹 준비를 모르고 오버레이 · 당김 상태가 새 문서에서 풀리지 않는다.
+ *   4. D-12 — 드로어·챗 시트 열림/닫힘이 `overlay {open}` 으로 나간다. 깨지면 시트 위에서 당겨서 새로고침이
+ *      살아 있거나 뒤로가기가 시트 대신 페이지를 떠난다.
  *   5. D-06a — `window.__ghTrade.navigate(path)` 가 전체 새로고침 없이 클라 내비로 이동하고 `route` 를
- *      남긴다. 깨지면 탭 전환마다 앱이 다시 부팅되고(relay 소켓 끊김) 탭바 활성 표시가 어긋난다.
+ *      남긴다. 깨지면 Android 뒤로가기 ④(홈으로)마다 앱이 다시 부팅되고(relay 소켓 끊김) 현재 경로가 어긋난다.
  *   6. 브라우저 회귀 — `native-app` 이 없으면 셸은 종전 그대로(≥lg aside · 햄버거 숨김 · FAB 보임 ·
  *      「AI 분석」 숨김 · `__ghTrade` 없음). 깨지면 웹 사용자 화면이 앱 분기에 오염된다.
  *
@@ -178,22 +178,23 @@ test.describe('Phase 21 — 브라우저 모드 회귀', () => {
 });
 
 /**
- * Phase 21 Plan 06 — safe-area · 네이티브 탭바 여백 (MOBILE-01j 2부 · D-25 · D-27b — 21-20 개정).
+ * Phase 21 Plan 06 — safe-area (MOBILE-01j 2부 · D-25 → quick-261107-fbj 앱 = 브라우저 식).
  *
  * 무엇을 증명하는가 / 깨지면 사용자가 겪는 일
- *   - 앱에서 네이티브 탭바(높이 60 · 바닥 = 화면 끝에서 max(inset − 14, 14))가 종목상세 「트레이딩」 CTA(D-30 — 옛 「주문하기」 · data-slot 그대로)와
- *     본문 끝을 가리지 않는다. 깨지면 앱에서 주문 진입이 막히거나 마지막 콘텐츠가 탭바 밑에 묻힌다(T-21-30).
- *   - 브라우저는 종전 그대로(CTA 바닥 0 · 하단 20 · 예약 96 · 본문 하단 8). 깨지면 웹 화면이 앱 여백에 오염된다.
+ *   - 앱도 브라우저와 같은 안전영역 규칙이다(네이티브 탭바 제거 · quick-261107-fbj): 종목상세 「트레이딩」 CTA(D-30 —
+ *     옛 「주문하기」 · data-slot 그대로)는 화면 하단(bottom 0)에 서서 홈 인디케이터만 비키고, 본문 `main` 하단은
+ *     8px + 안전영역만 비운다. 깨지면 앱 하단에 탭바 자리만큼 빈 띠가 남거나 CTA 가 홈 인디케이터에 걸린다.
+ *   - Android 주입 `--safe-area-inset-bottom` 은 읽지 않는다(env() 만) — 깨지면 비-엣지투엣지 Android 에서 하단이
+ *     내비바 높이만큼 한 번 더 빈다.
+ *   - 브라우저는 종전 그대로(CTA 바닥 0 · 하단 20 · 예약 96 · 본문 하단 8).
  *
- * 수치는 **크롬 안전영역 0** 기준의 식이다(env 0 · SystemBars 주입 없음):
- *   gap    = max(0 − 14, 14)            = 14
- *   offset = gap + 탭바 60 + 여유 8     = 82   → CTA 바 bottom
- *   본문   = 60 + 20 + 18               = 98   → `main` padding-bottom (폰·iPad 공통)
- *   예약   = CTA 바 10 + 56 + 10        = 76   → `[data-order-cta]` padding-bottom (탭바 몫은 본문 98)
- *   ★ 값이 바뀌면 CONTEXT D-27b · globals.css §21 · 네이티브 탭바 상수를 같이 고친다 — 여기만 고치면
- *     웹은 통과하고 실기기에서 탭바가 CTA 를 가린다.
+ * 수치는 **크롬 안전영역 0** 기준이다(env 0). 안전영역은 `--app-safe-bottom` 인라인 주입(34px · 인라인이 :root 를
+ * 이긴다)으로 흉내 낸다:
+ *   main   = s-2 8 + safe                → 8 · 34 주입 시 42
+ *   CTA 바 = bottom 0 · 하단 max(20, safe) → 20 · 34 주입 시 34
+ *   예약   = 76 + max(20, safe)           → 96 · 34 주입 시 110 (식의 정본 stock-detail-tabs.tsx CTA 주석)
  */
-test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
+test.describe('Phase 21 — safe-area (앱 = 브라우저 식 · quick-261107-fbj)', () => {
   const ctaBar = (page: Page) => page.locator('[data-slot="detail-order-cta-bar"]');
   const orderCtaRoot = (page: Page) => page.locator('[data-order-cta="true"]');
 
@@ -211,7 +212,11 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     }));
   }
 
-  test('앱 390 홈 — viewport-fit=cover · 헤더 56(안전영역 0) · main 하단 98', async ({ page }) => {
+  async function injectSafeBottom(page: Page, px: number) {
+    await page.evaluate((v) => document.documentElement.style.setProperty('--app-safe-bottom', `${v}px`), px);
+  }
+
+  test('앱 390 홈 — viewport-fit=cover · 헤더 56(안전영역 0) · main 하단 8 · 안전영역 34 주입 시 42', async ({ page }) => {
     await installNativeApp(page);
     await mockHomeApi(page, { response: HOME_POPULATED });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -222,23 +227,42 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     const { viewport, headerH } = await viewportMetaAndHeader(page);
     expect(viewport).toContain('viewport-fit=cover');
     expect(headerH).toBe(56);
-    expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
+
+    await injectSafeBottom(page, 34);
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('42px');
   });
 
-  // debug android-release-apk-no-scroll — Android ≤ 14(비-엣지투엣지) + WebView ≥ 140 에서 SystemBars 가 상태바 높이를
-  // `--safe-area-inset-top` 으로 주입해도 헤더가 그만큼 또 비면 안 된다(상태바 아래 빈 띠). 상단은 env() 만 읽는다.
-  test('앱 android 390 홈 — 주입 --safe-area-inset-top 41px 를 무시하고 헤더 56(env 0)', async ({ page }) => {
+  // debug android-release-apk-no-scroll — Android ≤ 14(비-엣지투엣지) + WebView ≥ 140 에서 SystemBars 가 시스템바 높이를
+  // `--safe-area-inset-*` 로 주입해도 그만큼 또 비면 안 된다(상태바 아래 빈 띠 · 하단 이중 여백). 네 변(상단 · 하단 포함) 모두 env() 만 읽는다.
+  test('앱 android 390 홈 — 주입 --safe-area-inset-top 41px · bottom 48px 를 무시하고 헤더 56 · main 하단 8(env 0)', async ({ page }) => {
     await installNativeApp(page, { platform: 'android' });
     await mockHomeApi(page, { response: HOME_POPULATED });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
     await page.locator('main').first().waitFor();
-    await page.evaluate(() => document.documentElement.style.setProperty('--safe-area-inset-top', '41px'));
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--safe-area-inset-top', '41px');
+      document.documentElement.style.setProperty('--safe-area-inset-bottom', '48px');
+    });
 
     expect((await viewportMetaAndHeader(page)).headerH).toBe(56);
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
   });
 
-  test('앱 390 종목상세 — CTA 바 bottom 82(14 + 60 + 8) · 하단 10 · 예약 76', async ({ page }) => {
+  test('앱 android 390 종목상세 — 주입 --safe-area-inset-bottom 48px 를 무시하고 CTA 하단 20', async ({ page }) => {
+    await installNativeApp(page, { platform: 'android' });
+    await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/stocks/${STOCK.code}`);
+
+    await expect(ctaBar(page)).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => document.documentElement.style.setProperty('--safe-area-inset-bottom', '48px'));
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('20px');
+    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('96px');
+  });
+
+  test('앱 390 종목상세 — CTA 바 bottom 0 · 하단 20 · 예약 96 · main 8 · 안전영역 34 주입 시 하단 34 · 예약 110', async ({ page }) => {
     await installNativeApp(page);
     await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -246,18 +270,22 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
 
     await expect(ctaBar(page)).toBeVisible({ timeout: 10_000 });
     await expect(orderCtaRoot(page)).toHaveCount(1);
-    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'bottom')).toBe('82px');
-    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('10px');
-    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('76px');
-    expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'bottom')).toBe('0px');
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('20px');
+    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('96px');
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
 
     // D-30 — 라벨만 「트레이딩」(링크 /trading?code=). 자리·수치는 그대로다.
     await expect(page.locator('[data-slot="detail-order-cta"]')).toHaveText('트레이딩');
 
-    // 탭바 윗변(화면 끝에서 14 + 60 = 74) 위에 CTA 버튼 전체가 선다.
+    // 화면 하단 20(안전영역 0 의 하단 패딩) 위에 CTA 버튼 전체가 선다.
     const box = await page.locator('[data-slot="detail-order-cta"]').boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.y + box!.height).toBeLessThanOrEqual(844 - 74);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(844 - 20);
+
+    await injectSafeBottom(page, 34);
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('34px');
+    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('110px');
   });
 
   test('브라우저 390 종목상세 — CTA bottom 0 · 하단 20 · 예약 96 · main 하단 8 · 헤더 56', async ({
@@ -277,7 +305,7 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
   });
 
-  test('앱 1280 홈 — main 하단 98(iPad 공통값)', async ({ page }) => {
+  test('앱 1280 홈 — main 하단 8(iPad 도 같은 식)', async ({ page }) => {
     await installNativeApp(page);
     await mockHomeApi(page, { response: HOME_POPULATED });
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -285,7 +313,7 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     await expect(page.locator('html')).toHaveClass(/(^|\s)native-app(\s|$)/);
     await page.locator('main').first().waitFor();
 
-    expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
   });
 });
 

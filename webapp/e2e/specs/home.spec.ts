@@ -458,7 +458,8 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
 
   /*
     ★ 21-31 D-32 (G-21-R3-11) — 탭 루트 스크롤 복원 · 스켈레톤 없는 재방문 · 재탭 = 맨 위.
-      네이티브 탭바가 부르는 실제 경로(`window.__ghTrade.navigate` → router.push)로 오간다.
+      네이티브가 부르는 실제 경로(`window.__ghTrade.navigate` → router.push — 옛 탭바 · 지금은 Android 뒤로가기 ④ ·
+      quick-261107-fbj)로 오간다.
       ★ 스크롤 주체가 **창**이라는 전제(AppShell 머리 주석)를 실제 픽셀로 잠근다 — `main.scrollTop` 이
         스크롤 주체였다면 `window.scrollY` 가 움직이지 않아 첫 단언에서 걸린다.
       ★ 스켈레톤 부재는 「돌아온 뒤 한 번 안 보인다」가 아니라 **MutationObserver 로 복귀 전 과정**을 본다 —

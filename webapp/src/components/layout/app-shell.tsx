@@ -80,7 +80,7 @@ export function AppShell({
           /*
             Phase 21 D-09 — 아래 `app-aside` 슬롯은 앱 셸(`html.native-app`)이 폭과 무관하게 이 고정
             사이드바를 숨기는 표식이다(규칙은 globals.css 「Phase 21 앱 셸 — 사이드바·햄버거」). 앱은
-            네이티브 탭바가 목적지를 가지므로 드로어(햄버거)만 쓴다. 브라우저는 종전 그대로다.
+            헤더 햄버거 드로어가 유일한 이동 입구다(quick-261107-fbj 네이티브 탭바 제거 뒤). 브라우저는 종전 그대로다.
           */
           /*
             quick-260930-e30 D1 — `rail:w-16 rail:px-2` 는 html[data-sidebar="rail"] 일 때만 걸린다(globals.css

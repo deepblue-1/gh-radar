@@ -224,9 +224,8 @@ export function StockDetailTabs({
           바 높이 = pt 10 + 버튼 56 + max(20, safe) = 66 + max(20, safe).
           → 챗 FAB bottom = 70 + max(20, safe)(바 윗변 위 4px · globals.css) ·
             Tabs 루트 예약 = 76 + max(20, safe)(바 + 10). 셋 중 하나를 바꾸면 나머지도 같이.
-          ★ 앱(Phase 21 D-25 · globals.css §21): 바 bottom = `--native-tabbar-offset`(탭바 윗변 + 8) · 바 하단 10
-            (안전영역은 탭바 몫) · 트레이딩 링크(D-30) · 앱 예약 76(`[data-order-cta]`) · 탭바 몫은 본문 98
-            (`--native-body-reserve` · IN-04)이 따로 진다 · FAB 은 없다(D-10).
+          ★ 앱도 브라우저와 같은 식(quick-261107-fbj 탭바 제거 · globals.css §21): 바 bottom 0 · 하단 max(20, safe) ·
+            예약 76 + max(20, safe). 앱만 다른 것은 트레이딩 링크(D-30)와 FAB 없음(D-10)뿐이다.
           ★ safe 는 `--app-safe-bottom`(globals.css §21 — `env()` 를 직접 읽지 않는다).
       */}
       {showOrderCta && (
