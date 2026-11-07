@@ -12,10 +12,8 @@ import os
 /// 웹 → 네이티브 채널은 `ghTrade` 하나다. 본문은 JSON 문자열 `{"type": …, "payload": …}`.
 /// 웹 쪽 송신부: `webapp/src/lib/native/native-detect.ts` (ready) · 21-04 `post-native.ts`.
 ///
-/// 하단 플로팅 탭바(21-10 · D-02 · D-27b)는 WebView 위에 `addSubview` 로 얹는다.
-/// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12 · D-12a) ·
-/// 문서 로드 대기(D-12b — 콜드 스타트 포함, 첫 route 또는 1.5초) ·
-/// 탭 = 웹 navigate 훅 evaluate(D-06a, 클라 내비라 relay 소켓 유지).
+/// quick-261107-fbj 로 네이티브 하단 탭바 제거 — 이동은 웹 헤더 햄버거 드로어. 웹 오버레이 · 오프라인 페이지는
+/// 당겨서 새로고침 가부만 정한다.
 ///
 /// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23) ·
 /// 네트워크 오류 전용 오프라인 폴백(D-19 — `NavigationDelegateProxy`) · 폰 세로 / iPad 4방향(D-24).
@@ -33,33 +31,16 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
 
     static let messageHandlerName = "ghTrade"
 
-    // MARK: - 탭바 상태 (21-10)
+    // MARK: - 표시 상태 (overlay · 오프라인 → 당겨서 새로고침 가부)
 
-    private let tabBar = GHTradeTabBar()
     private var urlObservation: NSKeyValueObservation?
-    private var hideWork: DispatchWorkItem?
-    private(set) var currentPath = "/"
     /// WebView 가 앱 서버가 아닌 문서(= `capacitor://localhost` 오프라인 폴백 · about:blank)를 보고 있다(D-12 ②).
     private(set) var isOfflinePage = false
-    /// 웹 `overlay {open, immediate?}` 신호(D-12 ③ · D-12a''). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
+    /// 웹 `overlay {open}` 신호(D-12 ③). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
     var overlayOpen = false
-    private var keyboardVisible = false
-    /// D-12a: 키보드 사유로 숨긴 뒤 재표시 디바운스(90ms) 예약. 그 사이 다시 숨김이 오면 취소한다.
-    private var showWork: DispatchWorkItem?
-    /// D-12a: 지금 숨김이 키보드 사유 즉시 경로로 끝났다 — 재표시만 90ms 디바운스한다.
-    private var hiddenByKeyboard = false
-    /// D-12b: 전체 문서 로드 중 — 그 문서의 첫 `route`(하이드레이션 뒤) 또는 1.5초까지 탭바를 숨긴 채 기다린다.
-    /// 콜드 스타트도 대기로 시작한다(판정 전 보임 금지 · G-21-R3-4).
-    private var awaitingContent = true
-    /// D-12b 1.5초 상한 예약 — 첫 route 가 오지 않아도 반드시 풀린다(T-21-65 고착 방지).
-    private var awaitingWork: DispatchWorkItem?
-    /// 대기 해제로 보일 때만 280ms ease-out(다른 보임은 0.2초 그대로).
-    private var revealingAfterLoad = false
     /// 앱 테마. 바꾸는 곳은 `applyTheme` 하나 — 저장값(ThemeStore, 첫 프레임) · 웹 `theme` 메시지(D-23).
     /// 초기 자리값 = dark(D-23a — 저장값 없는 첫 프레임과 같은 값. capacitorDidLoad 의 ThemeStore.load() 가 곧 덮는다).
-    private(set) var currentTheme: GHTradeTheme = .dark {
-        didSet { applyTabBarTheme() }
-    }
+    private(set) var currentTheme: GHTradeTheme = .dark
 
     // MARK: - 당겨서 새로고침 상태 (D-04 · D-17)
 
@@ -85,9 +66,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         proxy.originalUI = wv.uiDelegate
         wv.uiDelegate = proxy
         setupPullToRefresh()
-        setupTabBar()
         observeURL()
-        observeKeyboard()
     }
 
     override func viewDidLayoutSubviews() {
@@ -154,20 +133,15 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             // 새 문서 = 웹 오버레이 참조계수 0 에서 시작 — 전체 로드로 닫힘 신호를 못 받은 경우를 푼다(T-21-18).
             if overlayOpen {
                 overlayOpen = false
-                updateTabBarVisibility(animated: true)
+                updatePullToRefreshAvailability()
             }
         case .route:
-            // SPA pushState 보강(D-14). 문자열 · `/` 시작만 받는다(T-21-02) — 표시 상태만 바뀐다.
-            guard let path = payload?["path"] as? String, path.hasPrefix("/") else { return }
-            // D-12b: 새 문서의 첫 route = 하이드레이션 뒤 — 문서 로드 대기를 푼다(웹 계약 무변경 · 기존 메시지 재사용).
-            endAwaitingContent(reason: "route")
-            applyPath(path)
+            // 화이트리스트에는 남긴다(Android 뒤로가기의 현재 경로 계약) — iOS 는 기록만 한다(quick-261107-fbj).
+            log.debug("message \(rawType, privacy: .public)")
         case .overlay:
             overlayOpen = (payload?["open"] as? Bool) == true
-            // D-12a'': 키패드(키보드 대체) 열림만 즉시 — 필드가 없으면 종전 D-12.
-            let immediate = overlayOpen && (payload?["immediate"] as? Bool) == true
-            log.debug("overlay open=\(self.overlayOpen, privacy: .public) immediate=\(immediate, privacy: .public)")
-            updateTabBarVisibility(animated: true, immediate: immediate)
+            log.debug("overlay open=\(self.overlayOpen, privacy: .public)")
+            updatePullToRefreshAvailability()
         case .theme:
             // T-21-02: "dark"/"light" 두 값만 받는다 — 그 외는 무시(저장도 하지 않는다).
             guard let raw = payload?["theme"] as? String, let t = GHTradeTheme(rawValue: raw) else { return }
@@ -189,79 +163,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         }
     }
 
-    // MARK: - 탭바 (D-02 · D-13 · D-27b)
-
-    private func setupTabBar() {
-        let fade = tabBar.fadeView
-        // 페이드 → 탭바 순서로 얹는다(탭바가 위). view == webView 다 — WebView 프레임은 건드리지 않는다(D-25 풀블리드).
-        view.addSubview(fade)
-        view.addSubview(tabBar)
-
-        // 바닥 = 화면 끝에서 max(inset − 14, 14): 안전영역 바닥 + 14(우선) · 화면 끝 −14 이하(필수).
-        // 인셋 34 기기 → 화면 끝 20 · 인셋 0 기기 → 14 (D-27a 이래 불변 · D-27b).
-        let bottomToSafeArea = tabBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 14)
-        bottomToSafeArea.priority = .defaultHigh
-        // 폭 = 화면 − 32(우선) · 최대 560(필수, iPad 가운데). 폭 기준 숨김 분기는 없다(D-13).
-        let widthToView = tabBar.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -32)
-        widthToView.priority = .defaultHigh
-
-        NSLayoutConstraint.activate([
-            fade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            fade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            fade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            // 페이드 86 = 탭바 60 + 26(스케치 007 `--tbh + 26`) · 탭바 높이 60 ↔ 웹 globals.css §21 offset(gap + 60 + 8) · 본문 98.
-            fade.heightAnchor.constraint(equalToConstant: 86),
-
-            tabBar.heightAnchor.constraint(equalToConstant: 60),
-            tabBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
-            widthToView,
-            tabBar.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
-            tabBar.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
-            bottomToSafeArea,
-            tabBar.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -14),
-        ])
-
-        applyTabBarTheme()
-        tabBar.onSelect = { [weak self] tab in self?.selectTab(tab) }
-        tabBar.setActive(TabRoutes.activeTab(forPath: currentPath))
-        // D-12b: 숨긴 채 시작한다(Android 와 같음) — 판정 전 기본 경로 "/" 로 먼저 보이지 않게(G-21-R3-4).
-        // 첫 문서 로드의 route 또는 1.5초 상한이 처음 보이게 한다.
-        tabBar.isHidden = true
-        tabBar.alpha = 0
-        fade.isHidden = true
-        fade.alpha = 0
-        beginDocumentLoad()
-    }
-
-    // MARK: - 문서 로드 대기 (D-12b — 첫 route 또는 1.5초 · 280ms ease-out)
-
-    /// 전체 문서 로드 시작(`NavigationDelegateProxy` 의 didStartProvisionalNavigation). 같은 문서 안 pushState(SPA 탭 이동)는
-    /// 이 콜백이 오지 않으므로 영향이 없다.
-    func beginDocumentLoad() {
-        awaitingContent = true
-        awaitingWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.endAwaitingContent(reason: "timeout") }
-        awaitingWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
-        updateTabBarVisibility(animated: true)
-    }
-
-    private func endAwaitingContent(reason: String) {
-        guard awaitingContent else { return }
-        awaitingContent = false
-        log.notice("document load wait ended reason=\(reason, privacy: .public)")
-        awaitingWork?.cancel()
-        awaitingWork = nil
-        revealingAfterLoad = true
-        updateTabBarVisibility(animated: true)
-        revealingAfterLoad = false
-    }
-
     // MARK: - 테마 (D-23 — 웹이 정본, 네이티브는 따라가며 마지막 값만 저장. OS 다크모드는 보지 않는다)
 
     /// 라이트 `#ffffff` · 다크 `#0a0a0a`(GHTradePalette.bg) 를 WebView/스크롤/창 배경에 칠하고
-    /// 상태바 · 시스템 크롬(스피너·키보드) · 탭바/페이드 팔레트를 바꾼 뒤 저장한다.
+    /// 상태바 · 시스템 크롬(스피너·키보드)을 바꾼 뒤 저장한다.
     func applyTheme(_ t: GHTradeTheme, animated: Bool) {
         let p = GHTradePalette.of(t)
         let changed = t != currentTheme
@@ -269,7 +174,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         webView?.isOpaque = false
         let apply = { [weak self] in
             guard let self else { return }
-            self.currentTheme = t   // didSet → 탭바·페이드 팔레트
+            self.currentTheme = t
             // 이 VC 의 뷰 계층(리프레시 스피너 · 키보드 · WebView 기본 color-scheme)이 앱 테마를 따르게 한다.
             self.overrideUserInterfaceStyle = t.userInterfaceStyle
             // view == webView (loadView final) — WebView 와 스크롤 배경, 창 배경을 같이 칠한다.
@@ -284,12 +189,6 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             apply()
         }
         ThemeStore.save(t)
-    }
-
-    private func applyTabBarTheme() {
-        // 블러 재질(ultra-thin 재질 · systemUltraThinMaterial)도 앱 테마를 따르게 한다 — OS 다크모드와 앱 테마가 다를 때 대비.
-        tabBar.overrideUserInterfaceStyle = currentTheme.userInterfaceStyle
-        tabBar.apply(GHTradePalette.of(currentTheme))
     }
 
     // MARK: - 당겨서 새로고침 (D-04 · D-17 — weekly-wine setupPullToRefresh 이식, 핸들러만 교체)
@@ -335,7 +234,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
 
     /// 첫 로드·이동이 네트워크 오류로 실패했을 때 `NavigationDelegateProxy` 가 부른다.
     /// 앱 내장 `capacitor://localhost/index.html?to=<원래 URL>&theme=<현재>` 를 띄운다 — 페이지가 도달 탐침 성공 시
-    /// `to`(허용 출처만 · T-21-06)로 돌아간다. 호스트가 앱 서버가 아니므로 탭바·새로고침은 URL 규칙으로 숨는다(D-12 ②).
+    /// `to`(허용 출처만 · T-21-06)로 돌아간다. 호스트가 앱 서버가 아니므로 당겨서 새로고침은 URL 규칙으로 꺼진다(D-12 ②).
     func showOffline(failedURL: URL?) {
         guard !isOfflinePage, let bridge, let wv = webView else { return }
         let target: URL
@@ -365,7 +264,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         wv.load(URLRequest(url: url))
     }
 
-    // MARK: - URL 관찰 (D-14 · D-12 ②)
+    // MARK: - URL 관찰 (D-12 ② — 오프라인 페이지 판정)
 
     private func observeURL() {
         urlObservation = webView?.observe(\.url, options: [.new]) { [weak self] wv, _ in
@@ -379,184 +278,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         // 호스트만 비교하면 dev(`http://localhost:3100`)에서 오프라인 페이지(`capacitor://localhost`)와 겹친다 → 스킴도 본다.
         let onAppServer = url.host == server?.host && url.scheme == server?.scheme
         isOfflinePage = !onAppServer
-        if onAppServer {
-            applyPath(url.path)
-        } else {
-            tabBar.setActive(nil)
-            updateTabBarVisibility(animated: true)
-        }
-    }
-
-    private func applyPath(_ path: String) {
-        currentPath = TabRoutes.normalize(path)
-        tabBar.setActive(TabRoutes.activeTab(forPath: currentPath))
-        updateTabBarVisibility(animated: true)
-    }
-
-    // MARK: - 키보드 (D-12a' — 키보드 = 애니메이션 없이 즉시 · 재표시 90ms)
-
-    private func observeKeyboard() {
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
-    }
-
-    @objc private func keyboardWillShow(_ note: Notification) {
-        let info = note.userInfo
-        // 끝 프레임이 화면 하단을 실제로 가릴 때만 키보드로 본다 — 하드웨어 키보드(입력 보조 막대만) ·
-        // iPad 플로팅 키보드는 하단을 가리지 않으므로 탭바를 숨기지 않는다.
-        var covers = false
-        if let end = (info?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
-            let r = view.convert(end, from: nil)
-            covers = r.height > 0 && r.minY < view.bounds.maxY - 1
-        }
-        keyboardVisible = covers
-        updateTabBarVisibility(animated: true)
-    }
-
-    @objc private func keyboardWillHide(_ note: Notification) {
-        keyboardVisible = false
-        updateTabBarVisibility(animated: true)
-    }
-
-    // MARK: - 표시/숨김 (D-12: 숨김은 150ms 지연 후 0.2s 페이드 · 보임은 지연 없이 0.2s
-    //                  D-12a': 키보드 사유 숨김은 즉시(애니메이션 없음) · 이동 없음 → 재표시 90ms 디바운스
-    //                  D-12a'': 키패드 시트 열림(overlay immediate)도 즉시 · 재표시는 D-12)
-
-    private var shouldHideTabBar: Bool {
-        TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
-    }
-
-    func updateTabBarVisibility(animated: Bool, immediate: Bool = false) {
-        // 오버레이·오프라인 상태가 바뀌는 모든 경로가 여기를 지난다 → 새로고침 가능 여부도 같은 시점에 맞춘다.
         updatePullToRefreshAvailability()
-        let fade = tabBar.fadeView
-        hideWork?.cancel()
-        hideWork = nil
-
-        if shouldHideTabBar {
-            // 숨김이 다시 왔다 — 키보드 재표시 예약은 취소(willHide → willShow 연속 = 깜빡임 없음).
-            showWork?.cancel()
-            showWork = nil
-            // 키보드가 내려갔는데 다른 사유로 여전히 숨김 → 이후 재표시는 키보드 디바운스 대상이 아니다.
-            if !keyboardVisible { hiddenByKeyboard = false }
-            guard !tabBar.isHidden else { return }
-
-            // D-12a' — 키보드 = 애니메이션 없이 즉시: 150ms 대기도 페이드도 없이 곧바로 숨긴다(아래로 내려가는 이동 없음 —
-            // 키보드 윗변 위에 걸린 프레임이 남지 않게). keyboardWillShow 는 키보드 애니메이션 트랜잭션 안에서 올 수 있고,
-            // 그 안에서 바꾼 값은 키보드 길이·곡선을 물려받는다 → performWithoutAnimation 으로 상속을 끊는다.
-            // D-12a'': 키패드 시트 열림(웹 immediate)도 같은 경로.
-            if (keyboardVisible || immediate) && animated {
-                // 진행 중인 보임·숨김 애니메이션을 걷어낸다(비키보드 숨김 완료 핸들러는 finished=false 로 아무것도 안 한다).
-                tabBar.layer.removeAllAnimations()
-                fade.layer.removeAllAnimations()
-                UIView.performWithoutAnimation {
-                    tabBar.transform = .identity
-                    tabBar.alpha = 0
-                    fade.alpha = 0
-                    tabBar.isHidden = true
-                    fade.isHidden = true
-                }
-                // 재표시 90ms 디바운스는 키보드 사유만 — 키패드 닫힘은 D-12 대로 지연 없이 0.2s 로 돌아온다.
-                if keyboardVisible { hiddenByKeyboard = true }
-                return
-            }
-
-            let hide = { [weak self] in
-                guard let self else { return }
-                self.tabBar.alpha = 0
-                fade.alpha = 0
-                self.tabBar.transform = CGAffineTransform(translationX: 0, y: 8)
-            }
-            let finish = { [weak self] in
-                // 페이드 도중 다시 보이기로 바뀌었으면 숨기지 않는다.
-                guard let self, self.shouldHideTabBar else { return }
-                self.tabBar.isHidden = true
-                fade.isHidden = true
-            }
-            guard animated else {
-                hide()
-                finish()
-                return
-            }
-            // 리다이렉트·짧은 오버레이 깜빡임은 150ms 안에 취소된다(weekly-wine filterState 방식).
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.hideWork = nil
-                guard self.shouldHideTabBar else { return }
-                UIView.animate(withDuration: 0.2, animations: hide) { finished in
-                    if finished { finish() }
-                }
-            }
-            hideWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
-        } else {
-            // D-12a — 키보드로 숨겼던 탭바는 90ms 뒤에 다시 보인다. 입력칸 이동의 willHide → willShow 연속이면
-            // 그 사이 숨김 분기가 이 예약을 취소하므로 깜빡이지 않는다.
-            if hiddenByKeyboard && animated {
-                guard showWork == nil else { return }
-                let work = DispatchWorkItem { [weak self] in
-                    guard let self else { return }
-                    self.showWork = nil
-                    self.hiddenByKeyboard = false
-                    self.updateTabBarVisibility(animated: true)
-                }
-                showWork = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: work)
-                return
-            }
-            showWork?.cancel()
-            showWork = nil
-            hiddenByKeyboard = false
-            // 이미 보이는 중(보임 애니메이션 진행 포함 — 모델 값 기준)이면 건드리지 않는다. 대기 해제(280ms) 직후
-            // applyPath 의 같은 보임 호출이 진행 중 애니메이션을 걷어내 순간 표시로 튀는 것을 막는다.
-            if !tabBar.isHidden, !fade.isHidden, tabBar.alpha == 1, fade.alpha == 1, tabBar.transform == .identity {
-                return
-            }
-            // 진행 중인 숨김 애니메이션과 경합하지 않게 먼저 걷어낸다(weekly-wine observeURL).
-            tabBar.layer.removeAllAnimations()
-            fade.layer.removeAllAnimations()
-            tabBar.isHidden = false
-            fade.isHidden = false
-            let show = { [weak self] in
-                self?.tabBar.alpha = 1
-                fade.alpha = 1
-                self?.tabBar.transform = .identity
-            }
-            if animated && revealingAfterLoad {
-                // D-12b: 문서 로드 대기 해제 = 280ms ease-out.
-                UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut], animations: show)
-            } else if animated {
-                UIView.animate(withDuration: 0.2, animations: show)
-            } else {
-                show()
-            }
-        }
-    }
-
-    // MARK: - 탭 이동 (D-06 · D-06a)
-
-    func selectTab(_ tab: GHTabID) {
-        // 반응성 — 이동 결과는 URL KVO · route 메시지가 다시 확정한다.
-        tabBar.setActive(tab)
-        guard let wv = webView else { return }
-
-        if isOfflinePage {
-            // 오프라인 폴백 문서에는 웹 훅이 없다 → 앱 서버 경로를 직접 로드한다.
-            guard let server = bridge?.config.serverURL else { return }
-            let url = tab == .home ? server : server.appendingPathComponent(String(tab.path.dropFirst()))
-            wv.load(URLRequest(url: url))
-            return
-        }
-
-        // T-21-36: 스크립트에 들어가는 값은 GHTabID.path 상수뿐 — 외부 입력 없음.
-        let p = tab.path
-        let js = "window.__ghTrade&&window.__ghTrade.navigate?window.__ghTrade.navigate('\(p)'):location.assign('\(p)')"
-        wv.evaluateJavaScript(js) { [weak self] _, error in
-            if let error {
-                self?.log.error("tab navigate failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
     }
 }
 

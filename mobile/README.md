@@ -3,7 +3,7 @@
 iOS·iPadOS·Android 네이티브 앱이다. Capacitor 8 로 만든 **Remote-URL 셸**이다(D-01).
 
 - 앱은 운영 웹 `https://trade.jx1.io` 를 WebView 로 띄운다. 화면은 전부 웹(`webapp/`)이고, 이 패키지에는 정적 번들도 static export 도 없다.
-- 네이티브가 직접 그리는 것은 하단 탭바, 당겨서 새로고침, 오프라인 폴백(`www/index.html`), 상태바·테마, Android 뒤로가기, 네이티브 Google 로그인 시트뿐이다.
+- 네이티브가 직접 그리는 것은 당겨서 새로고침, 오프라인 폴백(`www/index.html`), 상태바·테마, Android 뒤로가기, 네이티브 Google 로그인 시트뿐이다. 화면 이동은 웹 헤더 햄버거 드로어가 맡는다.
 - 웹 변경은 `git push`(= Vercel 프로덕션 배포)만으로 앱에 반영된다. 네이티브 코드를 고쳤을 때만 앱을 다시 빌드한다.
 
 ## 식별자
@@ -36,9 +36,8 @@ Google OAuth 콘솔 설정(GCP 클라이언트 3개 · Supabase Client IDs `web,
 | `native:build:android` | 운영 sync → `assembleDebug` |
 | `native:smoke:ios` | dev sync → 빌드 → 시뮬레이터(`DEVICE` 이름 · 기본 `iPhone 17` 또는 `IOS_DEVICE_UDID`) 에 UDID 로 설치·실행 → 웹 `ready` 로그 확인 → 종료 시 운영 sync 복원. 여러 기기가 부팅돼 있으면 `DEVICE`/`IOS_DEVICE_UDID` 로 지정한다. 성공하면 `SMOKE OK ready platform=ios` 가 나온다. |
 | `native:smoke:android` | dev sync → 빌드 → 에뮬레이터(`AVD` · `ANDROID_SERIAL`) 설치·실행 → logcat `ready` 확인 → 운영 sync 복원. 모든 adb 호출은 `adb -s <시리얼>` — 여러 기기면 `ANDROID_SERIAL` 지정 필수(없으면 실패). 성공하면 `SMOKE OK ready platform=android` 가 나온다. |
-| `native:check-tab-routes:ios` | iOS 탭 경로표(`TabRoutes`)를 swiftc 로 검사한다. 성공하면 `TAB ROUTES OK` 가 나온다. |
 | `native:check-external-links:ios` | iOS 인앱 브라우저 링크 판정표(`ExternalLinks`)를 swiftc 로 검사한다. 성공하면 `EXTERNAL LINKS OK` 가 나온다. |
-| `native:test:android` | Android JUnit — 탭 경로표(`TabRoutesTest`) · 인앱 브라우저 링크 판정표(`ExternalLinksTest`) |
+| `native:test:android` | Android JUnit — 앱 경로 판정(`AppRoutesTest`) · 인앱 브라우저 링크 판정표(`ExternalLinksTest`) |
 | `native:verify-prod` | 생성 설정이 운영값인지 검사한다. 성공하면 `PROD CONFIG OK` 가 나온다. 스스로 sync 하지 않는다. |
 | `native:assets` | `resources/` 원본으로 아이콘·스플래시를 재생성한다(`@capacitor/assets@3.0.5`). |
 | `native:open:ios` · `native:open:android` | Xcode · Android Studio 를 연다. |
@@ -86,7 +85,7 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 
 ### 릴리스 명령
 
-저장소 루트에서 `pnpm --filter @gh-radar/mobile run <스크립트>` 로 실행한다. 플랫폼 명령은 모두 `cap sync`(양 플랫폼) → `native:verify-prod`(`PROD CONFIG OK`)를 먼저 돈다. 웹 화면·기능 변경은 앱 릴리스가 필요 없다 — `git push`(Vercel 배포)만으로 두 앱에 반영된다(앱이 운영 웹을 불러온다). 앱 릴리스는 네이티브 셸(탭바 · 아이콘 · 권한 · 플러그인 · Capacitor 설정)이 바뀌었을 때만 한다.
+저장소 루트에서 `pnpm --filter @gh-radar/mobile run <스크립트>` 로 실행한다. 플랫폼 명령은 모두 `cap sync`(양 플랫폼) → `native:verify-prod`(`PROD CONFIG OK`)를 먼저 돈다. 웹 화면·기능 변경은 앱 릴리스가 필요 없다 — `git push`(Vercel 배포)만으로 두 앱에 반영된다(앱이 운영 웹을 불러온다). 앱 릴리스는 네이티브 셸(아이콘 · 권한 · 플러그인 · Capacitor 설정)이 바뀌었을 때만 한다.
 
 | 스크립트 | 하는 일 | 성공 표식 |
 |---|---|---|

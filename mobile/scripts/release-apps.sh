@@ -13,7 +13,7 @@ set -euo pipefail
 #   Android  native:release:android → Firebase 최신 릴리스 번호가 방금 올린 번호인지 대조
 #   끝에 플랫폼별 결과·빌드 번호를 한 표로 출력한다.
 #
-# 언제 쓰나: 네이티브 셸이 바뀌었을 때만(탭바 · 아이콘 · 권한 · 플러그인 · Capacitor 설정).
+# 언제 쓰나: 네이티브 셸이 바뀌었을 때만(아이콘 · 권한 · 플러그인 · Capacitor 설정).
 #   웹 화면·기능 변경은 git push(= Vercel 배포)만으로 두 앱에 반영된다 — 앱이 운영 웹을 불러온다.
 #
 # 규약
