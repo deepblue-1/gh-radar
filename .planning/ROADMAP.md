@@ -573,7 +573,7 @@ Plans:
   5. 앱 안 Firebase 는 Android 만 — iOS 번들에 Firebase SDK 없음 · 위생 검사가 Android `google-services.json` 을 허용하되 비밀 목록(Firebase SA 키 등)은 종전대로 막는다. 양 플랫폼 `native:release` 통과.
 
 **미결 결정(discuss 에서)**: ① 거부·취소도 보낼지 — 권고: 거부는 보냄 · 취소는 안 보냄. ② 자동매도 「잔량 0」 정의 — 자동매도 주문들의 미체결 잔량 0(전량 체결 또는 취소 확인) vs 계좌 보유 0. ③ 첫/전량 판정 방식 — RPC 가 이전 상태 반환 vs relay 메모리 직전 상태. ④ 설정 단위 — 사용자 1개 토글(모든 기기) vs 기기별. ⑤ 소리·배지 — 기본 소리만 · 장중 묶음(iOS 알림 그룹 thread-id = 종목) 여부.
-**Plans:** 11/13 plans executed
+**Plans:** 12/13 plans executed
 
 Plans:
 **Wave 1**
@@ -594,7 +594,7 @@ Plans:
 - [x] 40-10-PLAN.md — webapp 「알림 받는 기기」 카드 · 권한(켤 때만) · 토큰 등록 · PC 목록 끄기/지우기 · 로그아웃 정리 (W3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 40-11-PLAN.md — webapp 탭 착지(계좌 해석) · 작업대 주문 토스트 숨김(D-20) · 앱 시작 토큰 갱신 (W4)
+- [x] 40-11-PLAN.md — webapp 탭 착지(계좌 해석) · 작업대 주문 토스트 숨김(D-20) · 앱 시작 토큰 갱신 (W4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 40-12-PLAN.md — 배포 전 게이트(SC-3 diff 0) → [BLOCKING] db push → 비밀 · IAM → relay(20:00 뒤) → git push → native:release → 실기기 UAT (W5 · 체크포인트)
