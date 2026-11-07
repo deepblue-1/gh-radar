@@ -77,3 +77,6 @@ export function startPushSession(opts: PushSessionOptions): () => void {
   // 떼고 난 뒤 끝난 탭 처리도 이동은 한다 — 냉시작 탭(retain)이 개발 모드 이중 마운트 사이에 소비돼도 잃지 않게.
   return removeTap;
 }
+
+/** 테스트 전용 — 세션당 1회 플래그를 처음 상태로(Task 3 RED 인터페이스 스텁). */
+export function __resetPushSessionForTest(): void {}
