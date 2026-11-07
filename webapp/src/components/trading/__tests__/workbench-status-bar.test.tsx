@@ -9,7 +9,7 @@ import type { RelayAccount, RelayQuoteStateMsg, RelaySubLimitMsg } from '@gh-rad
  * 잠그는 것:
  *   - 상단 줄 카드 한 줄: 계좌 칩 줄 → 시세 알약 → 주문 알약 → 컬럼 세그먼트. 카드 자신이
  *     `workbench-status-bar` + `data-status` 루트다(다른 spec 의 준비 신호 · Pitfall 4).
- *   - 뺀 것(D-06): 77 예약 창 배지 · 알림음 아이콘(→ /me 「이 기기」 · `device-settings-card.test.tsx`) ·
+ *   - 뺀 것(D-06): 77 예약 창 배지 · 알림음 아이콘(알림음은 quick-261107-fbj 로 꺼짐) ·
  *     반영 시각 · 「다시 연결」 `Button`. 목록 개수·임계 문구 없음.
  *   - 끊김(`onReconnect` 있음 = UNRECOVERABLE_STATES): 보이는 「주문 끊김」 + sr-only · title 원문 + 라이브 영역 밖
  *     형제 「다시 연결」 텍스트 버튼.

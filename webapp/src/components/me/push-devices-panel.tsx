@@ -1,13 +1,17 @@
 "use client";
 
 /**
- * PushDevicesCard — /me 설정 탭 「알림 받는 기기」 카드 (Phase 40 · D-12 · D-13 · D-14 · D-15).
+ * PushDevicesPanel — 「매매 알림」 패널 본문 (Phase 40 · D-12 · D-13 · D-14 · D-15 → quick-261107-fbj · 스케치 030 A).
  *
- * - **D-12 — 토글은 기기별 · 서버 저장.** 위 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage)와 별개다. 켜고 끈
- *   상태는 server `/api/push-devices`(40-07)에 있다. 새 기기는 꺼짐에서 시작한다.
+ * - **자리(quick-261107-fbj):** /me 설정 탭의 카드였던 것을 계정 카드 「매매 알림」 종(`push-alert-bell.tsx`)이 여는
+ *   바텀 시트(폰 · 앱) / 팝오버(데스크톱 브라우저) 안 본문으로 옮겼다. 카드 테두리 · 제목은 감싸는 시트/팝오버가 그린다 —
+ *   여기는 캡션 · 이 기기 스위치 · 다른 기기 목록 · 안내만 그린다. 푸시는 체결만이 아니라 접수 · 체결 · 거부 · 자동 취소 ·
+ *   자동매도 시작/완료라 이름을 「매매 알림」 으로 바꿨다.
+ * - **D-12 — 토글은 기기별 · 서버 저장.** 켜고 끈 상태는 server `/api/push-devices`(40-07)에 있다. 새 기기는 꺼짐에서
+ *   시작한다.
  * - **D-13 — PC 브라우저는 보기 · 끄기 · 지우기만.** 등록 기기 목록(기기명 · iOS/Android · 「마지막 확인 MM/DD HH:mm」 KST)과
  *   켜진 기기 「끄기」 · 「지우기」(한 번 더 눌러 확인 · 5초 뒤 원래대로). 켜기는 권한이 필요해 그 기기 앱에서만. 앱 안에서는
- *   맨 위 「이 기기 체결 알림」 스위치 아래에 다른 기기 목록이 같은 꼴로 이어진다(이 기기 행은 스위치가 대표).
+ *   맨 위 「이 기기 매매 알림」 스위치 아래에 소제목 「다른 기기」 와 목록이 같은 꼴로 이어진다(이 기기 행은 스위치가 대표).
  * - **D-14 — 권한은 켤 때만 묻는다.** 스위치를 켜면: 권한 확인(prompt 면 그때 요청) → granted 면 (Android) 채널 `fills` →
  *   `registration` 리스너 먼저 · `register()` → 토큰 → `PUT /api/push-devices/:deviceKey` → 켜짐. 거부(이미 거부 포함 · iOS
  *   재요청 불가)면 스위치는 꺼짐 그대로 · 「설정 앱에서 … 허용해 주세요」 + 「설정 열기」(`postNative('openSettings')` — 보내지
@@ -25,6 +29,7 @@ import type { PushDevice } from "@gh-radar/shared";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ApiClientError } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { isNativeApp, nativePlatform } from "@/lib/native/native-detect";
 import { getOrCreatePushDeviceKey, pushDeviceLabel, readPushDeviceKey } from "@/lib/push/device-key";
 import {
@@ -39,12 +44,13 @@ import {
 import { deletePushDevice, disablePushDevice, registerThisPushDevice } from "@/lib/push/push-devices-api";
 import { refreshPushDevices, updatePushDevicesLocal, usePushDevices } from "@/lib/push/use-push-devices";
 
-/** 카드 문구 — 테스트가 같은 상수로 단언한다. */
+/** 패널 문구 — 종 버튼 이름 · 시트/팝오버 제목도 같은 상수를 쓴다. 테스트가 같은 상수로 단언한다. */
 export const PUSH_DEVICES_TEXT = {
-  title: "알림 받는 기기",
-  captionApp: "이 기기에서 체결 알림을 받아요. 켜고 끈 상태는 서버에 저장돼요.",
-  captionWeb: "알림 켜기는 그 기기의 GH Trade 앱에서 해요.",
-  thisDevice: "이 기기 체결 알림",
+  title: "매매 알림",
+  captionApp: "주문 접수 · 체결 · 거부 · 자동 취소와 자동매도 시작 · 완료를 이 기기로 알려 드려요.",
+  captionWeb: "주문 접수 · 체결 · 거부 · 자동 취소와 자동매도 소식을 받을 기기예요. 켜기는 그 기기의 GH Trade 앱에서 해요.",
+  thisDevice: "이 기기 매매 알림",
+  otherDevices: "다른 기기",
   denied: "알림 권한이 꺼져 있어요. 설정 앱에서 GH Trade 알림을 허용해 주세요.",
   openSettings: "설정 열기",
   updateNeeded: "앱을 업데이트하면 켤 수 있어요.",
@@ -90,8 +96,7 @@ type SwitchNotice = "failed" | "denied" | null;
 
 const isNotFound = (err: unknown) => err instanceof ApiClientError && err.status === 404;
 
-export function PushDevicesCard() {
-  const titleId = useId();
+export function PushDevicesPanel({ className }: { className?: string }) {
   const captionId = useId();
   const switchId = useId();
 
@@ -174,7 +179,7 @@ export function PushDevicesCard() {
       updatePushDevicesLocal((list) => [device, ...list.filter((d) => d.deviceKey !== device.deviceKey)]);
       void refreshPushDevices();
     } catch (err) {
-      console.warn("[gh-radar] 이 기기 체결 알림 켜기 실패", pushErrorText(err));
+      console.warn("[gh-radar] 이 기기 매매 알림 켜기 실패", pushErrorText(err));
       setSwitchNotice("failed");
     } finally {
       setBusy(false);
@@ -260,14 +265,7 @@ export function PushDevicesCard() {
   const showLoadFailed = mode !== "pending" && error && loadedAt === null;
 
   return (
-    <section
-      data-slot="me-push-devices-card"
-      aria-labelledby={titleId}
-      className="flex min-w-0 flex-col rounded-[var(--r-lg)] bg-[var(--card)] p-3"
-    >
-      <h2 id={titleId} className="px-1 text-[15px] font-semibold text-[var(--fg)]">
-        {PUSH_DEVICES_TEXT.title}
-      </h2>
+    <div data-slot="me-push-devices-panel" className={cn("flex min-w-0 flex-col", className)}>
       {mode !== "pending" && (
         <p
           id={captionId}
@@ -279,7 +277,7 @@ export function PushDevicesCard() {
 
       {isApp && (
         <div className="flex min-w-0 flex-col border-t border-[var(--border-subtle)] px-1 pt-1">
-          <div className="flex min-h-[44px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="flex min-h-[48px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <label htmlFor={switchId} className="text-[14px] font-normal whitespace-nowrap text-[var(--fg)]">
               {PUSH_DEVICES_TEXT.thisDevice}
             </label>
@@ -329,6 +327,14 @@ export function PushDevicesCard() {
         </div>
       )}
 
+      {isApp && others.length > 0 && (
+        <p
+          data-slot="me-push-other-devices"
+          className="px-1 pt-3 pb-1 text-[12px] font-semibold text-[var(--muted-fg)]"
+        >
+          {PUSH_DEVICES_TEXT.otherDevices}
+        </p>
+      )}
       {others.length > 0 && (
         <ul data-slot="me-push-device-list" className="flex min-w-0 flex-col">
           {others.map((d) => (
@@ -359,7 +365,7 @@ export function PushDevicesCard() {
           {PUSH_DEVICES_TEXT.actionFailed}
         </p>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -380,7 +386,7 @@ function DeviceRow({
   return (
     <li
       data-slot="me-push-device"
-      className="flex min-h-[44px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--border-subtle)] px-1 py-1"
+      className="flex min-h-[48px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--border-subtle)] px-1 py-1"
     >
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-[14px] font-normal text-[var(--fg)]">

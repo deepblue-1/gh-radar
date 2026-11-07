@@ -7,7 +7,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
  * 잠그는 것: user 없으면 렌더 안 함 · 아바타 폴백 체인(avatar_url → 이니셜, 이미지 실패 잠금) ·
  * 이름/이메일 · 테마 버튼 = 사이드바 ThemeToggle 과 같은 규칙(아이콘 = 목적지: 다크=Sun · 라이트=Moon,
  * 접근 이름 = 행동 문구 「라이트 모드로 전환」/「다크 모드로 전환」)과 반대 테마로 전환 · 로그아웃 → signOut ·
- * 카드 마크업 계약(`data-slot` · radius 16 · 높이 72).
+ * 카드 마크업 계약(`data-slot` · radius 16 · 높이 72) · 버튼 순서 매매 알림 → 테마 → 로그아웃(quick-261107-fbj ·
+ * 종 자체는 `push-alert-bell.test.tsx` 가 잠그고 여기서는 단순 버튼 목으로 순서만 본다).
  */
 
 type AuthShape = ReturnType<typeof import('@/lib/auth-context').useAuth>;
@@ -21,6 +22,12 @@ let resolvedTheme: 'light' | 'dark' = 'dark';
 const setTheme = vi.fn();
 vi.mock('next-themes', () => ({
   useTheme: () => ({ resolvedTheme, theme: resolvedTheme, setTheme }),
+}));
+
+vi.mock('@/components/me/push-alert-bell', () => ({
+  PushAlertBell: ({ className }: { className?: string }) => (
+    <button type="button" aria-label="매매 알림" className={className} />
+  ),
 }));
 
 import { AccountCard } from '../account-card';
@@ -126,5 +133,15 @@ describe('AccountCard — 로그아웃', () => {
     render(<AccountCard />);
     fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
     expect(signOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AccountCard — 버튼 순서 (quick-261107-fbj)', () => {
+  it('매매 알림 → 테마 → 로그아웃 순서이고 종은 같은 아이콘 버튼 클래스를 받는다', () => {
+    resolvedTheme = 'dark';
+    render(<AccountCard />);
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual(['매매 알림', '라이트 모드로 전환', '로그아웃']);
+    expect(screen.getByRole('button', { name: '매매 알림' }).className).toContain('size-10');
   });
 });

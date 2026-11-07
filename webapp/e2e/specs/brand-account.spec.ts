@@ -96,6 +96,8 @@ test.describe('Phase 21 — /me 계정 카드 A (MOBILE-01h · D-08 · D-08a)', 
     await expect(card).toBeVisible();
     await expect(card.getByRole('button', { name: THEME_SWITCH_NAME })).toBeInViewport();
     await expect(card.getByRole('button', { name: '로그아웃', exact: true })).toBeInViewport();
+    // quick-261107-fbj — 매매 알림 종(푸시 기기 관리 입구)도 계정 카드 안 · 뷰포트 안.
+    await expect(card.getByRole('button', { name: '매매 알림', exact: true })).toBeInViewport();
 
     const box = await card.boundingBox();
     expect(box).not.toBeNull();

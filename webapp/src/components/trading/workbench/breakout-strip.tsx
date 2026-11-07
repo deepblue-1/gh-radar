@@ -332,7 +332,7 @@ export function BreakoutStrip({
     const { record, sound } = newBreakoutsToAnnounce(rows, soundedRef.current);
     if (record.length === 0) return;
     soundedRef.current = addSounded(record); // ① 집합에 먼저 쓴다
-    if (sound.length > 0) playBreakoutTone(); // ② 그 다음 재생(토글·차단은 모듈이 판정)
+    if (sound.length > 0) playBreakoutTone(); // ② 그 다음 재생(재생 여부는 모듈이 판정 — 지금은 꺼짐(quick-261107-fbj))
   }, [rows]);
 
   /*

@@ -6,7 +6,6 @@ import {
   ARM_GRACE_MS,
   BREAKOUT_DISMISSED_KEY,
   BREAKOUT_SOUNDED_KEY,
-  BREAKOUT_TONE_KEY,
   HIGHLIGHT_MS,
   REMOVE_MARGIN_PCT,
   TRADING_COLS_KEY,
@@ -21,13 +20,11 @@ import {
   readDatedSet,
   readDismissedSet,
   readSoundedSet,
-  readTonePref,
   sameCrossInterval,
   shouldRemoveBreakout,
   trackBreakoutMeta,
   writeColsPref,
   writeDatedSet,
-  writeTonePref,
   type BreakoutRow,
 } from "../breakout-list";
 
@@ -84,10 +81,9 @@ afterEach(() => {
 });
 
 describe("상수 — 키·폭·시간", () => {
-  it("localStorage 키 4종과 규칙 상수가 UI-SPEC 값이다", () => {
+  it("localStorage 키 3종과 규칙 상수가 UI-SPEC 값이다", () => {
     expect(BREAKOUT_SOUNDED_KEY).toBe("gh-radar:breakout-sounded");
     expect(BREAKOUT_DISMISSED_KEY).toBe("gh-radar:breakout-dismissed");
-    expect(BREAKOUT_TONE_KEY).toBe("gh-radar:breakout-tone");
     expect(TRADING_COLS_KEY).toBe("gh-radar:trading-cols");
     expect(REMOVE_MARGIN_PCT).toBe(2.0);
     expect(ARM_GRACE_MS).toBe(3_000);
@@ -142,8 +138,6 @@ describe("날짜 키 집합 I/O", () => {
     expect(() => writeDatedSet(BREAKOUT_SOUNDED_KEY, "20260921", [ISIN_A])).not.toThrow();
     expect(() => addSounded([ISIN_A], "20260921")).not.toThrow();
     expect(() => addDismissed([ISIN_A], "20260921")).not.toThrow();
-    expect(readTonePref()).toBe("off");
-    expect(() => writeTonePref("on")).not.toThrow();
     expect(readColsPref()).toBe(1);
     expect(() => writeColsPref(3)).not.toThrow();
   });
@@ -159,14 +153,7 @@ describe("날짜 키 집합 I/O", () => {
   });
 });
 
-describe("기기 설정 — 알림음·단 수", () => {
-  it("알림음 기본은 꺼짐이고 켠 값이 다시 읽힌다", () => {
-    expect(readTonePref()).toBe("off");
-    writeTonePref("on");
-    expect(readTonePref()).toBe("on");
-    expect(window.localStorage.getItem(BREAKOUT_TONE_KEY)).toBe("on");
-  });
-
+describe("기기 설정 — 단 수", () => {
   it("단 수 기본은 1 이고 1·2·3 밖 값은 1 로 수렴한다", () => {
     expect(readColsPref()).toBe(1);
     writeColsPref(2);

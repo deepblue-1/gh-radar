@@ -455,10 +455,10 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     };
   }
 
-  it('B1 — 기본 렌더: 탭 순서 현황·잔고·주문·설정·손익 · 현황 선택 · 미방문 패널 비마운트 · 오늘 주문 마운트 0 · 손익 조회 0', () => {
+  it('B1 — 기본 렌더: 탭 순서 현황·잔고·주문·손익·설정(quick-261107-fbj) · 현황 선택 · 미방문 패널 비마운트 · 오늘 주문 마운트 0 · 손익 조회 0', () => {
     render(<MeClient />);
     const names = within(meTabList()).getAllByRole('tab').map((t) => t.textContent);
-    expect(names).toEqual(['현황', '잔고', '주문', '설정', '손익']);
+    expect(names).toEqual(['현황', '잔고', '주문', '손익', '설정']);
     expect(mockFetchMyPnl).not.toHaveBeenCalled();
     expect(slot('me-pnl')).toBeNull();
     expect(meTab('현황')).toHaveAttribute('aria-selected', 'true');
@@ -474,12 +474,17 @@ describe('261006-pey /me 4탭 (D-1)', () => {
     expect(mockOrdersMounts).toBe(0);
   });
 
-  it('B2 — `?tab=settings` 딥링크 = 설정 · 화이트리스트 밖(`?tab=zzz`) = 현황', () => {
+  it('B2 — `?tab=settings` 딥링크 = 설정(상따 기본설정만 · quick-261107-fbj) · 화이트리스트 밖(`?tab=zzz`) = 현황', () => {
     mockSearchParams = new URLSearchParams('tab=settings');
     const view = render(<MeClient />);
     expect(meTab('설정')).toHaveAttribute('aria-selected', 'true');
     expect(slot('me-lc-defaults')).not.toBeNull();
     expect(slot('me-status-bar')).toBeNull();
+    // 설정 탭 = 상따 기본설정만 — 돌파 알림음 카드 · 매매 알림 패널이 없다(종은 계정 카드 몫).
+    const settingsPanel = screen.getByTestId('me-tab-panel-settings');
+    expect(settingsPanel.querySelector('[data-slot="me-push-devices-panel"]')).toBeNull();
+    expect(settingsPanel.querySelector('[role="switch"]')).toBeNull();
+    expect(settingsPanel.textContent).not.toContain('알림음');
     view.unmount();
 
     mockSearchParams = new URLSearchParams('tab=zzz');

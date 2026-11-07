@@ -11,8 +11,9 @@ import { leavesOverflowing, scrollOverflowing } from '../overflow';
  *
  * ① 출처 — `.planning/phases/32-account-axis/32-UI-SPEC.md`
  *   「폭 백스톱」 절 · 「폭 백스톱(수정분)」 절 · UI Considerations 의 backstop 행(S1 long-text · S3 overflow ·
- *   S4 long-text · S9 long-text · S13 overflow)과 수정분의 설정 탭 제목 줄(S8′). 수정 절이 무효로 한
- *   S5 overflow · S7 long-text · S8 overflow · S10 long-text 는 표면이 없어 잇지 않는다.
+ *   S4 long-text · S13 overflow)과 수정분의 설정 탭 제목 줄(S8′). 수정 절이 무효로 한
+ *   S5 overflow · S7 long-text · S8 overflow · S10 long-text 는 표면이 없어 잇지 않는다. S9(돌파 알림음 카드)는
+ *   quick-261107-fbj 로 카드 · 소리를 함께 걷어 표면이 없다.
  *
  * ② 최악값 글자 (UI-SPEC 「폭 백스톱」 그대로)
  *   번호 12자 「1234-5678-90」 · 상품명 15자 「종합매매(위탁) 김알렉스」 · 서버키 「KYOBO127」 →
@@ -523,46 +524,6 @@ test.describe('Phase 32 — 계좌 축 폭 백스톱 (로컬 relay)', () => {
         `${c.where} 토스트=${Math.round(toastBox.width)} 계좌 줄 ${Math.round(labelBox.height / lineHeight)}줄(높이 ${Math.round(labelBox.height)}) 힌트 폭=${Math.round(hintBox.width)}`,
       );
     }
-  });
-
-  test('P32-backstop S9 「이 기기」 카드 — 켜짐 ∧ 차단(AudioContext resume 거부) · 폰 /me 본문에서 「클릭해 활성화」 + 스위치 잘림 0', async ({
-    page,
-  }) => {
-    // 자동재생 차단 재현 — 컨텍스트가 suspended 로 보이고 resume() 이 거부된다(헤드리스 크롬은 기본 자동재생 허용).
-    await page.addInitScript(() => {
-      const AC = window.AudioContext;
-      if (AC === undefined) return;
-      Object.defineProperty(AC.prototype, 'state', { configurable: true, get: () => 'suspended' });
-      AC.prototype.resume = () => Promise.reject(new DOMException('e2e blocked', 'NotAllowedError'));
-    });
-    await openMePhone(page);
-    await openMeTab(page, '설정', 'settings');
-
-    const card = page.locator('[data-slot="me-device-card"]');
-    const sw = card.locator('[data-slot="me-device-tone"]');
-    await expect(sw).toBeVisible();
-    if ((await sw.getAttribute('aria-checked')) !== 'true') await sw.click();
-    await expect(sw).toHaveAttribute('aria-checked', 'true');
-    const activate = card.locator('[data-slot="me-device-tone-activate"]');
-    await expect(activate).toHaveText('클릭해 활성화', { timeout: 10_000 });
-
-    const cardBox = await rectOf(card);
-    const actBox = await rectOf(activate);
-    const swBox = await rectOf(sw);
-    const rowLabel = await rectOf(card.locator('label').first());
-    await expectNotClipped(activate, 'S9 클릭해 활성화');
-    expectInside(actBox, cardBox, 'S9 클릭해 활성화');
-    expectInside(swBox, cardBox, 'S9 스위치');
-    expectInside(rowLabel, cardBox, 'S9 「돌파 알림음」 라벨');
-    // 같은 줄이면 라벨 → 활성화 → 스위치 순 · 겹침 없음. 줄바꿈이면 활성화 묶음이 라벨 아래.
-    const oneLine = Math.abs(actBox.top + actBox.height / 2 - (rowLabel.top + rowLabel.height / 2)) <= 4;
-    if (oneLine) expect(actBox.left, 'S9 — 활성화가 라벨과 겹침').toBeGreaterThanOrEqual(rowLabel.right - 0.5);
-    else expect(actBox.top, 'S9 — 줄바꿈인데 라벨 아래가 아님').toBeGreaterThanOrEqual(rowLabel.bottom - 0.5);
-    expect(swBox.left, 'S9 — 스위치가 활성화와 겹침').toBeGreaterThanOrEqual(actBox.right - 0.5);
-    expect(await scrollOverflowing(page, '[data-slot="me-device-card"]'), 'S9 — 넘친 요소').toEqual([]);
-    expect(await leavesOverflowing(card, cardBox.right), 'S9 — 밀린 잎').toEqual([]);
-    expect(await pageHorizontalScroll(page), 'S9 — 페이지 가로 스크롤').toEqual([]);
-    record('P32-backstop-S9', `/me 본문 334 카드=${Math.round(cardBox.width)} ${oneLine ? '한 줄' : '줄바꿈'}`);
   });
 
   test('P32-backstop S13 /me 계좌 칩 줄 — 폰 본문 334 · 계좌 4개(최악값 상품명 · KYOBO127) 가로 스크롤 한 줄 · 칩 글자 잘림 0 · 페이지 가로 스크롤 0 · 마지막 칩 고른 뒤 새로고침하면 보이는 영역 안', async ({

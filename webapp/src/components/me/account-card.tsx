@@ -9,14 +9,15 @@ import {
   ThemeSwitchIcon,
   type ThemeValue,
 } from "@/components/layout/theme-toggle";
+import { PushAlertBell } from "@/components/me/push-alert-bell";
 import { useAuth } from "@/lib/auth-context";
 
 /**
  * AccountCard — `/me` 상단 계정 카드 A (Phase 21 D-08 · D-08a · 스케치 005 채택안).
  *
- * ① 한 줄 카드다: 아바타 44 · 이름 16/700 · 이메일 12.5 muted | 테마 · 로그아웃 아이콘 버튼
- *   40×40. `--card` radius 16 · padding 14/16 · 높이 72. 웹·앱 공통으로 보인다 — 앱 「마이」
- *   탭에서 사이드바 드로어 없이 로그아웃·테마 전환을 하려는 것이 목적이다.
+ * ① 한 줄 카드다: 아바타 44 · 이름 16/700 · 이메일 12.5 muted | 매매 알림 · 테마 · 로그아웃 아이콘 버튼
+ *   40×40. `--card` radius 16 · padding 14/16 · 높이 72. 웹·앱 공통으로 보인다 — 앱에서 드로어를 열지 않고
+ *   매매 알림 기기 관리 · 로그아웃 · 테마 전환을 하려는 것이 목적이다.
  *
  * ② 사이드바 하단 `UserSection` · `ThemeToggle` 은 **그대로 둔다**(D-08). 이 카드는 같은
  *   정보를 한 번 더 보이는 자리이고, 아바타 폴백 체인은 `UserSection` 과 같다:
@@ -32,6 +33,9 @@ import { useAuth } from "@/lib/auth-context";
  *   21-08 함정에 걸리지 않는다. 아바타 이니셜 바탕은 `--raised-2`.
  *
  * ⑤ 로그아웃은 기존 `useAuth().signOut`(하드 리다이렉트 `/login`) 그대로다.
+ *
+ * ⑥ 종 = 푸시 기기 관리 입구(quick-261107-fbj · 스케치 030 A) — `PushAlertBell` 이 켜짐 점 · 시트/팝오버를 소유한다.
+ *   사용자 단위라 DMA 게이트 화면의 계정 카드에도 보인다(숨기면 미매핑 사용자가 기존 기기를 끌 곳이 없다).
  */
 export function AccountCard() {
   const { user, displayName, signOut } = useAuth();
@@ -90,6 +94,7 @@ export function AccountCard() {
       </div>
 
       <div className="ml-auto flex shrink-0 gap-1.5">
+        <PushAlertBell className={iconButton} />
         <button
           type="button"
           aria-label={THEME_SWITCH_LABEL[nextTheme]}

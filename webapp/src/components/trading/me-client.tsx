@@ -5,15 +5,15 @@
  *
  * ① 세로 순서 계약은 **탭 순서**로 승계됐다 (D-20 → quick-261006-pey D-1)
  *   옛 계약은 한 세로 열 「상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문**」
- *   이었다. 지금은 계정 카드 아래 4탭이 그 순서를 잇는다 — 현황(상태줄 → 전략) → 잔고(계좌 A → B …) →
- *   주문 → 설정. 전략이 지금 어떤 상태인지가 먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문
- *   이력은 그 뒤에 붙는 기록이다. Phase 36(D-17 ②)이 5번째 「손익」(고른 계좌의 일자별 실현손익)을 맨 뒤에 붙였다. 제목 바로 아래 계정 카드(`AccountCard` · Phase 21 D-08)는 탭 **위**
+ *   이었다. 지금은 계정 카드 아래 5탭이 그 순서를 잇는다 — 현황(상태줄 → 전략) → 잔고(계좌 A → B …) →
+ *   주문 → 손익 → 설정(quick-261107-fbj — 설정을 맨 뒤로). 전략이 지금 어떤 상태인지가 먼저이고, 계좌별 주문·잔고는
+ *   그 결과이며, 오늘의 주문 이력과 일자별 실현손익(Phase 36 D-17 ②)은 그 뒤에 붙는 기록이다. 설정은 매매 설정만 남아
+ *   맨 끝이다. 제목 바로 아래 계정 카드(`AccountCard` · Phase 21 D-08)는 탭 **위**
  *   공통이라 순서 자체를 바꾸지 않는다.
  *   ★ 전 종목 전략 로그(D-25a · G-21-R3-2 · 스케치 008 ① B)는 **새 칸이 아니다** — 전략 현황 칸 안의
- *     「현황 | 로그」 전환(기본 = 현황)이라 이 순서도 /me 세로 길이도 그대로다. 앱은 /trading 하단 공용
- *     패널을 숨기므로 전략 로그를 여기서 본다(`strategy-status-card.tsx` ⑧ · `lib/strategy-log-feed.tsx`).
- *     잃는 동작(잔고 행 → 카드 생성·포커스 · 카드 없는 종목의 미체결 정정 진입)은 앱에서 범위 밖이다
- *     (21-25 사용자 동의).
+ *     「현황 | 로그」 전환(기본 = 현황)이라 이 순서도 /me 세로 길이도 그대로다. 앱도 quick-261107-fbj 부터
+ *     /trading 하단 공용 패널을 다시 보인다 — /me 「현황 | 로그」 전환은 두 번째 입구로 그대로 둔다
+ *     (`strategy-status-card.tsx` ⑧ · `lib/strategy-log-feed.tsx`).
  *
  * ② ★ 탭 위 계좌 칩 한 곳에서 고른다 (Phase 32 D-20 — Phase 16 D-21 「계좌 선택 UI 없음 · 세로 반복」 을
  *   2026-10-16 사용자 결정으로 뒤집음)
@@ -88,8 +88,6 @@ import {
 import { PAGE_WRAP, SECTION_COUNT } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { MeAccountChips } from "@/components/me/account-chips";
-import { DeviceSettingsCard } from "@/components/me/device-settings-card";
-import { PushDevicesCard } from "@/components/me/push-devices-card";
 import { LimitChaserDefaultsSection } from "@/components/me/limit-chaser-defaults";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -308,14 +306,14 @@ function tradingCardHref(isin: string): string | null {
   return code === null ? null : `/trading?code=${code}`;
 }
 
-/** D-1 — 탭 순서 · 값 · 라벨 확정값(위 ①). */
+/** D-1 — 탭 순서 · 값 · 라벨 확정값(위 ①). 현황 → 잔고 → 주문 → 손익 → 설정(quick-261107-fbj — 설정을 맨 뒤로). */
 const ME_TABS = [
   { v: "status", label: "현황" },
   { v: "accounts", label: "잔고" },
   { v: "orders", label: "주문" },
-  { v: "settings", label: "설정" },
-  // Phase 36 D-17 ② — 5번째 「손익」(개수 배지 없음 · 고른 계좌 한 벌의 일자별 실현손익).
+  // Phase 36 D-17 ② — 「손익」(개수 배지 없음 · 고른 계좌 한 벌의 일자별 실현손익).
   { v: "pnl", label: "손익" },
+  { v: "settings", label: "설정" },
 ] as const;
 
 type MeTabValue = (typeof ME_TABS)[number]["v"];
@@ -576,11 +574,8 @@ function MeTabs() {
           sameServerAccountNos={sameServerAccountNos}
           onBusyChange={setSettingsBusy}
         />
-        {/* Phase 32 D-15 — 「이 기기」 카드(돌파 알림음 · 이 브라우저 localStorage). 이 기기 카드는 계좌 칩과 무관(D-24 · D-15). */}
-        <DeviceSettingsCard />
-        {/* Phase 40 D-13 — 「알림 받는 기기」 카드(체결 앱 푸시 · 서버 저장 · 기기별). 위 「이 기기」 카드(localStorage)와 별개 ·
-            계좌 칩과 무관(사용자 단위). 앱 안 = 이 기기 스위치 + 다른 기기 목록 · PC = 목록 · 끄기 · 지우기만. */}
-        <PushDevicesCard />
+        {/* quick-261107-fbj — 설정 탭은 매매 설정만. 돌파 알림음 카드는 제거(소리도 꺼짐) · 앱 푸시 기기 관리는
+            계정 카드의 「매매 알림」 종(시트/팝오버)으로 옮겼다(스케치 030 A). */}
       </TabsContent>
 
       <TabsContent
@@ -638,8 +633,8 @@ export function MeClient() {
   useNativeRefresh(probeNow);
 
   if (gateReason !== null) {
-    // D-08 — 계정 카드는 DMA 게이트 화면에서도 보인다. 미매핑 사용자도 로그아웃·테마 전환을
-    // 사이드바 없이(앱 「마이」 탭) 할 수 있어야 한다. 탭은 없다(D-1).
+    // D-08 — 계정 카드는 DMA 게이트 화면에서도 보인다. 미매핑 사용자도 로그아웃·테마 전환·매매 알림 기기 관리를
+    // 앱에서 사이드바 드로어를 열지 않고 할 수 있어야 한다(quick-261107-fbj). 탭은 없다(D-1).
     return (
       <div className={PAGE_WRAP}>
         <AccountCard />

@@ -68,8 +68,6 @@ vi.mock('@/lib/stock-names', async (importOriginal) => ({
 
 vi.mock('@/lib/alert-tone', () => ({
   playBreakoutTone: vi.fn(() => false),
-  isTonePlaybackBlocked: vi.fn(() => false),
-  resumeToneContext: vi.fn(async () => {}),
 }));
 
 /** 카드 스텁 — 작업대가 내려주는 prop 을 **카드 id** 별로 기록한다(WR-05 — 같은 ISIN 카드가 둘일 수 있다). */

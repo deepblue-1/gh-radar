@@ -16,7 +16,7 @@
  *
  * ③ SSR · 저장소 차단 안전
  *   읽기·쓰기 전부 `typeof window` 가드 + try/catch 로 안전 기본값에 수렴하고 throw 하지 않는다
- *   (Safari 프라이빗 모드 · 깨진 JSON). 패턴 정본은 이 파일의 로컬 설정 함수(`readTonePref` 등)다.
+ *   (Safari 프라이빗 모드 · 깨진 JSON). 패턴 정본은 이 파일의 로컬 저장 함수(`readDatedSet` · `readColsPref` 등)다.
  *
  * ④ ★ 타이머를 소유하지 않는다
  *   30초 강조 만료는 호출자가 **목록 전체에 1초 tick 타이머 1개**(강조 행이 있을 때만 가동)로
@@ -31,8 +31,6 @@ import type { RelayExchange, RelayRateCrossItem } from "@gh-radar/shared";
 export const BREAKOUT_SOUNDED_KEY = "gh-radar:breakout-sounded";
 /** 「지운 종목」 집합 — 지우면 그날 재돌파에도 나오지 않는다(D-18). */
 export const BREAKOUT_DISMISSED_KEY = "gh-radar:breakout-dismissed";
-/** 알림음 토글 `"on" | "off"` (기본 off). */
-export const BREAKOUT_TONE_KEY = "gh-radar:breakout-tone";
 /** 격자 단 수 `"1" | "2" | "3"` (기본 1). */
 export const TRADING_COLS_KEY = "gh-radar:trading-cols";
 
@@ -43,7 +41,6 @@ export const ARM_GRACE_MS = 3_000;
 /** 신규 강조 지속(ms) — 깜박임 없이 `--new-bg` + 「신규」 배지(D-18). */
 export const HIGHLIGHT_MS = 30_000;
 
-export type BreakoutTonePref = "on" | "off";
 export type TradingCols = 1 | 2 | 3;
 
 /* ── KST 날짜 키 ──────────────────────────────────────────────────────── */
@@ -124,26 +121,6 @@ export function readDismissedSet(today: string = kstDateKey()): ReadonlySet<stri
 /** 「지운 종목」에 기록하고 갱신된 집합을 돌려준다. */
 export function addDismissed(isins: readonly string[], today: string = kstDateKey()): ReadonlySet<string> {
   return addToDatedSet(BREAKOUT_DISMISSED_KEY, isins, today);
-}
-
-/** 알림음 토글. **기본은 꺼짐**이고 SSR·저장소 실패도 꺼짐이다. */
-export function readTonePref(): BreakoutTonePref {
-  if (typeof window === "undefined") return "off";
-  try {
-    return window.localStorage.getItem(BREAKOUT_TONE_KEY) === "on" ? "on" : "off";
-  } catch {
-    return "off";
-  }
-}
-
-/** 알림음 토글 저장 — 이 기기 전용, 서버로 보내지 않는다. */
-export function writeTonePref(pref: BreakoutTonePref): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(BREAKOUT_TONE_KEY, pref);
-  } catch {
-    // 저장 실패는 다음 방문에 꺼짐으로 읽히는 것뿐이다.
-  }
 }
 
 /** 격자 단 수. 기본 1 이고 1·2·3 밖 값·실패는 1 로 수렴한다. */

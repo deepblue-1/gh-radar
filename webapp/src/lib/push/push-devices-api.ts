@@ -25,7 +25,7 @@ export function fetchPushDevices(): Promise<PushDevice[]> {
   return authFetch<PushDevice[]>(BASE);
 }
 
-/** 앱 「이 기기 체결 알림」 켜기 — 토큰 등록 + 켜짐(D-12 · D-14). 같은 키는 행 교체. */
+/** 앱 「이 기기 매매 알림」 켜기 — 토큰 등록 + 켜짐(D-12 · D-14). 같은 키는 행 교체. */
 export function registerThisPushDevice(deviceKey: string, body: PushDeviceRegisterBody): Promise<PushDevice> {
   return authFetch<PushDevice>(devicePath(deviceKey), {
     method: "PUT",

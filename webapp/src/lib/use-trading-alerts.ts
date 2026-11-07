@@ -44,7 +44,7 @@ export interface UseTradingAlertsInput {
   /** **새** 알림마다(병합 제외) — 작업대가 카드 표시(`data-alert`)를 건다. */
   onNew?: (a: TradingAlert) => void;
   /**
-   * 주문 토스트 숨김(Phase 40 D-20 — 앱에서 이 기기 체결 알림이 켜져 배너가 대신 뜬다). 참이면 돌파 밖 6종
+   * 주문 토스트 숨김(Phase 40 D-20 — 앱에서 이 기기 매매 알림이 켜져 배너가 대신 뜬다). 참이면 돌파 밖 6종
    * (accept · fill · modify · cancel · reject · vi)은 alerts 에 넣지 않고 소리도 내지 않는다 — `onNew` 는 그대로 부른다.
    * 숨김 중 들어온 통보는 숨김이 풀려도 되살리지 않는다(① 이력 재생 금지). 기본 false = 종전 그대로.
    */

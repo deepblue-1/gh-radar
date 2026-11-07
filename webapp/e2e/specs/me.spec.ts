@@ -439,7 +439,7 @@ async function waitForAccountCard(page: Page, accountNo: string): Promise<void> 
 }
 
 /*
-  quick-261006-pey D-1 — /me 는 계정 카드 아래 4탭(현황 · 잔고 · 주문 · 설정)이다. 표면이 탭 안으로 옮겨졌으므로
+  quick-261006-pey D-1 — /me 는 계정 카드 아래 5탭(현황 · 잔고 · 주문 · 손익 · 설정 — quick-261107-fbj 순서)이다. 표면이 탭 안으로 옮겨졌으므로
   계좌 카드 · 오늘 주문 · 상따 기본설정 단언은 **그 탭을 연 뒤**에 한다. 숨은 패널(한 번 연 탭 · display:none)은
   박스가 없으므로 boxOf · leavesOverflowing · 스크린샷은 그 표면의 탭이 활성일 때만 쓴다.
 */
@@ -949,12 +949,12 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
 
     /*
       세로 순서 → 탭 순서 승계(quick-261006-pey D-1): 옛 「상태줄 → 전략 현황 → 계좌 A → 계좌 B → 오늘 주문」 은
-      탭 순서 현황(상태줄 · 전략) → 잔고(고른 계좌 한 벌 · 위에서 단언) → 주문 → 설정으로 잇는다.
+      탭 순서 현황(상태줄 · 전략) → 잔고(고른 계좌 한 벌 · 위에서 단언) → 주문 → 손익 → 설정으로 잇는다(quick-261107-fbj).
     */
     const tabNames = (await meTabList(page).getByRole('tab').allTextContents()).map((t) =>
       t.replace(/\d+$/, ''),
     );
-    expect(tabNames).toEqual(['현황', '잔고', '주문', '설정', '손익']);
+    expect(tabNames).toEqual(['현황', '잔고', '주문', '손익', '설정']);
   });
 
   test('2. 전략 행 클릭 → 인코딩된 키로 /trading?focus= 로 이동하고 그 카드가 펼쳐진다 (Phase 18 D-02)', async ({
@@ -2070,14 +2070,14 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     });
   });
 
-  /* ───────────────────────── quick-261006-pey D-1 — /me 4탭 메커니즘(실브라우저) ───────────────────────── */
+  /* ───────────────────────── quick-261006-pey D-1 — /me 5탭 메커니즘(실브라우저) ───────────────────────── */
 
   test('PEY-1 기본은 현황 — 열지 않은 탭은 마운트되지 않고 오늘 주문 조회도 0회다', async ({ page }) => {
     await page.goto('/me');
     await waitForReady(page, 2);
 
     const names = (await meTabList(page).getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, ''));
-    expect(names).toEqual(['현황', '잔고', '주문', '설정', '손익']);
+    expect(names).toEqual(['현황', '잔고', '주문', '손익', '설정']);
     await expect(meTab(page, '현황')).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('[data-slot="me-status-bar"]')).toBeVisible();
     await expect(strategyCard(page)).toBeVisible();
