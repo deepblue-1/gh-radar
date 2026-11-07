@@ -17,6 +17,7 @@ import {
  *   account-costs   → 200 `{ servers: {} }` (36-04 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
  *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119, KYOBO112 } }` 셋 다 ok 4칸(35-13 · quick-261107-iep · `LAUNCH_PLAN_DEFAULT`)
+ *                    — `opts.tailProbes` 면 서버마다 `tail_probes`(`LAUNCH_TAIL_PROBES_DEFAULT` · quick-261107-l7w). 기본은 없음(구 서버).
  *   PUT launch-plan/:server → 200 `{ result: { server, outcome: "ok" }, before_us: [-350,-345,-325], plan: 그 서버 기본 계획 }`
  */
 
@@ -53,14 +54,28 @@ export const LAUNCH_PLAN_DEFAULT: Record<string, ReturnType<typeof planOf>> = {
   KYOBO112: planOf(-200),
 };
 
-function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
+/** 가짜 relay 의 기본 뒤탐침(quick-261107-l7w) — Q16 5발 · 10µs · N 꺼짐(0발 · 10µs). */
+export const LAUNCH_TAIL_PROBES_DEFAULT = [
+  { profile: "Q16", count: 5, step_us: 10 },
+  { profile: "N", count: 0, step_us: 10 },
+];
+
+export type FakeRelayOpts = {
+  /** GET launch-plan 기본 응답의 ok 서버마다 `tail_probes` 를 싣는다(기본 false = 구 서버 · 와이어 대기). */
+  tailProbes?: boolean;
+};
+
+const withTailProbes = (servers: Record<string, ReturnType<typeof planOf>>) =>
+  Object.fromEntries(Object.entries(servers).map(([k, v]) => [k, { ...v, tail_probes: LAUNCH_TAIL_PROBES_DEFAULT }]));
+
+function defaultResponse(call: FakeRelayCall, opts: FakeRelayOpts = {}): RelayAdminResponse<unknown> {
   if (/\/reload$/.test(call.path)) return { status: 200, data: { ok: true, changed: true } };
   if (call.path === "/internal/admin/servers/status") return { status: 200, data: { servers: {} } };
   if (call.path === "/internal/admin/order-endpoints") return { status: 200, data: { servers: {} } };
   if (call.path === "/internal/admin/account-costs") return { status: 200, data: { servers: {} } };
   if (/\/quote-primary$/.test(call.path)) return { status: 200, data: { ok: true } };
   if (call.method === "GET" && call.path.startsWith("/internal/admin/launch-plan")) {
-    return { status: 200, data: { servers: LAUNCH_PLAN_DEFAULT } };
+    return { status: 200, data: { servers: opts.tailProbes ? withTailProbes(LAUNCH_PLAN_DEFAULT) : LAUNCH_PLAN_DEFAULT } };
   }
   if (call.method === "PUT" && call.path.startsWith("/internal/admin/launch-plan/")) {
     const server = decodeURIComponent(call.path.slice("/internal/admin/launch-plan/".length));
@@ -79,7 +94,7 @@ function defaultResponse(call: FakeRelayCall): RelayAdminResponse<unknown> {
   return { status: 200, data: { results: OK_RESULTS } };
 }
 
-export function makeFakeRelay(handler?: FakeRelayHandler): {
+export function makeFakeRelay(handler?: FakeRelayHandler, opts: FakeRelayOpts = {}): {
   client: RelayAdminClient;
   calls: FakeRelayCall[];
 } {
@@ -92,7 +107,7 @@ export function makeFakeRelay(handler?: FakeRelayHandler): {
   ): Promise<RelayAdminResponse<T>> => {
     const call: FakeRelayCall = { method, path, adminEmail, ...(body === undefined ? {} : { body }) };
     calls.push(call);
-    const r = (await handler?.(call)) ?? defaultResponse(call);
+    const r = (await handler?.(call)) ?? defaultResponse(call, opts);
     return r as RelayAdminResponse<T>;
   };
   return { client: relayAdminClientFrom(request), calls };

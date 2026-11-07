@@ -17,6 +17,7 @@ import {
   getLaunchMap,
   getLaunchOrders,
   getLaunchPlanChanges,
+  getLaunchTailProbeChanges,
   readLaunchPlanServers,
   recordLaunchPlanChange,
   saveLaunchPlanViaRelay,
@@ -28,8 +29,9 @@ import type { RelayAdminClient } from "../services/relay-admin-client.js";
  *
  * - GET /launch/orders?d=YYYYMMDD : 주문 내역 하루치(`LaunchOrdersResponse`). `d` 생략 = 최신 거래일.
  * - GET /launch/map?fire=q16|n0930&range=10d|20d|all : 경계 지도(`LaunchMapResponse`). 기본 q16 · 10d.
- * - GET /launch/plan : 서버별 현재 발사 계획 + 변경 이력(`LaunchPlanResponse` · 35-13 D-25) — relay 조회 ‖ 이력 RPC(Promise.all ·
- *                      relay 왕복 1 · Supabase 왕복 1).
+ * - GET /launch/plan : 서버별 현재 발사 계획 + 변경 이력(`LaunchPlanResponse` · 35-13 D-25) — relay 조회 ‖ 계획 이력 RPC ‖
+ *                      뒤탐침 이력 RPC `launch_tail_probe_changes_for_admin`(quick-261107-l7w)를 Promise.all 로 병렬
+ *                      (relay 왕복 1 · Supabase 왕복은 병렬이라 직렬 증가 없음). 서버별 뒤탐침 값은 relay 결과의 `tail_probes`.
  * - PUT /launch/plan/:gateway/:fire/:market `{ offsets_us }` : 계획 한 칸 저장(D-27 · D-29) — relay 저장 1회(저장 직전 값 ·
  *                      저장 뒤 재조회 값까지) → 이력 1행 기록(결과와 무관 · 실패 포함) → `LaunchPlanSaveResponse` 200.
  *
@@ -85,11 +87,12 @@ adminLaunchRouter.get("/launch/map", async (req, res, next) => {
 adminLaunchRouter.get("/launch/plan", async (req, res, next) => {
   try {
     const supabase = req.app.locals.supabase as SupabaseClient;
-    const [servers, changes] = await Promise.all([
+    const [servers, changes, tail_probe_changes] = await Promise.all([
       readLaunchPlanServers(req.app.locals.relayAdmin as RelayAdminClient | undefined, req.adminEmail!),
       getLaunchPlanChanges(supabase),
+      getLaunchTailProbeChanges(supabase),
     ]);
-    res.json({ servers, changes } satisfies LaunchPlanResponse);
+    res.json({ servers, changes, tail_probe_changes } satisfies LaunchPlanResponse);
   } catch (e) {
     next(e);
   }

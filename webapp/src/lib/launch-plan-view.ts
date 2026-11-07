@@ -28,6 +28,8 @@ import {
   type LaunchPlanResponse,
   type LaunchPlanSaveResponse,
   type LaunchRibbonCell,
+  type LaunchTailProbeChangeRow,
+  type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
 import { DASH, fmtUs } from './launch-format';
@@ -207,7 +209,8 @@ export function planStateWithSave(
   if (state.kind !== 'ready') return state;
   const servers = resp.plan === null ? state.resp.servers : { ...state.resp.servers, [gateway]: resp.plan };
   const changes = resp.change === null ? state.resp.changes : [resp.change, ...state.resp.changes];
-  return { kind: 'ready', resp: { servers, changes } };
+  // 나머지 키(tail_probe_changes 등 · quick-261107-l7w)는 그대로 둔다 — 계획 저장이 뒤탐침 이력을 지우지 않게.
+  return { kind: 'ready', resp: { ...state.resp, servers, changes } };
 }
 
 /**
@@ -265,7 +268,11 @@ export function planStateWithReload(
   }
   const seen = new Set(state.resp.changes.map((c) => c.id));
   const changes = [...state.resp.changes, ...resp.changes.filter((c) => !seen.has(c.id))];
-  return { kind: 'ready', resp: { servers, changes } };
+  // 뒤탐침 이력도 같은 규칙(id 로 합침 · quick-261107-l7w). 구 server 응답(키 없음)은 [] 로 읽는다.
+  const tpMine = state.resp.tail_probe_changes ?? [];
+  const tpSeen = new Set(tpMine.map((c) => c.id));
+  const tail_probe_changes = [...tpMine, ...(resp.tail_probe_changes ?? []).filter((c) => !tpSeen.has(c.id))];
+  return { kind: 'ready', resp: { ...state.resp, servers, changes, tail_probe_changes } };
 }
 
 /**
@@ -444,3 +451,47 @@ export function verdictCellText(cell: LaunchRibbonCell): string {
 /** 지도 탭 범례 아래 공용 적용 안내(D-27 · 계획을 읽었을 때만). */
 export const LAUNCH_PLAN_APPLY_NOTE =
   '저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 뒤탐침(quick-261107-l7w) — 「<서버> 뒤탐침」 줄 · 이력 표기
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 구 서버 · relay 와이어 대기(ok 인데 tail_probes 없음) — 경고색 한 줄 · 고치기 버튼 없음. */
+export const TAIL_PROBE_UNSUPPORTED_TEXT = '이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요';
+
+/** 계획을 못 읽음(서버 non-ok · 조회 실패) — muted 한 줄 · 고치기 버튼 없음. */
+export const TAIL_PROBE_UNKNOWN_TEXT = '뒤탐침 값을 읽지 못했어요';
+
+/**
+ * 뒤탐침 값 줄 — 굵게(`strong`) + 나머지(`rest`). 숫자는 양수 그대로(「+10」 · fmtUs 를 쓰지 않는다 — 늘 마지막 조각 뒤).
+ * - count 0 → 「꺼짐」 + 「 · 0발」
+ * - count 1 → 「1발 · 10µs 간격」 + 「 · 마지막 조각 뒤 +10µs」
+ * - 그 밖 → 「5발 · 10µs 간격」 + 「 · 마지막 조각 뒤 +10 ~ +50µs」
+ */
+export function tailProbeSummaryParts(v: LaunchTailProbeValue): { strong: string; rest: string } {
+  if (v.count <= 0) return { strong: '꺼짐', rest: ' · 0발' };
+  const first = v.step_us;
+  const last = v.count * v.step_us;
+  const span = v.count === 1 ? `+${first}µs` : `+${first} ~ +${last}µs`;
+  return { strong: `${v.count}발 · ${v.step_us}µs 간격`, rest: ` · 마지막 조각 뒤 ${span}` };
+}
+
+/** 뒤탐침 값 줄 전체 문구(`tailProbeSummaryParts` 를 이은 것). */
+export function tailProbeSummaryText(v: LaunchTailProbeValue): string {
+  const p = tailProbeSummaryParts(v);
+  return `${p.strong}${p.rest}`;
+}
+
+/** 이력 전 · 후 값 — 「5발 · 10µs」 · 모르면(null) 「—」. */
+export function tailProbeValueText(v: LaunchTailProbeValue | null): string {
+  return v === null ? DASH : `${v.count}발 · ${v.step_us}µs`;
+}
+
+const tpByAtDesc = (a: LaunchTailProbeChangeRow, b: LaunchTailProbeChangeRow): number =>
+  a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id;
+
+/** 이 (서버, 발사)의 뒤탐침 이력 — at 내림차순. ready 가 아니거나 구 server(키 없음)면 []. */
+export function tailProbeChangesOf(state: LaunchPlanState, gateway: string, fire: LaunchFire): LaunchTailProbeChangeRow[] {
+  if (state.kind !== 'ready') return [];
+  return (state.resp.tail_probe_changes ?? []).filter((c) => c.gateway === gateway && c.fire === fire).sort(tpByAtDesc);
+}

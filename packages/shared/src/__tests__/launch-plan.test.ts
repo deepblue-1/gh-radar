@@ -16,13 +16,19 @@ import {
   LAUNCH_PLAN_GATEWAYS,
   LAUNCH_PLAN_LIMITS,
   LAUNCH_PLAN_SERVER_MAX_PIECES,
+  LAUNCH_TAIL_PROBE_CHANGE_COLUMNS,
+  LAUNCH_TAIL_PROBE_LIMITS,
   launchPlanEntryOf,
+  launchTailProbeOffsets,
+  launchTailProbeStateOf,
+  validateLaunchTailProbeDraft,
   launchPlanProfileOf,
   launchPlanUsText,
   launchPlanVerdictRows,
   validateLaunchPlanDraft,
   type LaunchPlanChangeRow,
   type LaunchPlanServer,
+  type LaunchTailProbe,
 } from "../launch-plan";
 
 /** 기록 RPC 반환 jsonb 의 키 — pgTAP 과 같은 목록(순서 그대로). */
@@ -284,5 +290,115 @@ describe("launchPlanVerdictRows — 셀 = launchRibbonAt 그대로(D-28)", () =>
 
   it("둘 다 비면 빈 배열", () => {
     expect(launchPlanVerdictRows(days, [], [])).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 뒤탐침(quick-261107-l7w)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("뒤탐침 계약 — LAUNCH_TAIL_PROBE_CHANGE_COLUMNS · 한도", () => {
+  it("이력 열 13개 = 기록 RPC 반환 키(pgTAP 과 같은 목록)", () => {
+    expect([...LAUNCH_TAIL_PROBE_CHANGE_COLUMNS]).toEqual([
+      "id",
+      "at",
+      "admin_email",
+      "gateway",
+      "fire",
+      "before_count",
+      "before_step_us",
+      "after_count",
+      "after_step_us",
+      "outcome",
+      "code",
+      "message",
+      "plan_rev",
+    ]);
+  });
+
+  it("한도 = count 0..10 · step 1..100µs(gh-trade 계약 · 0..5 → 0..10)", () => {
+    expect(LAUNCH_TAIL_PROBE_LIMITS).toEqual({ minCount: 0, maxCount: 10, minStepUs: 1, maxStepUs: 100 });
+  });
+});
+
+describe("validateLaunchTailProbeDraft", () => {
+  it.each([
+    [5, "10", { count: 5, step_us: 10 }],
+    [0, "10", { count: 0, step_us: 10 }],
+    [3, " 20 ", { count: 3, step_us: 20 }],
+    [1, "1", { count: 1, step_us: 1 }],
+    [5, "100", { count: 5, step_us: 100 }],
+    [10, "100", { count: 10, step_us: 100 }],
+    [6, "10", { count: 6, step_us: 10 }],
+  ])("(%s, %j) → ok %j", (count, raw, value) => {
+    expect(validateLaunchTailProbeDraft(count, raw)).toEqual({ ok: true, value });
+  });
+
+  it("count 0 이어도 step 을 검사한다 — (0, '0') step 위반", () => {
+    expect(validateLaunchTailProbeDraft(0, "0")).toEqual({
+      ok: false,
+      field: "step",
+      message: "간격은 1 ~ 100µs 사이여야 해요",
+    });
+  });
+
+  it.each([11, -1, 1.5])("count %s → count 위반", (count) => {
+    expect(validateLaunchTailProbeDraft(count, "10")).toEqual({
+      ok: false,
+      field: "count",
+      message: "발 수는 0 ~ 10 사이여야 해요",
+    });
+  });
+
+  it("(3, '101') → 범위 위반", () => {
+    expect(validateLaunchTailProbeDraft(3, "101")).toMatchObject({ ok: false, field: "step", message: "간격은 1 ~ 100µs 사이여야 해요" });
+  });
+
+  it.each(["1.5", "", "abc", "+5", "1e1"])("(3, %j) → 정수 위반", (raw) => {
+    expect(validateLaunchTailProbeDraft(3, raw)).toEqual({ ok: false, field: "step", message: "간격은 정수 µs 여야 해요" });
+  });
+});
+
+describe("launchTailProbeOffsets", () => {
+  it("(−353, 5발 · 10µs) → [−343, −333, −323, −313, −303]", () => {
+    expect(launchTailProbeOffsets(-353, { count: 5, step_us: 10 })).toEqual([-343, -333, -323, -313, -303]);
+  });
+  it("count 0 → []", () => {
+    expect(launchTailProbeOffsets(-353, { count: 0, step_us: 10 })).toEqual([]);
+  });
+  it("(100, 3발 · 20µs) → [120, 140, 160]", () => {
+    expect(launchTailProbeOffsets(100, { count: 3, step_us: 20 })).toEqual([120, 140, 160]);
+  });
+});
+
+describe("launchTailProbeStateOf", () => {
+  const ok = (tail_probes?: LaunchTailProbe[]): LaunchPlanServer => ({
+    status: "ok",
+    plan_rev: 3,
+    updated_at: null,
+    entries: [],
+    ...(tail_probes ? { tail_probes } : {}),
+  });
+
+  it("undefined · failed · offline → unknown", () => {
+    expect(launchTailProbeStateOf(undefined, "q16")).toEqual({ kind: "unknown" });
+    expect(launchTailProbeStateOf({ status: "failed", code: 1, message: "x" }, "q16")).toEqual({ kind: "unknown" });
+    expect(launchTailProbeStateOf({ status: "offline" }, "n0930")).toEqual({ kind: "unknown" });
+  });
+
+  it("ok 인데 tail_probes 없음 · 그 profile 행 없음 → unsupported", () => {
+    expect(launchTailProbeStateOf(ok(), "q16")).toEqual({ kind: "unsupported" });
+    expect(launchTailProbeStateOf(ok([{ profile: "Q16", count: 5, step_us: 10 }]), "n0930")).toEqual({
+      kind: "unsupported",
+    });
+  });
+
+  it("ok + 행 → set(발사 기준별 profile)", () => {
+    const s = ok([
+      { profile: "Q16", count: 5, step_us: 10 },
+      { profile: "N", count: 0, step_us: 10 },
+    ]);
+    expect(launchTailProbeStateOf(s, "q16")).toEqual({ kind: "set", value: { count: 5, step_us: 10 } });
+    expect(launchTailProbeStateOf(s, "n0930")).toEqual({ kind: "set", value: { count: 0, step_us: 10 } });
   });
 });

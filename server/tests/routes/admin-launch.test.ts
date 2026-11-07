@@ -3,6 +3,7 @@ import request from "supertest";
 import type {
   LaunchPlanChangeRow,
   LaunchPlanServer,
+  LaunchTailProbeChangeRow,
   LaunchHeadRow,
   LaunchMapPiece,
   LaunchMapResponse,
@@ -143,6 +144,8 @@ function makeApp(rpc: Record<string, RpcHandler> = {}, relayAdmin?: RelayAdminCl
       launch_orders_for_admin: () => ({ data: orders, error: null }),
       launch_map_for_admin: () => ({ data: map, error: null }),
       launch_plan_changes_for_admin: () => ({ data: { changes: [] }, error: null }),
+      // quick-261107-l7w 뒤탐침 이력 읽기 — 기본 빈 목록.
+      launch_tail_probe_changes_for_admin: () => ({ data: { tail_probe_changes: [] }, error: null }),
       // 35-12 기록 RPC 계약 — 받은 p 에 id · at 을 붙인 행 하나.
       launch_plan_change_record: (params) => ({
         data: { id: 7, at: "2026-10-27T13:41:00+00:00", ...(params as { p: object }).p },
@@ -358,10 +361,14 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
     expect(res.body).toEqual({
       servers: { KB120: kb120Plan, KYOBO119: kyoboFailed, KYOBO112: kyobo112Plan },
       changes: [changeRow],
+      tail_probe_changes: [],
     });
     expect(Object.keys(res.body.servers)).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
     expect(relay.calls).toEqual([{ method: "GET", path: PLAN_READ_PATH, adminEmail: ADMIN_EMAIL }]);
-    expect(rec.rpcCalls).toEqual([{ fn: "launch_plan_changes_for_admin", params: { p_limit: 20 } }]);
+    expect(rec.rpcCalls).toEqual([
+      { fn: "launch_plan_changes_for_admin", params: { p_limit: 20 } },
+      { fn: "launch_tail_probe_changes_for_admin", params: { p_limit: 20 } },
+    ]);
     expect(roleLookups(rec)).toBe(1);
   });
 
@@ -409,7 +416,7 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
       KYOBO112: { status: "offline", message: "relay 연결이 설정되지 않았어요" },
     });
     expect(res.body.changes).toEqual([changeRow]);
-    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["launch_plan_changes_for_admin"]);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["launch_plan_changes_for_admin", "launch_tail_probe_changes_for_admin"]);
   });
 
   it("P35-S3 relay 가 KYOBO119 · KYOBO112 를 빠뜨림 · 상태 어휘 밖 값 → 그 서버만 offline", async () => {
@@ -466,6 +473,104 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
       request(makeApp({ launch_plan_changes_for_admin: () => ({ data: { changes: null }, error: null }) }, relay.client).app).get(
         "/api/admin/launch/plan",
       ),
+    );
+    expect(res2.status).toBe(500);
+    expect(res2.body.error.code).toBe("DB_ERROR");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 읽기(GET /launch/plan 에 얹음)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const tpChangeRow: LaunchTailProbeChangeRow = {
+  id: 11,
+  at: "2026-11-07T06:10:00+00:00",
+  admin_email: ADMIN_EMAIL,
+  gateway: "KB120",
+  fire: "q16",
+  before_count: 5,
+  before_step_us: 10,
+  after_count: 3,
+  after_step_us: 20,
+  outcome: "ok",
+  code: null,
+  message: null,
+  plan_rev: 5,
+};
+
+describe("quick-261107-l7w 뒤탐침 읽기 — GET /api/admin/launch/plan", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("TP-G1 relay 의 tail_probes 그대로 통과 · tail_probe_changes = RPC 값 · RPC 2개(계획 이력 · 뒤탐침 이력)", async () => {
+    const relay = makeFakeRelay(undefined, { tailProbes: true });
+    const { app, rec } = makeApp(
+      { launch_tail_probe_changes_for_admin: () => ({ data: { tail_probe_changes: [tpChangeRow] }, error: null }) },
+      relay.client,
+    );
+    const res = await auth(request(app).get("/api/admin/launch/plan"));
+    expect(res.status).toBe(200);
+    expect(res.body.servers.KB120.tail_probes).toEqual([
+      { profile: "Q16", count: 5, step_us: 10 },
+      { profile: "N", count: 0, step_us: 10 },
+    ]);
+    expect(res.body.servers.KYOBO119.tail_probes).toBeDefined();
+    expect(res.body.tail_probe_changes).toEqual([tpChangeRow]);
+    expect(rec.rpcCalls).toEqual([
+      { fn: "launch_plan_changes_for_admin", params: { p_limit: 20 } },
+      { fn: "launch_tail_probe_changes_for_admin", params: { p_limit: 20 } },
+    ]);
+  });
+
+  it("TP-G1b 기본 relay(tail_probes 없음 = 구 서버 · 와이어 대기) → 키 없이 그대로 · tail_probe_changes []", async () => {
+    const { app } = makeApp({}, makeFakeRelay().client);
+    const res = await auth(request(app).get("/api/admin/launch/plan"));
+    expect(res.status).toBe(200);
+    expect(res.body.servers.KB120.status).toBe("ok");
+    expect(res.body.servers.KB120).not.toHaveProperty("tail_probes");
+    expect(res.body.tail_probe_changes).toEqual([]);
+  });
+
+  it.each([
+    ["배열 아님", "x"],
+    ["profile 어휘 밖", [{ profile: "X", count: 5, step_us: 10 }]],
+    ["count 문자열", [{ profile: "Q16", count: "5", step_us: 10 }]],
+    ["step_us 없음", [{ profile: "Q16", count: 5 }]],
+    ["원소가 null", [null]],
+  ])("TP-G2 tail_probes %s → 그 서버만 offline + warn", async (_l, tail_probes) => {
+    const warn = vi.spyOn(logger, "warn");
+    const relay = makeFakeRelay((c) =>
+      c.method === "GET" && c.path.startsWith("/internal/admin/launch-plan")
+        ? { status: 200, data: { servers: { KB120: { ...kb120Plan, tail_probes }, KYOBO119: kyoboFailed, KYOBO112: kyobo112Plan } } }
+        : undefined,
+    );
+    const res = await auth(request(makeApp({}, relay.client).app).get("/api/admin/launch/plan"));
+    expect(res.status).toBe(200);
+    expect(res.body.servers.KB120.status).toBe("offline");
+    expect(res.body.servers.KYOBO119).toEqual(kyoboFailed);
+    expect(res.body.servers.KYOBO112).toEqual(kyobo112Plan);
+    expect(planWarns(warn)[0]![0]).toEqual({ relay: { op: "launch-plan-get", status: 200, offline: ["KB120"] } });
+  });
+
+  it("TP-G3 뒤탐침 이력 RPC 오류 → 500 DB_ERROR(원문 비노출) / { tail_probe_changes: null } → 500", async () => {
+    const relay = makeFakeRelay();
+    const res = await auth(
+      request(
+        makeApp(
+          { launch_tail_probe_changes_for_admin: () => ({ data: null, error: { code: "42883", message: "no fn secret" } }) },
+          relay.client,
+        ).app,
+      ).get("/api/admin/launch/plan"),
+    );
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
+    expect(JSON.stringify(res.body)).not.toContain("no fn secret");
+
+    const res2 = await auth(
+      request(
+        makeApp({ launch_tail_probe_changes_for_admin: () => ({ data: { tail_probe_changes: null }, error: null }) }, relay.client)
+          .app,
+      ).get("/api/admin/launch/plan"),
     );
     expect(res2.status).toBe(500);
     expect(res2.body.error.code).toBe("DB_ERROR");

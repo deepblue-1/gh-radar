@@ -12,6 +12,7 @@ import {
   type LaunchPlanRelaySetResponse,
   type LaunchPlanServer,
   type LaunchRange,
+  type LaunchTailProbeChangeRow,
 } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
@@ -125,12 +126,39 @@ export async function getLaunchPlanChanges(supabase: SupabaseClient): Promise<La
   return data.changes as LaunchPlanChangeRow[];
 }
 
+const TAIL_PROBE_CHANGES_FAIL = "발사 뒤탐침 이력 조회에 실패했습니다.";
+
+/**
+ * 뒤탐침 변경 이력(quick-261107-l7w) — RPC `launch_tail_probe_changes_for_admin` 1회 → `tail_probe_changes`.
+ * 배열이 아니면 500(웹이 바로 순회한다). 계획 이력과 같은 한도(키별 최근 N + 마지막 ok).
+ */
+export async function getLaunchTailProbeChanges(supabase: SupabaseClient): Promise<LaunchTailProbeChangeRow[]> {
+  const { data, error } = await supabase.rpc("launch_tail_probe_changes_for_admin", { p_limit: LAUNCH_PLAN_CHANGES_LIMIT });
+  if (error) throw DbError(TAIL_PROBE_CHANGES_FAIL, causeOf(error));
+  assertArrays("launch_tail_probe_changes_for_admin", TAIL_PROBE_CHANGES_FAIL, data, ["tail_probe_changes"]);
+  return data.tail_probe_changes as LaunchTailProbeChangeRow[];
+}
+
+const TAIL_PROBE_PROFILES: readonly unknown[] = ["Q16", "N"];
+
+/** ok 서버의 `tail_probes` — 없음(구 서버 · 와이어 대기) 또는 배열이고 원소마다 { profile Q16|N · count · step_us number }. */
+const isTailProbes = (v: unknown): boolean =>
+  v === undefined ||
+  (Array.isArray(v) &&
+    v.every(
+      (t) =>
+        isObject(t) &&
+        TAIL_PROBE_PROFILES.includes(t.profile) &&
+        typeof t.count === "number" &&
+        typeof t.step_us === "number",
+    ));
+
 /** relay 가 준 서버 값 하나가 `LaunchPlanServer` 모양인지 — 아니면 그 서버는 offline 으로 접는다. */
 function isLaunchPlanServer(v: unknown): v is LaunchPlanServer {
   if (!isObject(v)) return false;
   switch (v.status) {
     case "ok":
-      return Array.isArray(v.entries);
+      return Array.isArray(v.entries) && isTailProbes(v.tail_probes);
     case "failed":
       return typeof v.code === "number" && typeof v.message === "string";
     case "offline":

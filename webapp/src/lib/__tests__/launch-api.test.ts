@@ -20,6 +20,7 @@ const PATH = '/api/admin/launch/plan';
 const respOf = (rev: number): LaunchPlanResponse => ({
   servers: { KB120: { status: 'ok', plan_rev: rev, updated_at: null, entries: [] } },
   changes: [],
+  tail_probe_changes: [],
 });
 
 /** 끝나지 않은 authFetch 약속 하나 — 테스트가 resolve · reject 한다. */
@@ -91,5 +92,35 @@ describe('fetchLaunchPlan — 진행 중 요청 합치기 · fresh 우회 (35 R2
       .mockRejectedValueOnce(new ApiClientError({ code: 'X', message: 'x', status: 502 }));
     await expect(fetchLaunchPlan({ fresh: true })).resolves.toEqual({ kind: 'absent' });
     await expect(fetchLaunchPlan({ fresh: true })).rejects.toBeInstanceOf(ApiClientError);
+  });
+});
+
+describe('fetchLaunchPlan — 뒤탐침 이력 빈 키 채움 (quick-261107-l7w)', () => {
+  it('구 server 응답(tail_probe_changes 없음) → [] 로 채운다 · 있으면 그대로', async () => {
+    const old: LaunchPlanResponse = { servers: {}, changes: [] };
+    const row = {
+      id: 1,
+      at: '2026-11-07T06:00:00+00:00',
+      admin_email: 'a@b.c',
+      gateway: 'KB120',
+      fire: 'q16' as const,
+      before_count: 5,
+      before_step_us: 10,
+      after_count: 3,
+      after_step_us: 20,
+      outcome: 'ok' as const,
+      code: null,
+      message: null,
+      plan_rev: 4,
+    };
+    authFetchMock.mockResolvedValueOnce(old).mockResolvedValueOnce({ ...old, tail_probe_changes: [row] });
+    await expect(fetchLaunchPlan({ fresh: true })).resolves.toEqual({
+      kind: 'ready',
+      resp: { servers: {}, changes: [], tail_probe_changes: [] },
+    });
+    await expect(fetchLaunchPlan({ fresh: true })).resolves.toEqual({
+      kind: 'ready',
+      resp: { servers: {}, changes: [], tail_probe_changes: [row] },
+    });
   });
 });

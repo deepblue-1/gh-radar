@@ -456,6 +456,67 @@ describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
   });
 });
 
+describe('LaunchMapView — 뒤탐침 줄(quick-261107-l7w)', () => {
+  const withTp = (over: Partial<Record<'KB120' | 'KYOBO119', LaunchPlanServer>> = {}): LaunchPlanResponse => {
+    const base = planResp(over);
+    const tp = (s: LaunchPlanServer, rows: { profile: 'Q16' | 'N'; count: number; step_us: number }[]): LaunchPlanServer =>
+      s.status === 'ok' ? { ...s, tail_probes: rows } : s;
+    return {
+      ...base,
+      servers: {
+        KB120: tp(base.servers.KB120!, [
+          { profile: 'Q16', count: 5, step_us: 10 },
+          { profile: 'N', count: 0, step_us: 10 },
+        ]),
+        KYOBO119: tp(base.servers.KYOBO119!, [
+          { profile: 'Q16', count: 3, step_us: 20 },
+          { profile: 'N', count: 5, step_us: 10 },
+        ]),
+      },
+      tail_probe_changes: [],
+    };
+  };
+  const order = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll<HTMLElement>('[data-slot="launch-map"] > [data-slot]')).map((e) => e.dataset.slot);
+
+  it('줄은 launch-kpis 와 launch-panels 사이 하나 · plan absent 면 없음', () => {
+    const { container, unmount } = view({ plan: { kind: 'ready', resp: withTp() } });
+    const o = order(container);
+    expect(o.indexOf('launch-tail-probe')).toBe(o.indexOf('launch-kpis') + 1);
+    expect(o.indexOf('launch-panels')).toBe(o.indexOf('launch-tail-probe') + 1);
+    expect(slots(container, 'launch-tail-probe')).toHaveLength(1);
+    unmount();
+    const absent = view();
+    expect(slots(absent.container, 'launch-tail-probe')).toHaveLength(0);
+  });
+
+  it('서버 칩 · 발사에 따라 그 서버 · 그 발사 값 — KB120 16:00 5/10 · 09:00:30 꺼짐 · 교보119 16:00 3/20', () => {
+    const plan = { kind: 'ready', resp: withTp() } as const;
+    const cases: [LaunchMapViewProps['gw'], 'q16' | 'n0930', string, string][] = [
+      ['KB120', 'q16', 'KB120 뒤탐침', '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'],
+      ['KB120', 'n0930', 'KB120 뒤탐침', '꺼짐 · 0발'],
+      ['KYOBO119', 'q16', '교보119 뒤탐침', '3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'],
+      ['KYOBO119', 'n0930', '교보119 뒤탐침', '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'],
+    ];
+    for (const [gw, fire, title, text] of cases) {
+      const r = view({ gw, fire, ...(fire === 'n0930' ? { resp: n0930(), range: '10d' as const } : {}), plan });
+      expect(one(r.container, '[data-slot="launch-tail-probe-title"]').textContent).toBe(title);
+      expect(one(r.container, '[data-slot="launch-tail-probe-summary"]').textContent).toBe(text);
+      r.unmount();
+    }
+  });
+
+  it('기본 계획 응답(tail_probes 없음) → 경고 한 줄 · 고치기 버튼 없음 · 패널 계획 줄은 그대로', () => {
+    const { container } = view({ plan: { kind: 'ready', resp: planResp() } });
+    const bar = one(container, '[data-slot="launch-tail-probe"]');
+    expect(bar.dataset.state).toBe('unsupported');
+    expect(slots(container, 'launch-tail-probe-toggle')).toHaveLength(0);
+    expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+      `3조각 ${M}350 · ${M}345 · ${M}325µs`,
+    );
+  });
+});
+
 describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
   const lastDay = DAYS[0]!;
   const withTail: LaunchMapResponse = {

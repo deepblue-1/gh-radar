@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { LaunchHeadRow, LaunchPlanChangeRow, LaunchPlanResponse, LaunchPlanServer } from '@gh-radar/shared';
+import type {
+  LaunchHeadRow,
+  LaunchPlanChangeRow,
+  LaunchPlanResponse,
+  LaunchPlanServer,
+  LaunchTailProbeChangeRow,
+} from '@gh-radar/shared';
 
 import {
   LAUNCH_PLAN_HISTORY_MAX,
@@ -22,6 +28,12 @@ import {
   rejectedSaveResultOf,
   saveResultViewOf,
   saveRowSeenIn,
+  TAIL_PROBE_UNKNOWN_TEXT,
+  TAIL_PROBE_UNSUPPORTED_TEXT,
+  tailProbeChangesOf,
+  tailProbeSummaryParts,
+  tailProbeSummaryText,
+  tailProbeValueText,
 } from '../launch-plan-view';
 
 /**
@@ -452,5 +464,83 @@ describe('편집 · 저장(35-15)', () => {
     const s2 = planStateWithSave(s0, 'KB120', { plan: null, change: null });
     expect(s2).toEqual(s0);
     expect(planStateWithSave({ kind: 'absent' }, 'KB120', { plan: nextPlan, change: null })).toEqual({ kind: 'absent' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 표기 · 상태 보존
+// ─────────────────────────────────────────────────────────────────────────────
+
+let tpId = 100;
+function tpRow(over: Partial<LaunchTailProbeChangeRow>): LaunchTailProbeChangeRow {
+  return {
+    id: tpId++,
+    at: '2026-11-07T06:00:00Z',
+    admin_email: 'a@b.c',
+    gateway: 'KB120',
+    fire: 'q16',
+    before_count: 5,
+    before_step_us: 10,
+    after_count: 3,
+    after_step_us: 20,
+    outcome: 'ok',
+    code: null,
+    message: null,
+    plan_rev: 8,
+    ...over,
+  };
+}
+
+describe('뒤탐침 표기(quick-261107-l7w)', () => {
+  it('tailProbeSummaryText — 5/10 · 1/10 · 0 · 3/20', () => {
+    expect(tailProbeSummaryText({ count: 5, step_us: 10 })).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs');
+    expect(tailProbeSummaryText({ count: 1, step_us: 10 })).toBe('1발 · 10µs 간격 · 마지막 조각 뒤 +10µs');
+    expect(tailProbeSummaryText({ count: 0, step_us: 10 })).toBe('꺼짐 · 0발');
+    expect(tailProbeSummaryText({ count: 3, step_us: 20 })).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs');
+    expect(tailProbeSummaryParts({ count: 5, step_us: 10 })).toEqual({
+      strong: '5발 · 10µs 간격',
+      rest: ' · 마지막 조각 뒤 +10 ~ +50µs',
+    });
+  });
+
+  it('tailProbeValueText — 「5발 · 10µs」 · null → —', () => {
+    expect(tailProbeValueText({ count: 5, step_us: 10 })).toBe('5발 · 10µs');
+    expect(tailProbeValueText(null)).toBe('—');
+  });
+
+  it('문구 상수 원문', () => {
+    expect(TAIL_PROBE_UNSUPPORTED_TEXT).toBe('이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요');
+    expect(TAIL_PROBE_UNKNOWN_TEXT).toBe('뒤탐침 값을 읽지 못했어요');
+  });
+
+  it('tailProbeChangesOf — 그 서버 · 그 발사만 · at 내림차순(같은 at 은 id 내림차순) · ready 아니면 · 키 없으면 []', () => {
+    const a = tpRow({ at: '2026-11-07T05:00:00Z' });
+    const b = tpRow({ at: '2026-11-07T06:00:00Z' });
+    const c = tpRow({ at: '2026-11-07T06:00:00Z' });
+    const other = tpRow({ fire: 'n0930' });
+    const ky = tpRow({ gateway: 'KYOBO119' });
+    const st = { kind: 'ready' as const, resp: { servers: {}, changes: [], tail_probe_changes: [a, other, b, ky, c] } };
+    expect(tailProbeChangesOf(st, 'KB120', 'q16').map((r) => r.id)).toEqual([c.id, b.id, a.id]);
+    expect(tailProbeChangesOf(st, 'KB120', 'n0930')).toEqual([other]);
+    expect(tailProbeChangesOf({ kind: 'loading' }, 'KB120', 'q16')).toEqual([]);
+    expect(tailProbeChangesOf({ kind: 'ready', resp: { servers: {}, changes: [] } }, 'KB120', 'q16')).toEqual([]);
+  });
+
+  it('planStateWithSave — tail_probe_changes 등 나머지 키를 보존한다', () => {
+    const t = tpRow({});
+    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: OK_KB }, changes: [], tail_probe_changes: [t] } };
+    const s1 = planStateWithSave(s0, 'KB120', { plan: null, change: row({ id: 50 }) });
+    expect(s1.kind === 'ready' && s1.resp.tail_probe_changes).toEqual([t]);
+  });
+
+  it('planStateWithReload — tail_probe_changes 를 id 로 합친다(지운 행 없음) · 구 server 응답(키 없음)도 그대로 유지', () => {
+    const mine = tpRow({});
+    const shared = tpRow({});
+    const added = tpRow({});
+    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: OK_KB }, changes: [], tail_probe_changes: [mine, shared] } };
+    const s1 = planStateWithReload(s0, { servers: {}, changes: [], tail_probe_changes: [added, shared] }, new Set());
+    expect(s1.kind === 'ready' && s1.resp.tail_probe_changes?.map((r) => r.id)).toEqual([mine.id, shared.id, added.id]);
+    const s2 = planStateWithReload(s0, { servers: {}, changes: [] }, new Set());
+    expect(s2.kind === 'ready' && s2.resp.tail_probe_changes).toEqual([mine, shared]);
   });
 });

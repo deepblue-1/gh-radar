@@ -33,6 +33,10 @@
  *     `plan` null(저장 결과는 싣는다 · 웹이 다시 읽는다 — 35 WR-01). 후 조회도 마감까지만 기다린다.
  *
  * 범위 · 순서 · 조각 수는 보지 않는다 — gh-trade 가 code 1 + 고정 문구로 말한다(D-26 · D-34). relay 는 int32 구조만(admin-api zod).
+ *
+ * 뒤탐침(quick-261107-l7w) — 94 말미 `tail_probes` 를 ok 결과의 `tail_probes` 로 옮긴다. 와이어(.fbs) 를 직접 읽지 않고
+ * **주입된 어댑터**(`LaunchTailProbeWire`)를 거친다 — 지금 운영 기본은 `LAUNCH_TAIL_PROBE_WIRE_PENDING`(아무것도 싣지 않음 =
+ * 웹 「이 서버 버전은 뒤탐침 설정을 몰라요」). 어댑터 머리 주석의 후속 quick 체크리스트를 보라.
  */
 import {
   interpretAdminResult,
@@ -41,12 +45,13 @@ import {
   type LaunchPlanRelaySetBody,
   type LaunchPlanRelaySetResponse,
   type LaunchPlanServer,
+  type LaunchTailProbe,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import type { DmaServerRow } from "../registry/registry.js";
 import { ADMIN_COMMAND_TIMEOUT_MS, type AdminConn } from "./admin-conn.js";
-import { ADMIN_OP, type LaunchPlanSnapshot } from "./types.js";
+import { ADMIN_OP, type LaunchPlanSnapshot, type LaunchTailProbeWireRow } from "./types.js";
 
 /** 레지스트리에서 꺼진 · 없는 서버의 `skipped` 사유 — dispatcher `SKIPPED_DISABLED_*` 와 결이 같다(화면이 그대로 보인다). */
 export const SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE = "사용이 꺼진 서버 — 켜면 발사 계획을 읽고 바꿀 수 있어요";
@@ -59,6 +64,31 @@ export const SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE = "사용이 꺼진 서버 —
  */
 export const LAUNCH_PLAN_READ_DEADLINE_MS = 5_000;
 
+/**
+ * 뒤탐침 와이어 어댑터(quick-261107-l7w) — 44 op 10 인코드 · 94 `tail_probes` 디코드가 붙었는지와 스냅샷에서 행을 꺼내는 법.
+ * `canSet` = op 10 을 와이어에 실을 수 있나(거짓이면 서비스는 op 10 을 보내지 않고 라우트가 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
+ * `tailProbesOf` = 94 스냅샷의 뒤탐침 행(undefined · 빈 배열 = 칸 없음 → ok 결과에 `tail_probes` 키를 싣지 않는다).
+ *
+ * **후속 quick 체크리스트(gh-trade .fbs 인계 뒤 — 이 순서로)**
+ *   ① gh-trade `sync-relay-schema.sh` 로 `relay/src/generated/*` 갱신(손 편집 금지 · flatc 고정 버전은 gh-trade 소유).
+ *   ② `relay/src/dma/envelope.ts` `buildAdminCommandReq` 에 op 10 의 `launch_profile` · `launch_tail_probe_count` ·
+ *      `launch_tail_probe_step_us` 조립(`AdminCommandInput.launchProfile` · `launchTailProbeCount` · `launchTailProbeStepUs`).
+ *   ③ `parseLaunchPlanSnapshot` 이 94 `tail_probes` 를 `snap.tailProbes` 로 — 길이 0 = 칸 없음 → undefined
+ *      (flatbuffers 는 칸 없음과 빈 벡터를 못 가른다).
+ *   ④ `relay/src/index.ts` 주입을 `{ canSet: true, tailProbesOf: (s) => s.tailProbes }` 로.
+ *   ⑤ relay 배포.
+ */
+export interface LaunchTailProbeWire {
+  readonly canSet: boolean;
+  tailProbesOf(snap: LaunchPlanSnapshot): readonly LaunchTailProbeWireRow[] | undefined;
+}
+
+/** 와이어 대기(운영 기본) — op 10 을 못 싣고 94 의 뒤탐침도 읽지 않는다. */
+export const LAUNCH_TAIL_PROBE_WIRE_PENDING: LaunchTailProbeWire = Object.freeze({
+  canSet: false,
+  tailProbesOf: () => undefined,
+});
+
 /** 발사 계획이 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. `AdminConn` 이 만족한다. */
 export type LaunchPlanAdminConn = Pick<AdminConn, "isReady" | "command">;
 
@@ -69,6 +99,8 @@ export type LaunchPlanServiceDeps = {
   pipelines: { get(key: string): { admin: LaunchPlanAdminConn } | undefined };
   /** 시각 주입구(ms). 기본 `Date.now` — 저장의 후 조회 마감 판정. */
   now?: () => number;
+  /** 뒤탐침 와이어 어댑터 — 없으면 `LAUNCH_TAIL_PROBE_WIRE_PENDING`(quick-261107-l7w). */
+  tailProbeWire?: LaunchTailProbeWire;
 };
 
 const PROFILES = new Set<string>(["Q16", "N"]);
@@ -80,9 +112,11 @@ type Target = { admin: LaunchPlanAdminConn } | { verdict: { status: "skipped"; m
 
 export class LaunchPlanService {
   readonly #deps: LaunchPlanServiceDeps;
+  readonly #wire: LaunchTailProbeWire;
 
   constructor(deps: LaunchPlanServiceDeps) {
     this.#deps = deps;
+    this.#wire = deps.tailProbeWire ?? LAUNCH_TAIL_PROBE_WIRE_PENDING;
   }
 
   /**
@@ -248,6 +282,34 @@ export class LaunchPlanService {
       logger.warn({ server: serverKey, planRev: snap.planRev.toString() }, "[admin] 발사 계획 rev 가 안전 정수를 넘는다 — null");
       planRev = null;
     }
-    return { status: "ok", plan_rev: planRev, updated_at: snap.updatedAt === "" ? null : snap.updatedAt, entries };
+    const tailProbes = this.#tailProbesOf(serverKey, snap);
+    return {
+      status: "ok",
+      plan_rev: planRev,
+      updated_at: snap.updatedAt === "" ? null : snap.updatedAt,
+      entries,
+      ...(tailProbes !== undefined ? { tail_probes: tailProbes } : {}),
+    };
+  }
+
+  /**
+   * 94 뒤탐침 행 → 계약 모양. 어댑터가 undefined · 빈 배열을 주면 undefined(키를 싣지 않는다 = 구 서버 · 와이어 대기).
+   * profile ∈ Q16|N 이고 count · stepUs 가 정수인 행만 옮기고 나머지는 warn 1줄 후 뺀다(entries 의 「모르는 행」 결) —
+   * 다 빠지면 역시 undefined.
+   */
+  #tailProbesOf(serverKey: string, snap: LaunchPlanSnapshot): LaunchTailProbe[] | undefined {
+    const rows = this.#wire.tailProbesOf(snap);
+    if (rows === undefined || rows.length === 0) return undefined;
+    const out: LaunchTailProbe[] = [];
+    const dropped: LaunchTailProbeWireRow[] = [];
+    for (const r of rows) {
+      if (PROFILES.has(r.profile) && Number.isInteger(r.count) && Number.isInteger(r.stepUs)) {
+        out.push({ profile: r.profile as LaunchTailProbe["profile"], count: r.count, step_us: r.stepUs });
+      } else {
+        dropped.push({ profile: r.profile, count: r.count, stepUs: r.stepUs });
+      }
+    }
+    if (dropped.length > 0) logger.warn({ server: serverKey, dropped }, "[admin] 발사 계획 스냅샷의 모르는 뒤탐침 행 — 뺀다");
+    return out.length > 0 ? out : undefined;
   }
 }

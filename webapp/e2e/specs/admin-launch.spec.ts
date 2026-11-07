@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-import { launchPlanFixture, launchPlanSaveOk, mockLaunchApi } from '../fixtures/launch';
+import { launchPlanFixture, launchPlanFixtureWithTailProbes, launchPlanSaveOk, mockLaunchApi } from '../fixtures/launch';
 
 /**
  * Phase 35 (35-06) — 웹 Admin `/admin/launch` 주문 내역 탭 E2E (LAUNCH-06 · D-11 ~ D-14 · 채택 목업 변형 A).
@@ -876,5 +876,83 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(editToggle(page, 'KB120', 'Q')).toHaveText('계획 고치기');
     await page.waitForTimeout(300);
     expect(api.planGets(), '서버 전환은 계획을 다시 부르지 않는다').toHaveLength(getsBefore);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 설정
+// ─────────────────────────────────────────────────────────────────────────────
+
+const tpBar = (page: Page) => root(page).locator('[data-slot="launch-tail-probe"]');
+
+test.describe('어드민 발사 · 뒤탐침 설정', () => {
+  test('TP-R1 1280 — KB120 16:00 줄 위치 · 머리 · 값 · 이력 2 → 09:00:30 꺼짐 → 교보119 3/20 · /plan 1건', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+
+    await expect(tpBar(page)).toHaveCount(1);
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs',
+      { timeout: 15_000 },
+    );
+    // 위치 — 요약 카드 바로 뒤 · 시장 패널 바로 앞(형제 순서)
+    const order = await root(page)
+      .locator('[data-slot="launch-map"]')
+      .evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.slot ?? ''));
+    const iTp = order.indexOf('launch-tail-probe');
+    expect(order[iTp - 1]).toBe('launch-kpis');
+    expect(order[iTp + 1]).toBe('launch-panels');
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-title"]')).toHaveText('KB120 뒤탐침');
+    await expect(tpBar(page)).toContainText('코스피 · 코스닥 공통');
+    const fold = tpBar(page).locator('[data-slot="launch-tail-probe-history-fold"]');
+    await expect(fold.locator('summary')).toHaveText('변경 이력 2');
+    await fold.locator('summary').click();
+    await expect(fold.locator('[data-slot="launch-tail-probe-outcome"]').nth(1)).toHaveAttribute('title', '뒤탐침 발 수 범위 밖');
+    await page.screenshot({ path: test.info().outputPath('tail-probe-read-1280.png'), fullPage: true });
+
+    await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText('꺼짐 · 0발', { timeout: 15_000 });
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-history-fold"]')).toHaveCount(0);
+
+    await root(page).getByRole('button', { name: '16:00 예약' }).click();
+    await expect(root(page).locator('[data-slot="launch-fire-seg"] button[aria-pressed="true"]')).toHaveText('16:00');
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs',
+      { timeout: 15_000 },
+    );
+    await serverChip(page, '교보119').click();
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-title"]')).toHaveText('교보119 뒤탐침');
+    await expect(tpBar(page).locator('[data-slot="launch-tail-probe-summary"]')).toHaveText(
+      '3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs',
+      { timeout: 15_000 },
+    );
+    await page.waitForTimeout(300);
+    expect(api.planGets(), '세그먼트 · 서버 칩은 계획을 다시 부르지 않는다').toHaveLength(1);
+    expect(api.maps(), '지도는 세그먼트를 바꿀 때만').toHaveLength(3);
+  });
+
+  test('TP-R2 기본 픽스처(tail_probes 없음 = 구 서버) → 경고 한 줄 원문 · 고치기 버튼 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockLaunchApi(page, { plan: launchPlanFixture });
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    const summary = tpBar(page).locator('[data-slot="launch-tail-probe-summary"]');
+    await expect(summary).toHaveText('이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요', {
+      timeout: 15_000,
+    });
+    await expect(summary).toHaveAttribute('data-tone', 'warn');
+    await expect(root(page).locator('[data-slot="launch-tail-probe-toggle"]')).toHaveCount(0);
+  });
+
+  test('TP-R3 /plan 404(배포 전) → 뒤탐침 줄 0', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const api = await mockLaunchApi(page);
+    await open(page, '/admin/launch?tab=map&range=all');
+    await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect.poll(() => api.planGets().length).toBe(1);
+    await page.waitForTimeout(500);
+    await expect(tpBar(page)).toHaveCount(0);
   });
 });

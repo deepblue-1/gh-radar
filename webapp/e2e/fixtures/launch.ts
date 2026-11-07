@@ -15,6 +15,7 @@ import type {
   LaunchPlanSaveResponse,
   LaunchPlanServer,
   LaunchRange,
+  LaunchTailProbe,
 } from '@gh-radar/shared';
 
 /**
@@ -373,6 +374,63 @@ export function launchPlanFixture(): LaunchPlanResponse {
         outcome: 'failed',
         code: 1,
         message: '조각 시각 순서가 맞지 않아요',
+        plan_rev: null,
+      },
+    ],
+  };
+}
+
+/**
+ * GET /plan 뒤탐침 응답(quick-261107-l7w) — `launchPlanFixture()` 에 서버마다 tail_probes 를 싣는다:
+ * KB120 [Q16 5발 · 10µs · N 꺼짐 0/10] · KYOBO119 [Q16 3발 · 20µs · N 5발 · 10µs]. 이력 = KB120 16:00 ok 1행 + failed code 1 1행.
+ * 기본 `launchPlanFixture()` 는 tail_probes 가 없다(= 지금 운영의 구 서버 · relay 와이어 대기 경로). **합성.**
+ */
+export function launchPlanFixtureWithTailProbes(): LaunchPlanResponse {
+  const base = launchPlanFixture();
+  const tp: Record<string, LaunchTailProbe[]> = {
+    KB120: [
+      { profile: 'Q16', count: 5, step_us: 10 },
+      { profile: 'N', count: 0, step_us: 10 },
+    ],
+    KYOBO119: [
+      { profile: 'Q16', count: 3, step_us: 20 },
+      { profile: 'N', count: 5, step_us: 10 },
+    ],
+  };
+  return {
+    ...base,
+    servers: Object.fromEntries(
+      Object.entries(base.servers).map(([k, v]) => [k, v.status === 'ok' && tp[k] ? { ...v, tail_probes: tp[k] } : v]),
+    ),
+    tail_probe_changes: [
+      {
+        id: 12,
+        at: '2026-11-06T13:41:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        before_count: 3,
+        before_step_us: 10,
+        after_count: 5,
+        after_step_us: 10,
+        outcome: 'ok',
+        code: null,
+        message: null,
+        plan_rev: 3,
+      },
+      {
+        id: 11,
+        at: '2026-11-06T13:30:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        before_count: 3,
+        before_step_us: 10,
+        after_count: 12,
+        after_step_us: 10,
+        outcome: 'failed',
+        code: 1,
+        message: '뒤탐침 발 수 범위 밖',
         plan_rev: null,
       },
     ],

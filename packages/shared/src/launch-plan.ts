@@ -7,6 +7,7 @@
  * - gh-trade 44(admin 명령) · 94(계획 스냅샷) 인코드 · 파스는 relay 몫(35-16)이다. 이 모듈은 와이어 번호(op · MsgType)도
  *   서버 거부 문구도 모른다 — **「서버 1대의 4칸 계획(Q16/N × K/Q)」** 이라는 우리 쪽 의미만 담는다.
  * - 쓰는 쪽 = server(요청자 이메일 · relay 도달 실패 시도도 1행 · D-29). relay 는 이 경로에서 DB 무관.
+ * - 뒤탐침 개수 · 간격(quick-261107-l7w)도 같은 계약에 얹는다 — 아래 「뒤탐침」 절(gh-trade-70 합의).
  */
 import type { AdminOutcome, AdminServerResult } from "./admin";
 import {
@@ -51,7 +52,14 @@ export interface LaunchPlanEntry {
 
 /** 서버 1대의 계획 조회 결과. ok 가 아니면 웹은 「대신 값」 경로(D-25). */
 export type LaunchPlanServer =
-  | { status: "ok"; plan_rev: number | null; updated_at: string | null; entries: LaunchPlanEntry[] }
+  | {
+      status: "ok";
+      plan_rev: number | null;
+      updated_at: string | null;
+      entries: LaunchPlanEntry[];
+      /** 뒤탐침 설정(quick-261107-l7w) — 없음 = 구 서버 · relay 와이어 대기(웹은 「이 서버 버전은 뒤탐침 설정을 몰라요」). */
+      tail_probes?: LaunchTailProbe[];
+    }
   | { status: "failed"; code: number; message: string }
   | { status: "offline" | "timeout" | "skipped"; message?: string };
 
@@ -102,6 +110,8 @@ export const LAUNCH_PLAN_CHANGE_COLUMNS = [
 export interface LaunchPlanResponse {
   servers: Record<string, LaunchPlanServer>;
   changes: LaunchPlanChangeRow[];
+  /** 뒤탐침 이력(quick-261107-l7w) — 구 server(이 칸 모름)는 없음 — 웹은 [] 로 읽는다. */
+  tail_probe_changes?: LaunchTailProbeChangeRow[];
 }
 
 /** `PUT /api/admin/launch/plan/:gateway/:fire/:market` 바디. */
@@ -272,4 +282,155 @@ export function launchPlanVerdictRows(
       next_cell: n === null ? null : launchRibbonAt(days, n),
     };
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 뒤탐침 — (서버, 프로파일)별 개수 · 간격(quick-261107-l7w)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 출처: gh-trade-70 합의(2026-11-07 · `.planning/quick/261107-l7w-*/261107-l7w-CONTEXT.md` 「gh-trade 계약」).
+// - 단위 = (서버, profile) — Q16(16:00) · N(09:00:30). 코스피 · 코스닥 공통(시장별로 안 나눈다).
+// - count 0..10(0 = 끔 · 2026-11-07 gh-trade 사용자 결정으로 0..5 → 0..10) · step_us 1..100
+//   (끝발 최대 = 마지막 실조각 + 1000µs).
+//   count 0 이어도 step 은 범위 검사 · 저장한다.
+// - 범위 밖 = 86 code 1 + 고정 문구(새 code 없음) — 웹은 서버 문구 원문을 그대로 보인다.
+// - 저장 = 44 op 10 SetLaunchTailProbe(launch_profile + count + step_us) · 조회 = op 9 의 94 말미 `tail_probes`
+//   (Q16 · N 두 행 고정 순서). plan_rev 는 계획과 공유(+1) · 다음 발사부터 적용.
+// - 의미: i 번째(0부터) 뒤탐침 = 마지막 실조각 계획 시각 + (i+1)·step_us(kind 17 planned_us 와 같은 식).
+
+/** 94 `tail_probes` 한 행 — 프로파일별 뒤탐침 설정. */
+export interface LaunchTailProbe {
+  profile: LaunchPlanProfile;
+  count: number;
+  step_us: number;
+}
+
+/** 뒤탐침 값(프로파일 없이) — 편집 칸 · 이력 전/후 · 표식 계산이 쓴다. */
+export interface LaunchTailProbeValue {
+  count: number;
+  step_us: number;
+}
+
+/**
+ * 뒤탐침 편집 한도 — gh-trade 계약(count 0..10 · step 1..100µs · 끝발 최대 +1000µs).
+ * 서버 설정이 바뀌면 이 한 곳만 고친다(웹 · relay · server 에 두 번째 숫자를 두지 않는다 — `LAUNCH_PLAN_LIMITS` 결).
+ */
+export const LAUNCH_TAIL_PROBE_LIMITS = { minCount: 0, maxCount: 10, minStepUs: 1, maxStepUs: 100 } as const;
+
+/** 뒤탐침 초안 검사 결과. */
+export type LaunchTailProbeDraftCheck =
+  | { ok: true; value: LaunchTailProbeValue }
+  | { ok: false; field: "count" | "step"; message: string };
+
+/**
+ * 뒤탐침 편집 칸 검사 — 발 수(스테퍼 숫자) → 간격(입력 원문 · 앞뒤 공백은 잘라서 본다) 순으로 첫 위반 하나.
+ * count 0(끔)이어도 간격을 검사한다(계약 — 0 으로 저장해도 step 은 남는다).
+ */
+export function validateLaunchTailProbeDraft(count: number, stepRaw: string): LaunchTailProbeDraftCheck {
+  const lim = LAUNCH_TAIL_PROBE_LIMITS;
+  if (!Number.isInteger(count) || count < lim.minCount || count > lim.maxCount) {
+    return { ok: false, field: "count", message: `발 수는 ${lim.minCount} ~ ${lim.maxCount} 사이여야 해요` };
+  }
+  const s = stepRaw.trim();
+  if (!INT_RE.test(s)) {
+    return { ok: false, field: "step", message: "간격은 정수 µs 여야 해요" };
+  }
+  const step = Number(s) || 0;
+  if (step < lim.minStepUs || step > lim.maxStepUs) {
+    return { ok: false, field: "step", message: `간격은 ${lim.minStepUs} ~ ${lim.maxStepUs}µs 사이여야 해요` };
+  }
+  return { ok: true, value: { count, step_us: step } };
+}
+
+/** 예정 뒤탐침 시각 — i 번째(0부터) = lastUs + (i+1)·step_us, count 개(0 이면 빈 배열). */
+export function launchTailProbeOffsets(lastUs: number, v: LaunchTailProbeValue): number[] {
+  const n = Math.max(0, Math.floor(v.count));
+  return Array.from({ length: n }, (_, i) => lastUs + (i + 1) * v.step_us);
+}
+
+/**
+ * 서버 1대 · 발사 기준 하나의 뒤탐침 상태.
+ * - unknown = 계획을 못 읽음(서버 없음 · ok 아님)
+ * - unsupported = ok 인데 `tail_probes` 칸이 없거나 그 profile 행이 없음(구 서버 · relay 와이어 대기)
+ * - set = 값 있음(count 0 = 꺼짐 포함)
+ */
+export type LaunchTailProbeState =
+  | { kind: "unknown" }
+  | { kind: "unsupported" }
+  | { kind: "set"; value: LaunchTailProbeValue };
+
+export function launchTailProbeStateOf(
+  server: LaunchPlanServer | undefined,
+  fire: LaunchFire,
+): LaunchTailProbeState {
+  if (!server || server.status !== "ok") return { kind: "unknown" };
+  const profile = launchPlanProfileOf(fire);
+  const row = server.tail_probes?.find((t) => t.profile === profile);
+  if (!row) return { kind: "unsupported" };
+  return { kind: "set", value: { count: row.count, step_us: row.step_us } };
+}
+
+/** 이력 — launch_tail_probe_changes 한 행(시도마다 1행 · 실패 포함 · 계획 이력 D-29 와 같은 규칙). */
+export interface LaunchTailProbeChangeRow {
+  id: number;
+  /** timestamptz ISO 문자열 */
+  at: string;
+  admin_email: string;
+  gateway: string;
+  fire: LaunchFire;
+  /** 저장 직전 서버 조회값 · 모르면 null */
+  before_count: number | null;
+  before_step_us: number | null;
+  /** 보낸 값 */
+  after_count: number;
+  after_step_us: number;
+  outcome: AdminOutcome;
+  code: number | null;
+  message: string | null;
+  /** 성공 뒤 계획 리비전(모르면 null) */
+  plan_rev: number | null;
+}
+
+/** 이력 행 열 이름 — 기록 RPC 반환 jsonb 키와 같다(pgTAP 이 같은 13개를 단언 · 계약 핀). */
+export const LAUNCH_TAIL_PROBE_CHANGE_COLUMNS = [
+  "id",
+  "at",
+  "admin_email",
+  "gateway",
+  "fire",
+  "before_count",
+  "before_step_us",
+  "after_count",
+  "after_step_us",
+  "outcome",
+  "code",
+  "message",
+  "plan_rev",
+] as const satisfies readonly (keyof LaunchTailProbeChangeRow)[];
+
+/** `PUT /api/admin/launch/tail-probe/:gateway/:fire` 바디. */
+export interface LaunchTailProbeSaveBody {
+  count: number;
+  step_us: number;
+}
+
+/** 뒤탐침 저장 응답 — 결과 + 저장 뒤 다시 읽은 계획(tail_probes 포함) + 기록된 이력 행(기록 실패면 null). */
+export interface LaunchTailProbeSaveResponse {
+  result: AdminServerResult;
+  plan: LaunchPlanServer | null;
+  change: LaunchTailProbeChangeRow | null;
+}
+
+/** relay `PUT /internal/admin/launch-tail-probe/:server` 바디. */
+export interface LaunchTailProbeRelaySetBody {
+  profile: LaunchPlanProfile;
+  count: number;
+  step_us: number;
+}
+
+/** relay 뒤탐침 저장 응답 — 저장 직전 값(before)과 저장 뒤 다시 읽은 계획. */
+export interface LaunchTailProbeRelaySetResponse {
+  result: AdminServerResult;
+  before: LaunchTailProbeValue | null;
+  plan: LaunchPlanServer | null;
 }

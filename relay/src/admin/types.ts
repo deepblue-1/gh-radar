@@ -174,6 +174,21 @@ export type LaunchPlanSnapshot = {
   updatedAt: string;
   /** 서버 순서 그대로 — 4행 고정 순서 Q16/K · Q16/Q · N/K · N/Q(relay 는 정렬 · 보정하지 않는다). */
   entries: LaunchPlanEntry[];
+  /**
+   * 94 말미 `tail_probes`(quick-261107-l7w · gh-trade-70 합의) — 프로파일별 뒤탐침 개수 · 간격(Q16 · N 두 행 고정 순서).
+   * **파서가 아직 채우지 않는다** — gh-trade .fbs sync 뒤 후속 quick 이 `parseLaunchPlanSnapshot` 에서 채운다 · 칸 없음 = undefined.
+   * 소비는 `LaunchPlanService` 의 와이어 어댑터(`LaunchTailProbeWire.tailProbesOf`)를 거친다.
+   */
+  tailProbes?: LaunchTailProbeWireRow[];
+};
+
+/** 94 `tail_probes` 한 행(파싱 결과 · camelCase). 서버 문자열 · 숫자를 그대로 둔다 — 판정은 소비자(`LaunchPlanService`). */
+export type LaunchTailProbeWireRow = {
+  profile: string;
+  /** 0..10(0 = 끔) — 범위는 서버가 판정한다. */
+  count: number;
+  /** 1..100µs — 범위는 서버가 판정한다. */
+  stepUs: number;
 };
 
 /** 86 파싱 결과. */

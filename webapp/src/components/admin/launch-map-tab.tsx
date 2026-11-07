@@ -51,6 +51,7 @@ import { LaunchGateChart } from './launch-gate-chart';
 import { LaunchFireSeg } from './launch-orders-tab';
 import { LaunchPlanBar } from './launch-plan-bar';
 import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor';
+import { LaunchTailProbeBar } from './launch-tail-probe-bar';
 
 /**
  * 경계 지도 탭 (Phase 35 · D-15 ~ D-18 · 채택 목업 `mockup-launch-gate-map.html` — 프리셋 칩 · 리본 켬 · 09:00:30 합패널).
@@ -82,6 +83,10 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *   전 값일 수 있어요」(35 R3-IN-01 — server 가 아직 PUT 을 처리 중이면 조회가 저장보다 먼저 닿을 수 있다).
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
+ * - 뒤탐침 줄(quick-261107-l7w · 채택 목업 변형 C): 요약 카드 아래 · 시장 패널 위에 고른 서버 · 고른 발사 하나의
+ *   「<서버> 뒤탐침」 줄(코스피 · 코스닥 공통 · `LaunchTailProbeBar`). 값은 같은 `GET /plan` 응답의 그 서버 `tail_probes` —
+ *   계획 404(absent)면 줄 자체가 없고, 계획을 못 읽었으면 「뒤탐침 값을 읽지 못했어요」, ok 인데 tail_probes 가 없으면
+ *   (구 서버 · relay 와이어 대기) 경고색 「이 서버 버전은 뒤탐침 설정을 몰라요 …」 · 고치기 버튼 없음.
  * - 요약 카드는 고른 서버 2장이라 폭과 무관하게 한 줄 2열이다.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
@@ -483,6 +488,7 @@ export function LaunchMapView({
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
             ))}
           </div>
+          {plan.kind !== 'absent' && <LaunchTailProbeBar gateway={gw} fire={fire} plan={plan} />}
           <div data-slot="launch-panels" className="flex min-w-0 flex-col gap-3">
             {panels.map((p) => {
               const open = editing !== null && editing.gateway === p.gateway && editing.market === p.market;

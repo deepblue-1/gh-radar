@@ -23,15 +23,22 @@
  *   S3  같은 값 재저장(86 code 0 「변경 없음」) → ok · 후 조회 그대로 · 후 조회 실패 → plan null(결과는 ok)
  *   S4  마감 — 저장이 끝난 시각 + ADMIN_COMMAND_TIMEOUT_MS 가 deadlineAt 을 넘으면 후 조회를 건너뛰고 plan null · 같으면 보낸다
  *   S5  skipped(꺼진 · 없는 서버) · offline(연결 없음 · ready 아님) → 그 결과 · before_us null · plan null · command 0회
+ *
+ * 잠그는 것 (quick-261107-l7w — 뒤탐침 · 와이어 어댑터 주입):
+ *   TP-R1 PENDING(기본) — 스냅샷에 tailProbes 가 있어도 결과에 tail_probes 키 없음
+ *   TP-R2 테스트 어댑터(tailProbesOf = s.tailProbes) — [Q16 5/10 · N 0/10] → tail_probes 그대로(snake_case)
+ *   TP-R3 모르는 profile · 정수 아닌 count/stepUs 행은 빠지고 warn 1줄 · 다 빠지면 · 어댑터가 [] 를 주면 키 없음
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_COMMAND_TIMEOUT_MS, type AdminCommandOutcome, type AdminConn } from "../src/admin/admin-conn.js";
 import {
   LAUNCH_PLAN_READ_DEADLINE_MS,
+  LAUNCH_TAIL_PROBE_WIRE_PENDING,
   LaunchPlanService,
   SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE,
   type LaunchPlanServiceDeps,
+  type LaunchTailProbeWire,
 } from "../src/admin/launch-plan.js";
 import { ADMIN_OP, type LaunchPlanEntry, type LaunchPlanSnapshot } from "../src/admin/types.js";
 import type { DmaServerRow } from "../src/registry/registry.js";
@@ -111,7 +118,9 @@ type Rig = {
   clock: { t: number };
 };
 
-function rig(opts: { rows?: DmaServerRow[]; admins?: Record<string, FakeAdmin> } = {}): Rig {
+function rig(
+  opts: { rows?: DmaServerRow[]; admins?: Record<string, FakeAdmin>; wire?: LaunchTailProbeWire } = {},
+): Rig {
   const rows = opts.rows ?? [serverRow("KB120"), serverRow("KB121"), serverRow("KYOBO119")];
   const admins = opts.admins ?? { KB120: new FakeAdmin(), KYOBO119: new FakeAdmin() };
   const clock = { t: 1_000_000 };
@@ -119,6 +128,7 @@ function rig(opts: { rows?: DmaServerRow[]; admins?: Record<string, FakeAdmin> }
     registry: { all: () => rows.map((r) => ({ ...r })) },
     pipelines: { get: (k) => (admins[k] ? { admin: admins[k]! } : undefined) },
     now: () => clock.t,
+    ...(opts.wire ? { tailProbeWire: opts.wire } : {}),
   };
   return { svc: new LaunchPlanService(deps), admins, rows, clock };
 }
@@ -456,5 +466,88 @@ describe("P35 LaunchPlanService.set (35-17 Task 2)", () => {
     expect(await svc.set("KB121", body(), d)).toEqual({ result: { server: "KB121", outcome: "offline" }, before_us: null, plan: null });
     expect(notReady.inputs).toEqual([]);
     expect(disabled.inputs).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261107-l7w — 뒤탐침 읽기(와이어 어댑터 주입)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 후속 quick 이 index.ts 에 넣을 어댑터와 같은 모양(읽기만 — canSet 은 테스트마다). */
+const READ_WIRE: LaunchTailProbeWire = { canSet: false, tailProbesOf: (s) => s.tailProbes };
+
+const TAIL_PROBES_WIRE = [
+  { profile: "Q16", count: 5, stepUs: 10 },
+  { profile: "N", count: 0, stepUs: 10 },
+];
+
+describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("TP-R1 PENDING(기본) — 스냅샷에 tailProbes 가 있어도 tail_probes 키를 싣지 않는다", async () => {
+    expect(LAUNCH_TAIL_PROBE_WIRE_PENDING.canSet).toBe(false);
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE })]);
+    const { svc } = rig({ admins: { KB120: kb } });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).toEqual({ status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES });
+    expect(out.KB120).not.toHaveProperty("tail_probes");
+  });
+
+  it("TP-R2 테스트 어댑터 — [Q16 5/10 · N 0/10] → tail_probes 그대로(snake_case) · warn 없음", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE })]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).toEqual({
+      status: "ok",
+      plan_rev: 3,
+      updated_at: "2026-10-27T22:41:00",
+      entries: WIRE_ENTRIES,
+      tail_probes: [
+        { profile: "Q16", count: 5, step_us: 10 },
+        { profile: "N", count: 0, step_us: 10 },
+      ],
+    });
+    expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("TP-R3 모르는 profile · 정수 아닌 count/stepUs 행은 빠지고 warn 1줄", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({
+        tailProbes: [
+          { profile: "Q16", count: 5, stepUs: 10 },
+          { profile: "X", count: 1, stepUs: 10 },
+          { profile: "N", count: 1.5, stepUs: 10 },
+          { profile: "N", count: 2, stepUs: Number.NaN },
+        ],
+      }),
+    ]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).toMatchObject({ status: "ok", tail_probes: [{ profile: "Q16", count: 5, step_us: 10 }] });
+    const warns = logs.filter((c) => c.level === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.args[0]).toMatchObject({ server: "KB120" });
+    expect((warns[0]!.args[0] as { dropped: unknown[] }).dropped).toHaveLength(3);
+  });
+
+  it("TP-R3b 어댑터가 [] · undefined 를 주거나 행이 다 빠지면 키 없음", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({ tailProbes: [] }),
+      snapshotOutcome(),
+      snapshotOutcome({ tailProbes: [{ profile: "X", count: 1, stepUs: 10 }] }),
+    ]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    for (let i = 0; i < 3; i++) {
+      const out = await svc.read(["KB120"]);
+      expect(out.KB120).toEqual({ status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES });
+    }
   });
 });

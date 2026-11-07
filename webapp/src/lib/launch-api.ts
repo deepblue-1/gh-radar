@@ -67,7 +67,8 @@ export function fetchLaunchPlan(opts?: { fresh?: boolean }): Promise<LaunchPlanF
   const path = '/api/admin/launch/plan';
   const req = opts?.fresh === true ? authFetch<LaunchPlanResponse>(path) : joined<LaunchPlanResponse>(path);
   return req.then(
-    (resp): LaunchPlanFetch => ({ kind: 'ready', resp }),
+    // 구 server(뒤탐침 이력 칸 모름 · quick-261107-l7w)는 tail_probe_changes 가 없다 — [] 로 채워 화면이 한 모양만 본다.
+    (resp): LaunchPlanFetch => ({ kind: 'ready', resp: { ...resp, tail_probe_changes: resp.tail_probe_changes ?? [] } }),
     (e: unknown): LaunchPlanFetch => {
       if (e instanceof ApiClientError && e.status === 404) return { kind: 'absent' };
       throw e;
