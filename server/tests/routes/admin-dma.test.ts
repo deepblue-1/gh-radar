@@ -396,6 +396,7 @@ describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
     ["accounts put", (app) => auth(request(app).put("/api/admin/dma-users/kim01/accounts")).send({ account: kbAccount, servers: ["KB120"] })],
     ["accounts remove", (app) => auth(request(app).delete("/api/admin/dma-users/kim01/accounts/KB/1"))],
     ["reconcile", (app) => auth(request(app).post("/api/admin/dma-users/kim01/reconcile"))],
+    ["server-only link", (app) => auth(request(app).post("/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only")).send({ action: "link" })],
   ])("%s: relay 에 닿지 못함 → 502 RELAY_FAILED · 클라이언트 없음 → 503 RELAY_UNAVAILABLE", async (_n, call) => {
     const down = makeApp({}, makeFakeRelay(() => ({ status: 0, data: null })).client);
     const r1 = await call(down.app);
@@ -423,13 +424,59 @@ describe("DMA 프록시 — relay 계약(29-11) 1:1", () => {
     expect(relay.calls).toHaveLength(0);
   });
 
-  it("trader 토큰 → 403 · relay 0", async () => {
+  it.each([
+    "/api/admin/dma-users/kim01/reconcile",
+    "/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only",
+  ])("trader 토큰 → 403 · relay 0 (%s)", async (path) => {
     const relay = makeFakeRelay();
     const { app } = makeApp({}, relay.client);
-    const res = await request(app)
-      .post("/api/admin/dma-users/kim01/reconcile")
-      .set("Authorization", "Bearer tok-trader");
+    const res = await request(app).post(path).set("Authorization", "Bearer tok-trader").send({ action: "link" });
     expect(res.status).toBe(403);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  // quick 261107-moq — 「서버에만 있음」 계좌 연결 · 서버에서 빼기(D-04 — relay 계약 1:1 · action 판정은 relay · DB)
+  it("server-only link: POST …/server-only { action: link } → relay 같은 경로 POST 1회 · 200 { results: [] } 그대로", async () => {
+    const relay = makeFakeRelay(() => ({ status: 200, data: { results: [] } }));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only")).send({
+      action: "link",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: [] });
+    expect(relay.calls).toEqual([
+      {
+        method: "POST",
+        path: "/internal/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only",
+        adminEmail: ADMIN_EMAIL,
+        body: { action: "link" },
+      },
+    ]);
+  });
+
+  it("server-only: relay 409 NOT_SERVER_ONLY → 409 그대로(코드 · 문구)", async () => {
+    const msg = "서버에만 있는 계좌가 아니에요 — 이미 정리됐거나 화면이 오래됐어요";
+    const relay = makeFakeRelay(() => relayReject(409, "NOT_SERVER_ONLY", msg));
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only")).send({
+      action: "link",
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: { code: "NOT_SERVER_ONLY", message: msg } });
+  });
+
+  it.each<[string, unknown]>([
+    ["action 밖 값", { action: "nuke" }],
+    ["action 누락", {}],
+    ["추가 키", { action: "link", extra: 1 }],
+  ])("server-only %s → 400 VALIDATION_FAILED · relay 0", async (_n, body) => {
+    const relay = makeFakeRelay();
+    const { app } = makeApp({}, relay.client);
+    const res = await auth(request(app).post("/api/admin/dma-users/kim01/accounts/KYOBO/5550001/server-only")).send(
+      body as object,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
     expect(relay.calls).toHaveLength(0);
   });
 });

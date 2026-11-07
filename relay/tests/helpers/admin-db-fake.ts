@@ -6,12 +6,13 @@
  * PostgREST 오류 `{ code: "P0001", message: "<CODE>" }`. 정본 검증은 pgTAP(29-05 · 29-27)이고, 이 대역은 relay
  * dispatcher · 라우터가 RPC 를 **어떤 인자 · 순서로** 부르는지를 단언하려고 있다.
  *
- * 다루는 것: rpc 11종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
- * record_results · set_quote_primary(29-23) · set_account_order_server(29-29 · 29-37) + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
+ * 다루는 것: rpc 12종(create · set_password · put_account · mark_account_removed · settle_server · delete_dma_user · intent ·
+ * record_results · set_quote_primary(29-23) · set_account_order_server(29-29 · 29-37) ·
+ * adopt_server_only_account(quick 261107-moq — `serverAccounts` 87 표 대역) + 미지 이름 기록) · `from("dma_users").select().eq().maybeSingle()` ·
  * `from("dma_credentials").select().eq()` · `from("dma_credentials").update().eq().eq()`.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AdminIntentRow, DmaBroker } from "@gh-radar/shared";
+import { normalizeAccountNo, type AdminIntentRow, type DmaBroker } from "@gh-radar/shared";
 
 export type FakeRpcCall = { name: string; args: Record<string, unknown> };
 
@@ -38,6 +39,17 @@ type ServerRow = {
   isOrder?: boolean;
 };
 
+/** 87 표(`dma_server_user_accounts`) 1행 — 87 원문 그대로(계좌번호 재정규화 없음). 테스트가 push 한다. */
+export type ServerAccountRow = {
+  serverKey: string;
+  dmaUserId: string;
+  accountNo: string;
+  name: string;
+  branchNo: string;
+  traderId: string;
+  priority: number;
+};
+
 type LegacyRow = { user_id: string; dma_user_id: string; dma_password_enc: string };
 
 type PgError = { code: string; message: string; details: string | null; hint: string | null };
@@ -62,6 +74,8 @@ export class AdminDbFake {
   accounts: AccountRow[] = [];
   serverRows: ServerRow[] = [];
   legacy: LegacyRow[] = [];
+  /** 87 표 대역(quick 261107-moq) — `dma_admin_adopt_server_only_account` 의 원천. push 순서 = 서버 순서(sort_order 대역). */
+  serverAccounts: ServerAccountRow[] = [];
   readonly calls: FakeRpcCall[] = [];
   /** 다음 1회 그 RPC 를 이 오류로 실패시킨다. */
   readonly failNext = new Map<string, PgError>();
@@ -306,6 +320,41 @@ export class AdminDbFake {
         }
         for (const s of mine) s.isOrder = s.serverKey === key;
         return ok({ orderServer: key });
+      }
+      case "dma_admin_adopt_server_only_account": {
+        // 20261107300000 과 같은 순서: NO_DMA_USER → 87 원천(정규화 비교 · 서버 증권사 일치 · 이미 등록 행 제외) → 0건
+        // NOT_SERVER_ONLY → 첫 원천 행 값으로 계좌(없으면) → 원천 서버마다 등록 행(removing | active) → { servers }.
+        // enabled · sort_order 판정은 pgTAP 몫 — 대역은 레지스트리 enabled 를 모른다(push 순서를 sort_order 로 본다).
+        if (!this.dmaUsers.has(id)) return reject("NO_DMA_USER");
+        const broker = args.p_broker as DmaBroker;
+        const accountNo = normalizeAccountNo(String(args.p_account_no ?? ""));
+        const src = this.serverAccounts.filter(
+          (c) =>
+            c.dmaUserId === id &&
+            accountNo !== "" &&
+            normalizeAccountNo(c.accountNo) === accountNo &&
+            this.serverBroker.get(c.serverKey) === broker &&
+            !this.serverRows.some(
+              (r) => r.dmaUserId === id && r.broker === broker && r.accountNo === accountNo && r.serverKey === c.serverKey,
+            ),
+        );
+        const servers = [...new Set(src.map((c) => c.serverKey))];
+        if (servers.length === 0) return reject("NOT_SERVER_ONLY");
+        if (!this.#account(id, broker, accountNo)) {
+          const first = src[0]!;
+          this.accounts.push({
+            dmaUserId: id,
+            broker,
+            accountNo,
+            name: first.name,
+            branchNo: first.branchNo,
+            traderId: first.traderId,
+            priority: first.priority,
+          });
+        }
+        const state = args.p_remove === true ? ("removing" as const) : ("active" as const);
+        for (const serverKey of servers) this.serverRows.push({ dmaUserId: id, broker, accountNo, serverKey, state });
+        return ok({ servers });
       }
       default:
         return ok(null);

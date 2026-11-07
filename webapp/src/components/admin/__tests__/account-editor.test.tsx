@@ -20,14 +20,16 @@ const removeDmaAccountMock = vi.fn();
 const setAccountOrderServerMock = vi.fn();
 const setAccountBudgetMock = vi.fn();
 const setAccountFeeMock = vi.fn();
+const serverOnlyAccountMock = vi.fn();
 vi.mock('@/lib/admin-api', () => ({
+  serverOnlyAccount: (dma: string, broker: string, no: string, action: string) => serverOnlyAccountMock(dma, broker, no, action),
   putDmaAccount: (dma: string, body: unknown) => putDmaAccountMock(dma, body),
   removeDmaAccount: (dma: string, broker: string, no: string) => removeDmaAccountMock(dma, broker, no),
   setAccountOrderServer: (dma: string, broker: string, no: string, key: string | null) =>
     setAccountOrderServerMock(dma, broker, no, key),
 }));
 
-import { AccountCostFields, AccountEditor } from '../account-editor';
+import { AccountCostFields, AccountEditor, josaEulReul } from '../account-editor';
 
 const SERVERS: AdminUsersOverview['servers'] = [
   { key: 'KB120', broker: 'KB', enabled: true },
@@ -131,6 +133,7 @@ beforeEach(() => {
   setAccountOrderServerMock.mockReset();
   setAccountBudgetMock.mockReset();
   setAccountFeeMock.mockReset();
+  serverOnlyAccountMock.mockReset();
 });
 
 afterEach(() => {
@@ -138,7 +141,7 @@ afterEach(() => {
 });
 
 describe('AccountEditor — 계좌 줄', () => {
-  it('KB 계좌는 KB 서버만 토글 · 교보 계좌는 「해당 없음」 · 87 전용 계좌는 흐린 「서버에만 있음」 줄(버튼 없음)', () => {
+  it('KB 계좌는 KB 서버만 토글 · 교보 계좌는 「해당 없음」 · 87 전용 계좌는 흐린 「서버에만 있음」 줄(설명 + 연결 버튼)', () => {
     setup();
     const kb = acctRow('12345678901');
     expect(kb).toHaveTextContent('KB');
@@ -163,7 +166,11 @@ describe('AccountEditor — 계좌 줄', () => {
     const only = acctRow('5550001');
     expect(only).toHaveAttribute('data-server-only', 'true');
     expect(only).toHaveTextContent('KYOBO127 · 서버에만 있음');
-    expect(within(only).queryByRole('button')).toBeNull();
+    // quick-261107-moq — 칩 아래 설명 줄 + 버튼 줄(체크박스 없음).
+    expect(only.querySelector('[data-slot="admin-server-only-why"]')).toHaveTextContent(
+      'KYOBO127 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요. 그래서 여기서 연결 해제해도 그 서버에는 닿지 않아요.',
+    );
+    expect(within(only).getAllByRole('button').map((b) => b.textContent)).toEqual(['이 사용자에 연결']);
     expect(within(only).queryByRole('checkbox')).toBeNull();
   });
 
@@ -1400,5 +1407,66 @@ describe('P36 비용률 · 상태 6종', () => {
     expect(chipsEl.className).toContain('inline-flex');
     expect(chipsEl.className).toContain('flex-wrap');
     expect(chipsEl.className).toContain('gap-1');
+  });
+});
+
+describe('quick-261107-moq 서버에만 있음 계좌 — 연결', () => {
+  const confirmBox = () =>
+    acctRow('5550001').querySelector('[data-slot="admin-server-only-confirm"]') as HTMLElement | null;
+  const actions = () => acctRow('5550001').querySelector('[data-slot="admin-server-only-actions"]');
+
+  it('josaEulReul — 받침 · 숫자 한자어 읽기 · 그 밖 「을」', () => {
+    expect(josaEulReul('교보 김현중')).toBe('을');
+    expect(josaEulReul('위탁')).toBe('을');
+    expect(josaEulReul('교보')).toBe('를');
+    expect(josaEulReul('5550001')).toBe('을');
+    expect(josaEulReul('12')).toBe('를');
+    expect(josaEulReul('abc')).toBe('을');
+  });
+
+  it('「이 사용자에 연결」 → 파랑 확인 상자(목업 B 문장) · 버튼 줄 사라짐 → 「취소」 → 버튼 줄 복귀 · 호출 0', () => {
+    setup();
+    fireEvent.click(within(acctRow('5550001')).getByRole('button', { name: '이 사용자에 연결' }));
+    const box = confirmBox()!;
+    expect(box).toHaveAttribute('data-kind', 'link');
+    expect(box).toHaveTextContent('5550001을 kimtr 에 연결해요. KYOBO127 서버 설정은 그대로예요.');
+    expect(box).toHaveTextContent('연결하면 위 계좌들처럼 서버를 켜고 끄거나 연결 해제할 수 있어요.');
+    expect(actions()).toBeNull();
+
+    fireEvent.click(within(box).getByRole('button', { name: '취소' }));
+    expect(confirmBox()).toBeNull();
+    expect(actions()).not.toBeNull();
+    expect(serverOnlyAccountMock).not.toHaveBeenCalled();
+  });
+
+  it('이름 있는 계좌 · 두 서버 → 「교보 김현중을 kimtr 에 연결해요. KYOBO119 · KYOBO127 서버 설정은 그대로예요.」', () => {
+    setup([{ ...ONLY_ACCT, name: '교보 김현중', serverOnlyOn: ['KYOBO119', 'KYOBO127'] }]);
+    expect(acctRow('5550001').querySelector('[data-slot="admin-server-only-why"]')).toHaveTextContent(
+      'KYOBO119 · KYOBO127 서버 설정에만 있고',
+    );
+    fireEvent.click(within(acctRow('5550001')).getByRole('button', { name: '이 사용자에 연결' }));
+    expect(confirmBox()).toHaveTextContent('교보 김현중을 kimtr 에 연결해요. KYOBO119 · KYOBO127 서버 설정은 그대로예요.');
+  });
+
+  it('「연결」 → serverOnlyAccount(kimtr, KYOBO, 5550001, link) 1회 → { results: [] } 뒤 onChanged 1회', async () => {
+    serverOnlyAccountMock.mockResolvedValue({ results: [] });
+    const { onChanged } = setup();
+    fireEvent.click(within(acctRow('5550001')).getByRole('button', { name: '이 사용자에 연결' }));
+    fireEvent.click(within(confirmBox()!).getByRole('button', { name: '연결' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(serverOnlyAccountMock).toHaveBeenCalledTimes(1);
+    expect(serverOnlyAccountMock).toHaveBeenCalledWith('kimtr', 'KYOBO', '5550001', 'link');
+  });
+
+  it('409 NOT_SERVER_ONLY → 상자 열린 채 오류 줄(서버 문구) · onChanged 0', async () => {
+    const msg = '서버에만 있는 계좌가 아니에요 — 이미 정리됐거나 화면이 오래됐어요';
+    serverOnlyAccountMock.mockRejectedValue(new ApiClientError({ code: 'NOT_SERVER_ONLY', message: msg, status: 409 }));
+    const { onChanged } = setup();
+    fireEvent.click(within(acctRow('5550001')).getByRole('button', { name: '이 사용자에 연결' }));
+    fireEvent.click(within(confirmBox()!).getByRole('button', { name: '연결' }));
+    const alert = await within(acctRow('5550001')).findByRole('alert');
+    expect(alert).toHaveTextContent(`저장하지 못했어요 · ${msg}`);
+    expect(confirmBox()).not.toBeNull();
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });

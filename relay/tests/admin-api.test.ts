@@ -53,6 +53,12 @@
  *   E2  꺼진 서버 · 파이프라인 없는 서버 · 87 미수신(재접속 중) 서버 · 교보 서버(30 IN-04)는 키 없음(= 「확인 전」)
  *   E3  X-Relay-Secret 없음 → 401(관문)
  *   E4  44 0건(op 5 포함 — 메모리 읽기만) · 로그 인자에 IP/MAC 원문 없음
+ *
+ * 잠그는 것 (quick-261107-moq — 「서버에만 있음」 계좌 · POST …/accounts/:broker/:accountNo/server-only):
+ *   M1  { action: "link" } → RPC 1회(p_remove false · 정규화 계좌번호) · 44 0건 · 200 { results: [] } · 의도에 그 계좌@원천 서버
+ *       active · 지정 재적재 0회 · 감사 1줄(route 패턴 · dma · 계좌 마스킹 · action — 원문 없음)
+ *   M2  같은 호출 다시 → 409 NOT_SERVER_ONLY · 없는 유저 → 409 NO_DMA_USER
+ *   M3  action 밖 값 · 바디 없음 · 추가 키 → 400 VALIDATION_FAILED · RPC 0회
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -2384,5 +2390,91 @@ describe("P36 account-costs op 5 스로틀 (D-05 · Pitfall 8)", () => {
     await get(h);
     expect(op5Count(s120)).toBe(1);
     expect(op5Count(s121)).toBe(1);
+  });
+});
+
+describe("quick-261107-moq 「서버에만 있음」 계좌 — 연결 · 서버에서 빼기", () => {
+  let h: Harness;
+  let logs: LogCall[];
+  const RPC = "dma_admin_adopt_server_only_account";
+  const X = "1234567809";
+  /** 87 원문은 앞자리 0 — 의도 키는 정규화값(X). */
+  const X_RAW = "001234567809";
+  const PATH = `/internal/admin/dma-users/tr01/accounts/KB/${X_RAW}/server-only`;
+
+  const seed87 = (serverKey: string, accountNo: string, name = "서버에만"): void => {
+    h.db.serverAccounts.push({ serverKey, dmaUserId: "tr01", accountNo, name, branchNo: "00077", traderId: "000077", priority: 4 });
+  };
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+    h = await startHarness();
+    expect((await call(h, "POST", "/internal/admin/dma-users", createBody({ servers: ["KB120"] }))).status).toBe(200);
+    h.orderServersReload.mockClear();
+  });
+
+  afterEach(async () => {
+    await h.close();
+    vi.restoreAllMocks();
+  });
+
+  it("M1 link → RPC 1회(p_remove false · 정규화) · 44 0건 · 200 { results: [] } · active 등록 · 재적재 0 · 감사 1줄", async () => {
+    seed87("KB121", X_RAW);
+    const before = [h.commands("KB120").length, h.commands("KB121").length];
+    const res = await call(h, "POST", PATH, { action: "link" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ results: [] });
+
+    expect(h.db.callsTo(RPC)).toEqual([
+      { name: RPC, args: { p_dma_user_id: "tr01", p_broker: "KB", p_account_no: X, p_remove: false } },
+    ]);
+    expect([h.commands("KB120").length, h.commands("KB121").length]).toEqual(before);
+    expect(h.db.intentOf("tr01").filter((r) => r.accountNo === X)).toEqual([
+      expect.objectContaining({ accountNo: X, serverKey: "KB121", state: "active", name: "서버에만", priority: 4 }),
+    ]);
+    expect(h.orderServersReload).not.toHaveBeenCalled();
+
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits.at(-1)!.args[0]).toEqual({
+      admin: ADMIN,
+      route: "POST /dma-users/:dma/accounts/:broker/:accountNo/server-only",
+      dma: maskDmaUserId("tr01"),
+      broker: "KB",
+      account: "123456****",
+      action: "link",
+      servers: [],
+    });
+    const dumped = stringify(audits.at(-1)!.args);
+    expect(dumped).not.toContain(X);
+    expect(dumped).not.toContain('"tr01"');
+  });
+
+  it("M2 같은 호출 다시 → 409 NOT_SERVER_ONLY · 없는 유저 → 409 NO_DMA_USER", async () => {
+    seed87("KB121", X_RAW);
+    expect((await call(h, "POST", PATH, { action: "link" })).status).toBe(200);
+
+    const again = await call(h, "POST", PATH, { action: "link" });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: { code: string; message: string } }).error).toEqual({
+      code: "NOT_SERVER_ONLY",
+      message: "서버에만 있는 계좌가 아니에요 — 이미 정리됐거나 화면이 오래됐어요",
+    });
+
+    const ghost = await call(h, "POST", `/internal/admin/dma-users/ghost/accounts/KB/${X}/server-only`, { action: "link" });
+    expect(ghost.status).toBe(409);
+    expect(((await ghost.json()) as { error: { code: string } }).error.code).toBe("NO_DMA_USER");
+
+    const audits = logs.filter((c) => c.level === "info" && String(c.args[1] ?? "").startsWith("[admin-audit]"));
+    expect(audits.slice(-2).map((c) => (c.args[0] as { rejected: string }).rejected)).toEqual(["NOT_SERVER_ONLY", "NO_DMA_USER"]);
+  });
+
+  it("M3 action 밖 값 · 바디 없음 · 추가 키 → 400 VALIDATION_FAILED · RPC 0회", async () => {
+    seed87("KB121", X_RAW);
+    for (const body of [{ action: "nuke" }, undefined, { action: "link", extra: 1 }]) {
+      const res = await call(h, "POST", PATH, body);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(h.db.callsTo(RPC)).toHaveLength(0);
   });
 });

@@ -34,6 +34,9 @@ export const INTENT_ERROR_CODES = [
   "DMA_LINKED",
   // 29-29 G-1 — 계좌 주문 서버 지정 대상이 그 계좌의 active 등록 서버가 아니다(등록 안 됨 · removing · 다른 증권사).
   "ORDER_SERVER_NOT_REGISTERED",
+  // quick 261107-moq — 「서버에만 있음」 계좌 연결 · 빼기 대상의 87 원천이 없다(이미 정리됨 · 오래된 화면 · 꺼진 서버뿐 ·
+  // 다른 증권사 서버뿐 · 이미 등록 행이 있는 서버뿐). 정본 가드 = DB(20261107300000).
+  "NOT_SERVER_ONLY",
 ] as const;
 
 export type IntentErrorCode = (typeof INTENT_ERROR_CODES)[number] | "INTERNAL";
@@ -123,6 +126,26 @@ export class AdminIntentStore {
     })) as { orderServer?: unknown } | null;
     const saved = data?.orderServer;
     return typeof saved === "string" && saved !== "" ? saved : null;
+  }
+
+  /**
+   * quick 261107-moq — 87 에만 있는 그 계좌(「서버에만 있음」)를 의도로 들인다. 87 원천 서버(enabled · 같은 증권사 · 아직
+   * 등록 행 없음)마다 등록 행을 만든다 — `remove` false = active(연결 · op 없음) · true = removing(planner 가 op 4 / op 2 로 뺀다).
+   * 반환 = 원천 서버 키(sort_order 순). 원천 0건이면 `NOT_SERVER_ONLY` · 유저가 없으면 `NO_DMA_USER` — 판정은 DB 가 한다.
+   */
+  async adoptServerOnlyAccount(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    remove: boolean,
+  ): Promise<string[]> {
+    const data = (await this.#rpc("dma_admin_adopt_server_only_account", {
+      p_dma_user_id: dmaUserId,
+      p_broker: broker,
+      p_account_no: accountNo,
+      p_remove: remove,
+    })) as { servers?: unknown } | null;
+    return stringList(data?.servers);
   }
 
   /** 서버 반영 확인 뒤 정리 — op 4 ok(0 · 8) 계좌 · 87 에 이미 없는 removing 계좌, 또는 op 2 ok(0 · 4)면 그 서버 행 전부. */

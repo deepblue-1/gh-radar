@@ -184,6 +184,18 @@ export type RelayAdminClient = {
     adminEmail: string,
   ): Promise<RelayAdminResponse<AdminCommandResponse>>;
   /**
+   * 「서버에만 있음」 계좌(quick 261107-moq · D-03 · D-04) — relay 가 RPC 로 87 원천 서버마다 등록 행을 만든다.
+   * `link` = active · op 없음(200 `{ results: [] }`) · `remove` = removing → op 4(그 서버의 그 유저 계좌 전부면 op 2) → 서버별 결과.
+   * 거부는 relay 409(`NOT_SERVER_ONLY` — 이미 정리됨 · 오래된 화면 · `NO_DMA_USER`).
+   */
+  serverOnlyAccount(
+    dmaUserId: string,
+    broker: DmaBroker,
+    accountNo: string,
+    action: "link" | "remove",
+    adminEmail: string,
+  ): Promise<RelayAdminResponse<AdminCommandResponse>>;
+  /**
    * DMA 유저 삭제(op 2 · 87 전용 계좌가 있으면 의도 계좌 op 4) — 전 서버 ok 일 때만 DB 삭제(`deleted`).
    * `skipDisabled`(29-34 WR-04 — Admin 확인 뒤) → `?skipDisabled=1`: 꺼진 등록 서버는 op 없이 DB 의도만 지운다.
    */
@@ -451,6 +463,8 @@ export function relayAdminClientFrom(request: RelayAdminRequest): RelayAdminClie
       request<AdminCommandResponse>("PUT", `${user(dma)}/accounts`, adminEmail, body),
     removeAccount: (dma, broker, accountNo, adminEmail) =>
       request<AdminCommandResponse>("DELETE", account(dma, broker, accountNo), adminEmail),
+    serverOnlyAccount: (dma, broker, accountNo, action, adminEmail) =>
+      request<AdminCommandResponse>("POST", `${account(dma, broker, accountNo)}/server-only`, adminEmail, { action }),
     setAccountOrderServer: (dma, broker, accountNo, serverKey, adminEmail) =>
       request<RelayOrderServerResult>("PUT", `${account(dma, broker, accountNo)}/order-server`, adminEmail, {
         serverKey,

@@ -9,7 +9,8 @@
  *   - 바디 16kb(order-api `express.json`) · zod. 검증 실패 400 `VALIDATION_FAILED`.
  *   - 응답 `AdminCommandResponse = { results: AdminServerResult[] }`(shared). 업무 거부 409 `{ error: { code, message } }`
  *     (`DMA_USER_EXISTS` · `NO_APP_USER` · `NO_DMA_USER` · `NO_SUCH_ACCOUNT` · `LAST_ACCOUNT` · `SERVER_BROKER_MISMATCH` · `NO_SERVERS` ·
- *     `DMA_LINKED` — 29-27 CR-01: 이미 DMA 가 연결된 웹 사용자로 생성. DB 가드가 정본이라 Express 사전 확인과의 경합에서도 같은 코드).
+ *     `DMA_LINKED` — 29-27 CR-01: 이미 DMA 가 연결된 웹 사용자로 생성. DB 가드가 정본이라 Express 사전 확인과의 경합에서도 같은 코드 ·
+ *     `NOT_SERVER_ONLY` — quick 261107-moq: 「서버에만 있음」 계좌 동작의 87 원천 없음).
  *   - 시세 주 서버 전환(29-23 · D-11) `POST /servers/:key/quote-primary` → 200 `{ ok: true }` · 404 `NO_SUCH_SERVER` · 409
  *     `SERVER_DISABLED` · `QUOTE_SWITCH_FAILED`(옛 서버로 되돌림 · DB 무변경) · `QUOTE_SWITCH_BUSY`(진행 중). message 는 화면이 그대로
  *     보이는 한국어 문장이다(29-18).
@@ -21,6 +22,12 @@
  * 44 는 보내지 않는다 — gh-trade 는 지정을 모른다(와이어 무변경). 재적재 실패는 응답을 바꾸지 않는다(warn · 60초 주기가 잡는다).
  * 계좌 put · 계좌 제거 · 유저 삭제도 성공 응답 전에 같은 재적재를 건다 — DB 가 removing 전환(또는 settle)과 함께 지정을 지운 것을
  * 60초 주기를 기다리지 않고 라우팅에. 생성 · 비밀번호 · reconcile 은 지정을 바꾸지 않아 걸지 않는다.
+ *
+ * 「서버에만 있음」 계좌(quick 261107-moq · D-02 · D-03) `POST /dma-users/:dma/accounts/:broker/:accountNo/server-only` body
+ * `{ action: "link" }`(추가 키 · 밖 값 400) → RPC `dma_admin_adopt_server_only_account` 가 87 원천 서버(enabled · 같은 증권사 ·
+ * 아직 등록 행 없음)마다 등록 행을 만든다. `link` = active · 44 0건(서버에 이미 같은 값이 있다) · 지정 재적재 없음 → 200
+ * `{ results: [] }`. 원천 0건(이미 정리됨 · 오래된 화면) 409 `NOT_SERVER_ONLY` · 없는 DMA id 409 `NO_DMA_USER`. 감사 extra =
+ * 증권사 · 마스킹 계좌 · action. 자동 adopt 는 여전히 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
  *
  * 계좌 예수금(Phase 36 · D-01 · D-07) `PUT /dma-users/:dma/accounts/:broker/:accountNo/budget` body `{ budgetKrw }`(원 · 0 = 해제 ·
  * 0..Number.MAX_SAFE_INTEGER 정수 · 그 밖 400) → `dispatcher.setAccountCost` op 6 → 그 계좌 active 등록 서버 전부 44 → 200 `{ results }`
@@ -115,7 +122,12 @@ import { ADMIN_OP, freshLiveBudget, type AdminUsersSnapshot, type LiveBudget } f
 export type AdminApiDeps = {
   store: Pick<
     AdminIntentStore,
-    "createDmaUser" | "putAccount" | "markAccountRemoved" | "setQuotePrimary" | "setAccountOrderServer"
+    | "createDmaUser"
+    | "putAccount"
+    | "markAccountRemoved"
+    | "setQuotePrimary"
+    | "setAccountOrderServer"
+    | "adoptServerOnlyAccount"
   >;
   dispatcher: Pick<AdminDispatcher, "reconcileUser" | "changePassword" | "deleteUser" | "setAccountCost">;
   /** 서버 레지스트리 — 전 행(상태 · 키 검사) · 즉시 재적재(D-09 · D-17). `ServerRegistry` 가 만족한다. */
@@ -271,6 +283,9 @@ const OrderServerBody = z.object({ serverKey: z.string().regex(SERVER_KEY_RE).nu
 /** 계좌 예수금(Phase 36 · op 6) — 원 정수 0..Number.MAX_SAFE_INTEGER(0 = 해제). 문자열 · 소수 · 음수 · 추가 키는 400. */
 const BudgetBody = z.object({ budgetKrw: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).strict();
 
+/** 「서버에만 있음」 계좌 동작(quick 261107-moq) — `link` 만(추가 키 · 밖 값 · 바디 없음 400). */
+const ServerOnlyBody = z.object({ action: z.enum(["link"]) }).strict();
+
 /** uint32 정수(0..0xFFFFFFFF) — 와이어 구조 검사만. */
 const Uint32 = z.number().int().min(0).max(0xffff_ffff);
 
@@ -353,6 +368,8 @@ const INTENT_MESSAGE: Record<string, string> = {
   SERVERS_REMAIN: "아직 반영되지 않은 서버가 남았습니다",
   DMA_LINKED: "이미 DMA 가 연결된 웹 사용자입니다",
   ORDER_SERVER_NOT_REGISTERED: "그 계좌의 등록 서버가 아닙니다",
+  // quick 261107-moq — 화면에 「저장하지 못했어요 · <이 문장>」 으로 그대로 보인다.
+  NOT_SERVER_ONLY: "서버에만 있는 계좌가 아니에요 — 이미 정리됐거나 화면이 오래됐어요",
 };
 
 function toRelayError(err: unknown): unknown {
@@ -620,6 +637,25 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     // 29-37 — 제거 표시가 그 계좌의 지정을 지웠다(남은 마감까지 · GC-10).
     const route = "DELETE /dma-users/:dma/accounts/:broker/:accountNo";
     await awaitWithinDeadline(reloadOrderServers(route), deadlineAt, route, "order-servers");
+    respond(res, results);
+  });
+
+  // ── 「서버에만 있음」 계좌 — 이 사용자에 연결 (quick 261107-moq D-02 · D-03 — RPC 만 · 44 없음) ───────────────
+  router.post("/dma-users/:dma/accounts/:broker/:accountNo/server-only", async (req, res) => {
+    const { dma, broker, accountNo } = AccountParam.parse(req.params);
+    const { action } = ServerOnlyBody.parse(req.body);
+    const route = "POST /dma-users/:dma/accounts/:broker/:accountNo/server-only";
+    const { results } = await audited(
+      res,
+      route,
+      dma,
+      async () => {
+        // link — 87 원천 서버마다 active 등록 행. 서버에 이미 같은 값이 있어 op 를 보내지 않는다(지정 무변경 — 재적재 없음).
+        await deps.store.adoptServerOnlyAccount(dma, broker, accountNo, false);
+        return { results: [] as AdminServerResult[] };
+      },
+      { broker, account: maskAccountNo(accountNo), action },
+    );
     respond(res, results);
   });
 

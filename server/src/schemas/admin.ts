@@ -185,6 +185,13 @@ const Uint32Schema = z.number().int().min(0).max(0xffff_ffff);
  */
 export const AdminAccountFeeSchema = z.object({ feePpm: Uint32Schema, sellTaxPpm: Uint32Schema }).strict();
 
+/**
+ * POST /api/admin/dma-users/:dma/accounts/:broker/:accountNo/server-only — 「서버에만 있음」 계좌 동작(quick 261107-moq · D-04).
+ * `link` = 이 사용자에 연결(op 없음) · `remove` = 그 서버에서 빼기(op 4 / op 2). 프록시는 action 을 가리지 않는다 — 판정은 relay · DB.
+ * 추가 키는 거부(strict).
+ */
+export const AdminServerOnlyAccountSchema = z.object({ action: z.enum(["link", "remove"]) }).strict();
+
 /** POST /api/admin/dma-users/:dma/password — `AdminPasswordBody`. */
 export const AdminPasswordSchema = z.object({ password: DmaPasswordSchema });
 

@@ -14,6 +14,8 @@
  *   quick 261106-ntl N-01 — `PUT /api/admin/accounts/:broker/:accountNo/budget` · `/fee`(예수금 · 수수료 · 매도세 — 연결 사용자마다 op 6/7
  *   팬아웃). per-user `…/dma-users/:dma/accounts/:b/:n/budget|fee` 는 서버에 남지만(배포 창 호환) 웹은 더 부르지 않는다.
  *   N-02 — 계좌 저장 바디에 선택 `orderEndpoint`(KB 주문자 IP/MAC · 연결 사용자마다 계좌 PUT 에 실린다).
+ *   quick 261107-moq — `POST …/dma-users/:dma/accounts/:b/:n/server-only { action }`(「서버에만 있음」 계좌를 이 사용자에 연결 ·
+ *   그 서버에서 빼기 — remove 는 relay 를 거쳐 서버까지 간다 → `RELAY_TIMEOUT_MS`).
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -172,6 +174,25 @@ export function removeDmaAccount(
   return authFetch<AdminCommandResponse>(
     `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}`,
     { method: "DELETE", timeoutMs: RELAY_TIMEOUT_MS },
+  );
+}
+
+/** 「서버에만 있음」 계좌 동작(quick 261107-moq) — `link` = 이 사용자에 연결 · `remove` = 그 서버에서 빼기. */
+export type ServerOnlyAccountAction = "link" | "remove";
+
+/**
+ * 87 에만 있는 그 계좌를 이 사용자에 연결(op 없음 · `{ results: [] }`)하거나 그 서버에서 뺀다(op 4/op 2 · 서버별 결과).
+ * 이미 정리됐거나 화면이 오래됐으면 409 `NOT_SERVER_ONLY`.
+ */
+export function serverOnlyAccount(
+  dmaUserId: string,
+  broker: DmaBroker,
+  accountNo: string,
+  action: ServerOnlyAccountAction,
+): Promise<AdminCommandResponse> {
+  return authFetch<AdminCommandResponse>(
+    `${dmaPath(dmaUserId)}/accounts/${enc(broker)}/${enc(accountNo)}/server-only`,
+    jsonInit("POST", { action }, { timeoutMs: RELAY_TIMEOUT_MS }),
   );
 }
 

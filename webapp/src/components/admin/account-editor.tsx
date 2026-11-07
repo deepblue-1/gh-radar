@@ -30,7 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { putDmaAccount, removeDmaAccount, setAccountOrderServer } from "@/lib/admin-api";
+import {
+  putDmaAccount,
+  removeDmaAccount,
+  serverOnlyAccount,
+  setAccountOrderServer,
+  type ServerOnlyAccountAction,
+} from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
 import { AccountPicker, BROKER_BADGE, masterKeyOf } from "./account-picker";
@@ -48,7 +54,10 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
  * 아래 설명 중 「계좌명 입력칸」 · 「제거」 · 「+ 계좌 추가」 는 이 결정 이전 문장이다 — 그 밖(서버 토글 · 주문 서버 · 결과 칩) 동작은 그대로다.
  *
  * 계좌 줄 = 증권사 · 계좌번호 · 계좌명 · 「제거」 + 지점 · 트레이더(교보는 「해당 없음」 — D-23 ③) + **그 증권사 서버만**
- * 체크 토글(목업 `.sv` — 체크 · 서버 키 · 상태 칩). 87 에만 있는 계좌는 흐린 「서버에만 있음」 줄로 보기만 한다(D-23 ⑤).
+ * 체크 토글(목업 `.sv` — 체크 · 서버 키 · 상태 칩). 87 에만 있는 계좌는 흐린 점선 「서버에만 있음」 카드다 — quick 261107-moq(목업 B ·
+ * D-01): 칩 아래 설명 한 줄(「<서버> 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요 …」) + 버튼 줄 [이 사용자에 연결] →
+ * 같은 자리 파랑 확인 상자 → `POST …/server-only { action: link }` 1건(op 없음) → 재조회 뒤 일반 계좌 카드. 자동 정리는 여전히
+ * 없다(D-23 ⑤ — Admin 이 확인한 계좌 하나씩).
  *
  * 저장은 전부 즉시 · 1요청(D-15): 토글 1회 = `PUT …/accounts { account, servers }`(계좌 단위로 서버 집합 전체) ·
  * 「제거」 = `DELETE …/accounts/:broker/:accountNo` · 「+ 계좌 추가」 = `PUT` 1건. 계좌마다 `useFieldSave` 를 둬
@@ -95,6 +104,18 @@ import { useFieldSave, type FieldSave } from "./use-field-save";
 export function josaEunNeun(serverKey: string): "은" | "는" {
   const last = serverKey.at(-1) ?? "";
   return "2459".includes(last) && last !== "" ? "는" : "은";
+}
+
+/**
+ * 낱말 뒤 조사 을/를(quick 261107-moq) — 끝 글자가 한글 음절이면 받침 유무(받침 있음 「을」 · 없음 「를」), 숫자면 `josaEunNeun` 과
+ * 같은 한자어 읽기(2 이 · 4 사 · 5 오 · 9 구 → 「를」, 그 밖 숫자 → 「을」), 그 밖(영문 · 빈 값)은 「을」.
+ */
+export function josaEulReul(word: string): "을" | "를" {
+  const last = word.at(-1) ?? "";
+  const code = last.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 === 0 ? "를" : "을";
+  if (last >= "0" && last <= "9") return "2459".includes(last) ? "를" : "을";
+  return "을";
 }
 
 export const ACCOUNT_EDITOR_TEXT = {
@@ -179,6 +200,19 @@ export const ACCOUNT_EDITOR_TEXT = {
   costUnsupported: "서버 미지원",
   costUnsupportedLine: (serverKey: string, message: string) =>
     `${serverKey} 실패: 서버 미지원${message ? ` · ${message}` : ""} — 서버 업데이트 뒤 다시 저장`,
+  // ── quick 261107-moq — 「서버에만 있음」 계좌 카드(목업 B 원문 · 굵은 조각은 JSX <b>) ──
+  /** 설명 줄 꼬리 — 앞에 굵은 서버 문구(「KYOBO112」 · 여러 대면 「 · 」 로 이음). */
+  serverOnlyWhy: " 서버 설정에만 있고 이 사용자에 연결돼 있지 않아요. 그래서 여기서 연결 해제해도 그 서버에는 닿지 않아요.",
+  serverOnlyLink: "이 사용자에 연결",
+  serverOnlyRemove: "서버에서 빼기",
+  /** 연결 확인 본문 — 「{이름}{을/를} **{dma}** 에 연결해요. {서버} 서버 설정은 그대로예요.」 */
+  serverOnlyLinkConfirm: (label: string, dma: string, servers: string): ReactNode => (
+    <>
+      {label}
+      {josaEulReul(label)} <b className="font-semibold">{dma}</b> 에 연결해요. {servers} 서버 설정은 그대로예요.
+    </>
+  ),
+  serverOnlyLinkNote: "연결하면 위 계좌들처럼 서버를 켜고 끄거나 연결 해제할 수 있어요.",
 } as const;
 
 /** shared 검증 오류 종류 → IP/MAC 칸 오류 줄 문구(규칙은 shared 한 벌 · 문구만 여기 · 계좌 수정 시트가 쓴다). */
@@ -1375,22 +1409,108 @@ function OrderServerControl({
   );
 }
 
-/** 87 에만 있는 계좌 — 흐린 줄 · 보기만(D-23 ⑤ — 지우지 않는다). */
-function ServerOnlyAccountRow({ account }: { account: AdminAccountView }) {
+/** 「서버에만 있음」 카드의 확인 상자 — 목업 `.confirm.blue`(파랑 테두리 · 옅은 바탕). */
+const SERVER_ONLY_CONFIRM = "mt-2 flex flex-col gap-2 rounded-[10px] border p-3";
+const SERVER_ONLY_CONFIRM_TONE = {
+  link: "border-[color-mix(in_srgb,var(--primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--primary)_5%,transparent)]",
+} as const;
+
+interface ServerOnlyAccountRowProps {
+  account: AdminAccountView;
+  dmaUserId: string;
+  onResults: (accountKey: string, results: readonly AdminServerResult[]) => void;
+  onChanged: () => void;
+}
+
+/**
+ * 87 에만 있는 계좌 — 흐린 점선 카드(D-23 ⑤ — 자동으로 지우거나 들이지 않는다). quick 261107-moq(목업 B · D-01): 흐림은 제목 · 칩
+ * 줄에만 · 칩 아래 설명 한 줄 · 버튼 줄 [이 사용자에 연결] → 같은 자리 확인 상자(취소 = 버튼 줄로). 「연결」 =
+ * `POST …/server-only { action: link }` 1건 → 결과 칩(onResults) · 재조회(onChanged) — 재조회 뒤 그 계좌는 일반 계좌 카드다.
+ * 실패는 상자를 연 채 그 아래 오류 줄(「저장하지 못했어요 · <서버 문구>」).
+ */
+function ServerOnlyAccountRow({ account, dmaUserId, onResults, onChanged }: ServerOnlyAccountRowProps) {
+  const T = ACCOUNT_EDITOR_TEXT;
+  const [mode, setMode] = useState<"idle" | "link">("idle");
+  const save = useFieldSave<ServerOnlyAccountAction>(
+    (action) => serverOnlyAccount(dmaUserId, account.broker, account.accountNo, action),
+    {
+      retainValue: false,
+      onSuccess: (_action, res) => {
+        if (res) onResults(accountKeyOf(account.broker, account.accountNo), res.results);
+        setMode("idle");
+        onChanged();
+      },
+    },
+  );
+  const saving = save.state === "saving";
+  const label = account.name || account.accountNo;
+  const servers = account.serverOnlyOn.join(" · ");
+
   return (
     <div
       data-slot="admin-account"
       data-account={account.accountNo}
       data-broker={account.broker}
       data-server-only="true"
-      className={cn(ACCOUNT_CARD, "border-dashed opacity-60")}
+      data-state={save.state}
+      className={cn(ACCOUNT_CARD, "border-dashed")}
     >
-      <AccountTitle account={account} />
-      <div className="mt-2 flex flex-wrap gap-1">
-        {account.serverOnlyOn.map((serverKey) => (
-          <ReflectChip key={serverKey} serverKey={serverKey} tone="only" />
-        ))}
+      <div className="opacity-60">
+        <AccountTitle account={account} />
+        <div className="mt-2 flex flex-wrap gap-1">
+          {account.serverOnlyOn.map((serverKey) => (
+            <ReflectChip key={serverKey} serverKey={serverKey} tone="only" />
+          ))}
+        </div>
       </div>
+      <p data-slot="admin-server-only-why" className="mt-2 text-[12.5px] leading-[1.55] break-keep text-[var(--muted-fg)]">
+        <b className="font-semibold text-[var(--fg-2)]">{servers}</b>
+        {T.serverOnlyWhy}
+      </p>
+      {mode === "idle" ? (
+        <div data-slot="admin-server-only-actions" className="mt-2 flex flex-wrap gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setMode("link")}
+            className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
+          >
+            {T.serverOnlyLink}
+          </Button>
+        </div>
+      ) : (
+        <div data-slot="admin-server-only-confirm" data-kind={mode} className={cn(SERVER_ONLY_CONFIRM, SERVER_ONLY_CONFIRM_TONE[mode])}>
+          <p className="text-[13px] leading-[1.55] break-keep text-[var(--fg)]">{T.serverOnlyLinkConfirm(label, dmaUserId, servers)}</p>
+          <p className="text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]">{T.serverOnlyLinkNote}</p>
+          <div className="flex justify-end gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={saving}
+              onClick={() => setMode("idle")}
+              className={cn(ADMIN_BUTTON_SECONDARY, ACCOUNT_BUTTON)}
+            >
+              {T.cancel}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving}
+              onClick={() => save.run("link")}
+              className={cn(ADMIN_BUTTON_PRIMARY, ACCOUNT_BUTTON)}
+            >
+              {T.submit}
+            </Button>
+          </div>
+        </div>
+      )}
+      {mode !== "idle" && save.error && (
+        <p role="alert" data-slot="admin-account-error" className={ERROR_LINE}>
+          {save.error}
+        </p>
+      )}
     </div>
   );
 }
@@ -1592,7 +1712,11 @@ export function AccountEditor({
     <div data-slot="admin-accounts">
       {accounts.map((a) => {
         const k = accountKeyOf(a.broker, a.accountNo);
-        if (a.servers.length === 0) return <ServerOnlyAccountRow key={k} account={a} />;
+        if (a.servers.length === 0) {
+          return (
+            <ServerOnlyAccountRow key={k} account={a} dmaUserId={dmaUserId} onResults={onResults} onChanged={onChanged} />
+          );
+        }
         const isActive = a.servers.some((s) => s.state === "active");
         return (
           <AccountRow

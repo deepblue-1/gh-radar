@@ -33,6 +33,7 @@ import {
   putDmaAccount,
   reconcileDmaUser,
   removeDmaAccount,
+  serverOnlyAccount,
   setAccountOrderServer,
   setOrderServer,
   setQuotePrimary,
@@ -199,5 +200,22 @@ describe('admin-api — 계좌 주문 서버 지정 (29-38 G-1 ⑦)', () => {
     await setAccountOrderServer('kimtr', 'KYOBO', '98765432', null);
     expect(call(0).path).toBe('/api/admin/dma-users/kimtr/accounts/KYOBO/98765432/order-server');
     expect(JSON.parse(call(0).init.body as string)).toEqual({ serverKey: null });
+  });
+});
+
+describe('admin-api — 「서버에만 있음」 계좌 (quick-261107-moq)', () => {
+  it('serverOnlyAccount — POST …/accounts/:broker/:accountNo/server-only { action } · 경로 인코딩 · 긴 타임아웃 · 응답 그대로', async () => {
+    const res = { results: [] };
+    apiFetchMock.mockResolvedValueOnce(res);
+    await expect(serverOnlyAccount('kim/tr', 'KYOBO', '555 0001', 'link')).resolves.toBe(res);
+    const { path, init } = call(0);
+    expect(path).toBe('/api/admin/dma-users/kim%2Ftr/accounts/KYOBO/555%200001/server-only');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body as string)).toEqual({ action: 'link' });
+    expect(init.timeoutMs).toBe(RELAY_TIMEOUT_MS);
+
+    await serverOnlyAccount('kimtr', 'KB', '5550001', 'remove');
+    expect(JSON.parse(call(1).init.body as string)).toEqual({ action: 'remove' });
   });
 });

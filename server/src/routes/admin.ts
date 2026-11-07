@@ -26,6 +26,7 @@ import {
   AdminPasswordSchema,
   AdminPutAccountSchema,
   AdminRolePatchBody,
+  AdminServerOnlyAccountSchema,
   AdminUserUpsertBody,
   adminEmailParam,
   dmaAccountParam,
@@ -64,6 +65,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  * - PUT    /dma-users/:dma/accounts                  : `{ account, servers }` → `{ results }`
  * - DELETE /dma-users/:dma/accounts/:broker/:accountNo : 계좌 제거 → `{ results }` (마지막 계좌면 relay 409 `LAST_ACCOUNT`)
  * - POST   /dma-users/:dma/reconcile                 : 「다시 반영」 → `{ results }`
+ * - POST   /dma-users/:dma/accounts/:broker/:accountNo/server-only : `{ action: "link" | "remove" }` → `{ results }` (quick 261107-moq —
+ *          87 에만 있는 그 계좌를 이 사용자 의도로 들이거나(link · op 없음) 그 서버에서 뺀다(remove · op 4/op 2). 409 `NOT_SERVER_ONLY`)
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/order-server : `{ serverKey | null }` → `{ ok, orderServer }` (29-37 G-1 ⑥ —
  *          계좌 주문 서버 지정. relay 가 RPC 저장 · 지정 적재기 즉시 재적재 · 29-36 재수립. Express 는 DB 에 직접 쓰지 않는다)
  * - PUT    /dma-users/:dma/accounts/:broker/:accountNo/budget : `{ budgetKrw }` → `{ results }` (Phase 36 op 6 · 계좌 예수금)
@@ -604,6 +607,28 @@ adminRouter.delete("/dma-users/:dma/accounts/:broker/:accountNo", async (req, re
     );
     audit(req, "dma-account-remove", maskDmaUserId(dma), {
       broker,
+      servers: results.map((x) => `${x.server}:${x.outcome}`),
+    });
+    res.json({ results });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /dma-users/:dma/accounts/:broker/:accountNo/server-only — 「서버에만 있음」 계좌 연결 · 서버에서 빼기 (quick 261107-moq) ---
+//   relay 계약 1:1 — action 판정 · 원천 확인은 relay · DB(409 NOT_SERVER_ONLY · NO_DMA_USER 그대로).
+adminRouter.post("/dma-users/:dma/accounts/:broker/:accountNo/server-only", async (req, res, next) => {
+  try {
+    const { dma, broker, accountNo } = parseOrThrow(dmaAccountParam, req.params);
+    const { action } = parseOrThrow(AdminServerOnlyAccountSchema, req.body ?? {});
+    const relay = requireRelayAdmin(req);
+    const results = relayResults(
+      await relay.serverOnlyAccount(dma, broker, accountNo, action, req.adminEmail!),
+      "dma-account-server-only",
+    );
+    audit(req, "dma-account-server-only", maskDmaUserId(dma), {
+      broker,
+      action,
       servers: results.map((x) => `${x.server}:${x.outcome}`),
     });
     res.json({ results });
