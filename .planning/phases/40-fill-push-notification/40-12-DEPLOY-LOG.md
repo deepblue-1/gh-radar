@@ -13,6 +13,8 @@ Task 1(배포 전 게이트)은 PREDEPLOY-OK · 커밋 `f6efe70e`. 이어서 메
 | 5 | `git push` (Phase 40 커밋 77개뿐) | 첫 Vercel 빌드 Error — `native-push.ts` prefer-const 린트 오류(병합 게이트가 typecheck 만 돌려 놓침) → `1b770497` 수정 · 로컬 `next build` 통과 · 재 push → Production Ready | 09:49 · 09:54 |
 | 6 | `GHTRADE_FORCE_PROFILE=1 native:release` | 첫 시도 iOS 즉시 실패(sigh `force` + `readonly` 충돌 · 업로드 전) → `9d16ebbd` Fastfile 수정 → 재시도 성공 | 09:57 · 10:00 |
 
+| 7 | **server(Cloud Run) 배포 — 플랜에서 빠져 있었음** | 사용자 확인 중 앱 카드가 「켜지 못했어요」 · 「기기 목록을 읽지 못했어요」 → 운영 server 가 `e6879a2d`(Phase 40 전)라 `/api/push-devices` 404. 조상 확인 뒤 `deploy-server.sh`(라이브 env: SUPABASE_URL · CORS_ALLOWED_ORIGINS · RELAY_INTERNAL_URL · TICKGW_URL) → revision `gh-radar-server-00083-chf` · APP_VERSION `825382f7` · 스모크 15/15 · 미인증 401 | 10:31 |
+
 ## 릴리스 결과
 
 | 플랫폼 | 빌드 | 검사 | 배포 |
@@ -24,6 +26,8 @@ Task 1(배포 전 게이트)은 PREDEPLOY-OK · 커밋 `f6efe70e`. 이어서 메
 
 - `1b770497` fix(40-10) — 푸시 등록 타이머 `const` (Vercel 린트 오류).
 - `9d16ebbd` fix(40-13) — Fastfile `get_provisioning_profile` 에서 `readonly: false` 제거. fastlane_core 는 두 옵션이 nil 이 아니면 값과 무관하게 충돌로 본다 → 이 수정 전에는 평소 릴리스도 실패했을 것.
+
+- 40-12 Task 2 순서(DB → 비밀/IAM → relay → git push → 앱)에 server 배포가 없었다. git push 는 webapp(Vercel)만 올린다 — 40-07 의 `/api/push-devices` 는 Cloud Run 배포가 따로 필요했다.
 
 ## UAT 전 알아 둘 것
 
