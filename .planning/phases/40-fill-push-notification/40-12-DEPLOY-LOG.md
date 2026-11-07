@@ -34,3 +34,8 @@ Task 1(배포 전 게이트)은 PREDEPLOY-OK · 커밋 `f6efe70e`. 이어서 메
 - Android 테스터는 App Tester 앱에서 새 빌드를 직접 설치해야 한다(앱 내 업데이트 SDK 는 넣지 않기로 함 — Play 정책).
 - iOS 는 TestFlight 자동 업데이트가 꺼져 있으면 수동 업데이트.
 - 비상 끄기: `PUSH_NOTIFY=off bash scripts/deploy-relay.sh`.
+
+## 부분 UAT (2026-11-07 토 · 장외)
+
+- iOS: 「이 기기 체결 알림」 켜기 성공(server 재배포 뒤). 수동 매수 → 장외 거부 → 거부 푸시 도착(사용자 확인). relay 로그 `[push] 송신` 10:38:04 · 10:38:19 KST.
+- 남은 확인(장중): 체결 3초 · 3조각 → 2건 · 탭 착지 · 포그라운드 배너와 토스트 숨김 · 끄기 → 0 · 계좌 범위 · PC 카드 · 로그아웃 정리 · Android 전 항목.
