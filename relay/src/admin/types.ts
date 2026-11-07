@@ -187,7 +187,7 @@ export type LaunchPlanSnapshot = {
   entries: LaunchPlanEntry[];
   /**
    * 94 말미 `tail_probes`(quick-261107-l7w · gh-trade-70 합의) — 프로파일별 뒤탐침 개수 · 간격(Q16 · N 두 행 고정 순서).
-   * **파서가 아직 채우지 않는다** — gh-trade .fbs sync 뒤 후속 quick 이 `parseLaunchPlanSnapshot` 에서 채운다 · 칸 없음 = undefined.
+   * `parseLaunchPlanSnapshot` 이 94 `tail_probes`(vtable 12 · gh-trade Phase 47)에서 채운다 · 칸 없음(구 서버) = undefined.
    * 소비는 `LaunchPlanService` 의 와이어 어댑터(`LaunchTailProbeWire.tailProbesOf`)를 거친다.
    */
   tailProbes?: LaunchTailProbeWireRow[];

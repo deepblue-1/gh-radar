@@ -167,6 +167,12 @@ export type AdminCommandRequest = {
   feePpm: number;
   /** op 7 매도세 ppm(슬롯 7 · 부재 = 0). */
   sellTaxPpm: number;
+  /** op 8/9/10 launch_profile(부재 = ""). */
+  launchProfile: string;
+  /** op 10 뒤탐침 발 수(vtable 26 · 부재 = 0 — gh-trade Phase 47). */
+  launchTailProbeCount: number;
+  /** op 10 뒤탐침 간격 µs(vtable 28 · 부재 = 0). */
+  launchTailProbeStepUs: number;
 };
 
 /** admin handler 결과 — 86 입력(생략 = 86 없음 · op 5) + 선택 87 입력. 둘 다 있으면 86 → 87 순서로 쓴다. */
@@ -993,6 +999,9 @@ export function readAdminCommandRequest(msgType: number, payload: Buffer): Admin
     budgetKrw: req.budgetKrw(),
     feePpm: req.feePpm(),
     sellTaxPpm: req.sellTaxPpm(),
+    launchProfile: req.launchProfile() ?? "",
+    launchTailProbeCount: req.launchTailProbeCount(),
+    launchTailProbeStepUs: req.launchTailProbeStepUs(),
     account:
       a === null
         ? null

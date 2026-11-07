@@ -536,6 +536,66 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     expect(snapshots).toHaveLength(1);
   });
 
+  it("P47-W1 op 10 → 44 에 launch_profile · count(26) · step_us(28) 가 실리고 86 으로 풀린다 · count 0 도 0 으로 읽힌다", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "N", launchTailProbeCount: 7, launchTailProbeStepUs: 15 });
+    await waitFor(() => commands().length === 1, "op 10 44");
+    const r = commands()[0]!;
+    expect(r.op).toBe(10);
+    expect(r.launchProfile).toBe("N");
+    expect(r.launchTailProbeCount).toBe(7);
+    expect(r.launchTailProbeStepUs).toBe(15);
+    gateway.respondAdminCommand(sock, { requestId: r.requestId, ok: true, code: 0, message: "저장 — 다음 발사부터 적용", usersRev: 3n });
+    const o = await p;
+    expect(o.kind).toBe("result");
+
+    const p0 = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "Q16", launchTailProbeCount: 0, launchTailProbeStepUs: 10 });
+    await waitFor(() => commands().length === 2, "op 10 count 0");
+    const r0 = commands()[1]!;
+    expect(r0.launchProfile).toBe("Q16");
+    expect(r0.launchTailProbeCount).toBe(0);
+    expect(r0.launchTailProbeStepUs).toBe(10);
+    gateway.respondAdminCommand(sock, { requestId: r0.requestId, ok: true, code: 0, message: "변경 없음", usersRev: 3n });
+    await p0;
+  });
+
+  it("P47-W2 94 tail_probes 두 행 → launchPlan.tailProbes · 칸 없는 94 는 tailProbes 키 없음(구 서버)", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 9 44");
+    const r = commands()[0]!;
+    gateway.sendFrame(
+      sock,
+      buildLaunchPlanSnapshotFrame({
+        requestId: r.requestId,
+        tailProbes: [
+          { profile: "Q16", count: 10, stepUs: 10 },
+          { profile: "N", count: 0, stepUs: 25 },
+        ],
+      }),
+    );
+    const o = await p;
+    if (o.kind !== "result") throw new Error("unreachable");
+    expect(o.launchPlan?.tailProbes).toEqual([
+      { profile: "Q16", count: 10, stepUs: 10 },
+      { profile: "N", count: 0, stepUs: 25 },
+    ]);
+
+    const pOld = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 2, "op 9 두 번째");
+    gateway.sendFrame(sock, buildLaunchPlanSnapshotFrame({ requestId: commands()[1]!.requestId }));
+    const oOld = await pOld;
+    if (oOld.kind !== "result") throw new Error("unreachable");
+    expect(oOld.launchPlan).toBeDefined();
+    expect(oOld.launchPlan && "tailProbes" in oOld.launchPlan).toBe(false);
+  });
+
   it("P35-S2 op 9 → 같은 request_id 86 code 1(구 서버) · 10 · 11 → 즉시 result(launchPlan 없음 · 타임아웃 아님)", async () => {
     // 기본 handler 는 op 6 이상을 code 1 「알 수 없는 명령입니다」 로 답한다 = 구 서버(op 8/9 모름) 흉내.
     const { c } = await readyConn();

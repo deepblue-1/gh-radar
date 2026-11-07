@@ -35,8 +35,8 @@
  * 범위 · 순서 · 조각 수는 보지 않는다 — gh-trade 가 code 1 + 고정 문구로 말한다(D-26 · D-34). relay 는 int32 구조만(admin-api zod).
  *
  * 뒤탐침(quick-261107-l7w) — 94 말미 `tail_probes` 를 ok 결과의 `tail_probes` 로 옮긴다. 와이어(.fbs) 를 직접 읽지 않고
- * **주입된 어댑터**(`LaunchTailProbeWire`)를 거친다 — 지금 운영 기본은 `LAUNCH_TAIL_PROBE_WIRE_PENDING`(아무것도 싣지 않음 =
- * 웹 「이 서버 버전은 뒤탐침 설정을 몰라요」). 어댑터 머리 주석의 후속 quick 체크리스트를 보라.
+ * **주입된 어댑터**(`LaunchTailProbeWire`)를 거친다 — 운영 = `relay/src/index.ts` `LAUNCH_TAIL_PROBE_WIRE`(gh-trade Phase 47 연결 ·
+ * op 10 인코드 · 94 tail_probes 디코드). `LAUNCH_TAIL_PROBE_WIRE_PENDING` 은 테스트 · 와이어 없는 대역용.
  */
 import {
   interpretAdminResult,

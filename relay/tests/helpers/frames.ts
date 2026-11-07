@@ -55,6 +55,7 @@ import { AdminUser } from "../../src/generated/stock-dma/admin-user.js";
 import { AdminUsersSnapshot } from "../../src/generated/stock-dma/admin-users-snapshot.js";
 import { LaunchPlanEntry } from "../../src/generated/stock-dma/launch-plan-entry.js";
 import { LaunchPlanSnapshot } from "../../src/generated/stock-dma/launch-plan-snapshot.js";
+import { LaunchTailProbe } from "../../src/generated/stock-dma/launch-tail-probe.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import type { JournalRecord, StrategyEventRecord } from "../../src/journal/types.js";
 
@@ -2148,6 +2149,8 @@ export type FakeLaunchPlanSnapshotInput = {
   planRev?: bigint;
   updatedAt?: string | null;
   entries?: readonly FakeLaunchPlanEntryInput[];
+  /** 94 tail_probes(vtable 12 · gh-trade Phase 47). 생략 = 칸 없음(구 서버). */
+  tailProbes?: readonly { profile: string; count: number; stepUs: number }[];
 };
 
 /** 서버 4행 고정 순서의 가짜 계획(실서버 설정값 아님 — 노트 예시 꼴의 µs). */
@@ -2169,6 +2172,13 @@ export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput 
     return LaunchPlanEntry.createLaunchPlanEntry(b, profile, market, offsets);
   });
   const entriesVec = LaunchPlanSnapshot.createEntriesVector(b, entryOffsets);
+  const tailVec =
+    input.tailProbes === undefined
+      ? null
+      : LaunchPlanSnapshot.createTailProbesVector(
+          b,
+          input.tailProbes.map((t) => LaunchTailProbe.createLaunchTailProbe(b, b.createString(t.profile), t.count, t.stepUs)),
+        );
   const updatedAtRaw = input.updatedAt === undefined ? "2026-10-27T22:41:00" : input.updatedAt;
   const updatedAt = updatedAtRaw === null ? null : b.createString(updatedAtRaw);
   LaunchPlanSnapshot.startLaunchPlanSnapshot(b);
@@ -2176,6 +2186,7 @@ export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput 
   LaunchPlanSnapshot.addPlanRev(b, input.planRev ?? 1n);
   if (updatedAt !== null) LaunchPlanSnapshot.addUpdatedAt(b, updatedAt);
   LaunchPlanSnapshot.addEntries(b, entriesVec);
+  if (tailVec !== null) LaunchPlanSnapshot.addTailProbes(b, tailVec);
   const snap = LaunchPlanSnapshot.endLaunchPlanSnapshot(b);
 
   Envelope.startEnvelope(b);

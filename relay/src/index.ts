@@ -121,7 +121,13 @@ import { AdminIntentStore } from "./admin/intent-store.js";
 import { AdminDispatcher } from "./admin/dispatcher.js";
 import { AdminSessionSync } from "./admin/session-sync.js";
 import { createAdminRouter } from "./admin/admin-api.js";
-import { LAUNCH_TAIL_PROBE_WIRE_PENDING, LaunchPlanService } from "./admin/launch-plan.js";
+import { LaunchPlanService, type LaunchTailProbeWire } from "./admin/launch-plan.js";
+
+/** 뒤탐침 와이어(gh-trade Phase 47 · 마커 eac98e43) — envelope 가 op 10 을 싣고 94 tail_probes 를 `snap.tailProbes` 로 푼다. */
+const LAUNCH_TAIL_PROBE_WIRE: LaunchTailProbeWire = Object.freeze({
+  canSet: true,
+  tailProbesOf: (s: Parameters<LaunchTailProbeWire["tailProbesOf"]>[0]) => s.tailProbes,
+});
 import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";
 import { QuoteFeed } from "./quote/feed.js";
@@ -597,9 +603,8 @@ const adminRouter = createAdminRouter({
   // Admin 서버 카드 칩(conn · journal · admin) 원천 — 서버별 파이프라인.
   pipelines,
   // Phase 35 범위 7(35-17) — 발사 계획 조회 · 저장(op 9 · op 8). 서버 키 단위(dispatcher 밖) · DB 무관(이력은 server).
-  // 뒤탐침 와이어 대기(quick-261107-l7w) — gh-trade .fbs 인계 뒤 후속 quick 이 이 한 줄을
-  //   `{ canSet: true, tailProbesOf: (s) => s.tailProbes }` 로 바꾼다(체크리스트 = admin/launch-plan.ts `LaunchTailProbeWire`).
-  launchPlan: new LaunchPlanService({ registry, pipelines, tailProbeWire: LAUNCH_TAIL_PROBE_WIRE_PENDING }),
+  // 뒤탐침 설정(quick-261107-l7w) — 와이어 연결(gh-trade Phase 47 · op 10 · 94 tail_probes) = `LAUNCH_TAIL_PROBE_WIRE`.
+  launchPlan: new LaunchPlanService({ registry, pipelines, tailProbeWire: LAUNCH_TAIL_PROBE_WIRE }),
   credKey: config.dmaCredKey,
   // 시세 주 서버 칩 — 지금 quote 연결 대상(29-23 전환 창 동안은 새 서버 · 실패하면 옛 서버).
   quoteStatus: { serverKey: () => quoteSwitch.currentServerKey, health: (nowMs) => quoteStatus.health(nowMs) },

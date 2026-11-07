@@ -103,6 +103,7 @@ import { AdminAccount as WireAdminAccount } from "../generated/stock-dma/admin-a
 import { AdminCommandReq } from "../generated/stock-dma/admin-command-req.js";
 import { AdminUser as WireAdminUser } from "../generated/stock-dma/admin-user.js";
 import { LaunchPlanEntry as WireLaunchPlanEntry } from "../generated/stock-dma/launch-plan-entry.js";
+import { LaunchTailProbe as WireLaunchTailProbe } from "../generated/stock-dma/launch-tail-probe.js";
 import { StrategyEvent as WireStrategyEvent } from "../generated/stock-dma/strategy-event.js";
 import type {
   JournalBatchFrame,
@@ -120,6 +121,7 @@ import type {
   AdminUsersSnapshot,
   LaunchPlanEntry,
   LaunchPlanSnapshot,
+  LaunchTailProbeWireRow,
 } from "../admin/types.js";
 import { ADMIN_OP } from "../admin/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
@@ -3601,6 +3603,17 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
       }
     }
   }
+  // op 10 SetLaunchTailProbe(gh-trade Phase 47 · quick-261107-l7w) — launch_profile + count(vtable 26) · step_us(28).
+  // 범위(0..10 · 1..100)는 서버가 판정한다(86 code 1 고정 문구) — relay 는 int32 구조만 본다.
+  const tailProbe =
+    input.op === ADMIN_OP.SetLaunchTailProbe
+      ? { count: input.launchTailProbeCount ?? 0, stepUs: input.launchTailProbeStepUs ?? 0 }
+      : null;
+  if (tailProbe !== null) {
+    for (const [label, v] of [["launch_tail_probe_count", tailProbe.count], ["launch_tail_probe_step_us", tailProbe.stepUs]] as const) {
+      if (!Number.isInteger(v) || v < -0x8000_0000 || v > 0x7fff_ffff) throw new RangeError(`admin ${label} 가 int32 범위가 아니다: ${String(v)}`);
+    }
+  }
   const b = new flatbuffers.Builder(256);
   const userId = b.createString(input.userId);
   const password = b.createString(input.op === ADMIN_OP.UpsertUser ? (input.password ?? "") : "");
@@ -3614,6 +3627,7 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
           offsets: AdminCommandReq.createLaunchOffsetsUsVector(b, [...launchOffsets]),
         }
       : null;
+  const tailProfile = tailProbe !== null ? b.createString(input.launchProfile ?? "") : null;
 
   AdminCommandReq.startAdminCommandReq(b);
   AdminCommandReq.addRequestId(b, requestId);
@@ -3630,6 +3644,12 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
     AdminCommandReq.addLaunchProfile(b, launch.profile);
     AdminCommandReq.addLaunchMarket(b, launch.market);
     AdminCommandReq.addLaunchOffsetsUs(b, launch.offsets);
+  }
+  if (tailProbe !== null && tailProfile !== null) {
+    AdminCommandReq.addLaunchProfile(b, tailProfile);
+    // count 0 은 기본값이라 바이트에서 빠질 수 있다 — 서버가 읽으면 0(gh-trade 인계 261107-launch-tail-probe-op10).
+    AdminCommandReq.addLaunchTailProbeCount(b, tailProbe.count);
+    AdminCommandReq.addLaunchTailProbeStepUs(b, tailProbe.stepUs);
   }
   const table = AdminCommandReq.endAdminCommandReq(b);
 
@@ -3746,7 +3766,26 @@ export function parseLaunchPlanSnapshot(env: Envelope): LaunchPlanSnapshot | nul
       for (let j = 0; j < m; j += 1) offsetsUs.push(e.offsetsUs(j) ?? 0);
       entries.push({ profile: e.profile() ?? "", market: e.market() ?? "", offsetsUs });
     }
-    return { requestId: r.requestId(), planRev: r.planRev(), updatedAt: r.updatedAt() ?? "", entries };
+    // 94 tail_probes(vtable 12 · gh-trade Phase 47) — Q16 · N 두 행. 길이 0 = 칸 없음(구 서버)과 못 가르므로 undefined
+    // (웹 「이 서버 버전은 뒤탐침 설정을 몰라요」). 행 수는 엔트리와 같은 상한으로 자른다.
+    const tn = takeCount(r.tailProbesLength(), MAX_LAUNCH_PLAN_ENTRIES, "발사 계획 스냅샷 뒤탐침");
+    let tailProbes: LaunchTailProbeWireRow[] | undefined;
+    if (tn > 0) {
+      const tScratch = new WireLaunchTailProbe();
+      tailProbes = [];
+      for (let i = 0; i < tn; i += 1) {
+        const t = r.tailProbes(i, tScratch);
+        if (t === null) return dropField("tail-probe-null", msgType, { index: i });
+        tailProbes.push({ profile: t.profile() ?? "", count: t.count(), stepUs: t.stepUs() });
+      }
+    }
+    return {
+      requestId: r.requestId(),
+      planRev: r.planRev(),
+      updatedAt: r.updatedAt() ?? "",
+      entries,
+      ...(tailProbes !== undefined ? { tailProbes } : {}),
+    };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
   }
