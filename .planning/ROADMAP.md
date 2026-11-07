@@ -573,7 +573,7 @@ Plans:
   5. 앱 안 Firebase 는 Android 만 — iOS 번들에 Firebase SDK 없음 · 위생 검사가 Android `google-services.json` 을 허용하되 비밀 목록(Firebase SA 키 등)은 종전대로 막는다. 양 플랫폼 `native:release` 통과.
 
 **미결 결정(discuss 에서)**: ① 거부·취소도 보낼지 — 권고: 거부는 보냄 · 취소는 안 보냄. ② 자동매도 「잔량 0」 정의 — 자동매도 주문들의 미체결 잔량 0(전량 체결 또는 취소 확인) vs 계좌 보유 0. ③ 첫/전량 판정 방식 — RPC 가 이전 상태 반환 vs relay 메모리 직전 상태. ④ 설정 단위 — 사용자 1개 토글(모든 기기) vs 기기별. ⑤ 소리·배지 — 기본 소리만 · 장중 묶음(iOS 알림 그룹 thread-id = 종목) 여부.
-**Plans:** 8/13 plans executed
+**Plans:** 11/13 plans executed
 
 Plans:
 **Wave 1**
@@ -587,11 +587,11 @@ Plans:
 - [x] 40-05-PLAN.md — DB 판정 RPC `dma_push_claim`(체인 · 단계 · 짝 대기 · 당일 · 자동매도 · 수신자 · 멱등) · 3조각 → 2건 · 재생 0 pgTAP (W2)
 - [x] 40-06-PLAN.md — relay `PushNotifier`(fanout 뒤 리스너 · 정착 400ms · 단일 비행 · 수신자 userIdsOf · 보유 조각 · 예외 격리) + `PUSH_NOTIFY` (W2)
 - [x] 40-07-PLAN.md — server `/api/push-devices` GET · PUT · PATCH(끄기만) · DELETE + 소유권 404 (W2)
-- [ ] 40-08-PLAN.md — Android Firebase: google-services.json 추적 · 위생 검사 (2)(3)(8) 반전 · (11) iOS Firebase 0 · 릴리스 가드 · 채널 fills · 소형 아이콘 (W2)
+- [x] 40-08-PLAN.md — Android Firebase: google-services.json 추적 · 위생 검사 (2)(3)(8) 반전 · (11) iOS Firebase 0 · 릴리스 가드 · 채널 fills · 소형 아이콘 (W2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 40-09-PLAN.md — relay 송신기 APNs(http2 · ES256 JWT) · FCM v1(메타데이터 토큰 · probe) + deploy-relay 비치명 비밀 · IAM · 비밀 주입 스크립트 (W3)
-- [ ] 40-10-PLAN.md — webapp 「알림 받는 기기」 카드 · 권한(켤 때만) · 토큰 등록 · PC 목록 끄기/지우기 · 로그아웃 정리 (W3)
+- [x] 40-09-PLAN.md — relay 송신기 APNs(http2 · ES256 JWT) · FCM v1(메타데이터 토큰 · probe) + deploy-relay 비치명 비밀 · IAM · 비밀 주입 스크립트 (W3)
+- [x] 40-10-PLAN.md — webapp 「알림 받는 기기」 카드 · 권한(켤 때만) · 토큰 등록 · PC 목록 끄기/지우기 · 로그아웃 정리 (W3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 40-11-PLAN.md — webapp 탭 착지(계좌 해석) · 작업대 주문 토스트 숨김(D-20) · 앱 시작 토큰 갱신 (W4)
