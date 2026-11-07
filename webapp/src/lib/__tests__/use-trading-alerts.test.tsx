@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 import type { RelayOrderMsg, RelayRateCrossItem, RelayViNoticeMsg } from "@gh-radar/shared";
 
 vi.mock("@/lib/alert-tone", () => ({ playBreakoutTone: vi.fn(() => true) }));
+vi.mock("@/lib/push/push-devices-api", () => ({ fetchPushDevices: vi.fn() }));
 
 import { playBreakoutTone } from "@/lib/alert-tone";
 import { ALERT_HOLD_MS, type OrderIndexEntry, type TradingAlert } from "../trading-alerts";
 import { useTradingAlerts } from "../use-trading-alerts";
+import { PUSH_DEVICE_KEY_STORAGE } from "@/lib/push/device-key";
+import { fetchPushDevices } from "@/lib/push/push-devices-api";
+import { orderToastSuppressed, useOrderToastSuppression } from "@/lib/push/toast-suppression";
+import { __resetPushDevicesForTest, updatePushDevicesLocal } from "@/lib/push/use-push-devices";
 
 /**
  * quick-260923-pgu Task 1 — `useTradingAlerts`: 새 프레임만 · 이력 재생 없음 · 색인 조인 보류 · 소리.
@@ -24,6 +29,7 @@ interface Input {
   viNotices: RelayViNoticeMsg[];
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   onNew?: (a: TradingAlert) => void;
+  suppressOrderToasts?: boolean;
 }
 
 function order(over: Partial<RelayOrderMsg> = {}): RelayOrderMsg {
@@ -227,5 +233,157 @@ describe("useTradingAlerts — 소리 · onNew · dismiss", () => {
     const id = hook.result.current.alerts[0].id;
     act(() => hook.result.current.dismiss(id));
     expect(hook.result.current.alerts).toEqual([]);
+  });
+});
+
+describe("useTradingAlerts — D-20 주문 토스트 숨김 (Phase 40)", () => {
+  it("숨김 중 주문 통보 · VI 는 alerts 0 · 톤 0 · onNew 는 그대로(카드 표시)", () => {
+    const onNew = vi.fn();
+    const v0 = viNotice({ orderSeq: 0 });
+    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: true, viNotices: [v0] }));
+    const f1 = order();
+    const v1 = viNotice();
+    hook.rerender(base({ orders: [f1], viNotices: [v1, v0], orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    expect(hook.result.current.alerts).toEqual([]);
+    expect(playBreakoutTone).not.toHaveBeenCalled();
+    expect(onNew.mock.calls.map((c) => (c[0] as TradingAlert).kind)).toEqual(["fill", "vi"]);
+  });
+
+  it("숨김 중 accept · modify · cancel · reject 도 alerts 0 · onNew 는 불린다", () => {
+    const onNew = vi.fn();
+    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    const frames = [order({ nt: "A" }), order({ nt: "M" }), order({ nt: "C" }), order({ nt: "R", rc: 1 })];
+    hook.rerender(base({ orders: [...frames].reverse(), orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    expect(hook.result.current.alerts).toEqual([]);
+    expect(onNew.mock.calls.map((c) => (c[0] as TradingAlert).kind)).toEqual(["accept", "modify", "cancel", "reject"]);
+  });
+
+  it("숨김 중에도 돌파(notifyBreakouts)는 alerts 에 들어간다", () => {
+    const onNew = vi.fn();
+    const hook = setup(base({ onNew, suppressOrderToasts: true }));
+    act(() => hook.result.current.notifyBreakouts([rc("KR7096530001")]));
+    expect(hook.result.current.alerts).toHaveLength(1);
+    expect(hook.result.current.alerts[0]).toMatchObject({ kind: "breakout" });
+    expect(onNew).toHaveBeenCalledTimes(1);
+  });
+
+  it("숨김 중 들어온 통보는 숨김이 풀려도 되살아나지 않는다 · 뒤 조각은 새 토스트(병합 아님)", () => {
+    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: true }));
+    const f1 = order({ q: 100 });
+    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: true }));
+    expect(hook.result.current.alerts).toEqual([]);
+
+    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: false }));
+    expect(hook.result.current.alerts).toEqual([]);
+
+    const f2 = order({ q: 100 });
+    hook.rerender(base({ orders: [f2, f1], orderIndex: INDEXED, suppressOrderToasts: false }));
+    expect(hook.result.current.alerts).toHaveLength(1);
+    expect(hook.result.current.alerts[0]).toMatchObject({ kind: "fill", count: 1, filledQty: 100 });
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+  });
+
+  it("false(기본)면 종전과 같다 — 통보 알림 1 · 톤 1", () => {
+    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: false }));
+    hook.rerender(base({ orders: [order()], orderIndex: INDEXED, suppressOrderToasts: false }));
+    expect(hook.result.current.alerts).toHaveLength(1);
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("orderToastSuppressed — 진리표 (D-20)", () => {
+  const ALL = { native: true, pluginAvailable: true, permission: "granted" as const, thisDeviceEnabled: true };
+
+  it("넷 다 참(permission granted)일 때만 true", () => {
+    expect(orderToastSuppressed(ALL)).toBe(true);
+  });
+
+  it.each([
+    ["브라우저", { native: false }],
+    ["옛 앱(플러그인 없음)", { pluginAvailable: false }],
+    ["이 기기 꺼짐", { thisDeviceEnabled: false }],
+    ["권한 denied", { permission: "denied" as const }],
+    ["권한 prompt", { permission: "prompt" as const }],
+    ["권한 unavailable", { permission: "unavailable" as const }],
+    ["권한 아직 모름", { permission: null }],
+  ])("%s → false", (_name, over) => {
+    expect(orderToastSuppressed({ ...ALL, ...over })).toBe(false);
+  });
+});
+
+describe("useOrderToastSuppression (D-20)", () => {
+  const KEY = "aaaaaaaa-1111-4222-8333-444455556666";
+  const ROW = {
+    deviceKey: KEY,
+    platform: "ios" as const,
+    label: "iPhone · iOS 18.1",
+    enabled: true,
+    lastSeenAt: "2026-11-06T00:00:00.000Z",
+    createdAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  function installApp(permission: string) {
+    const cap = {
+      isPluginAvailable: vi.fn(() => true),
+      nativePromise: vi.fn(async (_plugin: string, method: string) => {
+        if (method === "checkPermissions") return { receive: permission };
+        throw new Error(`unexpected ${method}`);
+      }),
+      addListener: vi.fn(() => ({ remove: vi.fn() })),
+    };
+    (window as unknown as { Capacitor?: unknown }).Capacitor = cap;
+    document.documentElement.classList.add("native-app");
+    document.documentElement.setAttribute("data-native-platform", "ios");
+    return cap;
+  }
+
+  beforeEach(() => {
+    vi.useRealTimers();
+    __resetPushDevicesForTest();
+    vi.mocked(fetchPushDevices).mockReset();
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
+  });
+
+  afterEach(() => {
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor;
+    document.documentElement.classList.remove("native-app");
+    document.documentElement.removeAttribute("data-native-platform");
+    window.localStorage.clear();
+    __resetPushDevicesForTest();
+  });
+
+  it("브라우저는 늘 false · 기기 목록을 읽지 않는다", async () => {
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await act(async () => {});
+    expect(result.current).toBe(false);
+    expect(fetchPushDevices).not.toHaveBeenCalled();
+  });
+
+  it("앱 · 플러그인 · 권한 granted · 이 기기 행 enabled → true · 카드에서 끄면(저장소 변경) false", async () => {
+    installApp("granted");
+    vi.mocked(fetchPushDevices).mockResolvedValue([ROW]);
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await waitFor(() => expect(result.current).toBe(true));
+
+    act(() => updatePushDevicesLocal((list) => list.map((d) => ({ ...d, enabled: false }))));
+    expect(result.current).toBe(false);
+  });
+
+  it("권한 denied 면 행이 켜져 있어도 false", async () => {
+    installApp("denied");
+    vi.mocked(fetchPushDevices).mockResolvedValue([ROW]);
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await waitFor(() => expect(fetchPushDevices).toHaveBeenCalled());
+    await act(async () => {});
+    expect(result.current).toBe(false);
+  });
+
+  it("다른 기기 행만 켜져 있으면 false", async () => {
+    installApp("granted");
+    vi.mocked(fetchPushDevices).mockResolvedValue([{ ...ROW, deviceKey: "bbbbbbbb-1111-4222-8333-444455556666" }]);
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await waitFor(() => expect(fetchPushDevices).toHaveBeenCalled());
+    await act(async () => {});
+    expect(result.current).toBe(false);
   });
 });
