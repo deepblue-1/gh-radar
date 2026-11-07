@@ -89,14 +89,45 @@ describe('LaunchClient — 쿼리 정본화', () => {
   });
 });
 
-describe('LaunchClient — 서버 칩', () => {
-  it('서버 칩은 제목 아래 · 탭 줄 위', () => {
+describe('LaunchClient — 상단 순서 · 이름', () => {
+  it('제목 「러쉬 주문」 · 설명 문단 없음', () => {
     nav.query = '';
     const { container } = render(<LaunchClient />);
+    expect(screen.getByRole('heading', { level: 1, name: '러쉬 주문' })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="page-header"] p')).toBeNull();
+  });
+
+  it('주문 내역 — 탭 줄 → 서버 칩(1개) → 탭 본문 순서', () => {
+    nav.query = '';
+    const { container } = render(<LaunchClient />);
+    const tablist = screen.getByRole('tablist');
     const chips = container.querySelector('[data-slot="launch-server-chips"]')!;
-    const tabs = container.querySelector('[data-slot="launch-tabs"]')!;
+    const orders = container.querySelector('[data-slot="orders"]')!;
     expect(chips).not.toBeNull();
-    expect(chips.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
+    expect(tablist.compareDocumentPosition(chips) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chips.compareDocumentPosition(orders) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('경계 지도 — 서버 칩 1개 · 탭 줄 다음 · 지도 본문 앞', () => {
+    nav.query = 'tab=map';
+    const { container } = render(<LaunchClient />);
+    const tablist = screen.getByRole('tablist');
+    const chips = container.querySelectorAll('[data-slot="launch-server-chips"]');
+    const map = container.querySelector('[data-slot="map"]')!;
+    expect(chips).toHaveLength(1);
+    expect(tablist.compareDocumentPosition(chips[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chips[0]!.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('문서 제목 — 「러쉬 주문 · Admin」 · ?d 있으면 날짜 붙음', () => {
+    nav.query = '';
+    const { unmount } = render(<LaunchClient />);
+    expect(document.title).toBe('러쉬 주문 · Admin');
+    unmount();
+    nav.query = 'd=20261026';
+    render(<LaunchClient />);
+    expect(document.title).toBe('러쉬 주문 · Admin · 10/26');
   });
 
   it('칩 「교보119」 클릭 → replace 가 다른 키를 보존한 gw=KYOBO119 주소', async () => {

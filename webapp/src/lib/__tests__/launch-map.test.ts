@@ -13,7 +13,6 @@ import {
   launchDateLabelOf,
   launchGateBandOf,
   launchMarkOf,
-  launchRangeOf,
   launchRangeParamOf,
   launchRibbonCellsOf,
   launchStackOf,
@@ -419,25 +418,6 @@ describe('launchTooltipOf', () => {
     expect(
       launchTooltipOf('20261026', { sent_rel_us: -20148, wire: 0, side: null, result: '101', retry: null }, 'q16', true),
     ).toBe('10/26 −20,148µs · wire 0 · 101 · 축 밖');
-  });
-});
-
-describe('launchRangeOf — 실제 범위 글(35-08 · D-15)', () => {
-  const ELEVEN = [
-    '20261026', '20261023', '20261022', '20261021', '20261020', '20261019',
-    '20261016', '20261015', '20261014', '20261013', '20261012',
-  ];
-  it('11일(내림차순) — 「10/12 ~ 10/26 · 11거래일」', () => {
-    expect(launchRangeOf(ELEVEN)).toBe('10/12 ~ 10/26 · 11거래일');
-  });
-  it('10일 — 「10/13 ~ 10/26 · 10거래일」', () => {
-    expect(launchRangeOf(ELEVEN.slice(0, 10))).toBe('10/13 ~ 10/26 · 10거래일');
-  });
-  it('1일 — 「10/26 · 1거래일」', () => {
-    expect(launchRangeOf(['20261026'])).toBe('10/26 · 1거래일');
-  });
-  it('빈 배열 — null', () => {
-    expect(launchRangeOf([])).toBeNull();
   });
 });
 

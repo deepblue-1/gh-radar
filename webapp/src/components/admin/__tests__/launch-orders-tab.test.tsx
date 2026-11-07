@@ -8,7 +8,7 @@ import { LaunchHeadCard, LaunchOrdersView, type LaunchOrdersViewProps } from '..
 /**
  * Phase 35 (35-06) — 주문 내역 탭 순수 렌더 `LaunchOrdersView` (D-12 · D-13 · D-02 · 채택 목업 변형 A).
  *
- * 잠그는 것: 16:00 카드 = 고른 서버 2장(LAUNCH_ORDER 순 · quick-261107-iep 서버별) · 서버 라벨 · 출처 칩 · 빈 카드 문구 · 학습 → 다음 오프셋 · 계좌 마스킹 없음 · 결과 알약 tone/토큰 ·
+ * 잠그는 것: 16:00 카드 = 고른 서버 2장(LAUNCH_ORDER 순 · quick-261107-iep 서버별) · 서버 라벨 · 빈 카드 문구 · 학습 → 다음 오프셋 · 계좌 마스킹 없음 · 결과 알약 tone/토큰 ·
  * 09:00:30 전환 시 「발사」 · 「재전송」 열 · 「A 09:00:27 KRX→」 · 「09:00:30.046」(8자리 패딩) · 「고정 −245µs」 · null 칸 「—」 ·
  * 빈 상태 3종(이력 0 · 행 없는 날 → 최신 보기 · 오류 → 다시 시도). 값은 e2e 픽스처와 같은 꼴(합성 계좌 · 가짜 값).
  */
@@ -215,15 +215,14 @@ describe('LaunchOrdersView — 09:00:30 개장차익', () => {
 });
 
 describe('LaunchOrdersView — 서버별(quick-261107-iep · 기존 기록 보존)', () => {
-  it('KB120 — 카드 · 묶음은 KB120 만 · 교보 조각은 없다 · 출처 칩 「KB120 저널 80 · 16:00:01 적재」', () => {
+  it('KB120 — 카드 · 묶음은 KB120 만 · 교보 조각은 없다', () => {
     const { container } = view();
     expect(container.querySelectorAll('[data-slot="launch-group"]')).toHaveLength(1);
     expect(groupOf(container, 'KB120', 'Q')).not.toBeNull();
     expect(container.querySelector('[data-gateway="KYOBO119"]')).toBeNull();
-    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KB120 저널 80 · 16:00:01 적재$/);
   });
 
-  it('KYOBO119 — 옛 교보 기록이 교보119 칩에서 그대로(카드 1조각 · 묶음) · 코스피 빈 카드 · 출처 칩', () => {
+  it('KYOBO119 — 옛 교보 기록이 교보119 칩에서 그대로(카드 1조각 · 묶음) · 코스피 빈 카드', () => {
     const { container } = view({ gw: 'KYOBO119' });
     const cards = cardsOf(container);
     expect(cards.map((c) => `${c.dataset.gateway}|${c.dataset.market}`)).toEqual(['KYOBO119|Q', 'KYOBO119|K']);
@@ -234,7 +233,6 @@ describe('LaunchOrdersView — 서버별(quick-261107-iep · 기존 기록 보�
     expect(groups.map((g) => `${g.dataset.gateway}|${g.dataset.market}`)).toEqual(['KYOBO119|Q']);
     expect(groups[0]).toHaveTextContent('교보119 코스닥1조각 · wire 순');
     expect(within(groups[0]!).getAllByRole('row').slice(1)[0]).toHaveTextContent('Q153740001 · j0');
-    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KYOBO119 저널 80 · 16:00:01 적재$/);
   });
 
   it('KYOBO112 — 빈 카드 2장 · 묶음 0 · 「이 날은 발사가 없어요」 아님(그 날 다른 서버 발사가 있다)', () => {
@@ -248,9 +246,11 @@ describe('LaunchOrdersView — 서버별(quick-261107-iep · 기존 기록 보�
     expect(screen.queryByText('이 날은 발사가 없어요')).toBeNull();
   });
 
-  it('09:00:30 출처 칩 = 「<서버키> 저널 80 · 09:00:31 적재」', () => {
+  it('출처 배지 없음 · 컨트롤 줄 = 날짜 알약 → 발사 세그먼트 두 칸', () => {
     const { container } = view({ fire: 'n0930', gw: 'KYOBO112' });
-    expect(container.querySelector('[data-slot="launch-source"]')).toHaveTextContent(/^KYOBO112 저널 80 · 09:00:31 적재$/);
+    expect(container.querySelector('[data-slot="launch-source"]')).toBeNull();
+    const controls = container.querySelector<HTMLElement>('[data-slot="launch-controls"]')!;
+    expect(Array.from(controls.children).map((c) => c.getAttribute('data-slot'))).toEqual(['limitup-date-nav', 'launch-fire-seg']);
   });
 
   it('날짜 내비는 서버와 무관하게 응답 날짜 목록 그대로', () => {
@@ -280,6 +280,14 @@ describe('LaunchOrdersView — 빈 상태 · 오류', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('발사 기록을 불러오지 못했어요');
     fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
     expect(props.onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('세그먼트 글자는 짧게 「16:00」 · 「09:00:30」 · title · aria-label 은 전체 이름', () => {
+    const { container } = view();
+    const btns = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="launch-fire-seg"] button'));
+    expect(btns.map((b) => b.textContent)).toEqual(['16:00', '09:00:30']);
+    expect(btns.map((b) => b.getAttribute('title'))).toEqual(['16:00 예약', '09:00:30 개장차익']);
+    expect(btns.map((b) => b.getAttribute('aria-label'))).toEqual(['16:00 예약', '09:00:30 개장차익']);
   });
 
   it('세그먼트 → onFire', () => {

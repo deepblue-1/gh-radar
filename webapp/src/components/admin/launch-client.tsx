@@ -27,13 +27,13 @@ import { LaunchServerChips } from './launch-server-chips';
  *   경계 지도는 발사 기준별 응답이라 전환마다 1건 받는다.
  * - `range` — 경계 지도 프리셋 10d(기본) · 20d · all. 잘못된 값은 `router.replace` 로 지운다. 칩 전환 = `router.replace`.
  * - `gw` — 발사 서버 키(shared `LAUNCH_SERVERS` — KB120(기본) · KYOBO119 · KYOBO112 · quick-261107-iep). 두 탭 공용이고
- *   제목 아래 · 탭 위 서버 칩(`LaunchServerChips`)이 고른다(칩 전환 = `router.replace`). 클라이언트 필터라 서버를 바꿔도
+ *   탭 줄 아래 · 컨트롤 줄 위(Tabs 안 · 탭 패널 밖 한 벌 · quick-261107-jhk H1) 서버 칩(`LaunchServerChips`)이 고른다(칩 전환 = `router.replace`). 클라이언트 필터라 서버를 바꿔도
  *   주문 내역 · 지도 · 계획을 다시 받지 않는다. 잘못된 값(KB121 · 소문자 · 빈 값)은 `router.replace` 로 지운다.
  * 갱신은 언제나 다른 키를 보존한 URLSearchParams 로 한다.
  */
 
 const BASE = '/admin/launch';
-const TITLE = '발사 · Admin';
+const TITLE = '러쉬 주문 · Admin';
 /** 지금 그리는 탭. */
 const AVAILABLE_TABS: readonly LaunchTab[] = ['orders', 'map'];
 
@@ -103,10 +103,11 @@ export function LaunchClient() {
 
   return (
     <div data-slot="admin-launch" className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-4">
-      <PageHeader title="발사" description="gh-trade 서버 발사 결과 · 머리 + 조각" />
-      <LaunchServerChips gw={gw} onGw={onGw} />
-      <Tabs data-slot="launch-tabs" value={tab} onValueChange={onTab} className="min-w-0 gap-3.5">
-        <TabsList variant="line" className="h-auto gap-4 border-b border-[var(--border-subtle)] p-0">
+      <PageHeader title="러쉬 주문" />
+      {/* quick-261107-jhk H1 — 탭 줄 → 서버 칩(두 탭 공용 · 탭 패널 밖 한 벌) → 컨트롤 줄(각 탭 본문 첫 줄).
+          간격: 탭 줄-칩 14px(gap 10 + mb-1) > 칩-컨트롤 줄 10px(gap) — 칩과 컨트롤이 한 필터 묶음으로 읽힌다. */}
+      <Tabs data-slot="launch-tabs" value={tab} onValueChange={onTab} className="min-w-0 gap-2.5">
+        <TabsList variant="line" className="mb-1 h-auto gap-4 border-b border-[var(--border-subtle)] p-0">
           <TabsTrigger value="orders" className="flex-none px-0.5 pb-2.5 text-[15px] font-semibold">
             주문 내역
           </TabsTrigger>
@@ -114,6 +115,7 @@ export function LaunchClient() {
             경계 지도
           </TabsTrigger>
         </TabsList>
+        <LaunchServerChips gw={gw} onGw={onGw} />
         <TabsContent value="orders" className="min-w-0">
           <LaunchOrdersTab gw={gw} d={d} fire={fire} onGoDate={onGoDate} onFire={onFire} onLatest={onLatest} />
         </TabsContent>

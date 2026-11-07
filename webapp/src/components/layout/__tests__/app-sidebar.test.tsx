@@ -1508,7 +1508,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사용자 · 서버 · 발사」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04)", () => {
+describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사용자 · 서버 · 러쉬 주문」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1517,11 +1517,11 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
   const admin = () => screen.queryByRole("link", { name: "Admin" });
   const users = () => screen.queryByRole("link", { name: "사용자" });
   const servers = () => screen.queryByRole("link", { name: "서버" });
-  const launch = () => screen.queryByRole("link", { name: "발사" });
+  const launch = () => screen.queryByRole("link", { name: "러쉬 주문" });
   const pnl = () => screen.queryByRole("link", { name: "매매손익" });
   const accounts = () => document.querySelector<HTMLAnchorElement>('a[data-sidebar-item="admin-accounts"]');
 
-  it("role admin → My page 뒤 「Admin」(/admin/pnl = 첫 항목) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「발사」 — 목록 맨 끝", () => {
+  it("role admin → My page 뒤 「Admin」(/admin/pnl = 첫 항목) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「러쉬 주문」 — 목록 맨 끝", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
@@ -1556,7 +1556,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
       "계좌",
       "사용자",
       "서버",
-      "발사",
+      "러쉬 주문",
     ]);
     // 하위는 제목 바로 다음 형제 li 안 SUB_LIST(「분석」 과 같은 문법) · 레일에서 숨김
     const sub = admin()!.closest("li")!.nextElementSibling!;
@@ -1614,7 +1614,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
 
-  it("/admin/launch → 「발사」 만 활성 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
+  it("/admin/launch → 「러쉬 주문」 만 활성 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
     mockRole = "admin";
     mockPathname = "/admin/launch";
     setupReady();
@@ -1627,7 +1627,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
 
-  it("/admin/pnl → 「매매손익」 만 활성 · 「발사」 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
+  it("/admin/pnl → 「매매손익」 만 활성 · 「러쉬 주문」 · 「서버」 · 「사용자」 · 「Admin」 제목은 꺼짐", () => {
     mockRole = "admin";
     mockPathname = "/admin/pnl";
     setupReady();

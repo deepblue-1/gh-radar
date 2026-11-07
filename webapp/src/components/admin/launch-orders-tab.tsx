@@ -40,7 +40,7 @@ import { LimitupDateNav } from '../analytics/limitup-date-nav';
  *
  * - `LaunchOrdersTab` = 받기 · 상태(accum-report 의 alive effect 꼴). `d` 가 바뀔 때만 다시 받는다 — 세그먼트(16:00 / 09:00:30)
  *   전환은 같은 응답을 다시 거른다(한 응답에 그날 발사가 다 있다).
- * - `LaunchOrdersView` = 순수 렌더. 컨트롤 줄(날짜 알약 · 세그먼트 · 출처 칩) → 머리 카드 = 고른 서버(`gw`)의 2장
+ * - `LaunchOrdersView` = 순수 렌더. 컨트롤 줄(날짜 알약 → 바로 오른쪽 발사 세그먼트) → 머리 카드 = 고른 서버(`gw`)의 2장
  *   (코스닥 → 코스피 · 발사 없는 시장은 빈 카드) → 그 서버의 발사 있는 시장만 조각 표.
  * - 서버(`gw` · quick-261107-iep)는 클라이언트 필터다 — 받기 effect deps 에 넣지 않는다(서버 전환 = 같은 응답 다시 거르기).
  *   날짜 목록 · 「적재 이력 없음」 · 「이 날은 발사가 없어요」 는 응답 전체 기준 그대로(기존 기록 보존 — 날짜를 서버별로
@@ -107,7 +107,7 @@ export function LaunchOrdersTab({ gw, d, fire, onGoDate, onFire, onLatest }: Lau
 
 export interface LaunchOrdersViewProps {
   resp: LaunchOrdersResponse | null;
-  /** 고른 발사 서버 — 카드 2장 · 조각 묶음 · 출처 칩이 이 서버만. */
+  /** 고른 발사 서버 — 카드 2장 · 조각 묶음이 이 서버만. */
   gw: LaunchServer;
   fire: LaunchFire;
   d: LimitupDate | null;
@@ -121,9 +121,10 @@ export interface LaunchOrdersViewProps {
   onRetry?: () => void;
 }
 
-const FIRE_SEGMENTS: readonly { value: LaunchFire; label: string; loaded: string }[] = [
-  { value: 'q16', label: '16:00 예약', loaded: '16:00:01' },
-  { value: 'n0930', label: '09:00:30 개장차익', loaded: '09:00:31' },
+/** 발사 기준 세그먼트 — 보이는 글자는 짧게(`label`), 전체 이름은 `title` · `aria-label`(`full` · quick-261107-jhk). */
+const FIRE_SEGMENTS: readonly { value: LaunchFire; label: string; full: string }[] = [
+  { value: 'q16', label: '16:00', full: '16:00 예약' },
+  { value: 'n0930', label: '09:00:30', full: '09:00:30 개장차익' },
 ];
 
 export function LaunchOrdersView({
@@ -141,7 +142,6 @@ export function LaunchOrdersView({
   const shown: LimitupDate | null = d ?? resp?.date ?? null;
   const navDates = resp?.dates ?? dates ?? [];
   const nav = dateNavOf(navDates, shown);
-  const seg = FIRE_SEGMENTS.find((s) => s.value === fire) ?? FIRE_SEGMENTS[0]!;
 
   const pieces = useMemo(
     () => (resp === null ? [] : orderTabPiecesOf(resp.pieces, fire).filter((p) => p.gateway === gw)),
@@ -168,12 +168,6 @@ export function LaunchOrdersView({
       <div data-slot="launch-controls" className="flex min-w-0 flex-wrap items-center gap-2.5">
         <LimitupDateNav date={shown} prev={nav.prev} next={nav.next} onGo={onGoDate} dates={navDates} />
         <LaunchFireSeg fire={fire} onFire={onFire} />
-        <span
-          data-slot="launch-source"
-          className="ml-auto inline-flex items-center rounded-[6px] bg-[var(--muted)] px-2 py-0.5 text-[11.5px] whitespace-nowrap text-[var(--muted-fg)]"
-        >
-          {gw} 저널 80 · {seg.loaded} 적재
-        </span>
       </div>
 
       {status === 'loading' && <CardsSkeleton />}
@@ -260,6 +254,8 @@ export function LaunchFireSeg({ fire, onFire }: { fire: LaunchFire; onFire: (f: 
             type="button"
             aria-pressed={on}
             data-fire={s.value}
+            title={s.full}
+            aria-label={s.full}
             onClick={() => !on && onFire(s.value)}
             className={cn(
               'min-h-8 rounded-[8px] px-3 text-[13px] font-semibold whitespace-nowrap',

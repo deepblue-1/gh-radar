@@ -26,7 +26,7 @@ vi.mock('@/lib/launch-api', () => ({ fetchLaunchMap: vi.fn(), fetchLaunchPlan: v
  * Phase 35 (35-08) — 경계 지도 탭 순수 렌더 `LaunchMapView` (D-15 ~ D-18 · 채택 목업 프리셋 칩 · 09:00:30 합패널).
  *
  * 입력 = shared 픽스처(gh-trade 첨부 pieces.json 사본)를 지도 조각으로 옮긴 「전체」 응답 + 첨부 NEXT 머리(합성).
- * 잠그는 것: 칩 3개 · 선택 칩 · 범위 글 · 요약 카드 · 패널 = 고른 서버 2개(quick-261107-iep 서버별 · 서버 라벨) · 범례(16:00 / 09:00:30 · 구분 없음(백필)) ·
+ * 잠그는 것: 칩 3개 · 선택 칩 · 범위 글 없음(quick-261107-jhk) · 요약 카드 · 패널 = 고른 서버 2개(quick-261107-iep 서버별 · 서버 라벨) · 범례(16:00 / 09:00:30 · 구분 없음(백필)) ·
  * 마름모 1 · 빈 상태 · 빈 패널 · 다음 오프셋 없음 「—」 · 오류 · 칩/세그먼트 콜백.
  */
 
@@ -165,12 +165,14 @@ const slots = (c: HTMLElement, slot: string) => Array.from(c.querySelectorAll<HT
 const one = (c: HTMLElement, sel: string) => c.querySelector<HTMLElement>(sel)!;
 
 describe('LaunchMapView — 16:00 「전체」', () => {
-  it('칩 3개 · 「전체」 선택 · 범위 글 「10/12 ~ 10/26 · 11거래일」', () => {
+  it('칩 3개 · 「전체」 선택 · 범위 글 없음 · 컨트롤 줄 = 범위 칩 → 발사 세그먼트', () => {
     const { container } = view();
     const chips = within(one(container, '[data-slot="launch-range"]')).getAllByRole('button');
     expect(chips.map((b) => b.textContent)).toEqual(['최근 10일', '20일', '전체']);
     expect(chips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
-    expect(one(container, '[data-slot="launch-range-text"]').textContent).toBe('10/12 ~ 10/26 · 11거래일');
+    expect(container.querySelector('[data-slot="launch-range-text"]')).toBeNull();
+    const controls = one(container, '[data-slot="launch-controls"]');
+    expect(Array.from(controls.children).map((c) => c.getAttribute('data-slot'))).toEqual(['launch-range', 'launch-fire-seg']);
   });
 
   it('시작 · 끝 날짜 입력이 없다(프리셋 칩만)', () => {
@@ -258,7 +260,7 @@ describe('LaunchMapView — 서버별(quick-261107-iep · 기존 기록 보존)'
     expect(within(panelOf(container, 'KYOBO119', 'K')).getByRole('heading', { name: '교보119 코스피' })).toBeInTheDocument();
   });
 
-  it('KYOBO112 → 패널 2개 「이 범위에 발사 없음」 · 요약 「교보112 코스닥 · 0일」 · 범위 글은 응답 전체 그대로', () => {
+  it('KYOBO112 → 패널 2개 「이 범위에 발사 없음」 · 요약 「교보112 코스닥 · 0일」', () => {
     const { container } = view({ gw: 'KYOBO112' });
     const ps = slots(container, 'launch-panel');
     expect(ps.map((p) => `${p.dataset.gateway}|${p.dataset.market}`)).toEqual(['KYOBO112|Q', 'KYOBO112|K']);
@@ -268,7 +270,6 @@ describe('LaunchMapView — 서버별(quick-261107-iep · 기존 기록 보존)'
     }
     expect(slots(container, 'launch-kpi').map((k) => k.dataset.gateway)).toEqual(['KYOBO112', 'KYOBO112']);
     expect(slots(container, 'launch-kpi')[0]!.textContent).toContain('교보112 코스닥 · 0일');
-    expect(one(container, '[data-slot="launch-range-text"]').textContent).toBe('10/12 ~ 10/26 · 11거래일');
   });
 
   it('범례 「구분 없음(백필)」 은 고른 서버 조각만 본다', () => {
@@ -297,7 +298,6 @@ describe('LaunchMapView — 09:00:30 합패널', () => {
     expect(legend.textContent).toContain('101·515 거부');
     expect(legend.textContent).not.toContain('구분 없음(백필)');
     expect(container.querySelectorAll('[data-slot="launch-chart"] path[data-shape="diamond"]')).toHaveLength(1);
-    expect(one(container, '[data-slot="launch-range-text"]').textContent).toBe('10/26 · 1거래일');
     expect(one(container, '[data-slot="launch-foot"]').textContent).toBe(
       'N 오프셋은 고정값 — 선은 최신 N 머리 값 · 재전송은 첫 발만 점 · 횟수는 툴팁',
     );
@@ -334,7 +334,6 @@ describe('LaunchMapView — 빈 상태 · 오류', () => {
     expect(one(container, '[data-slot="launch-empty"]').textContent).toBe('아직 적재된 발사가 없어요 · 첫 적재는 16:00:01');
     expect(slots(container, 'launch-kpi')).toHaveLength(0);
     expect(slots(container, 'launch-panel')).toHaveLength(0);
-    expect(one(container, '[data-slot="launch-range-text"]').textContent).toBe('');
   });
 
   it('오류 → 「발사 기록을 불러오지 못했어요」 + 「다시 시도」', () => {

@@ -39,7 +39,7 @@ import { UserSection } from "./user-section";
  *     「AI 애널리스트」 는 2026-10-05 사용자 결정(quick-261005-vk1 D-01)으로 분석 하위로 옮겨 트레이딩 권한자 전용 ·
  *     실제 차단은 server — 상한가 보고서 = 라우트 + RPC, AI 애널리스트 = `requireDmaMapped`(quick-261009-c43))
  *   · My page(트레이딩과 같은 노출 조건 · quick 261106-lwu D-02 로 Admin 위로)
- *   · [Admin = `/admin/pnl` 링크(첫 항목)] 매매손익 · 계좌 · 사용자 · 서버 · 발사 (Phase 29 D-13 · Phase 35 D-11 · quick 261106-lwu
+ *   · [Admin = `/admin/pnl` 링크(첫 항목)] 매매손익 · 계좌 · 사용자 · 서버 · 러쉬 주문 (Phase 29 D-13 · Phase 35 D-11 · quick 261106-lwu
  *     D-01 · quick 261106-ntl N-04 순서 · admin 역할만 · 앱 · 좁은 화면은 드로어로)
  *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
@@ -190,7 +190,7 @@ const NAV_TICKS = { href: "/analytics/ticks", label: "틱뷰어" } as const;
 
 /**
  * 「Admin」 그룹 제목 = 첫 하위 항목 `/admin/pnl` 링크(Phase 29 D-13 · quick 261106-ntl N-04). 하위 순서(quick 261106-ntl N-04) =
- * 매매손익(Phase 36 D-17) · 계좌(quick 261106-lwu D-01) · 사용자 · 서버 · 발사(Phase 35 D-11). 위치는 My page 뒤 = 목록 맨 끝(quick 261106-lwu D-02 — 종전 「분석 뒤 · My page 앞」 을 뒤집었다). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
+ * 매매손익(Phase 36 D-17) · 계좌(quick 261106-lwu D-01) · 사용자 · 서버 · 러쉬 주문(Phase 35 D-11). 위치는 My page 뒤 = 목록 맨 끝(quick 261106-lwu D-02 — 종전 「분석 뒤 · My page 앞」 을 뒤집었다). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
  * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만)와 Express `requireAdmin` 이다.
  * 활성은 「분석」 규율 그대로 하위 항목이 켠다(펼침에서 제목은 켜지 않음) · 레일은 `/admin` 접두 일치로 제목 아이콘.
  * 앱 · 좁은 화면은 드로어 사이드바로 들어간다.
@@ -202,8 +202,8 @@ const NAV_ADMIN_PNL = { href: "/admin/pnl", label: "매매손익" } as const;
 const NAV_ADMIN_ACCOUNTS = { href: "/admin/accounts", label: "계좌" } as const;
 const NAV_ADMIN_USERS = { href: "/admin/users", label: "사용자" } as const;
 const NAV_ADMIN_SERVERS = { href: "/admin/servers", label: "서버" } as const;
-// Phase 35 D-11 — 발사 경계 지도 · 주문 내역(어드민 전용 · 서버 다음 = 맨 뒤).
-const NAV_ADMIN_LAUNCH = { href: "/admin/launch", label: "발사" } as const;
+// Phase 35 D-11 — 러쉬 주문(발사 경계 지도 · 주문 내역 · quick-261107-jhk 개명)(어드민 전용 · 서버 다음 = 맨 뒤).
+const NAV_ADMIN_LAUNCH = { href: "/admin/launch", label: "러쉬 주문" } as const;
 const ADMIN_PREFIX = "/admin";
 
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
@@ -762,7 +762,7 @@ export function AppSidebar() {
             />
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
-                {/* quick 261106-ntl N-04 — 매매손익 · 계좌 · 사용자 · 서버 · 발사. */}
+                {/* quick 261106-ntl N-04 — 매매손익 · 계좌 · 사용자 · 서버 · 러쉬 주문. */}
                 <li>
                   <SubNavLink
                     href={NAV_ADMIN_PNL.href}

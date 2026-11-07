@@ -25,7 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan } from '@/lib/launch-api';
 import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
-import { LAUNCH_CHART, launchRangeOf, trianglePathOf } from '@/lib/launch-map';
+import { LAUNCH_CHART, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
   maxChangeIdOf,
@@ -57,13 +57,13 @@ import { LaunchPlanEditor, type LaunchPlanSaveState } from './launch-plan-editor
  *
  * - `LaunchMapTab` = 받기 · 상태(주문 내역 탭과 같은 alive effect 꼴). `fire` 또는 `range` 가 바뀔 때만 요청 1건 —
  *   칩 하나 · 세그먼트 하나 = 요청 1건(server 가 발사 기준 × 범위를 RPC 1회로 거른다).
- * - `LaunchMapView` = 순수 렌더. 컨트롤 줄(프리셋 칩 · 실제 범위 글 · 발사 기준 세그먼트) → 범례 → 요약 카드 2장 →
+ * - `LaunchMapView` = 순수 렌더. 컨트롤 줄(프리셋 칩 → 바로 오른쪽 발사 기준 세그먼트) → 범례 → 요약 카드 2장 →
  *   고른 서버(`gw`)의 시장 2패널(코스닥 → 코스피 · LAUNCH_ORDER 순 `LaunchGateChart`) → 푸터 한 줄.
- * - 서버(`gw` · quick-261107-iep)는 제목 아래 서버 칩이 고르고 **클라이언트 필터**다 — 지도 · 계획 effect deps 에 넣지 않는다
- *   (서버 전환에 지도 · 계획 재요청 없음). 범위 글 · 「적재 이력 없음」 은 응답 전체 기준 그대로(기존 기록 보존 — 범위를 서버별로
+ * - 서버(`gw` · quick-261107-iep)는 탭 줄 아래 서버 칩이 고르고 **클라이언트 필터**다 — 지도 · 계획 effect deps 에 넣지 않는다
+ *   (서버 전환에 지도 · 계획 재요청 없음). 「적재 이력 없음」 은 응답 전체 기준 그대로(기존 기록 보존 — 범위를 서버별로
  *   좁히지 않는다). 범례 표식(방향 없음 · 뒤탐침)은 고른 서버 조각만 보고 정한다(안 그린 표식을 범례가 말하지 않게).
  *   서버를 바꾸면 열린 편집 칸이 닫힌다(발사 세그먼트 규칙과 같게 — 돌아와도 다시 열리지 않는다).
- * - 범위는 프리셋 칩만이다(시작 · 끝 날짜 입력 없음 — D-15 · CONTEXT Deferred). 범위 글은 응답 days 기준(실제 덮은 날).
+ * - 범위는 프리셋 칩만이다(시작 · 끝 날짜 입력 없음 — D-15 · CONTEXT Deferred). 실제 범위 글은 두지 않는다(quick-261107-jhk).
  * - 다음 발사 계획(범위 7 · D-24 · D-25): 탭 진입 때 `GET /api/admin/launch/plan` 을 지도 요청과 병렬로 **한 번** 부른다
  *   (발사 세그먼트 · 범위 칩을 바꿔도 다시 부르지 않는다). 서버 계획이 ok 면 조각마다 점선 + 패널 「다음 발사 계획」 줄,
  *   서버 실패 · 조회 실패면 최신 머리 값(`mapNextOffsetOf`) 하나로 대신 그린다. 404(배포 전 · D-35)면 계획 기능을 숨기고
@@ -400,7 +400,6 @@ export function LaunchMapView({
   lastSave = null,
 }: LaunchMapViewProps) {
   const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, gw, fire, plan)), [resp, gw, fire, plan]);
-  const rangeText = resp === null ? null : launchRangeOf(resp.days);
   const ready = status === 'ready' && resp !== null;
   const noHistory = ready && resp.days.length === 0;
   const mine = ready ? resp.pieces.filter((p) => p.gateway === gw) : [];
@@ -430,12 +429,7 @@ export function LaunchMapView({
             );
           })}
         </div>
-        <span data-slot="launch-range-text" className="text-[12.5px] whitespace-nowrap text-[var(--muted-fg)] tabular-nums">
-          {rangeText ?? ''}
-        </span>
-        <div className="ml-auto">
-          <LaunchFireSeg fire={fire} onFire={onFire} />
-        </div>
+        <LaunchFireSeg fire={fire} onFire={onFire} />
       </div>
 
       {status === 'loading' && <MapSkeleton />}
