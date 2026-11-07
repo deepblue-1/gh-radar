@@ -6,10 +6,10 @@ current_phase: 40
 current_phase_name: 체결 앱 푸시 알림
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-11-07T07:47:36.619Z"
+last_updated: "2026-11-07T08:20:41.891Z"
 last_activity: 2026-11-07
 last_activity_desc: Phase 40 execution started
-state_head: 55b69d6ac0ca6a05fc84f6cbe920547131aeae8c
+state_head: ffb52008ab9fe185deb74dcc4bf0723b280cbef2
 progress:
   total_phases: 11
   completed_phases: 9
@@ -155,6 +155,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261107-jhk | 러쉬 주문 상단 정리 — 메뉴·제목 개명 · 탭→서버 칩→날짜+발사 한 줄 · 설명·출처·범위 글 삭제 | 2026-11-07 | c0a96bf0 | [261107-jhk-admin-launch-header-redesign](./quick/261107-jhk-admin-launch-header-redesign/) |
 | 261107-l7w | 뒤탐침 개수(0~10)·간격(1~100µs) 어드민 설정 — 서버별·발사별 · 이력 표 · 지도 예정 뒤탐침 · relay 와이어 대기(gh-trade Phase 47 인계 뒤 연결) · 범례 09:00:30 | 2026-11-07 | 91472266 | [261107-l7w-admin-launch-tail-probe-setting](./quick/261107-l7w-admin-launch-tail-probe-setting/) |
 | 261107-moq | 어드민 「서버에만 있음」 계좌 카드 — 이 사용자에 연결 · 서버에서 빼기(목업 B) · 교보112 복사 시작 재발 방지 | 2026-11-07 | 55b69d6a | [261107-moq-admin-server-only-account](./quick/261107-moq-admin-server-only-account/) |
+| 261107-oom | tick-convert 밤 변환 OOM 수정(gsd-fast) — Job 16Gi · KeyStager.take 순간 메모리 절반 | 2026-11-07 | ffb52008 | — |
 
 ## Session Continuity
 
