@@ -11,7 +11,6 @@ import { consultLimitupSpecialist } from "./specialists/limitup-specialist.js";
 import { consultWebSearchSpecialist } from "./specialists/websearch-specialist.js";
 import {
   consultDiagnosisSpecialist,
-  DIAGNOSIS_CONTEXT_MISSING_TEXT,
   DIAGNOSIS_QUESTION_MISSING_TEXT,
   type DiagnosisContext,
   type ModelUsage,
@@ -153,8 +152,8 @@ export function toolNameToSpecialistId(name: string): SpecialistId | null {
  * @param name  팀장 tool_use.name (예: "consult_quote_specialist")
  * @param input 팀장이 생성한 tool 인자 { code?, question }
  * @param supabase 서비스롤 클라 (데이터 전문가 조회용, 웹서치는 미사용)
- * @param ctx 전문가 실행 맥락 — 주문 진단만 쓴다(인증 사용자 id 가 RPC p_user_id 의 유일한 출처 · SC-2).
- *            없으면 진단은 고정 문구로 끝난다(계좌 범위를 정할 수 없으므로 호출하지 않는다).
+ * @param ctx 전문가 실행 맥락(필수) — 주문 진단만 쓴다(인증 사용자 id 가 RPC p_user_id 의 유일한 출처 · SC-2).
+ *            운영 호출부(chat-service 팀장 루프)는 늘 넘긴다 — 없는 경로를 두지 않는다(39 REVIEW IN-05).
  * @returns { text } — 팀장 tool_result content. 웹서치만 { text, citations } 로 citation 분리 노출.
  *
  * - 미지의 name → 안내 텍스트 반환 (throw 안 함 — 팀장 루프가 계속 진행, T-14-04c).
@@ -164,7 +163,7 @@ export async function runSpecialist(
   name: string,
   input: SpecialistInput,
   supabase: SupabaseClient,
-  ctx?: SpecialistContext,
+  ctx: SpecialistContext,
 ): Promise<SpecialistRunResult> {
   const id = toolNameToSpecialistId(name);
   if (id === null) return { text: UNKNOWN_TOOL };
@@ -188,7 +187,6 @@ export async function runSpecialist(
       return { text: out.text, citations: out.citations };
     }
     case "diagnosis": {
-      if (!ctx) return { text: DIAGNOSIS_CONTEXT_MISSING_TEXT };
       // 팀장 입력은 `as SpecialistInput` 캐스트라 런타임 보장이 없다 — 빈 질문으로 하루 상한을 올리고 Opus 400 을
       // 받지 않게 여기서 거른다(IN-04).
       const question: unknown = input.question;

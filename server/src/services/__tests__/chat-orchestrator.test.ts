@@ -29,7 +29,7 @@ vi.mock("../specialists/theme-specialist", () => ({ consultThemeSpecialist: them
 vi.mock("../specialists/news-specialist", () => ({ consultNewsSpecialist: newsMock }));
 vi.mock("../specialists/limitup-specialist", () => ({ consultLimitupSpecialist: limitupMock }));
 vi.mock("../specialists/websearch-specialist", () => ({ consultWebSearchSpecialist: websearchMock }));
-// 진단 전문가 — 상수(DIAGNOSIS_CONTEXT_MISSING_TEXT)는 실제 값, 상담 함수만 스텁.
+// 진단 전문가 — 상수(DIAGNOSIS_QUESTION_MISSING_TEXT)는 실제 값, 상담 함수만 스텁.
 vi.mock("../specialists/diagnosis/diagnosis-specialist", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../specialists/diagnosis/diagnosis-specialist")>()),
   consultDiagnosisSpecialist: diagnosisMock,
@@ -37,7 +37,10 @@ vi.mock("../specialists/diagnosis/diagnosis-specialist", async (importOriginal) 
 
 // mock 이후 import (orchestrator 가 mock 된 전문가 모듈을 참조).
 import { SPECIALIST_TOOLS, runSpecialist, extractStockRefs, type SpecialistInput } from "../chat-orchestrator";
-import { DIAGNOSIS_CONTEXT_MISSING_TEXT, DIAGNOSIS_QUESTION_MISSING_TEXT } from "../specialists/diagnosis/diagnosis-specialist";
+import { DIAGNOSIS_QUESTION_MISSING_TEXT } from "../specialists/diagnosis/diagnosis-specialist";
+
+/** runSpecialist 의 ctx 는 필수(IN-05) — 진단 외 전문가는 쓰지 않으므로 더미면 된다. */
+const CTX = { userId: "u-test" };
 
 // 전문가는 mock 이므로 supabase 는 아무 객체나 통과시킨다.
 const sb = {} as unknown as SupabaseClient;
@@ -80,12 +83,6 @@ describe("주문 진단 전문가 등록(Phase 39 D-01 · D-02)", () => {
     expect(SPECIALIST_TOOL_NAMES.diagnosis).toBe("consult_diagnosis_specialist");
     expect(Object.keys(tool?.input_schema.properties ?? {})).toEqual(["question"]);
     expect(tool?.input_schema.required).toEqual(["question"]);
-  });
-
-  it("ctx 없이 부르면 DIAGNOSIS_CONTEXT_MISSING_TEXT · 진단 상담 미호출", async () => {
-    const out = await runSpecialist("consult_diagnosis_specialist", { question: "왜 나갔어?" }, sb);
-    expect(out.text).toBe(DIAGNOSIS_CONTEXT_MISSING_TEXT);
-    expect(diagnosisMock).not.toHaveBeenCalled();
   });
 
   it("ctx 가 있으면 consultDiagnosisSpecialist(supabase, { question }, ctx) 결과의 text · display · usage 를 그대로", async () => {
@@ -131,6 +128,7 @@ describe("runSpecialist (이름 기반 dispatch)", () => {
       "consult_quote_specialist",
       { code: "005930", question: "지금 시세 어때?" },
       sb,
+      CTX,
     );
 
     expect(out.text).toBe("시세 opinion");
@@ -143,6 +141,7 @@ describe("runSpecialist (이름 기반 dispatch)", () => {
       "consult_websearch_specialist",
       { question: "오늘 무슨 이슈?" },
       sb,
+      CTX,
     );
 
     expect(out.text).toBe("오늘 속보 요약");
@@ -152,7 +151,7 @@ describe("runSpecialist (이름 기반 dispatch)", () => {
   });
 
   it("Test 4: 알 수 없는 tool 이름 → 안내 텍스트 (throw 안 함)", async () => {
-    const out = await runSpecialist("consult_unknown_specialist", { question: "?" }, sb);
+    const out = await runSpecialist("consult_unknown_specialist", { question: "?" }, sb, CTX);
 
     expect(out.text).toContain("찾을 수 없습니다");
     expect(quoteMock).not.toHaveBeenCalled();
@@ -160,16 +159,16 @@ describe("runSpecialist (이름 기반 dispatch)", () => {
   });
 
   it("Test 5: quote/limitup code 미지정 → consult 미호출 + graceful skip 텍스트 (D-08)", async () => {
-    const q = await runSpecialist("consult_quote_specialist", { question: "시세?" }, sb);
+    const q = await runSpecialist("consult_quote_specialist", { question: "시세?" }, sb, CTX);
     expect(q.text).toContain("종목이 특정되지 않아");
     expect(quoteMock).not.toHaveBeenCalled();
 
-    const l = await runSpecialist("consult_limitup_specialist", { question: "상한가 이력?" }, sb);
+    const l = await runSpecialist("consult_limitup_specialist", { question: "상한가 이력?" }, sb, CTX);
     expect(l.text).toContain("종목이 특정되지 않아");
     expect(limitupMock).not.toHaveBeenCalled();
 
     // news/theme 는 code 없이도 유효 — guard 미적용 (호출됨).
-    const n = await runSpecialist("consult_news_specialist", { question: "뉴스?" }, sb);
+    const n = await runSpecialist("consult_news_specialist", { question: "뉴스?" }, sb, CTX);
     expect(n.text).toBe("뉴스 opinion");
     expect(newsMock).toHaveBeenCalledTimes(1);
   });
