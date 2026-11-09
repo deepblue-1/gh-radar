@@ -25,7 +25,9 @@ import { DIAGNOSIS_TOOLS, dispatchDiagnosisTool, type DiagnosisToolState } from 
  *   - 라운드 8 · 벽시계 마감(기본 150초) · 누적 입력 60만 토큰 → **마무리 콜 1회**: 같은 system · 같은 tools ·
  *     append-only messages + `tool_choice: {type:"none"}`. tools 를 빼거나 system 을 바꾸면 thinking 이 무효라
  *     팀장 루프의 「tools 빼고 요약」 을 따르지 않는다.
- *   - 마감 + 30초 = 강제 중단(진행 중 스트림 abort) → 고정 문구.
+ *   - 도구 실행도 마감까지만 기다린다 — 마감에 못 끝난 도구는 「시간 초과」 결과로 채우고 마무리 콜로 간다(WR-06 ·
+ *     Storage · PostgREST 가 멈춰도 받아 둔 자료로 답한다). 강제 중단 · 호출자 abort 는 도구 대기도 끊는다.
+ *   - 마감 + 30초 = 강제 중단(진행 중 스트림 · 도구 대기 abort) → 고정 문구.
  *   - 하루 상한(전역 · 사용자) — Opus 호출 전에 `incr_api_usage` 로 원자 증가 · 초과면 Opus 0회. 확인 실패는 fail-closed.
  *   - refusal 은 대체 모델 없이 로그 + 고정 문구. 빈 답 · max_tokens · 예외도 stop_reason · usage 를 남긴다(무로그 금지).
  *   - 어떤 끝이든 `[chat] diagnosis usage` info 1줄(D-03 서버 로그).
@@ -78,6 +80,8 @@ export const DIAGNOSIS_CONTEXT_MISSING_TEXT = "주문 진단을 지금 쓸 수 �
 
 /** 마무리 콜에서 실행하지 않은 tool_use 에 돌려주는 결과. */
 const SKIPPED_TOOL_TEXT = "상한 도달 — 실행 안 함";
+/** 마감까지 끝나지 않은 도구에 돌려주는 결과. */
+export const DIAGNOSIS_TOOL_TIMEOUT_TEXT = "조회 시간 초과 — 결과 없음";
 /** 마무리 콜 user 메시지 끝 지시. */
 const FINISH_INSTRUCTION = "더 이상 조회할 수 없습니다. 지금까지 자료로 답하세요.";
 
@@ -160,6 +164,50 @@ async function checkDailyCap(
   if (user > cfg.chatDiagnosisUserDailyCap) return { scope: "user", global: Number.NaN, user };
   const global = await incr(USAGE_SERVICE);
   return { scope: global > cfg.chatDiagnosisDailyCap ? "global" : null, global, user };
+}
+
+/**
+ * 한 라운드 도구 묶음을 마감(`until`, epoch ms)까지만 기다린다(WR-06). 마감에 못 끝난 도구는 「시간 초과」 결과로 채운다 —
+ * 그 도구의 하위 호출(Supabase RPC · Storage 내려받기 · tickgw)은 끊지 않고 버려 둔다(결과는 쓰지 않는다).
+ * `signal` abort(강제 중단 · 호출자 취소)면 기다림을 끊고 그 사유로 throw — 호출부 catch 가 timeout/aborted 로 가른다.
+ * dispatchDiagnosisTool 은 throw 하지 않으므로 묶음 자체는 reject 하지 않는다.
+ */
+async function runToolsUntil(
+  calls: Anthropic.ToolUseBlock[],
+  state: DiagnosisToolState,
+  until: number,
+  signal: AbortSignal,
+): Promise<Anthropic.ToolResultBlockParam[]> {
+  const done: Array<Anthropic.ToolResultBlockParam | undefined> = new Array(calls.length);
+  const all = Promise.all(
+    calls.map((b, i) =>
+      dispatchDiagnosisTool(b, state).then((r) => {
+        done[i] = r;
+      }),
+    ),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const expired = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, Math.max(0, until - Date.now()));
+  });
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new Error("aborted"));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([all, expired, aborted]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+  const late = calls.filter((_b, i) => done[i] === undefined).map((b) => b.name);
+  if (late.length > 0) logger.warn({ tools: late }, "[chat] diagnosis tool deadline — 결과 없이 마무리");
+  return calls.map(
+    (b, i): Anthropic.ToolResultBlockParam =>
+      done[i] ?? { type: "tool_result", tool_use_id: b.id, content: DIAGNOSIS_TOOL_TIMEOUT_TEXT },
+  );
 }
 
 /** 진단 전문가 상담 — 질문 하나 → Opus 도구 루프 → 진단문. */
@@ -310,7 +358,7 @@ export async function consultDiagnosisSpecialist(
           ]);
           continue;
         }
-        const results = await Promise.all(calls.map((b) => dispatchDiagnosisTool(b, state)));
+        const results = await runToolsUntil(calls, state, deadline, signal);
         if (Date.now() >= deadline) {
           // 도구가 마감을 넘겼다 — 받은 결과는 싣고 바로 마무리 콜.
           finishing = true;

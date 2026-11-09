@@ -32,6 +32,7 @@ import {
   DIAGNOSIS_MAX_ROUNDS,
   DIAGNOSIS_REFUSAL_TEXT,
   DIAGNOSIS_TIMEOUT_TEXT,
+  DIAGNOSIS_TOOL_TIMEOUT_TEXT,
   DIAGNOSIS_USAGE_CHECK_FAILED_TEXT,
 } from "../diagnosis/diagnosis-specialist";
 import { STATE_TRANSITION_EMPTY_TEXT } from "../diagnosis/diagnosis-order-log";
@@ -472,6 +473,43 @@ describe("consultDiagnosisSpecialist — 루프 가드(Task 2)", () => {
     expect(out.text).toBe(DIAGNOSIS_TIMEOUT_TEXT);
     expect(out.display).toBeUndefined();
     expect(warn.mock.calls.some((c) => String(c[1]).includes("diagnosis"))).toBe(true);
+  });
+
+  it("도구가 마감까지 안 끝나면(Storage · RPC 멈춤) 「시간 초과」 결과로 마무리 콜 → 답을 낸다(WR-06)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-06T01:00:00Z"));
+    const seq = makeStreamSequence([makeToolUseMessage([orderLogCall("tu_1")]), makeEndTurnMessage("시간 초과 진단")]);
+    streamMock.mockImplementation(seq);
+    const sb = makeSupabase({
+      dma_diagnosis_for_user: () => new Promise(() => {}) as unknown as { data: unknown; error: unknown },
+      incr_api_usage: () => ({ data: 1, error: null }),
+    });
+
+    const p = consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+    await vi.advanceTimersByTimeAsync(150_000 + 1);
+    const out = await p;
+
+    expect(out.text).toBe("시간 초과 진단");
+    expect(seq.calls).toHaveLength(2);
+    expect(seq.calls[1].tool_choice).toEqual({ type: "none" });
+    expect(toolResultText(lastMessage(seq.calls[1]))).toBe(DIAGNOSIS_TOOL_TIMEOUT_TEXT);
+  });
+
+  it("도구 대기 중 호출자 abort → 마감을 기다리지 않고 바로 끝난다(WR-06)", async () => {
+    vi.useFakeTimers();
+    streamMock.mockImplementation(makeStreamSequence([makeToolUseMessage([orderLogCall("tu_1")])]));
+    const sb = makeSupabase({
+      dma_diagnosis_for_user: () => new Promise(() => {}) as unknown as { data: unknown; error: unknown },
+      incr_api_usage: () => ({ data: 1, error: null }),
+    });
+    const ac = new AbortController();
+
+    const p = consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER, signal: ac.signal });
+    await vi.advanceTimersByTimeAsync(1_000);
+    ac.abort();
+    const out = await p;
+
+    expect(out.text).toBe(SPECIALIST_UNAVAILABLE);
   });
 
   it("stop_reason refusal → warn(stopReason · usage · 상세) + DIAGNOSIS_REFUSAL_TEXT · 추가 호출 0(대체 모델 없음)", async () => {
