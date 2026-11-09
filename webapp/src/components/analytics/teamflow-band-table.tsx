@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils';
  *   `--team-bg` 면 · 600).
  * - 숫자 열 오른쪽 정렬 `mono` · 팀 매수/매도 = 주 + 아랫줄 억(부호 없음) · 팀 순매수 = ±억(600 · 부호 색) + 아랫줄 ±주.
  * - 매수 중 팀 ≥ 30% `--team` 600 · 0% `--faint`. 좁으면 `Table` 래퍼(`overflow-x-auto`)가 가로 스크롤.
+ * - (quick 261109-kzk) 「하루 합계」 행 이름은 「하루 합계(상한가 가격 제외)」 로 보인다(둘째 줄 · 표시만 — 데이터 라벨 불변) —
+ *   목록 · KPI 팀 순매수(틱뷰어 당일순매수 · 상한가 가격 포함)와 다른 값임을 구별한다.
  */
 
 const HEADS = ['구간', '거래량', '매수 중 팀', '팀 매수', '팀 매도', '팀 순매수'] as const;
@@ -45,7 +47,10 @@ export function TeamflowBandTable({ bands }: { bands: readonly TeamflowBand[] })
                 key={b.label}
                 className={cn('text-[var(--fg)]', total && 'bg-[var(--team-bg)] font-semibold')}
               >
-                <TableCell className="whitespace-nowrap">{b.label}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {b.label}
+                  {total && <span className={SUB}>(상한가 가격 제외)</span>}
+                </TableCell>
                 <TableCell className="mono text-right">{fmtQty(b.vol)}</TableCell>
                 <TableCell className={cn('mono text-right', shareClass(b.share))}>{fmtShare(b.share)}</TableCell>
                 <TableCell className="mono text-right">

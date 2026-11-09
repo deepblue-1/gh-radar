@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
  * 팀 · 거래원 순매수 행렬 표 (quick 261018-j17 · 목업 016 안 B · C-02 · C-04).
  *
  * - 열 = 구간/시각 · 팀 · 다섯 창구(members 순서 교보 · 한국 · 유진 · 신한 · NH) · 단위 억 소수 1자리 부호(`fmtEokCell`) · 모름 「—」.
- * - kind band = 등락 구간 행(상한가 가격 포함 · 마지막 「하루 합계」 = 위 구분선 · 600 · 배경 없음) ·
+ * - kind band = 등락 구간 행(상한가 가격 포함 · 마지막 「하루 합계」 = 위 구분선 · 600 · 배경 없음 · 이름 아랫줄
+ *   「(상한가 가격 제외)」 — quick 261109-kzk 표시만 · data-row 는 「하루 합계」 그대로) ·
  *   kind bucket = 10분 행(buckets 전부 · `inWindow(key)` 참이면 첫 칸 보라 띠 — 「10분 표 보기」 와 같은 띠 문법).
  * - 배경 진하기 = **다섯 창구 칸만** 공통 눈금(`mixPctOf(v, matrix.mx)` 0~40 → `color-mix(--up|--down)`). 팀 열은 배경 없이
  *   부호 색 글자(지금 표들과 같은 문법) — 출처가 달라 한 눈금에 섞지 않는다. 다섯 창구 칸 글자는 중립 `--fg`
@@ -88,6 +89,11 @@ export function TeamflowMemberMatrix({
                   )}
                 >
                   {row.label}
+                  {row.total && (
+                    <span className="block text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]">
+                      (상한가 가격 제외)
+                    </span>
+                  )}
                 </th>
                 <td
                   data-col="team"

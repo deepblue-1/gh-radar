@@ -68,14 +68,15 @@ describe('TeamflowDetail — 접힘 토글 · 구간표 · 판정 기준 (T6 · 
     const body = within(table).getAllByRole('row').slice(1);
     expect(body).toHaveLength(10);
     const last = body.at(-1)!;
-    expect(within(last).getAllByRole('cell')[0]!.textContent).toBe('하루 합계');
+    // quick 261109-kzk — 표시 이름만 구별(데이터 라벨은 「하루 합계」 그대로)
+    expect(within(last).getAllByRole('cell')[0]!.textContent).toBe('하루 합계(상한가 가격 제외)');
     // 하루 합계 행: 팀 매수 1,136,685 + 27.5억 · 팀 순매수 −1.1억 + −74,310주
     const cells = within(last).getAllByRole('cell').map((c) => c.textContent);
     expect(cells[3]).toBe('1,136,68527.5억');
     expect(cells[5]).toBe('−1.1억−74,310주');
   });
 
-  it('「판정 기준」 은 구간표를 열어도 닫힌 채 → 클릭 → li 7개 + 출처 줄', () => {
+  it('「판정 기준」 은 구간표를 열어도 닫힌 채 → 클릭 → li 8개 + 출처 줄', () => {
     renderDetail(rowOf(SMBEXCEL));
     fireEvent.click(toggle('구간표 보기'));
     const rulesBtn = toggle('판정 기준');
@@ -87,8 +88,18 @@ describe('TeamflowDetail — 접힘 토글 · 구간표 · 판정 기준 (T6 · 
     fireEvent.click(rulesBtn);
     expect(rulesBtn.getAttribute('aria-expanded')).toBe('true');
     const items = rules.querySelectorAll('li');
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(8);
     expect(items[0]!.textContent).toBe('팀 = 교보 · 한국 · 유진 · 신한 · NH 다섯 창구.');
+    // quick 261109-kzk — 목록 · KPI 팀 순매수 정의 · 상한가 가격 제외 범위는 구간표 · 거래원 표로 좁힘
+    expect(items[3]!.textContent).toBe(
+      '구간 = 체결가의 기준가 대비 등락률(정수 경계 — 정확히 +20% 는 20~25% 에 든다). 구간표 · 거래원 표의 상한가 가격 체결은 팀 매수 · 매도를 따로 보이고 구간 순매수와 「하루 합계(상한가 가격 제외)」 에서 뺀다.',
+    );
+    expect(items[4]!.textContent).toBe(
+      '목록 · KPI 의 팀 순매수 = 틱뷰어 「당일순매수」 와 같은 값 — KRX 정규장+시간외 · 상한가 가격 포함. 틱 기록 값이 아직 없는 종목만 상한가 가격을 뺀 보고서 값을 쓰고 「*」 로 표시한다.',
+    );
+    expect(items[7]!.textContent).toBe(
+      '호가에 걸어 두고 받아낸 팀 체결은 보이지 않아 팀 수치는 최소치다. 구간 · 10분 · 거래원 표는 KRX 정규장만 본다(넥스트레이드 제외).',
+    );
     expect(within(rules).getByText('출처: gh-trade 팀 매집 분석 규칙')).toBeTruthy();
     // 구간표는 그대로 열려 있다(서로 독립)
     expect(toggle('구간표 보기').getAttribute('aria-expanded')).toBe('true');
@@ -463,7 +474,7 @@ describe('TeamflowDetail — 등락 구간별 팀 · 거래원 순매수 (quick 
     expect(cellTexts(bodyRowOf('상한가 가격'))).toEqual(['상한가 가격', '−5.1', '—', '−2.2', '—', '+8.1', '−5.6']);
     expect(cellTexts(bodyRowOf('15~20%'))).toEqual(['15~20%', '+0.8', '—', '−0.8', '—', '+1.0', '+0.1']);
     expect(cellTexts(bodyRowOf('0~5%'))).toEqual(['0~5%', '−0.1', '—', '—', '—', '−0.2', '+0.1']);
-    expect(cellTexts(bodyRowOf('하루 합계'))).toEqual(['하루 합계', '+4.1', '—', '—', '—', '−0.4', '0.0']);
+    expect(cellTexts(bodyRowOf('하루 합계'))).toEqual(['하루 합계(상한가 가격 제외)', '+4.1', '—', '—', '—', '−0.4', '0.0']);
     expect(m.querySelector('tbody tr:last-child')!.getAttribute('data-row')).toBe('하루 합계');
   });
 
