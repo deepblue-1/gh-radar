@@ -600,10 +600,34 @@ describe("handleChatStream (주문 진단 D-01)", () => {
     const [name, input, , ctx] = runSpecialistMock.mock.calls[0];
     expect(name).toBe(SPECIALIST_TOOL_NAMES.diagnosis);
     expect(input).toEqual({ question: "선매수 왜 나갔어?" });
-    expect(Object.keys(ctx).sort()).toEqual(["deps", "signal", "userId"]);
+    expect(Object.keys(ctx).sort()).toEqual(["deps", "signal", "turnDeadlineAt", "userId"]);
     expect(ctx.userId).toBe("user-1");
     expect(ctx.signal).toBeInstanceOf(AbortSignal);
     expect(ctx.deps).toBe(DEPS);
+    expect(typeof ctx.turnDeadlineAt).toBe("number");
+  });
+
+  it("한 턴에서 라운드를 바꿔 진단을 두 번 불러도 같은 턴 마감(turnDeadlineAt)을 받는다(WR-07)", async () => {
+    streamMock
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(diagnosisRound1())
+      .mockReturnValueOnce(
+        makeStreamMock({ textDeltas: [TAIL], finalMessage: makeEndTurnFinalMessage(TAIL) }),
+      );
+    runSpecialistMock
+      .mockResolvedValueOnce({ text: D, display: D, usage: [] })
+      .mockResolvedValueOnce({ text: D, display: D, usage: [] });
+
+    const { res } = makeResSpy();
+    await handleChatStream(res, makeSupabase({}), new AbortController().signal, {
+      userId: "user-1",
+      message: "선매수 왜 나갔어?",
+      diagnosisDeps: DEPS,
+    });
+
+    expect(runSpecialistMock).toHaveBeenCalledTimes(2);
+    const [a, b] = runSpecialistMock.mock.calls.map((c) => c[3].turnDeadlineAt as number);
+    expect(a).toBe(b);
   });
 
   it("display 없는 결과(다른 전문가 · 진단 고정 문구)는 SSE text 로 흘리지 않는다", async () => {

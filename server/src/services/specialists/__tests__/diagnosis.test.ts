@@ -33,6 +33,7 @@ import {
   DIAGNOSIS_REFUSAL_TEXT,
   DIAGNOSIS_TIMEOUT_TEXT,
   DIAGNOSIS_TOOL_TIMEOUT_TEXT,
+  DIAGNOSIS_TURN_BUDGET_TEXT,
   DIAGNOSIS_USAGE_CHECK_FAILED_TEXT,
 } from "../diagnosis/diagnosis-specialist";
 import { STATE_TRANSITION_EMPTY_TEXT } from "../diagnosis/diagnosis-order-log";
@@ -510,6 +511,39 @@ describe("consultDiagnosisSpecialist — 루프 가드(Task 2)", () => {
     const out = await p;
 
     expect(out.text).toBe(SPECIALIST_UNAVAILABLE);
+  });
+
+  it("턴 마감까지 30초 미만이면 시작하지 않는다 — 하루 상한 증가 0 · 스트림 0(WR-07)", async () => {
+    const sb = okSupabase();
+
+    const out = await consultDiagnosisSpecialist(
+      sb.client,
+      { question: QUESTION },
+      { userId: USER, turnDeadlineAt: Date.now() + 10_000 },
+    );
+
+    expect(out).toEqual({ text: DIAGNOSIS_TURN_BUDGET_TEXT, usage: [] });
+    expect(streamMock).not.toHaveBeenCalled();
+    expect(sb.rpc).not.toHaveBeenCalled();
+  });
+
+  it("턴 마감이 자기 마감(150초)보다 이르면 턴 마감에서 마무리 콜(WR-07)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T01:00:00Z"));
+    const seq = makeStreamSequence(
+      [makeToolUseMessage([orderLogCall("tu_1")]), makeEndTurnMessage("턴 마감 진단")],
+      { onCall: (i) => i === 0 && vi.setSystemTime(Date.now() + 61_000) },
+    );
+    streamMock.mockImplementation(seq);
+
+    const out = await consultDiagnosisSpecialist(
+      okSupabase().client,
+      { question: QUESTION },
+      { userId: USER, turnDeadlineAt: Date.now() + 60_000 },
+    );
+
+    expect(out.text).toBe("턴 마감 진단");
+    expect(seq.calls[1].tool_choice).toEqual({ type: "none" });
   });
 
   it("stop_reason refusal → warn(stopReason · usage · 상세) + DIAGNOSIS_REFUSAL_TEXT · 추가 호출 0(대체 모델 없음)", async () => {

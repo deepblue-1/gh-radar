@@ -133,6 +133,7 @@ export function loadConfig(): AppConfig {
     chatDiagnosisModel: process.env.CHAT_DIAGNOSIS_MODEL ?? "claude-opus-5-5",
     chatDiagnosisEffort: effortOr(process.env.CHAT_DIAGNOSIS_EFFORT, "medium"),
     // 진단 벽시계 마감 — 넘으면 마무리 콜 1회(Cloud Run 300초 − 팀장 앞뒤 라운드 · RESEARCH Pitfall 2).
+    // 한 턴(질문 하나) 전체의 진단 예산이다 — 한 턴에서 진단을 여러 번 불러도 합이 이 값을 넘지 않는다(39 WR-07).
     chatDiagnosisDeadlineMs: positiveIntOr(process.env.CHAT_DIAGNOSIS_DEADLINE_MS, 150_000),
     // 하루 상한(오케스트레이터 결정 2) — 전역 · 사용자별. incr_api_usage 로 원자 증가 뒤 초과면 Opus 호출 0회.
     chatDiagnosisDailyCap: positiveIntOr(process.env.CHAT_DIAGNOSIS_DAILY_CAP, 200),

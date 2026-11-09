@@ -47,6 +47,11 @@ export type DiagnosisContext = {
   userId: string;
   signal?: AbortSignal;
   deps?: DiagnosisDeps;
+  /**
+   * 한 턴(질문 하나) 전체의 진단 마감(epoch ms · WR-07). 팀장이 한 턴에서 진단을 여러 번 불러도 진단 벽시계 합이
+   * `chatDiagnosisDeadlineMs` 를 넘지 않게 — 진단은 `min(자기 마감, 턴 마감)` 을 쓴다. 없으면 자기 마감만.
+   */
+  turnDeadlineAt?: number;
 };
 
 export type ModelUsage = {
@@ -70,6 +75,8 @@ export const DIAGNOSIS_MAX_TOKENS = 32_000;
 export const DIAGNOSIS_INPUT_TOKEN_GUARD = 600_000;
 /** 마감 뒤 강제 중단까지 여유 — 마무리 콜이 이 안에 끝나야 한다. */
 export const DIAGNOSIS_HARD_ABORT_GRACE_MS = 30_000;
+/** 턴 마감까지 남은 시간이 이보다 적으면 진단을 시작하지 않는다(상한 · Opus 호출 0 · WR-07). */
+export const DIAGNOSIS_MIN_BUDGET_MS = 30_000;
 
 export const DIAGNOSIS_CAP_TEXT = "오늘 주문 진단 한도를 모두 썼습니다. 내일 다시 물어 주세요.";
 export const DIAGNOSIS_REFUSAL_TEXT = "이 질문은 주문 진단 전문가가 답하지 못했습니다. 질문을 바꿔 다시 물어 주세요.";
@@ -77,6 +84,8 @@ export const DIAGNOSIS_TIMEOUT_TEXT =
   "주문 진단이 시간 안에 끝나지 않았습니다. 날짜 · 종목 · 시각을 좁혀 다시 물어 주세요.";
 export const DIAGNOSIS_USAGE_CHECK_FAILED_TEXT = "주문 진단을 지금 쓸 수 없습니다(사용량 확인 실패).";
 export const DIAGNOSIS_CONTEXT_MISSING_TEXT = "주문 진단을 지금 쓸 수 없습니다.";
+export const DIAGNOSIS_TURN_BUDGET_TEXT =
+  "이번 질문에서 주문 진단 시간을 이미 다 썼습니다. 앞 진단 결과로 답하거나, 새 질문으로 다시 물어 주세요.";
 
 /** 마무리 콜에서 실행하지 않은 tool_use 에 돌려주는 결과. */
 const SKIPPED_TOOL_TEXT = "상한 도달 — 실행 안 함";
@@ -100,6 +109,7 @@ type Outcome =
   | "error"
   | "capped"
   | "usage_check_failed"
+  | "turn_budget"
   | "no_key";
 
 type FinishReason = "rounds" | "deadline" | "input_tokens";
@@ -273,6 +283,15 @@ export async function consultDiagnosisSpecialist(
     return finish("no_key", SPECIALIST_UNAVAILABLE);
   }
 
+  // 마감 = min(자기 마감, 턴 마감) — 한 턴에서 진단을 거듭 불러도 진단 벽시계 합이 예산을 넘지 않는다(WR-07).
+  const deadline = Math.min(startedAt + cfg.chatDiagnosisDeadlineMs, ctx.turnDeadlineAt ?? Number.POSITIVE_INFINITY);
+  // 최소 예산은 설정 마감보다 클 수 없다 — 짧게 잡은 CHAT_DIAGNOSIS_DEADLINE_MS 가 모든 진단을 막지 않게.
+  if (deadline - startedAt < Math.min(DIAGNOSIS_MIN_BUDGET_MS, cfg.chatDiagnosisDeadlineMs)) {
+    // 하루 상한을 올리기 전에 끊는다 — 돌지도 않을 진단이 사용자 · 전역 카운터를 먹지 않게.
+    logger.info({ remainingMs: deadline - startedAt }, "[chat] diagnosis skipped — 턴 진단 시간 소진");
+    return finish("turn_budget", DIAGNOSIS_TURN_BUDGET_TEXT);
+  }
+
   // ── 하루 상한(Opus 호출 전) ──
   try {
     const cap = await checkDailyCap(supabase, ctx.userId, kstDateIso(new Date(startedAt)), cfg);
@@ -307,7 +326,6 @@ export async function consultDiagnosisSpecialist(
   };
 
   // 강제 중단 — 마감 + 여유에 진행 중 스트림을 끊는다(실행 단위 절대 시각 하나 · 라운드마다 남은 시간으로 거는 것과 같다).
-  const deadline = startedAt + cfg.chatDiagnosisDeadlineMs;
   const hardAbort = new AbortController();
   const hardTimer = setTimeout(
     () => hardAbort.abort(),

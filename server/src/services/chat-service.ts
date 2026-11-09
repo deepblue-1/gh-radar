@@ -411,6 +411,10 @@ export async function handleChatStream(
     const models: Record<string, TokenTally> = {};
     tallyFor(models, cfg.chatLeadModel);
 
+    // 진단 시간 예산은 턴 단위 하나(WR-07) — 팀장이 라운드를 바꿔 진단을 거듭 불러도 진단 벽시계 합이
+    // chatDiagnosisDeadlineMs(+ 강제 중단 여유)를 넘지 않아 Cloud Run 300초 안에 저장까지 닿는다.
+    const diagnosisTurnDeadlineAt = Date.now() + cfg.chatDiagnosisDeadlineMs;
+
     // --- 팀장 tool-use 루프 (RESEARCH Code Examples 골격) ---
     for (let round = 0; round < cfg.chatMaxToolRounds; round++) {
       let textBuffer = "";
@@ -501,6 +505,7 @@ export async function handleChatStream(
               userId,
               signal: effectiveSignal,
               deps: opts.diagnosisDeps,
+              turnDeadlineAt: diagnosisTurnDeadlineAt,
             });
             for (const u of out.usage ?? []) {
               const t = tallyFor(models, u.model);
