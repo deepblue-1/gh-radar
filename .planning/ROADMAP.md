@@ -66,7 +66,7 @@
 - [x] **Phase 36: 계좌별 주문가능 금액** - gh-trade Phase 41 계약(op 6 SetAccountBudget · op 7 SetAccountFee · 87/66/67 예수금 · 저널 손익 4필드) 반영 · 어드민 계좌 카드 예수금·수수료·매도세 · 웹 주문가능 표시·초과 경고 · 저널 손익 DB 적재 · 일자별 매매손익(`/admin/pnl` · `/me` 「손익」 탭) · 인박스 `261027-account-budget.md` · `261027-account-pnl.md` 닫기 (completed 2026-10-28)
 - [x] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저 (completed 2026-11-04)
 - [x] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저 (completed 2026-11-03)
-- [ ] **Phase 39: 매매진단 챗봇** - 「왜 이 주문이 나갔나/안 나갔나」를 챗봇에 직접 묻는다. 기존 팀장 챗봇에 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5`) 추가 — 저널 주문·체결 · 전략 이벤트 · 당일 틱 · kind 9 상태전이 조회, 계좌 범위는 `req.userId` 서버 강제. kind 9 43칸 매핑 노트를 gh-trade 인박스에 회신 → gh-radar 받는 쪽(DB · webapp) 먼저 배포 뒤 gh-trade 서버 켜기(relay 무변경). 시험 문항 11/5 13:10 금양그린파워 선매수(인박스 `261105-chatbot-diagnosis-kind9.md`)
+- [x] **Phase 39: 매매진단 챗봇** - 「왜 이 주문이 나갔나/안 나갔나」를 챗봇에 직접 묻는다. 기존 팀장 챗봇에 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5`) 추가 — 저널 주문·체결 · 전략 이벤트 · 당일 틱 · kind 9 상태전이 조회, 계좌 범위는 `req.userId` 서버 강제. kind 9 43칸 매핑 노트를 gh-trade 인박스에 회신 → gh-radar 받는 쪽(DB · webapp) 먼저 배포 뒤 gh-trade 서버 켜기(relay 무변경). 시험 문항 11/5 13:10 금양그린파워 선매수(인박스 `261105-chatbot-diagnosis-kind9.md`) (completed 2026-11-09)
 - [x] **Phase 40: 체결 앱 푸시 알림** - 주문이 체결되면 GH Trade 앱(iOS·Android)으로 푸시 1줄. 첫 체결 1건 + 전량 체결 1건(자동매도는 시작 1건 + 잔량 0 때 1건). relay 적용 행에서 판정·송신(iOS APNs 직접 · Android FCM v1 · 기존 Firebase 프로젝트). 설정 탭 「체결 알림」 토글(서버 저장) + 기기 토큰 등록. D-17(앱 안 Firebase SDK 없음) 번복 — Android 만. 트렐로 「체결시 어플알림」(yP2Q3UkZ) 검토 2026-11-06 (completed 2026-11-09)
 
 ## Phase Details
@@ -540,7 +540,7 @@ Plans:
   5. 챗봇 질의 비용은 사용자 수와 독립인 조회 RPC 만 — 원본 스크래핑·on-demand fetch 없음(CLAUDE.md 운영 기준).
 
 **미결 결정(discuss 에서)**: ① 진단 전문가를 팀장의 도구 하나로 둘지(agent-as-tool · 기존 패턴) vs 「매매진단」 별도 대화 모드로 둘지. ② 당일 틱 조회를 전문가가 직접 부를지(기간·종목 인자) vs 이벤트 시각 ±N초 자동 첨부로 제한할지. ③ kind 9 2차 범위(진입 래치·게이트 차단·VI 미발주)를 이번 phase 에 넣을지. ④ 지난 날짜 시세 범위 — **해소(D-12): 지난 날짜도 연다**(격자 있으면 읽고 없으면 변환 요청 · 오늘은 tickgw).
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 **Wave 1**
@@ -558,7 +558,7 @@ Plans:
 - [x] 39-08-PLAN.md — 지식 프롬프트: 선매수 판정 표 · bs 공백 규칙 원문 → system 블록(트레이서) · 나머지 매매 규칙 · kind 9 사전
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 39-09-PLAN.md — 전체 회귀 → [BLOCKING] db push(20:00 뒤) → server(조상 확인) → git push(웹 먼저) → gh-trade 알림 → UAT 시험 문항 ①·② (메인 세션)
+- [x] 39-09-PLAN.md — 전체 회귀 → [BLOCKING] db push(20:00 뒤) → server(조상 확인) → git push(웹 먼저) → gh-trade 알림 → UAT 시험 문항 ①·② (메인 세션)
 
 ### Phase 40: 체결 앱 푸시 알림
 
