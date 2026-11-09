@@ -9,17 +9,26 @@
  *   quick-261026-01h 당일 축 · WinForms 동형), 청산(3)은 뒤(**먼저 청산한 순** — gh-trade 클라 `AccumWatchForm.SortRows`
  *   ClosedAtTick 오름차순 동형). 동률은 isin 으로 고정.
  *
- * ②' 목록에 싣는 행 — 활성(1 · 2) 전부 · 청산 행은 종료 사유 1(청산)과, 종료 사유 4(매집 종료 — 인박스 261024-accum-hidden-carry10
- *   「추가 — 매집 종료」)는 그날 같은 서버 그 종목에 청산 행(row 4 · end 1)이 있을 때만. 서버는 end 4 에 88 을 내지 않아 gh-trade 클라는
- *   장중 청산으로 생긴 회색 「청산」 행을 자정까지 그대로 둔다(배지 그대로 — 사유만 툴팁). 숨김 이월 뒤 끝난 종목은 그날 청산 행이 없다 —
- *   클라 목록에 처음부터 없었으므로 싣지 않는다. 2 기동 정합 · 3 이월 만료는 06:00 거래일 경계(또는 서버 기동 정합)에서만 나오는데,
- *   gh-trade 클라는 그 종료 프레임을 받을 때 그 종목 행이 없거나(자정 넘김이 목록을 비운다 · 모르는 종목의 종료는 무시) 재접속 89 스냅샷이
- *   조용히 지운다 — 클라에 「청산」 행으로 남는 일이 없다(2026-10-21 사용자 제보 · 06:00 종료 행 6~7건).
- *   판정은 isin 별 최신 행만으로는 못 한다(end 4 가 최신이면 end 1 이 가려진다) — 자르기 뒤 행 전체에서 `closedRowsOf` 로 구해
- *   `isListedAccum(sig, closed)` 로 거르고, 거름은 훅(use-accum-signals)이 한 번 한다(패널은 받은 것을 그대로 보인다).
- *   매집 종료 행의 값 · 「갱신」 시각 · 청산끼리 순서(②)는 **그날 최신 청산 행(end 1) 기준**이고 종료 사유만 4 다 — 클라는 88 을 받지
- *   않아 청산 순간의 값 · 시각을 그대로 들고 있다(WinForms 동형 · 2026-10-24 결정). 그래서 훅은 청산 행의 신호에 `endReason: 4` 만 덮는다.
- *   ★ 같은 생각을 복원 RPC(20261024230000 — (gateway, isin) 별 그날 최신 청산 행을 함께 싣는다)가 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
+ * ②' 목록에 싣는 행(quick-261109-tn6 · 인박스 261109-accum-day-net — gh-trade Phase 48) — 활성(1 · 2) 전부 · 청산(3) 회색 행은
+ *   **서버 저널 시드와 같은 집합**이다. 정본 = gh-trade `server/src/market/publish/AccumSignal.cpp` `AccumClosedTodayFromJournal`
+ *   (같은 날 재기동 때 kind 16 저널에서 89 「오늘 청산」 원소를 되살리는 함수 · `docs/features/accum-signal.md` ⑥) — WinForms 매집창의
+ *   회색 「청산」 행은 88 종료 프레임과 89 오늘 청산 원소로만 생기고, 서버는 그 원소를 kind 16 만 보고 고른다. 웹도 kind 16 만 가지므로
+ *   같은 걷기를 그대로 옮긴다(`closedTodayOf`):
+ *   - 후보(`isClosedTodayCandidate`) = isin 별 그날 최신 행이 row 4(종료) 또는 6(하루 값 갱신)이고 종료 사유 1 청산 · 4 즉시 종료 ·
+ *     5 하루 판정 종료. 2 기동 정합 · 3 이월 만료(옛 서버)는 오늘 청산이 아니다(06:00 거래일 경계 · 기동 정합 — 클라에 남지 않는다).
+ *   - 같은 사이클(cycle = expectedCum) 오늘 행을 시간 순(gwTimeMs → seq)으로 걷는다. row 1 · 2 · 3 · 5 = 「발표됨」 · 「내려감」 끔.
+ *     row 4 사유 1/4/5 = 사유 1 이면 「발표됨」, 「내려감」 이 꺼져 있으면 그 행이 청산 행(closeRow)이고 「내려감」 켬. row 6 · 사유 2 는 건너뛴다.
+ *   - 「발표됨」 이고 청산 행이 있을 때만 싣는다. 값은 최신 행 그대로(row 6 이면 끝난 사이클 값 + 하루 칸 최신)이고 「갱신」 시각 ·
+ *     청산끼리 순서(②)는 청산 행 시각이다 — WinForms 도 첫 종료 때만 시각을 찍고 뒤 프레임은 값만 덮는다. 그래서 row 6 이 매분 와도
+ *     순서 · 시각이 그대로다. 숨김 이월 종목이 오늘 발표 없이 4/5 로 끝나면 싣지 않는다(클라 목록에 처음부터 없었다).
+ *   - 자르기(⑤)는 **활성 행에만** — 서버 시드에는 복원 묶음 개념이 없다(하루 저널 전체). 재기동 앞 오늘 청산 · 기동 하루 판정 종료
+ *     (2026-11-09 21:16 KB120 사유 5)는 복원 묶음보다 앞이어도 오늘 발표 행이 있으면 실린다.
+ *   - 옛 규칙 경로(ruleVersion < 2 · rule 키 없는 행) — 옛 매집 종료(row 4 · 사유 4 · 숨김 중 −30%)는 88 이 없어 클라가 청산 순간의 값 ·
+ *     시각을 들고 있었다(2026-10-24 결정). 그래서 그 행만 청산 행(closeRow · 사유 1)의 신호에 종료 사유 4 를 덮는다. 걷기 결과로
+ *     「그날 같은 사이클 청산 행이 있을 때만」 이 저절로 성립한다(사유 4 만으로는 「발표됨」 이 안 켜진다).
+ *   거름은 훅(use-accum-signals)이 `listedAccumOf` 한 번으로 한다(패널은 받은 것을 그대로 보인다). 입력은 한 게이트웨이 행이다.
+ *   ★ 같은 규칙을 복원 RPC(`dma_accum_signals_for_user_json` · 20261109500000 — 최신 행 + 회색 후보 사이클의 마지막 발표 행 + 그 뒤
+ *     첫 종료 행)가 SQL 로 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
  *
  * ③ ✕ 숨김 = 이 기기 · 오늘 · **사이클 단위** — 활성 행 키 `${isin}|${cycle}` · 청산 행 키 `${isin}|${cycle}|end`.
  *   청산(end_reason 1)은 서버가 같은 포지션을 숨김으로 계속 추적하고, 다시 등록 임계 이상이면 **같은 cycle** 로 재등장한다
@@ -46,7 +55,7 @@
  *   「전부 보기」 는 기억하지 않는다(매 진입 꺼짐).
  */
 
-import type { AccumReportResponse, AccumSignal, StrategyEventRow } from '@gh-radar/shared';
+import { accumSignalOf, type AccumReportResponse, type AccumSignal, type StrategyEventRow } from '@gh-radar/shared';
 
 import { HIGHLIGHT_MS, kstDateKey, readDatedSet, writeDatedSet } from './breakout-list';
 import { isNum } from './teamflow-report';
@@ -186,6 +195,7 @@ export const RESTORE_BATCH_WINDOW_MS = 120_000;
  * ⑤ 복원 묶음 = 그 서버의 전체 목록 — 게이트웨이별 **가장 최근 복원 묶음**(queue_case 3 · `RESTORE_BATCH_WINDOW_MS` 창)의
  * 시작 시각. 서버가 재기동하며 내는 복원 행 묶음은 그 서버가 지금 들고 있는 포지션 전체이므로, 그보다 오래된 행의 종목은
  * 그 서버가 더는 들고 있지 않다(2026-10-18 이월 파일 교체로 종료 행 없이 사라진 46종목). 복원 행이 없는 게이트웨이는 키가 없다.
+ * 회색 후보(`isClosedTodayCandidate` — 오늘 종료 · 하루 값 갱신 행이 최신)는 자르기를 면제한다(quick-261109-tn6 · ②' 서버 저널 시드 동형).
  * ★ 같은 규칙을 REST RPC(`dma_accum_signals_for_user_json` · 20261018233000)가 SQL 로 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
  */
 export function restoreCutByGateway(
@@ -207,47 +217,117 @@ export function restoreCutByGateway(
   return cut;
 }
 
-/** isin 별 최신 행 1건씩(①) — 복원 묶음보다 오래된 행은 먼저 버린다(⑤). 순서는 처음 본 isin 순. */
+/**
+ * 회색 행 후보인가(②') — 행 종류 4(종료) 또는 6(하루 값 갱신)이고 종료 사유 1 청산 · 4 즉시 종료 · 5 하루 판정 종료.
+ * ★ 복원 RPC(20261109500000) `queue_case IN (4, 6) AND cancel_reason IN (1, 4, 5)` 와 같은 술어.
+ */
+export function isClosedTodayCandidate(r: Pick<StrategyEventRow, 'queueCase' | 'cancelReason'>): boolean {
+  return (r.queueCase === 4 || r.queueCase === 6) && (r.cancelReason === 1 || r.cancelReason === 4 || r.cancelReason === 5);
+}
+
+/**
+ * isin 별 최신 행 1건씩(①) — (gateway, isin) 별 최신을 자르기 없이 하루 전체에서 고른 뒤, 그 행이 그 게이트웨이 복원 묶음(⑤)보다
+ * 앞이고 회색 후보가 아니면 버린다(자르기는 활성 행에만). 남은 것 중 isin 별 최신(①). 순서는 처음 본 isin 순.
+ */
 export function latestAccumByIsin(rows: readonly StrategyEventRow[]): StrategyEventRow[] {
   const cut = restoreCutByGateway(rows);
-  const byIsin = new Map<string, StrategyEventRow>();
+  const byKey = new Map<string, StrategyEventRow>();
   for (const r of rows) {
+    const key = `${r.gateway}|${r.isin}`;
+    const cur = byKey.get(key);
+    if (cur === undefined || isNewer(r, cur)) byKey.set(key, r);
+  }
+  const byIsin = new Map<string, StrategyEventRow>();
+  for (const r of byKey.values()) {
     const c = cut.get(r.gateway);
-    if (c !== undefined && r.gwTimeMs < c) continue;
+    if (c !== undefined && r.gwTimeMs < c && !isClosedTodayCandidate(r)) continue;
     const cur = byIsin.get(r.isin);
     if (cur === undefined || isNewer(r, cur)) byIsin.set(r.isin, r);
   }
   return [...byIsin.values()];
 }
 
-/**
- * ②' 그날 청산 행(row 4 · end 1) — isin 별 최신 1건(최신 판정은 ①). 복원 묶음(⑤) 뒤 행만. 매집 종료(4) 행을 싣는지와,
- * 실을 때의 값 · 「갱신」 시각이 이 행이다. 입력은 한 게이트웨이 행이다(훅 ④) — 게이트웨이를 섞어 주면 다른 서버의 청산도 센다.
- * ★ 같은 판정을 REST RPC(20261024230000)가 SQL 로 쓴다 — 한쪽만 바꾸면 복원과 라이브가 갈린다.
- */
-export function closedRowsOf(rows: readonly StrategyEventRow[]): Map<string, StrategyEventRow> {
-  const cut = restoreCutByGateway(rows);
-  const byIsin = new Map<string, StrategyEventRow>();
-  for (const r of rows) {
-    const c = cut.get(r.gateway);
-    if (c !== undefined && r.gwTimeMs < c) continue;
-    if (r.queueCase !== 4 || r.cancelReason !== 1) continue;
-    const cur = byIsin.get(r.isin);
-    if (cur === undefined || isNewer(r, cur)) byIsin.set(r.isin, r);
-  }
-  return byIsin;
+/** 오늘 청산 원소(②') — 청산 시각(= 청산 행 시각)과 청산 행. */
+export interface ClosedToday {
+  closedAtMs: number;
+  closeRow: StrategyEventRow;
+}
+
+/** 걷기에서 「발표됨」 을 켜는 행 종류 — 1 분당 · 2 거래일 첫 · 3 복원 · 5 매도 경보. */
+function isAnnounceRow(q: number): boolean {
+  return q === 1 || q === 2 || q === 3 || q === 5;
 }
 
 /**
- * 목록에 싣는 행인가(②') — 활성(1 · 2) 전부 · 청산(3)은 종료 사유 1 과, `closed`(그날 청산 행이 있는 isin —
- * `closedRowsOf` 결과 그대로 줘도 된다)에 든 종목의 종료 사유 4(매집 종료).
+ * 오늘 청산 원소(②') — gh-trade `AccumClosedTodayFromJournal` 그대로. 입력은 **한 게이트웨이**의 그날 kind 16 행이다(훅 ④ —
+ * 게이트웨이를 섞어 주면 다른 서버의 행도 같은 isin 으로 걷는다). 자르기를 하지 않는다(서버 시드는 하루 저널 전체).
+ * 1회차 isin 별 최신 행 → 후보가 아니면 건너뜀 · 2회차 후보 isin 의 같은 cycle 행을 (gwTimeMs, seq) 오름차순으로 걷는다.
  */
-export function isListedAccum(
-  sig: Pick<AccumSignal, 'isin' | 'state' | 'endReason'>,
-  closed: { has(isin: string): boolean },
-): boolean {
-  if (sig.state !== 3 || sig.endReason === 1) return true;
-  return sig.endReason === 4 && closed.has(sig.isin);
+export function closedTodayOf(rows: readonly StrategyEventRow[]): Map<string, ClosedToday> {
+  const latest = new Map<string, StrategyEventRow>();
+  for (const r of rows) {
+    const cur = latest.get(r.isin);
+    if (cur === undefined || isNewer(r, cur)) latest.set(r.isin, r);
+  }
+  const cycleRows = new Map<string, StrategyEventRow[]>();
+  for (const [isin, r] of latest) if (isClosedTodayCandidate(r)) cycleRows.set(isin, []);
+  for (const r of rows) {
+    const list = cycleRows.get(r.isin);
+    if (list === undefined || r.expectedCum !== (latest.get(r.isin) as StrategyEventRow).expectedCum) continue;
+    list.push(r);
+  }
+  const out = new Map<string, ClosedToday>();
+  for (const [isin, list] of cycleRows) {
+    list.sort((a, b) => (a.gwTimeMs !== b.gwTimeMs ? a.gwTimeMs - b.gwTimeMs : a.seq - b.seq));
+    let announced = false;
+    let down = false;
+    let closeRow: StrategyEventRow | null = null;
+    for (const r of list) {
+      if (isAnnounceRow(r.queueCase)) {
+        announced = true;
+        down = false;
+        continue;
+      }
+      // 종료 행(사유 1/4/5)만 — row 6 · 기동 정합(2) · 옛 만료(3)는 청산 시각을 바꾸지 않는다.
+      if (r.queueCase !== 4 || !isClosedTodayCandidate(r)) continue;
+      // 청산(사유 1) — 발표된 등록이 내려갔다(분당 행 없이 발표 직후 청산한 사이클도 오늘 발표됐다).
+      if (r.cancelReason === 1) announced = true;
+      // 발표 상태에서 처음 내려간 종료 행 — 이미 내려간 뒤의 종료 행(즉시 종료 · 하루 판정)은 시각을 지킨다.
+      if (!down) {
+        closeRow = r;
+        down = true;
+      }
+    }
+    if (announced && closeRow !== null) out.set(isin, { closedAtMs: closeRow.gwTimeMs, closeRow });
+  }
+  return out;
+}
+
+/**
+ * 목록에 싣는 신호(②') — 훅 목록 규칙 한 곳. 입력은 한 게이트웨이 행. 활성(1 · 2)은 그대로 · 청산(3)은 `closedTodayOf` 에 있을 때만
+ * 싣고 「갱신」 시각을 청산 시각으로 덮는다(값 · 하루 칸은 최신 행 그대로). 옛 규칙 매집 종료(ruleVersion < 2 · row 4 · 사유 4)는
+ * 청산 행의 신호에 종료 사유 4 · 청산 시각을 덮는다(옛 서버는 사유 4 에 88 이 없어 클라가 청산 순간 값을 들고 있었다). 정렬 전.
+ */
+export function listedAccumOf(rows: readonly StrategyEventRow[]): AccumSignal[] {
+  const closed = closedTodayOf(rows);
+  const out: AccumSignal[] = [];
+  for (const row of latestAccumByIsin(rows)) {
+    const sig = accumSignalOf(row);
+    if (sig === null) continue;
+    if (sig.state !== 3) {
+      out.push(sig);
+      continue;
+    }
+    const c = closed.get(sig.isin);
+    if (c === undefined) continue;
+    if (sig.ruleVersion < 2 && sig.row === 4 && sig.endReason === 4) {
+      const closeSig = accumSignalOf(c.closeRow) ?? sig;
+      out.push({ ...closeSig, endReason: 4, gwTimeMs: c.closedAtMs });
+      continue;
+    }
+    out.push({ ...sig, gwTimeMs: c.closedAtMs });
+  }
+  return out;
 }
 
 /** 표시 순서(②) — 새 배열을 돌려준다. */

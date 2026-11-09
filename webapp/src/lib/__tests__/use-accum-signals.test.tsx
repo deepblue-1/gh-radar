@@ -11,8 +11,9 @@ import type { StrategyEventRow } from '@gh-radar/shared';
  *  - relay status 가 ready 아닌 값 → ready 로 바뀌면 1회 더 · ready 유지 리렌더는 0회 · 폴링 없음
  *  - 복원 ∪ 라이브(accumSignalEvents · tradeDate 오늘만)를 합쳐 isin 별 최신만 AccumSignal 로 — 라이브의 늦은 행이 복원 행을 이긴다
  *  - 첫 요청이 끝나면(성공 · 실패) filled = true · 실패해도 라이브 행은 보인다
- *  - 목록 규칙(accum-list ②')을 훅이 적용 — 매집 종료(4)는 고른 서버의 그날 청산 행이 있을 때만 · 종료 사유 2 · 3 은 없다 ·
- *    매집 종료 행의 값 · 시각은 그날 최신 청산 행(end 1) 기준이고 종료 사유만 4(gh-trade WinForms 동형)
+ *  - 목록 규칙(accum-list ②' listedAccumOf)을 훅이 적용 — 옛 규칙 매집 종료(4)는 고른 서버의 그날 청산 행이 있을 때만 · 종료 사유 2 · 3 은 없다 ·
+ *    매집 종료 행의 값 · 시각은 그날 청산 행(end 1) 기준이고 종료 사유만 4(gh-trade WinForms 동형) · 새 규칙(rule 2) 하루 판정 종료는
+ *    첫 종료 시각 + row 6 하루 칸(quick-261109-tn6)
  *
  *  - 전날 순매수(quick-261026-01h) — 오늘 1회 fetchAccumReport()(인자 없음 = 최신 보고서) → prevDayNetOf(resp, 오늘) 를
  *    prevNet 으로 · 실패하면 빈 Map(signals · filled 그대로) · relay ready 전이로는 다시 부르지 않는다
@@ -235,6 +236,26 @@ describe('useAccumSignals', () => {
     await flush();
     expect(result.current.signals).toHaveLength(1);
     expect(result.current.signals[0]).toMatchObject({ state: 3, endReason: 4, netKrw: 50_000_000, gwTimeMs: closedAt, row: 4 });
+  });
+
+  it('새 규칙(rule 2 · quick-261109-tn6) — row4 사유5 뒤 row6 사유5 → 실림 · gwTimeMs = 사유5 종료 행 · dayNetKrw = row6 값', async () => {
+    const endAt = kstMs('2026-09-29', '20:01:00.100');
+    const rule2 = (over: Partial<StrategyEventRow>) =>
+      ac({ gateway: 'KB120', qty: 3, expectedCum: 3, message: 'since=20260929|rule=2', ...over });
+    fetchAccumSignalsMock.mockResolvedValue([
+      ac({ isin: 'KR7000020008', seq: 1, gateway: 'KB120', expectedCum: 3, queueCase: 1, gwTimeMs: kstMs('2026-09-29', '15:00:00.000') }),
+      rule2({ isin: 'KR7000020008', seq: 2, queueCase: 4, cancelReason: 5, gwTimeMs: endAt, snapQty: [0, 0, 800_000_000], snapCum: [0, 0, 700_000_000] }),
+    ]);
+    mockRelay = {
+      ...mockRelay,
+      accumSignalEvents: [
+        rule2({ isin: 'KR7000020008', seq: 3, queueCase: 6, cancelReason: 5, gwTimeMs: kstMs('2026-09-29', '20:05:00.000'), snapQty: [0, 0, 900_000_000], snapCum: [0, 0, 650_000_000] }),
+      ],
+    };
+    const { result } = renderHook(() => useAccumSignals('KB120'));
+    await flush();
+    expect(result.current.signals).toHaveLength(1);
+    expect(result.current.signals[0]).toMatchObject({ state: 3, endReason: 5, row: 6, ruleVersion: 2, gwTimeMs: endAt, dayNetKrw: 250_000_000 });
   });
 
   it('서버 기준(④) — gateway 를 주면 그 게이트웨이 행만 · gateway 도 돌려준다', async () => {

@@ -114,6 +114,7 @@ function sig(over: Partial<AccumSignal> = {}): AccumSignal {
     dayHiPx: null,
     thRecentPieces: null,
     thRecentSec: null,
+    ruleVersion: 0,
     ...over,
   };
 }
@@ -221,13 +222,19 @@ describe('AccumStrip — 칩 (안 A)', () => {
         sig(),
         sig({ isin: 'KR7000060004', state: 3, endReason: 1, netKrw: -20_000_000 }),
         sig({ isin: 'KR7000040006', state: 3, endReason: 4 }),
+        // quick-261109-tn6 — 새 규칙(rule 2) 하루 판정 종료 · 즉시 종료는 새 문구.
+        sig({ isin: 'KR7000080002', state: 3, endReason: 5, ruleVersion: 2 }),
+        sig({ isin: 'KR7000100008', state: 3, endReason: 4, ruleVersion: 2 }),
       ],
     });
     expect(chips()).toHaveLength(1);
     expect(within(chips()[0] as HTMLElement).queryByText('금호전기')).toBeNull();
     expect(within(chips()[0] as HTMLElement).queryByText('서산')).toBeNull();
     openTable();
-    expect(rows()).toHaveLength(3);
+    expect(rows()).toHaveLength(5);
+    const titles = Array.from(rows()).map((r) => r.getAttribute('title') ?? '');
+    expect(titles.some((t) => t.startsWith('하루 판정 종료 — 20:01'))).toBe(true);
+    expect(titles.some((t) => t.startsWith('즉시 종료(누적 ≤ 0)'))).toBe(true);
     const ended = Array.from(rows()).find((r) => r.textContent?.includes('금호전기')) as HTMLElement;
     const stopped = Array.from(rows()).find((r) => r.textContent?.includes('서산')) as HTMLElement;
     for (const r of [ended, stopped]) {
@@ -500,7 +507,7 @@ describe('AccumStrip — NXT 순매수 (quick-261022-ozx)', () => {
     setup({ signals: [sig()] });
     openTable();
     expect(screen.getByRole('columnheader', { name: '당일 순매수' }).getAttribute('title')).toBe(
-      '당일 팀 매수 − 매도(06:00 또는 새 사이클부터 · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)',
+      '당일 팀 매수 − 매도(06:00 에만 0(하루 순매수) · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)',
     );
     expect(screen.getByRole('columnheader', { name: 'NXT 순매수' }).getAttribute('title')).toContain('팀 순매수에 포함');
   });

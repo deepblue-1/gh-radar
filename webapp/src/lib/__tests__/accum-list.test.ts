@@ -11,8 +11,10 @@ import type { AccumReportResponse, AccumReportRow, AccumSignal, StrategyEventRow
  *    (먼저 청산한 순 · gh-trade 동형) — quick-261026-01h 당일 축
  *  - prevDayNetOf(resp, todayYmd): 최신 보고서가 오늘 전이면 그날 pos_day 차 · 오늘이면 prev_pos_day 차 · 결측 isin 없음 ·
  *    access false · date null · 미래 날짜 → 빈 Map(quick-261026-01h)
- *  - isListedAccum(sig, closed): 활성 전부 · 청산은 종료 사유 1 · 매집 종료(4)는 그날 청산 행이 있는 isin 만(06:00 기동 정합 · 만료 제외)
- *  - closedRowsOf: 자르기 뒤 queueCase 4 · cancelReason 1 행 — isin 별 최신 1건(매집 종료 행의 값 · 시각 정본)
+ *  - closedTodayOf · listedAccumOf(quick-261109-tn6 · gh-trade AccumClosedTodayFromJournal 동형): 활성 전부 · 회색 행은 최신 행이
+ *    row 4/6 · 사유 1/4/5 이고 같은 사이클이 오늘 발표된 뒤 종료한 종목만 · 「갱신」 시각 = 발표 상태에서 처음 내려간 종료 행 ·
+ *    값 = 최신 행(row 6 하루 칸) · 회색 후보는 자르기 면제 · 옛 규칙 매집 종료(사유 4)는 청산 행 값 + 사유 4
+ *  - 공용 픽스처 S(KB120 11/9 재현 — pgTAP dma_strategy_accum_signal 과 같은 시나리오) · RPC 축소 행 집합 동치
  *  - accumDismissKey = 활성 `${isin}|${cycle}` · 청산 `…|end`(같은 cycle 재등장) · ✕ 집합은 날짜 키(오늘)로 저장 · 다른 날은 빈 집합
  *  - advanceAccumMeta: 직전 커밋이 filled 전이면 새 키 무강조, filled 뒤 새 키(새 isin · 같은 isin 새 cycle)는
  *    now + HIGHLIGHT_MS 까지 강조 · 이미 본 키는 직전 값 유지 · state 3 은 강조하지 않음
@@ -23,10 +25,11 @@ import {
   accumDismissKey,
   addAccumDismissed,
   advanceAccumMeta,
-  closedRowsOf,
+  closedTodayOf,
   isAccumDismissed,
-  isListedAccum,
+  isClosedTodayCandidate,
   latestAccumByIsin,
+  listedAccumOf,
   readAccumDismissed,
   restoreCutByGateway,
   prevDayNetOf,
@@ -97,6 +100,7 @@ function sig(over: Partial<AccumSignal>): AccumSignal {
     dayHiPx: null,
     thRecentPieces: null,
     thRecentSec: null,
+    ruleVersion: 0,
     ...over,
   };
 }
@@ -265,64 +269,235 @@ describe('prevDayNetOf — 이월 행 전날 순매수(quick-261026-01h)', () =>
   });
 });
 
-describe('isListedAccum', () => {
-  const none = new Set<string>();
-  const mine = new Set(['KR7000020008']);
-  const other = new Set(['KR7000040006']);
+/* ── ②' 목록 규칙 — 서버 저널 시드 동형(quick-261109-tn6) ─────────────────── */
 
-  it('활성(1 · 2)은 전부 · 청산(3)은 종료 사유 1 — 그날 청산 행 집합과 무관', () => {
-    expect(isListedAccum(sig({ state: 1 }), none)).toBe(true);
-    expect(isListedAccum(sig({ state: 2 }), none)).toBe(true);
-    expect(isListedAccum(sig({ state: 3, endReason: 1 }), none)).toBe(true);
-  });
+const DAY = '2026-11-09';
+const at = (hms: string) => Date.parse(`${DAY}T${hms}+09:00`);
+const RULE2_MSG = 'since=20261109|reg=090000|recent=30/60|nxt=0/0|rule=2';
 
-  it('종료 사유 2 기동 정합 · 3 이월 만료는 뺀다 — 그날 청산 행이 있어도', () => {
-    expect(isListedAccum(sig({ state: 3, endReason: 2 }), mine)).toBe(false);
-    expect(isListedAccum(sig({ state: 3, endReason: 3 }), mine)).toBe(false);
-    expect(isListedAccum(sig({ state: 3, endReason: 2 }), none)).toBe(false);
-  });
+/** kind 16 전체 칸 행 — row 4 · 6 은 state 3. 하루 칸(snap 길이 3)은 dayBuy · daySell. */
+function ev(o: {
+  seq: number;
+  t: string;
+  isin: string;
+  q: number;
+  cyc: number;
+  why?: number;
+  rule2?: boolean;
+  net?: number;
+  dayBuy?: number;
+  daySell?: number;
+  gateway?: string;
+}): StrategyEventRow {
+  return {
+    gateway: o.gateway ?? 'KB120',
+    journalEpoch: 'ep-48',
+    seq: o.seq,
+    tradeDate: DAY,
+    gwTimeMs: at(o.t),
+    kind: 16,
+    group: 0,
+    exchange: 'KRX',
+    isin: o.isin,
+    stockCode: null,
+    cumVolume: 0,
+    accountNo: '',
+    orderNo: '',
+    price: 10_000,
+    qty: o.q === 4 || o.q === 6 ? 3 : 1,
+    orderCondition: '',
+    reasonCode: '',
+    condThreshold: o.net ?? 300_000_000,
+    condActual: 0,
+    condMetric: 0,
+    evKind: 0,
+    evPrice: 10_000,
+    evQtyBefore: 0,
+    evQtyAfter: 0,
+    evTradeQty: 0,
+    limitBidQty: 0,
+    bid1Price: 0,
+    bid1Qty: 0,
+    acceptLatencyUs: 10_000,
+    immediateFillQty: 0,
+    queueCase: o.q,
+    baseCum: 0,
+    aheadQty: 0,
+    expectedCum: o.cyc,
+    errorVolume: 0,
+    remainingVolume: 0,
+    hasRemaining: false,
+    cancelReason: o.why ?? 0,
+    resultCode: 0,
+    message: o.rule2 ? RULE2_MSG : '',
+    entryRound: 0,
+    snapQty: [9_000, 11_000, o.dayBuy ?? 500_000_000],
+    snapCum: [200_000_000, 30, o.daySell ?? 100_000_000],
+    askQtyAtLimit: 0,
+    openAtLimit: false,
+  } as StrategyEventRow;
+}
 
-  it('매집 종료(4)는 그날 청산 행이 있는 isin 만 — 없거나 다른 isin 만 있으면 뺀다', () => {
-    expect(isListedAccum(sig({ state: 3, endReason: 4 }), mine)).toBe(true);
-    expect(isListedAccum(sig({ state: 3, endReason: 4 }), none)).toBe(false);
-    expect(isListedAccum(sig({ state: 3, endReason: 4 }), other)).toBe(false);
-  });
+/**
+ * 공용 픽스처 S — 한 게이트웨이(KB120) · 하루(2026-11-09 KST). pgTAP dma_strategy_accum_signal.test.sql 과 같은 seq · 시나리오.
+ * P 등록 → 재기동 → 기동 하루 판정 종료(사유 5) · R 재기동 복원 활성 · H 숨김 이월 뒤 즉시 종료(오늘 발표 없음) ·
+ * Q 재기동 앞 오늘 청산 · D 재기동 앞 활성(재기동이 버림) · X 등록 상태 한 주문 ≤ 0(사유 1 → 사유 4 같은 ms) + row 6.
+ */
+const S: StrategyEventRow[] = [
+  ev({ seq: 1, t: '09:00:00', isin: 'P', q: 1, cyc: 3 }),
+  ev({ seq: 2, t: '15:00:00', isin: 'P', q: 1, cyc: 3 }),
+  ev({ seq: 3, t: '21:15:00', isin: 'R', q: 3, cyc: 1 }),
+  ev({ seq: 4, t: '21:16:00.100', isin: 'P', q: 4, cyc: 3, why: 5, rule2: true, dayBuy: 800_000_000, daySell: 700_000_000 }),
+  ev({ seq: 5, t: '21:17:00', isin: 'P', q: 6, cyc: 3, why: 5, rule2: true, dayBuy: 900_000_000, daySell: 650_000_000 }),
+  ev({ seq: 6, t: '10:30:00', isin: 'H', q: 4, cyc: 7, why: 4, rule2: true }),
+  ev({ seq: 7, t: '09:30:00', isin: 'Q', q: 1, cyc: 2 }),
+  ev({ seq: 8, t: '10:00:00', isin: 'Q', q: 4, cyc: 2, why: 1, rule2: true, dayBuy: 400_000_000 }),
+  ev({ seq: 9, t: '10:01:00', isin: 'Q', q: 6, cyc: 2, why: 1, rule2: true, dayBuy: 450_000_000 }),
+  ev({ seq: 10, t: '11:00:00', isin: 'D', q: 1, cyc: 1 }),
+  ev({ seq: 11, t: '13:00:00', isin: 'X', q: 1, cyc: 4 }),
+  ev({ seq: 12, t: '13:30:00', isin: 'X', q: 4, cyc: 4, why: 1, rule2: true, net: 100_000_000 }),
+  ev({ seq: 13, t: '13:30:00', isin: 'X', q: 4, cyc: 4, why: 4, rule2: true, net: -10_000_000 }),
+  ev({ seq: 14, t: '21:18:00', isin: 'X', q: 6, cyc: 4, why: 4, rule2: true, net: -10_000_000, dayBuy: 50_000_000, daySell: 300_000_000 }),
+];
+/** 복원 RPC(20261109500000)가 그날 KB120 에 내는 seq 집합 — pgTAP 과 같은 기대. */
+const RPC_SEQS = [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14];
 
-  it('두 번째 인자는 has(isin) 만 본다 — closedRowsOf 의 Map 도 그대로 받는다', () => {
-    const closed = closedRowsOf([row({ isin: 'KR7000020008', queueCase: 4, cancelReason: 1 })]);
-    expect(isListedAccum(sig({ state: 3, endReason: 4 }), closed)).toBe(true);
+describe("isClosedTodayCandidate — 회색 후보 술어(RPC queue_case IN (4, 6) AND cancel_reason IN (1, 4, 5))", () => {
+  it('row 4 · 6 이고 사유 1 · 4 · 5 만', () => {
+    for (const q of [4, 6]) for (const c of [1, 4, 5]) expect(isClosedTodayCandidate({ queueCase: q, cancelReason: c })).toBe(true);
+    expect(isClosedTodayCandidate({ queueCase: 4, cancelReason: 2 })).toBe(false);
+    expect(isClosedTodayCandidate({ queueCase: 4, cancelReason: 3 })).toBe(false);
+    expect(isClosedTodayCandidate({ queueCase: 1, cancelReason: 1 })).toBe(false);
+    expect(isClosedTodayCandidate({ queueCase: 6, cancelReason: 0 })).toBe(false);
   });
 });
 
-describe("closedRowsOf — 그날 청산 행(②')", () => {
-  it('queueCase 4 · cancelReason 1 행만 — 매집 종료(4) · 기동 정합(2) 종료 행 · 행 종류 1 은 아니다', () => {
-    const out = closedRowsOf([
-      row({ isin: 'A', seq: 1, queueCase: 4, cancelReason: 1 }),
-      row({ isin: 'B', seq: 2, queueCase: 4, cancelReason: 4 }),
-      row({ isin: 'C', seq: 3, queueCase: 4, cancelReason: 2 }),
-      row({ isin: 'D', seq: 4, queueCase: 1, cancelReason: 0 }),
+describe("listedAccumOf — 공용 픽스처 S(KB120 11/9 기동 하루 판정 재현)", () => {
+  const out = listedAccumOf(S);
+  const by = new Map(out.map((s) => [s.isin, s]));
+
+  it('R 활성 · P(사유 5) · Q(사유 1) · X(사유 4) 회색 · H(오늘 발표 없음) · D(자르기 앞 활성) 없음', () => {
+    expect([...by.keys()].sort()).toEqual(['P', 'Q', 'R', 'X']);
+    expect(by.get('R')).toMatchObject({ state: 1, row: 3 });
+  });
+
+  it('P — 복원 묶음 앞 발표여도 실린다 · 시각 = 첫 종료(seq4) · 값 · 하루 칸 = 최신 row 6(seq5)', () => {
+    expect(by.get('P')).toMatchObject({ state: 3, endReason: 5, row: 6, ruleVersion: 2, gwTimeMs: at('21:16:00.100'), dayNetKrw: 250_000_000 });
+  });
+
+  it('Q — 재기동 앞 오늘 청산 · 시각 = seq8 · 값 = seq9(row 6)', () => {
+    expect(by.get('Q')).toMatchObject({ state: 3, endReason: 1, row: 6, gwTimeMs: at('10:00:00'), dayBuyKrw: 450_000_000 });
+  });
+
+  it('X — 사유 1 → 사유 4 같은 ms · 시각 = seq12(첫 종료) · 값 · 하루 칸 = seq14 · 사유 4(새 규칙 즉시 종료)', () => {
+    expect(by.get('X')).toMatchObject({
+      state: 3,
+      endReason: 4,
+      row: 6,
+      gwTimeMs: at('13:30:00'),
+      netKrw: -10_000_000,
+      dayNetKrw: -250_000_000,
+    });
+  });
+
+  it('RPC 축소 행 집합 동치 — listedAccumOf(RPC 기대 seq 행만) = listedAccumOf(S 전체)', () => {
+    const reduced = S.filter((r) => RPC_SEQS.includes(r.seq));
+    expect(sortAccum(listedAccumOf(reduced))).toEqual(sortAccum(out));
+  });
+
+  it('sortAccum 순서 안정 — P · Q · X 뒤에 row 6 이 더 와도 회색 행 상대 순서 · gwTimeMs 그대로', () => {
+    const before = sortAccum(out).filter((s) => s.state === 3);
+    const more = [
+      ...S,
+      ev({ seq: 15, t: '21:19:00', isin: 'Q', q: 6, cyc: 2, why: 1, rule2: true, dayBuy: 999_000_000 }),
+      ev({ seq: 16, t: '21:20:00', isin: 'P', q: 6, cyc: 3, why: 5, rule2: true, dayBuy: 1_000_000_000 }),
+      ev({ seq: 17, t: '21:21:00', isin: 'X', q: 6, cyc: 4, why: 4, rule2: true }),
+    ];
+    const after = sortAccum(listedAccumOf(more)).filter((s) => s.state === 3);
+    expect(after.map((s) => [s.isin, s.gwTimeMs])).toEqual(before.map((s) => [s.isin, s.gwTimeMs]));
+    expect(after.map((s) => s.isin)).toEqual(['Q', 'X', 'P']);
+    expect(after.find((s) => s.isin === 'Q')?.dayBuyKrw).toBe(999_000_000);
+  });
+});
+
+describe("closedTodayOf · listedAccumOf — 경계 · 옛 규칙 회귀", () => {
+  it('옛 규칙(rule 키 없음) row1 → row4 사유1 → row4 사유4(같은 ms) — 실림 · 값 · gwTimeMs = 사유1 행 · endReason 4', () => {
+    const rows = [
+      ev({ seq: 1, t: '09:30:00', isin: 'A', q: 1, cyc: 2 }),
+      ev({ seq: 2, t: '09:50:00', isin: 'A', q: 4, cyc: 2, why: 1, net: 50_000_000 }),
+      ev({ seq: 3, t: '09:50:00', isin: 'A', q: 4, cyc: 2, why: 4, net: -200_000_000 }),
+    ];
+    expect(closedTodayOf(rows).get('A')?.closeRow.seq).toBe(2);
+    const [a] = listedAccumOf(rows);
+    expect(a).toMatchObject({ state: 3, endReason: 4, netKrw: 50_000_000, gwTimeMs: at('09:50:00'), row: 4, ruleVersion: 0 });
+  });
+
+  it('옛 규칙 — 오늘 사유1 없이 row4 사유4 만이면 싣지 않는다(숨김 이월 뒤 매집 종료)', () => {
+    expect(listedAccumOf([ev({ seq: 1, t: '09:40:00', isin: 'A', q: 4, cyc: 2, why: 4 })])).toEqual([]);
+  });
+
+  it('옛 규칙 — 다른 게이트웨이에만 사유1 이 있어도 싣지 않는다(훅이 한 게이트웨이 행만 넘긴다)', () => {
+    const mine = [ev({ seq: 6, t: '09:46:00', isin: 'A', q: 4, cyc: 2, why: 4 })];
+    const other = ev({ seq: 1, t: '09:45:00', isin: 'A', q: 4, cyc: 2, why: 1, gateway: 'KYOBO119' });
+    expect(listedAccumOf(mine)).toEqual([]);
+    expect([...closedTodayOf([other]).keys()]).toEqual(['A']); // 그 서버 행만 주면 그 서버에선 실린다
+  });
+
+  it('사유 2(기동 정합) · 3(이월 만료) 최신 행은 싣지 않는다 — 오늘 발표가 있어도', () => {
+    for (const why of [2, 3]) {
+      const rows = [
+        ev({ seq: 1, t: '09:30:00', isin: 'A', q: 1, cyc: 2 }),
+        ev({ seq: 2, t: '09:31:00', isin: 'A', q: 4, cyc: 2, why }),
+      ];
+      expect(listedAccumOf(rows)).toEqual([]);
+    }
+  });
+
+  it('row 6 만 있고 오늘 종료 행이 없으면(06:00 전 자정 넘김) 싣지 않는다', () => {
+    const rows = [
+      ev({ seq: 1, t: '06:00:00', isin: 'A', q: 2, cyc: 2 }),
+      ev({ seq: 2, t: '06:01:00', isin: 'A', q: 6, cyc: 2, why: 1, rule2: true }),
+    ];
+    expect(closedTodayOf(rows).size).toBe(0);
+    expect(listedAccumOf(rows)).toEqual([]);
+  });
+
+  it('청산 → 같은 사이클 재등장(row 1) → 다시 청산이면 gwTimeMs = 뒤 청산 시각', () => {
+    const rows = [
+      ev({ seq: 1, t: '09:30:00', isin: 'A', q: 1, cyc: 2 }),
+      ev({ seq: 2, t: '10:00:00', isin: 'A', q: 4, cyc: 2, why: 1, rule2: true }),
+      ev({ seq: 3, t: '10:30:00', isin: 'A', q: 1, cyc: 2, rule2: true }),
+      ev({ seq: 4, t: '11:00:00', isin: 'A', q: 4, cyc: 2, why: 1, rule2: true }),
+      ev({ seq: 5, t: '11:01:00', isin: 'A', q: 6, cyc: 2, why: 1, rule2: true }),
+    ];
+    expect(listedAccumOf(rows)[0]).toMatchObject({ state: 3, endReason: 1, gwTimeMs: at('11:00:00'), row: 6 });
+  });
+
+  it('다른 사이클의 발표는 세지 않는다 — 새 사이클이 오늘 발표 없이 끝나면 싣지 않는다', () => {
+    const rows = [
+      ev({ seq: 1, t: '09:30:00', isin: 'A', q: 1, cyc: 1 }),
+      ev({ seq: 2, t: '09:40:00', isin: 'A', q: 4, cyc: 1, why: 4, rule2: true }),
+      ev({ seq: 3, t: '20:01:00', isin: 'A', q: 4, cyc: 2, why: 5, rule2: true }),
+    ];
+    expect(listedAccumOf(rows)).toEqual([]);
+  });
+
+  it('자르기 앞 오늘 청산 행도 회색 후보라 실린다(서버 저널 시드 동형 — 시드는 하루 저널 전체를 본다)', () => {
+    const rows = [
+      ev({ seq: 1, t: '09:30:00', isin: 'A', q: 1, cyc: 1 }),
+      ev({ seq: 2, t: '10:00:00', isin: 'A', q: 4, cyc: 1, why: 1, rule2: true }),
+      ev({ seq: 3, t: '21:15:00', isin: 'C', q: 3, cyc: 1 }),
+      ev({ seq: 4, t: '11:00:00', isin: 'B', q: 1, cyc: 1 }), // 자르기 앞 활성 — 버린다
+    ];
+    expect(listedAccumOf(rows).map((s) => [s.isin, s.state]).sort()).toEqual([
+      ['A', 3],
+      ['C', 1],
     ]);
-    expect([...out.keys()]).toEqual(['A']);
   });
 
-  it('isin 별 최신 청산 행 1건 — 같은 사이클 청산 · 재등장 · 다시 청산이면 뒤 청산', () => {
-    const first = row({ isin: 'A', seq: 1, gwTimeMs: 1_000, queueCase: 4, cancelReason: 1 });
-    const again = row({ isin: 'A', seq: 3, gwTimeMs: 3_000, queueCase: 4, cancelReason: 1 });
-    const out = closedRowsOf([again, row({ isin: 'A', seq: 2, gwTimeMs: 2_000, queueCase: 1 }), first]);
-    expect(out.get('A')).toBe(again);
-  });
-
-  it('같은 게이트웨이의 최근 복원 묶음(queueCase 3) 시작보다 이른 청산 행은 세지 않는다', () => {
-    const out = closedRowsOf([
-      row({ isin: 'A', seq: 1, gwTimeMs: 1_000, queueCase: 4, cancelReason: 1 }),
-      row({ isin: 'C', seq: 2, gwTimeMs: 2_000, queueCase: 3 }),
-      row({ isin: 'B', seq: 3, gwTimeMs: 3_000, queueCase: 4, cancelReason: 1 }),
-    ]);
-    expect([...out.keys()]).toEqual(['B']);
-  });
-
-  it('빈 입력 → 빈 Map', () => {
-    expect(closedRowsOf([]).size).toBe(0);
+  it('빈 입력 → 빈 결과', () => {
+    expect(closedTodayOf([]).size).toBe(0);
+    expect(listedAccumOf([])).toEqual([]);
   });
 });
 

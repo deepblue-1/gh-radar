@@ -31,10 +31,11 @@
  *   이름과 무관하게 싣는다. 이름 폴백은 relay 라벨 → 종목 마스터.
  * ⑦ 수익률(당일) = 표시 현재가 ÷ **당일 평단**(dayAvgPx) − 1(gh-trade 클라 「수익률」 열 동형 · 2026-10-21 사용자 요청 · ⑩ 로 당일
  *   기준) — 평단 열 다음, 모든 밴드에 보인다. 현재가나 당일 평단이 없으면 「—」. 청산 행은 구독하지 않으므로 행 값(마지막 팀 체결가) 기준이다(①).
- * ⑧ 목록 거름(accum-list ②')은 훅(`useAccumSignals`)이 한 번 한다 — 패널은 받은 행을 그대로 보인다. 청산 행은 종료 사유 1 과,
- *   그날 청산 행이 있는 종목의 매집 종료(4)뿐이고, 매집 종료 행도 배지 「청산」 · 회색 그대로 툴팁만 「매집 종료 — …」(gh-trade 클라는
- *   end 4 에 88 이 없어 회색 청산 행을 자정까지 둔다 · 값 · 「갱신」 은 그 청산 행). 06:00 · 기동 정합 종료 행과 숨김 이월 뒤 매집 종료 행은
- *   싣지 않는다.
+ * ⑧ 목록 거름(accum-list ②')은 훅(`useAccumSignals`)이 한 번 한다 — 패널은 받은 행을 그대로 보인다. 청산 행은 그날 발표된 사이클이
+ *   종료(1 청산 · 4 즉시 종료 · 5 하루 판정 종료)한 종목뿐이고(gh-trade 서버 저널 시드 동형 · quick-261109-tn6), 배지는 「청산」 · 회색
+ *   그대로 툴팁만 규칙판별 사유 문구(`accumEndReasonLabelOf` — rule 2 행 4 「즉시 종료(누적 ≤ 0)」 · 5 「하루 판정 종료」 · 옛 행은 옛 문구).
+ *   「갱신」 은 첫 종료 시각에 고정되고 하루 칸은 row 6(하루 값 갱신)으로 06:00 까지 움직인다. 옛 규칙 매집 종료(옛 사유 4)는 지금처럼
+ *   값 · 「갱신」 이 그 청산 행이다. 06:00 · 기동 정합 종료 행과 오늘 발표 없이 끝난 숨김 이월 종목은 싣지 않는다.
  * ⑨ NXT 순매수(quick-261022-ozx · 인박스 261022-accum-nxt-team-burst · gh-trade Phase 37) — 팀 순매수 바로 다음 열 ·
  *   값 = nxtBuyKrw − nxtSellKrw(kind 16 error_volume − remaining_volume) · 팀 순매수와 같은 억 포맷 · 부호 색 · 0(옛 행 ·
  *   NXT 없는 종목)은 「0.0억」 그대로. 팀 순매수(netKrw)는 KRX+NXT 합산 — 열 이름 대신 머리 · 칩 title 로 알린다.
@@ -60,8 +61,8 @@
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  ACCUM_END_REASON_LABELS,
   ACCUM_STATE_LABELS,
+  accumEndReasonLabelOf,
   type AccumSignal,
   type RelayExchange,
 } from '@gh-radar/shared';
@@ -737,7 +738,7 @@ const AccumTable = memo(function AccumTable({
           <TableHead scope="col" className={cn(th, 'text-right')}>등락률</TableHead>
           <TableHead
             scope="col"
-            title="당일 팀 매수 − 매도(06:00 또는 새 사이클부터 · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)"
+            title="당일 팀 매수 − 매도(06:00 에만 0(하루 순매수) · 우리 체결 제외) · 아랫줄 누적 = 등록 이후 사이클 누적(KRX+NXT · 이월 포함) · 전날 = 이월 행의 전 거래일 순매수(KYOBO119 보고서)"
             className={cn(th, 'text-right')}
           >
             당일 순매수
@@ -772,7 +773,7 @@ const AccumTable = memo(function AccumTable({
               data-new={v.highlighted ? 'true' : undefined}
               data-trading={v.trading ? 'true' : undefined}
               data-filtered-out={dimmed ? 'true' : undefined}
-              title={ended ? (ACCUM_END_REASON_LABELS[v.sig.endReason] ?? '청산') : undefined}
+              title={ended ? accumEndReasonLabelOf(v.sig) : undefined}
               onClick={() => onActivate(v)}
               className={cn(
                 v.trading ? 'cursor-default' : 'cursor-pointer',

@@ -2,11 +2,14 @@
  * quick-261018-rfy — kind 16 `AccumSignal`(매집감지) 행 → 이름 풀기.
  * 칸 매핑 정본 = 인박스 `docs/inbox/from-gh-trade/261018-accum-signal.md` 「kind 16 — 43칸 매핑 표」.
  * quick-261025-uf2 — 인박스 261025-accum-day-axis ③ 당일 칸 · message 새 꼴(day= · recent= · warn 삭제 · nxt 2값).
+ * quick-261109-tn6 — 인박스 261109-accum-day-net(gh-trade Phase 48) message rule= → ruleVersion · 규칙판별 종료 사유 문구.
  */
 import { describe, it, expect } from "vitest";
 import {
   ACCUM_END_REASON_LABELS,
+  ACCUM_END_REASON_LABELS_RULE2,
   ACCUM_STATE_LABELS,
+  accumEndReasonLabelOf,
   accumSignalOf,
 } from "../accum-signal";
 import type { StrategyEventRow } from "../strategy-event";
@@ -118,6 +121,7 @@ describe("accumSignalOf — kind 16 43칸 → 이름 (노트 매핑 표)", () =>
       dayHiPx: null,
       thRecentPieces: null,
       thRecentSec: null,
+      ruleVersion: 0,
     });
   });
 
@@ -364,5 +368,55 @@ describe("accumSignalOf — 당일 축(quick-261025-uf2 · 인박스 261025-accu
     expect(sig?.daySellKrw).toBe(456_000_000);
     expect(sig?.dayNetKrw).toBe(778_000_000);
     expect(sig?.dayAvgPx).toBe(10_250);
+  });
+});
+
+describe("accumSignalOf — 규칙판(quick-261109-tn6 · 인박스 261109-accum-day-net · gh-trade Phase 48)", () => {
+  it("message …|rule=2 → ruleVersion 2 · rule 키 없음 → 0 · rule=x(숫자 아님) → 0", () => {
+    expect(accumSignalOf(dayAxisRow({ message: `${DAY_AXIS_MESSAGE}|rule=2` }))?.ruleVersion).toBe(2);
+    expect(accumSignalOf(dayAxisRow())?.ruleVersion).toBe(0);
+    expect(accumSignalOf(dayAxisRow({ message: `${DAY_AXIS_MESSAGE}|rule=x` }))?.ruleVersion).toBe(0);
+    expect(accumSignalOf(dayAxisRow({ message: `${DAY_AXIS_MESSAGE}|rule=-2` }))?.ruleVersion).toBe(0);
+    expect(accumSignalOf(dayAxisRow({ message: "" }))?.ruleVersion).toBe(0);
+  });
+
+  it("rule 키는 다른 키 파싱을 바꾸지 않는다", () => {
+    const sig = accumSignalOf(dayAxisRow({ message: `${DAY_AXIS_MESSAGE}|rule=2` }));
+    expect(sig?.thRecentPieces).toBe(30);
+    expect(sig?.thRecentSec).toBe(60);
+    expect(sig?.dayNetQty).toBe(-1200);
+  });
+
+  it("row 6(하루 값 갱신)도 칸 그대로 — state 3 · 사유 5 를 버리지 않는다", () => {
+    const sig = accumSignalOf(dayAxisRow({ qty: 3, queueCase: 6, cancelReason: 5, message: `${DAY_AXIS_MESSAGE}|rule=2` }));
+    expect(sig?.state).toBe(3);
+    expect(sig?.row).toBe(6);
+    expect(sig?.endReason).toBe(5);
+  });
+});
+
+describe("accumEndReasonLabelOf — 규칙판별 종료 사유 문구", () => {
+  it("ruleVersion 2 — 4 즉시 종료 · 5 하루 판정 종료 · 1 · 2 는 옛 문구와 같다", () => {
+    expect(accumEndReasonLabelOf({ endReason: 4, ruleVersion: 2 }).startsWith("즉시 종료(누적 ≤ 0)")).toBe(true);
+    expect(accumEndReasonLabelOf({ endReason: 5, ruleVersion: 2 }).startsWith("하루 판정 종료")).toBe(true);
+    expect(accumEndReasonLabelOf({ endReason: 1, ruleVersion: 2 })).toBe(ACCUM_END_REASON_LABELS[1]);
+    expect(accumEndReasonLabelOf({ endReason: 2, ruleVersion: 2 })).toBe(ACCUM_END_REASON_LABELS[2]);
+    expect(ACCUM_END_REASON_LABELS_RULE2[3]).toBeUndefined();
+  });
+
+  it("ruleVersion 0 — 옛 문구 그대로", () => {
+    for (const r of [1, 2, 3, 4]) {
+      expect(accumEndReasonLabelOf({ endReason: r, ruleVersion: 0 })).toBe(ACCUM_END_REASON_LABELS[r]);
+    }
+  });
+
+  it("사유 5 는 ruleVersion 0 이어도 하루 판정 종료(rule 키가 잘린 행 방어)", () => {
+    expect(accumEndReasonLabelOf({ endReason: 5, ruleVersion: 0 }).startsWith("하루 판정 종료")).toBe(true);
+  });
+
+  it("모르는 사유 → 「청산」", () => {
+    expect(accumEndReasonLabelOf({ endReason: 9, ruleVersion: 0 })).toBe("청산");
+    expect(accumEndReasonLabelOf({ endReason: 9, ruleVersion: 2 })).toBe("청산");
+    expect(accumEndReasonLabelOf({ endReason: 3, ruleVersion: 2 })).toBe("청산");
   });
 });

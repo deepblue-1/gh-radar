@@ -25,12 +25,20 @@
  * `since|reg|st|end|cyc|carry|row|our|th|day|recent|nxt(2)` — `day=<net_qty>/<lo_px>/<hi_px>` · `recent=<pieces>/<sec>` 를
  * 읽는다. `|warn=` 은 삭제됐고(has_remaining 칸이 정본) `|nxt=` 는 수량 둘만(금액은 칸이 정본)이라 둘 다 계속 읽지 않는다.
  *
+ * quick-261109-tn6 — 인박스 `261109-accum-day-net`(gh-trade Phase 48 · 하루 순매수 · 사이클 규칙): 와이어 칸은 그대로고 뜻과 값이 늘었다.
+ * - row(queueCase) 6 「하루 값 갱신」 — state 3 · endReason = 그날 마지막 종료 사유(1/4/5) · cycle/since 는 끝난 사이클 값 그대로이고
+ *   하루 칸(snapQty[2] · snapCum[2] · acceptLatencyUs)만 움직인다. 사이클 경계 · 종료가 아니다.
+ * - endReason 4 새 뜻 = 즉시 종료(사이클 누적 순매수 ≤ 0 — 등록 상태면 사유 1 → 사유 4 두 행 · 88 회색 행 있음) ·
+ *   5 새 값 = 하루 판정 종료(20:01 보유 비율 5% 미만 또는 사이클 누적 2억 미만) · 3 이월 만료는 옛 서버만 낸다.
+ * - message 꼬리 `|rule=2` = 새 규칙 행 표식 → `ruleVersion`(키 없음 = 0 = 옛 규칙 · export `rule_version` 0 과 같은 뜻).
+ *   주의: message 칸은 255B 에서 잘린다 — 잘리면 꼬리의 rule 키부터 사라져 새 행도 0 으로 읽힌다(현실 ≈ 173B 라 여유는 있다).
+ *
  * 입력은 이미 숫자화된 `StrategyEventRow`(REST 매퍼 · wss 푸시 공용)라 값 보정이 없다. 유일한 기본값은 길이가
  * 모자란 `snapQty`/`snapCum` 원소의 0 이다. 당일 칸(셋째 원소 · 평단)은 둘 다 길이 3 이 아니면 0 이 아니라 null 이다.
  */
 import { STRATEGY_EVENT_KIND, type StrategyEventRow } from "./strategy-event";
 
-/** 1 매집중 · 2 매도중 · 3 종료(청산 · 기동 정합 · 이월 만료 · 매집 종료). */
+/** 1 매집중 · 2 매도중 · 3 종료(청산 · 기동 정합 · 이월 만료 · 즉시 종료(옛 매집 종료) · 하루 판정 종료). */
 export type AccumState = 1 | 2 | 3;
 
 /** kind 16 행 1건을 이름으로 푼 값(팀 매집 누적 상태 전체 — 델타 아님). 금액 단위 원 · 수량 단위 주. */
@@ -45,7 +53,12 @@ export type AccumSignal = {
   /** 행을 만든 시각(분 경계 틱 · 복원 = 기동 · 종료 = 청산 시각). 「갱신」 표시 · 최신 판정 정본. */
   gwTimeMs: number;
   state: AccumState;
-  /** 0 없음 · 1 청산(순매수 등록 임계 미만 숨김 — 같은 cycle 로 재등장 가능) · 2 서버 재기동 때 복원 안 됨 · 3 이월 10일 만료 · 4 매집 종료(청산 뒤 순매수가 등록 뒤 최고의 −30% 이하 — 같은 사이클 두 번째 종료 행 · 장중 팀 주문에서만 · 88 없음 · 다음 등록은 cycle + 1). */
+  /**
+   * 0 없음 · 1 청산(순매수 등록 임계 미만 숨김 — 같은 cycle 로 재등장 가능) · 2 서버 재기동 때 복원 안 됨 · 3 이월 10일 만료(옛 서버만) ·
+   * 4 즉시 종료(rule 2 — 사이클 누적 순매수 ≤ 0 · 등록 상태면 사유 1 → 사유 4 두 행 · 다음 등록은 cycle + 1) / 옛 행은 매집 종료(숨김 중
+   * 청산 뒤 순매수가 등록 뒤 최고의 −30% 이하 — 장중 팀 주문에서만 · 88 없음) · 5 하루 판정 종료(rule 2 — 20:01 보유 비율 5% 미만 또는
+   * 사이클 누적 2억 미만). 문구는 `accumEndReasonLabelOf`.
+   */
   endReason: number;
   /** 사이클 번호(첫 사이클 1 · 청산 뒤 재등장은 같은 번호 · 만료 · 기동 정합 · 매집 종료 뒤 새 등록만 +1). */
   cycle: number;
@@ -83,7 +96,7 @@ export type AccumSignal = {
   lastPx: number;
   /** 등락률 × 100(부호 포함 · 종료 · 복원 행 0). */
   rateBp: number;
-  /** 행 종류 — 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료 · 5 매도 경보 에지. */
+  /** 행 종류 — 1 분당 · 2 거래일 첫 스냅샷 · 3 복원 스냅샷 · 4 종료 · 5 매도 경보 에지 · 6 하루 값 갱신(Phase 48 — 끝난 사이클 값 + 하루 칸 최신). */
   row: number;
   /** 지금 매도 경보 중(칸 hasRemaining) — 매집중에서만 켜진다(서버 규칙). */
   sellWarn: boolean;
@@ -98,9 +111,9 @@ export type AccumSignal = {
   thMinSame: number;
   thMaxMcapKrw: number | null;
   // ── 당일 축(quick-261025-uf2 · 인박스 261025-accum-day-axis ③) — 옛 행(snap 길이 2 · message 키 없음)은 null ──
-  /** 당일 팀 매수 금액(원 · snapQty[2]) — 우리 체결 제외 · 06:00 · 새 사이클 · 종료 프레임 직전 0. */
+  /** 당일 팀 매수 금액(원 · snapQty[2]) — 우리 체결 제외 · rule 2 행은 06:00 에만 0(하루 순매수) · 옛 행은 06:00 · 새 사이클 · 종료 프레임 직전 0. */
   dayBuyKrw: number | null;
-  /** 당일 팀 매도 금액(원 · snapCum[2]) — 우리 체결 제외 · 06:00 · 새 사이클 · 종료 프레임 직전 0. */
+  /** 당일 팀 매도 금액(원 · snapCum[2]) — 우리 체결 제외 · rule 2 행은 06:00 에만 0(하루 순매수) · 옛 행은 06:00 · 새 사이클 · 종료 프레임 직전 0. */
   daySellKrw: number | null;
   /** 당일 팀 순매수 금액(매수 − 매도 · 파생 · 음수 가능). */
   dayNetKrw: number | null;
@@ -115,9 +128,11 @@ export type AccumSignal = {
   thRecentPieces: number | null;
   /** 서버 등록 임계 — 위 창 초(message `recent=` 둘째 조각) · 0 = 옛 서버. */
   thRecentSec: number | null;
+  /** 판정 규칙판(message `rule=` · 음 아닌 정수) — 0 = 키 없음 · 깨짐 = 옛 규칙. 2 = gh-trade Phase 48 하루 순매수 · 사이클 규칙. */
+  ruleVersion: number;
 };
 
-/** 상태 배지 문구 — gh-trade 클라 동형. 종료 사유 1~4 는 배지 하나 「청산」(사유는 `ACCUM_END_REASON_LABELS` 툴팁). */
+/** 상태 배지 문구 — gh-trade 클라 동형. 종료 사유 1~5 는 배지 하나 「청산」(사유는 `ACCUM_END_REASON_LABELS` 툴팁). */
 export const ACCUM_STATE_LABELS: Readonly<Record<AccumState, string>> = {
   1: "매집중",
   2: "매도중",
@@ -131,6 +146,26 @@ export const ACCUM_END_REASON_LABELS: Readonly<Record<number, string>> = {
   3: "이월 10일 만료",
   4: "매집 종료 — 청산 뒤 순매수가 사이클 최고의 −30% 이하(최고 10억 → −3억)",
 };
+
+/**
+ * 새 규칙(rule 2 · gh-trade Phase 48) 종료 사유 문구. 1 · 2 는 옛 문구와 같고, 4 는 새 뜻(즉시 종료) · 5 는 새 값이다.
+ * 3(이월 만료)은 이월 상한이 없어져 새 서버가 내지 않는다 — 표에 없다(오면 「청산」).
+ */
+export const ACCUM_END_REASON_LABELS_RULE2: Readonly<Record<number, string>> = {
+  1: ACCUM_END_REASON_LABELS[1],
+  2: ACCUM_END_REASON_LABELS[2],
+  4: "즉시 종료(누적 ≤ 0) — 사이클 누적 순매수가 0 이하(다음 등록은 새 사이클)",
+  5: "하루 판정 종료 — 20:01 보유 비율 5% 미만 또는 사이클 누적 2억 미만",
+};
+
+/**
+ * 종료 사유 문구 — ruleVersion ≥ 2 이거나 사유 5(새 서버만 낸다)면 새 규칙 표, 아니면 옛 표. 표에 없으면 「청산」.
+ * 전환일(그 서버 배포 당일)에만 옛 사유 4 행 뒤에 새 서버의 같은 사이클 row 6(rule 2 · 사유 4)이 오면 「즉시 종료」로 보인다.
+ */
+export function accumEndReasonLabelOf(sig: Pick<AccumSignal, "endReason" | "ruleVersion">): string {
+  const table = sig.ruleVersion >= 2 || sig.endReason === 5 ? ACCUM_END_REASON_LABELS_RULE2 : ACCUM_END_REASON_LABELS;
+  return table[sig.endReason] ?? "청산";
+}
 
 /** message `k=v|k=v…` → Map. 키 순서는 보지 않는다. */
 function parseAccumMessage(message: string): Map<string, string> {
@@ -175,6 +210,11 @@ function recentOf(v: string | undefined): [number, number] | null {
   const parts = v.split("/");
   if (parts.length !== 2 || !/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) return null;
   return [Number(parts[0]), Number(parts[1])];
+}
+
+/** `rule=<N>` — 음 아닌 정수만. 없음 · 깨짐 = 0(옛 규칙). */
+function ruleVersionOf(v: string | undefined): number {
+  return v !== undefined && /^\d+$/.test(v) ? Number(v) : 0;
 }
 
 function isAccumState(n: number): n is AccumState {
@@ -244,5 +284,6 @@ export function accumSignalOf(row: StrategyEventRow): AccumSignal | null {
     dayHiPx: day ? day[2] : null,
     thRecentPieces: recent ? recent[0] : null,
     thRecentSec: recent ? recent[1] : null,
+    ruleVersion: ruleVersionOf(msg.get("rule")),
   };
 }
