@@ -64,12 +64,64 @@ function isTickViewerHref(href: string): boolean {
 }
 
 /**
- * 맨 경로로 온 틱뷰어 주소(`틱 보기: /analytics/ticks?…` 또는 `/analytics/ticks?…`)를 마크다운 링크로 바꾼다.
- * GFM 자동 링크는 http(s)·www 만 잡아 내부 경로가 글자로 남던 문제(39 UAT) — 이미 `[…](…)` 안인 주소는 건드리지 않는다.
+ * 맨 경로 틱뷰어 주소 — 쿼리는 도구가 실제로 만드는 문자(`isin=…&d=…&ex=NXT&t=HH:MM:SS.mmm`)만 받고 영숫자로 끝난다.
+ * 그래서 백틱 · `*` · `|` · 공백 · `)` · `]` · 한글 조사 · 문장 끝 마침표에서 멈춘다(39 REVIEW WR-02 — 꼬리가 `t` 에
+ * 섞이면 뷰어 `parseTickTime` 이 null 이 되어 08:00 첫 틱으로 조용히 떨어진다).
  */
-const BARE_TICK_PATH = /(틱 보기:\s*)?(?<!\]\()(\/analytics\/ticks\?[^\s)\]]+)/g;
+const BARE_TICK_PATH = /(틱 보기:[ \t]*)?(\/analytics\/ticks\?[A-Za-z0-9=&:.%-]*[A-Za-z0-9])/g;
+/** 펜스 코드 블록의 여는 줄(들여쓰기 0~3칸 + ``` 또는 ~~~ 3개 이상). */
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+/** 문단 안에서 건드리지 않는 구간 — 인라인 코드 · 이미 있는 `[…](…)` 링크 · `<…>` 자동 링크. */
+const INLINE_PROTECTED = /(`+)[\s\S]*?\1|\[[^\]\n]*\]\((?:<[^>\n]*>|[^)\n]*)\)|<[^<>\s]+>/g;
+
+function linkifyPlain(text: string): string {
+  return text.replace(BARE_TICK_PATH, (_m, _label: string | undefined, path: string) => `[틱 보기](${path})`);
+}
+
+/** 펜스 밖 문단 — 보호 구간 사이의 글자에만 링크를 건다. */
+function linkifyOutsideInline(text: string): string {
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(INLINE_PROTECTED)) {
+    out += linkifyPlain(text.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + linkifyPlain(text.slice(last));
+}
+
+/**
+ * 맨 경로로 온 틱뷰어 주소(`틱 보기: /analytics/ticks?…` 또는 `/analytics/ticks?…`)를 마크다운 링크로 바꾼다.
+ * GFM 자동 링크는 http(s)·www 만 잡아 내부 경로가 글자로 남던 문제(39 UAT).
+ * 펜스 코드 블록(```` ```server-log ```` = 서버 기록 원문) · 인라인 코드 · 이미 링크인 주소는 건드리지 않는다.
+ * 닫히지 않은 펜스(스트리밍 중)는 CommonMark 처럼 문서 끝까지 코드로 본다.
+ */
 export function linkifyTickPaths(md: string): string {
-  return md.replace(BARE_TICK_PATH, (_m, _label: string | undefined, path: string) => `[틱 보기](${path})`);
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let plain: string[] = [];
+  let fence: string | null = null;
+  const flush = () => {
+    if (plain.length > 0) out.push(linkifyOutsideInline(plain.join("\n")));
+    plain = [];
+  };
+  for (const line of lines) {
+    if (fence !== null) {
+      out.push(line);
+      const close = line.match(FENCE_OPEN);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length && line.trim() === close[1]) fence = null;
+      continue;
+    }
+    const open = line.match(FENCE_OPEN);
+    if (open) {
+      flush();
+      out.push(line);
+      fence = open[1];
+      continue;
+    }
+    plain.push(line);
+  }
+  flush();
+  return out.join("\n");
 }
 
 /** react-markdown 요소 → globals.css 토큰 스타일 매핑(채택 목업 기준). */

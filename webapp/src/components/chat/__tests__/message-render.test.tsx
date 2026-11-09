@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { MessageAssistant } from '../message-assistant';
+import { MessageAssistant, linkifyTickPaths } from '../message-assistant';
 import { MessageUser } from '../message-user';
 import { ChatThread } from '../chat-thread';
 import { AgentProgress } from '../agent-progress';
@@ -111,6 +111,32 @@ describe('Phase 39 주문 진단 (D-03 · D-04)', () => {
       expect(l.getAttribute('target')).toBeNull();
     }
     expect(screen.queryByText(/\/analytics\/ticks/)).toBeNull();
+  });
+
+  it('linkifyTickPaths — 주소는 백틱·**·|·한글 조사·끝 마침표 앞에서 멈추고, 코드 펜스·인라인 코드·<…> 링크 안은 건드리지 않는다(WR-02)', () => {
+    const p = '/analytics/ticks?isin=KR7101360006&d=20261106&ex=NXT&t=12:23:12.254';
+    const link = `[틱 보기](${p})`;
+    expect(linkifyTickPaths(`**${p}**`)).toBe(`**${link}**`);
+    expect(linkifyTickPaths(`| 12:23 | ${p}|`)).toBe(`| 12:23 | ${link}|`);
+    expect(linkifyTickPaths(`${p}에서 확인`)).toBe(`${link}에서 확인`);
+    expect(linkifyTickPaths(`근거 ${p}.`)).toBe(`근거 ${link}.`);
+    expect(linkifyTickPaths(`(${p})`)).toBe(`(${link})`);
+    // 인라인 코드 · 꺾쇠 목적지 링크 · 이미 있는 링크는 그대로
+    expect(linkifyTickPaths(`\`${p}\``)).toBe(`\`${p}\``);
+    expect(linkifyTickPaths(`[틱](<${p}>)`)).toBe(`[틱](<${p}>)`);
+    expect(linkifyTickPaths(`[틱](${p}) 그리고 ${p}`)).toBe(`[틱](${p}) 그리고 ${link}`);
+    // 펜스 코드 블록 안(서버 기록 원문)은 원문 그대로 · 펜스 뒤 본문은 링크
+    const fenced = `\`\`\`server-log\n틱 보기: ${p}\n\`\`\`\n\n틱 보기: ${p}`;
+    expect(linkifyTickPaths(fenced)).toBe(`\`\`\`server-log\n틱 보기: ${p}\n\`\`\`\n\n${link}`);
+    // 닫히지 않은 펜스(스트리밍 중)는 끝까지 코드
+    expect(linkifyTickPaths(`~~~\n${p}`)).toBe(`~~~\n${p}`);
+  });
+
+  it('```server-log 블록 안 틱 주소는 원문 글자 그대로 남는다(링크로 바뀌지 않음)', () => {
+    const p = '/analytics/ticks?isin=KR718064K016&d=20261106&t=12:08:43.124';
+    const { container } = render(<MessageAssistant content={`\`\`\`server-log\n틱 보기: ${p}\n\`\`\``} />);
+    expect(container.querySelector('details pre')!.textContent).toBe(`틱 보기: ${p}`);
+    expect(container.querySelectorAll('a')).toHaveLength(0);
   });
 
   it('```server-log 블록은 「서버 기록 원문」 접힘(details)으로 · 원문 글자 그대로 · 다른 코드 블록은 그대로 <pre>', () => {
