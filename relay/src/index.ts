@@ -145,6 +145,11 @@ const SHUTDOWN_TIMEOUT_MS = 5_000;
  * 못 끝내도 유실은 없다 — 커서는 적용 RPC 트랜잭션 안에서만 전진한다(Phase 19 D-12).
  */
 const JOURNAL_DRAIN_TIMEOUT_MS = 2_000;
+/**
+ * 체결 푸시 drain 상한(ms · 40-REVIEW WR-02) — 기록기 drain 이 마지막으로 낸 적용 행을 판정 · 송신할 시간. 기록기 drain(2초)
+ * 뒤에 이어지므로 둘을 합쳐도 5초 데드맨 안이다.
+ */
+const PUSH_DRAIN_TIMEOUT_MS = 1_500;
 
 /** wss 종료 코드 — RFC 6455 `1001 going away`(서버가 내려간다). */
 const WS_CLOSE_GOING_AWAY = 1001;
@@ -803,7 +808,9 @@ async function shutdown(signal: string): Promise<void> {
     //    전진하므로 다음 부팅이 재생한다. 서버마다 두 기록기(주문 · 전략)를 함께 drain 한다(pipelines.ts).
     const undrained = await pipelines.drainAll(JOURNAL_DRAIN_TIMEOUT_MS);
     pipelines.closeAll();
-    // Phase 40 — drain 이 마지막 applied 를 낸 뒤 푸시를 닫는다(이후 송신 없음 · 진행 중 송신은 끊긴다 — 판정 기록은 이미 DB 에 있다).
+    // Phase 40 — 기록기 drain 이 낸 마지막 applied 는 정착 큐에 있고 커서는 이미 전진했다(다음 부팅이 재생하지 않는다).
+    // 그래서 닫기 전에 정착 큐 · 짝 대기를 바로 판정 · 송신하고 진행 중 묶음을 상한 안에서 기다린다(40-REVIEW WR-02).
+    await pushNotifier.drain(PUSH_DRAIN_TIMEOUT_MS);
     pushNotifier.close();
     adminSnapshotSink.close();
     quoteStatus.close();

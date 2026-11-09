@@ -216,12 +216,16 @@ export class PushNotifier {
   readonly #settleMs: number;
   readonly #deferMs: number;
   readonly #holdingOf: PushNotifierDeps["holdingOf"];
-  /** 짝 대기 재호출 타이머들 — `close()` 가 해제한다. */
-  readonly #deferTimers = new Set<NodeJS.Timeout>();
+  /** 짝 대기 재호출 타이머 → 그 재호출. `drain()` 은 당겨 실행하고 `close()` 는 해제한다. */
+  readonly #deferTimers = new Map<NodeJS.Timeout, () => void>();
+  /** 진행 중인 묶음(정착 flush · 짝 대기 재호출) — `drain()` 이 끝나기를 기다린다(40-REVIEW WR-02). */
+  readonly #inflight = new Set<Promise<void>>();
   readonly #queues = new Map<string, GatewayQueue>();
   /** 재시도 대기 중인 지연들 — `close()` 가 풀어 준다. */
   readonly #waits = new Set<{ timer: NodeJS.Timeout; resolve: () => void }>();
   #closed = false;
+  /** `drain()` 중 — 정착 · 짝 대기 시간을 기다리지 않고 바로 판정한다. */
+  #draining = false;
   /** 옛 판정 RPC 시그니처 경고를 한 번만 남겼는가(WR-01 하위 호환). */
   #legacyClaimWarned = false;
 
@@ -294,7 +298,36 @@ export class PushNotifier {
     }
   }
 
-  /** 타이머 해제 · 이후 송신 없음 · 송신기 정리. 진행 중 송신은 끊긴다(판정 기록은 이미 DB 에 있다). */
+  /**
+   * 종료 전 비우기(40-REVIEW WR-02) — 정착 대기 중인 큐와 짝 대기 재호출(폴백 허용)을 지금 바로 판정 · 송신하고, 진행 중인
+   * 묶음까지 `timeoutMs` 안에서 기다린다. 저널 커서는 적용 트랜잭션에서 이미 전진했으므로 여기서 버린 행은 다음 부팅의
+   * 재생으로도 돌아오지 않는다 — 그래서 `close()` 전에 부른다. 다 끝났으면 true · 시간 초과면 false(남은 것은 `close()` 가 끊는다).
+   * drain 중에 새로 들어온 행도 정착 없이 바로 판정한다.
+   */
+  async drain(timeoutMs: number): Promise<boolean> {
+    if (!this.#enabled || this.#closed) return true;
+    this.#draining = true;
+    for (const [timer, run] of this.#deferTimers) {
+      clearTimeout(timer);
+      run();
+    }
+    this.#deferTimers.clear();
+    for (const q of this.#queues.values()) {
+      if (q.timer !== null) clearTimeout(q.timer);
+      q.timer = null;
+      this.#track(this.#flush(q));
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    const done = await Promise.race([this.#idle().then(() => true as const), timedOut]);
+    clearTimeout(timer);
+    if (!done) logger.warn({ timeoutMs, inflight: this.#inflight.size }, "[push] drain 시간 초과 — 남은 송신은 close 가 끊는다");
+    return done;
+  }
+
+  /** 타이머 해제 · 이후 송신 없음 · 송신기 정리. 진행 중 송신은 끊긴다 — 종료 경로는 먼저 `drain()` 으로 비운다(WR-02). */
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -304,7 +337,7 @@ export class PushNotifier {
       q.orders.clear();
       q.strategy.clear();
     }
-    for (const t of this.#deferTimers) clearTimeout(t);
+    for (const t of this.#deferTimers.keys()) clearTimeout(t);
     this.#deferTimers.clear();
     for (const w of this.#waits) {
       clearTimeout(w.timer);
@@ -331,15 +364,36 @@ export class PushNotifier {
     return q;
   }
 
-  /** 비행 중이 아니고 타이머가 없을 때만 정착 타이머를 건다 — 비행 중에 들어온 행은 끝난 뒤 다음 묶음으로(D-09). */
+  /**
+   * 비행 중이 아니고 타이머가 없을 때만 정착 타이머를 건다 — 비행 중에 들어온 행은 끝난 뒤 다음 묶음으로(D-09).
+   * `drain()` 중이면 정착을 기다리지 않고 바로 판정한다.
+   */
   #schedule(q: GatewayQueue): void {
     if (this.#closed || q.inFlight || q.timer !== null) return;
     if (q.orders.size === 0 && q.strategy.size === 0) return;
+    if (this.#draining) {
+      this.#track(this.#flush(q));
+      return;
+    }
     q.timer = setTimeout(() => {
       q.timer = null;
-      void this.#flush(q);
+      this.#track(this.#flush(q));
     }, this.#settleMs);
     q.timer.unref?.();
+  }
+
+  /** 진행 중 묶음으로 등록(끝나면 빠진다). 등록하는 약속은 reject 하지 않는다(#flush · 재호출 모두 자기 catch). */
+  #track(p: Promise<void>): void {
+    this.#inflight.add(p);
+    const done = (): void => {
+      this.#inflight.delete(p);
+    };
+    p.then(done, done);
+  }
+
+  /** 진행 중 묶음이 0 이 될 때까지(기다리는 동안 새로 생긴 묶음 포함). */
+  async #idle(): Promise<void> {
+    while (this.#inflight.size > 0) await Promise.allSettled([...this.#inflight]);
   }
 
   async #flush(q: GatewayQueue): Promise<void> {
@@ -428,15 +482,25 @@ export class PushNotifier {
       if (account !== undefined) retry.set(id, account);
     }
     if (retry.size === 0 || this.#closed) return;
+    const run = (): void => {
+      if (this.#closed) return;
+      this.#track(
+        this.#claimAndSend(q, retry, new Map(), true).catch((err: unknown) =>
+          logger.error({ gateway: q.gateway, err: String(err) }, "[push] 짝 대기 재호출 예외 — 적용 · 팬아웃 무영향"),
+        ),
+      );
+    };
+    // drain 중이면 짝을 더 기다리지 않는다 — 종료 전에 폴백으로 보낸다(WR-02).
+    if (this.#draining) {
+      run();
+      return;
+    }
     const timer = setTimeout(() => {
       this.#deferTimers.delete(timer);
-      if (this.#closed) return;
-      void this.#claimAndSend(q, retry, new Map(), true).catch((err: unknown) =>
-        logger.error({ gateway: q.gateway, err: String(err) }, "[push] 짝 대기 재호출 예외 — 적용 · 팬아웃 무영향"),
-      );
+      run();
     }, this.#deferMs);
     timer.unref?.();
-    this.#deferTimers.add(timer);
+    this.#deferTimers.set(timer, run);
   }
 
   /**

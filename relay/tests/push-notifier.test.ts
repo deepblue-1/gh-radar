@@ -601,6 +601,69 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
     expect(db.reports()).toHaveLength(1);
   });
 
+  it("WR-02 drain — 정착 대기 중인 행을 바로 판정 · 송신 · 보고까지 마치고 true(정착 400ms 를 기다리지 않는다)", async () => {
+    captureLogs();
+    const db = fakeDb();
+    const ios = fakeSender("ios");
+    db.claimScript.push({ data: { sends: [send()], deferred: [] } });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    const done = n.drain(1_500);
+    await flush();
+    expect(db.claims()).toHaveLength(1); // 타이머를 당기지 않았다
+    await expect(done).resolves.toBe(true);
+    expect(ios.sent).toHaveLength(1);
+    expect(db.reports()).toHaveLength(1);
+  });
+
+  it("WR-02 drain — 짝 대기(deferred) 재호출을 1.5초 기다리지 않고 폴백 허용으로 바로", async () => {
+    captureLogs();
+    const db = fakeDb();
+    const ios = fakeSender("ios");
+    db.claimScript.push({ data: { sends: [], deferred: [ORDER_ID] } }, { data: { sends: [send()], deferred: [] } });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    expect(db.claims()).toHaveLength(1);
+    await expect(n.drain(1_500)).resolves.toBe(true);
+    expect(db.claims()).toHaveLength(2);
+    expect(db.claims()[1]!.args.p_allow_fallback).toBe(true);
+    expect(ios.sent).toHaveLength(1);
+    await settle(10_000);
+    expect(db.claims()).toHaveLength(2); // 해제된 타이머가 다시 부르지 않는다
+  });
+
+  it("WR-02 drain — 비행 중 판정이 끝나면 그 사이 들어온 행도 정착 없이 이어서 판정한다", async () => {
+    captureLogs();
+    const db = fakeDb();
+    let release: (d: ClaimData) => void = () => undefined;
+    db.claimScript.push({ hold: new Promise<ClaimData>((r) => (release = r)) }, { data: { sends: [send()], deferred: [] } });
+    const ios = fakeSender("ios");
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    n.enqueueOrders(p, [orderRow({ status: "filled", filledQty: 500 })]);
+    const done = n.drain(1_500);
+    await flush();
+    expect(db.claims()).toHaveLength(1);
+    release({ sends: [], deferred: [] });
+    await expect(done).resolves.toBe(true);
+    expect(db.claims()).toHaveLength(2);
+    expect(ios.sent).toHaveLength(1);
+  });
+
+  it("WR-02 drain — 판정이 상한 안에 안 끝나면 false · warn 1줄(종료를 막지 않는다)", async () => {
+    const logs = captureLogs();
+    const db = fakeDb();
+    db.claimScript.push({ hold: new Promise<ClaimData>(() => undefined) });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [fakeSender("ios").sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    const done = n.drain(1_500);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(done).resolves.toBe(false);
+    expect(pushLogs(logs).filter((l) => l.level === "warn" && String(l.args[1]).includes("drain 시간 초과"))).toHaveLength(1);
+  });
+
   it("WR-01 — p_claim_id 는 묶음마다 새 uuid · 같은 묶음의 재시도는 같은 값", async () => {
     captureLogs();
     const db = fakeDb();
