@@ -579,3 +579,76 @@ describe("POST /api/push-devices/handover — 앱 로그인 뒤 이 폰 정리 (
     }
   });
 });
+
+describe("POST /api/push-devices/:deviceKey/refresh — 시작 갱신 전용 (리뷰 IN-05)", () => {
+  it("① 미인증 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client }))
+      .post(`/api/push-devices/${KEY}/refresh`)
+      .send(registerBody());
+    expect(r.status).toBe(401);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("② 켜진 행 → 200 PushDevice(공개 6키) · dma_push_device_refresh_token 1회 {p_user_id: 인증 사용자 …} · upsert 0회", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({
+      user,
+      data: { dma_push_device_refresh_token: deviceEl({ token: TOKEN }) },
+    });
+    const r = await request(createApp({ supabase: client }))
+      .post(`/api/push-devices/${KEY}/refresh`)
+      .set("Authorization", "Bearer tok")
+      .send(registerBody({ label: " iPhone\u0007 " }));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(deviceEl());
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "dma_push_device_refresh_token",
+        params: { p_user_id: user.id, p_device_key: KEY, p_platform: "ios", p_token: TOKEN, p_label: "iPhone" },
+      },
+    ]);
+  });
+
+  it("③ RPC null(꺼진 · 없는 · 남의 키) → 404 NOT_FOUND — 끈 기기를 되살리지 않는다", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_device_refresh_token: null } });
+    const r = await request(createApp({ supabase: client }))
+      .post(`/api/push-devices/${KEY}/refresh`)
+      .set("Authorization", "Bearer tok")
+      .send(registerBody());
+    expect(r.status).toBe(404);
+    expect(r.body.error.code).toBe("NOT_FOUND");
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["dma_push_device_refresh_token"]);
+  });
+
+  it("④ 대문자 키 · strict body 위반 → 400 · RPC 0회", async () => {
+    for (const [key, body] of [
+      [KEY.toUpperCase(), registerBody()],
+      [KEY, registerBody({ enabled: true })],
+    ] as const) {
+      const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_device_refresh_token: deviceEl() } });
+      const r = await request(createApp({ supabase: client }))
+        .post(`/api/push-devices/${key}/refresh`)
+        .set("Authorization", "Bearer tok")
+        .send(body);
+      expect(r.status).toBe(400);
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑤ RPC 오류 · 모양 위반 → 500 DB_ERROR (토큰은 응답에 없음)", async () => {
+    for (const opts of [
+      { rpcError: { code: "XX000", message: `boom ${TOKEN}` } },
+      { data: { dma_push_device_refresh_token: { deviceKey: KEY } } },
+    ]) {
+      const { client } = makeSupabase({ user: nextUser(), ...opts });
+      const r = await request(createApp({ supabase: client }))
+        .post(`/api/push-devices/${KEY}/refresh`)
+        .set("Authorization", "Bearer tok")
+        .send(registerBody());
+      expect(r.status).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+      expect(JSON.stringify(r.body)).not.toContain(TOKEN);
+    }
+  });
+});

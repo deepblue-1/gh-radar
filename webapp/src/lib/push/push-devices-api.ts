@@ -3,6 +3,7 @@
  *
  * - `GET /` → `PushDevice[]` · `PUT /:deviceKey` `{platform, token, label}` → `PushDevice`(enabled = true) ·
  *   `PATCH /:deviceKey` `{enabled:false}` → `{ok:true}` · `DELETE /:deviceKey` → `{ok:true}` · 남의 · 없는 키는 404.
+ * - 리뷰 IN-05: `POST /:deviceKey/refresh` `{platform, token, label}` → `PushDevice` · 꺼졌거나 없으면 404(시작 갱신 전용).
  * - 리뷰 WR-07: `POST /handover` `{token, deviceKey|null}` → `{ok:true, removed}` — 앱 로그인 뒤 이 폰의 남의 행 정리.
  * - quick-261109-dz1 계좌별 끄기: `GET /accounts` → 끈 계좌번호 `string[]` · `PUT /accounts/:accountNo` `{enabled}` →
  *   `{ok:true}`(멱등).
@@ -32,6 +33,18 @@ export function fetchPushDevices(): Promise<PushDevice[]> {
 export function registerThisPushDevice(deviceKey: string, body: PushDeviceRegisterBody): Promise<PushDevice> {
   return authFetch<PushDevice>(devicePath(deviceKey), {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * 앱 시작 갱신 전용(리뷰 IN-05) — 켜진 이 기기 행만 토큰 · 이름 · 마지막 확인을 갱신한다(enabled 불변). 꺼졌거나 없으면 404
+ * — PUT(켜기)과 달리 PC 에서 방금 끈 기기를 되살리지 않는다.
+ */
+export function refreshThisPushDeviceToken(deviceKey: string, body: PushDeviceRegisterBody): Promise<PushDevice> {
+  return authFetch<PushDevice>(`${devicePath(deviceKey)}/refresh`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });

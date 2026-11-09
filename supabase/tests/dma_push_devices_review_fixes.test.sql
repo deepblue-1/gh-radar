@@ -8,6 +8,9 @@
 --   | 2  | handover — 기기 키 NULL(로그아웃 정리 실패로 웹이 키를 버림) → 같은 토큰의 내 옛 행도 삭제                   | WR-07 |
 --   | 3  | handover — 지울 행이 없으면 0 · 빈 토큰은 예외                                                         | WR-07 |
 --   | 4  | handover EXECUTE (anon, authenticated, service_role) = (f, f, t)                                   | WR-07 |
+--   | 5  | refresh_token — 켜진 행: 토큰 · 이름 · last_seen_at 갱신 · enabled 그대로 · 같은 토큰의 다른 행 삭제 · 반환 6키 | IN-05 |
+--   | 6  | refresh_token — 꺼진 행 · 없는 키 · 남의 키 → NULL · 꺼진 행 그대로(다시 켜지 않는다) · 남의 행 불변        | IN-05 |
+--   | 7  | refresh_token EXECUTE (anon, authenticated, service_role) = (f, f, t)                              | IN-05 |
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_push_devices_review_fixes.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유·원격 DB 접촉 0). 끝에서 ROLLBACK.
@@ -22,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(14);
+SELECT plan(26);
 
 -- ── 픽스처 ──────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -114,6 +117,77 @@ SELECT is(
 SELECT ok(
   NOT has_function_privilege('public', 'public.dma_push_device_handover(uuid, text, text)', 'EXECUTE'),
   'handover EXECUTE PUBLIC 없음'
+);
+
+-- ── 5. refresh_token — 켜진 행 (IN-05) ────────────────────────────
+-- 지금 표: (U2, KP, TP, 켜짐) · (U3, KO, TO, 켜짐). U3 이 OS 갱신으로 받은 새 토큰이 우연히 남의 옛 토큰과 같다고 치고
+-- 토큰 UNIQUE 정리를 보려고 (U1, KN, TS) 행을 하나 넣는다.
+INSERT INTO public.dma_push_devices (user_id, device_key, platform, token, label, enabled) VALUES
+  ('00000000-0000-4000-8000-000000004101', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'ios', repeat('s', 64), 'U1 옛 키', false);
+UPDATE public.dma_push_devices SET last_seen_at = now() - interval '1 day'
+ WHERE user_id = '00000000-0000-4000-8000-000000004103';
+
+CREATE TEMP TABLE t_r (label text PRIMARY KEY, r jsonb) ON COMMIT DROP;
+INSERT INTO t_r VALUES ('u3_refresh', public.dma_push_device_refresh_token(
+  '00000000-0000-4000-8000-000000004103', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'android', repeat('s', 64), 'Pixel 9'));
+
+SELECT is(
+  (SELECT token FROM public.dma_push_devices WHERE user_id = '00000000-0000-4000-8000-000000004103'),
+  repeat('s', 64), '(U3, KO, 켜짐) 토큰이 새 값으로 갱신'
+);
+SELECT is(
+  (SELECT enabled FROM public.dma_push_devices WHERE user_id = '00000000-0000-4000-8000-000000004103'),
+  true, '(U3, KO) enabled 그대로 true'
+);
+SELECT ok(
+  (SELECT last_seen_at > now() - interval '1 minute' FROM public.dma_push_devices
+    WHERE user_id = '00000000-0000-4000-8000-000000004103'),
+  '(U3, KO) last_seen_at 이 지금으로 갱신'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_push_devices WHERE user_id = '00000000-0000-4000-8000-000000004101'),
+  0, '(U1, KN, 같은 새 토큰) 토큰 UNIQUE — 같은 토큰의 다른 행 삭제'
+);
+SELECT is(
+  (SELECT array_agg(k ORDER BY k) FROM t_r, jsonb_object_keys(r) k WHERE label = 'u3_refresh'),
+  ARRAY['createdAt', 'deviceKey', 'enabled', 'label', 'lastSeenAt', 'platform'],
+  '(U3 갱신 반환) 키 집합 = shared PushDevice 6키 · token 없음'
+);
+SELECT is((SELECT r->>'label' FROM t_r WHERE label = 'u3_refresh'), 'Pixel 9', '(U3 갱신 반환) label 갱신');
+
+-- ── 6. refresh_token — 꺼진 행 · 없는 키 · 남의 키 (IN-05) ─────────
+-- PC 웹에서 U2 의 이 폰(KP)을 끈 뒤 앱의 시작 갱신이 도착했다.
+SELECT ok(public.dma_push_device_disable('00000000-0000-4000-8000-000000004102', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  '(U2, KP) PC 에서 끄기');
+SELECT is(
+  public.dma_push_device_refresh_token('00000000-0000-4000-8000-000000004102', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'ios', repeat('t', 64), 'iPhone'),
+  NULL::jsonb, '(U2, KP, 꺼짐) 시작 갱신 → NULL'
+);
+SELECT is(
+  (SELECT ARRAY[enabled::text, token] FROM public.dma_push_devices
+    WHERE user_id = '00000000-0000-4000-8000-000000004102' AND device_key = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+  ARRAY['false', repeat('p', 64)], '(U2, KP) 꺼진 채 · 토큰도 그대로 — 끈 기기를 되살리지 않는다'
+);
+SELECT is(
+  public.dma_push_device_refresh_token('00000000-0000-4000-8000-000000004102', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    'android', repeat('u', 64), 'x'),
+  NULL::jsonb, '(U2, KO = U3 의 키) 남의 키 → NULL'
+);
+SELECT is(
+  (SELECT token FROM public.dma_push_devices WHERE user_id = '00000000-0000-4000-8000-000000004103'),
+  repeat('s', 64), '(U3, KO) 남의 갱신 시도 뒤에도 토큰 그대로'
+);
+
+-- ── 7. 권한 ─────────────────────────────────────────────────────
+SELECT is(
+  ARRAY[
+    has_function_privilege('anon', 'public.dma_push_device_refresh_token(uuid, text, text, text, text)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_push_device_refresh_token(uuid, text, text, text, text)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_push_device_refresh_token(uuid, text, text, text, text)', 'EXECUTE')
+  ],
+  ARRAY[false, false, true],
+  'refresh_token EXECUTE (anon, authenticated, service_role) = (f, f, t)'
 );
 
 SELECT * FROM finish(true);

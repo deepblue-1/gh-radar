@@ -9,9 +9,10 @@
  *   실패 · `TAP_ORDERS_TIMEOUT_MS` 초과면 빈 목록 — 계좌 없이라도 연다) → `resolvePushTapPath` → `push(path)`.
  *   검증 실패면 주문도 읽지 않고 아무것도 하지 않는다.
  * - **시작 갱신(D-15 · D-13 「마지막 확인」):** 앱이 열릴 때 이 기기 키가 있고 · 권한이 이미 granted 이고 · 서버 목록의 이 기기
- *   행이 enabled 면 `register()` 로 받은 토큰을 같은 키로 PUT 해 토큰(OS 갱신 · 재설치로 바뀔 수 있다) · 마지막 확인 시각을
- *   갱신한다. 꺼진 기기 · 행 없음 · 권한 없음이면 아무것도 하지 않는다 — PUT 은 곧 켜짐이라 끈 기기를 되살리지 않고,
- *   권한은 묻지 않는다(D-14 「켤 때만 묻는다」). 모듈 플래그로 **세션(페이지 로드)당 1회**(Provider 재마운트에도 1회).
+ *   행이 enabled 면 `register()` 로 받은 토큰을 같은 키로 `POST /:deviceKey/refresh`(리뷰 IN-05 — 갱신 전용) 해 토큰(OS 갱신 ·
+ *   재설치로 바뀔 수 있다) · 마지막 확인 시각을 갱신한다. 꺼진 기기 · 행 없음 · 권한 없음이면 아무것도 하지 않는다. 갱신 전용
+ *   엔드포인트는 서버가 켜짐을 다시 확인하고 enabled 를 건드리지 않는다 — 목록 확인과 `register()`(최대 10초) 사이에 PC 에서
+ *   이 기기를 꺼도 되살리지 않는다(404 → 목록만 다시 읽는다 · 예전 PUT 은 곧 켜짐이었다). 권한은 묻지 않는다(D-14 「켤 때만 묻는다」). 모듈 플래그로 **세션(페이지 로드)당 1회**(Provider 재마운트에도 1회).
  *   탭 리스너와 독립 — 갱신 실패는 `console.warn` 한 줄(토큰 · 키 없음)이고 탭 처리를 막지 않는다.
  * - **로그인 뒤 이 폰 정리(리뷰 WR-07 · D-15):** 앱 로그인은 하드 이동이라 로그인 직후 첫 페이지 로드가 곧 이 시작이다. 지금
  *   사용자가 이 폰에서 정리를 마친 사용자가 아니거나 로그아웃 정리 실패 표시가 있으면(`pushHandoverNeeded`), 권한이 이미
@@ -39,7 +40,8 @@ import {
   pushErrorText,
   registerPushToken,
 } from '@/lib/push/native-push';
-import { handoverThisPushDevice, registerThisPushDevice } from '@/lib/push/push-devices-api';
+import { ApiClientError } from '@/lib/api';
+import { handoverThisPushDevice, refreshThisPushDeviceToken } from '@/lib/push/push-devices-api';
 import { parsePushTapPath, resolvePushTapPath } from '@/lib/push/push-tap';
 import {
   PUSH_DEVICES_STALE_MS,
@@ -76,7 +78,7 @@ const NOOP = () => {};
 let startupRefreshStarted = false;
 
 /**
- * 시작 한 번 — ① 로그인 뒤 이 폰 정리(WR-07 · 필요할 때만) ② 켜진 기기 토큰 재등록(PUT) → 목록 다시 읽기.
+ * 시작 한 번 — ① 로그인 뒤 이 폰 정리(WR-07 · 필요할 때만) ② 켜진 기기 토큰 갱신(IN-05 갱신 전용) → 목록 다시 읽기.
  * 둘 다 권한 granted 일 때만(묻지 않는다) · 토큰은 한 번만 받는다. throw 하지 않는다 — 실패는 각자 warn 한 줄(토큰 · 키 없음).
  */
 async function startupDeviceWork(currentUserId: () => Promise<string | null>): Promise<void> {
@@ -122,7 +124,7 @@ async function startupDeviceWork(currentUserId: () => Promise<string | null>): P
 
   if (!mineEnabled || !deviceKey) return;
   try {
-    const device = await registerThisPushDevice(deviceKey, {
+    const device = await refreshThisPushDeviceToken(deviceKey, {
       platform,
       token,
       label: pushDeviceLabel(navigator.userAgent),
@@ -130,6 +132,11 @@ async function startupDeviceWork(currentUserId: () => Promise<string | null>): P
     updatePushDevicesLocal((list) => list.map((d) => (d.deviceKey === device.deviceKey ? device : d)));
     void refreshPushDevices();
   } catch (err) {
+    // 404 = 그사이 이 기기가 꺼졌거나 지워졌다(PC 에서) — 정상. 되살리지 않고 목록만 다시 읽는다.
+    if (err instanceof ApiClientError && err.status === 404) {
+      void refreshPushDevices();
+      return;
+    }
     console.warn('[gh-radar] push 시작 갱신 실패 — 탭 처리는 계속', pushErrorText(err));
   }
 }

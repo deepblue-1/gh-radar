@@ -102,6 +102,35 @@ export async function handoverPushDevice(
   return data;
 }
 
+/**
+ * 리뷰 IN-05 — 앱 시작 갱신 전용. 그 (사용자, 기기 키) 행이 있고 켜져 있을 때만 토큰 · 이름 · 마지막 확인을 갱신한다
+ * (enabled 는 건드리지 않는다 — PC 에서 방금 끈 기기를 되살리지 않는다). 없거나 꺼져 있으면 null(라우트가 404).
+ */
+export async function refreshPushDeviceToken(
+  supabase: SupabaseClient,
+  userId: string,
+  deviceKey: string,
+  body: PushDeviceRegisterBody,
+): Promise<PushDevice | null> {
+  const { data, error } = await supabase.rpc("dma_push_device_refresh_token", {
+    p_user_id: userId,
+    p_device_key: deviceKey,
+    p_platform: body.platform,
+    p_token: body.token,
+    p_label: body.label,
+  });
+  if (error) {
+    const message = String(error.message ?? "").split(body.token).join("[token]");
+    throw DbError("기기 갱신에 실패했습니다.", { code: error.code, message });
+  }
+  if (data === null) return null;
+  const row = toPushDevice(data);
+  if (!row) {
+    throw DbError("기기 갱신에 실패했습니다.", { reason: "dma_push_device_refresh_token 모양 위반", type: typeof data });
+  }
+  return row;
+}
+
 /** D-13 — 내 기기 목록(last_seen_at DESC · RPC 순서 유지). */
 export async function listPushDevices(supabase: SupabaseClient, userId: string): Promise<PushDevice[]> {
   const { data, error } = await supabase.rpc("dma_push_devices_for_user", { p_user_id: userId });

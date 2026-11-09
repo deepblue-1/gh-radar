@@ -19,6 +19,7 @@ import {
   handoverPushDevice,
   listPushAccountMutes,
   listPushDevices,
+  refreshPushDeviceToken,
   registerPushDevice,
   setPushAccountEnabled,
 } from "../services/push-devices.js";
@@ -29,6 +30,8 @@ import {
  *
  * - GET    /           : 내 기기 목록 → `PushDevice[]`(bare array · token 없음)
  * - PUT    /:deviceKey : 「이 기기 체결 알림 켜기」 · 토큰 갱신(D-12 · D-15) → `PushDevice`(enabled = true)
+ * - POST   /:deviceKey/refresh : 앱 시작 갱신 전용(리뷰 IN-05) — PUT 과 같은 body. 켜진 행만 토큰 · 마지막 확인 갱신
+ *                       (enabled 불변) → `PushDevice` · 없거나 꺼져 있으면 404
  * - PATCH  /:deviceKey : body `{ enabled: false }` 만 — 끄기(D-13). 켜기는 권한이 있는 그 기기 앱의 PUT 로만 → `{ ok: true }`
  * - DELETE /:deviceKey : 지우기 — 웹 목록 · 앱 로그아웃 정리(D-15) 같은 경로 → `{ ok: true }`
  * - GET    /accounts            : 내 끈 계좌번호 → `string[]`(bare array · quick-261109-dz1 D-08)
@@ -110,6 +113,23 @@ pushDevicesRouter.put("/:deviceKey", requireAuth(), async (req, res, next) => {
     const supabase = req.app.locals.supabase as SupabaseClient;
     // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17).
     const row = await registerPushDevice(supabase, req.userId!, params.data.deviceKey, body.data);
+    res.json(row);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /:deviceKey/refresh — 앱 시작 갱신 전용 (리뷰 IN-05 · D-13 · D-15) ---
+// PUT 은 늘 enabled = true 로 덮어 PC 에서 방금 끈 기기를 되살렸다. 여기는 켜진 행만 갱신하고 꺼진 · 없는 행은 404.
+pushDevicesRouter.post("/:deviceKey/refresh", requireAuth(), async (req, res, next) => {
+  try {
+    const params = PushDeviceKeyParam.safeParse(req.params);
+    if (!params.success) throw firstIssue(params.error);
+    const body = PushDeviceRegisterBodySchema.safeParse(req.body ?? {});
+    if (!body.success) throw firstIssue(body.error);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const row = await refreshPushDeviceToken(supabase, req.userId!, params.data.deviceKey, body.data);
+    if (!row) throw NotFound();
     res.json(row);
   } catch (e) {
     next(e);

@@ -16,6 +16,7 @@ import type { PushDevice } from '@gh-radar/shared';
 vi.mock('@/lib/push/push-devices-api', () => ({
   fetchPushDevices: vi.fn(),
   registerThisPushDevice: vi.fn(),
+  refreshThisPushDeviceToken: vi.fn(),
   handoverThisPushDevice: vi.fn(),
 }));
 
@@ -35,7 +36,13 @@ import {
   PUSH_HANDOVER_USER_STORAGE,
   pushDeviceLabel,
 } from '../device-key';
-import { fetchPushDevices, handoverThisPushDevice, registerThisPushDevice } from '../push-devices-api';
+import { ApiClientError } from '@/lib/api';
+import {
+  fetchPushDevices,
+  handoverThisPushDevice,
+  refreshThisPushDeviceToken,
+  registerThisPushDevice,
+} from '../push-devices-api';
 import { __resetPushSessionForTest, startPushSession } from '../push-session';
 import { __resetPushDevicesForTest, pushDevicesSnapshot } from '../use-push-devices';
 
@@ -97,9 +104,10 @@ beforeEach(() => {
   __resetPushDevicesForTest();
   vi.mocked(fetchPushDevices).mockReset();
   vi.mocked(registerThisPushDevice).mockReset();
+  vi.mocked(refreshThisPushDeviceToken).mockReset();
   vi.mocked(handoverThisPushDevice).mockReset().mockResolvedValue({ ok: true, removed: 0 });
   sessionUser = null;
-  vi.mocked(registerThisPushDevice).mockImplementation(async (deviceKey, body) =>
+  vi.mocked(refreshThisPushDeviceToken).mockImplementation(async (deviceKey, body) =>
     row({ deviceKey, platform: body.platform, label: body.label, lastSeenAt: '2026-11-07T00:00:00.000Z' }),
   );
   window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
@@ -115,24 +123,45 @@ afterEach(() => {
 });
 
 describe('startPushSession — 시작 갱신', () => {
-  it('켜진 기기 · 권한 granted → register() 토큰을 같은 키로 PUT 1회 → 목록 다시 읽기', async () => {
+  it('켜진 기기 · 권한 granted → register() 토큰을 같은 키로 갱신 전용 1회(켜기 PUT 0) → 목록 다시 읽기', async () => {
     const app = installApp();
     vi.mocked(fetchPushDevices).mockResolvedValue([row()]);
     startPushSession({ push: vi.fn() });
     await settle();
 
     expect(app.methods()).toContain('register');
-    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
-    expect(registerThisPushDevice).toHaveBeenCalledWith(KEY, {
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledTimes(1);
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledWith(KEY, {
       platform: 'ios',
       token: TOKEN,
       label: pushDeviceLabel(navigator.userAgent),
     });
     // 갱신 전 1회(켜짐 확인) + 갱신 뒤 1회(마지막 확인 반영).
     expect(fetchPushDevices).toHaveBeenCalledTimes(2);
-    const putOrder = vi.mocked(registerThisPushDevice).mock.invocationCallOrder[0]!;
+    const putOrder = vi.mocked(refreshThisPushDeviceToken).mock.invocationCallOrder[0]!;
     expect(vi.mocked(fetchPushDevices).mock.invocationCallOrder[1]!).toBeGreaterThan(putOrder);
     expect(pushDevicesSnapshot().devices).toEqual([row()]);
+    // IN-05 — 시작 갱신은 켜기(PUT · enabled = true 로 덮음)를 부르지 않는다.
+    expect(registerThisPushDevice).not.toHaveBeenCalled();
+  });
+
+  it('IN-05 목록 확인 뒤 PC 에서 꺼져 갱신이 404 → warn 없이 목록만 다시 읽는다 · 켜기 PUT 0', async () => {
+    installApp();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(fetchPushDevices)
+      .mockResolvedValueOnce([row()])
+      .mockResolvedValueOnce([row({ enabled: false })]);
+    vi.mocked(refreshThisPushDeviceToken).mockRejectedValue(
+      new ApiClientError({ code: 'NOT_FOUND', message: 'not found', status: 404 }),
+    );
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledTimes(1);
+    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(fetchPushDevices).toHaveBeenCalledTimes(2);
+    expect(pushDevicesSnapshot().devices).toEqual([row({ enabled: false })]);
   });
 
   it.each([
@@ -147,7 +176,7 @@ describe('startPushSession — 시작 갱신', () => {
 
     expect(app.methods()).not.toContain('register');
     expect(app.methods()).not.toContain('requestPermissions');
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
   });
 
   it.each(['denied', 'prompt', 'prompt-with-rationale'])('권한 %s → register · PUT 0 · 권한을 묻지 않는다', async (permission) => {
@@ -158,7 +187,7 @@ describe('startPushSession — 시작 갱신', () => {
 
     expect(app.methods()).not.toContain('register');
     expect(app.methods()).not.toContain('requestPermissions');
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
   });
 
   it('기기 키가 없으면 → 권한 확인 · 목록 읽기 · PUT 0', async () => {
@@ -170,7 +199,7 @@ describe('startPushSession — 시작 갱신', () => {
 
     expect(app.methods()).toEqual([]);
     expect(fetchPushDevices).not.toHaveBeenCalled();
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
   });
 
   it('같은 세션에서 두 번 불려도(Provider 재마운트) 갱신은 1회 · 탭 리스너는 세션마다', async () => {
@@ -181,7 +210,7 @@ describe('startPushSession — 시작 갱신', () => {
     startPushSession({ push: vi.fn() });
     await settle();
 
-    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledTimes(1);
     expect(app.listeners.filter((l) => l.event === 'pushNotificationActionPerformed')).toHaveLength(2);
   });
 
@@ -192,7 +221,7 @@ describe('startPushSession — 시작 갱신', () => {
     startPushSession({ push: vi.fn() });
     await settle();
 
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
     const logged = JSON.stringify(warn.mock.calls);
     expect(logged).not.toContain(KEY);
@@ -206,7 +235,7 @@ describe('startPushSession — 시작 갱신', () => {
     const app = installApp();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.mocked(fetchPushDevices).mockResolvedValue([row()]);
-    vi.mocked(registerThisPushDevice).mockRejectedValue(new Error('HTTP 500'));
+    vi.mocked(refreshThisPushDeviceToken).mockRejectedValue(new Error('HTTP 500'));
     startPushSession({ push: vi.fn() });
     await settle();
 
@@ -230,7 +259,7 @@ describe('startPushSession — 시작 갱신', () => {
 
     expect(app.methods()).toEqual([]);
     expect(fetchPushDevices).not.toHaveBeenCalled();
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
   });
 });
 
@@ -248,7 +277,7 @@ describe('startPushSession — 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-1
     expect(app.methods()).not.toContain('requestPermissions');
     expect(handoverThisPushDevice).toHaveBeenCalledTimes(1);
     expect(handoverThisPushDevice).toHaveBeenCalledWith({ token: TOKEN, deviceKey: KEY });
-    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(refreshThisPushDeviceToken).not.toHaveBeenCalled();
     expect(window.localStorage.getItem(PUSH_HANDOVER_USER_STORAGE)).toBe(U2);
   });
 
@@ -287,7 +316,7 @@ describe('startPushSession — 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-1
 
     expect(app.methods().filter((m) => m === 'register')).toHaveLength(1);
     expect(handoverThisPushDevice).toHaveBeenCalledTimes(1);
-    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledTimes(1);
   });
 
   it.each(['denied', 'prompt'])('권한 %s → register · handover 0 · 기록 안 남김(권한이 생기면 다음 실행에서)', async (permission) => {
@@ -317,7 +346,7 @@ describe('startPushSession — 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-1
     expect(logged).not.toContain(KEY);
     expect(logged).not.toContain(TOKEN);
     expect(window.localStorage.getItem(PUSH_HANDOVER_USER_STORAGE)).toBeNull();
-    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
+    expect(refreshThisPushDeviceToken).toHaveBeenCalledTimes(1);
   });
 
   it('로그아웃 상태(세션 없음 · /login) → handover 0', async () => {
