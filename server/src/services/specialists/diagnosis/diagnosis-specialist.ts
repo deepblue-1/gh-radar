@@ -138,7 +138,9 @@ function errMessage(err: unknown): string {
 }
 
 /**
- * 하루 상한 — 전역 · 사용자 카운터를 원자 증가(`incr_api_usage` · 누적 반환)해 판정한다.
+ * 하루 상한 — 사용자 카운터를 먼저 원자 증가(`incr_api_usage` · 누적 반환)해 판정하고, 통과했을 때만 전역 카운터를
+ * 올린다. 순서가 반대(또는 동시)면 사용자 상한에 걸린 한 사람의 거부된 시도가 전역 카운터를 채워 그날 전원의 진단을
+ * 막는다(사용자 상한의 목적 = 한 사용자 폭주 격리).
  * 확인 실패는 throw(호출부가 fail-closed — DB 가 죽었으면 주문로그도 못 읽는다).
  */
 async function checkDailyCap(
@@ -147,14 +149,17 @@ async function checkDailyCap(
   date: string,
   cfg: AppConfig,
 ): Promise<{ scope: "global" | "user" | null; global: number; user: number }> {
-  const incr = (service: string) => supabase.rpc("incr_api_usage", { p_service: service, p_date: date, p_amount: 1 });
-  const [g, u] = await Promise.all([incr(USAGE_SERVICE), incr(`${USAGE_SERVICE}:${userId}`)]);
-  if (g.error || u.error) throw new Error((g.error ?? u.error)?.message ?? "incr_api_usage failed");
-  const global = Number(g.data);
-  const user = Number(u.data);
-  if (!Number.isFinite(global) || !Number.isFinite(user)) throw new Error("incr_api_usage returned non-number");
-  const scope = global > cfg.chatDiagnosisDailyCap ? "global" : user > cfg.chatDiagnosisUserDailyCap ? "user" : null;
-  return { scope, global, user };
+  const incr = async (service: string): Promise<number> => {
+    const r = await supabase.rpc("incr_api_usage", { p_service: service, p_date: date, p_amount: 1 });
+    if (r.error) throw new Error(r.error.message ?? "incr_api_usage failed");
+    const n = Number(r.data);
+    if (!Number.isFinite(n)) throw new Error("incr_api_usage returned non-number");
+    return n;
+  };
+  const user = await incr(`${USAGE_SERVICE}:${userId}`);
+  if (user > cfg.chatDiagnosisUserDailyCap) return { scope: "user", global: Number.NaN, user };
+  const global = await incr(USAGE_SERVICE);
+  return { scope: global > cfg.chatDiagnosisDailyCap ? "global" : null, global, user };
 }
 
 /** 진단 전문가 상담 — 질문 하나 → Opus 도구 루프 → 진단문. */

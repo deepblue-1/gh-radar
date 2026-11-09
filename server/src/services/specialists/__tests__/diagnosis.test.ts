@@ -546,6 +546,15 @@ describe("consultDiagnosisSpecialist — 하루 상한 · usage 로그(Task 2)",
     expect(logged(info, "[chat] diagnosis capped")).toMatchObject({ scope: "user" });
   });
 
+  it("사용자 상한에 걸린 시도는 전역 카운터를 올리지 않는다(한 사용자가 전원의 진단을 막지 못함)", async () => {
+    const sb = okSupabase({ user: 21 });
+
+    await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    const services = sb.rpc.mock.calls.filter(([fn]) => fn === "incr_api_usage").map(([, p]) => p.p_service);
+    expect(services).toEqual([`chat_diagnosis:${USER}`]);
+  });
+
   it("사용량 RPC 오류 → DIAGNOSIS_USAGE_CHECK_FAILED_TEXT · 스트림 0 · warn(fail-closed)", async () => {
     const warn = vi.spyOn(logger, "warn");
     const sb = makeSupabase({
