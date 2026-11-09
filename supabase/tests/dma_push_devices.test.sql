@@ -330,8 +330,9 @@ SELECT is(
   (SELECT array_agg(c.relname::text ORDER BY c.relname) FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND c.relname LIKE 'dma\_push\_%' AND c.relkind = 'r' AND c.relrowsecurity),
-  ARRAY['dma_push_chains', 'dma_push_deliveries', 'dma_push_devices', 'dma_push_log'],
-  '새 표 4개 RLS 켜짐'
+  -- quick-261109-dz1: 접두사 열거라 끈 계좌 표(dma_push_account_mutes)도 같은 잠금 아래 든다.
+  ARRAY['dma_push_account_mutes', 'dma_push_chains', 'dma_push_deliveries', 'dma_push_devices', 'dma_push_log'],
+  'dma_push_* 표 전부 RLS 켜짐(새 표 4개 + quick-261109-dz1 끈 계좌 표)'
 );
 SELECT is(
   (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename LIKE 'dma\_push\_%'),
