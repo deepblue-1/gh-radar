@@ -33,6 +33,7 @@
 --   |    | 재시도 사이 새 단계 → [재생, 새 단계] · 오버로드 1개 · 기기 함수 EXECUTE (f, f, t)          |               |
 --   | 22 | kind 13 완료 · 창 안 매도 체결 < 누적 · defer true → 기록 없이 deferred_strategy / 마지막 체결 | WR-05         |
 --   |    | 적용 뒤 전체 평균 / 폴백 true 는 있는 값으로 / 6 인자 옛 호출은 바로 보냄                     |               |
+--   | 23 | 폴백 · 짝 없음 · 상따 매도 · 최근 kind 11 뒤 kind 13 완료 전 → suppressed / 매수 · 완료 뒤는 보냄 | IN-01 · D-22  |
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_push_claim.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -49,7 +50,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(109);
+SELECT plan(113);
 
 -- ── 픽스처 ──────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -786,6 +787,39 @@ INSERT INTO t_res VALUES ('dw4', public.dma_push_claim('KB120', '{}'::uuid[],
   '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
 SELECT is((SELECT r FROM t_res WHERE name = 'dw4') #>> '{sends,0,stage}', 'autosell_done',
   '(kind 13 seq 161, 체결 0 · 6 인자 옛 호출) 이전처럼 바로 autosell_done');
+
+-- ── 23절: 폴백 자동매도 구간 억제(40-REVIEW IN-01) ─────────────────
+-- 발동(kind 11 · 12:00:00) 뒤 완료 전, 짝(kind 3/6) 없는 상따 매도 주문을 폴백으로 판정 → suppressed.
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price)
+VALUES ('KB120', 'ep-40', 170, pg_temp.today(), (extract(epoch FROM pg_temp.kst('12:00:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 3050);
+CALL pg_temp.ord('0004171', 'N', NULL, 100, 3100, 0, 'accepted', 'limit_chaser', 'S', '12:00:03');
+INSERT INTO t_res VALUES ('fz1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004171'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', true));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'fz1') -> 'sends'), 0,
+  '(0004171, 자동매도 구간 상따 매도 · 짝 없음 · 폴백) sends 0 (D-22)');
+SELECT is((SELECT outcome FROM public.dma_push_log WHERE chain_key = '0004171'), 'suppressed',
+  '(0004171, 자동매도 구간 · 폴백) 로그 outcome = suppressed');
+-- 같은 구간 안이어도 매수는 자동매도 주문이 아니다 → 그대로 보낸다.
+CALL pg_temp.ord('0004173', 'N', NULL, 100, 3100, 0, 'accepted', 'limit_chaser', 'B', '12:00:05');
+INSERT INTO t_res VALUES ('fz2', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004173'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', true));
+SELECT is((SELECT r FROM t_res WHERE name = 'fz2') #>> '{sends,0,stage}', 'accepted',
+  '(0004173, 자동매도 구간 상따 매수 · 폴백) 억제 안 함 · accepted');
+-- 완료(kind 13 3→4 · 12:05:00) 뒤의 상따 매도는 구간 밖 → 폴백이 보낸다.
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, price, qty, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 172, pg_temp.today(), (extract(epoch FROM pg_temp.kst('12:05:00')) * 1000)::bigint,
+        13, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 100, 3, 4);
+CALL pg_temp.ord('0004172', 'N', NULL, 100, 3100, 0, 'accepted', 'limit_chaser', 'S', '12:06:00');
+INSERT INTO t_res VALUES ('fz3', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004172'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', true));
+SELECT is((SELECT r FROM t_res WHERE name = 'fz3') #>> '{sends,0,stage}', 'accepted',
+  '(0004172, 자동매도 완료 뒤 상따 매도 · 폴백) 구간 밖 · accepted');
 
 -- ── 8절: 권한 ────────────────────────────────────────────────────
 SELECT is(

@@ -10,6 +10,8 @@
 --           누적 매도 수량보다 작으면(주문 기록기가 아직 마지막 체결을 적용하지 않았다) 기록 없이 `deferred_strategy` 로
 --           돌린다. 새 인자 `p_defer_strategy boolean DEFAULT false` 를 넘기는 호출자(짝 대기 재호출에 전략 항목도 싣는 relay)
 --           에서만 미룬다 — 옛 relay 는 이 키를 몰라 미룬 사건을 영영 다시 묻지 않기 때문이다. 폴백 호출은 있는 값으로 보낸다.
+--   - IN-01 짝 대기 폴백(p_allow_fallback = true)에서 구분 짝이 끝내 없어도, 상따(limit_chaser) 매도 주문이 같은 계좌 · 종목의
+--           자동매도 구간(최근 kind 11 뒤 · kind 13 완료 전) 안이면 suppressed — 자동매도 재발주의 접수 · 취소 푸시를 막는다(D-22).
 --   - 받는 기기 조회를 내부 함수 `dma_push_claim_devices` 하나로 — 판정 경로와 재생 경로가 같은 조건을 쓴다
 --     (켜짐 ∧ 송신 플랫폼 ∧ p_recipients[계좌] 사용자 ∧ 끈 계좌 아님).
 --
@@ -340,6 +342,25 @@ BEGIN
             AND NOT v_fallback THEN
         -- 상따 · 출처 미상(A6)은 kind 3/6 이 늦게 올 수 있다 — 한 번 기다린다(Pitfall 3).
         v_wait := true;
+      ELSIF v_group IS NULL AND v_fallback AND v_root.origin = 'limit_chaser' AND v_root.side = 'S'
+            AND EXISTS (
+              -- 40-REVIEW IN-01: 폴백인데 짝(kind 3/6)이 끝내 없다 — 같은 계좌 · 종목에서 이 주문 시각 기준 가장 최근
+              -- 자동매도 발동(kind 11) 뒤 완료(kind 13 · cond_actual 4 ∧ cond_threshold ≠ 4)가 아직 없으면 자동매도 구간의
+              -- 매도 주문(주기 재발주)으로 본다. 전략 기록기가 밀린 순간에도 D-22(자동매도 주문은 보내지 않음)를 지킨다.
+              SELECT 1
+                FROM (SELECT max(k.gw_time_ms) AS start_ms
+                        FROM public.dma_strategy_events k
+                       WHERE k.gateway = p_gateway AND k.trade_date = c.trade_date AND k.account_no = c.account_no
+                         AND k.isin = v_root.isin AND k.kind = 11
+                         AND k.gw_time_ms <= (extract(epoch FROM v_root.created_at) * 1000)::bigint) w
+               WHERE w.start_ms IS NOT NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM public.dma_strategy_events d
+                    WHERE d.gateway = p_gateway AND d.trade_date = c.trade_date AND d.account_no = c.account_no
+                      AND d.isin = v_root.isin AND d.kind = 13 AND d.cond_actual = 4 AND d.cond_threshold <> 4
+                      AND d.gw_time_ms >= w.start_ms
+                      AND d.gw_time_ms <= (extract(epoch FROM v_root.created_at) * 1000)::bigint)) THEN
+        v_outcome := 'suppressed';
       END IF;
     END IF;
 
@@ -583,7 +604,7 @@ REVOKE EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, tex
 GRANT EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) TO service_role;
 
 COMMENT ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) IS
-  'Phase 40 D-07 — 체결 푸시 판정 · 멱등 · 기록 · 기기 조회 1회. 반환 {sends, deferred, deferred_strategy} · facts 에 계좌 없음(SC-4). relay(40-06) 전용 · service_role. · quick-261109-dz1 끈 계좌 사용자 기기 제외 · 40-REVIEW WR-01 p_claim_id 응답 유실 재시도 재생 · WR-05 p_defer_strategy 자동매도 완료 체결 대기';
+  'Phase 40 D-07 — 체결 푸시 판정 · 멱등 · 기록 · 기기 조회 1회. 반환 {sends, deferred, deferred_strategy} · facts 에 계좌 없음(SC-4). relay(40-06) 전용 · service_role. · quick-261109-dz1 끈 계좌 사용자 기기 제외 · 40-REVIEW WR-01 p_claim_id 응답 유실 재시도 재생 · WR-05 p_defer_strategy 자동매도 완료 체결 대기 · IN-01 폴백 자동매도 구간 억제';
 
 NOTIFY pgrst, 'reload schema';
 
