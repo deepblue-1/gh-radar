@@ -3,7 +3,7 @@ phase: "39"
 slug: "trade-diagnosis-chatbot"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-05"
@@ -41,29 +41,29 @@ created: "2026-11-05"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 39-01-01 | 01 | 1 | SC-4 · D-09 | — | N/A(문서) | 파일 검사 | 43칸 · 토큰 · 「2차 · 이번 구현 제외」 grep 루프 → `NOTE-OK` | ❌ W0(초안 신규) | ⬜ pending |
-| 39-01-02 | 01 | 1 | D-09(costly) | — | N/A | 사용자 검토 | `grep -q "StateTransition = 9" 39-KIND9-NOTE.md` | — | ⬜ pending |
-| 39-01-03 | 01 | 1 | SC-4 · D-11 · D-12 · 결정 1 | — | N/A | 파일 검사 | gh-trade 노트 open · 인박스 done → `SENT-OK` + ROADMAP Phase 39 범위(목록 줄 · 목표 · SC-4 · 미결 ④) 옛 문구 0 · 「해소(D-12)」 → `ROADMAP-OK` | — | ⬜ pending |
-| 39-02-01 | 02 | 1 | SC-4 · D-10 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-labels.test.ts src/__tests__/strategy-event-text.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/relay run typecheck` | ✅(케이스 추가) | ⬜ pending |
-| 39-02-02 | 02 | 1 | D-10 · Pitfall 6 | — | N/A | unit | shared 전체 + relay 2종 + webapp 주문로그 테스트 | ✅ | ⬜ pending |
-| 39-03-01 | 03 | 1 | SC-2 · D-11 | — | 다른 사용자 계좌 0행 · anon/authenticated EXECUTE 없음 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_diagnosis.test.sql` | ❌ W0 | ⬜ pending |
-| 39-03-02 | 03 | 1 | SC-2 · SC-4 · D-11 | — | 어드민 우회 없음 · dma_user_id/requester 비반환 · 꺼진 서버 제외 | pgTAP | `… dma_diagnosis.test.sql && … dma_strategy_read.test.sql` | ✅(dma_strategy_read 케이스 추가) | ⬜ pending |
-| 39-04-01 | 04 | 1 | SC-1 ② · D-06 · D-07 · D-12 | — | N/A | unit(골든 · 픽스처 `cut1300-krx.ticks.zst`) | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis-market.test.ts tests/routes/ticks.test.ts --maxWorkers=2` | ❌ W0 | ⬜ pending |
-| 39-04-02 | 04 | 1 | D-08 ① · SC-5 | — | 전역 fetch 호출 0 | unit(가짜 tickgw) | `… diagnosis-market.test.ts tests/services/tickgw-client.test.ts` | ❌ W0 | ⬜ pending |
-| 39-04-03 | 04 | 1 | D-08 ② · D-05 | — | 변환 하루 상한 공유 | unit + 스크립트 `--dry` | `… diagnosis-market.test.ts && pnpm --filter @gh-radar/server exec tsx scripts/measure-diagnosis-tokens.ts --dry` | ❌ W0 | ⬜ pending |
-| 39-05-01 | 05 | 2 | SC-3 · D-11 | — | RPC `p_user_id = ctx.userId` | unit(SDK mock) | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis.test.ts src/services/specialists/__tests__/specialists.test.ts src/services/__tests__/chat-service.test.ts --maxWorkers=2` | ❌ W0 | ⬜ pending |
-| 39-05-02 | 05 | 2 | SC-3 · SC-5 · 결정 2 | — | 하루 상한 · refusal 무대체 · 무로그 금지 | unit | `… diagnosis.test.ts src/services/__tests__/chat-orchestrator.test.ts src/services/__tests__/chat-service.test.ts && webapp typecheck` | ❌ W0 / ✅ | ⬜ pending |
-| 39-05-03 | 05 | 2 | SC-2 · D-02 | — | 도구 스키마 계좌 칸 0 · RPC 인자 3개 | unit | `… diagnosis-tools.test.ts diagnosis.test.ts` | ❌ W0 | ⬜ pending |
-| 39-06-01 | 06 | 3 | SC-4 · D-10 | — | N/A | unit + RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/order-log-feed.test.ts src/components/trading/order-log --maxWorkers=2` | ✅(케이스 추가) | ⬜ pending |
-| 39-06-02 | 06 | 3 | D-03 · D-04 | — | 내부 링크는 `/analytics/ticks?` 만 | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/chat --maxWorkers=2` | ✅(케이스 추가) | ⬜ pending |
-| 39-07-01 | 07 | 3 | D-01 · D-03 · SC-2 | — | `req.userId` → ctx 만 | unit | `pnpm --filter @gh-radar/server exec vitest run src/services/__tests__/chat-service.test.ts src/routes/__tests__/chat.route.test.ts src/services/__tests__/chat-orchestrator.test.ts --maxWorkers=2` | ✅(케이스 추가) | ⬜ pending |
-| 39-07-02 | 07 | 3 | D-05 · D-12 · SC-2 | — | 시세 도구 계좌 칸 0 · 4회 상한 | unit | `… diagnosis-tools.test.ts diagnosis.test.ts diagnosis-market.test.ts` | ✅ | ⬜ pending |
-| 39-07-03 | 07 | 3 | SC-3 · SC-1(opt-in) | — | N/A | unit + 스크립트 skip | `… chat-service.test.ts && pnpm --filter @gh-radar/server exec tsx scripts/diagnosis-live.ts` | ✅ / ❌ W0(스크립트) | ⬜ pending |
-| 39-08-01 | 08 | 3 | SC-1 ①② · D-06 | — | N/A | unit | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis-knowledge.test.ts --maxWorkers=2` | ❌ W0 | ⬜ pending |
-| 39-08-02 | 08 | 3 | D-04 · D-08 · D-11 | — | 인젝션 방어 절 · 지시/면책 금지 | unit | 같은 파일 | ❌ W0 | ⬜ pending |
-| 39-09-01 | 09 | 4 | 전체 · SC-5 | — | 진단 경로 fetch/axios 0 · relay 무변경 | 회귀 + 대조 | Full suite command + `PREDEPLOY-OK` 대조(토큰 정본 = 저장소 안 `39-KIND9-NOTE.md` · `../gh-trade` 사본은 있을 때만 참고 — 판정 무관) | ✅ | ⬜ pending |
-| 39-09-02 | 09 | 4 | SC-2 · SC-4 · 결정 1 | — | N/A | 배포([BLOCKING]) | `supabase migration list --linked` · `git rev-parse master = origin/master` | — | ⬜ pending |
-| 39-09-03 | 09 | 4 | SC-1 ①② · SC-2 · SC-3 · D-01 · D-04 | — | 다른 사용자 계좌 불가(프로덕션) | 수동 UAT | `supabase migration list --linked` | — | ⬜ pending |
+| 39-01-01 | 01 | 1 | SC-4 · D-09 | — | N/A(문서) | 파일 검사 | 43칸 · 토큰 · 「2차 · 이번 구현 제외」 grep 루프 → `NOTE-OK` | ❌ W0(초안 신규) | ✅ green |
+| 39-01-02 | 01 | 1 | D-09(costly) | — | N/A | 사용자 검토 | `grep -q "StateTransition = 9" 39-KIND9-NOTE.md` | — | ✅ green |
+| 39-01-03 | 01 | 1 | SC-4 · D-11 · D-12 · 결정 1 | — | N/A | 파일 검사 | gh-trade 노트 open · 인박스 done → `SENT-OK` + ROADMAP Phase 39 범위(목록 줄 · 목표 · SC-4 · 미결 ④) 옛 문구 0 · 「해소(D-12)」 → `ROADMAP-OK` | — | ✅ green |
+| 39-02-01 | 02 | 1 | SC-4 · D-10 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared exec vitest run src/__tests__/strategy-event-labels.test.ts src/__tests__/strategy-event-text.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/relay run typecheck` | ✅(케이스 추가) | ✅ green |
+| 39-02-02 | 02 | 1 | D-10 · Pitfall 6 | — | N/A | unit | shared 전체 + relay 2종 + webapp 주문로그 테스트 | ✅ | ✅ green |
+| 39-03-01 | 03 | 1 | SC-2 · D-11 | — | 다른 사용자 계좌 0행 · anon/authenticated EXECUTE 없음 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_diagnosis.test.sql` | ❌ W0 | ✅ green |
+| 39-03-02 | 03 | 1 | SC-2 · SC-4 · D-11 | — | 어드민 우회 없음 · dma_user_id/requester 비반환 · 꺼진 서버 제외 | pgTAP | `… dma_diagnosis.test.sql && … dma_strategy_read.test.sql` | ✅(dma_strategy_read 케이스 추가) | ✅ green |
+| 39-04-01 | 04 | 1 | SC-1 ② · D-06 · D-07 · D-12 | — | N/A | unit(골든 · 픽스처 `cut1300-krx.ticks.zst`) | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis-market.test.ts tests/routes/ticks.test.ts --maxWorkers=2` | ❌ W0 | ✅ green |
+| 39-04-02 | 04 | 1 | D-08 ① · SC-5 | — | 전역 fetch 호출 0 | unit(가짜 tickgw) | `… diagnosis-market.test.ts tests/services/tickgw-client.test.ts` | ❌ W0 | ✅ green |
+| 39-04-03 | 04 | 1 | D-08 ② · D-05 | — | 변환 하루 상한 공유 | unit + 스크립트 `--dry` | `… diagnosis-market.test.ts && pnpm --filter @gh-radar/server exec tsx scripts/measure-diagnosis-tokens.ts --dry` | ❌ W0 | ✅ green |
+| 39-05-01 | 05 | 2 | SC-3 · D-11 | — | RPC `p_user_id = ctx.userId` | unit(SDK mock) | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis.test.ts src/services/specialists/__tests__/specialists.test.ts src/services/__tests__/chat-service.test.ts --maxWorkers=2` | ❌ W0 | ✅ green |
+| 39-05-02 | 05 | 2 | SC-3 · SC-5 · 결정 2 | — | 하루 상한 · refusal 무대체 · 무로그 금지 | unit | `… diagnosis.test.ts src/services/__tests__/chat-orchestrator.test.ts src/services/__tests__/chat-service.test.ts && webapp typecheck` | ❌ W0 / ✅ | ✅ green |
+| 39-05-03 | 05 | 2 | SC-2 · D-02 | — | 도구 스키마 계좌 칸 0 · RPC 인자 3개 | unit | `… diagnosis-tools.test.ts diagnosis.test.ts` | ❌ W0 | ✅ green |
+| 39-06-01 | 06 | 3 | SC-4 · D-10 | — | N/A | unit + RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/order-log-feed.test.ts src/components/trading/order-log --maxWorkers=2` | ✅(케이스 추가) | ✅ green |
+| 39-06-02 | 06 | 3 | D-03 · D-04 | — | 내부 링크는 `/analytics/ticks?` 만 | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/chat --maxWorkers=2` | ✅(케이스 추가) | ✅ green |
+| 39-07-01 | 07 | 3 | D-01 · D-03 · SC-2 | — | `req.userId` → ctx 만 | unit | `pnpm --filter @gh-radar/server exec vitest run src/services/__tests__/chat-service.test.ts src/routes/__tests__/chat.route.test.ts src/services/__tests__/chat-orchestrator.test.ts --maxWorkers=2` | ✅(케이스 추가) | ✅ green |
+| 39-07-02 | 07 | 3 | D-05 · D-12 · SC-2 | — | 시세 도구 계좌 칸 0 · 4회 상한 | unit | `… diagnosis-tools.test.ts diagnosis.test.ts diagnosis-market.test.ts` | ✅ | ✅ green |
+| 39-07-03 | 07 | 3 | SC-3 · SC-1(opt-in) | — | N/A | unit + 스크립트 skip | `… chat-service.test.ts && pnpm --filter @gh-radar/server exec tsx scripts/diagnosis-live.ts` | ✅ / ❌ W0(스크립트) | ✅ green |
+| 39-08-01 | 08 | 3 | SC-1 ①② · D-06 | — | N/A | unit | `pnpm --filter @gh-radar/server exec vitest run src/services/specialists/__tests__/diagnosis-knowledge.test.ts --maxWorkers=2` | ❌ W0 | ✅ green |
+| 39-08-02 | 08 | 3 | D-04 · D-08 · D-11 | — | 인젝션 방어 절 · 지시/면책 금지 | unit | 같은 파일 | ❌ W0 | ✅ green |
+| 39-09-01 | 09 | 4 | 전체 · SC-5 | — | 진단 경로 fetch/axios 0 · relay 무변경 | 회귀 + 대조 | Full suite command + `PREDEPLOY-OK` 대조(토큰 정본 = 저장소 안 `39-KIND9-NOTE.md` · `../gh-trade` 사본은 있을 때만 참고 — 판정 무관) | ✅ | ✅ green |
+| 39-09-02 | 09 | 4 | SC-2 · SC-4 · 결정 1 | — | N/A | 배포([BLOCKING]) | `supabase migration list --linked` · `git rev-parse master = origin/master` | — | ✅ green |
+| 39-09-03 | 09 | 4 | SC-1 ①② · SC-2 · SC-3 · D-01 · D-04 | — | 다른 사용자 계좌 불가(프로덕션) | 수동 UAT | `supabase migration list --linked` | — | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -92,7 +92,7 @@ created: "2026-11-05"
 | 다른 사용자 계정으로 같은 질문 → 못 봄 | SC-2 | 프로덕션 계정 · 가시성 데이터 | 39-09 Task 3 D(로컬 증명은 pgTAP · vitest) |
 | Cloud Logging 모델별 토큰 | SC-3 | 운영 로그 | 39-09 Task 3 E |
 | 주문로그 「상태전이」 칩 · 회색 줄 시각 | D-10 | UI-SPEC 없음 — 눈 확인 | 39-09 Task 3 F(폰 390 · 라이트/다크) |
-| 시험 문항 ③(13:10:25 설정 재제출로 선매수 다시 켜짐 · kind 9) | SC-1 ③ · D-11 | gh-trade 서버 kind 9 배포 · 적재 뒤에만 가능 | **보류 UAT 항목** — 39-09 SUMMARY 에 기록(phase 를 열어 두지 않는다) |
+| 시험 문항 ③(13:10:25 설정 재제출로 선매수 다시 켜짐 · kind 9) | SC-1 ③ · D-11 | gh-trade 서버 kind 9 배포 · 적재 뒤에만 가능 | **처리됨** — 원 문항(11/5)은 kind 9 적재(11/6 17:14~) 전이라 기록 없음 · 대신 11/9 적재 445행 실측 · 39-09 SUMMARY H |
 
 ---
 
@@ -108,3 +108,13 @@ created: "2026-11-05"
 **Approval:** approved 2026-11-06
 
 > 39-09 Task 1 전체 회귀(2026-11-06 15:12 KST): shared 44파일 1149 통과(2 skip) · relay 타입검사 2종 · server 타입검사 · server 53파일 831 통과(재실행 green — 첫 실행 2건은 supertest 소켓 끊김 · 타임아웃 간헐 실패, phase 39 시작 커밋 10e66fb8 에서도 같은 종류 간헐 실패 재현) · webapp 타입검사 · webapp 223파일 5703 통과(1 skip) · pgTAP `dma_diagnosis` 61/61 · `dma_strategy_read` 30/30 · `PREDEPLOY-OK`(이미지 Node v22.23.4 zstd 있음).
+
+## Validation Audit 2026-11-09
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+> 2026-11-09 재실행: shared 라벨·문장 189 · server 진단·챗·틱 165 · webapp 주문로그·챗 139 · pgTAP dma_diagnosis 61/61 · dma_strategy_read 30/30 — 전부 green. 수동 항목(UAT A~F)은 사용자 확인 통과(39-09 SUMMARY).
