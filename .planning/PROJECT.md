@@ -31,6 +31,7 @@
 - [x] 발사 경계 지도 어드민 — Validated in Phase 35: gh-trade 16:00 Q16 · 09:00:30 N/A 발사 결과를 저널 80 kind 17·18 로 받아 DB 쪽 해석으로 `launch_heads` · `launch_pieces` 적재(relay 무변경) · 10/12~10/26 백필 · 어드민 날짜별 발사 주문 내역 + 발사 경계 지도(서버×시장 4패널 SVG) · 범위 7 발사 계획 어드민(relay op 8·9·94 · 변경 이력 표 · 저장 결과 offline/timeout 구분과 다시 읽기). 코드 리뷰 4라운드(1~3차 16건 fixed · 4차 Info 3건 deferred), VERIFICATION-R4 7/7, UAT 6/6 pass (2026-11-01)
 - [x] 틱 전문 뷰어 — Validated in Phase 37: `/analytics/ticks` KRX·NXT 전 종목 08:00~20:00 틱 전문(B6·A3·B9·R8·C3) 수신순 재생 · 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 호가창 10단 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 공급 두 갈래 — 당일 = 119 인덱서 + radar-gw tickgw 종목 단위 요청형(서버 캐시 · 자동 증분 · 19:55 따라잡기 · 20:01 마감 마무리 · 20:10/20:40 승격) · 과거 = `gs://gh-trade-tick-archive` 원본 Cloud Run Job 변환 → 종목·날짜 격자. 검증 R2 12/12 · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 첫 밤 승격 16/16 · 캐시 192MB) (2026-11-04)
 - [x] 틱뷰어 우리 주문 · 체결 표시 — Validated in Phase 38: `tick_own_for_user` RPC(가시 계좌 · 어드민 · 켜진 서버 · jsonb 1회) → `GET /api/ticks/own` → 브라우저 shared `matchOwnFills` 짝짓기(10/30 401/406) · 근거 특정(호가 B6 29/29 · 앵커 100/100) → 전문 목록 칩 · 주문 줄 · 짝 없음 줄 · 둘째 레일 · 카드 「◆ 우리 주문 #…」 · 오른쪽 열 「우리 주문 n」 탭 · 차트 ◆ ○ · 제목 줄 알약 [ ]
+- [x] 체결 앱 푸시 알림 — Validated in Phase 40: 주문 체결 · 거부 · 서버 취소 · 자동매도 시작/완료를 GH Trade iOS · Android 앱으로 한 줄 푸시. relay 저널 적용 결과 → DB 판정 RPC `dma_push_claim`(주문당 첫 체결 + 전량 체결 · 송신 로그 UNIQUE 로 재생 · 재시도 중복 0 · 계좌번호 비노출) → iOS APNs 직접(.p8 · Secret Manager) · Android FCM v1(VM SA · Firebase 는 Android 만). 기기별 켜기 · 탭하면 주문로그 착지 · 앱 앞 배너 시 작업대 주문 토스트 숨김. 검증 5/5 · 실기기 UAT 통과(11-09) · 리뷰 경고 7 open (2026-11-09)
 
 ### Active
 
@@ -98,6 +99,7 @@
 | DMA 다중 서버 — 레지스트리는 gh-radar DB(`dma_servers` · 계좌 등록 의도), 계좌 설정 정본은 gh-trade 서버 users.toml(87 스냅샷) · relay 가 서버별 관리자 연결로 반영 (Phase 29) | 서버 4대를 웹에서 관리하되 서버가 각자 계좌·전략을 소유 → 의도는 DB, 반영 결과는 서버 87 로 대조(칩). 계좌별 주문 서버(G-1)는 지정 ?? 기본 서버 ?? 유일 등록 서버 규칙 한 벌(shared `resolveEffectiveOrderServer`)로 relay · Admin 이 같이 판정 | ✓ Phase 29 (운영은 지정 0 · 두 번째 서버 꺼짐 — 켜기 전 결정 남음) |
 | 틱 공급은 두 갈래 — 당일은 119 인덱서 종목 단위 요청형(tickgw), 과거는 GCS 원본 클라우드 변환 · 승격은 fail-closed (Phase 37) | 119 에 부하를 주지 않으면서 당일 지연(기록 1초 + 전송)과 과거 전 종목을 함께 얻으려고 gh-trade-ac 와 합의(11-02). 압축·불량 레코드로 구멍 난 하루는 승격하지 않고 nightly/요청 변환 몫으로 넘긴다 — 완결성 우선, 승격률은 따라잡기 · 캐시 상한으로 보전 | ✓ Good — 2026-11-04 첫 밤 승격 16/16 failed 0 · UAT 3/3 |
 | 우리 주문 · 체결은 틱이 있는 브라우저에서 짝짓는다 — server · RPC 는 저널 행만 (Phase 38) | 틱 격자는 브라우저에만 있고 A3 에는 계좌 · 주문번호가 없다 → 짝짓기 · 근거 특정은 shared 순수 함수(오라클 픽스처로 잠금) · RPC 는 가시성 · 켜진 서버 필터만. 그날 「우리 주문」 표는 UAT 에서 오른쪽 열 탭으로 분리(D-07 뒤집기 · 스케치 026 A) | ✓ Good — 2026-11-03 배포 · UAT ok · 검증 21/21 (리뷰 Warning 5 open) |
+| 체결 푸시 판정은 DB RPC 한 곳, 송신은 relay 적용 결과 뒤에서만 (Phase 40) | 주문 · 판정 경로(gh-trade · relay 저널 적용)를 건드리지 않고(diff 0) 재기동 커서 재생 · 응답 유실 재시도에도 같은 알림을 두 번 보내지 않으려면 송신 권리를 DB UNIQUE 가 한 번만 줘야 한다. iOS 는 Firebase 없이 APNs 직접, Android 만 FCM(D-17 부분 번복) | ✓ Good — 2026-11-07 배포 · 11-09 UAT 통과 · 송신 실패 0 (리뷰 경고 7 open — 응답 유실 시 묶음 소실 · FCM 404 일괄 삭제 등) |
 
 ## Evolution
 
@@ -117,4 +119,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-04 after Phase 37*
+*Last updated: 2026-11-09 after Phase 40*

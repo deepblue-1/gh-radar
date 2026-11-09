@@ -22,10 +22,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-04 after Phase 37)
+See: .planning/PROJECT.md (updated 2026-11-09 after Phase 40)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 40 — 체결 앱 푸시 알림
+**Current focus:** Phase 39 — 매매진단 챗봇
 
 ## Current Position
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 82% (82/82 plans)
 
 ### Blockers/Concerns (v1.1 로 이월)
 
+- **[Phase 40 후속 · 비차단] 체결 푸시 리뷰 경고 7건 open.** 운영 영향이 큰 것은 WR-04(FCM 404·NOT_FOUND 를 모두 토큰 만료로 보고 기기 행 삭제 — `FCM_PROJECT_ID` 오설정 시 Android 전부 삭제) · WR-07(로그아웃 정리 실패 시 같은 폰 다음 사용자에게 앞 사용자 체결 알림). 나머지는 응답 유실·종료 시 묶음 소실(WR-01·02) · RPC 시간 상한 없음(WR-03) · 자동매도 완료 수치 경합(WR-05) · 토스트 숨김 공백(WR-06). 정본 `phases/40-fill-push-notification/40-REVIEW.md` · 처분 `40-REVIEW-DISPOSITION.md`.
 - **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT). **+ 예수금 갈림(Phase 36 D-03):** 체결 조정이 서버마다 따로 가므로 두 서버 동시 운영 전 서버 간 예수금 동기화 결정 필요(공유 계좌 반영 범위 WR-04 미룸과 함께 — 36-UAT Deferred).
 - **[Phase 30 후속 · 비차단] KB 주문자 IP/MAC.** R3-01 보류 권고는 해제(30-07 · relay:2234a1b5 · 인박스 261010 done). 남은 것: ① KB121 에 gh-trade 261011(공유 계좌 IP/MAC 전파) 배포 여부 확인 — KB121 켤 때 공유 계좌 저장 1회 확인 ② 주문 전문(TCHODR1000 orderInfo · macAddr)에 설정값이 실리는지 회선 관측 없음(gh-trade 단위 테스트 `test_kb_endpoint_race.cpp` 만) — KB 담당 주문번호 조회 · KB120 패킷 캡처 · gh-trade 값 없는 출처 진단 로그 중 택1. 정본 `phases/30-kb-ip-mac/30-07-SUMMARY.md` 「Next Phase Readiness」.
 - **Phase 17 승계 실기 관측 2건.** ① D-25 래치 36/37/38 왕복·76/77/78 드롭 0 미관측(WINDOWS #17 — `sudo xcodebuild -license` 동의 뒤 gh-trade HEAD 빌드 또는 장중 LED 관측). ② smoke `INV-9` 프로덕션 첫 실행 미수행(`SMOKE_AUTH_TOKEN` 필요). TRADE-04·05 는 그래서 Pending 유지.
@@ -162,9 +163,9 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/40-fill-push-notification/40-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-11-06T12:59:19.251Z
+Last session: 2026-11-09
 Stopped at: Phase 40 complete, ready to execute Phase 39
 
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
