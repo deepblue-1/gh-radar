@@ -12,6 +12,7 @@ import { consultWebSearchSpecialist } from "./specialists/websearch-specialist.j
 import {
   consultDiagnosisSpecialist,
   DIAGNOSIS_CONTEXT_MISSING_TEXT,
+  DIAGNOSIS_QUESTION_MISSING_TEXT,
   type DiagnosisContext,
   type ModelUsage,
 } from "./specialists/diagnosis/diagnosis-specialist.js";
@@ -186,9 +187,14 @@ export async function runSpecialist(
       const out = await consultWebSearchSpecialist({ question: input.question });
       return { text: out.text, citations: out.citations };
     }
-    case "diagnosis":
+    case "diagnosis": {
       if (!ctx) return { text: DIAGNOSIS_CONTEXT_MISSING_TEXT };
-      return consultDiagnosisSpecialist(supabase, { question: input.question }, ctx);
+      // 팀장 입력은 `as SpecialistInput` 캐스트라 런타임 보장이 없다 — 빈 질문으로 하루 상한을 올리고 Opus 400 을
+      // 받지 않게 여기서 거른다(IN-04).
+      const question: unknown = input.question;
+      if (typeof question !== "string" || question.trim() === "") return { text: DIAGNOSIS_QUESTION_MISSING_TEXT };
+      return consultDiagnosisSpecialist(supabase, { question }, ctx);
+    }
     default:
       return { text: UNKNOWN_TOOL };
   }

@@ -36,8 +36,8 @@ vi.mock("../specialists/diagnosis/diagnosis-specialist", async (importOriginal) 
 }));
 
 // mock 이후 import (orchestrator 가 mock 된 전문가 모듈을 참조).
-import { SPECIALIST_TOOLS, runSpecialist, extractStockRefs } from "../chat-orchestrator";
-import { DIAGNOSIS_CONTEXT_MISSING_TEXT } from "../specialists/diagnosis/diagnosis-specialist";
+import { SPECIALIST_TOOLS, runSpecialist, extractStockRefs, type SpecialistInput } from "../chat-orchestrator";
+import { DIAGNOSIS_CONTEXT_MISSING_TEXT, DIAGNOSIS_QUESTION_MISSING_TEXT } from "../specialists/diagnosis/diagnosis-specialist";
 
 // 전문가는 mock 이므로 supabase 는 아무 객체나 통과시킨다.
 const sb = {} as unknown as SupabaseClient;
@@ -98,6 +98,15 @@ describe("주문 진단 전문가 등록(Phase 39 D-01 · D-02)", () => {
     );
     expect(out).toEqual({ text: "진단문", display: "진단문", usage: USAGE });
     expect(diagnosisMock).toHaveBeenCalledWith(sb, { question: "왜 나갔어?" }, ctx);
+  });
+
+  it("question 이 없거나 빈 글자 · 문자열 아님 → DIAGNOSIS_QUESTION_MISSING_TEXT · 진단 상담 미호출(상한 무소모 · IN-04)", async () => {
+    const ctx = { userId: "u-1" };
+    for (const input of [{}, { question: "   " }, { question: 42 }] as unknown as SpecialistInput[]) {
+      const out = await runSpecialist("consult_diagnosis_specialist", input, sb, ctx);
+      expect(out.text).toBe(DIAGNOSIS_QUESTION_MISSING_TEXT);
+    }
+    expect(diagnosisMock).not.toHaveBeenCalled();
   });
 });
 

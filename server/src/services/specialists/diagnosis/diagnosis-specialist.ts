@@ -84,6 +84,8 @@ export const DIAGNOSIS_TIMEOUT_TEXT =
   "주문 진단이 시간 안에 끝나지 않았습니다. 날짜 · 종목 · 시각을 좁혀 다시 물어 주세요.";
 export const DIAGNOSIS_USAGE_CHECK_FAILED_TEXT = "주문 진단을 지금 쓸 수 없습니다(사용량 확인 실패).";
 export const DIAGNOSIS_CONTEXT_MISSING_TEXT = "주문 진단을 지금 쓸 수 없습니다.";
+/** 팀장이 question 없이(비었거나 문자열 아님) 진단을 불렀을 때 — 하루 상한을 건드리지 않는다(IN-04). */
+export const DIAGNOSIS_QUESTION_MISSING_TEXT = "주문 진단에 넘길 질문이 비어 있습니다. 사용자 질문을 question 에 담아 다시 부르세요.";
 export const DIAGNOSIS_TURN_BUDGET_TEXT =
   "이번 질문에서 주문 진단 시간을 이미 다 썼습니다. 앞 진단 결과로 답하거나, 새 질문으로 다시 물어 주세요.";
 
