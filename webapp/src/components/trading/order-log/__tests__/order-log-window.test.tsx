@@ -206,3 +206,60 @@ describe('OrderLogWindow — 골격 (결정 5 · UI-SPEC ③)', () => {
     );
   });
 });
+
+describe('OrderLogWindow — 알림 탭 착지 종목 (Phase 40 리뷰 수정 · 추가 발견)', () => {
+  const OTHER_ISIN = 'KR7282720005';
+
+  it('고른 종목이 그날 범위 행에 없어도(계좌 못 찾음 · 조회 실패) 종목 칩이 「전체」 가 아니라 그 종목을 보인다', async () => {
+    fetchStrategyEventsMock.mockResolvedValue([exposed] satisfies StrategyEventRow[]);
+    open(`stock=${OTHER_ISIN}`);
+    await flush();
+    const select = screen.getByRole('combobox', { name: '종목' }) as HTMLSelectElement;
+    expect(select.value).toBe(OTHER_ISIN);
+    expect(select.selectedOptions[0]!.value).toBe(OTHER_ISIN);
+    expect(select.selectedOptions[0]!.textContent).not.toBe('전체');
+    expect(lines()).toHaveLength(0);
+  });
+
+  it('창이 떠 있는 채 다른 알림 탭(router.push 같은 라우트 · 다른 쿼리) → 그 계좌 · 종목 · 날짜로 다시 선다', async () => {
+    fetchStrategyEventsMock.mockResolvedValue([exposed, buy] satisfies StrategyEventRow[]);
+    const view = open('');
+    await flush();
+    expect(lines()).toHaveLength(1);
+
+    searchParams = new URLSearchParams(`account=${FIXTURE_ACCOUNT_NO}&date=2026-09-28&stock=${buy.isin}`);
+    view.rerender(<OrderLogWindow />);
+    await flush();
+    expect(q('[data-slot="order-log-date"]')?.textContent).toBe('2026-09-28 (월)');
+    expect(fetchStrategyEventsMock).toHaveBeenLastCalledWith('2026-09-28');
+    const select = screen.getByRole('combobox', { name: '종목' }) as HTMLSelectElement;
+    expect(select.value).toBe(buy.isin);
+    // 정본 쿼리라 다시 쓰지 않는다.
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it('창이 직접 쓴 쿼리(router.replace)가 늦게 돌아와도 상태를 되돌리지 않는다 — 빠른 두 번 변경', async () => {
+    const view = open(`account=${FIXTURE_ACCOUNT_NO}`);
+    await flush();
+    const kind = screen.getByRole('combobox', { name: '구분' }) as HTMLSelectElement;
+    await act(async () => {
+      kind.value = 'market';
+      kind.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      q('[data-slot="order-log-date-prev"]')!.click();
+    });
+    const written = replaceMock.mock.calls.map((c) => String(c[0]).split('?')[1] ?? '');
+    expect(written).toHaveLength(2);
+
+    // 첫 replace 의 쿼리가 두 번째 변경 뒤에 도착 → 되돌리지 않는다. 이어서 두 번째도 도착.
+    for (const qs of written) {
+      searchParams = new URLSearchParams(qs);
+      view.rerender(<OrderLogWindow />);
+      await flush();
+      expect(q('[data-slot="order-log-date"]')?.textContent).toBe('2026-09-28 (월)');
+      expect((screen.getByRole('combobox', { name: '구분' }) as HTMLSelectElement).value).toBe('market');
+    }
+    expect(replaceMock).toHaveBeenCalledTimes(2);
+  });
+});

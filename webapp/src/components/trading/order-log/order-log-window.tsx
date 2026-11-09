@@ -24,6 +24,12 @@
  *   `div` 로 바꾸고(셸이 이미 `main`), 셸 본문 여백(8 / 768↑ 16 / 1024↑ 24)을 음수 여백으로 걷어 머리줄 아래를 꽉 채운다.
  *   높이 = 뷰포트 − 셸 머리줄(56 + 상단 안전영역)이라 바깥 스크롤이 생기지 않고 목록 스크롤러 · 핀이 그대로 동작한다.
  *   아래는 홈 인디케이터만큼 비운다.
+ * ⑦ 바깥 이동 따라가기(Phase 40 리뷰 수정 · 추가 발견) — 이 창이 떠 있는 채로 체결 알림을 또 탭하면 `router.push` 가 같은 라우트의
+ *   쿼리만 바꾼다(재마운트 없음). 창이 직접 쓴 정본 문자열(`router.replace`)이 아닌 쿼리가 오면 그 쿼리로 상태를 다시 세운다
+ *   — 예전에는 첫 렌더 쿼리만 읽어 두 번째 알림의 종목 · 계좌 · 날짜가 무시됐다.
+ * ⑧ 고른 종목이 그날 범위 행에 없으면(알림 탭에서 계좌를 못 찾아 시세만 보임 · 조회 실패 · 다른 계좌 주문) 종목 select 가
+ *   맞는 option 이 없어 「전체」 로 보이면서 목록은 그 종목으로 걸러져 비었다. 고른 종목을 option 에 넣어 칩이 그 종목을 보인다
+ *   (이름은 종목 마스터 · 없으면 ISIN).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -41,6 +47,7 @@ import {
   type OrderLogFilters as OrderLogFilterValue,
   type OrderLogQuery,
 } from '@/lib/order-log-feed';
+import { useStockNames } from '@/lib/stock-names';
 import { WB_PHONE_BAND_BELOW } from '@/lib/trading-layout';
 import { useOrderLogFeed } from '@/lib/use-order-log-feed';
 
@@ -78,11 +85,21 @@ export function OrderLogWindow({ embedded = false }: { embedded?: boolean } = {}
     filters: initial.filters,
   }));
 
+  // ⑦ 창이 직접 쓴(router.replace) 정본 쿼리 문자열 — 도착하면 하나씩 지운다. 여기 없는 쿼리가 오면 바깥 이동이다.
+  const writtenRef = useRef<string[]>([]);
+  const write = useCallback(
+    (next: OrderLogQuery, at: string) => {
+      writtenRef.current.push(orderLogQueryString(next, at));
+      router.replace(hrefOf(next, at), { scroll: false });
+    },
+    [router],
+  );
+
   const correctedRef = useRef(false);
   useEffect(() => {
     if (!initial.corrected || correctedRef.current) return;
     correctedRef.current = true;
-    router.replace(hrefOf(initial, today), { scroll: false });
+    write(initial, today);
     // 마운트 1회 — 교정은 받은 쿼리에 대해서만 한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -90,10 +107,26 @@ export function OrderLogWindow({ embedded = false }: { embedded?: boolean } = {}
   const update = useCallback(
     (next: OrderLogQuery) => {
       setQuery(next);
-      router.replace(hrefOf(next, kstDateIso()), { scroll: false });
+      write(next, kstDateIso());
     },
-    [router],
+    [write],
   );
+
+  // ⑦ 바깥 이동(알림 탭 router.push 로 같은 라우트 · 다른 쿼리) — 그 쿼리로 상태를 다시 세운다.
+  const paramsKey = params?.toString() ?? '';
+  const seenParamsRef = useRef(paramsKey);
+  useEffect(() => {
+    if (paramsKey === seenParamsRef.current) return;
+    seenParamsRef.current = paramsKey;
+    const mine = writtenRef.current.indexOf(paramsKey);
+    if (mine >= 0) {
+      writtenRef.current.splice(0, mine + 1);
+      return;
+    }
+    const next = parseOrderLogQuery(new URLSearchParams(paramsKey), kstDateIso());
+    setQuery({ account: next.account, date: next.date, filters: next.filters });
+    if (next.corrected) write(next, kstDateIso());
+  }, [paramsKey, write]);
 
   const { date, filters, account } = query;
   const isToday = date === today;
@@ -124,7 +157,17 @@ export function OrderLogWindow({ embedded = false }: { embedded?: boolean } = {}
   const scoped = useMemo(() => feed.rows.filter((r) => inScope(r, { accountNo: account })), [feed.rows, account]);
   const visible = useMemo(() => applyOrderLogFilters(scoped, filters), [scoped, filters]);
   const nameOf = useOrderLogNameOf(scoped);
-  const options = useMemo(() => stockOptions(scoped, nameOf), [scoped, nameOf]);
+  const rowOptions = useMemo(() => stockOptions(scoped, nameOf), [scoped, nameOf]);
+  // ⑧ 고른 종목이 범위 행에 없어도 칩이 그 종목을 보이게.
+  const selectedMissing = filters.stock !== 'all' && !rowOptions.some((o) => o.value === filters.stock);
+  const selectedNames = useStockNames(selectedMissing ? [filters.stock] : []);
+  const options = useMemo(
+    () =>
+      selectedMissing
+        ? [...rowOptions, { value: filters.stock, label: selectedNames.get(filters.stock) ?? filters.stock }]
+        : rowOptions,
+    [rowOptions, selectedMissing, filters.stock, selectedNames],
+  );
   // 「상한가 특징」 체크 켜짐도 기본값이 아닌 필터다(UI-SPEC ②-1 빈 문구 판정 · Phase 28 D-07).
   const filtered =
     filters.stock !== 'all' || filters.ex !== 'all' || filters.kind !== 'all' || feed.showLimitFeature;
