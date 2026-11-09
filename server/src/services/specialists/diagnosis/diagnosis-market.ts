@@ -268,12 +268,17 @@ function zstdSupported(): boolean {
   return typeof zlib.createZstdDecompress === "function" && typeof zlib.zstdDecompressSync === "function";
 }
 
-/** 창 → 응답 텍스트(범례 · 줄 · 잘림 문구 · 틱 보기 링크). 창이 비면 null. */
+/** 당일 수집 구멍(`X-Tick-Complete: false`) 표시 — 모델이 「그 시각엔 체결이 없었다」 는 거짓 근거를 만들지 않게(WR-05). */
+export const LIVE_INCOMPLETE_NOTE = "자료 일부 누락: 당일 수집에 구멍이 있음 — 줄이 없는 구간을 체결 없음으로 보지 마세요";
+const LIVE_INCOMPLETE_EMPTY_TEXT = "자료 없음: 그 시각 시세 기록 없음(당일 수집에 구멍이 있어 체결 없음으로 볼 수 없음)";
+
+/** 창 → 응답 텍스트(범례 · 줄 · 잘림 문구 · 누락 표시 · 틱 보기 링크). 창이 비면 null. */
 function renderWindow(
   win: TickWindow,
   input: MarketTicksInput,
   d8: string,
   windowCut: boolean,
+  incomplete = false,
 ): { text: string; records: number; truncated: boolean } | null {
   if (win.lines.length === 0 || win.firstRecvNs === null) return null;
   const truncated = windowCut || win.cappedByCount;
@@ -285,6 +290,7 @@ function renderWindow(
       `잘렸음: 요청 ${input.from}~${input.to} 중 ${first}~${last} 까지 ${win.lines.length}건 — 범위를 좁혀 다시 부르세요`,
     );
   }
+  if (incomplete) out.push(LIVE_INCOMPLETE_NOTE);
   out.push(`[틱 보기](${tickViewerPath({ isin: input.isin, d: d8, ex: input.exchange, t: fmtTickTime(win.firstRecvNs) })})`);
   return { text: out.join("\n"), records: win.lines.length, truncated };
 }
@@ -430,8 +436,13 @@ async function todayPath(
     if (r.stop) break;
     tail = r.tail;
   }
-  const out = renderWindow(win, input, p.d8, p.windowCut);
-  if (!out) return none("자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)");
+  if (got.incomplete) {
+    logger.info({ diagnosis: { tool: "market", ex: input.exchange } }, "[chat] diagnosis market: 당일 시세 불완전(X-Tick-Complete false)");
+  }
+  const out = renderWindow(win, input, p.d8, p.windowCut, got.incomplete);
+  if (!out) {
+    return none(got.incomplete ? LIVE_INCOMPLETE_EMPTY_TEXT : "자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)");
+  }
   return { ...out, source: "live" };
 }
 

@@ -17,7 +17,9 @@ import type { TickgwClient } from "./tickgw-client.js";
  *         queued    → LIVE_POLL_MS 뒤 다시 · 처음 queued 뒤 LIVE_QUEUED_WAIT_MS 를 넘으면 QUEUED(활성 키 8개 경쟁 · Pitfall 4)
  *         delayed   → LIVE_DELAYED_MS 뒤 다시(캐시 full · 백오프)
  *         blocked   → BLOCKED
- *         ready     → ok(지금까지 받은 바이트 — 진단은 하루치 완결을 기다리지 않는다)
+ *         ready     → ok(지금까지 받은 바이트 — 진단은 하루치 완결을 기다리지 않는다).
+ *                     `X-Tick-Complete: false`(08:00 부터 끊김 없이 이어지지 않음 = 구멍 있는 하루)면 `incomplete: true` 를
+ *                     싣는다 — 워커는 이 경우를 deferred incomplete 로 다룬다. 진단은 바이트는 쓰되 「일부 누락」 을 알린다.
  *   409 → 본문 JSON 의 epoch 로 offset 0 · 쌓은 본문 버림 · 곧바로 다시(연속 LIVE_MAX_CONFLICTS 회를 넘으면 CONFLICT)
  *   status 0 → UNREACHABLE(tickgw 에 닿지 못함) · 401 → logger.error 1회 + AUTH(공유 비밀 불일치) · 그 밖 → BAD_RESPONSE
  *   마감(clock() > deadlineAt) → queued 중이었으면 QUEUED · 아니면 TIMEOUT
@@ -38,7 +40,8 @@ export type LiveFetchMemoEntry = {
 export type LiveUnavailableReason = "UNREACHABLE" | "AUTH" | "QUEUED" | "BLOCKED" | "CONFLICT" | "TIMEOUT" | "BAD_RESPONSE";
 
 export type LiveFetchResult =
-  | { kind: "ok"; entry: LiveFetchMemoEntry }
+  /** `incomplete` = tickgw 가 `X-Tick-Complete: false` 를 줬다(당일 수집 구멍 — 기록 없음 ≠ 체결 없음). */
+  | { kind: "ok"; entry: LiveFetchMemoEntry; incomplete: boolean }
   | { kind: "unavailable"; reason: LiveUnavailableReason };
 
 export type LiveFetchOptions = {
@@ -131,7 +134,11 @@ export async function fetchLiveBytes(
       case "blocked":
         return unavailable("BLOCKED");
       case "ready":
-        return { kind: "ok", entry: { epoch, offsetEnd: offset, bytes: parts.length === 1 ? parts[0]! : concatBytes(parts) } };
+        return {
+          kind: "ok",
+          incomplete: r.headers.complete === "false",
+          entry: { epoch, offsetEnd: offset, bytes: parts.length === 1 ? parts[0]! : concatBytes(parts) },
+        };
       default:
         return unavailable("BAD_RESPONSE");
     }

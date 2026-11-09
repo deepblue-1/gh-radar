@@ -18,6 +18,7 @@ vi.mock("../../ticks", async (importOriginal) => {
 import {
   formatA3Line,
   getMarketTicksText,
+  LIVE_INCOMPLETE_NOTE,
   MARKET_LEGEND,
   MARKET_MAX_RECORDS,
   type MarketDeps,
@@ -295,7 +296,7 @@ function fakeTickgw(script: Script): TickgwClient & { calls: TickgwLiveQuery[] }
 
 const live200 = (
   body: Uint8Array,
-  h: { epoch?: string; offsetEnd: number; state?: string; more?: boolean },
+  h: { epoch?: string; offsetEnd: number; state?: string; more?: boolean; complete?: boolean },
 ): TickgwLiveResponse => ({
   status: 200,
   body: Buffer.from(body),
@@ -303,7 +304,7 @@ const live200 = (
     epoch: h.epoch ?? "e1",
     offsetEnd: String(h.offsetEnd),
     state: h.state ?? "ready",
-    complete: "true",
+    complete: h.complete === false ? "false" : "true",
     more: h.more ? "true" : "false",
   },
 });
@@ -450,6 +451,27 @@ describe("getMarketTicksText — 오늘 tickgw 경로(Task 2)", () => {
     const body = zst(todayRecords(KRX_FIX));
     const { r } = await runToday(() => live200(body, { offsetEnd: body.length }), { from: "09:00:00", to: "09:00:05" });
     expect(r).toMatchObject({ source: "none", text: "자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)" });
+  });
+
+  it("X-Tick-Complete false(당일 수집 구멍) → 줄 뒤 · 링크 앞에 「자료 일부 누락」 · 빈 창이면 체결 없음으로 보지 말라는 사유(WR-05)", async () => {
+    const body = zst(todayRecords(KRX_FIX));
+    const holed = () => live200(body, { offsetEnd: body.length, complete: false });
+
+    const { r } = await runToday(holed);
+    expect(r.source).toBe("live");
+    const ls = lines(r.text);
+    expect(ls.at(-2)).toBe(LIVE_INCOMPLETE_NOTE);
+    expect(ls.at(-1)!.startsWith("[틱 보기](")).toBe(true);
+
+    const empty = await runToday(holed, { from: "09:00:00", to: "09:00:05" });
+    expect(empty.r).toMatchObject({
+      source: "none",
+      text: "자료 없음: 그 시각 시세 기록 없음(당일 수집에 구멍이 있어 체결 없음으로 볼 수 없음)",
+    });
+
+    // 완결 하루면 누락 표시가 없다
+    const full = await runToday(() => live200(body, { offsetEnd: body.length }));
+    expect(full.r.text).not.toContain(LIVE_INCOMPLETE_NOTE);
   });
 });
 
