@@ -112,7 +112,7 @@ function facts(over: Partial<PushFacts> = {}): PushFacts {
 
 type Device = { device_id: string; platform: PushPlatform; token: string };
 type Send = { log_id: string; stage: string; chain_key: string; facts: PushFacts; devices: Device[] };
-type ClaimData = { sends: Send[]; deferred: string[] };
+type ClaimData = { sends: Send[]; deferred: string[]; deferred_strategy?: { journal_epoch: string; seq: number }[] };
 type ClaimStep = { data: ClaimData } | "error" | "throw" | "missing" | "hangUntilAbort" | { hold: Promise<ClaimData> };
 type RpcCall = { fn: string; args: Record<string, unknown> };
 
@@ -291,6 +291,7 @@ describe("PushNotifier — 한 길(Task 1 tracer)", () => {
       p_platforms: ["ios"],
       p_allow_fallback: false,
       p_claim_id: expect.stringMatching(UUID_RE),
+      p_defer_strategy: true,
     });
 
     const expected = pushMessageOf(facts());
@@ -503,6 +504,7 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
       p_platforms: ["ios"],
       p_allow_fallback: false,
       p_claim_id: expect.stringMatching(UUID_RE),
+      p_defer_strategy: true,
     });
     expect(holdingCalls).toEqual([[GATEWAY, ACCOUNT, "KR7282720005"]]);
     expect(ios.sent).toHaveLength(1);
@@ -558,9 +560,39 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
       p_platforms: ["ios"],
       p_allow_fallback: true,
       p_claim_id: expect.stringMatching(UUID_RE),
+      p_defer_strategy: true,
     });
     await settle(10_000);
     expect(db.claims()).toHaveLength(2); // 두 번째 deferred 는 끝
+  });
+
+  it("WR-05 — deferred_strategy(체결 기록 대기 자동매도 완료) → 1500ms 뒤 그 전략 항목만 폴백 허용으로 1회", async () => {
+    captureLogs();
+    const db = fakeDb();
+    const done = strategyRow({ kind: 13, seq: 78, condActual: 4, condThreshold: 3, qty: 500 });
+    db.claimScript.push(
+      { data: { sends: [], deferred: [], deferred_strategy: [{ journal_epoch: EPOCH, seq: 78 }] } },
+      { data: { sends: [], deferred: [] } },
+    );
+    const n = make({ supabase: db.supabase, identities: ids, senders: [fakeSender("ios").sender], enabled: true });
+    n.enqueueStrategy(p, [strategyRow(), done]);
+    await settle();
+    expect(db.claims()).toHaveLength(1);
+    expect(db.claims()[0]!.args.p_defer_strategy).toBe(true);
+    await settle(PUSH_DEFER_MS);
+    expect(db.claims()).toHaveLength(2);
+    expect(db.claims()[1]!.args).toEqual({
+      p_gateway: GATEWAY,
+      p_orders: [],
+      p_strategy: [{ journal_epoch: EPOCH, seq: 78 }],
+      p_recipients: { [ACCOUNT]: [U1] },
+      p_platforms: ["ios"],
+      p_allow_fallback: true,
+      p_claim_id: expect.stringMatching(UUID_RE),
+      p_defer_strategy: true,
+    });
+    await settle(10_000);
+    expect(db.claims()).toHaveLength(2);
   });
 
   it("단일 비행(D-09) — claim 이 걸린 동안 같은 id 를 두 번 enqueue → 끝난 뒤 정착 400ms 뒤 한 번만 더(p_orders 에 그 id 1개)", async () => {
@@ -769,7 +801,8 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
     expect(db.claims()).toHaveLength(2); // 재시도 지연(1초) 없이 바로
     expect(db.claims()[0]!.args).toHaveProperty("p_claim_id");
     expect(db.claims()[1]!.args).not.toHaveProperty("p_claim_id");
-    const { p_claim_id: _k, ...legacy } = db.claims()[0]!.args;
+    expect(db.claims()[1]!.args).not.toHaveProperty("p_defer_strategy");
+    const { p_claim_id: _k, p_defer_strategy: _d, ...legacy } = db.claims()[0]!.args;
     expect(db.claims()[1]!.args).toEqual(legacy);
     expect(ios.sent).toHaveLength(1);
     n.enqueueOrders(p, [orderRow({ status: "filled", filledQty: 500 })]);

@@ -31,6 +31,8 @@
 --   | 20 | 모든 반환에 account_no · accountNo 키 없음(+ 양성 대조)                                    | SC-4 · T-19-14|
 --   | 21 | 같은 p_claim_id 재시도 → 같은 log_id 재생 · 로그 1행 / 다른 · 없는 claim_id 0 / 전달 기록 뒤 0 / | WR-01         |
 --   |    | 재시도 사이 새 단계 → [재생, 새 단계] · 오버로드 1개 · 기기 함수 EXECUTE (f, f, t)          |               |
+--   | 22 | kind 13 완료 · 창 안 매도 체결 < 누적 · defer true → 기록 없이 deferred_strategy / 마지막 체결 | WR-05         |
+--   |    | 적용 뒤 전체 평균 / 폴백 true 는 있는 값으로 / 6 인자 옛 호출은 바로 보냄                     |               |
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_push_claim.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -47,7 +49,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(101);
+SELECT plan(109);
 
 -- ── 픽스처 ──────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -722,12 +724,75 @@ SELECT is(ARRAY(SELECT e->>'stage' FROM jsonb_array_elements((SELECT r FROM t_re
   ARRAY['accepted', 'first_fill'],
   '(0004142, 같은 claim_id 재시도 사이 첫 체결) sends = [재생 accepted, 새 first_fill]');
 
+-- ── 22절: 자동매도 완료의 체결 기록 대기(40-REVIEW WR-05 · p_defer_strategy) ──
+-- 발동(kind 11 · 11:10:00) → 매도 300@3110 만 적용된 채 완료(kind 13 · 누적 500) 판정 → 미룸(기록 없음).
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price)
+VALUES ('KB120', 'ep-40', 150, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:10:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 3050);
+CALL pg_temp.fill(151, '0004151', 300, 3110, '11:10:05', 'S', 3120, -3000);
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, price, qty, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 152, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:10:10')) * 1000)::bigint,
+        13, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 500, 3, 4);
+INSERT INTO t_res VALUES ('dw1', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 152}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false, NULL, true));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'dw1') -> 'sends')
+        + (SELECT count(*)::int FROM public.dma_push_chains WHERE chain_key = 'AS:ep-40:152'), 0,
+  '(kind 13 seq 152, 매도 체결 300 < 누적 500 · defer true) sends 0 · 체인 0 — 기록 없이 미룬다');
+SELECT is((SELECT r FROM t_res WHERE name = 'dw1') -> 'deferred_strategy',
+  '[{"journal_epoch": "ep-40", "seq": 152}]'::jsonb,
+  '(kind 13 seq 152) deferred_strategy = [{journal_epoch, seq}]');
+-- 늦게 적용된 마지막 매도 200@3100 → 같은 사건 재판정은 전체 체결로 평균을 낸다.
+CALL pg_temp.fill(153, '0004152', 200, 3100, '11:10:08', 'S', 3120, -4000);
+INSERT INTO t_res VALUES ('dw2', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 152}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false, NULL, true));
+SELECT is((SELECT r FROM t_res WHERE name = 'dw2') #>> '{sends,0,stage}', 'autosell_done',
+  '(kind 13 seq 152, 마지막 체결 적용 뒤) stage = autosell_done');
+SELECT is(((SELECT r FROM t_res WHERE name = 'dw2') #>> '{sends,0,facts,autosell,avgSellPrice}')::int, 3106,
+  '(kind 13 seq 152) avgSellPrice = (300×3110 + 200×3100)/500 = 3106 — 일부 체결 값으로 굳지 않는다');
+SELECT is((SELECT r FROM t_res WHERE name = 'dw2') -> 'deferred_strategy', '[]'::jsonb,
+  '(kind 13 seq 152, 체결 다 옴) deferred_strategy 비어 있음');
+-- 폴백 호출(짝 대기 재호출)은 체결이 덜 와도 있는 값으로 보낸다.
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price)
+VALUES ('KB120', 'ep-40', 155, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:20:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 3050);
+CALL pg_temp.fill(156, '0004156', 100, 3000, '11:20:05', 'S', 3120, -12000);
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, price, qty, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 157, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:20:10')) * 1000)::bigint,
+        13, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 400, 3, 4);
+INSERT INTO t_res VALUES ('dw3', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 157}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', true, NULL, true));
+SELECT is((SELECT r FROM t_res WHERE name = 'dw3') #>> '{sends,0,stage}', 'autosell_done',
+  '(kind 13 seq 157, 체결 100 < 400 · 폴백 true) 미루지 않고 autosell_done');
+SELECT is(((SELECT r FROM t_res WHERE name = 'dw3') #>> '{sends,0,facts,autosell,avgSellPrice}')::int, 3000,
+  '(kind 13 seq 157, 폴백) avgSellPrice = 있는 체결(100@3000)로');
+-- 옛 relay(p_defer_strategy 없음 · 6 인자) — 이전처럼 바로 보낸다(미룬 사건을 다시 묻지 못하므로).
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, bid1_price, price)
+VALUES ('KB120', 'ep-40', 160, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:30:00')) * 1000)::bigint,
+        11, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 3050);
+INSERT INTO public.dma_strategy_events (gateway, journal_epoch, seq, trade_date, gw_time_ms, kind, "group", exchange,
+                                        isin, account_no, queue_case, price, qty, cond_threshold, cond_actual)
+VALUES ('KB120', 'ep-40', 161, pg_temp.today(), (extract(epoch FROM pg_temp.kst('11:30:10')) * 1000)::bigint,
+        13, 9, 'KRX', 'KR7282720005', '9900004011', 1, 3120, 100, 3, 4);
+INSERT INTO t_res VALUES ('dw4', public.dma_push_claim('KB120', '{}'::uuid[],
+  '[{"journal_epoch": "ep-40", "seq": 161}]'::jsonb,
+  '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is((SELECT r FROM t_res WHERE name = 'dw4') #>> '{sends,0,stage}', 'autosell_done',
+  '(kind 13 seq 161, 체결 0 · 6 인자 옛 호출) 이전처럼 바로 autosell_done');
+
 -- ── 8절: 권한 ────────────────────────────────────────────────────
 SELECT is(
   ARRAY[
-    has_function_privilege('anon', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE'),
-    has_function_privilege('authenticated', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE'),
-    has_function_privilege('service_role', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE')
+    has_function_privilege('anon', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean)', 'EXECUTE')
   ],
   ARRAY[false, false, true],
   'dma_push_claim EXECUTE (anon, authenticated, service_role) = (f, f, t)');

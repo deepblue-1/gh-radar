@@ -136,11 +136,13 @@ export function isAutoSellPushEvent(ev: Pick<StrategyEventRow, "kind" | "condAct
 
 type ClaimDevice = { device_id: string; platform: PushPlatform; token: string };
 type ClaimSend = { log_id: string; stage: PushStage; chain_key: string; facts: PushFacts; devices: ClaimDevice[] };
-type ClaimResult = { sends: ClaimSend[]; deferred: string[] };
+type StrategyKey = { journal_epoch: string; seq: number };
+/** `deferredStrategy` — 체결 기록을 기다리는 자동매도 완료(40-REVIEW WR-05 · 새 DB 만 준다). */
+type ClaimResult = { sends: ClaimSend[]; deferred: string[]; deferredStrategy: StrategyKey[] };
 type ClaimArgs = {
   p_gateway: string;
   p_orders: string[];
-  p_strategy: { journal_epoch: string; seq: number }[];
+  p_strategy: StrategyKey[];
   p_recipients: Record<string, string[]>;
   p_platforms: PushPlatform[];
   p_allow_fallback: boolean;
@@ -149,6 +151,11 @@ type ClaimArgs = {
    * 응답 유실 재시도가 이미 기록된 sent 사건을 다시 받는다. 옛 DB(이 인자 없는 함수)면 빼고 다시 부른다.
    */
   p_claim_id?: string;
+  /**
+   * 자동매도 완료를 체결 기록까지 미뤄도 되는가(40-REVIEW WR-05) — 이 relay 는 `deferred_strategy` 를 짝 대기 재호출에 싣는다.
+   * 옛 DB 면 `p_claim_id` 와 함께 뺀다.
+   */
+  p_defer_strategy?: boolean;
 };
 type ReportRow = {
   log_id: string;
@@ -210,7 +217,14 @@ function parseClaim(data: unknown): ClaimResult | null {
     });
   }
   const deferred = Array.isArray(data.deferred) ? data.deferred.filter((x): x is string => typeof x === "string") : [];
-  return { sends, deferred };
+  const deferredStrategy: StrategyKey[] = [];
+  if (Array.isArray(data.deferred_strategy)) {
+    for (const k of data.deferred_strategy) {
+      if (!isObject(k) || typeof k.journal_epoch !== "string" || typeof k.seq !== "number") continue;
+      deferredStrategy.push({ journal_epoch: k.journal_epoch, seq: k.seq });
+    }
+  }
+  return { sends, deferred, deferredStrategy };
 }
 
 export class PushNotifier {
@@ -456,14 +470,17 @@ export class PushNotifier {
       p_platforms: [...this.#platforms],
       p_allow_fallback: allowFallback,
       p_claim_id: randomUUID(),
+      p_defer_strategy: true,
     };
     const claim = await this.#claim(q.gateway, args);
     if (claim === null || this.#closed) return;
-    // D-03 — 짝 이벤트를 아직 못 본 주문은 잠시 뒤 폴백 허용으로 한 번만 다시 묻는다(폴백 호출의 deferred 는 끝).
-    if (!allowFallback && claim.deferred.length > 0) this.#scheduleDeferred(q, orders, claim.deferred);
+    // D-03 — 짝 이벤트를 아직 못 본 주문 · 체결 기록을 기다리는 자동매도 완료(WR-05)는 잠시 뒤 폴백 허용으로 한 번만
+    // 다시 묻는다(폴백 호출의 deferred 는 끝).
+    const deferredCount = claim.deferred.length + claim.deferredStrategy.length;
+    if (!allowFallback && deferredCount > 0) this.#scheduleDeferred(q, orders, strategy, claim.deferred, claim.deferredStrategy);
     const results = await this.#deliver(q.gateway, claim.sends, strategy);
     if (results.length > 0) await this.#report(q.gateway, results);
-    if (claim.sends.length > 0 || claim.deferred.length > 0) {
+    if (claim.sends.length > 0 || deferredCount > 0) {
       logger.info(
         {
           gateway: q.gateway,
@@ -472,7 +489,7 @@ export class PushNotifier {
           ok: results.filter((r) => r.result === "ok").length,
           failed: results.filter((r) => r.result === "failed").length,
           removed: results.filter((r) => r.result === "token_removed").length,
-          deferred: claim.deferred.length,
+          deferred: deferredCount,
           fallback: allowFallback,
         },
         "[push] 송신",
@@ -481,20 +498,33 @@ export class PushNotifier {
   }
 
   /**
-   * `deferMs` 뒤 deferred id 만 `p_allow_fallback: true` 로 한 번 더(D-03). 그 시점 매핑으로 수신자를 다시 계산한다. 정착 큐와
-   * 따로 돈다 — 판정은 DB 체인 표의 단조 upsert 라 같은 주문이 정착 묶음과 겹쳐도 한 단계는 한 번만 나간다.
+   * `deferMs` 뒤 deferred id · 자동매도 항목만 `p_allow_fallback: true` 로 한 번 더(D-03 · WR-05). 그 시점 매핑으로 수신자를
+   * 다시 계산한다. 정착 큐와 따로 돈다 — 판정은 DB 체인 표의 단조 upsert 라 같은 주문 · 사건이 정착 묶음과 겹쳐도 한 단계는
+   * 한 번만 나간다.
    */
-  #scheduleDeferred(q: GatewayQueue, orders: ReadonlyMap<string, string>, deferred: readonly string[]): void {
+  #scheduleDeferred(
+    q: GatewayQueue,
+    orders: ReadonlyMap<string, string>,
+    strategy: ReadonlyMap<string, StrategyItem>,
+    deferred: readonly string[],
+    deferredStrategy: readonly StrategyKey[],
+  ): void {
     const retry = new Map<string, string>();
     for (const id of deferred) {
       const account = orders.get(id);
       if (account !== undefined) retry.set(id, account);
     }
-    if (retry.size === 0 || this.#closed) return;
+    const retryStrategy = new Map<string, StrategyItem>();
+    for (const k of deferredStrategy) {
+      const key = strategyKeyOf(k.journal_epoch, k.seq);
+      const item = strategy.get(key);
+      if (item !== undefined) retryStrategy.set(key, item);
+    }
+    if ((retry.size === 0 && retryStrategy.size === 0) || this.#closed) return;
     const run = (): void => {
       if (this.#closed) return;
       this.#track(
-        this.#claimAndSend(q, retry, new Map(), true).catch((err: unknown) =>
+        this.#claimAndSend(q, retry, retryStrategy, true).catch((err: unknown) =>
           logger.error({ gateway: q.gateway, err: String(err) }, "[push] 짝 대기 재호출 예외 — 적용 · 팬아웃 무영향"),
         ),
       );
@@ -544,7 +574,7 @@ export class PushNotifier {
   }
 
   /**
-   * 판정 RPC 한 번. 새 인자(`p_claim_id`)를 모르는 옛 함수(마이그레이션 20261109300000 적용 전)면 PostgREST 가
+   * 판정 RPC 한 번. 새 인자(`p_claim_id` · `p_defer_strategy`)를 모르는 옛 함수(마이그레이션 20261109300000 적용 전)면 PostgREST 가
    * PGRST202(함수 없음)를 준다 — 그때만 새 인자를 빼고 바로 한 번 더 부른다(배포 순서 무관 · 재시도 횟수에 안 셈).
    */
   async #callClaim(gateway: string, args: ClaimArgs): Promise<{ data: unknown; error: unknown }> {
@@ -554,7 +584,7 @@ export class PushNotifier {
       this.#legacyClaimWarned = true;
       logger.warn({ gateway }, "[push] dma_push_claim 옛 시그니처 — p_claim_id 없이 호출(DB 마이그레이션 적용 전)");
     }
-    const { p_claim_id: _claimId, ...legacy } = args;
+    const { p_claim_id: _claimId, p_defer_strategy: _deferStrategy, ...legacy } = args;
     return this.#rpc("dma_push_claim", legacy);
   }
 

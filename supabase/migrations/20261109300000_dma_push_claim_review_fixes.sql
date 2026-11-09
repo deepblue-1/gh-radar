@@ -6,6 +6,10 @@
 --           relay 는 한 묶음의 판정 시도(첫 호출 · 오류 재시도)마다 같은 uuid 를 넘긴다. 같은 키로 이미 기록됐는데
 --           전달 기록(dma_push_deliveries)이 없는 sent 사건은 재시도 응답에 다시 실린다 — 첫 호출이 커밋된 뒤 응답만
 --           끊겨도 그 묶음의 푸시가 사라지지 않는다.
+--   - WR-05 자동매도 완료(kind 13)의 평균가 · 손익이 두 기록기 순서 경합에 놓이지 않게 — 창 안 매도 체결(E) 합이 kind 13
+--           누적 매도 수량보다 작으면(주문 기록기가 아직 마지막 체결을 적용하지 않았다) 기록 없이 `deferred_strategy` 로
+--           돌린다. 새 인자 `p_defer_strategy boolean DEFAULT false` 를 넘기는 호출자(짝 대기 재호출에 전략 항목도 싣는 relay)
+--           에서만 미룬다 — 옛 relay 는 이 키를 몰라 미룬 사건을 영영 다시 묻지 않기 때문이다. 폴백 호출은 있는 값으로 보낸다.
 --   - 받는 기기 조회를 내부 함수 `dma_push_claim_devices` 하나로 — 판정 경로와 재생 경로가 같은 조건을 쓴다
 --     (켜짐 ∧ 송신 플랫폼 ∧ p_recipients[계좌] 사용자 ∧ 끈 계좌 아님).
 --
@@ -13,10 +17,11 @@
 -- 위 변경만 더했다.
 --
 -- 하위 호환(배포 순서 무관):
---   - 옛 relay(6 인자 이름 호출) → 새 함수: 새 인자는 기본값(NULL)이라 PostgREST 가 같은 함수로 찾고 동작은 이전과 같다.
+--   - 옛 relay(6 인자 이름 호출) → 새 함수: 새 인자 둘은 기본값(NULL · false)이라 PostgREST 가 같은 함수로 찾고 동작은
+--     이전과 같다(재생 없음 · 자동매도 완료를 미루지 않음).
 --     옛 6 인자 함수를 지우는 이유 — 둘이 함께 있으면 6 인자 호출이 PGRST203(모호)로 깨진다.
 --   - 새 relay → 옛 함수(이 파일 적용 전): PostgREST 가 PGRST202(함수 없음)를 주면 relay 가 새 인자를 빼고 한 번 더 부른다.
---   - 반환에 새 키를 더할 뿐 기존 키(sends · deferred) 모양은 그대로다.
+--   - 반환에 새 키(`deferred_strategy` [{journal_epoch, seq}])를 더할 뿐 기존 키(sends · deferred) 모양은 그대로다.
 --
 -- 하지 않는 것:
 --   - 접근 규칙(POLICY) 추가 — 서비스롤 전용 그대로. 새 함수도 SECURITY INVOKER · service_role 전용 EXECUTE
@@ -25,7 +30,7 @@
 --   - 원격 적용. 이 파일은 원격 미적용으로 커밋되고 메인 세션이 `supabase db push --linked --yes` 한다.
 --
 -- 되돌리기(수동 — 순서 중요):
---   1) DROP FUNCTION IF EXISTS public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid);
+--   1) DROP FUNCTION IF EXISTS public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean);
 --   2) 20261109100000_dma_push_account_mutes.sql 의 함수 블록(6 인자 · REVOKE/GRANT/COMMENT 포함)을 다시 적용한다.
 --   3) DROP FUNCTION IF EXISTS public.dma_push_claim_devices(text, jsonb, text[]);
 --   4) DROP INDEX IF EXISTS public.idx_dma_push_log_claim; ALTER TABLE public.dma_push_log DROP COLUMN IF EXISTS claim_id;
@@ -81,7 +86,7 @@ DROP FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean)
 
 CREATE FUNCTION public.dma_push_claim(
   p_gateway text, p_orders uuid[], p_strategy jsonb, p_recipients jsonb, p_platforms text[], p_allow_fallback boolean,
-  p_claim_id uuid DEFAULT NULL
+  p_claim_id uuid DEFAULT NULL, p_defer_strategy boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -94,6 +99,7 @@ DECLARE
   v_today       date := (now() AT TIME ZONE 'Asia/Seoul')::date;
   v_events      jsonb := '[]'::jsonb;   -- 판정 결과 [{trade_date, account_no, chain_key, stage, outcome, facts}]
   v_deferred    jsonb := '[]'::jsonb;
+  v_deferred_strategy jsonb := '[]'::jsonb;   -- WR-05 체결 기록을 기다리는 자동매도 완료 [{journal_epoch, seq}]
   v_sends       jsonb := '[]'::jsonb;
 
   v_fallback    boolean := coalesce(p_allow_fallback, false);
@@ -428,6 +434,15 @@ BEGIN
          AND e.isin = v_sev.isin AND e.notice_type = 'E' AND e.side = 'S' AND e.apply_error IS NULL
          AND e.gw_time >= coalesce(to_timestamp(v_prev_ms / 1000.0), '-infinity'::timestamptz)
          AND e.gw_time <= to_timestamp(v_sev.gw_time_ms / 1000.0);
+      -- 40-REVIEW WR-05: kind 13 은 전략 기록기 · E 행은 주문 기록기라 배치 · 재시도가 따로 논다. 창 안 매도 체결 합이 kind 13
+      -- 누적 매도 수량보다 작으면 마지막 체결이 아직 적용되지 않은 것이다 — 일부 체결로 평균 · 손익을 만들어 단발(rank 3)로
+      -- 굳히지 말고 기록 없이 미룬다. relay 가 짝 대기 재호출(폴백)로 다시 묻고, 폴백은 그때 있는 값으로 보낸다.
+      IF v_outcome = 'sent' AND NOT v_fallback AND coalesce(p_defer_strategy, false)
+         AND coalesce(v_s_qty, 0) < v_sev.qty THEN
+        v_deferred_strategy := v_deferred_strategy || jsonb_build_array(jsonb_build_object(
+          'journal_epoch', v_sev.journal_epoch, 'seq', v_sev.seq));
+        CONTINUE;
+      END IF;
       IF v_s_qty > 0 THEN
         v_s_avg := round(v_s_amt / v_s_qty);
       END IF;
@@ -559,16 +574,16 @@ BEGIN
     END LOOP;
   END IF;
 
-  RETURN jsonb_build_object('sends', v_replay || v_sends, 'deferred', v_deferred);
+  RETURN jsonb_build_object('sends', v_replay || v_sends, 'deferred', v_deferred, 'deferred_strategy', v_deferred_strategy);
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid) FROM anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) TO service_role;
 
-COMMENT ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid) IS
-  'Phase 40 D-07 — 체결 푸시 판정 · 멱등 · 기록 · 기기 조회 1회. 반환 {sends, deferred} · facts 에 계좌 없음(SC-4). relay(40-06) 전용 · service_role. · quick-261109-dz1 끈 계좌 사용자 기기 제외 · 40-REVIEW WR-01 p_claim_id 응답 유실 재시도 재생';
+COMMENT ON FUNCTION public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid, boolean) IS
+  'Phase 40 D-07 — 체결 푸시 판정 · 멱등 · 기록 · 기기 조회 1회. 반환 {sends, deferred, deferred_strategy} · facts 에 계좌 없음(SC-4). relay(40-06) 전용 · service_role. · quick-261109-dz1 끈 계좌 사용자 기기 제외 · 40-REVIEW WR-01 p_claim_id 응답 유실 재시도 재생 · WR-05 p_defer_strategy 자동매도 완료 체결 대기';
 
 NOTIFY pgrst, 'reload schema';
 
