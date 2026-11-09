@@ -18,6 +18,7 @@ import {
   pnlOf,
   rowDescriptionOf,
   tagOf,
+  teamNetOf,
   toneOf,
   type TeamflowTag,
 } from '@/lib/teamflow-report';
@@ -44,6 +45,8 @@ import { TeamflowDetail } from './teamflow-detail';
  *   라벨은 `xl:sr-only`(20% 칸 라벨은 xl 에서도 보인다 — 두 줄을 가르는 글자). 셰브론은 폰에서도 보인다.
  * - 치수 불변: `min-h-11` · 패딩 8/12 · `gap-x-3` · `gap-y-1.5` · `scroll-mt-[calc(4.5rem+var(--app-safe-top))]` · 열 템플릿.
  * - 열린 행 바로 아래에만 `TeamflowDetail` 을 마운트한다(접으면 언마운트 → 상세 안 토글 상태도 초기화).
+ * - (quick 261109-kzk) 팀 순매수 칸 = `teamNetOf`(틱뷰어 「당일순매수」 · 팀 체결 없음 「—」) — export 폴백 값이면 칸 글자 바깥
+ *   형제 「*」(`data-slot="teamflow-net-fallback"` · aria-hidden — sr 은 행 설명이 말한다).
  */
 
 const COLS_XL = 'xl:grid-cols-[minmax(0,168px)_104px_80px_96px_minmax(0,148px)_72px_minmax(0,1fr)_16px]';
@@ -130,7 +133,8 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
           const tag = tagOf(r);
           const label = labelOf(r);
           const sub = r.short_code ? [r.short_code, r.market].filter(Boolean).join(' · ') : null;
-          const net = fmtEok(r.team_net_val, { signed: true });
+          const tn = teamNetOf(r);
+          const net = fmtEok(tn.val, { signed: true });
           const below20 = fmtEok(r.below20_net_val, { signed: true });
           const above20 = fmtEok(r.above20_net_val, { signed: true });
           // D-09 — 결과 보조줄은 미도달 · high_rate 있을 때만(sr 설명 `rowDescriptionOf` 와 같은 `isNum` 판정 · IN-04)
@@ -238,14 +242,24 @@ export function TeamflowDayGrid({ rows }: { rows: readonly TeamflowRow[] }) {
                     <span className="shrink-0 text-[var(--muted-fg)] xl:sr-only">팀 순매수</span>
                     <span
                       data-slot="teamflow-net"
-                      title={net}
+                      title={tn.src === 'none' ? '틱 기록상 팀 체결 없음' : net}
                       className={cn(
                         'mono min-w-0 truncate xl:text-[length:var(--t-sm)] xl:font-semibold',
-                        amountTone(r.team_net_val),
+                        amountTone(tn.val),
                       )}
                     >
                       {net}
                     </span>
+                    {tn.src === 'export' && tn.val !== null && (
+                      <span
+                        data-slot="teamflow-net-fallback"
+                        aria-hidden="true"
+                        title="틱 기록 값이 없어 상한가 가격을 뺀 보고서 값"
+                        className="shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+                      >
+                        *
+                      </span>
+                    )}
                   </span>
 
                   {pnl && (

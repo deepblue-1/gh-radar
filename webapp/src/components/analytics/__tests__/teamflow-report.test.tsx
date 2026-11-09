@@ -40,6 +40,7 @@ import {
   CHEONIL,
   DONGYANG,
   HANSUN,
+  SMBEXCEL,
   teamflowReportFixture,
   teamflowRows,
 } from '@/test-fixtures/teamflow-export';
@@ -228,6 +229,12 @@ describe('TeamflowReport', () => {
     // DOM 순서: KPI → 캡션 → 탐지 종목 카드
     expect(kpis.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(caption.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // quick 261109-kzk — 픽스처 34행은 tick_ 키가 없어 전부 export 폴백 → 설명 줄 「* 34종목」 꼬리
+    const note = document.querySelector('[data-slot="teamflow-net-note"]')!;
+    expect(note.textContent).toBe(
+      '팀 순매수 = 틱뷰어 당일순매수와 같은 값(KRX 정규장+시간외 · 상한가 가격 포함) · * 34종목은 틱 기록 값이 없어 상한가 가격을 뺀 보고서 값',
+    );
+    expect(caption.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('(l) 상위 5행 순서(행 버튼 접근 이름) = 한선엔지니어링 · 제주항공 · 천일고속 · 도우인시스 · 동양고속', async () => {
@@ -271,7 +278,7 @@ describe('TeamflowReport', () => {
     expect(dy.querySelector('[data-slot="teamflow-above20"]')!.textContent).toBe('+2.3억');
     expect(dy.querySelector('[data-slot="teamflow-share"]')!.textContent).toBe('2%');
     expect(document.getElementById(`teamflow-row-desc-${DONGYANG}`)!.textContent).toBe(
-      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억(상한가 가격 제외 값), 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
     );
     // 상한가 행은 고가 보조줄 없음
     expect(rowBtn(CHEONIL).querySelector('[data-slot="teamflow-high"]')).toBeNull();
@@ -339,5 +346,52 @@ describe('TeamflowReport', () => {
       .slice(0, 5)
       .map((b) => b.getAttribute('aria-label')!.split(' ')[0]);
     expect(names).toEqual(['한선엔지니어링', '제주항공', '천일고속', '도우인시스', '동양고속']);
+  });
+  it('(r) quick 261109-kzk — 팀 순매수 = 틱뷰어 당일순매수 · 팀 체결 없음 「—」 맨 뒤 · 폴백 「*」 · KPI · 설명 줄', async () => {
+    const base = teamflowRows();
+    const of = (isin: string) => base.find((r) => r.isin === isin)!;
+    const rows: TeamflowRow[] = [
+      { ...of(CHEONIL), tick_team_fills: 0, tick_team_day_net_krw: null },
+      { ...of(HANSUN), tick_team_fills: 3, tick_team_day_net_krw: -390_000_000 },
+      of(DONGYANG),
+      { ...of(SMBEXCEL), tick_team_fills: 2, tick_team_day_net_krw: 1_288_000_000 },
+    ];
+    await open('d=20261014', teamflowReportFixture({ rows }));
+    expect(rowButtons().map((b) => b.getAttribute('data-isin'))).toEqual([SMBEXCEL, DONGYANG, HANSUN, CHEONIL]);
+    const net = (isin: string) => rowBtn(isin).querySelector('[data-slot="teamflow-net"]')!;
+    const mark = (isin: string) => rowBtn(isin).querySelector('[data-slot="teamflow-net-fallback"]');
+    expect(net(SMBEXCEL).textContent).toBe('+12.9억');
+    expect(net(DONGYANG).textContent).toBe('+2.2억');
+    expect(net(HANSUN).textContent).toBe('−3.9억');
+    expect(net(CHEONIL).textContent).toBe('—');
+    expect(net(CHEONIL).getAttribute('title')).toBe('틱 기록상 팀 체결 없음');
+    // 「*」 = export 폴백 행에만 · 칸 글자 바깥 형제 · sr 는 설명이 말한다
+    expect(mark(DONGYANG)!.textContent).toBe('*');
+    expect(mark(DONGYANG)!.getAttribute('aria-hidden')).toBe('true');
+    expect(mark(DONGYANG)!.getAttribute('title')).toBe('틱 기록 값이 없어 상한가 가격을 뺀 보고서 값');
+    expect(mark(SMBEXCEL)).toBeNull();
+    expect(mark(HANSUN)).toBeNull();
+    expect(mark(CHEONIL)).toBeNull();
+    // KPI = 12.88억 + 2.15억 − 3.9억 · 팀 순매수 종목 2(천일고속 팀 체결 없음 · 한선 음수 제외)
+    expect(document.querySelector('[data-kpi="팀 순매수 합"] dd')!.textContent).toBe('+11.1억');
+    expect(document.querySelector('[data-kpi="팀 순매수 종목"] dd')!.textContent).toBe('2');
+    expect(document.querySelector('[data-slot="teamflow-net-note"]')!.textContent).toBe(
+      '팀 순매수 = 틱뷰어 당일순매수와 같은 값(KRX 정규장+시간외 · 상한가 가격 포함) · * 1종목은 틱 기록 값이 없어 상한가 가격을 뺀 보고서 값',
+    );
+    expect(document.getElementById(`teamflow-row-desc-${DONGYANG}`)!.textContent).toContain(
+      '팀 순매수 +2.2억(상한가 가격 제외 값)',
+    );
+    expect(document.getElementById(`teamflow-row-desc-${CHEONIL}`)!.textContent).toContain('팀 순매수 —(팀 체결 없음)');
+  });
+
+  it('(r2) 전부 틱 값인 날 → 설명 줄에 「*」 꼬리 없음 · 표식 없음', async () => {
+    const rows = teamflowRows()
+      .slice(0, 3)
+      .map((r, i) => ({ ...r, tick_team_fills: 1, tick_team_day_net_krw: (i + 1) * 100_000_000 }));
+    await open('d=20261014', teamflowReportFixture({ rows }));
+    expect(document.querySelector('[data-slot="teamflow-net-note"]')!.textContent).toBe(
+      '팀 순매수 = 틱뷰어 당일순매수와 같은 값(KRX 정규장+시간외 · 상한가 가격 포함)',
+    );
+    expect(document.querySelector('[data-slot="teamflow-net-fallback"]')).toBeNull();
   });
 });

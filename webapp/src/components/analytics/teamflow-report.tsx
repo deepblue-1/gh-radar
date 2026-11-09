@@ -31,7 +31,8 @@ import { TeamflowKpiStrip } from './teamflow-kpi-strip';
  *   `dates[]`(행 있는 날짜만 — D-07)로 판정한다. `?d` 가 dates 밖(행 없는 날)이면 `dateNavOf` 가 앞뒤 행 있는 날로 보낸다.
  * ④ 빈 상태 2종: 이력 0(`dates` 빔) · 행 없는 날(`dates > 0 ∧ rows []`) — 둘 다 목록 카드 없음(`data-slot="teamflow-empty"`).
  * ⑤ 행이 있으면 세로 순서 = 머리 → KPI 띠(D-11) → KPI 캡션(최소치 고지 — 항상 보인다 · 접거나 툴팁 뒤로 숨기지 않는다) →
- *   탐지 종목 카드(행 = team_net_val 큰 순 · 기본 전부 접힘). 행 0 인 날은 KPI · 캡션 · 카드 모두 없이 빈 상태.
+ *   팀 순매수 설명 줄(quick 261109-kzk — 정의 · export 폴백 「* n종목」 은 n > 0 일 때만) →
+ *   탐지 종목 카드(행 = 팀 순매수(teamNetOf) 큰 순 · 기본 전부 접힘). 행 0 인 날은 KPI · 캡션 · 카드 모두 없이 빈 상태.
  */
 
 type Ready = Exclude<TeamflowReportResponse, { access: false }>;
@@ -157,6 +158,14 @@ export function TeamflowReport() {
           <TeamflowKpiStrip kpis={kpis} />
           <p className="-mt-2 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep">
             탐지 = 20%↑ 또는 상한가 체결 종목 · 팀 수치는 들어와서 친 체결만 센 최소치예요
+          </p>
+          <p
+            data-slot="teamflow-net-note"
+            className="-mt-2 text-[length:var(--t-caption)] text-[var(--muted-fg)] break-keep"
+          >
+            팀 순매수 = 틱뷰어 당일순매수와 같은 값(KRX 정규장+시간외 · 상한가 가격 포함)
+            {kpis.fallback > 0 &&
+              ` · * ${kpis.fallback.toLocaleString('ko-KR')}종목은 틱 기록 값이 없어 상한가 가격을 뺀 보고서 값`}
           </p>
         </>
       )}
