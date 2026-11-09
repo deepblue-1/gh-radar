@@ -33,11 +33,15 @@ import {
   LAUNCH_PLAN_APPLY_NOTE,
   maxChangeIdOf,
   maxTailProbeChangeIdOf,
+  COMMON_PLAN_BASE_MARKET,
+  commonPlanSplitOf,
+  isCommonLaunchPlan,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
   planNeedsReload,
   planRereadOf,
+  planSaveMarketsOf,
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
@@ -95,6 +99,9 @@ import { LaunchTailProbeBar, LaunchTailProbeEditor } from './launch-tail-probe-b
  *   전 값일 수 있어요」(35 R3-IN-01 — server 가 아직 PUT 을 처리 중이면 조회가 저장보다 먼저 닿을 수 있다).
  *   편집 중엔 그 패널에 바꿀 계획 실선(마지막 유효 값이 서버 값과 다를 때만 · S9) + 범례 「바꿀 계획」 · 계획을 읽었으면
  *   범례 아래 공용 적용 안내 한 줄.
+ * - 교보 09:00:30 N(인박스 261109-kyobo-n-single-field · 사용자 결정 = 패널별 「계획 고치기」 자리 유지): 교보 서버는 N 회차를
+ *   코스피 · 코스닥 한 send 로 쏘므로 어느 패널에서 열어도 공통 한 값(N/K)을 편집하고, 저장은 op 8 을 K → Q 두 번 같은 값으로
+ *   보낸다(앞이 ok 일 때만 뒤 · 옛 서버 빌드여도 두 값이 같아지게). 서버 K · Q 가 갈라져 있으면 편집 칸에 안내 줄. KB 는 그대로.
  * - 뒤탐침 줄(quick-261107-l7w · 채택 목업 변형 C): 요약 카드 아래 · 시장 패널 위에 고른 서버 · 고른 발사 하나의
  *   「<서버> 뒤탐침」 줄(코스피 · 코스닥 공통 · `LaunchTailProbeBar`). 값은 같은 `GET /plan` 응답의 그 서버 `tail_probes` —
  *   계획 404(absent)면 줄 자체가 없고, 계획을 못 읽었으면 「뒤탐침 값을 읽지 못했어요」, ok 인데 tail_probes 가 없으면
@@ -287,10 +294,17 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
       setLastSave((l) => (l !== null && l.id === id ? { ...l, save: { ...l.save, reread } } : l));
     setSaving(key);
     setLastSave(null);
-    saveLaunchPlan(gateway, f, market, valid)
-      .then(
+    // 교보 09:00:30 N 은 K → Q 두 번 같은 값(인박스 261109-kyobo-n-single-field) — 앞 시장이 ok 일 때만 다음을 보낸다. 결과 줄 ·
+    // 편집 칸 · 다시 읽기는 마지막으로 처리한 응답 기준(앞 시장 응답은 계획 상태만 바꾼다 — 뒤 응답 plan 이 두 칸을 함께 싣는다).
+    // 편집 칸 기준 값은 공통이면 N/K(`COMMON_PLAN_BASE_MARKET`).
+    const markets = planSaveMarketsOf(gateway, f, market);
+    const baseMarket = markets.length > 1 ? COMMON_PLAN_BASE_MARKET : market;
+    const send = (i: number): Promise<void> => {
+      const m = markets[i]!;
+      return saveLaunchPlan(gateway, f, m, valid).then(
         (resp) => {
           const ok = resp.result.outcome === 'ok';
+          const last = !ok || i === markets.length - 1;
           // 이 서버 값이 바뀌었거나(응답 plan) 서버에서 바뀌었을 수 있으면(ok · timeout) 그 전에 보낸 다시 읽기의 이 서버 값은 버린다.
           // failed · offline · skipped(plan null)는 바뀐 것이 없어 세대를 올리지 않는다.
           const reload = planNeedsReload(resp);
@@ -300,13 +314,19 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
           const sentOnly = ok && resp.plan === null;
           setPlan((s) => {
             const next = planStateWithSave(s, gateway, resp);
-            return sentOnly ? planStateWithSentEntry(next, gateway, f, market, valid) : next;
+            return sentOnly ? planStateWithSentEntry(next, gateway, f, m, valid) : next;
           });
-          const saved = sentOnly ? valid : ok ? (launchPlanEntryOf(resp.plan ?? undefined, f, market)?.offsets_us ?? null) : null;
+          if (!last) return send(i + 1);
+          const saved = sentOnly
+            ? valid
+            : ok
+              ? (launchPlanEntryOf(resp.plan ?? undefined, f, baseMarket)?.offsets_us ?? null)
+              : null;
           setEdit((e) => (untouched(e) && saved !== null ? planEditOf(gateway, market, f, saved) : e));
           const at = new Date();
           setLastSave({ key, id, save: reload ? { result: resp.result, at, reread: 'pending' } : { result: resp.result, at } });
           if (reload) reloadPlan(gateway, settle);
+          return undefined;
         },
         (e: unknown) => {
           // server 가 4xx 로 거부(401 세션 만료 · 403 · 400 검증 — relay 호출 · 이력 기록 전) — 확정 미반영(35 R2-IN-01). 「실패」 로
@@ -326,10 +346,12 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
           });
           markPlan(gateway);
           reloadPlan(gateway, settle, (resp) =>
-            saveRowSeenIn(resp.changes, { gateway, fire: f, market, offsets: valid, afterId }),
+            saveRowSeenIn(resp.changes, { gateway, fire: f, market: m, offsets: valid, afterId }),
           );
         },
-      )
+      );
+    };
+    send(0)
       .finally(() => setSaving(null));
   };
 
@@ -536,6 +558,12 @@ export function LaunchMapView({
   const tailProbed = ready && mine.some(isLaunchTailProbe);
   // 고른 서버 · 고른 발사의 뒤탐침 상태(quick-261107-l7w) — 편집 칸 기준 값.
   const tpState = plan.kind === 'ready' ? launchTailProbeStateOf(plan.resp.servers[gw], fire) : null;
+  // 교보 09:00:30 N 공통 칸 기준(N/K) · 갈라짐(인박스 261109-kyobo-n-single-field).
+  const commonEntry =
+    plan.kind === 'ready' && isCommonLaunchPlan(gw, fire)
+      ? launchPlanEntryOf(plan.resp.servers[gw], fire, COMMON_PLAN_BASE_MARKET)
+      : null;
+  const commonSplit = commonPlanSplitOf(plan, gw, fire);
   const tpValue = tpState !== null && tpState.kind === 'set' ? tpState.value : null;
   // 지도 예정 표식 · 계획 줄 꼬리 값 — 뒤탐침 칸이 열려 있으면 유효 초안(data-src draft), 아니면 서버 값.
   const tpShown = tpValue === null ? null : tpEditing !== null ? tpEditing.valid : tpValue;
@@ -657,6 +685,9 @@ export function LaunchMapView({
             {panels.map((p) => {
               const open = editing !== null && editing.gateway === p.gateway && editing.market === p.market;
               const entry = p.plan.entry;
+              // 교보 09:00:30 N 은 어느 패널에서 열어도 공통 한 값(N/K) — 인박스 261109-kyobo-n-single-field.
+              const common = isCommonLaunchPlan(p.gateway, fire);
+              const base = common && entry !== null ? (commonEntry ?? entry) : entry;
               const draftLines =
                 open && entry !== null && !sameOffsets(editing.valid, entry.offsets_us) ? editing.valid : undefined;
               return (
@@ -681,17 +712,18 @@ export function LaunchMapView({
                         ? undefined
                         : () =>
                             onEdit(
-                              open || entry === null
+                              open || base === null
                                 ? null
-                                : { gateway: p.gateway, market: p.market as LaunchMarket, offsets: entry.offsets_us },
+                                : { gateway: p.gateway, market: p.market as LaunchMarket, offsets: base.offsets_us },
                             )
                     }
                   >
-                    {open && entry !== null && (
+                    {open && base !== null && (
                       <LaunchPlanEditor
                         gateway={p.gateway}
                         fire={fire}
-                        entry={entry}
+                        entry={base}
+                        common={common ? { split: commonSplit } : null}
                         draft={editing.draft}
                         onDraft={(d) => onDraft?.(d)}
                         onSave={() => onSave?.()}

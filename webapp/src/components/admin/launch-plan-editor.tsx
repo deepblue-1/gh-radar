@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { DASH, fmtUs } from '@/lib/launch-format';
 import {
+  commonPlanSplitText,
   sameOffsets,
   saveResultViewOf,
   verdictCellText,
@@ -40,6 +41,8 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  * - 미리보기 P2(D-28 · 목업 `mockup-launch-plan-preview.html` `verdict()`): 조각마다 지금 / 바꿀 µs 와 「지난 N일에 쐈다면」
  *   접수 · 모름 · 거부 날 수(shared `launchPlanVerdictRows` — 리본과 같은 식). N = 그 패널 지금 범위의 날 수. 바꿀 값은
  *   `preview`(마지막 유효 값 · Pitfall S9) — 검증 오류 동안에도 지우지 않는다. 표는 자기 래퍼 안에서만 가로 스크롤.
+ * - 교보 09:00:30 N(`common` · 인박스 261109-kyobo-n-single-field): 안내 글이 「코스피 · 코스닥 공통 한 값」 으로 바뀌고, 서버 K · Q 가
+ *   갈라져 있으면 경고색 한 줄 + 값이 같아도 「저장」 을 켠다(저장이 K → Q 두 번 보내 둘을 맞춘다 — 지도 탭 `onSave`).
  * - 결과 = Admin 칩 한 벌(`ReflectChip`) + 결과 줄(`saveResultViewOf` — outcome · code 로 가르고 code 1 은 「알 수 없는 명령입니다」 만 서버 미지원).
  */
 
@@ -65,6 +68,11 @@ export interface LaunchPlanEditorProps {
   days?: readonly LaunchDay<unknown>[];
   /** 바꿀 값(마지막 유효 값 · S9) — 기본 서버 값. */
   preview?: readonly number[];
+  /**
+   * 교보 09:00:30 N 공통 칸(인박스 261109-kyobo-n-single-field) — 있으면 「코스피 · 코스닥 공통」 안내 · `entry` 는 N/K 값.
+   * `split` = 서버 K · Q 가 갈라져 있을 때 두 값(안내 줄 · 값이 같아도 저장 켬 — 저장이 둘을 맞춘다).
+   */
+  common?: { split: { K: readonly number[]; Q: readonly number[] } | null } | null;
 }
 
 const NO_DAYS: readonly LaunchDay<unknown>[] = [];
@@ -90,12 +98,14 @@ export function LaunchPlanEditor({
   result = null,
   days = NO_DAYS,
   preview,
+  common = null,
 }: LaunchPlanEditorProps) {
   const lim = LAUNCH_PLAN_LIMITS[fire];
   const multi = lim.maxPieces > 1;
   const check = validateLaunchPlanDraft(fire, draft);
   const badIdx = check.ok ? null : check.badIdx;
-  const changed = check.ok && !sameOffsets(check.values, entry.offsets_us);
+  const split = common?.split ?? null;
+  const changed = check.ok && (split !== null || !sameOffsets(check.values, entry.offsets_us));
   const canSave = check.ok && changed && !saving;
   const pristine = draft.length === entry.offsets_us.length && draft.every((s, i) => s === String(entry.offsets_us[i]));
   const view = result === null ? null : saveResultViewOf(result.result, fire, result.at, result.reread);
@@ -168,11 +178,18 @@ export function LaunchPlanEditor({
           })}
         </div>
         {!multi && (
-          <span className="text-[12px] break-keep text-[var(--muted-fg)]">
-            코스피 · 코스닥 각각 한 값 — 이 시장 주문 전부가 이 시각에 붙어서 나가요
+          <span data-slot="launch-plan-scope" className="text-[12px] break-keep text-[var(--muted-fg)]">
+            {common !== null
+              ? '코스피 · 코스닥 공통 한 값 — 두 시장 주문이 한 묶음으로 이 시각에 나가요'
+              : '코스피 · 코스닥 각각 한 값 — 이 시장 주문 전부가 이 시각에 붙어서 나가요'}
           </span>
         )}
       </div>
+      {split !== null && (
+        <div data-slot="launch-plan-split" className="text-[12.5px] break-keep text-[var(--led-latent)]">
+          {commonPlanSplitText(split)}
+        </div>
+      )}
       {days.length > 0 && <LaunchPlanPreview days={days} cur={entry.offsets_us} next={preview ?? entry.offsets_us} />}
       {!check.ok && (
         <div data-slot="launch-plan-alert" role="alert" className="text-[12.5px] break-keep text-[var(--destructive)]">

@@ -16,6 +16,7 @@
  */
 
 import {
+  brokerOfServerKey,
   launchPlanEntryOf,
   launchPlanProfileOf,
   validateLaunchPlanDraft,
@@ -187,6 +188,43 @@ export interface LaunchPlanEdit {
 /** 「계획 고치기」 — 서버 값으로 칸을 채운다. */
 export function planEditOf(gateway: string, market: LaunchMarket, fire: LaunchFire, offsets: readonly number[]): LaunchPlanEdit {
   return { gateway, market, fire, draft: offsets.map(String), valid: [...offsets] };
+}
+
+/**
+ * 교보 09:00:30 'N' = 코스피 · 코스닥 한 값(인박스 261109-kyobo-n-single-field · gh-trade quick-261109-eqv) — 교보는 두 시장이
+ * 주문 세션 하나라 N 회차를 한 send 로 쏜다. 편집 칸은 패널별 「계획 고치기」 자리 그대로 두고(사용자 결정) 어느 패널에서 열어도
+ * 공통 한 값을 보이며, 저장은 op 8 을 K → Q 두 번 같은 값으로 보낸다(옛 서버 빌드여도 두 값이 같아지게). 교보 판별 = 서버 키의
+ * 증권사 접두(`brokerOfServerKey` — p_gateway). KB 는 종전대로 시장별 두 값.
+ */
+export function isCommonLaunchPlan(gateway: string, fire: LaunchFire): boolean {
+  return fire === 'n0930' && brokerOfServerKey(gateway) === 'KYOBO';
+}
+
+/** 공통 칸의 표시 · 기준 시장 — 94 의 `N/K` 행(노트 1). */
+export const COMMON_PLAN_BASE_MARKET: LaunchMarket = 'K';
+
+/** 저장 때 op 8 을 보낼 시장 순서 — 공통이면 K → Q, 아니면 그 패널 시장 하나. */
+export function planSaveMarketsOf(gateway: string, fire: LaunchFire, market: LaunchMarket): LaunchMarket[] {
+  return isCommonLaunchPlan(gateway, fire) ? ['K', 'Q'] : [market];
+}
+
+/** 공통 칸인데 서버의 K · Q 값이 갈라져 있으면(옛 빌드에서 따로 저장) 두 값 — 같거나 한쪽이 없으면 null. */
+export function commonPlanSplitOf(
+  state: LaunchPlanState,
+  gateway: string,
+  fire: LaunchFire,
+): { K: readonly number[]; Q: readonly number[] } | null {
+  if (state.kind !== 'ready' || !isCommonLaunchPlan(gateway, fire)) return null;
+  const k = launchPlanEntryOf(state.resp.servers[gateway], fire, 'K');
+  const q = launchPlanEntryOf(state.resp.servers[gateway], fire, 'Q');
+  if (k === null || q === null || sameOffsets(k.offsets_us, q.offsets_us)) return null;
+  return { K: k.offsets_us, Q: q.offsets_us };
+}
+
+/** 갈라짐 안내 한 줄 — 「코스피 −349 · 코스닥 −348µs 로 갈라져 있어요 — 저장하면 하나로 맞춰요」. */
+export function commonPlanSplitText(split: { K: readonly number[]; Q: readonly number[] }): string {
+  const v = (xs: readonly number[]) => xs.map(fmtUs).join(' · ');
+  return `지금 코스피 ${v(split.K)} · 코스닥 ${v(split.Q)}µs 로 갈라져 있어요 — 저장하면 하나로 맞춰요`;
 }
 
 /** 입력 하나 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(S9 · 검증은 shared 한 벌). */

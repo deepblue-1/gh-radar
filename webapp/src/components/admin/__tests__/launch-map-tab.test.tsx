@@ -1324,3 +1324,114 @@ describe('LaunchMapView — 예정 뒤탐침 · 꼬리 · 범례(quick-261107-l7
     expect(ky.container.querySelectorAll('[data-legend="tail-probe"]')).toHaveLength(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 인박스 261109-kyobo-n-single-field — 교보 09:00:30 N 공통 한 값 · 저장 K → Q 두 번
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LaunchMapTab — 교보 09:00:30 N 공통 칸(인박스 261109-kyobo-n-single-field)', () => {
+  /** 교보119 N 만 K · Q 따로 둔 서버(나머지는 okServer 그대로). */
+  const kyoboN = (k: number, q: number): LaunchPlanServer => ({
+    status: 'ok',
+    plan_rev: 7,
+    updated_at: '2026-10-27T13:41:00Z',
+    entries: [
+      { profile: 'Q16', market: 'K', offsets_us: [-410, -400, -380] },
+      { profile: 'Q16', market: 'Q', offsets_us: [-530, -520, -500] },
+      { profile: 'N', market: 'K', offsets_us: [k] },
+      { profile: 'N', market: 'Q', offsets_us: [q] },
+    ],
+  });
+  const saved = (gateway: string, k: number, q: number) => ({
+    result: { server: gateway, outcome: 'ok' as const, code: 0 },
+    plan: kyoboN(k, q),
+    change: null,
+  });
+
+  afterEach(() => {
+    vi.mocked(fetchLaunchMap).mockReset();
+    vi.mocked(fetchLaunchPlan).mockReset();
+    vi.mocked(saveLaunchPlan).mockReset();
+  });
+
+  async function openN(gw: LaunchServer, market: 'K' | 'Q', plan: LaunchPlanResponse): Promise<HTMLElement> {
+    vi.mocked(fetchLaunchMap).mockResolvedValue(n0930());
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: plan });
+    const { container } = render(
+      <LaunchMapTab gw={gw} fire="n0930" range="10d" onFire={vi.fn()} onRange={vi.fn()} />,
+    );
+    await waitFor(() => expect(panelOf(container, gw, market).querySelector('[data-slot="launch-plan-edit-toggle"]')).not.toBeNull());
+    fireEvent.click(one(panelOf(container, gw, market), '[data-slot="launch-plan-edit-toggle"]'));
+    return panelOf(container, gw, market);
+  }
+
+  it('교보 코스닥 패널에서 열어도 N/K 값 · 「코스피 · 코스닥 공통 한 값」 · 갈라짐 줄 없음', async () => {
+    const p = await openN('KYOBO119', 'Q', planResp({ KYOBO119: kyoboN(-349, -349) }));
+    expect((within(p).getByLabelText('발사 시각(µs)') as HTMLInputElement).value).toBe('-349');
+    expect(one(p, '[data-slot="launch-plan-scope"]').textContent).toContain('코스피 · 코스닥 공통 한 값');
+    expect(p.querySelector('[data-slot="launch-plan-split"]')).toBeNull();
+    expect((one(p, '[data-slot="launch-plan-save"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('저장 = op 8 K → Q 두 번 같은 값 · 두 패널 계획 줄이 같은 값', async () => {
+    vi.mocked(saveLaunchPlan)
+      .mockResolvedValueOnce(saved('KYOBO119', -340, -349))
+      .mockResolvedValueOnce(saved('KYOBO119', -340, -340));
+    const p = await openN('KYOBO119', 'Q', planResp({ KYOBO119: kyoboN(-349, -349) }));
+    fireEvent.change(within(p).getByLabelText('발사 시각(µs)'), { target: { value: '-340' } });
+    fireEvent.click(one(p, '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(saveLaunchPlan).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(saveLaunchPlan).mock.calls).toEqual([
+      ['KYOBO119', 'n0930', 'K', [-340]],
+      ['KYOBO119', 'n0930', 'Q', [-340]],
+    ]);
+    const c = p.ownerDocument.body;
+    await waitFor(() => {
+      for (const m of ['K', 'Q'])
+        expect(one(panelOf(c, 'KYOBO119', m), '[data-slot="launch-plan-line"]').textContent).toBe(`${M}340µs`);
+    });
+  });
+
+  it('앞(K) 저장이 ok 가 아니면 Q 는 보내지 않는다', async () => {
+    vi.mocked(saveLaunchPlan).mockResolvedValueOnce({
+      result: { server: 'KYOBO119', outcome: 'failed', code: 3, message: '거부' },
+      plan: null,
+      change: null,
+    });
+    const p = await openN('KYOBO119', 'K', planResp({ KYOBO119: kyoboN(-349, -349) }));
+    fireEvent.change(within(p).getByLabelText('발사 시각(µs)'), { target: { value: '-340' } });
+    fireEvent.click(one(p, '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(p.querySelector('[data-slot="launch-plan-result-line"]')).not.toBeNull());
+    expect(saveLaunchPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('K −349 · Q −348 갈라짐 → 안내 줄 · 값 그대로여도 저장 켜짐 → K · Q 둘 다 −349', async () => {
+    vi.mocked(saveLaunchPlan)
+      .mockResolvedValueOnce(saved('KYOBO119', -349, -348))
+      .mockResolvedValueOnce(saved('KYOBO119', -349, -349));
+    const p = await openN('KYOBO119', 'Q', planResp({ KYOBO119: kyoboN(-349, -348) }));
+    expect(one(p, '[data-slot="launch-plan-split"]').textContent).toBe(
+      `지금 코스피 ${M}349 · 코스닥 ${M}348µs 로 갈라져 있어요 — 저장하면 하나로 맞춰요`,
+    );
+    const save = one(p, '[data-slot="launch-plan-save"]') as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(saveLaunchPlan).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(saveLaunchPlan).mock.calls.map((c) => c[2])).toEqual(['K', 'Q']);
+    await waitFor(() => expect(p.querySelector('[data-slot="launch-plan-split"]')).toBeNull());
+  });
+
+  it('KB 는 그대로 — 시장별 「각각 한 값」 · 저장 1번(그 패널 시장)', async () => {
+    vi.mocked(saveLaunchPlan).mockResolvedValueOnce({
+      result: { server: 'KB120', outcome: 'ok', code: 0 },
+      plan: okServer([-340, -335, -320], [-350, -345, -325], -240),
+      change: null,
+    });
+    const p = await openN('KB120', 'Q', planResp());
+    expect(one(p, '[data-slot="launch-plan-scope"]').textContent).toContain('각각 한 값');
+    fireEvent.change(within(p).getByLabelText('발사 시각(µs)'), { target: { value: '-240' } });
+    fireEvent.click(one(p, '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(saveLaunchPlan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveLaunchPlan).mock.calls[0]).toEqual(['KB120', 'n0930', 'Q', [-240]]);
+  });
+});
