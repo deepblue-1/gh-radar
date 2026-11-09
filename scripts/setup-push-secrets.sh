@@ -110,22 +110,37 @@ stage_apns() {
   old_b64="$(gcloud secrets versions access latest --secret="$APNS_KEY_SECRET" 2>/dev/null || true)"
   old_id="$(gcloud secrets versions access latest --secret="$APNS_KEY_ID_SECRET" 2>/dev/null || true)"
 
+  # 두 비밀은 짝이다(새 키 + 옛 Key ID 면 relay 의 JWT 가 모든 iOS 송신에서 403 InvalidProviderToken — 40-REVIEW IN-04).
+  # 키를 올린 뒤 Key ID 추가가 실패하면 방금 만든 키 버전을 disable 로 되돌린다. 버전 이름(`…/versions/N`)은 값이 아니라
+  # 잡아 둬도 된다.
+  local key_added=0 key_ver=""
   if [[ "$new_b64" != "$old_b64" ]]; then
-    if ! printf '%s' "$new_b64" | gcloud secrets versions add "$APNS_KEY_SECRET" --data-file=- >/dev/null 2>&1; then
+    if ! key_ver="$(printf '%s' "$new_b64" | gcloud secrets versions add "$APNS_KEY_SECRET" --data-file=- --format='value(name)' 2>/dev/null)"; then
+      new_b64=""
+      old_b64=""
       echo "ERROR apns — Secret '$APNS_KEY_SECRET' 새 버전 실패 (권한 · 프로젝트 확인)" >&2
       return 1
     fi
-    changed=1
-  fi
-  if [[ "$key_id" != "$old_id" ]]; then
-    if ! printf '%s' "$key_id" | gcloud secrets versions add "$APNS_KEY_ID_SECRET" --data-file=- >/dev/null 2>&1; then
-      echo "ERROR apns — Secret '$APNS_KEY_ID_SECRET' 새 버전 실패 (권한 · 프로젝트 확인)" >&2
-      return 1
-    fi
+    key_added=1
+    key_ver="${key_ver##*/}"
     changed=1
   fi
   new_b64=""
   old_b64=""
+  if [[ "$key_id" != "$old_id" ]]; then
+    if ! printf '%s' "$key_id" | gcloud secrets versions add "$APNS_KEY_ID_SECRET" --data-file=- >/dev/null 2>&1; then
+      if [[ "$key_added" == 0 ]]; then
+        echo "ERROR apns — Secret '$APNS_KEY_ID_SECRET' 새 버전 실패 (권한 · 프로젝트 확인) — 키는 그대로라 짝은 안 바뀌었다 · 다시 실행" >&2
+      elif [[ "$key_ver" =~ ^[0-9]+$ ]] \
+        && gcloud secrets versions disable "$key_ver" --secret="$APNS_KEY_SECRET" >/dev/null 2>&1; then
+        echo "ERROR apns — Secret '$APNS_KEY_ID_SECRET' 새 버전 실패 — 방금 만든 '$APNS_KEY_SECRET' 버전 ${key_ver} 을 disable 로 되돌렸다(짝 불일치 방지) · 권한 · 프로젝트 확인 뒤 다시 실행" >&2
+      else
+        echo "ERROR apns — 짝 불일치 — '$APNS_KEY_SECRET' 새 버전(${key_ver:-번호 모름}) + 옛 '$APNS_KEY_ID_SECRET' · 되돌리기(disable)도 실패. 배포 전에 다시 실행하거나 그 키 버전을 disable 할 것" >&2
+      fi
+      return 1
+    fi
+    changed=1
+  fi
 
   if [[ "$changed" == 0 ]]; then
     echo "SKIP apns — 이미 같은 값"
