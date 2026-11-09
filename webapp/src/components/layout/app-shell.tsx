@@ -117,7 +117,18 @@ export function AppShell({
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent
             side="left"
-            className="w-[min(280px,85vw)] bg-[var(--side-bg)] p-3"
+            className="w-[min(280px,85vw)] bg-[var(--side-bg)] p-3 pt-14 focus-visible:shadow-none focus-visible:outline-none"
+            /*
+              자동 포커스를 드로어 자신(tabIndex -1)으로 돌린다 — Radix 는 링크를 건너뛴 첫 포커스 대상(= 맨 아래
+              계정 버튼)에 포커스를 줘서 드로어가 맨 아래로 스크롤된 채 열리고 계정 버튼에 포커스 링이 남았다.
+              그냥 막기만 하면 포커스가 트리거에 남아 Tab 이 드로어 밖으로 샌다(가둠은 「안에 한 번 들어온 포커스」
+              기준). preventScroll 로 맨 위에서 연다. 드로어 자신은 조작 대상이 아니라 링을 걷는다.
+              pt-14 는 닫기(X, top-3 · size-8) 띠 — 스크롤 영역이 그 아래서 시작해 목록이 X 밑으로 지나가지 않는다.
+            */
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+            }}
           >
             {/*
               Radix Dialog 는 접근 이름(Title)이 없으면 콘솔 에러를, 설명(Description)이
