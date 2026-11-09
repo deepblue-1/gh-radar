@@ -252,6 +252,15 @@ describe('AccumKpiStrip — KPI 4칸 (A2 · D-09)', () => {
     ]);
   });
 
+  it('(k2r) quick-261109-tn6 새 규칙(rule_version 2) 행이 있는 날짜 → 종료 보조 「청산 a · 즉시 종료 b · 하루 판정 c · 탈락 d」(만료 없음)', async () => {
+    const rows = accumSyntheticListRows().map((r, i) =>
+      r.state === 3 && i === accumSyntheticListRows().findIndex((x) => x.state === 3) ? { ...r, end_reason: 5 } : { ...r, rule_version: 2 },
+    );
+    await open('d=20261014', accumReportFixture({ rows }));
+    const ended = kpiTiles().find((t) => t[0] === '종료')!;
+    expect(ended[2]).toMatch(/^청산 \d+ · 즉시 종료 \d+ · 하루 판정 1 · 탈락 \d+$/);
+  });
+
   it('(k3) pos 합 null(전부 결측) → 「—」 --faint(0 이라 말하지 않는다 · 34 UI 리뷰) · rows [] 이면 accum-kpis 없음', async () => {
     const rows = accumReportFixture().rows.map((r) => ({ ...r, pos_net_krw: null }));
     const a = await open('d=20261014', accumReportFixture({ rows }));

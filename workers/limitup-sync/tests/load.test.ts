@@ -103,6 +103,15 @@ describe("accumRowProblems(34 WR-02 — commit RPC 를 깨뜨릴 accum_flow 결�
     expect(accumRowProblems("20261014", rows)).toEqual([]);
   });
 
+  it("rule_version(quick-261109-tn6) — 2 · null · 키 없음 통과 · 2.5 · 2^31 은 int4 문제", () => {
+    expect(
+      accumRowProblems("20261014", [{ ...AF[0], rule_version: 2 }, { ...AF[1], rule_version: null }, { ...AF[2] }]),
+    ).toEqual([]);
+    expect(
+      accumRowProblems("20261014", [{ ...AF[0], rule_version: 2.5 }, { ...AF[1], rule_version: 2 ** 31 }]),
+    ).toEqual(["row 1 rule_version not int4: 2.5", "row 2 rule_version not int4: 2147483648"]);
+  });
+
   it("당일 축 4열 — 정수 아닌 값은 stage 전에 잡는다", () => {
     const rows = [
       { ...AF[0], pos_day_buy_krw: 1.5 },

@@ -24,10 +24,12 @@ import {
   ACCUM_RULE_LINES,
   ACCUM_RULE_LINES_DAY,
   ACCUM_RULE_LINES_DAY_POS,
+  ACCUM_RULE_LINES_RULE2,
   ACCUM_RULE_SOURCE,
   cycleRowsOf,
   detailKpisOf,
   fmtPx,
+  isRule2Row,
   payloadOf,
   thresholdPartsOf,
   type AccumPrevDay,
@@ -68,6 +70,9 @@ import { TeamflowToggle } from './teamflow-toggle';
  *   그날 pos_day_avg_px 열이 실렸으면(prop `dayAvg` = hasDayAvgOf · quick-261026-0ty) KPI 줄에 「당일 평단」(0 · null 「—」).
  *   그 행 payload.pos_day 점이 있으면(quick-261026-0ty · gh-trade 261026-0q3) 누적 판 보라 주선 = 서버 당일 순매수 · 팀 평단 점선 =
  *   당일 평단(양수 점 있을 때 · 범례 「팀 평단(당일)」) · 판정 기준 본문 = `ACCUM_RULE_LINES_DAY_POS`.
+ * - 새 규칙 행(quick-261109-tn6 · 인박스 261109-accum-day-net · `isRule2Row` = rule_version ≥ 2)은 판정 기준 본문을 맨 먼저
+ *   `ACCUM_RULE_LINES_RULE2`(하루 장부 06:00 에만 0 · 틱뷰어 각주 · 즉시 종료 · 하루 판정 종료)로 고르고, 1줄 임계는 사이클 누적 2억 ·
+ *   60초 30조각 · 거래대금 문구, KPI 줄에서 「하루 순매수(등록 전 포함)」 이 빠진다. 옛 행(0 · null)은 위 그대로.
  */
 
 type Phase =
@@ -257,7 +262,14 @@ function ReadyBody({
   // quick-261026-0ty — 당일 축이고 그 행 payload.pos_day 점이 있으면 보라 선이 서버 당일 값이라 판정 기준 본문을 바꾼다
   const payload = dayAxis ? payloadOf(row) : null;
   const posDay = payload !== null && posDayPointsOf(payload).length > 0;
-  const rules = dayAxis ? (posDay ? ACCUM_RULE_LINES_DAY_POS : ACCUM_RULE_LINES_DAY) : ACCUM_RULE_LINES;
+  // quick-261109-tn6 — 새 규칙(rule 2) 행은 하루 장부 · 새 종료 사유 본문이 먼저다(옛 행은 아래 셋 그대로).
+  const rules = isRule2Row(row)
+    ? ACCUM_RULE_LINES_RULE2
+    : dayAxis
+      ? posDay
+        ? ACCUM_RULE_LINES_DAY_POS
+        : ACCUM_RULE_LINES_DAY
+      : ACCUM_RULE_LINES;
   return (
     <>
       <div data-slot="accum-chart-block" className="flex flex-col gap-2">

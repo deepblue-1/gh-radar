@@ -32,7 +32,7 @@ vi.mock('@/lib/auth-fetch', () => ({
 }));
 
 import { clearQueryCache } from '@/lib/query-cache';
-import { ACCUM_RULE_LINES_DAY, ACCUM_RULE_LINES_DAY_POS } from '@/lib/accum-report';
+import { ACCUM_RULE_LINES_DAY, ACCUM_RULE_LINES_DAY_POS, ACCUM_RULE_LINES_RULE2 } from '@/lib/accum-report';
 import { touchTipTopOf } from '@/lib/touch-inspect';
 import {
   ACCUM_DATE,
@@ -1178,6 +1178,24 @@ describe('quick-261026-0ty 누적 판 pos_day', () => {
     fireEvent.click(sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!);
     const lis = Array.from(sec.querySelectorAll('[data-slot="accum-rules"] ul > li')).map((li) => li.textContent);
     expect(lis.slice(1)).toEqual([...ACCUM_RULE_LINES_DAY_POS]);
+  });
+
+  it('(p9) quick-261109-tn6 rule_version 2 행 → 판정 기준 본문 = ACCUM_RULE_LINES_RULE2 · 1줄 새 임계 · KPI 줄에 「하루 순매수(등록 전 포함)」 없음', async () => {
+    const { sec } = await expandDay({ ...accumSyntheticDetail('posDay'), rule_version: 2 });
+    const labels = Array.from(sec.querySelectorAll('[data-slot="accum-kline-item"] > span:first-child')).map((e) => e.textContent);
+    expect(labels).toContain('순매수(오늘)');
+    expect(labels).not.toContain('하루 순매수(등록 전 포함)');
+    fireEvent.click(sec.querySelector<HTMLButtonElement>('[data-slot="accum-rules"] button[aria-expanded]')!);
+    const lis = Array.from(sec.querySelectorAll('[data-slot="accum-rules"] ul > li')).map((li) => li.textContent);
+    expect(lis.slice(1)).toEqual([...ACCUM_RULE_LINES_RULE2]);
+    expect(lis[0]).toContain('사이클 누적 순매수');
+    expect(lis[0]).toContain('KRX 당일 거래대금 min(시총 1%, 100억) 이상');
+  });
+
+  it('(p10) 옛 행(rule_version 0) → KPI 줄에 「하루 순매수(등록 전 포함)」 그대로', async () => {
+    const { sec } = await expandDay({ ...accumSyntheticDetail('posDay'), rule_version: 0 });
+    const labels = Array.from(sec.querySelectorAll('[data-slot="accum-kline-item"] > span:first-child')).map((e) => e.textContent);
+    expect(labels).toContain('하루 순매수(등록 전 포함)');
   });
 });
 

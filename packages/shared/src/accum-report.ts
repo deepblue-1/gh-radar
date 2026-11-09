@@ -12,6 +12,8 @@
  * - 당일 축 5열(pos_day_buy_krw · pos_day_sell_krw · th_recent_pieces · th_recent_sec — quick-261025-uf2 · pos_day_avg_px —
  *   quick-261026-0ty)은 목록(20261026010000 · 20261026120000 부터) · 상세 RPC 모두 싣는다. 목록은 + 전날 3키
  *   (prev_pos_day_buy_krw · prev_pos_day_sell_krw · prev_pos_day_avg_px) · 봉투 prev_date(quick-261026-01h · 0ty).
+ * - rule_version(판정 규칙판 · 0 옛 규칙 · 2 gh-trade Phase 48 · null = 열 추가 전 적재)은 목록(20261109510000 부터) · 상세 RPC 모두
+ *   싣는다(quick-261109-tn6 · 인박스 261109-accum-day-net).
  * - **라이브 kind 16 계약(`accum-signal.ts` 의 AccumState · AccumSignal)과 별개다 — join 없음(D-22 · 30일 purge 비대칭).**
  *   이름이 겹치지 않게 `AccumReport*` 접두를 쓴다.
  */
@@ -37,7 +39,7 @@ export interface AccumReportRow {
   high_rate: number | null;
   /** 마지막 사이클 상태 — 1 매집중 · 2 매도중 · 3 종료 */
   state: number | null;
-  /** 0 끝나지 않음 · 1 청산 · 2 이월 탈락(복원 안 됨) · 3 이월 만료 */
+  /** 0 끝나지 않음 · 1 청산 · 2 이월 탈락(복원 안 됨) · 3 이월 만료(옛 서버) · 4 매집 종료(rule 2 = 즉시 종료) · 5 하루 판정 종료(rule 2) */
   end_reason: number | null;
   /** 마지막 사이클 번호 — 연속을 가정하지 않는다 */
   cycle: number | null;
@@ -90,6 +92,12 @@ export interface AccumReportRow {
    * export 행) · 이 열 추가(20261026120000) 전 적재 행 null · 목록 · 상세 RPC 모두 · quick-261026-0ty · gh-trade 261026-0q3.
    */
   pos_day_avg_px?: number | null;
+  /**
+   * 판정 규칙판(그 isin 그날 마지막 이벤트 행 message `|rule=N`) — 0 = 옛 규칙 · null = 이 열 추가(20261109510000) 전 적재 행 ·
+   * 2 = gh-trade Phase 48 하루 순매수 · 사이클 규칙(종료 사유 4 즉시 종료 · 5 하루 판정 종료 · 등록 = 사이클 누적 2억 ·
+   * pos_day 06:00 에만 0). 목록 · 상세 RPC 모두 · quick-261109-tn6 · 인박스 261109-accum-day-net.
+   */
+  rule_version?: number | null;
   /**
    * 전날 서버 당일 팀 매수 금액(원) — 목록 RPC 만(quick-261026-01h · 20261026010000). 그 날짜보다 앞선 가장 최근 행 있는 날짜
    * (봉투 `prev_date`)의 같은 isin 행 `pos_day_buy_krw` · 그 행이 없거나 값이 없으면 null · 옛 응답엔 키 없음.

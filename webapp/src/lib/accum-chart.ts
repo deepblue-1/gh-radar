@@ -1032,10 +1032,11 @@ export interface CycleMark {
 /**
  * 사이클 세로선(D-16) — `cycles[]` 를 나온 순서대로 k = 1… · 등록선 = 그 사이클이 오늘 등록(since_date == date)이고
  * reg_time_ms 가 있을 때만 · 라벨 「등록 HH:MM」(사이클 2개 이상이면 「 · k」) · 종료선 = end_time_ms 가 있을 때 ·
- * 라벨 「{청산|이월 탈락(복원 안 됨)|이월 만료} HH:MM」(원래 시각) · title 은 HH:MM:SS.
+ * 라벨 「{청산|이월 탈락(복원 안 됨)|이월 만료|매집 종료 · rule 2 즉시 종료|하루 판정 종료} HH:MM」(원래 시각 · 행 rule_version 으로
+ * 가른다 — quick-261109-tn6) · title 은 HH:MM:SS.
  */
 export function cycleMarksOf(
-  row: Pick<AccumReportRow, 'date'>,
+  row: Pick<AccumReportRow, 'date' | 'rule_version'>,
   payload: Pick<AccumReportPayload, 'cycles'>,
   T0: number,
 ): CycleMark[] {
@@ -1055,7 +1056,7 @@ export function cycleMarksOf(
     let end: CycleMarkLine | null = null;
     if (isNum(c.end_time_ms)) {
       const t = c.end_time_ms;
-      const word = endReasonLabelOf(c.end_reason) ?? '종료';
+      const word = endReasonLabelOf(c.end_reason, row.rule_version) ?? '종료';
       end = { t, tx: Math.max(t, T0), label: `${word} ${kstHm(t)}`, title: `사이클 ${k} ${word} ${kstClock(t)}` };
     }
     return { k, reg, end };

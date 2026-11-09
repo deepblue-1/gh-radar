@@ -19,6 +19,7 @@ import {
   ACCUM_RULE_LINES,
   ACCUM_RULE_LINES_DAY,
   ACCUM_RULE_LINES_DAY_POS,
+  ACCUM_RULE_LINES_RULE2,
   ACCUM_RULE_SOURCE,
   accumKpisOf,
   accumRowDescriptionOf,
@@ -29,6 +30,7 @@ import {
   endReasonLabelOf,
   hasDayAvgOf,
   isCarry,
+  isRule2Row,
   isDimRow,
   isTodayReg,
   metaLineOf,
@@ -75,6 +77,8 @@ describe('accumKpisOf — KPI 4칸 (D-09 · A2)', () => {
       terminated: 0,
       dropped: 1,
       expired: 1,
+      dayJudged: 0,
+      rule2: false,
       // 9.3 − 2.4 + 3.6 − 6.9 + 0.4 + 0.2 = +4.2억(⑦ null 제외 · 종료 행 포함)
       posSum: 420_000_000,
       // pos_day 키 없음(당일 축 아닌 날짜) — quick-261026-01h
@@ -94,6 +98,8 @@ describe('accumKpisOf — KPI 4칸 (D-09 · A2)', () => {
       terminated: 0,
       dropped: 0,
       expired: 0,
+      dayJudged: 0,
+      rule2: false,
       posSum: null,
       daySum: null,
     });
@@ -617,5 +623,117 @@ describe('ACCUM_RULE_LINES_DAY_POS (quick-261026-0ty)', () => {
       '원은 금액과 무관하게 팀 주문 전부예요(크기 = 금액). 굵은 테두리 원이 사이클마다 첫 팀 매수(「팀매수 시작」)예요.',
       ACCUM_RULE_LINES[3],
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// quick-261109-tn6 — rule_version(gh-trade Phase 48 · 인박스 261109-accum-day-net)
+// ---------------------------------------------------------------------------
+
+describe('새 규칙 행 — isRule2Row · endReasonLabelOf(사유, 규칙판) (quick-261109-tn6)', () => {
+  it('isRule2Row — 수이고 2 이상만', () => {
+    expect(isRule2Row({ rule_version: 2 })).toBe(true);
+    expect(isRule2Row({ rule_version: 3 })).toBe(true);
+    expect(isRule2Row({ rule_version: 0 })).toBe(false);
+    expect(isRule2Row({ rule_version: null })).toBe(false);
+    expect(isRule2Row({})).toBe(false);
+  });
+
+  it('endReasonLabelOf — (4, 2) 즉시 종료 · (5, *) 하루 판정 종료 · (4, 0/null/undefined) 매집 종료 · 1 · 2 · 3 · 0 · null 그대로', () => {
+    expect(endReasonLabelOf(4, 2)).toBe('즉시 종료');
+    expect(endReasonLabelOf(5, 2)).toBe('하루 판정 종료');
+    expect(endReasonLabelOf(5, 0)).toBe('하루 판정 종료');
+    expect(endReasonLabelOf(5)).toBe('하루 판정 종료');
+    expect(endReasonLabelOf(4, 0)).toBe('매집 종료');
+    expect(endReasonLabelOf(4, null)).toBe('매집 종료');
+    expect(endReasonLabelOf(4)).toBe('매집 종료');
+    expect(endReasonLabelOf(1, 2)).toBe('청산');
+    expect(endReasonLabelOf(2, 2)).toBe('이월 탈락(복원 안 됨)');
+    expect(endReasonLabelOf(3, 2)).toBe('이월 만료');
+    expect(endReasonLabelOf(0, 2)).toBeNull();
+    expect(endReasonLabelOf(null, 2)).toBeNull();
+  });
+
+  it('reasonLineOf · accumRowDescriptionOf — 행 rule_version 으로 문구를 고른다', () => {
+    const r2 = { ...syn(AC_LIQ), end_reason: 4, rule_version: 2 };
+    expect(reasonLineOf(r2)).toBe('즉시 종료 · 11:32');
+    expect(reasonLineOf({ ...r2, end_reason: 5 })).toBe('하루 판정 종료 · 11:32');
+    expect(reasonLineOf({ ...r2, rule_version: 0 })).toBe('매집 종료 · 11:32');
+    expect(accumRowDescriptionOf(r2)).toContain('즉시 종료 11:32');
+    expect(accumRowDescriptionOf({ ...r2, rule_version: null })).toContain('매집 종료 11:32');
+  });
+
+  it('cycleRowsOf — 사이클 상태 칸도 행 rule_version 으로', () => {
+    const base = accumSyntheticDetail('multiCycle');
+    const payload = base.payload!;
+    const cyc = { ...(payload.cycles[0] as AccumReportCycle), end_reason: 4 };
+    const row = { ...base, payload: { ...payload, cycles: [cyc] } } as AccumDetailRow;
+    expect(cycleRowsOf({ ...row, rule_version: 2 })[0]!.status).toBe('즉시 종료');
+    expect(cycleRowsOf(row)[0]!.status).toBe('매집 종료');
+    const day5 = { ...row, payload: { ...payload, cycles: [{ ...cyc, end_reason: 5 }] } } as AccumDetailRow;
+    expect(cycleRowsOf(day5)[0]!.status).toBe('하루 판정 종료');
+  });
+
+  it('accumKpisOf — 사유 5 는 ended · dayJudged · rule_version ≥ 2 행이 하나라도 있으면 rule2', () => {
+    const rows = [
+      { ...syn(AC_LIQ), end_reason: 5, rule_version: 2 },
+      { ...syn(AC_LIQ), isin: 'X2', end_reason: 4, rule_version: 2 },
+      syn(AC_LIVE),
+    ];
+    expect(accumKpisOf(rows)).toMatchObject({ ended: 2, dayJudged: 1, terminated: 1, rule2: true });
+    expect(accumKpisOf([syn(AC_LIQ)]).rule2).toBe(false);
+    expect(accumKpisOf([{ ...syn(AC_LIQ), rule_version: 0 }]).rule2).toBe(false);
+  });
+});
+
+describe('새 규칙 판정 기준 — thresholdPartsOf · detailKpisOf · ACCUM_RULE_LINES_RULE2 (quick-261109-tn6)', () => {
+  const TH = { th_net_krw: 2e8, th_same: 0, th_mcap_krw: 0, mcap_krw: 1.284e11, th_recent_pieces: 30, th_recent_sec: 60 };
+  const lineOf = (row: Parameters<typeof thresholdPartsOf>[0]) =>
+    thresholdPartsOf(row)
+      .map((p) => p.text)
+      .join('');
+
+  it('rule_version 2 → 사이클 누적 순매수 · 60초 30조각 · 거래대금 문구 · num 조각 4개', () => {
+    expect(lineOf({ ...TH, rule_version: 2 })).toBe(
+      '이 종목의 등록 임계 — 사이클 누적 순매수 2.0억 이상 · 최근 60초 팀 매수 조각 30개 이상 · KRX 당일 거래대금 min(시총 1%, 100억) 이상 (현재 시총 1,284억)',
+    );
+    expect(thresholdPartsOf({ ...TH, rule_version: 2 }).filter((p) => p.num).map((p) => p.text)).toEqual([
+      '2.0억',
+      '60초',
+      '30개',
+      '1,284억',
+    ]);
+  });
+
+  it('rule_version 0 · 없음 → 지금 조각 그대로', () => {
+    const now = lineOf(TH);
+    expect(lineOf({ ...TH, rule_version: 0 })).toBe(now);
+    expect(lineOf({ ...TH, rule_version: null })).toBe(now);
+    expect(now).toBe('이 종목의 등록 임계 — 당일 순매수 2.0억 이상 · 최근 60초 팀 매수 조각 30개 이상 · 시총 상한 없음 (현재 시총 1,284억)');
+  });
+
+  it('detailKpisOf(rule 2 · dayAxis) — 「하루 순매수(등록 전 포함)」 없음 · 옛 행은 그대로', () => {
+    const r2 = { ...dav(AC_CARRY), rule_version: 2 };
+    expect(detailKpisOf(r2, true, true).map((x) => x.label)).toEqual([
+      '순매수(오늘)',
+      '당일 평단',
+      '누적(이월포함)',
+      '누적 평단',
+      '등록가',
+      '최고 순매수',
+    ]);
+    expect(detailKpisOf(dav(AC_CARRY), true, true).map((x) => x.label)).toContain('하루 순매수(등록 전 포함)');
+    expect(detailKpisOf(r2).map((x) => x.label)).toEqual(['등록가', '평단', '등록 후 순매수', '최고 순매수']);
+  });
+
+  it('ACCUM_RULE_LINES_RULE2 4줄 — 1 하루 장부 · 틱뷰어 각주 · 3 원 공유 · 4 즉시 종료 · 하루 판정 종료 · 이월 만료 없음', () => {
+    expect(ACCUM_RULE_LINES_RULE2).toHaveLength(4);
+    expect(ACCUM_RULE_LINES_RULE2[0]).toContain('06:00 에만 0(하루 순매수)');
+    expect(ACCUM_RULE_LINES_RULE2[0]).toContain('틱뷰어');
+    expect(ACCUM_RULE_LINES_RULE2[0]).toContain('우리 서버 체결');
+    expect(ACCUM_RULE_LINES_RULE2[2]).toBe(ACCUM_RULE_LINES[2]);
+    expect(ACCUM_RULE_LINES_RULE2[3]).toContain('즉시 종료');
+    expect(ACCUM_RULE_LINES_RULE2[3]).toContain('하루 판정 종료');
+    expect(ACCUM_RULE_LINES_RULE2[3]).not.toContain('이월 만료');
   });
 });

@@ -148,10 +148,13 @@ export interface AccumDetailKpi {
  * 「등록가」 · 「최고 순매수」 · 「하루 순매수(등록 전 포함)」(day_net · 부호 색 — 목록에서 빠져 여기에만 · 2026-10-26)(quick-261026-01h).
  * 당일 축이고 그날 당일 평단 열이 실렸으면(`dayAvg` = hasDayAvgOf · quick-261026-0ty) 7항목 — 「순매수(오늘)」 뒤에
  * 「당일 평단」(pos_day_avg_px · 0 · null 이면 「—」 · 누적 평단으로 채우지 않는다)을 넣는다.
+ * 새 규칙 행(`isRule2Row` · quick-261109-tn6)은 「하루 순매수(등록 전 포함)」 을 뺀다 — 서버 하루 장부가 이제 등록 전 팀 주문까지 세서
+ * 「순매수(오늘)」 과 겹친다.
  */
 export function detailKpisOf(row: AccumReportRow, dayAxis = false, dayAvg = false): AccumDetailKpi[] {
   if (dayAxis) {
     const today = todayNetOf(row);
+    const rule2 = isRule2Row(row);
     return [
       { label: '순매수(오늘)', text: fmtEok(today, { signed: true }), tone: toneOf(today) },
       ...(dayAvg ? [{ label: '당일 평단', text: fmtPx(row.pos_day_avg_px) }] : []),
@@ -159,7 +162,9 @@ export function detailKpisOf(row: AccumReportRow, dayAxis = false, dayAvg = fals
       { label: '누적 평단', text: fmtPx(row.pos_avg_px) },
       { label: '등록가', text: fmtPx(row.pos_reg_px) },
       { label: '최고 순매수', text: fmtEok(row.pos_peak_net_krw, { signed: true }) },
-      { label: '하루 순매수(등록 전 포함)', text: fmtEok(row.day_net_krw, { signed: true }), tone: toneOf(row.day_net_krw) },
+      ...(rule2
+        ? []
+        : [{ label: '하루 순매수(등록 전 포함)', text: fmtEok(row.day_net_krw, { signed: true }), tone: toneOf(row.day_net_krw) }]),
     ];
   }
   return [
@@ -187,11 +192,15 @@ export interface AccumKpis {
   selling: number;
   /** 종료 = state 3 행 수 */
   ended: number;
-  /** 보조 「청산 · 매집 종료 · 탈락 · 만료」 = 종료 행의 end_reason 1 · 4 · 2 · 3 */
+  /** 보조 「청산 · 매집 종료(rule 2 즉시 종료) · 탈락 · 만료 · 하루 판정」 = 종료 행의 end_reason 1 · 4 · 2 · 3 · 5 */
   liquidated: number;
   terminated: number;
   dropped: number;
   expired: number;
+  /** 하루 판정 종료(end_reason 5 · gh-trade Phase 48 · quick-261109-tn6) */
+  dayJudged: number;
+  /** 행 하나라도 새 규칙(rule_version ≥ 2)이면 true — KPI 띠 보조 줄 문구를 가른다. */
+  rule2: boolean;
   /** 팀 순매수 합(등록 후 · 원) = 전 행 pos_net_krw 합(종료 행 포함 · null 제외) — 수가 하나도 없으면 null */
   posSum: number | null;
   /** 당일 순매수 합(원) = 전 행 `todayNetOf` 합(null 제외) — 수가 하나도 없으면 null(quick-261026-01h · 당일 축 KPI) */
@@ -211,6 +220,8 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
     terminated: 0,
     dropped: 0,
     expired: 0,
+    dayJudged: 0,
+    rule2: false,
     posSum: null,
     daySum: null,
   };
@@ -224,7 +235,9 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
       else if (r.end_reason === 2) k.dropped += 1;
       else if (r.end_reason === 3) k.expired += 1;
       else if (r.end_reason === 4) k.terminated += 1;
+      else if (r.end_reason === 5) k.dayJudged += 1;
     }
+    if (isRule2Row(r)) k.rule2 = true;
     if (isNum(r.pos_net_krw)) k.posSum = (k.posSum ?? 0) + r.pos_net_krw;
     const today = todayNetOf(r);
     if (today !== null) k.daySum = (k.daySum ?? 0) + today;
@@ -240,12 +253,24 @@ export function accumKpisOf(rows: readonly AccumReportRow[]): AccumKpis {
 /** 사유 2(이월 탈락) 줄 `title` — 「복원 안 됨」 이 무엇인지 설명한다(D-11). */
 export const ACCUM_DROP_TITLE = '서버 재기동 때 이월 파일에 없어 복원되지 않은 종목이에요';
 
-/** 종료 사유 라벨 — 1 「청산」 · 2 「이월 탈락(복원 안 됨)」 · 3 「이월 만료」 · 4 「매집 종료」 · 그 밖(0 · null) null. */
-export function endReasonLabelOf(endReason: number | null | undefined): string | null {
+/**
+ * 새 규칙 행인가(quick-261109-tn6 · 인박스 261109-accum-day-net) — rule_version 이 수이고 2 이상(gh-trade Phase 48 하루 순매수 ·
+ * 사이클 규칙). 0(옛 규칙) · null(열 추가 전 적재) · 키 없음은 옛 행이다.
+ */
+export function isRule2Row(row: { rule_version?: number | null }): boolean {
+  return isNum(row.rule_version) && row.rule_version >= 2;
+}
+
+/**
+ * 종료 사유 라벨 — 1 「청산」 · 2 「이월 탈락(복원 안 됨)」 · 3 「이월 만료」 · 4 「매집 종료」(rule 2 행은 「즉시 종료」) ·
+ * 5 「하루 판정 종료」(새 서버만 낸다 — 규칙판과 무관) · 그 밖(0 · null) null.
+ */
+export function endReasonLabelOf(endReason: number | null | undefined, ruleVersion?: number | null): string | null {
   if (endReason === 1) return '청산';
   if (endReason === 2) return '이월 탈락(복원 안 됨)';
   if (endReason === 3) return '이월 만료';
-  if (endReason === 4) return '매집 종료';
+  if (endReason === 4) return isRule2Row({ rule_version: ruleVersion }) ? '즉시 종료' : '매집 종료';
+  if (endReason === 5) return '하루 판정 종료';
   return null;
 }
 
@@ -255,9 +280,11 @@ function endHmOf(row: Pick<AccumReportRow, 'end_time_ms'>): string | null {
 }
 
 /** 종료 행(state 3)의 사유 줄 「{사유} · HH:MM」(end_time_ms null 이면 사유만) · 그 밖 null. */
-export function reasonLineOf(row: Pick<AccumReportRow, 'state' | 'end_reason' | 'end_time_ms'>): string | null {
+export function reasonLineOf(
+  row: Pick<AccumReportRow, 'state' | 'end_reason' | 'end_time_ms' | 'rule_version'>,
+): string | null {
   if (row.state !== 3) return null;
-  const label = endReasonLabelOf(row.end_reason);
+  const label = endReasonLabelOf(row.end_reason, row.rule_version);
   if (label === null) return null;
   const hm = endHmOf(row);
   return hm === null ? label : `${label} · ${hm}`;
@@ -383,7 +410,7 @@ export function accumRowDescriptionOf(row: AccumReportRow, dayAxis = false): str
   const end = endHmOf(row);
   let endSaid = false;
   if (row.state === 3) {
-    const label = endReasonLabelOf(row.end_reason);
+    const label = endReasonLabelOf(row.end_reason, row.rule_version);
     if (label !== null) {
       parts.push(end === null ? label : `${label} ${end}`);
       endSaid = end !== null;
@@ -460,7 +487,7 @@ export function cycleRowsOf(row: AccumDetailRow): AccumCycleRowView[] {
       reg: isNum(c.reg_time_ms) ? `${datePrefix}${kstClock(c.reg_time_ms)}` : DASH,
       end: endIsOpen ? '장 마감까지' : kstClock(c.end_time_ms!),
       endIsOpen,
-      status: (c.end_reason > 0 ? endReasonLabelOf(c.end_reason) : null) ?? stateLabelOf(c.state),
+      status: (c.end_reason > 0 ? endReasonLabelOf(c.end_reason, row.rule_version) : null) ?? stateLabelOf(c.state),
       regPx: fmtPx(c.pos_reg_px),
       avgPx: fmtPx(c.pos_avg_px),
       net: fmtEok(c.pos_net_krw, { signed: true }),
@@ -507,7 +534,7 @@ export interface AccumRulePart {
 
 type ThresholdCols = Pick<
   AccumReportRow,
-  'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw' | 'th_recent_pieces' | 'th_recent_sec'
+  'th_net_krw' | 'th_same' | 'th_mcap_krw' | 'mcap_krw' | 'th_recent_pieces' | 'th_recent_sec' | 'rule_version'
 >;
 
 /** 원 → 억 정수 쉼표 「5,000억」. */
@@ -518,6 +545,8 @@ const eokIntOf = (won: number): string => `${QTY_FMT.format(Math.round(won / 1e8
  * (현재 시총 {3,144억})」. `th_mcap_krw` 0 = 「시총 상한 없음」 · 값 null/NaN 은 그 항목 「—」(뒤 「이상 · 이하」 없이).
  * 새 서버 행(`th_recent_pieces > 0` · gh-trade Phase 39 · quick-261026-01h)은 앞 두 항목이 「당일 순매수 {1.0억} 이상 · 최근 {60초}
  * 팀 매수 조각 {30개} 이상」 으로 바뀐다(창 길이가 수가 아니거나 0 이하면 「—」). 시총 · 현재 시총 조각은 공유.
+ * 새 규칙 행(`isRule2Row` · gh-trade Phase 48 · quick-261109-tn6)은 「이 종목의 등록 임계 — 사이클 누적 순매수 {2.0억} 이상 · 최근
+ * {60초} 팀 매수 조각 {30개} 이상 · KRX 당일 거래대금 min(시총 1%, 100억) 이상 (현재 시총 {N억})」 이다(시총 상한 없음 · 거래대금 조건).
  */
 export function thresholdPartsOf(row: ThresholdCols): AccumRulePart[] {
   const out: AccumRulePart[] = [];
@@ -527,6 +556,29 @@ export function thresholdPartsOf(row: ThresholdCols): AccumRulePart[] {
     else out.push({ text: t });
   };
   const num = (t: string) => out.push({ text: t, num: true });
+
+  if (isRule2Row(row)) {
+    text('이 종목의 등록 임계 — 사이클 누적 순매수 ');
+    if (isNum(row.th_net_krw)) {
+      num(fmtEok(row.th_net_krw));
+      text(' 이상');
+    } else text(DASH);
+    text(' · 최근 ');
+    const sec = row.th_recent_sec;
+    if (isNum(sec) && sec > 0) num(`${QTY_FMT.format(sec)}초`);
+    else text(DASH);
+    text(' 팀 매수 조각 ');
+    const pc = row.th_recent_pieces;
+    if (isNum(pc) && pc > 0) {
+      num(`${QTY_FMT.format(pc)}개`);
+      text(' 이상');
+    } else text(DASH);
+    text(' · KRX 당일 거래대금 min(시총 1%, 100억) 이상 (현재 시총 ');
+    if (isNum(row.mcap_krw)) num(eokIntOf(row.mcap_krw));
+    else text(DASH);
+    text(')');
+    return out;
+  }
 
   const pieces = row.th_recent_pieces;
   const recent = isNum(pieces) && pieces > 0;
@@ -597,6 +649,19 @@ export const ACCUM_RULE_LINES_DAY_POS: readonly string[] = [
   '하루 순매수(day · 상세 KPI)는 119 pcap 으로 다시 계산한 하루 전체예요 — 등록 전 구간 · 우리 체결 · 상한가 가격 체결 포함(KRX 연속매매 09:00~20:00). 누적 판 굵은 보라 계단(오른쪽 축)은 서버 당일 순매수(서버 행마다 한 점)라 목록의 순매수(오늘)와 같은 값의 흐름이에요. 하루 순매수는 그 값과도, 팀 매집 보고서의 하루 합계(상한가 가격 제외)와도 다를 수 있어요.',
   ACCUM_RULE_LINES[2]!,
   ACCUM_RULE_LINES[3]!,
+];
+
+/**
+ * 새 규칙 행(rule_version ≥ 2 · gh-trade Phase 48 · quick-261109-tn6) 판정 기준 본문 4줄. 기존 세 상수는 「고치지 않는다」 원칙이라
+ * 옛 행 문구는 그대로 두고 새 상수로 가른다. 본문 1 = 하루 장부(06:00 에만 0) + 틱뷰어 각주 + 누적 · 당일 평단(`ACCUM_RULE_LINES_DAY[0]`
+ * 뒤 두 문장), 본문 2 = 보라 계단(서버 하루 순매수 흐름 — 당일 축 pos_day 모드는 pcap 하루 계단을 그리지 않는다), 본문 3 = 원 공유,
+ * 본문 4 = 새 종료 사유(즉시 종료 · 하루 판정 종료 · 이월 만료 없음).
+ */
+export const ACCUM_RULE_LINES_RULE2: readonly string[] = [
+  '순매수(오늘)은 KYOBO119 서버 하루 장부예요 — 06:00 에만 0(하루 순매수)이고 사이클이 끝나도 그날 끝까지 이어 세며 등록 전 팀 주문도 들어가요. 우리 서버 체결은 빼서 틱뷰어 당일순매수와 그만큼 다를 수 있어요. 「누적(이월포함)」(pos)은 사이클 시작부터 날을 넘겨 쌓은 값(등록 전 · 이월 포함 · 우리 체결 제외)이고 목록 「누적(이월포함)」 열 · 사이클 표 · 누적 판 왼쪽 회색 축 선이 이 값이에요. 당일 매수가 없으면 당일 평단은 「—」(누적으로 채우지 않아요).',
+  '누적 판 굵은 보라 계단(오른쪽 축)은 서버 하루 순매수의 흐름(서버 행마다 한 점)이라 목록의 순매수(오늘)와 같은 값이에요. 팀 매집 보고서의 하루 합계(상한가 가격 제외)와는 다를 수 있어요.',
+  ACCUM_RULE_LINES[2]!,
+  '종료 사유 — 청산(사이클 누적 2억 미만 — 서버는 계속 추적하고 다시 2억 이상이면 같은 사이클로 재등장) / 즉시 종료(사이클 누적 순매수 ≤ 0 — 다음 등록은 새 사이클) / 하루 판정 종료(20:01 보유 비율 5% 미만 또는 사이클 누적 2억 미만) / 이월 탈락(서버 재기동 때 복원 안 됨).',
 ];
 
 /** 판정 기준 출처 줄(링크 없음). */
