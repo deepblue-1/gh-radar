@@ -231,7 +231,8 @@ export class PushNotifier {
   readonly #supabase: Pick<SupabaseClient, "rpc">;
   readonly #identities: PushNotifierDeps["identities"];
   readonly #senders: readonly PushSender[];
-  readonly #senderOf = new Map<PushPlatform, PushSender>();
+  /** 플랫폼 → 송신기. 결선(index.ts)은 플랫폼마다 0~1개만 넣는다. */
+  readonly #senderOf: ReadonlyMap<PushPlatform, PushSender>;
   readonly #platforms: PushPlatform[];
   readonly #enabled: boolean;
   readonly #settleMs: number;
@@ -255,7 +256,7 @@ export class PushNotifier {
     this.#supabase = deps.supabase;
     this.#identities = deps.identities;
     this.#senders = deps.senders;
-    for (const s of deps.senders) if (!this.#senderOf.has(s.platform)) this.#senderOf.set(s.platform, s);
+    this.#senderOf = new Map(deps.senders.map((s) => [s.platform, s]));
     this.#platforms = [...this.#senderOf.keys()];
     this.#enabled = deps.enabled && this.#platforms.length > 0;
     this.#settleMs = deps.settleMs ?? PUSH_SETTLE_MS;
