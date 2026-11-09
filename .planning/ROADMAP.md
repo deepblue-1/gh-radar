@@ -67,7 +67,7 @@
 - [x] **Phase 37: 틱 전문 뷰어** - KRX·NXT 전 종목 틱 단위 전문(호가 B6 · 체결 A3 · 거래원 B9 · VI R8 · 프로그램 C3)을 08:00~20:00 수신 순서대로 재생하는 `/analytics/ticks` 뷰어. 두 갈래 공급 — 당일 장중은 119 소형 인덱서 + radar-gw ssh 강제 명령 **종목 단위 요청형**(기록 1초 + 전송 · gh-trade 구현) · 과거 날짜는 `gs://gh-trade-tick-archive` 원본을 Cloud Run Job 이 tickana 디코더로 변환해 gh-radar 저장소에 적재. 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 시점 호가창 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 목업 A/B/C 먼저 (completed 2026-11-04)
 - [x] **Phase 38: 틱뷰어 우리 주문·체결 표시** - `/analytics/ticks` 체결 전문(A3)에 우리 팀 계좌(교보·KB 등 등록된 모든 계좌)가 낸 주문의 체결을 표시하고, 그 주문의 조건이 걸린 호가(B6)·체결(A3) 전문을 「이 주문은 이 전문을 보고 나갔다」 로 표시. 원천은 `dma_journal_events`(체결 E) · `dma_strategy_events` kind 3·6(조건 근거 ev_kind · cum_volume). 10/30 실측: 체결↔A3 짝짓기 401/406(98.8%) · 호가 근거 29/29 · 누적거래량 앵커 100/100. 목업 A/B/C 먼저 (completed 2026-11-03)
 - [ ] **Phase 39: 매매진단 챗봇** - 「왜 이 주문이 나갔나/안 나갔나」를 챗봇에 직접 묻는다. 기존 팀장 챗봇에 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5`) 추가 — 저널 주문·체결 · 전략 이벤트 · 당일 틱 · kind 9 상태전이 조회, 계좌 범위는 `req.userId` 서버 강제. kind 9 43칸 매핑 노트를 gh-trade 인박스에 회신 → gh-radar 받는 쪽(DB · webapp) 먼저 배포 뒤 gh-trade 서버 켜기(relay 무변경). 시험 문항 11/5 13:10 금양그린파워 선매수(인박스 `261105-chatbot-diagnosis-kind9.md`)
-- [ ] **Phase 40: 체결 앱 푸시 알림** - 주문이 체결되면 GH Trade 앱(iOS·Android)으로 푸시 1줄. 첫 체결 1건 + 전량 체결 1건(자동매도는 시작 1건 + 잔량 0 때 1건). relay 적용 행에서 판정·송신(iOS APNs 직접 · Android FCM v1 · 기존 Firebase 프로젝트). 설정 탭 「체결 알림」 토글(서버 저장) + 기기 토큰 등록. D-17(앱 안 Firebase SDK 없음) 번복 — Android 만. 트렐로 「체결시 어플알림」(yP2Q3UkZ) 검토 2026-11-06
+- [x] **Phase 40: 체결 앱 푸시 알림** - 주문이 체결되면 GH Trade 앱(iOS·Android)으로 푸시 1줄. 첫 체결 1건 + 전량 체결 1건(자동매도는 시작 1건 + 잔량 0 때 1건). relay 적용 행에서 판정·송신(iOS APNs 직접 · Android FCM v1 · 기존 Firebase 프로젝트). 설정 탭 「체결 알림」 토글(서버 저장) + 기기 토큰 등록. D-17(앱 안 Firebase SDK 없음) 번복 — Android 만. 트렐로 「체결시 어플알림」(yP2Q3UkZ) 검토 2026-11-06 (completed 2026-11-09)
 
 ## Phase Details
 
@@ -573,7 +573,7 @@ Plans:
   5. 앱 안 Firebase 는 Android 만 — iOS 번들에 Firebase SDK 없음 · 위생 검사가 Android `google-services.json` 을 허용하되 비밀 목록(Firebase SA 키 등)은 종전대로 막는다. 양 플랫폼 `native:release` 통과.
 
 **미결 결정(discuss 에서)**: ① 거부·취소도 보낼지 — 권고: 거부는 보냄 · 취소는 안 보냄. ② 자동매도 「잔량 0」 정의 — 자동매도 주문들의 미체결 잔량 0(전량 체결 또는 취소 확인) vs 계좌 보유 0. ③ 첫/전량 판정 방식 — RPC 가 이전 상태 반환 vs relay 메모리 직전 상태. ④ 설정 단위 — 사용자 1개 토글(모든 기기) vs 기기별. ⑤ 소리·배지 — 기본 소리만 · 장중 묶음(iOS 알림 그룹 thread-id = 종목) 여부.
-**Plans:** 13/13 plans executed
+**Plans:** 13/13 plans complete
 
 Plans:
 **Wave 1**
