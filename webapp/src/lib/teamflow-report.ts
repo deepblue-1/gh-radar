@@ -9,6 +9,8 @@
  * - 요약 문장(`payload.summary_lines`)은 HTML 문자열을 주입하지 않고 조각 배열(`summaryPartsOf`)로만 렌더한다.
  *
  * 33-03 = KPI · 행 칸 · 미니막대 슬롯 · 33-06 = 10분 축 슬롯(`bucketSlotsOf`) · 등락 범위(`fmtRangePct`).
+ * quick 261109-kzk = 목록 · 정렬 · KPI · sr 의 「팀 순매수」 = `teamNetOf` — 틱뷰어 「당일순매수」(KRX 격자 팀 값) ·
+ *   팀 체결 0 은 「—」 · 격자 없음/미계산 · 옛 RPC 만 export team_net_val(상한가 가격 제외)로 폴백.
  */
 
 import type {
@@ -111,15 +113,42 @@ export function tagOf(row: Pick<TeamflowRow, 'status' | 'first_limit_ms' | 'last
   return { kind: 'below', text: fmtRate(row.last_rate) };
 }
 
-/** 정렬(D-08) — team_net_val 내림차순 · null 맨 뒤 · 같으면 isin 오름차순. 원본 불변. */
-export function sortRows<T extends Pick<TeamflowRow, 'isin' | 'team_net_val'>>(rows: readonly T[]): T[] {
-  return [...rows].sort((a, b) => {
-    const an = isNum(a.team_net_val);
-    const bn = isNum(b.team_net_val);
-    if (an && bn && a.team_net_val !== b.team_net_val) return (b.team_net_val as number) - (a.team_net_val as number);
-    if (an !== bn) return an ? -1 : 1;
-    return a.isin < b.isin ? -1 : a.isin > b.isin ? 1 : 0;
-  });
+/** 팀 순매수 출처 — tick = 틱뷰어 KRX 격자 값 · none = 틱 기록상 팀 체결 없음(값 없음) · export = 보고서 team_net_val 폴백. */
+export type TeamNetSource = 'tick' | 'none' | 'export';
+
+type TeamNetKeys = 'team_net_val' | 'tick_team_fills' | 'tick_team_day_net_krw';
+
+/**
+ * 목록 「팀 순매수」 한 값(quick 261109-kzk) — 칸 · 정렬 · KPI · sr 설명이 모두 이것을 쓴다.
+ * - tick_team_fills > 0 → tick_team_day_net_krw(틱뷰어 「당일순매수」 · KRX 정규장+시간외 · 상한가 가격 포함)
+ * - tick_team_fills 0 → 값 없음(틱뷰어 목록 「—」 규칙 — export 로 폴백하지 않는다)
+ * - null · 키 없음(격자 없음 · 미계산 · 옛 RPC) → export team_net_val(상한가 가격 제외)
+ * RPC 정렬(20261109400000)과 같은 규칙이다.
+ */
+export function teamNetOf(row: Pick<TeamflowRow, 'team_net_val'> & Partial<Pick<TeamflowRow, TeamNetKeys>>): {
+  val: number | null;
+  src: TeamNetSource;
+} {
+  const fills = row.tick_team_fills;
+  if (isNum(fills)) {
+    if (fills > 0) return { val: isNum(row.tick_team_day_net_krw) ? row.tick_team_day_net_krw : null, src: 'tick' };
+    return { val: null, src: 'none' };
+  }
+  return { val: isNum(row.team_net_val) ? row.team_net_val : null, src: 'export' };
+}
+
+/** 정렬(D-08 · quick 261109-kzk) — 팀 순매수(teamNetOf) 내림차순 · null 맨 뒤 · 같으면 isin 오름차순. 원본 불변. */
+export function sortRows<T extends Pick<TeamflowRow, 'isin' | 'team_net_val'> & Partial<Pick<TeamflowRow, TeamNetKeys>>>(
+  rows: readonly T[],
+): T[] {
+  return rows
+    .map((row) => ({ row, v: teamNetOf(row).val }))
+    .sort((a, b) => {
+      if (a.v !== null && b.v !== null && a.v !== b.v) return b.v - a.v;
+      if ((a.v === null) !== (b.v === null)) return a.v === null ? 1 : -1;
+      return a.row.isin < b.row.isin ? -1 : a.row.isin > b.row.isin ? 1 : 0;
+    })
+    .map((x) => x.row);
 }
 
 export interface SummaryPart {
@@ -190,27 +219,37 @@ export function factLineOf(
 export interface TeamflowKpis {
   /** 탐지 종목 = 행 수 */
   detected: number;
-  /** 팀 순매수 종목 = team_net_val > 0 행 수 */
+  /** 팀 순매수 종목 = 팀 순매수(teamNetOf) > 0 행 수 */
   netPositive: number;
   /** 상한가 도달 = status === 'limit' 행 수(종가 기준 — D-11) */
   limit: number;
-  /** 팀 순매수 합(원) = 전 행 team_net_val 합 · 음수 포함 · null 제외 */
+  /** 팀 순매수 합(원) = 전 행 팀 순매수(teamNetOf) 합 · 음수 포함 · null 제외 */
   netSum: number;
+  /** 틱 기록 값이 없어 export team_net_val(상한가 가격 제외)로 값을 쓴 행 수 — 설명 줄 「* n종목」(quick 261109-kzk) */
+  fallback: number;
 }
 
-/** KPI 4칸(D-11 · UI-SPEC T2) — team_net_val null 행은 합 · 「팀 순매수 종목」 에서 빠지고 탐지 수에는 남는다. */
-export function kpisOf(rows: readonly Pick<TeamflowRow, 'status' | 'team_net_val'>[]): TeamflowKpis {
+/**
+ * KPI 4칸(D-11 · UI-SPEC T2 · quick 261109-kzk) — 팀 순매수(teamNetOf) 값 없는 행(팀 체결 없음 · export null)은 합 ·
+ * 「팀 순매수 종목」 에서 빠지고 탐지 수에는 남는다. fallback = export 폴백으로 값을 쓴 행 수.
+ */
+export function kpisOf(
+  rows: readonly (Pick<TeamflowRow, 'status' | 'team_net_val'> & Partial<Pick<TeamflowRow, TeamNetKeys>>)[],
+): TeamflowKpis {
   let netPositive = 0;
   let limit = 0;
   let netSum = 0;
+  let fallback = 0;
   for (const r of rows) {
-    if (isNum(r.team_net_val)) {
-      netSum += r.team_net_val;
-      if (r.team_net_val > 0) netPositive += 1;
+    const tn = teamNetOf(r);
+    if (tn.val !== null) {
+      netSum += tn.val;
+      if (tn.val > 0) netPositive += 1;
+      if (tn.src === 'export') fallback += 1;
     }
     if (r.status === 'limit') limit += 1;
   }
-  return { detected: rows.length, netPositive, limit, netSum };
+  return { detected: rows.length, netPositive, limit, netSum, fallback };
 }
 
 /** 팀 비중(0~1) → 정수 「26%」(× 100 반올림) · null 「—」(D-10). */
@@ -260,6 +299,7 @@ export function bandSlotsOf(bands: readonly Pick<TeamflowBand, 'label' | 'net_va
 /**
  * 행 sr 설명(UI-SPEC T3 Copywriting) — 「결과 {태그}{, 고가 +NN.N%}, 팀 순매수 {net}, 20% 아래 {below20}, 20%~상한 {above20},
  * 매수 중 팀 {share}」. 고가는 미도달 · high_rate 있을 때만(D-09 보조줄과 같은 조건).
+ * 팀 순매수 = teamNetOf(quick 261109-kzk) — export 폴백 값엔 「(상한가 가격 제외 값)」 · 팀 체결 없음엔 「(팀 체결 없음)」.
  */
 export function rowDescriptionOf(
   row: Pick<
@@ -273,13 +313,14 @@ export function rowDescriptionOf(
     | 'above20_net_val'
     | 'team_buy_share'
     | 'payload'
-  >,
+  > &
+    Partial<Pick<TeamflowRow, TeamNetKeys>>,
 ): string {
   const tag = tagOf(row);
   const parts = [`결과 ${tag.text}`];
   if (tag.kind === 'below' && isNum(row.high_rate)) parts.push(`고가 ${fmtRate(row.high_rate)}`);
   parts.push(
-    `팀 순매수 ${fmtEok(row.team_net_val, { signed: true })}`,
+    `팀 순매수 ${teamNetTextOf(row)}`,
     `20% 아래 ${fmtEok(row.below20_net_val, { signed: true })}`,
     `20%~상한 ${fmtEok(row.above20_net_val, { signed: true })}`,
     `매수 중 팀 ${fmtShare(row.team_buy_share)}`,
@@ -287,6 +328,15 @@ export function rowDescriptionOf(
   const pnl = pnlOf(row.payload);
   if (pnl !== null) parts.push(`팀 손익 ${fmtPnl(pnl)}`);
   return parts.join(', ');
+}
+
+/** sr 설명의 팀 순매수 조각 — 금액 + 출처 꼬리(export 폴백 값 · 팀 체결 없음). */
+function teamNetTextOf(row: Pick<TeamflowRow, 'team_net_val'> & Partial<Pick<TeamflowRow, TeamNetKeys>>): string {
+  const tn = teamNetOf(row);
+  const amt = fmtEok(tn.val, { signed: true });
+  if (tn.src === 'none') return `${amt}(팀 체결 없음)`;
+  if (tn.src === 'export' && tn.val !== null) return `${amt}(상한가 가격 제외 값)`;
+  return amt;
 }
 
 /** 10분 축(D-13) — key = KST 하루 10분 칸 번호. 54 = 09:00 · 92 = 15:20 · 93 = 15:30(종가 단일가 체결). */

@@ -201,6 +201,16 @@ export interface TeamflowRow {
    * (entries 없으면 null). 옛 RPC(20261016200100) 응답엔 키 없음.
    */
   t20_ms?: number | null;
+  /**
+   * 그날 KRX 격자 팀 체결 수 — quick 261109-kzk · RPC 가 tick_grids (date, 'KRX', isin) 를 LEFT JOIN 해 싣는다.
+   * null = 미계산(옛 격자) · 격자 없음 · 0 = 팀 체결 없음 · n > 0 = 팀 체결 수. 옛 RPC(20261102200200) 응답엔 키 없음.
+   */
+  tick_team_fills?: number | null;
+  /**
+   * 그날 KRX 격자 팀 당일 순매수 원(틱뷰어 「당일순매수」 와 같은 값 · KRX 정규장+시간외 · 상한가 가격 포함) —
+   * quick 261109-kzk · tick_team_fills > 0 일 때만 값 · 그 밖 null. 옛 RPC 응답엔 키 없음.
+   */
+  tick_team_day_net_krw?: number | null;
 }
 
 /**

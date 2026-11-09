@@ -35,6 +35,7 @@ import {
   pnlOf,
   rowDescriptionOf,
   sortRows,
+  teamNetOf,
   summaryPartsOf,
   tagOf,
   toneOf,
@@ -47,7 +48,14 @@ const rowOf = (isin: string): TeamflowRow => teamflowRows().find((r) => r.isin =
 
 describe('kpisOf (D-11)', () => {
   it('10/14 픽스처 = 탐지 34 · 팀 순매수 9 · 상한가 도달 9 · 합 −2,629,083,913 원', () => {
-    expect(kpisOf(teamflowRows())).toEqual({ detected: 34, netPositive: 9, limit: 9, netSum: -2629083913 });
+    // 픽스처 행은 tick_ 키가 없다(옛 RPC 모양) → 34행 전부 export 폴백(fallback 34)
+    expect(kpisOf(teamflowRows())).toEqual({
+      detected: 34,
+      netPositive: 9,
+      limit: 9,
+      netSum: -2629083913,
+      fallback: 34,
+    });
   });
 
   it('team_net_val null 행은 합 · 「팀 순매수 종목」 에서 빠지고 탐지 수에는 남는다', () => {
@@ -56,13 +64,60 @@ describe('kpisOf (D-11)', () => {
       team_net_val: i === 0 ? null : i === 1 ? 300_000_000 : -100_000_000,
       status: 'below',
     }));
-    expect(kpisOf(rows)).toEqual({ detected: 3, netPositive: 1, limit: 0, netSum: 200_000_000 });
+    expect(kpisOf(rows)).toEqual({ detected: 3, netPositive: 1, limit: 0, netSum: 200_000_000, fallback: 2 });
   });
 
   it('전부 null 이면 합 0 · 행 0 이면 전부 0', () => {
     const rows = teamflowRows().slice(0, 2).map((r) => ({ ...r, team_net_val: null, status: 'limit' }));
-    expect(kpisOf(rows)).toEqual({ detected: 2, netPositive: 0, limit: 2, netSum: 0 });
-    expect(kpisOf([])).toEqual({ detected: 0, netPositive: 0, limit: 0, netSum: 0 });
+    expect(kpisOf(rows)).toEqual({ detected: 2, netPositive: 0, limit: 2, netSum: 0, fallback: 0 });
+    expect(kpisOf([])).toEqual({ detected: 0, netPositive: 0, limit: 0, netSum: 0, fallback: 0 });
+  });
+
+  it('(quick 261109-kzk) 혼합 — netSum · netPositive 는 teamNetOf 값 · team_fills 0 은 빠짐 · fallback = export 값 쓴 행 수', () => {
+    const base = rowOf(HANSUN);
+    const rows = [
+      { ...base, team_net_val: 100_000_000, tick_team_fills: 5, tick_team_day_net_krw: 300_000_000 },
+      { ...base, team_net_val: 200_000_000, tick_team_fills: 0, tick_team_day_net_krw: null },
+      { ...base, team_net_val: 250_000_000, tick_team_fills: null, tick_team_day_net_krw: null },
+      { ...base, team_net_val: -100_000_000 },
+      { ...base, team_net_val: null },
+    ];
+    expect(kpisOf(rows)).toEqual({ detected: 5, netPositive: 2, limit: 0, netSum: 450_000_000, fallback: 2 });
+  });
+});
+
+describe('teamNetOf (quick 261109-kzk — 팀 순매수 = 틱뷰어 당일순매수)', () => {
+  it('tick_team_fills > 0 → 틱 값(export 값 무시)', () => {
+    expect(teamNetOf({ team_net_val: 1e8, tick_team_fills: 5, tick_team_day_net_krw: 3e8 })).toEqual({
+      val: 3e8,
+      src: 'tick',
+    });
+  });
+
+  it('tick_team_fills 0 → 값 없음 · src none(틱뷰어 「—」 규칙 — export 로 폴백하지 않음)', () => {
+    expect(teamNetOf({ team_net_val: 2e8, tick_team_fills: 0, tick_team_day_net_krw: null })).toEqual({
+      val: null,
+      src: 'none',
+    });
+  });
+
+  it('tick_team_fills null · 키 없음(옛 RPC) → export team_net_val', () => {
+    expect(teamNetOf({ team_net_val: 2.5e8, tick_team_fills: null, tick_team_day_net_krw: null })).toEqual({
+      val: 2.5e8,
+      src: 'export',
+    });
+    expect(teamNetOf({ team_net_val: 2.5e8 })).toEqual({ val: 2.5e8, src: 'export' });
+  });
+
+  it('export 값도 null → val null · src export', () => {
+    expect(teamNetOf({ team_net_val: null })).toEqual({ val: null, src: 'export' });
+  });
+
+  it('fills > 0 인데 net 이 숫자가 아니면 val null · src tick', () => {
+    expect(teamNetOf({ team_net_val: 1e8, tick_team_fills: 3, tick_team_day_net_krw: null })).toEqual({
+      val: null,
+      src: 'tick',
+    });
   });
 });
 
@@ -158,6 +213,24 @@ describe('sortRows (D-08)', () => {
     ];
     expect(sortRows(rows).map((r) => r.isin)).toEqual(['B', 'A']);
   });
+
+  it('(quick 261109-kzk) 혼합 — tick +3억 → export +2.5억 → export −1억 → none(team_fills 0) · 동률 isin 오름차순', () => {
+    const base = rowOf(HANSUN);
+    const rows = [
+      { ...base, isin: 'KR7000000232', team_net_val: 200_000_000, tick_team_fills: 0, tick_team_day_net_krw: null },
+      { ...base, isin: 'KR7000000234', team_net_val: -100_000_000 },
+      { ...base, isin: 'KR7000000233', team_net_val: 250_000_000, tick_team_fills: null, tick_team_day_net_krw: null },
+      { ...base, isin: 'KR7000000231', team_net_val: 100_000_000, tick_team_fills: 5, tick_team_day_net_krw: 300_000_000 },
+      { ...base, isin: 'KR7000000230', team_net_val: 900_000_000, tick_team_fills: 2, tick_team_day_net_krw: 300_000_000 },
+    ];
+    expect(sortRows(rows).map((r) => r.isin)).toEqual([
+      'KR7000000230',
+      'KR7000000231',
+      'KR7000000233',
+      'KR7000000234',
+      'KR7000000232',
+    ]);
+  });
 });
 
 describe('summaryPartsOf', () => {
@@ -233,20 +306,33 @@ describe('BAND_SLOTS · bandSlotsOf (UI-SPEC T4)', () => {
 describe('rowDescriptionOf (UI-SPEC T3 행 sr 설명)', () => {
   it('미도달 = 고가 항목 포함', () => {
     expect(rowDescriptionOf(rowOf(DONGYANG))).toBe(
-      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +2.2억(상한가 가격 제외 값), 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
     );
   });
 
   it('상한가 행은 고가 항목 없음', () => {
     expect(rowDescriptionOf(rowOf(CHEONIL))).toBe(
-      '결과 상한가 11:50, 팀 순매수 +4.1억, 20% 아래 +1.1억, 20%~상한 +3.0억, 매수 중 팀 16%',
+      '결과 상한가 11:50, 팀 순매수 +4.1억(상한가 가격 제외 값), 20% 아래 +1.1억, 20%~상한 +3.0억, 매수 중 팀 16%',
     );
   });
 
   it('미도달인데 high_rate null 이면 고가 항목 없음 · 값 null = 「—」', () => {
     expect(
       rowDescriptionOf({ ...rowOf(DONGYANG), high_rate: null, below20_net_val: null, team_buy_share: null }),
-    ).toBe('결과 +22.1%, 팀 순매수 +2.2억, 20% 아래 —, 20%~상한 +2.3억, 매수 중 팀 —');
+    ).toBe('결과 +22.1%, 팀 순매수 +2.2억(상한가 가격 제외 값), 20% 아래 —, 20%~상한 +2.3억, 매수 중 팀 —');
+  });
+
+  it('(quick 261109-kzk) 틱 값 → 접미 없음 · 팀 체결 없음 → 「—(팀 체결 없음)」 · export null → 「—」', () => {
+    const d = rowOf(DONGYANG);
+    expect(rowDescriptionOf({ ...d, tick_team_fills: 5, tick_team_day_net_krw: 300_000_000 })).toBe(
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 +3.0억, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+    );
+    expect(rowDescriptionOf({ ...d, tick_team_fills: 0, tick_team_day_net_krw: null })).toBe(
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 —(팀 체결 없음), 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+    );
+    expect(rowDescriptionOf({ ...d, team_net_val: null })).toBe(
+      '결과 +22.1%, 고가 +29.3%, 팀 순매수 —, 20% 아래 −0.1억, 20%~상한 +2.3억, 매수 중 팀 2%',
+    );
   });
 });
 

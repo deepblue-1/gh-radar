@@ -1,7 +1,8 @@
 -- ============================================================
 -- Phase 33 Plan 02 — 팀 매집 보고서 RPC teamflow_report_for_user pgTAP.
 --
--- 대상: 20261016200100_teamflow_report_rpc.sql · 20261102200200_teamflow_report_t20.sql(Phase 37 D-17 행 t20_ms 재정의). 적재는 20261016200000 의 stage → limitup_commit_day(team_flow 쌍)로 채운다.
+-- 대상: 20261016200100_teamflow_report_rpc.sql · 20261102200200_teamflow_report_t20.sql(Phase 37 D-17 행 t20_ms 재정의).
+--       20261109400000_teamflow_report_tick_team_net.sql(quick 261109-kzk 행 tick_team_fills · tick_team_day_net_krw · 유효값 정렬). 적재는 20261016200000 의 stage → limitup_commit_day(team_flow 쌍)로 채운다.
 --
 -- 잠그는 것(D-05 · D-07):
 --   - 게이트: 가시 계좌(dma_visible_accounts) 없는 사용자 · NULL → {"access": false} 만
@@ -10,6 +11,8 @@
 --   - p_date 없음 = 최신 행 있는 날짜 · 행 없는 날짜 p_date → rows [] (date 는 그 값 · dates 그대로)
 --   - 정렬 team_net_val DESC NULLS LAST, isin · rows[] = 평평한 열(snake_case) + payload 중첩 그대로
 --   - (Phase 37 D-17) rows[].t20_ms = 그날 limitup_entries (date, isin) 의 t20_ms · entries 없으면 키 있음 · null
+--   - (quick 261109-kzk J) rows[].tick_team_fills · tick_team_day_net_krw = tick_grids (date, 'KRX', isin) 팀 칸(NXT 아님 · 격자 없음 null) ·
+--     정렬 = 유효값(fills null → team_net_val · > 0 → team_day_net_krw · 0 → null) DESC NULLS LAST, isin · team_net_val 열은 export 그대로
 --   - 권한: anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · STABLE
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/teamflow_report.test.sql`
@@ -22,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(30);
+SELECT plan(38);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -149,6 +152,58 @@ SELECT is((pg_temp.r('latest')->'rows'->0->>'t20_ms')::bigint, 1792130100000::bi
 SELECT ok(pg_temp.r('latest')->'rows'->1 ? 't20_ms'
           AND jsonb_typeof(pg_temp.r('latest')->'rows'->1->'t20_ms') = 'null',
           'I rows[1](KR7000000223 · entries 없음).t20_ms 키 있음 · null');
+
+-- ── J. (quick 261109-kzk) 팀 순매수 = 틱뷰어 당일순매수 — tick_grids KRX 행 LEFT JOIN ─────
+-- 20261009: export +1억(231) · +2억(232) · +2.5억(233) · −1억(234). 격자 — 231 KRX 팀 +3억(NXT −7억은 무시) ·
+-- 232 KRX 팀 체결 0 · 233 KRX 팀 키 없음(옛 워커 · 미계산) · 234 격자 없음.
+CREATE FUNCTION pg_temp.grow(p_date text, p_ex text, p_isin text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'date', p_date, 'exchange', p_ex, 'isin', p_isin, 'sources', jsonb_build_array('accum'),
+    'object_path', 'grid/' || p_date || '/' || p_ex || '/' || p_isin || '.nightly.ticks.zst',
+    'bytes', 1000, 'records', 50, 'a3_count', 20, 'first_recv_ms', 1793000000000, 'last_recv_ms', 1793000100000,
+    'base_px', 10000, 'high_rate', 29.9, 'last_rate', 12.5)
+$$;
+CREATE FUNCTION pg_temp.team(p_row jsonb, p_fills integer, p_net bigint, p_pnl bigint) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT p_row || jsonb_build_object('team_fills', p_fills, 'team_day_net_krw', p_net, 'team_day_pnl_krw', p_pnl)
+$$;
+SELECT pg_temp.st('20261009', 'team_flow', 1, pg_temp.tf('KR7000000231', 100000000, 0.1));
+SELECT pg_temp.st('20261009', 'team_flow', 2, pg_temp.tf('KR7000000232', 200000000, 0.1));
+SELECT pg_temp.st('20261009', 'team_flow', 3, pg_temp.tf('KR7000000233', 250000000, 0.1));
+SELECT pg_temp.st('20261009', 'team_flow', 4, pg_temp.tf('KR7000000234', -100000000, 0.1));
+SELECT public.limitup_commit_day('20261009', 'mf-1009', 'sig-1009', 1, '{"team_flow":4}');
+SELECT public.tick_grid_upsert('nightly', jsonb_build_array(
+  pg_temp.team(pg_temp.grow('20261009', 'KRX', 'KR7000000231'), 5, 300000000, 1),
+  pg_temp.team(pg_temp.grow('20261009', 'NXT', 'KR7000000231'), 2, -700000000, 1),
+  pg_temp.team(pg_temp.grow('20261009', 'KRX', 'KR7000000232'), 0, NULL, NULL),
+  pg_temp.grow('20261009', 'KRX', 'KR7000000233')));
+INSERT INTO t_r VALUES ('d1009', public.teamflow_report_for_user(pg_temp.u1(), '20261009'));
+CREATE FUNCTION pg_temp.row(p_label text, p_isin text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT e FROM jsonb_array_elements(pg_temp.r(p_label)->'rows') e WHERE e->>'isin' = p_isin
+$$;
+
+SELECT is(pg_temp.isins(pg_temp.r('d1009')), '["KR7000000231", "KR7000000233", "KR7000000234", "KR7000000232"]'::jsonb,
+          'J1 정렬 = 틱 +3억 → export +2.5억(미계산) → export −1억(격자 없음) → 팀 체결 0(맨 뒤)');
+SELECT ok((pg_temp.row('d1009', 'KR7000000231')->>'tick_team_fills')::int = 5
+          AND (pg_temp.row('d1009', 'KR7000000231')->>'tick_team_day_net_krw')::bigint = 300000000,
+          'J2 231 tick_team_fills 5 · tick_team_day_net_krw +3억(KRX 행 — NXT −7억 아님)');
+SELECT is((pg_temp.row('d1009', 'KR7000000231')->>'team_net_val')::bigint, 100000000::bigint,
+          'J3 231 team_net_val = export +1억 그대로');
+SELECT ok((pg_temp.row('d1009', 'KR7000000232')->>'tick_team_fills')::int = 0
+          AND pg_temp.row('d1009', 'KR7000000232') ? 'tick_team_day_net_krw'
+          AND jsonb_typeof(pg_temp.row('d1009', 'KR7000000232')->'tick_team_day_net_krw') = 'null',
+          'J4 232 tick_team_fills 0 · tick_team_day_net_krw 키 있음 · null');
+SELECT ok(pg_temp.row('d1009', 'KR7000000233') ? 'tick_team_fills'
+          AND jsonb_typeof(pg_temp.row('d1009', 'KR7000000233')->'tick_team_fills') = 'null',
+          'J5 233(팀 키 없는 옛 격자) tick_team_fills 키 있음 · null');
+SELECT ok(pg_temp.row('d1009', 'KR7000000234') ? 'tick_team_fills'
+          AND pg_temp.row('d1009', 'KR7000000234') ? 'tick_team_day_net_krw'
+          AND jsonb_typeof(pg_temp.row('d1009', 'KR7000000234')->'tick_team_fills') = 'null'
+          AND jsonb_typeof(pg_temp.row('d1009', 'KR7000000234')->'tick_team_day_net_krw') = 'null',
+          'J6 234(격자 없음) 두 키 있음 · null');
+SELECT ok(pg_temp.row('d1009', 'KR7000000231') ? 't20_ms', 'J7 231 t20_ms 키 여전히 있음');
+SELECT ok(pg_temp.r('latest')->'rows'->0 ? 'tick_team_fills'
+          AND jsonb_typeof(pg_temp.r('latest')->'rows'->0->'tick_team_fills') = 'null',
+          'J8 latest(20261014 · 격자 없음) rows[0].tick_team_fills 키 있음 · null');
 
 -- ── H. 권한 · 함수 속성 ────────────────────────────────────────────
 SELECT is(has_function_privilege(r.role, 'public.teamflow_report_for_user(uuid,text)', 'EXECUTE'), r.expect,
