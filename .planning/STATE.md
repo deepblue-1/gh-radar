@@ -6,10 +6,10 @@ current_phase: 39
 current_phase_name: 매매진단 챗봇
 status: executing
 stopped_at: Phase 40 complete, ready to execute Phase 39
-last_updated: "2026-11-09T01:54:23.403Z"
+last_updated: "2026-11-09T03:26:09.904Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 40 complete, transitioned to Phase 39
-state_head: eda0ca1286a44310bf66be3d48a9cdaf5a9ab051
+state_head: 22b1d41e18546010d97fb6ed1a22ea978a0d732c
 progress:
   total_phases: 11
   completed_phases: 9
@@ -160,6 +160,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261109-dz1 | 매매 알림(앱 푸시) 계좌별 켜고 끄기 — 끈 계좌 표 · claim 기기 제외 · API · 시트 「받을 계좌」(스케치 031 A) | 2026-11-09 | 843a0140 | [261109-dz1-push-account-toggle](./quick/261109-dz1-push-account-toggle/) |
 | 261109-sbs | 모바일·앱 사이드바 드로어 스크롤 수정(gsd-fast) — 드로어 안 래퍼에 overflow-y-auto · overscroll-contain | 2026-11-09 | 8c48c85e | — |
 | 261109-kyn | 교보 09:00:30 N 발사시각 어드민 칸 하나로(gsd-fast · 인박스 261109-kyobo-n-single-field) — 코스피·코스닥 공통 값(N/K) · 저장 op 8 K→Q 두 번 · 갈라짐 안내 · KB 그대로 | 2026-11-09 | cad36b55 | — |
+| 261109-sej | 주문로그 하루치 조회 RPC 직접 읽기 — 장중 8~70초 → 0.3초(앱 알림 탭 착지 「불러오지 못했어요」) · 운영 적용 20261109200000(gsd-fast) | 2026-11-09 | 22b1d41e | — |
 
 ## Session Continuity
 
