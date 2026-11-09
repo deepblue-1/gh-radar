@@ -2,7 +2,7 @@
  * Phase 40 Plan 06 — relay `PushNotifier`(적용 행 → 판정 RPC → 문안 → 송신기 → 결과 보고).
  *
  * 잠그는 것:
- *   - 한 길: `enqueueOrders` → 정착 400ms → 수신자(`userIdsOf` · D-06) → `dma_push_claim`(6 인자) → `pushMessageOf` 문안 ·
+ *   - 한 길: `enqueueOrders` → 정착 400ms → 수신자(`userIdsOf` · D-06) → `dma_push_claim`(6 인자 + p_claim_id) → `pushMessageOf` 문안 ·
  *     탭 경로 · 묶음 키 · collapseId = log_id → 가짜 송신기 → `dma_push_report` 1회
  *   - 꺼짐(config off · 송신기 0) → RPC 0
  *   - 자동매도(kind 11 · 13 완료) → p_strategy · 보유 조각(D-25) · 짝 대기 1.5초 재호출(D-03) · 단일 비행(D-09)
@@ -112,8 +112,10 @@ function facts(over: Partial<PushFacts> = {}): PushFacts {
 type Device = { device_id: string; platform: PushPlatform; token: string };
 type Send = { log_id: string; stage: string; chain_key: string; facts: PushFacts; devices: Device[] };
 type ClaimData = { sends: Send[]; deferred: string[] };
-type ClaimStep = { data: ClaimData } | "error" | "throw" | { hold: Promise<ClaimData> };
+type ClaimStep = { data: ClaimData } | "error" | "throw" | "missing" | { hold: Promise<ClaimData> };
 type RpcCall = { fn: string; args: Record<string, unknown> };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const PG_ERROR = { code: "57014", message: "canceling statement due to statement timeout", details: `row ${ACCOUNT}` };
 
@@ -126,6 +128,8 @@ function fakeDb(opts: { reportThrows?: boolean } = {}) {
       if (fn === "dma_push_claim") {
         const step = claimScript.shift() ?? { data: { sends: [], deferred: [] } };
         if (step === "error") return { data: null, error: PG_ERROR };
+        // 옛 DB(p_claim_id 를 모르는 함수) — PostgREST 가 이름 · 인자 조합을 못 찾는다.
+        if (step === "missing") return { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
         if (step === "throw") throw new Error("fetch failed");
         if ("hold" in step) return { data: await step.hold, error: null };
         return { data: step.data, error: null };
@@ -268,6 +272,7 @@ describe("PushNotifier — 한 길(Task 1 tracer)", () => {
       p_recipients: { [ACCOUNT]: [U1, U2] },
       p_platforms: ["ios"],
       p_allow_fallback: false,
+      p_claim_id: expect.stringMatching(UUID_RE),
     });
 
     const expected = pushMessageOf(facts());
@@ -479,6 +484,7 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
       p_recipients: { [ACCOUNT]: [U1] },
       p_platforms: ["ios"],
       p_allow_fallback: false,
+      p_claim_id: expect.stringMatching(UUID_RE),
     });
     expect(holdingCalls).toEqual([[GATEWAY, ACCOUNT, "KR7282720005"]]);
     expect(ios.sent).toHaveLength(1);
@@ -533,6 +539,7 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
       p_recipients: { [ACCOUNT]: [U1] },
       p_platforms: ["ios"],
       p_allow_fallback: true,
+      p_claim_id: expect.stringMatching(UUID_RE),
     });
     await settle(10_000);
     expect(db.claims()).toHaveLength(2); // 두 번째 deferred 는 끝
@@ -589,9 +596,48 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
     expect(ios.sent).toHaveLength(0);
     await settle(1_000);
     expect(db.claims()).toHaveLength(2);
-    expect(db.claims()[1]!.args).toEqual(db.claims()[0]!.args); // 같은 인자
+    expect(db.claims()[1]!.args).toEqual(db.claims()[0]!.args); // 같은 인자 — 같은 p_claim_id(WR-01 응답 유실 재생 키)
     expect(ios.sent).toHaveLength(1);
     expect(db.reports()).toHaveLength(1);
+  });
+
+  it("WR-01 — p_claim_id 는 묶음마다 새 uuid · 같은 묶음의 재시도는 같은 값", async () => {
+    captureLogs();
+    const db = fakeDb();
+    db.claimScript.push("throw", { data: { sends: [], deferred: [] } }, { data: { sends: [], deferred: [] } });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [fakeSender("ios").sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    await settle(1_000);
+    n.enqueueOrders(p, [orderRow({ status: "filled", filledQty: 500 })]);
+    await settle();
+    const keys = db.claims().map((c) => c.args.p_claim_id);
+    expect(keys).toHaveLength(3);
+    for (const k of keys) expect(k).toMatch(UUID_RE);
+    expect(keys[1]).toBe(keys[0]); // 재시도 = 같은 키
+    expect(keys[2]).not.toBe(keys[0]); // 다음 묶음 = 새 키
+  });
+
+  it("WR-01 하위 호환 — 옛 DB(PGRST202)면 p_claim_id 없이 바로 다시 불러 송신 · 경고는 한 번만", async () => {
+    const logs = captureLogs();
+    const db = fakeDb();
+    const ios = fakeSender("ios");
+    db.claimScript.push("missing", { data: { sends: [send()], deferred: [] } }, "missing", { data: { sends: [], deferred: [] } });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    expect(db.claims()).toHaveLength(2); // 재시도 지연(1초) 없이 바로
+    expect(db.claims()[0]!.args).toHaveProperty("p_claim_id");
+    expect(db.claims()[1]!.args).not.toHaveProperty("p_claim_id");
+    const { p_claim_id: _k, ...legacy } = db.claims()[0]!.args;
+    expect(db.claims()[1]!.args).toEqual(legacy);
+    expect(ios.sent).toHaveLength(1);
+    n.enqueueOrders(p, [orderRow({ status: "filled", filledQty: 500 })]);
+    await settle();
+    expect(db.claims()).toHaveLength(4);
+    const warns = pushLogs(logs).filter((l) => l.level === "warn" && String(l.args[1]).includes("옛 시그니처"));
+    expect(warns).toHaveLength(1);
+    expect(pushLogs(logs).filter((l) => l.level === "error")).toHaveLength(0);
   });
 
   it("claim 두 번 다 오류 → 송신 0 · [push] error 로그 1줄", async () => {

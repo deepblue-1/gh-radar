@@ -29,6 +29,8 @@
 --   | 19 | 받는 사람 0 → 기록 없음 · 뒤에 생기면 받음 / p_platforms 밖 0 / 토글 끔 0 / 다른 계좌 0 /  | D-06 · SC-4   |
 --   |    | 그 계좌 사용자 기기만 / 공유 계좌 기기 2                                                  |               |
 --   | 20 | 모든 반환에 account_no · accountNo 키 없음(+ 양성 대조)                                    | SC-4 · T-19-14|
+--   | 21 | 같은 p_claim_id 재시도 → 같은 log_id 재생 · 로그 1행 / 다른 · 없는 claim_id 0 / 전달 기록 뒤 0 / | WR-01         |
+--   |    | 재시도 사이 새 단계 → [재생, 새 단계] · 오버로드 1개 · 기기 함수 EXECUTE (f, f, t)          |               |
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_push_claim.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -45,7 +47,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(90);
+SELECT plan(101);
 
 -- ── 픽스처 ──────────────────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -658,15 +660,88 @@ SELECT ok(NOT EXISTS (
              WHERE jsonb_path_exists(r, 'strict $.**.account_no') OR jsonb_path_exists(r, 'strict $.**.accountNo')),
   '(모든 호출 반환) account_no · accountNo 키 없음 (SC-4)');
 
+-- ── 21절: 응답 유실 재시도 재생(40-REVIEW WR-01 · p_claim_id) ──────
+-- 첫 호출이 커밋된 뒤 응답만 끊긴 경우 = 같은 p_claim_id 로 다시 부르면 같은 log_id 의 sends 를 다시 받는다.
+CALL pg_temp.ord('0004141', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '11:00:00');
+INSERT INTO t_res VALUES ('ci1', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004141'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1001'::uuid));
+SELECT is((SELECT r FROM t_res WHERE name = 'ci1') #>> '{sends,0,stage}', 'accepted',
+  '(0004141, claim_id c1001 첫 호출) stage = accepted');
+SELECT is((SELECT claim_id::text FROM public.dma_push_log WHERE chain_key = '0004141'),
+  '00000000-0000-4000-8000-0000000c1001',
+  '(0004141, 첫 호출) 로그에 claim_id 기록');
+INSERT INTO t_res VALUES ('ci2', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004141'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1001'::uuid));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'ci2') -> 'sends'), 1,
+  '(0004141, 같은 claim_id 재시도 — 응답 유실) sends 1 (WR-01 재생)');
+SELECT is((SELECT r FROM t_res WHERE name = 'ci2') #>> '{sends,0,log_id}',
+          (SELECT r FROM t_res WHERE name = 'ci1') #>> '{sends,0,log_id}',
+  '(0004141, 같은 claim_id 재시도) 같은 log_id · 로그 새 행 없음');
+SELECT is(((SELECT r FROM t_res WHERE name = 'ci2') #> '{sends,0,facts}') = ((SELECT r FROM t_res WHERE name = 'ci1') #> '{sends,0,facts}')
+          AND jsonb_array_length((SELECT r FROM t_res WHERE name = 'ci2') #> '{sends,0,devices}') = 1,
+  true, '(0004141, 같은 claim_id 재시도) facts 같음 · 지금 기기 1');
+SELECT is((SELECT count(*)::int FROM public.dma_push_log WHERE chain_key = '0004141'), 1,
+  '(0004141, 재시도 뒤) 로그 1행 그대로');
+INSERT INTO t_res VALUES ('ci3', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004141'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1002'::uuid));
+INSERT INTO t_res VALUES ('ci4', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004141'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'ci3') -> 'sends')
+        + jsonb_array_length((SELECT r FROM t_res WHERE name = 'ci4') -> 'sends'), 0,
+  '(0004141, 다른 claim_id · claim_id 없음 재생) sends 0 (SC-2 그대로)');
+-- relay 가 받아서 보낸 뒤(전달 기록 있음)에는 같은 claim_id 로도 다시 돌려주지 않는다.
+INSERT INTO t_res VALUES ('ci_rep', public.dma_push_report(jsonb_build_array(jsonb_build_object(
+  'log_id', (SELECT r FROM t_res WHERE name = 'ci1') #>> '{sends,0,log_id}',
+  'device_id', (SELECT r FROM t_res WHERE name = 'ci1') #>> '{sends,0,devices,0,device_id}',
+  'platform', 'ios', 'token', 'x', 'result', 'ok', 'http_status', 200, 'reason', ''))));
+INSERT INTO t_res VALUES ('ci5', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004141'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1001'::uuid));
+SELECT is(jsonb_array_length((SELECT r FROM t_res WHERE name = 'ci5') -> 'sends'), 0,
+  '(0004141, 전달 기록 뒤 같은 claim_id) sends 0 — 보낸 것은 재생하지 않는다');
+-- 같은 claim_id 재시도 사이에 다음 단계가 생기면 재생 사건 + 새 단계 둘 다(재생이 앞).
+CALL pg_temp.ord('0004142', 'N', NULL, 100, 3000, 0, 'accepted', 'manual', 'B', '11:01:00');
+INSERT INTO t_res VALUES ('ci6', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004142'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1003'::uuid));
+UPDATE public.dma_account_orders SET filled_qty = 40, status = 'partially_filled' WHERE order_no = '0004142';
+INSERT INTO t_res VALUES ('ci7', public.dma_push_claim('KB120',
+  ARRAY(SELECT id FROM public.dma_account_orders WHERE order_no = '0004142'),
+  '[]'::jsonb, '{"9900004011": ["00000000-0000-4000-8000-000000004011"]}'::jsonb, '{ios,android}', false,
+  '00000000-0000-4000-8000-0000000c1003'::uuid));
+SELECT is(ARRAY(SELECT e->>'stage' FROM jsonb_array_elements((SELECT r FROM t_res WHERE name = 'ci7') -> 'sends') AS t(e)),
+  ARRAY['accepted', 'first_fill'],
+  '(0004142, 같은 claim_id 재시도 사이 첫 체결) sends = [재생 accepted, 새 first_fill]');
+
 -- ── 8절: 권한 ────────────────────────────────────────────────────
 SELECT is(
   ARRAY[
-    has_function_privilege('anon', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean)', 'EXECUTE'),
-    has_function_privilege('authenticated', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean)', 'EXECUTE'),
-    has_function_privilege('service_role', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean)', 'EXECUTE')
+    has_function_privilege('anon', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_push_claim(text, uuid[], jsonb, jsonb, text[], boolean, uuid)', 'EXECUTE')
   ],
   ARRAY[false, false, true],
   'dma_push_claim EXECUTE (anon, authenticated, service_role) = (f, f, t)');
+SELECT is(
+  ARRAY[
+    has_function_privilege('anon', 'public.dma_push_claim_devices(text, jsonb, text[])', 'EXECUTE'),
+    has_function_privilege('authenticated', 'public.dma_push_claim_devices(text, jsonb, text[])', 'EXECUTE'),
+    has_function_privilege('service_role', 'public.dma_push_claim_devices(text, jsonb, text[])', 'EXECUTE')
+  ],
+  ARRAY[false, false, true],
+  'dma_push_claim_devices EXECUTE (anon, authenticated, service_role) = (f, f, t)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'dma_push_claim'), 1,
+  'dma_push_claim 오버로드 1개뿐(옛 6 인자 제거 — 6 인자 이름 호출이 모호해지지 않는다)');
 
 SELECT * FROM finish();
 

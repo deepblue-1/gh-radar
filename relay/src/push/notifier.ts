@@ -30,6 +30,8 @@
  *     PostgREST 오류는 `safePgError` 로만.
  *   - writer · fanout · 주문 · 전략 코드를 바꾸지 않는다(SC-3) — `wirePipeline` 의 fanout 줄 **뒤**에 리스너로만 붙는다.
  */
+import { randomUUID } from "node:crypto";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pushMessageOf, pushTapPathOf, pushThreadIdOf } from "@gh-radar/shared";
 import type { JournalOrderRow, JournalOrderStatus, PushFacts, PushPlatform, PushStage, StrategyEventRow } from "@gh-radar/shared";
@@ -41,7 +43,10 @@ import { safePgError } from "../store/pg-error.js";
 export const PUSH_SETTLE_MS = 400;
 /** 짝 대기(deferred) 재호출 지연(ms) — 이 뒤 `p_allow_fallback: true` 로 한 번만(D-03). */
 export const PUSH_DEFER_MS = 1_500;
-/** 판정 RPC 오류 재시도 지연(ms) — 1회만(판정은 멱등이라 응답 유실 재시도도 중복 송신이 없다). */
+/**
+ * 판정 RPC 오류 재시도 지연(ms) — 1회만. 판정은 멱등이라 재시도가 중복 송신을 만들지 않고, 첫 호출이 커밋된 뒤 응답만
+ * 끊긴 경우는 같은 `p_claim_id` 로 그 호출이 기록한 사건을 되돌려받는다(40-REVIEW WR-01).
+ */
 export const PUSH_CLAIM_RETRY_MS = 1_000;
 /** 결과 보고 `reason` 상한 — 40-01 `dma_push_deliveries.reason` CHECK(200자)와 같다. */
 const REPORT_REASON_MAX = 200;
@@ -132,6 +137,11 @@ type ClaimArgs = {
   p_recipients: Record<string, string[]>;
   p_platforms: PushPlatform[];
   p_allow_fallback: boolean;
+  /**
+   * 호출 멱등 키(40-REVIEW WR-01 · 마이그레이션 20261109300000). 한 묶음의 판정 시도(첫 호출 · 재시도)는 같은 값을 쓴다 —
+   * 응답 유실 재시도가 이미 기록된 sent 사건을 다시 받는다. 옛 DB(이 인자 없는 함수)면 빼고 다시 부른다.
+   */
+  p_claim_id?: string;
 };
 type ReportRow = {
   log_id: string;
@@ -165,6 +175,11 @@ const AUTOSELL_CHAIN_PREFIX = "AS:";
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/** PostgREST PGRST202 — 그 이름 · 인자 조합의 함수가 스키마 캐시에 없다(새 인자를 모르는 옛 함수). */
+function isMissingFunction(error: unknown): boolean {
+  return isObject(error) && error.code === "PGRST202";
 }
 
 /** 판정 RPC 반환 가드 — 모양이 어긋난 send · 기기는 건너뛴다(한 원소 때문에 묶음 전체를 버리지 않게). */
@@ -207,6 +222,8 @@ export class PushNotifier {
   /** 재시도 대기 중인 지연들 — `close()` 가 풀어 준다. */
   readonly #waits = new Set<{ timer: NodeJS.Timeout; resolve: () => void }>();
   #closed = false;
+  /** 옛 판정 RPC 시그니처 경고를 한 번만 남겼는가(WR-01 하위 호환). */
+  #legacyClaimWarned = false;
 
   constructor(deps: PushNotifierDeps) {
     this.#supabase = deps.supabase;
@@ -375,6 +392,7 @@ export class PushNotifier {
       p_recipients: Object.fromEntries(recipients),
       p_platforms: [...this.#platforms],
       p_allow_fallback: allowFallback,
+      p_claim_id: randomUUID(),
     };
     const claim = await this.#claim(q.gateway, args);
     if (claim === null || this.#closed) return;
@@ -421,12 +439,15 @@ export class PushNotifier {
     this.#deferTimers.add(timer);
   }
 
-  /** 판정 RPC — 오류(error · throw · 형식 위반)면 `PUSH_CLAIM_RETRY_MS` 뒤 같은 인자로 1회만 다시. 그래도 실패면 null. */
+  /**
+   * 판정 RPC — 오류(error · throw · 형식 위반)면 `PUSH_CLAIM_RETRY_MS` 뒤 **같은 인자**(같은 `p_claim_id`)로 1회만 다시.
+   * 그래도 실패면 null.
+   */
   async #claim(gateway: string, args: ClaimArgs): Promise<ClaimResult | null> {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       let failure: unknown;
       try {
-        const { data, error } = await this.#supabase.rpc("dma_push_claim", args);
+        const { data, error } = await this.#callClaim(gateway, args);
         if (error) {
           failure = error;
         } else {
@@ -447,6 +468,21 @@ export class PushNotifier {
       logger.error({ gateway, err: safePgError(failure) }, "[push] dma_push_claim 실패 — 이 묶음 건너뜀");
     }
     return null;
+  }
+
+  /**
+   * 판정 RPC 한 번. 새 인자(`p_claim_id`)를 모르는 옛 함수(마이그레이션 20261109300000 적용 전)면 PostgREST 가
+   * PGRST202(함수 없음)를 준다 — 그때만 새 인자를 빼고 바로 한 번 더 부른다(배포 순서 무관 · 재시도 횟수에 안 셈).
+   */
+  async #callClaim(gateway: string, args: ClaimArgs): Promise<{ data: unknown; error: unknown }> {
+    const res = await this.#supabase.rpc("dma_push_claim", args);
+    if (args.p_claim_id === undefined || !isMissingFunction(res.error)) return res;
+    if (!this.#legacyClaimWarned) {
+      this.#legacyClaimWarned = true;
+      logger.warn({ gateway }, "[push] dma_push_claim 옛 시그니처 — p_claim_id 없이 호출(DB 마이그레이션 적용 전)");
+    }
+    const { p_claim_id: _claimId, ...legacy } = args;
+    return this.#supabase.rpc("dma_push_claim", legacy);
   }
 
   /** send 마다 문안을 만들고 기기마다 그 플랫폼 송신기로 보낸다. `stopRun` 뒤 그 플랫폼 남은 기기는 건너뛴다. */
