@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: eac98e43
-// synced-date:        2026-11-07
+// server-repo-commit: a4e54275
+// synced-date:        2026-11-09
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -1486,7 +1486,10 @@ enum StrategyEventKind : ubyte {
     LimitFeature = 15,      // 실시간 상한가 특징 분당 스냅 — 시세 이벤트 아님(82 미송신), 슬롯 매핑 docs/analysis/feature-dictionary.md ③
     // 16 은 Phase 34 매집감지 — 계좌 없음, 저널 80 전용(분당 1건/키·변화 시만·종료/복원/첫 스냅샷 행).
     // Phase 39(2026-10-25 D-08) — 16 은 snap_len 3 · snap_qty[2] = day_buy_krw · snap_cum[2] = day_sell_krw · accept_latency_us = day_avg_px(이 kind 에서만).
-    AccumSignal = 16,       // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md
+    // Phase 48(2026-11-09) — 16 의 당일 칸(snap_qty[2]·snap_cum[2]·accept_latency_us)은 06:00 에만 0 인 하루 장부, queue_case 6 「하루 값 갱신」
+    // (state 3 · cancel_reason = 그날 마지막 종료 사유 · 끝난 사이클 값 + 하루 칸), cancel_reason 4 즉시 종료(사이클 누적 ≤ 0) · 5 하루 판정 종료.
+    AccumSignal = 16,       // 팀매집 누적 상태 스냅 — 시세 이벤트 아님(82 미송신), 43칸 매핑은 gh-radar 인박스 노트 YYMMDD-accum-signal.md ·
+                            // Phase 48: queue_case 6 하루 값 갱신 · message 꼬리 |rule=2
     // 17·18 은 Phase 43 발사 기록 저널 — 저널 80 전용(82·81 없음 — IsObserverOnlyKind).
     LaunchPiece = 17,       // 발사 조각 1건(16:00 Q16 · 09:00:27 A · 09:00:30 N) — 콜드3 조각당 1건, 저널 80 전용(82·81 없음 — IsObserverOnlyKind),
                             // 계좌·사용자 칸을 채운다
@@ -1701,17 +1704,22 @@ table LimitFeature {             // 85 본문 — 실시간 상한가 특징 1�
 //   88 AccumSignal   (S→C) — Envelope.accum_signal 슬롯 98. 요청 짝 없음(76 선례), 등록 종목만 키(isin)별 1초 스로틀
 //                             Broadcast — **접속 연결 전부**(FULL 구독 조건 없음, 등록 종목이 수십 개라 양이 작다).
 //                             한 프레임 = 한 종목 누적 상태 전체 + 서버 설정값 3개(당일 10분 버킷은 지금 서버는 싣지 않는다 —
-//                             90 AccumChartResp.buckets 로 이전, quick-261104-l7i · 옛 서버만 88 에 실었다). 종료(청산·이월 탈락·
-//                             이월 만료)도 state 3 으로 1프레임 보낸 뒤 서버 목록에서 빠진다(클라가 회색 10분 유지).
+//                             90 AccumChartResp.buckets 로 이전, quick-261104-l7i · 옛 서버만 88 에 실었다). 종료(청산 · 즉시 종료 ·
+//                             하루 판정 종료 — Phase 48)도 state 3 으로 1프레임 보낸다. 그날 발표된 등록이 있었던 종목은 사이클이
+//                             끝나도 06:00 까지 state 3 회색 행 값을 갱신한다(끝난 사이클 값은 동결 · 하루 칸만 움직임 · end_reason 은
+//                             그날 마지막 종료 사유, Phase 48 D-04 — 2026-10-27 숨김 갱신과 같은 방식).
 //   89 AccumSnapshot (S→C) — Envelope.accum_snapshot 슬롯 100. 로그인 성공 직후 그 연결에만 Notice 1프레임(78 선례) —
-//                             지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1, 그 뒤 ·
-//                             청산 시각 오름차순, quick-261021-hxa)을 88 원소 테이블로(빈 벡터 가능).
+//                             지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1/4/5, 그 뒤 ·
+//                             청산 시각 오름차순, quick-261021-hxa · Phase 48)을 88 원소 테이블로(빈 벡터 가능).
 // 팀 주문 = KRX G1·G4(G4 = 애프터마켓 16:00~20:00, quick-261019-qqc) · NXT G1(Phase 37) A3 조각을 msg_seq 런(같은 ISIN·거래소
 // 직전 A3 seq + 1 ∧ 같은 bs, quick-261023-wbd)으로 묶은 주문 중 KRX 는 자전거래방지(한 가격 2조각+) ∪ 마지막 조각 0/0, NXT 는
 // 한 가격 2조각+. 규칙 정본 docs/analysis/team-flow.md §4·§12 · 참조 모델 server/tools/analysis/tickana/teamflow_live.py.
-// 등록 = 0 < 시총 ≤ th_max_mcap_krw ∧ 당일 순매수 ≥ th_net_krw ∧ 최근 th_recent_sec 초 팀 매수 주문들의
-// A3 조각 수 합 ≥ th_recent_buy_pieces (2026-10-25 Phase 39 D-01 — 같은 날 정정: 주문 건수가 아니라 조각 수 합. 옛 30조각·빠른 경로
-// 폐지, th_min_same 은 0). 생사(청산·재등장·되돌림·종료·이월)는 사이클 누적 기준 그대로.
+// 등록 = 0 < 시총 ≤ th_max_mcap_krw(0 = 상한 없음) ∧ 사이클 누적 순매수 ≥ th_net_krw(2억, Phase 48 — 옛 1.2억) ∧ 최근 th_recent_sec 초
+// 팀 매수 주문들의 A3 조각 수 합 ≥ th_recent_buy_pieces ∧ KRX 당일 거래대금 ≥ min(시총 1%, 100억) (2026-10-25 Phase 39 D-01 — 같은 날
+// 정정: 주문 건수가 아니라 조각 수 합. 옛 30조각·빠른 경로 폐지, th_min_same 은 0).
+// Phase 48(2026-11-09) 사이클 규칙: 청산 = 사이클 누적 < 2억(숨김·회색), 숨김에서 ≥ 2억이면 같은 사이클 재등장 · 즉시 종료 = 등록·숨김
+// 포지션의 사이클 누적 ≤ 0(장중 팀 주문) · 하루 판정 종료 = 평일 20:01 뒤 한 번, 보유 비율(매수 − 매도) ÷ 매수 < 5% 또는 누적 < 2억 ·
+// −30% 되돌림 종료·이월 상한 삭제. 종료 뒤는 미등록 새 누적(cycle + 1).
 // Phase 39 — 당일 축(2026-10-25, gh-radar-eb 합의): 88 말미 day_*·prev_*·th_recent_* 12필드 · 90 샘플 말미 day_net_krw·day_avg_px.
 // 금액은 원, 수량은 주, 가격은 원 정수다. 이름·번호는 gh-radar 와의 one-way 계약 — 추가는 말미 append 만.
 // ============================================================================
@@ -1731,9 +1739,10 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     since_date: string;          // 등록 거래일 "YYYYMMDD"
     since_time: string;          // 등록 시각 "HHMMSS" — 이월 행도 등록일 당일 시각
     state: ubyte;                // 1 매집중 · 2 매도중 · 3 종료
-    end_reason: ubyte;           // state 3 일 때 1 청산(1억 미만 숨김·추적 계속, 다시 1억 이상이면 같은 사이클로 재등장) · 2 서버 재기동 때
-                                 // 복원 안 됨 · 3 이월 10일 만료 · 4 매집 종료(숨김 중 순매수 ≤ 사이클 최고 −30%, kind 16·accum_events 만,
-                                 // 88 없음), 그 밖 0
+    end_reason: ubyte;           // state 3 일 때 1 청산(사이클 누적 2억 미만 숨김·추적 계속, 다시 2억 이상이면 같은 사이클로 재등장) ·
+                                 // 2 서버 재기동 때 복원 안 됨 · 3 이월 만료(옛 서버 — Phase 48 부터 안 생김) · 4 즉시 종료(사이클 누적 ≤ 0,
+                                 // Phase 48 — 옛 뜻 「숨김 중 −30% 매집 종료」) · 5 하루 판정 종료(20:01 뒤 보유 비율 < 5% 또는 누적 < 2억,
+                                 // Phase 48), 그 밖 0. 회색 행 갱신 프레임은 그날 마지막 종료 사유를 싣는다
     cycle: uint;                 // 사이클 번호 (같은 날 청산 뒤 재등록이면 +1)
     carry_days: ubyte;           // 이월 거래일 수 — 0 = 당일 등록
     buy_qty: long;               // 팀 매수 누적 수량(주) — 우리 체결 제외 뒤
@@ -1759,7 +1768,7 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
                                  // (당일 10분 버킷 — 값 있는 칸만, 최대 72). append-only 라 지우지 않는다. 89 원소도 같다
     sell_warn: bool;             // 지금 매도 경보 중 — 매집중에서 warn_min_order_krw 이상 팀 매도가 매수 없이 warn_sell_streak 건 연속이면 켜진다(append, quick-261019-gwm)
     sell_warns: uint;            // 이 사이클 매도 경보 횟수 — 청산·새 사이클에 0, 이월은 유지, 재기동 0(파일에 없다)
-    day_avg_px: uint;            // 오늘 팀 매수 평단 = 당일 매수 금액 ÷ 수량 반올림(우리 체결 제외 반영), 당일 매수 없으면 0 · 06:00·새 사이클·복원 직후 0(파일에 없다) (append, quick-261019-hni)
+    day_avg_px: uint;            // 오늘 팀 매수 평단 = 당일 매수 금액 ÷ 수량 반올림(우리 체결 제외 반영), 당일 매수 없으면 0 · 06:00 에만 0 — 사이클 무관 하루 장부(Phase 48 D-01) (append, quick-261019-hni)
     nxt_buy_qty: long;           // NXT 팀 매수 누적 수량(주) — 우리 체결 제외 뒤, 합계 buy_qty 안에 포함된 몫 (append, Phase 37 D-11)
     nxt_buy_krw: long;           // NXT 팀 매수 누적 금액(원)
     nxt_sell_qty: long;          // NXT 팀 매도 누적 수량(주)
@@ -1767,13 +1776,16 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     bucket_base_sec: uint;       // buckets[].slot 0 의 당일 초 — 지금 서버 28,800(08:00), 0·부재 = 옛 서버 32,400(09:00). 89 원소도 같다
                                  // (append, quick-261023-bdc). 지금 서버도 28,800 을 계속 싣는다 — buckets 가 비어 뜻 없음, 옛 클라 무해
     // ---- 이하 Phase 39 당일 축 append (2026-10-25 D-06, gh-radar-eb 합의) — 부재·0 = 옛 서버(당일 값 없음 → 빈칸) ----
-    day_buy_qty: long;           // 당일 팀 매수 수량(주) — 우리 체결 제외 뒤, 06:00·새 사이클·종료 프레임 직전 0 (append, Phase 39 D-06)
+    // Phase 48(2026-11-09 D-01·D-16): day_* 6칸·day_avg_px·day_cross_time 은 06:00 에만 0 인 하루 장부 — 사이클 무관(청산·즉시 종료·
+    // 하루 판정 종료·새 등록을 넘어 그날 끝까지 이어 센다, 미등록 구간 팀 주문 포함, 우리 체결 제외 반영). 옛 뜻 「06:00·새 사이클·종료 프레임 직전 0」.
+    day_buy_qty: long;           // 당일 팀 매수 수량(주) — 우리 체결 제외 뒤, 06:00 에만 0 — 사이클 무관 하루 장부 (append, Phase 39 D-06 · Phase 48)
     day_buy_krw: long;           // 당일 팀 매수 금액(원) — day_avg_px 의 원천
     day_sell_qty: long;          // 당일 팀 매도 수량(주) — 우리 체결 제외 뒤(하한 0)
     day_sell_krw: long;          // 당일 팀 매도 금액(원) — 당일 순매수 = day_buy_krw − day_sell_krw (파생, 칸 없음)
     day_lo_px: uint;             // 당일 팀 매수 주문 가격 최저(원) — 0 = 당일 매수 없음. 우리 체결 제외로 되돌리지 않는다(근사)
     day_hi_px: uint;             // 당일 팀 매수 주문 가격 최고(원) — 0 = 당일 매수 없음
-    prev_net_krw: long;          // 전 거래일 팀 순매수(원, 음수 가능) — 06:00 이월 때 그날 day 값으로 확정. 당일 등록·새 사이클·팀 주문 없던 날 0
+    prev_net_krw: long;          // 전 거래일 팀 순매수(원, 음수 가능) — 06:00 이월 때 하루 장부 그날 값으로 확정(사이클 무관, Phase 48 D-07).
+                                 // 전날 포지션이 없던 당일 첫 등록·팀 주문 없던 날 0
     prev_buy_krw: long;          // 전 거래일 팀 매수 금액(원)
     prev_sell_krw: long;         // 전 거래일 팀 매도 금액(원)
     prev_avg_px: uint;           // 전 거래일 팀 매수 평단(원) = 그날 매수 금액 ÷ 수량 반올림, 매수 없으면 0
@@ -1782,13 +1794,15 @@ table AccumSignal {              // 88 본문 — 팀매집 포지션 1종목 �
     th_recent_sec: uint;         // 서버 설정 — 위 조각 수 합의 창(초, 기본 60). 0·부재 = 옛 서버
     // ---- 이하 Phase 40 append (2026-10-26 D-04) ----
     day_cross_time: string;      // "HHMMSS" — 당일 순매수(day_buy_krw − day_sell_krw)가 th_net_krw 이상이 된 가장 최근 시각(A3 체결 KST).
-                                 // 재돌파 = 새 시각, 1억 아래로 떨어져도 지우지 않는다(클라가 「떨어진 행」 을 안다).
-                                 // 06:00·새 사이클·종료 프레임 직전 비움. 빈 문자열 = 오늘 없음, 부재 = 옛 서버 (append, Phase 40 D-04)
+                                 // 재돌파 = 새 시각, 임계 아래로 떨어져도 지우지 않는다(클라가 「떨어진 행」 을 안다).
+                                 // 06:00 에만 비움 — 사이클 무관 하루 장부(Phase 48 D-05, 옛 「06:00·새 사이클·종료 프레임 직전」).
+                                 // 빈 문자열 = 오늘 없음, 부재 = 옛 서버 (append, Phase 40 D-04)
 }
 
 table AccumSnapshot {            // 89 본문 — 로그인 스냅샷 (D-09)
-    items: [AccumSignal];        // 지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1, 그 뒤 ·
-                                 // 청산 시각 오름차순, quick-261021-hxa), 빈 벡터 가능
+    items: [AccumSignal];        // 지금 등록된 종목 전부(등록 시각 오름차순) + 오늘 청산한 종목(state 3 · end_reason 1/4/5 = 그날 마지막
+                                 // 종료 사유, 그 뒤 · 청산 시각 오름차순, quick-261021-hxa · Phase 48). 오늘 청산 원소는 끝난 사이클 값 + 지금
+                                 // 하루 장부(88 회색 행과 같은 값), 빈 벡터 가능
 }
 
 // ============================================================================
@@ -1835,7 +1849,8 @@ table AccumChartSample {         // 10초 가격 샘플 1칸 (체결 있는 칸�
     px: uint;                    // 그 칸 마지막 KRX G1·G4 · NXT G1 체결가(원 — 같은 칸 두 거래소면 마지막 도착, quick-261023-bdc)
     net_krw: long;               // 그 시점 팀 순매수(원) — 전체 팀 주문(원 문턱 미만 포함), 우리 체결 제외 뒤
     avg_px: uint;                // 그 시점 팀 평단(원) — buy_qty 0 이면 0
-    day_net_krw: long;           // 그 시점 당일 팀 순매수(원) = 당일 매수 − 당일 매도(88 day_* 와 같은 원천). 청산 차트는 청산 시점 값 고정.
+    day_net_krw: long;           // 그 시점 당일 팀 순매수(원) = 당일 매수 − 당일 매도(88 day_* 와 같은 원천 — 06:00 에만 0 인 하루 장부,
+                                 // Phase 48). 청산 차트는 청산 시점 값 고정(Phase 48 에도 유지).
                                  // 0·부재 = 옛 서버·옛 사이드카 칸 (append, Phase 39 D-06)
     day_avg_px: uint;            // 그 시점 당일 팀 매수 평단(원, 88 day_avg_px 식) — 당일 매수 없으면 0 (append, Phase 39 D-06)
 }
@@ -2303,6 +2318,9 @@ root_type Envelope;
 // (day_net_krw·day_avg_px) append. MsgType·슬롯·기존 필드 무변경. kind 16 은 snapLen 3·acceptLatencyUs = day_avg_px·message 새 꼴 —
 // 표는 server/docs/protocol.md · docs/features/accum-signal.md ⑤. 차트 원 문턱 500만(D-20) — 2026-11-04 하한 폐지(quick-261104-d6w).
 // Phase 40(2026-10-26): 88 AccumSignal 말미 day_cross_time(string, 슬롯 102) append — MsgType·슬롯·기존 필드 무변경, kind 16·accum_events 무변경.
+// Phase 48(2026-11-09, 하루 순매수·사이클 규칙): 필드·슬롯·MsgType 무변경 — day_*·day_cross_time·90 day_net_krw/day_avg_px 뜻이 「06:00 에만 0」 인
+// 하루 장부로, end_reason 4 뜻 변경(즉시 종료 — 사이클 누적 ≤ 0)·5 추가(하루 판정 종료), 3 은 옛 서버만, 89 오늘 청산 원소 end 1/4/5,
+// kind 16 queue_case 6(하루 값 갱신)·message |rule=2, 등록·청산 임계 2억. 표는 server/docs/protocol.md · docs/features/accum-signal.md ⑤.
 // ============================================================================
 
 // ============================================================================
