@@ -8,6 +8,8 @@ import { createApp } from "../../src/app";
  * server 는 40-01 RPC 4개를 `requireAuth` 뒤에서 `p_user_id = req.userId` 로만 부른다. 소유권(남의 · 없는 키 →
  * false)은 RPC 안의 `user_id` 조건이 정본이라 mock 은 그 판정을 흉내 내지 않고 **무엇을 넘겼는지**만 기록하고
  * 정해 둔 값을 돌려준다(`strategy-events.test.ts` 와 같은 모양의 최소 mock).
+ *
+ * quick-261109-dz1 — 계좌별 끄기 `GET /accounts` · `PUT /accounts/:accountNo` 도 같은 규율(D-01 · D-04 · D-08).
  */
 
 let userSeq = 0;
@@ -355,5 +357,150 @@ describe("PUT body 형식 — 400 · RPC 0회", () => {
       .send(registerBody({ platform: "android", token: fcm }));
     expect(r.status).toBe(200);
     expect(rec.rpcCalls[0].params).toMatchObject({ p_platform: "android", p_token: fcm });
+  });
+});
+
+describe("GET /api/push-devices/accounts — 끈 계좌 (quick-261109-dz1 D-08)", () => {
+  it("① 미인증 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client })).get("/api/push-devices/accounts");
+    expect(r.status).toBe(401);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("② 정상 → 200 bare array 그대로 · dma_push_account_mutes_for_user 1회 {p_user_id: 인증 사용자} · 쿼리 user_id 무시", async () => {
+    const user = nextUser();
+    const other = nextUser();
+    const { client, rec } = makeSupabase({
+      user,
+      data: { dma_push_account_mutes_for_user: ["12345678-01", "5512-0034"] },
+    });
+    const r = await request(createApp({ supabase: client }))
+      .get(`/api/push-devices/accounts?user_id=${other.id}`)
+      .set("Authorization", "Bearer tok");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(["12345678-01", "5512-0034"]);
+    // 라우트 충돌 없음 — 기기 목록 RPC 를 부르지 않는다.
+    expect(rec.rpcCalls).toEqual([{ fn: "dma_push_account_mutes_for_user", params: { p_user_id: user.id } }]);
+  });
+
+  it("③ RPC 가 배열 아님 · 원소에 비문자열 · RPC 오류 → 500 DB_ERROR", async () => {
+    for (const opts of [
+      { data: { dma_push_account_mutes_for_user: null } },
+      { data: { dma_push_account_mutes_for_user: { a: 1 } } },
+      { data: { dma_push_account_mutes_for_user: ["12345678-01", 7] } },
+      { rpcError: { code: "XX000", message: "boom" } },
+    ]) {
+      const { client } = makeSupabase({ user: nextUser(), ...opts });
+      const r = await request(createApp({ supabase: client }))
+        .get("/api/push-devices/accounts")
+        .set("Authorization", "Bearer tok");
+      expect(r.status, JSON.stringify(opts)).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+    }
+  });
+});
+
+describe("PUT /api/push-devices/accounts/:accountNo — 계좌 끄기 · 켜기 (D-01 · D-04 · D-08)", () => {
+  it("① 미인증 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client }))
+      .put("/api/push-devices/accounts/12345678-01")
+      .send({ enabled: false });
+    expect(r.status).toBe(401);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("② {enabled:false} → 200 {ok:true} · dma_push_account_mute_set 1회 {p_user_id: 인증 사용자, p_account_no: 경로값, p_enabled: false}", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, data: { dma_push_account_mute_set: true } });
+    const r = await request(createApp({ supabase: client }))
+      .put("/api/push-devices/accounts/12345678-01")
+      .set("Authorization", "Bearer tok")
+      .send({ enabled: false });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true });
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "dma_push_account_mute_set",
+        params: { p_user_id: user.id, p_account_no: "12345678-01", p_enabled: false },
+      },
+    ]);
+  });
+
+  it("③ {enabled:true} → p_enabled true", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, data: { dma_push_account_mute_set: true } });
+    const r = await request(createApp({ supabase: client }))
+      .put("/api/push-devices/accounts/5512-0034")
+      .set("Authorization", "Bearer tok")
+      .send({ enabled: true });
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "dma_push_account_mute_set",
+        params: { p_user_id: user.id, p_account_no: "5512-0034", p_enabled: true },
+      },
+    ]);
+  });
+
+  it("④ RPC 가 false(이미 그 상태) → 그래도 200 {ok:true} (멱등)", async () => {
+    const { client } = makeSupabase({ user: nextUser(), data: { dma_push_account_mute_set: false } });
+    const r = await request(createApp({ supabase: client }))
+      .put("/api/push-devices/accounts/12345678-01")
+      .set("Authorization", "Bearer tok")
+      .send({ enabled: false });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true });
+  });
+
+  it("⑤ RPC 가 boolean 아님 · RPC 오류 → 500 DB_ERROR", async () => {
+    for (const opts of [
+      { data: { dma_push_account_mute_set: null } },
+      { data: { dma_push_account_mute_set: "true" } },
+      { rpcError: { code: "22023", message: "bad" } },
+    ]) {
+      const { client } = makeSupabase({ user: nextUser(), ...opts });
+      const r = await request(createApp({ supabase: client }))
+        .put("/api/push-devices/accounts/12345678-01")
+        .set("Authorization", "Bearer tok")
+        .send({ enabled: false });
+      expect(r.status, JSON.stringify(opts)).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+    }
+  });
+
+  it("⑥ body 에 user_id 추가 · 빈 body · enabled 문자열 → 400 VALIDATION_FAILED · RPC 0회", async () => {
+    const other = nextUser();
+    for (const body of [{ enabled: false, user_id: other.id }, {}, { enabled: "false" }]) {
+      const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_account_mute_set: true } });
+      const r = await request(createApp({ supabase: client }))
+        .put("/api/push-devices/accounts/12345678-01")
+        .set("Authorization", "Bearer tok")
+        .send(body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑦ 경로 계좌번호 13자 · 공백만 → 400 · RPC 0회 / 12자 → 200", async () => {
+    for (const no of ["1".repeat(13), "%20%20"]) {
+      const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_account_mute_set: true } });
+      const r = await request(createApp({ supabase: client }))
+        .put(`/api/push-devices/accounts/${no}`)
+        .set("Authorization", "Bearer tok")
+        .send({ enabled: false });
+      expect(r.status, no).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+    const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_account_mute_set: true } });
+    const r = await request(createApp({ supabase: client }))
+      .put(`/api/push-devices/accounts/${"1".repeat(12)}`)
+      .set("Authorization", "Bearer tok")
+      .send({ enabled: false });
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls[0].params.p_account_no).toBe("1".repeat(12));
   });
 });

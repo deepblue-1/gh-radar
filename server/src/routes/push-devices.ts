@@ -5,6 +5,8 @@ import type { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/require-auth.js";
 import {
+  PushAccountNoParam,
+  PushAccountToggleBody,
   PushDeviceKeyParam,
   PushDevicePatchBody,
   PushDeviceRegisterBodySchema,
@@ -13,8 +15,10 @@ import { NotFound, ValidationFailed } from "../errors.js";
 import {
   deletePushDevice,
   disablePushDevice,
+  listPushAccountMutes,
   listPushDevices,
   registerPushDevice,
+  setPushAccountEnabled,
 } from "../services/push-devices.js";
 
 /**
@@ -25,6 +29,9 @@ import {
  * - PUT    /:deviceKey : 「이 기기 체결 알림 켜기」 · 토큰 갱신(D-12 · D-15) → `PushDevice`(enabled = true)
  * - PATCH  /:deviceKey : body `{ enabled: false }` 만 — 끄기(D-13). 켜기는 권한이 있는 그 기기 앱의 PUT 로만 → `{ ok: true }`
  * - DELETE /:deviceKey : 지우기 — 웹 목록 · 앱 로그아웃 정리(D-15) 같은 경로 → `{ ok: true }`
+ * - GET    /accounts            : 내 끈 계좌번호 → `string[]`(bare array · quick-261109-dz1 D-08)
+ * - PUT    /accounts/:accountNo : body `{ enabled: boolean }` — 계좌 끄기 · 켜기(멱등 · 내 모든 기기 · D-01 · D-04 · D-08)
+ *                                 → `{ ok: true }`. 가시성 판정 없음(남의 번호를 꺼도 자기 수신에만 영향)
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401
@@ -44,6 +51,35 @@ function firstIssue(err: ZodError) {
   const issue = err.issues[0];
   return ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
 }
+
+// --- GET /accounts — 내 끈 계좌 (quick-261109-dz1 D-08) ---
+// /:deviceKey 라우트보다 먼저 등록한다(D-08 라우트 순서 — 읽는 순서로도 분명하게).
+pushDevicesRouter.get("/accounts", requireAuth(), async (req, res, next) => {
+  try {
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const rows = await listPushAccountMutes(supabase, req.userId!);
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- PUT /accounts/:accountNo — 계좌 끄기 · 켜기 (quick-261109-dz1 D-01 · D-04 · D-08) ---
+pushDevicesRouter.put("/accounts/:accountNo", requireAuth(), async (req, res, next) => {
+  try {
+    const params = PushAccountNoParam.safeParse(req.params);
+    if (!params.success) throw firstIssue(params.error);
+    const body = PushAccountToggleBody.safeParse(req.body ?? {});
+    if (!body.success) throw firstIssue(body.error);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17 · D-04 본인 행만).
+    await setPushAccountEnabled(supabase, req.userId!, params.data.accountNo, body.data.enabled);
+    // 바뀌었든 이미 그 상태였든 같은 응답(멱등).
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // --- PUT /:deviceKey — 이 기기 체결 알림 켜기 · 토큰 갱신 (D-12 · D-15) ---
 pushDevicesRouter.put("/:deviceKey", requireAuth(), async (req, res, next) => {

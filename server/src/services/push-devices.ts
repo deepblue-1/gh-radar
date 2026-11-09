@@ -14,6 +14,8 @@ import { ApiError } from "../errors.js";
  *   SC-4     소유권은 RPC 의 `WHERE user_id = p_user_id` 가 정본 — 남의 · 없는 키는 false 로 돌아오고 라우트가 404.
  *   T-19-14  응답 원소는 shared `PushDevice` 공개 키 6개만 옮긴다 — RPC 가 혹시 다른 키(token 등)를 실어도 새지 않는다.
  *            토큰 · 사용자 id 는 로그 · 에러 원인(cause)에 싣지 않는다.
+ *   quick-261109-dz1  끈 계좌 RPC(`dma_push_account_mutes_for_user` · `dma_push_account_mute_set`)도 같은 규칙 —
+ *            service_role 전용 EXECUTE · `p_user_id` 는 인증된 사용자 하나(D-04 본인 행만).
  *
  * ★ 한 요청 = RPC 1회(Cloud Run → Supabase 왕복이 지연을 지배).
  */
@@ -112,4 +114,42 @@ export function disablePushDevice(supabase: SupabaseClient, userId: string, devi
 /** D-13 · D-15 — 지우기(웹 목록의 지우기 · 앱 로그아웃 정리가 같은 경로). */
 export function deletePushDevice(supabase: SupabaseClient, userId: string, deviceKey: string): Promise<boolean> {
   return callOwnedDeviceRpc(supabase, "dma_push_device_delete", userId, deviceKey, "기기 지우기에 실패했습니다.");
+}
+
+/**
+ * quick-261109-dz1 D-08 — 내 끈 계좌번호(오름차순 · RPC 순서 유지). 한 요청 = RPC 1회.
+ * 배열이 아니거나 원소가 문자열이 아니면 계약 위반 — 빈 목록으로 감추지 않는다(listPushDevices 규약).
+ */
+export async function listPushAccountMutes(supabase: SupabaseClient, userId: string): Promise<string[]> {
+  const { data, error } = await supabase.rpc("dma_push_account_mutes_for_user", { p_user_id: userId });
+  if (error) throw DbError("계좌 알림 설정 조회에 실패했습니다.", { code: error.code, message: error.message });
+  if (!Array.isArray(data) || data.some((v) => typeof v !== "string")) {
+    throw DbError("계좌 알림 설정 조회에 실패했습니다.", {
+      reason: "dma_push_account_mutes_for_user 모양 위반",
+      type: typeof data,
+    });
+  }
+  return data as string[];
+}
+
+/**
+ * quick-261109-dz1 D-01 · D-04 · D-08 — 그 사용자의 그 계좌 끄기(enabled = false) · 켜기(true). 한 요청 = RPC 1회.
+ * 반환 true = 상태가 바뀜 · false = 이미 그 상태(멱등 — 라우트는 둘 다 `{ ok: true }`).
+ */
+export async function setPushAccountEnabled(
+  supabase: SupabaseClient,
+  userId: string,
+  accountNo: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("dma_push_account_mute_set", {
+    p_user_id: userId,
+    p_account_no: accountNo,
+    p_enabled: enabled,
+  });
+  if (error) throw DbError("계좌 알림 설정에 실패했습니다.", { code: error.code, message: error.message });
+  if (typeof data !== "boolean") {
+    throw DbError("계좌 알림 설정에 실패했습니다.", { reason: "dma_push_account_mute_set 모양 위반", type: typeof data });
+  }
+  return data;
 }
