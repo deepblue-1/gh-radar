@@ -121,7 +121,7 @@ RETURNS TABLE (ord bigint, gateway text, seq int, kind int, account_no text) LAN
     FROM jsonb_array_elements(public.dma_strategy_events_for_user_json(p_user, p_date, p_lf)) WITH ORDINALITY AS x(e, ord)
 $$;
 
-SELECT plan(24);
+SELECT plan(25);
 
 -- ── 0. 픽스처 전제 ─────────────────────────────────────────────
 SELECT is(
@@ -265,6 +265,23 @@ SELECT is(
     has_function_privilege('service_role', 'public.dma_strategy_events_purge_limit_feature(integer)', 'EXECUTE')
   )::text,
   '(f,f,t)', 'dma_strategy_events_purge_limit_feature EXECUTE (anon, authenticated, service_role) = (f, f, t)'
+);
+
+-- 261109 핫픽스(20261109200000 직접 읽기) — 래퍼 결과가 SETOF 정본 함수를 거른 결과와 원소 · 순서까지 같다
+-- (사용자 4명 × 오늘/어제 × lf 켬/끔).
+SELECT is(
+  (SELECT count(*)::int
+     FROM (VALUES ('00000000-0000-4000-8000-000000002801'::uuid), ('00000000-0000-4000-8000-000000002802'::uuid),
+                  ('00000000-0000-4000-8000-000000002803'::uuid), ('00000000-0000-4000-8000-000000002804'::uuid)) u(id)
+    CROSS JOIN (VALUES (0), (1)) d(back)
+    CROSS JOIN (VALUES (false), (true)) f(lf)
+    WHERE public.dma_strategy_events_for_user_json(u.id, pg_temp.kd(d.back)::date, f.lf)
+          IS DISTINCT FROM
+          (SELECT coalesce(jsonb_agg(t.ev ORDER BY (t.ev->>'gw_time_ms')::bigint, t.ev->>'gateway', (t.ev->>'seq')::bigint), '[]'::jsonb)
+             FROM public.dma_strategy_events_for_user(u.id, pg_temp.kd(d.back)::date) AS t(ev)
+            WHERE (f.lf OR (t.ev->>'kind')::int <> 15) AND (t.ev->>'kind')::int <> 16)),
+  0,
+  '(U1~U4, 오늘·어제, lf 켬·끔) 직접 읽기 래퍼 = SETOF 정본 거름 결과(원소 · 순서 동일)'
 );
 
 SELECT * FROM finish(true);
