@@ -3,6 +3,8 @@
  *
  * - `GET /` → `PushDevice[]` · `PUT /:deviceKey` `{platform, token, label}` → `PushDevice`(enabled = true) ·
  *   `PATCH /:deviceKey` `{enabled:false}` → `{ok:true}` · `DELETE /:deviceKey` → `{ok:true}` · 남의 · 없는 키는 404.
+ * - quick-261109-dz1 계좌별 끄기: `GET /accounts` → 끈 계좌번호 `string[]` · `PUT /accounts/:accountNo` `{enabled}` →
+ *   `{ok:true}`(멱등).
  * - 인증은 `authFetch` 하나(Bearer supabase access_token) — 새 인증 방식 없음. 사용자는 서버가 토큰에서 정한다.
  * - 응답 · 오류 어디에도 토큰을 로그로 남기지 않는다(T-19-14 동형).
  */
@@ -48,6 +50,20 @@ export function deletePushDevice(deviceKey: string, opts: { timeoutMs?: number }
   return authFetch<{ ok: true }>(devicePath(deviceKey), {
     method: "DELETE",
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+  });
+}
+
+/** quick-261109-dz1 D-08 — 내 끈 계좌번호(D-01 끈 계좌는 내 모든 기기에서 알림이 오지 않는다). */
+export function fetchPushAccountMutes(): Promise<string[]> {
+  return authFetch<string[]>(`${BASE}/accounts`);
+}
+
+/** quick-261109-dz1 D-01 · D-04 — 계좌 하나 켜기 · 끄기(본인 설정만 · 공유 계좌의 다른 사용자는 영향 없음). */
+export function setPushAccountEnabled(accountNo: string, enabled: boolean): Promise<{ ok: true }> {
+  return authFetch<{ ok: true }>(`${BASE}/accounts/${encodeURIComponent(accountNo)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
   });
 }
 

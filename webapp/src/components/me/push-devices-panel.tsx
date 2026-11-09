@@ -20,14 +20,19 @@
  * - **RESEARCH Pitfall 11 — 옛 앱 빌드:** 플러그인이 없으면 스위치를 막고 「앱을 업데이트하면 켤 수 있어요」 — 웹이 먼저 배포돼도
  *   깨지지 않는다.
  * - **하이드레이션:** 네이티브 여부 · 권한 · 서버 기기 상태는 마운트 뒤에 읽는다 — 그 전엔 스위치 꺼짐 · 목록 비움.
- * - 계좌 칩과 무관하다(서버 저장 · 사용자 단위). 색은 기존 토큰만.
+ * - **quick-261109-dz1 · 스케치 031 A — 「받을 계좌」.** 이 기기 스위치 아래(웹은 캡션 아래) · 기기 목록 위에 relay 계좌마다
+ *   스위치 한 줄. 의미는 사용자 × 계좌 끄기(D-01) — 끈 계좌는 내 모든 기기에서 오지 않고, 기기 스위치와 별개다(둘 다 켜져야
+ *   간다). 권한이 필요 없어 PC 웹에서도 켜고 끈다. 계좌 출처는 /me 계좌 칩과 같은 relay 계좌(`meAccountChoicesOf` — 번호
+ *   dedupe · D-07)이고 0 개면 섹션을 숨긴다. 스위치는 낙관적으로 바뀌고 실패하면 되돌린다(D-10). 종 초록 점은 그대로.
+ * - 기기 스위치는 계좌 칩과 무관하다(서버 저장 · 사용자 단위) — 계좌별 끄기는 「받을 계좌」 섹션 몫. 색은 기존 토큰만.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PushDevice } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { accountChipLabelOf } from "@/lib/account-label";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { isNativeApp, nativePlatform } from "@/lib/native/native-detect";
@@ -41,8 +46,16 @@ import {
   registerPushToken,
   requestPushPermission,
 } from "@/lib/push/native-push";
-import { deletePushDevice, disablePushDevice, registerThisPushDevice } from "@/lib/push/push-devices-api";
+import {
+  deletePushDevice,
+  disablePushDevice,
+  registerThisPushDevice,
+  setPushAccountEnabled,
+} from "@/lib/push/push-devices-api";
+import { updatePushAccountMutesLocal, usePushAccountMutes } from "@/lib/push/use-push-account-mutes";
 import { refreshPushDevices, updatePushDevicesLocal, usePushDevices } from "@/lib/push/use-push-devices";
+import { useRelayContext } from "@/lib/relay-provider";
+import { meAccountChoicesOf, type MeAccountChoice } from "@/lib/trading-layout";
 
 /** 패널 문구 — 종 버튼 이름 · 시트/팝오버 제목도 같은 상수를 쓴다. 테스트가 같은 상수로 단언한다. */
 export const PUSH_DEVICES_TEXT = {
@@ -51,6 +64,11 @@ export const PUSH_DEVICES_TEXT = {
   captionWeb: "주문 접수 · 체결 · 거부 · 자동 취소와 자동매도 소식을 받을 기기예요. 켜기는 그 기기의 GH Trade 앱에서 해요.",
   thisDevice: "이 기기 매매 알림",
   otherDevices: "다른 기기",
+  devices: "기기",
+  accountsHeading: "받을 계좌",
+  accountsFoot: "끈 계좌는 내 모든 기기에서 알림이 오지 않아요.",
+  accountSwitchSuffix: "매매 알림",
+  accountsLoadFailed: "받을 계좌 설정을 읽지 못했어요.",
   denied: "알림 권한이 꺼져 있어요. 설정 앱에서 GH Trade 알림을 허용해 주세요.",
   openSettings: "설정 열기",
   updateNeeded: "앱을 업데이트하면 켤 수 있어요.",
@@ -110,6 +128,10 @@ export function PushDevicesPanel({ className }: { className?: string }) {
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // quick-261109-dz1 D-07 — /me 계좌 칩과 같은 relay 계좌 · 번호 dedupe(첫 서버키).
+  const { accounts } = useRelayContext();
+  const accountChoices = useMemo(() => meAccountChoicesOf(accounts, []), [accounts]);
 
   // 네이티브 여부 · 기기 키 · 권한은 마운트 뒤에 읽는다(하이드레이션). 목록은 usePushDevices 가 읽는다.
   useEffect(() => {
@@ -263,6 +285,8 @@ export function PushDevicesPanel({ className }: { className?: string }) {
   const isApp = mode === "app" || mode === "app-outdated";
   const showEmpty = mode === "web" && loadedAt !== null && others.length === 0;
   const showLoadFailed = mode !== "pending" && error && loadedAt === null;
+  // 하이드레이션 — 마운트 전 미표시 · 계좌 0 이면 섹션 없음(D-06).
+  const showAccounts = mode !== "pending" && accountChoices.length > 0;
 
   return (
     <div data-slot="me-push-devices-panel" className={cn("flex min-w-0 flex-col", className)}>
@@ -327,6 +351,16 @@ export function PushDevicesPanel({ className }: { className?: string }) {
         </div>
       )}
 
+      {showAccounts && <PushAccountsSection accounts={accountChoices} />}
+
+      {mode === "web" && showAccounts && others.length > 0 && (
+        <p
+          data-slot="me-push-devices-heading"
+          className="px-1 pt-3 pb-1 text-[12px] font-semibold text-[var(--muted-fg)]"
+        >
+          {PUSH_DEVICES_TEXT.devices}
+        </p>
+      )}
       {isApp && others.length > 0 && (
         <p
           data-slot="me-push-other-devices"
@@ -366,6 +400,100 @@ export function PushDevicesPanel({ className }: { className?: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * 「받을 계좌」 섹션(quick-261109-dz1 · 스케치 031 A · D-06 · D-10). 이 컴포넌트가 마운트될 때만 끈 계좌를 읽으므로
+ * relay 계좌가 없으면 서버 호출 0. 스위치는 서버 응답 전에 바뀌고 실패하면 되돌린다 — 성공 뒤 다시 읽지 않는다
+ * (서버 멱등 · 로컬이 정답 · 폴링 없음).
+ */
+function PushAccountsSection({ accounts }: { accounts: readonly MeAccountChoice[] }) {
+  const headingId = useId();
+  const { muted, loadedAt, error } = usePushAccountMutes();
+  const [pending, setPending] = useState<string[]>([]);
+  const [failed, setFailed] = useState(false);
+
+  const onToggle = async (no: string, next: boolean) => {
+    if (pending.includes(no)) return;
+    setFailed(false);
+    setPending((p) => [...p, no]);
+    const apply = (on: boolean) =>
+      updatePushAccountMutesLocal((list) => {
+        const rest = list.filter((x) => x !== no);
+        return on ? rest : [...rest, no];
+      });
+    apply(next);
+    try {
+      await setPushAccountEnabled(no, next);
+    } catch (err) {
+      apply(!next);
+      setFailed(true);
+      // 계좌번호는 로그에 싣지 않는다.
+      console.warn("[gh-radar] push 계좌 알림 설정 실패", pushErrorText(err));
+    } finally {
+      setPending((p) => p.filter((x) => x !== no));
+    }
+  };
+
+  return (
+    <section data-slot="me-push-accounts" aria-labelledby={headingId} className="flex min-w-0 flex-col">
+      <p
+        id={headingId}
+        data-slot="me-push-accounts-heading"
+        className="px-1 pt-3 pb-1 text-[12px] font-semibold text-[var(--muted-fg)]"
+      >
+        {PUSH_DEVICES_TEXT.accountsHeading}
+      </p>
+      <ul data-slot="me-push-account-list" className="flex min-w-0 flex-col">
+        {accounts.map((a) => {
+          const no = a.accountNo;
+          const first = a.name !== "" ? a.name : no;
+          const second = (a.name !== "" ? [no, a.serverKey] : [a.serverKey])
+            .filter((x): x is string => typeof x === "string" && x !== "")
+            .join(" · ");
+          return (
+            <li
+              key={no}
+              data-slot="me-push-account"
+              data-account-no={no}
+              className="flex min-h-[48px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--border-subtle)] px-1 py-1"
+            >
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-[14px] font-normal text-[var(--fg)]">{first}</span>
+                {second !== "" && (
+                  <span className="text-[12px] text-[var(--muted-fg)] tabular-nums">{second}</span>
+                )}
+              </div>
+              <Switch
+                data-slot="me-push-account-switch"
+                aria-label={`${accountChipLabelOf(a)} ${PUSH_DEVICES_TEXT.accountSwitchSuffix}`}
+                checked={!muted.includes(no)}
+                disabled={loadedAt === null || pending.includes(no)}
+                onCheckedChange={(next) => void onToggle(no, next)}
+                className="ml-auto data-[state=checked]:bg-[var(--primary)]"
+              />
+            </li>
+          );
+        })}
+      </ul>
+      {failed && (
+        <p role="status" className="px-1 pt-1 text-[12.5px] leading-[1.5] break-keep text-[var(--destructive)]">
+          {PUSH_DEVICES_TEXT.actionFailed}
+        </p>
+      )}
+      {error && loadedAt === null && (
+        <p role="status" className="px-1 pt-1 text-[12.5px] leading-[1.5] break-keep text-[var(--destructive)]">
+          {PUSH_DEVICES_TEXT.accountsLoadFailed}
+        </p>
+      )}
+      <p
+        data-slot="me-push-accounts-foot"
+        className="px-1 pt-0.5 pb-1.5 text-[12px] leading-[1.5] break-keep text-[var(--muted-fg)]"
+      >
+        {PUSH_DEVICES_TEXT.accountsFoot}
+      </p>
+    </section>
   );
 }
 

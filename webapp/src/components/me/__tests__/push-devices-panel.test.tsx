@@ -10,6 +10,9 @@ import type { PushDevice } from '@gh-radar/shared';
  *  - 권한 prompt 에서 request 를 건너뛰면 → 켜도 알림이 오지 않는다(D-14)
  *  - Android 채널을 안 만들면 → 알림이 「Miscellaneous」 로 가 사용자가 못 알아본다(Pitfall 13)
  *  - PUT 인자가 틀리면 → 서버 400 · 다른 기기 행을 덮는다
+ *  - 「받을 계좌」(quick-261109-dz1 · 스케치 031 A): relay 계좌가 없는데 섹션이 뜨면 → 빈 소제목 · 쓸데없는 서버 호출 /
+ *    같은 번호가 서버별로 두 줄이면 → 한쪽만 끈 줄 알고 헷갈린다 / 스위치가 응답을 기다리면 → 눌러도 반응이 없어 보인다 /
+ *    실패해도 되돌리지 않으면 → 꺼진 줄 알았는데 알림이 계속 온다 / 마운트마다 다시 읽으면 → 열 때마다 서버 호출
  */
 
 vi.mock('@/lib/push/push-devices-api', () => ({
@@ -18,16 +21,32 @@ vi.mock('@/lib/push/push-devices-api', () => ({
   disablePushDevice: vi.fn(async () => ({ ok: true })),
   deletePushDevice: vi.fn(async () => ({ ok: true })),
   unregisterThisDeviceBeforeSignOut: vi.fn(async () => {}),
+  fetchPushAccountMutes: vi.fn(async () => []),
+  setPushAccountEnabled: vi.fn(async () => ({ ok: true })),
 }));
+
+let mockRelay: RelayContextValue;
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
+  return { ...actual, useRelayContext: () => mockRelay };
+});
 
 import { renderToString } from 'react-dom/server';
 
 import {
   deletePushDevice,
   disablePushDevice,
+  fetchPushAccountMutes,
   fetchPushDevices,
   registerThisPushDevice,
+  setPushAccountEnabled,
 } from '@/lib/push/push-devices-api';
+import { EMPTY_RELAY_VALUE, type RelayContextValue } from '@/lib/relay-provider';
+import {
+  __resetPushAccountMutesForTest,
+  pushAccountMutesSnapshot,
+  refreshPushAccountMutes,
+} from '@/lib/push/use-push-account-mutes';
 import { PUSH_DEVICE_KEY_STORAGE } from '@/lib/push/device-key';
 import {
   __resetPushDevicesForTest,
@@ -113,6 +132,10 @@ function serverRegisters() {
 beforeEach(() => {
   window.localStorage.clear();
   __resetPushDevicesForTest();
+  __resetPushAccountMutesForTest();
+  mockRelay = EMPTY_RELAY_VALUE;
+  vi.mocked(fetchPushAccountMutes).mockReset().mockResolvedValue([]);
+  vi.mocked(setPushAccountEnabled).mockReset().mockResolvedValue({ ok: true });
   vi.mocked(fetchPushDevices).mockReset().mockResolvedValue([]);
   vi.mocked(registerThisPushDevice).mockReset();
   vi.mocked(disablePushDevice).mockReset().mockResolvedValue({ ok: true });
@@ -438,5 +461,159 @@ describe('usePushDevices 저장소 (40-11 이 읽는다)', () => {
     await act(async () => {});
     expect(fetchPushDevices).toHaveBeenCalledTimes(1);
     expect(rows()).toHaveLength(1);
+  });
+});
+
+describe('PushDevicesPanel — 받을 계좌 (quick-261109-dz1 · 스케치 031 A · D-06 · D-07 · D-10)', () => {
+  const ACCOUNTS = [
+    { accountNo: '12345678-01', name: '위탁종합', serverKey: 'KB120' },
+    { accountNo: '87654321-01', name: '단기', serverKey: 'KB120' },
+    { accountNo: '12345678-01', name: '위탁종합', serverKey: 'KB121' },
+  ];
+  const withAccounts = (accounts: RelayContextValue['accounts']) => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, accounts };
+  };
+  const accountRows = () =>
+    Array.from(document.querySelectorAll('[data-slot="me-push-account"]')) as HTMLElement[];
+  const accountSwitch = (name: string) => screen.getByRole('switch', { name: `${name} ${PUSH_DEVICES_TEXT.accountSwitchSuffix}` });
+  const MAIN = '위탁종합 12345678-01 KB120';
+  const SHORT = '단기 87654321-01 KB120';
+  const before = (a: Element, b: Element) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('relay 계좌 0 → 「받을 계좌」 없음 · 끈 계좌 읽기 0', async () => {
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    expect(screen.queryByText(PUSH_DEVICES_TEXT.accountsHeading)).toBeNull();
+    expect(fetchPushAccountMutes).not.toHaveBeenCalled();
+    expect(screen.queryByRole('switch')).toBeNull();
+  });
+
+  it('PC 웹: 소제목 · 같은 번호 한 줄 · 상품명 / 「번호 · 서버키」 · 끈 계좌 스위치 꺼짐 · 끝 안내 · 기기 목록보다 앞', async () => {
+    withAccounts(ACCOUNTS);
+    vi.mocked(fetchPushAccountMutes).mockResolvedValue(['87654321-01']);
+    vi.mocked(fetchPushDevices).mockResolvedValue([device({ deviceKey: KEY_A, label: '내 폰' })]);
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+
+    const heading = screen.getByText(PUSH_DEVICES_TEXT.accountsHeading);
+    expect(accountRows()).toHaveLength(2);
+    const main = accountRows()[0];
+    expect(main.textContent).toContain('위탁종합');
+    expect(main.textContent).toContain('12345678-01 · KB120');
+    expect(accountSwitch(MAIN)).toHaveAttribute('aria-checked', 'true');
+    expect(accountSwitch(SHORT)).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(PUSH_DEVICES_TEXT.accountsFoot)).toBeTruthy();
+    // PC 웹에서도 켜고 끌 수 있다.
+    expect(accountSwitch(MAIN)).not.toBeDisabled();
+    const list = document.querySelector('[data-slot="me-push-device-list"]')!;
+    expect(before(heading, list)).toBe(true);
+    // 웹: 계좌 줄과 기기 줄이 섞여 보이지 않게 기기 소제목.
+    const devHeading = screen.getByText(PUSH_DEVICES_TEXT.devices);
+    expect(before(heading, devHeading) && before(devHeading, list)).toBe(true);
+    expect(fetchPushAccountMutes).toHaveBeenCalledTimes(1);
+  });
+
+  it('상품명이 빈 계좌 → 첫 줄이 번호', async () => {
+    withAccounts([{ accountNo: '5555-0001', name: '', serverKey: 'KYOBO119' }]);
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    const row = accountRows()[0];
+    const lines = Array.from(row.querySelectorAll('span')).map((s) => s.textContent);
+    expect(lines[0]).toBe('5555-0001');
+    expect(lines[1]).toBe('KYOBO119');
+  });
+
+  it('켜진 계좌 스위치 → 응답 전에 바로 꺼짐 · PUT(번호, false) 1회 · 응답 뒤에도 꺼짐 · 저장소에 그 번호', async () => {
+    withAccounts(ACCOUNTS);
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    let resolve!: (v: { ok: true }) => void;
+    vi.mocked(setPushAccountEnabled).mockImplementation(() => new Promise((r) => (resolve = r)));
+
+    await act(async () => {
+      fireEvent.click(accountSwitch(MAIN));
+    });
+    expect(accountSwitch(MAIN)).toHaveAttribute('aria-checked', 'false');
+    expect(setPushAccountEnabled).toHaveBeenCalledTimes(1);
+    expect(setPushAccountEnabled).toHaveBeenCalledWith('12345678-01', false);
+
+    await act(async () => {
+      resolve({ ok: true });
+    });
+    expect(accountSwitch(MAIN)).toHaveAttribute('aria-checked', 'false');
+    expect(pushAccountMutesSnapshot().muted).toContain('12345678-01');
+    expect(screen.queryByText(PUSH_DEVICES_TEXT.actionFailed)).toBeNull();
+  });
+
+  it('PUT 실패 → 원래(켜짐)로 · 「처리하지 못했어요」(role=status)', async () => {
+    withAccounts(ACCOUNTS);
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    let reject!: (e: unknown) => void;
+    vi.mocked(setPushAccountEnabled).mockImplementation(() => new Promise((_, rj) => (reject = rj)));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await act(async () => {
+      fireEvent.click(accountSwitch(MAIN));
+    });
+    expect(accountSwitch(MAIN)).toHaveAttribute('aria-checked', 'false');
+    await act(async () => {
+      reject(new Error('boom'));
+    });
+    expect(accountSwitch(MAIN)).toHaveAttribute('aria-checked', 'true');
+    const status = screen.getByText(PUSH_DEVICES_TEXT.actionFailed);
+    expect(status.getAttribute('role')).toBe('status');
+    expect(pushAccountMutesSnapshot().muted).not.toContain('12345678-01');
+  });
+
+  it('끈 목록 첫 읽기 전에는 스위치 disabled · 읽기 실패면 「받을 계좌 설정을 읽지 못했어요」', async () => {
+    withAccounts(ACCOUNTS);
+    let reject!: (e: unknown) => void;
+    vi.mocked(fetchPushAccountMutes).mockImplementation(() => new Promise((_, rj) => (reject = rj)));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    expect(accountSwitch(MAIN)).toBeDisabled();
+    expect(accountSwitch(SHORT)).toBeDisabled();
+
+    await act(async () => {
+      reject(new Error('boom'));
+    });
+    expect(screen.getByText(PUSH_DEVICES_TEXT.accountsLoadFailed)).toBeTruthy();
+    expect(accountSwitch(MAIN)).toBeDisabled();
+  });
+
+  it('앱: 「이 기기 매매 알림」 → 「받을 계좌」 → 「다른 기기」 순서', async () => {
+    installCapacitor({ platform: 'android', check: 'granted' });
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY_A);
+    withAccounts(ACCOUNTS);
+    vi.mocked(fetchPushDevices).mockResolvedValue([
+      device({ deviceKey: KEY_A, label: '이 폰', enabled: true }),
+      device({ deviceKey: KEY_B, label: '다른 폰', platform: 'ios', enabled: true }),
+    ]);
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+
+    const accounts = screen.getByText(PUSH_DEVICES_TEXT.accountsHeading);
+    const others = screen.getByText(PUSH_DEVICES_TEXT.otherDevices);
+    expect(before(thisSwitch(), accounts)).toBe(true);
+    expect(before(accounts, others)).toBe(true);
+    // 앱에서는 「다른 기기」 소제목이 이미 있다 — 웹 「기기」 소제목은 없다.
+    expect(screen.queryByText(PUSH_DEVICES_TEXT.devices)).toBeNull();
+  });
+
+  it('60초 안에 읽은 끈 목록이 있으면 재마운트 때 다시 읽지 않는다', async () => {
+    withAccounts(ACCOUNTS);
+    vi.mocked(fetchPushAccountMutes).mockResolvedValue(['87654321-01']);
+    await refreshPushAccountMutes();
+    expect(fetchPushAccountMutes).toHaveBeenCalledTimes(1);
+    const { unmount } = render(<PushDevicesPanel />);
+    await act(async () => {});
+    unmount();
+    render(<PushDevicesPanel />);
+    await act(async () => {});
+    expect(fetchPushAccountMutes).toHaveBeenCalledTimes(1);
+    expect(accountSwitch(SHORT)).toHaveAttribute('aria-checked', 'false');
   });
 });
