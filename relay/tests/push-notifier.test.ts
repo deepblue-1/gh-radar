@@ -22,6 +22,7 @@ import { JournalWriter, type JournalApplyEvent } from "../src/journal/writer.js"
 import type { JournalRecord } from "../src/journal/types.js";
 import {
   PUSH_DEFER_MS,
+  PUSH_RPC_TIMEOUT_MS,
   PUSH_SETTLE_MS,
   PushNotifier,
   isAutoSellPushEvent,
@@ -112,38 +113,55 @@ function facts(over: Partial<PushFacts> = {}): PushFacts {
 type Device = { device_id: string; platform: PushPlatform; token: string };
 type Send = { log_id: string; stage: string; chain_key: string; facts: PushFacts; devices: Device[] };
 type ClaimData = { sends: Send[]; deferred: string[] };
-type ClaimStep = { data: ClaimData } | "error" | "throw" | "missing" | { hold: Promise<ClaimData> };
+type ClaimStep = { data: ClaimData } | "error" | "throw" | "missing" | "hangUntilAbort" | { hold: Promise<ClaimData> };
 type RpcCall = { fn: string; args: Record<string, unknown> };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const PG_ERROR = { code: "57014", message: "canceling statement due to statement timeout", details: `row ${ACCOUNT}` };
 
+/**
+ * 가짜 supabase — 실제 supabase-js 처럼 `rpc(...)` 가 빌더를 주고 `.abortSignal(signal)` 뒤에 await 한다(WR-03).
+ * 받은 신호는 `signals` 에 남는다. `hangUntilAbort` 는 신호가 끊길 때까지 응답하지 않는다(끊기면 supabase-js 처럼 error).
+ */
 function fakeDb(opts: { reportThrows?: boolean } = {}) {
   const calls: RpcCall[] = [];
+  const signals: AbortSignal[] = [];
   const claimScript: ClaimStep[] = [];
+  const run = async (fn: string, args: Record<string, unknown>, signal: AbortSignal) => {
+    calls.push({ fn, args: structuredClone(args) });
+    if (fn === "dma_push_claim") {
+      const step = claimScript.shift() ?? { data: { sends: [], deferred: [] } };
+      if (step === "hangUntilAbort") {
+        return new Promise<{ data: null; error: { code: string; message: string } }>((resolve) =>
+          signal.addEventListener("abort", () => resolve({ data: null, error: { code: "", message: "AbortError" } })),
+        );
+      }
+      if (step === "error") return { data: null, error: PG_ERROR };
+      // 옛 DB(p_claim_id 를 모르는 함수) — PostgREST 가 이름 · 인자 조합을 못 찾는다.
+      if (step === "missing") return { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
+      if (step === "throw") throw new Error("fetch failed");
+      if ("hold" in step) return { data: await step.hold, error: null };
+      return { data: step.data, error: null };
+    }
+    if (fn === "dma_push_report") {
+      if (opts.reportThrows) throw new Error("report fetch failed");
+      return { data: { recorded: (args.p_results as unknown[]).length, removed: 0 }, error: null };
+    }
+    throw new Error(`unexpected rpc ${fn}`);
+  };
   const supabase = {
-    rpc: async (fn: string, args: Record<string, unknown>) => {
-      calls.push({ fn, args: structuredClone(args) });
-      if (fn === "dma_push_claim") {
-        const step = claimScript.shift() ?? { data: { sends: [], deferred: [] } };
-        if (step === "error") return { data: null, error: PG_ERROR };
-        // 옛 DB(p_claim_id 를 모르는 함수) — PostgREST 가 이름 · 인자 조합을 못 찾는다.
-        if (step === "missing") return { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
-        if (step === "throw") throw new Error("fetch failed");
-        if ("hold" in step) return { data: await step.hold, error: null };
-        return { data: step.data, error: null };
-      }
-      if (fn === "dma_push_report") {
-        if (opts.reportThrows) throw new Error("report fetch failed");
-        return { data: { recorded: (args.p_results as unknown[]).length, removed: 0 }, error: null };
-      }
-      throw new Error(`unexpected rpc ${fn}`);
-    },
+    rpc: (fn: string, args: Record<string, unknown>) => ({
+      abortSignal: (signal: AbortSignal) => {
+        signals.push(signal);
+        return run(fn, args, signal);
+      },
+    }),
   } as unknown as Pick<SupabaseClient, "rpc">;
   return {
     supabase,
     calls,
+    signals,
     claimScript,
     claims: () => calls.filter((c) => c.fn === "dma_push_claim"),
     reports: () => calls.filter((c) => c.fn === "dma_push_report"),
@@ -662,6 +680,65 @@ describe("PushNotifier — 자동매도 · 대기 · 단일 비행 · 격리 · 
     await vi.advanceTimersByTimeAsync(1_500);
     await expect(done).resolves.toBe(false);
     expect(pushLogs(logs).filter((l) => l.level === "warn" && String(l.args[1]).includes("drain 시간 초과"))).toHaveLength(1);
+  });
+
+  it("WR-03 — 판정 · 보고 RPC 마다 끊기 신호 · 판정이 3초 안에 안 오면 끊고 1초 뒤 같은 키로 재시도", async () => {
+    captureLogs();
+    const db = fakeDb();
+    const ios = fakeSender("ios");
+    db.claimScript.push("hangUntilAbort", { data: { sends: [send()], deferred: [] } });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender], enabled: true });
+    expect(PUSH_RPC_TIMEOUT_MS).toBe(3_000);
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    expect(db.claims()).toHaveLength(1);
+    expect(db.signals[0]!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(PUSH_RPC_TIMEOUT_MS - 1);
+    expect(db.signals[0]!.aborted).toBe(false);
+    await settle(1);
+    expect(db.signals[0]!.aborted).toBe(true); // 상한에서 끊김
+    expect(db.claims()).toHaveLength(1);
+    await settle(1_000);
+    expect(db.claims()).toHaveLength(2);
+    expect(db.claims()[1]!.args.p_claim_id).toBe(db.claims()[0]!.args.p_claim_id);
+    expect(ios.sent).toHaveLength(1);
+    expect(db.reports()).toHaveLength(1);
+    expect(db.signals).toHaveLength(3); // claim 2 + report 1 — 전부 신호를 단다
+  });
+
+  it("WR-03 — 플랫폼끼리 병렬: iOS 송신이 걸려 있어도 Android 는 바로 간다 · 플랫폼 안은 순차", async () => {
+    captureLogs();
+    const db = fakeDb();
+    let releaseIos: (r: PushSendResult) => void = () => undefined;
+    const ios = fakeSender("ios", () => new Promise<PushSendResult>((r) => (releaseIos = r)));
+    const android = fakeSender("android");
+    db.claimScript.push({
+      data: {
+        sends: [
+          send({
+            devices: [
+              { device_id: DEVICE_IOS, platform: "ios", token: TOKEN_IOS },
+              { device_id: DEVICE_IOS_2, platform: "ios", token: TOKEN_IOS_2 },
+              { device_id: DEVICE_AND, platform: "android", token: TOKEN_AND },
+            ],
+          }),
+        ],
+        deferred: [],
+      },
+    });
+    const n = make({ supabase: db.supabase, identities: ids, senders: [ios.sender, android.sender], enabled: true });
+    n.enqueueOrders(p, [orderRow()]);
+    await settle();
+    expect(android.sent.map((s) => s.token)).toEqual([TOKEN_AND]); // iOS 를 기다리지 않음
+    expect(ios.sent.map((s) => s.token)).toEqual([TOKEN_IOS]); // iOS 둘째는 첫째가 끝난 뒤
+    expect(db.reports()).toHaveLength(0);
+    releaseIos({ result: "ok", httpStatus: 200 });
+    await flush();
+    expect(ios.sent.map((s) => s.token)).toEqual([TOKEN_IOS, TOKEN_IOS_2]);
+    releaseIos({ result: "ok", httpStatus: 200 });
+    await flush();
+    const rows = (db.reports()[0]!.args.p_results as Array<{ device_id: string }>).map((r) => r.device_id);
+    expect(rows).toEqual([DEVICE_IOS, DEVICE_IOS_2, DEVICE_AND]);
   });
 
   it("WR-01 — p_claim_id 는 묶음마다 새 uuid · 같은 묶음의 재시도는 같은 값", async () => {

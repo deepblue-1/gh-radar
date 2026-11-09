@@ -48,6 +48,11 @@ export const PUSH_DEFER_MS = 1_500;
  * 끊긴 경우는 같은 `p_claim_id` 로 그 호출이 기록한 사건을 되돌려받는다(40-REVIEW WR-01).
  */
 export const PUSH_CLAIM_RETRY_MS = 1_000;
+/**
+ * 판정 · 보고 RPC 한 번의 시간 상한(ms · 40-REVIEW WR-03). 게이트웨이 큐는 단일 비행이라 상한 없는 RPC(undici 기본 300초)
+ * 하나가 그 게이트웨이 푸시를 수 분 멈춘다. 넘기면 끊고 실패로 본다 — 판정은 1회 재시도(같은 `p_claim_id`)로 이어진다.
+ */
+export const PUSH_RPC_TIMEOUT_MS = 3_000;
 /** 결과 보고 `reason` 상한 — 40-01 `dma_push_deliveries.reason` CHECK(200자)와 같다. */
 const REPORT_REASON_MAX = 200;
 
@@ -100,6 +105,8 @@ export type PushNotifierDeps = {
   settleMs?: number;
   /** 짝 대기 재호출 지연(ms). 기본 `PUSH_DEFER_MS`. */
   deferMs?: number;
+  /** 판정 · 보고 RPC 시간 상한(ms). 기본 `PUSH_RPC_TIMEOUT_MS`. */
+  rpcTimeoutMs?: number;
 };
 
 const ORDER_N_STATUSES: ReadonlySet<JournalOrderStatus> = new Set(["accepted", "partially_filled", "filled", "rejected", "cancelled"]);
@@ -215,6 +222,7 @@ export class PushNotifier {
   readonly #enabled: boolean;
   readonly #settleMs: number;
   readonly #deferMs: number;
+  readonly #rpcTimeoutMs: number;
   readonly #holdingOf: PushNotifierDeps["holdingOf"];
   /** 짝 대기 재호출 타이머 → 그 재호출. `drain()` 은 당겨 실행하고 `close()` 는 해제한다. */
   readonly #deferTimers = new Map<NodeJS.Timeout, () => void>();
@@ -238,6 +246,7 @@ export class PushNotifier {
     this.#enabled = deps.enabled && this.#platforms.length > 0;
     this.#settleMs = deps.settleMs ?? PUSH_SETTLE_MS;
     this.#deferMs = deps.deferMs ?? PUSH_DEFER_MS;
+    this.#rpcTimeoutMs = deps.rpcTimeoutMs ?? PUSH_RPC_TIMEOUT_MS;
     this.#holdingOf = deps.holdingOf;
     if (this.#enabled) {
       logger.info({ platforms: this.#platforms.join(",") }, `[push] 켜짐 platforms=${this.#platforms.join(",")}`);
@@ -539,22 +548,35 @@ export class PushNotifier {
    * PGRST202(함수 없음)를 준다 — 그때만 새 인자를 빼고 바로 한 번 더 부른다(배포 순서 무관 · 재시도 횟수에 안 셈).
    */
   async #callClaim(gateway: string, args: ClaimArgs): Promise<{ data: unknown; error: unknown }> {
-    const res = await this.#supabase.rpc("dma_push_claim", args);
+    const res = await this.#rpc("dma_push_claim", args);
     if (args.p_claim_id === undefined || !isMissingFunction(res.error)) return res;
     if (!this.#legacyClaimWarned) {
       this.#legacyClaimWarned = true;
       logger.warn({ gateway }, "[push] dma_push_claim 옛 시그니처 — p_claim_id 없이 호출(DB 마이그레이션 적용 전)");
     }
     const { p_claim_id: _claimId, ...legacy } = args;
-    return this.#supabase.rpc("dma_push_claim", legacy);
+    return this.#rpc("dma_push_claim", legacy);
   }
 
-  /** send 마다 문안을 만들고 기기마다 그 플랫폼 송신기로 보낸다. `stopRun` 뒤 그 플랫폼 남은 기기는 건너뛴다. */
+  /** RPC 한 번 — `rpcTimeoutMs` 가 지나면 요청을 끊는다(WR-03). 끊긴 요청은 supabase-js 가 error 로 주거나 throw 한다. */
+  async #rpc(fn: string, args: object): Promise<{ data: unknown; error: unknown }> {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), this.#rpcTimeoutMs);
+    try {
+      return await this.#supabase.rpc(fn, args).abortSignal(ac.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * send 마다 문안을 한 번 만들고 기기마다 그 플랫폼 송신기로 보낸다. **플랫폼끼리는 병렬 · 플랫폼 안은 순차**(40-REVIEW
+   * WR-03) — 한 플랫폼의 느린 응답 · 재시도가 다른 플랫폼 송신을 붙잡지 않는다. `stopRun` 뒤 그 플랫폼 남은 기기는 건너뛴다.
+   * 결과는 플랫폼이 처음 나온 순서로 이어 붙인다.
+   */
   async #deliver(gateway: string, sends: readonly ClaimSend[], strategy: ReadonlyMap<string, StrategyItem>): Promise<ReportRow[]> {
-    const results: ReportRow[] = [];
-    const stopped = new Set<PushPlatform>();
+    const lanes = new Map<PushPlatform, { sender: PushSender; jobs: { s: ClaimSend; msg: PushSendMessage; d: ClaimDevice }[] }>();
     for (const s of sends) {
-      if (this.#closed) break;
       let msg: PushSendMessage;
       try {
         const facts = this.#withHolding(gateway, s, strategy);
@@ -565,31 +587,50 @@ export class PushNotifier {
         continue;
       }
       for (const d of s.devices) {
-        if (this.#closed) break;
         const sender = this.#senderOf.get(d.platform);
-        if (sender === undefined || stopped.has(d.platform)) continue;
-        let r: PushSendResult;
-        try {
-          r = await sender.send(d.token, msg);
-        } catch (err) {
-          // 송신기 예외 문자열에 토큰이 섞여도 로그로 새지 않게 지운다(T-19-14).
-          const safeErr = String(err).split(d.token).join("[token]");
-          logger.error({ gateway, platform: d.platform, stage: String(s.stage), err: safeErr }, "[push] 송신기 예외 — failed 로 기록");
-          r = { result: "failed", httpStatus: 0, reason: "exception" };
+        if (sender === undefined) continue;
+        let lane = lanes.get(d.platform);
+        if (lane === undefined) {
+          lane = { sender, jobs: [] };
+          lanes.set(d.platform, lane);
         }
-        results.push({
-          log_id: s.log_id,
-          device_id: d.device_id,
-          platform: d.platform,
-          token: d.token,
-          result: r.result,
-          http_status: Number.isFinite(r.httpStatus) ? r.httpStatus : 0,
-          reason: (r.reason ?? "").slice(0, REPORT_REASON_MAX),
-        });
-        if (r.stopRun === true) {
-          stopped.add(d.platform);
-          logger.warn({ gateway, platform: d.platform, httpStatus: r.httpStatus }, "[push] 송신 중단 신호 — 이 묶음의 이 플랫폼 남은 송신 건너뜀");
-        }
+        lane.jobs.push({ s, msg, d });
+      }
+    }
+    const perLane = await Promise.all([...lanes.values()].map((lane) => this.#deliverLane(gateway, lane.sender, lane.jobs)));
+    return perLane.flat();
+  }
+
+  /** 한 플랫폼 송신 줄 — 순차 · `stopRun` 이면 남은 기기 건너뜀 · 송신기 예외는 failed 로 기록. */
+  async #deliverLane(
+    gateway: string,
+    sender: PushSender,
+    jobs: readonly { s: ClaimSend; msg: PushSendMessage; d: ClaimDevice }[],
+  ): Promise<ReportRow[]> {
+    const results: ReportRow[] = [];
+    for (const { s, msg, d } of jobs) {
+      if (this.#closed) break;
+      let r: PushSendResult;
+      try {
+        r = await sender.send(d.token, msg);
+      } catch (err) {
+        // 송신기 예외 문자열에 토큰이 섞여도 로그로 새지 않게 지운다(T-19-14).
+        const safeErr = String(err).split(d.token).join("[token]");
+        logger.error({ gateway, platform: d.platform, stage: String(s.stage), err: safeErr }, "[push] 송신기 예외 — failed 로 기록");
+        r = { result: "failed", httpStatus: 0, reason: "exception" };
+      }
+      results.push({
+        log_id: s.log_id,
+        device_id: d.device_id,
+        platform: d.platform,
+        token: d.token,
+        result: r.result,
+        http_status: Number.isFinite(r.httpStatus) ? r.httpStatus : 0,
+        reason: (r.reason ?? "").slice(0, REPORT_REASON_MAX),
+      });
+      if (r.stopRun === true) {
+        logger.warn({ gateway, platform: d.platform, httpStatus: r.httpStatus }, "[push] 송신 중단 신호 — 이 묶음의 이 플랫폼 남은 송신 건너뜀");
+        break;
       }
     }
     return results;
@@ -625,7 +666,7 @@ export class PushNotifier {
   /** 결과 보고 1회 — 오류는 로그만(전달 기록이 빠질 뿐 송신 · 적용에는 영향 없다). */
   async #report(gateway: string, results: ReportRow[]): Promise<void> {
     try {
-      const { error } = await this.#supabase.rpc("dma_push_report", { p_results: results });
+      const { error } = await this.#rpc("dma_push_report", { p_results: results });
       if (error) logger.error({ gateway, err: safePgError(error), results: results.length }, "[push] dma_push_report 실패");
     } catch (err) {
       logger.error({ gateway, err: safePgError(err), results: results.length }, "[push] dma_push_report 실패");
