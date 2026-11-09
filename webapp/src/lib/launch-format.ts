@@ -14,6 +14,7 @@
 import {
   LAUNCH_ORDER,
   LAUNCH_SERVERS,
+  brokerOfServerKey,
   isLaunchAccept,
   isLaunchFireBaseOf,
   isLaunchReject,
@@ -22,6 +23,7 @@ import {
   launchServerLabelOf,
   type LaunchFire,
   type LaunchHeadRow,
+  type LaunchMarket,
   type LaunchPieceRow,
   type LaunchServer,
 } from '@gh-radar/shared';
@@ -204,6 +206,19 @@ export interface LaunchHeadCardInput {
   heads: readonly LaunchHeadRow[];
 }
 
+/**
+ * 교보 09:00:30 'N' = 코스피 · 코스닥 한 레인(인박스 261109-kyobo-n-single-field · gh-trade quick-261109-eqv) — 교보는 두 시장이
+ * 주문 세션 하나라 N 회차를 한 send 로 쏜다. 발사 시각(op 8)은 공통 한 값이고 kind 18 'N' 머리는 market=K 1행뿐이다
+ * (kind 17 실조각 행은 실제 상장시장 K/Q 그대로 · 뒤탐침은 K 한 벌). 교보 판별 = 서버 키의 증권사 접두(`brokerOfServerKey` —
+ * p_gateway). KB 는 종전대로 시장별.
+ */
+export function isCommonLaunchPlan(gateway: string, fire: LaunchFire): boolean {
+  return fire === 'n0930' && brokerOfServerKey(gateway) === 'KYOBO';
+}
+
+/** 공통 레인의 기준 시장 — 계획 칸은 94 의 `N/K` 행, 머리는 kind 18 market=K 행. */
+export const COMMON_PLAN_BASE_MARKET: LaunchMarket = 'K';
+
 const usOrDash = (v: number | null | undefined): string => (v === null || v === undefined ? DASH : `${fmtUs(v)}µs`);
 
 function countsOf(pieces: readonly Pick<LaunchPieceRow, 'result'>[]): LaunchResultCounts {
@@ -264,7 +279,14 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
 
   if (fire === 'n0930') {
     // 오프셋 · 다음 오프셋은 N 머리(고정 오프셋 프로파일) — A 다리 머리는 보지 않는다.
-    const head = heads.find((h) => h.profile === 'N');
+    // 교보는 한 레인이라 kind 18 'N' 이 market=K 1행뿐(gh-trade quick-261109-eqv) — 코스닥 카드는 그날 N/K 머리를 쓴다.
+    const head =
+      heads.find((h) => h.profile === 'N') ??
+      (isCommonLaunchPlan(gateway, fire)
+        ? input.heads.find(
+            (h) => h.gateway === gateway && h.market === COMMON_PLAN_BASE_MARKET && h.profile === 'N' && isOrderTabRow(h, fire),
+          )
+        : undefined);
     const nPieces = pieces.filter((p) => p.profile === 'N' && p.fire_exchange === 'NXT');
     return {
       ...base,

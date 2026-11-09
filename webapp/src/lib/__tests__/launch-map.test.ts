@@ -237,6 +237,14 @@ describe('mapNextOffsetOf', () => {
     expect(mapNextOffsetOf(heads, 'KYOBO119', 'K', 'q16')).toBeNull();
     expect(mapNextOffsetOf([], 'KB120', 'Q', 'n0930')).toBeNull();
   });
+  it('교보 n0930 코스닥 — 머리가 N/K 1행뿐(quick-261109-eqv)이면 더 최근 N/K 값 · 같은 날이면 제 시장 · KB 는 대체 없음', () => {
+    const n = (gateway: string, market: string, trade_date: string, v: number) =>
+      head({ gateway, market, profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', trade_date, next_offset_us: v });
+    const ky = [n('KYOBO119', 'Q', '20261106', -348), n('KYOBO119', 'K', '20261110', -340)];
+    expect(mapNextOffsetOf(ky, 'KYOBO119', 'Q', 'n0930')).toBe(-340);
+    expect(mapNextOffsetOf([...ky, n('KYOBO119', 'Q', '20261110', -333)], 'KYOBO119', 'Q', 'n0930')).toBe(-333);
+    expect(mapNextOffsetOf([n('KB120', 'K', '20261110', -245)], 'KB120', 'Q', 'n0930')).toBeNull();
+  });
 });
 
 describe('launchDateLabelOf', () => {

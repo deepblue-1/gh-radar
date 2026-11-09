@@ -597,3 +597,28 @@ describe('launchQueueCellOf — 당일 값(live_as_of · quick 261104-n7i D-5)',
     expect(launchQueueCellOf({ qty: 1, queue: QV({ ...base, end_state: 'filled', live_as_of: '' }) })!.sub).toBeNull();
   });
 });
+
+describe('launchHeadCardOf(n0930) — 교보 한 레인 머리(quick-261109-eqv · 인박스 261109-kyobo-n-single-field)', () => {
+  const kyN = (market: 'K' | 'Q', wire: number) =>
+    piece({ gateway: 'KYOBO119', market, profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', wire, queued_id: 'N', piece_idx: wire, sent_rel_us: -349, result: '접수' });
+  const KY_HEAD_K = head({ gateway: 'KYOBO119', market: 'K', profile: 'N', fire_exchange: 'NXT', fire_base: '09:00:30', offset_used_us: -349, next_offset_us: -349 });
+  // 한 회차의 K · Q 행이 같은 wire 축(0..n−1) — 코스피 0·1 · 코스닥 2·3.
+  const pieces = [kyN('K', 0), kyN('K', 1), kyN('Q', 2), kyN('Q', 3)];
+
+  it('교보 코스닥 카드 — 그날 N/Q 머리가 없으면 N/K 머리(오프셋 · 「고정 −349µs」) · 조각은 제 시장 2개', () => {
+    const card = launchHeadCardOf({ gateway: 'KYOBO119', market: 'Q', fire: 'n0930', pieces, heads: [KY_HEAD_K] });
+    expect(card).toMatchObject({ count: 2, offset: `${M}349µs`, next: `고정 ${M}349µs` });
+  });
+
+  it('합치기 전 날(N/Q 머리 있음)은 제 시장 머리 그대로', () => {
+    const q = head({ ...KY_HEAD_K, market: 'Q', offset_used_us: -348, next_offset_us: -348 });
+    const card = launchHeadCardOf({ gateway: 'KYOBO119', market: 'Q', fire: 'n0930', pieces, heads: [KY_HEAD_K, q] });
+    expect(card).toMatchObject({ offset: `${M}348µs`, next: `고정 ${M}348µs` });
+  });
+
+  it('KB 는 대체하지 않는다 — N/Q 머리 없으면 「—」', () => {
+    const kbK = head({ ...KY_HEAD_K, gateway: 'KB120' });
+    const kbQ = pieces.map((p) => ({ ...p, gateway: 'KB120' }));
+    expect(launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'n0930', pieces: kbQ, heads: [kbK] })).toMatchObject({ next: '—' });
+  });
+});

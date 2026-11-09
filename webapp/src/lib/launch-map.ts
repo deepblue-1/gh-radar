@@ -25,7 +25,7 @@ import {
   type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
-import { fmtUs, type LaunchResultTone } from './launch-format';
+import { COMMON_PLAN_BASE_MARKET, fmtUs, isCommonLaunchPlan, type LaunchResultTone } from './launch-format';
 
 /**
  * 패널 배치 — 그림 영역 x = [L, W − R] · 첫 행 위끝 T · 날짜 행 RH · 행과 리본 사이 GAP_R · 리본 RIBBON_H ·
@@ -198,9 +198,19 @@ export function mapNextOffsetOf(
   fire: LaunchFire,
 ): number | null {
   const profile = fire === 'q16' ? 'Q16' : 'N';
+  // 교보 N 은 한 레인 — 머리가 market=K 1행뿐이라(quick-261109-eqv) 코스닥 패널은 N/K 머리도 본다(옛 N/Q 머리에 머물지
+  // 않게). 같은 거래일이면 제 시장 머리가 먼저(합치기 전 날짜는 그대로).
+  const common = isCommonLaunchPlan(gateway, fire);
+  const own = (h: LaunchHeadRow) => (h.market === market ? 0 : 1);
   const mine = heads
-    .filter((h) => h.gateway === gateway && h.market === market && h.profile === profile && launchFireOf(h) === fire)
-    .sort((a, b) => (a.trade_date < b.trade_date ? 1 : a.trade_date > b.trade_date ? -1 : 0));
+    .filter(
+      (h) =>
+        h.gateway === gateway &&
+        (h.market === market || (common && h.market === COMMON_PLAN_BASE_MARKET)) &&
+        h.profile === profile &&
+        launchFireOf(h) === fire,
+    )
+    .sort((a, b) => (a.trade_date < b.trade_date ? 1 : a.trade_date > b.trade_date ? -1 : own(a) - own(b)));
   return mine[0]?.next_offset_us ?? null;
 }
 

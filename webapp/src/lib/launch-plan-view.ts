@@ -16,7 +16,6 @@
  */
 
 import {
-  brokerOfServerKey,
   launchPlanEntryOf,
   launchPlanProfileOf,
   validateLaunchPlanDraft,
@@ -36,7 +35,7 @@ import {
   type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
-import { DASH, fmtUs } from './launch-format';
+import { DASH, fmtUs, isCommonLaunchPlan } from './launch-format';
 import { mapNextOffsetOf } from './launch-map';
 
 /** 지도 탭의 계획 조회 상태. */
@@ -189,19 +188,6 @@ export interface LaunchPlanEdit {
 export function planEditOf(gateway: string, market: LaunchMarket, fire: LaunchFire, offsets: readonly number[]): LaunchPlanEdit {
   return { gateway, market, fire, draft: offsets.map(String), valid: [...offsets] };
 }
-
-/**
- * 교보 09:00:30 'N' = 코스피 · 코스닥 한 값(인박스 261109-kyobo-n-single-field · gh-trade quick-261109-eqv) — 교보는 두 시장이
- * 주문 세션 하나라 N 회차를 한 send 로 쏜다. 편집 칸은 패널별 「계획 고치기」 자리 그대로 두고(사용자 결정) 어느 패널에서 열어도
- * 공통 한 값을 보이며, 저장은 op 8 을 K → Q 두 번 같은 값으로 보낸다(옛 서버 빌드여도 두 값이 같아지게). 교보 판별 = 서버 키의
- * 증권사 접두(`brokerOfServerKey` — p_gateway). KB 는 종전대로 시장별 두 값.
- */
-export function isCommonLaunchPlan(gateway: string, fire: LaunchFire): boolean {
-  return fire === 'n0930' && brokerOfServerKey(gateway) === 'KYOBO';
-}
-
-/** 공통 칸의 표시 · 기준 시장 — 94 의 `N/K` 행(노트 1). */
-export const COMMON_PLAN_BASE_MARKET: LaunchMarket = 'K';
 
 /** 저장 때 op 8 을 보낼 시장 순서 — 공통이면 K → Q, 아니면 그 패널 시장 하나. */
 export function planSaveMarketsOf(gateway: string, fire: LaunchFire, market: LaunchMarket): LaunchMarket[] {

@@ -27,15 +27,13 @@ import { CARD } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiClientError } from '@/lib/api';
 import { fetchLaunchMap, fetchLaunchPlan, saveLaunchPlan, saveLaunchTailProbe } from '@/lib/launch-api';
-import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
+import { COMMON_PLAN_BASE_MARKET, DASH, isCommonLaunchPlan, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import { LAUNCH_CHART, trianglePathOf } from '@/lib/launch-map';
 import {
   LAUNCH_PLAN_APPLY_NOTE,
   maxChangeIdOf,
   maxTailProbeChangeIdOf,
-  COMMON_PLAN_BASE_MARKET,
   commonPlanSplitOf,
-  isCommonLaunchPlan,
   panelPlanOf,
   planEditOf,
   planEditWithDraft,
