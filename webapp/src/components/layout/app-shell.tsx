@@ -128,8 +128,13 @@ export function AppShell({
             <SheetDescription className="sr-only">
               페이지 이동과 계정 메뉴
             </SheetDescription>
+            {/*
+              ★ 스크롤 컨테이너는 이 래퍼다 — SheetContent 는 화면 높이 고정(fixed · h-full)이라 메뉴(켜진 전략 ·
+              Admin)가 길어지면 넘친 아래쪽에 닿을 길이 없었다. overscroll-contain 은 끝에서 배경 페이지로
+              스크롤이 새지 않게 막는다.
+            */}
             <div
-              className="h-full"
+              className="h-full overflow-y-auto overscroll-contain"
               onClick={(e) => {
                 // 내부 nav 링크/버튼 클릭 시 Drawer 자동 닫힘.
                 let node: HTMLElement | null = e.target as HTMLElement;
