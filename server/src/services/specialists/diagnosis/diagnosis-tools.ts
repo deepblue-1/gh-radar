@@ -6,7 +6,7 @@ import { logger } from "../../../logger.js";
 import { sanitizeSearchTerm } from "../../../schemas/search.js";
 import { TICK_REQUEST_DAILY_CAP_DEFAULT } from "../../ticks.js";
 import { getMarketTicksText, type MarketMemo } from "./diagnosis-market.js";
-import { getOrderLogText } from "./diagnosis-order-log.js";
+import { getOrderLogText, type OrderLogMemo } from "./diagnosis-order-log.js";
 import type { DiagnosisDeps } from "./diagnosis-specialist.js";
 
 /**
@@ -26,8 +26,8 @@ export type DiagnosisToolState = {
   deps?: DiagnosisDeps;
   /** 도구별 호출 수(상한 판정 · usage 로그). */
   calls: Record<string, number>;
-  /** get_order_log 실행 단위 메모 — 키 `${date}|${isin ?? "*"}`. */
-  orderLogMemo: Map<string, string>;
+  /** get_order_log 실행 단위 메모 — 키 `${date}|${isin ?? "*"}` → 진행 중 · 끝난 RPC Promise(병렬 호출도 RPC 1회). */
+  orderLogMemo: OrderLogMemo;
   /** get_market_ticks 실행 단위 메모(39-04 MarketMemo). */
   marketMemo: MarketMemo;
   /** 시세 도구가 돌려준 레코드 수 합(usage 로그 · 39-07 이 채운다). */

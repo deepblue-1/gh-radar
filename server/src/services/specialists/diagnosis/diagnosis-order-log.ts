@@ -84,40 +84,60 @@ type DiagnosisRpcData =
 
 type AccessData = Extract<DiagnosisRpcData, { access: true }>;
 
+/** RPC 한 번의 결과 — 성공이면 jsonb 문자열(호출마다 새로 파싱해 공유 객체를 고치지 못하게), 아니면 돌려줄 문구. */
+type OrderLogFetch = { ok: true; json: string } | { ok: false; text: string };
+
+/**
+ * 실행 단위 주문로그 메모 — 키 `${date}|${isin ?? "*"}` → **진행 중이거나 끝난** RPC Promise(IN-03). 결과가 아니라
+ * Promise 를 넣어, 모델이 한 라운드에 같은 (date, isin) 을 병렬로 불러도 RPC 는 1회다. 실패 · 빈 응답은 끝난 뒤 지운다.
+ */
+export type OrderLogMemo = Map<string, Promise<OrderLogFetch>>;
+
+async function fetchOrderLog(supabase: SupabaseClient, userId: string, date: string, isin: string | null): Promise<OrderLogFetch> {
+  const { data, error } = await supabase.rpc("dma_diagnosis_for_user", {
+    p_user_id: userId,
+    p_trade_date: date,
+    p_isin: isin,
+  });
+  if (error) {
+    logger.warn({ date, isin, err: error.message }, "[chat] diagnosis order log rpc failed");
+    return { ok: false, text: ORDER_LOG_RPC_FAILED_TEXT };
+  }
+  if (!data) return { ok: false, text: ORDER_LOG_NO_ACCESS_TEXT };
+  return { ok: true, json: JSON.stringify(data) };
+}
+
 /**
  * 주문로그 텍스트 — RPC 1회 → 범례 + 4절.
  *
- * `memo`(실행 단위 · 키 `${date}|${isin ?? "*"}`)에는 RPC 결과 jsonb 를 문자열로 둔다 — 같은 (date, isin) 재호출은
- * RPC 0회. 시간 필터 · 줄 상한은 매번 적용한다(같은 자료를 다른 창으로 다시 읽을 수 있게). 오류는 메모하지 않는다.
+ * `memo` 가 있으면 같은 (date, isin) 재호출 · 병렬 호출은 RPC 0회(위 OrderLogMemo). 시간 필터 · 줄 상한은 매번 적용한다
+ * (같은 자료를 다른 창으로 다시 읽을 수 있게). 오류는 메모하지 않는다.
  */
 export async function getOrderLogText(
   supabase: SupabaseClient,
   userId: string,
   q: OrderLogQuery,
   now: Date = new Date(),
-  memo?: Map<string, string>,
+  memo?: OrderLogMemo,
 ): Promise<string> {
   const date = q.date ?? kstDateIso(now);
   const isin = q.isin ?? null;
   const key = `${date}|${isin ?? "*"}`;
-  let out: DiagnosisRpcData | null;
-  const hit = memo?.get(key);
-  if (hit !== undefined) {
-    out = JSON.parse(hit) as DiagnosisRpcData;
-  } else {
-    const { data, error } = await supabase.rpc("dma_diagnosis_for_user", {
-      p_user_id: userId,
-      p_trade_date: date,
-      p_isin: isin,
-    });
-    if (error) {
-      logger.warn({ date, isin, err: error.message }, "[chat] diagnosis order log rpc failed");
-      return ORDER_LOG_RPC_FAILED_TEXT;
+  let pending = memo?.get(key);
+  if (!pending) {
+    pending = fetchOrderLog(supabase, userId, date, isin);
+    if (memo) {
+      memo.set(key, pending);
+      const mine = pending;
+      void mine.then((r) => {
+        if (!r.ok && memo.get(key) === mine) memo.delete(key);
+      });
     }
-    out = (data ?? null) as DiagnosisRpcData | null;
-    if (out) memo?.set(key, JSON.stringify(out));
   }
-  if (!out || out.access !== true) return ORDER_LOG_NO_ACCESS_TEXT;
+  const r = await pending;
+  if (!r.ok) return r.text;
+  const out = JSON.parse(r.json) as DiagnosisRpcData;
+  if (out.access !== true) return ORDER_LOG_NO_ACCESS_TEXT;
   return renderOrderLog(out, date, timeWindow(q.from, q.to));
 }
 

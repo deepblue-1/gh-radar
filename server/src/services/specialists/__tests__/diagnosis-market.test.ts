@@ -447,6 +447,24 @@ describe("getMarketTicksText — 오늘 tickgw 경로(Task 2)", () => {
     expect(tg.calls[firstCalls]).toMatchObject({ isin: ISIN, ex: "KRX", offset: body.length, epoch: "e1" });
   });
 
+  it("같은 memo 로 같은 isin|ex 를 병렬로 두 번 → 전체 받기(offset 0)는 1회 · 둘째는 증분만(IN-03)", async () => {
+    const body = zst(todayRecords(KRX_FIX));
+    const c = fakeClock(TODAY_ISO);
+    const tg = fakeTickgw((q) =>
+      q.offset === 0 ? live200(body, { offsetEnd: body.length }) : live200(new Uint8Array(0), { offsetEnd: body.length }),
+    );
+    const m = memo();
+    const d = deps(noSupabase, { tickgw: tg, now: c.now, sleep: c.sleep });
+    const [r1, r2] = await Promise.all([
+      getMarketTicksText({ ...TODAY, from: "13:00:00", to: "13:00:05" }, d, m),
+      getMarketTicksText({ ...TODAY, from: "13:00:10", to: "13:00:15" }, d, m),
+    ]);
+    expect(r1.source).toBe("live");
+    expect(r2.source).toBe("live");
+    expect(tg.calls.filter((q) => q.offset === 0)).toHaveLength(1);
+    expect(tg.calls.at(-1)).toMatchObject({ offset: body.length, epoch: "e1" });
+  });
+
   it("창 안 레코드 0 → 자료 없음: 그 시각 시세 기록 없음(그 종목 미기록일 수 있음)", async () => {
     const body = zst(todayRecords(KRX_FIX));
     const { r } = await runToday(() => live200(body, { offsetEnd: body.length }), { from: "09:00:00", to: "09:00:05" });

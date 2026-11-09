@@ -66,8 +66,12 @@ export type MarketDeps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-/** 한 진단 실행 단위 메모 — 키 `${isin}|${ex}`. 프로세스 전역 캐시로 쓰지 않는다(512Mi). */
-export type MarketMemo = Map<string, LiveFetchMemoEntry>;
+/**
+ * 한 진단 실행 단위 메모 — 키 `${isin}|${ex}` → 그 키의 **마지막 받기** Promise(끝나면 누적 엔트리 · 실패면 그 앞 엔트리).
+ * 결과가 아니라 Promise 를 넣어 같은 라운드 병렬 호출이 앞 받기를 기다렸다가 증분만 받게 한다(IN-03 · tickgw 활성 키
+ * 8개 경쟁 Pitfall 4 를 불필요하게 늘리지 않는다). 프로세스 전역 캐시로 쓰지 않는다(512Mi).
+ */
+export type MarketMemo = Map<string, Promise<LiveFetchMemoEntry | undefined>>;
 
 export type MarketTicksResult = {
   text: string;
@@ -413,21 +417,35 @@ async function todayPath(
 
   const key = `${input.isin}|${input.exchange}`;
   const clock = () => now().getTime();
-  const got = await fetchLiveBytes(
-    deps.tickgw,
-    { isin: input.isin, ex: input.exchange },
-    {
-      deadlineAt: clock() + LIVE_WAIT_MAX_MS,
-      memo: memo.get(key),
-      sleep: deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
-      clock,
-    },
+  const tickgw = deps.tickgw;
+  // 앞 받기(병렬 호출이면 아직 진행 중)를 기다려 그 offsetEnd 부터 증분만 받는다.
+  const prev = memo.get(key);
+  const fetched = (async () => {
+    const base = prev ? await prev : undefined;
+    return fetchLiveBytes(
+      tickgw,
+      { isin: input.isin, ex: input.exchange },
+      {
+        deadlineAt: clock() + LIVE_WAIT_MAX_MS,
+        memo: base,
+        sleep: deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+        clock,
+      },
+    );
+  })();
+  // 다음 호출은 이 받기가 끝난 뒤의 엔트리로 잇는다 — 실패면 앞 엔트리를 그대로 넘긴다(메모 사슬이 reject 하지 않게).
+  memo.set(
+    key,
+    fetched.then(
+      async (r) => (r.kind === "ok" ? r.entry : prev ? await prev : undefined),
+      () => undefined,
+    ),
   );
+  const got = await fetched;
   if (got.kind === "unavailable") {
     logger.warn({ diagnosis: { tool: "market", ex: input.exchange, reason: got.reason } }, "[chat] diagnosis market: 당일 시세 못 받음");
     return none(LIVE_REASON_TEXT[got.reason]);
   }
-  memo.set(key, got.entry);
 
   // 지난 날짜 경로와 같은 비동기 스트리밍 해제(IN-02) — 동기 해제는 하루 누적 프레임을 푸는 동안 이벤트 루프를 붙잡아
   // 같은 인스턴스의 다른 SSE · API 응답을 멈춘다.

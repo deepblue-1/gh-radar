@@ -561,6 +561,23 @@ describe("consultDiagnosisSpecialist — 루프 가드(Task 2)", () => {
     expect(seq.calls[1].tool_choice).toEqual({ type: "none" });
   });
 
+  it("같은 라운드에 같은 (date, isin) 주문로그를 병렬로 두 번 → RPC 1회 · 두 결과 모두 주문로그(IN-03)", async () => {
+    const seq = makeStreamSequence([
+      makeToolUseMessage([orderLogCall("tu_1"), orderLogCall("tu_2")]),
+      makeEndTurnMessage("병렬 진단"),
+    ]);
+    streamMock.mockImplementation(seq);
+    const sb = okSupabase();
+
+    const out = await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    expect(out.text).toBe("병렬 진단");
+    expect(sb.rpc.mock.calls.filter(([fn]) => fn === "dma_diagnosis_for_user")).toHaveLength(1);
+    const blocks = lastMessage(seq.calls[1]).content as Anthropic.ToolResultBlockParam[];
+    expect(blocks).toHaveLength(2);
+    for (const b of blocks) expect(String(b.content)).toContain("[주문]");
+  });
+
   it("stop_reason refusal → warn(stopReason · usage · 상세) + DIAGNOSIS_REFUSAL_TEXT · 추가 호출 0(대체 모델 없음)", async () => {
     const warn = vi.spyOn(logger, "warn");
     const refusal = { ...makeRefusalMessage(), stop_details: { type: "refusal", category: "cyber" } } as Anthropic.Message;
