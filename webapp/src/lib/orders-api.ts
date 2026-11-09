@@ -41,6 +41,14 @@ export function fetchTodayOrders(): Promise<JournalOrderRow[]> {
 }
 
 /**
+ * 그 날짜(KST `YYYY-MM-DD`) 내가 볼 수 있는 계좌의 주문 전체 — `GET /api/orders?date=` (같은 라우트 · 같은 RPC).
+ * 체결 알림을 날짜가 지난 뒤 탭했을 때 그 날 주문에서 계좌를 찾는 데 쓴다(리뷰 IN-03).
+ */
+export function fetchOrdersOfDate(date: string): Promise<JournalOrderRow[]> {
+  return authFetch<JournalOrderRow[]>(`/api/orders?date=${encodeURIComponent(date)}`);
+}
+
+/**
  * 오늘 주문 행 펼침 — 주문(묶음) 1건의 통보 + 전략 이벤트 한 타임라인 (Phase 25 D-01 · D-02).
  *
  * `GET /api/orders/{anchorId}/events?orderNos=a,b,c` 한 번 = RPC 한 번. 앵커는 묶음 **첫 통보 행 id**

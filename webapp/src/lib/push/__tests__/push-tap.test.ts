@@ -10,7 +10,12 @@ import type { JournalOrderRow } from '@gh-radar/shared';
  *  - 최근 계좌가 아니라 아무 계좌나 붙이면 → 두 계좌로 같은 종목을 산 날 엉뚱한 계좌 로그가 열린다
  *  - 경로 검증이 약하면 → 조작된 payload 로 외부 주소 · 다른 화면으로 이동한다(T-21-16 동형)
  *  - 주문 읽기 실패 · 지연에 막히면 → 탭해도 아무 화면도 안 열린다
+ *  - 지난 날짜 알림(19:59 에 받고 자정 뒤 탭)에서 계좌를 안 찾으면 → 탭해도 그 주문이 안 보인다(리뷰 IN-03)
  */
+
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({ auth: { getSession: async () => ({ data: { session: null } }) } }),
+}));
 
 import { resolvePushTapPath } from '../push-tap';
 import { startPushSession, TAP_ORDERS_TIMEOUT_MS } from '../push-session';
@@ -80,13 +85,23 @@ describe('resolvePushTapPath', () => {
     );
   });
 
-  it('날짜가 오늘이 아니면 주문을 보지 않고 계좌 없이 그 날짜', () => {
+  it('IN-03 지난 날짜 → 그 날 주문에서 그 종목의 가장 최근 계좌를 붙인다(날짜는 쿼리에 남는다)', () => {
+    const yesterday = [
+      order({ id: 'y1', tradeDate: '2026-11-05', accountNo: 'C', updatedAt: '2026-11-05T10:59:00.000Z' }),
+      order({ id: 'y2', tradeDate: '2026-11-05', accountNo: 'D', updatedAt: '2026-11-05T09:00:00.000Z' }),
+    ];
+    expect(
+      resolvePushTapPath({ path: `/trading/order-log?stock=${ISIN}&date=2026-11-05` }, yesterday, TODAY),
+    ).toBe(`/trading/order-log?account=C&date=2026-11-05&stock=${ISIN}`);
+  });
+
+  it('IN-03 지난 날짜인데 주문의 거래일이 다르면(오늘 주문) 계좌 없이 그 날짜', () => {
     expect(
       resolvePushTapPath({ path: `/trading/order-log?stock=${ISIN}&date=2026-11-05` }, TWO_ACCOUNTS, TODAY),
     ).toBe(`/trading/order-log?date=2026-11-05&stock=${ISIN}`);
   });
 
-  it('payload 에 계좌가 실려 와도 쓰지 않는다 — 계좌는 늘 오늘 주문에서 정한다', () => {
+  it('payload 에 계좌가 실려 와도 쓰지 않는다 — 계좌는 늘 그 날짜 주문에서 정한다', () => {
     expect(
       resolvePushTapPath({ path: `/trading/order-log?account=EVIL&stock=${ISIN}&date=2026-11-05` }, TWO_ACCOUNTS, TODAY),
     ).toBe(`/trading/order-log?date=2026-11-05&stock=${ISIN}`);
@@ -161,6 +176,7 @@ describe('startPushSession — 탭 리스너', () => {
     await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(1));
     expect(push).toHaveBeenCalledWith(`/trading/order-log?account=B&stock=${ISIN}`);
     expect(fetchOrders).toHaveBeenCalledTimes(1);
+    expect(fetchOrders).toHaveBeenCalledWith(TODAY);
 
     stop();
     expect(taps[0]!.remove).toHaveBeenCalledTimes(1);
@@ -191,10 +207,12 @@ describe('startPushSession — 탭 리스너', () => {
     expect(push).toHaveBeenCalledWith(`/trading/order-log?stock=${ISIN}`);
   });
 
-  it('다른 날 탭은 주문을 읽지 않는다 · 검증 실패 탭은 주문도 push 도 0', async () => {
+  it('IN-03 다른 날 탭은 그 날짜 주문을 읽어 계좌를 붙인다 · 검증 실패 탭은 주문도 push 도 0', async () => {
     const { tap } = installApp();
     const push = vi.fn();
-    const fetchOrders = vi.fn(async () => TWO_ACCOUNTS);
+    const fetchOrders = vi.fn(async (date: string) =>
+      date === '2026-11-05' ? [order({ id: 'y', tradeDate: '2026-11-05', accountNo: 'C' })] : TWO_ACCOUNTS,
+    );
     startPushSession({ push, fetchOrders, now: NOW });
 
     tap({ path: '//evil.com' });
@@ -202,7 +220,20 @@ describe('startPushSession — 탭 리스너', () => {
     tap({});
     tap({ path: `/trading/order-log?stock=${ISIN}&date=2026-11-05` });
     await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(1));
-    expect(push).toHaveBeenCalledWith(`/trading/order-log?date=2026-11-05&stock=${ISIN}`);
+    expect(push).toHaveBeenCalledWith(`/trading/order-log?account=C&date=2026-11-05&stock=${ISIN}`);
+    expect(fetchOrders).toHaveBeenCalledTimes(1);
+    expect(fetchOrders).toHaveBeenCalledWith('2026-11-05');
+  });
+
+  it('종목이 없는 탭(전체 종목)은 주문을 읽지 않는다', async () => {
+    const { tap } = installApp();
+    const push = vi.fn();
+    const fetchOrders = vi.fn(async () => TWO_ACCOUNTS);
+    startPushSession({ push, fetchOrders, now: NOW });
+
+    tap({ path: '/trading/order-log?date=2026-11-05' });
+    await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith('/trading/order-log?date=2026-11-05');
     expect(fetchOrders).not.toHaveBeenCalled();
   });
 

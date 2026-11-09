@@ -5,8 +5,8 @@
  *
  * - **탭 리스너:** `pushNotificationActionPerformed` 를 세션마다 한 번 붙인다. iOS 냉시작 탭은 플러그인이 이벤트를
  *   retain 했다가 리스너가 붙을 때 넘겨 준다 — 그래서 리스너는 앱 셸 최상단(Provider) 마운트 때 붙인다.
- * - **탭 처리:** payload `data.path` 검증(`parsePushTapPath`) → 날짜가 오늘이고 종목이 있으면 오늘 주문을 읽어
- *   (실패 · `TAP_ORDERS_TIMEOUT_MS` 초과면 빈 목록 — 계좌 없이라도 연다) → `resolvePushTapPath` → `push(path)`.
+ * - **탭 처리:** payload `data.path` 검증(`parsePushTapPath`) → 종목이 있으면 그 날짜 주문을 읽어(지난 날짜도 — IN-03 ·
+ *   실패 · `TAP_ORDERS_TIMEOUT_MS` 초과면 빈 목록 — 계좌 없이라도 연다) → `resolvePushTapPath` → `push(path)`.
  *   검증 실패면 주문도 읽지 않고 아무것도 하지 않는다.
  * - **시작 갱신(D-15 · D-13 「마지막 확인」):** 앱이 열릴 때 이 기기 키가 있고 · 권한이 이미 granted 이고 · 서버 목록의 이 기기
  *   행이 enabled 면 `register()` 로 받은 토큰을 같은 키로 PUT 해 토큰(OS 갱신 · 재설치로 바뀔 수 있다) · 마지막 확인 시각을
@@ -25,7 +25,7 @@
 import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 
 import { isNativeApp, nativePlatform } from '@/lib/native/native-detect';
-import { fetchTodayOrders } from '@/lib/orders-api';
+import { fetchOrdersOfDate } from '@/lib/orders-api';
 import {
   pushDeviceLabel,
   pushHandoverNeeded,
@@ -49,14 +49,14 @@ import {
 } from '@/lib/push/use-push-devices';
 import { createClient } from '@/lib/supabase/client';
 
-/** 탭 착지에서 오늘 주문을 기다리는 상한 — 넘으면 계좌 없이 연다. */
+/** 탭 착지에서 그 날짜 주문을 기다리는 상한 — 넘으면 계좌 없이 연다. */
 export const TAP_ORDERS_TIMEOUT_MS = 3_000;
 
 export interface PushSessionOptions {
   /** 경로 이동(`router.push`). */
   push: (path: string) => void;
-  /** 오늘 주문 읽기 — 기본 `fetchTodayOrders`(테스트 주입용). */
-  fetchOrders?: () => Promise<JournalOrderRow[]>;
+  /** 그 날짜(KST `YYYY-MM-DD`) 주문 읽기 — 기본 `fetchOrdersOfDate`(테스트 주입용). */
+  fetchOrders?: (date: string) => Promise<JournalOrderRow[]>;
   /** 지금 — 기본 `new Date()`(테스트 주입용). 오늘 = shared `kstDateIso(now())`. */
   now?: () => Date;
   /** 지금 로그인한 사용자 id — 기본 supabase 세션(쿠키 읽기 · 왕복 없음). 로그아웃 상태면 null(테스트 주입용). */
@@ -142,12 +142,12 @@ async function ordersWithin(fetchOrders: () => Promise<JournalOrderRow[]>, timeo
   try {
     const result = await Promise.race([fetchOrders(), timedOut]);
     if (result === 'timeout') {
-      console.warn('[gh-radar] push 탭 — 오늘 주문 읽기 시간 초과 · 계좌 없이 연다');
+      console.warn('[gh-radar] push 탭 — 주문 읽기 시간 초과 · 계좌 없이 연다');
       return [];
     }
     return result;
   } catch (err) {
-    console.warn('[gh-radar] push 탭 — 오늘 주문 읽기 실패 · 계좌 없이 연다', pushErrorText(err));
+    console.warn('[gh-radar] push 탭 — 주문 읽기 실패 · 계좌 없이 연다', pushErrorText(err));
     return [];
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -160,7 +160,7 @@ async function ordersWithin(fetchOrders: () => Promise<JournalOrderRow[]>, timeo
  */
 export function startPushSession(opts: PushSessionOptions): () => void {
   if (!isNativeApp() || !isPushPluginAvailable()) return NOOP;
-  const fetchOrders = opts.fetchOrders ?? fetchTodayOrders;
+  const fetchOrders = opts.fetchOrders ?? fetchOrdersOfDate;
   const now = opts.now ?? (() => new Date());
   const currentUserId = opts.currentUserId ?? sessionUserId;
 
@@ -168,7 +168,9 @@ export function startPushSession(opts: PushSessionOptions): () => void {
     const today = kstDateIso(now());
     const parsed = parsePushTapPath(data, today);
     if (parsed === null) return;
-    const orders = parsed.needsOrders ? await ordersWithin(fetchOrders, TAP_ORDERS_TIMEOUT_MS) : [];
+    const orders = parsed.needsOrders
+      ? await ordersWithin(() => fetchOrders(parsed.query.date), TAP_ORDERS_TIMEOUT_MS)
+      : [];
     const path = resolvePushTapPath(data, orders, today);
     if (path !== null) opts.push(path);
   };
