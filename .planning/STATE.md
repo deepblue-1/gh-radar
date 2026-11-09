@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 39
 status: completed
 stopped_at: Phase 39 complete — all phases complete
-last_updated: "2026-11-09T12:50:12.349Z"
+last_updated: "2026-11-09T13:09:09.997Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 39 complete
-state_head: 198d49f83ba5e472c131319449fc0cecf1d57c23
+state_head: 6809abb77e336df4352b5c209e47d8b790ccf8e5
 progress:
   total_phases: 11
   completed_phases: 9
@@ -40,7 +40,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [██████████] 100% (133/133 plans)
+Progress: [████████░░] 82% (133/133 plans)
 
 ## Accumulated Context
 
@@ -165,6 +165,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261109-sej | 주문로그 하루치 조회 RPC 직접 읽기 — 장중 8~70초 → 0.3초(앱 알림 탭 착지 「불러오지 못했어요」) · 운영 적용 20261109200000(gsd-fast) | 2026-11-09 | 22b1d41e | — |
 | 261109-kzk | 팀 매집 보고서 팀 순매수 = 틱뷰어 당일순매수(tick_grids 조인 · 폴백 * 표식 · 하루 합계 이름 구별) | 2026-11-09 | c096d205 | [261109-kzk-teamflow-team-net-uses-tick-viewer-day-n](./quick/261109-kzk-teamflow-team-net-uses-tick-viewer-day-n/) |
 | 261109-tn6 | 매집감지 Phase 48 반영 — 하루 판정 종료·즉시 종료 회색 행 · rule_version · relay 동기화 | 2026-11-09 | 198d49f8 | [261109-tn6-accum-phase-48-handoff-day-net-rules](./quick/261109-tn6-accum-phase-48-handoff-day-net-rules/) |
+| 72 | 매집 복원 RPC 속도 개선 — 좁은 열 선택 후 PK 되짚기(7.2초 → 1.05초 · 결과 불변) | 2026-11-09 | 6809abb7 | — |
 
 ## Session Continuity
 
