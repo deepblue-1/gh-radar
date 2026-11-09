@@ -9,8 +9,9 @@
  * 근거(Firebase 문서 · RESEARCH §Code Examples 「FCM v1 송신」):
  *   - send/v1-api — 엔드포인트 · Compute Engine 은 기본 서비스계정 토큰(ADC)을 쓴다.
  *   - manage-tokens — `UNREGISTERED`(404) 는 토큰이 더는 유효하지 않다 → 기기 행 정리.
- *   - FCM v1 오류 형식 `{ error: { code, status, details: [{ "@type": "…FcmError", errorCode }] } }` — 분류는 `errorCode` 우선,
- *     없으면 `status`.
+ *   - FCM v1 오류 형식 `{ error: { code, status, details: [{ "@type": "…FcmError", errorCode }] } }` — FcmError `errorCode` 와
+ *     Google API 공통 `status` 를 **따로** 본다(40-REVIEW WR-04). 프로젝트 id 오타 · 프로젝트 삭제 · URL 오류도 FcmError 없이
+ *     `404 NOT_FOUND` 를 주므로, 기기 토큰 폐기는 `errorCode === "UNREGISTERED"` 일 때만 한다.
  *
  * 페이로드(D-17 · D-18 · D-21 · Pattern 7): `notification {title, body}` **필수** — data-only 메시지는 앱이 꺼져 있거나 포그라운드
  * 일 때 시스템 알림으로 뜨지 않는다. `android.notification {channel_id: fills, sound: default}` · `android.priority HIGH` ·
@@ -19,7 +20,9 @@
  *
  * 응답 분류(`classifyFcmResponse` — D-15 · SC-3):
  *   200                                   ok
- *   404 · UNREGISTERED · NOT_FOUND         token_removed(기기 행 정리)
+ *   FcmError UNREGISTERED(404)            token_removed(기기 행 정리)
+ *   그 밖 404 · NOT_FOUND                  failed + error 로그 · **삭제 안 함**(프로젝트 · URL 설정 문제 — 한 번에 Android 기기 전부가
+ *                                         지워지지 않게)
  *   400 INVALID_ARGUMENT                   failed · **삭제 안 함**(페이로드 · 설정 문제일 수 있다 — RESEARCH Pitfall 5 동형)
  *   401                                   메타데이터 토큰을 버리고 다시 받아 1회 재시도
  *   403 PERMISSION_DENIED · SENDER_ID_MISMATCH failed + error 로그(역할 · API · 프로젝트 설정 오류)
@@ -58,33 +61,40 @@ export function fcmSendUrlOf(projectId: string): string {
 /** 분류 결과 — `retry` 가 있으면 송신기가 한 번 더 보낸다(종류마다 1회). */
 export type FcmVerdict = PushSendResult & { retry?: "transient" | "auth" };
 
-const REMOVED_CODES: ReadonlySet<string> = new Set(["UNREGISTERED", "NOT_FOUND"]);
-
-/** FCM 응답 → 결과(위 머리 표). `errorStatus` = 응답 본문의 FcmError `errorCode`(없으면 `error.status`). `status` 0 = 네트워크. */
-export function classifyFcmResponse(status: number, errorStatus?: string): FcmVerdict {
-  const base = { httpStatus: status, ...(errorStatus !== undefined ? { reason: errorStatus } : {}) };
+/**
+ * FCM 응답 → 결과(위 머리 표). `errorCode` = 응답 본문의 FcmError `errorCode` 만 · `googleStatus` = `error.status`(보고 사유
+ * 표시용 — 분류에는 쓰지 않는다). `status` 0 = 네트워크. reason = errorCode(없으면 googleStatus).
+ */
+export function classifyFcmResponse(status: number, errorCode?: string, googleStatus?: string): FcmVerdict {
+  const reason = errorCode ?? googleStatus;
+  const base = { httpStatus: status, ...(reason !== undefined ? { reason } : {}) };
   if (status === 200) return { result: "ok", ...base };
-  if (status === 404 || (errorStatus !== undefined && REMOVED_CODES.has(errorStatus))) return { result: "token_removed", ...base };
-  if (status === 429 || errorStatus === "QUOTA_EXCEEDED") return { result: "failed", stopRun: true, ...base };
+  if (errorCode === "UNREGISTERED") return { result: "token_removed", ...base };
+  if (status === 429 || errorCode === "QUOTA_EXCEEDED") return { result: "failed", stopRun: true, ...base };
   if (status === 401) return { result: "failed", retry: "auth", ...base };
   if (status === 0 || status >= 500) return { result: "failed", retry: "transient", ...base };
   return { result: "failed", ...base };
 }
 
-/** FCM 오류 본문 → 오류 코드(FcmError `errorCode` 우선 · 없으면 `error.status`). 형식이 어긋나면 undefined. */
-export function fcmErrorCodeOf(body: unknown): string | undefined {
-  if (typeof body !== "object" || body === null) return undefined;
+/** FCM 오류 본문 → FcmError `errorCode` 와 Google API `error.status` 를 따로(WR-04). 형식이 어긋난 칸은 비운다. */
+export function fcmErrorOf(body: unknown): { errorCode?: string; googleStatus?: string } {
+  if (typeof body !== "object" || body === null) return {};
   const err = (body as { error?: unknown }).error;
-  if (typeof err !== "object" || err === null) return undefined;
+  if (typeof err !== "object" || err === null) return {};
+  let errorCode: string | undefined;
   const details = (err as { details?: unknown }).details;
   if (Array.isArray(details)) {
     for (const d of details) {
       const code = (d as { errorCode?: unknown } | null)?.errorCode;
-      if (typeof code === "string" && code !== "") return code.slice(0, REASON_MAX);
+      if (typeof code === "string" && code !== "") {
+        errorCode = code.slice(0, REASON_MAX);
+        break;
+      }
     }
   }
   const s = (err as { status?: unknown }).status;
-  return typeof s === "string" && s !== "" ? s.slice(0, REASON_MAX) : undefined;
+  const googleStatus = typeof s === "string" && s !== "" ? s.slice(0, REASON_MAX) : undefined;
+  return { ...(errorCode !== undefined ? { errorCode } : {}), ...(googleStatus !== undefined ? { googleStatus } : {}) };
 }
 
 /** 송신 본문(`message` 한 건). `validateOnly` 는 probe 전용. */
@@ -110,7 +120,7 @@ export type FcmSenderOptions = {
   timeoutMs?: number;
 };
 
-type RawResponse = { status: number; code?: string };
+type RawResponse = { status: number; errorCode?: string; googleStatus?: string };
 
 export class FcmSender implements PushSender {
   readonly platform = "android" as const;
@@ -136,7 +146,9 @@ export class FcmSender implements PushSender {
 
   /**
    * 기동 권한 확인 — `validate_only: true` + 가짜 토큰으로 한 번. 기기로 아무것도 가지 않는다.
-   * 403(·401)이면 역할 · API · 토큰 범위 문제라 error 로그, 400 · 404 면 권한은 통과(토큰만 가짜)라 info. 절대 throw 하지 않는다.
+   * 403(·401)이면 역할 · API · 토큰 범위 문제라 error 로그, 400 · 404 UNREGISTERED 면 권한은 통과(토큰만 가짜)라 info.
+   * FcmError 없는 404 는 프로젝트 id · URL 문제라 warn 으로 올린다(WR-04 — 가짜 토큰 + validate_only 의 정상 응답은 400).
+   * 절대 throw 하지 않는다.
    */
   async probe(): Promise<void> {
     try {
@@ -144,8 +156,10 @@ export class FcmSender implements PushSender {
       const fields = { status: r.httpStatus, reason: r.reason ?? "" };
       if (r.httpStatus === 403 || r.httpStatus === 401) {
         logger.error(fields, "[push] FCM 송신 권한 없음 — setup-relay-iam.sh(FCM 역할 · API) 확인");
-      } else if (r.httpStatus === 400 || r.httpStatus === 404 || r.httpStatus === 200) {
+      } else if (r.httpStatus === 400 || r.httpStatus === 200 || r.result === "token_removed") {
         logger.info(fields, "[push] FCM 권한 확인");
+      } else if (r.httpStatus === 404) {
+        logger.warn(fields, "[push] FCM 404 — 프로젝트 · 송신 URL 확인(FCM_PROJECT_ID)");
       } else {
         logger.warn(fields, "[push] FCM 권한 확인 못 함 — 다음 송신에서 다시 드러난다");
       }
@@ -164,7 +178,7 @@ export class FcmSender implements PushSender {
     let transientRetried = false;
     for (;;) {
       const raw = await this.#post(body);
-      const v = classifyFcmResponse(raw.status, raw.code);
+      const v = classifyFcmResponse(raw.status, raw.errorCode, raw.googleStatus);
       if (v.retry === "auth" && !authRetried) {
         authRetried = true;
         this.#access = null; // 다음 #accessToken() 이 메타데이터에서 새로 받는다.
@@ -186,6 +200,8 @@ export class FcmSender implements PushSender {
       logger.info(fields, "[push] FCM 토큰 만료 — 기기 정리");
     } else if (r.httpStatus === 403 || r.httpStatus === 401) {
       logger.error(fields, "[push] FCM 권한 · 설정 오류 — setup-relay-iam.sh(FCM 역할 · API) 확인");
+    } else if (r.httpStatus === 404) {
+      logger.error(fields, "[push] FCM 404(UNREGISTERED 아님) — 프로젝트 · 송신 URL 확인(FCM_PROJECT_ID) · 기기는 지우지 않는다");
     } else if (r.stopRun === true) {
       logger.warn(fields, "[push] FCM 한도 신호 — 이 묶음 Android 송신 중단");
     } else {
@@ -213,7 +229,7 @@ export class FcmSender implements PushSender {
     try {
       access = await this.#accessToken();
     } catch {
-      return { status: 0, code: "Metadata" };
+      return { status: 0, errorCode: "Metadata" };
     }
     let res: Response;
     try {
@@ -225,19 +241,19 @@ export class FcmSender implements PushSender {
       });
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
-      return { status: 0, code: name === "TimeoutError" || name === "AbortError" ? "Timeout" : "Network" };
+      return { status: 0, errorCode: name === "TimeoutError" || name === "AbortError" ? "Timeout" : "Network" };
     }
     if (res.status === 200) {
       // 본문(`name`)은 쓰지 않는다 — 연결을 놓아 주려고 소비만.
       await res.arrayBuffer().catch(() => undefined);
       return { status: 200 };
     }
-    let code: string | undefined;
+    let err: { errorCode?: string; googleStatus?: string } = {};
     try {
-      code = fcmErrorCodeOf(await res.json());
+      err = fcmErrorOf(await res.json());
     } catch {
-      code = undefined;
+      err = {};
     }
-    return code !== undefined ? { status: res.status, code } : { status: res.status };
+    return { status: res.status, ...err };
   }
 }

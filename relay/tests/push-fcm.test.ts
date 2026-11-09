@@ -4,8 +4,8 @@
  * 잠그는 것:
  *   - 메타데이터 토큰을 만료 60초 전까지 재사용 · 401 이면 캐시를 버리고 1회 재요청 후 재시도
  *   - 요청 URL · 헤더 · 본문(notification 필수 · android.priority HIGH · ttl · channel_id fills · data.path · tag 없음)
- *   - 응답 분류 표(200 · 404 UNREGISTERED · 400 INVALID_ARGUMENT · 403 · 429 · 5xx · 네트워크) · 재시도 횟수
- *   - `probe()` — validate_only 한 번 · 403 이면 error · 400/404 면 info · 예외는 삼킨다
+ *   - 응답 분류 표(200 · 404 UNREGISTERED · FcmError 없는 404(삭제 안 함) · 400 INVALID_ARGUMENT · 403 · 429 · 5xx · 네트워크) · 재시도 횟수
+ *   - `probe()` — validate_only 한 번 · 403 이면 error · 400/404 UNREGISTERED 면 info · FcmError 없는 404 면 warn · 예외는 삼킨다
  *   - 로그에 기기 토큰 · 액세스 토큰이 없다(T-19-14)
  *
  * 가짜 fetch: URL 로 메타데이터 · FCM 요청을 갈라 기록하고, FCM 응답은 스크립트 순서대로 낸다.
@@ -91,11 +91,15 @@ afterEach(() => {
 });
 
 describe("classifyFcmResponse — 분류 표(D-15 · SC-3)", () => {
-  it("200 ok · 404 / UNREGISTERED / NOT_FOUND → token_removed", () => {
+  it("200 ok · FcmError UNREGISTERED 만 token_removed", () => {
     expect(classifyFcmResponse(200)).toEqual({ result: "ok", httpStatus: 200 });
-    expect(classifyFcmResponse(404, "UNREGISTERED")).toEqual({ result: "token_removed", httpStatus: 404, reason: "UNREGISTERED" });
-    expect(classifyFcmResponse(404).result).toBe("token_removed");
-    expect(classifyFcmResponse(404, "NOT_FOUND").result).toBe("token_removed");
+    expect(classifyFcmResponse(404, "UNREGISTERED", "NOT_FOUND")).toEqual({ result: "token_removed", httpStatus: 404, reason: "UNREGISTERED" });
+  });
+
+  it("WR-04 — FcmError 없는 404 · Google NOT_FOUND 는 failed(프로젝트 · URL 문제 — 기기를 지우지 않는다)", () => {
+    expect(classifyFcmResponse(404)).toEqual({ result: "failed", httpStatus: 404 });
+    expect(classifyFcmResponse(404, undefined, "NOT_FOUND")).toEqual({ result: "failed", httpStatus: 404, reason: "NOT_FOUND" });
+    expect(classifyFcmResponse(404, "NOT_FOUND").result).toBe("failed");
   });
 
   it("400 INVALID_ARGUMENT 는 failed — 삭제하지 않는다", () => {
@@ -195,6 +199,14 @@ describe("FcmSender — 응답에 따른 재시도 · 정리 · 중단", () => {
     expect(h.sends).toHaveLength(1);
   });
 
+  it("WR-04 — 404 NOT_FOUND(FcmError 없음 · 프로젝트 id 오타 등) → failed · error 로그 · 재시도 없음", async () => {
+    const logs = captureLogs();
+    const h = harness([{ status: 404, errorStatus: "NOT_FOUND" }]);
+    expect(await h.sender.send(DEVICE_TOKEN, MSG)).toEqual({ result: "failed", httpStatus: 404, reason: "NOT_FOUND" });
+    expect(h.sends).toHaveLength(1);
+    expect(logs.some((l) => l.level === "error" && l.text.includes("[push] FCM 404(UNREGISTERED 아님)"))).toBe(true);
+  });
+
   it("400 INVALID_ARGUMENT → failed · 삭제 아님 · 재시도 없음", async () => {
     captureLogs();
     const h = harness([{ status: 400, errorStatus: "INVALID_ARGUMENT", errorCode: "INVALID_ARGUMENT" }]);
@@ -256,7 +268,7 @@ describe("FcmSender — probe(기동 권한 확인)", () => {
     ).toBe(true);
   });
 
-  it("400 · 404 면 info 「FCM 권한 확인」", async () => {
+  it("400 · 404 UNREGISTERED 면 info 「FCM 권한 확인」", async () => {
     for (const step of [
       { status: 400, errorStatus: "INVALID_ARGUMENT" },
       { status: 404, errorStatus: "NOT_FOUND", errorCode: "UNREGISTERED" },
@@ -268,6 +280,14 @@ describe("FcmSender — probe(기동 권한 확인)", () => {
       expect(logs.some((l) => l.level === "info" && l.text.includes("[push] FCM 권한 확인"))).toBe(true);
       expect(logs.some((l) => l.level === "error")).toBe(false);
     }
+  });
+
+  it("WR-04 — FcmError 없는 404 면 warn 「프로젝트 · 송신 URL 확인」(info 로 가리지 않는다)", async () => {
+    const logs = captureLogs();
+    const h = harness([{ status: 404, errorStatus: "NOT_FOUND" }]);
+    await h.sender.probe();
+    expect(logs.some((l) => l.level === "warn" && l.text.includes("[push] FCM 404 — 프로젝트 · 송신 URL 확인"))).toBe(true);
+    expect(logs.some((l) => l.level === "info" && l.text.includes("[push] FCM 권한 확인"))).toBe(false);
   });
 
   it("예외는 삼키고 로그만(기동을 막지 않는다)", async () => {
