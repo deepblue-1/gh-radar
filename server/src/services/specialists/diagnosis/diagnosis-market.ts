@@ -31,8 +31,8 @@ import { openTickGridForServer, requestTickConvert, TICK_GRID_BUCKET } from "../
  *   지난 날짜  `tick_open_for_user`(openTickGridForServer) → 격자가 있으면 서버가 Storage 에서 받아(브라우저 경유 없음)
  *             프레임마다 스트리밍으로 풀어 창만 남긴다(512Mi · 하루치를 통째로 풀지 않는다 · RESEARCH Pitfall 3).
  *             격자가 없으면 기존 `requestTickConvert`(하루 상한 공유)를 걸고 기다리지 않고 「변환 중 · 약 N분 뒤 다시 물어 주세요」.
- *   오늘       tickgw 당일 경로(`/api/ticks/live` 와 같은 tickgw · fetchLiveBytes 상태표) — 이어붙인 zstd 프레임은 프레임마다
- *             푼다. 08:00 전 · 휴장 · 경로 꺼짐 · 응답 없음 · 대기열 20초 초과 · 그 시각 기록 없음이면 「자료 없음: <사유>」
+ *   오늘       tickgw 당일 경로(`/api/ticks/live` 와 같은 tickgw · fetchLiveBytes 상태표) — 이어붙인 zstd 프레임은 지난 날짜와
+ *             같은 스트리밍 해제(windowOfCompressed)로 프레임마다 푼다. 08:00 전 · 휴장 · 경로 꺼짐 · 응답 없음 · 대기열 20초 초과 · 그 시각 기록 없음이면 「자료 없음: <사유>」
  *             (거짓 시세를 짓지 못하게). 같은 (isin, ex) 재호출은 실행 단위 memo 로 증분만 받는다.
  *
  * ── 상한(D-05) ────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ async function windowOfCompressed(win: TickWindow, compressed: Uint8Array): Prom
 }
 
 function zstdSupported(): boolean {
-  return typeof zlib.createZstdDecompress === "function" && typeof zlib.zstdDecompressSync === "function";
+  return typeof zlib.createZstdDecompress === "function";
 }
 
 /** 당일 수집 구멍(`X-Tick-Complete: false`) 표시 — 모델이 「그 시각엔 체결이 없었다」 는 거짓 근거를 만들지 않게(WR-05). */
@@ -429,14 +429,10 @@ async function todayPath(
   }
   memo.set(key, got.entry);
 
-  // 프레임마다 풀어 바로 창에 먹인다(Node zstd 는 첫 프레임만 푼다 · 풀린 하루치를 통째로 잇지 않는다).
+  // 지난 날짜 경로와 같은 비동기 스트리밍 해제(IN-02) — 동기 해제는 하루 누적 프레임을 푸는 동안 이벤트 루프를 붙잡아
+  // 같은 인스턴스의 다른 SSE · API 응답을 멈춘다.
   const win = new TickWindow(input.isin, input.exchange, p.fromNs, p.toNs);
-  let tail: Uint8Array = new Uint8Array(0);
-  for (const frame of splitZstdFrames(got.entry.bytes)) {
-    const r = feed(win, tail, new Uint8Array(zlib.zstdDecompressSync(frame)));
-    if (r.stop) break;
-    tail = r.tail;
-  }
+  await windowOfCompressed(win, got.entry.bytes);
   if (got.incomplete) {
     logger.info({ diagnosis: { tool: "market", ex: input.exchange } }, "[chat] diagnosis market: 당일 시세 불완전(X-Tick-Complete false)");
   }
