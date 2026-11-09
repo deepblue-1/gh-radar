@@ -360,6 +360,21 @@ describe("consultDiagnosisSpecialist — 한 경로 끝까지(Task 1)", () => {
     expect(stateSection).toContain('사유="CfgSubmit"');
     expect(text).not.toContain(STATE_TRANSITION_EMPTY_TEXT);
   });
+
+  it("전략 이벤트 · 상태전이 줄 앞에 [서버 …계좌 끝 4자리] · 시세 이벤트는 [서버 시세](WR-08)", async () => {
+    const kind9 = makeEvent({ seq: 11, kind: 9, gw_time_ms: T0 + 100, order_no: "", account_no: "99998765", gateway: "KYOBO127", reason_code: "CfgSubmit" });
+    const market = makeEvent({ seq: 12, kind: 1, gw_time_ms: T0 + 200, order_no: "", account_no: "", reason_code: "" });
+    const { seq, sb } = runOnePath(makeRpcData([makeEvent(), kind9, market]), { isin: ISIN });
+    await consultDiagnosisSpecialist(sb.client, { question: QUESTION }, { userId: USER });
+
+    const text = toolResultText(lastMessage(seq.calls[1]));
+    const strategy = text.slice(text.indexOf("[전략 이벤트]"), text.indexOf("[상태전이]")).split("\n").slice(1).filter(Boolean);
+    const states = text.slice(text.indexOf("[상태전이]")).split("\n").slice(1).filter(Boolean);
+    expect(strategy.some((l) => l.startsWith("[KB120 …3901] ") && l.includes('사유="PreBuy'))).toBe(true);
+    expect(strategy.some((l) => l.startsWith("[KB120 시세] "))).toBe(true);
+    expect(states[0].startsWith("[KYOBO127 …8765] ")).toBe(true);
+    expect(text).not.toContain("99998765");
+  });
 });
 
 // ── Task 2 — 루프 가드 · 비용 상한 · usage 로그 ──────────────────

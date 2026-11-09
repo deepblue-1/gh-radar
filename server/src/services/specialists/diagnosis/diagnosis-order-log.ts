@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   formatKstMs,
+  isMarketStrategyEvent,
   kstDateIso,
   orderGroupLabel,
   orderLogLineText,
@@ -321,12 +322,21 @@ function fillLine(f: FillRow): string {
   ].join(" | ");
 }
 
-/** 웹 주문로그와 같은 문장(`orderLogLineText`) + 판정 원문 키. */
+/**
+ * 이벤트 줄 계좌 표기 — 주문 · 체결 줄과 같은 `[서버 …끝4자리]`(WR-08 · 다계좌 사용자가 「누가 언제 껐나」 를 가르게).
+ * 시세 이벤트는 계좌가 없다(account_no '') — 판정은 kind 로(`isMarketStrategyEvent` · 빈 계좌번호 비교 금지 T-25-01).
+ */
+function eventAcct(e: EventRow): string {
+  if (isMarketStrategyEvent(e.kind)) return `${e.gateway} 시세`;
+  return acct(e.gateway, e.account_no ?? "");
+}
+
+/** `[서버 …계좌 끝 4자리]` + 웹 주문로그와 같은 문장(`orderLogLineText`) + 판정 원문 키. */
 function eventLine(e: EventRow): string {
   const ev = toStrategyEventRow(e);
   const sentence = orderLogLineText(ev, e.stock_name ?? e.stock_code ?? e.isin);
   return (
-    `${sentence} 사유="${e.reason_code}" 임계=${e.cond_threshold} 실측=${e.cond_actual} ` +
+    `[${eventAcct(e)}] ${sentence} 사유="${e.reason_code}" 임계=${e.cond_threshold} 실측=${e.cond_actual} ` +
     `지표=${e.cond_metric} 누적=${e.cum_volume} t=${e.gw_time_ms}`
   );
 }
