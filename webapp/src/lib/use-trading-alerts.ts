@@ -17,7 +17,8 @@
  * ④ 소리 — 「기록 먼저, 재생 나중」(breakout-strip ④). 체결·VI 의 **새** 알림만 `playBreakoutTone`
  *   (토글은 모듈이 스스로 본다). 묶음 병합된 조각 체결은 다시 울리지 않는다.
  * ⑤ 로그를 남기지 않는다(T-pgu-02) · 이력을 저장하지 않는다(A안).
- * ⑥ 주문 토스트 숨김(Phase 40 D-20) — `suppressOrderToasts` 면 돌파 밖 6종은 토스트 · 소리 없이 `onNew`(카드 표시)만.
+ * ⑥ 주문 토스트 숨김(Phase 40 D-20 · 리뷰 WR-06) — `suppressOrderToasts(alert)` 가 참인 돌파 밖 6종은 토스트 · 소리 없이
+ *   `onNew`(카드 표시)만. 판정은 알림 한 건 단위다(끈 계좌의 알림은 배너가 오지 않으니 토스트로 낸다).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -44,11 +45,11 @@ export interface UseTradingAlertsInput {
   /** **새** 알림마다(병합 제외) — 작업대가 카드 표시(`data-alert`)를 건다. */
   onNew?: (a: TradingAlert) => void;
   /**
-   * 주문 토스트 숨김(Phase 40 D-20 — 앱에서 이 기기 매매 알림이 켜져 배너가 대신 뜬다). 참이면 돌파 밖 6종
-   * (accept · fill · modify · cancel · reject · vi)은 alerts 에 넣지 않고 소리도 내지 않는다 — `onNew` 는 그대로 부른다.
-   * 숨김 중 들어온 통보는 숨김이 풀려도 되살리지 않는다(① 이력 재생 금지). 기본 false = 종전 그대로.
+   * 주문 토스트 숨김 판정(Phase 40 D-20 — 앱에서 이 기기 매매 알림이 켜져 배너가 대신 뜬다 · WR-06 알림 계좌 단위).
+   * 돌파 밖 6종(accept · fill · modify · cancel · reject · vi) 알림마다 부르고, 참이면 alerts 에 넣지 않고 소리도 내지 않는다
+   * — `onNew` 는 그대로 부른다. 숨김 중 들어온 통보는 숨김이 풀려도 되살리지 않는다(① 이력 재생 금지). 없음 = 종전 그대로.
    */
-  suppressOrderToasts?: boolean;
+  suppressOrderToasts?: (alert: TradingAlert) => boolean;
 }
 
 interface Pending {
@@ -75,7 +76,7 @@ export function useTradingAlerts(input: UseTradingAlertsInput): {
   /** 스트립 새 행 신호(`BreakoutStrip onRowsAdded`) — 행마다 돌파 알림 1건(②). 안정 콜백. */
   notifyBreakouts: (items: readonly RelayRateCrossItem[]) => void;
 } {
-  const { orders, viNotices, orderIndex, onNew, suppressOrderToasts = false } = input;
+  const { orders, viNotices, orderIndex, onNew, suppressOrderToasts } = input;
   const [alerts, setAlerts] = useState<TradingAlert[]>([]);
   /** 상태 미러 — 병합 여부를 동기적으로 알아야 소리·`onNew` 를 한 번만 낸다. */
   const alertsRef = useRef<TradingAlert[]>([]);
@@ -100,7 +101,7 @@ export function useTradingAlerts(input: UseTradingAlertsInput): {
 
   const emit = useCallback((alert: TradingAlert) => {
     // ⑥ D-20 — 병합 판정 전에 가른다: 숨긴 조각이 목록에 없으니 숨김이 풀린 뒤 온 조각과 병합되지도 않는다.
-    if (alert.kind !== "breakout" && suppressRef.current) {
+    if (alert.kind !== "breakout" && suppressRef.current?.(alert) === true) {
       onNewRef.current?.(alert);
       return;
     }

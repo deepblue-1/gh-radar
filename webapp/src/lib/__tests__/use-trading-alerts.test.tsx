@@ -4,14 +4,15 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { RelayOrderMsg, RelayRateCrossItem, RelayViNoticeMsg } from "@gh-radar/shared";
 
 vi.mock("@/lib/alert-tone", () => ({ playBreakoutTone: vi.fn(() => true) }));
-vi.mock("@/lib/push/push-devices-api", () => ({ fetchPushDevices: vi.fn() }));
+vi.mock("@/lib/push/push-devices-api", () => ({ fetchPushDevices: vi.fn(), fetchPushAccountMutes: vi.fn() }));
 
 import { playBreakoutTone } from "@/lib/alert-tone";
 import { ALERT_HOLD_MS, type OrderIndexEntry, type TradingAlert } from "../trading-alerts";
 import { useTradingAlerts } from "../use-trading-alerts";
 import { PUSH_DEVICE_KEY_STORAGE } from "@/lib/push/device-key";
-import { fetchPushDevices } from "@/lib/push/push-devices-api";
-import { orderToastSuppressed, useOrderToastSuppression } from "@/lib/push/toast-suppression";
+import { fetchPushAccountMutes, fetchPushDevices } from "@/lib/push/push-devices-api";
+import { accountBannerExpected, orderToastSuppressed, useOrderToastSuppression } from "@/lib/push/toast-suppression";
+import { __resetPushAccountMutesForTest, updatePushAccountMutesLocal } from "@/lib/push/use-push-account-mutes";
 import { __resetPushDevicesForTest, updatePushDevicesLocal } from "@/lib/push/use-push-devices";
 
 /**
@@ -29,7 +30,7 @@ interface Input {
   viNotices: RelayViNoticeMsg[];
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   onNew?: (a: TradingAlert) => void;
-  suppressOrderToasts?: boolean;
+  suppressOrderToasts?: (a: TradingAlert) => boolean;
 }
 
 function order(over: Partial<RelayOrderMsg> = {}): RelayOrderMsg {
@@ -236,14 +237,17 @@ describe("useTradingAlerts — 소리 · onNew · dismiss", () => {
   });
 });
 
+const ALWAYS = () => true;
+const NEVER = () => false;
+
 describe("useTradingAlerts — D-20 주문 토스트 숨김 (Phase 40)", () => {
   it("숨김 중 주문 통보 · VI 는 alerts 0 · 톤 0 · onNew 는 그대로(카드 표시)", () => {
     const onNew = vi.fn();
     const v0 = viNotice({ orderSeq: 0 });
-    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: true, viNotices: [v0] }));
+    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: ALWAYS, viNotices: [v0] }));
     const f1 = order();
     const v1 = viNotice();
-    hook.rerender(base({ orders: [f1], viNotices: [v1, v0], orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    hook.rerender(base({ orders: [f1], viNotices: [v1, v0], orderIndex: INDEXED, onNew, suppressOrderToasts: ALWAYS }));
     expect(hook.result.current.alerts).toEqual([]);
     expect(playBreakoutTone).not.toHaveBeenCalled();
     expect(onNew.mock.calls.map((c) => (c[0] as TradingAlert).kind)).toEqual(["fill", "vi"]);
@@ -251,16 +255,16 @@ describe("useTradingAlerts — D-20 주문 토스트 숨김 (Phase 40)", () => {
 
   it("숨김 중 accept · modify · cancel · reject 도 alerts 0 · onNew 는 불린다", () => {
     const onNew = vi.fn();
-    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    const hook = setup(base({ orderIndex: INDEXED, onNew, suppressOrderToasts: ALWAYS }));
     const frames = [order({ nt: "A" }), order({ nt: "M" }), order({ nt: "C" }), order({ nt: "R", rc: 1 })];
-    hook.rerender(base({ orders: [...frames].reverse(), orderIndex: INDEXED, onNew, suppressOrderToasts: true }));
+    hook.rerender(base({ orders: [...frames].reverse(), orderIndex: INDEXED, onNew, suppressOrderToasts: ALWAYS }));
     expect(hook.result.current.alerts).toEqual([]);
     expect(onNew.mock.calls.map((c) => (c[0] as TradingAlert).kind)).toEqual(["accept", "modify", "cancel", "reject"]);
   });
 
   it("숨김 중에도 돌파(notifyBreakouts)는 alerts 에 들어간다", () => {
     const onNew = vi.fn();
-    const hook = setup(base({ onNew, suppressOrderToasts: true }));
+    const hook = setup(base({ onNew, suppressOrderToasts: ALWAYS }));
     act(() => hook.result.current.notifyBreakouts([rc("KR7096530001")]));
     expect(hook.result.current.alerts).toHaveLength(1);
     expect(hook.result.current.alerts[0]).toMatchObject({ kind: "breakout" });
@@ -268,24 +272,37 @@ describe("useTradingAlerts — D-20 주문 토스트 숨김 (Phase 40)", () => {
   });
 
   it("숨김 중 들어온 통보는 숨김이 풀려도 되살아나지 않는다 · 뒤 조각은 새 토스트(병합 아님)", () => {
-    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: true }));
+    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: ALWAYS }));
     const f1 = order({ q: 100 });
-    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: true }));
+    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: ALWAYS }));
     expect(hook.result.current.alerts).toEqual([]);
 
-    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: false }));
+    hook.rerender(base({ orders: [f1], orderIndex: INDEXED, suppressOrderToasts: NEVER }));
     expect(hook.result.current.alerts).toEqual([]);
 
     const f2 = order({ q: 100 });
-    hook.rerender(base({ orders: [f2, f1], orderIndex: INDEXED, suppressOrderToasts: false }));
+    hook.rerender(base({ orders: [f2, f1], orderIndex: INDEXED, suppressOrderToasts: NEVER }));
     expect(hook.result.current.alerts).toHaveLength(1);
     expect(hook.result.current.alerts[0]).toMatchObject({ kind: "fill", count: 1, filledQty: 100 });
     expect(playBreakoutTone).toHaveBeenCalledTimes(1);
   });
 
+  it("WR-06 판정은 알림마다 — 판정이 그 알림 계좌로 거짓이면(끈 계좌) 토스트 · 톤이 그대로 나온다", () => {
+    const seen: (string | undefined)[] = [];
+    const notMuted = (a: TradingAlert) => {
+      seen.push(a.accountNo);
+      return a.accountNo !== ACCOUNT;
+    };
+    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: notMuted }));
+    hook.rerender(base({ orders: [order()], orderIndex: INDEXED, suppressOrderToasts: notMuted }));
+    expect(seen).toEqual([ACCOUNT]);
+    expect(hook.result.current.alerts).toHaveLength(1);
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+  });
+
   it("false(기본)면 종전과 같다 — 통보 알림 1 · 톤 1", () => {
-    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: false }));
-    hook.rerender(base({ orders: [order()], orderIndex: INDEXED, suppressOrderToasts: false }));
+    const hook = setup(base({ orderIndex: INDEXED, suppressOrderToasts: NEVER }));
+    hook.rerender(base({ orders: [order()], orderIndex: INDEXED, suppressOrderToasts: NEVER }));
     expect(hook.result.current.alerts).toHaveLength(1);
     expect(playBreakoutTone).toHaveBeenCalledTimes(1);
   });
@@ -308,6 +325,23 @@ describe("orderToastSuppressed — 진리표 (D-20)", () => {
     ["권한 아직 모름", { permission: null }],
   ])("%s → false", (_name, over) => {
     expect(orderToastSuppressed({ ...ALL, ...over })).toBe(false);
+  });
+});
+
+describe("accountBannerExpected — 알림 계좌 배너 (WR-06)", () => {
+  const LOADED = { muted: ["99999999999"], loadedAt: 1, error: false };
+
+  it("목록을 읽었고 끈 계좌가 아니면 true", () => {
+    expect(accountBannerExpected(ACCOUNT, LOADED)).toBe(true);
+  });
+
+  it.each([
+    ["끈 계좌", "99999999999", LOADED],
+    ["계좌 모름(색인 미스)", undefined, LOADED],
+    ["끈 계좌 목록을 아직 못 읽음", ACCOUNT, { muted: [], loadedAt: null, error: false }],
+    ["읽기 실패(한 번도 못 읽음)", ACCOUNT, { muted: [], loadedAt: null, error: true }],
+  ])("%s → false", (_name, accountNo, mutes) => {
+    expect(accountBannerExpected(accountNo, mutes)).toBe(false);
   });
 });
 
@@ -337,10 +371,14 @@ describe("useOrderToastSuppression (D-20)", () => {
     return cap;
   }
 
+  const alertOf = (accountNo?: string) => ({ accountNo });
+
   beforeEach(() => {
     vi.useRealTimers();
     __resetPushDevicesForTest();
+    __resetPushAccountMutesForTest();
     vi.mocked(fetchPushDevices).mockReset();
+    vi.mocked(fetchPushAccountMutes).mockReset().mockResolvedValue([]);
     window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
   });
 
@@ -350,23 +388,50 @@ describe("useOrderToastSuppression (D-20)", () => {
     document.documentElement.removeAttribute("data-native-platform");
     window.localStorage.clear();
     __resetPushDevicesForTest();
+    __resetPushAccountMutesForTest();
   });
 
-  it("브라우저는 늘 false · 기기 목록을 읽지 않는다", async () => {
+  it("브라우저는 늘 false · 기기 목록 · 끈 계좌를 읽지 않는다", async () => {
     const { result } = renderHook(() => useOrderToastSuppression());
     await act(async () => {});
-    expect(result.current).toBe(false);
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
     expect(fetchPushDevices).not.toHaveBeenCalled();
+    expect(fetchPushAccountMutes).not.toHaveBeenCalled();
   });
 
-  it("앱 · 플러그인 · 권한 granted · 이 기기 행 enabled → true · 카드에서 끄면(저장소 변경) false", async () => {
+  it("앱 · 플러그인 · 권한 granted · 이 기기 행 enabled · 끈 계좌 아님 → true · 카드에서 끄면(저장소 변경) false", async () => {
     installApp("granted");
     vi.mocked(fetchPushDevices).mockResolvedValue([ROW]);
     const { result } = renderHook(() => useOrderToastSuppression());
-    await waitFor(() => expect(result.current).toBe(true));
+    await waitFor(() => expect(result.current(alertOf(ACCOUNT))).toBe(true));
+    expect(fetchPushAccountMutes).toHaveBeenCalledTimes(1);
 
     act(() => updatePushDevicesLocal((list) => list.map((d) => ({ ...d, enabled: false }))));
-    expect(result.current).toBe(false);
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
+  });
+
+  it("WR-06 끈 계좌의 알림은 숨기지 않는다 — 다른 계좌는 숨김 · 패널에서 끄면 즉시 · 계좌 모르는 알림은 보인다", async () => {
+    installApp("granted");
+    vi.mocked(fetchPushDevices).mockResolvedValue([ROW]);
+    vi.mocked(fetchPushAccountMutes).mockResolvedValue(["99999999999"]);
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await waitFor(() => expect(result.current(alertOf(ACCOUNT))).toBe(true));
+    expect(result.current(alertOf("99999999999"))).toBe(false);
+    expect(result.current(alertOf(undefined))).toBe(false);
+
+    act(() => updatePushAccountMutesLocal((muted) => [...muted, ACCOUNT]));
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
+  });
+
+  it("WR-06 끈 계좌 목록을 못 읽으면(모르면) 숨기지 않는다", async () => {
+    installApp("granted");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(fetchPushDevices).mockResolvedValue([ROW]);
+    vi.mocked(fetchPushAccountMutes).mockRejectedValue(new Error("HTTP 500"));
+    const { result } = renderHook(() => useOrderToastSuppression());
+    await waitFor(() => expect(fetchPushAccountMutes).toHaveBeenCalled());
+    await act(async () => {});
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
   });
 
   it("권한 denied 면 행이 켜져 있어도 false", async () => {
@@ -375,7 +440,7 @@ describe("useOrderToastSuppression (D-20)", () => {
     const { result } = renderHook(() => useOrderToastSuppression());
     await waitFor(() => expect(fetchPushDevices).toHaveBeenCalled());
     await act(async () => {});
-    expect(result.current).toBe(false);
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
   });
 
   it("다른 기기 행만 켜져 있으면 false", async () => {
@@ -384,6 +449,6 @@ describe("useOrderToastSuppression (D-20)", () => {
     const { result } = renderHook(() => useOrderToastSuppression());
     await waitFor(() => expect(fetchPushDevices).toHaveBeenCalled());
     await act(async () => {});
-    expect(result.current).toBe(false);
+    expect(result.current(alertOf(ACCOUNT))).toBe(false);
   });
 });

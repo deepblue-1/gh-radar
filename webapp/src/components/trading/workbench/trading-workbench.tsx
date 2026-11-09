@@ -1255,7 +1255,7 @@ function WorkbenchSurface() {
     setAlertedCardIds((prev) => (prev.has(hit.id) ? prev : new Set(prev).add(hit.id)));
   }, []);
   // Phase 40 D-20 — 앱에서 이 기기 매매 알림이 켜져 있으면(권한 granted) 배너가 대신 뜬다 → 주문 토스트 · 소리를 숨긴다.
-  //   돌파 토스트 · 카드 표시는 그대로 · 브라우저 · 토글 꺼진 앱은 종전 그대로.
+  //   돌파 토스트 · 카드 표시는 그대로 · 브라우저 · 토글 꺼진 앱 · 끈 계좌의 알림(WR-06 — 알림마다 판정)은 종전 그대로.
   const suppressOrderToasts = useOrderToastSuppression();
   const { alerts, dismiss: dismissAlert, notifyBreakouts } = useTradingAlerts({
     orders: relay.orders,
