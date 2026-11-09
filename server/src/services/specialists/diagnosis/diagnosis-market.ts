@@ -87,8 +87,16 @@ export const MARKET_LEGEND =
   "범례: 시각 A3 체결가 수량 b{bs: 1매도 2매수 _공백=단일가} s{세션} 매도1/매수1 c누적 #msg_seq | 시각 B6 s{세션} A 매도1~5(가격x잔량) | B 매수1~5 T총매도/총매수 E예상가x예상량 #msg_seq";
 
 const NS_PER_MS = 1_000_000n;
-/** 수신 시각 기준 앞뒤 여유 — 거래소 시각과 수신 시각은 ms 단위로 어긋난다. 창 밖 레코드는 디코딩하지 않고 건너뛴다. */
+/**
+ * 수신 시각 기준 창 앞 여유 — 수신은 거래소 처리 뒤라 거래소 시각보다 크게 앞설 수 없다(시계 어긋남 ms 단위).
+ * 이보다 앞선 레코드는 디코딩하지 않고 건너뛴다.
+ */
 const RECV_SLACK_NS = 5_000n * NS_PER_MS;
+/**
+ * 수신 시각 기준 창 뒤 여유 — 수신 지연(엣지 끊김 뒤 재전송 등)은 수 초를 넘을 수 있어 앞 여유보다 넉넉히 둔다.
+ * 이보다 늦게 받은 레코드는 디코딩하지 않고 건너뛴다(멈추지는 않는다 — WR-04).
+ */
+const RECV_LATE_SLACK_NS = 60_000n * NS_PER_MS;
 
 const ISIN_RE = /^[A-Z0-9]{12}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -174,8 +182,13 @@ const TAG_3 = 0x33;
 const TAG_6 = 0x36;
 
 /**
- * 창 수집기 — 수신순으로 레코드를 받아 거래소 시각(`trade_time_ns` · `proc_time_ns`)이 [from, to] 안인 A3/B6 만 줄로 남긴다.
+ * 창 수집기 — 파일 순서대로 레코드를 받아 거래소 시각(`trade_time_ns` · `proc_time_ns`)이 [from, to] 안인 A3/B6 만 줄로 남긴다.
  * 격자(스트리밍) · tickgw(프레임별) 두 경로가 같은 수집기를 써서 같은 줄을 만든다.
+ *
+ * 수신 시각으로 **일찍 멈추지 않는다**(39 REVIEW WR-04) — 파일이 recv_ns 비감소라는 보장이 없다(격자는 여러 sources 를
+ * 합치고 · 당일 바이트는 프레임을 이어붙인다 · shared `recvOrderOf` 도 비단조를 명시적으로 다룬다). 수신 순서가 한 번
+ * 뒤집히면 그 뒤 창 안 레코드를 통째로 버리게 되므로, 창 밖 레코드는 건너뛰기만 하고 끝까지 본다. 파일은 종목 하나의
+ * 하루치라 끝까지 훑어도 싸다(창 밖은 디코딩하지 않는다). 멈추는 것은 레코드 상한(M)뿐이다.
  */
 class TickWindow {
   readonly lines: string[] = [];
@@ -192,9 +205,9 @@ class TickWindow {
     private readonly toNs: bigint,
   ) {}
 
-  /** 레코드 1건. false = 더 볼 필요 없음(창 끝 + 여유를 지났거나 상한) — 호출자는 읽기를 멈춘다. */
+  /** 레코드 1건. false = 레코드 상한(M)에 닿았다 — 호출자는 읽기를 멈춘다. 창 밖은 늘 true(건너뜀). */
   push(recvNs: bigint, payload: Uint8Array): boolean {
-    if (recvNs > this.toNs + RECV_SLACK_NS) return false;
+    if (recvNs > this.toNs + RECV_LATE_SLACK_NS) return true;
     if (recvNs < this.fromNs - RECV_SLACK_NS) return true;
     const t0 = payload[0];
     const t1 = payload[1];
@@ -232,7 +245,7 @@ function feed(win: TickWindow, tail: Uint8Array, chunk: Uint8Array): { tail: Uin
 
 /**
  * 이어붙인 zstd 압축 바이트 → 창. 프레임마다 스트리밍으로 풀며(Node zstd 는 첫 프레임만 푼다 · 프레임 하나를 통째로
- * 풀어 들지 않는다) 레코드 꼬리를 프레임 경계 너머로 잇는다. 창 끝을 지나면 스트림을 닫고 멈춘다.
+ * 풀어 들지 않는다) 레코드 꼬리를 프레임 경계 너머로 잇는다. 레코드 상한에 닿으면 스트림을 닫고 멈춘다.
  */
 async function windowOfCompressed(win: TickWindow, compressed: Uint8Array): Promise<void> {
   let tail: Uint8Array = new Uint8Array(0);

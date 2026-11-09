@@ -179,6 +179,32 @@ describe("getMarketTicksText — 지난 날짜 격자 경로(Task 1)", () => {
     expect(r.text).toContain("잘렸음: 요청 13:00:00~13:01:30 중 13:00:10.000~13:00:10.000 까지 1건 — 범위를 좁혀 다시 부르세요");
   });
 
+  it("수신 순서가 뒤집혀도(창 뒤 레코드 다음에 창 안 레코드) 창 안 레코드를 빠뜨리지 않는다(WR-04)", async () => {
+    const a3 = firstA3();
+    const sec = 1_000_000_000n;
+    const recs = [
+      encodeRecord(a3.recvNs + 1n * sec, withTradeTime(a3.payload, "130001000000")),
+      encodeRecord(a3.recvNs + 120n * sec, withTradeTime(a3.payload, "130200000000")), // 창 한참 뒤
+      encodeRecord(a3.recvNs + 2n * sec, withTradeTime(a3.payload, "130002000000")), // 다른 source 의 창 안 레코드
+    ];
+    const { client } = makeSupabase({ grid: zst(recs) });
+    const r = await getMarketTicksText({ ...BASE, from: "13:00:00", to: "13:00:05" }, deps(client), memo());
+    expect(r.records).toBe(2);
+    expect(r.text).toContain("13:00:01.000000 A3 ");
+    expect(r.text).toContain("13:00:02.000000 A3 ");
+    expect(r.text).not.toContain("13:02:00.000000");
+  });
+
+  it("수신이 5초 넘게 늦은 창 안 레코드(엣지 끊김 뒤 재전송)도 창에 든다(WR-04)", async () => {
+    const a3 = firstA3();
+    const sec = 1_000_000_000n;
+    const recs = [encodeRecord(a3.recvNs + 20n * sec, withTradeTime(a3.payload, "130003000000"))];
+    const { client } = makeSupabase({ grid: zst(recs) });
+    const r = await getMarketTicksText({ ...BASE, from: "13:00:00", to: "13:00:05" }, deps(client), memo());
+    expect(r.source).toBe("grid");
+    expect(r.text).toContain("13:00:03.000000 A3 ");
+  });
+
   it("400건 초과 → 앞에서 400건까지 + 「잘렸음:」(실제 덮은 첫~끝 시각)", async () => {
     const a3 = firstA3();
     const ms = 1_000_000n;
