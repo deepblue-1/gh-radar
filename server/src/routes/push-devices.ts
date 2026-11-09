@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/require-auth.js";
 import {
   PushAccountNoParam,
   PushAccountToggleBody,
+  PushDeviceHandoverBodySchema,
   PushDeviceKeyParam,
   PushDevicePatchBody,
   PushDeviceRegisterBodySchema,
@@ -15,6 +16,7 @@ import { NotFound, ValidationFailed } from "../errors.js";
 import {
   deletePushDevice,
   disablePushDevice,
+  handoverPushDevice,
   listPushAccountMutes,
   listPushDevices,
   registerPushDevice,
@@ -32,6 +34,8 @@ import {
  * - GET    /accounts            : 내 끈 계좌번호 → `string[]`(bare array · quick-261109-dz1 D-08)
  * - PUT    /accounts/:accountNo : body `{ enabled: boolean }` — 계좌 끄기 · 켜기(멱등 · 내 모든 기기 · D-01 · D-04 · D-08)
  *                                 → `{ ok: true }`. 가시성 판정 없음(남의 번호를 꺼도 자기 수신에만 영향)
+ * - POST   /handover            : body `{ token, deviceKey | null }` — 앱 로그인 뒤 이 폰 정리(리뷰 WR-07 · D-15). 이 토큰 ·
+ *                                 기기 키를 가진 「나 ∧ 이 기기 키」 밖의 행 삭제 → `{ ok: true, removed }`(0 도 정상)
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401
@@ -76,6 +80,21 @@ pushDevicesRouter.put("/accounts/:accountNo", requireAuth(), async (req, res, ne
     await setPushAccountEnabled(supabase, req.userId!, params.data.accountNo, body.data.enabled);
     // 바뀌었든 이미 그 상태였든 같은 응답(멱등).
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// --- POST /handover — 앱 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-15) ---
+// 로그아웃 DELETE 가 실패했거나(오프라인 · 시간 초과) 세션 만료로 정리 없이 /login 에 튕겼을 때 남은 앞 사용자 행을 지운다.
+pushDevicesRouter.post("/handover", requireAuth(), async (req, res, next) => {
+  try {
+    const body = PushDeviceHandoverBodySchema.safeParse(req.body ?? {});
+    if (!body.success) throw firstIssue(body.error);
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17).
+    const removed = await handoverPushDevice(supabase, req.userId!, body.data.token, body.data.deviceKey);
+    res.json({ ok: true, removed });
   } catch (e) {
     next(e);
   }

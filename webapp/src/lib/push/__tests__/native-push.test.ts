@@ -14,7 +14,7 @@ vi.mock('@/lib/auth-fetch', () => ({ authFetch: vi.fn() }));
 
 import { ApiClientError } from '@/lib/api';
 import { authFetch } from '@/lib/auth-fetch';
-import { PUSH_DEVICE_KEY_STORAGE } from '../device-key';
+import { PUSH_DEVICE_KEY_STORAGE, PUSH_HANDOVER_PENDING_STORAGE } from '../device-key';
 import { checkPushPermission, registerPushToken } from '../native-push';
 import { unregisterThisDeviceBeforeSignOut } from '../push-devices-api';
 
@@ -168,5 +168,47 @@ describe('unregisterThisDeviceBeforeSignOut (D-15)', () => {
     await expect(unregisterThisDeviceBeforeSignOut()).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(warn.mock.calls)).not.toContain(KEY);
+  });
+
+  it('WR-07 성공 · 404 → 기기 키 유지 · 실패 표시 없음', async () => {
+    asNativeApp();
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
+    vi.mocked(authFetch).mockResolvedValueOnce({ ok: true });
+    await unregisterThisDeviceBeforeSignOut();
+    vi.mocked(authFetch).mockRejectedValueOnce(
+      new ApiClientError({ code: 'NOT_FOUND', message: 'not found', status: 404 }),
+    );
+    await unregisterThisDeviceBeforeSignOut();
+    expect(window.localStorage.getItem(PUSH_DEVICE_KEY_STORAGE)).toBe(KEY);
+    expect(window.localStorage.getItem(PUSH_HANDOVER_PENDING_STORAGE)).toBeNull();
+  });
+
+  it('WR-07 DELETE 실패(오프라인 · 401) → 기기 키 버림 · 다음 로그인 정리 표시', async () => {
+    asNativeApp();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const err of [
+      new ApiClientError({ code: 'NETWORK_ERROR', message: 'offline', status: 0 }),
+      new ApiClientError({ code: 'UNAUTHENTICATED', message: 'expired', status: 401 }),
+    ]) {
+      window.localStorage.clear();
+      window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
+      vi.mocked(authFetch).mockRejectedValueOnce(err);
+      await unregisterThisDeviceBeforeSignOut();
+      expect(window.localStorage.getItem(PUSH_DEVICE_KEY_STORAGE)).toBeNull();
+      expect(window.localStorage.getItem(PUSH_HANDOVER_PENDING_STORAGE)).toBe('1');
+    }
+  });
+
+  it('WR-07 시간 초과 → 기기 키 버림 · 다음 로그인 정리 표시', async () => {
+    vi.useFakeTimers();
+    asNativeApp();
+    window.localStorage.setItem(PUSH_DEVICE_KEY_STORAGE, KEY);
+    vi.mocked(authFetch).mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const p = unregisterThisDeviceBeforeSignOut();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await p;
+    expect(window.localStorage.getItem(PUSH_DEVICE_KEY_STORAGE)).toBeNull();
+    expect(window.localStorage.getItem(PUSH_HANDOVER_PENDING_STORAGE)).toBe('1');
   });
 });

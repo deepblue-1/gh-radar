@@ -504,3 +504,78 @@ describe("PUT /api/push-devices/accounts/:accountNo — 계좌 끄기 · 켜기 
     expect(rec.rpcCalls[0].params.p_account_no).toBe("1".repeat(12));
   });
 });
+
+describe("POST /api/push-devices/handover — 앱 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-15)", () => {
+  it("① 미인증 → 401 · RPC 0회", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser() });
+    const r = await request(createApp({ supabase: client }))
+      .post("/api/push-devices/handover")
+      .send({ token: TOKEN, deviceKey: KEY });
+    expect(r.status).toBe(401);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("② 정상 → 200 {ok:true, removed} · dma_push_device_handover 1회 {p_user_id: 인증 사용자, p_token, p_device_key} · 쿼리 user_id 무시", async () => {
+    const user = nextUser();
+    const other = nextUser();
+    const { client, rec } = makeSupabase({ user, data: { dma_push_device_handover: 1 } });
+    const r = await request(createApp({ supabase: client }))
+      .post(`/api/push-devices/handover?user_id=${other.id}`)
+      .set("Authorization", "Bearer tok")
+      .send({ token: TOKEN, deviceKey: KEY });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true, removed: 1 });
+    expect(rec.rpcCalls).toEqual([
+      { fn: "dma_push_device_handover", params: { p_user_id: user.id, p_token: TOKEN, p_device_key: KEY } },
+    ]);
+    expect(JSON.stringify(r.body)).not.toContain(TOKEN);
+  });
+
+  it("③ deviceKey null(로그아웃 정리 실패로 키를 버림) → p_device_key null · 0 도 200", async () => {
+    const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_device_handover: 0 } });
+    const r = await request(createApp({ supabase: client }))
+      .post("/api/push-devices/handover")
+      .set("Authorization", "Bearer tok")
+      .send({ token: TOKEN, deviceKey: null });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true, removed: 0 });
+    expect(rec.rpcCalls[0].params.p_device_key).toBeNull();
+  });
+
+  it("④ 토큰 누락 · 빈 토큰 · 대문자 키 · deviceKey 누락 · user_id 추가 → 400 · RPC 0회", async () => {
+    const bodies: Record<string, unknown>[] = [
+      { deviceKey: KEY },
+      { token: "", deviceKey: KEY },
+      { token: TOKEN, deviceKey: KEY.toUpperCase() },
+      { token: TOKEN },
+      { token: TOKEN, deviceKey: KEY, user_id: nextUser().id },
+    ];
+    for (const body of bodies) {
+      const { client, rec } = makeSupabase({ user: nextUser(), data: { dma_push_device_handover: 0 } });
+      const r = await request(createApp({ supabase: client }))
+        .post("/api/push-devices/handover")
+        .set("Authorization", "Bearer tok")
+        .send(body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑤ RPC 오류 · 정수 아닌 반환 → 500 DB_ERROR (토큰은 응답에 없음)", async () => {
+    for (const opts of [
+      { rpcError: { code: "XX000", message: `boom ${TOKEN}` } },
+      { data: { dma_push_device_handover: "1" } },
+      { data: { dma_push_device_handover: -1 } },
+    ]) {
+      const { client } = makeSupabase({ user: nextUser(), ...opts });
+      const r = await request(createApp({ supabase: client }))
+        .post("/api/push-devices/handover")
+        .set("Authorization", "Bearer tok")
+        .send({ token: TOKEN, deviceKey: KEY });
+      expect(r.status).toBe(500);
+      expect(r.body.error.code).toBe("DB_ERROR");
+      expect(JSON.stringify(r.body)).not.toContain(TOKEN);
+    }
+  });
+});

@@ -59,6 +59,59 @@ export function getOrCreatePushDeviceKey(): string {
   return key;
 }
 
+/**
+ * 이 기기 키 버리기(리뷰 WR-07) — 로그아웃 정리(DELETE)가 실패하면 서버에 남은 앞 사용자 행이 이 키를 가리킨다.
+ * 키를 버려 다음 사용자가 같은 키로 이어 쓰지 않게 하고, 다음 로그인의 정리(handover)가 같은 토큰의 옛 행을 지우게 한다.
+ */
+export function discardPushDeviceKey(): void {
+  memoryKey = null;
+  try {
+    storage()?.removeItem(PUSH_DEVICE_KEY_STORAGE);
+  } catch {
+    /* 접근 실패 — 저장된 키가 없던 탭이다 */
+  }
+}
+
+/* ── 로그인 뒤 이 폰 정리(handover · 리뷰 WR-07) 표시 ────────────────────────────── */
+
+/** 로그아웃 정리가 실패했다 — 다음 로그인 때 정리를 꼭 돈다. 값 "1". */
+export const PUSH_HANDOVER_PENDING_STORAGE = "gh-radar:push-handover-pending";
+/** 이 폰에서 정리를 마친 마지막 사용자 id — 다른 사용자가 로그인하면 정리를 돈다. */
+export const PUSH_HANDOVER_USER_STORAGE = "gh-radar:push-handover-user";
+
+function readItem(key: string): string | null {
+  try {
+    return storage()?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 로그아웃 정리 실패 표시 — 다음 로그인의 정리를 강제한다. */
+export function markPushHandoverPending(): void {
+  try {
+    storage()?.setItem(PUSH_HANDOVER_PENDING_STORAGE, "1");
+  } catch {
+    /* 저장 실패 — 다른 사용자가 로그인하면 사용자 id 비교로 정리는 그래도 돈다 */
+  }
+}
+
+/** 이 사용자로 정리가 필요한가 — 실패 표시가 있거나 정리를 마친 사용자가 아니면 참. */
+export function pushHandoverNeeded(userId: string): boolean {
+  return readItem(PUSH_HANDOVER_PENDING_STORAGE) !== null || readItem(PUSH_HANDOVER_USER_STORAGE) !== userId;
+}
+
+/** 정리 성공 기록 — 실패 표시를 지우고 이 사용자를 마친 사용자로 남긴다. */
+export function recordPushHandover(userId: string): void {
+  try {
+    const s = storage();
+    s?.removeItem(PUSH_HANDOVER_PENDING_STORAGE);
+    s?.setItem(PUSH_HANDOVER_USER_STORAGE, userId);
+  } catch {
+    /* 저장 실패 — 다음 실행에서 한 번 더 정리할 뿐이다(멱등) */
+  }
+}
+
 const UNKNOWN_DEVICE = "알 수 없는 기기";
 const LABEL_MAX = 80;
 

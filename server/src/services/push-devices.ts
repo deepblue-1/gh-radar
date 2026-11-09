@@ -77,6 +77,31 @@ export async function registerPushDevice(
   return row;
 }
 
+/**
+ * 리뷰 WR-07 · D-15 — 앱 로그인 뒤 이 폰 정리. 이 토큰 · 기기 키를 가진 「지금 사용자 ∧ 지금 기기 키」 밖의 행을 지운다
+ * (로그아웃 DELETE 실패 · 세션 만료로 남은 앞 사용자 행). 반환 = 지운 행 수. 한 요청 = RPC 1회.
+ */
+export async function handoverPushDevice(
+  supabase: SupabaseClient,
+  userId: string,
+  token: string,
+  deviceKey: string | null,
+): Promise<number> {
+  const { data, error } = await supabase.rpc("dma_push_device_handover", {
+    p_user_id: userId,
+    p_token: token,
+    p_device_key: deviceKey,
+  });
+  if (error) {
+    const message = String(error.message ?? "").split(token).join("[token]");
+    throw DbError("기기 정리에 실패했습니다.", { code: error.code, message });
+  }
+  if (typeof data !== "number" || !Number.isInteger(data) || data < 0) {
+    throw DbError("기기 정리에 실패했습니다.", { reason: "dma_push_device_handover 모양 위반", type: typeof data });
+  }
+  return data;
+}
+
 /** D-13 — 내 기기 목록(last_seen_at DESC · RPC 순서 유지). */
 export async function listPushDevices(supabase: SupabaseClient, userId: string): Promise<PushDevice[]> {
   const { data, error } = await supabase.rpc("dma_push_devices_for_user", { p_user_id: userId });

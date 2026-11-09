@@ -34,6 +34,15 @@ export type PushDeviceRegisterBody = {
 };
 
 /**
+ * 앱 로그인 뒤 이 폰 정리 본문(server POST `/api/push-devices/handover` · 리뷰 WR-07). 이 폰의 토큰 · 기기 키를 가진
+ * 「지금 사용자 ∧ 지금 기기 키」 밖의 행을 지운다. 기기 키가 null 이면(로그아웃 정리 실패로 버렸다) 같은 토큰의 내 옛 행도.
+ */
+export type PushDeviceHandoverBody = {
+  token: string;
+  deviceKey: string | null;
+};
+
+/**
  * 푸시 7단계(D-01) — 40-01 `dma_push_log.stage` CHECK · 40-05 RPC 가 쓰는 문자열과 같다.
  * 접수 · 첫 체결 · 전량 체결 · 거부 · 서버 자동 취소 · 자동매도 시작 · 자동매도 완료.
  */

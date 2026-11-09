@@ -13,6 +13,12 @@
  *   갱신한다. 꺼진 기기 · 행 없음 · 권한 없음이면 아무것도 하지 않는다 — PUT 은 곧 켜짐이라 끈 기기를 되살리지 않고,
  *   권한은 묻지 않는다(D-14 「켤 때만 묻는다」). 모듈 플래그로 **세션(페이지 로드)당 1회**(Provider 재마운트에도 1회).
  *   탭 리스너와 독립 — 갱신 실패는 `console.warn` 한 줄(토큰 · 키 없음)이고 탭 처리를 막지 않는다.
+ * - **로그인 뒤 이 폰 정리(리뷰 WR-07 · D-15):** 앱 로그인은 하드 이동이라 로그인 직후 첫 페이지 로드가 곧 이 시작이다. 지금
+ *   사용자가 이 폰에서 정리를 마친 사용자가 아니거나 로그아웃 정리 실패 표시가 있으면(`pushHandoverNeeded`), 권한이 이미
+ *   granted 일 때만 묻지 않고 받은 토큰으로 `POST /api/push-devices/handover` 를 불러 이 토큰 · 기기 키를 가진 남의 행
+ *   (로그아웃 DELETE 실패 · 세션 만료로 남은 앞 사용자 행)을 서버에서 지운다. 성공하면 기록(`recordPushHandover`), 실패면
+ *   다음 실행에서 다시 한다. 권한이 없으면 이 폰에 배너가 뜨지 않으니 기다린다. 사용자 id 는 supabase 세션(쿠키 읽기 ·
+ *   왕복 없음) — 로그아웃 상태(/login)면 하지 않는다.
  * - 로그에 토큰 · 계좌 · 경로 값을 남기지 않는다(T-19-14 동형).
  */
 
@@ -20,7 +26,12 @@ import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 
 import { isNativeApp, nativePlatform } from '@/lib/native/native-detect';
 import { fetchTodayOrders } from '@/lib/orders-api';
-import { pushDeviceLabel, readPushDeviceKey } from '@/lib/push/device-key';
+import {
+  pushDeviceLabel,
+  pushHandoverNeeded,
+  readPushDeviceKey,
+  recordPushHandover,
+} from '@/lib/push/device-key';
 import {
   addPushTapListener,
   checkPushPermission,
@@ -28,7 +39,7 @@ import {
   pushErrorText,
   registerPushToken,
 } from '@/lib/push/native-push';
-import { registerThisPushDevice } from '@/lib/push/push-devices-api';
+import { handoverThisPushDevice, registerThisPushDevice } from '@/lib/push/push-devices-api';
 import { parsePushTapPath, resolvePushTapPath } from '@/lib/push/push-tap';
 import {
   PUSH_DEVICES_STALE_MS,
@@ -36,6 +47,7 @@ import {
   refreshPushDevices,
   updatePushDevicesLocal,
 } from '@/lib/push/use-push-devices';
+import { createClient } from '@/lib/supabase/client';
 
 /** 탭 착지에서 오늘 주문을 기다리는 상한 — 넘으면 계좌 없이 연다. */
 export const TAP_ORDERS_TIMEOUT_MS = 3_000;
@@ -47,6 +59,15 @@ export interface PushSessionOptions {
   fetchOrders?: () => Promise<JournalOrderRow[]>;
   /** 지금 — 기본 `new Date()`(테스트 주입용). 오늘 = shared `kstDateIso(now())`. */
   now?: () => Date;
+  /** 지금 로그인한 사용자 id — 기본 supabase 세션(쿠키 읽기 · 왕복 없음). 로그아웃 상태면 null(테스트 주입용). */
+  currentUserId?: () => Promise<string | null>;
+}
+
+async function sessionUserId(): Promise<string | null> {
+  const {
+    data: { session },
+  } = await createClient().auth.getSession();
+  return session?.user.id ?? null;
 }
 
 const NOOP = () => {};
@@ -55,22 +76,52 @@ const NOOP = () => {};
 let startupRefreshStarted = false;
 
 /**
- * 시작 갱신 한 번 — 켜진 기기 · 권한 granted 일 때만 토큰 재등록(PUT) → 목록 다시 읽기. throw 하지 않는다.
+ * 시작 한 번 — ① 로그인 뒤 이 폰 정리(WR-07 · 필요할 때만) ② 켜진 기기 토큰 재등록(PUT) → 목록 다시 읽기.
+ * 둘 다 권한 granted 일 때만(묻지 않는다) · 토큰은 한 번만 받는다. throw 하지 않는다 — 실패는 각자 warn 한 줄(토큰 · 키 없음).
  */
-async function refreshThisDeviceOnStart(): Promise<void> {
-  const deviceKey = readPushDeviceKey();
+async function startupDeviceWork(currentUserId: () => Promise<string | null>): Promise<void> {
   const platform = nativePlatform();
-  if (!deviceKey || !platform) return;
+  if (!platform) return;
+  const deviceKey = readPushDeviceKey();
+
+  let userId: string | null = null;
+  try {
+    userId = await currentUserId();
+  } catch (err) {
+    console.warn('[gh-radar] push 시작 — 세션 읽기 실패 · 로그인 정리는 다음 실행에', pushErrorText(err));
+  }
+  const needHandover = userId !== null && pushHandoverNeeded(userId);
+  if (!deviceKey && !needHandover) return;
   // 묻지 않고 지금 상태만 본다(D-14).
   if ((await checkPushPermission()) !== 'granted') return;
 
-  const { loadedAt } = pushDevicesSnapshot();
-  if (loadedAt === null || Date.now() - loadedAt > PUSH_DEVICES_STALE_MS) await refreshPushDevices();
-  const mine = pushDevicesSnapshot().devices.find((d) => d.deviceKey === deviceKey);
-  if (!mine?.enabled) return;
+  let mineEnabled = false;
+  if (deviceKey) {
+    const { loadedAt } = pushDevicesSnapshot();
+    if (loadedAt === null || Date.now() - loadedAt > PUSH_DEVICES_STALE_MS) await refreshPushDevices();
+    mineEnabled = pushDevicesSnapshot().devices.some((d) => d.deviceKey === deviceKey && d.enabled);
+  }
+  if (!needHandover && !mineEnabled) return;
 
+  let token: string;
   try {
-    const token = await registerPushToken();
+    token = await registerPushToken();
+  } catch (err) {
+    console.warn('[gh-radar] push 시작 갱신 실패 — 탭 처리는 계속', pushErrorText(err));
+    return;
+  }
+
+  if (needHandover && userId !== null) {
+    try {
+      await handoverThisPushDevice({ token, deviceKey });
+      recordPushHandover(userId);
+    } catch (err) {
+      console.warn('[gh-radar] push 로그인 정리 실패 — 다음 실행에서 다시', pushErrorText(err));
+    }
+  }
+
+  if (!mineEnabled || !deviceKey) return;
+  try {
     const device = await registerThisPushDevice(deviceKey, {
       platform,
       token,
@@ -111,6 +162,7 @@ export function startPushSession(opts: PushSessionOptions): () => void {
   if (!isNativeApp() || !isPushPluginAvailable()) return NOOP;
   const fetchOrders = opts.fetchOrders ?? fetchTodayOrders;
   const now = opts.now ?? (() => new Date());
+  const currentUserId = opts.currentUserId ?? sessionUserId;
 
   const handleTap = async (data: Record<string, unknown>): Promise<void> => {
     const today = kstDateIso(now());
@@ -128,7 +180,7 @@ export function startPushSession(opts: PushSessionOptions): () => void {
   // 시작 갱신 — 리스너를 먼저 붙인 뒤 비동기로(실패해도 탭은 이미 받는다).
   if (!startupRefreshStarted) {
     startupRefreshStarted = true;
-    void refreshThisDeviceOnStart();
+    void startupDeviceWork(currentUserId);
   }
 
   // 떼고 난 뒤 끝난 탭 처리도 이동은 한다 — 냉시작 탭(retain)이 개발 모드 이중 마운트 사이에 소비돼도 잃지 않게.

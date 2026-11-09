@@ -3,18 +3,19 @@
  *
  * - `GET /` → `PushDevice[]` · `PUT /:deviceKey` `{platform, token, label}` → `PushDevice`(enabled = true) ·
  *   `PATCH /:deviceKey` `{enabled:false}` → `{ok:true}` · `DELETE /:deviceKey` → `{ok:true}` · 남의 · 없는 키는 404.
+ * - 리뷰 WR-07: `POST /handover` `{token, deviceKey|null}` → `{ok:true, removed}` — 앱 로그인 뒤 이 폰의 남의 행 정리.
  * - quick-261109-dz1 계좌별 끄기: `GET /accounts` → 끈 계좌번호 `string[]` · `PUT /accounts/:accountNo` `{enabled}` →
  *   `{ok:true}`(멱등).
  * - 인증은 `authFetch` 하나(Bearer supabase access_token) — 새 인증 방식 없음. 사용자는 서버가 토큰에서 정한다.
  * - 응답 · 오류 어디에도 토큰을 로그로 남기지 않는다(T-19-14 동형).
  */
 
-import type { PushDevice, PushDeviceRegisterBody } from "@gh-radar/shared";
+import type { PushDevice, PushDeviceHandoverBody, PushDeviceRegisterBody } from "@gh-radar/shared";
 
 import { ApiClientError } from "@/lib/api";
 import { authFetch } from "@/lib/auth-fetch";
 import { isNativeApp } from "@/lib/native/native-detect";
-import { readPushDeviceKey } from "@/lib/push/device-key";
+import { discardPushDeviceKey, markPushHandoverPending, readPushDeviceKey } from "@/lib/push/device-key";
 
 const BASE = "/api/push-devices";
 
@@ -53,6 +54,15 @@ export function deletePushDevice(deviceKey: string, opts: { timeoutMs?: number }
   });
 }
 
+/** 리뷰 WR-07 — 앱 로그인 뒤 이 폰(토큰 · 기기 키)의 「나 ∧ 이 기기 키」 밖 행 정리. */
+export function handoverThisPushDevice(body: PushDeviceHandoverBody): Promise<{ ok: true; removed: number }> {
+  return authFetch<{ ok: true; removed: number }>(`${BASE}/handover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** quick-261109-dz1 D-08 — 내 끈 계좌번호(D-01 끈 계좌는 내 모든 기기에서 알림이 오지 않는다). */
 export function fetchPushAccountMutes(): Promise<string[]> {
   return authFetch<string[]>(`${BASE}/accounts`);
@@ -73,9 +83,18 @@ export const SIGN_OUT_UNREGISTER_TIMEOUT_MS = 3_000;
 /**
  * 로그아웃 전 이 기기 행 지우기(D-15) — 같은 폰에 다른 계정이 로그인해도 앞 사람 체결이 가지 않게.
  * 앱이 아니거나 기기 키가 없으면 서버를 부르지 않는다. DELETE 가 `timeoutMs` 안에 안 끝나면 포기한다. throw 하지 않는다 —
- * 실패해도 로그아웃은 진행되고, 남은 행은 토큰 인계 규칙(같은 토큰 → 옛 사용자 행 교체)과 송신 410 정리가 지운다.
- * 404(이미 없음)는 정상 끝. 로그에는 키 · 토큰을 싣지 않는다.
+ * 실패해도 로그아웃은 진행된다. 404(이미 없음)는 정상 끝. 로그에는 키 · 토큰을 싣지 않는다.
+ *
+ * 실패(시간 초과 · 오프라인 · 401 등 — 리뷰 WR-07)면 서버에 행이 남았을 수 있다. 토큰 인계는 다음 사용자가 알림을 켤 때만
+ * 돌고 410 정리는 앱이 설치돼 있는 한 오지 않으므로 그것에 기대지 않는다: 이 기기 키를 버리고(`discardPushDeviceKey`)
+ * 실패 표시(`markPushHandoverPending`)를 남겨, 다음 로그인 때 시작 정리(`push-session` handover)가 서버 쪽에서 닫게 한다.
  */
+/** WR-07 (b) — 로그아웃 정리 실패: 키를 버리고 다음 로그인 정리를 강제한다. */
+function leaveForNextLogin(): void {
+  discardPushDeviceKey();
+  markPushHandoverPending();
+}
+
 export async function unregisterThisDeviceBeforeSignOut(timeoutMs = SIGN_OUT_UNREGISTER_TIMEOUT_MS): Promise<void> {
   if (!isNativeApp()) return;
   const deviceKey = readPushDeviceKey();
@@ -90,11 +109,15 @@ export async function unregisterThisDeviceBeforeSignOut(timeoutMs = SIGN_OUT_UNR
       deletePushDevice(deviceKey, { timeoutMs }).then(() => "done" as const),
       timedOut,
     ]);
-    if (outcome === "timeout") console.warn("[gh-radar] push 로그아웃 정리 시간 초과 — 로그아웃은 계속");
+    if (outcome === "timeout") {
+      console.warn("[gh-radar] push 로그아웃 정리 시간 초과 — 로그아웃은 계속 · 다음 로그인 때 정리");
+      leaveForNextLogin();
+    }
   } catch (err) {
     if (err instanceof ApiClientError && err.status === 404) return;
     const code = err instanceof ApiClientError ? err.code : err instanceof Error ? err.name : "unknown";
-    console.warn("[gh-radar] push 로그아웃 정리 실패 — 로그아웃은 계속", code);
+    console.warn("[gh-radar] push 로그아웃 정리 실패 — 로그아웃은 계속 · 다음 로그인 때 정리", code);
+    leaveForNextLogin();
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

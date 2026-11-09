@@ -55,7 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // signOut helper — weekly-wine-bot UX 와 동일 (hard redirect)
     const signOut = async () => {
       // Phase 40 D-15 — 앱이면 이 기기 푸시 행을 먼저 지운다(같은 폰 다른 계정에 앞 사람 체결이 가지 않게). 3초 상한 ·
-      // throw 없음 — 실패해도 로그아웃은 진행되고 남은 행은 토큰 인계 규칙 · 송신 410 정리가 지운다. 세션이 살아 있을 때 불러야
+      // throw 없음 — 실패해도 로그아웃은 진행되고, 기기 키를 버리고 표시를 남겨 다음 로그인 때 앱 시작 정리(push-session
+      // handover · 리뷰 WR-07)가 서버에 남은 행을 지운다. 세션이 살아 있을 때 불러야
       // 인증된 DELETE 가 되므로 supabase signOut 보다 앞이다.
       await unregisterThisDeviceBeforeSignOut();
       await supabase.auth.signOut();

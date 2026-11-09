@@ -16,10 +16,26 @@ import type { PushDevice } from '@gh-radar/shared';
 vi.mock('@/lib/push/push-devices-api', () => ({
   fetchPushDevices: vi.fn(),
   registerThisPushDevice: vi.fn(),
+  handoverThisPushDevice: vi.fn(),
 }));
 
-import { PUSH_DEVICE_KEY_STORAGE, pushDeviceLabel } from '../device-key';
-import { fetchPushDevices, registerThisPushDevice } from '../push-devices-api';
+/** supabase 세션 사용자 — null = 로그아웃 상태. */
+let sessionUser: string | null = null;
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: {
+      getSession: async () => ({ data: { session: sessionUser ? { user: { id: sessionUser } } : null } }),
+    },
+  }),
+}));
+
+import {
+  PUSH_DEVICE_KEY_STORAGE,
+  PUSH_HANDOVER_PENDING_STORAGE,
+  PUSH_HANDOVER_USER_STORAGE,
+  pushDeviceLabel,
+} from '../device-key';
+import { fetchPushDevices, handoverThisPushDevice, registerThisPushDevice } from '../push-devices-api';
 import { __resetPushSessionForTest, startPushSession } from '../push-session';
 import { __resetPushDevicesForTest, pushDevicesSnapshot } from '../use-push-devices';
 
@@ -81,6 +97,8 @@ beforeEach(() => {
   __resetPushDevicesForTest();
   vi.mocked(fetchPushDevices).mockReset();
   vi.mocked(registerThisPushDevice).mockReset();
+  vi.mocked(handoverThisPushDevice).mockReset().mockResolvedValue({ ok: true, removed: 0 });
+  sessionUser = null;
   vi.mocked(registerThisPushDevice).mockImplementation(async (deviceKey, body) =>
     row({ deviceKey, platform: body.platform, label: body.label, lastSeenAt: '2026-11-07T00:00:00.000Z' }),
   );
@@ -213,5 +231,104 @@ describe('startPushSession — 시작 갱신', () => {
     expect(app.methods()).toEqual([]);
     expect(fetchPushDevices).not.toHaveBeenCalled();
     expect(registerThisPushDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe('startPushSession — 로그인 뒤 이 폰 정리 (리뷰 WR-07 · D-15)', () => {
+  const U2 = '00000000-0000-4000-8000-000000004102';
+
+  it('정리를 마친 적 없는 사용자 · 권한 granted · 이 기기 행 꺼짐 → register 1 · handover {token, 키} 1 · 기록 · PUT 0', async () => {
+    sessionUser = U2;
+    const app = installApp();
+    vi.mocked(fetchPushDevices).mockResolvedValue([row({ enabled: false })]);
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(app.methods().filter((m) => m === 'register')).toHaveLength(1);
+    expect(app.methods()).not.toContain('requestPermissions');
+    expect(handoverThisPushDevice).toHaveBeenCalledTimes(1);
+    expect(handoverThisPushDevice).toHaveBeenCalledWith({ token: TOKEN, deviceKey: KEY });
+    expect(registerThisPushDevice).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PUSH_HANDOVER_USER_STORAGE)).toBe(U2);
+  });
+
+  it('이미 정리한 같은 사용자 · 실패 표시 없음 → handover 0', async () => {
+    sessionUser = U2;
+    window.localStorage.setItem(PUSH_HANDOVER_USER_STORAGE, U2);
+    const app = installApp();
+    vi.mocked(fetchPushDevices).mockResolvedValue([row({ enabled: false })]);
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(handoverThisPushDevice).not.toHaveBeenCalled();
+    expect(app.methods()).not.toContain('register');
+  });
+
+  it('로그아웃 정리 실패 표시 · 키 버림 · 같은 사용자 → handover {token, deviceKey: null} · 표시 지움 · 목록 읽기 0', async () => {
+    sessionUser = U2;
+    window.localStorage.clear();
+    window.localStorage.setItem(PUSH_HANDOVER_USER_STORAGE, U2);
+    window.localStorage.setItem(PUSH_HANDOVER_PENDING_STORAGE, '1');
+    installApp();
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(handoverThisPushDevice).toHaveBeenCalledWith({ token: TOKEN, deviceKey: null });
+    expect(fetchPushDevices).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PUSH_HANDOVER_PENDING_STORAGE)).toBeNull();
+  });
+
+  it('켜진 기기 + 정리 필요 → 토큰은 한 번만 받고 handover · PUT 둘 다', async () => {
+    sessionUser = U2;
+    const app = installApp();
+    vi.mocked(fetchPushDevices).mockResolvedValue([row()]);
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(app.methods().filter((m) => m === 'register')).toHaveLength(1);
+    expect(handoverThisPushDevice).toHaveBeenCalledTimes(1);
+    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['denied', 'prompt'])('권한 %s → register · handover 0 · 기록 안 남김(권한이 생기면 다음 실행에서)', async (permission) => {
+    sessionUser = U2;
+    const app = installApp({ permission });
+    vi.mocked(fetchPushDevices).mockResolvedValue([]);
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(app.methods()).not.toContain('register');
+    expect(app.methods()).not.toContain('requestPermissions');
+    expect(handoverThisPushDevice).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PUSH_HANDOVER_USER_STORAGE)).toBeNull();
+  });
+
+  it('handover 실패 → warn 1줄(토큰 · 키 없음) · 기록 안 남김 · 켜진 기기 PUT 은 계속', async () => {
+    sessionUser = U2;
+    installApp();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(fetchPushDevices).mockResolvedValue([row()]);
+    vi.mocked(handoverThisPushDevice).mockRejectedValue(new Error('HTTP 500'));
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(KEY);
+    expect(logged).not.toContain(TOKEN);
+    expect(window.localStorage.getItem(PUSH_HANDOVER_USER_STORAGE)).toBeNull();
+    expect(registerThisPushDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it('로그아웃 상태(세션 없음 · /login) → handover 0', async () => {
+    sessionUser = null;
+    window.localStorage.setItem(PUSH_HANDOVER_PENDING_STORAGE, '1');
+    installApp();
+    vi.mocked(fetchPushDevices).mockResolvedValue([row({ enabled: false })]);
+    startPushSession({ push: vi.fn() });
+    await settle();
+
+    expect(handoverThisPushDevice).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(PUSH_HANDOVER_PENDING_STORAGE)).toBe('1');
   });
 });

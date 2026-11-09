@@ -39,6 +39,17 @@ export const PushDeviceRegisterBodySchema = z
   .strict();
 
 /**
+ * POST `/handover` — 앱 로그인 뒤 이 폰 정리(리뷰 WR-07 · shared `PushDeviceHandoverBody`). 토큰은 필수(빈 토큰으로 넓게
+ * 지우지 않는다 · DB 도 예외) · 기기 키는 소문자 UUID 또는 null(로그아웃 정리 실패로 웹이 키를 버렸다).
+ */
+export const PushDeviceHandoverBodySchema = z
+  .object({
+    token: z.string().regex(TOKEN_RE, "token 형식이 올바르지 않습니다."),
+    deviceKey: z.string().regex(DEVICE_KEY_RE, "deviceKey 는 소문자 UUID 여야 합니다.").nullable(),
+  })
+  .strict();
+
+/**
  * PATCH `/:deviceKey` — 끄기만 받는다(D-13). 켜기는 그 기기 앱의 PUT 로만 한다 — 켜려면 그 기기에서
  * 알림 권한이 있어야 하고 새 토큰이 필요하기 때문이다.
  */
