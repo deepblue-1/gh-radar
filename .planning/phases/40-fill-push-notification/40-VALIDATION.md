@@ -3,12 +3,13 @@ phase: "40"
 slug: "fill-push-notification"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-# 40-12 Task 1 이 자동 부분을 채웠다. status: validated 는 Task 3 실기기 UAT 통과 뒤에만 올린다.
-status: draft
+# 40-12 Task 1 이 자동 부분을 채웠다. status: validated 는 Task 3 실기기 UAT 통과(2026-11-09) 뒤 올렸다.
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-06"
 filled: "2026-11-07"
+validated: "2026-11-09"
 ---
 
 # Phase 40 — Validation Strategy
@@ -73,8 +74,8 @@ filled: "2026-11-07"
 | 40-11-02 | 11 | 4 | SC-1(D-20) | — | 모르면 보인다(숨김은 넷 다 참일 때만) | unit | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/use-trading-alerts.test.tsx src/lib/__tests__/trading-alerts.test.ts src/components/trading/__tests__/alert-toasts.test.tsx --maxWorkers=2` | ✅ | ✅ green |
 | 40-11-03 | 11 | 4 | SC-1(D-13 · D-15) | — | 시작 갱신은 권한을 묻지 않음 · 세션당 1회 | unit | `pnpm --filter @gh-radar/webapp exec vitest run src/lib/push src/lib/native --maxWorkers=2` | ✅ | ✅ green |
 | 40-12-01 | 12 | 5 | SC-1~SC-5 | — | 주문 · 판정 경로 diff 0 · 적용 RPC 재정의 0 | gate script | 40-12-PLAN Task 1 `<automated>`(→ PREDEPLOY-OK) | ✅ | ✅ green |
-| 40-12-02 | 12 | 5 | SC-2 · SC-5 | — | 배포 순서 DB → 비밀 · IAM → relay → webapp → 앱 · 비밀은 사용자 `!` | checkpoint + script | `supabase migration list --linked` · `git fetch origin master && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ⬜ pending(메인 세션) |
-| 40-12-03 | 12 | 5 | SC-1 · SC-4 · SC-5 | — | 본문 계좌번호 없음 · 다른 사용자 계좌 0건 | manual(실기기) | `grep -q "status: validated" .planning/phases/40-fill-push-notification/40-VALIDATION.md` | — | ⬜ pending(UAT) |
+| 40-12-02 | 12 | 5 | SC-2 · SC-5 | — | 배포 순서 DB → 비밀 · IAM → relay → webapp → 앱 · 비밀은 사용자 `!` | checkpoint + script | `supabase migration list --linked` · `git fetch origin master && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ✅ green(배포 2026-11-07) |
+| 40-12-03 | 12 | 5 | SC-1 · SC-4 · SC-5 | — | 본문 계좌번호 없음 · 다른 사용자 계좌 0건 | manual(실기기) | `grep -q "status: validated" .planning/phases/40-fill-push-notification/40-VALIDATION.md` | — | ✅ green(UAT 2026-11-09) |
 | 40-13-01 | 13 | 1 | SC-1 · SC-5 | — | aps-environment 엔타이틀먼트 · Debug/Release 두 구성 | build + plist | 40-13-PLAN Task 1 `<automated>`(plutil · pbxproj · 시뮬레이터 빌드 엔타이틀먼트) | ✅ | ✅ green(40-13 실행 때) |
 | 40-13-02 | 13 | 1 | SC-5 | — | IPA aps-environment production · iOS Firebase 0 | script | `grep -q aps-environment mobile/scripts/check-ipa.sh && grep -q GHTRADE_FORCE_PROFILE mobile/ios/App/fastlane/Fastfile && bash -n mobile/scripts/check-ipa.sh && bash mobile/scripts/check-release-hygiene.sh` | ✅ | ✅ green(실 IPA CHECK OK 는 40-12 릴리스) |
 
@@ -123,4 +124,4 @@ RESEARCH §Validation Architecture 「Wave 0 Gaps」 7개 → 실제 파일:
 - [x] Feedback latency < 15s(단일 파일 기준)
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending — 자동 부분 서명 2026-11-07(40-12 Task 1 PREDEPLOY-OK). `status: validated` 는 40-12 Task 3 실기기 UAT 통과 뒤.
+**Approval:** approved 2026-11-09 — 자동 부분 2026-11-07(40-12 Task 1 PREDEPLOY-OK) · 실기기 UAT 2026-11-09 사용자 「푸시 다 잘돼」(40-12-SUMMARY Task 3 표).
