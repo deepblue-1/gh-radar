@@ -11,7 +11,8 @@
  * 생성한 마크다운 안의 `<script>` 등 HTML 은 텍스트로 이스케이프되어 DOM 주입이 차단된다.
  * 링크(`<a>`)는 rel=noreferrer + target=_blank 로만 노출.
  * 예외(Phase 39 D-04): 진단문의 「틱 보기」 `/analytics/ticks?…` 는 내부 경로라 `next/link` 같은 탭으로 연다. 그 밖
- * `/` 로 시작하는 내부 경로(`//host` 포함)는 링크를 풀고 글자만 둔다 — 답변이 임의 내부 화면으로 보내지 못하게.
+ * 절대 `http(s)://` 가 아닌 주소(`/…` · `//host` · 상대 경로 `trading/…` · `?…` 등)는 링크를 풀고 글자만 둔다 —
+ * 답변이 임의 내부 화면으로 보내지 못하게.
  *
  * ## blocks (D-07/08/10)
  * SSE 로 수신한 부가물(stock_card/citation/chart)은 본문 아래에 렌더 — 각 하위 컴포넌트
@@ -153,21 +154,24 @@ const MARKDOWN_COMPONENTS: Components = {
     <strong className="font-semibold">{children}</strong>
   ),
   a: ({ href, children }) => {
-    if (typeof href === "string" && href.startsWith("/")) {
-      return isTickViewerHref(href) ? (
+    if (typeof href === "string" && isTickViewerHref(href)) {
+      return (
         <Link href={href} className={TICK_LINK_CLASS}>
           {children}
           <span aria-hidden="true">→</span>
         </Link>
-      ) : (
-        <span>{children}</span>
       );
     }
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
-        {children}
-      </a>
-    );
+    // 바깥 링크는 절대 http(s) 만 — 상대 경로(`trading/…` · `./…` · `?…` · `../…`)도 브라우저가 현재 페이지 기준으로
+    // 풀어 앱 내부 화면을 열므로 `/` 시작 경로와 똑같이 글자로 둔다(39 REVIEW WR-03).
+    if (typeof href === "string" && /^https?:\/\//i.test(href)) {
+      return (
+        <a href={href} target="_blank" rel="noreferrer" className={LINK_CLASS}>
+          {children}
+        </a>
+      );
+    }
+    return <span>{children}</span>;
   },
   // 진단문 끝 ```server-log 블록 = 서버 기록 원문 — 접힌 채 작게(39 UAT 채택 목업 A). 그 밖 코드 블록은 기본 <pre>.
   pre: ({ node, children }) => {

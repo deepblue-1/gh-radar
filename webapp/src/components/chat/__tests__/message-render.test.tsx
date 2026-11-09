@@ -162,6 +162,16 @@ describe('Phase 39 주문 진단 (D-03 · D-04)', () => {
     expect(ext).toHaveAttribute('target', '_blank');
     expect(ext).toHaveAttribute('rel', 'noreferrer');
   });
+
+  it('상대 경로(trading/… · ./… · ?… · ../…)도 링크 없이 글자만 — 내부 화면 우회 차단(WR-03)', () => {
+    const { container } = render(
+      <MessageAssistant
+        content={'[a](trading/limit-chaser) [b](./trading/x) [c](?account=1) [d](../admin) [e](javascript:alert(1))'}
+      />,
+    );
+    expect(container.querySelectorAll('a')).toHaveLength(0);
+    for (const t of ['a', 'b', 'c', 'd']) expect(screen.getByText(t).closest('a')).toBeNull();
+  });
 });
 
 describe('MiniStockCard (Task 2)', () => {
