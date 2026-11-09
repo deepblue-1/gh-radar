@@ -21,10 +21,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09 after Phase 40)
+See: .planning/PROJECT.md (updated 2026-11-09 after Phase 39)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 39 — 매매진단 챗봇
+**Current focus:** v1.1 phase 전부 완료 — 다음 작업 대기
 
 ## Current Position
 
@@ -40,7 +40,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [████████░░] 82% (82/82 plans)
+Progress: [██████████] 100% (133/133 plans)
 
 ## Accumulated Context
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 82% (82/82 plans)
 
 ### Blockers/Concerns (v1.1 로 이월)
 
+- **[Phase 39 후속 · 비차단] 매매진단 리뷰 경고 8건 open.** 운영 영향이 큰 것은 WR-01(이미 한도에 걸린 사용자의 재질문도 전역 하루 카운터를 올려 그날 전원의 진단을 막을 수 있음) · WR-02(맨 경로 틱 링크 정규식이 백틱 · `**` · 표 `|` · 한글 조사까지 삼켜 t 가 깨지면 틱 화면이 08:00 으로 열림 · server-log 블록 안 경로도 링크로 바뀜) · WR-06/07(도구 실행 · 다운로드 · RPC 에 시간 상한 없음, 한 턴 진단 2회면 Cloud Run 300초 초과 가능). 나머지는 상대 경로 링크 새 탭(WR-03) · 시세 창 수신 시각 역행 가정(WR-04) · 당일 X-Tick-Complete 무시(WR-05) · 전략/상태전이 줄 계좌 표기 없음(WR-08). 정본 `phases/39-trade-diagnosis-chatbot/39-REVIEW.md` · 처분 `39-REVIEW-DISPOSITION.md` · UI 리뷰 16/24 `39-UI-REVIEW.md`.
 - **[Phase 40 후속 · 비차단] 체결 푸시 리뷰 경고 7건 open.** 운영 영향이 큰 것은 WR-04(FCM 404·NOT_FOUND 를 모두 토큰 만료로 보고 기기 행 삭제 — `FCM_PROJECT_ID` 오설정 시 Android 전부 삭제) · WR-07(로그아웃 정리 실패 시 같은 폰 다음 사용자에게 앞 사용자 체결 알림). 나머지는 응답 유실·종료 시 묶음 소실(WR-01·02) · RPC 시간 상한 없음(WR-03) · 자동매도 완료 수치 경합(WR-05) · 토스트 숨김 공백(WR-06). 정본 `phases/40-fill-push-notification/40-REVIEW.md` · 처분 `40-REVIEW-DISPOSITION.md`.
 - **[Phase 29] 두 번째 서버(KB121 · KYOBO127) 켜기 전 결정.** 운영은 지정 0 · 두 번째 서버 꺼짐이라 잠복. 켜기 전에 R3-03 부팅 창 백스톱 · R3-05 무동작 대여 미승격 · R3-06 VI 끄기 에코 미확인 수정, 51 OrderResp 계좌 필터 공백 수용 여부, 실서버 실증. 정본 `milestones/v1.0-phases/29-dma-multi-server-admin/29-53-SUMMARY.md` 「켜기 전 결정」. v1.1 밖(v1.2+ ADMIN-NEXT). **+ 예수금 갈림(Phase 36 D-03):** 체결 조정이 서버마다 따로 가므로 두 서버 동시 운영 전 서버 간 예수금 동기화 결정 필요(공유 계좌 반영 범위 WR-04 미룸과 함께 — 36-UAT Deferred).
 - **[Phase 30 후속 · 비차단] KB 주문자 IP/MAC.** R3-01 보류 권고는 해제(30-07 · relay:2234a1b5 · 인박스 261010 done). 남은 것: ① KB121 에 gh-trade 261011(공유 계좌 IP/MAC 전파) 배포 여부 확인 — KB121 켤 때 공유 계좌 저장 1회 확인 ② 주문 전문(TCHODR1000 orderInfo · macAddr)에 설정값이 실리는지 회선 관측 없음(gh-trade 단위 테스트 `test_kb_endpoint_race.cpp` 만) — KB 담당 주문번호 조회 · KB120 패킷 캡처 · gh-trade 값 없는 출처 진단 로그 중 택1. 정본 `phases/30-kb-ip-mac/30-07-SUMMARY.md` 「Next Phase Readiness」.

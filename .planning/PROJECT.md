@@ -32,6 +32,7 @@
 - [x] 틱 전문 뷰어 — Validated in Phase 37: `/analytics/ticks` KRX·NXT 전 종목 08:00~20:00 틱 전문(B6·A3·B9·R8·C3) 수신순 재생 · 슬라이더 · ms 시각 점프 · 좌우 키 틱 이동 · 그 틱 호가창 10단 · 전문 목록(수신순↔거래소순) · 체결 버스트(주문 묶기) · 거래대금 · 팀 거래정보(5창구 평균단가법). 공급 두 갈래 — 당일 = 119 인덱서 + radar-gw tickgw 종목 단위 요청형(서버 캐시 · 자동 증분 · 19:55 따라잡기 · 20:01 마감 마무리 · 20:10/20:40 승격) · 과거 = `gs://gh-trade-tick-archive` 원본 Cloud Run Job 변환 → 종목·날짜 격자. 검증 R2 12/12 · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 첫 밤 승격 16/16 · 캐시 192MB) (2026-11-04)
 - [x] 틱뷰어 우리 주문 · 체결 표시 — Validated in Phase 38: `tick_own_for_user` RPC(가시 계좌 · 어드민 · 켜진 서버 · jsonb 1회) → `GET /api/ticks/own` → 브라우저 shared `matchOwnFills` 짝짓기(10/30 401/406) · 근거 특정(호가 B6 29/29 · 앵커 100/100) → 전문 목록 칩 · 주문 줄 · 짝 없음 줄 · 둘째 레일 · 카드 「◆ 우리 주문 #…」 · 오른쪽 열 「우리 주문 n」 탭 · 차트 ◆ ○ · 제목 줄 알약 [ ]
 - [x] 체결 앱 푸시 알림 — Validated in Phase 40: 주문 체결 · 거부 · 서버 취소 · 자동매도 시작/완료를 GH Trade iOS · Android 앱으로 한 줄 푸시. relay 저널 적용 결과 → DB 판정 RPC `dma_push_claim`(주문당 첫 체결 + 전량 체결 · 송신 로그 UNIQUE 로 재생 · 재시도 중복 0 · 계좌번호 비노출) → iOS APNs 직접(.p8 · Secret Manager) · Android FCM v1(VM SA · Firebase 는 Android 만). 기기별 켜기 · 탭하면 주문로그 착지 · 앱 앞 배너 시 작업대 주문 토스트 숨김. 검증 5/5 · 실기기 UAT 통과(11-09) · 리뷰 경고 7 open (2026-11-09)
+- [x] 매매진단 챗봇 — Validated in Phase 39: 「왜 이 주문이 나갔나/안 나갔나」를 AI 애널리스트에 직접 묻는다. 팀장(Sonnet 5)이 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5` 도구 루프)를 부르고, 전문가는 주문·체결·전략 이벤트·상태전이(kind 9)를 RPC `dma_diagnosis_for_user` 1회로, 시세는 오늘 tickgw · 지난 날짜 격자/변환으로 본다. 계좌 범위는 `req.userId` 서버 강제(도구 스키마에 계좌 칸 없음). 답은 결론 한 줄 + 쉬운 말 + 시각 표 + 행마다 틱 칩 + 접힌 서버 기록 원문. kind 9 는 gh-trade 가 11-06 켬(CfgSubmit · Auto* 11종 · SysDisableOne · SysKillSwitch)
 
 ### Active
 
@@ -100,6 +101,7 @@
 | 틱 공급은 두 갈래 — 당일은 119 인덱서 종목 단위 요청형(tickgw), 과거는 GCS 원본 클라우드 변환 · 승격은 fail-closed (Phase 37) | 119 에 부하를 주지 않으면서 당일 지연(기록 1초 + 전송)과 과거 전 종목을 함께 얻으려고 gh-trade-ac 와 합의(11-02). 압축·불량 레코드로 구멍 난 하루는 승격하지 않고 nightly/요청 변환 몫으로 넘긴다 — 완결성 우선, 승격률은 따라잡기 · 캐시 상한으로 보전 | ✓ Good — 2026-11-04 첫 밤 승격 16/16 failed 0 · UAT 3/3 |
 | 우리 주문 · 체결은 틱이 있는 브라우저에서 짝짓는다 — server · RPC 는 저널 행만 (Phase 38) | 틱 격자는 브라우저에만 있고 A3 에는 계좌 · 주문번호가 없다 → 짝짓기 · 근거 특정은 shared 순수 함수(오라클 픽스처로 잠금) · RPC 는 가시성 · 켜진 서버 필터만. 그날 「우리 주문」 표는 UAT 에서 오른쪽 열 탭으로 분리(D-07 뒤집기 · 스케치 026 A) | ✓ Good — 2026-11-03 배포 · UAT ok · 검증 21/21 (리뷰 Warning 5 open) |
 | 체결 푸시 판정은 DB RPC 한 곳, 송신은 relay 적용 결과 뒤에서만 (Phase 40) | 주문 · 판정 경로(gh-trade · relay 저널 적용)를 건드리지 않고(diff 0) 재기동 커서 재생 · 응답 유실 재시도에도 같은 알림을 두 번 보내지 않으려면 송신 권리를 DB UNIQUE 가 한 번만 줘야 한다. iOS 는 Firebase 없이 APNs 직접, Android 만 FCM(D-17 부분 번복) | ✓ Good — 2026-11-07 배포 · 11-09 UAT 통과 · 송신 실패 0 (리뷰 경고 7 open — 응답 유실 시 묶음 소실 · FCM 404 일괄 삭제 등) |
+| 주문 진단은 전문가 하나 · 계좌는 서버가 묶고 모델은 고르지 못한다 (Phase 39) | 진단은 판정표 원문 · 세 시계 · 단일가 bs 공백 같은 깊은 규칙이 필요해 Opus 전문가 하나에 몰고 팀장은 Sonnet 유지. 사람이 끈 「해제」 도 kind 9 로 남겨야 「안 나간 이유」 를 답할 수 있어 gh-trade 에 Sys 기록을 추가 요청(11-06). 답변 모양은 목업 A(요약+표) | ✓ Good — UAT 8/8 · 11-09 운영 진단이 상태전이 인용 |
 
 ## Evolution
 
@@ -119,4 +121,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-09 after Phase 40*
+*Last updated: 2026-11-09 after Phase 39*
