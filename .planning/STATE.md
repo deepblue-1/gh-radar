@@ -40,7 +40,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [████████░░] 82% (133/133 plans)
+Progress: [██████████] 100% (133/133 plans)
 
 ## Accumulated Context
 
