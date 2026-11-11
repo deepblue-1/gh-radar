@@ -6,9 +6,11 @@ import type {
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayLimitFeatureMsg,
+  StockFeedEntry,
 } from '@gh-radar/shared';
 
 import { EMPTY_RELAY_VALUE, RelayContext, type RelayContextValue } from '@/lib/relay-provider';
+import { StockFeedEntriesContext } from '../feed/stock-feed-context';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 import { ACK_TIMEOUT_MS } from '../card/constants';
 import {
@@ -895,5 +897,95 @@ describe('Phase 27 41 in-flight — 키 리셋 · 카드 격리', () => {
       </RelayContext.Provider>,
     );
     expect(pendingOf(keyOf(ISIN_A))).toBe('start');
+  });
+});
+
+/**
+ * Phase 41 Plan 07 Task 2 — 펼친 카드 종목 줄 아래 뉴스·공시 띠(D-18 · `CardNewsStrip`).
+ *   - 띠는 작업대 공급자 문맥에서 읽는다 — 카드 props 는 늘지 않는다(`memo` 비교 불변).
+ *   - 펼친 카드 · 코드 있는 카드 · 공급자 안일 때만 헤더 바로 다음 형제로 붙는다. 접힌 카드 묶음은 머리줄만.
+ */
+describe('Phase 41 상따 카드 뉴스·공시 띠 (D-18)', () => {
+  const FEED_CODE = baseProps.code as string;
+  const feedEntry: StockFeedEntry = {
+    code: FEED_CODE,
+    collectedAt: '2026-11-12T15:29:00.000+09:00',
+    count: 1,
+    truncated: false,
+    items: [
+      {
+        id: 'kis:1',
+        kind: 'disclosure',
+        publishedAt: '2026-11-12T15:15:01.000+09:00',
+        title: '(주)에코프로비엠 단일판매ㆍ공급계약체결',
+        source: '코스닥 공시',
+        stockCodes: [FEED_CODE],
+        url: null,
+        description: null,
+        receivedAt: '2026-11-12T15:15:02.000+09:00',
+      },
+    ],
+  };
+  const feed = (children: ReactNode) => (
+    <StockFeedEntriesContext.Provider value={new Map([[FEED_CODE, feedEntry]])}>
+      {children}
+    </StockFeedEntriesContext.Provider>
+  );
+  const headerOf = () => document.querySelector('[data-slot="card-header"]') as HTMLElement;
+  const newsStrip = () => document.querySelector('[data-slot="card-news-strip"]');
+
+  it('펼친 카드에만 띠 — 공급자 안 · 코드 있는 펼친 카드는 헤더 바로 다음 형제가 띠다', () => {
+    render(
+      feed(
+        <RelayContext.Provider value={relay()}>
+          <StrategyCard {...baseProps} isin={ISIN_B} open />
+        </RelayContext.Provider>,
+      ),
+    );
+    expect(newsStrip()).not.toBeNull();
+    expect(headerOf().nextElementSibling).toBe(newsStrip());
+    expect(newsStrip()!.textContent).toContain('단일판매ㆍ공급계약체결');
+  });
+
+  it('접힌 카드 띠 없음 — 접힌 카드는 머리줄만', () => {
+    render(
+      feed(
+        <RelayContext.Provider value={relay()}>
+          <StrategyCard {...baseProps} isin={ISIN_B} open={false} />
+        </RelayContext.Provider>,
+      ),
+    );
+    expect(headerOf()).not.toBeNull();
+    expect(newsStrip()).toBeNull();
+  });
+
+  it('코드 없는 카드 띠 없음 — 이름 없는 ISIN 카드(code null · 빈 값)', () => {
+    const { rerender } = render(
+      feed(
+        <RelayContext.Provider value={relay()}>
+          <StrategyCard {...baseProps} isin={ISIN_B} name="" code={null} />
+        </RelayContext.Provider>,
+      ),
+    );
+    expect(newsStrip()).toBeNull();
+    rerender(
+      feed(
+        <RelayContext.Provider value={relay()}>
+          <StrategyCard {...baseProps} isin={ISIN_B} name="" code="" />
+        </RelayContext.Provider>,
+      ),
+    );
+    expect(newsStrip()).toBeNull();
+  });
+
+  it('공급자 밖 띠 없음 — 기존 카드 렌더는 그대로', () => {
+    render(
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} isin={ISIN_B} open />
+      </RelayContext.Provider>,
+    );
+    expect(headerOf()).not.toBeNull();
+    expect(newsStrip()).toBeNull();
+    expect(headerOf().nextElementSibling?.getAttribute('data-slot')).toBe('strategy-card-body');
   });
 });
