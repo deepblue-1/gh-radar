@@ -2,17 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
-current_phase: 39
+current_phase: 41
+current_phase_name: 한투 뉴스·공시 피드
 status: completed
-stopped_at: Phase 41 context gathered
-last_updated: "2026-11-11T13:08:28.542Z"
+stopped_at: Phase 41 planned (14 plans)
+last_updated: "2026-11-11T14:34:00.533Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 39 complete
-state_head: af1c65b074fc7502c0c55c9252944fe408ea4593
+state_head: e951de6e662bcacd82d81be9845985c2e5981aeb
 progress:
   total_phases: 12
   completed_phases: 9
-  total_plans: 133
+  total_plans: 147
   completed_plans: 133
   percent: 75
 ---
@@ -28,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-11-09 after Phase 39)
 
 ## Current Position
 
-Phase: 39
+Phase: 41 (한투 뉴스·공시 피드) — READY TO EXECUTE
 Plan: Not started
-Status: All phases complete
+Status: Ready to execute — 14 plans · 7 waves (계획 2026-11-11 · 체커 통과)
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
 Last activity: 2026-11-09 - Completed quick task 261109-tn6: 매집감지 Phase 48 반영 — 하루 판정 종료·즉시 종료 회색 행 · rule_version · relay 동기화
@@ -40,7 +41,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [██████████] 100% (133/133 plans)
+Progress: [█████████░] 90% (133/147 plans)
 
 ## Accumulated Context
 

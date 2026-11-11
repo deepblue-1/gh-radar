@@ -39,24 +39,39 @@ created: "2026-11-11"
 
 ## Per-Task Verification Map
 
-보안 검사는 사용자 결정으로 생략(`security_enforcement: false`) — Threat Ref 는 「—」. 태스크 ID 는 플랜이 확정된 뒤 채운다. 아래는 성공 기준별로 플랜이 반드시 연결해야 하는 검사다.
+보안 검사는 사용자 결정으로 생략(`security_enforcement: false`) — Threat Ref 는 「—」. 태스크 ID = `41-<플랜>-<태스크>`(2026-11-11 plan-phase 확정 · 같은 날 checker 수정으로 41-06 을 41-06 · 41-12 · 41-13 으로, 41-04 의 server 태스크를 41-14 로 나눔 — 41-08 은 웨이브 4). 41-09 Task 1 이 File Exists · Status 를 실제 결과로 바꾼다.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 41-TBD | TBD | TBD | SC-1 | — | 들여오기 RPC 는 서비스롤 전용 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/kis_news.test.sql` — 같은 일련번호 두 번 → 1행 · 같은 날 같은 (업체, 제목키) 다른 일련번호 → 1행 · 다음 날 같은 제목 → 2행 · 조회 코드 연결 · 마지막 수집 시각 갱신 · 임대 중복 실행 차단 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-1 | — | N/A | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/newsTitle.test.ts tests/cadence.test.ts tests/scheduler.test.ts tests/classify.test.ts --maxWorkers=2` — 커서 페이징 · 빠른 창(`07:00` · `20:00` 경계 · 주말) · 새 등록 먼저 · 표본 분류 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-2 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/stock-feed.test.ts --maxWorkers=2` — 제목키 · 앞부분 일치 · 시각 빠른 쪽 · 링크·스니펫은 네이버 · 정렬 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-2 | — | N/A | route | `pnpm --filter @gh-radar/server exec vitest run tests/routes/news.test.ts --maxWorkers=2` — 종목 뉴스 조회·새로고침 응답이 합친 목록 | ✅ (케이스 추가) | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-3 | — | 인증 없는 조회 — 전용 제한기 · 입력 검증 400 | route | `pnpm --filter @gh-radar/server exec vitest run tests/routes/news-by-stock.test.ts --maxWorkers=2` — 101코드 400 · 글 없는 코드 빈 배열 · 수집 전 null · `+09:00` · 캐시 · RPC 1회 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-3 | — | N/A | typecheck | `pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/server run typecheck` — 계약 타입 드리프트 | ✅ | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-4 | — | server 에 한투 호출 경로 없음 | static | `! grep -rn "koreainvestment\|FHKST01011800\|KIS_APP" server/src` | ✅ (명령) | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-4 | — | N/A | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/apiUsage.test.ts tests/budget.test.ts --maxWorkers=2` — 카운터 증가 · 일일 가드 초과 시 실행 종료 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-5 | — | 로그에 토큰·키 없음 | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/classifyError.test.ts tests/token.test.ts --maxWorkers=2` — 오류 코드별 동작 · 로그에 `msg_cd`·`msg1`·상태 | ❌ W0 | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-5 | — | N/A | static | `git diff --stat <phase 시작>..HEAD -- workers/news-sync` 가 비어 있음(네이버 수집 무변경) | ✅ (명령) | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-6 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/stock/__tests__ --maxWorkers=2` — 배지 · 링크 없는 줄 · 자료원 항상 | ✅ (케이스 추가) | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-6 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/trading --maxWorkers=2` — 돌파 배지·행 펼침 · 상따 띠 · 강조 타이머 1개 | ✅ (케이스 추가) | ⬜ pending |
-| 41-TBD | TBD | TBD | SC-6 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/home --maxWorkers=2` — 홈 근거 목록의 공시 줄 | ✅ (케이스 추가) | ⬜ pending |
-| 41-TBD | TBD | TBD | D-19 | — | N/A | unit | `pnpm --filter @gh-radar/home-sync exec vitest run src/ai/prompt.test.ts src/ai/clusterSurges.test.ts src/pipeline/loadSurges.test.ts --maxWorkers=2` — 공시 라벨 · verbatim · `stop_reason` 로그 | ✅ (케이스 추가) | ⬜ pending |
+| 41-01-01 | 41-01 | 1 | SC-1 · SC-3 · D-03 · D-04 · D-13 | — | 들여오기 · 묶음 조회 RPC 서비스롤 전용 · 표 RLS 정책 0 | tracer(pgTAP + route) | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/kis_news.test.sql && pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared run typecheck && pnpm --filter @gh-radar/server run typecheck && pnpm --filter @gh-radar/server exec vitest run tests/routes/news-by-stock.test.ts --maxWorkers=2` — 같은 일련번호 두 번 → 1행 · 같은 날 수정본 1행 · 다음 날 2행 · 조회 코드 연결 · 수집 시각 · 등록 60초 · 입력 순서 · 수집 전 null · 400 | ❌ W0 | ⬜ pending |
+| 41-01-02 | 41-01 | 1 | SC-2 · D-12 · D-14 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared exec vitest run src/__tests__/stock-feed.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/shared run typecheck && pnpm --filter @gh-radar/server exec vitest run tests/routes/news-by-stock.test.ts --maxWorkers=2` — 제목 키 · 15자 앞부분 · 12시간 · 시각 이른 쪽 · 링크 · 요약문은 네이버 · id 불변 · 정렬 | ❌ W0 | ⬜ pending |
+| 41-02-01 | 41-02 | 2 | SC-1 · SC-7 · D-05 · D-06 · D-10 | — | 7개 RPC 서비스롤 전용 · 토큰 표 RLS | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/kis_news_collector.test.sql && bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/kis_news.test.sql` — 임대 · 대상 · 정리 · 공시 종류 묶음 · 운영 수치 | ❌ W0 | ⬜ pending |
+| 41-02-02 | 41-02 | 2 | SC-4 · SC-5 · D-01 · D-02 | — | 비밀 주입 비출력 · 셸 추적 없음 · server 배포에 한투 비밀 없음 | static | `bash -n` 5파일 · 실행 권한 · `bash scripts/deploy-kis-news-sync.sh --self-test` · `--max-retries=0` · `--task-timeout=14h` (41-02 Task 2 verify 그대로 · OPS-OK) | ❌ W0 | ⬜ pending |
+| 41-03-01 | 41-03 | 2 | SC-3 · SC-4 | — | 인증 없는 조회 — 전용 제한기 · 5초 캐시 · 입력 검증 400 | route | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/server run typecheck && pnpm --filter @gh-radar/server exec vitest run tests/routes/news-by-stock.test.ts tests/middleware/rate-limit.test.ts --maxWorkers=2` | ✅ (케이스 추가) | ⬜ pending |
+| 41-03-02 | 41-03 | 2 | SC-3 · D-21 | — | N/A | static(노트) | 41-03 Task 2 verify(NOTE-OK — 인박스 파일 · 필수 문구 · phase 사본) | ❌ W0 | ⬜ pending |
+| 41-14-01 | 41-14 | 2 | SC-2 · SC-5 | — | 새로고침은 네이버만 | route | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/server run typecheck && pnpm --filter @gh-radar/server exec vitest run tests/routes/news.test.ts --maxWorkers=2` — 조회 · 새로고침 응답이 합친 목록 · before 커서 | ✅ (케이스 추가) | ⬜ pending |
+| 41-04-01 | 41-04 | 2 | SC-6 · D-16 · D-20 | — | 텍스트로만 렌더 | RTL | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp exec vitest run src/components/stock/__tests__/news-item.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck` — 배지 · 링크 없는 줄 · ↗ 는 링크 줄만 · 자료원 항상 | ❌ W0 | ⬜ pending |
+| 41-04-02 | 41-04 | 2 | SC-6 · D-16 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/stock/__tests__/stock-detail-client.test.tsx src/components/trading/__tests__/stock-info-modal.test.tsx src/components/stock/__tests__/news-item.test.tsx --maxWorkers=2` — 「관련 뉴스·공시」 문구 | ✅ (문구 갱신) | ⬜ pending |
+| 41-05-01 | 41-05 | 3 | SC-6 · D-04 · D-17 | — | N/A | unit/RTL | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp exec vitest run src/lib/__tests__/use-stock-feed.test.tsx src/lib/__tests__/format-feed-time.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck` — 10초 · 100코드 묶음 · 숨김 정지 · 새 글 30초 · 타이머 1개 | ❌ W0 | ⬜ pending |
+| 41-05-02 | 41-05 | 3 | SC-6 · D-17 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/__tests__/feed-rows.test.tsx src/components/trading/__tests__/breakout-strip.test.tsx src/components/trading/__tests__/trading-workbench.test.tsx --maxWorkers=2` — 돌파 배지 · 행 선택 상세 · 「추가」 는 카드 | ✅ (케이스 추가) | ⬜ pending |
+| 41-06-01 | 41-06 | 2 | SC-5 | — | 실측 표본에 토큰 · 키 문자열 0 · 한 벌만 | static + typecheck | `test -f workers/kis-news-sync/tests/fixtures/kis-news-title-sample.json && test ! -e .planning/phases/41-kis-news-and-disclosure-feed/reference/kis-news-title-probe-result.json && grep -q "kis-news-sync" pnpm-lock.yaml && pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/kis-news-sync run typecheck` — 골격 · `KisNewsTitleRow` · 픽스처 이동(SKELETON-OK) | ❌ W0 | ⬜ pending |
+| 41-06-02 | 41-06 | 2 | SC-5 · D-01 | — | 로그 비밀 가림(redact) · 필수 비밀 오류에 값 없음 | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/config.test.ts tests/logger.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run typecheck` — env 계약 · 초당 상한 1 ~ 15 · 비밀 값 출력 없음 | ❌ W0 | ⬜ pending |
+| 41-12-01 | 41-12 | 3 | D-09 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/shared exec vitest run src/__tests__/etp.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/shared run typecheck` — ETP 그룹 · 이름 · 스팩 제외 · null | ❌ W0 | ⬜ pending |
+| 41-12-02 | 41-12 | 3 | SC-1 · D-07 · D-09 · D-11 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/classify.test.ts tests/ingest.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run typecheck` — 실측 표본 분류 · 파생 안내 · ETP · 작성 시각 | ❌ W0 | ⬜ pending |
+| 41-13-01 | 41-13 | 3 | SC-1 · SC-5 · D-01 | — | 오류 로그는 안전 필드만(헤더 · 키 없음) | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/classifyError.test.ts tests/newsTitle.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run typecheck` — 오류 코드별 분류 · 커서 페이징 | ❌ W0 | ⬜ pending |
+| 41-13-02 | 41-13 | 3 | SC-5 · D-01 | — | 로그에 토큰 · 시크릿 없음 · 발급 61초 가드 · 임대 보유자만 발급 | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/token.test.ts tests/classifyError.test.ts tests/newsTitle.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run typecheck` — 토큰 재사용 · 1시간 전 재발급 · 61초 가드 | ❌ W0 | ⬜ pending |
+| 41-07-01 | 41-07 | 4 | SC-6 · D-18 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/__tests__/card-news-strip.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck` — 띠 상태 6종 | ❌ W0 | ⬜ pending |
+| 41-07-02 | 41-07 | 4 | SC-6 · D-18 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/trading/__tests__/strategy-card.test.tsx src/components/trading/__tests__/strategy-card-flow.test.tsx src/components/trading/lc/__tests__/lc-tracer.test.tsx src/components/trading/__tests__/card-news-strip.test.tsx --maxWorkers=2` — 펼친 카드에만 띠 · 회귀 0 | ✅ (케이스 추가) | ⬜ pending |
+| 41-08-01 | 41-08 | 4 | SC-1 · SC-4 · D-02 | — | N/A | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/cadence.test.ts tests/scheduler.test.ts tests/budget.test.ts tests/schedule.test.ts --maxWorkers=2` — 빠른 창 `07:00` · `20:00` 경계 · 주말 · 초당 상한 · 새 등록 먼저 · Scheduler 정합 | ❌ W0 | ⬜ pending |
+| 41-08-02 | 41-08 | 4 | SC-1 · SC-4 · SC-5 · D-01 · D-05 · D-06 | — | 로그에 토큰 없음 · 임대 보유자만 발급 | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/collector.test.ts tests/targets.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync exec vitest run --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run build` — 임대 · 모드 · 오류 처리 · 예산 · 정리 | ❌ W0 | ⬜ pending |
+| 41-09-01 | 41-09 | 5 | SC-4 · SC-5 | — | server 에 한투 호출 경로 · 비밀 없음 | static + 회귀 | 41-09 Task 1 verify(PREDEPLOY-OK — news-sync 무변경 · `news_articles` 무변경 · server 한투 grep 0 · pgTAP 2 · self-test) | ✅ (명령) | ⬜ pending |
+| 41-09-02 | 41-09 | 5 | SC-1 ~ SC-5 | — | [BLOCKING] 스키마 push · 비밀 사용자 `!` | manual(메인 세션) | `supabase migration list --linked` — 두 버전 Remote | — | ⬜ pending |
+| 41-09-03 | 41-09 | 5 | SC-6 · D-15 ~ D-18 · D-20 | — | N/A | manual UAT | UAT-SIGNED | — | ⬜ pending |
+| 41-10-01 | 41-10 | 6 | D-19 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/home-sync exec vitest run src/pipeline/loadSurges.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/home-sync run typecheck` — 합친 피드 · 공시 먼저 · ETP 단일 정의 | ✅ (케이스 추가) | ⬜ pending |
+| 41-10-02 | 41-10 | 6 | D-19 | — | 인덱스 → 원문(환각 방지) | unit | `pnpm --filter @gh-radar/home-sync exec vitest run src/ai/prompt.test.ts src/ai/clusterSurges.test.ts src/pipeline/loadSurges.test.ts --maxWorkers=2` — `[공시]` 줄 · null url 중복 제거 · stop_reason 로그 | ✅ (케이스 추가) | ⬜ pending |
+| 41-10-03 | 41-10 | 6 | SC-6(④) · D-19 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/home/__tests__/news-block.test.tsx src/components/home/__tests__/theme-card.test.tsx src/components/home/__tests__/solo-card.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/server run typecheck` | ✅ (케이스 추가) | ⬜ pending |
+| 41-11-01 | 41-11 | 7 | D-19 | — | N/A | manual(메인 세션) | `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ⬜ pending |
+| 41-11-02 | 41-11 | 7 | SC-7 · D-10 · D-19 · SC-1 · SC-4 | — | N/A | manual(하루 뒤) | NEXT-DAY-RECORDED | — | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -66,11 +81,12 @@ created: "2026-11-11"
 
 - [ ] `workers/kis-news-sync/` 패키지 골격 + `vitest.config.ts`
 - [ ] `workers/kis-news-sync/tests/fixtures/kis-news-title-sample.json` — 실측 표본. 보존 사본: `.planning/phases/41-kis-news-and-disclosure-feed/reference/kis-news-title-probe-result.json`(2026-11-11 실측 · 토큰·키 문자열 0건 확인 · 아직 미커밋 — 픽스처 자리로 **옮긴다**)
-- [ ] `supabase/tests/kis_news.test.sql`
+- [ ] `supabase/tests/kis_news.test.sql` · `supabase/tests/kis_news_collector.test.sql`
 - [ ] `packages/shared/src/__tests__/stock-feed.test.ts`
 - [ ] `server/tests/routes/news-by-stock.test.ts`
-- [ ] `scripts/kis-disclosure-kinds.sql`(D-10 공시 종류 목록)
-- [ ] 스모크: Cloud Run 발신 한투 1회(키 주입 뒤)
+- [ ] `webapp/src/components/stock/__tests__/news-item.test.tsx` · `webapp/src/lib/__tests__/use-stock-feed.test.tsx` · `webapp/src/lib/__tests__/format-feed-time.test.ts` · `webapp/src/components/trading/__tests__/feed-rows.test.tsx` · `webapp/src/components/trading/__tests__/card-news-strip.test.tsx`
+- [ ] `scripts/kis-news-report.sh`(`kinds` · `stats`) + RPC `kis_disclosure_kinds` · `kis_news_ops_stats`(D-10 공시 종류 목록 · 운영 수치 — 41-02 · RESEARCH 의 `.sql` 단독 파일 대신 원격 SQL 실행 수단이 없어 RPC + 스크립트로)
+- [ ] 스모크: Cloud Run 발신 한투 1회(키 주입 뒤 · `scripts/smoke-kis-news-sync.sh` INV-1 probe — 41-09)
 
 ---
 
@@ -78,12 +94,12 @@ created: "2026-11-11"
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| 웹 네 자리가 채택 목업대로 보인다(폭 390 · PC · 상따 본문 폭 4밴드) | SC-6 | 시각 대조 | `reference/mockup-news-disclosure-web.html` 과 운영 화면을 나란히 대조 |
-| 수집 하루 뒤 공시 종류 목록을 사용자에게 보여 주고 더 뺄 종류를 확인 | SC-7 (D-10) | 사용자 판단 | `scripts/kis-disclosure-kinds.sql` 결과 제시 |
-| 평일 빠른 시간대에 새 글이 10초 안팎에 들어온다 · 수집기가 한 개만 돈다 | SC-1 | 운영 데이터 필요 | 수신 시각 − 작성 시각 분포(중앙값 15초 이하 목표) · 실행 로그 |
-| 당일 호출 수가 카운터에 남고 예산 안 | SC-4 | 운영 데이터 필요 | `api_usage` 의 `kis_news_title` 당일 값 |
-| gh-trade 클라가 종목 묶음 조회로 받는다 | SC-3 | 다른 저장소 클라 | `curl` 로 응답 형태·지연 확인 + gh-trade 세션 확인 |
-| 홈 AI 요약 하루 호출 수 배포 전후 비교 | D-19 | 운영 데이터 필요 | home-sync 로그의 Claude 호출 수 비교 |
+| 웹 네 자리가 채택 목업대로 보인다(폭 390 · PC · 상따 본문 폭 4밴드) | SC-6 | 시각 대조 | ① ~ ③ 은 41-09 Task 3 · ④ 는 41-11 Task 2 — `reference/mockup-news-disclosure-web.html` 과 운영 화면을 나란히 대조 |
+| 수집 하루 뒤 공시 종류 목록을 사용자에게 보여 주고 더 뺄 종류를 확인 | SC-7 (D-10) | 사용자 판단 | 41-11 Task 2 — `bash scripts/kis-news-report.sh kinds 1` 결과를 일상어 목록으로 제시 · 결과: (41-11 이 채움) |
+| 평일 빠른 시간대에 새 글이 10초 안팎에 들어온다 · 수집기가 한 개만 돈다 | SC-1 | 운영 데이터 필요 | 41-11 Task 2 — `bash scripts/kis-news-report.sh stats 1`(지연 중앙값 15초 이하 목표) · 「lease acquired」 로그 1번 |
+| 당일 호출 수가 카운터에 남고 예산 안 | SC-4 | 운영 데이터 필요 | 41-09 Task 2 · 41-11 Task 2 — `stats` 의 `usage_today`(`api_usage` `kis_news_title`) · 한도 의심 표시 0 |
+| gh-trade 클라가 종목 묶음 조회로 받는다 | SC-3 · D-21 | 다른 저장소 클라 | 41-09 Task 2 `curl` 응답 형태 · 지연 · collectedAt 변화 + 41-03 노트 · gh-trade 세션 확인 |
+| 홈 AI 요약 하루 호출 수 배포 전후 비교 | D-19 | 운영 데이터 필요 | 41-11 Task 1(기준선 · 평일 3일) · Task 2(배포 다음 평일) — 「home-sync cycle complete」 의 `claudeCalled=true` 수 · 결과: (41-11 이 채움) |
 
 ---
 
