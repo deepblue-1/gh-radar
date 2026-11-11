@@ -26,6 +26,8 @@ describe("pressDisplayName — 언론사 표시 이름", () => {
     ["finomy", "현대경제신문"],
     ["m-economynews", "M이코노미뉴스"],
     ["kwangju", "광주일보"],
+    ["smedaily", "중소기업신문"],
+    ["dealsitetv", "딜사이트경제TV"],
   ])("gh-trade 확인값 %s → %s", (domain, name) => {
     expect(pressDisplayName(domain)).toBe(name);
   });

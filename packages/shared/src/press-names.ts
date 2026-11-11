@@ -307,6 +307,20 @@ const NAVER_DOMAIN_NAMES: Readonly<Record<string, string>> = {
   joongangenews: "중앙이코노미뉴스",
   theguru: "더구루",
   futurechosun: "더나은미래",
+  // gh-trade 확인값 3차(홈 og:site_name · title) — 운영 응답의 원문 호스트와 같은 것만(gosiweek · huffingtonpost · the-today 는 호스트가 달라 보류).
+  dailysportshankook: "데일리스포츠한국",
+  dealsitetv: "딜사이트경제TV",
+  ezyeconomy: "이지경제",
+  fetv: "FETV",
+  ilovepc: "디지털포스트",
+  kfenews: "한국금융경제신문",
+  lcnews: "라이센스뉴스",
+  peoplewatch: "피플워치",
+  press9: "PRESS9",
+  sateconomy: "토요경제",
+  seouleconews: "서울이코노미뉴스",
+  smedaily: "중소기업신문",
+  swtvnews: "SWTV",
 };
 
 /**
