@@ -26,7 +26,8 @@ const MON_10 = kst("2026-11-16", "10:00:00");
 
 const OLD_SRNO = "2026111100000000001";
 const LAST_SRNO = "2026111200000000000";
-const srno = (n: number) => String(20261116100000000000n + BigInt(n));
+/** 19자리 일련번호 — 클수록 새 글 */
+const srno = (n: number) => String(2026111610000000000n + BigInt(n));
 
 function row(no: string, over: Partial<KisNewsTitleRow> = {}): KisNewsTitleRow {
   const base: Record<string, string> = {
@@ -416,6 +417,7 @@ describe("오류 처리", () => {
   it("토큰 무효 → 강제 재발급 1번 → 성공이면 계속", async () => {
     const h = harness({
       stopAt: MON_10 + 10_000,
+      targets: () => targetsOf(codes(10)),
       page: (q, { n }) => {
         if (n === 1) throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
         return flowOf(q) === "feed" ? [row(OLD_SRNO)] : [];
@@ -565,7 +567,7 @@ describe("slow 모드", () => {
   it("slow: 대상이 많아 90초를 넘기면 그동안 임대를 연장한다", async () => {
     const h = harness({ start: SAT_10, cleanupDate: "2026-11-14", targets: () => targetsOf(codes(300)), page: slowPage });
     const r = await h.run();
-    expect(r.code).toBe(0);
+    expect(r).toEqual({ code: 0, reason: "slow_done" });
     expect(h.flows("stock")).toHaveLength(300);
     expect(h.now() - SAT_10).toBeGreaterThan(100_000);
     expect(vi.mocked(h.deps.db.leaseAcquire).mock.calls.length).toBeGreaterThanOrEqual(4);

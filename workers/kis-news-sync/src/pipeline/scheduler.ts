@@ -117,6 +117,18 @@ export class TargetQueue {
     return t.lastCollectedAt === null ? l : Math.max(l, t.lastCollectedAt);
   }
 
+  /**
+   * 지금 조회할 수 있는 종목 전부를 next() 순서로 — 느린 실행의 「한 바퀴」(각 1번)용.
+   * 한 바퀴가 30초보다 길면 next() 만으로는 먼저 모은 종목이 다시 나와 끝나지 않는다.
+   */
+  ordered(now: number): TargetInfo[] {
+    const eligible = this.targets
+      .map((t) => ({ t, last: this.lastOf(t) }))
+      .filter((x) => x.last === null || now - x.last >= this.minIntervalMs);
+    eligible.sort((a, b) => (this.before(a.t, a.last, b.t, b.last) ? -1 : this.before(b.t, b.last, a.t, a.last) ? 1 : 0));
+    return eligible.map((x) => x.t);
+  }
+
   /** 다음 조회할 종목 — 모두 30초 안에 모았으면 null */
   next(now: number): TargetInfo | null {
     let best: TargetInfo | null = null;

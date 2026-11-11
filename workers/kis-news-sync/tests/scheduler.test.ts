@@ -192,6 +192,21 @@ describe("TargetQueue", () => {
     expect(seen.sort()).toEqual(["000020", "000030"]);
   });
 
+  it("ordered(now) 는 지금 조회할 수 있는 종목 전부를 next() 순서로(30초 안에 모은 것 제외)", () => {
+    const q = new TargetQueue(STOCK_MIN_INTERVAL_MS, 450);
+    const now = T("10:01:00");
+    q.update(
+      [
+        target("000010", { lastCollectedAt: T("10:00:00") }),
+        target("000020", { reasons: ["registered"], lastRequestedAt: T("10:00:01") }),
+        target("000030", { lastCollectedAt: T("10:00:50") }),
+        target("000040", { reasons: ["registered"], lastRequestedAt: T("10:00:05") }),
+      ],
+      now,
+    );
+    expect(q.ordered(now).map((t) => t.code)).toEqual(["000040", "000020", "000010"]);
+  });
+
   it("대상에서 빠진 종목은 더 내지 않는다", () => {
     const q = new TargetQueue(STOCK_MIN_INTERVAL_MS, 450);
     const now = T("10:00:00");
