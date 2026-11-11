@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import type { NewsArticle } from '@gh-radar/shared';
+import type { StockFeedItem } from '@gh-radar/shared';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchStockNews } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ export interface NewsFullListProps {
 const PAGE_SIZE = 100;
 
 export function NewsFullList({ code, onBack }: NewsFullListProps) {
-  const [articles, setArticles] = useState<NewsArticle[] | null>(null);
+  const [articles, setArticles] = useState<StockFeedItem[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [hasMore, setHasMore] = useState(true);

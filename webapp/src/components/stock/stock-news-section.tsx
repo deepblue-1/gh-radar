@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Newspaper } from 'lucide-react';
-import type { NewsArticle } from '@gh-radar/shared';
+import type { StockFeedItem } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchStockNews, refreshStockNews } from '@/lib/stock-api';
@@ -51,7 +51,7 @@ export interface StockNewsSectionProps {
 const SHOW_ALL_CLASS = 'text-[length:var(--t-sm)] text-[var(--primary)] hover:underline';
 
 export function StockNewsSection({ stockCode, onShowAll }: StockNewsSectionProps) {
-  const [articles, setArticles] = useState<NewsArticle[] | null>(null);
+  const [articles, setArticles] = useState<StockFeedItem[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);

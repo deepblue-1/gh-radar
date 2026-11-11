@@ -166,6 +166,14 @@
   --new-bg: #fff6d9;
   --new-bd: #ffd257;
 
+  /* 뉴스·공시 줄 종류 배지 (Phase 41 D-16) — 「공시」/「뉴스」 배지(`FeedKindBadge`). 공시만 색을 입히고
+     뉴스는 기존 회색(`--muted-fg` / `--muted`)을 그대로 쓴다. 쓰이는 자리: 종목 뉴스 목록 · 작업대 돌파 ·
+     상따 카드 · 홈. ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 배지 색이 조용히 사라진다. */
+  --feed-disc: #c2410c;
+  --feed-disc-bg: #fff4e6;
+  --feed-news: var(--muted-fg);
+  --feed-news-bg: var(--muted);
+
   /* Phase 20 호가주문 토스식 — 상따 그룹 면(목업 `.grp`) · 스위치 off · 시트 dim(TDS dimmedBackground).
      다크 그룹 면은 부모 `--card` #151515 보다 한 단계 밝은 #1a1a1a(UI-SPEC A9).
      ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 조용히 사라진다. */
@@ -333,6 +341,12 @@
      사라진다. */
   --new-bg: #3a3014;
   --new-bd: #6d5a1d;
+
+  /* 뉴스·공시 줄 종류 배지 다크 값 (Phase 41 D-16) — 의미는 `:root` 정의 옆 주석이 정본이다. */
+  --feed-disc: #ff9f43;
+  --feed-disc-bg: rgba(255, 159, 67, 0.16);
+  --feed-news: var(--muted-fg);
+  --feed-news-bg: var(--muted);
 
   /* Phase 20 호가주문 토스식 다크 값 — 의미는 `:root` 정의 옆 주석이 정본이다. 그룹 면은 부모
      `--card` #151515 보다 한 단계 밝은 #1a1a1a(UI-SPEC A9). */
