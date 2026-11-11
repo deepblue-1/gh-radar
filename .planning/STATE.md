@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 39
 status: completed
-stopped_at: Phase 39 complete — all phases complete
-last_updated: "2026-11-09T13:09:09.997Z"
+stopped_at: Phase 41 context gathered
+last_updated: "2026-11-11T13:08:28.542Z"
 last_activity: 2026-11-09
 last_activity_desc: Phase 39 complete
-state_head: 6809abb77e336df4352b5c209e47d8b790ccf8e5
+state_head: af1c65b074fc7502c0c55c9252944fe408ea4593
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 9
   total_plans: 133
   completed_plans: 133
-  percent: 82
+  percent: 75
 ---
 
 # Project State
@@ -170,10 +170,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/41-kis-news-and-disclosure-feed/41-CONTEXT.md
 
-Last session: 2026-11-09
-Stopped at: Phase 39 complete — all phases complete
+Last session: 2026-11-11T13:08:25.686Z
+Stopped at: Phase 41 context gathered
 
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
