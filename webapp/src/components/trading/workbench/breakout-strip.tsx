@@ -56,6 +56,15 @@
  *   클라 기록(첫 등재 · 무장 · 첫 돌파시각 · 이탈 삭제)은 `advanceTracked` 순수 함수가 「마지막으로
  *   커밋된 기록 + 현재 입력」으로 **렌더 안에서** 계산하고, 커밋 뒤 레이아웃 effect 가 기록 ref 를
  *   옮긴다 — 렌더 중 setState 가 없다. 칩·표는 `memo` 라서 가격이 멈춘 커밋에서는 재조정을 건너뛴다.
+ *
+ * ⑨ 뉴스·공시 배지 · 행 선택 상세 (Phase 41 D-17 · 채택 목업 ② — gh-trade 돌파감지 「행 배지 + 창 아래 상세」)
+ *   피드는 작업대 공급자(`StockFeedProvider`)의 묶음 조회다 — 이 파일은 부르지 않고 읽기만 한다. 칩 · 표 종목명 옆에
+ *   「공」(공시) · 「뉴」(뉴스) 한 글자 배지 · 최근 3일 글이 없으면 배지 없음. 칩 · 표는 entries 문맥만 읽고 원시값
+ *   (`feedDisc` · `feedNews`)으로 받는다 — 10초 피드 갱신에만 다시 그린다. 1초 강조 시계는 표 아래 상세(`FeedRows`)만 읽는다
+ *   (5Hz 가격 경로에 섞지 않는다 · trading-cpu-260923).
+ *   표의 행 클릭은 **카드 열기가 아니라 선택 토글**이다 — 선택 행 아래(표 다음)에 그 종목의 글 목록이 펼쳐지고 다시 누르면
+ *   닫힌다. 카드 추가 · 포커스는 「추가」 버튼과 칩이 그대로 맡는다. 선택 행이 목록에서 사라지면 닫힌다(돌아와도 닫힌 채).
+ *   코드가 없는 행(⑥)은 조회할 종목이 없어 선택되지 않는다. 「거래중」 행도 선택된다.
  */
 
 import {
@@ -70,6 +79,9 @@ import {
 } from 'react';
 import type { RelayExchange, RelayRateCrossItem } from '@gh-radar/shared';
 
+import { FeedKindBadge } from '@/components/stock/feed-kind-badge';
+import { FeedRows } from '@/components/trading/feed/feed-rows';
+import { useStockFeedEntries, useStockFeedEntry } from '@/components/trading/feed/stock-feed-context';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { playBreakoutTone } from '@/lib/alert-tone';
 import {
@@ -89,6 +101,7 @@ import {
 } from '@/lib/breakout-list';
 import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
 import { breakoutFeedKey, useBreakoutQuotes } from '@/lib/use-breakout-quotes';
+import { feedBadgesOf } from '@/lib/use-stock-feed';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -379,6 +392,23 @@ export function BreakoutStrip({
     [onDismiss],
   );
 
+  /* ── ⑨ 뉴스·공시 배지 · 행 선택 ─────────────────────────────────── */
+  // entries 문맥만 읽는다 — 10초 폴링 응답 때만 바뀐다(강조 시계는 상세 줄만 읽는다).
+  const feedEntries = useStockFeedEntries();
+  const badgesByCode = useMemo(() => {
+    const out = new Map<string, FeedBadges>();
+    for (const [code, entry] of feedEntries) {
+      const b = feedBadgesOf(entry);
+      if (b.disclosure || b.news) out.set(code, b);
+    }
+    return out as ReadonlyMap<string, FeedBadges>;
+  }, [feedEntries]);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const select = useCallback((row: BreakoutRow) => {
+    if (!row.code) return; // 조회할 종목코드가 없다(⑥)
+    setSelectedKey((k) => (k === row.key ? null : row.key));
+  }, []);
+
   const firstTime = tracked.firstTime;
   const views = useMemo(
     () =>
@@ -394,6 +424,13 @@ export function BreakoutStrip({
     [rows, priceOf, firstTime, now],
   );
   const showTable = open && views.length > 0;
+  const selectedView =
+    selectedKey === null ? undefined : views.find((v) => v.row.key === selectedKey);
+  // 선택 행이 목록에서 사라지면(이탈 · ✕ · 서버 교체) 선택을 버린다 — 다시 올라와도 닫힌 채다.
+  const selectedGone = selectedKey !== null && selectedView === undefined;
+  useEffect(() => {
+    if (selectedGone) setSelectedKey(null);
+  }, [selectedGone]);
 
   return (
     <div
@@ -426,7 +463,18 @@ export function BreakoutStrip({
               {BREAKOUT_EMPTY_TEXT}
             </span>
           ) : (
-            views.map((v) => <BreakoutChip key={v.row.key} view={v} onActivate={activate} />)
+            views.map((v) => {
+              const b = v.row.code ? badgesByCode.get(v.row.code) : undefined;
+              return (
+                <BreakoutChip
+                  key={v.row.key}
+                  view={v}
+                  feedDisc={b?.disclosure === true}
+                  feedNews={b?.news === true}
+                  onActivate={activate}
+                />
+              );
+            })
           )}
         </div>
 
@@ -455,7 +503,17 @@ export function BreakoutStrip({
           aria-label="돌파감지 목록"
           className="min-w-0 border-t border-[var(--border-subtle)]"
         >
-          <BreakoutTable views={views} onActivate={activate} onDismiss={dismiss} />
+          <BreakoutTable
+            views={views}
+            badges={badgesByCode}
+            selectedKey={selectedView === undefined ? null : selectedKey}
+            onSelect={select}
+            onActivate={activate}
+            onDismiss={dismiss}
+          />
+          {selectedView !== undefined && selectedView.row.code && (
+            <BreakoutFeedDetail code={selectedView.row.code} label={selectedView.label} />
+          )}
         </section>
       )}
     </div>
@@ -467,6 +525,50 @@ function sameKeys(a: ReadonlyMap<string, unknown>, b: ReadonlyMap<string, unknow
   if (a.size !== b.size) return false;
   for (const k of a.keys()) if (!b.has(k)) return false;
   return true;
+}
+
+/* ── ⑨ 뉴스·공시 배지 · 상세 ─────────────────────────────────────────── */
+
+type FeedBadges = ReturnType<typeof feedBadgesOf>;
+
+/** 「공」 · 「뉴」 한 글자 배지(공 → 뉴 순) — 둘 다 없으면 그리지 않는다. */
+function FeedBadgesMini({ disclosure, news }: { disclosure: boolean; news: boolean }) {
+  if (!disclosure && !news) return null;
+  return (
+    <span data-slot="breakout-feed-badges" className="inline-flex flex-none items-center gap-0.5">
+      {disclosure && <FeedKindBadge kind="disclosure" size="mini" />}
+      {news && <FeedKindBadge kind="news" size="mini" />}
+    </span>
+  );
+}
+
+/**
+ * 표 아래 선택 종목의 글 목록(목업 `.detail`) — 「{종목명} 최근 3일 뉴스·공시 {n}건」(상한에 닿으면 「n건+」).
+ * 강조 시계를 읽는 `FeedRows` 가 여기 있다 — 칩 · 표는 1초마다 다시 그려지지 않는다.
+ */
+function BreakoutFeedDetail({ code, label }: { code: string; label: string }) {
+  const entry = useStockFeedEntry(code);
+  const count = entry === undefined ? '' : ` ${entry.count}건${entry.truncated ? '+' : ''}`;
+  return (
+    <section
+      data-slot="breakout-feed-detail"
+      aria-label={`${label} 뉴스·공시`}
+      className="min-w-0 border-t border-[var(--border-subtle)] px-3 pt-2.5 pb-2"
+    >
+      <div className="flex min-w-0 items-baseline gap-2 pb-1.5 text-[13px] font-bold text-[var(--fg)]">
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="flex-none text-[11.5px] font-normal text-[var(--muted-fg)]">
+          {`최근 3일 뉴스·공시${count}`}
+        </span>
+      </div>
+      <FeedRows
+        items={entry?.items ?? []}
+        band="wb"
+        // 첫 응답 전 — 폴링이 돌고 있다(작업대 공급자). 받은 뒤 0건이면 기본 문구.
+        emptyText={entry === undefined ? '불러오는 중' : undefined}
+      />
+    </section>
+  );
 }
 
 /* ── 표시 파생 ───────────────────────────────────────────────────────── */
@@ -537,9 +639,15 @@ function chipTitle(v: RowView): string {
 
 const BreakoutChip = memo(function BreakoutChip({
   view: v,
+  feedDisc,
+  feedNews,
   onActivate,
 }: {
   view: RowView;
+  /** 최근 3일 공시 있음(⑨) — 원시값이라 memo 비교가 피드 갱신에만 반응한다. */
+  feedDisc: boolean;
+  /** 최근 3일 뉴스 있음(⑨). */
+  feedNews: boolean;
   onActivate: (row: BreakoutRow) => void;
 }) {
   const trading = v.row.trading;
@@ -567,6 +675,7 @@ const BreakoutChip = memo(function BreakoutChip({
         {v.label}
       </b>
       <span className={cn('mono font-bold', rateClass(v.rate))}>{signedRate(v.rate)}</span>
+      <FeedBadgesMini disclosure={feedDisc} news={feedNews} />
       {/* 폰 밴드(본문 <700)에서는 시각을 빼 칩을 줄인다 — 펼친 표에 있다(2026-09-23). */}
       <span className="mono hidden text-[11px] text-[var(--muted-fg)] @min-[700px]/wb:inline">
         {v.clock.slice(0, 5)}
@@ -592,13 +701,22 @@ const BreakoutChip = memo(function BreakoutChip({
  * 작업대 페이지 컨테이너(`@container/wb`) 폭으로 접는다(목업 정본): 본문 <700 에서 임계·돌파시각을,
  * <830 에서 기준가를 숨기고, <700 에서 종목 셀 아래 보조 줄 「{HH:MM:SS}」를 세우고 코드를 숨긴다.
  * 경계 수치는 globals.css §2.2b 정본이다.
+ * 행 클릭은 선택 토글이다(⑨ · Phase 41 D-17) — 카드는 「추가」 버튼과 칩이 연다.
  */
 const BreakoutTable = memo(function BreakoutTable({
   views,
+  badges,
+  selectedKey,
+  onSelect,
   onActivate,
   onDismiss,
 }: {
   views: readonly RowView[];
+  /** 종목코드 → 배지 유무(⑨) — 10초 피드 갱신 때만 바뀐다. */
+  badges: ReadonlyMap<string, FeedBadges>;
+  /** 선택된 행 키 — 그 종목의 글 목록이 표 아래에 펼쳐져 있다. */
+  selectedKey: string | null;
+  onSelect: (row: BreakoutRow) => void;
   onActivate: (row: BreakoutRow) => void;
   onDismiss: (row: BreakoutRow) => void;
 }) {
@@ -626,15 +744,21 @@ const BreakoutTable = memo(function BreakoutTable({
       <TableBody>
         {views.map((v) => {
           const trading = v.row.trading;
+          const selected = v.row.key === selectedKey;
+          const b = v.row.code ? badges.get(v.row.code) : undefined;
           return (
               <TableRow
                 key={v.row.key}
                 data-slot="breakout-row"
                 data-new={v.highlighted ? 'true' : undefined}
                 data-trading={trading ? 'true' : undefined}
-                onClick={() => onActivate(v.row)}
+                data-selected={selected ? 'true' : undefined}
+                onClick={() => onSelect(v.row)}
                 className={cn(
-                  trading ? 'cursor-default text-[var(--muted-fg)]' : 'cursor-pointer',
+                  trading && 'text-[var(--muted-fg)]',
+                  v.row.code ? 'cursor-pointer' : 'cursor-default',
+                  // 선택 행은 --muted · 강조 행이면 강조가 이긴다(뒤 클래스).
+                  selected && 'bg-[var(--muted)] hover:bg-[var(--muted)]',
                   v.highlighted && 'bg-[var(--new-bg)] hover:bg-[var(--new-bg)]',
                 )}
               >
@@ -657,6 +781,7 @@ const BreakoutTable = memo(function BreakoutTable({
                         {v.row.code}
                       </span>
                     )}
+                    <FeedBadgesMini disclosure={b?.disclosure === true} news={b?.news === true} />
                     {v.highlighted && (
                       <span
                         data-slot="breakout-new-badge"
