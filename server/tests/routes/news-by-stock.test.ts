@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import { stockFeedPerSource, type NewsByStockResponse } from "@gh-radar/shared";
 import { createApp } from "../../src/app";
+import { NEWS_BY_STOCK_CACHE_TTL_MS, getNewsByStock } from "../../src/routes/news-by-stock";
 import { mockSupabase } from "../fixtures/supabase-mock";
 
 // ------------------------------------------------------------------
@@ -215,5 +216,73 @@ describe("GET /api/news/by-stock", () => {
     const { app } = setup(null, { message: "boom" });
     const res = await request(app).get("/api/news/by-stock?codes=012340");
     expect(res.status).toBe(500);
+  });
+});
+
+// ------------------------------------------------------------------
+// 41-03 — 5초 캐시(D-03 · D-04 · SC-3). 캐시는 모듈 범위 WeakMap<SupabaseClient, …> 라
+// 테스트마다 setup() 이 새 mockSupabase 를 만들면 서로 섞이지 않는다.
+// ------------------------------------------------------------------
+describe("GET /api/news/by-stock — 5초 캐시", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("같은 코드 집합 · days · limit 두 번(5초 안) → rpc 1회 · 두 응답 같은 내용", async () => {
+    const { app, rpc } = setup();
+    const a = await request(app).get("/api/news/by-stock?codes=012340,005930&days=3&limit=3");
+    const b = await request(app).get("/api/news/by-stock?codes=012340,005930&days=3&limit=3");
+    expect(rpc.mock.calls).toHaveLength(1);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(b.body).toEqual(a.body);
+  });
+
+  it("Date.now 를 5,001ms 뒤로 → rpc 2회(TTL 지남)", async () => {
+    expect(NEWS_BY_STOCK_CACHE_TTL_MS).toBe(5_000);
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    const { app, rpc } = setup();
+    await request(app).get("/api/news/by-stock?codes=012340,005930");
+    now.mockReturnValue(t0 + 5_001);
+    await request(app).get("/api/news/by-stock?codes=012340,005930");
+    expect(rpc.mock.calls).toHaveLength(2);
+  });
+
+  it("같은 코드 집합 다른 순서(A,B · B,A) → rpc 1회 · 각 응답 stocks 는 각자 입력 순서", async () => {
+    const { app, rpc } = setup();
+    const ab = await request(app).get("/api/news/by-stock?codes=012340,005930");
+    const ba = await request(app).get("/api/news/by-stock?codes=005930,012340");
+    expect(rpc.mock.calls).toHaveLength(1);
+    expect((ab.body as NewsByStockResponse).stocks.map((s) => s.code)).toEqual(["012340", "005930"]);
+    expect((ba.body as NewsByStockResponse).stocks.map((s) => s.code)).toEqual(["005930", "012340"]);
+  });
+
+  it("days 나 limit 이 다르면 다른 캐시 키 → 매번 rpc", async () => {
+    const { app, rpc } = setup();
+    await request(app).get("/api/news/by-stock?codes=012340&days=3&limit=3");
+    await request(app).get("/api/news/by-stock?codes=012340&days=1&limit=3");
+    expect(rpc.mock.calls).toHaveLength(2);
+    await request(app).get("/api/news/by-stock?codes=012340&days=3&limit=5");
+    expect(rpc.mock.calls).toHaveLength(3);
+  });
+
+  it("rpc 오류 → 500 · 다음 요청은 rpc 를 다시 부른다(실패 미캐시)", async () => {
+    const { app, rpc } = setup(null, { message: "boom" });
+    const first = await request(app).get("/api/news/by-stock?codes=012340");
+    const second = await request(app).get("/api/news/by-stock?codes=012340");
+    expect(first.status).toBe(500);
+    expect(second.status).toBe(500);
+    expect(rpc.mock.calls).toHaveLength(2);
+  });
+
+  it("동시 두 요청 → rpc 1회(진행 중 계산을 함께 기다린다)", async () => {
+    const supabase = mockSupabase({ rpc: { stock_feed_by_codes: { data: rpcData(), error: null } } });
+    const rpc = (supabase as unknown as { rpc: { mock: { calls: unknown[][] } } }).rpc;
+    const p1 = getNewsByStock(supabase, ["012340", "005930"], 3, 20);
+    const p2 = getNewsByStock(supabase, ["005930", "012340"], 3, 20);
+    await Promise.all([p1, p2]);
+    expect(rpc.mock.calls).toHaveLength(1);
+    expect(await p2).toBe(await p1);
   });
 });
