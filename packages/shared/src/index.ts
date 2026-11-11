@@ -287,3 +287,5 @@ export * from "./tick-api";
 // --- Phase 40 체결 앱 푸시 — 계약 타입 · 상수(40-01 CHECK · 40-05 facts 키 · 40-07 기기 API) · 문안 조립기 한 곳(D-16 스케치 029 C 안) ---
 export * from "./push";
 export * from "./push-message";
+// --- Phase 41 한투 뉴스·공시 피드 — 조회 계약(GET /api/news/by-stock) · RPC 행 타입 · 같은 기사 합치기 규칙 한 벌(server · home-sync 공용) ---
+export * from "./stock-feed";
