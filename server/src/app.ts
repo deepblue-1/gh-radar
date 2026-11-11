@@ -18,6 +18,7 @@ import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
 import { stocksRouter } from "./routes/stocks.js";
 import { themesRouter } from "./routes/themes.js";
+import { newsByStockRouter } from "./routes/news-by-stock.js";
 import { homeRouter } from "./routes/home.js";
 import { chatRouter } from "./routes/chat.js";
 import { ordersRouter } from "./routes/orders.js";
@@ -130,6 +131,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/scanner", scannerRouter);
   app.use("/api/stocks", stocksRouter);
   app.use("/api/themes", themesRouter);
+  // Phase 41 D-03 · D-04 — 종목 뉴스·공시 묶음 조회(gh-trade 5 ~ 10초 조회 · 웹 작업대). 한투 호출 없음 — RPC 1회로 읽고 등록만.
+  app.use("/api/news", newsByStockRouter);
   app.use("/api/home", homeRouter);
   app.use("/api/chat", chatRouter);
   // Phase 16 Plan 16 — DMA 주문 **조회 전용** (D-02). 접수는 relay wss 가 받는다.
