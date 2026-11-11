@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 41 목업 — 웹앱 뉴스·공시 표시</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#nav .g.off { display: none; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 (라이트 / 다크) ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border: #f2f4f6; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6;
+  --up: #f04452; --down: #3182f6;
+  --disc: #c2410c; --disc-bg: #fff4e6; --news: #6b7684; --news-bg: #f2f4f6; --new-bg: #fff9db;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  flex: none; background: var(--band); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border: rgba(255,255,255,.06); --border-subtle: #3d3d3d; --card: #151515; --band: #0a0a0a; --primary: #3485fa;
+  --up: #f04251; --down: #3485fa;
+  --disc: #ff9f43; --disc-bg: rgba(255,159,67,.16); --news: #9e9e9e; --news-bg: #2d2d2d; --new-bg: rgba(255,212,59,.14);
+}
+.f.phone { width: 390px; min-height: 780px; border-radius: 30px; }
+.f.desktop { width: 920px; min-height: 700px; }
+.main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.f.desktop .main { padding: 24px 32px; }
+.sec { display: none; flex-direction: column; gap: 14px; }
+.sec.on { display: flex; }
+.var { display: none; }
+.var.on { display: block; }
+.mono { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.cap { font-size: 12px; color: var(--muted-fg); line-height: 1.5; padding: 0 4px; }
+
+/* ── 카드 ── */
+.card { background: var(--card); border-radius: 14px; padding: 14px 14px 8px; box-shadow: 0 1px 2px rgba(0,0,0,.04); border: 1px solid var(--border); }
+.card-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 8px; }
+.card-h h2 { margin: 0; font-size: 16px; font-weight: 700; color: var(--fg); }
+.card-h .sp { flex: 1; }
+.icon-btn { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted-fg); font-size: 15px; }
+.more { display: block; text-align: center; font-size: 14px; color: var(--primary); padding: 10px 0 8px; }
+
+/* ── 배지 ── */
+.bd { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 1px 6px; line-height: 1.5; flex: none; white-space: nowrap; }
+.bd.d { color: var(--disc); background: var(--disc-bg); }
+.bd.n { color: var(--news); background: var(--news-bg); }
+.bd.mini { font-size: 10px; padding: 0 4px; margin-left: 4px; }
+
+/* ── 뉴스 목록 줄 (news-item card 변형: [1fr 88px 78px], 모바일 [1fr 78px]) ── */
+.nl { list-style: none; margin: 0; padding: 0; }
+.ni { display: grid; grid-template-columns: 1fr 78px; gap: 12px; align-items: center; padding: 11px 8px; min-height: 44px; border-radius: 8px; }
+.f.desktop .ni { grid-template-columns: 1fr 96px 78px; }
+.ni + .ni { border-top: 1px solid var(--border); }
+.ni .t { font-size: 14px; font-weight: 500; color: var(--fg); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ni .t .bd { margin-right: 6px; vertical-align: 1px; }
+.ni a.t { text-decoration: none; }
+.ni .t.nolink { color: var(--fg); }
+.ni .src { font-size: 11px; color: var(--muted-fg); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: none; }
+.f.desktop .ni .src { display: block; }
+.ni time { font-size: 12px; color: var(--muted-fg); text-align: right; }
+.ni .sub { display: block; font-size: 11px; color: var(--muted-fg); font-weight: 400; margin-top: 2px; }
+.f.desktop .ni .sub { display: none; }
+.chips { display: flex; gap: 6px; padding: 0 2px 8px; }
+.chip-f { font-size: 13px; font-weight: 500; color: var(--muted-fg); background: var(--muted); border-radius: 999px; padding: 5px 12px; }
+.chip-f.on { background: var(--fg); color: var(--bg); font-weight: 600; }
+.chip-f .c { font-weight: 400; opacity: .7; margin-left: 3px; }
+.grp-l { font-size: 12px; font-weight: 700; color: var(--muted-fg); padding: 8px 8px 2px; }
+
+/* ── 작업대 돌파 패널 ── */
+.panel { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; }
+.strip { display: flex; align-items: center; gap: 8px; padding: 8px 12px; overflow: hidden; }
+.strip .lab { font-size: 12px; font-weight: 700; color: var(--muted-fg); flex: none; }
+.strip .chipsrow { display: flex; gap: 6px; flex: 1; min-width: 0; overflow: hidden; }
+.chip { display: inline-flex; align-items: center; gap: 5px; background: var(--muted); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; white-space: nowrap; flex: none; }
+.chip b { color: var(--fg); font-weight: 600; }
+.chip .rt { color: var(--up); }
+.strip .tog { font-size: 12px; color: var(--primary); flex: none; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { font-size: 11px; font-weight: 500; color: var(--muted-fg); text-align: left; padding: 6px 10px; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl .r { text-align: right; }
+.tbl .nm { color: var(--fg); font-weight: 600; }
+.tbl .rt { color: var(--up); text-align: right; }
+.tbl tr.sel td { background: var(--muted); }
+.tbl td.act { color: var(--primary); font-size: 12px; text-align: right; }
+.f.phone .hide-n { display: none; }
+.detail { border-top: 1px solid var(--border-subtle); padding: 10px 12px 8px; background: var(--card); }
+.detail-h { font-size: 13px; font-weight: 700; color: var(--fg); padding-bottom: 6px; display: flex; gap: 8px; align-items: baseline; }
+.detail-h span { font-size: 11.5px; font-weight: 400; color: var(--muted-fg); }
+.fr { display: grid; grid-template-columns: 58px auto 1fr auto; gap: 8px; align-items: baseline; padding: 6px 0; font-size: 13px; }
+.fr + .fr { border-top: 1px solid var(--border); }
+.fr .tm { font-size: 11.5px; color: var(--muted-fg); }
+.fr .tt { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fr a.tt { text-decoration: none; }
+.fr .src { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.f.phone .fr { grid-template-columns: 50px auto 1fr; }
+.f.phone .fr .src { display: none; }
+
+/* ── 상따 카드 ── */
+.scard { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 12px; overflow: hidden; }
+.sc-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 8px; }
+.sc-head .nm { font-size: 15px; font-weight: 700; color: var(--fg); }
+.sc-head .cd { font-size: 11.5px; color: var(--muted-fg); }
+.sc-head .px { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--up); }
+.nstrip { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 12.5px; cursor: pointer; min-height: 30px; }
+.nstrip .tm { font-size: 11px; color: var(--muted-fg); flex: none; }
+.nstrip .tt { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.nstrip .sep { color: var(--faint); flex: none; }
+.nstrip .cnt { margin-left: auto; font-size: 11.5px; color: var(--primary); flex: none; padding-left: 6px; }
+.nstrip.empty { color: var(--faint); cursor: default; }
+.sc-open { display: none; padding: 2px 12px 6px; border-bottom: 1px solid var(--border); }
+.scard.open .sc-open { display: block; }
+.ph { margin: 10px 12px; border-radius: 8px; background: var(--muted); color: var(--muted-fg); font-size: 12px; display: grid; place-items: center; }
+.two { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.f.desktop .two { grid-template-columns: 1fr 1fr; }
+
+/* ── 홈 카드 ── */
+.solo { background: var(--card); border-radius: 14px; padding: 12px 16px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.solo .h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.solo .h .nm { font-size: 14px; font-weight: 700; color: var(--fg); }
+.solo .h .cd { font-size: 12px; font-weight: 400; color: var(--muted-fg); }
+.solo .h .ch { font-size: 18px; font-weight: 800; color: var(--up); }
+.solo .why { font-size: 14px; color: var(--muted-fg); line-height: 1.5; }
+.nb { border-top: 1px solid var(--border-subtle); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.nb .it { display: flex; gap: 8px; align-items: flex-start; text-decoration: none; }
+.nb .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--faint); margin-top: 8px; flex: none; }
+.nb .tx { font-size: 14px; color: var(--fg); line-height: 1.45; }
+.nb .sr { display: block; font-size: 12px; color: var(--muted-fg); margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<div id="nav">
+  <div class="g"><span class="l">자리</span>
+    <button data-k="sec" data-v="list" class="on">① 종목 뉴스 목록</button>
+    <button data-k="sec" data-v="brk">② 작업대 돌파</button>
+    <button data-k="sec" data-v="lc">③ 상따 카드</button>
+    <button data-k="sec" data-v="home">④ 홈</button>
+  </div>
+  <div class="g" id="g-var"><span class="l">모양</span>
+    <button data-k="variant" data-v="A" class="on">A 한 목록에 섞기</button>
+    <button data-k="variant" data-v="B">B 걸러 보기 칩</button>
+    <button data-k="variant" data-v="C">C 공시 따로 위에</button>
+  </div>
+  <div class="g"><span class="l">화면</span>
+    <button data-k="frame" data-v="phone" class="on">폰</button>
+    <button data-k="frame" data-v="desktop">PC</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-k="theme" data-v="light" class="on">라이트</button>
+    <button data-k="theme" data-v="dark">다크</button>
+  </div>
+  <div id="desc"></div>
+</div>
+
+<div id="stage">
+<div class="f phone" id="frame">
+<div class="main">
+
+<!-- ═════════ ① 종목 뉴스 목록 ═════════ -->
+<section class="sec on" data-sec="list">
+
+  <!-- A -->
+  <div class="var on" data-var="A">
+    <div class="card">
+      <div class="card-h"><h2>관련 뉴스·공시</h2><span class="sp"></span><span class="icon-btn">↻</span></div>
+      <ul class="nl">
+        <li class="ni"><a class="t" href="#"><span class="bd n">뉴스</span>가람전자, 280억 규모 검사장비 공급계약 체결<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">15:16</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd d">공시</span>(주)가람전자 단일판매ㆍ공급계약체결<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">15:15</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd n">뉴스</span>[특징주] 가람전자, 온디바이스 AI 수혜 기대에 강세<span class="sub">△△뉴스</span></span><span class="src">△△뉴스</span><time class="mono">13:40</time></li>
+        <li class="ni"><a class="t" href="#"><span class="bd n">뉴스</span>가람전자, 온디바이스 AI 검사장비 고객사 확대<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">09:12</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd d">공시</span>(주)가람전자 주식등의대량보유상황보고서(일반)<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">11/10</time></li>
+      </ul>
+      <span class="more">전체 보기 →</span>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="var" data-var="B">
+    <div class="card">
+      <div class="card-h"><h2>관련 뉴스·공시</h2><span class="sp"></span><span class="icon-btn">↻</span></div>
+      <div class="chips"><span class="chip-f on">전체<span class="c">5</span></span><span class="chip-f">공시<span class="c">2</span></span><span class="chip-f">뉴스<span class="c">3</span></span></div>
+      <ul class="nl">
+        <li class="ni"><a class="t" href="#"><span class="bd n">뉴스</span>가람전자, 280억 규모 검사장비 공급계약 체결<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">15:16</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd d">공시</span>(주)가람전자 단일판매ㆍ공급계약체결<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">15:15</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd n">뉴스</span>[특징주] 가람전자, 온디바이스 AI 수혜 기대에 강세<span class="sub">△△뉴스</span></span><span class="src">△△뉴스</span><time class="mono">13:40</time></li>
+        <li class="ni"><a class="t" href="#"><span class="bd n">뉴스</span>가람전자, 온디바이스 AI 검사장비 고객사 확대<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">09:12</time></li>
+        <li class="ni"><span class="t nolink"><span class="bd d">공시</span>(주)가람전자 주식등의대량보유상황보고서(일반)<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">11/10</time></li>
+      </ul>
+      <span class="more">전체 보기 →</span>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="var" data-var="C">
+    <div class="card">
+      <div class="card-h"><h2>공시</h2><span class="sp"></span></div>
+      <ul class="nl">
+        <li class="ni"><span class="t nolink">(주)가람전자 단일판매ㆍ공급계약체결<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">15:15</time></li>
+        <li class="ni"><span class="t nolink">(주)가람전자 주식등의대량보유상황보고서(일반)<span class="sub">코스닥 공시</span></span><span class="src">코스닥 공시</span><time class="mono">11/10</time></li>
+      </ul>
+      <span class="more">전체 공시 보기 →</span>
+    </div>
+    <div style="height:14px"></div>
+    <div class="card">
+      <div class="card-h"><h2>관련 뉴스</h2><span class="sp"></span><span class="icon-btn">↻</span></div>
+      <ul class="nl">
+        <li class="ni"><a class="t" href="#">가람전자, 280억 규모 검사장비 공급계약 체결<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">15:16</time></li>
+        <li class="ni"><span class="t nolink">[특징주] 가람전자, 온디바이스 AI 수혜 기대에 강세<span class="sub">△△뉴스</span></span><span class="src">△△뉴스</span><time class="mono">13:40</time></li>
+        <li class="ni"><a class="t" href="#">가람전자, 온디바이스 AI 검사장비 고객사 확대<span class="sub">○○경제 ↗</span></a><span class="src">○○경제 ↗</span><time class="mono">09:12</time></li>
+      </ul>
+      <span class="more">전체 뉴스 보기 →</span>
+    </div>
+  </div>
+
+  <div class="cap">↗ 가 붙은 줄만 누르면 원문이 열립니다. 공시와 네이버에 아직 없는 한투 뉴스는 제목만 있어 눌러도 열리지 않습니다(자료원 이름은 항상 표시).</div>
+</section>
+
+<!-- ═════════ ② 작업대 돌파 ═════════ -->
+<section class="sec" data-sec="brk">
+  <div class="panel">
+    <div class="strip">
+      <span class="lab">돌파</span>
+      <div class="chipsrow">
+        <span class="chip"><b>가람전자</b><span class="rt mono">+12.31%</span><span class="bd d mini">공</span><span class="bd n mini">뉴</span></span>
+        <span class="chip"><b>도담바이오</b><span class="rt mono">+8.12%</span><span class="bd n mini">뉴</span></span>
+        <span class="chip"><b>미르로보틱스</b><span class="rt mono">+15.87%</span><span class="bd d mini">공</span><span class="bd n mini">뉴</span></span>
+        <span class="chip"><b>새론머티리얼</b><span class="rt mono">+7.05%</span></span>
+      </div>
+      <span class="tog">접기</span>
+    </div>
+    <table class="tbl">
+      <tr><th>종목</th><th class="r">현재가</th><th class="r">등락률</th><th class="r hide-n">임계</th><th class="r hide-n">기준가</th><th class="hide-n">돌파시각</th><th></th></tr>
+      <tr class="sel"><td class="nm">가람전자<span class="bd d mini">공</span><span class="bd n mini">뉴</span></td><td class="r mono">7,480</td><td class="rt mono">+12.31%</td><td class="r mono hide-n">10%</td><td class="r mono hide-n">6,660</td><td class="mono hide-n">15:15:04</td><td class="act">카드</td></tr>
+      <tr><td class="nm">도담바이오<span class="bd n mini">뉴</span></td><td class="r mono">41,250</td><td class="rt mono">+8.12%</td><td class="r mono hide-n">7%</td><td class="r mono hide-n">38,150</td><td class="mono hide-n">15:05:10</td><td class="act">카드</td></tr>
+      <tr><td class="nm">미르로보틱스<span class="bd d mini">공</span><span class="bd n mini">뉴</span></td><td class="r mono">23,900</td><td class="rt mono">+15.87%</td><td class="r mono hide-n">15%</td><td class="r mono hide-n">20,630</td><td class="mono hide-n">14:48:27</td><td class="act">카드</td></tr>
+      <tr><td class="nm">새론머티리얼</td><td class="r mono">12,340</td><td class="rt mono">+7.05%</td><td class="r mono hide-n">7%</td><td class="r mono hide-n">11,530</td><td class="mono hide-n">14:31:09</td><td class="act">카드</td></tr>
+    </table>
+    <div class="detail">
+      <div class="detail-h">가람전자 <span>최근 3일 뉴스·공시 4건</span></div>
+      <div class="fr"><span class="tm mono">15:16</span><span class="bd n">뉴스</span><a class="tt" href="#">가람전자, 280억 규모 검사장비 공급계약 체결</a><span class="src">○○경제 ↗</span></div>
+      <div class="fr"><span class="tm mono">15:15:01</span><span class="bd d">공시</span><span class="tt">(주)가람전자 단일판매ㆍ공급계약체결</span><span class="src">코스닥 공시</span></div>
+      <div class="fr"><span class="tm mono">09:12</span><span class="bd n">뉴스</span><a class="tt" href="#">가람전자, 온디바이스 AI 검사장비 고객사 확대</a><span class="src">○○경제 ↗</span></div>
+      <div class="fr"><span class="tm mono">11/10</span><span class="bd d">공시</span><span class="tt">(주)가람전자 주식등의대량보유상황보고서(일반)</span><span class="src">코스닥 공시</span></div>
+    </div>
+  </div>
+  <div class="cap">gh-trade 돌파감지 창에서 고르신 「행에 배지 + 아래 상세」와 같은 모양입니다. 접힌 줄의 칩과 펼친 표의 종목명 옆에 「공」(공시) · 「뉴」(뉴스) 배지가 붙고, 표에서 행을 누르면 표 아래에 그 종목의 글 목록이 나옵니다. 글이 없는 종목은 배지가 없습니다.</div>
+</section>
+
+<!-- ═════════ ③ 상따 카드 ═════════ -->
+<section class="sec" data-sec="lc">
+  <div class="two">
+    <div class="scard" id="sc1">
+      <div class="sc-head"><span class="nm">가람전자</span><span class="cd mono">012340</span><span class="px mono">7,480 +12.31%</span></div>
+      <div class="nstrip" id="ns1">
+        <span class="bd d">공시</span><span class="tm mono">15:15:01</span><span class="tt">단일판매ㆍ공급계약체결</span>
+        <span class="sep">|</span>
+        <span class="bd n">뉴스</span><span class="tm mono">15:16</span><span class="tt">가람전자, 280억 규모 검사장비 공급계약 체결</span>
+        <span class="cnt">4건 ▾</span>
+      </div>
+      <div class="sc-open">
+        <div class="fr"><span class="tm mono">15:16</span><span class="bd n">뉴스</span><a class="tt" href="#">가람전자, 280억 규모 검사장비 공급계약 체결</a><span class="src">○○경제 ↗</span></div>
+        <div class="fr"><span class="tm mono">15:15:01</span><span class="bd d">공시</span><span class="tt">(주)가람전자 단일판매ㆍ공급계약체결</span><span class="src">코스닥 공시</span></div>
+        <div class="fr"><span class="tm mono">09:12</span><span class="bd n">뉴스</span><a class="tt" href="#">가람전자, 온디바이스 AI 검사장비 고객사 확대</a><span class="src">○○경제 ↗</span></div>
+        <div class="fr"><span class="tm mono">11/10</span><span class="bd d">공시</span><span class="tt">(주)가람전자 주식등의대량보유상황보고서(일반)</span><span class="src">코스닥 공시</span></div>
+      </div>
+      <div class="ph" style="height:150px">호가창</div>
+      <div class="ph" style="height:110px">매수 · 매도 전략 설정</div>
+    </div>
+    <div class="scard">
+      <div class="sc-head"><span class="nm">새론머티리얼</span><span class="cd mono">045670</span><span class="px mono">12,340 +7.05%</span></div>
+      <div class="nstrip empty">최근 3일 뉴스·공시 없음</div>
+      <div class="ph" style="height:150px">호가창</div>
+      <div class="ph" style="height:110px">매수 · 매도 전략 설정</div>
+    </div>
+  </div>
+  <div class="cap">gh-trade 상따창에서 고르신 「종목 줄 아래 한 줄 띠」와 같은 모양입니다. 가장 최근 공시 1건과 뉴스 1건을 한 줄에 보이고, 띠를 누르면 최근 3일 글 전부가 아래로 펼쳐집니다(왼쪽 카드의 띠를 눌러 보세요). 글이 없으면 오른쪽 카드처럼 빈 줄입니다.</div>
+</section>
+
+<!-- ═════════ ④ 홈 ═════════ -->
+<section class="sec" data-sec="home">
+  <div class="solo">
+    <div class="h"><span class="nm">가람전자 <span class="cd mono">012340</span></span><span class="ch mono">+12.31%</span></div>
+    <div class="why">280억 규모 검사장비 공급계약 체결 공시(15:15)로 급등. 온디바이스 AI 검사장비 고객사 확대 기대도 반영.</div>
+    <div class="nb">
+      <span class="it"><span class="dot"></span><span class="tx"><span class="bd d" style="margin-right:6px">공시</span>(주)가람전자 단일판매ㆍ공급계약체결<span class="sr">코스닥 공시 · 15:15</span></span></span>
+      <a class="it" href="#"><span class="dot"></span><span class="tx">가람전자, 280억 규모 검사장비 공급계약 체결<span class="sr">○○경제 ↗</span></span></a>
+    </div>
+  </div>
+  <div class="cap">홈의 급등 이유를 AI 가 정리할 때 공시·한투 뉴스도 함께 읽습니다. 요약 문장에 공시 내용이 반영되고, 근거 목록에 공시가 「공시」 배지와 자료원 이름으로 나옵니다(공시는 원문 링크가 없어 눌러도 열리지 않음).</div>
+</section>
+
+</div>
+</div>
+</div>
+
+<script>
+var state = { sec: 'list', variant: 'A', frame: 'phone', theme: 'light' };
+var DESC = {
+  list: {
+    A: '<b>A 한 목록에 섞기</b> — 지금의 「관련 뉴스」 목록에 공시와 한투 뉴스가 시간순으로 섞여 들어가고, 줄 앞에 「공시」/「뉴스」 배지가 붙습니다. gh-trade 상세 패널과 같은 읽는 법.',
+    B: '<b>B 걸러 보기 칩</b> — A 와 같은 섞인 목록 위에 「전체 · 공시 · 뉴스」 칩이 있어 한 종류만 골라 볼 수 있습니다.',
+    C: '<b>C 공시 따로 위에</b> — 「공시」 묶음을 위에 따로 두고 뉴스 목록은 지금 그대로 아래에. 공시가 뉴스에 밀려 내려가지 않지만 화면이 길어집니다.'
+  },
+  brk: '<b>② 작업대 돌파 목록</b> — gh-trade 돌파감지 「행 배지 + 아래 상세」와 같은 모양(변형 없음 · 확인용).',
+  lc: '<b>③ 작업대 상따 카드</b> — gh-trade 상따창 「종목 줄 아래 한 줄 띠」와 같은 모양(변형 없음 · 확인용).',
+  home: '<b>④ 홈 급등 카드</b> — AI 요약의 재료로 공시가 쓰였을 때 보이는 모습(변형 없음 · 확인용).'
+};
+function render() {
+  var f = document.getElementById('frame');
+  f.className = 'f ' + state.frame + (state.theme === 'dark' ? ' dark' : '');
+  document.querySelectorAll('.sec').forEach(function (s) { s.classList.toggle('on', s.dataset.sec === state.sec); });
+  document.querySelectorAll('.var').forEach(function (v) { v.classList.toggle('on', v.dataset.var === state.variant); });
+  document.getElementById('g-var').classList.toggle('off', state.sec !== 'list');
+  document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', state[b.dataset.k] === b.dataset.v); });
+  document.getElementById('desc').innerHTML = state.sec === 'list' ? DESC.list[state.variant] : DESC[state.sec];
+}
+document.querySelectorAll('#nav button').forEach(function (b) {
+  b.addEventListener('click', function () { state[b.dataset.k] = b.dataset.v; render(); });
+});
+document.getElementById('ns1').addEventListener('click', function () {
+  var c = document.getElementById('sc1');
+  c.classList.toggle('open');
+  this.querySelector('.cnt').textContent = c.classList.contains('open') ? '4건 ▴' : '4건 ▾';
+});
+render();
+</script>
+</body>
+</html>
