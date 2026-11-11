@@ -7,6 +7,11 @@ import {
   stripHtml,
   parsePubDate,
   extractSourcePrefix,
+  mergeStockFeed,
+  stockFeedPerSource,
+  type StockFeedItem,
+  type StockFeedRpcResult,
+  type StockFeedRpcStock,
 } from "@gh-radar/shared";
 import { StockCodeParam, NewsListQuery } from "../schemas/news.js";
 import {
@@ -16,13 +21,63 @@ import {
   NaverBudgetExhausted,
   NaverUnavailable,
 } from "../errors.js";
-import { toNewsArticle, type NewsRow } from "../mappers/news.js";
 import { logger } from "../logger.js";
+
+// Phase 41 D-12 · D-14 · SC-5 — 종목 뉴스 조회 · 새로고침 응답은 한투 뉴스 · 공시 · 네이버 뉴스를 합친 `StockFeedItem[]`
+// (RPC stock_feed_by_codes · 등록 안 함 + shared mergeStockFeed). 새로고침은 여전히 네이버만 부른다(server 에 한투 클라이언트 없음).
 
 const COOLDOWN_S = 30;
 const NAVER_DAILY_BUDGET = Number(process.env.NAVER_DAILY_BUDGET ?? "24500");
-const NEWS_SELECT =
-  "id,stock_code,title,description,source,url,published_at,content_hash,summary_id,created_at";
+const DAY_MS = 86_400_000;
+/** 새로고침 응답 목록 — 7일 · 100건(Phase 7 그대로). */
+const REFRESH_LIST_DAYS = 7;
+const REFRESH_LIST_LIMIT = 100;
+
+/** RPC 결과가 계약 모양인지 — 아니면 조용히 빈 목록을 내지 않고 500 으로 드러낸다(news-by-stock 과 같은 검사). */
+function isRpcResult(data: unknown): data is StockFeedRpcResult {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return false;
+  const stocks = (data as { stocks?: unknown }).stocks;
+  if (!Array.isArray(stocks)) return false;
+  return stocks.every(
+    (s) =>
+      s !== null &&
+      typeof s === "object" &&
+      typeof (s as StockFeedRpcStock).code === "string" &&
+      Array.isArray((s as StockFeedRpcStock).kis) &&
+      Array.isArray((s as StockFeedRpcStock).naver),
+  );
+}
+
+/**
+ * 한 종목의 합친 목록(최신순 최대 limit 줄) — 종목 뉴스 조회 · 새로고침 응답이 같이 쓴다.
+ * - D-05: 종목 상세 조회는 수집 대상으로 등록하지 않는다(`p_register: false` — 등록은 묶음 조회만).
+ * - D-14: 합치기는 shared `mergeStockFeed` 하나(묶음 조회 · 홈과 같은 결과).
+ * - `before`(무한 스크롤 커서): RPC 가 출처별로 `< before` 로 거르고, 합친 뒤에도 `publishedAt < before` 만 남긴다.
+ */
+async function loadMergedFeed(
+  supabase: SupabaseClient,
+  code: string,
+  opts: { days: number; limit: number; before?: string },
+): Promise<StockFeedItem[]> {
+  const { days, limit, before } = opts;
+  const { data, error } = await supabase.rpc("stock_feed_by_codes", {
+    p_codes: [code],
+    p_since: new Date(Date.now() - days * DAY_MS).toISOString(),
+    p_per_source: stockFeedPerSource(limit),
+    p_register: false,
+    p_before: before ?? null,
+  });
+  if (error) throw error;
+  if (!isRpcResult(data)) {
+    throw new Error("stock_feed_by_codes 모양 위반 — { feed_at, stocks[] } 가 아니다");
+  }
+  const stock = data.stocks.find((s) => s.code === code);
+  if (!stock) throw new Error(`stock_feed_by_codes 모양 위반 — 요청 코드 ${code} 가 결과에 없다`);
+  const cutoff = before ? Date.parse(before) : Number.POSITIVE_INFINITY;
+  return mergeStockFeed(stock.kis, stock.naver)
+    .filter((item) => Date.parse(item.publishedAt) < cutoff)
+    .slice(0, limit);
+}
 
 function kstDateString(now = new Date()): string {
   const t = new Date(now.getTime() + 9 * 3600_000);
@@ -97,20 +152,8 @@ newsRouter.get("/", async (req, res, next) => {
     if (mErr) throw mErr;
     if (!master) throw StockNotFound(code);
 
-    // since = now - days; before 가 있으면 published_at < before 추가 (무한 스크롤 cursor, Phase 8 미러)
-    const since = new Date(Date.now() - days * 86400_000).toISOString();
-    let q = supabase
-      .from("news_articles")
-      .select(NEWS_SELECT)
-      .eq("stock_code", code)
-      .gte("published_at", since)
-      .order("published_at", { ascending: false })
-      .limit(limit);
-    if (before) q = q.lt("published_at", before);
-    const { data, error } = await q;
-    if (error) throw error;
-    const out = ((data ?? []) as NewsRow[]).map(toNewsArticle);
-    res.json(out);
+    // since = now - days · before 가 있으면 publishedAt < before (무한 스크롤 cursor, Phase 8 미러)
+    res.json(await loadMergedFeed(supabase, code, { days, limit, before }));
   } catch (e) {
     if (e instanceof z.ZodError)
       return next(InvalidQueryParam("news", e.issues[0].message));
@@ -201,18 +244,13 @@ newsRouter.post("/refresh", async (req, res, next) => {
       if (upErr) throw upErr;
     }
 
-    // 갱신된 목록 (기본 7d/100) — mapper 통과 필수
-    const since = new Date(Date.now() - 7 * 86400_000).toISOString();
-    const { data: list, error: listErr } = await supabase
-      .from("news_articles")
-      .select(NEWS_SELECT)
-      .eq("stock_code", code)
-      .gte("published_at", since)
-      .order("published_at", { ascending: false })
-      .limit(100);
-    if (listErr) throw listErr;
-    const out = ((list ?? []) as NewsRow[]).map(toNewsArticle);
-    res.json(out);
+    // 갱신된 목록 (7d/100) — 합친 목록이라 새로고침 뒤에도 공시 · 한투 뉴스가 사라지지 않는다(SC-5)
+    res.json(
+      await loadMergedFeed(supabase, code, {
+        days: REFRESH_LIST_DAYS,
+        limit: REFRESH_LIST_LIMIT,
+      }),
+    );
   } catch (e: unknown) {
     const axiosErr = e as { response?: { status?: number } };
     if (axiosErr?.response?.status === 401) {
