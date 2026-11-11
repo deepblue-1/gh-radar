@@ -23,6 +23,9 @@ describe("pressDisplayName — 언론사 표시 이름", () => {
     ["cbci", "CBC뉴스"],
     ["tfmedia", "조세금융신문"],
     ["ppss", "ㅍㅍㅅㅅ"],
+    ["finomy", "현대경제신문"],
+    ["m-economynews", "M이코노미뉴스"],
+    ["kwangju", "광주일보"],
   ])("gh-trade 확인값 %s → %s", (domain, name) => {
     expect(pressDisplayName(domain)).toBe(name);
   });
@@ -33,6 +36,10 @@ describe("pressDisplayName — 언론사 표시 이름", () => {
     expect(pressDisplayName("view")).toBe("view");
     expect(pressDisplayName("view", "https://view.example.com/a")).toBe("view");
     expect(pressDisplayName("ic", "not a url")).toBe("ic");
+    expect(pressDisplayName("it", "https://it.chosun.com/news/x")).toBe("IT조선");
+    expect(pressDisplayName("korea", "https://www.korea.kr/briefing/x")).toBe("정책브리핑");
+    expect(pressDisplayName("it")).toBe("it");
+    expect(pressDisplayName("korea")).toBe("korea");
   });
 
   it("호스트 표에 없으면 조각 표로 간다", () => {
