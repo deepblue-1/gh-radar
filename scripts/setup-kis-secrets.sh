@@ -89,9 +89,14 @@ APPKEY=""
 APPSECRET=""
 SEEN_APPKEY=0
 SEEN_APPSECRET=0
-while IFS='=' read -r line_key line_rest || [[ -n "$line_key" ]]; do
-  line_key="${line_key%$'\r'}"
-  line_rest="${line_rest%$'\r'}"
+# 한 줄을 통째로 읽고 첫 '=' 에서만 자른다. `IFS='=' read -r key rest` 는 bash 가 마지막 칸의
+# 끝 '=' 하나를 구분자로 보고 떼어 낸다 — base64 패딩('=')으로 끝나는 한투 시크릿이 한 글자 잘려
+# EGW00105(유효하지 않은 AppSecret)가 났다(2026-11-12 41-09 첫 배포).
+while IFS= read -r line_raw || [[ -n "$line_raw" ]]; do
+  line_raw="${line_raw%$'\r'}"
+  [[ "$line_raw" == *=* ]] || continue
+  line_key="${line_raw%%=*}"
+  line_rest="${line_raw#*=}"
   line_key="${line_key#export }"
   line_key="${line_key//[[:space:]]/}"
   case "$line_key" in
@@ -107,6 +112,7 @@ while IFS='=' read -r line_key line_rest || [[ -n "$line_key" ]]; do
   esac
 done < "$ENV_FILE"
 line_rest=""
+line_raw=""
 
 # 값 하나를 따옴표 한 겹 벗겨 검사 — 사유만 출력한다.
 strip_quotes() {
