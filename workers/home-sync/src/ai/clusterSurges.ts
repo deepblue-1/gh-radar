@@ -10,6 +10,7 @@ import type {
  * 슬롯 컨텍스트로 확정해 채운다 (RESEARCH §Pattern 3).
  */
 export type ClusterResult = Pick<HomeSnapshotPayload, "themes" | "singles">;
+import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "./anthropic";
 import { extractJsonObject } from "./parseJson";
 import { logger } from "../logger";
@@ -41,7 +42,21 @@ import { isRoundupNews } from "./roundup";
 // 8192 — threshold 15%(급등 ~70종목+)에서 출력 JSON(테마 + 종목별 한국어 reason)이 2048 을
 // 초과해 응답이 잘리고(stop_reason=max_tokens) 파싱 실패 → 빈 payload 로 저장되는 사고가
 // 있었다(2026-07-02). max_tokens 는 상한일 뿐 정상 응답 비용은 동일.
-const CLUSTER_MAX_TOKENS = 8192;
+// Haiku 5.5 는 생각(thinking)이 기본으로 켜져 있고 생각 토큰도 max_tokens 안에 든다 — 출력 JSON 8192 에
+// 생각 몫을 더해 16000. 상한일 뿐 정상 응답 비용은 실제 토큰만큼이다.
+const CLUSTER_MAX_TOKENS = 16000;
+
+/**
+ * Haiku 5.5 `output_config.effort` — 4.5 는 생각 없이 돌았으므로 가장 낮은 `low` 로 시작한다(생각을 줄이는 손잡이는
+ * effort 이고 `thinking: disabled` 가 아니다). 4.5 의 `temperature: 0` 은 5.5 에서 400 이라 뺐다 — 형식은 프롬프트의
+ * JSON only 지시 + parseClusterResponse 가 지킨다.
+ */
+const CLUSTER_EFFORT = "low" as const;
+
+/** SDK 0.65 타입에 `output_config` 가 없다 — 이 파일 한 곳에서만 넓힌다(server diagnosis-specialist 와 같은 꼴). */
+type ClusterCreateParams = Anthropic.MessageCreateParamsNonStreaming & {
+  output_config: { effort: typeof CLUSTER_EFFORT };
+};
 
 /** Claude 응답 원시 테마 (인덱스만). */
 interface RawTheme {
@@ -504,16 +519,17 @@ export async function clusterSurges(
   let raw: { themes: RawTheme[]; singles: RawSingle[] };
   try {
     const client = getAnthropicClient();
-    const res = await client.messages.create({
+    const params: ClusterCreateParams = {
       model: cfg.classifyModel,
       max_tokens: CLUSTER_MAX_TOKENS,
-      temperature: 0,
+      output_config: { effort: CLUSTER_EFFORT },
       system: CLUSTER_SYSTEM_PROMPT,
       messages: [
         ...buildClusterFewShot(),
         { role: "user", content: message },
       ],
-    });
+    };
+    const res = await client.messages.create(params as Anthropic.MessageCreateParamsNonStreaming);
     const first = res.content.find((c) => c.type === "text");
     const text = first && first.type === "text" ? first.text.trim() : "";
     // 조용한 실패 금지 — 잘림(max_tokens)/파싱 실패는 빈 스냅샷 사고로 직결되므로 반드시 로깅.

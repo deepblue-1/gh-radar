@@ -16,7 +16,7 @@ export interface HomeSyncConfig {
   supabaseServiceRoleKey: string;
   /** Claude Haiku 호출 (클러스터링 활성 시 필수). 부재 시 anthropic.ts 가 throw → 다음 cycle 재시도. */
   anthropicApiKey: string;
-  /** "claude-haiku-4-5" 고정 (env override 는 테스트 안전망). */
+  /** "claude-haiku-5-5" 고정 (env override 는 테스트 안전망). 4.5 → 5.5 전환: 2026-11-12. */
   classifyModel: string;
   /** 급등 임계값 % (기본 20 고정) — 이 값 이상 등락 종목만 클러스터링 입력. */
   surgeThreshold: number;
@@ -41,7 +41,7 @@ export function loadConfig(): HomeSyncConfig {
     // Claude Haiku — ANTHROPIC_API_KEY 부재 시에도 config 로드는 동작하도록 옵셔널 get() + default ''.
     // 실제 클러스터링 호출 시 anthropic.ts 가 throw (getAnthropicClient).
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
-    classifyModel: process.env.HOME_SYNC_MODEL ?? "claude-haiku-4-5",
+    classifyModel: process.env.HOME_SYNC_MODEL ?? "claude-haiku-5-5",
     surgeThreshold: Number(process.env.HOME_SYNC_SURGE_THRESHOLD ?? "15"),
     newsPerStock: Number(process.env.HOME_SYNC_NEWS_PER_STOCK ?? "5"),
     surgeMax: Number(process.env.HOME_SYNC_SURGE_MAX ?? "120"),

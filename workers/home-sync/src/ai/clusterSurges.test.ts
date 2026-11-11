@@ -697,6 +697,20 @@ describe("clusterSurges", () => {
     expect(userMsg).toContain("- 사료: 002140 종목-002140, 002680 종목-002680");
   });
 
+  it("Haiku 5.5 요청 모양 — temperature 없음(5.5 에서 400) · effort low · 생각 몫을 더한 max_tokens", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse('{"themes":[],"singles":[]}'),
+    );
+    await clusterSurges([surge("005930", 25, ["n0"])], { ...cfg(), classifyModel: "claude-haiku-5-5" });
+    const arg = hoist.mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.model).toBe("claude-haiku-5-5");
+    expect(arg).not.toHaveProperty("temperature");
+    expect(arg).not.toHaveProperty("top_p");
+    expect(arg).not.toHaveProperty("thinking");
+    expect(arg.output_config).toEqual({ effort: "low" });
+    expect(arg.max_tokens).toBe(16000);
+  });
+
   it("themeHints 기본값(미전달) → 참고 섹션 없이 기존 동작 (하위호환)", async () => {
     hoist.mockCreate.mockResolvedValue(
       textResponse('{"themes":[],"singles":[]}'),

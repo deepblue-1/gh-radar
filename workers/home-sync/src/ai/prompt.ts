@@ -22,7 +22,7 @@ const DESC_SNIPPET_MAX = 120;
  * **인덱스만** 반환하고 (URL/제목 생성 금지), 워커가 인덱스→verbatim news_articles 로 해석한다.
  * stockCodes 도 입력 code 만 허용 — 그 외는 워커가 drop (demoteInvalidThemes).
  *
- * temperature=0 + JSON only. discover/correct 프롬프트(theme-sync)의 few-shot 구조 계승.
+ * JSON only(Haiku 5.5 는 temperature 를 받지 않는다 — 형식은 이 지시 + parseClusterResponse 가 지킨다). discover/correct 프롬프트(theme-sync)의 few-shot 구조 계승.
  */
 
 export const CLUSTER_SYSTEM_PROMPT = `너는 한국 주식 시장의 "오늘의 급등 테마" 분석가다. 오늘 크게 오른 종목 목록과 각 종목의 관련 뉴스가 주어진다. 이들을 아래로부터(bottom-up) 묶어 오늘의 주도 테마를 발견한다.
