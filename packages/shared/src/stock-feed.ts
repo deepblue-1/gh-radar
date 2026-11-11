@@ -165,7 +165,7 @@ function naverItem(r: StockFeedRpcNaverRow): StockFeedItem {
     kind: "news",
     publishedAt: toKstOffsetIso(r.published_at),
     title: r.title,
-    source: r.source != null && r.source.trim() !== "" ? pressDisplayName(r.source) : NAVER_SOURCE_FALLBACK,
+    source: r.source != null && r.source.trim() !== "" ? pressDisplayName(r.source, r.url) : NAVER_SOURCE_FALLBACK,
     stockCodes: [],
     url: r.url,
     description: r.description,

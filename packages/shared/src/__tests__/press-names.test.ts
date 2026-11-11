@@ -18,6 +18,27 @@ describe("pressDisplayName — 언론사 표시 이름", () => {
     expect(pressDisplayName(domain)).toBe(name);
   });
 
+  it.each([
+    ["kjdaily", "광주매일신문"],
+    ["cbci", "CBC뉴스"],
+    ["tfmedia", "조세금융신문"],
+    ["ppss", "ㅍㅍㅅㅅ"],
+  ])("gh-trade 확인값 %s → %s", (domain, name) => {
+    expect(pressDisplayName(domain)).toBe(name);
+  });
+
+  it("서브도메인 조각은 원문 호스트로만 맞춘다 — 조각만으로는 그대로", () => {
+    expect(pressDisplayName("view", "https://view.asiae.co.kr/article/2026111200001")).toBe("아시아경제");
+    expect(pressDisplayName("ic", "https://ic.newdaily.co.kr/site/data/html/2026/11/12/x.html")).toBe("뉴데일리");
+    expect(pressDisplayName("view")).toBe("view");
+    expect(pressDisplayName("view", "https://view.example.com/a")).toBe("view");
+    expect(pressDisplayName("ic", "not a url")).toBe("ic");
+  });
+
+  it("호스트 표에 없으면 조각 표로 간다", () => {
+    expect(pressDisplayName("chosun", "https://www.chosun.com/economy/x")).toBe("조선일보");
+  });
+
   it("도메인 조각은 대소문자 · 앞뒤 공백과 무관하다", () => {
     expect(pressDisplayName(" Chosun ")).toBe("조선일보");
   });

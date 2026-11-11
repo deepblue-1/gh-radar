@@ -250,6 +250,22 @@ const NAVER_DOMAIN_NAMES: Readonly<Record<string, string>> = {
   ddanzi: "딴지일보",
   youngnong: "한국영농신문",
   kpinews: "KPI뉴스",
+  // gh-trade 확인값(기사 url 의 사이트 제목 · og:site_name, 2026-11-12)
+  kjdaily: "광주매일신문",
+  cbci: "CBC뉴스",
+  tfmedia: "조세금융신문",
+  livesnews: "라이브뉴스",
+  consumernews: "소비자가 만드는 신문",
+  ppss: "ㅍㅍㅅㅅ",
+};
+
+/**
+ * 원문 주소 호스트 전체 → 이름. 서브도메인 조각(`view` · `ic` …)은 조각만으로는 어느 사이트인지 모호해서
+ * 조각 표에 넣지 않고 호스트로만 맞춘다(`view.*` · `ic.*` 가 다른 사이트일 수 있다).
+ */
+const HOST_NAMES: Readonly<Record<string, string>> = {
+  "view.asiae.co.kr": "아시아경제",
+  "ic.newdaily.co.kr": "뉴데일리",
 };
 
 /** 한투 `dorg` 표기 흔들림 → 한 가지 이름. 네이버 쪽 한글 값(합쳐진 줄)도 같은 표를 탄다. */
@@ -260,8 +276,22 @@ const KOREAN_NAME_ALIASES: Readonly<Record<string, string>> = {
   조선경제i: "조선비즈",
 };
 
-/** `source` 를 표시 이름으로. 표에 없으면 받은 값 그대로(앞뒤 공백만 걷음). */
-export function pressDisplayName(source: string): string {
+function hostOf(url: string | null | undefined): string | null {
+  if (url == null || url === "") return null;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `source` 를 표시 이름으로. 원문 주소(`url`)가 있으면 호스트 표를 먼저 본다.
+ * 표에 없으면 받은 값 그대로(앞뒤 공백만 걷음).
+ */
+export function pressDisplayName(source: string, url?: string | null): string {
+  const host = hostOf(url);
+  if (host !== null && Object.hasOwn(HOST_NAMES, host)) return HOST_NAMES[host]!;
   const s = source.trim();
   const key = s.toLowerCase();
   // hasOwn — 「constructor」 같은 값이 Object.prototype 멤버로 새지 않게.
