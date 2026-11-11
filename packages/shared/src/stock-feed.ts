@@ -16,6 +16,8 @@
  * - 정렬: publishedAt 내림차순 · 같은 시각이면 공시 먼저 · 그다음 id 오름차순(결정적).
  */
 
+import { pressDisplayName } from "./press-names";
+
 /** 줄 종류 — 공시(한투 제공업체 F · G) 또는 뉴스(한투 언론사 · 네이버). */
 export type StockFeedKind = "news" | "disclosure";
 
@@ -149,7 +151,7 @@ function kisItem(r: StockFeedRpcKisRow): StockFeedItem {
     kind: r.kind,
     publishedAt: toKstOffsetIso(r.written_at),
     title: r.title,
-    source: r.source,
+    source: pressDisplayName(r.source),
     stockCodes: r.codes,
     url: null,
     description: null,
@@ -163,7 +165,7 @@ function naverItem(r: StockFeedRpcNaverRow): StockFeedItem {
     kind: "news",
     publishedAt: toKstOffsetIso(r.published_at),
     title: r.title,
-    source: r.source != null && r.source.trim() !== "" ? r.source : NAVER_SOURCE_FALLBACK,
+    source: r.source != null && r.source.trim() !== "" ? pressDisplayName(r.source) : NAVER_SOURCE_FALLBACK,
     stockCodes: [],
     url: r.url,
     description: r.description,
