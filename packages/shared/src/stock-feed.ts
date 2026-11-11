@@ -7,7 +7,13 @@
  *   한 줄로 만드는 규칙은 이 파일의 `mergeStockFeed` 하나뿐이다.
  * - D-20: 모든 줄에 `source` 가 비지 않는다 — 네이버 출처가 없으면 `NAVER_SOURCE_FALLBACK`.
  *
- * 현재 합치기 규칙: 한투 · 네이버 행을 각각 한 줄로 바꿔 publishedAt 내림차순(같으면 공시 먼저 · 그다음 id)으로 정렬한다.
+ * 합치기 규칙(D-12 · D-14 · 리서치 뒤 확정 「앞부분 일치」):
+ * - 같은 기사 = 같은 종목 안의 한투 1건 ↔ 네이버 1건 · 작성 시각 차 12시간 이내 · 정규화 키(`newsTitleKey`)가 같거나
+ *   짧은 쪽 키가 15자 이상이고 긴 쪽 키의 앞부분(`isSameArticle`).
+ * - 합친 줄: 시각은 이른 쪽 · url · 요약문은 네이버 · 자료원 · kind · 종목은 한투 · id 는 먼저 받은 쪽
+ *   (네이버 링크가 늦게 붙어도 id 불변 — 새 글 강조 오작동 방지).
+ * - 「(정정)」 공시는 원 공시와 다른 줄 · 한투끼리 · 네이버끼리는 합치지 않는다.
+ * - 정렬: publishedAt 내림차순 · 같은 시각이면 공시 먼저 · 그다음 id 오름차순(결정적).
  */
 
 /** 줄 종류 — 공시(한투 제공업체 F · G) 또는 뉴스(한투 언론사 · 네이버). */
@@ -172,8 +178,65 @@ function compareFeedItems(a: StockFeedItem, b: StockFeedItem): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** 한 종목의 한투 · 네이버 원 행 → 응답 줄(최신순). */
+/** 같은 기사 판정 입력 — 정규화 키(`newsTitleKey`) · 작성 시각(epoch ms). */
+export interface SameArticleProbe {
+  key: string;
+  at: number;
+}
+
+/**
+ * 같은 기사인가(같은 종목 문맥에서 · D-12 · 리서치 뒤 확정).
+ * 작성 시각 차가 SAME_ARTICLE_WINDOW_MS(12시간) 이내이고, 키가 같거나 짧은 쪽 키가 TITLE_PREFIX_MIN_CHARS(15자) 이상이며
+ * 긴 쪽 키의 앞부분일 때(한투 제목은 길이 상한에서 잘린다). 시각 창은 키가 같을 때도 적용한다 — 매일 같은 제목
+ * (「[표] 외국인 순매수 상위」)이 다른 날 기사와 합쳐지지 않게. 빈 키는 어떤 것과도 같지 않다.
+ */
+export function isSameArticle(a: SameArticleProbe, b: SameArticleProbe): boolean {
+  if (a.key === "" || b.key === "") return false;
+  if (Math.abs(a.at - b.at) > SAME_ARTICLE_WINDOW_MS) return false;
+  if (a.key === b.key) return true;
+  const [short, long] = a.key.length <= b.key.length ? [a.key, b.key] : [b.key, a.key];
+  return Array.from(short).length >= TITLE_PREFIX_MIN_CHARS && long.startsWith(short);
+}
+
+/** 한투 · 네이버가 같은 기사인 한 줄 — 시각 이른 쪽 · url · 요약문 네이버 · 자료원 · kind · 종목 한투 · id 는 먼저 받은 쪽. */
+function mergedItem(k: StockFeedItem, n: StockFeedItem): StockFeedItem {
+  const first = k.receivedAt <= n.receivedAt ? k : n; // 같으면 한투(먼저 받은 쪽이 바뀌지 않게)
+  return {
+    id: first.id,
+    kind: k.kind,
+    publishedAt: k.publishedAt <= n.publishedAt ? k.publishedAt : n.publishedAt,
+    title: k.title,
+    source: k.source,
+    stockCodes: k.stockCodes,
+    url: n.url,
+    description: n.description,
+    receivedAt: first.receivedAt,
+  };
+}
+
+/**
+ * 한 종목의 한투 · 네이버 원 행 → 응답 줄(최신순 · D-12 · D-14).
+ * 네이버 행마다 아직 짝이 없는 한투 행 중 첫 번째 같은 기사(한투는 작성 시각 내림차순으로 훑는다)와 한 줄로 합친다 —
+ * 네이버 1건은 한투 1건과만. 한투끼리 · 네이버끼리는 합치지 않는다(같은 날 수정본은 DB 가 이미 합쳤다).
+ * 「(정정)」 공시는 정규화 키가 원 공시와 달라 별개 줄로 남는다.
+ */
 export function mergeStockFeed(kis: StockFeedRpcKisRow[], naver: StockFeedRpcNaverRow[]): StockFeedItem[] {
-  const out: StockFeedItem[] = [...kis.map(kisItem), ...naver.map(naverItem)];
+  // 키는 줄마다 한 번만 계산한다(정규식 반복 비용). 한투는 DB 가 준 title_key 를 그대로 쓴다.
+  const kisRows = kis
+    .map((r) => ({ item: kisItem(r), probe: { key: r.title_key, at: Date.parse(r.written_at) }, paired: false }))
+    .sort((a, b) => b.probe.at - a.probe.at);
+  const out: StockFeedItem[] = [];
+  for (const r of naver) {
+    const item = naverItem(r);
+    const probe = { key: newsTitleKey(r.title), at: Date.parse(r.published_at) };
+    const mate = kisRows.find((k) => !k.paired && isSameArticle(k.probe, probe));
+    if (mate === undefined) {
+      out.push(item);
+      continue;
+    }
+    mate.paired = true;
+    mate.item = mergedItem(mate.item, item);
+  }
+  for (const k of kisRows) out.push(k.item);
   return out.sort(compareFeedItems);
 }
