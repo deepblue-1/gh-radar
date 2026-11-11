@@ -55,6 +55,7 @@
  *   모름」 잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다.
  *   숨은 본문의 호가 · 테이프는 접힌 동안(price 구독) 가격 섹션이 바뀐 59 에 실린 값으로만 움직인다.
  *   펼치면 full 승격 + relay 승격 스냅샷(같은 quick — 캐시 q 를 tape 보다 먼저)으로 즉시 채워진다.
+ *   Phase 41 D-18 — 펼친 카드의 종목 줄 아래 뉴스·공시 띠(작업대 공급자에서 읽음 · `CardNewsStrip` · 헤더 바로 뒤 · 본문 밖).
  *
  * ⑥ ★ 자동매도 바로시작 · 중지(41 `autosell.cmd` — Phase 27 D-05 ~ D-09)
  *   `lc.arm` in-flight 의 복제지만 **해제 조건이 다르다.** 확인창 없이 1건 보내고(D-06) 낙관 색을 칠하지
@@ -100,6 +101,7 @@ import type {
 
 import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
+import { CardNewsStrip } from "@/components/trading/card/card-news-strip";
 import { DirtyBarHostContext } from "@/components/trading/dirty-action-bar";
 import { LC_ORPHAN_WAIT_MS } from "@/components/trading/lc/use-lc-field-commit";
 import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-tabs";
@@ -1208,6 +1210,11 @@ function StrategyCardImpl({
         unfilledCount={slice.unfilled.length}
         holdingQty={slice.holding?.qty ?? null}
       />
+      {/*
+        Phase 41 D-18 — 펼친 카드의 종목 줄 아래 뉴스·공시 띠(작업대 공급자에서 읽음 · 새 props 없음 — `memo` 비교 불변).
+        본문 `hidden` 영역 · 더티 바 호스트 문맥 밖이다 — 띠는 전략 폼과 무관하다. 접힌 카드는 머리줄만.
+      */}
+      {open && code ? <CardNewsStrip code={code} stockName={displayName} /> : null}
       {/*
         ★ 접힌 카드는 헤더만 **보인다**(D-11) — 한 번 펼친 본문은 숨김으로 남아 더티 값·「결과 모름」
           잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다. 영역
