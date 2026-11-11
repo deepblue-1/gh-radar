@@ -109,7 +109,7 @@ vi.mock('@/components/stock/discussion-full-list', () => ({
   DiscussionFullList: fullListStub('discussions'),
 }));
 vi.mock('@/components/stock/stock-news-section', () => ({
-  StockNewsSection: stub('news', 'news', '전체 뉴스 보기'),
+  StockNewsSection: stub('news', 'news', '전체 보기'),
 }));
 vi.mock('@/components/stock/stock-discussion-section', () => ({
   StockDiscussionSection: stub('discussion', 'discussion', '전체 토론 보기'),
@@ -373,11 +373,11 @@ describe('StockInfoModal — 팝업 안 전체목록 (D-29 · G-21-R3-8 · T-21-
     expect(window.location.href).toBe(href);
   };
 
-  it('「전체 뉴스 보기」 → 팝업 안 NewsFullList · 요약 섹션은 보이지 않는다', async () => {
+  it('「전체 보기」(뉴스·공시) → 팝업 안 NewsFullList · 요약 섹션은 보이지 않는다', async () => {
     const user = userEvent.setup();
     render(<Card code="196170" />);
     const dialog = await openNewsTab(user);
-    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 보기' }));
 
     expect(within(dialog).getByTestId('full-news')).toHaveTextContent('full-news:196170');
     expect(within(dialog).getByTestId('stub-news')).not.toBeVisible();
@@ -389,7 +389,7 @@ describe('StockInfoModal — 팝업 안 전체목록 (D-29 · G-21-R3-8 · T-21-
     const user = userEvent.setup();
     render(<Card code="196170" />);
     const dialog = await openNewsTab(user);
-    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 보기' }));
     expect(within(dialog).getByTestId('full-news')).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
@@ -406,7 +406,7 @@ describe('StockInfoModal — 팝업 안 전체목록 (D-29 · G-21-R3-8 · T-21-
     render(<Card code="196170" />);
     const dialog = await openNewsTab(user);
 
-    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 보기' }));
     await user.click(within(dialog).getByRole('button', { name: '요약으로 돌아가기' }));
     expect(within(dialog).queryByTestId('full-news')).toBeNull();
     expect(within(dialog).getByTestId('stub-discussion')).toBeVisible();
@@ -429,11 +429,11 @@ describe('StockInfoModal — 팝업 안 전체목록 (D-29 · G-21-R3-8 · T-21-
     render(<Card code="196170" />);
     const spies = historySpies();
     const dialog = await openNewsTab(user);
-    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 보기' }));
     await user.click(within(dialog).getByRole('button', { name: '요약으로 돌아가기' }));
     await user.click(within(dialog).getByRole('button', { name: '전체 토론 보기' }));
     await user.keyboard('{Escape}');
-    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 보기' }));
     // 전체목록인 채로 ✕ 로 닫는다 → 다시 열면 요약(전체목록 상태가 남지 않는다).
     await user.click(within(dialog).getByRole('button', { name: '닫기' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

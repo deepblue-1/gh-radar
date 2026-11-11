@@ -14,12 +14,15 @@ import { NewsEmptyState } from './news-empty-state';
 import { NewsListSkeleton } from './news-list-skeleton';
 
 /**
- * StockNewsSection — Phase 07 NEWS-01(1)(2) — 종목 상세 페이지 "관련 뉴스" Card.
+ * StockNewsSection — Phase 07 NEWS-01(1)(2) — 종목 상세 페이지 "관련 뉴스·공시" Card.
+ *
+ * Phase 41 D-16(목업 ① A): 한투 뉴스·공시와 네이버 뉴스를 한 목록에 섞고 줄 앞 「공시」/「뉴스」 배지로 구분한다
+ * (`NewsItem`). 걸러 보기 칩 · 공시 따로 묶음은 두지 않는다(D-16 기각안). 새로고침 버튼은 네이버 뉴스만 새로 받는다.
  *
  * 구성:
  *  - mount 시 `fetchStockNews(code, { days: 7, limit: 5 })`
  *  - 수동 새로고침 버튼 (`refreshStockNews`) — 30s 로컬 쿨다운 + 서버 429 시 `retry_after_seconds` 우선 적용
- *  - 상태: 초기 로딩 → Skeleton / 초기 에러 → 재시도 Card / 빈 배열 → NewsEmptyState / 정상 → 5건 리스트 + "전체 뉴스 보기 →"
+ *  - 상태: 초기 로딩 → Skeleton / 초기 에러 → 재시도 Card / 빈 배열 → NewsEmptyState / 정상 → 5건 리스트 + "전체 보기 →"
  *
  * 쿨다운 카운트다운:
  *  - `cooldownUntil` (Date.now() 기준 timestamp) 가 현재보다 미래이면 `setInterval(1s)` 로 `nowMs` 를 갱신.
@@ -42,7 +45,7 @@ const CARD_FETCH_LIMIT = 5;
 export interface StockNewsSectionProps {
   stockCode: string;
   /**
-   * Phase 21 D-29 — 있으면 「전체 뉴스 보기」가 페이지 이동 Link 대신 같은 자리 전체목록을 여는
+   * Phase 21 D-29 — 있으면 「전체 보기」가 페이지 이동 Link 대신 같은 자리 전체목록을 여는
    * 버튼이 된다(종목상세 탭 안 · 트레이딩 ⓘ 팝업). 없으면 기존 Link.
    */
   onShowAll?: () => void;
@@ -147,7 +150,7 @@ export function StockNewsSection({ stockCode, onShowAll }: StockNewsSectionProps
         data-testid="stock-news-section-error"
       >
         <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[var(--destructive)]">
-          뉴스를 불러오지 못했어요
+          뉴스·공시를 불러오지 못했어요
         </h2>
         <p className="mt-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
           {error.message}
@@ -167,7 +170,7 @@ export function StockNewsSection({ stockCode, onShowAll }: StockNewsSectionProps
         data-testid="stock-news-section-loading"
       >
         <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
-          <Newspaper className="size-5" aria-hidden /> 관련 뉴스
+          <Newspaper className="size-5" aria-hidden /> 관련 뉴스·공시
         </h2>
         <NewsListSkeleton rows={5} />
       </section>
@@ -194,7 +197,7 @@ export function StockNewsSection({ stockCode, onShowAll }: StockNewsSectionProps
     >
       <header className="flex items-center justify-between gap-3 mb-4">
         <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
-          <Newspaper className="size-5" aria-hidden /> 관련 뉴스
+          <Newspaper className="size-5" aria-hidden /> 관련 뉴스·공시
         </h2>
         <NewsRefreshButton
           onRefresh={() => void handleRefresh()}
@@ -219,14 +222,14 @@ export function StockNewsSection({ stockCode, onShowAll }: StockNewsSectionProps
       <footer className="mt-3 border-t border-[var(--border-subtle)] pt-3 flex items-center justify-between">
         {onShowAll ? (
           <button type="button" onClick={onShowAll} className={SHOW_ALL_CLASS}>
-            전체 뉴스 보기 →
+            전체 보기 →
           </button>
         ) : (
           <Link
             href={`/stocks/${encodeURIComponent(stockCode)}/news`}
             className={SHOW_ALL_CLASS}
           >
-            전체 뉴스 보기 →
+            전체 보기 →
           </Link>
         )}
         <span className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
