@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { RelayQuote, RelayRateCrossItem } from '@gh-radar/shared';
+import type { RelayQuote, RelayRateCrossItem, StockFeedEntry, StockFeedItem } from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 08 Task 1 — 돌파감지 스트립 + 「더보기」 7열 표 (TRADE-06 · D-07 / D-14 ~ D-18 · UI-SPEC E4).
@@ -68,6 +68,7 @@ import {
   breakoutDismissLabel,
   type BreakoutStripProps,
 } from '../workbench/breakout-strip';
+import { StockFeedEntriesContext } from '../feed/stock-feed-context';
 
 const T0 = Date.UTC(2026, 8, 22, 0, 41, 31);
 
@@ -309,21 +310,23 @@ describe('BreakoutStrip — 클릭 → 카드 (D-07)', () => {
     expect(onAddCard).toHaveBeenNthCalledWith(2, A.isin, '씨젠', '096530', 'NXT');
   });
 
-  it('표의 행 클릭과 「거래 추가」 버튼도 onAddCard 1회씩이다', () => {
-    const { onAddCard } = setup({ items: [A] });
+  // Phase 41 D-17 — 행 클릭은 「선택 → 표 아래 뉴스·공시」 로 바뀌었다. 카드는 「추가」 버튼 · 칩이 맡는다.
+  it('행 클릭은 카드를 열지 않는다 — 「추가」 버튼은 카드를 연다(onAddCard 1회)', () => {
+    const { onAddCard, onFocusCard } = setup({ items: [A] });
     openTable();
     fireEvent.click(rowEls()[0]!);
-    expect(onAddCard).toHaveBeenCalledTimes(1);
+    expect(onAddCard).not.toHaveBeenCalled();
+    expect(onFocusCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '추가' }));
-    expect(onAddCard).toHaveBeenCalledTimes(2);
+    expect(onAddCard).toHaveBeenCalledTimes(1);
   });
 
-  it('이미 카드가 있는 종목은 onFocusCard 가 불리고 onAddCard 는 불리지 않는다', () => {
+  it('이미 카드가 있는 종목은 칩이 onFocusCard 를 부르고 onAddCard 는 불리지 않는다 · 행 클릭은 포커스하지 않는다', () => {
     const { onAddCard, onFocusCard } = setup({ items: [A], cards: new Set([A.isin]) });
     fireEvent.click(chips()[0]!);
     openTable();
     fireEvent.click(rowEls()[0]!);
-    expect(onFocusCard).toHaveBeenCalledTimes(2);
+    expect(onFocusCard).toHaveBeenCalledTimes(1);
     expect(onFocusCard).toHaveBeenCalledWith(A.isin, 'KRX');
     expect(onAddCard).not.toHaveBeenCalled();
   });
@@ -836,5 +839,174 @@ describe('BreakoutStrip — E4 long-text · partial', () => {
     expect(chips()[0]).toHaveAttribute('title', `${bare.isin} · 임계 20% · 기준가 10,000 · 돌파 09:41:31`);
     // 칩 이름 자리는 ISIN 원문 그대로다(ISIN 에서 단축코드를 잘라 만들지 않는다 — D-28)
     expect(chips()[0]!.querySelector('[data-slot="breakout-chip-name"]')!.textContent).toBe(bare.isin);
+  });
+});
+
+/* ── Phase 41 D-17 — 뉴스·공시 배지 · 행 선택 상세 ──────────────────────── */
+
+function feedItem(id: string, kind: StockFeedItem['kind']): StockFeedItem {
+  return {
+    id,
+    kind,
+    publishedAt: '2026-09-22T09:30:00.000+09:00',
+    title: `${kind === 'disclosure' ? '공시' : '뉴스'} 제목 ${id}`,
+    source: kind === 'disclosure' ? '코스닥 공시' : '연합뉴스',
+    stockCodes: [],
+    url: null,
+    description: null,
+    receivedAt: '2026-09-22T09:30:00.000+09:00',
+  };
+}
+
+function feedEntry(code: string, items: StockFeedItem[], over: Partial<StockFeedEntry> = {}): StockFeedEntry {
+  return { code, collectedAt: '2026-09-22T09:40:00.000+09:00', count: items.length, truncated: false, items, ...over };
+}
+
+/** 작업대 공급자 대신 entries 문맥에 값을 직접 넣는다. */
+function setupFeed(initial: Props, entries: ReadonlyMap<string, StockFeedEntry>) {
+  const onAddCard = vi.fn();
+  const onFocusCard = vi.fn();
+  let props: BreakoutStripProps = {
+    items: [],
+    snapSeq: 1,
+    cards: new Set(),
+    cardFeeds: new Set(),
+    onAddCard,
+    onFocusCard,
+    ...initial,
+  };
+  const ui = (p: BreakoutStripProps) => (
+    <StockFeedEntriesContext.Provider value={entries}>
+      <BreakoutStrip {...p} />
+    </StockFeedEntriesContext.Provider>
+  );
+  const utils = render(ui(props));
+  const update = (next: Props) => {
+    props = { ...props, ...next };
+    utils.rerender(ui(props));
+  };
+  return { ...utils, update, onAddCard, onFocusCard };
+}
+
+/** A(씨젠) = 공시 + 뉴스 · B(삼성전자) = 뉴스만(상한 도달) · C(SK하이닉스) = 글 0건. */
+const FEED = new Map<string, StockFeedEntry>([
+  ['096530', feedEntry('096530', [feedItem('kis:1', 'news'), feedItem('kis:2', 'disclosure')])],
+  ['005930', feedEntry('005930', [feedItem('naver:3', 'news')], { count: 25, truncated: true })],
+  ['000660', feedEntry('000660', [])],
+]);
+
+const badgeText = (el: Element) =>
+  [...el.querySelectorAll('[data-slot="breakout-feed-badges"] [data-slot="feed-kind-badge"]')].map((b) => b.textContent);
+const detail = () => document.querySelector<HTMLElement>('[data-slot="breakout-feed-detail"]');
+
+describe('BreakoutStrip — 뉴스·공시 배지 (Phase 41 D-17)', () => {
+  it('칩에 공시 → 「공」 · 뉴스 → 「뉴」 를 공 → 뉴 순서로 붙인다', () => {
+    setupFeed({ items: [A, B] }, FEED);
+    const [chipA, chipB] = chips();
+    expect(badgeText(chipA!)).toEqual(['공', '뉴']);
+    expect(badgeText(chipB!)).toEqual(['뉴']);
+  });
+
+  it('글 없는 종목 배지 없음 — 0건 · entry 없음 · 코드 없는 행 모두', () => {
+    const bare = item({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094400000000' });
+    const D = item({ isin: 'KR7111111111', name: '없는종목', code: '111111', exchangeTime: '094500000000' });
+    setupFeed({ items: [C, bare, D] }, FEED);
+    expect(chips()).toHaveLength(3);
+    for (const chip of chips()) {
+      expect(chip.querySelector('[data-slot="breakout-feed-badges"]')).toBeNull();
+    }
+  });
+
+  it('펼친 표의 종목명 옆에도 같은 배지가 붙는다', () => {
+    setupFeed({ items: [A, B, C] }, FEED);
+    openTable();
+    const [rowA, rowB, rowC] = rowEls();
+    expect(badgeText(rowA!)).toEqual(['공', '뉴']);
+    expect(badgeText(rowB!)).toEqual(['뉴']);
+    expect(rowC!.querySelector('[data-slot="breakout-feed-badges"]')).toBeNull();
+  });
+
+  it('공급자 밖이면 배지 없이 전과 같이 그린다', () => {
+    setup({ items: [A] });
+    expect(chips()[0]!.querySelector('[data-slot="breakout-feed-badges"]')).toBeNull();
+  });
+});
+
+describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D-17)', () => {
+  it('행을 누르면 data-selected 가 붙고 표 아래에 「{종목명} 최근 3일 뉴스·공시 {n}건」 과 글 목록이 펼쳐진다', () => {
+    const { onAddCard, onFocusCard } = setupFeed({ items: [A, B] }, FEED);
+    openTable();
+    expect(detail()).toBeNull();
+    fireEvent.click(rowEls()[0]!);
+    expect(rowEls()[0]!.getAttribute('data-selected')).toBe('true');
+    expect(rowEls()[1]).not.toHaveAttribute('data-selected');
+    const d = detail()!;
+    expect(d).toHaveAttribute('aria-label', '씨젠 뉴스·공시');
+    expect(d.textContent).toContain('씨젠');
+    expect(d.textContent).toContain('최근 3일 뉴스·공시 2건');
+    expect(d.querySelectorAll('[data-slot="feed-row"]')).toHaveLength(2);
+    expect(onAddCard).not.toHaveBeenCalled();
+    expect(onFocusCard).not.toHaveBeenCalled();
+  });
+
+  it('선택 토글 — 같은 행 다시 누르면 닫히고, 다른 행을 누르면 그 종목으로 바뀐다', () => {
+    setupFeed({ items: [A, B] }, FEED);
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()).toBeNull();
+    expect(rowEls()[0]).not.toHaveAttribute('data-selected');
+
+    fireEvent.click(rowEls()[0]!);
+    fireEvent.click(rowEls()[1]!);
+    expect(detail()!.getAttribute('aria-label')).toBe('삼성전자 뉴스·공시');
+    // 상한에 닿은 종목은 「n건+」
+    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 25건+');
+    expect(rowEls()[0]).not.toHaveAttribute('data-selected');
+    expect(rowEls()[1]).toHaveAttribute('data-selected', 'true');
+  });
+
+  it('글 0건 종목은 「최근 3일 뉴스·공시 없음」', () => {
+    setupFeed({ items: [C] }, FEED);
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 없음');
+  });
+
+  it('「추가」 버튼은 카드를 열고 행을 선택하지 않는다', () => {
+    const { onAddCard } = setupFeed({ items: [A] }, FEED);
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
+    expect(onAddCard).toHaveBeenCalledTimes(1);
+    expect(detail()).toBeNull();
+  });
+
+  it('「거래중」 행도 선택된다', () => {
+    const { onFocusCard } = setupFeed({ items: [A], cards: new Set([A.isin]) }, FEED);
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(rowEls()[0]).toHaveAttribute('data-selected', 'true');
+    expect(detail()).not.toBeNull();
+    expect(onFocusCard).not.toHaveBeenCalled();
+  });
+
+  it('선택 행이 목록에서 사라지면 닫히고, 다시 올라와도 닫힌 채다', () => {
+    const { update } = setupFeed({ items: [A, B] }, FEED);
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()).not.toBeNull();
+    update({ items: [B], snapSeq: 2 });
+    expect(detail()).toBeNull();
+    update({ items: [A, B], snapSeq: 3 });
+    expect(detail()).toBeNull();
+  });
+
+  it('코드 없는(이름 없는) 행은 눌러도 상세가 없다', () => {
+    const bare = item({ name: undefined, code: undefined });
+    setupFeed({ items: [bare] }, FEED);
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()).toBeNull();
+    expect(rowEls()[0]).not.toHaveAttribute('data-selected');
   });
 });

@@ -129,6 +129,16 @@ vi.mock('@/lib/stock-api', async (importOriginal) => {
   return { ...actual, fetchStockDetail: (...a: unknown[]) => fetchStockDetailMock(...a) };
 });
 
+/** Phase 41 D-04 — 작업대 뉴스·공시 폴링(묶음 조회). 네트워크 대신 빈 응답 · 부른 코드만 본다. */
+const fetchNewsByStockMock = vi.fn(async (codes: readonly string[]) => ({
+  asOf: '',
+  feedAt: null,
+  stocks: codes.map((code) => ({ code, collectedAt: null, count: 0, truncated: false, items: [] })),
+}));
+vi.mock('@/lib/news-by-stock-api', () => ({
+  fetchNewsByStock: (codes: readonly string[]) => fetchNewsByStockMock(codes),
+}));
+
 vi.mock('@/components/trading/workbench/stock-add-bar', async (importOriginal) => ({
   // 매매 가능 판정은 실물 그대로 — 작업대 `?code=` 가 같은 함수를 읽는다(판정 한 곳).
   isPickable: (await importOriginal<typeof import('@/components/trading/workbench/stock-add-bar')>())
@@ -3223,5 +3233,22 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
     view.rerender(<TradingWorkbench />);
     expect(parkedKeys()).toEqual([]);
     expect(viChips()).toHaveLength(2);
+  });
+});
+
+describe('TradingWorkbench — 뉴스·공시 피드 공급자 (Phase 41 D-04 · D-17)', () => {
+  it('묶음 조회 코드 = 돌파 항목 코드 ∪ 카드 코드(중복 없이 · 코드 없는 행 제외)', async () => {
+    fetchNewsByStockMock.mockClear();
+    mockRelay = relay({
+      rateCrossItems: [rc(), rc({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094200000000' })],
+    });
+    render(<TradingWorkbench />);
+    await waitFor(() => expect(fetchNewsByStockMock).toHaveBeenCalled());
+    expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['096530']);
+
+    // 돌파 종목 카드(같은 코드 — 중복 없음) + 검색 추가 카드(새 코드)
+    fireEvent.click(slot('breakout-chip')!);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    await waitFor(() => expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['005930', '096530']));
   });
 });

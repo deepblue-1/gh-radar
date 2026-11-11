@@ -175,6 +175,7 @@ import { AccumStrip } from "@/components/trading/workbench/accum-strip";
 import { AlertToasts } from "@/components/trading/workbench/alert-toasts";
 import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
+import { StockFeedProvider } from "@/components/trading/feed/stock-feed-context";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
 import { isPickable, StockAddBar } from "@/components/trading/workbench/stock-add-bar";
 import {
@@ -1407,6 +1408,19 @@ function WorkbenchSurface() {
   // 카드가 스스로 구독한 (ISIN, 거래소) 피드 — 돌파 훅 구독 예산에서만 뺀다(quick-260926-rcc).
   const cardFeeds = useMemo(() => new Set(cards.map((c) => breakoutFeedKey(c))), [cards]);
   /*
+    Phase 41 D-04 · D-17 — 뉴스·공시 묶음 조회 코드 = 돌파 항목 코드 ∪ 카드 코드(정렬 · 중복 없이 · 코드 없는 것 제외).
+    카드 코드는 카드 렌더와 같은 폴백(추가 시점 코드 → 라벨 역매핑)이다. 카드는 숨은 계좌 카드까지 전수 — 띠가 같은 응답을 쓴다.
+  */
+  const feedCodes = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of rateCrossItems) if (it.code) set.add(it.code);
+    for (const c of cards) {
+      const code = c.code ?? labels.get(c.isin)?.code;
+      if (code) set.add(code);
+    }
+    return [...set].sort();
+  }, [rateCrossItems, cards, labels]);
+  /*
     VI 발동 칩·표에는 **해제되지 않은** 발동만 싣는다 (사용자 결정 2026-09-23 · quick-260923-nvr).
     해제 판정은 서버의 `viReleased` 하나다 — `viEndTime` 으로 추정하지 않는다(임의종료·연장).
     「미확인 n」 필도 이 목록으로 센다. VI 설정 「중지」 확인 요약(오늘 주문)은 전체 `viOrders` 그대로다.
@@ -1506,6 +1520,11 @@ function WorkbenchSurface() {
       data-slot="trading-workbench"
       className="@container/wb flex min-w-0 flex-col gap-3"
     >
+      {/*
+        Phase 41 D-04 — 뉴스·공시 폴링은 작업대에 하나(10초 · 100코드 묶음). ② 돌파 칩 · 표와 ③ 상따 카드 띠가 같은 응답을
+        읽는다. 감싸는 요소가 없어(문맥만) 루트 flex 간격 · `@container/wb` 는 그대로다.
+      */}
+      <StockFeedProvider codes={feedCodes}>
       {/*
         1 · 머리 — Phase 32 D-05 · 채택 목업 ① A 세로 묶음(간격 8px):
           ① 「트레이딩」 h1 자기 줄
@@ -1740,6 +1759,7 @@ function WorkbenchSurface() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </StockFeedProvider>
     </div>
     </OrderLogFeedProvider>
   );
