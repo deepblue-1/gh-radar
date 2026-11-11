@@ -128,7 +128,9 @@ describe("fetchNewsTitlePage — 한 쪽 호출", () => {
   });
 
   it("output 없음 → []", async () => {
-    const http = okHttp(undefined);
+    const http = {
+      get: vi.fn().mockResolvedValue({ status: 200, data: { rt_cd: "0", msg_cd: "MCA00000", msg1: "" } }),
+    };
     await expect(fetchNewsTitlePage(http as never, AUTH)).resolves.toEqual([]);
   });
 
