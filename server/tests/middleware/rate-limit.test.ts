@@ -2,7 +2,40 @@ import { describe, it, expect } from "vitest";
 import express from "express";
 import request from "supertest";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { apiRateLimiter } from "../../src/middleware/rate-limit.js";
+import type { Request } from "express";
+import {
+  apiRateLimiter,
+  apiRateLimitSkip,
+  newsByStockRateLimiter,
+} from "../../src/middleware/rate-limit.js";
+
+// 41-03 — 묶음 뉴스 조회 전용 제한기(SC-4 · RESEARCH Pitfall 5: 사무실 클라 여러 대가 같은 공인 IP 로 5 ~ 10초 조회)
+describe("newsByStockRateLimiter · apiRateLimitSkip", () => {
+  it("newsByStockRateLimiter({ limit: 2 }) 에 3번 → 세 번째 429 · error.code RATE_LIMITED", async () => {
+    const a = express();
+    a.set("trust proxy", 1);
+    a.get("/api/news/by-stock", newsByStockRateLimiter({ limit: 2 }), (_req, res) => res.json({ ok: true }));
+    const server = a.listen(0);
+    try {
+      expect((await request(server).get("/api/news/by-stock")).status).toBe(200);
+      expect((await request(server).get("/api/news/by-stock")).status).toBe(200);
+      const over = await request(server).get("/api/news/by-stock");
+      expect(over.status).toBe(429);
+      expect(over.body.error.code).toBe("RATE_LIMITED");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("apiRateLimitSkip — /health… · /news/by-stock 은 참, /themes/by-stock · /stocks/005930/news 는 거짓", () => {
+    const skip = (path: string) => apiRateLimitSkip({ path } as Request);
+    expect(skip("/health")).toBe(true);
+    expect(skip("/health/ready")).toBe(true);
+    expect(skip("/news/by-stock")).toBe(true);
+    expect(skip("/themes/by-stock")).toBe(false);
+    expect(skip("/stocks/005930/news")).toBe(false);
+  });
+});
 
 // 테스트 전용 작은 limit rate limiter — 프로덕션 limit 200과 동일 옵션 세팅 검증
 function testLimiter(limit: number) {
