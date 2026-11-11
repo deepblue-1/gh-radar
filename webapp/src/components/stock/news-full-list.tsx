@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import type { NewsArticle } from '@gh-radar/shared';
+import type { StockFeedItem } from '@gh-radar/shared';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchStockNews } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ export interface NewsFullListProps {
 const PAGE_SIZE = 100;
 
 export function NewsFullList({ code, onBack }: NewsFullListProps) {
-  const [articles, setArticles] = useState<NewsArticle[] | null>(null);
+  const [articles, setArticles] = useState<StockFeedItem[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -149,7 +149,7 @@ export function NewsFullList({ code, onBack }: NewsFullListProps) {
         </button>
       )}
       <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
-        최근 7일 뉴스
+        최근 7일 뉴스·공시
       </h2>
     </header>
   );
@@ -164,7 +164,7 @@ export function NewsFullList({ code, onBack }: NewsFullListProps) {
           data-testid="news-page-error"
         >
           <h3 className="text-[length:var(--t-h3)] font-semibold text-[var(--destructive)]">
-            뉴스를 불러오지 못했어요
+            뉴스·공시를 불러오지 못했어요
           </h3>
           <p className="mt-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
             {error.message}
@@ -195,10 +195,10 @@ export function NewsFullList({ code, onBack }: NewsFullListProps) {
           className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-6 text-center"
         >
           <h3 className="text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
-            표시할 뉴스가 없어요
+            표시할 뉴스·공시가 없어요
           </h3>
           <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-            최근 7일 내 수집된 뉴스가 없습니다. 종목 상세에서 새로고침을 실행해주세요.
+            최근 7일 내 수집된 뉴스·공시가 없습니다. 종목 상세에서 새로고침을 실행해주세요.
           </p>
         </section>
       ) : (
@@ -240,7 +240,7 @@ export function NewsFullList({ code, onBack }: NewsFullListProps) {
               </div>
             )}
             {!hasMore && !isFetchingMore && !paginationError && (
-              <span data-testid="news-pagination-end">최근 7일 뉴스를 모두 불러왔어요</span>
+              <span data-testid="news-pagination-end">최근 7일 뉴스·공시를 모두 불러왔어요</span>
             )}
           </div>
         </section>

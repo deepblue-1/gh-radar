@@ -7,7 +7,7 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
  * Phase 06 Plan 06 — 종목 상세 E2E (SRCH-03).
  * 6-06-02: Hero / Stats / News section / Discussion placeholder 렌더 + 새로고침 + 404 카피.
  *
- * Phase 07 Plan 04 에서 "관련 뉴스" placeholder 가 실제 StockNewsSection 으로 교체됨 —
+ * Phase 07 Plan 04 에서 "관련 뉴스" placeholder(Phase 41 에서 제목 「관련 뉴스·공시」) 가 실제 StockNewsSection 으로 교체됨 —
  * 테스트는 뉴스 API 를 mock 해 section 렌더를 검증한다. 종목토론방 placeholder 는 Phase 8 에 잔존.
  */
 
@@ -51,10 +51,10 @@ test.describe('Phase 6 — 종목 상세 (SRCH-03)', () => {
     // Phase 15 Plan 11(T7): 뉴스·토론 섹션은 `뉴스토론` 탭으로 재배치됐다.
     await page.getByRole('tab', { name: '뉴스토론', exact: true }).click();
 
-    // Phase 07: 관련 뉴스 섹션 (StockNewsSection) 실제 렌더
+    // Phase 07: 관련 뉴스·공시 섹션 (StockNewsSection) 실제 렌더
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
     await expect(
-      page.getByRole('heading', { name: '관련 뉴스' }),
+      page.getByRole('heading', { name: '관련 뉴스·공시' }),
     ).toBeVisible();
 
     // Phase 08: 종목토론방 섹션이 같은 탭에 존재 (데이터 상태 무관하게 mount 검증)

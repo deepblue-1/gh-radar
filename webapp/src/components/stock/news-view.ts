@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
  * 종목상세 「뉴스토론」 탭 안 전체목록 상태 (Phase 21 D-29 · G-21-R3-8).
  *
  * 무엇:
- *   「전체 뉴스 보기」「전체 토론 보기」가 페이지를 떠나지 않고 같은 탭 안에서 전체목록으로 바뀐다.
+ *   「전체 보기」(뉴스·공시)「전체 토론 보기」가 페이지를 떠나지 않고 같은 탭 안에서 전체목록으로 바뀐다.
  *   상태의 정본은 URL `?tab=news&view=news|discussions` 다 — 딥링크 · 새로고침 · 뒤로가기가 모두
  *   같은 한 줄(`useSearchParams`)로 설명된다. 탭 셸(`stock-detail-tabs.tsx` T3)과 같은 방식으로
  *   네이티브 `history.pushState` 를 쓴다(Next 15 가 검색 파라미터 훅과 동기화 · 서버 왕복 0).

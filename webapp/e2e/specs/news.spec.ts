@@ -7,7 +7,7 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
  * Phase 07 Plan 06 — news E2E (V-17 / V-18 / V-19 / V-20).
  *
  * 구성:
- *  - V-17 detail list: /stocks/005930 상세 내 "관련 뉴스" 섹션 렌더 + 보안 링크 속성
+ *  - V-17 detail list: /stocks/005930 상세 내 "관련 뉴스·공시" 섹션 렌더 + 보안 링크 속성
  *  - V-18 full list: 옛 /stocks/005930/news → 탭 안 전체목록 리다이렉트 + ← = 요약 (Phase 21 D-29)
  *  - G-21-R3-8: 탭 안 전체목록 열기 · 뒤로가기 · 스크롤 복원 · ← · Esc
  *  - V-19 refresh cooldown: 429 수신 시 버튼 disabled + data-remaining-seconds
@@ -50,7 +50,7 @@ async function mockStockDetail(page: Page) {
 }
 
 test.describe('News — detail list (V-17, external link security)', () => {
-  test('renders 5 news items + 전체 뉴스 보기 button', async ({ page }) => {
+  test('renders 5 news items + 전체 보기 button', async ({ page }) => {
     await mockStockDetail(page);
     await mockNewsApi(page, {
       code: STOCK_CODE,
@@ -64,8 +64,8 @@ test.describe('News — detail list (V-17, external link security)', () => {
     await expect(items).toHaveCount(5);
 
     // Phase 21 D-29 — 종목상세에서는 페이지 이동 Link 가 아니라 탭 안 전체목록을 여는 버튼이다.
-    await expect(page.getByRole('button', { name: /전체 뉴스 보기/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /전체 뉴스 보기/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^전체 보기/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /^전체 보기/ })).toHaveCount(0);
   });
 
   test('items have target="_blank" rel containing noopener noreferrer', async ({
@@ -103,7 +103,7 @@ test.describe('News — G-21-R3-8 탭 안 전체 뉴스 (D-29)', () => {
       list: buildNewsList(STOCK_CODE, 50),
     });
     const summary = page.getByTestId('stock-news-section');
-    const showAll = page.getByRole('button', { name: /전체 뉴스 보기/ });
+    const showAll = page.getByRole('button', { name: /^전체 보기/ });
     const backBtn = page.getByRole('button', { name: '요약으로 돌아가기' });
 
     await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
@@ -193,7 +193,7 @@ test.describe('News — 옛 전체 페이지 URL → 탭 안 전체목록 (V-18 
     await page.goto(`/stocks/${STOCK_CODE}/news`);
     await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=news$`));
     await expect(
-      page.getByRole('heading', { level: 2, name: '최근 7일 뉴스' }),
+      page.getByRole('heading', { level: 2, name: '최근 7일 뉴스·공시' }),
     ).toBeVisible();
 
     const items = page.getByTestId('news-list').getByTestId('news-item');

@@ -93,7 +93,7 @@ describe('StockDetailClient', () => {
     // StockNewsSection 은 'use client' + 내부 fetchStockNews 호출 (테스트는 빈 배열 stub)
     // → 빈 상태 (NewsEmptyState) 또는 정상 리스트 중 최소 하나의 판별 문구 렌더.
     await waitFor(() =>
-      expect(screen.getByText('아직 수집된 뉴스가 없어요')).toBeInTheDocument(),
+      expect(screen.getByText('아직 수집된 뉴스·공시가 없어요')).toBeInTheDocument(),
     );
     // Phase 08 Plan 04: 종목토론방 자리는 ComingSoonCard → StockDiscussionSection 으로 교체.
     // 빈 배열 stub → DiscussionEmptyState 로 도달.

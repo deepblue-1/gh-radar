@@ -6,12 +6,13 @@
  * - fetchStockDetail: GET /api/stocks/:code (404 시 ApiClientError.status === 404)
  * - fetchStockNews: GET /api/stocks/:code/news (days/limit/before 쿼리 — before cursor 옵션 지원, 무한 스크롤)
  * - refreshStockNews: POST /api/stocks/:code/news/refresh (429 시 ApiClientError.details.retry_after_seconds)
+ *   (Phase 41 D-12 — 두 응답 모두 한투 뉴스·공시 + 네이버 뉴스를 합친 `StockFeedItem[]`)
  * - fetchStockDiscussions: GET /api/stocks/:code/discussions (hours/days/limit 쿼리 — 서버 `DiscussionListQuery` 계약)
  * - refreshStockDiscussions: POST /api/stocks/:code/discussions/refresh (429 시 `retry_after_seconds`, 503 시 `PROXY_UNAVAILABLE`/`PROXY_BUDGET_EXHAUSTED`)
  */
 import type {
   StockDetailResponse,
-  NewsArticle,
+  StockFeedItem,
   Discussion,
   DiscussionListResponse,
 } from '@gh-radar/shared';
@@ -60,37 +61,39 @@ export interface FetchNewsOpts {
 }
 
 /**
- * 특정 종목의 최근 뉴스 목록을 조회한다.
- * - 응답: camelCase `NewsArticle[]`
+ * 특정 종목의 최근 뉴스·공시 목록을 조회한다.
+ * - 응답: `StockFeedItem[]` — 한투 뉴스·공시와 네이버 뉴스를 합친 한 목록(Phase 41 D-12 · 같은 기사는 한 줄).
+ *   server `GET /api/stocks/:code/news` 와 같은 shared 타입 하나에 맞춘다(계약 드리프트 방지).
+ *   `url` 이 null 인 줄(공시 · 네이버에 아직 없는 한투 뉴스)은 링크 없이 그린다(D-20).
  * - 서버 계약: `/api/stocks/:code/news?days=N&limit=M[&before=<ISO>]`
  */
 export function fetchStockNews(
   code: string,
   opts: FetchNewsOpts,
   signal: AbortSignal,
-): Promise<NewsArticle[]> {
+): Promise<StockFeedItem[]> {
   const params = new URLSearchParams({
     days: String(opts.days ?? 7),
     limit: String(opts.limit ?? 100),
   });
   if (opts.before) params.set('before', opts.before);
-  return apiFetch<NewsArticle[]>(
+  return apiFetch<StockFeedItem[]>(
     `/api/stocks/${encodeURIComponent(code)}/news?${params.toString()}`,
     { signal },
   );
 }
 
 /**
- * 특정 종목의 뉴스 갱신을 트리거한다 (섹션 전용 새로고침).
- * - 성공: camelCase `NewsArticle[]` (최신본)
+ * 특정 종목의 뉴스 갱신을 트리거한다 (섹션 전용 새로고침 — 네이버 뉴스만 새로 받는다).
+ * - 성공: `StockFeedItem[]` (새로 받은 네이버 뉴스까지 합친 최신 목록 · Phase 41 D-12)
  * - 429: `ApiClientError` with `details = { retry_after_seconds }` — UI 가 카운트다운에 사용.
  * - 503: `ApiClientError` (code `NAVER_UNAVAILABLE` | `NAVER_BUDGET_EXHAUSTED`)
  */
 export function refreshStockNews(
   code: string,
   signal: AbortSignal,
-): Promise<NewsArticle[]> {
-  return apiFetch<NewsArticle[]>(
+): Promise<StockFeedItem[]> {
+  return apiFetch<StockFeedItem[]>(
     `/api/stocks/${encodeURIComponent(code)}/news/refresh`,
     { method: 'POST', signal },
   );
