@@ -249,6 +249,12 @@ None - no external service configuration required.
 - `pnpm --filter @gh-radar/webapp run typecheck` → 통과(오류 0)
 - acceptance grep: `STOCK_FEED_POLL_MS = 10_000` 1 · `STOCK_FEED_NEW_MS = 30_000` 1 · `NewsByStockResponse` 4 · 문맥 파일 `setInterval` 1 · `setTimeout` 0 · `breakout-feed-detail` 1 · `breakout-feed-badges` 1 · 작업대 `StockFeedProvider` 3 · `@min-[700px]/wb` 3 · `@min-[685px]/lc` 3 · T1 `it(` 19
 
+## Self-Check: PASSED
+
+- 생성 파일 5개 + SUMMARY 존재 확인
+- 커밋 `6c4ac61a` · `837c3db1` · `b85412c7` · `c55f4a49` · `7fc3a30d` 모두 HEAD 조상(`git log ba6c3aee..HEAD`)
+- 작업 트리 깨끗 · STATE.md / ROADMAP.md 손대지 않음
+
 ---
 *Phase: 41-kis-news-and-disclosure-feed*
 *Completed: 2026-11-12*
