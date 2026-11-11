@@ -69,7 +69,7 @@ export function FeedRows({ items, band, emptyText = FEED_ROWS_EMPTY_TEXT, classN
             data-kind={it.kind}
             data-new={fresh ? 'true' : undefined}
             className={cn(
-              'grid min-w-0 items-baseline gap-2 rounded-[4px] px-1 py-1.5 text-[13px] [&+&]:border-t [&+&]:border-[var(--border)]',
+              'grid min-w-0 items-baseline gap-2 rounded-[4px] px-1 py-1.5 text-[13px] [&+&]:border-t [&+&]:border-[var(--border-subtle)]',
               b.grid,
               fresh && 'bg-[var(--new-bg)]',
             )}
