@@ -679,6 +679,9 @@ describe('결선 · 수익률 · 띠 · 캡션', () => {
     expect(cap.firstElementChild!.getAttribute('data-slot')).toBe('candle-caption-own');
     expect(cap.firstElementChild!.textContent).toContain('우리 체결');
     expect(ph.q('candle-chart-hint')).toHaveLength(0);
+    // 폰 제목 줄은 두 줄(D-21) — 우리 범례는 제목 줄에 없고 캡션 줄에만
+    expect(ph.q('candle-chart-title')[0]!.getAttribute('data-dims')).toBe('phone');
+    expect(ph.q('candle-chart-own-legend')).toHaveLength(0);
     ph.unmount();
 
     const desk = renderChart({ accum: null });

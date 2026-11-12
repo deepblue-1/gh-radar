@@ -38,6 +38,7 @@ import { cumReturnPointsOf, dayReturnPointsOf, returnScalesOf } from '@/lib/tick
 import type { OwnModel } from '@/lib/ticks/own-model';
 import { useCandleUnitPref, useMaConfig } from '@/lib/ticks/use-candle-prefs';
 import { usePrevCloses } from '@/lib/ticks/use-prev-closes';
+import { useViewSync, type ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import {
   OWN_MARK_R,
   TICK_CHART,
@@ -79,6 +80,7 @@ import { cn } from '@/lib/utils';
 
 import { CandleChartBand } from './candle-chart-band';
 import { CandleChartCaption } from './candle-chart-caption';
+import { CandleChartTitle } from './candle-chart-title';
 import { CandleLowerLayers } from './candle-lower-layers';
 import { CandlePriceLayer } from './candle-price-layer';
 import { CandleReturnLayer } from './candle-return-layer';
@@ -90,15 +92,21 @@ import { TickChartRange } from './tick-chart-range';
  *
  * ① 판(위 → 아래): 가격(봉 + 안쪽 거래대금 막대 · 160 / 폰 110) · 수익률(50 / 36) · 당일 팀 순매수 · 10분 팀 매수/매도 · 누적
  *   거래대금 — 전체 420 / 폰 303(`CANDLE_CHART`). 틱 선은 그리지 않는다(D-08).
- * ② 레이어: 장전 음영 · 빈 띠 · VI 띠(다섯 판 공통) → 시각 격자 → 가격 판 층(`CandlePriceLayer` — 봉 · 누적 평단) → 구간 띠 ·
- *   알약 → 마우스 세로선 · 값 점 → 현재 틱 커서 → 판 아래선 · 시각 눈금 · 커서 시각 라벨.
+ * ② 레이어: 장전 음영 · 빈 띠 · VI 띠(다섯 판 공통) → 시각 격자 → 가격 판 층(`CandlePriceLayer` — 거래대금 막대 · 봉 · 이동평균 ·
+ *   팀 평단 · 누적 평단 · 판 제목) → 수익률 판(`CandleReturnLayer`) → 아래 세 판(`CandleLowerLayers`) → 구간 띠 · 알약 → 마우스
+ *   세로선 · 값 점 → 현재 틱 커서 → 판 아래선 · 시각 눈금 · 커서 시각 라벨. 카드 = 제목 줄(`CandleChartTitle`) → 값 띠
+ *   (`CandleChartBand`) → 차트 → 구간 합계 줄 → 캡션 줄(`CandleChartCaption`) → (데스크톱) 안내 줄.
+ * ②′ 결선(42-10): 봉 단위 = 기억(`useCandleUnitPref`) · 「자동」 이면 창이 바뀔 때마다 `autoUnitOf` · 이동평균 = 기억 구성 중 켜진
+ *   선(칩 순서) · 일 칩이 있으면 앞 거래일 종가를 (코드, 날짜)마다 한 번(`usePrevCloses`) · 보기 창은 `useViewSync` 로 선 차트와
+ *   주고받는다(D-24 — 뷰어 상태로 올리지 않는다). 봉 · 이동평균 · 수익률 점은 메모(마우스 상태 무관 · SC-7).
  * ③ 조작(D-19 · SC-6 — 선 차트 조작 골격을 그대로 복제하고 판 경계만 `CandlePanels`): 휠 = 확대/축소 · 끌기 · 핀치 = 이동
  *   (`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs` · 4px 넘게 움직였으면 끌기) · `+ − 0` 키(← → 는
  *   커서 이동이라 가로채지 않는다 · 키는 래퍼에만 — 제목 줄 조작은 래퍼 밖, Pitfall 12) · 「확대 · 축소 · 전체 · 1분 · 10초」 버튼 ·
  *   Shift+끌기 = 구간 합계(데스크톱 마우스만 · 결과는 차트 아래 `TickChartRange` · 끄는 동안 창은 안 움직인다 · Esc/✕/빈 곳 클릭 =
  *   지움 — 그 클릭은 시각 이동 아님) · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
- * ④ 마우스 세로선 + 값 점(UI-SPEC S7) — 호버 중이고 끌기 중이 아닐 때만. 가격 판 점 = 그 시각 봉의 종가(`--fg-2`) · 순매수 판
- *   매수 `--up` · 매도 `--down` · 순 `--team` · 누적 `--muted-fg` · 넷째 판 팀 비중 `--team`(선 차트 `tickBandAt` 값 그대로).
+ * ④ 마우스 세로선 + 값 점(UI-SPEC S7) — 호버 중이고 끌기 중이 아닐 때만. 가격 판 점 = 그 시각 봉의 종가(`--fg-2`) · 수익률 판
+ *   당일 `--team` · 누적 `--muted-fg` · 순매수 판 매수 `--up` · 매도 `--down` · 순 `--team` · 누적 `--muted-fg` · 넷째 판 팀 비중
+ *   `--team`(값은 값 띠 `candleBandAt` 하나 — 아래 판은 그 안의 선 차트 `tickBandAt` 값 그대로).
  * ⑤ 겹침(38 D-08 · D-10 · SC-4) — 팀 주문 원(매수 빨강 · 매도 파랑 · 크기 = 금액 · 커서가 든 주문 `--fg` 고리) · 우리 ○ 근거 →
  *   ◇ 짝 없음 → ◆ 체결이 `CandlePriceLayer` children(가격 판 높이 클립)에 봉 영역 y(`candleYOf`)로 겹친다. 원 · 우리 점 위 마우스
  *   (폰은 길게 누르기 `createTouchInspect` 300ms — 그동안 한 손가락 끌기는 창을 옮기지 않고 떼도 커서를 옮기지 않는다) = 원 옆 상자
@@ -131,6 +139,10 @@ export interface CandleChartProps {
   titleAddon?: (phone: boolean) => ReactNode;
   /** 종목 코드(열기 응답 `stock.code`) — 일 이동평균 앞 거래일 종가를 받는다. 없으면 요청 없이 「종가가 모자라」 안내(D-11 · Q5). */
   stockCode?: string | null;
+  /** 처음 보기 창(D-24 — 마운트 때 한 번만 · 안 주면 하루 전체). 선 차트에서 바꿔 올 때 그 창. */
+  initialView?: ChartViewSnap;
+  /** 보기 창이 바뀔 때마다(반영 뒤에만) — 뷰어가 렌더 없는 ref 에 쥔다. */
+  onViewChange?: (v: ChartViewSnap) => void;
   className?: string;
 }
 
@@ -172,6 +184,8 @@ export function CandleChart({
   onOwnFillLine,
   titleAddon,
   stockCode = null,
+  initialView,
+  onViewChange,
   className,
 }: CandleChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
@@ -182,6 +196,8 @@ export function CandleChart({
   const series = priceSeriesOf(session);
   const lastTradeMs = useMemo(() => lastTradeMsOfSession(session), [session]);
   const ctl = useChartView({ bounds, lastTradeMs, minViewMs: TICK_CHART.MIN_VIEW_MS });
+  // 보기 창 주고받기(D-24 · 선 차트와 같은 훅) — 받은 창이 반영되기 전에는 svg 를 숨긴다(하루 전체가 한 프레임 비치지 않게)
+  const { pending } = useViewSync(ctl, initialView, onViewChange);
   const { view } = ctl;
 
   const phone = height === undefined ? W < TICK_CHART.PHONE_MAX_W : height === CANDLE_CHART.phone.H;
@@ -598,8 +614,6 @@ export function CandleChart({
     schedule((v) => ({ t0: c - (c - v.t0) * k, t1: c + (v.t1 - c) * k }));
   };
 
-  const btn =
-    'rounded-full px-2 py-0.5 text-[11px] font-semibold text-[var(--fg-2)] hover:bg-[var(--muted)] focus-visible:bg-[var(--muted)]';
   const span = view.t1 - view.t0;
   const cursorLabel = cursorMs === null ? '' : kstClock(cursorMs);
   const curLabW = 58;
@@ -607,31 +621,23 @@ export function CandleChart({
 
   return (
     <section data-slot="candle-chart" aria-label="봉 차트" className={cn(CARD, 'min-w-0 overflow-hidden', className)}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-[7px]">
-        <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
-        {titleAddon?.(phone)}
-        {/* 창 폭 글자 · 확대 버튼 — 42-10 이 CandleChartTitle(같은 버튼 이름)로 바꾼다 · 래퍼 밖(Pitfall 12) */}
-        <span className="ml-auto flex items-center gap-0.5">
-          <span data-slot="candle-chart-span" className="mono px-1.5 text-[11px] text-[var(--muted-fg)]">
-            {fmtSpan(span)}
-          </span>
-          <button type="button" className={btn} aria-label="확대" title="확대 (+)" onClick={() => zoomBy(0.5)}>
-            ＋
-          </button>
-          <button type="button" className={btn} aria-label="축소" title="축소 (−)" onClick={() => zoomBy(2)}>
-            －
-          </button>
-          <button type="button" className={btn} title="하루 전체 (0)" onClick={() => ctl.setPreset('full')}>
-            전체
-          </button>
-          <button type="button" className={btn} onClick={() => zoomTo(60_000)}>
-            1분
-          </button>
-          <button type="button" className={btn} onClick={() => zoomTo(10_000)}>
-            10초
-          </button>
-        </span>
-      </div>
+      {/* 제목 줄(D-05 · D-21 — 데스크톱 한 줄 · 폰 두 줄) · 래퍼 밖이라 키 처리와 겹치지 않는다(Pitfall 12) */}
+      <CandleChartTitle
+        phone={phone}
+        kindSwitch={titleAddon?.(phone)}
+        unitPref={unitPref}
+        currentUnit={unit}
+        onUnit={setUnitPref}
+        ma={maCfg}
+        onMa={setMaCfg}
+        ownLegend={ownLegend}
+        spanLabel={fmtSpan(span)}
+        onZoomIn={() => zoomBy(0.5)}
+        onZoomOut={() => zoomBy(2)}
+        onFull={() => ctl.setPreset('full')}
+        onMinute={() => zoomTo(60_000)}
+        onTenSec={() => zoomTo(10_000)}
+      />
 
       {/* 값 띠 A 4칸(제목 줄 바로 아래 · 높이 고정) — 마우스 = 그 시각 · 떼면 현재 틱 */}
       <CandleChartBand band={bandVal} live={bandLive} phone={phone} />
@@ -658,7 +664,12 @@ export function CandleChart({
             'block tabular-nums',
             draft !== null ? 'cursor-col-resize' : dragging ? 'cursor-grabbing' : 'cursor-crosshair',
           )}
-          style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
+          style={{
+            touchAction: 'pan-y',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            visibility: pending ? 'hidden' : undefined,
+          }}
           fontSize={11}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

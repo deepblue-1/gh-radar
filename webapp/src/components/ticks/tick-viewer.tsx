@@ -542,6 +542,8 @@ export function TickViewer({
           onOwnFillLine={onChartOwnFillLine}
           titleAddon={kindAddon}
           stockCode={stockCode}
+          initialView={switchView ?? undefined}
+          onViewChange={onViewChange}
         />
       ) : (
         <TickChart
