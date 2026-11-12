@@ -258,6 +258,7 @@ describe("라운드업 규칙 + [라운드업] 라벨 (quick-260720-jh7)", () =>
             source: "src0",
             published_at: "2026-07-20T06:00:00Z",
             description: null,
+            kind: "news",
           },
         ],
       },
@@ -271,6 +272,8 @@ describe("라운드업 규칙 + [라운드업] 라벨 (quick-260720-jh7)", () =>
       title: "고려산업·형지·흥아해운 거래상위 라운드업",
       url: "https://n/r0",
       source: "src0",
+      kind: "news",
+      publishedAt: "2026-07-20T06:00:00Z",
     });
   });
 });
@@ -438,5 +441,81 @@ describe("CLUSTER_SYSTEM_PROMPT 참고 테마 규칙 + few-shot (quick-260720-in
     const feedTheme = feed!.themes.find((t) => t.name === "사료")!;
     expect(feedTheme.stockCodes.length).toBeGreaterThanOrEqual(2);
     expect(feedTheme.newsRefs).toEqual([]);
+  });
+});
+
+describe("Phase 41 D-19 — 공시 줄 · [공시] 규칙", () => {
+  const disclosure: Surge["news"][number] = {
+    id: "kis:20260702000001",
+    stock_code: "012340",
+    title: "(주)가람전자 단일판매ㆍ공급계약체결",
+    url: null,
+    source: "코스닥 공시",
+    published_at: "2026-07-02T15:15:00.000+09:00",
+    description: null,
+    kind: "disclosure",
+  };
+  const news: Surge["news"][number] = {
+    id: "naver:n1",
+    stock_code: "012340",
+    title: "가람전자, 대형 수주 소식에 상한가",
+    url: "https://n/n1",
+    source: "연합뉴스",
+    published_at: "2026-07-02T13:00:00.000+09:00",
+    description: "<b>가람전자</b> 수주 공시",
+    kind: "news",
+  };
+  const surges: Surge[] = [
+    { code: "012340", name: "가람전자", changeRate: 29.9, news: [disclosure, news] },
+  ];
+
+  it("공시 줄 = `[N] [공시] <코드> <제목> (<자료원> <HH:MM>)` (KST 시각)", () => {
+    const { message } = formatClusterMessage(surges);
+    expect(message).toContain("[0] [공시] 012340 (주)가람전자 단일판매ㆍ공급계약체결 (코스닥 공시 15:15)");
+  });
+
+  it("UTC 표기 시각도 KST HH:MM 으로 (호스트 TZ 무관)", () => {
+    const { message } = formatClusterMessage([
+      {
+        code: "012340",
+        name: "가람전자",
+        changeRate: 29.9,
+        news: [{ ...disclosure, published_at: "2026-07-02T06:15:00Z" }],
+      },
+    ]);
+    expect(message).toContain("(코스닥 공시 15:15)");
+  });
+
+  it("뉴스 줄은 지금 꼴 그대로 — [공시] 없음 · 스니펫", () => {
+    const { message } = formatClusterMessage(surges);
+    expect(message).toContain("[1] 012340 가람전자, 대형 수주 소식에 상한가 — 가람전자 수주 공시");
+    expect(message).not.toContain("[1] [공시]");
+  });
+
+  it("indexedNews 는 원문 그대로 { title, url(null 가능), source, kind, publishedAt }", () => {
+    const { indexedNews } = formatClusterMessage(surges);
+    expect(indexedNews).toEqual([
+      {
+        title: "(주)가람전자 단일판매ㆍ공급계약체결",
+        url: null,
+        source: "코스닥 공시",
+        kind: "disclosure",
+        publishedAt: "2026-07-02T15:15:00.000+09:00",
+      },
+      {
+        title: "가람전자, 대형 수주 소식에 상한가",
+        url: "https://n/n1",
+        source: "연합뉴스",
+        kind: "news",
+        publishedAt: "2026-07-02T13:00:00.000+09:00",
+      },
+    ]);
+  });
+
+  it("CLUSTER_SYSTEM_PROMPT 에 [공시] 규칙 한 줄 — 거래소·코스닥 공시 · 인덱스로만 인용", () => {
+    const line = CLUSTER_SYSTEM_PROMPT.split("\n").find((l) => l.includes("`[공시]`"));
+    expect(line).toBeDefined();
+    expect(line).toContain("거래소·코스닥 공시");
+    expect(line).toContain("인덱스");
   });
 });

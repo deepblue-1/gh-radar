@@ -35,6 +35,7 @@ import {
   enforceMembershipInvariant,
 } from "./clusterSurges";
 import { __resetAnthropicClientForTests } from "./anthropic";
+import { logger } from "../logger";
 import type { Surge } from "../pipeline/loadSurges";
 import type { HomeSyncConfig } from "../config";
 import type { HomeSurgeSingle, HomeSurgeTheme } from "@gh-radar/shared";
@@ -66,6 +67,8 @@ function surge(code: string, changeRate: number, news: string[] = []): Surge {
       url: `https://n/${id}`,
       source: "출처",
       published_at: "2026-07-01T00:00:00Z",
+      description: null,
+      kind: "news" as const,
     })),
   };
 }
@@ -826,5 +829,151 @@ describe("clusterSurges", () => {
     expect(ga.stocks.map((x) => x.code)).not.toContain("003");
     // 강등 없음.
     expect(res.singles).toEqual([]);
+  });
+});
+
+// ── Phase 41 D-19 · D-20 — 공시 재료 · 링크 없는 줄 ─────────────────────────────
+
+describe("Phase 41 D-19 · D-20 — 링크 없는 줄 dedup · 원문 해석 · 호출 로그", () => {
+  const disc = (title: string, source = "코스닥 공시") => ({
+    title,
+    url: null,
+    source,
+    kind: "disclosure" as const,
+    publishedAt: "2026-07-02T15:15:00.000+09:00",
+  });
+
+  it("dedup: url 같은 두 건 → 1", () => {
+    const refs = [
+      { title: "A", url: "https://n/a", source: "s" },
+      { title: "A 다른 제목", url: "https://n/a", source: "s" },
+    ];
+    expect(dedupeNewsByUrl(refs)).toHaveLength(1);
+  });
+
+  it("dedup: url null 이고 자료원 · 제목이 다른 공시 두 건 → 2 (한 건으로 뭉치지 않는다)", () => {
+    const out = dedupeNewsByUrl([disc("단일판매ㆍ공급계약체결"), disc("유상증자결정")]);
+    expect(out.map((r) => r.title)).toEqual(["단일판매ㆍ공급계약체결", "유상증자결정"]);
+  });
+
+  it("dedup: url null 이고 자료원 · 제목 같은 두 건 → 1", () => {
+    expect(dedupeNewsByUrl([disc("유상증자결정"), disc("유상증자결정")])).toHaveLength(1);
+  });
+
+  it("dedup: 제목이 같아도 자료원이 다르면 2", () => {
+    expect(dedupeNewsByUrl([disc("투자주의 지정", "거래소 공시"), disc("투자주의 지정")])).toHaveLength(2);
+  });
+
+  it("resolveNewsRefs 가 kind · publishedAt · null url 을 그대로 옮긴다 · 범위 밖 drop 그대로", () => {
+    const indexed = [disc("단일판매ㆍ공급계약체결"), { title: "T1", url: "u1", source: "s1", kind: "news" as const }];
+    expect(resolveNewsRefs(indexed, [0, 7])).toEqual([indexed[0]]);
+    expect(resolveNewsRefs(indexed, [0])[0]).toEqual({
+      title: "단일판매ㆍ공급계약체결",
+      url: null,
+      source: "코스닥 공시",
+      kind: "disclosure",
+      publishedAt: "2026-07-02T15:15:00.000+09:00",
+    });
+  });
+
+  function disclosureSurge(code: string, rate: number, titles: string[]): Surge {
+    return {
+      code,
+      name: `종목-${code}`,
+      changeRate: rate,
+      news: titles.map((title, i) => ({
+        id: `kis:${code}-${i}`,
+        stock_code: code,
+        title,
+        url: null,
+        source: "코스닥 공시",
+        published_at: "2026-07-02T15:15:00.000+09:00",
+        description: null,
+        kind: "disclosure" as const,
+      })),
+    };
+  }
+
+  it("테마 뉴스 보강 · single 근거: 링크 없는 공시가 kind · 시각과 함께 원문 그대로 · 서로 다른 공시는 뭉치지 않는다", async () => {
+    const surges = [
+      disclosureSurge("012340", 29.9, ["단일판매ㆍ공급계약체결", "유상증자결정"]),
+      surge("000660", 25, ["b0"]),
+      disclosureSurge("347700", 22, ["무상증자결정"]),
+    ];
+    // 인덱스: 0·1 = 012340 공시, 2 = b0, 3 = 347700 공시.
+    const resp = {
+      themes: [{ name: "수주", reason: "공급계약", stockCodes: ["012340", "000660"], newsRefs: [0] }],
+      singles: [{ stockCode: "347700", reason: "무상증자", newsRefs: [3] }],
+    };
+    hoist.mockCreate.mockResolvedValue(textResponse(JSON.stringify(resp)));
+
+    const payload = await clusterSurges(surges, cfg());
+    const theme = payload.themes[0];
+    // Claude 선정(공시 0) → 멤버 보강(공시 1 · b0). 공시 0 은 중복이라 1회만, 공시 0 · 1 은 서로 다른 줄.
+    expect(theme.news.map((n) => n.title)).toEqual(["단일판매ㆍ공급계약체결", "유상증자결정", "제목-b0"]);
+    expect(theme.news[1]).toEqual({
+      title: "유상증자결정",
+      url: null,
+      source: "코스닥 공시",
+      kind: "disclosure",
+      publishedAt: "2026-07-02T15:15:00.000+09:00",
+    });
+    expect(payload.singles[0].news).toEqual([
+      {
+        title: "무상증자결정",
+        url: null,
+        source: "코스닥 공시",
+        kind: "disclosure",
+        publishedAt: "2026-07-02T15:15:00.000+09:00",
+      },
+    ]);
+  });
+
+  it("Claude 호출 로그 — 정상 종료(info)에 stopReason · outputTokens · maxTokens · newsLines · disclosureLines", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
+    try {
+      hoist.mockCreate.mockResolvedValue({
+        content: [{ type: "text", text: '{"themes":[],"singles":[]}' }],
+        stop_reason: "end_turn",
+        usage: { output_tokens: 321 },
+      });
+      await clusterSurges(
+        [disclosureSurge("012340", 29.9, ["단일판매ㆍ공급계약체결", "유상증자결정"]), surge("000660", 25, ["b0"])],
+        cfg(),
+      );
+      const call = info.mock.calls.find((c) => String(c[1]).includes("Claude 호출 완료"));
+      expect(call?.[0]).toEqual({
+        stopReason: "end_turn",
+        outputTokens: 321,
+        maxTokens: 16000,
+        surgeCount: 2,
+        newsLines: 1,
+        disclosureLines: 2,
+      });
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("Claude 호출 로그 — 잘림(max_tokens) warn 에도 입력 줄 수", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    try {
+      hoist.mockCreate.mockResolvedValue({
+        content: [{ type: "text", text: '{"themes":[' }],
+        stop_reason: "max_tokens",
+        usage: { output_tokens: 16000 },
+      });
+      await clusterSurges([disclosureSurge("012340", 29.9, ["유상증자결정"])], cfg());
+      const call = warn.mock.calls.find((c) => String(c[1]).includes("정상 종료되지 않음"));
+      expect(call?.[0]).toMatchObject({
+        stopReason: "max_tokens",
+        outputTokens: 16000,
+        maxTokens: 16000,
+        newsLines: 0,
+        disclosureLines: 1,
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -1,8 +1,9 @@
-import type {
-  HomeNewsRef,
-  HomeSnapshotPayload,
-  HomeSurgeSingle,
-  HomeSurgeTheme,
+import {
+  homeNewsRefKey,
+  type HomeNewsRef,
+  type HomeSnapshotPayload,
+  type HomeSurgeSingle,
+  type HomeSurgeTheme,
 } from "@gh-radar/shared";
 
 /**
@@ -18,6 +19,7 @@ import {
   CLUSTER_SYSTEM_PROMPT,
   buildClusterFewShot,
   formatClusterMessage,
+  toHomeNewsRef,
   type PrevThemesSource,
 } from "./prompt";
 import type { Surge } from "../pipeline/loadSurges";
@@ -44,6 +46,7 @@ import { isRoundupNews } from "./roundup";
 // 있었다(2026-07-02). max_tokens 는 상한일 뿐 정상 응답 비용은 동일.
 // Haiku 5.5 는 생각(thinking)이 기본으로 켜져 있고 생각 토큰도 max_tokens 안에 든다 — 출력 JSON 8192 에
 // 생각 몫을 더해 16000. 상한일 뿐 정상 응답 비용은 실제 토큰만큼이다.
+// Phase 41 D-19: 입력이 종목당 공시 최대 2줄 늘 뿐 출력 모양(themes · singles · newsRefs)은 같아 상한 유지 — 41-11 에서 stop_reason 분포로 확인.
 const CLUSTER_MAX_TOKENS = 16000;
 
 /**
@@ -78,11 +81,12 @@ const MAX_NEWS_PER_GROUP = 20;
 const THEME_NEWS_MAX = 12;
 
 /**
- * URL 기준 뉴스 dedup (IN-01) — 첫 등장 유지, 순서 안정, 최대 max cap.
+ * 근거 뉴스 dedup (IN-01) — 첫 등장 유지, 순서 안정, 최대 max cap.
  *
  * 멤버 종목별 newsRefs 를 합칠 때 같은 라운드업 기사(동일 URL)가 여러 번 들어와
- * 저장 blob 이 부풀고(예: 39건 중 unique 13건) 프론트가 중복 노출한다. URL 을
- * canonical key 로 첫 등장만 남긴다 (5원칙 #5 출처표기 = URL verbatim 유지).
+ * 저장 blob 이 부풀고(예: 39건 중 unique 13건) 프론트가 중복 노출한다. 키는 shared
+ * `homeNewsRefKey`(Phase 41 D-20) — url 이 있으면 url, 없으면 「자료원|제목」. 링크 없는 공시끼리
+ * 한 건으로 뭉치지 않고, webapp 표시 · 건수와 같은 키다 (5원칙 #5 출처표기 = 원문 그대로 유지).
  */
 export function dedupeNewsByUrl(
   refs: HomeNewsRef[],
@@ -91,17 +95,21 @@ export function dedupeNewsByUrl(
   const seen = new Set<string>();
   const out: HomeNewsRef[] = [];
   for (const ref of refs) {
-    if (seen.has(ref.url)) continue;
-    seen.add(ref.url);
+    const key = homeNewsRefKey(ref);
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(ref);
     if (out.length >= max) break;
   }
   return out;
 }
 
-/** newsRefs 인덱스 → verbatim 뉴스 (범위 밖 인덱스 drop, D-04 anti-hallucination). */
+/**
+ * newsRefs 인덱스 → 원문 피드 줄 (범위 밖 인덱스 drop, D-04 anti-hallucination).
+ * 제목 · url(null 가능) · 자료원 · kind · 작성 시각을 그대로 옮긴다 (Phase 41 D-19 · D-20).
+ */
 export function resolveNewsRefs(
-  indexedNews: Array<{ title: string; url: string; source: string }>,
+  indexedNews: HomeNewsRef[],
   refs: number[],
 ): HomeNewsRef[] {
   const out: HomeNewsRef[] = [];
@@ -516,6 +524,10 @@ export async function clusterSurges(
     prevThemesSource,
   );
 
+  // 입력 줄 수 (Phase 41 D-19) — 공시가 재료로 들어와 입력이 얼마나 늘었는지 호출 로그로 본다(41-11 측정).
+  const disclosureLines = indexedNews.filter((n) => n.kind === "disclosure").length;
+  const newsLines = indexedNews.length - disclosureLines;
+
   let raw: { themes: RawTheme[]; singles: RawSingle[] };
   try {
     const client = getAnthropicClient();
@@ -533,16 +545,21 @@ export async function clusterSurges(
     const first = res.content.find((c) => c.type === "text");
     const text = first && first.type === "text" ? first.text.trim() : "";
     // 조용한 실패 금지 — 잘림(max_tokens)/파싱 실패는 빈 스냅샷 사고로 직결되므로 반드시 로깅.
+    const callLog = {
+      stopReason: res.stop_reason,
+      outputTokens: res.usage?.output_tokens,
+      maxTokens: CLUSTER_MAX_TOKENS,
+      surgeCount: surges.length,
+      newsLines,
+      disclosureLines,
+    };
     if (res.stop_reason !== "end_turn") {
       logger.warn(
-        {
-          stopReason: res.stop_reason,
-          outputTokens: res.usage?.output_tokens,
-          maxTokens: CLUSTER_MAX_TOKENS,
-          surgeCount: surges.length,
-        },
+        callLog,
         "clusterSurges — 응답이 정상 종료되지 않음 (잘림 가능, 파싱 실패 시 빈 payload)",
       );
+    } else {
+      logger.info(callLog, "clusterSurges — Claude 호출 완료");
     }
     raw = parseClusterResponse(text);
     if (raw.themes.length === 0 && raw.singles.length === 0 && surges.length > 0) {
@@ -591,12 +608,9 @@ export async function clusterSurges(
     // 근거 뉴스 보강 — Claude 선정 refs(정확도 우선, 앞 순서 유지) 뒤에 멤버 종목의
     // 이미 로드된 뉴스(loadSurges top-K, verbatim)를 붙여 dedup. 추가 API 호출 0.
     // Claude 가 라운드업 기사 위주로 적게 고르면 dedup 후 3~4건에 그치던 것을 보강.
+    // Phase 41 D-19: 멤버 종목 줄도 kind · 작성 시각 · null url(공시)을 그대로 싣는다.
     const memberNews: HomeNewsRef[] = t.stockCodes.flatMap((c) =>
-      (surgeByCode.get(c)?.news ?? []).map((n) => ({
-        title: n.title,
-        url: n.url,
-        source: n.source ?? "",
-      })),
+      (surgeByCode.get(c)?.news ?? []).map(toHomeNewsRef),
     );
     return {
       name: t.name,
