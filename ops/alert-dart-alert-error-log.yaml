@@ -1,0 +1,45 @@
+displayName: gh-radar-dart-alert-error-log
+documentation:
+  content: |
+    ## 공시 알림(dart-alert) error 로그 (Phase 43 · D-16)
+
+    **무엇을 잡나** — Cloud Run Job `gh-radar-dart-alert` 가 error 이상 로그(pino `jsonPayload.level >= 50`)를 남겼다. 수집기는 대개 **종료 0 으로 계속 돌면서** 이 로그를 남기므로 실행 실패 알림(`gh-radar-dart-alert-failure`)으로는 안 잡힌다. 단체방 글이 못 간 경우(토큰 · 방 문제)도 이 메일이 덮는다 — 단체방 「⚠ 공시 알림이 멈췄습니다」 가 안 보여도 이 메일이 오면 알림이 끊긴 것이다.
+
+    **잡는 로그 문구와 복구 방법**
+    - `dart outage opened` — 창 안에서 OpenDART 조회가 5분 넘게 성공하지 못했다(D-17). 단체방에 「멈췄습니다」 가 나갔다. 복구되면 수집기가 「다시 동작」 을 한 번 올린다(`dart outage closed` · info). 원인은 같은 시각의 warn 로그(`jsonPayload.err`)로 본다.
+    - `telegram chat migrated` — 일반 그룹이 슈퍼그룹으로 바뀌어 방 id 가 바뀌었다. 수집기는 새 id 로 다시 보냈고 그 실행 동안은 새 id 를 쓴다. env 파일(`~/.config/gh-radar/dart-alert.env`)의 `TELEGRAM_CHAT_ID` 를 새 방 id 로 바꾸고 `! bash scripts/setup-dart-alert-secrets.sh` 를 다시 실행한다(새 id 는 `! bash scripts/telegram-find-chat.sh` 로 확인).
+    - `telegram token invalid` — 봇 토큰이 무효(401). BotFather 에서 새 토큰을 받아 env 파일 `TELEGRAM_BOT_TOKEN` 에 넣고 비밀 스크립트를 다시 실행한다. 고칠 때까지 알림은 보내지 못하고 쌓인다(그날 안이면 고친 뒤 이어서 나간다).
+    - `telegram chat unavailable` — 봇이 단체방에서 내보내졌거나 글쓰기 권한이 없거나 방을 찾을 수 없다(403 · 400 chat not found). 봇을 다시 초대하고 글쓰기 권한을 준다.
+    - `alert unsent over 120s` — 처음 본 공시가 120초 넘게 나가지 못했다(위 텔레그램 문제 · 속도 제한 · DB 오류). 같은 시각 다른 error · warn 로그를 본다.
+    - `alert mark failed` — 텔레그램 송신은 됐는데 DB 기록이 실패했다. 90초 뒤 자동으로 다시 보내므로 단체방에 같은 글이 두 번 갔는지만 확인한다.
+    - 치명 종료(`fatal DART status — stopping this run` · `collector failed` · `dart-alert failed` · `dart-alert config error` · `daily budget exhausted — stopping this run`) — 실행 실패 메일과 함께 온다. 그 메일의 원인 표를 본다.
+
+    **비밀을 바꾼 뒤 도는 실행 처리**
+    Job 은 실행 시작 때 Secret `:latest` 를 한 번 읽는다 — 이미 도는 실행은 옛 토큰 · 옛 방 id 를 `20:00` 까지 쓴다. 비밀 스크립트를 다시 실행한 뒤:
+    1. `gcloud run jobs executions list --job=gh-radar-dart-alert --region=asia-northeast3` 로 도는 실행(완료 시각 없음)을 찾는다.
+    2. `gcloud run jobs executions cancel <실행 이름> --region=asia-northeast3` 로 취소한다 → 다음 깨움(5분 안)이 새 값으로 인계한다(그 사이 건은 「(늦은 알림)」).
+    방 이동(`telegram chat migrated`)은 도는 실행이 이미 새 id 를 메모리에 쓰고 있어 취소가 급하지 않다 — 다음 날 실행부터 비밀 값이 쓰인다.
+
+    **확인 명령**
+    - 로그: `gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-dart-alert" AND jsonPayload.level>=50' --project=gh-radar --freshness=1d --limit=20 --format='value(timestamp,jsonPayload.msg,jsonPayload.reason,jsonPayload.err)'`
+    - 운영 수치(상태별 · 늦은 알림 · 장애 상태): `bash scripts/dart-alert-report.sh stats 1`
+
+    **주의**
+    - 같은 문제가 매 바퀴 로그를 남길 수 있다 — 메일은 시간당 1통으로 묶인다.
+    - 한도 신호(`020`)에 Job 을 수동 실행으로 두드리지 말 것(CLAUDE.md 「공식 API 운영 기준」 ④).
+  mimeType: text/markdown
+conditions:
+  - displayName: dart-alert error-level log
+    conditionMatchedLog:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-dart-alert"
+        AND jsonPayload.level >= 50
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  notificationRateLimit:
+    period: 3600s
+  autoClose: 1800s

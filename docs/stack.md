@@ -36,6 +36,21 @@
 - Requires: Korea Investment & Securities account (real or paper/모의투자); OAuth2 app key + secret via developer portal at `apiportal.koreainvestment.com`
 - Account requirement is low friction — paper account (모의투자 계좌) is sufficient for market data read access; no actual investment needed
 - Actively maintained with official GitHub repo (`koreainvestment/open-trading-api`) and community Python wrappers
+### Disclosure Data Sources
+| Source | Access Method | Data Type | Confidence |
+|--------|--------------|-----------|------------|
+| OpenDART 공시검색 `list.json` (금융감독원 전자공시) | Official REST API | 공시 목록 (접수번호 · 회사 · 종목코드 · 보고서명 · 제출인 · 날짜) | HIGH |
+- 공식 API — CLAUDE.md 「공식 API 운영 기준」 으로 분류(Phase 43). 공식 한도는 인증키당 20,000 호출/일(초과 시 상태 `020`). 설계 예산 · 설계 사용량 · 수집 주기 · 카운터 같은 **운영 수치의 정본은 CLAUDE.md** 「공식 API 운영 기준」 의 OpenDART 불릿이다 — 여기에 숫자를 다시 적지 않는다.
+- 소비처는 `workers/dart-alert` 하나(공개매수 · 유상증자 · 합병 공시 텔레그램 알림). 알림마다 출처 「금융감독원 전자공시」 와 DART 원문 링크(`https://dart.fss.or.kr/dsaf001/main.do?rcpNo=<접수번호>`).
+- 유형 코드(`pblntf_detail_ty`): `D004` 공개매수(신고서 · 설명서 · 정정 · 의견표명서 · 결과보고서가 한 유형) · `B001` 주요사항보고서(보고서명 「주요사항보고서(<종류>)」 — 유상증자결정 · 유무상증자결정 · 회사합병결정 · 회사분할합병결정만 알림 · 정정은 앞에 `[기재정정]` 같은 꼬리표).
+- `pblntf_detail_ty` 는 코드 하나만 받는다 — D004 와 B001 은 대분류가 달라 한 호출에 담을 수 없어 바퀴당 2회 호출한다.
+- 같은 날짜 안 정렬 순서는 문서에 없다(`sort=date` 의 키가 접수일자) — 첫 쪽 순서에 기대지 않고 `total_count` 가 100을 넘고 늘었을 때 나머지 쪽을 마저 읽는다.
+- 응답에 접수 시각이 없다(날짜 `rcept_dt` 만) — 늦은 알림 판정은 수집기의 조회 성공 기준점으로 한다.
+- DART 전자문서 제출 가능 시간은 `07:30` ~ `19:00`(2023-08 보도 기준 · 규정 원문 미확인). 18시 이후 제출 서류는 다음 날 접수로 다음 날 목록에 나타난다.
+- 대안 기각 근거(2026-11-12 조사 · 실측):
+  - 한투 `news-title` — 공시 제공처가 거래소 수시공시 · 시장조치만 싣고 공개매수신고서 · 대량보유보고서 같은 금감원 보고서류는 오지 않는다.
+  - KIND — 같은 공시가 DART 보다 같거나 0 ~ 1분 늦고 공식 API 가 없다(스크래핑 5원칙 대상 → 장중 실시간 폴링 불가).
+  - DART RSS(`todayRSS.xml`) — 최신 50건뿐이고 지분공시류(공개매수 포함)가 빠진다.
 ### News Data Sources
 | Source | Access Method | Data Type | Confidence |
 |--------|--------------|-----------|------------|
@@ -148,3 +163,5 @@ npm install @supabase/supabase-js
 - Supabase realtime + Next.js 15: https://dev.to/lra8dev/building-real-time-magic-supabase-subscriptions-in-nextjs-15-2kmp
 - Korean scraping legal ruling (2022): https://file.scourt.go.kr/dcboard/1727143941701_111221.pdf
 - Naver OpenAPI 공식 오류 코드 (429 = 일 허용량 초과): https://developers.naver.com/docs/common/openapiguide/errorcode.md
+- OpenDART 공시검색 개발가이드 (list.json · 유형 코드 · 상태 코드): https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
+- Telegram Bot API (sendMessage · HTML 서식): https://core.telegram.org/bots/api
