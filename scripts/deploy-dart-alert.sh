@@ -513,16 +513,15 @@ echo "  Scheduler: ${DART_SCHEDULERS[0]%%|*} ($([[ "$SCHEDULER_PAUSED" == 1 ]] &
 echo "  Alert policies: ${ALERT_POLICY_NAMES[*]}"
 echo ""
 
-echo "▶ smoke tests..."
-bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"
-
 if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
-  echo ""
   echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」):"
   echo "  1. gcloud run jobs execute $JOB --region=$REGION --update-env-vars=DART_ALERT_MODE=seed   (--wait 없이)"
   echo "  2. Cloud Logging 에서 「seed done」 확인"
   echo "  3. gcloud scheduler jobs resume ${DART_SCHEDULERS[0]%%|*} --location=$REGION"
 fi
+
+echo "▶ smoke tests..."
+bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"
 
 echo ""
 echo "✅ deploy-dart-alert.sh complete"
