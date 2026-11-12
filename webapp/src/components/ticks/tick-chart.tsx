@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 
 import type { TickOpenResponse } from '@gh-radar/shared';
 
@@ -116,6 +116,8 @@ export interface TickChartProps {
   onOwnJump?: (rec: number, back?: number) => void;
   /** ◇(짝 없음 · 대기) 클릭 — 그 체결 id(줄 rec 는 뷰어가 rows 로 푼다). */
   onOwnFillLine?: (fillId: number) => void;
+  /** 제목 「타임라인」 바로 뒤 덧붙임 — 차트 종류 스위치(Phase 42 D-05). 안 주면 없음. */
+  titleAddon?: (phone: boolean) => ReactNode;
   className?: string;
 }
 
@@ -150,7 +152,7 @@ function cumLegendOf(accum: TickOpenResponse['accum'] | undefined, isToday: bool
 }
 
 /** 우리 체결 ◆(채움 `--mine`) · 추정 빈 ◆ 점선 · 짝 없음 · 대기 빈 ◇ 실선 — 2R 정사각을 45° 돌린다(목업 B `dia`). */
-function OwnDiamond({ m, i, r }: { m: OwnMark; i: number; r: number }) {
+export function OwnDiamond({ m, i, r }: { m: OwnMark; i: number; r: number }) {
   const common = {
     'data-slot': 'tick-own-mark',
     'data-own-i': i,
@@ -176,7 +178,7 @@ const KBD = 'mono rounded-[4px] bg-[var(--muted)] px-1 text-[var(--fg-2)]';
 const sgnCls = (v: number) => (v > 0 ? 'text-[var(--up)]' : v < 0 ? 'text-[var(--down)]' : 'text-[var(--muted-fg)]');
 
 /** 가격 판 원 옆 작은 상자 — 팀 주문 묶음 표(스케치 028 ② · 목업 groupHtml · 주문마다 한 줄). */
-function TickGroupBox({ table: g }: { table: TickGroupTable }) {
+export function TickGroupBox({ table: g }: { table: TickGroupTable }) {
   const multi = g.count >= 2;
   return (
     <div data-slot="tick-chart-group" className="mt-0.5 rounded-[8px] bg-[var(--muted)] px-2 pt-1.5 pb-[5px]">
@@ -263,6 +265,7 @@ export function TickChart({
   own = null,
   onOwnJump,
   onOwnFillLine,
+  titleAddon,
   className,
 }: TickChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
@@ -646,6 +649,7 @@ export function TickChart({
     <section data-slot="tick-chart" aria-label="틱 차트" className={cn(CARD, 'min-w-0 overflow-hidden', className)}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-[7px]">
         <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
+        {titleAddon?.(phone)}
         {!phone && (
           <span className="truncate text-[11px] text-[var(--muted-fg)]">
             가격 · 팀 평단 · 팀 주문 원 | <span className="text-[var(--team)]">당일 팀 순매수</span> ·{' '}

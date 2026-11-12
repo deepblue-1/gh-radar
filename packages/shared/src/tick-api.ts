@@ -127,6 +127,8 @@ export interface TickOpenGrid {
 /**
  * `GET /api/ticks/open?isin=&d=&ex=` — 한 종목 열기. grid null 이면 요청 변환 대상(request 로 상태를 본다).
  * `accum` = 매집감지 등록 종목의 누적 선 입력(D-09 · 없으면 null) · `eta_s` = 그 거래소 예상 대기(초).
+ * `accum.avg_px` = 매집감지 보고서 누적 평단 계단(`{ t_ms, px }` · Phase 42 D-18) — 옛 RPC 응답이면 키 없음 · 2026-10-21 이전
+ * 적재 행이면 null. 웹은 `avgPxPointsOf` 로 방어해 읽는다.
  */
 export type TickOpenResponse = {
   access: true;
@@ -137,7 +139,7 @@ export type TickOpenResponse = {
   stock: { code: string; name: string; listing_shares?: number | null } | null;
   grid: TickOpenGrid | null;
   request: TickConvertRequest | null;
-  accum: { reg_time_ms: number | null; pos_net: unknown } | null;
+  accum: { reg_time_ms: number | null; pos_net: unknown; avg_px?: unknown } | null;
   eta_s: number;
 };
 

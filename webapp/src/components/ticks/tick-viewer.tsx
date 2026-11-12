@@ -23,6 +23,8 @@ import { useTickOwn } from '@/lib/ticks/use-tick-own';
 import { cn } from '@/lib/utils';
 
 import { TickBook, type TickBookUnit } from './tick-book';
+import { CandleChart } from './candle-chart';
+import { ChartKindSwitch, type ChartKind } from './chart-kind-switch';
 import { TickAmountCard } from './tick-amount-card';
 import { TickChart } from './tick-chart';
 import { TickMsgList } from './tick-msg-list';
@@ -321,6 +323,8 @@ export function TickViewer({
   // 호가 잔량 단위 — 기본 금액(2026-11-03 사용자 요청) · 「주 | 금액」 토글은 그대로
   const [unit, setUnit] = useState<TickBookUnit>('amount');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
+  // 차트 종류(Phase 42 D-02 · D-05) — 처음 = 선 차트 · 브라우저 기억은 42-08 이 같은 자리에서 `useChartKind` 로 바꾼다
+  const [chartKind, setChartKind] = useState<ChartKind>('line');
   const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;
   const liveAsOfMs = live?.asOfMs ?? null;
@@ -497,20 +501,41 @@ export function TickViewer({
     onOwnBackGo,
   };
 
+  const onChartSeekMs = (ms: number) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n);
+  const kindAddon = (phone: boolean) => <ChartKindSwitch value={chartKind} onChange={setChartKind} phone={phone} />;
+
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
-      <TickChart
-        session={session}
-        accum={accum}
-        isToday={isToday}
-        listingShares={listingShares}
-        cursorRec={rec}
-        onSeekMs={(ms) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n)}
-        onJumpRec={cursor.jumpToRec}
-        own={ownModel}
-        onOwnJump={onChartOwnJump}
-        onOwnFillLine={onChartOwnFillLine}
-      />
+      {/* 두 차트는 조건부로 번갈아 그린다 — 함께 마운트해 하나를 숨기지 않는다(D-04 · 숨은 쪽 폭 측정 · 제스처 이중) */}
+      {chartKind === 'candle' ? (
+        <CandleChart
+          session={session}
+          accum={accum}
+          isToday={isToday}
+          listingShares={listingShares}
+          cursorRec={rec}
+          onSeekMs={onChartSeekMs}
+          onJumpRec={cursor.jumpToRec}
+          own={ownModel}
+          onOwnJump={onChartOwnJump}
+          onOwnFillLine={onChartOwnFillLine}
+          titleAddon={kindAddon}
+        />
+      ) : (
+        <TickChart
+          session={session}
+          accum={accum}
+          isToday={isToday}
+          listingShares={listingShares}
+          cursorRec={rec}
+          onSeekMs={onChartSeekMs}
+          onJumpRec={cursor.jumpToRec}
+          own={ownModel}
+          onOwnJump={onChartOwnJump}
+          onOwnFillLine={onChartOwnFillLine}
+          titleAddon={kindAddon}
+        />
+      )}
 
       <TickSlider
         session={session}
