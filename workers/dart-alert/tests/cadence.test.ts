@@ -135,9 +135,12 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
   });
 
   it("주말 하루는 바퀴 0", () => {
+    // 172,800초를 초마다 expect 하면 기계가 바쁠 때 5초 제한을 넘는다 — 어긋난 초만 모아 한 번에 단언한다(검사 범위는 같다)
+    const offWindow: number[] = [];
     for (let t = kst(2026, 11, 14, 0, 0); t < kst(2026, 11, 16, 0, 0); t += 1_000) {
-      expect(lapIntervalMs(t)).toBeNull();
+      if (lapIntervalMs(t) !== null) offWindow.push(t);
     }
+    expect(offWindow).toEqual([]);
   });
 });
 
