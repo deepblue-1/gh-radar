@@ -643,15 +643,17 @@ describe('결선 · 수익률 · 띠 · 캡션', () => {
     expect(today.q('candle-ret-cum')).toHaveLength(0);
     expect(today.q('candle-cum-avg')).toHaveLength(0);
     expect(today.q('candle-chart-band')[0]!.textContent).not.toContain('누적 평단');
-    expect(today.q('candle-chart-caption')).toHaveLength(0);
+    // 캡션에는 봉이 모자란 이동평균 안내(단순 5 · 단순 20 — 봉 하나)만 남는다
+    expect(Array.from(today.q('candle-caption-item')).map((e) => e.textContent)).toEqual([
+      '단순 5 — 이 봉 단위로는 봉이 모자라 그리지 않아요',
+      '단순 20 — 이 봉 단위로는 봉이 모자라 그리지 않아요',
+    ]);
     // 나머지(당일 수익률 · 아래 판)는 그대로
     expect(today.q('candle-ret-day')).toHaveLength(1);
     today.unmount();
     const none = renderChart({ accum: null });
     expect(none.q('candle-ret-cum')).toHaveLength(0);
-    expect(Array.from(none.q('candle-caption-item')).map((e) => e.textContent)).toEqual([
-      '누적 자료 없음(매집감지 미등록)',
-    ]);
+    expect(Array.from(none.q('candle-caption-item')).map((e) => e.textContent)[0]).toBe('누적 자료 없음(매집감지 미등록)');
   });
 
   it('마우스를 수익률 판 위에 두면 값 점에 당일(--team) 점이 그 판 안에 · 띠는 그 시각 · 떠나면 현재 틱', () => {
