@@ -373,3 +373,168 @@ export function cumAvgPathOf(
   if (open && lastTx !== null) d += `H${f1(x(Math.max(endMs, lastTx)))}`;
   return d;
 }
+
+// ---------------------------------------------------------------------------
+// 자동 단위(D-09 · SC-2)
+// ---------------------------------------------------------------------------
+
+/** 자동 단위의 최소 칸 폭(px). */
+export const CANDLE_AUTO_MIN_PX = 4;
+
+/** 칸 폭 `(단위 ÷ 보기 창) × 그림 폭` 이 4px 이상인 가장 작은 단위 · 아무것도 아니면 60(RESEARCH Code Example 2). */
+export function autoUnitOf(span: number, plotW: number): CandleUnit {
+  for (const u of CANDLE_UNITS) if (((u * CANDLE_MIN_MS) / span) * plotW >= CANDLE_AUTO_MIN_PX) return u;
+  return 60;
+}
+
+// ---------------------------------------------------------------------------
+// 거래대금 막대(D-06)
+// ---------------------------------------------------------------------------
+
+/** 방향별 막대 경로 둘 + 보기 창 안 최대 거래대금(높이 기준 · 창에 봉이 없으면 0). */
+export interface AmountBars {
+  up: string;
+  down: string;
+  max: number;
+}
+
+/**
+ * 가격 판 아래 [yCb, y1b] 영역 — 보기 창과 겹치는 봉만 · 높이 = 거래대금 ÷ 창 안 최대 × (영역 − 2) · 아래 끝 = y1b · x · 폭 =
+ * 몸통 규칙(꼬리만 구간이면 `max(1, 칸 폭 × 0.7)`) · 방향 = 종가 ≥ 시가.
+ */
+export function amountBarsOf(c: Candles, view: View, x: (t: number) => number, P: CandlePanels): AmountBars {
+  const out: AmountBars = { up: '', down: '', max: 0 };
+  const [a, b] = visibleIdxOf(c, view);
+  for (let i = a; i < b; i++) if (c.amt[i]! > out.max) out.max = c.amt[i]!;
+  if (!(out.max > 0)) return out;
+  const u = c.unit * CANDLE_MIN_MS;
+  const hMax = P.y1b - P.yCb - 2;
+  for (let i = a; i < b; i++) {
+    const xs = x(c.t0[i]!);
+    const slot = x(c.t0[i]! + u) - xs;
+    const cx = xs + slot / 2;
+    const bw =
+      slot < CANDLE_WICK_ONLY_PX
+        ? Math.max(1, slot * CANDLE_BODY_RATIO)
+        : Math.min(CANDLE_BODY_MAX_PX, slot * CANDLE_BODY_RATIO);
+    const hh = (c.amt[i]! / out.max) * hMax;
+    const bar = `M${f1(cx - bw / 2)},${f1(P.y1b - hh)}h${f1(bw)}v${f1(hh)}h${f1(-bw)}Z`;
+    if (c.c[i]! >= c.o[i]!) out.up += bar;
+    else out.down += bar;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 보이는 값 · 가장자리 글자(D-16 · UI-SPEC S5)
+// ---------------------------------------------------------------------------
+
+/** 이동평균 값 중 보기 창과 겹치는 봉의 유한 값(봉 순서). */
+export function maVisibleOf(c: Candles, values: Float64Array, view: View): number[] {
+  const [a, b] = visibleIdxOf(c, view);
+  const out: number[] = [];
+  for (let i = a; i < Math.min(b, values.length); i++) {
+    const v = values[i]!;
+    if (Number.isFinite(v)) out.push(v);
+  }
+  return out;
+}
+
+/** 누적 평단 계단 중 보기 창에 보이는 값 — 창 앞에서 이어 들어온 값(창 시작 이하 마지막 점) + 창 안 점 · `px ≤ 0` 은 끊김이라 뺀다. */
+export function cumAvgVisibleOf(pts: readonly PricePoint[], view: View): number[] {
+  const out: number[] = [];
+  let carry: number | null = null;
+  for (const [t, p] of pts) {
+    if (t <= view.t0) carry = p;
+    else if (t < view.t1) {
+      if (carry !== null) {
+        if (carry > 0) out.push(carry);
+        carry = null;
+      }
+      if (p > 0) out.push(p);
+    } else break;
+  }
+  if (carry !== null && carry > 0) out.push(carry);
+  return out;
+}
+
+/** 가장자리 글자 입력 — 누적 평단 먼저 · 이동평균은 칩 순서로 넘긴다. */
+export interface EdgeLabelInput {
+  key: string;
+  /** 「누적 평단」 · 「단순 5」 · 「일 20」. */
+  name: string;
+  fill: string;
+  /** 보기 창 안 보이는 값(`maVisibleOf` · `cumAvgVisibleOf`). */
+  vis: readonly number[];
+  /** 보기 창 안 마지막 점(글자 값) · 없으면 `vis` 의 마지막. */
+  last: number | null;
+}
+
+export interface EdgeLabel {
+  key: string;
+  text: string;
+  x: number;
+  /** 글자 기준선. */
+  y: number;
+  anchor: 'start' | 'end';
+  fill: string;
+  side: 'below' | 'above';
+}
+
+/** 한 가장자리에 쌓는 최대 개수(넘치면 마지막 자리 「외 n개」). */
+export const EDGE_LABEL_MAX = { desktop: 5, phone: 3 } as const;
+/** 가장자리 글자 줄 간격(px). */
+export const EDGE_LABEL_STEP = 13;
+
+const INT_FMT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+
+/**
+ * 범위 밖 선의 가장자리 글자(D-16) — 보이는 값 하나라도 [lo, hi] 안이면 선을 그린다(글자 없음). 한 점도 안 들어오면 선 대신
+ * 「{이름} {값} ▾/▴」 · 숨김 집합에 그 key. 쪽 = 보이는 마지막 값이 hi 위면 위 · 아니면 아래(글자 값 = `last`). 아래 밖 ▾ = 왼쪽 `L + 4` · 첫 기준선
+ * `yCb − 4` · 위로 13 · 위 밖 ▴ = 오른쪽 끝 정렬 `xr − 4` · 첫 기준선 데스크톱 `y1a + 24` · 폰 `y1a + 11` · 아래로 13. 한 가장자리
+ * 데스크톱 5 · 폰 3 까지 · 넘치면 마지막 자리에 「외 {n}개 ▾/▴」(`--muted-fg` · key `more-below` / `more-above`).
+ * 가격 범위는 넓히지 않는다.
+ */
+export function edgeLabelsOf(
+  items: readonly EdgeLabelInput[],
+  range: Pick<TickPriceRange, 'lo' | 'hi'>,
+  frame: Pick<CandleFrame, 'P' | 'L' | 'xr' | 'phone'>,
+): { labels: EdgeLabel[]; hidden: ReadonlySet<string> } {
+  const hidden = new Set<string>();
+  const sides: Record<'below' | 'above', { it: EdgeLabelInput; v: number }[]> = { below: [], above: [] };
+  for (const it of items) {
+    if (it.vis.length === 0) continue;
+    if (it.vis.some((v) => v >= range.lo && v <= range.hi)) continue;
+    const end = it.vis[it.vis.length - 1]!;
+    hidden.add(it.key);
+    sides[end > range.hi ? 'above' : 'below'].push({ it, v: it.last ?? end });
+  }
+  const { P, L, xr, phone } = frame;
+  const max = phone ? EDGE_LABEL_MAX.phone : EDGE_LABEL_MAX.desktop;
+  const labels: EdgeLabel[] = [];
+  for (const side of ['below', 'above'] as const) {
+    const list = sides[side];
+    const arrow = side === 'below' ? '▾' : '▴';
+    const x = side === 'below' ? L + 4 : xr - 4;
+    const anchor = side === 'below' ? 'start' : 'end';
+    const yAt = (k: number) =>
+      side === 'below' ? P.yCb - 4 - k * EDGE_LABEL_STEP : P.y1a + (phone ? 11 : 24) + k * EDGE_LABEL_STEP;
+    const shown = list.length > max ? max - 1 : list.length;
+    for (let k = 0; k < shown; k++) {
+      const { it, v } = list[k]!;
+      labels.push({ key: it.key, text: `${it.name} ${INT_FMT.format(v)} ${arrow}`, x, y: yAt(k), anchor, fill: it.fill, side });
+    }
+    if (shown < list.length) {
+      labels.push({
+        key: `more-${side}`,
+        text: `외 ${list.length - shown}개 ${arrow}`,
+        x,
+        y: yAt(shown),
+        anchor,
+        fill: 'var(--muted-fg)',
+        side,
+      });
+    }
+  }
+  return { labels, hidden };
+}

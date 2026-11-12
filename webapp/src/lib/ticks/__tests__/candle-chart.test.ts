@@ -394,7 +394,7 @@ describe('보이는 값', () => {
   it('maVisibleOf — 창과 겹치는 봉의 유한 값만', () => {
     const v = Float64Array.of(Number.NaN, 105, 106);
     expect(maVisibleOf(three, v, allView)).toEqual([105, 106]);
-    expect(maVisibleOf(three, v, { t0: T0, t1: T0 + MIN })).toEqual([]);
+    expect(maVisibleOf(three, v, { t0: T0, t1: T0 + 30 * SEC })).toEqual([]);
     expect(maVisibleOf(three, v, { t0: T0 + 2 * MIN + 30 * SEC, t1: T0 + 5 * MIN })).toEqual([106]);
   });
 
