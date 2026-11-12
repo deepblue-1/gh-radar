@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { fmtTickTime, type TickOpenResponse } from '@gh-radar/shared';
 
@@ -17,6 +17,8 @@ import {
 import { fmtQty } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import type { TickUrlState } from '@/lib/ticks/tick-url';
+import { useChartKind } from '@/lib/ticks/use-candle-prefs';
+import type { ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import { useTickCursor, type TickCursor } from '@/lib/ticks/use-tick-cursor';
 import { useOwnNav, type OwnNavState } from '@/lib/ticks/use-own-nav';
 import { useTickOwn } from '@/lib/ticks/use-tick-own';
@@ -323,8 +325,24 @@ export function TickViewer({
   // 호가 잔량 단위 — 기본 금액(2026-11-03 사용자 요청) · 「주 | 금액」 토글은 그대로
   const [unit, setUnit] = useState<TickBookUnit>('amount');
   const [pane, setPane] = useState<string>(HTS_PANES[0]!.id);
-  // 차트 종류(Phase 42 D-02 · D-05) — 처음 = 선 차트 · 브라우저 기억은 42-08 이 같은 자리에서 `useChartKind` 로 바꾼다
-  const [chartKind, setChartKind] = useState<ChartKind>('line');
+  // 차트 종류(Phase 42 D-02 · D-05) — 브라우저 기억(`gh-radar:tick-chart-kind`) · 기억 없음 · 서버 렌더 = 선 차트
+  const [chartKind, setChartKind] = useChartKind();
+  // 마지막 보기 창(D-24 · UI-SPEC S1) — 렌더 없는 ref(휠마다 뷰어가 다시 그려지지 않게) · 저장소에 남기지 않는다.
+  // 종목 · 날짜 · 거래소가 바뀌면 뷰어가 key 로 다시 마운트돼 처음 창으로 돌아간다.
+  const lastViewRef = useRef<ChartViewSnap | null>(null);
+  const onViewChange = useCallback((v: ChartViewSnap) => {
+    lastViewRef.current = v;
+  }, []);
+  // 전환 순간의 창 — 새로 마운트되는 차트의 처음 창(ref 는 이벤트 처리기에서만 읽는다)
+  const [switchView, setSwitchView] = useState<ChartViewSnap | null>(null);
+  const onKindChange = useCallback(
+    (k: ChartKind) => {
+      if (k === chartKind) return;
+      setSwitchView(lastViewRef.current);
+      setChartKind(k);
+    },
+    [chartKind, setChartKind],
+  );
   const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;
   const liveAsOfMs = live?.asOfMs ?? null;
@@ -502,7 +520,7 @@ export function TickViewer({
   };
 
   const onChartSeekMs = (ms: number) => cursor.seekNs(BigInt(Math.round(ms)) * 1_000_000n);
-  const kindAddon = (phone: boolean) => <ChartKindSwitch value={chartKind} onChange={setChartKind} phone={phone} />;
+  const kindAddon = (phone: boolean) => <ChartKindSwitch value={chartKind} onChange={onKindChange} phone={phone} />;
 
   return (
     <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
@@ -534,6 +552,8 @@ export function TickViewer({
           onOwnJump={onChartOwnJump}
           onOwnFillLine={onChartOwnFillLine}
           titleAddon={kindAddon}
+          initialView={switchView ?? undefined}
+          onViewChange={onViewChange}
         />
       )}
 

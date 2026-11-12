@@ -58,6 +58,7 @@ import {
 import type { OwnModel } from '@/lib/ticks/own-model';
 import { fmtAmountC, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
+import { useViewSync, type ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
@@ -118,6 +119,10 @@ export interface TickChartProps {
   onOwnFillLine?: (fillId: number) => void;
   /** 제목 「타임라인」 바로 뒤 덧붙임 — 차트 종류 스위치(Phase 42 D-05). 안 주면 없음. */
   titleAddon?: (phone: boolean) => ReactNode;
+  /** 처음 보일 창 — 마운트 때 한 번만(Phase 42 D-24 · 차트 전환 때 보던 구간 유지). 안 주면 하루 전체. */
+  initialView?: ChartViewSnap;
+  /** 보기 창이 바뀔 때마다(D-24) — 뷰어가 렌더 없는 ref 에 쥔다. 안 주면 없음. */
+  onViewChange?: (v: ChartViewSnap) => void;
   className?: string;
 }
 
@@ -266,6 +271,8 @@ export function TickChart({
   onOwnJump,
   onOwnFillLine,
   titleAddon,
+  initialView,
+  onViewChange,
   className,
 }: TickChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
@@ -276,6 +283,7 @@ export function TickChart({
   const series = priceSeriesOf(session);
   const lastTradeMs = useMemo(() => lastTradeMsOfSession(session), [session]);
   const ctl = useChartView({ bounds, lastTradeMs, minViewMs: TICK_CHART.MIN_VIEW_MS });
+  const { pending } = useViewSync(ctl, initialView, onViewChange);
   const { view } = ctl;
 
   const phone = height === undefined ? W < TICK_CHART.PHONE_MAX_W : height === TICK_CHART.phone.H;
@@ -722,7 +730,7 @@ export function TickChart({
             'block tabular-nums',
             draft !== null ? 'cursor-col-resize' : dragging ? 'cursor-grabbing' : 'cursor-crosshair',
           )}
-          style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
+          style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none', visibility: pending ? 'hidden' : undefined }}
           fontSize={11}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
