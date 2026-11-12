@@ -6,6 +6,7 @@
 --       · 20261104300000(WR-01 하루 상한 = 깨운 횟수) · 20261104300100(WR-02 취소 = 내 몫 빼기)
 --       · 20261104300200(IN-06 배치 안 중복 키).
 --       · 20261104700000(quick 261104-n9h — tick_today_for_user open_rate · kind 16 팀 칸 · tick_day_for_user open_rate).
+--       · 20261113100000(Phase 42 D-18 — accum.avg_px).
 --
 -- 잠그는 것(D-02 · D-03 · D-04 · D-08 · D-09 · D-15):
 --   - 권한: 표 3 RLS 켜짐 · 정책 0 · anon · authenticated 권한 0 · service_role CRUD · 함수 EXECUTE service_role 만
@@ -26,7 +27,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(138);
+SELECT plan(141);
 
 -- ── 픽스처: 게이트 사용자 ─────────────────────────────────────────
 INSERT INTO auth.users (id, email) VALUES
@@ -140,6 +141,16 @@ SELECT is((pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum'->>'reg_time
           'D open accum.reg_time_ms(D-09)');
 SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum'->'pos_net',
           '[[1793010000000, 0], [1793010060000, 1500000]]'::jsonb, 'D open accum.pos_net = payload.pos_net 그대로');
+SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum'->'avg_px', 'null'::jsonb,
+          'D open accum.avg_px — payload 에 키 없음 → JSON null(옛 행 · 미등록과 같게)');
+UPDATE public.limitup_accum_flow
+   SET payload = payload || '{"avg_px": {"t_ms": [1793010000000, 1793010060000], "px": [13772, 0]}}'::jsonb
+ WHERE date = '20261030' AND isin = 'KR7370001001';
+SELECT is(pg_temp.open1('20261030', 'KRX', 'KR7370001001')->'accum'->'avg_px',
+          '{"t_ms": [1793010000000, 1793010060000], "px": [13772, 0]}'::jsonb,
+          'D open accum.avg_px = payload.avg_px 그대로(Phase 42 D-18)');
+SELECT is((SELECT p.provolatile::text FROM pg_proc p WHERE p.oid = 'public.tick_open_for_user(uuid, text, text, text)'::regprocedure),
+          's', 'D tick_open_for_user STABLE 유지(재정의 Pitfall)');
 
 -- ── E. 모드 규칙(D-04) ────────────────────────────────────────────
 SELECT is(public.tick_grid_upsert('promoted', jsonb_build_array(pg_temp.grow('20261030', 'KRX', 'KR7370001001', 'promoted', 30.0))),

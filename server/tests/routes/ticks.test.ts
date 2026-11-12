@@ -95,7 +95,11 @@ const openWithGrid = {
   isin: CHUNIL,
   grid: gridRow,
   request: null,
-  accum: { reg_time_ms: 1760403600000, pos_net: [[1760403600000, 100]] },
+  accum: {
+    reg_time_ms: 1760403600000,
+    pos_net: [[1760403600000, 100]],
+    avg_px: { t_ms: [1760403600000], px: [16400] },
+  },
   stock: { code: "000650", name: "천일고속" },
   eta_s: 300,
 };
@@ -245,6 +249,8 @@ describe("GET /api/ticks/open — 서명 URL (D-09 · 트레이서)", () => {
     });
     expect(r.body.stock).toEqual({ code: "000650", name: "천일고속" });
     expect(r.body.accum).toEqual(openWithGrid.accum);
+    // Phase 42 D-18 — accum.avg_px 는 모양 검사 없이 그대로 통과(server 소스 무변경 · 재배포 불필요)
+    expect(r.body.accum.avg_px).toEqual({ t_ms: [1760403600000], px: [16400] });
     expect(r.body.eta_s).toBe(300);
     expect(r.body.request).toBeNull();
     // Storage 경로는 응답 어디에도 없다.
