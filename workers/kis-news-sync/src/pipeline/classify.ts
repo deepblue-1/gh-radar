@@ -10,6 +10,9 @@
  * - D-09: 연결마다 숨김 사유 — ETP 종목이면 `etp`(shared `isEtpProduct` 단일 정의) · 공시(F/G)인데
  *   제목이 파생상품 안내면 `derivative_notice`. 둘 다 해당하면 종목 성질인 `etp` 를 먼저 쓴다.
  *   저장은 하되 조회에서 뺀다 — 규칙이 바뀌면 DB UPDATE 로 소급한다.
+ * - 재료 없는 자동 기사(2026-11-12 UAT): 뉴스인데 제목이 시세 한 줄(「<코>OO, 상한가 진입.. +29.90% ↑」) ·
+ *   시황 · 상위 N종목 목록이면 `auto_market`(`AUTO_MARKET_NEWS_PATTERNS`). 본문 · 링크 없이 제목만
+ *   보여 주는 피드라 「왜 오르는지」가 없는 줄이다. D-11(한투가 붙인 종목 그대로 표시)은 그 밖의 뉴스에 그대로다.
  * - 작성 시각은 `data_dt` + `data_tm`(KST)로 만든다. 일련번호 앞 14자리에서 뽑지 않는다
  *   (표본 350건 중 서울경제 3건 불일치 — 일련번호는 첫 작성, data_dt/tm 은 갱신 시각).
  * - 종목코드는 trim · 대문자 뒤 `SHORT_CODE_RE` 통과 + 종목 정보(meta)에 있는 것만 연결한다.
@@ -32,8 +35,47 @@ export const DISCLOSURE_PROVIDERS: Readonly<Record<string, string>> = Object.fre
  */
 export const DERIVATIVE_NOTICE_PATTERN = /ELW|주식워런트증권|ETN|상장지수증권|상장지수펀드|ETF|주식선물|주식옵션/;
 
+/**
+ * 재료 없는 자동 기사 제목(뉴스 전용) — 하나라도 맞으면 `auto_market`.
+ *
+ * 2026-11-12 운영 표본(급등 종목 뉴스 739건 + 실측 픽스처)에서 한투 뉴스의 절반 가까이가 이 꼴이었다 —
+ * 서울경제 · 인포스탁의 시세 자동 기사와 목록 기사. 다른 언론사 기사는 한 건도 걸리지 않았다.
+ * 수급 자동 기사(뉴스핌 「[장중수급포착]」 · 한국경제 「52주 신고가 경신, 외국인 N일 연속 순매수」)는 넣지 않았다.
+ *
+ * ⚠ 소급 마이그레이션(`20261112300000_kis_news_auto_market_hidden.sql`)이 같은 정규식을 문자열로 쓴다 —
+ *   Postgres 와 JS 가 똑같이 읽는 문법만 쓴다(`\d` · `\s` · lookaround · 슬래시 · 작은따옴표 금지).
+ *   목록을 바꾸면 새 소급 마이그레이션을 같이 낸다(`tests/classify.test.ts` 가 최신 목록과 대조한다).
+ */
+export const AUTO_MARKET_NEWS_PATTERNS: readonly RegExp[] = Object.freeze([
+  // ── 종목 시세 한 줄 ──
+  /^<[^>]{1,4}>.*(상한가|하한가) ?(진입|이탈)/, // 서울경제 「<코>비큐AI, 상한가 진입.. +29.90% ↑」
+  /^.+\([0-9A-Z]{6}\) +((소폭|상승|하락|급등|급락|강세|약세|상한가|하한가)|[+-][0-9])/, // 인포스탁 「GST(083450) 소폭 상승세 +3.19%」 · 「디아이(003160)  +6.51%, 에프에스티 +5.50%…」
+  /^.+\([0-9A-Z]{6}\) - 인포스탁 모닝 브리핑/,
+  // ── 시황 ──
+  /^(오전|오후) ?[0-9]{1,2}:[0-9]{2} 현재 (코스피|코스닥)/, // 「오후 3:21 현재 코스닥은 55:45으로 매도우위…」
+  /^\[(개장|정오|마감|장중) ?시황\]/,
+  /^.+\([+-][0-9.]+%.?\)이 (강세|약세)인 가운데/, // 「의료정밀업(+6.74%↑)이 강세인 가운데, 코스피도 상승 흐름…」
+  /^증시요약\([0-9]+\)/,
+  // ── 목록 ──
+  /상위 ?[0-9]* ?종목/, // 「코스닥 상승률 상위 20종목(직전 30분 기준)」 · 「외국계 순매수,도 상위종목」
+  /기술적 분석 특징주/,
+  /★/, // 인포스탁 「오전장 특징주★(코스닥)」 · 「오후장★테마동향」 · 「개장전★주요이슈 점검」
+  /^변동성완화장치\(VI\) 발동 종목/,
+  /^전일대비 거래량 (급증|증가) 종목/,
+  /^종가 동시호가 특이 종목/,
+  /^전일자 주요 지분 변동 공시/,
+  /^\[표\]/, // 뉴스핌 「[표]11월 11일 52주 신고가 종목 및 최근 동향」
+  /^오늘의 (메모|이슈)/,
+  /^기업 공시 \[/,
+]);
+
+/** 뉴스 제목이 재료 없는 자동 기사인가. 공시에는 쓰지 않는다. */
+export function isAutoMarketNews(title: string): boolean {
+  return AUTO_MARKET_NEWS_PATTERNS.some((p) => p.test(title));
+}
+
 /** 연결 숨김 사유 — DB `kis_news_stocks.hidden_reason`(NULL = 표시). */
-export type HiddenReason = "etp" | "derivative_notice";
+export type HiddenReason = "etp" | "derivative_notice" | "auto_market";
 
 export interface IngestLink {
   code: string;
@@ -135,6 +177,7 @@ export function toIngestRows(
     const disclosureSource = DISCLOSURE_PROVIDERS[provider];
     const kind: StockFeedKind = disclosureSource !== undefined ? "disclosure" : "news";
     const derivative = kind === "disclosure" && DERIVATIVE_NOTICE_PATTERN.test(title);
+    const autoMarket = kind === "news" && isAutoMarketNews(title);
 
     const codes: string[] = queried !== undefined ? [queried] : [];
     for (const slot of CODE_SLOTS) {
@@ -153,7 +196,8 @@ export function toIngestRows(
 
     const links: IngestLink[] = codes.map((code) => {
       const m = opts.meta.get(code);
-      const hidden: HiddenReason | null = m && isEtpProduct(m.name, m.group) ? "etp" : derivative ? "derivative_notice" : null;
+      const hidden: HiddenReason | null =
+        m && isEtpProduct(m.name, m.group) ? "etp" : derivative ? "derivative_notice" : autoMarket ? "auto_market" : null;
       return { code, hidden_reason: hidden };
     });
 

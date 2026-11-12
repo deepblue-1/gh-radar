@@ -5,8 +5,10 @@ import { newsTitleKey } from "@gh-radar/shared";
 
 import type { KisNewsTitleRow } from "../src/kis/types";
 import {
+  AUTO_MARKET_NEWS_PATTERNS,
   DERIVATIVE_NOTICE_PATTERN,
   DISCLOSURE_PROVIDERS,
+  isAutoMarketNews,
   toIngestRows,
   writtenAtOf,
   type StockMeta,
@@ -241,6 +243,120 @@ describe("toIngestRows — D-09 숨김 사유", () => {
       { code: "005930", hidden_reason: null },
       { code: "069500", hidden_reason: "etp" },
     ]);
+  });
+});
+
+describe("toIngestRows — 재료 없는 자동 기사(auto_market · 2026-11-12 UAT)", () => {
+  const news = (title: string, over: Partial<KisNewsTitleRow> = {}): KisNewsTitleRow =>
+    mkRow({ news_ofer_entp_code: "4", dorg: "서울경제", hts_pbnt_titl_cntt: title, ...over });
+
+  it.each([
+    "<코>비큐AI, 상한가 진입.. +29.90% ↑",
+    "<유>티와이홀딩스우, 하한가 이탈.. -27.10% ↓",
+    "GST(083450) 소폭 상승세 +3.19%, 외국계 매수 유입, 3거래일 연속 상승",
+    "네패스(033640) 상승폭 확대 +6.65%",
+    "샘씨엔에스(252990) 급등세 기록중 +20.31%, 3거래일 연속 상승",
+    "썸에이지(208640) 상한가 진입, 이틀째 상한가",
+    "디아이(003160)  +6.51%, 에프에스티 +5.50%, 테크윙 +4.21%, 케이씨 +3.67%, 티씨케이 +3.65%",
+    "TIGER 코스닥액티브(0204S0) - 인포스탁 모닝 브리핑 (2026.11.09)",
+    "오후 3:21 현재 코스닥은 55:45으로 매도우위, 매도강세 업종은 출판?매체복제업(0.13%↑)",
+    "[개장 시황] 코스피 5,385.94.. 개인과 외국인의 순매수에 상승 출발 (▲10.58, +0.20%)",
+    "[마감 시황]  기관 매수 우위.. 코스닥 667.61(▲28.64, +4.48%) 상승 마감",
+    "의료정밀업(+6.74%↑)이 강세인 가운데, 코스피도 상승 흐름(+4.36%↑)",
+    "기계?장비업(-7.72%↓)이 약세인 가운데, 코스닥도 하락 흐름(-3.22%↓)",
+    "증시요약(6) - 특징 상한가 및 급등종목",
+    "코스닥 상승률 상위 20종목(직전 30분 기준)",
+    "외국계 순매수,도 상위종목(코스닥) 수량기준",
+    "1억원 이상 매수체결 상위 20 종목(코스닥)",
+    "코스피 외국인 순매수,도 상위20종목",
+    "오전장 기술적 분석 특징주 A(코스피)",
+    "오전장 특징주★(코스닥)",
+    "개장전★주요이슈 점검",
+    "변동성완화장치(VI) 발동 종목, 발동시간 기준",
+    "전일대비 거래량 급증 종목(코스피)",
+    "종가 동시호가 특이 종목(코스피/코스닥)",
+    "전일자 주요 지분 변동 공시",
+    "[표]11월 11일 52주 신고가 종목 및 최근 동향",
+    "오늘의 메모[11월 12일]",
+    "기업 공시 [11월 11일]",
+  ])("「%s」 → auto_market", (title) => {
+    expect(isAutoMarketNews(title)).toBe(true);
+    const { rows } = toIngestRows([news(title)], { meta: META });
+    expect(rows[0].kind).toBe("news");
+    expect(rows[0].links).toEqual([{ code: "012340", hidden_reason: "auto_market" }]);
+  });
+
+  it.each([
+    "비큐AI, 퓨리오사AI 대박에 순익 흑자…\"엔트로픽·오픈AI 저작권 리스크 반사이익\"",
+    "비큐AI 주가, 상한가... 이유는?",
+    "[특징주] JYP엔터, 스트레이키즈 활약 등 호실적에 장초반 20% 급등",
+    "'보안주' 지니언스 20%대 급등…3Q 영업익 253% 급증",
+    "[장중수급포착] 지니언스, 기관 5일 연속 순매수행진... 주가 +19.60%",
+    "'에스텍' 52주 신고가 경신, 외국인 3일 연속 순매수(1.9만주)",
+    "후성 수주공시 - 화학 제품 공급 계약 711.9억원 (매출액대비  15.10 %)",
+    "인텍플러스, 400.64억원 규모 공급계약(반도체 및 Substrate 검사 장비) 체결",
+    "HPSP, 보통주 74,000주(25.49억원) 규모 자사주 처분 결정",
+    "[리포트 브리핑]JYP Ent., '저력은 확인했다, 이제는 성장의 확장' 목표가 50,000원 - 삼성증권",
+    "[IR일정] 지니언스, 한국투자증권 2026 Corporate Day",
+    "대형주도 못 피한 급락장…상장사 844곳 ‘연중 최저가’ [이런국장 저런주식]",
+    "삼성전자(005930), 3분기 영업익 12조…시장 기대 웃돌아",
+  ])("재료 · 수급 · 리포트 뉴스 「%s」 는 숨기지 않는다", (title) => {
+    expect(isAutoMarketNews(title)).toBe(false);
+    const { rows } = toIngestRows([news(title)], { meta: META });
+    expect(rows[0].links).toEqual([{ code: "012340", hidden_reason: null }]);
+  });
+
+  it("한 글에 붙은 종목 연결은 전부 숨긴다(다른 종목의 상한가 기사가 따라붙는 문제)", () => {
+    const { rows } = toIngestRows([news("<코>썸에이지, 상한가 진입.. +30.00% ↑", { iscd2: "005930", iscd3: "0011T0" })], { meta: META });
+    expect(rows[0].links).toEqual([
+      { code: "012340", hidden_reason: "auto_market" },
+      { code: "005930", hidden_reason: "auto_market" },
+      { code: "0011T0", hidden_reason: "auto_market" },
+    ]);
+  });
+
+  it("공시에는 적용하지 않는다 · ETP 종목 연결은 etp 가 먼저다", () => {
+    const { rows } = toIngestRows(
+      [
+        mkRow({ cntt_usiq_srno: "1", hts_pbnt_titl_cntt: "코스닥 상승률 상위 20종목 관련 안내" }),
+        news("<유>KODEX 200, 상한가 진입.. +29.90% ↑", { cntt_usiq_srno: "2", iscd1: "069500", iscd2: "012340" }),
+      ],
+      { meta: META },
+    );
+    expect(rows[0].kind).toBe("disclosure");
+    expect(rows[0].links).toEqual([{ code: "012340", hidden_reason: null }]);
+    expect(rows[1].links).toEqual([
+      { code: "069500", hidden_reason: "etp" },
+      { code: "012340", hidden_reason: "auto_market" },
+    ]);
+  });
+
+  it("소급 마이그레이션의 정규식 배열이 이 목록과 글자까지 같다(순서 포함)", () => {
+    const dir = path.resolve(__dirname, "../../../supabase/migrations");
+    // 목록을 바꿀 때마다 소급 마이그레이션을 새로 낸다 — 가장 최근 것과 대조한다.
+    const sql = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort()
+      .map((f) => fs.readFileSync(path.join(dir, f), "utf8"))
+      .filter((text) => text.includes("'auto_market'") && text.includes("~ ANY (ARRAY["))
+      .at(-1);
+    expect(sql).toBeDefined();
+    if (sql === undefined) return;
+    const body = sql.slice(sql.indexOf("~ ANY (ARRAY[") + "~ ANY (ARRAY[".length, sql.indexOf("\n   ]);"));
+    const inSql = body
+      .split("\n")
+      .map((l) => l.trim().replace(/,$/, ""))
+      .filter((l) => l.startsWith("'"))
+      .map((l) => l.slice(1, -1));
+    expect(inSql).toEqual(AUTO_MARKET_NEWS_PATTERNS.map((p) => p.source));
+  });
+
+  it("Postgres 와 다르게 읽히는 문법을 쓰지 않는다", () => {
+    for (const p of AUTO_MARKET_NEWS_PATTERNS) {
+      expect(p.flags).toBe("");
+      expect(p.source).not.toMatch(/\\[dswbDSWB]|\(\?|'|\//);
+    }
   });
 });
 
