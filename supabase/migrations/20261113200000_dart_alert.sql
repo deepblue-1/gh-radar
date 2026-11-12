@@ -12,6 +12,8 @@
 --   ④ dart_alert_insert — 판정을 통과한 행을 한 번에 넣고 **새로 들어간 행만** 돌려준다(ON CONFLICT DO NOTHING).
 --   ⑤ dart_alert_claim — 오늘 · pending · 다음 시도 시각이 된 행을 우선순위 순으로 sending 으로 바꿔 돌려준다.
 --   ⑥ dart_alert_mark — 내가 잡은 sending 행에 송신 결과를 적는다.
+--   ⑦ dart_alert_outage(43-02) — 장애 짝 상태(open · notice · close). 「멈췄습니다」 한 번 · 「다시 동작」 은 짝일 때만.
+--   ⑧ dart_alert_ops_stats(43-02) — 운영 수치 jsonb 한 값(읽기 전용 · 43-07 보고 스크립트).
 --
 -- 결정(43-CONTEXT · 43-RESEARCH):
 --   D-01 공개매수(D004) 보고서는 이름으로 거르지 않는다 — 워커가 판정하고 이 표는 watch 이름만 싣는다(CHECK 없음:
@@ -41,10 +43,12 @@
 --   만들지 않는다. 싣는 칸은 목록 정보 · 송신 기록뿐이라 원본 DB 덤프가 아니다.
 --
 -- 권한: 두 표 모두 서비스롤 전용(RLS 활성 + 접근 규칙 0 + PUBLIC · anon · authenticated 명시 REVOKE + service_role GRANT).
---   다섯 함수 모두 SECURITY INVOKER · search_path 고정 · 함수 권한 3줄(플랫폼 auto-grant 가 REVOKE FROM PUBLIC 을
+--   일곱 함수 모두 SECURITY INVOKER · search_path 고정 · 함수 권한 3줄(플랫폼 auto-grant 가 REVOKE FROM PUBLIC 을
 --   덮는다 — 자동 메모리 feedback_supabase_rpc_revoke).
+--   api_usage 는 읽기만 한다(service 키 opendart_list · opendart_list_quota_strike 는 CHECK 없는 자유 text — 43-03 이 쓴다).
 -- 원격 적용: 커밋만 — 원격은 43-08 `supabase db push`.
--- 되돌리기(이 순서): DROP FUNCTION public.dart_alert_mark(text, text, boolean, bigint, text, integer);
+-- 되돌리기(이 순서): DROP FUNCTION public.dart_alert_ops_stats(integer); DROP FUNCTION public.dart_alert_outage(text, text, text);
+--   DROP FUNCTION public.dart_alert_mark(text, text, boolean, bigint, text, integer);
 --   DROP FUNCTION public.dart_alert_claim(text, integer); DROP FUNCTION public.dart_alert_insert(text, jsonb, boolean);
 --   DROP FUNCTION public.dart_alert_lease_release(text); DROP FUNCTION public.dart_alert_lease_acquire(text, integer, jsonb);
 --   DROP TABLE public.dart_alert_state; DROP TABLE public.dart_alerts;
@@ -409,5 +413,144 @@ GRANT EXECUTE ON FUNCTION public.dart_alert_mark(text, text, boolean, bigint, te
 
 COMMENT ON FUNCTION public.dart_alert_mark(text, text, boolean, bigint, text, integer) IS
   'Phase 43 SC-5 — 송신 결과 기록. 내가 잡은 sending 행만(성공 sent · 실패 pending + 다음 시도 시각). 임대 보유자 아니면 55000.';
+
+-- ── ⑦ 장애 짝 상태(43-02 · D-16 · D-17) ──────────────────────────────
+-- 상태 1행의 outage_since · outage_reason · outage_notice 가 정본이다 — 재시작 · 동시 판정에도 「멈췄습니다」 는 한 번.
+--   open   — 닫혀 있으면 연다(since = now · 사유 300자 자름 · notice 'pending') → {"opened": true, "since"}.
+--            이미 열려 있고 notice 가 'pending'(연 실행이 글을 못 남기고 죽음)이면 → {"opened": true, "since": 처음 시각}
+--            (다음 보유자가 보낸다 · 사유는 처음 것을 둔다). 'sent' · 'failed' 면 → {"opened": false}(같은 장애에 글을
+--            다시 두드리지 않는다 — failed 는 이메일이 덮는다).
+--   notice — p_reason 'sent' | 'failed'. 열려 있고 notice 가 'pending' 일 때만 한 번 적는다 → {"noticed": bool}.
+--   close  — 열려 있으면 세 칸을 NULL 로 → {"closed": true, "notify": 「멈췄습니다」 가 sent 였는가, "since"}.
+--            「다시 동작」 은 notify true 일 때만 보낸다(짝 규칙). 열려 있지 않으면 → {"closed": false}.
+-- 임대 보유자 아니면(만료 포함) 55000 · 모르는 action · notice 값이 sent/failed 밖이면 22023.
+CREATE OR REPLACE FUNCTION public.dart_alert_outage(p_holder text, p_action text, p_reason text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_st public.dart_alert_state%ROWTYPE;
+BEGIN
+  -- 상태 행을 잠그고 판정한다 — 판정 · 갱신 사이에 다른 호출이 끼지 못한다
+  SELECT * INTO v_st FROM public.dart_alert_state
+   WHERE id = 1 AND lease_holder = p_holder AND lease_until > now()
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dart_alert_outage: 임대 보유자가 아니다' USING ERRCODE = '55000';
+  END IF;
+
+  IF p_action = 'open' THEN
+    IF v_st.outage_since IS NULL THEN
+      UPDATE public.dart_alert_state
+         SET outage_since  = now(),
+             outage_reason = left(p_reason, 300),
+             outage_notice = 'pending'
+       WHERE id = 1;
+      RETURN jsonb_build_object('opened', true, 'since', now());
+    ELSIF v_st.outage_notice = 'pending' THEN
+      RETURN jsonb_build_object('opened', true, 'since', v_st.outage_since);
+    END IF;
+    RETURN jsonb_build_object('opened', false);
+
+  ELSIF p_action = 'notice' THEN
+    IF p_reason IS NULL OR p_reason NOT IN ('sent', 'failed') THEN
+      RAISE EXCEPTION 'dart_alert_outage: notice 값은 sent 또는 failed 여야 한다' USING ERRCODE = '22023';
+    END IF;
+    IF v_st.outage_since IS NOT NULL AND v_st.outage_notice = 'pending' THEN
+      UPDATE public.dart_alert_state SET outage_notice = p_reason WHERE id = 1;
+      RETURN jsonb_build_object('noticed', true);
+    END IF;
+    RETURN jsonb_build_object('noticed', false);
+
+  ELSIF p_action = 'close' THEN
+    IF v_st.outage_since IS NULL THEN
+      RETURN jsonb_build_object('closed', false);
+    END IF;
+    UPDATE public.dart_alert_state
+       SET outage_since  = NULL,
+           outage_reason = NULL,
+           outage_notice = NULL
+     WHERE id = 1;
+    RETURN jsonb_build_object('closed', true,
+                              'notify', v_st.outage_notice IS NOT DISTINCT FROM 'sent',
+                              'since', v_st.outage_since);
+  END IF;
+
+  RAISE EXCEPTION 'dart_alert_outage: 모르는 action(open · notice · close 만)' USING ERRCODE = '22023';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.dart_alert_outage(text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.dart_alert_outage(text, text, text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dart_alert_outage(text, text, text) TO service_role;
+
+COMMENT ON FUNCTION public.dart_alert_outage(text, text, text) IS
+  'Phase 43 D-16 · D-17 — 장애 짝 상태. open(닫혀 있을 때만 · notice pending 이면 다음 보유자에게 한 번 더) · '
+  'notice(sent/failed 한 번) · close(「멈췄습니다」 가 sent 였을 때만 notify). 임대 보유자 아니면 55000.';
+
+-- ── ⑧ 운영 수치(43-02 · SC-4 · SC-7 · 읽기 전용) ─────────────────────
+-- 기간 = KST 오늘 포함 최근 p_days 일(접수일 rcept_dt 기준 · 1 ~ 31 로 잘라 맞춤 · NULL → 1).
+-- 반환 jsonb: calls_today · strikes_today(api_usage opendart_list · opendart_list_quota_strike 의 오늘 값 · 없으면 0) ·
+--   by_status(다섯 상태 모두) · by_watch(감시 대상별) · late_count · latency_p50_s · latency_p90_s(sent 의
+--   sent_at − first_seen_at 초 · 없으면 null) · outage {since, reason, notice} · last_ok · lease_holder.
+-- 43-07 보고 스크립트가 부른다(워커는 부르지 않는다).
+CREATE OR REPLACE FUNCTION public.dart_alert_ops_stats(p_days integer DEFAULT 1)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  WITH today AS (
+    SELECT (now() AT TIME ZONE 'Asia/Seoul')::date AS d,
+           least(31, greatest(1, coalesce(p_days, 1))) AS days
+  ),
+  w AS (
+    SELECT a.*
+      FROM public.dart_alerts a, today
+     WHERE a.rcept_dt >  today.d - today.days
+       AND a.rcept_dt <= today.d
+  ),
+  lag AS (
+    SELECT extract(epoch FROM (w.sent_at - w.first_seen_at))::double precision AS sec
+      FROM w
+     WHERE w.status = 'sent' AND w.sent_at IS NOT NULL
+  ),
+  st AS (
+    SELECT * FROM public.dart_alert_state WHERE id = 1
+  )
+  SELECT jsonb_build_object(
+    'calls_today',   coalesce((SELECT u.count FROM public.api_usage u, today
+                                WHERE u.service = 'opendart_list' AND u.usage_date = today.d), 0),
+    'strikes_today', coalesce((SELECT u.count FROM public.api_usage u, today
+                                WHERE u.service = 'opendart_list_quota_strike' AND u.usage_date = today.d), 0),
+    'by_status',     jsonb_build_object(
+                       'pending', (SELECT count(*) FROM w WHERE w.status = 'pending'),
+                       'sending', (SELECT count(*) FROM w WHERE w.status = 'sending'),
+                       'sent',    (SELECT count(*) FROM w WHERE w.status = 'sent'),
+                       'seeded',  (SELECT count(*) FROM w WHERE w.status = 'seeded'),
+                       'expired', (SELECT count(*) FROM w WHERE w.status = 'expired')),
+    'by_watch',      coalesce((SELECT jsonb_object_agg(g.watch, g.n)
+                                 FROM (SELECT w.watch, count(*) AS n FROM w GROUP BY w.watch) g), '{}'::jsonb),
+    'late_count',    (SELECT count(*) FROM w WHERE w.late),
+    'latency_p50_s', (SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY sec)::numeric, 1) FROM lag),
+    'latency_p90_s', (SELECT round(percentile_cont(0.9) WITHIN GROUP (ORDER BY sec)::numeric, 1) FROM lag),
+    'outage',        (SELECT jsonb_build_object('since', st.outage_since, 'reason', st.outage_reason,
+                                                'notice', st.outage_notice) FROM st),
+    'last_ok',       (SELECT st.last_ok FROM st),
+    'lease_holder',  (SELECT st.lease_holder FROM st)
+  )
+$$;
+
+REVOKE ALL ON FUNCTION public.dart_alert_ops_stats(integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.dart_alert_ops_stats(integer) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dart_alert_ops_stats(integer) TO service_role;
+
+COMMENT ON FUNCTION public.dart_alert_ops_stats(integer) IS
+  'Phase 43 SC-4 · SC-7 — 공시 알림 운영 수치(읽기 전용): 오늘 OpenDART 호출 · 한도 의심 표시 · 최근 p_days(1 ~ 31)일 '
+  '상태별 · 감시 대상별 · 늦은 알림 · 처음 본 시각 → 송신 지연 p50/p90 · 장애 상태 · last_ok · 임대 보유자.';
 
 COMMIT;
