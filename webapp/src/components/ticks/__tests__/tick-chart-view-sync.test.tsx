@@ -1,11 +1,12 @@
-import { StrictMode, type ReactElement } from 'react';
+import { StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, waitFor } from '@testing-library/react';
 
 import { tickBoundsOf } from '@/lib/ticks/tick-chart';
+import type { ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import { SYNTH_DATE, a3Msg, b6Msg, synthSession } from '@/test-fixtures/tick-synth';
 
-import { TickChart } from '../tick-chart';
+import { TickChart, type TickChartProps } from '../tick-chart';
 
 /**
  * Phase 42 Plan 08 Task 1 — 선 차트 선택 입력 둘(`initialView` · `onViewChange`) · `titleAddon` (D-24 · SC-1).
@@ -26,14 +27,11 @@ const krx = synthSession([
   [5.5, b6Msg({ seq: 108, ask1: [16400, 1], bid1: [16300, 2] })],
 ]);
 
-type Snap = { t0: number; t1: number; preset: 'full' | 'reg' | 'last2h' | null };
-type Props = Parameters<typeof TickChart>[0] & { initialView?: Snap; onViewChange?: (v: Snap) => void };
-
-/** 새 선택 입력은 이 플랜이 더한다 — 그 전 타입에 없어도 렌더는 된다. */
-const Chart = TickChart as unknown as (p: Props) => ReactElement;
+type Snap = ChartViewSnap;
+type Props = TickChartProps;
 
 function el(extra: Partial<Props> = {}) {
-  return <Chart session={krx} cursorRec={1} onSeekMs={vi.fn()} onJumpRec={vi.fn()} {...extra} />;
+  return <TickChart session={krx} cursorRec={1} onSeekMs={vi.fn()} onJumpRec={vi.fn()} {...extra} />;
 }
 
 function setup(extra: Partial<Props> = {}, strict = false) {
