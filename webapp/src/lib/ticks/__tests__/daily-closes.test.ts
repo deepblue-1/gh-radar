@@ -40,12 +40,14 @@ function makeThenable() {
   return t;
 }
 
-const limitMock = vi.fn((_n: number) => makeThenable());
-const orderMock = vi.fn((_c: string, _o: { ascending: boolean }) => ({ limit: limitMock }));
-const ltMock = vi.fn((_c: string, _v: string) => ({ order: orderMock }));
-const eqMock = vi.fn((_c: string, _v: string) => ({ lt: ltMock }));
-const selectMock = vi.fn((_s: string) => ({ eq: eqMock }));
-const fromMock = vi.fn((_t: string) => ({ select: selectMock }));
+const limitMock = vi.fn<(n: number) => ReturnType<typeof makeThenable>>(() => makeThenable());
+const orderMock = vi.fn<(c: string, o: { ascending: boolean }) => { limit: typeof limitMock }>(() => ({
+  limit: limitMock,
+}));
+const ltMock = vi.fn<(c: string, v: string) => { order: typeof orderMock }>(() => ({ order: orderMock }));
+const eqMock = vi.fn<(c: string, v: string) => { lt: typeof ltMock }>(() => ({ lt: ltMock }));
+const selectMock = vi.fn<(s: string) => { eq: typeof eqMock }>(() => ({ eq: eqMock }));
+const fromMock = vi.fn<(t: string) => { select: typeof selectMock }>(() => ({ select: selectMock }));
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ from: fromMock }),
