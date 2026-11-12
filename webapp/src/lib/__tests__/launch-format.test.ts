@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import type { LaunchHeadRow, LaunchPieceQueueView, LaunchPieceRow } from '@gh-radar/shared';
+import type { LaunchHeadRow, LaunchOpenArbFill, LaunchPieceQueueView, LaunchPieceRow } from '@gh-radar/shared';
 
 import {
   MINUS,
@@ -12,10 +12,16 @@ import {
   fmtUs,
   launchFireParamOf,
   launchGatewayParamOf,
+  fmtPnl,
   launchHeadCardOf,
+  launchPnlSplitOf,
+  launchPnlSummaryOf,
   launchQueueCellOf,
   launchTabOf,
+  openArbDirLabelOf,
+  openArbFillCellOf,
   orderTabPiecesOf,
+  pnlToneOf,
   pieceKeyLabelOf,
   resultToneOf,
   serverMarketLabelOf,
@@ -620,5 +626,82 @@ describe('launchHeadCardOf(n0930) — 교보 한 레인 머리(quick-261109-eqv 
     const kbK = head({ ...KY_HEAD_K, gateway: 'KB120' });
     const kbQ = pieces.map((p) => ({ ...p, gateway: 'KB120' }));
     expect(launchHeadCardOf({ gateway: 'KB120', market: 'Q', fire: 'n0930', pieces: kbQ, heads: [kbK] })).toMatchObject({ next: '—' });
+  });
+});
+
+describe('개장차익 손익 표기 · 묶음 · 카드 합계(quick-261112-tlw)', () => {
+  const DOOSAN = { isin: 'KR7034020008', stock_code: '034020', stock_name: '두산에너빌리티' };
+  const EUGENE = { isin: 'KR7084370002', stock_code: '084370', stock_name: '유진테크' };
+  const ASTERA = { isin: 'KR7450950008', stock_code: '450950', stock_name: '아스테라시스' };
+
+  const fill = (over: Partial<LaunchOpenArbFill>): LaunchOpenArbFill => ({
+    gateway: 'KB120',
+    account: 'ACC-KB',
+    dma_user_id: 'ezmesya',
+    isin: 'KR7TLW000001',
+    stock_code: null,
+    stock_name: null,
+    side: 'B',
+    exchange: 'KRX',
+    price: 1000,
+    qty: 1,
+    ...over,
+  });
+
+  const FILLS: LaunchOpenArbFill[] = [
+    fill({ ...DOOSAN, side: 'B', exchange: 'KRX', price: 46_600, qty: 500 }),
+    fill({ ...EUGENE, side: 'B', exchange: 'KRX', price: 81_213, qty: 328 }),
+    fill({ ...DOOSAN, side: 'B', exchange: 'KRX', price: 46_680, qty: 571 }),
+    fill({ ...ASTERA, side: 'B', exchange: 'NXT', price: 4_985, qty: 1_618 }),
+    fill({ ...DOOSAN, side: 'S', exchange: 'NXT', price: 47_100, qty: 1_071 }),
+    fill({ ...EUGENE, side: 'S', exchange: 'NXT', price: 80_100, qty: 200 }),
+    fill({ ...EUGENE, side: 'S', exchange: 'NXT', price: 80_069, qty: 128 }),
+    fill({ ...ASTERA, side: 'S', exchange: 'KRX', price: 5_110, qty: 1_443 }),
+    fill({ isin: 'KR7UNKNOWN01', side: 'B', exchange: 'NXT', price: 1_000, qty: 10 }),
+    fill({ gateway: 'KYOBO119', account: 'ACC-KY', isin: 'KR7TLW000042', side: 'B', price: 10_000, qty: 42 }),
+  ];
+
+  const PIECES = [
+    { gateway: 'KB120', isin: EUGENE.isin, market: 'Q' },
+    { gateway: 'KB120', isin: ASTERA.isin, market: 'Q' },
+    { gateway: 'KB120', isin: null, market: 'Q' },
+    { gateway: 'KB120', isin: DOOSAN.isin, market: 'K' },
+  ];
+
+  it('fmtPnl · pnlToneOf — fmtUs 와 같은 부호 규칙', () => {
+    expect(fmtPnl(379_382)).toBe('+379,382');
+    expect(fmtPnl(-427_228)).toBe(`${M}427,228`);
+    expect(fmtPnl(0)).toBe('0');
+    expect(pnlToneOf(1)).toBe('up');
+    expect(pnlToneOf(-1)).toBe('down');
+    expect(pnlToneOf(0)).toBeNull();
+  });
+
+  it('openArbDirLabelOf — 첫 매수 거래소 → 방향 문구', () => {
+    expect(openArbDirLabelOf('KRX')).toBe('KRX 매수 → NXT 매도');
+    expect(openArbDirLabelOf('NXT')).toBe('NXT 매수 → KRX 매도');
+    expect(openArbDirLabelOf(null)).toBe('—');
+    expect(openArbDirLabelOf('')).toBe('—');
+  });
+
+  it('openArbFillCellOf — 수량 · 평균(반올림) · 0 은 null', () => {
+    expect(openArbFillCellOf(1_071, 49_954_280)).toEqual({ qty: '1,071주', avg: '평균 46,643' });
+    expect(openArbFillCellOf(328, 26_268_832)!.avg).toBe('평균 80,088');
+    expect(openArbFillCellOf(0, 0)).toBeNull();
+  });
+
+  it('launchPnlSplitOf — 그 서버만 · 조각 isin → 시장 · 못 찾은 줄은 unknown', () => {
+    const split = launchPnlSplitOf({ gateway: 'KB120', fills: FILLS, pieces: PIECES });
+    expect(split.byMarket.get('Q')!.map((r) => r.stock_name)).toEqual(['유진테크', '아스테라시스']);
+    expect(split.byMarket.get('K')!.map((r) => r.stock_name)).toEqual(['두산에너빌리티']);
+    expect(split.unknown.map((r) => r.isin)).toEqual(['KR7UNKNOWN01']);
+    const all = [...split.byMarket.values()].flat().concat(split.unknown);
+    expect(all.some((r) => r.gateway === 'KYOBO119')).toBe(false);
+  });
+
+  it('launchPnlSummaryOf — 합 · 종목 수 · 잔여 종목 수 · 줄 0 → null', () => {
+    const split = launchPnlSplitOf({ gateway: 'KB120', fills: FILLS, pieces: PIECES });
+    expect(launchPnlSummaryOf(split.byMarket.get('Q')!)).toEqual({ total: -262_876, stocks: 2, resid: 1 });
+    expect(launchPnlSummaryOf([])).toBeNull();
   });
 });

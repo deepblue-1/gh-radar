@@ -9,6 +9,7 @@
  * ③ 카드 모델은 **머리 우선 · 조각 폴백**이다. 결과 수는 언제나 탭 조각에서 센다(표와 같은 수).
  * ④ 대기열 열(quick-261103-pei) = 목업 `.planning/sketches/027-launch-queue-position/index.html` 변형 A(`q16A` · `nA` 문구) —
  *    값은 DB 저장값(조각 `queue` · 밤 틱 변환이 계산)만 쓴다. 여기서 다시 계산하지 않는다(D-1 · D-3).
+ * ⑤ 개장차익 손익(quick-261112-tlw) — 계산은 shared `launchOpenArbPnlOf` 한 벌 · 여기는 표기 · 시장 배정 · 카드 합계만.
  */
 
 import {
@@ -20,10 +21,13 @@ import {
   isLaunchReject,
   isLaunchTailProbe,
   launchDaysOf,
+  launchOpenArbPnlOf,
   launchServerLabelOf,
   type LaunchFire,
   type LaunchHeadRow,
   type LaunchMarket,
+  type LaunchOpenArbFill,
+  type LaunchOpenArbPnlRow,
   type LaunchPieceRow,
   type LaunchServer,
 } from '@gh-radar/shared';
@@ -430,4 +434,89 @@ export function launchQueueCellOf(p: Pick<LaunchPieceRow, 'qty' | 'queue'>): Lau
     sub: `적어도 ${n + 1}번째 이후${at}`,
     subTone: 'dim',
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 개장차익 손익(quick-261112-tlw · D-01 · D-03) — 계산은 shared launchOpenArbPnlOf 한 벌
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 손익 원 단위 — fmtUs 와 같은 부호 규칙(0「0」 · 「+379,382」 · 「−427,228」). */
+export function fmtPnl(v: number): string {
+  return fmtUs(v);
+}
+
+/** 손익 색 — 양수 up · 음수 down · 0 null(흐리게). */
+export function pnlToneOf(v: number): 'up' | 'down' | null {
+  if (v > 0) return 'up';
+  if (v < 0) return 'down';
+  return null;
+}
+
+/** 방향 = 첫 매수 거래소 → 문구(「경우1/경우2」 표기 금지 — gh-trade D-29) · 모르면 「—」. */
+export function openArbDirLabelOf(buyExchange: string | null): string {
+  if (buyExchange === 'KRX') return 'KRX 매수 → NXT 매도';
+  if (buyExchange === 'NXT') return 'NXT 매수 → KRX 매도';
+  return DASH;
+}
+
+/** 매수/매도 체결 칸 — 「1,071주」 · 「평균 46,643」(금액 ÷ 수량 반올림) · 수량 0 → null(「—」). */
+export function openArbFillCellOf(qty: number, amt: number): { qty: string; avg: string } | null {
+  if (qty <= 0) return null;
+  return { qty: `${NUM.format(qty)}주`, avg: `평균 ${NUM.format(Math.round(amt / qty))}` };
+}
+
+export interface LaunchPnlSplit {
+  /** 시장 → 그 시장 줄(입력 순서). */
+  byMarket: ReadonlyMap<string, LaunchOpenArbPnlRow[]>;
+  /** 탭 조각에서 시장을 못 찾은 줄(입력 순서) — 그 서버 「서버 이름만」 묶음. */
+  unknown: LaunchOpenArbPnlRow[];
+}
+
+/**
+ * 고른 서버의 손익 줄 → 시장 묶음 배정(D-03). fills 를 gateway 로 거른 뒤 shared `launchOpenArbPnlOf` 를 한 번 부르고,
+ * 같은 서버 탭 조각의 isin → market 첫 일치로 나눈다(isin null 조각 무시). 못 찾은 줄은 버리지 않고 unknown.
+ */
+export function launchPnlSplitOf(input: {
+  gateway: string;
+  fills: readonly LaunchOpenArbFill[];
+  pieces: readonly Pick<LaunchPieceRow, 'gateway' | 'isin' | 'market'>[];
+}): LaunchPnlSplit {
+  const marketOf = new Map<string, string>();
+  for (const p of input.pieces) {
+    if (p.gateway !== input.gateway || p.isin === null) continue;
+    if (!marketOf.has(p.isin)) marketOf.set(p.isin, p.market);
+  }
+  const byMarket = new Map<string, LaunchOpenArbPnlRow[]>();
+  const unknown: LaunchOpenArbPnlRow[] = [];
+  const rows = launchOpenArbPnlOf(input.fills.filter((f) => f.gateway === input.gateway));
+  for (const r of rows) {
+    const market = marketOf.get(r.isin);
+    if (market === undefined) {
+      unknown.push(r);
+      continue;
+    }
+    const list = byMarket.get(market);
+    if (list === undefined) byMarket.set(market, [r]);
+    else list.push(r);
+  }
+  return { byMarket, unknown };
+}
+
+export interface LaunchPnlSummary {
+  total: number;
+  stocks: number;
+  /** 잔여 > 0 인 종목 수 */
+  resid: number;
+}
+
+/** 머리 카드 「손익」 줄 — 그 시장 줄의 합 · 종목 수 · 잔여 종목 수. 줄 0 → null(「—」). */
+export function launchPnlSummaryOf(rows: readonly LaunchOpenArbPnlRow[]): LaunchPnlSummary | null {
+  if (rows.length === 0) return null;
+  let total = 0;
+  let resid = 0;
+  for (const r of rows) {
+    total += r.pnl;
+    if (r.resid > 0) resid += 1;
+  }
+  return { total, stocks: rows.length, resid };
 }

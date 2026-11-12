@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   LAUNCH_ORDER,
+  launchServerLabelOf,
   type LaunchFire,
+  type LaunchOpenArbPnlRow,
   type LaunchOrdersResponse,
   type LaunchPieceRow,
   type LaunchServer,
@@ -20,11 +22,17 @@ import {
   serverMarketLabelOf,
   fireLegLabelOf,
   fmtAcceptTime,
+  fmtPnl,
   fmtUs,
   launchHeadCardOf,
+  launchPnlSplitOf,
+  launchPnlSummaryOf,
   launchQueueCellOf,
+  openArbDirLabelOf,
+  openArbFillCellOf,
   orderTabPiecesOf,
   pieceKeyLabelOf,
+  pnlToneOf,
   resultToneOf,
   sideLabelOf,
   type LaunchHeadCardModel,
@@ -48,6 +56,8 @@ import { LimitupDateNav } from '../analytics/limitup-date-nav';
  * - 폰 390: 카드 1열 · 조각 표는 자기 래퍼(`launch-pieces` · overflow-x-auto) 안에서만 가로 스크롤 · 부모 `min-w-0` 으로
  *   페이지는 넓어지지 않는다(lessons 2026-09-07).
  * - 계좌 · 사용자는 마스킹하지 않는다(D-02 어드민 전용 예외). null 칸은 전부 「—」.
+ * - 09:00:30 만(quick-261112-tlw): 응답 `fills` 가 있으면 묶음마다 조각 표 위에 「종목별 손익」 표 + 머리 카드 「손익」 줄.
+ *   시장을 못 찾은 줄은 그 서버 첫 묶음 앞 「서버 이름만」 묶음. fills 키가 없는 옛 응답 · 16:00 은 지금 그대로.
  */
 
 export interface LaunchOrdersTabProps {
@@ -148,6 +158,14 @@ export function LaunchOrdersView({
     [resp, fire, gw],
   );
   const groups = useMemo(() => groupsOf(pieces), [pieces]);
+  // quick-261112-tlw — 09:00:30 · fills 있는 응답만. pieces 는 이미 n0930 · gw 로 거른 탭 조각(배정된 시장은 묶음이 있다).
+  const pnl = useMemo(
+    () =>
+      resp === null || fire !== 'n0930' || resp.fills === undefined
+        ? null
+        : launchPnlSplitOf({ gateway: gw, fills: resp.fills, pieces }),
+    [resp, fire, gw, pieces],
+  );
   const cards = useMemo(
     () =>
       LAUNCH_ORDER.filter(([gateway]) => gateway === gw).map(([gateway, market]) => ({
@@ -205,29 +223,54 @@ export function LaunchOrdersView({
         <>
           <div data-slot="launch-head-cards" className="grid min-w-0 grid-cols-1 gap-2.5 md:grid-cols-2">
             {cards.map((c) => (
-              <LaunchHeadCard key={`${c.gateway}|${c.market}`} gateway={c.gateway} market={c.market} model={c.model} />
+              <LaunchHeadCard
+                key={`${c.gateway}|${c.market}`}
+                gateway={c.gateway}
+                market={c.market}
+                model={c.model}
+                pnl={pnl === null ? undefined : (pnl.byMarket.get(c.market) ?? [])}
+              />
             ))}
           </div>
-          {groups.map((g) => (
-            <section
-              key={g.key}
-              data-slot="launch-group"
-              data-gateway={g.gateway}
-              data-market={g.market}
-              className="flex min-w-0 flex-col gap-2"
-            >
+          {pnl !== null && pnl.unknown.length > 0 && (
+            <section data-slot="launch-group" data-gateway={gw} data-pnl-only="true" className="flex min-w-0 flex-col gap-2">
               <h2 className="flex items-baseline gap-2 px-1 text-[14px] font-bold text-[var(--fg)]">
-                {serverMarketLabelOf(g.gateway, g.market)}
-                <small className="text-[12px] font-medium text-[var(--muted-fg)]">{g.pieces.length}조각 · wire 순</small>
+                {launchServerLabelOf(gw)}
               </h2>
-              <div
-                data-slot="launch-pieces"
-                className={cn(CARD, 'min-w-0 overflow-x-auto ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0')}
-              >
-                <PiecesTable pieces={g.pieces} fire={fire} />
-              </div>
+              <SubHead>종목별 손익</SubHead>
+              <PnlTable rows={pnl.unknown} />
             </section>
-          ))}
+          )}
+          {groups.map((g) => {
+            const rows = pnl?.byMarket.get(g.market) ?? [];
+            return (
+              <section
+                key={g.key}
+                data-slot="launch-group"
+                data-gateway={g.gateway}
+                data-market={g.market}
+                className="flex min-w-0 flex-col gap-2"
+              >
+                <h2 className="flex items-baseline gap-2 px-1 text-[14px] font-bold text-[var(--fg)]">
+                  {serverMarketLabelOf(g.gateway, g.market)}
+                  <small className="text-[12px] font-medium text-[var(--muted-fg)]">{g.pieces.length}조각 · wire 순</small>
+                </h2>
+                {rows.length > 0 && (
+                  <>
+                    <SubHead>종목별 손익</SubHead>
+                    <PnlTable rows={rows} />
+                    <SubHead>주문</SubHead>
+                  </>
+                )}
+                <div
+                  data-slot="launch-pieces"
+                  className={cn(CARD, 'min-w-0 overflow-x-auto ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0')}
+                >
+                  <PiecesTable pieces={g.pieces} fire={fire} />
+                </div>
+              </section>
+            );
+          })}
         </>
       )}
     </div>
@@ -280,11 +323,13 @@ export interface LaunchHeadCardProps {
   gateway: string;
   market: string;
   model: LaunchHeadCardModel | null;
+  /** quick-261112-tlw — 09:00:30 그 시장 손익 줄(undefined = 손익 줄 없음 · [] = 「—」). */
+  pnl?: readonly LaunchOpenArbPnlRow[];
 }
 
 const CARD_FACE = cn(CARD, 'flex min-w-0 flex-col gap-1.5 px-3.5 py-3 ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0');
 
-export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) {
+export function LaunchHeadCard({ gateway, market, model, pnl }: LaunchHeadCardProps) {
   const title = serverMarketLabelOf(gateway, market);
   if (model === null) {
     return (
@@ -321,6 +366,7 @@ export function LaunchHeadCard({ gateway, market, model }: LaunchHeadCardProps) 
         <>
           <CardRow label="재전송">{model.retries}회</CardRow>
           <CardRow label="다음 오프셋">{model.next}</CardRow>
+          {pnl !== undefined && <CardPnlRow rows={pnl} />}
         </>
       )}
     </div>
@@ -333,6 +379,27 @@ function CardRow({ label, children }: { label: string; children: ReactNode }) {
       <span className="shrink-0">{label}</span>
       <b className="min-w-0 text-right font-semibold tabular-nums break-keep text-[var(--fg)]">{children}</b>
     </div>
+  );
+}
+
+/** 머리 카드 「손익」 줄(quick-261112-tlw · 목업 headCard) — 그 시장 줄만 합한다. */
+function CardPnlRow({ rows }: { rows: readonly LaunchOpenArbPnlRow[] }) {
+  const sum = launchPnlSummaryOf(rows);
+  return (
+    <CardRow label="손익">
+      {sum === null ? (
+        DASH
+      ) : (
+        <>
+          <span data-slot="launch-card-pnl" className={cn('font-bold', PNL_TONE[toneKey(sum.total)])}>
+            {fmtPnl(sum.total)}원
+          </span>{' '}
+          <span className={cn(DIM, 'font-medium')}>
+            · {sum.stocks}종목{sum.resid > 0 ? ` · 잔여 ${sum.resid}` : ''}
+          </span>
+        </>
+      )}
+    </CardRow>
   );
 }
 
@@ -477,6 +544,122 @@ function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire
  * 쓰는 `--vi`(#d97706 · 다크 #ffb020)를 빌린다 — globals.css 는 건드리지 않는다(design_decisions 11).
  */
 const QUEUE_EST = 'text-[var(--vi)]';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 종목별 손익 표(quick-261112-tlw · 목업 변형 A pnlTable) — 값은 shared launchOpenArbPnlOf 결과만
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PNL_TONE = { up: 'text-[var(--up)]', down: 'text-[var(--down)]', none: DIM } as const;
+const toneKey = (v: number): keyof typeof PNL_TONE => pnlToneOf(v) ?? 'none';
+
+function SubHead({ children }: { children: ReactNode }) {
+  return (
+    <h3 data-slot="launch-sub" className="px-1 pt-0.5 text-[12px] font-semibold text-[var(--muted-fg)]">
+      {children}
+    </h3>
+  );
+}
+
+function FillCell({ qty, amt }: { qty: number; amt: number }) {
+  const c = openArbFillCellOf(qty, amt);
+  return (
+    <td className={cn(TD, NUMERIC)}>
+      {c === null ? (
+        <span className={DIM}>{DASH}</span>
+      ) : (
+        <>
+          {c.qty} <span className={DIM}>· {c.avg}</span>
+        </>
+      )}
+    </td>
+  );
+}
+
+function PnlValue({ v }: { v: number }) {
+  return (
+    <span data-slot="launch-pnl-value" className={cn('font-bold', PNL_TONE[toneKey(v)])}>
+      {fmtPnl(v)}
+    </span>
+  );
+}
+
+function PnlTable({ rows }: { rows: readonly LaunchOpenArbPnlRow[] }) {
+  const total = rows.reduce((a, r) => a + r.pnl, 0);
+  return (
+    <div
+      data-slot="launch-pnl"
+      className={cn(CARD, 'min-w-0 overflow-x-auto ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0')}
+    >
+      <table className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap">
+        <thead>
+          <tr>
+            <th className={TH}>종목</th>
+            <th
+              className={cn(TH, 'text-right')}
+              title="매도금액 − 매수 평균가 × 매도 수량 − 왕복 비용 0.22% (gh-trade 개장차익 화면과 같은 식)"
+            >
+              손익
+            </th>
+            <th className={cn(TH, 'text-right')} title="자동으로 팔지 못하고 남은 수량 — 직접 판 수량은 세지 않습니다">
+              잔여
+            </th>
+            <th className={TH}>방향</th>
+            <th className={cn(TH, 'text-right')}>매수 체결</th>
+            <th className={cn(TH, 'text-right')}>매도 체결</th>
+            <th className={TH}>계좌</th>
+            <th className={TH}>사용자</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.gateway}|${r.account}|${r.isin}`} data-slot="launch-pnl-row">
+              <td className={TD}>
+                {r.stock_name === null && r.stock_code === null ? (
+                  <span className={DIM}>{text(r.isin)}</span>
+                ) : (
+                  <>
+                    <b className="font-semibold text-[var(--fg)]">{text(r.stock_name)}</b>{' '}
+                    <span className={DIM}>{text(r.stock_code)}</span>
+                  </>
+                )}
+              </td>
+              <td className={cn(TD, NUMERIC)}>
+                <PnlValue v={r.pnl} />
+              </td>
+              <td className={cn(TD, NUMERIC)}>
+                {r.resid > 0 ? (
+                  <span
+                    data-slot="launch-pnl-resid"
+                    className={cn(
+                      'inline-flex h-5 items-center rounded-full bg-[var(--muted)] px-[7px] text-[11.5px] font-bold',
+                      QUEUE_EST,
+                    )}
+                  >
+                    {NUM.format(r.resid)}주
+                  </span>
+                ) : (
+                  <span className={DIM}>0</span>
+                )}
+              </td>
+              <td className={cn(TD, DIM)}>{openArbDirLabelOf(r.buy_exchange)}</td>
+              <FillCell qty={r.buy_qty} amt={r.buy_amt} />
+              <FillCell qty={r.sell_qty} amt={r.sell_amt} />
+              <td className={cn(TD, DIM, 'tabular-nums')}>{text(r.account)}</td>
+              <td className={cn(TD, DIM)}>{text(r.dma_user_id)}</td>
+            </tr>
+          ))}
+          <tr data-slot="launch-pnl-total" className="bg-[var(--band)] font-semibold text-[var(--fg)]">
+            <td className={TD}>합계</td>
+            <td className={cn(TD, NUMERIC)}>
+              <PnlValue v={total} />
+            </td>
+            <td className={TD} colSpan={6} />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function QueueCell({ piece }: { piece: LaunchPieceRow }) {
   const c = launchQueueCellOf(piece);

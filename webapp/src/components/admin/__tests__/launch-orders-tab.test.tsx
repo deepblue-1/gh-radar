@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import type { LaunchHeadRow, LaunchOrdersResponse, LaunchPieceQueue, LaunchPieceRow } from '@gh-radar/shared';
+import type { LaunchHeadRow, LaunchOpenArbFill, LaunchOrdersResponse, LaunchPieceQueue, LaunchPieceRow } from '@gh-radar/shared';
 
 import { LaunchHeadCard, LaunchOrdersView, type LaunchOrdersViewProps } from '../launch-orders-tab';
 
@@ -392,5 +392,148 @@ describe('LaunchOrdersView — 대기열 열(quick-261103-pei)', () => {
     expect(cells[0]).toHaveTextContent('2번째 체결 · 앞 2주 · 32만체결 18/20 @ 159,300~160,100');
     expect(cells[1]).toHaveTextContent('미체결 · 앞선 1건이 한도 안 4,861주 · 10.82억 가져감적어도 2번째 이후');
     expect(cells[1]!.querySelector('b')!.className).toContain('--launch-bad');
+  });
+});
+
+describe('LaunchOrdersView — 09:00:30 개장차익 손익(quick-261112-tlw)', () => {
+  const DOOSAN = { isin: 'KR7034020008', stock_code: '034020', stock_name: '두산에너빌리티' };
+  const EUGENE = { isin: 'KR7084370002', stock_code: '084370', stock_name: '유진테크' };
+  const ASTERA = { isin: 'KR7450950008', stock_code: '450950', stock_name: '아스테라시스' };
+
+  const fill = (over: Partial<LaunchOpenArbFill>): LaunchOpenArbFill => ({
+    gateway: 'KB120',
+    account: 'ACC-KB',
+    dma_user_id: 'ezmesya',
+    isin: 'KR7TLW000001',
+    stock_code: null,
+    stock_name: null,
+    side: 'B',
+    exchange: 'KRX',
+    price: 1000,
+    qty: 1,
+    ...over,
+  });
+
+  const FILLS: LaunchOpenArbFill[] = [
+    fill({ ...DOOSAN, side: 'B', exchange: 'KRX', price: 46_600, qty: 500 }),
+    fill({ ...EUGENE, side: 'B', exchange: 'KRX', price: 81_213, qty: 328 }),
+    fill({ ...DOOSAN, side: 'B', exchange: 'KRX', price: 46_680, qty: 571 }),
+    fill({ ...ASTERA, side: 'B', exchange: 'NXT', price: 4_985, qty: 1_618 }),
+    fill({ ...DOOSAN, side: 'S', exchange: 'NXT', price: 47_100, qty: 1_071 }),
+    fill({ ...EUGENE, side: 'S', exchange: 'NXT', price: 80_100, qty: 200 }),
+    fill({ ...EUGENE, side: 'S', exchange: 'NXT', price: 80_069, qty: 128 }),
+    fill({ ...ASTERA, side: 'S', exchange: 'KRX', price: 5_110, qty: 1_443 }),
+    fill({ isin: 'KR7UNKNOWN01', side: 'B', exchange: 'NXT', price: 1_000, qty: 10 }),
+    fill({ gateway: 'KYOBO119', account: 'ACC-KY', isin: 'KR7TLW000042', side: 'B', price: 10_000, qty: 42 }),
+  ];
+
+  const A27 = { profile: 'A', fire_exchange: 'KRX', fire_base: '09:00:27', queued_id: 'A' } as const;
+  const PIECES: LaunchPieceRow[] = [
+    piece({ gateway: 'KB120', market: 'Q', ...A27, wire: 0, side: 'buy', sent_rel_us: -1200, result: '접수', ...EUGENE }),
+    piece({ gateway: 'KB120', market: 'Q', ...N, wire: 0, side: 'buy', sent_rel_us: -20148, result: '접수', ...ASTERA }),
+    piece({ gateway: 'KB120', market: 'K', ...A27, wire: 0, side: 'buy', sent_rel_us: -1200, result: '접수', ...DOOSAN }),
+  ];
+
+  const PNL_RESP: LaunchOrdersResponse = { ...RESP, heads: [], pieces: PIECES, fills: FILLS };
+  const slots = (el: Element) =>
+    Array.from(el.querySelectorAll<HTMLElement>('[data-slot]'))
+      .filter((n) => n.parentElement === el)
+      .map((n) => n.dataset.slot);
+
+  it('묶음 순서 = [시장 모름(서버 이름만 · 손익 표만), 코스닥, 코스피]', () => {
+    const { container } = view({ resp: PNL_RESP, fire: 'n0930' });
+    const groups = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="launch-group"]'));
+    expect(groups.map((g) => g.dataset.market ?? '-')).toEqual(['-', 'Q', 'K']);
+    const unknown = groups[0]!;
+    expect(unknown.dataset.pnlOnly).toBe('true');
+    expect(unknown.querySelector('h2')!.textContent).toBe('KB120');
+    expect(unknown.querySelector('[data-slot="launch-pieces"]')).toBeNull();
+    const rows = unknown.querySelectorAll('[data-slot="launch-pnl-row"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('KR7UNKNOWN01');
+  });
+
+  it('코스닥 묶음 — 소제목 · 손익 표 · 소제목 · 조각 표 순 · 열 · 줄 · 합계 · title', () => {
+    const { container } = view({ resp: PNL_RESP, fire: 'n0930' });
+    const g = groupOf(container, 'KB120', 'Q');
+    expect(slots(g)).toEqual(['launch-sub', 'launch-pnl', 'launch-sub', 'launch-pieces']);
+    const subs = g.querySelectorAll('[data-slot="launch-sub"]');
+    expect(subs[0]).toHaveTextContent('종목별 손익');
+    expect(subs[1]).toHaveTextContent('주문');
+
+    const pnl = g.querySelector<HTMLElement>('[data-slot="launch-pnl"]')!;
+    expect(pnl.className).toContain('min-w-0');
+    expect(pnl.className).toContain('overflow-x-auto');
+    expect(within(pnl).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      '종목', '손익', '잔여', '방향', '매수 체결', '매도 체결', '계좌', '사용자',
+    ]);
+    expect(within(pnl).getByRole('columnheader', { name: '손익' }).getAttribute('title')).toContain('0.22%');
+    expect(within(pnl).getByRole('columnheader', { name: '잔여' }).getAttribute('title')).toContain('자동으로 팔지 못하고');
+
+    const rows = Array.from(pnl.querySelectorAll<HTMLElement>('[data-slot="launch-pnl-row"]'));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('유진테크');
+    expect(rows[0]).toHaveTextContent('084370');
+    const v0 = rows[0]!.querySelector<HTMLElement>('[data-slot="launch-pnl-value"]')!;
+    expect(v0.textContent).toBe(`${M}427,228`);
+    expect(v0.className).toContain('--down');
+    expect(rows[0]!.querySelector('[data-slot="launch-pnl-resid"]')).toBeNull();
+    const c0 = rows[0]!.querySelectorAll('td');
+    expect(c0[2]!.textContent).toBe('0');
+    expect(c0[3]!.textContent).toBe('KRX 매수 → NXT 매도');
+    expect(c0[4]!.textContent).toBe('328주 · 평균 81,213');
+    expect(c0[5]!.textContent).toBe('328주 · 평균 80,088');
+    expect(c0[6]!.textContent).toBe('ACC-KB');
+    expect(c0[7]!.textContent).toBe('ezmesya');
+
+    expect(rows[1]).toHaveTextContent('아스테라시스');
+    const v1 = rows[1]!.querySelector<HTMLElement>('[data-slot="launch-pnl-value"]')!;
+    expect(v1.textContent).toBe('+164,352');
+    expect(v1.className).toContain('--up');
+    const resid = rows[1]!.querySelector<HTMLElement>('[data-slot="launch-pnl-resid"]')!;
+    expect(resid.textContent).toBe('175주');
+    expect(resid.className).toContain('--vi');
+    expect(rows[1]!.querySelectorAll('td')[3]!.textContent).toBe('NXT 매수 → KRX 매도');
+
+    const total = pnl.querySelector<HTMLElement>('[data-slot="launch-pnl-total"]')!;
+    expect(total).toHaveTextContent('합계');
+    expect(total.querySelector('[data-slot="launch-pnl-value"]')!.textContent).toBe(`${M}262,876`);
+
+    const pieces = g.querySelector<HTMLElement>('[data-slot="launch-pieces"]')!;
+    expect(within(pieces).getAllByRole('row').slice(1)).toHaveLength(2);
+  });
+
+  it('머리 카드 「손익」 줄 — 그 시장 합 · 종목 수 · 잔여 종목 수', () => {
+    const { container } = view({ resp: PNL_RESP, fire: 'n0930' });
+    const [q, k] = cardsOf(container);
+    expect(q).toHaveTextContent(`손익${M}262,876원 · 2종목 · 잔여 1`);
+    expect(k).toHaveTextContent('손익+379,382원 · 1종목');
+    expect(k).not.toHaveTextContent('잔여');
+    expect(q!.querySelector<HTMLElement>('[data-slot="launch-card-pnl"]')!.className).toContain('--down');
+  });
+
+  it('fills [] → 손익 표 · 소제목 없음 · 발사 있는 카드 「손익—」', () => {
+    const { container } = view({ resp: { ...PNL_RESP, fills: [] }, fire: 'n0930' });
+    expect(container.querySelectorAll('[data-slot="launch-pnl"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-slot="launch-sub"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-pnl-only]')).toHaveLength(0);
+    expect(cardsOf(container)[0]).toHaveTextContent('손익—');
+  });
+
+  it('fills 키 없는 옛 응답 → 손익 표 · 카드 「손익」 없음(지금 화면 그대로)', () => {
+    const { fills: _drop, ...old } = PNL_RESP;
+    void _drop;
+    const { container } = view({ resp: old, fire: 'n0930' });
+    expect(container.querySelectorAll('[data-slot="launch-pnl"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-slot="launch-sub"]')).toHaveLength(0);
+    for (const c of cardsOf(container)) expect(c).not.toHaveTextContent('손익');
+  });
+
+  it('16:00 은 fills 가 있어도 무변경', () => {
+    const { container } = view({ resp: { ...RESP, fills: FILLS }, fire: 'q16' });
+    expect(container.querySelectorAll('[data-slot="launch-pnl"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-slot="launch-sub"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-pnl-only]')).toHaveLength(0);
+    for (const c of cardsOf(container)) expect(c).not.toHaveTextContent('손익');
   });
 });
