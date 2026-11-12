@@ -104,6 +104,14 @@
      매집 상태 축과 다르다. 서로 대체하지 마라. 목업 --shade · --gap 값(grey600 틴트) · hex/rgba 만. */
   --accum-shade: rgba(107, 118, 132, 0.10);
   --accum-gap: rgba(107, 118, 132, 0.07);
+  /* 이동평균 축(Phase 42) — 봉 차트 이동평균 선 · 칩 색 줄 · 값 띠 색 줄. 가격 방향 · 팀 · VI · 우리 · 누적(회색) 축과
+     서로 대체하지 마라. 선마다 색 번호 1 ~ 6(새 선 = 빈 가장 작은 번호 · UI-SPEC Color) · hex 만(차트가 oklch 거부). */
+  --ma-1: #1f9d45;
+  --ma-2: #8b5a2b;
+  --ma-3: #c2367f;
+  --ma-4: #6b7a00;
+  --ma-5: #4f46e5;
+  --ma-6: #0e7490;
   /* 발사 결과 축(Phase 35) — 접수 · 거부(101/515) · 그날 경계 · 기타 · 격자. 가격 방향(--up/--down) · 팀(--team) ·
      매집(--accum-*) 축과 서로 대체하지 마라. 목업 reference/mockup-launch-gate-map.html 값 · hex 만(차트가 oklch 거부). */
   --launch-ok: #1f8a5b;
@@ -290,6 +298,13 @@
   /* 매집감지 차트 시간 띠 축 다크 — 의미는 `:root` 쪽 주석. */
   --accum-shade: rgba(255, 255, 255, 0.07);
   --accum-gap: rgba(255, 255, 255, 0.04);
+  /* 이동평균 축 다크(Phase 42) — 의미는 `:root` 쪽 주석. */
+  --ma-1: #4cc38a;
+  --ma-2: #c8956a;
+  --ma-3: #f17ab5;
+  --ma-4: #b5c42e;
+  --ma-5: #8b8cf8;
+  --ma-6: #4fc3e0;
   /* 발사 결과 축 다크 — 의미는 `:root` 쪽 주석. */
   --launch-ok: #3fbf86;
   --launch-ok-bg: #173a2b;
