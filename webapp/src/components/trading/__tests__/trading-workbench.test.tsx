@@ -1166,6 +1166,8 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
       // quick-260923-pgu — 알림 표시(불리언) · 탭 요청(대상 카드에만 `{ tab, seq }`, 나머지 undefined).
       'alerted',
       'requestedTab',
+      // quick-261112-w2q — 미체결 「VI」 배지 판정(모듈 상수 함수 unfilledOriginOf · 모든 카드에 같은 참조).
+      'originOf',
     ]);
     for (const props of cardProps.values()) {
       for (const [k, v] of Object.entries(props)) {

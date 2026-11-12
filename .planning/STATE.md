@@ -6,10 +6,10 @@ current_phase: 42
 current_phase_name: 틱뷰어 봉차트·이동평균·수익률 겹쳐보기
 status: executing
 stopped_at: Phase 42 42-11 — DB push 완료(20261113100000) · webapp push 대기(옆 세션 quick-261112-w2q relay 배포 · 작업대 테스트 수정 뒤 같이)
-last_updated: "2026-11-12T14:45:10.850Z"
+last_updated: "2026-11-12T14:47:32.026Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 42 execution started
-state_head: bf706078aa06976a354407ea52528ef759f6b8b4
+state_head: d236b8afc14bfdcbb193a8ae8078eb0f8a882c47
 progress:
   total_phases: 14
   completed_phases: 9
@@ -180,6 +180,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261112-tlw | 러쉬주문 09:00:30 주문 내역에 개장차익 손익 표시 — 묶음마다 「종목별 손익」 표(종목 · 손익 · 잔여 · 방향 · 매수/매도 체결) + 카드 「손익」 줄 · gh-trade 개장차익 화면과 같은 식(체결 순서 재생 · 왕복 0.22%) · 주문 내역 RPC 에 fills 키 | 2026-11-12 | 01e60455 | [261112-tlw-09-00-30-launch-openarb-pnl](./quick/261112-tlw-09-00-30-launch-openarb-pnl/) |
 | 81 | 매집 복원 RPC 인덱스화 — 부분 인덱스 2개(종목별 최신 · 복원 묶음) + 종목 건너뛰기 · 종목별 조회로 재작성. 결과 불변(운영 36건 전후 동일 · pgTAP 37건). 운영 직접 호출 1서버 0.85초 → 0.14초 · 2서버 1.45초 → 0.25초 · 3서버 2.05초 → 0.33초 | 2026-11-12 | 3d63e619 | — |
 | 261112-w2q | 상따 작업대 미체결에 VI 자동주문 표시 — 서버 UnfilledState.origin(gh-trade 204e505d) 재동기화 · relay toUnfilledOrigin · VI 행만 주황 「VI」 배지 + 연주황 행(목업 B) | 2026-11-12 | 4e79fc15 | [261112-w2q-vi-unfilled-origin-vi](./quick/261112-w2q-vi-unfilled-origin-vi/) |
+| 83 | 261112-w2q 후속 — 작업대 테스트 허용 카드 prop 목록에 originOf 추가(카드에 unfilledOriginOf 를 넘기며 깨짐) | 2026-11-12 | d236b8af | — |
 
 ## Session Continuity
 
