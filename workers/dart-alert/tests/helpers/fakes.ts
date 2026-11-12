@@ -370,8 +370,14 @@ export interface FakeDbOptions {
   rows?: FakeDbRow[];
   /** 임대 RPC 대본 — Error 면 던지고, 결과면 그대로, undefined 면 계약대로 */
   leaseAcquire?: (c: LeaseCall) => LeaseResult | Error | undefined;
-  /** 넣기 · 차례 · 기록 · 장애 직전 훅(던지면 그 RPC 가 실패) */
-  before?: (fn: string, now: number) => void;
+  /** 넣기 · 차례 · 기록 · 장애 직전 훅(던지면 그 RPC 가 실패 · DB 변화 없음). 기록(mark)은 접수번호를 준다 */
+  before?: (fn: string, now: number, info?: RpcInfo) => void;
+  /** 넣기 · 차례 · 기록 · 장애가 DB 에 반영된 **뒤** 훅(던지면 응답 유실 흉내 — 반영은 남는다 · 43-06) */
+  after?: (fn: string, now: number, info?: RpcInfo) => void;
+}
+
+export interface RpcInfo {
+  rceptNo?: string;
 }
 
 /** 미리 넣어 둘 행 — InsertItem 에 상태 기본값을 채운다 */
@@ -439,9 +445,9 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
   const leaseLost: { fn: string; at: number }[] = [];
 
   const today = () => kstIsoDate(clock.now());
-  const guard = (fn: string) => {
+  const guard = (fn: string, info?: RpcInfo) => {
     const now = clock.now();
-    o.before?.(fn, now);
+    o.before?.(fn, now, info);
     if (state.lease.holder !== holder || state.lease.until <= now) {
       leaseLost.push({ fn, at: now });
       throw new LeaseLostError(fn);
@@ -544,11 +550,12 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
         return row;
       });
       calls.claim.push({ at: now, limit, claimed: out.length });
+      o.after?.("dart_alert_claim", now);
       return out;
     },
 
     async mark(rceptNo, r) {
-      guard("dart_alert_mark");
+      guard("dart_alert_mark", { rceptNo });
       const now = clock.now();
       const row = rows.get(rceptNo);
       const ok = row !== undefined && row.status === "sending" && row.claimed_by === holder;
@@ -566,6 +573,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
         row.next_attempt_at = now + r.retryInS * 1000;
         row.last_error = r.error;
       }
+      o.after?.("dart_alert_mark", now, { rceptNo });
       return true;
     },
 
