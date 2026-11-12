@@ -7,11 +7,14 @@ import {
   collectOnce,
   deliverPending,
   newLapState,
+  newSendPacer,
+  sendPaced,
   type CollectResult,
   type InsertedRow,
   type InsertItem,
   type LapDeps,
   type LapState,
+  type SendPacer,
 } from "./lap";
 import { kstLabel, outageText, recoveredText, testSendText } from "./message";
 import { safeErrorFields, telegramSafeFields, type SafeErrorFields } from "./safeError";
@@ -69,6 +72,9 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *
  * 시계 · sleep · DB · DART · 텔레그램은 모두 주입받는다 — 13시간 실행을 가짜 시계 테스트로 돌린다(tests/helpers/fakes.ts).
  */
+
+// 송신 속도 · 재시도 상수(43-06) — 순환 import 를 피해 lap.ts 에 두고 여기서 다시 내보낸다
+export { RETRY_BASE_S, RETRY_MAX_S, SEND_GAP_MS, SEND_WINDOW_MAX, SEND_WINDOW_MS, UNSENT_ERROR_MS } from "./lap";
 
 /** D-17 — 확인 시간대 안에서 감시 대상 하나라도 기준점에서 이만큼 넘게 성공이 없으면 장애를 연다(장전 · 장중 구분 없음) */
 export const OUTAGE_AFTER_MS = 300_000;
@@ -191,6 +197,8 @@ class Collector {
   /** 시작 때 DB 장애 상태(readState) */
   private dbOutage: { since: string | null; notice: string | null } = { since: null, notice: null };
   private readonly lapState: LapState = newLapState();
+  /** 실행 동안 하나인 송신 상태 — 공시 알림 · 장애 글 · 시험 글이 같은 1초 간격 · 60초 18건 · 429 대기를 지난다 */
+  private readonly pacer: SendPacer = newSendPacer();
   private readonly lapDeps: LapDeps;
   private readonly stats = { laps: 0, calls: 0, inserted: 0, sent: 0, failed: 0 };
 
@@ -365,7 +373,7 @@ class Collector {
 
   /** test-send — 시험 글 1건. 실패면 사유(kind · code · description)와 함께 종료 1 */
   private async testSend(t0: number): Promise<CollectorExit> {
-    const r = await this.d.telegram.send(testSendText(t0));
+    const r = await sendPaced(this.lapDeps, this.pacer, testSendText(t0));
     if (r.kind === "ok") {
       this.d.log.info({ messageId: r.messageId }, "test-send ok");
       return { code: 0, reason: "test_send" };
@@ -466,12 +474,12 @@ class Collector {
 
   private async deliver(): Promise<void> {
     try {
-      const d = await deliverPending(this.lapDeps, DELIVER_LIMIT);
+      const d = await deliverPending(this.lapDeps, DELIVER_LIMIT, this.pacer);
       this.stats.sent += d.sent;
       this.stats.failed += d.failed;
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
-      // 차례 · 기록 DB 오류 — 그 건은 DB 송신 기한(90초) 뒤 다시 차례에 나온다(43-06 이 세분화)
+      // 차례 · 기록 DB 오류는 deliverPending 이 `alert claim failed` · `alert mark failed` 로 남기고 삼킨다 — 여기 오는 건 그 밖 예외
       this.d.log.warn({ err: safeErrorFields(err) }, "deliver failed — retrying next lap");
     }
   }
@@ -603,10 +611,19 @@ class Collector {
     );
   }
 
-  /** 장애 짝 글 송신 — null 이면 보내지 못하고 멈춤(SIGTERM) */
+  /**
+   * 장애 짝 글 송신 — 공시 알림과 같은 pacer(429 대기 · 1초 간격 · 60초 18건). 기다리는 동안 임대 연장 · flush 는 하되
+   * 예산 문은 닫지 않는다(치명 종료 길에서도 부른다). null = SIGTERM 으로 보내지 못함(DB notice 는 pending 으로 남아
+   * 다음 실행이 시작 점검에서 다시 연다).
+   */
   private async sendNotice(text: string): Promise<SendResult | null> {
+    for (let now = this.now(), ready = this.pacer.readyAt(now); now < ready; now = this.now(), ready = this.pacer.readyAt(now)) {
+      if (this.d.signal?.aborted) return null;
+      await this.maintain(now, false);
+      await this.d.sleep(Math.min(ready - now, WAIT_STEP_MS));
+    }
     if (this.d.signal?.aborted) return null;
-    return this.d.telegram.send(text);
+    return sendPaced(this.lapDeps, this.pacer, text);
   }
 
   /**

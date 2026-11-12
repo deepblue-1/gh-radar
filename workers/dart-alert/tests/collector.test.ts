@@ -147,7 +147,8 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     expect(exit).toEqual({ code: 0, reason: "aborted" });
     expect(h.logs.count("possible duplicate after takeover", "warn")).toBe(1);
     expect(h.logs.find("possible duplicate after takeover")?.obj).toMatchObject({ reclaimed: 2 });
-    expect(h.telegram.alerts().map((s) => s.at)).toEqual([at("10:00:00"), at("10:00:00")]);
+    // 43-06: 시작 점검 「멈췄습니다」(10:00:00) 뒤 같은 방 1초 간격 — 둘 다 첫 바퀴(10:00:00 ~ 10:00:05) 안
+    expect(h.telegram.alerts().map((s) => s.at)).toEqual([at("10:00:01"), at("10:00:02")]);
     expect(h.db.statusOf(r1.rcept_no)).toBe("sent");
     expect(h.db.statusOf(r2.rcept_no)).toBe("sent");
   });
