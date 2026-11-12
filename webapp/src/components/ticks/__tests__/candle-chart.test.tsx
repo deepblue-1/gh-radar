@@ -566,7 +566,9 @@ describe('결선 · 가격 판 — 봉 단위 · 이동평균 · 일별 종가',
       expect(captions()).toContain('일 이동평균 — 일별 종가를 불러오지 못했어요(화면을 다시 열면 다시 불러와요)'),
     );
     expect(maKeys()).toEqual([]);
-    expect(q('candle-body-up')[0]!.getAttribute('d')).not.toBe('');
+    // 봉은 그대로(하루 전체 · 1분 칸 < 3px 라 꼬리만)
+    const wicks = (q('candle-wick-up')[0]!.getAttribute('d') ?? '') + (q('candle-wick-down')[0]!.getAttribute('d') ?? '');
+    expect(wicks).not.toBe('');
   });
 
   it('종목 코드 없음 → 요청 0 · 캡션 「일 20 — 지난 거래일 종가가 모자라 그리지 않아요」', () => {
