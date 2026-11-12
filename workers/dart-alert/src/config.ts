@@ -1,0 +1,125 @@
+import "dotenv/config";
+import { DEFAULT_B001_KINDS } from "./watches";
+
+/**
+ * Phase 43-03 — dart-alert env 계약.
+ *
+ * 이름은 43-07 배포 스크립트(`scripts/deploy-dart-alert.sh`)와 같은 계약이다 — 바꾸지 않는다.
+ * - SC-4 · 공식 API 운영 기준 ①: 하루 예산 `DART_ALERT_DAILY_BUDGET` 은 공식 일일 한도 20,000 의 75% 이하
+ *   (정수 1 ~ 15,000 · 기본 15,000). 범위 밖이면 시작하지 않는다.
+ * - 필수 비밀(`OPENDART_API_KEY` · `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `SUPABASE_SERVICE_ROLE_KEY`)과
+ *   `SUPABASE_URL` 이 없으면 이름만 담은 오류로 멈춘다 — 값은 어떤 오류 메시지에도 싣지 않는다.
+ * - D-14: 단체방 id 는 설정값(Secret)이다 — 숫자(음수 허용)가 아니면 이름만 담아 멈춘다.
+ * - D-04: 주요사항보고서 종류 목록 · 정정 포함 여부는 재배포 없이 env 로 바꾼다(정정 기본 include — 가정 3).
+ *   gcloud `--set-env-vars` 로 쉼표 값을 넣을 때의 구분자 바꾸기 요령은 43-07 배포 스크립트 머리 주석이 맡는다.
+ */
+
+/**
+ * auto = 평소 수집 · probe = 탐침 1건 · seed = 그날 건을 보내지 않고 넣기만(첫 배포) · test-send = 시험 글 1건
+ */
+export type DartAlertMode = "auto" | "probe" | "seed" | "test-send";
+
+export interface DartAlertConfig {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+  /** OpenDART 인증키(crtfc_key) */
+  dartApiKey: string;
+  telegramBotToken: string;
+  /** 단체방 id — 숫자 문자열(슈퍼그룹은 음수) */
+  telegramChatId: string;
+  dartBaseUrl: string;
+  telegramBaseUrl: string;
+  /** 하루 호출 상한(api_usage `opendart_list`) — 1 ~ 15,000 */
+  dailyBudget: number;
+  mode: DartAlertMode;
+  /** D-04 주요사항보고서 허용 종류명 */
+  b001Kinds: string[];
+  /** D-04 주요사항보고서 정정 공시 포함 여부 */
+  b001Corrections: "include" | "exclude";
+  logLevel: string;
+  appVersion: string;
+}
+
+export const DART_DEFAULT_BASE_URL = "https://opendart.fss.or.kr";
+export const TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org";
+/**
+ * 하루 예산 상한 = 공식 20,000/일의 75%. 설계 사용량은 약 10,800(평일 5,400바퀴 × 감시 대상 2 —
+ * cadence.ts `plannedDailyCalls`) · 남는 몫은 100건 넘는 날의 추가 쪽 · 한도 소진 뒤 탐침 몫이다.
+ */
+export const DART_DAILY_BUDGET_LIMIT = 15_000;
+const MODES: readonly DartAlertMode[] = ["auto", "probe", "seed", "test-send"];
+const CORRECTIONS = ["include", "exclude"] as const;
+/** 종류 목록 상한 — 설정 실수(구분자 오인 등)로 목록이 터무니없이 길어지는 것을 막는다 */
+const MAX_B001_KINDS = 20;
+const CHAT_ID_RE = /^-?[0-9]+$/;
+
+function req(key: string): string {
+  const v = process.env[key];
+  if (!v || v.length === 0) throw new Error(`missing env: ${key}`);
+  return v;
+}
+
+function optional(key: string): string | undefined {
+  const v = process.env[key];
+  return v === undefined || v === "" ? undefined : v;
+}
+
+/** 정수 · [min, max] 안이어야 한다. 비밀이 아닌 설정값이라 받은 값을 오류에 싣는다. */
+function intEnv(key: string, fallback: number, min: number, max: number): number {
+  const raw = optional(key);
+  if (raw === undefined) return fallback;
+  const n = /^-?\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN;
+  if (!Number.isSafeInteger(n) || n < min || n > max) {
+    throw new Error(`invalid ${key}: ${raw} (정수 ${min} ~ ${max})`);
+  }
+  return n;
+}
+
+function parseMode(raw: string | undefined): DartAlertMode {
+  const v = raw ?? "auto";
+  if ((MODES as readonly string[]).includes(v)) return v as DartAlertMode;
+  throw new Error(`invalid DART_ALERT_MODE: ${v} (${MODES.join("|")})`);
+}
+
+/** 방 id 는 Secret 이다 — 오류에 값을 싣지 않고 이름과 기대 꼴만 */
+function parseChatId(raw: string): string {
+  if (!CHAT_ID_RE.test(raw)) throw new Error("invalid TELEGRAM_CHAT_ID (숫자 · 음수 허용)");
+  return raw;
+}
+
+function parseKinds(raw: string | undefined): string[] {
+  if (raw === undefined) return [...DEFAULT_B001_KINDS];
+  const kinds = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (kinds.length === 0) throw new Error("invalid DART_ALERT_B001_KINDS: 빈 목록 (쉼표로 나눈 종류명 1개 이상)");
+  if (kinds.length > MAX_B001_KINDS) {
+    throw new Error(`invalid DART_ALERT_B001_KINDS: ${kinds.length}개 (최대 ${MAX_B001_KINDS}개)`);
+  }
+  return kinds;
+}
+
+function parseCorrections(raw: string | undefined): "include" | "exclude" {
+  const v = raw ?? "include";
+  if ((CORRECTIONS as readonly string[]).includes(v)) return v as "include" | "exclude";
+  throw new Error(`invalid DART_ALERT_B001_CORRECTIONS: ${v} (${CORRECTIONS.join("|")})`);
+}
+
+export function loadConfig(): DartAlertConfig {
+  return {
+    supabaseUrl: req("SUPABASE_URL"),
+    supabaseServiceRoleKey: req("SUPABASE_SERVICE_ROLE_KEY"),
+    dartApiKey: req("OPENDART_API_KEY"),
+    telegramBotToken: req("TELEGRAM_BOT_TOKEN"),
+    telegramChatId: parseChatId(req("TELEGRAM_CHAT_ID")),
+    dartBaseUrl: optional("DART_BASE_URL") ?? DART_DEFAULT_BASE_URL,
+    telegramBaseUrl: optional("TELEGRAM_BASE_URL") ?? TELEGRAM_DEFAULT_BASE_URL,
+    dailyBudget: intEnv("DART_ALERT_DAILY_BUDGET", DART_DAILY_BUDGET_LIMIT, 1, DART_DAILY_BUDGET_LIMIT),
+    mode: parseMode(optional("DART_ALERT_MODE")),
+    b001Kinds: parseKinds(optional("DART_ALERT_B001_KINDS")),
+    b001Corrections: parseCorrections(optional("DART_ALERT_B001_CORRECTIONS")),
+    logLevel: optional("LOG_LEVEL") ?? "info",
+    appVersion: optional("APP_VERSION") ?? "dev",
+  };
+}
