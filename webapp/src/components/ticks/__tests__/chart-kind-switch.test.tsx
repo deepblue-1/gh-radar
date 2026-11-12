@@ -21,6 +21,19 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/ticks/tick-api', () => api);
 
+/** 뷰어 렌더 횟수 — `useTickOwn` 은 TickViewer 만 렌더마다 한 번 부른다(42-08 「휠마다 뷰어가 다시 그려지지 않음」). */
+const viewerRenders = vi.hoisted(() => ({ n: 0 }));
+vi.mock('@/lib/ticks/use-tick-own', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ticks/use-tick-own')>();
+  return {
+    ...actual,
+    useTickOwn: (...a: Parameters<typeof actual.useTickOwn>) => {
+      viewerRenders.n++;
+      return actual.useTickOwn(...a);
+    },
+  };
+});
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -76,6 +89,8 @@ const OWN_EMPTY: TickOwnResponse = {
 
 beforeEach(() => {
   api.fetchTickOwn.mockResolvedValue(OWN_EMPTY);
+  // 차트 종류 기억(gh-radar:tick-chart-kind)이 테스트 사이로 새지 않게(42-08)
+  window.localStorage.clear();
 });
 
 function viewer(accum: TickOpenResponse['accum'], isToday = false) {
@@ -155,5 +170,76 @@ describe('차트 종류 스위치 — 선 차트 ↔ 봉 차트(트레이서)', 
       expect(q('candle-cum-avg')).toBeNull();
       v.unmount();
     }
+  });
+});
+
+/**
+ * Phase 42 Plan 08 Task 2 — 차트 종류 기억(D-02) · 전환 때 보던 구간 유지(D-24, 선 차트 쪽).
+ *
+ * 깨지면: 봉 차트를 골라도 다음에 열면 선 차트로 돌아가거나, 선 ↔ 봉을 오가면 보던 구간을 잃거나, 휠 한 번마다 뷰어 전체가
+ * 다시 그려진다.
+ */
+describe('기억 · 보던 구간(선 차트 쪽)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const span = () => q('tick-chart-span')?.textContent;
+  const toLine = () => fireEvent.click(within(kindSwitch()).getByRole('button', { name: '선 차트' }));
+  const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+  it('기억 없음 → 선 차트 · 「봉 차트」 누름 → 저장소 candle · 뷰어를 다시 열면 봉 차트', () => {
+    const v = render(viewer(ACCUM));
+    expect(q('tick-chart')).not.toBeNull();
+    toCandle();
+    expect(window.localStorage.getItem('gh-radar:tick-chart-kind')).toBe('candle');
+    v.unmount();
+
+    render(viewer(ACCUM));
+    expect(q('candle-chart')).not.toBeNull();
+    expect(q('tick-chart')).toBeNull();
+  });
+
+  it('선 차트 「1분」 → 「봉 차트」 → 「선 차트」 로 돌아오면 다시 「1분」(전환 순간의 창)', async () => {
+    render(viewer(ACCUM));
+    fireEvent.click(within(q('tick-chart') as HTMLElement).getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(span()).toBe('1분'));
+    toCandle();
+    expect(q('candle-chart')).not.toBeNull();
+    toLine();
+    expect(q('tick-chart')).not.toBeNull();
+    await waitFor(() => expect(span()).toBe('1분'));
+    await waitFor(() => expect((q('tick-chart-svg') as SVGSVGElement).style.visibility).not.toBe('hidden'));
+  });
+
+  it('종목 · 날짜 · 거래소가 바뀌어 뷰어가 다시 마운트되면 선 차트는 「하루 전체」(기억한 창 지움)', async () => {
+    const r = render(<div key="a">{viewer(ACCUM)}</div>);
+    fireEvent.click(within(q('tick-chart') as HTMLElement).getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(span()).toBe('1분'));
+    toCandle();
+
+    // 다른 key(= 다른 날짜의 session.key) — 차트 종류는 기억, 보던 창은 처음
+    r.rerender(<div key="b">{viewer(ACCUM)}</div>);
+    expect(q('candle-chart')).not.toBeNull();
+    toLine();
+    await wait(40);
+    expect(span()).toBe('하루 전체');
+  });
+
+  it('확대 · 휠로 창이 바뀌어도 뷰어 렌더 횟수가 늘지 않는다(창은 렌더 없는 ref)', async () => {
+    render(viewer(ACCUM));
+    await waitFor(() => expect(api.fetchTickOwn).toHaveBeenCalled());
+    await wait(40);
+    const before = viewerRenders.n;
+
+    const wrap = q('tick-chart-wrap')!;
+    fireEvent.keyDown(wrap, { key: '+' });
+    await waitFor(() => expect(span()).not.toBe('하루 전체'));
+    const svg = q('tick-chart-svg')!;
+    fireEvent.wheel(svg, { deltaY: -120, clientX: 300 });
+    fireEvent.keyDown(wrap, { key: '+' });
+    await wait(40);
+    expect(span()).not.toBe('하루 전체');
+    expect(viewerRenders.n).toBe(before);
   });
 });
