@@ -685,19 +685,26 @@ shared 타입 현재 원문 [VERIFIED: packages/shared/src/tick-api.ts:140]: `ac
 | A4 | A3 가격 · 수량이 정수라 거래대금 합이 float64 에서 정확하다 | Pattern 2 | 테스트를 `toBeCloseTo` 로 바꾸면 됨(위험 낮음) |
 | A5 | NXT 화면의 일 이동평균도 KRX 일봉 종가(`stock_daily_ohlcv`)로 계산해도 된다 | Pattern 6 | 사용자가 NXT 종가 기준을 원하면 자료원이 없다 — 캡션으로 밝히거나 NXT 에서 일 선을 끌지 확인 필요 |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> 2026-11-12 플래너 revision 에서 다섯 질문 모두 해소 — 질문마다 아래 **RESOLVED** 줄이 채택한 답과 담당 플랜을 가리킨다. 채택 답의 플랜 정본은 `42-01-PLAN.md` 「실행 환경 메모」 12. 미해소 질문 없음.
 
 1. **`OwnDiamond` · `TickGroupBox` — `tick-chart.tsx` 에 `export` 만 더할까, 새 파일로 복제할까?**
    - What we know: CONTEXT 재량이 「export 만 더하기」 를 허용, 성공 기준 1 문구는 「스위치 연결부 + 선택 입력 2개」.
    - Recommendation: `export` 키워드 2개 추가(동작 무변 · 중복 95줄 회피). 검증 시 diff 에 `export` 두 단어가 보이는 것을 「허용된 export 만 더하기」 로 기록. 사용자가 엄격 해석을 원하면 복제.
+   - **RESOLVED: `export` 만 더하기(복제 아님).** 42-01 Task 1 ⑨ 가 두 함수 앞에 `export` 를 붙이고, 42-01 · 42-08 · 42-11 의 `tick-chart.tsx` diff 범위 게이트가 이 두 단어를 허용 줄로 둔다.
 2. **일 칩이 꺼져 있을 때도 종가를 받을까?**
    - Recommendation: 일 칩이 하나라도 「있으면」(켜짐 무관) 239개 1회 — 켜고 끌 때 요청 0.
+   - **RESOLVED: 일 칩이 하나라도 있으면(켜짐 무관) 앞 거래일 종가 239개를 (종목 코드, 날짜)마다 한 번만 받는다** — 켜고 끌 때 요청 0. 조회 함수 · 훅은 42-03(`fetchPrevCloses` · `usePrevCloses`), 결선은 42-10.
 3. **값 띠 둘째 칸 「평단」 의 계산원** — `teamKpiAt.avgPx`(패널과 같음) vs `teamAvgAt`(선 차트 띠 · 점점선과 같음).
    - Recommendation: 패널과 같은 `teamKpiAt`(수익률과 한 쌍). 가격 판 점점선은 기존 그대로.
+   - **RESOLVED: 값 띠의 「평단 · 수익률」 은 둘 다 `teamKpiAt`(팀 거래정보 패널과 같은 쌍).** 가격 판 당일 평단 점점선은 기존 `teamAvgPathOf` 그대로. 수익률 점은 42-02, 값 띠는 42-06.
 4. **NXT 화면 일 이동평균**(A5) — KRX 일봉 종가로 그려도 되는지.
    - Recommendation: 그대로 그리고 카드 아래 캡션에 따로 밝히지 않음(일 선은 「일봉 차트 값」 의 뜻이 우선). 실행 중 사용자 확인 1회.
+   - **RESOLVED: NXT 화면에서도 일 이동평균을 KRX 일봉 종가(`stock_daily_ohlcv`)로 그린다** — 캡션에 따로 밝히지 않는다. 가정 A5 로 42-10 에 기록하고, 42-11 Task 3 UAT 12번 질문으로 사용자에게 확인받는다(답이 「빼 달라」 면 후속 quick — 이 phase 의 구현은 그대로).
 5. **`stock` 이 null(종목 마스터 없음)일 때 일 칩** — 코드가 없어 조회 불가.
    - Recommendation: 「일 {N} — 지난 거래일 종가가 모자라 그리지 않아요」 와 같은 캡션으로 처리(새 문구 만들지 않음).
+   - **RESOLVED: 기존 「일 {N} — 지난 거래일 종가가 모자라 그리지 않아요」 캡션을 그대로 쓴다(새 문구 없음).** 종가 조회는 하지 않는다. 캡션은 42-06, 결선(코드 없음 → 조회 안 함)은 42-10.
 
 ## Environment Availability
 
