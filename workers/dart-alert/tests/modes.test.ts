@@ -1,0 +1,336 @@
+import { Writable } from "node:stream";
+import type { AxiosAdapter, InternalAxiosRequestConfig } from "axios";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { CollectorDeps, CollectorExit } from "../src/collector";
+import type { DartAlertConfig } from "../src/config";
+import { buildDeps, main } from "../src/index";
+import { LATE_LABEL, testSendText } from "../src/message";
+import { harness, kst, logRecorder, MON, rightsRow, SAT, tenderRow, type FeedItem } from "./helpers/fakes";
+
+/**
+ * Phase 43-05 T2 — 모드(probe · seed · test-send · auto 창 밖)와 Cloud Run Job 진입점(`main` · `buildDeps`).
+ * 배포 · 스모크(43-07 `probe ok`) · 첫 배포 날(seed → auto 이어 감) · 개인 대화 시험(D-15 test-send)의 계약.
+ * 실제 OpenDART · Supabase · 텔레그램 호출 없음 — 진입점 결선은 가짜 axios 전송으로만 확인한다.
+ */
+
+const at = (hms: string) => kst(MON, hms);
+const iso = (hms: string) => new Date(at(hms)).toISOString();
+const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer", from: at(fromHms), row: tenderRow(n) });
+const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
+
+describe("probe 모드 (43-07 스모크 계약)", () => {
+  it("임대 없이(남이 쥐고 있어도) 공개매수 1쪽 1회 · 넣기 0 · 송신 0 · usage.add(1) · probe ok(total) · 종료 0", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      mode: "probe",
+      db: { lease: { holder: "other:1", until: at("10:01:00") } },
+      dart: { probe: () => ({ status: "000", total: 3 }) },
+    });
+    const exit = await h.run();
+    expect(exit).toEqual({ code: 0, reason: "probe" });
+    expect(h.dart.probeCalls).toHaveLength(1);
+    expect(h.dart.probeCalls[0].day).toBe("20261116");
+    expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.db.calls.leaseAcquire).toHaveLength(0);
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.telegram.sent).toHaveLength(0);
+    expect(h.db.calls.usageAdd.map((c) => c.n)).toEqual([1]);
+    expect(h.db.state.used).toBe(1);
+    expect(h.logs.count("probe ok", "info")).toBe(1);
+    expect(h.logs.find("probe ok")?.obj).toMatchObject({ total: 3 });
+    expect(h.db.state.lease.holder).toBe("other:1");
+  });
+
+  it("주말 · 창 밖에도 probe 는 1회 부른다", async () => {
+    const h = harness({ start: kst(SAT, "23:00:00"), mode: "probe" });
+    expect(await h.run()).toEqual({ code: 0, reason: "probe" });
+    expect(h.dart.probeCalls).toHaveLength(1);
+  });
+
+  it("DART 실패면 error(안전 필드) · 종료 1 probe_failed", async () => {
+    const h = harness({ start: at("10:00:00"), mode: "probe", dart: { probe: () => ({ status: "800" }) } });
+    const exit = await h.run();
+    expect(exit).toEqual({ code: 1, reason: "probe_failed" });
+    const err = h.logs.lines.find((l) => l.level === "error");
+    expect(err?.obj).toMatchObject({ err: { code: "800", kind: "transient" } });
+    expect(h.db.usageAdded()).toBe(1);
+  });
+});
+
+describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
+  it("seed 뒤 같은 실행이 auto 로 이어 가고 새 건은 늦은 알림이 아니다", async () => {
+    const h = harness({
+      start: at("14:00:00"),
+      mode: "seed",
+      dart: { feed: [tender(1, "09:10:00"), tender(2, "11:20:00"), rights(3, "13:00:00"), tender(4, "14:00:05")] },
+    });
+    const exit = await h.run();
+
+    expect(exit).toEqual({ code: 0, reason: "window_end" });
+    // seed 바퀴 — 그날 이미 있던 3건을 seeded 로 · 그 바퀴 송신 0
+    const first = h.db.calls.insert[0];
+    expect(first.seed).toBe(true);
+    expect(first.items.map((i) => i.rcept_no).sort()).toEqual([tenderRow(1).rcept_no, tenderRow(2).rcept_no, rightsRow(3).rcept_no].sort());
+    expect(h.logs.count("seed done", "info")).toBe(1);
+    expect(h.logs.find("seed done")?.obj).toMatchObject({ inserted: 3 });
+    // seed 바퀴의 감시 대상별 성공 시각이 곧바로 DB last_ok 로(임대 연장 RPC 의 p_last_ok)
+    const persisted = h.db.calls.leaseAcquire.find((c) => c.lastOk !== undefined)!;
+    expect(persisted.at).toBe(at("14:00:00"));
+    expect(persisted.lastOk).toEqual({ tender_offer: iso("14:00:00"), rights_merger: iso("14:00:00") });
+    // 같은 실행이 한 바퀴(10초) 뒤 auto 바퀴 — 새 건 1건만 · 늦은 알림 아님
+    expect(h.dart.callsOf("tender_offer")[1].at).toBe(at("14:00:10"));
+    expect(h.telegram.sent).toHaveLength(1);
+    const sent = h.telegram.texts();
+    expect(sent[0]).toContain("대상회사4");
+    expect(sent[0]).not.toContain(LATE_LABEL);
+    expect(h.telegram.sent[0].at).toBe(at("14:00:10"));
+    expect(h.db.calls.insert.slice(1).every((c) => c.seed === false)).toBe(true);
+    // seed 된 3건은 끝까지 보내지 않는다
+    for (const r of [tenderRow(1), tenderRow(2), rightsRow(3)]) expect(h.db.statusOf(r.rcept_no)).toBe("seeded");
+    expect(h.db.statusOf(tenderRow(4).rcept_no)).toBe("sent");
+  });
+
+  it("seed 바퀴에서 B001 조회가 800 이면 넣기 0 · 송신 0 · 종료 1 seed_failed · auto 로 넘어가지 않음", async () => {
+    const h = harness({
+      start: at("14:00:00"),
+      mode: "seed",
+      dart: {
+        feed: [tender(1, "09:10:00")],
+        reply: (c) => (c.watch.id === "rights_merger" ? { status: "800" } : undefined),
+      },
+    });
+    const exit = await h.run();
+    expect(exit).toEqual({ code: 1, reason: "seed_failed" });
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.db.calls.claim).toHaveLength(0);
+    expect(h.telegram.sent).toHaveLength(0);
+    expect(h.dart.listCalls).toHaveLength(2);
+    expect(h.logs.count("seed done")).toBe(0);
+    const err = h.logs.lines.find((l) => l.level === "error");
+    expect(JSON.stringify(err?.obj)).toContain("800");
+    expect(h.db.calls.leaseRelease).toHaveLength(1);
+  });
+
+  it("창 밖 seed 는 seed 바퀴 한 번 뒤 window_end 로 끝나고 보내지 않는다", async () => {
+    const h = harness({ start: at("21:00:00"), mode: "seed", dart: { feed: [tender(1, "09:10:00"), rights(2, "10:30:00")] } });
+    const exit = await h.run();
+    const dartCalls = h.dart.listCalls;
+    const sent = h.telegram.sent;
+
+    expect(exit).toEqual({ code: 0, reason: "window_end" });
+    expect(sent).toHaveLength(0);
+    expect(dartCalls).toHaveLength(2);
+    expect(h.dart.callsOf("tender_offer")).toHaveLength(1);
+    expect(h.dart.callsOf("rights_merger")).toHaveLength(1);
+    expect(h.db.calls.insert).toHaveLength(1);
+    expect(h.db.calls.insert[0]).toMatchObject({ seed: true, inserted: 2 });
+    expect(h.logs.count("seed done")).toBe(1);
+    expect(h.db.calls.claim).toHaveLength(0);
+    expect(h.db.calls.leaseRelease).toHaveLength(1);
+  });
+
+  it("다른 실행이 임대를 쥐고 있으면 seed 도 종료 0 lease_held · 호출 0", async () => {
+    const h = harness({ start: at("14:00:00"), mode: "seed", db: { lease: { holder: "other:1", until: at("14:01:00") } } });
+    expect(await h.run()).toEqual({ code: 0, reason: "lease_held" });
+    expect(h.dart.listCalls).toHaveLength(0);
+  });
+});
+
+describe("test-send 모드 (D-15 개인 대화 시험)", () => {
+  it("OpenDART · 임대 없이 시험 글 1건 → test-send ok(messageId) · 종료 0", async () => {
+    const h = harness({ start: at("10:00:00"), mode: "test-send", telegram: { reply: () => ({ kind: "ok", messageId: 77 }) } });
+    const exit = await h.run();
+    expect(exit).toEqual({ code: 0, reason: "test_send" });
+    expect(h.telegram.texts()).toEqual([testSendText(at("10:00:00"))]);
+    expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.dart.probeCalls).toHaveLength(0);
+    expect(h.db.calls.leaseAcquire).toHaveLength(0);
+    expect(h.logs.find("test-send ok")?.obj).toMatchObject({ messageId: 77 });
+  });
+
+  it("실패면 error(kind · code · description) · 종료 1 test_send_failed", async () => {
+    const h = harness({
+      start: kst(SAT, "11:00:00"),
+      mode: "test-send",
+      telegram: { reply: () => ({ kind: "chat", code: 403, description: "Forbidden: bot can't initiate conversation with a user" }) },
+    });
+    const exit = await h.run();
+    expect(exit).toEqual({ code: 1, reason: "test_send_failed" });
+    expect(h.logs.find("test-send failed")?.obj).toMatchObject({ kind: "chat", code: 403, description: expect.stringContaining("Forbidden") });
+    expect(h.logs.lines.find((l) => l.msg === "test-send failed")?.level).toBe("error");
+  });
+});
+
+describe("auto 창 밖 (D-11)", () => {
+  it("주말 auto → DART 0 · 임대 0 · 종료 0 outside_window", async () => {
+    const h = harness({ start: kst(SAT, "10:00:00"), mode: "auto" });
+    expect(await h.run()).toEqual({ code: 0, reason: "outside_window" });
+    expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.db.calls.leaseAcquire).toHaveLength(0);
+  });
+
+  it("평일 20:00 뒤 auto → 종료 0 outside_window", async () => {
+    const h = harness({ start: at("20:00:00"), mode: "auto" });
+    expect(await h.run()).toEqual({ code: 0, reason: "outside_window" });
+    expect(h.dart.listCalls).toHaveLength(0);
+  });
+});
+
+// ── 진입점 ────────────────────────────────────────────────────────────
+const SECRETS = {
+  SUPABASE_SERVICE_ROLE_KEY: "SECRET-SERVICE-ROLE-DO-NOT-LOG",
+  OPENDART_API_KEY: "SECRET-DART-KEY-DO-NOT-LOG",
+  TELEGRAM_BOT_TOKEN: "123456:SECRET-BOT-TOKEN-DO-NOT-LOG",
+  TELEGRAM_CHAT_ID: "-1009876543210",
+};
+const ENV_KEYS = [
+  "SUPABASE_URL",
+  ...Object.keys(SECRETS),
+  "DART_ALERT_MODE",
+  "DART_ALERT_DAILY_BUDGET",
+  "DART_ALERT_B001_KINDS",
+  "DART_ALERT_B001_CORRECTIONS",
+  "DART_BASE_URL",
+  "TELEGRAM_BASE_URL",
+  "CLOUD_RUN_EXECUTION",
+  "LOG_LEVEL",
+  "APP_VERSION",
+];
+
+function capture() {
+  const chunks: string[] = [];
+  const stream = new Writable({
+    write(chunk, _enc, cb) {
+      chunks.push(String(chunk));
+      cb();
+    },
+  });
+  return { stream, text: () => chunks.join(""), lines: () => chunks.join("").split("\n").filter(Boolean).map((l) => JSON.parse(l)) };
+}
+
+describe("진입점 main() · buildDeps()", () => {
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("필수 env 가 없으면 error 로그에 env 이름만 · 반환 1 · 수집기를 부르지 않는다", async () => {
+    Object.assign(process.env, SECRETS); // SUPABASE_URL 만 빠짐
+    const out = capture();
+    let ran = 0;
+    const code = await main({
+      logDestination: out.stream,
+      run: async () => {
+        ran += 1;
+        return { code: 0, reason: "x" };
+      },
+    });
+    expect(code).toBe(1);
+    expect(ran).toBe(0);
+    const text = out.text();
+    expect(text).toContain("SUPABASE_URL");
+    expect(text).toContain("dart-alert config error");
+    for (const v of Object.values(SECRETS)) expect(text).not.toContain(v);
+    expect(out.lines()[0].level).toBe(50);
+  });
+
+  it("정상 결선이면 runCollector 의 code 를 돌려준다 · 시작 로그에 비밀 없음 · 신호 처리기를 남기지 않는다", async () => {
+    Object.assign(process.env, SECRETS, { SUPABASE_URL: "http://127.0.0.1:1", DART_ALERT_MODE: "probe", DART_ALERT_DAILY_BUDGET: "12000" });
+    const before = process.listenerCount("SIGTERM");
+    const seen: CollectorDeps[] = [];
+    const out = capture();
+    const run = (code: 0 | 1) => async (deps: CollectorDeps): Promise<CollectorExit> => {
+      seen.push(deps);
+      return { code, reason: "fake" };
+    };
+    expect(await main({ logDestination: out.stream, run: run(1) })).toBe(1);
+    expect(await main({ logDestination: out.stream, run: run(0) })).toBe(0);
+    expect(process.listenerCount("SIGTERM")).toBe(before);
+
+    expect(seen[0].cfg).toEqual({ dailyBudget: 12_000, mode: "probe" });
+    expect(seen[0].watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
+    const start = out.lines().find((l) => l.msg === "dart-alert start");
+    expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 2, holder: seen[0].holder });
+    const text = out.text();
+    for (const v of Object.values(SECRETS)) expect(text).not.toContain(v);
+  });
+
+  it("main 이 수집기 예외를 받으면 안전 필드만 로그 · 반환 1", async () => {
+    Object.assign(process.env, SECRETS, { SUPABASE_URL: "http://127.0.0.1:1" });
+    const out = capture();
+    const code = await main({
+      logDestination: out.stream,
+      run: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(code).toBe(1);
+    const failed = out.lines().find((l) => l.msg === "dart-alert failed");
+    expect(failed).toMatchObject({ level: 50, err: { message: "boom", kind: "unknown" } });
+  });
+
+  it("buildDeps — holder · 감시 대상 2 · DART 조회 · 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
+    const cfg: DartAlertConfig = {
+      supabaseUrl: "http://127.0.0.1:1",
+      supabaseServiceRoleKey: SECRETS.SUPABASE_SERVICE_ROLE_KEY,
+      dartApiKey: SECRETS.OPENDART_API_KEY,
+      telegramBotToken: SECRETS.TELEGRAM_BOT_TOKEN,
+      telegramChatId: SECRETS.TELEGRAM_CHAT_ID,
+      dartBaseUrl: "http://dart.invalid",
+      telegramBaseUrl: "http://telegram.invalid",
+      dailyBudget: 15_000,
+      mode: "auto",
+      b001Kinds: ["유상증자결정"],
+      b001Corrections: "exclude",
+      logLevel: "info",
+      appVersion: "test",
+    };
+    const reply = (config: InternalAxiosRequestConfig, data: unknown) =>
+      Promise.resolve({ data, status: 200, statusText: "OK", headers: {}, config });
+    const dartReqs: Record<string, unknown>[] = [];
+    const dartAdapter: AxiosAdapter = (config) => {
+      dartReqs.push({ ...(config.params as Record<string, unknown>) });
+      return reply(config, { status: "000", total_count: 1, total_page: 1, list: [tenderRow(1)] });
+    };
+    const posts: Record<string, unknown>[] = [];
+    const telegramAdapter: AxiosAdapter = (config) => {
+      posts.push(JSON.parse(String(config.data)));
+      return reply(config, { ok: true, result: { message_id: 9 } });
+    };
+    const logs = logRecorder();
+    const deps = buildDeps(cfg, logs.log, new AbortController().signal, { dartAdapter, telegramAdapter });
+
+    expect(deps.holder).toMatch(/^local:[0-9a-f]{8}$/);
+    expect(deps.cfg).toEqual({ dailyBudget: 15_000, mode: "auto" });
+    expect(deps.watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
+    expect(deps.watches[1].kinds).toEqual(["유상증자결정"]);
+    expect(deps.judge).toEqual({ b001Corrections: "exclude" });
+    expect(JSON.stringify(deps.cfg)).not.toContain("SECRET");
+
+    const list = await deps.dart.list(deps.watches[0], "20261116");
+    expect(list).toMatchObject({ calls: 1 });
+    expect(list.rows).toHaveLength(1);
+    expect(dartReqs[0]).toMatchObject({ pblntf_detail_ty: "D004", bgn_de: "20261116", end_de: "20261116", page_no: 1, crtfc_key: cfg.dartApiKey });
+    await deps.dart.list(deps.watches[1], "20261116");
+    expect(dartReqs[1]).toMatchObject({ pblntf_detail_ty: "B001" });
+    expect(await deps.dart.probe("20261116")).toEqual({ total: 1, calls: 1 });
+    expect(dartReqs[2]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
+
+    expect(await deps.telegram.send("hello")).toEqual({ kind: "ok", messageId: 9 });
+    expect(posts[0]).toMatchObject({ chat_id: SECRETS.TELEGRAM_CHAT_ID, text: "hello" });
+    deps.telegram.switchChat("-1001111");
+    await deps.telegram.send("again");
+    expect(posts[1]).toMatchObject({ chat_id: "-1001111" });
+
+    deps.db.usage.add(3);
+    expect(typeof deps.db.leaseAcquire).toBe("function");
+    expect(typeof deps.db.strikes.record).toBe("function");
+  });
+});
