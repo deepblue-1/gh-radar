@@ -177,6 +177,7 @@ import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
 import { StockFeedProvider } from "@/components/trading/feed/stock-feed-context";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
+import { unfilledOriginOf } from "@/components/orderbook/account-panel";
 import { isPickable, StockAddBar } from "@/components/trading/workbench/stock-add-bar";
 import {
   ViServerErrorLine,
@@ -1657,6 +1658,8 @@ function WorkbenchSurface() {
         dirtyBarCount={0}
         priceOf={priceOf}
         phoneBand={phoneBand}
+        // 미체결 「VI」 배지 · 연주황 행 — 서버 origin 이 vi 인 행만 (quick-261112-w2q D-03).
+        originOf={unfilledOriginOf}
       />
 
       {/* 8 · 이벤트 알림 토스트(⑩) — 뷰포트 오버레이지만 이 작업대 루트 안에만 산다 */}
@@ -1863,6 +1866,8 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
       priceOf={priceOf}
       alerted={alerted}
       requestedTab={requestedTab}
+      // 카드 「미체결」 탭도 공용 패널과 같은 판정 — 모듈 상수 함수라 메모 안정성 영향 없음 (quick-261112-w2q D-03).
+      originOf={unfilledOriginOf}
     />
   );
 });

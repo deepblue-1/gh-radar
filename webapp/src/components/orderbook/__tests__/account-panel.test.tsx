@@ -54,7 +54,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { AccountPanel, type AccountPanelProps } from '../account-panel';
+import { AccountPanel, type AccountPanelProps, unfilledOriginOf } from '../account-panel';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 
 const ISIN = 'KR7042700005';
@@ -1368,6 +1368,126 @@ describe('AccountPanel — 임베드 stock 스코프 (quick-260923-onn · 목업
   });
 });
 
+describe('AccountPanel — 미체결 VI 자동주문 (quick-261112-w2q · 목업 B)', () => {
+  const embedBase = (over: Partial<AccountPanelProps> = {}): AccountPanelProps =>
+    baseProps({
+      accounts: undefined,
+      onAccountChange: undefined,
+      code: undefined,
+      name: undefined,
+      isin: undefined,
+      currentPrice: undefined,
+      section: 'unfilled',
+      ...over,
+    });
+
+  const root = () => screen.getByTestId('account-panel');
+  const rowOf = (orderNo: string) =>
+    Array.from(
+      root().querySelectorAll<HTMLElement>('[data-slot="account-embed-unfilled-row"]'),
+    ).find((tr) => (tr.textContent ?? '').includes(orderNo))!;
+  const badgesOf = (tr: HTMLElement) =>
+    Array.from(tr.querySelectorAll<HTMLElement>('[data-slot="account-origin-badge"]'));
+
+  /** [vi · limit_chaser · manual · null · 키 없음(옛 relay)] — 주문번호로 행을 찾는다. */
+  const mixed = () =>
+    withUnfilled([
+      unf({ orderNo: '0000000001', origin: 'vi' }),
+      unf({ orderNo: '0000000002', origin: 'limit_chaser' }),
+      unf({ orderNo: '0000000003', origin: 'manual' }),
+      unf({ orderNo: '0000000004', origin: null }),
+      unf({ orderNo: '0000000005' }),
+    ]);
+
+  it('unfilledOriginOf — origin 이 vi 인 행만 「VI」, 나머지 · 키 없음은 undefined', () => {
+    expect(unfilledOriginOf(unf({ origin: 'vi' }))).toBe('VI');
+    expect(unfilledOriginOf(unf({ origin: 'limit_chaser' }))).toBeUndefined();
+    expect(unfilledOriginOf(unf({ origin: 'manual' }))).toBeUndefined();
+    expect(unfilledOriginOf(unf({ origin: null }))).toBeUndefined();
+    expect(unfilledOriginOf(unf())).toBeUndefined();
+  });
+
+  it('카드 탭(stock): VI 행만 첫 셀에 주황 「VI」 배지(title) + 연주황 행 · 나머지 4행은 그대로', () => {
+    render(
+      <AccountPanel
+        {...embedBase({ embedScope: 'stock', account: mixed() })}
+        originOf={unfilledOriginOf}
+      />,
+    );
+    const viRow = rowOf('0000000001');
+    const badge = viRow.querySelector('td')!.querySelector<HTMLElement>('[data-slot="account-origin-badge"]')!;
+    expect(badge.textContent).toBe('VI');
+    expect(badge).toHaveAttribute('title', 'VI 자동주문');
+    expect(badge.className).toContain('text-[var(--vi)]');
+    expect(badge.className).toContain('bg-[var(--vi-bg)]');
+    expect(badge.className).toContain('font-bold');
+    expect(viRow.className).toContain('bg-[var(--vi-bg)]');
+    for (const no of ['0000000002', '0000000003', '0000000004', '0000000005']) {
+      const tr = rowOf(no);
+      expect(badgesOf(tr)).toHaveLength(0);
+      expect(tr.className).not.toContain('--vi-bg');
+    }
+  });
+
+  it('공용 패널(account): VI 배지가 종목명과 같은 첫 셀 · 행 배경 동일', () => {
+    render(<AccountPanel {...embedBase({ account: mixed() })} originOf={unfilledOriginOf} />);
+    const viRow = rowOf('0000000001');
+    const first = viRow.querySelector('td')!;
+    expect(first.querySelector('[data-slot="account-embed-name"]')).not.toBeNull();
+    expect(first.querySelector('[data-slot="account-origin-badge"]')?.textContent).toBe('VI');
+    expect(viRow.className).toContain('bg-[var(--vi-bg)]');
+    for (const no of ['0000000002', '0000000003', '0000000004', '0000000005']) {
+      expect(badgesOf(rowOf(no))).toHaveLength(0);
+      expect(rowOf(no).className).not.toContain('--vi-bg');
+    }
+  });
+
+  it('선택된 VI 행은 선택 강조만 — 연주황은 빠지고 배지는 그대로', () => {
+    render(
+      <AccountPanel
+        {...embedBase({ account: mixed() })}
+        originOf={unfilledOriginOf}
+        selectedOrderNo="0000000001"
+        onSelectUnfilled={vi.fn()}
+      />,
+    );
+    const row = rowOf('0000000001');
+    expect(row.className).toContain('bg-[var(--accent)]');
+    expect(row.className).not.toContain('bg-[var(--vi-bg)]');
+    expect(badgesOf(row)[0]?.textContent).toBe('VI');
+  });
+
+  it('취소 보관 VI 행은 회색 글자 + 연주황 배경 둘 다', () => {
+    render(
+      <AccountPanel
+        {...embedBase({
+          account: withUnfilled([unf({ orderNo: '0000000001', origin: 'vi', pendingCancelSent: true })]),
+        })}
+        originOf={unfilledOriginOf}
+      />,
+    );
+    const row = rowOf('0000000001');
+    expect(row).toHaveAttribute('data-pending-cancel', 'true');
+    expect(row.className).toContain('text-[var(--muted-fg)]');
+    expect(row.className).toContain('bg-[var(--vi-bg)]');
+  });
+
+  it('기존 「상따」 배지는 회색 그대로 — title 없음 · 행 배경 없음', () => {
+    render(
+      <AccountPanel
+        {...embedBase({ embedScope: 'stock', account: withUnfilled([unf({ orderNo: '0000000001' })]) })}
+        originOf={() => '상따'}
+      />,
+    );
+    const row = rowOf('0000000001');
+    const badge = badgesOf(row)[0]!;
+    expect(badge.textContent).toBe('상따');
+    expect(badge.className).toContain('bg-[var(--muted)]');
+    expect(badge).not.toHaveAttribute('title');
+    expect(row.className).not.toContain('--vi-bg');
+  });
+});
+
 describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
   const ACCT = '12345678-01';
 
@@ -1542,6 +1662,29 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
       const sub = result.previousElementSibling!;
       expect(sub).toHaveAttribute('data-slot', 'unfilled-progress-row');
       expect(sub.previousElementSibling).toHaveAttribute('data-slot', 'account-embed-unfilled-row');
+    });
+
+    it('VI 자동주문 행의 보조행도 연주황 · VI 아닌 행 보조행엔 없음 (quick-261112-w2q)', () => {
+      pushProgress([item()]);
+      const { unmount } = render(
+        <AccountPanel
+          {...embedBase({ account: withUnfilled([unf({ origin: 'vi' })]) })}
+          originOf={unfilledOriginOf}
+        />,
+      );
+      const [viSub] = progressRows();
+      expect(viSub!.className).toContain('bg-[var(--vi-bg)]');
+      unmount();
+
+      render(
+        <AccountPanel
+          {...embedBase({ account: withUnfilled([unf({ origin: 'limit_chaser' })]) })}
+          originOf={unfilledOriginOf}
+        />,
+      );
+      const [plainSub] = progressRows();
+      expect(plainSub).toBeDefined();
+      expect(plainSub!.className).not.toContain('--vi-bg');
     });
   });
 

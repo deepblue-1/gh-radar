@@ -215,8 +215,25 @@ type CancelResult =
  */
 export type AccountOriginTag = Exclude<OriginTagLabel, '수동'>;
 
-/** 공용 패널(⑪) 미체결 행의 출처 배지 — UI-SPEC §공용 패널 「상따」/「수동」. */
-export type AccountRowOrigin = '상따' | '수동';
+/**
+ * 임베드(⑪) 미체결 행의 출처 배지. 「VI」 = 서버가 미체결 행에 실은 발주 주체
+ * (`RelayUnfilled.origin === 'vi'`)이고 작업대가 `unfilledOriginOf` 로 넘긴다 — 주황 배지 · 행 연주황
+ * (quick-261112-w2q · 목업 B). 「상따」/「수동」 은 지금 넘기는 곳이 없다(회색 배지 모양만 남아 있다).
+ * 모르면 `undefined` — 지어내지 않는다.
+ */
+export type AccountRowOrigin = '상따' | '수동' | 'VI';
+
+/** 「VI」 배지의 마우스 오버 문구 — gh-trade 상따창 툴팁과 같다. */
+const VI_ORIGIN_TITLE = 'VI 자동주문';
+
+/**
+ * 미체결 행 → 출처 배지. **서버가 실은 `origin` 이 `'vi'` 인 행만** 「VI」 다. 상따 · 수동 · `null`
+ * (빈 값 · OpenArb 등) · 키 없음(옛 relay)은 전부 배지 없음 — 화면이 출처를 짐작하지 않는다
+ * (quick-261112-w2q D-01 · D-02).
+ */
+export function unfilledOriginOf(row: RelayUnfilled): AccountRowOrigin | undefined {
+  return row.origin === 'vi' ? 'VI' : undefined;
+}
 
 export interface AccountPanelProps {
   /**
@@ -310,8 +327,9 @@ export interface AccountPanelProps {
   /** 임베드 빈 상태 제목 override — 넘기면 보조 문장 없이 이 제목만 그린다(⑪). */
   embedEmptyTitle?: string;
   /**
-   * 미체결 행의 출처 배지(「상따」/「수동」, ⑪ 임베드 모드 전용). 값의 원천은 호출부가
-   * 아는 사실이다 — 모르면 `undefined` 를 돌려 배지를 그리지 않는다(지어내지 않는다).
+   * 미체결 행의 출처 배지(⑪ 임베드 모드 전용). 작업대는 `unfilledOriginOf`(서버 `origin` 이
+   * `'vi'` 인 행만 「VI」 — 주황 배지 + 행 연주황)를 넘긴다. 값의 원천은 호출부가 아는 사실이다 —
+   * 모르면 `undefined` 를 돌려 배지를 그리지 않는다(지어내지 않는다).
    */
   originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
   /**
@@ -1416,6 +1434,9 @@ function EmbeddedSection({
                       {...rowSelectProps(view)}
                       className={cn(
                         view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                        // VI 자동주문 행 전체 연주황(목업 B). 선택 강조와 겹치면 선택이 이긴다 —
+                        // tailwind-merge 순서에 기대지 않고 조건으로 뺀다. 취소 보관 행은 회색 글자 + 이 배경.
+                        origin === 'VI' && !isSelected(view) && 'bg-[var(--vi-bg)]',
                         rowSelectClass(view),
                       )}
                     >
@@ -1436,14 +1457,7 @@ function EmbeddedSection({
                               />,
                               'flex min-w-0',
                             )}
-                            {origin !== undefined && (
-                              <span
-                                data-slot="account-origin-badge"
-                                className="flex-none rounded-[4px] border border-transparent bg-[var(--muted)] px-1 text-[10px] text-[var(--muted-fg)]"
-                              >
-                                {origin}
-                              </span>
-                            )}
+                            {origin !== undefined && <RowOriginBadge origin={origin} />}
                           </span>
                           <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                         </TableCell>
@@ -1462,14 +1476,7 @@ function EmbeddedSection({
                                 </span>,
                                 'flex min-w-0',
                               )}
-                              {origin !== undefined && (
-                                <span
-                                  data-slot="account-origin-badge"
-                                  className="flex-none rounded-[4px] border border-transparent bg-[var(--muted)] px-1 text-[10px] text-[var(--muted-fg)]"
-                                >
-                                  {origin}
-                                </span>
-                              )}
+                              {origin !== undefined && <RowOriginBadge origin={origin} />}
                             </span>
                             <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                           </TableCell>
@@ -1502,6 +1509,7 @@ function EmbeddedSection({
                       view={view}
                       colSpan={stockScope ? 5 : 7}
                       selected={isSelected(view)}
+                      vi={origin === 'VI'}
                     />
                     {cancelResult && cancelResultOrderNo === view.row.orderNo && (
                       <TableRow data-slot="account-embed-cancel-result">
@@ -1540,17 +1548,20 @@ function UnfilledProgressRow({
   view,
   colSpan,
   selected,
+  vi = false,
 }: {
   view: UnfilledView;
   colSpan: number;
   selected: boolean;
+  /** VI 자동주문 행의 보조행 — 짝 행과 같은 연주황(선택이면 선택 강조가 이긴다 · quick-261112-w2q). */
+  vi?: boolean;
 }) {
   if (view.progress === null) return null;
   return (
     <TableRow
       data-slot="unfilled-progress-row"
       data-selected={selected ? 'true' : undefined}
-      className={cn(selected && 'bg-[var(--accent)]')}
+      className={cn(selected ? 'bg-[var(--accent)]' : vi && 'bg-[var(--vi-bg)]')}
     >
       <TableCell colSpan={colSpan} className="!h-auto !bg-transparent !pt-0 !pb-2">
         <UnfilledProgress
@@ -1564,6 +1575,29 @@ function UnfilledProgressRow({
         />
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * 임베드 미체결 행의 출처 배지(⑪) — 두 스코프(stock: 구분 옆 · account: 종목명 옆)가 같은 조각을 쓴다.
+ * 「VI」 는 주황(`--vi-bg` · `--vi` · 굵게) + title 「VI 자동주문」(목업 B · gh-trade 상따창 동형),
+ * 그 밖(「상따」/「수동」)은 회색 그대로다. 자리 · 크기는 같다.
+ */
+function RowOriginBadge({ origin }: { origin: AccountRowOrigin }) {
+  const vi = origin === 'VI';
+  return (
+    <span
+      data-slot="account-origin-badge"
+      title={vi ? VI_ORIGIN_TITLE : undefined}
+      className={cn(
+        'flex-none rounded-[4px] border border-transparent px-1 text-[10px]',
+        vi
+          ? 'bg-[var(--vi-bg)] font-bold text-[var(--vi)]'
+          : 'bg-[var(--muted)] text-[var(--muted-fg)]',
+      )}
+    >
+      {origin}
+    </span>
   );
 }
 
