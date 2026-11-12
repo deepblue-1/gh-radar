@@ -70,8 +70,9 @@ describe('당일 수익률', () => {
     const recs = new Set(pts.map((p) => p.rec));
     for (const f of s.team.fills) expect(recs.has(f.rec)).toBe(true);
     for (let i = 1; i < pts.length; i++) expect(pts[i]!.t).toBeGreaterThanOrEqual(pts[i - 1]!.t);
-    // 창 밖 팀 체결은 넣지 않는다
-    const late = dayReturnPointsOf(s, { t0: T13 + 6, t1: T13 + 10 }, 200, -1);
+    // 창 밖 팀 체결은 넣지 않는다(창 [8.5ms, 10ms] — 열 샘플은 일반 체결 109 하나뿐)
+    const late = dayReturnPointsOf(s, { t0: T13 + 8.5, t1: T13 + 10 }, 200, -1);
+    expect(late.map((p) => p.rec)).toEqual([recOfSeq(109)]);
     for (const f of s.team.fills) expect(late.some((p) => p.rec === f.rec)).toBe(false);
   });
 
