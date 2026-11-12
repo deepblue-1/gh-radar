@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>quick 261112-w2q 목업 — 상따 미체결 VI 자동주문 표시</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── globals.css 토큰 (라이트 51 ~ 99 · 다크 251 ~ 296 실측값) ── */
+.f {
+  --bg: #ffffff; --fg: #191f28; --muted: #f2f4f6; --muted-fg: #6b7684; --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa;
+  --accent-fg: #1b64da; --up: #f04452; --down: #3182f6; --vi: #d97706; --vi-bg: #fff4e6;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  flex: none; background: var(--bg); color: var(--fg); font-family: var(--font); -webkit-font-smoothing: antialiased;
+  word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5);
+  border-radius: 12px; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 16px;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --muted: #2d2d2d; --muted-fg: #9e9e9e; --border-subtle: #3d3d3d; --card: #151515; --band: #101013;
+  --accent-fg: #8ab8ff; --up: #f04251; --down: #3485fa; --vi: #ffb020; --vi-bg: rgba(255,176,32,.16);
+}
+.f.phone { width: 390px; border-radius: 30px; }
+.f.desktop { width: 1040px; }
+.cap { font-size: 12px; font-weight: 600; color: var(--muted-fg); padding: 0 2px; }
+.box { background: var(--card); border-radius: 14px; overflow: hidden; }
+.f:not(.dark) .box { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.tabs { display: flex; gap: 16px; padding: 10px 14px 0; font-size: 14px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+.tabs span { padding-bottom: 8px; color: var(--muted-fg); }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.tabs .n { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--muted); font-size: 11px; align-items: center; justify-content: center; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: max-content; font-size: 12px; white-space: nowrap; }
+th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted-fg); padding: 7px 10px; }
+th.n, td.n { text-align: right; }
+td { height: 32px; padding: 0 10px; border-top: 1px solid var(--border-subtle); }
+.nm { font-weight: 600; }
+.cell { display: inline-flex; align-items: center; gap: 4px; }
+.side { font-weight: 600; }
+.side.b { color: var(--up); } .side.s { color: var(--down); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--muted-fg); }
+.badge { flex: none; border-radius: 4px; padding: 0 4px; font-size: 10px; line-height: 16px; background: var(--muted); color: var(--muted-fg); }
+.badge.vi { background: var(--vi-bg); color: var(--vi); font-weight: 700; }
+tr.virow td { background: var(--vi-bg); }
+.cancel { font: inherit; font-size: 11.5px; font-weight: 600; border: 0; border-radius: 6px; padding: 3px 8px; background: var(--muted); color: var(--fg); }
+.note { font-size: 11px; color: var(--muted-fg); padding: 0 2px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">변형</span>
+    <button data-v="A" class="on">A VI 행만 「VI」 배지</button>
+    <button data-v="B">B VI 행 주황 배지 + 연주황 행 (gh-trade 동형)</button>
+    <button data-v="C">C 모든 행 출처 배지 (상따 · VI · 수동)</button></div>
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="desktop">데스크톱</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<script>
+// 행은 모양 확인용 합성값. origin = 서버가 미체결 행에 새로 싣는 발주 주체(Manual / LimitChaser / VITrigger).
+const ROWS = [
+  { name: '에코프로비엠', code: '247540', ex: 'KRX', side: 'b', price: 151200, q: 40, u: 40, no: '0000488', origin: 'VITrigger' },
+  { name: '에코프로비엠', code: '247540', ex: 'KRX', side: 's', price: 158900, q: 120, u: 120, no: '0000501', origin: 'LimitChaser' },
+  { name: '리노공업', code: '058470', ex: 'NXT', side: 'b', price: 52300, q: 161, u: 61, no: '0000412', origin: 'Manual' },
+  { name: '아스테라시스', code: '450950', ex: 'KRX', side: 's', price: 5110, q: 175, u: 175, no: '0000530', origin: 'VITrigger' },
+];
+const LABEL = { VITrigger: 'VI', LimitChaser: '상따', Manual: '수동' };
+const DESC = {
+  A: '<b>A</b> — 서버가 「VI 자동주문」 이라고 알려 준 미체결 행에만 회색 「VI」 배지(지금 출처 배지 자리 · 같은 모양). 상따 · 수동 행은 지금 그대로(배지 없음). 가장 조용한 안.',
+  B: '<b>B</b> — gh-trade 상따창과 같은 뜻: VI 자동주문 행만 <b>주황 「VI」 배지 + 연주황 행 배경</b>(기존 VI 색 토큰). 상따 · 수동 행은 지금 그대로. 배지에 마우스를 올리면 「VI 자동주문」.',
+  C: '<b>C</b> — 모든 미체결 행에 출처 배지(상따 · VI · 수동). VI 만 주황, 나머지는 회색. 출처를 모르는 행(옛 서버 · 재시작 직후)은 배지 없음.',
+};
+const fmt = (n) => n.toLocaleString('ko-KR');
+const state = { v: 'A', w: 'phone', t: 'dark' };
+function badge(r, v) {
+  const show = v === 'C' ? true : r.origin === 'VITrigger';
+  if (!show) return '';
+  const vi = r.origin === 'VITrigger';
+  const cls = vi && v !== 'A' ? 'badge vi' : 'badge';
+  return `<span class="${cls}" title="${vi ? 'VI 자동주문' : LABEL[r.origin] + ' 주문'}">${LABEL[r.origin]}</span>`;
+}
+const rowCls = (r, v) => (v === 'B' && r.origin === 'VITrigger' ? 'virow' : '');
+const side = (r) => `<span class="side ${r.side}">${r.side === 'b' ? '▲ 매수' : '▼ 매도'}</span>`;
+function sharedPanel(v) {
+  return `<div class="cap">작업대 공용 패널 — 미체결 (계좌 전체)</div>
+  <div class="box"><div class="tabs"><span class="on">미체결<span class="n">${ROWS.length}</span></span><span>잔고</span><span>전략 로그</span></div>
+  <div class="scroll"><table><thead><tr><th>종목</th><th>거래소</th><th>구분</th><th class="n">주문가</th><th class="n">주문/미체결</th><th>주문No</th><th></th></tr></thead><tbody>
+  ${ROWS.map((r) => `<tr class="${rowCls(r, v)}"><td><span class="cell"><span class="nm">${r.name}</span>${badge(r, v)}</span></td><td class="mono">${r.ex}</td><td>${side(r)}</td>
+    <td class="n">${fmt(r.price)}</td><td class="n">${fmt(r.q)}/${fmt(r.u)}</td><td class="mono">${r.no}</td><td><button class="cancel">취소</button></td></tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+function cardTab(v) {
+  const rs = ROWS.filter((r) => r.code === '247540');
+  return `<div class="cap">전략 카드(에코프로비엠) — 「미체결」 탭 (종목 한 개)</div>
+  <div class="box"><div class="tabs"><span>정보</span><span class="on">미체결<span class="n">${rs.length}</span></span><span>보유</span><span>상따</span></div>
+  <div class="scroll"><table><thead><tr><th>구분</th><th class="n">주문가</th><th class="n">주문/미체결</th><th>주문No</th><th></th></tr></thead><tbody>
+  ${rs.map((r) => `<tr class="${rowCls(r, v)}"><td><span class="cell">${side(r)}${badge(r, v)}</span></td><td class="n">${fmt(r.price)}</td><td class="n">${fmt(r.q)}/${fmt(r.u)}</td><td class="mono">${r.no}</td><td><button class="cancel">취소</button></td></tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+function render() {
+  const { v, w, t } = state;
+  document.getElementById('stage').innerHTML = `<div class="f ${w} ${t === 'dark' ? 'dark' : ''}">${sharedPanel(v)}${cardTab(v)}
+    <div class="note">출처는 서버가 미체결 행마다 새로 알려 주는 값(gh-trade 11/12 추가)만 씁니다 — 화면이 짐작하지 않습니다. 서버가 모른다고 하면(빈 값) 배지 없음.</div></div>`;
+  document.getElementById('desc').innerHTML = DESC[v];
+  for (const b of document.querySelectorAll('#nav button')) {
+    const on = (b.dataset.v && b.dataset.v === v) || (b.dataset.w && b.dataset.w === w) || (b.dataset.t && b.dataset.t === t);
+    b.classList.toggle('on', Boolean(on));
+  }
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) state.v = b.dataset.v; if (b.dataset.w) state.w = b.dataset.w; if (b.dataset.t) state.t = b.dataset.t;
+  render();
+});
+render();
+</script>
+</body>
+</html>
