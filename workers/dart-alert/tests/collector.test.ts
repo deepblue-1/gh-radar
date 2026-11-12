@@ -125,7 +125,8 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     const exit = await h.run();
     expect(exit).toEqual({ code: 0, reason: "lease_lost" });
     expect(h.db.leaseLost.map((l) => l.fn)).toEqual(["dart_alert_insert"]);
-    expect(h.telegram.sent).toHaveLength(0);
+    // 43-06: 오늘 last_ok 없이 10:00 에 뜬 실행은 시작 점검이 장애 짝 글을 올린다 — 여기서는 공시 알림만 센다
+    expect(h.telegram.alerts()).toHaveLength(0);
   });
 
   it("새 임대가 sending 2건을 되돌리면 warn possible duplicate after takeover 1번 · 그 2건을 첫 바퀴에 보낸다", async () => {
@@ -146,7 +147,7 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     expect(exit).toEqual({ code: 0, reason: "aborted" });
     expect(h.logs.count("possible duplicate after takeover", "warn")).toBe(1);
     expect(h.logs.find("possible duplicate after takeover")?.obj).toMatchObject({ reclaimed: 2 });
-    expect(h.telegram.sent.map((s) => s.at)).toEqual([at("10:00:00"), at("10:00:00")]);
+    expect(h.telegram.alerts().map((s) => s.at)).toEqual([at("10:00:00"), at("10:00:00")]);
     expect(h.db.statusOf(r1.rcept_no)).toBe("sent");
     expect(h.db.statusOf(r2.rcept_no)).toBe("sent");
   });
@@ -185,8 +186,8 @@ describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-
     const h = harness({ start: at("09:59:40"), abortAt: at("10:01:00"), dart: { feed: [tender(1, "10:00:00")] } });
     const exit = await h.run();
     expect(exit).toEqual({ code: 0, reason: "aborted" });
-    expect(h.telegram.sent).toHaveLength(1);
-    const s = h.telegram.sent[0];
+    expect(h.telegram.alerts()).toHaveLength(1);
+    const s = h.telegram.alerts()[0];
     expect(s.text).not.toContain(LATE_LABEL);
     expect(s.text).toContain("대상회사1");
     // 조회 응답 뒤 같은 바퀴 안(다음 바퀴 DART 호출 전)에 보냈다
@@ -206,8 +207,8 @@ describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-
       dart: { feed: [tender(1, "08:10:00"), rights(2, "09:05:00")] },
     });
     await h.run();
-    expect(h.telegram.sent).toHaveLength(2);
-    for (const s of h.telegram.sent) expect(s.text).toContain(LATE_LABEL);
+    expect(h.telegram.alerts()).toHaveLength(2);
+    for (const s of h.telegram.alerts()) expect(s.text).toContain(LATE_LABEL);
     expect(h.db.calls.insert[0].items.map((i) => i.late)).toEqual([true, true]);
   });
 
@@ -222,8 +223,8 @@ describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-
       dart: { feed: [tender(1, "10:03:00"), tender(2, "10:06:45")] },
     });
     await h.run();
-    expect(h.telegram.sent).toHaveLength(2);
-    const [a, b] = h.telegram.sent;
+    expect(h.telegram.alerts()).toHaveLength(2);
+    const [a, b] = h.telegram.alerts();
     expect(a.text).toContain("대상회사1");
     expect(a.text).toContain(LATE_LABEL);
     expect(b.text).toContain("대상회사2");
@@ -234,9 +235,9 @@ describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-
   it("07:29:55 바퀴 성공 뒤 07:30:05 바퀴에 처음 보인 전날 저녁 서류는 늦지 않다", async () => {
     const h = harness({ start: at("07:29:55"), abortAt: at("07:30:30"), dart: { feed: [tender(3, "07:30:05")] } });
     await h.run();
-    expect(h.telegram.sent).toHaveLength(1);
-    expect(h.telegram.sent[0].at).toBe(at("07:30:05"));
-    expect(h.telegram.sent[0].text).not.toContain(LATE_LABEL);
+    expect(h.telegram.alerts()).toHaveLength(1);
+    expect(h.telegram.alerts()[0].at).toBe(at("07:30:05"));
+    expect(h.telegram.alerts()[0].text).not.toContain(LATE_LABEL);
   });
 
   it("조회는 오늘(KST) 날짜로만 한다", async () => {
@@ -315,6 +316,8 @@ describe("한도 · 치명 오류 (공식 API 운영 기준 ④ · SC-4)", () =>
     const h = harness({
       start: at("10:00:00"),
       abortAt: at("10:01:00"),
+      // 43-06: 직전 성공 조회 10:00:00 — 1분 실패는 장애(5분) 전이라 error 0
+      db: { lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") } },
       dart: { reply: (c) => ({ status: c.watch.id === "tender_offer" ? "800" : "network" }) },
     });
     const exit = await h.run();

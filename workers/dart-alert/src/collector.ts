@@ -13,7 +13,7 @@ import {
   type LapDeps,
   type LapState,
 } from "./lap";
-import { testSendText } from "./message";
+import { kstLabel, outageText, recoveredText, testSendText } from "./message";
 import { safeErrorFields, telegramSafeFields, type SafeErrorFields } from "./safeError";
 import type { SendResult } from "./telegram/client";
 import type { JudgeOptions, Watch, WatchId } from "./watches";
@@ -60,12 +60,18 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *   SC-4 예산의 80% 에서 warn 1번 · 다다르면 error 와 함께 종료 1 `budget_exhausted`.
  *   실패 로그는 `safeErrorFields`(상태 · 코드 · 짧은 문구 · 종류)만 — 키 · 토큰 · 방 id · URL 을 싣지 않는다.
  *
- * 43-06 이 얹을 자리: 치명 종료 직전(`stopOnHalt`) 장애 열기 · 단체방 글 · 바퀴 끝 장애 판정(`afterLap`) ·
- * `deliverPending` 송신 상태(SendPacer)와 migrated → `deps.telegram.switchChat`.
+ * 43-06 장애 짝 글(D-16 · D-17): 확인 시간대 안에서 감시 대상 하나라도 기준점(마지막 성공 조회 · 없으면 07:02)에서
+ *   5분(`OUTAGE_AFTER_MS`) 넘게 성공이 없으면 `dart_alert_outage open` → opened true 인 실행만 「⚠ 공시 알림이 멈췄습니다」
+ *   1건 → notice sent/failed → error `dart outage opened`(→ 43-07 로그 일치 이메일). 같은 장애 동안 다시 올리지 않는다.
+ *   모든 감시 대상이 성공한 첫 바퀴에 close → 「멈췄습니다」 가 실제로 나갔을 때만 「✅ 다시 동작」 1건 · info `dart outage closed`.
+ *   시작 점검(`startupCheck` — auto 는 첫 바퀴 전 · seed 는 seed 바퀴 뒤)이 죽은 수집기 · 글 전에 죽은 실행을 덮고,
+ *   치명 종료(`outageOnFatal`) 직전에도 같은 장애 글을 쓴다(실패해도 종료 1 그대로). 창 끝에 열린 장애는 다음 날 첫 성공에 닫는다.
  *
  * 시계 · sleep · DB · DART · 텔레그램은 모두 주입받는다 — 13시간 실행을 가짜 시계 테스트로 돌린다(tests/helpers/fakes.ts).
  */
 
+/** D-17 — 확인 시간대 안에서 감시 대상 하나라도 기준점에서 이만큼 넘게 성공이 없으면 장애를 연다(장전 · 장중 구분 없음) */
+export const OUTAGE_AFTER_MS = 300_000;
 /** 임대 TTL — 연장 30초 × 3 */
 export const LEASE_TTL_S = 90;
 export const LEASE_RENEW_MS = 30_000;
@@ -137,6 +143,8 @@ export class StopRun extends Error {
   constructor(
     readonly code: 0 | 1,
     readonly reason: string,
+    /** 치명 종료의 DART 상태 코드(장애 글 사유 — 43-06) */
+    readonly detail: string | null = null,
   ) {
     super(reason);
     this.name = "StopRun";
@@ -146,6 +154,20 @@ export class StopRun extends Error {
 type HaltReason = "quota" | "dart_key" | "dart_bug" | "unknown_streak";
 
 const HALT_BY_KIND: Partial<Record<string, HaltReason>> = { quota: "quota", key: "dart_key", bug: "dart_bug" };
+
+/** 치명 종료 이유 → 장애 글 사유(D-17 · 공식 API 운영 기준 ④). 여기 없는 종료(seed_failed · error 등)는 장애 글을 쓰지 않는다 */
+const FATAL_OUTAGE_REASON: Partial<Record<string, (code: string | null) => string>> = {
+  quota: (c) => `하루 조회 한도 초과(${c ?? "020"})`,
+  budget_exhausted: () => "자체 하루 예산 소진",
+  dart_key: (c) => `인증키 오류(${c ?? "?"})`,
+  dart_bug: (c) => `요청 오류(${c ?? "?"})`,
+  unknown_streak: (c) => `모르는 응답 코드 연속(${c ?? "?"})`,
+  probe_failed: (c) => `한도 의심 재확인 실패(${c ?? "?"})`,
+};
+
+/** 장애 글 사유에 쓰는 감시 대상 이름 */
+const WATCH_LABEL: Record<string, string> = { tender_offer: "공개매수", rights_merger: "주요사항보고서" };
+const REASON_MAX = 300;
 
 export async function runCollector(deps: CollectorDeps): Promise<CollectorExit> {
   return new Collector(deps).run();
@@ -164,6 +186,10 @@ class Collector {
   private halt: { reason: HaltReason; err: SafeErrorFields } | null = null;
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
   private readonly lastOk = new Map<WatchId, number>();
+  /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
+  private outage: { sinceMs: number } | null = null;
+  /** 시작 때 DB 장애 상태(readState) */
+  private dbOutage: { since: string | null; notice: string | null } = { since: null, notice: null };
   private readonly lapState: LapState = newLapState();
   private readonly lapDeps: LapDeps;
   private readonly stats = { laps: 0, calls: 0, inserted: 0, sent: 0, failed: 0 };
@@ -198,6 +224,7 @@ class Collector {
     } catch (err) {
       if (err instanceof StopRun) {
         exit = { code: err.code, reason: err.reason };
+        if (err.code === 1) await this.outageOnFatal(err);
       } else if (err instanceof LeaseLostError) {
         this.haveLease = false;
         this.d.log.warn({ err: safeErrorFields(err) }, "lease lost — another run took over; stopping quietly");
@@ -256,8 +283,10 @@ class Collector {
     await this.loadLastOk();
 
     // seed — 그날 이미 올라온 건을 알림 없이 「보냄(seeded)」 으로 채운 뒤 같은 실행이 auto 루프로 이어 간다.
-    // 43-06 의 시작 점검(장애 판정)은 seed 경로에서 이 seed 바퀴 **뒤**에 들어간다.
+    // 시작 점검(장애 판정)은 seed 경로에서 이 seed 바퀴 **뒤**(그 바퀴가 lastOk 를 채운 뒤)에 한다 — 첫 배포 날
+    // 기준점 07:02 와 지금의 차이로 가짜 「멈췄습니다」 · 「다시 동작」 짝이 나가지 않게(체커 W1).
     const firstLapAt = mode === "seed" ? await this.seedLap() : this.now();
+    await this.startupCheck();
 
     log.info({ mode, holder, watches: this.d.watches.length, budget: cfg.dailyBudget }, "collector start");
     return this.loop(firstLapAt);
@@ -371,7 +400,7 @@ class Collector {
         { err: safeErrorFields(err), strikesToday: strikes },
         "quota probe failed — stopping without retries (next run probes once again)",
       );
-      throw new StopRun(1, "probe_failed");
+      throw new StopRun(1, "probe_failed", safeErrorFields(err).code);
     }
   }
 
@@ -381,6 +410,7 @@ class Collector {
       const ms = Date.parse(st.lastOk[w.id] ?? "");
       if (Number.isFinite(ms)) this.lastOk.set(w.id, ms);
     }
+    this.dbOutage = { since: st.outage.since, notice: st.outage.notice };
   }
 
   // ── ⑥ 루프 ────────────────────────────────────────────────────────
@@ -418,6 +448,7 @@ class Collector {
 
     await this.maintain(this.now(), false);
     await this.deliver();
+    if (r) await this.judgeOutage(r);
 
     if (this.halt) await this.stopOnHalt();
   }
@@ -445,12 +476,151 @@ class Collector {
     }
   }
 
-  /** 치명 DART 신호로 멈춘다 — 43-06: 이 자리에서 장애를 열고 단체방 글을 보낸 뒤 멈춘다 */
+  /** 치명 DART 신호로 멈춘다 — 장애 열기 · 단체방 글은 run() 의 치명 종료 길(`outageOnFatal`)이 한다 */
   private async stopOnHalt(): Promise<never> {
     const h = this.halt!;
     if (h.reason === "quota" || h.reason === "unknown_streak") await this.recordStrike(h.reason);
     this.d.log.error({ reason: h.reason, err: h.err }, "fatal DART status — stopping this run");
-    throw new StopRun(1, h.reason);
+    throw new StopRun(1, h.reason, h.err.code);
+  }
+
+  // ── 장애 짝 글(43-06 · D-16 · D-17) ──────────────────────────────
+  /**
+   * 시작 점검 — auto 는 임대 · 예산 · 탐침 · 기준점 뒤 첫 바퀴 전, seed 는 seed 바퀴 뒤 첫 auto 바퀴 전.
+   * - DB 에 열린 장애가 있으면 이 실행이 이어받는다(첫 성공 바퀴에 닫음). notice 가 pending(연 실행이 글 전에 죽음)이면
+   *   open 을 다시 불러 opened true 를 받은 이 실행이 「멈췄습니다」 를 보낸다.
+   * - 열린 장애가 없고 어떤 감시 대상이든 기준점에서 5분 넘게 지났으면(수집기가 죽어 있었음) 「수집기 중단」 으로 연다 —
+   *   첫 바퀴 성공에 곧바로 「다시 동작」 이 나가 두 글이 몇 초 간격으로 붙어도 합치지 않는다(D-16 문자 그대로 · 가정 4).
+   * 창 밖(창 밖 seed)이면 하지 않는다.
+   */
+  private async startupCheck(): Promise<void> {
+    const now = this.now();
+    if (!isInWindow(now)) return;
+    const dbSinceMs = Date.parse(this.dbOutage.since ?? "");
+    if (Number.isFinite(dbSinceMs)) {
+      this.outage = { sinceMs: dbSinceMs };
+      if (this.dbOutage.notice === "pending") await this.openOutage(this.stalledReason(now), dbSinceMs, true);
+      return;
+    }
+    const stale = this.d.watches.filter((w) => now - this.coverOf(now, w.id) > OUTAGE_AFTER_MS);
+    if (stale.length === 0) return;
+    const since = Math.min(...stale.map((w) => this.coverOf(now, w.id)));
+    await this.openOutage(this.stalledReason(now), since);
+  }
+
+  /** 「수집기 중단(마지막 조회 HH:MM)」 — 오늘 성공 조회가 하나도 없으면 「오늘 조회 기록 없음」 */
+  private stalledReason(now: number): string {
+    const today = [...this.lastOk.values()].filter((ms) => kstYmd(ms) === kstYmd(now));
+    return today.length === 0 ? "수집기 중단(오늘 조회 기록 없음)" : `수집기 중단(마지막 조회 ${kstLabel(Math.min(...today), false)})`;
+  }
+
+  private coverOf(now: number, w: WatchId): number {
+    return coverPointMs(now, this.lastOk.get(w) ?? null);
+  }
+
+  /**
+   * 바퀴 끝 판정 — 모든 감시 대상이 성공했으면 열린 장애를 닫고, 실패한 감시 대상 중 기준점에서 5분 넘게 성공이 없는 것이
+   * 있으면 연다(한 번만 · 이미 열려 있으면 아무것도 안 함). 치명 신호 바퀴는 치명 종료 길이 연다.
+   */
+  private async judgeOutage(r: CollectResult): Promise<void> {
+    const now = this.now();
+    if (!isInWindow(now)) return;
+    const failed = r.results.filter((x) => !x.ok);
+    if (failed.length === 0) {
+      if (this.outage) await this.closeOutage();
+      return;
+    }
+    if (this.outage || this.halt) return;
+    const stale = failed.filter((x) => now - this.coverOf(now, x.watch) > OUTAGE_AFTER_MS);
+    if (stale.length === 0) return;
+    const since = Math.min(...stale.map((x) => this.coverOf(now, x.watch)));
+    const reason = stale.map((x) => `${WATCH_LABEL[x.watch] ?? x.watch} ${errBrief(x.error)}`).join(" · ");
+    await this.openOutage(reason, since);
+  }
+
+  /**
+   * 장애 열기 — `open` 이 opened true 를 준 실행만 「⚠ 멈췄습니다」 1건 → notice sent/failed 기록 → error `dart outage opened`
+   * (→ 43-07 로그 일치 이메일). opened false 면 이미 열린 장애(글을 이미 남김)라 메모리에만 적는다.
+   * `LeaseLostError` 는 위로, 그 밖 DB 오류는 error 로그 뒤 다음 기회(다음 바퀴 · 다음 실행)에 다시.
+   */
+  private async openOutage(reasonIn: string, sinceMs: number, reopen = false): Promise<void> {
+    const { db, log } = this.d;
+    const reason = reasonIn.replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
+    let res: Record<string, unknown>;
+    try {
+      res = await db.outage("open", reason);
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      log.error({ err: safeErrorFields(err), reason }, "dart outage open failed");
+      return;
+    }
+    this.outage = { sinceMs };
+    if (res.opened !== true) {
+      log.info({ reason }, "dart outage already open — not posting again");
+      return;
+    }
+    const sent = await this.sendNotice(outageText(sinceMs, reason));
+    const notice = sent?.kind === "ok" ? "sent" : "failed";
+    if (sent !== null) {
+      try {
+        await db.outage("notice", notice);
+      } catch (err) {
+        if (err instanceof LeaseLostError) throw err;
+        log.error({ err: safeErrorFields(err), notice }, "dart outage notice record failed");
+      }
+    }
+    log.error(
+      {
+        reason,
+        since: new Date(sinceMs).toISOString(),
+        notice: sent === null ? "not_sent" : notice,
+        reopen,
+        ...(sent && sent.kind !== "ok" ? { telegram: telegramSafeFields(sent) } : {}),
+      },
+      "dart outage opened",
+    );
+  }
+
+  /** 장애 닫기 — 「멈췄습니다」 가 실제로 나갔을 때만(notify) 「✅ 다시 동작」 1건 · info `dart outage closed` */
+  private async closeOutage(): Promise<void> {
+    const { db, log } = this.d;
+    let res: Record<string, unknown>;
+    try {
+      res = await db.outage("close");
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      log.warn({ err: safeErrorFields(err) }, "dart outage close failed — retrying next lap");
+      return;
+    }
+    const sinceMs = this.outage?.sinceMs ?? Date.parse(String(res.since ?? ""));
+    this.outage = null;
+    const notify = res.closed === true && res.notify === true;
+    let sent: SendResult | null = null;
+    if (notify && Number.isFinite(sinceMs)) sent = await this.sendNotice(recoveredText(sinceMs, this.now()));
+    log.info(
+      { closed: res.closed === true, notify, sent: sent === null ? null : sent.kind, ...(sent && sent.kind !== "ok" ? { telegram: telegramSafeFields(sent) } : {}) },
+      "dart outage closed",
+    );
+  }
+
+  /** 장애 짝 글 송신 — null 이면 보내지 못하고 멈춤(SIGTERM) */
+  private async sendNotice(text: string): Promise<SendResult | null> {
+    if (this.d.signal?.aborted) return null;
+    return this.d.telegram.send(text);
+  }
+
+  /**
+   * 치명 종료(020 · 예산 소진 · 키 · 버그 · 모르는 코드 연속 · 탐침 실패) 직전 장애 글. 임대가 있고 창 안이고 아직 열린 장애가
+   * 없을 때만. 장애 글 · DB 기록이 실패해도 종료 코드는 그대로 1 — 실패 사유는 로그에 남긴다.
+   */
+  private async outageOnFatal(stop: StopRun): Promise<void> {
+    const reasonOf = FATAL_OUTAGE_REASON[stop.reason];
+    if (!reasonOf || !this.haveLease || this.outage || !isInWindow(this.now())) return;
+    try {
+      await this.openOutage(reasonOf(stop.detail), this.now());
+    } catch (err) {
+      this.d.log.error({ err: safeErrorFields(err), reason: stop.reason }, "dart outage open failed");
+    }
   }
 
   private async recordStrike(why: HaltReason): Promise<void> {
@@ -605,6 +775,12 @@ class Collector {
       }
     }
   }
+}
+
+/** 장애 사유 한 줄용 오류 요약 — 종류 · 코드만(비밀 없음) */
+function errBrief(e: SafeErrorFields | undefined): string {
+  if (!e) return "조회 실패";
+  return e.code ? `${e.kind} ${e.code}` : e.kind;
 }
 
 /** 실패한 DART 호출이 쓴 호출 수 — DartApiError 의 calls(쪽 넘김 중 실패) · 없으면 1 */
