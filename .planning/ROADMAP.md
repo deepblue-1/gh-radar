@@ -701,7 +701,7 @@ Plans:
 
 **확정(2026-11-12 · 사용자)**: 트렐로 카드의 「공개매수 설명회」 는 DART 보고서 **「공개매수설명서」** 다(신고서 2 ~ 4분 뒤 항상 붙는다). 거래소 「기업설명회(IR) 개최」 공시가 아니다.
 **미결 결정**: 없음 — ② ~ ⑨ 는 `43-CONTEXT.md` D-01 ~ D-17 이 답(2026-11-12 논의). 실행 자리는 새 워커 `workers/dart-alert`(kis-news-sync 꼴 장기 실행 Cloud Run Job).
-**Plans:** 5/9 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 **Wave 1**
@@ -714,8 +714,8 @@ Plans:
 - [x] 43-09-PLAN.md — 유상증자 · 합병 허용 목록 판정 · 근접 불일치 warn · 문구 규칙 전부(제출인 생략 · 늦은 알림 · 장애 · 시험 글) — 43-01 에서 떼어 냄 · CLAUDE.md/stack.md OpenDART 기준(43-07 에서 옮김) (W2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 43-05-PLAN.md — 장기 실행 수집기(임대 · 예산 · 탐침 · 바퀴 · 늦은 알림) · 모드(probe · seed → auto 이어 감 · 창 밖 seed · test-send) · 진입점(DB 는 43-02 어댑터) (W3)
-- [ ] 43-07-PLAN.md — 배포 · IAM · 비밀(사용자 `!`) · 방 id 찾기 · 스모크 · 조사 · 이메일 정책 (W3)
+- [x] 43-05-PLAN.md — 장기 실행 수집기(임대 · 예산 · 탐침 · 바퀴 · 늦은 알림) · 모드(probe · seed → auto 이어 감 · 창 밖 seed · test-send) · 진입점(DB 는 43-02 어댑터) (W3)
+- [x] 43-07-PLAN.md — 배포 · IAM · 비밀(사용자 `!`) · 방 id 찾기 · 스모크 · 조사 · 이메일 정책 (W3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 43-06-PLAN.md — 장애 짝 글(5분 · 이메일 + 단체방) · 송신 재시도 · 방 이동 · 속도 제한 (W4)
