@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
-
 import type { PricePoint } from '@/lib/accum-chart';
 import { a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
@@ -20,8 +18,8 @@ import {
   type ReturnPoint,
 } from '../candle-returns';
 import { teamKpiAt } from '../team-model';
-import { MINUS } from '../tick-format';
 import { msOfNs, priceIdxAt, priceSeriesOf } from '../tick-chart';
+import { MINUS } from '../tick-format';
 
 /**
  * Phase 42 Plan 02 — 수익률 판 계산(D-13 · D-14 · D-15 · SC-4 · SC-5 · UI-SPEC S6).
