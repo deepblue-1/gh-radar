@@ -12,7 +12,7 @@
  * ④ 그리기는 컴포넌트(42-05 · 42-06 · 42-10) · 계산은 여기서 테스트가 잠근다.
  */
 
-import type { View } from '@/lib/accum-chart';
+import type { PricePoint, View } from '@/lib/accum-chart';
 
 import { teamKpiAt } from './team-model';
 import { msOfNs, priceIdxAt, priceSeriesOf } from './tick-chart';
@@ -65,4 +65,57 @@ export function dayReturnPointsOf(session: TickSession, view: View, plotW: numbe
   return [...recs]
     .map((rec) => ({ t: msOfNs(recv[rec]!), v: dayReturnAt(session, rec), rec }))
     .sort((a, b) => a.t - b.t || pos[a.rec]! - pos[b.rec]!);
+}
+
+// --- Task 2 RED 자리표(구현 전) ---
+export const RETURN_PAD_RATIO = 0.12;
+export const RETURN_PAD_ABS = 0.0005;
+export const RETURN_Z_MIN = 0.15;
+export const RETURN_Z_MAX = 0.85;
+
+export interface ReturnScales {
+  top: number;
+  bottom: number;
+  z: number;
+  zeroY: number;
+  yDay: (v: number) => number;
+  yCum: ((v: number) => number) | null;
+  dayTop: number;
+  dayBottom: number;
+  cumTop: number | null;
+  cumBottom: number | null;
+}
+
+export function cumAvgAt(_pts: readonly PricePoint[], _t: number): number | null {
+  return null;
+}
+
+export function cumReturnPointsOf(
+  _session: TickSession,
+  _view: View,
+  _plotW: number,
+  _cumAvg: readonly PricePoint[],
+): ReturnPoint[] {
+  return [];
+}
+
+export function returnScalesOf(
+  _day: readonly ReturnPoint[],
+  _cum: readonly ReturnPoint[],
+  _yRa: number,
+  _yRb: number,
+): ReturnScales {
+  return { top: 0, bottom: 0, z: 0, zeroY: 0, yDay: () => 0, yCum: null, dayTop: 0, dayBottom: 0, cumTop: null, cumBottom: null };
+}
+
+export function returnPathOf(
+  _pts: readonly ReturnPoint[],
+  _x: (t: number) => number,
+  _y: (v: number) => number,
+): string {
+  return '';
+}
+
+export function fmtReturnTick(_v: number): string {
+  return '';
 }

@@ -2,15 +2,33 @@ import { describe, expect, it } from 'vitest';
 
 import { a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
-import { dayReturnAt, dayReturnPointsOf } from '../candle-returns';
+import type { PricePoint } from '@/lib/accum-chart';
+import { a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
+
+import {
+  cumAvgAt,
+  cumReturnPointsOf,
+  dayReturnAt,
+  dayReturnPointsOf,
+  fmtReturnTick,
+  returnPathOf,
+  returnScalesOf,
+  RETURN_PAD_ABS,
+  RETURN_PAD_RATIO,
+  RETURN_Z_MAX,
+  RETURN_Z_MIN,
+  type ReturnPoint,
+} from '../candle-returns';
 import { teamKpiAt } from '../team-model';
-import { msOfNs } from '../tick-chart';
+import { MINUS } from '../tick-format';
+import { msOfNs, priceIdxAt, priceSeriesOf } from '../tick-chart';
 
 /**
- * Phase 42 Plan 02 Task 1 — 당일 수익률 시계열(D-14 · SC-4).
+ * Phase 42 Plan 02 — 수익률 판 계산(D-13 · D-14 · D-15 · SC-4 · SC-5 · UI-SPEC S6).
  *
  * 깨지면: 수익률 판 보라 선의 커서 값이 팀 거래정보 패널 「평단 대비 수익률」 과 다르다
- * (선은 패널과 같은 `teamKpiAt(…).pnl.ret` = 실현 + 미실현 ÷ 누적 매수 금액이어야 한다 — `(가격 − 평단) ÷ 평단` 이 아니다).
+ * (선은 패널과 같은 `teamKpiAt(…).pnl.ret` = 실현 + 미실현 ÷ 누적 매수 금액이어야 한다 — `(가격 − 평단) ÷ 평단` 이 아니다) ·
+ * 누적 수익률(회색 · 미실현만 = (가격 − 누적 평단) ÷ 누적 평단)이 평단 0 구간을 잇거나 · 두 눈금의 0% 가 서로 다른 높이에 그려진다.
  */
 
 const T13 = msOfNs(synthNs(0));
@@ -116,5 +134,176 @@ describe('당일 수익률', () => {
     expect(dayReturnAt(s, r)).toBe(panelRet(r));
     // 매도 뒤 실현 −40만 + 미실현 −20만 ÷ 매수 984만
     expect(dayReturnAt(s, r)).toBeCloseTo((400 * (16300 - 16400) + 200 * (16300 - 16400)) / 9_840_000, 12);
+  });
+});
+
+/** 합성 — 일반 체결만(팀 없음) · 1 ~ 8ms 매 1ms 가격 14,300. */
+function flatDay() {
+  const msgs: [number, Uint8Array][] = [[0, b6Msg({ seq: 100, ask1: [14350, 10], bid1: [14300, 10] })]];
+  for (let k = 1; k <= 8; k++) {
+    msgs.push([
+      k,
+      a3Msg({ seq: 100 + k * 2, bs: k % 2 ? '1' : '2', px: 14300, qty: 10, a1: 14350, b1: 14300, time: `13000000${k}000` }),
+    ]);
+  }
+  return synthSession(msgs);
+}
+
+describe('누적 수익률', () => {
+  it('cumAvgAt — 첫 점 전 null · 계단 값 · px 0 구간 null · 같은 ms 두 점이면 뒤 점', () => {
+    const pts: PricePoint[] = [
+      [1000, 13000],
+      [2000, 0],
+      [3000, 13500],
+    ];
+    expect(cumAvgAt(pts, 999)).toBeNull();
+    expect(cumAvgAt(pts, 1000)).toBe(13000);
+    expect(cumAvgAt(pts, 1999.5)).toBe(13000);
+    expect(cumAvgAt(pts, 2000)).toBeNull();
+    expect(cumAvgAt(pts, 2999)).toBeNull();
+    expect(cumAvgAt(pts, 3000)).toBe(13500);
+    expect(cumAvgAt(pts, 9e12)).toBe(13500);
+    expect(cumAvgAt([], 1000)).toBeNull();
+    const dupUp: PricePoint[] = [
+      [1000, 13000],
+      [1000, 14000],
+    ];
+    expect(cumAvgAt(dupUp, 1000)).toBe(14000);
+    const dupZero: PricePoint[] = [
+      [1000, 13000],
+      [1000, 0],
+    ];
+    expect(cumAvgAt(dupZero, 1000)).toBeNull();
+  });
+
+  it('누적 평단 [] → [] · 가격 14,300 · 누적 평단 13,000 → v ≈ 0.1(미실현만 — 당일 수익률과 정의가 다르다)', () => {
+    const s = flatDay();
+    const view = { t0: T13, t1: T13 + 10 };
+    expect(cumReturnPointsOf(s, view, 100, [])).toEqual([]);
+    const pts = cumReturnPointsOf(s, view, 100, [[T13 - 3_600_000, 13000]]);
+    expect(pts.length).toBeGreaterThan(3);
+    const series = priceSeriesOf(s);
+    for (const p of pts) {
+      expect(p.v).toBeCloseTo(0.1, 12);
+      expect(p.rec).toBe(series.rec[priceIdxAt(series, p.t)]);
+    }
+    for (let i = 1; i < pts.length; i++) expect(pts[i]!.t).toBeGreaterThanOrEqual(pts[i - 1]!.t);
+  });
+
+  it('px 0 구간 열은 null(끊김) · 계단 바뀌는 시각마다 점 하나 · 가격 전 계단 점은 null · rec −1', () => {
+    const s = flatDay();
+    const view = { t0: T13, t1: T13 + 10 };
+    const cum: PricePoint[] = [
+      [T13 + 0.5, 13000],
+      [T13 + 3.5, 0],
+      [T13 + 6.5, 13500],
+    ];
+    const pts = cumReturnPointsOf(s, view, 100, cum);
+    for (const p of pts) {
+      if (p.t < T13 + 1) {
+        expect(p.v).toBeNull();
+        expect(p.rec).toBe(-1);
+      } else if (p.t < T13 + 3.5) expect(p.v).toBeCloseTo(0.1, 12);
+      else if (p.t < T13 + 6.5) expect(p.v).toBeNull();
+      else expect(p.v).toBeCloseTo((14300 - 13500) / 13500, 12);
+    }
+    for (const [t] of cum) expect(pts.some((p) => p.t === t)).toBe(true);
+    expect(pts.some((p) => p.t > T13 + 3.5 && p.t < T13 + 6.5 && p.v === null)).toBe(true);
+  });
+});
+
+const line = (vs: (number | null)[]): ReturnPoint[] => vs.map((v, i) => ({ t: i, v, rec: i }));
+
+describe('두 눈금', () => {
+  const yRa = 120;
+  const yRb = 170;
+  const top = yRa + 4;
+  const bottom = yRb - 3;
+  const pad = (a: number) => a * (1 + RETURN_PAD_RATIO) + RETURN_PAD_ABS;
+
+  it('상수 — 여유 12% + 0.05%p · z 0.15 ~ 0.85', () => {
+    expect([RETURN_PAD_RATIO, RETURN_PAD_ABS, RETURN_Z_MIN, RETURN_Z_MAX]).toEqual([0.12, 0.0005, 0.15, 0.85]);
+  });
+
+  it('당일 위 0.03 · 누적 위 0.25 아래 0.02 → z = 두 선 z 중 큰 쪽을 0.85 로 묶음 · 0% 한 줄 · 끝 값 = 판 끝', () => {
+    const d = line([0, 0.01, 0.03, null]);
+    const c = line([0.25, -0.02, 0.1]);
+    const sc = returnScalesOf(d, c, yRa, yRb);
+    const zDay = pad(0.03) / (pad(0.03) + pad(0));
+    const zCum = pad(0.25) / (pad(0.25) + pad(0.02));
+    expect(zDay).toBeGreaterThan(0.85);
+    expect(sc.z).toBe(Math.min(RETURN_Z_MAX, Math.max(RETURN_Z_MIN, Math.max(zDay, zCum))));
+    expect(sc.z).toBe(0.85);
+    expect(sc.top).toBe(top);
+    expect(sc.bottom).toBe(bottom);
+    expect(sc.zeroY).toBeCloseTo(top + 0.85 * (bottom - top), 12);
+    expect(sc.yDay(0)).toBe(sc.zeroY);
+    expect(sc.yCum).not.toBeNull();
+    expect(sc.yCum!(0)).toBe(sc.zeroY);
+    // 단위 = max(위 ÷ z, 아래 ÷ (1 − z)) — 위 · 아래 끝 중 하나 이상이 판 끝에 닿는다
+    const uDay = Math.max(pad(0.03) / 0.85, pad(0) / 0.15);
+    expect(sc.dayTop).toBeCloseTo(0.85 * uDay, 12);
+    expect(sc.dayBottom).toBeCloseTo(-0.15 * uDay, 12);
+    const hitsDay = Math.abs(sc.yDay(sc.dayTop) - top) < 1e-9 || Math.abs(sc.yDay(sc.dayBottom) - bottom) < 1e-9;
+    expect(hitsDay).toBe(true);
+    const hitsCum =
+      Math.abs(sc.yCum!(sc.cumTop!) - top) < 1e-9 || Math.abs(sc.yCum!(sc.cumBottom!) - bottom) < 1e-9;
+    expect(hitsCum).toBe(true);
+    // 모든 점 y 가 그림 영역 안
+    for (const p of d) {
+      if (p.v === null) continue;
+      expect(sc.yDay(p.v)).toBeGreaterThanOrEqual(top - 1e-9);
+      expect(sc.yDay(p.v)).toBeLessThanOrEqual(bottom + 1e-9);
+    }
+    for (const p of c) {
+      if (p.v === null) continue;
+      expect(sc.yCum!(p.v)).toBeGreaterThanOrEqual(top - 1e-9);
+      expect(sc.yCum!(p.v)).toBeLessThanOrEqual(bottom + 1e-9);
+    }
+  });
+
+  it('z 가 묶음 안이면 큰 쪽 그대로 · 아래로만 가면 0.15 로 묶음', () => {
+    const a = returnScalesOf(line([0.02, -0.02]), line([0.01, -0.03]), yRa, yRb);
+    expect(a.z).toBeCloseTo(0.5, 12);
+    const b = returnScalesOf(line([-0.05, -0.01]), [], yRa, yRb);
+    expect(b.z).toBe(0.15);
+    expect(b.yDay(-0.05)).toBeLessThanOrEqual(bottom + 1e-9);
+    expect(b.yDay(b.dayBottom)).toBeCloseTo(bottom, 9);
+  });
+
+  it('두 선 다 비면 z = 0.5 · 누적이 비면 yCum · 누적 눈금 null', () => {
+    const e = returnScalesOf([], [], yRa, yRb);
+    expect(e.z).toBe(0.5);
+    expect(e.zeroY).toBe(top + 0.5 * (bottom - top));
+    expect(e.yDay(0)).toBe(e.zeroY);
+    expect(e.yCum).toBeNull();
+    expect(e.cumTop).toBeNull();
+    expect(e.cumBottom).toBeNull();
+    // 값이 전부 null 인 선도 빈 선
+    const n = returnScalesOf(line([null, null]), line([null]), yRa, yRb);
+    expect(n.z).toBe(0.5);
+    expect(n.yCum).toBeNull();
+  });
+
+  it('returnPathOf — null 에서 하위 경로가 끊긴다(M 둘) · 점 하나면 빈 문자열', () => {
+    const x = (t: number) => t * 10;
+    const y = (v: number) => v * 100;
+    const d = returnPathOf(line([0.1, 0.2, null, 0.1, 0]), x, y);
+    expect(d).toBe('M0,10L10,20M30,10L40,0');
+    expect(d.match(/M/g)).toHaveLength(2);
+    expect(returnPathOf(line([0.1]), x, y)).toBe('');
+    expect(returnPathOf(line([0.1, null, 0.2]), x, y)).toBe('');
+    expect(returnPathOf([], x, y)).toBe('');
+  });
+});
+
+describe('눈금 글자', () => {
+  it('부호 + 소수 1자리 퍼센트 · 0 은 「0.0%」 · 음수 기호 MINUS', () => {
+    expect(fmtReturnTick(0.032)).toBe('+3.2%');
+    expect(fmtReturnTick(-0.015)).toBe(`${MINUS}1.5%`);
+    expect(fmtReturnTick(0)).toBe('0.0%');
+    expect(fmtReturnTick(-0.00004)).toBe('0.0%');
+    expect(fmtReturnTick(0.00004)).toBe('0.0%');
+    expect(fmtReturnTick(0.25)).toBe('+25.0%');
   });
 });
