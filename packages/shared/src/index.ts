@@ -289,5 +289,6 @@ export * from "./push";
 export * from "./push-message";
 // --- Phase 41 한투 뉴스·공시 피드 — 조회 계약(GET /api/news/by-stock) · RPC 행 타입 · 같은 기사 합치기 규칙 한 벌(server · home-sync 공용) ---
 export * from "./stock-feed";
+export * from "./market-summary";
 // --- Phase 41 ETP 판정 단일 정의(D-09) — kis-news-sync 연결 숨김 사유 · home-sync 급등 제외 공용 ---
 export * from "./etp";

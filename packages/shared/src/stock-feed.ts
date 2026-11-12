@@ -13,9 +13,11 @@
  * - 합친 줄: 시각은 이른 쪽 · url · 요약문은 네이버 · 자료원 · kind · 종목은 한투 · id 는 먼저 받은 쪽
  *   (네이버 링크가 늦게 붙어도 id 불변 — 새 글 강조 오작동 방지).
  * - 「(정정)」 공시는 원 공시와 다른 줄 · 한투끼리 · 네이버끼리는 합치지 않는다.
+ * - 시황 기사(「코스닥 699선 후퇴…」 처럼 지수 얘기뿐인 뉴스 제목)는 합치기 전에 뺀다 — `isMarketSummaryTitle`(2026-11-12 UAT).
  * - 정렬: publishedAt 내림차순 · 같은 시각이면 공시 먼저 · 그다음 id 오름차순(결정적).
  */
 
+import { isMarketSummaryTitle } from "./market-summary";
 import { pressDisplayName } from "./press-names";
 
 /** 줄 종류 — 공시(한투 제공업체 F · G) 또는 뉴스(한투 언론사 · 네이버). */
@@ -223,12 +225,15 @@ function mergedItem(k: StockFeedItem, n: StockFeedItem): StockFeedItem {
  * 「(정정)」 공시는 정규화 키가 원 공시와 달라 별개 줄로 남는다.
  */
 export function mergeStockFeed(kis: StockFeedRpcKisRow[], naver: StockFeedRpcNaverRow[]): StockFeedItem[] {
+  // 시황 기사(지수 얘기뿐인 뉴스)는 양쪽 출처 모두 뺀다 — 공시는 건드리지 않는다(market-summary.ts).
+  const naverRows = naver.filter((r) => !isMarketSummaryTitle(r.title));
   // 키는 줄마다 한 번만 계산한다(정규식 반복 비용). 한투는 DB 가 준 title_key 를 그대로 쓴다.
   const kisRows = kis
+    .filter((r) => r.kind !== "news" || !isMarketSummaryTitle(r.title))
     .map((r) => ({ item: kisItem(r), probe: { key: r.title_key, at: Date.parse(r.written_at) }, paired: false }))
     .sort((a, b) => b.probe.at - a.probe.at);
   const out: StockFeedItem[] = [];
-  for (const r of naver) {
+  for (const r of naverRows) {
     const item = naverItem(r);
     const probe = { key: newsTitleKey(r.title), at: Date.parse(r.published_at) };
     const mate = kisRows.find((k) => !k.paired && isSameArticle(k.probe, probe));
