@@ -8,7 +8,8 @@ import axios, { isAxiosError, type AxiosAdapter, type AxiosInstance } from "axio
  * - 인증키(`crtfc_key`)는 쿼리 인자라 요청 URL · axios 요청 설정에 그대로 실린다. 그래서
  *   `DartApiError` 의 message 는 상태 · 코드만 담고, axios 오류를 `cause` 로 붙이지 않는다(붙이면 로거가
  *   config.params 를 따라 내려간다). 네트워크 오류도 여기서 `DartApiError`(transient)로 바꿔 던진다.
- * - 분류 표 전부 · 쪽 넘김(`PageTracker` · `fetchWatchRows`)은 43-04 가 채운다.
+ * - 43-04: 분류 표 전부(`classifyDartStatus`) · 응답 없음 · 5xx · 깨진 본문 → transient ·
+ *   100건 넘는 날 쪽 넘김(`PageTracker` · `fetchWatchRows` — 리서치 확인 5 · Pitfall 5).
  */
 
 export const DART_LIST_PATH = "/api/list.json";
@@ -45,7 +46,13 @@ export interface DartPage {
  */
 export type DartErrorKind = "quota" | "key" | "bug" | "transient" | "unknown";
 
-const KIND_BY_STATUS: Readonly<Record<string, DartErrorKind>> = {
+/** 본문 status 분류 — ok = 정상 · empty = 빈 목록(성공) · 그 밖은 오류 종류 */
+export type DartStatusClass = "ok" | "empty" | DartErrorKind;
+
+/** 43-RESEARCH 「API 계약 정리 — OpenDART」 상태 표 그대로 */
+const CLASS_BY_STATUS: Readonly<Record<string, DartStatusClass>> = {
+  "000": "ok",
+  "013": "empty",
   "020": "quota",
   "010": "key",
   "011": "key",
@@ -60,8 +67,14 @@ const KIND_BY_STATUS: Readonly<Record<string, DartErrorKind>> = {
 /** 로그 한 줄이 끝없이 길어지지 않게 */
 const TEXT_MAX = 200;
 
-export function classifyDartStatus(code: string | null | undefined): DartErrorKind {
-  return (code ? KIND_BY_STATUS[code] : undefined) ?? "unknown";
+export function classifyDartStatus(code: string | null | undefined): DartStatusClass {
+  return (code ? CLASS_BY_STATUS[code] : undefined) ?? "unknown";
+}
+
+/** 오류로 던질 때의 종류 — ok · empty 는 오류가 아니므로 여기 오면 unknown */
+function errorKindOf(code: string | null | undefined): DartErrorKind {
+  const c = classifyDartStatus(code);
+  return c === "ok" || c === "empty" ? "unknown" : c;
 }
 
 function str(v: unknown): string | null {
@@ -85,7 +98,7 @@ export class DartApiError extends Error {
     this.name = "DartApiError";
     this.httpStatus = httpStatus;
     this.code = cd;
-    this.kind = kind ?? classifyDartStatus(cd);
+    this.kind = kind ?? errorKindOf(cd);
     this.description = str(description);
   }
 }
@@ -128,19 +141,87 @@ export async function fetchListPage(
     throw new DartApiError(0, null, "transient", code ?? "network error");
   }
 
+  if (res.status === 0 || res.status >= 500) throw new DartApiError(res.status, null, "transient");
   const body = res.data as
     | { status?: unknown; message?: unknown; total_count?: unknown; total_page?: unknown; list?: unknown }
     | undefined;
-  if (res.status >= 500) throw new DartApiError(res.status, null, "transient");
-  if (!body || typeof body !== "object") throw new DartApiError(res.status, null, "transient", "invalid body");
-  if (body.status === "013") return { total: 0, totalPage: 0, rows: [] };
-  if (body.status !== "000") {
-    const code = typeof body.status === "string" ? body.status : null;
-    throw new DartApiError(res.status, code, undefined, body.message);
+  // HTML · 깨진 JSON(axios 가 문자열 그대로 넘긴다) · status 없는 본문 — 일시 장애로 본다
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.status !== "string") {
+    throw new DartApiError(res.status, null, "transient", "invalid body");
   }
-  return {
-    total: Number(body.total_count ?? 0),
-    totalPage: Number(body.total_page ?? 0),
-    rows: Array.isArray(body.list) ? (body.list as DartRow[]) : [],
+  const cls = classifyDartStatus(body.status);
+  if (cls === "empty") return { total: 0, totalPage: 0, rows: [] };
+  if (cls !== "ok") throw new DartApiError(res.status, body.status, cls, body.message);
+
+  const rows = Array.isArray(body.list) ? (body.list as DartRow[]) : [];
+  const total = toCount(body.total_count, rows.length);
+  return { total, totalPage: toCount(body.total_page, Math.ceil(total / DART_PAGE_COUNT)), rows };
+}
+
+function toCount(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/** 늘지 않았어도 전 쪽을 다시 읽는 주기 — 삭제 1 + 신규 1 이 같은 바퀴에 겹쳐 수가 그대로인 경우의 그물 */
+export const FULL_REREAD_MS = 60_000;
+
+/**
+ * 감시 대상(유형) 하나의 쪽 넘김 기억 — 수집기가 감시 대상마다 하나씩 둔다(43-05 buildDeps).
+ * 성공한 전체 읽기 뒤에만 갱신한다 — 중간 실패면 그대로 두어 다음 바퀴가 다시 전 쪽을 읽는다.
+ */
+export class PageTracker {
+  /** 마지막 성공한 전체 읽기 때의 total_count */
+  lastTotal = 0;
+  /** 마지막 성공한 전체 읽기 시각(epoch ms) — 처음엔 아주 먼 과거 */
+  lastFullAt = Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * 오늘 · 유형 하나의 행 — 리서치 확인 5 규칙.
+ *
+ *   1. 매 바퀴 1쪽(100건)을 읽는다.
+ *   2. `total_count ≤ 100` 이면 그날 목록 전체가 손에 있다 — 끝.
+ *   3. 100 초과면 `total_count` 가 지난 전체 읽기보다 늘었거나 그로부터 60초가 지났을 때만
+ *      같은 바퀴에서 2쪽 ~ `total_page` 를 마저 읽는다. 아니면 1쪽 행만 돌려준다.
+ *
+ * 같은 날짜 안 정렬 순서는 문서에 없다(가정 A3) — 「1쪽에 새 건이 다 있다」 에 기대지 않는다.
+ * 추가 쪽 호출도 `calls` 로 세어 api_usage 에 올린다(하루 예산 여유 4,200회가 이 몫).
+ * 중간 실패면 던지는 `DartApiError` 의 `calls` 에 실패한 호출까지 그때까지의 호출 수를 싣는다.
+ */
+export async function fetchWatchRows(
+  http: AxiosInstance,
+  key: string,
+  watch: { detailTy: string; day: string },
+  tracker: PageTracker,
+  nowMs: number,
+): Promise<{ rows: DartRow[]; calls: number }> {
+  let calls = 0;
+  const page = async (pageNo: number): Promise<DartPage> => {
+    calls += 1;
+    try {
+      return await fetchListPage(http, key, { ...watch, pageNo });
+    } catch (err) {
+      if (err instanceof DartApiError) err.calls = calls;
+      throw err;
+    }
   };
+
+  const first = await page(1);
+  if (first.total <= DART_PAGE_COUNT) {
+    tracker.lastTotal = first.total;
+    tracker.lastFullAt = nowMs;
+    return { rows: first.rows, calls };
+  }
+
+  const grew = first.total > tracker.lastTotal;
+  const stale = nowMs - tracker.lastFullAt >= FULL_REREAD_MS;
+  if (!grew && !stale) return { rows: first.rows, calls };
+
+  const rows = [...first.rows];
+  const lastPage = Math.max(first.totalPage, Math.ceil(first.total / DART_PAGE_COUNT));
+  for (let no = 2; no <= lastPage; no++) rows.push(...(await page(no)).rows);
+  tracker.lastTotal = first.total;
+  tracker.lastFullAt = nowMs;
+  return { rows, calls };
 }

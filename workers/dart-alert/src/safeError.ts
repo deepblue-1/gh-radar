@@ -1,5 +1,5 @@
 import { isAxiosError } from "axios";
-import { DartApiError } from "./dart/client";
+import { classifyDartStatus, DartApiError } from "./dart/client";
 
 /**
  * Phase 43-01 — 로그에 남겨도 되는 오류 필드(kis-news-sync `safeErrorFields` 꼴).
@@ -24,7 +24,8 @@ function str(v: unknown): string | null {
 
 /**
  * - DartApiError → 상태 · 본문 status · OpenDART 문구 · 종류
- * - axios 오류 → 응답 본문의 `status` · `error_code` · `description` 만(200자) · 응답이 없으면 status 0 · transient
+ * - axios 오류 → 응답 본문의 `status` · `message` 만(200자 — OpenDART 꼴. 텔레그램 꼴 `error_code` · `description` 은
+ *   뒷순위) · 종류는 본문 status 가 있으면 상태 표로, 없으면 응답 없음 · 5xx 는 transient. URL · 요청 설정은 안 본다
  * - 그 밖 → 메시지 문자열만(unknown)
  */
 export function safeErrorFields(err: unknown): SafeErrorFields {
@@ -35,9 +36,15 @@ export function safeErrorFields(err: unknown): SafeErrorFields {
     const status = err.response?.status ?? 0;
     const data = err.response?.data as Record<string, unknown> | undefined;
     const body = data && typeof data === "object" ? data : undefined;
-    const code = str(body?.status) ?? str(body?.error_code) ?? str(err.code);
-    const message = str(body?.description) ?? (status === 0 ? "no response" : null);
-    return { status, code, message, kind: status === 0 || status >= 500 ? "transient" : "unknown" };
+    const dartStatus = str(body?.status);
+    const code = dartStatus ?? str(body?.error_code) ?? str(err.code);
+    const message = str(body?.message) ?? str(body?.description) ?? (status === 0 ? "no response" : null);
+    let kind: string = status === 0 || status >= 500 ? "transient" : "unknown";
+    if (dartStatus && status > 0 && status < 500) {
+      const cls = classifyDartStatus(dartStatus);
+      kind = cls === "ok" || cls === "empty" ? "unknown" : cls;
+    }
+    return { status, code, message, kind };
   }
   const message = err instanceof Error ? str(err.message) : str(err);
   return { status: null, code: null, message, kind: "unknown" };
