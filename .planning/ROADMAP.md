@@ -701,11 +701,11 @@ Plans:
 
 **확정(2026-11-12 · 사용자)**: 트렐로 카드의 「공개매수 설명회」 는 DART 보고서 **「공개매수설명서」** 다(신고서 2 ~ 4분 뒤 항상 붙는다). 거래소 「기업설명회(IR) 개최」 공시가 아니다.
 **미결 결정**: 없음 — ② ~ ⑨ 는 `43-CONTEXT.md` D-01 ~ D-17 이 답(2026-11-12 논의). 실행 자리는 새 워커 `workers/dart-alert`(kis-news-sync 꼴 장기 실행 Cloud Run Job).
-**Plans:** 9 plans
+**Plans:** 1/9 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 43-01-PLAN.md — 트레이서: 공개매수 1건 DART 조회 → 거르기 → DB 한 번만 → 두 줄 문구 → 텔레그램 + 그 길의 DB 계약(표 2 · RPC 5 · pgTAP) (W1)
+- [x] 43-01-PLAN.md — 트레이서: 공개매수 1건 DART 조회 → 거르기 → DB 한 번만 → 두 줄 문구 → 텔레그램 + 그 길의 DB 계약(표 2 · RPC 5 · pgTAP) (W1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 43-02-PLAN.md — DB 완성: 임대 인계 이어 보내기 · 송신 기한 90초 재차례 · 지난 날 닫기 · 장애 짝 상태 · 운영 수치 RPC · 워커 DB 어댑터 + 마이그레이션 자동 대조 계약 테스트 (W2)
