@@ -6,10 +6,10 @@ current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
 stopped_at: Phase 41 planned (14 plans)
-last_updated: "2026-11-12T04:54:42.957Z"
+last_updated: "2026-11-12T09:47:47.020Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: 2affd1f2e4d5ba0d14ad1edcf027715799314efb
+state_head: 7273b18711c097fce99bdcf9eb14a7de580117c2
 progress:
   total_phases: 12
   completed_phases: 9
@@ -176,6 +176,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 76 | 네이버 뉴스는 제목에 종목명 있는 기사만(조회 함수가 상한 전에 거름 · 한투 뉴스는 그대로) | 2026-11-12 | 95607989 | — |
 | 77 | 한투 제공처 I(자료원 「공시」 주식선물 가격제한폭 안내)를 공시로 분류해 숨김 · 소급 192건 | 2026-11-12 | ab229f6b | — |
 | 78 | 네이버 뉴스 종목명 조건에 별칭 표 18개(에스엠 SM엔터 · NAVER 네이버 · 신한지주 신한금융 등) | 2026-11-12 | 2affd1f2 | — |
+| 79 | 네이버 뉴스 수집 대상에 시가총액 상위 보통주 50 추가(cap 등급 장중 30분 순환) — 급등 목록에서 빠진 NAVER · 현대차 · 카카오 수집 멈춤 해결, 마지막 기사 시각 종목당 1건 조회 | 2026-11-12 | 7273b187 | — |
 
 ## Session Continuity
 
