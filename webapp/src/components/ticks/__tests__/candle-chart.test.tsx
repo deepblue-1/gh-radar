@@ -1,9 +1,20 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 
 import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
-import { CANDLE_CHART, candlePanelsOf } from '@/lib/ticks/candle-chart';
+/** 일 이동평균 앞 거래일 종가(브라우저 Supabase) — 요청 횟수 · 인자만 본다(42-10). */
+const prevApi = vi.hoisted(() => ({ fetchPrevCloses: vi.fn() }));
+vi.mock('@/lib/ticks/daily-closes', () => prevApi);
+
+import { CANDLE_CHART, autoUnitOf, candlePanelsOf, candleUnitLabelOf } from '@/lib/ticks/candle-chart';
+import {
+  TICK_CANDLE_MA_KEY,
+  TICK_CANDLE_UNIT_KEY,
+  readMaConfig,
+  toggleMaLine,
+  writeMaConfig,
+} from '@/lib/ticks/candle-prefs';
 import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
 import { tickBoundsOf } from '@/lib/ticks/tick-chart';
 import { TOUCH_HOLD_MS } from '@/lib/touch-inspect';
@@ -22,6 +33,12 @@ import { CandleChart } from '../candle-chart';
 
 const B = tickBoundsOf(SYNTH_DATE);
 const PD = candlePanelsOf(CANDLE_CHART.desktop);
+
+// 봉 단위 · 이동평균 기억(gh-radar:tick-candle-*)이 테스트 사이로 새지 않게(42-10)
+beforeEach(() => {
+  window.localStorage.clear();
+  prevApi.fetchPrevCloses.mockReset();
+});
 
 const krx = synthSession([
   [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121] })],
@@ -434,5 +451,134 @@ describe('겹침 — 폰 길게 누르기', () => {
     expect(onSeekMs).not.toHaveBeenCalled();
     expect(onJumpRec).not.toHaveBeenCalled();
     expect(q('candle-chart-tip')).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 42 Plan 10 — 결선(가격 판): 봉 단위 기억 · 자동(D-09 · SC-2) · 이동평균 켜진 선(D-10 · SC-3) · 일별 종가 한 번(D-11 · Q2 · Q5 · E6).
+ * 깨지면: 봉 단위 · 이동평균을 골라도 판이 그대로거나, 일 이동평균이 클릭마다 다시 받거나, 받는 중에 「모자라」 안내가 잘못 뜬다.
+ */
+const MIN_MS = 60_000;
+/** 13:00 ~ 13:29 분마다 체결 하나(1분봉 30개) — 종가 16,300 ~ 16,400 지그재그. */
+const maSess = synthSession(
+  Array.from({ length: 30 }, (_, i): [number, Uint8Array] => [
+    i * MIN_MS + 1_000,
+    a3Msg({
+      seq: 200 + i,
+      bs: i % 2 === 0 ? '2' : '1',
+      px: 16_300 + ((i * 37) % 11) * 10,
+      qty: 10,
+      time: `13${String(i).padStart(2, '0')}01000000`,
+    }),
+  ]),
+);
+const DAY20 = (on: boolean) => ({ v: 1 as const, lines: [{ base: 'day' as const, n: 20, kind: 'sma' as const, on, color: 1 }] });
+const PREV_OK = Array.from({ length: 239 }, () => 16_350);
+
+function renderMa(props: Partial<Props> = {}) {
+  const r = render(
+    <CandleChart session={maSess} cursorRec={maSess.index.n - 1} onSeekMs={vi.fn()} onJumpRec={vi.fn()} {...props} />,
+  );
+  const q = (slot: string) => r.container.querySelectorAll(`[data-slot="${slot}"]`);
+  const maKeys = () => Array.from(q('candle-ma-line')).map((e) => e.getAttribute('data-ma-key'));
+  const title = () => q('candle-price-title')[0]?.textContent ?? '';
+  const captions = () => Array.from(q('candle-caption-item')).map((e) => e.textContent ?? '');
+  return { ...r, q, maKeys, title, captions };
+}
+
+/** 끝을 밖에서 정하는 약속(받는 중 상태를 붙잡아 둔다). */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+describe('결선 · 가격 판 — 봉 단위 · 이동평균 · 일별 종가', () => {
+  it('기억 없음 · 하루 전체 → 판 제목 · svg 이름 「10분봉(자동)」 · 「1분」 → 「1분봉(자동)」', async () => {
+    const { q, getByRole, svg } = renderChart();
+    // 그림 폭 536(640 − L 52 − R 52) · 12시간 — 칸 4px 이상인 가장 작은 단위
+    expect(candleUnitLabelOf(autoUnitOf(B.T2000 - B.T0, 536), true)).toBe('10분봉(자동)');
+    const title = () => q('candle-price-title')[0]?.textContent ?? '';
+    expect(title().startsWith('10분봉(자동)')).toBe(true);
+    expect(svg.getAttribute('aria-label')).toContain('봉 차트 — 10분봉(자동) · 보기 창 하루 전체');
+    fireEvent.click(getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(title().startsWith('1분봉(자동)')).toBe(true));
+    expect(svg.getAttribute('aria-label')).toContain('1분봉(자동) · 보기 창 1분');
+  });
+
+  it('저장 「15」 → 「15분봉」(자동 꼬리표 없음) · 창을 바꿔도 15분봉 그대로', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '15');
+    const { q, getByRole, svg } = renderChart();
+    const title = () => q('candle-price-title')[0]?.textContent ?? '';
+    expect(title().startsWith('15분봉 ·')).toBe(true);
+    fireEvent.click(getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(q('candle-chart-span')[0]!.textContent).toBe('1분'));
+    expect(title().startsWith('15분봉 ·')).toBe(true);
+    expect(svg.getAttribute('aria-label')).toContain('15분봉 · 보기 창 1분');
+  });
+
+  it('기본 구성 → 이동평균 선 2개(칩 순서) · 「단순 5」 끄기 → 1개 · 판 제목에서 빠짐 · 켜면 돌아온다', () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    const { maKeys, title } = renderMa();
+    expect(maKeys()).toEqual(['bar:sma:5', 'bar:sma:20']);
+    expect(title()).toContain('이동평균 단순 5 · 단순 20');
+    act(() => writeMaConfig(toggleMaLine(readMaConfig(), 'bar:sma:5')));
+    expect(maKeys()).toEqual(['bar:sma:20']);
+    expect(title()).not.toContain('단순 5');
+    expect(title()).toContain('단순 20');
+    expect(JSON.parse(window.localStorage.getItem(TICK_CANDLE_MA_KEY)!).lines[0]).toMatchObject({ n: 5, on: false });
+    act(() => writeMaConfig(toggleMaLine(readMaConfig(), 'bar:sma:5')));
+    expect(maKeys()).toEqual(['bar:sma:5', 'bar:sma:20']);
+  });
+
+  it('일 칩 하나(꺼짐) + 종목 코드 → 종가 239개를 한 번 · 받는 동안 일 선 · 안내 없음 · 받은 뒤 켜면 일 선', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(false)));
+    const d = deferred<number[]>();
+    prevApi.fetchPrevCloses.mockReturnValue(d.promise);
+    const { maKeys, captions } = renderMa({ stockCode: '005930' });
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledTimes(1);
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledWith('005930', SYNTH_DATE, 239, expect.any(AbortSignal));
+    // 받는 중에 켬 — 선 없음 · 「모자라」 안내 없음(E6 loading)
+    act(() => writeMaConfig(DAY20(true)));
+    expect(maKeys()).toEqual([]);
+    expect(captions().some((c) => c.startsWith('일 '))).toBe(false);
+    await act(async () => {
+      d.resolve(PREV_OK);
+      await d.promise;
+    });
+    await waitFor(() => expect(maKeys()).toEqual(['day:sma:20']));
+    expect(captions().some((c) => c.startsWith('일 '))).toBe(false);
+    // 켜고 꺼도 다시 받지 않는다(Q2)
+    act(() => writeMaConfig(DAY20(false)));
+    act(() => writeMaConfig(DAY20(true)));
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledTimes(1);
+  });
+
+  it('일별 종가 실패 → 일 선 없음 · 캡션 「일 이동평균 — 일별 종가를 불러오지 못했어요…」 · 봉은 그대로', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(true)));
+    prevApi.fetchPrevCloses.mockRejectedValue(new Error('boom'));
+    const { maKeys, captions, q } = renderMa({ stockCode: '005930' });
+    await waitFor(() =>
+      expect(captions()).toContain('일 이동평균 — 일별 종가를 불러오지 못했어요(화면을 다시 열면 다시 불러와요)'),
+    );
+    expect(maKeys()).toEqual([]);
+    expect(q('candle-body-up')[0]!.getAttribute('d')).not.toBe('');
+  });
+
+  it('종목 코드 없음 → 요청 0 · 캡션 「일 20 — 지난 거래일 종가가 모자라 그리지 않아요」', () => {
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(true)));
+    const { captions, maKeys } = renderMa({ stockCode: null });
+    expect(prevApi.fetchPrevCloses).not.toHaveBeenCalled();
+    expect(captions()).toContain('일 20 — 지난 거래일 종가가 모자라 그리지 않아요');
+    expect(maKeys()).toEqual([]);
+  });
+
+  it('일 칩이 없으면 종목 코드가 있어도 요청 0', () => {
+    renderMa({ stockCode: '005930' });
+    expect(prevApi.fetchPrevCloses).not.toHaveBeenCalled();
   });
 });
