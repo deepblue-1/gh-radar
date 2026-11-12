@@ -16,7 +16,7 @@ const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
 const sgnCls = (v: number) => (v > 0 ? 'text-[var(--up)]' : v < 0 ? 'text-[var(--down)]' : 'text-[var(--muted-fg)]');
 
-function Head({ color, children, em }: { color: string; children: ReactNode; em?: string }) {
+export function Head({ color, children, em }: { color: string; children: ReactNode; em?: string }) {
   return (
     <div className="flex min-w-0 items-center gap-[5px] text-[10.5px] font-bold whitespace-nowrap text-[var(--muted-fg)]">
       <i aria-hidden="true" className="inline-block size-[7px] shrink-0 rounded-[2px]" style={{ background: color }} />
@@ -26,12 +26,12 @@ function Head({ color, children, em }: { color: string; children: ReactNode; em?
   );
 }
 
-function Row({ children }: { children: ReactNode }) {
+export function Row({ children }: { children: ReactNode }) {
   return <div className="mt-0.5 flex min-w-0 gap-x-2.5 overflow-hidden whitespace-nowrap">{children}</div>;
 }
 
 /** 라벨 + 값 한 쌍(라벨 10.5px --muted-fg · 값 mono 11px). */
-function Kv({ label, children, className }: { label?: string; children: ReactNode; className?: string }) {
+export function Kv({ label, children, className }: { label?: string; children: ReactNode; className?: string }) {
   return (
     <span className="truncate">
       {label !== undefined && <span className="mr-[3px] text-[10.5px] text-[var(--muted-fg)]">{label}</span>}
@@ -40,7 +40,7 @@ function Kv({ label, children, className }: { label?: string; children: ReactNod
   );
 }
 
-const Rest = ({ children }: { children: ReactNode }) => (
+export const Rest = ({ children }: { children: ReactNode }) => (
   <span className="truncate text-[var(--muted-fg)]">{children}</span>
 );
 
