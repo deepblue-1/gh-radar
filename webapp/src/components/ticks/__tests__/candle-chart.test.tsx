@@ -123,7 +123,8 @@ describe('조작 — 클릭 · 확대 · 키 · 커서', () => {
 
   it('마우스 세로선 · 값 점 — 호버 동안만 · 가격 판 점 = 그 봉 종가 y', () => {
     const { q, svg } = renderChart();
-    const cx = X1300;
+    // 1px ≈ 80초 — 13:00 봉 칸(1분) 안쪽(≈ 13:00:24)
+    const cx = X1300 + 0.3;
     expect(q('candle-chart-hover-line')).toHaveLength(0);
     // 순매수 판 높이(원 묶음 상자 없이) · 13:00 봉 x
     fireEvent.pointerMove(svg, { clientX: cx, clientY: (PD.y2a + PD.y2b) / 2, pointerType: 'mouse' });
