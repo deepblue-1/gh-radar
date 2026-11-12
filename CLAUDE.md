@@ -38,19 +38,23 @@
 
 > 이 5원칙은 **스크래핑 source** (Naver 종목토론방 및 향후 추가될 스크래핑 source) 에 적용한다. 공식 쿼터가 공개된 API (Naver Search API 등) 는 아래 "공식 API 운영 기준" 을 따른다. 새 source 추가 시 먼저 둘 중 어느 쪽인지 분류하고, 해당 기준을 만족하는 운영 설계를 점검할 것.
 
-### 공식 API 운영 기준 (Naver Search API 등)
+### 공식 API 운영 기준 (Naver Search API · OpenDART 등)
 
 - **공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
 - **소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
 - **예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
 - **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
+- **OpenDART 공식 한도:** 인증키당 20,000 호출/일 (초과 시 상태 `020`). 본 프로젝트 카운터는 `api_usage` service `opendart_list` (KST 날짜 키) · 한도 의심 표시 `opendart_list_quota_strike`. `page_count` 최대 100.
+- **OpenDART 소비처:** `workers/dart-alert` (공개매수 · 유상증자 · 합병 공시 텔레그램 알림) 하나. server · webapp 은 부르지 않는다.
+- **OpenDART 예산:** `DART_ALERT_DAILY_BUDGET` 15,000 (공식 20,000 의 75% · 배포 스크립트와 설정이 상한 강제). 설계 사용량 약 10,800/일 (54%) — 남는 몫은 100건 넘는 날 추가 쪽 · 탐침.
+- **OpenDART 수집 주기:** 평일 `07:00` ~ `09:00` KST 5초 · `09:00` ~ `20:00` 10초, 바퀴당 2유형 (공개매수 `D004` · 주요사항보고서 `B001`). 밤 · 주말 없음. 장기 실행 Cloud Run Job + 5분 깨움 + DB 임대. 알림마다 출처 「금융감독원 전자공시」 와 DART 원문 링크.
 
 **공식 API 운영 기준 — 공식 쿼터가 공개된 API (Naver Search API 등) 에 적용.**
 
 1. **설계 예산은 공식 일일 한도의 75% 이하.**
 2. **한도 안에서 서버측 주기 배치 폴링 허용 (장중 포함).**
 3. **호출량은 사용자 수와 독립.** 사용자 트리거로 O(N) 호출이 생기는 패턴 금지 (예외: 기존 스로틀된 수동 새로고침).
-4. **일일 한도 소진 신호 시 해당 run 즉시 중단, 재시도로 두드리지 않음.** news-sync 는 이후 run 을 단독 탐침 호출 1건으로만 재확인하고, 통과하면 자동 재개한다 (오판으로 하루 수집이 꺼지는 것 방지).
+4. **일일 한도 소진 신호 시 해당 run 즉시 중단, 재시도로 두드리지 않음.** news-sync 는 · dart-alert 는 이후 run 을 단독 탐침 호출 1건으로만 재확인하고, 통과하면 자동 재개한다 (오판으로 하루 수집이 꺼지는 것 방지).
 5. **출처 표기와 원문 링크를 항상 노출.**
 <!-- GSD:stack-end -->
 
