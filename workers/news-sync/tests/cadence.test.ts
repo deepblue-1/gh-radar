@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  CAP_BUCKET_COUNT,
   HOT_RANK_MAX,
+  capBucketFor,
+  capStockBucket,
   REST_BUCKET_COUNT,
   kstDayOfWeek,
   kstMinuteOfDay,
@@ -11,7 +14,7 @@ import {
   stockBucket,
   type TargetRecord,
 } from "../src/pipeline/cadence";
-import { buildTargetRecords } from "../src/pipeline/targets";
+import { buildTargetRecords, pickLargeCaps } from "../src/pipeline/targets";
 
 /**
  * quick-260915-h3p — 장시간 등급 수집 주기.
@@ -178,7 +181,14 @@ describe("selectRunTargets — 등급 구성", () => {
     const recs: TargetRecord[] = [{ code, name: "n", rank: null, watched: false }];
     const b = stockBucket(code);
     const hit = selectRunTargets(recs, "tiered", b);
-    expect(hit.counts).toEqual({ total: 1, hot: 0, restTotal: 1, restSelected: 1 });
+    expect(hit.counts).toEqual({
+      total: 1,
+      hot: 0,
+      restTotal: 1,
+      restSelected: 1,
+      capTotal: 0,
+      capSelected: 0,
+    });
     expect(hit.selected.map((t) => t.code)).toEqual([code]);
     const miss = selectRunTargets(recs, "tiered", (b + 1) % REST_BUCKET_COUNT);
     expect(miss.selected).toEqual([]);
@@ -258,5 +268,96 @@ describe("planRun — 단일 진입점", () => {
     expect(plan.mode).toBe("full");
     expect(plan.restBucket).toBeNull();
     expect(plan.selected).toHaveLength(recs.length);
+  });
+});
+
+describe("cap 등급 — 급등 목록 · 관심종목 밖 시가총액 상위 (2026-11-12)", () => {
+  const capRecs = (): TargetRecord[] =>
+    Array.from({ length: 40 }, (_, i) => ({
+      code: String(300000 + i),
+      name: `cap-${i}`,
+      rank: null,
+      watched: false,
+      largeCapOnly: true,
+    }));
+
+  it("10개 버킷은 서로소이고 합집합이 cap 전체 — 30분에 한 번씩 수집", () => {
+    const recs = [...fixtureRecords(), ...capRecs()];
+    const all: string[] = [];
+    for (let b = 0; b < CAP_BUCKET_COUNT; b++) {
+      const { selected, counts } = selectRunTargets(recs, "tiered", 0, b);
+      const caps = selected.filter((t) => t.largeCapOnly);
+      expect(caps.length).toBe(counts.capSelected);
+      expect(counts.capTotal).toBe(40);
+      for (const t of caps) expect(capStockBucket(t.code)).toBe(b);
+      all.push(...caps.map((t) => t.code));
+    }
+    expect(new Set(all).size).toBe(40);
+    expect(all.length).toBe(40);
+  });
+
+  it("cap 은 rest 버킷에 섞이지 않고 hot · rest 뒤에 온다", () => {
+    const recs = [...fixtureRecords(), ...capRecs()];
+    const { selected, counts } = selectRunTargets(recs, "tiered", 0, 3);
+    expect(counts.restTotal).toBe(69);
+    const firstCap = selected.findIndex((t) => t.largeCapOnly);
+    expect(firstCap).toBe(counts.hot + counts.restSelected);
+  });
+
+  it("capBucket 이 없으면(null) tiered 에서 cap 은 고르지 않는다", () => {
+    const { selected } = selectRunTargets(capRecs(), "tiered", 0);
+    expect(selected).toEqual([]);
+  });
+
+  it("full 모드는 cap 전부 포함", () => {
+    const recs = [...fixtureRecords(), ...capRecs()];
+    const { selected, counts } = selectRunTargets(recs, "full", null, null);
+    expect(selected.length).toBe(142);
+    expect(counts.capSelected).toBe(40);
+  });
+
+  it("planRun 은 3분 슬롯마다 cap 버킷을 +1 돌린다", () => {
+    const recs = capRecs();
+    const buckets = [0, 3, 6, 9].map((m) => planRun(tue(8, m), "auto", recs).capBucket);
+    expect(buckets.every((b) => b !== null)).toBe(true);
+    for (let i = 1; i < buckets.length; i++) {
+      expect(buckets[i]).toBe(((buckets[i - 1] as number) + 1) % CAP_BUCKET_COUNT);
+    }
+    expect(capBucketFor(tue(8, 0))).toBe(buckets[0]);
+  });
+
+  it("buildTargetRecords — 급등 목록 · 관심종목에 있으면 largeCapOnly 를 달지 않는다", () => {
+    const recs = buildTargetRecords(
+      [{ code: "000001", rank: 40 }],
+      ["000002"],
+      [
+        { code: "000001", name: "one" },
+        { code: "000002", name: "two" },
+        { code: "000003", name: "three" },
+      ],
+      ["000003", "000001", "000002"],
+    );
+    expect(recs).toEqual([
+      { code: "000001", name: "one", rank: 40, watched: false },
+      { code: "000002", name: "two", rank: null, watched: true },
+      { code: "000003", name: "three", rank: null, watched: false, largeCapOnly: true },
+    ]);
+  });
+
+  it("pickLargeCaps — 상장 중인 보통주만 시총 순으로 n 개 (ETF · 우선주 · 폐지 제외)", () => {
+    const masters = [
+      { code: "005930", security_type: "보통주", is_delisted: false },
+      { code: "005935", security_type: "우선주", is_delisted: false },
+      { code: "069500", security_type: "ETF", is_delisted: false },
+      { code: "000660", security_type: "보통주", is_delisted: false },
+      { code: "999999", security_type: "보통주", is_delisted: true },
+      { code: "035420", security_type: "보통주", is_delisted: null },
+    ];
+    expect(
+      pickLargeCaps(["005930", "005935", "069500", "999999", "000660", "035420", "123456"], masters, 2),
+    ).toEqual(["005930", "000660"]);
+    expect(
+      pickLargeCaps(["005930", "005935", "069500", "999999", "000660", "035420"], masters, 10),
+    ).toEqual(["005930", "000660", "035420"]);
   });
 });

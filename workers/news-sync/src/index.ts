@@ -73,13 +73,13 @@ export async function runNewsSyncCycle(): Promise<void> {
   const strikesToday = await readQuotaStrikes(supabase, dateKst);
 
   const records = await loadTargets(supabase);
-  const { mode, restBucket, selected, counts } = planRun(
+  const { mode, restBucket, capBucket, selected, counts } = planRun(
     now,
     cfg.newsSyncMode,
     records,
   );
   log.info(
-    { mode, restBucket, ...counts, selected: selected.length, strikesToday },
+    { mode, restBucket, capBucket, ...counts, selected: selected.length, strikesToday },
     "news-sync targets selected",
   );
 

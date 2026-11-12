@@ -43,7 +43,7 @@
 - **공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
 - **소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
 - **예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
-- **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
+- **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분), 급등 목록·관심종목 밖 시가총액 상위 보통주 50 중 남는 종목 10조 순환 (종목당 30분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈16.5K/일 (~66%).
 
 **공식 API 운영 기준 — 공식 쿼터가 공개된 API (Naver Search API 등) 에 적용.**
 
