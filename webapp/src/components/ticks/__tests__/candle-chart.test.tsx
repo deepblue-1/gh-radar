@@ -1,15 +1,33 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 
-import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
+import {
+  a3TimeMs,
+  type TickOpenResponse,
+  type TickOwnEvent,
+  type TickOwnFill,
+  type TickOwnResponse,
+} from '@gh-radar/shared';
 
-import { CANDLE_CHART, candlePanelsOf } from '@/lib/ticks/candle-chart';
+/** 일 이동평균 앞 거래일 종가(브라우저 Supabase) — 요청 횟수 · 인자만 본다(42-10). */
+const prevApi = vi.hoisted(() => ({ fetchPrevCloses: vi.fn() }));
+vi.mock('@/lib/ticks/daily-closes', () => prevApi);
+
+import { CANDLE_CHART, autoUnitOf, candlePanelsOf, candleUnitLabelOf } from '@/lib/ticks/candle-chart';
+import {
+  TICK_CANDLE_MA_KEY,
+  TICK_CANDLE_UNIT_KEY,
+  readMaConfig,
+  toggleMaLine,
+  writeMaConfig,
+} from '@/lib/ticks/candle-prefs';
 import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
 import { tickBoundsOf } from '@/lib/ticks/tick-chart';
 import { TOUCH_HOLD_MS } from '@/lib/touch-inspect';
 import { SYNTH_DATE, SYNTH_ISIN, a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
 import { CandleChart } from '../candle-chart';
+import { TickTeamPanel } from '../tick-team-panel';
 
 /**
  * Phase 42 Plan 09 — 봉 차트 조작 · 겹침(D-19 · SC-6 · SC-4).
@@ -22,6 +40,12 @@ import { CandleChart } from '../candle-chart';
 
 const B = tickBoundsOf(SYNTH_DATE);
 const PD = candlePanelsOf(CANDLE_CHART.desktop);
+
+// 봉 단위 · 이동평균 기억(gh-radar:tick-candle-*)이 테스트 사이로 새지 않게(42-10)
+beforeEach(() => {
+  window.localStorage.clear();
+  prevApi.fetchPrevCloses.mockReset();
+});
 
 const krx = synthSession([
   [0, b6Msg({ seq: 100, ask1: [16400, 283], bid1: [16350, 121] })],
@@ -140,8 +164,8 @@ describe('조작 — 클릭 · 확대 · 키 · 커서', () => {
     fireEvent.pointerMove(svg, { clientX: cx, clientY: (PD.y2a + PD.y2b) / 2, pointerType: 'mouse' });
     expect(q('candle-chart-hover-line')).toHaveLength(1);
     const dots = Array.from(q('candle-chart-hover-dot'));
-    // 가격(종가) · 매수 · 거울 매도 · 순 · 팀 비중
-    expect(dots).toHaveLength(5);
+    // 가격(종가) · 수익률 판 당일(42-10) · 매수 · 거울 매도 · 순 · 팀 비중
+    expect(dots).toHaveLength(6);
     const px = dots.find((d) => d.getAttribute('fill') === 'var(--fg-2)')!;
     // 창 안 최저 = 종가 16,300 — 가격 축 최저 글자 y − 4 와 같다
     const axis = Array.from(q('candle-px-axis')[0]!.querySelectorAll('text'));
@@ -434,5 +458,267 @@ describe('겹침 — 폰 길게 누르기', () => {
     expect(onSeekMs).not.toHaveBeenCalled();
     expect(onJumpRec).not.toHaveBeenCalled();
     expect(q('candle-chart-tip')).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 42 Plan 10 — 결선(가격 판): 봉 단위 기억 · 자동(D-09 · SC-2) · 이동평균 켜진 선(D-10 · SC-3) · 일별 종가 한 번(D-11 · Q2 · Q5 · E6).
+ * 깨지면: 봉 단위 · 이동평균을 골라도 판이 그대로거나, 일 이동평균이 클릭마다 다시 받거나, 받는 중에 「모자라」 안내가 잘못 뜬다.
+ */
+const MIN_MS = 60_000;
+/** 13:00 ~ 13:29 분마다 체결 하나(1분봉 30개) — 종가 16,300 ~ 16,400 지그재그. */
+const maSess = synthSession(
+  Array.from({ length: 30 }, (_, i): [number, Uint8Array] => [
+    i * MIN_MS + 1_000,
+    a3Msg({
+      seq: 200 + i,
+      bs: i % 2 === 0 ? '2' : '1',
+      px: 16_300 + ((i * 37) % 11) * 10,
+      qty: 10,
+      time: `13${String(i).padStart(2, '0')}01000000`,
+    }),
+  ]),
+);
+const DAY20 = (on: boolean) => ({ v: 1 as const, lines: [{ base: 'day' as const, n: 20, kind: 'sma' as const, on, color: 1 }] });
+const PREV_OK = Array.from({ length: 239 }, () => 16_350);
+
+function renderMa(props: Partial<Props> = {}) {
+  const r = render(
+    <CandleChart session={maSess} cursorRec={maSess.index.n - 1} onSeekMs={vi.fn()} onJumpRec={vi.fn()} {...props} />,
+  );
+  const q = (slot: string) => r.container.querySelectorAll(`[data-slot="${slot}"]`);
+  const maKeys = () => Array.from(q('candle-ma-line')).map((e) => e.getAttribute('data-ma-key'));
+  const title = () => q('candle-price-title')[0]?.textContent ?? '';
+  const captions = () => Array.from(q('candle-caption-item')).map((e) => e.textContent ?? '');
+  return { ...r, q, maKeys, title, captions };
+}
+
+/** 끝을 밖에서 정하는 약속(받는 중 상태를 붙잡아 둔다). */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+describe('결선 · 가격 판 — 봉 단위 · 이동평균 · 일별 종가', () => {
+  it('기억 없음 · 하루 전체 → 판 제목 · svg 이름 「10분봉(자동)」 · 「1분」 → 「1분봉(자동)」', async () => {
+    const { q, getByRole, svg } = renderChart();
+    // 그림 폭 536(640 − L 52 − R 52) · 12시간 — 칸 4px 이상인 가장 작은 단위
+    expect(candleUnitLabelOf(autoUnitOf(B.T2000 - B.T0, 536), true)).toBe('10분봉(자동)');
+    const title = () => q('candle-price-title')[0]?.textContent ?? '';
+    expect(title().startsWith('10분봉(자동)')).toBe(true);
+    expect(svg.getAttribute('aria-label')).toContain('봉 차트 — 10분봉(자동) · 보기 창 하루 전체');
+    fireEvent.click(getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(title().startsWith('1분봉(자동)')).toBe(true));
+    expect(svg.getAttribute('aria-label')).toContain('1분봉(자동) · 보기 창 1분');
+  });
+
+  it('저장 「15」 → 「15분봉」(자동 꼬리표 없음) · 창을 바꿔도 15분봉 그대로', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '15');
+    const { q, getByRole, svg } = renderChart();
+    const title = () => q('candle-price-title')[0]?.textContent ?? '';
+    expect(title().startsWith('15분봉 ·')).toBe(true);
+    fireEvent.click(getByRole('button', { name: '1분' }));
+    await waitFor(() => expect(q('candle-chart-span')[0]!.textContent).toBe('1분'));
+    expect(title().startsWith('15분봉 ·')).toBe(true);
+    expect(svg.getAttribute('aria-label')).toContain('15분봉 · 보기 창 1분');
+  });
+
+  it('기본 구성 → 이동평균 선 2개(칩 순서) · 「단순 5」 끄기 → 1개 · 판 제목에서 빠짐 · 켜면 돌아온다', () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    const { maKeys, title } = renderMa();
+    expect(maKeys()).toEqual(['bar:sma:5', 'bar:sma:20']);
+    expect(title()).toContain('이동평균 단순 5 · 단순 20');
+    act(() => writeMaConfig(toggleMaLine(readMaConfig(), 'bar:sma:5')));
+    expect(maKeys()).toEqual(['bar:sma:20']);
+    expect(title()).not.toContain('단순 5');
+    expect(title()).toContain('단순 20');
+    expect(JSON.parse(window.localStorage.getItem(TICK_CANDLE_MA_KEY)!).lines[0]).toMatchObject({ n: 5, on: false });
+    act(() => writeMaConfig(toggleMaLine(readMaConfig(), 'bar:sma:5')));
+    expect(maKeys()).toEqual(['bar:sma:5', 'bar:sma:20']);
+  });
+
+  it('일 칩 하나(꺼짐) + 종목 코드 → 종가 239개를 한 번 · 받는 동안 일 선 · 안내 없음 · 받은 뒤 켜면 일 선', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(false)));
+    const d = deferred<number[]>();
+    prevApi.fetchPrevCloses.mockReturnValue(d.promise);
+    const { maKeys, captions } = renderMa({ stockCode: '005930' });
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledTimes(1);
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledWith('005930', SYNTH_DATE, 239, expect.any(AbortSignal));
+    // 받는 중에 켬 — 선 없음 · 「모자라」 안내 없음(E6 loading)
+    act(() => writeMaConfig(DAY20(true)));
+    expect(maKeys()).toEqual([]);
+    expect(captions().some((c) => c.startsWith('일 '))).toBe(false);
+    await act(async () => {
+      d.resolve(PREV_OK);
+      await d.promise;
+    });
+    await waitFor(() => expect(maKeys()).toEqual(['day:sma:20']));
+    expect(captions().some((c) => c.startsWith('일 '))).toBe(false);
+    // 켜고 꺼도 다시 받지 않는다(Q2)
+    act(() => writeMaConfig(DAY20(false)));
+    act(() => writeMaConfig(DAY20(true)));
+    expect(prevApi.fetchPrevCloses).toHaveBeenCalledTimes(1);
+  });
+
+  it('일별 종가 실패 → 일 선 없음 · 캡션 「일 이동평균 — 일별 종가를 불러오지 못했어요…」 · 봉은 그대로', async () => {
+    window.localStorage.setItem(TICK_CANDLE_UNIT_KEY, '1');
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(true)));
+    prevApi.fetchPrevCloses.mockRejectedValue(new Error('boom'));
+    const { maKeys, captions, q } = renderMa({ stockCode: '005930' });
+    await waitFor(() =>
+      expect(captions()).toContain('일 이동평균 — 일별 종가를 불러오지 못했어요(화면을 다시 열면 다시 불러와요)'),
+    );
+    expect(maKeys()).toEqual([]);
+    // 봉은 그대로(하루 전체 · 1분 칸 < 3px 라 꼬리만)
+    const wicks = (q('candle-wick-up')[0]!.getAttribute('d') ?? '') + (q('candle-wick-down')[0]!.getAttribute('d') ?? '');
+    expect(wicks).not.toBe('');
+  });
+
+  it('종목 코드 없음 → 요청 0 · 캡션 「일 20 — 지난 거래일 종가가 모자라 그리지 않아요」', () => {
+    window.localStorage.setItem(TICK_CANDLE_MA_KEY, JSON.stringify(DAY20(true)));
+    const { captions, maKeys } = renderMa({ stockCode: null });
+    expect(prevApi.fetchPrevCloses).not.toHaveBeenCalled();
+    expect(captions()).toContain('일 20 — 지난 거래일 종가가 모자라 그리지 않아요');
+    expect(maKeys()).toEqual([]);
+  });
+
+  it('일 칩이 없으면 종목 코드가 있어도 요청 0', () => {
+    renderMa({ stockCode: '005930' });
+    expect(prevApi.fetchPrevCloses).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Phase 42 Plan 10 — 결선(수익률 판 · 아래 세 판 · 값 띠 · 캡션 · D-12 ~ D-15 · D-17 · D-19 · D-20 · SC-4 · SC-5).
+ * 깨지면: 봉 차트에 수익률 판 · 순매수 판이 비거나, 값 띠가 없거나, 누적 선 · 캡션이 당일 · 미등록에서도 뜨거나 과거에서 빠진다.
+ */
+/** 과거 하루 accum — pos_net 두 점 · 누적 평단 계단(09:01 · 13:00:00.003 — 둘째 계단은 체결 사이라 누적 수익률 점이 둘). */
+const ACCUM_CUM: NonNullable<TickOpenResponse['accum']> = {
+  reg_time_ms: B.T0900,
+  pos_net: { t_ms: [B.T0900 + 60_000, B.T0900 + 3_600_000], net_krw: [1_240_000_000, 1_300_000_000], cycle: [1, 1] },
+  avg_px: { t_ms: [B.T0900 + 60_000, synthAt(3)], px: [16_380, 16_390] },
+};
+
+describe('결선 · 수익률 · 띠 · 캡션', () => {
+  it('팀 매수 있는 세션 → 수익률 판 당일 선 · 아래 판 순매수 계단 · 값 띠 4칸이 제목 줄 아래 · 차트 위', () => {
+    const { q } = renderChart();
+    expect(q('candle-ret-day')[0]?.getAttribute('d') ?? '').toMatch(/^M/);
+    const lower = q('candle-lower-layers')[0]!;
+    expect(lower.querySelector('[data-slot="candle-day-path"]')).not.toBeNull();
+    const band = q('candle-chart-band')[0]!;
+    expect(band.querySelectorAll('[data-slot="candle-band-cell"]')).toHaveLength(4);
+    expect(band.getAttribute('data-live')).toBe('1');
+    const wrap = q('candle-chart-wrap')[0]!;
+    expect(band.compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrap.contains(band)).toBe(false);
+  });
+
+  it('과거 + accum(pos_net · avg_px) → 누적 수익률 선 · 누적 평단 점선 · 띠 「누적 평단」 · 캡션 누적 문구', () => {
+    const { q } = renderChart({ accum: ACCUM_CUM });
+    expect(q('candle-ret-cum')[0]?.getAttribute('d') ?? '').toMatch(/^M/);
+    expect(q('candle-cum-avg')).toHaveLength(1);
+    expect(q('candle-chart-band')[0]!.textContent).toContain('누적 평단');
+    const items = Array.from(q('candle-caption-item')).map((e) => e.textContent);
+    expect(items).toContain('누적 = 매집감지 보고서 값 · 우리 체결 제외');
+  });
+
+  it('NXT 세션이면 캡션 누적 문구 끝에 「 · KRX+NXT 합산」', () => {
+    const nxt = synthSession(
+      [[1, a3Msg({ seq: 1, bs: '2', px: 16400, qty: 100, time: '130000001000', nxt: true })]],
+      'NXT',
+    );
+    const r = render(
+      <CandleChart session={nxt} cursorRec={0} accum={ACCUM_CUM} onSeekMs={vi.fn()} onJumpRec={vi.fn()} />,
+    );
+    const items = Array.from(r.container.querySelectorAll('[data-slot="candle-caption-item"]')).map((e) => e.textContent);
+    expect(items).toContain('누적 = 매집감지 보고서 값 · 우리 체결 제외 · KRX+NXT 합산');
+  });
+
+  it('당일(isToday) → 누적 수익률 · 누적 평단 · 띠 누적 줄 · 캡션 누적 항목 없음 · accum null(과거) → 「누적 자료 없음(매집감지 미등록)」', () => {
+    const today = renderChart({ accum: ACCUM_CUM, isToday: true });
+    expect(today.q('candle-ret-cum')).toHaveLength(0);
+    expect(today.q('candle-cum-avg')).toHaveLength(0);
+    expect(today.q('candle-chart-band')[0]!.textContent).not.toContain('누적 평단');
+    // 캡션에는 봉이 모자란 이동평균 안내(단순 5 · 단순 20 — 봉 하나)만 남는다
+    expect(Array.from(today.q('candle-caption-item')).map((e) => e.textContent)).toEqual([
+      '단순 5 — 이 봉 단위로는 봉이 모자라 그리지 않아요',
+      '단순 20 — 이 봉 단위로는 봉이 모자라 그리지 않아요',
+    ]);
+    // 나머지(당일 수익률 · 아래 판)는 그대로
+    expect(today.q('candle-ret-day')).toHaveLength(1);
+    today.unmount();
+    const none = renderChart({ accum: null });
+    expect(none.q('candle-ret-cum')).toHaveLength(0);
+    expect(Array.from(none.q('candle-caption-item')).map((e) => e.textContent)[0]).toBe('누적 자료 없음(매집감지 미등록)');
+  });
+
+  it('마우스를 수익률 판 위에 두면 값 점에 당일(--team) 점이 그 판 안에 · 띠는 그 시각 · 떠나면 현재 틱', () => {
+    const { q, svg } = renderChart({ accum: ACCUM_CUM });
+    const band = () => q('candle-chart-band')[0]!;
+    fireEvent.pointerMove(svg, { clientX: X1300 + 0.3, clientY: (PD.yRa + PD.yRb) / 2, pointerType: 'mouse' });
+    const dots = Array.from(q('candle-chart-hover-dot'));
+    const inRet = (d: Element) => {
+      const cy = Number(d.getAttribute('cy'));
+      return cy >= PD.yRa && cy <= PD.yRb;
+    };
+    expect(dots.filter((d) => inRet(d) && d.getAttribute('fill') === 'var(--team)')).toHaveLength(1);
+    expect(dots.filter((d) => inRet(d) && d.getAttribute('fill') === 'var(--muted-fg)')).toHaveLength(1);
+    expect(band().getAttribute('data-live')).toBeNull();
+    fireEvent.pointerLeave(svg);
+    expect(band().getAttribute('data-live')).toBe('1');
+    expect(q('candle-chart-hover-dot')).toHaveLength(0);
+  });
+
+  it('폰(303) + 우리 점 → 캡션 줄 첫 항목 「◆ 우리 체결」 · 데스크톱 순서 = 구간 합계 줄 → 캡션 → 안내 줄', () => {
+    const ph = renderChart({ height: 303, own: krxOwn, accum: null });
+    const cap = ph.q('candle-chart-caption')[0]!;
+    expect(cap.firstElementChild!.getAttribute('data-slot')).toBe('candle-caption-own');
+    expect(cap.firstElementChild!.textContent).toContain('우리 체결');
+    expect(ph.q('candle-chart-hint')).toHaveLength(0);
+    // 폰 제목 줄은 두 줄(D-21) — 우리 범례는 제목 줄에 없고 캡션 줄에만
+    expect(ph.q('candle-chart-title')[0]!.getAttribute('data-dims')).toBe('phone');
+    expect(ph.q('candle-chart-own-legend')).toHaveLength(0);
+    ph.unmount();
+
+    const desk = renderChart({ accum: null });
+    // Shift+끌기로 구간 합계 줄을 만든다
+    const drag = (x0: number, x1: number) => {
+      fireEvent.pointerDown(desk.svg, { shiftKey: true, button: 0, pointerType: 'mouse', pointerId: 1, clientX: x0, clientY: 50 });
+      fireEvent.pointerMove(desk.svg, { shiftKey: true, pointerType: 'mouse', pointerId: 1, clientX: x1, clientY: 50 });
+      fireEvent.pointerUp(desk.svg, { shiftKey: true, button: 0, pointerType: 'mouse', pointerId: 1, clientX: x1, clientY: 50 });
+    };
+    drag(X1300 - 20, X1300 + 20);
+    const rng = desk.q('tick-chart-range')[0]!;
+    const capD = desk.q('candle-chart-caption')[0]!;
+    const hint = desk.q('candle-chart-hint')[0]!;
+    expect(rng.compareDocumentPosition(capD) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(capD.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 데스크톱 우리 범례는 캡션 줄에 없다(제목 줄 · 42-07)
+    expect(capD.querySelector('[data-slot="candle-caption-own"]')).toBeNull();
+  });
+});
+
+/**
+ * Phase 42 SC-4 · D-14 · Q3 — 현재 틱(마우스 없음)일 때 봉 차트 값 띠 수익률 글자 = 팀 거래정보 패널 「평단 대비 수익률」 글자.
+ * 깨지면: 같은 커서에서 띠와 패널이 다른 수익률을 보여 준다.
+ */
+describe('패널 — 띠 수익률 = 팀 거래정보 패널', () => {
+  it.each([
+    ['팀 매수 뒤(seq 105)', 105],
+    ['팀 매도 뒤(seq 107)', 107],
+    ['팀 첫 매수 전(seq 100) — 둘 다 「—」', 100],
+  ])('%s', (_name, seq) => {
+    const rec = recOfSeq(krx, seq);
+    const panel = render(<TickTeamPanel session={krx} cursorRec={rec} />).container;
+    const want = panel.querySelector('[data-slot="tick-team-ret"]')!.textContent;
+    const chart = renderChart({ cursorRec: rec });
+    const got = chart.q('candle-band-ret')[0]!.textContent;
+    expect(got).toBe(want);
+    if (seq === 100) expect(got).toBe('—');
+    else expect(got).not.toBe('—');
   });
 });

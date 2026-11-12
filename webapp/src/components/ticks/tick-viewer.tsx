@@ -88,6 +88,8 @@ export interface TickViewerProps {
   onOwn?: (s: OwnNavState | null) => void;
   /** 우리 체결 다시 받기 키(38-08 · 당일 「최신 받기」) — 바뀔 때마다 `/api/ticks/own` 1회. 과거 격자는 넘기지 않는다(= 0 · 열 때 1회). */
   ownRefreshKey?: number;
+  /** 종목 코드(열기 응답 `stock.code` · Phase 42 D-11) — 봉 차트 일 이동평균 종가 요청. 없으면 null(요청 없음). */
+  stockCode?: string | null;
 }
 
 export interface TickViewerLive {
@@ -319,6 +321,7 @@ export function TickViewer({
   live,
   onOwn,
   ownRefreshKey = 0,
+  stockCode = null,
 }: TickViewerProps) {
   const cursor = useTickCursor(session, { initialT, initialK, urlState, live: live !== undefined });
   const { rec, atEnd } = cursor;
@@ -538,6 +541,9 @@ export function TickViewer({
           onOwnJump={onChartOwnJump}
           onOwnFillLine={onChartOwnFillLine}
           titleAddon={kindAddon}
+          stockCode={stockCode}
+          initialView={switchView ?? undefined}
+          onViewChange={onViewChange}
         />
       ) : (
         <TickChart

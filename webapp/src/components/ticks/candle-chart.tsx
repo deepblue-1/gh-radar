@@ -22,16 +22,23 @@ import { panBy, priceAxisWidthOf, type View } from '@/lib/accum-chart';
 import { kstClock } from '@/lib/limitup-report';
 import {
   CANDLE_CHART,
-  candleBaseOf,
-  candleIdxAt,
+  autoUnitOf,
   candlePanelsOf,
   candleRangeOf,
+  candlesOf,
   candleUnitLabelOf,
   candleYOf,
   cumAvgPointsOf,
   type CandleFrame,
+  type CandleUnit,
 } from '@/lib/ticks/candle-chart';
+import { maKeyOf, maNameOf, maStatusOf, maValuesOf, type CandleMaValue } from '@/lib/ticks/candle-ma';
+import { candleBandAt, candleCaptionOf } from '@/lib/ticks/candle-readout';
+import { cumReturnPointsOf, dayReturnPointsOf, returnScalesOf } from '@/lib/ticks/candle-returns';
 import type { OwnModel } from '@/lib/ticks/own-model';
+import { useCandleUnitPref, useMaConfig } from '@/lib/ticks/use-candle-prefs';
+import { usePrevCloses } from '@/lib/ticks/use-prev-closes';
+import { useViewSync, type ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import {
   OWN_MARK_R,
   TICK_CHART,
@@ -45,6 +52,7 @@ import {
   msOfNs,
   ownMarkAt,
   ownMarksOf,
+  priceIdxAt,
   priceSeriesOf,
   tOfTick,
   tickBoundsOf,
@@ -59,7 +67,6 @@ import {
 } from '@/lib/ticks/tick-chart';
 import {
   nearestTickCircleOf,
-  tickBandAt,
   tickCirclesOf,
   tickHoverWithOwn,
   tickOrderHoverOf,
@@ -71,7 +78,12 @@ import type { TickSession } from '@/lib/ticks/tick-session';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
+import { CandleChartBand } from './candle-chart-band';
+import { CandleChartCaption } from './candle-chart-caption';
+import { CandleChartTitle } from './candle-chart-title';
+import { CandleLowerLayers } from './candle-lower-layers';
 import { CandlePriceLayer } from './candle-price-layer';
+import { CandleReturnLayer } from './candle-return-layer';
 import { OwnDiamond, TickGroupBox } from './tick-chart';
 import { TickChartRange } from './tick-chart-range';
 
@@ -80,15 +92,21 @@ import { TickChartRange } from './tick-chart-range';
  *
  * ① 판(위 → 아래): 가격(봉 + 안쪽 거래대금 막대 · 160 / 폰 110) · 수익률(50 / 36) · 당일 팀 순매수 · 10분 팀 매수/매도 · 누적
  *   거래대금 — 전체 420 / 폰 303(`CANDLE_CHART`). 틱 선은 그리지 않는다(D-08).
- * ② 레이어: 장전 음영 · 빈 띠 · VI 띠(다섯 판 공통) → 시각 격자 → 가격 판 층(`CandlePriceLayer` — 봉 · 누적 평단) → 구간 띠 ·
- *   알약 → 마우스 세로선 · 값 점 → 현재 틱 커서 → 판 아래선 · 시각 눈금 · 커서 시각 라벨.
+ * ② 레이어: 장전 음영 · 빈 띠 · VI 띠(다섯 판 공통) → 시각 격자 → 가격 판 층(`CandlePriceLayer` — 거래대금 막대 · 봉 · 이동평균 ·
+ *   팀 평단 · 누적 평단 · 판 제목) → 수익률 판(`CandleReturnLayer`) → 아래 세 판(`CandleLowerLayers`) → 구간 띠 · 알약 → 마우스
+ *   세로선 · 값 점 → 현재 틱 커서 → 판 아래선 · 시각 눈금 · 커서 시각 라벨. 카드 = 제목 줄(`CandleChartTitle`) → 값 띠
+ *   (`CandleChartBand`) → 차트 → 구간 합계 줄 → 캡션 줄(`CandleChartCaption`) → (데스크톱) 안내 줄.
+ * ②′ 결선(42-10): 봉 단위 = 기억(`useCandleUnitPref`) · 「자동」 이면 창이 바뀔 때마다 `autoUnitOf` · 이동평균 = 기억 구성 중 켜진
+ *   선(칩 순서) · 일 칩이 있으면 앞 거래일 종가를 (코드, 날짜)마다 한 번(`usePrevCloses`) · 보기 창은 `useViewSync` 로 선 차트와
+ *   주고받는다(D-24 — 뷰어 상태로 올리지 않는다). 봉 · 이동평균 · 수익률 점은 메모(마우스 상태 무관 · SC-7).
  * ③ 조작(D-19 · SC-6 — 선 차트 조작 골격을 그대로 복제하고 판 경계만 `CandlePanels`): 휠 = 확대/축소 · 끌기 · 핀치 = 이동
  *   (`useChartGestures` · 최소 창 10초) · 클릭 = 그 시각 이후 첫 틱(`onSeekMs` · 4px 넘게 움직였으면 끌기) · `+ − 0` 키(← → 는
  *   커서 이동이라 가로채지 않는다 · 키는 래퍼에만 — 제목 줄 조작은 래퍼 밖, Pitfall 12) · 「확대 · 축소 · 전체 · 1분 · 10초」 버튼 ·
  *   Shift+끌기 = 구간 합계(데스크톱 마우스만 · 결과는 차트 아래 `TickChartRange` · 끄는 동안 창은 안 움직인다 · Esc/✕/빈 곳 클릭 =
  *   지움 — 그 클릭은 시각 이동 아님) · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
- * ④ 마우스 세로선 + 값 점(UI-SPEC S7) — 호버 중이고 끌기 중이 아닐 때만. 가격 판 점 = 그 시각 봉의 종가(`--fg-2`) · 순매수 판
- *   매수 `--up` · 매도 `--down` · 순 `--team` · 누적 `--muted-fg` · 넷째 판 팀 비중 `--team`(선 차트 `tickBandAt` 값 그대로).
+ * ④ 마우스 세로선 + 값 점(UI-SPEC S7) — 호버 중이고 끌기 중이 아닐 때만. 가격 판 점 = 그 시각 봉의 종가(`--fg-2`) · 수익률 판
+ *   당일 `--team` · 누적 `--muted-fg` · 순매수 판 매수 `--up` · 매도 `--down` · 순 `--team` · 누적 `--muted-fg` · 넷째 판 팀 비중
+ *   `--team`(값은 값 띠 `candleBandAt` 하나 — 아래 판은 그 안의 선 차트 `tickBandAt` 값 그대로).
  * ⑤ 겹침(38 D-08 · D-10 · SC-4) — 팀 주문 원(매수 빨강 · 매도 파랑 · 크기 = 금액 · 커서가 든 주문 `--fg` 고리) · 우리 ○ 근거 →
  *   ◇ 짝 없음 → ◆ 체결이 `CandlePriceLayer` children(가격 판 높이 클립)에 봉 영역 y(`candleYOf`)로 겹친다. 원 · 우리 점 위 마우스
  *   (폰은 길게 누르기 `createTouchInspect` 300ms — 그동안 한 손가락 끌기는 창을 옮기지 않고 떼도 커서를 옮기지 않는다) = 원 옆 상자
@@ -119,6 +137,12 @@ export interface CandleChartProps {
   onOwnFillLine?: (fillId: number) => void;
   /** 제목 「타임라인」 바로 뒤 덧붙임 — 차트 종류 스위치(D-05). */
   titleAddon?: (phone: boolean) => ReactNode;
+  /** 종목 코드(열기 응답 `stock.code`) — 일 이동평균 앞 거래일 종가를 받는다. 없으면 요청 없이 「종가가 모자라」 안내(D-11 · Q5). */
+  stockCode?: string | null;
+  /** 처음 보기 창(D-24 — 마운트 때 한 번만 · 안 주면 하루 전체). 선 차트에서 바꿔 올 때 그 창. */
+  initialView?: ChartViewSnap;
+  /** 보기 창이 바뀔 때마다(반영 뒤에만) — 뷰어가 렌더 없는 ref 에 쥔다. */
+  onViewChange?: (v: ChartViewSnap) => void;
   className?: string;
 }
 
@@ -159,6 +183,9 @@ export function CandleChart({
   onOwnJump,
   onOwnFillLine,
   titleAddon,
+  stockCode = null,
+  initialView,
+  onViewChange,
   className,
 }: CandleChartProps) {
   const [wrapRef, W] = useChartWidth<HTMLDivElement>();
@@ -169,6 +196,8 @@ export function CandleChart({
   const series = priceSeriesOf(session);
   const lastTradeMs = useMemo(() => lastTradeMsOfSession(session), [session]);
   const ctl = useChartView({ bounds, lastTradeMs, minViewMs: TICK_CHART.MIN_VIEW_MS });
+  // 보기 창 주고받기(D-24 · 선 차트와 같은 훅) — 받은 창이 반영되기 전에는 svg 를 숨긴다(하루 전체가 한 프레임 비치지 않게)
+  const { pending } = useViewSync(ctl, initialView, onViewChange);
   const { view } = ctl;
 
   const phone = height === undefined ? W < TICK_CHART.PHONE_MAX_W : height === CANDLE_CHART.phone.H;
@@ -272,10 +301,31 @@ export function CandleChart({
   }, [cursorMs, schedule]);
 
   const x = useMemo(() => xOfTick(view, L, xr), [view, L, xr]);
-  const candles = candleBaseOf(session);
+
+  // 봉 단위(D-09 · SC-2) — 기억한 값 · 「자동」 이면 보기 창이 바뀔 때마다 칸 폭 4px 규칙으로 다시 고른다(고정 단위는 그대로).
+  // 단위 · 창은 이 컴포넌트 안에서만 — 뷰어 상태로 올리지 않는다(휠마다 뷰어 재렌더 금지 · UI-SPEC S1).
+  const [unitPref, setUnitPref] = useCandleUnitPref();
+  const unit: CandleUnit = unitPref === 'auto' ? autoUnitOf(view.t1 - view.t0, plotW) : unitPref;
+  const unitLabel = candleUnitLabelOf(unit, unitPref === 'auto');
+  // 봉 집계는 (세션, 단위)마다 1회(42-01 캐시 — 같은 객체를 돌려준다)
+  const candles = candlesOf(session, unit);
   const range = useMemo(() => candleRangeOf(candles, view), [candles, view]);
   const y = useMemo(() => candleYOf(range, P), [range, P]);
   const cumAvg = useMemo(() => cumAvgPointsOf(accum, isToday), [accum, isToday]);
+
+  // 이동평균(D-10 · D-11 · SC-3) — 기억한 구성 중 켜진 선만 칩 순서로. 일 칩이 하나라도 있으면(켜짐 무관) 앞 거래일 종가를
+  // (코드, 날짜)마다 한 번 받는다(Q2 — 칩을 켜고 꺼도 다시 받지 않는다). 받는 중 · 실패 · 코드 없음 = 일 선 값 전부 NaN(선 없음).
+  const [maCfg, setMaCfg] = useMaConfig();
+  const hasDayLine = maCfg.lines.some((l) => l.base === 'day');
+  const prev = usePrevCloses(stockCode, session.date, hasDayLine);
+  const maOn = useMemo(() => maCfg.lines.filter((l) => l.on), [maCfg]);
+  const ma = useMemo<CandleMaValue[]>(
+    () =>
+      maOn.map((l) => ({ key: maKeyOf(l), name: maNameOf(l), color: l.color, values: maValuesOf(l, candles.c, prev) })),
+    [maOn, candles, prev],
+  );
+  // 범례 「◆ 우리 체결 · ○ 조건 근거」 — 하루에 우리 점이 하나라도 있을 때(창과 무관 · 선 차트와 같은 식)
+  const ownLegend = own !== null && (own.fills.length > 0 || own.orders.some((o) => o.evidenceRec >= 0));
   const endMs = lastRecvMsOf(session) ?? bounds.T2000;
   const frame: CandleFrame = { W, P, L, xr, plotW, phone, view, x, bounds, endMs };
 
@@ -290,7 +340,19 @@ export function CandleChart({
   const pre = band(bounds.T0, bounds.T0900);
   const gap = band(bounds.T1530, bounds.T1600);
 
-  // 값 점 입력 — 선 차트와 같은 팀 · 누적 · 거래대금 계열(아래 판 그리기는 42-05 · 42-10)
+  // 수익률 판(D-12 ~ D-14 · SC-4) — 당일(패널과 같은 `teamKpiAt` 수익률) · 누적(D-15 · 미실현) 점과 두 눈금. 마우스 · 터치 상태는
+  // 키에 없다(SC-7 — 마우스 이동 재렌더는 세로선 · 점 · 띠만 바꾼다). 커서 점은 창 밖이어도 `day` 에 들어가므로(값 점 · 띠 공유),
+  // 눈금은 창 밖 커서 점을 뺀 점으로 잡는다(42-05 계약) — 창 왼쪽 끝으로 이어지는 열 샘플 값은 둔다(빈 창에서 선이 사라지지 않게).
+  const day = useMemo(() => dayReturnPointsOf(session, view, plotW, cursorRec), [session, view, plotW, cursorRec]);
+  const cursorInView = cursorMs !== null && cursorMs >= view.t0 && cursorMs <= view.t1;
+  const dayScalePts = useMemo(
+    () => (cursorInView ? day : dayReturnPointsOf(session, view, plotW, -1)),
+    [cursorInView, day, session, view, plotW],
+  );
+  const cumRet = useMemo(() => cumReturnPointsOf(session, view, plotW, cumAvg), [session, view, plotW, cumAvg]);
+  const scales = useMemo(() => returnScalesOf(dayScalePts, cumRet, P.yRa, P.yRb), [dayScalePts, cumRet, P]);
+
+  // 값 점 · 값 띠 입력 — 선 차트와 같은 팀 · 누적 · 거래대금 계열(아래 판 그리기는 `CandleLowerLayers` — 같은 함수)
   const team = session.team;
   const cumPts = useMemo(() => cumPointsOf(accum, isToday), [accum, isToday]);
   const dayRange = useMemo(() => dayNetRangeOf(team), [team]);
@@ -300,6 +362,19 @@ export function CandleChart({
   const turnover = turnoverSeriesOf(session);
   const mcap = marketCapOf(session.basePx, listingShares);
   const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
+
+  // 카드 아래 캡션(D-17 · UI-SPEC S9) — 누적 캡션 → 켜진 선 중 그릴 수 없는 선의 이유(받는 중 · 그림 = 안내 없음)
+  const captionItems = useMemo(
+    () =>
+      candleCaptionOf({
+        accum,
+        isToday,
+        hasCum: cumPts.length > 0 || cumAvg.length > 0,
+        nxt: session.ex === 'NXT',
+        ma: maOn.map((l) => ({ name: maNameOf(l), status: maStatusOf(l, candles.n, prev) })),
+      }),
+    [accum, isToday, cumPts, cumAvg, session.ex, maOn, candles, prev],
+  );
 
   // 팀 주문 원 · 우리 점 — 봉 영역 y(`candleYOf`)로 봉과 같은 시간축 · 같은 가격 눈금에 겹친다(SC-4)
   const circles = tickCirclesOf(team, view, x, y);
@@ -328,28 +403,47 @@ export function CandleChart({
         ? { ...hover.box, ax: hover.mx, ay: hover.my, touch: false }
         : null;
 
-  // 띠 시각 — 터치(손가락 x · 그림 영역으로 자름) ?? 마우스 ?? 현재 틱(값 띠 자체는 42-10)
+  // 값 띠(D-20 · UI-SPEC S8) — 시각 = 터치(손가락 x · 그림 영역으로 자름) ?? 마우스 ?? 현재 틱. 현재 틱(live)이면 커서 rec 로
+  // 팀 KPI 를 잘라 패널과 같은 수익률 글자 · 마우스면 그 시각 이하 마지막 가격 점 rec.
   const touchT = touchPt === null ? null : tAt(Math.min(xr, Math.max(L, mxOf(touchPt))));
   const hoverT = touchT ?? (hover !== null ? tAt(hover.mx) : null);
   const bandT = hoverT ?? cursorMs;
+  const bandLive = hoverT === null;
+  let bandRec = cursorRec;
+  if (!bandLive && bandT !== null) {
+    const pi = priceIdxAt(series, bandT);
+    bandRec = pi >= 0 ? series.rec[pi]! : -1;
+  }
   const bandVal =
     bandT === null
       ? null
-      : tickBandAt({ team, cum: cumPts, price: series, turnover, basePx: session.basePx, mcap, T0: bounds.T0 }, bandT);
+      : candleBandAt(
+          {
+            session,
+            candles,
+            ma,
+            cumAvg,
+            tick: { team, cum: cumPts, price: series, turnover, basePx: session.basePx, mcap, T0: bounds.T0 },
+          },
+          bandT,
+          bandRec,
+        );
 
-  // 세로선 · 값 점 — 호버나 터치가 있고 끌기 중이 아닐 때만 · 가격 판 = 그 시각 봉의 종가
+  // 세로선 · 값 점 — 호버나 터치가 있고 끌기 중이 아닐 때만 · 가격 판 = 그 시각 봉의 종가 · 수익률 판 = 당일(--team) · 누적(--muted-fg)
   const hoverLine = hoverT !== null && !dragging ? x(hoverT) : null;
   const hoverDots: { y: number; c: string }[] = [];
-  if (hoverLine !== null && hoverT !== null && bandVal !== null) {
-    const ci = candleIdxAt(candles, hoverT);
-    if (ci >= 0) hoverDots.push({ y: y(candles.c[ci]!), c: 'var(--fg-2)' });
-    if (bandVal.hasTeam) {
-      hoverDots.push({ y: yN(bandVal.dayBuy), c: 'var(--up)' });
-      hoverDots.push({ y: yN(-bandVal.daySell), c: 'var(--down)' });
-      hoverDots.push({ y: yN(bandVal.dayNet), c: 'var(--team)' });
+  if (hoverLine !== null && bandVal !== null) {
+    const tb = bandVal.tick;
+    if (bandVal.candle !== null) hoverDots.push({ y: y(bandVal.candle.c), c: 'var(--fg-2)' });
+    if (bandVal.ret !== null) hoverDots.push({ y: scales.yDay(bandVal.ret), c: 'var(--team)' });
+    if (bandVal.cumRet !== null && scales.yCum !== null) hoverDots.push({ y: scales.yCum(bandVal.cumRet), c: 'var(--muted-fg)' });
+    if (tb.hasTeam) {
+      hoverDots.push({ y: yN(tb.dayBuy), c: 'var(--up)' });
+      hoverDots.push({ y: yN(-tb.daySell), c: 'var(--down)' });
+      hoverDots.push({ y: yN(tb.dayNet), c: 'var(--team)' });
     }
-    if (bandVal.hasCum && bandVal.cum !== null) hoverDots.push({ y: yC(bandVal.cum), c: 'var(--muted-fg)' });
-    if (tv.share !== '' && bandVal.share !== null) hoverDots.push({ y: yOfShare(tv.shareTop, P)(bandVal.share), c: 'var(--team)' });
+    if (tb.hasCum && tb.cum !== null) hoverDots.push({ y: yC(tb.cum), c: 'var(--muted-fg)' });
+    if (tv.share !== '' && tb.share !== null) hoverDots.push({ y: yOfShare(tv.shareTop, P)(tb.share), c: 'var(--team)' });
   }
 
   // 구간 — 끄는 중이면 그것, 아니면 확정 구간. 합계는 구간 값이 바뀔 때만 다시 센다.
@@ -520,41 +614,33 @@ export function CandleChart({
     schedule((v) => ({ t0: c - (c - v.t0) * k, t1: c + (v.t1 - c) * k }));
   };
 
-  const btn =
-    'rounded-full px-2 py-0.5 text-[11px] font-semibold text-[var(--fg-2)] hover:bg-[var(--muted)] focus-visible:bg-[var(--muted)]';
   const span = view.t1 - view.t0;
   const cursorLabel = cursorMs === null ? '' : kstClock(cursorMs);
   const curLabW = 58;
-  const unitLabel = candleUnitLabelOf(candles.unit, false);
   const plotH = P.y4b - P.y1a;
 
   return (
     <section data-slot="candle-chart" aria-label="봉 차트" className={cn(CARD, 'min-w-0 overflow-hidden', className)}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-[7px]">
-        <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
-        {titleAddon?.(phone)}
-        {/* 창 폭 글자 · 확대 버튼 — 42-10 이 CandleChartTitle(같은 버튼 이름)로 바꾼다 · 래퍼 밖(Pitfall 12) */}
-        <span className="ml-auto flex items-center gap-0.5">
-          <span data-slot="candle-chart-span" className="mono px-1.5 text-[11px] text-[var(--muted-fg)]">
-            {fmtSpan(span)}
-          </span>
-          <button type="button" className={btn} aria-label="확대" title="확대 (+)" onClick={() => zoomBy(0.5)}>
-            ＋
-          </button>
-          <button type="button" className={btn} aria-label="축소" title="축소 (−)" onClick={() => zoomBy(2)}>
-            －
-          </button>
-          <button type="button" className={btn} title="하루 전체 (0)" onClick={() => ctl.setPreset('full')}>
-            전체
-          </button>
-          <button type="button" className={btn} onClick={() => zoomTo(60_000)}>
-            1분
-          </button>
-          <button type="button" className={btn} onClick={() => zoomTo(10_000)}>
-            10초
-          </button>
-        </span>
-      </div>
+      {/* 제목 줄(D-05 · D-21 — 데스크톱 한 줄 · 폰 두 줄) · 래퍼 밖이라 키 처리와 겹치지 않는다(Pitfall 12) */}
+      <CandleChartTitle
+        phone={phone}
+        kindSwitch={titleAddon?.(phone)}
+        unitPref={unitPref}
+        currentUnit={unit}
+        onUnit={setUnitPref}
+        ma={maCfg}
+        onMa={setMaCfg}
+        ownLegend={ownLegend}
+        spanLabel={fmtSpan(span)}
+        onZoomIn={() => zoomBy(0.5)}
+        onZoomOut={() => zoomBy(2)}
+        onFull={() => ctl.setPreset('full')}
+        onMinute={() => zoomTo(60_000)}
+        onTenSec={() => zoomTo(10_000)}
+      />
+
+      {/* 값 띠 A 4칸(제목 줄 바로 아래 · 높이 고정) — 마우스 = 그 시각 · 떼면 현재 틱 */}
+      <CandleChartBand band={bandVal} live={bandLive} phone={phone} />
 
       <div
         ref={wrapRef}
@@ -578,7 +664,12 @@ export function CandleChart({
             'block tabular-nums',
             draft !== null ? 'cursor-col-resize' : dragging ? 'cursor-grabbing' : 'cursor-crosshair',
           )}
-          style={{ touchAction: 'pan-y', userSelect: 'none', WebkitUserSelect: 'none' }}
+          style={{
+            touchAction: 'pan-y',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            visibility: pending ? 'hidden' : undefined,
+          }}
           fontSize={11}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -644,7 +735,18 @@ export function CandleChart({
           </g>
 
           {/* ① 가격 판 — 봉 · 누적 평단 · 가격 축 + children(가격 판 높이 클립) = 팀 주문 원 · 고리 · 우리 점 */}
-          <CandlePriceLayer frame={frame} candles={candles} range={range} y={y} cumAvg={cumAvg} clipId={clipId}>
+          <CandlePriceLayer
+            frame={frame}
+            candles={candles}
+            range={range}
+            y={y}
+            cumAvg={cumAvg}
+            clipId={clipId}
+            ma={ma}
+            team={team}
+            unitLabel={unitLabel}
+            ownInTitle={ownLegend}
+          >
             {circles.map(({ o, cx: ox, cy: oy, r }) => {
               const color = o.side === 'B' ? 'var(--up)' : 'var(--down)';
               const on = o.order.id === curOrder;
@@ -713,6 +815,18 @@ export function CandleChart({
               ),
             )}
           </CandlePriceLayer>
+
+          {/* ② 수익률 판 — 당일 · 누적 · 0% 한 줄 · 두 눈금(자기 클립) */}
+          <CandleReturnLayer frame={frame} day={day} cum={cumRet} scales={scales} clipId={clipId} />
+          {/* ③ ~ ⑤ 아래 세 판 — 순매수 · 10분 · 누적 거래대금(선 차트와 같은 함수 · 자기 클립) */}
+          <CandleLowerLayers
+            frame={frame}
+            session={session}
+            accum={accum}
+            isToday={isToday}
+            listingShares={listingShares}
+            clipId={clipId}
+          />
 
           <g clipPath={`url(#${clipId})`}>
             {/* 구간 띠 · 순매수 알약(스케치 028 ③ · 알약은 수익률 판 위 — 끄는 중이면 그 구간 · 아니면 확정 구간) */}
@@ -868,6 +982,7 @@ export function CandleChart({
 
       {/* 구간 결과 · 안내 — 차트 아래에만(손을 떼도 차트가 밀리지 않는다) */}
       {rngSum !== null && <TickChartRange sum={rngSum} dragging={draft !== null} onClear={clearRange} />}
+      <CandleChartCaption phone={phone} ownLegend={ownLegend} items={captionItems} />
       {!phone && (
         <div
           data-slot="candle-chart-hint"

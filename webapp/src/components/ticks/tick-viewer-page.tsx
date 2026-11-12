@@ -633,6 +633,7 @@ export function TickViewerPage() {
               accum={view.resp.accum}
               isToday
               listingShares={view.resp.stock?.listing_shares ?? null}
+              stockCode={view.resp.stock?.code ?? null}
               live={liveViewer}
             />
           </section>
@@ -688,6 +689,7 @@ export function TickViewerPage() {
               accum={view.resp.accum}
               isToday={view.resp.date === today}
               listingShares={view.resp.stock?.listing_shares ?? null}
+              stockCode={view.resp.stock?.code ?? null}
             />
           </section>
         );

@@ -243,3 +243,109 @@ describe('기억 · 보던 구간(선 차트 쪽)', () => {
     expect(viewerRenders.n).toBe(before);
   });
 });
+
+/**
+ * Phase 42 Plan 10 Task 3 — 봉 차트 제목 줄(D-05 · D-21) · 보기 창 양쪽 주고받기(D-24 · SC-1) · 세 기억(D-02).
+ *
+ * 깨지면: 봉 차트에 봉 단위 · 이동평균 조작부가 없거나, 봉 차트에서 보던 구간이 선 차트로 바꾸면 사라지거나(또는 그 반대),
+ * 다시 열었을 때 고른 봉 단위 · 이동평균 구성이 처음으로 돌아간다.
+ */
+describe('D-24 양쪽 · 기억', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const lineSpan = () => q('tick-chart-span')?.textContent;
+  const candleSpan = () => q('candle-chart-span')?.textContent;
+  const candleBtn = (name: string) => within(q('candle-chart') as HTMLElement).getByRole('button', { name });
+  const lineBtn = (name: string) => within(q('tick-chart') as HTMLElement).getByRole('button', { name });
+  const toLine = () => fireEvent.click(within(kindSwitch()).getByRole('button', { name: '선 차트' }));
+  const visible = (slot: string) => (q(slot) as SVGSVGElement | null)?.style.visibility !== 'hidden';
+
+  it('봉 차트 제목 줄 = 「타임라인」 · 스위치 · 봉 단위 버튼 · 이동평균 칩 · 창 폭 · 확대 버튼 5개(데스크톱 한 줄)', () => {
+    render(viewer(ACCUM));
+    toCandle();
+    const title = q('candle-chart-title') as HTMLElement;
+    expect(title).not.toBeNull();
+    expect(title.getAttribute('data-dims')).toBe('desktop');
+    expect(title.contains(kindSwitch())).toBe(true);
+    expect(title.querySelector('[data-slot="candle-unit-button"]')!.textContent).toBe('10분봉(자동)');
+    expect(within(title).getByRole('group', { name: '이동평균' })).toBeDefined();
+    for (const name of ['확대', '축소', '전체', '1분', '10초']) expect(within(title).getByRole('button', { name })).toBeDefined();
+    // 제목 줄은 래퍼 밖(Pitfall 12)
+    expect((q('candle-chart-wrap') as HTMLElement).contains(title)).toBe(false);
+  });
+
+  it('칩 「단순 5」 누름 → 판 제목에서 빠지고 저장소 그 선 on false(기억)', () => {
+    render(viewer(ACCUM));
+    toCandle();
+    const ptitle = () => q('candle-price-title')?.textContent ?? '';
+    expect(ptitle()).toContain('단순 5');
+    fireEvent.click(within(q('candle-chart-title') as HTMLElement).getByRole('button', { name: '단순 5', pressed: true }));
+    expect(ptitle()).not.toContain('단순 5');
+    const saved = JSON.parse(window.localStorage.getItem('gh-radar:tick-candle-ma')!);
+    expect(saved.lines[0]).toMatchObject({ n: 5, on: false });
+  });
+
+  it('선 「1분」 → 봉 차트 = 「1분」 · 「1분봉(자동)」 → 봉 「10초」 → 선 차트 = 「10초」', async () => {
+    render(viewer(ACCUM));
+    fireEvent.click(lineBtn('1분'));
+    await waitFor(() => expect(lineSpan()).toBe('1분'));
+    toCandle();
+    await waitFor(() => expect(candleSpan()).toBe('1분'));
+    await waitFor(() => expect(visible('candle-chart-svg')).toBe(true));
+    expect(q('candle-unit-button')!.textContent).toBe('1분봉(자동)');
+    fireEvent.click(candleBtn('10초'));
+    await waitFor(() => expect(candleSpan()).toBe('10초'));
+    toLine();
+    await waitFor(() => expect(lineSpan()).toBe('10초'));
+    await waitFor(() => expect(visible('tick-chart-svg')).toBe(true));
+  });
+
+  it('선 「전체」 상태로 바꾸면 봉 차트 「하루 전체」(이름으로 · 숨김 없음)', () => {
+    render(viewer(ACCUM));
+    fireEvent.click(lineBtn('전체'));
+    toCandle();
+    expect(candleSpan()).toBe('하루 전체');
+    expect(visible('candle-chart-svg')).toBe(true);
+  });
+
+  it('봉 차트 Shift+끌기 구간이 있는 채로 선 차트로 바꿨다 돌아오면 구간 없음', () => {
+    render(viewer(ACCUM));
+    toCandle();
+    const svg = q('candle-chart-svg') as SVGSVGElement;
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 640, bottom: 420, width: 640, height: 420, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const ev = { shiftKey: true, button: 0, pointerType: 'mouse', pointerId: 1, clientY: 50 };
+    fireEvent.pointerDown(svg, { ...ev, clientX: 280 });
+    fireEvent.pointerMove(svg, { ...ev, clientX: 340 });
+    fireEvent.pointerUp(svg, { ...ev, clientX: 340 });
+    expect(q('tick-chart-range')).not.toBeNull();
+    toLine();
+    toCandle();
+    expect(q('candle-chart')).not.toBeNull();
+    expect(q('tick-chart-range')).toBeNull();
+  });
+
+  it('다시 열면(다른 key) 봉 차트 · 「30분봉」 · 이동평균 구성은 그대로 · 보던 창은 처음(하루 전체)', async () => {
+    window.localStorage.setItem('gh-radar:tick-chart-kind', 'candle');
+    window.localStorage.setItem('gh-radar:tick-candle-unit', '30');
+    window.localStorage.setItem(
+      'gh-radar:tick-candle-ma',
+      JSON.stringify({ v: 1, lines: [{ base: 'bar', n: 7, kind: 'ema', on: true, color: 3 }] }),
+    );
+    const r = render(<div key="a">{viewer(ACCUM)}</div>);
+    expect(q('candle-chart')).not.toBeNull();
+    expect(q('candle-unit-button')!.textContent).toBe('30분봉');
+    const chips = () => Array.from(document.querySelectorAll('[data-slot="candle-ma-chip"]')).map((c) => c.textContent);
+    expect(chips().join('|')).toContain('지수 7');
+    fireEvent.click(candleBtn('1분'));
+    await waitFor(() => expect(candleSpan()).toBe('1분'));
+
+    r.rerender(<div key="b">{viewer(ACCUM)}</div>);
+    expect(q('candle-chart')).not.toBeNull();
+    expect(q('candle-unit-button')!.textContent).toBe('30분봉');
+    expect(chips().join('|')).toContain('지수 7');
+    expect(candleSpan()).toBe('하루 전체');
+  });
+});
