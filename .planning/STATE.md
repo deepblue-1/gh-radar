@@ -6,10 +6,10 @@ current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
 stopped_at: Phase 41 planned (14 plans)
-last_updated: "2026-11-11T18:35:22.232Z"
+last_updated: "2026-11-12T01:03:44.264Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: 803fe83a43c123ebe8ca33bb177e956ec42812f3
+state_head: 8907a59a28e9f63964c0c7e960e3bb6be59de8f6
 progress:
   total_phases: 12
   completed_phases: 9
@@ -169,6 +169,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261109-tn6 | 매집감지 Phase 48 반영 — 하루 판정 종료·즉시 종료 회색 행 · rule_version · relay 동기화 | 2026-11-09 | 198d49f8 | [261109-tn6-accum-phase-48-handoff-day-net-rules](./quick/261109-tn6-accum-phase-48-handoff-day-net-rules/) |
 | 72 | 매집 복원 RPC 속도 개선 — 좁은 열 선택 후 PK 되짚기(7.2초 → 1.05초 · 결과 불변) | 2026-11-09 | 6809abb7 | — |
 | 73 | 뉴스 자료원 한글 언론사 이름 매핑(gh-trade 요청 · 응답 시점 변환) | 2026-11-12 | 803fe83a | — |
+| 74 | 재료 없는 한투 자동 기사 숨김(시세 한 줄 · 시황 · 상위 N종목 목록 → auto_market · 소급 포함) | 2026-11-12 | 8907a59a | — |
 
 ## Session Continuity
 
