@@ -3,8 +3,18 @@ import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs } from "./cad
 import type { DartAlertConfig } from "./config";
 import { DartApiError, type DartRow } from "./dart/client";
 import { LeaseLostError, type DartAlertDb } from "./db";
-import { collectOnce, deliverPending, newLapState, type CollectResult, type LapDeps, type LapState } from "./lap";
-import { safeErrorFields, type SafeErrorFields } from "./safeError";
+import {
+  collectOnce,
+  deliverPending,
+  newLapState,
+  type CollectResult,
+  type InsertedRow,
+  type InsertItem,
+  type LapDeps,
+  type LapState,
+} from "./lap";
+import { testSendText } from "./message";
+import { safeErrorFields, telegramSafeFields, type SafeErrorFields } from "./safeError";
 import type { SendResult } from "./telegram/client";
 import type { JudgeOptions, Watch, WatchId } from "./watches";
 
@@ -14,6 +24,9 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *
  * 흐름(번호 = 실행 순서):
  *   ① 모드 — auto 이고 평일 `07:00` ~ `20:00` 창 밖이면 호출 0 · 종료 0 `outside_window`.
+ *      test-send = OpenDART · 임대 없이 시험 글 1건(`test-send ok`) · probe = 임대 없이 공개매수 1쪽 1회(`probe ok`) ·
+ *      seed = ② ~ ⑤ 뒤 seed 바퀴(그날 건을 `seeded` 로 · 송신 0 · `seed done`) → 같은 실행이 ⑥ 으로 이어 간다
+ *      (창 밖 seed 는 seed 바퀴 1번 뒤 곧바로 `window_end`).
  *   ② 임대 — `dart_alert_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돈다 → OpenDART 0 · 텔레그램 0 · 종료 0.
  *      새로 잡으며 DB 가 오늘 `sending` 을 `pending` 으로 되돌렸으면(reclaimed > 0) warn `possible duplicate after takeover`
  *      — 그 건들은 첫 바퀴 차례에서 이어 보낸다(SC-5 · 드문 중복은 받아들임).
@@ -207,31 +220,33 @@ class Collector {
     const { log, db, holder, cfg } = this.d;
     const mode = cfg.mode;
 
-    if (mode !== "auto") {
-      log.error({ mode }, "mode not supported yet");
-      return { code: 1, reason: "mode_unsupported" };
-    }
+    // test-send — OpenDART · 임대 · DB 없이 시험 글 1건(D-15 개인 대화 시험)
+    if (mode === "test-send") return this.testSend(t0);
 
-    // ① 창
-    if (!isInWindow(t0)) {
+    // ① 창 — auto 만. probe 는 언제든 1건, seed 는 창 밖이어도 seed 바퀴를 먼저 돈다(43-08 배포 직후 점검)
+    if (mode === "auto" && !isInWindow(t0)) {
       log.info({ mode }, "outside collection window — nothing to do");
       return { code: 0, reason: "outside_window" };
     }
 
-    // ② 임대
-    const lease = await db.leaseAcquire(holder, LEASE_TTL_S);
-    if (!lease.held) {
-      log.info({ mode }, "lease held by another run — exiting");
-      return { code: 0, reason: "lease_held" };
+    // ② 임대 — probe 는 잡지 않는다(남이 돌고 있어도 탐침 1건 · 넣기 · 송신 0)
+    if (mode !== "probe") {
+      const lease = await db.leaseAcquire(holder, LEASE_TTL_S);
+      if (!lease.held) {
+        log.info({ mode }, "lease held by another run — exiting");
+        return { code: 0, reason: "lease_held" };
+      }
+      this.haveLease = true;
+      this.lastLeaseOkAt = t0;
+      this.nextLeaseAt = t0 + LEASE_RENEW_MS;
+      if (lease.fresh && lease.reclaimed > 0) log.warn({ reclaimed: lease.reclaimed }, "possible duplicate after takeover");
+      if (lease.expired > 0) log.info({ expired: lease.expired }, "past-day alerts expired on takeover");
     }
-    this.haveLease = true;
-    this.lastLeaseOkAt = t0;
-    this.nextLeaseAt = t0 + LEASE_RENEW_MS;
-    if (lease.fresh && lease.reclaimed > 0) log.warn({ reclaimed: lease.reclaimed }, "possible duplicate after takeover");
-    if (lease.expired > 0) log.info({ expired: lease.expired }, "past-day alerts expired on takeover");
 
     // ③ 예산
     if (!(await this.budgetAtStart(t0))) return { code: 0, reason: "budget_at_start" };
+
+    if (mode === "probe") return this.probeMode();
 
     // ④ 한도 의심 탐침
     const strikes = await db.strikes.read(this.dateKst());
@@ -240,8 +255,94 @@ class Collector {
     // ⑤ 기준점
     await this.loadLastOk();
 
+    // seed — 그날 이미 올라온 건을 알림 없이 「보냄(seeded)」 으로 채운 뒤 같은 실행이 auto 루프로 이어 간다.
+    // 43-06 의 시작 점검(장애 판정)은 seed 경로에서 이 seed 바퀴 **뒤**에 들어간다.
+    const firstLapAt = mode === "seed" ? await this.seedLap() : this.now();
+
     log.info({ mode, holder, watches: this.d.watches.length, budget: cfg.dailyBudget }, "collector start");
-    return this.loop(this.now());
+    return this.loop(firstLapAt);
+  }
+
+  // ── 모드 ──────────────────────────────────────────────────────────
+  /** probe — 공개매수 1쪽 1회 · 임대 · 넣기 · 송신 없음(43-07 스모크가 로그 `probe ok` 를 찾는다) */
+  private async probeMode(): Promise<CollectorExit> {
+    const { log, dart } = this.d;
+    try {
+      const r = await dart.probe(kstYmd(this.now()));
+      this.addCalls(r.calls);
+      log.info({ total: r.total, calls: r.calls, lease: false }, "probe ok");
+      return { code: 0, reason: "probe" };
+    } catch (err) {
+      this.addCalls(callsOf(err));
+      if (err instanceof DartApiError && err.kind === "quota") await this.recordStrike("quota");
+      log.error({ err: safeErrorFields(err) }, "probe failed");
+      return { code: 1, reason: "probe_failed" };
+    }
+  }
+
+  /**
+   * seed 바퀴 — 감시 대상마다 1회 조회 → 맞는 건을 모아 **모두 성공했을 때만** `insert(…, seed=true)` · 송신 0.
+   * 하나라도 실패면 아무것도 넣지 않고 종료 1 `seed_failed`(auto 로 넘어가지 않는다 — 다시 seed 를 돌린다).
+   * 성공하면 감시 대상별 성공 시각을 곧바로 메모리 기준점과 DB `last_ok`(임대 연장 RPC)에 넣고 첫 auto 바퀴 시각
+   * (= seed 바퀴 시작 + 간격 · 창 밖이면 지금 → 루프가 곧바로 `window_end`)을 돌려준다.
+   * 같은 실행이 이어 가므로 seed 와 자동 수집 사이 빈틈이 한 바퀴뿐이다 — seed 뒤 처음 보는 새 건은 늦은 알림이 아니고
+   * 43-06 장애 판정도 열리지 않는다(체커 W1).
+   */
+  private async seedLap(): Promise<number> {
+    const { log, db } = this.d;
+    const startedAt = this.now();
+    let matched: InsertItem[] = [];
+    const seedDeps: LapDeps = {
+      ...this.lapDeps,
+      db: {
+        insert: async (items) => {
+          matched = items;
+          return [];
+        },
+        claim: (limit) => db.claim(limit),
+        mark: (rceptNo, r) => db.mark(rceptNo, r),
+      },
+    };
+    const r = await collectOnce(seedDeps, this.lapState, kstYmd(startedAt), { isLate: () => false, seed: true });
+    this.stats.laps += 1;
+
+    const failed = r.results.filter((x) => !x.ok);
+    if (failed.length > 0) {
+      if (this.halt?.reason === "quota" || this.halt?.reason === "unknown_streak") await this.recordStrike(this.halt.reason);
+      log.error(
+        { failed: failed.map((f) => ({ watch: f.watch, err: f.error })), matched: matched.length },
+        "seed failed — nothing inserted, not continuing to auto",
+      );
+      throw new StopRun(1, "seed_failed");
+    }
+
+    let inserted: InsertedRow[] = [];
+    if (matched.length > 0) {
+      try {
+        inserted = await db.insert(matched, true);
+      } catch (err) {
+        if (err instanceof LeaseLostError) throw err;
+        log.error({ err: safeErrorFields(err), matched: matched.length }, "seed failed — insert error, not continuing to auto");
+        throw new StopRun(1, "seed_failed");
+      }
+    }
+    this.takeResult({ ...r, inserted });
+    await this.renewLease(this.now());
+    log.info({ inserted: inserted.length, matched: matched.length, calls: r.calls, lastOk: this.lastOkIso() }, "seed done");
+
+    const interval = lapIntervalMs(startedAt);
+    return interval === null ? this.now() : startedAt + interval;
+  }
+
+  /** test-send — 시험 글 1건. 실패면 사유(kind · code · description)와 함께 종료 1 */
+  private async testSend(t0: number): Promise<CollectorExit> {
+    const r = await this.d.telegram.send(testSendText(t0));
+    if (r.kind === "ok") {
+      this.d.log.info({ messageId: r.messageId }, "test-send ok");
+      return { code: 0, reason: "test_send" };
+    }
+    this.d.log.error({ ...telegramSafeFields(r) }, "test-send failed");
+    return { code: 1, reason: "test_send_failed" };
   }
 
   private async budgetAtStart(t0: number): Promise<boolean> {
