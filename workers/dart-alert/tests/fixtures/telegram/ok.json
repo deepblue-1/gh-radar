@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "result": {
+    "message_id": 101,
+    "date": 1794787200,
+    "chat": {
+      "id": -1009999999999,
+      "title": "공시 알림 시험방",
+      "type": "supergroup"
+    },
+    "text": "에스텍(069510) 공개매수신고서\nhttps://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261111000001"
+  }
+}
