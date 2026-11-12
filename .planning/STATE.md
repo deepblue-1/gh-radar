@@ -6,10 +6,10 @@ current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
 stopped_at: Phase 42 UI-SPEC approved
-last_updated: "2026-11-12T11:50:47.061Z"
+last_updated: "2026-11-12T13:02:01.328Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: 6156bb377659e5de43f1d7d9067d3208e1988234
+state_head: 01e60455f601b0fd27aaa88f4f4725c5c7fa6940
 progress:
   total_phases: 12
   completed_phases: 9
@@ -34,7 +34,7 @@ Plan: 2 of 14
 Status: Ready to execute
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
-Last activity: 2026-11-11 — Phase 41 execution started
+Last activity: 2026-11-12 - Completed quick task 261112-tlw: 러쉬주문 09:00:30 주문 내역에 개장차익 손익 표시
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -177,6 +177,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 77 | 한투 제공처 I(자료원 「공시」 주식선물 가격제한폭 안내)를 공시로 분류해 숨김 · 소급 192건 | 2026-11-12 | ab229f6b | — |
 | 78 | 네이버 뉴스 종목명 조건에 별칭 표 18개(에스엠 SM엔터 · NAVER 네이버 · 신한지주 신한금융 등) | 2026-11-12 | 2affd1f2 | — |
 | 79 | 네이버 뉴스 수집 대상에 시가총액 상위 보통주 50 추가(cap 등급 장중 30분 순환) — 급등 목록에서 빠진 NAVER · 현대차 · 카카오 수집 멈춤 해결, 마지막 기사 시각 종목당 1건 조회 — **사용자 요청으로 되돌림(fcf01053)** | 2026-11-12 | 7273b187 | — |
+| 261112-tlw | 러쉬주문 09:00:30 주문 내역에 개장차익 손익 표시 — 묶음마다 「종목별 손익」 표(종목 · 손익 · 잔여 · 방향 · 매수/매도 체결) + 카드 「손익」 줄 · gh-trade 개장차익 화면과 같은 식(체결 순서 재생 · 왕복 0.22%) · 주문 내역 RPC 에 fills 키 | 2026-11-12 | 01e60455 | [261112-tlw-09-00-30-launch-openarb-pnl](./quick/261112-tlw-09-00-30-launch-openarb-pnl/) |
 
 ## Session Continuity
 
