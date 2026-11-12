@@ -1,0 +1,164 @@
+{
+  "status": "000",
+  "message": "정상",
+  "page_no": 1,
+  "page_count": 100,
+  "total_count": 14,
+  "total_page": 1,
+  "list": [
+    {
+      "corp_code": "00920001",
+      "corp_name": "가온전자",
+      "stock_code": "100001",
+      "corp_cls": "Y",
+      "report_nm": "주요사항보고서(유상증자결정)",
+      "rcept_no": "20261111200001",
+      "flr_nm": "가온전자",
+      "rcept_dt": "20261111",
+      "rm": "유"
+    },
+    {
+      "corp_code": "00920002",
+      "corp_name": "나린바이오",
+      "stock_code": "100002",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(유무상증자결정)",
+      "rcept_no": "20261111200002",
+      "flr_nm": "나린바이오",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920003",
+      "corp_name": "다온중공업",
+      "stock_code": "100003",
+      "corp_cls": "Y",
+      "report_nm": "[기재정정]주요사항보고서(회사합병결정)",
+      "rcept_no": "20261111200003",
+      "flr_nm": "다온중공업",
+      "rcept_dt": "20261111",
+      "rm": "유"
+    },
+    {
+      "corp_code": "00920004",
+      "corp_name": "라온소재",
+      "stock_code": "100004",
+      "corp_cls": "K",
+      "report_nm": "[첨부정정][기재정정] 주요사항보고서 (회사분할합병결정)",
+      "rcept_no": "20261111200004",
+      "flr_nm": "라온소재",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920005",
+      "corp_name": "마루제약",
+      "stock_code": "100005",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(무상증자결정)",
+      "rcept_no": "20261111200005",
+      "flr_nm": "마루제약",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920006",
+      "corp_name": "바른화학",
+      "stock_code": "100006",
+      "corp_cls": "Y",
+      "report_nm": "주요사항보고서(회사분할결정)",
+      "rcept_no": "20261111200006",
+      "flr_nm": "바른화학",
+      "rcept_dt": "20261111",
+      "rm": "유"
+    },
+    {
+      "corp_code": "00920007",
+      "corp_name": "사랑통신",
+      "stock_code": "100007",
+      "corp_cls": "Y",
+      "report_nm": "주요사항보고서(주식교환ㆍ이전결정)",
+      "rcept_no": "20261111200007",
+      "flr_nm": "사랑통신",
+      "rcept_dt": "20261111",
+      "rm": "유"
+    },
+    {
+      "corp_code": "00920008",
+      "corp_name": "아라테크",
+      "stock_code": "100008",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(전환사채권발행결정)",
+      "rcept_no": "20261111200008",
+      "flr_nm": "아라테크",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920009",
+      "corp_name": "자연식품",
+      "stock_code": "100009",
+      "corp_cls": "Y",
+      "report_nm": "주요사항보고서(자기주식취득결정)",
+      "rcept_no": "20261111200009",
+      "flr_nm": "자연식품",
+      "rcept_dt": "20261111",
+      "rm": "유"
+    },
+    {
+      "corp_code": "00920010",
+      "corp_name": "차오름유통",
+      "stock_code": "100010",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(영업양수결정)",
+      "rcept_no": "20261111200010",
+      "flr_nm": "차오름유통",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920011",
+      "corp_name": "카이로봇",
+      "stock_code": "100011",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(합병종료결정)",
+      "rcept_no": "20261111200011",
+      "flr_nm": "카이로봇",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00920012",
+      "corp_name": "타래코넥스",
+      "stock_code": "100012",
+      "corp_cls": "N",
+      "report_nm": "주요사항보고서(유상증자결정)",
+      "rcept_no": "20261111200012",
+      "flr_nm": "타래코넥스",
+      "rcept_dt": "20261111",
+      "rm": "넥"
+    },
+    {
+      "corp_code": "00920013",
+      "corp_name": "파랑비상장",
+      "stock_code": "",
+      "corp_cls": "E",
+      "report_nm": "주요사항보고서(회사합병결정)",
+      "rcept_no": "20261111200013",
+      "flr_nm": "파랑비상장",
+      "rcept_dt": "20261111",
+      "rm": ""
+    },
+    {
+      "corp_code": "00920014",
+      "corp_name": "하나스팩30호",
+      "stock_code": "100014",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(회사합병결정)",
+      "rcept_no": "20261111200014",
+      "flr_nm": "하나스팩30호",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    }
+  ]
+}
