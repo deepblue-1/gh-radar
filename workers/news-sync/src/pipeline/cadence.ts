@@ -6,8 +6,6 @@
  *      hot 등급 = 급등 상위 30(top_movers rank ≤ 30) ∪ 관심종목(watchlists) 전부
  *    + rest 등급 = 나머지 top_movers 중 3조 순환 버킷 하나
  *    를 수집한다 → hot 은 3분, rest 는 9분 신선도.
- *    + cap 등급 = 급등 목록 · 관심종목 밖의 시가총액 상위 종목 중 10조 순환 버킷 하나
- *      (2026-11-12 추가 — 30분 신선도. 대형주 네이버 뉴스가 급등 목록에서 빠지면 멈추던 문제)
  *  - 그 외 시각과 토·일은 전체 대상(full)을 수집한다.
  *  - 모드는 스케줄러가 넘기지 않고 워커가 KST 시각으로 스스로 판정한다(auto).
  *    수동 실행은 NEWS_SYNC_MODE=tiered|full 로 강제한다.
@@ -31,12 +29,6 @@ export const HOT_RANK_MAX = 30;
 
 /** rest 등급 순환 버킷 수. */
 export const REST_BUCKET_COUNT = 3;
-
-/**
- * cap 등급 순환 버킷 수. 3분 × 10 = 30분마다 한 번.
- * 예산: 약 45종목 ÷ 10 ≈ 실행당 5호출 × 장중 240회 ≈ 하루 +1,200 ~ 1,500 (공식 한도의 약 6%).
- */
-export const CAP_BUCKET_COUNT = 10;
 
 /** 장시간 스케줄러 주기(분). */
 export const SLOT_MINUTES = 3;
@@ -97,20 +89,6 @@ export function restBucketFor(now: Date): number {
  * tests/cadence.test.ts 가 대표 코드의 버킷 값을 잠근다 — 해시를 바꾸면 테스트가 깨져야 한다.
  */
 export function stockBucket(code: string): number {
-  return codeHash(code) % REST_BUCKET_COUNT;
-}
-
-/** 이번 실행이 수집할 cap 버킷 = floor(KST 분 / 3) % 10 — restBucketFor 와 같은 방식. */
-export function capBucketFor(now: Date): number {
-  return Math.floor(kstMinuteOfDay(now) / SLOT_MINUTES) % CAP_BUCKET_COUNT;
-}
-
-/** 종목 코드 → cap 버킷(0..9). */
-export function capStockBucket(code: string): number {
-  return codeHash(code) % CAP_BUCKET_COUNT;
-}
-
-function codeHash(code: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < code.length; i++) {
     h ^= code.charCodeAt(i);
@@ -121,7 +99,7 @@ function codeHash(code: string): number {
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35);
   h ^= h >>> 16;
-  return h >>> 0;
+  return (h >>> 0) % REST_BUCKET_COUNT;
 }
 
 export interface TargetRecord {
@@ -131,8 +109,6 @@ export interface TargetRecord {
   rank: number | null;
   /** watchlists 에 1명 이상 담겨 있으면 true. */
   watched: boolean;
-  /** 시가총액 상위라서만 대상에 든 종목(급등 목록 · 관심종목 밖). cap 등급. */
-  largeCapOnly?: boolean;
 }
 
 export interface TargetCounts {
@@ -144,10 +120,6 @@ export interface TargetCounts {
   restTotal: number;
   /** 이번 실행에 선택된 rest 수 (full 이면 restTotal) */
   restSelected: number;
-  /** cap 등급 전체 수 */
-  capTotal: number;
-  /** 이번 실행에 선택된 cap 수 (full 이면 capTotal) */
-  capSelected: number;
 }
 
 export interface TargetSelection {
@@ -162,29 +134,24 @@ function isHot(t: TargetRecord): boolean {
 /**
  * 대상 선택.
  *  - full: records 전체 (code 기준 1회).
- *  - tiered: hot 전부 + (hot 이 아니면서 stockBucket === restBucket 인 rest)
- *            + (largeCapOnly 이면서 capStockBucket === capBucket 인 cap).
+ *  - tiered: hot 전부 + (hot 이 아니면서 stockBucket === restBucket 인 rest).
  *    관심종목은 rank 와 무관하게 hot 이므로 rest 로 중복 선택되지 않는다.
- * 결과는 hot → rest → cap 순서이고, code 기준으로 한 번만 담는다(방어적 Set).
+ * 결과는 hot 을 앞에 둔 순서이고, code 기준으로 한 번만 담는다(방어적 Set).
  */
 export function selectRunTargets(
   records: TargetRecord[],
   mode: RunMode,
   restBucket: number | null,
-  capBucket: number | null = null,
 ): TargetSelection {
   const seen = new Set<string>();
   const unique: TargetRecord[] = [];
   const hot: TargetRecord[] = [];
   const rest: TargetRecord[] = [];
-  const cap: TargetRecord[] = [];
   for (const t of records) {
     if (seen.has(t.code)) continue;
     seen.add(t.code);
     unique.push(t);
-    if (isHot(t)) hot.push(t);
-    else if (t.largeCapOnly === true) cap.push(t);
-    else rest.push(t);
+    (isHot(t) ? hot : rest).push(t);
   }
 
   if (mode === "full") {
@@ -195,23 +162,18 @@ export function selectRunTargets(
         hot: hot.length,
         restTotal: rest.length,
         restSelected: rest.length,
-        capTotal: cap.length,
-        capSelected: cap.length,
       },
     };
   }
 
   const restPicked = rest.filter((t) => stockBucket(t.code) === restBucket);
-  const capPicked = cap.filter((t) => capStockBucket(t.code) === capBucket);
   return {
-    selected: [...hot, ...restPicked, ...capPicked],
+    selected: [...hot, ...restPicked],
     counts: {
       total: seen.size,
       hot: hot.length,
       restTotal: rest.length,
       restSelected: restPicked.length,
-      capTotal: cap.length,
-      capSelected: capPicked.length,
     },
   };
 }
@@ -220,8 +182,6 @@ export interface RunPlan extends TargetSelection {
   mode: RunMode;
   /** tiered 에서만 값이 있고 full 은 null. */
   restBucket: number | null;
-  /** tiered 에서만 값이 있고 full 은 null. */
-  capBucket: number | null;
 }
 
 /** index.ts 가 호출하는 단일 진입점 — 모드 · 버킷 · 대상 · 집계를 한 번에 정한다. */
@@ -232,7 +192,6 @@ export function planRun(
 ): RunPlan {
   const mode = resolveRunMode(now, setting);
   const restBucket = mode === "tiered" ? restBucketFor(now) : null;
-  const capBucket = mode === "tiered" ? capBucketFor(now) : null;
-  const { selected, counts } = selectRunTargets(records, mode, restBucket, capBucket);
-  return { mode, restBucket, capBucket, selected, counts };
+  const { selected, counts } = selectRunTargets(records, mode, restBucket);
+  return { mode, restBucket, selected, counts };
 }
