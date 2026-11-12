@@ -1,0 +1,32 @@
+{
+  "status": "000",
+  "message": "정상",
+  "page_no": 1,
+  "page_count": 100,
+  "total_count": 2,
+  "total_page": 1,
+  "list": [
+    {
+      "corp_code": "00900001",
+      "corp_name": "에스텍",
+      "stock_code": "069510",
+      "corp_cls": "K",
+      "report_nm": "공개매수신고서",
+      "rcept_no": "20261111000001",
+      "flr_nm": "가람홀딩스",
+      "rcept_dt": "20261111",
+      "rm": "코"
+    },
+    {
+      "corp_code": "00900002",
+      "corp_name": "나래비상장",
+      "stock_code": "",
+      "corp_cls": "E",
+      "report_nm": "공개매수신고서",
+      "rcept_no": "20261111000002",
+      "flr_nm": "나래투자",
+      "rcept_dt": "20261111",
+      "rm": ""
+    }
+  ]
+}
