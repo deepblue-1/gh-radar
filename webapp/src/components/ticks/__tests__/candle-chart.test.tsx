@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, waitFor } from '@testing-library/react';
+
+import { a3TimeMs, type TickOwnEvent, type TickOwnFill, type TickOwnResponse } from '@gh-radar/shared';
 
 import { CANDLE_CHART, candlePanelsOf } from '@/lib/ticks/candle-chart';
+import { buildOwnModel, type OwnModel } from '@/lib/ticks/own-model';
 import { tickBoundsOf } from '@/lib/ticks/tick-chart';
-import { SYNTH_DATE, a3Msg, b6Msg, synthSession } from '@/test-fixtures/tick-synth';
+import { TOUCH_HOLD_MS } from '@/lib/touch-inspect';
+import { SYNTH_DATE, SYNTH_ISIN, a3Msg, b6Msg, synthNs, synthSession } from '@/test-fixtures/tick-synth';
 
 import { CandleChart } from '../candle-chart';
 
@@ -55,6 +59,12 @@ function renderChart(props: Partial<Props> = {}) {
 
 /** 하루 전체 창(08:00 ~ 20:00 · L 52 · 그림 끝 588)에서 13:00 의 x — 체결 봉 자리. */
 const X1300 = 52 + (5 / 12) * (588 - 52);
+
+/** 팀 원(side) 중심(viewBox = client). */
+const circleOf = (q: (slot: string) => NodeListOf<Element>, side: 'B' | 'S') => {
+  const el = Array.from(q('candle-order-circle')).find((c) => c.getAttribute('data-side') === side)!;
+  return { el, cx: Number(el.getAttribute('cx')), cy: Number(el.getAttribute('cy')) };
+};
 
 describe('조작 — 클릭 · 확대 · 키 · 커서', () => {
   it('빈 곳 클릭 → 그 x 의 시각(onSeekMs) · 40px 끌고 클릭은 클릭이 아니다', () => {
@@ -231,5 +241,200 @@ describe('조작 — Shift+끌기 구간 합계', () => {
     ph.drag(ph.cx - 20, ph.cx + 20);
     expect(ph.q('tick-chart-range')).toHaveLength(0);
     expect(ph.q('candle-chart-hint')).toHaveLength(0);
+  });
+});
+
+/**
+ * Phase 38 D-08 · D-10 · 42 SC-4 — 팀 원 · 우리 점이 봉과 같은 시간축 · 봉 영역 y 에 겹친다(가격 판 overlay 자리).
+ * 깨지면: 봉 차트에서 팀 주문 원 · 우리 체결 ◆ · 근거 ○ 가 안 보이거나 봉과 다른 y 에 뜨거나, 원을 눌러도 그 주문으로 가지 않는다.
+ */
+const ownFill = (orderNo: string, gwMs: number, px: number, qty: number, seq: number): TickOwnFill => ({
+  gateway: 'KB120',
+  seq,
+  gw_time_ms: gwMs,
+  account_no: '1234563801',
+  order_no: orderNo,
+  side: 'B',
+  exec_price: px,
+  exec_qty: qty,
+});
+const ownEvent = (orderNo: string, gwMs: number, over: Partial<TickOwnEvent>): TickOwnEvent => ({
+  gateway: 'KB120',
+  seq: 1,
+  gw_time_ms: gwMs,
+  kind: 3,
+  group: 1,
+  account_no: '1234563801',
+  order_no: orderNo,
+  price: 16450,
+  qty: 10,
+  reason_code: '',
+  cond_metric: 0,
+  cond_threshold: 0,
+  cond_actual: 0,
+  ev_kind: 0,
+  ev_price: 0,
+  ev_qty_before: 0,
+  ev_qty_after: 0,
+  ev_trade_qty: 0,
+  cum_volume: 0,
+  ...over,
+});
+const synthAt = (ms: number) => Number(synthNs(ms) / 1_000_000n);
+/** 선 차트 테스트와 같은 우리 하루 — 매도 체결 16,350 ×50(seq 105 짝 ◆) · 짝 없음(◇) · 호가 근거 seq 100(○ · 16,400). */
+const krxOwn: OwnModel = buildOwnModel(krx, {
+  access: true,
+  date: SYNTH_DATE,
+  exchange: 'KRX',
+  isin: SYNTH_ISIN,
+  servers: ['KB120'],
+  events: [ownEvent('EV', synthAt(0.5), { ev_kind: 1, ev_price: 16400, ev_qty_after: 283 })],
+  fills: [ownFill('F1', a3TimeMs(krx.index, krx.a3, 3) + 5, 16350, 50, 1), ownFill('N1', synthAt(3), 99_999, 1, 2)],
+  orders: [],
+} satisfies TickOwnResponse);
+
+const renderOwn = (own: OwnModel | null = krxOwn) => {
+  const onOwnJump = vi.fn();
+  const onOwnFillLine = vi.fn();
+  const r = renderChart({ own, onOwnJump, onOwnFillLine });
+  return { ...r, onOwnJump, onOwnFillLine };
+};
+
+describe('겹침 — 팀 원 · 우리 점(가격 판 overlay)', () => {
+  it('팀 주문 ≥ 500만 2개(매수 · 매도) · 봉 영역 y · 가격 판 overlay 안 · 커서가 든 주문은 --fg 고리', () => {
+    const { q } = renderChart();
+    const circles = Array.from(q('candle-order-circle'));
+    expect(circles).toHaveLength(2);
+    expect(circles.map((c) => c.getAttribute('data-side')).sort()).toEqual(['B', 'S']);
+    for (const c of circles) {
+      const cy = Number(c.getAttribute('cy'));
+      expect(cy).toBeGreaterThanOrEqual(PD.y1a);
+      expect(cy).toBeLessThanOrEqual(PD.yCb);
+      expect(c.closest('[data-slot="candle-price-overlay"]')).not.toBeNull();
+    }
+    expect(circleOf(q, 'B').el.getAttribute('stroke')).toBe('var(--fg)');
+    expect(circleOf(q, 'S').el.getAttribute('stroke')).toBe('var(--down)');
+    // 선 차트 slot 은 쓰지 않는다
+    expect(q('tick-order-circle')).toHaveLength(0);
+  });
+
+  it('원 위 마우스 → 원 옆 상자 = 묶음 표 · 고리 · 씨앗 · 떠나면 둘 다 없음', () => {
+    const { q, svg } = renderChart();
+    const { cx, cy } = circleOf(q, 'B');
+    fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
+    const tip = q('candle-chart-tip')[0]!;
+    expect(tip).toBeDefined();
+    const grp = tip.querySelector('[data-slot="tick-chart-group"]')!;
+    expect(grp.textContent).toContain('팀 주문 묶음 2건');
+    expect(grp.querySelectorAll('[data-slot="tick-chart-group-row"]')).toHaveLength(2);
+    expect(q('candle-order-seed')).toHaveLength(1);
+    expect(q('candle-order-hover')).toHaveLength(1);
+    expect(q('candle-chart-own-line')).toHaveLength(0);
+    fireEvent.pointerLeave(svg);
+    expect(q('candle-chart-tip')).toHaveLength(0);
+    expect(q('candle-order-seed')).toHaveLength(0);
+    expect(q('candle-order-hover')).toHaveLength(0);
+  });
+
+  it('own 이 있으면 overlay 안에 ◆(채움 --mine) · ◇ · ○ · 팀 원 위에 · own 없으면 없음', () => {
+    const { q } = renderOwn();
+    const dia = Array.from(q('tick-own-mark'));
+    expect(dia.map((d) => d.getAttribute('data-kind')).sort()).toEqual(['fill', 'nofill']);
+    const fill = dia.find((d) => d.getAttribute('data-kind') === 'fill')!;
+    expect(fill.getAttribute('fill')).toBe('var(--mine)');
+    expect(fill.closest('[data-slot="candle-price-overlay"]')).not.toBeNull();
+    const ev = q('candle-own-ev-mark');
+    expect(ev).toHaveLength(1);
+    expect(ev[0]!.getAttribute('stroke')).toBe('var(--mine)');
+    expect(ev[0]!.closest('[data-slot="candle-price-overlay"]')).not.toBeNull();
+    const kids = Array.from(q('candle-price-overlay')[0]!.children);
+    expect(kids.indexOf(fill)).toBeGreaterThan(kids.indexOf(q('candle-order-circle')[0]!));
+    const none = renderChart({ own: null });
+    expect(none.q('tick-own-mark')).toHaveLength(0);
+    expect(none.q('candle-own-ev-mark')).toHaveLength(0);
+  });
+
+  it('마우스가 ◆ 위 → 팀 묶음 표 아래에 우리 줄(근거 ○ → ◆ 순)', () => {
+    const { q, svg } = renderOwn();
+    const { cx, cy } = circleOf(q, 'B');
+    fireEvent.pointerMove(svg, { clientX: cx, clientY: cy, pointerType: 'mouse' });
+    const grp = q('candle-chart-tip')[0]!.querySelector('[data-slot="tick-chart-group"]')!;
+    expect(grp.textContent).toContain('팀 주문 묶음 2건');
+    const own = Array.from(q('candle-chart-own-line'));
+    expect(own.map((d) => d.textContent)).toEqual(['조건 근거 호가 · 주문 #EV', '우리 체결 50주 · 계좌 ···3801 · 주문 #F1']);
+    expect(grp.compareDocumentPosition(own[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('겹침 — 원 · 우리 점 클릭', () => {
+  it('원 클릭 → 그 주문 마지막 조각 rec(onJumpRec) · 시각 점프 없음', () => {
+    const { q, onJumpRec, onSeekMs } = renderChart();
+    fireEvent.click(circleOf(q, 'S').el);
+    expect(onJumpRec).toHaveBeenCalledWith(recOfSeq(krx, 107));
+    expect(onSeekMs).not.toHaveBeenCalled();
+  });
+
+  it('◆ 클릭 → onOwnJump(그 A3 rec) · 팀 원 · 시각 점프 없음', () => {
+    const { q, onOwnJump, onJumpRec, onSeekMs } = renderOwn();
+    fireEvent.click(Array.from(q('tick-own-mark')).find((d) => d.getAttribute('data-kind') === 'fill')!);
+    expect(onOwnJump).toHaveBeenCalledTimes(1);
+    expect(onOwnJump.mock.calls[0]).toEqual([recOfSeq(krx, 105)]);
+    expect(onJumpRec).not.toHaveBeenCalled();
+    expect(onSeekMs).not.toHaveBeenCalled();
+  });
+
+  it('◇ 클릭 → onOwnFillLine(체결 id) · ○ 클릭 → onOwnJump(근거 rec, 주문 id)', () => {
+    const { q, onOwnJump, onOwnFillLine, onSeekMs } = renderOwn();
+    fireEvent.click(Array.from(q('tick-own-mark')).find((d) => d.getAttribute('data-kind') === 'nofill')!);
+    expect(onOwnFillLine).toHaveBeenCalledWith(krxOwn.fills.find((f) => f.rec < 0)!.id);
+    fireEvent.click(q('candle-own-ev-mark')[0]!);
+    expect(onOwnJump).toHaveBeenCalledWith(recOfSeq(krx, 100), krxOwn.orders.find((o) => o.orderNo === 'EV')!.id);
+    expect(onSeekMs).not.toHaveBeenCalled();
+  });
+
+  it('우리 점 둘레(반지름 + 3px) 빈 곳 클릭도 우리 점이 먼저(팀 원보다) · 멀면 시각 점프', () => {
+    const { q, svg, onOwnJump, onJumpRec, onSeekMs } = renderOwn();
+    const ev = q('candle-own-ev-mark')[0]!;
+    fireEvent.click(svg, { clientX: Number(ev.getAttribute('cx')), clientY: Number(ev.getAttribute('cy')) + 6 });
+    expect(onOwnJump).toHaveBeenCalledTimes(1);
+    expect(onJumpRec).not.toHaveBeenCalled();
+    fireEvent.click(svg, { clientX: 100, clientY: 50 });
+    expect(onSeekMs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('겹침 — 폰 길게 누르기', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('원 위 길게 누르기(TOUCH_HOLD_MS) → 터치 상자 · 떼도 시각 이동 없음 · 상자 사라짐', () => {
+    const { q, svg, onSeekMs, onJumpRec } = renderChart({ height: 303 });
+    const { cx, cy } = circleOf(q, 'B');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const init = { pointerId: 7, pointerType: 'touch', clientX: cx, clientY: cy };
+    act(() => {
+      fireEvent.pointerDown(svg, init);
+    });
+    act(() => {
+      vi.advanceTimersByTime(TOUCH_HOLD_MS - 1);
+    });
+    expect(q('candle-chart-tip')).toHaveLength(0);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const tip = q('candle-chart-tip')[0]!;
+    expect(tip).toBeDefined();
+    expect(tip.getAttribute('data-touch')).toBe('1');
+    expect(tip.querySelector('[data-slot="tick-chart-group"]')).not.toBeNull();
+    // 살펴보는 동안 세로선도 손가락 자리
+    expect(q('candle-chart-hover-line')).toHaveLength(1);
+    act(() => {
+      fireEvent.pointerUp(svg, init);
+      fireEvent.click(svg, { clientX: cx, clientY: cy });
+    });
+    expect(onSeekMs).not.toHaveBeenCalled();
+    expect(onJumpRec).not.toHaveBeenCalled();
+    expect(q('candle-chart-tip')).toHaveLength(0);
   });
 });
