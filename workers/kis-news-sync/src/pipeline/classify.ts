@@ -21,10 +21,15 @@
 import { SHORT_CODE_RE, isEtpProduct, newsTitleKey, type StockFeedKind } from "@gh-radar/shared";
 import type { KisNewsTitleRow } from "../kis/types.js";
 
-/** 공시 제공업체 코드 → 자료원 이름(D-20 — 자료원은 비지 않는다). 그 밖의 코드는 언론사 뉴스. */
+/**
+ * 공시 제공업체 코드 → 자료원 이름(D-20 — 자료원은 비지 않는다). 그 밖의 코드는 언론사 뉴스.
+ * I 는 2026-11-12 운영에서 확인 — 자료원 「공시」 로 오는 거래소 파생시장 안내(「OO 주식선물 2단계 가격제한폭 확대요건
+ * 도달(상승)」)뿐이었다(192건 전부). 언론사 기사가 아니니 공시로 분류하고, 제목이 파생 안내라 아래 규칙으로 숨는다.
+ */
 export const DISCLOSURE_PROVIDERS: Readonly<Record<string, string>> = Object.freeze({
   F: "거래소 공시",
   G: "코스닥 공시",
+  I: "거래소 공시",
 });
 
 /**

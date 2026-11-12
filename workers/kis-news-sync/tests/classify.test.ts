@@ -121,7 +121,7 @@ describe("toIngestRows — 실측 표본(2026-11-11)", () => {
     expect(disc.filter((r) => r.provider_code === "G").every((r) => r.source === "코스닥 공시")).toBe(true);
     expect(disc.filter((r) => r.provider_code === "F")).toHaveLength(2);
     expect(rows.filter((r) => r.kind === "news").every((r) => r.provider_code !== "F" && r.provider_code !== "G")).toBe(true);
-    expect(DISCLOSURE_PROVIDERS).toEqual({ F: "거래소 공시", G: "코스닥 공시" });
+    expect(DISCLOSURE_PROVIDERS).toEqual({ F: "거래소 공시", G: "코스닥 공시", I: "거래소 공시" });
   });
 
   it("시장 조치 「공매도 과열종목 지정」 · 「(정정)단일판매ㆍ공급계약체결」 공시는 숨기지 않는다", () => {
@@ -187,6 +187,20 @@ describe("toIngestRows — D-09 숨김 사유", () => {
   ])("파생 안내 공시 「%s」 → derivative_notice", (title, provider) => {
     const { rows } = toIngestRows([mkRow({ hts_pbnt_titl_cntt: title, news_ofer_entp_code: provider })], { meta: META });
     expect(rows).toHaveLength(1);
+    expect(rows[0].links).toEqual([{ code: "012340", hidden_reason: "derivative_notice" }]);
+  });
+
+  it.each([
+    "(주)제이와이피엔터테인먼트 주식선물 3단계 가격제한폭 확대요건 도달(상승)",
+    "(주)메리츠금융지주 주식선물ㆍ주식옵션 2단계 가격제한폭 확대요건 도달(하락)",
+  ])("제공처 I(자료원 「공시」) 파생시장 안내 「%s」 → 공시 · derivative_notice", (title) => {
+    const { rows } = toIngestRows(
+      [mkRow({ hts_pbnt_titl_cntt: title, news_ofer_entp_code: "I", dorg: "공시" })],
+      { meta: META },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("disclosure");
+    expect(rows[0].source).toBe("공시");
     expect(rows[0].links).toEqual([{ code: "012340", hidden_reason: "derivative_notice" }]);
   });
 
