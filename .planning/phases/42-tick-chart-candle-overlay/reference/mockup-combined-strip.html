@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>틱뷰어 봉 차트 — 종합 · 값 띠 A/B</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+    --border-subtle: #e5e8eb; --border: #e5e8eb; --card: #ffffff;
+    --primary: #3182f6; --up: #f04452; --down: #3182f6; --team: #a234c7; --vi: #d97706; --mine: #0f9d8a;
+    --accum-shade: rgba(107,118,132,.10); --accum-gap: rgba(107,118,132,.07); --vi-bg: rgba(217,119,6,.16); --page: #f2f4f6;
+    --ma5: #d99a00; --ma20: #2b9a47; --ma60: #a0622d;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+    --border-subtle: #3d3d3d; --border: #3d3d3d; --card: #151515;
+    --up: #f04251; --down: #3485fa; --team: #c353e5; --vi: #ffb020; --mine: #2fd3bb;
+    --accum-shade: rgba(255,255,255,.07); --accum-gap: rgba(255,255,255,.04); --vi-bg: rgba(255,176,32,.18); --page: #0a0a0a;
+    --ma5: #ffc53d; --ma20: #4cc38a; --ma60: #d19a66;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--fg); font: 14px/1.45 Pretendard, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px 14px; align-items: center; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; font-size: 12.5px; }
+  .bar b { margin-right: 4px; font-size: 14px; }
+  .bar label { color: var(--muted-fg); }
+  .seg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted-fg); padding: 4px 11px; border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; transition: all .15s ease; white-space: nowrap; }
+  .seg button:hover { color: var(--fg); }
+  .seg button.on { background: var(--card); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .vtabs .seg button { font-size: 13px; padding: 5px 14px; }
+  .wrap > * { min-width: 0; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  body.phone .wrap { max-width: 390px; }
+  .vdesc { background: var(--card); border-radius: 14px; padding: 12px 16px; }
+  .vdesc .vt { font-weight: 700; font-size: 15px; margin: 0 0 2px; }
+  .vdesc .vd { color: var(--muted-fg); font-size: 12.5px; margin: 0; line-height: 1.6; }
+  .vdesc .vm { margin: 6px 0 0; font-size: 12px; font-family: ui-monospace, "SF Mono", monospace; color: var(--fg-2); }
+
+  .card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; overflow: hidden; }
+  .chd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; border-bottom: 1px solid var(--border-subtle); padding: 7px 12px; }
+  .chd h2 { margin: 0; font-size: 12.5px; font-weight: 700; }
+  .chd .lg { font-size: 11px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chd .seg { padding: 2px; }
+  .chd .seg button { font-size: 11px; padding: 2px 9px; }
+  .chd .ctl { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .chips { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; color: var(--muted-fg); }
+  .chips button { border: 1px solid var(--border-subtle); background: transparent; color: var(--muted-fg); font: inherit; font-size: 11px; padding: 1px 8px 1px 6px; border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+  .chips button i { width: 8px; height: 2px; border-radius: 1px; display: inline-block; opacity: .35; }
+  .chips button.on { color: var(--fg); font-weight: 600; background: var(--muted); border-color: transparent; }
+  .chips button.on i { opacity: 1; }
+  .chips button u { text-decoration: none; color: var(--muted-fg); margin-left: 2px; font-weight: 400; }
+  .chips button.add { padding: 1px 8px; color: var(--fg-2); }
+  .sel { border: 0; background: var(--muted); color: var(--fg); font: inherit; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; }
+  .strip.five { grid-template-columns: 1.55fr 1.3fr 1.2fr .9fr 1.1fr; }
+  body.phone .strip.five { grid-template-columns: 1fr 1fr; }
+  body.phone .strip > div:nth-child(odd) { border-left: 0; }
+  .strip .row span i.dot { width: 8px; height: 2px; display: inline-block; vertical-align: middle; margin-right: 3px; border-radius: 1px; }
+  .chd .tools { margin-left: auto; display: flex; gap: 2px; align-items: center; font-size: 11px; color: var(--muted-fg); }
+  .chd .tools span { font-family: ui-monospace, monospace; padding: 0 6px; white-space: nowrap; }
+  .chd .tools button { border: 0; background: transparent; color: var(--fg-2); font: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; cursor: pointer; }
+  .chd .tools button:hover { background: var(--muted); }
+  .cw { position: relative; padding: 4px 0; }
+  .cw svg { display: block; font-variant-numeric: tabular-nums; user-select: none; -webkit-user-select: none; cursor: grab; touch-action: pan-y; }
+  .cw svg.drag { cursor: grabbing; }
+
+  .strip { display: grid; grid-template-columns: 1.05fr 1.6fr 1.15fr 1.3fr; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; font-variant-numeric: tabular-nums; min-height: 58px; }
+  body.phone .strip { grid-template-columns: 1fr 1fr; }
+  .strip > div { padding: 6px 12px; border-left: 1px solid var(--border-subtle); }
+  .strip > div:first-child { border-left: 0; }
+  body.phone .strip > div:nth-child(3) { border-left: 0; }
+  body.phone .strip > div:nth-child(n+3) { border-top: 1px solid var(--border-subtle); }
+  .strip .st { font-size: 10.5px; font-weight: 700; color: var(--muted-fg); display: flex; gap: 5px; align-items: center; }
+  .strip .st i { width: 7px; height: 7px; border-radius: 2px; display: inline-block; }
+  .strip .st em { font-style: normal; font-weight: 700; margin-left: auto; font-family: ui-monospace, monospace; color: var(--fg); }
+  .strip .row { display: flex; flex-wrap: wrap; gap: 0 10px; margin-top: 2px; }
+  .strip .row span { color: var(--muted-fg); font-size: 10.5px; margin-right: 3px; }
+  .strip .row b { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; white-space: nowrap; font-weight: 600; }
+  .up { color: var(--up); } .down { color: var(--down); } .team { color: var(--team); } .mf { color: var(--muted-fg); }
+
+  .note { color: var(--muted-fg); font-size: 12px; line-height: 1.7; background: var(--card); border-radius: 14px; padding: 12px 16px; }
+  .note h4 { margin: 0 0 4px; color: var(--fg); font-size: 13px; }
+  .note ul { margin: 0; padding-left: 18px; }
+  .note b { color: var(--fg-2); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>틱뷰어 봉 차트 — 종합 · 값 띠</b>
+  <span class="vtabs"><span class="seg" id="variant"><button class="on" data-v="A">A 4칸 그대로</button><button data-v="B">B 수익률 칸 추가(5칸)</button></span></span>
+</div>
+<div class="bar" style="top:49px;z-index:19;padding-top:6px;padding-bottom:8px">
+  <label>화면</label>
+  <span class="seg" id="scr"><button class="on" data-v="past">과거 날짜 · 매집감지 등록 종목</button><button data-v="today">당일 또는 미등록 종목</button></span>
+  <label>보기 창</label>
+  <span class="seg" id="win"><button data-v="day">하루 전체</button><button class="on" data-v="2h">2시간</button><button data-v="20m">20분</button></span>
+  <span class="seg" id="theme"><button class="on" data-v="light">라이트</button><button data-v="dark">다크</button></span>
+  <span class="seg" id="width"><button class="on" data-v="desk">데스크톱</button><button data-v="phone">폰 390</button></span>
+</div>
+
+<div class="wrap">
+  <div class="vdesc"><p class="vt" id="vt"></p><p class="vd" id="vd"></p><p class="vm" id="vm"></p></div>
+  <section class="card">
+    <div class="chd">
+      <h2>타임라인</h2>
+      <span class="seg" id="chart"><button data-v="old">선 차트</button><button class="on" data-v="new">봉 차트</button></span>
+      <span class="ctl" id="newctl">
+        <select id="bar" class="sel" aria-label="봉 단위"><option value="auto" selected>자동</option><option value="60">1분</option><option value="300">5분</option><option value="600">10분</option><option value="900">15분</option><option value="1800">30분</option><option value="3600">60분</option></select>
+        <span class="chips" id="ma">이동평균
+          <button class="on" data-v="5"><i style="background:var(--ma5)"></i>단순 5<u>×</u></button>
+          <button class="on" data-v="20"><i style="background:var(--ma20)"></i>단순 20<u>×</u></button>
+          <button class="on" data-v="60"><i style="background:var(--ma60)"></i>일 20<u>×</u></button>
+          <button class="add" disabled>＋</button>
+        </span>
+      </span>
+      <span class="lg" id="lg"></span>
+      <span class="tools"><span id="zl">하루 전체</span><button>＋</button><button>－</button><button>전체</button><button>1분</button><button>10초</button></span>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="cw" id="cw"><svg id="svg"></svg></div>
+  </section>
+  <div class="note">
+    <h4>보는 법</h4>
+    <ul>
+      <li>지금까지 정한 것을 한 화면에 모았다 — 거래대금 막대는 가격 판 안 · 가격 판 160(폰 110) · 봉만 · 봉 단위 「자동 ▾」(1 · 5 · 10 · 15 · 30 · 60분) · 이동평균 자유 추가(단순 5 · 단순 20 + 예시로 「일 20」) · 수익률 판 따로(보라 당일 = 오른쪽 눈금 · 회색 누적 = 왼쪽 눈금 · 0% 는 한 줄) · 누적 평단 회색 긴 점선.</li>
+      <li>이 목업에서 고를 것은 <b>차트 위 값 띠</b>(마우스를 댄 시각 · 떼면 현재 틱의 값을 보여 주는 줄) 모양 A/B 다. 지금은 현재 틱(10:16:52) 값으로 고정해 그렸다.</li>
+      <li>이동평균 칩의 × · ＋ 는 모양만 보여 준다(칩을 누르면 켜고 끄기만 됨). 「화면 → 당일 또는 미등록 종목」 = 누적 값이 빠진 띠.</li>
+      <li>데이터는 가짜.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ── 숫자 표기 ───────────────────────────────────────────────────────────
+const MINUS = '−';
+const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
+function amountAbs(w) { const man = Math.round(w / 1e4); if (w < 1e4) return `${INT.format(Math.round(w))}원`; if (man < 1e4) return `${INT.format(man)}만`; const e = man / 1e4; if (e < 10) { const v = Math.round(e * 100) / 100; if (v < 10) return `${v.toFixed(2)}억`; } if (e < 100) { const v = Math.round(e * 10) / 10; if (v < 100) return `${v.toFixed(1)}억`; } return `${INT.format(Math.round(e))}억`; }
+const famt = (w) => (w === 0 ? '0' : (w < 0 ? MINUS : '') + amountAbs(Math.abs(w)));
+const fsig = (w) => (w > 0 ? '+' : '') + famt(w);
+const pct2 = (v) => { const r = Math.round(v * 100) / 100; return r === 0 ? '0.00%' : `${r > 0 ? '+' : MINUS}${Math.abs(r).toFixed(2)}%`; };
+const pct1 = (r) => `${(Math.round(r * 1000) / 10).toFixed(1)}%`;
+const sgnCls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : 'mf');
+const p2 = (n) => String(n).padStart(2, '0');
+const clk = (s) => { const t = Math.floor(28800 + s); return `${p2(Math.floor(t / 3600))}:${p2(Math.floor((t % 3600) / 60))}:${p2(t % 60)}`; };
+const hm = (s) => clk(s).slice(0, 5);
+const dur = (s) => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? (m ? `${h}시간 ${m}분` : `${h}시간`) : m ? (x ? `${m}분 ${x}초` : `${m}분`) : `${x}초`; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ── 가짜 하루치(초 · 08:00 = 0 ~ 20:00 = 43200 · 5초 간격) ───────────────
+let seed = 29; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const DAY = 43200, STEP = 5, NP = DAY / STEP, BASE = 15600, SHARES = 21_500_000, MCAP = BASE * SHARES, CARRY = 9.84e8;
+const px = [], vol = [];
+{
+  let pf = 15620;
+  for (let i = 0; i < NP; i++) {
+    const t = i * STEP, open = t >= 3600 && t < 27000, gap = t >= 27000 && t < 28800, pre = t < 3600;
+    const drift = t >= 6000 && t < 10200 ? 1.75 : t >= 17400 && t < 20400 ? -1.0 : t >= 10200 && t < 17400 ? 0.04 : 0;
+    const noise = pre ? 6 : open ? 17 : 7;
+    if (!gap) pf += drift + (rnd() - 0.5) * noise;
+    px.push(Math.round(pf / 10) * 10);
+    let v = 0;
+    if (pre) v = 50 + rnd() * 150;
+    else if (open) v = (2300 * Math.exp(-(t - 3600) / 6000) + 370 + rnd() * 300) * (t >= 6000 && t < 10200 ? 2.1 : t >= 17400 && t < 20400 ? 1.5 : 1);
+    else if (!gap) v = 33 + rnd() * 83;
+    if ((pre || (!open && !gap)) && rnd() < 0.6) v = 0;
+    vol.push(Math.round(v));
+  }
+}
+const cumA = [];
+{ let a = 0; for (let i = 0; i < NP; i++) { a += vol[i] * px[i]; cumA.push(a); } }
+const idxAt = (t) => clamp(Math.floor(t / STEP), 0, NP - 1);
+const pxAt = (t) => px[idxAt(t)];
+
+function barsOf(sec) {
+  const n = sec / STEP, out = [];
+  for (let i = 0; i < NP; i += n) {
+    let o = null, h = -1e9, l = 1e9, c = 0, a = 0;
+    for (let j = i; j < i + n; j++) { if (vol[j] <= 0) continue; if (o === null) o = px[j]; h = Math.max(h, px[j]); l = Math.min(l, px[j]); c = px[j]; a += vol[j] * px[j]; }
+    if (o !== null) out.push({ t: i * STEP, o, h, l, c, a });
+  }
+  return out;
+}
+const BARS = {}; const barsFor = (sec) => (BARS[sec] ||= barsOf(sec));
+const autoBar = (span, pw) => [60, 300, 600, 900, 1800, 3600].find((sec) => (sec / span) * pw >= 4) ?? 3600;
+const dayMa = (p) => (19 * 16300 + p) / 20;
+const MA_NAME = { 5: '단순 5', 20: '단순 20', 60: '일 20' };
+function maOf(bars, n, kind) {
+  const out = new Array(bars.length).fill(null);
+  if (kind === 'sma') { let s = 0; for (let i = 0; i < bars.length; i++) { s += bars[i].c; if (i >= n) s -= bars[i - n].c; if (i >= n - 1) out[i] = s / n; } }
+  else { const k = 2 / (n + 1); let e = null, s = 0; for (let i = 0; i < bars.length; i++) { if (i < n - 1) s += bars[i].c; else if (i === n - 1) { s += bars[i].c; e = s / n; out[i] = e; } else { e = bars[i].c * k + e * (1 - k); out[i] = e; } } }
+  return out;
+}
+
+const orders = [];
+function burst(t0, side, n, big) {
+  for (let j = 0; j < n; j++) {
+    const t = t0 + rnd() * 4.5, val = big ? 1.5e7 + rnd() * 1.2e8 : 3e6 + rnd() * 3e7, pr = pxAt(t);
+    orders.push({ t, side: rnd() < 0.12 ? (side === 'B' ? 'S' : 'B') : side, val, px: pr, qty: Math.round(val / pr) });
+  }
+}
+for (let k = 0; k < 24; k++) burst(6000 + rnd() * 4200, 'B', 1 + Math.floor(rnd() * 5), rnd() < 0.4);
+for (let k = 0; k < 16; k++) burst(17400 + rnd() * 3000, 'S', 1 + Math.floor(rnd() * 4), rnd() < 0.35);
+for (let k = 0; k < 12; k++) burst(3700 + rnd() * 23000, rnd() < 0.6 ? 'B' : 'S', 1, rnd() < 0.2);
+for (let k = 0; k < 4; k++) burst(29000 + rnd() * 13000, 'B', 1, false);
+burst(8150, 'B', 6, true);
+orders.sort((a, b) => a.t - b.t);
+let cb = 0, cs = 0;
+{ let hold = 0, cost = 0; for (const o of orders) {
+  if (o.side === 'B') { cb += o.val; hold += o.qty; cost += o.val; }
+  else { const avg = hold > 0 ? cost / hold : o.px; cs += o.val; const q = Math.min(hold, o.qty); cost -= avg * q; hold -= q; }
+  o.cb = cb; o.cs = cs; o.net = cb - cs; o.avg = hold > 0 ? cost / hold : null;
+} }
+const lastOrd = (t) => { let lo = 0, hi = orders.length; while (lo < hi) { const m = (lo + hi) >> 1; if (orders[m].t <= t) lo = m + 1; else hi = m; } return lo - 1; };
+const BK = 72, bBuy = new Array(BK).fill(0), bSell = new Array(BK).fill(0);
+for (const o of orders) { const s = Math.floor(o.t / 600); (o.side === 'B' ? bBuy : bSell)[s] += o.val; }
+const OWN = [{ t: 7416, k: 'basis' }, { t: 7420, k: 'fill' }, { t: 8226, k: 'basis' }, { t: 8230, k: 'fill' }, { t: 8236, k: 'fill' }, { t: 9050, k: 'fill' }, { t: 18200, k: 'fill' }, { t: 18900, k: 'est' }];
+const CURSOR = 8212; // 10:16:52
+const WIN = { day: [0, DAY], '2h': [5400, 12600], '20m': [7700, 8900] };
+
+// ── 상태 ─────────────────────────────────────────────────────────────
+const S = { v: 'A', chart: 'new', bar: 'auto', ma: { 5: true, 20: true, 60: true }, mak: 'sma', h1: 160, line: 'off', scr: 'past', cumpos: 'in', phone: false, v0: 5400, v1: 12600 };
+const VAR = {
+  A: { t: 'A · 4칸 그대로', d: '첫 칸을 봉 값(종 · 시 · 고 · 저 · 거래대금 · 이동평균 값)으로 바꾸고, 수익률 · 누적 평단은 「당일 팀」 칸에 줄을 더해 넣는다. 칸 수는 지금과 같지만 둘째 칸이 3줄이 된다.' },
+  B: { t: 'B · 수익률 칸 추가(5칸)', d: '봉 | 당일 팀 | 수익률 | 10분 | 누적 거래대금 — 평단과 수익률을 따로 한 칸에 모은다. 칸마다 2줄 이내로 가볍지만 칸이 좁아지고 폰에서는 3줄(2 · 2 · 1칸)이 된다.' },
+};
+const PH_H1 = { 104: 72, 160: 110, 220: 150 };
+
+const CUM0 = { in: [15900, CARRY / 15900], out: [13200, 900000] };
+function retSeries() {
+  const out = []; let k = -1, hold = 0, cost = 0, real = 0, buy = 0, [cavg, cq] = CUM0[S.cumpos];
+  for (let i = 0; i < NP; i += 6) {
+    const t = i * STEP;
+    while (k + 1 < orders.length && orders[k + 1].t <= t) { const o = orders[++k];
+      if (o.side === 'B') { hold += o.qty; cost += o.val; buy += o.val; cavg = (cavg * cq + o.val) / (cq + o.qty); cq += o.qty; }
+      else { const av = hold > 0 ? cost / hold : o.px, q = Math.min(hold, o.qty); real += (o.px - av) * q; cost -= av * q; hold -= q; cq = Math.max(1, cq - o.qty); } }
+    const p = px[i];
+    out.push({ t, day: buy > 0 ? ((real + hold * p - cost) / buy) * 100 : null, cavg, cum: ((p - cavg) / cavg) * 100 });
+  }
+  return out;
+}
+function dims() {
+  const cw = document.getElementById('cw');
+  document.getElementById('svg').setAttribute('width', '0');
+  const W = Math.max(320, cw.clientWidth), L = 52, R = 52, xr = W - R, ph = S.phone, nw = S.chart === 'new';
+  const H1 = nw ? (ph ? PH_H1[S.h1] : S.h1) : (ph ? 72 : 104);
+  const HV = nw ? (ph ? 36 : 50) : 0;
+  const H2 = ph ? 50 : 70, H3 = ph ? 28 : 40, H4 = ph ? 36 : 50, GAP = 7, TOP = ph ? 0 : 7;
+  const y1a = TOP, y1b = y1a + H1, yva = y1b + GAP, yvb = yva + HV;
+  const y2a = (HV ? yvb : y1b) + GAP, y2b = y2a + H2, y3a = y2b + GAP, y3b = y3a + H3, y4a = y3b + GAP, y4b = y4a + H4;
+  return { W, L, R, xr, pw: xr - L, y1a, y1b, yva, yvb, y2a, y2b, y3a, y3b, y4a, y4b, H: y4b + 15, H1, HV, H2, H3, H4 };
+}
+let D, X, T;
+
+function draw() {
+  D = dims();
+  const { W, L, xr, pw, y1a, y1b, yva, yvb, y2a, y2b, y3a, y3b, y4a, y4b, H } = D;
+  const v0 = S.v0, v1 = S.v1, span = v1 - v0, nw = S.chart === 'new', BAR = S.bar === 'auto' ? autoBar(span, pw) : S.bar, barName = `${BAR / 60}분`;
+  X = (t) => L + ((t - v0) / span) * pw; T = (x) => v0 + ((x - L) / pw) * span;
+  const svg = document.getElementById('svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('font-size', '11');
+  let g = '', a = '';
+  const f1 = (v) => v.toFixed(1);
+  const band = (t0, t1, fill, ya = y1a, yb = y4b) => { if (t1 < v0 || t0 > v1) return; g += `<rect x="${f1(X(t0))}" y="${ya}" width="${f1(X(t1) - X(t0))}" height="${yb - ya}" fill="${fill}"/>`; };
+  band(0, 3600, 'var(--accum-shade)'); band(27000, 28800, 'var(--accum-gap)'); band(9300, 9420, 'var(--vi-bg)', y1a, y1b);
+  // 시각 눈금
+  const steps = [3600, 1800, 900, 600, 300, 120, 60, 30, 10], maxN = S.phone ? 5 : 12;
+  let st = 3600; for (const x of steps) { if (span / x <= maxN) st = x; else break; }
+  while (span / st > maxN) st *= 3;
+  for (let t = Math.ceil(v0 / st) * st; t <= v1; t += st) { const xx = X(t); g += `<line x1="${f1(xx)}" x2="${f1(xx)}" y1="${y1a}" y2="${y4b}" stroke="var(--border-subtle)"/>`; a += `<text x="${f1(xx)}" y="${H - 3}" text-anchor="middle" fill="var(--muted-fg)">${st >= 3600 ? Number(hm(t).slice(0, 2)) : st >= 60 ? hm(t) : clk(t)}</text>`; }
+  const bottoms = [y1b, y2b, y3b, y4b]; if (D.HV) bottoms.push(yvb);
+  bottoms.forEach((yy) => (a += `<line x1="${L}" x2="${xr}" y1="${yy}" y2="${yy}" stroke="var(--border-subtle)"/>`));
+
+  // ① 가격 판
+  const i0 = idxAt(v0), i1 = idxAt(v1);
+  let pmn = 1e9, pmx = -1e9; for (let i = i0; i <= i1; i++) { pmn = Math.min(pmn, px[i]); pmx = Math.max(pmx, px[i]); }
+  const pad = Math.max(10, (pmx - pmn) * 0.08);
+  const volIn = nw ? Math.round(D.H1 * 0.2) : 0, pb = y1b - volIn;
+  const Yp = (v) => y1a + 3 + ((pmx + pad - v) / (pmx - pmn + 2 * pad)) * (pb - y1a - 6);
+  const bars = barsFor(BAR), vis = nw ? bars.filter((b) => b.t + BAR >= v0 && b.t <= v1) : [];
+  if (nw) {
+    const cwid = (BAR / span) * pw, bw = Math.max(1, Math.min(14, cwid * 0.72)), thin = cwid < 2.6, op = S.line === 'on' ? '.5' : '1';
+    // 거래대금 막대
+    const amx = Math.max(1, ...vis.map((b) => b.a));
+    const vy1 = y1b, vh = volIn - 2;
+    for (const b of vis) { const col = b.c >= b.o ? 'var(--up)' : 'var(--down)', xc = X(b.t) + cwid / 2, hh = Math.max(0.5, (b.a / amx) * vh); g += `<rect x="${f1(xc - bw / 2)}" y="${f1(vy1 - hh)}" width="${f1(bw)}" height="${f1(hh)}" fill="${col}" fill-opacity=".38"/>`; }
+    // 봉
+    for (const b of vis) {
+      const upb = b.c >= b.o, col = upb ? 'var(--up)' : 'var(--down)', xc = X(b.t) + cwid / 2;
+      g += `<line x1="${f1(xc)}" x2="${f1(xc)}" y1="${f1(Yp(b.h))}" y2="${f1(Yp(b.l))}" stroke="${col}" stroke-opacity="${op}"/>`;
+      if (!thin) { const yt = Yp(Math.max(b.o, b.c)), hh = Math.max(1, Math.abs(Yp(b.o) - Yp(b.c))); g += `<rect x="${f1(xc - bw / 2)}" y="${f1(yt)}" width="${f1(bw)}" height="${f1(hh)}" fill="${col}" fill-opacity="${op}"/>`; }
+    }
+    // 이동평균
+    for (const n of [20, 5]) {
+      if (!S.ma[n]) continue;
+      const m = maOf(bars, n, 'sma'); let d = '';
+      for (let i = 0; i < bars.length; i++) { const b = bars[i]; if (m[i] === null || b.t + BAR < v0 - BAR * 2 || b.t > v1 + BAR * 2) continue; d += `${d ? 'L' : 'M'}${f1(X(b.t) + cwid / 2)},${f1(Yp(m[i]))}`; }
+      if (d) g += `<path d="${d}" fill="none" stroke="var(--ma${n})" stroke-width="1.25" stroke-linejoin="round"/>`;
+    }
+    if (S.ma[60]) { let d = ''; for (let i = Math.max(0, i0 - 1); i <= Math.min(NP - 1, i1 + 1); i += 6) d += `${d ? 'L' : 'M'}${f1(X(i * STEP))},${f1(Yp(dayMa(px[i])))}`; g += `<g clip-path="url(#cp1)"><path d="${d}" fill="none" stroke="var(--ma60)" stroke-width="1.25"/></g>`; }
+  }
+  if (!nw || S.line === 'on') {
+    let d = ''; for (let i = Math.max(0, i0 - 1); i <= Math.min(NP - 1, i1 + 1); i++) { if (vol[i] <= 0 && i > i0) continue; d += `${d ? 'L' : 'M'}${f1(X(i * STEP))},${f1(Yp(px[i]))}`; }
+    g += `<path d="${d}" fill="none" stroke="var(--fg-2)" stroke-width="${nw ? 1 : 1.25}" stroke-linejoin="round" stroke-opacity="${nw ? '.75' : '1'}"/>`;
+  }
+  // 팀 평단(점선 계단)
+  { let d = '', started = false; orders.forEach((o, k) => { if (o.avg === null) { started = false; return; } const x1 = X(o.t), x2 = X(orders[k + 1]?.t ?? DAY); d += `${started ? 'L' : 'M'}${f1(x1)},${f1(Yp(o.avg))}L${f1(x2)},${f1(Yp(o.avg))}`; started = true; });
+    g += `<g clip-path="url(#cp1)"><path d="${d}" fill="none" stroke="var(--up)" stroke-width="1.25" stroke-dasharray="1 2"/></g>`; }
+  // 팀 주문 원
+  const rOf = (v) => Math.max(2.5, Math.min(11, 2.2 + Math.sqrt(v / 1e6) * 0.62));
+  const cs2 = orders.filter((o) => o.t >= v0 && o.t <= v1).map((o) => ({ o, cx: X(o.t), cy: Yp(o.px), r: rOf(o.val) })).sort((p, q) => q.o.val - p.o.val);
+  for (const c of cs2) { const col = c.o.side === 'B' ? 'var(--up)' : 'var(--down)'; g += `<circle cx="${f1(c.cx)}" cy="${f1(c.cy)}" r="${f1(c.r)}" fill="${col}" fill-opacity=".5" stroke="${col}" stroke-opacity=".9"/>`; }
+  // 누적 평단(가격 판 · 회색 긴 점선) · 수익률 선
+  const past = S.scr === 'past', RS = retSeries(), rv = RS.filter((r) => r.t >= v0 - 30 && r.t <= v1 + 30);
+  let cumNote = '';
+  if (nw && past && rv.length) {
+    const last = rv[rv.length - 1].cavg, lo = pmn - pad;
+    if (rv.every((r) => r.cavg < lo)) cumNote = `누적 평단 ${INT.format(Math.round(last))} ▾`;
+    else { let d = ''; for (const r of RS) d += `${d ? 'L' : 'M'}${f1(X(r.t))},${f1(Yp(r.cavg))}`; g += `<g clip-path="url(#cp1)"><path d="${d}" fill="none" stroke="var(--muted-fg)" stroke-width="1.25" stroke-dasharray="5 3"/></g>`; }
+  }
+  if (nw && rv.length) {
+    const ext = (key) => { let up = 0, dn = 0; for (const r of rv) { const v = r[key]; if (v === null) continue; up = Math.max(up, v); dn = Math.max(dn, -v); } return { up: up * 1.12 + 0.05, dn: dn * 1.12 + 0.05 }; };
+    const eD = ext('day'), eC = past ? ext('cum') : null, zf = (e) => e.up / (e.up + e.dn);
+    const z = clamp(Math.max(zf(eD), eC ? zf(eC) : 0), 0.15, 0.85), ra = yva + 4, rb = yvb - 3, hgt = rb - ra;
+    const unit = (e) => Math.max(e.up / z, e.dn / (1 - z)), mkY = (e) => { const u = unit(e); return (v) => ra + (z - v / u) * hgt; };
+    const p1 = (v) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(1)}%`, y0 = ra + z * hgt;
+    g += `<line x1="${L}" x2="${xr}" y1="${f1(y0)}" y2="${f1(y0)}" stroke="var(--faint)" stroke-dasharray="2 3"/>`;
+    const line = (key, Y, col, w) => { let d = '', pen = false; for (const r of RS) { if (r.t < v0 - 60 || r.t > v1 + 60) continue; const v = r[key]; if (v === null) { pen = false; continue; } d += `${pen ? 'L' : 'M'}${f1(X(r.t))},${f1(Y(v))}`; pen = true; } if (d) g += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linejoin="round"/>`; };
+    if (eC) line('cum', mkY(eC), 'var(--muted-fg)', 1.5);
+    line('day', mkY(eD), 'var(--team)', 1.75);
+    const uD = unit(eD); a += `<text x="${xr + 4}" y="${yva + 9}" fill="var(--team)">${p1(z * uD)}</text><text x="${xr + 4}" y="${yvb - 1}" fill="var(--team)">${p1(-(1 - z) * uD)}</text>`;
+    if (eC) { const uC = unit(eC); a += `<text x="${L - 4}" y="${yva + 9}" text-anchor="end" fill="var(--muted-fg)">${p1(z * uC)}</text><text x="${L - 4}" y="${yvb - 1}" text-anchor="end" fill="var(--muted-fg)">${p1(-(1 - z) * uC)}</text>`; }
+  }
+  if (cumNote) a += `<text x="${L + 4}" y="${pb - 4}" fill="var(--muted-fg)">${cumNote}</text>`;
+  // 우리 체결 ◆ · 근거 ○
+  const mr = S.phone ? 3.5 : 4;
+  for (const m of OWN) { if (m.t < v0 || m.t > v1) continue; const cx = X(m.t), cy = Yp(pxAt(m.t));
+    if (m.k === 'basis') g += `<circle cx="${f1(cx)}" cy="${f1(cy)}" r="${mr - 0.5}" fill="var(--card)" stroke="var(--mine)" stroke-width="1.5"/>`;
+    else g += `<path d="M${f1(cx)},${f1(cy - mr - 1)}l${mr + 1},${mr + 1}l${-mr - 1},${mr + 1}l${-mr - 1},${-mr - 1}Z" fill="${m.k === 'est' ? 'var(--card)' : 'var(--mine)'}" stroke="var(--mine)" stroke-width="1.25"${m.k === 'est' ? ' stroke-dasharray="3 2"' : ''}/>`; }
+  a += `<text x="${L - 4}" y="${Yp(pmx) + 4}" text-anchor="end" fill="var(--muted-fg)">${INT.format(pmx)}</text><text x="${L - 4}" y="${Yp(pmn) + 4}" text-anchor="end" fill="var(--muted-fg)">${INT.format(pmn)}</text>`;
+
+  // ② 당일 순매수 · 매수 · 매도 누적 · 이월 누적
+  const nets = orders.map((o) => o.net), hi = Math.max(0, cb, ...nets), lo = Math.min(0, -cs, ...nets);
+  const Yn = (v) => y2a + 3 + ((hi - v) / (hi - lo || 1)) * (D.H2 - 6);
+  const cumHi = Math.max(CARRY, ...nets.map((n) => CARRY + n)), cumLo = Math.min(0, CARRY, ...nets.map((n) => CARRY + n));
+  const Yc = (v) => y2a + 3 + ((cumHi - v) / (cumHi - cumLo || 1)) * (D.H2 - 6);
+  const stairs = (f, yf, from) => { let p = `M${f1(X(0))},${f1(yf(from))}`; for (const o of orders) p += `H${f1(X(o.t))}V${f1(yf(f(o)))}`; return p + `H${f1(X(DAY))}`; };
+  g += `<line x1="${L}" x2="${xr}" y1="${f1(Yn(0))}" y2="${f1(Yn(0))}" stroke="var(--faint)" stroke-dasharray="2 3"/>`;
+  if (S.scr === 'past') g += `<path d="${stairs((o) => CARRY + o.net, Yc, CARRY)}" fill="none" stroke="var(--muted-fg)" stroke-opacity=".7"/>`;
+  g += `<path d="${stairs((o) => o.cb, Yn, 0)}" fill="none" stroke="var(--up)" stroke-width="1.15" stroke-opacity=".85"/>`;
+  g += `<path d="${stairs((o) => -o.cs, Yn, 0)}" fill="none" stroke="var(--down)" stroke-width="1.15" stroke-opacity=".85"/>`;
+  g += `<path d="${stairs((o) => o.net, Yn, 0)}" fill="none" stroke="var(--team)" stroke-width="1.75"/>`;
+  a += `<text x="${xr + 4}" y="${y2a + 9}" fill="var(--team)">${famt(hi)}</text><text x="${xr + 4}" y="${y2b - 1}" fill="var(--team)">${famt(lo)}</text>`;
+  if (S.scr === 'past') a += `<text x="${L - 4}" y="${y2a + 9}" text-anchor="end" fill="var(--muted-fg)">${famt(cumHi)}</text><text x="${L - 4}" y="${y2b - 1}" text-anchor="end" fill="var(--muted-fg)">${famt(cumLo)}</text>`;
+  // ③ 10분 막대
+  const cw10 = (600 / span) * pw, bw10 = Math.max(1.5, Math.min(18, cw10 * 0.42)), bmx = Math.max(...bBuy, ...bSell);
+  for (let k = 0; k < BK; k++) { if ((k + 1) * 600 < v0 || k * 600 > v1) continue;
+    const hb = (bBuy[k] / bmx) * (D.H3 - 2), hs = (bSell[k] / bmx) * (D.H3 - 2), x0 = X(k * 600);
+    if (hb) g += `<rect x="${f1(x0 + 1)}" y="${f1(y3b - hb)}" width="${f1(bw10)}" height="${f1(hb)}" fill="var(--up)" fill-opacity=".7"/>`;
+    if (hs) g += `<rect x="${f1(x0 + 2 + bw10)}" y="${f1(y3b - hs)}" width="${f1(bw10)}" height="${f1(hs)}" fill="var(--down)" fill-opacity=".7"/>`; }
+  a += `<text x="${xr + 4}" y="${y3a + 9}" fill="var(--muted-fg)">${famt(bmx)}</text>`;
+  // ④ 누적 거래대금 · 팀 비중
+  const vh4 = y4b - y4a - 4, A = cumA[NP - 1], ya = (v) => y4b - (v / A) * vh4;
+  const share = (i) => { const k = lastOrd((i + 1) * STEP); return k < 0 || cumA[i] <= 0 ? null : (orders[k].cb + orders[k].cs) / cumA[i]; };
+  let shMx = 0; for (let i = 0; i < NP; i += 6) { const v = share(i); if (v !== null && i * STEP > 4000) shMx = Math.max(shMx, v); }
+  const shTop = Math.max(0.05, Math.ceil(shMx * 20) / 20), Ys = (v) => y4b - (v / shTop) * vh4;
+  { let d = `M${f1(X(0))},${y4b}`; for (let i = 0; i < NP; i += 6) d += `L${f1(X((i + 1) * STEP))},${f1(ya(cumA[i]))}`; g += `<path d="${d}L${f1(X(DAY))},${y4b}Z" fill="var(--faint)" fill-opacity=".45"/>`; }
+  { let d = ''; for (let i = 0; i < NP; i += 6) { const v = share(i); if (v !== null) d += `${d ? 'L' : 'M'}${f1(X((i + 1) * STEP))},${f1(Ys(Math.min(v, shTop)))}`; } g += `<path d="${d}" fill="none" stroke="var(--team)" stroke-width="1.75" stroke-linejoin="round"/>`; }
+  a += `<text x="${L - 4}" y="${y4a + 9}" text-anchor="end" fill="var(--muted-fg)">${pct1(A / MCAP)}</text><text x="${L - 4}" y="${y4b - 1}" text-anchor="end" fill="var(--muted-fg)">0%</text>`;
+  a += `<text x="${xr + 4}" y="${y4a + 9}" fill="var(--team)">${Math.round(shTop * 100)}%</text><text x="${xr + 4}" y="${y4b - 1}" fill="var(--team)">0%</text>`;
+  // 판 제목
+  if (!S.phone) {
+    const maTxt = [5, 20, 60].filter((n) => S.ma[n]).map((n) => `<tspan fill="var(--ma${n})">${MA_NAME[n]}</tspan>`).join(' · ');
+    const t1 = nw ? `${barName}봉${S.bar === 'auto' ? '(자동)' : ''}${maTxt ? ` · 이동평균 ${maTxt}` : ''} · <tspan fill="var(--up)">팀 평단</tspan>${S.scr === 'past' ? ' · <tspan fill="var(--muted-fg)">누적 평단(보고서)</tspan>' : ''} · 팀 주문 원 · <tspan fill="var(--mine)">◆ 우리 체결</tspan>` : `가격 · <tspan fill="var(--up)">팀 평단</tspan> · 팀 주문 원 · <tspan fill="var(--mine)">◆ 우리 체결</tspan>`;
+    a += `<g font-weight="600"><text x="${L + 4}" y="${y1a + 11}" fill="var(--fg-2)">${t1}</text>`;
+    const rt = `<tspan fill="var(--team)">팀 당일 수익률(오른쪽 눈금)</tspan>${S.scr === 'past' ? ' · <tspan fill="var(--muted-fg)">누적 수익률(미실현 · 왼쪽 눈금)</tspan>' : ''}`;
+    if (D.HV) a += `<text x="${L + 4}" y="${yva + 10}">${rt}</text>`;
+    else if (nw) a += `<text x="${L + 4}" y="${y1a + 23}">${rt}</text>`;
+    a += `<text x="${L + 4}" y="${y2a + 10}" fill="var(--team)">당일 팀 순매수 <tspan fill="var(--fg-2)" font-weight="400">· <tspan fill="var(--up)">매수</tspan> · <tspan fill="var(--down)">매도(0선 아래)</tspan> 누적 · 오른쪽 축</tspan><tspan fill="var(--muted-fg)" font-weight="400"> · ${S.scr === 'past' ? '누적(이월 포함 · 왼쪽 회색 축)' : '누적 자료 없음'}</tspan></text>`;
+    a += `<text x="${L + 4}" y="${y3a + 10}" fill="var(--fg-2)">10분 팀 매수 / 매도</text>`;
+    a += `<text x="${L + 4}" y="${y4a + 10}" fill="var(--fg-2)">누적 거래대금(왼쪽 축 = 시총 대비) · <tspan fill="var(--team)">누적 팀 비중(오른쪽 축)</tspan></text></g>`;
+  }
+  // 현재 틱 커서
+  if (CURSOR >= v0 && CURSOR <= v1) { const cx = X(CURSOR);
+    g += `<line x1="${f1(cx)}" x2="${f1(cx)}" y1="${y1a}" y2="${y4b}" stroke="var(--fg)"/>`;
+    a += `<rect x="${f1(cx - 29)}" y="${y4b + 1}" width="58" height="13" rx="3" fill="var(--fg)"/><text x="${f1(cx)}" y="${y4b + 11}" text-anchor="middle" fill="var(--bg)" font-weight="600">${clk(CURSOR)}</text>`; }
+  svg.innerHTML = `<defs><clipPath id="cp"><rect x="${L}" y="0" width="${pw}" height="${H}"/></clipPath><clipPath id="cp1"><rect x="${L}" y="${y1a}" width="${pw}" height="${pb - y1a}"/></clipPath></defs><g clip-path="url(#cp)">${g}</g>${a}`;
+
+  document.getElementById('newctl').style.display = nw ? '' : 'none';
+  document.getElementById('lg').innerHTML = nw || S.phone ? '' : `가격 · 팀 평단 · 팀 주문 원 | <span class="team">당일 팀 순매수</span> · <span class="up">매수</span>/<span class="down">매도</span> 누적 · 누적 | 10분 팀 매수/매도 | 누적 거래대금 · <span class="team">팀 비중</span>`;
+  document.getElementById('zl').textContent = span >= DAY ? '하루 전체' : dur(span);
+  const cwid = (BAR / span) * pw;
+  document.getElementById('vm').textContent = nw
+    ? `차트 높이 ${H}px (지금 ${S.phone ? 222 : 307}px) · 가격 판 ${D.H1}px${volIn ? ` = 봉 ${D.H1 - volIn} + 막대 ${volIn}` : ''} · ${barName}봉 ${vis.length}개 · 봉 하나 폭 ${cwid.toFixed(1)}px`
+    : `차트 높이 ${H}px — 지금 화면 그대로`;
+  strip(BAR, bars);
+}
+
+function strip(BAR, bars) {
+  const t = CURSOR, k = lastOrd(t), o = k >= 0 ? orders[k] : null, p = pxAt(t), i = idxAt(t), b = Math.floor(t / 600), nw = S.chart === 'new', past = S.scr === 'past';
+  const sh = o && cumA[i] > 0 ? (o.cb + o.cs) / cumA[i] : null, el = document.getElementById('strip');
+  const bi = bars.findIndex((x) => t >= x.t && t < x.t + BAR), bar = bi >= 0 ? bars[bi] : null;
+  const r = retSeries().reduce((acc, x) => (x.t <= t ? x : acc), null);
+  const kv = (l, v, c = '') => `<span>${l}</span><b class="${c}">${v}</b>`, num = (v) => (v === null || v === undefined ? '—' : INT.format(Math.round(v)));
+  const avg = o && o.avg ? num(o.avg) : '—', dayRet = r && r.day !== null ? pct2(r.day) : '—', dayCls = r && r.day !== null ? sgnCls(r.day) : 'mf';
+  const maVals = { 5: bar ? maOf(bars, 5, 'sma')[bi] : null, 20: bar ? maOf(bars, 20, 'sma')[bi] : null, 60: dayMa(p) };
+  const maRow = [5, 20, 60].filter((n) => S.ma[n]).map((n) => `<span><i class="dot" style="background:var(--ma${n})"></i>${MA_NAME[n]}</span><b>${num(maVals[n])}</b>`).join('');
+  const priceOld = `<div><div class="st"><i style="background:var(--fg-2)"></i>가격<em>${clk(t)}</em></div><div class="row"><b>${INT.format(p)}</b><b class="${sgnCls(p - BASE)}">${pct2(((p - BASE) / BASE) * 100)}</b></div><div class="row">${kv('팀 평단', avg)}</div></div>`;
+  const priceNew = bar ? `<div><div class="st"><i style="background:var(--fg-2)"></i>${BAR / 60}분봉 ${hm(bar.t)}<em>${clk(t)}</em></div><div class="row"><b>${INT.format(bar.c)}</b><b class="${sgnCls(bar.c - BASE)}">${pct2(((bar.c - BASE) / BASE) * 100)}</b>${kv('시', INT.format(bar.o))}${kv('고', INT.format(bar.h))}${kv('저', INT.format(bar.l))}${kv('거래대금', famt(bar.a))}</div><div class="row">${maRow}</div></div>` : priceOld;
+  const teamTop = `<div class="st"><i style="background:var(--team)"></i>당일 팀</div><div class="row">${kv('순매수', o ? fsig(o.net) : '0', 'team')}${kv('매수', o ? famt(o.cb) : '0', 'up')}${kv('매도', o ? famt(o.cs) : '0', 'down')}</div>`;
+  const cumNet = `<div class="row">${kv('누적(이월 포함)', famt(CARRY + (o ? o.net : 0)))}</div>`;
+  const teamOld = `<div>${teamTop}${cumNet}</div>`;
+  const teamA = `<div>${teamTop}<div class="row">${kv('평단', avg)}${kv('수익률', dayRet, dayCls)}</div>${past ? `<div class="row">${kv('누적(이월 포함)', famt(CARRY + (o ? o.net : 0)))}${kv('누적 평단', num(r.cavg))}${kv('누적 수익률', pct2(r.cum), sgnCls(r.cum))}</div>` : ''}</div>`;
+  const teamB = `<div>${teamTop}${past ? cumNet : ''}</div>`;
+  const retB = `<div><div class="st"><i style="background:var(--team)"></i>수익률</div><div class="row">${kv('당일', dayRet, dayCls)}${kv('평단', avg)}</div>${past ? `<div class="row">${kv('누적', pct2(r.cum), sgnCls(r.cum))}${kv('누적 평단(보고서)', num(r.cavg))}</div>` : ''}</div>`;
+  const ten = `<div><div class="st"><i style="background:var(--up)"></i>10분 칸 ${hm(b * 600)}</div><div class="row">${kv('매수', famt(bBuy[b]), 'up')}${kv('매도', famt(bSell[b]), 'down')}</div></div>`;
+  const turn = `<div><div class="st"><i style="background:var(--faint)"></i>누적 거래대금</div><div class="row"><b>${famt(cumA[i])}</b>${kv('시총 대비', pct1(cumA[i] / MCAP))}</div><div class="row">${kv('팀 비중', sh === null ? '—' : pct1(sh), 'team')}</div></div>`;
+  const five = nw && S.v === 'B';
+  el.className = 'strip' + (five ? ' five' : '');
+  el.innerHTML = !nw ? priceOld + teamOld + ten + turn : five ? priceNew + teamB + retB + ten + turn : priceNew + teamA + ten + turn;
+}
+
+// ── 조작 ─────────────────────────────────────────────────────────────
+function seg(id, fn) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; el.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); fn(b.dataset.v); draw(); });
+}
+function applyVariant() { document.getElementById('vt').textContent = VAR[S.v].t; document.getElementById('vd').textContent = VAR[S.v].d; }
+seg('variant', (v) => { S.v = v; applyVariant(); });
+seg('scr', (v) => { S.scr = v; });
+seg('win', (v) => { [S.v0, S.v1] = WIN[v]; });
+seg('theme', (v) => { document.documentElement.dataset.theme = v; });
+seg('width', (v) => { S.phone = v === 'phone'; document.body.classList.toggle('phone', S.phone); });
+seg('chart', (v) => { S.chart = v; });
+document.getElementById('bar').addEventListener('change', (e) => { const v = e.target.value; S.bar = v === 'auto' ? 'auto' : Number(v); draw(); });
+document.getElementById('ma').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || !b.dataset.v) return; const n = b.dataset.v; S.ma[n] = !S.ma[n]; b.classList.toggle('on', S.ma[n]); draw(); });
+
+const svgEl = document.getElementById('svg');
+const clearWin = () => document.querySelectorAll('#win button').forEach((x) => x.classList.remove('on'));
+svgEl.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = svgEl.getBoundingClientRect(), t = T(((e.clientX - r.left) * D.W) / r.width), old = S.v1 - S.v0;
+  const span = clamp(old * (e.deltaY > 0 ? 1.25 : 0.8), 300, DAY), v0 = clamp(t - ((t - S.v0) * span) / old, 0, DAY - span);
+  S.v0 = v0; S.v1 = v0 + span; clearWin(); draw();
+}, { passive: false });
+let down = null;
+svgEl.addEventListener('pointerdown', (e) => { down = { x: e.clientX, v0: S.v0 }; svgEl.setPointerCapture(e.pointerId); svgEl.classList.add('drag'); });
+svgEl.addEventListener('pointermove', (e) => { if (!down) return; const span = S.v1 - S.v0, dt = ((e.clientX - down.x) / D.pw) * span, v0 = clamp(down.v0 - dt, 0, DAY - span); S.v0 = v0; S.v1 = v0 + span; clearWin(); draw(); });
+const up = () => { down = null; svgEl.classList.remove('drag'); };
+svgEl.addEventListener('pointerup', up); svgEl.addEventListener('pointercancel', up);
+window.addEventListener('resize', draw);
+function autoInit() {
+  const mark = (id, v) => document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x.dataset.v === v));
+  const root = document.documentElement, dark = root.dataset.theme ? root.dataset.theme === 'dark' : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  mark('theme', dark ? 'dark' : 'light');
+  if (window.innerWidth < 640) { S.phone = true; document.body.classList.add('phone'); mark('width', 'phone'); }
+}
+autoInit(); applyVariant(); draw();
+</script>
+</body>
+</html>
