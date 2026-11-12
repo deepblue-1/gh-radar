@@ -6,10 +6,10 @@ current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
 stopped_at: Phase 41 planned (14 plans)
-last_updated: "2026-11-12T01:03:44.264Z"
+last_updated: "2026-11-12T01:26:16.223Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: 8907a59a28e9f63964c0c7e960e3bb6be59de8f6
+state_head: "0bc17a9d26c680632a201befc1dec16e4abceb02"
 progress:
   total_phases: 12
   completed_phases: 9
@@ -57,6 +57,7 @@ Progress: [████████░░] 75% (133/147 plans)
 - Phase 38 added (2026-11-03): 틱뷰어 우리 주문·체결 표시 — `/analytics/ticks` A3 에 우리 팀 계좌 체결 표시 + 조건이 걸린 B6/A3 전문 표시(「이 주문은 이 전문을 보고 나갔다」). 원천 `dma_journal_events`(E) · `dma_strategy_events` kind 3·6. 10/30 실측 짝짓기 401/406(98.8%) · 호가 근거 29/29 · cum_volume 앵커 100/100 을 성공 기준으로. 기록 있는 게이트웨이는 KB120·KYOBO119 뿐. 미결(discuss): 계좌 가시성 · KB121/KYOBO127 포함 · 표시 모양 목업 A/B/C
 - Phase 40 added (2026-11-06): 체결 앱 푸시 알림 — 트렐로 「체결시 어플알림」(yP2Q3UkZ) 검토 뒤 텔레그램/카카오 대신 **앱 푸시**로 결정. relay applied 훅에서 첫 체결 1건 + 전량 1건 판정·송신(iOS APNs 직접 · Android FCM v1 · 기존 Firebase 프로젝트), 설정 토글 서버 저장 + 기기 토큰, 송신 로그 멱등(WR-09 재전송 · 커서 재생). D-17(앱 안 Firebase 없음) 은 Android 만 번복. 비용 0원 · 5~7 작업일
 - Phase 41 added (2026-11-11): 한투 뉴스·공시 피드 — 트렐로 「키움api 뉴스가져와서 돌파에 띄우기」+「실시간 공시 반영」을 gh-trade-42 와 상의. 키움 REST(공식 명세 337개) · 토스 API(v1.2.28)에 뉴스 없음을 확인, 한국투자증권 `news-title`(tr_id `FHKST01011800`)만 뉴스·공시 제목 제공 → 사용자 결정 「gh-radar 가 한투 API 로 받아 gh-trade 에 제공 · KRX F000 직수신은 느리면 그때 · 장중 실측 생략」. 실측(11-11 21:03): 제목만 · 공시 코드 F/G · 응답 종목코드 1개만 표시 · 날짜·시각 커서 페이징. gh-trade 전달은 HTTP 조회 권고(gh-trade-42) — discuss 에서 확정
+- Phase 42 added (2026-11-12): 틱뷰어 봉차트·이동평균·수익률 겹쳐보기 — 사용자가 「1분봉/5분봉 · EMA/SMA · 거래량 · 누적/당일 평단 · 팀 누적/당일 수익률을 매집차트와 겹쳐 보고 싶다」 고 요청, 규모 조사 뒤 세 덩어리(봉 · 이동평균 · 거래량 / 당일 수익률 선 / 누적 평단 · 누적 수익률) 전부 진행으로 결정. 누적 수익률은 미실현 기준. **기존 차트는 건드리지 않고 새 차트를 따로 만들어 전환 스위치로 비교 후 채택 결정**. 누적 평단은 매집감지 보고서 payload `avg_px` 가 이미 있어 틱 열기 RPC 한 키 추가로 닿음(gh-trade 변경 없음). 그리는 방식(순수 SVG 권고 vs lightweight-charts)은 discuss 에서 확정. Phase 41 실행 중에 추가 — STATE 의 현재 위치 · 진행률 칸은 건드리지 않음
 
 ### Pending Todos
 
@@ -170,6 +171,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 72 | 매집 복원 RPC 속도 개선 — 좁은 열 선택 후 PK 되짚기(7.2초 → 1.05초 · 결과 불변) | 2026-11-09 | 6809abb7 | — |
 | 73 | 뉴스 자료원 한글 언론사 이름 매핑(gh-trade 요청 · 응답 시점 변환) | 2026-11-12 | 803fe83a | — |
 | 74 | 재료 없는 한투 자동 기사 숨김(시세 한 줄 · 시황 · 상위 N종목 목록 → auto_market · 소급 포함) | 2026-11-12 | 8907a59a | — |
+| 75 | 수급 자동 기사 숨김(소급 2차) + 시황 기사 제외(응답 시점 · shared isMarketSummaryTitle) | 2026-11-12 | 0bc17a9d | — |
 
 ## Session Continuity
 
