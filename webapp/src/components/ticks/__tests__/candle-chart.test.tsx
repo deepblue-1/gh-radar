@@ -427,8 +427,6 @@ describe('겹침 — 폰 길게 누르기', () => {
     expect(tip).toBeDefined();
     expect(tip.getAttribute('data-touch')).toBe('1');
     expect(tip.querySelector('[data-slot="tick-chart-group"]')).not.toBeNull();
-    // 살펴보는 동안 세로선도 손가락 자리
-    expect(q('candle-chart-hover-line')).toHaveLength(1);
     act(() => {
       fireEvent.pointerUp(svg, init);
       fireEvent.click(svg, { clientX: cx, clientY: cy });

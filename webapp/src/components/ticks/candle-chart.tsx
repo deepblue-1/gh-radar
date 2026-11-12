@@ -33,6 +33,7 @@ import {
 } from '@/lib/ticks/candle-chart';
 import type { OwnModel } from '@/lib/ticks/own-model';
 import {
+  OWN_MARK_R,
   TICK_CHART,
   cumNetRangeOf,
   cumPointsOf,
@@ -42,6 +43,8 @@ import {
   lastTradeMsOfSession,
   marketCapOf,
   msOfNs,
+  ownMarkAt,
+  ownMarksOf,
   priceSeriesOf,
   tOfTick,
   tickBoundsOf,
@@ -52,13 +55,24 @@ import {
   xOfTick,
   yOfNet,
   yOfShare,
+  type OwnMark,
 } from '@/lib/ticks/tick-chart';
-import { tickBandAt, tickRangeSumOf } from '@/lib/ticks/tick-chart-tip';
+import {
+  nearestTickCircleOf,
+  tickBandAt,
+  tickCirclesOf,
+  tickHoverWithOwn,
+  tickOrderHoverOf,
+  tickRangeSumOf,
+  type TickHover,
+} from '@/lib/ticks/tick-chart-tip';
 import { fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
+import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
 import { CandlePriceLayer } from './candle-price-layer';
+import { OwnDiamond, TickGroupBox } from './tick-chart';
 import { TickChartRange } from './tick-chart-range';
 
 /**
@@ -75,7 +89,12 @@ import { TickChartRange } from './tick-chart-range';
  *   지움 — 그 클릭은 시각 이동 아님) · 커서가 창 밖으로 나가면 창이 커서를 가운데로 따라간다.
  * ④ 마우스 세로선 + 값 점(UI-SPEC S7) — 호버 중이고 끌기 중이 아닐 때만. 가격 판 점 = 그 시각 봉의 종가(`--fg-2`) · 순매수 판
  *   매수 `--up` · 매도 `--down` · 순 `--team` · 누적 `--muted-fg` · 넷째 판 팀 비중 `--team`(선 차트 `tickBandAt` 값 그대로).
- * ⑤ 높이 — 측정 폭 < 600 이면 폰 303 · 아니면 데스크톱 420(`height` 로 강제 가능). 축 폭 L 은 선 차트와 같은 식이라 전환 때
+ * ⑤ 겹침(38 D-08 · D-10 · SC-4) — 팀 주문 원(매수 빨강 · 매도 파랑 · 크기 = 금액 · 커서가 든 주문 `--fg` 고리) · 우리 ○ 근거 →
+ *   ◇ 짝 없음 → ◆ 체결이 `CandlePriceLayer` children(가격 판 높이 클립)에 봉 영역 y(`candleYOf`)로 겹친다. 원 · 우리 점 위 마우스
+ *   (폰은 길게 누르기 `createTouchInspect` 300ms — 그동안 한 손가락 끌기는 창을 옮기지 않고 떼도 커서를 옮기지 않는다) = 원 옆 상자
+ *   (묶음 표 `TickGroupBox` + 우리 줄). 클릭은 우리 점(반지름 + 3px)이 팀 원보다 먼저: ◆ = `onOwnJump(rec)` · ○ =
+ *   `onOwnJump(rec, 주문 id)` · ◇ = `onOwnFillLine(체결 id)` · 원 = `onJumpRec(그 주문 마지막 조각)`. 봉은 누를 수 없다.
+ * ⑥ 높이 — 측정 폭 < 600 이면 폰 303 · 아니면 데스크톱 420(`height` 로 강제 가능). 축 폭 L 은 선 차트와 같은 식이라 전환 때
  *   그림 영역이 튀지 않는다.
  */
 
@@ -105,6 +124,16 @@ export interface CandleChartProps {
 
 /** 클릭으로 볼 끌기 문턱(px) — 이보다 많이 움직였으면 끌기(이동)였다. */
 const CLICK_SLOP_PX = 4;
+/** SVG 위아래 래퍼 여백(py-1) — 툴팁 상자 자리 보정. */
+const WRAP_PAD_Y = 4;
+
+/** 터치 앵커 — svg 상자 기준 client 오프셋 + 그때 상자 크기(viewBox 변환용). */
+type TouchAnchor = { x: number; y: number; bw: number; bh: number };
+
+function anchorOf(el: Element, clientX: number, clientY: number): TouchAnchor {
+  const box = el.getBoundingClientRect();
+  return { x: clientX - box.left, y: clientY - box.top, bw: box.width, bh: box.height };
+}
 
 /** 창 폭 글자 — 「하루 전체」 · 「n.n시간」 · 「n분」 · 「n초」(선 차트와 같은 규칙). */
 function fmtSpan(ms: number): string {
@@ -123,8 +152,12 @@ export function CandleChart({
   isToday = false,
   cursorRec,
   onSeekMs,
+  onJumpRec,
   listingShares = null,
   height,
+  own = null,
+  onOwnJump,
+  onOwnFillLine,
   titleAddon,
   className,
 }: CandleChartProps) {
@@ -145,13 +178,49 @@ export function CandleChart({
   const L = priceAxisWidthOf(series.maxPx);
   const xr = W - TICK_CHART.R;
   const plotW = Math.max(1, xr - L);
-  // 창 이동 잠금 — Shift 구간 끌기 동안 true(훅은 이동할 때마다 읽는다 · 훅 무변경)
+  // 터치 살펴보기 중이면 true — 한 손가락 끌기가 창을 옮기지 않고(훅) 페이지 스크롤을 막는다(touchmove)
+  const inspectRef = useRef(false);
+  // 이번 누름이 살펴보기였으면 뗄 때 클릭(시각 점프)으로 치지 않는다
+  const inspectedRef = useRef(false);
+  // 창 이동 잠금 — 터치 살펴보기 또는 Shift 구간 끌기 동안 true(훅은 이동할 때마다 읽는다 · 훅 무변경)
   const panLockRef = useRef(false);
   const { dragging } = useChartGestures(svgRef, { L, W, R: TICK_CHART.R }, ctl, panLockRef);
-  // 마우스 자리(viewBox 좌표 · 그림 영역 안만) — 창이 움직이면 지운 것과 같다
-  const [hoverState, setHover] = useState<{ mx: number; my: number; vk: string } | null>(null);
+  // 마우스 자리(viewBox 좌표 · 그림 영역 안만) + 그 자리 가격 판 상자 대상(없으면 null)
+  const [hoverState, setHover] = useState<{ mx: number; my: number; vk: string; box: TickHover | null } | null>(null);
+  // 창이 움직이면 원 자리가 바뀐다 — 그 창에서 고른 대상만 보인다
   const vk = `${view.t0}|${view.t1}`;
   const hover = hoverState !== null && hoverState.vk === vk && !dragging ? hoverState : null;
+
+  const [touchPt, setTouchPt] = useState<TouchAnchor | null>(null);
+  const [tracker] = useState(() =>
+    createTouchInspect({
+      onStart: (p) => {
+        const el = svgRef.current;
+        if (!el) return;
+        inspectRef.current = true;
+        panLockRef.current = true;
+        inspectedRef.current = true;
+        setTouchPt(anchorOf(el, p.clientX, p.clientY));
+      },
+      onEnd: () => {
+        inspectRef.current = false;
+        panLockRef.current = false;
+        setTouchPt(null);
+      },
+    }),
+  );
+  useEffect(() => () => tracker.dispose(), [tracker]);
+
+  // 살펴보기 중 페이지 스크롤 억제 — React onTouchMove 는 passive 라 비수동 네이티브 리스너로 막는다(선 차트와 같은 이유)
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const fn = (e: TouchEvent) => {
+      if (inspectRef.current && e.cancelable) e.preventDefault();
+    };
+    el.addEventListener('touchmove', fn, { passive: false });
+    return () => el.removeEventListener('touchmove', fn);
+  }, []);
 
   // 구간 합계(스케치 028 ③) — 확정 구간은 세션에 묶는다(종목 · 날짜가 바뀌면 지워진 것과 같다 · effect 없이 파생)
   const [selState, setSel] = useState<{ session: TickSession; t0: number; t1: number } | null>(null);
@@ -178,6 +247,14 @@ export function CandleChart({
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
   }, [hasRange]);
+
+  // 터치 툴팁 높이 — 그리기 전에 재서 손가락 위 자리를 잡는다
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipH, setTipH] = useState(0);
+  useLayoutEffect(() => {
+    const el = tipRef.current;
+    if (el && el.dataset.touch === '1' && el.offsetHeight !== tipH) setTipH(el.offsetHeight);
+  }, [touchPt, tipH]);
 
   const cursorMs = cursorRec >= 0 ? msOfNs(session.index.recvNs[cursorRec]!) : null;
 
@@ -224,18 +301,43 @@ export function CandleChart({
   const mcap = marketCapOf(session.basePx, listingShares);
   const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
 
+  // 팀 주문 원 · 우리 점 — 봉 영역 y(`candleYOf`)로 봉과 같은 시간축 · 같은 가격 눈금에 겹친다(SC-4)
+  const circles = tickCirclesOf(team, view, x, y);
+  const ownR = phone ? OWN_MARK_R.phone : OWN_MARK_R.desktop;
+  const marks: OwnMark[] = own !== null ? ownMarksOf(own, session, view, x, y) : [];
+  const curOrder = cursorRec >= 0 ? session.orderOfRec[cursorRec]! : -1;
+
+  // 떠다니는 상자 대상 — 가격 판 전용(팀 원 묶음 · 우리 점). 다른 판은 값 띠(42-10)가 대신한다.
+  const pickAt = (mx: number, my: number): TickHover | null => {
+    if (mx < L || mx > xr || my < P.y1a || my > P.y1b) return null;
+    const c = nearestTickCircleOf(circles, mx, my, P);
+    const teamHover = c === null ? null : tickOrderHoverOf(team, circles, c, view);
+    // 우리 줄은 팀 줄 뒤에 덧붙이기만(38 D-16 — 팀 줄 문구 · 순서 그대로)
+    return own === null ? teamHover : tickHoverWithOwn(teamHover, marks, own, mx, my, P, ownR);
+  };
   const inPlot = (mx: number, my: number) => mx >= L && mx <= xr && my >= P.y1a && my <= P.y4b;
   const tAt = tOfTick(view, L, xr);
+  const mxOf = (a: TouchAnchor) => (a.x * W) / (a.bw || W);
+  const myOf = (a: TouchAnchor) => (a.y * P.H) / (a.bh || P.H);
+  const touchBox = touchPt === null ? null : pickAt(mxOf(touchPt), myOf(touchPt));
+  // 보여줄 상자 — 터치 살펴보기가 마우스보다 앞선다
+  const tip =
+    touchBox !== null && touchPt !== null
+      ? { ...touchBox, ax: mxOf(touchPt), ay: myOf(touchPt), touch: true }
+      : hover !== null && hover.box !== null
+        ? { ...hover.box, ax: hover.mx, ay: hover.my, touch: false }
+        : null;
 
-  // 띠 시각 — 마우스 ?? 현재 틱(값 띠 자체는 42-10)
-  const hoverT = hover !== null ? tAt(hover.mx) : null;
+  // 띠 시각 — 터치(손가락 x · 그림 영역으로 자름) ?? 마우스 ?? 현재 틱(값 띠 자체는 42-10)
+  const touchT = touchPt === null ? null : tAt(Math.min(xr, Math.max(L, mxOf(touchPt))));
+  const hoverT = touchT ?? (hover !== null ? tAt(hover.mx) : null);
   const bandT = hoverT ?? cursorMs;
   const bandVal =
     bandT === null
       ? null
       : tickBandAt({ team, cum: cumPts, price: series, turnover, basePx: session.basePx, mcap, T0: bounds.T0 }, bandT);
 
-  // 세로선 · 값 점 — 호버가 있고 끌기 중이 아닐 때만 · 가격 판 = 그 시각 봉의 종가
+  // 세로선 · 값 점 — 호버나 터치가 있고 끌기 중이 아닐 때만 · 가격 판 = 그 시각 봉의 종가
   const hoverLine = hoverT !== null && !dragging ? x(hoverT) : null;
   const hoverDots: { y: number; c: string }[] = [];
   if (hoverLine !== null && hoverT !== null && bandVal !== null) {
@@ -286,7 +388,13 @@ export function CandleChart({
       }
       return;
     }
-    if (e.pointerType === 'touch') return;
+    if (e.pointerType === 'touch') {
+      if (!tracker.move(e)) return;
+      const a = anchorOf(e.currentTarget, e.clientX, e.clientY);
+      const moved = touchPt === null || Math.round(mxOf(a)) !== Math.round(mxOf(touchPt));
+      if (moved || (pickAt(mxOf(a), myOf(a))?.key ?? null) !== (touchBox?.key ?? null)) setTouchPt(a);
+      return;
+    }
     if (dragging) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = ((e.clientX - rect.left) * W) / (rect.width || W);
@@ -295,13 +403,45 @@ export function CandleChart({
       if (hoverState !== null) setHover(null);
       return;
     }
+    const box = pickAt(mx, my);
     // 다시 그리기는 viewBox 1px 당 많아야 한 번(휠 이동 프레임 급) — 값은 정확한 mx 로 계산한다
-    if (hover !== null && Math.round(hover.mx) === Math.round(mx)) return;
-    setHover({ mx, my, vk });
+    if (hover !== null && Math.round(hover.mx) === Math.round(mx) && (hover.box?.key ?? null) === (box?.key ?? null)) return;
+    setHover({ mx, my, vk, box });
   };
 
-  // 클릭 = 그 시각 첫 틱. 끌기(4px 넘게 움직임)는 클릭이 아니다.
-  const downRef = useRef<{ x: number; y: number } | null>(null);
+  // 고리 — 원 하나면 그 원 1.5 · 묶음이면 고른 원 밖 묶음 원마다 1.5 + 고른 원만 2.5
+  const seedRim = tip?.group ? tip.circle : null;
+  const rims = tip?.group ? tip.group.filter((c) => c.k !== seedRim?.k) : tip?.circle ? [tip.circle] : [];
+
+  // 우리 점 판정 — 우리 점 요소를 눌렀으면 그 점, 아니면 가격 판 안에서 반지름 + 3px 안 가장 가까운 점(팀 원보다 먼저).
+  const ownHitOf = (target: Element, clientX: number, clientY: number): OwnMark | null => {
+    if (marks.length === 0) return null;
+    const el = target.closest?.('[data-own-i]');
+    if (el) return marks[Number(el.getAttribute('data-own-i'))] ?? null;
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return null;
+    const mx = ((clientX - rect.left) * W) / rect.width;
+    const my = ((clientY - rect.top) * P.H) / rect.height;
+    if (my < P.y1a - 7 || my > P.y1b + 7) return null;
+    return ownMarkAt(marks, mx, my, ownR);
+  };
+  /** 우리 점 클릭 — 그 점의 콜백이 없으면 false(아래 팀 원 · 시각 클릭으로 넘긴다). */
+  const goOwn = (m: OwnMark): boolean => {
+    if (m.kind === 'nofill') {
+      if (!onOwnFillLine) return false;
+      onOwnFillLine(m.fillIds[0]!);
+      return true;
+    }
+    if (!onOwnJump) return false;
+    if (m.kind === 'ev') onOwnJump(m.rec, m.orderId);
+    else onOwnJump(m.rec);
+    return true;
+  };
+
+  // 클릭 = 그 시각 첫 틱 · 원 클릭 = 그 주문 마지막 조각. 끌기(4px 넘게 움직임)는 클릭이 아니다. 봉은 누를 수 없다.
+  const downRef = useRef<{ x: number; y: number; orderRec: number | null; own: OwnMark | null } | null>(null);
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
     // Shift+끌기 = 구간(데스크톱 마우스만 · 그림 영역 안에서 누를 때) — 그냥 끌기는 창 이동 그대로
     if (e.pointerType === 'mouse' && e.button === 0 && e.shiftKey && !phone) {
@@ -312,14 +452,22 @@ export function CandleChart({
         panLockRef.current = true;
       }
     }
-    downRef.current = { x: e.clientX, y: e.clientY };
+    inspectedRef.current = false;
+    tracker.down(e);
+    const el = (e.target as Element).closest?.('[data-order-rec]');
+    downRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      orderRec: el ? Number(el.getAttribute('data-order-rec')) : null,
+      own: ownHitOf(e.target as Element, e.clientX, e.clientY),
+    };
   };
   /** 구간 끌기 끝 — commit(pointerup)이면 움직인 구간을 확정, 아니면(cancel · 캡처 풀림) 끄던 것만 버리고 이전 구간은 둔다. */
   const endRange = (commit: boolean) => {
     const rd = rangeDownRef.current;
     if (rd === null) return;
     rangeDownRef.current = null;
-    panLockRef.current = false;
+    panLockRef.current = inspectRef.current;
     if (commit && rd.moved && rd.t1 !== rd.t0) {
       setSel({ session, t0: Math.min(rd.t0, rd.t1), t1: Math.max(rd.t0, rd.t1) });
     }
@@ -329,7 +477,19 @@ export function CandleChart({
   const onClick = (e: MouseEvent<SVGSVGElement>) => {
     const down = downRef.current;
     downRef.current = null;
+    if (inspectedRef.current) {
+      inspectedRef.current = false;
+      return;
+    }
     if (down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
+    const ownHit = down?.own ?? ownHitOf(e.target as Element, e.clientX, e.clientY);
+    if (ownHit !== null && goOwn(ownHit)) return;
+    const el = (e.target as Element).closest?.('[data-order-rec]');
+    const orderRec = down?.orderRec ?? (el ? Number(el.getAttribute('data-order-rec')) : null);
+    if (orderRec !== null && Number.isFinite(orderRec)) {
+      onJumpRec(orderRec);
+      return;
+    }
     // 구간이 있으면 빈 곳 클릭 = 구간 지움(이 클릭은 시각 이동이 아니다 — 스케치 028 ③)
     if (sel !== null) {
       setSel(null);
@@ -422,10 +582,22 @@ export function CandleChart({
           fontSize={11}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={() => endRange(true)}
-          onPointerCancel={() => endRange(false)}
-          onLostPointerCapture={() => endRange(false)}
+          onPointerUp={(e) => {
+            endRange(true);
+            tracker.end(e);
+          }}
+          onPointerCancel={(e) => {
+            endRange(false);
+            tracker.end(e);
+          }}
+          onLostPointerCapture={(e) => {
+            endRange(false);
+            tracker.end(e);
+          }}
           onPointerLeave={() => setHover(null)}
+          onContextMenu={(e) => {
+            if (inspectRef.current) e.preventDefault();
+          }}
           onClick={onClick}
         >
           <defs>
@@ -471,8 +643,76 @@ export function CandleChart({
             ))}
           </g>
 
-          {/* ① 가격 판 — 봉 · 누적 평단 · 가격 축 */}
-          <CandlePriceLayer frame={frame} candles={candles} range={range} y={y} cumAvg={cumAvg} clipId={clipId} />
+          {/* ① 가격 판 — 봉 · 누적 평단 · 가격 축 + children(가격 판 높이 클립) = 팀 주문 원 · 고리 · 우리 점 */}
+          <CandlePriceLayer frame={frame} candles={candles} range={range} y={y} cumAvg={cumAvg} clipId={clipId}>
+            {circles.map(({ o, cx: ox, cy: oy, r }) => {
+              const color = o.side === 'B' ? 'var(--up)' : 'var(--down)';
+              const on = o.order.id === curOrder;
+              return (
+                <circle
+                  key={o.order.id}
+                  data-slot="candle-order-circle"
+                  data-order-rec={o.lastRec}
+                  data-side={o.side}
+                  cx={ox}
+                  cy={oy}
+                  r={r}
+                  fill={color}
+                  fillOpacity={0.55}
+                  stroke={on ? 'var(--fg)' : color}
+                  strokeOpacity={0.9}
+                  strokeWidth={on ? 2.5 : 1}
+                  className="cursor-pointer"
+                />
+              );
+            })}
+            {rims.map((c) => (
+              <circle
+                key={`h${c.k}`}
+                data-slot="candle-order-hover"
+                cx={c.cx}
+                cy={c.cy}
+                r={c.r + 1}
+                fill="none"
+                stroke="var(--fg)"
+                strokeWidth={1.5}
+                pointerEvents="none"
+              />
+            ))}
+            {seedRim && (
+              <circle
+                data-slot="candle-order-seed"
+                cx={seedRim.cx}
+                cy={seedRim.cy}
+                r={seedRim.r + 1}
+                fill="none"
+                stroke="var(--fg)"
+                strokeWidth={2.5}
+                pointerEvents="none"
+              />
+            )}
+            {/* 우리 점(Phase 38 D-08) — 팀 원 위 · ○ → ◇ → ◆ 순(◆ 가 맨 위) */}
+            {marks.map((m, i) =>
+              m.kind === 'ev' ? (
+                <circle
+                  key={`ev${m.rec}`}
+                  data-slot="candle-own-ev-mark"
+                  data-own-i={i}
+                  data-rec={m.rec}
+                  cx={m.cx}
+                  cy={m.cy}
+                  r={ownR - 1}
+                  fill="var(--card)"
+                  stroke="var(--mine)"
+                  strokeWidth={1.6}
+                  vectorEffect="non-scaling-stroke"
+                  className="cursor-pointer"
+                />
+              ) : (
+                <OwnDiamond key={m.kind === 'nofill' ? `nf${m.fillIds[0]}` : `f${m.rec}`} m={m} i={i} r={ownR} />
+              ),
+            )}
+          </CandlePriceLayer>
 
           <g clipPath={`url(#${clipId})`}>
             {/* 구간 띠 · 순매수 알약(스케치 028 ③ · 알약은 수익률 판 위 — 끄는 중이면 그 구간 · 아니면 확정 구간) */}
@@ -594,6 +834,36 @@ export function CandleChart({
             </g>
           )}
         </svg>
+        {tip && (tip.table !== undefined || tip.lines.length > 0) && (
+          <div
+            ref={tipRef}
+            data-slot="candle-chart-tip"
+            data-touch={tip.touch ? '1' : undefined}
+            role="tooltip"
+            className={cn(
+              'pointer-events-none absolute z-10 rounded-[10px] border border-[var(--border)] bg-[var(--popover)] text-[11px] leading-[1.45] break-keep text-[var(--popover-fg)] shadow-md tabular-nums',
+              tip.table ? 'w-[300px] px-1 pt-0.5 pb-1' : 'px-2 py-1',
+            )}
+            style={
+              tip.touch
+                ? { left: 4, maxWidth: W - 8, top: WRAP_PAD_Y + touchTipTopOf(tip.ay, tipH, P.H) }
+                : {
+                    maxWidth: W - 8,
+                    left: tip.ax > W / 2 ? undefined : tip.ax + 12,
+                    right: tip.ax > W / 2 ? W - tip.ax + 12 : undefined,
+                    top: tip.ay > P.H / 2 ? undefined : WRAP_PAD_Y + tip.ay + 12,
+                    bottom: tip.ay > P.H / 2 ? P.H + WRAP_PAD_Y - tip.ay + 12 : undefined,
+                  }
+            }
+          >
+            {tip.table && <TickGroupBox table={tip.table} />}
+            {tip.lines.map((line, i) => (
+              <div key={i} data-slot="candle-chart-own-line" className={cn('pl-3 -indent-3', tip.table && 'mx-1 mt-0.5')}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 구간 결과 · 안내 — 차트 아래에만(손을 떼도 차트가 밀리지 않는다) */}
