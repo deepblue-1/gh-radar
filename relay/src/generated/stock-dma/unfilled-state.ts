@@ -110,8 +110,15 @@ pendingCancelSent():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+origin():string|null
+origin(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+origin(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startUnfilledState(builder:flatbuffers.Builder) {
-  builder.startObject(14);
+  builder.startObject(15);
 }
 
 static addOrderNo(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset) {
@@ -170,12 +177,16 @@ static addPendingCancelSent(builder:flatbuffers.Builder, pendingCancelSent:boole
   builder.addFieldInt8(13, +pendingCancelSent, +false);
 }
 
+static addOrigin(builder:flatbuffers.Builder, originOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(14, originOffset, 0);
+}
+
 static endUnfilledState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset, orderTimeOffset:flatbuffers.Offset, queuedStatusOffset:flatbuffers.Offset, pendingStatusOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, pendingCancelSent:boolean):flatbuffers.Offset {
+static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset, orderTimeOffset:flatbuffers.Offset, queuedStatusOffset:flatbuffers.Offset, pendingStatusOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, pendingCancelSent:boolean, originOffset:flatbuffers.Offset):flatbuffers.Offset {
   UnfilledState.startUnfilledState(builder);
   UnfilledState.addOrderNo(builder, orderNoOffset);
   UnfilledState.addOrgOrderNo(builder, orgOrderNoOffset);
@@ -191,6 +202,7 @@ static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffer
   UnfilledState.addPendingStatus(builder, pendingStatusOffset);
   UnfilledState.addBoard(builder, boardOffset);
   UnfilledState.addPendingCancelSent(builder, pendingCancelSent);
+  UnfilledState.addOrigin(builder, originOffset);
   return UnfilledState.endUnfilledState(builder);
 }
 }

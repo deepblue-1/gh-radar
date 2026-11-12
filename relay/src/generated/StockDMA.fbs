@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: a4e54275
-// synced-date:        2026-11-09
+// server-repo-commit: 204e505d
+// synced-date:        2026-11-12
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -954,6 +954,13 @@ table UnfilledState {
                                 // 구 서버는 부재 = false 라 신 클라가 종전과 같이 동작한다.
                                 // ★ 클라 회색 표시·취소 제외 판정의 **유일한 원천**이다 —
                                 //   pending_status 문구로 판정하지 않는다 (tasks/lessons.md 교훈 24).
+
+    // === 이하 quick-261112-v68 추가 (테이블 말미 append — 기존 필드 순서 불변) ===
+
+    origin: string;  // 발주 주체 — strategy::OriginName 어휘(VITrigger/LimitChaser/Manual/OpenArb).
+                     // 미상(0)·예약 Q 행·원장 대사 주입 행은 빈 문자열이고, 일반 행도 필드는 늘 싣는다
+                     // (부재 = 구 서버와 구분 — queued_status 와 같은 규약).
+                     // 클라 상따창 미체결 VI 행 표시의 원천 — 판정은 클라 WireCodes.FromWireOrigin. vtable 32
 }
 
 // 스냅샷·델타·대사 교정 팬아웃 공용 본문 (MsgType 66/67 이 같은 슬롯을 공유한다).
@@ -1907,7 +1914,7 @@ table AutoSellCommandReq {       // 41 본문 — 자동매도 바로시작/중�
                                  // 그 밖 값은 54 ERROR
 }
 
-table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 16개 + present (D-20 · Phase 32 D-08 · quick-261012-sd1 · quick-261101-t7c · quick-261103-l41)
+table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_id)별 상따 기본설정 17개 + present (D-20 · Phase 32 D-08 · quick-261012-sd1 · quick-261101-t7c · quick-261103-l41 · quick-261112-v68)
     // 기존 클라 settings.ini [LimitChaserDefaults] 7키 — 금액 3칸 단위는 **만원**(클라 LimitChaserDefaults 와 같다)
     pre_buy_amount: uint;        // 선매수 주문금액(만원) 0~999999999
     add_buy_amount: uint;        // 줄매수 주문금액(만원) 0~999999999
@@ -1936,6 +1943,13 @@ table UserSettings {             // 42/84 공용 본문 — 사용자(dma_user_i
     // === 이하 quick-261103-l41 — optional 스칼라(`= null`, 위 sd1 과 같은 규약) ===
     sell_risk_pct: ushort = null;        // 상따 ☐위험도 N 기본값 % 1~999, 기본 80 — 상따창 새 키의 위험도 칸 초기값(체크는 늘 꺼짐).
                                          // 42 에 없으면 저장값 유지, 84 는 서버가 늘 싣는다. vtable 36
+    // === 이하 quick-261112-v68 — optional 스칼라(`= null`, 위 sd1 과 같은 규약) ===
+    buy_group_companion_off_mask: uint = null;  // 사람이 상따창 ☐선매수·☐줄매수를 켤 때 같이 켜는 8항목 중 **끈** 항목 비트.
+                                         // 1 = 같이 켜지 않음 · 0·부재 = 전부 켬(종전 동작). 비트 순서 고정(재배치 금지):
+                                         //   bit0 매도주문 · bit1 매도>잔량추적 · bit2 매도>체결 · bit3 위험도 ·
+                                         //   bit4 취소(취소:잔량) · bit5 취소>잔량추적 · bit6 취소>체결 · bit7 봇매도
+                                         // 클라 동작 — 서버는 보관·에코만, 0~255 밖이면 42 전체 거부(54 ERROR).
+                                         // 42 부재 = 저장값 유지 · 84 는 서버가 늘 싣는다. vtable 38
 }
 
 // ============================================================================

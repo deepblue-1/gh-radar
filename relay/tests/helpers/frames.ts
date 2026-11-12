@@ -412,6 +412,8 @@ export type FakeUnfilled = {
   board?: string;
   /** 취소 요청을 증권사에 이미 보냈는가 (`pending_cancel_sent`). 회색·버튼숨김의 유일한 근거. */
   pendingCancelSent?: boolean;
+  /** 발주 주체 원문(`origin`). 생략 = 슬롯 자체를 쓰지 않는다(204e505d 이전 구 서버). */
+  origin?: string;
 };
 
 export type FakeAccountStateInput = {
@@ -478,6 +480,8 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
     const queuedStatus = b.createString(u.queuedStatus ?? "");
     const pendingStatus = b.createString(u.pendingStatus ?? "");
     const board = b.createString(u.board ?? "");
+    // 생략이면 슬롯을 쓰지 않는다 — 204e505d 이전 구 서버 프레임과 바이트가 같다.
+    const origin = u.origin === undefined ? null : b.createString(u.origin);
     UnfilledState.startUnfilledState(b);
     UnfilledState.addOrderNo(b, orderNo);
     UnfilledState.addOrgOrderNo(b, orgOrderNo);
@@ -493,6 +497,7 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
     UnfilledState.addPendingStatus(b, pendingStatus);
     UnfilledState.addBoard(b, board);
     UnfilledState.addPendingCancelSent(b, u.pendingCancelSent ?? false);
+    if (origin !== null) UnfilledState.addOrigin(b, origin);
     return UnfilledState.endUnfilledState(b);
   });
   const unfilledVec = AccountState.createUnfilledVector(b, unfilledOffsets);

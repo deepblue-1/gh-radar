@@ -42,7 +42,7 @@
  *     열렸다 — `RelayOrderModifyMsg`.
  */
 
-import type { JournalOrderRow } from "./journal";
+import type { JournalOrderOrigin, JournalOrderRow } from "./journal";
 import type { RelayQueueProgressItem, StrategyEventRow } from "./strategy-event";
 import type { LcChangeMaskField } from "./lc-change-mask";
 
@@ -1222,6 +1222,10 @@ export type RelayUnfilled = {
    *    'R' 로 답하므로 이중 판정을 만들지 않는다 (D-07). 화면이 버튼을 감추는 것으로 충분하다.
    */
   pendingCancelSent: boolean;
+  /** 발주 주체 (`UnfilledState.origin` · gh-trade 204e505d). relay 가 원문을 3종으로 좁힌다 —
+   *  VITrigger→"vi" · LimitChaser→"limit_chaser" · Manual→"manual" · 그 밖(빈 값 · OpenArb · 미지)→null.
+   *  키 없음 = 옛 relay. 화면은 이 값만 쓰고 짐작하지 않는다 (quick-261112-w2q D-02). */
+  origin?: JournalOrderOrigin | null;
   /** 종목명 — relay 가 `stocks.isin` 역매핑으로 채운다. 없으면 UI 가 ISIN 을 보여준다. */
   name?: string;
   /**

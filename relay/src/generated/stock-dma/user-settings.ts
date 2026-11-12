@@ -107,8 +107,13 @@ sellRiskPct():number|null {
   return offset ? this.bb!.readUint16(this.bb_pos + offset) : null;
 }
 
+buyGroupCompanionOffMask():number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 38);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : null;
+}
+
 static startUserSettings(builder:flatbuffers.Builder) {
-  builder.startObject(17);
+  builder.startObject(18);
 }
 
 static addPreBuyAmount(builder:flatbuffers.Builder, preBuyAmount:number) {
@@ -179,12 +184,16 @@ static addSellRiskPct(builder:flatbuffers.Builder, sellRiskPct:number) {
   builder.addFieldInt16(16, sellRiskPct, null);
 }
 
+static addBuyGroupCompanionOffMask(builder:flatbuffers.Builder, buyGroupCompanionOffMask:number) {
+  builder.addFieldInt32(17, buyGroupCompanionOffMask, null);
+}
+
 static endUserSettings(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number, preBuyWatchAmount:number|null, preBuyAutoAddBuy:boolean|null, burstRatioPct:number|null, sellRiskPct:number|null):flatbuffers.Offset {
+static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addBuyAmount:number, postBuyAmount:number, postBuyMaxCount:number, postBuyFloorQty:number, postBuyReboundPct:number, sellQtyTrackRatio:number, autoSellPeriodSec:number, auctionSellRatioPct:number, autoSellRatioDefaultPct:number, autoSellMethodDefault:number, present:boolean, postBuyFloorAmount:number, preBuyWatchAmount:number|null, preBuyAutoAddBuy:boolean|null, burstRatioPct:number|null, sellRiskPct:number|null, buyGroupCompanionOffMask:number|null):flatbuffers.Offset {
   UserSettings.startUserSettings(builder);
   UserSettings.addPreBuyAmount(builder, preBuyAmount);
   UserSettings.addAddBuyAmount(builder, addBuyAmount);
@@ -207,6 +216,8 @@ static createUserSettings(builder:flatbuffers.Builder, preBuyAmount:number, addB
     UserSettings.addBurstRatioPct(builder, burstRatioPct);
   if (sellRiskPct !== null)
     UserSettings.addSellRiskPct(builder, sellRiskPct);
+  if (buyGroupCompanionOffMask !== null)
+    UserSettings.addBuyGroupCompanionOffMask(builder, buyGroupCompanionOffMask);
   return UserSettings.endUserSettings(builder);
 }
 }

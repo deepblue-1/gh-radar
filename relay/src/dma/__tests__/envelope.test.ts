@@ -104,6 +104,7 @@ import {
   fromWireMarket,
   fromWireCrud,
   toOrderOrigin,
+  toUnfilledOrigin,
   strategyKey,
   skippedStrategyItemCount,
   MAX_LIMIT_CHASER_COUNT,
@@ -1397,6 +1398,52 @@ describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
 
     expect(state?.unf.map((u) => u.orderNo)).toEqual(["ORD1", "ORD2"]);
     expect(skippedAccountStateItemCount()).toBe(0);
+  });
+
+  it("③-4 미체결 발주 주체 — VITrigger 만 vi … 그 밖 · 빈 값 · 슬롯 없음은 null, 경고 없음 (quick-261112-w2q D-02)", () => {
+    // 미체결은 계좌 상태 프레임마다 반복된다 — 미지 값마다 warn 을 남기는 toOrderOrigin 을 쓰면
+    // 로그가 넘친다. 화면은 이 값만 쓰므로 모르는 출처는 조용히 null(배지 없음)이 정답이다.
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildAccountStateFrame({
+          snapshot: true,
+          unfilled: [
+            { origin: "VITrigger" },
+            { origin: "LimitChaser" },
+            { origin: "Manual" },
+            { origin: "" },
+            { origin: "OpenArb" },
+            { origin: "Zzz" },
+            {}, // 슬롯 없음 = 204e505d 이전 구 서버
+          ],
+        }),
+      ),
+    );
+    const state = parseAccountState(parsed!.env, true)!;
+
+    expect(state.unf.map((u) => u.origin)).toEqual([
+      "vi",
+      "limit_chaser",
+      "manual",
+      null,
+      null,
+      null,
+      null,
+    ]);
+    // relay 는 늘 싣는다 — 키가 있고 값이 null 이다 (키 없음은 옛 relay 만의 모양).
+    expect("origin" in state.unf[6]!).toBe(true);
+    expect(skippedAccountStateItemCount()).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("③-5 toUnfilledOrigin — 3종만 좁히고 나머지는 null, 로그 없음 (quick-261112-w2q D-02)", () => {
+    expect(toUnfilledOrigin("VITrigger")).toBe("vi");
+    expect(toUnfilledOrigin("LimitChaser")).toBe("limit_chaser");
+    expect(toUnfilledOrigin("Manual")).toBe("manual");
+    expect(toUnfilledOrigin("")).toBeNull();
+    expect(toUnfilledOrigin("OpenArb")).toBeNull();
+    expect(toUnfilledOrigin("Zzz")).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

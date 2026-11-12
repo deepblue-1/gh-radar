@@ -2433,6 +2433,28 @@ export function toOrderOrigin(raw: string): OrderOriginKind {
 }
 
 /**
+ * 미체결 행의 발주 주체 원문(`UnfilledState.origin` · gh-trade 204e505d) → 화면 표시용 3종 또는 `null`
+ * (quick-261112-w2q D-02).
+ *
+ * `toOrderOrigin` 을 쓰지 않는 이유 — 그쪽은 빈/미지 값을 `"manual"` 로 좁혀 「VI 아님」 을 지어내고,
+ * 미지 값마다 warn 을 남긴다. 미체결은 계좌 상태 프레임마다 반복되므로 거기 쓰면 로그가 넘친다.
+ * 화면은 이 값만 보고 배지를 그리므로, 빈 값 · `OpenArb` 등 새 출처 · 미지 값은 배지가 없는 것이
+ * 정답이다 → 조용히 `null`(로그 없음).
+ */
+export function toUnfilledOrigin(raw: string): OrderOriginKind | null {
+  switch (raw) {
+    case "VITrigger":
+      return "vi";
+    case "LimitChaser":
+      return "limit_chaser";
+    case "Manual":
+      return "manual";
+    default:
+      return null;
+  }
+}
+
+/**
  * 주문 통보 (51). **접수·체결·취소확인·거부가 전부 이 하나로 온다.**
  *
  * `TradeExecution(53)` 은 서버에 생성 경로가 없다 — 체결도 `notice_type:"E"` 로 51 에
@@ -2684,6 +2706,8 @@ export function parseAccountState(env: Envelope, isSnapshot: boolean): RelayAcco
       board: u.board() ?? "",
       pendingCancelSent: u.pendingCancelSent(),
       exchange: fromWireExchange(u.exchange() ?? ""),
+      // 발주 주체 — 3종 외 · 빈 값 · 구 서버(슬롯 없음)는 null. 화면은 이 값만 쓴다 (quick-261112-w2q D-02)
+      origin: toUnfilledOrigin(u.origin() ?? ""),
     });
   }
 
