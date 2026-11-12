@@ -322,7 +322,11 @@ export function fakeTelegram(clock: FakeClock, o: FakeTelegramOptions = {}, tl: 
     },
   };
 
-  return { api, sent, switches, texts: () => sent.map((s) => s.text) };
+  /** 공시 알림 글(📢)만 — 장애 글(⚠ · ✅) · 시험 글 제외 */
+  const alerts = () => sent.filter((s) => s.text.startsWith("📢"));
+  /** 장애 짝 글만 — 「⚠ 공시 알림이 멈췄습니다」 · 「✅ 공시 알림 다시 동작」 */
+  const notices = () => sent.filter((s) => s.text.startsWith("⚠") || s.text.startsWith("✅"));
+  return { api, sent, switches, texts: () => sent.map((s) => s.text), alerts, notices };
 }
 
 // ── 가짜 DB ──────────────────────────────────────────────────────────
@@ -571,7 +575,8 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
       calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}) });
       const s = state.outage;
       if (action === "open") {
-        if (s.since !== null) return { opened: false };
+        // 43-02: 이미 열려 있고 notice 가 pending(연 실행이 글을 못 남기고 죽음)이면 처음 시각으로 opened true 를 한 번 더
+        if (s.since !== null) return s.notice === "pending" ? { opened: true, since: s.since } : { opened: false };
         s.since = new Date(now).toISOString();
         s.reason = reason ?? null;
         s.notice = "pending";
