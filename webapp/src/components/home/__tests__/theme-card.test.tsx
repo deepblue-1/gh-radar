@@ -218,3 +218,33 @@ describe('ThemeCard — 요약 복사 (quick-260914-jtj)', () => {
     expect(await screen.findByText('복사됨')).toBeInTheDocument();
   });
 });
+
+describe('ThemeCard — Phase 41 D-20 링크 없는 공시 건수', () => {
+  it('「뉴스 N건 전체 보기」 의 N 이 homeNewsRefKey 기준 — 링크 없는 공시 3건이 1건으로 세지지 않는다', () => {
+    const disc = (title: string) => ({
+      title,
+      url: null,
+      source: '코스닥 공시',
+      kind: 'disclosure' as const,
+      publishedAt: '2026-07-02T15:15:00.000+09:00',
+    });
+    const theme: HomeSurgeTheme = {
+      name: '수주',
+      reason: '공급계약',
+      stocks: [
+        { code: '012340', name: '가람전자', changeRate: 29.9 },
+        { code: '000002', name: '베타', changeRate: 25.1 },
+      ],
+      news: [
+        disc('단일판매ㆍ공급계약체결'),
+        disc('유상증자결정'),
+        disc('무상증자결정'),
+        { title: '뉴스1', url: 'https://n/1', source: '연합뉴스' },
+        { title: '뉴스2', url: 'https://n/2', source: '한국경제' },
+      ],
+    };
+    render(<ThemeCard theme={theme} />);
+    // url 로 세면 null 3건이 1건 → 3 이라 버튼이 없다. 키로 세면 5 > 4 → 버튼.
+    expect(screen.getByRole('button', { name: '뉴스 5건 전체 보기' })).toBeInTheDocument();
+  });
+});
