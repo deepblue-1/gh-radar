@@ -99,7 +99,8 @@ export interface Candles {
   amt: Float64Array;
 }
 
-const baseCache = new WeakMap<TickSession, Candles>();
+/** 세션마다 1분봉 하나 + 상위 단위별 집계(세션 · 단위당 1회 — SC-7). */
+const candleCache = new WeakMap<TickSession, { base: Candles; byUnit: Map<CandleUnit, Candles> }>();
 
 function buildBase(session: TickSession): Candles {
   const { T0 } = tickBoundsOf(session.date);
@@ -142,13 +143,77 @@ function buildBase(session: TickSession): Candles {
   return { unit: 1, n, t0: s(t0), o: s(o), h: s(h), l: s(l), c: s(c), amt: s(amt) };
 }
 
-/** 세션 → 1분봉(세션마다 한 번). */
-export function candleBaseOf(session: TickSession): Candles {
-  const hit = baseCache.get(session);
-  if (hit !== undefined) return hit;
-  const out = buildBase(session);
-  baseCache.set(session, out);
+/**
+ * 1분봉 → 상위 단위 — 1분봉 i 의 칸 = floor((t0[i] − T0) / 단위 ms) · 같은 칸이면 시가 = 첫 · 고 max · 저 min · 종가 = 마지막 ·
+ * 거래대금 합 · 봉 시작 = T0 + 칸 × 단위 ms(08:00 정시에 맞물린다 — 60분봉 = 정시 시작).
+ */
+function rollUp(base: Candles, unit: CandleUnit, T0: number): Candles {
+  const u = unit * CANDLE_MIN_MS;
+  const t0 = new Float64Array(base.n);
+  const o = new Float64Array(base.n);
+  const h = new Float64Array(base.n);
+  const l = new Float64Array(base.n);
+  const c = new Float64Array(base.n);
+  const amt = new Float64Array(base.n);
+  let n = 0;
+  let lastK = -1;
+  for (let i = 0; i < base.n; i++) {
+    const k = Math.floor((base.t0[i]! - T0) / u);
+    if (k !== lastK) {
+      t0[n] = T0 + k * u;
+      o[n] = base.o[i]!;
+      h[n] = base.h[i]!;
+      l[n] = base.l[i]!;
+      c[n] = base.c[i]!;
+      amt[n] = base.amt[i]!;
+      n += 1;
+      lastK = k;
+      continue;
+    }
+    const j = n - 1;
+    if (base.h[i]! > h[j]!) h[j] = base.h[i]!;
+    if (base.l[i]! < l[j]!) l[j] = base.l[i]!;
+    c[j] = base.c[i]!;
+    amt[j] = amt[j]! + base.amt[i]!;
+  }
+  const s = (a: Float64Array) => a.subarray(0, n);
+  return { unit, n, t0: s(t0), o: s(o), h: s(h), l: s(l), c: s(c), amt: s(amt) };
+}
+
+function cacheOf(session: TickSession) {
+  let hit = candleCache.get(session);
+  if (hit === undefined) {
+    const base = buildBase(session);
+    hit = { base, byUnit: new Map<CandleUnit, Candles>([[1, base]]) };
+    candleCache.set(session, hit);
+  }
+  return hit;
+}
+
+/**
+ * 세션 → 그 단위 봉(세션 · 단위당 한 번 · 같은 세션 · 단위면 같은 객체). 상위 단위는 1분봉에서 묶는다(RESEARCH Pattern 2) —
+ * 가격 · 수량이 정수라 Σ(가격 × 수량) 를 다시 더해도 직접 합과 비트까지 같다.
+ */
+export function candlesOf(session: TickSession, unit: CandleUnit): Candles {
+  const hit = cacheOf(session);
+  let out = hit.byUnit.get(unit);
+  if (out === undefined) {
+    out = rollUp(hit.base, unit, tickBoundsOf(session.date).T0);
+    hit.byUnit.set(unit, out);
+  }
   return out;
+}
+
+/** 세션 → 1분봉(`candlesOf(session, 1)` 과 같은 객체). */
+export function candleBaseOf(session: TickSession): Candles {
+  return candlesOf(session, 1);
+}
+
+/** 시각 t 가 든 봉 색인 — 칸 `[t0, t0 + 단위)` 안이면 그 색인 · 빈 칸 · 첫 봉 앞 · 마지막 봉 뒤면 −1. */
+export function candleIdxAt(c: Candles, t: number): number {
+  const i = upperBound(c.t0, c.n, t) - 1;
+  if (i < 0) return -1;
+  return t < c.t0[i]! + c.unit * CANDLE_MIN_MS ? i : -1;
 }
 
 /** 봉 단위 글자 — 자동 「5분봉(자동)」 · 고정 「15분봉」(UI-SPEC 문구 표). */

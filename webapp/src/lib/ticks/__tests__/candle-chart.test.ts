@@ -127,14 +127,18 @@ function expectSame(c: Candles, want: [number, Bar][]) {
 describe('집계', () => {
   const s = richSession();
 
-  for (const unit of CANDLE_UNITS) {
-    it(`${unit}분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)`, () => {
-      const c = candlesOf(s, unit);
-      expect(c.unit).toBe(unit);
-      expect(c.n).toBeGreaterThan(0);
-      expectSame(c, oracle(s, unit));
-    });
-  }
+  const vsOracle = (unit: CandleUnit) => {
+    const c = candlesOf(s, unit);
+    expect(c.unit).toBe(unit);
+    expect(c.n).toBeGreaterThan(0);
+    expectSame(c, oracle(s, unit));
+  };
+  it('1분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(1));
+  it('5분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(5));
+  it('10분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(10));
+  it('15분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(15));
+  it('30분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(30));
+  it('60분봉 — 시 · 고 · 저 · 종 · 거래대금이 직접 집계와 같다(오라클)', () => vsOracle(60));
 
   it('거름 — 중복 수신은 한 번만 · 가격 0 · 수량 0 · 08:00 전 · 20:00 이후 제외 · 체결 없는 분에는 봉이 없다', () => {
     const c = candlesOf(s, 1);
