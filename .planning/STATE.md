@@ -5,11 +5,11 @@ milestone_name: 운영 유지보수
 current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
-stopped_at: Phase 43 context gathered
-last_updated: "2026-11-12T09:58:03.939Z"
+stopped_at: Phase 42 UI-SPEC approved
+last_updated: "2026-11-12T11:50:47.061Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: 418c8e405b4c2cdb9f13ebcfd6b3d21d19f9e512
+state_head: 6156bb377659e5de43f1d7d9067d3208e1988234
 progress:
   total_phases: 12
   completed_phases: 9
@@ -180,10 +180,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/43-tender-offer-telegram-alert/43-CONTEXT.md
+**Resume file:** .planning/phases/42-tick-chart-candle-overlay/42-UI-SPEC.md
 
-Last session: 2026-11-12T09:58:02.477Z
-Stopped at: Phase 43 context gathered
+Last session: 2026-11-12T11:50:45.524Z
+Stopped at: Phase 42 UI-SPEC approved
 
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
