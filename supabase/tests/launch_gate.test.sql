@@ -9,7 +9,7 @@
 --     launch_backfill_apply → 두 표 → launch_orders_for_admin 으로 나온다(전 마이그레이션 재생 위).
 --   - 응답 모양: trade_date YYYYMMDD · fire_base HH:MM:SS · created_at/updated_at 없음 · 조각 행에 account ·
 --     dma_user_id 키(D-02 어드민 전용 예외) · stock_code · stock_name.
---   - 빈 상태: 행 0 → {dates:[], date:null, heads:[], pieces:[]} · 지도 {days:[], heads:[], pieces:[]}.
+--   - 빈 상태: 행 0 → {dates:[], date:null, heads:[], pieces:[], fills:[]}(fills = quick 261112-tlw) · 지도 {days:[], heads:[], pieces:[]}.
 --   - upsert 규칙 행렬(조각 · 머리 각 8단계): backfill 은 무엇이든 덮임 · journal 은 journal 만(같은 epoch seq ≥ ·
 --     다른 epoch 는 새로 온 쪽) · backfill 은 journal 을 못 덮음(false · pieces_written 0).
 --   - 도착 순서 무관(D-06 — 외래키 없음) · A 두 다리(KRX 09:00:27 · NXT 09:00:30)가 두 행으로 공존(A1).
@@ -39,8 +39,8 @@ SELECT plan(62);
 -- ── 1. 빈 상태 ─────────────────────────────────────────────────
 SELECT is(
   public.launch_orders_for_admin(),
-  '{"dates":[],"date":null,"heads":[],"pieces":[]}'::jsonb,
-  '(—, —, —, —, —, 빈 표) launch_orders_for_admin() = {dates:[], date:null, heads:[], pieces:[]}'
+  '{"dates":[],"date":null,"heads":[],"pieces":[],"fills":[]}'::jsonb,
+  '(—, —, —, —, —, 빈 표) launch_orders_for_admin() = {dates:[], date:null, heads:[], pieces:[], fills:[]}'
 );
 
 -- ── 2. 트레이서: 첨부 첫 발사 백필 ────────────────────────────────
@@ -347,8 +347,8 @@ SELECT is(
 );
 SELECT is(
   public.launch_orders_for_admin('20261013') - 'dates',
-  '{"date":"20261013","heads":[],"pieces":[]}'::jsonb,
-  '(20261013, —, —, —, —, 행 없는 날) date = p_date · heads · pieces 빈 배열'
+  '{"date":"20261013","heads":[],"pieces":[],"fills":[]}'::jsonb,
+  '(20261013, —, —, —, —, 행 없는 날) date = p_date · heads · pieces · fills 빈 배열'
 );
 SELECT is(
   public.launch_orders_for_admin('20261013')->'dates',
