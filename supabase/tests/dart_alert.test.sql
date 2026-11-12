@@ -16,12 +16,19 @@
 --   M. 결과 기록 — 성공 → sent · sent_at · message id · last_error NULL / 실패 → pending · last_error 300자 자름 ·
 --      next_attempt_at = now + 재시도 초(1 ~ 3600 으로 잘라 맞춤) · claimed_by NULL / sending 아님 · 남의 claimed_by → false ·
 --      보유자 아니면 55000
---   P. 권한 — 다섯 RPC anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · search_path 고정 ·
+--   P. 권한 — 일곱 RPC(43-02 outage · ops_stats 포함) anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · search_path 고정 ·
 --      두 표 anon · authenticated SELECT 불가 · service_role 가능 · RLS 켜짐
 --   R. (43-02) 끊긴 송신 되살리기 — 새 임대(빈 임대 · 남의 만료 임대)는 오늘 sending → pending(reclaimed_after_takeover ·
 --      반환 reclaimed) · 지난 날 pending/sending → expired(반환 expired · sent · seeded 그대로) · 연장 · 거절은 아무것도
 --      바꾸지 않음 / 차례의 송신 기한 90초 — 기한 안 · 남이 잡은 sending 은 다시 주지 않고, 내가 잡고 기한이 지난
 --      sending 은 다시 준다(stale true · attempts + 1 · reclaimed_stale_claim) · pending 과 같은 순서로 섞임
+--   O. (43-02) 장애 짝 상태 dart_alert_outage — open 은 닫혀 있을 때만 열고(opened true · since) · 「멈췄습니다」 가
+--      pending 이면 다음 open 도 opened true(처음 시각) · notice(sent/failed)는 열려 있고 pending 일 때 한 번만 ·
+--      sent/failed 뒤 open → opened false · close 는 열려 있을 때만(notify = 「멈췄습니다」 가 실제로 나갔을 때만) ·
+--      닫힌 뒤 세 칸 NULL · 사유 300자 자름 · 보유자 아님 · 임대 만료 55000 · 모르는 action · notice 값 22023
+--   ST. (43-02) 운영 수치 dart_alert_ops_stats — 키 집합 · 픽스처 값(오늘 호출 · 한도 의심 · 상태별 · 감시 대상별 ·
+--      늦은 알림 · 지연 p50/p90 · 장애 · last_ok · 임대 보유자) · p_days 1 ~ 31 로 잘라 맞춤(0 · NULL → 1 · 1000 → 31)
+--      (절 이름 S 는 43-01 의 모양 절이 이미 써서 운영 수치는 ST 로 적는다)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dart_alert.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -33,7 +40,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(121);
+SELECT plan(173);
 
 -- ── S. 모양 ───────────────────────────────────────────────────────
 SELECT has_table('public', 'dart_alerts', 'S1 표 dart_alerts');
@@ -44,6 +51,8 @@ SELECT has_function('public', 'dart_alert_insert', ARRAY['text', 'jsonb', 'boole
 SELECT has_function('public', 'dart_alert_claim', ARRAY['text', 'integer'], 'S6 dart_alert_claim(text, integer)');
 SELECT has_function('public', 'dart_alert_mark', ARRAY['text', 'text', 'boolean', 'bigint', 'text', 'integer'],
                     'S7 dart_alert_mark(text, text, boolean, bigint, text, integer)');
+SELECT has_function('public', 'dart_alert_outage', ARRAY['text', 'text', 'text'], 'S9 dart_alert_outage(text, text, text)');
+SELECT has_function('public', 'dart_alert_ops_stats', ARRAY['integer'], 'S10 dart_alert_ops_stats(integer)');
 SELECT is((SELECT count(*)::int FROM public.dart_alert_state), 1, 'S8 dart_alert_state 시작 행 1개(id = 1)');
 
 -- ── 도우미 ────────────────────────────────────────────────────────
@@ -222,22 +231,30 @@ SELECT is(has_function_privilege(r.role, f.sig, 'EXECUTE'), r.expect,
    ('public.dart_alert_lease_release(text)'),
    ('public.dart_alert_insert(text,jsonb,boolean)'),
    ('public.dart_alert_claim(text,integer)'),
-   ('public.dart_alert_mark(text,text,boolean,bigint,text,integer)')) AS f(sig)
+   ('public.dart_alert_mark(text,text,boolean,bigint,text,integer)'),
+   ('public.dart_alert_outage(text,text,text)'),
+   ('public.dart_alert_ops_stats(integer)')) AS f(sig)
  ORDER BY f.sig, r.role;
 SELECT ok(NOT (SELECT bool_or(prosecdef) FROM pg_proc
                 WHERE oid IN ('public.dart_alert_lease_acquire(text,integer,jsonb)'::regprocedure,
                               'public.dart_alert_lease_release(text)'::regprocedure,
                               'public.dart_alert_insert(text,jsonb,boolean)'::regprocedure,
                               'public.dart_alert_claim(text,integer)'::regprocedure,
-                              'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure)),
-          'P 다섯 함수 SECURITY INVOKER');
+                              'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure,
+                              'public.dart_alert_outage(text,text,text)'::regprocedure,
+                              'public.dart_alert_ops_stats(integer)'::regprocedure)),
+          'P 일곱 함수 SECURITY INVOKER');
 SELECT ok((SELECT bool_and('search_path=public, pg_temp' = ANY (proconfig)) FROM pg_proc
             WHERE oid IN ('public.dart_alert_lease_acquire(text,integer,jsonb)'::regprocedure,
                           'public.dart_alert_lease_release(text)'::regprocedure,
                           'public.dart_alert_insert(text,jsonb,boolean)'::regprocedure,
                           'public.dart_alert_claim(text,integer)'::regprocedure,
-                          'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure)),
-          'P 다섯 함수 search_path 고정');
+                          'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure,
+                          'public.dart_alert_outage(text,text,text)'::regprocedure,
+                          'public.dart_alert_ops_stats(integer)'::regprocedure)),
+          'P 일곱 함수 search_path 고정');
+SELECT is((SELECT provolatile::text FROM pg_proc WHERE oid = 'public.dart_alert_ops_stats(integer)'::regprocedure), 's',
+          'P dart_alert_ops_stats 는 STABLE(읽기 전용)');
 SELECT is(has_table_privilege(r.role, t.tbl, 'SELECT'), r.expect,
           format('P %s SELECT %s = %s', r.role, t.tbl, r.expect))
   FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
@@ -352,6 +369,109 @@ SELECT is(public.dart_alert_claim('A', 1)->0->>'rcept_no', '20991231000034', 'R2
 SELECT is((SELECT jsonb_agg(jsonb_build_array(e->>'rcept_no', e->'stale'))
              FROM jsonb_array_elements(public.dart_alert_claim('A', 1)) e),
           '[["20991231000033", false]]'::jsonb, 'R27 다음 limit 1 → pending(stale false)');
+
+-- ── O. 장애 짝 상태(43-02 · D-16 · D-17) ──────────────────────────────
+-- 보유자 A(R15 · 300초)
+SELECT is(public.dart_alert_outage('A', 'open', 'DART 조회 실패 — 하루 조회 한도 초과(020)'),
+          jsonb_build_object('opened', true, 'since', now()), 'O1 장애 없음 → open → opened true · since now');
+SELECT ok((SELECT outage_since = now() AND outage_reason = 'DART 조회 실패 — 하루 조회 한도 초과(020)'
+                  AND outage_notice = 'pending' FROM public.dart_alert_state WHERE id = 1),
+          'O2 세 칸 채움(since · reason · notice pending)');
+-- 연 실행이 「멈췄습니다」 를 못 남기고 죽은 경우 — 처음 시각을 과거로 옮겨 구분한다
+UPDATE public.dart_alert_state SET outage_since = now() - interval '5 minutes' WHERE id = 1;
+SELECT is(public.dart_alert_outage('A', 'open', '다른 사유'),
+          jsonb_build_object('opened', true, 'since', now() - interval '5 minutes'),
+          'O3 notice pending 인 채 open → opened true · since 처음 시각');
+SELECT is((pg_temp.st()).outage_reason, 'DART 조회 실패 — 하루 조회 한도 초과(020)', 'O4 다시 연 open 은 처음 사유를 덮지 않음');
+SELECT is(public.dart_alert_outage('A', 'notice', 'sent'), '{"noticed": true}'::jsonb, 'O5 notice sent → 기록');
+SELECT is((pg_temp.st()).outage_notice, 'sent', 'O6 outage_notice = sent');
+SELECT is(public.dart_alert_outage('A', 'open', 'DART 조회 실패'), '{"opened": false}'::jsonb,
+          'O7 「멈췄습니다」 가 나간 뒤 open → opened false(글 한 번)');
+SELECT is(public.dart_alert_outage('A', 'notice', 'failed'), '{"noticed": false}'::jsonb,
+          'O8 이미 sent 인 notice 는 다시 적지 않음(한 번만)');
+SELECT is(public.dart_alert_outage('A', 'close'),
+          jsonb_build_object('closed', true, 'notify', true, 'since', now() - interval '5 minutes'),
+          'O9 close — 「멈췄습니다」 sent → notify true · since');
+SELECT ok((pg_temp.st()).outage_since IS NULL AND (pg_temp.st()).outage_reason IS NULL AND (pg_temp.st()).outage_notice IS NULL,
+          'O10 닫힌 뒤 세 칸 NULL');
+SELECT is(public.dart_alert_outage('A', 'close'), '{"closed": false}'::jsonb, 'O11 열려 있지 않으면 close → closed false');
+SELECT is(public.dart_alert_outage('A', 'notice', 'sent'), '{"noticed": false}'::jsonb, 'O12 닫힌 상태 notice → 기록 안 함');
+SELECT is((pg_temp.st()).outage_notice, NULL, 'O13 닫힌 상태 notice 는 칸을 채우지 않음');
+-- 텔레그램도 죽어 「멈췄습니다」 를 못 보낸 경우(failed) — 다시 두드리지 않고, 복구 때도 알리지 않는다
+SELECT is(public.dart_alert_outage('A', 'open', 'DART 연속 실패')->'opened', 'true'::jsonb, 'O14 새 장애 open');
+SELECT is(public.dart_alert_outage('A', 'notice', 'failed'), '{"noticed": true}'::jsonb, 'O15 notice failed → 기록');
+SELECT is((pg_temp.st()).outage_notice, 'failed', 'O16 outage_notice = failed');
+SELECT is(public.dart_alert_outage('A', 'open', 'DART 연속 실패'), '{"opened": false}'::jsonb,
+          'O17 failed 뒤 open → opened false(이메일이 덮는다)');
+SELECT is(public.dart_alert_outage('A', 'close'),
+          jsonb_build_object('closed', true, 'notify', false, 'since', now()), 'O18 failed 장애 close → notify false');
+-- 「멈췄습니다」 가 pending 인 채 복구
+SELECT is(public.dart_alert_outage('A', 'open', repeat('x', 400))->'opened', 'true'::jsonb, 'O19 사유 400자로 open');
+SELECT is(length((pg_temp.st()).outage_reason), 300, 'O20 사유 300자 자름');
+SELECT is(public.dart_alert_outage('A', 'close'),
+          jsonb_build_object('closed', true, 'notify', false, 'since', now()), 'O21 pending 장애 close → notify false');
+SELECT throws_ok($$SELECT public.dart_alert_outage('X', 'open', 'r')$$, '55000', NULL, 'O22 보유자 아님 → 55000');
+SELECT is((pg_temp.st()).outage_since, NULL, 'O23 거절된 open 은 장애를 열지 않음');
+SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'reopen', NULL)$$, '22023', NULL, 'O24 모르는 action → 22023');
+SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'notice', 'maybe')$$, '22023', NULL, 'O25 notice 값이 sent/failed 밖 → 22023');
+SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'notice')$$, '22023', NULL, 'O26 notice 값 없음 → 22023');
+UPDATE public.dart_alert_state SET lease_until = now() - interval '1 second' WHERE id = 1;
+SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'close')$$, '55000', NULL, 'O27 임대 만료(이름이 같아도) → 55000');
+UPDATE public.dart_alert_state SET lease_until = now() + interval '300 seconds' WHERE id = 1;
+
+-- ── ST. 운영 수치(43-02 · SC-4 · SC-7) ───────────────────────────────
+DELETE FROM public.dart_alerts;
+INSERT INTO public.dart_alerts (rcept_no, watch, priority, rcept_dt, corp_cls, corp_name, stock_code, report_nm, flr_nm,
+                                late, status, first_seen_at, sent_at) VALUES
+  ('20991231000041', 'tender_offer',  0, pg_temp.today(),      'K', '가', '000001', '공개매수신고서', '가', false, 'sent',    now() - interval '100 seconds', now() - interval '90 seconds'),
+  ('20991231000042', 'tender_offer',  0, pg_temp.today(),      'K', '나', '000002', '공개매수신고서', '나', true,  'sent',    now() - interval '100 seconds', now() - interval '80 seconds'),
+  ('20991231000043', 'rights_merger', 1, pg_temp.today(),      'Y', '다', '000003', '주요사항보고서(유상증자결정)', '다', false, 'sent', now() - interval '100 seconds', now() - interval '60 seconds'),
+  ('20991231000044', 'tender_offer',  0, pg_temp.today(),      'K', '라', '000004', '공개매수신고서', '라', false, 'pending', now(), NULL),
+  ('20991231000045', 'tender_offer',  0, pg_temp.today(),      'K', '마', '000005', '공개매수신고서', '마', false, 'seeded',  now(), NULL),
+  ('20991231000046', 'rights_merger', 1, pg_temp.today(),      'Y', '바', '000006', '주요사항보고서(회사합병결정)', '바', false, 'seeded', now(), NULL),
+  ('20991231000047', 'tender_offer',  0, pg_temp.today() - 2,  'K', '사', '000007', '공개매수신고서', '사', false, 'sent',    now() - interval '2 days', now() - interval '2 days'),
+  ('20991231000048', 'tender_offer',  0, pg_temp.today() - 40, 'K', '아', '000008', '공개매수신고서', '아', false, 'expired', now() - interval '40 days', NULL);
+INSERT INTO public.api_usage (service, usage_date, count) VALUES
+  ('opendart_list', pg_temp.today(), 1234),
+  ('opendart_list_quota_strike', pg_temp.today(), 1),
+  ('opendart_list', pg_temp.today() - 1, 999)
+ON CONFLICT (service, usage_date) DO UPDATE SET count = EXCLUDED.count;
+UPDATE public.dart_alert_state
+   SET last_ok = '{"tender_offer": "2026-11-12T01:00:00Z"}'::jsonb,
+       outage_since = now(), outage_reason = 'DART 조회 실패', outage_notice = 'sent'
+ WHERE id = 1;
+
+CREATE TEMP TABLE st_out AS SELECT public.dart_alert_ops_stats(1) AS r;
+SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys((SELECT r FROM st_out)) k),
+          ARRAY['by_status', 'by_watch', 'calls_today', 'last_ok', 'late_count', 'latency_p50_s', 'latency_p90_s',
+                'lease_holder', 'outage', 'strikes_today'],
+          'ST1 키 집합');
+SELECT is((SELECT r->'calls_today' FROM st_out), '1234'::jsonb, 'ST2 오늘 호출 수 = api_usage opendart_list 오늘');
+SELECT is((SELECT r->'strikes_today' FROM st_out), '1'::jsonb, 'ST3 한도 의심 표시 수 = opendart_list_quota_strike 오늘');
+SELECT is((SELECT r->'by_status' FROM st_out),
+          '{"pending": 1, "sending": 0, "sent": 3, "seeded": 2, "expired": 0}'::jsonb, 'ST4 상태별(오늘)');
+SELECT is((SELECT r->'by_watch' FROM st_out), '{"tender_offer": 4, "rights_merger": 2}'::jsonb, 'ST5 감시 대상별(오늘)');
+SELECT is((SELECT r->'late_count' FROM st_out), '1'::jsonb, 'ST6 늦은 알림 수');
+SELECT ok((SELECT (r->>'latency_p50_s')::numeric = 20 AND (r->>'latency_p90_s')::numeric = 36 FROM st_out),
+          'ST7 처음 본 시각 → 송신 시각 지연 p50 20초 · p90 36초(sent 10 · 20 · 40초)');
+SELECT is((SELECT r->'outage' FROM st_out),
+          jsonb_build_object('since', now(), 'reason', 'DART 조회 실패', 'notice', 'sent'), 'ST8 장애 상태');
+SELECT ok((SELECT r->'last_ok' = '{"tender_offer": "2026-11-12T01:00:00Z"}'::jsonb AND r->>'lease_holder' = 'A' FROM st_out),
+          'ST9 last_ok · 임대 보유자');
+SELECT is(public.dart_alert_ops_stats(3)->'by_status'->'sent', '4'::jsonb, 'ST10 p_days 3 → 그저께 sent 포함');
+SELECT is(public.dart_alert_ops_stats(1000)->'by_status', public.dart_alert_ops_stats(31)->'by_status',
+          'ST11 p_days 1000 → 31 로 잘라 맞춤');
+SELECT is(public.dart_alert_ops_stats(1000)->'by_status'->'expired', '0'::jsonb, 'ST12 31일 밖(40일 전) 행은 빠짐');
+SELECT is(public.dart_alert_ops_stats(0), (SELECT r FROM st_out), 'ST13 p_days 0 → 1');
+SELECT is(public.dart_alert_ops_stats(NULL), (SELECT r FROM st_out), 'ST14 p_days NULL → 1');
+SELECT is(public.dart_alert_ops_stats(), (SELECT r FROM st_out), 'ST15 기본값 1');
+DELETE FROM public.dart_alerts;
+DELETE FROM public.api_usage WHERE service IN ('opendart_list', 'opendart_list_quota_strike');
+SELECT ok((SELECT r->'latency_p50_s' = 'null'::jsonb AND r->'latency_p90_s' = 'null'::jsonb
+                  AND r->'calls_today' = '0'::jsonb AND r->'strikes_today' = '0'::jsonb
+                  AND r->'by_watch' = '{}'::jsonb AND r->'late_count' = '0'::jsonb
+             FROM (SELECT public.dart_alert_ops_stats(1) AS r) x),
+          'ST16 빈 날 → 지연 null · 호출 0 · 감시 대상별 {} · 늦은 알림 0');
 
 SELECT * FROM finish();
 ROLLBACK;
