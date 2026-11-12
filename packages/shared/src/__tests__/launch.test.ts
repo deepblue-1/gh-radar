@@ -20,15 +20,18 @@ import {
   launchFireOf,
   launchGateSideOf,
   launchHeadOf,
+  launchOpenArbPnlOf,
   launchPanelStatsOf,
   launchRibbonAt,
   LAUNCH_FIRES,
+  LAUNCH_OPENARB_COST_BP,
   LAUNCH_ORDER,
   LAUNCH_RANGE_DAYS,
   LAUNCH_SERVERS,
   launchServerLabelOf,
   type LaunchCalcPiece,
   type LaunchDayKind,
+  type LaunchOpenArbFill,
 } from "../launch";
 import { isMarketStrategyEvent, STRATEGY_EVENT_KIND } from "../strategy-event";
 
@@ -521,5 +524,158 @@ describe("뒤탐침(quick-261030-dz7) — 판정 · 경계 · 머리", () => {
     expect(() => launchHeadOf(day.filter(isLaunchTailProbe))).toThrow(/뒤탐침/);
     const withFront = [front("101"), real("2026-10-30", 1, -290, "접수")];
     expect(launchHeadOf(withFront)).toMatchObject({ n_pieces: 2, n_reject: 1, n_accepted: 1, offset_used_us: -300 });
+  });
+});
+
+describe("launchOpenArbPnlOf — 개장차익 손익(quick-261112-tlw · gh-trade OpenArb ApplySellFill 재생)", () => {
+  const DOOSAN = { isin: "KR7034020008", stock_code: "034020", stock_name: "두산에너빌리티" };
+  const EUGENE = { isin: "KR7084370002", stock_code: "084370", stock_name: "유진테크" };
+  const ASTERA = { isin: "KR7450950008", stock_code: "450950", stock_name: "아스테라시스" };
+
+  const fill = (over: Partial<LaunchOpenArbFill>): LaunchOpenArbFill => ({
+    gateway: "KB120",
+    account: "ACC-KB",
+    dma_user_id: "ezmesya",
+    isin: "KR7TLW000001",
+    stock_code: "TLW001",
+    stock_name: "TLW테스트",
+    side: "B",
+    exchange: "KRX",
+    price: 1000,
+    qty: 1,
+    ...over,
+  });
+
+  /** 2026-11-12 KB120 실측 모양 + 교보119 매수만. */
+  const F: LaunchOpenArbFill[] = [
+    fill({ ...DOOSAN, side: "B", exchange: "KRX", price: 46_600, qty: 500 }),
+    fill({ ...EUGENE, side: "B", exchange: "KRX", price: 81_213, qty: 328 }),
+    fill({ ...DOOSAN, side: "B", exchange: "KRX", price: 46_680, qty: 571 }),
+    fill({ ...ASTERA, side: "B", exchange: "NXT", price: 4_985, qty: 1_618 }),
+    fill({ ...DOOSAN, side: "S", exchange: "NXT", price: 47_100, qty: 1_071 }),
+    fill({ ...EUGENE, side: "S", exchange: "NXT", price: 80_100, qty: 200 }),
+    fill({ ...EUGENE, side: "S", exchange: "NXT", price: 80_069, qty: 128 }),
+    fill({ ...ASTERA, side: "S", exchange: "KRX", price: 5_110, qty: 1_443 }),
+    fill({
+      gateway: "KYOBO119",
+      account: "ACC-KY",
+      isin: "KR7TLW000042",
+      stock_code: null,
+      stock_name: null,
+      side: "B",
+      exchange: "KRX",
+      price: 10_000,
+      qty: 42,
+    }),
+  ];
+
+  it("완결 · 손실 · 잔여 · 매수만 — 줄 순서는 처음 나온 순서", () => {
+    const rows = launchOpenArbPnlOf(F);
+    expect(rows.map((r) => `${r.gateway}|${r.isin}`)).toEqual([
+      "KB120|KR7034020008",
+      "KB120|KR7084370002",
+      "KB120|KR7450950008",
+      "KYOBO119|KR7TLW000042",
+    ]);
+    expect(rows[0]).toMatchObject({
+      stock_name: "두산에너빌리티",
+      stock_code: "034020",
+      account: "ACC-KB",
+      dma_user_id: "ezmesya",
+      buy_qty: 1_071,
+      buy_amt: 49_954_280,
+      sell_qty: 1_071,
+      sell_amt: 50_444_100,
+      pnl: 379_382,
+      resid: 0,
+      buy_exchange: "KRX",
+    });
+    expect(rows[1]).toMatchObject({
+      buy_qty: 328,
+      buy_amt: 26_637_864,
+      sell_qty: 328,
+      sell_amt: 26_268_832,
+      pnl: -427_228,
+      resid: 0,
+      buy_exchange: "KRX",
+    });
+    expect(rows[2]).toMatchObject({
+      buy_qty: 1_618,
+      buy_amt: 8_065_730,
+      sell_qty: 1_443,
+      sell_amt: 7_373_730,
+      pnl: 164_352,
+      resid: 175,
+      buy_exchange: "NXT",
+    });
+    expect(rows[3]).toMatchObject({
+      account: "ACC-KY",
+      stock_code: null,
+      stock_name: null,
+      buy_qty: 42,
+      buy_amt: 420_000,
+      sell_qty: 0,
+      sell_amt: 0,
+      pnl: 0,
+      resid: 42,
+      buy_exchange: "KRX",
+    });
+  });
+
+  it("매수 · 매도가 섞인 순서는 체결 순서대로 재생한다(합산식이면 39)", () => {
+    const rows = launchOpenArbPnlOf([
+      fill({ side: "B", exchange: "KRX", price: 1_001, qty: 3 }),
+      fill({ side: "S", exchange: "NXT", price: 1_010, qty: 2 }),
+      fill({ side: "B", exchange: "KRX", price: 1_002, qty: 4 }),
+      fill({ side: "S", exchange: "NXT", price: 1_009, qty: 5 }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ pnl: 41, resid: 0 });
+  });
+
+  it("매도마다 매수 누계 몫을 내림한다(반올림이면 31)", () => {
+    const base = [
+      fill({ side: "B", price: 1_001, qty: 3 }),
+      fill({ side: "B", price: 1_002, qty: 4 }),
+      fill({ side: "S", exchange: "NXT", price: 1_010, qty: 5 }),
+    ];
+    expect(launchOpenArbPnlOf(base)[0]!.pnl).toBe(32);
+    expect(launchOpenArbPnlOf([...base, fill({ side: "S", exchange: "NXT", price: 1_009, qty: 2 })])[0]!.pnl).toBe(43);
+  });
+
+  it("매도만 있으면 매수 몫 0 · 방향 · 사용자 null", () => {
+    const rows = launchOpenArbPnlOf([fill({ side: "S", exchange: "NXT", price: 1_000, qty: 10 })]);
+    expect(rows[0]).toMatchObject({ pnl: 9_989, resid: 0, buy_exchange: null, dma_user_id: null });
+  });
+
+  it("dma_user_id 는 첫 매수 값 · 비면 그 뒤 처음 나온 비어 있지 않은 값", () => {
+    expect(
+      launchOpenArbPnlOf([fill({ side: "B", dma_user_id: "" }), fill({ side: "S", dma_user_id: "u2" })])[0]!.dma_user_id,
+    ).toBe("u2");
+    expect(
+      launchOpenArbPnlOf([fill({ side: "B", dma_user_id: "u1" }), fill({ side: "B", dma_user_id: "u3" })])[0]!.dma_user_id,
+    ).toBe("u1");
+    expect(
+      launchOpenArbPnlOf([fill({ side: "S", dma_user_id: "u0" }), fill({ side: "B", dma_user_id: "u1" })])[0]!.dma_user_id,
+    ).toBe("u1");
+  });
+
+  it("side 가 B/S 가 아니면 건너뛴다 · 키 = (gateway, account, isin)", () => {
+    expect(launchOpenArbPnlOf([fill({ side: "", isin: "KR7NEW000001" })])).toEqual([]);
+    const two = [fill({ side: "B", price: 1_000, qty: 3 }), fill({ side: "S", exchange: "NXT", price: 1_010, qty: 3 })];
+    expect(launchOpenArbPnlOf([...two, fill({ side: "X", price: 9_999, qty: 99 })])).toEqual(launchOpenArbPnlOf(two));
+    expect(launchOpenArbPnlOf([fill({ account: "A1" }), fill({ account: "A2" })])).toHaveLength(2);
+    expect(launchOpenArbPnlOf([fill({ gateway: "KB120" }), fill({ gateway: "KYOBO119" })])).toHaveLength(2);
+    expect(launchOpenArbPnlOf([])).toEqual([]);
+  });
+
+  it("입력을 바꾸지 않는다(얼린 배열 · 원소)", () => {
+    const frozen = Object.freeze(F.map((f) => Object.freeze({ ...f })));
+    expect(() => launchOpenArbPnlOf(frozen)).not.toThrow();
+    expect(launchOpenArbPnlOf(frozen)[0]!.pnl).toBe(379_382);
+  });
+
+  it("왕복 비용은 22bp", () => {
+    expect(LAUNCH_OPENARB_COST_BP).toBe(22);
   });
 });

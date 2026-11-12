@@ -263,6 +263,10 @@ export interface LaunchOrdersResponse {
   date: LimitupDate | null;
   heads: LaunchHeadRow[];
   pieces: LaunchPieceRow[];
+  /**
+   * quick-261112-tlw — 그 날 개장차익 체결(체결 순서) · db push 전 옛 RPC 응답엔 없다 → 손익 표 · 카드 줄 없이 지금 화면.
+   */
+  fills?: LaunchOpenArbFill[];
 }
 
 /** 경계 지도 봉투 — days 는 발사 기준별 거래일 내림차순 · heads 는 (서버, 시장, profile) 별 최신 1행. */
@@ -544,4 +548,114 @@ export function launchFireOf(row: { fire_exchange: string; fire_base: string }):
     if (f.fire_exchange === row.fire_exchange && f.fire_base === row.fire_base) return fire;
   }
   return null;
+}
+
+// ── 개장차익 손익(quick-261112-tlw · D-02) ───────────────────────────────
+
+/** 개장차익 왕복 비용 bp — gh-trade OpenArbMath.h kCostBp. */
+export const LAUNCH_OPENARB_COST_BP = 22;
+
+/** 응답 `fills` 원소 — dma_journal_events origin 'OpenArb' · notice 'E' · exec_qty > 0 · 체결 순서(D-03). */
+export interface LaunchOpenArbFill {
+  gateway: string;
+  /** e.account_no */
+  account: string;
+  /** '' = 모름 */
+  dma_user_id: string;
+  isin: string;
+  /** stocks 조인 — 없으면 null */
+  stock_code: string | null;
+  stock_name: string | null;
+  /** 'B' | 'S' 원문(그 밖은 계산에서 건너뜀) */
+  side: string;
+  /** 'KRX' | 'NXT' 원문 */
+  exchange: string;
+  /** e.exec_price */
+  price: number;
+  /** e.exec_qty */
+  qty: number;
+}
+
+/** (gateway, account, isin) 한 줄 계산 결과. */
+export interface LaunchOpenArbPnlRow {
+  gateway: string;
+  account: string;
+  isin: string;
+  stock_code: string | null;
+  stock_name: string | null;
+  /** 첫 매수 체결부터 처음 나온 비어 있지 않은 값 · 없으면 null */
+  dma_user_id: string | null;
+  /** 첫 매수 체결 거래소 · 매수 없으면 null */
+  buy_exchange: string | null;
+  buy_qty: number;
+  buy_amt: number;
+  sell_qty: number;
+  sell_amt: number;
+  /** 원 단위 정수 */
+  pnl: number;
+  /** max(buy_qty − sell_qty, 0) */
+  resid: number;
+}
+
+/**
+ * 개장차익 종목별 손익 — gh-trade 개장차익 화면과 같은 값(D-02 · WinForms 동형).
+ *
+ * 출처: gh-trade `server/src/trade/strategy/OpenArb.cpp` `ApplySellFill` + `OpenArbMath.h` `RoundTripCostKrw`(kCostBp = 22)
+ * 를 **체결 순서대로 재생**한다. (gateway, account, isin) 한 줄마다:
+ *
+ * ```
+ *   매수(qty, px): buy_qty += qty · buy_amt += px × qty
+ *   매도(qty, px): sell_qty += qty · sell_amt += px × qty
+ *                  b = buy_qty > 0 ? floor(buy_amt × qty / buy_qty) : 0   ← 그 순간까지의 매수 누계(매도가 줄이지 않음)
+ *                  s = px × qty
+ *                  pnl += s − b − floor((b + s) × 22 / 20000)
+ *   resid = max(buy_qty − sell_qty, 0)
+ * ```
+ *
+ * - 줄 순서 = 입력에서 그 키가 처음 나온 순서 · side 가 'B'/'S' 가 아닌 체결은 줄을 만들기 전에 건너뛴다(D-03).
+ * - buy_exchange = 첫 매수 체결의 거래소 · dma_user_id = 첫 매수 체결 값(비면 그 뒤 처음 나온 비어 있지 않은 값 · 없으면 null).
+ * - 계좌 실비용 손익(realized_pnl_krw)은 쓰지 않는다 · 사람이 따로 판 주문은 입력에 오지 않는다(SQL 이 origin OpenArb 만).
+ * - 금액 × 수량은 2^53 미만이라 Math.floor 로 충분하다(BigInt 불필요). 입력은 바꾸지 않는다.
+ */
+export function launchOpenArbPnlOf(fills: readonly LaunchOpenArbFill[]): LaunchOpenArbPnlRow[] {
+  const byKey = new Map<string, LaunchOpenArbPnlRow>();
+  const order: LaunchOpenArbPnlRow[] = [];
+  for (const f of fills) {
+    if (f.side !== "B" && f.side !== "S") continue;
+    const key = `${f.gateway}|${f.account}|${f.isin}`;
+    let row = byKey.get(key);
+    if (row === undefined) {
+      row = {
+        gateway: f.gateway,
+        account: f.account,
+        isin: f.isin,
+        stock_code: f.stock_code,
+        stock_name: f.stock_name,
+        dma_user_id: null,
+        buy_exchange: null,
+        buy_qty: 0,
+        buy_amt: 0,
+        sell_qty: 0,
+        sell_amt: 0,
+        pnl: 0,
+        resid: 0,
+      };
+      byKey.set(key, row);
+      order.push(row);
+    }
+    if (f.side === "B") {
+      row.buy_qty += f.qty;
+      row.buy_amt += f.price * f.qty;
+      if (row.buy_exchange === null) row.buy_exchange = f.exchange;
+    } else {
+      row.sell_qty += f.qty;
+      row.sell_amt += f.price * f.qty;
+      const b = row.buy_qty > 0 ? Math.floor((row.buy_amt * f.qty) / row.buy_qty) : 0;
+      const s = f.price * f.qty;
+      row.pnl += s - b - Math.floor(((b + s) * LAUNCH_OPENARB_COST_BP) / 20000);
+    }
+    if (row.dma_user_id === null && row.buy_qty > 0 && f.dma_user_id !== "") row.dma_user_id = f.dma_user_id;
+  }
+  for (const row of order) row.resid = Math.max(row.buy_qty - row.sell_qty, 0);
+  return order;
 }
