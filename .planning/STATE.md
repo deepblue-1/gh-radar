@@ -6,10 +6,10 @@ current_phase: 41
 current_phase_name: 한투 뉴스·공시 피드
 status: executing
 stopped_at: Phase 41 planned (14 plans)
-last_updated: "2026-11-12T01:26:16.223Z"
+last_updated: "2026-11-12T01:31:33.961Z"
 last_activity: 2026-11-11
 last_activity_desc: Phase 41 execution started
-state_head: "0bc17a9d26c680632a201befc1dec16e4abceb02"
+state_head: 95607989002a2e89cc9fe71eb99e422ea1d7eb6c
 progress:
   total_phases: 12
   completed_phases: 9
@@ -172,6 +172,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 73 | 뉴스 자료원 한글 언론사 이름 매핑(gh-trade 요청 · 응답 시점 변환) | 2026-11-12 | 803fe83a | — |
 | 74 | 재료 없는 한투 자동 기사 숨김(시세 한 줄 · 시황 · 상위 N종목 목록 → auto_market · 소급 포함) | 2026-11-12 | 8907a59a | — |
 | 75 | 수급 자동 기사 숨김(소급 2차) + 시황 기사 제외(응답 시점 · shared isMarketSummaryTitle) | 2026-11-12 | 0bc17a9d | — |
+| 76 | 네이버 뉴스는 제목에 종목명 있는 기사만(조회 함수가 상한 전에 거름 · 한투 뉴스는 그대로) | 2026-11-12 | 95607989 | — |
 
 ## Session Continuity
 
