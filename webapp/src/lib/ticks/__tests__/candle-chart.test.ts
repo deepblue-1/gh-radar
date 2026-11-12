@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CANDLE_AUTO_MIN_PX,
   CANDLE_CHART,
   CANDLE_UNITS,
+  EDGE_LABEL_MAX,
+  EDGE_LABEL_STEP,
+  amountBarsOf,
+  autoUnitOf,
   candleBaseOf,
   candleIdxAt,
   candlePanelsOf,
@@ -11,8 +16,12 @@ import {
   candlesOf,
   cumAvgPathOf,
   cumAvgPointsOf,
+  cumAvgVisibleOf,
+  edgeLabelsOf,
+  maVisibleOf,
   type CandleUnit,
   type Candles,
+  type EdgeLabelInput,
 } from '@/lib/ticks/candle-chart';
 import { msOfNs, tickBoundsOf, turnoverSeriesOf } from '@/lib/ticks/tick-chart';
 import type { TickSession } from '@/lib/ticks/tick-session';
@@ -317,5 +326,172 @@ describe('봉 경로', () => {
   it('candleUnitLabelOf — 「5분봉(자동)」 · 「15분봉」', () => {
     expect(candleUnitLabelOf(5, true)).toBe('5분봉(자동)');
     expect(candleUnitLabelOf(15, false)).toBe('15분봉');
+  });
+});
+
+describe('자동', () => {
+  it('autoUnitOf — 칸 폭 4px 이상인 가장 작은 단위(12시간 · 900px → 5분 · 1시간 · 900px → 1분)', () => {
+    expect(CANDLE_AUTO_MIN_PX).toBe(4);
+    // 1분 칸 = 60,000 / 43,200,000 × 900 = 1.25px · 5분 칸 = 6.25px
+    expect(autoUnitOf(12 * HOUR, 900)).toBe(5);
+    // 1분 칸 = 60,000 / 3,600,000 × 900 = 15px
+    expect(autoUnitOf(HOUR, 900)).toBe(1);
+  });
+
+  it('autoUnitOf — 아무 단위도 4px 를 못 넘으면 60(하루 전체 · 40px) · 하루 전체 · 100px 는 30분(4.17px)', () => {
+    // 60분 칸 = 3,600,000 / 43,200,000 × 40 = 3.33px
+    expect(autoUnitOf(12 * HOUR, 40)).toBe(60);
+    expect(autoUnitOf(12 * HOUR, 100)).toBe(30);
+  });
+});
+
+/** 데스크톱 가격 판: y1a 7 · yCb 135 · y1b 167 · 거래대금 영역 32 → 막대 최대 30. */
+const PD = candlePanelsOf(CANDLE_CHART.desktop);
+const PP = candlePanelsOf(CANDLE_CHART.phone);
+
+/** 1분봉 셋 — 오름(거래대금 200) · 내림(100) · 오름(50). */
+const three: Candles = {
+  unit: 1,
+  n: 3,
+  t0: Float64Array.of(T0, T0 + MIN, T0 + 2 * MIN),
+  o: Float64Array.of(100, 110, 100),
+  h: Float64Array.of(112, 111, 104),
+  l: Float64Array.of(99, 100, 99),
+  c: Float64Array.of(110, 101, 103),
+  amt: Float64Array.of(200, 100, 50),
+};
+const allView = { t0: T0, t1: T0 + 3 * MIN };
+
+describe('거래대금 막대', () => {
+  const x20 = (t: number) => ((t - T0) / MIN) * 20;
+
+  it('창 안 최대 거래대금 봉 높이 = 영역 − 2 · 절반 거래대금 = 절반 높이 · 아래 끝 = y1b · 칸 가운데 몸통 폭', () => {
+    expect(PD.y1b - PD.yCb).toBe(32);
+    const bars = amountBarsOf(three, allView, x20, PD);
+    expect(bars.max).toBe(200);
+    // 칸 20px → 폭 14 · 가운데 10 → 왼끝 3 · 높이 30 · 위끝 167 − 30 = 137
+    expect(bars.up).toBe('M3.0,137.0h14.0v30.0h-14.0ZM43.0,159.5h14.0v7.5h-14.0Z');
+    // 절반 거래대금(100) → 높이 15 · 위끝 152
+    expect(bars.down).toBe('M23.0,152.0h14.0v15.0h-14.0Z');
+  });
+
+  it('오름 봉은 up · 내림 봉은 down · 창 밖 봉은 없고 최대는 창 안 봉 기준', () => {
+    const bars = amountBarsOf(three, { t0: T0 + MIN, t1: T0 + 3 * MIN }, x20, PD);
+    expect(bars.max).toBe(100);
+    expect(bars.down).toBe('M23.0,137.0h14.0v30.0h-14.0Z');
+    expect(bars.up).toBe('M43.0,152.0h14.0v15.0h-14.0Z');
+    const none = amountBarsOf(three, { t0: T0 + 5 * MIN, t1: T0 + 9 * MIN }, x20, PD);
+    expect(none).toEqual({ up: '', down: '', max: 0 });
+  });
+
+  it('칸 폭 2px(꼬리만 구간)이면 막대 폭 = max(1, 2 × 0.7) = 1.4', () => {
+    const bars = amountBarsOf(three, allView, (t) => ((t - T0) / MIN) * 2, PD);
+    expect(bars.up.startsWith('M0.3,137.0h1.4v30.0h-1.4Z')).toBe(true);
+  });
+});
+
+describe('보이는 값', () => {
+  it('maVisibleOf — 창과 겹치는 봉의 유한 값만', () => {
+    const v = Float64Array.of(Number.NaN, 105, 106);
+    expect(maVisibleOf(three, v, allView)).toEqual([105, 106]);
+    expect(maVisibleOf(three, v, { t0: T0, t1: T0 + 30 * SEC })).toEqual([]);
+    expect(maVisibleOf(three, v, { t0: T0 + 2 * MIN + 30 * SEC, t1: T0 + 5 * MIN })).toEqual([106]);
+  });
+
+  it('cumAvgVisibleOf — 창 앞에서 이어 들어온 값 + 창 안 계단 값 · px ≤ 0 은 빠진다', () => {
+    const pts: [number, number][] = [
+      [T0 - HOUR, 13_000],
+      [T0 + HOUR, 13_100],
+      [T0 + 2 * HOUR, 0],
+      [T0 + 3 * HOUR, 13_200],
+      [T0 + 6 * HOUR, 13_300],
+    ];
+    expect(cumAvgVisibleOf(pts, { t0: T0 + 30 * MIN, t1: T0 + 4 * HOUR })).toEqual([13_000, 13_100, 13_200]);
+    // 창 앞 마지막 점이 0 이면 이어 들어온 값 없음
+    expect(cumAvgVisibleOf(pts, { t0: T0 + 2 * HOUR + MIN, t1: T0 + 2 * HOUR + 2 * MIN })).toEqual([]);
+    expect(cumAvgVisibleOf([], allView)).toEqual([]);
+  });
+});
+
+describe('가장자리', () => {
+  const range = { min: 100, max: 200, lo: 100, hi: 200 };
+  const desk = { P: PD, L: 60, xr: 860, phone: false };
+  const phone = { P: PP, L: 44, xr: 340, phone: true };
+  const item = (key: string, name: string, vis: number[]): EdgeLabelInput => ({
+    key,
+    name,
+    fill: `var(--${key})`,
+    vis,
+    last: vis.length > 0 ? vis[vis.length - 1]! : null,
+  });
+
+  it('보이는 값 하나라도 [lo, hi] 안이면 글자 없음 · 숨김 아님 · 보이는 값 0개면 글자도 숨김도 없음', () => {
+    const r = edgeLabelsOf([item('ma-1', '단순 5', [90, 150, 250]), item('ma-2', '단순 20', [])], range, desk);
+    expect(r.labels).toEqual([]);
+    expect(r.hidden.size).toBe(0);
+  });
+
+  it('전부 위 → ▴ 오른쪽 끝 정렬 · x = xr − 4 · 데스크톱 첫 y = y1a + 24 · 둘째 +13', () => {
+    expect(EDGE_LABEL_STEP).toBe(13);
+    const r = edgeLabelsOf([item('a', '단순 5', [201, 230]), item('b', '일 20', [13_950])], range, desk);
+    expect(r.labels).toEqual([
+      { key: 'a', text: '단순 5 230 ▴', x: 856, y: PD.y1a + 24, anchor: 'end', fill: 'var(--a)', side: 'above' },
+      { key: 'b', text: '일 20 13,950 ▴', x: 856, y: PD.y1a + 37, anchor: 'end', fill: 'var(--b)', side: 'above' },
+    ]);
+    expect([...r.hidden]).toEqual(['a', 'b']);
+  });
+
+  it('전부 아래 → ▾ 왼쪽 · x = L + 4 · 첫 y = 봉 영역 아래 − 4 · 둘째 −13 · 값 = last 정수 반올림', () => {
+    const r = edgeLabelsOf(
+      [
+        { key: 'cum', name: '누적 평단', fill: 'var(--muted-fg)', vis: [50, 60], last: 13_771.6 },
+        item('m', '지수 20', [99]),
+      ],
+      range,
+      desk,
+    );
+    expect(r.labels[0]).toEqual({
+      key: 'cum',
+      text: '누적 평단 13,772 ▾',
+      x: 64,
+      y: PD.yCb - 4,
+      anchor: 'start',
+      fill: 'var(--muted-fg)',
+      side: 'below',
+    });
+    expect(r.labels[1]!.y).toBe(PD.yCb - 17);
+    expect(r.hidden.has('cum')).toBe(true);
+    expect(r.hidden.has('m')).toBe(true);
+  });
+
+  it('데스크톱 아래 밖 7개 → 4개 + 「외 3개 ▾」(마지막 자리 · 흐린 색) · 순서 = 입력 순서', () => {
+    expect(EDGE_LABEL_MAX).toEqual({ desktop: 5, phone: 3 });
+    const items = Array.from({ length: 7 }, (_, i) => item(`k${i}`, `단순 ${i + 2}`, [10]));
+    const r = edgeLabelsOf(items, range, desk);
+    expect(r.labels.map((l) => l.key)).toEqual(['k0', 'k1', 'k2', 'k3', 'more-below']);
+    const more = r.labels[4]!;
+    expect(more.text).toBe('외 3개 ▾');
+    expect(more.fill).toBe('var(--muted-fg)');
+    expect(more.y).toBe(PD.yCb - 4 - 4 * 13);
+    expect(r.hidden.size).toBe(7);
+  });
+
+  it('폰 위 밖 4개 → 2개 + 「외 2개 ▴」 · 폰 첫 y = y1a + 11 · 위 · 아래가 섞여도 가장자리마다 따로 쌓는다', () => {
+    const items = [
+      item('u0', '단순 5', [300]),
+      item('d0', '누적 평단', [10]),
+      item('u1', '단순 20', [300]),
+      item('u2', '단순 60', [300]),
+      item('u3', '지수 5', [300]),
+    ];
+    const r = edgeLabelsOf(items, range, phone);
+    const above = r.labels.filter((l) => l.side === 'above');
+    expect(above.map((l) => l.text)).toEqual(['단순 5 300 ▴', '단순 20 300 ▴', '외 2개 ▴']);
+    expect(above.map((l) => l.y)).toEqual([PP.y1a + 11, PP.y1a + 24, PP.y1a + 37]);
+    expect(above[2]!.key).toBe('more-above');
+    expect(above.every((l) => l.x === 336 && l.anchor === 'end')).toBe(true);
+    const below = r.labels.filter((l) => l.side === 'below');
+    expect(below).toHaveLength(1);
+    expect(below[0]!.y).toBe(PP.yCb - 4);
   });
 });
