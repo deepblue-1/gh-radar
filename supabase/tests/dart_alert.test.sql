@@ -18,6 +18,10 @@
 --      보유자 아니면 55000
 --   P. 권한 — 다섯 RPC anon · authenticated EXECUTE 불가 · service_role 가능 · SECURITY INVOKER · search_path 고정 ·
 --      두 표 anon · authenticated SELECT 불가 · service_role 가능 · RLS 켜짐
+--   R. (43-02) 끊긴 송신 되살리기 — 새 임대(빈 임대 · 남의 만료 임대)는 오늘 sending → pending(reclaimed_after_takeover ·
+--      반환 reclaimed) · 지난 날 pending/sending → expired(반환 expired · sent · seeded 그대로) · 연장 · 거절은 아무것도
+--      바꾸지 않음 / 차례의 송신 기한 90초 — 기한 안 · 남이 잡은 sending 은 다시 주지 않고, 내가 잡고 기한이 지난
+--      sending 은 다시 준다(stale true · attempts + 1 · reclaimed_stale_claim) · pending 과 같은 순서로 섞임
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dart_alert.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -29,7 +33,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(94);
+SELECT plan(121);
 
 -- ── S. 모양 ───────────────────────────────────────────────────────
 SELECT has_table('public', 'dart_alerts', 'S1 표 dart_alerts');
@@ -161,8 +165,8 @@ CREATE TEMP TABLE c_out AS SELECT public.dart_alert_claim('H', 10) AS r;
 SELECT is(pg_temp.rcepts((SELECT r FROM c_out)), ARRAY['20991231000013'],
           'C3 나머지 — 미래 next_attempt_at · 어제 · sent · seeded · 이미 sending 제외');
 SELECT is((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys((SELECT r->0 FROM c_out)) k),
-          ARRAY['attempts', 'corp_cls', 'corp_name', 'first_seen_at', 'flr_nm', 'late', 'rcept_no', 'report_nm', 'stock_code', 'watch'],
-          'C4 원소 키 집합(43-01 lap.ts ClaimedRow 와 같다)');
+          ARRAY['attempts', 'corp_cls', 'corp_name', 'first_seen_at', 'flr_nm', 'late', 'rcept_no', 'report_nm', 'stale', 'stock_code', 'watch'],
+          'C4 원소 키 집합(43-01 lap.ts ClaimedRow + 43-02 stale)');
 SELECT ok((SELECT (r->0->>'watch') = 'rights_merger' AND (r->0->>'attempts')::int = 1 AND (r->0->>'late')::boolean = false
                   AND (r->0->>'first_seen_at')::timestamptz = now() - interval '30 seconds'
                   AND (r->0->>'report_nm') = '주요사항보고서(회사합병결정)'
@@ -241,6 +245,113 @@ SELECT is(has_table_privilege(r.role, t.tbl, 'SELECT'), r.expect,
  ORDER BY t.tbl, r.role;
 SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.dart_alerts'::regclass), 'P dart_alerts RLS 활성');
 SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.dart_alert_state'::regclass), 'P dart_alert_state RLS 활성');
+
+-- ── R. 끊긴 송신 되살리기 · 지난 날 닫기 · 송신 기한(43-02) ────────────────
+-- 빈 임대 + 죽은 실행이 남긴 행들
+DELETE FROM public.dart_alerts;
+UPDATE public.dart_alert_state SET lease_holder = NULL, lease_until = NULL WHERE id = 1;
+INSERT INTO public.dart_alerts (rcept_no, watch, priority, rcept_dt, corp_cls, corp_name, stock_code, report_nm, flr_nm,
+                                status, attempts, claimed_by, next_attempt_at, first_seen_at) VALUES
+  ('20991231000021', 'tender_offer',  0, pg_temp.today(),     'K', '에스텍', '069510', '공개매수신고서', '가람홀딩스', 'sending', 1, 'DEAD', now() - interval '20 seconds', now() - interval '60 seconds'),
+  ('20991231000022', 'rights_merger', 1, pg_temp.today(),     'Y', '나래',   '000010', '주요사항보고서(유상증자결정)', '나래', 'sending', 2, 'DEAD', now() + interval '60 seconds', now() - interval '50 seconds'),
+  ('20991231000023', 'tender_offer',  0, pg_temp.today(),     'K', '다온',   '000020', '공개매수신고서', '다온홀딩스', 'pending', 0, NULL,   now() + interval '30 seconds', now() - interval '40 seconds'),
+  ('20991231000024', 'tender_offer',  0, pg_temp.today() - 1, 'K', '라온',   '000030', '공개매수신고서', '라온홀딩스', 'pending', 0, NULL,   now() - interval '1 day',      now() - interval '1 day'),
+  ('20991231000025', 'tender_offer',  0, pg_temp.today() - 1, 'K', '마루',   '000040', '공개매수신고서', '마루홀딩스', 'sending', 1, 'DEAD', now() - interval '1 day',      now() - interval '1 day'),
+  ('20991231000026', 'tender_offer',  0, pg_temp.today() - 1, 'K', '바다',   '000050', '공개매수신고서', '바다홀딩스', 'sent',    1, 'DEAD', now() - interval '1 day',      now() - interval '1 day'),
+  ('20991231000027', 'tender_offer',  0, pg_temp.today() - 1, 'K', '사랑',   '000060', '공개매수신고서', '사랑홀딩스', 'seeded',  0, NULL,   now() - interval '1 day',      now() - interval '1 day');
+
+SELECT is(public.dart_alert_lease_acquire('A', 90),
+          '{"held": true, "fresh": true, "reclaimed": 2, "expired": 2}'::jsonb,
+          'R1 빈 임대에서 A 획득 → 오늘 sending 2 되돌림 · 지난 날 2 닫힘');
+SELECT ok((SELECT bool_and(status = 'pending' AND claimed_by IS NULL AND last_error = 'reclaimed_after_takeover'
+                           AND next_attempt_at <= now())
+             FROM public.dart_alerts WHERE rcept_no IN ('20991231000021', '20991231000022')),
+          'R2 오늘 sending → pending · claimed_by NULL · reclaimed_after_takeover · 바로 차례');
+SELECT is((SELECT array_agg(attempts ORDER BY rcept_no) FROM public.dart_alerts
+            WHERE rcept_no IN ('20991231000021', '20991231000022')), ARRAY[1, 2],
+          'R3 되돌림은 attempts 를 바꾸지 않음(흔적 그대로)');
+SELECT is((SELECT array_agg(status ORDER BY rcept_no) FROM public.dart_alerts
+            WHERE rcept_no IN ('20991231000024', '20991231000025')), ARRAY['expired', 'expired'],
+          'R4 지난 날 pending · sending → expired');
+SELECT is((SELECT array_agg(status ORDER BY rcept_no) FROM public.dart_alerts
+            WHERE rcept_no IN ('20991231000026', '20991231000027')), ARRAY['sent', 'seeded'],
+          'R5 지난 날 sent · seeded 는 그대로');
+SELECT ok((SELECT status = 'pending' AND last_error IS NULL AND next_attempt_at = now() + interval '30 seconds'
+             FROM public.dart_alerts WHERE rcept_no = '20991231000023'),
+          'R6 오늘 pending 은 그대로(다음 시도 시각 · last_error)');
+
+-- A 가 다시 하나를 잡은 상태 · 어제 미송신 1건이 새로 생김 → 연장 · 남의 시도는 아무것도 바꾸지 않는다
+UPDATE public.dart_alerts SET status = 'sending', claimed_by = 'A', last_error = NULL WHERE rcept_no = '20991231000021';
+INSERT INTO public.dart_alerts (rcept_no, watch, priority, rcept_dt, corp_cls, corp_name, stock_code, report_nm, flr_nm, status)
+VALUES ('20991231000028', 'tender_offer', 0, pg_temp.today() - 1, 'K', '아라', '000070', '공개매수신고서', '아라홀딩스', 'pending');
+SELECT is(public.dart_alert_lease_acquire('A', 90),
+          '{"held": true, "fresh": false, "reclaimed": 0, "expired": 0}'::jsonb, 'R7 A 연장 → reclaimed 0 · expired 0');
+SELECT ok((SELECT status = 'sending' AND claimed_by = 'A' FROM public.dart_alerts WHERE rcept_no = '20991231000021')
+          AND (SELECT status = 'pending' FROM public.dart_alerts WHERE rcept_no = '20991231000028'),
+          'R8 연장은 내 sending · 지난 날 pending 을 건드리지 않음');
+SELECT is(public.dart_alert_lease_acquire('B', 90),
+          '{"held": false, "fresh": false, "reclaimed": 0, "expired": 0}'::jsonb, 'R9 남의 살아 있는 임대 → B 거절');
+SELECT ok((SELECT status = 'sending' AND claimed_by = 'A' FROM public.dart_alerts WHERE rcept_no = '20991231000021')
+          AND (SELECT status = 'pending' FROM public.dart_alerts WHERE rcept_no = '20991231000028'),
+          'R10 거절된 B 는 아무 행도 바꾸지 않음');
+
+-- A 의 임대가 만료 → B 가 넘겨받음
+UPDATE public.dart_alert_state SET lease_until = now() - interval '1 second' WHERE id = 1;
+SELECT is(public.dart_alert_lease_acquire('B', 90),
+          '{"held": true, "fresh": true, "reclaimed": 1, "expired": 1}'::jsonb,
+          'R11 만료된 A 의 임대를 B 가 넘겨받음 → fresh · A 의 sending 되돌림 · 지난 날 닫힘');
+SELECT ok((SELECT status = 'pending' AND claimed_by IS NULL AND last_error = 'reclaimed_after_takeover'
+             FROM public.dart_alerts WHERE rcept_no = '20991231000021'),
+          'R12 A 가 잡아 둔 오늘 sending → pending');
+SELECT is((SELECT status FROM public.dart_alerts WHERE rcept_no = '20991231000028'), 'expired', 'R13 지난 날 pending → expired');
+
+-- 송신 기한 — B 를 풀고 A 가 새로 잡는다(되돌릴 sending 없음)
+SELECT is(public.dart_alert_lease_release('B'), true, 'R14 B 해제');
+SELECT is(public.dart_alert_lease_acquire('A', 300),
+          '{"held": true, "fresh": true, "reclaimed": 0, "expired": 0}'::jsonb, 'R15 A 새로 잡음 · 되돌릴 것 없음 → 0 · 0');
+DELETE FROM public.dart_alerts;
+INSERT INTO public.dart_alerts (rcept_no, watch, priority, rcept_dt, corp_cls, corp_name, stock_code, report_nm, flr_nm,
+                                status, attempts, claimed_by, next_attempt_at, first_seen_at) VALUES
+  ('20991231000031', 'tender_offer', 0, pg_temp.today(), 'K', '에스텍', '069510', '공개매수신고서', '가람홀딩스', 'pending', 0, NULL,        now(),                        now() - interval '30 seconds'),
+  ('20991231000032', 'tender_offer', 0, pg_temp.today(), 'K', '나래',   '000010', '공개매수신고서', '나래홀딩스', 'sending', 1, 'other-run', now() - interval '1 second',  now() - interval '20 seconds');
+
+CREATE TEMP TABLE r_out AS SELECT public.dart_alert_claim('A', 10) AS r;
+SELECT is(pg_temp.rcepts((SELECT r FROM r_out)), ARRAY['20991231000031'],
+          'R16 첫 차례 → pending 만(남이 잡은 기한 지난 sending 은 제외)');
+SELECT is((SELECT r->0->'stale' FROM r_out), 'false'::jsonb, 'R17 처음 주는 행 → stale false');
+SELECT ok((SELECT status = 'sending' AND claimed_by = 'A' AND attempts = 1
+                  AND next_attempt_at = now() + interval '90 seconds'
+             FROM public.dart_alerts WHERE rcept_no = '20991231000031'),
+          'R18 sending · 송신 기한 next_attempt_at = now + 90초');
+SELECT is(public.dart_alert_claim('A', 10), '[]'::jsonb, 'R19 기한 안에 다시 차례 → 주지 않음');
+
+-- 90초 경과 흉내(mark 가 실패 · 던짐 · 응답 끊김으로 결과가 안 적힌 경우)
+UPDATE public.dart_alerts SET next_attempt_at = now() - interval '1 second' WHERE rcept_no = '20991231000031';
+DROP TABLE r_out;
+CREATE TEMP TABLE r_out AS SELECT public.dart_alert_claim('A', 10) AS r;
+SELECT is(pg_temp.rcepts((SELECT r FROM r_out)), ARRAY['20991231000031'], 'R20 기한 지난 내 sending → 다시 줌');
+SELECT is((SELECT r->0->'stale' FROM r_out), 'true'::jsonb, 'R21 다시 준 행 → stale true');
+SELECT ok((SELECT status = 'sending' AND claimed_by = 'A' AND attempts = 2 AND last_error = 'reclaimed_stale_claim'
+                  AND next_attempt_at = now() + interval '90 seconds'
+             FROM public.dart_alerts WHERE rcept_no = '20991231000031'),
+          'R22 다시 준 행 → attempts 2 · reclaimed_stale_claim · 기한 새로');
+SELECT ok((SELECT status = 'sending' AND claimed_by = 'other-run' AND attempts = 1 AND last_error IS NULL
+             FROM public.dart_alerts WHERE rcept_no = '20991231000032'),
+          'R23 남이 잡은 sending 은 그대로');
+SELECT is(public.dart_alert_mark('A', '20991231000031', true, 555, NULL, 0), true, 'R24 다시 받은 행 성공 기록 → true');
+SELECT ok((SELECT status = 'sent' AND telegram_message_id = 555 AND last_error IS NULL
+             FROM public.dart_alerts WHERE rcept_no = '20991231000031'),
+          'R25 → sent · last_error 지움');
+
+-- 기한 지난 내 sending 과 pending 은 같은 순서(priority → first_seen_at)로 섞여 p_limit 안에서 나온다
+INSERT INTO public.dart_alerts (rcept_no, watch, priority, rcept_dt, corp_cls, corp_name, stock_code, report_nm, flr_nm,
+                                status, attempts, claimed_by, next_attempt_at, first_seen_at) VALUES
+  ('20991231000033', 'rights_merger', 1, pg_temp.today(), 'Y', '다온', '000020', '주요사항보고서(회사합병결정)', '다온', 'pending', 0, NULL, now(),                       now() - interval '100 seconds'),
+  ('20991231000034', 'tender_offer',  0, pg_temp.today(), 'K', '라온', '000030', '공개매수신고서', '라온홀딩스',       'sending', 1, 'A',  now() - interval '1 second', now() - interval '10 seconds');
+SELECT is(public.dart_alert_claim('A', 1)->0->>'rcept_no', '20991231000034', 'R26 limit 1 → priority 0 인 기한 지난 내 sending 먼저');
+SELECT is((SELECT jsonb_agg(jsonb_build_array(e->>'rcept_no', e->'stale'))
+             FROM jsonb_array_elements(public.dart_alert_claim('A', 1)) e),
+          '[["20991231000033", false]]'::jsonb, 'R27 다음 limit 1 → pending(stale false)');
 
 SELECT * FROM finish();
 ROLLBACK;
