@@ -670,21 +670,25 @@ expect(laps * WATCHES.length).toBeLessThanOrEqual(15_000);
 | A12 | `link_preview_options` 도입 시점(Bot API 7.0) | State of the Art | 없음 |
 | A13 | 지분공시(D 대분류 전체) 하루 수백 ~ 수천 건 | 확인 2 | 결론(2회 유지)은 같음 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **장애 짝 글 합치기(선택)**
    - What we know: 수집기가 죽었다 인계되면 「멈췄습니다」 · 「다시 동작」 이 몇 초 간격으로 붙어 나간다.
    - What's unclear: 사용자가 두 글을 원하는지 한 글(「HH:MM ~ HH:MM 멈췄다가 다시 동작」)을 원하는지.
    - Recommendation: 기본은 D-16 문자 그대로 두 글. 플래너가 한 줄 확인 질문으로 넣을 만함.
+   - RESOLVED: 두 글로 둔다(D-16 문자 그대로 · 합치지 않음) — 실행 전에 사용자가 뒤집을 수 있는 가정으로 기록(→ 43-06-PLAN.md objective 「가정」 · must_haves 세 번째 truth · Task 1).
 2. **단체방 연결 확인 글**
    - What we know: D-15 는 시험 글을 개인 대화로만 보낸다. 단체방 권한(「관리자만 글쓰기」)은 첫 실제 알림 때야 드러난다.
    - Recommendation: 방 id 전환 직후 단체방에 「공시 알림 봇이 연결되었습니다(공개매수 · 유상증자 · 합병)」 소개 글 1건을 `test-send` 로 보내는 것을 사용자에게 물어본다.
+   - RESOLVED: 자동 소개 글은 올리지 않고, 방 id 전환 직후 확인 글 1건을 보낼지 사용자에게 묻는다(고를 때만 `test-send`) (→ 43-08-PLAN.md objective 「가정」 · Task 2 지시 8).
 3. **보관 기간**
    - What we know: 하루 수 건 · 1년 약 2,000 ~ 3,000행. D-09 후속(웹앱 표시)이 이 기록을 쓸 수 있다.
    - Recommendation: 정리 작업 없이 보관(재량 「보관 기간」 의 답). 필요해지면 후속에서.
+   - RESOLVED: 정리(삭제) 작업 없이 보관한다 — `dart_alerts` 에 지우는 RPC · 정리 Job 을 만들지 않고 마이그레이션 머리 주석에 보관 방침을 적는다(→ 43-01-PLAN.md Task 2 · must_haves 「보관」 truth).
 4. **모바일 원문 링크**
    - What we know: 문서의 원문 링크는 데스크톱 뷰어(`dart.fss.or.kr/dsaf001/main.do?rcpNo=`)다.
    - Recommendation: D-08 「DART 원문 하나」 대로 이 링크. 폰에서 불편하다는 피드백이 오면 후속.
+   - RESOLVED: 데스크톱 원문 뷰어 `https://dart.fss.or.kr/dsaf001/main.do?rcpNo={접수번호}` 하나만 쓴다(모바일 전용 주소 없음 · D-08) — 트레이서 테스트가 이 주소를 글자 그대로 단언한다(→ 43-01-PLAN.md Task 1 `DART_VIEWER_URL` · must_haves D-08 truth).
 
 ## Environment Availability
 
