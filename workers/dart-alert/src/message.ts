@@ -7,7 +7,9 @@
  * - 본문 숫자(가격 · 기간 · 규모)는 없다 — 목록 정보와 원문 링크만(D-06).
  * - 링크는 데스크톱 원문 뷰어 하나(리서치 미결 4 의 답 · D-08). 모바일 전용 주소는 두지 않는다.
  * - parse_mode HTML 이라 모든 값은 `htmlEscape`(회사명에 `&` 가 실제로 있다 — 예 F&F).
- * - 제출인 생략 규칙 · 평문 · 장애 글 · 시험 글은 43-09 가 더한다.
+ * - 43-09: 제출인 생략(주요사항보고서 · 제출인 = 회사 자신) · 평문(`plainAlertText` — 서식 오류 대비) ·
+ *   장애 글 2종(`outageText` · `recoveredText` · D-16) · 시험 글(`testSendText` · D-15). 시각은 컨테이너 시간대와
+ *   무관하게 KST(`kstLabel`).
  */
 
 export const DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=";
@@ -28,14 +30,69 @@ export interface AlertFields {
   late: boolean;
 }
 
-export function alertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
+/** 회사 표기 정리 — 공백 · 「(주)」 · 「주식회사」 · 「㈜」 를 뗀다 */
+function companyKey(name: string): string {
+  return name.replace(/\s+/g, "").replace(/\(주\)|주식회사|㈜/g, "");
+}
+
+/** 제출인과 회사가 같은 회사인가(표기 차이 무시) — 빈 이름끼리는 같지 않다 */
+export function sameCompany(a: string, b: string): boolean {
+  const ka = companyKey(a);
+  return ka !== "" && ka === companyKey(b);
+}
+
+/**
+ * 첫 줄 — 공개매수(alwaysShowFiler)는 제출인을 항상 붙이고, 주요사항보고서는 제출인이 회사 자신이면 생략한다(D-07).
+ * `esc` = HTML 본문은 htmlEscape, 평문은 그대로.
+ */
+function firstLine(a: AlertFields, opts: { alwaysShowFiler: boolean }, esc: (s: string) => string): string {
   const late = a.late ? `${LATE_LABEL} ` : "";
   const filerName = a.flr_nm.trim();
-  // 공개매수(alwaysShowFiler)는 항상 제출인을 붙인다. 그 밖(주요사항보고서)의 「회사명과 같으면 생략」 규칙은
-  // 43-09 가 `!opts.alwaysShowFiler` 갈래로 더한다 — 그 전까지는 감시 대상과 무관하게 이름이 있으면 붙인다.
-  const showFiler = filerName !== "";
-  const filer = showFiler ? ` · 제출인 ${htmlEscape(filerName)}` : "";
-  const first = `📢 ${late}${htmlEscape(a.report_nm)} — ${htmlEscape(a.corp_name)}(${htmlEscape(a.stock_code)})${filer}`;
+  const showFiler = filerName !== "" && (opts.alwaysShowFiler || !sameCompany(filerName, a.corp_name));
+  const filer = showFiler ? ` · 제출인 ${esc(filerName)}` : "";
+  return `📢 ${late}${esc(a.report_nm)} — ${esc(a.corp_name)}(${esc(a.stock_code)})${filer}`;
+}
+
+export function alertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
   const second = `<a href="${DART_VIEWER_URL}${htmlEscape(a.rcept_no)}">DART 원문</a> · ${SOURCE_LABEL}`;
-  return `${first}\n${second}`;
+  return `${firstLine(a, opts, htmlEscape)}\n${second}`;
+}
+
+/** 서식 오류(parse_mode HTML 거부) 대비 평문 — 태그 · 엔티티 없이 원문 주소를 그대로 싣는다(43-06 재송신) */
+export function plainAlertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
+  const second = `DART 원문 ${DART_VIEWER_URL}${a.rcept_no} · ${SOURCE_LABEL}`;
+  return `${firstLine(a, opts, (s) => s)}\n${second}`;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** KST 시각 표기 — `HH:MM` 또는 `M/D HH:MM`. +9시간 뒤 UTC 필드를 읽어 컨테이너 TZ 와 무관하다 */
+export function kstLabel(ms: number, withDate: boolean): string {
+  const d = new Date(ms + KST_OFFSET_MS);
+  const hhmm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  return withDate ? `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hhmm}` : hhmm;
+}
+
+/** KST 날짜 키 YYYY-MM-DD */
+function kstDay(ms: number): string {
+  return new Date(ms + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** D-16 장애 글 — 「⚠ 공시 알림이 멈췄습니다 — HH:MM 부터 DART 조회 실패(사유). 복구되면 알려 드립니다.」 */
+export function outageText(sinceMs: number, reason: string): string {
+  const why = htmlEscape(reason.replace(/\s+/g, " ").trim());
+  return `⚠ 공시 알림이 멈췄습니다 — ${kstLabel(sinceMs, false)} 부터 DART 조회 실패(${why}). 복구되면 알려 드립니다.`;
+}
+
+/** D-16 복구 글 — 같은 KST 날이면 멈춘 구간, 날이 바뀌었으면 멈춘 시작 날짜 · 시각과 「오늘 접수된 공시」 */
+export function recoveredText(sinceMs: number, nowMs: number): string {
+  if (kstDay(sinceMs) === kstDay(nowMs)) {
+    return `✅ 공시 알림 다시 동작 — ${kstLabel(sinceMs, false)} ~ ${kstLabel(nowMs, false)} 사이 공시는 「${LATE_LABEL}」 으로 보냅니다.`;
+  }
+  return `✅ 공시 알림 다시 동작(${kstLabel(sinceMs, true)} 부터 멈춤) — 오늘 접수된 공시는 「${LATE_LABEL}」 으로 보냅니다.`;
+}
+
+/** D-15 시험 글 두 줄 */
+export function testSendText(nowMs: number): string {
+  return `🔔 공시 알림 시험 — 공개매수 · 유상증자 · 합병 공시를 이 방으로 보냅니다\n${kstLabel(nowMs, false)} KST · ${SOURCE_LABEL}`;
 }
