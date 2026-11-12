@@ -8,7 +8,7 @@
 --        seed 모드 ─► seeded(보내지 않음)            지난 날짜 pending/sending ─► expired(43-02)
 --   ② public.dart_alert_state — 1행(id = 1). 수집기 임대 · 감시 대상별 마지막 성공 시각(last_ok) · 장애 칸(43-02 가 쓴다).
 --   ③ dart_alert_lease_acquire / dart_alert_lease_release — 수집기 실행 하나만 돌게 하는 임대(kis_news 꼴 + last_ok 병합 ·
---      fresh). 반환 키 reclaimed · expired 는 지금부터 있고 값(인계 때 되돌림 · 닫기 수)은 43-02 가 채운다.
+--      fresh). 새로 잡으면(43-02) 오늘 sending → pending(reclaimed) · 지난 날 pending/sending → expired(expired).
 --   ④ dart_alert_insert — 판정을 통과한 행을 한 번에 넣고 **새로 들어간 행만** 돌려준다(ON CONFLICT DO NOTHING).
 --   ⑤ dart_alert_claim — 오늘 · pending · 다음 시도 시각이 된 행을 우선순위 순으로 sending 으로 바꿔 돌려준다.
 --   ⑥ dart_alert_mark — 내가 잡은 sending 행에 송신 결과를 적는다.
@@ -20,6 +20,18 @@
 --   SC-2 한 번만 — rcept_no 가 PK 라 같은 접수번호는 한 행뿐이고, 넣기가 새 행만 돌려주므로 재조회 · 재시작에도
 --        다시 보내지 않는다.
 --   SC-5 이어서 보냄 — 실패는 pending 으로 되돌려 다음 시도 시각에 다시 차례가 온다(같은 날 안에서는 포기하지 않음).
+--   SC-5 최소 1회 전달(43-02) — sending 으로 남은 행이 조용히 사라지는 길을 둘 다 닫는다:
+--        (가) 실행이 죽음 → 새로 임대를 잡은 실행이 오늘 sending 을 pending 으로 되돌린다(last_error
+--             'reclaimed_after_takeover' · 반환 reclaimed). 같은 보유자의 연장은 되돌리지 않는다.
+--        (나) 같은 임대 안에서 mark 실패 · 던짐 · claim 응답 끊김 → 차례가 sending 으로 줄 때 송신 기한
+--             next_attempt_at = now() + 90초를 찍고, 기한이 지난 내 sending 을 다음 차례에 다시 준다(last_error
+--             'reclaimed_stale_claim' · 반환 stale true). 90초 근거: 한 차례 최대 5건 × (텔레그램 제한 시간 10초 —
+--             43-01 createTelegramHttp + 송신 간격 1초) + RPC 왕복 < 90초 — 정상 송신 중인 행을 다시 집지 않는다.
+--        대가: 텔레그램 200 뒤 sent 기록 전에 죽거나 mark 가 실패하면 같은 글이 두 번 갈 수 있다(드묾 · 유실보다 쌈 ·
+--        RESEARCH Pattern 4). 수집기는 reclaimed > 0 이면 warn `possible duplicate after takeover`, stale 이면 warn
+--        `possible duplicate after stale claim` 을 남긴다(43-05 · 43-06).
+--   D-12 지난 날 닫기(43-02) — 새로 임대를 잡을 때 접수일(KST)이 오늘보다 앞인 pending · sending 은 보내지 않고 expired 로
+--        닫는다. 며칠 죽었다 살아나도 옛 공시가 쏟아지지 않는다(sent · seeded 는 그대로).
 --   임대 보유자 확인: 넣기 · 차례 · 기록은 dart_alert_state 의 lease_holder = p_holder AND lease_until > now() 가 아니면
 --        ERRCODE 55000(object_not_in_prerequisite_state) — 워커 어댑터(43-02 src/db.ts)가 「임대 잃음」(LeaseLostError)으로 읽는다.
 --   「오늘」 = (now() AT TIME ZONE 'Asia/Seoul')::date.
@@ -97,6 +109,7 @@ COMMENT ON TABLE public.dart_alert_state IS
 -- ── ③ 임대 ────────────────────────────────────────────────────────
 -- 비어 있거나 · 만료됐거나 · 내 것이면 잡고(연장 포함) held true, 남의 살아 있는 임대면 held false.
 -- fresh = 잡았고 직전 보유자가 나와 다름(빈 임대 · 남의 만료 임대를 넘겨받음). 내 임대이고 p_last_ok 가 있으면 병합.
+-- (43-02) fresh 일 때만: 오늘 sending → pending(reclaimed 수) · 지난 날 pending/sending → expired(expired 수).
 CREATE OR REPLACE FUNCTION public.dart_alert_lease_acquire(p_holder text, p_ttl_seconds integer, p_last_ok jsonb DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -105,8 +118,12 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_prev text;
-  v_held boolean := false;
+  v_prev      text;
+  v_held      boolean := false;
+  v_fresh     boolean;
+  v_reclaimed integer := 0;
+  v_expired   integer := 0;
+  v_today     date    := (now() AT TIME ZONE 'Asia/Seoul')::date;
 BEGIN
   IF p_holder IS NULL OR btrim(p_holder) = '' THEN
     RAISE EXCEPTION 'dart_alert_lease_acquire: p_holder 가 비었다' USING ERRCODE = '22023';
@@ -130,12 +147,35 @@ BEGIN
      AND (lease_holder IS NULL OR lease_until IS NULL OR lease_until < now() OR lease_holder = p_holder)
   RETURNING true INTO v_held;
 
-  v_held := coalesce(v_held, false);
+  v_held  := coalesce(v_held, false);
+  v_fresh := v_held AND v_prev IS DISTINCT FROM p_holder;
+
+  -- (43-02) 새로 잡은 실행만 — 연장 · 거절은 아무 행도 바꾸지 않는다. 상태 행을 FOR UPDATE 로 쥐고 있으므로
+  -- 넣기 · 차례 · 기록(FOR SHARE)이 되돌림 중간에 끼지 못한다.
+  IF v_fresh THEN
+    -- 유실 창 닫기(SC-5): 죽은(또는 임대를 놓친) 실행이 sending 으로 남긴 오늘 행을 다시 차례로 — 최소 1회
+    UPDATE public.dart_alerts
+       SET status          = 'pending',
+           claimed_by      = NULL,
+           last_error      = 'reclaimed_after_takeover',
+           next_attempt_at = now()
+     WHERE rcept_dt = v_today
+       AND status = 'sending';
+    GET DIAGNOSTICS v_reclaimed = ROW_COUNT;
+
+    -- D-12 지난 날 닫기: 며칠 죽었다 살아나도 옛 공시를 쏟아내지 않는다(sent · seeded 는 그대로)
+    UPDATE public.dart_alerts
+       SET status = 'expired'
+     WHERE rcept_dt < v_today
+       AND status IN ('pending', 'sending');
+    GET DIAGNOSTICS v_expired = ROW_COUNT;
+  END IF;
+
   RETURN jsonb_build_object(
     'held', v_held,
-    'fresh', v_held AND v_prev IS DISTINCT FROM p_holder,
-    'reclaimed', 0,
-    'expired', 0);
+    'fresh', v_fresh,
+    'reclaimed', v_reclaimed,
+    'expired', v_expired);
 END;
 $$;
 
@@ -144,7 +184,8 @@ REVOKE ALL ON FUNCTION public.dart_alert_lease_acquire(text, integer, jsonb) FRO
 GRANT EXECUTE ON FUNCTION public.dart_alert_lease_acquire(text, integer, jsonb) TO service_role;
 
 COMMENT ON FUNCTION public.dart_alert_lease_acquire(text, integer, jsonb) IS
-  'Phase 43 — 수집기 임대. 비었거나 만료됐거나 내 것이면 잡고(연장 · p_last_ok 병합) {held, fresh, reclaimed, expired}.';
+  'Phase 43 — 수집기 임대. 비었거나 만료됐거나 내 것이면 잡고(연장 · p_last_ok 병합) {held, fresh, reclaimed, expired}. '
+  '새로 잡으면 오늘 sending → pending(reclaimed_after_takeover) · 지난 날 pending/sending → expired.';
 
 -- 주인일 때만 푼다(last_ok · 장애 칸은 그대로).
 CREATE OR REPLACE FUNCTION public.dart_alert_lease_release(p_holder text)
@@ -233,7 +274,11 @@ COMMENT ON FUNCTION public.dart_alert_insert(text, jsonb, boolean) IS
 
 -- ── ⑤ 송신 차례 ───────────────────────────────────────────────────
 -- 오늘 · pending · next_attempt_at <= now() 를 priority → first_seen_at → rcept_no 순으로 p_limit 개 잡아
--- sending · claimed_by · attempts + 1 로 바꾸고 돌려준다. 43-02 가 송신 기한 · stale 을 더한다(시그니처 불변).
+-- sending · claimed_by · attempts + 1 로 바꾸고 돌려준다.
+-- (43-02 · 체커 W2) sending 동안 next_attempt_at 은 「송신 기한」 = 잡은 시각 + 90초. 내가 잡았는데 기한이 지나도록
+-- 결과(dart_alert_mark)가 적히지 않은 오늘 sending 행(mark 실패 · 던짐 · claim 응답 끊김)도 같은 순서로 함께 다시 준다
+-- — last_error 'reclaimed_stale_claim' · attempts + 1 · 반환 stale true(처음 주는 행은 false). 남이 잡은 sending 은
+-- 고르지 않는다(인계 되돌림 몫).
 CREATE OR REPLACE FUNCTION public.dart_alert_claim(p_holder text, p_limit integer)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -255,23 +300,25 @@ BEGIN
   END IF;
 
   WITH picked AS (
-    SELECT rcept_no
-      FROM public.dart_alerts
-     WHERE rcept_dt = (now() AT TIME ZONE 'Asia/Seoul')::date
-       AND status = 'pending'
-       AND next_attempt_at <= now()
-     ORDER BY priority, first_seen_at, rcept_no
+    SELECT d.rcept_no, (d.status = 'sending') AS was_sending
+      FROM public.dart_alerts d
+     WHERE d.rcept_dt = (now() AT TIME ZONE 'Asia/Seoul')::date
+       AND d.next_attempt_at <= now()
+       AND (d.status = 'pending' OR (d.status = 'sending' AND d.claimed_by = p_holder))
+     ORDER BY d.priority, d.first_seen_at, d.rcept_no
      LIMIT p_limit
        FOR UPDATE SKIP LOCKED
   ), upd AS (
     UPDATE public.dart_alerts a
-       SET status     = 'sending',
-           claimed_by = p_holder,
-           attempts   = a.attempts + 1
+       SET status          = 'sending',
+           claimed_by      = p_holder,
+           attempts        = a.attempts + 1,
+           next_attempt_at = now() + interval '90 seconds',
+           last_error      = CASE WHEN picked.was_sending THEN 'reclaimed_stale_claim' ELSE a.last_error END
       FROM picked
      WHERE a.rcept_no = picked.rcept_no
     RETURNING a.rcept_no, a.watch, a.priority, a.corp_cls, a.corp_name, a.stock_code, a.report_nm, a.flr_nm,
-              a.late, a.attempts, a.first_seen_at
+              a.late, a.attempts, a.first_seen_at, picked.was_sending AS stale
   )
   SELECT coalesce(jsonb_agg(jsonb_build_object(
            'rcept_no', rcept_no,
@@ -283,7 +330,8 @@ BEGIN
            'flr_nm', flr_nm,
            'late', late,
            'attempts', attempts,
-           'first_seen_at', first_seen_at) ORDER BY priority, first_seen_at, rcept_no), '[]'::jsonb)
+           'first_seen_at', first_seen_at,
+           'stale', stale) ORDER BY priority, first_seen_at, rcept_no), '[]'::jsonb)
     INTO v_out
     FROM upd;
 
@@ -296,7 +344,8 @@ REVOKE ALL ON FUNCTION public.dart_alert_claim(text, integer) FROM anon, authent
 GRANT EXECUTE ON FUNCTION public.dart_alert_claim(text, integer) TO service_role;
 
 COMMENT ON FUNCTION public.dart_alert_claim(text, integer) IS
-  'Phase 43 SC-5 — 송신 차례. 오늘 pending 중 다음 시도 시각이 된 행을 우선순위 순으로 sending 으로 바꿔 돌려준다. 임대 보유자 아니면 55000.';
+  'Phase 43 SC-5 — 송신 차례. 오늘 pending 중 다음 시도 시각이 된 행과 내가 잡고 송신 기한(90초)이 지난 sending 행을 '
+  '우선순위 순으로 sending(기한 now + 90초)으로 바꿔 돌려준다(다시 준 행 stale true). 임대 보유자 아니면 55000.';
 
 -- ── ⑥ 결과 기록 ───────────────────────────────────────────────────
 -- status = 'sending' AND claimed_by = p_holder 인 행만. 성공 → sent · sent_at · message id · last_error NULL.
