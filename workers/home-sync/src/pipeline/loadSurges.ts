@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { kstDateIso } from "@gh-radar/shared";
+import {
+  isEtpProduct,
+  kstDateIso,
+  mergeStockFeed,
+  type StockFeedKind,
+  type StockFeedRpcResult,
+} from "@gh-radar/shared";
 import type { HomeSyncConfig } from "../config";
 import { previousTradingDate } from "./tradingDay";
 
@@ -15,28 +21,36 @@ import { previousTradingDate } from "./tradingDay";
  *      ETN/ETF/레버리지·인버스 제외(isExcludedProduct) → change_rate desc → surgeMax cap.
  *      **필터가 slice 보다 먼저여야** 제외된 자리를 후순위 일반 종목이 채운다 (slice 를 먼저 하면
  *      제외분만큼 급등 슬롯이 빈 채로 남는다 — quick 260803-it6).
- *   3. news_articles 를 code 청크로 나눠 뉴스 창(최근 48h, 단 직전 거래일 15:30 KST 가 더
- *      이르면 그 시각부터 — 월요일·연휴 다음날 전 거래일 저녁 기사 보장, quick-260915-boq)만 로드 후
- *      **앱 측에서 종목별 2단 정렬 top-K** (newsPerStock) 유지 — 단일 .in() 은 PostgREST
- *      db-max-rows(1000) 에서 통째 truncation 되어 정렬상 뒤쪽 종목의 뉴스가 조용히 사라진다
- *      (D-07 / Pitfall 1).
- *      2단 정렬(광진실업 케이스 fix): 종목명이 title 또는 description 에 포함된 기사를 먼저
- *      배치하고 그 안에서/나머지에서 published_at desc. 시황 라운드업 기사가 최신이라는
- *      이유로 종목 특정 재료 기사를 top-K 밖으로 밀어내는 문제를 막는다.
+ *   3. (Phase 41 D-19) 급등 종목의 재료 = 합친 피드(공시 · 한투 뉴스 · 네이버 뉴스). code 청크마다
+ *      RPC `stock_feed_by_codes`(등록 안 함 · 출처별 종목당 최신 NEWS_CANDIDATES_PER_STOCK 건)를 1회 부르고,
+ *      종목마다 shared `mergeStockFeed` 로 한 줄씩 합친다 — **합치기는 server 와 같은 shared 함수**(D-14 한 번만).
+ *      그래서 server 응답과 같은 거르기가 홈 AI 입력에도 그대로 적용된다: 한투 auto_market · ETP 연결 숨김(RPC),
+ *      네이버는 제목에 종목명이 있는 기사만(RPC · 20261112320000), 시황 제목 제외(mergeStockFeed). 여기서 다시 거르지 않는다.
+ *      뉴스 창은 최근 48h, 단 직전 거래일 15:30 KST 가 더 이르면 그 시각부터(월요일·연휴 다음날 전 거래일 저녁 기사 보장,
+ *      quick-260915-boq). 청크로 나누는 이유는 한 번에 너무 많은 종목 · 줄을 받지 않으려는 것(D-07 / Pitfall 1 계승).
+ *   3b. 종목별 top-K(newsPerStock): 최근 공시 최대 DISCLOSURE_TOP_MAX(2)건 먼저 → 나머지에서 종목명이
+ *      title 또는 description 에 든 기사 → 최신순. 종목명 우선(광진실업 케이스 fix)은 시황 라운드업 · 테마 기사가
+ *      최신이라는 이유로 종목 특정 재료를 top-K 밖으로 밀어내지 않게 한다. 공시가 0건이면 이전 규칙 그대로다.
  *
  * Claude 입력은 이 Surge[] 로부터 clusterSurges 가 구성한다 (번호 매긴 뉴스 인덱스).
  */
 
-/** news_articles 행 (Claude 뉴스 인덱스 해석의 verbatim 소스). */
+/** 합친 피드 한 줄 (Claude 뉴스 인덱스 해석의 원문 소스 · Phase 41 D-19). */
 export interface NewsRow {
+  /** 피드 줄 id — `kis:<일련번호>` 또는 `naver:<uuid>` (content_hash 입력). */
   id: string;
   stock_code: string;
   title: string;
-  url: string;
-  source: string | null;
+  /** 원문 링크 — 공시 · 네이버에 아직 없는 한투 뉴스는 null (D-20). */
+  url: string | null;
+  /** 자료원(언론사명 · 「거래소 공시」 · 「코스닥 공시」) — 비지 않는다 (D-20). */
+  source: string;
+  /** 작성 시각 `YYYY-MM-DDTHH:MM:SS.sss+09:00` (고정 폭 — 문자열 비교로 정렬 가능). */
   published_at: string;
   /** Naver Search API 스니펫 (HTML 태그 포함 가능, nullable). 프롬프트 컨텍스트용. */
   description: string | null;
+  /** 공시 · 뉴스. */
+  kind: StockFeedKind;
 }
 
 /** 급등 종목 1건 — 코드/이름/등락률 + 종목별 top-K 뉴스. */
@@ -47,7 +61,7 @@ export interface Surge {
   news: NewsRow[];
 }
 
-/** stock_quotes / stocks / news_articles 청크 IN 크기 (PostgREST URL 414 방지). */
+/** stock_quotes / stocks 청크 IN 크기 (PostgREST URL 414 방지) · 피드 RPC 한 번에 넘기는 코드 수. */
 const QUOTE_CHUNK = 200;
 
 /** KST(UTC+9) 오프셋 (index.ts computeSlot 와 동일값). */
@@ -71,8 +85,6 @@ export function kstMidnightIso(now: Date): string {
   return new Date(midnightKstMs - KST_OFFSET_MS).toISOString();
 }
 
-const NEWS_COLS = "id,stock_code,title,url,source,published_at,description";
-
 /**
  * 뉴스 후보 창 — 최근 48h, 단 직전 거래일 15:30 KST 가 더 이르면 그 시각부터
  * (월요일·연휴 다음날 전 거래일 저녁 기사 보장, quick-260915-boq).
@@ -93,38 +105,27 @@ export function newsWindowCutoffIso(now: Date): string {
 }
 
 /**
- * 종목당 메모리에 보관할 뉴스 후보 상한 — 뉴스 창(48h 또는 직전 거래일 15:30 이후) + 이 cap 으로 정렬 비용을 bound 한다.
- * newsPerStock(기본 5) 보다 넉넉히 잡아 2단 정렬이 종목 특정 재료 기사를 top-K 안으로
- * 끌어올릴 여지를 확보한다. (Supabase 쿼리로 무리하게 풀지 않고 앱 측 슬라이스.)
+ * 종목당 뉴스 후보 상한 — RPC 출처별 상한(p_per_source)이자 합친 뒤 보관하는 줄 수.
+ * newsPerStock(기본 5) 보다 넉넉히 잡아 공시 · 종목명 우선 정렬이 재료 기사를 top-K 안으로
+ * 끌어올릴 여지를 확보한다.
  */
 const NEWS_CANDIDATES_PER_STOCK = 50;
 
-/** ETP 증권그룹 — KRX SECUGRP_NM. 기존 SQL 선례(NOT IN ('ETF','ETN','ELW'))와 정합. */
-const EXCLUDED_SECURITY_GROUPS = new Set(["ETF", "ETN", "ELW"]);
+/** top-K 앞자리에 먼저 두는 최근 공시 수 (Phase 41 D-19) — 공시가 많아도 뉴스 자리를 다 먹지 않게. */
+export const DISCLOSURE_TOP_MAX = 2;
 
 /**
- * 종목명 fallback 패턴 — security_group 오분류 대비(570127 "한투 인버스2X코스피200선물 ETN"
- * 이 '주권'/'보통주' 로 적재된 실사례). KODEX/TIGER 등 브랜드명은 일반 기업명 오탐 위험 대비
- * 실익이 낮아 미포함(그 상품들은 group 필터가 커버). '스팩' 은 이번 범위 아님 — 넣지 말 것.
- */
-const EXCLUDED_NAME_PATTERN = /ETN|ETF|ELW|인버스|레버리지/i;
-
-/**
- * 홈 급등 집합에서 제외할 파생·지수연동 상품인가 (ETN/ETF/레버리지·인버스).
+ * 홈 급등 집합에서 제외할 파생·지수연동 상품인가 (ETN/ETF/ELW/레버리지·인버스).
  * 지수 하락에 연동된 상품이 "오늘의 급등 테마"로 잡히면 트레이더에게 의미가 없다.
- * 이름·그룹 둘 다 없으면 false — 마스터 미해석 코드는 기존대로 통과시킨다.
+ * 규칙은 shared `isEtpProduct` 하나(Phase 41 D-09 단일 정의) — 그룹(ETF · ETN · ELW) 또는 이름 패턴.
+ * 이름 패턴은 security_group 오분류 대비(570127 "한투 인버스2X코스피200선물 ETN" 이 '주권' 으로 적재된 실사례).
+ * '스팩' 은 넣지 않는다(ETP 가 아니다). 이름·그룹 둘 다 없으면 false — 마스터 미해석 코드는 통과시킨다.
  */
 export function isExcludedProduct(
   name: string | null | undefined,
   securityGroup: string | null | undefined,
 ): boolean {
-  if (
-    securityGroup &&
-    EXCLUDED_SECURITY_GROUPS.has(securityGroup.trim().toUpperCase())
-  ) {
-    return true;
-  }
-  return name ? EXCLUDED_NAME_PATTERN.test(name) : false;
+  return isEtpProduct(name, securityGroup);
 }
 
 /** loadSurges 재시도 옵션 (기본: 빈 결과 시 2회 재시도, 1.5s 간격). 테스트가 delay 0 주입. */
@@ -222,43 +223,59 @@ export async function loadSurges(
 
   const codes = surges.map((s) => s.code);
 
-  // 3) 종목별 뉴스 후보 로드 (min(now−48h, 직전 거래일 15:30 KST) 이후) — code 청크로 fetch → 종목당 후보 cap 유지.
-  //    (단일 .in() 1000-row truncation 회피, D-07 / Pitfall 1.)
+  // 3) 종목별 재료 후보 = 합친 피드 (Phase 41 D-19) — code 청크마다 RPC 1회(등록 안 함) → 종목마다 mergeStockFeed.
+  //    뉴스 창: min(now−48h, 직전 거래일 15:30 KST) 이후.
   const cutoffIso = newsWindowCutoffIso(now);
   const candidatesByCode = new Map<string, NewsRow[]>();
   for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
     const chunk = codes.slice(i, i + QUOTE_CHUNK);
-    const { data, error } = await supabase
-      .from("news_articles")
-      .select(NEWS_COLS)
-      .in("stock_code", chunk)
-      .gte("published_at", cutoffIso)
-      .order("published_at", { ascending: false });
+    const { data, error } = await supabase.rpc("stock_feed_by_codes", {
+      p_codes: chunk,
+      p_since: cutoffIso,
+      p_per_source: NEWS_CANDIDATES_PER_STOCK,
+      p_register: false,
+    });
     if (error) throw error;
     const chunkSet = new Set(chunk);
-    for (const n of (data ?? []) as NewsRow[]) {
+    for (const st of (data as StockFeedRpcResult | null)?.stocks ?? []) {
       // 청크 밖 종목은 무시 (mock/응답이 전체를 줄 수 있으므로 방어).
-      if (!chunkSet.has(n.stock_code)) continue;
-      const list = candidatesByCode.get(n.stock_code) ?? [];
-      if (list.length < NEWS_CANDIDATES_PER_STOCK) {
-        list.push(n);
-        candidatesByCode.set(n.stock_code, list);
-      }
+      if (!chunkSet.has(st.code)) continue;
+      const rows: NewsRow[] = mergeStockFeed(st.kis ?? [], st.naver ?? [])
+        .slice(0, NEWS_CANDIDATES_PER_STOCK)
+        .map((it) => ({
+          id: it.id,
+          stock_code: st.code,
+          title: it.title,
+          url: it.url,
+          source: it.source,
+          published_at: it.publishedAt,
+          description: it.description,
+          kind: it.kind,
+        }));
+      if (rows.length > 0) candidatesByCode.set(st.code, rows);
     }
   }
 
-  // 3b) 종목별 2단 정렬 → top-K. 종목명이 title/description 에 등장하는 기사를 우선 배치하고,
-  //     각 그룹 내부는 published_at desc. 시황 라운드업이 재료 기사를 밀어내지 않게 한다.
+  // 3b) 종목별 top-K — 최근 공시 최대 DISCLOSURE_TOP_MAX 건 → (나머지) 종목명 든 기사 → 최신순.
+  //     published_at 은 모두 +09:00 고정 폭이라 문자열 비교가 시각 비교다.
   const newsByCode = new Map<string, NewsRow[]>();
   for (const [code, cands] of candidatesByCode) {
     const name = nameByCode.get(code) ?? "";
-    const sorted = [...cands].sort((a, b) => {
-      const am = nameMatches(a, name) ? 0 : 1;
-      const bm = nameMatches(b, name) ? 0 : 1;
-      if (am !== bm) return am - bm; // 종목명 매칭 기사 우선.
-      return b.published_at.localeCompare(a.published_at); // 그룹 내 최신순.
-    });
-    newsByCode.set(code, sorted.slice(0, cfg.newsPerStock));
+    const newestFirst = (a: NewsRow, b: NewsRow) => b.published_at.localeCompare(a.published_at);
+    const topDisclosures = cands
+      .filter((n) => n.kind === "disclosure")
+      .sort(newestFirst)
+      .slice(0, DISCLOSURE_TOP_MAX);
+    const taken = new Set(topDisclosures);
+    const rest = cands
+      .filter((n) => !taken.has(n))
+      .sort((a, b) => {
+        const am = nameMatches(a, name) ? 0 : 1;
+        const bm = nameMatches(b, name) ? 0 : 1;
+        if (am !== bm) return am - bm; // 종목명 든 기사 우선.
+        return newestFirst(a, b); // 그룹 내 최신순.
+      });
+    newsByCode.set(code, [...topDisclosures, ...rest].slice(0, cfg.newsPerStock));
   }
 
   return surges.map((s) => ({
