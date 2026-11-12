@@ -85,7 +85,7 @@ export interface LapDeps {
 export interface LapState {
   /** 이번 실행에서 이미 판정해 DB 에 넘긴 접수번호(보낸 것 · 거른 것) */
   seen: Set<string>;
-  /** 근접 불일치 종류명 — 실행당 1번만 warn(43-09) */
+  /** 근접 불일치 종류명 — 실행당 1번만 warn(`b001 near-miss kind` · 43-09) */
   nearMissLogged: Set<string>;
 }
 
@@ -141,7 +141,14 @@ export async function collectOnce(
         if (typeof rceptNo !== "string" || state.seen.has(rceptNo) || judged.has(rceptNo)) continue;
         judged.add(rceptNo);
         const v = judgeRow(watch, row, deps.judge);
-        if (!v.send) continue;
+        if (!v.send) {
+          // 가정 1 — 허용 목록 밖인데 「증자」 · 「합병」 이 든 종류명은 사람이 보도록 종류명마다 실행당 1번만 warn
+          if (v.reason === "near_miss" && !state.nearMissLogged.has(v.kind)) {
+            state.nearMissLogged.add(v.kind);
+            deps.log.warn({ rceptNo, kind: v.kind, watch: watch.id }, "b001 near-miss kind");
+          }
+          continue;
+        }
         items.push({
           rcept_no: rceptNo,
           watch: watch.id,

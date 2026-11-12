@@ -262,7 +262,10 @@ describe("트레이서 — 공개매수 1건 한 길", () => {
     const w1 = wire({ dart });
     const c = await collectOnce(w1.deps, newLapState(), DAY, lap);
     expect(c.results[0]).toMatchObject({ watch: "tender_offer", ok: false, kind: "quota" });
-    expect(c.calls).toBe(1);
+    // 실패한 D004 조회 1회 + 주요사항보고서(B001 · 013 빈 목록) 1회 — 실패 호출도 센다(43-09 에서 감시 대상 2개)
+    expect(c.calls).toBe(2);
+    expect(c.calls).toBe(w1.dart.requests.length);
+    expect(c.results[1]).toMatchObject({ watch: "rights_merger", ok: true });
     expect(w1.lines.some((l) => l.level === "warn" && l.msg === "dart list failed")).toBe(true);
 
     const tg = fakeTelegram(() => "network");
