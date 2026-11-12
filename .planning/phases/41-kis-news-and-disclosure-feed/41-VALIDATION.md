@@ -3,7 +3,7 @@ phase: "41"
 slug: "kis-news-and-disclosure-feed"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-11"
@@ -119,4 +119,4 @@ created: "2026-11-11"
 - [x] Feedback latency < 15s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending — 41-09 Task 3 화면 UAT 뒤 `status: validated` · 날짜
+**Approval:** 2026-11-12 — 41-09 Task 3 화면 UAT 통과(사용자 「됐다」, 폰 · PC). ④ 홈 · SC-7 · D-19 는 41-11 Task 2 가 채움
