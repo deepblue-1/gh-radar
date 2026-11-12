@@ -1,6 +1,6 @@
 import { stripHtml } from "@gh-radar/shared";
-import type { HomeSurgeTheme } from "@gh-radar/shared";
-import type { Surge } from "../pipeline/loadSurges";
+import type { HomeNewsRef, HomeSurgeTheme } from "@gh-radar/shared";
+import type { NewsRow, Surge } from "../pipeline/loadSurges";
 import { isRoundupNews } from "./roundup";
 
 /**
@@ -12,6 +12,27 @@ export type PrevThemesSource = "slot" | "prevTradingDay";
 /** 뉴스 라인에 붙일 description 스니펫 최대 길이 (토큰 상한). */
 const DESC_SNIPPET_MAX = 120;
 
+const KST_OFFSET_MS = 9 * 3600_000;
+
+/** 작성 시각 → KST `HH:MM` (+9h 뒤 getUTC* — 호스트 TZ 무관). 읽을 수 없으면 빈 문자열. */
+function kstHhMm(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms + KST_OFFSET_MS);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+/** 피드 줄 → 근거 참조(원문 그대로 · Phase 41 D-19 · D-20). 프롬프트 인덱스 해석과 테마 뉴스 보강이 같이 쓴다. */
+export function toHomeNewsRef(n: NewsRow): HomeNewsRef {
+  return {
+    title: n.title,
+    url: n.url,
+    source: n.source,
+    kind: n.kind,
+    publishedAt: n.published_at,
+  };
+}
+
 /**
  * Phase 13 Plan 02 Task 2 — Claude Haiku bottom-up 클러스터링 프롬프트 (RESEARCH §Pattern 3).
  *
@@ -19,7 +40,8 @@ const DESC_SNIPPET_MAX = 120;
  * "같은 이유로 함께 오른 종목 묶음(themes)" 과 "홀로 오른 종목(singles)" 을 순수 발견한다.
  *
  * anti-hallucination (D-04): 입력 뉴스는 전역 인덱스(N)로 번호를 매긴다. Claude 는 newsRefs 에
- * **인덱스만** 반환하고 (URL/제목 생성 금지), 워커가 인덱스→verbatim news_articles 로 해석한다.
+ * **인덱스만** 반환하고 (URL/제목 생성 금지), 워커가 인덱스→원문 피드 줄(제목 · 자료원 · url · kind · 시각)로 해석한다.
+ * Phase 41 D-19: 재료에 공시가 들어온다 — 공시 줄은 `[N] [공시] <코드> <제목> (<자료원> <HH:MM>)` 꼴로 뉴스와 구분한다.
  * stockCodes 도 입력 code 만 허용 — 그 외는 워커가 drop (demoteInvalidThemes).
  *
  * JSON only(Haiku 5.5 는 temperature 를 받지 않는다 — 형식은 이 지시 + parseClusterResponse 가 지킨다). discover/correct 프롬프트(theme-sync)의 few-shot 구조 계승.
@@ -42,6 +64,7 @@ export const CLUSTER_SYSTEM_PROMPT = `너는 한국 주식 시장의 "오늘의 
 - 한 종목은 원칙적으로 가장 잘 맞는 테마 **하나**에만 넣어라. 서로 다른 재료가 각각 뉴스로 확인될 때만 복수 테마 소속을 허용한다.
 - 여러 종목을 한꺼번에 나열하는 시황/거래상위/마감 라운드업 기사(뉴스 라인에 \`[라운드업]\` 으로 표기됨)는 종목을 한 테마로 묶는 근거로 삼지 마라. 라운드업은 단순히 그날 오른 종목을 함께 열거할 뿐 같은 재료를 뜻하지 않는다. 종목 특정 재료 기사(특징주·공시)와 참고 테마 분류를 우선한다.
 - 애매하면 억지로 테마로 묶지 말고 singles 로 둔다.
+- 뉴스 라인 중 \`[공시]\` 로 표시된 줄은 거래소·코스닥 공시 제목이다. 종목 특정 재료의 근거로 우선하되, 다른 뉴스와 같이 인덱스로만 인용한다.
 
 출력은 반드시 JSON 만. 다른 텍스트 금지:
 {"themes":[{"name":"초전도체","reason":"...","stockCodes":["294630","004920"],"newsRefs":[0,1]}],"singles":[{"stockCode":"347700","reason":"...","newsRefs":[3]}]}
@@ -123,7 +146,7 @@ export function formatClusterMessage(
   prevThemesSource: PrevThemesSource = "slot",
 ): {
   message: string;
-  indexedNews: Array<{ title: string; url: string; source: string }>;
+  indexedNews: HomeNewsRef[];
 } {
   const stockLines = surges
     .map((s) => `- ${s.code} ${s.name} (+${s.changeRate.toFixed(1)}%)`)
@@ -134,16 +157,18 @@ export function formatClusterMessage(
   // 테마 병합 근거에서 배제하도록 신호를 준다.
   const surgeNames = surges.map((s) => s.name);
 
-  const indexedNews: Array<{ title: string; url: string; source: string }> = [];
+  const indexedNews: HomeNewsRef[] = [];
   const newsLines: string[] = [];
   for (const s of surges) {
     for (const n of s.news) {
       const idx = indexedNews.length;
-      indexedNews.push({
-        title: n.title,
-        url: n.url,
-        source: n.source ?? "",
-      });
+      indexedNews.push(toHomeNewsRef(n));
+      // 공시 줄 (Phase 41 D-19) — 「[공시]」 표시 + 자료원 · KST 시각. 스니펫 · 라운드업 라벨 없음.
+      if (n.kind === "disclosure") {
+        const at = kstHhMm(n.published_at);
+        newsLines.push(`[${idx}] [공시] ${s.code} ${n.title} (${at ? `${n.source} ${at}` : n.source})`);
+        continue;
+      }
       // description 스니펫(HTML strip + truncate)을 제목 뒤에 덧붙여 Claude 에 재료 컨텍스트 제공.
       // 시황 라운드업과 개별 재료(공시 등)를 구분할 신호. indexedNews(verbatim)에는 미포함.
       const clean = n.description ? stripHtml(n.description) : "";

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import type { HomeSurgeStock, HomeSurgeTheme } from '@gh-radar/shared';
+import { homeNewsRefKey, type HomeSurgeStock, type HomeSurgeTheme } from '@gh-radar/shared';
 
 import {
   Sheet,
@@ -89,8 +89,9 @@ export function ThemeCard({ theme }: ThemeCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const avgLabel = formatChange(avg);
-  // 카드 "전체 보기" 노출 판단용 — NewsBlock 내부 dedup 과 동일하게 URL unique 수.
-  const newsCount = new Set(theme.news.map((n) => n.url)).size;
+  // 카드 "전체 보기" 노출 판단용 — NewsBlock 내부 dedup 과 같은 키(homeNewsRefKey · Phase 41 D-20)의 unique 수.
+  // 링크 없는 공시는 「자료원|제목」 으로 세서 여러 건이 1건으로 뭉치지 않는다.
+  const newsCount = new Set(theme.news.map(homeNewsRefKey)).size;
   const sheetDesc = theme.reason
     ? `${theme.reason} · ${theme.stocks.length}종목 · 평균 ${avgLabel}`
     : `${theme.stocks.length}종목 · 평균 ${avgLabel}`;

@@ -17,14 +17,34 @@
  *   D-06: payload 는 Claude 출력 verbatim blob (themes/singles/threshold/marketStatus).
  */
 
-/** 대표 뉴스 참조 (Claude 가 verbatim 인용, 1~2건). */
+import type { StockFeedKind } from "./stock-feed";
+
+/**
+ * 대표 뉴스 참조 (Claude 가 인덱스로 고르고 워커가 원문 그대로 옮긴다, 1~2건).
+ *
+ * Phase 41 D-19 · D-20: 재료가 합친 피드(공시 · 한투 뉴스 · 네이버 뉴스 — `mergeStockFeed`)로 넓어졌다.
+ *   - `url` null = 링크 없는 글(공시 · 네이버에 아직 없는 한투 뉴스) — 제목은 글자로, 자료원은 항상 붙인다.
+ *   - 옛 스냅샷에는 `kind` · `publishedAt` 이 없다 — kind 없음 = 뉴스로 취급한다.
+ */
 export interface HomeNewsRef {
-  /** 뉴스 제목 (news_articles.title verbatim) */
+  /** 제목 (피드 줄 title 원문 그대로) */
   title: string;
-  /** 원문 URL (출처 표기 — 5원칙 #5) */
-  url: string;
-  /** 출처명 (news_articles.source) */
+  /** 원문 URL (출처 표기 — 5원칙 #5). 링크 없는 공시 · 한투 뉴스는 null (D-20) */
+  url: string | null;
+  /** 자료원 (언론사명 · 「거래소 공시」 · 「코스닥 공시」) — 비지 않는다 (D-20) */
   source: string;
+  /** 줄 종류 — 없으면 뉴스(Phase 41 이전 스냅샷) */
+  kind?: StockFeedKind;
+  /** 작성 시각 `+09:00` (피드 줄 publishedAt) — 옛 스냅샷엔 없다 */
+  publishedAt?: string;
+}
+
+/**
+ * 근거 목록 중복 제거 키 — url 이 있으면 url, 없으면 「자료원|제목」 (Phase 41 D-20).
+ * 링크 없는 공시끼리 한 건으로 뭉치지 않게 한다. home-sync(저장 전 dedupe) · webapp(표시 · 건수)가 같은 함수를 쓴다.
+ */
+export function homeNewsRefKey(ref: Pick<HomeNewsRef, "url" | "source" | "title">): string {
+  return ref.url ? ref.url : `${ref.source}|${ref.title}`;
 }
 
 /** 테마/개별 급등 소속 종목 1건. */

@@ -15,6 +15,7 @@ export {
 } from "./krxTick";
 export type { PriceIssue, TickRule } from "./krxTick";
 export type { HomeThemeSnapshot, HomeSurgeTheme, HomeSurgeSingle, HomeSurgeStock, HomeNewsRef, HomeSnapshotPayload, HomeSnapshotIndexEntry, HomeSnapshotResponse } from "./home";
+export { homeNewsRefKey } from "./home";
 export { THEME_STOCK_SOURCES } from "./theme";
 export type { NewsArticle } from "./news";
 export type { Discussion, DiscussionListResponse } from "./discussion";
