@@ -67,7 +67,11 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *   U-3 아침 전날 확인(261113-rn7): 그날 감시 대상별 첫 성공 조회 직후 직전 평일(월 → 금 · 휴장일 달력 없음 · cadence.ts
  *     `prevWeekdayYmd`)을 전 쪽으로 1번 더 조회해 DB 에 없는 통과 건을 「(늦은 알림)」 으로 보낸다(lap.ts). 하루 한 번 —
  *     성공한 감시 대상만 KST 오늘 날짜로 표시하고(`prevDayDone`) 임대 연장 때 DB `last_ok` 의 `prevday:<id>` 로 싣는다
- *     (jsonb 병합 — 재기동 · 임대 교대에도 되풀이 안 함). 전날 조회가 실패하면 표시하지 않아 그 감시 대상의 다음 조회 때 다시.
+ *     (jsonb 병합 — 재기동 · 임대 교대에도 되풀이 안 함). 전날 조회가 실패하거나 넣기가 실패하면 표시하지 않아 다시 하되 —
+ *     감시 대상마다 KST 하루 3번(`PREV_DAY_MAX_TRIES`) · 시도 사이 5분(`PREV_DAY_RETRY_MS`) 상한(전날 조회를 시작할 때 센다 ·
+ *     메모리만 — 재기동이면 다시 3번). 3번 다 표시를 못 남기면 warn `prevday sweep gave up` 1번 뒤 그날은 하지 않는다(DB 표시는
+ *     남기지 않음 — 보고 스크립트의 「전날 확인(오늘)」 이 거짓 완료를 세지 않게). 전날 조회 오류는 한도 신호(020 · HTTP 429)만
+ *     그 키를 멈추고 그 밖은 warn 뿐이다(리뷰 WR-01 — 전날 날짜에만 오는 코드로 오늘 조회까지 멈추지 않게).
  *     seed 바퀴는 표시와 무관하게 모든 감시 대상의 직전 평일도 seeded 로 채우고 표시를 남긴다 — 종류를 넓힌 배포 날 저녁에
  *     seed 를 돌리면 다음 아침 전날 확인이 쏟아내지 않는다.
  *   SC-2 한 실행만 — 임대 TTL 90초 · 30초 연장. 연장 거절 → 조용히 종료 0 `lease_lost` · 연장 DB 오류가 60초
@@ -117,6 +121,9 @@ export const USAGE_FLUSH_MS = 10_000;
 export const UNKNOWN_STREAK = 5;
 /** 멈춘 키를 단독 탐침 1건으로 다시 확인하는 간격(옛 「다음 5분 깨움이 탐침 1건」 과 같은 빈도 · 261113-rn7) */
 export const KEY_PROBE_RETRY_MS = 300_000;
+/** 아침 전날 확인 — 감시 대상마다 KST 하루 시도 상한 · 시도 사이 최소 간격(리뷰 WR-01 — 넣기 · 전날 조회 실패 때 바퀴마다 되풀이 막음) */
+export const PREV_DAY_MAX_TRIES = 3;
+export const PREV_DAY_RETRY_MS = 300_000;
 /** 한 바퀴 송신 차례 상한(43-02 송신 기한 90초의 근거 — 5건 × (10초 + 1초)) */
 export const DELIVER_LIMIT = 5;
 /** 멈추기 직전 송신 차례 최대 횟수(× DELIVER_LIMIT 건 — 리뷰 WR-05) */
@@ -166,9 +173,10 @@ export interface CollectorDeps {
   dart: {
     /**
      * 그날 · 감시 대상 하나의 행(쪽 넘김 포함 · 키는 `watch.key`) — 실패는 `DartApiError`(calls 실림).
-     * `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 — 오늘 조회의 기억은 건드리지 않는다).
+     * `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 — 오늘 조회의 기억은 건드리지 않는다) · `prevDay` 는 수집기 안에서만
+     * 쓰는 표시(전날 조회 — 한도 신호 밖 오류로 키를 멈추지 않음 · 리뷰 WR-01)라 여기서는 무시해도 된다.
      */
-    list(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }>;
+    list(watch: Watch, day: string, opts?: { fullRead?: boolean; prevDay?: boolean }): Promise<{ rows: DartRow[]; calls: number }>;
     /** 단독 탐침 — 그 키로 1쪽 1회(키 1 공개매수 · 키 2 거래소 수시공시) */
     probe(day: string, key: DartKeyId): Promise<{ total: number; calls: number }>;
   };
@@ -296,6 +304,8 @@ class Collector {
   private readonly prevDayDone = new Map<WatchId, string>();
   /** 이 실행이 새로 남긴 전날 확인 표시 — 임대 연장 때 DB last_ok 로 싣는다(불러온 표시는 이미 DB 에 있다) */
   private readonly prevDayMarksHere = new Set<WatchId>();
+  /** 감시 대상별 오늘 전날 확인 시도(KST 날짜 · 횟수 · 마지막 시도 바퀴 시각) — 전날 조회를 시작할 때 센다(리뷰 WR-01 · 메모리만) */
+  private readonly prevDayTries = new Map<WatchId, { day: string; count: number; lastAt: number }>();
   /** 띄엄 조회 감시 대상(everyMs 있음)별 마지막으로 부른 조회 칸(261113-iez · 실행 메모리) */
   private readonly polledSlot = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
@@ -778,10 +788,25 @@ class Collector {
     return true;
   }
 
-  /** 아침 전날 확인을 할 날짜 — 그 감시 대상이 오늘 이미 했으면 null, 아니면 직전 평일 YYYYMMDD(U-3) */
+  /**
+   * 아침 전날 확인을 할 날짜 — 그 감시 대상이 오늘 이미 했으면 null, 아니면 직전 평일 YYYYMMDD(U-3). collectOnce 는 이 값을 받는
+   * 즉시 전날 조회를 시작하므로 날짜를 줄 때 시도 1번으로 센다 — 넣기가 실패해 표시를 못 남긴 바퀴도 1번(리뷰 WR-01).
+   * 하루 3번 · 시도 사이 5분. 3번 다 표시를 못 남겼으면 warn 1번 뒤 그날은 메모리 표시로 건너뛴다(DB 표시 없음).
+   */
   private prevDayDue(w: Watch, startedAt: number): string | null {
-    if (this.prevDayDone.get(w.id) === kstDateString(new Date(startedAt))) return null;
-    return prevWeekdayYmd(startedAt);
+    const today = kstDateString(new Date(startedAt));
+    if (this.prevDayDone.get(w.id) === today) return null;
+    const prev = prevWeekdayYmd(startedAt);
+    const t = this.prevDayTries.get(w.id);
+    const tries = t?.day === today ? t : null;
+    if (tries && tries.count >= PREV_DAY_MAX_TRIES) {
+      this.prevDayDone.set(w.id, today);
+      this.d.log.warn({ watch: w.id, day: prev, tries: tries.count }, "prevday sweep gave up");
+      return null;
+    }
+    if (tries && startedAt - tries.lastAt < PREV_DAY_RETRY_MS) return null;
+    this.prevDayTries.set(w.id, { day: today, count: (tries?.count ?? 0) + 1, lastAt: startedAt });
+    return prev;
   }
 
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */
@@ -796,7 +821,7 @@ class Collector {
     const today = this.dateKst();
     for (const x of r.results) {
       if (x.ok && x.okAt !== undefined) this.lastOk.set(x.watch, x.okAt);
-      // 전날 확인은 성공한 것만 표시 — 실패면 그 감시 대상의 다음 조회 때 다시(U-3)
+      // 전날 확인은 성공한 것만 표시 — 실패면 5분 뒤 그 감시 대상의 조회 때 다시(하루 3번 · U-3 · 리뷰 WR-01)
       if (x.prevOk === true) {
         this.prevDayDone.set(x.watch, today);
         this.prevDayMarksHere.add(x.watch);
@@ -1093,8 +1118,15 @@ class Collector {
   /**
    * `dart.list` 감쌈 — 호출 수를 끝날 때마다 그 키(`watch.key`) 사용량에 더하고(실패 포함) 그 키의 치명 · 모르는 코드 연속을
    * 센다. 멈춘 키는 `isDue` 가 거르지만 그물로 한 번 더 막는다(호출 0).
+   * 전날 조회(`prevDay`)의 오류는 한도 신호(020 · HTTP 429 = quota)만 치명 분류로 올린다 — 그 밖(100 · 101 · 키 · 모르는 코드 ·
+   * 일시)은 lap.ts 가 warn + `prevOk` false 로 끝내고 그 키는 계속 돈다(리뷰 WR-01 — 전날 날짜에만 오는 코드가 레인을 멈췄다
+   * 5분 탐침으로 풀리고 다시 멈추는 되풀이를 막음).
    */
-  private async countedList(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }> {
+  private async countedList(
+    watch: Watch,
+    day: string,
+    opts?: { fullRead?: boolean; prevDay?: boolean },
+  ): Promise<{ rows: DartRow[]; calls: number }> {
     const l = this.laneOf(watch.key);
     if (l.paused) {
       const skipped = new DartApiError(0, null, "transient", "skipped: this DART key is paused");
@@ -1108,7 +1140,7 @@ class Collector {
       return r;
     } catch (err) {
       this.addCalls(l.key, callsOf(err));
-      this.noteListError(l, err);
+      if (!opts?.prevDay || (err instanceof DartApiError && err.kind === "quota")) this.noteListError(l, err);
       throw err;
     }
   }

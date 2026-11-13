@@ -43,7 +43,8 @@ import { judgeRow, type JudgeOptions, type Watch, type WatchId } from "./watches
  *   D-12 와 같은 뜻)이고, 넣기 원소 `rcept_dt` 는 **오늘 조회 날짜**다 — 송신 차례 RPC(`dart_alert_claim`)가
  *   `rcept_dt = 오늘(KST)` 행만 고르고 임대 인계 때 `rcept_dt < 오늘` 인 미송신 행을 expired 로 닫아, 진짜 접수일을 넣으면
  *   보내지지 않는다(원래 접수일은 접수번호 앞 8자리에 그대로 · 마이그레이션 없이 가는 가장 단순한 길). 전날 조회 실패는
- *   warn `dart prev-day list failed` 만 — 그 감시 대상의 오늘 결과는 성공 그대로이고 `prevOk` false 로 알린다.
+ *   warn `dart prev-day list failed` 만 — 그 감시 대상의 오늘 결과는 성공 그대로이고 `prevOk` false 로 알린다. 전날 조회는
+ *   `prevDay: true` 를 실어 부른다 — 수집기는 그 오류 중 한도 신호(020 · HTTP 429)만 키 멈춤으로 올린다(리뷰 WR-01).
  *   이미 DB 에 있는 건(같은 접수번호)은 넣기가 무시하므로 다시 가지 않는다.
  */
 
@@ -114,8 +115,11 @@ export interface LapDeps {
   clock: { now(): number };
   /** 송신 간격(43-06) — collector 가 `CollectorDeps.sleep` 을 넘긴다 */
   sleep(ms: number): Promise<void>;
-  /** `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 · 261113-rn7) */
-  dart: { list(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }> };
+  /**
+   * `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 · 261113-rn7) · `prevDay` = 전날 조회 — 수집기가 한도 신호(020 · HTTP 429)
+   * 밖 오류로는 그 키를 멈추지 않는다(리뷰 WR-01)
+   */
+  dart: { list(watch: Watch, day: string, opts?: { fullRead?: boolean; prevDay?: boolean }): Promise<{ rows: DartRow[]; calls: number }> };
   db: {
     insert(items: InsertItem[], seed: boolean): Promise<InsertedRow[]>;
     claim(limit: number): Promise<ClaimedRow[]>;
@@ -286,7 +290,7 @@ export async function collectOnce(
     let prevOk: boolean | undefined;
     if (prevDay !== null) {
       try {
-        const p = await deps.dart.list(watch, prevDay, { fullRead: true });
+        const p = await deps.dart.list(watch, prevDay, { fullRead: true, prevDay: true });
         calls += p.calls;
         takeRows(watch, p.rows, true, toIsoDate(day));
         prevOk = true;

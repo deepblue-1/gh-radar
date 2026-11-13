@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LATE_LABEL } from "../src/message";
-import { ALL_WATCHES, dbRow, exchangeRow, harness, itemOf, kst, marketActionRow, MON, tradePlanRow, type FeedItem } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, exchangeRow, harness, itemOf, kst, marketActionRow, MON, tenderRow, tradePlanRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * 261113-iez · rn7 — 감시 대상이 섞인 간격 · 두 키로 도는 끝에서 끝 시험. 가짜 시계 · DB · DART · 텔레그램 — 실제 호출 없음.
@@ -338,23 +338,96 @@ describe("아침 전날 확인 (U-3 · 함정 B · C) — 감시 대상별 첫 �
     expect(h.telegram.alerts()).toHaveLength(0);
   });
 
-  it("I001 의 금요일 조회만 800 → I001 표시 없음 · 다음 I001 조회(07:00:10) 직후 금요일 1번 더 → 성공하면 표시", async () => {
+  it("I001 의 금요일 조회만 800 → I001 표시 없음 · 5분 뒤 첫 I001 조회(07:05:00) 직후 금요일 1번 더 → 성공하면 표시", async () => {
+    // 리뷰 WR-01 — 시도 사이 최소 5분(PREV_DAY_RETRY_MS): 07:00:00 실패 → 07:00:10 · :20 … 조회 칸에선 다시 안 함 →
+    // 07:05:00(07:00:00 + 300초 · 10초 칸 시작) 조회 직후 2번째 시도. 옛 단언(07:00:10 다시)은 상한 없는 되풀이였다.
     const h = harness({
       start: at("07:00:00"),
-      abortAt: at("07:00:40"),
+      abortAt: at("07:05:40"),
       watches: ALL_WATCHES,
       prevDayDone: false,
       dart: { reply: (c) => (c.watch.id === "exchange_disclosure" && c.day === FRI_YMD && c.watchN === 2 ? { status: "800" } : undefined) },
     });
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
-    expect(friCalls(h).filter((c) => c.watch === "exchange_disclosure").map((c) => c.at)).toEqual([at("07:00:00"), at("07:00:10")]);
+    expect(friCalls(h).filter((c) => c.watch === "exchange_disclosure").map((c) => c.at)).toEqual([at("07:00:00"), at("07:05:00")]);
     expect(friCalls(h).filter((c) => c.watch !== "exchange_disclosure")).toHaveLength(5);
     expect(h.logs.count("dart prev-day list failed", "warn")).toBe(1);
     expect(h.logs.find("dart prev-day list failed")?.obj).toMatchObject({ watch: "exchange_disclosure", day: FRI_YMD });
-    const renew = h.db.calls.leaseAcquire.find((c) => c.at === at("07:00:30"))!;
+    // 07:00:30 연장 때는 아직 표시 없음 · 07:05:30 연장(성공 뒤 첫 연장)이 표시를 싣는다
+    expect(h.db.calls.leaseAcquire.find((c) => c.at === at("07:00:30"))!.lastOk?.["prevday:exchange_disclosure"]).toBeUndefined();
+    const renew = h.db.calls.leaseAcquire.find((c) => c.at === at("07:05:30"))!;
     expect(renew.lastOk?.["prevday:exchange_disclosure"]).toBe("2026-11-16");
     // 전날 조회 실패는 오늘 결과를 실패로 만들지 않는다 — 장애 글 없음
     expect(h.telegram.notices()).toHaveLength(0);
+  });
+
+  it("넣기가 계속 실패해도 D004 금요일 조회는 하루 3번 · 사이 5분 — 넘으면 warn `prevday sweep gave up` 1번 뒤 그날 안 함(리뷰 WR-01)", async () => {
+    const friTender = tenderRow(1, "2026-11-13");
+    const h = harness({
+      start: at("07:00:00"),
+      abortAt: at("07:20:00"),
+      prevDayDone: false,
+      db: {
+        // 행 값 거절(22 · 23)이 아닌 넣기 실패 — 문장 시간 초과 꼴(임대 RPC 는 정상)
+        before: (fn) => {
+          if (fn === "dart_alert_insert") throw new Error("canceling statement due to statement timeout");
+        },
+      },
+      dart: { feed: [{ watch: "tender_offer", from: kst("2026-11-13", "09:00:00"), row: friTender, day: FRI_YMD }] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 시도 = 07:00:00 · 07:05:00 · 07:10:00(각 앞 시도 + 300초) — 07:00 ~ 07:20 바퀴 240번 중 3번뿐(옛 동작은 바퀴마다 240번)
+    expect(friCalls(h).filter((c) => c.watch === "tender_offer").map((c) => c.at)).toEqual([at("07:00:00"), at("07:05:00"), at("07:10:00")]);
+    expect(friCalls(h).filter((c) => c.watch === "rights_merger").map((c) => c.at)).toEqual([at("07:00:00"), at("07:05:00"), at("07:10:00")]);
+    // 3번째 시도(07:10:00) 다음 조회(07:10:05)에서 감시 대상마다 1번
+    const gaveUp = h.logs.lines.filter((l) => l.msg === "prevday sweep gave up");
+    expect(gaveUp.map((l) => [l.level, l.obj.watch, l.obj.day, l.obj.tries])).toEqual([
+      ["warn", "tender_offer", FRI_YMD, 3],
+      ["warn", "rights_merger", FRI_YMD, 3],
+    ]);
+    // 넣기는 금요일 건을 든 시도 바퀴 3번에만 불렸다(다른 바퀴는 넣을 건 없음) · 오늘 D004 조회는 5초마다 계속(240번)
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.logs.count("dart alert insert failed", "warn")).toBe(3);
+    expect(h.dart.callsOf("tender_offer").filter((c) => c.day === "20261116")).toHaveLength(240);
+    // 포기는 DB 표시를 남기지 않는다(보고 스크립트가 완료로 세지 않게 · 재기동이면 다시 3번)
+    expect(h.db.calls.leaseAcquire.some((c) => Object.keys(c.lastOk ?? {}).some((k) => k.startsWith("prevday:")))).toBe(false);
+  });
+
+  it("전날 조회만 100(요청 오류 꼴) → 그 키를 멈추지 않는다 · 오늘 조회 계속 · error · 장애 글 · 한도 의심 표시 없음(리뷰 WR-01)", async () => {
+    const h = harness({
+      start: at("07:00:00"),
+      abortAt: at("07:11:00"),
+      prevDayDone: false,
+      dart: { reply: (c) => (c.fullRead ? { status: "100" } : undefined) },
+    });
+    // 옛 동작: 전날 100 → dart_bug 로 키 1 멈춤 → 키 1 만 쓰는 실행이라 종료 1
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 07:00:00 ~ 07:10:55 바퀴 132번(11분 × 12) — D004 오늘 조회가 바퀴마다
+    expect(h.dart.callsOf("tender_offer").filter((c) => c.day === "20261116")).toHaveLength(132);
+    expect(friCalls(h).filter((c) => c.watch === "tender_offer").map((c) => c.at)).toEqual([at("07:00:00"), at("07:05:00"), at("07:10:00")]);
+    expect(h.logs.count("dart prev-day list failed", "warn")).toBe(6);
+    expect(h.logs.count("prevday sweep gave up", "warn")).toBe(2);
+    expect(h.logs.count("dart key paused — other key keeps running")).toBe(0);
+    expect(h.logs.lines.filter((l) => l.level === "error")).toEqual([]);
+    expect(h.db.calls.strikesRecord).toHaveLength(0);
+    expect(h.telegram.notices()).toHaveLength(0);
+  });
+
+  it("전날 조회 020 은 지금처럼 그 키를 멈춘다 — 키 1 만 쓰는 실행이면 종료 1 quota · 한도 의심 표시 1(리뷰 WR-01)", async () => {
+    const h = harness({
+      start: at("07:00:00"),
+      abortAt: at("07:01:00"),
+      prevDayDone: false,
+      dart: { reply: (c) => (c.fullRead ? { status: "020" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "quota" });
+    // D004 오늘 → D004 금요일 020 → 키 1 멈춤이라 B001 은 부르지 않는다
+    expect(h.dart.listCalls.map((c) => [c.watch, c.day])).toEqual([
+      ["tender_offer", "20261116"],
+      ["tender_offer", FRI_YMD],
+    ]);
+    expect(h.db.calls.strikesRecord).toEqual([expect.objectContaining({ key: 1 })]);
+    expect(h.logs.count("fatal DART status — stopping this run", "error")).toBe(1);
   });
 
   it("화 07:00 → 직전 평일은 월요일(20261116)", async () => {
