@@ -818,7 +818,16 @@ export function CandleChart({
           </CandlePriceLayer>
 
           {/* ② 수익률 판 — 당일 · 누적 · 0% 한 줄 · 두 눈금(자기 클립) */}
-          <CandleReturnLayer frame={frame} day={day} cum={cumRet} scales={scales} clipId={clipId} />
+          {/* 빈 상태 = 하루 기준(아래 판과 같은 판정) · 오른쪽 눈금 글자 = 눈금을 만든 창 안 점 기준 */}
+          <CandleReturnLayer
+            frame={frame}
+            day={day}
+            dayScaled={dayScalePts}
+            noTeam={team.fills.length === 0}
+            cum={cumRet}
+            scales={scales}
+            clipId={clipId}
+          />
           {/* ③ ~ ⑤ 아래 세 판 — 순매수 · 10분 · 누적 거래대금(선 차트와 같은 함수 · 자기 클립) */}
           <CandleLowerLayers
             frame={frame}

@@ -11,14 +11,20 @@ import { fmtReturnTick, returnPathOf, type ReturnPoint, type ReturnScales } from
  * 자리: 가격 판 바로 아래 `[yRa, yRb]`(데스크톱 50 · 폰 36). 아래 → 위(판 클립 안): 0% 선 하나(`--faint` "2 3" · 두 눈금 공유 ·
  * `scales.zeroY`) → 누적 수익률(`--muted-fg` 1.5 · 왼쪽 눈금 · 미실현만 · `px` 0 구간 끊김) → 당일 수익률(`--team` 1.75 · 오른쪽 눈금 ·
  * 패널 「평단 대비 수익률」 과 같은 값 · 팀 첫 매수 전 없음). 클립 밖: 눈금 글자(위 끝 `판 위 + 9` · 아래 끝 `판 아래 − 1` 값 하나씩) ·
- * 판 제목(데스크톱만) · 팀 매수도 누적도 없으면 판 가운데 「팀 체결 없음」.
+ * 판 제목(데스크톱만) · 그날 팀 체결이 하나도 없고(`noTeam` — 아래 판과 같은 하루 기준) 누적도 없으면 판 가운데 「팀 체결 없음」.
+ * 팀이 그날 체결했지만 창 안이 팀 첫 매수 전이면 빈 판(0% 선만)이다 — 「팀 체결 없음」 을 쓰지 않는다.
  * 호출부(42-10)는 `scales` 를 보기 창 안 점으로 만든다(`dayReturnPointsOf` 는 창 밖 커서 rec 점도 넣는다 — 42-02 계약 메모).
+ * 오른쪽 눈금 글자는 그 눈금을 만든 창 안 점(`dayScaled`)에 값이 있을 때만 — 창 밖 커서 점 하나로 눈금만 뜨지 않게.
  */
 
 export interface CandleReturnLayerProps {
   frame: CandleFrame;
   /** 당일 수익률 점(`dayReturnPointsOf`). */
   day: readonly ReturnPoint[];
+  /** 눈금을 만든 당일 점(창 밖 커서 점 제외) — 오른쪽 눈금 글자 표시 기준. 생략하면 `day`. */
+  dayScaled?: readonly ReturnPoint[];
+  /** 그날 팀 체결이 하나도 없다(`session.team.fills.length === 0`) — 빈 상태 글자 기준(아래 판과 같은 하루 판정). */
+  noTeam: boolean;
   /** 누적 수익률 점(`cumReturnPointsOf` — 누적 없으면 []). */
   cum: readonly ReturnPoint[];
   /** 두 눈금(`returnScalesOf`). */
@@ -29,9 +35,10 @@ export interface CandleReturnLayerProps {
 
 const hasValue = (pts: readonly ReturnPoint[]) => pts.some((p) => p.v !== null && Number.isFinite(p.v));
 
-export function CandleReturnLayer({ frame, day, cum, scales, clipId }: CandleReturnLayerProps) {
+export function CandleReturnLayer({ frame, day, dayScaled = day, noTeam, cum, scales, clipId }: CandleReturnLayerProps) {
   const { P, L, xr, plotW, phone, x } = frame;
   const hasDay = hasValue(day);
+  const hasDayAxis = hasValue(dayScaled);
   const yCum = scales.yCum;
   const hasCum = yCum !== null && hasValue(cum);
 
@@ -82,7 +89,7 @@ export function CandleReturnLayer({ frame, day, cum, scales, clipId }: CandleRet
       </g>
 
       {/* 오른쪽 보라 눈금(당일) · 왼쪽 회색 눈금(누적 있을 때만) — 위 끝 · 아래 끝 값 하나씩 */}
-      {hasDay && (
+      {hasDayAxis && (
         <g data-slot="candle-ret-day-axis" fill="var(--team)" aria-hidden="true">
           <text x={xr + 4} y={P.yRa + 9}>
             {fmtReturnTick(scales.dayTop)}
@@ -103,7 +110,7 @@ export function CandleReturnLayer({ frame, day, cum, scales, clipId }: CandleRet
         </g>
       )}
 
-      {!hasDay && !hasCum && (
+      {noTeam && !hasCum && (
         <text
           data-slot="candle-ret-empty"
           x={(L + xr) / 2}

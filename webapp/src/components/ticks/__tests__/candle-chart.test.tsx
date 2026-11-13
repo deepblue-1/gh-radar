@@ -673,6 +673,33 @@ describe('결선 · 수익률 · 띠 · 캡션', () => {
     expect(q('candle-chart-hover-dot')).toHaveLength(0);
   });
 
+  it('팀이 그날 체결했는데 창을 팀 첫 매수 전 구간(10초)으로 좁히면 수익률 판에 「팀 체결 없음」 을 쓰지 않는다 · 아래 판 계단은 그대로(WR-02)', async () => {
+    // 13:00 일반 체결(호가 있음 · 팀 아님) → 15:00 팀 매수 — 커서는 13:00
+    const late = synthSession([
+      [0, a3Msg({ seq: 1, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000000000' })],
+      [2 * 3_600_000, a3Msg({ seq: 2, bs: '2', px: 16400, qty: 1000, time: '150000000000' })],
+    ]);
+    expect(late.team.fills.length).toBeGreaterThan(0);
+    const r = render(<CandleChart session={late} cursorRec={0} onSeekMs={vi.fn()} onJumpRec={vi.fn()} />);
+    const q = (slot: string) => r.container.querySelectorAll(`[data-slot="${slot}"]`);
+    fireEvent.click(r.getByRole('button', { name: '10초' }));
+    await waitFor(() => expect(q('candle-chart-span')[0]!.textContent).toBe('10초'));
+    expect(q('candle-ret-empty')).toHaveLength(0);
+    expect(q('candle-ret-day-axis')).toHaveLength(0);
+    expect(q('candle-ret-zero')).toHaveLength(1);
+    expect(q('candle-lower-empty')).toHaveLength(0);
+    expect(q('candle-day-path')).toHaveLength(1);
+  });
+
+  it('팀 체결이 하루에 하나도 없으면 수익률 판 · 아래 판 모두 「팀 체결 없음」', () => {
+    const none = synthSession([
+      [0, a3Msg({ seq: 1, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000000000' })],
+    ]);
+    const r = render(<CandleChart session={none} cursorRec={0} onSeekMs={vi.fn()} onJumpRec={vi.fn()} />);
+    expect(r.container.querySelectorAll('[data-slot="candle-ret-empty"]')).toHaveLength(1);
+    expect(r.container.querySelectorAll('[data-slot="candle-lower-empty"]')).toHaveLength(1);
+  });
+
   it('폰(303) + 우리 점 → 캡션 줄 첫 항목 「◆ 우리 체결」 · 데스크톱 순서 = 구간 합계 줄 → 캡션 → 안내 줄', () => {
     const ph = renderChart({ height: 303, own: krxOwn, accum: null });
     const cap = ph.q('candle-chart-caption')[0]!;
