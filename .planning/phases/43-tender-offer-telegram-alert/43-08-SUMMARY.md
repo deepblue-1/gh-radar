@@ -78,6 +78,15 @@ metrics:
 - error 로그 정책이 실제 오류 로그에 걸려 메일이 오는지(오류가 아직 없어 미확인).
 - `43-VALIDATION.md` 서명(`status: validated`)은 UAT 1 ~ 3 통과 뒤.
 
+## 리뷰 수정 재배포 (2026-11-13 11:28 KST)
+
+사용자 지시 「코드 리뷰사항 전부 수정」 → 28건 중 27건 수정 · IN-05 건너뜀(`43-REVIEW-FIX.md` · 처분 기록 open 0). 사용자 답 「지금 배포 + 교체」.
+
+- **DB:** 수정 마이그레이션을 처음 `20261113300000` 으로 만들었는데 Phase 41 후속 `20261113300000_stock_feed_min_disclosures.sql`(이미 원격 적용)과 버전이 겹쳐 첫 `db push` 가 schema_migrations 중복 키로 실패했다. 그 파일의 BEGIN … COMMIT 본문은 다시 실행됐으나 같은 정의라 영향 없음(원격 `stock_feed_by_codes` 6인자 그대로 확인). `20261113400000_dart_alert_fix.sql` 로 이름을 바꿔(`d523e2ac`) 다시 push → 남은 대기 0 · `dart_alert_outage` 에 `p_since` 확인.
+- **배포:** `deploy-dart-alert.sh`(깨움 예약 켠 채) → 이미지 `dart-alert:d523e2ac` · 로그 기반 지표 `dart_alert_wake_starts` · 새 알림 정책 `gh-radar-dart-alert-scheduler-error` · `gh-radar-dart-alert-no-wake` 생성(정책 4개). 강화된 스모크 PASS=15 FAIL=0(깨움 ENABLED · 호출 권한 · DB RPC · 새 마이그레이션 · 봇 방 글쓰기 권한 · 정책 각 1개 포함).
+- **교체:** 옛 코드 실행 `gh-radar-dart-alert-95v9z` 를 11:29:10 취소(11:29:14 정상 정지 · 임대 해제) → 11:30 깨움 `gh-radar-dart-alert-hv9kg`(d523e2ac)가 11:30:06 임대를 이어받음. 11:31 stats: 장애 없음 · 늦은 알림 0 · 마지막 성공 조회 11:31:27 · 경고 이상 로그 0. 수집 공백 약 1분.
+- **남은 확인:** 「깨움 없음」 정책(`gh-radar-dart-alert-no-wake`)이 밤 · 주말에 조용한지, 다음 평일 창에서 오탐이 없는지(UAT 2 와 같이 본다).
+
 ## Self-Check: PASSED
 
 - `43-VALIDATION.md` Task 1 커밋 `ef0cd8c7` 존재 · `scripts/telegram-find-chat.sh` `3be96321` · `tests/cadence.test.ts` `2caea773` 존재.

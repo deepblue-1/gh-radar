@@ -3,7 +3,7 @@ status: testing
 phase: 43-tender-offer-telegram-alert
 source: [43-VERIFICATION.md, 43-08-PLAN.md Task 3]
 started: 2026-11-13T01:40:00Z
-updated: 2026-11-13T01:40:00Z
+updated: 2026-11-13T02:35:00Z
 ---
 
 ## Current Test
@@ -43,15 +43,15 @@ note: 30일 조사에서 두 종류 모두 0건이라 표기를 대조하지 못
 
 ### 6. (결정) 리뷰 치명 CR-50 과 경고 처분
 expected: CR-50(5분 깨움 예약이 멈춤 · 삭제 · 권한 유실이면 어느 알림에도 안 걸리고, `--scheduler-paused` 가 운영 중 예약도 멈춤)을 phase 닫기 전에 고칠지 사용자가 정한다. WR-01 · WR-02 · WR-03 · WR-04 · WR-05 도 같이 처분
-result: [pending]
-note: 처분 전까지 평일 운영 중에는 `--scheduler-paused` 재배포를 쓰지 않는다. 수정은 `/gsd-code-review 43 --fix` 뒤 워커 재배포.
+result: pass
+note: 2026-11-13 사용자 「코드 리뷰사항 전부 수정하자」 → 27건 수정 · IN-05(빌드 이미지 · pnpm 버전 고정)는 저장소 Dockerfile 전체 관례라 건너뜀. 11:28 재배포(dart-alert:d523e2ac) · 스모크 15/15 · 11:30 새 코드가 임대 인계. 이제 `--scheduler-paused` 는 돌던 예약에 쓰면 거부된다. IN-03 「(늦은 알림)」 표시 기준 변경은 사용자 확인 대기(첫 실제 알림 때 같이 본다).
 
 ## Summary
 
 total: 6
-passed: 0
+passed: 1
 issues: 0
-pending: 6
+pending: 5
 skipped: 0
 blocked: 0
 
