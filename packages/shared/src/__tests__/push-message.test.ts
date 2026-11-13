@@ -114,7 +114,7 @@ describe("pushMessageOf — 스케치 029 C 안 골든(거부 · 취소 · 자�
   it("⑤ 서버 자동 취소 — 사유 낱말 + 잔량", () => {
     expect(pushMessageOf(cancelled())).toEqual({
       title: "금양그린파워 · 줄매수 취소",
-      body: "매수1 이탈 · 잔량 300주 (94만) · KRX 09:05:10",
+      body: "매수1 잔량 · 잔량 300주 (94만) · KRX 09:05:10",
     });
   });
 
@@ -199,7 +199,7 @@ describe("경계 — 취소", () => {
   });
 
   it("잔량 모름 → 잔량 조각 없음", () => {
-    expect(pushMessageOf(cancelled({ cancelledQty: null })).body).toBe("매수1 이탈 · KRX 09:05:10");
+    expect(pushMessageOf(cancelled({ cancelledQty: null })).body).toBe("매수1 잔량 · KRX 09:05:10");
     expect(pushMessageOf(cancelled({ cancelledQty: null, cancelReason: null })).body).toBe("취소 · KRX 09:05:10");
   });
 });

@@ -158,7 +158,7 @@ describe("표시명 표 전수 (D-10)", () => {
     expect(CANCEL_REASON_LABELS).toEqual({
       1: "수동 취소",
       2: "이탈 매도",
-      3: "매수1 이탈",
+      3: "매수1 잔량",
       4: "VI 감시",
       5: "거래소 취소",
       6: "마감 정리",
@@ -169,7 +169,7 @@ describe("표시명 표 전수 (D-10)", () => {
       11: "동시호가 감축",
       12: "버스트 상한가",
     });
-    expect(cancelReasonLabel(3)).toBe("매수1 이탈");
+    expect(cancelReasonLabel(3)).toBe("매수1 잔량");
     expect(cancelReasonLabel(12)).toBe("버스트 상한가");
     expect(cancelReasonLabel(7)).toBe("체결 감시");
     expect(cancelReasonLabel(8)).toBe("재취소");

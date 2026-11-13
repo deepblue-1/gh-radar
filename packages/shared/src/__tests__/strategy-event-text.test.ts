@@ -345,14 +345,14 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
 
   it("취소 — 남은 거래량은 has_remaining 일 때만 · 예상 누적이 0 이면 C + R · 음수는 U+2212 · tone 은 그룹 방향", () => {
     const cancel = STRATEGY_DAY_BY_NAME.cancel12453!;
-    expect(strategyEventParts(cancel, "log").body).toBe("매수1 이탈 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)");
-    expect(strategyEventParts({ ...cancel, hasRemaining: false }, "log").body).toBe("매수1 이탈");
+    expect(strategyEventParts(cancel, "log").body).toBe("매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)");
+    expect(strategyEventParts({ ...cancel, hasRemaining: false }, "log").body).toBe("매수1 잔량");
     expect(strategyEventParts({ ...cancel, expectedCum: 0 }, "log").body).toBe(
-      "매수1 이탈 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)",
+      "매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)",
     );
     expect(
       strategyEventParts({ ...cancel, remainingVolume: -3_000, expectedCum: 1_085_000 }, "log").body,
-    ).toBe("매수1 이탈 · 남은 거래량 \u22123705만(3,000주) (1,085,000 − 1,088,000)");
+    ).toBe("매수1 잔량 · 남은 거래량 \u22123705만(3,000주) (1,085,000 − 1,088,000)");
     expect(strategyEventParts(STRATEGY_BRANCH_ROWS.cancelUnknown!, "log")).toMatchObject({
       badge: "호가매도",
       tone: "sell",
@@ -771,10 +771,10 @@ describe("P31 ⑦ 금액 표기 (D-19 · C# 예시 ①~⑨)", () => {
   it("⑦ kind 7 취소 — 남은 거래량 3705만(3,000주) (E − C 숫자) · 음수는 U+2212", () => {
     const cancel = { ...D.cancel12453!, price: 12_350, cumVolume: 927_000 };
     expect(body({ ...cancel, remainingVolume: 3_000, expectedCum: 930_000 })).toBe(
-      "매수1 이탈 · 남은 거래량 3705만(3,000주) (930,000 − 927,000)",
+      "매수1 잔량 · 남은 거래량 3705만(3,000주) (930,000 − 927,000)",
     );
     expect(body({ ...cancel, remainingVolume: -3_000, expectedCum: 924_000 })).toBe(
-      "매수1 이탈 · 남은 거래량 −3705만(3,000주) (924,000 − 927,000)",
+      "매수1 잔량 · 남은 거래량 −3705만(3,000주) (924,000 − 927,000)",
     );
   });
 

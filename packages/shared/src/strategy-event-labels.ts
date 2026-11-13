@@ -98,7 +98,7 @@ export const EVIDENCE_RANGE_LABEL = "체결 구간";
 export const CANCEL_REASON_LABELS: Readonly<Record<number, string>> = {
   1: "수동 취소",
   2: "이탈 매도",
-  3: "매수1 이탈",
+  3: "매수1 잔량",
   4: "VI 감시",
   5: "거래소 취소",
   6: "마감 정리",
