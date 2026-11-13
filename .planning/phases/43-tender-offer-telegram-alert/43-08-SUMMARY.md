@@ -85,7 +85,7 @@ metrics:
 - **DB:** 수정 마이그레이션을 처음 `20261113300000` 으로 만들었는데 Phase 41 후속 `20261113300000_stock_feed_min_disclosures.sql`(이미 원격 적용)과 버전이 겹쳐 첫 `db push` 가 schema_migrations 중복 키로 실패했다. 그 파일의 BEGIN … COMMIT 본문은 다시 실행됐으나 같은 정의라 영향 없음(원격 `stock_feed_by_codes` 6인자 그대로 확인). `20261113400000_dart_alert_fix.sql` 로 이름을 바꿔(`d523e2ac`) 다시 push → 남은 대기 0 · `dart_alert_outage` 에 `p_since` 확인.
 - **배포:** `deploy-dart-alert.sh`(깨움 예약 켠 채) → 이미지 `dart-alert:d523e2ac` · 로그 기반 지표 `dart_alert_wake_starts` · 새 알림 정책 `gh-radar-dart-alert-scheduler-error` · `gh-radar-dart-alert-no-wake` 생성(정책 4개). 강화된 스모크 PASS=15 FAIL=0(깨움 ENABLED · 호출 권한 · DB RPC · 새 마이그레이션 · 봇 방 글쓰기 권한 · 정책 각 1개 포함).
 - **교체:** 옛 코드 실행 `gh-radar-dart-alert-95v9z` 를 11:29:10 취소(11:29:14 정상 정지 · 임대 해제) → 11:30 깨움 `gh-radar-dart-alert-hv9kg`(d523e2ac)가 11:30:06 임대를 이어받음. 11:31 stats: 장애 없음 · 늦은 알림 0 · 마지막 성공 조회 11:31:27 · 경고 이상 로그 0. 수집 공백 약 1분.
-- **남은 확인:** 「깨움 없음」 정책(`gh-radar-dart-alert-no-wake`)이 밤 · 주말에 조용한지, 다음 평일 창에서 오탐이 없는지(UAT 2 와 같이 본다).
+- **「깨움 없음」 정책 제거 (12:52):** 깨움 · 시작 로그가 5분마다 정상인데도 `gh-radar-dart-alert-no-wake` 메일이 왔다(오탐). 사용자 「30분 실행 안 된다고 메일 보낼 필요 없다」 → 정책 · 로그 기반 지표 `dart_alert_wake_starts` 삭제 · `ops/alert-dart-alert-no-wake.yaml` 삭제 · 배포 · 스모크 스크립트에서 제거(정책 3개). 깨움이 멈춤 · 삭제 상태인지는 배포 · 스모크 INV-3 가 ENABLED 로 확인한다.
 
 ## Self-Check: PASSED
 

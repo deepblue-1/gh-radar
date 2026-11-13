@@ -18,8 +18,7 @@ set -uo pipefail
 #       실행 이름을 받아(--async) 끝날 때까지(최대 5분) 지켜보고, 성공 · 실패와 상관없이 그 이름을 화면에 남긴다(리뷰 IN-57).
 # INV-4 INV-1 의 그 실행(labels."run.googleapis.com/execution_name")이 남긴 jsonPayload.msg="probe ok" 1건 이상
 #       (15분 안의 앞선 probe 로그로 통과하지 않게)
-# INV-5 알림 정책 deploy-dart-alert.sh ALERT_POLICY_NAMES 4개(실행 실패 · error 로그 · 깨움 실패 · 깨움 없음) 존재
-#       + 로그 기반 지표 dart_alert_wake_starts(깨움 없음 정책이 읽음) 존재
+# INV-5 알림 정책 deploy-dart-alert.sh ALERT_POLICY_NAMES 3개(실행 실패 · error 로그 · 깨움 실패) 존재
 # INV-6 Job env SUPABASE_URL 이 배포 값(DART_SMOKE_SUPABASE_URL — 배포 스크립트가 넘김)과 같고, 그 URL 로
 #       `dart-alert-report.sh check` 의 db(운영 수치 RPC — URL · 서비스롤 키 · 마이그레이션) · migration(p_since)이 통과
 #       (INV-1 probe 는 OpenDART 만 부르고 임대 · 넣기 · 장애 RPC 를 하나도 안 불러, DB 가 깨져도 통과한다 — 리뷰 WR-52)
@@ -49,7 +48,6 @@ declare -a WANT_POLICIES=()
 while IFS= read -r p; do
   [[ -n "$p" ]] && WANT_POLICIES+=("$p")
 done < <(awk '/^declare -a ALERT_POLICY_NAMES=\(/{f=1; next} f && /^\)/{f=0} f' "$DEPLOY_SCRIPT" 2>/dev/null | sed -nE 's/^[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p')
-WAKE_METRIC_NAME=dart_alert_wake_starts
 SCHED_SA_EMAIL="gh-radar-scheduler-sa@${PROJECT}.iam.gserviceaccount.com"
 WANT_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT}/jobs/${JOB}:run"
 
@@ -232,7 +230,7 @@ check "INV-6b db RPC · 마이그레이션(dart-alert-report.sh check)" runtime_
 check "INV-7 telegram 토큰 · 봇이 방에서 글쓰기 가능(getMe · getChatMember · 글 0)" runtime_telegram_ok
 
 # ─────────────────────────────────────────────────────────────
-# INV-5: 알림 정책 4개(배포 스크립트 ALERT_POLICY_NAMES) · 로그 기반 지표 존재
+# INV-5: 알림 정책 3개(배포 스크립트 ALERT_POLICY_NAMES)
 # ─────────────────────────────────────────────────────────────
 # 정확히 1개 — 0 이면 없음, 2개 이상이면 메일이 겹치고 배포는 첫 정책만 갱신한다(리뷰 WR-53). 조회 오류도 실패.
 policy_exists() {
@@ -242,17 +240,12 @@ policy_exists() {
   [[ "$(printf '%s\n' "$got" | grep -c .)" == 1 ]]
 }
 policy_count_ok() {
-  (( ${#WANT_POLICIES[@]} == 4 ))
+  (( ${#WANT_POLICIES[@]} == 3 ))
 }
-check "INV-5 alert policy names from deploy script (4개 · 읽은 수 ${#WANT_POLICIES[@]})" policy_count_ok
+check "INV-5 alert policy names from deploy script (3개 · 읽은 수 ${#WANT_POLICIES[@]})" policy_count_ok
 for p in ${WANT_POLICIES[@]+"${WANT_POLICIES[@]}"}; do
   check "INV-5 alert policy $p (정확히 1개)" policy_exists "$p"
 done
-metric_exists() {
-  gcloud logging metrics describe "$WAKE_METRIC_NAME" --project="$PROJECT" --format='value(filter)' 2>/dev/null \
-    | grep -qF 'jsonPayload.msg="dart-alert start"'
-}
-check "INV-5m log-based metric $WAKE_METRIC_NAME (dart-alert start)" metric_exists
 
 echo ""
 echo "Smoke result: PASS=$PASS FAIL=$FAIL"

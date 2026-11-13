@@ -17,7 +17,7 @@ documentation:
     - 바인딩: `gcloud run jobs get-iam-policy gh-radar-dart-alert --region=asia-northeast3 --project=gh-radar`
     - 한 번에 점검: `bash scripts/smoke-dart-alert.sh` (INV-3 깨움 · INV-3c 바인딩 · 대상)
 
-    **이 정책이 못 잡는 것** — Scheduler 가 멈춤(PAUSED) · 삭제 상태면 호출 자체가 없어 로그도 없다. 그 경우는 `gh-radar-dart-alert-no-wake`(평일 창 안 30분 동안 실행 시작 0건) 메일이 온다.
+    **이 정책이 못 잡는 것** — Scheduler 가 멈춤(PAUSED) · 삭제 상태면 호출 자체가 없어 로그도 없다. 그 경우는 메일이 오지 않는다(「깨움 없음」 정책은 2026-11-13 사용자 결정으로 뺐다) — 배포 · 스모크 INV-3 가 ENABLED 를 확인한다.
   mimeType: text/markdown
 conditions:
   - displayName: dart-alert wake scheduler error

@@ -23,9 +23,8 @@ set -euo pipefail
 #       gh-radar-dart-alert-error-log        이 Job 의 error 로그 일치 (장애 열림 · 텔레그램 실패 · 방 이동 · 120초 미송신 —
 #                                            종료 0 으로 계속 도는 동안의 문제)
 #       gh-radar-dart-alert-scheduler-error  깨움(Scheduler) 호출 실패 로그 (run.invoker 유실 403 · Job 없음 404 — 리뷰 CR-50)
-#       gh-radar-dart-alert-no-wake          평일 KST 07:40 ~ 20:00 에 실행 시작 로그 30분 0건 (Scheduler PAUSED · 삭제 —
-#                                            실행이 아예 안 생기면 위 셋은 울리지 않는다 · 리뷰 CR-50)
-#   - 로그 기반 지표: dart_alert_wake_starts (이 Job 의 `dart-alert start` 로그 수 — no-wake 정책이 본다)
+#     (「깨움 없음」 정책 — 평일 창 안 30분 실행 시작 0건 — 은 2026-11-13 사용자 결정으로 뺐다. 깨움이 멈춤 · 삭제 상태인지는
+#      배포 · 스모크 INV-3 가 ENABLED 를 확인한다.)
 #
 # 설계:
 #   D-10 바퀴 간격: 평일 07:00 ~ 09:00 5초 · 09:00 ~ 20:00 10초(시작 대 시작) · 한 바퀴 = 공개매수(D004) 1회 + 주요사항보고서(B001) 1회.
@@ -66,7 +65,7 @@ set -euo pipefail
 #   창 밖(20:00 뒤 · 07:00 전 · 주말) 첫 배포는 --scheduler-paused 없이 그냥 배포하면 된다.
 #   --scheduler-paused 는 Scheduler 를 **처음 만들 때만** 멈춘다(리뷰 CR-50). 이미 있는 Scheduler 가 ENABLED 면 이 플래그를
 #   거부하고 아무것도 바꾸지 않은 채 끝난다 — 운영 중 재배포로 살아 있는 깨움을 멈추지 않게. 이미 PAUSED 면 그대로 둔다.
-#   resume 을 빠뜨리면 평일 창 안 30분 뒤 gh-radar-dart-alert-no-wake 메일이 온다.
+#   resume 을 빠뜨리면 메일이 오지 않는다 — 지금 도는 실행이 죽으면 이어받을 실행이 없으니 resume 을 꼭 확인한다.
 #
 # 수동 모드 실행(Job 설정의 env 는 바꾸지 않고 그 실행에만 덮어쓴다):
 #   gcloud run jobs execute gh-radar-dart-alert --region=asia-northeast3 --update-env-vars=DART_ALERT_MODE=probe --wait
@@ -116,18 +115,12 @@ declare -a ALERT_POLICY_FILES=(
   "ops/alert-dart-alert-failure.yaml"
   "ops/alert-dart-alert-error-log.yaml"
   "ops/alert-dart-alert-scheduler-error.yaml"
-  "ops/alert-dart-alert-no-wake.yaml"
 )
 declare -a ALERT_POLICY_NAMES=(
   "gh-radar-dart-alert-failure"
   "gh-radar-dart-alert-error-log"
   "gh-radar-dart-alert-scheduler-error"
-  "gh-radar-dart-alert-no-wake"
 )
-
-# 로그 기반 지표 — 실행마다 한 번 남는 시작 로그를 센다(no-wake 정책의 PromQL 이 logging_googleapis_com:user_<이름> 으로 읽는다).
-WAKE_METRIC_NAME=dart_alert_wake_starts
-WAKE_METRIC_FILTER='resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-dart-alert" AND jsonPayload.msg="dart-alert start"'
 
 # 하루 예산 — 정수 1 ~ 15,000 (공식 20,000/일의 75% 이하 · 기본 15,000 · config.ts DART_DAILY_BUDGET_LIMIT 와 같다).
 validate_budget() {
@@ -213,19 +206,9 @@ self_test() {
     fails=$((fails + 1))
   fi
 
-  # 알림 정책 파일 — 넷 다 있고 · Job 이름과 채널 자리가 들어 있다(실행 실패 · error 로그 · 깨움 실패 · 깨움 없음 — 리뷰 CR-50).
-  if (( ${#ALERT_POLICY_FILES[@]} != 4 || ${#ALERT_POLICY_NAMES[@]} != 4 )); then
-    echo "FAIL: 알림 정책 파일 · 이름이 4개씩이 아니다(${#ALERT_POLICY_FILES[@]} · ${#ALERT_POLICY_NAMES[@]})" >&2
-    fails=$((fails + 1))
-  fi
-  # 깨움 없음 정책은 이 스크립트가 만드는 로그 기반 지표를 읽는다 — 이름이 갈리면 늘 「0건」 으로 울린다.
-  if ! grep -qF "logging_googleapis_com:user_${WAKE_METRIC_NAME}{" "$root/ops/alert-dart-alert-no-wake.yaml" 2>/dev/null; then
-    echo "FAIL: ops/alert-dart-alert-no-wake.yaml 의 PromQL 이 지표 ${WAKE_METRIC_NAME} 을 읽지 않는다" >&2
-    fails=$((fails + 1))
-  fi
-  # 지표 필터가 세는 문구가 진입점의 시작 로그와 같아야 한다.
-  if ! grep -qF '"dart-alert start");' "$root/workers/dart-alert/src/index.ts" 2>/dev/null || [[ "$WAKE_METRIC_FILTER" != *'jsonPayload.msg="dart-alert start"'* ]]; then
-    echo "FAIL: 지표 필터의 「dart-alert start」 가 workers/dart-alert/src/index.ts 시작 로그와 다르다" >&2
+  # 알림 정책 파일 — 셋 다 있고 · Job 이름과 채널 자리가 들어 있다(실행 실패 · error 로그 · 깨움 실패 — 리뷰 CR-50).
+  if (( ${#ALERT_POLICY_FILES[@]} != 3 || ${#ALERT_POLICY_NAMES[@]} != 3 )); then
+    echo "FAIL: 알림 정책 파일 · 이름이 3개씩이 아니다(${#ALERT_POLICY_FILES[@]} · ${#ALERT_POLICY_NAMES[@]})" >&2
     fails=$((fails + 1))
   fi
   for i in "${!ALERT_POLICY_FILES[@]}"; do
@@ -569,23 +552,7 @@ elif [[ "$SCHEDULER_PAUSED" == 1 ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# Section 7b: 로그 기반 지표 — 실행 시작 로그 수(no-wake 정책이 본다 · create/update 멱등 · 리뷰 CR-50)
-# ═══════════════════════════════════════════════════════════════
-if gcloud logging metrics describe "$WAKE_METRIC_NAME" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
-  gcloud logging metrics update "$WAKE_METRIC_NAME" \
-    --log-filter="$WAKE_METRIC_FILTER" \
-    --description="gh-radar-dart-alert 실행 시작 로그(dart-alert start) 수 — gh-radar-dart-alert-no-wake 정책" \
-    --project="$EXPECTED_PROJECT" >/dev/null
-else
-  gcloud logging metrics create "$WAKE_METRIC_NAME" \
-    --log-filter="$WAKE_METRIC_FILTER" \
-    --description="gh-radar-dart-alert 실행 시작 로그(dart-alert start) 수 — gh-radar-dart-alert-no-wake 정책" \
-    --project="$EXPECTED_PROJECT" >/dev/null
-fi
-echo "✓ log-based metric ready: $WAKE_METRIC_NAME"
-
-# ═══════════════════════════════════════════════════════════════
-# Section 8: 알림 정책 4개 (update-or-create 멱등 · deploy-limitup-sync.sh Section 7 꼴)
+# Section 8: 알림 정책 3개 (update-or-create 멱등 · deploy-limitup-sync.sh Section 7 꼴)
 # ═══════════════════════════════════════════════════════════════
 # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
 CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
@@ -635,7 +602,7 @@ for i in "${!ALERT_POLICY_FILES[@]}"; do
 done
 
 # ═══════════════════════════════════════════════════════════════
-# Section 9: Smoke (probe 1회 · Job 설정 · Scheduler 상태 · 바인딩 · 「probe ok」 로그 · 알림 정책 4개 · 지표)
+# Section 9: Smoke (probe 1회 · Job 설정 · Scheduler 상태 · 바인딩 · 「probe ok」 로그 · 알림 정책 3개)
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
@@ -644,7 +611,7 @@ echo "  Alert policies: ${ALERT_POLICY_NAMES[*]}"
 echo ""
 
 if [[ "$SMOKE_ALLOW_PAUSED" == 1 ]]; then
-  echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」 — resume 을 빠뜨리면 평일 창 안 30분 뒤 no-wake 메일):"
+  echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」 — resume 을 빠뜨려도 메일이 오지 않는다):"
   echo "  1. gcloud run jobs execute $JOB --region=$REGION --update-env-vars=DART_ALERT_MODE=seed   (--wait 없이)"
   echo "  2. Cloud Logging 에서 「seed done」 확인"
   echo "  3. gcloud scheduler jobs resume ${WAKE_SCHEDULER} --location=$REGION"
