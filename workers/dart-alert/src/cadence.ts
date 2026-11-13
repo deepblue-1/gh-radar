@@ -5,9 +5,13 @@
  * 시각 계산은 +9h 뒤 getUTC* / Date.UTC 로만 한다 — 컨테이너 · 호스트 TZ 에 의존하지 않는다.
  *
  * - D-10 바퀴 간격: 평일 KST `07:00` ~ `09:00` 5초 · `09:00` ~ `20:00` 10초. 바퀴 시작 대 시작 간격이라
- *   하루 바퀴 수가 산수대로 나온다 — 7,200초 ÷ 5 + 39,600초 ÷ 10 = 5,400바퀴 × 감시 대상 2 = 10,800회
- *   (공식 20,000/일의 54% · 예산 상한 15,000 이하 · SC-4). 감시 대상을 늘리면 `plannedDailyCalls` 와
- *   `DART_DAILY_BUDGET_LIMIT` 를 같이 점검한다(3개면 16,200 으로 넘는다).
+ *   하루 바퀴 수가 산수대로 나온다 — 7,200초 ÷ 5 + 39,600초 ÷ 10 = 5,400바퀴.
+ *   하루 호출(261113-iez · `plannedDailyCalls`) = 바퀴마다 부르는 공개매수 `D004` · 주요사항보고서 `B001` 5,400 × 2
+ *   + 거래소 수시공시 `I001` 30초 칸 46,800 ÷ 30 = 1,560 + 임원ㆍ주요주주 거래계획 `D005` 60초 칸 46,800 ÷ 60 = 780
+ *   = 13,140회(공식 20,000/일의 66% · 예산 상한 15,000 의 88% · SC-4). I001 추가 쪽: 100건을 넘는 시각(평일 오후
+ *   10:00 ~ 14:00 무렵)부터 약 1분에 1번 + 새 건마다 2쪽을 읽어 하루 약 400 ~ 800 더(→ 약 13,500 ~ 13,950) · 최악(매 조회
+ *   2쪽)도 +1,560 → 14,700 ≤ 15,000. 감시 대상 · 간격을 바꾸면 `plannedDailyCalls` 와 `DART_DAILY_BUDGET_LIMIT` 를
+ *   같이 점검한다(바퀴마다 감시 대상이 3개면 16,200 으로 넘는다).
  * - D-11 창: 평일 `07:00` 이상 `20:00` 미만만 수집 · 그 밖과 주말은 없음. **휴장일 달력은 넣지 않는다** —
  *   평일 공휴일도 평일처럼 돈다(비용은 빈 응답 몇 번뿐이고 공휴일에도 공시는 접수될 수 있다).
  * - D-12 「(늦은 알림)」: 처음 본 순간이 그 감시 대상의 커버 기준점에서 60초(`LATE_GAP_MS`) 넘게 뒤면 늦은 건.
@@ -16,6 +20,8 @@
  *   「그 실행의 첫 조회에 이미 있던 건 = 늦음」 같은 단순 근사는 쓰지 않는다: 전날 저녁 접수 서류가 다음 날
  *   아침 목록에 늦게 나타나는 경우(리서치 확인 4)와 정상 `07:00` 기동 지연이 모두 오판된다. 기준점 방식은
  *   정상 바퀴(5초 · 10초)에선 절대 늦음이 안 되고, 수집기가 비어 있던 시간(아침 장애 · 교대)만 늦음이 된다.
+ *   감시 대상별 늦음 간격(261113-iez · `lateGapMs`) = 60초 + 그 감시 대상 조회 간격 — D004 · B001 60초 · I001 90초 ·
+ *   D005 120초. 정상 조회 간격 자체가 60초인 D005 를 60초로 재면 바퀴가 0.5초만 밀려도 늦음이 되기 때문.
  * - 43-07 Scheduler 정합 테스트(tests/schedule.test.ts)가 `WINDOW_START_MIN` · `WINDOW_END_MIN` · `isInWindow`
  *   를 읽어 Scheduler 발화 시각과 맞춰 본다 — 값을 바꾸면 배포 스크립트도 같이 바꾼다.
  */
@@ -118,9 +124,14 @@ export function coverPointMs(nowMs: number, lastOkMs: number | null): number {
   return start + START_GRACE_MS;
 }
 
-/** 처음 본 시각 nowMs 가 커버 기준점보다 LATE_GAP_MS 를 넘게 뒤인가 — 정확히 60초는 늦지 않음 */
-export function isLateAt(nowMs: number, coverMs: number): boolean {
-  return nowMs - coverMs > LATE_GAP_MS;
+/** 감시 대상별 늦음 간격 = LATE_GAP_MS + 조회 간격(바퀴마다면 0) — 60초 · 90초(I001) · 120초(D005) */
+export function lateGapMs(everyMs: number | null): number {
+  return LATE_GAP_MS + (everyMs ?? 0);
+}
+
+/** 처음 본 시각 nowMs 가 커버 기준점보다 gapMs(기본 60초)를 넘게 뒤인가 — 정확히 그 간격은 늦지 않음 */
+export function isLateAt(nowMs: number, coverMs: number, gapMs: number = LATE_GAP_MS): boolean {
+  return nowMs - coverMs > gapMs;
 }
 
 /** 기준 평일(2026-11-16 월 KST 07:00) — 바퀴 수 계산용 고정점 */
@@ -139,7 +150,26 @@ export function plannedDailyLaps(): number {
   return laps;
 }
 
-/** 평일 하루 예상 호출 수 = 바퀴 수 × 감시 대상 수(추가 쪽 · 탐침 제외) — 2개면 10,800 */
-export function plannedDailyCalls(watchCount: number): number {
-  return plannedDailyLaps() * watchCount;
+/**
+ * 평일 하루 그 감시 대상 조회 수 — 기준 평일을 lapIntervalMs 로 걸으며 바퀴마다 조회 칸(`pollSlot`)이 null 이거나
+ * 지난 칸과 다르면 센다(수집기 `takeSlot` 과 같은 규칙). 바퀴마다 5,400 · 30초 1,560 · 60초 780.
+ */
+export function plannedDailyPolls(everyMs: number | null): number {
+  const end = windowEndMs(REFERENCE_WEEKDAY_START_MS);
+  let polls = 0;
+  let last: number | null = null;
+  for (let t = REFERENCE_WEEKDAY_START_MS; t < end; ) {
+    const iv = lapIntervalMs(t);
+    if (iv === null) break;
+    const slot = pollSlot(t, everyMs);
+    if (slot === null || slot !== last) polls++;
+    last = slot;
+    t += iv;
+  }
+  return polls;
+}
+
+/** 평일 하루 예상 호출 수 = 감시 대상별 조회 수 합(추가 쪽 · 탐침 제외) — 기본 네 감시 대상 13,140 */
+export function plannedDailyCalls(watches: readonly { everyMs: number | null }[]): number {
+  return watches.reduce((sum, w) => sum + plannedDailyPolls(w.everyMs), 0);
 }

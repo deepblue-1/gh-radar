@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * 원본: workers/kis-news-sync/src/apiUsage.ts (서비스 키 두 개만 다르다).
  *
  * - **공식 한도 20,000/일** · 설계 예산 15,000(75% · `DART_ALERT_DAILY_BUDGET` 상한 — config.ts
- *   `DART_DAILY_BUDGET_LIMIT`). 평일 설계 사용량 약 10,800(cadence.ts `plannedDailyCalls(2)`).
+ *   `DART_DAILY_BUDGET_LIMIT`). 평일 설계 사용량 약 13,140(cadence.ts `plannedDailyCalls` — 네 감시 대상) +
+ *   I001 추가 쪽(최악 14,700).
  * - 카운터 `api_usage` service `opendart_list` · KST 날짜 키(usage_date) — KST 자정에 저절로 0.
  *   **실패한 호출도 센다**(OpenDART 는 오류 응답도 한도에 들어갈 수 있다 — 보수적으로 센다).
  * - 한도 의심 표시 `opendart_list_quota_strike` — 한도 소진(status `020`) 신호를 받으면 기록하고 그 실행을

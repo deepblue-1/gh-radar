@@ -1,7 +1,7 @@
 /**
  * Phase 43-01 — 공시 알림 두 줄 문구(D-06 · D-07 · D-08).
  *
- *   📢 {(늦은 알림) }{보고서명 DART 표기 그대로} — {회사명}({종목코드}) · 제출인 {제출인}
+ *   📢 {(늦은 알림) }{보고서명 DART 표기 그대로 · 연속 공백만 1칸} — {회사명}({종목코드}) · 제출인 {제출인}
  *   <a href="https://dart.fss.or.kr/dsaf001/main.do?rcpNo={접수번호}">DART 원문</a> · 금융감독원 전자공시
  *
  * - 본문 숫자(가격 · 기간 · 규모)는 없다 — 목록 정보와 원문 링크만(D-06).
@@ -10,6 +10,8 @@
  * - 43-09: 제출인 생략(주요사항보고서 · 제출인 = 회사 자신) · 평문(`plainAlertText` — 서식 오류 대비) ·
  *   장애 글 2종(`outageText` · `recoveredText` · D-16) · 시험 글(`testSendText` · D-15). 시각은 컨테이너 시간대와
  *   무관하게 KST(`kstLabel`).
+ * - 261113-iez: 보고서명은 앞뒤 공백을 떼고 연속 공백을 1칸으로 보인다(「투자판단관련주요경영사항              (…)」 이
+ *   잠금화면 미리보기 첫 줄을 밀어내지 않게 · D-07). DB · 판정 값은 원문 그대로.
  */
 
 export const DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=";
@@ -50,7 +52,8 @@ function firstLine(a: AlertFields, opts: { alwaysShowFiler: boolean }, esc: (s: 
   const filerName = a.flr_nm.trim();
   const showFiler = filerName !== "" && (opts.alwaysShowFiler || !sameCompany(filerName, a.corp_name));
   const filer = showFiler ? ` · 제출인 ${esc(filerName)}` : "";
-  return `📢 ${late}${esc(a.report_nm)} — ${esc(a.corp_name)}(${esc(a.stock_code)})${filer}`;
+  const reportName = a.report_nm.trim().replace(/\s+/g, " ");
+  return `📢 ${late}${esc(reportName)} — ${esc(a.corp_name)}(${esc(a.stock_code)})${filer}`;
 }
 
 export function alertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
@@ -94,5 +97,5 @@ export function recoveredText(sinceMs: number, nowMs: number): string {
 
 /** D-15 시험 글 두 줄 */
 export function testSendText(nowMs: number): string {
-  return `🔔 공시 알림 시험 — 공개매수 · 유상증자 · 합병 공시를 이 방으로 보냅니다\n${kstLabel(nowMs, false)} KST · ${SOURCE_LABEL}`;
+  return `🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 수시공시 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n${kstLabel(nowMs, false)} KST · ${SOURCE_LABEL}`;
 }

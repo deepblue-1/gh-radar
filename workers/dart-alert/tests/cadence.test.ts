@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { kstDateString } from "../src/apiUsage";
 import {
   coverPointMs,
+  EXCHANGE_POLL_MS,
   isInWindow,
   isLateAt,
   kstDayOfWeek,
@@ -9,18 +10,26 @@ import {
   kstYmd,
   LATE_GAP_MS,
   lapIntervalMs,
+  lateGapMs,
   plannedDailyCalls,
   plannedDailyLaps,
+  plannedDailyPolls,
+  pollSlot,
   PREOPEN_END_MIN,
   PREOPEN_INTERVAL_MS,
   REGULAR_INTERVAL_MS,
   START_GRACE_MS,
+  TRADE_PLAN_POLL_MS,
   WINDOW_END_MIN,
   WINDOW_START_MIN,
   windowEndMs,
   windowStartMs,
 } from "../src/cadence";
 import { DART_DAILY_BUDGET_LIMIT } from "../src/config";
+import { buildWatches, DEFAULT_B001_KINDS } from "../src/watches";
+
+/** 매 바퀴 감시 대상 n개(everyMs null) — 예산 가드 근거용 */
+const everyLap = (n: number) => Array.from({ length: n }, () => ({ everyMs: null }));
 
 /**
  * Phase 43-03 — 시간대 · 바퀴 간격 · 늦은 알림 기준점 · 하루 호출 수(D-10 · D-11 · D-12 · SC-4).
@@ -93,7 +102,7 @@ describe("lapIntervalMs (D-10 · D-11)", () => {
 });
 
 describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
-  it("평일 하루를 바퀴 시작 대 시작으로 걸으면 5,400바퀴 × 감시 대상 2 = 10,800회 ≤ 15,000", () => {
+  it("평일 하루를 바퀴 시작 대 시작으로 걸으면 5,400바퀴 × 매 바퀴 감시 대상 2 = 10,800회 ≤ 15,000", () => {
     let laps = 0;
     for (let t = MON(7, 0); t < MON(20, 0); ) {
       const iv = lapIntervalMs(t);
@@ -108,8 +117,8 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
     expect(laps * 2).toBe(10_800);
     expect(laps * 2).toBeLessThanOrEqual(15_000);
     expect(plannedDailyLaps()).toBe(5_400);
-    expect(plannedDailyCalls(2)).toBe(10_800);
-    expect(plannedDailyCalls(2)).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+    expect(plannedDailyCalls(everyLap(2))).toBe(10_800);
+    expect(plannedDailyCalls(everyLap(2))).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
   });
 
   it("평일 하루 86,400초를 1초 단위로 돌려 간격별 초를 세면 같은 5,400바퀴가 나온다", () => {
@@ -129,9 +138,24 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
     expect(preopenS / 5 + regularS / 10).toBe(5_400);
   });
 
-  it("감시 대상을 3개로 늘리면 16,200회로 예산 15,000 을 넘는다 — 목록 · 예산 동시 점검 근거", () => {
-    expect(plannedDailyCalls(3)).toBe(16_200);
-    expect(plannedDailyCalls(3)).toBeGreaterThan(DART_DAILY_BUDGET_LIMIT);
+  it("매 바퀴 감시 대상을 3개로 늘리면 16,200회로 예산 15,000 을 넘는다 — 목록 · 예산 동시 점검 근거", () => {
+    expect(plannedDailyCalls(everyLap(3))).toBe(16_200);
+    expect(plannedDailyCalls(everyLap(3))).toBeGreaterThan(DART_DAILY_BUDGET_LIMIT);
+  });
+
+  it("감시 대상별 하루 조회 수 — 바퀴마다 5,400 · 30초 칸 1,560 · 60초 칸 780(261113-iez)", () => {
+    expect(plannedDailyPolls(null)).toBe(5_400);
+    expect(plannedDailyPolls(EXCHANGE_POLL_MS)).toBe(1_560);
+    expect(plannedDailyPolls(TRADE_PLAN_POLL_MS)).toBe(780);
+  });
+
+  it("기본 네 감시 대상 = 5,400 × 2 + 1,560 + 780 = 13,140 ≤ 15,000 · I001 매 조회 2쪽 최악 14,700 ≤ 15,000", () => {
+    const planned = plannedDailyCalls(buildWatches({ b001Kinds: DEFAULT_B001_KINDS }));
+    expect(planned).toBe(13_140);
+    expect(planned).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+    const worst = planned + plannedDailyPolls(EXCHANGE_POLL_MS);
+    expect(worst).toBe(14_700);
+    expect(worst).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
   });
 
   it("주말 하루는 바퀴 0", () => {
@@ -141,6 +165,17 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
       if (lapIntervalMs(t) !== null) offWindow.push(t);
     }
     expect(offWindow).toEqual([]);
+  });
+});
+
+describe("pollSlot — 07:00 기준 조회 칸(261113-iez)", () => {
+  it("30초 칸 · 60초 칸 · 바퀴마다(null)", () => {
+    expect(pollSlot(MON(7, 0, 0), EXCHANGE_POLL_MS)).toBe(0);
+    expect(pollSlot(MON(7, 0, 30) - 1, EXCHANGE_POLL_MS)).toBe(0);
+    expect(pollSlot(MON(7, 0, 30), EXCHANGE_POLL_MS)).toBe(1);
+    expect(pollSlot(MON(9, 0, 0), EXCHANGE_POLL_MS)).toBe(240);
+    expect(pollSlot(MON(9, 0, 0), TRADE_PLAN_POLL_MS)).toBe(120);
+    expect(pollSlot(MON(9, 0, 0), null)).toBeNull();
   });
 });
 
@@ -206,6 +241,15 @@ describe("coverPointMs · isLateAt (D-12)", () => {
   it("lastOk 10:00:00 · 10:01:10 처음 봄(70초) → 늦음 · 10:00:55(55초) → 늦지 않음", () => {
     expect(isLateAt(MON(10, 1, 10), coverPointMs(MON(10, 1, 10), MON(10, 0, 0)))).toBe(true);
     expect(isLateAt(MON(10, 0, 55), coverPointMs(MON(10, 0, 55), MON(10, 0, 0)))).toBe(false);
+  });
+
+  it("감시 대상별 늦음 간격 = 60초 + 조회 간격 — 바퀴마다 60초 · 30초 칸 90초 · 60초 칸 120초(261113-iez)", () => {
+    expect(lateGapMs(null)).toBe(60_000);
+    expect(lateGapMs(EXCHANGE_POLL_MS)).toBe(90_000);
+    expect(lateGapMs(TRADE_PLAN_POLL_MS)).toBe(120_000);
+    expect(isLateAt(MON(10, 2, 0), MON(10, 0, 0), lateGapMs(TRADE_PLAN_POLL_MS))).toBe(false);
+    expect(isLateAt(MON(10, 2, 0) + 1, MON(10, 0, 0), lateGapMs(TRADE_PLAN_POLL_MS))).toBe(true);
+    expect(isLateAt(MON(10, 1, 30), MON(10, 0, 0), lateGapMs(EXCHANGE_POLL_MS))).toBe(false);
   });
 
   it("경계: 정확히 60초는 늦지 않음 · 60.001초는 늦음", () => {

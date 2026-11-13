@@ -126,6 +126,15 @@ describe("plainAlertText — 서식 오류 대비 평문(43-06 이 쓴다)", () 
   });
 });
 
+describe("보고서 이름 연속 공백 — 첫 줄에서 1칸으로(261113-iez · D-07 미리보기)", () => {
+  const longGap = "투자판단관련주요경영사항              (최대주주 보유주식 가압류)";
+  it("alertText · plainAlertText 첫 줄이 공백 1칸 · 앞뒤 공백 없음", () => {
+    const want = "📢 투자판단관련주요경영사항 (최대주주 보유주식 가압류) — 가온전자(100001)";
+    expect(alertText(fields({ report_nm: longGap }), B001).split("\n")[0]).toBe(want);
+    expect(plainAlertText(fields({ report_nm: ` ${longGap} ` }), B001).split("\n")[0]).toBe(want);
+  });
+});
+
 describe("kstLabel — 컨테이너 시간대와 무관한 KST", () => {
   const origTz = process.env.TZ;
   afterEach(() => {
@@ -184,7 +193,9 @@ describe("장애 글 2종(D-16 · D-17)", () => {
 describe("시험 글(D-15)", () => {
   it("testSendText — 두 줄 「🔔 공시 알림 시험 — …」 / 「HH:MM KST · 금융감독원 전자공시」", () => {
     const t = testSendText(Date.parse("2026-11-11T01:05:00Z"));
-    expect(t).toBe("🔔 공시 알림 시험 — 공개매수 · 유상증자 · 합병 공시를 이 방으로 보냅니다\n10:05 KST · 금융감독원 전자공시");
+    expect(t).toBe(
+      "🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 수시공시 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n10:05 KST · 금융감독원 전자공시",
+    );
     expect(t.split("\n")).toHaveLength(2);
   });
 });

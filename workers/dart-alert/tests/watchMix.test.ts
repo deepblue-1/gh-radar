@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ALL_WATCHES, exchangeRow, harness, kst, MON, type FeedItem } from "./helpers/fakes";
+import { LATE_LABEL } from "../src/message";
+import { ALL_WATCHES, exchangeRow, harness, kst, MON, tradePlanRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * 261113-iez — 네 감시 대상(공개매수 D004 · 주요사항보고서 B001 · 거래소 수시공시 I001 · 임원ㆍ주요주주 거래계획 D005)이
@@ -68,5 +69,79 @@ describe("거래소 수시공시(I001) 한 길 — 30초 칸 조회 → 넣기 �
     expect(atsOf(h, "exchange_disclosure")).toEqual(["08:59:00", "08:59:30", "09:00:00", "09:00:30", "09:01:00"].map(at));
     expect(atsOf(h, "insider_trade_plan")).toEqual(["08:59:00", "09:00:00", "09:01:00"].map(at));
     expect(h.telegram.notices()).toHaveLength(0);
+  });
+});
+
+describe("섞인 간격의 늦은 알림(D-12) — 늦음 기준 = 60초 + 그 감시 대상 조회 간격", () => {
+  it("정상 60초 조회는 바퀴가 밀려 D005 조회 사이가 60초를 넘어도 늦음이 아니다 · 첫 줄 끝에 제출인(임원)", async () => {
+    const feed: FeedItem[] = [{ watch: "insider_trade_plan", from: at("10:03:00"), row: tradePlanRow(1) }];
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:05:00"),
+      watches: ALL_WATCHES,
+      db: { lastOk: lastOkAll("09:59:50") },
+      // 넷을 부르는 바퀴는 12초 — 10초 간격을 넘겨 다음 바퀴 시작이 2초씩 밀린다
+      dart: { feed, delayMs: 3_000 },
+    });
+    await h.run();
+
+    const d005 = atsOf(h, "insider_trade_plan");
+    const gaps = d005.slice(1).map((x, i) => x - d005[i]);
+    expect(Math.max(...gaps)).toBeGreaterThan(60_000);
+    // 그 건을 처음 본 D005 조회도 직전 조회에서 60초 넘게 뒤였다(옛 60초 기준이면 늦음)
+    const seenAt = d005.findIndex((x) => x >= at("10:03:00"));
+    expect(d005[seenAt] - d005[seenAt - 1]).toBeGreaterThan(60_000);
+
+    const alerts = h.telegram.alerts();
+    expect(alerts).toHaveLength(1);
+    const first = alerts[0].text.split("\n")[0];
+    expect(first).not.toContain(LATE_LABEL);
+    expect(first).toBe("📢 임원ㆍ주요주주특정증권등거래계획보고서 — 발행회사1(400001) · 제출인 임원1");
+    expect(h.db.rows.get(tradePlanRow(1).rcept_no)).toMatchObject({ watch: "insider_trade_plan", priority: 3, late: false });
+  });
+
+  it("D005 가 3분 비어 있었으면(lastOk 09:57:00) 첫 바퀴에 본 건은 「(늦은 알림)」", async () => {
+    const feed: FeedItem[] = [{ watch: "insider_trade_plan", from: at("09:58:00"), row: tradePlanRow(2) }];
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:00:15"),
+      watches: ALL_WATCHES,
+      db: { lastOk: { ...lastOkAll("09:59:50"), insider_trade_plan: iso("09:57:00") } },
+      dart: { feed },
+    });
+    await h.run();
+    const alerts = h.telegram.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].text.split("\n")[0]).toContain(LATE_LABEL);
+    expect(h.telegram.notices()).toHaveLength(0);
+  });
+});
+
+describe("띄엄 조회 대상의 장애 짝 글(D-16 · D-17) — 그 대상이 다시 성공해야 닫는다", () => {
+  it("I001 만 10:00 ~ 10:08 동안 800 — 「멈췄습니다」 · 「다시 동작」 이 한 번씩만 · error dart outage opened 1번", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:12:00"),
+      watches: ALL_WATCHES,
+      db: { lastOk: lastOkAll("09:59:55") },
+      dart: { reply: (c) => (c.watch.id === "exchange_disclosure" && c.now < at("10:08:00") ? { status: "800" } : undefined) },
+    });
+    await h.run();
+
+    const opens = h.db.calls.outage.filter((c) => c.action === "open");
+    expect(opens).toHaveLength(1);
+    expect(opens[0].at).toBeGreaterThanOrEqual(at("10:05:00"));
+    expect(opens[0].at).toBeLessThan(at("10:05:30"));
+    expect(opens[0].reason).toContain("거래소 수시공시");
+    const closes = h.db.calls.outage.filter((c) => c.action === "close");
+    expect(closes).toHaveLength(1);
+    expect(closes[0].at).toBeGreaterThanOrEqual(at("10:08:00"));
+    expect(closes[0].at).toBeLessThan(at("10:08:10"));
+
+    const notices = h.telegram.notices().map((n) => n.text);
+    expect(notices).toHaveLength(2);
+    expect(notices[0].startsWith("⚠ 공시 알림이 멈췄습니다")).toBe(true);
+    expect(notices[1].startsWith("✅ 공시 알림 다시 동작")).toBe(true);
+    expect(h.logs.count("dart outage opened", "error")).toBe(1);
   });
 });

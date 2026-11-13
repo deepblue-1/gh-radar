@@ -3,7 +3,7 @@ import { plannedDailyCalls } from "../src/cadence";
 import { LEASE_TTL_S, UNKNOWN_STREAK } from "../src/collector";
 import { DbError } from "../src/db";
 import { LATE_LABEL } from "../src/message";
-import { dbRow, harness, itemOf, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, EVERY_LAP_WATCHES, harness, itemOf, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * Phase 43-05 T1 — 장기 실행 수집기(auto). 가짜 시계(sleep · 지연이 시계를 앞당김) · 가짜 DB(43-02 RPC 계약) ·
@@ -17,16 +17,20 @@ const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer
 const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
 
 describe("하루 호출 수 · 바퀴 간격 (D-10 · D-11 · SC-4)", () => {
-  it("월 07:00 부터 20:00 까지 — DART 호출 정확히 10,800 · usage.add 합 10,800 · flush 10초 간격 · window_end · 해제 1번", async () => {
-    const h = harness({ start: at("07:00:00") });
+  it("월 07:00 부터 20:00 까지(네 감시 대상) — DART 호출 정확히 13,140(5,400 · 5,400 · 1,560 · 780) · usage.add 합 13,140 · flush 10초 간격 · window_end · 해제 1번", async () => {
+    const h = harness({ start: at("07:00:00"), watches: ALL_WATCHES });
     const exit = await h.run();
 
     expect(exit).toEqual({ code: 0, reason: "window_end" });
-    expect(plannedDailyCalls(2)).toBe(10_800);
-    expect(h.dart.listCalls).toHaveLength(10_800);
+    expect(plannedDailyCalls(ALL_WATCHES)).toBe(13_140);
+    expect(plannedDailyCalls(EVERY_LAP_WATCHES)).toBe(10_800);
+    expect(h.dart.listCalls).toHaveLength(13_140);
     expect(h.dart.callsOf("tender_offer")).toHaveLength(5_400);
-    expect(h.db.usageAdded()).toBe(10_800);
-    expect(h.db.state.used).toBe(10_800);
+    expect(h.dart.callsOf("rights_merger")).toHaveLength(5_400);
+    expect(h.dart.callsOf("exchange_disclosure")).toHaveLength(1_560);
+    expect(h.dart.callsOf("insider_trade_plan")).toHaveLength(780);
+    expect(h.db.usageAdded()).toBe(13_140);
+    expect(h.db.state.used).toBe(13_140);
     // 묶음 flush — 마지막(종료 때 flush) 앞까지는 10초 간격
     const flushes = h.db.calls.usageFlush;
     const gaps = flushes.slice(1, -1).map((t, i) => t - flushes[i]);

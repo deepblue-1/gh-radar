@@ -1,5 +1,5 @@
 import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage";
-import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs, pollSlot } from "./cadence";
+import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs, lateGapMs, pollSlot } from "./cadence";
 import type { DartAlertConfig } from "./config";
 import { DartApiError, type DartRow } from "./dart/client";
 import { LeaseLostError, type DartAlertDb } from "./db";
@@ -49,11 +49,13 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *      이미 넣은 건을 OpenDART 호출 없이 한 번 더 보내 보고, 오늘 못 나간 건이 남으면 error `alerts left unsent at stop`(리뷰 WR-05).
  *
  * 결정 · 규칙:
- *   D-10 · SC-4 평일 하루 5,400바퀴 × 감시 대상 2 = 10,800회(공식 20,000 의 54% · 예산 15,000 이하).
+ *   D-10 · SC-4 평일 하루 5,400바퀴 × 바퀴마다 감시 대상 2(D004 · B001) + I001 30초 칸 1,560 + D005 60초 칸 780 = 13,140회
+ *     (공식 20,000 의 66% · 예산 15,000 이하 · I001 추가 쪽 최악까지 14,700 — cadence.ts).
  *     호출 수는 실패 호출까지 센다 — `dart.list` 를 감싸 호출이 끝날 때마다 `usage.add`(10초 묶음 flush).
  *   D-11 창 밖 · 주말은 auto 가 아무것도 하지 않는다(휴장일 달력 없음).
  *   D-12 「(늦은 알림)」 — 처음 본 시각이 그 감시 대상의 커버 기준점(오늘 마지막 성공 조회 · 없으면 07:02)에서
- *     60초 넘게 뒤면 늦은 건. 정상 바퀴(5 · 10초)는 절대 늦지 않고 수집기가 비어 있던 시간(아침 장애 · 인계)만 늦음.
+ *     60초 + 그 감시 대상 조회 간격(D004 · B001 60초 · I001 90초 · D005 120초 — `lateGapMs`) 넘게 뒤면 늦은 건.
+ *     정상 바퀴(5 · 10초) · 정상 30초 · 60초 조회는 절대 늦지 않고 수집기가 비어 있던 시간(아침 장애 · 인계)만 늦음.
  *     조회는 오늘(KST) 날짜로만 해서 지난 날짜 건은 오지 않는다.
  *   SC-2 한 실행만 — 임대 TTL 90초 · 30초 연장. 연장 거절 → 조용히 종료 0 `lease_lost` · 연장 DB 오류가 60초
  *     이어지면(남이 넘겨받을 수 있는 시점 전) 종료 0 `lease_unconfirmed` · 넣기 · 차례 · 기록 RPC 의 55000
@@ -72,6 +74,8 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  * 43-06 장애 짝 글(D-16 · D-17): 확인 시간대 안에서 감시 대상 하나라도 기준점(마지막 성공 조회 · 없으면 07:02)에서
  *   5분(`OUTAGE_AFTER_MS`) 넘게 성공이 없으면 `dart_alert_outage open` → opened true 인 실행만 「⚠ 공시 알림이 멈췄습니다」
  *   1건 → notice sent/failed → error `dart outage opened`(→ 43-07 로그 일치 이메일). 같은 장애 동안 다시 올리지 않는다.
+ *   띄엄 조회 대상(I001 · D005)은 그 대상을 부르지 않는 바퀴가 장애를 닫지 않게 「마지막 조회가 실패한 감시 대상」(`failing`)을
+ *   기억해, 그 대상이 다시 성공해야 닫는다(261113-iez — 30초마다 짝 글이 되풀이되지 않게).
  *   모든 감시 대상이 성공한 첫 바퀴에 「멈췄습니다」 가 실제로 나갔을 때만 「✅ 다시 동작」 1건 → 나간 뒤에 close · info
  *   `dart outage closed`. 「다시 동작」 이 실패하면 DB 를 열어 둔 채 다음 성공 바퀴에 다시(짝 보장 · 리뷰 WR-02).
  *   시작 점검(`startupCheck` — auto 는 첫 바퀴 전 · seed 는 seed 바퀴 뒤)이 죽은 수집기 · 글 전에 죽은 실행을 덮고,
@@ -240,6 +244,8 @@ class Collector {
   private insertFail: { since: number; logged: boolean } | null = null;
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
   private readonly lastOk = new Map<WatchId, number>();
+  /** 마지막 조회가 실패한 감시 대상 — 비어야 장애를 닫는다(띄엄 조회 대상이 안 불린 바퀴가 닫지 않게 · 261113-iez) */
+  private readonly failing = new Set<WatchId>();
   /** 띄엄 조회 감시 대상(everyMs 있음)별 마지막으로 부른 조회 칸(261113-iez · 실행 메모리) */
   private readonly polledSlot = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
@@ -559,11 +565,16 @@ class Collector {
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */
   private isLate(w: WatchId): boolean {
     const now = this.now();
-    return isLateAt(now, coverPointMs(now, this.lastOk.get(w) ?? null));
+    const everyMs = this.d.watches.find((x) => x.id === w)?.everyMs ?? null;
+    return isLateAt(now, coverPointMs(now, this.lastOk.get(w) ?? null), lateGapMs(everyMs));
   }
 
   private takeResult(r: CollectResult): void {
-    for (const x of r.results) if (x.ok && x.okAt !== undefined) this.lastOk.set(x.watch, x.okAt);
+    for (const x of r.results) {
+      if (x.ok && x.okAt !== undefined) this.lastOk.set(x.watch, x.okAt);
+      if (x.ok) this.failing.delete(x.watch);
+      else this.failing.add(x.watch);
+    }
     for (const row of r.inserted) this.pacer.insertedHere.add(row.rcept_no);
     this.stats.inserted += r.inserted.length;
   }
@@ -658,15 +669,17 @@ class Collector {
   }
 
   /**
-   * 바퀴 끝 판정 — 모든 감시 대상이 성공했으면 열린 장애를 닫고, 실패한 감시 대상 중 기준점에서 5분 넘게 성공이 없는 것이
-   * 있으면 연다(한 번만 · 이미 열려 있으면 아무것도 안 함). 치명 신호 바퀴는 치명 종료 길이 연다.
+   * 바퀴 끝 판정 — 이 바퀴 실패가 없고 모든 감시 대상의 마지막 조회가 성공(`failing` 빔)이면 열린 장애를 닫고,
+   * 실패한 감시 대상 중 기준점에서 5분 넘게 성공이 없는 것이 있으면 연다(한 번만 · 이미 열려 있으면 아무것도 안 함).
+   * 치명 신호 바퀴는 치명 종료 길이 연다.
    */
   private async judgeOutage(r: CollectResult): Promise<void> {
     const now = this.now();
     if (!isInWindow(now)) return;
     const failed = r.results.filter((x) => !x.ok);
     if (failed.length === 0) {
-      if (this.outage) await this.closeOutage();
+      // 이 바퀴에 안 불린 띄엄 조회 대상(I001 · D005)이 아직 실패 중이면 닫지 않는다 — 그 대상이 다시 성공한 바퀴에 닫는다
+      if (this.outage && this.failing.size === 0) await this.closeOutage();
       return;
     }
     if (this.outage || this.halt) return;
