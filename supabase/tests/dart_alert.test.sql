@@ -3,7 +3,7 @@
 --
 -- 대상: 20261113200000_dart_alert.sql (표 dart_alerts · dart_alert_state · RPC dart_alert_lease_acquire ·
 --       dart_alert_lease_release · dart_alert_insert · dart_alert_claim · dart_alert_mark) +
---       20261113300000_dart_alert_fix.sql (리뷰 IN-01 — dart_alert_outage 에 p_since · 3인자 함수는 지움).
+--       20261113400000_dart_alert_fix.sql (리뷰 IN-01 — dart_alert_outage 에 p_since · 3인자 함수는 지움).
 --
 -- 잠그는 것:
 --   S. 모양 — 표 2 · 함수 5(인자 형 그대로 — 워커 어댑터 43-02 가 이 시그니처로 부른다)

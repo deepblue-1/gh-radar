@@ -29,7 +29,7 @@ umask 077
 #   처음 봄 → 보냄 지연 p50/p90 · 장애 상태 · 감시 대상별 마지막 성공 조회 · 임대 보유자(SC-4 · SC-7). 읽기 전용.
 # check — 배포 뒤 읽기 전용 점검(스모크 INV-6 · INV-7 이 부른다 · 리뷰 WR-52). OpenDART 호출 0 · 단체방 글 0.
 #   ① db: dart_alert_ops_stats 응답(SUPABASE_URL · 서비스롤 키 · 기본 마이그레이션)
-#   ② migration: PostgREST 스키마(/rest/v1/ OpenAPI)의 dart_alert_outage 에 p_since 가 있는가(20261113300000 적용).
+#   ② migration: PostgREST 스키마(/rest/v1/ OpenAPI)의 dart_alert_outage 에 p_since 가 있는가(20261113400000 적용).
 #      스키마를 못 읽으면 WARN 만(실패로 세지 않음).
 #   ③ telegram: getMe(토큰) + getChatMember(방 id · 봇 자신)로 봇이 방에 있고 글을 쓸 수 있는가(글은 보내지 않는다)
 #   하나라도 FAIL 이면 종료 1. 결과 줄에는 비밀(토큰 · 방 id · 키)을 싣지 않는다.
@@ -277,7 +277,7 @@ if [[ "$CMD" == check ]]; then
     CHECK_FAILS=$((CHECK_FAILS + 1))
   fi
 
-  # ② migration — dart_alert_outage 에 p_since(20261113300000)가 있는가. 새 워커는 p_since 를 보내므로 없으면 장애 open 이 실패한다.
+  # ② migration — dart_alert_outage 에 p_since(20261113400000)가 있는가. 새 워커는 p_since 를 보내므로 없으면 장애 open 이 실패한다.
   SPEC_STATE="$(printf 'url = "%s/rest/v1/"\nheader = "apikey: %s"\nheader = "Authorization: Bearer %s"\nheader = "Accept: application/openapi+json"\nmax-time = 30\n' \
       "${SUPABASE_URL%/}" "$SB_KEY" "$SB_KEY" \
     | curl -fsS -K - 2>/dev/null \
@@ -291,9 +291,9 @@ if [[ "$CMD" == check ]]; then
         console.log(p && JSON.stringify(p).includes("p_since") ? "ok" : "missing");
       });' 2>/dev/null || true)"
   case "$SPEC_STATE" in
-    ok) echo "OK migration — dart_alert_outage(p_since) 있음(20261113300000 적용)" ;;
+    ok) echo "OK migration — dart_alert_outage(p_since) 있음(20261113400000 적용)" ;;
     missing)
-      echo "FAIL migration — dart_alert_outage 에 p_since 가 없다(20261113300000 미적용 — supabase db push 먼저)"
+      echo "FAIL migration — dart_alert_outage 에 p_since 가 없다(20261113400000 미적용 — supabase db push 먼저)"
       CHECK_FAILS=$((CHECK_FAILS + 1))
       ;;
     *) echo "WARN migration — PostgREST 스키마를 읽지 못해 확인 못 함(실패로 세지 않음)" ;;

@@ -11,7 +11,7 @@ status: partial
 
 # Phase 43: 코드 리뷰 수정 보고서
 
-> 두 수정기가 나눠 고쳤다 — part A(ID 01 ~ 49): 워커 본체 · 새 마이그레이션 `20261113300000_dart_alert_fix.sql` / part B(ID 50 ~): 스크립트 · 알림 정책 · 테스트 · 문서. 둘 다 전용 worktree 브랜치 `phase-43-fix` 에서 커밋했다. 범위 `fix_scope: all`(참고 포함). 이 파일이 합본이고 정본이다.
+> 두 수정기가 나눠 고쳤다 — part A(ID 01 ~ 49): 워커 본체 · 새 마이그레이션 `20261113400000_dart_alert_fix.sql` / part B(ID 50 ~): 스크립트 · 알림 정책 · 테스트 · 문서. 둘 다 전용 worktree 브랜치 `phase-43-fix` 에서 커밋했다. 범위 `fix_scope: all`(참고 포함). 이 파일이 합본이고 정본이다.
 
 ## Fixed Issues
 
@@ -67,7 +67,7 @@ status: partial
 
 ### IN-01: 다시 연 장애 글의 사유 · 시작 시각이 처음 연 실행의 것과 다르다
 
-**Files modified:** `supabase/migrations/20261113300000_dart_alert_fix.sql`(새 파일), `supabase/tests/dart_alert.test.sql`, `workers/dart-alert/src/db.ts`, `workers/dart-alert/src/collector.ts`, `workers/dart-alert/tests/dbContract.test.ts`, `workers/dart-alert/tests/outage.test.ts`, `workers/dart-alert/tests/helpers/fakes.ts`
+**Files modified:** `supabase/migrations/20261113400000_dart_alert_fix.sql`(새 파일), `supabase/tests/dart_alert.test.sql`, `workers/dart-alert/src/db.ts`, `workers/dart-alert/src/collector.ts`, `workers/dart-alert/tests/dbContract.test.ts`, `workers/dart-alert/tests/outage.test.ts`, `workers/dart-alert/tests/helpers/fakes.ts`
 **Commit:** 454550ab
 **Applied fix:**
 - 사유: `STATE_COLUMNS` 에 `outage_reason` 을 더했다. notice pending 장애를 다시 열 때 글은 DB 의 처음 사유를 쓴다(없으면 「수집기 중단」).
@@ -157,7 +157,7 @@ status: partial
 **Applied fix:**
 - **`dart-alert-report.sh check` 를 새로 만들었다.** 읽기 전용이다. OpenDART 호출과 단체방 글은 0 이다.
   - ① db: `dart_alert_ops_stats` 가 응답하는가(URL · 서비스롤 키 · 기본 마이그레이션).
-  - ② migration: PostgREST `/rest/v1/` OpenAPI 의 `dart_alert_outage` 에 `p_since` 가 있는가(part A 의 20261113300000). 스키마를 못 읽으면 WARN 만 남긴다.
+  - ② migration: PostgREST `/rest/v1/` OpenAPI 의 `dart_alert_outage` 에 `p_since` 가 있는가(part A 의 20261113400000). 스키마를 못 읽으면 WARN 만 남긴다.
   - ③ telegram: `getMe` 와 `getChatMember`(방 id · 봇 자신)로 토큰이 살아 있고 봇이 방에서 글을 쓸 수 있는가.
   - 비밀은 Secret 에서 변수로만 읽고, `printf | curl -K -` 로만 넘긴다. 결과 줄에는 6자리 넘는 숫자를 지워 방 id · 봇 id 도 싣지 않는다.
 - **스모크에 두 항목을 더했다.**
@@ -321,7 +321,7 @@ status: partial
 ## 재배포 순서
 
 
-1. **DB 를 먼저 올려야 한다.** 새 마이그레이션 `supabase/migrations/20261113300000_dart_alert_fix.sql` 은 아직 원격에 적용되지 않았다. 새 워커는 `dart_alert_outage` 에 `p_since` 를 보내므로, 옛 DB(3인자 함수)에 새 워커를 올리면 장애 open 이 「함수를 못 찾음」 으로 실패한다. 순서는 `supabase db push --linked --yes` → 워커 재배포다. 거꾸로 지금 운영 중인 옛 워커는 새 DB 에서도 그대로 동작한다(p_since 기본 NULL → 예전 동작).
+1. **DB 를 먼저 올려야 한다.** 새 마이그레이션 `supabase/migrations/20261113400000_dart_alert_fix.sql` 은 아직 원격에 적용되지 않았다. 새 워커는 `dart_alert_outage` 에 `p_since` 를 보내므로, 옛 DB(3인자 함수)에 새 워커를 올리면 장애 open 이 「함수를 못 찾음」 으로 실패한다. 순서는 `supabase db push --linked --yes` → 워커 재배포다. 거꾸로 지금 운영 중인 옛 워커는 새 DB 에서도 그대로 동작한다(p_since 기본 NULL → 예전 동작).
 2. **새 error 로그(level 50 → 이메일 정책에 걸림):**
    - `dart alert insert failing`
    - `dart alert row rejected by db — skipped`
@@ -341,7 +341,7 @@ _Fixed: 2026-11-13T01:55:07Z_
 _Fixer: Claude (gsd-code-fixer)_
 _Iteration: 1_
 
-1. **DB 먼저(part A 와 같음):** `supabase db push --linked --yes`. 20261113300000 이 원격에 없으면 새 스모크 INV-6b 가 `FAIL migration` 으로 알려 준다.
+1. **DB 먼저(part A 와 같음):** `supabase db push --linked --yes`. 20261113400000 이 원격에 없으면 새 스모크 INV-6b 가 `FAIL migration` 으로 알려 준다.
 2. **깨끗한 트리에서 배포한다(WR-51):** `workers/dart-alert` 등 빌드 입력에 미커밋 변경이 있으면 이제 배포가 멈춘다. 이 브랜치를 합친 뒤 깨끗한 checkout 에서 돌린다.
 3. **배포 — `--scheduler-paused` 없이:** `GCP_PROJECT_ID=gh-radar SUPABASE_URL=<운영 값> bash scripts/deploy-dart-alert.sh`. 평일 20:00 뒤나 07:00 전을 권장한다(머리 주석). Scheduler 가 ENABLED 라 이 플래그를 붙이면 이제 거부된다. 이 배포가 새로 하는 일은 셋이다.
    - 로그 기반 지표 `dart_alert_wake_starts` 를 만든다(배포 신원에 `logging.configWriter` 류 권한 필요).

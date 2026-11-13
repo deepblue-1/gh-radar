@@ -476,14 +476,14 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     }
   };
 
-  /** 장애 RPC 의 DB 반영(43-02 · 20261113300000 계약) — after 훅이 반영 뒤에 걸리게 따로 둔다(리뷰 IN-50) */
+  /** 장애 RPC 의 DB 반영(43-02 · 20261113400000 계약) — after 훅이 반영 뒤에 걸리게 따로 둔다(리뷰 IN-50) */
   const applyOutage = (now: number, action: OutageAction, reason?: string, sinceIso?: string) => {
     calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}), ...(sinceIso !== undefined ? { since: sinceIso } : {}) });
     const s = state.outage;
     if (action === "open") {
       // 43-02: 이미 열려 있고 notice 가 pending(연 실행이 글을 못 남기고 죽음)이면 처음 시각으로 opened true 를 한 번 더
       if (s.since !== null) return s.notice === "pending" ? { opened: true, since: s.since } : { opened: false };
-      // 리뷰 IN-01 p_since — [now − 1일, now] 로 잘라 맞춤 · 없으면 now(마이그레이션 20261113300000 과 같은 규칙)
+      // 리뷰 IN-01 p_since — [now − 1일, now] 로 잘라 맞춤 · 없으면 now(마이그레이션 20261113400000 과 같은 규칙)
       const asked = sinceIso === undefined ? now : Date.parse(sinceIso);
       s.since = new Date(Math.min(now, Math.max(Number.isFinite(asked) ? asked : now, now - 86_400_000))).toISOString();
       s.reason = reason ?? null;
