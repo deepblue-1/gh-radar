@@ -205,7 +205,8 @@ self_test() {
     echo "FAIL: --scheduler-paused 생성 경로에 임시 일정(0 0 1 1 *) 줄이 없다" >&2
     fails=$((fails + 1))
   fi
-  if grep -Eq '^[[:space:]]*set[[:space:]]+-[a-zA-Z]*x' "$self"; then
+  # set -x · set -ex · set -o xtrace · BASH_XTRACEFD= 모두(리뷰 IN-56)
+  if grep -Eq '^[[:space:]]*set[[:space:]]+(-[a-zA-Z]*x|-o[[:space:]]+xtrace)|^[[:space:]]*(export[[:space:]]+)?BASH_XTRACEFD=' "$self"; then
     echo "FAIL: 셸 추적 모드 줄이 있다(비밀 · 명령이 화면에 찍힌다)" >&2
     fails=$((fails + 1))
   fi
@@ -603,6 +604,9 @@ case "$CHANNEL_RESOURCE" in
   *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
 esac
 
+# 정책 create/update 가 실패해 set -e 로 끝나도 임시 YAML(채널 이름만 — 비밀 아님)이 $TMPDIR 에 쌓이지 않게(리뷰 IN-56)
+RESOLVED_YAML=""
+trap 'rm -f "${RESOLVED_YAML:-}"' EXIT
 for i in "${!ALERT_POLICY_FILES[@]}"; do
   ALERT_FILE="${ALERT_POLICY_FILES[$i]}"
   ALERT_NAME="${ALERT_POLICY_NAMES[$i]}"
