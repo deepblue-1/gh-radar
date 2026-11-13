@@ -3,7 +3,7 @@ import type { AxiosAdapter, InternalAxiosRequestConfig } from "axios";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CollectorDeps, CollectorExit } from "../src/collector";
 import type { DartAlertConfig } from "../src/config";
-import { buildDeps, main } from "../src/index";
+import { buildDeps, crashLine, main } from "../src/index";
 import { LATE_LABEL, testSendText } from "../src/message";
 import { harness, kst, logRecorder, MON, rightsRow, SAT, tenderRow, type FeedItem } from "./helpers/fakes";
 
@@ -260,6 +260,32 @@ describe("진입점 main() · buildDeps()", () => {
     expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 2, holder: seen[0].holder });
     const text = out.text();
     for (const v of Object.values(SECRETS)) expect(text).not.toContain(v);
+  });
+
+  it("LOG_LEVEL 이 pino 가 모르는 값이면 기본 로거로 error(level 50) · 반환 1 · 수집기를 부르지 않는다(리뷰 IN-02)", async () => {
+    Object.assign(process.env, SECRETS, { SUPABASE_URL: "http://127.0.0.1:1", LOG_LEVEL: "verbose" });
+    const out = capture();
+    let ran = 0;
+    const code = await main({
+      logDestination: out.stream,
+      run: async () => {
+        ran += 1;
+        return { code: 0, reason: "x" };
+      },
+    });
+    expect(code).toBe(1);
+    expect(ran).toBe(0);
+    const line = out.lines().find((l) => l.msg === "dart-alert logger setup failed");
+    expect(line).toMatchObject({ level: 50, logLevel: "verbose" });
+    for (const v of Object.values(SECRETS)) expect(out.text()).not.toContain(v);
+  });
+
+  it("crashLine — main 이 reject 해도 level 60 JSON 한 줄(안전 필드만 · 키 · 토큰 없음)", () => {
+    const e = new Error(`boom ${"x".repeat(500)}`);
+    const parsed = JSON.parse(crashLine(e, 1_700_000_000_000));
+    expect(parsed).toMatchObject({ level: 60, time: 1_700_000_000_000, msg: "dart-alert crashed", err: { kind: "unknown" } });
+    expect(parsed.err.message.length).toBeLessThanOrEqual(200);
+    expect(Object.keys(parsed.err).sort()).toEqual(["code", "kind", "message", "status"]);
   });
 
   it("main 이 수집기 예외를 받으면 안전 필드만 로그 · 반환 1", async () => {

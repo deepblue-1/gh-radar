@@ -140,7 +140,17 @@ export async function main(opts: MainOptions = {}): Promise<number> {
     createLogger("info", opts.logDestination).error({ msg1: err instanceof Error ? err.message : String(err) }, "dart-alert config error");
     return 1;
   }
-  const log = createLogger(cfg.logLevel, opts.logDestination).child({ app: "dart-alert", version: cfg.appVersion });
+  let log: ReturnType<typeof createLogger>;
+  try {
+    log = createLogger(cfg.logLevel, opts.logDestination).child({ app: "dart-alert", version: cfg.appVersion });
+  } catch (err) {
+    // pino 는 모르는 level(LOG_LEVEL 오타 등)이면 던진다 — 기본 level 로거로 error 를 남기고 1(무로그 실패 금지 · 리뷰 IN-02)
+    createLogger("info", opts.logDestination).error(
+      { err: safeErrorFields(err), logLevel: String(cfg.logLevel).slice(0, 20) },
+      "dart-alert logger setup failed",
+    );
+    return 1;
+  }
 
   const ac = new AbortController();
   const onSignal = (sig: string) => () => {
@@ -166,10 +176,21 @@ export async function main(opts: MainOptions = {}): Promise<number> {
   }
 }
 
+/**
+ * main 이 예상 밖으로 reject 했을 때 남길 한 줄 — 로거를 믿을 수 없는 자리라 pino 꼴 JSON(level 60 · 안전 필드만)을
+ * 직접 만든다. level ≥ 50 이라 error 로그 이메일 정책에도 걸린다(리뷰 IN-02).
+ */
+export function crashLine(err: unknown, nowMs = Date.now()): string {
+  return JSON.stringify({ level: 60, time: nowMs, app: "dart-alert", msg: "dart-alert crashed", err: safeErrorFields(err) });
+}
+
 // CLI 진입점 (vitest import 시에는 실행 안 함)
 if (process.argv[1] && process.argv[1].endsWith("index.js")) {
   main().then(
     (code) => process.exit(code),
-    () => process.exit(1),
+    (err: unknown) => {
+      process.stdout.write(`${crashLine(err)}\n`);
+      process.exit(1);
+    },
   );
 }
