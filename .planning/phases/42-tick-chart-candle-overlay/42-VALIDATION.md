@@ -3,7 +3,7 @@ phase: "42"
 slug: "tick-chart-candle-overlay"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-12"
@@ -70,8 +70,8 @@ created: "2026-11-12"
 | 42-10-02 | 42-10 | 3 | SC-4 · SC-5 · D-14 · D-15 · D-17 · D-20 — 수익률 판 · 아래 판 · 띠 · 캡션 결선 · 띠 수익률 = 패널(끝-끝) | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/ticks/__tests__/candle-chart.test.tsx --maxWorkers=2`(`-t 패널`) | ✅ | ✅ green |
 | 42-10-03 | 42-10 | 3 | SC-1 · D-02 · D-05 · D-21 · D-24 — 제목 줄 결선 · 양쪽 보던 구간 유지 · 차트 종류 · 단위 · 이동평균 기억 | — | N/A | component | `pnpm --filter @gh-radar/webapp exec vitest run src/components/ticks/__tests__/chart-kind-switch.test.tsx src/components/ticks/__tests__/candle-chart.test.tsx src/components/ticks/__tests__/tick-chart.test.tsx src/components/ticks/__tests__/tick-chart-view-sync.test.tsx --maxWorkers=2` | ✅ | ✅ green |
 | 42-11-01 | 42-11 | 4 | SC-1 · D-01 — 배포 전 게이트(지키는 파일 diff 0 · 선 차트 · 띠 diff 범위 · server · 의존성 무변경 · 차트 라이브러리 없음) + 전체 회귀(한 세션) | — | N/A | static + full suite | 42-11 Task 1 verify(PREDEPLOY-OK) + 위 Full suite command | ✅ | ✅ green |
-| 42-11-02 | 42-11 | 4 | SC-5 · D-03 · D-18 — [BLOCKING] db push → server 생략 판단 → git push(메인 세션) | — | RPC 는 service_role 전용 유지 | manual(메인 세션) | `supabase migration list --linked` · `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ⏳ 체크포인트(DB push 2026-11-12 완료 · server 생략 · git push 진행) |
-| 42-11-03 | 42-11 | 4 | SC-1 ~ SC-7 · 가정 A5 — 운영 UAT(폰 · PC · 실기기 체감 · backstop 다섯) | — | N/A | manual | `grep -q "status: validated" .planning/phases/42-tick-chart-candle-overlay/42-VALIDATION.md && echo UAT-SIGNED` | — | ⏳ 체크포인트 |
+| 42-11-02 | 42-11 | 4 | SC-5 · D-03 · D-18 — [BLOCKING] db push → server 생략 판단 → git push(메인 세션) | — | RPC 는 service_role 전용 유지 | manual(메인 세션) | `supabase migration list --linked` · `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ✅ green(DB push · server 생략 · push 2bcdfd8b · Vercel Ready) |
+| 42-11-03 | 42-11 | 4 | SC-1 ~ SC-7 · 가정 A5 — 운영 UAT(폰 · PC · 실기기 체감 · backstop 다섯) | — | N/A | manual | `grep -q "status: validated" .planning/phases/42-tick-chart-candle-overlay/42-VALIDATION.md && echo UAT-SIGNED` | — | ✅ green(UAT 1 ~ 12 폰 · PC 됨 · 2026-11-13) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -115,4 +115,4 @@ created: "2026-11-12"
 - [x] Feedback latency < 180s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** 2026-11-13 — 운영 UAT 1 ~ 12 폰 · PC 통과(사용자) · NXT 일 이동평균 KRX 종가 승인
