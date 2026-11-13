@@ -408,6 +408,34 @@ describe("넣기 실패 — 소리 없이 멈추지 않는다 (리뷰 WR-01)", (
     expect(h.logs.count("dart alert insert failing")).toBe(0);
   });
 
+  it("넣기는 DB 에 반영됐는데 응답이 끊기면(after 훅 · 리뷰 IN-50) warn 1번 · 다음 바퀴 다시 넣어도 새 행 0 · 그 건은 정확히 1번 나간다", async () => {
+    let lost = 0;
+    const afterFns: string[] = [];
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:01:00"),
+      db: {
+        lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") },
+        after: (fn) => {
+          afterFns.push(fn);
+          if (fn === "dart_alert_insert" && lost === 0) {
+            lost += 1;
+            throw new Error("dart_alert_insert 실패: fetch failed");
+          }
+        },
+      },
+      dart: { feed: [tender(1, "10:00:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(lost).toBe(1);
+    expect(afterFns).toContain("dart_alert_insert");
+    expect(h.logs.count("dart alert insert failed", "warn")).toBe(1);
+    // 첫 넣기는 반영(행 1)되고 응답만 잃었다 → 다음 바퀴 넣기는 새 행 0
+    expect(h.db.calls.insert.map((c) => c.inserted)).toEqual([1, 0]);
+    expect(h.telegram.alerts()).toHaveLength(1);
+    expect(h.telegram.alerts()[0].text).toContain("대상회사1");
+  });
+
   it("넣기가 계속 실패(DB 오류)하면 5분 넘긴 바퀴에 error 1번 · 「멈췄습니다(공시 저장 실패)」 · 넣기가 되면 닫고 알림이 나간다", async () => {
     const h = harness({
       start: at("10:00:00"),

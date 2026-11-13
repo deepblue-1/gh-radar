@@ -378,7 +378,7 @@ export interface FakeDbOptions {
   leaseAcquire?: (c: LeaseCall) => LeaseResult | Error | undefined;
   /** 넣기 · 차례 · 기록 · 장애 직전 훅(던지면 그 RPC 가 실패 · DB 변화 없음). 기록(mark)은 접수번호를 준다 */
   before?: (fn: string, now: number, info?: RpcInfo) => void;
-  /** 넣기 · 차례 · 기록 · 장애가 DB 에 반영된 **뒤** 훅(던지면 응답 유실 흉내 — 반영은 남는다 · 43-06) */
+  /** 넣기 · 차례 · 기록 · 장애가 DB 에 반영된 **뒤** 훅(던지면 응답 유실 흉내 — 반영은 남는다 · 43-06). 넣기는 접수번호들을 준다 */
   after?: (fn: string, now: number, info?: RpcInfo) => void;
 }
 
@@ -476,6 +476,31 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     }
   };
 
+  /** 장애 RPC 의 DB 반영(43-02 · 20261113300000 계약) — after 훅이 반영 뒤에 걸리게 따로 둔다(리뷰 IN-50) */
+  const applyOutage = (now: number, action: OutageAction, reason?: string, sinceIso?: string) => {
+    calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}), ...(sinceIso !== undefined ? { since: sinceIso } : {}) });
+    const s = state.outage;
+    if (action === "open") {
+      // 43-02: 이미 열려 있고 notice 가 pending(연 실행이 글을 못 남기고 죽음)이면 처음 시각으로 opened true 를 한 번 더
+      if (s.since !== null) return s.notice === "pending" ? { opened: true, since: s.since } : { opened: false };
+      // 리뷰 IN-01 p_since — [now − 1일, now] 로 잘라 맞춤 · 없으면 now(마이그레이션 20261113300000 과 같은 규칙)
+      const asked = sinceIso === undefined ? now : Date.parse(sinceIso);
+      s.since = new Date(Math.min(now, Math.max(Number.isFinite(asked) ? asked : now, now - 86_400_000))).toISOString();
+      s.reason = reason ?? null;
+      s.notice = "pending";
+      return { opened: true, since: s.since };
+    }
+    if (action === "notice") {
+      if (s.since === null || s.notice !== "pending") return { noticed: false };
+      s.notice = reason ?? null;
+      return { noticed: true };
+    }
+    if (s.since === null) return { closed: false };
+    const out = { closed: true, notify: s.notice === "sent", since: s.since };
+    state.outage = { since: null, reason: null, notice: null };
+    return out;
+  };
+
   const db: CollectorDeps["db"] = {
     async leaseAcquire(h, ttlS, lastOk) {
       const now = clock.now();
@@ -536,6 +561,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
         out.push({ rcept_no: it.rcept_no, late: it.late });
       }
       calls.insert.push({ at: now, items: items.map((i) => ({ ...i })), seed, inserted: out.length });
+      o.after?.("dart_alert_insert", now, { rceptNos: items.map((i) => i.rcept_no) });
       return out;
     },
 
@@ -605,27 +631,9 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     async outage(action, reason, sinceIso) {
       guard("dart_alert_outage");
       const now = clock.now();
-      calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}), ...(sinceIso !== undefined ? { since: sinceIso } : {}) });
-      const s = state.outage;
-      if (action === "open") {
-        // 43-02: 이미 열려 있고 notice 가 pending(연 실행이 글을 못 남기고 죽음)이면 처음 시각으로 opened true 를 한 번 더
-        if (s.since !== null) return s.notice === "pending" ? { opened: true, since: s.since } : { opened: false };
-        // 리뷰 IN-01 p_since — [now − 1일, now] 로 잘라 맞춤 · 없으면 now(마이그레이션 20261113300000 과 같은 규칙)
-        const asked = sinceIso === undefined ? now : Date.parse(sinceIso);
-        s.since = new Date(Math.min(now, Math.max(Number.isFinite(asked) ? asked : now, now - 86_400_000))).toISOString();
-        s.reason = reason ?? null;
-        s.notice = "pending";
-        return { opened: true, since: s.since };
-      }
-      if (action === "notice") {
-        if (s.since === null || s.notice !== "pending") return { noticed: false };
-        s.notice = reason ?? null;
-        return { noticed: true };
-      }
-      if (s.since === null) return { closed: false };
-      const out = { closed: true, notify: s.notice === "sent", since: s.since };
-      state.outage = { since: null, reason: null, notice: null };
-      return out;
+      const res = applyOutage(now, action, reason, sinceIso);
+      o.after?.("dart_alert_outage", now);
+      return res;
     },
 
     async countUnsent(day) {
@@ -634,6 +642,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
       calls.countUnsent.push({ at: clock.now(), day, unsent });
       return unsent;
     },
+
 
     usage: {
       read: async (d) => {
