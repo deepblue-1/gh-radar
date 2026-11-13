@@ -24,6 +24,7 @@ const SECRET_KEYS = [
   "chat_id",
   // 설정 객체(cfg)를 통째로 로그로 써도 새지 않게 — DartAlertConfig 의 비밀 필드
   "dartApiKey",
+  "dartApiKey2",
   "telegramBotToken",
   "telegramChatId",
   "supabaseServiceRoleKey",

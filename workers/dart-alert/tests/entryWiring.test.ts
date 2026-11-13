@@ -58,6 +58,7 @@ const cfg: DartAlertConfig = {
   supabaseUrl: "http://127.0.0.1:1",
   supabaseServiceRoleKey: "svc-role-VALUE-DO-NOT-LOG",
   dartApiKey: "TEST-DART-KEY-DO-NOT-LOG",
+  dartApiKey2: "TEST-DART-KEY2-DO-NOT-LOG",
   telegramBotToken: "123456:TEST-BOT-TOKEN-DO-NOT-LOG",
   telegramChatId: "-1009876543210",
   dartBaseUrl: "http://dart.invalid",
@@ -86,7 +87,7 @@ describe("buildDeps — 사용량 · 한도 의심 결선(리뷰 WR-56)", () => 
     sb.rows.set(`opendart_list_quota_strike|${DAY}`, 7);
     sb.rows.set(`opendart_list|${OTHER_DAY}`, 99);
     const d = deps();
-    expect(await d.db.usage.read(DAY)).toBe(4321);
+    expect(await d.db.usage.read(DAY, 1)).toBe(4321);
     expect(sb.calls.filter((c) => c.op === "from").map((c) => c.args[0])).toEqual(["api_usage"]);
     expect(sb.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
       ["service", "opendart_list"],
@@ -98,7 +99,7 @@ describe("buildDeps — 사용량 · 한도 의심 결선(리뷰 WR-56)", () => 
     sb.rows.set(`opendart_list|${DAY}`, 4321);
     sb.rows.set(`opendart_list_quota_strike|${DAY}`, 2);
     const d = deps();
-    expect(await d.db.strikes.read(DAY)).toBe(2);
+    expect(await d.db.strikes.read(DAY, 1)).toBe(2);
     expect(sb.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
       ["service", "opendart_list_quota_strike"],
       ["usage_date", DAY],
@@ -107,25 +108,63 @@ describe("buildDeps — 사용량 · 한도 의심 결선(리뷰 WR-56)", () => 
 
   it("usage.add → flush — incr_api_usage(opendart_list · 날짜 · 모은 수) 1회, 모은 것이 없으면 RPC 0", async () => {
     const d = deps();
-    expect(await d.db.usage.flush(DAY)).toBeNull();
+    expect(await d.db.usage.flush(DAY, 1)).toBeNull();
     expect(sb.calls.filter((c) => c.op === "rpc")).toEqual([]);
-    d.db.usage.add(3);
-    d.db.usage.add(2);
-    expect(await d.db.usage.flush(DAY)).toBe(5);
+    d.db.usage.add(3, 1);
+    d.db.usage.add(2, 1);
+    expect(await d.db.usage.flush(DAY, 1)).toBe(5);
     expect(sb.calls.filter((c) => c.op === "rpc").map((c) => c.args)).toEqual([
       ["incr_api_usage", { p_service: "opendart_list", p_date: DAY, p_amount: 5 }],
     ]);
     // 더한 값을 같은 결선으로 다시 읽는다
-    expect(await d.db.usage.read(DAY)).toBe(5);
+    expect(await d.db.usage.read(DAY, 1)).toBe(5);
   });
 
   it("strikes.record — incr_api_usage(opendart_list_quota_strike · 날짜 · 1) · 사용량 카운터는 그대로", async () => {
     const d = deps();
-    expect(await d.db.strikes.record(DAY)).toBe(1);
+    expect(await d.db.strikes.record(DAY, 1)).toBe(1);
     expect(sb.calls.filter((c) => c.op === "rpc").map((c) => c.args)).toEqual([
       ["incr_api_usage", { p_service: "opendart_list_quota_strike", p_date: DAY, p_amount: 1 }],
     ]);
-    expect(await d.db.usage.read(DAY)).toBe(0);
-    expect(await d.db.strikes.read(DAY)).toBe(1);
+    expect(await d.db.usage.read(DAY, 1)).toBe(0);
+    expect(await d.db.strikes.read(DAY, 1)).toBe(1);
+  });
+
+  it("키 2 — usage.read(DAY, 2) 는 service opendart_list_k2 · 키 1 값과 안 섞인다(261113-rn7)", async () => {
+    sb.rows.set(`opendart_list|${DAY}`, 4321);
+    sb.rows.set(`opendart_list_k2|${DAY}`, 55);
+    const d = deps();
+    expect(await d.db.usage.read(DAY, 2)).toBe(55);
+    expect(sb.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
+      ["service", "opendart_list_k2"],
+      ["usage_date", DAY],
+    ]);
+  });
+
+  it("키 2 — add/flush(DAY, 2) 는 incr_api_usage p_service opendart_list_k2 · 키 1 카운터와 따로 모은다", async () => {
+    const d = deps();
+    d.db.usage.add(4, 2);
+    d.db.usage.add(1, 1);
+    expect(await d.db.usage.flush(DAY, 2)).toBe(4);
+    expect(await d.db.usage.flush(DAY, 1)).toBe(1);
+    expect(sb.calls.filter((c) => c.op === "rpc").map((c) => c.args)).toEqual([
+      ["incr_api_usage", { p_service: "opendart_list_k2", p_date: DAY, p_amount: 4 }],
+      ["incr_api_usage", { p_service: "opendart_list", p_date: DAY, p_amount: 1 }],
+    ]);
+  });
+
+  it("키 2 — strikes.read/record(DAY, 2) 는 opendart_list_k2_quota_strike", async () => {
+    const d = deps();
+    expect(await d.db.strikes.record(DAY, 2)).toBe(1);
+    expect(sb.calls.filter((c) => c.op === "rpc").map((c) => c.args)).toEqual([
+      ["incr_api_usage", { p_service: "opendart_list_k2_quota_strike", p_date: DAY, p_amount: 1 }],
+    ]);
+    sb.calls.length = 0;
+    expect(await d.db.strikes.read(DAY, 2)).toBe(1);
+    expect(sb.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
+      ["service", "opendart_list_k2_quota_strike"],
+      ["usage_date", DAY],
+    ]);
+    expect(await d.db.strikes.read(DAY, 1)).toBe(0);
   });
 });

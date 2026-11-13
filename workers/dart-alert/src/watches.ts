@@ -1,4 +1,4 @@
-import { EXCHANGE_POLL_MS, TRADE_PLAN_POLL_MS } from "./cadence";
+import { EXCHANGE_POLL_MS, RIGHTS_REGULAR_POLL_MS, SLOW_POLL_MS } from "./cadence";
 import type { DartRow } from "./dart/client";
 
 /**
@@ -17,12 +17,15 @@ import type { DartRow } from "./dart/client";
  * - 261113-iez — 감시 대상 넷 · 종류별 정정:
  *   · B001 허용 목록에 자기주식취득결정 · 주식교환ㆍ이전결정을 더했다. 이 두 종류는 **원본만**(`rule.originalOnly` —
  *     정정 스위치가 include 여도 맨 앞 꼬리표가 붙은 건은 보내지 않음). 기존 4종 · 공개매수는 지금처럼 정정 포함.
- *   · 거래소 수시공시(`I001` · 30초)와 임원ㆍ주요주주 거래계획(`D005` · 60초)은 `plain` 꼴 — 이름 끝 괄호 꼬리
+ *   · 거래소 수시공시(`I001`)와 임원ㆍ주요주주 거래계획(`D005`)은 `plain` 꼴 — 이름 끝 괄호 꼬리
  *     (「(자율공시)」 · 「(최대주주 보유주식 가압류)」 등)와 공백을 뗀 이름(`plainKind`)이 허용 이름과 **완전히 같거나**
  *     접두 목록(투자판단관련주요경영사항만)으로 시작하면 보낸다. 정정(맨 앞 꼬리표)은 늘 보내지 않는다. 근접 불일치 warn 은
  *     없다 — I001 은 비대상 이름이 수십 종이라 warn 이 쏟아진다.
  *   · id `rights_merger` 는 자기주식 · 주식교환도 담지만 바꾸지 않는다 — DB `dart_alerts.watch` · `last_ok` 키 ·
  *     운영 수치 `by_watch` 의 연속성.
+ * - 261113-rn7(U-2) — OpenDART 키 2개: 감시 대상마다 `key`(1 | 2)를 코드 상수로 박는다(아래 `buildWatches` 목록이
+ *   정본 · 키 풀 · 동적 재분배 · 한 키 대체 없음). 키 1 = 공개매수 · 주요사항보고서, 키 2 = 그 밖. 사용량 · 예산 · 한도
+ *   처리는 키마다 따로(collector.ts 키별 레인).
  * - 판정은 비교용 정리본으로만 한다. 표시는 DART 원문 `report_nm`(D-07 — 연속 공백만 1칸으로 보임 · message.ts).
  */
 
@@ -40,8 +43,13 @@ export type NameRule =
   | { form: "b001"; kinds: readonly string[]; originalOnly: ReadonlySet<string> }
   | { form: "plain"; exact: readonly string[]; prefix: readonly string[] };
 
+/** OpenDART 인증키 번호 — 1 = `OPENDART_API_KEY` · 2 = `OPENDART_API_KEY_2`(261113-rn7 · 키 둘 고정) */
+export type DartKeyId = 1 | 2;
+
 export interface Watch {
   id: WatchId;
+  /** 이 감시 대상을 부르는 OpenDART 키 — 사용량 · 예산 · 한도 처리도 이 키 몫 */
+  key: DartKeyId;
   /** list.json `pblntf_detail_ty` — 유형 하나 */
   pblntfDetailTy: "D004" | "B001" | "I001" | "D005";
   /** 송신 우선순위(작을수록 먼저) — DB `priority` */
@@ -50,6 +58,8 @@ export interface Watch {
   rule: NameRule;
   /** null = 바퀴마다 조회 · 숫자 = 07:00 기준 이 간격(ms)의 시각 칸마다 1번(cadence.ts `pollSlot`) */
   everyMs: number | null;
+  /** 정의돼 있으면 `09:00` 앞은 이 간격(null = 바퀴마다 · cadence.ts `everyMsAt`) — 주요사항보고서 */
+  preopenEveryMs?: number | null;
   /** 알림 첫 줄에 제출인을 항상 붙이나(공개매수 = 공개매수자 · 거래계획 = 임원 · 주요주주가 대상회사와 다르다) */
   alwaysShowFiler: boolean;
 }
@@ -182,26 +192,30 @@ export function judgeRow(watch: Watch, row: DartRow, opts: JudgeOptions): Verdic
 }
 
 /**
- * 감시 대상 목록(이 순서로 돈다):
- * - 공개매수 D004 · 우선 0 · 바퀴마다 · 이름 거르지 않음 · 제출인 항상.
- * - 주요사항보고서 B001 · 우선 1 · 바퀴마다 · 허용 목록 = `opts.b001Kinds` · 제출인은 회사와 다를 때만.
- * - 거래소 수시공시 I001 · 우선 2 · 30초 칸 · 회사가 내는 공시라 제출인은 회사와 다를 때만.
- * - 임원ㆍ주요주주 거래계획 D005 · 우선 3(매매를 미리 알리는 사전 공시라 몰릴 때 가장 뒤) · 60초 칸 · 제출인 항상 —
+ * 감시 대상 목록(이 순서로 돈다) · 감시 대상 → 키 대응(코드 상수 · 261113-rn7 U-2):
+ * - 공개매수 D004 · 키 1 · 우선 0 · 바퀴마다(종일 5초) · 이름 거르지 않음 · 제출인 항상.
+ * - 주요사항보고서 B001 · 키 1 · 우선 1 · `09:00` 전 매 바퀴 · 뒤 10초 칸 · 허용 목록 = `opts.b001Kinds` · 제출인은 회사와
+ *   다를 때만.
+ * - 거래소 수시공시 I001 · 키 2 · 우선 2 · 10초 칸 · 회사가 내는 공시라 제출인은 회사와 다를 때만.
+ * - 임원ㆍ주요주주 거래계획 D005 · 키 2 · 우선 3(매매를 미리 알리는 사전 공시라 몰릴 때 가장 뒤) · 30초 칸 · 제출인 항상 —
  *   목록의 회사 · 종목코드는 발행회사라 제출인(임원 · 주요주주)을 빼면 「누가」 가 사라진다.
  */
 export function buildWatches(opts: { b001Kinds: readonly string[] }): Watch[] {
   return [
-    { id: "tender_offer", pblntfDetailTy: "D004", priority: 0, everyMs: null, rule: { form: "any" }, alwaysShowFiler: true },
+    { id: "tender_offer", key: 1, pblntfDetailTy: "D004", priority: 0, everyMs: null, rule: { form: "any" }, alwaysShowFiler: true },
     {
       id: "rights_merger",
+      key: 1,
       pblntfDetailTy: "B001",
       priority: 1,
-      everyMs: null,
+      everyMs: RIGHTS_REGULAR_POLL_MS,
+      preopenEveryMs: null,
       rule: { form: "b001", kinds: opts.b001Kinds, originalOnly: B001_ORIGINAL_ONLY_KINDS },
       alwaysShowFiler: false,
     },
     {
       id: "exchange_disclosure",
+      key: 2,
       pblntfDetailTy: "I001",
       priority: 2,
       everyMs: EXCHANGE_POLL_MS,
@@ -210,9 +224,10 @@ export function buildWatches(opts: { b001Kinds: readonly string[] }): Watch[] {
     },
     {
       id: "insider_trade_plan",
+      key: 2,
       pblntfDetailTy: "D005",
       priority: 3,
-      everyMs: TRADE_PLAN_POLL_MS,
+      everyMs: SLOW_POLL_MS,
       rule: { form: "plain", exact: D005_KINDS, prefix: [] },
       alwaysShowFiler: true,
     },

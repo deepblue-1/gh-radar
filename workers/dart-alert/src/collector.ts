@@ -1,5 +1,5 @@
 import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage";
-import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs, lateGapMs, pollSlot } from "./cadence";
+import { coverPointMs, everyMsAt, isInWindow, isLateAt, kstYmd, lapIntervalMs, lateGapMs, pollSlot } from "./cadence";
 import type { DartAlertConfig } from "./config";
 import { DartApiError, type DartRow } from "./dart/client";
 import { LeaseLostError, type DartAlertDb } from "./db";
@@ -22,7 +22,7 @@ import {
 import { kstLabel, outageText, recoveredText, testSendText } from "./message";
 import { safeErrorFields, telegramSafeFields, type SafeErrorFields } from "./safeError";
 import type { SendResult } from "./telegram/client";
-import type { JudgeOptions, Watch, WatchId } from "./watches";
+import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
 
 /**
  * Phase 43-05 — 공시 알림 수집기 루프(장기 실행 Cloud Run Job 한 실행). kis-news-sync collector 골격을
@@ -30,28 +30,34 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *
  * 흐름(번호 = 실행 순서):
  *   ① 모드 — auto 이고 평일 `07:00` ~ `20:00` 창 밖이면 호출 0 · 종료 0 `outside_window`.
- *      test-send = OpenDART · 임대 없이 시험 글 1건(`test-send ok`) · probe = 임대 없이 공개매수 1쪽 1회(`probe ok`) ·
+ *      test-send = OpenDART · 임대 없이 시험 글 1건(`test-send ok`) · probe = 임대 없이 키 2 로 거래소 수시공시 1쪽 1회(`probe ok`) ·
  *      seed = ② ~ ⑤ 뒤 seed 바퀴(그날 건을 `seeded` 로 · 송신 0 · `seed done`) → 같은 실행이 ⑥ 으로 이어 간다
  *      (창 밖 seed 는 seed 바퀴 1번 뒤 곧바로 `window_end`).
  *   ② 임대 — `dart_alert_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돈다 → OpenDART 0 · 텔레그램 0 · 종료 0.
  *      새로 잡으며 DB 가 오늘 `sending` 을 `pending` 으로 되돌렸으면(reclaimed > 0) warn `possible duplicate after takeover`
  *      — 그 건들은 첫 바퀴 차례에서 이어 보낸다(SC-5 · 드문 중복은 받아들임).
- *   ③ 예산 — `api_usage` `opendart_list`(KST 날짜) 가 하루 예산 이상이면 OpenDART 를 부르지 않고 종료 0.
- *   ④ 탐침 — 오늘 한도 의심 표시가 있으면 공개매수 1쪽 단독 탐침 1건 → 실패면 종료 1 · 성공해야 수집 재개.
+ *   ③ 예산 — 쓰는 키마다 `api_usage`(키 1 `opendart_list` · 키 2 `opendart_list_k2` · KST 날짜)가 하루 예산 이상이면 그 키
+ *      감시 대상을 부르지 않는다(그 키 레인 멈춤). 쓰는 키가 전부 찼으면 OpenDART 를 부르지 않고 종료 0.
+ *   ④ 탐침 — 쓰는 키마다 오늘 그 키 한도 의심 표시가 있으면 그 키로 단독 탐침 1건 → 실패면 그 키 레인만 멈추고(5분 뒤
+ *      재탐침) 다른 키는 수집 · 쓰는 키가 전부 멈추면 종료 1. 성공해야 그 키 수집 재개.
  *   ⑤ 기준점 — DB `last_ok`(감시 대상별 마지막 성공 조회)를 메모리로.
  *   ⑥ 루프 — 바퀴 = 감시 대상 순서대로 조회 → 새 건 넣기(늦은 알림 판정은 조회 **전**) → 송신 차례 5건.
- *      감시 대상별 조회 칸(261113-iez): I001 30초 · D005 60초는 바퀴 시작 시각의 칸(07:00 기준)이 지난 조회 칸과 다를 때만
- *      부른다(`takeSlot` — 성공 · 실패와 무관하게 칸을 기록 · 밀린 칸을 몰아서 부르지 않는다 · 실행이 바뀌면 첫 바퀴에 전부).
- *      다음 바퀴 = 이번 바퀴 시작 + 간격(장전 5초 · 그 밖 10초 — cadence.ts). 이미 지났으면 곧바로 —
+ *      감시 대상별 조회 칸(261113-iez · rn7): 조회 간격이 있는 감시 대상(B001 09:00 뒤 10초 · I001 10초 · 30초 칸)은 바퀴 시작
+ *      시각의 칸(07:00 기준)이 지난 조회 칸과 다를 때만 부른다(`takeSlot` — 성공 · 실패와 무관하게 칸을 기록 · 밀린 칸을
+ *      몰아서 부르지 않는다 · 실행이 바뀌면 첫 바퀴에 전부 · 멈춘 키의 감시 대상은 칸을 쓰지 않는다).
+ *      바퀴 시작에 멈춘 키 중 재탐침 시각이 된 키는 단독 탐침 1건(`retryPausedLanes`) · 바퀴 끝에 새로 멈춘 키를 정리
+ *      (`settleHalts`).
+ *      다음 바퀴 = 이번 바퀴 시작 + 간격(종일 5초 — cadence.ts). 이미 지났으면 곧바로 —
  *      밀린 바퀴를 몰아서 부르지 않는다. KST 20:00(창 끝)이면 종료 0 `window_end`.
  *      기다리는 동안 · 바퀴 시작 · 송신 직전: 30초마다 임대 연장(+ `last_ok` 저장) · 10초마다 사용량 flush.
  *   ⑦ 끝 — 정상 · 오류 · SIGTERM 모두 사용량 flush · 임대를 가졌으면 해제. 그 전에 임대를 쥔 auto 실행은(SIGTERM · 임대 잃음 밖)
  *      이미 넣은 건을 OpenDART 호출 없이 한 번 더 보내 보고, 오늘 못 나간 건이 남으면 error `alerts left unsent at stop`(리뷰 WR-05).
  *
  * 결정 · 규칙:
- *   D-10 · SC-4 평일 하루 5,400바퀴 × 바퀴마다 감시 대상 2(D004 · B001) + I001 30초 칸 1,560 + D005 60초 칸 780 = 13,140회
- *     (공식 20,000 의 66% · 예산 15,000 이하 · I001 추가 쪽 최악까지 14,700 — cadence.ts).
- *     호출 수는 실패 호출까지 센다 — `dart.list` 를 감싸 호출이 끝날 때마다 `usage.add`(10초 묶음 flush).
+ *   D-10(사용자 결정 2026-11-13 이 대체) · SC-4 평일 하루 9,360바퀴(종일 5초). 키별 하루 호출(cadence.ts `plannedDailyCalls`):
+ *     키 1 = D004 9,360 + B001 5,400 = 14,760 · 키 2 = I001 10초 4,680 + 30초 감시 대상마다 1,560 + I001 추가 쪽 —
+ *     키마다 예산 15,000 이하. 호출 수는 실패 호출까지 센다 — `dart.list` 를 감싸 호출이 끝날 때마다 그 키 `usage.add`
+ *     (10초 묶음 flush).
  *   D-11 창 밖 · 주말은 auto 가 아무것도 하지 않는다(휴장일 달력 없음).
  *   D-12 「(늦은 알림)」 — 처음 본 시각이 그 감시 대상의 커버 기준점(오늘 마지막 성공 조회 · 없으면 07:02)에서
  *     60초 + 그 감시 대상 조회 간격(D004 · B001 60초 · I001 90초 · D005 120초 — `lateGapMs`) 넘게 뒤면 늦은 건.
@@ -63,12 +69,15 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *     긴 바퀴(체커 I-2): 연장 점검을 기다리는 동안만이 아니라 바퀴 시작 · 송신 직전에도 한다(30초 시간 문이라 RPC 수는
  *     늘지 않는다) → 직전 연장 뒤 최대 경과 ≈ 30초 + 송신 한 번(최악 약 55초) < TTL 90초. 그보다 긴 경우는 기록
  *     RPC 55000 → 종료 0 → 다음 깨움이 인계해 이어 보낸다(손실 없이 스스로 낫는 위험 · 상수는 바꾸지 않는다).
- *   공식 API 운영 기준 ④ 한도 · 차단 신호에 재시도로 두드리지 않는다: `020` → 한도 의심 표시 + 종료 1 `quota`
- *     (다음 실행은 ④ 탐침 1건) · 키 오류(010 · 011 · 012 · 901) → 종료 1 `dart_key` · 코드 버그(100 · 101) →
- *     종료 1 `dart_bug` · 모르는 코드가 감시 대상 상관없이 연속 5번 → 한도 의심 표시 + 종료 1 `unknown_streak`.
- *     치명 신호를 받은 바퀴는 남은 감시 대상 조회를 건너뛰고(호출 0) 이미 넣은 건만 보낸 뒤 멈춘다.
+ *   공식 API 운영 기준 ④ 한도 · 차단 신호에 재시도로 두드리지 않는다 — **키별 레인**(261113-rn7 U-2): `020` → 그 키 한도
+ *     의심 표시 + 그 키 멈춤 `quota` · 키 오류(010 · 011 · 012 · 901) → `dart_key` · 코드 버그(100 · 101) → `dart_bug` ·
+ *     모르는 코드가 그 키 감시 대상 상관없이 연속 5번 → 그 키 한도 의심 표시 + `unknown_streak`. 치명 신호를 받으면 그 키의
+ *     남은 감시 대상 조회를 건너뛰고(호출 0) 바퀴 끝(`settleHalts`)에 error `dart key paused — other key keeps running` +
+ *     장애 글. 다른 키 감시 대상은 계속 돈다. 막힌 키는 5분(`KEY_PROBE_RETRY_MS`)마다 단독 탐침 1건으로만 재확인해 통과하면
+ *     자동 재개한다. **쓰는 키가 전부 막히면** 지금처럼 error `fatal DART status — stopping this run` 뒤 종료 1(그 이유).
  *     `800` · `900` · 5xx · 네트워크 · 깨진 본문은 그 감시 대상만 실패하고 다음 바퀴 계속(warn).
- *   SC-4 예산의 80% 에서 warn 1번 · 다다르면 error 와 함께 종료 1 `budget_exhausted`.
+ *   SC-4 키마다 예산의 80% 에서 warn 1번 · 다다르면 그 키를 그날 멈춘다(탐침 없음) · 쓰는 키가 전부 다다르면 error 와 함께
+ *     종료 1 `budget_exhausted`.
  *   실패 로그는 `safeErrorFields`(상태 · 코드 · 짧은 문구 · 종류)만 — 키 · 토큰 · 방 id · URL 을 싣지 않는다.
  *
  * 43-06 장애 짝 글(D-16 · D-17): 확인 시간대 안에서 감시 대상 하나라도 기준점(마지막 성공 조회 · 없으면 07:02)에서
@@ -80,6 +89,9 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *   `dart outage closed`. 「다시 동작」 이 실패하면 DB 를 열어 둔 채 다음 성공 바퀴에 다시(짝 보장 · 리뷰 WR-02).
  *   시작 점검(`startupCheck` — auto 는 첫 바퀴 전 · seed 는 seed 바퀴 뒤)이 죽은 수집기 · 글 전에 죽은 실행을 덮고,
  *   치명 종료(`outageOnFatal`) 직전에도 같은 장애 글을 쓴다(실패해도 종료 1 그대로). 창 끝에 열린 장애는 다음 날 첫 성공에 닫는다.
+ *   키 하나가 멈추면(261113-rn7) 「⚠ … (막힌 키의 감시 대상 이름들 — 사유)」 로 연다. DB 장애 칸이 한 줄이라 장애 글은 한 쌍이다 —
+ *   먼저 막힌 키의 사유로 열고, 열린 동안 다른 키까지 막히면 단체방 글은 더 없고 error 로그(→ 운영자 메일)만. 멈춘 키가
+ *   하나라도 있으면 닫지 않는다(두 키 모두 회복해야 「다시 동작」).
  *
  * 시계 · sleep · DB · DART · 텔레그램은 모두 주입받는다 — 13시간 실행을 가짜 시계 테스트로 돌린다(tests/helpers/fakes.ts).
  */
@@ -94,8 +106,10 @@ export const LEASE_TTL_S = 90;
 export const LEASE_RENEW_MS = 30_000;
 /** 사용량 묶음 flush 주기 */
 export const USAGE_FLUSH_MS = 10_000;
-/** 모르는 오류 코드가 감시 대상 상관없이 연속 이 횟수면 한도 의심 */
+/** 모르는 오류 코드가 그 키 감시 대상 상관없이 연속 이 횟수면 한도 의심 */
 export const UNKNOWN_STREAK = 5;
+/** 멈춘 키를 단독 탐침 1건으로 다시 확인하는 간격(옛 「다음 5분 깨움이 탐침 1건」 과 같은 빈도 · 261113-rn7) */
+export const KEY_PROBE_RETRY_MS = 300_000;
 /** 한 바퀴 송신 차례 상한(43-02 송신 기한 90초의 근거 — 5건 × (10초 + 1초)) */
 export const DELIVER_LIMIT = 5;
 /** 멈추기 직전 송신 차례 최대 횟수(× DELIVER_LIMIT 건 — 리뷰 WR-05) */
@@ -130,22 +144,23 @@ export interface CollectorDeps {
   judge: JudgeOptions;
   /** 43-02 `DartAlertDb`(어댑터 `createDartAlertDb`) + 사용량 · 한도 의심 표시 */
   db: DartAlertDb & {
+    /** 사용량 · 한도 의심 표시는 키마다 따로(261113-rn7 — 키 1 `opendart_list` · 키 2 `opendart_list_k2`) */
     usage: {
-      read(dateKst: string): Promise<number>;
-      add(n: number): void;
+      read(dateKst: string, key: DartKeyId): Promise<number>;
+      add(n: number, key: DartKeyId): void;
       /** 새 누적 — 모은 것이 없으면 null */
-      flush(dateKst: string): Promise<number | null>;
+      flush(dateKst: string, key: DartKeyId): Promise<number | null>;
     };
     strikes: {
-      read(dateKst: string): Promise<number>;
-      record(dateKst: string): Promise<number>;
+      read(dateKst: string, key: DartKeyId): Promise<number>;
+      record(dateKst: string, key: DartKeyId): Promise<number>;
     };
   };
   dart: {
-    /** 오늘 · 감시 대상 하나의 행(쪽 넘김 포함) — 실패는 `DartApiError`(calls 실림) */
+    /** 오늘 · 감시 대상 하나의 행(쪽 넘김 포함 · 키는 `watch.key`) — 실패는 `DartApiError`(calls 실림) */
     list(watch: Watch, day: string): Promise<{ rows: DartRow[]; calls: number }>;
-    /** 한도 의심 탐침 — 공개매수 1쪽 1회 */
-    probe(day: string): Promise<{ total: number; calls: number }>;
+    /** 단독 탐침 — 그 키로 1쪽 1회(키 1 공개매수 · 키 2 거래소 수시공시) */
+    probe(day: string, key: DartKeyId): Promise<{ total: number; calls: number }>;
   };
   telegram: {
     send(text: string, opts?: { plain?: boolean }): Promise<SendResult>;
@@ -173,6 +188,23 @@ export class StopRun extends Error {
 }
 
 type HaltReason = "quota" | "dart_key" | "dart_bug" | "unknown_streak";
+/** 키 레인이 멈춘 이유 — 치명 DART 신호 + 예산 소진 · 시작 탐침 실패 */
+type PauseReason = HaltReason | "budget_exhausted" | "probe_failed";
+
+/**
+ * 키별 레인(261113-rn7 U-2) — 사용량 · 80% 경고 · 모르는 코드 연속 · 멈춤 · 재탐침을 키마다 따로 든다.
+ * `paused.fresh` = 이번 바퀴(또는 시작)에 새로 멈춤 — 바퀴 끝 `settleHalts` 가 로그 · 장애 글 · 한도 의심 표시를 정리하고 끈다.
+ * `retryAt` = 단독 탐침 시각(멈춘 시각 + 5분) · 예산 소진은 Infinity(그날 다시 부르지 않음).
+ */
+interface KeyLane {
+  key: DartKeyId;
+  watches: Watch[];
+  usedKnown: number;
+  sinceFlush: number;
+  warned80: boolean;
+  unknownStreak: number;
+  paused: { reason: PauseReason; code: string | null; err: SafeErrorFields | null; retryAt: number; fresh: boolean } | null;
+}
 
 /**
  * 이 실행이 아는 열린 장애(리뷰 WR-02 — 「멈췄습니다」 · 「다시 동작」 짝을 메모리에서도 지킨다).
@@ -234,12 +266,12 @@ class Collector {
   private lastLeaseOkAt = 0;
   private nextLeaseAt = Number.POSITIVE_INFINITY;
   private nextFlushAt = Number.POSITIVE_INFINITY;
-  private usedKnown = 0;
-  private sinceFlush = 0;
-  private warned80 = false;
-  private unknownStreak = 0;
-  /** 치명 DART 신호 — 이 바퀴 남은 조회를 건너뛰고 바퀴 끝에 멈춘다 */
-  private halt: { reason: HaltReason; err: SafeErrorFields } | null = null;
+  /** 키별 레인(키 1 · 2 고정) */
+  private readonly lanes: Map<DartKeyId, KeyLane>;
+  /** 이 실행이 쓰는 키 — 감시 대상이 하나 이상인 키(probe 모드는 키 2 하나) */
+  private readonly usedKeys: DartKeyId[];
+  /** 마지막으로 멈춘 레인 — 쓰는 키가 전부 멈췄을 때의 종료 이유 */
+  private lastPaused: KeyLane | null = null;
   /** 넣기 연속 실패 — 첫 실패 바퀴 시작 시각 · error 를 이미 남겼나(리뷰 WR-01). 넣기가 되면 null */
   private insertFail: { since: number; logged: boolean } | null = null;
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
@@ -259,6 +291,20 @@ class Collector {
   private readonly stats = { laps: 0, calls: 0, inserted: 0, sent: 0, failed: 0 };
 
   constructor(private readonly d: CollectorDeps) {
+    const lane = (key: DartKeyId): KeyLane => ({
+      key,
+      watches: d.watches.filter((w) => w.key === key),
+      usedKnown: 0,
+      sinceFlush: 0,
+      warned80: false,
+      unknownStreak: 0,
+      paused: null,
+    });
+    this.lanes = new Map<DartKeyId, KeyLane>([
+      [1, lane(1)],
+      [2, lane(2)],
+    ]);
+    this.usedKeys = d.cfg.mode === "probe" ? [2] : ([1, 2] as const).filter((k) => this.lanes.get(k)!.watches.length > 0);
     this.lapDeps = {
       watches: d.watches,
       judge: d.judge,
@@ -277,6 +323,54 @@ class Collector {
 
   private dateKst(): string {
     return kstDateString(new Date(this.now()));
+  }
+
+  private laneOf(key: DartKeyId): KeyLane {
+    return this.lanes.get(key)!;
+  }
+
+  /** 이 실행이 쓰는 키의 레인 */
+  private usedLanes(): KeyLane[] {
+    return this.usedKeys.map((k) => this.laneOf(k));
+  }
+
+  /** 쓰는 키가 전부 멈췄나 */
+  private allPaused(): boolean {
+    const lanes = this.usedLanes();
+    return lanes.length > 0 && lanes.every((l) => l.paused !== null);
+  }
+
+  private anyPaused(): boolean {
+    return this.usedLanes().some((l) => l.paused !== null);
+  }
+
+  /** 아직 정리 안 된(이번 바퀴 · 시작에 새로) 멈춤이 있나 — 장애 열기는 `settleHalts` 몫 */
+  private hasFreshPause(): boolean {
+    return this.usedLanes().some((l) => l.paused?.fresh === true);
+  }
+
+  /** 레인을 멈춘다(이미 멈췄으면 그대로) — 예산 소진은 재탐침 없음 */
+  private pauseLane(l: KeyLane, reason: PauseReason, err: SafeErrorFields | null, fresh = true): void {
+    if (l.paused) return;
+    l.paused = {
+      reason,
+      code: err?.code ?? null,
+      err,
+      retryAt: reason === "budget_exhausted" ? Number.POSITIVE_INFINITY : this.now() + KEY_PROBE_RETRY_MS,
+      fresh,
+    };
+    this.lastPaused = l;
+  }
+
+  /** 그 키 감시 대상 이름들 — 장애 글 사유 앞머리 */
+  private laneLabel(l: KeyLane): string {
+    return l.watches.map((w) => WATCH_LABEL[w.id] ?? w.id).join(" · ");
+  }
+
+  /** 키별 오늘 사용량(stop 로그) */
+  private usedToday(): { k1: number; k2: number } {
+    const used = (k: DartKeyId) => this.laneOf(k).usedKnown + this.laneOf(k).sinceFlush;
+    return { k1: used(1), k2: used(2) };
   }
 
   async run(): Promise<CollectorExit> {
@@ -301,7 +395,7 @@ class Collector {
     await this.drainBeforeStop(exit);
     await this.shutdown();
     this.d.log.info(
-      { mode, ...exit, ...this.stats, usedToday: this.usedKnown + this.sinceFlush, durationMs: this.now() - t0 },
+      { mode, ...exit, ...this.stats, usedToday: this.usedToday(), durationMs: this.now() - t0 },
       "collector stop",
     );
     return exit;
@@ -336,40 +430,63 @@ class Collector {
       if (lease.expired > 0) log.error({ expired: lease.expired }, "unsent alerts expired on takeover");
     }
 
-    // ③ 예산
+    // ③ 예산 — 쓰는 키마다(다 찬 키는 멈춤 · 전부 찼으면 종료 0)
     if (!(await this.budgetAtStart(t0))) return { code: 0, reason: "budget_at_start" };
 
     if (mode === "probe") return this.probeMode();
 
-    // ④ 한도 의심 탐침
-    const strikes = await db.strikes.read(this.dateKst());
-    if (strikes > 0) await this.quotaProbe(strikes);
+    // ④ 한도 의심 탐침 — 쓰는 키마다(키 1 → 키 2) 그 키 표시가 있고 예산으로 멈추지 않았으면 그 키로 1건
+    for (const l of this.usedLanes()) {
+      if (l.paused) continue;
+      const strikes = await db.strikes.read(this.dateKst(), l.key);
+      if (strikes > 0) await this.quotaProbe(l, strikes);
+    }
+    if (this.allPaused()) {
+      const p = this.lastPaused?.paused ?? null;
+      log.error(
+        { err: p?.err ?? null, key: this.lastPaused?.key ?? null },
+        "quota probe failed — stopping without retries (next run probes once again)",
+      );
+      throw new StopRun(1, "probe_failed", p?.code ?? null);
+    }
 
     // ⑤ 기준점
     await this.loadLastOk();
+
+    // seed 는 쓰는 키가 하나라도 멈췄으면(시작 탐침 실패 · 예산) 그날 건을 빠짐없이 채울 수 없다 — 넣지 않고 끝낸다
+    if (mode === "seed" && this.anyPaused()) {
+      log.error(
+        { paused: this.usedLanes().filter((l) => l.paused).map((l) => ({ key: l.key, reason: l.paused!.reason })) },
+        "seed failed — a DART key is paused, nothing inserted",
+      );
+      throw new StopRun(1, "seed_failed");
+    }
 
     // seed — 그날 이미 올라온 건을 알림 없이 「보냄(seeded)」 으로 채운 뒤 같은 실행이 auto 루프로 이어 간다.
     // 시작 점검(장애 판정)은 seed 경로에서 이 seed 바퀴 **뒤**(그 바퀴가 lastOk 를 채운 뒤)에 한다 — 첫 배포 날
     // 기준점 07:02 와 지금의 차이로 가짜 「멈췄습니다」 · 「다시 동작」 짝이 나가지 않게(체커 W1).
     const firstLapAt = mode === "seed" ? await this.seedLap() : this.now();
     await this.startupCheck();
+    // 시작 탐침이 멈춘 키(다른 키는 계속)의 로그 · 장애 글
+    await this.settleHalts();
 
     log.info({ mode, holder, watches: this.d.watches.length, budget: cfg.dailyBudget }, "collector start");
     return this.loop(firstLapAt);
   }
 
   // ── 모드 ──────────────────────────────────────────────────────────
-  /** probe — 공개매수 1쪽 1회 · 임대 · 넣기 · 송신 없음(43-07 스모크가 로그 `probe ok` 를 찾는다) */
+  /** probe — 키 2 로 거래소 수시공시 1쪽 1회 · 키 2 카운터 · 임대 · 넣기 · 송신 없음(43-07 스모크가 로그 `probe ok` 를 찾는다) */
   private async probeMode(): Promise<CollectorExit> {
     const { log, dart } = this.d;
+    const key: DartKeyId = 2;
     try {
-      const r = await dart.probe(kstYmd(this.now()));
-      this.addCalls(r.calls);
-      log.info({ total: r.total, calls: r.calls, lease: false }, "probe ok");
+      const r = await dart.probe(kstYmd(this.now()), key);
+      this.addCalls(key, r.calls);
+      log.info({ key, total: r.total, calls: r.calls, lease: false }, "probe ok");
       return { code: 0, reason: "probe" };
     } catch (err) {
-      this.addCalls(callsOf(err));
-      if (err instanceof DartApiError && err.kind === "quota") await this.recordStrike("quota");
+      this.addCalls(key, callsOf(err));
+      if (err instanceof DartApiError && err.kind === "quota") await this.recordStrike("quota", key);
       log.error({ err: safeErrorFields(err) }, "probe failed");
       return { code: 1, reason: "probe_failed" };
     }
@@ -402,13 +519,17 @@ class Collector {
     const r = await collectOnce(seedDeps, this.lapState, kstYmd(startedAt), {
       isLate: () => false,
       seed: true,
-      isDue: (w) => this.takeSlot(w, startedAt),
+      isDue: (w) => this.isDue(w, startedAt),
     });
     this.stats.laps += 1;
 
     const failed = r.results.filter((x) => !x.ok);
-    if (failed.length > 0) {
-      if (this.halt?.reason === "quota" || this.halt?.reason === "unknown_streak") await this.recordStrike(this.halt.reason);
+    if (failed.length > 0 || this.anyPaused()) {
+      // 한도 의심 표시는 이 seed 바퀴에 새로 멈춘 키마다(그 키 카운터)
+      for (const l of this.usedLanes()) {
+        const p = l.paused;
+        if (p?.fresh && (p.reason === "quota" || p.reason === "unknown_streak")) await this.recordStrike(p.reason, l.key);
+      }
       log.error(
         { failed: failed.map((f) => ({ watch: f.watch, err: f.error })), matched: matched.length },
         "seed failed — nothing inserted, not continuing to auto",
@@ -445,33 +566,36 @@ class Collector {
     return { code: 1, reason: "test_send_failed" };
   }
 
+  /**
+   * 쓰는 키마다 오늘 사용량을 읽는다 — 다 찬 키는 멈춤(앞 실행이 이미 글을 냈다 → fresh 아님) · 전부 찼으면 false(종료 0).
+   */
   private async budgetAtStart(t0: number): Promise<boolean> {
     const { log, db, cfg } = this.d;
-    this.usedKnown = await db.usage.read(this.dateKst());
-    this.nextFlushAt = t0 + USAGE_FLUSH_MS;
-    const state = budgetStateOf(this.usedKnown, cfg.dailyBudget);
-    if (state === "exhausted") {
-      log.warn({ used: this.usedKnown, budget: cfg.dailyBudget }, "daily budget already reached — not calling OpenDART");
-      return false;
+    for (const l of this.usedLanes()) {
+      l.usedKnown = await db.usage.read(this.dateKst(), l.key);
+      const state = budgetStateOf(l.usedKnown, cfg.dailyBudget);
+      if (state === "exhausted") {
+        log.warn({ key: l.key, used: l.usedKnown, budget: cfg.dailyBudget }, "daily budget already reached — not calling OpenDART");
+        this.pauseLane(l, "budget_exhausted", null, false);
+      } else if (state === "warn") this.warnBudget80(l);
     }
-    if (state === "warn") this.warnBudget80();
-    return true;
+    this.nextFlushAt = t0 + USAGE_FLUSH_MS;
+    return !this.allPaused();
   }
 
-  /** 오늘 한도 의심 표시가 있으면 공개매수 1쪽 1건 — 실패면 재시도 없이 종료 1(다음 실행이 다시 1건) */
-  private async quotaProbe(strikes: number): Promise<void> {
+  /**
+   * 그 키 한도 의심 표시가 있으면 그 키로 단독 탐침 1건 — 실패면 재시도 없이 그 키 레인을 멈춘다(5분 뒤 바퀴 시작에 재탐침 ·
+   * 쓰는 키가 전부 멈추면 main 이 종료 1 · 다음 실행이 다시 1건).
+   */
+  private async quotaProbe(l: KeyLane, strikes: number): Promise<void> {
     const { log, dart } = this.d;
     try {
-      const r = await dart.probe(kstYmd(this.now()));
-      this.addCalls(r.calls);
-      log.info({ strikesToday: strikes, total: r.total }, "quota probe ok — resuming collection");
+      const r = await dart.probe(kstYmd(this.now()), l.key);
+      this.addCalls(l.key, r.calls);
+      log.info({ key: l.key, strikesToday: strikes, total: r.total }, "quota probe ok — resuming collection");
     } catch (err) {
-      this.addCalls(callsOf(err));
-      log.error(
-        { err: safeErrorFields(err), strikesToday: strikes },
-        "quota probe failed — stopping without retries (next run probes once again)",
-      );
-      throw new StopRun(1, "probe_failed", safeErrorFields(err).code);
+      this.addCalls(l.key, callsOf(err));
+      this.pauseLane(l, "probe_failed", safeErrorFields(err));
     }
   }
 
@@ -505,13 +629,14 @@ class Collector {
   /** 한 바퀴 — 조회 · 넣기 → (송신 직전 연장 점검) → 송신 차례 → 치명 신호면 멈춤 */
   private async lap(startedAt: number): Promise<void> {
     this.stats.laps += 1;
+    await this.retryPausedLanes(startedAt);
     let r: CollectResult | null = null;
     let insertErr: unknown = null;
     try {
       r = await collectOnce(this.lapDeps, this.lapState, kstYmd(startedAt), {
         isLate: (w) => this.isLate(w),
         seed: false,
-        isDue: (w) => this.takeSlot(w, startedAt),
+        isDue: (w) => this.isDue(w, startedAt),
       });
     } catch (err) {
       // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음만 위로 · 나머지는 다음 바퀴에 다시 넣는다
@@ -529,7 +654,68 @@ class Collector {
     if (r) await this.judgeOutage(r);
     else await this.judgeInsertFailure(startedAt, insertErr);
 
-    if (this.halt) await this.stopOnHalt();
+    await this.settleHalts();
+  }
+
+  /**
+   * 바퀴 시작 — 멈춘 키 중 재탐침 시각이 된 키마다 그 키로 단독 탐침 1건(그 키 카운터). 성공이면 그 키 재개(같은 바퀴에서
+   * 그 키 감시 대상을 부른다) · 실패면 5분 뒤 다시(warn — 장애 글 · error 는 멈출 때 이미 냈다 · 한도 의심 표시는 더하지 않음).
+   */
+  private async retryPausedLanes(now: number): Promise<void> {
+    for (const l of this.usedLanes()) {
+      const p = l.paused;
+      if (!p || p.retryAt > now) continue;
+      try {
+        const r = await this.d.dart.probe(kstYmd(now), l.key);
+        this.addCalls(l.key, r.calls);
+        l.paused = null;
+        l.unknownStreak = 0;
+        this.d.log.info({ key: l.key, reason: p.reason, total: r.total }, "dart key probe ok — resuming");
+      } catch (err) {
+        this.addCalls(l.key, callsOf(err));
+        p.retryAt = now + KEY_PROBE_RETRY_MS;
+        this.d.log.warn({ key: l.key, reason: p.reason, err: safeErrorFields(err) }, "dart key probe failed — retrying in 5 min");
+      }
+    }
+  }
+
+  /**
+   * 새로 멈춘 키 정리(바퀴 끝 · 시작 탐침 뒤) — 한도 의심 표시(quota · unknown_streak · 그 키) 뒤, 쓰는 키가 전부 멈췄으면
+   * 지금처럼 error `fatal DART status — stopping this run` + 종료 1(그 이유 · 장애 글은 치명 종료 길 `outageOnFatal`).
+   * 아니면 키마다 error `dart key paused — other key keeps running` 과 장애 글(임대 · 창 안 · 열린 장애 없을 때).
+   */
+  private async settleHalts(): Promise<void> {
+    const fresh = this.usedLanes().filter((l) => l.paused?.fresh === true);
+    if (fresh.length === 0) return;
+    for (const l of fresh) {
+      const p = l.paused!;
+      p.fresh = false;
+      if (p.reason === "quota" || p.reason === "unknown_streak") await this.recordStrike(p.reason, l.key);
+    }
+    if (this.allPaused()) {
+      const p = (this.lastPaused ?? fresh[fresh.length - 1]).paused!;
+      this.d.log.error({ reason: p.reason, err: p.err }, "fatal DART status — stopping this run");
+      throw new StopRun(1, p.reason, p.code);
+    }
+    for (const l of fresh) {
+      const p = l.paused!;
+      const used = l.usedKnown + l.sinceFlush;
+      this.d.log.error(
+        {
+          key: l.key,
+          reason: p.reason,
+          err: p.err,
+          retryAt: Number.isFinite(p.retryAt) ? new Date(p.retryAt).toISOString() : null,
+          ...(p.reason === "budget_exhausted" ? { used, budget: this.d.cfg.dailyBudget } : {}),
+        },
+        "dart key paused — other key keeps running",
+      );
+      const reasonOf = FATAL_OUTAGE_REASON[p.reason];
+      const now = this.now();
+      if (reasonOf && this.haveLease && isInWindow(now) && !this.outage) {
+        await this.openOutage(`${this.laneLabel(l)} — ${reasonOf(p.code)}`, now);
+      }
+    }
   }
 
   /**
@@ -546,16 +732,22 @@ class Collector {
       f.logged = true;
       this.d.log.error({ err: fields, sinceMs: now - f.since }, "dart alert insert failing");
     }
-    if (!isInWindow(now) || this.outage || this.halt) return;
+    if (!isInWindow(now) || this.outage || this.hasFreshPause()) return;
     await this.openOutage(`공시 저장 실패 ${fields.code ?? fields.kind}`, f.since);
   }
 
+  /** 이 바퀴에 부를까 — 그 키가 멈추지 않았고 그리고 조회 칸 차례(멈춘 키는 칸을 소비하지 않는다 · 261113-rn7) */
+  private isDue(w: Watch, lapStartMs: number): boolean {
+    return this.laneOf(w.key).paused === null && this.takeSlot(w, lapStartMs);
+  }
+
   /**
-   * 이 바퀴에 그 감시 대상을 부를 차례인가(261113-iez) — 바퀴마다(everyMs null)면 늘 true. 띄엄 조회 대상은 바퀴 시작
-   * 시각의 조회 칸이 기억한 칸과 다를 때만 true 이고 그 칸을 기억한다(실패해도 같은 칸 안에서 다시 두드리지 않는다).
+   * 이 바퀴에 그 감시 대상을 부를 차례인가(261113-iez) — 그 시각 간격이 null(바퀴마다)이면 늘 true. 띄엄 조회 대상은 바퀴
+   * 시작 시각의 조회 칸이 기억한 칸과 다를 때만 true 이고 그 칸을 기억한다(실패해도 같은 칸 안에서 다시 두드리지 않는다).
+   * B001 은 `09:00` 앞에서 null 이라 칸 기억을 건드리지 않는다 — 09:00:00 바퀴가 첫 10초 칸으로 반드시 부른다.
    */
   private takeSlot(w: Watch, lapStartMs: number): boolean {
-    const slot = pollSlot(lapStartMs, w.everyMs);
+    const slot = pollSlot(lapStartMs, everyMsAt(w, lapStartMs));
     if (slot === null) return true;
     if (this.polledSlot.get(w.id) === slot) return false;
     this.polledSlot.set(w.id, slot);
@@ -565,7 +757,8 @@ class Collector {
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */
   private isLate(w: WatchId): boolean {
     const now = this.now();
-    const everyMs = this.d.watches.find((x) => x.id === w)?.everyMs ?? null;
+    const watch = this.d.watches.find((x) => x.id === w);
+    const everyMs = watch ? everyMsAt(watch, now) : null;
     return isLateAt(now, coverPointMs(now, this.lastOk.get(w) ?? null), lateGapMs(everyMs));
   }
 
@@ -625,14 +818,6 @@ class Collector {
     }
   }
 
-  /** 치명 DART 신호로 멈춘다 — 장애 열기 · 단체방 글은 run() 의 치명 종료 길(`outageOnFatal`)이 한다 */
-  private async stopOnHalt(): Promise<never> {
-    const h = this.halt!;
-    if (h.reason === "quota" || h.reason === "unknown_streak") await this.recordStrike(h.reason);
-    this.d.log.error({ reason: h.reason, err: h.err }, "fatal DART status — stopping this run");
-    throw new StopRun(1, h.reason, h.err.code);
-  }
-
   // ── 장애 짝 글(43-06 · D-16 · D-17) ──────────────────────────────
   /**
    * 시작 점검 — auto 는 임대 · 예산 · 탐침 · 기준점 뒤 첫 바퀴 전, seed 는 seed 바퀴 뒤 첫 auto 바퀴 전.
@@ -652,7 +837,8 @@ class Collector {
       if (this.dbOutage.notice === "pending") await this.openOutage(this.dbOutage.reason ?? this.stalledReason(now), dbSinceMs, true);
       return;
     }
-    const stale = this.d.watches.filter((w) => now - this.coverOf(now, w.id) > OUTAGE_AFTER_MS);
+    // 멈춘 키(예산 · 시작 탐침 실패)의 감시 대상은 빼고 본다 — 그 키는 settleHalts · 앞 실행이 사유를 남긴다
+    const stale = this.d.watches.filter((w) => this.laneOf(w.key).paused === null && now - this.coverOf(now, w.id) > OUTAGE_AFTER_MS);
     if (stale.length === 0) return;
     const since = Math.min(...stale.map((w) => this.coverOf(now, w.id)));
     await this.openOutage(this.stalledReason(now), since);
@@ -669,9 +855,9 @@ class Collector {
   }
 
   /**
-   * 바퀴 끝 판정 — 이 바퀴 실패가 없고 모든 감시 대상의 마지막 조회가 성공(`failing` 빔)이면 열린 장애를 닫고,
-   * 실패한 감시 대상 중 기준점에서 5분 넘게 성공이 없는 것이 있으면 연다(한 번만 · 이미 열려 있으면 아무것도 안 함).
-   * 치명 신호 바퀴는 치명 종료 길이 연다.
+   * 바퀴 끝 판정 — 이 바퀴 실패가 없고 모든 감시 대상의 마지막 조회가 성공(`failing` 빔)이고 멈춘 키가 없으면 열린 장애를
+   * 닫고, 실패한 감시 대상 중 기준점에서 5분 넘게 성공이 없는 것이 있으면 연다(한 번만 · 이미 열려 있으면 아무것도 안 함).
+   * 치명 신호 바퀴는 `settleHalts`(한 키) · 치명 종료 길(전부)이 연다.
    */
   private async judgeOutage(r: CollectResult): Promise<void> {
     const now = this.now();
@@ -679,10 +865,11 @@ class Collector {
     const failed = r.results.filter((x) => !x.ok);
     if (failed.length === 0) {
       // 이 바퀴에 안 불린 띄엄 조회 대상(I001 · D005)이 아직 실패 중이면 닫지 않는다 — 그 대상이 다시 성공한 바퀴에 닫는다
-      if (this.outage && this.failing.size === 0) await this.closeOutage();
+      // 멈춘 키가 있으면 닫지 않는다 — 두 키 모두 회복해야 「다시 동작」(261113-rn7)
+      if (this.outage && this.failing.size === 0 && !this.anyPaused()) await this.closeOutage();
       return;
     }
-    if (this.outage || this.halt) return;
+    if (this.outage || this.hasFreshPause()) return;
     const stale = failed.filter((x) => now - this.coverOf(now, x.watch) > OUTAGE_AFTER_MS);
     if (stale.length === 0) return;
     const since = Math.min(...stale.map((x) => this.coverOf(now, x.watch)));
@@ -857,70 +1044,84 @@ class Collector {
     }
   }
 
-  private async recordStrike(why: HaltReason): Promise<void> {
+  private async recordStrike(why: HaltReason, key: DartKeyId): Promise<void> {
     try {
-      const n = await this.d.db.strikes.record(this.dateKst());
-      this.d.log.warn({ strikesToday: n, why }, "quota strike recorded — next run probes once before collecting");
+      const n = await this.d.db.strikes.record(this.dateKst(), key);
+      this.d.log.warn({ key, strikesToday: n, why }, "quota strike recorded — next run probes once before collecting");
     } catch (err) {
-      this.d.log.error({ err: safeErrorFields(err), why }, "quota strike record failed");
+      this.d.log.error({ err: safeErrorFields(err), why, key }, "quota strike record failed");
     }
   }
 
   // ── DART 호출 집계 · 치명 신호 ────────────────────────────────────
-  /** `dart.list` 감쌈 — 호출 수를 끝날 때마다 사용량에 더하고(실패 포함) 치명 · 모르는 코드 연속을 센다 */
+  /**
+   * `dart.list` 감쌈 — 호출 수를 끝날 때마다 그 키(`watch.key`) 사용량에 더하고(실패 포함) 그 키의 치명 · 모르는 코드 연속을
+   * 센다. 멈춘 키는 `isDue` 가 거르지만 그물로 한 번 더 막는다(호출 0).
+   */
   private async countedList(watch: Watch, day: string): Promise<{ rows: DartRow[]; calls: number }> {
-    if (this.halt) {
-      // 치명 신호 뒤 같은 바퀴의 남은 감시 대상 — 부르지 않는다(호출 0)
-      const skipped = new DartApiError(0, null, "transient", "skipped: run is stopping after a fatal DART status");
+    const l = this.laneOf(watch.key);
+    if (l.paused) {
+      const skipped = new DartApiError(0, null, "transient", "skipped: this DART key is paused");
       skipped.calls = 0;
       throw skipped;
     }
     try {
       const r = await this.d.dart.list(watch, day);
-      this.addCalls(r.calls);
-      this.unknownStreak = 0;
+      this.addCalls(l.key, r.calls);
+      l.unknownStreak = 0;
       return r;
     } catch (err) {
-      this.addCalls(callsOf(err));
-      this.noteListError(err);
+      this.addCalls(l.key, callsOf(err));
+      this.noteListError(l, err);
       throw err;
     }
   }
 
-  private noteListError(err: unknown): void {
+  /** 치명 신호는 그 키 레인만 곧바로 멈춘다(fresh) — 같은 바퀴의 그 키 남은 감시 대상은 `isDue` 가 건너뛴다 */
+  private noteListError(l: KeyLane, err: unknown): void {
     const kind = err instanceof DartApiError ? err.kind : "transient";
     if (kind === "unknown") {
-      this.unknownStreak += 1;
-      if (this.unknownStreak >= UNKNOWN_STREAK) this.halt ??= { reason: "unknown_streak", err: safeErrorFields(err) };
+      l.unknownStreak += 1;
+      if (l.unknownStreak >= UNKNOWN_STREAK) this.pauseLane(l, "unknown_streak", safeErrorFields(err));
       return;
     }
-    this.unknownStreak = 0;
+    l.unknownStreak = 0;
     const reason = HALT_BY_KIND[kind];
-    if (reason) this.halt ??= { reason, err: safeErrorFields(err) };
+    if (reason) this.pauseLane(l, reason, safeErrorFields(err));
   }
 
-  private addCalls(n: number): void {
+  private addCalls(key: DartKeyId, n: number): void {
     if (n <= 0) return;
-    this.d.db.usage.add(n);
-    this.sinceFlush += n;
+    const l = this.laneOf(key);
+    this.d.db.usage.add(n, key);
+    l.sinceFlush += n;
     this.stats.calls += n;
-    if (budgetStateOf(this.usedKnown + this.sinceFlush, this.d.cfg.dailyBudget) !== "ok") this.warnBudget80();
+    if (budgetStateOf(l.usedKnown + l.sinceFlush, this.d.cfg.dailyBudget) !== "ok") this.warnBudget80(l);
   }
 
   // ── 예산 · 임대 · 사용량 ──────────────────────────────────────────
+  /**
+   * 키마다 예산 문 — 다 쓴 키는 그날 멈춘다(fresh · 재탐침 없음 · 장애 글은 그 바퀴 끝 `settleHalts`). 쓰는 키가 전부 멈췄으면
+   * 지금처럼 error `daily budget exhausted — stopping this run` + 종료 1 `budget_exhausted`.
+   */
   private budgetGate(): void {
-    const used = this.usedKnown + this.sinceFlush;
-    if (budgetStateOf(used, this.d.cfg.dailyBudget) === "exhausted") {
-      this.d.log.error({ used, budget: this.d.cfg.dailyBudget }, "daily budget exhausted — stopping this run");
-      throw new StopRun(1, "budget_exhausted");
+    for (const l of this.usedLanes()) {
+      if (l.paused) continue;
+      const used = l.usedKnown + l.sinceFlush;
+      if (budgetStateOf(used, this.d.cfg.dailyBudget) !== "exhausted") continue;
+      this.pauseLane(l, "budget_exhausted", null);
+      if (this.allPaused()) {
+        this.d.log.error({ key: l.key, used, budget: this.d.cfg.dailyBudget }, "daily budget exhausted — stopping this run");
+        throw new StopRun(1, "budget_exhausted");
+      }
     }
   }
 
-  private warnBudget80(): void {
-    if (this.warned80) return;
-    this.warned80 = true;
+  private warnBudget80(l: KeyLane): void {
+    if (l.warned80) return;
+    l.warned80 = true;
     this.d.log.warn(
-      { used: this.usedKnown + this.sinceFlush, budget: this.d.cfg.dailyBudget, ratio: BUDGET_WARN_RATIO },
+      { key: l.key, used: l.usedKnown + l.sinceFlush, budget: this.d.cfg.dailyBudget, ratio: BUDGET_WARN_RATIO },
       "daily budget 80% reached",
     );
   }
@@ -970,15 +1171,18 @@ class Collector {
     return out;
   }
 
+  /** 쓰는 키마다 그 키 카운터로 flush */
   private async flushUsage(): Promise<void> {
-    try {
-      const total = await this.d.db.usage.flush(this.dateKst());
-      if (total !== null) {
-        this.usedKnown = total;
-        this.sinceFlush = 0;
+    for (const l of this.usedLanes()) {
+      try {
+        const total = await this.d.db.usage.flush(this.dateKst(), l.key);
+        if (total !== null) {
+          l.usedKnown = total;
+          l.sinceFlush = 0;
+        }
+      } catch (err) {
+        this.d.log.warn({ err: safeErrorFields(err), key: l.key }, "usage flush failed — will retry");
       }
-    } catch (err) {
-      this.d.log.warn({ err: safeErrorFields(err) }, "usage flush failed — will retry");
     }
   }
 

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DartRow } from "../src/dart/client";
-import { EXCHANGE_POLL_MS, TRADE_PLAN_POLL_MS } from "../src/cadence";
+import { EXCHANGE_POLL_MS, RIGHTS_REGULAR_POLL_MS, SLOW_POLL_MS } from "../src/cadence";
 import { collectOnce, newLapState, type InsertItem, type LapDeps } from "../src/lap";
 import {
   b001Kind,
@@ -57,12 +57,13 @@ function fixtureRow(reportNm: string): DartRow {
   return r;
 }
 
-describe("buildWatches — 네 감시 대상(D-03 · 261113-iez)", () => {
-  it("공개매수 D004 p0 · 주요사항보고서 B001 p1 · 거래소 수시공시 I001 p2(30초) · 임원ㆍ주요주주 거래계획 D005 p3(60초) 순서로 넷을 돌려준다", () => {
+describe("buildWatches — 네 감시 대상(D-03 · 261113-iez · rn7 키 2개)", () => {
+  it("키 1: 공개매수 D004 p0 매 바퀴 · 주요사항보고서 B001 p1(09:00 전 매 바퀴 · 뒤 10초) / 키 2: 거래소 수시공시 I001 p2(10초) · 임원ㆍ주요주주 거래계획 D005 p3(30초)", () => {
     const ws = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
     expect(ws).toHaveLength(4);
     expect(ws[0]).toEqual({
       id: "tender_offer",
+      key: 1,
       pblntfDetailTy: "D004",
       priority: 0,
       everyMs: null,
@@ -71,14 +72,17 @@ describe("buildWatches — 네 감시 대상(D-03 · 261113-iez)", () => {
     });
     expect(ws[1]).toEqual({
       id: "rights_merger",
+      key: 1,
       pblntfDetailTy: "B001",
       priority: 1,
-      everyMs: null,
+      everyMs: RIGHTS_REGULAR_POLL_MS,
+      preopenEveryMs: null,
       rule: { form: "b001", kinds: DEFAULT_B001_KINDS, originalOnly: new Set(["자기주식취득결정", "주식교환ㆍ이전결정"]) },
       alwaysShowFiler: false,
     });
     expect(ws[2]).toMatchObject({
       id: "exchange_disclosure",
+      key: 2,
       pblntfDetailTy: "I001",
       priority: 2,
       everyMs: EXCHANGE_POLL_MS,
@@ -87,14 +91,16 @@ describe("buildWatches — 네 감시 대상(D-03 · 261113-iez)", () => {
     });
     expect(ws[3]).toMatchObject({
       id: "insider_trade_plan",
+      key: 2,
       pblntfDetailTy: "D005",
       priority: 3,
-      everyMs: TRADE_PLAN_POLL_MS,
+      everyMs: SLOW_POLL_MS,
       rule: { form: "plain" },
       alwaysShowFiler: true,
     });
-    expect(EXCHANGE_POLL_MS).toBe(30_000);
-    expect(TRADE_PLAN_POLL_MS).toBe(60_000);
+    expect(RIGHTS_REGULAR_POLL_MS).toBe(10_000);
+    expect(EXCHANGE_POLL_MS).toBe(10_000);
+    expect(SLOW_POLL_MS).toBe(30_000);
     expect(B001_ORIGINAL_ONLY_KINDS).toEqual(new Set(["자기주식취득결정", "주식교환ㆍ이전결정"]));
   });
 
@@ -376,8 +382,8 @@ describe("collectOnce — 주요사항보고서 바퀴 · 근접 불일치 warn 
     const warns: { obj: Record<string, unknown>; msg?: string }[] = [];
     const inserts: InsertItem[][] = [];
     const deps: LapDeps = {
-      // 매 바퀴 감시 대상 둘(D004 · B001)만 — 이 묶음은 주요사항보고서 판정 · warn 을 잰다
-      watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }).filter((x) => x.everyMs === null),
+      // 키 1 감시 대상 둘(D004 · B001)만 — 이 묶음은 주요사항보고서 판정 · warn 을 잰다
+      watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }).filter((x) => x.key === 1),
       judge: INCLUDE,
       log: {
         info() {},

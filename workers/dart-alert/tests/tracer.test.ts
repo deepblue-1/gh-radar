@@ -165,8 +165,8 @@ function wire(opts?: { dart?: ReturnType<typeof fakeDart>; tg?: ReturnType<typeo
   const { db, rows } = fakeDb(now);
   const { log, lines } = captureLog();
   const deps: LapDeps = {
-    // 매 바퀴 감시 대상 둘(D004 · B001) — 가짜 HTTP 요청 수 단언이 이 둘을 기준으로 한다(261113-iez)
-    watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }).filter((x) => x.everyMs === null),
+    // 키 1 감시 대상 둘(D004 · B001) — 가짜 HTTP 요청 수 단언이 이 둘을 기준으로 한다(261113-iez · rn7)
+    watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }).filter((x) => x.key === 1),
     judge: { b001Corrections: "include" },
     log,
     clock: { now },

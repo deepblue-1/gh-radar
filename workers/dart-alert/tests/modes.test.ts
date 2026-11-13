@@ -11,6 +11,7 @@ import { harness, kst, logRecorder, MON, rightsRow, SAT, tenderRow, type FeedIte
  * Phase 43-05 T2 — 모드(probe · seed · test-send · auto 창 밖)와 Cloud Run Job 진입점(`main` · `buildDeps`).
  * 배포 · 스모크(43-07 `probe ok`) · 첫 배포 날(seed → auto 이어 감) · 개인 대화 시험(D-15 test-send)의 계약.
  * 실제 OpenDART · Supabase · 텔레그램 호출 없음 — 진입점 결선은 가짜 axios 전송으로만 확인한다.
+ * 261113-rn7: probe 모드는 키 2(거래소 수시공시 1쪽 · 키 2 카운터) · 진입점은 OpenDART 키 2개.
  */
 
 const at = (hms: string) => kst(MON, hms);
@@ -19,7 +20,7 @@ const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer
 const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
 
 describe("probe 모드 (43-07 스모크 계약)", () => {
-  it("임대 없이(남이 쥐고 있어도) 공개매수 1쪽 1회 · 넣기 0 · 송신 0 · usage.add(1) · probe ok(total) · 종료 0", async () => {
+  it("임대 없이(남이 쥐고 있어도) 키 2 로 1쪽 1회 · 넣기 0 · 송신 0 · 키 2 usage.add(1) · probe ok(total) · 종료 0", async () => {
     const h = harness({
       start: at("10:00:00"),
       mode: "probe",
@@ -30,15 +31,33 @@ describe("probe 모드 (43-07 스모크 계약)", () => {
     expect(exit).toEqual({ code: 0, reason: "probe" });
     expect(h.dart.probeCalls).toHaveLength(1);
     expect(h.dart.probeCalls[0].day).toBe("20261116");
+    expect(h.dart.probeCalls[0].key).toBe(2);
     expect(h.dart.listCalls).toHaveLength(0);
     expect(h.db.calls.leaseAcquire).toHaveLength(0);
     expect(h.db.calls.insert).toHaveLength(0);
     expect(h.telegram.sent).toHaveLength(0);
-    expect(h.db.calls.usageAdd.map((c) => c.n)).toEqual([1]);
-    expect(h.db.state.used).toBe(1);
+    expect(h.db.calls.usageAdd.map((c) => ({ n: c.n, key: c.key }))).toEqual([{ n: 1, key: 2 }]);
+    expect(h.db.state.used2).toBe(1);
+    expect(h.db.state.used).toBe(0);
     expect(h.logs.count("probe ok", "info")).toBe(1);
     expect(h.logs.find("probe ok")?.obj).toMatchObject({ total: 3 });
     expect(h.db.state.lease.holder).toBe("other:1");
+  });
+
+  it("키 2 예산이 찼으면(used2 15,000) 종료 0 budget_at_start · 키 1 이 찬 것(used 15,000)은 probe 를 막지 않는다", async () => {
+    const full2 = harness({ start: at("10:00:00"), mode: "probe", db: { used2: 15_000 } });
+    expect(await full2.run()).toEqual({ code: 0, reason: "budget_at_start" });
+    expect(full2.dart.probeCalls).toHaveLength(0);
+    const full1 = harness({ start: at("10:00:00"), mode: "probe", db: { used: 15_000 } });
+    expect(await full1.run()).toEqual({ code: 0, reason: "probe" });
+    expect(full1.dart.probeCalls.map((c) => c.key)).toEqual([2]);
+  });
+
+  it("키 2 탐침이 020 이면 키 2 한도 의심 표시(strikes2 1 · 키 1 그대로) · 종료 1 probe_failed", async () => {
+    const h = harness({ start: at("10:00:00"), mode: "probe", dart: { probe: () => ({ status: "020" }) } });
+    expect(await h.run()).toEqual({ code: 1, reason: "probe_failed" });
+    expect(h.db.state.strikes2).toBe(1);
+    expect(h.db.state.strikes).toBe(0);
   });
 
   it("주말 · 창 밖에도 probe 는 1회 부른다", async () => {
@@ -77,13 +96,13 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     const persisted = h.db.calls.leaseAcquire.find((c) => c.lastOk !== undefined)!;
     expect(persisted.at).toBe(at("14:00:00"));
     expect(persisted.lastOk).toEqual({ tender_offer: iso("14:00:00"), rights_merger: iso("14:00:00") });
-    // 같은 실행이 한 바퀴(10초) 뒤 auto 바퀴 — 새 건 1건만 · 늦은 알림 아님
-    expect(h.dart.callsOf("tender_offer")[1].at).toBe(at("14:00:10"));
+    // 같은 실행이 한 바퀴(5초) 뒤 auto 바퀴 — 새 건 1건만 · 늦은 알림 아님
+    expect(h.dart.callsOf("tender_offer")[1].at).toBe(at("14:00:05"));
     expect(h.telegram.sent).toHaveLength(1);
     const sent = h.telegram.texts();
     expect(sent[0]).toContain("대상회사4");
     expect(sent[0]).not.toContain(LATE_LABEL);
-    expect(h.telegram.sent[0].at).toBe(at("14:00:10"));
+    expect(h.telegram.sent[0].at).toBe(at("14:00:05"));
     expect(h.db.calls.insert.slice(1).every((c) => c.seed === false)).toBe(true);
     // seed 된 3건은 끝까지 보내지 않는다
     for (const r of [tenderRow(1), tenderRow(2), rightsRow(3)]) expect(h.db.statusOf(r.rcept_no)).toBe("seeded");
@@ -180,6 +199,7 @@ describe("auto 창 밖 (D-11)", () => {
 const SECRETS = {
   SUPABASE_SERVICE_ROLE_KEY: "SECRET-SERVICE-ROLE-DO-NOT-LOG",
   OPENDART_API_KEY: "SECRET-DART-KEY-DO-NOT-LOG",
+  OPENDART_API_KEY_2: "SECRET-DART-KEY2-DO-NOT-LOG",
   TELEGRAM_BOT_TOKEN: "123456:SECRET-BOT-TOKEN-DO-NOT-LOG",
   TELEGRAM_CHAT_ID: "-1009876543210",
 };
@@ -302,11 +322,12 @@ describe("진입점 main() · buildDeps()", () => {
     expect(failed).toMatchObject({ level: 50, err: { message: "boom", kind: "unknown" } });
   });
 
-  it("buildDeps — holder · 감시 대상 4 · DART 조회 · 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
+  it("buildDeps — holder · 감시 대상 4 · 키별 DART 조회 · 키별 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
     const cfg: DartAlertConfig = {
       supabaseUrl: "http://127.0.0.1:1",
       supabaseServiceRoleKey: SECRETS.SUPABASE_SERVICE_ROLE_KEY,
       dartApiKey: SECRETS.OPENDART_API_KEY,
+      dartApiKey2: SECRETS.OPENDART_API_KEY_2,
       telegramBotToken: SECRETS.TELEGRAM_BOT_TOKEN,
       telegramChatId: SECRETS.TELEGRAM_CHAT_ID,
       dartBaseUrl: "http://dart.invalid",
@@ -343,15 +364,22 @@ describe("진입점 main() · buildDeps()", () => {
     const list = await deps.dart.list(deps.watches[0], "20261116");
     expect(list).toMatchObject({ calls: 1 });
     expect(list.rows).toHaveLength(1);
-    expect(dartReqs[0]).toMatchObject({ pblntf_detail_ty: "D004", bgn_de: "20261116", end_de: "20261116", page_no: 1, crtfc_key: cfg.dartApiKey });
+    expect(dartReqs[0]).toMatchObject({ pblntf_detail_ty: "D004", bgn_de: "20261116", end_de: "20261116", page_no: 1 });
     await deps.dart.list(deps.watches[1], "20261116");
     expect(dartReqs[1]).toMatchObject({ pblntf_detail_ty: "B001" });
     await deps.dart.list(deps.watches[2], "20261116");
     expect(dartReqs[2]).toMatchObject({ pblntf_detail_ty: "I001" });
     await deps.dart.list(deps.watches[3], "20261116");
     expect(dartReqs[3]).toMatchObject({ pblntf_detail_ty: "D005" });
-    expect(await deps.dart.probe("20261116")).toEqual({ total: 1, calls: 1 });
+    expect(await deps.dart.probe("20261116", 1)).toEqual({ total: 1, calls: 1 });
     expect(dartReqs[4]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
+    expect(await deps.dart.probe("20261116", 2)).toEqual({ total: 1, calls: 1 });
+    expect(dartReqs[5]).toMatchObject({ pblntf_detail_ty: "I001", page_no: 1 });
+    // 키 결선(값은 출력하지 않고 같음만) — D004 · B001 · 탐침 1 은 키 1, I001 · D005 · 탐침 2 는 키 2(261113-rn7 U-2)
+    const usedKey1 = dartReqs.map((r) => r.crtfc_key === cfg.dartApiKey);
+    const usedKey2 = dartReqs.map((r) => r.crtfc_key === cfg.dartApiKey2);
+    expect(usedKey1).toEqual([true, true, false, false, true, false]);
+    expect(usedKey2).toEqual([false, false, true, true, false, true]);
 
     expect(await deps.telegram.send("hello")).toEqual({ kind: "ok", messageId: 9 });
     expect(posts[0]).toMatchObject({ chat_id: SECRETS.TELEGRAM_CHAT_ID, text: "hello" });

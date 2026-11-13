@@ -171,9 +171,9 @@ describe("배포 스크립트 env ↔ config.ts(loadConfig) 이름", () => {
   const envVarsLine = /^ENV_VARS="\^@\^([^"]+)"/m.exec(SCRIPT)?.[1] ?? "";
   const plainEnvs = envVarsLine.split("@").map((kv) => kv.split("=")[0]);
 
-  it("필수 env 5개가 config.ts 에 있다(파싱 확인)", () => {
+  it("필수 env 6개가 config.ts 에 있다(파싱 확인 · OPENDART_API_KEY_2 포함 — 261113-rn7)", () => {
     expect(new Set(required)).toEqual(
-      new Set(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]),
+      new Set(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "OPENDART_API_KEY_2", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]),
     );
   });
 
@@ -182,10 +182,11 @@ describe("배포 스크립트 env ↔ config.ts(loadConfig) 이름", () => {
     expect(required.filter((k) => !shipped.has(k))).toEqual([]);
   });
 
-  it("비밀 4개는 Secret :latest 로만 싣는다(이름 고정)", () => {
+  it("비밀 5개는 Secret :latest 로만 싣는다(이름 고정 · 키 2 = gh-radar-opendart-key-2)", () => {
     expect(secretsLine.split(",").sort()).toEqual(
       [
         "OPENDART_API_KEY=gh-radar-opendart-key:latest",
+        "OPENDART_API_KEY_2=gh-radar-opendart-key-2:latest",
         "SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest",
         "TELEGRAM_BOT_TOKEN=gh-radar-telegram-bot-token:latest",
         "TELEGRAM_CHAT_ID=gh-radar-telegram-chat-id:latest",

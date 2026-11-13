@@ -44,7 +44,8 @@ describe("DART 5분 실패 → 장애 열기 · 한 번만 (D-17)", () => {
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
 
     expect(opens(h)).toHaveLength(1);
-    expect(opens(h)[0].at).toBe(at("10:05:10"));
+    // 기준점 10:00:00 + 5분 「넘게」 — 10:05:00 바퀴는 정확히 5분이라 아니고, 다음 5초 바퀴 10:05:05 에 연다(D004 매 바퀴)
+    expect(opens(h)[0].at).toBe(at("10:05:05"));
     expect(stopped(h)).toHaveLength(1);
     expect(stopped(h)[0].text.startsWith(`${STOPPED} — 10:00 부터 DART 조회 실패(`)).toBe(true);
     expect(stopped(h)[0].text).toContain("복구되면 알려 드립니다.");
@@ -110,7 +111,7 @@ describe("DART 5분 실패 → 장애 열기 · 한 번만 (D-17)", () => {
     expect(h.logs.count("dart outage opened")).toBe(0);
   });
 
-  it("공개매수는 성공 · 주요사항보고서만 6분 실패 → open(사유에 감시 대상 표시)", async () => {
+  it("공개매수는 성공 · 주요사항보고서만 6분 실패 → open(사유에 감시 대상 표시 · B001 은 10초 칸이라 10:05:10)", async () => {
     const h = harness({
       start: at("10:00:00"),
       abortAt: at("10:06:00"),

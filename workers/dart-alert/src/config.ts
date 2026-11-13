@@ -5,10 +5,12 @@ import { DEFAULT_B001_KINDS } from "./watches";
  * Phase 43-03 — dart-alert env 계약.
  *
  * 이름은 43-07 배포 스크립트(`scripts/deploy-dart-alert.sh`)와 같은 계약이다 — 바꾸지 않는다.
- * - SC-4 · 공식 API 운영 기준 ①: 하루 예산 `DART_ALERT_DAILY_BUDGET` 은 공식 일일 한도 20,000 의 75% 이하
- *   (정수 1 ~ 15,000 · 기본 15,000). 범위 밖이면 시작하지 않는다.
- * - 필수 비밀(`OPENDART_API_KEY` · `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `SUPABASE_SERVICE_ROLE_KEY`)과
- *   `SUPABASE_URL` 이 없으면 이름만 담은 오류로 멈춘다 — 값은 어떤 오류 메시지에도 싣지 않는다.
+ * - SC-4 · 공식 API 운영 기준 ①: 하루 예산 `DART_ALERT_DAILY_BUDGET` 은 공식 일일 한도(인증키당 20,000)의 75% 이하
+ *   (정수 1 ~ 15,000 · 기본 15,000). 범위 밖이면 시작하지 않는다. 키가 2개라(261113-rn7 U-2) 같은 값을 **키마다 따로**
+ *   적용한다(키 1 카운터 `opendart_list` · 키 2 카운터 `opendart_list_k2`).
+ * - 필수 비밀 5개(`OPENDART_API_KEY` · `OPENDART_API_KEY_2` · `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` ·
+ *   `SUPABASE_SERVICE_ROLE_KEY`)와 `SUPABASE_URL` 이 없으면 이름만 담은 오류로 멈춘다 — 값은 어떤 오류 메시지에도 싣지 않는다.
+ *   두 OpenDART 키가 같은 값이면 시작하지 않는다(같은 키를 둘로 세면 실제 한도를 넘는다 · 한 키 대체 동작 없음).
  * - D-14: 단체방 id 는 설정값(Secret)이다 — 숫자(음수 허용)가 아니면 이름만 담아 멈춘다.
  * - D-04: 주요사항보고서 종류 목록(기본 6종 — 유상증자결정 · 유무상증자결정 · 회사합병결정 · 회사분할합병결정 ·
  *   자기주식취득결정 · 주식교환ㆍ이전결정 · watches.ts `DEFAULT_B001_KINDS`) · 정정 포함 여부는 재배포 없이 env 로
@@ -24,14 +26,16 @@ export type DartAlertMode = "auto" | "probe" | "seed" | "test-send";
 export interface DartAlertConfig {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
-  /** OpenDART 인증키(crtfc_key) */
+  /** OpenDART 인증키 1(crtfc_key) — 공개매수 · 주요사항보고서 */
   dartApiKey: string;
+  /** OpenDART 인증키 2(crtfc_key) — 거래소 수시공시 등 그 밖 감시 대상 · 운영 도구(261113-rn7) */
+  dartApiKey2: string;
   telegramBotToken: string;
   /** 단체방 id — 숫자 문자열(슈퍼그룹은 음수) */
   telegramChatId: string;
   dartBaseUrl: string;
   telegramBaseUrl: string;
-  /** 하루 호출 상한(api_usage `opendart_list`) — 1 ~ 15,000 */
+  /** 키마다 하루 호출 상한(api_usage `opendart_list` · `opendart_list_k2`) — 1 ~ 15,000 */
   dailyBudget: number;
   mode: DartAlertMode;
   /** D-04 주요사항보고서 허용 종류명 */
@@ -48,9 +52,9 @@ export interface DartAlertConfig {
 export const DART_DEFAULT_BASE_URL = "https://opendart.fss.or.kr";
 export const TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org";
 /**
- * 하루 예산 상한 = 공식 20,000/일의 75%. 설계 사용량은 약 13,140(평일 바퀴마다 D004 · B001 5,400 × 2 + I001 30초 칸
- * 1,560 + D005 60초 칸 780 — cadence.ts `plannedDailyCalls`) + I001 100건 넘는 오후 추가 쪽 약 400 ~ 800(최악 14,700) ·
- * 남는 몫은 추가 쪽 · 한도 소진 뒤 탐침 몫이다.
+ * 키마다 하루 예산 상한 = 공식 20,000/일(인증키당)의 75%. 키별 설계 사용량(cadence.ts `plannedDailyCalls`):
+ * 키 1 = 14,760(공개매수 D004 종일 5초 9,360 + 주요사항보고서 B001 5,400) · 키 2 = 거래소 수시공시 I001 10초 4,680 +
+ * 30초 감시 대상마다 1,560 + I001 100건 넘는 날 추가 쪽. 남는 몫은 추가 쪽 · 막힌 키 재탐침 몫이다.
  */
 export const DART_DAILY_BUDGET_LIMIT = 15_000;
 const MODES: readonly DartAlertMode[] = ["auto", "probe", "seed", "test-send"];
@@ -113,10 +117,11 @@ function parseCorrections(raw: string | undefined): "include" | "exclude" {
 }
 
 export function loadConfig(): DartAlertConfig {
-  return {
+  const cfg: DartAlertConfig = {
     supabaseUrl: req("SUPABASE_URL"),
     supabaseServiceRoleKey: req("SUPABASE_SERVICE_ROLE_KEY"),
     dartApiKey: req("OPENDART_API_KEY"),
+    dartApiKey2: req("OPENDART_API_KEY_2"),
     telegramBotToken: req("TELEGRAM_BOT_TOKEN"),
     telegramChatId: parseChatId(req("TELEGRAM_CHAT_ID")),
     dartBaseUrl: optional("DART_BASE_URL") ?? DART_DEFAULT_BASE_URL,
@@ -128,4 +133,11 @@ export function loadConfig(): DartAlertConfig {
     logLevel: optional("LOG_LEVEL") ?? "info",
     appVersion: optional("APP_VERSION") ?? "dev",
   };
+  // 두 키가 같은 값이면 시작하지 않는다 — 값은 오류에 싣지 않는다(261113-rn7 U-2)
+  if (cfg.dartApiKey.trim() === cfg.dartApiKey2.trim()) {
+    throw new Error(
+      "invalid OPENDART_API_KEY_2: OPENDART_API_KEY 와 같은 값 — 키 2개는 서로 다른 OpenDART 인증키여야 한다(같은 키를 둘로 세면 실제 한도를 넘는다)",
+    );
+  }
+  return cfg;
 }

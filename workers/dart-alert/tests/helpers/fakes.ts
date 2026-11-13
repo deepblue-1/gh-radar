@@ -4,7 +4,7 @@ import { DartApiError, type DartRow } from "../../src/dart/client";
 import { LeaseLostError, type LeaseResult, type OutageAction } from "../../src/db";
 import type { ClaimedRow, InsertedRow, InsertItem, MarkInput } from "../../src/lap";
 import type { SendResult } from "../../src/telegram/client";
-import { buildWatches, DEFAULT_B001_KINDS, type JudgeOptions, type Watch, type WatchId } from "../../src/watches";
+import { buildWatches, DEFAULT_B001_KINDS, type DartKeyId, type JudgeOptions, type Watch, type WatchId } from "../../src/watches";
 
 /**
  * Phase 43-05 — 수집기 가짜 의존성 묶음(43-06 이 재사용 · 확장한다).
@@ -249,7 +249,7 @@ export interface FakeDartOptions {
   feed?: FeedItem[];
   /** 돌려준 필드만 기본(피드)을 덮는다 — undefined 면 기본 그대로 */
   reply?: (c: DartCtx) => DartReply | undefined;
-  probe?: (c: { day: string; now: number; n: number }) => DartReply | undefined;
+  probe?: (c: { day: string; now: number; n: number; key: DartKeyId }) => DartReply | undefined;
   /** 모든 호출 공통 지연 */
   delayMs?: number;
   /** 호출 상한 — 넘으면 던진다 */
@@ -273,7 +273,7 @@ export function fakeDart(clock: FakeClock, o: FakeDartOptions = {}, tl: Timeline
   const feed = o.feed ?? [];
   const max = o.maxCalls ?? 50_000;
   const listCalls: DartCall[] = [];
-  const probeCalls: { seq: number; at: number; day: string; status: string }[] = [];
+  const probeCalls: { seq: number; at: number; day: string; status: string; key: DartKeyId }[] = [];
   const perWatch = new Map<WatchId, number>();
 
   const api: CollectorDeps["dart"] = {
@@ -295,15 +295,15 @@ export function fakeDart(clock: FakeClock, o: FakeDartOptions = {}, tl: Timeline
       }
       return toResult(status, rows, rep.calls ?? 1);
     },
-    async probe(day) {
+    async probe(day, key) {
       const n = probeCalls.length + 1;
       if (n > max) throw new Error(`fake dart: probe call cap ${max} exceeded`);
       const at = clock.now();
-      const rep = o.probe?.({ day, now: at, n }) ?? {};
+      const rep = o.probe?.({ day, now: at, n, key }) ?? {};
       clock.advance(rep.delayMs ?? o.delayMs ?? 0);
       const status = rep.status ?? "000";
       const seq = tl.push(at, "probe", status);
-      probeCalls.push({ seq, at, day, status });
+      probeCalls.push({ seq, at, day, status, key });
       toResult(status, [], rep.calls ?? 1);
       return { total: rep.total ?? 0, calls: rep.calls ?? 1 };
     },
@@ -405,8 +405,12 @@ export interface FakeDbOptions {
   lease?: FakeLease;
   lastOk?: Record<string, string>;
   outage?: { since: string | null; reason: string | null; notice: string | null };
+  /** 키 1 사용량 · 한도 의심 표시(opendart_list · opendart_list_quota_strike) */
   used?: number;
   strikes?: number;
+  /** 키 2 사용량 · 한도 의심 표시(opendart_list_k2 · opendart_list_k2_quota_strike — 261113-rn7) */
+  used2?: number;
+  strikes2?: number;
   rows?: FakeDbRow[];
   /** 임대 RPC 대본 — Error 면 던지고, 결과면 그대로, undefined 면 계약대로 */
   leaseAcquire?: (c: LeaseCall) => LeaseResult | Error | undefined;
@@ -440,13 +444,16 @@ export function dbRow(item: InsertItem, over: Partial<FakeDbRow> = {}): FakeDbRo
   };
 }
 
-/** 기본 설정의 네 감시 대상(261113-iez) */
+/** 기본 설정의 감시 대상 전부 */
 export const ALL_WATCHES: Watch[] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
 /**
- * 매 바퀴 감시 대상(D004 · B001 — everyMs null)만. `harness` 기본값 — 기존 수집기 · 장애 · 모드 시험의 호출 수 단언
- * (바퀴 역학)은 이 둘로 잰다. 띄엄 조회 대상(I001 · D005)이 든 실행은 `watches` 를 명시해 넘긴다.
+ * 키 1 감시 대상(공개매수 D004 매 바퀴 · 주요사항보고서 B001 09:00 전 매 바퀴 · 뒤 10초 칸 — 261113-rn7). `harness` 기본값 —
+ * 기존 수집기 · 장애 · 모드 시험의 호출 수 단언(바퀴 역학)과 「쓰는 키가 전부 멈춤」 길은 이 둘로 잰다. 키 2 감시 대상이 든
+ * 실행은 `watches` 를 명시해 넘긴다.
  */
-export const EVERY_LAP_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.everyMs === null);
+export const KEY1_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.key === 1);
+/** 키 2 감시 대상 */
+export const KEY2_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.key === 2);
 
 /** DART 행 → 넣기 원소 */
 export function itemOf(row: DartRow, watch: WatchId, late = false): InsertItem {
@@ -478,6 +485,9 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     used: o.used ?? 0,
     pendingUsage: 0,
     strikes: o.strikes ?? 0,
+    used2: o.used2 ?? 0,
+    pendingUsage2: 0,
+    strikes2: o.strikes2 ?? 0,
   };
   const calls = {
     leaseAcquire: [] as LeaseCall[],
@@ -487,9 +497,9 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     claim: [] as { at: number; limit: number; claimed: number }[],
     mark: [] as { at: number; rceptNo: string; r: MarkInput; ok: boolean }[],
     outage: [] as { at: number; action: OutageAction; reason?: string; since?: string }[],
-    usageAdd: [] as { at: number; n: number }[],
-    usageFlush: [] as number[],
-    strikesRecord: [] as number[],
+    usageAdd: [] as { at: number; n: number; key: DartKeyId }[],
+    usageFlush: [] as { at: number; key: DartKeyId }[],
+    strikesRecord: [] as { at: number; key: DartKeyId }[],
     countUnsent: [] as { at: number; day: string; unsent: number }[],
     /** usage · strikes · countUnsent 가 받은 날짜 인자(리뷰 WR-56 — 결선이 날짜를 버리지 않는지) */
     dayArgs: [] as { fn: string; at: number; day: string }[],
@@ -507,6 +517,13 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day !== want) {
       badDays.push({ fn, day, want });
       throw new Error(`fake db ${fn}: 날짜 인자 '${String(day)}' 가 오늘 KST(${want}) 가 아니다`);
+    }
+  };
+  /** 키 인자는 1 · 2 만 — 결선이 키를 버리면(undefined) 던진다(261113-rn7) */
+  const checkKey = (fn: string, key: unknown) => {
+    if (key !== 1 && key !== 2) {
+      badDays.push({ fn, day: `key=${String(key)}`, want: "key 1|2" });
+      throw new Error(`fake db ${fn}: 키 인자 '${String(key)}' 가 1 · 2 가 아니다`);
     }
   };
   const guard = (fn: string, info?: RpcInfo) => {
@@ -687,17 +704,27 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
 
 
     usage: {
-      read: async (d) => {
+      read: async (d, key) => {
         checkDay("usage.read", d);
-        return state.used;
+        checkKey("usage.read", key);
+        return key === 2 ? state.used2 : state.used;
       },
-      add: (n) => {
-        calls.usageAdd.push({ at: clock.now(), n });
-        state.pendingUsage += n;
+      add: (n, key) => {
+        checkKey("usage.add", key);
+        calls.usageAdd.push({ at: clock.now(), n, key });
+        if (key === 2) state.pendingUsage2 += n;
+        else state.pendingUsage += n;
       },
-      flush: async (d) => {
+      flush: async (d, key) => {
         checkDay("usage.flush", d);
-        calls.usageFlush.push(clock.now());
+        checkKey("usage.flush", key);
+        calls.usageFlush.push({ at: clock.now(), key });
+        if (key === 2) {
+          if (state.pendingUsage2 === 0) return null;
+          state.used2 += state.pendingUsage2;
+          state.pendingUsage2 = 0;
+          return state.used2;
+        }
         if (state.pendingUsage === 0) return null;
         state.used += state.pendingUsage;
         state.pendingUsage = 0;
@@ -706,15 +733,17 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     },
 
     strikes: {
-      read: async (d) => {
+      read: async (d, key) => {
         checkDay("strikes.read", d);
-        return state.strikes;
+        checkKey("strikes.read", key);
+        return key === 2 ? state.strikes2 : state.strikes;
       },
-      record: async (d) => {
+      record: async (d, key) => {
         checkDay("strikes.record", d);
-        calls.strikesRecord.push(clock.now());
-        state.strikes += 1;
-        return state.strikes;
+        checkKey("strikes.record", key);
+        calls.strikesRecord.push({ at: clock.now(), key });
+        if (key === 2) return ++state.strikes2;
+        return ++state.strikes;
       },
     },
   };
@@ -726,8 +755,8 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     calls,
     leaseLost,
     badDays,
-    /** usage.add 합 */
-    usageAdded: () => calls.usageAdd.reduce((s, c) => s + c.n, 0),
+    /** usage.add 합 — key 를 주면 그 키 것만 */
+    usageAdded: (key?: DartKeyId) => calls.usageAdd.filter((c) => key === undefined || c.key === key).reduce((s, c) => s + c.n, 0),
     /** 다른 실행이 임대를 가져감 */
     steal: (other: string, until: number) => {
       state.lease = { holder: other, until };
@@ -768,7 +797,7 @@ export function harness(o: HarnessOptions) {
     sleep: (ms) => clock.sleep(ms),
     signal: clock.signal,
     holder,
-    watches: o.watches ?? EVERY_LAP_WATCHES,
+    watches: o.watches ?? KEY1_WATCHES,
     judge: o.judge ?? { b001Corrections: "include" },
     db: db.db,
     dart: dart.api,

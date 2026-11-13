@@ -5,9 +5,11 @@ import { DART_DAILY_BUDGET_LIMIT, loadConfig } from "../src/config";
  * Phase 43-03 — env 계약(43-07 배포 스크립트와 같은 이름).
  * - SC-4 · 공식 API 운영 기준 ①: 하루 예산은 공식 20,000/일의 75% 이하(정수 1 ~ 15,000 · 기본 15,000).
  * - 필수 비밀이 없거나 방 id 가 숫자가 아니면 env 이름만 담은 오류 — 값은 싣지 않는다.
+ * - 261113-rn7 U-2: OpenDART 키 2개(`OPENDART_API_KEY_2` 필수) · 두 키가 같은 값이면 시작하지 않는다(값 미출력).
  * - D-04 설정값: 주요사항보고서 종류 목록 · 정정 포함 여부.
  */
 const KEY = "TEST-DART-KEY-DO-NOT-LOG";
+const KEY2 = "TEST-DART-KEY2-DO-NOT-LOG";
 const BOT = "123456:TEST-BOT-TOKEN-DO-NOT-LOG";
 const SRK = "svc-role-VALUE-DO-NOT-LOG";
 const CHAT = "-1009876543210";
@@ -33,7 +35,15 @@ function errorOf(fn: () => unknown): string {
 }
 
 /** 이 파일이 만지는 env 이름 — 키 단위로 저장 · 복원한다(리뷰 IN-52 · modes.test.ts 와 같은 꼴) */
-const TOUCHED_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", ...OPTIONAL_KEYS];
+const TOUCHED_KEYS = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "OPENDART_API_KEY",
+  "OPENDART_API_KEY_2",
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_CHAT_ID",
+  ...OPTIONAL_KEYS,
+];
 
 describe("loadConfig (43-03 env 계약)", () => {
   // process.env 를 일반 객체로 바꿔 끼우면(process.env = {...}) 값을 문자열로 바꾸는 Node 특수 객체가 아니게 된다 — 키만 되돌린다
@@ -44,6 +54,7 @@ describe("loadConfig (43-03 env 계약)", () => {
     process.env.SUPABASE_URL = "https://x.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = SRK;
     process.env.OPENDART_API_KEY = KEY;
+    process.env.OPENDART_API_KEY_2 = KEY2;
     process.env.TELEGRAM_BOT_TOKEN = BOT;
     process.env.TELEGRAM_CHAT_ID = CHAT;
     for (const k of OPTIONAL_KEYS) delete process.env[k];
@@ -56,11 +67,12 @@ describe("loadConfig (43-03 env 계약)", () => {
     }
   });
 
-  it("필수 다섯만 있으면 기본값으로 채운다", () => {
+  it("필수 여섯만 있으면 기본값으로 채운다", () => {
     expect(loadConfig()).toEqual({
       supabaseUrl: "https://x.supabase.co",
       supabaseServiceRoleKey: SRK,
       dartApiKey: KEY,
+      dartApiKey2: KEY2,
       telegramBotToken: BOT,
       telegramChatId: CHAT,
       dartBaseUrl: "https://opendart.fss.or.kr",
@@ -83,10 +95,28 @@ describe("loadConfig (43-03 env 계약)", () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     const message = errorOf(() => loadConfig());
     expect(message).toContain("TELEGRAM_BOT_TOKEN");
-    for (const v of [KEY, SRK, CHAT]) expect(message).not.toContain(v);
+    for (const v of [KEY, KEY2, SRK, CHAT]) expect(message).not.toContain(v);
   });
 
-  it.each(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"])(
+  it("OPENDART_API_KEY_2 가 없으면 `missing env: OPENDART_API_KEY_2` — 키 값은 메시지에 없다(261113-rn7)", () => {
+    delete process.env.OPENDART_API_KEY_2;
+    const message = errorOf(() => loadConfig());
+    expect(message).toBe("missing env: OPENDART_API_KEY_2");
+    expect(message).not.toContain(KEY);
+  });
+
+  it.each([
+    ["같은 값", KEY],
+    ["앞뒤 공백만 다른 값", `  ${KEY}\n`],
+  ])("OPENDART_API_KEY_2 가 키 1 과 %s 이면 시작하지 않는다 — 오류에 값이 없다(한 키 대체 없음)", (_label, v) => {
+    process.env.OPENDART_API_KEY_2 = v;
+    const message = errorOf(() => loadConfig());
+    expect(message).toContain("invalid OPENDART_API_KEY_2");
+    expect(message).toContain("OPENDART_API_KEY 와 같은 값");
+    expect(message).not.toContain(KEY);
+  });
+
+  it.each(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "OPENDART_API_KEY_2", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"])(
     "필수 %s 가 비어 있으면 그 이름으로 멈춘다",
     (key) => {
       process.env[key] = "";

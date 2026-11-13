@@ -3,12 +3,14 @@ import { plannedDailyCalls } from "../src/cadence";
 import { LEASE_TTL_S, UNKNOWN_STREAK } from "../src/collector";
 import { DbError } from "../src/db";
 import { LATE_LABEL } from "../src/message";
-import { ALL_WATCHES, dbRow, EVERY_LAP_WATCHES, harness, itemOf, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, harness, itemOf, KEY1_WATCHES, KEY2_WATCHES, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * Phase 43-05 T1 — 장기 실행 수집기(auto). 가짜 시계(sleep · 지연이 시계를 앞당김) · 가짜 DB(43-02 RPC 계약) ·
  * 가짜 DART · 가짜 텔레그램으로 평일 13시간 실행을 몇 초 안에 단언한다. 실제 OpenDART · Supabase · 텔레그램 호출 없음.
  * 모든 루프 테스트는 가짜 시계의 sleep 상한 · DART 호출 상한이 있어 잘못 만든 루프가 끝없이 돌지 않는다.
+ * 261113-rn7: 바퀴는 종일 5초 · 기본 harness 는 키 1 감시 대상(D004 매 바퀴 · B001 09:00 전 매 바퀴 · 뒤 10초 칸).
+ * 호출 수 단언은 이 규칙으로 손으로 셈한 값이다(주석에 산수).
  */
 
 const at = (hms: string) => kst(MON, hms);
@@ -17,49 +19,57 @@ const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer
 const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
 
 describe("하루 호출 수 · 바퀴 간격 (D-10 · D-11 · SC-4)", () => {
-  it("월 07:00 부터 20:00 까지(네 감시 대상) — DART 호출 정확히 13,140(5,400 · 5,400 · 1,560 · 780) · usage.add 합 13,140 · flush 10초 간격 · window_end · 해제 1번", async () => {
-    const h = harness({ start: at("07:00:00"), watches: ALL_WATCHES });
+  it("월 07:00 부터 20:00 까지(네 감시 대상) — 키 1 14,760(9,360 · 5,400) · 키 2 6,240(4,680 · 1,560) · flush 10초 간격 · window_end · 해제 1번", async () => {
+    const h = harness({ start: at("07:00:00"), watches: ALL_WATCHES, maxSleeps: 400_000 });
     const exit = await h.run();
 
     expect(exit).toEqual({ code: 0, reason: "window_end" });
-    expect(plannedDailyCalls(ALL_WATCHES)).toBe(13_140);
-    expect(plannedDailyCalls(EVERY_LAP_WATCHES)).toBe(10_800);
-    expect(h.dart.listCalls).toHaveLength(13_140);
-    expect(h.dart.callsOf("tender_offer")).toHaveLength(5_400);
-    expect(h.dart.callsOf("rights_merger")).toHaveLength(5_400);
-    expect(h.dart.callsOf("exchange_disclosure")).toHaveLength(1_560);
-    expect(h.dart.callsOf("insider_trade_plan")).toHaveLength(780);
-    expect(h.db.usageAdded()).toBe(13_140);
-    expect(h.db.state.used).toBe(13_140);
-    // 묶음 flush — 마지막(종료 때 flush) 앞까지는 10초 간격
-    const flushes = h.db.calls.usageFlush;
+    // 바퀴 46,800 ÷ 5 = 9,360 · B001 = 7,200 ÷ 5 + 39,600 ÷ 10 · I001 46,800 ÷ 10 · D005 46,800 ÷ 30
+    expect(plannedDailyCalls(KEY1_WATCHES)).toBe(14_760);
+    expect(plannedDailyCalls(KEY2_WATCHES)).toBe(6_240);
+    expect(h.dart.callsOf("tender_offer")).toHaveLength(9_360);
+    expect(h.dart.callsOf("rights_merger")).toHaveLength(1_440 + 3_960);
+    expect(h.dart.callsOf("exchange_disclosure")).toHaveLength(4_680);
+    expect(h.dart.callsOf("insider_trade_plan")).toHaveLength(1_560);
+    expect(h.dart.listCalls).toHaveLength(14_760 + 6_240);
+    expect(h.db.usageAdded(1)).toBe(14_760);
+    expect(h.db.usageAdded(2)).toBe(6_240);
+    expect(h.db.state.used).toBe(14_760);
+    expect(h.db.state.used2).toBe(6_240);
+    // 묶음 flush — 키 1 항목: 마지막(종료 때 flush) 앞까지는 10초 간격
+    const flushes = h.db.calls.usageFlush.filter((f) => f.key === 1).map((f) => f.at);
     const gaps = flushes.slice(1, -1).map((t, i) => t - flushes[i]);
     expect(gaps.length).toBeGreaterThan(4_000);
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(10_000);
     expect(Math.max(...gaps)).toBeLessThanOrEqual(11_000);
     expect(h.db.calls.leaseRelease).toHaveLength(1);
     expect(h.telegram.sent).toHaveLength(0);
-    // 장전 5초 · 그 밖 10초(시작 대 시작)
+    // 종일 5초(시작 대 시작) — 09:00 앞뒤 모두 D004 5초 · B001 은 09:00:00 이 첫 10초 칸
     const t = h.dart.callsOf("tender_offer");
     expect(t[1].at - t[0].at).toBe(5_000);
     const nine = t.findIndex((c) => c.at >= at("09:00:00"));
     expect(t[nine].at).toBe(at("09:00:00"));
-    expect(t[nine + 1].at - t[nine].at).toBe(10_000);
+    expect(t[nine + 1].at - t[nine].at).toBe(5_000);
+    const b = h.dart.callsOf("rights_merger");
+    const bNine = b.findIndex((c) => c.at >= at("09:00:00"));
+    expect(b[bNine].at).toBe(at("09:00:00"));
+    expect(b[bNine].at - b[bNine - 1].at).toBe(5_000);
+    expect(b[bNine + 1].at - b[bNine].at).toBe(10_000);
   });
 
-  it("07:00:30 에 뜬 실행은 07:00 ~ 07:00:25 의 6바퀴만 빠진다 — 10,800 − 12 · 20:00 window_end", async () => {
+  it("07:00:30 에 뜬 실행은 07:00 ~ 07:00:25 의 6바퀴(D004 · B001 각 6)만 빠진다 — 14,760 − 12 · 20:00 window_end", async () => {
     const h = harness({ start: at("07:00:30") });
     const exit = await h.run();
     expect(exit).toEqual({ code: 0, reason: "window_end" });
-    expect(h.dart.listCalls).toHaveLength(10_800 - 12);
-    expect(h.db.usageAdded()).toBe(10_800 - 12);
+    expect(h.dart.listCalls).toHaveLength(14_760 - 12);
+    expect(h.db.usageAdded()).toBe(14_760 - 12);
   });
 
-  it("바퀴가 늦게 끝나도(DART 지연 12초) 밀린 바퀴를 몰아서 부르지 않는다 — 호출 ≤ 10,800 · 바퀴 시작 간격 ≥ 바퀴 길이", async () => {
+  it("바퀴가 늦게 끝나도(DART 지연 12초) 밀린 바퀴를 몰아서 부르지 않는다 — 호출 ≤ 14,760 · 바퀴 시작 간격 ≥ 바퀴 길이", async () => {
     const h = harness({ start: at("07:00:00"), dart: { delayMs: 12_000 } });
     const exit = await h.run();
     expect(exit).toEqual({ code: 0, reason: "window_end" });
-    expect(h.dart.listCalls.length).toBeLessThanOrEqual(10_800);
+    expect(h.dart.listCalls.length).toBeLessThanOrEqual(14_760);
     const t = h.dart.callsOf("tender_offer");
     const gaps = t.slice(1).map((c, i) => c.at - t[i].at);
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(24_000);
@@ -87,9 +97,11 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     expect(calls.map((c) => c.at - at("10:00:00"))).toEqual([0, 30_000, 60_000, 90_000, 120_000]);
     expect(calls.every((c) => c.ttlS === LEASE_TTL_S)).toBe(true);
     expect(calls[0].lastOk).toBeUndefined();
-    // 연장은 바퀴 시작 전에 — 그때까지의 마지막 성공 조회(직전 바퀴 시작 시각)를 DB last_ok 로
-    expect(calls[1].lastOk).toEqual({ tender_offer: iso("10:00:20"), rights_merger: iso("10:00:20") });
-    expect(h.db.state.lastOk).toEqual({ tender_offer: iso("10:01:50"), rights_merger: iso("10:01:50") });
+    // 연장은 바퀴 시작 전에 — 그때까지의 마지막 성공 조회를 DB last_ok 로. D004 는 직전 바퀴(5초 전) ·
+    // B001 은 직전 10초 칸(10:00:25 바퀴는 10:00:20 칸 그대로라 부르지 않음)
+    expect(calls[1].lastOk).toEqual({ tender_offer: iso("10:00:25"), rights_merger: iso("10:00:20") });
+    // 마지막 연장 10:02:00(바퀴 전) — D004 10:01:55 · B001 10:01:50
+    expect(h.db.state.lastOk).toEqual({ tender_offer: iso("10:01:55"), rights_merger: iso("10:01:50") });
   });
 
   it("연장이 거절되면 조용히 종료 0 lease_lost — 해제하지 않는다", async () => {
@@ -235,7 +247,8 @@ describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-
     expect(a.text).toContain(LATE_LABEL);
     expect(b.text).toContain("대상회사2");
     expect(b.text).not.toContain(LATE_LABEL);
-    expect(b.at).toBe(at("10:06:50"));
+    // 5초 바퀴 — 10:06:30 · :35 · :40 · :45 의 넷째 바퀴가 처음 본다
+    expect(b.at).toBe(at("10:06:45"));
   });
 
   it("07:29:55 바퀴 성공 뒤 07:30:05 바퀴에 처음 보인 전날 저녁 서류는 늦지 않다", async () => {
@@ -264,8 +277,9 @@ describe("한도 · 치명 오류 (공식 API 운영 기준 ④ · SC-4)", () =>
     expect(h.db.state.strikes).toBe(1);
     const last = h.dart.listCalls[h.dart.listCalls.length - 1];
     expect(last.status).toBe("020");
-    expect(h.dart.listCalls).toHaveLength(5);
-    expect(h.db.usageAdded()).toBe(5);
+    // 10:00:00 D004 · B001 / :05 D004 / :10 D004 · B001 / :15 D004 / :20 D004(020 — 같은 키 B001 은 부르지 않음) = 7
+    expect(h.dart.listCalls).toHaveLength(7);
+    expect(h.db.usageAdded()).toBe(7);
     expect(h.logs.lines.some((l) => l.level === "error")).toBe(true);
     expect(h.db.calls.leaseRelease).toHaveLength(1);
   });
@@ -328,7 +342,8 @@ describe("한도 · 치명 오류 (공식 API 운영 기준 ④ · SC-4)", () =>
     });
     const exit = await h.run();
     expect(exit).toEqual({ code: 0, reason: "aborted" });
-    expect(h.dart.listCalls).toHaveLength(12);
+    // 10:00:00 ~ 10:00:55 바퀴 12번 — D004 12 + B001 10초 칸 6 = 18
+    expect(h.dart.listCalls).toHaveLength(18);
     expect(h.db.state.strikes).toBe(0);
     expect(h.logs.lines.filter((l) => l.level === "error")).toHaveLength(0);
   });
@@ -348,7 +363,9 @@ describe("예산 (SC-4 · 공식 API 운영 기준 ①)", () => {
     const h = harness({ start: at("10:00:00"), db: { used: 14_990 } });
     const exit = await h.run();
     expect(exit).toEqual({ code: 1, reason: "budget_exhausted" });
-    expect(h.dart.listCalls).toHaveLength(10);
+    // 14,990 + 2(:00) + 1(:05) + 2(:10) + 1(:15) + 2(:20) + 1(:25) = 14,999 → :30 바퀴가 D004 · B001 을 불러 15,001 →
+    // 다음 예산 문(바퀴 사이)에서 멈춘다 = 11회
+    expect(h.dart.listCalls).toHaveLength(11);
     expect(h.logs.count("daily budget exhausted — stopping this run", "error")).toBe(1);
   });
 
@@ -499,7 +516,8 @@ describe("멈추는 길에서 이미 넣은 건을 버리지 않는다 (리뷰 W
     expect(await h.run()).toEqual({ code: 1, reason: "budget_exhausted" });
     expect(h.logs.count("alerts left unsent at stop", "error")).toBe(1);
     expect(h.logs.find("alerts left unsent at stop")?.obj).toMatchObject({ unsent: 1, reason: "budget_exhausted" });
-    expect(h.dart.listCalls).toHaveLength(10);
+    // 위 예산 시험과 같은 산수 — 14,990 + 2 + 1 + 2 + 1 + 2 + 1 + 2 = 15,001 → 11회
+    expect(h.dart.listCalls).toHaveLength(11);
   });
 
   it("새 임대가 지난 날 못 나간 건을 expired 로 닫으면 error unsent alerts expired on takeover", async () => {

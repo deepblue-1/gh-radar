@@ -43,7 +43,8 @@ describe("재시도 · 대기 (SC-5)", () => {
     expect(marksOf(h, X.rcept_no).map((m) => m.r.retryInS)).toEqual([5, 10, 20, 0]);
     expect(marksOf(h, X.rcept_no).map((m) => m.r.ok)).toEqual([false, false, false, true]);
     expect(h.db.statusOf(X.rcept_no)).toBe("sent");
-    expect(h.telegram.sent.map((s) => s.at)).toEqual([at("10:00:00"), at("10:00:10"), at("10:00:20"), at("10:00:40")]);
+    // 5초 바퀴 — 다음 시도 = 기록 시각 + retryInS 뒤 첫 바퀴: 10:00:00 + 5 → :05 · + 10 → :15 · + 20 → :35
+    expect(h.telegram.sent.map((s) => s.at)).toEqual([at("10:00:00"), at("10:00:05"), at("10:00:15"), at("10:00:35")]);
     expect(h.logs.count("telegram send failed", "warn")).toBe(3);
     expect(h.logs.find("telegram send failed")?.obj).toMatchObject({ rceptNo: X.rcept_no, kind: "transient", code: 502, description: "Bad Gateway" });
   });

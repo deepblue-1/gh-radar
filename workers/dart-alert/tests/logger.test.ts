@@ -164,6 +164,15 @@ describe("createLogger (43-03 비밀 가림)", () => {
     expect(s).toContain('"newChatIdTail":"3210"');
   });
 
+  it("두 번째 OpenDART 키 필드(dartApiKey2)도 [redacted] — 261113-rn7", () => {
+    const { log, output } = capture();
+    const KEY2 = "SECOND-DART-KEY-DO-NOT-LOG";
+    log.info({ dartApiKey2: KEY2, cfg: { dartApiKey2: KEY2 } }, "key2");
+    const s = output();
+    expect(s).not.toContain(KEY2);
+    expect(s).toContain('"dartApiKey2":"[redacted]"');
+  });
+
   it("REDACT_PATHS 가 비밀 이름 · 그릇 이름을 맨 위와 한 단계 아래로 덮는다", () => {
     for (const k of [
       "crtfc_key",
@@ -174,6 +183,7 @@ describe("createLogger (43-03 비밀 가림)", () => {
       "params",
       "chat_id",
       "dartApiKey",
+      "dartApiKey2",
       "telegramBotToken",
       "telegramChatId",
       "supabaseServiceRoleKey",

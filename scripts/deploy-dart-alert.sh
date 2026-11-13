@@ -100,6 +100,7 @@ REPO=gh-radar
 DART_SA_NAME=gh-radar-dart-alert-sa
 SCHED_SA_NAME=gh-radar-scheduler-sa
 DART_KEY_SECRET=gh-radar-opendart-key
+DART_KEY2_SECRET=gh-radar-opendart-key-2
 TG_TOKEN_SECRET=gh-radar-telegram-bot-token
 TG_CHAT_SECRET=gh-radar-telegram-chat-id
 SUPABASE_SECRET=gh-radar-supabase-service-role
@@ -317,15 +318,25 @@ for SA in "$SCHED_SA_NAME" "$DART_SA_NAME"; do
   fi
 done
 
+# 두 번째 OpenDART 키(261113-rn7 U-2) — 공시 알림은 키 2개로만 돈다(한 키 대체 없음). 없거나 비었으면 전용 안내로 멈춘다.
+dart_key2_missing() {
+  echo "ERROR: 두 번째 OpenDART 키 Secret '$DART_KEY2_SECRET' 가 없다(또는 값이 비었다) — 공시 알림은 이제 키 2개로만 돈다." >&2
+  echo "       사용자 터미널에서 ① ! GCP_PROJECT_ID=$EXPECTED_PROJECT bash scripts/setup-dart-alert-iam.sh" >&2
+  echo "       ② ~/.config/gh-radar/dart-alert.env 에 OPENDART_API_KEY_2= 줄을 넣고 ! bash scripts/setup-dart-alert-secrets.sh 뒤 다시 배포" >&2
+  exit 1
+}
+
 # Secret 은 껍데기만으로는 부족하다 — ENABLED 버전이 1개 이상(값이 들어 있음)이어야 한다. 값은 읽지 않는다.
-for SECRET in "$DART_KEY_SECRET" "$TG_TOKEN_SECRET" "$TG_CHAT_SECRET" "$SUPABASE_SECRET"; do
+for SECRET in "$DART_KEY_SECRET" "$DART_KEY2_SECRET" "$TG_TOKEN_SECRET" "$TG_CHAT_SECRET" "$SUPABASE_SECRET"; do
   if ! gcloud secrets describe "$SECRET" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+    [[ "$SECRET" == "$DART_KEY2_SECRET" ]] && dart_key2_missing
     echo "ERROR: Secret '$SECRET' not found. Run: ! GCP_PROJECT_ID=$EXPECTED_PROJECT bash scripts/setup-dart-alert-iam.sh" >&2
     exit 1
   fi
   ENABLED_VER=$(gcloud secrets versions list "$SECRET" --project="$EXPECTED_PROJECT" \
     --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null || true)
   if [[ -z "$ENABLED_VER" ]]; then
+    [[ "$SECRET" == "$DART_KEY2_SECRET" ]] && dart_key2_missing
     echo "ERROR: Secret '$SECRET' 에 값(ENABLED 버전)이 없다 — 먼저: ! bash scripts/setup-dart-alert-secrets.sh" >&2
     exit 1
   fi
@@ -438,7 +449,8 @@ docker push "$IMAGE_LATEST"
 # ═══════════════════════════════════════════════════════════════
 # Section 5: Deploy Cloud Run Job
 #   수집기 config.ts(43-03)가 읽는 env:
-#     비밀 — SUPABASE_SERVICE_ROLE_KEY · OPENDART_API_KEY · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID (Secret :latest — 실행 시작 때 1번 읽음)
+#     비밀 — SUPABASE_SERVICE_ROLE_KEY · OPENDART_API_KEY · OPENDART_API_KEY_2 · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID
+#            (Secret :latest — 실행 시작 때 1번 읽음 · 키 2 = 261113-rn7)
 #     설정 — SUPABASE_URL · DART_ALERT_DAILY_BUDGET · APP_VERSION · LOG_LEVEL ·
 #            DART_ALERT_B001_KINDS · DART_ALERT_B001_CORRECTIONS(선택 — 미설정이면 config.ts 기본값) ·
 #            DART_ALERT_MODE(미설정 = auto)
@@ -461,7 +473,7 @@ gcloud run jobs deploy "$JOB" \
   --tasks=1 \
   ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} \
   --set-env-vars="$ENV_VARS" \
-  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,OPENDART_API_KEY=gh-radar-opendart-key:latest,TELEGRAM_BOT_TOKEN=gh-radar-telegram-bot-token:latest,TELEGRAM_CHAT_ID=gh-radar-telegram-chat-id:latest" \
+  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,OPENDART_API_KEY=gh-radar-opendart-key:latest,OPENDART_API_KEY_2=gh-radar-opendart-key-2:latest,TELEGRAM_BOT_TOKEN=gh-radar-telegram-bot-token:latest,TELEGRAM_CHAT_ID=gh-radar-telegram-chat-id:latest" \
   --project="$EXPECTED_PROJECT"
 
 # ═══════════════════════════════════════════════════════════════

@@ -3,7 +3,10 @@ import {
   BUDGET_WARN_RATIO,
   budgetStateOf,
   checkBudget,
+  DART_KEY_SERVICES,
   DART_QUOTA_STRIKE_SERVICE,
+  DART_QUOTA_STRIKE_SERVICE_2,
+  DART_USAGE_SERVICE_2,
   DART_USAGE_SERVICE,
   incrementUsage,
   readQuotaStrikes,
@@ -14,6 +17,7 @@ import {
 /**
  * Phase 43-03 — OpenDART 호출 수 카운터(SC-4). api_usage service `opendart_list`(KST 날짜 키) ·
  * 한도 의심 표시 `opendart_list_quota_strike` · 10초 묶음 flush · 예산 80% 경고.
+ * 261113-rn7 U-2: 키 2 카운터 `opendart_list_k2` · `opendart_list_k2_quota_strike`(키마다 따로).
  */
 
 function rpcMock(result: unknown = 0, error: unknown = null) {
@@ -35,6 +39,13 @@ describe("서비스 키 · 상수", () => {
     expect(DART_USAGE_SERVICE).toBe("opendart_list");
     expect(DART_QUOTA_STRIKE_SERVICE).toBe("opendart_list_quota_strike");
     expect(BUDGET_WARN_RATIO).toBe(0.8);
+  });
+
+  it("키별 service — 키 1 = 기존 두 이름 그대로(연속성) · 키 2 = opendart_list_k2 · opendart_list_k2_quota_strike", () => {
+    expect(DART_KEY_SERVICES[1]).toEqual({ usage: "opendart_list", strike: "opendart_list_quota_strike" });
+    expect(DART_KEY_SERVICES[2]).toEqual({ usage: "opendart_list_k2", strike: "opendart_list_k2_quota_strike" });
+    expect(DART_USAGE_SERVICE_2).toBe("opendart_list_k2");
+    expect(DART_QUOTA_STRIKE_SERVICE_2).toBe("opendart_list_k2_quota_strike");
   });
 });
 
@@ -88,6 +99,29 @@ describe("api_usage 읽기 · 쓰기", () => {
       p_date: "2026-11-16",
       p_amount: 1,
     });
+  });
+});
+
+describe("키 2 service 인자(261113-rn7)", () => {
+  it("readQuotaStrikes · recordQuotaStrike 는 service 인자를 따른다", async () => {
+    const s = selectMock(1);
+    await expect(readQuotaStrikes(s.client, "2026-11-16", DART_QUOTA_STRIKE_SERVICE_2)).resolves.toBe(1);
+    expect(s.eq1).toHaveBeenCalledWith("service", "opendart_list_k2_quota_strike");
+    const r = rpcMock(2);
+    await expect(recordQuotaStrike(r.client, "2026-11-16", DART_QUOTA_STRIKE_SERVICE_2)).resolves.toBe(2);
+    expect(r.rpc).toHaveBeenCalledWith("incr_api_usage", {
+      p_service: "opendart_list_k2_quota_strike",
+      p_date: "2026-11-16",
+      p_amount: 1,
+    });
+  });
+
+  it("new UsageCounter(\"opendart_list_k2\") 의 flush 는 그 service 로 incr_api_usage", async () => {
+    const m = rpcMock(7);
+    const c = new UsageCounter("opendart_list_k2");
+    c.add(2);
+    await expect(c.flush(m.client, "2026-11-16")).resolves.toBe(7);
+    expect(m.rpc).toHaveBeenCalledWith("incr_api_usage", { p_service: "opendart_list_k2", p_date: "2026-11-16", p_amount: 2 });
   });
 });
 
