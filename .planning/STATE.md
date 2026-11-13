@@ -6,10 +6,10 @@ current_phase: 42
 current_phase_name: 틱뷰어 봉차트·이동평균·수익률 겹쳐보기
 status: executing
 stopped_at: Phase 42 42-11 — DB push 완료(20261113100000) · webapp push 대기(옆 세션 quick-261112-w2q relay 배포 · 작업대 테스트 수정 뒤 같이)
-last_updated: "2026-11-13T01:36:03.566Z"
+last_updated: "2026-11-13T04:39:37.928Z"
 last_activity: 2026-11-12
 last_activity_desc: Phase 42 execution started
-state_head: 4848e8a2dd011c65afde9a4ad3233474516f6ca9
+state_head: e8c19ca6b9f409a45a7412c8fb20f889362c3525
 progress:
   total_phases: 14
   completed_phases: 9
@@ -34,7 +34,7 @@ Plan: 1 of 11
 Status: Executing Phase 42
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
-Last activity: 2026-11-12 — Phase 42 execution started
+Last activity: 2026-11-13 - Completed quick task 261113-iez: 공시 알림 감시 대상 추가(I001 · D005 · B001 2종)
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -182,6 +182,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261112-w2q | 상따 작업대 미체결에 VI 자동주문 표시 — 서버 UnfilledState.origin(gh-trade 204e505d) 재동기화 · relay toUnfilledOrigin · VI 행만 주황 「VI」 배지 + 연주황 행(목업 B) | 2026-11-12 | 4e79fc15 | [261112-w2q-vi-unfilled-origin-vi](./quick/261112-w2q-vi-unfilled-origin-vi/) |
 | 83 | 261112-w2q 후속 — 작업대 테스트 허용 카드 prop 목록에 originOf 추가(카드에 unfilledOriginOf 를 넘기며 깨짐) | 2026-11-12 | d236b8af | — |
 | 84 | 종목 묶음 조회(by-stock) 공시 보장 — 기간 안 최신 공시 3건을 뉴스와 따로 싣기(gh-trade 인박스 261113) · 홈 AI 도 2건 보장 | 2026-11-13 | e762eb75 | — |
+| 261113-iez | 공시 알림 감시 대상 추가 — 수시공시 I001(최대주주변경 · 양수도 · 경영권변경 · 단일판매 · 주식소각 · 투자판단, 30초) · 임원 거래계획 D005(60초) · B001 자기주식취득 · 주식교환, 새 종류 원본만 | 2026-11-13 | e8c19ca6 | [261113-iez-dart-alert-i001-d005-b001-2](./quick/261113-iez-dart-alert-i001-d005-b001-2/) |
 
 ## Session Continuity
 
