@@ -32,11 +32,15 @@ function errorOf(fn: () => unknown): string {
   return "";
 }
 
+/** 이 파일이 만지는 env 이름 — 키 단위로 저장 · 복원한다(리뷰 IN-52 · modes.test.ts 와 같은 꼴) */
+const TOUCHED_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENDART_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", ...OPTIONAL_KEYS];
+
 describe("loadConfig (43-03 env 계약)", () => {
-  let snapshot: NodeJS.ProcessEnv;
+  // process.env 를 일반 객체로 바꿔 끼우면(process.env = {...}) 값을 문자열로 바꾸는 Node 특수 객체가 아니게 된다 — 키만 되돌린다
+  let saved: Record<string, string | undefined>;
 
   beforeEach(() => {
-    snapshot = { ...process.env };
+    saved = Object.fromEntries(TOUCHED_KEYS.map((k) => [k, process.env[k]]));
     process.env.SUPABASE_URL = "https://x.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = SRK;
     process.env.OPENDART_API_KEY = KEY;
@@ -46,7 +50,10 @@ describe("loadConfig (43-03 env 계약)", () => {
   });
 
   afterEach(() => {
-    process.env = snapshot;
+    for (const k of TOUCHED_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
   });
 
   it("필수 다섯만 있으면 기본값으로 채운다", () => {
