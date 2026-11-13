@@ -444,7 +444,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     insert: [] as { at: number; items: InsertItem[]; seed: boolean; inserted: number }[],
     claim: [] as { at: number; limit: number; claimed: number }[],
     mark: [] as { at: number; rceptNo: string; r: MarkInput; ok: boolean }[],
-    outage: [] as { at: number; action: OutageAction; reason?: string }[],
+    outage: [] as { at: number; action: OutageAction; reason?: string; since?: string }[],
     usageAdd: [] as { at: number; n: number }[],
     usageFlush: [] as number[],
     strikesRecord: [] as number[],
@@ -507,7 +507,10 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
 
     async readState() {
       calls.readState.push(clock.now());
-      return { lastOk: { ...state.lastOk }, outage: { since: state.outage.since, notice: state.outage.notice } };
+      return {
+        lastOk: { ...state.lastOk },
+        outage: { since: state.outage.since, reason: state.outage.reason, notice: state.outage.notice },
+      };
     },
 
     async insert(items, seed) {
@@ -586,15 +589,17 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
       return true;
     },
 
-    async outage(action, reason) {
+    async outage(action, reason, sinceIso) {
       guard("dart_alert_outage");
       const now = clock.now();
-      calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}) });
+      calls.outage.push({ at: now, action, ...(reason !== undefined ? { reason } : {}), ...(sinceIso !== undefined ? { since: sinceIso } : {}) });
       const s = state.outage;
       if (action === "open") {
         // 43-02: 이미 열려 있고 notice 가 pending(연 실행이 글을 못 남기고 죽음)이면 처음 시각으로 opened true 를 한 번 더
         if (s.since !== null) return s.notice === "pending" ? { opened: true, since: s.since } : { opened: false };
-        s.since = new Date(now).toISOString();
+        // 리뷰 IN-01 p_since — [now − 1일, now] 로 잘라 맞춤 · 없으면 now(마이그레이션 20261113300000 과 같은 규칙)
+        const asked = sinceIso === undefined ? now : Date.parse(sinceIso);
+        s.since = new Date(Math.min(now, Math.max(Number.isFinite(asked) ? asked : now, now - 86_400_000))).toISOString();
         s.reason = reason ?? null;
         s.notice = "pending";
         return { opened: true, since: s.since };

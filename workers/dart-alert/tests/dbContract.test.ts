@@ -20,7 +20,8 @@ import type { ClaimedRow, InsertedRow, InsertItem } from "../src/lap";
  *
  * PostgREST 는 이름 붙은 인자로 함수를 찾는다 — rpc 이름이나 `p_*` 인자 키가 하나라도 어긋나면 운영에서
  * 「함수를 못 찾음」 이 난다. 가짜 DB 로만 도는 테스트는 그 어긋남을 못 잡으므로, 이 파일은 저장소의 실제
- * 마이그레이션(이름이 `_dart_alert.sql` 로 끝나는 파일 하나)을 읽어 함수 시그니처 · 본문 · 상태 표 정의를 뽑고
+ * 마이그레이션(이름이 `_dart_alert.sql` 로 끝나는 기본 파일 + 뒤에 온 `_dart_alert_<꼬리>.sql` 수정 파일 — 파일 이름 순으로
+ * 이어 붙여 같은 함수는 나중 정의가 이긴다 · 리뷰 IN-01)을 읽어 함수 시그니처 · 본문 · 상태 표 정의를 뽑고
  * 어댑터가 실제로 부르는 이름 · 인자 키 · 읽는 반환 키 · 고른 칸과 대조한다.
  *
  * 범위: 워커가 부르는 dart_alert RPC 여섯 + 상태 표 읽기. `incr_api_usage`(43-03)는 kis-news-sync 가 운영에서 같은
@@ -32,8 +33,11 @@ import type { ClaimedRow, InsertedRow, InsertItem } from "../src/lap";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const MIGRATIONS_DIR = join(REPO_ROOT, "supabase", "migrations");
 
-function findMigration(): string[] {
-  return readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith("_dart_alert.sql"));
+/** 기본(`_dart_alert.sql`) + 수정(`_dart_alert_<꼬리>.sql`) — 파일 이름(= 적용) 순 */
+function findMigrations(): string[] {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => /_dart_alert(_[a-z0-9_]+)?\.sql$/.test(f))
+    .sort();
 }
 
 // ── 작은 파서 ───────────────────────────────────────────────────────
@@ -248,7 +252,7 @@ async function callEverything() {
   await db.claim(5);
   await db.mark(RCEPT, { ok: true, messageId: 4242, error: null, retryInS: 0 });
   await db.mark(RCEPT, { ok: false, messageId: null, error: "transient:0", retryInS: 5 });
-  await db.outage("open", "DART 조회 실패");
+  await db.outage("open", "DART 조회 실패", "2026-11-12T00:30:00.000Z");
   await db.outage("notice", "sent");
   await db.outage("close");
   await db.leaseRelease(HOLDER);
@@ -266,14 +270,17 @@ const WORKER_RPCS = [
 ];
 
 // ── 테스트 ─────────────────────────────────────────────────────────
-describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert.sql", () => {
-  const files = findMigration();
-  const sql = files.length === 1 ? readFileSync(join(MIGRATIONS_DIR, files[0]!), "utf8") : "";
+describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert*.sql(나중 정의가 이김)", () => {
+  const files = findMigrations();
+  const sql = files.map((f) => readFileSync(join(MIGRATIONS_DIR, f), "utf8")).join("\n");
   const fns = parseFunctions(sql);
   const stateCols = parseTableColumns(sql, "dart_alert_state");
 
-  it("이름이 _dart_alert.sql 로 끝나는 마이그레이션이 정확히 1개", () => {
-    expect(files).toHaveLength(1);
+  it("기본 마이그레이션(_dart_alert.sql)이 정확히 1개이고 맨 앞이다 — 수정 파일(_dart_alert_<꼬리>.sql)은 그 뒤", () => {
+    expect(files.filter((f) => f.endsWith("_dart_alert.sql"))).toHaveLength(1);
+    expect(files[0]).toMatch(/_dart_alert\.sql$/);
+    // 리뷰 IN-01 — 장애 open 의 p_since 는 수정 파일의 마지막 정의에서 온다
+    expect(fns.get("dart_alert_outage")?.params.map((p) => p.name)).toEqual(["p_holder", "p_action", "p_reason", "p_since"]);
   });
 
   it("파서 자기 점검 — 함수 7개 이상 · 상태 칸 1개 이상 · 인자 키를 바꾼 가짜 기록은 어긋남으로 잡힌다", async () => {
@@ -306,7 +313,7 @@ describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert.sql", () =
     expect(wireKeys(leases[1]!.args).sort()).toEqual(["p_holder", "p_ttl_seconds"]);
     const outages = calls.filter((c) => c.fn === "dart_alert_outage");
     expect(outages.map((c) => c.args)).toEqual([
-      { p_holder: HOLDER, p_action: "open", p_reason: "DART 조회 실패" },
+      { p_holder: HOLDER, p_action: "open", p_reason: "DART 조회 실패", p_since: "2026-11-12T00:30:00.000Z" },
       { p_holder: HOLDER, p_action: "notice", p_reason: "sent" },
       { p_holder: HOLDER, p_action: "close" },
     ]);
@@ -361,25 +368,32 @@ describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert.sql", () =
     const fake = fakeSupabase({}, {
       last_ok: { tender_offer: "2026-11-12T00:30:00Z" },
       outage_since: null,
+      outage_reason: null,
       outage_notice: null,
     });
     const db = createDartAlertDb(fake.client, HOLDER);
     expect(await db.readState()).toEqual({
       lastOk: { tender_offer: "2026-11-12T00:30:00Z" },
-      outage: { since: null, notice: null },
+      outage: { since: null, reason: null, notice: null },
     });
     expect(fake.reads).toHaveLength(1);
     const read = fake.reads[0]!;
     expect(read.table).toBe("dart_alert_state");
     expect(read.eq).toEqual([["id", 1]]);
     const picked = read.columns.split(",").map((c) => c.trim()).filter(Boolean);
-    expect(picked.length).toBeGreaterThanOrEqual(3);
+    expect(picked.length).toBeGreaterThanOrEqual(4);
+    expect(picked).toContain("outage_reason");
     expect(picked.filter((c) => !stateCols.includes(c))).toEqual([]);
 
-    const open = fakeSupabase({}, { last_ok: {}, outage_since: "2026-11-12T00:35:00+00:00", outage_notice: "sent" });
+    const open = fakeSupabase({}, {
+      last_ok: {},
+      outage_since: "2026-11-12T00:35:00+00:00",
+      outage_reason: "공개매수 transient",
+      outage_notice: "sent",
+    });
     expect(await createDartAlertDb(open.client, HOLDER).readState()).toEqual({
       lastOk: {},
-      outage: { since: "2026-11-12T00:35:00+00:00", notice: "sent" },
+      outage: { since: "2026-11-12T00:35:00+00:00", reason: "공개매수 transient", notice: "sent" },
     });
   });
 

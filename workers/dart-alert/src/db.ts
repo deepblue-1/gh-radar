@@ -5,7 +5,7 @@ import type { ClaimedRow, InsertedRow, InsertItem, LapDeps, MarkInput } from "./
  * Phase 43-02 — 워커 쪽 DB 어댑터.
  *
  * 워커가 DB 를 부르는 곳은 이 파일 한 곳이다 — rpc 이름 · `p_*` 인자 키 · 읽는 반환 키 · 상태 표 칸을 바꾸면
- * tests/dbContract.test.ts 가 마이그레이션(supabase/migrations/*_dart_alert.sql)과 대조해 실패한다(체커 W5).
+ * tests/dbContract.test.ts 가 마이그레이션(supabase/migrations/*_dart_alert*.sql — 나중 정의가 이김)과 대조해 실패한다(체커 W5).
  * PostgREST 는 이름 붙은 인자로 함수를 찾으므로 하나라도 어긋나면 운영에서 「함수를 못 찾음」 이 난다.
  *
  * - 넣기 · 차례 반환 jsonb 배열은 변환 없이 그대로 돌려준다(43-01 계약 — 키 = 컬럼 이름 = lap.ts 타입 키).
@@ -49,7 +49,8 @@ export interface LeaseResult {
 export interface DartAlertState {
   /** 감시 대상별 마지막 성공 조회 시각(ISO) */
   lastOk: Record<string, string>;
-  outage: { since: string | null; notice: string | null };
+  /** reason = 처음 연 실행의 사유(다시 열 때 그대로 쓴다 — 리뷰 IN-01) */
+  outage: { since: string | null; reason: string | null; notice: string | null };
 }
 
 export type OutageAction = "open" | "notice" | "close";
@@ -62,8 +63,11 @@ export type DartAlertDb = LapDeps["db"] & {
   leaseAcquire(holder: string, ttlS: number, lastOk?: Record<string, string>): Promise<LeaseResult>;
   leaseRelease(holder: string): Promise<boolean>;
   readState(): Promise<DartAlertState>;
-  /** 반환 jsonb 그대로 — open `{opened, since?}` · notice `{noticed}` · close `{closed, notify?, since?}` */
-  outage(action: OutageAction, reason?: string): Promise<Record<string, unknown>>;
+  /**
+   * 반환 jsonb 그대로 — open `{opened, since?}` · notice `{noticed}` · close `{closed, notify?, since?}`.
+   * `sinceIso` = open 의 장애 시작 시각(워커 기준점 · `p_since` — 리뷰 IN-01). 없으면 DB 가 now() 로 적는다.
+   */
+  outage(action: OutageAction, reason?: string, sinceIso?: string): Promise<Record<string, unknown>>;
   /** 그날(KST `YYYY-MM-DD`) 아직 못 나간 알림 수(pending · sending) — 멈추기 직전 error 판정(리뷰 WR-05) */
   countUnsent(dateKst: string): Promise<number>;
 };
@@ -170,7 +174,7 @@ const STATE_TABLE = "dart_alert_state";
 const ALERTS_TABLE = "dart_alerts";
 /** 아직 못 나간 상태 — sent · seeded · expired 는 끝난 행 */
 export const UNSENT_STATUSES = ["pending", "sending"] as const;
-const STATE_COLUMNS = "last_ok, outage_since, outage_notice";
+const STATE_COLUMNS = "last_ok, outage_since, outage_reason, outage_notice";
 
 /**
  * Supabase 서비스롤 클라이언트에 RPC 여섯과 상태 표 읽기를 결선한다.
@@ -189,10 +193,15 @@ export function createDartAlertDb(supabase: SupabaseClient, holder: string): Dar
     async readState() {
       const { data, error } = await supabase.from(STATE_TABLE).select(STATE_COLUMNS).eq("id", 1).maybeSingle();
       if (error) throw dbError(`${STATE_TABLE} 읽기`, error);
-      const row = data as { last_ok?: unknown; outage_since?: string | null; outage_notice?: string | null } | null;
+      const row = data as {
+        last_ok?: unknown;
+        outage_since?: string | null;
+        outage_reason?: string | null;
+        outage_notice?: string | null;
+      } | null;
       return {
         lastOk: toLastOk(row?.last_ok),
-        outage: { since: row?.outage_since ?? null, notice: row?.outage_notice ?? null },
+        outage: { since: row?.outage_since ?? null, reason: row?.outage_reason ?? null, notice: row?.outage_notice ?? null },
       };
     },
 
@@ -223,9 +232,10 @@ export function createDartAlertDb(supabase: SupabaseClient, holder: string): Dar
       return count;
     },
 
-    outage(action, reason) {
+    outage(action, reason, sinceIso) {
       const args: Record<string, unknown> = { p_holder: holder, p_action: action };
       if (reason !== undefined) args.p_reason = reason;
+      if (sinceIso !== undefined) args.p_since = sinceIso;
       return rpcObject(supabase, "dart_alert_outage", args);
     },
   };

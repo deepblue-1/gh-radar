@@ -2,7 +2,8 @@
 -- Phase 43 Plan 01 — 공시 알림 받침 pgTAP.
 --
 -- 대상: 20261113200000_dart_alert.sql (표 dart_alerts · dart_alert_state · RPC dart_alert_lease_acquire ·
---       dart_alert_lease_release · dart_alert_insert · dart_alert_claim · dart_alert_mark).
+--       dart_alert_lease_release · dart_alert_insert · dart_alert_claim · dart_alert_mark) +
+--       20261113300000_dart_alert_fix.sql (리뷰 IN-01 — dart_alert_outage 에 p_since · 3인자 함수는 지움).
 --
 -- 잠그는 것:
 --   S. 모양 — 표 2 · 함수 5(인자 형 그대로 — 워커 어댑터 43-02 가 이 시그니처로 부른다)
@@ -25,7 +26,8 @@
 --   O. (43-02) 장애 짝 상태 dart_alert_outage — open 은 닫혀 있을 때만 열고(opened true · since) · 「멈췄습니다」 가
 --      pending 이면 다음 open 도 opened true(처음 시각) · notice(sent/failed)는 열려 있고 pending 일 때 한 번만 ·
 --      sent/failed 뒤 open → opened false · close 는 열려 있을 때만(notify = 「멈췄습니다」 가 실제로 나갔을 때만) ·
---      닫힌 뒤 세 칸 NULL · 사유 300자 자름 · 보유자 아님 · 임대 만료 55000 · 모르는 action · notice 값 22023
+--      닫힌 뒤 세 칸 NULL · 사유 300자 자름 · 보유자 아님 · 임대 만료 55000 · 모르는 action · notice 값 22023 ·
+--      (리뷰 IN-01) p_since — 새로 열 때 since = 워커 기준점 · 미래는 now · 하루보다 먼 과거는 now − 1일로 잘라 맞춤
 --   ST. (43-02) 운영 수치 dart_alert_ops_stats — 키 집합 · 픽스처 값(오늘 호출 · 한도 의심 · 상태별 · 감시 대상별 ·
 --      늦은 알림 · 지연 p50/p90 · 장애 · last_ok · 임대 보유자) · p_days 1 ~ 31 로 잘라 맞춤(0 · NULL → 1 · 1000 → 31)
 --      (절 이름 S 는 43-01 의 모양 절이 이미 써서 운영 수치는 ST 로 적는다)
@@ -40,7 +42,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(173);
+SELECT plan(183);
 
 -- ── S. 모양 ───────────────────────────────────────────────────────
 SELECT has_table('public', 'dart_alerts', 'S1 표 dart_alerts');
@@ -51,7 +53,10 @@ SELECT has_function('public', 'dart_alert_insert', ARRAY['text', 'jsonb', 'boole
 SELECT has_function('public', 'dart_alert_claim', ARRAY['text', 'integer'], 'S6 dart_alert_claim(text, integer)');
 SELECT has_function('public', 'dart_alert_mark', ARRAY['text', 'text', 'boolean', 'bigint', 'text', 'integer'],
                     'S7 dart_alert_mark(text, text, boolean, bigint, text, integer)');
-SELECT has_function('public', 'dart_alert_outage', ARRAY['text', 'text', 'text'], 'S9 dart_alert_outage(text, text, text)');
+SELECT has_function('public', 'dart_alert_outage', ARRAY['text', 'text', 'text', 'timestamptz'],
+                    'S9 dart_alert_outage(text, text, text, timestamptz) — 리뷰 IN-01 p_since');
+SELECT hasnt_function('public', 'dart_alert_outage', ARRAY['text', 'text', 'text'],
+                      'S11 3인자 dart_alert_outage 는 없다(같이 있으면 PostgREST 가 호출을 못 고른다)');
 SELECT has_function('public', 'dart_alert_ops_stats', ARRAY['integer'], 'S10 dart_alert_ops_stats(integer)');
 SELECT is((SELECT count(*)::int FROM public.dart_alert_state), 1, 'S8 dart_alert_state 시작 행 1개(id = 1)');
 
@@ -232,7 +237,7 @@ SELECT is(has_function_privilege(r.role, f.sig, 'EXECUTE'), r.expect,
    ('public.dart_alert_insert(text,jsonb,boolean)'),
    ('public.dart_alert_claim(text,integer)'),
    ('public.dart_alert_mark(text,text,boolean,bigint,text,integer)'),
-   ('public.dart_alert_outage(text,text,text)'),
+   ('public.dart_alert_outage(text,text,text,timestamptz)'),
    ('public.dart_alert_ops_stats(integer)')) AS f(sig)
  ORDER BY f.sig, r.role;
 SELECT ok(NOT (SELECT bool_or(prosecdef) FROM pg_proc
@@ -241,7 +246,7 @@ SELECT ok(NOT (SELECT bool_or(prosecdef) FROM pg_proc
                               'public.dart_alert_insert(text,jsonb,boolean)'::regprocedure,
                               'public.dart_alert_claim(text,integer)'::regprocedure,
                               'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure,
-                              'public.dart_alert_outage(text,text,text)'::regprocedure,
+                              'public.dart_alert_outage(text,text,text,timestamptz)'::regprocedure,
                               'public.dart_alert_ops_stats(integer)'::regprocedure)),
           'P 일곱 함수 SECURITY INVOKER');
 SELECT ok((SELECT bool_and('search_path=public, pg_temp' = ANY (proconfig)) FROM pg_proc
@@ -250,7 +255,7 @@ SELECT ok((SELECT bool_and('search_path=public, pg_temp' = ANY (proconfig)) FROM
                           'public.dart_alert_insert(text,jsonb,boolean)'::regprocedure,
                           'public.dart_alert_claim(text,integer)'::regprocedure,
                           'public.dart_alert_mark(text,text,boolean,bigint,text,integer)'::regprocedure,
-                          'public.dart_alert_outage(text,text,text)'::regprocedure,
+                          'public.dart_alert_outage(text,text,text,timestamptz)'::regprocedure,
                           'public.dart_alert_ops_stats(integer)'::regprocedure)),
           'P 일곱 함수 search_path 고정');
 SELECT is((SELECT provolatile::text FROM pg_proc WHERE oid = 'public.dart_alert_ops_stats(integer)'::regprocedure), 's',
@@ -418,6 +423,21 @@ SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'notice')$$, '22023', NU
 UPDATE public.dart_alert_state SET lease_until = now() - interval '1 second' WHERE id = 1;
 SELECT throws_ok($$SELECT public.dart_alert_outage('A', 'close')$$, '55000', NULL, 'O27 임대 만료(이름이 같아도) → 55000');
 UPDATE public.dart_alert_state SET lease_until = now() + interval '300 seconds' WHERE id = 1;
+-- (리뷰 IN-01) p_since — 「멈췄습니다」 · 「다시 동작」 의 시작 시각이 워커 기준점과 같아야 한다
+SELECT is(public.dart_alert_outage('A', 'open', 'DART 조회 실패', now() - interval '7 minutes'),
+          jsonb_build_object('opened', true, 'since', now() - interval '7 minutes'), 'O28 p_since → since = 워커 기준점');
+SELECT is((pg_temp.st()).outage_since, now() - interval '7 minutes', 'O29 outage_since = 워커 기준점');
+SELECT is(public.dart_alert_outage('A', 'close'),
+          jsonb_build_object('closed', true, 'notify', false, 'since', now() - interval '7 minutes'),
+          'O30 다른 실행이 닫아도 같은 시작 시각');
+SELECT is(public.dart_alert_outage('A', 'open', 'r', now() + interval '1 hour')->'since', to_jsonb(now()),
+          'O31 미래 p_since → now');
+SELECT is(public.dart_alert_outage('A', 'close')->'since', to_jsonb(now()), 'O32 close since = now');
+SELECT is(public.dart_alert_outage('A', 'open', 'r', now() - interval '3 days')->'since', to_jsonb(now() - interval '1 day'),
+          'O33 하루보다 먼 과거 p_since → now − 1일');
+SELECT is(public.dart_alert_outage('A', 'close')->'closed', 'true'::jsonb, 'O34 close');
+SELECT is(public.dart_alert_outage('A', 'open', 'r', NULL)->'since', to_jsonb(now()), 'O35 p_since NULL → now(예전 동작)');
+SELECT is(public.dart_alert_outage('A', 'close')->'closed', 'true'::jsonb, 'O36 close');
 
 -- ── ST. 운영 수치(43-02 · SC-4 · SC-7) ───────────────────────────────
 DELETE FROM public.dart_alerts;

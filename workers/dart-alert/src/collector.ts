@@ -236,7 +236,7 @@ class Collector {
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
   private outage: OpenOutage | null = null;
   /** 시작 때 DB 장애 상태(readState) */
-  private dbOutage: { since: string | null; notice: string | null } = { since: null, notice: null };
+  private dbOutage: { since: string | null; reason: string | null; notice: string | null } = { since: null, reason: null, notice: null };
   private readonly lapState: LapState = newLapState();
   /** 실행 동안 하나인 송신 상태 — 공시 알림 · 장애 글 · 시험 글이 같은 1초 간격 · 60초 18건 · 429 대기를 지난다 */
   private readonly pacer: SendPacer = newSendPacer();
@@ -461,7 +461,7 @@ class Collector {
       const ms = Date.parse(st.lastOk[w.id] ?? "");
       if (Number.isFinite(ms)) this.lastOk.set(w.id, ms);
     }
-    this.dbOutage = { since: st.outage.since, notice: st.outage.notice };
+    this.dbOutage = { since: st.outage.since, reason: st.outage.reason, notice: st.outage.notice };
   }
 
   // ── ⑥ 루프 ────────────────────────────────────────────────────────
@@ -609,7 +609,8 @@ class Collector {
     const dbSinceMs = Date.parse(this.dbOutage.since ?? "");
     if (Number.isFinite(dbSinceMs)) {
       this.outage = openOutageState(dbSinceMs, this.dbOutage.notice === "sent");
-      if (this.dbOutage.notice === "pending") await this.openOutage(this.stalledReason(now), dbSinceMs, true);
+      // 다시 열 때 글 사유는 처음 연 실행의 것(DB outage_reason) — 없으면 「수집기 중단」(리뷰 IN-01)
+      if (this.dbOutage.notice === "pending") await this.openOutage(this.dbOutage.reason ?? this.stalledReason(now), dbSinceMs, true);
       return;
     }
     const stale = this.d.watches.filter((w) => now - this.coverOf(now, w.id) > OUTAGE_AFTER_MS);
@@ -658,12 +659,16 @@ class Collector {
     const reason = reasonIn.replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
     let res: Record<string, unknown>;
     try {
-      res = await db.outage("open", reason);
+      // 시작 시각 = 워커 기준점(p_since) — DB outage_since 와 글의 「HH:MM 부터」 · 「HH:MM ~」 가 같은 값이 된다(리뷰 IN-01)
+      res = await db.outage("open", reason, new Date(sinceMs).toISOString());
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
       log.error({ err: safeErrorFields(err), reason }, "dart outage open failed");
       return;
     }
+    // DB 가 적은 시작 시각(다시 연 장애면 처음 시각 · 새 장애면 잘라 맞춘 기준점)을 글 · 「다시 동작」 에 그대로 쓴다
+    const dbSince = Date.parse(String(res.since ?? ""));
+    if (Number.isFinite(dbSince)) sinceMs = dbSince;
     if (res.opened !== true) {
       // DB 에 이미 열린 장애(글을 이미 남김) — sent 인지 failed 인지는 닫을 때 DB 로 확인한다
       this.outage = openOutageState(sinceMs, null);

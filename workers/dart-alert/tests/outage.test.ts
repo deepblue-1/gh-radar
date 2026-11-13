@@ -407,3 +407,31 @@ describe("HTTP 차단 신호 — 두드리지 않고 멈춘다 (리뷰 WR-03)", 
     expect(h.dart.listCalls).toHaveLength(1);
   });
 });
+
+describe("다시 연 장애 글의 사유 · 시작 시각이 처음 것과 같다 (리뷰 IN-01)", () => {
+  it("notice pending 장애를 이어받아 다시 올리는 글은 DB 의 처음 사유를 쓴다(「수집기 중단」 아님)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:00:30"),
+      db: { lastOk: fresh("10:00:00"), outage: { since: iso("09:50:00"), reason: "하루 조회 한도 초과(020)", notice: "pending" } },
+    });
+    await h.run();
+    expect(stopped(h)).toHaveLength(1);
+    expect(stopped(h)[0].text).toBe(outageText(at("09:50:00"), "하루 조회 한도 초과(020)"));
+    expect(stopped(h)[0].text).not.toContain("수집기 중단");
+  });
+
+  it("새로 여는 장애는 워커 기준점을 DB 에 넘긴다(p_since) — DB outage_since 와 글의 「HH:MM 부터」 가 같다", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:06:00"),
+      db: { lastOk: fresh("10:00:00") },
+      dart: { reply: dartDown("23:00:00") },
+    });
+    await h.run();
+    expect(opens(h)).toHaveLength(1);
+    expect(opens(h)[0].since).toBe(iso("10:00:00"));
+    expect(h.db.state.outage.since).toBe(iso("10:00:00"));
+    expect(stopped(h)[0].text.startsWith(`${STOPPED} — 10:00 부터`)).toBe(true);
+  });
+});
