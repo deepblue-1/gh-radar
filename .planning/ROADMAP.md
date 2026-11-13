@@ -701,7 +701,7 @@ Plans:
 
 **확정(2026-11-12 · 사용자)**: 트렐로 카드의 「공개매수 설명회」 는 DART 보고서 **「공개매수설명서」** 다(신고서 2 ~ 4분 뒤 항상 붙는다). 거래소 「기업설명회(IR) 개최」 공시가 아니다.
 **미결 결정**: 없음 — ② ~ ⑨ 는 `43-CONTEXT.md` D-01 ~ D-17 이 답(2026-11-12 논의). 실행 자리는 새 워커 `workers/dart-alert`(kis-news-sync 꼴 장기 실행 Cloud Run Job).
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans executed
 
 Plans:
 **Wave 1**
@@ -721,6 +721,6 @@ Plans:
 - [x] 43-06-PLAN.md — 장애 짝 글(5분 · 이메일 + 단체방) · 송신 재시도 · 방 이동 · 속도 제한 (W4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 43-08-PLAN.md — 배포 전 게이트 → [BLOCKING] DB push(대기 목록이 우리 파일 하나일 때만) · 봇 · 비밀 · 조사 · 배포 · 실제 DB 경로 seed · 개인 대화 시험 · 단체방 전환(메인 세션) → 단체방 UAT · 지연 기록 (W5 · 체크포인트)
+- [x] 43-08-PLAN.md — 배포 전 게이트 → [BLOCKING] DB push(대기 목록이 우리 파일 하나일 때만) · 봇 · 비밀 · 조사 · 배포 · 실제 DB 경로 seed · 개인 대화 시험 · 단체방 전환(메인 세션) → 단체방 UAT · 지연 기록 (W5 · 체크포인트)
 
 **UI hint**: no
