@@ -33,6 +33,7 @@
 - [x] 틱뷰어 우리 주문 · 체결 표시 — Validated in Phase 38: `tick_own_for_user` RPC(가시 계좌 · 어드민 · 켜진 서버 · jsonb 1회) → `GET /api/ticks/own` → 브라우저 shared `matchOwnFills` 짝짓기(10/30 401/406) · 근거 특정(호가 B6 29/29 · 앵커 100/100) → 전문 목록 칩 · 주문 줄 · 짝 없음 줄 · 둘째 레일 · 카드 「◆ 우리 주문 #…」 · 오른쪽 열 「우리 주문 n」 탭 · 차트 ◆ ○ · 제목 줄 알약 [ ]
 - [x] 체결 앱 푸시 알림 — Validated in Phase 40: 주문 체결 · 거부 · 서버 취소 · 자동매도 시작/완료를 GH Trade iOS · Android 앱으로 한 줄 푸시. relay 저널 적용 결과 → DB 판정 RPC `dma_push_claim`(주문당 첫 체결 + 전량 체결 · 송신 로그 UNIQUE 로 재생 · 재시도 중복 0 · 계좌번호 비노출) → iOS APNs 직접(.p8 · Secret Manager) · Android FCM v1(VM SA · Firebase 는 Android 만). 기기별 켜기 · 탭하면 주문로그 착지 · 앱 앞 배너 시 작업대 주문 토스트 숨김. 검증 5/5 · 실기기 UAT 통과(11-09) · 리뷰 경고 7 open (2026-11-09)
 - [x] 틱뷰어 봉 차트 겹쳐보기 — Validated in Phase 42: `/analytics/ticks` 차트 카드 제목 줄 「선 차트 | 봉 차트」 스위치(기억 · 보던 구간 유지) → 순수 SVG 봉 차트(라이브러리 없음 · 브라우저 집계 1 · 5 · 10 · 15 · 30 · 60분봉 · 자동 단위 · 거래대금 막대) · 이동평균(봉 단순 · 지수 · 일 단순 · 최대 6개 · 브라우저 기억) · 수익률 판(당일 = 패널 `teamKpiAt` · 누적 미실현) · 누적 평단(RPC `accum.avg_px` 한 키) · 팀 원 · 우리 ◆ ○ · 값 띠 · 캡션 · 선 차트와 같은 조작. 기존 선 차트는 선택 입력만 더함(diff 범위 게이트). 검증 7/7 · 운영 UAT 12/12(폰 · PC) · 리뷰 경고 3 open (2026-11-13)
+- [x] 한투 뉴스 · 공시 피드 — Validated in Phase 41: 한국투자증권 Open API 「종합 시황/공시(제목)」(`FHKST01011800`)을 새 상주 워커 `kis-news-sync`(Cloud Run Job · 임대 1개 · 평일 `07:00` ~ `20:00` 빠른 창 · 초당 5건 · 토큰 하루 1회 발급 가드)가 전체 최신 · 공시 F/G · 종목별 조회로 받아 `kis_news` 에 저장 → 네이버 뉴스와 shared `mergeStockFeed` 로 한 목록(같은 기사 합치기 · 공시 배지 · 자료원 항상 표기) → 인증 없는 묶음 조회 `GET /api/news/by-stock`(100코드 · 종목별 수집 시각)로 webapp 네 자리(돌파 표 · 상따 카드 띠 · 종목 뉴스 · 홈 AI 공시 재료)와 gh-trade 클라에 제공. 재료 없는 자동 기사(시세 한 줄 · 시황 · 수급) 숨김 · 네이버는 제목에 종목명(별칭 18개) 있는 기사만. 공시 지연 중앙 3.3초 · 하루 91,179회(자체 상한 46%) · 검증 8/8 · UAT 통과 · 리뷰 차단 2 · 경고 11 open (2026-11-13)
 - [x] 매매진단 챗봇 — Validated in Phase 39: 「왜 이 주문이 나갔나/안 나갔나」를 AI 애널리스트에 직접 묻는다. 팀장(Sonnet 5)이 읽기 전용 「주문 진단」 전문가(`claude-opus-5-5` 도구 루프)를 부르고, 전문가는 주문·체결·전략 이벤트·상태전이(kind 9)를 RPC `dma_diagnosis_for_user` 1회로, 시세는 오늘 tickgw · 지난 날짜 격자/변환으로 본다. 계좌 범위는 `req.userId` 서버 강제(도구 스키마에 계좌 칸 없음). 답은 결론 한 줄 + 쉬운 말 + 시각 표 + 행마다 틱 칩 + 접힌 서버 기록 원문. kind 9 는 gh-trade 가 11-06 켬(CfgSubmit · Auto* 11종 · SysDisableOne · SysKillSwitch)
 
 ### Active
@@ -70,7 +71,7 @@
 ## Context
 
 - 대상 시장: 한국 주식 (코스피/코스닥) · 실거래는 KB·교보 DMA(gh-trade 서버)
-- 시세: 키움 REST(매분) + KRX EOD 일봉 · 실시간 호가는 relay 공유 연결 · 뉴스: Naver Search API · 종목토론: Bright Data 경유 배치
+- 시세: 키움 REST(매분) + KRX EOD 일봉 · 실시간 호가는 relay 공유 연결 · 뉴스: Naver Search API + 한투 Open API 뉴스·공시 제목(상주 워커 `kis-news-sync`) · 종목토론: Bright Data 경유 배치
 - AI: Claude API — 챗봇 Sonnet 5 · 분류 Haiku 4.5(비활성)
 - 프론트엔드: Next.js 15 + Tailwind 4 + shadcn/ui → Vercel · 모바일 Capacitor
 - 백엔드: Express(Cloud Run) · relay(Cloud Run + WireGuard radar-gw) · 워커 Cloud Run Job
@@ -103,6 +104,7 @@
 | 우리 주문 · 체결은 틱이 있는 브라우저에서 짝짓는다 — server · RPC 는 저널 행만 (Phase 38) | 틱 격자는 브라우저에만 있고 A3 에는 계좌 · 주문번호가 없다 → 짝짓기 · 근거 특정은 shared 순수 함수(오라클 픽스처로 잠금) · RPC 는 가시성 · 켜진 서버 필터만. 그날 「우리 주문」 표는 UAT 에서 오른쪽 열 탭으로 분리(D-07 뒤집기 · 스케치 026 A) | ✓ Good — 2026-11-03 배포 · UAT ok · 검증 21/21 (리뷰 Warning 5 open) |
 | 체결 푸시 판정은 DB RPC 한 곳, 송신은 relay 적용 결과 뒤에서만 (Phase 40) | 주문 · 판정 경로(gh-trade · relay 저널 적용)를 건드리지 않고(diff 0) 재기동 커서 재생 · 응답 유실 재시도에도 같은 알림을 두 번 보내지 않으려면 송신 권리를 DB UNIQUE 가 한 번만 줘야 한다. iOS 는 Firebase 없이 APNs 직접, Android 만 FCM(D-17 부분 번복) | ✓ Good — 2026-11-07 배포 · 11-09 UAT 통과 · 송신 실패 0 (리뷰 경고 7 open — 응답 유실 시 묶음 소실 · FCM 404 일괄 삭제 등) |
 | 틱뷰어 봉 차트는 새 컴포넌트 + 전환 스위치로 나란히 — 기존 선 차트는 건드리지 않는다 (Phase 42) | 채택 여부를 써 보고 정하려면 같은 종목 · 날짜를 번갈아 봐야 하고, 아니면 새 파일 · 스위치만 지우면 원래대로여야 한다. 봉 · 이동평균은 세션 메모리 체결로 브라우저 집계(서버 무변경) · 누적 평단만 RPC 키 하나 · 차트 라이브러리 대신 순수 SVG(팀 원 · 계단 · 구간 합계와 한 좌표계). NXT 화면 일 이동평균은 KRX 일봉 종가 | ✓ Good — 2026-11-13 운영 UAT 12/12 · 채택 · 폐기 결정은 사용 뒤(D-04) |
+| 한투 뉴스 · 공시는 상주 워커 하나가 받고, 사용자 · gh-trade 는 gh-radar 묶음 조회만 본다 (Phase 41) | 한투는 공식 쿼터 API 라 호출량이 사용자 수와 무관해야 하고 토큰 발급은 하루 1회 · 알림톡이 간다 → 임대 1개 상주 Job 이 토큰 · 호출을 독점. gh-trade 는 HTTP 조회(선례 ThemeLookup) — .fbs · 실거래 서버 무변경. 한투는 제목만이라 원문 링크 · 요약은 네이버 몫으로 합치고, KRX F000 직수신은 지연이 문제 될 때 후속 | ✓ Good — 2026-11-12 배포 · UAT 통과 · 공시 지연 중앙 3.3초 (리뷰 차단 2 open — 쪽 넘김 커서 · 새 글 기준선) |
 | 주문 진단은 전문가 하나 · 계좌는 서버가 묶고 모델은 고르지 못한다 (Phase 39) | 진단은 판정표 원문 · 세 시계 · 단일가 bs 공백 같은 깊은 규칙이 필요해 Opus 전문가 하나에 몰고 팀장은 Sonnet 유지. 사람이 끈 「해제」 도 kind 9 로 남겨야 「안 나간 이유」 를 답할 수 있어 gh-trade 에 Sys 기록을 추가 요청(11-06). 답변 모양은 목업 A(요약+표) | ✓ Good — UAT 8/8 · 11-09 운영 진단이 상태전이 인용 |
 
 ## Evolution
@@ -123,4 +125,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-13 after Phase 42*
+*Last updated: 2026-11-13 after Phase 41*

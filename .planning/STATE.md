@@ -22,10 +22,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-09 after Phase 39)
+See: .planning/PROJECT.md (updated 2026-11-13 after Phase 41)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 42 — 틱뷰어 봉차트·이동평균·수익률 겹쳐보기
+**Current focus:** Phase 43 — 공개매수 · 유상증자 · 합병 공시 텔레그램 알림
 
 ## Current Position
 
