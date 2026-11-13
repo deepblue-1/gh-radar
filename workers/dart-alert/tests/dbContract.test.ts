@@ -93,6 +93,25 @@ function splitTop(s: string): string[] {
   return out.map((x) => x.trim()).filter(Boolean);
 }
 
+/**
+ * 본문의 모든 `jsonb_build_object(…)` 인자 목록에서 **키 자리**(0부터 짝수 번째)의 문자열 리터럴만 모은다(리뷰 IN-51).
+ * 본문 어딘가에 `'키'` 가 있는지만 보면 상태값(`SET status = 'expired'`) 같은 같은 낱말에 속아 키 이름이 바뀌어도 통과한다.
+ */
+function jsonbObjectKeys(body: string): Set<string> {
+  const keys = new Set<string>();
+  const head = /jsonb_build_object\s*\(/gi;
+  let m: RegExpExecArray | null;
+  while ((m = head.exec(body))) {
+    const open = m.index + m[0].length - 1;
+    const args = splitTop(body.slice(open + 1, matchParen(body, open)));
+    args.forEach((a, i) => {
+      const lit = i % 2 === 0 ? /^'([^']*)'$/.exec(a) : null;
+      if (lit) keys.add(lit[1]!);
+    });
+  }
+  return keys;
+}
+
 const FN_HEAD = /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.(\w+)\s*\(/gi;
 
 /** 같은 이름이 둘 이상이면 마지막 정의(DB 에 남는 것) */
@@ -348,7 +367,7 @@ describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert*.sql(나�
     });
   });
 
-  it("반환 키 — 워커가 읽는 키가 그 함수 본문(마지막 정의)에 jsonb 키 낱말로 있다", () => {
+  it("반환 키 — 워커가 읽는 키가 그 함수 본문(마지막 정의)의 jsonb_build_object 키 자리에 있다", () => {
     const want: Record<string, readonly string[]> = {
       dart_alert_lease_acquire: LEASE_RESULT_KEYS,
       dart_alert_insert: INSERTED_ROW_KEYS,
@@ -357,10 +376,12 @@ describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert*.sql(나�
     };
     const missing: string[] = [];
     for (const [fn, keys] of Object.entries(want)) {
-      const body = fns.get(fn)?.body ?? "";
-      for (const k of keys) if (!body.includes(`'${k}'`)) missing.push(`${fn}.${k}`);
+      const built = jsonbObjectKeys(fns.get(fn)?.body ?? "");
+      for (const k of keys) if (!built.has(k)) missing.push(`${fn}.${k}`);
     }
     expect(missing).toEqual([]);
+    // 파서 자기 점검 — 값 자리의 문자열 · 상태값은 키로 세지 않는다
+    expect([...jsonbObjectKeys("SET status = 'expired'; RETURN jsonb_build_object('held', true, 'mode', 'expired');")]).toEqual(["held", "mode"]);
     expect(CLAIMED_ROW_KEYS).toContain("stale");
   });
 
