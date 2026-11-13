@@ -329,7 +329,15 @@ fi
 for SA in "$SCHED_SA_NAME" "$DART_SA_NAME"; do
   SA_EMAIL="${SA}@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
   if ! gcloud iam service-accounts describe "$SA_EMAIL" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
-    echo "ERROR: SA '$SA' not found. Run: ! GCP_PROJECT_ID=$EXPECTED_PROJECT bash scripts/setup-dart-alert-iam.sh" >&2
+    if [[ "$SA" == "$SCHED_SA_NAME" ]]; then
+      # setup-dart-alert-iam.sh 는 수집기 SA 만 만든다 — Scheduler SA 는 여러 워커의 Scheduler 가 함께 쓰는 기존 SA 다(리뷰 IN-58)
+      echo "ERROR: Scheduler SA '$SA' 가 없다 — 다른 워커(kis-news-sync · master-sync 등)의 Scheduler 도 함께 쓰는 기존 SA 라" >&2
+      echo "       이 저장소 스크립트는 만들지 않는다(setup-dart-alert-iam.sh 로는 안 생긴다). 다른 Scheduler 도 깨졌는지 먼저 본다." >&2
+      echo "       다시 만들려면(사용자 터미널): ! gcloud iam service-accounts create $SA --display-name='gh-radar Cloud Scheduler invoker' --project=$EXPECTED_PROJECT" >&2
+      echo "       그 뒤 각 워커의 deploy 스크립트를 다시 실행해 Job 마다 run.invoker 를 다시 묶는다." >&2
+    else
+      echo "ERROR: SA '$SA' not found. Run: ! GCP_PROJECT_ID=$EXPECTED_PROJECT bash scripts/setup-dart-alert-iam.sh" >&2
+    fi
     exit 1
   fi
 done
