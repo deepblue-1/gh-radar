@@ -5,19 +5,38 @@ import type { CollectorDeps, CollectorExit } from "../src/collector";
 import type { DartAlertConfig } from "../src/config";
 import { buildDeps, crashLine, main } from "../src/index";
 import { LATE_LABEL, testSendText } from "../src/message";
-import { harness, kst, logRecorder, MON, rightsRow, SAT, tenderRow, type FeedItem } from "./helpers/fakes";
+import {
+  ALL_WATCHES,
+  dbRow,
+  exchangeRow,
+  harness,
+  holderChangeRow,
+  kst,
+  logRecorder,
+  marketActionRow,
+  MON,
+  rightsRow,
+  SAT,
+  tenderRow,
+  type FeedItem,
+  type FakeDbRow,
+} from "./helpers/fakes";
 
 /**
  * Phase 43-05 T2 — 모드(probe · seed · test-send · auto 창 밖)와 Cloud Run Job 진입점(`main` · `buildDeps`).
  * 배포 · 스모크(43-07 `probe ok`) · 첫 배포 날(seed → auto 이어 감) · 개인 대화 시험(D-15 test-send)의 계약.
  * 실제 OpenDART · Supabase · 텔레그램 호출 없음 — 진입점 결선은 가짜 axios 전송으로만 확인한다.
- * 261113-rn7: probe 모드는 키 2(거래소 수시공시 1쪽 · 키 2 카운터) · 진입점은 OpenDART 키 2개.
+ * 261113-rn7: probe 모드는 키 2(거래소 수시공시 1쪽 · 키 2 카운터) · 진입점은 OpenDART 키 2개 · seed 는 직전 평일도 채운다.
  */
 
 const at = (hms: string) => kst(MON, hms);
 const iso = (hms: string) => new Date(at(hms)).toISOString();
 const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer", from: at(fromHms), row: tenderRow(n) });
 const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
+const FRI = "2026-11-13";
+const FRI_YMD = "20261113";
+/** 금요일(직전 평일) 날짜 조회에만 보이는 행 */
+const fri = (watch: FeedItem["watch"], row: FeedItem["row"]): FeedItem => ({ watch, from: kst(FRI, "09:00:00"), row, day: FRI_YMD });
 
 describe("probe 모드 (43-07 스모크 계약)", () => {
   it("임대 없이(남이 쥐고 있어도) 키 2 로 1쪽 1회 · 넣기 0 · 송신 0 · 키 2 usage.add(1) · probe ok(total) · 종료 0", async () => {
@@ -93,11 +112,18 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     expect(h.logs.count("seed done", "info")).toBe(1);
     expect(h.logs.find("seed done")?.obj).toMatchObject({ inserted: 3 });
     // seed 바퀴의 감시 대상별 성공 시각이 곧바로 DB last_ok 로(임대 연장 RPC 의 p_last_ok)
+    // + seed 가 한 직전 평일 확인 표시(prevday:<id> = 오늘 KST 날짜)
     const persisted = h.db.calls.leaseAcquire.find((c) => c.lastOk !== undefined)!;
     expect(persisted.at).toBe(at("14:00:00"));
-    expect(persisted.lastOk).toEqual({ tender_offer: iso("14:00:00"), rights_merger: iso("14:00:00") });
+    expect(persisted.lastOk).toEqual({
+      tender_offer: iso("14:00:00"),
+      rights_merger: iso("14:00:00"),
+      "prevday:tender_offer": MON,
+      "prevday:rights_merger": MON,
+    });
     // 같은 실행이 한 바퀴(5초) 뒤 auto 바퀴 — 새 건 1건만 · 늦은 알림 아님
-    expect(h.dart.callsOf("tender_offer")[1].at).toBe(at("14:00:05"));
+    // (seed 바퀴의 둘째 D004 호출은 금요일 날짜 조회라 오늘 날짜 조회만 본다)
+    expect(h.dart.callsOf("tender_offer").filter((c) => c.day === "20261116")[1].at).toBe(at("14:00:05"));
     expect(h.telegram.sent).toHaveLength(1);
     const sent = h.telegram.texts();
     expect(sent[0]).toContain("대상회사4");
@@ -123,7 +149,12 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     expect(h.db.calls.insert).toHaveLength(0);
     expect(h.db.calls.claim).toHaveLength(0);
     expect(h.telegram.sent).toHaveLength(0);
-    expect(h.dart.listCalls).toHaveLength(2);
+    // D004 오늘 → D004 금요일(seed 는 직전 평일도) → B001 오늘 800(실패라 전날 조회 없음) = 3
+    expect(h.dart.listCalls.map((c) => [c.watch, c.day])).toEqual([
+      ["tender_offer", "20261116"],
+      ["tender_offer", FRI_YMD],
+      ["rights_merger", "20261116"],
+    ]);
     expect(h.logs.count("seed done")).toBe(0);
     const err = h.logs.lines.find((l) => l.level === "error");
     expect(JSON.stringify(err?.obj)).toContain("800");
@@ -138,14 +169,115 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
 
     expect(exit).toEqual({ code: 0, reason: "window_end" });
     expect(sent).toHaveLength(0);
-    expect(dartCalls).toHaveLength(2);
-    expect(h.dart.callsOf("tender_offer")).toHaveLength(1);
-    expect(h.dart.callsOf("rights_merger")).toHaveLength(1);
+    // 감시 대상마다 오늘 + 직전 평일(금) = 2 × 2
+    expect(dartCalls).toHaveLength(4);
+    expect(h.dart.callsOf("tender_offer").map((c) => c.day)).toEqual(["20261116", FRI_YMD]);
+    expect(h.dart.callsOf("rights_merger").map((c) => c.day)).toEqual(["20261116", FRI_YMD]);
     expect(h.db.calls.insert).toHaveLength(1);
     expect(h.db.calls.insert[0]).toMatchObject({ seed: true, inserted: 2 });
     expect(h.logs.count("seed done")).toBe(1);
     expect(h.db.calls.claim).toHaveLength(0);
     expect(h.db.calls.leaseRelease).toHaveLength(1);
+  });
+
+  it("seed 월 14:00(여섯 감시 대상) — 감시 대상마다 오늘 + 금요일 조회 · 금요일 통과 건도 seeded(rcept_dt 오늘) · 송신 0 · 표시 여섯 · 이어 가는 auto 는 금요일 조회 없음", async () => {
+    const h = harness({
+      start: at("14:00:00"),
+      abortAt: at("14:01:00"),
+      mode: "seed",
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      dart: {
+        feed: [
+          tender(1, "09:10:00"),
+          fri("exchange_disclosure", exchangeRow(9, FRI)),
+          fri("market_action", marketActionRow(9, FRI)),
+          fri("market_action", marketActionRow(8, FRI, { report_nm: "기타시장안내              (상장적격성 실질심사 관련 안내)" })),
+          fri("largest_holder_change", holderChangeRow(9, FRI)),
+        ],
+      },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+
+    // seed 바퀴(14:00:00) — 감시 대상마다 오늘 조회 바로 뒤 금요일 전 쪽 조회 1번
+    const seedCalls = h.dart.listCalls.filter((c) => c.at === at("14:00:00"));
+    expect(seedCalls.map((c) => [c.watch, c.day, c.fullRead])).toEqual(
+      ALL_WATCHES.flatMap((w) => [
+        [w.id, "20261116", false],
+        [w.id, FRI_YMD, true],
+      ]),
+    );
+    const first = h.db.calls.insert[0];
+    expect(first.seed).toBe(true);
+    expect(first.items.map((i) => [i.rcept_no, i.rcept_dt])).toEqual([
+      [tenderRow(1).rcept_no, MON],
+      [marketActionRow(9, FRI).rcept_no, MON],
+      [exchangeRow(9, FRI).rcept_no, MON],
+      [holderChangeRow(9, FRI).rcept_no, MON],
+    ]);
+    for (const i of first.items) expect(h.db.statusOf(i.rcept_no)).toBe("seeded");
+    expect(h.telegram.sent).toHaveLength(0);
+    // 영속 lastOk 에 전날 확인 표시 여섯
+    const persisted = h.db.calls.leaseAcquire.find((c) => c.lastOk !== undefined)!;
+    expect(Object.entries(persisted.lastOk!).filter(([k]) => k.startsWith("prevday:"))).toEqual(
+      ALL_WATCHES.map((w) => [`prevday:${w.id}`, MON]),
+    );
+    // 이어 가는 auto(14:00:05 ~ 14:00:55) — 금요일 조회 더 없음
+    expect(h.dart.listCalls.filter((c) => c.at > at("14:00:00") && c.day === FRI_YMD)).toHaveLength(0);
+    expect(h.dart.callsOf("tender_offer").length).toBeGreaterThan(10);
+  });
+
+  it("seed 에서 금요일 조회 하나(I004)가 실패하면 넣기 0 · 종료 1 seed_failed", async () => {
+    const h = harness({
+      start: at("14:00:00"),
+      mode: "seed",
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      dart: {
+        feed: [tender(1, "09:10:00")],
+        reply: (c) => (c.watch.id === "largest_holder_change" && c.day === FRI_YMD ? { status: "800" } : undefined),
+      },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "seed_failed" });
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.telegram.sent).toHaveLength(0);
+    expect(h.logs.count("dart prev-day list failed", "warn")).toBe(1);
+    expect(h.logs.find("seed failed — nothing inserted, not continuing to auto")?.obj).toMatchObject({
+      failed: [{ watch: "largest_holder_change", prevOk: false }],
+    });
+  });
+
+  it("함정 A 끝에서 끝 — 월 21:00 seed(창 밖) → 그 DB 를 옮겨 화 07:00 auto(표시 없음) → 월요일 날짜 조회 감시 대상마다 1번 · 새 알림 0", async () => {
+    const monRows: FeedItem[] = [
+      tender(1, "09:10:00"),
+      { watch: "exchange_disclosure", from: at("15:00:00"), row: exchangeRow(1) },
+      { watch: "market_action", from: at("16:00:00"), row: marketActionRow(1) },
+      { watch: "largest_holder_change", from: at("17:00:00"), row: holderChangeRow(1) },
+    ];
+    const seed = harness({ start: at("21:00:00"), mode: "seed", watches: ALL_WATCHES, prevDayDone: false, dart: { feed: monRows } });
+    expect(await seed.run()).toEqual({ code: 0, reason: "window_end" });
+    expect(seed.db.calls.insert[0]).toMatchObject({ seed: true, inserted: 4 });
+
+    const TUE = "2026-11-17";
+    const tue = harness({
+      start: kst(TUE, "07:00:00"),
+      abortAt: kst(TUE, "07:00:30"),
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      db: {
+        rows: [...seed.db.rows.values()].map((r): FakeDbRow => ({ ...r })),
+        lastOk: { ...seed.db.state.lastOk },
+      },
+      // 화요일에 보는 월요일 목록 — 월요일 날짜 조회에만 보인다
+      dart: { feed: monRows.map((f) => ({ ...f, day: "20261116" })) },
+    });
+    expect(await tue.run()).toEqual({ code: 0, reason: "aborted" });
+    const monCalls = tue.dart.listCalls.filter((c) => c.day === "20261116");
+    expect(monCalls.map((c) => c.watch)).toEqual(ALL_WATCHES.map((w) => w.id));
+    expect(monCalls.every((c) => c.fullRead && c.at === kst(TUE, "07:00:00"))).toBe(true);
+    expect(tue.telegram.alerts()).toHaveLength(0);
+    expect(tue.db.calls.insert.flatMap((c) => c.items)).toHaveLength(4);
+    expect(tue.db.calls.insert.reduce((n, c) => n + c.inserted, 0)).toBe(0);
   });
 
   it("다른 실행이 임대를 쥐고 있으면 seed 도 종료 0 lease_held · 호출 0", async () => {
@@ -275,9 +407,16 @@ describe("진입점 main() · buildDeps()", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before);
 
     expect(seen[0].cfg).toEqual({ dailyBudget: 12_000, mode: "probe" });
-    expect(seen[0].watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger", "exchange_disclosure", "insider_trade_plan"]);
+    expect(seen[0].watches.map((w) => w.id)).toEqual([
+      "tender_offer",
+      "rights_merger",
+      "market_action",
+      "exchange_disclosure",
+      "largest_holder_change",
+      "insider_trade_plan",
+    ]);
     const start = out.lines().find((l) => l.msg === "dart-alert start");
-    expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 4, holder: seen[0].holder });
+    expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 6, holder: seen[0].holder });
     const text = out.text();
     for (const v of Object.values(SECRETS)) expect(text).not.toContain(v);
   });
@@ -322,7 +461,7 @@ describe("진입점 main() · buildDeps()", () => {
     expect(failed).toMatchObject({ level: 50, err: { message: "boom", kind: "unknown" } });
   });
 
-  it("buildDeps — holder · 감시 대상 4 · 키별 DART 조회 · 키별 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
+  it("buildDeps — holder · 감시 대상 6 · 키별 DART 조회 · 키별 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
     const cfg: DartAlertConfig = {
       supabaseUrl: "http://127.0.0.1:1",
       supabaseServiceRoleKey: SECRETS.SUPABASE_SERVICE_ROLE_KEY,
@@ -356,7 +495,14 @@ describe("진입점 main() · buildDeps()", () => {
 
     expect(deps.holder).toMatch(/^local:[0-9a-f]{8}$/);
     expect(deps.cfg).toEqual({ dailyBudget: 15_000, mode: "auto" });
-    expect(deps.watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger", "exchange_disclosure", "insider_trade_plan"]);
+    expect(deps.watches.map((w) => w.id)).toEqual([
+      "tender_offer",
+      "rights_merger",
+      "market_action",
+      "exchange_disclosure",
+      "largest_holder_change",
+      "insider_trade_plan",
+    ]);
     expect(deps.watches[1].rule).toMatchObject({ form: "b001", kinds: ["유상증자결정"] });
     expect(deps.judge).toEqual({ b001Corrections: "exclude" });
     expect(JSON.stringify(deps.cfg)).not.toContain("SECRET");
@@ -365,21 +511,17 @@ describe("진입점 main() · buildDeps()", () => {
     expect(list).toMatchObject({ calls: 1 });
     expect(list.rows).toHaveLength(1);
     expect(dartReqs[0]).toMatchObject({ pblntf_detail_ty: "D004", bgn_de: "20261116", end_de: "20261116", page_no: 1 });
-    await deps.dart.list(deps.watches[1], "20261116");
-    expect(dartReqs[1]).toMatchObject({ pblntf_detail_ty: "B001" });
-    await deps.dart.list(deps.watches[2], "20261116");
-    expect(dartReqs[2]).toMatchObject({ pblntf_detail_ty: "I001" });
-    await deps.dart.list(deps.watches[3], "20261116");
-    expect(dartReqs[3]).toMatchObject({ pblntf_detail_ty: "D005" });
+    for (const w of deps.watches.slice(1)) await deps.dart.list(w, "20261116");
+    expect(dartReqs.slice(0, 6).map((r) => r.pblntf_detail_ty)).toEqual(["D004", "B001", "I003", "I001", "I004", "D005"]);
     expect(await deps.dart.probe("20261116", 1)).toEqual({ total: 1, calls: 1 });
-    expect(dartReqs[4]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
+    expect(dartReqs[6]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
     expect(await deps.dart.probe("20261116", 2)).toEqual({ total: 1, calls: 1 });
-    expect(dartReqs[5]).toMatchObject({ pblntf_detail_ty: "I001", page_no: 1 });
-    // 키 결선(값은 출력하지 않고 같음만) — D004 · B001 · 탐침 1 은 키 1, I001 · D005 · 탐침 2 는 키 2(261113-rn7 U-2)
+    expect(dartReqs[7]).toMatchObject({ pblntf_detail_ty: "I001", page_no: 1 });
+    // 키 결선(값은 출력하지 않고 같음만) — D004 · B001 · 탐침 1 은 키 1, 나머지 넷 · 탐침 2 는 키 2(261113-rn7 U-2)
     const usedKey1 = dartReqs.map((r) => r.crtfc_key === cfg.dartApiKey);
     const usedKey2 = dartReqs.map((r) => r.crtfc_key === cfg.dartApiKey2);
-    expect(usedKey1).toEqual([true, true, false, false, true, false]);
-    expect(usedKey2).toEqual([false, false, true, true, false, true]);
+    expect(usedKey1).toEqual([true, true, false, false, false, false, true, false]);
+    expect(usedKey2).toEqual([false, false, true, true, true, true, false, true]);
 
     expect(await deps.telegram.send("hello")).toEqual({ kind: "ok", messageId: 9 });
     expect(posts[0]).toMatchObject({ chat_id: SECRETS.TELEGRAM_CHAT_ID, text: "hello" });
@@ -389,5 +531,46 @@ describe("진입점 main() · buildDeps()", () => {
 
     // 사용량 · 한도 의심 표시의 결선(표 · 서비스 키 · 날짜 · RPC 인자)은 tests/entryWiring.test.ts 가 단언한다(리뷰 WR-56)
     expect(typeof deps.db.leaseAcquire).toBe("function");
+  });
+
+  it("buildDeps — 전날 확인(fullRead)은 그 호출만의 새 쪽 기억으로 전 쪽을 읽고 오늘 조회의 기억은 그대로 둔다(함정 C)", async () => {
+    const cfg: DartAlertConfig = {
+      supabaseUrl: "http://127.0.0.1:1",
+      supabaseServiceRoleKey: SECRETS.SUPABASE_SERVICE_ROLE_KEY,
+      dartApiKey: SECRETS.OPENDART_API_KEY,
+      dartApiKey2: SECRETS.OPENDART_API_KEY_2,
+      telegramBotToken: SECRETS.TELEGRAM_BOT_TOKEN,
+      telegramChatId: SECRETS.TELEGRAM_CHAT_ID,
+      dartBaseUrl: "http://dart.invalid",
+      telegramBaseUrl: "http://telegram.invalid",
+      dailyBudget: 15_000,
+      mode: "auto",
+      b001Kinds: ["유상증자결정"],
+      b001Corrections: "exclude",
+      logLevel: "info",
+      appVersion: "test",
+    };
+    // 날마다 150건(2쪽) — 쪽마다 다른 접수번호
+    const dartReqs: Record<string, unknown>[] = [];
+    const dartAdapter: AxiosAdapter = (config) => {
+      const p = config.params as Record<string, unknown>;
+      dartReqs.push({ ...p });
+      const page = Number(p.page_no);
+      const list = [exchangeRow(page, "2026-11-13", { rcept_no: `${String(p.bgn_de)}7${String(page).padStart(7, "0")}` })];
+      return Promise.resolve({ data: { status: "000", total_count: 150, total_page: 2, list }, status: 200, statusText: "OK", headers: {}, config });
+    };
+    const deps = buildDeps(cfg, logRecorder().log, new AbortController().signal, { dartAdapter });
+    const i001 = deps.watches.find((w) => w.id === "exchange_disclosure")!;
+    const pages = () => dartReqs.map((r) => `${String(r.bgn_de)}:${String(r.page_no)}`);
+
+    // 오늘 첫 조회 — 처음 보는 기억이라 전 쪽(1 · 2)
+    expect((await deps.dart.list(i001, "20261116")).calls).toBe(2);
+    // 곧바로 다시 — 수 그대로 · 60초 안이라 1쪽만
+    expect((await deps.dart.list(i001, "20261116")).calls).toBe(1);
+    // 전날 확인 — 새 기억이라 전 쪽(100건 넘는 날)
+    expect((await deps.dart.list(i001, "20261113", { fullRead: true })).calls).toBe(2);
+    // 오늘 기억은 그대로 — 다시 1쪽만(전날 날짜로 기억이 지워졌다면 전 쪽)
+    expect((await deps.dart.list(i001, "20261116")).calls).toBe(1);
+    expect(pages()).toEqual(["20261116:1", "20261116:2", "20261116:1", "20261113:1", "20261113:2", "20261116:1"]);
   });
 });

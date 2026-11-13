@@ -24,6 +24,8 @@ import { buildWatches, type DartKeyId, type WatchId } from "./watches";
  * - OpenDART 키 2개(261113-rn7 U-2): 감시 대상의 `key` 로 키 1(`OPENDART_API_KEY`) · 키 2(`OPENDART_API_KEY_2`)를
  *   고르고, 사용량 · 한도 의심 표시도 그 키의 service(`DART_KEY_SERVICES`)로 센다. 키마다 `UsageCounter` 하나.
  * - OpenDART: 감시 대상마다 `PageTracker` 하나로 `fetchWatchRows`(100건 넘는 날 쪽 넘김 · 43-04) — 날이 바뀌면 새로.
+ *   아침 전날 확인(`fullRead`)은 그 호출만의 새 `PageTracker` 로 전 쪽을 읽는다 — 오늘 조회의 감시 대상별 기억은 건드리지
+ *   않는다(전날 날짜를 `trackerFor` 에 넘기면 오늘 기억이 지워진다 · 261113-rn7 함정 C).
  *   탐침은 그 키로 1쪽 1회 — 키 1 공개매수(D004) · 키 2 거래소 수시공시(I001). probe 모드는 키 2.
  * - 텔레그램: 클로저가 쥔 현재 방 id 로 `sendMessage`. `switchChat` 은 이 실행 동안만 방 id 를 바꾼다(비밀은 그대로 —
  *   사용자가 비밀 스크립트로 고친다 · 43-06).
@@ -113,8 +115,14 @@ export function buildDeps(
       },
     },
     dart: {
-      list: (watch, day) =>
-        fetchWatchRows(dartHttp, apiKeyOf[watch.key], { detailTy: watch.pblntfDetailTy, day }, trackerFor(watch.id, day), Date.now()),
+      list: (watch, day, opts) =>
+        fetchWatchRows(
+          dartHttp,
+          apiKeyOf[watch.key],
+          { detailTy: watch.pblntfDetailTy, day },
+          opts?.fullRead ? new PageTracker() : trackerFor(watch.id, day),
+          Date.now(),
+        ),
       probe: async (day, key) => {
         const page = await fetchListPage(dartHttp, apiKeyOf[key], { detailTy: PROBE_DETAIL_TY[key], day, pageNo: 1 });
         return { total: page.total, calls: 1 };

@@ -1,5 +1,5 @@
 import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage";
-import { coverPointMs, everyMsAt, isInWindow, isLateAt, kstYmd, lapIntervalMs, lateGapMs, pollSlot } from "./cadence";
+import { coverPointMs, everyMsAt, isInWindow, isLateAt, kstYmd, lapIntervalMs, lateGapMs, pollSlot, prevWeekdayYmd } from "./cadence";
 import type { DartAlertConfig } from "./config";
 import { DartApiError, type DartRow } from "./dart/client";
 import { LeaseLostError, type DartAlertDb } from "./db";
@@ -31,7 +31,7 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  * 흐름(번호 = 실행 순서):
  *   ① 모드 — auto 이고 평일 `07:00` ~ `20:00` 창 밖이면 호출 0 · 종료 0 `outside_window`.
  *      test-send = OpenDART · 임대 없이 시험 글 1건(`test-send ok`) · probe = 임대 없이 키 2 로 거래소 수시공시 1쪽 1회(`probe ok`) ·
- *      seed = ② ~ ⑤ 뒤 seed 바퀴(그날 건을 `seeded` 로 · 송신 0 · `seed done`) → 같은 실행이 ⑥ 으로 이어 간다
+ *      seed = ② ~ ⑤ 뒤 seed 바퀴(그날 건 + 직전 평일 건을 `seeded` 로 · 송신 0 · `seed done`) → 같은 실행이 ⑥ 으로 이어 간다
  *      (창 밖 seed 는 seed 바퀴 1번 뒤 곧바로 `window_end`).
  *   ② 임대 — `dart_alert_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돈다 → OpenDART 0 · 텔레그램 0 · 종료 0.
  *      새로 잡으며 DB 가 오늘 `sending` 을 `pending` 으로 되돌렸으면(reclaimed > 0) warn `possible duplicate after takeover`
@@ -40,7 +40,7 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *      감시 대상을 부르지 않는다(그 키 레인 멈춤). 쓰는 키가 전부 찼으면 OpenDART 를 부르지 않고 종료 0.
  *   ④ 탐침 — 쓰는 키마다 오늘 그 키 한도 의심 표시가 있으면 그 키로 단독 탐침 1건 → 실패면 그 키 레인만 멈추고(5분 뒤
  *      재탐침) 다른 키는 수집 · 쓰는 키가 전부 멈추면 종료 1. 성공해야 그 키 수집 재개.
- *   ⑤ 기준점 — DB `last_ok`(감시 대상별 마지막 성공 조회)를 메모리로.
+ *   ⑤ 기준점 — DB `last_ok`(감시 대상별 마지막 성공 조회 + 오늘 아침 전날 확인 표시 `prevday:<감시 대상 id>`)를 메모리로.
  *   ⑥ 루프 — 바퀴 = 감시 대상 순서대로 조회 → 새 건 넣기(늦은 알림 판정은 조회 **전**) → 송신 차례 5건.
  *      감시 대상별 조회 칸(261113-iez · rn7): 조회 간격이 있는 감시 대상(B001 09:00 뒤 10초 · I001 10초 · 30초 칸)은 바퀴 시작
  *      시각의 칸(07:00 기준)이 지난 조회 칸과 다를 때만 부른다(`takeSlot` — 성공 · 실패와 무관하게 칸을 기록 · 밀린 칸을
@@ -62,7 +62,13 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *   D-12 「(늦은 알림)」 — 처음 본 시각이 그 감시 대상의 커버 기준점(오늘 마지막 성공 조회 · 없으면 07:02)에서
  *     60초 + 그 감시 대상 조회 간격(D004 · B001 60초 · I001 90초 · D005 120초 — `lateGapMs`) 넘게 뒤면 늦은 건.
  *     정상 바퀴(5 · 10초) · 정상 30초 · 60초 조회는 절대 늦지 않고 수집기가 비어 있던 시간(아침 장애 · 인계)만 늦음.
- *     조회는 오늘(KST) 날짜로만 해서 지난 날짜 건은 오지 않는다.
+ *     조회는 오늘(KST) 날짜로만 해서 지난 날짜 건은 오지 않는다 — 예외는 아래 아침 전날 확인.
+ *   U-3 아침 전날 확인(261113-rn7): 그날 감시 대상별 첫 성공 조회 직후 직전 평일(월 → 금 · 휴장일 달력 없음 · cadence.ts
+ *     `prevWeekdayYmd`)을 전 쪽으로 1번 더 조회해 DB 에 없는 통과 건을 「(늦은 알림)」 으로 보낸다(lap.ts). 하루 한 번 —
+ *     성공한 감시 대상만 KST 오늘 날짜로 표시하고(`prevDayDone`) 임대 연장 때 DB `last_ok` 의 `prevday:<id>` 로 싣는다
+ *     (jsonb 병합 — 재기동 · 임대 교대에도 되풀이 안 함). 전날 조회가 실패하면 표시하지 않아 그 감시 대상의 다음 조회 때 다시.
+ *     seed 바퀴는 표시와 무관하게 모든 감시 대상의 직전 평일도 seeded 로 채우고 표시를 남긴다 — 종류를 넓힌 배포 날 저녁에
+ *     seed 를 돌리면 다음 아침 전날 확인이 쏟아내지 않는다.
  *   SC-2 한 실행만 — 임대 TTL 90초 · 30초 연장. 연장 거절 → 조용히 종료 0 `lease_lost` · 연장 DB 오류가 60초
  *     이어지면(남이 넘겨받을 수 있는 시점 전) 종료 0 `lease_unconfirmed` · 넣기 · 차례 · 기록 RPC 의 55000
  *     (43-02 어댑터가 `LeaseLostError` 로 바꿈) → 종료 0 `lease_lost`.
@@ -157,8 +163,11 @@ export interface CollectorDeps {
     };
   };
   dart: {
-    /** 오늘 · 감시 대상 하나의 행(쪽 넘김 포함 · 키는 `watch.key`) — 실패는 `DartApiError`(calls 실림) */
-    list(watch: Watch, day: string): Promise<{ rows: DartRow[]; calls: number }>;
+    /**
+     * 그날 · 감시 대상 하나의 행(쪽 넘김 포함 · 키는 `watch.key`) — 실패는 `DartApiError`(calls 실림).
+     * `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 — 오늘 조회의 기억은 건드리지 않는다).
+     */
+    list(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }>;
     /** 단독 탐침 — 그 키로 1쪽 1회(키 1 공개매수 · 키 2 거래소 수시공시) */
     probe(day: string, key: DartKeyId): Promise<{ total: number; calls: number }>;
   };
@@ -248,13 +257,17 @@ const FATAL_OUTAGE_REASON: Partial<Record<string, (code: string | null) => strin
   probe_failed: (c) => `한도 의심 재확인 실패(${c ?? "?"})`,
 };
 
-/** 장애 글 사유에 쓰는 감시 대상 이름 */
+/** 장애 글 사유에 쓰는 감시 대상 이름(scripts/dart-alert-report.sh `watchLabel` 과 같은 글자) */
 const WATCH_LABEL: Record<string, string> = {
   tender_offer: "공개매수",
   rights_merger: "주요사항보고서",
+  market_action: "거래소 시장조치",
   exchange_disclosure: "거래소 수시공시",
+  largest_holder_change: "최대주주 소유주식 변동",
   insider_trade_plan: "임원ㆍ주요주주 거래계획",
 };
+/** DB `last_ok` 안의 아침 전날 확인 표시 키 앞머리 — 값 = 확인한 KST 날짜(YYYY-MM-DD) · 보고 스크립트가 같은 글자를 쓴다 */
+export const PREV_DAY_MARK_PREFIX = "prevday:";
 const REASON_MAX = 300;
 
 export async function runCollector(deps: CollectorDeps): Promise<CollectorExit> {
@@ -278,6 +291,10 @@ class Collector {
   private readonly lastOk = new Map<WatchId, number>();
   /** 마지막 조회가 실패한 감시 대상 — 비어야 장애를 닫는다(띄엄 조회 대상이 안 불린 바퀴가 닫지 않게 · 261113-iez) */
   private readonly failing = new Set<WatchId>();
+  /** 감시 대상별 아침 전날 확인을 한 KST 날짜(YYYY-MM-DD · 261113-rn7 U-3) — DB 에서 불러온 오늘 표시 + 이 실행 표시 */
+  private readonly prevDayDone = new Map<WatchId, string>();
+  /** 이 실행이 새로 남긴 전날 확인 표시 — 임대 연장 때 DB last_ok 로 싣는다(불러온 표시는 이미 DB 에 있다) */
+  private readonly prevDayMarksHere = new Set<WatchId>();
   /** 띄엄 조회 감시 대상(everyMs 있음)별 마지막으로 부른 조회 칸(261113-iez · 실행 메모리) */
   private readonly polledSlot = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
@@ -311,7 +328,7 @@ class Collector {
       log: d.log,
       clock: d.clock,
       sleep: d.sleep,
-      dart: { list: (w, day) => this.countedList(w, day) },
+      dart: { list: (w, day, opts) => this.countedList(w, day, opts) },
       db: d.db,
       telegram: d.telegram,
     };
@@ -493,8 +510,9 @@ class Collector {
   }
 
   /**
-   * seed 바퀴 — 감시 대상마다 1회 조회 → 맞는 건을 모아 **모두 성공했을 때만** `insert(…, seed=true)` · 송신 0.
-   * 하나라도 실패면 아무것도 넣지 않고 종료 1 `seed_failed`(auto 로 넘어가지 않는다 — 다시 seed 를 돌린다).
+   * seed 바퀴 — 감시 대상마다 오늘 + 직전 평일(전날 확인 표시와 무관 · 함정 A) 조회 → 맞는 건을 모아 **모두 성공했을 때만**
+   * `insert(…, seed=true)` · 송신 0. 오늘 · 전날 조회 하나라도 실패면 아무것도 넣지 않고 종료 1 `seed_failed`
+   * (auto 로 넘어가지 않는다 — 다시 seed 를 돌린다). 성공하면 전날 확인 표시도 남긴다.
    * 성공하면 감시 대상별 성공 시각을 곧바로 메모리 기준점과 DB `last_ok`(임대 연장 RPC)에 넣고 첫 auto 바퀴 시각
    * (= seed 바퀴 시작 + 간격 · 창 밖이면 지금 → 루프가 곧바로 `window_end`)을 돌려준다.
    * 같은 실행이 이어 가므로 seed 와 자동 수집 사이 빈틈이 한 바퀴뿐이다 — seed 뒤 처음 보는 새 건은 늦은 알림이 아니고
@@ -520,10 +538,11 @@ class Collector {
       isLate: () => false,
       seed: true,
       isDue: (w) => this.isDue(w, startedAt),
+      prevDay: () => prevWeekdayYmd(startedAt),
     });
     this.stats.laps += 1;
 
-    const failed = r.results.filter((x) => !x.ok);
+    const failed = r.results.filter((x) => !x.ok || x.prevOk !== true);
     if (failed.length > 0 || this.anyPaused()) {
       // 한도 의심 표시는 이 seed 바퀴에 새로 멈춘 키마다(그 키 카운터)
       for (const l of this.usedLanes()) {
@@ -531,7 +550,7 @@ class Collector {
         if (p?.fresh && (p.reason === "quota" || p.reason === "unknown_streak")) await this.recordStrike(p.reason, l.key);
       }
       log.error(
-        { failed: failed.map((f) => ({ watch: f.watch, err: f.error })), matched: matched.length },
+        { failed: failed.map((f) => ({ watch: f.watch, err: f.error, prevOk: f.prevOk ?? null })), matched: matched.length },
         "seed failed — nothing inserted, not continuing to auto",
       );
       throw new StopRun(1, "seed_failed");
@@ -601,9 +620,12 @@ class Collector {
 
   private async loadLastOk(): Promise<void> {
     const st = await this.d.db.readState();
+    const today = this.dateKst();
     for (const w of this.d.watches) {
       const ms = Date.parse(st.lastOk[w.id] ?? "");
       if (Number.isFinite(ms)) this.lastOk.set(w.id, ms);
+      // 오늘 이미 한 전날 확인(앞 실행 · 임대 교대) — 되풀이하지 않는다
+      if (st.lastOk[`${PREV_DAY_MARK_PREFIX}${w.id}`] === today) this.prevDayDone.set(w.id, today);
     }
     this.dbOutage = { since: st.outage.since, reason: st.outage.reason, notice: st.outage.notice };
   }
@@ -637,6 +659,7 @@ class Collector {
         isLate: (w) => this.isLate(w),
         seed: false,
         isDue: (w) => this.isDue(w, startedAt),
+        prevDay: (w) => this.prevDayDue(w, startedAt),
       });
     } catch (err) {
       // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음만 위로 · 나머지는 다음 바퀴에 다시 넣는다
@@ -754,6 +777,12 @@ class Collector {
     return true;
   }
 
+  /** 아침 전날 확인을 할 날짜 — 그 감시 대상이 오늘 이미 했으면 null, 아니면 직전 평일 YYYYMMDD(U-3) */
+  private prevDayDue(w: Watch, startedAt: number): string | null {
+    if (this.prevDayDone.get(w.id) === kstDateString(new Date(startedAt))) return null;
+    return prevWeekdayYmd(startedAt);
+  }
+
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */
   private isLate(w: WatchId): boolean {
     const now = this.now();
@@ -763,8 +792,14 @@ class Collector {
   }
 
   private takeResult(r: CollectResult): void {
+    const today = this.dateKst();
     for (const x of r.results) {
       if (x.ok && x.okAt !== undefined) this.lastOk.set(x.watch, x.okAt);
+      // 전날 확인은 성공한 것만 표시 — 실패면 그 감시 대상의 다음 조회 때 다시(U-3)
+      if (x.prevOk === true) {
+        this.prevDayDone.set(x.watch, today);
+        this.prevDayMarksHere.add(x.watch);
+      }
       if (x.ok) this.failing.delete(x.watch);
       else this.failing.add(x.watch);
     }
@@ -1058,7 +1093,7 @@ class Collector {
    * `dart.list` 감쌈 — 호출 수를 끝날 때마다 그 키(`watch.key`) 사용량에 더하고(실패 포함) 그 키의 치명 · 모르는 코드 연속을
    * 센다. 멈춘 키는 `isDue` 가 거르지만 그물로 한 번 더 막는다(호출 0).
    */
-  private async countedList(watch: Watch, day: string): Promise<{ rows: DartRow[]; calls: number }> {
+  private async countedList(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }> {
     const l = this.laneOf(watch.key);
     if (l.paused) {
       const skipped = new DartApiError(0, null, "transient", "skipped: this DART key is paused");
@@ -1066,7 +1101,7 @@ class Collector {
       throw skipped;
     }
     try {
-      const r = await this.d.dart.list(watch, day);
+      const r = await this.d.dart.list(watch, day, opts);
       this.addCalls(l.key, r.calls);
       l.unknownStreak = 0;
       return r;
@@ -1163,11 +1198,18 @@ class Collector {
     this.nextLeaseAt = now + LEASE_RENEW_MS;
   }
 
-  /** 메모리 기준점 → DB `last_ok`(ISO) — 비었으면 undefined(RPC 인자를 보내지 않음) */
+  /**
+   * 메모리 기준점 → DB `last_ok`(ISO) + 이 실행이 남긴 전날 확인 표시(`prevday:<id>` = KST 날짜 · jsonb 병합이라 불러온
+   * 표시는 다시 싣지 않는다) — 둘 다 비었으면 undefined(RPC 인자를 보내지 않음)
+   */
   private lastOkIso(): Record<string, string> | undefined {
-    if (this.lastOk.size === 0) return undefined;
+    if (this.lastOk.size === 0 && this.prevDayMarksHere.size === 0) return undefined;
     const out: Record<string, string> = {};
     for (const [w, ms] of this.lastOk) out[w] = new Date(ms).toISOString();
+    for (const w of this.prevDayMarksHere) {
+      const day = this.prevDayDone.get(w);
+      if (day) out[`${PREV_DAY_MARK_PREFIX}${w}`] = day;
+    }
     return out;
   }
 

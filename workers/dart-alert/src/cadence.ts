@@ -9,7 +9,11 @@
  *   나온다 — 46,800초 ÷ 5 = 9,360바퀴. 감시 대상마다 조회 간격(`PollCadence`)을 따로 둔다:
  *   · 키 1 — 공개매수 `D004` 매 바퀴(9,360) + 주요사항보고서 `B001` `09:00` 전 매 바퀴 · 뒤 10초 칸
  *     (7,200 ÷ 5 + 39,600 ÷ 10 = 1,440 + 3,960 = 5,400) = 14,760.
- *   · 키 2 — 거래소 수시공시 `I001` 10초 칸 4,680 + 30초 칸 감시 대상마다 1,560 + I001 100건 넘는 날 추가 쪽.
+ *   · 키 2 — 거래소 수시공시 `I001` 10초 칸 4,680 + 30초 칸 감시 대상(거래소 시장조치 `I003` · 최대주주 소유주식 변동
+ *     `I004` · 임원ㆍ주요주주 거래계획 `D005`) 각 1,560 = 9,360. I001 이 100건을 넘는 날은 추가 쪽(최악 매 조회 2쪽
+ *     +4,680 → 14,040).
+ *   · 아침 전날 확인(U-3 · `prevWeekdayYmd`): 그날 감시 대상별 첫 성공 조회 때 직전 평일을 한 번 더(전 쪽) — 키 1 2
+ *     (D004 · B001 각 1쪽) · 키 2 약 5(I001 2쪽 + 셋 각 1쪽). 키 1 14,762 · 키 2 최악 14,045 ≤ 15,000.
  *   하루 호출(`plannedDailyCalls`)은 키마다 따로 세어 키마다 예산 상한(`DART_DAILY_BUDGET_LIMIT`)과 견준다 — 감시 대상 ·
  *   간격을 더하거나 바꾸면 그 키의 `plannedDailyCalls` 와 예산 상한을 같이 점검한다(tests/cadence.test.ts 가 묶는다).
  * - D-11 창: 평일 `07:00` 이상 `20:00` 미만만 수집 · 그 밖과 주말은 없음. **휴장일 달력은 넣지 않는다** —
@@ -128,6 +132,18 @@ export function windowEndMs(nowMs: number): number {
 export function pollSlot(nowMs: number, everyMs: number | null): number | null {
   if (everyMs === null) return null;
   return Math.floor((nowMs - windowStartMs(nowMs)) / everyMs);
+}
+
+/**
+ * 직전 평일 KST `YYYYMMDD`(아침 전날 확인 · 261113-rn7 U-3) — nowMs 가 속한 KST 날에서 하루씩 물러나 토 · 일이면 더 물러난
+ * 첫 평일(월 → 금 · 토/일 → 금). **휴장일 달력 없음**. 그날 KST 정오에서 하루씩 빼 계산해 자정 경계 오차가 없다.
+ */
+export function prevWeekdayYmd(nowMs: number): string {
+  let t = kstMidnightMs(nowMs) + 12 * 3_600_000;
+  do {
+    t -= 86_400_000;
+  } while (!isWeekday(t));
+  return kstYmd(t);
 }
 
 /**

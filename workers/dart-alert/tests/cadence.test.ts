@@ -17,6 +17,7 @@ import {
   plannedDailyLaps,
   plannedDailyPolls,
   pollSlot,
+  prevWeekdayYmd,
   PREOPEN_END_MIN,
   RIGHTS_REGULAR_POLL_MS,
   SLOW_POLL_MS,
@@ -160,13 +161,19 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
     expect(plannedDailyPolls(watchOf("insider_trade_plan"))).toBe(1_560);
   });
 
-  it("키 1(D004 · B001) = 9,360 + 5,400 = 14,760 ≤ 15,000 · 키 2(I001 · D005) = 4,680 + 1,560 = 6,240 · I001 매 조회 2쪽 최악 + 4,680 = 10,920 ≤ 15,000", () => {
+  it("키 1(D004 · B001) = 9,360 + 5,400 = 14,760 · 아침 전날 확인 2(각 1쪽)를 더해 14,762 ≤ 15,000", () => {
     expect(KEY1.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
     expect(plannedDailyCalls(KEY1)).toBe(14_760);
-    expect(plannedDailyCalls(KEY1)).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
-    expect(plannedDailyCalls(KEY2)).toBe(6_240);
-    const worst2 = plannedDailyCalls(KEY2) + plannedDailyPolls(watchOf("exchange_disclosure"));
-    expect(worst2).toBe(10_920);
+    expect(plannedDailyCalls(KEY1) + 2).toBe(14_762);
+    expect(plannedDailyCalls(KEY1) + 2).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+  });
+
+  it("키 2(I003 · I001 · I004 · D005) = 1,560 + 4,680 + 1,560 + 1,560 = 9,360 · I001 매 조회 2쪽 최악 + 4,680 · 전날 확인 약 5 → 14,045 ≤ 15,000", () => {
+    expect(KEY2.map((w) => w.id)).toEqual(["market_action", "exchange_disclosure", "largest_holder_change", "insider_trade_plan"]);
+    expect(plannedDailyCalls(KEY2)).toBe(9_360);
+    // 전날 확인 = I001 2쪽(100건 초과 · 전 쪽) + 셋 각 1쪽
+    const worst2 = plannedDailyCalls(KEY2) + plannedDailyPolls(watchOf("exchange_disclosure")) + 5;
+    expect(worst2).toBe(14_045);
     expect(worst2).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
   });
 
@@ -194,6 +201,21 @@ describe("pollSlot — 07:00 기준 조회 칸(261113-iez)", () => {
     expect(pollSlot(MON(9, 0, 0), EXCHANGE_POLL_MS)).toBe(720);
     expect(pollSlot(MON(9, 0, 0), SLOW_POLL_MS)).toBe(240);
     expect(pollSlot(MON(9, 0, 0), null)).toBeNull();
+  });
+});
+
+describe("prevWeekdayYmd — 아침 전날 확인 날짜(261113-rn7 U-3 · 휴장일 달력 없음)", () => {
+  it.each([
+    ["월 2026-11-16 07:00 → 금", kst(2026, 11, 16, 7, 0), "20261113"],
+    ["화 2026-11-17 07:00 → 월", kst(2026, 11, 17, 7, 0), "20261116"],
+    ["토 2026-11-14 10:00 → 금", kst(2026, 11, 14, 10, 0), "20261113"],
+    ["일 2026-11-15 10:00 → 금", kst(2026, 11, 15, 10, 0), "20261113"],
+    ["월 00:00:00 경계 → 금", kst(2026, 11, 16, 0, 0), "20261113"],
+    ["월 23:59:59 경계 → 금", kst(2026, 11, 16, 23, 59, 59), "20261113"],
+    ["금 공휴일 2026-12-25 → 목", kst(2026, 12, 25, 7, 0), "20261224"],
+    ["해 넘김 금 2027-01-01 → 목 2026-12-31", kst(2027, 1, 1, 7, 0), "20261231"],
+  ])("%s", (_label, at, want) => {
+    expect(prevWeekdayYmd(at)).toBe(want);
   });
 });
 
@@ -268,6 +290,8 @@ describe("coverPointMs · isLateAt (D-12)", () => {
     expect(lateGapMs(everyMsAt(watchOf("rights_merger"), MON(10, 0)))).toBe(70_000);
     expect(lateGapMs(everyMsAt(watchOf("exchange_disclosure"), MON(10, 0)))).toBe(70_000);
     expect(lateGapMs(everyMsAt(watchOf("insider_trade_plan"), MON(10, 0)))).toBe(90_000);
+    expect(lateGapMs(everyMsAt(watchOf("market_action"), MON(10, 0)))).toBe(90_000);
+    expect(lateGapMs(everyMsAt(watchOf("largest_holder_change"), MON(10, 0)))).toBe(90_000);
     expect(isLateAt(MON(10, 1, 30), MON(10, 0, 0), lateGapMs(SLOW_POLL_MS))).toBe(false);
     expect(isLateAt(MON(10, 1, 30) + 1, MON(10, 0, 0), lateGapMs(SLOW_POLL_MS))).toBe(true);
     expect(isLateAt(MON(10, 1, 10), MON(10, 0, 0), lateGapMs(EXCHANGE_POLL_MS))).toBe(false);

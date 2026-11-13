@@ -4,7 +4,7 @@ import { LeaseLostError } from "../src/db";
 import type { InsertItem } from "../src/lap";
 import { LATE_LABEL, plainAlertText } from "../src/message";
 import type { SendResult } from "../src/telegram/client";
-import { dbRow, harness, itemOf, kst, MON, rightsRow, tenderRow, type FakeDbRow } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, harness, holderChangeRow, itemOf, kst, marketActionRow, MON, rightsRow, tenderRow, type FakeDbRow } from "./helpers/fakes";
 
 /**
  * Phase 43-06 T2 — 송신 견고함(SC-5 · D-02 · D-12 · 리서치 확인 7). 가짜 시계 · 가짜 DB(43-02 송신 기한 90초 ·
@@ -205,6 +205,30 @@ describe("방 · 토큰 · 서식 오류 (리서치 확인 7)", () => {
     expect(unsent.every((l) => l.level === "error")).toBe(true);
     expect(unsent.map((l) => l.obj.rceptNo)).toEqual([X.rcept_no, Y.rcept_no]);
     expect(unsent[0].obj).toMatchObject({ attempts: expect.any(Number) });
+  });
+});
+
+describe("첫 줄 제출인 — 거래소 시장조치는 붙이지 않음 · 최대주주 변동은 회사와 다를 때만 (D-07 · 261113-rn7)", () => {
+  it("market_action(제출인 코스닥시장본부) → 제출인 없음 · largest_holder_change 제출인 = 회사 → 없음 · 다르면 붙음", async () => {
+    const MA = itemOf(marketActionRow(1), "market_action");
+    const H1 = itemOf(holderChangeRow(1), "largest_holder_change");
+    const H2 = itemOf(holderChangeRow(2, MON, { flr_nm: "최대주주홀딩스" }), "largest_holder_change");
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:00:10"),
+      watches: ALL_WATCHES,
+      db: {
+        lastOk: Object.fromEntries(ALL_WATCHES.map((w) => [w.id, iso("10:00:00")])),
+        rows: [pend(MA, "09:59:59"), pend(H1, "09:59:59"), pend(H2, "09:59:59")],
+      },
+    });
+    await h.run();
+    const first = (r: InsertItem) => sendsOf(h, r.rcept_no)[0]?.text.split("\n")[0];
+    expect(first(MA)).toBe("📢 주권매매거래정지 (주식의 병합, 분할 등 전자등록 변경, 말소) — 조치회사1(500001)");
+    expect(first(H1)).toBe("📢 최대주주등소유주식변동신고서 — 지분회사1(600001)");
+    expect(first(H2)).toBe("📢 최대주주등소유주식변동신고서 — 지분회사2(600002) · 제출인 최대주주홀딩스");
+    // 송신 순서 = 우선순위(시장조치 2 → 최대주주 변동 4)
+    expect(h.telegram.alerts().map((a) => /rcpNo=(\d+)/.exec(a.text)![1])).toEqual([MA.rcept_no, H1.rcept_no, H2.rcept_no]);
   });
 });
 

@@ -32,6 +32,8 @@ function fields(over: Partial<AlertFields> = {}): AlertFields {
 
 const B001 = { alwaysShowFiler: false };
 const D004 = { alwaysShowFiler: true };
+/** 거래소 시장조치(I003) — 제출인을 붙이지 않음(261113-rn7) */
+const I003 = { alwaysShowFiler: false, hideFiler: true };
 
 describe("sameCompany — 제출인 · 회사명 비교(공백 · (주) · 주식회사 · ㈜ 무시)", () => {
   it("표기만 다른 같은 회사는 true", () => {
@@ -58,6 +60,15 @@ describe("alertText — 두 줄 · 제출인 생략 규칙(D-07)", () => {
     expect(alertText(fields({ flr_nm: "(주)가온전자" }), B001)).not.toContain("제출인");
     expect(alertText(fields({ flr_nm: "가온전자 주식회사" }), B001)).not.toContain("제출인");
     expect(alertText(fields({ flr_nm: "㈜ 가온전자" }), B001)).not.toContain("제출인");
+  });
+
+  it("거래소 시장조치(hideFiler) · 제출인 「코스닥시장본부」 가 회사와 달라도 붙이지 않는다 — 평문도 같다(261113-rn7)", () => {
+    const f = fields({ report_nm: "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)", flr_nm: "코스닥시장본부" });
+    const first = "📢 주권매매거래정지 (주식의 병합, 분할 등 전자등록 변경, 말소) — 가온전자(100001)";
+    expect(alertText(f, I003).split("\n")[0]).toBe(first);
+    expect(plainAlertText(f, I003).split("\n")[0]).toBe(first);
+    // hideFiler 가 없으면(같은 행 · 회사와 다름) 지금 규칙대로 붙는다
+    expect(alertText(f, B001).split("\n")[0]).toBe(`${first} · 제출인 코스닥시장본부`);
   });
 
   it("주요사항보고서 · 제출인이 다른 회사면 표기", () => {
@@ -194,7 +205,7 @@ describe("시험 글(D-15)", () => {
   it("testSendText — 두 줄 「🔔 공시 알림 시험 — …」 / 「HH:MM KST · 금융감독원 전자공시」", () => {
     const t = testSendText(Date.parse("2026-11-11T01:05:00Z"));
     expect(t).toBe(
-      "🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 수시공시 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n10:05 KST · 금융감독원 전자공시",
+      "🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n10:05 KST · 금융감독원 전자공시",
     );
     expect(t.split("\n")).toHaveLength(2);
   });

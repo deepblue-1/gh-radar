@@ -1,4 +1,4 @@
-import { runCollector, type CollectorDeps, type CollectorExit, type CollectorLog } from "../../src/collector";
+import { PREV_DAY_MARK_PREFIX, runCollector, type CollectorDeps, type CollectorExit, type CollectorLog } from "../../src/collector";
 import type { DartAlertMode } from "../../src/config";
 import { DartApiError, type DartRow } from "../../src/dart/client";
 import { LeaseLostError, type LeaseResult, type OutageAction } from "../../src/db";
@@ -21,6 +21,8 @@ import { buildWatches, DEFAULT_B001_KINDS, type DartKeyId, type JudgeOptions, ty
  *   ※ workers/dart-alert/tsconfig.json 의 include 가 `src` 뿐이라 `pnpm run typecheck` 는 이 파일을 보지 않는다 —
  *     타입 묶음은 tsc 를 tests 까지 넓혀 돌릴 때 확인된다(43-05 SUMMARY 참고).
  * - 가짜 DART: 감시 대상 · 시각별 응답(피드 = 「이 시각부터 목록에 보이는 행」) · 상태 코드 · 지연 · 호출 기록.
+ *   피드 행은 기본적으로 「그 호출 시각의 KST 날짜를 조회하는 호출」 에만 보이고, `day`(YYYYMMDD)를 주면 그 날짜 조회에만
+ *   보인다(아침 전날 확인 · 261113-rn7).
  * - 가짜 텔레그램: 결과 대본 · 건별 지연 · 보낸 글 기록 · switchChat 기록.
  * - 시간선(timeline): DART 호출 · 텔레그램 송신을 일어난 순서(seq)로 남긴다 — 「같은 바퀴 안 송신」 단언용.
  */
@@ -203,11 +205,47 @@ export function tradePlanRow(n: number, day = MON, over: Partial<DartRow> = {}):
   };
 }
 
+/** 거래소 시장조치(I003) 행 — 접수번호 `{날짜}50{n 4자리}` · 코스닥 · 제출인 = 거래소(회사와 다름) */
+export function marketActionRow(n: number, day = MON, over: Partial<DartRow> = {}): DartRow {
+  const ymd = ymdOf(day);
+  return {
+    corp_code: `0050${String(n).padStart(4, "0")}`,
+    corp_name: `조치회사${n}`,
+    stock_code: String(500_000 + n).slice(-6),
+    corp_cls: "K",
+    report_nm: "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
+    rcept_no: `${ymd}50${String(n).padStart(4, "0")}`,
+    flr_nm: "코스닥시장본부",
+    rcept_dt: ymd,
+    rm: "코",
+    ...over,
+  };
+}
+
+/** 최대주주 소유주식 변동(I004) 행 — 접수번호 `{날짜}40{n 4자리}` · 유가 · 제출인 = 회사 자신 */
+export function holderChangeRow(n: number, day = MON, over: Partial<DartRow> = {}): DartRow {
+  const ymd = ymdOf(day);
+  return {
+    corp_code: `0060${String(n).padStart(4, "0")}`,
+    corp_name: `지분회사${n}`,
+    stock_code: String(600_000 + n).slice(-6),
+    corp_cls: "Y",
+    report_nm: "최대주주등소유주식변동신고서              ",
+    rcept_no: `${ymd}40${String(n).padStart(4, "0")}`,
+    flr_nm: `지분회사${n}`,
+    rcept_dt: ymd,
+    rm: "유",
+    ...over,
+  };
+}
+
 /** 이 시각(from)부터 그 감시 대상 목록에 보이는 행 */
 export interface FeedItem {
   watch: WatchId;
   from: number;
   row: DartRow;
+  /** 이 날짜(YYYYMMDD) 조회에만 보인다 — 없으면 호출 시각의 KST 날짜 조회에만(기존 시험 그대로) */
+  day?: string;
 }
 
 // ── 가짜 DART ────────────────────────────────────────────────────────
@@ -233,6 +271,8 @@ export interface DartCtx {
   n: number;
   /** 그 감시 대상의 호출 순번(1부터) */
   watchN: number;
+  /** 전 쪽 조회(아침 전날 확인)인가 */
+  fullRead: boolean;
 }
 
 export interface DartCall {
@@ -243,6 +283,7 @@ export interface DartCall {
   day: string;
   status: string;
   rows: number;
+  fullRead: boolean;
 }
 
 export interface FakeDartOptions {
@@ -277,18 +318,20 @@ export function fakeDart(clock: FakeClock, o: FakeDartOptions = {}, tl: Timeline
   const perWatch = new Map<WatchId, number>();
 
   const api: CollectorDeps["dart"] = {
-    async list(watch, day) {
+    async list(watch, day, opts) {
       const n = listCalls.length + 1;
       if (n > max) throw new Error(`fake dart: list call cap ${max} exceeded`);
       const watchN = (perWatch.get(watch.id) ?? 0) + 1;
       perWatch.set(watch.id, watchN);
       const at = clock.now();
-      const rep = o.reply?.({ watch, day, now: at, n, watchN }) ?? {};
-      const rows = rep.rows ?? feed.filter((f) => f.watch === watch.id && f.from <= at).map((f) => f.row);
+      const fullRead = opts?.fullRead === true;
+      const rep = o.reply?.({ watch, day, now: at, n, watchN, fullRead }) ?? {};
+      const callDay = kstIsoDate(at).replace(/-/g, "");
+      const rows = rep.rows ?? feed.filter((f) => f.watch === watch.id && f.from <= at && (f.day ?? callDay) === day).map((f) => f.row);
       const status = rep.status ?? (rows.length > 0 ? "000" : "013");
       clock.advance(rep.delayMs ?? o.delayMs ?? 0);
       const seq = tl.push(at, "dart", `${watch.id}:${rep.error ? `error ${rep.error.code}` : status}`);
-      listCalls.push({ seq, at, endAt: clock.now(), watch: watch.id, day, status: rep.error?.code ?? status, rows: rows.length });
+      listCalls.push({ seq, at, endAt: clock.now(), watch: watch.id, day, status: rep.error?.code ?? status, rows: rows.length, fullRead });
       if (rep.error) {
         rep.error.calls = rep.calls ?? 1;
         throw rep.error;
@@ -444,7 +487,7 @@ export function dbRow(item: InsertItem, over: Partial<FakeDbRow> = {}): FakeDbRo
   };
 }
 
-/** 기본 설정의 감시 대상 전부 */
+/** 기본 설정의 감시 대상 전부(여섯 — D004 · B001 · I003 · I001 · I004 · D005) */
 export const ALL_WATCHES: Watch[] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
 /**
  * 키 1 감시 대상(공개매수 D004 매 바퀴 · 주요사항보고서 B001 09:00 전 매 바퀴 · 뒤 10초 칸 — 261113-rn7). `harness` 기본값 —
@@ -452,7 +495,7 @@ export const ALL_WATCHES: Watch[] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS
  * 실행은 `watches` 를 명시해 넘긴다.
  */
 export const KEY1_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.key === 1);
-/** 키 2 감시 대상 */
+/** 키 2 감시 대상(넷 — I003 · I001 · I004 · D005) */
 export const KEY2_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.key === 2);
 
 /** DART 행 → 넣기 원소 */
@@ -777,6 +820,11 @@ export interface HarnessOptions {
   maxSleeps?: number;
   watches?: Watch[];
   judge?: JudgeOptions;
+  /**
+   * 오늘 아침 전날 확인을 이미 했다고 깔아 둘까(기본 true — 시작 날짜로 감시 대상 전부의 `prevday:<id>` 를 db lastOk 앞에 깐다 ·
+   * 기존 시험이 전날 조회를 하지 않게). false 면 깔지 않아 첫 성공 조회 때 직전 평일을 조회한다(261113-rn7).
+   */
+  prevDayDone?: boolean;
   db?: Omit<FakeDbOptions, "holder">;
   dart?: FakeDartOptions;
   telegram?: FakeTelegramOptions;
@@ -787,7 +835,9 @@ export function harness(o: HarnessOptions) {
   const tl = timeline();
   const logs = logRecorder();
   const holder = o.holder ?? HOLDER;
-  const db = fakeDb(clock, { ...(o.db ?? {}), holder });
+  const marks =
+    o.prevDayDone === false ? {} : Object.fromEntries(ALL_WATCHES.map((w) => [`${PREV_DAY_MARK_PREFIX}${w.id}`, kstIsoDate(o.start)]));
+  const db = fakeDb(clock, { ...(o.db ?? {}), lastOk: { ...marks, ...(o.db?.lastOk ?? {}) }, holder });
   const dart = fakeDart(clock, o.dart ?? {}, tl);
   const telegram = fakeTelegram(clock, o.telegram ?? {}, tl);
   const deps: CollectorDeps = {

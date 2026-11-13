@@ -35,8 +35,16 @@ import { judgeRow, type JudgeOptions, type Watch, type WatchId } from "./watches
  *     리뷰 IN-03). 앞 실패(시도 2번째 이상) · 앞 실행이 넣고 못 보낸 건(재시작 · 인계)은 그대로 늦음. 「(늦은 알림)」 은 한 번만.
  *   · 송신 순서는 DB 차례 순서(공개매수 먼저 → 처음 본 순) 그대로.
  * - 상수는 순환 import 를 피하려고 여기에 두고 collector.ts 가 다시 내보낸다.
- * - 261113-iez: `collectOnce` 의 `isDue` 가 false 인 감시 대상(30초 · 60초 칸이 아직 안 바뀐 I001 · D005)은 조회 · 결과 ·
- *   호출 수 · 늦음 판정 모두 없이 건너뛴다. 없으면 전부 조회.
+ * - 261113-iez · rn7: `collectOnce` 의 `isDue` 가 false 인 감시 대상(조회 칸이 아직 안 바뀐 감시 대상 · 멈춘 키의 감시 대상)은
+ *   조회 · 결과 · 호출 수 · 늦음 판정 모두 없이 건너뛴다. 없으면 전부 조회.
+ * - 261113-rn7 아침 전날 확인(U-3): `prevDay(w)` 가 날짜(YYYYMMDD)를 주면 그 감시 대상의 오늘 조회가 **성공한 직후** 그 날짜를
+ *   전 쪽(`fullRead` — 100건 넘는 날도 끝까지)으로 1번 더 조회하고 같은 판정으로 통과 건을 모은다. 전날 건은 늘
+ *   「(늦은 알림)」(`late: true` — 그날 수집기가 돌았다면 이미 보냈을 건이라 여기서 처음 보면 수집기가 비어 있던 시간에 놓친 건 ·
+ *   D-12 와 같은 뜻)이고, 넣기 원소 `rcept_dt` 는 **오늘 조회 날짜**다 — 송신 차례 RPC(`dart_alert_claim`)가
+ *   `rcept_dt = 오늘(KST)` 행만 고르고 임대 인계 때 `rcept_dt < 오늘` 인 미송신 행을 expired 로 닫아, 진짜 접수일을 넣으면
+ *   보내지지 않는다(원래 접수일은 접수번호 앞 8자리에 그대로 · 마이그레이션 없이 가는 가장 단순한 길). 전날 조회 실패는
+ *   warn `dart prev-day list failed` 만 — 그 감시 대상의 오늘 결과는 성공 그대로이고 `prevOk` false 로 알린다.
+ *   이미 DB 에 있는 건(같은 접수번호)은 넣기가 무시하므로 다시 가지 않는다.
  */
 
 /** 같은 방 송신 사이 최소 간격 */
@@ -106,7 +114,8 @@ export interface LapDeps {
   clock: { now(): number };
   /** 송신 간격(43-06) — collector 가 `CollectorDeps.sleep` 을 넘긴다 */
   sleep(ms: number): Promise<void>;
-  dart: { list(watch: Watch, day: string): Promise<{ rows: DartRow[]; calls: number }> };
+  /** `fullRead` = 쪽 넘김 기억 없이 전 쪽(아침 전날 확인 · 261113-rn7) */
+  dart: { list(watch: Watch, day: string, opts?: { fullRead?: boolean }): Promise<{ rows: DartRow[]; calls: number }> };
   db: {
     insert(items: InsertItem[], seed: boolean): Promise<InsertedRow[]>;
     claim(limit: number): Promise<ClaimedRow[]>;
@@ -137,6 +146,8 @@ export interface WatchResult {
   okAt?: number;
   error?: SafeErrorFields;
   kind?: DartErrorKind;
+  /** 아침 전날 확인 결과 — 했으면 성공 여부 · 안 했으면 없음(261113-rn7) */
+  prevOk?: boolean;
 }
 
 export interface CollectResult {
@@ -202,60 +213,90 @@ export async function collectOnce(
   deps: LapDeps,
   state: LapState,
   day: string,
-  opts: { isLate(w: WatchId): boolean; seed: boolean; isDue?(w: Watch): boolean },
+  opts: { isLate(w: WatchId): boolean; seed: boolean; isDue?(w: Watch): boolean; prevDay?(w: Watch): string | null },
 ): Promise<CollectResult> {
   const results: WatchResult[] = [];
   const items: InsertItem[] = [];
   const judged = new Set<string>();
   let calls = 0;
 
-  for (const watch of deps.watches) {
-    // 이 바퀴에 부를 차례가 아닌 감시 대상(조회 칸이 그대로)은 결과 항목도 남기지 않는다 — 장애 · 기준점 판정에 안 섞인다
-    if (opts.isDue && !opts.isDue(watch)) continue;
-    // 늦은 알림 판정은 조회 **전에** — 조회가 오래 걸려도 그 바퀴 기준점은 바뀌지 않는다
-    const late = opts.isLate(watch.id);
-    const startedAt = deps.clock.now();
-    try {
-      const { rows, calls: c } = await deps.dart.list(watch, day);
-      calls += c;
-      for (const row of rows) {
-        const rceptNo = row.rcept_no;
-        if (typeof rceptNo !== "string" || state.seen.has(rceptNo) || judged.has(rceptNo)) continue;
-        judged.add(rceptNo);
-        const v = judgeRow(watch, row, deps.judge);
-        if (!v.send) {
-          // 가정 1 — 허용 목록 밖인데 「증자」 · 「합병」 이 든 종류명은 사람이 보도록 종류명마다 실행당 1번만 warn
-          if (v.reason === "near_miss" && !state.nearMissLogged.has(v.kind)) {
-            state.nearMissLogged.add(v.kind);
-            deps.log.warn({ rceptNo, kind: v.kind, watch: watch.id }, "b001 near-miss kind");
-          }
-          continue;
+  /**
+   * 행 판정 → 넣기 원소. `fixedRceptDt` 가 있으면(전날 확인) 접수일 칸을 그 값으로 넣는다(머리 주석 — 송신 차례가 오늘 행만 고름).
+   */
+  const takeRows = (watch: Watch, rows: DartRow[], late: boolean, fixedRceptDt?: string): void => {
+    for (const row of rows) {
+      const rceptNo = row.rcept_no;
+      if (typeof rceptNo !== "string" || state.seen.has(rceptNo) || judged.has(rceptNo)) continue;
+      judged.add(rceptNo);
+      const v = judgeRow(watch, row, deps.judge);
+      if (!v.send) {
+        // 가정 1 — 허용 목록 밖인데 「증자」 · 「합병」 이 든 종류명은 사람이 보도록 종류명마다 실행당 1번만 warn
+        if (v.reason === "near_miss" && !state.nearMissLogged.has(v.kind)) {
+          state.nearMissLogged.add(v.kind);
+          deps.log.warn({ rceptNo, kind: v.kind, watch: watch.id }, "b001 near-miss kind");
         }
+        continue;
+      }
+      let rceptDt = fixedRceptDt;
+      if (rceptDt === undefined) {
         // 접수일 — 조회가 그날 하루(bgn_de = end_de = day)라 행의 rcept_dt 는 조회 날짜다. 8자리가 아니면(빠짐 · 깨짐)
         // 조회 날짜로 넣고 warn — DB 의 NOT NULL date 칸에 걸려 그 바퀴 넣기 전체가 실패하지 않게(리뷰 WR-01)
         const rceptDtOk = typeof row.rcept_dt === "string" && YMD_RE.test(row.rcept_dt);
         if (!rceptDtOk) deps.log.warn({ rceptNo, watch: watch.id, rceptDtType: typeof row.rcept_dt }, "dart row rcept_dt invalid — using query day");
-        items.push({
-          rcept_no: rceptNo,
-          watch: watch.id,
-          priority: watch.priority,
-          rcept_dt: toIsoDate(rceptDtOk ? row.rcept_dt : day),
-          corp_cls: row.corp_cls,
-          corp_name: row.corp_name,
-          stock_code: row.stock_code,
-          report_nm: row.report_nm,
-          flr_nm: row.flr_nm ?? "",
-          late,
-        });
+        rceptDt = toIsoDate(rceptDtOk ? row.rcept_dt : day);
       }
-      results.push({ watch: watch.id, ok: true, okAt: startedAt });
+      items.push({
+        rcept_no: rceptNo,
+        watch: watch.id,
+        priority: watch.priority,
+        rcept_dt: rceptDt,
+        corp_cls: row.corp_cls,
+        corp_name: row.corp_name,
+        stock_code: row.stock_code,
+        report_nm: row.report_nm,
+        flr_nm: row.flr_nm ?? "",
+        late,
+      });
+    }
+  };
+
+  for (const watch of deps.watches) {
+    // 이 바퀴에 부를 차례가 아닌 감시 대상(조회 칸이 그대로 · 멈춘 키)은 결과 항목도 남기지 않는다 — 장애 · 기준점 판정에 안 섞인다
+    if (opts.isDue && !opts.isDue(watch)) continue;
+    // 늦은 알림 판정은 조회 **전에** — 조회가 오래 걸려도 그 바퀴 기준점은 바뀌지 않는다
+    const late = opts.isLate(watch.id);
+    const startedAt = deps.clock.now();
+    let rows: DartRow[];
+    try {
+      const r = await deps.dart.list(watch, day);
+      calls += r.calls;
+      rows = r.rows;
     } catch (err) {
       calls += err instanceof DartApiError ? (err.calls ?? 1) : 1;
       const fields = safeErrorFields(err);
       const kind = err instanceof DartApiError ? err.kind : undefined;
       results.push({ watch: watch.id, ok: false, error: fields, ...(kind ? { kind } : {}) });
       deps.log.warn({ watch: watch.id, err: fields }, "dart list failed");
+      continue;
     }
+    takeRows(watch, rows, late);
+
+    // 아침 전날 확인 — 오늘 조회가 성공한 직후 · 전 쪽 · 늘 늦은 알림 · 접수일 칸 = 오늘 조회 날짜(머리 주석)
+    const prevDay = opts.prevDay?.(watch) ?? null;
+    let prevOk: boolean | undefined;
+    if (prevDay !== null) {
+      try {
+        const p = await deps.dart.list(watch, prevDay, { fullRead: true });
+        calls += p.calls;
+        takeRows(watch, p.rows, true, toIsoDate(day));
+        prevOk = true;
+      } catch (err) {
+        calls += err instanceof DartApiError ? (err.calls ?? 1) : 1;
+        prevOk = false;
+        deps.log.warn({ watch: watch.id, day: prevDay, err: safeErrorFields(err) }, "dart prev-day list failed");
+      }
+    }
+    results.push({ watch: watch.id, ok: true, okAt: startedAt, ...(prevOk !== undefined ? { prevOk } : {}) });
   }
 
   // 넣기가 던지면 seen 에 넣지 않는다 → 다음 바퀴에 같은 행을 다시 넣는다(임대 잃음 · 연속 실패 판정은 수집기 몫).
@@ -428,7 +469,7 @@ export async function deliverPending(deps: LapDeps, limit: number, pacer: SendPa
     }
 
     const watch = deps.watches.find((w) => w.id === row.watch);
-    const fmt = { alwaysShowFiler: watch?.alwaysShowFiler ?? true };
+    const fmt = { alwaysShowFiler: watch?.alwaysShowFiler ?? true, hideFiler: watch?.hideFiler === true };
     // 이 실행이 넣고 첫 시도인 건은 우리 송신 속도 제한으로만 기다렸다 — 60초가 지나도 늦음이 아니다(리뷰 IN-03)
     const queuedOnlyHere = pacer.insertedHere.has(row.rcept_no) && row.attempts <= 1;
     const fields = { ...row, late: row.late || (!queuedOnlyHere && t - firstSeenMs > LATE_GAP_MS) };

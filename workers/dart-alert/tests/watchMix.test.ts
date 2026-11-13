@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { LATE_LABEL } from "../src/message";
-import { ALL_WATCHES, exchangeRow, harness, kst, MON, tradePlanRow, type FeedItem } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, exchangeRow, harness, itemOf, kst, marketActionRow, MON, tradePlanRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * 261113-iez · rn7 — 감시 대상이 섞인 간격 · 두 키로 도는 끝에서 끝 시험. 가짜 시계 · DB · DART · 텔레그램 — 실제 호출 없음.
  * 바퀴는 평일 07:00 ~ 20:00 종일 5초(U-2). 키 1 = 공개매수 D004 매 바퀴 · 주요사항보고서 B001 09:00 전 매 바퀴 · 뒤 10초 칸,
- * 키 2 = 거래소 수시공시 I001 10초 칸 · 30초 칸 감시 대상(D005 등). 호출 시각 단언은 이 규칙으로 손으로 셈한 값이다.
+ * 키 2 = 거래소 시장조치 I003 · 최대주주 소유주식 변동 I004 · 임원ㆍ주요주주 거래계획 D005 30초 칸 · 거래소 수시공시 I001 10초 칸.
+ * 그날 감시 대상별 첫 성공 조회 때 직전 평일을 한 번 더(U-3). 호출 시각 단언은 이 규칙으로 손으로 셈한 값이다.
  */
 
 const at = (hms: string) => kst(MON, hms);
@@ -17,12 +18,14 @@ const every = (fromHms: string, stepS: number, n: number) => Array.from({ length
 /** 모든 감시 대상 같은 직전 성공 조회 시각(시작 점검이 「멈췄습니다」 를 내지 않게) */
 const lastOkAll = (hms: string) => Object.fromEntries(ALL_WATCHES.map((w) => [w.id, iso(hms)]));
 const KEY1_IDS = new Set(ALL_WATCHES.filter((w) => w.key === 1).map((w) => w.id));
-const KEY2_IDS = new Set(ALL_WATCHES.filter((w) => w.key === 2).map((w) => w.id));
+const FRI_YMD = "20261113";
+/** 금요일 날짜 조회 */
+const friCalls = (h: H) => h.dart.listCalls.filter((c) => c.day === FRI_YMD);
 const inRange = (h: H, ids: Set<string>, fromHms: string, toHms: string) =>
   h.dart.listCalls.filter((c) => ids.has(c.watch) && c.at >= at(fromHms) && c.at <= at(toHms));
 
 describe("키 2 한 길 — OPENDART_API_KEY_2 → 키 2 카운터 → 거래소 수시공시 10초 칸 → 넣기 → 단체방 (트레이서)", () => {
-  it("10:00 ~ 10:01 — I001 10초 7번 · D004 5초 13번 · B001 10초 7번 · D005 30초 3번 · 키 2 카운터 10 · 키 1 20 · 대상 1건(priority 2) · 첫 줄 그대로", async () => {
+  it("10:00 ~ 10:01 — I001 10초 7번 · D004 5초 13번 · B001 10초 7번 · 30초 칸 셋 각 3번 · 키 2 카운터 16 · 키 1 20 · 대상 1건(priority 3) · 첫 줄 그대로", async () => {
     const feed: FeedItem[] = [
       {
         watch: "exchange_disclosure",
@@ -38,15 +41,17 @@ describe("키 2 한 길 — OPENDART_API_KEY_2 → 키 2 카운터 → 거래소
     expect(atsOf(h, "tender_offer")).toEqual(every("10:00:00", 5, 13));
     expect(atsOf(h, "rights_merger")).toEqual(every("10:00:00", 10, 7));
     expect(atsOf(h, "insider_trade_plan")).toEqual(every("10:00:00", 30, 3));
-    // 키 2 = I001 7 + D005 3 · 키 1 = D004 13 + B001 7 — 끝 flush 뒤 각 카운터에 그대로
-    expect(h.db.usageAdded(2)).toBe(10);
+    expect(atsOf(h, "market_action")).toEqual(every("10:00:00", 30, 3));
+    expect(atsOf(h, "largest_holder_change")).toEqual(every("10:00:00", 30, 3));
+    // 키 2 = I001 7 + I003 · I004 · D005 각 3 · 키 1 = D004 13 + B001 7 — 끝 flush 뒤 각 카운터에 그대로
+    expect(h.db.usageAdded(2)).toBe(7 + 3 * 3);
     expect(h.db.usageAdded(1)).toBe(20);
-    expect(h.db.state.used2).toBe(10);
+    expect(h.db.state.used2).toBe(16);
     expect(h.db.state.used).toBe(20);
 
     const items = h.db.calls.insert.flatMap((c) => c.items);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ watch: "exchange_disclosure", priority: 2, late: false });
+    expect(items[0]).toMatchObject({ watch: "exchange_disclosure", priority: 3, late: false });
     const alerts = h.telegram.alerts();
     expect(alerts).toHaveLength(1);
     expect(alerts[0].text.split("\n")[0]).toBe("📢 단일판매ㆍ공급계약체결(자율공시) — 가온전자(123450)");
@@ -108,7 +113,7 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     expect(h.logs.count("fatal DART status — stopping this run")).toBe(0);
   });
 
-  it("키 2 예산 소진(used2 14,995) — 15,000 을 넘긴 다음 바퀴부터 I001 · D005 0 · 키 2 탐침 0 · 키 1 은 끝까지 · 장애 글 1", async () => {
+  it("키 2 예산 소진(used2 14,995) — 15,000 에 닿은 다음 바퀴부터 키 2 감시 대상 0 · 키 2 탐침 0 · 키 1 은 끝까지 · 장애 글 1", async () => {
     const h = harness({
       start: at("10:00:00"),
       abortAt: at("10:02:00"),
@@ -116,16 +121,17 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
       db: { used2: 14_995, lastOk: lastOkAll("09:59:55") },
     });
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
-    // 14,995 + 2(10:00:00 I001 · D005) + 1(:10) + 1(:20) + 2(:30 I001 · D005) = 15,001 → 그 뒤 바퀴부터 0
-    expect(atsOf(h, "exchange_disclosure")).toEqual(every("10:00:00", 10, 4));
-    expect(atsOf(h, "insider_trade_plan")).toEqual(every("10:00:00", 30, 2));
-    expect(h.db.usageAdded(2)).toBe(6);
+    // 14,995 + 4(10:00:00 I003 · I001 · I004 · D005) + 1(:10 I001) = 15,000 → 그 뒤 예산 문에서 키 2 멈춤
+    expect(atsOf(h, "exchange_disclosure")).toEqual(every("10:00:00", 10, 2));
+    expect(atsOf(h, "insider_trade_plan")).toEqual([at("10:00:00")]);
+    expect(atsOf(h, "market_action")).toEqual([at("10:00:00")]);
+    expect(h.db.usageAdded(2)).toBe(5);
     expect(h.dart.probeCalls).toHaveLength(0);
     // 키 1 — 10:00:00 ~ 10:01:55 바퀴 24번 내내
     expect(atsOf(h, "tender_offer")).toEqual(every("10:00:00", 5, 24));
     const notices = h.telegram.notices().map((n) => n.text);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("(거래소 수시공시 · 임원ㆍ주요주주 거래계획 — 자체 하루 예산 소진)");
+    expect(notices[0]).toContain("(거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 — 자체 하루 예산 소진)");
     expect(h.logs.find("dart key paused — other key keeps running")?.obj).toMatchObject({ key: 2, reason: "budget_exhausted" });
     expect(h.logs.count("daily budget exhausted — stopping this run")).toBe(0);
   });
@@ -140,25 +146,24 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     });
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
     expect(h.dart.probeCalls.map((p) => p.key)).toEqual([2]);
-    expect(h.dart.callsOf("exchange_disclosure")).toHaveLength(0);
-    expect(h.dart.callsOf("insider_trade_plan")).toHaveLength(0);
+    for (const id of ["market_action", "exchange_disclosure", "largest_holder_change", "insider_trade_plan"] as const) {
+      expect(h.dart.callsOf(id)).toHaveLength(0);
+    }
     // 10:00:00 ~ 10:00:55 바퀴 12번 — D004 12 · B001 10초 칸 6
     expect(atsOf(h, "tender_offer")).toEqual(every("10:00:00", 5, 12));
     expect(atsOf(h, "rights_merger")).toEqual(every("10:00:00", 10, 6));
     const notices = h.telegram.notices().map((n) => n.text);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("(거래소 수시공시 · 임원ㆍ주요주주 거래계획 — 한도 의심 재확인 실패(020))");
+    expect(notices[0]).toContain("(거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 — 한도 의심 재확인 실패(020))");
     expect(h.logs.count("quota probe failed — stopping without retries (next run probes once again)")).toBe(0);
   });
 
-  it("시작 탐침 키별 — 키 1 표시 1 · 키 1 탐침 정상 → 탐침 1번(키 1) 뒤 넷 다 정상", async () => {
+  it("시작 탐침 키별 — 키 1 표시 1 · 키 1 탐침 정상 → 탐침 1번(키 1) 뒤 여섯 다 정상", async () => {
     const h = harness({ start: at("10:00:00"), abortAt: at("10:00:32"), watches: ALL_WATCHES, db: { strikes: 1, lastOk: lastOkAll("09:59:55") } });
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
     expect(h.dart.probeCalls.map((p) => p.key)).toEqual([1]);
     expect(h.dart.probeCalls[0].seq).toBeLessThan(h.dart.listCalls[0].seq);
-    for (const id of ["tender_offer", "rights_merger", "exchange_disclosure", "insider_trade_plan"] as const) {
-      expect(h.dart.callsOf(id).length).toBeGreaterThan(0);
-    }
+    for (const w of ALL_WATCHES) expect(h.dart.callsOf(w.id).length).toBeGreaterThan(0);
     expect(h.telegram.notices()).toHaveLength(0);
   });
 
@@ -183,8 +188,8 @@ describe("섞인 간격의 늦은 알림(D-12) — 늦음 기준 = 60초 + 그 �
       abortAt: at("10:05:00"),
       watches: ALL_WATCHES,
       db: { lastOk: lastOkAll("09:59:50") },
-      // 조회마다 7초 — 넷을 부르는 바퀴는 28초 · 셋이면 21초라 다음 바퀴 시작이 밀려 D005 30초 칸을 건너뛴다
-      // (10:00:00 바퀴의 D005 조회 10:00:21 → 다음 D005 칸 바퀴 10:00:49 의 넷째 조회 10:01:10 = 49초)
+      // 조회마다 7초 — 여섯을 부르는 바퀴는 42초라 다음 바퀴 시작이 밀려 D005 조회 사이가 30초를 넘는다
+      // (10:00:00 바퀴의 D005 여섯째 조회 10:00:35 → 다음 바퀴 10:00:42 의 여섯째 조회 10:01:17 = 42초 < 늦음 90초)
       dart: { feed, delayMs: 7_000 },
     });
     await h.run();
@@ -245,5 +250,117 @@ describe("띄엄 조회 대상의 장애 짝 글(D-16 · D-17) — 그 대상이
     expect(notices[0].startsWith("⚠ 공시 알림이 멈췄습니다")).toBe(true);
     expect(notices[1].startsWith("✅ 공시 알림 다시 동작")).toBe(true);
     expect(h.logs.count("dart outage opened", "error")).toBe(1);
+  });
+});
+
+describe("거래소 시장조치(I003) 한 길 — 30초 칸 → 넣기(우선 2) → 단체방 첫 줄 제출인 없음 (U-1b · D-07)", () => {
+  it("10:00 ~ 10:01 — I003 · I004 30초 · 대상 1건만(비대상 기타시장안내 · 지정예고 탈락) · 첫 줄 공백 1칸 · near-miss warn 0", async () => {
+    const feed: FeedItem[] = [
+      { watch: "market_action", from: at("10:00:12"), row: marketActionRow(1) },
+      { watch: "market_action", from: at("10:00:12"), row: marketActionRow(2, MON, { report_nm: "기타시장안내              (상장적격성 실질심사 관련 안내)" }) },
+      { watch: "market_action", from: at("10:00:12"), row: marketActionRow(3, MON, { report_nm: "불성실공시법인지정예고              (공시번복)" }) },
+    ];
+    const h = harness({ start: at("10:00:00"), abortAt: at("10:01:02"), watches: ALL_WATCHES, db: { lastOk: lastOkAll("09:59:55") }, dart: { feed } });
+    expect(await h.run()).toMatchObject({ code: 0, reason: "aborted" });
+    expect(atsOf(h, "market_action")).toEqual(every("10:00:00", 30, 3));
+    expect(atsOf(h, "largest_holder_change")).toEqual(every("10:00:00", 30, 3));
+    const items = h.db.calls.insert.flatMap((c) => c.items);
+    expect(items).toHaveLength(1);
+    // 10:00:30 조회가 처음 봄 — 직전 성공 10:00:00 에서 30초(늦음 기준 90초 안)
+    expect(items[0]).toMatchObject({ watch: "market_action", priority: 2, late: false, flr_nm: "코스닥시장본부" });
+    const alerts = h.telegram.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].text.split("\n")[0]).toBe("📢 주권매매거래정지 (주식의 병합, 분할 등 전자등록 변경, 말소) — 조치회사1(500001)");
+    expect(h.logs.count("b001 near-miss kind")).toBe(0);
+    expect(h.telegram.notices()).toHaveLength(0);
+  });
+});
+
+describe("아침 전날 확인 (U-3 · 함정 B · C) — 감시 대상별 첫 성공 조회 때 직전 평일 한 번", () => {
+  const sentFri = exchangeRow(1, "2026-11-13");
+  const newFri = exchangeRow(2, "2026-11-13");
+  const friFeed: FeedItem[] = [
+    { watch: "exchange_disclosure", from: kst("2026-11-13", "09:00:00"), row: sentFri, day: FRI_YMD },
+    { watch: "exchange_disclosure", from: kst("2026-11-13", "15:00:00"), row: newFri, day: FRI_YMD },
+    {
+      watch: "market_action",
+      from: kst("2026-11-13", "16:00:00"),
+      row: marketActionRow(7, "2026-11-13", { report_nm: "기타시장안내              (상장적격성 실질심사 관련 안내)" }),
+      day: FRI_YMD,
+    },
+  ];
+  /** 금요일에 이미 보낸 건(DB 에 있음) */
+  const alreadySent = dbRow(itemOf(sentFri, "exchange_disclosure"), { status: "sent" });
+
+  it("월 07:00 — 금요일 조회가 감시 대상마다 정확히 1번(전 쪽 · 첫 조회 바로 뒤) · 새 건 1건만 「(늦은 알림)」 · 이미 있던 건 안 감 · 표시 여섯 · 키별 카운터", async () => {
+    const h = harness({
+      start: at("07:00:00"),
+      abortAt: at("07:00:40"),
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      db: { rows: [alreadySent] },
+      dart: { feed: friFeed },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+
+    const fri = friCalls(h);
+    expect(fri.map((c) => c.watch)).toEqual(ALL_WATCHES.map((w) => w.id));
+    expect(fri.every((c) => c.fullRead && c.at === at("07:00:00"))).toBe(true);
+    // 각 감시 대상의 07:00:00 오늘 조회 바로 다음 호출이 그 감시 대상의 금요일 조회
+    const first = h.dart.listCalls.filter((c) => c.at === at("07:00:00"));
+    expect(first.map((c) => [c.watch, c.day])).toEqual(ALL_WATCHES.flatMap((w) => [[w.id, "20261116"], [w.id, FRI_YMD]]));
+    expect(h.dart.listCalls.filter((c) => c.at >= at("07:00:05") && c.day === FRI_YMD)).toHaveLength(0);
+
+    const items = h.db.calls.insert.flatMap((c) => c.items);
+    expect(items.map((i) => i.rcept_no).sort()).toEqual([sentFri.rcept_no, newFri.rcept_no].sort());
+    expect(h.db.rows.get(newFri.rcept_no)).toMatchObject({ watch: "exchange_disclosure", rcept_dt: "2026-11-16", late: true, status: "sent" });
+    expect(h.db.rows.get(sentFri.rcept_no)).toMatchObject({ rcept_dt: "2026-11-13", status: "sent" });
+    const alerts = h.telegram.alerts();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].text.split("\n")[0]).toBe(`📢 ${LATE_LABEL} 단일판매ㆍ공급계약체결 — 공시회사2(300002)`);
+
+    // 07:00:30 임대 연장이 표시 여섯을 DB last_ok 로
+    const renew = h.db.calls.leaseAcquire.find((c) => c.at === at("07:00:30"))!;
+    expect(Object.entries(renew.lastOk ?? {}).filter(([k]) => k.startsWith("prevday:"))).toEqual(
+      ALL_WATCHES.map((w) => [`prevday:${w.id}`, "2026-11-16"]),
+    );
+    // 07:00:00 ~ 07:00:35 바퀴 8번 — 키 1 오늘 D004 8 + B001 8(09:00 전 매 바퀴) + 금요일 2 = 18
+    // 키 2 오늘 I001 4(10초) + I003 · I004 · D005 각 2(30초) = 10 + 금요일 4 = 14
+    expect(h.db.usageAdded(1)).toBe(16 + 2);
+    expect(h.db.usageAdded(2)).toBe(10 + 4);
+    expect(h.telegram.notices()).toHaveLength(0);
+  });
+
+  it("같은 날 다시 시작(표시 있음 · 기본 harness) → 금요일 조회 0 · 알림 0", async () => {
+    const h = harness({ start: at("07:10:00"), abortAt: at("07:10:30"), watches: ALL_WATCHES, db: { rows: [alreadySent] }, dart: { feed: friFeed } });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(friCalls(h)).toHaveLength(0);
+    expect(h.telegram.alerts()).toHaveLength(0);
+  });
+
+  it("I001 의 금요일 조회만 800 → I001 표시 없음 · 다음 I001 조회(07:00:10) 직후 금요일 1번 더 → 성공하면 표시", async () => {
+    const h = harness({
+      start: at("07:00:00"),
+      abortAt: at("07:00:40"),
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      dart: { reply: (c) => (c.watch.id === "exchange_disclosure" && c.day === FRI_YMD && c.watchN === 2 ? { status: "800" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(friCalls(h).filter((c) => c.watch === "exchange_disclosure").map((c) => c.at)).toEqual([at("07:00:00"), at("07:00:10")]);
+    expect(friCalls(h).filter((c) => c.watch !== "exchange_disclosure")).toHaveLength(5);
+    expect(h.logs.count("dart prev-day list failed", "warn")).toBe(1);
+    expect(h.logs.find("dart prev-day list failed")?.obj).toMatchObject({ watch: "exchange_disclosure", day: FRI_YMD });
+    const renew = h.db.calls.leaseAcquire.find((c) => c.at === at("07:00:30"))!;
+    expect(renew.lastOk?.["prevday:exchange_disclosure"]).toBe("2026-11-16");
+    // 전날 조회 실패는 오늘 결과를 실패로 만들지 않는다 — 장애 글 없음
+    expect(h.telegram.notices()).toHaveLength(0);
+  });
+
+  it("화 07:00 → 직전 평일은 월요일(20261116)", async () => {
+    const h = harness({ start: kst("2026-11-17", "07:00:00"), abortAt: kst("2026-11-17", "07:00:05"), watches: ALL_WATCHES, prevDayDone: false });
+    await h.run();
+    const prev = h.dart.listCalls.filter((c) => c.fullRead);
+    expect(prev.map((c) => c.day)).toEqual(ALL_WATCHES.map(() => "20261116"));
   });
 });

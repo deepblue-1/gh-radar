@@ -10,6 +10,8 @@
  * - 43-09: 제출인 생략(주요사항보고서 · 제출인 = 회사 자신) · 평문(`plainAlertText` — 서식 오류 대비) ·
  *   장애 글 2종(`outageText` · `recoveredText` · D-16) · 시험 글(`testSendText` · D-15). 시각은 컨테이너 시간대와
  *   무관하게 KST(`kstLabel`).
+ * - 261113-rn7: 거래소 시장조치(I003 · `hideFiler`)는 제출인을 붙이지 않는다 — 제출인이 늘 거래소(유가증권시장본부 ·
+ *   코스닥시장본부 꼴)라 회사와 달라 매번 붙고 정보가 없다.
  * - 261113-iez: 보고서명은 앞뒤 공백을 떼고 연속 공백을 1칸으로 보인다(「투자판단관련주요경영사항              (…)」 이
  *   잠금화면 미리보기 첫 줄을 밀어내지 않게 · D-07). DB · 판정 값은 원문 그대로.
  */
@@ -43,26 +45,32 @@ export function sameCompany(a: string, b: string): boolean {
   return ka !== "" && ka === companyKey(b);
 }
 
+/** 첫 줄 제출인 규칙 — hideFiler 가 참이면 붙이지 않고(거래소 시장조치), 아니면 alwaysShowFiler 또는 회사와 다를 때 */
+export interface FilerOptions {
+  alwaysShowFiler: boolean;
+  hideFiler?: boolean;
+}
+
 /**
  * 첫 줄 — 공개매수(alwaysShowFiler)는 제출인을 항상 붙이고, 주요사항보고서는 제출인이 회사 자신이면 생략한다(D-07).
- * `esc` = HTML 본문은 htmlEscape, 평문은 그대로.
+ * 거래소 시장조치(hideFiler)는 붙이지 않는다. `esc` = HTML 본문은 htmlEscape, 평문은 그대로.
  */
-function firstLine(a: AlertFields, opts: { alwaysShowFiler: boolean }, esc: (s: string) => string): string {
+function firstLine(a: AlertFields, opts: FilerOptions, esc: (s: string) => string): string {
   const late = a.late ? `${LATE_LABEL} ` : "";
   const filerName = a.flr_nm.trim();
-  const showFiler = filerName !== "" && (opts.alwaysShowFiler || !sameCompany(filerName, a.corp_name));
+  const showFiler = opts.hideFiler !== true && filerName !== "" && (opts.alwaysShowFiler || !sameCompany(filerName, a.corp_name));
   const filer = showFiler ? ` · 제출인 ${esc(filerName)}` : "";
   const reportName = a.report_nm.trim().replace(/\s+/g, " ");
   return `📢 ${late}${esc(reportName)} — ${esc(a.corp_name)}(${esc(a.stock_code)})${filer}`;
 }
 
-export function alertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
+export function alertText(a: AlertFields, opts: FilerOptions): string {
   const second = `<a href="${DART_VIEWER_URL}${htmlEscape(a.rcept_no)}">DART 원문</a> · ${SOURCE_LABEL}`;
   return `${firstLine(a, opts, htmlEscape)}\n${second}`;
 }
 
 /** 서식 오류(parse_mode HTML 거부) 대비 평문 — 태그 · 엔티티 없이 원문 주소를 그대로 싣는다(43-06 재송신) */
-export function plainAlertText(a: AlertFields, opts: { alwaysShowFiler: boolean }): string {
+export function plainAlertText(a: AlertFields, opts: FilerOptions): string {
   const second = `DART 원문 ${DART_VIEWER_URL}${a.rcept_no} · ${SOURCE_LABEL}`;
   return `${firstLine(a, opts, (s) => s)}\n${second}`;
 }
@@ -97,5 +105,5 @@ export function recoveredText(sinceMs: number, nowMs: number): string {
 
 /** D-15 시험 글 두 줄 */
 export function testSendText(nowMs: number): string {
-  return `🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 수시공시 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n${kstLabel(nowMs, false)} KST · ${SOURCE_LABEL}`;
+  return `🔔 공시 알림 시험 — 공개매수 · 주요사항보고서 · 거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 공시를 이 방으로 보냅니다\n${kstLabel(nowMs, false)} KST · ${SOURCE_LABEL}`;
 }

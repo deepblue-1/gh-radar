@@ -19,23 +19,27 @@ const tender = (n: number, fromHms: string): FeedItem => ({ watch: "tender_offer
 const rights = (n: number, fromHms: string): FeedItem => ({ watch: "rights_merger", from: at(fromHms), row: rightsRow(n) });
 
 describe("하루 호출 수 · 바퀴 간격 (D-10 · D-11 · SC-4)", () => {
-  it("월 07:00 부터 20:00 까지(네 감시 대상) — 키 1 14,760(9,360 · 5,400) · 키 2 6,240(4,680 · 1,560) · flush 10초 간격 · window_end · 해제 1번", async () => {
+  it("월 07:00 부터 20:00 까지(여섯 감시 대상) — 키 1 14,760(9,360 · 5,400) · 키 2 9,360(1,560 · 4,680 · 1,560 · 1,560) · flush 10초 간격 · window_end · 해제 1번", async () => {
     const h = harness({ start: at("07:00:00"), watches: ALL_WATCHES, maxSleeps: 400_000 });
     const exit = await h.run();
 
     expect(exit).toEqual({ code: 0, reason: "window_end" });
-    // 바퀴 46,800 ÷ 5 = 9,360 · B001 = 7,200 ÷ 5 + 39,600 ÷ 10 · I001 46,800 ÷ 10 · D005 46,800 ÷ 30
+    // 바퀴 46,800 ÷ 5 = 9,360 · B001 = 7,200 ÷ 5 + 39,600 ÷ 10 · I001 46,800 ÷ 10 · 30초 칸(I003 · I004 · D005) 46,800 ÷ 30
+    // 기본 harness 는 오늘 전날 확인 표시가 깔려 있어 직전 평일 조회 0
     expect(plannedDailyCalls(KEY1_WATCHES)).toBe(14_760);
-    expect(plannedDailyCalls(KEY2_WATCHES)).toBe(6_240);
+    expect(plannedDailyCalls(KEY2_WATCHES)).toBe(9_360);
     expect(h.dart.callsOf("tender_offer")).toHaveLength(9_360);
     expect(h.dart.callsOf("rights_merger")).toHaveLength(1_440 + 3_960);
+    expect(h.dart.callsOf("market_action")).toHaveLength(1_560);
     expect(h.dart.callsOf("exchange_disclosure")).toHaveLength(4_680);
+    expect(h.dart.callsOf("largest_holder_change")).toHaveLength(1_560);
     expect(h.dart.callsOf("insider_trade_plan")).toHaveLength(1_560);
-    expect(h.dart.listCalls).toHaveLength(14_760 + 6_240);
+    expect(h.dart.listCalls.filter((c) => c.day !== "20261116")).toHaveLength(0);
+    expect(h.dart.listCalls).toHaveLength(14_760 + 9_360);
     expect(h.db.usageAdded(1)).toBe(14_760);
-    expect(h.db.usageAdded(2)).toBe(6_240);
+    expect(h.db.usageAdded(2)).toBe(9_360);
     expect(h.db.state.used).toBe(14_760);
-    expect(h.db.state.used2).toBe(6_240);
+    expect(h.db.state.used2).toBe(9_360);
     // 묶음 flush — 키 1 항목: 마지막(종료 때 flush) 앞까지는 10초 간격
     const flushes = h.db.calls.usageFlush.filter((f) => f.key === 1).map((f) => f.at);
     const gaps = flushes.slice(1, -1).map((t, i) => t - flushes[i]);
@@ -100,8 +104,9 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     // 연장은 바퀴 시작 전에 — 그때까지의 마지막 성공 조회를 DB last_ok 로. D004 는 직전 바퀴(5초 전) ·
     // B001 은 직전 10초 칸(10:00:25 바퀴는 10:00:20 칸 그대로라 부르지 않음)
     expect(calls[1].lastOk).toEqual({ tender_offer: iso("10:00:25"), rights_merger: iso("10:00:20") });
-    // 마지막 연장 10:02:00(바퀴 전) — D004 10:01:55 · B001 10:01:50
-    expect(h.db.state.lastOk).toEqual({ tender_offer: iso("10:01:55"), rights_merger: iso("10:01:50") });
+    // 마지막 연장 10:02:00(바퀴 전) — D004 10:01:55 · B001 10:01:50(harness 가 깐 전날 확인 표시 `prevday:` 는 빼고 본다)
+    const saved = Object.fromEntries(Object.entries(h.db.state.lastOk).filter(([k]) => !k.startsWith("prevday:")));
+    expect(saved).toEqual({ tender_offer: iso("10:01:55"), rights_merger: iso("10:01:50") });
   });
 
   it("연장이 거절되면 조용히 종료 0 lease_lost — 해제하지 않는다", async () => {
