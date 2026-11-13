@@ -11,11 +11,12 @@ set -euo pipefail
 #
 # 설정 대상 (모두 멱등 — 다시 돌려도 안전):
 #   1. SA 생성: gh-radar-dart-alert-sa (수집기 Job 전용)
-#   2. Secret 껍데기: gh-radar-opendart-key · gh-radar-telegram-bot-token · gh-radar-telegram-chat-id
+#   2. Secret 껍데기 4개: gh-radar-opendart-key(키 1) · gh-radar-opendart-key-2(키 2 · 261113-rn7) ·
+#      gh-radar-telegram-bot-token · gh-radar-telegram-chat-id
 #      — 값 없이 만든다. 값은 setup-dart-alert-secrets.sh 가 넣는다(이 스크립트는 값을 받지도 묻지도 않는다).
-#   3. Secret Accessor 바인딩 4건(리소스 단위 — 프로젝트 단위 금지):
-#      dart-alert SA → gh-radar-opendart-key · gh-radar-telegram-bot-token · gh-radar-telegram-chat-id ·
-#                      gh-radar-supabase-service-role
+#   3. Secret Accessor 바인딩 5건(리소스 단위 — 프로젝트 단위 금지):
+#      dart-alert SA → gh-radar-opendart-key · gh-radar-opendart-key-2 · gh-radar-telegram-bot-token ·
+#                      gh-radar-telegram-chat-id · gh-radar-supabase-service-role
 #
 # server SA 에는 OpenDART · 텔레그램 Secret 권한을 주지 않는다 — 공식 API 운영 기준 ③(호출량은 사용자 수와 독립):
 #   OpenDART 호출과 텔레그램 송신은 이 수집기 하나뿐이다.
@@ -24,7 +25,7 @@ set -euo pipefail
 
 case "${1:-}" in
   -h | --help)
-    echo "사용: ! GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh   (SA · Secret 껍데기 3개 · Accessor 4건 · 값은 넣지 않음)"
+    echo "사용: ! GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh   (SA · Secret 껍데기 4개 · Accessor 5건 · 값은 넣지 않음)"
     exit 0
     ;;
   "") ;;
@@ -69,6 +70,7 @@ echo "✓ gcloud guard: config=$ACTIVE_CONFIG, project=$ACTIVE_PROJECT"
 DART_SA_NAME="gh-radar-dart-alert-sa"
 DART_SA="${DART_SA_NAME}@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 DART_KEY_SECRET="gh-radar-opendart-key"
+DART_KEY2_SECRET="gh-radar-opendart-key-2"
 TG_TOKEN_SECRET="gh-radar-telegram-bot-token"
 TG_CHAT_SECRET="gh-radar-telegram-chat-id"
 SUPABASE_SECRET="gh-radar-supabase-service-role"
@@ -104,7 +106,7 @@ fi
 # Section 5: Secret 껍데기 (idempotent · 값 없음)
 #   값은 setup-dart-alert-secrets.sh 가 stdin(--data-file=-)으로만 넣는다.
 # ═══════════════════════════════════════════════════════════════
-for SECRET_NAME in "$DART_KEY_SECRET" "$TG_TOKEN_SECRET" "$TG_CHAT_SECRET"; do
+for SECRET_NAME in "$DART_KEY_SECRET" "$DART_KEY2_SECRET" "$TG_TOKEN_SECRET" "$TG_CHAT_SECRET"; do
   if gcloud secrets describe "$SECRET_NAME" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
     echo "  SKIP: secret '$SECRET_NAME' already exists"
   else
@@ -121,7 +123,7 @@ if ! gcloud secrets describe "$SUPABASE_SECRET" --project="$EXPECTED_PROJECT" >/
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# Section 6: Secret Accessor 바인딩 — 4건 (리소스 단위)
+# Section 6: Secret Accessor 바인딩 — 5건 (리소스 단위)
 # ═══════════════════════════════════════════════════════════════
 bind_accessor() {
   local secret="$1" member="$2"
@@ -132,8 +134,9 @@ bind_accessor() {
   echo "  ✓ bound: $secret → $member"
 }
 
-echo "▶ binding Secret Accessor role — 4 bindings..."
+echo "▶ binding Secret Accessor role — 5 bindings..."
 bind_accessor "$DART_KEY_SECRET" "$DART_SA"
+bind_accessor "$DART_KEY2_SECRET" "$DART_SA"
 bind_accessor "$TG_TOKEN_SECRET" "$DART_SA"
 bind_accessor "$TG_CHAT_SECRET" "$DART_SA"
 bind_accessor "$SUPABASE_SECRET" "$DART_SA"
@@ -141,6 +144,6 @@ bind_accessor "$SUPABASE_SECRET" "$DART_SA"
 echo ""
 echo "✅ setup-dart-alert-iam.sh complete"
 echo "   SA: $DART_SA"
-echo "   Secrets (껍데기): $DART_KEY_SECRET, $TG_TOKEN_SECRET, $TG_CHAT_SECRET"
+echo "   Secrets (껍데기 4개): $DART_KEY_SECRET, $DART_KEY2_SECRET, $TG_TOKEN_SECRET, $TG_CHAT_SECRET"
 echo "Next: ! bash scripts/setup-dart-alert-secrets.sh   (값 넣기 — 사용자 직접)"
 echo "      bash scripts/deploy-dart-alert.sh            (GCP_PROJECT_ID · SUPABASE_URL 필요)"

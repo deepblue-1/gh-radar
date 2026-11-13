@@ -3,14 +3,15 @@ set -euo pipefail
 umask 077
 
 # ═══════════════════════════════════════════════════════════════
-# setup-dart-alert-secrets.sh — OpenDART 키 · 텔레그램 봇 토큰 · 방 id 주입 (Phase 43 · 43-07 · setup-kis-secrets.sh 꼴)
+# setup-dart-alert-secrets.sh — OpenDART 키 2개 · 텔레그램 봇 토큰 · 방 id 주입 (Phase 43 · 43-07 · 261113-rn7 · setup-kis-secrets.sh 꼴)
 #
 # 이 스크립트는 사용자가 직접 실행한다(비밀 주입은 사용자 `!` 실행 — 에이전트 실행은 분류기가 막는다):
 #   ! bash scripts/setup-dart-alert-secrets.sh
 #
 # 입력 파일 만드는 법 (값은 대화에 붙여 넣지 않는다):
-#   1. 편집기로 ~/.config/gh-radar/dart-alert.env 를 만들고 세 줄을 적는다
-#        OPENDART_API_KEY=<OpenDART 인증키 40자>
+#   1. 편집기로 ~/.config/gh-radar/dart-alert.env 를 만들고 네 줄을 적는다(바꿀 줄만 있어도 된다 — 없는 줄은 SKIP)
+#        OPENDART_API_KEY=<OpenDART 인증키 40자 — 키 1 · 공개매수 · 주요사항보고서>
+#        OPENDART_API_KEY_2=<두 번째 OpenDART 인증키 40자 — 키 2 · 같이 운영하는 팀원 개인 키 · 키 1 과 다른 값>
 #        TELEGRAM_BOT_TOKEN=<BotFather 가 준 토큰 — 123456789:AA… 꼴>
 #        TELEGRAM_CHAT_ID=<방 id — 처음엔 운영자 개인 대화 id, 시험 뒤 단체방 id(음수)>
 #      방 id 는 `! bash scripts/telegram-find-chat.sh` 로 찾는다(토큰 줄만 있으면 된다).
@@ -21,11 +22,14 @@ umask 077
 #   - 대화형 입력 없음(`!` 셸에 TTY 가 없을 수 있다).
 #   - 값 · 길이 · 앞뒤 글자를 어떤 경로로도 출력하지 않는다. 출력은 「OK <이름>」 / 「SKIP <이름> — <사유>」 /
 #     「ERROR <이름> — <사유만>」 줄뿐이다. 셸 추적 모드를 켜지 않는다.
-#   - 입력 파일은 `source` 로 실행하지 않는다 — 세 키만 한 줄씩 읽고 첫 '=' 에서만 자른다.
+#   - 입력 파일은 `source` 로 실행하지 않는다 — 네 키만 한 줄씩 읽고 첫 '=' 에서만 자른다.
 #   - 파일에 없는 키는 「SKIP <이름> — 파일에 없음」 — 방 id 를 나중에 넣는 순서를 지원한다.
-#   - 최신 버전과 같은 값이면 새 버전을 만들지 않는다(재실행 안전) — 방 id 만 바꿔 다시 돌리면 나머지 둘은 SKIP.
+#   - 최신 버전과 같은 값이면 새 버전을 만들지 않는다(재실행 안전) — 방 id 만 바꿔 다시 돌리면 나머지는 SKIP.
+#   - 키 2 줄이 있으면 키 1 과 같은 값인지 먼저 본다 — 파일에 키 1 줄도 있으면 그 값과, 없으면 Secret gh-radar-opendart-key
+#     최신 값을 변수에만 읽어 비교하고 곧바로 비운다. 같으면 새 버전 없이 ERROR(같은 키를 둘로 세면 실제 한도를 넘는다).
 #   - 키별 검사(공용 최소 길이 검사 금지 — 음수 방 id 는 짧다):
 #       OPENDART_API_KEY   영숫자 40자
+#       OPENDART_API_KEY_2 영숫자 40자(키 1 과 같은 꼴)
 #       TELEGRAM_BOT_TOKEN 숫자:영숫자_- (콜론 뒤 30자 이상)
 #       TELEGRAM_CHAT_ID   ^-?[0-9]+$ (음수 허용 — 슈퍼그룹은 -100… 꼴)
 #   - Secret 껍데기 · 수집기 SA 접근권은 만들지 않는다 — `GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh` 몫.
@@ -41,6 +45,7 @@ umask 077
 
 ENV_FILE="${DART_ALERT_ENV_FILE:-$HOME/.config/gh-radar/dart-alert.env}"
 DART_KEY_SECRET=gh-radar-opendart-key
+DART_KEY2_SECRET=gh-radar-opendart-key-2
 TG_TOKEN_SECRET=gh-radar-telegram-bot-token
 TG_CHAT_SECRET=gh-radar-telegram-chat-id
 
@@ -52,7 +57,8 @@ TG_CHAT_RE='^-?[0-9]+$'
 case "${1:-}" in
   -h | --help)
     echo "사용: ! bash scripts/setup-dart-alert-secrets.sh   (입력: \${DART_ALERT_ENV_FILE:-~/.config/gh-radar/dart-alert.env} · 권한 600)"
-    echo "      파일 세 줄: OPENDART_API_KEY= · TELEGRAM_BOT_TOKEN= · TELEGRAM_CHAT_ID= (없는 줄은 SKIP)"
+    echo "      파일 네 줄: OPENDART_API_KEY= · OPENDART_API_KEY_2= · TELEGRAM_BOT_TOKEN= · TELEGRAM_CHAT_ID= (없는 줄은 SKIP)"
+    echo "      키 2(OPENDART_API_KEY_2)는 키 1 과 다른 인증키여야 한다 — 같으면 새 버전 없이 ERROR"
     echo "      출력은 OK/SKIP/ERROR 줄뿐 — 값 · 길이는 나오지 않는다"
     exit 0
     ;;
@@ -107,13 +113,16 @@ fi
 
 # 값은 변수에만 둔다(화면 · 명령줄 · 파일에 남기지 않는다).
 DART_KEY=""
+DART_KEY2=""
 TG_TOKEN=""
 TG_CHAT=""
 SEEN_DART_KEY=0
+SEEN_DART_KEY2=0
 SEEN_TG_TOKEN=0
 SEEN_TG_CHAT=0
 clear_values() {
   DART_KEY=""
+  DART_KEY2=""
   TG_TOKEN=""
   TG_CHAT=""
 }
@@ -129,6 +138,10 @@ while IFS= read -r line_raw || [[ -n "$line_raw" ]]; do
     OPENDART_API_KEY)
       DART_KEY="$line_rest"
       SEEN_DART_KEY=1
+      ;;
+    OPENDART_API_KEY_2)
+      DART_KEY2="$line_rest"
+      SEEN_DART_KEY2=1
       ;;
     TELEGRAM_BOT_TOKEN)
       TG_TOKEN="$line_rest"
@@ -155,6 +168,7 @@ strip_quotes() {
   printf '%s' "$s"
 }
 DART_KEY="$(strip_quotes "$DART_KEY")"
+DART_KEY2="$(strip_quotes "$DART_KEY2")"
 TG_TOKEN="$(strip_quotes "$TG_TOKEN")"
 TG_CHAT="$(strip_quotes "$TG_CHAT")"
 
@@ -163,6 +177,11 @@ check_dart_key() {
   local v="$1"
   [[ -n "$v" ]] || { echo "ERROR OPENDART_API_KEY — 값이 비었다" >&2; return 1; }
   [[ "$v" =~ $DART_KEY_RE ]] || { echo "ERROR OPENDART_API_KEY — 꼴이 아니다(영숫자 40자 · 복사가 잘렸거나 공백이 섞였는지 확인)" >&2; return 1; }
+}
+check_dart_key2() {
+  local v="$1"
+  [[ -n "$v" ]] || { echo "ERROR OPENDART_API_KEY_2 — 값이 비었다" >&2; return 1; }
+  [[ "$v" =~ $DART_KEY_RE ]] || { echo "ERROR OPENDART_API_KEY_2 — 꼴이 아니다(영숫자 40자 · 복사가 잘렸거나 공백이 섞였는지 확인)" >&2; return 1; }
 }
 check_tg_token() {
   local v="$1"
@@ -178,10 +197,11 @@ check_tg_chat() {
 FAILED=0
 PRESENT=0
 if [[ "$SEEN_DART_KEY" == 1 ]]; then PRESENT=$((PRESENT + 1)); check_dart_key "$DART_KEY" || FAILED=1; fi
+if [[ "$SEEN_DART_KEY2" == 1 ]]; then PRESENT=$((PRESENT + 1)); check_dart_key2 "$DART_KEY2" || FAILED=1; fi
 if [[ "$SEEN_TG_TOKEN" == 1 ]]; then PRESENT=$((PRESENT + 1)); check_tg_token "$TG_TOKEN" || FAILED=1; fi
 if [[ "$SEEN_TG_CHAT" == 1 ]]; then PRESENT=$((PRESENT + 1)); check_tg_chat "$TG_CHAT" || FAILED=1; fi
 if [[ "$PRESENT" == 0 ]]; then
-  echo "ERROR input — OPENDART_API_KEY · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID 줄이 하나도 없다: $ENV_FILE" >&2
+  echo "ERROR input — OPENDART_API_KEY · OPENDART_API_KEY_2 · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID 줄이 하나도 없다: $ENV_FILE" >&2
   exit 1
 fi
 if [[ "$FAILED" != 0 ]]; then
@@ -191,7 +211,7 @@ fi
 
 # ── 2. gcloud · Secret 껍데기 ────────────────────────────────────
 gcloud_prep || { clear_values; exit 1; }
-for pair in "$SEEN_DART_KEY:$DART_KEY_SECRET" "$SEEN_TG_TOKEN:$TG_TOKEN_SECRET" "$SEEN_TG_CHAT:$TG_CHAT_SECRET"; do
+for pair in "$SEEN_DART_KEY:$DART_KEY_SECRET" "$SEEN_DART_KEY2:$DART_KEY2_SECRET" "$SEEN_TG_TOKEN:$TG_TOKEN_SECRET" "$SEEN_TG_CHAT:$TG_CHAT_SECRET"; do
   [[ "${pair%%:*}" == 1 ]] || continue
   s="${pair#*:}"
   if ! gcloud secrets describe "$s" >/dev/null 2>&1; then
@@ -200,6 +220,23 @@ for pair in "$SEEN_DART_KEY:$DART_KEY_SECRET" "$SEEN_TG_TOKEN:$TG_TOKEN_SECRET" 
     exit 1
   fi
 done
+
+# ── 2b. 키 2 ≠ 키 1 (261113-rn7 U-2) — 같은 값이면 어떤 새 버전도 만들지 않고 멈춘다. 비교 값은 변수에만 두고 곧바로 비운다 ──
+if [[ "$SEEN_DART_KEY2" == 1 ]]; then
+  key1_now=""
+  if [[ "$SEEN_DART_KEY" == 1 ]]; then
+    key1_now="$DART_KEY"
+  else
+    key1_now="$(gcloud secrets versions access latest --secret="$DART_KEY_SECRET" 2>/dev/null || true)"
+  fi
+  if [[ -n "$key1_now" && "$key1_now" == "$DART_KEY2" ]]; then
+    key1_now=""
+    echo "ERROR OPENDART_API_KEY_2 — 키 1(OPENDART_API_KEY)과 같은 값이다(서로 다른 인증키여야 한다)" >&2
+    clear_values
+    exit 1
+  fi
+  key1_now=""
+fi
 
 # ── 3. 새 버전(같은 값이면 SKIP · 파일에 없으면 SKIP) ─────────────
 put_secret() {
@@ -223,6 +260,7 @@ put_secret() {
 }
 
 put_secret "$DART_KEY_SECRET" "$SEEN_DART_KEY" OPENDART_API_KEY "$DART_KEY" || FAILED=1
+put_secret "$DART_KEY2_SECRET" "$SEEN_DART_KEY2" OPENDART_API_KEY_2 "$DART_KEY2" || FAILED=1
 put_secret "$TG_TOKEN_SECRET" "$SEEN_TG_TOKEN" TELEGRAM_BOT_TOKEN "$TG_TOKEN" || FAILED=1
 put_secret "$TG_CHAT_SECRET" "$SEEN_TG_CHAT" TELEGRAM_CHAT_ID "$TG_CHAT" || FAILED=1
 clear_values

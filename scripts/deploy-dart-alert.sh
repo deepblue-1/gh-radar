@@ -2,12 +2,14 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# Phase 43 Plan 07 — dart-alert(공개매수 · 주요사항 · 거래소 수시공시 · 임원 거래계획 공시 텔레그램 알림) Cloud Run Job + Scheduler 1개 +
+# Phase 43 Plan 07 — dart-alert(공개매수 · 주요사항 · 거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원 거래계획 공시 텔레그램 알림)
+#   Cloud Run Job + Scheduler 1개 +
 #   이메일 알림 정책 2개 배포 (deploy-kis-news-sync.sh 꼴 · 알림 정책은 deploy-limitup-sync.sh Section 7 꼴)
 #
 # 선행(사용자 `!` — 비밀 · IAM 쓰기는 사용자 터미널에서만):
-#   ! GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh   (SA · Secret 껍데기 3개 · Accessor 4건)
-#   ! bash scripts/setup-dart-alert-secrets.sh                       (OpenDART 키 · 봇 토큰 · 방 id 값)
+#   ! GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh   (SA · Secret 껍데기 4개 · Accessor 5건)
+#   ! bash scripts/setup-dart-alert-secrets.sh                       (OpenDART 키 2개 · 봇 토큰 · 방 id 값)
+#   키 2 Secret(gh-radar-opendart-key-2)이 없거나 비었으면 이 스크립트가 한국어 안내로 멈춘다(한 키 대체 없음 · 261113-rn7).
 #   supabase db push --linked --yes                                  (dart_alert 마이그레이션 — 워커보다 먼저 · 스모크 INV-6b 가 확인)
 # 스모크가 실패하면 Job 은 이미 새 이미지 · env 다 — 끝에 직전 이미지로 되돌리는 명령을 찍는다(리뷰 WR-52).
 # 실행(메인 세션): GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh [--scheduler-paused]
@@ -27,8 +29,9 @@ set -euo pipefail
 #      배포 · 스모크 INV-3 가 ENABLED 를 확인한다.)
 #
 # 설계:
-#   D-10 바퀴 간격: 평일 07:00 ~ 09:00 5초 · 09:00 ~ 20:00 10초(시작 대 시작) · 한 바퀴 = 공개매수(D004) 1회 + 주요사항보고서(B001) 1회 ·
-#        거래소 수시공시(I001)는 30초 · 임원ㆍ주요주주 거래계획(D005)은 60초 칸(07:00 기준)마다 1회(261113-iez).
+#   바퀴(U-2 가 D-10 대체): 평일 07:00 ~ 20:00 종일 5초 바퀴(시작 대 시작) · 키 1 = 공개매수 D004 매 바퀴 · 주요사항보고서 B001
+#        09:00 전 5초 · 뒤 10초 / 키 2 = 거래소 수시공시 I001 10초 · 거래소 시장조치 I003 · 최대주주 소유주식 변동 I004 ·
+#        임원ㆍ주요주주 거래계획 D005 30초(07:00 기준 시각 칸) · 그날 감시 대상별 첫 성공 조회 때 직전 평일 1번(U-2 · U-3).
 #   D-11 창: 평일 07:00 이상 20:00 미만만 수집 · 휴장일 달력 없음(평일 공휴일도 돈다).
 #        모드는 Scheduler 가 넘기지 않는다 — 수집기가 KST 시각으로 스스로 판정한다(workers/dart-alert/src/cadence.ts).
 #   임대: 창 안에서 5분마다 깨워도 임대(dart_alert_lease_acquire · TTL 90초 · 30초 연장)를 가진 실행이 살아 있으면
@@ -38,9 +41,13 @@ set -euo pipefail
 #   `--task-timeout=14h` — 창 13시간(07:00 ~ 20:00) + 여유. Cloud Run Job 상한은 168시간.
 #
 # 예산(CLAUDE.md 「공식 API 운영 기준」):
-#   공식 일일 한도 20,000 → 설계 상한 DART_ALERT_DAILY_BUDGET 기본 15,000(75%) · 1 ~ 15,000 밖이면 이 스크립트가 거부한다.
-#   평일 사용 ≈ 13,140(5,400 × 2 + 1,560 + 780 · 66%) + I001 추가 쪽 약 400 ~ 800 · 최악 14,700 · 남는 몫은 추가 쪽 · 한도 의심 뒤 탐침.
-#   카운터: api_usage service opendart_list (KST 날짜 키) · 한도 의심 표시 opendart_list_quota_strike.
+#   공식 일일 한도 인증키당 20,000 → 설계 상한 DART_ALERT_DAILY_BUDGET 기본 15,000(75%)을 **키마다 따로** 적용 ·
+#   1 ~ 15,000 밖이면 이 스크립트가 거부한다.
+#   키 1 평일 사용 = 14,760(공개매수 9,360 + 주요사항보고서 5,400 · 74%) + 아침 전날 확인 2 = 14,762.
+#   키 2 평일 사용 = 9,360(I001 4,680 + I003 · I004 · D005 각 1,560 · 47%) + I001 추가 쪽(최악 매 조회 2쪽 +4,680) +
+#   전날 확인 약 5 = 최악 14,045 + 운영 도구(survey · 스모크 probe).
+#   카운터(KST 날짜 키): 키 1 api_usage service opendart_list · 한도 의심 표시 opendart_list_quota_strike /
+#   키 2 opendart_list_k2 · opendart_list_k2_quota_strike.
 #   호출량은 사용자 수와 독립 — server · webapp 은 OpenDART 를 부르지 않는다.
 #
 # 고정 IP: 기본은 VPC 없이(Supabase 직통). OpenDART 가 012(허용 안 된 IP)를 돌려주면
@@ -56,6 +63,9 @@ set -euo pipefail
 #   새 감시 대상을 처음 싣는 배포(261113-iez — I001 · D005)는 평일 20:00 뒤 · 07:00 전에 하고, 장중에 도는 실행을 취소해 바로
 #   바꾸지 않는다 — 새 감시 대상은 DB last_ok 가 없어 시작 점검이 「멈췄습니다」 · 「다시 동작」 짝 글을 내고 그날 앞선
 #   I001 · D005 건이 「(늦은 알림)」 으로 한꺼번에 나간다.
+#   종류 · 감시 대상을 넓힌 배포(261113-rn7 — I003 · I004 · I001 배당 · 투자유의)는 평일 20:00 뒤에 하고 배포 직후 seed 실행을
+#   한 번 돌린다(`--update-env-vars=DART_ALERT_MODE=seed` · 창 밖이면 seed 바퀴 뒤 곧바로 끝 · 「seed done」 확인) — 빼먹으면
+#   다음 아침 전날 확인이 전날 새 종류 건을 「(늦은 알림)」 으로 한꺼번에 보낸다.
 #
 # 첫 배포 날(창 안에서 처음 배포할 때 — 그날 이미 올라온 건이 한꺼번에 나가지 않게):
 #   1. GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh --scheduler-paused
@@ -73,6 +83,7 @@ set -euo pipefail
 #
 # 수동 모드 실행(Job 설정의 env 는 바꾸지 않고 그 실행에만 덮어쓴다):
 #   gcloud run jobs execute gh-radar-dart-alert --region=asia-northeast3 --update-env-vars=DART_ALERT_MODE=probe --wait
+#     (probe = 키 2 로 거래소 수시공시 1쪽 1회 · 키 2 카운터 opendart_list_k2)
 #   gcloud run jobs execute gh-radar-dart-alert --region=asia-northeast3 --update-env-vars=DART_ALERT_MODE=test-send --wait
 #   (seed 는 위 「첫 배포 날」 처럼 --wait 없이 — 같은 실행이 20:00 까지 이어 간다)
 #
@@ -212,6 +223,16 @@ self_test() {
     fails=$((fails + 1))
   fi
 
+  # OpenDART 키 2개 결선(261113-rn7 U-2) — 배포 명령의 --set-secrets 줄에 두 키가 다 있어야 한다(한 키 대체 없음)
+  local secrets_line
+  secrets_line="$(grep -E '^[[:space:]]+--set-secrets=' "$self" | head -1)"
+  for f in 'OPENDART_API_KEY=gh-radar-opendart-key:latest' 'OPENDART_API_KEY_2=gh-radar-opendart-key-2:latest'; do
+    if [[ "$secrets_line" != *"$f"* ]]; then
+      echo "FAIL: 배포 명령의 --set-secrets 에 ${f} 가 없다" >&2
+      fails=$((fails + 1))
+    fi
+  done
+
   # 알림 정책 파일 — 셋 다 있고 · Job 이름과 채널 자리가 들어 있다(실행 실패 · error 로그 · 깨움 실패 — 리뷰 CR-50).
   if (( ${#ALERT_POLICY_FILES[@]} != 3 || ${#ALERT_POLICY_NAMES[@]} != 3 )); then
     echo "FAIL: 알림 정책 파일 · 이름이 3개씩이 아니다(${#ALERT_POLICY_FILES[@]} · ${#ALERT_POLICY_NAMES[@]})" >&2
@@ -242,7 +263,7 @@ self_test() {
     echo "SELF-TEST FAIL ($fails)" >&2
     return 1
   fi
-  echo "SELF-TEST OK — scheduler=${WAKE_SCHEDULER} (${WAKE_SCHEDULE}) · task-timeout=14h · max-retries=0 · parallelism=1 · DART_ALERT_DAILY_BUDGET=${DART_ALERT_DAILY_BUDGET} (15001 거부) · alert policies=${#ALERT_POLICY_FILES[@]}"
+  echo "SELF-TEST OK — scheduler=${WAKE_SCHEDULER} (${WAKE_SCHEDULE}) · task-timeout=14h · max-retries=0 · parallelism=1 · DART_ALERT_DAILY_BUDGET=${DART_ALERT_DAILY_BUDGET} (15001 거부) · OpenDART 키 2개 · 키마다 예산 ${DART_ALERT_DAILY_BUDGET} · alert policies=${#ALERT_POLICY_FILES[@]}"
 }
 
 usage() {

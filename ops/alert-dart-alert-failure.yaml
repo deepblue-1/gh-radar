@@ -3,13 +3,15 @@ documentation:
   content: |
     ## 공시 알림(dart-alert) 실행 실패 (Phase 43 · D-16)
 
-    **무엇을 잡나** — Cloud Run Job `gh-radar-dart-alert`(평일 `07:00` ~ `20:00` 공개매수 · 유상증자 · 합병 공시를 단체방에 보내는 수집기)의 실행이 종료 1 로 끝났다. 그날 남은 시간 동안 알림이 끊겼을 수 있다(다음 5분 깨움이 다시 시작하지만, 원인이 그대로면 또 멈춘다).
+    **무엇을 잡나** — Cloud Run Job `gh-radar-dart-alert`(평일 `07:00` ~ `20:00` 공개매수 · 주요사항보고서 · 거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 공시 — 감시 대상 6개 — 를 단체방에 보내는 수집기)의 실행이 종료 1 로 끝났다. 그날 남은 시간 동안 알림이 끊겼을 수 있다(다음 5분 깨움이 다시 시작하지만, 원인이 그대로면 또 멈춘다).
+
+    OpenDART 키가 2개다(키 1 env `OPENDART_API_KEY` = 공개매수 · 주요사항보고서 / 키 2 env `OPENDART_API_KEY_2` = 그 밖 넷 · 같이 운영하는 팀원 개인 키). 한도 · 키 오류 · 예산은 키마다 따로 처리된다 — **쓰는 키가 둘 다 막혔을 때만 종료 1** 이다. 한 키만 막히면 실행은 계속되고 error `dart key paused — other key keeps running`(error 로그 메일 `gh-radar-dart-alert-error-log`)만 남으며, 막힌 키는 5분마다 단독 탐침 1건으로 재확인해 통과하면 자동 재개한다.
 
     **원인 후보**
     1. 설정 오류 — 로그 `dart-alert config error`(env 이름만 실림 · 예: `missing env: TELEGRAM_CHAT_ID` · `invalid TELEGRAM_CHAT_ID`). Secret 값 · Job env 를 확인하고 `! bash scripts/setup-dart-alert-secrets.sh` 를 다시 실행한다.
-    2. OpenDART `020`(하루 요청 한도 초과) — 로그 `fatal DART status — stopping this run` · reason `quota`. 한도 의심 표시가 남아 다음 깨움이 탐침 1건으로만 다시 확인하고 통과하면 자동 재개한다.
-    3. OpenDART 키 오류 `010` · `011` · `012` · `901` — reason `dart_key`. `012`(허용 안 된 IP)면 `DART_ALERT_VPC_EGRESS=1` 로 다시 배포(고정 IP)를 검토한다. 키를 바꾸면 env 파일 `OPENDART_API_KEY` 를 고치고 비밀 스크립트를 다시 실행한다.
-    4. 자체 예산 도달 — 로그 `daily budget exhausted — stopping this run`(`DART_ALERT_DAILY_BUDGET` · 기본 15,000). 평소 하루 약 10,800회라 닿았다면 추가 쪽 읽기가 많았던 날이다 — `stats` 로 오늘 호출 수를 본다.
+    2. OpenDART `020`(하루 요청 한도 초과)로 두 키가 다 막힘 — 로그 `fatal DART status — stopping this run` · reason `quota`(앞서 막힌 키는 `dart key paused — other key keeps running`). 그 키 한도 의심 표시(키 1 `opendart_list_quota_strike` · 키 2 `opendart_list_k2_quota_strike`)가 남아 다음 깨움이 그 키 탐침 1건으로만 다시 확인하고 통과하면 자동 재개한다.
+    3. OpenDART 키 오류 `010` · `011` · `012` · `901` — reason `dart_key`(어느 키인지는 같은 시각 `dart key paused` 로그의 `key`). `012`(허용 안 된 IP)면 `DART_ALERT_VPC_EGRESS=1` 로 다시 배포(고정 IP)를 검토한다. 키를 바꾸면 env 파일 `OPENDART_API_KEY`(키 1) · `OPENDART_API_KEY_2`(키 2) 를 고치고 비밀 스크립트를 다시 실행한다(두 키가 같은 값이면 스크립트와 수집기가 거부한다).
+    4. 자체 예산 도달(두 키 다) — 로그 `daily budget exhausted — stopping this run`(`DART_ALERT_DAILY_BUDGET` · 기본 15,000 · 키마다 따로). 평소 키 1 약 14,760 · 키 2 약 9,400 ~ 10,500 이라 닿았다면 추가 쪽 읽기가 많았던 날이다 — `stats` 로 키별 오늘 호출 수를 본다.
     5. 그 밖 예외 — 로그 `collector failed` · `dart-alert failed`(안전 필드만). `100` · `101` 은 코드 버그(reason `dart_bug`).
     6. 메모리 부족(512Mi) · 시간 제한(14h) — 실행 상세의 종료 사유를 본다.
 
@@ -17,10 +19,10 @@ documentation:
     - 로그: `gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-dart-alert" AND (jsonPayload.level>=40 OR textPayload:"Error")' --project=gh-radar --freshness=1d --limit=30 --format='value(timestamp,jsonPayload.msg,jsonPayload.reason,jsonPayload.err,textPayload)'`
       (pino 숫자 level — 40 warn · 50 error · 60 fatal. 로그에 severity 필드가 없어 `severity>=` 로는 안 걸린다)
     - 실행 목록: `gcloud run jobs executions list --job=gh-radar-dart-alert --region=asia-northeast3 --project=gh-radar --limit=5`
-    - 운영 수치(오늘 호출 수 · 상태별 · 장애 상태): `bash scripts/dart-alert-report.sh stats 1`
+    - 운영 수치(키별 오늘 호출 수 · 한도 의심 표시 · 상태별 · 장애 상태): `bash scripts/dart-alert-report.sh stats 1`
 
     **주의**
-    - 한도 신호(`020`)에 Job 을 수동 실행으로 두드리지 말 것(CLAUDE.md 「공식 API 운영 기준」 ④). 다음 깨움의 탐침 1건이 판단한다.
+    - 한도 신호(`020`)에 Job 을 수동 실행으로 두드리지 말 것(CLAUDE.md 「공식 API 운영 기준」 ④). 다음 깨움의 그 키 탐침 1건이 판단한다.
     - Job 은 재시도 0 이다 — 다시 시작은 Scheduler `gh-radar-dart-alert-wake`(평일 5분마다)가 맡는다.
     - 단체방 「⚠ 공시 알림이 멈췄습니다」 글이 못 나간 경우(봇 토큰 · 방 문제)도 이 메일과 error 로그 메일(`gh-radar-dart-alert-error-log`)이 덮는다.
   mimeType: text/markdown

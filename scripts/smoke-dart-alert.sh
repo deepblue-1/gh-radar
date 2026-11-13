@@ -7,9 +7,12 @@ set -uo pipefail
 #
 #   bash scripts/smoke-dart-alert.sh [job] [region]
 #
-# INV-1 probe 실행 1회 — `DART_ALERT_MODE=probe` 를 이 실행에만 덮어써 공개매수 1쪽을 1회 조회하고 끝난다
-#       (Job 설정의 env 는 바꾸지 않는다 · 임대 없이 · 넣기 · 송신 0 — 43-05). 호출 1건은 api_usage 에 센다.
+# INV-1 probe 실행 1회 — `DART_ALERT_MODE=probe` 를 이 실행에만 덮어써 키 2 로 거래소 수시공시 1쪽 1회 · 키 2 카운터
+#       (Job 설정의 env 는 바꾸지 않는다 · 임대 없이 · 넣기 · 송신 0 — 43-05 · 261113-rn7). 호출 1건은 api_usage
+#       `opendart_list_k2` 에 센다.
 # INV-2 Job 설정 — task timeout 50400s(14h) · max retries 0
+# INV-2b Job 컨테이너 env 에 OPENDART_API_KEY_2 가 Secret gh-radar-opendart-key-2 로 붙어 있다(값은 읽지 않고 이름 · Secret
+#       참조만 · v1 · v2 모양 둘 다 — 261113-rn7 U-2 · 키 2 없이 배포되면 수집기가 설정 오류로 시작하지 않는다)
 # INV-3 Scheduler gh-radar-dart-alert-wake 존재 · timeZone Asia/Seoul · 일정이 deploy-dart-alert.sh WAKE_SCHEDULE 과 같음
 # INV-3b Scheduler 상태 ENABLED — PAUSED 는 실패다(깨움 0 = 실행 · 로그 · 단체방 글 · 메일 전부 0 · 리뷰 CR-50).
 #       첫 배포 날(--scheduler-paused 로 막 만든 날)만 DART_SMOKE_ALLOW_PAUSED=1 로 통과(배포 스크립트가 넘긴다).
@@ -121,6 +124,29 @@ job_config_ok() {
     '
 }
 check "INV-2 job taskTimeout 50400s · maxRetries 0" job_config_ok
+
+# ─────────────────────────────────────────────────────────────
+# INV-2b: 컨테이너 env OPENDART_API_KEY_2 → Secret gh-radar-opendart-key-2 (값 없음 — 이름 · 참조만)
+#   v1(knative): env[].valueFrom.secretKeyRef.name · v2: env[].valueSource.secretKeyRef.secret
+# ─────────────────────────────────────────────────────────────
+job_key2_bound() {
+  gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT" --format=json     | node -e '
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        const j = JSON.parse(s);
+        const v1 = j?.spec?.template?.spec?.template?.spec?.containers ?? [];
+        const v2 = j?.template?.template?.containers ?? [];
+        const envs = [...v1, ...v2].flatMap((c) => c?.env ?? []);
+        const ok = envs.some((e) => {
+          if (e?.name !== "OPENDART_API_KEY_2") return false;
+          const ref = e.valueFrom?.secretKeyRef?.name ?? e.valueSource?.secretKeyRef?.secret ?? "";
+          return String(ref).split("/").pop() === "gh-radar-opendart-key-2";
+        });
+        process.exit(ok ? 0 : 1);
+      });
+    '
+}
+check "INV-2b job env OPENDART_API_KEY_2 → Secret gh-radar-opendart-key-2" job_key2_bound
 
 # ─────────────────────────────────────────────────────────────
 # INV-3: Scheduler 1개 — 일정 · Asia/Seoul · 상태 · 대상 · OAuth SA (describe 1회 → 「|」 구분 5칸 · 빈 칸도 자리 유지)

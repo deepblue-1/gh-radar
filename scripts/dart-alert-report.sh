@@ -16,17 +16,21 @@ umask 077
 #   ⑶ 날짜별 B001 전체 건수 중 100 을 넘은 날 수(page_count 100 한 쪽으로 모자라는 날 · 리서치 확인 5)
 #   ⑷ 공개매수(D004) 건수(전체 · Y/K)
 #   ⑸ 목록 밖인데 「증자」 · 「합병」 이 든 종류명(근접 불일치 후보 — 허용 목록에 더할지 사람이 본다)
-#   ⑹ 이번 조사의 OpenDART 호출 수 — 끝에 incr_api_usage('opendart_list', 오늘, n) 으로 수집기 카운터에 더한다
+#   ⑹ 이번 조사의 OpenDART 호출 수 — incr_api_usage('opendart_list_k2', 오늘, n) 으로 키 2 카운터에 더한다
+#      (운영 도구는 키 2 · 키 2 카운터 — 261113-rn7 U-2 · 키 1 은 공개매수 종일 5초로 여유가 약 240 뿐이다)
 #   B001 은 total_page 까지 전 쪽(쪽 사이 1초) · D004 는 같은 기간 최대 10쪽. 30일이면 대개 20 ~ 40회.
-#   오늘 사용량이 예산에 가깝거나 오늘 한도 의심 표시(020)가 있으면 조사하지 않는다(운영 기준 ①·④).
-#   그 확인(dart_alert_ops_stats)을 못 하면 조사하지 않는다 — 재시도는 사람이(리뷰 WR-54).
-#   예산은 Job 설정의 DART_ALERT_DAILY_BUDGET(없으면 기본 15,000)을 읽는다 — Job 을 못 읽으면 멈추고,
+#   오늘 키 2 사용량이 예산에 가깝거나 오늘 키 2 한도 의심 표시(020)가 있으면 조사하지 않는다(운영 기준 ①·④).
+#   그 확인(api_usage 의 opendart_list_k2 · opendart_list_k2_quota_strike 를 PostgREST 로 직접 — `sb_usage_count` ·
+#   운영 수치 RPC 는 키 1 카운터만 돌려준다)을 못 하면 조사하지 않는다 — 재시도는 사람이(리뷰 WR-54).
+#   예산은 Job 설정의 DART_ALERT_DAILY_BUDGET(없으면 기본 15,000 · 키마다 같은 값)을 읽는다 — Job 을 못 읽으면 멈추고,
 #   Job 배포 전이면 DART_ALERT_DAILY_BUDGET=15000 처럼 env 로 넘긴다.
 #   호출 수는 쪽마다 바로 incr_api_usage 로 더한다(Ctrl-C · 터미널 종료에도 남은 몫은 종료 처리에서 더한다).
 #   020 을 받으면 그 자리에서 멈추고 재시도하지 않는다.
 #   조회 결과는 이 스크립트 실행 동안만 임시 디렉터리(권한 700)에 두고 끝나면 지운다 — DB · 저장소에 남기지 않는다.
-# stats — RPC dart_alert_ops_stats(p_days · 1 ~ 31): 오늘 호출 수 · 한도 의심 표시 · 상태별 · 감시 대상별 · 늦은 알림 ·
-#   처음 봄 → 보냄 지연 p50/p90 · 장애 상태 · 감시 대상별 마지막 성공 조회 · 임대 보유자(SC-4 · SC-7). 읽기 전용.
+# stats — RPC dart_alert_ops_stats(p_days · 1 ~ 31): 오늘 호출 수 · 한도 의심 표시(키 1 — RPC 몫 · 키 2 는 api_usage 를
+#   `sb_usage_count` 로 직접) · 상태별 · 감시 대상별 · 늦은 알림 · 처음 봄 → 보냄 지연 p50/p90 · 장애 상태 · 감시 대상별
+#   마지막 성공 조회 · 오늘 아침 전날 확인을 마친 감시 대상(`last_ok` 의 `prevday:<id>` = 오늘) · 임대 보유자(SC-4 · SC-7).
+#   읽기 전용.
 # check — 배포 뒤 읽기 전용 점검(스모크 INV-6 · INV-7 이 부른다 · 리뷰 WR-52). OpenDART 호출 0 · 단체방 글 0.
 #   ① db: dart_alert_ops_stats 응답(SUPABASE_URL · 서비스롤 키 · 기본 마이그레이션)
 #   ② migration: PostgREST 스키마(/rest/v1/ OpenAPI)의 dart_alert_outage 에 p_since 가 있는가(20261113400000 적용).
@@ -35,21 +39,26 @@ umask 077
 #   하나라도 FAIL 이면 종료 1. 결과 줄에는 비밀(토큰 · 방 id · 키)을 싣지 않는다.
 #
 # 비밀:
-#   - OpenDART 키: Secret gh-radar-opendart-key 최신 값을 변수에만(없으면 env 파일
-#     ${DART_ALERT_ENV_FILE:-~/.config/gh-radar/dart-alert.env} 의 OPENDART_API_KEY 줄).
+#   - OpenDART 키(survey): 키 2 — Secret gh-radar-opendart-key-2 최신 값을 변수에만(없으면 env 파일
+#     ${DART_ALERT_ENV_FILE:-~/.config/gh-radar/dart-alert.env} 의 OPENDART_API_KEY_2 줄).
 #   - 서비스롤 키: env SUPABASE_SERVICE_ROLE_KEY 가 있으면 그것, 없으면 Secret gh-radar-supabase-service-role 최신 값을 변수에만.
 #   - (check) 봇 토큰 · 방 id: Secret gh-radar-telegram-bot-token · gh-radar-telegram-chat-id 최신 값을 변수에만
 #     (없으면 env 파일의 TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID 줄).
 #   - 키는 출력하지 않고 명령줄에도 싣지 않는다 — 요청 주소 · 헤더는 printf 로 만든 curl 설정 줄을 파이프로 curl 의
 #     표준입력 설정(-K -)에 넘긴다(printf 는 셸 내장 — 프로세스 목록 노출 0). curl 오류 문구도 화면에 내지 않는다.
 #   - 셸 추적 모드를 켜지 않는다.
-# 이 스크립트가 DB 를 바꾸는 것은 survey 의 호출 수 더하기(incr_api_usage) 하나뿐이다.
+# 이 스크립트가 DB 를 바꾸는 것은 survey 의 호출 수 더하기(incr_api_usage · 키 2 카운터) 하나뿐이다.
 # ═══════════════════════════════════════════════════════════════
 
 ENV_FILE="${DART_ALERT_ENV_FILE:-$HOME/.config/gh-radar/dart-alert.env}"
 PROJECT="${GCP_PROJECT_ID:-gh-radar}"
 DART_API=https://opendart.fss.or.kr/api/list.json
-USAGE_SERVICE=opendart_list
+# 운영 도구는 키 2 · 키 2 카운터(261113-rn7 U-2 — workers/dart-alert/src/apiUsage.ts DART_KEY_SERVICES[2])
+USAGE_SERVICE=opendart_list_k2
+STRIKE_SERVICE=opendart_list_k2_quota_strike
+DART_KEY_SECRET=gh-radar-opendart-key-2
+# 아침 전날 확인 표시 키 앞머리(collector.ts PREV_DAY_MARK_PREFIX 와 같은 글자)
+PREV_DAY_MARK_PREFIX="prevday:"
 DART_KEY_RE='^[A-Za-z0-9]{40}$'
 # 수집기 예산 상한(config.ts DART_DAILY_BUDGET_LIMIT) — 실제 예산은 Job 설정에서 읽는다(resolve_budget)
 BUDGET_CAP=15000
@@ -161,6 +170,31 @@ sb_rpc() {
     | curl -fsS -X POST -K - --data "$body" 2>/dev/null
 }
 
+# api_usage 의 그날 count 하나(행 없으면 0) — PostgREST GET(주소 · 키 헤더는 표준입력 설정으로) · 응답을 못 읽으면 실패(1).
+#   운영 수치 RPC(dart_alert_ops_stats)가 키 1 카운터만 돌려줘 키 2 카운터 · 한도 의심 표시는 이것으로 읽는다(워커 checkBudget 과 같은 표).
+sb_usage_count() {
+  local service="$1" day="$2" resp
+  resp="$(printf 'url = "%s/rest/v1/api_usage?select=count&service=eq.%s&usage_date=eq.%s"\nheader = "apikey: %s"\nheader = "Authorization: Bearer %s"\nmax-time = 30\n' \
+      "${SUPABASE_URL%/}" "$service" "$day" "$SB_KEY" "$SB_KEY" \
+    | curl -fsS -K - 2>/dev/null)" || return 1
+  printf '%s' "$resp" | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      let j;
+      try { j = JSON.parse(s); } catch { process.exit(1); }
+      if (!Array.isArray(j)) process.exit(1);
+      if (j.length === 0) { console.log(0); return; }
+      const n = Number(j[0]?.count);
+      if (!Number.isInteger(n) || n < 0) process.exit(1);
+      console.log(n);
+    });'
+}
+
+# 오늘 KST 날짜 YYYY-MM-DD
+kst_today_iso() {
+  node -e 'console.log(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10))'
+}
+
 # 하루 예산 — env DART_ALERT_DAILY_BUDGET 가 있으면 그것, 없으면 Job 설정의 같은 env(없으면 기본 15,000).
 #   Job 을 읽지 못하면 실패(1) — 조사는 예산을 모른 채 진행하지 않는다(리뷰 WR-54). 값은 정수 1 ~ 15,000.
 resolve_budget() {
@@ -220,9 +254,17 @@ if [[ "$CMD" == stats ]]; then
     echo "ERROR: RPC dart_alert_ops_stats 호출 실패 (URL · 마이그레이션 적용 여부 확인)" >&2
     exit 1
   fi
+  STATS_TODAY="$(kst_today_iso)"
+  # 키 2 카운터 · 한도 의심 표시 — 못 읽으면 빈 값(「?」 로 보인다 · 나머지 수치는 그대로)
+  K2_CALLS="$(sb_usage_count "$USAGE_SERVICE" "$STATS_TODAY" || true)"
+  K2_STRIKES="$(sb_usage_count "$STRIKE_SERVICE" "$STATS_TODAY" || true)"
   printf '%s' "$RESP" | node -e '
     const days = process.argv[1];
     const budget = process.argv[2];
+    const k2Calls = process.argv[3];
+    const k2Strikes = process.argv[4];
+    const today = process.argv[5];
+    const markPrefix = process.argv[6];
     let s = "";
     process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const j = JSON.parse(s) ?? {};
@@ -233,28 +275,36 @@ if [[ "$CMD" == stats ]]; then
         return t.toISOString().replace("T", " ").slice(0, 19) + " KST";
       };
       const st = j.by_status ?? {};
+      // collector.ts WATCH_LABEL 과 같은 글자(261113-rn7 — 감시 대상 6개)
       const watchLabel = {
         tender_offer: "공개매수",
         rights_merger: "주요사항보고서",
+        market_action: "거래소 시장조치",
         exchange_disclosure: "거래소 수시공시",
+        largest_holder_change: "최대주주 소유주식 변동",
         insider_trade_plan: "임원ㆍ주요주주 거래계획",
       };
+      const b = budget ? n(budget) : "?(Job 설정 못 읽음)";
+      const k2 = (v) => (v === "" || v === undefined ? "?(읽기 실패)" : n(v));
+      const lastOk = Object.entries(j.last_ok ?? {});
+      const prevDone = lastOk.filter(([k, v]) => k.startsWith(markPrefix) && v === today).map(([k]) => k.slice(markPrefix.length));
       const rows = [
-        ["오늘 OpenDART 호출", `${n(j.calls_today)} / 예산 ${budget ? n(budget) : "?(Job 설정 못 읽음)"} (공식 20,000)`],
-        ["오늘 한도 의심 표시", n(j.strikes_today)],
+        ["오늘 OpenDART 호출", `키 1 ${n(j.calls_today)} / 예산 ${b} · 키 2 ${k2(k2Calls)} / 예산 ${b} (키마다 공식 20,000)`],
+        ["오늘 한도 의심 표시", `키 1 ${n(j.strikes_today)} · 키 2 ${k2(k2Strikes)}`],
         [`상태별(최근 ${days}일)`, `보냄 ${n(st.sent)} · 대기 ${n(st.pending)} · 보내는 중 ${n(st.sending)} · 채움(seed) ${n(st.seeded)} · 닫힘(지난 날) ${n(st.expired)}`],
         ["감시 대상별", Object.entries(j.by_watch ?? {}).map(([k, v]) => `${watchLabel[k] ?? k} ${n(v)}`).join(" · ") || "-"],
         ["늦은 알림", n(j.late_count)],
         ["지연(처음 봄 → 보냄)", `p50 ${j.latency_p50_s ?? "-"}초 · p90 ${j.latency_p90_s ?? "-"}초`],
         ["장애", j.outage?.since ? `${kst(j.outage.since)} 부터 · 사유 ${j.outage.reason ?? "-"} · 단체방 글 ${j.outage.notice ?? "-"}` : "없음"],
-        ["마지막 성공 조회", Object.entries(j.last_ok ?? {}).map(([k, v]) => `${watchLabel[k] ?? k} ${kst(v)}`).join(" · ") || "-"],
+        ["마지막 성공 조회", lastOk.filter(([k]) => !k.startsWith(markPrefix)).map(([k, v]) => `${watchLabel[k] ?? k} ${kst(v)}`).join(" · ") || "-"],
+        ["전날 확인(오늘)", prevDone.map((k) => watchLabel[k] ?? k).join(" · ") || "-"],
         ["임대 보유자", j.lease_holder ?? "-"],
       ];
       console.log(`# 공시 알림 운영 수치 — 최근 ${days}일 (호출 수 · 표시는 오늘 KST)`);
       const w = Math.max(...rows.map(([k]) => k.length));
       for (const [k, v] of rows) console.log(`${k.padEnd(w + 2, " ")}${v}`);
     });
-  ' "$DAYS" "$BUDGET_LIMIT"
+  ' "$DAYS" "$BUDGET_LIMIT" "$K2_CALLS" "$K2_STRIKES" "$STATS_TODAY" "$PREV_DAY_MARK_PREFIX"
   exit 0
 fi
 
@@ -376,46 +426,38 @@ read -r TODAY_YMD BGN_YMD TODAY_ISO <<< "$(node -e '
   console.log(today.replace(/-/g, ""), bgn.replace(/-/g, ""), today);
 ' "$DAYS")"
 
-# ── 1. 오늘 사용량 · 한도 의심 표시 확인(운영 기준 ①·④) ──────────
+# ── 1. 오늘 키 2 사용량 · 키 2 한도 의심 표시 확인(운영 기준 ①·④ · 운영 도구는 키 2) ──────────
 #   확인을 못 하면(호출 실패 · 응답을 못 읽음) 조사하지 않는다 — 예산 · 한도 의심을 모른 채 최대 70회를 부르지 않게(리뷰 WR-54).
 if ! BUDGET_LIMIT="$(resolve_budget)"; then
   echo "ERROR: 하루 예산을 정하지 못했다 — Job ${DART_JOB} 설정을 읽지 못했거나 값이 1 ~ ${BUDGET_CAP} 밖이다." >&2
   echo "       Job 배포 전이면 DART_ALERT_DAILY_BUDGET=15000 처럼 env 로 넘긴다(재시도는 사람이)" >&2
   exit 1
 fi
-if ! STATS="$(sb_rpc dart_alert_ops_stats '{"p_days":1}')"; then
-  echo "ERROR: 오늘 사용량을 확인하지 못해(dart_alert_ops_stats 호출 실패) 조사하지 않는다 — 재시도는 사람이" >&2
+if ! CALLS_TODAY="$(sb_usage_count "$USAGE_SERVICE" "$TODAY_ISO")"; then
+  echo "ERROR: 오늘 키 2 사용량(api_usage ${USAGE_SERVICE})을 확인하지 못해 조사하지 않는다 — 재시도는 사람이" >&2
   exit 1
 fi
-if ! STATS_PAIR="$(printf '%s' "$STATS" | node -e '
-    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
-      let j;
-      try { j = JSON.parse(s); } catch { process.exit(1); }
-      const c = Number(j?.calls_today), k = Number(j?.strikes_today);
-      if (!Number.isInteger(c) || !Number.isInteger(k)) process.exit(1);
-      console.log(c, k);
-    });')"; then
-  echo "ERROR: dart_alert_ops_stats 응답을 읽지 못해 조사하지 않는다(calls_today · strikes_today 정수 아님) — 재시도는 사람이" >&2
+if ! STRIKES_TODAY="$(sb_usage_count "$STRIKE_SERVICE" "$TODAY_ISO")"; then
+  echo "ERROR: 오늘 키 2 한도 의심 표시(api_usage ${STRIKE_SERVICE})를 확인하지 못해 조사하지 않는다 — 재시도는 사람이" >&2
   exit 1
 fi
-read -r CALLS_TODAY STRIKES_TODAY <<< "$STATS_PAIR"
 if (( STRIKES_TODAY > 0 )); then
-  echo "ERROR: 오늘 한도 의심 표시(020)가 ${STRIKES_TODAY}건 있다 — 조사로 두드리지 않는다. 내일 다시 실행" >&2
+  echo "ERROR: 오늘 키 2 한도 의심 표시(020)가 ${STRIKES_TODAY}건 있다 — 조사로 두드리지 않는다. 내일 다시 실행" >&2
   exit 1
 fi
 if (( CALLS_TODAY + SURVEY_HEADROOM > BUDGET_LIMIT )); then
-  echo "ERROR: 오늘 호출 ${CALLS_TODAY} — 조사 여유 ${SURVEY_HEADROOM} 을 더하면 예산 ${BUDGET_LIMIT} 을 넘는다. 내일 다시 실행" >&2
+  echo "ERROR: 오늘 키 2 호출 ${CALLS_TODAY} — 조사 여유 ${SURVEY_HEADROOM} 을 더하면 예산 ${BUDGET_LIMIT} 을 넘는다. 내일 다시 실행" >&2
   exit 1
 fi
-echo "오늘 OpenDART 호출 ${CALLS_TODAY} / 예산 ${BUDGET_LIMIT} · 한도 의심 표시 0 — 조사 시작"
+echo "오늘 OpenDART 키 2 호출 ${CALLS_TODAY} / 예산 ${BUDGET_LIMIT} · 키 2 한도 의심 표시 0 — 조사 시작"
 
-# ── 2. OpenDART 키(변수에만) ─────────────────────────────────────
-DART_KEY="$(gcloud secrets versions access latest --secret=gh-radar-opendart-key --project="$PROJECT" 2>/dev/null || true)"
+# ── 2. OpenDART 키 2(변수에만) ───────────────────────────────────
+DART_KEY="$(gcloud secrets versions access latest --secret="$DART_KEY_SECRET" --project="$PROJECT" 2>/dev/null || true)"
 if [[ -z "$DART_KEY" ]]; then
-  DART_KEY="$(env_file_get OPENDART_API_KEY)"
+  DART_KEY="$(env_file_get OPENDART_API_KEY_2)"
 fi
 if [[ -z "$DART_KEY" ]]; then
-  echo "ERROR: OpenDART 키를 얻지 못했다 — Secret gh-radar-opendart-key(! bash scripts/setup-dart-alert-secrets.sh) 또는 env 파일 OPENDART_API_KEY 줄" >&2
+  echo "ERROR: OpenDART 키 2 를 얻지 못했다 — Secret ${DART_KEY_SECRET}(! bash scripts/setup-dart-alert-secrets.sh) 또는 env 파일 OPENDART_API_KEY_2 줄" >&2
   exit 1
 fi
 if [[ ! "$DART_KEY" =~ $DART_KEY_RE ]]; then

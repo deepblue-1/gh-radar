@@ -7,6 +7,7 @@ documentation:
 
     **잡는 로그 문구와 복구 방법**
     - `dart outage opened` — 창 안에서 OpenDART 조회가 5분 넘게 성공하지 못했다(D-17). 단체방에 「멈췄습니다」 가 나갔다. 복구되면 수집기가 「다시 동작」 을 한 번 올린다(`dart outage closed` · info). 원인은 같은 시각의 warn 로그(`jsonPayload.err`)로 본다.
+    - `dart key paused — other key keeps running` — OpenDART 키 하나가 한도(`020`) · 키 오류 · 자체 예산 소진으로 멈췄다(`key` 1 = 공개매수 · 주요사항보고서 / 2 = 그 밖 넷 · `reason`). 다른 키의 감시 대상은 계속 돈다. 멈춘 키는 5분마다 단독 탐침 1건으로 재확인하고(예산 소진은 그날 재확인 없음) 회복하면 info `dart key probe ok — resuming` 뒤 다시 돈다. 단체방에는 「멈췄습니다(막힌 키의 공시 종류 — 사유)」 가 한 번 나가고, 두 키 모두 회복한 바퀴에 「다시 동작」 이 한 번 나간다. 이미 장애 글이 열린 동안 다른 키까지 막히면 단체방 글은 더 없고 이 메일만 온다.
     - `telegram chat migrated` — 일반 그룹이 슈퍼그룹으로 바뀌어 방 id 가 바뀌었다. 수집기는 새 id 로 다시 보냈고 그 실행 동안은 새 id 를 쓴다. env 파일(`~/.config/gh-radar/dart-alert.env`)의 `TELEGRAM_CHAT_ID` 를 새 방 id 로 바꾸고 `! bash scripts/setup-dart-alert-secrets.sh` 를 다시 실행한다(새 id 는 `! bash scripts/telegram-find-chat.sh` 로 확인).
     - `telegram token invalid` — 봇 토큰이 무효(401). BotFather 에서 새 토큰을 받아 env 파일 `TELEGRAM_BOT_TOKEN` 에 넣고 비밀 스크립트를 다시 실행한다. 고칠 때까지 알림은 보내지 못하고 쌓인다(그날 안이면 고친 뒤 이어서 나간다).
     - `telegram chat unavailable` — 봇이 단체방에서 내보내졌거나 글쓰기 권한이 없거나 방을 찾을 수 없다(403 · 400 chat not found). 봇을 다시 초대하고 글쓰기 권한을 준다.
