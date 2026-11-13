@@ -67,6 +67,8 @@ set -euo pipefail
 #   종류 · 감시 대상을 넓힌 배포(261113-rn7 — I003 · I004 · I001 배당 · 투자유의)는 평일 20:00 뒤에 하고 배포 직후 seed 실행을
 #   한 번 돌린다(`--update-env-vars=DART_ALERT_MODE=seed` · 창 밖이면 seed 바퀴 뒤 곧바로 끝 · 「seed done」 확인) — 빼먹으면
 #   다음 아침 전날 확인이 전날 새 종류 건을 「(늦은 알림)」 으로 한꺼번에 보낸다.
+#   seed 는 실행 뒤 로그 「seed done」 을 꼭 확인한다 — 다른 실행이 임대를 쥐고 있으면(창 끝 drain · 죽은 실행 TTL 90초 안)
+#   아무것도 채우지 않고 error 「seed skipped — lease held by another run …」 · 실패(종료 1)로 끝나니 잠시 뒤 다시 돌린다.
 #
 # 첫 배포 날(창 안에서 처음 배포할 때 — 그날 이미 올라온 건이 한꺼번에 나가지 않게):
 #   1. GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh --scheduler-paused

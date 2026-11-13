@@ -33,7 +33,8 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *      test-send = OpenDART · 임대 없이 시험 글 1건(`test-send ok`) · probe = 임대 없이 키 2 로 거래소 수시공시 1쪽 1회(`probe ok`) ·
  *      seed = ② ~ ⑤ 뒤 seed 바퀴(그날 건 + 직전 평일 건을 `seeded` 로 · 송신 0 · `seed done`) → 같은 실행이 ⑥ 으로 이어 간다
  *      (창 밖 seed 는 seed 바퀴 1번 뒤 곧바로 `window_end`).
- *   ② 임대 — `dart_alert_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돈다 → OpenDART 0 · 텔레그램 0 · 종료 0.
+ *   ② 임대 — `dart_alert_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돈다 → OpenDART 0 · 텔레그램 0 · 종료 0
+ *      (seed 만 error `seed skipped — lease held by another run …` · 종료 1 `seed_lease_held` — 리뷰 WR-04).
  *      새로 잡으며 DB 가 오늘 `sending` 을 `pending` 으로 되돌렸으면(reclaimed > 0) warn `possible duplicate after takeover`
  *      — 그 건들은 첫 바퀴 차례에서 이어 보낸다(SC-5 · 드문 중복은 받아들임).
  *   ③ 예산 — 쓰는 키마다 `api_usage`(키 1 `opendart_list` · 키 2 `opendart_list_k2` · KST 날짜)가 하루 예산 이상이면 그 키
@@ -455,6 +456,12 @@ class Collector {
     if (mode !== "probe") {
       const lease = await db.leaseAcquire(holder, LEASE_TTL_S);
       if (!lease.held) {
+        // seed 는 사람이 배포 직후 한 번 돌리는 실행 — 아무것도 채우지 못했는데 종료 0 이면 「성공」 으로 보여 빠뜨린 채 다음
+        // 아침 전날 확인이 쏟아진다. error + 종료 1 로 실행 실패를 드러낸다(리뷰 WR-04 · auto 는 그대로 종료 0)
+        if (mode === "seed") {
+          log.error({ mode }, "seed skipped — lease held by another run, nothing inserted (run seed again)");
+          return { code: 1, reason: "seed_lease_held" };
+        }
         log.info({ mode }, "lease held by another run — exiting");
         return { code: 0, reason: "lease_held" };
       }

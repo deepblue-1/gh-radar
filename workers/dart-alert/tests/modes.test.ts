@@ -280,10 +280,16 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     expect(tue.db.calls.insert.reduce((n, c) => n + c.inserted, 0)).toBe(0);
   });
 
-  it("다른 실행이 임대를 쥐고 있으면 seed 도 종료 0 lease_held · 호출 0", async () => {
+  it("다른 실행이 임대를 쥐고 있으면 seed 는 error · 종료 1 seed_lease_held · 호출 0 · 넣기 0(리뷰 WR-04 — 조용한 종료 0 이 성공으로 보임)", async () => {
     const h = harness({ start: at("14:00:00"), mode: "seed", db: { lease: { holder: "other:1", until: at("14:01:00") } } });
-    expect(await h.run()).toEqual({ code: 0, reason: "lease_held" });
+    expect(await h.run()).toEqual({ code: 1, reason: "seed_lease_held" });
     expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.logs.count("seed skipped — lease held by another run, nothing inserted (run seed again)", "error")).toBe(1);
+    expect(h.logs.count("seed done")).toBe(0);
+    // 남의 임대를 풀지 않는다 · 장애 글 없음
+    expect(h.db.calls.leaseRelease).toHaveLength(0);
+    expect(h.telegram.sent).toHaveLength(0);
   });
 });
 
