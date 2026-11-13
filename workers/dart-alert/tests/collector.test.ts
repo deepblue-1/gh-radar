@@ -435,3 +435,53 @@ describe("넣기 실패 — 소리 없이 멈추지 않는다 (리뷰 WR-01)", (
     expect(h.logs.count("dart outage opened", "error")).toBe(1);
   });
 });
+
+describe("멈추는 길에서 이미 넣은 건을 버리지 않는다 (리뷰 WR-05)", () => {
+  const pendingToday = (n: number) => dbRow(itemOf(rightsRow(n), "rights_merger"), { first_seen_at: at("09:59:00"), next_attempt_at: at("09:59:30") });
+
+  it("예산이 이미 찬 실행(budget_at_start)도 임대를 쥐면 OpenDART 0 으로 남은 건을 보낸다 · 남은 건 0 이면 error 없음", async () => {
+    const h = harness({ start: at("10:00:00"), db: { used: 15_000, rows: [pendingToday(1)] } });
+    expect(await h.run()).toEqual({ code: 0, reason: "budget_at_start" });
+    expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.dart.probeCalls).toHaveLength(0);
+    expect(h.telegram.alerts()).toHaveLength(1);
+    expect(h.db.statusOf(rightsRow(1).rcept_no)).toBe("sent");
+    expect(h.db.calls.countUnsent).toEqual([{ at: expect.any(Number), day: MON, unsent: 0 }]);
+    expect(h.logs.count("alerts left unsent at stop")).toBe(0);
+  });
+
+  it("한도 의심 탐침 실패(probe_failed)로 멈춰도 남은 건을 먼저 보낸다", async () => {
+    const h = harness({ start: at("10:00:00"), db: { strikes: 1, rows: [pendingToday(1)] }, dart: { probe: () => ({ status: "020" }) } });
+    expect(await h.run()).toEqual({ code: 1, reason: "probe_failed" });
+    expect(h.dart.listCalls).toHaveLength(0);
+    expect(h.telegram.alerts()).toHaveLength(1);
+  });
+
+  it("실행 중 예산 소진 · 텔레그램 실패로 못 나간 건이 남으면 error alerts left unsent at stop(수 · 이유)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      db: { used: 14_990, lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") } },
+      dart: { feed: [rights(1, "10:00:00")] },
+      telegram: { reply: (c) => (c.text.startsWith("📢") ? { kind: "transient", code: 502, description: "Bad Gateway" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "budget_exhausted" });
+    expect(h.logs.count("alerts left unsent at stop", "error")).toBe(1);
+    expect(h.logs.find("alerts left unsent at stop")?.obj).toMatchObject({ unsent: 1, reason: "budget_exhausted" });
+    expect(h.dart.listCalls).toHaveLength(10);
+  });
+
+  it("새 임대가 지난 날 못 나간 건을 expired 로 닫으면 error unsent alerts expired on takeover", async () => {
+    const yesterday = dbRow(itemOf(rightsRow(1, "2026-11-13"), "rights_merger"), { status: "pending" });
+    const h = harness({ start: at("10:00:00"), abortAt: at("10:00:20"), db: { rows: [yesterday] } });
+    await h.run();
+    expect(h.db.statusOf(yesterday.rcept_no)).toBe("expired");
+    expect(h.logs.count("unsent alerts expired on takeover", "error")).toBe(1);
+    expect(h.logs.find("unsent alerts expired on takeover")?.obj).toMatchObject({ expired: 1 });
+  });
+
+  it("SIGTERM 으로 멈출 때는 남은 건을 보내거나 세지 않는다(다음 실행이 이어 보냄)", async () => {
+    const h = harness({ start: at("10:00:00"), abortAt: at("10:00:20") });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.db.calls.countUnsent).toHaveLength(0);
+  });
+});

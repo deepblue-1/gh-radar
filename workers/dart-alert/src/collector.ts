@@ -43,7 +43,8 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *      다음 바퀴 = 이번 바퀴 시작 + 간격(장전 5초 · 그 밖 10초 — cadence.ts). 이미 지났으면 곧바로 —
  *      밀린 바퀴를 몰아서 부르지 않는다. KST 20:00(창 끝)이면 종료 0 `window_end`.
  *      기다리는 동안 · 바퀴 시작 · 송신 직전: 30초마다 임대 연장(+ `last_ok` 저장) · 10초마다 사용량 flush.
- *   ⑦ 끝 — 정상 · 오류 · SIGTERM 모두 사용량 flush · 임대를 가졌으면 해제.
+ *   ⑦ 끝 — 정상 · 오류 · SIGTERM 모두 사용량 flush · 임대를 가졌으면 해제. 그 전에 임대를 쥔 auto 실행은(SIGTERM · 임대 잃음 밖)
+ *      이미 넣은 건을 OpenDART 호출 없이 한 번 더 보내 보고, 오늘 못 나간 건이 남으면 error `alerts left unsent at stop`(리뷰 WR-05).
  *
  * 결정 · 규칙:
  *   D-10 · SC-4 평일 하루 5,400바퀴 × 감시 대상 2 = 10,800회(공식 20,000 의 54% · 예산 15,000 이하).
@@ -91,6 +92,10 @@ export const USAGE_FLUSH_MS = 10_000;
 export const UNKNOWN_STREAK = 5;
 /** 한 바퀴 송신 차례 상한(43-02 송신 기한 90초의 근거 — 5건 × (10초 + 1초)) */
 export const DELIVER_LIMIT = 5;
+/** 멈추기 직전 송신 차례 최대 횟수(× DELIVER_LIMIT 건 — 리뷰 WR-05) */
+const DRAIN_ROUNDS = 4;
+/** 멈추기 직전 송신을 하지 않는 종료 — SIGTERM(남은 시간 없음) · 임대 잃음 · 확인 못 함(남의 차례) */
+const DRAIN_SKIP: ReadonlySet<string> = new Set(["aborted", "lease_lost", "lease_unconfirmed"]);
 /** 임대 연장 오류가 이만큼 이어지면(남이 넘겨받을 수 있는 시점 전) 끝낸다 */
 const LEASE_UNCONFIRMED_MS = LEASE_TTL_S * 1000 - LEASE_RENEW_MS;
 const LEASE_RETRY_MS = 5_000;
@@ -278,6 +283,7 @@ class Collector {
         exit = { code: 1, reason: "error" };
       }
     }
+    await this.drainBeforeStop(exit);
     await this.shutdown();
     this.d.log.info(
       { mode, ...exit, ...this.stats, usedToday: this.usedKnown + this.sinceFlush, durationMs: this.now() - t0 },
@@ -311,7 +317,8 @@ class Collector {
       this.lastLeaseOkAt = t0;
       this.nextLeaseAt = t0 + LEASE_RENEW_MS;
       if (lease.fresh && lease.reclaimed > 0) log.warn({ reclaimed: lease.reclaimed }, "possible duplicate after takeover");
-      if (lease.expired > 0) log.info({ expired: lease.expired }, "past-day alerts expired on takeover");
+      // 지난 날 못 나간 알림을 닫았다 — 이미 찾아낸 공시가 단체방에 끝내 안 갔다는 뜻이라 error(→ 이메일 · 리뷰 WR-05)
+      if (lease.expired > 0) log.error({ expired: lease.expired }, "unsent alerts expired on takeover");
     }
 
     // ③ 예산
@@ -533,15 +540,49 @@ class Collector {
     this.stats.inserted += r.inserted.length;
   }
 
-  private async deliver(): Promise<void> {
+  /** 송신 차례 한 번 — 잡은 수(실패면 0) */
+  private async deliver(): Promise<number> {
     try {
       const d = await deliverPending(this.lapDeps, DELIVER_LIMIT, this.pacer);
       this.stats.sent += d.sent;
       this.stats.failed += d.failed;
+      return d.claimed;
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
       // 차례 · 기록 DB 오류는 deliverPending 이 `alert claim failed` · `alert mark failed` 로 남기고 삼킨다 — 여기 오는 건 그 밖 예외
       this.d.log.warn({ err: safeErrorFields(err) }, "deliver failed — retrying next lap");
+      return 0;
+    }
+  }
+
+  /**
+   * 멈추기 직전(리뷰 WR-05) — 임대를 쥔 auto 실행은 어떤 이유로 멈추든(예산 · 한도 탐침 실패 · 치명 · 창 끝 · 오류)
+   * 이미 넣은 건을 OpenDART 호출 없이 한 번 더 보내 본다(차례가 가득 차면 최대 `DRAIN_ROUNDS` 번). 그 뒤 오늘 못 나간 건
+   * (pending · sending)이 남았으면 error `alerts left unsent at stop` — 다음 실행이 곧 이어 보내지 못하면(예산 · 창 끝)
+   * 다음 날 expired 로 닫히는 건이라 이메일로 알린다. SIGTERM · 임대 잃음은 하지 않는다(남은 시간이 없거나 남의 차례).
+   */
+  private async drainBeforeStop(exit: CollectorExit): Promise<void> {
+    // seed 는 「송신 0」 이 약속이다(첫 배포 날 · 실패면 사람이 다시 seed) — auto 만
+    if (!this.haveLease || this.d.cfg.mode !== "auto") return;
+    if (DRAIN_SKIP.has(exit.reason)) return;
+    try {
+      for (let round = 0; round < DRAIN_ROUNDS; round++) {
+        await this.maintain(this.now(), false);
+        if ((await this.deliver()) < DELIVER_LIMIT) break;
+      }
+    } catch (err) {
+      if (err instanceof LeaseLostError || (err instanceof StopRun && err.code === 0)) {
+        this.haveLease = !(err instanceof LeaseLostError || err.reason === "lease_lost");
+        this.d.log.warn({ err: safeErrorFields(err), reason: exit.reason }, "drain before stop interrupted — lease not confirmed");
+        return;
+      }
+      this.d.log.warn({ err: safeErrorFields(err), reason: exit.reason }, "drain before stop failed");
+    }
+    try {
+      const unsent = await this.d.db.countUnsent(this.dateKst());
+      if (unsent > 0) this.d.log.error({ unsent, reason: exit.reason }, "alerts left unsent at stop");
+    } catch (err) {
+      this.d.log.error({ err: safeErrorFields(err), reason: exit.reason }, "unsent count at stop failed");
     }
   }
 

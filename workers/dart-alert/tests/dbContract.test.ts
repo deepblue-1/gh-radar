@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   CLAIMED_ROW_KEYS,
   createDartAlertDb,
+  DbError,
   INSERTED_ROW_KEYS,
   LEASE_RESULT_KEYS,
   LeaseLostError,
   OUTAGE_RESULT_KEYS,
+  UNSENT_STATUSES,
 } from "../src/db";
 import type { ClaimedRow, InsertedRow, InsertItem } from "../src/lap";
 
@@ -426,6 +428,50 @@ describe("dbContract — src/db.ts ↔ 마이그레이션 _dart_alert.sql", () =
       expect(err.message).toContain("22023");
       for (const secret of [HOLDER, RCEPT, ITEM.corp_name]) expect(err.message).not.toContain(secret);
     }
+  });
+
+  it("countUnsent(리뷰 WR-05) — dart_alerts 를 행 값 없이 수만 센다(head · exact) · 고른 칸 · 상태값은 표 정의에 있다", async () => {
+    const seen = { table: "", columns: "", opts: undefined as unknown, eq: [] as [string, unknown][], inList: [] as [string, unknown[]][] };
+    const makeClient = (reply: { count: number | null; error: unknown }) => {
+      const q = {
+        select(columns: string, opts?: unknown) {
+          seen.columns = columns;
+          seen.opts = opts;
+          return q;
+        },
+        eq(col: string, val: unknown) {
+          seen.eq.push([col, val]);
+          return q;
+        },
+        in(col: string, vals: unknown[]) {
+          seen.inList.push([col, vals]);
+          return q;
+        },
+        then(resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) {
+          return Promise.resolve({ data: null, ...reply }).then(resolve, reject);
+        },
+      };
+      return { from: (t: string) => ((seen.table = t), q) } as unknown as SupabaseClient;
+    };
+
+    expect(await createDartAlertDb(makeClient({ count: 3, error: null }), HOLDER).countUnsent("2026-11-16")).toBe(3);
+    expect(seen.table).toBe("dart_alerts");
+    expect(seen.opts).toEqual({ count: "exact", head: true });
+    expect(seen.eq).toEqual([["rcept_dt", "2026-11-16"]]);
+    expect(seen.inList).toEqual([["status", ["pending", "sending"]]]);
+    const alertCols = parseTableColumns(sql, "dart_alerts");
+    for (const c of [seen.columns, "rcept_dt", "status"]) expect(alertCols).toContain(c);
+    const statusCheck = /status\s+text[^,]*CHECK\s*\(status IN \(([^)]*)\)\)/i.exec(stripLineComments(sql))?.[1] ?? "";
+    for (const st of UNSENT_STATUSES) expect(statusCheck).toContain(`'${st}'`);
+
+    const err = await createDartAlertDb(makeClient({ count: null, error: { code: "57014", message: "canceling statement" } }), HOLDER)
+      .countUnsent("2026-11-16")
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(err).toBeInstanceOf(DbError);
+    expect((err as DbError).code).toBe("57014");
   });
 
   it("반환 — release · mark 의 data 가 boolean 이 아니면 Error · insert · claim 은 대본 배열 그대로", async () => {

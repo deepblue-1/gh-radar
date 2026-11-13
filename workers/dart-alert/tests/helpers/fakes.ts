@@ -448,6 +448,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     usageAdd: [] as { at: number; n: number }[],
     usageFlush: [] as number[],
     strikesRecord: [] as number[],
+    countUnsent: [] as { at: number; day: string; unsent: number }[],
   };
   /** 넣기 · 차례 · 기록 · 장애에서 던진 LeaseLostError */
   const leaseLost: { fn: string; at: number }[] = [];
@@ -607,6 +608,12 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
       const out = { closed: true, notify: s.notice === "sent", since: s.since };
       state.outage = { since: null, reason: null, notice: null };
       return out;
+    },
+
+    async countUnsent(day) {
+      const unsent = [...rows.values()].filter((r) => r.rcept_dt === day && (r.status === "pending" || r.status === "sending")).length;
+      calls.countUnsent.push({ at: clock.now(), day, unsent });
+      return unsent;
     },
 
     usage: {

@@ -64,6 +64,8 @@ export type DartAlertDb = LapDeps["db"] & {
   readState(): Promise<DartAlertState>;
   /** 반환 jsonb 그대로 — open `{opened, since?}` · notice `{noticed}` · close `{closed, notify?, since?}` */
   outage(action: OutageAction, reason?: string): Promise<Record<string, unknown>>;
+  /** 그날(KST `YYYY-MM-DD`) 아직 못 나간 알림 수(pending · sending) — 멈추기 직전 error 판정(리뷰 WR-05) */
+  countUnsent(dateKst: string): Promise<number>;
 };
 
 // ── 워커가 읽는 반환 키(계약 테스트가 마이그레이션 함수 본문과 대조) ──────────
@@ -165,6 +167,9 @@ function toLastOk(v: unknown): Record<string, string> {
 }
 
 const STATE_TABLE = "dart_alert_state";
+const ALERTS_TABLE = "dart_alerts";
+/** 아직 못 나간 상태 — sent · seeded · expired 는 끝난 행 */
+export const UNSENT_STATUSES = ["pending", "sending"] as const;
 const STATE_COLUMNS = "last_ok, outage_since, outage_notice";
 
 /**
@@ -205,6 +210,18 @@ export function createDartAlertDb(supabase: SupabaseClient, holder: string): Dar
         p_error: r.error,
         p_retry_in_s: r.retryInS,
       }),
+
+    async countUnsent(dateKst) {
+      // 행 값은 읽지 않는다 — 수만(head + count)
+      const { count, error } = await supabase
+        .from(ALERTS_TABLE)
+        .select("rcept_no", { count: "exact", head: true })
+        .eq("rcept_dt", dateKst)
+        .in("status", [...UNSENT_STATUSES]);
+      if (error) throw dbError(`${ALERTS_TABLE} 미송신 수`, error);
+      if (typeof count !== "number") throw new DbError(`${ALERTS_TABLE} 미송신 수 실패: count 없음`, null);
+      return count;
+    },
 
     outage(action, reason) {
       const args: Record<string, unknown> = { p_holder: holder, p_action: action };
