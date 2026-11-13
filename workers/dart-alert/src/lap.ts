@@ -35,6 +35,8 @@ import { judgeRow, type JudgeOptions, type Watch, type WatchId } from "./watches
  *     리뷰 IN-03). 앞 실패(시도 2번째 이상) · 앞 실행이 넣고 못 보낸 건(재시작 · 인계)은 그대로 늦음. 「(늦은 알림)」 은 한 번만.
  *   · 송신 순서는 DB 차례 순서(공개매수 먼저 → 처음 본 순) 그대로.
  * - 상수는 순환 import 를 피하려고 여기에 두고 collector.ts 가 다시 내보낸다.
+ * - 261113-iez: `collectOnce` 의 `isDue` 가 false 인 감시 대상(30초 · 60초 칸이 아직 안 바뀐 I001 · D005)은 조회 · 결과 ·
+ *   호출 수 · 늦음 판정 모두 없이 건너뛴다. 없으면 전부 조회.
  */
 
 /** 같은 방 송신 사이 최소 간격 */
@@ -200,7 +202,7 @@ export async function collectOnce(
   deps: LapDeps,
   state: LapState,
   day: string,
-  opts: { isLate(w: WatchId): boolean; seed: boolean },
+  opts: { isLate(w: WatchId): boolean; seed: boolean; isDue?(w: Watch): boolean },
 ): Promise<CollectResult> {
   const results: WatchResult[] = [];
   const items: InsertItem[] = [];
@@ -208,6 +210,8 @@ export async function collectOnce(
   let calls = 0;
 
   for (const watch of deps.watches) {
+    // 이 바퀴에 부를 차례가 아닌 감시 대상(조회 칸이 그대로)은 결과 항목도 남기지 않는다 — 장애 · 기준점 판정에 안 섞인다
+    if (opts.isDue && !opts.isDue(watch)) continue;
     // 늦은 알림 판정은 조회 **전에** — 조회가 오래 걸려도 그 바퀴 기준점은 바뀌지 않는다
     const late = opts.isLate(watch.id);
     const startedAt = deps.clock.now();

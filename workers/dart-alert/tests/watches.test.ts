@@ -2,13 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DartRow } from "../src/dart/client";
+import { EXCHANGE_POLL_MS, TRADE_PLAN_POLL_MS } from "../src/cadence";
 import { collectOnce, newLapState, type InsertItem, type LapDeps } from "../src/lap";
 import {
   b001Kind,
   buildWatches,
   DEFAULT_B001_KINDS,
+  B001_ORIGINAL_ONLY_KINDS,
   isCorrection,
   judgeRow,
+  plainKind,
   stripReportTags,
   type JudgeOptions,
   type Watch,
@@ -29,7 +32,7 @@ const B001_FIXTURE = JSON.parse(readFileSync(join(__dirname, "fixtures/dart/list
 const INCLUDE: JudgeOptions = { b001Corrections: "include" };
 const EXCLUDE: JudgeOptions = { b001Corrections: "exclude" };
 
-const [TENDER, RIGHTS] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
+const [TENDER, RIGHTS, EXCHANGE, TRADE_PLAN] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
 
 let seq = 0;
 function row(over: Partial<DartRow> = {}): DartRow {
@@ -54,28 +57,64 @@ function fixtureRow(reportNm: string): DartRow {
   return r;
 }
 
-describe("buildWatches — 두 감시 대상(D-03)", () => {
-  it("공개매수 D004 priority 0 · 주요사항보고서 B001 priority 1 순서로 둘을 돌려준다", () => {
+describe("buildWatches — 네 감시 대상(D-03 · 261113-iez)", () => {
+  it("공개매수 D004 p0 · 주요사항보고서 B001 p1 · 거래소 수시공시 I001 p2(30초) · 임원ㆍ주요주주 거래계획 D005 p3(60초) 순서로 넷을 돌려준다", () => {
     const ws = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
-    expect(ws).toHaveLength(2);
-    expect(ws[0]).toEqual({ id: "tender_offer", pblntfDetailTy: "D004", priority: 0, kinds: null, alwaysShowFiler: true });
+    expect(ws).toHaveLength(4);
+    expect(ws[0]).toEqual({
+      id: "tender_offer",
+      pblntfDetailTy: "D004",
+      priority: 0,
+      everyMs: null,
+      rule: { form: "any" },
+      alwaysShowFiler: true,
+    });
     expect(ws[1]).toEqual({
       id: "rights_merger",
       pblntfDetailTy: "B001",
       priority: 1,
-      kinds: DEFAULT_B001_KINDS,
+      everyMs: null,
+      rule: { form: "b001", kinds: DEFAULT_B001_KINDS, originalOnly: new Set(["자기주식취득결정", "주식교환ㆍ이전결정"]) },
       alwaysShowFiler: false,
     });
+    expect(ws[2]).toMatchObject({
+      id: "exchange_disclosure",
+      pblntfDetailTy: "I001",
+      priority: 2,
+      everyMs: EXCHANGE_POLL_MS,
+      rule: { form: "plain" },
+      alwaysShowFiler: false,
+    });
+    expect(ws[3]).toMatchObject({
+      id: "insider_trade_plan",
+      pblntfDetailTy: "D005",
+      priority: 3,
+      everyMs: TRADE_PLAN_POLL_MS,
+      rule: { form: "plain" },
+      alwaysShowFiler: true,
+    });
+    expect(EXCHANGE_POLL_MS).toBe(30_000);
+    expect(TRADE_PLAN_POLL_MS).toBe(60_000);
+    expect(B001_ORIGINAL_ONLY_KINDS).toEqual(new Set(["자기주식취득결정", "주식교환ㆍ이전결정"]));
   });
 
-  it("허용 목록 기본값은 4종 그대로다(43-03 설정 기본값과 같은 상수)", () => {
-    expect([...DEFAULT_B001_KINDS]).toEqual(["유상증자결정", "유무상증자결정", "회사합병결정", "회사분할합병결정"]);
+  it("허용 목록 기본값은 6종이다(43-03 설정 기본값과 같은 상수 · 자기주식취득결정 · 주식교환ㆍ이전결정 추가)", () => {
+    expect([...DEFAULT_B001_KINDS]).toEqual([
+      "유상증자결정",
+      "유무상증자결정",
+      "회사합병결정",
+      "회사분할합병결정",
+      "자기주식취득결정",
+      "주식교환ㆍ이전결정",
+    ]);
   });
 
   it("b001Kinds 를 바꾸면 그 목록으로 판정한다 — 「무상증자결정」 을 더하면 send · 빼면 kind", () => {
     const [, wide] = buildWatches({ b001Kinds: [...DEFAULT_B001_KINDS, "무상증자결정"] });
+    expect(wide.rule).toMatchObject({ form: "b001", kinds: [...DEFAULT_B001_KINDS, "무상증자결정"] });
     expect(judgeRow(wide, fixtureRow("주요사항보고서(무상증자결정)"), INCLUDE)).toEqual({ send: true });
     const [, narrow] = buildWatches({ b001Kinds: ["회사합병결정"] });
+    expect(narrow.rule).toMatchObject({ form: "b001", kinds: ["회사합병결정"] });
     expect(judgeRow(narrow, fixtureRow("주요사항보고서(유상증자결정)"), INCLUDE)).toMatchObject({ send: false, reason: "near_miss" });
     expect(judgeRow(narrow, fixtureRow("[기재정정]주요사항보고서(회사합병결정)"), INCLUDE)).toEqual({ send: true });
   });
@@ -131,6 +170,8 @@ describe("주요사항보고서(B001) — 허용 목록 완전 일치(D-03 · D-
     "주요사항보고서(유무상증자결정)",
     "[기재정정]주요사항보고서(회사합병결정)",
     "[첨부정정][기재정정] 주요사항보고서 (회사분할합병결정)",
+    "주요사항보고서(주식교환ㆍ이전결정)",
+    "주요사항보고서(자기주식취득결정)",
   ];
   it.each(sends)("「%s」 → send", (name) => {
     expect(judgeRow(RIGHTS, fixtureRow(name), INCLUDE)).toEqual({ send: true });
@@ -139,9 +180,7 @@ describe("주요사항보고서(B001) — 허용 목록 완전 일치(D-03 · D-
   const kinds = [
     "주요사항보고서(무상증자결정)",
     "주요사항보고서(회사분할결정)",
-    "주요사항보고서(주식교환ㆍ이전결정)",
     "주요사항보고서(전환사채권발행결정)",
-    "주요사항보고서(자기주식취득결정)",
     "주요사항보고서(영업양수결정)",
   ];
   it.each(kinds)("「%s」 → kind (보내지 않음)", (name) => {
@@ -188,7 +227,100 @@ describe("주요사항보고서(B001) — 허용 목록 완전 일치(D-03 · D-
   });
 });
 
-describe("시장 거르기(D-05) — 두 감시 대상 공통", () => {
+describe("주요사항보고서(B001) 새 2종 — 원본만(261113-iez 사용자 결정 ③ · 정정 규칙)", () => {
+  it("자기주식취득결정 · 주식교환ㆍ이전결정 원본 → send", () => {
+    expect(judgeRow(RIGHTS, row({ report_nm: "주요사항보고서(자기주식취득결정)" }), INCLUDE)).toEqual({ send: true });
+    expect(judgeRow(RIGHTS, row({ report_nm: "주요사항보고서(주식교환ㆍ이전결정)" }), INCLUDE)).toEqual({ send: true });
+  });
+
+  it("새 2종의 정정은 b001Corrections=include 여도 correction · 기존 4종 정정은 include 면 그대로 send", () => {
+    expect(judgeRow(RIGHTS, row({ report_nm: "[기재정정]주요사항보고서(자기주식취득결정)" }), INCLUDE)).toEqual({
+      send: false,
+      reason: "correction",
+    });
+    expect(judgeRow(RIGHTS, row({ report_nm: "[첨부정정]주요사항보고서(주식교환ㆍ이전결정)" }), INCLUDE)).toEqual({
+      send: false,
+      reason: "correction",
+    });
+    expect(judgeRow(RIGHTS, row({ report_nm: "[기재정정]주요사항보고서(유상증자결정)" }), INCLUDE)).toEqual({ send: true });
+  });
+
+  it("자기주식취득신탁계약체결결정은 목록 밖 → kind(near_miss 아님)", () => {
+    expect(judgeRow(RIGHTS, row({ report_nm: "주요사항보고서(자기주식취득신탁계약체결결정)" }), INCLUDE)).toEqual({
+      send: false,
+      reason: "kind",
+    });
+  });
+});
+
+describe("거래소 수시공시(I001) — 원본 6종(261113-iez 사용자 결정 ①)", () => {
+  const sends = [
+    "최대주주변경",
+    "최대주주변경을수반하는주식양수도계약체결",
+    "경영권변경등에관한계약체결",
+    "단일판매ㆍ공급계약체결",
+    "단일판매ㆍ공급계약체결(자율공시)",
+    "주식소각결정",
+    "투자판단관련주요경영사항",
+    "투자판단관련주요경영사항              (최대주주 보유주식 가압류)",
+    "투자판단관련주요경영사항(임상시험계획변경승인신청)",
+  ];
+  it.each(sends)("「%s」 → send", (name) => {
+    expect(judgeRow(EXCHANGE, row({ report_nm: name, corp_cls: "Y" }), INCLUDE)).toEqual({ send: true });
+    expect(judgeRow(EXCHANGE, row({ report_nm: name, corp_cls: "K" }), EXCLUDE)).toEqual({ send: true });
+  });
+
+  const kinds = [
+    "최대주주변경을수반하는주식담보제공계약체결",
+    "최대주주변경을수반하는주식담보제공계약해제ㆍ취소등",
+    "주요사항보고서(자기주식취득신탁계약체결결정)(자회사의 주요경영사항)",
+    "회사합병결정",
+    "유상증자결정",
+    "소송등의판결ㆍ결정 ((경영권분쟁소송)소송등의판결ㆍ결정)",
+  ];
+  it.each(kinds)("「%s」 → kind (보내지 않음 · near_miss 아님)", (name) => {
+    expect(judgeRow(EXCHANGE, row({ report_nm: name }), INCLUDE)).toEqual({ send: false, reason: "kind" });
+  });
+
+  const corrections = [
+    "[기재정정]최대주주변경을수반하는주식양수도계약체결",
+    "[첨부추가]최대주주변경",
+    "[첨부정정]단일판매ㆍ공급계약체결(자율공시)",
+  ];
+  it.each(corrections)("「%s」 → correction (include · exclude 둘 다)", (name) => {
+    expect(judgeRow(EXCHANGE, row({ report_nm: name }), INCLUDE)).toEqual({ send: false, reason: "correction" });
+    expect(judgeRow(EXCHANGE, row({ report_nm: name }), EXCLUDE)).toEqual({ send: false, reason: "correction" });
+  });
+});
+
+describe("임원ㆍ주요주주 거래계획(D005) — 원본 2종(261113-iez 사용자 결정 ②)", () => {
+  it("거래계획보고서 · 거래계획철회보고서 → send", () => {
+    expect(judgeRow(TRADE_PLAN, row({ report_nm: "임원ㆍ주요주주특정증권등거래계획보고서" }), INCLUDE)).toEqual({ send: true });
+    expect(judgeRow(TRADE_PLAN, row({ report_nm: "임원ㆍ주요주주특정증권등거래계획철회보고서" }), INCLUDE)).toEqual({ send: true });
+  });
+
+  it("정정 → correction · 소유상황보고서 → kind", () => {
+    expect(judgeRow(TRADE_PLAN, row({ report_nm: "[기재정정]임원ㆍ주요주주특정증권등거래계획보고서" }), INCLUDE)).toEqual({
+      send: false,
+      reason: "correction",
+    });
+    expect(judgeRow(TRADE_PLAN, row({ report_nm: "임원ㆍ주요주주특정증권등소유상황보고서" }), INCLUDE)).toEqual({
+      send: false,
+      reason: "kind",
+    });
+  });
+});
+
+describe("plainKind — 꼬리표 · 이름 끝 괄호 꼬리 · 공백을 뗀 비교용 이름", () => {
+  it("설계 예시 셋", () => {
+    expect(plainKind("투자판단관련주요경영사항              (최대주주 보유주식 가압류)")).toBe("투자판단관련주요경영사항");
+    expect(plainKind("주요사항보고서(자기주식취득신탁계약체결결정)(자회사의 주요경영사항)")).toBe("주요사항보고서");
+    expect(plainKind("최대주주변경을수반하는주식담보제공계약체결")).toBe("최대주주변경을수반하는주식담보제공계약체결");
+    expect(plainKind("[첨부정정]단일판매ㆍ공급계약체결(자율공시)")).toBe("단일판매ㆍ공급계약체결");
+  });
+});
+
+describe("시장 거르기(D-05) — 네 감시 대상 공통", () => {
   it("코넥스(N) · 비상장(E · 빈 종목코드) → market", () => {
     expect(judgeRow(RIGHTS, fixtureRow("주요사항보고서(유상증자결정)"), INCLUDE)).toEqual({ send: true });
     const konex = B001_FIXTURE.list.find((r) => r.corp_cls === "N")!;
@@ -196,6 +328,16 @@ describe("시장 거르기(D-05) — 두 감시 대상 공통", () => {
     expect(judgeRow(RIGHTS, konex, INCLUDE)).toEqual({ send: false, reason: "market" });
     expect(judgeRow(RIGHTS, etc, INCLUDE)).toEqual({ send: false, reason: "market" });
     expect(judgeRow(TENDER, row({ corp_cls: "N" }), INCLUDE)).toEqual({ send: false, reason: "market" });
+  });
+
+  it("거래소 수시공시 · 거래계획도 코넥스(N) · 비상장(E) → market", () => {
+    for (const [w, name] of [
+      [EXCHANGE, "최대주주변경"],
+      [TRADE_PLAN, "임원ㆍ주요주주특정증권등거래계획보고서"],
+    ] as const) {
+      expect(judgeRow(w, row({ report_nm: name, corp_cls: "N" }), INCLUDE)).toEqual({ send: false, reason: "market" });
+      expect(judgeRow(w, row({ report_nm: name, corp_cls: "E", stock_code: "" }), INCLUDE)).toEqual({ send: false, reason: "market" });
+    }
   });
 
   it("종목코드가 없거나 5자리 · 7자리면 market (Y · K 여도)", () => {
@@ -234,7 +376,8 @@ describe("collectOnce — 주요사항보고서 바퀴 · 근접 불일치 warn 
     const warns: { obj: Record<string, unknown>; msg?: string }[] = [];
     const inserts: InsertItem[][] = [];
     const deps: LapDeps = {
-      watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }),
+      // 매 바퀴 감시 대상 둘(D004 · B001)만 — 이 묶음은 주요사항보고서 판정 · warn 을 잰다
+      watches: buildWatches({ b001Kinds: DEFAULT_B001_KINDS }).filter((x) => x.everyMs === null),
       judge: INCLUDE,
       log: {
         info() {},
@@ -273,7 +416,7 @@ describe("collectOnce — 주요사항보고서 바퀴 · 근접 불일치 warn 
   const lapOpts = { isLate: () => false, seed: false };
   const nearMissWarns = (ws: { msg?: string }[]) => ws.filter((w) => w.msg === "b001 near-miss kind");
 
-  it("픽스처 바퀴 — 보낼 5건만 rights_merger · priority 1 로 넣고 두 감시 대상을 2회 조회한다", async () => {
+  it("픽스처 바퀴 — 보낼 7건만 rights_merger · priority 1 로 넣고 두 감시 대상을 2회 조회한다", async () => {
     const w = wire(() => B001_FIXTURE.list);
     const c = await collectOnce(w.deps, newLapState(), "20261111", lapOpts);
     expect(c.calls).toBe(2);
@@ -288,6 +431,8 @@ describe("collectOnce — 주요사항보고서 바퀴 · 근접 불일치 warn 
       "주요사항보고서(유무상증자결정)",
       "[기재정정]주요사항보고서(회사합병결정)",
       "[첨부정정][기재정정] 주요사항보고서 (회사분할합병결정)",
+      "주요사항보고서(주식교환ㆍ이전결정)",
+      "주요사항보고서(자기주식취득결정)",
       "주요사항보고서(회사합병결정)",
     ]);
     expect(items.every((i) => i.watch === "rights_merger" && i.priority === 1 && i.rcept_dt === "2026-11-11")).toBe(true);

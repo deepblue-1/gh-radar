@@ -169,6 +169,40 @@ export function rightsRow(n: number, day = MON, over: Partial<DartRow> = {}): Da
   };
 }
 
+/** 거래소 수시공시(I001) 행 — 접수번호 `{날짜}70{n 4자리}` · 제출인 = 회사 자신 */
+export function exchangeRow(n: number, day = MON, over: Partial<DartRow> = {}): DartRow {
+  const ymd = ymdOf(day);
+  return {
+    corp_code: `0030${String(n).padStart(4, "0")}`,
+    corp_name: `공시회사${n}`,
+    stock_code: String(300_000 + n).slice(-6),
+    corp_cls: "Y",
+    report_nm: "단일판매ㆍ공급계약체결",
+    rcept_no: `${ymd}70${String(n).padStart(4, "0")}`,
+    flr_nm: `공시회사${n}`,
+    rcept_dt: ymd,
+    rm: "유",
+    ...over,
+  };
+}
+
+/** 임원ㆍ주요주주 거래계획(D005) 행 — 접수번호 `{날짜}60{n 4자리}` · 제출인 = 임원(회사와 다름) */
+export function tradePlanRow(n: number, day = MON, over: Partial<DartRow> = {}): DartRow {
+  const ymd = ymdOf(day);
+  return {
+    corp_code: `0040${String(n).padStart(4, "0")}`,
+    corp_name: `발행회사${n}`,
+    stock_code: String(400_000 + n).slice(-6),
+    corp_cls: "K",
+    report_nm: "임원ㆍ주요주주특정증권등거래계획보고서",
+    rcept_no: `${ymd}60${String(n).padStart(4, "0")}`,
+    flr_nm: `임원${n}`,
+    rcept_dt: ymd,
+    rm: "코",
+    ...over,
+  };
+}
+
 /** 이 시각(from)부터 그 감시 대상 목록에 보이는 행 */
 export interface FeedItem {
   watch: WatchId;
@@ -406,13 +440,21 @@ export function dbRow(item: InsertItem, over: Partial<FakeDbRow> = {}): FakeDbRo
   };
 }
 
+/** 기본 설정의 네 감시 대상(261113-iez) */
+export const ALL_WATCHES: Watch[] = buildWatches({ b001Kinds: DEFAULT_B001_KINDS });
+/**
+ * 매 바퀴 감시 대상(D004 · B001 — everyMs null)만. `harness` 기본값 — 기존 수집기 · 장애 · 모드 시험의 호출 수 단언
+ * (바퀴 역학)은 이 둘로 잰다. 띄엄 조회 대상(I001 · D005)이 든 실행은 `watches` 를 명시해 넘긴다.
+ */
+export const EVERY_LAP_WATCHES: Watch[] = ALL_WATCHES.filter((w) => w.everyMs === null);
+
 /** DART 행 → 넣기 원소 */
 export function itemOf(row: DartRow, watch: WatchId, late = false): InsertItem {
   const d = row.rcept_dt;
   return {
     rcept_no: row.rcept_no,
     watch,
-    priority: watch === "tender_offer" ? 0 : 1,
+    priority: ALL_WATCHES.find((w) => w.id === watch)?.priority ?? 1,
     rcept_dt: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`,
     corp_cls: row.corp_cls,
     corp_name: row.corp_name,
@@ -726,7 +768,7 @@ export function harness(o: HarnessOptions) {
     sleep: (ms) => clock.sleep(ms),
     signal: clock.signal,
     holder,
-    watches: o.watches ?? buildWatches({ b001Kinds: DEFAULT_B001_KINDS }),
+    watches: o.watches ?? EVERY_LAP_WATCHES,
     judge: o.judge ?? { b001Corrections: "include" },
     db: db.db,
     dart: dart.api,

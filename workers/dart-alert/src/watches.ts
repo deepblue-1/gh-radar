@@ -1,36 +1,82 @@
+import { EXCHANGE_POLL_MS, TRADE_PLAN_POLL_MS } from "./cadence";
 import type { DartRow } from "./dart/client";
 
 /**
- * Phase 43-01 · 43-09 — 감시 대상 목록(설정값) · 시장 거르기 · 행 판정.
+ * Phase 43-01 · 43-09 · 261113-iez — 감시 대상 목록(설정값) · 시장 거르기 · 행 판정.
  *
- * - 감시 대상 = 조회 인자(유형 코드 하나)와 거르기 규칙을 담은 데이터. 바퀴는 목록을 순서대로 돈다.
- * - D-01: 공개매수(`D004`)는 보고서 이름으로 거르지 않는다(`kinds: null`) — 신고서 · 설명서 · 의견표명서 ·
+ * - 감시 대상 = 조회 인자(유형 코드 하나) · 이름 규칙(`rule`) · 조회 간격(`everyMs`)을 담은 데이터. 바퀴는 목록을 순서대로
+ *   돌되 `everyMs` 가 있는 감시 대상은 그 시각 칸(07:00 기준 · cadence.ts `pollSlot`)마다 1번만 부른다.
+ * - D-01: 공개매수(`D004`)는 보고서 이름으로 거르지 않는다(`rule.form = "any"`) — 신고서 · 설명서 · 의견표명서 ·
  *   결과보고서 · 정정 전부 보낸다.
  * - D-05: 상장 주식만 — `corp_cls` 가 Y(유가) · K(코스닥)이고 종목코드가 6자리. 비상장(E) · 코넥스(N)는
- *   넣지도 보내지도 않는다. 스팩은 K 라 그대로 통과.
+ *   넣지도 보내지도 않는다. 스팩은 K 라 그대로 통과. 네 감시 대상 공통.
  * - 43-09 — 주요사항보고서(`B001`) 감시 대상(D-03 · D-04): 정정 꼬리표(`[기재정정]` 등)를 떼고
- *   「주요사항보고서(종류)」 괄호 안 종류명이 허용 목록(설정값 `kinds`)과 **완전히 같을 때만** 보낸다. 글자 포함 규칙은
+ *   「주요사항보고서(종류)」 괄호 안 종류명이 허용 목록(설정값 `rule.kinds`)과 **완전히 같을 때만** 보낸다. 글자 포함 규칙은
  *   「유무상증자결정」 을 놓친다(유-무-상-증-자 ⊅ 유상증자 · RESEARCH 확인 1). 목록 밖인데 「증자」 · 「합병」 이 든 이름은
  *   보내지 않고 `near_miss`(수집기가 종류명마다 실행당 1번 warn — 새 표기를 사람이 보고 목록에 더한다).
- * - 판정은 비교용 정리본으로만 한다. 표시는 DART 원문 `report_nm` 그대로(D-07).
+ * - 261113-iez — 감시 대상 넷 · 종류별 정정:
+ *   · B001 허용 목록에 자기주식취득결정 · 주식교환ㆍ이전결정을 더했다. 이 두 종류는 **원본만**(`rule.originalOnly` —
+ *     정정 스위치가 include 여도 맨 앞 꼬리표가 붙은 건은 보내지 않음). 기존 4종 · 공개매수는 지금처럼 정정 포함.
+ *   · 거래소 수시공시(`I001` · 30초)와 임원ㆍ주요주주 거래계획(`D005` · 60초)은 `plain` 꼴 — 이름 끝 괄호 꼬리
+ *     (「(자율공시)」 · 「(최대주주 보유주식 가압류)」 등)와 공백을 뗀 이름(`plainKind`)이 허용 이름과 **완전히 같거나**
+ *     접두 목록(투자판단관련주요경영사항만)으로 시작하면 보낸다. 정정(맨 앞 꼬리표)은 늘 보내지 않는다. 근접 불일치 warn 은
+ *     없다 — I001 은 비대상 이름이 수십 종이라 warn 이 쏟아진다.
+ *   · id `rights_merger` 는 자기주식 · 주식교환도 담지만 바꾸지 않는다 — DB `dart_alerts.watch` · `last_ok` 키 ·
+ *     운영 수치 `by_watch` 의 연속성.
+ * - 판정은 비교용 정리본으로만 한다. 표시는 DART 원문 `report_nm`(D-07 — 연속 공백만 1칸으로 보임 · message.ts).
  */
 
-export type WatchId = "tender_offer" | "rights_merger";
+export type WatchId = "tender_offer" | "rights_merger" | "exchange_disclosure" | "insider_trade_plan";
+
+/**
+ * 보고서 이름 규칙 — 꼴마다 정정 규칙이 다르다.
+ * - `any`: 이름으로 거르지 않고 정정도 보낸다(공개매수 · D-01).
+ * - `b001`: 「주요사항보고서(종류)」 괄호 안 종류명이 `kinds` 와 완전 일치(env `DART_ALERT_B001_KINDS` 로 바꿀 수 있는
+ *   목록). 정정은 `JudgeOptions.b001Corrections` 를 따르되 `originalOnly` 종류는 늘 원본만. 근접 불일치 warn 은 이 꼴에만.
+ * - `plain`: `plainKind(이름)` 이 `exact` 와 완전 일치하거나 `prefix` 로 시작하면 보낸다. 정정은 늘 보내지 않는다.
+ */
+export type NameRule =
+  | { form: "any" }
+  | { form: "b001"; kinds: readonly string[]; originalOnly: ReadonlySet<string> }
+  | { form: "plain"; exact: readonly string[]; prefix: readonly string[] };
 
 export interface Watch {
   id: WatchId;
   /** list.json `pblntf_detail_ty` — 유형 하나 */
-  pblntfDetailTy: "D004" | "B001";
+  pblntfDetailTy: "D004" | "B001" | "I001" | "D005";
   /** 송신 우선순위(작을수록 먼저) — DB `priority` */
   priority: number;
-  /** null = 보고서 이름으로 거르지 않음(D-01). 배열 = 허용 종류명(괄호 안 종류명 완전 일치) */
-  kinds: readonly string[] | null;
-  /** 알림 첫 줄에 제출인을 항상 붙이나(공개매수 = 공개매수자가 대상회사와 다르다) */
+  /** 보고서 이름 규칙 · 정정 규칙 */
+  rule: NameRule;
+  /** null = 바퀴마다 조회 · 숫자 = 07:00 기준 이 간격(ms)의 시각 칸마다 1번(cadence.ts `pollSlot`) */
+  everyMs: number | null;
+  /** 알림 첫 줄에 제출인을 항상 붙이나(공개매수 = 공개매수자 · 거래계획 = 임원 · 주요주주가 대상회사와 다르다) */
   alwaysShowFiler: boolean;
 }
 
-/** D-04 주요사항보고서 허용 종류명 기본값(괄호 안 종류명 완전 일치) */
-export const DEFAULT_B001_KINDS: readonly string[] = ["유상증자결정", "유무상증자결정", "회사합병결정", "회사분할합병결정"];
+/** D-04 주요사항보고서 허용 종류명 기본값(괄호 안 종류명 완전 일치) — 뒤 2종은 261113-iez 추가 · 원본만 */
+export const DEFAULT_B001_KINDS: readonly string[] = [
+  "유상증자결정",
+  "유무상증자결정",
+  "회사합병결정",
+  "회사분할합병결정",
+  "자기주식취득결정",
+  "주식교환ㆍ이전결정",
+];
+/** 허용 목록에 있어도 원본만 보내는 B001 종류(정정 스위치와 무관) */
+export const B001_ORIGINAL_ONLY_KINDS: ReadonlySet<string> = new Set(["자기주식취득결정", "주식교환ㆍ이전결정"]);
+/** 거래소 수시공시(I001) — `plainKind` 완전 일치로 보낼 이름 */
+export const I001_EXACT_KINDS: readonly string[] = [
+  "최대주주변경",
+  "최대주주변경을수반하는주식양수도계약체결",
+  "경영권변경등에관한계약체결",
+  "단일판매ㆍ공급계약체결",
+  "주식소각결정",
+];
+/** 거래소 수시공시(I001) — 접두 일치로 보낼 이름(괄호 꼬리 변형이 많다) */
+export const I001_PREFIX_KINDS: readonly string[] = ["투자판단관련주요경영사항"];
+/** 임원ㆍ주요주주 거래계획(D005) — 보낼 이름 */
+export const D005_KINDS: readonly string[] = ["임원ㆍ주요주주특정증권등거래계획보고서", "임원ㆍ주요주주특정증권등거래계획철회보고서"];
 
 /** D-05 상장 주식 시장 — Y 유가증권 · K 코스닥 */
 export const ALLOWED_CORP_CLS: ReadonlySet<string> = new Set(["Y", "K"]);
@@ -39,7 +85,10 @@ export const STOCK_CODE_RE = /^[0-9A-Z]{6}$/;
 const RCEPT_NO_RE = /^[0-9]{14}$/;
 
 export interface JudgeOptions {
-  /** 주요사항보고서 정정 공시를 보낼지 — 공개매수 정정은 이 값과 무관하게 보낸다(D-01) */
+  /**
+   * 주요사항보고서 정정 공시를 보낼지 — 공개매수 정정은 이 값과 무관하게 보낸다(D-01).
+   * B001 원본만 종류(자기주식취득결정 · 주식교환ㆍ이전결정) · I001 · D005 는 이 값과 무관하게 원본만.
+   */
   b001Corrections: "include" | "exclude";
 }
 
@@ -51,13 +100,11 @@ export interface JudgeOptions {
 export const KNOWN_EXCLUDED_B001_KINDS: ReadonlySet<string> = new Set([
   "무상증자결정",
   "회사분할결정",
-  "주식교환ㆍ이전결정",
   "전환사채권발행결정",
-  "자기주식취득결정",
   "영업양수결정",
 ]);
 
-/** 근접 불일치 — 목록 밖인데 이 글자가 들면 warn(가정 1) */
+/** 근접 불일치 — 목록 밖인데 이 글자가 들면 warn(가정 1) · b001 꼴 전용 */
 const NEAR_MISS_RE = /증자|합병/;
 /** 맨 앞 대괄호 꼬리표 반복 — 기재정정 · 첨부정정 · 첨부추가 · 변경등록 · 연장결정 · 발행조건확정 · 정정명령부과 · 정정제출요구 */
 const LEADING_TAGS_RE = /^(\[[^\]]*\]\s*)+/;
@@ -84,6 +131,16 @@ export function b001Kind(name: string): string | null {
   return m ? m[1].replace(/\s+/g, "") : null;
 }
 
+/**
+ * `plain` 꼴 비교용 이름 — 꼬리표를 떼고(stripReportTags) 첫 「(」 앞까지 자른 뒤 공백을 전부 뗀다.
+ * 「투자판단관련주요경영사항              (최대주주 보유주식 가압류)」 → 「투자판단관련주요경영사항」.
+ */
+export function plainKind(name: string): string {
+  const s = stripReportTags(name);
+  const i = s.indexOf("(");
+  return (i < 0 ? s : s.slice(0, i)).replace(/\s+/g, "");
+}
+
 export type Verdict =
   | { send: true }
   | { send: false; reason: "invalid" | "market" | "kind" | "correction" }
@@ -91,8 +148,11 @@ export type Verdict =
   | { send: false; reason: "near_miss"; kind: string };
 
 /**
- * 판정 순서: invalid → market → (이름 규칙 없음 = 공개매수 → send) → 정정 스위치 → 허용 목록 완전 일치 → 근접 불일치 → kind.
- * 공개매수(D004)는 정정 스위치 단계 전에 send 로 끝난다 — D-01 정정도 항상 보낸다.
+ * 판정 순서: invalid → market → 이름 규칙(`rule.form`).
+ * - any(공개매수) → send — D-01 정정도 항상 보낸다.
+ * - b001 → 정정 스위치 exclude 면 correction → 괄호 종류명 완전 일치(원본만 종류의 정정이면 correction · 그 밖 send) →
+ *   알려진 제외 종류 kind → 근접 불일치 near_miss → kind.
+ * - plain → 정정이면 correction → `plainKind` 가 exact 완전 일치 · prefix 로 시작하면 send → kind(근접 불일치 없음).
  */
 export function judgeRow(watch: Watch, row: DartRow, opts: JudgeOptions): Verdict {
   if (typeof row.rcept_no !== "string" || !RCEPT_NO_RE.test(row.rcept_no)) return { send: false, reason: "invalid" };
@@ -101,20 +161,60 @@ export function judgeRow(watch: Watch, row: DartRow, opts: JudgeOptions): Verdic
   if (!ALLOWED_CORP_CLS.has(row.corp_cls) || typeof row.stock_code !== "string" || !STOCK_CODE_RE.test(row.stock_code)) {
     return { send: false, reason: "market" };
   }
-  if (watch.kinds === null) return { send: true };
+  const rule = watch.rule;
+  if (rule.form === "any") return { send: true };
+  if (rule.form === "plain") {
+    if (isCorrection(row.report_nm)) return { send: false, reason: "correction" };
+    const name = plainKind(row.report_nm);
+    if (rule.exact.includes(name) || rule.prefix.some((p) => name.startsWith(p))) return { send: true };
+    return { send: false, reason: "kind" };
+  }
   if (opts.b001Corrections === "exclude" && isCorrection(row.report_nm)) return { send: false, reason: "correction" };
   const kind = b001Kind(row.report_nm);
-  if (kind !== null && watch.kinds.some((k) => k.replace(/\s+/g, "") === kind)) return { send: true };
+  if (kind !== null && rule.kinds.some((k) => k.replace(/\s+/g, "") === kind)) {
+    if (rule.originalOnly.has(kind) && isCorrection(row.report_nm)) return { send: false, reason: "correction" };
+    return { send: true };
+  }
   if (kind !== null && KNOWN_EXCLUDED_B001_KINDS.has(kind)) return { send: false, reason: "kind" };
   const label = kind ?? stripReportTags(row.report_nm);
   if (NEAR_MISS_RE.test(label)) return { send: false, reason: "near_miss", kind: label };
   return { send: false, reason: "kind" };
 }
 
-/** 감시 대상 목록 — 공개매수(D004 · 먼저) · 유상증자 · 합병 주요사항보고서(B001 · 허용 목록 = `opts.b001Kinds`) */
+/**
+ * 감시 대상 목록(이 순서로 돈다):
+ * - 공개매수 D004 · 우선 0 · 바퀴마다 · 이름 거르지 않음 · 제출인 항상.
+ * - 주요사항보고서 B001 · 우선 1 · 바퀴마다 · 허용 목록 = `opts.b001Kinds` · 제출인은 회사와 다를 때만.
+ * - 거래소 수시공시 I001 · 우선 2 · 30초 칸 · 회사가 내는 공시라 제출인은 회사와 다를 때만.
+ * - 임원ㆍ주요주주 거래계획 D005 · 우선 3(매매를 미리 알리는 사전 공시라 몰릴 때 가장 뒤) · 60초 칸 · 제출인 항상 —
+ *   목록의 회사 · 종목코드는 발행회사라 제출인(임원 · 주요주주)을 빼면 「누가」 가 사라진다.
+ */
 export function buildWatches(opts: { b001Kinds: readonly string[] }): Watch[] {
   return [
-    { id: "tender_offer", pblntfDetailTy: "D004", priority: 0, kinds: null, alwaysShowFiler: true },
-    { id: "rights_merger", pblntfDetailTy: "B001", priority: 1, kinds: opts.b001Kinds, alwaysShowFiler: false },
+    { id: "tender_offer", pblntfDetailTy: "D004", priority: 0, everyMs: null, rule: { form: "any" }, alwaysShowFiler: true },
+    {
+      id: "rights_merger",
+      pblntfDetailTy: "B001",
+      priority: 1,
+      everyMs: null,
+      rule: { form: "b001", kinds: opts.b001Kinds, originalOnly: B001_ORIGINAL_ONLY_KINDS },
+      alwaysShowFiler: false,
+    },
+    {
+      id: "exchange_disclosure",
+      pblntfDetailTy: "I001",
+      priority: 2,
+      everyMs: EXCHANGE_POLL_MS,
+      rule: { form: "plain", exact: I001_EXACT_KINDS, prefix: I001_PREFIX_KINDS },
+      alwaysShowFiler: false,
+    },
+    {
+      id: "insider_trade_plan",
+      pblntfDetailTy: "D005",
+      priority: 3,
+      everyMs: TRADE_PLAN_POLL_MS,
+      rule: { form: "plain", exact: D005_KINDS, prefix: [] },
+      alwaysShowFiler: true,
+    },
   ];
 }

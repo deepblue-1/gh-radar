@@ -35,6 +35,10 @@ export const REGULAR_INTERVAL_MS = 10_000;
 export const START_GRACE_MS = 120_000;
 /** 처음 본 시각이 커버 기준점보다 이 값을 넘게 뒤면 「(늦은 알림)」 */
 export const LATE_GAP_MS = 60_000;
+/** 거래소 수시공시(I001) 조회 간격 — 07:00 기준 30초 칸마다 1번(261113-iez) */
+export const EXCHANGE_POLL_MS = 30_000;
+/** 임원ㆍ주요주주 거래계획(D005) 조회 간격 — 07:00 기준 60초 칸마다 1번(261113-iez) */
+export const TRADE_PLAN_POLL_MS = 60_000;
 
 const KST_OFFSET_MS = 9 * 3_600_000;
 const MINUTE_MS = 60_000;
@@ -91,6 +95,17 @@ export function windowStartMs(nowMs: number): number {
 /** nowMs 가 속한 KST 날의 창 끝(20:00) epoch ms */
 export function windowEndMs(nowMs: number): number {
   return kstMidnightMs(nowMs) + WINDOW_END_MIN * MINUTE_MS;
+}
+
+/**
+ * 감시 대상 조회 칸 번호(261113-iez) — `everyMs` 가 null 이면 null(바퀴마다), 아니면 그날 07:00 부터의 칸 번호
+ * `floor((nowMs − 창 시작) / everyMs)`. 수집기는 바퀴 시작 시각의 칸 번호가 지난 조회 칸과 다를 때만 그 감시 대상을
+ * 부른다. 30초 · 60초는 5초 · 10초 바퀴의 배수이고 09:00(7,200초)도 나누어떨어져 두 구간 모두 정확히 그 간격이다.
+ * 「바퀴 N번에 1번」 은 바퀴가 밀리면 간격이 늘고 구간마다 N 이 달라 쓰지 않는다.
+ */
+export function pollSlot(nowMs: number, everyMs: number | null): number | null {
+  if (everyMs === null) return null;
+  return Math.floor((nowMs - windowStartMs(nowMs)) / everyMs);
 }
 
 /**

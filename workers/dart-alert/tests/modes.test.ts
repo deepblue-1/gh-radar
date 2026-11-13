@@ -255,9 +255,9 @@ describe("진입점 main() · buildDeps()", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before);
 
     expect(seen[0].cfg).toEqual({ dailyBudget: 12_000, mode: "probe" });
-    expect(seen[0].watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
+    expect(seen[0].watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger", "exchange_disclosure", "insider_trade_plan"]);
     const start = out.lines().find((l) => l.msg === "dart-alert start");
-    expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 2, holder: seen[0].holder });
+    expect(start).toMatchObject({ mode: "probe", budget: 12_000, watches: 4, holder: seen[0].holder });
     const text = out.text();
     for (const v of Object.values(SECRETS)) expect(text).not.toContain(v);
   });
@@ -302,7 +302,7 @@ describe("진입점 main() · buildDeps()", () => {
     expect(failed).toMatchObject({ level: 50, err: { message: "boom", kind: "unknown" } });
   });
 
-  it("buildDeps — holder · 감시 대상 2 · DART 조회 · 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
+  it("buildDeps — holder · 감시 대상 4 · DART 조회 · 탐침 · 텔레그램 방 바꾸기를 진짜 클라이언트로 결선(가짜 전송)", async () => {
     const cfg: DartAlertConfig = {
       supabaseUrl: "http://127.0.0.1:1",
       supabaseServiceRoleKey: SECRETS.SUPABASE_SERVICE_ROLE_KEY,
@@ -335,8 +335,8 @@ describe("진입점 main() · buildDeps()", () => {
 
     expect(deps.holder).toMatch(/^local:[0-9a-f]{8}$/);
     expect(deps.cfg).toEqual({ dailyBudget: 15_000, mode: "auto" });
-    expect(deps.watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
-    expect(deps.watches[1].kinds).toEqual(["유상증자결정"]);
+    expect(deps.watches.map((w) => w.id)).toEqual(["tender_offer", "rights_merger", "exchange_disclosure", "insider_trade_plan"]);
+    expect(deps.watches[1].rule).toMatchObject({ form: "b001", kinds: ["유상증자결정"] });
     expect(deps.judge).toEqual({ b001Corrections: "exclude" });
     expect(JSON.stringify(deps.cfg)).not.toContain("SECRET");
 
@@ -346,8 +346,12 @@ describe("진입점 main() · buildDeps()", () => {
     expect(dartReqs[0]).toMatchObject({ pblntf_detail_ty: "D004", bgn_de: "20261116", end_de: "20261116", page_no: 1, crtfc_key: cfg.dartApiKey });
     await deps.dart.list(deps.watches[1], "20261116");
     expect(dartReqs[1]).toMatchObject({ pblntf_detail_ty: "B001" });
+    await deps.dart.list(deps.watches[2], "20261116");
+    expect(dartReqs[2]).toMatchObject({ pblntf_detail_ty: "I001" });
+    await deps.dart.list(deps.watches[3], "20261116");
+    expect(dartReqs[3]).toMatchObject({ pblntf_detail_ty: "D005" });
     expect(await deps.dart.probe("20261116")).toEqual({ total: 1, calls: 1 });
-    expect(dartReqs[2]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
+    expect(dartReqs[4]).toMatchObject({ pblntf_detail_ty: "D004", page_no: 1 });
 
     expect(await deps.telegram.send("hello")).toEqual({ kind: "ok", messageId: 9 });
     expect(posts[0]).toMatchObject({ chat_id: SECRETS.TELEGRAM_CHAT_ID, text: "hello" });

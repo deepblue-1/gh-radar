@@ -1,5 +1,5 @@
 import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage";
-import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs } from "./cadence";
+import { coverPointMs, isInWindow, isLateAt, kstYmd, lapIntervalMs, pollSlot } from "./cadence";
 import type { DartAlertConfig } from "./config";
 import { DartApiError, type DartRow } from "./dart/client";
 import { LeaseLostError, type DartAlertDb } from "./db";
@@ -40,6 +40,8 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  *   ④ 탐침 — 오늘 한도 의심 표시가 있으면 공개매수 1쪽 단독 탐침 1건 → 실패면 종료 1 · 성공해야 수집 재개.
  *   ⑤ 기준점 — DB `last_ok`(감시 대상별 마지막 성공 조회)를 메모리로.
  *   ⑥ 루프 — 바퀴 = 감시 대상 순서대로 조회 → 새 건 넣기(늦은 알림 판정은 조회 **전**) → 송신 차례 5건.
+ *      감시 대상별 조회 칸(261113-iez): I001 30초 · D005 60초는 바퀴 시작 시각의 칸(07:00 기준)이 지난 조회 칸과 다를 때만
+ *      부른다(`takeSlot` — 성공 · 실패와 무관하게 칸을 기록 · 밀린 칸을 몰아서 부르지 않는다 · 실행이 바뀌면 첫 바퀴에 전부).
  *      다음 바퀴 = 이번 바퀴 시작 + 간격(장전 5초 · 그 밖 10초 — cadence.ts). 이미 지났으면 곧바로 —
  *      밀린 바퀴를 몰아서 부르지 않는다. KST 20:00(창 끝)이면 종료 0 `window_end`.
  *      기다리는 동안 · 바퀴 시작 · 송신 직전: 30초마다 임대 연장(+ `last_ok` 저장) · 10초마다 사용량 flush.
@@ -211,7 +213,12 @@ const FATAL_OUTAGE_REASON: Partial<Record<string, (code: string | null) => strin
 };
 
 /** 장애 글 사유에 쓰는 감시 대상 이름 */
-const WATCH_LABEL: Record<string, string> = { tender_offer: "공개매수", rights_merger: "주요사항보고서" };
+const WATCH_LABEL: Record<string, string> = {
+  tender_offer: "공개매수",
+  rights_merger: "주요사항보고서",
+  exchange_disclosure: "거래소 수시공시",
+  insider_trade_plan: "임원ㆍ주요주주 거래계획",
+};
 const REASON_MAX = 300;
 
 export async function runCollector(deps: CollectorDeps): Promise<CollectorExit> {
@@ -233,6 +240,8 @@ class Collector {
   private insertFail: { since: number; logged: boolean } | null = null;
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
   private readonly lastOk = new Map<WatchId, number>();
+  /** 띄엄 조회 감시 대상(everyMs 있음)별 마지막으로 부른 조회 칸(261113-iez · 실행 메모리) */
+  private readonly polledSlot = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
   private outage: OpenOutage | null = null;
   /** 시작 때 DB 장애 상태(readState) */
@@ -383,7 +392,12 @@ class Collector {
         mark: (rceptNo, r) => db.mark(rceptNo, r),
       },
     };
-    const r = await collectOnce(seedDeps, this.lapState, kstYmd(startedAt), { isLate: () => false, seed: true });
+    // 첫 바퀴라 조회 칸 기억이 비어 네 감시 대상 전부 조회한다 — 그날 건을 빠짐없이 seeded 로 채운다
+    const r = await collectOnce(seedDeps, this.lapState, kstYmd(startedAt), {
+      isLate: () => false,
+      seed: true,
+      isDue: (w) => this.takeSlot(w, startedAt),
+    });
     this.stats.laps += 1;
 
     const failed = r.results.filter((x) => !x.ok);
@@ -491,6 +505,7 @@ class Collector {
       r = await collectOnce(this.lapDeps, this.lapState, kstYmd(startedAt), {
         isLate: (w) => this.isLate(w),
         seed: false,
+        isDue: (w) => this.takeSlot(w, startedAt),
       });
     } catch (err) {
       // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음만 위로 · 나머지는 다음 바퀴에 다시 넣는다
@@ -527,6 +542,18 @@ class Collector {
     }
     if (!isInWindow(now) || this.outage || this.halt) return;
     await this.openOutage(`공시 저장 실패 ${fields.code ?? fields.kind}`, f.since);
+  }
+
+  /**
+   * 이 바퀴에 그 감시 대상을 부를 차례인가(261113-iez) — 바퀴마다(everyMs null)면 늘 true. 띄엄 조회 대상은 바퀴 시작
+   * 시각의 조회 칸이 기억한 칸과 다를 때만 true 이고 그 칸을 기억한다(실패해도 같은 칸 안에서 다시 두드리지 않는다).
+   */
+  private takeSlot(w: Watch, lapStartMs: number): boolean {
+    const slot = pollSlot(lapStartMs, w.everyMs);
+    if (slot === null) return true;
+    if (this.polledSlot.get(w.id) === slot) return false;
+    this.polledSlot.set(w.id, slot);
+    return true;
   }
 
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */

@@ -67,7 +67,7 @@ describe("loadConfig (43-03 env 계약)", () => {
       telegramBaseUrl: "https://api.telegram.org",
       dailyBudget: 15000,
       mode: "auto",
-      b001Kinds: ["유상증자결정", "유무상증자결정", "회사합병결정", "회사분할합병결정"],
+      b001Kinds: ["유상증자결정", "유무상증자결정", "회사합병결정", "회사분할합병결정", "자기주식취득결정", "주식교환ㆍ이전결정"],
       b001Corrections: "include",
       logLevel: "info",
       appVersion: "dev",
