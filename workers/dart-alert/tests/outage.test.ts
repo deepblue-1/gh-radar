@@ -435,3 +435,24 @@ describe("다시 연 장애 글의 사유 · 시작 시각이 처음 것과 같�
     expect(stopped(h)[0].text.startsWith(`${STOPPED} — 10:00 부터`)).toBe(true);
   });
 });
+
+describe("치명 종료 중 장애 글을 쓰다 임대를 잃으면 error 가 아니다 (리뷰 IN-04)", () => {
+  it("020 치명 종료 → 장애 open 에서 55000(남이 넘겨받음) → warn · error dart outage open failed 0 · 종료 1 quota 그대로", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      db: {
+        lastOk: fresh("10:00:00"),
+        before: (fn) => {
+          if (fn === "dart_alert_outage") h.db.steal("other:1", at("10:30:00"));
+        },
+      },
+      dart: { reply: (c) => (c.now >= at("10:00:20") ? { status: "020" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "quota" });
+    expect(h.logs.count("dart outage open failed")).toBe(0);
+    expect(h.logs.count("dart outage open skipped — lease lost while posting", "warn")).toBe(1);
+    expect(stopped(h)).toHaveLength(0);
+    // 임대를 잃었으므로 해제하지 않는다(남의 임대)
+    expect(h.db.state.lease.holder).toBe("other:1");
+  });
+});

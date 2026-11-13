@@ -807,6 +807,12 @@ class Collector {
     try {
       await this.openOutage(reasonOf(stop.detail), this.now());
     } catch (err) {
+      // 글을 쓰는 사이 임대를 잃음(연장 거절 · 55000) — 다른 실행이 정상으로 넘겨받았다. 이메일 대상 아님 → warn(리뷰 IN-04)
+      if (err instanceof LeaseLostError || (err instanceof StopRun && err.code === 0)) {
+        if (err instanceof LeaseLostError || err.reason === "lease_lost") this.haveLease = false;
+        this.d.log.warn({ err: safeErrorFields(err), reason: stop.reason }, "dart outage open skipped — lease lost while posting");
+        return;
+      }
       this.d.log.error({ err: safeErrorFields(err), reason: stop.reason }, "dart outage open failed");
     }
   }
