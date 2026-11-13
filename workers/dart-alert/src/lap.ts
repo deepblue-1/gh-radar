@@ -30,7 +30,9 @@ import { judgeRow, type JudgeOptions, type Watch, type WatchId } from "./watches
  *     기한(90초 · 43-02) 뒤 같은 보유자 차례에 `stale` 로 다시 나와 송신(warn `possible duplicate after stale claim` —
  *     최소 1회 · 드문 중복은 받아들임). 차례(`claim`) RPC 가 던지면 warn `alert claim failed` 뒤 그 바퀴 송신을 건너뛴다.
  *     `LeaseLostError` 는 어디서 나와도 위로(수집기 종료 0 `lease_lost`).
- *   · 문구 late = 행의 late 또는 처음 본 뒤 60초(`LATE_GAP_MS`) 넘게 지나 나가는 건(앞 실패 때문) — 「(늦은 알림)」 은 한 번만.
+ *   · 문구 late = 행의 late 또는 처음 본 뒤 60초(`LATE_GAP_MS`) 넘게 지나 나가는 건 — 단 **이 실행이 넣고 송신 실패 없이 우리
+ *     송신 속도 제한(5건 · 60초 18건)으로만 기다린 건**은 늦음으로 치지 않는다(D-12 = 수집기가 멈췄다 다시 켜진 경우 ·
+ *     리뷰 IN-03). 앞 실패(시도 2번째 이상) · 앞 실행이 넣고 못 보낸 건(재시작 · 인계)은 그대로 늦음. 「(늦은 알림)」 은 한 번만.
  *   · 송신 순서는 DB 차례 순서(공개매수 먼저 → 처음 본 순) 그대로.
  * - 상수는 순환 import 를 피하려고 여기에 두고 collector.ts 가 다시 내보낸다.
  */
@@ -283,6 +285,8 @@ export class SendPacer {
   readonly unsent = new Map<string, { firstSeenMs: number; attempts: number }>();
   /** 미송신 error 를 이미 남긴 접수번호 */
   readonly unsentLogged = new Set<string>();
+  /** 이 실행이 넣은 접수번호(수집기가 넣기 결과로 채운다) — 우리 속도 제한으로만 밀린 건을 늦음에서 뺀다(리뷰 IN-03) */
+  readonly insertedHere = new Set<string>();
 
   /** 60초 창 안 송신 수(창 시작 = now − 60초 · 그 시각은 빠짐) */
   inWindow(now: number): number {
@@ -421,7 +425,9 @@ export async function deliverPending(deps: LapDeps, limit: number, pacer: SendPa
 
     const watch = deps.watches.find((w) => w.id === row.watch);
     const fmt = { alwaysShowFiler: watch?.alwaysShowFiler ?? true };
-    const fields = { ...row, late: row.late || t - firstSeenMs > LATE_GAP_MS };
+    // 이 실행이 넣고 첫 시도인 건은 우리 송신 속도 제한으로만 기다렸다 — 60초가 지나도 늦음이 아니다(리뷰 IN-03)
+    const queuedOnlyHere = pacer.insertedHere.has(row.rcept_no) && row.attempts <= 1;
+    const fields = { ...row, late: row.late || (!queuedOnlyHere && t - firstSeenMs > LATE_GAP_MS) };
     let r = await sendPaced(deps, pacer, alertText(fields, fmt));
     if (r.kind === "parse") {
       deps.log.error({ rceptNo: row.rcept_no, ...telegramSafeFields(r) }, "telegram parse error — resending as plain text");

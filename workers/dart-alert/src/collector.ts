@@ -537,6 +537,7 @@ class Collector {
 
   private takeResult(r: CollectResult): void {
     for (const x of r.results) if (x.ok && x.okAt !== undefined) this.lastOk.set(x.watch, x.okAt);
+    for (const row of r.inserted) this.pacer.insertedHere.add(row.rcept_no);
     this.stats.inserted += r.inserted.length;
   }
 

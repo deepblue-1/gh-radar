@@ -252,6 +252,45 @@ describe("송신 속도 · 순서 · 늦은 표시 (D-02 · D-12)", () => {
   });
 });
 
+describe("우리 송신 속도 제한으로만 밀린 건은 늦은 알림이 아니다 (리뷰 IN-03)", () => {
+  it("한 바퀴에 새 건 25건 — 60초 18건 상한으로 1분 넘게 기다린 건도 「(늦은 알림)」 없음 · 앞 실행이 남긴 건은 그대로 늦음", async () => {
+    const feed = Array.from({ length: 25 }, (_, i) => ({ watch: "rights_merger" as const, from: at("10:00:00"), row: rightsRow(i + 1) }));
+    const leftover = pend(T(1), "09:58:30", { next_attempt_at: at("10:00:00") });
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:03:00"),
+      db: { lastOk: fresh("10:00:00"), rows: [leftover] },
+      dart: { feed },
+    });
+    await h.run();
+
+    const alerts = h.telegram.alerts();
+    expect(alerts).toHaveLength(26);
+    const fresh25 = alerts.filter((s) => !s.text.includes(leftover.rcept_no));
+    // 뒤쪽 건은 처음 본 뒤 60초를 넘겨 나갔다 — 그래도 늦음 표시 없음
+    expect(Math.max(...fresh25.map((s) => s.at)) - at("10:00:00")).toBeGreaterThan(60_000);
+    for (const s of fresh25) expect(s.text).not.toContain(LATE_LABEL);
+    expect(sendsOf(h, leftover.rcept_no)[0].text).toContain(LATE_LABEL);
+  });
+
+  it("이 실행이 넣은 건이라도 송신이 한 번 실패한 뒤 60초 넘어 나가면 「(늦은 알림)」", async () => {
+    let n = 0;
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:03:00"),
+      db: { lastOk: fresh("10:00:00") },
+      dart: { feed: [{ watch: "tender_offer", from: at("10:00:00"), row: tenderRow(1) }] },
+      telegram: { reply: (c) => (c.text.startsWith("📢") && ++n <= 4 ? transient : undefined) },
+    });
+    await h.run();
+    const sends = sendsOf(h, T(1).rcept_no);
+    const ok = sends.find((s) => s.result.kind === "ok")!;
+    expect(ok.at - at("10:00:00")).toBeGreaterThan(60_000);
+    expect(ok.text).toContain(LATE_LABEL);
+    expect(sends[0].text).not.toContain(LATE_LABEL);
+  });
+});
+
 describe("기록 · 차례 RPC 실패 길 (체커 W2 · SC-5 무로그 실패 없음)", () => {
   it("mark 실패 건은 error 로그 뒤 90초 안에 다시 차례로 나온다", async () => {
     const [X, Y] = [T(1), T(2)];
