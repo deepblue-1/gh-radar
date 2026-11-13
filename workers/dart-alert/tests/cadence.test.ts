@@ -28,6 +28,7 @@ import {
   windowStartMs,
 } from "../src/cadence";
 import { DART_DAILY_BUDGET_LIMIT } from "../src/config";
+import { GREW_REREAD_MIN_MS } from "../src/dart/client";
 import { buildWatches, DEFAULT_B001_KINDS } from "../src/watches";
 
 /** 매 바퀴 감시 대상 n개(everyMs null) — 예산 가드 근거용 */
@@ -161,20 +162,32 @@ describe("하루 호출 수 (SC-4 · 공식 API 운영 기준 ①)", () => {
     expect(plannedDailyPolls(watchOf("insider_trade_plan"))).toBe(1_560);
   });
 
-  it("키 1(D004 · B001) = 9,360 + 5,400 = 14,760 · 아침 전날 확인 2(각 1쪽)를 더해 14,762 ≤ 15,000", () => {
+  it("키 1(D004 · B001) = 9,360 + 5,400 = 14,760 · 아침 전날 확인 2(각 1쪽)를 더해 14,762 ≤ 15,000 · B001 100건 초과 날은 넘는다(감속 없음)", () => {
     expect(KEY1.map((w) => w.id)).toEqual(["tender_offer", "rights_merger"]);
     expect(plannedDailyCalls(KEY1)).toBe(14_760);
     expect(plannedDailyCalls(KEY1) + 2).toBe(14_762);
     expect(plannedDailyCalls(KEY1) + 2).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+    // B001 이 100건을 넘는 날(2쪽) — 추가 쪽 상한 1,560(30초에 전 쪽 1번) → 16,320 > 15,000. 감속 규칙은 두지 않는다
+    // (사용자 결정 — B001 간격 유지 · 하루 30건 안팎이라 보류 · 리뷰 WR-03)
+    expect(plannedDailyCalls(KEY1) + plannedDailyPolls({ everyMs: GREW_REREAD_MIN_MS })).toBe(16_320);
+    expect(plannedDailyCalls(KEY1) + plannedDailyPolls({ everyMs: GREW_REREAD_MIN_MS })).toBeGreaterThan(DART_DAILY_BUDGET_LIMIT);
   });
 
-  it("키 2(I003 · I001 · I004 · D005) = 1,560 + 4,680 + 1,560 + 1,560 = 9,360 · I001 매 조회 2쪽 최악 + 4,680 · 전날 확인 약 5 → 14,045 ≤ 15,000", () => {
+  it("키 2(I003 · I001 · I004 · D005) = 9,360 · I001 추가 쪽 상한 = 46,800 ÷ 30 × (쪽 수 − 1) — 2쪽 10,920 · 4쪽 14,040 ≤ 15,000 · 5쪽 15,600 은 넘는다(리뷰 WR-03)", () => {
     expect(KEY2.map((w) => w.id)).toEqual(["market_action", "exchange_disclosure", "largest_holder_change", "insider_trade_plan"]);
     expect(plannedDailyCalls(KEY2)).toBe(9_360);
-    // 전날 확인 = I001 2쪽(100건 초과 · 전 쪽) + 셋 각 1쪽
-    const worst2 = plannedDailyCalls(KEY2) + plannedDailyPolls(watchOf("exchange_disclosure")) + 5;
-    expect(worst2).toBe(14_045);
-    expect(worst2).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+    // 전 쪽 다시 읽기는 마지막 전 쪽 읽기에서 30초(GREW_REREAD_MIN_MS)가 지나야 한다 → 하루 많아야 46,800 ÷ 30 = 1,560번
+    // (옛 규칙 「늘 때마다」 는 10초 칸마다 4,680번까지 — 2쪽에서도 +4,680 · 4쪽이면 +14,040 으로 상한이 아니었다)
+    expect(GREW_REREAD_MIN_MS).toBe(30_000);
+    const fullReads = plannedDailyPolls({ everyMs: GREW_REREAD_MIN_MS });
+    expect(fullReads).toBe(1_560);
+    const worst = (pages: number) => plannedDailyCalls(KEY2) + fullReads * (pages - 1);
+    expect([2, 3, 4, 5].map(worst)).toEqual([10_920, 12_480, 14_040, 15_600]);
+    expect(worst(4)).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
+    expect(worst(5)).toBeGreaterThan(DART_DAILY_BUDGET_LIMIT);
+    // 아침 전날 확인 성공 1번 = I001 전날 쪽 수 + 셋 각 1쪽 — 이틀 이어 4쪽 날이면 14,040 + 4 + 3 = 14,047 ≤ 15,000
+    expect(worst(4) + 4 + 3).toBe(14_047);
+    expect(worst(4) + 4 + 3).toBeLessThanOrEqual(DART_DAILY_BUDGET_LIMIT);
   });
 
   it("키 1 에 매 바퀴 감시 대상이 하나 더 붙으면 9,360 × 2 + 5,400 = 24,120 으로 상한을 넘는다 — 목록 · 예산 동시 점검 근거", () => {

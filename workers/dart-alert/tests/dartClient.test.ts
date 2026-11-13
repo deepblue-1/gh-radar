@@ -9,6 +9,7 @@ import {
   fetchListPage,
   fetchWatchRows,
   FULL_REREAD_MS,
+  GREW_REREAD_MIN_MS,
   PageTracker,
   type DartRow,
 } from "../src/dart/client";
@@ -275,8 +276,9 @@ describe("fetchWatchRows · PageTracker — 100건 넘는 날 (SC-1 · 리서치
     );
   }
 
-  it("다시 읽기 주기는 60초", () => {
+  it("다시 읽기 주기는 60초 · 늘어서 다시 읽기 하한 30초(리뷰 WR-03)", () => {
     expect(FULL_REREAD_MS).toBe(60_000);
+    expect(GREW_REREAD_MIN_MS).toBe(30_000);
   });
 
   it("total 40 → 1쪽만 · calls 1", async () => {
@@ -318,13 +320,33 @@ describe("fetchWatchRows · PageTracker — 100건 넘는 날 (SC-1 · 리서치
     expect(r.calls).toBe(2);
   });
 
-  it("total 이 150 → 151 로 늘면 바로 전 쪽", async () => {
+  it("total 이 150 → 151 로 늘어도 마지막 전 쪽 읽기에서 30초 안이면 1쪽만 · 30초가 되면 전 쪽(리뷰 WR-03 하한)", async () => {
+    // 옛 규칙은 늘면 곧바로 전 쪽(T0 + 5초) — 10초 칸 I001 이 늘 때마다 전 쪽이라 추가 쪽에 상한이 없었다
     const t = new PageTracker();
     await fetchWatchRows(twoPages().http, KEY, watch, t, T0);
+    const early = twoPages({ total: 151 });
+    expect((await fetchWatchRows(early.http, KEY, watch, t, T0 + 5_000)).calls).toBe(1);
+    expect(early.pages).toEqual([1]);
     const { http, pages } = twoPages({ total: 151 });
-    const r = await fetchWatchRows(http, KEY, watch, t, T0 + 5_000);
+    const r = await fetchWatchRows(http, KEY, watch, t, T0 + GREW_REREAD_MIN_MS);
     expect(pages).toEqual([1, 2]);
     expect(r.calls).toBe(2);
+  });
+
+  it("하한으로 건너뛴 증가는 직전 조회가 아니라 마지막 전 쪽 읽기 때 수와 견줘 다음 기회에 반드시 읽힌다(리뷰 WR-03)", async () => {
+    const t = new PageTracker();
+    await fetchWatchRows(twoPages().http, KEY, watch, t, T0);
+    // T0 + 10초 151(건너뜀) → T0 + 20초 151(직전 대비 그대로 · 건너뜀) → T0 + 30초 151(전 쪽 기준 150 대비 늘었다 → 전 쪽)
+    for (const dt of [10_000, 20_000]) expect((await fetchWatchRows(twoPages({ total: 151 }).http, KEY, watch, t, T0 + dt)).calls).toBe(1);
+    const { http, pages } = twoPages({ total: 151 });
+    await fetchWatchRows(http, KEY, watch, t, T0 + 30_000);
+    expect(pages).toEqual([1, 2]);
+    expect(t.lastTotal).toBe(151);
+    // 늘 때마다 읽어도 전 쪽은 30초에 1번 — 10초 칸 1시간(360조회) 동안 매번 늘면 전 쪽 120번
+    const t2 = new PageTracker();
+    let full = 0;
+    for (let i = 0; i < 360; i++) if ((await fetchWatchRows(twoPages({ total: 150 + i }).http, KEY, watch, t2, T0 + i * 10_000)).calls > 1) full++;
+    expect(full).toBe(120);
   });
 
   it("2쪽 호출이 실패하면 오류의 calls 2 · 트래커는 그대로라 다음 바퀴에 다시 전 쪽", async () => {

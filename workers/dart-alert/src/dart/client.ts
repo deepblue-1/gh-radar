@@ -181,6 +181,11 @@ function toCount(v: unknown, fallback: number): number {
 
 /** 늘지 않았어도 전 쪽을 다시 읽는 주기 — 삭제 1 + 신규 1 이 같은 바퀴에 겹쳐 수가 그대로인 경우의 그물 */
 export const FULL_REREAD_MS = 60_000;
+/**
+ * 건수가 늘어 전 쪽을 다시 읽을 때의 하한 — 마지막 전 쪽 읽기에서 이만큼 지나야 한다(리뷰 WR-03). 그래서 전 쪽 읽기는 30초에
+ * 많아야 1번 → 추가 쪽 하루 상한 = 46,800 ÷ 30 × (쪽 수 − 1) = 1,560 × (쪽 수 − 1)(cadence.ts 머리 주석 · tests/cadence.test.ts).
+ */
+export const GREW_REREAD_MIN_MS = 30_000;
 
 /**
  * 감시 대상(유형) 하나의 쪽 넘김 기억 — 수집기가 감시 대상마다 하나씩 둔다(43-05 buildDeps).
@@ -198,11 +203,14 @@ export class PageTracker {
  *
  *   1. 매 바퀴 1쪽(100건)을 읽는다.
  *   2. `total_count ≤ 100` 이면 그날 목록 전체가 손에 있다 — 끝.
- *   3. 100 초과면 `total_count` 가 지난 전체 읽기보다 늘었거나 그로부터 60초가 지났을 때만
- *      같은 바퀴에서 2쪽 ~ `total_page` 를 마저 읽는다. 아니면 1쪽 행만 돌려준다.
+ *   3. 100 초과면 (`total_count` 가 마지막 전체 읽기 때보다 늘었고 그로부터 30초가 지났거나) 또는 60초가 지났을 때만
+ *      같은 바퀴에서 2쪽 ~ `total_page` 를 마저 읽는다. 아니면 1쪽 행만 돌려준다. 늘어남은 직전 조회가 아니라 **마지막 전체
+ *      읽기 때의 total** 과 견준다 — 하한 30초 때문에 건너뛴 증가도 다음 기회에 반드시 읽힌다(리뷰 WR-03 · 그 사이 2쪽 이후
+ *      새 건은 최대 30초 늦게 보인다 · 1쪽은 매 조회).
  *
  * 같은 날짜 안 정렬 순서는 문서에 없다(가정 A3) — 「1쪽에 새 건이 다 있다」 에 기대지 않는다.
- * 추가 쪽 호출도 `calls` 로 세어 api_usage 에 올린다(하루 예산 여유 4,200회가 이 몫).
+ * 추가 쪽 호출도 `calls` 로 세어 api_usage 에 올린다(하루 상한 1,560 × (쪽 수 − 1) — `GREW_REREAD_MIN_MS`).
+ * 아침 전날 확인(`fullRead`)은 그 호출만의 새 기억이라 늘 전 쪽이다(하한과 무관).
  * 중간 실패면 던지는 `DartApiError` 의 `calls` 에 실패한 호출까지 그때까지의 호출 수를 싣는다.
  */
 export async function fetchWatchRows(
@@ -230,8 +238,10 @@ export async function fetchWatchRows(
     return { rows: first.rows, calls };
   }
 
-  const grew = first.total > tracker.lastTotal;
-  const stale = nowMs - tracker.lastFullAt >= FULL_REREAD_MS;
+  // lastTotal 은 마지막 전체 읽기 때의 수 — 하한으로 건너뛴 증가는 그대로 남아 30초 뒤 읽힌다
+  const sinceFull = nowMs - tracker.lastFullAt;
+  const grew = first.total > tracker.lastTotal && sinceFull >= GREW_REREAD_MIN_MS;
+  const stale = sinceFull >= FULL_REREAD_MS;
   if (!grew && !stale) return { rows: first.rows, calls };
 
   const rows = [...first.rows];
