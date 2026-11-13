@@ -355,8 +355,7 @@ describe("진입점 main() · buildDeps()", () => {
     await deps.telegram.send("again");
     expect(posts[1]).toMatchObject({ chat_id: "-1001111" });
 
-    deps.db.usage.add(3);
+    // 사용량 · 한도 의심 표시의 결선(표 · 서비스 키 · 날짜 · RPC 인자)은 tests/entryWiring.test.ts 가 단언한다(리뷰 WR-56)
     expect(typeof deps.db.leaseAcquire).toBe("function");
-    expect(typeof deps.db.strikes.record).toBe("function");
   });
 });

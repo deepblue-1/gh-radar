@@ -449,11 +449,24 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     usageFlush: [] as number[],
     strikesRecord: [] as number[],
     countUnsent: [] as { at: number; day: string; unsent: number }[],
+    /** usage · strikes · countUnsent 가 받은 날짜 인자(리뷰 WR-56 — 결선이 날짜를 버리지 않는지) */
+    dayArgs: [] as { fn: string; at: number; day: string }[],
   };
+  /** 오늘 KST `YYYY-MM-DD` 가 아닌 날짜 인자 — harness.run() 이 끝나면 비어 있어야 한다 */
+  const badDays: { fn: string; day: unknown; want: string }[] = [];
   /** 넣기 · 차례 · 기록 · 장애에서 던진 LeaseLostError */
   const leaseLost: { fn: string; at: number }[] = [];
 
   const today = () => kstIsoDate(clock.now());
+  /** 운영 카운터는 KST 날짜 키(usage_date) — 꼴이 다르거나 오늘이 아니면 던지고 기록한다(수집기가 삼켜도 run() 이 잡는다) */
+  const checkDay = (fn: string, day: unknown) => {
+    const want = today();
+    calls.dayArgs.push({ fn, at: clock.now(), day: String(day) });
+    if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day !== want) {
+      badDays.push({ fn, day, want });
+      throw new Error(`fake db ${fn}: 날짜 인자 '${String(day)}' 가 오늘 KST(${want}) 가 아니다`);
+    }
+  };
   const guard = (fn: string, info?: RpcInfo) => {
     const now = clock.now();
     o.before?.(fn, now, info);
@@ -616,18 +629,23 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     },
 
     async countUnsent(day) {
+      checkDay("countUnsent", day);
       const unsent = [...rows.values()].filter((r) => r.rcept_dt === day && (r.status === "pending" || r.status === "sending")).length;
       calls.countUnsent.push({ at: clock.now(), day, unsent });
       return unsent;
     },
 
     usage: {
-      read: async () => state.used,
+      read: async (d) => {
+        checkDay("usage.read", d);
+        return state.used;
+      },
       add: (n) => {
         calls.usageAdd.push({ at: clock.now(), n });
         state.pendingUsage += n;
       },
-      flush: async () => {
+      flush: async (d) => {
+        checkDay("usage.flush", d);
         calls.usageFlush.push(clock.now());
         if (state.pendingUsage === 0) return null;
         state.used += state.pendingUsage;
@@ -637,8 +655,12 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     },
 
     strikes: {
-      read: async () => state.strikes,
-      record: async () => {
+      read: async (d) => {
+        checkDay("strikes.read", d);
+        return state.strikes;
+      },
+      record: async (d) => {
+        checkDay("strikes.record", d);
         calls.strikesRecord.push(clock.now());
         state.strikes += 1;
         return state.strikes;
@@ -652,6 +674,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     state,
     calls,
     leaseLost,
+    badDays,
     /** usage.add 합 */
     usageAdded: () => calls.usageAdd.reduce((s, c) => s + c.n, 0),
     /** 다른 실행이 임대를 가져감 */
@@ -708,7 +731,12 @@ export function harness(o: HarnessOptions) {
     db,
     dart,
     telegram,
-    run: (): Promise<CollectorExit> => runCollector(deps),
+    run: async (): Promise<CollectorExit> => {
+      const exit = await runCollector(deps);
+      // 수집기가 DB 오류를 warn 으로 삼켜도 날짜 결선 어긋남은 테스트를 떨어뜨린다(리뷰 WR-56)
+      if (db.badDays.length > 0) throw new Error(`fake db 날짜 인자 어긋남: ${JSON.stringify(db.badDays)}`);
+      return exit;
+    },
   };
 }
 
