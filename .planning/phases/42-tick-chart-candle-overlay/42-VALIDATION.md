@@ -116,3 +116,11 @@ created: "2026-11-12"
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** 2026-11-13 — 운영 UAT 1 ~ 12 폰 · PC 통과(사용자) · NXT 일 이동평균 KRX 종가 승인
+
+## Validation Audit 2026-11-13
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
