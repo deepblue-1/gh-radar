@@ -53,7 +53,13 @@ for bin in curl node; do
 done
 
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  # GNU(stat -c)를 먼저 — GNU stat 의 -f 는 「파일시스템 상태」 라 '%Lp' 를 파일 이름으로 읽고 여러 줄을 먼저 찍는다(리뷰 IN-53).
+  # macOS(BSD) stat 은 -c 를 모르니 실패하고 -f '%Lp' 로 간다.
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
 }
 
 if [[ ! -f "$ENV_FILE" ]]; then
