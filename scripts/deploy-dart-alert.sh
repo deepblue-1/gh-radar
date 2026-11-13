@@ -17,9 +17,13 @@ set -euo pipefail
 #   - Scheduler (Asia/Seoul · DART_SCHEDULERS 배열 — 하나뿐):
 #       gh-radar-dart-alert-wake  "*/5 7-19 * * 1-5"  평일 07:00 ~ 19:55 5분마다 깨움 · 밤 · 주말 깨움 0
 #   - 알림 정책(운영자 이메일 · D-16):
-#       gh-radar-dart-alert-failure    Job 실행 실패 수 > 0 (설정 오류 · 020 · 키 오류 · 예외 · 메모리 부족)
-#       gh-radar-dart-alert-error-log  이 Job 의 error 로그 일치 (장애 열림 · 텔레그램 실패 · 방 이동 · 120초 미송신 —
-#                                      종료 0 으로 계속 도는 동안의 문제)
+#       gh-radar-dart-alert-failure          Job 실행 실패 수 > 0 (설정 오류 · 020 · 키 오류 · 예외 · 메모리 부족)
+#       gh-radar-dart-alert-error-log        이 Job 의 error 로그 일치 (장애 열림 · 텔레그램 실패 · 방 이동 · 120초 미송신 —
+#                                            종료 0 으로 계속 도는 동안의 문제)
+#       gh-radar-dart-alert-scheduler-error  깨움(Scheduler) 호출 실패 로그 (run.invoker 유실 403 · Job 없음 404 — 리뷰 CR-50)
+#       gh-radar-dart-alert-no-wake          평일 KST 07:40 ~ 20:00 에 실행 시작 로그 30분 0건 (Scheduler PAUSED · 삭제 —
+#                                            실행이 아예 안 생기면 위 셋은 울리지 않는다 · 리뷰 CR-50)
+#   - 로그 기반 지표: dart_alert_wake_starts (이 Job 의 `dart-alert start` 로그 수 — no-wake 정책이 본다)
 #
 # 설계:
 #   D-10 바퀴 간격: 평일 07:00 ~ 09:00 5초 · 09:00 ~ 20:00 10초(시작 대 시작) · 한 바퀴 = 공개매수(D004) 1회 + 주요사항보고서(B001) 1회.
@@ -58,6 +62,9 @@ set -euo pipefail
 #   4. gcloud scheduler jobs resume gh-radar-dart-alert-wake --location=asia-northeast3
 #      (깨움 실행은 임대가 잡혀 있어 바로 끝나고, seed 실행이 죽으면 다음 깨움이 인계한다)
 #   창 밖(20:00 뒤 · 07:00 전 · 주말) 첫 배포는 --scheduler-paused 없이 그냥 배포하면 된다.
+#   --scheduler-paused 는 Scheduler 를 **처음 만들 때만** 멈춘다(리뷰 CR-50). 이미 있는 Scheduler 가 ENABLED 면 이 플래그를
+#   거부하고 아무것도 바꾸지 않은 채 끝난다 — 운영 중 재배포로 살아 있는 깨움을 멈추지 않게. 이미 PAUSED 면 그대로 둔다.
+#   resume 을 빠뜨리면 평일 창 안 30분 뒤 gh-radar-dart-alert-no-wake 메일이 온다.
 #
 # 수동 모드 실행(Job 설정의 env 는 바꾸지 않고 그 실행에만 덮어쓴다):
 #   gcloud run jobs execute gh-radar-dart-alert --region=asia-northeast3 --update-env-vars=DART_ALERT_MODE=probe --wait
@@ -102,15 +109,23 @@ declare -a DART_SCHEDULERS=(
   "gh-radar-dart-alert-wake|*/5 7-19 * * 1-5"
 )
 
-# 알림 정책 — 파일과 표시 이름은 같은 순서
+# 알림 정책 — 파일과 표시 이름은 같은 순서(smoke-dart-alert.sh INV-5 가 이 배열을 읽는다)
 declare -a ALERT_POLICY_FILES=(
   "ops/alert-dart-alert-failure.yaml"
   "ops/alert-dart-alert-error-log.yaml"
+  "ops/alert-dart-alert-scheduler-error.yaml"
+  "ops/alert-dart-alert-no-wake.yaml"
 )
 declare -a ALERT_POLICY_NAMES=(
   "gh-radar-dart-alert-failure"
   "gh-radar-dart-alert-error-log"
+  "gh-radar-dart-alert-scheduler-error"
+  "gh-radar-dart-alert-no-wake"
 )
+
+# 로그 기반 지표 — 실행마다 한 번 남는 시작 로그를 센다(no-wake 정책의 PromQL 이 logging_googleapis_com:user_<이름> 으로 읽는다).
+WAKE_METRIC_NAME=dart_alert_wake_starts
+WAKE_METRIC_FILTER='resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-dart-alert" AND jsonPayload.msg="dart-alert start"'
 
 # 하루 예산 — 정수 1 ~ 15,000 (공식 20,000/일의 75% 이하 · 기본 15,000 · config.ts DART_DAILY_BUDGET_LIMIT 와 같다).
 validate_budget() {
@@ -203,9 +218,19 @@ self_test() {
     fails=$((fails + 1))
   fi
 
-  # 알림 정책 파일 — 둘 다 있고 · Job 이름과 채널 자리가 들어 있다.
-  if (( ${#ALERT_POLICY_FILES[@]} != 2 || ${#ALERT_POLICY_NAMES[@]} != 2 )); then
-    echo "FAIL: 알림 정책 파일 · 이름이 2개씩이 아니다" >&2
+  # 알림 정책 파일 — 넷 다 있고 · Job 이름과 채널 자리가 들어 있다(실행 실패 · error 로그 · 깨움 실패 · 깨움 없음 — 리뷰 CR-50).
+  if (( ${#ALERT_POLICY_FILES[@]} != 4 || ${#ALERT_POLICY_NAMES[@]} != 4 )); then
+    echo "FAIL: 알림 정책 파일 · 이름이 4개씩이 아니다(${#ALERT_POLICY_FILES[@]} · ${#ALERT_POLICY_NAMES[@]})" >&2
+    fails=$((fails + 1))
+  fi
+  # 깨움 없음 정책은 이 스크립트가 만드는 로그 기반 지표를 읽는다 — 이름이 갈리면 늘 「0건」 으로 울린다.
+  if ! grep -qF "logging_googleapis_com:user_${WAKE_METRIC_NAME}{" "$root/ops/alert-dart-alert-no-wake.yaml" 2>/dev/null; then
+    echo "FAIL: ops/alert-dart-alert-no-wake.yaml 의 PromQL 이 지표 ${WAKE_METRIC_NAME} 을 읽지 않는다" >&2
+    fails=$((fails + 1))
+  fi
+  # 지표 필터가 세는 문구가 진입점의 시작 로그와 같아야 한다.
+  if ! grep -qF '"dart-alert start");' "$root/workers/dart-alert/src/index.ts" 2>/dev/null || [[ "$WAKE_METRIC_FILTER" != *'jsonPayload.msg="dart-alert start"'* ]]; then
+    echo "FAIL: 지표 필터의 「dart-alert start」 가 workers/dart-alert/src/index.ts 시작 로그와 다르다" >&2
     fails=$((fails + 1))
   fi
   for i in "${!ALERT_POLICY_FILES[@]}"; do
@@ -240,7 +265,8 @@ usage() {
   echo "사용: GCP_PROJECT_ID=gh-radar SUPABASE_URL=… [DART_ALERT_DAILY_BUDGET=15000] [DART_ALERT_VPC_EGRESS=0|1] [NOTIFICATION_CHANNEL_ID=…]"
   echo "        bash scripts/deploy-dart-alert.sh [--scheduler-paused]"
   echo "      bash scripts/deploy-dart-alert.sh --self-test   (GCP 접촉 0)"
-  echo "  --scheduler-paused  Scheduler 를 멈춘 채로 둔다(창 안 첫 배포 — seed 실행 → seed done → resume · 머리 주석)"
+  echo "  --scheduler-paused  Scheduler 를 처음 만들 때 멈춘 채로 둔다(창 안 첫 배포 — seed 실행 → seed done → resume · 머리 주석)."
+  echo "                      이미 있는 ENABLED Scheduler 에는 거부한다(운영 중 깨움을 멈추지 않는다)."
 }
 
 SCHEDULER_PAUSED=0
@@ -332,6 +358,19 @@ for f in "${ALERT_POLICY_FILES[@]}"; do
     exit 1
   fi
 done
+
+# --scheduler-paused 는 Scheduler 를 처음 만들 때만 — 이미 있는 ENABLED Scheduler 를 멈추지 않는다(리뷰 CR-50).
+#   빌드 · 배포 전에 거부해 아무것도 바뀌지 않게 한다. 이미 PAUSED 면(첫 배포 날 절차를 다시 돌림) 그대로 둔다.
+SCHED_STATE_BEFORE=""
+if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+  SCHED_STATE_BEFORE=$(gcloud scheduler jobs describe "${DART_SCHEDULERS[0]%%|*}" --location="$REGION" \
+    --project="$EXPECTED_PROJECT" --format='value(state)' 2>/dev/null || true)
+  if [[ -n "$SCHED_STATE_BEFORE" && "$SCHED_STATE_BEFORE" != PAUSED ]]; then
+    echo "ERROR: ${DART_SCHEDULERS[0]%%|*} 가 이미 있고 상태가 ${SCHED_STATE_BEFORE} 다 — --scheduler-paused 는 Scheduler 를 처음 만들 때만 쓴다" >&2
+    echo "       (운영 중 깨움을 멈추지 않으려고 아무것도 바꾸지 않고 멈춘다). 플래그 없이 다시 실행한다." >&2
+    exit 1
+  fi
+fi
 
 echo "✓ gcloud guard + SA/Secret/채널 check"
 
@@ -431,9 +470,11 @@ echo "✓ run.invoker bound: $SCHED_SA_NAME → $JOB"
 # ═══════════════════════════════════════════════════════════════
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 
+SMOKE_ALLOW_PAUSED=0
 for entry in "${DART_SCHEDULERS[@]}"; do
   SCHEDULER_NAME="${entry%%|*}"
   SCHEDULE="${entry#*|}"
+  SCHED_CREATED=0
   if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
     echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"
     gcloud scheduler jobs update http "$SCHEDULER_NAME" \
@@ -454,25 +495,49 @@ for entry in "${DART_SCHEDULERS[@]}"; do
       --http-method=POST \
       --oauth-service-account-email="$SCHED_SA" \
       --project="$EXPECTED_PROJECT"
+    SCHED_CREATED=1
   fi
 
-  if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+  # 멈춤은 이번에 만든 Scheduler 에만 — 이미 있던 Scheduler 는 이 배포가 멈추지도 재개하지도 않는다(리뷰 CR-50).
+  if [[ "$SCHEDULER_PAUSED" == 1 && "$SCHED_CREATED" == 1 ]]; then
     gcloud scheduler jobs pause "$SCHEDULER_NAME" \
       --location="$REGION" \
       --project="$EXPECTED_PROJECT" >/dev/null
     echo "⏸ scheduler paused: $SCHEDULER_NAME"
-  else
-    STATE=$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
-      --format='value(state)' 2>/dev/null || true)
-    if [[ "$STATE" == "PAUSED" ]]; then
-      echo "⚠ scheduler $SCHEDULER_NAME 가 멈춤(PAUSED) 상태다 — 이 배포는 재개하지 않는다." >&2
-      echo "  재개: gcloud scheduler jobs resume $SCHEDULER_NAME --location=$REGION" >&2
+  fi
+  STATE=$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
+    --format='value(state)' 2>/dev/null || true)
+  if [[ "$STATE" == "PAUSED" ]]; then
+    if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+      # 첫 배포 날 절차 — 스모크는 이 실행에서만 PAUSED 를 통과로 본다(seed → resume 은 아래 「다음 할 일」)
+      SMOKE_ALLOW_PAUSED=1
+    else
+      echo "⚠ scheduler $SCHEDULER_NAME 가 멈춤(PAUSED) 상태다 — 이 배포는 재개하지 않는다(스모크 INV-3b 가 실패한다)." >&2
+      echo "  재개: gcloud scheduler jobs resume $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
     fi
+  elif [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+    echo "⚠ scheduler $SCHEDULER_NAME 는 이미 있던 ${STATE:-상태 모름} Scheduler 라 멈추지 않았다(--scheduler-paused 는 처음 만들 때만)." >&2
   fi
 done
 
 # ═══════════════════════════════════════════════════════════════
-# Section 8: 알림 정책 2개 (update-or-create 멱등 · deploy-limitup-sync.sh Section 7 꼴)
+# Section 7b: 로그 기반 지표 — 실행 시작 로그 수(no-wake 정책이 본다 · create/update 멱등 · 리뷰 CR-50)
+# ═══════════════════════════════════════════════════════════════
+if gcloud logging metrics describe "$WAKE_METRIC_NAME" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+  gcloud logging metrics update "$WAKE_METRIC_NAME" \
+    --log-filter="$WAKE_METRIC_FILTER" \
+    --description="gh-radar-dart-alert 실행 시작 로그(dart-alert start) 수 — gh-radar-dart-alert-no-wake 정책" \
+    --project="$EXPECTED_PROJECT" >/dev/null
+else
+  gcloud logging metrics create "$WAKE_METRIC_NAME" \
+    --log-filter="$WAKE_METRIC_FILTER" \
+    --description="gh-radar-dart-alert 실행 시작 로그(dart-alert start) 수 — gh-radar-dart-alert-no-wake 정책" \
+    --project="$EXPECTED_PROJECT" >/dev/null
+fi
+echo "✓ log-based metric ready: $WAKE_METRIC_NAME"
+
+# ═══════════════════════════════════════════════════════════════
+# Section 8: 알림 정책 4개 (update-or-create 멱등 · deploy-limitup-sync.sh Section 7 꼴)
 # ═══════════════════════════════════════════════════════════════
 # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
 CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
@@ -505,23 +570,24 @@ for i in "${!ALERT_POLICY_FILES[@]}"; do
 done
 
 # ═══════════════════════════════════════════════════════════════
-# Section 9: Smoke (probe 1회 · Job 설정 · Scheduler · 「probe ok」 로그 · 알림 정책 2개)
+# Section 9: Smoke (probe 1회 · Job 설정 · Scheduler 상태 · 바인딩 · 「probe ok」 로그 · 알림 정책 4개 · 지표)
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Scheduler: ${DART_SCHEDULERS[0]%%|*} ($([[ "$SCHEDULER_PAUSED" == 1 ]] && echo 멈춤 || echo 동작))"
+echo "  Scheduler: ${DART_SCHEDULERS[0]%%|*} ($([[ "$SMOKE_ALLOW_PAUSED" == 1 ]] && echo 멈춤 || echo 동작))"
 echo "  Alert policies: ${ALERT_POLICY_NAMES[*]}"
 echo ""
 
-if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
-  echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」):"
+if [[ "$SMOKE_ALLOW_PAUSED" == 1 ]]; then
+  echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」 — resume 을 빠뜨리면 평일 창 안 30분 뒤 no-wake 메일):"
   echo "  1. gcloud run jobs execute $JOB --region=$REGION --update-env-vars=DART_ALERT_MODE=seed   (--wait 없이)"
   echo "  2. Cloud Logging 에서 「seed done」 확인"
   echo "  3. gcloud scheduler jobs resume ${DART_SCHEDULERS[0]%%|*} --location=$REGION"
 fi
 
 echo "▶ smoke tests..."
-bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"
+# PAUSED 는 스모크 실패다(INV-3b) — 이 배포가 --scheduler-paused 로 멈춘 첫 배포 날만 통과로 본다(리뷰 CR-50).
+DART_SMOKE_ALLOW_PAUSED="$SMOKE_ALLOW_PAUSED" bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"
 
 echo ""
 echo "✅ deploy-dart-alert.sh complete"

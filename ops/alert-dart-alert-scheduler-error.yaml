@@ -1,0 +1,36 @@
+displayName: gh-radar-dart-alert-scheduler-error
+documentation:
+  content: |
+    ## 공시 알림(dart-alert) 깨움 실패 (Phase 43 · D-16 · 리뷰 CR-50)
+
+    **무엇을 잡나** — Cloud Scheduler `gh-radar-dart-alert-wake`(평일 `07:00` ~ `19:55` 5분마다 Cloud Run Job `gh-radar-dart-alert` 를 깨움)의 호출이 실패했다(Scheduler 로그 severity ERROR). 깨움이 실패하면 **실행이 생기지 않아** 실행 실패 메일(`gh-radar-dart-alert-failure`) · error 로그 메일(`gh-radar-dart-alert-error-log`) · 단체방 「⚠ 멈췄습니다」 가 모두 나오지 않는다. 지금 도는 실행이 죽으면 그날 알림이 끊긴다.
+
+    **원인 후보**
+    1. `PERMISSION_DENIED`(403) — Scheduler SA `gh-radar-scheduler-sa` 의 Job `run.invoker` 바인딩이 사라졌다. 다시 배포하면(`deploy-dart-alert.sh` Section 6) 다시 묶인다.
+    2. `NOT_FOUND`(404) — Job 이 지워졌거나 Scheduler 대상 URI 가 틀렸다. 다시 배포한다.
+    3. `UNAUTHENTICATED` · OAuth 오류 — Scheduler 의 `--oauth-service-account-email` 이 바뀌었거나 SA 가 비활성이다.
+    4. `RESOURCE_EXHAUSTED` · `UNAVAILABLE` — Cloud Run 쪽 일시 오류. 다음 깨움(5분 뒤)이 되면 저절로 풀린다 — 같은 메일이 이어지면 위 1 ~ 3 을 본다.
+
+    **확인 명령**
+    - 깨움 로그: `gcloud logging read 'resource.type="cloud_scheduler_job" AND resource.labels.job_id="gh-radar-dart-alert-wake"' --project=gh-radar --freshness=1h --limit=10 --format='value(timestamp,severity,jsonPayload.status,httpRequest.status)'`
+    - Scheduler 상태 · 대상: `gcloud scheduler jobs describe gh-radar-dart-alert-wake --location=asia-northeast3 --project=gh-radar`
+    - 바인딩: `gcloud run jobs get-iam-policy gh-radar-dart-alert --region=asia-northeast3 --project=gh-radar`
+    - 한 번에 점검: `bash scripts/smoke-dart-alert.sh` (INV-3 깨움 · INV-3c 바인딩 · 대상)
+
+    **이 정책이 못 잡는 것** — Scheduler 가 멈춤(PAUSED) · 삭제 상태면 호출 자체가 없어 로그도 없다. 그 경우는 `gh-radar-dart-alert-no-wake`(평일 창 안 30분 동안 실행 시작 0건) 메일이 온다.
+  mimeType: text/markdown
+conditions:
+  - displayName: dart-alert wake scheduler error
+    conditionMatchedLog:
+      filter: |
+        resource.type = "cloud_scheduler_job"
+        AND resource.labels.job_id = "gh-radar-dart-alert-wake"
+        AND severity >= ERROR
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  notificationRateLimit:
+    period: 3600s
+  autoClose: 1800s

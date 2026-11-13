@@ -1,0 +1,48 @@
+displayName: gh-radar-dart-alert-no-wake
+documentation:
+  content: |
+    ## 공시 알림(dart-alert) 깨움 없음 — 평일 창 안 30분 동안 실행 시작 0건 (Phase 43 · D-16 · 리뷰 CR-50)
+
+    **무엇을 잡나** — 평일 KST `07:40` ~ `20:00` 에, Cloud Run Job `gh-radar-dart-alert` 의 실행 시작 로그(`dart-alert start`)가 **최근 30분 동안 한 건도 없는** 상태가 10분 이어졌다. Scheduler `gh-radar-dart-alert-wake` 는 평일 `07:00` ~ `19:55` 5분마다 실행을 하나씩 띄우고, 모든 실행이 시작할 때 `dart-alert start` 를 남긴다(임대를 쥔 실행이 있으면 새 실행은 몇 초 만에 끝나지만 시작 로그는 남는다). 30분 동안 0건이면 깨움이 멈췄다는 뜻이다.
+    깨움이 없으면 실행 실패 메일 · error 로그 메일 · 단체방 「⚠ 멈췄습니다」 가 **하나도 나오지 않는다** — 이 메일이 그 「조용한 끊김」 의 유일한 신호다. 지금 도는 실행이 20:00 까지 살아 있으면 알림은 계속 나가지만, 그 실행이 죽으면 이어받을 실행이 없다.
+
+    **원인 후보**
+    1. Scheduler 가 멈춤(PAUSED) — `--scheduler-paused` 배포 뒤 `resume` 을 빠뜨렸다(첫 배포 날 절차 4단계). 첫 배포 날 seed 실행 뒤 resume 하기 전이면 이 메일이 오는 것이 정상이다 — resume 하라는 신호다.
+       재개: `gcloud scheduler jobs resume gh-radar-dart-alert-wake --location=asia-northeast3 --project=gh-radar`
+    2. Scheduler 가 지워졌다 — 다시 배포한다(`deploy-dart-alert.sh` 가 만든다).
+    3. 깨움 호출이 실패한다(`run.invoker` 바인딩 유실 · 대상 URI 오류) — `gh-radar-dart-alert-scheduler-error` 메일이 같이 온다.
+    4. 로그 기반 지표 `dart_alert_wake_starts` 가 지워졌거나 필터가 바뀌었다 — 실행은 정상인데 이 메일만 오면 이 경우다. 다시 배포하면 지표를 다시 만든다.
+
+    **밤 · 주말에 울리지 않는 이유** — 조건 식이 평가 시각(`time()`)을 KST(+9시간)로 옮겨 요일 1 ~ 5(월 ~ 금) · KST `07:40` 이상 · `20:00` 미만일 때만 결과를 낸다. 그 밖 시각에는 식 결과가 비어 조건이 거짓이고, 창이 끝나면(20:00) 열린 인시던트도 저절로 닫힌다.
+    - `07:40` 부터 보는 이유: 07:00 첫 깨움 전에는 밤새 실행이 없어 「30분 동안 0건」 이 늘 참이다. 07:10 · 07:15 … 깨움이 쌓인 뒤부터 본다.
+    - 평일 공휴일: 수집기에 휴장일 달력이 없어 깨움이 그대로 돈다(D-11) — 울리지 않는다.
+    - 배포 직후: 로그 기반 지표는 만든 뒤부터 센다. 창 안에서 처음 만들면 첫 깨움(≤ 5분) 전까지 「0건」 이 참일 수 있어 `duration` 10분을 둔다.
+
+    **확인 명령**
+    - Scheduler 상태(ENABLED 여야 함): `gcloud scheduler jobs describe gh-radar-dart-alert-wake --location=asia-northeast3 --project=gh-radar --format='value(state,schedule,timeZone)'`
+    - 최근 실행: `gcloud run jobs executions list --job=gh-radar-dart-alert --region=asia-northeast3 --project=gh-radar --limit=5`
+    - 시작 로그: `gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-dart-alert" AND jsonPayload.msg="dart-alert start"' --project=gh-radar --freshness=1h --limit=5 --format='value(timestamp,jsonPayload.holder)'`
+    - 한 번에 점검: `bash scripts/smoke-dart-alert.sh`
+  mimeType: text/markdown
+conditions:
+  - displayName: dart-alert no execution start for 30 min (weekday KST 07:40 ~ 20:00)
+    conditionPrometheusQueryLanguage:
+      # 로그 기반 지표(카운터) logging.googleapis.com/user/dart_alert_wake_starts — deploy-dart-alert.sh 가 만든다.
+      # 일치하는 로그가 없으면 지표 점이 쓰이지 않으므로 absent_over_time 이 「30분 동안 0건」 을 뜻한다.
+      # vector(time() + 32400) = 평가 시각을 KST 로 옮긴 값 — day_of_week 1 ~ 5 · 분(分) 기준 460(07:40) 이상 · hour 20 미만만 남긴다.
+      query: |
+        absent_over_time(logging_googleapis_com:user_dart_alert_wake_starts{monitored_resource="cloud_run_job", job_name="gh-radar-dart-alert"}[30m])
+          and on() (day_of_week(vector(time() + 32400)) >= 1)
+          and on() (day_of_week(vector(time() + 32400)) <= 5)
+          and on() (hour(vector(time() + 32400)) * 60 + minute(vector(time() + 32400)) >= 460)
+          and on() (hour(vector(time() + 32400)) < 20)
+      duration: 600s
+      evaluationInterval: 60s
+      # 지표를 막 만들어 아직 점이 없을 때도 정책을 만들 수 있게
+      disableMetricValidation: true
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  autoClose: 1800s
