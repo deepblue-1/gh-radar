@@ -304,3 +304,79 @@ describe("창 경계 — 다른 날로 넘어간 장애", () => {
     expect(outageText(since, "a")).toContain("19:50 부터");
   });
 });
+
+describe("짝 글이 깨지지 않는다 (리뷰 WR-02)", () => {
+  it("「멈췄습니다」 는 나갔는데 notice 기록이 한 번 실패 → 다음 바퀴에 다시 적고 · 회복 때 「다시 동작」 1건", async () => {
+    let outageCalls = 0;
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:12:00"),
+      db: {
+        lastOk: fresh("10:00:00"),
+        before: (fn) => {
+          if (fn === "dart_alert_outage" && ++outageCalls === 2) throw new Error("dart_alert_outage 실패: fetch failed");
+        },
+      },
+      dart: { reply: dartDown("10:10:00") },
+    });
+    await h.run();
+    expect(stopped(h)).toHaveLength(1);
+    expect(h.logs.count("dart outage notice record failed", "error")).toBe(1);
+    expect(h.logs.count("dart outage notice recorded on retry", "info")).toBe(1);
+    expect(h.db.calls.outage.filter((c) => c.action === "notice").map((c) => c.reason)).toEqual(["sent"]);
+    expect(recovered(h)).toHaveLength(1);
+    expect(closes(h)).toHaveLength(1);
+  });
+
+  it("notice 기록이 회복 때까지 계속 실패해 DB 가 pending 이어도 — 「멈췄습니다」 를 보낸 실행은 「다시 동작」 을 보낸다", async () => {
+    let outageCalls = 0;
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:12:00"),
+      db: {
+        lastOk: fresh("10:00:00"),
+        before: (fn, now) => {
+          if (fn === "dart_alert_outage" && ++outageCalls > 1 && now < at("10:10:00")) throw new Error("dart_alert_outage 실패: fetch failed");
+        },
+      },
+      dart: { reply: dartDown("10:10:00") },
+    });
+    await h.run();
+    expect(stopped(h)).toHaveLength(1);
+    expect(h.logs.count("dart outage notice record retry failed", "warn")).toBeGreaterThan(1);
+    expect(recovered(h)).toHaveLength(1);
+    expect(recovered(h)[0].text).toBe(recoveredText(at("10:00:00"), at("10:10:00")));
+    expect(h.db.state.outage.since).toBeNull();
+  });
+
+  it("「다시 동작」 송신이 실패하면 DB 를 닫지 않고 다음 성공 바퀴에 다시 보낸 뒤 닫는다 · 120초 넘으면 error 1번", async () => {
+    let recoveredTries = 0;
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:16:00"),
+      db: { lastOk: fresh("10:00:00") },
+      dart: { reply: dartDown("10:10:00") },
+      telegram: {
+        reply: (c) =>
+          c.text.startsWith("✅") && ++recoveredTries <= 6 ? { kind: "transient", code: 502, description: "Bad Gateway" } : undefined,
+      },
+    });
+    await h.run();
+    expect(stopped(h)).toHaveLength(1);
+    const tries = recovered(h);
+    expect(tries).toHaveLength(7);
+    expect(tries.slice(0, 6).every((t) => t.result.kind === "transient")).toBe(true);
+    expect(tries[6].result.kind).toBe("ok");
+    // 재시도 간격은 5 · 10 · 20 · 40 · 60초 꼴로 는다
+    const gaps = tries.slice(1).map((t, i) => t.at - tries[i].at);
+    expect(gaps[0]).toBeGreaterThanOrEqual(5_000);
+    expect(gaps[3]).toBeGreaterThanOrEqual(40_000);
+    expect(h.logs.count("dart outage recovered notice failed — keeping outage open, retrying", "warn")).toBe(6);
+    expect(h.logs.count("dart outage recovered notice unsent over 120s", "error")).toBe(1);
+    // close 는 「다시 동작」 이 나간 뒤 한 번 · 그 전에는 DB 가 열려 있다
+    expect(closes(h)).toHaveLength(1);
+    expect(closes(h)[0].at).toBeGreaterThanOrEqual(tries[6].at);
+    expect(h.db.state.outage.since).toBeNull();
+    expect(opens(h)).toHaveLength(1);
+  });
+});

@@ -7,6 +7,9 @@ import {
   collectOnce,
   deliverPending,
   newLapState,
+  RETRY_BASE_S,
+  RETRY_MAX_S,
+  UNSENT_ERROR_MS,
   newSendPacer,
   sendPaced,
   type CollectResult,
@@ -66,7 +69,8 @@ import type { JudgeOptions, Watch, WatchId } from "./watches";
  * 43-06 장애 짝 글(D-16 · D-17): 확인 시간대 안에서 감시 대상 하나라도 기준점(마지막 성공 조회 · 없으면 07:02)에서
  *   5분(`OUTAGE_AFTER_MS`) 넘게 성공이 없으면 `dart_alert_outage open` → opened true 인 실행만 「⚠ 공시 알림이 멈췄습니다」
  *   1건 → notice sent/failed → error `dart outage opened`(→ 43-07 로그 일치 이메일). 같은 장애 동안 다시 올리지 않는다.
- *   모든 감시 대상이 성공한 첫 바퀴에 close → 「멈췄습니다」 가 실제로 나갔을 때만 「✅ 다시 동작」 1건 · info `dart outage closed`.
+ *   모든 감시 대상이 성공한 첫 바퀴에 「멈췄습니다」 가 실제로 나갔을 때만 「✅ 다시 동작」 1건 → 나간 뒤에 close · info
+ *   `dart outage closed`. 「다시 동작」 이 실패하면 DB 를 열어 둔 채 다음 성공 바퀴에 다시(짝 보장 · 리뷰 WR-02).
  *   시작 점검(`startupCheck` — auto 는 첫 바퀴 전 · seed 는 seed 바퀴 뒤)이 죽은 수집기 · 글 전에 죽은 실행을 덮고,
  *   치명 종료(`outageOnFatal`) 직전에도 같은 장애 글을 쓴다(실패해도 종료 1 그대로). 창 끝에 열린 장애는 다음 날 첫 성공에 닫는다.
  *
@@ -159,6 +163,35 @@ export class StopRun extends Error {
 
 type HaltReason = "quota" | "dart_key" | "dart_bug" | "unknown_streak";
 
+/**
+ * 이 실행이 아는 열린 장애(리뷰 WR-02 — 「멈췄습니다」 · 「다시 동작」 짝을 메모리에서도 지킨다).
+ * - `noticeSent` — 「멈췄습니다」 가 실제로 나갔나. null = 모름(DB 가 이미 열려 있다고만 답함 → 닫을 때 DB 상태로 확인).
+ * - `noticeUnrecorded` — notice 기록 RPC 가 실패해 아직 DB 에 못 적은 값(다음 바퀴마다 다시 적는다).
+ * - `nextRecoveredAt` · `recoveredTries` · `recoveredFirstTryAt` · `recoveredErrorLogged` — 「다시 동작」 송신이 실패하면 DB 를
+ *   닫지 않고 두었다가 다음 성공 바퀴에 다시 보낸다(재시도 간격 · 120초 넘으면 error 1번).
+ */
+interface OpenOutage {
+  sinceMs: number;
+  noticeSent: boolean | null;
+  noticeUnrecorded: "sent" | "failed" | null;
+  nextRecoveredAt: number;
+  recoveredTries: number;
+  recoveredFirstTryAt: number | null;
+  recoveredErrorLogged: boolean;
+}
+
+function openOutageState(sinceMs: number, noticeSent: boolean | null): OpenOutage {
+  return {
+    sinceMs,
+    noticeSent,
+    noticeUnrecorded: null,
+    nextRecoveredAt: 0,
+    recoveredTries: 0,
+    recoveredFirstTryAt: null,
+    recoveredErrorLogged: false,
+  };
+}
+
 const HALT_BY_KIND: Partial<Record<string, HaltReason>> = { quota: "quota", key: "dart_key", bug: "dart_bug" };
 
 /** 치명 종료 이유 → 장애 글 사유(D-17 · 공식 API 운영 기준 ④). 여기 없는 종료(seed_failed · error 등)는 장애 글을 쓰지 않는다 */
@@ -195,7 +228,7 @@ class Collector {
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
   private readonly lastOk = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
-  private outage: { sinceMs: number } | null = null;
+  private outage: OpenOutage | null = null;
   /** 시작 때 DB 장애 상태(readState) */
   private dbOutage: { since: string | null; notice: string | null } = { since: null, notice: null };
   private readonly lapState: LapState = newLapState();
@@ -463,6 +496,7 @@ class Collector {
 
     await this.maintain(this.now(), false);
     await this.deliver();
+    await this.retryNoticeRecord();
     if (r) await this.judgeOutage(r);
     else await this.judgeInsertFailure(startedAt, insertErr);
 
@@ -532,7 +566,7 @@ class Collector {
     if (!isInWindow(now)) return;
     const dbSinceMs = Date.parse(this.dbOutage.since ?? "");
     if (Number.isFinite(dbSinceMs)) {
-      this.outage = { sinceMs: dbSinceMs };
+      this.outage = openOutageState(dbSinceMs, this.dbOutage.notice === "sent");
       if (this.dbOutage.notice === "pending") await this.openOutage(this.stalledReason(now), dbSinceMs, true);
       return;
     }
@@ -588,18 +622,23 @@ class Collector {
       log.error({ err: safeErrorFields(err), reason }, "dart outage open failed");
       return;
     }
-    this.outage = { sinceMs };
     if (res.opened !== true) {
+      // DB 에 이미 열린 장애(글을 이미 남김) — sent 인지 failed 인지는 닫을 때 DB 로 확인한다
+      this.outage = openOutageState(sinceMs, null);
       log.info({ reason }, "dart outage already open — not posting again");
       return;
     }
+    const o = (this.outage = openOutageState(sinceMs, false));
     const sent = await this.sendNotice(outageText(sinceMs, reason));
     const notice = sent?.kind === "ok" ? "sent" : "failed";
+    o.noticeSent = sent?.kind === "ok";
     if (sent !== null) {
       try {
         await db.outage("notice", notice);
       } catch (err) {
         if (err instanceof LeaseLostError) throw err;
+        // DB 는 pending 으로 남는다 — 다음 바퀴마다 다시 적는다(못 적은 채 실행이 바뀌면 다음 실행이 같은 글을 한 번 더 올린다)
+        o.noticeUnrecorded = notice;
         log.error({ err: safeErrorFields(err), notice }, "dart outage notice record failed");
       }
     }
@@ -615,26 +654,84 @@ class Collector {
     );
   }
 
-  /** 장애 닫기 — 「멈췄습니다」 가 실제로 나갔을 때만(notify) 「✅ 다시 동작」 1건 · info `dart outage closed` */
+  /**
+   * 장애 닫기 — 「멈췄습니다」 가 실제로 나갔을 때만(notify) 「✅ 다시 동작」 1건 **보낸 뒤** DB close · info `dart outage closed`.
+   * 「다시 동작」 송신이 실패하면 DB 를 열어 둔 채 warn 뒤 다음 성공 바퀴에 다시 보낸다(짝이 깨지지 않게 · 실행이 바뀌어도
+   * 다음 실행이 DB 의 열린 장애를 이어받아 보낸다). 120초 넘게 못 보내면 error 1번(리뷰 WR-02).
+   * notify 는 메모리(이 실행이 보냈나 · 이어받을 때 DB notice)로 판정한다 — notice 기록 RPC 가 실패해 DB 가 pending 이어도 짝을 지킨다.
+   */
   private async closeOutage(): Promise<void> {
     const { db, log } = this.d;
+    const o = this.outage;
+    if (!o) return;
+    if (o.noticeSent === null) o.noticeSent = await this.dbNoticeSent();
+    const now = this.now();
+    let sent: SendResult | null = null;
+    if (o.noticeSent) {
+      if (now < o.nextRecoveredAt) return;
+      sent = await this.sendNotice(recoveredText(o.sinceMs, now));
+      if (sent?.kind !== "ok") {
+        this.recoveredFailed(o, sent);
+        return;
+      }
+    }
     let res: Record<string, unknown>;
     try {
       res = await db.outage("close");
     } catch (err) {
       if (err instanceof LeaseLostError) throw err;
+      // 「다시 동작」 은 이미 나갔다 — 다시 보내지 않고 close 만 다음 바퀴에 다시
+      if (sent?.kind === "ok") o.noticeSent = false;
       log.warn({ err: safeErrorFields(err) }, "dart outage close failed — retrying next lap");
       return;
     }
-    const sinceMs = this.outage?.sinceMs ?? Date.parse(String(res.since ?? ""));
     this.outage = null;
-    const notify = res.closed === true && res.notify === true;
-    let sent: SendResult | null = null;
-    if (notify && Number.isFinite(sinceMs)) sent = await this.sendNotice(recoveredText(sinceMs, this.now()));
     log.info(
-      { closed: res.closed === true, notify, sent: sent === null ? null : sent.kind, ...(sent && sent.kind !== "ok" ? { telegram: telegramSafeFields(sent) } : {}) },
+      { closed: res.closed === true, notify: sent !== null, sent: sent === null ? null : sent.kind, recoveredTries: o.recoveredTries + (sent ? 1 : 0) },
       "dart outage closed",
     );
+  }
+
+  /** 「다시 동작」 송신 실패 — DB 는 열어 둔 채 재시도 간격을 늘리고 warn, 처음 시도에서 120초가 넘으면 error 1번 */
+  private recoveredFailed(o: OpenOutage, sent: SendResult | null): void {
+    const now = this.now();
+    o.recoveredTries += 1;
+    o.recoveredFirstTryAt ??= now;
+    o.nextRecoveredAt = now + Math.min(RETRY_MAX_S, RETRY_BASE_S * 2 ** (o.recoveredTries - 1)) * 1000;
+    const fields = {
+      tries: o.recoveredTries,
+      sinceFirstTryS: Math.round((now - o.recoveredFirstTryAt) / 1000),
+      ...(sent ? { telegram: telegramSafeFields(sent) } : { telegram: null }),
+    };
+    this.d.log.warn(fields, "dart outage recovered notice failed — keeping outage open, retrying");
+    if (!o.recoveredErrorLogged && now - o.recoveredFirstTryAt > UNSENT_ERROR_MS) {
+      o.recoveredErrorLogged = true;
+      this.d.log.error(fields, "dart outage recovered notice unsent over 120s");
+    }
+  }
+
+  /** 이어받았지만 notice 를 모르는 열린 장애 — DB 상태 표의 notice 가 sent 인가(읽기 실패면 false · warn) */
+  private async dbNoticeSent(): Promise<boolean> {
+    try {
+      return (await this.d.db.readState()).outage.notice === "sent";
+    } catch (err) {
+      this.d.log.warn({ err: safeErrorFields(err) }, "dart outage notice read failed — not posting recovered notice");
+      return false;
+    }
+  }
+
+  /** notice 기록 RPC 가 실패했던 값을 다시 적는다(리뷰 WR-02) — 실패면 warn 뒤 다음 바퀴 */
+  private async retryNoticeRecord(): Promise<void> {
+    const o = this.outage;
+    if (!o?.noticeUnrecorded) return;
+    try {
+      await this.d.db.outage("notice", o.noticeUnrecorded);
+      this.d.log.info({ notice: o.noticeUnrecorded }, "dart outage notice recorded on retry");
+      o.noticeUnrecorded = null;
+    } catch (err) {
+      if (err instanceof LeaseLostError) throw err;
+      this.d.log.warn({ err: safeErrorFields(err), notice: o.noticeUnrecorded }, "dart outage notice record retry failed");
+    }
   }
 
   /**
