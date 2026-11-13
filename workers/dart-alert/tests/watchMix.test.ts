@@ -136,6 +136,48 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     expect(h.logs.count("daily budget exhausted — stopping this run")).toBe(0);
   });
 
+  it("키 2 예산 소진으로 열린 장애 동안 키 1 이 5분 넘게 800 → error `dart outage widened — other key failing` 1번 · 단체방 글은 한 쌍 그대로(리뷰 WR-02)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:08:00"),
+      watches: ALL_WATCHES,
+      db: { used2: 14_995, lastOk: lastOkAll("09:59:55") },
+      dart: { reply: (c) => (c.watch.key === 1 && c.now >= at("10:01:00") ? { status: "800" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 키 2 장애(예산 소진)는 10:00:10 바퀴 끝에 열림 — 글 1건뿐(보충 글 없음)
+    expect(h.telegram.notices()).toHaveLength(1);
+    expect(h.logs.count("dart outage opened", "error")).toBe(1);
+    // 키 1 기준점: D004 10:00:55 · B001 10:00:50(마지막 성공) → 둘 다 5분을 넘는 첫 바퀴 = 10:06:00(305초 · 310초)
+    const widened = h.logs.lines.filter((l) => l.msg === "dart outage widened — other key failing");
+    expect(widened).toHaveLength(1);
+    expect(widened[0].level).toBe("error");
+    expect(widened[0].obj).toMatchObject({ watches: ["tender_offer", "rights_merger"], outageKeys: [2] });
+    // 10:06:00 ~ 10:07:55 동안 실패가 이어져도 장애 1건당 1번
+    expect(h.dart.callsOf("tender_offer").filter((c) => c.at > at("10:06:00"))).not.toHaveLength(0);
+  });
+
+  it("DB 에서 이어받은 장애(연 키 모름) + 시작 때 키 2 예산 소진 → 멈춘 키 2 를 연 키로 보고 키 1 실패만 error 1번 · 새 글 0(리뷰 WR-02)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:06:00"),
+      watches: ALL_WATCHES,
+      db: {
+        used2: 15_000,
+        lastOk: lastOkAll("09:59:55"),
+        outage: { since: iso("09:50:00"), reason: "거래소 시장조치 · 거래소 수시공시 · 최대주주 소유주식 변동 · 임원ㆍ주요주주 거래계획 — 자체 하루 예산 소진", notice: "sent" },
+      },
+      dart: { reply: (c) => (c.watch.key === 1 ? { status: "800" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.telegram.notices()).toHaveLength(0);
+    // 기준점 09:59:55 + 5분 넘는 첫 바퀴 = 10:05:00(305초) — D004 · B001(10초 칸) 둘 다
+    const widened = h.logs.lines.filter((l) => l.msg === "dart outage widened — other key failing");
+    expect(widened).toHaveLength(1);
+    expect(widened[0].obj).toMatchObject({ watches: ["tender_offer", "rights_merger"], outageKeys: [2] });
+    expect(h.db.calls.outage.filter((c) => c.action === "open")).toHaveLength(0);
+  });
+
   it("시작 탐침 키별 — 키 2 표시 1 · 키 2 탐침 020 → 키 2 감시 대상 0 · 키 1 정상 · 장애 글 1(한도 의심 재확인 실패)", async () => {
     const h = harness({
       start: at("10:00:00"),

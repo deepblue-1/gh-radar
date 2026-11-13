@@ -102,7 +102,9 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *   치명 종료(`outageOnFatal`) 직전에도 같은 장애 글을 쓴다(실패해도 종료 1 그대로). 창 끝에 열린 장애는 다음 날 첫 성공에 닫는다.
  *   키 하나가 멈추면(261113-rn7) 「⚠ … (막힌 키의 감시 대상 이름들 — 사유)」 로 연다. DB 장애 칸이 한 줄이라 장애 글은 한 쌍이다 —
  *   먼저 막힌 키의 사유로 열고, 열린 동안 다른 키까지 막히면 단체방 글은 더 없고 error 로그(→ 운영자 메일)만. 멈춘 키가
- *   하나라도 있으면 닫지 않는다(두 키 모두 회복해야 「다시 동작」).
+ *   하나라도 있으면 닫지 않는다(두 키 모두 회복해야 「다시 동작」). 열린 동안 그 장애를 연 키가 아닌 키의 감시 대상이 기준점에서
+ *   5분 넘게 실패하면(일시 오류 — 멈춤 신호 아님) error `dart outage widened — other key failing` 을 장애 1건당 1번(리뷰 WR-02 —
+ *   열린 글이 「키 2 쪽만」 이라 말하는 동안 공개매수 공백이 아무에게도 안 보이는 사각을 메일로 덮는다 · 단체방 글은 한 쌍 그대로).
  *
  * 시계 · sleep · DB · DART · 텔레그램은 모두 주입받는다 — 13시간 실행을 가짜 시계 테스트로 돌린다(tests/helpers/fakes.ts).
  */
@@ -230,6 +232,8 @@ interface KeyLane {
  * - `noticeUnrecorded` — notice 기록 RPC 가 실패해 아직 DB 에 못 적은 값(다음 바퀴마다 다시 적는다).
  * - `nextRecoveredAt` · `recoveredTries` · `recoveredFirstTryAt` · `recoveredErrorLogged` — 「다시 동작」 송신이 실패하면 DB 를
  *   닫지 않고 두었다가 다음 성공 바퀴에 다시 보낸다(재시도 간격 · 120초 넘으면 error 1번).
+ * - `keys` — 이 장애를 연 키(그 키 감시 대상의 실패는 열린 글이 덮는다) · null = 모름(DB 에서 이어받은 장애) ·
+ *   `widenedLogged` — 다른 키 실패 error 를 이 장애에서 이미 남겼나(리뷰 WR-02 · 장애가 닫히면 상태째 사라진다).
  */
 interface OpenOutage {
   sinceMs: number;
@@ -239,12 +243,16 @@ interface OpenOutage {
   recoveredTries: number;
   recoveredFirstTryAt: number | null;
   recoveredErrorLogged: boolean;
+  keys: ReadonlySet<DartKeyId> | null;
+  widenedLogged: boolean;
 }
 
-function openOutageState(sinceMs: number, noticeSent: boolean | null): OpenOutage {
+function openOutageState(sinceMs: number, noticeSent: boolean | null, keys: ReadonlySet<DartKeyId> | null = null): OpenOutage {
   return {
     sinceMs,
     noticeSent,
+    keys,
+    widenedLogged: false,
     noticeUnrecorded: null,
     nextRecoveredAt: 0,
     recoveredTries: 0,
@@ -747,7 +755,7 @@ class Collector {
       const reasonOf = FATAL_OUTAGE_REASON[p.reason];
       const now = this.now();
       if (reasonOf && this.haveLease && isInWindow(now) && !this.outage) {
-        await this.openOutage(`${this.laneLabel(l)} — ${reasonOf(p.code)}`, now);
+        await this.openOutage(`${this.laneLabel(l)} — ${reasonOf(p.code)}`, now, false, new Set([l.key]));
       }
     }
   }
@@ -767,7 +775,8 @@ class Collector {
       this.d.log.error({ err: fields, sinceMs: now - f.since }, "dart alert insert failing");
     }
     if (!isInWindow(now) || this.outage || this.hasFreshPause()) return;
-    await this.openOutage(`공시 저장 실패 ${fields.code ?? fields.kind}`, f.since);
+    // 넣기 실패는 모든 감시 대상의 알림을 막는다 — 쓰는 키 전부가 연 장애
+    await this.openOutage(`공시 저장 실패 ${fields.code ?? fields.kind}`, f.since, false, new Set(this.usedKeys));
   }
 
   /** 이 바퀴에 부를까 — 그 키가 멈추지 않았고 그리고 조회 칸 차례(멈춘 키는 칸을 소비하지 않는다 · 261113-rn7) */
@@ -902,7 +911,7 @@ class Collector {
     const stale = this.d.watches.filter((w) => this.laneOf(w.key).paused === null && now - this.coverOf(now, w.id) > OUTAGE_AFTER_MS);
     if (stale.length === 0) return;
     const since = Math.min(...stale.map((w) => this.coverOf(now, w.id)));
-    await this.openOutage(this.stalledReason(now), since);
+    await this.openOutage(this.stalledReason(now), since, false, new Set(stale.map((w) => w.key)));
   }
 
   /** 「수집기 중단(마지막 조회 HH:MM)」 — 오늘 성공 조회가 하나도 없으면 「오늘 조회 기록 없음」 */
@@ -930,12 +939,44 @@ class Collector {
       if (this.outage && this.failing.size === 0 && !this.anyPaused()) await this.closeOutage();
       return;
     }
-    if (this.outage || this.hasFreshPause()) return;
+    if (this.outage) {
+      this.noteOutageWidened(failed, now);
+      return;
+    }
+    if (this.hasFreshPause()) return;
     const stale = failed.filter((x) => now - this.coverOf(now, x.watch) > OUTAGE_AFTER_MS);
     if (stale.length === 0) return;
     const since = Math.min(...stale.map((x) => this.coverOf(now, x.watch)));
     const reason = stale.map((x) => `${WATCH_LABEL[x.watch] ?? x.watch} ${errBrief(x.error)}`).join(" · ");
-    await this.openOutage(reason, since);
+    const keys = new Set(stale.flatMap((x) => this.d.watches.filter((w) => w.id === x.watch).map((w) => w.key)));
+    await this.openOutage(reason, since, false, keys);
+  }
+
+  /**
+   * 열린 장애가 덮지 않는 키의 실패(리뷰 WR-02) — 장애를 연 키가 아닌 키의 감시 대상이 기준점에서 5분 넘게 실패하면 error 1번
+   * (→ 운영자 메일). 단체방 글은 한 쌍 그대로(보충 글 없음). 연 키를 모르면(DB 에서 이어받은 장애) 지금 멈춘 키를 연 키로 본다 —
+   * 이어받은 장애가 남아 있는 흔한 까닭이 그 키 멈춤(예산 · 한도)이고, 멈춘 키 감시 대상은 부르지 않아 어차피 실패가 안 나온다.
+   */
+  private noteOutageWidened(failed: CollectResult["results"], now: number): void {
+    const o = this.outage;
+    if (!o || o.widenedLogged) return;
+    const covered = o.keys ?? new Set(this.usedLanes().filter((l) => l.paused !== null).map((l) => l.key));
+    const keyOf = (id: WatchId) => this.d.watches.find((w) => w.id === id)?.key;
+    const others = failed.filter((x) => {
+      const k = keyOf(x.watch);
+      return k !== undefined && !covered.has(k) && now - this.coverOf(now, x.watch) > OUTAGE_AFTER_MS;
+    });
+    if (others.length === 0) return;
+    o.widenedLogged = true;
+    this.d.log.error(
+      {
+        watches: others.map((x) => x.watch),
+        errs: others.map((x) => errBrief(x.error)),
+        outageKeys: [...covered],
+        outageSince: new Date(o.sinceMs).toISOString(),
+      },
+      "dart outage widened — other key failing",
+    );
   }
 
   /**
@@ -943,7 +984,7 @@ class Collector {
    * (→ 43-07 로그 일치 이메일). opened false 면 이미 열린 장애(글을 이미 남김)라 메모리에만 적는다.
    * `LeaseLostError` 는 위로, 그 밖 DB 오류는 error 로그 뒤 다음 기회(다음 바퀴 · 다음 실행)에 다시.
    */
-  private async openOutage(reasonIn: string, sinceMs: number, reopen = false): Promise<void> {
+  private async openOutage(reasonIn: string, sinceMs: number, reopen = false, keys: ReadonlySet<DartKeyId> | null = null): Promise<void> {
     const { db, log } = this.d;
     const reason = reasonIn.replace(/\s+/g, " ").trim().slice(0, REASON_MAX);
     let res: Record<string, unknown>;
@@ -964,7 +1005,7 @@ class Collector {
       log.info({ reason }, "dart outage already open — not posting again");
       return;
     }
-    const o = (this.outage = openOutageState(sinceMs, false));
+    const o = (this.outage = openOutageState(sinceMs, false, keys));
     const sent = await this.sendNotice(outageText(sinceMs, reason));
     const notice = sent?.kind === "ok" ? "sent" : "failed";
     o.noticeSent = sent?.kind === "ok";
