@@ -38,7 +38,8 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *      새로 잡으며 DB 가 오늘 `sending` 을 `pending` 으로 되돌렸으면(reclaimed > 0) warn `possible duplicate after takeover`
  *      — 그 건들은 첫 바퀴 차례에서 이어 보낸다(SC-5 · 드문 중복은 받아들임).
  *   ③ 예산 — 쓰는 키마다 `api_usage`(키 1 `opendart_list` · 키 2 `opendart_list_k2` · KST 날짜)가 하루 예산 이상이면 그 키
- *      감시 대상을 부르지 않는다(그 키 레인 멈춤). 쓰는 키가 전부 찼으면 OpenDART 를 부르지 않고 종료 0.
+ *      감시 대상을 부르지 않는다(그 키 레인 멈춤 · DB 에 열린 장애가 없으면 그 키 error · 장애 글 — 리뷰 IN-04). 쓰는 키가
+ *      전부 찼으면 OpenDART 를 부르지 않고 종료 0.
  *   ④ 탐침 — 쓰는 키마다 오늘 그 키 한도 의심 표시가 있으면 그 키로 단독 탐침 1건 → 실패면 그 키 레인만 멈추고(5분 뒤
  *      재탐침) 다른 키는 수집 · 쓰는 키가 전부 멈추면 종료 1. 성공해야 그 키 수집 재개.
  *   ⑤ 기준점 — DB `last_ok`(감시 대상별 마지막 성공 조회 + 오늘 아침 전날 확인 표시 `prevday:<감시 대상 id>`)를 메모리로.
@@ -495,6 +496,11 @@ class Collector {
 
     // ⑤ 기준점
     await this.loadLastOk();
+    // 시작 때 예산으로 멈춘 키 — DB 에 열린 장애가 없으면 앞 실행이 글을 못 냈다(예: 종료 flush 가 15,000 을 넘김) →
+    // fresh 로 돌려 settleHalts 가 error · 장애 글을 낸다. 열려 있으면 지금처럼 조용히(리뷰 IN-04)
+    if (!Number.isFinite(Date.parse(this.dbOutage.since ?? ""))) {
+      for (const l of this.usedLanes()) if (l.paused?.reason === "budget_exhausted") l.paused.fresh = true;
+    }
 
     // seed 는 쓰는 키가 하나라도 멈췄으면(시작 탐침 실패 · 예산) 그날 건을 빠짐없이 채울 수 없다 — 넣지 않고 끝낸다
     if (mode === "seed" && this.anyPaused()) {
@@ -612,7 +618,8 @@ class Collector {
   }
 
   /**
-   * 쓰는 키마다 오늘 사용량을 읽는다 — 다 찬 키는 멈춤(앞 실행이 이미 글을 냈다 → fresh 아님) · 전부 찼으면 false(종료 0).
+   * 쓰는 키마다 오늘 사용량을 읽는다 — 다 찬 키는 멈춤(fresh 아님 — DB 장애 상태를 읽은 뒤 main 이 열린 장애가 없으면 fresh 로
+   * 돌린다 · 리뷰 IN-04) · 전부 찼으면 false(종료 0).
    */
   private async budgetAtStart(t0: number): Promise<boolean> {
     const { log, db, cfg } = this.d;

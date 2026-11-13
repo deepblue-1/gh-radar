@@ -209,8 +209,10 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     expect(h.telegram.notices()).toHaveLength(0);
   });
 
-  it("시작 예산 키별 — 키 1 used 15,000 → D004 · B001 0 · I001 · D005 정상 · 장애 글 0(앞 실행이 이미 냄)", async () => {
-    const h = harness({ start: at("10:00:00"), abortAt: at("10:00:32"), watches: ALL_WATCHES, db: { used: 15_000, lastOk: lastOkAll("09:59:55") } });
+  it("시작 예산 키별 — 키 1 used 15,000 · DB 에 열린 장애 있음 → D004 · B001 0 · I001 · D005 정상 · 장애 글 0(앞 실행이 이미 냄)", async () => {
+    // 리뷰 IN-04 뒤 「조용히」 는 DB 장애가 열려 있을 때만 — 앞 실행이 글을 냈다는 조건을 DB 로 깐다
+    const outage = { since: iso("09:50:00"), reason: "공개매수 · 주요사항보고서 — 자체 하루 예산 소진", notice: "sent" };
+    const h = harness({ start: at("10:00:00"), abortAt: at("10:00:32"), watches: ALL_WATCHES, db: { used: 15_000, lastOk: lastOkAll("09:59:55"), outage } });
     expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
     expect(h.dart.callsOf("tender_offer")).toHaveLength(0);
     expect(h.dart.callsOf("rights_merger")).toHaveLength(0);
@@ -219,6 +221,23 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     expect(atsOf(h, "insider_trade_plan")).toEqual(every("10:00:00", 30, 2));
     expect(h.telegram.notices()).toHaveLength(0);
     expect(h.logs.find("daily budget already reached — not calling OpenDART")?.obj).toMatchObject({ key: 1 });
+    expect(h.logs.count("dart key paused — other key keeps running")).toBe(0);
+  });
+
+  it("시작 예산 키별 — 키 1 used 15,000 · DB 장애 없음(앞 실행의 종료 flush 가 넘김) → error · 장애 글 1 · 키 2 는 계속(리뷰 IN-04)", async () => {
+    const h = harness({ start: at("10:00:00"), abortAt: at("10:00:32"), watches: ALL_WATCHES, db: { used: 15_000, lastOk: lastOkAll("09:59:55") } });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.dart.callsOf("tender_offer")).toHaveLength(0);
+    expect(atsOf(h, "exchange_disclosure")).toEqual(every("10:00:00", 10, 4));
+    expect(h.logs.count("dart key paused — other key keeps running", "error")).toBe(1);
+    expect(h.logs.find("dart key paused — other key keeps running")?.obj).toMatchObject({ key: 1, reason: "budget_exhausted", used: 15_000, budget: 15_000 });
+    const notices = h.telegram.notices().map((n) => n.text);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("(공개매수 · 주요사항보고서 — 자체 하루 예산 소진)");
+    expect(h.db.calls.outage.filter((c) => c.action === "open")).toHaveLength(1);
+    // 예산 소진은 재탐침 없음 · 한도 의심 표시 없음
+    expect(h.dart.probeCalls).toHaveLength(0);
+    expect(h.db.calls.strikesRecord).toHaveLength(0);
   });
 });
 
