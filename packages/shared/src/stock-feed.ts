@@ -51,11 +51,14 @@ export interface StockFeedEntry {
   code: string;
   /** 종목별 조회 마지막 성공 `+09:00` — null = 아직 수집 전(D-06). 글 0건이어도 수집했으면 시각이 있다. */
   collectedAt: string | null;
-  /** 기간 안 합친 뒤 줄 수(출처별 상한 `stockFeedPerSource(limit)` 안에서 센 값). */
+  /** 기간 안 합친 뒤 줄 수(출처별 상한 `stockFeedPerSource(limit)` 안에서 센 값 · 따로 보장한 공시 포함). */
   count: number;
   /** 출처별 상한에 닿아 더 오래된 글이 있을 수 있으면 true. */
   truncated: boolean;
-  /** 최신순 최대 limit 줄. */
+  /**
+   * 작성 시각 최신순 하나. 앞 limit 줄 + 그 안에 없는 기간 안 최신 공시(최대 `STOCK_FEED_MIN_DISCLOSURES` 건)
+   * — 공시가 뉴스에 밀려 빠지지 않게(gh-trade 인박스 261113). 그래서 최대 limit + 3 줄.
+   */
   items: StockFeedItem[];
 }
 
@@ -138,6 +141,31 @@ export function toKstOffsetIso(input: string | Date): string {
     `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
     `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)}+09:00`
   );
+}
+
+/**
+ * by-stock 이 종목마다 따로 보장하는 기간 안 최신 공시 수 (2026-11-13 · gh-trade 인박스 261113-news-disclosure-quota).
+ * RPC `stock_feed_by_codes` 의 p_min_disclosures 로 넘기고, 응답 줄은 `takeFeedWithDisclosures` 로 고른다.
+ */
+export const STOCK_FEED_MIN_DISCLOSURES = 3;
+
+/**
+ * 합친 줄(최신순)에서 앞 limit 줄 + 그 안에 없는 최신 공시(최대 minDisclosures 건)를 골라 최신순 하나로 돌려준다.
+ * 덧붙는 공시는 앞 limit 줄보다 오래된 글이라 대개 목록 끝에 놓인다.
+ */
+export function takeFeedWithDisclosures(
+  merged: readonly StockFeedItem[],
+  limit: number,
+  minDisclosures: number,
+): StockFeedItem[] {
+  const head = merged.slice(0, Math.max(0, limit));
+  if (minDisclosures <= 0) return head;
+  const inHead = new Set(head.map((it) => it.id));
+  const extra = merged
+    .filter((it) => it.kind === "disclosure")
+    .slice(0, minDisclosures)
+    .filter((it) => !inHead.has(it.id));
+  return extra.length === 0 ? head : [...head, ...extra].sort(compareFeedItems);
 }
 
 /** 종목당 limit 줄을 만들려고 출처별로 DB 에서 가져올 행 수 — 합치면 줄이 줄어드니 여유 10. */

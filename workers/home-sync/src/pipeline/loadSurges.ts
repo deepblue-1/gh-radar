@@ -3,6 +3,7 @@ import {
   isEtpProduct,
   kstDateIso,
   mergeStockFeed,
+  takeFeedWithDisclosures,
   type StockFeedKind,
   type StockFeedRpcResult,
 } from "@gh-radar/shared";
@@ -234,15 +235,19 @@ export async function loadSurges(
       p_since: cutoffIso,
       p_per_source: NEWS_CANDIDATES_PER_STOCK,
       p_register: false,
+      // 공시가 뉴스 50건에 밀려 빠지지 않게 기간 안 최신 공시를 따로 받는다(by-stock 과 같은 규칙).
+      p_min_disclosures: DISCLOSURE_TOP_MAX,
     });
     if (error) throw error;
     const chunkSet = new Set(chunk);
     for (const st of (data as StockFeedRpcResult | null)?.stocks ?? []) {
       // 청크 밖 종목은 무시 (mock/응답이 전체를 줄 수 있으므로 방어).
       if (!chunkSet.has(st.code)) continue;
-      const rows: NewsRow[] = mergeStockFeed(st.kis ?? [], st.naver ?? [])
-        .slice(0, NEWS_CANDIDATES_PER_STOCK)
-        .map((it) => ({
+      const rows: NewsRow[] = takeFeedWithDisclosures(
+        mergeStockFeed(st.kis ?? [], st.naver ?? []),
+        NEWS_CANDIDATES_PER_STOCK,
+        DISCLOSURE_TOP_MAX,
+      ).map((it) => ({
           id: it.id,
           stock_code: st.code,
           title: it.title,

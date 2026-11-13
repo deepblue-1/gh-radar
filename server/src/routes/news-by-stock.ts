@@ -2,7 +2,9 @@ import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   mergeStockFeed,
+  STOCK_FEED_MIN_DISCLOSURES,
   stockFeedPerSource,
+  takeFeedWithDisclosures,
   toKstOffsetIso,
   type NewsByStockResponse,
   type StockFeedEntry,
@@ -68,6 +70,8 @@ export async function computeNewsByStock(
     p_per_source: perSource,
     p_register: true,
     p_before: null,
+    // 공시가 뉴스에 밀려 빠지지 않게 기간 안 최신 공시를 따로 받는다(gh-trade 인박스 261113).
+    p_min_disclosures: STOCK_FEED_MIN_DISCLOSURES,
   });
   if (error) throw error;
   if (!isRpcResult(data)) throw new Error("stock_feed_by_codes 모양 위반 — { feed_at, stocks[] } 가 아니다");
@@ -79,7 +83,8 @@ export async function computeNewsByStock(
       collectedAt: s.collected_at ? toKstOffsetIso(s.collected_at) : null,
       count: merged.length,
       truncated: s.kis.length >= perSource || s.naver.length >= perSource,
-      items: merged.slice(0, limit),
+      // 앞 limit 줄 + 그 안에 없는 기간 안 최신 공시 최대 3건 — 최신순 하나(최대 limit + 3 줄).
+      items: takeFeedWithDisclosures(merged, limit, STOCK_FEED_MIN_DISCLOSURES),
     };
   });
   return {
@@ -145,6 +150,8 @@ const newsByStockLimiter = newsByStockRateLimiter();
  * - D-03(costly): gh-trade 클라(돌파감지 창 · 상따창)가 5 ~ 10초마다 이 계약으로 조회한다 — 경로 · 필드 · 시각 표기(+09:00) ·
  *   글 없는 코드(items []) · 수집 전(collectedAt null)을 바꾸면 클라 재배포가 필요하다. 웹 작업대도 같은 조회를 쓴다.
  * - D-04: 종목 묶음 조회 하나 — 입력 순서 · 모든 코드 · 종목별 최신 limit 줄.
+ *   2026-11-13(gh-trade 인박스 261113): 그 limit 줄에 없는 기간 안 최신 공시 최대 3건을 덧붙인다(최신순 하나 · 최대 limit + 3 줄).
+ *   `truncated` 는 그대로 「출처별 상한에 닿음」(덧붙은 공시는 상한이 찼을 때만 생긴다).
  * - D-05: 한투를 부르지 않는다 — RPC 안에서 「이 종목도 모아 달라」 등록(last_requested_at)만 하고 수집은 서버 수집기가 한다
  *   (CLAUDE.md 공식 API 운영 기준 ③ · 호출량은 사용자 수와 독립).
  * - D-08: days 기본 3(1 ~ 7) · limit 기본 20(1 ~ 100) 잘라 맞춤 · codes 1 ~ 100 · 위반 400 INVALID_QUERY_PARAM.

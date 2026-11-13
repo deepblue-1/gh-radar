@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import request from "supertest";
-import { stockFeedPerSource, type NewsByStockResponse } from "@gh-radar/shared";
+import { STOCK_FEED_MIN_DISCLOSURES, stockFeedPerSource, type NewsByStockResponse } from "@gh-radar/shared";
 import { createApp } from "../../src/app";
 import { NEWS_BY_STOCK_CACHE_TTL_MS, getNewsByStock } from "../../src/routes/news-by-stock";
 import { mockSupabase } from "../fixtures/supabase-mock";
@@ -122,13 +122,22 @@ describe("GET /api/news/by-stock", () => {
     expect(Math.abs(since - (before - 3 * DAY_MS))).toBeLessThan(5_000);
   });
 
-  it("limit=1 → p_per_source = stockFeedPerSource(1) · items 1줄로 자름 · count 는 자르기 전", async () => {
+  it("limit=1 → p_per_source = stockFeedPerSource(1) · 앞 1줄 + 밀린 공시 · count 는 자르기 전", async () => {
     const { app, rpc } = setup();
     const res = await request(app).get("/api/news/by-stock?codes=012340&limit=1");
     expect(rpcArgs(rpc).p_per_source).toBe(stockFeedPerSource(1));
+    expect(rpcArgs(rpc).p_min_disclosures).toBe(STOCK_FEED_MIN_DISCLOSURES);
     const entry = (res.body as NewsByStockResponse).stocks[0]!;
-    expect(entry.items).toHaveLength(1);
+    // 최신 1줄은 네이버 기사(09:20) — 그보다 오래된 공시(09:14)는 밀렸지만 따로 보장돼 끝에 붙는다(gh-trade 인박스 261113).
+    expect(entry.items.map((i) => i.kind)).toEqual(["news", "disclosure"]);
     expect(entry.count).toBe(2);
+  });
+
+  it("뉴스만 있으면 limit 줄 그대로 — 공시를 덧붙이지 않는다", async () => {
+    const news2 = { ...naverRow, id: "00000000-0000-4000-8000-000000000099", title: "다른 기사", url: "https://example.invalid/z" };
+    const { app } = setup(rpcData({ stocks: [{ code: "012340", collected_at: null, kis: [], naver: [naverRow, news2] }] }));
+    const res = await request(app).get("/api/news/by-stock?codes=012340&limit=1");
+    expect((res.body as NewsByStockResponse).stocks[0]!.items).toHaveLength(1);
   });
 
   it("출처별 행 수가 p_per_source 에 닿으면 truncated true", async () => {

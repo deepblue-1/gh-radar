@@ -465,6 +465,7 @@ describe("loadSurges", () => {
       p_since: "2026-09-14T00:05:00.000Z",
       p_per_source: 50,
       p_register: false,
+      p_min_disclosures: 2,
     });
     // news_articles 를 직접 읽지 않는다.
     expect(sb.from).not.toHaveBeenCalledWith("news_articles");

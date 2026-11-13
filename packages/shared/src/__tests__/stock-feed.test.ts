@@ -6,7 +6,9 @@ import {
   isSameArticle,
   mergeStockFeed,
   newsTitleKey,
+  STOCK_FEED_MIN_DISCLOSURES,
   stockFeedPerSource,
+  takeFeedWithDisclosures,
   toKstOffsetIso,
   type StockFeedRpcKisRow,
   type StockFeedRpcNaverRow,
@@ -221,3 +223,52 @@ describe("toKstOffsetIso · stockFeedPerSource", () => {
     expect(stockFeedPerSource(100)).toBe(110);
   });
 });
+
+describe("takeFeedWithDisclosures — 뉴스에 밀린 공시 따로 보장 (gh-trade 인박스 261113)", () => {
+  const disc = (title: string, kst: string) => kis(title, kst, { kind: "disclosure", source: "거래소 공시" });
+  const feed = () =>
+    mergeStockFeed(
+      [
+        disc("금호건설(주) 단일판매ㆍ공급계약체결", "2026-11-12T17:36:54"),
+        disc("금호건설(주) 기타 공시 1", "2026-11-12T16:00:00"),
+        disc("금호건설(주) 기타 공시 2", "2026-11-12T15:00:00"),
+        disc("금호건설(주) 기타 공시 3", "2026-11-12T14:00:00"),
+        kis("금호건설 상한가 기사 1", "2026-11-12T23:00:00"),
+        kis("금호건설 상한가 기사 2", "2026-11-12T22:00:00"),
+      ],
+      [naver("금호건설 수주 기사", "2026-11-12T21:00:00"), naver("금호건설 강세 기사", "2026-11-12T20:00:00")],
+    );
+
+  it("보장 수는 3", () => {
+    expect(STOCK_FEED_MIN_DISCLOSURES).toBe(3);
+  });
+
+  it("limit=3 — 뉴스 3줄 뒤에 최신 공시 3건이 최신순으로 붙는다(넷째 공시는 안 붙음)", () => {
+    const out = takeFeedWithDisclosures(feed(), 3, 3);
+    expect(out.map((i) => i.title)).toEqual([
+      "금호건설 상한가 기사 1",
+      "금호건설 상한가 기사 2",
+      "금호건설 수주 기사",
+      "금호건설(주) 단일판매ㆍ공급계약체결",
+      "금호건설(주) 기타 공시 1",
+      "금호건설(주) 기타 공시 2",
+    ]);
+    const times = out.map((i) => Date.parse(i.publishedAt));
+    expect([...times].sort((a, b) => b - a)).toEqual(times);
+  });
+
+  it("앞 limit 줄에 이미 든 공시는 다시 붙이지 않는다", () => {
+    const out = takeFeedWithDisclosures(feed(), 5, 3);
+    expect(out).toHaveLength(7);
+    expect(new Set(out.map((i) => i.id)).size).toBe(7);
+    expect(out.filter((i) => i.kind === "disclosure")).toHaveLength(3);
+  });
+
+  it("공시가 없거나 보장 0 이면 앞 limit 줄 그대로", () => {
+    const newsOnly = mergeStockFeed([kis("기사 A", "2026-11-12T10:00:00")], [naver("기사 B", "2026-11-12T09:00:00")]);
+    expect(takeFeedWithDisclosures(newsOnly, 1, 3).map((i) => i.title)).toEqual(["기사 A"]);
+    expect(takeFeedWithDisclosures(feed(), 2, 0)).toHaveLength(2);
+    expect(takeFeedWithDisclosures([], 20, 3)).toEqual([]);
+  });
+});
+

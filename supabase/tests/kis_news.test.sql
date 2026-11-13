@@ -215,13 +215,13 @@ SELECT is(has_function_privilege(r.role, 'public.kis_news_ingest(jsonb,text,text
           format('D %s EXECUTE kis_news_ingest = %s', r.role, r.expect))
   FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
  ORDER BY r.role;
-SELECT is(has_function_privilege(r.role, 'public.stock_feed_by_codes(text[],timestamptz,integer,boolean,timestamptz)', 'EXECUTE'),
+SELECT is(has_function_privilege(r.role, 'public.stock_feed_by_codes(text[],timestamptz,integer,boolean,timestamptz,integer)', 'EXECUTE'),
           r.expect, format('D %s EXECUTE stock_feed_by_codes = %s', r.role, r.expect))
   FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
  ORDER BY r.role;
 SELECT ok(NOT (SELECT bool_or(prosecdef) FROM pg_proc
                 WHERE oid IN ('public.kis_news_ingest(jsonb,text,text)'::regprocedure,
-                              'public.stock_feed_by_codes(text[],timestamptz,integer,boolean,timestamptz)'::regprocedure)),
+                              'public.stock_feed_by_codes(text[],timestamptz,integer,boolean,timestamptz,integer)'::regprocedure)),
           'D 두 함수 SECURITY INVOKER');
 SELECT ok(NOT bool_or(has_table_privilege(r.role, t.tbl, 'SELECT')),
           format('D %s 네 표 SELECT 불가', r.role))
