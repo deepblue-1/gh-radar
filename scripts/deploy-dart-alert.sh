@@ -609,9 +609,23 @@ for i in "${!ALERT_POLICY_FILES[@]}"; do
   RESOLVED_YAML=$(mktemp)
   sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
 
-  EXISTING_POLICY=$(gcloud alpha monitoring policies list --project="$EXPECTED_PROJECT" \
-    --filter="displayName=${ALERT_NAME}" \
-    --format='value(name)' 2>/dev/null | head -1 || true)
+  # 조회 오류(인증 만료 · 네트워크 · API)를 「없음」 으로 삼키면 같은 이름 정책이 하나 더 생긴다 — 멈춘다(리뷰 WR-53).
+  if ! EXISTING_POLICIES=$(gcloud alpha monitoring policies list --project="$EXPECTED_PROJECT" \
+    --filter="displayName=\"${ALERT_NAME}\"" \
+    --format='value(name)'); then
+    rm -f "$RESOLVED_YAML"
+    echo "ERROR: 알림 정책 ${ALERT_NAME} 조회 실패 — 중복 생성을 막으려고 멈춘다(gcloud 인증 · 네트워크 확인 뒤 다시)" >&2
+    exit 1
+  fi
+  POLICY_COUNT=$(printf '%s\n' "$EXISTING_POLICIES" | grep -c . || true)
+  if (( POLICY_COUNT > 1 )); then
+    rm -f "$RESOLVED_YAML"
+    echo "ERROR: ${ALERT_NAME} 정책이 ${POLICY_COUNT}개다 — 하나만 남기고 지운 뒤 다시(메일이 겹친다):" >&2
+    printf '  %s\n' $EXISTING_POLICIES >&2
+    echo "  지우기: gcloud alpha monitoring policies delete <이름> --project=$EXPECTED_PROJECT" >&2
+    exit 1
+  fi
+  EXISTING_POLICY="$EXISTING_POLICIES"
 
   if [[ -n "$EXISTING_POLICY" ]]; then
     echo "▶ updating alert policy: ${ALERT_NAME}..."

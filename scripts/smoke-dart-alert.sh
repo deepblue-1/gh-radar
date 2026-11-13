@@ -205,18 +205,19 @@ check "INV-7 telegram 토큰 · 봇이 방에서 글쓰기 가능(getMe · getCh
 # ─────────────────────────────────────────────────────────────
 # INV-5: 알림 정책 4개(배포 스크립트 ALERT_POLICY_NAMES) · 로그 기반 지표 존재
 # ─────────────────────────────────────────────────────────────
+# 정확히 1개 — 0 이면 없음, 2개 이상이면 메일이 겹치고 배포는 첫 정책만 갱신한다(리뷰 WR-53). 조회 오류도 실패.
 policy_exists() {
   local name="$1" got
   got=$(gcloud alpha monitoring policies list --project="$PROJECT" \
-    --filter="displayName=${name}" --format='value(name)' 2>/dev/null | head -1)
-  [[ -n "$got" ]]
+    --filter="displayName=\"${name}\"" --format='value(name)' 2>/dev/null) || return 1
+  [[ "$(printf '%s\n' "$got" | grep -c .)" == 1 ]]
 }
 policy_count_ok() {
   (( ${#WANT_POLICIES[@]} == 4 ))
 }
 check "INV-5 alert policy names from deploy script (4개 · 읽은 수 ${#WANT_POLICIES[@]})" policy_count_ok
 for p in ${WANT_POLICIES[@]+"${WANT_POLICIES[@]}"}; do
-  check "INV-5 alert policy $p" policy_exists "$p"
+  check "INV-5 alert policy $p (정확히 1개)" policy_exists "$p"
 done
 metric_exists() {
   gcloud logging metrics describe "$WAKE_METRIC_NAME" --project="$PROJECT" --format='value(filter)' 2>/dev/null \
