@@ -70,8 +70,8 @@ created: "2026-11-11"
 | 41-10-01 | 41-10 | 6 | D-19 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/home-sync exec vitest run src/pipeline/loadSurges.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/home-sync run typecheck` — 합친 피드 · 공시 먼저 · ETP 단일 정의 | ✅ (케이스 추가) | ⬜ pending |
 | 41-10-02 | 41-10 | 6 | D-19 | — | 인덱스 → 원문(환각 방지) | unit | `pnpm --filter @gh-radar/home-sync exec vitest run src/ai/prompt.test.ts src/ai/clusterSurges.test.ts src/pipeline/loadSurges.test.ts --maxWorkers=2` — `[공시]` 줄 · null url 중복 제거 · stop_reason 로그 | ✅ (케이스 추가) | ⬜ pending |
 | 41-10-03 | 41-10 | 6 | SC-6(④) · D-19 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/home/__tests__/news-block.test.tsx src/components/home/__tests__/theme-card.test.tsx src/components/home/__tests__/solo-card.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/server run typecheck` | ✅ (케이스 추가) | ⬜ pending |
-| 41-11-01 | 41-11 | 7 | D-19 | — | N/A | manual(메인 세션) | `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ⬜ pending |
-| 41-11-02 | 41-11 | 7 | SC-7 · D-10 · D-19 · SC-1 · SC-4 | — | N/A | manual(하루 뒤) | NEXT-DAY-RECORDED | — | ⬜ pending |
+| 41-11-01 | 41-11 | 7 | D-19 | — | N/A | manual(메인 세션) | `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ✅ green |
+| 41-11-02 | 41-11 | 7 | SC-7 · D-10 · D-19 · SC-1 · SC-4 | — | N/A | manual(하루 뒤) | NEXT-DAY-RECORDED | — | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -102,11 +102,11 @@ created: "2026-11-11"
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | 웹 네 자리가 채택 목업대로 보인다(폭 390 · PC · 상따 본문 폭 4밴드) | SC-6 | 시각 대조 | ① ~ ③ 은 41-09 Task 3 · ④ 는 41-11 Task 2 — `reference/mockup-news-disclosure-web.html` 과 운영 화면을 나란히 대조 |
-| 수집 하루 뒤 공시 종류 목록을 사용자에게 보여 주고 더 뺄 종류를 확인 | SC-7 (D-10) | 사용자 판단 | 41-11 Task 2 — `bash scripts/kis-news-report.sh kinds 1` 결과를 일상어 목록으로 제시 · 결과: (41-11 이 채움) |
-| 평일 빠른 시간대에 새 글이 10초 안팎에 들어온다 · 수집기가 한 개만 돈다 | SC-1 | 운영 데이터 필요 | 41-11 Task 2 — `bash scripts/kis-news-report.sh stats 1`(지연 중앙값 15초 이하 목표) · 「lease acquired」 로그 1번 |
-| 당일 호출 수가 카운터에 남고 예산 안 | SC-4 | 운영 데이터 필요 | 41-09 Task 2 · 41-11 Task 2 — `stats` 의 `usage_today`(`api_usage` `kis_news_title`) · 한도 의심 표시 0 |
+| 수집 하루 뒤 공시 종류 목록을 사용자에게 보여 주고 더 뺄 종류를 확인 | SC-7 (D-10) | 사용자 판단 | 41-11 Task 2 — `bash scripts/kis-news-report.sh kinds 1` 결과를 일상어 목록으로 제시 · 결과: 2026-11-13 하루 공시 403건(보임 211 · ETF 숨김 156 · 파생 안내 숨김 36)을 10개 묶음으로 제시 → 사용자 「숨기고 싶은 종류 없음」(규칙 변경 없음) |
+| 평일 빠른 시간대에 새 글이 10초 안팎에 들어온다 · 수집기가 한 개만 돈다 | SC-1 | 운영 데이터 필요 | 41-11 Task 2 — `bash scripts/kis-news-report.sh stats 1`(지연 중앙값 15초 이하 목표) · 「lease acquired」 로그 1번 · 결과: 2026-11-13 공시 지연 중앙 3.3초 · 90% 5.5초(뉴스 중앙 16.5초) · `07:00` ~ `20:00` 임대를 잡은 실행 1개(gh-radar-kis-news-sync-9hzvn, 20:00 「fast window end」 정상 종료) |
+| 당일 호출 수가 카운터에 남고 예산 안 | SC-4 | 운영 데이터 필요 | 41-09 Task 2 · 41-11 Task 2 — `stats` 의 `usage_today`(`api_usage` `kis_news_title`) · 한도 의심 표시 0 · 결과: 2026-11-13 `usage_today` 91,179(자체 상한 200,000 의 46%) · 한도 의심 표시 0 |
 | gh-trade 클라가 종목 묶음 조회로 받는다 | SC-3 · D-21 | 다른 저장소 클라 | 41-09 Task 2 `curl` 응답 형태 · 지연 · collectedAt 변화 + 41-03 노트 · gh-trade 세션 확인 |
-| 홈 AI 요약 하루 호출 수 배포 전후 비교 | D-19 | 운영 데이터 필요 | 41-11 Task 1(기준선 · 평일 3일) · Task 2(배포 다음 평일) — 「home-sync cycle complete」 의 `claudeCalled=true` 수 · 결과: (41-11 이 채움) |
+| 홈 AI 요약 하루 호출 수 배포 전후 비교 | D-19 | 운영 데이터 필요 | 41-11 Task 1(기준선 · 평일 3일) · Task 2(배포 다음 평일) — 「home-sync cycle complete」 의 `claudeCalled=true` 수 · 결과: 기준선(11/9 427 · 11/10 500 · 11/11 507) 평균 478 → 배포 다음 평일 11/13 463(−3%) · 463회 모두 end_turn · 출력 1,598,048 토큰(Haiku 5.5 $0.50/MTok ≈ $0.80/일) |
 
 ---
 
@@ -119,4 +119,4 @@ created: "2026-11-11"
 - [x] Feedback latency < 15s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** 2026-11-12 — 41-09 Task 3 화면 UAT 통과(사용자 「됐다」, 폰 · PC). ④ 홈 · SC-7 · D-19 는 41-11 Task 2 가 채움
+**Approval:** 2026-11-12 — 41-09 Task 3 화면 UAT 통과(사용자 「됐다」, 폰 · PC). 2026-11-13 — 41-11 Task 2: ④ 홈 「공시」 배지 사용자 「됨」 · D-10 「없음」 · 토큰 알림톡 1회 · D-19 호출 수 −3%
