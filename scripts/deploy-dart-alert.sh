@@ -228,7 +228,8 @@ self_test() {
 
   # OpenDART 키 2개 결선(261113-rn7 U-2) — 배포 명령의 --set-secrets 줄에 두 키가 다 있어야 한다(한 키 대체 없음)
   local secrets_line
-  secrets_line="$(grep -E '^[[:space:]]+--set-secrets=' "$self" | head -1)"
+  # 줄이 없으면 grep 이 1 → pipefail · set -e 로 FAIL 문구 없이 끝나지 않게 || true(리뷰 IN-06)
+  secrets_line="$(grep -E '^[[:space:]]+--set-secrets=' "$self" | head -1 || true)"
   for f in 'OPENDART_API_KEY=gh-radar-opendart-key:latest' 'OPENDART_API_KEY_2=gh-radar-opendart-key-2:latest'; do
     if [[ "$secrets_line" != *"$f"* ]]; then
       echo "FAIL: 배포 명령의 --set-secrets 에 ${f} 가 없다" >&2
