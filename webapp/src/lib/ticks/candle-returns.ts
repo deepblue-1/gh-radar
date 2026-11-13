@@ -68,6 +68,33 @@ export function dayReturnPointsOf(session: TickSession, view: View, plotW: numbe
     .sort((a, b) => a.t - b.t || pos[a.rec]! - pos[b.rec]!);
 }
 
+/**
+ * 커서 없는 당일 점(`dayReturnPointsOf(…, −1)`)에 **보기 창 안** 커서 rec 점 하나만 정렬 자리에 끼운다(재생 · 커서 이동마다 열 샘플 ·
+ * 점마다 `teamKpiAt` 을 처음부터 다시 하지 않게 — 커서 점 하나만 새로 계산). 커서가 −1 · 창 밖 · 이미 점에 있음 · 팀 체결 없는
+ * 하루면 `base` 그대로(같은 객체). 창 안 커서면 결과 = `dayReturnPointsOf(session, view, plotW, cursorRec)` 와 같다.
+ */
+export function withCursorReturnPoint(
+  base: readonly ReturnPoint[],
+  session: TickSession,
+  view: View,
+  cursorRec: number,
+): readonly ReturnPoint[] {
+  if (cursorRec < 0 || session.team.fills.length === 0) return base;
+  const t = msOfNs(session.index.recvNs[cursorRec]!);
+  if (t < view.t0 || t > view.t1) return base;
+  if (base.some((p) => p.rec === cursorRec)) return base;
+  const pos = session.exPos;
+  const before = (p: ReturnPoint) => p.t < t || (p.t === t && pos[p.rec]! < pos[cursorRec]!);
+  let lo = 0;
+  let hi = base.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (before(base[mid]!)) lo = mid + 1;
+    else hi = mid;
+  }
+  return [...base.slice(0, lo), { t, v: dayReturnAt(session, cursorRec), rec: cursorRec }, ...base.slice(lo)];
+}
+
 // ---------------------------------------------------------------------------
 // 누적 수익률(D-15 · 미실현만)
 // ---------------------------------------------------------------------------

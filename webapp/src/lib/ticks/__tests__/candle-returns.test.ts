@@ -15,6 +15,7 @@ import {
   RETURN_PAD_RATIO,
   RETURN_Z_MAX,
   RETURN_Z_MIN,
+  withCursorReturnPoint,
   type ReturnPoint,
 } from '../candle-returns';
 import { teamKpiAt } from '../team-model';
@@ -123,6 +124,27 @@ describe('당일 수익률', () => {
     expect(pts.length).toBeLessThanOrEqual(3 + fillRecs.size + 1);
     // 1px 미만 폭도 열 하나
     expect(dayReturnPointsOf(s, view, 0, -1).filter((p) => !fillRecs.has(p.rec)).length).toBeLessThanOrEqual(1);
+  });
+
+  it('withCursorReturnPoint — 창 안 커서는 커서 넣은 dayReturnPointsOf 와 같다 · −1 · 창 밖 · 이미 있는 rec · 팀 없음은 base 그대로(IN-02)', () => {
+    const base = dayReturnPointsOf(s, view, 200, -1);
+    // 창 안 모든 rec(B6 · A3 · 팀 체결 · 같은 ms 거래소순)에서 처음부터 만든 결과와 같다
+    for (let r = 0; r < s.index.n; r++) {
+      const ms = msOfNs(s.index.recvNs[r]!);
+      if (ms < view.t0 || ms > view.t1) continue;
+      expect(withCursorReturnPoint(base, s, view, r)).toEqual(dayReturnPointsOf(s, view, 200, r));
+    }
+    expect(withCursorReturnPoint(base, s, view, -1)).toBe(base);
+    // 창 밖 커서(창 [8.5ms, 10ms] 에서 seq 104) — 점을 넣지 않는다(같은 객체)
+    const lateView = { t0: T13 + 8.5, t1: T13 + 10 };
+    const lateBase = dayReturnPointsOf(s, lateView, 200, -1);
+    expect(withCursorReturnPoint(lateBase, s, lateView, recOfSeq(104))).toBe(lateBase);
+    // 이미 점에 있는 rec(팀 체결)
+    expect(withCursorReturnPoint(base, s, view, s.team.fills[0]!.rec)).toBe(base);
+    // 팀 체결 없는 하루
+    const none = synthSession([[1, a3Msg({ seq: 1, bs: '1', px: 16350, qty: 10, a1: 16400, b1: 16350, time: '130000001000' })]]);
+    const noneBase = dayReturnPointsOf(none, view, 200, -1);
+    expect(withCursorReturnPoint(noneBase, none, view, 0)).toBe(noneBase);
   });
 
   it('dayReturnAt — rec −1 = null · 그 밖은 패널 값 그대로', () => {

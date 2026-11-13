@@ -34,7 +34,12 @@ import {
 } from '@/lib/ticks/candle-chart';
 import { maKeyOf, maNameOf, maStatusOf, maValuesOf, type CandleMaValue } from '@/lib/ticks/candle-ma';
 import { candleBandAt, candleCaptionOf } from '@/lib/ticks/candle-readout';
-import { cumReturnPointsOf, dayReturnPointsOf, returnScalesOf } from '@/lib/ticks/candle-returns';
+import {
+  cumReturnPointsOf,
+  dayReturnPointsOf,
+  returnScalesOf,
+  withCursorReturnPoint,
+} from '@/lib/ticks/candle-returns';
 import type { OwnModel } from '@/lib/ticks/own-model';
 import { useCandleUnitPref, useMaConfig } from '@/lib/ticks/use-candle-prefs';
 import { usePrevCloses } from '@/lib/ticks/use-prev-closes';
@@ -341,14 +346,14 @@ export function CandleChart({
   const gap = band(bounds.T1530, bounds.T1600);
 
   // 수익률 판(D-12 ~ D-14 · SC-4) — 당일(패널과 같은 `teamKpiAt` 수익률) · 누적(D-15 · 미실현) 점과 두 눈금. 마우스 · 터치 상태는
-  // 키에 없다(SC-7 — 마우스 이동 재렌더는 세로선 · 점 · 띠만 바꾼다). 커서 점은 창 밖이어도 `day` 에 들어가므로, 선 · 눈금은
-  // 창 밖 커서 점을 뺀 점으로 잡는다(42-05 계약 · 창 밖 커서까지 잇는 보간 사선 없음 — 커서 x 에서 선이 패널 값을 지나는 계약은
-  // 커서가 창 안일 때만) — 창 왼쪽 끝으로 이어지는 열 샘플 값은 둔다(빈 창에서 선이 사라지지 않게).
-  const day = useMemo(() => dayReturnPointsOf(session, view, plotW, cursorRec), [session, view, plotW, cursorRec]);
-  const cursorInView = cursorMs !== null && cursorMs >= view.t0 && cursorMs <= view.t1;
+  // 키에 없다(SC-7 — 마우스 이동 재렌더는 세로선 · 점 · 띠만 바꾼다). 커서 없는 점은 창 · 폭이 바뀔 때만 만들고, 커서 점은
+  // 창 안일 때만 하나 끼운다(재생 중 커서 한 칸마다 열 샘플을 다시 하지 않는다). 선 · 눈금은 이 창 안 점으로 잡는다(42-05 계약 ·
+  // 창 밖 커서까지 잇는 보간 사선 없음 — 커서 x 에서 선이 패널 값을 지나는 계약은 커서가 창 안일 때만 · 창 밖 커서 값은 값 띠 ·
+  // 값 점 전용) — 창 왼쪽 끝으로 이어지는 열 샘플 값은 둔다(빈 창에서 선이 사라지지 않게).
+  const dayBase = useMemo(() => dayReturnPointsOf(session, view, plotW, -1), [session, view, plotW]);
   const dayScalePts = useMemo(
-    () => (cursorInView ? day : dayReturnPointsOf(session, view, plotW, -1)),
-    [cursorInView, day, session, view, plotW],
+    () => withCursorReturnPoint(dayBase, session, view, cursorRec),
+    [dayBase, session, view, cursorRec],
   );
   const cumRet = useMemo(() => cumReturnPointsOf(session, view, plotW, cumAvg), [session, view, plotW, cumAvg]);
   const scales = useMemo(() => returnScalesOf(dayScalePts, cumRet, P.yRa, P.yRb), [dayScalePts, cumRet, P]);
