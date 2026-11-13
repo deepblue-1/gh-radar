@@ -40,12 +40,12 @@
 
 ### 공식 API 운영 기준 (Naver Search API · OpenDART 등)
 
-- **공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
-- **소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
-- **예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
-- **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
+- **Naver 공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
+- **Naver 소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
+- **Naver 예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
+- **Naver 수집 주기:** 평일 08:00 ~ 20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
 - **OpenDART 공식 한도:** 인증키당 20,000 호출/일 (초과 시 상태 `020`). 본 프로젝트 카운터는 `api_usage` service `opendart_list` (KST 날짜 키) · 한도 의심 표시 `opendart_list_quota_strike`. `page_count` 최대 100.
-- **OpenDART 소비처:** `workers/dart-alert` (공개매수 · 유상증자 · 합병 공시 텔레그램 알림) 하나. server · webapp 은 부르지 않는다.
+- **OpenDART 소비처:** `workers/dart-alert` (공개매수 · 유상증자 · 합병 공시 텔레그램 알림). 운영 도구도 같은 키 · 같은 카운터 `opendart_list` 에 더한다 — `scripts/dart-alert-report.sh survey` (1회 최대 약 70회) · 배포 스모크 probe (배포마다 1회). 예산을 따질 때 함께 센다. server · webapp 은 부르지 않는다.
 - **OpenDART 예산:** `DART_ALERT_DAILY_BUDGET` 15,000 (공식 20,000 의 75% · 배포 스크립트와 설정이 상한 강제). 설계 사용량 약 10,800/일 (54%) — 남는 몫은 100건 넘는 날 추가 쪽 · 탐침.
 - **OpenDART 수집 주기:** 평일 `07:00` ~ `09:00` KST 5초 · `09:00` ~ `20:00` 10초, 바퀴당 2유형 (공개매수 `D004` · 주요사항보고서 `B001`). 밤 · 주말 없음. 장기 실행 Cloud Run Job + 5분 깨움 + DB 임대. 알림마다 출처 「금융감독원 전자공시」 와 DART 원문 링크.
 
