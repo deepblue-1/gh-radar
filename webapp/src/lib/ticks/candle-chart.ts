@@ -16,7 +16,14 @@ import type { AccumReportPayload, TickOpenResponse } from '@gh-radar/shared';
 
 import { avgPxPointsOf, type PricePoint, type View } from '@/lib/accum-chart';
 
-import { msOfNs, tickBoundsOf, yOfTickPrice, type TickBounds, type TickPanels, type TickPriceRange } from './tick-chart';
+import {
+  tickBoundsOf,
+  turnoverSeriesOf,
+  yOfTickPrice,
+  type TickBounds,
+  type TickPanels,
+  type TickPriceRange,
+} from './tick-chart';
 import type { TickSession } from './tick-session';
 
 // ---------------------------------------------------------------------------
@@ -102,9 +109,14 @@ export interface Candles {
 /** 세션마다 1분봉 하나 + 상위 단위별 집계(세션 · 단위당 1회 — SC-7). */
 const candleCache = new WeakMap<TickSession, { base: Candles; byUnit: Map<CandleUnit, Candles> }>();
 
+/**
+ * 1분봉 — 넷째 판 누적 계열(`turnoverSeriesOf` · 세션마다 1회 캐시)의 점을 그대로 돈다. 그 점들이 이미 같은 거름(중복 수신 ·
+ * 가격 0 · 수량 0)을 거친 수신순 A3 이고 수신 ms(`t`)와 수신순 자리(`pos`)를 갖고 있어, BigInt 시각 변환을 다시 하지 않는다(IN-03).
+ */
 function buildBase(session: TickSession): Candles {
   const { T0 } = tickBoundsOf(session.date);
-  const { recvOrder, a3Of, a3, index, duplicates } = session;
+  const { recvOrder, a3Of, a3 } = session;
+  const tv = turnoverSeriesOf(session);
   const t0 = new Float64Array(CANDLE_DAY_MIN);
   const o = new Float64Array(CANDLE_DAY_MIN);
   const h = new Float64Array(CANDLE_DAY_MIN);
@@ -113,14 +125,11 @@ function buildBase(session: TickSession): Candles {
   const amt = new Float64Array(CANDLE_DAY_MIN);
   let n = 0;
   let lastK = -1;
-  for (let p = 0; p < recvOrder.length; p++) {
-    const r = recvOrder[p]!;
-    const j = a3Of[r]!;
-    if (j < 0 || duplicates[r] === 1) continue;
+  for (let m = 0; m < tv.n; m++) {
+    const j = a3Of[recvOrder[tv.pos[m]!]!]!;
     const px = a3.px[j]!;
     const q = a3.qty[j]!;
-    if (!(px > 0) || !(q > 0)) continue;
-    const k = Math.floor((msOfNs(index.recvNs[r]!) - T0) / CANDLE_MIN_MS);
+    const k = Math.floor((tv.t[m]! - T0) / CANDLE_MIN_MS);
     if (k < 0 || k >= CANDLE_DAY_MIN) continue;
     // 수신순이라 k 는 감소하지 않는다
     if (k !== lastK) {

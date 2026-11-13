@@ -1,6 +1,6 @@
 import type { CandleBand } from '@/lib/ticks/candle-readout';
 import { pct1, pct2 } from '@/lib/ticks/tick-chart-tip';
-import { MINUS, fmtAmountC, fmtQty, fmtSignedAmountC } from '@/lib/ticks/tick-format';
+import { fmtAmountC, fmtQty, fmtRet, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import { kstHm } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
@@ -13,7 +13,7 @@ import { Head, Kv, Rest, Row } from './tick-chart-band';
  * - 높이는 값 · 상태 · 이동평균 개수와 무관하게 같다: 데스크톱 88(위아래 5 + 머리 14 + 4줄 × 16) · 폰 137(첫 행 84 + 둘째 행 52 + 경계 1).
  * - 글자 크기 · 굵기는 선 차트 띠 부품(`Head` · `Row` · `Kv` · `Rest`)을 그대로 쓴다 — 새 크기 없음(UI-SPEC Typography).
  * - 셋째 「10분」 · 넷째 「누적」 칸은 `tick-chart-band.tsx` 마크업을 같은 클래스로 복제(함수로 떼어져 있지 않다).
- * - 둘째 칸 수익률 글자는 팀 거래정보 패널 `fmtRet` 과 같은 식(패널과 비트까지 같은 글자 — SC-4).
+ * - 둘째 칸 수익률 글자는 팀 거래정보 패널과 같은 함수 `fmtRet`(`lib/ticks/tick-format.ts` — 패널과 비트까지 같은 글자 · SC-4).
  * - 마우스 이동마다 낭독이 넘치므로 `aria-live` 는 달지 않는다(선 차트와 같음).
  */
 
@@ -25,14 +25,6 @@ const INT = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 });
 
 const sgnCls = (v: number) => (v > 0 ? 'text-[var(--up)]' : v < 0 ? 'text-[var(--down)]' : 'text-[var(--muted-fg)]');
 const retCls = (v: number | null) => (v === null ? undefined : sgnCls(v));
-
-/** 수익률(비율 0.0118 → 「+1.18%」) · null 「—」 — `tick-team-panel.tsx` `fmtRet` 과 같은 식(바꾸면 둘 다). */
-function fmtRet(r: number | null): string {
-  if (r === null || !Number.isFinite(r)) return DASH;
-  const v = Math.round(r * 10000) / 100;
-  if (v === 0) return '0.00%';
-  return v > 0 ? `+${v.toFixed(2)}%` : `${MINUS}${Math.abs(v).toFixed(2)}%`;
-}
 
 export interface CandleChartBandProps {
   /** 그 시각 값 — 커서가 없으면 null(같은 칸 · 같은 높이에 「—」). */

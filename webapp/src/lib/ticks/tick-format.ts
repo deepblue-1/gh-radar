@@ -7,6 +7,7 @@
  * - `fmtSignedAmountC` — 부호 붙인 금액(목록 팀 열 · 상세 팀 패널 한 벌 · quick 261103-j4d). 모름(null · NaN) 「—」 · 0 「0」 ·
  *   양수 「+」 + fmtAmountC · 음수 fmtAmountC 그대로(「−」).
  * - `fmtRate` — 등락률 % 그대로(30.0 = +30%). 소수 1자리 · 양수 「+」 · 음수 「−」 · null 「—」.
+ * - `fmtRet` — 팀 수익률 비율(0.0118 = +1.18%). 소수 2자리 · 팀 패널 · 봉 차트 값 띠 공용.
  * - `fmtQty` — 수량 콤마.
  * - `fmtBytes` — 격자 크기(KB · MB 소수 1자리).
  */
@@ -52,6 +53,17 @@ export function fmtRate(r: number | null | undefined): string {
   const v = Math.round(r * 10) / 10;
   if (v === 0) return '0.0%';
   return `${v > 0 ? '+' : MINUS}${Math.abs(v).toFixed(1)}%`;
+}
+
+/**
+ * 팀 수익률(비율 0.0118 → 「+1.18%」) — 소수 2자리 · 양수 「+」 · 음수 「−」 · 반올림이 0(음의 0 포함)이면 「0.00%」 · null · NaN 「—」.
+ * 팀 거래정보 패널 「평단 대비 수익률」 과 봉 차트 값 띠가 이 한 함수를 같이 쓴다(SC-4 — 두 글자가 비트까지 같다).
+ */
+export function fmtRet(r: number | null | undefined): string {
+  if (r == null || !Number.isFinite(r)) return DASH;
+  const v = Math.round(r * 10000) / 100;
+  if (v === 0) return '0.00%';
+  return v > 0 ? `+${v.toFixed(2)}%` : `${MINUS}${Math.abs(v).toFixed(2)}%`;
 }
 
 export function fmtQty(n: number): string {

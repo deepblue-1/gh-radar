@@ -54,7 +54,7 @@ vi.mock('@/lib/supabase/client', () => ({
 }));
 
 import { PREV_CLOSES_N } from '../candle-ma';
-import { fetchPrevCloses } from '../daily-closes';
+import { PREV_CLOSE_MAX_GAP_WEEKDAYS, fetchPrevCloses } from '../daily-closes';
 import { usePrevCloses } from '../use-prev-closes';
 
 beforeEach(() => {
@@ -94,6 +94,45 @@ describe('fetchPrevCloses', () => {
     expect(calls[0]!.signal).toBe(ac.signal);
     await fetchPrevCloses('005930', '20261030', 10);
     expect(calls[1]!.signal).toBeNull();
+  });
+
+  it('연속성 — 가장 가까운 행이 평일 PREV_CLOSE_MAX_GAP_WEEKDAYS 넘게 떨어지면 [] · 주말 · 긴 연휴 공백은 그대로(IN-04)', async () => {
+    expect(PREV_CLOSE_MAX_GAP_WEEKDAYS).toBe(6);
+    // 10-19(월) → 10-30(금): 사이 평일 8일 — 앞 거래일 행이 빠졌다(이틀 전 종가부터 쓰지 않는다)
+    finalResolved = {
+      data: [
+        { date: '2026-10-19', close: 120 },
+        { date: '2026-10-16', close: 118 },
+      ],
+      error: null,
+    };
+    await expect(fetchPrevCloses('005930', '20261030', 239)).resolves.toEqual([]);
+    // 가장 가까운 행의 종가가 0 이면 그다음 유효 행 기준(10-29 종가 0 · 10-19 → 평일 8일)
+    finalResolved = {
+      data: [
+        { date: '2026-10-29', close: 0 },
+        { date: '2026-10-19', close: 120 },
+      ],
+      error: null,
+    };
+    await expect(fetchPrevCloses('005930', '20261030', 239)).resolves.toEqual([]);
+    // 금 → 월(주말 공백 · 평일 0일)
+    finalResolved = {
+      data: [
+        { date: '2026-10-30', close: 121 },
+        { date: '2026-10-29', close: 120 },
+      ],
+      error: null,
+    };
+    await expect(fetchPrevCloses('005930', '20261102', 239)).resolves.toEqual([120, 121]);
+    // 10-02(금) → 10-12(월): 사이 평일 5일(긴 연휴) — 정상 공백
+    finalResolved = { data: [{ date: '2026-10-02', close: 119 }], error: null };
+    await expect(fetchPrevCloses('005930', '20261012', 239)).resolves.toEqual([119]);
+    // 평일 6일 공백까지 허용 · 7일이면 []
+    finalResolved = { data: [{ date: '2026-10-01', close: 119 }], error: null };
+    await expect(fetchPrevCloses('005930', '20261012', 239)).resolves.toEqual([119]);
+    finalResolved = { data: [{ date: '2026-09-30', close: 119 }], error: null };
+    await expect(fetchPrevCloses('005930', '20261012', 239)).resolves.toEqual([]);
   });
 
   it('오류 응답이면 throw · data null 이면 빈 배열', async () => {

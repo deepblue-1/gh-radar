@@ -154,6 +154,32 @@ describe('차트 종류 스위치 — 선 차트 ↔ 봉 차트(트레이서)', 
     expect(q('candle-chart')).toBeNull();
   });
 
+  it('키보드로 스위치를 누르면(초점이 스위치에 있음) 새 차트의 켜진 스위치 버튼으로 초점이 돌아온다 · 양방향(WR-03)', async () => {
+    render(viewer(ACCUM));
+    // 키보드 누름 = 초점이 그 버튼에 있는 채로 click(Enter · Space)
+    const candleBtn = within(kindSwitch()).getByRole('button', { name: '봉 차트' });
+    candleBtn.focus();
+    fireEvent.click(candleBtn);
+    expect(q('candle-chart')).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(within(kindSwitch()).getByRole('button', { name: '봉 차트' })));
+    expect(document.activeElement).not.toBe(candleBtn);
+
+    const lineBtn = within(kindSwitch()).getByRole('button', { name: '선 차트' });
+    lineBtn.focus();
+    fireEvent.click(lineBtn);
+    expect(q('tick-chart')).not.toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(within(kindSwitch()).getByRole('button', { name: '선 차트' })));
+  });
+
+  it('초점 없이 누르면(터치 · Safari 마우스) 초점을 옮기지 않는다', async () => {
+    render(viewer(ACCUM));
+    (document.activeElement as HTMLElement | null)?.blur();
+    toCandle();
+    expect(q('candle-chart')).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('당일 화면이면 봉 차트에 누적 평단이 없다(D-09 · D-15)', () => {
     render(viewer(ACCUM, true));
     toCandle();

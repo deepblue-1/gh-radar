@@ -82,7 +82,14 @@ function renderLayer(opts: { session?: TickSession; phone?: boolean; day?: Retur
   const scales = returnScalesOf(day, cum, frame.P.yRa, frame.P.yRb);
   const r = render(
     <svg>
-      <CandleReturnLayer frame={frame} day={day} cum={cum} scales={scales} clipId="t" />
+      <CandleReturnLayer
+        frame={frame}
+        day={day}
+        noTeam={session.team.fills.length === 0}
+        cum={cum}
+        scales={scales}
+        clipId="t"
+      />
     </svg>,
   );
   const q = (slot: string) => r.container.querySelectorAll(`[data-slot="${slot}"]`);
@@ -194,13 +201,15 @@ describe('CandleReturnLayer — 빈 상태(UI E7 S6 · empty)', () => {
     expect(q('candle-ret-cum-axis')).toHaveLength(0);
   });
 
-  it('당일 값이 전부 null(팀 첫 매수 전 구간만) · 누적 [] → 빈 상태와 같다', () => {
+  it('팀이 그날 체결했는데 창 안이 팀 첫 매수 전(당일 값 전부 null) · 누적 [] → 「팀 체결 없음」 없이 빈 판(0% 선만 · WR-02)', () => {
     const day: ReturnPoint[] = [
       { t: T13 - 5, v: null, rec: 0 },
       { t: T13 - 1, v: null, rec: 1 },
     ];
+    expect(teamDay.team.fills.length).toBeGreaterThan(0);
     const { q } = renderLayer({ day });
-    expect(q('candle-ret-empty')).toHaveLength(1);
+    expect(q('candle-ret-empty')).toHaveLength(0);
+    expect(q('candle-ret-zero')).toHaveLength(1);
     expect(q('candle-ret-day')).toHaveLength(0);
     expect(q('candle-ret-day-axis')).toHaveLength(0);
   });

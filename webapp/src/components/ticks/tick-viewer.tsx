@@ -338,14 +338,31 @@ export function TickViewer({
   }, []);
   // 전환 순간의 창 — 새로 마운트되는 차트의 처음 창(ref 는 이벤트 처리기에서만 읽는다)
   const [switchView, setSwitchView] = useState<ChartViewSnap | null>(null);
+  // 전환 직전 초점이 스위치에 있었으면(키보드 · 스크린리더) 새 차트의 켜진 스위치 버튼으로 초점을 돌려준다 — 두 차트는 함께
+  // 마운트하지 않아(D-04) 누른 버튼이 사라지면 초점이 <body> 로 떨어진다. 터치 · Safari 마우스처럼 초점이 없던 누름은 그대로.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const refocusKindRef = useRef(false);
   const onKindChange = useCallback(
     (k: ChartKind) => {
       if (k === chartKind) return;
+      const active = typeof document === 'undefined' ? null : document.activeElement;
+      refocusKindRef.current = active?.closest?.('[data-slot="chart-kind-switch"]') != null;
       setSwitchView(lastViewRef.current);
       setChartKind(k);
     },
     [chartKind, setChartKind],
   );
+  useEffect(() => {
+    if (!refocusKindRef.current) return;
+    // 새 차트의 첫 폭 측정 재렌더(폰 제목 줄 배치)가 끝난 뒤 — 다음 프레임에 켜진 버튼을 찾는다
+    const id = requestAnimationFrame(() => {
+      refocusKindRef.current = false;
+      bodyRef.current
+        ?.querySelector<HTMLButtonElement>('[data-slot="chart-kind-switch"] button[aria-pressed="true"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [chartKind]);
   const own = useTickOwn(urlState, ownRefreshKey);
   const isLive = live !== undefined;
   const liveAsOfMs = live?.asOfMs ?? null;
@@ -526,7 +543,7 @@ export function TickViewer({
   const kindAddon = (phone: boolean) => <ChartKindSwitch value={chartKind} onChange={onKindChange} phone={phone} />;
 
   return (
-    <div data-slot="tick-viewer-body" className="flex flex-col gap-3">
+    <div ref={bodyRef} data-slot="tick-viewer-body" className="flex flex-col gap-3">
       {/* 두 차트는 조건부로 번갈아 그린다 — 함께 마운트해 하나를 숨기지 않는다(D-04 · 숨은 쪽 폭 측정 · 제스처 이중) */}
       {chartKind === 'candle' ? (
         <CandleChart
