@@ -9,7 +9,8 @@ umask 077
 #   SUPABASE_URL=https://<ref>.supabase.co bash scripts/dart-alert-report.sh stats  [days=1]
 #   SUPABASE_URL=https://<ref>.supabase.co bash scripts/dart-alert-report.sh check
 #
-# survey — 비밀 등록 뒤 한 번(가정 6 · 리서치 확인 1 · 3 · 5): OpenDART 목록을 최근 days 일(KST · 1 ~ 90) 읽어
+# survey — 비밀 등록 뒤 한 번(가정 6 · 리서치 확인 1 · 3 · 5): OpenDART 목록을 오늘 포함 최근 days 일(KST · 1 ~ 89) 읽어
+#   (OpenDART 공시검색은 고유번호 없이 검색기간 3개월 제한 — 문서 기준 · 달력에 따라 90일이 넘칠 수 있어 89일까지 · 리뷰 IN-55)
 #   ⑴ 주요사항보고서(B001) 종류명 분포(꼬리표 뗀 이름 · 건수 내림차순 상위 60)
 #   ⑵ 허용 목록 4종 각각의 건수 · 그중 유가/코스닥(Y/K) 건수 · 평일당 평균(정정 포함 · 제외) = 하루 알림 예상
 #   ⑶ 날짜별 B001 전체 건수 중 100 을 넘은 날 수(page_count 100 한 쪽으로 모자라는 날 · 리서치 확인 5)
@@ -62,7 +63,7 @@ D004_MAX_PAGES=10
 B001_KINDS="${DART_ALERT_B001_KINDS:-유상증자결정,유무상증자결정,회사합병결정,회사분할합병결정}"
 
 usage() {
-  echo "사용: SUPABASE_URL=… bash scripts/dart-alert-report.sh survey [days=30]   (OpenDART 조사 · 1 ~ 90일)" >&2
+  echo "사용: SUPABASE_URL=… bash scripts/dart-alert-report.sh survey [days=30]   (OpenDART 조사 · 오늘 포함 1 ~ 89일)" >&2
   echo "      SUPABASE_URL=… bash scripts/dart-alert-report.sh stats [days=1]     (운영 수치 · 1 ~ 31일)" >&2
   echo "      SUPABASE_URL=… bash scripts/dart-alert-report.sh check              (배포 뒤 읽기 전용 점검 · DB · 마이그레이션 · 텔레그램)" >&2
 }
@@ -71,7 +72,7 @@ CMD="${1:-}"
 case "$CMD" in
   survey)
     DAYS="${2:-30}"
-    MAX_DAYS=90
+    MAX_DAYS=89
     ;;
   stats)
     DAYS="${2:-1}"
@@ -366,7 +367,7 @@ read -r TODAY_YMD BGN_YMD TODAY_ISO <<< "$(node -e '
   const kst = (ms) => new Date(ms + 9 * 3600e3).toISOString().slice(0, 10);
   const now = Date.now();
   const today = kst(now);
-  const bgn = kst(now - days * 86400e3);
+  const bgn = kst(now - (days - 1) * 86400e3); // 오늘 포함 days 일(30 → 30일)
   console.log(today.replace(/-/g, ""), bgn.replace(/-/g, ""), today);
 ' "$DAYS")"
 
@@ -420,6 +421,9 @@ fi
 
 WORK="$(mktemp -d)"
 STOP_REASON=""
+# 쪽 상한에서 잘렸으면 「읽은 쪽/전체 쪽」(분석 머리에 표시)
+TRUNC_B001=""
+TRUNC_D004=""
 
 # 한 쪽 조회 — 행은 TSV(접수일 · 시장 · 보고서명)로 덧붙이고, 「status total_page」 를 표준출력으로.
 # 키가 든 주소는 표준입력 설정으로만 넘긴다.
@@ -476,6 +480,7 @@ survey_type() {
     esac
     if (( page == 1 && total > max )); then
       echo "WARN: ${ty} 가 ${total}쪽 — 앞 ${max}쪽만 읽는다(days 를 줄이면 전부 읽는다)" >&2
+      printf -v "TRUNC_${ty}" '%s/%s' "$max" "$total"
     fi
     page=$((page + 1))
     if (( page <= total && page <= max )); then sleep 1; fi
@@ -510,7 +515,9 @@ fi
 # ── 4. 분석 ───────────────────────────────────────────────────────
 node -e '
   const fs = require("fs");
-  const [b001File, d004File, kindsCsv, calls, usageNote, bgn, end] = process.argv.slice(1);
+  const [b001File, d004File, kindsCsv, calls, usageNote, bgn, end, truncB001, truncD004] = process.argv.slice(1);
+  // 쪽 상한에서 잘렸으면 그 집계는 적게 나온다 — 머리에 표시(리뷰 IN-55)
+  const cut = (t) => (t ? ` (잘림 — 앞 ${t.split("/")[0]}쪽만 · 전체 ${t.split("/")[1]}쪽 · 과소 집계)` : "");
   const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => l.split("\t")) : []);
   const b001 = read(b001File);
   const d004 = read(d004File);
@@ -567,7 +574,7 @@ node -e '
     console.log([n, k, allowedStat.has(k) ? "●" : ""].join("\t"));
   }
   console.log("");
-  console.log("⑵ 허용 목록 — 건수(전 법인) · 유가/코스닥 · 유가/코스닥 정정 제외 · 평일당 평균(정정 포함 / 제외)");
+  console.log("⑵ 허용 목록 — 건수(전 법인) · 유가/코스닥 · 유가/코스닥 정정 제외 · 평일당 평균(정정 포함 / 제외)" + cut(truncB001));
   console.log(["종류명", "전체", "Y/K", "Y/K 정정 제외", "평일당(포함)", "평일당(제외)"].join("\t"));
   for (const [k, a] of allowedStat) console.log([k, a.all, a.yk, a.ykNoCorr, avg(a.yk), avg(a.ykNoCorr)].join("\t"));
   console.log(["합계", "", ykAll, ykNoCorr, avg(ykAll), avg(ykNoCorr)].join("\t"));
@@ -575,16 +582,16 @@ node -e '
   console.log(`하루 알림 예상(평일당) — 유상증자·합병 ${avg(ykAll)}건(정정 제외 ${avg(ykNoCorr)}) + 공개매수 ${avg(d004yk)}건`);
   console.log("");
   const over = [...perDay.entries()].filter(([, n]) => n > 100).sort();
-  console.log(`⑶ B001 하루 전체 건수가 100 을 넘은 날: ${over.length}일 / 조회된 ${perDay.size}일` +
+  console.log(`⑶ B001 하루 전체 건수가 100 을 넘은 날${cut(truncB001)}: ${over.length}일 / 조회된 ${perDay.size}일` +
     (over.length ? ` — ${over.map(([d, n]) => `${d}(${n})`).join(" · ")}` : ""));
   const maxDay = [...perDay.entries()].sort((a, b) => b[1] - a[1])[0];
   if (maxDay) console.log(`    가장 많은 날 ${maxDay[0]} ${maxDay[1]}건`);
   console.log("");
-  console.log(`⑷ 공개매수(D004): 전체 ${d004.length}건 · 유가/코스닥 ${d004yk}건`);
+  console.log(`⑷ 공개매수(D004)${cut(truncD004)}: 전체 ${d004.length}건 · 유가/코스닥 ${d004yk}건`);
   console.log("");
   console.log("⑸ 근접 불일치 후보 — 허용 목록 밖인데 「증자」 · 「합병」 이 든 종류명");
   if (near.size === 0) console.log("    없음");
   for (const [k, n] of [...near.entries()].sort((a, b) => b[1] - a[1])) console.log(`    ${n}\t${k}`);
   console.log("");
   console.log(`⑹ 이번 조사 OpenDART 호출 수: ${calls} (${usageNote})`);
-' "$WORK/b001.tsv" "$WORK/d004.tsv" "$B001_KINDS" "$CALLS" "$USAGE_NOTE" "$BGN_YMD" "$TODAY_YMD"
+' "$WORK/b001.tsv" "$WORK/d004.tsv" "$B001_KINDS" "$CALLS" "$USAGE_NOTE" "$BGN_YMD" "$TODAY_YMD" "$TRUNC_B001" "$TRUNC_D004"
