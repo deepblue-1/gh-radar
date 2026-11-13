@@ -65,11 +65,14 @@ created: "2026-11-11"
 | 41-08-01 | 41-08 | 4 | SC-1 · SC-4 · D-02 | — | N/A | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/cadence.test.ts tests/scheduler.test.ts tests/budget.test.ts tests/schedule.test.ts --maxWorkers=2` — 빠른 창 `07:00` · `20:00` 경계 · 주말 · 초당 상한 · 새 등록 먼저 · Scheduler 정합 | ✅ | ✅ green |
 | 41-08-02 | 41-08 | 4 | SC-1 · SC-4 · SC-5 · D-01 · D-05 · D-06 | — | 로그에 토큰 없음 · 임대 보유자만 발급 | unit | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/collector.test.ts tests/targets.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync exec vitest run --maxWorkers=2 && pnpm --filter @gh-radar/kis-news-sync run build` — 임대 · 모드 · 오류 처리 · 예산 · 정리 | ✅ | ✅ green |
 | 41-09-01 | 41-09 | 5 | SC-4 · SC-5 | — | server 에 한투 호출 경로 · 비밀 없음 | static + 회귀 | 41-09 Task 1 verify(PREDEPLOY-OK — news-sync 무변경 · `news_articles` 무변경 · server 한투 grep 0 · pgTAP 2 · self-test) | ✅ (명령) | ✅ green |
-| 41-09-02 | 41-09 | 5 | SC-1 ~ SC-5 | — | [BLOCKING] 스키마 push · 비밀 사용자 `!` | manual(메인 세션) | `supabase migration list --linked` — 두 버전 Remote | — | ⬜ pending |
-| 41-09-03 | 41-09 | 5 | SC-6 · D-15 ~ D-18 · D-20 | — | N/A | manual UAT | UAT-SIGNED | — | ⬜ pending |
-| 41-10-01 | 41-10 | 6 | D-19 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/home-sync exec vitest run src/pipeline/loadSurges.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/home-sync run typecheck` — 합친 피드 · 공시 먼저 · ETP 단일 정의 | ✅ (케이스 추가) | ⬜ pending |
-| 41-10-02 | 41-10 | 6 | D-19 | — | 인덱스 → 원문(환각 방지) | unit | `pnpm --filter @gh-radar/home-sync exec vitest run src/ai/prompt.test.ts src/ai/clusterSurges.test.ts src/pipeline/loadSurges.test.ts --maxWorkers=2` — `[공시]` 줄 · null url 중복 제거 · stop_reason 로그 | ✅ (케이스 추가) | ⬜ pending |
-| 41-10-03 | 41-10 | 6 | SC-6(④) · D-19 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/home/__tests__/news-block.test.tsx src/components/home/__tests__/theme-card.test.tsx src/components/home/__tests__/solo-card.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/server run typecheck` | ✅ (케이스 추가) | ⬜ pending |
+| 41-09-02 | 41-09 | 5 | SC-1 ~ SC-5 | — | [BLOCKING] 스키마 push · 비밀 사용자 `!` | manual(메인 세션) | `supabase migration list --linked` — 두 버전 Remote | ✅ (41-09 SUMMARY 02:55 KST Local · Remote) | ✅ green |
+| 41-09-03 | 41-09 | 5 | SC-6 · D-15 ~ D-18 · D-20 | — | N/A | manual UAT | UAT-SIGNED | ✅ (사용자 「됐다」 2026-11-12) | ✅ green |
+| 41-10-01 | 41-10 | 6 | D-19 | — | N/A | unit | `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/home-sync exec vitest run src/pipeline/loadSurges.test.ts --maxWorkers=2 && pnpm --filter @gh-radar/home-sync run typecheck` — 합친 피드 · 공시 먼저 · ETP 단일 정의 | ✅ (케이스 추가) | ✅ green |
+| 41-10-02 | 41-10 | 6 | D-19 | — | 인덱스 → 원문(환각 방지) | unit | `pnpm --filter @gh-radar/home-sync exec vitest run src/ai/prompt.test.ts src/ai/clusterSurges.test.ts src/pipeline/loadSurges.test.ts --maxWorkers=2` — `[공시]` 줄 · null url 중복 제거 · stop_reason 로그 | ✅ (케이스 추가) | ✅ green |
+| 41-10-03 | 41-10 | 6 | SC-6(④) · D-19 · D-20 | — | N/A | RTL | `pnpm --filter @gh-radar/webapp exec vitest run src/components/home/__tests__/news-block.test.tsx src/components/home/__tests__/theme-card.test.tsx src/components/home/__tests__/solo-card.test.tsx --maxWorkers=2 && pnpm --filter @gh-radar/webapp run typecheck && pnpm --filter @gh-radar/server run typecheck` | ✅ (케이스 추가) | ✅ green |
+| 41-UAT-1 | 41-09 보정 | 5 | SC-6 · D-09 | — | N/A | unit + pgTAP | `pnpm --filter @gh-radar/kis-news-sync exec vitest run tests/classify.test.ts --maxWorkers=2 && bash scripts/verify-dma-orders-price-check.sh --until 20261112200000 --with supabase/tests/fixtures/41_auto_market_pre.sql --with supabase/migrations/20261112300000_kis_news_auto_market_hidden.sql --with supabase/migrations/20261112310000_kis_news_auto_market_supply.sql --test supabase/tests/kis_news_auto_market.test.sql` — 시세 · 시황 · 목록 · 수급 자동 기사 auto_market · 소급(8907a59a · dd4bd44b) | ✅ | ✅ green |
+| 41-UAT-2 | 41-09 보정 | 5 | SC-6 · D-12 | — | N/A | unit | `pnpm --filter @gh-radar/shared exec vitest run src/__tests__/market-summary.test.ts src/__tests__/stock-feed.test.ts --maxWorkers=2` — 지수 얘기뿐인 시황 제목을 합치기에서 제외(0bc17a9d) | ✅ | ✅ green |
+| 41-UAT-3 | 41-09 보정 | 5 | SC-6 · SC-2 | — | stock_title_needles · 별칭 표 서비스롤 전용 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/stock_feed_naver_title.test.sql && bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/stock_title_aliases.test.sql` — 네이버 뉴스는 제목에 종목명(별칭 포함) 있는 기사만(95607989 · 2affd1f2) | ✅ | ✅ green |
 | 41-11-01 | 41-11 | 7 | D-19 | — | N/A | manual(메인 세션) | `git fetch origin master --quiet && test "$(git rev-parse master)" = "$(git rev-parse origin/master)"` | — | ✅ green |
 | 41-11-02 | 41-11 | 7 | SC-7 · D-10 · D-19 · SC-1 · SC-4 | — | N/A | manual(하루 뒤) | NEXT-DAY-RECORDED | — | ✅ green |
 
@@ -120,3 +123,13 @@ created: "2026-11-11"
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** 2026-11-12 — 41-09 Task 3 화면 UAT 통과(사용자 「됐다」, 폰 · PC). 2026-11-13 — 41-11 Task 2: ④ 홈 「공시」 배지 사용자 「됨」 · D-10 「없음」 · 토큰 알림톡 1회 · D-19 호출 수 −3%
+
+## Validation Audit 2026-11-13
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Rows re-run green | 6 |
+| Rows added | 3 |
