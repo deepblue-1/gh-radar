@@ -7,7 +7,7 @@ import { fmtTickTime, memberTableAt, type TickOpenResponse } from '@gh-radar/sha
 import { CARD } from '@/components/layout/page-layout';
 import { teamKpiAt } from '@/lib/ticks/team-model';
 import { cumPointsOf, msOfNs } from '@/lib/ticks/tick-chart';
-import { MINUS, fmtAmountC, fmtQty, fmtSignedAmountC } from '@/lib/ticks/tick-format';
+import { MINUS, fmtAmountC, fmtQty, fmtRet, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import type { TickSession } from '@/lib/ticks/tick-session';
 import { cn } from '@/lib/utils';
 
@@ -46,14 +46,6 @@ function signColor(v: number | null): string {
 function signedQty(v: number): string {
   if (v === 0) return '0';
   return v > 0 ? `+${fmtQty(v)}` : `${MINUS}${fmtQty(-v)}`;
-}
-
-/** 수익률(비율 0.0118 → 「+1.18%」) · null 「—」. */
-function fmtRet(r: number | null): string {
-  if (r === null || !Number.isFinite(r)) return DASH;
-  const v = Math.round(r * 10000) / 100;
-  if (v === 0) return '0.00%';
-  return v > 0 ? `+${v.toFixed(2)}%` : `${MINUS}${Math.abs(v).toFixed(2)}%`;
 }
 
 function Kpi({ label, value, sub, slot, color }: { label: string; value: string; sub?: string; slot: string; color?: string }) {
