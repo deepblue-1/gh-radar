@@ -100,6 +100,9 @@ fi
 CURL_RC=0
 RESP="$(printf 'url = "%s/bot%s/getUpdates"\nmax-time = 20\n' "$TELEGRAM_API" "$TG_TOKEN" \
   | curl -sS -K - 2>/dev/null)" || CURL_RC=$?
+# 이 토큰이 어느 봇인지(getMe) — 「찾은 방이 없다」 일 때 대화한 봇과 토큰의 봇이 같은지 가리는 데 쓴다. 실패해도 계속한다.
+ME_RESP="$(printf 'url = "%s/bot%s/getMe"\nmax-time = 20\n' "$TELEGRAM_API" "$TG_TOKEN" \
+  | curl -sS -K - 2>/dev/null)" || ME_RESP=""
 TG_TOKEN=""
 if [[ "$CURL_RC" != 0 ]]; then
   echo "ERROR getUpdates — 요청 실패(curl 종료 코드 $CURL_RC · 네트워크 확인)" >&2
@@ -107,7 +110,13 @@ if [[ "$CURL_RC" != 0 ]]; then
 fi
 
 # 응답에서 방 정보만 뽑는다 — 원본 JSON · 글 내용은 출력하지 않는다.
-printf '%s' "$RESP" | node -e '
+printf '%s' "$RESP" | TG_ME_RESP="$ME_RESP" node -e '
+  // 토큰의 봇 이름(@username) — 비밀이 아니다. 응답이 이상하면 "(알 수 없음)".
+  let botName = "(알 수 없음)";
+  try {
+    const me = JSON.parse(process.env.TG_ME_RESP || "");
+    if (me?.ok === true && typeof me.result?.username === "string") botName = `@${me.result.username}`;
+  } catch {}
   let s = "";
   process.stdin.on("data", (d) => (s += d)).on("end", () => {
     let j;
@@ -123,7 +132,10 @@ printf '%s' "$RESP" | node -e '
       process.exit(1);
     }
     const chats = new Map();
-    for (const u of Array.isArray(j.result) ? j.result : []) {
+    const updates = Array.isArray(j.result) ? j.result : [];
+    // 받은 업데이트의 종류 이름만(내용 아님) — 방을 못 찾았을 때 「아예 안 왔다」 와 「왔는데 못 읽었다」 를 가린다.
+    const kinds = [...new Set(updates.flatMap((u) => Object.keys(u ?? {}).filter((k) => k !== "update_id")))];
+    for (const u of updates) {
       for (const key of ["message", "edited_message", "channel_post", "my_chat_member", "chat_member"]) {
         const c = u?.[key]?.chat;
         if (!c || (typeof c.id !== "number" && typeof c.id !== "string")) continue;
@@ -136,8 +148,13 @@ printf '%s' "$RESP" | node -e '
       console.log("  1. 봇과 1:1 대화를 열고 「시작(Start)」 을 누른다(개인 대화 id)");
       console.log("  2. 팀 단체방에 봇을 초대한다(또는 단체방에 아무 글이나 하나 쓴다)");
       console.log("  3. 텔레그램은 업데이트를 24시간만 보관한다 — 초대 · 시작 직후에 실행한다");
+      console.log("");
+      console.log(`진단: 이 토큰의 봇 = ${botName} · 받은 업데이트 ${updates.length}건${kinds.length ? ` (종류: ${kinds.join(", ")})` : ""}`);
+      console.log("  - 대화를 열고 초대한 봇의 @이름이 위와 다르면 env 파일의 TELEGRAM_BOT_TOKEN 이 다른 봇의 것이다(저장했는지도 확인).");
+      console.log("  - 이름이 같은데 0건이면 봇 대화창에 아무 글이나 한 번 더 보내고 바로 다시 실행한다.");
       return;
     }
+    console.log(`이 토큰의 봇: ${botName}`);
     console.log(["방 id", "종류", "이름"].join("\t"));
     for (const c of chats.values()) console.log([c.id, c.type, c.name].join("\t"));
     console.log("");
