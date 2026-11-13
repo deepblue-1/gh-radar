@@ -18,6 +18,10 @@ umask 077
 #   ⑹ 이번 조사의 OpenDART 호출 수 — 끝에 incr_api_usage('opendart_list', 오늘, n) 으로 수집기 카운터에 더한다
 #   B001 은 total_page 까지 전 쪽(쪽 사이 1초) · D004 는 같은 기간 최대 10쪽. 30일이면 대개 20 ~ 40회.
 #   오늘 사용량이 예산에 가깝거나 오늘 한도 의심 표시(020)가 있으면 조사하지 않는다(운영 기준 ①·④).
+#   그 확인(dart_alert_ops_stats)을 못 하면 조사하지 않는다 — 재시도는 사람이(리뷰 WR-54).
+#   예산은 Job 설정의 DART_ALERT_DAILY_BUDGET(없으면 기본 15,000)을 읽는다 — Job 을 못 읽으면 멈추고,
+#   Job 배포 전이면 DART_ALERT_DAILY_BUDGET=15000 처럼 env 로 넘긴다.
+#   호출 수는 쪽마다 바로 incr_api_usage 로 더한다(Ctrl-C · 터미널 종료에도 남은 몫은 종료 처리에서 더한다).
 #   020 을 받으면 그 자리에서 멈추고 재시도하지 않는다.
 #   조회 결과는 이 스크립트 실행 동안만 임시 디렉터리(권한 700)에 두고 끝나면 지운다 — DB · 저장소에 남기지 않는다.
 # stats — RPC dart_alert_ops_stats(p_days · 1 ~ 31): 오늘 호출 수 · 한도 의심 표시 · 상태별 · 감시 대상별 · 늦은 알림 ·
@@ -46,9 +50,12 @@ PROJECT="${GCP_PROJECT_ID:-gh-radar}"
 DART_API=https://opendart.fss.or.kr/api/list.json
 USAGE_SERVICE=opendart_list
 DART_KEY_RE='^[A-Za-z0-9]{40}$'
-# 수집기 설계 예산(config.ts DART_DAILY_BUDGET_LIMIT) — 조사가 이 선을 넘기지 않게
-BUDGET_LIMIT=15000
+# 수집기 예산 상한(config.ts DART_DAILY_BUDGET_LIMIT) — 실제 예산은 Job 설정에서 읽는다(resolve_budget)
+BUDGET_CAP=15000
+BUDGET_LIMIT=""
 SURVEY_HEADROOM=200
+DART_JOB=gh-radar-dart-alert
+DART_JOB_REGION=asia-northeast3
 B001_MAX_PAGES=60
 D004_MAX_PAGES=10
 # 허용 목록 기본값 = workers/dart-alert/src/watches.ts DEFAULT_B001_KINDS (Job 과 같은 env 이름으로 바꿀 수 있다)
@@ -124,7 +131,16 @@ DART_KEY=""
 TG_TOKEN=""
 TG_CHAT=""
 WORK=""
+CALLS=0
+FLUSHED=0
+TODAY_ISO=""
 cleanup() {
+  # 조사 도중 끊겨도(Ctrl-C · 종료) 아직 안 더한 호출 수를 카운터에 더한다 — 키를 지우기 전에(리뷰 WR-54)
+  if [[ "$CMD" == survey && -n "$TODAY_ISO" ]] && (( CALLS > FLUSHED )); then
+    if ! flush_usage; then
+      echo "WARN: api_usage 더하기 실패 — 오늘 카운터에 $((CALLS - FLUSHED)) 이 빠졌다(수동 확인)" >&2
+    fi
+  fi
   SB_KEY=""
   DART_KEY=""
   TG_TOKEN=""
@@ -132,6 +148,9 @@ cleanup() {
   if [[ -n "$WORK" && -d "$WORK" ]]; then rm -rf "$WORK"; fi
 }
 trap cleanup EXIT
+# 신호로 끝날 때도 EXIT 처리(cleanup)를 거치게
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # Supabase RPC 1회 — 본문(비밀 없음)만 명령줄 · 주소와 키 헤더는 표준입력 설정으로. 응답 본문을 표준출력으로.
 sb_rpc() {
@@ -139,6 +158,39 @@ sb_rpc() {
   printf 'url = "%s/rest/v1/rpc/%s"\nheader = "apikey: %s"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nmax-time = 30\n' \
     "${SUPABASE_URL%/}" "$rpc" "$SB_KEY" "$SB_KEY" \
     | curl -fsS -X POST -K - --data "$body" 2>/dev/null
+}
+
+# 하루 예산 — env DART_ALERT_DAILY_BUDGET 가 있으면 그것, 없으면 Job 설정의 같은 env(없으면 기본 15,000).
+#   Job 을 읽지 못하면 실패(1) — 조사는 예산을 모른 채 진행하지 않는다(리뷰 WR-54). 값은 정수 1 ~ 15,000.
+resolve_budget() {
+  local b="${DART_ALERT_DAILY_BUDGET:-}"
+  if [[ -z "$b" ]]; then
+    b="$(gcloud run jobs describe "$DART_JOB" --region="$DART_JOB_REGION" --project="$PROJECT" --format=json 2>/dev/null \
+      | node -e '
+        const cap = process.argv[1];
+        let s = "";
+        process.stdin.on("data", (d) => (s += d)).on("end", () => {
+          const j = JSON.parse(s);
+          const c = j?.spec?.template?.spec?.template?.spec?.containers?.[0] ?? j?.template?.template?.containers?.[0];
+          if (!c) process.exit(1);
+          const e = (c.env ?? []).find((x) => x.name === "DART_ALERT_DAILY_BUDGET");
+          console.log(e?.value ?? cap);
+        });
+      ' "$BUDGET_CAP" 2>/dev/null)" || return 1
+  fi
+  [[ "$b" =~ ^[0-9]+$ ]] && (( 10#$b >= 1 && 10#$b <= BUDGET_CAP )) || return 1
+  printf '%s' "$((10#$b))"
+}
+
+# 아직 안 더한 호출 수(CALLS − FLUSHED)를 incr_api_usage 1회로 더한다 — 실패하면 다음에 다시
+flush_usage() {
+  local n=$((CALLS - FLUSHED))
+  (( n > 0 )) || return 0
+  if sb_rpc incr_api_usage "{\"p_service\":\"${USAGE_SERVICE}\",\"p_date\":\"${TODAY_ISO}\",\"p_amount\":${n}}" >/dev/null; then
+    FLUSHED=$((FLUSHED + n))
+    return 0
+  fi
+  return 1
 }
 
 # env 파일의 「KEY=값」 줄 값(따옴표 · 공백 제거) — 명령 치환 안에서만 부른다(값은 변수로만 · 화면 출력 0)
@@ -162,6 +214,7 @@ env_file_get() {
 # stats
 # ═══════════════════════════════════════════════════════════════
 if [[ "$CMD" == stats ]]; then
+  BUDGET_LIMIT="$(resolve_budget || true)"
   if ! RESP="$(sb_rpc dart_alert_ops_stats "{\"p_days\":${DAYS}}")"; then
     echo "ERROR: RPC dart_alert_ops_stats 호출 실패 (URL · 마이그레이션 적용 여부 확인)" >&2
     exit 1
@@ -181,7 +234,7 @@ if [[ "$CMD" == stats ]]; then
       const st = j.by_status ?? {};
       const watchLabel = { tender_offer: "공개매수", rights_merger: "유상증자·합병" };
       const rows = [
-        ["오늘 OpenDART 호출", `${n(j.calls_today)} / 예산 ${n(budget)} (공식 20,000)`],
+        ["오늘 OpenDART 호출", `${n(j.calls_today)} / 예산 ${budget ? n(budget) : "?(Job 설정 못 읽음)"} (공식 20,000)`],
         ["오늘 한도 의심 표시", n(j.strikes_today)],
         [`상태별(최근 ${days}일)`, `보냄 ${n(st.sent)} · 대기 ${n(st.pending)} · 보내는 중 ${n(st.sending)} · 채움(seed) ${n(st.seeded)} · 닫힘(지난 날) ${n(st.expired)}`],
         ["감시 대상별", Object.entries(j.by_watch ?? {}).map(([k, v]) => `${watchLabel[k] ?? k} ${n(v)}`).join(" · ") || "-"],
@@ -318,25 +371,37 @@ read -r TODAY_YMD BGN_YMD TODAY_ISO <<< "$(node -e '
 ' "$DAYS")"
 
 # ── 1. 오늘 사용량 · 한도 의심 표시 확인(운영 기준 ①·④) ──────────
-STATS="$(sb_rpc dart_alert_ops_stats '{"p_days":1}' || true)"
-if [[ -n "$STATS" ]]; then
-  read -r CALLS_TODAY STRIKES_TODAY <<< "$(printf '%s' "$STATS" | node -e '
-    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
-      try { const j = JSON.parse(s); console.log(Number(j.calls_today ?? 0), Number(j.strikes_today ?? 0)); }
-      catch { console.log("0 0"); }
-    });')"
-  if (( STRIKES_TODAY > 0 )); then
-    echo "ERROR: 오늘 한도 의심 표시(020)가 ${STRIKES_TODAY}건 있다 — 조사로 두드리지 않는다. 내일 다시 실행" >&2
-    exit 1
-  fi
-  if (( CALLS_TODAY + SURVEY_HEADROOM > BUDGET_LIMIT )); then
-    echo "ERROR: 오늘 호출 ${CALLS_TODAY} — 조사 여유 ${SURVEY_HEADROOM} 을 더하면 예산 ${BUDGET_LIMIT} 을 넘는다. 내일 다시 실행" >&2
-    exit 1
-  fi
-  echo "오늘 OpenDART 호출 ${CALLS_TODAY} · 한도 의심 표시 0 — 조사 시작"
-else
-  echo "WARN: dart_alert_ops_stats 를 읽지 못했다(마이그레이션 적용 전?) — 오늘 사용량 확인 없이 진행" >&2
+#   확인을 못 하면(호출 실패 · 응답을 못 읽음) 조사하지 않는다 — 예산 · 한도 의심을 모른 채 최대 70회를 부르지 않게(리뷰 WR-54).
+if ! BUDGET_LIMIT="$(resolve_budget)"; then
+  echo "ERROR: 하루 예산을 정하지 못했다 — Job ${DART_JOB} 설정을 읽지 못했거나 값이 1 ~ ${BUDGET_CAP} 밖이다." >&2
+  echo "       Job 배포 전이면 DART_ALERT_DAILY_BUDGET=15000 처럼 env 로 넘긴다(재시도는 사람이)" >&2
+  exit 1
 fi
+if ! STATS="$(sb_rpc dart_alert_ops_stats '{"p_days":1}')"; then
+  echo "ERROR: 오늘 사용량을 확인하지 못해(dart_alert_ops_stats 호출 실패) 조사하지 않는다 — 재시도는 사람이" >&2
+  exit 1
+fi
+if ! STATS_PAIR="$(printf '%s' "$STATS" | node -e '
+    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      let j;
+      try { j = JSON.parse(s); } catch { process.exit(1); }
+      const c = Number(j?.calls_today), k = Number(j?.strikes_today);
+      if (!Number.isInteger(c) || !Number.isInteger(k)) process.exit(1);
+      console.log(c, k);
+    });')"; then
+  echo "ERROR: dart_alert_ops_stats 응답을 읽지 못해 조사하지 않는다(calls_today · strikes_today 정수 아님) — 재시도는 사람이" >&2
+  exit 1
+fi
+read -r CALLS_TODAY STRIKES_TODAY <<< "$STATS_PAIR"
+if (( STRIKES_TODAY > 0 )); then
+  echo "ERROR: 오늘 한도 의심 표시(020)가 ${STRIKES_TODAY}건 있다 — 조사로 두드리지 않는다. 내일 다시 실행" >&2
+  exit 1
+fi
+if (( CALLS_TODAY + SURVEY_HEADROOM > BUDGET_LIMIT )); then
+  echo "ERROR: 오늘 호출 ${CALLS_TODAY} — 조사 여유 ${SURVEY_HEADROOM} 을 더하면 예산 ${BUDGET_LIMIT} 을 넘는다. 내일 다시 실행" >&2
+  exit 1
+fi
+echo "오늘 OpenDART 호출 ${CALLS_TODAY} / 예산 ${BUDGET_LIMIT} · 한도 의심 표시 0 — 조사 시작"
 
 # ── 2. OpenDART 키(변수에만) ─────────────────────────────────────
 DART_KEY="$(gcloud secrets versions access latest --secret=gh-radar-opendart-key --project="$PROJECT" 2>/dev/null || true)"
@@ -354,7 +419,6 @@ if [[ ! "$DART_KEY" =~ $DART_KEY_RE ]]; then
 fi
 
 WORK="$(mktemp -d)"
-CALLS=0
 STOP_REASON=""
 
 # 한 쪽 조회 — 행은 TSV(접수일 · 시장 · 보고서명)로 덧붙이고, 「status total_page」 를 표준출력으로.
@@ -391,8 +455,10 @@ survey_type() {
   : > "$out"
   while (( page <= total && page <= max )); do
     # fetch_page 는 명령 치환(하위 셸) 안에서 돌므로 호출 수는 여기서 센다(실패 호출 포함).
-    line="$(fetch_page "$ty" "$page" "$out")"
+    # 부르기 전에 센다 — 도중에 끊겨도 보낸 호출이 빠지지 않게(많아야 1 더 셈 · 보수적). 그리고 쪽마다 바로 더한다.
     CALLS=$((CALLS + 1))
+    line="$(fetch_page "$ty" "$page" "$out")"
+    flush_usage || true
     read -r status total msg <<< "$line"
     case "$status" in
       000) ;;
@@ -426,15 +492,13 @@ if [[ "$SURVEY_OK" == 1 ]]; then
 fi
 DART_KEY=""
 
-# ── 3. 호출 수를 수집기 카운터에 더한다(실패 호출 포함 · 조사가 멈췄어도) ──
-if (( CALLS > 0 )); then
-  if sb_rpc incr_api_usage "{\"p_service\":\"${USAGE_SERVICE}\",\"p_date\":\"${TODAY_ISO}\",\"p_amount\":${CALLS}}" >/dev/null; then
-    USAGE_NOTE="api_usage ${USAGE_SERVICE} ${TODAY_ISO} 에 +${CALLS} 더함"
-  else
-    USAGE_NOTE="api_usage 더하기 실패 — 오늘 카운터에 ${CALLS} 이 빠졌다(수집기 예산 판단에 영향 · 수동 확인)"
-  fi
-else
+# ── 3. 호출 수 — 쪽마다 더했다. 남은 몫(앞 더하기 실패)이 있으면 한 번 더 · 실패 호출 포함 · 조사가 멈췄어도 ──
+if (( CALLS == 0 )); then
   USAGE_NOTE="호출 0"
+elif flush_usage; then
+  USAGE_NOTE="api_usage ${USAGE_SERVICE} ${TODAY_ISO} 에 +${CALLS} 더함(쪽마다)"
+else
+  USAGE_NOTE="api_usage 더하기 일부 실패 — 오늘 카운터에 $((CALLS - FLUSHED)) 이 빠졌다(수집기 예산 판단에 영향 · 수동 확인)"
 fi
 
 if [[ "$SURVEY_OK" != 1 ]]; then
