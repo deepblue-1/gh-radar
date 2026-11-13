@@ -74,24 +74,17 @@ const CUM_AVG_GAP: PricePoint[] = [
 ];
 const CUM_AVG: PricePoint[] = [[T13 - 100, 16000]];
 
-function renderLayer(opts: {
-  session?: TickSession;
-  phone?: boolean;
-  day?: ReturnPoint[];
-  dayScaled?: ReturnPoint[];
-  cum?: ReturnPoint[];
-}) {
+function renderLayer(opts: { session?: TickSession; phone?: boolean; day?: ReturnPoint[]; cum?: ReturnPoint[] }) {
   const session = opts.session ?? teamDay;
   const frame = frameOf(session, opts.phone ?? false);
   const day = opts.day ?? dayReturnPointsOf(session, frame.view, frame.plotW, -1);
   const cum = opts.cum ?? [];
-  const scales = returnScalesOf(opts.dayScaled ?? day, cum, frame.P.yRa, frame.P.yRb);
+  const scales = returnScalesOf(day, cum, frame.P.yRa, frame.P.yRb);
   const r = render(
     <svg>
       <CandleReturnLayer
         frame={frame}
         day={day}
-        dayScaled={opts.dayScaled}
         noTeam={session.team.fills.length === 0}
         cum={cum}
         scales={scales}
@@ -219,17 +212,6 @@ describe('CandleReturnLayer — 빈 상태(UI E7 S6 · empty)', () => {
     expect(q('candle-ret-zero')).toHaveLength(1);
     expect(q('candle-ret-day')).toHaveLength(0);
     expect(q('candle-ret-day-axis')).toHaveLength(0);
-  });
-
-  it('창 안 점은 전부 null 인데 창 밖 커서 점 하나만 값 → 오른쪽 눈금 글자를 그리지 않는다(눈금 = 창 안 점 기준 · WR-02)', () => {
-    const scaled: ReturnPoint[] = [
-      { t: T13 - 5, v: null, rec: 0 },
-      { t: T13 - 1, v: null, rec: 1 },
-    ];
-    const day: ReturnPoint[] = [...scaled, { t: T13 + 3_600_000, v: 0.012, rec: 2 }];
-    const { q } = renderLayer({ day, dayScaled: scaled });
-    expect(q('candle-ret-day-axis')).toHaveLength(0);
-    expect(q('candle-ret-empty')).toHaveLength(0);
   });
 
   it('당일 값이 없어도 누적이 있으면 「팀 체결 없음」 을 쓰지 않는다(누적 선 · 왼쪽 눈금은 그린다)', () => {

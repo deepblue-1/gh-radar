@@ -341,8 +341,9 @@ export function CandleChart({
   const gap = band(bounds.T1530, bounds.T1600);
 
   // 수익률 판(D-12 ~ D-14 · SC-4) — 당일(패널과 같은 `teamKpiAt` 수익률) · 누적(D-15 · 미실현) 점과 두 눈금. 마우스 · 터치 상태는
-  // 키에 없다(SC-7 — 마우스 이동 재렌더는 세로선 · 점 · 띠만 바꾼다). 커서 점은 창 밖이어도 `day` 에 들어가므로(값 점 · 띠 공유),
-  // 눈금은 창 밖 커서 점을 뺀 점으로 잡는다(42-05 계약) — 창 왼쪽 끝으로 이어지는 열 샘플 값은 둔다(빈 창에서 선이 사라지지 않게).
+  // 키에 없다(SC-7 — 마우스 이동 재렌더는 세로선 · 점 · 띠만 바꾼다). 커서 점은 창 밖이어도 `day` 에 들어가므로, 선 · 눈금은
+  // 창 밖 커서 점을 뺀 점으로 잡는다(42-05 계약 · 창 밖 커서까지 잇는 보간 사선 없음 — 커서 x 에서 선이 패널 값을 지나는 계약은
+  // 커서가 창 안일 때만) — 창 왼쪽 끝으로 이어지는 열 샘플 값은 둔다(빈 창에서 선이 사라지지 않게).
   const day = useMemo(() => dayReturnPointsOf(session, view, plotW, cursorRec), [session, view, plotW, cursorRec]);
   const cursorInView = cursorMs !== null && cursorMs >= view.t0 && cursorMs <= view.t1;
   const dayScalePts = useMemo(
@@ -818,11 +819,10 @@ export function CandleChart({
           </CandlePriceLayer>
 
           {/* ② 수익률 판 — 당일 · 누적 · 0% 한 줄 · 두 눈금(자기 클립) */}
-          {/* 빈 상태 = 하루 기준(아래 판과 같은 판정) · 오른쪽 눈금 글자 = 눈금을 만든 창 안 점 기준 */}
+          {/* 선 · 눈금 글자 = 눈금을 만든 창 안 점(창 밖 커서 점은 값 띠 · 값 점 전용) · 빈 상태 = 하루 기준(아래 판과 같은 판정) */}
           <CandleReturnLayer
             frame={frame}
-            day={day}
-            dayScaled={dayScalePts}
+            day={dayScalePts}
             noTeam={team.fills.length === 0}
             cum={cumRet}
             scales={scales}

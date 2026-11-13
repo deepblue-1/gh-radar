@@ -691,6 +691,33 @@ describe('결선 · 수익률 · 띠 · 캡션', () => {
     expect(q('candle-day-path')).toHaveLength(1);
   });
 
+  it('커서가 창 밖이면 당일 수익률 선이 창 밖 커서 점까지 잇지 않는다(보간 사선 없음 · IN-01) · 띠는 커서 값 그대로', async () => {
+    // 13:00 팀 매수 → 15:00 일반 체결(커서) · 창 = 14:00 ~ 14:01(체결 없음 — 창 안 점은 13:00 열 샘플 하나뿐)
+    const gap = synthSession([
+      [0, a3Msg({ seq: 1, bs: '2', px: 16400, qty: 1000, time: '130000000000' })],
+      [2 * 3_600_000, a3Msg({ seq: 2, bs: '1', px: 16000, qty: 50, a1: 16050, b1: 16000, time: '150000000000' })],
+    ]);
+    const H14 = B.T0900 + 5 * 3_600_000;
+    const r = render(
+      <CandleChart
+        session={gap}
+        cursorRec={1}
+        initialView={{ t0: H14, t1: H14 + 60_000, preset: null }}
+        onSeekMs={vi.fn()}
+        onJumpRec={vi.fn()}
+      />,
+    );
+    const q = (slot: string) => r.container.querySelectorAll(`[data-slot="${slot}"]`);
+    await waitFor(() => expect(q('candle-chart-span')[0]!.textContent).toBe('1분'));
+    // 커서는 창 밖(커서 선 없음) — 창이 따라가지 않았다
+    expect(q('candle-chart-cursor')).toHaveLength(0);
+    // 창 안 점 하나 → 선 없음(커서 점과 잇는 사선 없음) · 눈금 글자는 창 안 점 값으로
+    expect(q('candle-ret-day')).toHaveLength(0);
+    expect(q('candle-ret-day-axis')).toHaveLength(1);
+    // 값 띠(현재 틱)는 커서 rec 값 그대로 — 손실 쪽 수익률
+    expect(q('candle-band-ret')[0]!.textContent).not.toBe('—');
+  });
+
   it('팀 체결이 하루에 하나도 없으면 수익률 판 · 아래 판 모두 「팀 체결 없음」', () => {
     const none = synthSession([
       [0, a3Msg({ seq: 1, bs: '1', px: 16350, qty: 50, a1: 16400, b1: 16350, time: '130000000000' })],
