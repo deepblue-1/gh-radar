@@ -18,6 +18,10 @@ set -uo pipefail
 # INV-4 최근 15분 Cloud Logging 에 이 Job 의 jsonPayload.msg="probe ok" 1건 이상
 # INV-5 알림 정책 deploy-dart-alert.sh ALERT_POLICY_NAMES 4개(실행 실패 · error 로그 · 깨움 실패 · 깨움 없음) 존재
 #       + 로그 기반 지표 dart_alert_wake_starts(깨움 없음 정책이 읽음) 존재
+# INV-6 Job env SUPABASE_URL 이 배포 값(DART_SMOKE_SUPABASE_URL — 배포 스크립트가 넘김)과 같고, 그 URL 로
+#       `dart-alert-report.sh check` 의 db(운영 수치 RPC — URL · 서비스롤 키 · 마이그레이션) · migration(p_since)이 통과
+#       (INV-1 probe 는 OpenDART 만 부르고 임대 · 넣기 · 장애 RPC 를 하나도 안 불러, DB 가 깨져도 통과한다 — 리뷰 WR-52)
+# INV-7 같은 check 의 telegram — getMe · getChatMember 로 토큰이 살아 있고 봇이 방에서 글을 쓸 수 있다(글 0)
 # 실패 수 > 0 이면 exit 1.
 # ═══════════════════════════════════════════════════════════════
 
@@ -33,6 +37,7 @@ REGION="${2:-asia-northeast3}"
 PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 SCHEDULER_NAME=gh-radar-dart-alert-wake
 DEPLOY_SCRIPT="$(dirname "$0")/deploy-dart-alert.sh"
+REPORT_SCRIPT="$(dirname "$0")/dart-alert-report.sh"
 
 # 기대 일정은 배포 스크립트의 배열에서 읽는다(두 곳에 리터럴을 두지 않는다).
 WANT_SCHEDULE="$(grep -oE "\"${SCHEDULER_NAME}\\|[^\"]+\"" "$DEPLOY_SCRIPT" 2>/dev/null | head -1 | sed -E "s/^\"${SCHEDULER_NAME}\\|//; s/\"\$//")"
@@ -158,6 +163,44 @@ probe_logged() {
   return 1
 }
 check "INV-4 logs: probe ok (최근 15분)" probe_logged
+
+# ─────────────────────────────────────────────────────────────
+# INV-6 · INV-7: Job env SUPABASE_URL · 읽기 전용 점검(dart-alert-report.sh check — DB · 마이그레이션 · 텔레그램, 글 0)
+#   check 결과 줄에는 비밀이 없어 그대로 보여 준다(어느 항목이 깨졌는지 보이게).
+# ─────────────────────────────────────────────────────────────
+JOB_SB_URL="$(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT" --format=json 2>/dev/null \
+  | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      try {
+        const j = JSON.parse(s);
+        const c = j?.spec?.template?.spec?.template?.spec?.containers?.[0] ?? j?.template?.template?.containers?.[0] ?? {};
+        const e = (c.env ?? []).find((x) => x.name === "SUPABASE_URL");
+        console.log(e?.value ?? "");
+      } catch {
+        console.log("");
+      }
+    });
+  ' 2>/dev/null || true)"
+supabase_url_ok() {
+  [[ -n "$JOB_SB_URL" ]] || return 1
+  [[ -z "${DART_SMOKE_SUPABASE_URL:-}" || "${JOB_SB_URL%/}" == "${DART_SMOKE_SUPABASE_URL%/}" ]]
+}
+check "INV-6a job env SUPABASE_URL$([[ -n "${DART_SMOKE_SUPABASE_URL:-}" ]] && echo ' = 배포 값')" supabase_url_ok
+
+RUNTIME_CHECK=""
+if [[ -n "$JOB_SB_URL" ]]; then
+  RUNTIME_CHECK="$(SUPABASE_URL="$JOB_SB_URL" GCP_PROJECT_ID="$PROJECT" bash "$REPORT_SCRIPT" check 2>&1 || true)"
+fi
+printf '%s\n' "$RUNTIME_CHECK" | grep -E '^(OK|FAIL|WARN) ' | sed 's/^/      /'
+runtime_db_ok() {
+  printf '%s\n' "$RUNTIME_CHECK" | grep -q '^OK db ' && ! printf '%s\n' "$RUNTIME_CHECK" | grep -q '^FAIL migration '
+}
+runtime_telegram_ok() {
+  printf '%s\n' "$RUNTIME_CHECK" | grep -q '^OK telegram '
+}
+check "INV-6b db RPC · 마이그레이션(dart-alert-report.sh check)" runtime_db_ok
+check "INV-7 telegram 토큰 · 봇이 방에서 글쓰기 가능(getMe · getChatMember · 글 0)" runtime_telegram_ok
 
 # ─────────────────────────────────────────────────────────────
 # INV-5: 알림 정책 4개(배포 스크립트 ALERT_POLICY_NAMES) · 로그 기반 지표 존재

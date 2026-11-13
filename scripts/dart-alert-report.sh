@@ -7,6 +7,7 @@ umask 077
 #
 #   SUPABASE_URL=https://<ref>.supabase.co bash scripts/dart-alert-report.sh survey [days=30]
 #   SUPABASE_URL=https://<ref>.supabase.co bash scripts/dart-alert-report.sh stats  [days=1]
+#   SUPABASE_URL=https://<ref>.supabase.co bash scripts/dart-alert-report.sh check
 #
 # survey — 비밀 등록 뒤 한 번(가정 6 · 리서치 확인 1 · 3 · 5): OpenDART 목록을 최근 days 일(KST · 1 ~ 90) 읽어
 #   ⑴ 주요사항보고서(B001) 종류명 분포(꼬리표 뗀 이름 · 건수 내림차순 상위 60)
@@ -21,11 +22,19 @@ umask 077
 #   조회 결과는 이 스크립트 실행 동안만 임시 디렉터리(권한 700)에 두고 끝나면 지운다 — DB · 저장소에 남기지 않는다.
 # stats — RPC dart_alert_ops_stats(p_days · 1 ~ 31): 오늘 호출 수 · 한도 의심 표시 · 상태별 · 감시 대상별 · 늦은 알림 ·
 #   처음 봄 → 보냄 지연 p50/p90 · 장애 상태 · 감시 대상별 마지막 성공 조회 · 임대 보유자(SC-4 · SC-7). 읽기 전용.
+# check — 배포 뒤 읽기 전용 점검(스모크 INV-6 · INV-7 이 부른다 · 리뷰 WR-52). OpenDART 호출 0 · 단체방 글 0.
+#   ① db: dart_alert_ops_stats 응답(SUPABASE_URL · 서비스롤 키 · 기본 마이그레이션)
+#   ② migration: PostgREST 스키마(/rest/v1/ OpenAPI)의 dart_alert_outage 에 p_since 가 있는가(20261113300000 적용).
+#      스키마를 못 읽으면 WARN 만(실패로 세지 않음).
+#   ③ telegram: getMe(토큰) + getChatMember(방 id · 봇 자신)로 봇이 방에 있고 글을 쓸 수 있는가(글은 보내지 않는다)
+#   하나라도 FAIL 이면 종료 1. 결과 줄에는 비밀(토큰 · 방 id · 키)을 싣지 않는다.
 #
 # 비밀:
 #   - OpenDART 키: Secret gh-radar-opendart-key 최신 값을 변수에만(없으면 env 파일
 #     ${DART_ALERT_ENV_FILE:-~/.config/gh-radar/dart-alert.env} 의 OPENDART_API_KEY 줄).
 #   - 서비스롤 키: env SUPABASE_SERVICE_ROLE_KEY 가 있으면 그것, 없으면 Secret gh-radar-supabase-service-role 최신 값을 변수에만.
+#   - (check) 봇 토큰 · 방 id: Secret gh-radar-telegram-bot-token · gh-radar-telegram-chat-id 최신 값을 변수에만
+#     (없으면 env 파일의 TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID 줄).
 #   - 키는 출력하지 않고 명령줄에도 싣지 않는다 — 요청 주소 · 헤더는 printf 로 만든 curl 설정 줄을 파이프로 curl 의
 #     표준입력 설정(-K -)에 넘긴다(printf 는 셸 내장 — 프로세스 목록 노출 0). curl 오류 문구도 화면에 내지 않는다.
 #   - 셸 추적 모드를 켜지 않는다.
@@ -48,6 +57,7 @@ B001_KINDS="${DART_ALERT_B001_KINDS:-유상증자결정,유무상증자결정,�
 usage() {
   echo "사용: SUPABASE_URL=… bash scripts/dart-alert-report.sh survey [days=30]   (OpenDART 조사 · 1 ~ 90일)" >&2
   echo "      SUPABASE_URL=… bash scripts/dart-alert-report.sh stats [days=1]     (운영 수치 · 1 ~ 31일)" >&2
+  echo "      SUPABASE_URL=… bash scripts/dart-alert-report.sh check              (배포 뒤 읽기 전용 점검 · DB · 마이그레이션 · 텔레그램)" >&2
 }
 
 CMD="${1:-}"
@@ -59,6 +69,10 @@ case "$CMD" in
   stats)
     DAYS="${2:-1}"
     MAX_DAYS=31
+    ;;
+  check)
+    DAYS=1
+    MAX_DAYS=1
     ;;
   -h | --help)
     usage
@@ -107,10 +121,14 @@ if [[ ! "$SB_KEY" =~ ^[A-Za-z0-9._-]+$ ]]; then
 fi
 
 DART_KEY=""
+TG_TOKEN=""
+TG_CHAT=""
 WORK=""
 cleanup() {
   SB_KEY=""
   DART_KEY=""
+  TG_TOKEN=""
+  TG_CHAT=""
   if [[ -n "$WORK" && -d "$WORK" ]]; then rm -rf "$WORK"; fi
 }
 trap cleanup EXIT
@@ -121,6 +139,23 @@ sb_rpc() {
   printf 'url = "%s/rest/v1/rpc/%s"\nheader = "apikey: %s"\nheader = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\nmax-time = 30\n' \
     "${SUPABASE_URL%/}" "$rpc" "$SB_KEY" "$SB_KEY" \
     | curl -fsS -X POST -K - --data "$body" 2>/dev/null
+}
+
+# env 파일의 「KEY=값」 줄 값(따옴표 · 공백 제거) — 명령 치환 안에서만 부른다(값은 변수로만 · 화면 출력 0)
+env_file_get() {
+  local want="$1" line_raw line_key val=""
+  [[ -f "$ENV_FILE" ]] || return 0
+  while IFS= read -r line_raw || [[ -n "$line_raw" ]]; do
+    line_raw="${line_raw%$'\r'}"
+    [[ "$line_raw" == *=* ]] || continue
+    line_key="${line_raw%%=*}"
+    line_key="${line_key#export }"
+    line_key="${line_key//[[:space:]]/}"
+    if [[ "$line_key" == "$want" ]]; then
+      val="${line_raw#*=}"
+    fi
+  done < "$ENV_FILE"
+  printf '%s' "${val//[[:space:]\"\']/}"
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -165,6 +200,110 @@ if [[ "$CMD" == stats ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════
+# check — 배포 뒤 읽기 전용 점검(스모크 INV-6 · INV-7 · 리뷰 WR-52). OpenDART 호출 0 · 단체방 글 0.
+# ═══════════════════════════════════════════════════════════════
+if [[ "$CMD" == check ]]; then
+  CHECK_FAILS=0
+
+  # ① db — 운영 수치 RPC 가 응답하는가(URL 오타 · 서비스롤 키 폐기 · 기본 마이그레이션 미적용이면 실패)
+  RESP=""
+  if RESP="$(sb_rpc dart_alert_ops_stats '{"p_days":1}')" && printf '%s' "$RESP" | node -e '
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        try {
+          const j = JSON.parse(s);
+          process.exit(j && typeof j === "object" && "calls_today" in j ? 0 : 1);
+        } catch {
+          process.exit(1);
+        }
+      });'; then
+    echo "OK db — dart_alert_ops_stats 응답"
+  else
+    echo "FAIL db — dart_alert_ops_stats 호출 실패(SUPABASE_URL · 서비스롤 키 · 마이그레이션 20261113200000 적용 여부)"
+    CHECK_FAILS=$((CHECK_FAILS + 1))
+  fi
+
+  # ② migration — dart_alert_outage 에 p_since(20261113300000)가 있는가. 새 워커는 p_since 를 보내므로 없으면 장애 open 이 실패한다.
+  SPEC_STATE="$(printf 'url = "%s/rest/v1/"\nheader = "apikey: %s"\nheader = "Authorization: Bearer %s"\nheader = "Accept: application/openapi+json"\nmax-time = 30\n' \
+      "${SUPABASE_URL%/}" "$SB_KEY" "$SB_KEY" \
+    | curl -fsS -K - 2>/dev/null \
+    | node -e '
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        let j;
+        try { j = JSON.parse(s); } catch { console.log("unknown"); return; }
+        if (!j || typeof j.paths !== "object") { console.log("unknown"); return; }
+        const p = j.paths["/rpc/dart_alert_outage"];
+        console.log(p && JSON.stringify(p).includes("p_since") ? "ok" : "missing");
+      });' 2>/dev/null || true)"
+  case "$SPEC_STATE" in
+    ok) echo "OK migration — dart_alert_outage(p_since) 있음(20261113300000 적용)" ;;
+    missing)
+      echo "FAIL migration — dart_alert_outage 에 p_since 가 없다(20261113300000 미적용 — supabase db push 먼저)"
+      CHECK_FAILS=$((CHECK_FAILS + 1))
+      ;;
+    *) echo "WARN migration — PostgREST 스키마를 읽지 못해 확인 못 함(실패로 세지 않음)" ;;
+  esac
+
+  # ③ telegram — 토큰이 살아 있고 봇이 방에 있어 글을 쓸 수 있는가(getMe · getChatMember — 글 0)
+  TG_TOKEN="$(gcloud secrets versions access latest --secret=gh-radar-telegram-bot-token --project="$PROJECT" 2>/dev/null || true)"
+  if [[ -z "$TG_TOKEN" ]]; then TG_TOKEN="$(env_file_get TELEGRAM_BOT_TOKEN)"; fi
+  TG_CHAT="$(gcloud secrets versions access latest --secret=gh-radar-telegram-chat-id --project="$PROJECT" 2>/dev/null || true)"
+  if [[ -z "$TG_CHAT" ]]; then TG_CHAT="$(env_file_get TELEGRAM_CHAT_ID)"; fi
+  TG_CHAT="${TG_CHAT//[[:space:]]/}"
+  # 꼴 검사 — curl 설정 줄에 따옴표 · 역슬래시가 끼어들지 않게(config.ts 와 같은 꼴)
+  if [[ ! "$TG_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ || ! "$TG_CHAT" =~ ^-?[0-9]+$ ]]; then
+    echo "FAIL telegram — 봇 토큰 · 방 id 를 얻지 못했거나 꼴이 아니다(Secret gh-radar-telegram-bot-token · gh-radar-telegram-chat-id)"
+    CHECK_FAILS=$((CHECK_FAILS + 1))
+  else
+    tg_call() {
+      local method="$1" data="${2:-}"
+      {
+        printf 'url = "https://api.telegram.org/bot%s/%s"\nmax-time = 20\n' "$TG_TOKEN" "$method"
+        if [[ -n "$data" ]]; then printf 'data = "%s"\n' "$data"; fi
+      } | curl -sS -K - 2>/dev/null
+    }
+    # 결과 판정 — 토큰 · 방 id 는 싣지 않고 봇 이름 · 상태 · 오류 코드만
+    TG_NODE='
+      const kind = process.argv[1];
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        let j;
+        try { j = JSON.parse(s); } catch { console.log("FAIL 응답을 읽지 못함(네트워크?)"); return; }
+        const clean = (v) => String(v ?? "").replace(/-?[0-9]{6,}/g, "#").slice(0, 80);
+        if (!j.ok) { console.log(`FAIL ${j.error_code ?? "-"} ${clean(j.description)}`); return; }
+        const r = j.result ?? {};
+        if (kind === "me") { console.log(`OK @${clean(r.username)}`); return; }
+        const st = String(r.status ?? "");
+        const canPost = ["creator", "administrator", "member"].includes(st) || (st === "restricted" && r.is_member && r.can_send_messages);
+        console.log(canPost ? `OK ${st}` : `FAIL 방 상태 ${st || "-"}(봇이 방에 없거나 글쓰기 권한이 없다)`);
+      });
+    '
+    ME="$(tg_call getMe | node -e "$TG_NODE" me 2>/dev/null || echo "FAIL 응답 없음")"
+    if [[ "$ME" == OK* ]]; then
+      MEMBER="$(tg_call getChatMember "chat_id=${TG_CHAT}&user_id=${TG_TOKEN%%:*}" | node -e "$TG_NODE" member 2>/dev/null || echo "FAIL 응답 없음")"
+    else
+      MEMBER="FAIL getMe 실패라 확인 안 함"
+    fi
+    if [[ "$ME" == OK* && "$MEMBER" == OK* ]]; then
+      echo "OK telegram — 봇 ${ME#OK } · 방 상태 ${MEMBER#OK }(글은 보내지 않음)"
+    else
+      echo "FAIL telegram — getMe: ${ME} · getChatMember: ${MEMBER} (토큰 폐기면 401 · 봇이 내보내졌으면 403/left · kicked)"
+      CHECK_FAILS=$((CHECK_FAILS + 1))
+    fi
+  fi
+  TG_TOKEN=""
+  TG_CHAT=""
+
+  if (( CHECK_FAILS > 0 )); then
+    echo "check: FAIL ${CHECK_FAILS}건" >&2
+    exit 1
+  fi
+  echo "check: all OK"
+  exit 0
+fi
+
+# ═══════════════════════════════════════════════════════════════
 # survey
 # ═══════════════════════════════════════════════════════════════
 
@@ -201,19 +340,8 @@ fi
 
 # ── 2. OpenDART 키(변수에만) ─────────────────────────────────────
 DART_KEY="$(gcloud secrets versions access latest --secret=gh-radar-opendart-key --project="$PROJECT" 2>/dev/null || true)"
-if [[ -z "$DART_KEY" && -f "$ENV_FILE" ]]; then
-  while IFS= read -r line_raw || [[ -n "$line_raw" ]]; do
-    line_raw="${line_raw%$'\r'}"
-    [[ "$line_raw" == *=* ]] || continue
-    line_key="${line_raw%%=*}"
-    line_key="${line_key#export }"
-    line_key="${line_key//[[:space:]]/}"
-    if [[ "$line_key" == OPENDART_API_KEY ]]; then
-      DART_KEY="${line_raw#*=}"
-    fi
-  done < "$ENV_FILE"
-  line_raw=""
-  DART_KEY="${DART_KEY//[[:space:]\"\']/}"
+if [[ -z "$DART_KEY" ]]; then
+  DART_KEY="$(env_file_get OPENDART_API_KEY)"
 fi
 if [[ -z "$DART_KEY" ]]; then
   echo "ERROR: OpenDART 키를 얻지 못했다 — Secret gh-radar-opendart-key(! bash scripts/setup-dart-alert-secrets.sh) 또는 env 파일 OPENDART_API_KEY 줄" >&2

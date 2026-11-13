@@ -8,6 +8,8 @@ set -euo pipefail
 # 선행(사용자 `!` — 비밀 · IAM 쓰기는 사용자 터미널에서만):
 #   ! GCP_PROJECT_ID=gh-radar bash scripts/setup-dart-alert-iam.sh   (SA · Secret 껍데기 3개 · Accessor 4건)
 #   ! bash scripts/setup-dart-alert-secrets.sh                       (OpenDART 키 · 봇 토큰 · 방 id 값)
+#   supabase db push --linked --yes                                  (dart_alert 마이그레이션 — 워커보다 먼저 · 스모크 INV-6b 가 확인)
+# 스모크가 실패하면 Job 은 이미 새 이미지 · env 다 — 끝에 직전 이미지로 되돌리는 명령을 찍는다(리뷰 WR-52).
 # 실행(메인 세션): GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh [--scheduler-paused]
 # 점검만(GCP 접촉 0): bash scripts/deploy-dart-alert.sh --self-test
 #
@@ -457,6 +459,11 @@ docker push "$IMAGE_LATEST"
 #            DART_ALERT_B001_KINDS · DART_ALERT_B001_CORRECTIONS(선택 — 미설정이면 config.ts 기본값) ·
 #            DART_ALERT_MODE(미설정 = auto)
 # ═══════════════════════════════════════════════════════════════
+# 되돌리기용 — 지금 Job 의 이미지(처음 배포면 비어 있다 · 리뷰 WR-52). 스모크가 실패하면 이 이름으로 되돌리는 명령을 안내한다.
+PREV_IMAGE=$(gcloud run jobs describe "$JOB" --region="$REGION" --project="$EXPECTED_PROJECT" \
+  --format='value(spec.template.spec.template.spec.containers[0].image)' 2>/dev/null || true)
+echo "  직전 이미지: ${PREV_IMAGE:-없음(처음 배포)}"
+
 echo "▶ deploying Cloud Run Job..."
 gcloud run jobs deploy "$JOB" \
   --image="$IMAGE" \
@@ -637,7 +644,19 @@ fi
 
 echo "▶ smoke tests..."
 # PAUSED 는 스모크 실패다(INV-3b) — 이 배포가 --scheduler-paused 로 멈춘 첫 배포 날만 통과로 본다(리뷰 CR-50).
-DART_SMOKE_ALLOW_PAUSED="$SMOKE_ALLOW_PAUSED" bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"
+if ! DART_SMOKE_ALLOW_PAUSED="$SMOKE_ALLOW_PAUSED" DART_SMOKE_SUPABASE_URL="$SUPABASE_URL" GCP_PROJECT_ID="$EXPECTED_PROJECT" \
+  bash "$(dirname "$0")/smoke-dart-alert.sh" "$JOB" "$REGION"; then
+  echo "" >&2
+  echo "ERROR: 스모크 실패 — Job 은 이미 새 이미지($IMAGE) · 새 env 로 바뀌었다(다음 깨움부터 새 설정으로 돈다)." >&2
+  if [[ -n "$PREV_IMAGE" ]]; then
+    echo "  이미지만 되돌리기: gcloud run jobs update $JOB --image=$PREV_IMAGE --region=$REGION --project=$EXPECTED_PROJECT" >&2
+  else
+    echo "  처음 배포라 되돌릴 이미지가 없다 — 원인을 고친 뒤 다시 배포한다." >&2
+  fi
+  echo "  env(SUPABASE_URL 오타 등)가 원인이면 이미지 되돌리기로는 안 풀린다 — 올바른 값으로 다시 배포한다." >&2
+  echo "  마이그레이션 미적용(INV-6b · FAIL migration)이면 supabase db push --linked --yes 뒤 스모크만 다시: bash scripts/smoke-dart-alert.sh" >&2
+  exit 1
+fi
 
 echo ""
 echo "✅ deploy-dart-alert.sh complete"
