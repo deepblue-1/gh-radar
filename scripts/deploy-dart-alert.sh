@@ -383,6 +383,20 @@ echo "✓ gcloud guard + SA/Secret/채널 check"
 # Section 2: 변수
 # ═══════════════════════════════════════════════════════════════
 SHA=$(git rev-parse --short HEAD)
+# 이미지 태그 · APP_VERSION 은 HEAD SHA 인데 docker build 는 작업 트리를 쓴다(리뷰 WR-51). 빌드 입력(workers/dart-alert/Dockerfile 의
+#   COPY 경로 — 추적 안 된 파일 포함)이 HEAD 와 다르면 커밋에 없는 코드가 「dart-alert:<깨끗한 sha>」 로 나가므로 막는다.
+#   일부러 그대로 올리려면 ALLOW_DIRTY=1 — 태그 · APP_VERSION 에 -dirty-<epoch초> 를 붙인다(deploy-tick-convert.sh 와 같은 꼴).
+BUILD_PATHS=(package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json workers/dart-alert)
+if [[ -n "$(git status --porcelain -- "${BUILD_PATHS[@]}")" ]]; then
+  if [[ "${ALLOW_DIRTY:-0}" == "1" ]]; then
+    SHA="${SHA}-dirty-$(date +%s)"
+    echo "⚠ 빌드 입력이 HEAD 와 다르다 — ALLOW_DIRTY=1 · 태그 ${SHA}"
+  else
+    git status --short -- "${BUILD_PATHS[@]}" >&2
+    echo "ERROR: 빌드 입력(${BUILD_PATHS[*]})에 커밋 안 된 변경이 있다 — 커밋하거나 깨끗한 worktree 에서 배포 (그대로 올리려면 ALLOW_DIRTY=1 · 태그 -dirty-<epoch초>)" >&2
+    exit 1
+  fi
+fi
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
 IMAGE="${REGISTRY}/dart-alert:${SHA}"
 IMAGE_LATEST="${REGISTRY}/dart-alert:latest"
