@@ -4,7 +4,7 @@ import path from "node:path";
 import { WINDOW_END_MIN, WINDOW_START_MIN, isInWindow } from "../src/cadence";
 
 /**
- * Phase 43-07 — 배포 스크립트(scripts/deploy-dart-alert.sh)의 DART_SCHEDULERS 배열을 직접 읽어
+ * Phase 43-07 — 배포 스크립트(scripts/deploy-dart-alert.sh)의 WAKE_SCHEDULER · WAKE_SCHEDULE 두 줄을 직접 읽어
  * 1주일 × 1440분을 전개하고, 수집기 창(D-11 · 평일 07:00 ~ 20:00 · cadence.ts)과 분 단위로 어긋나지 않음을 단언한다
  * (workers/kis-news-sync/tests/schedule.test.ts 꼴).
  *
@@ -19,21 +19,14 @@ const SCRIPT_PATH = path.resolve(__dirname, "../../../scripts/deploy-dart-alert.
 const SCRIPT = readFileSync(SCRIPT_PATH, "utf8");
 const CONFIG_SRC = readFileSync(path.resolve(__dirname, "../src/config.ts"), "utf8");
 
-function parseBashArray(src: string, name: string): string[] {
-  const m = new RegExp(`declare -a ${name}=\\(([\\s\\S]*?)\\)`).exec(src);
-  if (!m) throw new Error(`array ${name} not found in deploy-dart-alert.sh`);
-  const body = m[1]
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("#"))
-    .join("\n");
-  return (body.match(/"[^"]*"|\S+/g) ?? []).map((t) => t.replace(/^"|"$/g, ""));
+/** 줄 머리의 `NAME=값` · `NAME="값"` 상수 하나(정확히 한 줄이어야 한다 — 리뷰 IN-59) */
+function bashConst(src: string, name: string): string {
+  const all = [...src.matchAll(new RegExp(`^${name}=(?:"([^"]*)"|(\\S+))$`, "gm"))];
+  if (all.length !== 1) throw new Error(`${name}= 줄이 deploy-dart-alert.sh 에 ${all.length}개`);
+  return all[0]![1] ?? all[0]![2]!;
 }
 
-const DART_SCHEDULERS = parseBashArray(SCRIPT, "DART_SCHEDULERS").map((entry) => {
-  const i = entry.indexOf("|");
-  if (i < 0) throw new Error(`bad DART_SCHEDULERS entry: ${entry}`);
-  return { name: entry.slice(0, i), cron: entry.slice(i + 1) };
-});
+const DART_SCHEDULERS = [{ name: bashConst(SCRIPT, "WAKE_SCHEDULER"), cron: bashConst(SCRIPT, "WAKE_SCHEDULE") }];
 
 // ── 작은 cron 판정기(`*` · `*/N` · `a-b` · `a,b` · 숫자) ─────────────────
 function expandField(tok: string, min: number, max: number): Set<number> {
@@ -132,8 +125,8 @@ describe("cron 판정기 자체", () => {
   });
 });
 
-describe("dart-alert Scheduler (scripts/deploy-dart-alert.sh DART_SCHEDULERS)", () => {
-  it("① 배열은 하나 = gh-radar-dart-alert-wake · 「*/5 7-19 * * 1-5」", () => {
+describe("dart-alert Scheduler (scripts/deploy-dart-alert.sh WAKE_SCHEDULER · WAKE_SCHEDULE)", () => {
+  it("① Scheduler 하나 = gh-radar-dart-alert-wake · 「*/5 7-19 * * 1-5」", () => {
     expect(DART_SCHEDULERS).toEqual([{ name: WAKE, cron: "*/5 7-19 * * 1-5" }]);
   });
 

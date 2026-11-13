@@ -16,7 +16,7 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-dart-alert (asia-northeast3 · 1 vCPU · 512Mi · task-timeout 14h · retries 0 · 동시 1개)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/dart-alert:<sha>
-#   - Scheduler (Asia/Seoul · DART_SCHEDULERS 배열 — 하나뿐):
+#   - Scheduler (Asia/Seoul · 상수 WAKE_SCHEDULER · WAKE_SCHEDULE — 하나뿐):
 #       gh-radar-dart-alert-wake  "*/5 7-19 * * 1-5"  평일 07:00 ~ 19:55 5분마다 깨움 · 밤 · 주말 깨움 0
 #   - 알림 정책(운영자 이메일 · D-16):
 #       gh-radar-dart-alert-failure          Job 실행 실패 수 > 0 (설정 오류 · 020 · 키 오류 · 예외 · 메모리 부족)
@@ -80,8 +80,8 @@ set -euo pipefail
 #   값을 유지하려면 배포 때 같은 이름의 env 로 넘긴다(아래 Section 5 가 그대로 싣는다):
 #     DART_ALERT_B001_KINDS='유상증자결정,…' DART_ALERT_B001_CORRECTIONS=exclude GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh
 #
-# Scheduler 배열을 바꾸면 workers/dart-alert/tests/schedule.test.ts 를 먼저 돌린다
-#   (그 테스트가 이 파일의 DART_SCHEDULERS 를 직접 읽어 1주일 × 1440분 정합을 단언한다).
+# Scheduler 일정을 바꾸면 workers/dart-alert/tests/schedule.test.ts 를 먼저 돌린다
+#   (그 테스트가 이 파일의 WAKE_SCHEDULER · WAKE_SCHEDULE 두 줄을 직접 읽어 1주일 × 1440분 정합을 단언한다).
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용 (OIDC 금지).
 # 알림 채널: NOTIFICATION_CHANNEL_ID(id 또는 projects/…/notificationChannels/… 전체 이름)를 안 주면
 #   기존 limitup 알림 정책(gh-radar-limitup-sync-failure)의 첫 채널을 쓴다.
@@ -107,9 +107,9 @@ DART_ALERT_B001_KINDS="${DART_ALERT_B001_KINDS:-}"
 DART_ALERT_B001_CORRECTIONS="${DART_ALERT_B001_CORRECTIONS:-}"
 LIMITUP_POLICY_NAME=gh-radar-limitup-sync-failure
 
-declare -a DART_SCHEDULERS=(
-  "gh-radar-dart-alert-wake|*/5 7-19 * * 1-5"
-)
+# 깨움 Scheduler 하나 — schedule.test.ts · smoke-dart-alert.sh 가 이 두 줄을 그대로 읽는다(원소 1개로 잠긴 배열 대신 · 리뷰 IN-59)
+WAKE_SCHEDULER=gh-radar-dart-alert-wake
+WAKE_SCHEDULE="*/5 7-19 * * 1-5"
 
 # 알림 정책 — 파일과 표시 이름은 같은 순서(smoke-dart-alert.sh INV-5 가 이 배열을 읽는다)
 declare -a ALERT_POLICY_FILES=(
@@ -158,36 +158,23 @@ validate_optional_env() {
 # ═══════════════════════════════════════════════════════════════
 self_test() {
   # macOS 기본 bash 3.2 에서도 돌게 연관 배열을 쓰지 않는다.
-  local self="${BASH_SOURCE[0]}" root entry name cron fails=0 i f
+  local self="${BASH_SOURCE[0]}" root fails=0 i f
   local -a fields=()
   root="$(cd "$(dirname "$self")/.." && pwd)"
 
-  if (( ${#DART_SCHEDULERS[@]} != 1 )); then
-    echo "FAIL: DART_SCHEDULERS 원소가 1개가 아니다(${#DART_SCHEDULERS[@]})" >&2
+  if [[ "$WAKE_SCHEDULER" != "gh-radar-dart-alert-wake" ]]; then
+    echo "FAIL: WAKE_SCHEDULER '$WAKE_SCHEDULER' — gh-radar-dart-alert-wake 가 아니다" >&2
     fails=$((fails + 1))
   fi
-  for entry in "${DART_SCHEDULERS[@]}"; do
-    if [[ "$entry" != *"|"* ]]; then
-      echo "FAIL: '$entry' — 「이름|cron」 꼴이 아니다" >&2
-      fails=$((fails + 1))
-      continue
-    fi
-    name="${entry%%|*}"
-    cron="${entry#*|}"
-    if [[ "$name" != "gh-radar-dart-alert-wake" ]]; then
-      echo "FAIL: '$name' — 이름이 gh-radar-dart-alert-wake 가 아니다" >&2
-      fails=$((fails + 1))
-    fi
-    if [[ "$cron" != "*/5 7-19 * * 1-5" ]]; then
-      echo "FAIL: '$name' cron '$cron' — '*/5 7-19 * * 1-5' 가 아니다(D-11 창 · schedule.test.ts 먼저)" >&2
-      fails=$((fails + 1))
-    fi
-    read -r -a fields <<< "$cron"
-    if (( ${#fields[@]} != 5 )); then
-      echo "FAIL: '$name' cron '$cron' — 필드가 5개가 아니다" >&2
-      fails=$((fails + 1))
-    fi
-  done
+  if [[ "$WAKE_SCHEDULE" != "*/5 7-19 * * 1-5" ]]; then
+    echo "FAIL: WAKE_SCHEDULE '$WAKE_SCHEDULE' — '*/5 7-19 * * 1-5' 가 아니다(D-11 창 · schedule.test.ts 먼저)" >&2
+    fails=$((fails + 1))
+  fi
+  read -r -a fields <<< "$WAKE_SCHEDULE"
+  if (( ${#fields[@]} != 5 )); then
+    echo "FAIL: WAKE_SCHEDULE '$WAKE_SCHEDULE' — 필드가 5개가 아니다" >&2
+    fails=$((fails + 1))
+  fi
 
   # 배포 명령의 리터럴 — 자기 자신의 검사 줄과 헷갈리지 않게 「들여쓴 플래그 + 줄 잇기」 꼴만 센다.
   for f in '--task-timeout=14h' '--max-retries=0' '--parallelism=1'; do
@@ -266,7 +253,7 @@ self_test() {
     echo "SELF-TEST FAIL ($fails)" >&2
     return 1
   fi
-  echo "SELF-TEST OK — schedulers=${#DART_SCHEDULERS[@]} (${DART_SCHEDULERS[0]}) · task-timeout=14h · max-retries=0 · parallelism=1 · DART_ALERT_DAILY_BUDGET=${DART_ALERT_DAILY_BUDGET} (15001 거부) · alert policies=${#ALERT_POLICY_FILES[@]}"
+  echo "SELF-TEST OK — scheduler=${WAKE_SCHEDULER} (${WAKE_SCHEDULE}) · task-timeout=14h · max-retries=0 · parallelism=1 · DART_ALERT_DAILY_BUDGET=${DART_ALERT_DAILY_BUDGET} (15001 거부) · alert policies=${#ALERT_POLICY_FILES[@]}"
 }
 
 usage() {
@@ -379,10 +366,10 @@ done
 #   빌드 · 배포 전에 거부해 아무것도 바뀌지 않게 한다. 이미 PAUSED 면(첫 배포 날 절차를 다시 돌림) 그대로 둔다.
 SCHED_STATE_BEFORE=""
 if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
-  SCHED_STATE_BEFORE=$(gcloud scheduler jobs describe "${DART_SCHEDULERS[0]%%|*}" --location="$REGION" \
+  SCHED_STATE_BEFORE=$(gcloud scheduler jobs describe "${WAKE_SCHEDULER}" --location="$REGION" \
     --project="$EXPECTED_PROJECT" --format='value(state)' 2>/dev/null || true)
   if [[ -n "$SCHED_STATE_BEFORE" && "$SCHED_STATE_BEFORE" != PAUSED ]]; then
-    echo "ERROR: ${DART_SCHEDULERS[0]%%|*} 가 이미 있고 상태가 ${SCHED_STATE_BEFORE} 다 — --scheduler-paused 는 Scheduler 를 처음 만들 때만 쓴다" >&2
+    echo "ERROR: ${WAKE_SCHEDULER} 가 이미 있고 상태가 ${SCHED_STATE_BEFORE} 다 — --scheduler-paused 는 Scheduler 를 처음 만들 때만 쓴다" >&2
     echo "       (운영 중 깨움을 멈추지 않으려고 아무것도 바꾸지 않고 멈춘다). 플래그 없이 다시 실행한다." >&2
     exit 1
   fi
@@ -506,85 +493,80 @@ echo "✓ run.invoker bound: $SCHED_SA_NAME → $JOB"
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 
 SMOKE_ALLOW_PAUSED=0
-for entry in "${DART_SCHEDULERS[@]}"; do
-  SCHEDULER_NAME="${entry%%|*}"
-  SCHEDULE="${entry#*|}"
-  SCHED_CREATED=0
-  if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
-    echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"
-    gcloud scheduler jobs update http "$SCHEDULER_NAME" \
-      --location="$REGION" \
-      --schedule="$SCHEDULE" \
-      --time-zone="Asia/Seoul" \
-      --uri="$JOB_INVOKE_URI" \
-      --http-method=POST \
-      --oauth-service-account-email="$SCHED_SA" \
-      --project="$EXPECTED_PROJECT"
-  elif [[ "$SCHEDULER_PAUSED" != 1 ]]; then
-    echo "▶ scheduler create: $SCHEDULER_NAME (schedule: $SCHEDULE)"
-    gcloud scheduler jobs create http "$SCHEDULER_NAME" \
-      --location="$REGION" \
-      --schedule="$SCHEDULE" \
-      --time-zone="Asia/Seoul" \
-      --uri="$JOB_INVOKE_URI" \
-      --http-method=POST \
-      --oauth-service-account-email="$SCHED_SA" \
-      --project="$EXPECTED_PROJECT"
-    SCHED_CREATED=1
+SCHEDULER_NAME="$WAKE_SCHEDULER"
+SCHEDULE="$WAKE_SCHEDULE"
+if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+  echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"
+  gcloud scheduler jobs update http "$SCHEDULER_NAME" \
+    --location="$REGION" \
+    --schedule="$SCHEDULE" \
+    --time-zone="Asia/Seoul" \
+    --uri="$JOB_INVOKE_URI" \
+    --http-method=POST \
+    --oauth-service-account-email="$SCHED_SA" \
+    --project="$EXPECTED_PROJECT"
+elif [[ "$SCHEDULER_PAUSED" != 1 ]]; then
+  echo "▶ scheduler create: $SCHEDULER_NAME (schedule: $SCHEDULE)"
+  gcloud scheduler jobs create http "$SCHEDULER_NAME" \
+    --location="$REGION" \
+    --schedule="$SCHEDULE" \
+    --time-zone="Asia/Seoul" \
+    --uri="$JOB_INVOKE_URI" \
+    --http-method=POST \
+    --oauth-service-account-email="$SCHED_SA" \
+    --project="$EXPECTED_PROJECT"
+else
+  # 멈춤은 이번에 만든 Scheduler 에만 — 이미 있던 Scheduler 는 이 배포가 멈추지도 재개하지도 않는다(리뷰 CR-50).
+  # create 는 ENABLED 로 만든다 — 진짜 일정으로 만들고 pause 를 따로 부르면 그 사이 5분 경계(예: 09:05:00)에 깨움이 나가거나
+  # pause 가 일시 오류로 실패해 seed 없는 첫 auto 실행이 그날 공시를 「(늦은 알림)」 으로 쏟는다(리뷰 WR-50).
+  # 그래서 곧 울리지 않는 일정(1월 1일 0시 KST — 울려도 창 밖이라 수집기가 바로 0 으로 끝남)으로 만들고 → 멈추고 →
+  # 진짜 일정으로 갱신한다(update 는 상태를 바꾸지 않는다 — 아래에서 PAUSED 를 다시 확인한다).
+  echo "▶ scheduler create (paused): $SCHEDULER_NAME (임시 일정 0 0 1 1 * → 멈춤 → $SCHEDULE)"
+  gcloud scheduler jobs create http "$SCHEDULER_NAME" \
+    --location="$REGION" \
+    --schedule="0 0 1 1 *" \
+    --time-zone="Asia/Seoul" \
+    --uri="$JOB_INVOKE_URI" \
+    --http-method=POST \
+    --oauth-service-account-email="$SCHED_SA" \
+    --project="$EXPECTED_PROJECT"
+  if ! gcloud scheduler jobs pause "$SCHEDULER_NAME" \
+    --location="$REGION" \
+    --project="$EXPECTED_PROJECT" >/dev/null; then
+    echo "ERROR: $SCHEDULER_NAME 멈춤 실패 — 지금은 임시 일정(1월 1일 0시)이라 깨우지 않는다. 다음 순서로 마저 한다:" >&2
+    echo "  gcloud scheduler jobs pause $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
+    echo "  그 뒤 이 스크립트를 --scheduler-paused 로 다시 실행(이미 PAUSED 면 그대로 두고 진짜 일정으로 바꾼다)" >&2
+    exit 1
+  fi
+  echo "⏸ scheduler paused: $SCHEDULER_NAME"
+  gcloud scheduler jobs update http "$SCHEDULER_NAME" \
+    --location="$REGION" \
+    --schedule="$SCHEDULE" \
+    --time-zone="Asia/Seoul" \
+    --uri="$JOB_INVOKE_URI" \
+    --http-method=POST \
+    --oauth-service-account-email="$SCHED_SA" \
+    --project="$EXPECTED_PROJECT"
+  if [[ "$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
+    --format='value(state)' 2>/dev/null || true)" != PAUSED ]]; then
+    # 방금 만든 Scheduler 라 다시 멈춰도 운영 깨움을 끊지 않는다
+    echo "⚠ 일정 갱신 뒤 $SCHEDULER_NAME 가 PAUSED 가 아니다 — 다시 멈춘다" >&2
+    gcloud scheduler jobs pause "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null
+  fi
+fi
+STATE=$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
+  --format='value(state)' 2>/dev/null || true)
+if [[ "$STATE" == "PAUSED" ]]; then
+  if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+    # 첫 배포 날 절차 — 스모크는 이 실행에서만 PAUSED 를 통과로 본다(seed → resume 은 아래 「다음 할 일」)
+    SMOKE_ALLOW_PAUSED=1
   else
-    # 멈춤은 이번에 만든 Scheduler 에만 — 이미 있던 Scheduler 는 이 배포가 멈추지도 재개하지도 않는다(리뷰 CR-50).
-    # create 는 ENABLED 로 만든다 — 진짜 일정으로 만들고 pause 를 따로 부르면 그 사이 5분 경계(예: 09:05:00)에 깨움이 나가거나
-    # pause 가 일시 오류로 실패해 seed 없는 첫 auto 실행이 그날 공시를 「(늦은 알림)」 으로 쏟는다(리뷰 WR-50).
-    # 그래서 곧 울리지 않는 일정(1월 1일 0시 KST — 울려도 창 밖이라 수집기가 바로 0 으로 끝남)으로 만들고 → 멈추고 →
-    # 진짜 일정으로 갱신한다(update 는 상태를 바꾸지 않는다 — 아래에서 PAUSED 를 다시 확인한다).
-    echo "▶ scheduler create (paused): $SCHEDULER_NAME (임시 일정 0 0 1 1 * → 멈춤 → $SCHEDULE)"
-    gcloud scheduler jobs create http "$SCHEDULER_NAME" \
-      --location="$REGION" \
-      --schedule="0 0 1 1 *" \
-      --time-zone="Asia/Seoul" \
-      --uri="$JOB_INVOKE_URI" \
-      --http-method=POST \
-      --oauth-service-account-email="$SCHED_SA" \
-      --project="$EXPECTED_PROJECT"
-    SCHED_CREATED=1
-    if ! gcloud scheduler jobs pause "$SCHEDULER_NAME" \
-      --location="$REGION" \
-      --project="$EXPECTED_PROJECT" >/dev/null; then
-      echo "ERROR: $SCHEDULER_NAME 멈춤 실패 — 지금은 임시 일정(1월 1일 0시)이라 깨우지 않는다. 다음 순서로 마저 한다:" >&2
-      echo "  gcloud scheduler jobs pause $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
-      echo "  그 뒤 이 스크립트를 --scheduler-paused 로 다시 실행(이미 PAUSED 면 그대로 두고 진짜 일정으로 바꾼다)" >&2
-      exit 1
-    fi
-    echo "⏸ scheduler paused: $SCHEDULER_NAME"
-    gcloud scheduler jobs update http "$SCHEDULER_NAME" \
-      --location="$REGION" \
-      --schedule="$SCHEDULE" \
-      --time-zone="Asia/Seoul" \
-      --uri="$JOB_INVOKE_URI" \
-      --http-method=POST \
-      --oauth-service-account-email="$SCHED_SA" \
-      --project="$EXPECTED_PROJECT"
-    if [[ "$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
-      --format='value(state)' 2>/dev/null || true)" != PAUSED ]]; then
-      # 방금 만든 Scheduler 라 다시 멈춰도 운영 깨움을 끊지 않는다
-      echo "⚠ 일정 갱신 뒤 $SCHEDULER_NAME 가 PAUSED 가 아니다 — 다시 멈춘다" >&2
-      gcloud scheduler jobs pause "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null
-    fi
+    echo "⚠ scheduler $SCHEDULER_NAME 가 멈춤(PAUSED) 상태다 — 이 배포는 재개하지 않는다(스모크 INV-3b 가 실패한다)." >&2
+    echo "  재개: gcloud scheduler jobs resume $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
   fi
-  STATE=$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
-    --format='value(state)' 2>/dev/null || true)
-  if [[ "$STATE" == "PAUSED" ]]; then
-    if [[ "$SCHEDULER_PAUSED" == 1 ]]; then
-      # 첫 배포 날 절차 — 스모크는 이 실행에서만 PAUSED 를 통과로 본다(seed → resume 은 아래 「다음 할 일」)
-      SMOKE_ALLOW_PAUSED=1
-    else
-      echo "⚠ scheduler $SCHEDULER_NAME 가 멈춤(PAUSED) 상태다 — 이 배포는 재개하지 않는다(스모크 INV-3b 가 실패한다)." >&2
-      echo "  재개: gcloud scheduler jobs resume $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
-    fi
-  elif [[ "$SCHEDULER_PAUSED" == 1 ]]; then
-    echo "⚠ scheduler $SCHEDULER_NAME 는 이미 있던 ${STATE:-상태 모름} Scheduler 라 멈추지 않았다(--scheduler-paused 는 처음 만들 때만)." >&2
-  fi
-done
+elif [[ "$SCHEDULER_PAUSED" == 1 ]]; then
+  echo "⚠ scheduler $SCHEDULER_NAME 는 이미 있던 ${STATE:-상태 모름} Scheduler 라 멈추지 않았다(--scheduler-paused 는 처음 만들 때만)." >&2
+fi
 
 # ═══════════════════════════════════════════════════════════════
 # Section 7b: 로그 기반 지표 — 실행 시작 로그 수(no-wake 정책이 본다 · create/update 멱등 · 리뷰 CR-50)
@@ -657,7 +639,7 @@ done
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Scheduler: ${DART_SCHEDULERS[0]%%|*} ($([[ "$SMOKE_ALLOW_PAUSED" == 1 ]] && echo 멈춤 || echo 동작))"
+echo "  Scheduler: ${WAKE_SCHEDULER} ($([[ "$SMOKE_ALLOW_PAUSED" == 1 ]] && echo 멈춤 || echo 동작))"
 echo "  Alert policies: ${ALERT_POLICY_NAMES[*]}"
 echo ""
 
@@ -665,7 +647,7 @@ if [[ "$SMOKE_ALLOW_PAUSED" == 1 ]]; then
   echo "다음 할 일(첫 배포 날 · 머리 주석 「첫 배포 날」 — resume 을 빠뜨리면 평일 창 안 30분 뒤 no-wake 메일):"
   echo "  1. gcloud run jobs execute $JOB --region=$REGION --update-env-vars=DART_ALERT_MODE=seed   (--wait 없이)"
   echo "  2. Cloud Logging 에서 「seed done」 확인"
-  echo "  3. gcloud scheduler jobs resume ${DART_SCHEDULERS[0]%%|*} --location=$REGION"
+  echo "  3. gcloud scheduler jobs resume ${WAKE_SCHEDULER} --location=$REGION"
 fi
 
 echo "▶ smoke tests..."

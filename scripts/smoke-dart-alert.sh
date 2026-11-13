@@ -10,7 +10,7 @@ set -uo pipefail
 # INV-1 probe 실행 1회 — `DART_ALERT_MODE=probe` 를 이 실행에만 덮어써 공개매수 1쪽을 1회 조회하고 끝난다
 #       (Job 설정의 env 는 바꾸지 않는다 · 임대 없이 · 넣기 · 송신 0 — 43-05). 호출 1건은 api_usage 에 센다.
 # INV-2 Job 설정 — task timeout 50400s(14h) · max retries 0
-# INV-3 Scheduler gh-radar-dart-alert-wake 존재 · timeZone Asia/Seoul · 일정이 deploy-dart-alert.sh DART_SCHEDULERS 와 같음
+# INV-3 Scheduler gh-radar-dart-alert-wake 존재 · timeZone Asia/Seoul · 일정이 deploy-dart-alert.sh WAKE_SCHEDULE 과 같음
 # INV-3b Scheduler 상태 ENABLED — PAUSED 는 실패다(깨움 0 = 실행 · 로그 · 단체방 글 · 메일 전부 0 · 리뷰 CR-50).
 #       첫 배포 날(--scheduler-paused 로 막 만든 날)만 DART_SMOKE_ALLOW_PAUSED=1 로 통과(배포 스크립트가 넘긴다).
 # INV-3c 깨움이 실제로 Job 을 띄울 수 있다 — Scheduler 대상 URI = 이 Job 의 :run · OAuth SA = gh-radar-scheduler-sa ·
@@ -37,12 +37,13 @@ esac
 JOB="${1:-gh-radar-dart-alert}"
 REGION="${2:-asia-northeast3}"
 PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
-SCHEDULER_NAME=gh-radar-dart-alert-wake
 DEPLOY_SCRIPT="$(dirname "$0")/deploy-dart-alert.sh"
 REPORT_SCRIPT="$(dirname "$0")/dart-alert-report.sh"
 
-# 기대 일정은 배포 스크립트의 배열에서 읽는다(두 곳에 리터럴을 두지 않는다).
-WANT_SCHEDULE="$(grep -oE "\"${SCHEDULER_NAME}\\|[^\"]+\"" "$DEPLOY_SCRIPT" 2>/dev/null | head -1 | sed -E "s/^\"${SCHEDULER_NAME}\\|//; s/\"\$//")"
+# Scheduler 이름 · 기대 일정은 배포 스크립트의 상수 두 줄에서 읽는다(두 곳에 리터럴을 두지 않는다).
+SCHEDULER_NAME="$(sed -nE 's/^WAKE_SCHEDULER=([a-z0-9-]+)$/\1/p' "$DEPLOY_SCRIPT" 2>/dev/null | head -1)"
+SCHEDULER_NAME="${SCHEDULER_NAME:-gh-radar-dart-alert-wake}"
+WANT_SCHEDULE="$(sed -nE 's/^WAKE_SCHEDULE="([^"]+)"$/\1/p' "$DEPLOY_SCRIPT" 2>/dev/null | head -1)"
 # 알림 정책 이름도 배포 스크립트 배열에서 읽는다(「declare -a ALERT_POLICY_NAMES=(」 ~ 「)」 사이 따옴표 값).
 declare -a WANT_POLICIES=()
 while IFS= read -r p; do
@@ -144,7 +145,7 @@ IFS='|' read -r SCHED_GOT SCHED_TZ SCHED_STATE SCHED_URI SCHED_OAUTH <<< "$SCHED
 scheduler_ok() {
   [[ -n "$WANT_SCHEDULE" && "$SCHED_GOT" == "$WANT_SCHEDULE" && "$SCHED_TZ" == "Asia/Seoul" ]]
 }
-check "INV-3 scheduler $SCHEDULER_NAME (${WANT_SCHEDULE:-배열 못 읽음} · Asia/Seoul)" scheduler_ok
+check "INV-3 scheduler $SCHEDULER_NAME (${WANT_SCHEDULE:-일정 못 읽음} · Asia/Seoul)" scheduler_ok
 
 scheduler_enabled() {
   [[ "$SCHED_STATE" == ENABLED || ( "$SCHED_STATE" == PAUSED && "${DART_SMOKE_ALLOW_PAUSED:-0}" == 1 ) ]]
