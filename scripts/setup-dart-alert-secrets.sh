@@ -25,8 +25,9 @@ umask 077
 #   - 입력 파일은 `source` 로 실행하지 않는다 — 네 키만 한 줄씩 읽고 첫 '=' 에서만 자른다.
 #   - 파일에 없는 키는 「SKIP <이름> — 파일에 없음」 — 방 id 를 나중에 넣는 순서를 지원한다.
 #   - 최신 버전과 같은 값이면 새 버전을 만들지 않는다(재실행 안전) — 방 id 만 바꿔 다시 돌리면 나머지는 SKIP.
-#   - 키 2 줄이 있으면 키 1 과 같은 값인지 먼저 본다 — 파일에 키 1 줄도 있으면 그 값과, 없으면 Secret gh-radar-opendart-key
-#     최신 값을 변수에만 읽어 비교하고 곧바로 비운다. 같으면 새 버전 없이 ERROR(같은 키를 둘로 세면 실제 한도를 넘는다).
+#   - 키 1 · 키 2 줄 중 하나라도 있으면 두 키가 같은 값인지 먼저 본다 — 파일에 없는 쪽은 그 Secret(gh-radar-opendart-key ·
+#     gh-radar-opendart-key-2) 최신 값을 변수에만 읽어 비교하고 곧바로 비운다. 같으면 새 버전 없이 ERROR(같은 키를 둘로 세면
+#     실제 한도를 넘고 수집기가 시작을 거부한다). 상대 Secret 을 읽지 못하면 「SKIP 같은 값 검사 — <Secret> 을 읽지 못함」(리뷰 IN-05).
 #   - 키별 검사(공용 최소 길이 검사 금지 — 음수 방 id 는 짧다):
 #       OPENDART_API_KEY   영숫자 40자
 #       OPENDART_API_KEY_2 영숫자 40자(키 1 과 같은 꼴)
@@ -221,21 +222,39 @@ for pair in "$SEEN_DART_KEY:$DART_KEY_SECRET" "$SEEN_DART_KEY2:$DART_KEY2_SECRET
   fi
 done
 
-# ── 2b. 키 2 ≠ 키 1 (261113-rn7 U-2) — 같은 값이면 어떤 새 버전도 만들지 않고 멈춘다. 비교 값은 변수에만 두고 곧바로 비운다 ──
-if [[ "$SEEN_DART_KEY2" == 1 ]]; then
+# ── 2b. 키 2 ≠ 키 1 (261113-rn7 U-2 · 리뷰 IN-05 양쪽) — 같은 값이면 어떤 새 버전도 만들지 않고 멈춘다. 파일에 없는 쪽은 그 Secret
+#    최신 값을 변수에만 읽는다 · 비교 값은 곧바로 비운다 · 값 · 길이는 출력하지 않는다 ──
+if [[ "$SEEN_DART_KEY" == 1 || "$SEEN_DART_KEY2" == 1 ]]; then
   key1_now=""
+  key2_now=""
+  other_secret=""
   if [[ "$SEEN_DART_KEY" == 1 ]]; then
     key1_now="$DART_KEY"
   else
+    other_secret="$DART_KEY_SECRET"
     key1_now="$(gcloud secrets versions access latest --secret="$DART_KEY_SECRET" 2>/dev/null || true)"
   fi
-  if [[ -n "$key1_now" && "$key1_now" == "$DART_KEY2" ]]; then
+  if [[ "$SEEN_DART_KEY2" == 1 ]]; then
+    key2_now="$DART_KEY2"
+  else
+    other_secret="$DART_KEY2_SECRET"
+    key2_now="$(gcloud secrets versions access latest --secret="$DART_KEY2_SECRET" 2>/dev/null || true)"
+  fi
+  if [[ -z "$key1_now" || -z "$key2_now" ]]; then
+    echo "SKIP 같은 값 검사 — $other_secret 을 읽지 못함"
+  elif [[ "$key1_now" == "$key2_now" ]]; then
     key1_now=""
-    echo "ERROR OPENDART_API_KEY_2 — 키 1(OPENDART_API_KEY)과 같은 값이다(서로 다른 인증키여야 한다)" >&2
+    key2_now=""
+    if [[ "$SEEN_DART_KEY2" == 1 ]]; then
+      echo "ERROR OPENDART_API_KEY_2 — 키 1(OPENDART_API_KEY)과 같은 값이다(서로 다른 인증키여야 한다)" >&2
+    else
+      echo "ERROR OPENDART_API_KEY — 키 2(Secret $DART_KEY2_SECRET)와 같은 값이다(서로 다른 인증키여야 한다)" >&2
+    fi
     clear_values
     exit 1
   fi
   key1_now=""
+  key2_now=""
 fi
 
 # ── 3. 새 버전(같은 값이면 SKIP · 파일에 없으면 SKIP) ─────────────
