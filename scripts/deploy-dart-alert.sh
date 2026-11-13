@@ -194,8 +194,13 @@ self_test() {
       fails=$((fails + 1))
     fi
   done
-  if ! grep -Eq '^[[:space:]]+gcloud scheduler jobs pause ' "$self"; then
+  if ! grep -Eq '^[[:space:]]+(if ! )?gcloud scheduler jobs pause ' "$self"; then
     echo "FAIL: --scheduler-paused 처리(gcloud scheduler jobs pause) 줄이 없다" >&2
+    fails=$((fails + 1))
+  fi
+  # 멈춘 채 만들기는 곧 울리지 않는 임시 일정으로 만든 뒤 멈춘다(리뷰 WR-50 — 만든 직후 깨움 경합)
+  if ! grep -Eq '^[[:space:]]+--schedule="0 0 1 1 \*"[[:space:]]*\\$' "$self"; then
+    echo "FAIL: --scheduler-paused 생성 경로에 임시 일정(0 0 1 1 *) 줄이 없다" >&2
     fails=$((fails + 1))
   fi
   if grep -Eq '^[[:space:]]*set[[:space:]]+-[a-zA-Z]*x' "$self"; then
@@ -485,7 +490,7 @@ for entry in "${DART_SCHEDULERS[@]}"; do
       --http-method=POST \
       --oauth-service-account-email="$SCHED_SA" \
       --project="$EXPECTED_PROJECT"
-  else
+  elif [[ "$SCHEDULER_PAUSED" != 1 ]]; then
     echo "▶ scheduler create: $SCHEDULER_NAME (schedule: $SCHEDULE)"
     gcloud scheduler jobs create http "$SCHEDULER_NAME" \
       --location="$REGION" \
@@ -496,14 +501,45 @@ for entry in "${DART_SCHEDULERS[@]}"; do
       --oauth-service-account-email="$SCHED_SA" \
       --project="$EXPECTED_PROJECT"
     SCHED_CREATED=1
-  fi
-
-  # 멈춤은 이번에 만든 Scheduler 에만 — 이미 있던 Scheduler 는 이 배포가 멈추지도 재개하지도 않는다(리뷰 CR-50).
-  if [[ "$SCHEDULER_PAUSED" == 1 && "$SCHED_CREATED" == 1 ]]; then
-    gcloud scheduler jobs pause "$SCHEDULER_NAME" \
+  else
+    # 멈춤은 이번에 만든 Scheduler 에만 — 이미 있던 Scheduler 는 이 배포가 멈추지도 재개하지도 않는다(리뷰 CR-50).
+    # create 는 ENABLED 로 만든다 — 진짜 일정으로 만들고 pause 를 따로 부르면 그 사이 5분 경계(예: 09:05:00)에 깨움이 나가거나
+    # pause 가 일시 오류로 실패해 seed 없는 첫 auto 실행이 그날 공시를 「(늦은 알림)」 으로 쏟는다(리뷰 WR-50).
+    # 그래서 곧 울리지 않는 일정(1월 1일 0시 KST — 울려도 창 밖이라 수집기가 바로 0 으로 끝남)으로 만들고 → 멈추고 →
+    # 진짜 일정으로 갱신한다(update 는 상태를 바꾸지 않는다 — 아래에서 PAUSED 를 다시 확인한다).
+    echo "▶ scheduler create (paused): $SCHEDULER_NAME (임시 일정 0 0 1 1 * → 멈춤 → $SCHEDULE)"
+    gcloud scheduler jobs create http "$SCHEDULER_NAME" \
       --location="$REGION" \
-      --project="$EXPECTED_PROJECT" >/dev/null
+      --schedule="0 0 1 1 *" \
+      --time-zone="Asia/Seoul" \
+      --uri="$JOB_INVOKE_URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA" \
+      --project="$EXPECTED_PROJECT"
+    SCHED_CREATED=1
+    if ! gcloud scheduler jobs pause "$SCHEDULER_NAME" \
+      --location="$REGION" \
+      --project="$EXPECTED_PROJECT" >/dev/null; then
+      echo "ERROR: $SCHEDULER_NAME 멈춤 실패 — 지금은 임시 일정(1월 1일 0시)이라 깨우지 않는다. 다음 순서로 마저 한다:" >&2
+      echo "  gcloud scheduler jobs pause $SCHEDULER_NAME --location=$REGION --project=$EXPECTED_PROJECT" >&2
+      echo "  그 뒤 이 스크립트를 --scheduler-paused 로 다시 실행(이미 PAUSED 면 그대로 두고 진짜 일정으로 바꾼다)" >&2
+      exit 1
+    fi
     echo "⏸ scheduler paused: $SCHEDULER_NAME"
+    gcloud scheduler jobs update http "$SCHEDULER_NAME" \
+      --location="$REGION" \
+      --schedule="$SCHEDULE" \
+      --time-zone="Asia/Seoul" \
+      --uri="$JOB_INVOKE_URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA" \
+      --project="$EXPECTED_PROJECT"
+    if [[ "$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
+      --format='value(state)' 2>/dev/null || true)" != PAUSED ]]; then
+      # 방금 만든 Scheduler 라 다시 멈춰도 운영 깨움을 끊지 않는다
+      echo "⚠ 일정 갱신 뒤 $SCHEDULER_NAME 가 PAUSED 가 아니다 — 다시 멈춘다" >&2
+      gcloud scheduler jobs pause "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null
+    fi
   fi
   STATE=$(gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" \
     --format='value(state)' 2>/dev/null || true)
