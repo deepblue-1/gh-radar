@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OUTAGE_AFTER_MS } from "../src/collector";
+import { DartApiError } from "../src/dart/client";
 import { LATE_LABEL, outageText, recoveredText } from "../src/message";
 import { harness, kst, MON, tenderRow, type FeedItem } from "./helpers/fakes";
 
@@ -378,5 +379,31 @@ describe("짝 글이 깨지지 않는다 (리뷰 WR-02)", () => {
     expect(closes(h)[0].at).toBeGreaterThanOrEqual(tries[6].at);
     expect(h.db.state.outage.since).toBeNull();
     expect(opens(h)).toHaveLength(1);
+  });
+});
+
+describe("HTTP 차단 신호 — 두드리지 않고 멈춘다 (리뷰 WR-03)", () => {
+  it("HTTP 429 → 한도 의심 표시 · 「요청 제한(HTTP 429)」 장애 글 · 종료 1 quota · 그 뒤 DART 호출 0", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      db: { lastOk: fresh("10:00:00") },
+      dart: { reply: (c) => (c.now >= at("10:00:20") ? { error: new DartApiError(429, "HTTP 429", "quota", "too many requests") } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "quota" });
+    expect(h.db.state.strikes).toBe(1);
+    expect(opens(h)[0].reason).toBe("요청 제한(HTTP 429)");
+    expect(stopped(h)).toHaveLength(1);
+    expect(h.dart.listCalls.filter((c) => c.status === "HTTP 429")).toHaveLength(1);
+  });
+
+  it("HTTP 403 → 「접근 거부(HTTP 403)」 · 종료 1 dart_key", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      db: { lastOk: fresh("10:00:00") },
+      dart: { reply: () => ({ error: new DartApiError(403, "HTTP 403", "key", "forbidden") }) },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "dart_key" });
+    expect(opens(h)[0].reason).toBe("접근 거부(HTTP 403)");
+    expect(h.dart.listCalls).toHaveLength(1);
   });
 });

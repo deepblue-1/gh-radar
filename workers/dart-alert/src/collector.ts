@@ -196,9 +196,10 @@ const HALT_BY_KIND: Partial<Record<string, HaltReason>> = { quota: "quota", key:
 
 /** 치명 종료 이유 → 장애 글 사유(D-17 · 공식 API 운영 기준 ④). 여기 없는 종료(seed_failed · error 등)는 장애 글을 쓰지 않는다 */
 const FATAL_OUTAGE_REASON: Partial<Record<string, (code: string | null) => string>> = {
-  quota: (c) => `하루 조회 한도 초과(${c ?? "020"})`,
+  // HTTP 429 · 401 · 403(앞단 차단 신호 — code `HTTP 4xx` · 리뷰 WR-03)은 본문 코드와 구분해 적는다
+  quota: (c) => (c?.startsWith("HTTP") ? `요청 제한(${c})` : `하루 조회 한도 초과(${c ?? "020"})`),
   budget_exhausted: () => "자체 하루 예산 소진",
-  dart_key: (c) => `인증키 오류(${c ?? "?"})`,
+  dart_key: (c) => (c?.startsWith("HTTP") ? `접근 거부(${c})` : `인증키 오류(${c ?? "?"})`),
   dart_bug: (c) => `요청 오류(${c ?? "?"})`,
   unknown_streak: (c) => `모르는 응답 코드 연속(${c ?? "?"})`,
   probe_failed: (c) => `한도 의심 재확인 실패(${c ?? "?"})`,

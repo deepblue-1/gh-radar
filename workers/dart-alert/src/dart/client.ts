@@ -3,7 +3,8 @@ import axios, { isAxiosError, type AxiosAdapter, type AxiosInstance } from "axio
 /**
  * Phase 43-01 — OpenDART 공시검색(`list.json`) 클라이언트 · 오류 분류.
  *
- * - 오류는 HTTP 상태가 아니라 본문 `status` 로 가른다(OpenDART 는 오류도 HTTP 200 으로 준다).
+ * - 오류는 HTTP 상태가 아니라 본문 `status` 로 가른다(OpenDART 는 오류도 HTTP 200 으로 준다). 예외 — HTTP 429 · 401 · 403
+ *   (앞단 차단 신호)은 본문을 보기 전에 quota · key 로 가른다(리뷰 WR-03).
  *   `000` 정상 · `013` 조회된 데이터 없음 = **성공 · 빈 목록**(43-RESEARCH Pitfall 2 — 장애로 세지 않는다).
  * - 인증키(`crtfc_key`)는 쿼리 인자라 요청 URL · axios 요청 설정에 그대로 실린다. 그래서
  *   `DartApiError` 의 message 는 상태 · 코드만 담고, axios 오류를 `cause` 로 붙이지 않는다(붙이면 로거가
@@ -141,6 +142,13 @@ export async function fetchListPage(
     throw new DartApiError(0, null, "transient", code ?? "network error");
   }
 
+  // HTTP 차단 신호는 본문 분류 전에 먼저 가른다 — 앞단(게이트웨이 · WAF)이 주는 429 · 401 · 403 은 OpenDART JSON 이 아니라
+  // 「깨진 본문 → 일시 장애」 로 흘러 바퀴마다 계속 두드리게 된다(공식 API 운영 기준 ④ · 리뷰 WR-03).
+  // 429 → quota(한도 의심 표시 + 종료 1 → 다음 실행은 단독 탐침 1건) · 401 · 403 → key(종료 1). code 는 `HTTP 429` 꼴.
+  if (res.status === 429) throw new DartApiError(429, "HTTP 429", "quota", "too many requests");
+  if (res.status === 401 || res.status === 403) {
+    throw new DartApiError(res.status, `HTTP ${res.status}`, "key", res.status === 401 ? "unauthorized" : "forbidden");
+  }
   if (res.status === 0 || res.status >= 500) throw new DartApiError(res.status, null, "transient");
   const body = res.data as
     | { status?: unknown; message?: unknown; total_count?: unknown; total_page?: unknown; list?: unknown }

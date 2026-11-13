@@ -172,6 +172,24 @@ describe("fetchListPage 응답 분류 (SC-4 · Pitfall 2)", () => {
     },
   );
 
+  it.each([
+    [429, "quota", "HTTP 429"],
+    [403, "key", "HTTP 403"],
+    [401, "key", "HTTP 401"],
+  ] as const)("HTTP %i(HTML 본문 — 앞단 차단 신호) → %s · code %s — 일시 장애로 보지 않는다(리뷰 WR-03)", async (status, kind, code) => {
+    const { http } = fakeDart(body("<html><body>Too Many Requests / Forbidden</body></html>", status));
+    const err = (await catchErr(fetchListPage(http, KEY, q))) as DartApiError;
+    expectNoKey(err);
+    expect(err).toMatchObject({ kind, code, httpStatus: status });
+    expect(safeErrorFields(err)).toMatchObject({ kind, code, status });
+  });
+
+  it("HTTP 429 는 OpenDART 본문(020)이 와도 quota", async () => {
+    const { http } = fakeDart(body({ status: "020", message: "요청 제한을 초과하였습니다." }, 429));
+    const err = (await catchErr(fetchListPage(http, KEY, q))) as DartApiError;
+    expect(err.kind).toBe("quota");
+  });
+
   it("HTML 본문(200) → transient", async () => {
     const { http } = fakeDart(body("<!doctype html><html><body>점검 중</body></html>"));
     const err = (await catchErr(fetchListPage(http, KEY, q))) as DartApiError;

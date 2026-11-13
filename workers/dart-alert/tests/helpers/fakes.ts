@@ -187,6 +187,8 @@ export interface DartReply {
   calls?: number;
   /** probe 응답의 total_count */
   total?: number;
+  /** 이 오류를 그대로 던진다(HTTP 차단 신호처럼 본문 status 로 못 만드는 실패 — 리뷰 WR-03) */
+  error?: DartApiError;
 }
 
 export interface DartCtx {
@@ -251,8 +253,12 @@ export function fakeDart(clock: FakeClock, o: FakeDartOptions = {}, tl: Timeline
       const rows = rep.rows ?? feed.filter((f) => f.watch === watch.id && f.from <= at).map((f) => f.row);
       const status = rep.status ?? (rows.length > 0 ? "000" : "013");
       clock.advance(rep.delayMs ?? o.delayMs ?? 0);
-      const seq = tl.push(at, "dart", `${watch.id}:${status}`);
-      listCalls.push({ seq, at, endAt: clock.now(), watch: watch.id, day, status, rows: rows.length });
+      const seq = tl.push(at, "dart", `${watch.id}:${rep.error ? `error ${rep.error.code}` : status}`);
+      listCalls.push({ seq, at, endAt: clock.now(), watch: watch.id, day, status: rep.error?.code ?? status, rows: rows.length });
+      if (rep.error) {
+        rep.error.calls = rep.calls ?? 1;
+        throw rep.error;
+      }
       return toResult(status, rows, rep.calls ?? 1);
     },
     async probe(day) {
