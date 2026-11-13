@@ -361,7 +361,8 @@ export function CandleChart({
   const yC = yOfNet(cumRange, P);
   const turnover = turnoverSeriesOf(session);
   const mcap = marketCapOf(session.basePx, listingShares);
-  const tv = turnoverPathsOf(turnover, view, x, P, plotW, endMs);
+  // 넷째 판 경로(창 안 체결 수만큼 돈다)는 여기서 한 번만 메모해 아래 판에 넘긴다 — 마우스 · 커서 재렌더에서 다시 돌지 않는다(SC-7)
+  const tv = useMemo(() => turnoverPathsOf(turnover, view, x, P, plotW, endMs), [turnover, view, x, P, plotW, endMs]);
 
   // 카드 아래 캡션(D-17 · UI-SPEC S9) — 누적 캡션 → 켜진 선 중 그릴 수 없는 선의 이유(받는 중 · 그림 = 안내 없음)
   const captionItems = useMemo(
@@ -825,6 +826,7 @@ export function CandleChart({
             accum={accum}
             isToday={isToday}
             listingShares={listingShares}
+            tv={tv}
             clipId={clipId}
           />
 

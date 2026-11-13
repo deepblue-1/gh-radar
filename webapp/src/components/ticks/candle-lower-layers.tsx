@@ -14,9 +14,8 @@ import {
   marketCapOf,
   teamBucketsOf,
   teamDayStairsOf,
-  turnoverPathsOf,
-  turnoverSeriesOf,
   yOfNet,
+  type TurnoverPaths,
 } from '@/lib/ticks/tick-chart';
 import { pct1 } from '@/lib/ticks/tick-chart-tip';
 import { fmtAmountC } from '@/lib/ticks/tick-format';
@@ -27,7 +26,8 @@ import type { TickSession } from '@/lib/ticks/tick-session';
  *
  * 선 차트(`tick-chart.tsx`)의 ②③④ 판과 **같은 함수**(`yOfNet` · `teamDayStairsOf` · `cumStairsOf` · `teamBucketsOf` ·
  * `turnoverPathsOf`)에 `CandlePanels`(`frame.P` — `TickPanels` 와 같은 키)를 넘겨 새 y 에서 그대로 그린다(`lib/ticks/tick-chart.ts`
- * 수정 0 · D-01). 모양 · 색 · 굵기 · dasharray · 축 글자 · 판 제목 · 「팀 체결 없음」 은 선 차트 그대로이고 data-slot 만 `candle-` 접두.
+ * 수정 0 · D-01). 넷째 판 경로(`turnoverPathsOf`)만은 호출부가 한 번 메모해 `tv` 로 넘긴다(값 점과 같은 결과 · 마우스 재렌더 무관).
+ * 모양 · 색 · 굵기 · dasharray · 축 글자 · 판 제목 · 「팀 체결 없음」 은 선 차트 그대로이고 data-slot 만 `candle-` 접두.
  * 그림은 `[yRb, y4b]` 클립 안(수익률 판 아래부터), 축 · 제목 · 빈 상태 글자는 클립 밖. 당일 화면은 누적(pos_net)을 그리지 않는다(37 D-09).
  */
 
@@ -39,11 +39,13 @@ export interface CandleLowerLayersProps {
   isToday: boolean;
   /** 상장주식수 — 있으면 누적 거래대금 왼쪽 축 = 시총 대비 %. */
   listingShares: number | null;
+  /** 넷째 판 경로 `turnoverPathsOf(turnoverSeriesOf(session), view, x, P, plotW, endMs)` — 호출부가 메모해 넘긴다(값 점과 공유). */
+  tv: TurnoverPaths;
   /** 차트 고유 클립 id 접두. */
   clipId: string;
 }
 
-export function CandleLowerLayers({ frame, session, accum, isToday, listingShares, clipId }: CandleLowerLayersProps) {
+export function CandleLowerLayers({ frame, session, accum, isToday, listingShares, tv, clipId }: CandleLowerLayersProps) {
   const { P, L, xr, plotW, phone, view, x, bounds, endMs } = frame;
   const team = session.team;
   const noTeam = team.fills.length === 0;
@@ -68,12 +70,11 @@ export function CandleLowerLayers({ frame, session, accum, isToday, listingShare
       cumD: hasCum ? cumStairsOf(cumPts, x, yC, bounds.T0, bounds.T2000) : '',
       bars: teamBucketsOf(team, view, x, bounds.T0, P),
       bucketMax: bucketMaxOfModel(team),
-      tv: turnoverPathsOf(turnoverSeriesOf(session), view, x, P, plotW, endMs),
       mcap,
     };
-  }, [session, team, accum, isToday, listingShares, view, x, P, plotW, bounds.T0, bounds.T2000, endMs]);
+  }, [session, team, accum, isToday, listingShares, view, x, P, bounds.T0, bounds.T2000, endMs]);
 
-  const { hasCum, dayRange, cumRange, zeroY, dayD, dayBuyD, daySellD, cumD, bars, bucketMax, tv, mcap } = m;
+  const { hasCum, dayRange, cumRange, zeroY, dayD, dayBuyD, daySellD, cumD, bars, bucketMax, mcap } = m;
   const fmtVal = (v: number) => (mcap === null ? fmtAmountC(v) : pct1(v / mcap));
   const midX = (L + xr) / 2;
 

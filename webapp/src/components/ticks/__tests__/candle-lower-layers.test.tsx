@@ -11,6 +11,8 @@ import {
   lastRecvMsOf,
   teamDayStairsOf,
   tickBoundsOf,
+  turnoverPathsOf,
+  turnoverSeriesOf,
   xOfTick,
   yOfNet,
 } from '@/lib/ticks/tick-chart';
@@ -88,6 +90,7 @@ function renderLayers(
         accum={opts.accum}
         isToday={opts.isToday ?? false}
         listingShares={opts.listingShares ?? null}
+        tv={turnoverPathsOf(turnoverSeriesOf(session), frame.view, frame.x, frame.P, frame.plotW, frame.endMs)}
         clipId="t"
       />
     </svg>,
