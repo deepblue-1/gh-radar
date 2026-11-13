@@ -12,7 +12,7 @@ umask 077
 # survey — 비밀 등록 뒤 한 번(가정 6 · 리서치 확인 1 · 3 · 5): OpenDART 목록을 오늘 포함 최근 days 일(KST · 1 ~ 89) 읽어
 #   (OpenDART 공시검색은 고유번호 없이 검색기간 3개월 제한 — 문서 기준 · 달력에 따라 90일이 넘칠 수 있어 89일까지 · 리뷰 IN-55)
 #   ⑴ 주요사항보고서(B001) 종류명 분포(꼬리표 뗀 이름 · 건수 내림차순 상위 60)
-#   ⑵ 허용 목록 4종 각각의 건수 · 그중 유가/코스닥(Y/K) 건수 · 평일당 평균(정정 포함 · 제외) = 하루 알림 예상
+#   ⑵ 허용 목록(기본 6종) 각각의 건수 · 그중 유가/코스닥(Y/K) 건수 · 평일당 평균(정정 포함 · 제외) = 하루 알림 예상
 #   ⑶ 날짜별 B001 전체 건수 중 100 을 넘은 날 수(page_count 100 한 쪽으로 모자라는 날 · 리서치 확인 5)
 #   ⑷ 공개매수(D004) 건수(전체 · Y/K)
 #   ⑸ 목록 밖인데 「증자」 · 「합병」 이 든 종류명(근접 불일치 후보 — 허용 목록에 더할지 사람이 본다)
@@ -60,7 +60,7 @@ DART_JOB_REGION=asia-northeast3
 B001_MAX_PAGES=60
 D004_MAX_PAGES=10
 # 허용 목록 기본값 = workers/dart-alert/src/watches.ts DEFAULT_B001_KINDS (Job 과 같은 env 이름으로 바꿀 수 있다)
-B001_KINDS="${DART_ALERT_B001_KINDS:-유상증자결정,유무상증자결정,회사합병결정,회사분할합병결정}"
+B001_KINDS="${DART_ALERT_B001_KINDS:-유상증자결정,유무상증자결정,회사합병결정,회사분할합병결정,자기주식취득결정,주식교환ㆍ이전결정}"
 
 usage() {
   echo "사용: SUPABASE_URL=… bash scripts/dart-alert-report.sh survey [days=30]   (OpenDART 조사 · 오늘 포함 1 ~ 89일)" >&2
@@ -233,7 +233,12 @@ if [[ "$CMD" == stats ]]; then
         return t.toISOString().replace("T", " ").slice(0, 19) + " KST";
       };
       const st = j.by_status ?? {};
-      const watchLabel = { tender_offer: "공개매수", rights_merger: "유상증자·합병" };
+      const watchLabel = {
+        tender_offer: "공개매수",
+        rights_merger: "주요사항보고서",
+        exchange_disclosure: "거래소 수시공시",
+        insider_trade_plan: "임원ㆍ주요주주 거래계획",
+      };
       const rows = [
         ["오늘 OpenDART 호출", `${n(j.calls_today)} / 예산 ${budget ? n(budget) : "?(Job 설정 못 읽음)"} (공식 20,000)`],
         ["오늘 한도 의심 표시", n(j.strikes_today)],

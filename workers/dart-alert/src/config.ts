@@ -10,7 +10,9 @@ import { DEFAULT_B001_KINDS } from "./watches";
  * - 필수 비밀(`OPENDART_API_KEY` · `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `SUPABASE_SERVICE_ROLE_KEY`)과
  *   `SUPABASE_URL` 이 없으면 이름만 담은 오류로 멈춘다 — 값은 어떤 오류 메시지에도 싣지 않는다.
  * - D-14: 단체방 id 는 설정값(Secret)이다 — 숫자(음수 허용)가 아니면 이름만 담아 멈춘다.
- * - D-04: 주요사항보고서 종류 목록 · 정정 포함 여부는 재배포 없이 env 로 바꾼다(정정 기본 include — 가정 3).
+ * - D-04: 주요사항보고서 종류 목록(기본 6종 — 유상증자결정 · 유무상증자결정 · 회사합병결정 · 회사분할합병결정 ·
+ *   자기주식취득결정 · 주식교환ㆍ이전결정 · watches.ts `DEFAULT_B001_KINDS`) · 정정 포함 여부는 재배포 없이 env 로
+ *   바꾼다(정정 기본 include — 가정 3).
  *   gcloud `--set-env-vars` 로 쉼표 값을 넣을 때의 구분자 바꾸기 요령은 43-07 배포 스크립트 머리 주석이 맡는다.
  */
 
@@ -34,7 +36,10 @@ export interface DartAlertConfig {
   mode: DartAlertMode;
   /** D-04 주요사항보고서 허용 종류명 */
   b001Kinds: string[];
-  /** D-04 주요사항보고서 정정 공시 포함 여부 */
+  /**
+   * D-04 주요사항보고서 정정 공시 포함 여부 — 자기주식취득결정 · 주식교환ㆍ이전결정은 이 값과 무관하게 원본만 ·
+   * I001 · D005 는 늘 원본만(261113-iez · watches.ts)
+   */
   b001Corrections: "include" | "exclude";
   logLevel: string;
   appVersion: string;
@@ -43,8 +48,9 @@ export interface DartAlertConfig {
 export const DART_DEFAULT_BASE_URL = "https://opendart.fss.or.kr";
 export const TELEGRAM_DEFAULT_BASE_URL = "https://api.telegram.org";
 /**
- * 하루 예산 상한 = 공식 20,000/일의 75%. 설계 사용량은 약 10,800(평일 5,400바퀴 × 감시 대상 2 —
- * cadence.ts `plannedDailyCalls`) · 남는 몫은 100건 넘는 날의 추가 쪽 · 한도 소진 뒤 탐침 몫이다.
+ * 하루 예산 상한 = 공식 20,000/일의 75%. 설계 사용량은 약 13,140(평일 바퀴마다 D004 · B001 5,400 × 2 + I001 30초 칸
+ * 1,560 + D005 60초 칸 780 — cadence.ts `plannedDailyCalls`) + I001 100건 넘는 오후 추가 쪽 약 400 ~ 800(최악 14,700) ·
+ * 남는 몫은 추가 쪽 · 한도 소진 뒤 탐침 몫이다.
  */
 export const DART_DAILY_BUDGET_LIMIT = 15_000;
 const MODES: readonly DartAlertMode[] = ["auto", "probe", "seed", "test-send"];

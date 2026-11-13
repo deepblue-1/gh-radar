@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# Phase 43 Plan 07 — dart-alert(공개매수 · 유상증자 · 합병 공시 텔레그램 알림) Cloud Run Job + Scheduler 1개 +
+# Phase 43 Plan 07 — dart-alert(공개매수 · 주요사항 · 거래소 수시공시 · 임원 거래계획 공시 텔레그램 알림) Cloud Run Job + Scheduler 1개 +
 #   이메일 알림 정책 2개 배포 (deploy-kis-news-sync.sh 꼴 · 알림 정책은 deploy-limitup-sync.sh Section 7 꼴)
 #
 # 선행(사용자 `!` — 비밀 · IAM 쓰기는 사용자 터미널에서만):
@@ -27,7 +27,8 @@ set -euo pipefail
 #      배포 · 스모크 INV-3 가 ENABLED 를 확인한다.)
 #
 # 설계:
-#   D-10 바퀴 간격: 평일 07:00 ~ 09:00 5초 · 09:00 ~ 20:00 10초(시작 대 시작) · 한 바퀴 = 공개매수(D004) 1회 + 주요사항보고서(B001) 1회.
+#   D-10 바퀴 간격: 평일 07:00 ~ 09:00 5초 · 09:00 ~ 20:00 10초(시작 대 시작) · 한 바퀴 = 공개매수(D004) 1회 + 주요사항보고서(B001) 1회 ·
+#        거래소 수시공시(I001)는 30초 · 임원ㆍ주요주주 거래계획(D005)은 60초 칸(07:00 기준)마다 1회(261113-iez).
 #   D-11 창: 평일 07:00 이상 20:00 미만만 수집 · 휴장일 달력 없음(평일 공휴일도 돈다).
 #        모드는 Scheduler 가 넘기지 않는다 — 수집기가 KST 시각으로 스스로 판정한다(workers/dart-alert/src/cadence.ts).
 #   임대: 창 안에서 5분마다 깨워도 임대(dart_alert_lease_acquire · TTL 90초 · 30초 연장)를 가진 실행이 살아 있으면
@@ -38,7 +39,7 @@ set -euo pipefail
 #
 # 예산(CLAUDE.md 「공식 API 운영 기준」):
 #   공식 일일 한도 20,000 → 설계 상한 DART_ALERT_DAILY_BUDGET 기본 15,000(75%) · 1 ~ 15,000 밖이면 이 스크립트가 거부한다.
-#   평일 사용 ≈ 10,800(5,400바퀴 × 감시 대상 2 · 54%) · 남는 몫은 100건 넘는 날 추가 쪽 · 한도 의심 뒤 탐침.
+#   평일 사용 ≈ 13,140(5,400 × 2 + 1,560 + 780 · 66%) + I001 추가 쪽 약 400 ~ 800 · 최악 14,700 · 남는 몫은 추가 쪽 · 한도 의심 뒤 탐침.
 #   카운터: api_usage service opendart_list (KST 날짜 키) · 한도 의심 표시 opendart_list_quota_strike.
 #   호출량은 사용자 수와 독립 — server · webapp 은 OpenDART 를 부르지 않는다.
 #
@@ -52,6 +53,9 @@ set -euo pipefail
 #     gcloud run jobs executions cancel <실행 이름> --region=asia-northeast3
 #   그 사이에 올라온 건은 「(늦은 알림)」 으로 나가고, 인계가 5분을 넘으면 단체방에 「멈췄습니다」 · 「다시 동작」 두 글이 붙는다.
 #   → 평일 20:00 뒤 · 07:00 전 배포를 권장한다.
+#   새 감시 대상을 처음 싣는 배포(261113-iez — I001 · D005)는 평일 20:00 뒤 · 07:00 전에 하고, 장중에 도는 실행을 취소해 바로
+#   바꾸지 않는다 — 새 감시 대상은 DB last_ok 가 없어 시작 점검이 「멈췄습니다」 · 「다시 동작」 짝 글을 내고 그날 앞선
+#   I001 · D005 건이 「(늦은 알림)」 으로 한꺼번에 나간다.
 #
 # 첫 배포 날(창 안에서 처음 배포할 때 — 그날 이미 올라온 건이 한꺼번에 나가지 않게):
 #   1. GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh --scheduler-paused
@@ -74,10 +78,11 @@ set -euo pipefail
 #
 # 쉼표가 든 env 값(DART_ALERT_B001_KINDS — 주요사항보고서 허용 종류명 목록)은 gcloud 구분자를 바꿔 넣는다:
 #   gcloud run jobs update gh-radar-dart-alert --region=asia-northeast3 \
-#     --update-env-vars='^@^DART_ALERT_B001_KINDS=유상증자결정,유무상증자결정,회사합병결정,회사분할합병결정'
+#     --update-env-vars='^@^DART_ALERT_B001_KINDS=유상증자결정,유무상증자결정,회사합병결정,회사분할합병결정,자기주식취득결정,주식교환ㆍ이전결정'
 #   주의: 이 스크립트의 배포는 --set-env-vars 라 Job env 를 통째로 바꾼다 — 위처럼 따로 넣은 값은 다음 배포에서 사라진다.
 #   값을 유지하려면 배포 때 같은 이름의 env 로 넘긴다(아래 Section 5 가 그대로 싣는다):
 #     DART_ALERT_B001_KINDS='유상증자결정,…' DART_ALERT_B001_CORRECTIONS=exclude GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh
+#   주의: 기본값은 6종(위 예시)이다 — 옛 4종 목록을 복사해 넣으면 자기주식취득결정 · 주식교환ㆍ이전결정이 빠진다.
 #
 # Scheduler 일정을 바꾸면 workers/dart-alert/tests/schedule.test.ts 를 먼저 돌린다
 #   (그 테스트가 이 파일의 WAKE_SCHEDULER · WAKE_SCHEDULE 두 줄을 직접 읽어 1주일 × 1440분 정합을 단언한다).
