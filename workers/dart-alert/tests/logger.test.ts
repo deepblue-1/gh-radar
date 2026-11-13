@@ -1,4 +1,5 @@
 import { Writable } from "node:stream";
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from "axios";
 import { describe, expect, it } from "vitest";
 import { createLogger, REDACT_PATHS } from "../src/logger";
 
@@ -72,6 +73,62 @@ describe("createLogger (43-03 비밀 가림)", () => {
     expect(s).toContain('"status":502');
     expect(s).toContain("hello");
     expect(s).toContain("[redacted]");
+  });
+
+  // 리뷰 WR-55 — axios 가 실제로 던지는 오류는 response 안에 다시 config(URL · params.crtfc_key) · request(경로 /bot<토큰>/…)를
+  // 품는다. pino 경로 `*.config` 는 한 단계만 맞아 err.response.config 를 못 가렸다(실측). 로거가 깊이와 상관없이 가린다.
+  it("진짜 AxiosError(응답 포함)를 통째로 남겨도 키 · 토큰이 없다 — err.response.config · err.response.request 까지", () => {
+    const { log, output } = capture();
+    const config = {
+      url: `/bot${BOT}/sendMessage`,
+      baseURL: "https://api.telegram.org",
+      params: { crtfc_key: KEY, bgn_de: "20261116" },
+      headers: new AxiosHeaders({ Authorization: `Bearer ${SRK}` }),
+      data: JSON.stringify({ chat_id: CHAT, text: "hello" }),
+    } as unknown as InternalAxiosRequestConfig;
+    const request = { path: `/bot${BOT}/sendMessage?crtfc_key=${KEY}`, method: "POST" };
+    const err = new AxiosError("Request failed with status code 500", "ERR_BAD_RESPONSE", config, request, {
+      status: 500,
+      statusText: "Internal Server Error",
+      headers: {},
+      config,
+      request,
+      data: { ok: false, description: "boom" },
+    });
+    log.error({ err }, "raw axios");
+    log.warn({ e: err, wrapped: new Error("outer", { cause: err }) }, "raw axios elsewhere");
+    const s = output();
+    for (const v of [KEY, BOT, CHAT, SRK, "TEST-BOT-TOKEN", "TEST-DART-KEY"]) expect(s).not.toContain(v);
+    expect(s).toContain("Request failed with status code 500");
+    expect(s).toContain('"status":500');
+    expect(s).toContain("ERR_BAD_RESPONSE");
+    expect(s).toContain("[redacted]");
+    // 오류 꼴은 그대로 — pino 의 err 직렬화(type · message · stack)가 유지된다
+    const first = JSON.parse(s.split("\n")[0]!);
+    expect(first.err.type).toBe("AxiosError");
+    expect(typeof first.err.stack).toBe("string");
+  });
+
+  it("세 단계 이상 아래의 비밀 이름 · 문자열 안의 토큰 경로 · crtfc_key 쿼리도 가린다(순환 참조는 안전)", () => {
+    const { log, output } = capture();
+    const loop: Record<string, unknown> = { name: "loop" };
+    loop.self = loop;
+    log.info(
+      {
+        a: { b: { c: { d: { crtfc_key: KEY, url: `https://x/?crtfc_key=${KEY}`, keep: "ok-value" } } } },
+        note: `GET https://api.telegram.org/bot${BOT}/getMe · https://opendart.fss.or.kr/api/list.json?crtfc_key=${KEY}&page_no=1`,
+        bare: `token ${BOT} here`,
+        loop,
+        at: "2026-11-16T09:05:00.000Z",
+      },
+      "deep",
+    );
+    const s = output();
+    for (const v of [KEY, BOT, "TEST-BOT-TOKEN", "TEST-DART-KEY"]) expect(s).not.toContain(v);
+    expect(s).toContain("ok-value");
+    expect(s).toContain("page_no=1");
+    expect(s).toContain("2026-11-16T09:05:00.000Z");
+    expect(s).toContain("[circular]");
   });
 
   it("설정 객체(cfg)를 통째로 써도 키 · 토큰 · 방 id · 서비스롤 키가 없다", () => {
