@@ -18,11 +18,18 @@ export type SendResult =
   | { kind: "rate"; retryAfterS: number }
   | { kind: "token" | "chat" | "parse" | "transient"; code: number; description: string };
 
-/** timeout 10초 — 43-02 송신 기한 90초의 근거 값. `adapter` 는 테스트용(가짜 전송) */
+/**
+ * 요청 하나의 전체 시간 상한 10초 — 43-02 송신 기한 90초 · collector 임대 계산(송신 최악 약 55초)의 근거 값.
+ * axios `timeout` 은 연결된 뒤 유휴 시간만 재므로(DNS · TCP 연결 · 조금씩 흘러드는 응답은 못 끊음) 요청마다
+ * `AbortSignal.timeout` 도 함께 건다(리뷰 WR-04 — 끊기면 ERR_CANCELED transient · URL · 토큰을 싣지 않는 경로 그대로).
+ */
+export const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
+
+/** timeout 10초. `adapter` 는 테스트용(가짜 전송) */
 export function createTelegramHttp(baseUrl: string, adapter?: AxiosAdapter): AxiosInstance {
   return axios.create({
     baseURL: baseUrl,
-    timeout: 10_000,
+    timeout: TELEGRAM_REQUEST_TIMEOUT_MS,
     headers: { "content-type": "application/json" },
     ...(adapter ? { adapter } : {}),
   });
@@ -90,7 +97,10 @@ export async function sendMessage(
   body.link_preview_options = { is_disabled: true };
 
   try {
-    const res = await http.post(`/bot${token}/sendMessage`, body, { validateStatus: () => true });
+    const res = await http.post(`/bot${token}/sendMessage`, body, {
+      validateStatus: () => true,
+      signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
+    });
     return scrub(classifyTelegramResponse(res.status, res.data), token);
   } catch (err) {
     // 응답 없음(네트워크 · 타임아웃) — axios 오류는 URL(토큰 포함)을 품으므로 코드 이름만 남긴다.

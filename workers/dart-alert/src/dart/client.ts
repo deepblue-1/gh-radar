@@ -104,11 +104,18 @@ export class DartApiError extends Error {
   }
 }
 
+/**
+ * 요청 하나의 전체 시간 상한. axios `timeout` 은 Node 에서 `req.setTimeout` — 소켓이 연결된 **뒤** 유휴 시간만 재서
+ * DNS · TCP 연결(SYN 손실이면 OS 상한 약 127초)과 조금씩 흘러드는 응답을 끊지 못한다. 그래서 요청마다
+ * `AbortSignal.timeout` 도 함께 건다(리뷰 WR-04 — 끊긴 오류는 ERR_CANCELED transient · 키를 싣지 않는 경로 그대로).
+ */
+export const DART_REQUEST_TIMEOUT_MS = 10_000;
+
 /** baseURL · timeout 10초. `adapter` 는 테스트용(가짜 전송) */
 export function createDartHttp(baseUrl: string, adapter?: AxiosAdapter): AxiosInstance {
   return axios.create({
     baseURL: baseUrl,
-    timeout: 10_000,
+    timeout: DART_REQUEST_TIMEOUT_MS,
     ...(adapter ? { adapter } : {}),
   });
 }
@@ -135,9 +142,10 @@ export async function fetchListPage(
         page_count: DART_PAGE_COUNT,
       },
       validateStatus: () => true,
+      signal: AbortSignal.timeout(DART_REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
-    // 응답 없음(네트워크 · 타임아웃) — axios 오류(config 에 키가 있다)는 버리고 안전한 오류로 바꾼다
+    // 응답 없음(네트워크 · 타임아웃 · 전체 시간 상한) — axios 오류(config 에 키가 있다)는 버리고 안전한 오류로 바꾼다
     const code = isAxiosError(err) ? str(err.code) : null;
     throw new DartApiError(0, null, "transient", code ?? "network error");
   }
