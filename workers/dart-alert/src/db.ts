@@ -22,6 +22,21 @@ export class LeaseLostError extends Error {
   }
 }
 
+/**
+ * 그 밖의 DB 오류 — 함수 이름 · SQLSTATE(`code`) · message 만. `code` 로 「행 값 때문의 거절」(22 · 23 계열)과
+ * 「DB · 네트워크 문제」 를 가른다(넣기 묶음에서 한 행이 나머지를 막지 않게 — 리뷰 WR-01).
+ */
+export class DbError extends Error {
+  override readonly name = "DbError";
+  constructor(
+    message: string,
+    /** PostgREST 가 준 SQLSTATE(예 `23502`) — 없으면 null */
+    readonly code: string | null,
+  ) {
+    super(message);
+  }
+}
+
 export interface LeaseResult {
   held: boolean;
   fresh: boolean;
@@ -80,9 +95,17 @@ export type ClaimedRowKeysComplete = AssertNever<MissingKeys<ClaimedRow, typeof 
 function dbError(fn: string, e: unknown): Error {
   const o = (e ?? {}) as { code?: unknown; message?: unknown };
   if (o.code === "55000") return new LeaseLostError(fn);
-  const code = typeof o.code === "string" && o.code !== "" ? ` (${o.code})` : "";
+  const sqlstate = typeof o.code === "string" && o.code !== "" ? o.code.slice(0, 16) : null;
   const msg = typeof o.message === "string" ? o.message.slice(0, 200) : "unknown";
-  return new Error(`${fn} 실패${code}: ${msg}`);
+  return new DbError(`${fn} 실패${sqlstate ? ` (${sqlstate})` : ""}: ${msg}`, sqlstate);
+}
+
+/**
+ * 행 값 때문에 DB 가 거절했다 — SQLSTATE 22(데이터 예외 · 22023 제외) · 23(무결성 위반). 같은 행을 다시 넣어도 같은 실패라
+ * 재시도할 일이 아니다. 22023 은 RPC 가 인자 모양(배열 아님 등) 검사에 쓰는 값이라 행 탓이 아니다.
+ */
+export function isRowRejection(err: unknown): boolean {
+  return err instanceof DbError && err.code !== null && /^2[23]/.test(err.code) && err.code !== "22023";
 }
 
 async function rpc(supabase: SupabaseClient, fn: string, args: Record<string, unknown>): Promise<unknown> {

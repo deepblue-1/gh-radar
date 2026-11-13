@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { plannedDailyCalls } from "../src/cadence";
 import { LEASE_TTL_S, UNKNOWN_STREAK } from "../src/collector";
+import { DbError } from "../src/db";
 import { LATE_LABEL } from "../src/message";
 import { dbRow, harness, itemOf, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
 
@@ -364,5 +365,73 @@ describe("SIGTERM", () => {
     expect(h.db.state.used).toBe(h.dart.listCalls.length);
     expect(h.db.calls.leaseRelease).toHaveLength(1);
     expect(h.db.state.lease.holder).toBeNull();
+  });
+});
+
+describe("넣기 실패 — 소리 없이 멈추지 않는다 (리뷰 WR-01)", () => {
+  it("rcept_dt 가 빠진 행은 조회 날짜로 넣고 warn — 같은 바퀴 공개매수도 함께 들어가 나간다", async () => {
+    const broken = rightsRow(2, MON, { rcept_dt: undefined as unknown as string });
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:00:30"),
+      db: { lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") } },
+      dart: { feed: [tender(1, "10:00:00"), { watch: "rights_merger", from: at("10:00:00"), row: broken }] },
+    });
+    await h.run();
+    expect(h.db.calls.insert[0].items.map((i) => i.rcept_dt)).toEqual(["2026-11-16", "2026-11-16"]);
+    expect(h.logs.count("dart row rcept_dt invalid — using query day", "warn")).toBe(1);
+    expect(h.telegram.alerts()).toHaveLength(2);
+  });
+
+  it("DB 가 한 행을 값 때문에 거절(23502)하면 그 행만 error 로 건너뛰고 공개매수는 같은 바퀴에 나간다 · 거절 행은 다시 두드리지 않는다", async () => {
+    const poison = rightsRow(2).rcept_no;
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:01:00"),
+      db: {
+        lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") },
+        before: (fn, _now, info) => {
+          if (fn === "dart_alert_insert" && info?.rceptNos?.includes(poison)) {
+            throw new DbError("dart_alert_insert 실패 (23502): null value in column", "23502");
+          }
+        },
+      },
+      dart: { feed: [tender(1, "10:00:00"), rights(2, "10:00:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.telegram.alerts()).toHaveLength(1);
+    expect(h.telegram.alerts()[0].text).toContain("대상회사1");
+    expect(h.logs.count("dart alert row rejected by db — skipped", "error")).toBe(1);
+    expect(h.logs.find("dart alert row rejected by db — skipped")?.obj).toMatchObject({ rceptNo: poison, err: { code: "23502", kind: "db" } });
+    // 묶음 1번(실패) + 행마다 1번씩(공개매수 성공 · 거절) — 그 뒤 바퀴는 넣기 0
+    expect(h.db.calls.insert).toHaveLength(1);
+    expect(h.logs.count("dart alert insert failing")).toBe(0);
+  });
+
+  it("넣기가 계속 실패(DB 오류)하면 5분 넘긴 바퀴에 error 1번 · 「멈췄습니다(공시 저장 실패)」 · 넣기가 되면 닫고 알림이 나간다", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:12:30"),
+      db: {
+        lastOk: { tender_offer: iso("10:00:00"), rights_merger: iso("10:00:00") },
+        before: (fn, now) => {
+          if (fn === "dart_alert_insert" && now < at("10:10:00")) throw new DbError("dart_alert_insert 실패: fetch failed", null);
+        },
+      },
+      dart: { feed: [tender(1, "10:00:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.logs.count("dart alert insert failing", "error")).toBe(1);
+    expect(h.logs.find("dart alert insert failing")?.obj.sinceMs).toBeGreaterThan(300_000);
+    const opens = h.db.calls.outage.filter((c) => c.action === "open");
+    expect(opens).toHaveLength(1);
+    expect(opens[0].reason).toBe("공시 저장 실패 db");
+    expect(opens[0].at).toBeGreaterThan(at("10:05:00"));
+    expect(opens[0].at).toBeLessThanOrEqual(at("10:05:10"));
+    const notices = h.telegram.notices().map((s) => s.text);
+    expect(notices[0]).toContain("⚠ 공시 알림이 멈췄습니다 — 10:00 부터 DART 조회 실패(공시 저장 실패 db)");
+    expect(notices[1]).toContain("✅ 공시 알림 다시 동작");
+    expect(h.telegram.alerts()).toHaveLength(1);
+    expect(h.logs.count("dart outage opened", "error")).toBe(1);
   });
 });

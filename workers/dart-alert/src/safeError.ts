@@ -1,5 +1,6 @@
 import { isAxiosError } from "axios";
 import { classifyDartStatus, DartApiError } from "./dart/client";
+import { DbError } from "./db";
 import type { SendResult } from "./telegram/client";
 
 /**
@@ -27,12 +28,14 @@ function str(v: unknown): string | null {
  * - DartApiError → 상태 · 본문 status · OpenDART 문구 · 종류
  * - axios 오류 → 응답 본문의 `status` · `message` 만(200자 — OpenDART 꼴. 텔레그램 꼴 `error_code` · `description` 은
  *   뒷순위) · 종류는 본문 status 가 있으면 상태 표로, 없으면 응답 없음 · 5xx 는 transient. URL · 요청 설정은 안 본다
+ * - DbError(db.ts) → SQLSTATE · 함수 이름이 든 짧은 문구 · 종류 db(인자 값 · 행 값은 애초에 싣지 않는다)
  * - 그 밖 → 메시지 문자열만(unknown)
  */
 export function safeErrorFields(err: unknown): SafeErrorFields {
   if (err instanceof DartApiError) {
     return { status: err.httpStatus, code: err.code, message: err.description ?? err.message, kind: err.kind };
   }
+  if (err instanceof DbError) return { status: null, code: err.code, message: str(err.message), kind: "db" };
   if (isAxiosError(err)) {
     const status = err.response?.status ?? 0;
     const data = err.response?.data as Record<string, unknown> | undefined;

@@ -1,6 +1,6 @@
 import { LATE_GAP_MS } from "./cadence";
 import { DartApiError, type DartErrorKind, type DartRow } from "./dart/client";
-import { LeaseLostError } from "./db";
+import { isRowRejection, LeaseLostError } from "./db";
 import { alertText, plainAlertText } from "./message";
 import { safeErrorFields, telegramSafeFields, type SafeErrorFields } from "./safeError";
 import type { SendResult } from "./telegram/client";
@@ -16,7 +16,8 @@ import { judgeRow, type JudgeOptions, type Watch, type WatchId } from "./watches
  * - `LapDeps.db` 의 인자 · 반환 키는 마이그레이션 20261113200000_dart_alert.sql 의 RPC
  *   `dart_alert_insert` · `dart_alert_claim` · `dart_alert_mark` 와 글자 그대로 같다(43-02 `src/db.ts` 가
  *   변환 없이 결선하고 `tests/dbContract.test.ts` 가 자동 대조한다).
- * - 넣기 DB 오류(임대 잃음 55000 포함)는 삼키지 않고 위로 보낸다 — 수집기(43-05)가 종료 이유를 정한다.
+ * - 넣기 DB 오류(임대 잃음 55000 포함)는 삼키지 않고 위로 보낸다 — 수집기(43-05)가 종료 이유 · 연속 실패 장애를 정한다.
+ *   예외: 행 값 때문의 거절(SQLSTATE 22 · 23)은 행마다 다시 넣어 그 행만 error 로 건너뛴다(리뷰 WR-01).
  * - 43-06 송신 견고함(SC-5 · D-02 · 리서치 확인 7) — `deliverPending` + 실행 동안 하나인 `SendPacer`:
  *   · 같은 방 1초 간격(`SEND_GAP_MS`) · 60초 안 최대 18건(`SEND_WINDOW_MAX` — 단체방 분당 20건 아래) · 429 는
  *     `retry_after` 초 동안 그 방 송신 전체를 멈춘다(장애 글 · 시험 글도 같은 pacer 를 지난다 — `sendPaced`).
@@ -141,9 +142,52 @@ export interface CollectResult {
   inserted: InsertedRow[];
 }
 
-/** YYYYMMDD → YYYY-MM-DD (DB date) */
+const YMD_RE = /^[0-9]{8}$/;
+
+/** YYYYMMDD → YYYY-MM-DD (DB date) — 부르는 쪽이 8자리를 보장한다 */
 function toIsoDate(ymd: string): string {
-  return /^[0-9]{8}$/.test(ymd) ? `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}` : ymd;
+  return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+}
+
+/**
+ * 넣기 — 묶음 한 번. 묶음이 **행 값 때문에**(SQLSTATE 22 · 23 — `isRowRejection`) 거절되면 행마다 다시 넣어
+ * 거절된 행만 error 로 남기고 건너뛴다(한 행이 같은 바퀴의 다른 행 — 공개매수 포함 — 을 막지 않게 · 리뷰 WR-01).
+ * 그 밖 실패(DB · 네트워크 · 임대 잃음)는 warn 뒤 위로 던진다 — 연속 실패 판정은 수집기 몫.
+ */
+async function insertItems(
+  deps: LapDeps,
+  items: InsertItem[],
+  seed: boolean,
+  calls: number,
+): Promise<{ inserted: InsertedRow[]; rejected: string[] }> {
+  const fail = (err: unknown): never => {
+    deps.log.warn({ items: items.length, calls, err: safeErrorFields(err) }, "dart alert insert failed");
+    throw err;
+  };
+  try {
+    return { inserted: await deps.db.insert(items, seed), rejected: [] };
+  } catch (err) {
+    if (!isRowRejection(err)) return fail(err);
+    const inserted: InsertedRow[] = [];
+    const rejected: string[] = [];
+    const reject = (it: InsertItem, e: unknown) => {
+      rejected.push(it.rcept_no);
+      deps.log.error({ rceptNo: it.rcept_no, watch: it.watch, err: safeErrorFields(e) }, "dart alert row rejected by db — skipped");
+    };
+    if (items.length === 1) {
+      reject(items[0], err);
+      return { inserted, rejected };
+    }
+    for (const it of items) {
+      try {
+        inserted.push(...(await deps.db.insert([it], seed)));
+      } catch (e) {
+        if (!isRowRejection(e)) return fail(e);
+        reject(it, e);
+      }
+    }
+    return { inserted, rejected };
+  }
 }
 
 /**
@@ -181,11 +225,15 @@ export async function collectOnce(
           }
           continue;
         }
+        // 접수일 — 조회가 그날 하루(bgn_de = end_de = day)라 행의 rcept_dt 는 조회 날짜다. 8자리가 아니면(빠짐 · 깨짐)
+        // 조회 날짜로 넣고 warn — DB 의 NOT NULL date 칸에 걸려 그 바퀴 넣기 전체가 실패하지 않게(리뷰 WR-01)
+        const rceptDtOk = typeof row.rcept_dt === "string" && YMD_RE.test(row.rcept_dt);
+        if (!rceptDtOk) deps.log.warn({ rceptNo, watch: watch.id, rceptDtType: typeof row.rcept_dt }, "dart row rcept_dt invalid — using query day");
         items.push({
           rcept_no: rceptNo,
           watch: watch.id,
           priority: watch.priority,
-          rcept_dt: toIsoDate(row.rcept_dt),
+          rcept_dt: toIsoDate(rceptDtOk ? row.rcept_dt : day),
           corp_cls: row.corp_cls,
           corp_name: row.corp_name,
           stock_code: row.stock_code,
@@ -204,16 +252,9 @@ export async function collectOnce(
     }
   }
 
-  let inserted: InsertedRow[] = [];
-  if (items.length > 0) {
-    try {
-      inserted = await deps.db.insert(items, opts.seed);
-    } catch (err) {
-      // seen 에 넣지 않는다 → 다음 바퀴에 같은 행을 다시 넣는다. 임대 잃음 판정은 수집기 몫이라 위로 보낸다
-      deps.log.warn({ items: items.length, calls, err: safeErrorFields(err) }, "dart alert insert failed");
-      throw err;
-    }
-  }
+  // 넣기가 던지면 seen 에 넣지 않는다 → 다음 바퀴에 같은 행을 다시 넣는다(임대 잃음 · 연속 실패 판정은 수집기 몫).
+  // DB 가 행 값 때문에 거절한 행은 error 로 남기고 seen 에 넣어 이 실행에서는 다시 두드리지 않는다.
+  const inserted = items.length > 0 ? (await insertItems(deps, items, opts.seed, calls)).inserted : [];
   for (const rceptNo of judged) state.seen.add(rceptNo);
 
   return { results, calls, inserted };

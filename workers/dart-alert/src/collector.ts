@@ -190,6 +190,8 @@ class Collector {
   private unknownStreak = 0;
   /** 치명 DART 신호 — 이 바퀴 남은 조회를 건너뛰고 바퀴 끝에 멈춘다 */
   private halt: { reason: HaltReason; err: SafeErrorFields } | null = null;
+  /** 넣기 연속 실패 — 첫 실패 바퀴 시작 시각 · error 를 이미 남겼나(리뷰 WR-01). 넣기가 되면 null */
+  private insertFail: { since: number; logged: boolean } | null = null;
   /** 감시 대상별 마지막 성공 조회 시각(ms) — 늦은 알림 기준점 · 연장 때 DB last_ok 로 */
   private readonly lastOk = new Map<WatchId, number>();
   /** 이 실행이 아는 열린 장애(43-06) — 글 · 「다시 동작」 문구의 시작 시각(ms). 같은 장애 동안 다시 열지 않는다 */
@@ -443,6 +445,7 @@ class Collector {
   private async lap(startedAt: number): Promise<void> {
     this.stats.laps += 1;
     let r: CollectResult | null = null;
+    let insertErr: unknown = null;
     try {
       r = await collectOnce(this.lapDeps, this.lapState, kstYmd(startedAt), {
         isLate: (w) => this.isLate(w),
@@ -451,14 +454,37 @@ class Collector {
     } catch (err) {
       // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음만 위로 · 나머지는 다음 바퀴에 다시 넣는다
       if (err instanceof LeaseLostError) throw err;
+      insertErr = err;
     }
-    if (r) this.takeResult(r);
+    if (r) {
+      this.insertFail = null;
+      this.takeResult(r);
+    }
 
     await this.maintain(this.now(), false);
     await this.deliver();
     if (r) await this.judgeOutage(r);
+    else await this.judgeInsertFailure(startedAt, insertErr);
 
     if (this.halt) await this.stopOnHalt();
+  }
+
+  /**
+   * 넣기가 연속으로 실패한다(DB · 스키마 문제) — 조회는 성공해도 새 건이 DB 에 못 들어가 알림이 전부 멈춘다. 첫 실패에서
+   * 5분(`OUTAGE_AFTER_MS`)을 넘기면 error `dart alert insert failing` 1번(→ 이메일) + 장애 열기(「멈췄습니다」 — D-16 의
+   * 「알림이 안 온다」 를 방에도 알린다). 넣기가 다시 되는 바퀴(모든 감시 대상 성공)에 judgeOutage 가 닫는다(리뷰 WR-01).
+   */
+  private async judgeInsertFailure(startedAt: number, err: unknown): Promise<void> {
+    const f = (this.insertFail ??= { since: startedAt, logged: false });
+    const now = this.now();
+    if (now - f.since <= OUTAGE_AFTER_MS) return;
+    const fields = safeErrorFields(err);
+    if (!f.logged) {
+      f.logged = true;
+      this.d.log.error({ err: fields, sinceMs: now - f.since }, "dart alert insert failing");
+    }
+    if (!isInWindow(now) || this.outage || this.halt) return;
+    await this.openOutage(`공시 저장 실패 ${fields.code ?? fields.kind}`, f.since);
   }
 
   /** 처음 본 순간 늦은 건인가 — 그 감시 대상 조회 직전에 판정(조회가 오래 걸려도 기준점은 그대로) */

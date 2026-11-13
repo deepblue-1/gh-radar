@@ -378,6 +378,8 @@ export interface FakeDbOptions {
 
 export interface RpcInfo {
   rceptNo?: string;
+  /** 넣기 — 이번 호출이 넣으려는 접수번호들(행 값 거절 흉내 · 리뷰 WR-01) */
+  rceptNos?: string[];
 }
 
 /** 미리 넣어 둘 행 — InsertItem 에 상태 기본값을 채운다 */
@@ -502,7 +504,7 @@ export function fakeDb(clock: FakeClock, o: FakeDbOptions) {
     },
 
     async insert(items, seed) {
-      guard("dart_alert_insert");
+      guard("dart_alert_insert", { rceptNos: items.map((i) => i.rcept_no) });
       const now = clock.now();
       const out: InsertedRow[] = [];
       for (const it of items) {
