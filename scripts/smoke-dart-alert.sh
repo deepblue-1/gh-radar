@@ -15,7 +15,9 @@ set -uo pipefail
 #       첫 배포 날(--scheduler-paused 로 막 만든 날)만 DART_SMOKE_ALLOW_PAUSED=1 로 통과(배포 스크립트가 넘긴다).
 # INV-3c 깨움이 실제로 Job 을 띄울 수 있다 — Scheduler 대상 URI = 이 Job 의 :run · OAuth SA = gh-radar-scheduler-sa ·
 #       Job IAM 에 그 SA 의 roles/run.invoker 바인딩(유실되면 깨움이 403 으로 실패 · 리뷰 CR-50)
-# INV-4 최근 15분 Cloud Logging 에 이 Job 의 jsonPayload.msg="probe ok" 1건 이상
+#       실행 이름을 받아(--async) 끝날 때까지(최대 5분) 지켜보고, 성공 · 실패와 상관없이 그 이름을 화면에 남긴다(리뷰 IN-57).
+# INV-4 INV-1 의 그 실행(labels."run.googleapis.com/execution_name")이 남긴 jsonPayload.msg="probe ok" 1건 이상
+#       (15분 안의 앞선 probe 로그로 통과하지 않게)
 # INV-5 알림 정책 deploy-dart-alert.sh ALERT_POLICY_NAMES 4개(실행 실패 · error 로그 · 깨움 실패 · 깨움 없음) 존재
 #       + 로그 기반 지표 dart_alert_wake_starts(깨움 없음 정책이 읽음) 존재
 # INV-6 Job env SUPABASE_URL 이 배포 값(DART_SMOKE_SUPABASE_URL — 배포 스크립트가 넘김)과 같고, 그 URL 로
@@ -71,11 +73,35 @@ echo "Smoke testing Job=$JOB Region=$REGION Project=$PROJECT"
 echo ""
 
 # ─────────────────────────────────────────────────────────────
-# INV-1: probe 실행 --wait exit 0
+# INV-1: probe 실행 1회 — 이름을 받아 완료(성공 1)까지 지켜본다(5초 간격 · 최대 5분)
 # ─────────────────────────────────────────────────────────────
-check "INV-1 jobs execute (DART_ALERT_MODE=probe) --wait exit 0" \
-  gcloud run jobs execute "$JOB" --region="$REGION" --project="$PROJECT" \
-    --update-env-vars=DART_ALERT_MODE=probe --wait
+PROBE_EXEC=""
+probe_run() {
+  local out tries=0 st done_at ok failed
+  out=$(gcloud run jobs execute "$JOB" --region="$REGION" --project="$PROJECT" \
+    --update-env-vars=DART_ALERT_MODE=probe --async --format='value(metadata.name)' 2>&1) || return 1
+  # --format 출력(이름 한 줄)이 없으면 진행 문구 「Execution [이름] …」 에서 꺼낸다
+  PROBE_EXEC=$(printf '%s\n' "$out" | grep -E '^[a-z0-9][a-z0-9-]*$' | head -1)
+  if [[ -z "$PROBE_EXEC" ]]; then
+    PROBE_EXEC=$(printf '%s\n' "$out" | sed -nE 's/.*Execution \[([a-z0-9-]+)\].*/\1/p' | head -1)
+  fi
+  [[ -n "$PROBE_EXEC" ]] || return 1
+  while (( tries < 60 )); do
+    tries=$((tries + 1))
+    # csv(쉼표) — 실행 중이면 완료 시각이 비어도 칸 자리가 유지된다
+    st=$(gcloud run jobs executions describe "$PROBE_EXEC" --region="$REGION" --project="$PROJECT" \
+      --format='csv[no-heading](status.completionTime,status.succeededCount,status.failedCount)' 2>/dev/null || true)
+    IFS=, read -r done_at ok failed <<< "$st"
+    if [[ -n "$done_at" ]]; then
+      [[ "${ok:-0}" == 1 && "${failed:-0}" =~ ^0?$ ]]
+      return
+    fi
+    sleep 5
+  done
+  return 1
+}
+check "INV-1 jobs execute (DART_ALERT_MODE=probe) → 완료 · 성공 1" probe_run
+echo "      (probe 실행: ${PROBE_EXEC:-이름 못 받음} — 실패면: gcloud run jobs executions describe ${PROBE_EXEC:-<이름>} --region=$REGION --project=$PROJECT)"
 
 # ─────────────────────────────────────────────────────────────
 # INV-2: Job 설정 — taskTimeout 50400s · maxRetries 0
@@ -145,14 +171,16 @@ invoker_bound() {
 check "INV-3c scheduler → job :run · OAuth gh-radar-scheduler-sa · run.invoker 바인딩" invoker_bound
 
 # ─────────────────────────────────────────────────────────────
-# INV-4: 최근 15분 로그에 「probe ok」 1건 이상 (로그 수집 지연 — 15초 간격 5회까지)
+# INV-4: INV-1 실행의 로그에 「probe ok」 1건 이상 (로그 수집 지연 — 15초 간격 5회까지)
 # ─────────────────────────────────────────────────────────────
 probe_logged() {
   local attempt
+  [[ -n "$PROBE_EXEC" ]] || return 1
   for attempt in 1 2 3 4 5; do
     if gcloud logging read "
         resource.type=\"cloud_run_job\"
         AND resource.labels.job_name=\"$JOB\"
+        AND labels.\"run.googleapis.com/execution_name\"=\"$PROBE_EXEC\"
         AND jsonPayload.msg=\"probe ok\"
       " --project="$PROJECT" --freshness=15m --limit=5 --format='value(jsonPayload.msg)' 2>/dev/null \
       | grep -q 'probe ok'; then
@@ -162,7 +190,7 @@ probe_logged() {
   done
   return 1
 }
-check "INV-4 logs: probe ok (최근 15분)" probe_logged
+check "INV-4 logs: probe ok (INV-1 실행 ${PROBE_EXEC:-?})" probe_logged
 
 # ─────────────────────────────────────────────────────────────
 # INV-6 · INV-7: Job env SUPABASE_URL · 읽기 전용 점검(dart-alert-report.sh check — DB · 마이그레이션 · 텔레그램, 글 0)
