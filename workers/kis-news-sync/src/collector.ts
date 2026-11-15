@@ -68,6 +68,11 @@ export const STOCK_RATE_SHARE = 0.5;
 
 /** 루프 한 걸음 */
 export const STEP_MS = 200;
+/**
+ * fast 한 실행의 최대 길이 — 빠른 창 07:00 ~ 20:00(13시간)과 같다. 강제 `KIS_NEWS_MODE=fast` 를 창 앞(예 05:00)에
+ * 주어도 Job `--task-timeout=14h` 에 강제 종료되지 않게 「그날 20:00」과 「시작 + 13시간」 중 이른 쪽에서 끝낸다(IN-03).
+ */
+export const FAST_MAX_RUN_MS = 13 * 3_600_000;
 /** 토큰 발급 실패 뒤 한 번 더 시도하기까지(한투 「1분당 1회 발급」 + 1초) */
 export const TOKEN_RETRY_MS = 61_000;
 /** 장기 실행 중 DB 토큰 남은 시간 확인 주기(1시간 전 재발급은 41-13 이 판정) */
@@ -349,7 +354,14 @@ class Collector {
   // ── ⑥ fast ────────────────────────────────────────────────────────
   private async runFast(t0: number): Promise<CollectorExit> {
     const { log, cfg, holder } = this.d;
-    const end = fastWindowEndOf(new Date(t0)).getTime();
+    const end = Math.min(fastWindowEndOf(new Date(t0)).getTime(), t0 + FAST_MAX_RUN_MS);
+    if (cfg.mode === "fast" && resolveCollectorMode(new Date(t0), "auto") !== "fast") {
+      // 강제 fast 가 빠른 창(평일 07:00 ~ 20:00) 밖 — 주말 · 새벽에도 끝까지 돈다. 운영자가 알아채게 남긴다
+      log.warn(
+        { startedAt: new Date(t0).toISOString(), endAt: new Date(end).toISOString(), maxRunMs: FAST_MAX_RUN_MS },
+        "forced fast mode outside the weekday 07:00-20:00 KST window",
+      );
+    }
     if (t0 >= end) {
       log.warn({ endAt: new Date(end).toISOString() }, "fast window already over — nothing to do");
       return { code: 0, reason: "fast_window_over" };

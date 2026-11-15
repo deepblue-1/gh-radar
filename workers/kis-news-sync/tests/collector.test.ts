@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  FAST_MAX_RUN_MS,
   FEED_MAX_PAGES_SLOW,
   LEASE_TTL_S,
   RATE_LIMIT_PAUSE_MS,
@@ -406,6 +407,29 @@ describe("fast 모드 — 끝 · 임대", () => {
     expect(h.usage.flush).toHaveBeenCalled();
     expect(h.deps.db.leaseRelease).toHaveBeenCalledWith(HOLDER);
     expect(h.deps.db.cleanup).not.toHaveBeenCalled();
+  });
+
+  it("IN-03 강제 fast 를 창 앞(05:00)에 주면 warn · 끝은 「시작 + 13시간」(task-timeout 14h 안)", async () => {
+    const start = kst("2026-11-16", "05:00:00");
+    const h = harness({ start, mode: "fast", stopAt: start + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(1);
+    const started = has(h.logs, "info", /^collector start$/)[0];
+    expect(started.obj.endAt).toBe(new Date(start + FAST_MAX_RUN_MS).toISOString());
+  });
+
+  it("IN-03 강제 fast 라도 창 안(평일 10:00)이면 warn 없음 · 끝은 그날 20:00", async () => {
+    const h = harness({ mode: "fast", stopAt: MON_10 + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(0);
+    expect(has(h.logs, "info", /^collector start$/)[0].obj.endAt).toBe(new Date(kst("2026-11-16", "20:00:00")).toISOString());
+  });
+
+  it("IN-03 강제 fast 를 토요일에 주면 warn", async () => {
+    const start = kst("2026-11-14", "10:00:00");
+    const h = harness({ start, mode: "fast", stopAt: start + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(1);
   });
 
   it("임대 연장 거절 → 종료 0 · warn", async () => {
