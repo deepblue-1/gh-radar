@@ -8,6 +8,7 @@
  *
  * ② 숨김 정지 · 실패 유지 — 화면이 숨으면 그 주기를 건너뛰고, 다시 보이면 바로 1번 부른 뒤 주기를 다시 잡는다.
  *   실패한 묶음은 건너뛴다(그 코드들은 마지막 entries 그대로) — 화면에서 글이 사라지지 않는다. 다음 주기가 다시 시도한다.
+ *   직전 회차가 아직 돌면 그 주기는 건너뛴다 — 진행 중 요청을 끊지 않는다(WR-60).
  *   코드 집합이 바뀌면 진행 중 요청을 끊고 바로 1번 부른다. effect 의존은 정렬 · 결합한 코드 문자열이라 같은 집합의
  *   새 배열로는 다시 돌지 않는다.
  *
@@ -113,6 +114,8 @@ export function useStockFeedPolling(
 
     let disposed = false;
     let controller: AbortController | null = null;
+    /** 회차 진행 중 — 주기 tick · 다시 보임은 겹쳐 부르지 않는다(WR-60). */
+    let inFlight = false;
 
     const apply = (got: readonly StockFeedEntry[]) => {
       const now = Date.now();
@@ -150,22 +153,29 @@ export function useStockFeedPolling(
 
     const run = async () => {
       if (document.visibilityState === 'hidden') return;
-      controller?.abort();
+      // 직전 회차가 아직 돌면 이번 주기는 건너뛴다 — 끊고 다시 부르면 회차가 주기보다 길 때 응답이 영영 반영되지
+      // 않는다(WR-60). 묶음마다 `apiFetch` 8초 타임아웃이 있어 회차는 반드시 끝난다.
+      if (inFlight) return;
       const ctrl = new AbortController();
       controller = ctrl;
-      const got: StockFeedEntry[] = [];
-      for (let i = 0; i < list.length; i += STOCK_FEED_CHUNK) {
-        try {
-          const res = await fetchNewsByStock(list.slice(i, i + STOCK_FEED_CHUNK), { days, limit }, ctrl.signal);
-          got.push(...res.stocks);
-        } catch {
-          // 끊긴 요청은 조용히 끝낸다. 그 밖의 실패는 이 묶음만 건너뛴다 — 마지막 entries 유지 · 다음 주기에 다시(②).
+      inFlight = true;
+      try {
+        const got: StockFeedEntry[] = [];
+        for (let i = 0; i < list.length; i += STOCK_FEED_CHUNK) {
+          try {
+            const res = await fetchNewsByStock(list.slice(i, i + STOCK_FEED_CHUNK), { days, limit }, ctrl.signal);
+            got.push(...res.stocks);
+          } catch {
+            // 끊긴 요청은 조용히 끝낸다. 그 밖의 실패는 이 묶음만 건너뛴다 — 마지막 entries 유지 · 다음 주기에 다시(②).
+            if (ctrl.signal.aborted) return;
+          }
           if (ctrl.signal.aborted) return;
         }
-        if (ctrl.signal.aborted) return;
+        if (disposed || got.length === 0) return;
+        apply(got);
+      } finally {
+        inFlight = false;
       }
-      if (disposed || got.length === 0) return;
-      apply(got);
     };
 
     let timer = setInterval(run, intervalMs);

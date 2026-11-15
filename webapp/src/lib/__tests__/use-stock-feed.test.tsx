@@ -198,6 +198,24 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(result.current.entries.get('005930')?.items.map((i) => i.id)).toEqual(['kis:1']);
   });
 
+  it('회차가 주기보다 길면 다음 주기는 건너뛰고 진행 중 요청을 끊지 않는다 — 늦은 응답도 반영된다(WR-60)', async () => {
+    let firstSignal: AbortSignal | undefined;
+    feed['005930'] = [item('kis:1')];
+    fetchMock.mockImplementationOnce((codes: readonly string[], _o: unknown, signal: AbortSignal) => {
+      firstSignal = signal;
+      return new Promise((resolve) => setTimeout(() => resolve(respond(codes)), STOCK_FEED_POLL_MS * 1.5));
+    });
+    const { result } = renderHook(() => useStockFeedPolling(['005930']));
+    await flush();
+    await tick(STOCK_FEED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(firstSignal?.aborted).toBe(false);
+    await tick(STOCK_FEED_POLL_MS * 0.5);
+    expect(result.current.entries.get('005930')?.items.map((i) => i.id)).toEqual(['kis:1']);
+    await tick(STOCK_FEED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('코드 집합이 바뀌면 진행 중 요청을 끊고 바로 1번 부른다', async () => {
     let firstSignal: AbortSignal | undefined;
     fetchMock.mockImplementationOnce((_codes: readonly string[], _o: unknown, signal: AbortSignal) => {
