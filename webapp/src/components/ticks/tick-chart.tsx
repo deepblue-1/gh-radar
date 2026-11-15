@@ -62,7 +62,7 @@ import { useViewSync, type ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
-import { CHART_TITLE_TEXT } from './chart-typography';
+import { CHART_PILL_FONT_SIZE, CHART_TITLE_TEXT } from './chart-typography';
 import { TickChartBand } from './tick-chart-band';
 import { TickChartRange } from './tick-chart-range';
 
@@ -1006,7 +1006,7 @@ export function TickChart({
                     textAnchor="middle"
                     fill="var(--primary-fg)"
                     fontWeight={600}
-                    fontSize={10.5}
+                    fontSize={CHART_PILL_FONT_SIZE}
                   >
                     {rngBand.label}
                   </text>

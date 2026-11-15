@@ -8,3 +8,9 @@
 
 /** 「타임라인」 제목 h2 의 글자 크기 · 굵기(색 · 여백은 쓰는 쪽이 붙인다). */
 export const CHART_TITLE_TEXT = 'text-[12.5px] font-bold';
+
+/** 값 띠 루트(차트 위 높이 고정 4칸 띠)의 글자 크기 · 줄 높이 — 줄 높이는 띠 높이 계산(데스크톱 58 · 88 등)의 전제다. */
+export const CHART_BAND_TEXT = 'text-[11.5px] leading-[14px]';
+
+/** 수익률 · 가격 구간 칩(SVG `<text>`) 글자 크기 — 두 차트의 칩 폭 추정(글자당 6.4 + 10)은 이 크기를 전제로 한다. 크기를 바꾸면 그 추정도 같이 본다. */
+export const CHART_PILL_FONT_SIZE = 10.5;

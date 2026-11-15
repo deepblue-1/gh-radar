@@ -4,6 +4,7 @@ import { fmtAmountC, fmtQty, fmtRet, fmtSignedAmountC } from '@/lib/ticks/tick-f
 import { kstHm } from '@/lib/teamflow-report';
 import { cn } from '@/lib/utils';
 
+import { CHART_BAND_TEXT } from './chart-typography';
 import { Head, Kv, Rest, Row } from './tick-chart-band';
 
 /**
@@ -12,6 +13,7 @@ import { Head, Kv, Rest, Row } from './tick-chart-band';
  *
  * - 높이는 값 · 상태 · 이동평균 개수와 무관하게 같다: 데스크톱 88(위아래 5 + 머리 14 + 4줄 × 16) · 폰 137(첫 행 84 + 둘째 행 52 + 경계 1).
  * - 글자 크기 · 굵기는 선 차트 띠 부품(`Head` · `Row` · `Kv` · `Rest`)을 그대로 쓴다 — 새 크기 없음(UI-SPEC Typography).
+ *   띠 루트 글자 크기 · 줄 높이는 공유 상수 `CHART_BAND_TEXT`(chart-typography.ts).
  * - 셋째 「10분」 · 넷째 「누적」 칸은 `tick-chart-band.tsx` 마크업을 같은 클래스로 복제(함수로 떼어져 있지 않다).
  * - 둘째 칸 수익률 글자는 팀 거래정보 패널과 같은 함수 `fmtRet`(`lib/ticks/tick-format.ts` — 패널과 비트까지 같은 글자 · SC-4).
  * - 마우스 이동마다 낭독이 넘치므로 `aria-live` 는 달지 않는다(선 차트와 같음).
@@ -54,7 +56,7 @@ export function CandleChartBand({ band, live, phone }: CandleChartBandProps) {
       data-live={live ? '1' : undefined}
       data-dims={phone ? 'phone' : 'desktop'}
       className={cn(
-        'grid border-b border-[var(--border-subtle)] text-[11.5px] leading-[14px] tabular-nums',
+        `grid border-b border-[var(--border-subtle)] ${CHART_BAND_TEXT} tabular-nums`,
         phone ? 'h-[137px] grid-cols-2 grid-rows-[84px_52px]' : 'h-[88px] grid-cols-[1.5fr_1.6fr_1fr_1.1fr]',
       )}
     >

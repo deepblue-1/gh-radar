@@ -89,6 +89,7 @@ import { CandleChartTitle } from './candle-chart-title';
 import { CandleLowerLayers } from './candle-lower-layers';
 import { CandlePriceLayer } from './candle-price-layer';
 import { CandleReturnLayer } from './candle-return-layer';
+import { CHART_PILL_FONT_SIZE } from './chart-typography';
 import { OwnDiamond, TickGroupBox } from './tick-chart';
 import { TickChartRange } from './tick-chart-range';
 
@@ -876,7 +877,7 @@ export function CandleChart({
                     textAnchor="middle"
                     fill="var(--primary-fg)"
                     fontWeight={600}
-                    fontSize={10.5}
+                    fontSize={CHART_PILL_FONT_SIZE}
                   >
                     {rngBand.label}
                   </text>

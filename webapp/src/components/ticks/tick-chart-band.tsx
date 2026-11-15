@@ -4,6 +4,8 @@ import { pct1, pct2, type TickBand } from '@/lib/ticks/tick-chart-tip';
 import { fmtAmountC, fmtQty, fmtSignedAmountC } from '@/lib/ticks/tick-format';
 import { cn } from '@/lib/utils';
 
+import { CHART_BAND_TEXT } from './chart-typography';
+
 /**
  * 틱뷰어 타임라인 고정 띠 B(스케치 028 ① · 2026-11-04 채택) — 카드 머리 바로 아래 · 차트 위 높이 고정 4칸
  * (가격 | 당일 팀 | 10분 | 누적). 마우스가 그림 영역 위면 그 시각 값, 벗어나면 현재 틱 값(첫 칸 제목 「현재 틱」).
@@ -69,7 +71,7 @@ export function TickChartBand({ band, live, phone }: TickChartBandProps) {
       data-live={live ? '1' : undefined}
       data-dims={phone ? 'phone' : 'desktop'}
       className={cn(
-        'grid border-b border-[var(--border-subtle)] text-[11.5px] leading-[14px] tabular-nums',
+        `grid border-b border-[var(--border-subtle)] ${CHART_BAND_TEXT} tabular-nums`,
         phone ? 'h-[105px] grid-cols-2 grid-rows-[52px_52px]' : 'h-[58px] grid-cols-[1.05fr_1.6fr_1.15fr_1.3fr]',
       )}
     >
