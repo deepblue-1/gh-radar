@@ -68,7 +68,8 @@ import {
   breakoutDismissLabel,
   type BreakoutStripProps,
 } from '../workbench/breakout-strip';
-import { StockFeedEntriesContext } from '../feed/stock-feed-context';
+import { StockFeedEntriesContext, StockFeedFailedContext } from '../feed/stock-feed-context';
+import { FEED_FAILED_TEXT } from '../feed/feed-rows';
 
 const T0 = Date.UTC(2026, 8, 22, 0, 41, 31);
 
@@ -863,7 +864,11 @@ function feedEntry(code: string, items: StockFeedItem[], over: Partial<StockFeed
 }
 
 /** 작업대 공급자 대신 entries 문맥에 값을 직접 넣는다. */
-function setupFeed(initial: Props, entries: ReadonlyMap<string, StockFeedEntry>) {
+function setupFeed(
+  initial: Props,
+  entries: ReadonlyMap<string, StockFeedEntry>,
+  failed: ReadonlySet<string> = new Set(),
+) {
   const onAddCard = vi.fn();
   const onFocusCard = vi.fn();
   let props: BreakoutStripProps = {
@@ -877,7 +882,9 @@ function setupFeed(initial: Props, entries: ReadonlyMap<string, StockFeedEntry>)
   };
   const ui = (p: BreakoutStripProps) => (
     <StockFeedEntriesContext.Provider value={entries}>
-      <BreakoutStrip {...p} />
+      <StockFeedFailedContext.Provider value={failed}>
+        <BreakoutStrip {...p} />
+      </StockFeedFailedContext.Provider>
     </StockFeedEntriesContext.Provider>
   );
   const utils = render(ui(props));
@@ -964,6 +971,22 @@ describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D
     expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 25건+');
     expect(rowEls()[0]).not.toHaveAttribute('data-selected');
     expect(rowEls()[1]).toHaveAttribute('data-selected', 'true');
+  });
+
+  it('첫 응답 전이면 「불러오는 중」, 그 코드 조회가 계속 실패하면 「불러오지 못했어요」(IN-61)', () => {
+    const { rerender } = setupFeed({ items: [A] }, new Map());
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()!.textContent).toContain('불러오는 중');
+    rerender(
+      <StockFeedEntriesContext.Provider value={new Map()}>
+        <StockFeedFailedContext.Provider value={new Set([A.code!])}>
+          <BreakoutStrip items={[A]} snapSeq={1} cards={new Set()} cardFeeds={new Set()} onAddCard={vi.fn()} onFocusCard={vi.fn()} />
+        </StockFeedFailedContext.Provider>
+      </StockFeedEntriesContext.Provider>,
+    );
+    expect(detail()!.textContent).toContain(FEED_FAILED_TEXT);
+    expect(detail()!.textContent).not.toContain('불러오는 중');
   });
 
   it('글 0건 종목은 「최근 3일 뉴스·공시 없음」', () => {

@@ -80,8 +80,8 @@ import {
 import type { RelayExchange, RelayRateCrossItem } from '@gh-radar/shared';
 
 import { FeedKindBadge } from '@/components/stock/feed-kind-badge';
-import { FeedRows } from '@/components/trading/feed/feed-rows';
-import { useStockFeedEntries, useStockFeedEntry } from '@/components/trading/feed/stock-feed-context';
+import { FEED_FAILED_TEXT, FeedRows } from '@/components/trading/feed/feed-rows';
+import { useStockFeedEntries, useStockFeedEntry, useStockFeedFailed } from '@/components/trading/feed/stock-feed-context';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { playBreakoutTone } from '@/lib/alert-tone';
 import {
@@ -548,6 +548,7 @@ function FeedBadgesMini({ disclosure, news }: { disclosure: boolean; news: boole
  */
 function BreakoutFeedDetail({ code, label }: { code: string; label: string }) {
   const entry = useStockFeedEntry(code);
+  const failed = useStockFeedFailed(code);
   const count = entry === undefined ? '' : ` ${entry.count}건${entry.truncated ? '+' : ''}`;
   return (
     <section
@@ -564,8 +565,8 @@ function BreakoutFeedDetail({ code, label }: { code: string; label: string }) {
       <FeedRows
         items={entry?.items ?? []}
         band="wb"
-        // 첫 응답 전 — 폴링이 돌고 있다(작업대 공급자). 받은 뒤 0건이면 기본 문구.
-        emptyText={entry === undefined ? '불러오는 중' : undefined}
+        // 첫 응답 전 — 폴링이 돌고 있다(작업대 공급자). 계속 실패하면 실패 문구(IN-61). 받은 뒤 0건이면 기본 문구.
+        emptyText={entry === undefined ? (failed ? FEED_FAILED_TEXT : '불러오는 중') : undefined}
       />
     </section>
   );

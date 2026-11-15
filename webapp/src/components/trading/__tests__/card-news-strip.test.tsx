@@ -18,7 +18,8 @@ vi.mock('@/lib/news-by-stock-api', () => ({
 }));
 
 import { CARD_NEWS_EMPTY_TEXT, CardNewsStrip, shortDisclosureTitle } from '../card/card-news-strip';
-import { StockFeedEntriesContext, StockFeedProvider } from '../feed/stock-feed-context';
+import { StockFeedEntriesContext, StockFeedFailedContext, StockFeedProvider } from '../feed/stock-feed-context';
+import { FEED_FAILED_TEXT } from '../feed/feed-rows';
 import { STOCK_FEED_POLL_MS } from '@/lib/use-stock-feed';
 
 // KST 2026-11-12 15:30
@@ -217,6 +218,44 @@ describe('CardNewsStrip', () => {
     expect(s.textContent).toBe('');
     expect(s.tagName).not.toBe('BUTTON');
     expect(s.className).toContain('min-h-[30px]');
+  });
+
+  it('첫 응답 전인데 조회가 계속 실패하면 같은 높이 「불러오지 못했어요」 줄(data-state="error") — 형식 밖 코드도(IN-61)', () => {
+    const { rerender } = render(
+      withEntries(
+        new Map(),
+        <StockFeedFailedContext.Provider value={new Set([CODE])}>
+          <CardNewsStrip code={CODE} stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    const s = strip()!;
+    expect(s).toHaveAttribute('data-state', 'error');
+    expect(s.textContent).toBe(FEED_FAILED_TEXT);
+    expect(s.tagName).not.toBe('BUTTON');
+    expect(s.className).toContain('min-h-[30px]');
+
+    // 형식 밖 코드는 폴링 대상이 아니라 처음부터 실패다.
+    rerender(
+      withEntries(
+        new Map(),
+        <StockFeedFailedContext.Provider value={new Set()}>
+          <CardNewsStrip code="bad" stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    expect(strip()).toHaveAttribute('data-state', 'error');
+
+    // 마지막 entries 가 있으면 실패 중이어도 그 값을 그대로 보인다(②).
+    rerender(
+      withEntries(
+        new Map([[CODE, entryOf([NEWS])]]),
+        <StockFeedFailedContext.Provider value={new Set([CODE])}>
+          <CardNewsStrip code={CODE} stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    expect(strip()!.tagName).toBe('BUTTON');
   });
 
   it('공급자 밖이면 아무것도 그리지 않는다', () => {

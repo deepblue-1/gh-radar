@@ -12,6 +12,8 @@
  * ② 상태
  *   · 공급자 밖 → 아무것도 그리지 않는다(작업대가 아닌 자리 · 기존 카드 테스트).
  *   · 공급자 안 · 그 코드 첫 응답 전 → 글자 없는 같은 높이 자리(`data-state="pending"`) — 응답이 오며 카드가 출렁이지 않게.
+ *   · 첫 응답 전인데 조회가 계속 실패(형식 밖 코드 포함) → 누를 수 없는 같은 높이 줄 「뉴스·공시를 불러오지 못했어요」
+ *     (`data-state="error"` · IN-61). 폴링이 다시 시도해 응답이 오면 띠로 바뀐다.
  *   · 글 0건(수집 전 `collectedAt: null` 포함) → 누를 수 없는 빈 줄 「최근 3일 뉴스·공시 없음」(흐린 색).
  *   · 띠에 보이는 공시 · 뉴스 id 가 새 글이면 띠 전체가 `--new-bg`. 강조 시계는 작업대 공급자의 1초 타이머 하나다
  *     (`useStockFeedIsNew`) — 이 부품이 따로 타이머를 걸지 않는다.
@@ -34,10 +36,11 @@ import { useId, useState, type MouseEvent } from 'react';
 import type { StockFeedItem } from '@gh-radar/shared';
 
 import { FeedKindBadge } from '@/components/stock/feed-kind-badge';
-import { FeedRows } from '@/components/trading/feed/feed-rows';
+import { FEED_FAILED_TEXT, FeedRows } from '@/components/trading/feed/feed-rows';
 import {
   useStockFeedAvailable,
   useStockFeedEntry,
+  useStockFeedFailed,
   useStockFeedIsNew,
 } from '@/components/trading/feed/stock-feed-context';
 import { formatFeedTime } from '@/lib/format-feed-time';
@@ -87,12 +90,20 @@ function StripPart({ item, title, now }: { item: StockFeedItem; title: string; n
 export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
   const available = useStockFeedAvailable();
   const entry = useStockFeedEntry(code);
+  const failed = useStockFeedFailed(code);
   const isNew = useStockFeedIsNew();
   const [open, setOpen] = useState(false);
   const openId = useId();
 
   if (!available) return null;
   if (entry === undefined) {
+    if (failed) {
+      return (
+        <div data-slot="card-news-strip" data-state="error" className={cn(STRIP_BOX, 'text-[var(--muted-fg)]')}>
+          {FEED_FAILED_TEXT}
+        </div>
+      );
+    }
     return <div data-slot="card-news-strip" data-state="pending" aria-hidden="true" className={STRIP_BOX} />;
   }
   if (entry.items.length === 0) {

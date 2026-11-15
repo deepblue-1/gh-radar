@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useStockFeedIsNew } from './stock-feed-context';
 
 export const FEED_ROWS_EMPTY_TEXT = '최근 3일 뉴스·공시 없음';
+/** 첫 응답 전 코드의 조회가 계속 실패할 때(IN-61) — 돌파 상세 · 상따 띠가 같이 쓴다. 폴링이 다시 시도한다. */
+export const FEED_FAILED_TEXT = '뉴스·공시를 불러오지 못했어요';
 
 type FeedBand = 'wb' | 'lc';
 

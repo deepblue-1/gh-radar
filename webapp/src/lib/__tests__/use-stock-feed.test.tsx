@@ -28,6 +28,7 @@ vi.mock('@/lib/news-by-stock-api', () => ({
 import {
   STOCK_FEED_CHANGE_DEBOUNCE_MS,
   STOCK_FEED_CHUNK,
+  STOCK_FEED_FAIL_AFTER,
   STOCK_FEED_FRESH_PUBLISHED_MS,
   STOCK_FEED_NEW_MS,
   STOCK_FEED_POLL_MS,
@@ -190,6 +191,7 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
   });
 
   it('요청이 실패하면 마지막 entries 를 그대로 둔다', async () => {
+    vi.spyOn(console, 'warn').mockImplementationOnce(() => {});
     feed['005930'] = [item('kis:1')];
     const { result } = renderHook(() => useStockFeedPolling(['005930']));
     await flush();
@@ -198,6 +200,33 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     await tick(STOCK_FEED_POLL_MS);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current.entries.get('005930')?.items.map((i) => i.id)).toEqual(['kis:1']);
+  });
+
+  it('연속 3회차 실패한 코드는 failed 로 내보내고, 응답이 오면 빠진다 · 원인은 1분 간격으로 한 번 남긴다(IN-61)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      fetchMock.mockRejectedValue(Object.assign(new Error('HTTP 503'), { status: 503, code: 'HTTP_503' }));
+      const { result } = renderHook(() => useStockFeedPolling(['005930']));
+      await flush();
+      expect(result.current.failed.size).toBe(0);
+      await tick(STOCK_FEED_POLL_MS * (STOCK_FEED_FAIL_AFTER - 2));
+      expect(result.current.failed.size).toBe(0);
+      await tick(STOCK_FEED_POLL_MS);
+      expect([...result.current.failed]).toEqual(['005930']);
+      // 바뀐 게 없으면 신원 그대로
+      const before = result.current.failed;
+      await tick(STOCK_FEED_POLL_MS);
+      expect(result.current.failed).toBe(before);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![1]).toMatchObject({ status: 503, code: 'HTTP_503', codes: 1 });
+
+      fetchMock.mockImplementation((codes: readonly string[]) => respond(codes));
+      await tick(STOCK_FEED_POLL_MS);
+      expect(result.current.failed.size).toBe(0);
+      expect(result.current.entries.has('005930')).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('회차가 주기보다 길면 다음 주기는 건너뛰고 진행 중 요청을 끊지 않는다 — 늦은 응답도 반영된다(WR-60)', async () => {

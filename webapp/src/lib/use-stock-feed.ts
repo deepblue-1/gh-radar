@@ -9,6 +9,8 @@
  * ② 숨김 정지 · 실패 유지 — 화면이 숨으면 그 주기를 건너뛰고, 다시 보이면 바로 1번 부른 뒤 주기를 다시 잡는다.
  *   실패한 묶음은 건너뛴다(그 코드들은 마지막 entries 그대로) — 화면에서 글이 사라지지 않는다. 다음 주기가 다시 시도한다.
  *   직전 회차가 아직 돌면 그 주기는 건너뛴다 — 진행 중 요청을 끊지 않는다(WR-60).
+ *   실패는 원인을 `console.warn`(1분 간격)으로 남기고, 연속 `STOCK_FEED_FAIL_AFTER` 회차 실패한 코드는 `failed` 로
+ *   내보낸다 — 첫 응답 전 코드가 「불러오는 중」 에 끝없이 머물지 않게(IN-61).
  *   코드 집합이 바뀌어도 주기를 다시 잡지 않고 진행 중 요청도 끊지 않는다(WR-61). 새 코드가 들어왔을 때만 변경을
  *   `STOCK_FEED_CHANGE_DEBOUNCE_MS` 동안 모아 한 회차로 부르고(직전 회차 시작에서 주기의 절반 안이면 그만큼 미룸),
  *   그 회차 뒤 주기의 절반 안에 온 주기 tick 은 건너뛴다 — 돌파 진입 · 이탈이 몰리는 장 시작에도 회차는 주기의 절반에
@@ -42,6 +44,10 @@ export const STOCK_FEED_POLL_MS = 10_000;
 export const STOCK_FEED_NEW_MS = 30_000;
 /** 코드 집합 변경을 모으는 시간 — 돌파 진입 · 이탈이 몇 초 간격으로 이어질 때 변경마다 부르지 않게(WR-61). */
 export const STOCK_FEED_CHANGE_DEBOUNCE_MS = 1_500;
+/** 연속으로 이만큼 회차 실패한 코드는 `failed` 에 넣는다 — 화면이 「불러오는 중」 대신 실패를 말한다(IN-61). */
+export const STOCK_FEED_FAIL_AFTER = 3;
+/** 실패 경고 로그 간격 — 탭 하나가 10초마다 같은 경고를 쌓지 않게(IN-61). */
+export const STOCK_FEED_WARN_EVERY_MS = 60_000;
 /** 한 요청의 코드 수 — 서버 상한. */
 export const STOCK_FEED_CHUNK = NEWS_BY_STOCK_MAX_CODES;
 
@@ -50,6 +56,11 @@ export interface StockFeedPolling {
   entries: ReadonlyMap<string, StockFeedEntry>;
   /** 글 id → 처음 본 시각(epoch ms) — 기준선 뒤에 새로 보인 글만. */
   firstSeen: ReadonlyMap<string, number>;
+  /**
+   * 연속 `STOCK_FEED_FAIL_AFTER` 회차 조회에 실패한 코드(IN-61) — 그 코드가 응답에 다시 오면 빠진다.
+   * 마지막 entries 가 있는 코드는 화면이 그 값을 계속 보여 준다(②). 첫 응답 전인 코드만 실패 문구를 쓴다.
+   */
+  failed: ReadonlySet<string>;
 }
 
 export interface StockFeedPollingOpts {
@@ -59,7 +70,19 @@ export interface StockFeedPollingOpts {
 }
 
 const SIG_SEP = ',';
-const EMPTY: StockFeedPolling = { entries: new Map(), firstSeen: new Map() };
+const EMPTY: StockFeedPolling = { entries: new Map(), firstSeen: new Map(), failed: new Set() };
+
+/** 같은 원소인가 — 바뀐 게 없으면 `failed` 신원을 지켜 쓸데없는 재렌더를 막는다. */
+function sameMembers(a: ReadonlySet<string>, b: readonly string[]): boolean {
+  return a.size === b.length && b.every((c) => a.has(c));
+}
+
+/** 실패 원인을 로그에 남길 필드만 — `ApiClientError`(status · code) 또는 그 밖의 오류 메시지. */
+function failureFields(err: unknown): { status?: unknown; code?: unknown; message?: unknown } {
+  if (typeof err !== 'object' || err === null) return { message: String(err) };
+  const e = err as { status?: unknown; code?: unknown; message?: unknown };
+  return { status: e.status, code: e.code, message: e.message };
+}
 
 /** 배지 유무 — 공시 · 뉴스가 하나라도 있는가. entry 가 없으면 둘 다 거짓. */
 export function feedBadgesOf(entry: StockFeedEntry | undefined): { disclosure: boolean; news: boolean } {
@@ -109,6 +132,8 @@ export function useStockFeedPolling(
   /** 코드 → 마지막 응답의 글 id — 키가 있으면 그 코드의 기준선을 잡았다(③). */
   const seenRef = useRef(new Map<string, Set<string>>());
   const firstSeenRef = useRef<ReadonlyMap<string, number>>(EMPTY.firstSeen);
+  /** 코드 → 연속 실패 회차 수 — 응답이 오면 지운다(IN-61). */
+  const failCountRef = useRef(new Map<string, number>());
   /** 지금 볼 코드 — 주기 effect 는 이것을 읽는다(코드 집합이 바뀌어도 주기를 다시 잡지 않는다 · WR-61). */
   const listRef = useRef<readonly string[]>([]);
   /** 코드 집합이 바뀌었다고 주기 effect 에 알린다 — 주기 effect 가 살아 있을 때만 있다. */
@@ -121,11 +146,15 @@ export function useStockFeedPolling(
     // 빠진 코드의 기준선 · entries 는 바로 버린다 — 다시 들어오면 그 첫 응답이 다시 기준선이다. 코드가 0개가 된
     // 때도 같다(IN-60 — relay 재연결 스냅샷으로 잠깐 비었다 돌아오면 옛 기준선으로 비어 있던 동안의 글을 칠했다).
     for (const c of [...seenRef.current.keys()]) if (!codeSet.has(c)) seenRef.current.delete(c);
+    for (const c of [...failCountRef.current.keys()]) if (!codeSet.has(c)) failCountRef.current.delete(c);
     setState((prev) => {
-      if ([...prev.entries.keys()].every((c) => codeSet.has(c))) return prev;
+      const entriesKept = [...prev.entries.keys()].every((c) => codeSet.has(c));
+      const failedKept = [...prev.failed].every((c) => codeSet.has(c));
+      if (entriesKept && failedKept) return prev;
       const entries = new Map<string, StockFeedEntry>();
       for (const [c, e] of prev.entries) if (codeSet.has(c)) entries.set(c, e);
-      return { entries, firstSeen: prev.firstSeen };
+      const failed = failedKept ? prev.failed : new Set([...prev.failed].filter((c) => codeSet.has(c)));
+      return { entries, firstSeen: prev.firstSeen, failed };
     });
     codesChangedRef.current?.();
   }, [sig]);
@@ -144,10 +173,35 @@ export function useStockFeedPolling(
     /** 진행 중 회차가 끝나면 바뀐 코드 집합으로 한 번 더 돈다(WR-61). */
     let changedWhileInFlight = false;
     const minGap = intervalMs / 2;
+    let lastWarnAt = Number.NEGATIVE_INFINITY;
 
-    const apply = (got: readonly StockFeedEntry[]) => {
+    /** 묶음 실패 — 원인을 남긴다(무로그 fail-safe 금지 · IN-61). 같은 탭이 10초마다 쌓지 않게 간격을 둔다. */
+    const warnFailure = (err: unknown, codeCount: number) => {
+      const now = Date.now();
+      if (now - lastWarnAt < STOCK_FEED_WARN_EVERY_MS) return;
+      lastWarnAt = now;
+      console.warn('[gh-radar] 뉴스·공시 묶음 조회 실패 — 마지막 값 유지 · 다음 주기에 다시', {
+        ...failureFields(err),
+        codes: codeCount,
+      });
+    };
+
+    const apply = (got: readonly StockFeedEntry[], failedCodes: readonly string[]) => {
       const now = Date.now();
       const codeSet = new Set(listRef.current);
+      // 연속 실패 수 — 응답이 온 코드는 지우고 실패한 묶음의 코드는 1 올린다(IN-61).
+      const failCount = failCountRef.current;
+      for (const e of got) failCount.delete(e.code);
+      for (const c of failedCodes) if (codeSet.has(c)) failCount.set(c, (failCount.get(c) ?? 0) + 1);
+      const failedNow = [...failCount].filter(([, n]) => n >= STOCK_FEED_FAIL_AFTER).map(([c]) => c);
+      const failedOf = (prev: ReadonlySet<string>) => (sameMembers(prev, failedNow) ? prev : new Set(failedNow));
+      if (got.length === 0) {
+        setState((prev) => {
+          const failed = failedOf(prev.failed);
+          return failed === prev.failed ? prev : { ...prev, failed };
+        });
+        return;
+      }
       const seen = seenRef.current;
       let firstSeen = firstSeenRef.current;
       let next: Map<string, number> | null = null;
@@ -178,7 +232,7 @@ export function useStockFeedPolling(
         const entries = new Map<string, StockFeedEntry>();
         for (const [c, e] of prev.entries) if (codeSet.has(c)) entries.set(c, e);
         for (const e of got) if (codeSet.has(e.code)) entries.set(e.code, e);
-        return { entries, firstSeen };
+        return { entries, firstSeen, failed: failedOf(prev.failed) };
       });
     };
 
@@ -200,18 +254,23 @@ export function useStockFeedPolling(
       requested = new Set(list);
       try {
         const got: StockFeedEntry[] = [];
+        const failedCodes: string[] = [];
         for (let i = 0; i < list.length; i += STOCK_FEED_CHUNK) {
+          const chunk = list.slice(i, i + STOCK_FEED_CHUNK);
           try {
-            const res = await fetchNewsByStock(list.slice(i, i + STOCK_FEED_CHUNK), { days, limit }, ctrl.signal);
+            const res = await fetchNewsByStock(chunk, { days, limit }, ctrl.signal);
             got.push(...res.stocks);
-          } catch {
+          } catch (err) {
             // 끊긴 요청은 조용히 끝낸다. 그 밖의 실패는 이 묶음만 건너뛴다 — 마지막 entries 유지 · 다음 주기에 다시(②).
+            // 원인은 로그로 남기고 연속 실패를 센다(IN-61).
             if (ctrl.signal.aborted) return;
+            failedCodes.push(...chunk);
+            warnFailure(err, chunk.length);
           }
           if (ctrl.signal.aborted) return;
         }
-        if (disposed || got.length === 0) return;
-        apply(got);
+        if (disposed) return;
+        apply(got, failedCodes);
       } finally {
         inFlight = false;
         if (changedWhileInFlight && !disposed) {
