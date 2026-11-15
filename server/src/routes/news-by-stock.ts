@@ -8,10 +8,9 @@ import {
   toKstOffsetIso,
   type NewsByStockResponse,
   type StockFeedEntry,
-  type StockFeedRpcResult,
-  type StockFeedRpcStock,
 } from "@gh-radar/shared";
 import { NewsByStockQuery } from "../schemas/news-by-stock.js";
+import { isStockFeedRpcResult } from "../mappers/stock-feed.js";
 import { ApiError } from "../errors.js";
 import { newsByStockRateLimiter } from "../middleware/rate-limit.js";
 
@@ -38,21 +37,6 @@ const newsByStockCache = new WeakMap<
   Map<string, { at: number; promise: Promise<NewsByStockSnapshot> }>
 >();
 
-/** RPC 결과가 계약 모양인지 — 아니면 조용히 빈 응답을 내지 않고 500 으로 드러낸다. */
-function isRpcResult(data: unknown): data is StockFeedRpcResult {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return false;
-  const stocks = (data as { stocks?: unknown }).stocks;
-  if (!Array.isArray(stocks)) return false;
-  return stocks.every(
-    (s) =>
-      s !== null &&
-      typeof s === "object" &&
-      typeof (s as StockFeedRpcStock).code === "string" &&
-      Array.isArray((s as StockFeedRpcStock).kis) &&
-      Array.isArray((s as StockFeedRpcStock).naver),
-  );
-}
-
 /**
  * 종목 묶음 조회 — RPC `stock_feed_by_codes` 1회(등록 포함) → 종목마다 shared `mergeStockFeed`(D-14 · 합치기는 여기서 한 번).
  * 응답은 RPC 가 준 입력 순서 그대로 · 글 없는 코드 포함.
@@ -74,7 +58,7 @@ export async function computeNewsByStock(
     p_min_disclosures: STOCK_FEED_MIN_DISCLOSURES,
   });
   if (error) throw error;
-  if (!isRpcResult(data)) throw new Error("stock_feed_by_codes 모양 위반 — { feed_at, stocks[] } 가 아니다");
+  if (!isStockFeedRpcResult(data)) throw new Error("stock_feed_by_codes 모양 위반 — { feed_at, stocks[] } 가 아니다");
 
   const stocks: StockFeedEntry[] = data.stocks.map((s) => {
     const merged = mergeStockFeed(s.kis, s.naver);

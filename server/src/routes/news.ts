@@ -11,10 +11,10 @@ import {
   stockFeedPerSource,
   SAME_ARTICLE_WINDOW_MS,
   type StockFeedItem,
-  type StockFeedRpcResult,
   type StockFeedRpcStock,
 } from "@gh-radar/shared";
 import { StockCodeParam, NewsListQuery } from "../schemas/news.js";
+import { isStockFeedRpcResult } from "../mappers/stock-feed.js";
 import {
   ApiError,
   StockNotFound,
@@ -33,21 +33,6 @@ const DAY_MS = 86_400_000;
 /** 새로고침 응답 목록 — 7일 · 100건(Phase 7 그대로). */
 const REFRESH_LIST_DAYS = 7;
 const REFRESH_LIST_LIMIT = 100;
-
-/** RPC 결과가 계약 모양인지 — 아니면 조용히 빈 목록을 내지 않고 500 으로 드러낸다(news-by-stock 과 같은 검사). */
-function isRpcResult(data: unknown): data is StockFeedRpcResult {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return false;
-  const stocks = (data as { stocks?: unknown }).stocks;
-  if (!Array.isArray(stocks)) return false;
-  return stocks.every(
-    (s) =>
-      s !== null &&
-      typeof s === "object" &&
-      typeof (s as StockFeedRpcStock).code === "string" &&
-      Array.isArray((s as StockFeedRpcStock).kis) &&
-      Array.isArray((s as StockFeedRpcStock).naver),
-  );
-}
 
 /**
  * 종목 목록의 출처별 상한 = 묶음 조회 상한의 2배(WR-31). 한 출처의 글이 몰려 짝의 반쪽이 상한 밖으로 밀리면
@@ -69,7 +54,7 @@ async function fetchStockRows(
     p_before: args.before,
   });
   if (error) throw error;
-  if (!isRpcResult(data)) {
+  if (!isStockFeedRpcResult(data)) {
     throw new Error("stock_feed_by_codes 모양 위반 — { feed_at, stocks[] } 가 아니다");
   }
   const stock = data.stocks.find((s) => s.code === code);
