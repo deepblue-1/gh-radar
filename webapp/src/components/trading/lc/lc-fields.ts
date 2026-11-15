@@ -226,12 +226,14 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       // 최대금액(gh-trade quick-261115-ptq · quick-261115-s1o) — PC 매수 패널 맨 아래 「최대금액 [____] 만」. PC 흐림 묶음이
       // 마스터(☐매수주문 — 주문가격 · 비교가격 · 최대금액)라 매수주문 카드 맨 아래가 동형 자리다. 판정과 수량 조임은 전부
       // 서버다. 비트 54 는 매수 그룹 밖이라 이 칸만 바꾼 제출은 매수 게이트를 재무장하지 않는다. 0 = 「제한 없음」.
+      // 단위 글자는 「만」(값은 만원 · PC 칸 단위 동형) — 한 줄 행에 「만원」 을 쓰면 폰 밴드(본문 344)에서 최악값
+      // 「999,999,999만원」 이 행을 4 ~ 5px 넘친다(P24-7 실측). 「만」 은 수량 8칸 위 줄과 같은 만원 표기다.
       {
         kind: 'value',
         field: 'buyCapAmount',
         id: 'lc-buy-cap-amount',
         label: '최대금액',
-        unit: '만원',
+        unit: '만',
         sheetTitle: '매수 최대금액',
         desc: '선 · 줄 · 후매수를 합쳐 이 종목에 깔린 돈(보유 + 매수 미체결)이 이 금액을 넘지 않게 서버가 주문 수량을 줄여요 · 0 = 제한 없음',
         a11yPrefix: '매수',
@@ -667,7 +669,7 @@ export function lcValueTextOf(field: LcNumField, values: LimitChaserFormValues):
       // Phase 27 D-02 — 0 = 이탈 관측 뒤 다음 체결(gh-trade §6-6). 그 밖은 기본 「N%」.
       return v === 0 ? '이탈 후 다음 체결' : null;
     case 'buyCapAmount':
-      // 최대금액(quick-261115-s1o) — 0 = 종목 한도 없음(gh-trade quick-261115-ptq). 그 밖은 기본 「{값}만원」.
+      // 최대금액(quick-261115-s1o) — 0 = 종목 한도 없음(gh-trade quick-261115-ptq). 그 밖은 기본 「{값}만」.
       return v === 0 ? '제한 없음' : null;
     default:
       return null;

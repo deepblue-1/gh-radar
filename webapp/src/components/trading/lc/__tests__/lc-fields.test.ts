@@ -238,7 +238,8 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
       field: 'buyCapAmount',
       id: 'lc-buy-cap-amount',
       label: '최대금액',
-      unit: '만원',
+      // 단위 「만」(PC 칸 단위 동형) — 「만원」 은 폰 밴드(본문 344)에서 최악값 「999,999,999만원」 이 4 ~ 5px 넘쳤다(P24-7).
+      unit: '만',
       sheetTitle: '매수 최대금액',
       a11yPrefix: '매수',
       range: { min: 0, max: 999_999_999 },
@@ -246,7 +247,7 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     // 매수주문 스위치가 꺼지면 흐림(편집은 막지 않는다 — 흐림은 표시만).
     expect(lcRowDimOf(g, row, values({ buyEnabled: false }))).toBe(true);
     expect(lcRowDimOf(g, row, values({ buyEnabled: true }))).toBe(false);
-    // 0 = 「제한 없음」 · 그 밖 = 기본 「{값}만원」(null).
+    // 0 = 「제한 없음」 · 그 밖 = 기본 「{값}만」(null).
     expect(lcValueTextOf('buyCapAmount', values({ buyCapAmount: 0 }))).toBe('제한 없음');
     expect(lcValueTextOf('buyCapAmount', values({ buyCapAmount: 10_000 }))).toBeNull();
     // Tab 순서 — 주문가격 · 비교가격 · 최대금액(체크 행은 건너뛴다).

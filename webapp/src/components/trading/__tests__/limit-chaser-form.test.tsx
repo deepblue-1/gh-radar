@@ -3678,7 +3678,7 @@ describe('☐위험도 — 매도주문 카드 (quick-261103-n1s · 결정 ①)'
 });
 
 /*
-  quick-261115-s1o — 상따 매수 「최대금액」(gh-trade quick-261115-ptq · 만원 · 0 = 제한 없음 · 비트 54). 매수주문 카드 맨 아래
+  quick-261115-s1o — 상따 매수 「최대금액」(gh-trade quick-261115-ptq · 만원 · 표시 단위 「만」 · 0 = 제한 없음 · 비트 54). 매수주문 카드 맨 아래
   (버스트 취소 아래 · PC 매수 패널 맨 아래 · 마스터 흐림 묶음 동형). 판정 · 수량 조임은 전부 서버다.
 */
 describe('최대금액 — 매수주문 카드 맨 아래 (quick-261115-s1o · gh-trade quick-261115-ptq)', () => {
@@ -3687,13 +3687,13 @@ describe('최대금액 — 매수주문 카드 맨 아래 (quick-261115-s1o · g
     return sets.at(-1)?.changed;
   };
 
-  it('에코 0 → 「제한 없음」 · 에코 5000 → 「5,000만원」 · 매수주문 카드 마지막 값 행', () => {
+  it('에코 0 → 「제한 없음」 · 에코 5000 → 「5,000만」 · 매수주문 카드 마지막 값 행', () => {
     const { rerender } = render(<LimitChaserForm {...props({ server: echo({ buyCapAmount: 0 }) })} />);
     expect(rowText('lc-buy-cap-amount')).toBe('제한 없음');
     const ids = [...group('buy').querySelectorAll('[data-lc-field]')].map((el) => el.getAttribute('data-lc-field'));
     expect(ids.at(-1)).toBe('lc-buy-cap-amount');
     rerender(<LimitChaserForm {...props({ server: echo({ buyCapAmount: 5000 }) })} />);
-    expect(rowText('lc-buy-cap-amount')).toBe('5,000만원');
+    expect(rowText('lc-buy-cap-amount')).toBe('5,000만');
   });
 
   it('인라인 10000 확정 → lc.set 1건 · cfg buyCapAmount 10000 · changed 가 정확히 ["buyCapAmount"]', () => {
