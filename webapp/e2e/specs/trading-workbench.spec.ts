@@ -3,7 +3,13 @@ import { LC_QTY_WIRE_MAX, amountFromQty, qtyFromAmount } from '@gh-radar/shared'
 
 import { buildDiscussionList, mockDiscussionsApi } from '../fixtures/discussions';
 import { mockStockApi } from '../fixtures/mock-api';
-import { buildNewsList, mockNewsApi } from '../fixtures/news';
+import {
+  DISCLOSURE_ITEM_SAMPLE,
+  NEWS_ITEM_SAMPLE,
+  buildNewsList,
+  mockNewsApi,
+  mockNewsByStockApi,
+} from '../fixtures/news';
 import { mockThemeChips } from '../fixtures/themes';
 import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 import {
@@ -562,6 +568,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     relay.gateway.respondLogin({ success: true });
     await page.setViewportSize(WIDE_VIEWPORT);
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+    // Phase 41 — 작업대는 10초마다 뉴스·공시 묶음 조회를 부른다. 실요청이 나가지 않게 막는다(WR-63).
+    await mockNewsByStockApi(page);
   });
 
   test('1. 옛 경로 4개가 실제 네비게이션으로 /trading(전략 키는 ?focus=)에 닿는다 (D-02)', async ({
@@ -927,6 +935,50 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(chips.first()).toContainText(THIRD_ISIN);
     await expect(rows.first()).toContainText(THIRD_ISIN);
     await expect(chips.nth(1)).toContainText('한국제7호기업인수목적우선주식회사');
+  });
+
+  test('P41 돌파 칩 · 표 행에 「공」「뉴」 배지 · 행 선택 → 표 아래 그 종목 뉴스·공시 상세 (Phase 41 D-17 · WR-63)', async ({
+    page,
+  }) => {
+    /*
+      `/api/news/by-stock` 응답(shared 계약)을 그 종목코드(005930)에 공시 1 · 뉴스 1 로 덮어쓴다 — 나중 등록 라우트가 이긴다.
+      케이스 3 과 같은 이유로 시세 자동 응답을 끈다(이탈 판정으로 행이 지워지지 않게).
+    */
+    await mockNewsByStockApi(page, { '005930': [NEWS_ITEM_SAMPLE, DISCLOSURE_ITEM_SAMPLE] });
+    relay.setRespondingExchanges([]);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await pushBreakout(relay, E2E_ISIN);
+
+    const chip = page.locator('[data-slot="breakout-chip"]').filter({ hasText: '삼성전자' });
+    await expect(chip).toHaveCount(1, { timeout: 15_000 });
+    // 배지는 공 → 뉴 순 — 첫 응답은 코드가 바뀐 뒤 곧(최대 주기의 절반) 온다.
+    const chipBadges = chip.locator('[data-slot="breakout-feed-badges"] [data-slot="feed-kind-badge"]');
+    await expect(chipBadges).toHaveText(['공', '뉴'], { timeout: 15_000 });
+
+    await page.locator('[data-slot="breakout-more"]').click();
+    const row = page.locator('[data-slot="breakout-table"] [data-slot="breakout-row"]').filter({ hasText: '삼성전자' });
+    await expect(row.locator('[data-slot="breakout-feed-badges"] [data-slot="feed-kind-badge"]')).toHaveText(['공', '뉴']);
+
+    // 행 선택 → 표 아래 상세: 머리 「최근 3일 뉴스·공시 2건」 · 글 2줄(뉴스 링크 줄 · 공시 링크 없는 줄)
+    await expect(page.locator('[data-slot="breakout-feed-detail"]')).toHaveCount(0);
+    await row.click();
+    await expect(row).toHaveAttribute('data-selected', 'true');
+    const detail = page.locator('[data-slot="breakout-feed-detail"]');
+    await expect(detail).toBeVisible();
+    await expect(detail).toContainText('최근 3일 뉴스·공시 2건');
+    const feedRows = detail.locator('[data-slot="feed-row"]');
+    await expect(feedRows).toHaveCount(2);
+    await expect(feedRows.nth(0)).toHaveAttribute('data-kind', 'news');
+    await expect(feedRows.nth(0).locator('a')).toHaveAttribute('href', NEWS_ITEM_SAMPLE.url);
+    await expect(feedRows.nth(1)).toHaveAttribute('data-kind', 'disclosure');
+    await expect(feedRows.nth(1).locator('a')).toHaveCount(0);
+    await expect(feedRows.nth(1)).toContainText(DISCLOSURE_ITEM_SAMPLE.title);
+
+    // 같은 행을 다시 누르면 닫힌다(카드를 열지 않는다).
+    await row.click();
+    await expect(detail).toHaveCount(0);
+    await expect(cards(page)).toHaveCount(0);
   });
 
   test('GC7 VI 발동 목록은 가장 최신 발동이 맨 앞(칩)·맨 위(표) — 73 신규는 맨 앞, 73 갱신은 자리 유지 (quick-260923-dmb)', async ({
@@ -5910,6 +5962,7 @@ test.describe('G-21-R3-10 이전 — 회선 단절 (자기 relay · 게이트웨
     relay.reset();
     await page.setViewportSize(WIDE_VIEWPORT);
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+    await mockNewsByStockApi(page);
   });
 
   test('G-21-R3-10 이전 — 회선 단절 → 상태줄 「재접속 중」 · 「다시 연결」 없음 · 카드 사다리는 비워지지 않는다 (옛 orderbook 9)', async ({
@@ -5954,6 +6007,7 @@ test.describe('Phase 26 D-01 · D-04 — 시세 · 주문 배지 2축 (자기 re
     relay.reset();
     await page.setViewportSize(WIDE_VIEWPORT);
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+    await mockNewsByStockApi(page);
   });
 
   test('Phase 26 D-01 · D-04 — 시세 끊김은 시세 필만 적색 · 호가 숫자 불변 · 복구 뒤 live', async ({ page }) => {
