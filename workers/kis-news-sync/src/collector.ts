@@ -398,6 +398,16 @@ class Collector {
         "page cap reached — feed may have more (disclosure safety net covers F · G)",
       );
     }
+    if (res.stalled) {
+      // 커서로 부른 쪽이 앞 쪽과 같아 새 행이 0 — 마지막 본 글에 닿지 못한 채 멈췄다. 되감기 기준(lastSeen)은
+      // 아래에서 받은 최신으로 오른다(올리지 않으면 매 걸음 같은 쪽들을 다시 불러 호출만 늘고 풀리지 않는다).
+      // 그 아래 틈은 다음 실행도 다시 보지 않으므로 여기서 반드시 남긴다(무로그 탈락 금지).
+      const last = res.rows[res.rows.length - 1];
+      this.d.log.warn(
+        { pages: res.pages, maxPages, lastSeen: this.lastSeen, oldestSrno: last?.cntt_usiq_srno ?? null },
+        "feed paging stalled (same page returned) before reaching last seen — older items may be missed",
+      );
+    }
     await this.ingestFeed(res.rows);
   }
 

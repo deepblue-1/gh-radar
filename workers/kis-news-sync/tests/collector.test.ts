@@ -564,6 +564,22 @@ describe("slow 모드", () => {
     expect(has(h.logs, "warn", /page cap reached/)).toHaveLength(1);
   });
 
+  it("CR-01 slow: 커서 쪽이 같은 쪽으로 돌아와 되감기가 멈추면 「paging stalled」 warn(무로그 탈락 아님)", async () => {
+    const h = harness({
+      start: SAT_10,
+      cleanupDate: "2026-11-14",
+      // 마지막 본 글(LAST_SRNO)에 닿지 못한 채 같은 쪽만 돌아온다
+      page: (q) => (flowOf(q) === "feed" ? [row(srno(2)), row(srno(1))] : []),
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 0, reason: "slow_done" });
+    expect(h.flows("feed")).toHaveLength(2);
+    const w = has(h.logs, "warn", /paging stalled/);
+    expect(w).toHaveLength(1);
+    expect(w[0].obj).toMatchObject({ pages: 2, lastSeen: LAST_SRNO, oldestSrno: srno(1) });
+    expect(has(h.logs, "warn", /page cap reached/)).toHaveLength(0);
+  });
+
   it("slow: 대상이 많아 90초를 넘기면 그동안 임대를 연장한다", async () => {
     const h = harness({ start: SAT_10, cleanupDate: "2026-11-14", targets: () => targetsOf(codes(300)), page: slowPage });
     const r = await h.run();
