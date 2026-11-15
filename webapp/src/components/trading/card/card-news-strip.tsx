@@ -153,7 +153,8 @@ export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
         <div
           id={openId}
           data-slot="card-news-open"
-          className="min-w-0 border-b border-[var(--border-subtle)] px-3 pt-0.5 pb-1.5"
+          // 글 줄의 안쪽 4px(`px-1`)와 합쳐 띠(`px-3`)와 글자 시작을 맞춘다 — 8 + 4 = 12px(UI-5).
+          className="min-w-0 border-b border-[var(--border-subtle)] px-2 pt-0.5 pb-1.5"
         >
           <FeedRows items={entry.items} band="lc" />
         </div>

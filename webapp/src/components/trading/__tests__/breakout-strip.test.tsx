@@ -911,6 +911,8 @@ describe('BreakoutStrip — 뉴스·공시 배지 (Phase 41 D-17)', () => {
     setupFeed({ items: [A, B] }, FEED);
     const [chipA, chipB] = chips();
     expect(badgeText(chipA!)).toEqual(['공', '뉴']);
+    // 공 · 뉴 사이 4px — 목업 배지 margin-left 4px(UI-5).
+    expect(chipA!.querySelector('[data-slot="breakout-feed-badges"]')!.className).toContain('gap-1');
     expect(badgeText(chipB!)).toEqual(['뉴']);
   });
 

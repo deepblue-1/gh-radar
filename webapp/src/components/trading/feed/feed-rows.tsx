@@ -52,7 +52,8 @@ export function FeedRows({ items, band, emptyText = FEED_ROWS_EMPTY_TEXT, classN
   const isNew = useStockFeedIsNew();
   if (items.length === 0) {
     return (
-      <p data-slot="feed-rows-empty" className={cn('m-0 py-1.5 text-[12px] text-[var(--muted-fg)]', className)}>
+      // 글 줄과 같은 안쪽 4px — 빈 문구도 줄 글자와 같은 자리에서 시작한다(UI-5).
+      <p data-slot="feed-rows-empty" className={cn('m-0 px-1 py-1.5 text-[12px] text-[var(--muted-fg)]', className)}>
         {emptyText}
       </p>
     );

@@ -180,6 +180,10 @@ describe('CardNewsStrip', () => {
     expect(strip()!.getAttribute('aria-controls')).toBe(area.id);
     const rows = area.querySelectorAll<HTMLElement>('[data-slot="feed-row"]');
     expect(rows).toHaveLength(4);
+    // 띠 글자(px-3 = 12px)와 펼친 줄 글자(상자 px-2 8px + 줄 px-1 4px)의 시작을 맞춘다(UI-5).
+    expect(strip()!.className).toContain('px-3');
+    expect(area.className).toContain('px-2');
+    expect(rows[0]!.className).toContain('px-1');
     // 펼친 목록은 원 제목 그대로 · 카드 폭 685 경계(lc).
     expect(rows[1]!.textContent).toContain('(주)가람전자 단일판매ㆍ공급계약체결');
     expect(rows[0]!.querySelector('[data-slot="feed-row-source"]')!.className).toContain('@min-[685px]/lc:');

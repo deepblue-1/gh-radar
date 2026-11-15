@@ -538,7 +538,7 @@ type FeedBadges = ReturnType<typeof feedBadgesOf>;
 function FeedBadgesMini({ disclosure, news }: { disclosure: boolean; news: boolean }) {
   if (!disclosure && !news) return null;
   return (
-    <span data-slot="breakout-feed-badges" className="inline-flex flex-none items-center gap-0.5">
+    <span data-slot="breakout-feed-badges" className="inline-flex flex-none items-center gap-1">
       {disclosure && <FeedKindBadge kind="disclosure" size="mini" />}
       {news && <FeedKindBadge kind="news" size="mini" />}
     </span>
@@ -559,9 +559,10 @@ function BreakoutFeedDetail({ id, code, label }: { id: string; code: string; lab
       id={id}
       data-slot="breakout-feed-detail"
       aria-label={`${label} 뉴스·공시`}
-      className="min-w-0 border-t border-[var(--border-subtle)] px-3 pt-2.5 pb-2"
+      // 글 줄은 강조 배경 모서리용 안쪽 4px(`px-1`)가 있다 — 상자 8px + 머리 4px 로 머리 · 줄 글자 시작을 12px 에 맞춘다(UI-5).
+      className="min-w-0 border-t border-[var(--border-subtle)] px-2 pt-2.5 pb-2"
     >
-      <div className="flex min-w-0 items-baseline gap-2 pb-1.5 text-[13px] font-bold text-[var(--fg)]">
+      <div className="flex min-w-0 items-baseline gap-2 px-1 pb-1.5 text-[13px] font-bold text-[var(--fg)]">
         <span className="min-w-0 truncate">{label}</span>
         <span className="flex-none text-[11.5px] font-normal text-[var(--muted-fg)]">
           {`최근 3일 뉴스·공시${count}`}
