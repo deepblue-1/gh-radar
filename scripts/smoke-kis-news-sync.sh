@@ -11,7 +11,8 @@ set -uo pipefail
 #       (Job 설정의 env 는 바꾸지 않는다 · 임대를 못 잡아도 토큰을 새로 받지 않는다 — 41-08).
 # INV-2 Job 설정 — task timeout 50400s(14h) · max retries 0
 # INV-3 Scheduler 3개 존재 · timeZone Asia/Seoul · 일정이 deploy-kis-news-sync.sh KIS_SCHEDULERS 와 같음
-# INV-4 최근 15분 Cloud Logging 에 jsonPayload.msg="probe ok" 1건 이상
+# INV-4 INV-1 의 그 실행(labels."run.googleapis.com/execution_name")이 남긴 jsonPayload.msg="probe ok" 1건 이상
+#       (15분 안 다른 실행 — 재배포 · 수동 probe — 의 「probe ok」로 통과하지 않게 실행 이름으로 좁힌다)
 # 실패 수 > 0 이면 exit 1.
 # ═══════════════════════════════════════════════════════════════
 
@@ -42,9 +43,14 @@ echo ""
 # ─────────────────────────────────────────────────────────────
 # INV-1: probe 실행 --wait exit 0
 # ─────────────────────────────────────────────────────────────
-check "INV-1 jobs execute (KIS_NEWS_MODE=probe) --wait exit 0" \
-  gcloud run jobs execute "$JOB" --region="$REGION" --project="$PROJECT" \
-    --update-env-vars=KIS_NEWS_MODE=probe --wait
+PROBE_EXEC=""
+probe_execute() {
+  # check() 가 출력을 버리므로 실행 이름은 전역에 담는다(함수는 현재 셸에서 돈다)
+  PROBE_EXEC=$(gcloud run jobs execute "$JOB" --region="$REGION" --project="$PROJECT" \
+    --update-env-vars=KIS_NEWS_MODE=probe --wait --format='value(metadata.name)' 2>/dev/null)
+}
+check "INV-1 jobs execute (KIS_NEWS_MODE=probe) --wait exit 0" probe_execute
+echo "    probe execution=${PROBE_EXEC:-?}"
 
 # ─────────────────────────────────────────────────────────────
 # INV-2: Job 설정 — taskTimeout 50400s · maxRetries 0
@@ -83,14 +89,17 @@ check "INV-3c scheduler slow-weekend (*/15 * * * 0,6 · Asia/Seoul)" \
   scheduler_ok gh-radar-kis-news-sync-slow-weekend "*/15 * * * 0,6"
 
 # ─────────────────────────────────────────────────────────────
-# INV-4: 최근 15분 로그에 「probe ok」 1건 이상 (로그 수집 지연 — 15초 간격 5회까지)
+# INV-4: INV-1 실행의 로그에 「probe ok」 1건 이상 (로그 수집 지연 — 15초 간격 5회까지)
+#   실행 이름을 못 받았으면(INV-1 실패 등) 다른 실행의 「probe ok」로 통과시키지 않고 FAIL 이다.
 # ─────────────────────────────────────────────────────────────
 probe_logged() {
   local attempt
+  [[ -n "$PROBE_EXEC" ]] || return 1
   for attempt in 1 2 3 4 5; do
     if gcloud logging read "
         resource.type=\"cloud_run_job\"
         AND resource.labels.job_name=\"$JOB\"
+        AND labels.\"run.googleapis.com/execution_name\"=\"$PROBE_EXEC\"
         AND jsonPayload.msg=\"probe ok\"
       " --project="$PROJECT" --freshness=15m --limit=5 --format='value(jsonPayload.msg)' 2>/dev/null \
       | grep -q 'probe ok'; then
@@ -100,7 +109,7 @@ probe_logged() {
   done
   return 1
 }
-check "INV-4 logs: probe ok (최근 15분)" probe_logged
+check "INV-4 logs: probe ok (INV-1 실행 · 최근 15분)" probe_logged
 
 echo ""
 echo "Smoke result: PASS=$PASS FAIL=$FAIL"

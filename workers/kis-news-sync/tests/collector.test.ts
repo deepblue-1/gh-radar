@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  FAST_MAX_RUN_MS,
   FEED_MAX_PAGES_SLOW,
   LEASE_TTL_S,
   RATE_LIMIT_PAUSE_MS,
+  SHUTDOWN_FLUSH_ATTEMPTS,
   runCollector,
   type CollectorDeps,
 } from "../src/collector";
@@ -231,7 +233,7 @@ describe("시작", () => {
       },
     });
     const r = await h.run();
-    expect(r.code).toBe(1);
+    expect(r).toEqual({ code: 1, reason: "quota_probe_failed_unknown" });
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0].flow).toBe("feed");
     expect(h.deps.db.strikes.record).not.toHaveBeenCalled();
@@ -244,6 +246,38 @@ describe("시작", () => {
     expect(h.calls[0].flow).toBe("feed");
     expect(h.calls.length).toBeGreaterThan(3);
     expect(has(h.logs, "info", /quota probe ok/)).toHaveLength(1);
+  });
+
+  it("WR-04 탐침이 토큰 무효면 강제 재발급 1번 뒤 탐침 1건 더 — 성공하면 수집 재개", async () => {
+    const h = harness({
+      strikes: 1,
+      stopAt: MON_10 + 10_000,
+      page: (q, { n }) => {
+        if (n === 1) throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        return flowOf(q) === "feed" ? [row(OLD_SRNO)] : [];
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 0, reason: "aborted" });
+    expect(h.calls.slice(0, 2).map((c) => c.flow)).toEqual(["feed", "feed"]);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(1);
+    expect(has(h.logs, "warn", /quota probe hit an invalid token/)).toHaveLength(1);
+    expect(has(h.logs, "info", /quota probe ok/)).toHaveLength(1);
+    expect(h.deps.db.strikes.record).not.toHaveBeenCalled();
+  });
+
+  it("WR-04 재발급 뒤 탐침도 토큰 무효면 종료 1(이유에 종류) · 탐침 2건 · 재발급 1번뿐", async () => {
+    const h = harness({
+      strikes: 1,
+      stopAt: MON_10 + 30_000,
+      page: () => {
+        throw new KisApiError(500, "EGW00121", "유효하지 않은 token 입니다.");
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "quota_probe_failed_token_invalid" });
+    expect(h.calls).toHaveLength(2);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(1);
   });
 
   it("시작 토큰 실패 → 61초 뒤 1회만 다시 · 또 실패면 종료 1 · 발급 요청 2번", async () => {
@@ -357,6 +391,26 @@ describe("fast 모드 — 가짜 시계 30초", () => {
     expect(added).toBe(h.calls.length);
   });
 
+  it("IN-05 끝날 때 flush 가 실패하면 짧게 다시 — 두 번째에 성공하면 error 없음", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    h.usage.flush.mockRejectedValueOnce(new Error("db down"));
+    await h.run();
+    expect(h.usage.flush).toHaveBeenCalledTimes(2);
+    expect(has(h.logs, "warn", /usage flush failed at shutdown — retrying/)).toHaveLength(1);
+    expect(h.logs.filter((l) => l.level === "error")).toHaveLength(0);
+  });
+
+  it("IN-05 끝날 때 flush 가 끝내 실패하면 error 에 lostCalls(기록 못 한 호출 수)", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    h.usage.flush.mockRejectedValue(new Error("db down"));
+    await h.run();
+    expect(h.usage.flush).toHaveBeenCalledTimes(SHUTDOWN_FLUSH_ATTEMPTS);
+    const e = h.logs.filter((l) => l.level === "error");
+    expect(e).toHaveLength(1);
+    expect(e[0].obj).toMatchObject({ attempts: SHUTDOWN_FLUSH_ATTEMPTS, lostCalls: h.calls.length });
+    expect(h.calls.length).toBeGreaterThan(0);
+  });
+
   it("SIGTERM(abort) → 다음 걸음에서 끝내고 임대 해제 · 종료 0", async () => {
     const { h, r } = await run30();
     expect(r).toEqual({ code: 0, reason: "aborted" });
@@ -374,6 +428,29 @@ describe("fast 모드 — 끝 · 임대", () => {
     expect(h.usage.flush).toHaveBeenCalled();
     expect(h.deps.db.leaseRelease).toHaveBeenCalledWith(HOLDER);
     expect(h.deps.db.cleanup).not.toHaveBeenCalled();
+  });
+
+  it("IN-03 강제 fast 를 창 앞(05:00)에 주면 warn · 끝은 「시작 + 13시간」(task-timeout 14h 안)", async () => {
+    const start = kst("2026-11-16", "05:00:00");
+    const h = harness({ start, mode: "fast", stopAt: start + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(1);
+    const started = has(h.logs, "info", /^collector start$/)[0];
+    expect(started.obj.endAt).toBe(new Date(start + FAST_MAX_RUN_MS).toISOString());
+  });
+
+  it("IN-03 강제 fast 라도 창 안(평일 10:00)이면 warn 없음 · 끝은 그날 20:00", async () => {
+    const h = harness({ mode: "fast", stopAt: MON_10 + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(0);
+    expect(has(h.logs, "info", /^collector start$/)[0].obj.endAt).toBe(new Date(kst("2026-11-16", "20:00:00")).toISOString());
+  });
+
+  it("IN-03 강제 fast 를 토요일에 주면 warn", async () => {
+    const start = kst("2026-11-14", "10:00:00");
+    const h = harness({ start, mode: "fast", stopAt: start + 5_000 });
+    await h.run();
+    expect(has(h.logs, "warn", /forced fast mode outside/)).toHaveLength(1);
   });
 
   it("임대 연장 거절 → 종료 0 · warn", async () => {
@@ -414,6 +491,32 @@ describe("오류 처리", () => {
     expect(h.calls.filter((c) => c.at >= fifth + RATE_LIMIT_PAUSE_MS).length).toBeGreaterThan(0);
   });
 
+  it("WR-01 응답이 버킷 간격보다 느려도 — 전면 정지가 선 뒤 같은 걸음의 나머지 흐름도 부르지 않는다", async () => {
+    let sleep: (ms: number) => Promise<void> = async () => {};
+    const h = harness({
+      stopAt: MON_10 + 90_000,
+      targets: () => targetsOf(codes(50)),
+      page: async (q, { now }) => {
+        await sleep(300); // 한투 응답 300ms — 버킷 간격(5 rps = 200ms)보다 길다
+        if (flowOf(q) === "feed" && now < MON_10 + 20_000) {
+          throw new KisApiError(500, "EGW00201", "초당 거래건수를 초과하였습니다.");
+        }
+        return flowOf(q) === "feed" ? [row(OLD_SRNO)] : [];
+      },
+    });
+    sleep = h.deps.sleep;
+    const r = await h.run();
+    expect(r.code).toBe(0);
+    const pause = h.logs.find((l) => l.level === "error" && /pausing all KIS calls/.test(l.msg));
+    expect(pause).toBeDefined();
+    const fifthFeed = h.flows("feed")[4];
+    // 5번째 초당 초과 응답(+300ms) 뒤 60초 동안 어떤 흐름도 부르지 않는다
+    const pausedFrom = fifthFeed.at + 300;
+    const during = h.calls.filter((c) => c.at > fifthFeed.at && c.at < pausedFrom + RATE_LIMIT_PAUSE_MS);
+    expect(during).toHaveLength(0);
+    expect(h.calls.filter((c) => c.at >= pausedFrom + RATE_LIMIT_PAUSE_MS).length).toBeGreaterThan(0);
+  });
+
   it("토큰 무효 → 강제 재발급 1번 → 성공이면 계속", async () => {
     const h = harness({
       stopAt: MON_10 + 10_000,
@@ -443,6 +546,29 @@ describe("오류 처리", () => {
     expect(h.deps.db.leaseRelease).toHaveBeenCalledWith(HOLDER);
   });
 
+  it("IN-01 강제 재발급 뒤 10분이 지난 무관한 토큰 무효는 다시 1번 재발급하고 계속 · 그 직후 또 무효면 종료 1", async () => {
+    let lateFails = 0;
+    const h = harness({
+      stopAt: MON_10 + 30 * 60_000,
+      page: (q, { now, flowN }) => {
+        if (flowOf(q) !== "feed") return [];
+        // 첫 전체 최신 1번 무효 → 재발급 → 정상 … 20분 뒤 전체 최신 2번 연속 무효
+        if (flowN === 1) throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        if (now - MON_10 >= 1_200_000 && lateFails < 2) {
+          lateFails += 1;
+          throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        }
+        return [row(OLD_SRNO)];
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "token_invalid" });
+    expect(lateFails).toBe(2);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(2);
+    expect(h.now() - MON_10).toBeGreaterThanOrEqual(1_200_000);
+    expect(h.now() - MON_10).toBeLessThan(1_210_000);
+  });
+
   it("모르는 msg_cd 연속 5번 → 한도 의심 표시 기록 · error · 종료 1", async () => {
     const h = harness({
       stopAt: MON_10 + 60_000,
@@ -457,6 +583,20 @@ describe("오류 처리", () => {
     expect(h.deps.db.strikes.record).toHaveBeenCalledTimes(1);
     expect(h.deps.db.strikes.record).toHaveBeenCalledWith("2026-11-16");
     expect(h.logs.filter((l) => l.level === "error")).toHaveLength(1);
+  });
+
+  it("WR-02 HTTP 500 과 함께 온 모르는 msg_cd 연속 5번도 한도 의심 · 종료 1(일시 장애로 물러서며 두드리지 않는다)", async () => {
+    const h = harness({
+      stopAt: MON_10 + 600_000,
+      targets: () => targetsOf(codes(10)),
+      page: () => {
+        throw new KisApiError(500, "EGW99999", "모르는 한도 오류");
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "quota_suspected" });
+    expect(h.calls).toHaveLength(5);
+    expect(h.deps.db.strikes.record).toHaveBeenCalledTimes(1);
   });
 
   it("모르는 msg_cd 중간에 성공이 있으면 연속 수 0 으로", async () => {
@@ -500,6 +640,57 @@ describe("오류 처리", () => {
     }
     const w = h.logs.find((l) => l.level === "warn" && l.obj.flow === "feed");
     expect(w?.obj).toMatchObject({ status: 503, msgCd: null, msg1: "Service Unavailable", kind: "transient" });
+  });
+});
+
+// ── 분류 통계 ───────────────────────────────────────────────────────
+describe("WR-03 분류 통계 · 무로그 탈락 금지", () => {
+  it("받은 행이 전부 무효(모양 바뀜) → 흐름마다 warn 1번 · 종료 로그에 classified 누적", async () => {
+    const h = harness({
+      stopAt: MON_10 + 30_000,
+      page: (q) => (flowOf(q) === "feed" ? [row(OLD_SRNO, { data_tm: "10:00" })] : []),
+    });
+    const r = await h.run();
+    expect(r.code).toBe(0);
+    const w = has(h.logs, "warn", /all KIS rows invalid/);
+    expect(w).toHaveLength(1);
+    expect(w[0].obj).toMatchObject({ flow: "feed", total: 1, invalid: 1 });
+    const stop = has(h.logs, "info", /^collector stop$/)[0];
+    expect(stop.obj.classified).toMatchObject({ rows: h.flows("feed").length, invalid: h.flows("feed").length });
+  });
+
+  it("정상 행이 다시 오면 다음 전부 무효 때 다시 warn", async () => {
+    const h = harness({
+      stopAt: MON_10 + 30_000,
+      page: (q, { flowN }) => {
+        if (flowOf(q) !== "feed") return [];
+        return flowN === 3 ? [row(OLD_SRNO)] : [row(OLD_SRNO, { data_tm: "" })];
+      },
+    });
+    await h.run();
+    expect(has(h.logs, "warn", /all KIS rows invalid/)).toHaveLength(2);
+  });
+
+  it("시작 시 종목 정보가 비었으면 warn", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    vi.mocked(h.deps.db.loadStockMeta).mockResolvedValueOnce(new Map());
+    await h.run();
+    expect(has(h.logs, "warn", /stock meta empty/)).toHaveLength(1);
+  });
+
+  it("10분 주기: 종목 정보 다시 읽기가 빈 결과면 지난 목록 유지 · warn · 「collector stats」 info", async () => {
+    const h = harness({ stopAt: MON_10 + 601_000 });
+    vi.mocked(h.deps.db.loadStockMeta)
+      .mockResolvedValueOnce(new Map([["005930", { name: "삼성전자", group: "주권" }]]))
+      .mockResolvedValueOnce(new Map());
+    await h.run();
+    expect(has(h.logs, "warn", /stock meta reload returned empty — keeping previous/)).toHaveLength(1);
+    const st = has(h.logs, "info", /^collector stats$/);
+    expect(st).toHaveLength(1);
+    expect(st[0].obj).toHaveProperty("classified");
+    // 지난 목록을 지켰으므로 다시 읽은 뒤에도 005930 글이 연결된다(미연결 0)
+    const stop = has(h.logs, "info", /^collector stop$/)[0];
+    expect((stop.obj.classified as { unlinked: number }).unlinked).toBe(0);
   });
 });
 
@@ -562,6 +753,22 @@ describe("slow 모드", () => {
     expect(r.code).toBe(0);
     expect(h.flows("feed")).toHaveLength(FEED_MAX_PAGES_SLOW);
     expect(has(h.logs, "warn", /page cap reached/)).toHaveLength(1);
+  });
+
+  it("CR-01 slow: 커서 쪽이 같은 쪽으로 돌아와 되감기가 멈추면 「paging stalled」 warn(무로그 탈락 아님)", async () => {
+    const h = harness({
+      start: SAT_10,
+      cleanupDate: "2026-11-14",
+      // 마지막 본 글(LAST_SRNO)에 닿지 못한 채 같은 쪽만 돌아온다
+      page: (q) => (flowOf(q) === "feed" ? [row(srno(2)), row(srno(1))] : []),
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 0, reason: "slow_done" });
+    expect(h.flows("feed")).toHaveLength(2);
+    const w = has(h.logs, "warn", /paging stalled/);
+    expect(w).toHaveLength(1);
+    expect(w[0].obj).toMatchObject({ pages: 2, lastSeen: LAST_SRNO, oldestSrno: srno(1) });
+    expect(has(h.logs, "warn", /page cap reached/)).toHaveLength(0);
   });
 
   it("slow: 대상이 많아 90초를 넘기면 그동안 임대를 연장한다", async () => {
