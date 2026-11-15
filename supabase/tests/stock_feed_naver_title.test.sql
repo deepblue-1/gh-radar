@@ -2,6 +2,7 @@
 -- Phase 41 UAT(2026-11-12) — 네이버 뉴스 「제목에 종목명 있는 기사만」 pgTAP.
 --
 -- 대상: 20261112320000_stock_feed_naver_title_name.sql (함수 stock_title_needles · RPC stock_feed_by_codes 네이버 조건)
+--       — 20261115120000(IN-33)이 좁힌 규칙은 stock_title_needles_tighten.test.sql 이 잠근다(N3 표본은 그 규칙에 맞춰 3자 본주로).
 --
 -- 잠그는 것:
 --   N. 낱말 배열 — 종목명 전체(소문자 · 공백 · 끝 마침표 제거) · 우선주는 본주 이름 · 띄어 쓴 이름은 첫 낱말(3자 이상) ·
@@ -26,7 +27,7 @@ SELECT plan(17);
 -- ── N. 낱말 배열 ──────────────────────────────────────────────────
 SELECT is(public.stock_title_needles('가람전자'),   ARRAY['가람전자'],            'N1 보통 이름 → 이름 하나');
 SELECT is(public.stock_title_needles('계양전기우'), ARRAY['계양전기', '계양전기우'], 'N2 우선주 → 본주 이름도');
-SELECT is(public.stock_title_needles('나래2우B'),   ARRAY['나래', '나래2우b'],      'N3 「2우B」 걷기 · 소문자');
+SELECT is(public.stock_title_needles('가람전자2우B'), ARRAY['가람전자', '가람전자2우b'], 'N3 「2우B」 걷기 · 소문자(본주 낱말 3자 이상 — 20261115120000)');
 SELECT is(public.stock_title_needles('JYP Ent.'),   ARRAY['jyp', 'jypent'],        'N4 띄어 쓴 이름 → 첫 낱말 + 전체(끝 마침표 제거)');
 SELECT is(public.stock_title_needles('SK 테스트'),  ARRAY['sk테스트'],             'N5 첫 낱말이 3자 미만이면 넣지 않는다');
 SELECT is(public.stock_title_needles('연우'),       ARRAY['연우'],                 'N6 「우」 를 걷으면 1자가 되는 이름은 그대로');
