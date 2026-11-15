@@ -4,6 +4,7 @@ import {
   FEED_MAX_PAGES_SLOW,
   LEASE_TTL_S,
   RATE_LIMIT_PAUSE_MS,
+  SHUTDOWN_FLUSH_ATTEMPTS,
   runCollector,
   type CollectorDeps,
 } from "../src/collector";
@@ -388,6 +389,26 @@ describe("fast 모드 — 가짜 시계 30초", () => {
     expect(flushes).toBeLessThanOrEqual(5);
     const added = h.usage.add.mock.calls.reduce((a, c) => a + (c[0] as number), 0);
     expect(added).toBe(h.calls.length);
+  });
+
+  it("IN-05 끝날 때 flush 가 실패하면 짧게 다시 — 두 번째에 성공하면 error 없음", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    h.usage.flush.mockRejectedValueOnce(new Error("db down"));
+    await h.run();
+    expect(h.usage.flush).toHaveBeenCalledTimes(2);
+    expect(has(h.logs, "warn", /usage flush failed at shutdown — retrying/)).toHaveLength(1);
+    expect(h.logs.filter((l) => l.level === "error")).toHaveLength(0);
+  });
+
+  it("IN-05 끝날 때 flush 가 끝내 실패하면 error 에 lostCalls(기록 못 한 호출 수)", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    h.usage.flush.mockRejectedValue(new Error("db down"));
+    await h.run();
+    expect(h.usage.flush).toHaveBeenCalledTimes(SHUTDOWN_FLUSH_ATTEMPTS);
+    const e = h.logs.filter((l) => l.level === "error");
+    expect(e).toHaveLength(1);
+    expect(e[0].obj).toMatchObject({ attempts: SHUTDOWN_FLUSH_ATTEMPTS, lostCalls: h.calls.length });
+    expect(h.calls.length).toBeGreaterThan(0);
   });
 
   it("SIGTERM(abort) → 다음 걸음에서 끝내고 임대 해제 · 종료 0", async () => {

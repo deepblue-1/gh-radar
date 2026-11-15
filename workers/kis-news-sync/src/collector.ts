@@ -89,6 +89,9 @@ export const RATE_LIMIT_SKIP_MS = 1_000;
 /** 임대 연장 오류가 이만큼 이어지면(남이 넘겨받을 수 있는 시점 전) 끝낸다 */
 const LEASE_UNCONFIRMED_MS = LEASE_TTL_S * 1000 - LEASE_RENEW_MS;
 const LEASE_RETRY_MS = 5_000;
+/** 끝날 때 사용량 flush 시도 횟수 · 사이 간격 — 실패한 몫은 예산 판정에서 빠지므로 짧게 몇 번 더 본다(IN-05) */
+export const SHUTDOWN_FLUSH_ATTEMPTS = 3;
+const SHUTDOWN_FLUSH_RETRY_MS = 500;
 /** slow 에서 종목별 일시 장애가 이만큼 이어지면 그 바퀴를 접는다 */
 const SLOW_STOCK_GIVE_UP = 5;
 
@@ -796,6 +799,33 @@ class Collector {
     }
   }
 
+  /**
+   * 끝날 때 flush — 프로세스가 곧 끝나 다음 flush 가 없다. 몇 번 짧게 다시 해 보고, 끝내 못 하면
+   * 기록되지 않은 호출 수(lostCalls)를 error 로 남긴다(자체 상한 판정이 그만큼 느슨해진다).
+   */
+  private async finalFlush(): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const total = await this.d.db.usage.flush(this.dateKst());
+        if (total !== null) {
+          this.usedKnown = total;
+          this.sinceFlush = 0;
+        }
+        return;
+      } catch (err) {
+        if (attempt >= SHUTDOWN_FLUSH_ATTEMPTS) {
+          this.d.log.error(
+            { ...safeErrorFields(err), attempts: attempt, lostCalls: this.sinceFlush },
+            "usage flush failed at shutdown — these KIS calls are missing from api_usage",
+          );
+          return;
+        }
+        this.d.log.warn({ ...safeErrorFields(err), attempt }, "usage flush failed at shutdown — retrying");
+        await this.d.sleep(SHUTDOWN_FLUSH_RETRY_MS);
+      }
+    }
+  }
+
   /** t 까지 — 기다리는 동안에도 임대 연장 · flush · SIGTERM 확인 */
   private async waitUntil(t: number): Promise<void> {
     for (let now = this.now(); now < t; now = this.now()) {
@@ -814,7 +844,7 @@ class Collector {
 
   /** ⑧ 끝 — 사용량 flush · 임대 해제(정상 · 오류 · SIGTERM 모두) */
   private async shutdown(): Promise<void> {
-    await this.flushUsage();
+    await this.finalFlush();
     if (this.haveLease) {
       try {
         await this.d.db.leaseRelease(this.d.holder);
