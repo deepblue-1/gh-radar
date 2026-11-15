@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   HOT_RANK_MAX,
+  REGISTERED_BUDGET_CUTOFF_RATIO,
   REST_BUCKET_COUNT,
+  dropRegisteredOverBudget,
   kstDayOfWeek,
   kstMinuteOfDay,
   planRun,
@@ -277,5 +279,37 @@ describe("planRun — 단일 진입점", () => {
     expect(plan.mode).toBe("full");
     expect(plan.restBucket).toBeNull();
     expect(plan.selected).toHaveLength(recs.length);
+  });
+});
+
+describe("dropRegisteredOverBudget — 사용량 90% 초과 시 등록 전용 제외 (quick-261115-r4f)", () => {
+  const recs: TargetRecord[] = [
+    { code: "000001", name: "a", rank: 1, watched: false, registered: false },
+    { code: "600001", name: "r1", rank: null, watched: false, registered: true },
+    { code: "000002", name: "w", rank: null, watched: true, registered: false },
+    { code: "600002", name: "r2", rank: null, watched: false, registered: true },
+  ];
+
+  it("비율 상수는 0.9", () => {
+    expect(REGISTERED_BUDGET_CUTOFF_RATIO).toBe(0.9);
+  });
+
+  it("경계 22050 (= 24500 × 0.9) 은 제외하지 않는다 — 초과만", () => {
+    const out = dropRegisteredOverBudget(recs, 22050, 24500);
+    expect(out.dropped).toBe(0);
+    expect(out.records).toEqual(recs);
+  });
+
+  it("22051 → 등록 전용 전부 제외 · 급등 · 관심은 순서 유지", () => {
+    const out = dropRegisteredOverBudget(recs, 22051, 24500);
+    expect(out.dropped).toBe(2);
+    expect(out.records.map((r) => r.code)).toEqual(["000001", "000002"]);
+  });
+
+  it("등록 전용이 없으면 dropped 0", () => {
+    const plain = recs.filter((r) => !r.registered);
+    const out = dropRegisteredOverBudget(plain, 24000, 24500);
+    expect(out.dropped).toBe(0);
+    expect(out.records).toEqual(plain);
   });
 });

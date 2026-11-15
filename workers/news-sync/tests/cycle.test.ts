@@ -47,7 +47,7 @@ vi.mock("../src/config", () => ({
     naverClientId: "cid",
     naverClientSecret: "csecret",
     naverBaseUrl: "https://openapi.naver.com",
-    naverDailyBudget: 18750,
+    naverDailyBudget: 24500,
     newsSyncMode: "full",
     newsSyncConcurrency: 3,
     appVersion: "test",
@@ -337,5 +337,54 @@ describe("runNewsSyncCycle — 화면 조회 등록 종목 (quick-261115-r4f)", 
     const s = summary();
     expect(s.targets).toBe(3);
     expect(s.errors).toBe(0);
+  });
+});
+
+describe("runNewsSyncCycle — 사용량 90% 초과 시 등록 종목부터 제외 (quick-261115-r4f)", () => {
+  const DROPPED = "registered targets dropped — daily usage over 90%";
+
+  function droppedWarns(): unknown[][] {
+    return h.rec.warn.mock.calls.filter((c) => c[1] === DROPPED);
+  }
+
+  function withRegistered(): void {
+    h.loadTargets.mockResolvedValue({
+      records: [...TARGETS.map((t) => ({ ...t })), { ...REGISTERED }],
+      registeredLookupError: null,
+    });
+  }
+
+  it("C9a 사용량 22051 — 「등록」 호출 0 · 전체 3 · warn 1회(used · budget · dropped)", async () => {
+    withRegistered();
+    h.checkBudget.mockResolvedValue(22051);
+
+    await runNewsSyncCycle();
+
+    expect(getCallsFor("등록")).toBe(0);
+    expect(h.get).toHaveBeenCalledTimes(3);
+    const w = droppedWarns();
+    expect(w).toHaveLength(1);
+    expect(w[0][0]).toEqual({ used: 22051, budget: 24500, dropped: 1 });
+    expect(summary().targets).toBe(3);
+  });
+
+  it("C9b 사용량 22050 (경계) — 「등록」 수집 · warn 없음", async () => {
+    withRegistered();
+    h.checkBudget.mockResolvedValue(22050);
+
+    await runNewsSyncCycle();
+
+    expect(getCallsFor("등록")).toBe(1);
+    expect(h.get).toHaveBeenCalledTimes(4);
+    expect(droppedWarns()).toHaveLength(0);
+  });
+
+  it("C9c 사용량 22051 · 등록 전용 없음 — warn 없음 · 3종목 수집", async () => {
+    h.checkBudget.mockResolvedValue(22051);
+
+    await runNewsSyncCycle();
+
+    expect(h.get).toHaveBeenCalledTimes(3);
+    expect(droppedWarns()).toHaveLength(0);
   });
 });

@@ -194,6 +194,27 @@ export function selectRunTargets(
   };
 }
 
+/**
+ * quick-261115-r4f — run 시작 사용량이 일일 상한의 이 비율을 넘으면 등록 전용 종목부터 뺀다.
+ * 급등 · 관심종목 수집을 지키는 안전장치. (비율 상수와 판정을 index.ts 가 아니라 여기 둔다 —
+ * cycle 하네스가 targets 모듈을 통째 mock 하고, 순수 판정은 cadence 에 모은다.)
+ */
+export const REGISTERED_BUDGET_CUTOFF_RATIO = 0.9;
+
+/**
+ * used > budget × 0.9 이면 registered 레코드를 뺀 배열과 뺀 수, 아니면 입력 그대로와 0.
+ * 경계는 초과만 (24500 기준 22050 은 유지 · 22051 부터 제외). 남은 레코드 순서는 유지한다.
+ */
+export function dropRegisteredOverBudget(
+  records: TargetRecord[],
+  used: number,
+  budget: number,
+): { records: TargetRecord[]; dropped: number } {
+  if (!(used > budget * REGISTERED_BUDGET_CUTOFF_RATIO)) return { records, dropped: 0 };
+  const kept = records.filter((t) => !t.registered);
+  return { records: kept, dropped: records.length - kept.length };
+}
+
 export interface RunPlan extends TargetSelection {
   mode: RunMode;
   /** tiered 에서만 값이 있고 full 은 null. */

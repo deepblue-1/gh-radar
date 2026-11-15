@@ -9,7 +9,11 @@ import type {
   NaverRateLimitError,
 } from "./naver/searchNews.js";
 import { loadTargets } from "./pipeline/targets.js";
-import { planRun, type TargetRecord } from "./pipeline/cadence.js";
+import {
+  dropRegisteredOverBudget,
+  planRun,
+  type TargetRecord,
+} from "./pipeline/cadence.js";
 import { loadLastSeenMap } from "./pipeline/lastSeen.js";
 import { mapToNewsRow } from "./pipeline/map.js";
 import { upsertNews } from "./pipeline/upsert.js";
@@ -37,10 +41,12 @@ import { runRetention } from "./retention.js";
  *     · 등록 종목 = kis_news_targets.last_requested_at > now − 10분 중 급등 · 관심 밖 · ETP 아님,
  *       최근 조회순 30개까지 hot 등급 (quick-261115-r4f)
  *     · kis_news_targets 조회 실패는 warn 1줄 후 등록 없이(급등 · 관심만) 계속한다
+ *  2a. checkBudget(오늘 KST 사용량) → 상한의 90% 초과면 등록 전용을 대상에서 빼고 warn 1줄
+ *     (dropRegisteredOverBudget — quick-261115-r4f, 급등 · 관심종목은 그대로)
  *  2b. planRun(now, NEWS_SYNC_MODE, records) — quick-260915-h3p
  *     · 평일 KST 08:00~20:02 = tiered: hot(rank≤30 ∪ 관심종목 ∪ 등록 전용) 전부 + rest 3조 순환 버킷 1개
  *     · 그 외 시각 · 토·일 = full: 전체 대상
- *  3. checkBudget — 선택 대상 수 기준 예상 호출량 초과 시 cycle skip
+ *  3. 2a 사용량 + 선택 대상 수가 상한을 넘으면 cycle skip
  *  4. lastSeenMap 사전 로드(선택 대상) + firstCutoffIso (now 기준 7일)
  *  5. p-limit(concurrency) 로 선택 대상 per-stock collectStockNews → upsertNews
  *     - onPage 콜백에서 incrementUsage + 자체 예산 가드 초과 시 error 로그 1회 + stopAll
@@ -82,17 +88,30 @@ export async function runNewsSyncCycle(): Promise<void> {
       "registered targets lookup failed — continuing without registered targets",
     );
   }
+  // quick-261115-r4f: 사용량을 planRun 앞에서 읽어 90% 를 넘으면 등록 전용부터 뺀다.
+  const budgetBefore = await checkBudget(supabase, dateKst);
+  const { records: planRecords, dropped } = dropRegisteredOverBudget(
+    records,
+    budgetBefore,
+    cfg.naverDailyBudget,
+  );
+  if (dropped > 0) {
+    log.warn(
+      { used: budgetBefore, budget: cfg.naverDailyBudget, dropped },
+      "registered targets dropped — daily usage over 90%",
+    );
+  }
+
   const { mode, restBucket, selected, counts } = planRun(
     now,
     cfg.newsSyncMode,
-    records,
+    planRecords,
   );
   log.info(
-    { mode, restBucket, ...counts, selected: selected.length, strikesToday },
+    { mode, restBucket, ...counts, selected: selected.length, strikesToday, budgetBefore },
     "news-sync targets selected",
   );
 
-  const budgetBefore = await checkBudget(supabase, dateKst);
   if (budgetBefore + selected.length > cfg.naverDailyBudget) {
     log.warn(
       {
