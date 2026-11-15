@@ -168,6 +168,7 @@ Exceptions (전부 상속 — 새 값 아님 · 출처 파일을 바꾸지 않�
 Accent reserved for(이 phase 에서 `--primary` / `--ring` 이 닿는 곳 — 이 밖에는 쓰지 않는다):
 1. 더하기 창의 확인 버튼 「단순 20 더하기」 면(`--primary` · 글자 `--primary-fg`).
 2. 키보드 포커스 링(전역 규칙 그대로 · 터치에서는 꺼져 있다 — 되살리지 않는다).
+3. 수익률 판 Shift+끌기 구간 칩(테 · 면 · 글자 — 선 차트 `tick-chart.tsx` 상속 예외 · 2026-11-15 UI-REVIEW 뒤 명시). 두 차트가 전환해도 같은 칩이어야 해서 선 차트 색을 그대로 쓴다 — 바꾸려면 두 차트를 함께 바꾼다.
 
 선택 표시는 accent 가 아니다: 스위치 · 나눔 칸 켜짐 = **중립 선택 면** `--seg-on-bg` / `--seg-on-fg` / `--seg-on-shadow`(Phase 20 D-02 — 파랑은 하락 · 매도 방향색으로 읽힌다) · 켜진 칩 = `--muted` 면 + `--fg` · 목록 선택 = ✓ + 600.
 
@@ -459,7 +460,7 @@ CONTEXT 「Claude's Discretion」 과 목업이 정하지 않은 자리를 기�
 
 ## UI Considerations
 
-프로브(ui-consideration-probe · 2026-11-12 · 요소 10 · kind 는 오케스트레이터 지정 · 사용자 「일괄 처리」): applicable 53 — resolved 38(explicit 33 · backstop 5) · dismissed 14 · unresolved 1.
+프로브(ui-consideration-probe · 2026-11-12 · 요소 10 · kind 는 오케스트레이터 지정 · 사용자 「일괄 처리」): applicable 53 — resolved 38(explicit 33 · backstop 5) · dismissed 14 · unresolved 1. → 2026-11-15 E6 loading 확정으로 resolved 39(explicit 34) · unresolved 0.
 
 요소: E1 S1 차트 종류 스위치 = interactive-control / E2 S2 봉 단위 버튼 + 목록 = interactive-control · list-collection / E3 S3 이동평균 칩 + 「＋」 = list-collection · interactive-control / E4 S3 더하기 창 = form / E5 S4 제목 줄 = nav · interactive-control / E6 S5 가격 판 = media · static-content / E7 S6 수익률 판 = media / E8 S7 나머지 판 · 조작 = media · interactive-control / E9 S8 값 띠 = static-content · list-collection / E10 S9 캡션 줄 = static-content.
 
@@ -496,7 +497,7 @@ CONTEXT 「Claude's Discretion」 과 목업이 정하지 않은 자리를 기�
 | E5 S4 | overflow | ✅ resolved | 데스크톱 한 줄 `flex-wrap`(넘치면 우리 범례 · 확대 묶음이 다음 줄) · 폰 언제나 두 줄 — 첫 줄 고정(창 폭 글자 숨김 · 폭 324 ≤ 342) · 둘째 줄 가로 밀기 · 360 에서 넘치면 확대 묶음만 다음 줄로(S4 · 폭 백스톱) |
 | E5 S4 | long-text | ⛔ dismissed | 「타임라인」 · 확대 버튼 5개 · 창 폭 글자(「2.0시간」 꼴)는 고정 형식 |
 | E6 S5 | empty | ✅ resolved | 보기 창에 봉이 없으면(15:30 ~ 16:00 · 장전 빈 분) 봉 영역은 비고 글자 없음(Copywriting Empty state body) · 켜진 이동평균 없음 = 선 없음 · 누적 자료 없음 = 누적 평단 선 없음(S5 · D-15) |
-| E6 S5 | loading | ⚠ unresolved | 일 이동평균 종가를 받는 동안의 모양을 계약이 말하지 않는다 — 규칙을 그대로 따르면 「종가가 모자라」 안내가 받는 중에도 잘못 뜬다. 플래너 가정: 받는 동안은 선 없음 · 캡션 항목 없음 · 받은 뒤 그리거나 안내 |
+| E6 S5 | loading | ✅ resolved | 일 이동평균 종가를 받는 동안은 선 없음 · 캡션 항목 없음 · 값 띠 「—」 · 받은 뒤 그리거나 안내(「종가가 모자라」 는 받는 중에 뜨지 않는다). 42-10 플래너 가정을 운영 UAT 5번(2026-11-13 「됨」) 뒤 확정(2026-11-15) — 받는 중 표시는 따로 두지 않는다(보통 1초 안 · 칩 상태가 이미 켜짐을 알린다) |
 | E6 S5 | error | ✅ resolved | 일별 종가 실패 = 일 이동평균 선 안 그림 + 캡션 줄 항목(S9 · Copywriting Error state) · 누적 평단 키 없음 = 미등록과 같게 선 없음(S5) · 봉 · 나머지 겹침은 그대로 |
 | E6 S5 | populated | ✅ resolved | 봉(방향색 채움) · 아래 1/5 거래대금 막대(.38) · 이동평균 1.25 · 누적 평단 긴 점선 · 당일 평단 점점선 · 팀 원 · ◆ ○ ◇ — 겹침 순서와 판 제목은 S5 대로 |
 | E6 S5 | overflow | ✅ resolved | 선은 봉 영역으로 자른다 · 이동평균 · 누적 평단은 가격 범위를 넓히지 않는다 · 한 점도 범위 안에 없으면 가장자리 글자 「{이름} {값} ▾/▴」 · 한 가장자리 데스크톱 5개 · 폰 3개 · 넘치면 「외 n개」 · 칸 폭 3px 미만이면 꼬리만(S5) |
@@ -523,7 +524,7 @@ CONTEXT 「Claude's Discretion」 과 목업이 정하지 않은 자리를 기�
 
 E11 S10 브라우저 기억은 화면 요소가 아니라 프로브 대상에서 뺐다(`elements: []`) — 읽기 실패 · 틀린 값의 처리는 S10 이 정한다(기본값 · 항목 단위 검사 · 빈 배열 존중).
 
-합계: explicit 33 · backstop 5 · dismissed 14 · unresolved 1 = 53.
+합계: explicit 34 · backstop 5 · dismissed 14 · unresolved 0 = 53(2026-11-15 E6 loading 확정 반영 — 처음 프로브 때는 explicit 33 · unresolved 1).
 
 ---
 
