@@ -68,9 +68,15 @@ gcloud_prep() {
   fi
 }
 
-# 파일 권한(8진 3자리) — macOS(stat -f) · Linux(stat -c) 둘 다.
+# 파일 권한(8진 3자리) — Linux(stat -c) · macOS(stat -f) 둘 다.
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  # GNU(stat -c)를 먼저 — GNU stat 의 -f 는 「파일시스템 상태」 라 '%Lp' 를 파일 이름으로 읽고 실패하면서도
+  # 실제 파일의 파일시스템 정보를 먼저 찍어 MODE 가 여러 줄이 된다(리뷰 IN-07). macOS(BSD) stat 은 -c 를 모르니 실패하고 -f 로 간다.
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
+    stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
+  fi
 }
 
 # ── 1. 입력 파일 ────────────────────────────────────────────────
