@@ -6,10 +6,10 @@ current_phase: 43
 current_phase_name: 공개매수 · 유상증자 · 합병 공시 텔레그램 알림
 status: verifying
 stopped_at: Phase 41 complete, ready to verify Phase 43
-last_updated: "2026-11-15T10:44:02.656Z"
+last_updated: "2026-11-15T11:41:57.308Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 41 complete, transitioned to Phase 43
-state_head: c7a515107838329593f78a5f2344f1be23a7c23d
+state_head: 8bc995f2ebdf630c98339920ef5bfe145cdc93cd
 progress:
   total_phases: 14
   completed_phases: 13
@@ -35,7 +35,7 @@ Status: Phase complete — ready for verification
 Phase 41 (한투 뉴스·공시 피드): COMPLETE 2026-11-13 — 14/14 · 배포 11-12(DB 20261112100000 · 20261112200000 + UAT 보정 마이그레이션 4 · kis-news-sync Job · server · webapp) · UAT 11-12 「됐다」 · 하루 뒤 확인 11-13(공시 지연 중앙 3.3초 · 한투 91,179회 · 홈 AI −3%) · Nyquist 빈칸 0 · UI 18/24 · 검증 passed 8/8 · 리뷰 차단 2 · 경고 11 · 참고 19(처분 open — 후속 quick 권고 CR-01 → WR-02 → CR-60)
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
-Last activity: 2026-11-15 — quick 261115-r4f 완료(news-sync 네이버 수집 대상에 화면 조회 등록 종목 추가 — 급등 · 관심 밖 30개 · 3분 등급 · 일일 상한 24,500 · 배포 대기)
+Last activity: 2026-11-15 — quick 261115-s1o 완료(웹 상따 매수주문 카드 「최대금액」 칸 — buy3_schema 9 · 비트 54 · 미배포: gh-trade 서버 배포 뒤 relay → push)
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -187,6 +187,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261113-rn7 | 공시 알림 OpenDART 키 2개(공개매수 종일 5초 · 수시공시 10초 · 나머지 30초) · 감시 대상 6개(거래소 시장조치 I003 · 최대주주 소유주식 변동 I004 · 배당 · 투자유의 추가) · 아침 전날 확인 | 2026-11-13 | 3dcc287b | [261113-rn7-dart-alert-two-keys-cadence-and-new-kind](./quick/261113-rn7-dart-alert-two-keys-cadence-and-new-kind/) |
 | 261115-pkq | 틱뷰어 선 · 봉 차트 글자 크기를 공유 상수로 정리(Phase 42 UI-REVIEW 3번 · 동작 변경 0) | 2026-11-15 | ecf62310 | [261115-pkq-chart-type-shared-constants](./quick/261115-pkq-chart-type-shared-constants/) |
 | 261115-r4f | news-sync 네이버 수집 대상에 화면 조회 등록 종목 추가(최근 10분 · 급등 · 관심 밖 30개 · 3분 등급) · 일일 상한 24,500 · 90% 넘으면 등록 종목부터 제외 | 2026-11-15 | c7a51510 | [261115-r4f-news-sync-registered-targets](./quick/261115-r4f-news-sync-registered-targets/) |
+| 261115-s1o | 웹 상따 매수주문 카드 「최대금액」 칸 — buy_cap_amount · buy3_schema 9 · change_mask 비트 54 (gh-trade 8d073739 인박스 처리 · 미배포 — gh-trade 서버 배포 대기) | 2026-11-15 | 8bc995f2 | [261115-s1o-buy-cap-amount-web-limit-chaser-form-buy](./quick/261115-s1o-buy-cap-amount-web-limit-chaser-form-buy/) |
 
 ## Session Continuity
 
