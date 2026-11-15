@@ -118,8 +118,15 @@ export function useStockFeedPolling(
     const list = sig === '' ? [] : sig.split(SIG_SEP);
     listRef.current = list;
     const codeSet = new Set(list);
-    // 빠진 코드의 기준선은 버린다 — 다시 들어오면 그 첫 응답이 다시 기준선이다.
+    // 빠진 코드의 기준선 · entries 는 바로 버린다 — 다시 들어오면 그 첫 응답이 다시 기준선이다. 코드가 0개가 된
+    // 때도 같다(IN-60 — relay 재연결 스냅샷으로 잠깐 비었다 돌아오면 옛 기준선으로 비어 있던 동안의 글을 칠했다).
     for (const c of [...seenRef.current.keys()]) if (!codeSet.has(c)) seenRef.current.delete(c);
+    setState((prev) => {
+      if ([...prev.entries.keys()].every((c) => codeSet.has(c))) return prev;
+      const entries = new Map<string, StockFeedEntry>();
+      for (const [c, e] of prev.entries) if (codeSet.has(c)) entries.set(c, e);
+      return { entries, firstSeen: prev.firstSeen };
+    });
     codesChangedRef.current?.();
   }, [sig]);
 
@@ -220,6 +227,9 @@ export function useStockFeedPolling(
      * 직전 회차 시작에서 `minGap` 안이면 그만큼 미룬다. 아직 한 번도 부르지 않았으면(첫 코드) 바로 부른다.
      */
     const onCodesChanged = () => {
+      // 빠진 코드는 「부른 적 없음」으로 돌린다 — 빠졌다 다시 들어오면 새 코드처럼 곧 부른다(IN-60).
+      const current = new Set(listRef.current);
+      for (const c of requested) if (!current.has(c)) requested.delete(c);
       if (!listRef.current.some((c) => !requested.has(c))) return;
       if (inFlight) {
         changedWhileInFlight = true;

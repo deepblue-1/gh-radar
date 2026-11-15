@@ -265,18 +265,37 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('코드가 빠지기만 하면 부르지 않고, 빠진 코드의 entries 는 다음 응답 때 정리된다(WR-61)', async () => {
+  it('코드가 빠지기만 하면 부르지 않고, 빠진 코드의 entries 는 바로 지운다(WR-61 · IN-60)', async () => {
     const { result, rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
       initialProps: { c: ['005930', '000660'] },
     });
     await flush();
     expect(result.current.entries.size).toBe(2);
     rerender({ c: ['005930'] });
+    await flush();
+    expect([...result.current.entries.keys()]).toEqual(['005930']);
     await tick(STOCK_FEED_CHANGE_DEBOUNCE_MS * 2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('코드가 0개가 되면 entries · 기준선을 비운다 — 다시 들어온 첫 응답이 새 기준선이다(IN-60)', async () => {
+    feed['005930'] = [item('kis:1')];
+    const { result, rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['005930'] },
+    });
+    await flush();
+    expect(result.current.entries.size).toBe(1);
+    rerender({ c: [] });
+    await flush();
+    expect(result.current.entries.size).toBe(0);
+
+    // 비어 있던 동안 나온 글 — 다시 들어온 첫 응답은 기준선이라 강조하지 않는다.
+    feed['005930'] = [item('kis:2'), item('kis:1')];
     await tick(STOCK_FEED_POLL_MS);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect([...result.current.entries.keys()]).toEqual(['005930']);
+    rerender({ c: ['005930'] });
+    await tick(STOCK_FEED_POLL_MS / 2);
+    expect(result.current.entries.get('005930')?.items).toHaveLength(2);
+    expect(result.current.firstSeen.size).toBe(0);
   });
 
   it('코드 없이 시작했다가 처음 코드가 들어오면 기다리지 않고 바로 부른다', async () => {
