@@ -294,7 +294,7 @@ gcloud run jobs deploy "$JOB" \
   --tasks=1 \
   ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} \
   --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@KIS_NEWS_MAX_RPS=${KIS_NEWS_MAX_RPS}@KIS_NEWS_DAILY_BUDGET=200000@LOG_LEVEL=info@APP_VERSION=${SHA}" \
-  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SECRET}:latest,KIS_APPKEY=gh-radar-kis-appkey:latest,KIS_APPSECRET=gh-radar-kis-appsecret:latest" \
+  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SECRET}:latest,KIS_APPKEY=${KIS_APPKEY_SECRET}:latest,KIS_APPSECRET=${KIS_APPSECRET_SECRET}:latest" \
   --project="$EXPECTED_PROJECT"
 
 # ═══════════════════════════════════════════════════════════════
