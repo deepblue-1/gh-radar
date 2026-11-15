@@ -248,6 +248,8 @@ export function BreakoutStrip({
     if (saved !== undefined) setOpen(saved);
   }, []);
   const tableId = useId();
+  /** 표 아래 상세의 id — 선택 행이 `aria-controls` 로 가리킨다(UI-1). */
+  const detailId = useId();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => readDismissedSet());
   /** 강조 판정 기준 시각 — tick 타이머 1개가 올린다(⑤). */
   const [now, setNow] = useState(() => Date.now());
@@ -507,12 +509,13 @@ export function BreakoutStrip({
             views={views}
             badges={badgesByCode}
             selectedKey={selectedView === undefined ? null : selectedKey}
+            detailId={detailId}
             onSelect={select}
             onActivate={activate}
             onDismiss={dismiss}
           />
           {selectedView !== undefined && selectedView.row.code && (
-            <BreakoutFeedDetail code={selectedView.row.code} label={selectedView.label} />
+            <BreakoutFeedDetail id={detailId} code={selectedView.row.code} label={selectedView.label} />
           )}
         </section>
       )}
@@ -546,13 +549,14 @@ function FeedBadgesMini({ disclosure, news }: { disclosure: boolean; news: boole
  * 표 아래 선택 종목의 글 목록(목업 `.detail`) — 「{종목명} 최근 3일 뉴스·공시 {n}건」(n = 펼쳐 보이는 줄 수 · 더 있으면 「n건+」 · WR-62).
  * 강조 시계를 읽는 `FeedRows` 가 여기 있다 — 칩 · 표는 1초마다 다시 그려지지 않는다.
  */
-function BreakoutFeedDetail({ code, label }: { code: string; label: string }) {
+function BreakoutFeedDetail({ id, code, label }: { id: string; code: string; label: string }) {
   const entry = useStockFeedEntry(code);
   const failed = useStockFeedFailed(code);
   // 펼쳐 보이는 줄 수 · 더 있으면 「+」(WR-62).
   const count = entry === undefined ? '' : ` ${feedCountText(entry)}`;
   return (
     <section
+      id={id}
       data-slot="breakout-feed-detail"
       aria-label={`${label} 뉴스·공시`}
       className="min-w-0 border-t border-[var(--border-subtle)] px-3 pt-2.5 pb-2"
@@ -704,11 +708,15 @@ const BreakoutChip = memo(function BreakoutChip({
  * <830 에서 기준가를 숨기고, <700 에서 종목 셀 아래 보조 줄 「{HH:MM:SS}」를 세우고 코드를 숨긴다.
  * 경계 수치는 globals.css §2.2b 정본이다.
  * 행 클릭은 선택 토글이다(⑨ · Phase 41 D-17) — 카드는 「추가」 버튼과 칩이 연다.
+ * 선택은 표 아래 상세로 가는 유일한 길이라 키보드로도 닿아야 한다(UI-1): 코드가 있는 행은 탭 순서에 들고(`tabIndex=0`)
+ * Enter · Space 로 같은 토글을 하며, `aria-selected` · `aria-expanded` · `aria-controls`(상세 id)로 상태를 말한다.
+ * 행 안 버튼(「추가」 · ✕)에서 누른 키는 행 토글로 번지지 않는다(대상이 행 자신일 때만).
  */
 const BreakoutTable = memo(function BreakoutTable({
   views,
   badges,
   selectedKey,
+  detailId,
   onSelect,
   onActivate,
   onDismiss,
@@ -718,6 +726,8 @@ const BreakoutTable = memo(function BreakoutTable({
   badges: ReadonlyMap<string, FeedBadges>;
   /** 선택된 행 키 — 그 종목의 글 목록이 표 아래에 펼쳐져 있다. */
   selectedKey: string | null;
+  /** 표 아래 상세의 id — 선택 행의 `aria-controls`. */
+  detailId: string;
   onSelect: (row: BreakoutRow) => void;
   onActivate: (row: BreakoutRow) => void;
   onDismiss: (row: BreakoutRow) => void;
@@ -747,6 +757,7 @@ const BreakoutTable = memo(function BreakoutTable({
         {views.map((v) => {
           const trading = v.row.trading;
           const selected = v.row.key === selectedKey;
+          const selectable = Boolean(v.row.code);
           const b = v.row.code ? badges.get(v.row.code) : undefined;
           return (
               <TableRow
@@ -755,7 +766,21 @@ const BreakoutTable = memo(function BreakoutTable({
                 data-new={v.highlighted ? 'true' : undefined}
                 data-trading={trading ? 'true' : undefined}
                 data-selected={selected ? 'true' : undefined}
+                tabIndex={selectable ? 0 : undefined}
+                aria-selected={selectable ? selected : undefined}
+                aria-expanded={selectable ? selected : undefined}
+                aria-controls={selected ? detailId : undefined}
                 onClick={() => onSelect(v.row)}
+                onKeyDown={
+                  selectable
+                    ? (e) => {
+                        if (e.target !== e.currentTarget) return; // 행 안 버튼의 키는 그 버튼 몫이다
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault(); // Space 의 페이지 스크롤 막기
+                        onSelect(v.row);
+                      }
+                    : undefined
+                }
                 className={cn(
                   trading && 'text-[var(--muted-fg)]',
                   v.row.code ? 'cursor-pointer' : 'cursor-default',

@@ -997,6 +997,38 @@ describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D
     expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 없음');
   });
 
+  it('키보드로도 선택한다 — 코드 있는 행은 탭 순서 · Enter / Space 토글 · aria-selected · aria-expanded · aria-controls(UI-1)', () => {
+    const bare = item({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094400000000' });
+    const { onAddCard } = setupFeed({ items: [A, bare] }, FEED);
+    openTable();
+    const [rowA, rowBare] = rowEls();
+    expect(rowA).toHaveAttribute('tabindex', '0');
+    expect(rowA).toHaveAttribute('aria-selected', 'false');
+    expect(rowA).toHaveAttribute('aria-expanded', 'false');
+    expect(rowA).not.toHaveAttribute('aria-controls');
+    // 코드 없는 행은 선택할 수 없으니 탭 순서에도 없다.
+    expect(rowBare).not.toHaveAttribute('tabindex');
+    expect(rowBare).not.toHaveAttribute('aria-selected');
+
+    fireEvent.keyDown(rowA!, { key: 'Enter' });
+    expect(rowEls()[0]).toHaveAttribute('aria-selected', 'true');
+    expect(rowEls()[0]).toHaveAttribute('aria-expanded', 'true');
+    const d = detail()!;
+    expect(d.id).not.toBe('');
+    expect(rowEls()[0]).toHaveAttribute('aria-controls', d.id);
+
+    fireEvent.keyDown(rowEls()[0]!, { key: ' ' });
+    expect(detail()).toBeNull();
+    expect(rowEls()[0]).toHaveAttribute('aria-selected', 'false');
+
+    // 다른 키 · 행 안 버튼에서 누른 Enter 는 행을 토글하지 않는다.
+    fireEvent.keyDown(rowEls()[0]!, { key: 'a' });
+    expect(detail()).toBeNull();
+    fireEvent.keyDown(within(rowEls()[0]!).getByRole('button', { name: '추가' }), { key: 'Enter' });
+    expect(detail()).toBeNull();
+    expect(onAddCard).not.toHaveBeenCalled();
+  });
+
   it('「추가」 버튼은 카드를 열고 행을 선택하지 않는다', () => {
     const { onAddCard } = setupFeed({ items: [A] }, FEED);
     openTable();
