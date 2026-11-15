@@ -175,11 +175,13 @@
   --new-bd: #ffd257;
 
   /* 뉴스·공시 줄 종류 배지 (Phase 41 D-16) — 「공시」/「뉴스」 배지(`FeedKindBadge`). 공시만 색을 입히고
-     뉴스는 기존 회색(`--muted-fg` / `--muted`)을 그대로 쓴다. 쓰이는 자리: 종목 뉴스 목록 · 작업대 돌파 ·
-     상따 카드 · 홈. ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 배지 색이 조용히 사라진다. */
+     뉴스는 기존 회색을 그대로 쓴다. 쓰이는 자리: 종목 뉴스 목록 · 작업대 돌파 · 상따 카드 · 홈.
+     라이트 뉴스 글자는 `--fg-2`(grey800) — `--muted-fg`(grey600) 는 배경 `--muted` 위 4.19 : 1 로 11px 배지의
+     AA 4.5 에 못 미친다(41-UI-REVIEW Top Fix 3). 다크는 `--muted-fg` 가 5.14 : 1 로 통과라 그대로다.
+     ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 배지 색이 조용히 사라진다. */
   --feed-disc: #c2410c;
   --feed-disc-bg: #fff4e6;
-  --feed-news: var(--muted-fg);
+  --feed-news: var(--fg-2);
   --feed-news-bg: var(--muted);
 
   /* Phase 20 호가주문 토스식 — 상따 그룹 면(목업 `.grp`) · 스위치 off · 시트 dim(TDS dimmedBackground).

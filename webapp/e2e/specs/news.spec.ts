@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mockNewsApi, buildNewsList } from '../fixtures/news';
+import { DISCLOSURE_ITEM_SAMPLE, NEWS_ITEM_SAMPLE, mockNewsApi, buildNewsList } from '../fixtures/news';
 import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 
 /**
@@ -8,6 +8,8 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
  *
  * 구성:
  *  - V-17 detail list: /stocks/005930 상세 내 "관련 뉴스·공시" 섹션 렌더 + 보안 링크 속성
+ *  - Phase 41 계약(WR-63): 픽스처는 shared `StockFeedItem` — 공시(`url: null`)는 링크 아닌 줄 · 「공시」 배지 · 거래소 자료원,
+ *    뉴스는 링크 줄 · 「뉴스」 배지 · 언론사 자료원 「↗」
  *  - V-18 full list: 옛 /stocks/005930/news → 탭 안 전체목록 리다이렉트 + ← = 요약 (Phase 21 D-29)
  *  - G-21-R3-8: 탭 안 전체목록 열기 · 뒤로가기 · 스크롤 복원 · ← · Esc
  *  - V-19 refresh cooldown: 429 수신 시 버튼 disabled + data-remaining-seconds
@@ -90,6 +92,34 @@ test.describe('News — detail list (V-17, external link security)', () => {
     const rel = (await firstLink.getAttribute('rel')) ?? '';
     expect(rel).toMatch(/noopener/);
     expect(rel).toMatch(/noreferrer/);
+  });
+});
+
+test.describe('News — Phase 41 뉴스·공시 한 목록 (D-16 · D-20 · WR-63)', () => {
+  test('공시는 링크 없는 줄 · 「공시」 배지 · 거래소 자료원, 뉴스는 링크 줄 · 「뉴스」 배지 · 「↗」', async ({ page }) => {
+    await mockStockDetail(page);
+    await mockNewsApi(page, {
+      code: STOCK_CODE,
+      list: [NEWS_ITEM_SAMPLE, DISCLOSURE_ITEM_SAMPLE],
+    });
+
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
+    const items = page.getByTestId('stock-news-section').getByTestId('news-item');
+    await expect(items).toHaveCount(2);
+
+    const [news, disc] = [items.nth(0), items.nth(1)];
+    // 뉴스 — 링크 줄(새 창) · 배지 「뉴스」 · 자료원 언론사 + 「↗」
+    await expect(news.locator('a')).toHaveAttribute('href', NEWS_ITEM_SAMPLE.url);
+    await expect(news.locator('[data-slot="feed-kind-badge"]')).toHaveText('뉴스');
+    await expect(news.locator('[data-slot="news-item-nolink"]')).toHaveCount(0);
+    await expect(news).toContainText(`${NEWS_ITEM_SAMPLE.source} ↗`);
+
+    // 공시 — 원문 링크 없음(url null) · 링크 아닌 글자 줄 · 배지 「공시」 · 자료원 거래소(「↗」 없음)
+    await expect(disc.locator('a')).toHaveCount(0);
+    await expect(disc.locator('[data-slot="news-item-nolink"]')).toContainText(DISCLOSURE_ITEM_SAMPLE.title);
+    await expect(disc.locator('[data-slot="feed-kind-badge"]')).toHaveText('공시');
+    await expect(disc).toContainText(DISCLOSURE_ITEM_SAMPLE.source);
+    await expect(disc).not.toContainText('↗');
   });
 });
 

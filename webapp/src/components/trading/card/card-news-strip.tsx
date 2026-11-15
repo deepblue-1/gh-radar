@@ -5,14 +5,17 @@
  *
  * ① 무엇을 그리는가
  *   띠 = 가장 최근 공시 1건(「공시」 배지 · 시각 · 회사명을 걷은 제목) 「|」 가장 최근 뉴스 1건(「뉴스」 배지 · 시각 · 제목) ·
- *   오른쪽 끝 「N건 ▾」(출처별 상한에 닿았으면 「N건+」). 한 종류만 있으면 그 하나만 · 구분자 없음.
+ *   오른쪽 끝 「N건 ▾」(N = 펼쳐 보이는 줄 수 · 더 있으면 「N건+」 · WR-62). 한 종류만 있으면 그 하나만 · 구분자 없음.
  *   띠를 누르면 바로 아래로 최근 3일 글 전부(`FeedRows band="lc"` · 원 제목)가 펼쳐지고 「▴」 · 다시 누르면 접힌다.
  *   ★ 상따는 「공시 뜨자마자」 판단하는 화면이라 펼친 카드에서 재료가 한 줄로 바로 보여야 한다.
  *
  * ② 상태
  *   · 공급자 밖 → 아무것도 그리지 않는다(작업대가 아닌 자리 · 기존 카드 테스트).
  *   · 공급자 안 · 그 코드 첫 응답 전 → 글자 없는 같은 높이 자리(`data-state="pending"`) — 응답이 오며 카드가 출렁이지 않게.
- *   · 글 0건(수집 전 `collectedAt: null` 포함) → 누를 수 없는 빈 줄 「최근 3일 뉴스·공시 없음」(흐린 색).
+ *   · 첫 응답 전인데 조회가 계속 실패(형식 밖 코드 포함) → 누를 수 없는 같은 높이 줄 「뉴스·공시를 불러오지 못했어요」
+ *     (`data-state="error"` · IN-61). 폴링이 다시 시도해 응답이 오면 띠로 바뀐다.
+ *   · 글 0건(수집 전 `collectedAt: null` 포함) → 누를 수 없는 빈 줄 「최근 3일 뉴스·공시 없음」(보조 글자색 `--muted-fg` —
+ *     상태 문구라 비활성 `--faint`(흰 바탕 2.01 : 1) 대신 · 펼친 줄 빈 문구와 같은 색 · 41-UI-REVIEW Top Fix 3).
  *   · 띠에 보이는 공시 · 뉴스 id 가 새 글이면 띠 전체가 `--new-bg`. 강조 시계는 작업대 공급자의 1초 타이머 하나다
  *     (`useStockFeedIsNew`) — 이 부품이 따로 타이머를 걸지 않는다.
  *
@@ -34,13 +37,15 @@ import { useId, useState, type MouseEvent } from 'react';
 import type { StockFeedItem } from '@gh-radar/shared';
 
 import { FeedKindBadge } from '@/components/stock/feed-kind-badge';
-import { FeedRows } from '@/components/trading/feed/feed-rows';
+import { FEED_FAILED_TEXT, FeedRows } from '@/components/trading/feed/feed-rows';
 import {
   useStockFeedAvailable,
   useStockFeedEntry,
+  useStockFeedFailed,
   useStockFeedIsNew,
 } from '@/components/trading/feed/stock-feed-context';
 import { formatFeedTime } from '@/lib/format-feed-time';
+import { feedCountText } from '@/lib/use-stock-feed';
 import { cn } from '@/lib/utils';
 
 export const CARD_NEWS_EMPTY_TEXT = '최근 3일 뉴스·공시 없음';
@@ -87,17 +92,25 @@ function StripPart({ item, title, now }: { item: StockFeedItem; title: string; n
 export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
   const available = useStockFeedAvailable();
   const entry = useStockFeedEntry(code);
+  const failed = useStockFeedFailed(code);
   const isNew = useStockFeedIsNew();
   const [open, setOpen] = useState(false);
   const openId = useId();
 
   if (!available) return null;
   if (entry === undefined) {
+    if (failed) {
+      return (
+        <div data-slot="card-news-strip" data-state="error" className={cn(STRIP_BOX, 'text-[var(--muted-fg)]')}>
+          {FEED_FAILED_TEXT}
+        </div>
+      );
+    }
     return <div data-slot="card-news-strip" data-state="pending" aria-hidden="true" className={STRIP_BOX} />;
   }
   if (entry.items.length === 0) {
     return (
-      <div data-slot="card-news-strip" data-state="empty" className={cn(STRIP_BOX, 'text-[var(--faint)]')}>
+      <div data-slot="card-news-strip" data-state="empty" className={cn(STRIP_BOX, 'text-[var(--muted-fg)]')}>
         {CARD_NEWS_EMPTY_TEXT}
       </div>
     );
@@ -107,7 +120,8 @@ export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
   const news = entry.items.find((it) => it.kind === 'news');
   const fresh = (disc !== undefined && isNew(disc.id)) || (news !== undefined && isNew(news.id));
   const now = new Date();
-  const count = `${entry.count}건${entry.truncated ? '+' : ''} ${open ? '▴' : '▾'}`;
+  // 펼쳐 보이는 줄 수 · 더 있으면 「+」(WR-62).
+  const count = `${feedCountText(entry)} ${open ? '▴' : '▾'}`;
 
   const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -139,7 +153,8 @@ export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
         <div
           id={openId}
           data-slot="card-news-open"
-          className="min-w-0 border-b border-[var(--border-subtle)] px-3 pt-0.5 pb-1.5"
+          // 글 줄의 안쪽 4px(`px-1`)와 합쳐 띠(`px-3`)와 글자 시작을 맞춘다 — 8 + 4 = 12px(UI-5).
+          className="min-w-0 border-b border-[var(--border-subtle)] px-2 pt-0.5 pb-1.5"
         >
           <FeedRows items={entry.items} band="lc" />
         </div>

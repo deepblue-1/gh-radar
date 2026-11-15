@@ -187,6 +187,7 @@ import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { indexUnfilled } from '@/lib/trading-alerts';
 import { requestTradingAccount, requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
+import { STOCK_FEED_POLL_MS } from '@/lib/use-stock-feed';
 import {
   cardForAlert,
   cardForUnfilled,
@@ -3241,16 +3242,28 @@ describe('P32 계좌 전환 경로 · 종목 단위 스코프 (Pitfall 5 · 6)',
 describe('TradingWorkbench — 뉴스·공시 피드 공급자 (Phase 41 D-04 · D-17)', () => {
   it('묶음 조회 코드 = 돌파 항목 코드 ∪ 카드 코드(중복 없이 · 코드 없는 행 제외)', async () => {
     fetchNewsByStockMock.mockClear();
-    mockRelay = relay({
-      rateCrossItems: [rc(), rc({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094200000000' })],
-    });
-    render(<TradingWorkbench />);
-    await waitFor(() => expect(fetchNewsByStockMock).toHaveBeenCalled());
-    expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['096530']);
+    // 코드 집합 변경은 모아서 부르고 직전 회차에서 주기의 절반 뒤로 미룬다(WR-61) — 그 지연은 가짜 시계로 넘긴다.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      mockRelay = relay({
+        rateCrossItems: [rc(), rc({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094200000000' })],
+      });
+      render(<TradingWorkbench />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(fetchNewsByStockMock).toHaveBeenCalled();
+      expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['096530']);
 
-    // 돌파 종목 카드(같은 코드 — 중복 없음) + 검색 추가 카드(새 코드)
-    fireEvent.click(slot('breakout-chip')!);
-    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
-    await waitFor(() => expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['005930', '096530']));
+      // 돌파 종목 카드(같은 코드 — 중복 없음) + 검색 추가 카드(새 코드)
+      fireEvent.click(slot('breakout-chip')!);
+      fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STOCK_FEED_POLL_MS / 2);
+      });
+      expect(fetchNewsByStockMock.mock.calls.at(-1)![0]).toEqual(['005930', '096530']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

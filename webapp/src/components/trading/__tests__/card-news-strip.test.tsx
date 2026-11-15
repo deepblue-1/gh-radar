@@ -6,7 +6,7 @@ import type { NewsByStockResponse, StockFeedEntry, StockFeedItem, StockFeedKind 
 /**
  * Phase 41 Plan 07 Task 1 — 상따 카드 한 줄 띠 `CardNewsStrip`(D-18 · D-20 · 목업 ③ `.nstrip` · gh-trade 상따 1).
  *
- * 잠그는 것: 띠 = 첫 공시(배지 · 시각 · 회사명 걷은 제목) 「|」 첫 뉴스(배지 · 시각 · 제목) · 오른쪽 끝 「N건 ▾」(상한 「N건+」) ·
+ * 잠그는 것: 띠 = 첫 공시(배지 · 시각 · 회사명 걷은 제목) 「|」 첫 뉴스(배지 · 시각 · 제목) · 오른쪽 끝 「N건 ▾」(N = 보이는 줄 수 · 더 있으면 「N건+」) ·
  * 한 종류만이면 그 하나 · 누르면 최근 3일 목록 펼침(`FeedRows band="lc"` · 원 제목) · 다시 누르면 접힘 · 클릭이 부모로 번지지 않음 ·
  * 글 0건 = 누를 수 없는 빈 줄 · 첫 응답 전 = 글자 없는 같은 높이 자리 · 공급자 밖 = 없음 · 새 글 강조 `--new-bg` ·
  * 받은 순서에서 고를 뿐 재정렬하지 않음(D-14).
@@ -18,7 +18,8 @@ vi.mock('@/lib/news-by-stock-api', () => ({
 }));
 
 import { CARD_NEWS_EMPTY_TEXT, CardNewsStrip, shortDisclosureTitle } from '../card/card-news-strip';
-import { StockFeedEntriesContext, StockFeedProvider } from '../feed/stock-feed-context';
+import { StockFeedEntriesContext, StockFeedFailedContext, StockFeedProvider } from '../feed/stock-feed-context';
+import { FEED_FAILED_TEXT } from '../feed/feed-rows';
 import { STOCK_FEED_POLL_MS } from '@/lib/use-stock-feed';
 
 // KST 2026-11-12 15:30
@@ -120,14 +121,25 @@ describe('CardNewsStrip', () => {
     expect(within(s).getByText('4건 ▾')).toBeInTheDocument();
   });
 
-  it('상한에 닿은 묶음(truncated)은 「N건+ ▾」', () => {
-    render(
+  it('N 은 펼쳐 보이는 줄 수 — 상한에 닿았거나(truncated) 서버 count 가 더 크면 「N건+ ▾」(WR-62)', () => {
+    const { rerender } = render(
       withEntries(
         new Map([[CODE, entryOf([NEWS, DISC], { count: 20, truncated: true })]]),
         <CardNewsStrip code={CODE} stockName={NAME} />,
       ),
     );
-    expect(within(strip()!).getByText('20건+ ▾')).toBeInTheDocument();
+    expect(within(strip()!).getByText('2건+ ▾')).toBeInTheDocument();
+
+    // 한투 25 + 네이버 10 처럼 상한엔 안 닿았어도 서버가 센 줄이 보이는 줄보다 많으면 「+」.
+    rerender(
+      withEntries(
+        new Map([[CODE, entryOf([NEWS, DISC], { count: 35, truncated: false })]]),
+        <CardNewsStrip code={CODE} stockName={NAME} />,
+      ),
+    );
+    expect(within(strip()!).getByText('2건+ ▾')).toBeInTheDocument();
+    fireEvent.click(strip()!);
+    expect(openArea()!.querySelectorAll('[data-slot="feed-row"]')).toHaveLength(2);
   });
 
   it('공시만 · 뉴스만이면 그 하나만 보이고 구분자 「|」 가 없다', () => {
@@ -168,6 +180,10 @@ describe('CardNewsStrip', () => {
     expect(strip()!.getAttribute('aria-controls')).toBe(area.id);
     const rows = area.querySelectorAll<HTMLElement>('[data-slot="feed-row"]');
     expect(rows).toHaveLength(4);
+    // 띠 글자(px-3 = 12px)와 펼친 줄 글자(상자 px-2 8px + 줄 px-1 4px)의 시작을 맞춘다(UI-5).
+    expect(strip()!.className).toContain('px-3');
+    expect(area.className).toContain('px-2');
+    expect(rows[0]!.className).toContain('px-1');
     // 펼친 목록은 원 제목 그대로 · 카드 폭 685 경계(lc).
     expect(rows[1]!.textContent).toContain('(주)가람전자 단일판매ㆍ공급계약체결');
     expect(rows[0]!.querySelector('[data-slot="feed-row-source"]')!.className).toContain('@min-[685px]/lc:');
@@ -202,7 +218,8 @@ describe('CardNewsStrip', () => {
     expect(s.tagName).not.toBe('BUTTON');
     expect(s).toHaveAttribute('data-state', 'empty');
     expect(s.textContent).toBe(CARD_NEWS_EMPTY_TEXT);
-    expect(s.className).toContain('text-[var(--faint)]');
+    expect(s.className).toContain('text-[var(--muted-fg)]');
+    expect(s.className).not.toContain('text-[var(--faint)]');
     expect(document.querySelector('button')).toBeNull();
 
     rerender(withEntries(new Map([[CODE, entryOf([])]]), <CardNewsStrip code={CODE} stockName={NAME} />));
@@ -217,6 +234,44 @@ describe('CardNewsStrip', () => {
     expect(s.textContent).toBe('');
     expect(s.tagName).not.toBe('BUTTON');
     expect(s.className).toContain('min-h-[30px]');
+  });
+
+  it('첫 응답 전인데 조회가 계속 실패하면 같은 높이 「불러오지 못했어요」 줄(data-state="error") — 형식 밖 코드도(IN-61)', () => {
+    const { rerender } = render(
+      withEntries(
+        new Map(),
+        <StockFeedFailedContext.Provider value={new Set([CODE])}>
+          <CardNewsStrip code={CODE} stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    const s = strip()!;
+    expect(s).toHaveAttribute('data-state', 'error');
+    expect(s.textContent).toBe(FEED_FAILED_TEXT);
+    expect(s.tagName).not.toBe('BUTTON');
+    expect(s.className).toContain('min-h-[30px]');
+
+    // 형식 밖 코드는 폴링 대상이 아니라 처음부터 실패다.
+    rerender(
+      withEntries(
+        new Map(),
+        <StockFeedFailedContext.Provider value={new Set()}>
+          <CardNewsStrip code="bad" stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    expect(strip()).toHaveAttribute('data-state', 'error');
+
+    // 마지막 entries 가 있으면 실패 중이어도 그 값을 그대로 보인다(②).
+    rerender(
+      withEntries(
+        new Map([[CODE, entryOf([NEWS])]]),
+        <StockFeedFailedContext.Provider value={new Set([CODE])}>
+          <CardNewsStrip code={CODE} stockName={NAME} />
+        </StockFeedFailedContext.Provider>,
+      ),
+    );
+    expect(strip()!.tagName).toBe('BUTTON');
   });
 
   it('공급자 밖이면 아무것도 그리지 않는다', () => {

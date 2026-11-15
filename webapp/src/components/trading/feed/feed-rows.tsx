@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useStockFeedIsNew } from './stock-feed-context';
 
 export const FEED_ROWS_EMPTY_TEXT = '최근 3일 뉴스·공시 없음';
+/** 첫 응답 전 코드의 조회가 계속 실패할 때(IN-61) — 돌파 상세 · 상따 띠가 같이 쓴다. 폴링이 다시 시도한다. */
+export const FEED_FAILED_TEXT = '뉴스·공시를 불러오지 못했어요';
 
 type FeedBand = 'wb' | 'lc';
 
@@ -50,7 +52,8 @@ export function FeedRows({ items, band, emptyText = FEED_ROWS_EMPTY_TEXT, classN
   const isNew = useStockFeedIsNew();
   if (items.length === 0) {
     return (
-      <p data-slot="feed-rows-empty" className={cn('m-0 py-1.5 text-[12px] text-[var(--muted-fg)]', className)}>
+      // 글 줄과 같은 안쪽 4px — 빈 문구도 줄 글자와 같은 자리에서 시작한다(UI-5).
+      <p data-slot="feed-rows-empty" className={cn('m-0 px-1 py-1.5 text-[12px] text-[var(--muted-fg)]', className)}>
         {emptyText}
       </p>
     );

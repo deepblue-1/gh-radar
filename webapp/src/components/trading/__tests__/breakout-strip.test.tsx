@@ -68,7 +68,8 @@ import {
   breakoutDismissLabel,
   type BreakoutStripProps,
 } from '../workbench/breakout-strip';
-import { StockFeedEntriesContext } from '../feed/stock-feed-context';
+import { StockFeedEntriesContext, StockFeedFailedContext } from '../feed/stock-feed-context';
+import { FEED_FAILED_TEXT } from '../feed/feed-rows';
 
 const T0 = Date.UTC(2026, 8, 22, 0, 41, 31);
 
@@ -863,7 +864,11 @@ function feedEntry(code: string, items: StockFeedItem[], over: Partial<StockFeed
 }
 
 /** 작업대 공급자 대신 entries 문맥에 값을 직접 넣는다. */
-function setupFeed(initial: Props, entries: ReadonlyMap<string, StockFeedEntry>) {
+function setupFeed(
+  initial: Props,
+  entries: ReadonlyMap<string, StockFeedEntry>,
+  failed: ReadonlySet<string> = new Set(),
+) {
   const onAddCard = vi.fn();
   const onFocusCard = vi.fn();
   let props: BreakoutStripProps = {
@@ -877,7 +882,9 @@ function setupFeed(initial: Props, entries: ReadonlyMap<string, StockFeedEntry>)
   };
   const ui = (p: BreakoutStripProps) => (
     <StockFeedEntriesContext.Provider value={entries}>
-      <BreakoutStrip {...p} />
+      <StockFeedFailedContext.Provider value={failed}>
+        <BreakoutStrip {...p} />
+      </StockFeedFailedContext.Provider>
     </StockFeedEntriesContext.Provider>
   );
   const utils = render(ui(props));
@@ -904,6 +911,8 @@ describe('BreakoutStrip — 뉴스·공시 배지 (Phase 41 D-17)', () => {
     setupFeed({ items: [A, B] }, FEED);
     const [chipA, chipB] = chips();
     expect(badgeText(chipA!)).toEqual(['공', '뉴']);
+    // 공 · 뉴 사이 4px — 목업 배지 margin-left 4px(UI-5).
+    expect(chipA!.querySelector('[data-slot="breakout-feed-badges"]')!.className).toContain('gap-1');
     expect(badgeText(chipB!)).toEqual(['뉴']);
   });
 
@@ -960,10 +969,27 @@ describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D
     fireEvent.click(rowEls()[0]!);
     fireEvent.click(rowEls()[1]!);
     expect(detail()!.getAttribute('aria-label')).toBe('삼성전자 뉴스·공시');
-    // 상한에 닿은 종목은 「n건+」
-    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 25건+');
+    // n 은 펼쳐 보이는 줄 수 · 상한에 닿았거나 서버 count 가 더 크면 「n건+」(WR-62)
+    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 1건+');
+    expect(detail()!.querySelectorAll('[data-slot="feed-row"]')).toHaveLength(1);
     expect(rowEls()[0]).not.toHaveAttribute('data-selected');
     expect(rowEls()[1]).toHaveAttribute('data-selected', 'true');
+  });
+
+  it('첫 응답 전이면 「불러오는 중」, 그 코드 조회가 계속 실패하면 「불러오지 못했어요」(IN-61)', () => {
+    const { rerender } = setupFeed({ items: [A] }, new Map());
+    openTable();
+    fireEvent.click(rowEls()[0]!);
+    expect(detail()!.textContent).toContain('불러오는 중');
+    rerender(
+      <StockFeedEntriesContext.Provider value={new Map()}>
+        <StockFeedFailedContext.Provider value={new Set([A.code!])}>
+          <BreakoutStrip items={[A]} snapSeq={1} cards={new Set()} cardFeeds={new Set()} onAddCard={vi.fn()} onFocusCard={vi.fn()} />
+        </StockFeedFailedContext.Provider>
+      </StockFeedEntriesContext.Provider>,
+    );
+    expect(detail()!.textContent).toContain(FEED_FAILED_TEXT);
+    expect(detail()!.textContent).not.toContain('불러오는 중');
   });
 
   it('글 0건 종목은 「최근 3일 뉴스·공시 없음」', () => {
@@ -971,6 +997,38 @@ describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D
     openTable();
     fireEvent.click(rowEls()[0]!);
     expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 없음');
+  });
+
+  it('키보드로도 선택한다 — 코드 있는 행은 탭 순서 · Enter / Space 토글 · aria-selected · aria-expanded · aria-controls(UI-1)', () => {
+    const bare = item({ isin: 'KR7999999999', name: undefined, code: undefined, exchangeTime: '094400000000' });
+    const { onAddCard } = setupFeed({ items: [A, bare] }, FEED);
+    openTable();
+    const [rowA, rowBare] = rowEls();
+    expect(rowA).toHaveAttribute('tabindex', '0');
+    expect(rowA).toHaveAttribute('aria-selected', 'false');
+    expect(rowA).toHaveAttribute('aria-expanded', 'false');
+    expect(rowA).not.toHaveAttribute('aria-controls');
+    // 코드 없는 행은 선택할 수 없으니 탭 순서에도 없다.
+    expect(rowBare).not.toHaveAttribute('tabindex');
+    expect(rowBare).not.toHaveAttribute('aria-selected');
+
+    fireEvent.keyDown(rowA!, { key: 'Enter' });
+    expect(rowEls()[0]).toHaveAttribute('aria-selected', 'true');
+    expect(rowEls()[0]).toHaveAttribute('aria-expanded', 'true');
+    const d = detail()!;
+    expect(d.id).not.toBe('');
+    expect(rowEls()[0]).toHaveAttribute('aria-controls', d.id);
+
+    fireEvent.keyDown(rowEls()[0]!, { key: ' ' });
+    expect(detail()).toBeNull();
+    expect(rowEls()[0]).toHaveAttribute('aria-selected', 'false');
+
+    // 다른 키 · 행 안 버튼에서 누른 Enter 는 행을 토글하지 않는다.
+    fireEvent.keyDown(rowEls()[0]!, { key: 'a' });
+    expect(detail()).toBeNull();
+    fireEvent.keyDown(within(rowEls()[0]!).getByRole('button', { name: '추가' }), { key: 'Enter' });
+    expect(detail()).toBeNull();
+    expect(onAddCard).not.toHaveBeenCalled();
   });
 
   it('「추가」 버튼은 카드를 열고 행을 선택하지 않는다', () => {

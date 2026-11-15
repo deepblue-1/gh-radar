@@ -10,8 +10,10 @@ import type { NewsByStockResponse, StockFeedEntry, StockFeedItem, StockFeedKind 
  * 잠그는 것:
  *  ① `fetchNewsByStock` 경로 = `/api/news/by-stock?codes=a,b&days=3&limit=20`(쉼표 그대로)
  *  ② 폴링 — 100코드씩 차례로 · 10초마다 · 코드 0개면 요청 0 · 형식 아닌 코드 제외 · 같은 집합 새 배열은 재요청 없음
- *  ③ 숨김이면 그 주기 건너뜀 · 다시 보이면 바로 1번 · 실패하면 마지막 entries 유지 · 코드 집합이 바뀌면 바로 1번(진행 중 abort)
+ *  ③ 숨김이면 그 주기 건너뜀 · 다시 보이면 바로 1번 · 실패하면 마지막 entries 유지 · 진행 중 회차는 끊지 않음(WR-60)
+ *     · 코드 집합 변경은 새 코드가 있을 때만 모아서 1번 · 주기는 다시 잡지 않음(WR-61)
  *  ④ 새 글 — 코드별 첫 응답은 기준선(새 글 아님) · 그 뒤 처음 보인 id 에 시각 기록 · 30초 뒤 거짓
+ *     · 수집 전(collectedAt null) 응답은 기준선 아님 · 작성 30분 넘은 옛 글은 처음 보여도 새 글 아님(CR-60)
  *  ⑤ 문맥 — 공급자 밖은 빈 값 · 강조할 글이 있을 때만 1초 타이머 하나
  */
 
@@ -24,11 +26,15 @@ vi.mock('@/lib/news-by-stock-api', () => ({
 }));
 
 import {
+  STOCK_FEED_CHANGE_DEBOUNCE_MS,
   STOCK_FEED_CHUNK,
+  STOCK_FEED_FAIL_AFTER,
+  STOCK_FEED_FRESH_PUBLISHED_MS,
   STOCK_FEED_NEW_MS,
   STOCK_FEED_POLL_MS,
   feedBadgesOf,
   isFeedItemNew,
+  isFreshlyPublished,
   useStockFeedPolling,
 } from '../use-stock-feed';
 import {
@@ -40,6 +46,8 @@ import {
 } from '@/components/trading/feed/stock-feed-context';
 
 const AT = '2026-11-12T09:00:00.000+09:00';
+/** 테스트 시계 — 글 작성 시각(AT) 5분 뒤라 새 글 신선도(CR-60) 안이다. */
+const NOW = Date.parse(AT) + 5 * 60_000;
 
 function item(id: string, kind: StockFeedKind = 'news'): StockFeedItem {
   return {
@@ -55,18 +63,20 @@ function item(id: string, kind: StockFeedKind = 'news'): StockFeedItem {
   };
 }
 
-function entry(code: string, items: StockFeedItem[]): StockFeedEntry {
-  return { code, collectedAt: AT, count: items.length, truncated: false, items };
+function entry(code: string, items: StockFeedItem[], collectedAt: string | null = AT): StockFeedEntry {
+  return { code, collectedAt, count: items.length, truncated: false, items };
 }
 
 /** 종목코드 → 지금 서버가 줄 글. 테스트가 바꿔 가며 쓴다. */
 let feed: Record<string, StockFeedItem[]> = {};
+/** 아직 수집 전(`collectedAt: null`)으로 답할 종목코드. */
+let uncollected = new Set<string>();
 
 function respond(codes: readonly string[]): Promise<NewsByStockResponse> {
   return Promise.resolve({
     asOf: AT,
     feedAt: AT,
-    stocks: codes.map((c) => entry(c, feed[c] ?? [])),
+    stocks: codes.map((c) => entry(c, feed[c] ?? [], uncollected.has(c) ? null : AT)),
   });
 }
 
@@ -86,7 +96,9 @@ let visibility: DocumentVisibilityState = 'visible';
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.setSystemTime(NOW);
   feed = {};
+  uncollected = new Set();
   visibility = 'visible';
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
   fetchMock.mockReset();
@@ -179,6 +191,7 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
   });
 
   it('요청이 실패하면 마지막 entries 를 그대로 둔다', async () => {
+    vi.spyOn(console, 'warn').mockImplementationOnce(() => {});
     feed['005930'] = [item('kis:1')];
     const { result } = renderHook(() => useStockFeedPolling(['005930']));
     await flush();
@@ -189,11 +202,56 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(result.current.entries.get('005930')?.items.map((i) => i.id)).toEqual(['kis:1']);
   });
 
-  it('코드 집합이 바뀌면 진행 중 요청을 끊고 바로 1번 부른다', async () => {
+  it('연속 3회차 실패한 코드는 failed 로 내보내고, 응답이 오면 빠진다 · 원인은 1분 간격으로 한 번 남긴다(IN-61)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      fetchMock.mockRejectedValue(Object.assign(new Error('HTTP 503'), { status: 503, code: 'HTTP_503' }));
+      const { result } = renderHook(() => useStockFeedPolling(['005930']));
+      await flush();
+      expect(result.current.failed.size).toBe(0);
+      await tick(STOCK_FEED_POLL_MS * (STOCK_FEED_FAIL_AFTER - 2));
+      expect(result.current.failed.size).toBe(0);
+      await tick(STOCK_FEED_POLL_MS);
+      expect([...result.current.failed]).toEqual(['005930']);
+      // 바뀐 게 없으면 신원 그대로
+      const before = result.current.failed;
+      await tick(STOCK_FEED_POLL_MS);
+      expect(result.current.failed).toBe(before);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![1]).toMatchObject({ status: 503, code: 'HTTP_503', codes: 1 });
+
+      fetchMock.mockImplementation((codes: readonly string[]) => respond(codes));
+      await tick(STOCK_FEED_POLL_MS);
+      expect(result.current.failed.size).toBe(0);
+      expect(result.current.entries.has('005930')).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('회차가 주기보다 길면 다음 주기는 건너뛰고 진행 중 요청을 끊지 않는다 — 늦은 응답도 반영된다(WR-60)', async () => {
     let firstSignal: AbortSignal | undefined;
-    fetchMock.mockImplementationOnce((_codes: readonly string[], _o: unknown, signal: AbortSignal) => {
+    feed['005930'] = [item('kis:1')];
+    fetchMock.mockImplementationOnce((codes: readonly string[], _o: unknown, signal: AbortSignal) => {
       firstSignal = signal;
-      return new Promise(() => {});
+      return new Promise((resolve) => setTimeout(() => resolve(respond(codes)), STOCK_FEED_POLL_MS * 1.5));
+    });
+    const { result } = renderHook(() => useStockFeedPolling(['005930']));
+    await flush();
+    await tick(STOCK_FEED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(firstSignal?.aborted).toBe(false);
+    await tick(STOCK_FEED_POLL_MS * 0.5);
+    expect(result.current.entries.get('005930')?.items.map((i) => i.id)).toEqual(['kis:1']);
+    await tick(STOCK_FEED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('코드 집합이 바뀌어도 진행 중 요청을 끊지 않고, 끝난 뒤 바뀐 집합으로 1번 부른다(WR-61)', async () => {
+    let firstSignal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((codes: readonly string[], _o: unknown, signal: AbortSignal) => {
+      firstSignal = signal;
+      return new Promise((resolve) => setTimeout(() => resolve(respond(codes)), 3_000));
     });
     const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
       initialProps: { c: ['005930'] },
@@ -202,9 +260,82 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     rerender({ c: ['005930', '000660'] });
     await flush();
-    expect(firstSignal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(3_000);
+    expect(firstSignal?.aborted).toBe(false);
+    // 직전 회차 시작(0초)에서 주기의 절반(5초)이 지나야 부른다.
+    await tick(STOCK_FEED_POLL_MS / 2 - 3_000 - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect([...fetchMock.mock.calls[1]![0]].sort()).toEqual(['000660', '005930']);
+  });
+
+  it('잇단 코드 집합 변경은 모아서 1번만 부르고, 그 직후 주기 tick 은 건너뛴다(WR-61)', async () => {
+    const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['000001'] },
+    });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // 0초
+    await tick(6_000);
+    rerender({ c: ['000001', '000002'] });
+    await tick(300);
+    rerender({ c: ['000001', '000002', '000003'] });
+    await tick(300);
+    rerender({ c: ['000001', '000002', '000003', '000004'] });
+    await tick(STOCK_FEED_CHANGE_DEBOUNCE_MS - 600 - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(1); // 7.5초 — 모은 변경 1회차
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect([...fetchMock.mock.calls[1]![0]]).toEqual(['000001', '000002', '000003', '000004']);
+    await tick(STOCK_FEED_POLL_MS - 7_500); // 10초 tick — 2.5초 전에 돌았으니 건너뜀
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await tick(STOCK_FEED_POLL_MS); // 20초 tick — 주기 그대로(다시 잡지 않음)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('코드가 빠지기만 하면 부르지 않고, 빠진 코드의 entries 는 바로 지운다(WR-61 · IN-60)', async () => {
+    const { result, rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['005930', '000660'] },
+    });
+    await flush();
+    expect(result.current.entries.size).toBe(2);
+    rerender({ c: ['005930'] });
+    await flush();
+    expect([...result.current.entries.keys()]).toEqual(['005930']);
+    await tick(STOCK_FEED_CHANGE_DEBOUNCE_MS * 2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('코드가 0개가 되면 entries · 기준선을 비운다 — 다시 들어온 첫 응답이 새 기준선이다(IN-60)', async () => {
+    feed['005930'] = [item('kis:1')];
+    const { result, rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['005930'] },
+    });
+    await flush();
+    expect(result.current.entries.size).toBe(1);
+    rerender({ c: [] });
+    await flush();
+    expect(result.current.entries.size).toBe(0);
+
+    // 비어 있던 동안 나온 글 — 다시 들어온 첫 응답은 기준선이라 강조하지 않는다.
+    feed['005930'] = [item('kis:2'), item('kis:1')];
+    await tick(STOCK_FEED_POLL_MS);
+    rerender({ c: ['005930'] });
+    await tick(STOCK_FEED_POLL_MS / 2);
+    expect(result.current.entries.get('005930')?.items).toHaveLength(2);
+    expect(result.current.firstSeen.size).toBe(0);
+  });
+
+  it('코드 없이 시작했다가 처음 코드가 들어오면 기다리지 않고 바로 부른다', async () => {
+    const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: [] as string[] },
+    });
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    rerender({ c: ['005930'] });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -223,6 +354,39 @@ describe('useStockFeedPolling — 새 글', () => {
     expect(isFeedItemNew('kis:2', result.current.firstSeen, Date.now())).toBe(true);
     expect(isFeedItemNew('kis:1', result.current.firstSeen, Date.now())).toBe(false);
     expect(isFeedItemNew('kis:2', result.current.firstSeen, seenAt! + STOCK_FEED_NEW_MS)).toBe(false);
+  });
+
+  it('수집 전(collectedAt null) 응답은 기준선이 아니다 — 첫 수집이 메운 기존 글은 새 글이 아니다(CR-60)', async () => {
+    uncollected.add('005930');
+    const { result } = renderHook(() => useStockFeedPolling(['005930']));
+    await flush();
+    expect(result.current.entries.get('005930')?.collectedAt).toBeNull();
+
+    // 첫 종목별 수집이 끝나 3건이 한꺼번에 들어온다 — 이 응답이 기준선이다.
+    uncollected.delete('005930');
+    feed['005930'] = [item('kis:3'), item('kis:2'), item('kis:1')];
+    await tick(STOCK_FEED_POLL_MS);
+    expect(result.current.entries.get('005930')?.items).toHaveLength(3);
+    expect(result.current.firstSeen.size).toBe(0);
+
+    // 그 뒤 새로 보인 글은 새 글이다.
+    feed['005930'] = [item('kis:4'), item('kis:3'), item('kis:2'), item('kis:1')];
+    await tick(STOCK_FEED_POLL_MS);
+    expect([...result.current.firstSeen.keys()]).toEqual(['kis:4']);
+  });
+
+  it('처음 보여도 작성 시각이 신선도 밖인 옛 글(보충 수집이 늦게 메운 글)은 새 글이 아니다(CR-60)', async () => {
+    feed['005930'] = [item('kis:1')];
+    const { result } = renderHook(() => useStockFeedPolling(['005930']));
+    await flush();
+
+    const old = { ...item('kis:old'), publishedAt: new Date(NOW - STOCK_FEED_FRESH_PUBLISHED_MS - 1000).toISOString() };
+    const edge = { ...item('kis:edge'), publishedAt: new Date(NOW - STOCK_FEED_FRESH_PUBLISHED_MS + 60_000).toISOString() };
+    feed['005930'] = [item('kis:1'), edge, old];
+    await tick(STOCK_FEED_POLL_MS);
+    expect(result.current.firstSeen.has('kis:old')).toBe(false);
+    expect(result.current.firstSeen.has('kis:edge')).toBe(true);
+    expect(isFreshlyPublished('not-a-date', NOW)).toBe(false);
   });
 });
 

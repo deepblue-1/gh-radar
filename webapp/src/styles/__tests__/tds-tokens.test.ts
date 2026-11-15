@@ -253,6 +253,41 @@ function findRowDividerViolations(): string[] {
   return violations;
 }
 
+/** WCAG 상대 휘도 대비 — `#rrggbb` 만. */
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+/** `var(--x)` 를 같은 블록에서 끝까지 따라간다. */
+function resolve(block: Record<string, string>, name: string): string {
+  let v = block[name];
+  for (let i = 0; i < 5 && v !== undefined; i += 1) {
+    const m = /^var\(--([a-z0-9-]+)\)$/i.exec(v);
+    if (!m) break;
+    v = block[m[1]!];
+  }
+  if (v === undefined) throw new Error(`--${name} 를 풀지 못함`);
+  return v;
+}
+
+describe('뉴스·공시 배지 대비 (Phase 41 · 41-UI-REVIEW Top Fix 3)', () => {
+  it.each([
+    ['라이트', LIGHT],
+    ['다크', DARK],
+  ] as const)('%s 뉴스 배지 글자는 배경 위 4.5 : 1 이상이고 기존 회색 토큰을 가리킨다', (_label, block) => {
+    expect(block['feed-news']).toMatch(/^var\(--(fg-2|muted-fg)\)$/);
+    expect(contrast(resolve(block, 'feed-news'), resolve(block, 'feed-news-bg'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe('행 구분선은 hairline(--border-subtle)', () => {
   it('방향 구분선이 면 외곽선 토큰 --border 를 쓰지 않는다', () => {
     const violations = findRowDividerViolations();
