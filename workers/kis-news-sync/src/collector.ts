@@ -34,7 +34,7 @@ import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage.js";
  *     종목별은 그 절반 속도 버킷을 하나 더 지난다.
  *   운영 기준 ③ 호출량은 사용자 수와 무관 — 대상 수 · 초당 상한 · 고정 주기로만 정해진다.
  *   운영 기준 ④ 한도 · 차단 신호에 재시도로 두드리지 않는다: 초당 초과 1분 안 5번 → 60초 전면 정지 ·
- *     토큰 무효 → 강제 재발급 1번, 또 무효면 종료 1 · 모르는 오류 코드 연속 5번 → 한도 의심 표시 · 종료 1
+ *     토큰 무효 → 강제 재발급 1번, 10분 안에 또 무효면 종료 1 · 모르는 오류 코드 연속 5번 → 한도 의심 표시 · 종료 1
  *     (다음 실행은 ③ 탐침 1건 — 5xx 와 함께 온 모르는 msg_cd 도 여기다) ·
  *     일시 장애(msg_cd 없는 5xx · 네트워크 · DB) → 그 흐름만 1 · 2 · 4 … 최대 60초 물러섬.
  *   SC-4 자체 상한(기본 200,000 — 공식 한도 아님)의 80% 에서 경고 1번 · 다다르면 error 와 함께 종료 1.
@@ -72,6 +72,11 @@ export const STEP_MS = 200;
 export const TOKEN_RETRY_MS = 61_000;
 /** 장기 실행 중 DB 토큰 남은 시간 확인 주기(1시간 전 재발급은 41-13 이 판정) */
 export const TOKEN_CHECK_MS = 600_000;
+/**
+ * 강제 재발급 뒤 이 시간 안에 또 토큰 무효면 종료 1 — 그보다 뒤의 무효는 서로 무관한 새 사건으로 보고 다시 1번 재발급한다(IN-01).
+ * 종료 1 뒤 다음 깨움(≤ 5분)도 재발급 1번을 할 수 있으므로, 5분보다 긴 창이면 재발급 빈도가 예전보다 늘지 않는다.
+ */
+export const TOKEN_REFORCE_WINDOW_MS = 600_000;
 export const BACKOFF_BASE_MS = 1_000;
 export const BACKOFF_MAX_MS = 60_000;
 /** 초당 초과 한 번이면 그 흐름만 이만큼 쉰다 */
@@ -180,7 +185,7 @@ class Collector {
   private nextLeaseAt = Number.POSITIVE_INFINITY;
   private nextFlushAt = Number.POSITIVE_INFINITY;
   private token = "";
-  /** 강제 재발급을 한 시각(없으면 null) — 그 뒤 또 무효면 종료 1 */
+  /** 마지막 강제 재발급 시각(없으면 null) — 그 뒤 TOKEN_REFORCE_WINDOW_MS 안에 또 무효면 종료 1 */
   private tokenForcedAt: number | null = null;
   private meta: ReadonlyMap<string, StockMeta> = new Map();
   /** 전체 최신에서 본 가장 큰 일련번호(되감기 기준) */
@@ -616,8 +621,11 @@ class Collector {
         return;
       }
       case "token_invalid": {
-        if (this.tokenForcedAt !== null) {
-          log.error(fields, "kis token invalid again after a forced reissue — stopping");
+        if (this.tokenForcedAt !== null && now - this.tokenForcedAt < TOKEN_REFORCE_WINDOW_MS) {
+          log.error(
+            { ...fields, sinceForcedMs: now - this.tokenForcedAt },
+            "kis token invalid again soon after a forced reissue — stopping",
+          );
           throw new StopRun(1, "token_invalid");
         }
         this.tokenForcedAt = now;

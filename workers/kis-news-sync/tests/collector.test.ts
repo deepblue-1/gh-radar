@@ -501,6 +501,29 @@ describe("오류 처리", () => {
     expect(h.deps.db.leaseRelease).toHaveBeenCalledWith(HOLDER);
   });
 
+  it("IN-01 강제 재발급 뒤 10분이 지난 무관한 토큰 무효는 다시 1번 재발급하고 계속 · 그 직후 또 무효면 종료 1", async () => {
+    let lateFails = 0;
+    const h = harness({
+      stopAt: MON_10 + 30 * 60_000,
+      page: (q, { now, flowN }) => {
+        if (flowOf(q) !== "feed") return [];
+        // 첫 전체 최신 1번 무효 → 재발급 → 정상 … 20분 뒤 전체 최신 2번 연속 무효
+        if (flowN === 1) throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        if (now - MON_10 >= 1_200_000 && lateFails < 2) {
+          lateFails += 1;
+          throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        }
+        return [row(OLD_SRNO)];
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "token_invalid" });
+    expect(lateFails).toBe(2);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(2);
+    expect(h.now() - MON_10).toBeGreaterThanOrEqual(1_200_000);
+    expect(h.now() - MON_10).toBeLessThan(1_210_000);
+  });
+
   it("모르는 msg_cd 연속 5번 → 한도 의심 표시 기록 · error · 종료 1", async () => {
     const h = harness({
       stopAt: MON_10 + 60_000,
