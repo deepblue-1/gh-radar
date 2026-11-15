@@ -46,8 +46,6 @@ export interface PageUntilSeenOptions {
   /** 지난 실행까지 본 가장 큰 일련번호. null 이면 maxPages 까지 */
   lastSeenSrno: string | null;
   maxPages: number;
-  /** 이 시각(epoch ms)보다 오래 쓰인 행에 닿으면 멈춘다 */
-  minWrittenAt?: number;
 }
 
 export interface PageUntilSeenResult {
@@ -137,20 +135,10 @@ export async function fetchNewsTitlePage(
   return Array.isArray(body.output) ? (body.output as KisNewsTitleRow[]) : [];
 }
 
-/** data_dt `YYYYMMDD` + data_tm `HHMMSS` (KST) → epoch ms. 모양이 틀리면 NaN */
-function writtenAtMs(row: KisNewsTitleRow): number {
-  const d = row.data_dt;
-  const t = row.data_tm;
-  if (!/^\d{8}$/.test(d) || !/^\d{6}$/.test(t)) return Number.NaN;
-  return Date.parse(
-    `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}T${t.slice(0, 2)}:${t.slice(2, 4)}:${t.slice(4, 6)}+09:00`,
-  );
-}
-
 /**
  * 최신 → 과거로 쪽을 넘기며 마지막 본 일련번호에 닿을 때까지 받는다.
  * 멈춤: ① 쪽에 마지막 본 번호 이하가 있음(reachedSeen) ② 빈 쪽 ③ 새 행이 없는 쪽(같은 쪽 되풀이 · stalled) ·
- * ④ minWrittenAt 보다 오래된 행 ⑤ maxPages(capped).
+ * ④ maxPages(capped).
  * 일련번호는 같은 길이(19자리) 숫자 문자열이라 문자열 비교로 크기를 본다.
  */
 export async function pageUntilSeen(
@@ -170,10 +158,8 @@ export async function pageUntilSeen(
 
     let added = 0;
     let reachedSeen = false;
-    let reachedOld = false;
     for (const r of page) {
       if (opts.lastSeenSrno !== null && r.cntt_usiq_srno <= opts.lastSeenSrno) reachedSeen = true;
-      if (opts.minWrittenAt !== undefined && writtenAtMs(r) < opts.minWrittenAt) reachedOld = true;
       if (seen.has(r.cntt_usiq_srno)) continue;
       seen.add(r.cntt_usiq_srno);
       rows.push(r);
@@ -181,7 +167,6 @@ export async function pageUntilSeen(
     }
     if (reachedSeen) return { rows, pages, reachedSeen: true, capped: false, stalled: false };
     if (added === 0) return { rows, pages, reachedSeen: false, capped: false, stalled: true };
-    if (reachedOld) return { rows, pages, reachedSeen: false, capped: false, stalled: false };
     cursor = cursorOf(page[page.length - 1]);
   }
   return { rows, pages, reachedSeen: false, capped: true, stalled: false };

@@ -232,16 +232,6 @@ describe("pageUntilSeen — 마지막 본 일련번호까지 되감기", () => {
     expect(r.rows).toHaveLength(40);
   });
 
-  it("minWrittenAt 보다 오래된 행에 닿으면 멈춘다", async () => {
-    const { fetchPage } = pager([PAGE1, PAGE2, PAGE2]);
-    // PAGE2 끝 근처 20:15:12 KST 보다 뒤 — PAGE2 에서 닿는다
-    const minWrittenAt = Date.parse("2026-11-11T20:20:00+09:00");
-    const r = await pageUntilSeen(fetchPage, { lastSeenSrno: null, maxPages: 10, minWrittenAt });
-    expect(r.pages).toBe(2);
-    expect(r.capped).toBe(false);
-    expect(r.reachedSeen).toBe(false);
-  });
-
   it("마지막 본 번호가 null 이면 maxPages 까지", async () => {
     const pages = [0, 1, 2, 3, 4].map((p) => [row(`20261111${String(200000 - p * 100)}0000${p}`)]);
     const { fetchPage } = pager(pages);
