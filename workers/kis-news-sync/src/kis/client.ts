@@ -4,7 +4,11 @@ import axios, { isAxiosError, type AxiosInstance } from "axios";
  * Phase 41-13 — 한투(KIS) REST 클라이언트 · 오류 분류 · 안전 로그 필드.
  *
  * - D-01 · SC-5: 한투 오류는 HTTP 상태가 아니라 본문 `msg_cd` 로 가른다(41-RESEARCH 오류 코드 표 —
- *   상태값은 미확인). 아는 코드가 없을 때만 상태(0 · 5xx · 429)로 본다.
+ *   상태값은 미확인). `msg_cd` 가 아예 없을 때만 상태(0 · 5xx · 429)로 본다.
+ * - 모르는 `msg_cd` 는 상태와 무관하게 `unknown` 이다 — 업무 코드가 있다는 것은 게이트웨이가 요청을 해석해
+ *   거절했다는 뜻이라 일시 장애로 보지 않는다. 한투는 업무 오류를 HTTP 500 으로 주는 일이 흔해서, 5xx 를 먼저 보면
+ *   일일 한도 소진 같은 아직 모르는 코드가 영구 「transient」 로 물러서기만 하며 20:00 까지 두드린다(운영 기준 ④).
+ *   `unknown` 은 수집기가 연속 5번이면 한도 의심 표시 · 종료 1 로 바꾼다.
  * - 로그 · 오류 객체에 axios 요청 설정(`config` — 인증 헤더 · 토큰 발급 본문의 앱키 · 시크릿을 품는다)을
  *   싣지 않는다. 실패 로그는 반드시 `safeErrorFields(err)` 의 네 필드(상태 · msg_cd · msg1 · 종류)만 쓴다.
  *   `KisApiError` 는 원래 axios 오류를 `cause` 로 붙이지 않는다 — 붙이면 로거가 config 를 따라 내려간다.
@@ -18,7 +22,8 @@ export const KIS_TOKEN_PATH = "/oauth2/tokenP";
 
 /**
  * rate_limit = 초당 거래건수 초과(EGW00201) · token_invalid = 토큰 무효/만료(EGW00121 · EGW00123) ·
- * token_rate = 토큰 발급 과다(EGW00133) · transient = 5xx · 네트워크 · unknown = 그 밖 모르는 코드
+ * token_rate = 토큰 발급 과다(EGW00133) · transient = msg_cd 없는 5xx · 네트워크 ·
+ * unknown = 모르는 msg_cd(상태 무관) · msg_cd 없는 그 밖 상태
  */
 export type KisErrorKind = "rate_limit" | "token_invalid" | "token_rate" | "transient" | "unknown";
 
@@ -43,6 +48,8 @@ const MSG1_MAX = 200;
 export function classifyKisError(status: number, msgCd: string | null | undefined): KisErrorKind {
   const known = msgCd ? KIND_BY_MSG_CD[msgCd] : undefined;
   if (known) return known;
+  // 업무 코드가 있으면 상태와 무관하게 한도 의심 후보 — 5xx 라고 transient 로 두지 않는다(운영 기준 ④)
+  if (msgCd) return "unknown";
   if (status === 0 || status >= 500) return "transient";
   if (status === 429) return "rate_limit";
   return "unknown";

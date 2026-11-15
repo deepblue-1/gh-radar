@@ -70,6 +70,11 @@ describe("classifyKisError — msg_cd 로 가른다", () => {
     expect(classifyKisError(200, "OPSQ0001")).toBe("unknown");
   });
 
+  it.each([500, 502, 503])("WR-02 상태 %i 라도 모르는 msg_cd 가 있으면 unknown(한도 의심 후보 · transient 아님)", (status) => {
+    expect(classifyKisError(status, "EGW99999")).toBe("unknown");
+    expect(new KisApiError(status, "OPSQ0001", "모르는 오류").kind).toBe("unknown");
+  });
+
   it("아는 msg_cd 는 상태값보다 먼저 본다(500 + EGW00201 → rate_limit)", () => {
     expect(classifyKisError(500, "EGW00201")).toBe("rate_limit");
   });

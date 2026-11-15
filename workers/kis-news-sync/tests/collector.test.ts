@@ -459,6 +459,20 @@ describe("오류 처리", () => {
     expect(h.logs.filter((l) => l.level === "error")).toHaveLength(1);
   });
 
+  it("WR-02 HTTP 500 과 함께 온 모르는 msg_cd 연속 5번도 한도 의심 · 종료 1(일시 장애로 물러서며 두드리지 않는다)", async () => {
+    const h = harness({
+      stopAt: MON_10 + 600_000,
+      targets: () => targetsOf(codes(10)),
+      page: () => {
+        throw new KisApiError(500, "EGW99999", "모르는 한도 오류");
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "quota_suspected" });
+    expect(h.calls).toHaveLength(5);
+    expect(h.deps.db.strikes.record).toHaveBeenCalledTimes(1);
+  });
+
   it("모르는 msg_cd 중간에 성공이 있으면 연속 수 0 으로", async () => {
     const h = harness({
       stopAt: MON_10 + 20_000,
