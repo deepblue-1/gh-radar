@@ -13,6 +13,8 @@
  *
  * ③ 새 글 첫 발견 — 코드별 첫 응답은 기준선이다(이미 있던 글은 새 글이 아니다). 그 뒤 응답에 처음 보인 id 만
  *   `firstSeen` 에 그 시각을 적는다. `STOCK_FEED_NEW_MS`(돌파 강조와 같은 30초)가 지난 기록은 다음 응답 때 지운다.
+ *   단 수집 전(`collectedAt: null`) 응답은 기준선이 아니고, 작성 시각이 `STOCK_FEED_FRESH_PUBLISHED_MS` 보다 오래된 글은
+ *   처음 보여도 새 글이 아니다 — 첫 종목별 수집 · 보충 수집이 메운 지난 글을 방금 뜬 재료로 칠하지 않는다(CR-60).
  *   `firstSeen` 은 바뀐 게 없으면 신원이 그대로다 — 강조 시계(`StockFeedProvider`)가 쓸데없이 다시 돌지 않게.
  *   강조 끝내기는 이 훅이 아니라 문맥의 1초 타이머 하나가 `isFeedItemNew` 로 다시 판정한다(돌파 강조 규칙 ⑤).
  *
@@ -65,6 +67,18 @@ export function feedBadgesOf(entry: StockFeedEntry | undefined): { disclosure: b
   return { disclosure, news };
 }
 
+/**
+ * 새 글로 칠할 수 있는 작성 시각의 최대 나이 — 이보다 오래된 글은 처음 보여도 새 글이 아니다(CR-60).
+ * 네이버 수집 주기(장중 3분 · 순환 9분)와 색인 지연을 넉넉히 덮고, 종목별 보충 수집이 메운 며칠 전 글은 거른다.
+ */
+export const STOCK_FEED_FRESH_PUBLISHED_MS = 30 * 60_000;
+
+/** 작성 시각이 `STOCK_FEED_FRESH_PUBLISHED_MS` 안인가. 시각을 못 읽으면 거짓(강조하지 않는 쪽). */
+export function isFreshlyPublished(publishedAt: string, now: number): boolean {
+  const t = Date.parse(publishedAt);
+  return Number.isFinite(t) && now - t < STOCK_FEED_FRESH_PUBLISHED_MS;
+}
+
 /** 새 글인가 — 처음 본 뒤 `STOCK_FEED_NEW_MS` 가 안 지났다. */
 export function isFeedItemNew(id: string, firstSeen: ReadonlyMap<string, number>, now: number): boolean {
   const t = firstSeen.get(id);
@@ -108,14 +122,22 @@ export function useStockFeedPolling(
       const writable = () => (next ??= new Map(firstSeen));
       for (const [id, t] of firstSeen) if (now - t >= STOCK_FEED_NEW_MS) writable().delete(id);
       for (const e of got) {
-        const ids = e.items.map((it) => it.id);
+        // 수집 전(`collectedAt: null`) 응답은 기준선이 아니다 — 첫 종목별 수집(D-06)이 메운 3일 치 기존 글이
+        // 한꺼번에 새 글로 강조된다(CR-60). 기준선은 수집한 뒤 첫 응답에서 잡는다.
+        if (e.collectedAt === null) {
+          seen.delete(e.code);
+          continue;
+        }
         const before = seen.get(e.code);
         if (before !== undefined) {
-          for (const id of ids) {
-            if (!before.has(id) && !(next ?? firstSeen).has(id)) writable().set(id, now);
+          for (const it of e.items) {
+            if (before.has(it.id) || (next ?? firstSeen).has(it.id)) continue;
+            // 종목별 보충 수집이 뒤늦게 메운 옛 글은 처음 보여도 새 글이 아니다(CR-60).
+            if (!isFreshlyPublished(it.publishedAt, now)) continue;
+            writable().set(it.id, now);
           }
         }
-        seen.set(e.code, new Set(ids));
+        seen.set(e.code, new Set(e.items.map((it) => it.id)));
       }
       if (next !== null) firstSeen = firstSeenRef.current = next;
       setState((prev) => {
