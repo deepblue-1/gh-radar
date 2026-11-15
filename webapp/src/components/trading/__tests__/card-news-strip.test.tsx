@@ -214,7 +214,8 @@ describe('CardNewsStrip', () => {
     expect(s.tagName).not.toBe('BUTTON');
     expect(s).toHaveAttribute('data-state', 'empty');
     expect(s.textContent).toBe(CARD_NEWS_EMPTY_TEXT);
-    expect(s.className).toContain('text-[var(--faint)]');
+    expect(s.className).toContain('text-[var(--muted-fg)]');
+    expect(s.className).not.toContain('text-[var(--faint)]');
     expect(document.querySelector('button')).toBeNull();
 
     rerender(withEntries(new Map([[CODE, entryOf([])]]), <CardNewsStrip code={CODE} stockName={NAME} />));

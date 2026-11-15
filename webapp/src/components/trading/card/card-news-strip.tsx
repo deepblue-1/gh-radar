@@ -14,7 +14,8 @@
  *   · 공급자 안 · 그 코드 첫 응답 전 → 글자 없는 같은 높이 자리(`data-state="pending"`) — 응답이 오며 카드가 출렁이지 않게.
  *   · 첫 응답 전인데 조회가 계속 실패(형식 밖 코드 포함) → 누를 수 없는 같은 높이 줄 「뉴스·공시를 불러오지 못했어요」
  *     (`data-state="error"` · IN-61). 폴링이 다시 시도해 응답이 오면 띠로 바뀐다.
- *   · 글 0건(수집 전 `collectedAt: null` 포함) → 누를 수 없는 빈 줄 「최근 3일 뉴스·공시 없음」(흐린 색).
+ *   · 글 0건(수집 전 `collectedAt: null` 포함) → 누를 수 없는 빈 줄 「최근 3일 뉴스·공시 없음」(보조 글자색 `--muted-fg` —
+ *     상태 문구라 비활성 `--faint`(흰 바탕 2.01 : 1) 대신 · 펼친 줄 빈 문구와 같은 색 · 41-UI-REVIEW Top Fix 3).
  *   · 띠에 보이는 공시 · 뉴스 id 가 새 글이면 띠 전체가 `--new-bg`. 강조 시계는 작업대 공급자의 1초 타이머 하나다
  *     (`useStockFeedIsNew`) — 이 부품이 따로 타이머를 걸지 않는다.
  *
@@ -109,7 +110,7 @@ export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
   }
   if (entry.items.length === 0) {
     return (
-      <div data-slot="card-news-strip" data-state="empty" className={cn(STRIP_BOX, 'text-[var(--faint)]')}>
+      <div data-slot="card-news-strip" data-state="empty" className={cn(STRIP_BOX, 'text-[var(--muted-fg)]')}>
         {CARD_NEWS_EMPTY_TEXT}
       </div>
     );
