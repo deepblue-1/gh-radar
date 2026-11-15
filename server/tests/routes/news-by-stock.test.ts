@@ -167,6 +167,25 @@ describe("GET /api/news/by-stock", () => {
     expect(args.p_per_source).toBe(stockFeedPerSource(20));
   });
 
+  it("days= (빈 값) → 기본 3일", async () => {
+    const { app, rpc } = setup();
+    const before = Date.now();
+    const res = await request(app).get("/api/news/by-stock?codes=012340&days=");
+    expect(res.status).toBe(200);
+    expect(Math.abs(Date.parse(rpcArgs(rpc).p_since as string) - (before - 3 * DAY_MS))).toBeLessThan(5_000);
+  });
+
+  it.each(["days=abc", "days=2.5", "limit=Infinity", "limit=1e400"])(
+    "정수가 아닌 %s → 400 INVALID_QUERY_PARAM · RPC 안 부름(잘라 맞추지 않는다 — IN-30)",
+    async (q) => {
+      const { app, rpc } = setup();
+      const res = await request(app).get(`/api/news/by-stock?codes=012340&${q}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("INVALID_QUERY_PARAM");
+      expect(rpc.mock.calls).toHaveLength(0);
+    },
+  );
+
   it("codes 101개 → 400 INVALID_QUERY_PARAM · RPC 안 부름", async () => {
     const { app, rpc } = setup();
     const codes = Array.from({ length: 101 }, (_, i) => String(100000 + i)).join(",");
