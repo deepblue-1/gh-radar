@@ -6,7 +6,7 @@ import type { NewsByStockResponse, StockFeedEntry, StockFeedItem, StockFeedKind 
 /**
  * Phase 41 Plan 07 Task 1 — 상따 카드 한 줄 띠 `CardNewsStrip`(D-18 · D-20 · 목업 ③ `.nstrip` · gh-trade 상따 1).
  *
- * 잠그는 것: 띠 = 첫 공시(배지 · 시각 · 회사명 걷은 제목) 「|」 첫 뉴스(배지 · 시각 · 제목) · 오른쪽 끝 「N건 ▾」(상한 「N건+」) ·
+ * 잠그는 것: 띠 = 첫 공시(배지 · 시각 · 회사명 걷은 제목) 「|」 첫 뉴스(배지 · 시각 · 제목) · 오른쪽 끝 「N건 ▾」(N = 보이는 줄 수 · 더 있으면 「N건+」) ·
  * 한 종류만이면 그 하나 · 누르면 최근 3일 목록 펼침(`FeedRows band="lc"` · 원 제목) · 다시 누르면 접힘 · 클릭이 부모로 번지지 않음 ·
  * 글 0건 = 누를 수 없는 빈 줄 · 첫 응답 전 = 글자 없는 같은 높이 자리 · 공급자 밖 = 없음 · 새 글 강조 `--new-bg` ·
  * 받은 순서에서 고를 뿐 재정렬하지 않음(D-14).
@@ -121,14 +121,25 @@ describe('CardNewsStrip', () => {
     expect(within(s).getByText('4건 ▾')).toBeInTheDocument();
   });
 
-  it('상한에 닿은 묶음(truncated)은 「N건+ ▾」', () => {
-    render(
+  it('N 은 펼쳐 보이는 줄 수 — 상한에 닿았거나(truncated) 서버 count 가 더 크면 「N건+ ▾」(WR-62)', () => {
+    const { rerender } = render(
       withEntries(
         new Map([[CODE, entryOf([NEWS, DISC], { count: 20, truncated: true })]]),
         <CardNewsStrip code={CODE} stockName={NAME} />,
       ),
     );
-    expect(within(strip()!).getByText('20건+ ▾')).toBeInTheDocument();
+    expect(within(strip()!).getByText('2건+ ▾')).toBeInTheDocument();
+
+    // 한투 25 + 네이버 10 처럼 상한엔 안 닿았어도 서버가 센 줄이 보이는 줄보다 많으면 「+」.
+    rerender(
+      withEntries(
+        new Map([[CODE, entryOf([NEWS, DISC], { count: 35, truncated: false })]]),
+        <CardNewsStrip code={CODE} stockName={NAME} />,
+      ),
+    );
+    expect(within(strip()!).getByText('2건+ ▾')).toBeInTheDocument();
+    fireEvent.click(strip()!);
+    expect(openArea()!.querySelectorAll('[data-slot="feed-row"]')).toHaveLength(2);
   });
 
   it('공시만 · 뉴스만이면 그 하나만 보이고 구분자 「|」 가 없다', () => {

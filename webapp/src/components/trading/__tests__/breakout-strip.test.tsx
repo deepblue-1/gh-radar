@@ -967,8 +967,9 @@ describe('BreakoutStrip — 행 선택 → 표 아래 뉴스·공시 (Phase 41 D
     fireEvent.click(rowEls()[0]!);
     fireEvent.click(rowEls()[1]!);
     expect(detail()!.getAttribute('aria-label')).toBe('삼성전자 뉴스·공시');
-    // 상한에 닿은 종목은 「n건+」
-    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 25건+');
+    // n 은 펼쳐 보이는 줄 수 · 상한에 닿았거나 서버 count 가 더 크면 「n건+」(WR-62)
+    expect(detail()!.textContent).toContain('최근 3일 뉴스·공시 1건+');
+    expect(detail()!.querySelectorAll('[data-slot="feed-row"]')).toHaveLength(1);
     expect(rowEls()[0]).not.toHaveAttribute('data-selected');
     expect(rowEls()[1]).toHaveAttribute('data-selected', 'true');
   });

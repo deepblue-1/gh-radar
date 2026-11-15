@@ -101,7 +101,7 @@ import {
 } from '@/lib/breakout-list';
 import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
 import { breakoutFeedKey, useBreakoutQuotes } from '@/lib/use-breakout-quotes';
-import { feedBadgesOf } from '@/lib/use-stock-feed';
+import { feedBadgesOf, feedCountText } from '@/lib/use-stock-feed';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -543,13 +543,14 @@ function FeedBadgesMini({ disclosure, news }: { disclosure: boolean; news: boole
 }
 
 /**
- * 표 아래 선택 종목의 글 목록(목업 `.detail`) — 「{종목명} 최근 3일 뉴스·공시 {n}건」(상한에 닿으면 「n건+」).
+ * 표 아래 선택 종목의 글 목록(목업 `.detail`) — 「{종목명} 최근 3일 뉴스·공시 {n}건」(n = 펼쳐 보이는 줄 수 · 더 있으면 「n건+」 · WR-62).
  * 강조 시계를 읽는 `FeedRows` 가 여기 있다 — 칩 · 표는 1초마다 다시 그려지지 않는다.
  */
 function BreakoutFeedDetail({ code, label }: { code: string; label: string }) {
   const entry = useStockFeedEntry(code);
   const failed = useStockFeedFailed(code);
-  const count = entry === undefined ? '' : ` ${entry.count}건${entry.truncated ? '+' : ''}`;
+  // 펼쳐 보이는 줄 수 · 더 있으면 「+」(WR-62).
+  const count = entry === undefined ? '' : ` ${feedCountText(entry)}`;
   return (
     <section
       data-slot="breakout-feed-detail"

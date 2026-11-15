@@ -5,7 +5,7 @@
  *
  * ① 무엇을 그리는가
  *   띠 = 가장 최근 공시 1건(「공시」 배지 · 시각 · 회사명을 걷은 제목) 「|」 가장 최근 뉴스 1건(「뉴스」 배지 · 시각 · 제목) ·
- *   오른쪽 끝 「N건 ▾」(출처별 상한에 닿았으면 「N건+」). 한 종류만 있으면 그 하나만 · 구분자 없음.
+ *   오른쪽 끝 「N건 ▾」(N = 펼쳐 보이는 줄 수 · 더 있으면 「N건+」 · WR-62). 한 종류만 있으면 그 하나만 · 구분자 없음.
  *   띠를 누르면 바로 아래로 최근 3일 글 전부(`FeedRows band="lc"` · 원 제목)가 펼쳐지고 「▴」 · 다시 누르면 접힌다.
  *   ★ 상따는 「공시 뜨자마자」 판단하는 화면이라 펼친 카드에서 재료가 한 줄로 바로 보여야 한다.
  *
@@ -44,6 +44,7 @@ import {
   useStockFeedIsNew,
 } from '@/components/trading/feed/stock-feed-context';
 import { formatFeedTime } from '@/lib/format-feed-time';
+import { feedCountText } from '@/lib/use-stock-feed';
 import { cn } from '@/lib/utils';
 
 export const CARD_NEWS_EMPTY_TEXT = '최근 3일 뉴스·공시 없음';
@@ -118,7 +119,8 @@ export function CardNewsStrip({ code, stockName }: CardNewsStripProps) {
   const news = entry.items.find((it) => it.kind === 'news');
   const fresh = (disc !== undefined && isNew(disc.id)) || (news !== undefined && isNew(news.id));
   const now = new Date();
-  const count = `${entry.count}건${entry.truncated ? '+' : ''} ${open ? '▴' : '▾'}`;
+  // 펼쳐 보이는 줄 수 · 더 있으면 「+」(WR-62).
+  const count = `${feedCountText(entry)} ${open ? '▴' : '▾'}`;
 
   const handleClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();

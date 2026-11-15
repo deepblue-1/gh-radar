@@ -97,6 +97,16 @@ export function feedBadgesOf(entry: StockFeedEntry | undefined): { disclosure: b
 }
 
 /**
+ * 「N건」 표기 — 화면이 실제로 펼쳐 보이는 줄 수(`items.length`)다(WR-62). 서버 `count`(출처별 상한 안에서 합친 줄 수)가
+ * 그보다 크거나 출처별 상한에 닿았으면(`truncated`) 더 있다는 뜻으로 「+」 를 붙인다 — 「35건」 이라 써 놓고 20줄만
+ * 보이는 일이 없게.
+ */
+export function feedCountText(entry: StockFeedEntry): string {
+  const more = entry.truncated || entry.count > entry.items.length;
+  return `${entry.items.length}건${more ? '+' : ''}`;
+}
+
+/**
  * 새 글로 칠할 수 있는 작성 시각의 최대 나이 — 이보다 오래된 글은 처음 보여도 새 글이 아니다(CR-60).
  * 네이버 수집 주기(장중 3분 · 순환 9분)와 색인 지연을 넉넉히 덮고, 종목별 보충 수집이 메운 며칠 전 글은 거른다.
  */
