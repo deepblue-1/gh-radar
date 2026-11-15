@@ -15,7 +15,8 @@ import { BUDGET_WARN_RATIO, budgetStateOf, kstDateString } from "./apiUsage.js";
  *   ① 임대 — `kis_news_lease_acquire(holder, 90초)`. 못 잡으면 다른 실행이 돌고 있다 → 한투 호출 0 · 종료 0
  *      (probe 는 임대 없이도 진행하되 토큰을 새로 받지 않는다). 30초마다 연장 · 거절되면 조용히 종료 0.
  *   ② 예산 — `api_usage` `kis_news_title`(KST 날짜) 가 자체 상한 이상이면 한투를 부르지 않고 종료 0.
- *   ③ 탐침 — 오늘 한도 의심 표시가 있으면 전체 최신 1쪽 단독 탐침 1건 → 실패면 종료 1 · 성공해야 수집 재개.
+ *   ③ 탐침 — 오늘 한도 의심 표시가 있으면 전체 최신 1쪽 단독 탐침 1건 → 실패면 종료 1 · 성공해야 수집 재개
+ *      (토큰 무효면 강제 재발급 1번 뒤 탐침 1건 더 — 한도 신호가 아니다).
  *   ④ 토큰 — DB 토큰 재사용 · 1시간 전 재발급(41-13). 발급은 임대 보유자만 · 실패하면 61초 뒤 1번만 다시.
  *   ⑤ 모드 — probe(1쪽 들여오고 「probe ok」) · fast(빠른 창 루프) · slow(한 바퀴).
  *   ⑥ 루프(fast · 200ms 걸음) — 전체 최신 5초(마지막 본 글까지 최대 5쪽) · 공시 F · G 각 60초 1쪽(안전망) ·
@@ -164,7 +165,8 @@ class Collector {
   private nextLeaseAt = Number.POSITIVE_INFINITY;
   private nextFlushAt = Number.POSITIVE_INFINITY;
   private token = "";
-  private tokenForced = false;
+  /** 강제 재발급을 한 시각(없으면 null) — 그 뒤 또 무효면 종료 1 */
+  private tokenForcedAt: number | null = null;
   private meta: ReadonlyMap<string, StockMeta> = new Map();
   /** 전체 최신에서 본 가장 큰 일련번호(되감기 기준) */
   private lastSeen: string | null = null;
@@ -269,22 +271,45 @@ class Collector {
 
     // ③ 한도 의심 표시가 있으면 단독 탐침 1건
     if (strikes > 0) {
+      const failed = await this.quotaProbe(strikes);
+      if (failed) return failed;
+    }
+
+    return mode === "slow" ? this.runSlow(st.cleanupDate) : this.runFast(t0);
+  }
+
+  /**
+   * ③ 단독 탐침 — 성공이면 null(수집 재개) · 실패면 종료 1.
+   * 토큰 무효(EGW00121 · EGW00123)는 한도 신호가 아니다 — 강제 재발급 1번 뒤 탐침 1건만 더 한다(WR-04).
+   * 그러지 않으면 DB 토큰이 1시간 넘게 남아 있는 동안 매 깨움이 같은 무효 토큰으로 「탐침 실패」를 되풀이한다.
+   */
+  private async quotaProbe(strikes: number): Promise<CollectorExit | null> {
+    const { log } = this.d;
+    for (;;) {
       try {
         const raw = await this.call({}, "feed");
         await this.ingestFeed(raw);
         this.flows.feed.nextAt = this.now() + FEED_INTERVAL_MS;
         log.info({ strikesToday: strikes }, "quota probe ok — resuming collection");
+        return null;
       } catch (err) {
         if (err instanceof StopRun) throw err;
+        if (err instanceof KisApiError && err.kind === "token_invalid" && this.tokenForcedAt === null) {
+          this.tokenForcedAt = this.now();
+          log.warn(
+            { ...safeErrorFields(err), strikesToday: strikes },
+            "quota probe hit an invalid token — forcing one reissue and probing once more",
+          );
+          this.token = await this.obtainToken(true);
+          continue;
+        }
         log.warn(
           { ...safeErrorFields(err), strikesToday: strikes },
           "quota probe failed — stopping without retries (next run probes once again)",
         );
-        return { code: 1, reason: "quota_probe_failed" };
+        return { code: 1, reason: err instanceof KisApiError ? `quota_probe_failed_${err.kind}` : "quota_probe_failed" };
       }
     }
-
-    return mode === "slow" ? this.runSlow(st.cleanupDate) : this.runFast(t0);
   }
 
   // ── ⑥ fast ────────────────────────────────────────────────────────
@@ -517,11 +542,11 @@ class Collector {
         return;
       }
       case "token_invalid": {
-        if (this.tokenForced) {
+        if (this.tokenForcedAt !== null) {
           log.error(fields, "kis token invalid again after a forced reissue — stopping");
           throw new StopRun(1, "token_invalid");
         }
-        this.tokenForced = true;
+        this.tokenForcedAt = now;
         log.warn(fields, "kis token invalid — forcing one reissue");
         this.token = await this.obtainToken(true);
         return;

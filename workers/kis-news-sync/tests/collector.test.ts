@@ -231,7 +231,7 @@ describe("시작", () => {
       },
     });
     const r = await h.run();
-    expect(r.code).toBe(1);
+    expect(r).toEqual({ code: 1, reason: "quota_probe_failed_unknown" });
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0].flow).toBe("feed");
     expect(h.deps.db.strikes.record).not.toHaveBeenCalled();
@@ -244,6 +244,38 @@ describe("시작", () => {
     expect(h.calls[0].flow).toBe("feed");
     expect(h.calls.length).toBeGreaterThan(3);
     expect(has(h.logs, "info", /quota probe ok/)).toHaveLength(1);
+  });
+
+  it("WR-04 탐침이 토큰 무효면 강제 재발급 1번 뒤 탐침 1건 더 — 성공하면 수집 재개", async () => {
+    const h = harness({
+      strikes: 1,
+      stopAt: MON_10 + 10_000,
+      page: (q, { n }) => {
+        if (n === 1) throw new KisApiError(500, "EGW00123", "기간이 만료된 token 입니다.");
+        return flowOf(q) === "feed" ? [row(OLD_SRNO)] : [];
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 0, reason: "aborted" });
+    expect(h.calls.slice(0, 2).map((c) => c.flow)).toEqual(["feed", "feed"]);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(1);
+    expect(has(h.logs, "warn", /quota probe hit an invalid token/)).toHaveLength(1);
+    expect(has(h.logs, "info", /quota probe ok/)).toHaveLength(1);
+    expect(h.deps.db.strikes.record).not.toHaveBeenCalled();
+  });
+
+  it("WR-04 재발급 뒤 탐침도 토큰 무효면 종료 1(이유에 종류) · 탐침 2건 · 재발급 1번뿐", async () => {
+    const h = harness({
+      strikes: 1,
+      stopAt: MON_10 + 30_000,
+      page: () => {
+        throw new KisApiError(500, "EGW00121", "유효하지 않은 token 입니다.");
+      },
+    });
+    const r = await h.run();
+    expect(r).toEqual({ code: 1, reason: "quota_probe_failed_token_invalid" });
+    expect(h.calls).toHaveLength(2);
+    expect(vi.mocked(h.deps.kis.token).mock.calls.filter((c) => c[0].force)).toHaveLength(1);
   });
 
   it("시작 토큰 실패 → 61초 뒤 1회만 다시 · 또 실패면 종료 1 · 발급 요청 2번", async () => {
