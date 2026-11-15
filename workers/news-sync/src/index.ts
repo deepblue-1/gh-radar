@@ -33,9 +33,12 @@ import { runRetention } from "./retention.js";
  * Flow:
  *  1. loadConfig + service_role Supabase + Naver client 초기화, now 1회 캡처
  *  1b. readQuotaStrikes(오늘 KST) — 1 이상이면 5단계 전에 첫 선택 대상을 재시도 없이 단독 탐침 (quick-260915-il4)
- *  2. loadTargets (top_movers(code, rank) ∪ watchlists, stocks 마스터로 FK 검증)
+ *  2. loadTargets(supabase, now) (top_movers(code, rank) ∪ watchlists ∪ 화면 조회 등록 종목, stocks 마스터로 FK 검증)
+ *     · 등록 종목 = kis_news_targets.last_requested_at > now − 10분 중 급등 · 관심 밖 · ETP 아님,
+ *       최근 조회순 30개까지 hot 등급 (quick-261115-r4f)
+ *     · kis_news_targets 조회 실패는 warn 1줄 후 등록 없이(급등 · 관심만) 계속한다
  *  2b. planRun(now, NEWS_SYNC_MODE, records) — quick-260915-h3p
- *     · 평일 KST 08:00~20:02 = tiered: hot(rank≤30 ∪ 관심종목) 전부 + rest 3조 순환 버킷 1개
+ *     · 평일 KST 08:00~20:02 = tiered: hot(rank≤30 ∪ 관심종목 ∪ 등록 전용) 전부 + rest 3조 순환 버킷 1개
  *     · 그 외 시각 · 토·일 = full: 전체 대상
  *  3. checkBudget — 선택 대상 수 기준 예상 호출량 초과 시 cycle skip
  *  4. lastSeenMap 사전 로드(선택 대상) + firstCutoffIso (now 기준 7일)
@@ -72,7 +75,13 @@ export async function runNewsSyncCycle(): Promise<void> {
   // quick-260915-il4: 오늘 strike 수는 탐침 여부만 정한다 (사전 skip 없음).
   const strikesToday = await readQuotaStrikes(supabase, dateKst);
 
-  const records = await loadTargets(supabase);
+  const { records, registeredLookupError } = await loadTargets(supabase, now);
+  if (registeredLookupError !== null) {
+    log.warn(
+      { err: registeredLookupError },
+      "registered targets lookup failed — continuing without registered targets",
+    );
+  }
   const { mode, restBucket, selected, counts } = planRun(
     now,
     cfg.newsSyncMode,

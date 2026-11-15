@@ -3,7 +3,8 @@
  *
  * 설계:
  *  - 평일 장시간(KST 08:00~20:00)은 3분 단일 스케줄러가 호출한다. 매 실행이
- *      hot 등급 = 급등 상위 30(top_movers rank ≤ 30) ∪ 관심종목(watchlists) 전부
+ *      hot 등급 = 급등 상위 30(top_movers rank ≤ 30) ∪ 관심종목(watchlists)
+ *                 ∪ 화면 조회 등록 종목(등록 전용 · 최근 10분 · 30개까지 — quick-261115-r4f) 전부
  *    + rest 등급 = 나머지 top_movers 중 3조 순환 버킷 하나
  *    를 수집한다 → hot 은 3분, rest 는 9분 신선도.
  *  - 그 외 시각과 토·일은 전체 대상(full)을 수집한다.
@@ -109,6 +110,11 @@ export interface TargetRecord {
   rank: number | null;
   /** watchlists 에 1명 이상 담겨 있으면 true. */
   watched: boolean;
+  /**
+   * 화면 조회로 최근 10분 안 kis_news_targets 에 등록됐고 급등 · 관심종목에 없는
+   * 등록 전용 종목이면 true (quick-261115-r4f). 급등 · 관심에 있는 코드는 false.
+   */
+  registered: boolean;
 }
 
 export interface TargetCounts {
@@ -120,6 +126,8 @@ export interface TargetCounts {
   restTotal: number;
   /** 이번 실행에 선택된 rest 수 (full 이면 restTotal) */
   restSelected: number;
+  /** 입력 중 등록 전용(registered) 수 — 선택 전 */
+  registered: number;
 }
 
 export interface TargetSelection {
@@ -127,8 +135,12 @@ export interface TargetSelection {
   counts: TargetCounts;
 }
 
+/**
+ * hot = 관심종목 ∪ 등록 전용 ∪ 급등 rank ≤ 30. 급등 31위 이하는 화면에 떠 있어도 rest 다
+ * (등록 표시는 급등 · 관심 밖 코드에만 붙는다 — 비용 계산이 등록 전용 30개 기준).
+ */
 function isHot(t: TargetRecord): boolean {
-  return t.watched || (t.rank !== null && t.rank <= HOT_RANK_MAX);
+  return t.watched || t.registered || (t.rank !== null && t.rank <= HOT_RANK_MAX);
 }
 
 /**
@@ -147,10 +159,12 @@ export function selectRunTargets(
   const unique: TargetRecord[] = [];
   const hot: TargetRecord[] = [];
   const rest: TargetRecord[] = [];
+  let registered = 0;
   for (const t of records) {
     if (seen.has(t.code)) continue;
     seen.add(t.code);
     unique.push(t);
+    if (t.registered) registered++;
     (isHot(t) ? hot : rest).push(t);
   }
 
@@ -162,6 +176,7 @@ export function selectRunTargets(
         hot: hot.length,
         restTotal: rest.length,
         restSelected: rest.length,
+        registered,
       },
     };
   }
@@ -174,6 +189,7 @@ export function selectRunTargets(
       hot: hot.length,
       restTotal: rest.length,
       restSelected: restPicked.length,
+      registered,
     },
   };
 }

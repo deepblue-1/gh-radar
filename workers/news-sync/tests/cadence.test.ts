@@ -122,10 +122,11 @@ function fixtureRecords(): TargetRecord[] {
       name: `mover-${r}`,
       rank: r,
       watched: r === 5 || r === 70,
+      registered: false,
     });
   }
-  recs.push({ code: "900001", name: "watch-only-1", rank: null, watched: true });
-  recs.push({ code: "900002", name: "watch-only-2", rank: null, watched: true });
+  recs.push({ code: "900001", name: "watch-only-1", rank: null, watched: true, registered: false });
+  recs.push({ code: "900002", name: "watch-only-2", rank: null, watched: true, registered: false });
   return recs;
 }
 
@@ -175,10 +176,10 @@ describe("selectRunTargets — 등급 구성", () => {
 
   it("rank null (관심종목 아님) 은 rest 로 취급", () => {
     const code = "777777";
-    const recs: TargetRecord[] = [{ code, name: "n", rank: null, watched: false }];
+    const recs: TargetRecord[] = [{ code, name: "n", rank: null, watched: false, registered: false }];
     const b = stockBucket(code);
     const hit = selectRunTargets(recs, "tiered", b);
-    expect(hit.counts).toEqual({ total: 1, hot: 0, restTotal: 1, restSelected: 1 });
+    expect(hit.counts).toEqual({ total: 1, hot: 0, restTotal: 1, restSelected: 1, registered: 0 });
     expect(hit.selected.map((t) => t.code)).toEqual([code]);
     const miss = selectRunTargets(recs, "tiered", (b + 1) % REST_BUCKET_COUNT);
     expect(miss.selected).toEqual([]);
@@ -193,6 +194,22 @@ describe("selectRunTargets — 등급 구성", () => {
         expect(new Set(selected.map((t) => t.code)).size).toBe(selected.length);
       }
     }
+  });
+
+  it("registered 레코드는 rank null · watched false 여도 모든 버킷에서 hot (quick-261115-r4f)", () => {
+    const recs = fixtureRecords();
+    const code = "600001";
+    recs.push({ code, name: "reg-only", rank: null, watched: false, registered: true });
+    for (let b = 0; b < REST_BUCKET_COUNT; b++) {
+      const { selected, counts } = selectRunTargets(recs, "tiered", b);
+      expect(counts.hot).toBe(34);
+      expect(counts.registered).toBe(1);
+      expect(selected.filter((t) => t.code === code)).toHaveLength(1);
+      expect(selected.findIndex((t) => t.code === code)).toBeLessThan(34);
+    }
+    const full = selectRunTargets(recs, "full", null);
+    expect(full.counts.registered).toBe(1);
+    expect(full.counts.hot).toBe(34);
   });
 
   it("full 모드는 records 전체", () => {
@@ -222,9 +239,9 @@ describe("buildTargetRecords — 순수 조립", () => {
     );
     const byCode = new Map(recs.map((r) => [r.code, r]));
     expect(recs).toHaveLength(3);
-    expect(byCode.get("000001")).toEqual({ code: "000001", name: "one", rank: 7, watched: false });
-    expect(byCode.get("000002")).toEqual({ code: "000002", name: "two", rank: 12, watched: true });
-    expect(byCode.get("000003")).toEqual({ code: "000003", name: "three", rank: null, watched: true });
+    expect(byCode.get("000001")).toEqual({ code: "000001", name: "one", rank: 7, watched: false, registered: false });
+    expect(byCode.get("000002")).toEqual({ code: "000002", name: "two", rank: 12, watched: true, registered: false });
+    expect(byCode.get("000003")).toEqual({ code: "000003", name: "three", rank: null, watched: true, registered: false });
     expect(byCode.has("999999")).toBe(false);
     expect(byCode.has("888888")).toBe(false);
   });
@@ -235,7 +252,9 @@ describe("buildTargetRecords — 순수 조립", () => {
       [],
       [{ code: "000001", name: "one" }],
     );
-    expect(recs).toEqual([{ code: "000001", name: "one", rank: null, watched: false }]);
+    expect(recs).toEqual([
+      { code: "000001", name: "one", rank: null, watched: false, registered: false },
+    ]);
   });
 });
 

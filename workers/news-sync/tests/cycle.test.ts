@@ -83,10 +83,13 @@ vi.mock("../src/apiUsage", async (importOriginal) => {
 import { runNewsSyncCycle } from "../src/index";
 
 const TARGETS = [
-  { code: "000001", name: "알파", rank: 1, watched: false },
-  { code: "000002", name: "베타", rank: 2, watched: false },
-  { code: "000003", name: "감마", rank: 3, watched: false },
+  { code: "000001", name: "알파", rank: 1, watched: false, registered: false },
+  { code: "000002", name: "베타", rank: 2, watched: false, registered: false },
+  { code: "000003", name: "감마", rank: 3, watched: false, registered: false },
 ];
+
+/** 화면 조회 등록 전용 종목 1건 (quick-261115-r4f). */
+const REGISTERED = { code: "600001", name: "등록", rank: null, watched: false, registered: true };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -149,7 +152,10 @@ beforeEach(() => {
       }
     },
   );
-  h.loadTargets.mockResolvedValue(TARGETS.map((t) => ({ ...t })));
+  h.loadTargets.mockResolvedValue({
+    records: TARGETS.map((t) => ({ ...t })),
+    registeredLookupError: null,
+  });
   h.upsertNews.mockResolvedValue({ inserted: 0 });
   h.readQuotaStrikes.mockResolvedValue(0);
   h.recordQuotaStrike.mockResolvedValue(1);
@@ -280,5 +286,56 @@ describe("runNewsSyncCycle — 한도 소진 탐침 (quick-260915-il4)", () => {
     expect(s.quotaProbe).toBeNull();
     expect(s.quotaAbort).toBeNull();
     expect(s.errors).toBe(1);
+  });
+});
+
+describe("runNewsSyncCycle — 화면 조회 등록 종목 (quick-261115-r4f)", () => {
+  const LOOKUP_FAILED =
+    "registered targets lookup failed — continuing without registered targets";
+
+  function infoPayload(msg: string): Record<string, unknown> {
+    const call = h.rec.info.mock.calls.find((c) => c[1] === msg);
+    if (!call) throw new Error(`${msg} log not found`);
+    return call[0] as Record<string, unknown>;
+  }
+
+  function warnCalls(msg: string): unknown[][] {
+    return h.rec.warn.mock.calls.filter((c) => c[1] === msg);
+  }
+
+  it("C8 등록 전용 1건 — loadTargets(supabase, now) 결과대로 네이버 4건 · 「등록」 1건 수집", async () => {
+    h.loadTargets.mockResolvedValue({
+      records: [...TARGETS.map((t) => ({ ...t })), { ...REGISTERED }],
+      registeredLookupError: null,
+    });
+
+    await runNewsSyncCycle();
+
+    expect(h.loadTargets).toHaveBeenCalledTimes(1);
+    expect(h.loadTargets.mock.calls[0][1]).toBeInstanceOf(Date);
+    expect(h.get).toHaveBeenCalledTimes(4);
+    expect(getCallsFor("등록")).toBe(1);
+    expect(h.upsertNews).toHaveBeenCalledTimes(4);
+    expect(infoPayload("news-sync targets selected").registered).toBe(1);
+    expect(warnCalls(LOOKUP_FAILED)).toHaveLength(0);
+    expect(summary().targets).toBe(4);
+  });
+
+  it("C10 kis_news_targets 조회 실패 — warn 1회(err 실림) 후 급등 3종목 수집 · cycle complete", async () => {
+    h.loadTargets.mockResolvedValue({
+      records: TARGETS.map((t) => ({ ...t })),
+      registeredLookupError: "permission denied for table kis_news_targets",
+    });
+
+    await runNewsSyncCycle();
+
+    const w = warnCalls(LOOKUP_FAILED);
+    expect(w).toHaveLength(1);
+    expect(w[0][0]).toEqual({ err: "permission denied for table kis_news_targets" });
+    expect(h.get).toHaveBeenCalledTimes(3);
+    expect(h.upsertNews).toHaveBeenCalledTimes(3);
+    const s = summary();
+    expect(s.targets).toBe(3);
+    expect(s.errors).toBe(0);
   });
 });
