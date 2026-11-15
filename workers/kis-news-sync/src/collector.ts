@@ -148,6 +148,17 @@ class StopRun extends Error {
   }
 }
 
+/**
+ * 전면 정지(초당 초과 5번 → 60초) 중이라 한투를 부르지 않았다 — `call()` 이 던지고 `runFlow` 가 오류로 세지 않고 건너뛴다.
+ * 걸음 시작에서만 정지를 보면 같은 걸음의 나머지 흐름(F · G · 종목별)이 응답이 느릴 때 그대로 나간다(WR-01).
+ */
+class PausedError extends Error {
+  constructor(readonly until: number) {
+    super("kis calls paused");
+    this.name = "PausedError";
+  }
+}
+
 const FLOW_INTERVAL: Record<FlowName, number> = {
   feed: FEED_INTERVAL_MS,
   F: DISCLOSURE_SAFETY_MS,
@@ -349,23 +360,31 @@ class Collector {
           nextTokenAt = now + TOKEN_CHECK_MS;
           await this.refreshToken();
         }
-        await this.fastStep(now);
+        await this.fastStep();
       }
       await this.d.sleep(STEP_MS);
     }
   }
 
-  /** 한 걸음 — 예정 시각이 된 흐름을 우선순위(전체 최신 → F → G → 종목별)대로, 버킷이 허락하는 만큼 */
-  private async fastStep(now: number): Promise<void> {
+  /**
+   * 한 걸음 — 예정 시각이 된 흐름을 우선순위(전체 최신 → F → G → 종목별)대로, 버킷이 허락하는 만큼.
+   * 흐름마다 시각을 다시 읽는다 — 앞 흐름이 세운 전면 정지를 같은 걸음 안에서도 지키고,
+   * 다음 예정 · 물러섬을 걸음 시작의 낡은 시각이 아니라 그 흐름의 시각으로 잡는다(WR-01).
+   */
+  private async fastStep(): Promise<void> {
     for (const name of ["feed", "F", "G"] as const) {
+      const now = this.now();
+      if (now < this.pausedUntil) return;
       if (now < this.flows[name].nextAt || this.global.msUntilNext() > 0) continue;
-      await this.runFlow(name, now, () => (name === "feed" ? this.doFeed(FEED_MAX_PAGES_FAST) : this.doDisclosure(name)));
+      await this.runFlow(name, () => (name === "feed" ? this.doFeed(FEED_MAX_PAGES_FAST) : this.doDisclosure(name)));
     }
+    const now = this.now();
+    if (now < this.pausedUntil) return;
     if (now < this.flows.stock.nextAt || this.global.msUntilNext() > 0 || this.stockBucket.msUntilNext() > 0) return;
     const t = this.queue.next(now);
     if (!t) return;
     this.stockBucket.tryTake();
-    await this.runFlow("stock", now, () => this.doStock(t));
+    await this.runFlow("stock", () => this.doStock(t));
   }
 
   // ── ⑥ slow ────────────────────────────────────────────────────────
@@ -385,7 +404,7 @@ class Collector {
       await this.maintain(this.now());
       await this.waitUntil(Math.max(this.pausedUntil, this.flows.stock.nextAt));
       await this.acquire(this.stockBucket);
-      const ok = await this.runFlow("stock", this.now(), () => this.doStock(t));
+      const ok = await this.runFlow("stock", () => this.doStock(t));
       if (!ok && this.flows.stock.fails >= SLOW_STOCK_GIVE_UP) {
         log.warn(
           { fails: this.flows.stock.fails, done: round.indexOf(t) + 1, total: round.length },
@@ -409,7 +428,7 @@ class Collector {
 
   private async slowFlow(name: FlowName, fn: () => Promise<void>): Promise<void> {
     await this.waitUntil(this.pausedUntil);
-    await this.runFlow(name, this.now(), fn);
+    await this.runFlow(name, fn);
   }
 
   // ── 흐름 본체 ─────────────────────────────────────────────────────
@@ -476,6 +495,8 @@ class Collector {
   private async call(query: NewsTitleQuery, flow: FlowName): Promise<KisNewsTitleRow[]> {
     this.budgetGate();
     await this.acquire(this.global);
+    // 전면 정지는 보내기 직전에 본다 — 버킷 대기 · 앞 흐름 응답 사이에 정지가 섰을 수 있다(WR-01)
+    if (this.now() < this.pausedUntil) throw new PausedError(this.pausedUntil);
     this.d.db.usage.add(1);
     this.sinceFlush += 1;
     this.stats.calls += 1;
@@ -492,17 +513,26 @@ class Collector {
   }
 
   // ── 오류 처리 ─────────────────────────────────────────────────────
-  private async runFlow(name: FlowName, now: number, fn: () => Promise<void>): Promise<boolean> {
+  private async runFlow(name: FlowName, fn: () => Promise<void>): Promise<boolean> {
     const flow = this.flows[name];
+    const startedAt = this.now();
     try {
       await fn();
       flow.fails = 0;
-      flow.nextAt = now + FLOW_INTERVAL[name];
+      // 주기는 흐름 시작 기준(5초 · 60초 박자 유지)
+      flow.nextAt = startedAt + FLOW_INTERVAL[name];
       this.unknownStreak = 0;
       return true;
     } catch (err) {
       if (err instanceof StopRun) throw err;
-      await this.onError(name, err, now);
+      if (err instanceof PausedError) {
+        // 오류가 아니다 — 정지는 이미 error 로 남겼다. 정지가 풀린 뒤 다시 부른다
+        flow.nextAt = Math.max(flow.nextAt, err.until);
+        this.d.log.info({ flow: name, pausedUntil: new Date(err.until).toISOString() }, "flow skipped — KIS calls paused");
+        return false;
+      }
+      // 정지 시작 · 물러섬은 실패를 받은 시각 기준
+      await this.onError(name, err, this.now());
       return false;
     }
   }

@@ -446,6 +446,32 @@ describe("오류 처리", () => {
     expect(h.calls.filter((c) => c.at >= fifth + RATE_LIMIT_PAUSE_MS).length).toBeGreaterThan(0);
   });
 
+  it("WR-01 응답이 버킷 간격보다 느려도 — 전면 정지가 선 뒤 같은 걸음의 나머지 흐름도 부르지 않는다", async () => {
+    let sleep: (ms: number) => Promise<void> = async () => {};
+    const h = harness({
+      stopAt: MON_10 + 90_000,
+      targets: () => targetsOf(codes(50)),
+      page: async (q, { now }) => {
+        await sleep(300); // 한투 응답 300ms — 버킷 간격(5 rps = 200ms)보다 길다
+        if (flowOf(q) === "feed" && now < MON_10 + 20_000) {
+          throw new KisApiError(500, "EGW00201", "초당 거래건수를 초과하였습니다.");
+        }
+        return flowOf(q) === "feed" ? [row(OLD_SRNO)] : [];
+      },
+    });
+    sleep = h.deps.sleep;
+    const r = await h.run();
+    expect(r.code).toBe(0);
+    const pause = h.logs.find((l) => l.level === "error" && /pausing all KIS calls/.test(l.msg));
+    expect(pause).toBeDefined();
+    const fifthFeed = h.flows("feed")[4];
+    // 5번째 초당 초과 응답(+300ms) 뒤 60초 동안 어떤 흐름도 부르지 않는다
+    const pausedFrom = fifthFeed.at + 300;
+    const during = h.calls.filter((c) => c.at > fifthFeed.at && c.at < pausedFrom + RATE_LIMIT_PAUSE_MS);
+    expect(during).toHaveLength(0);
+    expect(h.calls.filter((c) => c.at >= pausedFrom + RATE_LIMIT_PAUSE_MS).length).toBeGreaterThan(0);
+  });
+
   it("토큰 무효 → 강제 재발급 1번 → 성공이면 계속", async () => {
     const h = harness({
       stopAt: MON_10 + 10_000,
