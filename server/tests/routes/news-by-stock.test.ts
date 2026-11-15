@@ -2,7 +2,8 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import { STOCK_FEED_MIN_DISCLOSURES, stockFeedPerSource, type NewsByStockResponse } from "@gh-radar/shared";
 import { createApp } from "../../src/app";
-import { NEWS_BY_STOCK_CACHE_TTL_MS, getNewsByStock } from "../../src/routes/news-by-stock";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { NEWS_BY_STOCK_CACHE_TTL_MS, getNewsByStock, newsByStockCacheSize } from "../../src/routes/news-by-stock";
 import { mockSupabase } from "../fixtures/supabase-mock";
 
 // ------------------------------------------------------------------
@@ -311,6 +312,135 @@ describe("GET /api/news/by-stock — 5초 캐시", () => {
     const p2 = getNewsByStock(supabase, ["005930", "012340"], 3, 20);
     await Promise.all([p1, p2]);
     expect(rpc.mock.calls).toHaveLength(1);
-    expect(await p2).toBe(await p1);
+    expect(await p2).toEqual(await p1);
+  });
+});
+
+// ------------------------------------------------------------------
+// IN-62 — 코드별 5초 캐시. 웹 작업대는 공용 돌파 코드 + 사용자별 카드 코드를 한 묶음으로 부른다 —
+// 묶음이 사용자마다 달라도 겹치는 코드는 RPC 를 나눠 쓰고, 빠진 코드만 RPC 1회로 모아 부른다.
+// 이 목은 요청한 코드를 그대로 돌려준다(호출마다 feed_at 을 바꿀 수 있다).
+// ------------------------------------------------------------------
+describe("GET /api/news/by-stock — 코드별 캐시(IN-62)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function echoSupabase(feedAts: (string | null)[] = ["2026-11-12T00:15:00.512+00:00"]) {
+    let call = 0;
+    const rpc = vi.fn(async (_fn: string, args: { p_codes: string[] }) => {
+      const feed_at = feedAts[Math.min(call, feedAts.length - 1)] ?? null;
+      call += 1;
+      return {
+        data: { feed_at, stocks: args.p_codes.map((code) => ({ code, collected_at: null, kis: [], naver: [] })) },
+        error: null,
+      };
+    });
+    return { supabase: { rpc } as unknown as SupabaseClient, rpc };
+  }
+  const codesOf = (rpc: ReturnType<typeof vi.fn>, i: number) => (rpc.mock.calls[i]![1] as { p_codes: string[] }).p_codes;
+
+  it("공용 코드 + 사용자별 코드(사용자 A: X,Y · 사용자 B: X,Z) → 둘째 RPC 는 Z 만 · X 는 나눠 쓴다", async () => {
+    const { supabase, rpc } = echoSupabase();
+    const a = await getNewsByStock(supabase, ["900001", "900002"], 3, 20);
+    const b = await getNewsByStock(supabase, ["900001", "900003"], 3, 20);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(codesOf(rpc, 0)).toEqual(["900001", "900002"]);
+    expect(codesOf(rpc, 1)).toEqual(["900003"]);
+    expect([...b.byCode.keys()]).toEqual(["900001", "900003"]);
+    expect(b.byCode.get("900001")).toBe(a.byCode.get("900001"));
+  });
+
+  it("요청 코드가 모두 캐시에 있으면(다른 집합 · 다른 순서여도) RPC 0회", async () => {
+    const { supabase, rpc } = echoSupabase();
+    await getNewsByStock(supabase, ["900001", "900002"], 3, 20);
+    await getNewsByStock(supabase, ["900003"], 3, 20);
+    const mixed = await getNewsByStock(supabase, ["900003", "900001"], 3, 20);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect([...mixed.byCode.keys()]).toEqual(["900003", "900001"]);
+  });
+
+  it("빠진 코드는 입력 순서로 RPC 1회에 모은다(캐시 적중 코드는 빠진다)", async () => {
+    const { supabase, rpc } = echoSupabase();
+    await getNewsByStock(supabase, ["900002"], 3, 20);
+    await getNewsByStock(supabase, ["900005", "900002", "900004", "900001"], 3, 20);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(codesOf(rpc, 1)).toEqual(["900005", "900004", "900001"]);
+  });
+
+  it("만료는 코드마다 — 5초 지난 코드만 다시 부른다(다시 부르면 그 RPC 가 등록도 한다)", async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    const { supabase, rpc } = echoSupabase();
+    await getNewsByStock(supabase, ["900001", "900002"], 3, 20);
+    now.mockReturnValue(t0 + 3_000);
+    await getNewsByStock(supabase, ["900002", "900003"], 3, 20); // 900003 만 새로(3초 시점)
+    expect(codesOf(rpc, 1)).toEqual(["900003"]);
+    now.mockReturnValue(t0 + NEWS_BY_STOCK_CACHE_TTL_MS + 1);
+    await getNewsByStock(supabase, ["900001", "900002", "900003"], 3, 20);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(codesOf(rpc, 2)).toEqual(["900001", "900002"]);
+    expect((rpc.mock.calls[2]![1] as { p_register: boolean }).p_register).toBe(true);
+  });
+
+  it("만료 칸은 다음 RPC 때 정리된다 — 코드가 매번 달라도 맵이 TTL 안에 부른 코드 수를 넘지 않는다", async () => {
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    const { supabase } = echoSupabase();
+    await getNewsByStock(supabase, ["900001", "900002", "900003"], 3, 20);
+    await getNewsByStock(supabase, ["900004"], 3, 20);
+    expect(newsByStockCacheSize(supabase)).toBe(4);
+    now.mockReturnValue(t0 + NEWS_BY_STOCK_CACHE_TTL_MS);
+    await getNewsByStock(supabase, ["900009"], 3, 20);
+    expect(newsByStockCacheSize(supabase)).toBe(1);
+  });
+
+  it("days · limit 이 다르면 같은 코드도 다른 칸", async () => {
+    const { supabase, rpc } = echoSupabase();
+    await getNewsByStock(supabase, ["900001"], 3, 20);
+    await getNewsByStock(supabase, ["900001"], 3, 5);
+    await getNewsByStock(supabase, ["900001"], 1, 20);
+    expect(rpc).toHaveBeenCalledTimes(3);
+  });
+
+  it("여러 RPC 결과를 섞으면 asOf 는 가장 오래된 계산 시각 · feedAt 은 가장 최근 값", async () => {
+    const t0 = Date.parse("2026-11-12T00:30:00.000Z");
+    vi.useFakeTimers({ toFake: ["Date"] }); // Date.now · new Date() 둘 다 — asOf 는 new Date() 로 만든다
+    try {
+      vi.setSystemTime(t0);
+      const { supabase } = echoSupabase(["2026-11-12T00:29:58.000+00:00", "2026-11-12T00:30:01.000+00:00"]);
+      await getNewsByStock(supabase, ["900001"], 3, 20);
+      vi.setSystemTime(t0 + 2_000);
+      const snap = await getNewsByStock(supabase, ["900002", "900001"], 3, 20);
+      expect(snap.asOf).toBe("2026-11-12T09:30:00.000+09:00");
+      expect(snap.feedAt).toBe("2026-11-12T09:30:01.000+09:00");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("빠진 코드의 RPC 가 실패하면 그 코드 칸만 지우고 적중 코드 칸은 남는다", async () => {
+    const { supabase, rpc } = echoSupabase();
+    await getNewsByStock(supabase, ["900001"], 3, 20);
+    rpc.mockImplementationOnce(async () => ({ data: null, error: { message: "boom" } }) as never);
+    await expect(getNewsByStock(supabase, ["900001", "900002"], 3, 20)).rejects.toEqual({ message: "boom" });
+    expect(newsByStockCacheSize(supabase)).toBe(1);
+    await getNewsByStock(supabase, ["900001", "900002"], 3, 20);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(codesOf(rpc, 2)).toEqual(["900002"]);
+  });
+
+  it("라우트 — 두 사용자 묶음이 다른 순서 · 다른 카드여도 응답은 각자 입력 순서 · 모양 그대로", async () => {
+    const { supabase, rpc } = echoSupabase();
+    const app = createApp({ supabase });
+    const a = await request(app).get("/api/news/by-stock?codes=900002,900001");
+    const b = await request(app).get("/api/news/by-stock?codes=900001,900003,900002");
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(codesOf(rpc, 1)).toEqual(["900003"]);
+    expect((a.body as NewsByStockResponse).stocks.map((s) => s.code)).toEqual(["900002", "900001"]);
+    const body = b.body as NewsByStockResponse;
+    expect(body.stocks.map((s) => s.code)).toEqual(["900001", "900003", "900002"]);
+    expect(body.stocks[1]).toEqual({ code: "900003", collectedAt: null, count: 0, truncated: false, items: [] });
+    expect(body.feedAt).toBe("2026-11-12T09:15:00.512+09:00");
   });
 });
