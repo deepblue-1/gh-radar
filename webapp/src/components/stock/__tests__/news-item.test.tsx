@@ -73,7 +73,7 @@ describe('FeedKindBadge', () => {
 });
 
 describe('NewsItem — 링크 있는 줄', () => {
-  it('새 창 링크(noopener noreferrer) · aria-label 「제목 원문 보기 (새 창)」', () => {
+  it('새 창 링크(noopener noreferrer) · aria-label 「종류 · 제목 원문 보기 (새 창)」 — 배지 종류가 읽힌다(UI-2)', () => {
     const row = renderRow(item());
     const link = within(row).getByRole('link');
     expect(link).toHaveAttribute('href', 'https://example.invalid/n1');
@@ -81,7 +81,7 @@ describe('NewsItem — 링크 있는 줄', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute(
       'aria-label',
-      '가람전자, 280억 규모 검사장비 공급계약 체결 원문 보기 (새 창)',
+      '뉴스 · 가람전자, 280억 규모 검사장비 공급계약 체결 원문 보기 (새 창)',
     );
     expect(row.querySelector('[data-slot="news-item-nolink"]')).toBeNull();
   });

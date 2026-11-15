@@ -1,6 +1,6 @@
 import type { StockFeedItem } from '@gh-radar/shared';
 import { formatNewsCardDate, formatNewsFullDate } from '@/lib/format-news-date';
-import { FeedKindBadge } from './feed-kind-badge';
+import { FEED_KIND_LABEL, FeedKindBadge } from './feed-kind-badge';
 
 /**
  * NewsItem — Phase 07 UI-SPEC §Component Inventory · Phase 41 D-16 · D-20(목업 ① A).
@@ -13,6 +13,7 @@ import { FeedKindBadge } from './feed-kind-badge';
  *
  * - 제목 앞에 「공시」/「뉴스」 배지(`FeedKindBadge`).
  * - 원문 링크(`url`)가 있는 줄만 `<a target="_blank" rel="noopener noreferrer">` (T-02 tabnabbing 방어) + 「↗」.
+ *   링크 접근 이름은 「{종류} · {제목} 원문 보기 (새 창)」 — `aria-label` 이 안쪽 배지를 덮어 종류가 안 읽히지 않게.
  *   링크가 없는 줄(공시 · 네이버에 아직 없는 한투 뉴스)은 제목이 링크 아닌 글자(`news-item-nolink`)이고 「↗」 가 없다.
  * - 자료원 이름은 항상 보인다 — PC 는 자료원 열, 폰은 그 열이 숨는 대신 제목 아래 보조 줄(`news-item-src-sub`).
  * - `{article.title}` · `{article.source}` 는 React text escape 만 사용 — raw HTML 주입 API 금지 (T-03 XSS)
@@ -51,7 +52,8 @@ export function NewsItem({ article, variant }: NewsItemProps) {
             href={article.url ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`${article.title} 원문 보기 (새 창)`}
+            // 접근 이름이 안쪽 배지 글자를 덮으므로 종류(「뉴스」 · 「공시」)를 앞에 넣는다(UI-REVIEW Top Fix 2).
+            aria-label={`${FEED_KIND_LABEL[article.kind]} · ${article.title} 원문 보기 (새 창)`}
             className={`${titleClass} hover:text-[var(--primary)]`}
           >
             {badge}

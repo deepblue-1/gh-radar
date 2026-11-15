@@ -16,7 +16,9 @@ export interface FeedKindBadgeProps {
   className?: string;
 }
 
-const FULL_LABEL: Record<StockFeedKind, string> = { disclosure: '공시', news: '뉴스' };
+/** 줄 종류의 전체 이름 — 배지 글자 · 한 글자 배지의 `aria-label` · 링크 줄 접근 이름(news-item)이 같이 쓴다. */
+export const FEED_KIND_LABEL: Record<StockFeedKind, string> = { disclosure: '공시', news: '뉴스' };
+const FULL_LABEL = FEED_KIND_LABEL;
 const MINI_LABEL: Record<StockFeedKind, string> = { disclosure: '공', news: '뉴' };
 
 const KIND_COLOR: Record<StockFeedKind, string> = {
