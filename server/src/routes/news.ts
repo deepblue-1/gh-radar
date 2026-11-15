@@ -9,6 +9,7 @@ import {
   extractSourcePrefix,
   mergeStockFeed,
   stockFeedPerSource,
+  SAME_ARTICLE_WINDOW_MS,
   type StockFeedItem,
   type StockFeedRpcResult,
   type StockFeedRpcStock,
@@ -49,23 +50,23 @@ function isRpcResult(data: unknown): data is StockFeedRpcResult {
 }
 
 /**
- * 한 종목의 합친 목록(최신순 최대 limit 줄) — 종목 뉴스 조회 · 새로고침 응답이 같이 쓴다.
- * - D-05: 종목 상세 조회는 수집 대상으로 등록하지 않는다(`p_register: false` — 등록은 묶음 조회만).
- * - D-14: 합치기는 shared `mergeStockFeed` 하나(묶음 조회 · 홈과 같은 결과).
- * - `before`(무한 스크롤 커서): RPC 가 출처별로 `< before` 로 거르고, 합친 뒤에도 `publishedAt < before` 만 남긴다.
+ * 종목 목록의 출처별 상한 = 묶음 조회 상한의 2배(WR-31). 한 출처의 글이 몰려 짝의 반쪽이 상한 밖으로 밀리면
+ * 남은 반쪽이 홀로 나왔다가 다음 쪽에서 나머지 반쪽이 또 나온다(같은 기사 두 줄) — 여유를 넓혀 그 경우를 줄인다.
  */
-async function loadMergedFeed(
+const LIST_PER_SOURCE_FACTOR = 2;
+
+/** RPC 한 번 → 요청 종목의 원 행(한투 · 네이버). 모양 위반은 500 으로 드러낸다. */
+async function fetchStockRows(
   supabase: SupabaseClient,
   code: string,
-  opts: { days: number; limit: number; before?: string },
-): Promise<StockFeedItem[]> {
-  const { days, limit, before } = opts;
+  args: { since: string; before: string | null; perSource: number },
+): Promise<StockFeedRpcStock> {
   const { data, error } = await supabase.rpc("stock_feed_by_codes", {
     p_codes: [code],
-    p_since: new Date(Date.now() - days * DAY_MS).toISOString(),
-    p_per_source: stockFeedPerSource(limit),
+    p_since: args.since,
+    p_per_source: args.perSource,
     p_register: false,
-    p_before: before ?? null,
+    p_before: args.before,
   });
   if (error) throw error;
   if (!isRpcResult(data)) {
@@ -73,8 +74,53 @@ async function loadMergedFeed(
   }
   const stock = data.stocks.find((s) => s.code === code);
   if (!stock) throw new Error(`stock_feed_by_codes 모양 위반 — 요청 코드 ${code} 가 결과에 없다`);
-  const cutoff = before ? Date.parse(before) : Number.POSITIVE_INFINITY;
-  return mergeStockFeed(stock.kis, stock.naver)
+  return stock;
+}
+
+/** 같은 원 행이 두 번 오면 한 번만(한투 srno · 네이버 id). */
+function uniqueBy<T>(rows: readonly T[], keyOf: (r: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    const k = keyOf(r);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
+ * 한 종목의 합친 목록(최신순 최대 limit 줄) — 종목 뉴스 조회 · 새로고침 응답이 같이 쓴다.
+ * - D-05: 종목 상세 조회는 수집 대상으로 등록하지 않는다(`p_register: false` — 등록은 묶음 조회만).
+ * - D-14: 합치기는 shared `mergeStockFeed` 하나(묶음 조회 · 홈과 같은 결과).
+ * - `before`(무한 스크롤 커서): 합친 줄의 `publishedAt`(짝 중 이른 시각)이 `< before` 인 줄만 남긴다.
+ *   짝의 늦은 반쪽은 `before` 이후일 수 있어서(WR-31), 커서 쪽은 `[before, before + 짝 창)` 의 원 행도 한 번 더 받아
+ *   합치기에만 쓴다 — 홀로 남은 그 구간 행은 `< before` 거름에서 빠지므로 앞 쪽 줄이 다시 나오지 않고,
+ *   짝이 끊겨 링크 · 「공시」 배지가 떨어진 반쪽 줄이 나오지 않는다. 첫 RPC(`< before`)는 전과 같아 쪽이 덜 차지 않는다.
+ */
+async function loadMergedFeed(
+  supabase: SupabaseClient,
+  code: string,
+  opts: { days: number; limit: number; before?: string },
+): Promise<StockFeedItem[]> {
+  const { days, limit, before } = opts;
+  const since = new Date(Date.now() - days * DAY_MS).toISOString();
+  const perSource = stockFeedPerSource(limit) * LIST_PER_SOURCE_FACTOR;
+  if (!before) {
+    const stock = await fetchStockRows(supabase, code, { since, before: null, perSource });
+    return mergeStockFeed(stock.kis, stock.naver).slice(0, limit);
+  }
+  const cutoff = Date.parse(before);
+  const [page, mates] = await Promise.all([
+    fetchStockRows(supabase, code, { since, before, perSource }),
+    fetchStockRows(supabase, code, {
+      since: new Date(Math.max(cutoff, Date.parse(since))).toISOString(),
+      before: new Date(cutoff + SAME_ARTICLE_WINDOW_MS).toISOString(),
+      perSource,
+    }),
+  ]);
+  const kis = uniqueBy([...page.kis, ...mates.kis], (r) => r.srno);
+  const naver = uniqueBy([...page.naver, ...mates.naver], (r) => r.id);
+  return mergeStockFeed(kis, naver)
     .filter((item) => Date.parse(item.publishedAt) < cutoff)
     .slice(0, limit);
 }

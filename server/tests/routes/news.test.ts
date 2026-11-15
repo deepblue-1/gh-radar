@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
-import { stockFeedPerSource, type StockFeedItem } from "@gh-radar/shared";
+import { SAME_ARTICLE_WINDOW_MS, stockFeedPerSource, type StockFeedItem } from "@gh-radar/shared";
 import { createApp } from "../../src/app";
 
 // Phase 41 D-12 · D-14 · SC-5 — 종목 뉴스 조회 · 새로고침 응답 = RPC stock_feed_by_codes(등록 안 함) + shared mergeStockFeed.
@@ -12,7 +12,10 @@ type RpcResult = { data: unknown; error: unknown };
 
 function makeSupabase(
   overrides: Record<string, unknown> = {},
-  feed: RpcResult = { data: { feed_at: null, stocks: [] }, error: null },
+  feed: RpcResult | ((args: Record<string, unknown>) => RpcResult) = {
+    data: { feed_at: null, stocks: [] },
+    error: null,
+  },
 ) {
   // 간단한 chainable mock — 마스터 조회 · 쿨다운 · upsert 체인을 재현.
   return {
@@ -33,8 +36,15 @@ function makeSupabase(
       return chain;
     }),
     // incr_api_usage → 사용량 1 · stock_feed_by_codes → feed(목 결과)
-    rpc: vi.fn((name: string) =>
-      Promise.resolve(name === "stock_feed_by_codes" ? feed : { data: 1, error: null }),
+    // feed 가 함수면 RPC 인자마다 다른 결과(커서 쪽의 두 RPC — WR-31).
+    rpc: vi.fn((name: string, args: Record<string, unknown>) =>
+      Promise.resolve(
+        name === "stock_feed_by_codes"
+          ? typeof feed === "function"
+            ? feed(args)
+            : feed
+          : { data: 1, error: null },
+      ),
     ),
   };
 }
@@ -94,7 +104,7 @@ function appWith(supabase: unknown, naverClient?: unknown) {
 }
 
 describe("GET /api/stocks/:code/news — 합친 목록(D-12 · D-14)", () => {
-  it("rpc stock_feed_by_codes 1회 · p_codes [code] · p_register false(D-05 등록 안 함) · p_per_source = stockFeedPerSource(limit)", async () => {
+  it("rpc stock_feed_by_codes 1회 · p_codes [code] · p_register false(D-05 등록 안 함) · p_per_source = stockFeedPerSource(limit) × 2(WR-31)", async () => {
     const supabase = makeSupabase({ "stocks.single": { code: "005930" } }, feedOf([], []));
     const res = await request(appWith(supabase)).get("/api/stocks/005930/news?limit=30");
     expect(res.status).toBe(200);
@@ -102,7 +112,7 @@ describe("GET /api/stocks/:code/news — 합친 목록(D-12 · D-14)", () => {
     const args = feedArgs(supabase);
     expect(args.p_codes).toEqual(["005930"]);
     expect(args.p_register).toBe(false);
-    expect(args.p_per_source).toBe(stockFeedPerSource(30));
+    expect(args.p_per_source).toBe(stockFeedPerSource(30) * 2);
     expect(args.p_before).toBeNull();
     // 종목 상세 목록은 news_articles 를 직접 읽지 않는다(목록은 RPC 하나)
     const tables = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
@@ -120,7 +130,7 @@ describe("GET /api/stocks/:code/news — 합친 목록(D-12 · D-14)", () => {
     const body = res.body as StockFeedItem[];
     expect(body).toHaveLength(100);
     const args = feedArgs(supabase);
-    expect(args.p_per_source).toBe(stockFeedPerSource(100));
+    expect(args.p_per_source).toBe(stockFeedPerSource(100) * 2);
     const since = Date.parse(String(args.p_since));
     expect(Math.abs(since - (t0 - 7 * DAY_MS))).toBeLessThan(5_000);
     expect(body[0]).toEqual({
@@ -192,10 +202,85 @@ describe("GET /api/stocks/:code/news — 합친 목록(D-12 · D-14)", () => {
       `/api/stocks/005930/news?days=7&limit=100&before=${encodeURIComponent(before)}`,
     );
     expect(res.status).toBe(200);
-    expect(feedArgs(supabase).p_before).toBe(before);
+    // 쪽 RPC(< before) + 짝 RPC([before, before + 짝 창)) — 같은 행이 두 RPC 에서 와도 한 줄(WR-31)
+    expect(feedCalls(supabase)).toHaveLength(2);
+    expect(feedArgs(supabase, 0).p_before).toBe(before);
+    const mates = feedArgs(supabase, 1);
+    expect(mates.p_since).toBe(before);
+    expect(mates.p_before).toBe(new Date(Date.parse(before) + SAME_ARTICLE_WINDOW_MS).toISOString());
+    expect(mates.p_register).toBe(false);
     const body = res.body as StockFeedItem[];
     expect(body.map((i) => i.id)).toEqual([`naver:${naverRow(3).id}`]);
     for (const it of body) expect(Date.parse(it.publishedAt)).toBeLessThan(Date.parse(before));
+  });
+
+  describe("WR-31 커서 경계에서 한투 ↔ 네이버 짝이 끊기지 않는다", () => {
+    const before = "2026-11-12T01:00:00.000Z"; // 10:00 KST
+    const title = "가람전자, 300억 규모 단일판매 공급계약 체결 공시";
+    const kisRow = (writtenAt: string, receivedAt: string) => ({
+      ...kisDisclosure,
+      srno: "2026111210050012345",
+      title,
+      title_key: "가람전자300억규모단일판매공급계약체결공시",
+      written_at: writtenAt,
+      received_at: receivedAt,
+    });
+    const naverOf = (publishedAt: string) => ({ ...naverRow(7, publishedAt), title });
+    /** p_before 가 커서면 쪽 RPC(< before), 아니면 짝 RPC([before, before + 짝 창)). */
+    const byWindow = (page: { kis: unknown[]; naver: unknown[] }, mates: { kis: unknown[]; naver: unknown[] }) =>
+      (args: Record<string, unknown>) =>
+        args.p_before === before ? feedOf(page.kis, page.naver) : feedOf(mates.kis, mates.naver);
+
+    it("한투 반쪽(10:05)이 커서 뒤 · 네이버 반쪽(09:58)이 커서 앞 → 다음 쪽에 합친 한 줄(공시 배지 · 자료원 · 링크 유지)", async () => {
+      const k = kisRow("2026-11-12T01:05:00+00:00", "2026-11-12T01:05:03+00:00");
+      const n = naverOf("2026-11-12T00:58:00+00:00");
+      const supabase = makeSupabase(
+        { "stocks.single": { code: "005930" } },
+        byWindow({ kis: [], naver: [n] }, { kis: [k], naver: [] }),
+      );
+      const res = await request(appWith(supabase)).get(
+        `/api/stocks/005930/news?days=7&limit=100&before=${encodeURIComponent(before)}`,
+      );
+      expect(res.status).toBe(200);
+      const body = res.body as StockFeedItem[];
+      expect(body).toHaveLength(1);
+      expect(body[0]!.kind).toBe("disclosure");
+      expect(body[0]!.source).toBe("코스닥 공시");
+      expect(body[0]!.url).toBe(n.url);
+      expect(body[0]!.publishedAt).toBe("2026-11-12T09:58:00.000+09:00");
+    });
+
+    it("네이버 반쪽(10:05)이 커서 뒤 · 한투 반쪽(09:58)이 커서 앞 → 링크 없는 한투 홀로 줄이 아니라 합친 한 줄", async () => {
+      const k = kisRow("2026-11-12T00:58:00+00:00", "2026-11-12T00:58:04+00:00");
+      const n = naverOf("2026-11-12T01:05:00+00:00");
+      const supabase = makeSupabase(
+        { "stocks.single": { code: "005930" } },
+        byWindow({ kis: [k], naver: [] }, { kis: [], naver: [n] }),
+      );
+      const res = await request(appWith(supabase)).get(
+        `/api/stocks/005930/news?days=7&limit=100&before=${encodeURIComponent(before)}`,
+      );
+      expect(res.status).toBe(200);
+      const body = res.body as StockFeedItem[];
+      expect(body).toHaveLength(1);
+      expect(body[0]!.id).toBe(`kis:${k.srno}`);
+      expect(body[0]!.url).toBe(n.url);
+      expect(body[0]!.publishedAt).toBe("2026-11-12T09:58:00.000+09:00");
+    });
+
+    it("커서 뒤 구간의 홀로 행은 다음 쪽에 다시 나오지 않는다(앞 쪽에 이미 보인 줄)", async () => {
+      const lone = naverRow(8, "2026-11-12T01:30:00+00:00");
+      const older = naverRow(9, "2026-11-12T00:30:00+00:00");
+      const supabase = makeSupabase(
+        { "stocks.single": { code: "005930" } },
+        byWindow({ kis: [], naver: [older] }, { kis: [], naver: [lone] }),
+      );
+      const res = await request(appWith(supabase)).get(
+        `/api/stocks/005930/news?days=7&limit=100&before=${encodeURIComponent(before)}`,
+      );
+      expect(res.status).toBe(200);
+      expect((res.body as StockFeedItem[]).map((i) => i.id)).toEqual([`naver:${older.id}`]);
+    });
   });
 
   it("V-news-cursor-b before 미지정 → p_before null — 첫 페이지 동작 회귀 없음", async () => {
@@ -298,7 +383,7 @@ describe("POST /api/stocks/:code/news/refresh (V-14 · SC-5 새로고침은 네�
     expect(args.p_codes).toEqual(["005930"]);
     expect(args.p_register).toBe(false);
     expect(args.p_before).toBeNull();
-    expect(args.p_per_source).toBe(stockFeedPerSource(100));
+    expect(args.p_per_source).toBe(stockFeedPerSource(100) * 2);
     expect(Math.abs(Date.parse(String(args.p_since)) - (t0 - 7 * DAY_MS))).toBeLessThan(5_000);
     const body = res.body as StockFeedItem[];
     const disc = body.find((i) => i.kind === "disclosure");
