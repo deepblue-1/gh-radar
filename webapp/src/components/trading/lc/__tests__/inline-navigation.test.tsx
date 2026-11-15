@@ -156,23 +156,25 @@ describe('① Tab / Shift+Tab — 같은 그룹 안 값 행만 (D-14 · A5)', ()
     expect(editingId()).toBeNull();
   });
 
-  it('매수주문 공통 카드: 주문가격 Tab → 비교가격 → Tab = 종료(선매수 카드로 넘어가지 않는다)', async () => {
+  it('매수주문 공통 카드: 주문가격 Tab → 비교가격 → 최대금액 → Tab = 종료(선매수 카드로 넘어가지 않는다 · 최대금액 quick-261115-s1o)', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
     await user.click(row('lc-buy-order-price'));
     key(input('lc-buy-order-price')!, 'Tab');
     expect(editingId()).toBe('lc-buy-watch-price');
     key(input('lc-buy-watch-price')!, 'Tab');
+    expect(editingId()).toBe('lc-buy-cap-amount');
+    key(input('lc-buy-cap-amount')!, 'Tab');
     expect(editingId()).toBeNull();
   });
 
   it('카드 끝에서 편집이 끝나면 포커스는 그 행으로 돌아온다', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
-    await user.click(row('lc-buy-watch-price'));
-    key(input('lc-buy-watch-price')!, 'Tab');
+    await user.click(row('lc-buy-cap-amount'));
+    key(input('lc-buy-cap-amount')!, 'Tab');
     expect(editingId()).toBeNull();
-    expect(document.activeElement).toBe(row('lc-buy-watch-price'));
+    expect(document.activeElement).toBe(row('lc-buy-cap-amount'));
   });
 
   it('매도주문: 주문가격 → 비교가격 → 매도비율 → 매수잔량 → 잔량추적 → 체결 → 위험도 → 종료 (체크 값 행의 값만 · 기준선 행 건너뜀 · 매수취소로 넘어가지 않는다 · quick-261001-gjk · 위험도 quick-261103-n1s)', async () => {

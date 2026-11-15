@@ -679,12 +679,13 @@ describe('⑦ 리스트 구성 (D-19 · D-20 · D-21 · D-22) (옛 ⑩ · ⑫ �
     const rows = document.querySelectorAll<HTMLElement>(
       '[data-lc-field]:not([data-slot="lc-check-row"] [data-lc-field]), [data-slot="lc-check-row"], [data-slot="lc-derived"], [data-slot="lc-post-buy-trigger"], [data-slot="lc-auto-sell-sold"], [data-slot="lc-auto-sell-basis"]',
     );
-    // 값 행 18(공통 2 · 선매수 3 · 줄매수 3 · 후매수 3 — 최대 칸 폐지 gh-trade 261012 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
+    // 값 행 19(공통 3 — + 최대금액 quick-261115-s1o · 선매수 3 · 줄매수 3 · 후매수 3 — 최대 칸 폐지 gh-trade 261012 · 매도주문 4 · 취소 1 · 자동매도 2) + 3택 행 2(자동매도 방법 —
     // 마우스 기기는 「라벨 ─ 값 ›」 행과 카드 ≥992 세그먼트 행을 둘 다 마운트하고 컨테이너 쿼리로 하나만 보인다) +
     // 체크 행 8(+ 매수주문 버스트 취소 · quick-261003-rc4 · quick-261012-oif · + 매도 위험도 · quick-261103-n1s) + 발동잔량 1 +
-    // 자동매도 누적 · 기준 2 = 31 (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
-    expect(rows).toHaveLength(31);
-    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 22개 44px.
+    // 자동매도 누적 · 기준 2 = 32 (고정 스키마 — E1 zero-one-many · 매도 기준선 행은 quick-261012-oif 에서 지웠다).
+    expect(rows).toHaveLength(32);
+    // Phase 31 D-07 · D-05 — 수량 8칸(체크 값 행 2개는 체크 행 상자) + 발동잔량 = 56px 두 줄 9개 · 나머지 23개 44px(최대금액은
+    // 한 줄 만원 행 — quick-261115-s1o).
     const QTY_IDS = [
       'lc-buy-watch-qty',
       'lc-buy-min-trade-qty',
@@ -3676,6 +3677,70 @@ describe('☐위험도 — 매도주문 카드 (quick-261103-n1s · 결정 ①)'
   });
 });
 
+/*
+  quick-261115-s1o — 상따 매수 「최대금액」(gh-trade quick-261115-ptq · 만원 · 0 = 제한 없음 · 비트 54). 매수주문 카드 맨 아래
+  (버스트 취소 아래 · PC 매수 패널 맨 아래 · 마스터 흐림 묶음 동형). 판정 · 수량 조임은 전부 서버다.
+*/
+describe('최대금액 — 매수주문 카드 맨 아래 (quick-261115-s1o · gh-trade quick-261115-ptq)', () => {
+  const lastChanged = (): readonly string[] | undefined => {
+    const sets = sendMock.mock.calls.map(([m]) => m as RelayLcSetMsg).filter((m) => m?.t === 'lc.set');
+    return sets.at(-1)?.changed;
+  };
+
+  it('에코 0 → 「제한 없음」 · 에코 5000 → 「5,000만원」 · 매수주문 카드 마지막 값 행', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: echo({ buyCapAmount: 0 }) })} />);
+    expect(rowText('lc-buy-cap-amount')).toBe('제한 없음');
+    const ids = [...group('buy').querySelectorAll('[data-lc-field]')].map((el) => el.getAttribute('data-lc-field'));
+    expect(ids.at(-1)).toBe('lc-buy-cap-amount');
+    rerender(<LimitChaserForm {...props({ server: echo({ buyCapAmount: 5000 }) })} />);
+    expect(rowText('lc-buy-cap-amount')).toBe('5,000만원');
+  });
+
+  it('인라인 10000 확정 → lc.set 1건 · cfg buyCapAmount 10000 · changed 가 정확히 ["buyCapAmount"]', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: true }) })} />);
+    editInline('lc-buy-cap-amount', '10000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyCapAmount).toBe(10_000);
+    expect(lastChanged()).toEqual(['buyCapAmount']);
+  });
+
+  it('999,999,999 초과(10자리)는 입력되지 않는다(키패드 9자리 · PAD_MAX_DIGITS) → send 0 / 999,999,999 는 보낸다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: true }) })} />);
+    // 범위 상한 0 ~ 999,999,999 는 행 스펙(`LC_FIELD_RANGES.buyCapAmount`)이 잠근다 — 10자리는 편집기가 받지 않아 범위 문구까지
+    // 가지 않는다(수량 8칸 만원 칸과 같은 상한 · 같은 경로).
+    editInline('lc-buy-cap-amount', '1000000000');
+    expect(sentConfigs()).toHaveLength(0);
+    // 버퍼가 그대로(에코 0)라 Enter 는 보내지 않고 편집만 닫는다.
+    if (input('lc-buy-cap-amount') !== null) blurEditor('lc-buy-cap-amount');
+    editInline('lc-buy-cap-amount', '999999999');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyCapAmount).toBe(999_999_999);
+  });
+
+  it('매수주문 꺼진 에코에서도 행은 흐림 한 겹 · 편집 가능(확정 1건)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false }) })} />);
+    expect(opacityLayers(row('lc-buy-cap-amount'))).toBe(1);
+    editInline('lc-buy-cap-amount', '3000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig()).toMatchObject({ buyEnabled: false, buyCapAmount: 3000 });
+    expect(lastChanged()).toEqual(['buyCapAmount']);
+  });
+
+  it('에코와 같은 값 확정 → 프레임 없음', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: true, buyCapAmount: 5000 }) })} />);
+    editInline('lc-buy-cap-amount', '5000');
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('다른 칸 편집 제출도 에코 최대금액을 그대로 싣는다(비트 54 없음 — 서버가 바꾸지 않는다)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: true, buyCapAmount: 7000 }) })} />);
+    editInline('lc-buy-order-price', '131000');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyCapAmount).toBe(7000);
+    expect(lastChanged()).not.toContain('buyCapAmount');
+  });
+});
+
 describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 · 비활성 · 발화 에코 (quick-260929-vzy)', () => {
   const auto = (): HTMLElement => chk('후매수 자동');
   const precheckIn = (slot: string) => group(slot).querySelector('[data-slot="lc-group-precheck"]');
@@ -3810,15 +3875,16 @@ describe('후매수 자동 — 마스터 OFF 동반 끔 · 켜기 사전 검증 
 describe('매수주문 「버스트 취소」 체크 — 양방향 설정값 · 게이트 아님 (quick-261003-rc4 B10 · quick-261012-oif 이동)', () => {
   const burst = () => chk('매수주문 버스트 취소');
 
-  it('매수주문 카드 마지막 행 · id lc-extra-buy-burst-release · 기본 OFF · 줄매수 카드에는 없다', () => {
+  it('매수주문 카드 안 · 최대금액 바로 위 · id lc-extra-buy-burst-release · 기본 OFF · 줄매수 카드에는 없다', () => {
     render(<LimitChaserForm {...props()} />);
     const btn = document.getElementById('lc-extra-buy-burst-release') as HTMLElement;
     expect(btn).toBe(burst());
     expect(btn.getAttribute('role')).toBe('checkbox');
     expect(btn).toHaveAttribute('aria-checked', 'false');
-    // 매수주문 그룹 행 영역의 마지막 행이다(주문가격 · 비교가격 행 밑).
+    // 매수주문 그룹 행 영역의 끝에서 두 번째 행이다(주문가격 · 비교가격 행 밑 · 맨 아래 최대금액 quick-261115-s1o 위).
     const rows = Array.from((group('buy').querySelector('[data-slot="lc-group-rows"]') as HTMLElement).children);
-    expect(rows.at(-1)!.contains(btn)).toBe(true);
+    expect(rows.at(-2)!.contains(btn)).toBe(true);
+    expect(rows.at(-1)!.querySelector('[data-lc-field="lc-buy-cap-amount"]') ?? rows.at(-1)!.matches('[data-lc-field="lc-buy-cap-amount"]')).toBeTruthy();
     expect(group('extra-buy').contains(btn)).toBe(false);
   });
 

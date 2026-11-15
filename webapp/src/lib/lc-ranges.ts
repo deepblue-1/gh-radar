@@ -21,6 +21,8 @@
  *     `postBuyFloorAmount` · `sellWatchAmount` · `sellMinTradeAmount` · `cancelWatchAmount`) 0~999,999,999 — fbs 주석
  *     (만원 · Phase 31 · shared `LC_AMOUNT_MAX_MANWON`). relay `UIntSchema` 보다 좁다(키패드 9자리).
  *   - `sellRiskPct` 1~999 — shared `SELL_RISK_PCT_RANGE`(relay zod 와 같은 상수 · quick-261103-n1s). 늘 본다(웹은 늘 싣는다).
+ *   - `buyCapAmount` 0~999,999,999 — 상따 매수 최대금액(만원 · PC numBuyCapAmount Maximum 동형 · shared `LC_AMOUNT_MAX_MANWON` ·
+ *     quick-261115-s1o). relay zod `UIntSchema` 보다 좁다.
  * 나머지 값 필드(가격 · 주문 금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
  * 자동매도 3칸(`autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)의 숫자는 shared `LC_AUTO_SELL_RANGES` 가
  * 정본이다 — relay zod · superRefine 도 같은 상수를 읽는다(27-REVIEW IN-06).
@@ -71,6 +73,8 @@ export const LC_FIELD_RANGES = {
   cancelWatchAmount: { range: AMOUNT_MANWON },
   // 상따 매도 ☐위험도 기준 % 1~999(gh-trade quick-261103-l41 · quick-261103-n1s) — relay zod 와 같은 shared 상수.
   sellRiskPct: { range: SELL_RISK_PCT_RANGE },
+  // 상따 매수 최대금액(만원) 0~999,999,999 — PC numBuyCapAmount Maximum 동형 · relay zod UIntSchema 보다 좁다(quick-261115-s1o).
+  buyCapAmount: { range: AMOUNT_MANWON },
 } as const satisfies Partial<Record<keyof LimitChaserFormValues, LcFieldRange>>;
 
 /** 그 필드의 범위 — 표에 없으면(가격 · 주문 금액) `undefined`. */

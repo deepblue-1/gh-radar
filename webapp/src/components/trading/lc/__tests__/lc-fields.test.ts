@@ -209,9 +209,9 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(lcSummaryOf('sell', values({ sorSell: true }), srv())).toEqual(lcSummaryOf('sell', values({ sorSell: false }), srv()));
   });
 
-  it('매수주문 카드 마지막 행 = 체크 「버스트 취소」 · id lc-extra-buy-burst-release · 매수주문 게이트로 흐림 (quick-261012-oif)', () => {
+  it('매수주문 카드 안 체크 「버스트 취소」 · id lc-extra-buy-burst-release · 최대금액 바로 위 · 줄매수 카드에 없음 · 매수주문 게이트로 흐림 (quick-261012-oif)', () => {
     const g = LC_BUY_GROUPS.find((x) => x.slot === 'buy')!;
-    const row = g.rows.at(-1)!;
+    const row = g.rows.at(-2)!;
     expect(row).toEqual({
       kind: 'check',
       check: 'extraBuyBurstRelease',
@@ -222,6 +222,35 @@ describe('③ lcSummaryOf — 요약 항목 · 순서 · 꺼진 kv (UI-SPEC §3 
     expect(lcRowDimOf(g, row, values({ buyEnabled: true, extraBuyBurstRelease: true }))).toBe(false);
     const extra = LC_BUY_GROUPS.find((x) => x.slot === 'extra-buy')!;
     expect(extra.rows.some((r) => r.kind === 'check' && r.check === 'extraBuyBurstRelease')).toBe(false);
+  });
+
+  it('매수주문 카드 마지막 행 = 값 「최대금액」 (quick-261115-s1o · gh-trade quick-261115-ptq · PC 매수 패널 맨 아래 · 마스터 흐림 묶음 동형)', () => {
+    const g = LC_BUY_GROUPS.find((x) => x.slot === 'buy')!;
+    expect(g.rows.map((r) => (r.kind === 'check' ? r.checkId : r.kind === 'derived' ? null : r.id))).toEqual([
+      'lc-buy-order-price',
+      'lc-buy-watch-price',
+      'lc-extra-buy-burst-release',
+      'lc-buy-cap-amount',
+    ]);
+    const row = g.rows.at(-1)!;
+    expect(row).toMatchObject({
+      kind: 'value',
+      field: 'buyCapAmount',
+      id: 'lc-buy-cap-amount',
+      label: '최대금액',
+      unit: '만원',
+      sheetTitle: '매수 최대금액',
+      a11yPrefix: '매수',
+      range: { min: 0, max: 999_999_999 },
+    });
+    // 매수주문 스위치가 꺼지면 흐림(편집은 막지 않는다 — 흐림은 표시만).
+    expect(lcRowDimOf(g, row, values({ buyEnabled: false }))).toBe(true);
+    expect(lcRowDimOf(g, row, values({ buyEnabled: true }))).toBe(false);
+    // 0 = 「제한 없음」 · 그 밖 = 기본 「{값}만원」(null).
+    expect(lcValueTextOf('buyCapAmount', values({ buyCapAmount: 0 }))).toBe('제한 없음');
+    expect(lcValueTextOf('buyCapAmount', values({ buyCapAmount: 10_000 }))).toBeNull();
+    // Tab 순서 — 주문가격 · 비교가격 · 최대금액(체크 행은 건너뛴다).
+    expect(lcNavigableRows('buy').map((r) => r.field)).toEqual(['buyOrderPrice', 'buyWatchPrice', 'buyCapAmount']);
   });
 
   it('매도주문 카드 마지막 행 = 체크+값 「위험도」 · ☐체결 바로 아래 · id lc-sell-risk / lc-sell-risk-pct · 1~999 · 매도주문 게이트로 흐림 (quick-261103-n1s)', () => {

@@ -63,9 +63,14 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
     expect(LC_SELL_GROUPS.map((g) => g.slot)).toEqual(['sell', 'cancel', 'auto-sell']);
   });
 
-  it('매수주문 공통 카드 = 주문가격 · 비교가격 · ○버스트 취소 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
-    // ☐버스트 취소(quick-261003-rc4 · quick-261012-oif 에서 줄매수 → 매수주문 맨 아래로 옮김).
-    expect(groupOf('buy').rows.map(idOf)).toEqual(['lc-buy-order-price', 'lc-buy-watch-price', 'lc-extra-buy-burst-release']);
+  it('매수주문 공통 카드 = 주문가격 · 비교가격 · ○버스트 취소 · 최대금액 · 선매수 = 금액 · 매도잔량 · ○체결량 · ○한방 · 한방가격', () => {
+    // ☐버스트 취소(quick-261003-rc4 · quick-261012-oif 에서 줄매수 → 매수주문 카드로 옮김) · 최대금액(quick-261115-s1o · 맨 아래).
+    expect(groupOf('buy').rows.map(idOf)).toEqual([
+      'lc-buy-order-price',
+      'lc-buy-watch-price',
+      'lc-extra-buy-burst-release',
+      'lc-buy-cap-amount',
+    ]);
     expect(groupOf('pre-buy').rows.map((r) => r.kind)).toEqual(['value', 'value', 'checkValue', 'checkValue', 'value']);
     expect(groupOf('pre-buy').rows.map(idOf)).toEqual([
       'lc-buy-order-amount',
@@ -153,6 +158,8 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
       sellTradeQtyEnabled: 'lc-sell-trade',
       sellRiskPct: 'lc-sell-risk-pct',
       sellRiskEnabled: 'lc-sell-risk',
+      // quick-261115-s1o — 매수주문 카드 맨 아래 최대금액.
+      buyCapAmount: 'lc-buy-cap-amount',
       cancelWatchAmount: 'lc-cancel-watch-qty',
       cancelTradeEnabled: 'lc-cancel-trade',
       cancelQtyTrackEnabled: 'lc-cancel-qty-track',
@@ -226,7 +233,7 @@ describe('① 필드 스펙 — 카드 순서 · 옛 id · 문구 · 게이트 (
   });
 
   it('lcNavigableRows 는 값 편집 행만 — 체크 전용 · 기준선 · 발동잔량은 건너뛴다 (R4)', () => {
-    expect(lcNavigableRows('buy').map((r) => r.field)).toEqual(['buyOrderPrice', 'buyWatchPrice']);
+    expect(lcNavigableRows('buy').map((r) => r.field)).toEqual(['buyOrderPrice', 'buyWatchPrice', 'buyCapAmount']);
     expect(lcNavigableRows('pre-buy').map((r) => r.id)).toEqual([
       'lc-buy-order-amount',
       'lc-buy-watch-qty',

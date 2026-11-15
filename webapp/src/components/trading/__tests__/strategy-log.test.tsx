@@ -278,6 +278,12 @@ describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (q
     expect(strategyLogLine(a, { ...a, sellRiskPct: 120 })).toBe('서버 반영 완료');
   });
 
+  it('quick-261115-s1o — 최대금액만 바뀐 에코(0 → 5000)는 설정값 변경이라 「서버 반영 완료」 1줄', () => {
+    const a = at({ buyEnabled: true, buyCapAmount: 0 });
+    expect(limitChaserValuesChanged(a, { ...a, buyCapAmount: 5000 })).toBe(true);
+    expect(strategyLogLine(a, { ...a, buyCapAmount: 5000 })).toBe('서버 반영 완료');
+  });
+
   it.each([
     ['sellOrderQty', { sellOrderQty: 42 }],
     ['sellQtyTrackBaseline', { sellQtyTrackBaseline: 9_000 }],

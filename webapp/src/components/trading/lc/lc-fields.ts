@@ -6,7 +6,7 @@
  * `data-lc-field` · 요약 줄 · 접근성 이름이 모두 여기서 온다. 같은 목록을 다른 곳에 다시 적지 않는다 — 둘이
  * 되면 갈라진다.
  *
- * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · ☐버스트 취소 · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
+ * ★ 매수 쪽 = 「매수주문」 공통 카드(주문가격 · 비교가격 · ☐버스트 취소 · 최대금액(quick-261115-s1o) · 마스터 스위치, 접기 없음) → 선매수 → 줄매수 →
  *   후매수(접이식 카드 3장 · 스케치 009 D). 매도 쪽 = 「매도주문」 카드(주문가격 · 비교가격 · 매도비율 ·
  *   매수잔량 · ○잔량추적 · ○체결 · ○위험도 · 접기 없음 — quick-261001-gjk 로 한 카드 · ○위험도 quick-261103-n1s) → 매수취소(접이식 · quick-261012-oif) → 자동매도.
  * ★ 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 스위치가 꺼져도 체결 · 잔량추적 체크는 켤 수 있다
@@ -61,6 +61,7 @@ export type LcNumField = Extract<
   | 'autoSellStartCond'
   | 'autoSellRatioPct'
   | 'sellRiskPct'
+  | 'buyCapAmount'
 >;
 /** 체크 필드 — 누르면 즉시 반영(D-04). 한방(`sweepEnabled`)은 Phase 24 로 선매수 카드 안 체크가 됐다. */
 export type LcBoolField = Extract<
@@ -191,7 +192,7 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     gate: 'buyEnabled',
     statusKey: 'buy',
     dimGate: 'buyEnabled',
-    hint: '선매수 · 줄매수 · 후매수가 같이 쓰는 주문가격 · 비교가격',
+    hint: '선매수 · 줄매수 · 후매수가 같이 쓰는 주문가격 · 비교가격 · 최대금액',
     dimWhenOff: true,
     collapsible: false,
     // ○SOR(quick-261101-okd · gh-trade Phase 45 · 목업 A) — 켜면 매수 공통 · 선 · 줄 · 후매수 설정이 KRX · NXT 공용(미러는 서버).
@@ -222,6 +223,20 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
       // quick-261012-oif: 취소 범위 = 매수 미체결 전부라(gh-trade inbox 261008-burst-release-all-buy-cancel) 매수주문
       // 카드 맨 아래로 옮기고 「버스트 취소」로 개명 — 매수주문 게이트(buyEnabled)로 같이 흐린다. 필드 · checkId · 와이어 그대로.
       { kind: 'check', check: 'extraBuyBurstRelease', checkId: 'lc-extra-buy-burst-release', label: '버스트 취소' },
+      // 최대금액(gh-trade quick-261115-ptq · quick-261115-s1o) — PC 매수 패널 맨 아래 「최대금액 [____] 만」. PC 흐림 묶음이
+      // 마스터(☐매수주문 — 주문가격 · 비교가격 · 최대금액)라 매수주문 카드 맨 아래가 동형 자리다. 판정과 수량 조임은 전부
+      // 서버다. 비트 54 는 매수 그룹 밖이라 이 칸만 바꾼 제출은 매수 게이트를 재무장하지 않는다. 0 = 「제한 없음」.
+      {
+        kind: 'value',
+        field: 'buyCapAmount',
+        id: 'lc-buy-cap-amount',
+        label: '최대금액',
+        unit: '만원',
+        sheetTitle: '매수 최대금액',
+        desc: '선 · 줄 · 후매수를 합쳐 이 종목에 깔린 돈(보유 + 매수 미체결)이 이 금액을 넘지 않게 서버가 주문 수량을 줄여요 · 0 = 제한 없음',
+        a11yPrefix: '매수',
+        ...LC_FIELD_RANGES.buyCapAmount,
+      },
     ],
   },
   {
@@ -651,6 +666,9 @@ export function lcValueTextOf(field: LcNumField, values: LimitChaserFormValues):
     case 'autoSellStartCond':
       // Phase 27 D-02 — 0 = 이탈 관측 뒤 다음 체결(gh-trade §6-6). 그 밖은 기본 「N%」.
       return v === 0 ? '이탈 후 다음 체결' : null;
+    case 'buyCapAmount':
+      // 최대금액(quick-261115-s1o) — 0 = 종목 한도 없음(gh-trade quick-261115-ptq). 그 밖은 기본 「{값}만원」.
+      return v === 0 ? '제한 없음' : null;
     default:
       return null;
   }
