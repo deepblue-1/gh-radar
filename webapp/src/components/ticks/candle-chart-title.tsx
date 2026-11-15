@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import { CandleMaChips } from '@/components/ticks/candle-ma-chips';
 import { CandleUnitMenu } from '@/components/ticks/candle-unit-menu';
+import { CHART_TITLE_TEXT } from '@/components/ticks/chart-typography';
 import type { CandleUnit } from '@/lib/ticks/candle-chart';
 import type { CandleUnitPref, MaConfig } from '@/lib/ticks/candle-prefs';
 
@@ -70,7 +71,7 @@ function ZoomButtons({ p, cls }: { p: CandleChartTitleProps; cls: string }) {
   );
 }
 
-const TITLE_H2 = <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>;
+const TITLE_H2 = <h2 className={`m-0 ${CHART_TITLE_TEXT} text-[var(--fg)]`}>타임라인</h2>;
 
 export function CandleChartTitle(p: CandleChartTitleProps) {
   if (p.phone) {

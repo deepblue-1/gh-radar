@@ -62,6 +62,7 @@ import { useViewSync, type ChartViewSnap } from '@/lib/ticks/use-view-sync';
 import { createTouchInspect, touchTipTopOf } from '@/lib/touch-inspect';
 import { cn } from '@/lib/utils';
 
+import { CHART_TITLE_TEXT } from './chart-typography';
 import { TickChartBand } from './tick-chart-band';
 import { TickChartRange } from './tick-chart-range';
 
@@ -656,7 +657,7 @@ export function TickChart({
   return (
     <section data-slot="tick-chart" aria-label="틱 차트" className={cn(CARD, 'min-w-0 overflow-hidden', className)}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--border-subtle)] px-3 py-[7px]">
-        <h2 className="m-0 text-[12.5px] font-bold text-[var(--fg)]">타임라인</h2>
+        <h2 className={`m-0 ${CHART_TITLE_TEXT} text-[var(--fg)]`}>타임라인</h2>
         {titleAddon?.(phone)}
         {!phone && (
           <span className="truncate text-[11px] text-[var(--muted-fg)]">
