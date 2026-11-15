@@ -10,7 +10,8 @@ import type { NewsByStockResponse, StockFeedEntry, StockFeedItem, StockFeedKind 
  * 잠그는 것:
  *  ① `fetchNewsByStock` 경로 = `/api/news/by-stock?codes=a,b&days=3&limit=20`(쉼표 그대로)
  *  ② 폴링 — 100코드씩 차례로 · 10초마다 · 코드 0개면 요청 0 · 형식 아닌 코드 제외 · 같은 집합 새 배열은 재요청 없음
- *  ③ 숨김이면 그 주기 건너뜀 · 다시 보이면 바로 1번 · 실패하면 마지막 entries 유지 · 코드 집합이 바뀌면 바로 1번(진행 중 abort)
+ *  ③ 숨김이면 그 주기 건너뜀 · 다시 보이면 바로 1번 · 실패하면 마지막 entries 유지 · 진행 중 회차는 끊지 않음(WR-60)
+ *     · 코드 집합 변경은 새 코드가 있을 때만 모아서 1번 · 주기는 다시 잡지 않음(WR-61)
  *  ④ 새 글 — 코드별 첫 응답은 기준선(새 글 아님) · 그 뒤 처음 보인 id 에 시각 기록 · 30초 뒤 거짓
  *     · 수집 전(collectedAt null) 응답은 기준선 아님 · 작성 30분 넘은 옛 글은 처음 보여도 새 글 아님(CR-60)
  *  ⑤ 문맥 — 공급자 밖은 빈 값 · 강조할 글이 있을 때만 1초 타이머 하나
@@ -25,6 +26,7 @@ vi.mock('@/lib/news-by-stock-api', () => ({
 }));
 
 import {
+  STOCK_FEED_CHANGE_DEBOUNCE_MS,
   STOCK_FEED_CHUNK,
   STOCK_FEED_FRESH_PUBLISHED_MS,
   STOCK_FEED_NEW_MS,
@@ -216,11 +218,11 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('코드 집합이 바뀌면 진행 중 요청을 끊고 바로 1번 부른다', async () => {
+  it('코드 집합이 바뀌어도 진행 중 요청을 끊지 않고, 끝난 뒤 바뀐 집합으로 1번 부른다(WR-61)', async () => {
     let firstSignal: AbortSignal | undefined;
-    fetchMock.mockImplementationOnce((_codes: readonly string[], _o: unknown, signal: AbortSignal) => {
+    fetchMock.mockImplementationOnce((codes: readonly string[], _o: unknown, signal: AbortSignal) => {
       firstSignal = signal;
-      return new Promise(() => {});
+      return new Promise((resolve) => setTimeout(() => resolve(respond(codes)), 3_000));
     });
     const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
       initialProps: { c: ['005930'] },
@@ -229,9 +231,63 @@ describe('useStockFeedPolling — 묶음 · 주기', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     rerender({ c: ['005930', '000660'] });
     await flush();
-    expect(firstSignal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(3_000);
+    expect(firstSignal?.aborted).toBe(false);
+    // 직전 회차 시작(0초)에서 주기의 절반(5초)이 지나야 부른다.
+    await tick(STOCK_FEED_POLL_MS / 2 - 3_000 - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect([...fetchMock.mock.calls[1]![0]].sort()).toEqual(['000660', '005930']);
+  });
+
+  it('잇단 코드 집합 변경은 모아서 1번만 부르고, 그 직후 주기 tick 은 건너뛴다(WR-61)', async () => {
+    const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['000001'] },
+    });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // 0초
+    await tick(6_000);
+    rerender({ c: ['000001', '000002'] });
+    await tick(300);
+    rerender({ c: ['000001', '000002', '000003'] });
+    await tick(300);
+    rerender({ c: ['000001', '000002', '000003', '000004'] });
+    await tick(STOCK_FEED_CHANGE_DEBOUNCE_MS - 600 - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(1); // 7.5초 — 모은 변경 1회차
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect([...fetchMock.mock.calls[1]![0]]).toEqual(['000001', '000002', '000003', '000004']);
+    await tick(STOCK_FEED_POLL_MS - 7_500); // 10초 tick — 2.5초 전에 돌았으니 건너뜀
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await tick(STOCK_FEED_POLL_MS); // 20초 tick — 주기 그대로(다시 잡지 않음)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('코드가 빠지기만 하면 부르지 않고, 빠진 코드의 entries 는 다음 응답 때 정리된다(WR-61)', async () => {
+    const { result, rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: ['005930', '000660'] },
+    });
+    await flush();
+    expect(result.current.entries.size).toBe(2);
+    rerender({ c: ['005930'] });
+    await tick(STOCK_FEED_CHANGE_DEBOUNCE_MS * 2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await tick(STOCK_FEED_POLL_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect([...result.current.entries.keys()]).toEqual(['005930']);
+  });
+
+  it('코드 없이 시작했다가 처음 코드가 들어오면 기다리지 않고 바로 부른다', async () => {
+    const { rerender } = renderHook(({ c }) => useStockFeedPolling(c), {
+      initialProps: { c: [] as string[] },
+    });
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    rerender({ c: ['005930'] });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

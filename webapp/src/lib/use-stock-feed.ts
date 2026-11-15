@@ -9,8 +9,11 @@
  * ② 숨김 정지 · 실패 유지 — 화면이 숨으면 그 주기를 건너뛰고, 다시 보이면 바로 1번 부른 뒤 주기를 다시 잡는다.
  *   실패한 묶음은 건너뛴다(그 코드들은 마지막 entries 그대로) — 화면에서 글이 사라지지 않는다. 다음 주기가 다시 시도한다.
  *   직전 회차가 아직 돌면 그 주기는 건너뛴다 — 진행 중 요청을 끊지 않는다(WR-60).
- *   코드 집합이 바뀌면 진행 중 요청을 끊고 바로 1번 부른다. effect 의존은 정렬 · 결합한 코드 문자열이라 같은 집합의
- *   새 배열로는 다시 돌지 않는다.
+ *   코드 집합이 바뀌어도 주기를 다시 잡지 않고 진행 중 요청도 끊지 않는다(WR-61). 새 코드가 들어왔을 때만 변경을
+ *   `STOCK_FEED_CHANGE_DEBOUNCE_MS` 동안 모아 한 회차로 부르고(직전 회차 시작에서 주기의 절반 안이면 그만큼 미룸),
+ *   그 회차 뒤 주기의 절반 안에 온 주기 tick 은 건너뛴다 — 돌파 진입 · 이탈이 몰리는 장 시작에도 회차는 주기의 절반에
+ *   1번을 넘지 않는다. 빠지기만 했으면 부르지 않는다. 코드 집합 키는 정렬 · 결합한 문자열이라 같은 집합의 새 배열로는
+ *   아무 일도 없다.
  *
  * ③ 새 글 첫 발견 — 코드별 첫 응답은 기준선이다(이미 있던 글은 새 글이 아니다). 그 뒤 응답에 처음 보인 id 만
  *   `firstSeen` 에 그 시각을 적는다. `STOCK_FEED_NEW_MS`(돌파 강조와 같은 30초)가 지난 기록은 다음 응답 때 지운다.
@@ -37,6 +40,8 @@ import { fetchNewsByStock } from '@/lib/news-by-stock-api';
 export const STOCK_FEED_POLL_MS = 10_000;
 /** 새 글 강조 지속 — 돌파 신규 강조(`HIGHLIGHT_MS`)와 같다. */
 export const STOCK_FEED_NEW_MS = 30_000;
+/** 코드 집합 변경을 모으는 시간 — 돌파 진입 · 이탈이 몇 초 간격으로 이어질 때 변경마다 부르지 않게(WR-61). */
+export const STOCK_FEED_CHANGE_DEBOUNCE_MS = 1_500;
 /** 한 요청의 코드 수 — 서버 상한. */
 export const STOCK_FEED_CHUNK = NEWS_BY_STOCK_MAX_CODES;
 
@@ -104,27 +109,46 @@ export function useStockFeedPolling(
   /** 코드 → 마지막 응답의 글 id — 키가 있으면 그 코드의 기준선을 잡았다(③). */
   const seenRef = useRef(new Map<string, Set<string>>());
   const firstSeenRef = useRef<ReadonlyMap<string, number>>(EMPTY.firstSeen);
+  /** 지금 볼 코드 — 주기 effect 는 이것을 읽는다(코드 집합이 바뀌어도 주기를 다시 잡지 않는다 · WR-61). */
+  const listRef = useRef<readonly string[]>([]);
+  /** 코드 집합이 바뀌었다고 주기 effect 에 알린다 — 주기 effect 가 살아 있을 때만 있다. */
+  const codesChangedRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (sig === '') return;
-    const list = sig.split(SIG_SEP);
+    const list = sig === '' ? [] : sig.split(SIG_SEP);
+    listRef.current = list;
     const codeSet = new Set(list);
     // 빠진 코드의 기준선은 버린다 — 다시 들어오면 그 첫 응답이 다시 기준선이다.
     for (const c of [...seenRef.current.keys()]) if (!codeSet.has(c)) seenRef.current.delete(c);
+    codesChangedRef.current?.();
+  }, [sig]);
 
+  useEffect(() => {
     let disposed = false;
     let controller: AbortController | null = null;
     /** 회차 진행 중 — 주기 tick · 다시 보임은 겹쳐 부르지 않는다(WR-60). */
     let inFlight = false;
+    /** 마지막 회차 시작 시각 — 회차 사이 최소 간격(`minGap`)을 지킨다(WR-61). */
+    let lastStart = Number.NEGATIVE_INFINITY;
+    /** 마지막 회차가 부른 코드 — 새로 들어온 코드가 있는지 가른다(WR-61). */
+    let requested = new Set<string>();
+    /** 코드 집합 변경으로 잡아 둔 회차 — 여러 변경을 하나로 모은다(WR-61). */
+    let changeTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 진행 중 회차가 끝나면 바뀐 코드 집합으로 한 번 더 돈다(WR-61). */
+    let changedWhileInFlight = false;
+    const minGap = intervalMs / 2;
 
     const apply = (got: readonly StockFeedEntry[]) => {
       const now = Date.now();
+      const codeSet = new Set(listRef.current);
       const seen = seenRef.current;
       let firstSeen = firstSeenRef.current;
       let next: Map<string, number> | null = null;
       const writable = () => (next ??= new Map(firstSeen));
       for (const [id, t] of firstSeen) if (now - t >= STOCK_FEED_NEW_MS) writable().delete(id);
       for (const e of got) {
+        // 응답을 기다리는 사이 빠진 코드는 버린다 — 기준선도 남기지 않는다.
+        if (!codeSet.has(e.code)) continue;
         // 수집 전(`collectedAt: null`) 응답은 기준선이 아니다 — 첫 종목별 수집(D-06)이 메운 3일 치 기존 글이
         // 한꺼번에 새 글로 강조된다(CR-60). 기준선은 수집한 뒤 첫 응답에서 잡는다.
         if (e.collectedAt === null) {
@@ -146,19 +170,27 @@ export function useStockFeedPolling(
       setState((prev) => {
         const entries = new Map<string, StockFeedEntry>();
         for (const [c, e] of prev.entries) if (codeSet.has(c)) entries.set(c, e);
-        for (const e of got) entries.set(e.code, e);
+        for (const e of got) if (codeSet.has(e.code)) entries.set(e.code, e);
         return { entries, firstSeen };
       });
     };
 
     const run = async () => {
+      if (changeTimer !== null) {
+        clearTimeout(changeTimer);
+        changeTimer = null;
+      }
       if (document.visibilityState === 'hidden') return;
       // 직전 회차가 아직 돌면 이번 주기는 건너뛴다 — 끊고 다시 부르면 회차가 주기보다 길 때 응답이 영영 반영되지
       // 않는다(WR-60). 묶음마다 `apiFetch` 8초 타임아웃이 있어 회차는 반드시 끝난다.
       if (inFlight) return;
+      const list = listRef.current;
+      if (list.length === 0) return;
       const ctrl = new AbortController();
       controller = ctrl;
       inFlight = true;
+      lastStart = Date.now();
+      requested = new Set(list);
       try {
         const got: StockFeedEntry[] = [];
         for (let i = 0; i < list.length; i += STOCK_FEED_CHUNK) {
@@ -175,25 +207,56 @@ export function useStockFeedPolling(
         apply(got);
       } finally {
         inFlight = false;
+        if (changedWhileInFlight && !disposed) {
+          changedWhileInFlight = false;
+          onCodesChanged();
+        }
       }
     };
 
-    let timer = setInterval(run, intervalMs);
+    /**
+     * 코드 집합이 바뀌었다(WR-61). 빠지기만 했으면 부르지 않는다(다음 응답이 entries 를 정리한다).
+     * 새 코드가 있으면 진행 중 요청을 끊지 않고, 변경을 `STOCK_FEED_CHANGE_DEBOUNCE_MS` 동안 모아 한 회차로 부른다 —
+     * 직전 회차 시작에서 `minGap` 안이면 그만큼 미룬다. 아직 한 번도 부르지 않았으면(첫 코드) 바로 부른다.
+     */
+    const onCodesChanged = () => {
+      if (!listRef.current.some((c) => !requested.has(c))) return;
+      if (inFlight) {
+        changedWhileInFlight = true;
+        return;
+      }
+      if (changeTimer !== null) return;
+      const delay =
+        lastStart === Number.NEGATIVE_INFINITY
+          ? 0
+          : Math.max(STOCK_FEED_CHANGE_DEBOUNCE_MS, lastStart + minGap - Date.now());
+      changeTimer = setTimeout(() => void run(), delay);
+    };
+    codesChangedRef.current = onCodesChanged;
+
+    // 주기 — 코드 집합 변경으로 회차가 막 돌았으면(minGap 안) 이번 주기는 건너뛴다.
+    const onTick = () => {
+      if (Date.now() - lastStart < minGap) return;
+      void run();
+    };
+    let timer = setInterval(onTick, intervalMs);
     void run();
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
       clearInterval(timer);
-      timer = setInterval(run, intervalMs);
-      void run();
+      timer = setInterval(onTick, intervalMs);
+      onTick();
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       disposed = true;
+      codesChangedRef.current = null;
       controller?.abort();
       clearInterval(timer);
+      if (changeTimer !== null) clearTimeout(changeTimer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [sig, intervalMs, days, limit]);
+  }, [intervalMs, days, limit]);
 
   return state;
 }
