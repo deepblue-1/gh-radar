@@ -210,8 +210,24 @@ function joinDot(pieces: ReadonlyArray<string | null | undefined>): string {
  * 「 · 」 로 잇고 제출자(`order_condition` — 사람 제출 · 해제 · 전부 정지 행만)를 「(milles)」 로 붙인다. 낱말은 labels 정본(문구 복제 금지).
  */
 function stateTransitionBody(ev: StrategyEventRow): string {
-  const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), stateStageText(ev), ev.message]);
+  const body = joinDot([...stateSwitchChanges(ev.aheadQty, ev.expectedCum), stateStageText(ev), stateBuyCapText(ev), ev.message]);
   return ev.orderCondition ? `${body}(${ev.orderCondition})` : body;
+}
+
+/**
+ * kind 9 `GateBuyCapBlocked`(최대금액에 막혀 미발주 — gh-trade 934190c2 · 인계 노트 261115-buy-cap-block-kind9.md) 본문.
+ * 서버 54 보류 줄과 같은 꼴 「줄매수 보류 — 최대금액 A만 중 B만 사용(보유 C만 · 미체결 D만)」. 이 토큰에서만 네 칸이 만원이다:
+ * `cond_threshold` 최대금액 · `cond_actual` 깔린 돈(보유 + 미체결) · `ev_qty_before` 보유 매입금액 · `ev_qty_after` 매수 미체결.
+ * 다른 사유면 null.
+ */
+function stateBuyCapText(ev: StrategyEventRow): string | null {
+  if (ev.reasonCode !== "GateBuyCapBlocked") return null;
+  const man = (v: number) => `${NUM.format(v)}만`;
+  const group = orderGroupLabel(ev.group);
+  return (
+    `${group === null ? "" : `${group} `}보류 — 최대금액 ${man(ev.condThreshold)} 중 ${man(ev.condActual)} 사용` +
+    `(보유 ${man(ev.evQtyBefore)} · 미체결 ${man(ev.evQtyAfter)})`
+  );
 }
 
 /**

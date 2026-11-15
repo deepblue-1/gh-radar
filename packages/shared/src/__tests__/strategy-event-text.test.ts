@@ -983,6 +983,30 @@ describe("Phase 39 kind 9 상태전이 문장 (D-10)", () => {
     expect(strategyEventParts(odd, "log").body).toBe("후매수 단계 꺼짐→7");
   });
 
+  it("GateBuyCapBlocked · 줄매수 · 10000/10000/7000/3000(만원) → 「최대금액 막힘」 · 서버 54 보류 줄과 같은 본문 · 단계 문구 없음", () => {
+    const row = {
+      ...ROW9,
+      reasonCode: "GateBuyCapBlocked",
+      group: 2,
+      aheadQty: 7,
+      expectedCum: 7,
+      condThreshold: 10000,
+      condActual: 10000,
+      evQtyBefore: 7000,
+      evQtyAfter: 3000,
+      orderCondition: "",
+    };
+    const parts = strategyEventParts(row, "log");
+    expect(parts.action).toBe("최대금액 막힘");
+    expect(parts.tone).toBe("state");
+    expect(parts.body).toBe("줄매수 보류 — 최대금액 10,000만 중 10,000만 사용(보유 7,000만 · 미체결 3,000만)");
+    // 임계 ≠ 실측이어도 단계 문구로 읽지 않는다(이 토큰에서만 만원 값).
+    const partial = { ...row, group: 1, condActual: 9990, evQtyBefore: 0, evQtyAfter: 9990 };
+    expect(strategyEventParts(partial, "log").body).toBe("선매수 보류 — 최대금액 10,000만 중 9,990만 사용(보유 0만 · 미체결 9,990만)");
+    // 다른 사유는 이 문구가 붙지 않는다.
+    expect(strategyEventParts({ ...row, reasonCode: "AutoAddBuyOff" }, "log").body).not.toContain("최대금액");
+  });
+
   it("단계 문구 없음 — 다른 사유이거나 condThreshold === condActual", () => {
     const cfg = { ...ROW9, condThreshold: 1, condActual: 2 };
     expect(strategyEventParts(cfg, "log").body).not.toContain("단계");

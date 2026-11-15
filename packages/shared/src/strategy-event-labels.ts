@@ -172,6 +172,10 @@ export const STATE_REASON_LABELS: Readonly<Record<string, string>> = {
   SysKillSwitch: "전부 정지",
   SysRestore: "재기동 복원",
   SysCommand: "서버 명령",
+  // Gate* = 서버가 조건에 걸려 발주하지 않음. 최대금액(종목 한도)에 막힌 순간 — gh-trade 934190c2(quick-261115-sil ·
+  // 인계 노트 261115-buy-cap-block-kind9.md). 이 토큰에서만 cond_threshold · cond_actual · ev_qty_before · ev_qty_after 가
+  // 만원 값(최대금액 · 깔린 돈 · 보유 · 미체결)이다 — 본문은 `stateBuyCapText`.
+  GateBuyCapBlocked: "최대금액 막힘",
 };
 
 /**

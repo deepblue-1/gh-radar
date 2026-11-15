@@ -390,11 +390,14 @@ describe("Phase 39 kind 9 상태전이 사전 (D-09 · D-10)", () => {
     "SysKillSwitch",
     "SysRestore",
     "SysCommand",
+    // 최대금액 막힘(gh-trade 934190c2 · 인계 노트 261115-buy-cap-block-kind9.md) — Gate 대역에서 이것 하나만 기록된다.
+    "GateBuyCapBlocked",
   ];
 
-  it("STATE_REASON_LABELS 키 = 1차 토큰 18개 정확히(SysDisableOne 추가) · 2차 토큰(Latch/Gate/Vi)은 없다", () => {
+  it("STATE_REASON_LABELS 키 = 1차 토큰 18개 + GateBuyCapBlocked 정확히 · 그 밖 2차 토큰(Latch/Gate/Vi)은 없다", () => {
     expect(Object.keys(STATE_REASON_LABELS).sort()).toEqual([...PRIMARY_TOKENS].sort());
-    expect(Object.keys(STATE_REASON_LABELS)).toHaveLength(18);
+    expect(Object.keys(STATE_REASON_LABELS)).toHaveLength(19);
+    expect(STATE_REASON_LABELS.GateBuyCapBlocked).toBe("최대금액 막힘");
     for (const t of ["LatchSellOn", "LatchCancelOn", "GateSessionBlocked", "GateConsumed", "ViNoOrder"]) {
       expect(Object.hasOwn(STATE_REASON_LABELS, t)).toBe(false);
     }
