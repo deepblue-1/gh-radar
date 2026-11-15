@@ -122,7 +122,8 @@ docker push "$IMAGE_LATEST"
 #   (plan 은 NAVER_DAILY_BUDGET 이라 표기했으나 worker 코드는 NEWS_SYNC_DAILY_BUDGET —
 #    실 코드 기준으로 세팅. plan-intent 일관성을 위해 NAVER_DAILY_BUDGET 도 함께 세팅)
 #   worker 는 NEWS_SYNC_DAILY_BUDGET 만 읽는다 (NAVER_DAILY_BUDGET=24500 은 이 Job 에서 무효 — server 가드와 별개).
-#   NEWS_SYNC_DAILY_BUDGET=18750 = 네이버 공식 25,000/일의 75% (quick-260915-h3p).
+#   NEWS_SYNC_DAILY_BUDGET=24500 = 네이버 공식 25,000/일의 98% — 2026-11-15 사용자 결정
+#     (75% 규칙의 네이버 예외 · server NAVER_DAILY_BUDGET 과 같은 선 · 같은 카운터, quick-261115-r4f).
 #   delimiter `^@^` → URL 의 `:` 충돌 회피
 # ═══════════════════════════════════════════════════════════════
 echo "▶ deploying Cloud Run Job..."
@@ -136,7 +137,7 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
-  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=18750@NEWS_SYNC_CONCURRENCY=3@LOG_LEVEL=info@APP_VERSION=${SHA}" \
+  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=24500@NEWS_SYNC_CONCURRENCY=3@LOG_LEVEL=info@APP_VERSION=${SHA}" \
   --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,NAVER_CLIENT_ID=${NAVER_ID_SECRET}:latest,NAVER_CLIENT_SECRET=${NAVER_SECRET_SECRET}:latest" \
   --project="$EXPECTED_PROJECT"
 
@@ -157,16 +158,19 @@ echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 #
 #   설계:
 #   - 평일 08:00~20:00 은 market(*/3 8-19) + market-close(20:00) 가 3분마다 호출한다. 워커가 KST 시각으로
-#     tiered 모드를 스스로 판정해 hot(급등 상위 30 ∪ 관심종목)은 매회, rest(나머지 top_movers)는
+#     tiered 모드를 스스로 판정해 hot(급등 상위 30 ∪ 관심종목 ∪ 화면 조회 등록 종목 — 최근 10분 ·
+#     급등 · 관심 밖 30개까지 · ETP 제외)은 매회, rest(나머지 top_movers)는
 #     floor(분/3)%3 버킷 순환으로 9분마다 수집한다(workers/news-sync/src/pipeline/cadence.ts).
 #   - 장외(평일 00·02·04·06·22시, 토·일 2시간마다)는 full 모드로 전체 대상을 수집한다.
 #   - 모드는 스케줄러가 넘기지 않는다 — 네 스케줄러 모두 본문 없는 같은 jobs:run URI 를 호출한다.
 #     수동 강제: gcloud run jobs execute gh-radar-news-sync --update-env-vars NEWS_SYNC_MODE=full|tiered
 #   - 운영 근거: CLAUDE.md "공식 API 운영 기준" — 호출량은 사용자 수가 아니라 고정 대상 집합에 비례하는
-#     서버측 배치이며, 사용자 클릭 on-demand 호출은 없다.
+#     서버측 배치이며, 사용자 클릭 on-demand 호출은 없다. 화면 조회는 server 가 kis_news_targets 에
+#     등록만 하고 네이버 호출은 이 배치만 한다 · 등록 종목은 고정 상한 30 (quick-261115-r4f).
 #
 #   예산 추정: 장시간 241회 × ~60 호출 ≈ 14.5K, 평일 밤 5회 · 아침 첫 실행 backfill 을 더해
-#     ≈15.5K/일 (공식 25K 의 ~62%) < 가드 NEWS_SYNC_DAILY_BUDGET 18,750.
+#     ≈15.5K/일 + 등록 종목당 약 240/일(최악 30개 ≈ 22.6K · 90%) < 가드 NEWS_SYNC_DAILY_BUDGET 24,500.
+#     사용량이 상한의 90% 를 넘으면 등록 종목부터 뺀다.
 #   동분 중복 발화 0 · 주간 발화 수 · 워커 모드 정합은 workers/news-sync/tests/schedule.test.ts 가
 #     이 NEWS_SCHEDULERS 배열을 직접 읽어 단언한다 — 배열을 바꾸면 그 테스트를 먼저 돌릴 것.
 #   quick-260915-boq 의 아침장 3분 분리와 offhours `0 */2 * * *` 가 장중 잡과 같은 분에 발화하던 중복은

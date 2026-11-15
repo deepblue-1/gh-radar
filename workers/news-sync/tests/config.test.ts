@@ -34,10 +34,10 @@ describe("loadConfig (Phase 07.2)", () => {
     expect(() => loadConfig()).toThrow(/NAVER_CLIENT_SECRET/);
   });
 
-  it("naverDailyBudget default = 18750 (공식 25,000 의 75% — quick-260915-h3p)", () => {
+  it("naverDailyBudget default = 24500 (공식 25,000 의 98% — 2026-11-15 사용자 결정 · quick-261115-r4f)", () => {
     delete process.env.NEWS_SYNC_DAILY_BUDGET;
     const cfg = loadConfig();
-    expect(cfg.naverDailyBudget).toBe(18750);
+    expect(cfg.naverDailyBudget).toBe(24500);
   });
 
   it("NEWS_SYNC_MODE 미지정 → auto", () => {

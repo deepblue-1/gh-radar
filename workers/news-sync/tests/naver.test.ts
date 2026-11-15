@@ -8,7 +8,7 @@ const mkCfg = (over: Partial<NewsSyncConfig> = {}): NewsSyncConfig => ({
   naverClientId: "cid",
   naverClientSecret: "csecret",
   naverBaseUrl: "https://openapi.naver.com",
-  naverDailyBudget: 18750,
+  naverDailyBudget: 24500,
   newsSyncMode: "auto",
   newsSyncConcurrency: 8,
   appVersion: "test",

@@ -34,8 +34,9 @@ export function loadConfig(): NewsSyncConfig {
     naverClientId: req("NAVER_CLIENT_ID"),
     naverClientSecret: req("NAVER_CLIENT_SECRET"),
     naverBaseUrl: process.env.NAVER_BASE_URL ?? "https://openapi.naver.com",
-    // quick-260915-h3p: 공식 25,000/일의 75%
-    naverDailyBudget: Number(process.env.NEWS_SYNC_DAILY_BUDGET ?? "18750"),
+    // 공식 25,000/일의 98% — 2026-11-15 사용자 결정(75% 규칙의 네이버 예외 ·
+    // server NAVER_DAILY_BUDGET 과 같은 선 · 같은 카운터) — quick-261115-r4f
+    naverDailyBudget: Number(process.env.NEWS_SYNC_DAILY_BUDGET ?? "24500"),
     newsSyncMode: parseMode(process.env.NEWS_SYNC_MODE),
     newsSyncConcurrency: Number(process.env.NEWS_SYNC_CONCURRENCY ?? "3"),
     appVersion: process.env.APP_VERSION ?? "dev",
