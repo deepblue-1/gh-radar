@@ -6,10 +6,10 @@ current_phase: 43
 current_phase_name: 공개매수 · 유상증자 · 합병 공시 텔레그램 알림
 status: verifying
 stopped_at: Phase 41 complete, ready to verify Phase 43
-last_updated: "2026-11-15T11:41:57.308Z"
+last_updated: "2026-11-15T12:06:39.445Z"
 last_activity: 2026-11-15
 last_activity_desc: Phase 41 complete, transitioned to Phase 43
-state_head: 8bc995f2ebdf630c98339920ef5bfe145cdc93cd
+state_head: 2968f5e536f32ca6fb1856777684aa5b3b7da1de
 progress:
   total_phases: 14
   completed_phases: 13
@@ -188,6 +188,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261115-pkq | 틱뷰어 선 · 봉 차트 글자 크기를 공유 상수로 정리(Phase 42 UI-REVIEW 3번 · 동작 변경 0) | 2026-11-15 | ecf62310 | [261115-pkq-chart-type-shared-constants](./quick/261115-pkq-chart-type-shared-constants/) |
 | 261115-r4f | news-sync 네이버 수집 대상에 화면 조회 등록 종목 추가(최근 10분 · 급등 · 관심 밖 30개 · 3분 등급) · 일일 상한 24,500 · 90% 넘으면 등록 종목부터 제외 | 2026-11-15 | c7a51510 | [261115-r4f-news-sync-registered-targets](./quick/261115-r4f-news-sync-registered-targets/) |
 | 261115-s1o | 웹 상따 매수주문 카드 「최대금액」 칸 — buy_cap_amount · buy3_schema 9 · change_mask 비트 54 (gh-trade 8d073739 인박스 처리 · 미배포 — gh-trade 서버 배포 대기) | 2026-11-15 | 8bc995f2 | [261115-s1o-buy-cap-amount-web-limit-chaser-form-buy](./quick/261115-s1o-buy-cap-amount-web-limit-chaser-form-buy/) |
+| 90 | 최대금액 막힘 기록(kind 9 GateBuyCapBlocked) 사유 사전 · 주문로그 본문 · 챗봇 지식 — gh-trade 934190c2 인박스 261115-buy-cap-block-kind9 처리 (fast) | 2026-11-15 | 2968f5e5 | — |
 
 ## Session Continuity
 
