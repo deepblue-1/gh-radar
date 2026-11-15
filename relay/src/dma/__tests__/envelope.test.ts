@@ -89,6 +89,7 @@ import {
   LC_CHANGE_MASK_BUY3_SCHEMA,
   LC_SOR_BUY3_SCHEMA,
   LC_SELL_RISK_BUY3_SCHEMA,
+  LC_BUY_CAP_BUY3_SCHEMA,
   lcBuy3SchemaOf,
   parseUserSettings,
   buildAutoSellCommandReq,
@@ -1987,7 +1988,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // + 1(extraBuyBurstRelease · quick-261003-rc4) + 8(자동매도 · Phase 27) + 1(extraBuyAuto · quick-261011-0yb)
     // + 8(금액 · Phase 31 D-11) = 76 + key).
     // 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(item!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -2105,8 +2106,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     // 새 서버 에코에는 감시대상 슬롯이 없다 → "0".
     expect(single!.buyWatchSide).toBe("0");
     expect(list![0]!.buyWatchSide).toBe("0");
-    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
-    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(single!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
+    expect(Object.keys(list![0]!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
 
     // postBuyEnabled 는 서버 값 그대로 — false 로 접혀 온 에코는 false(phase 와 무관하게).
     const folded = parseLimitChaserEcho(
@@ -2127,7 +2128,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(list![0]!.postBuyAuto).toBe(true);
     const plain = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
     expect(plain!.postBuyAuto).toBe(false);
-    expect(Object.keys(plain!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(plain!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
   });
 
   it("⑤-abandon-qty 60 · 64 의 extraBuyAbandonQty 를 디코드한다 — 기본 프레임 0 · 포기 에코는 645842 (quick-260930-fi4)", () => {
@@ -2143,7 +2144,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(single!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
   });
 
   it("⑤-unlock-qty 60 · 64 의 postBuyUnlockQty 를 디코드한다 — 기본 프레임 0 · 잠금 에코는 264000 (quick-261002-fim)", () => {
@@ -2158,8 +2159,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
-    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(single!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
+    expect(Object.keys(list![0]!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
   });
 
   it("⑤-extra-auto 60 · 64 의 extraBuyAuto 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261011-0yb)", () => {
@@ -2173,8 +2174,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
-    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(single!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
+    expect(Object.keys(list![0]!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
   });
 
   it("⑤-burst 60 · 64 의 extraBuyBurstRelease 를 디코드한다 — 슬롯 부재 false · true 에코는 true (quick-261003-rc4 B6)", () => {
@@ -2188,8 +2189,8 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     const list = parseLimitChaserList(inbound(buildLimitChaserListRespFrame([echo])).env);
     expect(single).toMatchObject(echo);
     expect(list![0]).toMatchObject(echo);
-    expect(Object.keys(single!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
-    expect(Object.keys(list![0]!)).toHaveLength(81); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(Object.keys(single!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
+    expect(Object.keys(list![0]!)).toHaveLength(82); // + 금액 8(Phase 31 D-11) + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
   });
 
   it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
@@ -3747,6 +3748,102 @@ describe("③-sellrisk buy3_schema 8 · sell_risk_enabled(vt 180) · sell_risk_p
       expect(() => buildSetLimitChaserReq(lcInput({ ...FULL, sellRiskEnabled: true, sellRiskPct: bad }))).toThrow(
         OrderBuildError,
       );
+    }
+  });
+});
+
+/*
+  ③-buycap — 상따 「최대금액」(종목 한도 · gh-trade quick-261115-ptq · 8d073739 · vtable 184). buy3_schema 9 는 앞 여덟 조건
+  (postBuyAuto · extraBuyBurstRelease · 자동매도 4필드 · extraBuyAuto · changeMask · sorBuy/sorSell · sellRiskEnabled/sellRiskPct)
+  **전부 + buyCapAmount 존재** 일 때만 파생된다 — 미달이면 낮은 schema · 미적재 · 조립기 경고. buyCapAmount 가 없으면 9 를 싣지
+  않는다(값 없이 9 = 서버가 0 으로 읽어 한도를 지운다 · 인계 노트 261115-buy-cap-amount.md · quick-261115-s1o).
+*/
+describe("③-buycap buy3_schema 9 · buy_cap_amount(vt 184) (quick-261115-s1o · gh-trade quick-261115-ptq)", () => {
+  const CAP_VT = [184] as const;
+  const RISK_VT = [180, 182] as const;
+  const FULL = {
+    postBuyAuto: true,
+    extraBuyBurstRelease: true,
+    autoSellEnabled: true,
+    autoSellStartCond: 2,
+    autoSellRatioPct: 10,
+    autoSellMethod: 3,
+    extraBuyAuto: true,
+    changeMask: 1n << 54n,
+    sorBuy: false,
+    sorSell: true,
+    sellRiskEnabled: true,
+    sellRiskPct: 120,
+  } as const;
+
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
+    const env = readBack(buildSetLimitChaserReq(cfg));
+    const t = env.setLimitChaser(new SetLimitChaser());
+    expect(t).not.toBeNull();
+    return t!;
+  }
+
+  it("(a) FULL + sor + 위험도 + buyCapAmount 10000 → schema 9 · 184 슬롯 · 값 · 위험도 · sor · 마스크 동반 · warn 0", () => {
+    expect(LC_BUY_CAP_BUY3_SCHEMA).toBe(9);
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, buyCapAmount: 10_000 }));
+    expect(t.buy3Schema()).toBe(9);
+    expect(presentSlots(t, CAP_VT)).toEqual([...CAP_VT]);
+    expect(t.buyCapAmount()).toBe(10_000);
+    // 9 는 8 의 위험도 · 7 의 SOR · 6 의 마스크 규칙을 포함한다(`>=` 꼴).
+    expect(presentSlots(t, RISK_VT)).toEqual([...RISK_VT]);
+    expect(t.sellRiskPct()).toBe(120);
+    expect(t.sorSell()).toBe(true);
+    expect(t.changeMask()).toBe(1n << 54n);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("(b) FULL + buyCapAmount 0 → schema 9 · 파싱 값 0(기본값이라 슬롯이 안 서도 서버는 schema 9 의 부재를 0 = 제한 없음으로 읽는다)", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL, buyCapAmount: 0 }));
+    expect(t.buy3Schema()).toBe(9);
+    expect(t.buyCapAmount()).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("(c) 위험도 없음 + buyCapAmount 10000 → schema 7 · 184 없음 · warn 「schema 9 조건」 1건 · 필드 [buy3Schema, isin]", () => {
+    warn.mockClear();
+    const { sellRiskEnabled: _e, sellRiskPct: _p, ...noRisk } = FULL;
+    const t = readLc(lcInput({ ...noRisk, buyCapAmount: 10_000 }));
+    expect(t.buy3Schema()).toBe(LC_SOR_BUY3_SCHEMA);
+    expect(presentSlots(t, CAP_VT)).toEqual([]);
+    expect(t.buyCapAmount()).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [fields, text] = warn.mock.calls[0] as [Record<string, unknown>, string];
+    expect(text).toContain("schema 9 조건");
+    expect(Object.keys(fields).sort()).toEqual(["buy3Schema", "isin"]);
+  });
+
+  it("(d) FULL + sor + 위험도 · buyCapAmount 없음(schema 8 재제출) → 8 그대로 · 184 없음 · warn 0 (값 없이 9 를 싣지 않는다)", () => {
+    warn.mockClear();
+    const t = readLc(lcInput({ ...FULL }));
+    expect(t.buy3Schema()).toBe(LC_SELL_RISK_BUY3_SCHEMA);
+    expect(presentSlots(t, CAP_VT)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("(e) lcBuy3SchemaOf — buyCapAmount 존재(값 무관)만 9 를 연다 · 없으면 8", () => {
+    expect(lcBuy3SchemaOf({ ...FULL, buyCapAmount: 0 })).toBe(9);
+    expect(lcBuy3SchemaOf({ ...FULL, buyCapAmount: 10_000 })).toBe(9);
+    expect(lcBuy3SchemaOf({ ...FULL })).toBe(8);
+    expect(lcBuy3SchemaOf({ buyCapAmount: 10_000 })).toBe(1);
+  });
+
+  it("(f) parseLimitChaserEcho — 184 에 5000 → buyCapAmount 5000 · 슬롯 없는 버퍼 → 0", () => {
+    const on = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(lcInput({ ...FULL, buyCapAmount: 5000 }))));
+    expect(on!.buyCapAmount).toBe(5000);
+    const none = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(lcInput())));
+    expect(none!.buyCapAmount).toBe(0);
+  });
+
+  it("(g) buyCapAmount uint 범위 밖(4294967296 · −1 · 1.5) → OrderBuildError", () => {
+    for (const bad of [4_294_967_296, -1, 1.5]) {
+      expect(() => buildSetLimitChaserReq(lcInput({ ...FULL, buyCapAmount: bad }))).toThrow(OrderBuildError);
     }
   });
 });

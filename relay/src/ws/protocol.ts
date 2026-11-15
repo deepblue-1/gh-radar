@@ -275,6 +275,14 @@ export const RelayLcSetSchema = z.object({
     //     (`SELL_RISK_PCT_RANGE`)로 먼저 막는다. superRefine 검사는 넣지 않는다 — 범위 밖 ON 은 서버가 54 ERROR 로 알린다.
     sellRiskEnabled: z.boolean().optional(),
     sellRiskPct: z.number().int().min(SELL_RISK_PCT_RANGE.min).max(SELL_RISK_PCT_RANGE.max).optional(),
+    // === 상따 매수 「최대금액」(양방향 · 만원 · 0 = 제한 없음 · gh-trade quick-261115-ptq 8d073739 vtable 184 · quick-261115-s1o) —
+    //     12필드 블록 **밖**이다.
+    //   - 12필드 존재 판정(`buy3CfgOf`)에 들어가지 않는다.
+    //   - 부재는 relay 가 종전 schema(≤ 8)로 싣는다(서버 값 유지 — 구 탭 · schema 8 웹이 PC 에서 넣은 한도를 지우지 않는다).
+    //     앞 조건 전부 + 존재일 때만 buy3_schema 9(조립기 `lcBuy3SchemaOf`).
+    //   - 범위는 uint(다른 만원 칸과 같은 `UIntSchema` — 서버 검증 없음). 웹 lc 행은 0 ~ 999,999,999(PC 칸 상한)로 더 좁다.
+    //     superRefine 검사는 넣지 않는다 — 아무것도 무장하지 않는 설정값이다.
+    buyCapAmount: UIntSchema.optional(),
     // === Phase 31 금액 8필드(만원 · C→S · 보관/에코만 · gh-trade D-06) — 12필드 블록 밖: `buy3CfgOf` · `lcBuy3SchemaOf` 에
     //     넣지 않는다. 부재 = fanout `lc.set` 이 그 키의 에코 원값(짝이 맞을 때) 또는 0 으로 채운다(구 탭 관용 · D-11 ·
     //     WR-01). 기본값을 여기서 채우지 않는다.

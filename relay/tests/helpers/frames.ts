@@ -715,6 +715,8 @@ export type FakeLimitChaserInput = {
   sellRiskEnabled?: boolean;
   /** ☐위험도 기준 % — 양방향(vtable 182 · quick-261103-n1s). 서버 에코는 설정값(부재 기본 0 = 구 서버). */
   sellRiskPct?: number;
+  /** 상따 매수 「최대금액」 만원 — 양방향(vtable 184 · quick-261115-s1o). 서버 에코는 설정값(부재 기본 0 = 제한 없음 · 구 서버). */
+  buyCapAmount?: number;
 };
 
 /**
@@ -867,6 +869,7 @@ function emitSetLimitChaser(
   // === ☐위험도 2필드(vtable 180 · 182 · quick-261103-n1s) — 부재 기본 false · 0 = 구 서버 ===
   SetLimitChaser.addSellRiskEnabled(b, input.sellRiskEnabled ?? false);
   SetLimitChaser.addSellRiskPct(b, input.sellRiskPct ?? 0);
+  SetLimitChaser.addBuyCapAmount(b, input.buyCapAmount ?? 0);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 

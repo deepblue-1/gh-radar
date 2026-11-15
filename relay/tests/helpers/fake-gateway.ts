@@ -637,6 +637,8 @@ export interface SetLimitChaserRequest {
   sellRiskEnabled: boolean;
   /** ☐위험도 기준 %(quick-261103-n1s · vtable 182) — 슬롯 부재(buy3_schema ≤ 7) = 0. */
   sellRiskPct: number;
+  /** 상따 매수 「최대금액」 만원(quick-261115-s1o · vtable 184) — 슬롯 부재(buy3_schema ≤ 8 · 또는 0 기본값) = 0. */
+  buyCapAmount: number;
   /** ☐자동매도(Phase 27 · vtable 140) — 슬롯 부재(buy3_schema ≤ 3 · 또는 false 기본값) = false. */
   autoSellEnabled: boolean;
   /** 자동매도 시작조건(vtable 142) — 슬롯 부재 = 0. */
@@ -764,6 +766,7 @@ export function readSetLimitChaserRequest(
     sorSell: req.sorSell(),
     sellRiskEnabled: req.sellRiskEnabled(),
     sellRiskPct: req.sellRiskPct(),
+    buyCapAmount: req.buyCapAmount(),
     autoSellEnabled: req.autoSellEnabled(),
     autoSellStartCond: req.autoSellStartCond(),
     autoSellRatioPct: req.autoSellRatioPct(),

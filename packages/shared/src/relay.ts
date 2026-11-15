@@ -117,7 +117,7 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 72필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 73필드**의 와이어 표현 + 파생 `key`.
  * (37 → 39: 17-01 재동기화로 취소 · 매수 진입 확인 래치가 합류했다.
  *  39 → 55: Phase 24 재생성 — 매수 진입 확인 래치가 봉인(deprecated, gh-trade D-25)되고
  *  매수 3종 17필드가 합류했다: 39 − 1 + 17 = 55.
@@ -128,7 +128,8 @@ export type RelayLcWatchSide = "0" | "1";
  *  59 → 67: 자동매도 8필드(Phase 27 · gh-trade 2404509b) — 양방향 4(vtable 140~146) + S→C 전용 4(148~154).
  *  67 → 68: +1 extraBuyAuto(quick-261011-0yb · gh-trade 8c7d4c5c vtable 156).
  *  68 → 70: +2 sorBuy · sorSell(quick-261101-okd · gh-trade Phase 45 21d692a1 vtable 176 · 178).
- *  70 → 72: +2 sellRiskEnabled · sellRiskPct(quick-261103-n1s · gh-trade quick-261103-l41 e96aef6e vtable 180 · 182).)
+ *  70 → 72: +2 sellRiskEnabled · sellRiskPct(quick-261103-n1s · gh-trade quick-261103-l41 e96aef6e vtable 180 · 182).
+ *  72 → 73: +1 buyCapAmount(quick-261115-s1o · gh-trade quick-261115-ptq 8d073739 vtable 184).)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
@@ -373,6 +374,14 @@ export type RelayLimitChaser = {
    */
   sellRiskPct: number;
   /**
+   * 상따 매수 「최대금액」 — 종목 한도(양방향 · 단위 **만원** · **0 = 제한 없음** · vtable 184 · gh-trade quick-261115-ptq 8d073739 ·
+   * quick-261115-s1o). 서버가 선 · 줄 · 후매수 발주 수량을 「보유 매입금액 + 매수 미체결(주문가 환산)」 이 이 금액을 넘지 않게
+   * 조이고, 남은 한도가 1주 미만이면 발주하지 않는다(체크는 유지) — 판정은 전부 서버다. 에코는 **설정값**이다. 구서버 에코(슬롯
+   * 부재) = 0(제한 없음과 같은 뜻). 요청에는 relay 가 `buy3_schema` 9 와 함께 싣는다(서버는 9 이상에서만 읽고 8 이하는 서버 값
+   * 유지). **게이트가 아니다** — 삭제 판정 · 켜진 전략 판정에 들어가지 않는다.
+   */
+  buyCapAmount: number;
+  /**
    * 후매수 체크(양방향). 에코는 `cfg ∧ 마스터 무장 ∧ 단계 ≠ 소진` 으로 서버가 이미 접어 보낸다
    * (gh-trade D-31 · D-32). relay · 웹은 다시 접지 않는다(D-21). 무장 여부는 `postBuyPhase`.
    */
@@ -534,7 +543,7 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
 /**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드 + post_buy_auto = 44필드
  * + extra_buy_burst_release = 45필드 + 자동매도 요청 4 = 49필드 + extra_buy_auto = 50필드 + sor_buy · sor_sell = 52필드
- * + sell_risk_enabled · sell_risk_pct = 54필드**.
+ * + sell_risk_enabled · sell_risk_pct = 54필드 + buy_cap_amount = 55필드**.
  *
  * ⚠️ **`postBuyAuto` 는 새 클라 입력에서 필수다**(quick-260929-vzy). 빠뜨리면 relay 가 `buy3_schema` 1 로
  *    싣고 서버가 자동을 유지해서, 매수주문 OFF 동반 끔(D-06)이 서버에 닿지 않는다 — 컴파일이 막게 한다.
@@ -559,6 +568,12 @@ export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS
  *    다의 **존재**와 앞 조건 전부(`changeMask` · `sorBuy` · `sorSell` 포함)로 `buy3_schema` 8 을 파생한다 — 하나라도 빠지면 7 이하로
  *    싣고 서버가 위험도 값을 유지해 체크가 서버에 닿지 않는다. 8 은 7 의 마스크 규칙을 포함하므로 비트 52 · 53 이 없는 제출은
  *    서버가 위험도를 바꾸지 않는다. 양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
+ *
+ * ⚠️ **`buyCapAmount` 도 새 클라 입력에서 필수다**(quick-261115-s1o · gh-trade quick-261115-ptq). relay 가 그 **존재**와 앞 조건
+ *    전부(`changeMask` · `sorBuy` · `sorSell` · `sellRiskEnabled` · `sellRiskPct` 포함)로 `buy3_schema` 9 를 파생한다 — 빠지면 8 이하로
+ *    싣고 서버가 최대금액을 유지해 칸이 서버에 닿지 않는다. 9 는 8 의 마스크 규칙을 포함하므로 비트 54 가 없는 제출은 서버가
+ *    최대금액을 바꾸지 않는다. 값 없이 9 를 실으면 서버가 0 으로 읽어 한도를 지운다 — 그래서 relay 는 존재일 때만 9 를 싣는다.
+ *    양방향이라 `LIMIT_CHASER_SERVER_*_FIELDS` 에 넣지 않는다.
  *
  * ⚠️ **자동매도 4필드(`autoSellEnabled` · `autoSellStartCond` · `autoSellRatioPct` · `autoSellMethod`)도 새 클라
  *    입력에서 필수다**(Phase 27). relay 가 넷의 **존재**로 `buy3_schema` 4 를 파생한다 — 하나라도 빠지면 3 으로

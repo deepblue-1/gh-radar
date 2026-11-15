@@ -17,7 +17,8 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  * + Phase 27 자동매도 8필드(요청 4 · 에코 전용 4) = 30개
  * + Phase 31 금액 8필드(만원 · vtable 158~172) = 38개
  * + ○SOR 매수 · 매도(quick-261101-okd · vtable 176 · 178) = 40개
- * + ☐위험도 · 기준 %(quick-261103-n1s · vtable 180 · 182 — 기준은 서버 기본 80 에코 모양) = 42개.
+ * + ☐위험도 · 기준 %(quick-261103-n1s · vtable 180 · 182 — 기준은 서버 기본 80 에코 모양) = 42개
+ * + 최대금액(quick-261115-s1o · vtable 184 — 0 = 제한 없음) = 43개.
  */
 type Buy3EchoFields = Pick<
   RelayLimitChaser,
@@ -36,6 +37,7 @@ type Buy3EchoFields = Pick<
   | 'sorSell'
   | 'sellRiskEnabled'
   | 'sellRiskPct'
+  | 'buyCapAmount'
   | 'postBuyEnabled'
   | 'postBuyReboundPct'
   | 'postBuyFloorQty'
@@ -85,6 +87,7 @@ export const LC_BUY3_ECHO_DEFAULTS: Buy3EchoFields = {
   sorSell: false,
   sellRiskEnabled: false,
   sellRiskPct: 80,
+  buyCapAmount: 0,
   postBuyEnabled: false,
   postBuyReboundPct: 0,
   postBuyFloorQty: 0,

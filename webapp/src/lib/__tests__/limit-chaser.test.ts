@@ -1470,10 +1470,37 @@ describe('isMasterOnlyDelta — D-02 후반 자동 끔은 buyEnabled 한 필드�
     expect(isMasterOnlyDelta({ ...webCfgOf(old), sellRiskPct: 80 }, old)).toBe(true);
   });
 
+  it('quick-261115-s1o 에코 buyCapAmount 5000 · 폼도 5000 → true · cfg 0(그 밖 같고 buyEnabled 만 다름) → false (최대금액은 예외 없이 일반 비교)', () => {
+    const echo = folded({ buyCapAmount: 5000 });
+    expect(isMasterOnlyDelta(webCfgOf(echo), echo)).toBe(true);
+    expect(isMasterOnlyDelta({ ...webCfgOf(echo), buyCapAmount: 0 }, echo)).toBe(false);
+  });
+
   it('buyEnabled 외 한 필드라도 다르면 false — cfg 의 값을 직접 바꾼 경우', () => {
     const echo = folded();
     expect(isMasterOnlyDelta({ ...webCfgOf(echo), sellOrderRatio: echo.sellOrderRatio + 1 }, echo)).toBe(false);
     expect(isMasterOnlyDelta({ ...webCfgOf(echo), buyEnabled: true }, echo)).toBe(true);
+  });
+});
+
+/*
+  quick-261115-s1o — 상따 「최대금액」(gh-trade quick-261115-ptq · vt 184 · 만원 · 0 = 제한 없음). 새 폼은 늘 0(PC 새 키 0 ·
+  LimitChaserForm.cs 6872) · 에코는 0 포함 그대로(PC 7049 동형 — 보존 예외 없음) · 게이트가 아니다 · 비트 54 하나.
+*/
+describe('quick-261115-s1o 최대금액 — 기본 0 · 에코 그대로 · 비트 54', () => {
+  it('defaultLimitChaserForm().buyCapAmount = 0 (제한 없음)', () => {
+    expect(defaultLimitChaserForm().buyCapAmount).toBe(0);
+  });
+
+  it('formFromServer — 에코 5000 → 5000 · 에코 0 · prev 10000 → 0 (0 도 서버의 진실)', () => {
+    expect(formFromServer(serverEcho({ buyCapAmount: 5000 }), defaultLimitChaserForm()).buyCapAmount).toBe(5000);
+    const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyCapAmount: 10_000 };
+    expect(formFromServer(serverEcho({ buyCapAmount: 0 }), prev).buyCapAmount).toBe(0);
+  });
+
+  it('lcChangedFieldsOf([buyCapAmount]) → [buyCapAmount] · 비트 표 54번 = buy_cap_amount', () => {
+    expect(lcChangedFieldsOf(['buyCapAmount'])).toEqual(['buyCapAmount']);
+    expect(LC_CHANGE_MASK_FIELDS[54]).toEqual({ key: 'buyCapAmount', wire: 'buy_cap_amount' });
   });
 });
 

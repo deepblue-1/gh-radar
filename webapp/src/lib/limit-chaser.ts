@@ -355,6 +355,9 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 선 · 줄매수 자동 체크뿐 — gh-trade quick-261105-fgg · 84 시딩도 켜지 않는다). 기준 %만 84 `sellRiskPct`(1~999 아니면 80)로 시딩된다. 게이트가 아니다.
     sellRiskEnabled: false,
     sellRiskPct: SELL_RISK_PCT_DEFAULT,
+    // 상따 매수 「최대금액」(quick-261115-s1o · gh-trade quick-261115-ptq) — 새 폼은 늘 0 = 제한 없음(PC 새 키 0 · LimitChaserForm.cs
+    // 6872 동형). 84 시딩 없음 · 「내 설정」 기본값 화면 밖. 게이트가 아니다.
+    buyCapAmount: 0,
     postBuyEnabled: false,
     // 후매수 ☐자동(quick-260929-vzy) — 새 폼은 자동 OFF(WinForms 종목 전환 초기화 동형).
     postBuyAuto: false,
@@ -848,6 +851,10 @@ export function formFromServer(
     // 후매수 재진입 매도 꺼짐이 OFF 로 내린다 · 상한가 깨짐은 래치만 리셋 — gh-trade aa331275). 기준 %는 1~999 일 때만 들인다 — 0 은 구서버(슬롯 없음)라 칸을 유지한다.
     sellRiskEnabled: server.sellRiskEnabled,
     sellRiskPct: isSellRiskPctKnown(server.sellRiskPct) ? server.sellRiskPct : prev.sellRiskPct,
+    // 최대금액(quick-261115-s1o) — 설정값 그대로. 0 도 서버의 진실이다(PC LimitChaserForm.cs 7049 동형). 구서버 슬롯 부재 0 은
+    // 「제한 없음」 과 같은 뜻이라 보존 예외를 두지 않는다. 모든 재제출에 되실려 relay 가 schema 9 로 보내지만 비트 54 가 없는
+    // 제출(다른 칸 편집)은 서버가 최대금액을 바꾸지 않는다.
+    buyCapAmount: server.buyCapAmount,
     postBuyEnabled: server.postBuyEnabled,
     // 에코 그대로 — 서버가 자동을 발화하면 false 로 온다(quick-260929-vzy).
     postBuyAuto: server.postBuyAuto,

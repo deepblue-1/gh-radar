@@ -446,8 +446,8 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
     // 44 + extraBuyBurstRelease(quick-261003-rc4) = 45 + 자동매도 요청 4(Phase 27) = 49 + extraBuyAuto(quick-261011-0yb) = 50
-    // + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60 + 위험도 2(quick-261103-n1s) = 62.
-    expect(Object.keys(lastConfig())).toHaveLength(62);
+    // + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60 + 위험도 2(quick-261103-n1s) = 62 + 최대금액 1(quick-261115-s1o) = 63.
+    expect(Object.keys(lastConfig())).toHaveLength(63);
   });
 });
 
@@ -571,10 +571,12 @@ describe('⑥ S→C 전용 필드를 보내지 않는다 · cfg 49키 (Pitfall 6
     // + ☐위험도 2(quick-261103-n1s — relay 가 존재로 buy3_schema 8 을 파생한다) = 62.
     'sellRiskEnabled',
     'sellRiskPct',
+    // + 최대금액 1(quick-261115-s1o — relay 가 존재로 buy3_schema 9 를 파생한다) = 63.
+    'buyCapAmount',
   ];
   function expectCleanCfg(cfg: RelayLimitChaserInput): void {
     const keys = Object.keys(cfg);
-    expect(keys).toHaveLength(62); // + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s)
+    expect(keys).toHaveLength(63); // + sor 2(quick-261101-okd) + 위험도 2(quick-261103-n1s) + 최대금액 1(quick-261115-s1o)
     expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
     for (const f of FORBIDDEN) expect(keys).not.toContain(f);
     expect(keys).not.toContain('key');
@@ -3826,8 +3828,8 @@ describe('매수주문 「버스트 취소」 체크 — 양방향 설정값 · 
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().extraBuyBurstRelease).toBe(true);
     // 49 + extraBuyAuto(quick-261011-0yb) = 50 + 금액 8(Phase 31 D-11) = 58 + sor 2(quick-261101-okd) = 60
-    // + 위험도 2(quick-261103-n1s) = 62.
-    expect(Object.keys(lastConfig())).toHaveLength(62);
+    // + 위험도 2(quick-261103-n1s) = 62 + 최대금액 1(quick-261115-s1o) = 63.
+    expect(Object.keys(lastConfig())).toHaveLength(63);
     expect(burst()).toHaveAttribute('aria-checked', 'true');
   });
 

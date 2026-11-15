@@ -900,6 +900,45 @@ describe("Phase 27 lc.set 자동매도 4필드 — 선택 · 켜면 범위 · �
     }
     expect(parseInbound(lcSet({ ...base, sellRiskEnabled: "true", sellRiskPct: 80 }))).toBeNull();
   });
+
+  /*
+    quick-261115-s1o — 상따 「최대금액」(vtable 184 · gh-trade quick-261115-ptq). 선택이고 12필드 존재 판정 밖이다.
+    buy3_schema 9 는 조립기가 필드 존재로만 파생한다. 범위는 uint(UIntSchema — 서버 검증 없음 · 웹 칸은 0 ~ 999,999,999 로 더 좁다).
+  */
+  it("①-buycap buyCapAmount 는 통과하고 55키 · 0 통과 · 없어도 통과(키 안 만듦) · −1 · 1.5 · 문자열 거부", () => {
+    const base = {
+      postBuyAuto: false,
+      extraBuyBurstRelease: false,
+      ...AUTO,
+      autoSellEnabled: false,
+      extraBuyAuto: false,
+      sorBuy: false,
+      sorSell: false,
+      sellRiskEnabled: false,
+      sellRiskPct: 80,
+    };
+    const full = parseInbound(lcSet({ ...base, buyCapAmount: 10_000 }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(full.cfg.buyCapAmount).toBe(10_000);
+    // 54(①-sellrisk) + 최대금액 1(quick-261115-s1o)
+    expect(Object.keys(full.cfg)).toHaveLength(55);
+    expect(buy3CfgOf(full.cfg)).not.toBeNull();
+    const zero = parseInbound(lcSet({ ...base, buyCapAmount: 0 }));
+    if (zero?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(zero.cfg.buyCapAmount).toBe(0);
+
+    // 구 탭 · schema 8 재제출 — 최대금액 없음도 통과 · 키를 만들지 않는다.
+    const old = parseInbound(lcSet(base));
+    if (old?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(old.cfg).not.toHaveProperty("buyCapAmount");
+    expect(withNeutralBuy3(old.cfg)).not.toHaveProperty("buyCapAmount");
+
+    // 범위 · 형식 위반은 스키마 위반이다. uint 상한(4294967296 이상)은 다른 만원 칸과 같이 zod 가 아니라 조립기
+    // `toWireUint` 가 OrderBuildError 로 막는다(envelope.test ③-buycap (g)).
+    for (const bad of [-1, 1.5, "10000"]) {
+      expect(parseInbound(lcSet({ ...base, buyCapAmount: bad })), String(bad)).toBeNull();
+    }
+  });
 });
 
 describe("Phase 27 autosell.cmd · user.settings.set 인바운드 스키마", () => {

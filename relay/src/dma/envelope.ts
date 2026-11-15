@@ -1562,6 +1562,15 @@ export const LC_SOR_BUY3_SCHEMA = 7;
  * 부재 기본값으로 읽는다).
  */
 export const LC_SELL_RISK_BUY3_SCHEMA = 8;
+/**
+ * `buy_cap_amount`(id 90 · vtable 184 · 상따 매수 「최대금액」 = 종목 한도 · 만원 · 0 = 제한 없음)를 싣는 클라 — `buy3_schema` 9
+ * (gh-trade quick-261115-ptq · 8d073739 · quick-261115-s1o). 서버는 9 이상일 때만 이 값을 읽고, 8 이하는 서버 값을 유지한다(웹 ·
+ * 구 탭의 schema 8 재제출이 PC 에서 넣은 한도를 지우지 않는다). 9 는 8 의 마스크 규칙(7 · 6 포함)을 그대로 포함한다.
+ * 9 는 앞 여덟 조건 전부(`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask` · `sorBuy`/`sorSell` ·
+ * `sellRiskEnabled`/`sellRiskPct`) + `buyCapAmount` **존재**일 때만 파생된다(P-1 단조성). 값 없이 9 를 실으면 서버가 부재를 0 으로
+ * 읽어 한도를 지운다 — 그래서 존재일 때만 9 다.
+ */
+export const LC_BUY_CAP_BUY3_SCHEMA = 9;
 
 /** 자동매도 요청 4필드 — relay `LcSetCfg` 에서는 선택(구 탭 관용), shared 입력 계약에서는 필수. */
 type LcAutoSellReqKey = "autoSellEnabled" | "autoSellStartCond" | "autoSellRatioPct" | "autoSellMethod";
@@ -1585,6 +1594,7 @@ export type LcSetCfg = Omit<
   | "sorSell"
   | "sellRiskEnabled"
   | "sellRiskPct"
+  | "buyCapAmount"
 > & Partial<Pick<RelayLimitChaserInput, LcAmountKey>> & {
   postBuyAuto?: boolean;
   extraBuyBurstRelease?: boolean;
@@ -1603,6 +1613,11 @@ export type LcSetCfg = Omit<
   sellRiskEnabled?: boolean;
   sellRiskPct?: number;
   /**
+   * 상따 매수 「최대금액」(만원 · 0 = 제한 없음 · gh-trade quick-261115-ptq · quick-261115-s1o). 구 탭 · schema 8 웹 관용으로 선택 —
+   * 있고 앞 조건 전부일 때 schema 9. 없으면 9 를 싣지 않는다(서버 값 유지).
+   */
+  buyCapAmount?: number;
+  /**
    * `change_mask`(gh-trade Phase 44 · quick-261030-kpg). **relay 내부 전용** — fanout 이 브라우저의 `changed` 이름 배열로
    * 만든다(`lcChangeMaskOf` · 짝 수량 비트 포함). zod cfg 에 없다 — 브라우저가 값을 고를 수 없다. 존재가 schema 6 을 연다.
    */
@@ -1620,8 +1635,10 @@ export type LcSetCfg = Omit<
  *     낮은 schema · 마스크 미적재 · 조립기 경고)
  *   - 위 여덟 모두 + `sorBuy` · `sorSell` 둘 다 있음 · `sellRiskEnabled` · `sellRiskPct` 중 하나라도 없음 → 7 (SOR 만 있고 앞
  *     조건 미달이면 낮은 schema · SOR 미적재 · 조립기 경고)
- *   - 위 열 모두 + `sellRiskEnabled` · `sellRiskPct` 둘 다 있음 → 8 (위험도만 있고 앞 조건 미달이면 낮은 schema · 위험도
- *     미적재 · 조립기 경고 · quick-261103-n1s)
+ *   - 위 열 모두 + `sellRiskEnabled` · `sellRiskPct` 둘 다 있음 · `buyCapAmount` 없음 → 8 (위험도만 있고 앞 조건 미달이면 낮은
+ *     schema · 위험도 미적재 · 조립기 경고 · quick-261103-n1s)
+ *   - 위 열둘 모두 + `buyCapAmount` 있음 → 9 (최대금액만 있고 앞 조건 미달이면 낮은 schema · 미적재 · 조립기 경고 ·
+ *     quick-261115-s1o — 값 없이 9 를 싣지 않는다)
  */
 export function lcBuy3SchemaOf(
   cfg: Pick<
@@ -1635,6 +1652,7 @@ export function lcBuy3SchemaOf(
     | "sorSell"
     | "sellRiskEnabled"
     | "sellRiskPct"
+    | "buyCapAmount"
   >,
 ): number {
   if (cfg.postBuyAuto === undefined) return LC_FIXED_BUY3_SCHEMA;
@@ -1644,7 +1662,8 @@ export function lcBuy3SchemaOf(
   if (cfg.changeMask === undefined) return LC_EXTRA_BUY_AUTO_BUY3_SCHEMA;
   if (cfg.sorBuy === undefined || cfg.sorSell === undefined) return LC_CHANGE_MASK_BUY3_SCHEMA;
   if (cfg.sellRiskEnabled === undefined || cfg.sellRiskPct === undefined) return LC_SOR_BUY3_SCHEMA;
-  return LC_SELL_RISK_BUY3_SCHEMA;
+  if (cfg.buyCapAmount === undefined) return LC_SELL_RISK_BUY3_SCHEMA;
+  return LC_BUY_CAP_BUY3_SCHEMA;
 }
 
 function hasAllAutoSellReqFields(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean {
@@ -1676,8 +1695,8 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
  * `buy3_schema`) = 45 필드 + 선택 6(`post_buy_auto` · `extra_buy_burst_release` · 자동매도 요청 4 — 파생 스키마가
  * 허락할 때만) + `extra_buy_auto` 1(schema 5 이상) + 금액 8 + `change_mask` 1(schema 6 이상 · quick-261030-kpg)
- * + `sor_buy` · `sor_sell` 2(schema 7 이상 · quick-261101-okd) + `sell_risk_enabled` · `sell_risk_pct` 2(schema 8 일 때만 ·
- * quick-261103-n1s) 만** 채운다. 나머지는 건드리지 않는다:
+ * + `sor_buy` · `sor_sell` 2(schema 7 이상 · quick-261101-okd) + `sell_risk_enabled` · `sell_risk_pct` 2(schema 8 이상 ·
+ * quick-261103-n1s) + `buy_cap_amount` 1(schema 9 일 때만 · quick-261115-s1o) 만** 채운다. 나머지는 건드리지 않는다:
  *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
  *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 11필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
@@ -1692,11 +1711,13 @@ function hasAnyAutoSellReqField(cfg: Pick<LcSetCfg, LcAutoSellReqKey>): boolean 
  *
  * `buy3_schema` 는 입력 타입에 아예 없다. 1(`LC_FIXED_BUY3_SCHEMA`) · 2(`LC_POST_BUY_AUTO_BUY3_SCHEMA`) ·
  * 3(`LC_BURST_RELEASE_BUY3_SCHEMA`) · 4(`LC_AUTO_SELL_BUY3_SCHEMA`) · 5(`LC_EXTRA_BUY_AUTO_BUY3_SCHEMA`) ·
- * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`) · 7(`LC_SOR_BUY3_SCHEMA`) · 8(`LC_SELL_RISK_BUY3_SCHEMA`)이고 **`postBuyAuto` ·
- * `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask` · `sorBuy` · `sorSell` · `sellRiskEnabled` · `sellRiskPct`
- * 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 · 6 은 여덟 모두 · 7 은 열 모두 · 8 은 열둘 모두 ·
- * `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 · 21d692a1 · e96aef6e ·
- * quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb · quick-261030-kpg · quick-261101-okd · quick-261103-n1s).
+ * 6(`LC_CHANGE_MASK_BUY3_SCHEMA`) · 7(`LC_SOR_BUY3_SCHEMA`) · 8(`LC_SELL_RISK_BUY3_SCHEMA`) · 9(`LC_BUY_CAP_BUY3_SCHEMA`)이고
+ * **`postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 · `extraBuyAuto` · `changeMask` · `sorBuy` · `sorSell` · `sellRiskEnabled` ·
+ * `sellRiskPct` · `buyCapAmount` 존재로만 파생**된다(3 은 앞 둘 · 4 는 여섯 모두 · 5 는 일곱 모두 · 6 은 여덟 모두 · 7 은 열 모두 ·
+ * 8 은 열둘 모두 · 9 는 열셋 모두 · `lcBuy3SchemaOf` · gh-trade D-24 · dcaa78b1 · 26b3493e · 2404509b · 8c7d4c5c · 55e62638 ·
+ * 21d692a1 · e96aef6e · 8d073739 · quick-260929-vzy · quick-261003-rc4 · Phase 27 · quick-261011-0yb · quick-261030-kpg ·
+ * quick-261101-okd · quick-261103-n1s · quick-261115-s1o).
+ * `buyCapAmount` 가 있는데 schema 가 9 미만이면 그 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `sellRiskEnabled` · `sellRiskPct` 가 (하나라도) 있는데 schema 가 8 미만이면 두 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `sorBuy` · `sorSell` 이 (하나라도) 있는데 schema 가 7 미만이면 두 필드를 싣지 않고(서버 값 유지) 경고를 남긴다.
  * `changeMask` 가 있는데 schema 가 6 미만이면 마스크를 싣지 않고(서버 전체 반영) 경고를 남긴다.
@@ -1803,6 +1824,14 @@ export function buildSetLimitChaserReq(
       "[DMA] sellRiskEnabled/sellRiskPct 가 schema 8 조건을 못 채움 — 낮은 buy3_schema 로 내리고 sell_risk_enabled·sell_risk_pct 미적재(서버 값 유지)",
     );
   }
+  if (cfg.buyCapAmount !== undefined && buy3Schema < LC_BUY_CAP_BUY3_SCHEMA) {
+    // P-1 — 9 는 앞 여덟 조건 전부 + buyCapAmount 존재일 때만. 미달이면 낮은 schema 로 내리고 최대금액은 싣지 않는다(서버가
+    // ≤ 8 에서 최대금액 값을 유지한다). 값 · 계좌는 남기지 않는다 — 결손의 모양만.
+    logger.warn(
+      { isin, buy3Schema },
+      "[DMA] buyCapAmount 가 schema 9 조건을 못 채움 — 낮은 buy3_schema 로 내리고 buy_cap_amount 미적재(서버 값 유지)",
+    );
+  }
 
   const b = new flatbuffers.Builder(512);
   // 문자열 5종을 테이블 열기 전에 만든다.
@@ -1854,7 +1883,7 @@ export function buildSetLimitChaserReq(
   // buy_entry_latched — (deprecated) Phase 24 D-25 로 봉인. 접근자·빌더 없음.
   // === Phase 24 매수 3종 (gh-trade D-17 · D-24) ===
   // buy3_schema — 브라우저가 고를 수 없다(T-24-01 확장). `postBuyAuto` · `extraBuyBurstRelease` · 자동매도 4필드 ·
-  // `extraBuyAuto` · `changeMask` 존재로만 1/2/3/4/5/6 을 파생한다.
+  // `extraBuyAuto` · `changeMask` · `sorBuy`/`sorSell` · `sellRiskEnabled`/`sellRiskPct` · `buyCapAmount` 존재로만 1 ~ 9 를 파생한다.
   SetLimitChaser.addBuy3Schema(b, buy3Schema);
   SetLimitChaser.addPreBuyEnabled(b, cfg.preBuyEnabled);
   SetLimitChaser.addExtraBuyEnabled(b, cfg.extraBuyEnabled);
@@ -1929,6 +1958,11 @@ export function buildSetLimitChaserReq(
   if (buy3Schema >= LC_SELL_RISK_BUY3_SCHEMA && cfg.sellRiskEnabled !== undefined && cfg.sellRiskPct !== undefined) {
     SetLimitChaser.addSellRiskEnabled(b, cfg.sellRiskEnabled);
     SetLimitChaser.addSellRiskPct(b, toWireUShort(cfg.sellRiskPct, "sellRiskPct"));
+  }
+  // 상따 매수 「최대금액」 — 양방향(id 90 · vtable 184 · gh-trade quick-261115-ptq · quick-261115-s1o). schema 9 일 때만 싣는다. 0 은
+  // FlatBuffers 기본값이라 버퍼에 쓰이지 않지만 서버는 schema 9 에서 부재를 0(= 제한 없음)으로 읽으므로 동치다.
+  if (buy3Schema >= LC_BUY_CAP_BUY3_SCHEMA && cfg.buyCapAmount !== undefined) {
+    SetLimitChaser.addBuyCapAmount(b, toWireUint(cfg.buyCapAmount, "buyCapAmount"));
   }
   const table = SetLimitChaser.endSetLimitChaser(b);
 
@@ -2942,6 +2976,8 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       // 슬롯 부재(구서버) = false · 0.
       sellRiskEnabled: t.sellRiskEnabled(),
       sellRiskPct: t.sellRiskPct(),
+      // 상따 매수 「최대금액」(vtable 184 · quick-261115-s1o) — 에코 = 설정값 · 구서버 슬롯 부재 = 0(제한 없음과 같은 뜻).
+      buyCapAmount: t.buyCapAmount(),
       // 자동매도 8필드(Phase 27 · vtable 140~154). 슬롯 부재(구서버) = false/0 — 계산하지 않는다.
       // 양방향 — ☐자동매도 · 시작조건 · 비율 · 방법.
       autoSellEnabled: t.autoSellEnabled(),
