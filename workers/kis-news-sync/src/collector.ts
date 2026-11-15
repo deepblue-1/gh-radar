@@ -2,7 +2,7 @@ import type { KisNewsConfig } from "./config.js";
 import { KisApiError, safeErrorFields } from "./kis/client.js";
 import { pageUntilSeen, type NewsTitleQuery } from "./kis/newsTitle.js";
 import type { KisNewsTitleRow } from "./kis/types.js";
-import { toIngestRows, type IngestRow, type StockMeta } from "./pipeline/classify.js";
+import { toIngestRows, type ClassifyStats, type IngestRow, type StockMeta } from "./pipeline/classify.js";
 import type { IngestResult, IngestVia } from "./pipeline/ingest.js";
 import { STOCK_MIN_INTERVAL_MS, TargetQueue, TokenBucket, type TargetInfo } from "./pipeline/scheduler.js";
 import { fastWindowEndOf, isCleanupDue, resolveCollectorMode, type CollectorMode } from "./pipeline/cadence.js";
@@ -166,6 +166,10 @@ const FLOW_INTERVAL: Record<FlowName, number> = {
   stock: 0,
 };
 
+function statsFields(s: ClassifyStats): Record<string, number> {
+  return { total: s.total, invalid: s.invalid, unlinked: s.unlinked, unknownCodes: s.unknownCodes };
+}
+
 export async function runCollector(deps: CollectorDeps): Promise<CollectorExit> {
   return new Collector(deps).run();
 }
@@ -198,6 +202,10 @@ class Collector {
     stock: { nextAt: 0, fails: 0 },
   };
   private readonly stats = { calls: 0, feed: 0, F: 0, G: 0, stock: 0, inserted: 0, linked: 0, errors: 0 };
+  /** 분류 통계 누적(받은 행 · 무효 · 미연결 · 모르는 코드) — 종료 · 주기 로그에 싣는다(WR-03) */
+  private readonly classified = { rows: 0, invalid: 0, unlinked: 0, unknownCodes: 0 };
+  /** 「받은 행이 전부 무효」 warn 을 이미 남긴 흐름 — 정상 행이 다시 오면 지운다(같은 warn 을 5초마다 되풀이하지 않게) */
+  private readonly allInvalidWarned = new Set<FlowName>();
 
   constructor(private readonly d: CollectorDeps) {
     const clock = () => d.clock.now();
@@ -230,7 +238,14 @@ class Collector {
     }
     await this.shutdown();
     this.d.log.info(
-      { mode, ...exit, ...this.stats, usedToday: this.usedKnown + this.sinceFlush, durationMs: this.now() - t0 },
+      {
+        mode,
+        ...exit,
+        ...this.stats,
+        classified: { ...this.classified },
+        usedToday: this.usedKnown + this.sinceFlush,
+        durationMs: this.now() - t0,
+      },
       "collector stop",
     );
     return exit;
@@ -263,6 +278,9 @@ class Collector {
 
     const strikes = mode === "probe" ? 0 : await db.strikes.read(date);
     this.meta = await db.loadStockMeta();
+    if (this.meta.size === 0) {
+      log.warn({}, "stock meta empty — no news can be linked to a stock (check kis_news_stock_meta)");
+    }
     const st = await db.readState();
     this.lastSeen = st.lastSrno;
 
@@ -351,6 +369,11 @@ class Collector {
         if (now >= nextMetaAt) {
           nextMetaAt = now + META_RELOAD_MS;
           await this.reloadMeta();
+          // 10분 주기 상태 한 줄 — 받은 행이 무효 · 미연결로 빠지는지 운영 로그로 볼 수 있게(WR-03)
+          log.info(
+            { ...this.stats, classified: { ...this.classified }, usedToday: this.usedKnown + this.sinceFlush },
+            "collector stats",
+          );
         }
         if (now >= nextTargetsAt) {
           nextTargetsAt = now + TARGET_RELOAD_MS;
@@ -458,14 +481,14 @@ class Collector {
 
   private async doDisclosure(provider: "F" | "G"): Promise<void> {
     const raw = await this.call({ providerCode: provider }, provider);
-    const { rows } = toIngestRows(raw, { meta: this.meta });
+    const rows = this.classify(raw, provider);
     this.tally(await this.d.db.ingest(rows, "feed"));
   }
 
   private async doStock(t: TargetInfo): Promise<void> {
     try {
       const raw = await this.call({ stockCode: t.code }, "stock");
-      const { rows } = toIngestRows(raw, { queriedCode: t.code, meta: this.meta });
+      const rows = this.classify(raw, "stock", t.code);
       // 글 0건이어도 부른다 — 수집 시각(collectedAt) 기록(D-06)
       this.tally(await this.d.db.ingest(rows, "stock", t.code));
     } finally {
@@ -476,7 +499,7 @@ class Collector {
 
   /** 전체 최신 행 들여오기 + 되감기 기준 전진(들여오기 성공 뒤에만) */
   private async ingestFeed(raw: KisNewsTitleRow[]): Promise<{ rows: number } & IngestResult> {
-    const { rows } = toIngestRows(raw, { meta: this.meta });
+    const rows = this.classify(raw, "feed");
     const r = await this.d.db.ingest(rows, "feed");
     this.tally(r);
     for (const row of raw) {
@@ -484,6 +507,27 @@ class Collector {
       if (s && (this.lastSeen === null || s > this.lastSeen)) this.lastSeen = s;
     }
     return { rows: rows.length, ...r };
+  }
+
+  /**
+   * 한투 행 → 들여오기 행. 분류 통계를 누적하고, 받은 행이 전부 무효면(응답 모양이 바뀐 의심) 흐름마다 warn 1번 —
+   * 그대로 두면 들여오기는 0건으로 성공하고 수집 시각만 갱신돼 건강해 보인다(무로그 탈락 금지 · WR-03).
+   */
+  private classify(raw: KisNewsTitleRow[], flow: FlowName, queriedCode?: string): IngestRow[] {
+    const { rows, stats } = toIngestRows(raw, { queriedCode, meta: this.meta });
+    this.classified.rows += stats.total;
+    this.classified.invalid += stats.invalid;
+    this.classified.unlinked += stats.unlinked;
+    this.classified.unknownCodes += stats.unknownCodes;
+    if (stats.total > 0 && stats.invalid === stats.total) {
+      if (!this.allInvalidWarned.has(flow)) {
+        this.allInvalidWarned.add(flow);
+        this.d.log.warn({ flow, ...statsFields(stats) }, "all KIS rows invalid — response shape changed?");
+      }
+    } else if (stats.total > stats.invalid) {
+      this.allInvalidWarned.delete(flow);
+    }
+    return rows;
   }
 
   private tally(r: IngestResult): void {
@@ -655,7 +699,14 @@ class Collector {
 
   private async reloadMeta(): Promise<void> {
     try {
-      this.meta = await this.d.db.loadStockMeta();
+      const next = await this.d.db.loadStockMeta();
+      if (next.size === 0 && this.meta.size > 0) {
+        // 빈 결과로 바꾸면 그 뒤 모든 글이 미연결로 빠진다 — 지난 목록을 지키고 남긴다
+        this.d.log.warn({ previous: this.meta.size }, "stock meta reload returned empty — keeping previous");
+        return;
+      }
+      if (next.size === 0) this.d.log.warn({}, "stock meta still empty — no news can be linked to a stock");
+      this.meta = next;
     } catch (err) {
       this.d.log.warn({ ...safeErrorFields(err) }, "stock meta reload failed — keeping previous");
     }

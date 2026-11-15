@@ -575,6 +575,57 @@ describe("오류 처리", () => {
   });
 });
 
+// ── 분류 통계 ───────────────────────────────────────────────────────
+describe("WR-03 분류 통계 · 무로그 탈락 금지", () => {
+  it("받은 행이 전부 무효(모양 바뀜) → 흐름마다 warn 1번 · 종료 로그에 classified 누적", async () => {
+    const h = harness({
+      stopAt: MON_10 + 30_000,
+      page: (q) => (flowOf(q) === "feed" ? [row(OLD_SRNO, { data_tm: "10:00" })] : []),
+    });
+    const r = await h.run();
+    expect(r.code).toBe(0);
+    const w = has(h.logs, "warn", /all KIS rows invalid/);
+    expect(w).toHaveLength(1);
+    expect(w[0].obj).toMatchObject({ flow: "feed", total: 1, invalid: 1 });
+    const stop = has(h.logs, "info", /^collector stop$/)[0];
+    expect(stop.obj.classified).toMatchObject({ rows: h.flows("feed").length, invalid: h.flows("feed").length });
+  });
+
+  it("정상 행이 다시 오면 다음 전부 무효 때 다시 warn", async () => {
+    const h = harness({
+      stopAt: MON_10 + 30_000,
+      page: (q, { flowN }) => {
+        if (flowOf(q) !== "feed") return [];
+        return flowN === 3 ? [row(OLD_SRNO)] : [row(OLD_SRNO, { data_tm: "" })];
+      },
+    });
+    await h.run();
+    expect(has(h.logs, "warn", /all KIS rows invalid/)).toHaveLength(2);
+  });
+
+  it("시작 시 종목 정보가 비었으면 warn", async () => {
+    const h = harness({ stopAt: MON_10 + 5_000 });
+    vi.mocked(h.deps.db.loadStockMeta).mockResolvedValueOnce(new Map());
+    await h.run();
+    expect(has(h.logs, "warn", /stock meta empty/)).toHaveLength(1);
+  });
+
+  it("10분 주기: 종목 정보 다시 읽기가 빈 결과면 지난 목록 유지 · warn · 「collector stats」 info", async () => {
+    const h = harness({ stopAt: MON_10 + 601_000 });
+    vi.mocked(h.deps.db.loadStockMeta)
+      .mockResolvedValueOnce(new Map([["005930", { name: "삼성전자", group: "주권" }]]))
+      .mockResolvedValueOnce(new Map());
+    await h.run();
+    expect(has(h.logs, "warn", /stock meta reload returned empty — keeping previous/)).toHaveLength(1);
+    const st = has(h.logs, "info", /^collector stats$/);
+    expect(st).toHaveLength(1);
+    expect(st[0].obj).toHaveProperty("classified");
+    // 지난 목록을 지켰으므로 다시 읽은 뒤에도 005930 글이 연결된다(미연결 0)
+    const stop = has(h.logs, "info", /^collector stop$/)[0];
+    expect((stop.obj.classified as { unlinked: number }).unlinked).toBe(0);
+  });
+});
+
 // ── 예산 ────────────────────────────────────────────────────────────
 describe("예산", () => {
   it("사용량 80% → warn 1번", async () => {
