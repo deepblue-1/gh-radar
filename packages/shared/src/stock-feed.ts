@@ -173,9 +173,17 @@ export function stockFeedPerSource(limit: number): number {
   return Math.min(limit + 10, STOCK_FEED_MAX_LIMIT + 10);
 }
 
-/** 제목 정규화 키 — 글자(한글 · 영문 · 한자) · 숫자만 남기고 소문자. 따옴표 · 말줄임 · 괄호 · 공백은 빠진다. */
+/**
+ * 제목 정규화 키 — 글자(한글 · 영문 · 한자) · 숫자만 남기고 소문자. 따옴표 · 말줄임 · 괄호 · 공백은 빠진다.
+ * 가운뎃점 「ㆍ」(U+318D · NFKC 뒤 U+119E 「ᆞ」)는 문자 범주가 글자(Lo)라 따로 지운다 — 「단일판매ㆍ공급계약」 과
+ * 「단일판매·공급계약」 이 같은 키가 되게(IN-32). DB `kis_news_ingest` 도 받은 title_key 에서 같은 두 글자를 지운다
+ * (20261115110000 — 옛 수집기 이미지가 넣어도 키가 갈리지 않게).
+ */
 export function newsTitleKey(title: string): string {
-  return title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return title
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]|[\u318D\u119E]/gu, "");
 }
 
 function kisItem(r: StockFeedRpcKisRow): StockFeedItem {
