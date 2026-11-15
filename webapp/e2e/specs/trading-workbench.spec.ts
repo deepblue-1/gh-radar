@@ -4285,6 +4285,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       autoSellSoldQty: 177_000_000,
       autoSellBasis: 2,
       autoSellBasisPrice: 1_274_000,
+      // quick-261115-s1o — 매수주문 카드 맨 아래 최대금액 최악값 「999,999,999만」(한 줄 행 · 단위 「만원」 이면 344 에서 넘친다).
+      buyCapAmount: 999_999_999,
     };
     relay.seedLimitChasers([WORST]);
     await page.goto(FOCUS_URL);
@@ -4302,6 +4304,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       `${manText(amountFromQty(330_000, 1_274_000))}330,000주`,
     );
     await expect(lcValue(page, 'lc-sweep-tick')).toHaveText('255건');
+    await expect(lcValue(page, 'lc-buy-cap-amount')).toHaveText('999,999,999만');
 
     const OPTIONS_SEL = `${cardSelector(E2E_ISIN)} [data-slot="card-body-options"]`;
     const options = card.locator('[data-slot="card-body-options"]');
