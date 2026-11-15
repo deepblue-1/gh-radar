@@ -14,7 +14,7 @@
  *   (네이버 링크가 늦게 붙어도 id 불변 — 새 글 강조 오작동 방지).
  * - 「(정정)」 공시는 원 공시와 다른 줄 · 한투끼리 · 네이버끼리는 합치지 않는다.
  * - 네이버 뉴스는 제목에 종목명 · 별칭이 있는 기사만 온다 — RPC 가 상한 적용 전에 거른다
- *   (DB `stock_title_needles` · 별칭 표 `stock_title_aliases` · 20261112320000 · 20261112340000).
+ *   (DB `stock_title_needles` · 별칭 표 `stock_title_aliases` · 20261112320000 · 20261112340000 · 좁힘 20261115120000).
  *   한투 뉴스는 한투가 붙인 종목 그대로다(D-11).
  * - 시황 기사(「코스닥 699선 후퇴…」 처럼 지수 얘기뿐인 뉴스 제목)는 합치기 전에 뺀다 — `isMarketSummaryTitle`(2026-11-12 UAT).
  * - 정렬: publishedAt 내림차순 · 같은 시각이면 공시 먼저 · 그다음 id 오름차순(결정적).
@@ -173,9 +173,17 @@ export function stockFeedPerSource(limit: number): number {
   return Math.min(limit + 10, STOCK_FEED_MAX_LIMIT + 10);
 }
 
-/** 제목 정규화 키 — 글자(한글 · 영문 · 한자) · 숫자만 남기고 소문자. 따옴표 · 말줄임 · 괄호 · 공백은 빠진다. */
+/**
+ * 제목 정규화 키 — 글자(한글 · 영문 · 한자) · 숫자만 남기고 소문자. 따옴표 · 말줄임 · 괄호 · 공백은 빠진다.
+ * 가운뎃점 「ㆍ」(U+318D · NFKC 뒤 U+119E 「ᆞ」)는 문자 범주가 글자(Lo)라 따로 지운다 — 「단일판매ㆍ공급계약」 과
+ * 「단일판매·공급계약」 이 같은 키가 되게(IN-32). DB `kis_news_ingest` 도 받은 title_key 에서 같은 두 글자를 지운다
+ * (20261115110000 — 옛 수집기 이미지가 넣어도 키가 갈리지 않게).
+ */
 export function newsTitleKey(title: string): string {
-  return title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return title
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]|[\u318D\u119E]/gu, "");
 }
 
 function kisItem(r: StockFeedRpcKisRow): StockFeedItem {

@@ -63,6 +63,15 @@ describe("newsTitleKey", () => {
   it("영문 대소문자 무시 · 한자 · 숫자는 남기고 괄호 · 홑따옴표는 뺀다", () => {
     expect(newsTitleKey("韓 증시 ‘KOSPI’ (2,500) 돌파")).toBe("韓증시kospi2500돌파");
   });
+
+  it("가운뎃점 표기(ㆍ · ᆞ · · · ∙ · ‧)가 달라도 같은 키 — 「ㆍ」 는 글자 범주라 따로 지운다(IN-32)", () => {
+    const want = "단일판매공급계약체결";
+    for (const dot of ["\u318D", "\u119E", "\u00B7", "\u2219", "\u2027", ""]) {
+      expect(newsTitleKey(`단일판매${dot}공급계약체결`)).toBe(want);
+    }
+    // 다른 한글 낱자는 지우지 않는다(NFKC 로 바뀐 모양 그대로 남는다)
+    expect(newsTitleKey("ㄱㄴ 테스트")).toBe("ㄱㄴ테스트".normalize("NFKC"));
+  });
 });
 
 describe("isSameArticle", () => {
