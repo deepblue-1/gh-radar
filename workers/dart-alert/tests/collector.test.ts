@@ -3,7 +3,7 @@ import { plannedDailyCalls } from "../src/cadence";
 import { LEASE_TTL_S, UNKNOWN_STREAK } from "../src/collector";
 import { DbError } from "../src/db";
 import { LATE_LABEL } from "../src/message";
-import { ALL_WATCHES, dbRow, harness, itemOf, KEY1_WATCHES, KEY2_WATCHES, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
+import { ALL_WATCHES, dbRow, exchangeRow, harness, itemOf, KEY1_WATCHES, KEY2_WATCHES, kst, MON, rightsRow, tenderRow, type FeedItem } from "./helpers/fakes";
 
 /**
  * Phase 43-05 T1 — 장기 실행 수집기(auto). 가짜 시계(sleep · 지연이 시계를 앞당김) · 가짜 DB(43-02 RPC 계약) ·
@@ -487,6 +487,69 @@ describe("넣기 실패 — 소리 없이 멈추지 않는다 (리뷰 WR-01)", (
     expect(notices[1]).toContain("✅ 공시 알림 다시 동작");
     expect(h.telegram.alerts()).toHaveLength(1);
     expect(h.logs.count("dart outage opened", "error")).toBe(1);
+  });
+
+  // 리뷰 R2 CR-01 — 띄엄 조회 감시 대상(I001 10초 칸)은 넣기를 2바퀴에 1번만 시도한다. 넣기를 시도하지 않은 바퀴가 실패 기록을
+  // 지우면 5분에 닿지 못해 error · 장애 글이 영영 안 나간다
+  const lastOkAll = (hms: string) => Object.fromEntries(ALL_WATCHES.map((w) => [w.id, iso(hms)]));
+  const exchange = (n: number, fromHms: string): FeedItem => ({ watch: "exchange_disclosure", from: at(fromHms), row: exchangeRow(n) });
+  const fnMissing = () => new DbError("dart_alert_insert 실패 (PGRST202): Could not find the function", "PGRST202");
+
+  it("거래소 수시공시(I001 10초 칸) 건 넣기가 계속 실패하면 5분 넘긴 시도에 error 1번 · 「멈췄습니다(공시 저장 실패)」 1건 · 「다시 동작」 0 (리뷰 R2 CR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:07:00"),
+      watches: ALL_WATCHES,
+      db: {
+        lastOk: lastOkAll("09:59:55"),
+        before: (fn) => {
+          if (fn === "dart_alert_insert") throw fnMissing();
+        },
+      },
+      dart: { feed: [exchange(1, "10:00:12")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 넣기 시도는 I001 칸(10:00:20 부터 10초마다)뿐 — 그 사이 바퀴는 넣을 건이 없다
+    expect(h.logs.count("dart alert insert failed", "warn")).toBeGreaterThan(30);
+    expect(h.logs.count("dart alert insert failing", "error")).toBe(1);
+    expect(h.logs.find("dart alert insert failing")?.obj.sinceMs).toBeGreaterThan(300_000);
+    const opens = h.db.calls.outage.filter((c) => c.action === "open");
+    expect(opens).toHaveLength(1);
+    expect(opens[0].reason).toBe("공시 저장 실패 PGRST202");
+    expect(opens[0].at).toBeGreaterThan(at("10:05:20"));
+    expect(opens[0].at).toBeLessThanOrEqual(at("10:05:31"));
+    // 넣기가 여전히 깨져 있다 — 넣기를 시도하지 않은 바퀴가 장애를 닫지 않는다
+    expect(h.db.calls.outage.filter((c) => c.action === "close")).toHaveLength(0);
+    const notices = h.telegram.notices().map((s) => s.text);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("⚠ 공시 알림이 멈췄습니다 — 10:00 부터 DART 조회 실패(공시 저장 실패 PGRST202)");
+    expect(h.telegram.alerts()).toHaveLength(0);
+  });
+
+  it("열린 장애가 있을 때 I001 넣기가 실패 중이면 넣기를 시도하지 않은 바퀴가 「다시 동작」 을 보내지 않는다 — 넣기가 된 바퀴에 닫는다 (리뷰 R2 CR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:04:00"),
+      watches: ALL_WATCHES,
+      db: {
+        lastOk: lastOkAll("09:59:55"),
+        outage: { since: iso("09:50:00"), reason: "공시 저장 실패 PGRST202", notice: "sent" },
+        before: (fn, now) => {
+          if (fn === "dart_alert_insert" && now < at("10:03:00")) throw fnMissing();
+        },
+      },
+      dart: { feed: [exchange(1, "09:59:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 10:00:00 첫 바퀴부터 I001 넣기 실패 → 10:03:00 칸에서 넣기 성공
+    expect(h.logs.count("dart alert insert failed", "warn")).toBe(18);
+    const closes = h.db.calls.outage.filter((c) => c.action === "close");
+    expect(closes).toHaveLength(1);
+    expect(closes[0].at).toBeGreaterThanOrEqual(at("10:03:00"));
+    const recovered = h.telegram.notices().filter((s) => s.text.startsWith("✅"));
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0].at).toBeGreaterThanOrEqual(at("10:03:00"));
+    expect(h.telegram.alerts()).toHaveLength(1);
   });
 });
 

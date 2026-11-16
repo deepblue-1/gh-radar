@@ -700,7 +700,9 @@ class Collector {
       insertErr = err;
     }
     if (r) {
-      this.insertFail = null;
+      // 넣을 건이 없던 바퀴는 실패 기록을 지우지 않는다 — 띄엄 조회 대상(I001 · 30초 칸)의 건은 그 대상 칸에서만 다시 넣으므로
+      // 그 사이 바퀴가 지우면 5분에 닿지 못한다(리뷰 R2 CR-01)
+      if (r.insertAttempted) this.insertFail = null;
       this.takeResult(r);
     }
 
@@ -778,6 +780,7 @@ class Collector {
    * 넣기가 연속으로 실패한다(DB · 스키마 문제) — 조회는 성공해도 새 건이 DB 에 못 들어가 알림이 전부 멈춘다. 첫 실패에서
    * 5분(`OUTAGE_AFTER_MS`)을 넘기면 error `dart alert insert failing` 1번(→ 이메일) + 장애 열기(「멈췄습니다」 — D-16 의
    * 「알림이 안 온다」 를 방에도 알린다). 넣기가 다시 되는 바퀴(모든 감시 대상 성공)에 judgeOutage 가 닫는다(리뷰 WR-01).
+   * 실패 기록은 넣기를 실제로 시도해 성공한 바퀴만 지우고, 기록이 남아 있는 동안은 장애를 닫지 않는다(리뷰 R2 CR-01).
    */
   private async judgeInsertFailure(startedAt: number, err: unknown): Promise<void> {
     const f = (this.insertFail ??= { since: startedAt, logged: false });
@@ -950,7 +953,8 @@ class Collector {
     if (failed.length === 0) {
       // 이 바퀴에 안 불린 띄엄 조회 대상(I001 · D005)이 아직 실패 중이면 닫지 않는다 — 그 대상이 다시 성공한 바퀴에 닫는다
       // 멈춘 키가 있으면 닫지 않는다 — 두 키 모두 회복해야 「다시 동작」(261113-rn7)
-      if (this.outage && this.failing.size === 0 && !this.anyPaused()) await this.closeOutage();
+      // 넣기가 아직 실패 중이면 닫지 않는다 — 넣기를 시도하지 않은 바퀴는 회복 증거가 아니다(리뷰 R2 CR-01)
+      if (this.outage && this.failing.size === 0 && !this.anyPaused() && this.insertFail === null) await this.closeOutage();
       return;
     }
     if (this.outage) {

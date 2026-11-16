@@ -159,6 +159,11 @@ export interface CollectResult {
   /** 이 바퀴의 OpenDART 호출 수 — 실패 호출 포함 */
   calls: number;
   inserted: InsertedRow[];
+  /**
+   * 이 바퀴에 넣기를 실제로 시도했나(넣을 건이 있었나) — 넣을 건이 없던 바퀴는 넣기 연속 실패 기록을 지우지 않는다
+   * (리뷰 R2 CR-01 — 띄엄 조회 감시 대상의 건은 그 대상을 부르는 바퀴에서만 다시 넣는다)
+   */
+  insertAttempted: boolean;
 }
 
 const YMD_RE = /^[0-9]{8}$/;
@@ -305,10 +310,11 @@ export async function collectOnce(
 
   // 넣기가 던지면 seen 에 넣지 않는다 → 다음 바퀴에 같은 행을 다시 넣는다(임대 잃음 · 연속 실패 판정은 수집기 몫).
   // DB 가 행 값 때문에 거절한 행은 error 로 남기고 seen 에 넣어 이 실행에서는 다시 두드리지 않는다.
-  const inserted = items.length > 0 ? (await insertItems(deps, items, opts.seed, calls)).inserted : [];
+  const insertAttempted = items.length > 0;
+  const inserted = insertAttempted ? (await insertItems(deps, items, opts.seed, calls)).inserted : [];
   for (const rceptNo of judged) state.seen.add(rceptNo);
 
-  return { results, calls, inserted };
+  return { results, calls, inserted, insertAttempted };
 }
 
 export interface DeliverResult {
