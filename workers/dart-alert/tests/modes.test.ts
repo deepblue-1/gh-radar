@@ -206,7 +206,25 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     expect(h.db.calls.insert[0]).toMatchObject({ seed: true, inserted: 2 });
     expect(h.logs.count("seed done")).toBe(1);
     expect(h.db.calls.claim).toHaveLength(0);
+    // 창 밖 seed 는 auto 바퀴를 돌지 않았다 — 멈추기 직전 송신 · 미송신 세기도 없다(「송신 0」 약속 · 리뷰 R2 IN-02)
+    expect(h.db.calls.countUnsent).toHaveLength(0);
     expect(h.db.calls.leaseRelease).toHaveLength(1);
+  });
+
+  it("창 안 seed 로 시작해 auto 로 이어 간 실행은 창 끝에 남은 건을 한 번 더 보내 보고 못 나간 건이 있으면 error alerts left unsent at stop (리뷰 R2 IN-02)", async () => {
+    const h = harness({
+      start: at("19:59:00"),
+      mode: "seed",
+      dart: { feed: [tender(1, "09:10:00"), tender(2, "19:59:30")] },
+      telegram: { reply: (c) => (c.text.startsWith("📢") ? { kind: "transient", code: 502, description: "Bad Gateway" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "window_end" });
+    expect(h.db.calls.insert[0]).toMatchObject({ seed: true, inserted: 1 });
+    expect(h.db.statusOf(tenderRow(1).rcept_no)).toBe("seeded");
+    expect(h.db.statusOf(tenderRow(2).rcept_no)).toBe("pending");
+    expect(h.db.calls.countUnsent).toEqual([{ at: expect.any(Number), day: MON, unsent: 1 }]);
+    expect(h.logs.count("alerts left unsent at stop", "error")).toBe(1);
+    expect(h.logs.find("alerts left unsent at stop")?.obj).toMatchObject({ unsent: 1, reason: "window_end" });
   });
 
   it("seed 월 14:00(여섯 감시 대상) — 감시 대상마다 오늘 + 금요일 조회 · 금요일 통과 건도 seeded(rcept_dt 오늘) · 송신 0 · 표시 여섯 · 이어 가는 auto 는 금요일 조회 없음", async () => {
