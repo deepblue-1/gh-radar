@@ -51,7 +51,7 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *      (`settleHalts`).
  *      다음 바퀴 = 이번 바퀴 시작 + 간격(종일 5초 — cadence.ts). 이미 지났으면 곧바로 —
  *      밀린 바퀴를 몰아서 부르지 않는다. KST 20:00(창 끝)이면 종료 0 `window_end`.
- *      기다리는 동안 · 바퀴 시작 · 송신 직전: 30초마다 임대 연장(+ `last_ok` 저장) · 10초마다 사용량 flush.
+ *      기다리는 동안 · 바퀴 시작 · 넣기 직전(리뷰 R2 WR-01) · 송신 직전: 30초마다 임대 연장(+ `last_ok` 저장) · 10초마다 사용량 flush.
  *   ⑦ 끝 — 정상 · 오류 · SIGTERM 모두 사용량 flush · 임대를 가졌으면 해제. 그 전에 임대를 쥔 auto 실행(창 안 seed 뒤 auto 바퀴로
  *      이어 간 실행 포함 — 리뷰 R2 IN-02)은(SIGTERM · 임대 잃음 밖)
  *      이미 넣은 건을 OpenDART 호출 없이 한 번 더 보내 보고, 오늘 못 나간 건이 남으면 error `alerts left unsent at stop`(리뷰 WR-05).
