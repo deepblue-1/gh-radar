@@ -1,8 +1,8 @@
 ---
 phase: 43-tender-offer-telegram-alert
-verified: 2026-11-13T01:40:00Z
-status: human_needed
-score: 5/7 must-haves verified
+verified: 2026-11-16T08:30:00Z
+status: passed
+score: 7/7 must-haves verified
 covered_files:
   - ".planning/phases/43-tender-offer-telegram-alert/43-01-PLAN.md"
   - ".planning/phases/43-tender-offer-telegram-alert/43-01-SUMMARY.md"
@@ -22,6 +22,10 @@ covered_files:
   - ".planning/phases/43-tender-offer-telegram-alert/43-08-SUMMARY.md"
   - ".planning/phases/43-tender-offer-telegram-alert/43-09-PLAN.md"
   - ".planning/phases/43-tender-offer-telegram-alert/43-09-SUMMARY.md"
+  - ".planning/quick/261113-iez-dart-alert-i001-d005-b001-2/261113-iez-PLAN.md"
+  - ".planning/quick/261113-iez-dart-alert-i001-d005-b001-2/261113-iez-SUMMARY.md"
+  - ".planning/quick/261113-rn7-dart-alert-two-keys-cadence-and-new-kind/261113-rn7-PLAN.md"
+  - ".planning/quick/261113-rn7-dart-alert-two-keys-cadence-and-new-kind/261113-rn7-SUMMARY.md"
   - "CLAUDE.md"
   - "docs/stack.md"
   - "ops/alert-dart-alert-error-log.yaml"
@@ -32,6 +36,7 @@ covered_files:
   - "scripts/setup-dart-alert-secrets.sh"
   - "scripts/smoke-dart-alert.sh"
   - "supabase/migrations/20261113200000_dart_alert.sql"
+  - "supabase/migrations/20261113400000_dart_alert_fix.sql"
   - "supabase/tests/dart_alert.test.sql"
   - "workers/dart-alert/src/apiUsage.ts"
   - "workers/dart-alert/src/cadence.ts"
@@ -47,16 +52,23 @@ covered_files:
   - "workers/dart-alert/src/services/supabase.ts"
   - "workers/dart-alert/src/telegram/client.ts"
   - "workers/dart-alert/src/watches.ts"
-covered_digest: "v4:sha256:33d3088af65a7ec0dc551d5103f31380c8d87bae4b7438892d1be50462839e04"
-behavior_unverified: 1
+covered_digest: "v4:sha256:a0a88b0756048397d04a1a49fb7ac7b19f72bc5a7cef82a91c898b5924d8deaa"
+behavior_unverified: 0
 overrides_applied: 0
-behavior_unverified_items:
+coincidental_reliance_items: []
+superseded_by: 43-VERIFICATION-R2.md
+human_verification_resolved: "43-UAT.md 6/6 pass — 사용자 2026-11-16 「UAT 모두 pass」 · 2회차 재검증 43-VERIFICATION-R2.md passed 7/7"
+round1_verified: 2026-11-13T01:40:00Z
+round1_status: human_needed
+round1_score: 5/7 must-haves verified
+round1_covered_digest: "v4:sha256:33d3088af65a7ec0dc551d5103f31380c8d87bae4b7438892d1be50462839e04"
+round1_behavior_unverified: 1
+round1_behavior_unverified_items:
   - truth: "SC-1 — 접수 30초 안에 단체방에 두 줄 알림 1건이 간다 (운영 DB 경로 끝-끝)"
     test: "운영에서 첫 실제 공개매수 또는 유상증자 · 합병 공시가 접수되면 단체방 글 · 로그 `dart alert` 한 건과 `stats` 의 sent 수를 본다"
     expected: "두 줄(「📢 보고서명 — 회사(종목코드) · 제출인 …」 / 「DART 원문 · 금융감독원 전자공시」), 링크가 DART 원문 뷰어로 열림, 링크 미리보기 카드 없음, 접수 뒤 30초 안 도착"
     why_human: "배포 뒤 운영 DB 로 넣기 · 차례 · 기록 RPC 가 한 번도 행을 만져 본 적이 없다(seed 는 matched 0 · inserted 0 · test-send 는 DB 를 거치지 않는다). 가짜 시계 테스트와 일회용 DB pgTAP 는 통과했지만 실제 접수 → 알림 도착은 실제 공시가 와야 확인된다."
-coincidental_reliance_items: []
-human_verification:
+round1_human_verification:
   - test: "첫 실제 알림의 모양 · 링크 · 지연 (SC-1 · SC-7)"
     expected: "두 줄 문구 · DART 원문 링크가 열림 · 미리보기 카드 없음 · 「DART 표기 시각 → 알림 도착」 지연이 30초 안. 장전 · 지분공시(공개매수) · 주요사항보고서 유형별로 각 첫 건에서 지연을 기록"
     why_human: "실제 공시가 와야 한다. 지금까지 실제 공시 알림은 0건이다."
