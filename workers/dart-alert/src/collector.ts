@@ -79,9 +79,14 @@ import type { DartKeyId, JudgeOptions, Watch, WatchId } from "./watches";
  *   SC-2 한 실행만 — 임대 TTL 90초 · 30초 연장. 연장 거절 → 조용히 종료 0 `lease_lost` · 연장 DB 오류가 60초
  *     이어지면(남이 넘겨받을 수 있는 시점 전) 종료 0 `lease_unconfirmed` · 넣기 · 차례 · 기록 RPC 의 55000
  *     (43-02 어댑터가 `LeaseLostError` 로 바꿈) → 종료 0 `lease_lost`.
- *     긴 바퀴(체커 I-2): 연장 점검을 기다리는 동안만이 아니라 바퀴 시작 · 송신 직전에도 한다(30초 시간 문이라 RPC 수는
- *     늘지 않는다) → 직전 연장 뒤 최대 경과 ≈ 30초 + 송신 한 번(최악 약 55초) < TTL 90초. 그보다 긴 경우는 기록
- *     RPC 55000 → 종료 0 → 다음 깨움이 인계해 이어 보낸다(손실 없이 스스로 낫는 위험 · 상수는 바꾸지 않는다).
+ *     긴 바퀴(체커 I-2 · 리뷰 R2 WR-01): 연장 점검을 기다리는 동안만이 아니라 바퀴 시작 · **넣기 직전** · 송신 직전에도 한다
+ *     (30초 시간 문이라 RPC 수는 늘지 않는다). 조회 시간 = 호출 수 × 요청 상한 10초 — `:00` · `:30` 칸 바퀴 6 ~ 9회(60 ~ 90초) ·
+ *     그날 첫 바퀴는 전날 확인까지 약 14회(최악 약 140초)라 바퀴 시작 연장만으로는 넣기 RPC 전에 TTL 90초를 넘긴다 →
+ *     넣기 직전 연장(만료 뒤라도 같은 보유자면 다시 잡힌다 · 남이 넘겨받았으면 거절 → 종료 0 `lease_lost`). 넣기 RPC 직전 경과는
+ *     ≈ 0 · 송신 직전 경과 ≈ 30초 + 송신 한 번(최악 약 55초) < TTL 90초. 재탐침(키마다 최대 10초) · 조회 도중에는 연장하지 않으므로
+ *     조회 중 TTL 이 지나 다른 실행이 넘겨받을 수는 있다 — 그때는 넣기 직전 연장이 거절돼 조용히 끝난다(중복 송신은 rcept_no PK 가 막음).
+ *     seed 바퀴도 넣기 직전에 연장한다 — 거절 · 넣기 55000 은 error + 종료 1 `seed_failed`(아무것도 못 채운 seed 가 성공처럼 보이지 않게).
+ *     그보다 긴 송신은 기록 RPC 55000 → 종료 0 → 다음 깨움이 인계해 이어 보낸다(손실 없이 스스로 낫는 위험 · 상수는 바꾸지 않는다).
  *   공식 API 운영 기준 ④ 한도 · 차단 신호에 재시도로 두드리지 않는다 — **키별 레인**(261113-rn7 U-2): `020` → 그 키 한도
  *     의심 표시 + 그 키 멈춤 `quota` · 키 오류(010 · 011 · 012 · 901) → `dart_key` · 코드 버그(100 · 101) → `dart_bug` ·
  *     모르는 코드가 그 키 감시 대상 상관없이 연속 5번 → 그 키 한도 의심 표시 + `unknown_streak`. 치명 신호를 받으면 그 키의
@@ -589,14 +594,24 @@ class Collector {
     }
 
     let inserted: InsertedRow[] = [];
-    if (matched.length > 0) {
-      try {
-        inserted = await db.insert(matched, true);
-      } catch (err) {
-        if (err instanceof LeaseLostError) throw err;
-        log.error({ err: safeErrorFields(err), matched: matched.length }, "seed failed — insert error, not continuing to auto");
-        throw new StopRun(1, "seed_failed");
+    try {
+      // seed 바퀴는 임대를 잡은 뒤 연장 없이 오늘 + 전날 전 쪽을 읽는다 — 넣기 전에 연장한다(같은 보유자면 만료 뒤에도 다시
+      // 잡힌다). 연장 거절 · 확인 못 함 · 넣기 55000 은 아무것도 채우지 못한 seed 다 — 종료 0 이면 성공처럼 보이므로 종료 1(리뷰 R2 WR-01)
+      await this.renewLease(this.now());
+      if (matched.length > 0) {
+        try {
+          inserted = await db.insert(matched, true);
+        } catch (err) {
+          if (err instanceof LeaseLostError) throw err;
+          log.error({ err: safeErrorFields(err), matched: matched.length }, "seed failed — insert error, not continuing to auto");
+          throw new StopRun(1, "seed_failed");
+        }
       }
+    } catch (err) {
+      if (!(err instanceof LeaseLostError || (err instanceof StopRun && err.code === 0))) throw err;
+      if (err instanceof LeaseLostError) this.haveLease = false;
+      log.error({ err: safeErrorFields(err), matched: matched.length }, "seed failed — lease lost before insert, nothing inserted (run seed again)");
+      throw new StopRun(1, "seed_failed");
     }
     this.takeResult({ ...r, inserted });
     await this.renewLease(this.now());
@@ -693,10 +708,14 @@ class Collector {
         seed: false,
         isDue: (w) => this.isDue(w, startedAt),
         prevDay: (w) => this.prevDayDue(w, startedAt),
+        // 조회가 길었으면(그날 첫 바퀴 약 14회 × 요청 상한 10초) 넣기 RPC 전에 임대가 만료된다 — 넣기 직전 연장(30초 시간 문이라
+        // RPC 수는 늘지 않는다 · 리뷰 R2 WR-01)
+        beforeInsert: () => this.maintain(this.now(), false),
       });
     } catch (err) {
-      // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음만 위로 · 나머지는 다음 바퀴에 다시 넣는다
-      if (err instanceof LeaseLostError) throw err;
+      // 넣기 실패 — collectOnce 가 warn(안전 필드) 뒤 던졌다. 임대 잃음 · 넣기 직전 연장의 종료 신호(StopRun)는 위로 ·
+      // 나머지는 다음 바퀴에 다시 넣는다
+      if (err instanceof LeaseLostError || err instanceof StopRun) throw err;
       insertErr = err;
     }
     if (r) {

@@ -161,6 +161,35 @@ describe("seed 모드 (첫 배포 날 · Pitfall 8 · 체커 W1 · I5)", () => {
     expect(h.db.calls.leaseRelease).toHaveLength(1);
   });
 
+  it("seed 바퀴 조회가 TTL 보다 길어도(12회 × 8초 = 96초) 넣기 직전에 임대를 연장해 seeded 로 넣는다 (리뷰 R2 WR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:03:00"),
+      mode: "seed",
+      watches: ALL_WATCHES,
+      dart: { delayMs: 8_000, feed: [tender(1, "09:10:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.db.leaseLost).toHaveLength(0);
+    expect(h.db.calls.insert[0]).toMatchObject({ at: at("10:01:36"), seed: true, inserted: 1 });
+    expect(h.db.calls.leaseAcquire.map((c) => c.at)).toContain(at("10:01:36"));
+    expect(h.logs.count("seed done", "info")).toBe(1);
+  });
+
+  it("seed 넣기 직전 연장이 거절되면 넣기 0 · error · 종료 1 seed_failed (종료 0 으로 성공처럼 보이지 않게 · 리뷰 R2 WR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      mode: "seed",
+      db: { leaseAcquire: (c) => (c.n === 2 ? { held: false, fresh: false, reclaimed: 0, expired: 0 } : undefined) },
+      dart: { feed: [tender(1, "09:10:00")] },
+    });
+    expect(await h.run()).toEqual({ code: 1, reason: "seed_failed" });
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.logs.count("seed failed — lease lost before insert, nothing inserted (run seed again)", "error")).toBe(1);
+    expect(h.logs.count("seed done")).toBe(0);
+    expect(h.telegram.sent).toHaveLength(0);
+  });
+
   it("창 밖 seed 는 seed 바퀴 한 번 뒤 window_end 로 끝나고 보내지 않는다", async () => {
     const h = harness({ start: at("21:00:00"), mode: "seed", dart: { feed: [tender(1, "09:10:00"), rights(2, "10:30:00")] } });
     const exit = await h.run();

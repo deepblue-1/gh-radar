@@ -202,6 +202,50 @@ describe("임대 (SC-2 · 한 실행만)", () => {
     expect(h.telegram.sent.length).toBeGreaterThan(80);
     expect(h.telegram.sent.every((s) => s.result.kind === "ok")).toBe(true);
   });
+
+  // 리뷰 R2 WR-01 — 그날 첫 바퀴(여섯 감시 대상 오늘 + 전날 확인 = 12회)는 조회만으로 TTL 90초를 넘길 수 있다
+  const lastOkAll6 = (hms: string) => Object.fromEntries(ALL_WATCHES.map((w) => [w.id, iso(hms)]));
+  const exchangeEarly: FeedItem = { watch: "exchange_disclosure", from: at("09:59:00"), row: exchangeRow(1) };
+
+  it("첫 바퀴 조회가 TTL 보다 길어도(12회 × 8초 = 96초) 넣기 직전에 임대를 연장해 55000 없이 넣고 보낸다 (리뷰 R2 WR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:03:00"),
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      db: { lastOk: lastOkAll6("09:59:55") },
+      dart: { delayMs: 8_000, feed: [exchangeEarly] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    expect(h.db.leaseLost).toHaveLength(0);
+    const ins = h.db.calls.insert[0];
+    expect(ins.at).toBe(at("10:01:36"));
+    // 넣기와 같은 시각(조회 뒤 · 넣기 앞)에 연장했다 — 바퀴 시작(10:00:00) 연장은 30초 문 안이라 없었다
+    expect(h.db.calls.leaseAcquire.map((c) => c.at)).toContain(ins.at);
+    expect(h.telegram.alerts()).toHaveLength(1);
+  });
+
+  it("넣기 직전 연장이 거절되면 그 바퀴에서 곧바로 종료 0 lease_lost — 넣기 0 · 다음 바퀴 조회 0 (StopRun 이 조회 쪽 catch 에 삼켜지지 않음 · 리뷰 R2 WR-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:05:00"),
+      watches: ALL_WATCHES,
+      prevDayDone: false,
+      db: {
+        lastOk: lastOkAll6("09:59:55"),
+        leaseAcquire: (c) => (c.n >= 2 ? { held: false, fresh: false, reclaimed: 0, expired: 0 } : undefined),
+      },
+      dart: { delayMs: 5_000, feed: [exchangeEarly] },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "lease_lost" });
+    // 첫 바퀴 12회(5초씩 → 10:01:00) 뒤 넣기 직전 연장(2번째 임대 호출)이 거절
+    expect(h.db.calls.leaseAcquire.map((c) => c.at)).toEqual([at("10:00:00"), at("10:01:00")]);
+    expect(h.dart.listCalls).toHaveLength(12);
+    expect(h.db.calls.insert).toHaveLength(0);
+    expect(h.logs.count("dart alert insert failed")).toBe(0);
+    expect(h.logs.count("lease renewal rejected — another run owns the lease; stopping quietly", "warn")).toBe(1);
+    expect(h.db.calls.leaseRelease).toHaveLength(0);
+  });
 });
 
 describe("새 건 송신 · 늦은 알림 기준점 (D-02 · D-12 · D-13 · SC-3)", () => {

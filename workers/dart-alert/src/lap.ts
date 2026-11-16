@@ -222,7 +222,17 @@ export async function collectOnce(
   deps: LapDeps,
   state: LapState,
   day: string,
-  opts: { isLate(w: WatchId): boolean; seed: boolean; isDue?(w: Watch): boolean; prevDay?(w: Watch): string | null },
+  opts: {
+    isLate(w: WatchId): boolean;
+    seed: boolean;
+    isDue?(w: Watch): boolean;
+    prevDay?(w: Watch): string | null;
+    /**
+     * 넣기 직전(넣을 건이 있을 때만) — 수집기가 임대를 연장한다(리뷰 R2 WR-01 — 조회가 길면 바퀴 시작 연장만으로는 TTL 을
+     * 넘긴다). 던지면(연장 거절 · 확인 못 함) 넣지 않고 그대로 위로 간다.
+     */
+    beforeInsert?(): Promise<void>;
+  },
 ): Promise<CollectResult> {
   const results: WatchResult[] = [];
   const items: InsertItem[] = [];
@@ -311,6 +321,7 @@ export async function collectOnce(
   // 넣기가 던지면 seen 에 넣지 않는다 → 다음 바퀴에 같은 행을 다시 넣는다(임대 잃음 · 연속 실패 판정은 수집기 몫).
   // DB 가 행 값 때문에 거절한 행은 error 로 남기고 seen 에 넣어 이 실행에서는 다시 두드리지 않는다.
   const insertAttempted = items.length > 0;
+  if (insertAttempted) await opts.beforeInsert?.();
   const inserted = insertAttempted ? (await insertItems(deps, items, opts.seed, calls)).inserted : [];
   for (const rceptNo of judged) state.seen.add(rceptNo);
 
