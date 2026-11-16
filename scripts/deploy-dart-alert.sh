@@ -97,6 +97,9 @@ set -euo pipefail
 #   값을 유지하려면 배포 때 같은 이름의 env 로 넘긴다(아래 Section 5 가 그대로 싣는다):
 #     DART_ALERT_B001_KINDS='유상증자결정,…' DART_ALERT_B001_CORRECTIONS=exclude GCP_PROJECT_ID=gh-radar SUPABASE_URL=… bash scripts/deploy-dart-alert.sh
 #   주의: 기본값은 6종(위 예시)이다 — 옛 4종 목록을 복사해 넣으면 자기주식취득결정 · 주식교환ㆍ이전결정이 빠진다.
+#   주의: 허용 목록(DART_ALERT_B001_KINDS)을 넓히거나 정정(DART_ALERT_B001_CORRECTIONS)을 include 로 바꾼 뒤엔 그날 평일 20:00 뒤
+#   seed 실행을 한 번 돌리고 로그 「seed done」 을 확인한다(위 「종류 · 감시 대상을 넓힌 배포」 와 같은 명령) — 빼먹으면 다음 아침
+#   전날 확인이 전날의 새로 맞는 주요사항보고서 건을 「(늦은 알림)」 으로 한꺼번에 보낸다(리뷰 R2 IN-04).
 #
 # Scheduler 일정을 바꾸면 workers/dart-alert/tests/schedule.test.ts 를 먼저 돌린다
 #   (그 테스트가 이 파일의 WAKE_SCHEDULER · WAKE_SCHEDULE 두 줄을 직접 읽어 1주일 × 1440분 정합을 단언한다).
