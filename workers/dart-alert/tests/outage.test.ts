@@ -301,7 +301,7 @@ describe("창 경계 — 다른 날로 넘어간 장애", () => {
     expect(stopped(h)).toHaveLength(0);
     expect(recovered(h)).toHaveLength(1);
     expect(recovered(h)[0].text).toBe(recoveredText(since, kst(TUE, "07:00:40")));
-    expect(recovered(h)[0].text).toContain("(11/16 19:50 부터 멈춤)");
+    expect(recovered(h)[0].text).toContain("멈춘 사이(11/16 19:50 부터)");
     // 문구 꼴 확인(43-09 builder 그대로)
     expect(outageText(since, "a")).toContain("19:50 부터");
   });

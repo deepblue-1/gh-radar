@@ -95,12 +95,15 @@ export function outageText(sinceMs: number, reason: string): string {
   return `⚠ 공시 알림이 멈췄습니다 — ${kstLabel(sinceMs, false)} 부터 DART 조회 실패(${why}). 복구되면 알려 드립니다.`;
 }
 
-/** D-16 복구 글 — 같은 KST 날이면 멈춘 구간, 날이 바뀌었으면 멈춘 시작 날짜 · 시각과 「오늘 접수된 공시」 */
+/**
+ * D-16 복구 글 — 같은 KST 날이면 멈춘 구간, 날이 바뀌었으면 멈춘 시작 날짜 · 시각부터 「멈춘 사이」. 날을 넘긴 장애에서
+ * 「(늦은 알림)」 으로 나가는 것은 아침 전날 확인이 줍는 전날 멈춘 뒤 건이다(그날 07:00 첫 바퀴 건은 늦지 않음 · 리뷰 R2 IN-03)
+ */
 export function recoveredText(sinceMs: number, nowMs: number): string {
   if (kstDay(sinceMs) === kstDay(nowMs)) {
     return `✅ 공시 알림 다시 동작 — ${kstLabel(sinceMs, false)} ~ ${kstLabel(nowMs, false)} 사이 공시는 「${LATE_LABEL}」 으로 보냅니다.`;
   }
-  return `✅ 공시 알림 다시 동작(${kstLabel(sinceMs, true)} 부터 멈춤) — 오늘 접수된 공시는 「${LATE_LABEL}」 으로 보냅니다.`;
+  return `✅ 공시 알림 다시 동작 — 멈춘 사이(${kstLabel(sinceMs, true)} 부터) 접수된 공시는 「${LATE_LABEL}」 으로 보냅니다.`;
 }
 
 /** D-15 시험 글 두 줄 */
