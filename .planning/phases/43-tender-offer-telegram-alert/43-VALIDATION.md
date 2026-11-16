@@ -3,7 +3,7 @@ phase: "43"
 slug: "tender-offer-telegram-alert"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: "2026-11-12"
@@ -55,7 +55,7 @@ created: "2026-11-12"
 | 43-02-T3 | 43-02 | 2 | 체커 W5 · SC-2 · SC-5 — DB 어댑터 `src/db.ts` 의 rpc 이름 · `p_*` 인자 키 · 반환 형 · 워커가 읽는 반환 jsonb 키 · `dart_alert_state` 읽기 칸이 마이그레이션 파일(`_dart_alert.sql`)의 시그니처 · 본문 · 표 정의와 같다 · 55000 → `LeaseLostError` · 파서 자기 점검(바꾼 인자 키는 mismatches ≥ 1) | — | DB 오류 메시지에 인자 값 · holder 없음 | unit(마이그레이션 파일 직접 대조) | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/dbContract.test.ts --maxWorkers=2` | ✅ | ✅ green |
 | 43-03-T1 | 43-03 | 2 | 설정 계약 — 필수 비밀 누락 시 이름만 담은 오류 · 예산 15,000 초과 거부 · 모드 · 방 id · 종류 목록 · 정정 스위치 검증 | — | 오류 메시지에 값 미포함 | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/config.test.ts --maxWorkers=2` | ✅ | ✅ green |
 | 43-03-T1 | 43-03 | 2 | 비밀 비노출 — 인증키 · 봇 토큰 · 방 id · 요청 주소 · 쿼리 인자 · axios 설정이 로그 출력에 없음 | — | 로그 redact | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/logger.test.ts --maxWorkers=2` | ✅ | ✅ green |
-| 43-03-T2 | 43-03 | 2 | D-10 · D-11 · D-12 · SC-4 — 간격 함수 경계값 · 하루 10,800회 · 15,000 이하 · 늦은 알림 기준점 | — | N/A | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/cadence.test.ts --maxWorkers=2` | ✅ | ⚠️ flaky(부하 시 「주말 하루는 바퀴 0」 5초 기본 제한 초과 — 아래 게이트 결과) |
+| 43-03-T2 | 43-03 | 2 | D-10 · D-11 · D-12 · SC-4 — 간격 함수 경계값 · 하루 10,800회 · 15,000 이하 · 늦은 알림 기준점 | — | N/A | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/cadence.test.ts --maxWorkers=2` | ✅ | ✅ green(quick 261113-rn7 에서 「주말 하루는 바퀴 0」 을 어긋난 초만 모아 한 번에 단언하도록 고침 — 2026-11-16 전체 471 통과) |
 | 43-03-T2 | 43-03 | 2 | SC-4 — `api_usage` `opendart_list` 10초 묶음 · flush 실패 시 되돌림 · 80% 경고 · 한도 의심 표시 | — | N/A | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/budget.test.ts --maxWorkers=2` | ✅ | ✅ green |
 | 43-04-T1 | 43-04 | 2 | SC-4 · 운영 기준 ④ — OpenDART 상태 코드 분류(`000` · `013` · `020` · 키 오류 · 버그 · HTTP 오류 · 깨진 JSON) · 100건 초과 쪽 넘김 | — | 인증키가 오류 · 로그에 실리지 않음 | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/dartClient.test.ts --maxWorkers=2` | ✅ | ✅ green |
 | 43-04-T2 | 43-04 | 2 | SC-5 · 확인 7 — 텔레그램 응답 분류(`429` 대기 · 방 id 변경 · `401` · `403` · chat not found · 서식 오류 · 5xx · 네트워크) | — | 봇 토큰이 오류 · 로그에 실리지 않음 | unit | `pnpm --filter @gh-radar/dart-alert exec vitest run tests/telegram.test.ts --maxWorkers=2` | ✅ | ✅ green |
@@ -73,8 +73,8 @@ created: "2026-11-12"
 | 43-07-T1 | 43-07 | 3 | 배포 계약 — Scheduler 배열 · `--task-timeout=14h` · `--max-retries=0` · 예산 env 1 ~ 15,000 · 알림 정책 파일 2 | — | N/A | bash | `bash scripts/deploy-dart-alert.sh --self-test` | ✅ | ✅ green |
 | 43-07-T2 | 43-07 | 3 | D-15 — IAM · 비밀 등록 · 방 id 찾기 · 스모크 · 보고 스크립트 문법 · 실행 비트 · `--help` · 셸 추적 모드 없음 | — | 값 미출력 · 키/토큰 URL 을 명령줄에 안 넘김 | bash | `for f in scripts/setup-dart-alert-iam.sh scripts/setup-dart-alert-secrets.sh scripts/telegram-find-chat.sh scripts/smoke-dart-alert.sh scripts/dart-alert-report.sh; do bash -n "$f" && test -x "$f" \|\| exit 1; done && bash scripts/setup-dart-alert-secrets.sh --help` | ✅ | ✅ green |
 | 43-08-T1 | 43-08 | 5 | D-09 · 배포 전 게이트 — 범위 밖 무변경 · 비밀 문자열 없음 · 워커 전체 회귀 · pgTAP · self-test | — | 저장소에 토큰 · 키 꼴 없음 | 묶음 | 43-08-PLAN.md Task 1 `<automated>`(PREDEPLOY-OK) | — | ✅ green |
-| 43-08-T2 | 43-08 | 5 | [BLOCKING] 스키마 push(체커 O1 — push 대기 목록이 `20261113200000` 하나일 때만 · 다른 phase 파일이 섞이면 사용자 답 · push 뒤 새 Remote 줄 대조) · 세 비밀 ENABLED · 배포 스모크(probe · Job 설정 · Scheduler · 정책 2) · 실제 DB 경로 seed 1회(체커 W5 · 창 밖 배포) | — | 비밀은 사용자 `!` 비출력 스크립트 | manual(메인 세션) + 자동 확인 | 43-08-PLAN.md Task 2 `<automated>`(SCHEMA-PUSHED — `*_dart_alert.sql` 버전이 migration list 의 Local · Remote 두 칸에 다 있어야 종료 0 · 체커 W-1 · SECRETS-OK · SEED-PATH-OK) · `bash scripts/smoke-dart-alert.sh` | — | ⬜ pending |
-| 43-08-T3 | 43-08 | 5 | SC-1 · SC-7 · D-13 — 단체방 UAT · 정상 아침 시작 · 하루 호출 수 · 첫 알림 지연 기록 | — | N/A | manual/UAT | `grep -q "status: validated" .planning/phases/43-tender-offer-telegram-alert/43-VALIDATION.md` | — | ⬜ pending |
+| 43-08-T2 | 43-08 | 5 | [BLOCKING] 스키마 push(체커 O1 — push 대기 목록이 `20261113200000` 하나일 때만 · 다른 phase 파일이 섞이면 사용자 답 · push 뒤 새 Remote 줄 대조) · 세 비밀 ENABLED · 배포 스모크(probe · Job 설정 · Scheduler · 정책 2) · 실제 DB 경로 seed 1회(체커 W5 · 창 밖 배포) | — | 비밀은 사용자 `!` 비출력 스크립트 | manual(메인 세션) + 자동 확인 | 43-08-PLAN.md Task 2 `<automated>`(SCHEMA-PUSHED — `*_dart_alert.sql` 버전이 migration list 의 Local · Remote 두 칸에 다 있어야 종료 0 · 체커 W-1 · SECRETS-OK · SEED-PATH-OK) · `bash scripts/smoke-dart-alert.sh` | — | ✅ green(2026-11-13 스키마 push · 비밀 ENABLED · seed 1회 · 스모크 통과 — 43-08-SUMMARY · 마지막 재배포 2026-11-16 `dart-alert:a94cba72` 스모크 14/14) |
+| 43-08-T3 | 43-08 | 5 | SC-1 · SC-7 · D-13 — 단체방 UAT · 정상 아침 시작 · 하루 호출 수 · 첫 알림 지연 기록 | — | N/A | manual/UAT | `grep -q "status: validated" .planning/phases/43-tender-offer-telegram-alert/43-VALIDATION.md` | — | ✅ green(43-UAT.md 6/6 통과 · 사용자 2026-11-16 「UAT 모두 pass」) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -136,4 +136,12 @@ created: "2026-11-12"
 - [x] Feedback latency < 120s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-11-16 (validate-phase · 갭 0)
+
+## Validation Audit 2026-11-16
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
