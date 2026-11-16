@@ -239,6 +239,33 @@ describe("키별 레인 — 한 키가 막혀도 다른 키는 계속 (U-2 · �
     expect(h.dart.probeCalls).toHaveLength(0);
     expect(h.db.calls.strikesRecord).toHaveLength(0);
   });
+
+  it("한도(020)로 멈춘 키 2 의 사용량이 예산에 닿았으면 5분 재탐침을 하지 않고 예산 소진으로 바꾼다 — 「다시 동작」 · 「멈췄습니다」 가 붙지 않는다 (리뷰 R2 IN-01)", async () => {
+    const h = harness({
+      start: at("10:00:00"),
+      abortAt: at("10:06:00"),
+      watches: ALL_WATCHES,
+      db: { used2: 14_999, lastOk: lastOkAll("09:59:55") },
+      dart: { reply: (c) => (c.watch.key === 2 ? { status: "020" } : undefined) },
+    });
+    expect(await h.run()).toEqual({ code: 0, reason: "aborted" });
+    // 10:00:00 I003 020 → 14,999 + 1 = 15,000 · 키 2 한도로 멈춤 → 10:05:00 재탐침 시각에 예산이 찼으니 탐침 0
+    expect(h.dart.listCalls.filter((c) => !KEY1_IDS.has(c.watch)).map((c) => [c.watch, c.at])).toEqual([["market_action", at("10:00:00")]]);
+    expect(h.dart.probeCalls).toHaveLength(0);
+    const paused = h.logs.lines.filter((l) => l.msg === "dart key paused — other key keeps running");
+    expect(paused.map((l) => [l.level, l.obj.key, l.obj.reason])).toEqual([
+      ["error", 2, "quota"],
+      ["error", 2, "budget_exhausted"],
+    ]);
+    // 단체방 글은 한도로 연 「멈췄습니다」 하나뿐 — 키 2 는 그날 다시 열리지 않으므로 「다시 동작」 이 없다
+    const notices = h.telegram.notices().map((n) => n.text);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("하루 조회 한도 초과(020)");
+    expect(h.logs.count("dart key probe ok — resuming")).toBe(0);
+    expect(h.logs.count("fatal DART status — stopping this run")).toBe(0);
+    // 키 1 은 끝까지
+    expect(atsOf(h, "tender_offer")).toEqual(every("10:00:00", 5, 72));
+  });
 });
 
 describe("섞인 간격의 늦은 알림(D-12) — 늦음 기준 = 60초 + 그 감시 대상 조회 간격", () => {

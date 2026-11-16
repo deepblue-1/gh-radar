@@ -742,6 +742,14 @@ class Collector {
     for (const l of this.usedLanes()) {
       const p = l.paused;
       if (!p || p.retryAt > now) continue;
+      // 한도 · 탐침 실패로 멈춘 사이 사용량이 예산에 닿았으면(pauseLane 은 이미 멈춘 레인을 바꾸지 않는다) 탐침하지 않고 그날
+      // 예산 소진으로 바꾼다 — 풀었다가 다음 바퀴 예산 문에 다시 멈춰 「다시 동작」 · 「멈췄습니다」 가 붙지 않게(리뷰 R2 IN-01).
+      // fresh 라 바퀴 끝 settleHalts 가 error(예산 소진)를 남긴다 · 열린 장애는 그대로
+      if (budgetStateOf(l.usedKnown + l.sinceFlush, this.d.cfg.dailyBudget) === "exhausted") {
+        l.paused = { reason: "budget_exhausted", code: null, err: null, retryAt: Number.POSITIVE_INFINITY, fresh: true };
+        this.lastPaused = l;
+        continue;
+      }
       try {
         const r = await this.d.dart.probe(kstYmd(now), l.key);
         this.addCalls(l.key, r.calls);
