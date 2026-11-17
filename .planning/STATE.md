@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 43
 status: completed
 stopped_at: Phase 43 complete — all phases complete
-last_updated: "2026-11-17T00:47:59.048Z"
+last_updated: "2026-11-17T01:15:43.621Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 43 complete
-state_head: a848ae57a57258e19e3acb560397a1cdfdd84867
+state_head: 564cf4a5da57724e773c762b0cd9b5f97773ccb3
 progress:
   total_phases: 14
   completed_phases: 14
@@ -190,6 +190,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261115-s1o | 웹 상따 매수주문 카드 「최대금액」 칸 — buy_cap_amount · buy3_schema 9 · change_mask 비트 54 (gh-trade 8d073739 인박스 처리 · 미배포 — gh-trade 서버 배포 대기) | 2026-11-15 | 8bc995f2 | [261115-s1o-buy-cap-amount-web-limit-chaser-form-buy](./quick/261115-s1o-buy-cap-amount-web-limit-chaser-form-buy/) |
 | 90 | 최대금액 막힘 기록(kind 9 GateBuyCapBlocked) 사유 사전 · 주문로그 본문 · 챗봇 지식 — gh-trade 934190c2 인박스 261115-buy-cap-block-kind9 처리 (fast) | 2026-11-15 | 2968f5e5 | — |
 | 91 | My page 미체결 데스크톱 표 열 순서 — sketch 032 B(종목+구분 한 칸 · 주문번호 흐린 열) | 2026-11-17 | a848ae57 | — |
+| 92 | 공시 알림 거래소 수시공시(I001) 허용 이름에 「기타경영사항」 추가 — 계양전기 자율공시 누락 | 2026-11-17 | 564cf4a5 | — |
 
 ## Session Continuity
 
