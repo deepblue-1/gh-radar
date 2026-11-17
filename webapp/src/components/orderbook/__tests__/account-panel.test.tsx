@@ -1522,7 +1522,18 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
     Array.from(scope.querySelectorAll<HTMLElement>('tr[data-slot="unfilled-progress-row"]'));
 
   describe('기본 모드 표(≥1280)', () => {
-    it('진행률 있는 행 바로 뒤 보조행 td[colspan=7] · 없는 행은 보조행 없음(D-11)', () => {
+    it('열 순서는 종목(+구분) · 주문번호 · 주문가 · 주문 · 미체결 · 취소다 (sketch 032 B)', () => {
+      renderPanel();
+      const table = tableOf('account-unfilled');
+      expect(
+        within(table).getAllByRole('columnheader').map((th) => th.textContent),
+      ).toEqual(['종목', '주문번호', '주문가', '주문', '미체결', '']);
+      const cells = within(unfilledRows()[0]!).getAllByRole('cell');
+      expect(cells[0]!.querySelector('[data-slot="account-unfilled-side"]')).not.toBeNull();
+      expect(cells[1]).toHaveTextContent('0000135742');
+    });
+
+    it('진행률 있는 행 바로 뒤 보조행 td[colspan=6] · 없는 행은 보조행 없음(D-11)', () => {
       pushProgress([item()]);
       renderPanel();
       const table = tableOf('account-unfilled');
@@ -1533,7 +1544,7 @@ describe('AccountPanel — 진행률 B안 (Phase 25 · D-11~D-13)', () => {
         .find((tr) => tr !== null && table.contains(tr))!;
       expect(target.nextElementSibling).toBe(rows[0]);
       const td = rows[0]!.querySelector('td')!;
-      expect(td).toHaveAttribute('colspan', '7');
+      expect(td).toHaveAttribute('colspan', '6');
       const line = td.querySelector('[data-slot="unfilled-progress"]')!;
       expect(line).toHaveAttribute('data-variant', 'row');
       expect(line.textContent).toContain('후매수');

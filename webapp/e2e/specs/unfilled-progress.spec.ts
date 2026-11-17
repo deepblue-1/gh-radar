@@ -131,7 +131,7 @@ test.describe('Phase 25-09 — 미체결 진행률 B안 (로컬 relay · 가짜 
     const rows = progressRows(table);
     await expect(rows).toHaveCount(1, { timeout: 15_000 });
     const sub = rows.first();
-    await expect(sub.locator('td')).toHaveAttribute('colspan', '7');
+    await expect(sub.locator('td')).toHaveAttribute('colspan', '6');
 
     // 자리 — 12453 미체결 행 **바로 뒤** · 12452 뒤에는 없다(D-11).
     const next = await unfilledTableRow(table, ORDER_WAIT).evaluate(

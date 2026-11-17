@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 43
 status: completed
 stopped_at: Phase 43 complete — all phases complete
-last_updated: "2026-11-16T08:24:51.355Z"
+last_updated: "2026-11-17T00:47:59.048Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 43 complete
-state_head: 1da173fc7336c106a39e62880b8850f61b192569
+state_head: a848ae57a57258e19e3acb560397a1cdfdd84867
 progress:
   total_phases: 14
   completed_phases: 14
@@ -42,7 +42,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [█████████░] 93% (13/14 phases · 167/167 plans)
+Progress: [██████████] 100% (13/14 phases · 167/167 plans)
 
 ## Accumulated Context
 
@@ -189,6 +189,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261115-r4f | news-sync 네이버 수집 대상에 화면 조회 등록 종목 추가(최근 10분 · 급등 · 관심 밖 30개 · 3분 등급) · 일일 상한 24,500 · 90% 넘으면 등록 종목부터 제외 | 2026-11-15 | c7a51510 | [261115-r4f-news-sync-registered-targets](./quick/261115-r4f-news-sync-registered-targets/) |
 | 261115-s1o | 웹 상따 매수주문 카드 「최대금액」 칸 — buy_cap_amount · buy3_schema 9 · change_mask 비트 54 (gh-trade 8d073739 인박스 처리 · 미배포 — gh-trade 서버 배포 대기) | 2026-11-15 | 8bc995f2 | [261115-s1o-buy-cap-amount-web-limit-chaser-form-buy](./quick/261115-s1o-buy-cap-amount-web-limit-chaser-form-buy/) |
 | 90 | 최대금액 막힘 기록(kind 9 GateBuyCapBlocked) 사유 사전 · 주문로그 본문 · 챗봇 지식 — gh-trade 934190c2 인박스 261115-buy-cap-block-kind9 처리 (fast) | 2026-11-15 | 2968f5e5 | — |
+| 91 | My page 미체결 데스크톱 표 열 순서 — sketch 032 B(종목+구분 한 칸 · 주문번호 흐린 열) | 2026-11-17 | a848ae57 | — |
 
 ## Session Continuity
 

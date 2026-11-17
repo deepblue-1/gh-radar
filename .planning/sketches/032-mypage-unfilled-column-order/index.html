@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 032 — My page 미체결 열 순서 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; flex-direction: column; align-items: center; gap: 44px; padding: 40px 12px 60px; }
+
+.f {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --hair: rgba(255,255,255,.06); --hair2: #3d3d3d;
+  --fg: #fff; --mfg: #9e9e9e; --faint: #636363;
+  --up: #f04251; --down: #3485fa; --primary: #3485fa;
+  font-variant-numeric: tabular-nums; word-break: keep-all;
+  width: 940px; max-width: 100%; background: var(--bg); color: var(--fg); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30;
+  padding: 18px 20px 26px; position: relative;
+}
+.f.light {
+  --bg: #fff; --card: #f9fafb; --muted: #f2f4f6; --hair: #f2f4f6; --hair2: #e5e8eb;
+  --fg: #191f28; --mfg: #6b7684; --faint: #b0b8c1;
+  --up: #f04452; --down: #3182f6; --primary: #3182f6;
+}
+.cap { position: absolute; top: -24px; left: 4px; font-size: 12px; color: #888; }
+.cap b { color: #eee; }
+.tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--hair2); padding: 0 8px; margin-bottom: 12px; font-size: 17px; font-weight: 600; color: var(--mfg); }
+.tabs span { padding: 6px 0 10px; }
+.tabs .on { color: var(--fg); }
+.tabs small { font-size: 13px; color: var(--mfg); font-weight: 500; margin-left: 3px; }
+.card { background: var(--card); border: 1px solid var(--hair); border-radius: 16px; padding: 16px 18px 18px; }
+h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--fg); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { color: var(--mfg); font-weight: 500; text-align: left; padding: 10px 10px; white-space: nowrap; }
+td { padding: 11px 10px; white-space: nowrap; vertical-align: middle; }
+.num { text-align: right; }
+.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; letter-spacing: -.01em; }
+.side { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; }
+.side.buy { color: var(--up); }
+.side.sell { color: var(--down); }
+.side.pill { font-size: 11px; padding: 2px 6px; border-radius: 5px; }
+.side.pill.buy { background: color-mix(in srgb, var(--up) 14%, transparent); }
+.side.pill.sell { background: color-mix(in srgb, var(--down) 14%, transparent); }
+.cancel { font: inherit; font-size: 11px; color: var(--up); background: transparent; border: 1px solid var(--up); border-radius: 999px; padding: 4px 10px; }
+.name { font-size: 13px; font-weight: 600; color: var(--fg); }
+.dim { color: var(--mfg); }
+.faint { color: var(--faint); }
+.sub { display: block; margin-top: 2px; font-size: 11px; }
+.prog td { padding: 0 10px 10px; }
+.prog .p { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.prog .p b { font-weight: 600; }
+.bar { width: 210px; height: 6px; background: var(--muted); border-radius: 99px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); border-radius: 99px; }
+.sep th, .sep td { }
+.nameCell { display: flex; align-items: center; gap: 8px; }
+.money { margin: 18px 0 6px; font-size: 12px; color: var(--mfg); }
+.money b { font-size: 20px; color: var(--fg); margin: 0 4px; }
+.note { margin-top: 14px; font-size: 12px; color: var(--mfg); line-height: 1.6; }
+.note b { color: var(--fg); }
+.hl { outline: 1.5px dashed color-mix(in srgb, var(--primary) 70%, transparent); outline-offset: -3px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span>
+    <button data-v="now">지금</button>
+    <button data-v="A" class="on">A</button>
+    <button data-v="B">B</button>
+    <button data-v="C">C</button>
+    <button data-v="all">모두 보기</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-th="dark" class="on">다크</button>
+    <button data-th="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const ROWS = [
+  { no: '3405001058', side: 'buy', name: '나노팀', price: '6,570', qty: '3,196', unf: '3,196', prog: { g: '후매수', q: '103,561', pct: 48 } },
+  { no: '3404000109', side: 'buy', name: '인디에프', price: '3,020', qty: '3,311', unf: '3,311' },
+  { no: '3404000215', side: 'sell', name: '메타랩스', price: '1,840', qty: '2,000', unf: '1,250' },
+];
+const DESC = {
+  now: '<b>지금</b> — 주문번호 · 구분 · 종목 · 주문가 · 주문 · 미체결. 눈이 먼저 닿는 왼쪽 끝이 숫자 열(주문번호)이라 「무슨 종목」을 찾으려면 셋째 열까지 가야 한다.',
+  A: '<b>A 순서만 바꾸기</b> — 종목 · 구분 · 주문번호 · 주문가 · 주문 · 미체결. 요청 그대로. 아래 잔고 표(종목이 맨 앞)와 첫 열이 같아진다. 종목명은 13px 굵게로 살짝 올렸다.',
+  B: '<b>B 종목 + 구분 한 칸 · 주문번호 흐리게</b> — 「나노팀 <span style="color:#f04251">매수</span>」 를 한 칸에 붙여 첫눈에 읽히게 하고, 주문번호는 그 다음 열에 흐린 mono 로. 열이 하나 줄어 숫자 열 간격이 넓어진다.',
+  C: '<b>C 종목 칸 두 줄</b> — 종목명 굵게 + 구분 알약, 그 밑에 주문번호를 작은 흐린 글씨로. 주문번호 열 자체가 없어져 가장 조용하다. 대신 행 높이가 조금 커진다(진행률 줄은 그대로).',
+};
+
+const sideTag = (s, pill) => `<span class="side ${s} ${pill ? 'pill' : ''}">${s === 'buy' ? '▲ 매수' : '▼ 매도'}</span>`;
+const cancel = () => `<button class="cancel">취소</button>`;
+const progRow = (r, cols) => r.prog ? `<tr class="prog"><td colspan="${cols}"><div class="p"><b>${r.prog.g}</b><span class="dim">·</span><b>${r.prog.q}<span class="dim" style="font-weight:400">주</span></b><div class="bar"><i style="width:${r.prog.pct}%"></i></div><b>${r.prog.pct}%</b></div></td></tr>` : '';
+
+function table(v) {
+  let head, row, cols;
+  if (v === 'now') {
+    cols = 7;
+    head = ['주문번호', '구분', '종목', '<span class="num">주문가</span>', '주문', '미체결', ''];
+    row = (r) => `<td class="mono">${r.no}</td><td>${sideTag(r.side)}</td><td>${r.name}</td>`;
+  } else if (v === 'A') {
+    cols = 7;
+    head = ['종목', '구분', '주문번호'];
+    row = (r) => `<td class="name">${r.name}</td><td>${sideTag(r.side)}</td><td class="mono dim">${r.no}</td>`;
+  } else if (v === 'B') {
+    cols = 6;
+    head = ['종목', '주문번호'];
+    row = (r) => `<td><span class="nameCell"><span class="name">${r.name}</span>${sideTag(r.side, true)}</span></td><td class="mono faint">${r.no}</td>`;
+  } else {
+    cols = 5;
+    head = ['종목'];
+    row = (r) => `<td><span class="nameCell"><span class="name">${r.name}</span>${sideTag(r.side, true)}</span><span class="sub mono faint">${r.no}</span></td>`;
+  }
+  const lead = v === 'now' ? ['주문번호', '구분', '종목'] : head;
+  const ths = lead.map((h) => `<th>${h}</th>`).join('') +
+    `<th class="num">주문가</th><th class="num">주문</th><th class="num">미체결</th><th></th>`;
+  const trs = ROWS.map((r) =>
+    `<tr>${row(r)}<td class="num mono">${r.price}</td><td class="num mono">${r.qty}</td><td class="num mono">${r.unf}</td><td class="num">${cancel()}</td></tr>${progRow(r, cols)}`
+  ).join('');
+  return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+
+function frame(v) {
+  const label = { now: '지금 (비교용)', A: 'A 순서만 바꾸기', B: 'B 종목 + 구분 한 칸', C: 'C 종목 칸 두 줄' }[v];
+  return `<div class="f ${S.th === 'light' ? 'light' : ''}">
+    <div class="cap"><b>${label}</b> · 데스크톱 ≥1280 표 (폰 카드는 이미 종목명이 맨 앞)</div>
+    <div class="tabs"><span>현황</span><span class="on">잔고<small>3</small></span><span>주문</span><span>손익</span><span>설정</span></div>
+    <div class="card">
+      <h4>미체결</h4>
+      ${table(v)}
+      <div class="money">주문가능<b>33,175만</b>/ 예수금 37,129만</div>
+      <h4>잔고</h4>
+      <table><thead><tr><th>종목</th><th class="num">보유</th><th class="num">매도가능</th><th class="num">평단가</th><th class="num">매입금액</th><th class="num">평가손익</th><th class="num">수익률</th></tr></thead>
+      <tbody><tr><td class="${v === 'now' ? '' : 'name'}">메타랩스</td><td class="num mono">5,505</td><td class="num mono">5,505</td><td class="num mono">1,552</td><td class="num mono">8,541,214</td><td class="num mono" style="color:var(--down)">-2,667,379</td><td class="num mono" style="color:var(--down)">-31.23%</td></tr></tbody></table>
+    </div>
+  </div>`;
+}
+
+const S = { v: 'A', th: 'dark' };
+function render() {
+  const vs = S.v === 'all' ? ['now', 'A', 'B', 'C'] : [S.v];
+  document.getElementById('stage').innerHTML = vs.map(frame).join('');
+  document.getElementById('desc').innerHTML = S.v === 'all' ? Object.values(DESC).join('<br>') : DESC[S.v];
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) S.v = b.dataset.v;
+  if (b.dataset.th) S.th = b.dataset.th;
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+});
+render();
+</script>
+</body>
+</html>

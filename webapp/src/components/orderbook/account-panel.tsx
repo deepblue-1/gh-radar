@@ -131,7 +131,7 @@
  *   - D-11 항목이 없으면 보조행 · r3 가 **없다**(즉시체결 주문에는 값이 영영 오지 않는다).
  *   - D-13 스냅에서 항목이 빠지면(전량 체결 · 취소 · 거부 — 첫 체결 뒤에도 서버가 first_filled 로 남긴다) 보조행만 사라지고, 미체결 행이 사라지면 조인 대상이
  *     없어 함께 사라진다(빠진 스냅샷 드롭 대비 이중 안전). 오래된 값 표식은 없다.
- *   - 자리: 기본 표(colSpan 7) · 임베드 표(`stockScope ? 5 : 7` — 취소 결과 행과 같은 식)는 미체결 행 뒤
+ *   - 자리: 기본 표(colSpan 6) · 임베드 표(`stockScope ? 5 : 7` — 취소 결과 행과 같은 식)는 미체결 행 뒤
  *     `<UnfilledProgressRow>` 한 컴포넌트다(두 벌이 아니다). 임베드는 **취소 결과 행보다 위**. 모바일 카드는
  *     r2 와 `StatusNotes` 사이 r3(`variant="compact"`) — StatusNotes 는 r4 로 한 줄 내려갈 뿐 무변경.
  *   - 보조행 셀은 `.tbl-wrap tbody td`(높이 · 패딩) · `tr:hover td`(배경) **층 없는** 규칙을 `!` 수식어로
@@ -838,9 +838,8 @@ export function AccountPanel({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead scope="col">주문번호</TableHead>
-                      <TableHead scope="col">구분</TableHead>
                       <TableHead scope="col">종목</TableHead>
+                      <TableHead scope="col">주문번호</TableHead>
                       <TableHead scope="col" className="num">주문가</TableHead>
                       <TableHead scope="col" className="num">주문</TableHead>
                       <TableHead scope="col" className="num">미체결</TableHead>
@@ -858,27 +857,43 @@ export function AccountPanel({
                             rowSelectClass(view),
                           )}
                         >
-                          <TableCell className="mono text-[length:var(--t-caption)]">
-                            {selectHandle(view, view.row.orderNo)}
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex items-center gap-1">
-                              <SideTag
-                                side={view.row.side}
-                                text={view.sideText}
-                                muted={view.row.pendingCancelSent}
-                                selected={isSelected(view)}
-                              />
-                              <OriginTag tag={originTag} />
-                            </span>
-                          </TableCell>
+                          {/*
+                            종목 · 구분 한 칸 + 주문번호 흐린 열 (sketch 032 B · 2026-11-17).
+                            눈이 먼저 닿는 왼쪽 끝을 「무슨 종목 · 어느 방향」으로 — 주문번호는 읽고
+                            행동에 쓰는 값이 아니라서 둘째 열 muted 로 내렸다(카드는 아예 뺐다 · ⑧).
+                            선택 핸들(⑩)은 계속 첫 셀이다.
+                          */}
                           <TableCell className="text-[length:var(--t-caption)]">
-                            {stockLink(
-                              unfilledHrefOf(view.row.isin),
-                              view.label ?? <span className="mono">{view.row.isin}</span>,
-                              false,
+                            {selectHandle(
+                              view,
+                              <span className="inline-flex items-center gap-[var(--s-2)]">
+                                {stockLink(
+                                  unfilledHrefOf(view.row.isin),
+                                  <span className="text-[length:var(--t-sm)] font-semibold">
+                                    {view.label ?? <span className="mono">{view.row.isin}</span>}
+                                  </span>,
+                                  false,
+                                )}
+                                <span className="inline-flex items-center gap-1">
+                                  <SideTag
+                                    side={view.row.side}
+                                    text={view.sideText}
+                                    muted={view.row.pendingCancelSent}
+                                    selected={isSelected(view)}
+                                  />
+                                  <OriginTag tag={originTag} />
+                                </span>
+                              </span>,
                             )}
                             <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
+                          </TableCell>
+                          <TableCell
+                            className={cn(
+                              'mono text-[length:var(--t-caption)]',
+                              !isSelected(view) && 'text-[var(--muted-fg)]',
+                            )}
+                          >
+                            {view.row.orderNo}
                           </TableCell>
                           <TableCell className="num mono text-[length:var(--t-caption)]">
                             {KRW.format(view.row.price)}
@@ -892,7 +907,7 @@ export function AccountPanel({
                           <TableCell className="num">{cancelButton(view)}</TableCell>
                         </TableRow>
                         {/* ⑫ 진행률 보조행 — 항목이 있는 행만(D-11). */}
-                        <UnfilledProgressRow view={view} colSpan={7} selected={isSelected(view)} />
+                        <UnfilledProgressRow view={view} colSpan={6} selected={isSelected(view)} />
                       </Fragment>
                     ))}
                   </TableBody>
