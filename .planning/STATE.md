@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 43
 status: completed
 stopped_at: Phase 43 complete — all phases complete
-last_updated: "2026-11-17T01:15:43.621Z"
+last_updated: "2026-11-18T08:51:53.578Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 43 complete
-state_head: 564cf4a5da57724e773c762b0cd9b5f97773ccb3
+state_head: 666b19f3d249bae08352309240c07940b0d42780
 progress:
   total_phases: 14
   completed_phases: 14
@@ -191,6 +191,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 90 | 최대금액 막힘 기록(kind 9 GateBuyCapBlocked) 사유 사전 · 주문로그 본문 · 챗봇 지식 — gh-trade 934190c2 인박스 261115-buy-cap-block-kind9 처리 (fast) | 2026-11-15 | 2968f5e5 | — |
 | 91 | My page 미체결 데스크톱 표 열 순서 — sketch 032 B(종목+구분 한 칸 · 주문번호 흐린 열) | 2026-11-17 | a848ae57 | — |
 | 92 | 공시 알림 거래소 수시공시(I001) 허용 이름에 「기타경영사항」 추가 — 계양전기 자율공시 누락 | 2026-11-17 | 564cf4a5 | — |
+| 93 | gh-trade 인계 261118-queue-fifo-predict — 취소 줄 「남은 거래량 R (E − C)」 → 「체결까지 남은 R」(FIFO 줄 모형 R ≠ E − C) | 2026-11-18 | 666b19f3 | — |
 
 ## Session Continuity
 
