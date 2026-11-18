@@ -453,20 +453,16 @@ function queuedBody(ev: StrategyEventRow, allFilled: boolean): string {
 }
 
 /**
- * Cancelled 본문: 취소 사유 표시명 + (has_remaining 이면) `남은 거래량 R (E − C)`(R 은 금액(주) 토큰 · 음수는 U+2212,
- * E · C 는 숫자). E 는 expected_cum 이 있으면
- * 그 값, 없으면 C + R (R = E − C 정의 · 필드 뜻 v0.1). 대기가 아니었으면 has_remaining 거짓 — 조각 없음.
+ * Cancelled 본문: 취소 사유 표시명 + (has_remaining 이면) `체결까지 남은 R`(R 은 금액(주) 토큰 · 음수는 U+2212).
+ * R = 취소 순간 줄 모형의 「체결 시작까지 남은 주」(내 수량 제외 · ≥ 0 — gh-trade quick-261118-ms7 · 인박스
+ * 261118-queue-fifo-predict). 종전 「(E − C)」 산식 꼬리는 뺐다 — FIFO 모형은 앞 취소를 반영해 R ≠ expected_cum − 누적이다.
+ * 음수는 그 전 기록(옛 뜻 `expected_cum − 누적` · 예상 지점을 지났다)만. 대기가 아니었으면 has_remaining 거짓 — 조각 없음.
  * 사유 12 「버스트 상한가」 는 cond_actual 에 판정 비율 %(1~100)가 실리면 「버스트 상한가 NN%」 — 0 = 옛 기록(종전 문구 ·
  * gh-trade quick-261102-enc · 인박스 261102). 다른 사유는 cond_actual 0 이라 읽지 않는다.
  */
 function cancelledBody(ev: StrategyEventRow): string {
   let remaining: string | null = null;
-  if (ev.hasRemaining) {
-    const c = ev.cumVolume;
-    const r = ev.remainingVolume;
-    const e = ev.expectedCum > 0 ? ev.expectedCum : c + r;
-    remaining = `남은 거래량 ${signedQtyAmt(r, ev.price)} (${NUM.format(e)} ${MINUS} ${NUM.format(c)})`;
-  }
+  if (ev.hasRemaining) remaining = `체결까지 남은 ${signedQtyAmt(ev.remainingVolume, ev.price)}`;
   const reason = cancelReasonLabel(ev.cancelReason);
   const burstPct = ev.cancelReason === 12 && ev.condActual > 0 ? ` ${ev.condActual}%` : "";
   return joinDot([reason + burstPct, remaining]);

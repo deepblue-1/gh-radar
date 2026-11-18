@@ -268,7 +268,7 @@ const NAMED_DB_ROWS: ReadonlyArray<readonly [string, StrategyEventDbRow]> = [
     }),
   ],
   [
-    // 남은 거래량 = expected_cum − 취소 시점 누적 = 1,100,000 − 1,088,000
+    // remaining_volume = 취소 순간 줄 모형의 「체결 시작까지 남은 주」(quick-261118-ms7 — expected_cum − 누적과 무관)
     "cancel12453",
     dbRow({
       seq: 11,
@@ -638,9 +638,9 @@ export const STRATEGY_DAY_GOLDEN: Readonly<
   },
   cancel12453: {
     logLine:
-      "[09:56:03.411][12453][후매수] KRX | ○○전자 | 취소 · 매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000) | 누적 1,088,000",
+      "[09:56:03.411][12453][후매수] KRX | ○○전자 | 취소 · 매수1 잔량 · 체결까지 남은 1.5억(12,000주) | 누적 1,088,000",
     timelineAction: "취소",
-    timelineText: "매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000) · 누적 1,088,000",
+    timelineText: "매수1 잔량 · 체결까지 남은 1.5억(12,000주) · 누적 1,088,000",
   },
   sell12454: {
     logLine:

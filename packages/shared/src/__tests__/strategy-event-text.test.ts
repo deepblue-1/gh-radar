@@ -343,16 +343,15 @@ describe("조립기 — 주문 이벤트 갈래 (Phase 25-04 Task 2)", () => {
     expect(body).toMatch(/^조건 매수잔량 12\.4억\(100,000주\) \/ 실측 12\.4억\(100,000주\) · /);
   });
 
-  it("취소 — 남은 거래량은 has_remaining 일 때만 · 예상 누적이 0 이면 C + R · 음수는 U+2212 · tone 은 그룹 방향", () => {
+  it("취소 — 체결까지 남은 R 은 has_remaining 일 때만 · E − C 산식 꼬리 없음(FIFO 모형 R ≠ E − C) · 옛 음수는 U+2212 · tone 은 그룹 방향", () => {
     const cancel = STRATEGY_DAY_BY_NAME.cancel12453!;
-    expect(strategyEventParts(cancel, "log").body).toBe("매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)");
+    expect(strategyEventParts(cancel, "log").body).toBe("매수1 잔량 · 체결까지 남은 1.5억(12,000주)");
     expect(strategyEventParts({ ...cancel, hasRemaining: false }, "log").body).toBe("매수1 잔량");
-    expect(strategyEventParts({ ...cancel, expectedCum: 0 }, "log").body).toBe(
-      "매수1 잔량 · 남은 거래량 1.5억(12,000주) (1,100,000 − 1,088,000)",
-    );
+    // R 은 expected_cum − 누적과 무관하다(quick-261118-ms7) — expected_cum 이 무엇이든 R 그대로.
+    expect(strategyEventParts({ ...cancel, expectedCum: 0 }, "log").body).toBe("매수1 잔량 · 체결까지 남은 1.5억(12,000주)");
     expect(
       strategyEventParts({ ...cancel, remainingVolume: -3_000, expectedCum: 1_085_000 }, "log").body,
-    ).toBe("매수1 잔량 · 남은 거래량 \u22123705만(3,000주) (1,085,000 − 1,088,000)");
+    ).toBe("매수1 잔량 · 체결까지 남은 \u22123705만(3,000주)");
     expect(strategyEventParts(STRATEGY_BRANCH_ROWS.cancelUnknown!, "log")).toMatchObject({
       badge: "호가매도",
       tone: "sell",
@@ -768,14 +767,10 @@ describe("P31 ⑦ 금액 표기 (D-19 · C# 예시 ①~⑨)", () => {
     );
   });
 
-  it("⑦ kind 7 취소 — 남은 거래량 3705만(3,000주) (E − C 숫자) · 음수는 U+2212", () => {
+  it("⑦ kind 7 취소 — 체결까지 남은 3705만(3,000주) · 옛 기록 음수는 U+2212", () => {
     const cancel = { ...D.cancel12453!, price: 12_350, cumVolume: 927_000 };
-    expect(body({ ...cancel, remainingVolume: 3_000, expectedCum: 930_000 })).toBe(
-      "매수1 잔량 · 남은 거래량 3705만(3,000주) (930,000 − 927,000)",
-    );
-    expect(body({ ...cancel, remainingVolume: -3_000, expectedCum: 924_000 })).toBe(
-      "매수1 잔량 · 남은 거래량 −3705만(3,000주) (924,000 − 927,000)",
-    );
+    expect(body({ ...cancel, remainingVolume: 3_000, expectedCum: 940_000 })).toBe("매수1 잔량 · 체결까지 남은 3705만(3,000주)");
+    expect(body({ ...cancel, remainingVolume: -3_000, expectedCum: 924_000 })).toBe("매수1 잔량 · 체결까지 남은 −3705만(3,000주)");
   });
 
   it("⑧ kind 3 수동 — 「수동 주문 · 상한가 매수잔량 3.9억(30,000주) · 130만(100주) @13,000 · 접수 +18ms」", () => {
