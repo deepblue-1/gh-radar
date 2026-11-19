@@ -524,9 +524,17 @@ const A_KRX_FIRE_BASE_FROM = "09:00:00";
 const A_KRX_FIRE_BASE_UNTIL = "09:00:30";
 
 /**
+ * Q16 KRX 발사 기준시각 창 — `[이상, 미만)`. 평소 16:00:00 이지만 장 시간이 밀리는 날은 발사도 같이 밀린다
+ * (2026-11-19 수능일 — 장 1시간 순연으로 17:00:00 발사 · 주문 내역에서 숨던 문제). 장 마감 뒤 오후 창이면 받는다.
+ */
+const Q16_KRX_FIRE_BASE_FROM = "15:00:00";
+const Q16_KRX_FIRE_BASE_UNTIL = "18:00:00";
+
+/**
  * 「이 (profile, 거래소) 의 발사로 받아도 되는 기준시각인가」 — 주문 내역 탭 판정(quick-261030-d7b).
  *
  * A · KRX 는 `09:00:00` 이상 `09:00:30` 미만이면 true(본회차 09:00:27 · 마감선 재확인 회차 09:00:29 …).
+ * Q16 · KRX 는 `15:00:00` 이상 `18:00:00` 미만이면 true(평소 16:00:00 · 장 시간이 밀린 날 17:00:00 — 2026-11-19 수능일).
  * 그 밖은 `launchFireBaseOf` 결과가 null 이 아니고 fireBase 와 같을 때만 true.
  *
  * 범위를 09:00:27 이상이 아니라 09:00:00 이상으로 잡는 근거: StockDMA.fbs `case1_fire_ms` 는 09:00:00 기준 설정값
@@ -536,6 +544,9 @@ const A_KRX_FIRE_BASE_UNTIL = "09:00:30";
 export function isLaunchFireBaseOf(profile: string, fireExchange: string, fireBase: string): boolean {
   if (profile === "A" && fireExchange === "KRX") {
     return fireBase >= A_KRX_FIRE_BASE_FROM && fireBase < A_KRX_FIRE_BASE_UNTIL;
+  }
+  if (profile === "Q16" && fireExchange === "KRX") {
+    return fireBase >= Q16_KRX_FIRE_BASE_FROM && fireBase < Q16_KRX_FIRE_BASE_UNTIL;
   }
   const base = launchFireBaseOf(profile, fireExchange);
   return base !== null && base === fireBase;

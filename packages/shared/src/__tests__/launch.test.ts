@@ -374,7 +374,12 @@ describe("발사 기준 — launchFireBaseOf · launchFireOf · LAUNCH_FIRES (D-
     ["Q16", "KRX", "16:00:00", true],
     ["N", "NXT", "09:00:30", true],
     ["A", "NXT", "09:00:30", true],
-    ["Q16", "KRX", "16:00:01", false],
+    // 장 시간이 밀린 날(2026-11-19 수능일 17:00:00) — Q16 KRX 는 15:00 이상 18:00 미만 창.
+    ["Q16", "KRX", "17:00:00", true],
+    ["Q16", "KRX", "16:00:01", true],
+    ["Q16", "KRX", "14:59:59", false],
+    ["Q16", "KRX", "18:00:00", false],
+    ["Q16", "NXT", "17:00:00", false],
     ["N", "NXT", "09:00:29", false],
     ["A", "NXT", "09:00:29", false],
     ["X", "KRX", "09:00:27", false],
