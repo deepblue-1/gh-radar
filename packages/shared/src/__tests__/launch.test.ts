@@ -360,6 +360,11 @@ describe("발사 기준 — launchFireBaseOf · launchFireOf · LAUNCH_FIRES (D-
     expect(launchFireOf({ fire_exchange: "NXT", fire_base: "16:00:00" })).toBeNull();
     // A KRX 재확인 회차(마감선 09:00:29.5 재발사)도 지도 대상이 아니다.
     expect(launchFireOf({ fire_exchange: "KRX", fire_base: "09:00:29" })).toBeNull();
+    // 장 시간이 밀린 날(2026-11-19 수능일) — q16 은 KRX 15:00 이상 18:00 미만 창(지도 RPC 와 같다).
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "17:00:00" })).toBe("q16");
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "14:59:59" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "18:00:00" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "NXT", fire_base: "17:00:00" })).toBeNull();
   });
 
   // quick-261030-d7b — 주문 내역 판정. A KRX 는 본회차 09:00:27 + 재확인 회차(09:00:29 등) — 09:00:00 이상 09:00:30 미만.

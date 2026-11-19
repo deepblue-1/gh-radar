@@ -552,12 +552,17 @@ export function isLaunchFireBaseOf(profile: string, fireExchange: string, fireBa
   return base !== null && base === fireBase;
 }
 
-/** (거래소, 기준시각) → 지도 발사. A 의 KRX 09:00:27 다리는 지도 대상이 아니라 null(주문 내역에만). */
+/**
+ * (거래소, 기준시각) → 지도 발사. A 의 KRX 09:00:27 다리는 지도 대상이 아니라 null(주문 내역에만).
+ * q16 = KRX 의 Q16 창(`15:00:00` 이상 `18:00:00` 미만 — 장 시간이 밀린 날 17:00:00 포함 · 2026-11-19 수능일) ·
+ * n0930 = NXT 09:00:30 정확 일치. 지도 RPC `launch_map_for_admin` 의 거르기와 같다.
+ */
 export function launchFireOf(row: { fire_exchange: string; fire_base: string }): LaunchFire | null {
-  for (const fire of Object.keys(LAUNCH_FIRES) as LaunchFire[]) {
-    const f = LAUNCH_FIRES[fire];
-    if (f.fire_exchange === row.fire_exchange && f.fire_base === row.fire_base) return fire;
+  if (row.fire_exchange === "KRX" && row.fire_base >= Q16_KRX_FIRE_BASE_FROM && row.fire_base < Q16_KRX_FIRE_BASE_UNTIL) {
+    return "q16";
   }
+  const n = LAUNCH_FIRES.n0930;
+  if (row.fire_exchange === n.fire_exchange && row.fire_base === n.fire_base) return "n0930";
   return null;
 }
 
