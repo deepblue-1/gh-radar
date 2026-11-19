@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 033 · 2차 — 정산 화면 A안 실제 내역</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; flex-direction: column; align-items: center; gap: 48px; padding: 44px 12px 80px; }
+
+.tk {
+  --bg: #0a0a0a; --card: #151515; --muted: #2d2d2d; --hair: rgba(255,255,255,.06); --hair2: #3d3d3d;
+  --fg: #fff; --mfg: #9e9e9e; --faint: #636363;
+  --up: #f04251; --down: #3485fa; --primary: #3485fa; --warn: #e8a23a; --ok: #2bb8a6;
+  font-variant-numeric: tabular-nums; word-break: keep-all; color: var(--fg);
+}
+.tk.light {
+  --bg: #fff; --card: #f9fafb; --muted: #f2f4f6; --hair: #f2f4f6; --hair2: #e5e8eb;
+  --fg: #191f28; --mfg: #6b7684; --faint: #b0b8c1;
+  --up: #f04452; --down: #3182f6; --primary: #3182f6; --warn: #c77d0a; --ok: #0e9484;
+}
+.f { width: 1040px; max-width: 100%; background: var(--bg); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 22px 24px 30px; position: relative; }
+.f.ph { width: 390px; padding: 16px 14px 24px; }
+.cap { position: absolute; top: -24px; left: 4px; font-size: 12px; color: #888; white-space: nowrap; }
+.cap b { color: #eee; }
+
+.hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.hd h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.02em; }
+.acts { display: flex; gap: 8px; }
+.btn { font: inherit; font-size: 13px; font-weight: 600; border-radius: 10px; padding: 9px 14px; border: 0; cursor: pointer; background: var(--muted); color: var(--fg); transition: filter .15s; white-space: nowrap; }
+.btn:hover { filter: brightness(1.12); }
+.btn.pri { background: var(--primary); color: #fff; }
+.btn:disabled { opacity: .4; cursor: default; filter: none; }
+
+.card { background: var(--card); border: 1px solid var(--hair); border-radius: 16px; padding: 16px 18px; min-width: 0; }
+.ph .card { padding: 14px 14px; }
+.g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.g2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ph .g3, .ph .g2 { grid-template-columns: minmax(0, 1fr); }
+.mt { margin-top: 12px; }
+.sec { font-size: 15px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; }
+.sec small { font-size: 12.5px; font-weight: 400; color: var(--mfg); }
+.lab { font-size: 12.5px; color: var(--mfg); }
+.dim { color: var(--mfg); }
+.faint { color: var(--faint); }
+.up { color: var(--up); }
+.dn { color: var(--down); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; vertical-align: 1px; }
+
+.pn { font-size: 14px; font-weight: 600; }
+.big { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 2px 0 10px; white-space: nowrap; }
+.big small { font-size: 14px; font-weight: 500; color: var(--mfg); margin-left: 3px; }
+.kv { border-top: 1px solid var(--hair2); padding-top: 8px; }
+.kv > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; }
+.kv > div > span:last-child { white-space: nowrap; }
+.kv .k { color: var(--mfg); }
+.kv .s { font-size: 12px; color: var(--faint); padding-top: 0; justify-content: flex-end; text-align: right; }
+.kv .s > span:last-child { white-space: normal; }
+.kv .tot { border-top: 1px solid var(--hair2); margin-top: 6px; padding-top: 9px; font-weight: 600; }
+
+.pool { padding: 12px 0; border-top: 1px solid var(--hair2); }
+.pool:first-of-type { border-top: 0; padding-top: 2px; }
+.pool .t { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pool .t b { font-size: 15px; font-weight: 600; }
+.pool .t .v { font-size: 18px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+.pool .l2 { font-size: 12.5px; color: var(--mfg); margin-top: 3px; line-height: 1.6; }
+.pool .l3 { font-size: 13px; margin-top: 4px; line-height: 1.6; }
+
+.tr2 > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 5px 0; }
+.tr2 > div > b { white-space: nowrap; font-weight: 600; }
+.tr2 .s { font-size: 12px; color: var(--faint); padding-top: 0; justify-content: flex-start; }
+.tr2 .ln { border-top: 1px solid var(--hair2); margin-top: 4px; padding-top: 9px; }
+.zero { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: var(--muted); font-size: 13px; color: var(--mfg); line-height: 1.5; }
+.zero b { display: block; font-size: 18px; font-weight: 700; color: var(--fg); margin-top: 2px; letter-spacing: -.01em; }
+.link { font: inherit; font-size: 12.5px; color: var(--primary); background: none; border: 0; padding: 0; cursor: pointer; font-weight: 500; }
+
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg button { font: inherit; font-size: 13px; font-weight: 500; color: var(--mfg); background: none; border: 0; border-radius: 8px; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--card); color: var(--fg); font-weight: 600; box-shadow: 0 0 0 1px var(--hair2); }
+.ph .seg button { padding: 6px 10px; }
+
+.row { display: grid; align-items: center; gap: 4px 12px; padding: 11px 4px; border-top: 1px solid var(--hair2); font-size: 13.5px; }
+.list > .row:first-child { border-top: 0; }
+.d { color: var(--mfg); font-size: 12.5px; white-space: nowrap; }
+.sr { grid-template-columns: 56px 108px minmax(0, 1fr) auto 16px; grid-template-areas: "d nm per prof chev"; cursor: pointer; border-radius: 8px; }
+.sr:hover { background: var(--hair); }
+.ph .sr { grid-template-columns: 52px minmax(0, 1fr) auto 16px; grid-template-areas: "d nm prof chev" "d per per per"; }
+.sr .d { grid-area: d; } .sr .nm { grid-area: nm; font-weight: 600; } .sr .per { grid-area: per; font-size: 12.5px; }
+.sr .prof1 { grid-area: prof; text-align: right; font-weight: 600; white-space: nowrap; } .sr .chev { grid-area: chev; color: var(--faint); font-size: 11px; }
+.sub { background: var(--muted); border-radius: 12px; padding: 4px 14px; margin: 0 0 10px; }
+.pr { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hair2); font-size: 13px; }
+.pr:first-child { border-top: 0; }
+.pr .r { display: flex; gap: 12px; align-items: baseline; white-space: nowrap; }
+.lr { grid-template-columns: 56px 210px minmax(0, 1fr) auto; grid-template-areas: "d fl wt amt"; }
+.ph .lr { grid-template-columns: 52px minmax(0, 1fr) auto; grid-template-areas: "d fl amt" "d wt wt"; }
+.lr .d { grid-area: d; } .lr .fl { grid-area: fl; font-weight: 600; min-width: 0; }
+.lr .fl i { font-style: normal; color: var(--faint); font-weight: 400; margin: 0 2px; }
+.lr .wt { grid-area: wt; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; font-size: 12.5px; }
+.lr .amt { grid-area: amt; text-align: right; font-weight: 600; white-space: nowrap; }
+.tag { font-style: normal; font-size: 11.5px; font-weight: 500; padding: 2px 7px; border-radius: 6px; background: var(--muted); color: var(--mfg); white-space: nowrap; }
+.tag.hg { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.tag.via { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.empty { padding: 26px 0; text-align: center; color: var(--mfg); font-size: 13px; }
+
+#sheet { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; padding: 16px; }
+#sheet.open { display: flex; }
+.dlg { width: 440px; max-width: 100%; max-height: 92vh; overflow: auto; background: var(--card); border-radius: 18px; padding: 20px 20px 18px; box-shadow: 0 0 0 1px var(--hair2), 0 20px 60px rgba(0,0,0,.5); }
+.dlg h2 { font-size: 18px; font-weight: 700; margin: 0 0 14px; }
+.fl2 { margin-bottom: 14px; }
+.fl2 > .lab { display: block; margin-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipb { font: inherit; font-size: 13px; font-weight: 500; color: var(--mfg); background: var(--muted); border: 1px solid transparent; border-radius: 99px; padding: 6px 12px; cursor: pointer; }
+.chipb.on { color: var(--fg); border-color: var(--fg); font-weight: 600; }
+.inp { font: inherit; font-size: 15px; color: var(--fg); background: var(--muted); border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; width: 100%; outline: none; }
+.inp:focus { border-color: var(--primary); }
+.inp.bad { border-color: var(--up); }
+.inrow { display: flex; align-items: center; gap: 8px; }
+.inrow span { color: var(--mfg); font-size: 14px; white-space: nowrap; }
+.profs { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 6px 0 2px; }
+.profs small { font-size: 14px; font-weight: 500; color: var(--mfg); margin-left: 3px; }
+.split { background: var(--muted); border-radius: 12px; padding: 4px 14px; }
+.split > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hair2); font-size: 14px; }
+.split > div:first-child { border-top: 0; }
+.split b { font-weight: 600; white-space: nowrap; }
+.split .r { display: flex; align-items: center; gap: 10px; }
+.sw { font: inherit; font-size: 12px; font-weight: 600; border-radius: 99px; padding: 4px 10px; border: 1px solid var(--hair2); background: none; color: var(--mfg); cursor: pointer; white-space: nowrap; }
+.sw.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.msg { background: var(--muted); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.6; }
+.dact { display: flex; gap: 8px; margin-top: 18px; }
+.dact .btn { flex: 1; padding: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">A안 · 실제 내역</span></div>
+  <div class="g"><span class="l">폭</span>
+    <button data-w="desk" class="on">데스크톱</button>
+    <button data-w="ph">폰 390</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-th="dark" class="on">다크</button>
+    <button data-th="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+<div id="sheet"></div>
+
+<script>
+// ── 실제 내역(2026-11-19 사용자 진술 · 만원 단위) ────────────────────
+const TODAY = '2026-11-19';
+const P = { H: '김현중', G: '정근형', J: '심쥬니' };
+const PC = { H: '#2bb8a6', G: '#8b7cf6', J: '#d9902a' };
+const ACC = [
+  { id: 'kbG', label: 'KB 정근형', owner: 'G', pool: 'p1' },
+  { id: 'kyH', label: '교보 김현중', owner: 'H', pool: 'p1' },
+  { id: 'kyG', label: '교보 정근형', owner: 'G', pool: 'p1' },
+  { id: 'kbH', label: 'KB 김현중', owner: 'H', pool: 'p2' },
+];
+const ACCM = Object.fromEntries(ACC.map((a) => [a.id, a]));
+const POOL = {
+  p1: { name: '현중 · 근형', ratio: { H: 50, G: 50 }, rt: '5 : 5' },
+  // base = 이 금액을 넘는 수익부터 나눈다 · guard = 원금보장(손실을 떠안는 사람)
+  p2: { name: '쥬니', ratio: { J: 40, H: 30, G: 30 }, rt: '4 : 3 : 3', base: 40000, guard: 'J' },
+};
+let OPEN = {
+  p1: { from: '2025-12-31', by: { kbG: 106500, kyH: -1600, kyG: 0 } },
+  p2: { from: '2026-09-10', by: { kbH: -2800 } },
+};
+let SETTLES = [];
+let LEDGER = [
+  { date: '2025-12-31', kind: '출자', who: 'H', to: 'kbG', amt: 40000 },
+  { date: '2025-12-31', kind: '출자', who: 'G', to: 'kbG', amt: 40000 },
+  { date: '2026-08-10', kind: '계좌 옮김', from: 'kbG', to: 'kyH', amt: 30000, via: '법인 용역' },
+  { date: '2026-09-10', kind: '출자', who: 'J', to: 'kbH', amt: 10000 },
+  { date: '2026-09-10', kind: '계좌 옮김', from: 'kbG', to: 'kbH', amt: 10000, memo: '쥬니 묶음 원금' },
+  { date: '2026-09-13', kind: '계좌 옮김', from: 'kbG', to: 'kbH', amt: 10000, memo: '쥬니 묶음 원금' },
+  { date: '2026-09-13', kind: '계좌 옮김', from: 'kbG', to: 'kyH', amt: 40000 },
+  { date: '2026-09-18', kind: '계좌 옮김', from: 'kbG', to: 'kbH', amt: 10000, memo: '쥬니 묶음 원금' },
+  { date: '2026-11-01', kind: '계좌 옮김', from: 'kbG', to: 'kyG', amt: 2000 },
+];
+const KINDS = ['수익 출금', '원금 회수', '출자', '계좌 옮김'];
+
+// ── 계산 ────────────────────────────────────────────────────────────
+const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+const sumBy = (by) => sum(Object.values(by));
+const share = (pid, profit, p) => Math.round((profit * (POOL[pid].ratio[p] || 0)) / 100);
+const openProfit = (pid) => sumBy(OPEN[pid].by);
+/** 나눌 수익 — 원금 기준(base)이 있는 묶음은 손실이면 0(회복할 때까지 이월). */
+const dist = (pid) => (POOL[pid].base !== undefined ? Math.max(0, openProfit(pid)) : openProfit(pid));
+function caps() {
+  const c = { p1: { H: 0, G: 0 }, p2: { H: 0, G: 0, J: 0 } };
+  LEDGER.forEach((t) => {
+    if (t.kind === '출자') c[ACCM[t.to].pool][t.who] += t.amt;
+    else if (t.kind === '원금 회수') c[ACCM[t.from].pool][t.who] -= t.amt;
+    else if (t.kind === '계좌 옮김') {
+      const a = ACCM[t.from].pool, b = ACCM[t.to].pool;
+      if (a !== b) for (const p of ['H', 'G']) { c[a][p] -= t.amt / 2; c[b][p] += t.amt / 2; } // 묶음 사이 = 현중 · 근형 반반
+    }
+  });
+  return c;
+}
+function person(p) {
+  const c = caps();
+  const settled = sum(SETTLES.filter((s) => POOL[s.pool].ratio[p]).map((s) => share(s.pool, s.profit, p)));
+  const taken = sum(LEDGER.filter((t) => t.kind === '수익 출금' && t.who === p).map((t) => t.amt));
+  const due = settled - taken;
+  const open = {}, cap = {};
+  for (const pid in POOL) {
+    if (POOL[pid].ratio[p]) open[pid] = share(pid, dist(pid), p);
+    if (c[pid][p] !== undefined) cap[pid] = c[pid][p];
+  }
+  const openSum = sumBy(open), capSum = sumBy(cap);
+  // 원금보장: 손실은 guard 가 자기 원금까지 혼자 떠안고, 넘는 부분만 나머지가 똑같이 나눈다.
+  const loss = sum(Object.keys(POOL).filter((pid) => POOL[pid].guard && c[pid][p] !== undefined).map((pid) => {
+    const L = Math.max(0, -openProfit(pid)), g = POOL[pid].guard, own = Math.min(L, c[pid][g]);
+    return p === g ? own : (L - own) / (Object.keys(c[pid]).length - 1);
+  }));
+  return { due, open, openSum, cap, capSum, loss, total: due + openSum, stake: capSum + due + openSum - loss };
+}
+/** 김현중 ↔ 정근형 사이에 명의가 바뀐 돈. via 가 있으면 개인 이체가 아니다(법인 용역 등). */
+function hgOf(t) {
+  let f, to;
+  if (t.kind === '출자') { f = t.who; to = ACCM[t.to].owner; }
+  else if (t.kind === '계좌 옮김') { f = ACCM[t.from].owner; to = ACCM[t.to].owner; }
+  else { f = ACCM[t.from].owner; to = t.who; }
+  if (f === to || f === 'J' || to === 'J') return null;
+  return { from: f, to, via: t.via || '' };
+}
+function hgSum() {
+  const r = { GH: 0, HG: 0, nGH: 0, nHG: 0, via: 0, nVia: 0 };
+  LEDGER.forEach((t) => {
+    const x = hgOf(t); if (!x) return;
+    if (x.via) { r.via += t.amt; r.nVia += 1; return; }
+    const k = x.from + x.to; r[k] += t.amt; r['n' + k] += 1;
+  });
+  return r;
+}
+function accBal(id) {
+  const tin = sum(LEDGER.filter((t) => t.to === id).map((t) => t.amt));
+  const tout = sum(LEDGER.filter((t) => t.from === id).map((t) => t.amt));
+  const prof = sum(SETTLES.map((s) => s.by[id] || 0)) + (OPEN[ACCM[id].pool].by[id] || 0);
+  return { tin, tout, prof, bal: tin + prof - tout };
+}
+function nameVs() {
+  const bal = { H: 0, G: 0 };
+  ACC.forEach((a) => { bal[a.owner] += accBal(a.id).bal; });
+  const st = { H: person('H').stake, G: person('G').stake, J: person('J').stake };
+  return { bal, st, x: st.G - bal.G }; // x > 0: 김현중 명의 계좌에 정근형 몫 x
+}
+function payAcc(pid, p) {
+  const xs = ACC.filter((a) => a.pool === pid).sort((a, b) => accBal(b.id).bal - accBal(a.id).bal);
+  return (xs.find((a) => a.owner === p) || xs[0]).id;
+}
+
+// ── 표기 ────────────────────────────────────────────────────────────
+const won = (n) => { const a = Math.abs(n), e = Math.floor(a / 10000), m = a % 10000; return e ? `${e}억${m ? ' ' + m.toLocaleString() + '만' : ''}` : `${m.toLocaleString()}만`; };
+const fm = (n) => (n === 0 ? '0' : (n < 0 ? '−' : '') + won(n));
+const sg = (n) => (n === 0 ? '0' : (n > 0 ? '+' : '−') + won(n));
+const cls = (n) => (n > 0 ? 'up' : n < 0 ? 'dn' : '');
+const md = (d) => (d.slice(0, 4) === '2025' ? '25년 말' : `${+d.slice(5, 7)}/${+d.slice(8, 10)}`);
+const dot = (p) => `<i class="dot" style="background:${PC[p]}"></i>`;
+const periodOf = (pid) => `${md(OPEN[pid].from)} ~ ${md(TODAY)}`;
+const byAcc = (pid, by) => ACC.filter((a) => a.pool === pid).map((a) => `${a.label} <span class="${cls(by[a.id] || 0)}">${sg(by[a.id] || 0)}</span>`).join(' · ');
+
+// ── 조각 ────────────────────────────────────────────────────────────
+function personCards() {
+  return `<div class="g3">${Object.keys(P).map((p) => {
+    const x = person(p);
+    const openSub = Object.entries(x.open).map(([pid, v]) => `${POOL[pid].name} ${sg(v)}`).join(' · ');
+    const capSub = Object.entries(x.cap).filter(([, v]) => v).map(([pid, v]) => `${POOL[pid].name} ${won(v)}`).join(' · ');
+    return `<div class="card">
+      <div class="pn">${dot(p)}${P[p]}</div>
+      <div class="lab" style="margin-top:10px">내 수익 몫 <span class="faint">아직 계좌에 두고 있는 돈</span></div>
+      <div class="big">${fm(x.total)}<small>원</small></div>
+      <div class="kv">
+        <div><span class="k">${x.due < 0 ? '정산한 몫보다 먼저 가져간 돈' : '정산한 수익 중 남겨 둔 돈'}</span><span>${fm(x.due)}</span></div>
+        <div><span class="k">정산 전 수익 중 내 몫</span><span class="${cls(x.openSum)}">${sg(x.openSum)}</span></div>
+        <div class="s"><span>${openSub}</span></div>
+        <div><span class="k">넣어 둔 원금</span><span>${fm(x.capSum)}</span></div>
+        ${Object.keys(x.cap).length > 1 ? `<div class="s"><span>${capSub}</span></div>` : ''}
+        ${x.loss ? `<div><span class="k">쥬니 묶음 손실 <span class="faint">${p === 'J' ? '원금보장 · 1억까지 혼자' : '1억 넘는 부분'}</span></span><span class="dn">−${won(x.loss)}</span></div>` : ''}
+        <div class="tot"><span>지금 몫 전체</span><span>${fm(x.stake)}</span></div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+function openPoolsCard() {
+  return `<div class="card"><h3 class="sec">정산 전 수익 <small>10/27 까지는 잔액에서 역산한 시작값 · 10/28 부터 매매손익</small></h3>${Object.keys(POOL).map((pid) => {
+    const pl = POOL[pid], prof = openProfit(pid), d = dist(pid);
+    const l3 = pl.base !== undefined && prof <= 0
+      ? `<span class="dim">원금 ${won(pl.base)}까지 ${won(-prof)} 남음 — 회복한 뒤부터 나눕니다</span>`
+      : Object.keys(pl.ratio).map((p) => `${dot(p)}${P[p]} <b style="font-weight:600">${sg(share(pid, d, p))}</b>`).join('<span class="faint"> · </span>');
+    return `<div class="pool"><div class="t"><span><b>${pl.name}</b> <span class="dim" style="font-size:12.5px;margin-left:4px">${pl.rt}</span></span><span class="v ${cls(prof)}">${sg(prof)}</span></div>
+      <div class="l2">${periodOf(pid)} · ${byAcc(pid, OPEN[pid].by)}</div><div class="l3">${l3}</div></div>`;
+  }).join('')}</div>`;
+}
+function nameCard() {
+  const n = nameVs();
+  const accs = (o) => ACC.filter((a) => a.owner === o).map((a) => `${a.label} ${won(accBal(a.id).bal)}`).join(' · ');
+  const zero = n.x === 0 ? '<b>명의와 몫이 맞습니다</b>'
+    : n.x > 0 ? `김현중 명의 계좌에 정근형 몫이 들어 있습니다<b>김현중 → 정근형 ${won(n.x)}원이면 맞음</b>`
+      : `정근형 명의 계좌에 김현중 몫이 들어 있습니다<b>정근형 → 김현중 ${won(-n.x)}원이면 맞음</b>`;
+  return `<div class="card"><h3 class="sec">명의 대 몫 <small>누구 이름 계좌에 누구 돈이 있나</small></h3>
+    <div class="tr2">
+      <div><span>김현중 명의 계좌</span><b>${won(n.bal.H)}</b></div>
+      <div class="s"><span>${accs('H')}</span></div>
+      <div class="s"><span>그중 김현중 몫 ${won(n.st.H)} · 심쥬니 몫 ${won(n.st.J)}</span></div>
+      <div class="ln"><span>정근형 명의 계좌</span><b>${won(n.bal.G)}</b></div>
+      <div class="s"><span>${accs('G')}</span></div>
+      <div class="s"><span>정근형 몫은 ${won(n.st.G)}</span></div>
+    </div>
+    <div class="zero">${zero}</div></div>`;
+}
+function transferCard() {
+  const r = hgSum(), net = r.GH - r.HG;
+  return `<div class="card"><h3 class="sec">현중 ↔ 근형 계좌이체 <small>실제로 오간 돈 · 소명용</small></h3>
+    <div class="tr2">
+      <div><span>김현중 → 정근형 <span class="dim">${r.nHG}건</span></span><b>${fm(r.HG)}</b></div>
+      <div><span>정근형 → 김현중 <span class="dim">${r.nGH}건</span></span><b>${fm(r.GH)}</b></div>
+      <div class="ln"><span>차액</span><b>${net === 0 ? '0' : `${net > 0 ? '정근형' : '김현중'}이 ${won(net)} 더 보냄`}</b></div>
+      ${r.nVia ? `<div><span>법인 용역으로 옮긴 돈 <span class="dim">${r.nVia}건 · 개인 이체 아님</span></span><b>${fm(r.via)}</b></div>` : ''}
+    </div>
+    <div style="margin-top:10px"><button class="link" data-act="hglist">이체 내역 보기</button></div></div>`;
+}
+function settleRow(s) {
+  const open = !!S.open[s.id];
+  const head = `<div class="row sr" data-act="tog" data-id="${s.id}">
+    <span class="d">${md(s.date)}</span><span class="nm">${POOL[s.pool].name}</span><span class="per dim">${s.period}${s.memo ? ' · ' + s.memo : ''}</span>
+    <span class="prof1 ${cls(s.profit)}">${sg(s.profit)}</span><span class="chev">${open ? '▴' : '▾'}</span></div>`;
+  if (!open) return head;
+  return head + `<div class="sub">${Object.entries(POOL[s.pool].ratio).map(([p, r]) =>
+    `<div class="pr"><span>${dot(p)}${P[p]} <span class="dim">${r}%</span></span>
+      <span class="r"><span class="dim">${s.outs.includes(p) ? '그날 출금' : '계좌에 남겨 둠'}</span><b>${fm(share(s.pool, s.profit, p))}</b></span></div>`).join('')}</div>`;
+}
+function settleList() {
+  return `<div class="list">${SETTLES.map(settleRow).join('') || '<div class="empty">아직 정산한 적이 없습니다</div>'}</div>`;
+}
+function ledRow(t) {
+  const x = hgOf(t), s = t.settle && SETTLES.find((z) => z.id === t.settle);
+  const arrow = '<i>→</i>';
+  const flow = t.kind === '출자' ? `${P[t.who]}${arrow}${ACCM[t.to].label}`
+    : t.kind === '계좌 옮김' ? `${ACCM[t.from].label}${arrow}${ACCM[t.to].label}`
+      : `${ACCM[t.from].label}${arrow}${P[t.who]}`;
+  return `<div class="row lr"><span class="d">${md(t.date)}</span><span class="fl">${flow}</span>
+    <span class="wt"><i class="tag">${t.kind}</i>${t.via ? `<i class="tag via">${t.via} · 개인 이체 아님</i>` : x ? `<i class="tag hg">${P[x.from].slice(1)} → ${P[x.to].slice(1)}</i>` : ''}${s ? `<i class="tag">${md(s.date)} 정산</i>` : ''}${t.memo ? `<span class="dim">${t.memo}</span>` : ''}</span>
+    <span class="amt">${won(t.amt)}</span></div>`;
+}
+function ledgerList(onlyHg) {
+  const rows = LEDGER.map((t, i) => ({ t, i })).filter((r) => !onlyHg || hgOf(r.t))
+    .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : b.i - a.i));
+  return `<div class="list">${rows.map((r) => ledRow(r.t)).join('') || '<div class="empty">거래가 없습니다</div>'}</div>`;
+}
+function body() {
+  return `<div class="hd"><h1>정산</h1><div class="acts"><button class="btn" data-act="led">거래 기록</button><button class="btn pri" data-act="settle">정산하기</button></div></div>` +
+    personCards() + `<div class="mt">${openPoolsCard()}</div>
+    <div class="g2 mt">${nameCard()}${transferCard()}</div>
+    <div class="card mt"><div class="sec"><div class="seg">
+      <button data-act="aseg" data-val="settle" class="${S.aSeg === 'settle' ? 'on' : ''}">정산 기록</button>
+      <button data-act="aseg" data-val="led" class="${S.aSeg === 'led' ? 'on' : ''}">계좌 거래</button>
+      <button data-act="aseg" data-val="hg" class="${S.aSeg === 'hg' ? 'on' : ''}">현중 ↔ 근형 이체</button>
+    </div></div>${S.aSeg === 'settle' ? settleList() : ledgerList(S.aSeg === 'hg')}</div>`;
+}
+
+// ── 시트 ────────────────────────────────────────────────────────────
+function sheetHtml() {
+  const s = S.sheet;
+  if (!s) return '';
+  const tk = `tk ${S.th === 'light' ? 'light' : ''}`;
+  const accChips = (k, cur) => `<div class="chips">${ACC.map((a) => `<button class="chipb ${a.id === cur ? 'on' : ''}" data-act="set" data-k="${k}" data-val="${a.id}">${a.label}</button>`).join('')}</div>`;
+  if (s.type === 'settle') {
+    const pid = s.pool, pl = POOL[pid], prof = openProfit(pid), d = dist(pid), can = d > 0;
+    return `<div class="dlg ${tk}"><h2>정산하기</h2>
+      <div class="fl2"><span class="lab">정산 묶음</span><div class="chips">${Object.keys(POOL).map((k) => `<button class="chipb ${k === pid ? 'on' : ''}" data-act="spool" data-val="${k}">${POOL[k].name}</button>`).join('')}</div></div>
+      <div class="fl2"><span class="lab">기간 · 수익</span>
+        <div style="font-size:14px">${periodOf(pid)}</div>
+        <div class="profs ${cls(prof)}">${sg(prof)}<small>원</small></div>
+        <div class="lab">${byAcc(pid, OPEN[pid].by)}</div></div>
+      ${can ? `<div class="fl2"><span class="lab">나누기 ${pl.rt} · 지금 뺄 사람만 「바로 출금」</span><div class="split">${Object.entries(pl.ratio).map(([p, r]) =>
+        `<div><span>${dot(p)}${P[p]} <span class="dim">${r}%</span></span><span class="r"><b>${sg(share(pid, d, p))}</b><button class="sw ${s.out[p] ? 'on' : ''}" data-act="sout" data-p="${p}">바로 출금</button></span></div>`).join('')}</div></div>
+      <div class="fl2"><span class="lab">메모</span><input class="inp" data-f="memo" value="${s.memo || ''}"></div>`
+      : `<div class="msg">${pl.base !== undefined ? `원금 ${won(pl.base)}까지 <b>${won(-prof)}</b> 남았습니다. 회복한 뒤부터 ${pl.rt} 로 나눕니다.` : '나눌 수익이 없습니다.'}</div>`}
+      <div class="dact"><button class="btn" data-act="close">취소</button><button class="btn pri" data-act="settle-ok" ${can ? '' : 'disabled'}>정산 확정</button></div></div>`;
+  }
+  const d = s.d, bad = s.bad ? 'bad' : '';
+  let fields;
+  if (d.kind === '계좌 옮김') {
+    fields = `<div class="fl2"><span class="lab">보낸 계좌</span>${accChips('from', d.from)}</div>
+      <div class="fl2"><span class="lab">받은 계좌</span>${accChips('to', d.to)}</div>
+      <div class="fl2"><span class="lab">어떻게 옮겼나</span><div class="chips">${['계좌이체', '법인 용역'].map((v) => `<button class="chipb ${v === d.via ? 'on' : ''}" data-act="set" data-k="via" data-val="${v}">${v}</button>`).join('')}</div></div>`;
+  } else if (d.kind === '출자') {
+    fields = `<div class="fl2"><span class="lab">넣은 사람</span><div class="chips">${Object.keys(P).map((p) => `<button class="chipb ${p === d.who ? 'on' : ''}" data-act="set" data-k="who" data-val="${p}">${P[p]}</button>`).join('')}</div></div>
+      <div class="fl2"><span class="lab">받은 계좌</span>${accChips('to', d.to)}</div>`;
+  } else {
+    fields = `<div class="fl2"><span class="lab">뺀 계좌</span>${accChips('from', d.from)}</div>
+      <div class="fl2"><span class="lab">받는 사람</span><div class="chips">${Object.keys(P).map((p) => `<button class="chipb ${p === d.who ? 'on' : ''}" data-act="set" data-k="who" data-val="${p}">${P[p]}</button>`).join('')}</div></div>`;
+  }
+  return `<div class="dlg ${tk}"><h2>거래 기록</h2>
+    <div class="fl2"><span class="lab">무슨 거래</span><div class="chips">${KINDS.map((k) => `<button class="chipb ${k === d.kind ? 'on' : ''}" data-act="set" data-k="kind" data-val="${k}">${k}</button>`).join('')}</div></div>
+    ${fields}
+    <div class="fl2"><span class="lab">금액</span><div class="inrow"><input class="inp ${bad}" data-f="amt" inputmode="numeric" value="${d.amt || ''}" placeholder="0"><span>만원</span></div></div>
+    <div class="fl2"><span class="lab">메모</span><input class="inp" data-f="memo" value="${d.memo || ''}"></div>
+    <div class="dact"><button class="btn" data-act="close">취소</button><button class="btn pri" data-act="led-ok">저장</button></div></div>`;
+}
+
+// ── 상태 · 그리기 ───────────────────────────────────────────────────
+const S = { th: 'dark', w: 'desk', aSeg: 'led', open: {}, sheet: null };
+const DESC = '<b>A안 · 실제 내역으로 다듬은 2차</b> — 적어 주신 이체 9건과 오늘 잔액(KB 정근형 8.45억 · 교보 김현중 6.84억 · 교보 정근형 0.2억 · KB 김현중 3.72억)을 넣었습니다. 달라진 것: ① 사람 카드에 「넣어 둔 원금 · 지금 몫 전체」 ② 「0 이 되려면」 을 <b>명의 대 몫</b>(누가 누구에게 얼마면 맞나)과 <b>실제 오간 계좌이체</b>(소명용) 두 장으로 ③ 8/10 3억은 「계좌 옮김 · 법인 용역」 — 수익 · 몫에 영향 없고 개인 이체 합계에서 빠짐 ④ 정산 확정은 몫만 고정, 뺄 사람만 「바로 출금」 ⑤ 쥬니 묶음은 4억 회복 전이라 정산 버튼이 잠김.<br><span style="color:#77777f">규칙 — 「원금보장」 = 쥬니 묶음 손실은 −1억까지 심쥬니 혼자(넘는 부분은 현중 · 근형 반반으로 가정) · 묶음 사이로 옮긴 돈(KB 정근형 → KB 김현중 3억)은 현중 · 근형 반반 원금 · 「내 수익 몫」 은 계좌에 그대로 둬도 되는 돈(빼면 「수익 출금」 으로 줄어듦) · 만 단위 표기(실제는 원 단위). 버튼은 실제로 동작합니다.</span>';
+
+function render() {
+  const ph = S.w === 'ph';
+  document.getElementById('stage').innerHTML = `<div class="f tk ${S.th === 'light' ? 'light' : ''} ${ph ? 'ph' : ''}"><div class="cap"><b>A 사람 먼저 · 실제 내역</b> · /admin/settlement · ${ph ? '폰 390' : '데스크톱 본문'}</div>${body()}</div>`;
+  document.getElementById('desc').innerHTML = DESC;
+}
+function renderSheet() {
+  const el = document.getElementById('sheet');
+  el.innerHTML = sheetHtml();
+  el.classList.toggle('open', !!S.sheet);
+}
+
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.w) S.w = b.dataset.w;
+  if (b.dataset.th) S.th = b.dataset.th;
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  render(); renderSheet();
+});
+document.addEventListener('input', (e) => {
+  const f = e.target.dataset && e.target.dataset.f; if (!f || !S.sheet) return;
+  if (S.sheet.type === 'settle') S.sheet.memo = e.target.value; else S.sheet.d[f] = e.target.value;
+});
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'sheet') { S.sheet = null; renderSheet(); return; }
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  const { act, val, id, p, k } = b.dataset;
+  if (act === 'aseg') S.aSeg = val;
+  else if (act === 'hglist') S.aSeg = 'hg';
+  else if (act === 'tog') S.open[id] = !S.open[id];
+  else if (act === 'settle') S.sheet = { type: 'settle', pool: 'p1', memo: '', out: {} };
+  else if (act === 'spool') { S.sheet.pool = val; S.sheet.out = {}; }
+  else if (act === 'sout') S.sheet.out[p] = !S.sheet.out[p];
+  else if (act === 'led') S.sheet = { type: 'led', d: { kind: '수익 출금', from: 'kbH', to: 'kyH', who: 'J', via: '계좌이체', amt: '', memo: '' } };
+  else if (act === 'set') { S.sheet.d[k] = val; S.sheet.bad = false; }
+  else if (act === 'close') S.sheet = null;
+  else if (act === 'settle-ok') {
+    const pid = S.sheet.pool, prof = dist(pid), nid = 's' + (SETTLES.length + 1);
+    const outs = Object.keys(POOL[pid].ratio).filter((q) => S.sheet.out[q]);
+    outs.forEach((q) => LEDGER.push({ date: TODAY, kind: '수익 출금', from: payAcc(pid, q), who: q, amt: share(pid, prof, q), settle: nid }));
+    SETTLES.unshift({ id: nid, date: TODAY, pool: pid, period: periodOf(pid), profit: prof, by: { ...OPEN[pid].by }, memo: S.sheet.memo, outs });
+    OPEN[pid] = { from: TODAY, by: Object.fromEntries(Object.keys(OPEN[pid].by).map((a) => [a, 0])) };
+    S.open[nid] = true; S.aSeg = 'settle'; S.sheet = null;
+  }
+  else if (act === 'led-ok') {
+    const d = S.sheet.d, amt = parseInt(String(d.amt).replace(/[^0-9]/g, ''), 10);
+    if (!amt || (d.kind === '계좌 옮김' && d.from === d.to)) { S.sheet.bad = true; renderSheet(); return; }
+    const t = { date: TODAY, kind: d.kind, amt };
+    if (d.memo) t.memo = d.memo;
+    if (d.kind === '계좌 옮김') { t.from = d.from; t.to = d.to; if (d.via === '법인 용역') t.via = d.via; }
+    else if (d.kind === '출자') { t.who = d.who; t.to = d.to; }
+    else { t.from = d.from; t.who = d.who; }
+    LEDGER.push(t); S.aSeg = S.aSeg === 'settle' ? 'led' : S.aSeg; S.sheet = null;
+  }
+  render(); renderSheet();
+});
+
+if (typeof window !== 'undefined' && window.innerWidth < 640) {
+  S.w = 'ph';
+  document.querySelectorAll('#nav [data-w]').forEach((x) => x.classList.toggle('on', x.dataset.w === 'ph'));
+}
+render();
+</script>
+</body>
+</html>
