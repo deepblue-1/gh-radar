@@ -219,6 +219,17 @@ export function planEditWithDraft(edit: LaunchPlanEdit, draft: string[]): Launch
   return { ...edit, draft, valid: check.ok ? check.values : edit.valid };
 }
 
+/**
+ * 조각 시각 자동 정렬 — 입력 칸을 벗어날 때(blur) 이른 시각부터 다시 늘어놓는다(어느 칸에 넣어도 제자리로 · fast-261119).
+ * 모든 칸이 정수일 때만 정렬하고(입력 중인 빈 칸 · 잘못된 글자가 있으면 그대로) 입력 원문 문자열은 바꾸지 않는다.
+ * 순서가 이미 맞으면 null(초안을 다시 쓰지 않는다).
+ */
+export function sortedPlanDraft(draft: readonly string[]): string[] | null {
+  if (!draft.every((s) => /^-?\d+$/.test(s.trim()))) return null;
+  const sorted = [...draft].sort((a, b) => Number(a.trim()) - Number(b.trim()));
+  return sorted.every((s, i) => s === draft[i]) ? null : sorted;
+}
+
 /** 같은 µs 목록인가. */
 export function sameOffsets(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);

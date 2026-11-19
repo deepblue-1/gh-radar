@@ -103,6 +103,29 @@ describe('LaunchPlanEditor — 16:00 스테퍼', () => {
   });
 });
 
+describe('LaunchPlanEditor — 조각 시각 자동 정렬(fast-261119)', () => {
+  it('맨 뒤 칸에 가장 이른 값 → 칸을 벗어나면 맨 앞으로 · 순서 오류 사라지고 저장 가능', () => {
+    render(<Harness />);
+    type(inputs()[2]!, '-400');
+    expect(screen.getByRole('alert')).not.toBeNull();
+    fireEvent.blur(inputs()[2]!);
+    expect(inputs().map((i) => i.value)).toEqual(['-400', '-350', '-345']);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(saveBtn()).toBeEnabled();
+  });
+
+  it('정수가 아닌 칸이 있으면 정렬하지 않는다 · 이미 순서면 그대로', () => {
+    render(<Harness />);
+    type(inputs()[0]!, '-');
+    fireEvent.blur(inputs()[0]!);
+    expect(inputs().map((i) => i.value)).toEqual(['-', '-345', '-325']);
+    type(inputs()[0]!, '-350');
+    fireEvent.blur(inputs()[0]!);
+    expect(inputs().map((i) => i.value)).toEqual(['-350', '-345', '-325']);
+    expect(revertBtn()).toBeDisabled();
+  });
+});
+
 describe('LaunchPlanEditor — 검증 표시(D-26 · D-34)', () => {
   it('2번 −360 → 그 칸만 aria-invalid · role=alert 순서 문구 · 저장 비활성 · 입력값 유지', () => {
     render(<Harness />);
