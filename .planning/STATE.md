@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 43
 status: completed
-stopped_at: Phase 43 complete — all phases complete
-last_updated: "2026-11-19T12:04:02.350Z"
+stopped_at: Phase 44 context gathered
+last_updated: "2026-11-19T13:20:10.475Z"
 last_activity: 2026-11-16
 last_activity_desc: Phase 43 complete
-state_head: 0cd9612d3b1e0dfac6d945e2e36f654f9c88a9b2
+state_head: b46a494af0bc9bf1cf82d0819dd8281bc8db11be
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 14
   total_plans: 167
   completed_plans: 167
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -42,7 +42,7 @@ Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당
 Earlier: 2026-10-30 — 35-11 완료: quick 261030-d7b 원격 적용(db push 20261030120000 · 20261030200000) · reproject projected 182 errors 0 · 인박스 두 노트 done · push d0a50e17
 Phase 36 (계좌별 주문가능 금액): COMPLETE 2026-10-28 — 10/10 · 배포(DB 20261028210000·210100 · relay 640ae663 · webapp 14:49) · UAT 8건(7 pass · WR-04 미룸) · 검증 passed · 리뷰 2라운드 수정
 
-Progress: [██████████] 100% (13/14 phases · 167/167 plans)
+Progress: [█████████░] 93% (13/14 phases · 167/167 plans)
 
 ## Accumulated Context
 
@@ -199,10 +199,10 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/42-tick-chart-candle-overlay/42-UI-SPEC.md
+**Resume file:** .planning/phases/44-admin-settlement/44-CONTEXT.md
 
-Last session: 2026-11-12T11:50:45.524Z
-Stopped at: Phase 43 complete — all phases complete
+Last session: 2026-11-19T13:20:08.100Z
+Stopped at: Phase 44 context gathered
 
 Next: 새 작업은 `/gsd-phase add` 또는 `/gsd-quick` — `/gsd-complete-milestone` 은 사용자 지시 전까지 하지 않음
 
