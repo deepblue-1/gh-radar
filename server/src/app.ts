@@ -35,6 +35,7 @@ import { adminServersRouter } from "./routes/admin-servers.js";
 import { adminLaunchRouter } from "./routes/admin-launch.js";
 import { adminPnlRouter } from "./routes/admin-pnl.js";
 import { adminAccountsRouter } from "./routes/admin-accounts.js";
+import { adminSettlementRouter } from "./routes/admin-settlement.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -164,6 +165,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/admin", adminPnlRouter);
   // quick 261106-lwu D-01 — 계좌 마스터 어드민도 경로 한정 관문(/accounts)이라 adminRouter 앞.
   app.use("/api/admin", adminAccountsRouter);
+  // Phase 44 D-18 — 정산 어드민도 경로 한정 관문(/settlement)이라 adminRouter 앞.
+  app.use("/api/admin", adminSettlementRouter);
   app.use("/api/admin", adminRouter);
 
   // 9) 404 fallback

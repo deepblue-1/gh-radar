@@ -830,9 +830,9 @@ function indexOrderEndpoints(endpoints: AdminOrderEndpointsRaw | null | undefine
  * IP/MAC 과 달리 키에 dmaUserId 를 넣지 않는다 — 예수금 · 비용률은 서버의 **계좌** 값이다(op 3 이 다른 유저가 가진 계좌를 더하면 그
  * 값을 복사한다 · 인박스 261027-account-budget). 그래서 그 DMA 유저 행을 우선하되, 없으면 같은 계좌의 다른 유저 행을 쓴다.
  */
-type AccountCostIndex = Map<string, Map<string, AdminAccountCostRow[]>>;
+export type AccountCostIndex = Map<string, Map<string, AdminAccountCostRow[]>>;
 
-function indexAccountCosts(costs: AdminAccountCostsRaw | null | undefined): AccountCostIndex {
+export function indexAccountCosts(costs: AdminAccountCostsRaw | null | undefined): AccountCostIndex {
   const idx: AccountCostIndex = new Map();
   for (const [serverKey, rows] of Object.entries(costs?.servers ?? {})) {
     const byAccount = new Map<string, AdminAccountCostRow[]>();
@@ -848,7 +848,7 @@ function indexAccountCosts(costs: AdminAccountCostsRaw | null | undefined): Acco
 }
 
 /** 한 서버 · 한 계좌의 값 — 그 DMA 유저 행 우선 · 예수금은 67 live(null 아님) 우선 · 없으면 87. 행이 없으면 null. */
-function accountCostOf(rows: AdminAccountCostRow[] | undefined, dmaUserId: string): AdminAccountCost | null {
+export function accountCostOf(rows: AdminAccountCostRow[] | undefined, dmaUserId: string): AdminAccountCost | null {
   const r = rows?.find((x) => x.dmaUserId === dmaUserId) ?? rows?.[0];
   if (!r) return null;
   const fee = { feePpm: r.feePpm, sellTaxPpm: r.sellTaxPpm };
