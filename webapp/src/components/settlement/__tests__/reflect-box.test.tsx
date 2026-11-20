@@ -148,9 +148,11 @@ describe('ReflectBox', () => {
   });
 
   it('켜짐인데 바뀌는 계좌가 없으면 줄 없음 · 「그대로 둬요」 도 없음', () => {
-    const { container } = render(<ReflectBox on onToggle={() => {}} lines={[]} marketHours={false} />);
+    const { container } = render(<ReflectBox on onToggle={() => {}} lines={[]} marketHours />);
     expect(container.querySelectorAll('[data-slot="reflect-line"]')).toHaveLength(0);
     expect(screen.queryByText(REFLECT_TEXT.off)).toBeNull();
+    // 보낼 것이 없으면 스위치 줄만 — 장중 줄도 없다(E10 empty).
+    expect(screen.queryByText(REFLECT_TEXT.market)).toBeNull();
   });
 
   it('꺼짐 — 「예수금은 그대로 둬요」 · 미리 보기 · 장중 줄 없음', () => {
