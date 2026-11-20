@@ -119,8 +119,9 @@ adminAccountsRouter.post("/accounts", async (req, res, next) => {
 /**
  * 사용자 1명 relay 호출 → 팬아웃 1건. 거부(409) · 실패(502) · 클라이언트 없음은 그 항목 `error` 로 접는다(D-08 — 전체 실패로
  * 만들지 않는다). 계좌 저장(putAccount) · 예수금(op 6) · 수수료(op 7) 팬아웃이 함께 쓴다(quick 261106-ntl).
+ * Phase 44 정산 예수금 반영(`services/settlement-budget.ts`)도 그대로 쓴다.
  */
-async function fanoutOne(
+export async function fanoutOne(
   relay: RelayAdminClient | undefined,
   dmaUserId: string,
   op: string,
@@ -146,7 +147,7 @@ async function fanoutOne(
 }
 
 /** 감사 줄의 팬아웃 요약 — `<마스킹 DMA id>:<서버>:<outcome>` · 항목 오류는 `<마스킹 DMA id>:error:<code>`(계좌번호 없음). */
-function fanoutAudit(fanout: AdminAccountFanout[]): string[] {
+export function fanoutAudit(fanout: AdminAccountFanout[]): string[] {
   return fanout.flatMap((f) =>
     f.error
       ? [`${maskDmaUserId(f.dmaUserId)}:error:${f.error.code}`]
