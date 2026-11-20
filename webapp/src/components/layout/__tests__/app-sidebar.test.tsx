@@ -1508,7 +1508,7 @@ describe("AppSidebar — 「분석 › 상한가 보고서」 (Phase 28 D-09 · 
   });
 });
 
-describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사용자 · 서버 · 러쉬 주문」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04)", () => {
+describe("AppSidebar — 「My page · Admin › 매매손익 · 정산 · 계좌 · 사용자 · 서버 · 러쉬 주문」 (Phase 29 D-13 · Phase 35 D-11 · Phase 36 D-17 · quick 261106-lwu D-01 · D-02 · quick 261106-ntl N-04 · Phase 44 D-18)", () => {
   afterEach(() => {
     act(() => setSidebarCollapsed(false));
     window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
@@ -1519,9 +1519,10 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
   const servers = () => screen.queryByRole("link", { name: "서버" });
   const launch = () => screen.queryByRole("link", { name: "러쉬 주문" });
   const pnl = () => screen.queryByRole("link", { name: "매매손익" });
+  const settlement = () => screen.queryByRole("link", { name: "정산" });
   const accounts = () => document.querySelector<HTMLAnchorElement>('a[data-sidebar-item="admin-accounts"]');
 
-  it("role admin → My page 뒤 「Admin」(/admin/pnl = 첫 항목) + 하위 「매매손익」 · 「계좌」 · 「사용자」 · 「서버」 · 「러쉬 주문」 — 목록 맨 끝", () => {
+  it("role admin → My page 뒤 「Admin」(/admin/pnl = 첫 항목) + 하위 「매매손익」 · 「정산」 · 「계좌」 · 「사용자」 · 「서버」 · 「러쉬 주문」 — 목록 맨 끝", () => {
     mockRole = "admin";
     setupReady();
     render(<AppSidebar />);
@@ -1532,6 +1533,8 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     expect(launch()).toHaveAttribute("data-sidebar-item", "admin-launch");
     expect(pnl()).toHaveAttribute("href", "/admin/pnl");
     expect(pnl()).toHaveAttribute("data-sidebar-item", "admin-pnl");
+    expect(settlement()).toHaveAttribute("href", "/admin/settlement");
+    expect(settlement()).toHaveAttribute("data-sidebar-item", "admin-settlement");
     expect(accounts()).toHaveAttribute("href", "/admin/accounts");
     expect(accounts()!.textContent?.trim()).toBe("계좌");
     const order = Array.from(document.querySelectorAll('nav[aria-label="주 메뉴"] a[href]')).map((a) => {
@@ -1553,6 +1556,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
       "My page",
       "Admin",
       "매매손익",
+      "정산",
       "계좌",
       "사용자",
       "서버",
@@ -1562,7 +1566,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     const sub = admin()!.closest("li")!.nextElementSibling!;
     expect(sub.className).toContain("rail:hidden");
     expect(sub.querySelector("ul")!.className).toContain("border-l");
-    for (const a of [admin()!, users()!, accounts()!, servers()!, launch()!, pnl()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
+    for (const a of [admin()!, users()!, accounts()!, servers()!, launch()!, pnl()!, settlement()!]) expect(a.hasAttribute("data-nav-item")).toBe(true);
   });
 
   it("Admin 노출은 역할만 본다 — 트레이딩이 안 보이는(relay 미연결) admin 에게도 보인다", () => {
@@ -1586,6 +1590,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
       expect(servers()).toBeNull();
       expect(launch()).toBeNull();
       expect(pnl()).toBeNull();
+      expect(settlement()).toBeNull();
       expect(screen.queryByText("Admin")).toBeNull();
       r.unmount();
     }
@@ -1634,9 +1639,25 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     render(<AppSidebar />);
     expect(pnl()).toHaveAttribute("aria-current", "page");
     expect(pnl()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(settlement()).not.toHaveAttribute("aria-current");
+    expect(settlement()!.className).not.toContain("bg-[var(--nav-on-bg)]");
     expect(launch()).not.toHaveAttribute("aria-current");
     expect(servers()).not.toHaveAttribute("aria-current");
     expect(users()).not.toHaveAttribute("aria-current");
+    expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("/admin/settlement → 「정산」 만 활성 · 「매매손익」 · 「계좌」 · 「Admin」 제목은 꺼짐 (Phase 44 D-18)", () => {
+    mockRole = "admin";
+    mockPathname = "/admin/settlement";
+    setupReady();
+    render(<AppSidebar />);
+    expect(settlement()).toHaveAttribute("aria-current", "page");
+    expect(settlement()!.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(pnl()).not.toHaveAttribute("aria-current");
+    expect(pnl()!.className).not.toContain("bg-[var(--nav-on-bg)]");
+    expect(accounts()).not.toHaveAttribute("aria-current");
     expect(admin()!.className).not.toContain("bg-[var(--nav-on-bg)]");
     expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
   });
@@ -1658,7 +1679,7 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 계좌 · 사�
     mockPathname = "/trading";
     setupReady();
     render(<AppSidebar />);
-    for (const a of [admin()!, users()!, servers()!, launch()!]) {
+    for (const a of [admin()!, users()!, servers()!, launch()!, settlement()!]) {
       expect(a).not.toHaveAttribute("aria-current");
       expect(a.className).not.toContain("bg-[var(--nav-on-bg)]");
     }

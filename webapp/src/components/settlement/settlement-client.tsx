@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { SettlementView } from "@gh-radar/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SettlementCtx, SettlementView } from "@gh-radar/shared";
 
 import { AdminPanelPage } from "@/components/admin/admin-sheet";
 import { ADMIN_BUTTON_SECONDARY } from "@/components/admin/reflect-chip";
@@ -14,6 +14,7 @@ import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { OpenPoolsCard } from "./open-pools-card";
+import { PersonCards } from "./person-cards";
 
 /**
  * SettlementClient — `/admin/settlement` 본문 (Phase 44 · UI-SPEC ① · E1).
@@ -22,8 +23,8 @@ import { OpenPoolsCard } from "./open-pools-card";
  * - 상태 loading | error | forbidden | ready(accounts-client 꼴). 403 은 「관리자만 사용할 수 있어요.」(role 없음),
  *   그 밖 실패는 오류 상자(`role="alert"`) + 「다시 시도」 가 본문 전체를 대신한다.
  * - `reload()` = 저장 뒤 다시 불러오기 — 화면을 비우지 않고 값만 바꾼다. 실패하면 보이던 값을 그대로 둔다(seq 가드).
- * - 44-01 은 「정산 전 수익」 카드(최소)까지. 머리 두 버튼(「거래 기록」 · 「정산하기」)은 44-10 · 44-11 이 달고,
- *   사람 카드 · 명의 대 몫 · 활동 카드는 44-06 · 44-09 가 이 본문에 더한다.
+ * - 본문 순서(UI-SPEC ①): 머리 → 세 사람 카드(②) → 「정산 전 수익」(③). 계산 입력 `SettlementCtx` 는 응답에서 한 번 만든다.
+ *   머리 두 버튼(「거래 기록」 · 「정산하기」)은 44-10 · 44-11 이 달고, 명의 대 몫 · 활동 카드는 44-09 가 이 본문에 더한다.
  */
 
 /**
@@ -75,6 +76,13 @@ export function SettlementClient() {
     };
   }, [reload]);
 
+  // 계산 입력 — 응답이 바뀔 때만 다시 만든다(사람 카드 · 뒤 플랜의 카드들이 같은 ctx 를 쓴다).
+  const view = state.kind === "ready" ? state.view : null;
+  const ctx = useMemo<SettlementCtx | null>(
+    () => (view ? { accounts: view.accounts, ledger: view.ledger, settles: view.settles } : null),
+    [view],
+  );
+
   const retry = () => {
     setState({ kind: "loading" });
     void reload();
@@ -108,7 +116,12 @@ export function SettlementClient() {
         </div>
       )}
 
-      {state.kind === "ready" && <OpenPoolsCard view={state.view} />}
+      {state.kind === "ready" && ctx && (
+        <>
+          <PersonCards ctx={ctx} />
+          <OpenPoolsCard view={state.view} />
+        </>
+      )}
     </AdminPanelPage>
   );
 }

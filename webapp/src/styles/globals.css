@@ -87,6 +87,11 @@
   --mine: #0f9d8a;
   --mine-bg: #e3f7f3;
   --mine-fg: #0b7d6e;
+  /* Phase 44 사람 점 — 장식 · 글자 · 면에 쓰지 않는다. 정산 화면의 사람 축(김현중 · 정근형 · 심쥬니 · 목업 sketch-033 `PC` 값)이라
+     우리(--mine) · 팀(--team) · VI 축과 서로 대체하지 마라. 8×8 점(`aria-hidden`)에만 · hex 만. */
+  --person-h: #2bb8a6;
+  --person-g: #8b7cf6;
+  --person-j: #d9902a;
   /* 매집 상태 축(quick-261018-rfy · 작업대 「매집」 패널) — 매도중 주황 · 이월 노랑. 가격 방향(--up/--down) · LED · 팀(--team) 축과
      서로 대체하지 마라(매집중 배지는 --team). 라이트 글자/면 대비 4.77:1 · 4.67:1(AA) · 다크는 목업 값. */
   --accum-sell: #c2410c;
@@ -288,6 +293,10 @@
   --mine: #2fd3bb;
   --mine-bg: rgba(47, 211, 187, 0.16);
   --mine-fg: #2fd3bb;
+  /* Phase 44 사람 점 다크 — 의미는 `:root` 쪽 주석(목업 값 · 라이트와 같은 값). */
+  --person-h: #2bb8a6;
+  --person-g: #8b7cf6;
+  --person-j: #d9902a;
   /* 매집 상태 축 다크 — 의미는 `:root` 쪽 주석. */
   --accum-sell: #ff9f43;
   --accum-sell-bg: rgba(255, 159, 67, 0.16);

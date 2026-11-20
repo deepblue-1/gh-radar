@@ -198,6 +198,8 @@ const NAV_TICKS = { href: "/analytics/ticks", label: "틱뷰어" } as const;
 const NAV_ADMIN: NavLeaf = { href: "/admin/pnl", label: "Admin", icon: Shield };
 // Phase 36 D-17 ① — 일자별 매매손익(계정별 | 계좌별 · 어드민 전용 · quick 261106-ntl N-04 로 맨 앞).
 const NAV_ADMIN_PNL = { href: "/admin/pnl", label: "매매손익" } as const;
+// Phase 44 D-18 — 정산(어드민 전용 · 매매손익 다음 · 모바일 탭바에는 넣지 않는다).
+const NAV_ADMIN_SETTLEMENT = { href: "/admin/settlement", label: "정산" } as const;
 // quick 261106-lwu D-01 — 계좌 마스터(등록 · 수정 · 삭제 · 어드민 전용 · 매매손익 다음).
 const NAV_ADMIN_ACCOUNTS = { href: "/admin/accounts", label: "계좌" } as const;
 const NAV_ADMIN_USERS = { href: "/admin/users", label: "사용자" } as const;
@@ -762,13 +764,22 @@ export function AppSidebar() {
             />
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
-                {/* quick 261106-ntl N-04 — 매매손익 · 계좌 · 사용자 · 서버 · 러쉬 주문. */}
+                {/* quick 261106-ntl N-04 · Phase 44 D-18 — 매매손익 · 정산 · 계좌 · 사용자 · 서버 · 러쉬 주문. */}
                 <li>
                   <SubNavLink
                     href={NAV_ADMIN_PNL.href}
                     label={NAV_ADMIN_PNL.label}
                     item="admin-pnl"
                     active={isActive(NAV_ADMIN_PNL.href)}
+                    rail={rail}
+                  />
+                </li>
+                <li>
+                  <SubNavLink
+                    href={NAV_ADMIN_SETTLEMENT.href}
+                    label={NAV_ADMIN_SETTLEMENT.label}
+                    item="admin-settlement"
+                    active={isActive(NAV_ADMIN_SETTLEMENT.href)}
                     rail={rail}
                   />
                 </li>
