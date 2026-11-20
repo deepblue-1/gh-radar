@@ -16,7 +16,8 @@
  *   N-02 — 계좌 저장 바디에 선택 `orderEndpoint`(KB 주문자 IP/MAC · 연결 사용자마다 계좌 PUT 에 실린다).
  *   quick 261107-moq — `POST …/dma-users/:dma/accounts/:b/:n/server-only { action }`(「서버에만 있음」 계좌를 이 사용자에 연결 ·
  *   그 서버에서 빼기 — remove 는 relay 를 거쳐 서버까지 간다 → `RELAY_TIMEOUT_MS`).
- *   Phase 44 — `GET /api/admin/settlement`(정산 화면 — 계좌 4개 예수금 · 거래 · 정산 · `fetchSettlement`).
+ *   Phase 44 — `GET /api/admin/settlement`(정산 화면 — 계좌 4개 예수금 · 거래 · 정산 · `fetchSettlement`) ·
+ *   `POST /api/admin/settlement/ledger/:id/retry`(못 보낸 예수금 다시 반영 · `retrySettlementLedger` → `SETTLEMENT_WRITE_TIMEOUT_MS`).
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -52,6 +53,7 @@ import type {
   AppRole,
   DmaBroker,
   SettlementView,
+  SettlementWriteResponse,
 } from "@gh-radar/shared";
 
 import type { ApiFetchInit } from "./api";
@@ -323,4 +325,18 @@ export function setAdminAccountFee(
 /** 정산 화면 — 계좌 4개의 예수금(계좌 메뉴와 같은 판정 · 못 읽으면 마지막 읽은 값) · 거래 기록 · 정산 기록. relay 읽기는 서버 2초 상한. */
 export function fetchSettlement(): Promise<SettlementView> {
   return authFetch<SettlementView>("/api/admin/settlement");
+}
+
+/**
+ * 정산 쓰기(예수금 반영을 실을 수 있는 요청)의 브라우저 타임아웃.
+ * 계좌 옮김은 두 계좌를 차례로 보낸다 — 계좌마다 relay 쓰기 상한 15초 + 읽기 2초 + DB 여유(RESEARCH Pitfall 3).
+ */
+export const SETTLEMENT_WRITE_TIMEOUT_MS = 40_000;
+
+/** 거래 한 줄의 못 보낸 예수금만 다시 보낸다(D-26) — 확인 없이 바로. 응답 `pend` 가 비어 있지 않으면 아직 못 보낸 계좌가 남았다. */
+export function retrySettlementLedger(id: number): Promise<SettlementWriteResponse> {
+  return authFetch<SettlementWriteResponse>(
+    `/api/admin/settlement/ledger/${id}/retry`,
+    jsonInit("POST", {}, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS }),
+  );
 }
