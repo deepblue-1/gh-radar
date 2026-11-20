@@ -41,6 +41,26 @@ const activity = (page: Page) => root(page).locator('[data-slot="settlement-acti
 const segment = (page: Page, name: string) => activity(page).getByRole('radio', { name, exact: true });
 const pools = (page: Page) => root(page).locator('[data-slot="settlement-open-pools"]');
 const nameVs = (page: Page) => root(page).locator('[data-slot="settlement-name-vs"]');
+const sheetOf = (page: Page) => page.locator('[role="dialog"][data-admin-sheet]');
+const pillGroup = (scope: Locator, label: string) => scope.getByRole('radiogroup', { name: label, exact: true });
+const pill = (scope: Locator, group: string, name: string) =>
+  pillGroup(scope, group).getByRole('radio', { name, exact: true });
+
+/** 실행 중 애니메이션(시트 슬라이드 인 · 아웃)이 끝날 때까지. */
+async function settled(page: Page) {
+  await expect
+    .poll(() => page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length))
+    .toBe(0);
+}
+
+/** 머리 버튼으로 시트를 열고 제목 · 슬라이드 인 끝까지 기다린다. */
+async function openSheet(page: Page, head: Locator, title: string): Promise<Locator> {
+  await head.click();
+  const sheet = sheetOf(page);
+  await expect(sheet.locator('[data-slot="sheet-title"]')).toHaveText(title);
+  await settled(page);
+  return sheet;
+}
 
 async function open(page: Page): Promise<void> {
   await page.goto('/admin/settlement');
@@ -147,4 +167,85 @@ test.describe('어드민 정산', () => {
       }
     });
   }
+
+  test('P44-F1 1440 — 「정산하기」 → 김현중 「바로 출금」 → 「정산 확정」: 요청 바디 · 시트 닫힘 · 「정산 기록」 새 줄 펼침', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const api = await mockSettlementApi(page);
+    await open(page);
+    const getsBefore = api.requests.filter((r) => r.method === 'GET').length;
+
+    const sheet = await openSheet(page, settleHead(page), '정산하기');
+    // 열 때 다시 읽기(D-16) — GET 한 번 더.
+    await expect.poll(() => api.requests.filter((r) => r.method === 'GET').length).toBeGreaterThan(getsBefore);
+    await expect(sheet.locator('[data-slot="settle-profit-value"]')).toHaveText('+10억 4,900만');
+
+    const out = sheet.locator('[data-slot="settle-split-row"][data-person="H"] [data-slot="settle-out"]');
+    await expect(out).toHaveAttribute('aria-pressed', 'false');
+    await out.click();
+    await expect(out).toHaveAttribute('aria-pressed', 'true');
+    await expect(sheet.locator('[data-slot="settle-out-accounts"]')).toContainText('뺄 계좌 — 김현중 교보 김현중');
+
+    await sheet.locator('[data-slot="settle-sheet-confirm"]').click();
+    const settles = () => api.requests.filter((r) => r.method === 'POST' && new URL(r.url).pathname.endsWith('/api/admin/settlement/settles'));
+    await expect.poll(() => settles().length).toBe(1);
+    // 브라우저가 계산한 수익 · 몫은 보내지 않는다(D-16) — 바디는 이 다섯 칸뿐.
+    expect(settles()[0]!.body).toEqual({ pool: 'p1', outs: ['H'], memo: '', reflect: true, expectPrev: null });
+
+    // 시트 닫힘 · 「정산 기록」 · 새 정산 줄(id 1) 펼침 · 「확정한 순간의 계좌」 · 「그날 출금」.
+    await expect(sheetOf(page)).toHaveCount(0);
+    await expect(segment(page, '정산 기록')).toHaveAttribute('aria-checked', 'true');
+    const item = activity(page).locator('[data-slot="settlement-settle-item"][data-id="1"]');
+    await expect(item.locator('[data-slot="settlement-settle-row"]')).toHaveAttribute('aria-expanded', 'true');
+    await expect(item.getByText('확정한 순간의 계좌', { exact: true })).toBeVisible();
+    await expect(item.getByText('그날 출금', { exact: true })).toBeVisible();
+  });
+
+  test('P44-F2 390 — 「거래 기록」 → 출자 · 김현중 · KB 김현중 · 1만원 → 「저장」: 요청 바디 · 시트 닫힘', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const api = await mockSettlementApi(page);
+    await open(page);
+
+    const sheet = await openSheet(page, ledgerHead(page), '거래 기록');
+    // 칸 순서(D-27) — 무슨 거래 → 넣은 사람 → 받은 계좌 → 금액 → 날짜.
+    await pill(sheet, '무슨 거래', '출자').click();
+    await expect(pill(sheet, '무슨 거래', '출자')).toHaveAttribute('aria-checked', 'true');
+    await pill(sheet, '넣은 사람', '김현중').click();
+    await pill(sheet, '받은 계좌', 'KB 김현중').click();
+    await expect(pill(sheet, '넣은 사람', '김현중')).toHaveAttribute('aria-checked', 'true');
+    await expect(pill(sheet, '받은 계좌', 'KB 김현중')).toHaveAttribute('aria-checked', 'true');
+    await sheet.locator('[data-slot="ledger-amount"]').fill('1');
+    await expect(sheet.locator('[data-slot="ledger-amount"]')).toHaveValue('1');
+    // 날짜 기본 = 응답 now 의 KST 오늘.
+    await expect(sheet.locator('[data-slot="ledger-date"]')).toHaveValue('2026-11-20');
+
+    await sheet.locator('[data-slot="ledger-save"]').click();
+    const posts = () => api.requests.filter((r) => r.method === 'POST' && new URL(r.url).pathname.endsWith('/api/admin/settlement/ledger'));
+    await expect.poll(() => posts().length).toBe(1);
+    // 만원 1 → amountKrw 10000(원) · 오늘 날짜라 예수금 반영 스위치 기본 켜짐(D-10 · D-11).
+    expect(posts()[0]!.body).toMatchObject({
+      txDate: '2026-11-20',
+      kind: 'contribute',
+      who: 'H',
+      toAcc: 'kbH',
+      amountKrw: 10000,
+      reflect: true,
+    });
+    await expect(sheetOf(page)).toHaveCount(0);
+  });
+
+  test('P44-F3 출자 + 받은 계좌 「KB 정근형」 → 「심쥬니」 알약 aria-disabled(D-29)', async ({ page }) => {
+    await mockSettlementApi(page);
+    await open(page);
+
+    const sheet = await openSheet(page, ledgerHead(page), '거래 기록');
+    await pill(sheet, '무슨 거래', '출자').click();
+    await pill(sheet, '받은 계좌', 'KB 정근형').click();
+    await expect(pill(sheet, '받은 계좌', 'KB 정근형')).toHaveAttribute('aria-checked', 'true');
+    // 현중 · 근형 묶음 계좌 — 그 묶음 비율에 없는 심쥬니는 막힌다 · 두 사람은 열려 있다.
+    await expect(pill(sheet, '넣은 사람', '심쥬니')).toHaveAttribute('aria-disabled', 'true');
+    await expect(pill(sheet, '넣은 사람', '김현중')).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(pill(sheet, '넣은 사람', '정근형')).not.toHaveAttribute('aria-disabled', 'true');
+  });
 });
