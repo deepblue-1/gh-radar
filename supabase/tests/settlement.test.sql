@@ -20,8 +20,10 @@
 --   L. 거래 저장 · 고치기 — 새 줄 17키 · createdBy · (D-12) 내일 FUTURE_DATE · 어제 저장 · (D-29) PERSON_NOT_IN_POOL ·
 --      고치기 같은 id · editedBy · history edit(before 전체) · 없는 id · 지운 줄 NO_SUCH_ROW · 정산 줄 SETTLE_LINKED · 23514 그대로
 --   D. 지우기 — 반환 = 지우기 전 행 · 지움 표시 · history delete · 조회에서 빠짐 · 행은 남음 · NO_SUCH_ROW · SETTLE_LINKED
---   X. 반영 결과 기록 — 지운 줄 포함 · 없는 id NO_SUCH_ROW(전체 취소) · 22023
---      (+ 44-03 T2: C 절 확정 · 취소 · X 절 쓰기 RPC 권한)
+--   C. 정산 확정 · 취소 — 확정 {settleId, rowIds} · 정산 1행 + 바로 출금 줄(KST 오늘 · settle_id) · 조회 settles 키 9 ·
+--      (Pitfall 5) 기대값 다르면 STALE_SETTLE · 묶음끼리 따로 · (D-17) 최근 것만 NOT_LATEST · 취소 = 취소 전 줄 반환 +
+--      settle_cancel 지움 표시 · history · 다시 취소 · 없는 id NO_SUCH_ROW · 수익 0 → 23514
+--   X. 반영 결과 기록 — 지운 줄 포함 · 없는 id NO_SUCH_ROW(전체 취소) · 22023 / X2 쓰기 RPC 5 권한 · SECURITY DEFINER
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/settlement.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -33,7 +35,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(145);
+SELECT plan(192);
 
 -- S. 모양 ──────────────────────────────────────────────────────────
 SELECT has_table('public', 'settlement_accounts', 'S1 표 settlement_accounts');
@@ -463,6 +465,146 @@ SELECT throws_ok($$SELECT public.settlement_ledger_delete(pg_temp.t44_id('fx_lin
 SELECT is((SELECT deleted_at FROM public.settlement_ledger WHERE id = pg_temp.t44_id('fx_linked')),
           NULL::timestamptz, 'D2 거부된 줄은 지움 표시 없음');
 
+-- C. 정산 확정 · 취소(D-16 · D-17 · D-21 · Pitfall 5) ────────────────────
+-- 앞 절 픽스처 정산(fx_settle · p2)과 그 바로 출금 줄을 비운다 — 묶음 최신 정산 대조가 이 절의 정산만 보게.
+DELETE FROM public.settlement_ledger WHERE settle_id IS NOT NULL;
+DELETE FROM public.settlement_settles;
+SELECT has_function('public', 'settlement_settle_confirm', ARRAY['text', 'bigint', 'jsonb', 'jsonb', 'text'],
+                    'C0 settlement_settle_confirm(text, bigint, jsonb, jsonb, text)');
+SELECT has_function('public', 'settlement_settle_cancel', ARRAY['bigint', 'text'],
+                    'C0 settlement_settle_cancel(bigint, text)');
+
+-- C1 p1 첫 확정 — 서버가 계산해 넘긴 몫 · 그때 계좌 값(snapshot) · 바로 출금 1줄(김현중 kyH 5억 2,450만 · 반영 켬).
+CREATE TEMP TABLE t44_in AS
+SELECT '{"profitKrw": 1049000000, "shares": {"H": 524500000, "G": 524500000},
+         "snapshot": {"accounts": [{"accKey": "kbG", "budgetKrw": 1865000000, "putKrw": 800000000, "inKrw": 800000000,
+                                    "outKrw": 0, "profitKrw": 1065000000, "stale": false, "readAt": "2026-11-20T05:32:00Z"},
+                                   {"accKey": "kyH", "budgetKrw": 584000000, "putKrw": 600000000, "inKrw": 600000000,
+                                    "outKrw": 0, "profitKrw": -16000000, "stale": true, "readAt": "2026-11-19T10:58:00Z"}],
+                      "cumKrw": 1049000000, "prevKrw": 0},
+         "readAt": "2026-11-20T05:32:00Z", "memo": "11월 정산"}'::jsonb AS s,
+       '[{"who": "H", "fromAcc": "kyH", "amountKrw": 524500000, "reflect": true, "pend": {}}]'::jsonb AS o;
+CREATE TEMP TABLE t44_c1 AS
+SELECT public.settlement_settle_confirm('p1', NULL, (SELECT s FROM t44_in), (SELECT o FROM t44_in),
+                                        'admin@example.invalid') AS r;
+INSERT INTO t44_ids SELECT 'c1', (r ->> 'settleId')::bigint FROM t44_c1;
+INSERT INTO t44_ids SELECT 'c1_out', (r -> 'rowIds' ->> 0)::bigint FROM t44_c1;
+SELECT set_eq($$SELECT jsonb_object_keys(r) FROM t44_c1$$, ARRAY['settleId', 'rowIds'], 'C1 반환 키 {settleId, rowIds}');
+SELECT is((SELECT jsonb_array_length(r -> 'rowIds') FROM t44_c1), 1, 'C1 rowIds 1개');
+SELECT is((SELECT (pool, profit_krw, shares, snapshot, read_at, memo, created_by, cancelled_at IS NULL)::text
+             FROM public.settlement_settles WHERE id = pg_temp.t44_id('c1')),
+          (SELECT ('p1'::text, 1049000000::bigint, s -> 'shares', s -> 'snapshot', '2026-11-20T05:32:00Z'::timestamptz,
+                   '11월 정산'::text, 'admin@example.invalid'::text, true)::text FROM t44_in),
+          'C1 (D-16) 정산 1행 — 몫 · 그때 계좌 값 · 읽은 시각 · 메모 · 적은 사람');
+SELECT is((SELECT (tx_date, kind, who, from_acc, to_acc, via, amount_krw, settle_id, reflect, pend, created_by,
+                   deleted_at IS NULL)::text
+             FROM public.settlement_ledger WHERE id = pg_temp.t44_id('c1_out')),
+          ((now() AT TIME ZONE 'Asia/Seoul')::date, 'withdraw_profit'::text, 'H'::text, 'kyH'::text, NULL::text, NULL::text,
+           524500000::bigint, pg_temp.t44_id('c1'), true, '{}'::jsonb, 'admin@example.invalid'::text, true)::text,
+          'C1 (D-16) 바로 출금 1줄 — withdraw_profit · KST 오늘 · settle_id · 반영 · pend · created_by');
+SELECT set_eq($$SELECT jsonb_object_keys(e) FROM jsonb_array_elements(public.admin_settlement_raw() -> 'settles') e
+                 WHERE (e ->> 'id')::bigint = pg_temp.t44_id('c1')$$,
+              ARRAY['id', 'pool', 'profitKrw', 'shares', 'snapshot', 'readAt', 'memo', 'createdBy', 'createdAt'],
+              'C1 확정한 정산의 admin_settlement_raw() settles 항목 키 9(K8 과 같은 집합)');
+SELECT is((SELECT e -> 'shares' FROM jsonb_array_elements(public.admin_settlement_raw() -> 'settles') e
+            WHERE (e ->> 'id')::bigint = pg_temp.t44_id('c1')),
+          '{"H": 524500000, "G": 524500000}'::jsonb, 'C1 조회 settles 의 몫 = 확정한 몫');
+SELECT is((SELECT (e ->> 'settleId')::bigint FROM jsonb_array_elements(public.admin_settlement_raw() -> 'ledger') e
+            WHERE (e ->> 'id')::bigint = pg_temp.t44_id('c1_out')),
+          pg_temp.t44_id('c1'), 'C1 조회 ledger 의 바로 출금 줄 settleId = 반환 settleId');
+
+-- C2 기대값 대조(Pitfall 5) — 묶음 최신 정산 id 와 다르면 STALE_SETTLE · 맞으면 둘째 정산 · 다른 묶음은 따로.
+SELECT throws_ok($$SELECT public.settlement_settle_confirm('p1', NULL, (SELECT s FROM t44_in), (SELECT o FROM t44_in),
+                     'admin@example.invalid')$$,
+                 'P0001', 'STALE_SETTLE', 'C2 (Pitfall 5) 같은 묶음 기대값 NULL 로 다시 → STALE_SETTLE');
+SELECT throws_ok($$SELECT public.settlement_settle_confirm('p1', pg_temp.t44_id('c1') + 1000, (SELECT s FROM t44_in),
+                     (SELECT o FROM t44_in), 'admin@example.invalid')$$,
+                 'P0001', 'STALE_SETTLE', 'C2 (Pitfall 5) 다른 id 를 기대값으로 → STALE_SETTLE');
+SELECT is((SELECT ((SELECT count(*) FROM public.settlement_settles), (SELECT count(*) FROM public.settlement_ledger
+                                                                       WHERE settle_id IS NOT NULL))::text),
+          (1::bigint, 1::bigint)::text, 'C2 거부된 확정은 정산 · 바로 출금 줄을 남기지 않는다');
+CREATE TEMP TABLE t44_c2 AS
+SELECT public.settlement_settle_confirm('p1', pg_temp.t44_id('c1'),
+         '{"profitKrw": 200000000, "shares": {"H": 100000000, "G": 100000000},
+           "snapshot": {"accounts": [], "cumKrw": 1249000000, "prevKrw": 1049000000},
+           "readAt": "2026-11-20T06:00:00Z", "memo": ""}'::jsonb,
+         '[{"who": "G", "fromAcc": "kyG", "amountKrw": 100000000, "reflect": true,
+            "pend": {"kyG": {"deltaKrw": -100000000, "targetKrw": null, "reason": "unreachable"}}},
+           {"who": "H", "fromAcc": "kyH", "amountKrw": 100000000, "reflect": false}]'::jsonb,
+         'admin@example.invalid') AS r;
+INSERT INTO t44_ids SELECT 'c2', (r ->> 'settleId')::bigint FROM t44_c2;
+SELECT is((SELECT jsonb_array_length(r -> 'rowIds') FROM t44_c2), 2, 'C2 최신 id 를 기대값으로 → 둘째 정산 · 바로 출금 2줄');
+SELECT is((SELECT array_agg(who || ':' || from_acc || ':' || pend::text ORDER BY id) FROM public.settlement_ledger
+            WHERE settle_id = pg_temp.t44_id('c2')),
+          ARRAY['G:kyG:{"kyG": {"reason": "unreachable", "deltaKrw": -100000000, "targetKrw": null}}', 'H:kyH:{}'],
+          'C2 바로 출금 줄은 p_outs 순서 · pend 없으면 {}');
+SELECT throws_ok($$SELECT public.settlement_settle_confirm('p2', pg_temp.t44_id('c2'),
+                     '{"profitKrw": 3000, "shares": {"J": 1200, "H": 900, "G": 900},
+                       "snapshot": {"accounts": [], "cumKrw": 3000, "prevKrw": 0}, "readAt": "2026-11-20T06:00:00Z"}'::jsonb,
+                     '[]'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'STALE_SETTLE', 'C2 다른 묶음(p2)은 p1 의 최신 id 를 기대값으로 받지 않는다');
+CREATE TEMP TABLE t44_c2p2 AS
+SELECT public.settlement_settle_confirm('p2', NULL,
+         '{"profitKrw": 3000, "shares": {"J": 1200, "H": 900, "G": 900},
+           "snapshot": {"accounts": [], "cumKrw": 3000, "prevKrw": 0}, "readAt": "2026-11-20T06:00:00Z"}'::jsonb,
+         '[]'::jsonb, 'admin@example.invalid') AS r;
+SELECT is((SELECT (count(*), (SELECT r -> 'rowIds' FROM t44_c2p2))::text FROM public.settlement_settles
+            WHERE pool = 'p2' AND cancelled_at IS NULL),
+          (1::bigint, '[]'::jsonb)::text, 'C2 p2 첫 확정(기대값 NULL)은 p1 정산과 무관 · 바로 출금 없으면 rowIds []');
+
+-- C3 취소(D-17) — 최근 것만 · 바로 출금 줄 함께 지움 표시 · 취소 전 행 반환.
+SELECT throws_ok($$SELECT public.settlement_settle_cancel(pg_temp.t44_id('c1'), 'canceller@example.invalid')$$,
+                 'P0001', 'NOT_LATEST', 'C3 (D-17) 최근이 아닌 정산 취소 → NOT_LATEST');
+CREATE TEMP TABLE t44_c2_before AS
+SELECT jsonb_agg(public.settlement_ledger_json(l) ORDER BY l.id) AS r
+  FROM public.settlement_ledger l WHERE l.settle_id = pg_temp.t44_id('c2');
+CREATE TEMP TABLE t44_c3 AS
+SELECT public.settlement_settle_cancel(pg_temp.t44_id('c2'), 'canceller@example.invalid') AS r;
+SELECT set_eq($$SELECT jsonb_object_keys(r) FROM t44_c3$$, ARRAY['rows'], 'C3 반환 키 {rows}');
+SELECT is((SELECT r -> 'rows' FROM t44_c3), (SELECT r FROM t44_c2_before),
+          'C3 rows = 취소 전 바로 출금 줄 2(id 순)');
+SELECT set_eq($$SELECT DISTINCT jsonb_object_keys(e) FROM t44_c3, jsonb_array_elements(r -> 'rows') e$$,
+              ARRAY['id', 'txDate', 'kind', 'who', 'fromAcc', 'toAcc', 'via', 'amountKrw', 'memo', 'settleId', 'reflect',
+                    'pend', 'seeded', 'createdBy', 'createdAt', 'editedBy', 'editedAt'],
+              'C3 rows 항목 키 17(settlement_ledger_json)');
+SELECT is((SELECT (r -> 'rows' -> 0 -> 'reflect', r -> 'rows' -> 0 -> 'pend' -> 'kyG' ->> 'reason')::text FROM t44_c3),
+          ('true'::jsonb, 'unreachable'::text)::text, 'C3 rows 에 반영 여부 · pend 포함(예수금 되돌리기 계산용)');
+SELECT is((SELECT (cancelled_at IS NOT NULL, cancelled_by)::text FROM public.settlement_settles
+            WHERE id = pg_temp.t44_id('c2')),
+          (true, 'canceller@example.invalid'::text)::text, 'C3 (D-21) 정산 cancelled_at · cancelled_by');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger
+            WHERE settle_id = pg_temp.t44_id('c2') AND deleted_at IS NOT NULL
+              AND deleted_by = 'canceller@example.invalid' AND deleted_reason = 'settle_cancel'),
+          2, 'C3 (D-21) 바로 출금 줄 2 지움 표시 deleted_reason = settle_cancel(행은 남음)');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger_history h
+             JOIN public.settlement_ledger l ON l.id = h.ledger_id
+            WHERE l.settle_id = pg_temp.t44_id('c2') AND h.action = 'settle_cancel'
+              AND h.by = 'canceller@example.invalid' AND h.before ->> 'deleted_at' IS NULL),
+          2, 'C3 (D-21) history settle_cancel 2행 · before = 취소 전 행');
+SELECT ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(public.admin_settlement_raw() -> 'settles') e
+                       WHERE (e ->> 'id')::bigint = pg_temp.t44_id('c2')),
+          'C3 admin_settlement_raw() settles 에서 빠짐');
+SELECT ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(public.admin_settlement_raw() -> 'ledger') e
+                       WHERE (e ->> 'settleId')::bigint = pg_temp.t44_id('c2')),
+          'C3 admin_settlement_raw() ledger 에서 그 바로 출금 줄 빠짐');
+CREATE TEMP TABLE t44_c3b AS
+SELECT public.settlement_settle_cancel(pg_temp.t44_id('c1'), 'canceller@example.invalid') AS r;
+SELECT is((SELECT (r -> 'rows' -> 0 ->> 'id')::bigint FROM t44_c3b), pg_temp.t44_id('c1_out'),
+          'C3 (D-17) 둘째를 취소하면 첫 정산이 최신 → 취소됨 · 그 바로 출금 줄 반환');
+
+-- C4 취소할 수 없는 정산.
+SELECT throws_ok($$SELECT public.settlement_settle_cancel(pg_temp.t44_id('c2'), 'canceller@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'C4 취소한 정산 다시 취소 → NO_SUCH_ROW');
+SELECT throws_ok($$SELECT public.settlement_settle_cancel((SELECT max(id) + 1000 FROM public.settlement_settles),
+                     'canceller@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'C4 없는 정산 취소 → NO_SUCH_ROW');
+
+-- C5 수익 0 정산 → 표 CHECK 23514(p1 은 둘 다 취소돼 기대값 NULL 이 맞다 — 대조를 지나 CHECK 에 닿는다).
+SELECT throws_ok($$SELECT public.settlement_settle_confirm('p1', NULL,
+                     '{"profitKrw": 0, "shares": {}, "snapshot": {"accounts": [], "cumKrw": 0, "prevKrw": 0},
+                       "readAt": "2026-11-20T06:00:00Z"}'::jsonb, '[]'::jsonb, 'admin@example.invalid')$$,
+                 '23514', NULL, 'C5 profitKrw 0 → 23514(표 CHECK)');
+
 -- X. 반영 결과 기록(D-26) · 쓰기 RPC 권한 ──────────────────────────────
 SELECT lives_ok($$SELECT public.settlement_set_pend(jsonb_build_array(
                     jsonb_build_object('id', pg_temp.t44_id('l1'),
@@ -488,6 +630,30 @@ SELECT throws_ok($$SELECT public.settlement_set_pend(jsonb_build_array(
                      jsonb_build_object('id', pg_temp.t44_id('l2'), 'pend', '[]'::jsonb)))$$, '22023', NULL,
                  'X1 pend 가 객체가 아니면 22023');
 SELECT lives_ok($$SELECT public.settlement_set_pend('[]'::jsonb)$$, 'X1 빈 배열은 아무것도 하지 않는다');
+
+-- X2 쓰기 RPC 5 권한 · 함수 속성(내부 함수 settlement_ledger_json 권한은 P 절이 잠갔다).
+SELECT is(has_function_privilege(r.role, f.sig, 'EXECUTE'), r.expect,
+          format('X2 %s EXECUTE %s = %s', r.role, f.sig, r.expect))
+  FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
+ CROSS JOIN (VALUES ('public.settlement_ledger_save(bigint, jsonb, text)'), ('public.settlement_ledger_delete(bigint, text)'),
+                    ('public.settlement_set_pend(jsonb)'),
+                    ('public.settlement_settle_confirm(text, bigint, jsonb, jsonb, text)'),
+                    ('public.settlement_settle_cancel(bigint, text)')) AS f(sig)
+ ORDER BY f.sig, r.role;
+SELECT ok((SELECT bool_and(prosecdef) AND count(*) = 5 FROM pg_proc
+            WHERE oid IN ('public.settlement_ledger_save(bigint, jsonb, text)'::regprocedure,
+                          'public.settlement_ledger_delete(bigint, text)'::regprocedure,
+                          'public.settlement_set_pend(jsonb)'::regprocedure,
+                          'public.settlement_settle_confirm(text, bigint, jsonb, jsonb, text)'::regprocedure,
+                          'public.settlement_settle_cancel(bigint, text)'::regprocedure)),
+          'X2 쓰기 RPC 5 SECURITY DEFINER');
+SELECT ok((SELECT bool_and('search_path=public, pg_temp' = ANY (proconfig)) AND count(*) = 5 FROM pg_proc
+            WHERE oid IN ('public.settlement_ledger_save(bigint, jsonb, text)'::regprocedure,
+                          'public.settlement_ledger_delete(bigint, text)'::regprocedure,
+                          'public.settlement_set_pend(jsonb)'::regprocedure,
+                          'public.settlement_settle_confirm(text, bigint, jsonb, jsonb, text)'::regprocedure,
+                          'public.settlement_settle_cancel(bigint, text)'::regprocedure)),
+          'X2 쓰기 RPC 5 search_path 고정');
 
 SELECT * FROM finish();
 ROLLBACK;
