@@ -254,9 +254,17 @@ describe('ledgerDraftToBody — 종류에 맞지 않는 칸은 null', () => {
   });
 
   it('계좌 옮김 → who null · via 유지 / 출자 → fromAcc · via null / 수익 출금 → toAcc · via null', () => {
-    expect(JSON.stringify(ledgerDraftToBody(draft({ kind: 'move' }), false))).toBe(
-      JSON.stringify({ txDate: TODAY, kind: 'move', who: null, fromAcc: 'kbG', toAcc: 'kyH', via: 'corp_service', amountKrw: 4_000_000, memo: '메모', reflect: false }),
-    );
+    expect(ledgerDraftToBody(draft({ kind: 'move' }), false)).toEqual({
+      txDate: TODAY,
+      kind: 'move',
+      who: null,
+      fromAcc: 'kbG',
+      toAcc: 'kyH',
+      via: 'corp_service',
+      amountKrw: 4_000_000,
+      memo: '메모',
+      reflect: false,
+    });
     expect(ledgerDraftToBody(draft({ kind: 'contribute' }), true)).toEqual({
       txDate: TODAY,
       kind: 'contribute',
