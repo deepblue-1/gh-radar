@@ -14,6 +14,17 @@
  * | 날짜 · 시각 | KST | 「M/D」 · 「YY년 말」 · 「YY/M/D」 · 「오늘 / 어제 HH:MM」 |
  * | 예수금 선택 | 67 live · 87 · 첫 사용자 모름 · 서버 간 다름 | live 값 · 87 값 · 둘째 사용자 값 · 주문 서버 값 + mismatch |
  * | 계좌 뷰 | known · 0 · 못 읽음 + 기록 · 못 읽음 · 대응 없음 | known + 기록 · unset + 기록 · stale · unset · unset |
+ * | 정산 전 수익 (R3 · D-01) | 시드 · 정산 없음 / p1 정산 10.49억 | p1 open 10.49억 · p2 open −2,800만 · p2 dist 0 / p1 open 0 |
+ * | 몫 (R6) | p1 10.49억 · kbH 예수금 500,000,005 | H · G 각 5.245억 / J 40,000,002 · H · G 30,000,001 · 합 100,000,004 |
+ * | 원금 (R7) | 시드 · 원금 회수 · p1 계좌에 심쥬니 출자 | p1 {H · G 2.5억} · p2 {H · G 1.5억 · J 1억} · J 회수 반영 · p1 에 J 칸 없음 |
+ * | 사람 (R8 · D-06) | 시드 / kyG 미설정 / kbH 2.5억 | H · G stake 9.245억 · J loss 2,800만 stake 7,200만 / H · G unk / J loss 1억 · H · G 각 2,500만 |
+ * | 이체 (R9) | 시드 | H → G 4억 1건 · G → H 7억 4건 · 법인 용역 3억 1건 |
+ * | 명의 대 몫 (R10) | 시드 / kyG 미설정 | bal H 10.56억 · G 8.65억 · x 5,950만 / unk |
+ * | 뺄 계좌 · 출금액 (R11 · R15) | 시드 / kbG 미설정 | p1 H kyH · p1 G kbG · p2 J kbH / p1 G kyG · 만원 미만 버림 |
+ * | 정산 계획 (D-16 · D-17) | 바로 출금 고름 · 미설정 · 이월 · 0 · 끝전 | outs · unset · carry · none · 0원 줄 없음 |
+ * | 정산 뒤 회귀 (D-09) | p1 정산 + 김현중 바로 출금 · kyH 1.595억 | H due 0 stake 4억 · G due 5.245억 stake 9.245억 · x 5,950만 |
+ * | 사람-묶음 (D-29) | 출자 · 원금 회수 · 계좌 옮김 · 수익 출금 | p1 계좌의 심쥬니만 false |
+ * | 거래 줄 순서 | 날짜 · id | 날짜 최신 위 · 같은 날 id 큰 것 위 |
  */
 import { describe, expect, it } from "vitest";
 
@@ -21,13 +32,25 @@ import type { AdminAccountCostRow, AdminAccountCostsRaw } from "../admin";
 import {
   buildSettlementAccounts,
   cumProfit,
+  distributable,
   formatEokMan,
   formatEokManMinus,
   formatEokManSigned,
+  hgOf,
+  hgSum,
   ledgerFlows,
+  nameVs,
+  openProfit,
+  payAccount,
+  personAllowedFor,
+  personSummary,
   poolAccountRows,
   poolOk,
+  principalCaps,
   profitTone,
+  settledSum,
+  settlePlan,
+  settleShares,
   SETTLEMENT_ACC_KEYS,
   SETTLEMENT_ACCOUNTS,
   SETTLEMENT_KIND_ORDER,
@@ -37,12 +60,19 @@ import {
   settlementReadLabel,
   settlementStampLabel,
   settlementTimeLabel,
+  shareOf,
+  sortLedgerRows,
+  withdrawAmount,
   type SettlementAccKey,
   type SettlementAccountView,
+  type SettlementCtx,
   type SettlementLedgerRow,
+  type SettlementPerson,
+  type SettlementPoolId,
   type SettlementRaw,
   type SettlementRawAccount,
   type SettlementRawServer,
+  type SettlementSettleRow,
 } from "../settlement";
 
 const NOW = "2026-11-20T01:00:00.000Z"; // KST 2026-11-20 10:00
@@ -358,5 +388,330 @@ describe("buildSettlementAccounts (D-04)", () => {
       NOW,
     );
     expect(accounts[2]).toMatchObject({ state: "unset", budgetKrw: null, readAt: at });
+  });
+});
+
+// ── 정산 계산(44-02) ──────────────────────────────────────────────────────────
+
+const ctxOf = (
+  over: Partial<Record<SettlementAccKey, number | null>> = {},
+  ledger: SettlementLedgerRow[] = SEED,
+  settles: SettlementSettleRow[] = [],
+): SettlementCtx => ({ accounts: views(over), ledger, settles });
+
+const settleRow = (
+  id: number,
+  pool: SettlementPoolId,
+  profitKrw: number,
+  shares: Partial<Record<SettlementPerson, number>>,
+): SettlementSettleRow => ({
+  id,
+  pool,
+  profitKrw,
+  shares,
+  snapshot: { accounts: [], cumKrw: 0, prevKrw: 0 },
+  readAt: NOW,
+  memo: "",
+  createdBy: "admin@example.com",
+  createdAt: NOW,
+});
+
+/** p1 정산(10억 4,900만 · 반반) + 김현중 바로 출금 5억 2,450만(교보 김현중) — 정산 뒤 회귀 픽스처. */
+const P1_SETTLE = settleRow(1, "p1", 1_049_000_000, { H: 524_500_000, G: 524_500_000 });
+const P1_OUT_H = row(10, {
+  txDate: "2026-11-20",
+  kind: "withdraw_profit",
+  who: "H",
+  fromAcc: "kyH",
+  amountKrw: 524_500_000,
+  settleId: 1,
+  seeded: false,
+});
+
+describe("정산 전 수익 · 나눌 수익 (R3 · D-01 · 규칙 2)", () => {
+  it("정산 없음 — p1 open = 누적 10억 4,900만 · p2 open −2,800만 · p2 나눌 수익 0", () => {
+    const ctx = ctxOf();
+    expect(settledSum("p1", ctx.settles)).toBe(0);
+    expect(openProfit("p1", ctx)).toBe(1_049_000_000);
+    expect(distributable("p1", ctx)).toBe(1_049_000_000);
+    expect(openProfit("p2", ctx)).toBe(-28_000_000);
+    expect(distributable("p2", ctx)).toBe(0);
+  });
+
+  it("정산 수익 합은 그 묶음 정산만 · open = 누적 − 정산 합", () => {
+    const settles = [P1_SETTLE, settleRow(2, "p2", 10_000_000, { J: 4_000_000, H: 3_000_000, G: 3_000_000 })];
+    expect(settledSum("p1", settles)).toBe(1_049_000_000);
+    expect(settledSum("p2", settles)).toBe(10_000_000);
+    expect(openProfit("p1", ctxOf({}, SEED, settles))).toBe(0);
+  });
+
+  it("현중 · 근형 묶음(기준 없음)은 손실도 그대로 나눌 수익", () => {
+    const ctx = ctxOf({ kbG: 1 });
+    // kbG 1원 → kbG 수익 1 + 220,000,000 · 묶음 = 220,000,001 − 16,000,000 + 0
+    expect(distributable("p1", ctx)).toBe(204_000_001);
+    const loss = ctxOf({}, SEED, [settleRow(1, "p1", 1_100_000_000, { H: 550_000_000, G: 550_000_000 })]);
+    expect(distributable("p1", loss)).toBe(-51_000_000);
+  });
+});
+
+describe("몫 (R6 · D-09 — 원 미만 버림)", () => {
+  it("shareOf — 비율 · 비율에 없는 사람 0 · 음수는 0 쪽 버림", () => {
+    expect(shareOf("p1", 1_049_000_000, "H")).toBe(524_500_000);
+    expect(shareOf("p1", 1_049_000_000, "J")).toBe(0);
+    expect(shareOf("p1", -5, "H")).toBe(-2);
+  });
+
+  it("4 : 3 : 3 끝전 — 정산 전 수익 100,000,005 → J 40,000,002 · H · G 30,000,001 · 합 100,000,004", () => {
+    const ctx = ctxOf({ kbH: 500_000_005 });
+    expect(openProfit("p2", ctx)).toBe(100_000_005);
+    const r = settleShares("p2", distributable("p2", ctx));
+    expect(r.shares).toEqual({ J: 40_000_002, H: 30_000_001, G: 30_000_001 });
+    expect(r.profitKrw).toBe(100_000_004);
+  });
+});
+
+describe("원금 (R7)", () => {
+  it("시드 — p1 {H · G 2억 5,000만} · p2 {H · G 1억 5,000만 · J 1억}", () => {
+    expect(principalCaps(SEED)).toEqual({
+      p1: { H: 250_000_000, G: 250_000_000 },
+      p2: { H: 150_000_000, G: 150_000_000, J: 100_000_000 },
+    });
+  });
+
+  it("원금 회수는 뺀 계좌 묶음에서 그 사람 원금을 줄인다", () => {
+    const back = row(20, { txDate: "2026-11-02", kind: "withdraw_principal", who: "J", fromAcc: "kbH", amountKrw: 30_000_000 });
+    expect(principalCaps([...SEED, back]).p2.J).toBe(70_000_000);
+  });
+
+  it("현중 · 근형 묶음 계좌의 심쥬니 출자는 더하지 않는다(숫자 아님 값 방지)", () => {
+    const bad = row(21, { txDate: "2026-11-02", kind: "contribute", who: "J", toAcc: "kbG", amountKrw: 10_000_000 });
+    const c = principalCaps([...SEED, bad]);
+    expect(c.p1).toEqual({ H: 250_000_000, G: 250_000_000 });
+    expect(Object.values(c.p1).every((v) => Number.isFinite(v))).toBe(true);
+  });
+});
+
+describe("사람 (R8 · D-06)", () => {
+  it("검산 — 김현중 · 정근형 지금 몫 전체 924,500,000", () => {
+    for (const p of ["H", "G"] as const) {
+      const s = personSummary(p, ctxOf());
+      expect(s).toMatchObject({
+        dueKrw: 0,
+        open: { p1: 524_500_000, p2: 0 },
+        openSum: 524_500_000,
+        cap: { p1: 250_000_000, p2: 150_000_000 },
+        capSum: 400_000_000,
+        lossKrw: 0,
+        unk: false,
+        totalKrw: 524_500_000,
+      });
+      expect(s.stakeKrw).toBe(924_500_000);
+    }
+  });
+
+  it("검산 — 심쥬니 손실 2,800만 · 지금 몫 전체 7,200만", () => {
+    const s = personSummary("J", ctxOf());
+    expect(s).toMatchObject({ open: { p2: 0 }, openSum: 0, cap: { p2: 100_000_000 }, capSum: 100_000_000, unk: false });
+    expect(s.open).not.toHaveProperty("p1");
+    expect(s.lossKrw).toBe(28_000_000);
+    expect(s.stakeKrw).toBe(72_000_000);
+  });
+
+  it("kyG 미설정(D-25) — 김현중 · 정근형 unk · 심쥬니 아님", () => {
+    const ctx = ctxOf({ kyG: null });
+    expect(personSummary("H", ctx).unk).toBe(true);
+    expect(personSummary("G", ctx).unk).toBe(true);
+    expect(personSummary("H", ctx).open.p1).toBeNull();
+    expect(personSummary("J", ctx).unk).toBe(false);
+  });
+
+  it("손실 1억 넘음 — 정산 전 수익 −1억 5,000만 → 심쥬니 1억 · 김현중 · 정근형 각 2,500만", () => {
+    const ctx = ctxOf({ kbH: 250_000_000 });
+    expect(openProfit("p2", ctx)).toBe(-150_000_000);
+    expect(personSummary("J", ctx).lossKrw).toBe(100_000_000);
+    expect(personSummary("H", ctx).lossKrw).toBe(25_000_000);
+    expect(personSummary("G", ctx).lossKrw).toBe(25_000_000);
+  });
+
+  it("남겨 둔 돈 = 저장된 정산 몫 − 수익 출금(다시 계산하지 않는다)", () => {
+    const odd = settleRow(1, "p1", 1_049_000_000, { H: 600_000_000, G: 449_000_000 });
+    expect(personSummary("H", ctxOf({}, SEED, [odd])).dueKrw).toBe(600_000_000);
+    expect(personSummary("G", ctxOf({}, SEED, [odd])).dueKrw).toBe(449_000_000);
+  });
+});
+
+describe("이체 (R9)", () => {
+  it("hgOf — 출자 · 계좌 옮김 · 수익 출금 · 같은 사람 · 심쥬니", () => {
+    expect(hgOf(SEED[0]!)).toEqual({ from: "H", to: "G", corp: false });
+    expect(hgOf(SEED[2]!)).toEqual({ from: "G", to: "H", corp: true });
+    expect(hgOf(SEED[1]!)).toBeNull();
+    expect(hgOf(SEED[3]!)).toBeNull();
+    expect(hgOf(SEED[8]!)).toBeNull();
+    const out = row(30, { txDate: "2026-11-02", kind: "withdraw_profit", who: "G", fromAcc: "kyH", amountKrw: 10_000_000 });
+    expect(hgOf(out)).toEqual({ from: "H", to: "G", corp: false });
+  });
+
+  it("hgSum — 김현중 → 정근형 4억(1건) · 정근형 → 김현중 7억(4건) · 법인 용역 3억(1건)", () => {
+    expect(hgSum(SEED)).toEqual({
+      hgKrw: 400_000_000,
+      hgCount: 1,
+      ghKrw: 700_000_000,
+      ghCount: 4,
+      corpKrw: 300_000_000,
+      corpCount: 1,
+    });
+  });
+});
+
+describe("명의 대 몫 (R10 · 규칙 6)", () => {
+  it("검산 — 명의 H 10억 5,600만 · G 8억 6,500만 · x 59,500,000(김현중 → 정근형)", () => {
+    const v = nameVs(ctxOf());
+    expect(v.balKrw).toEqual({ H: 1_056_000_000, G: 865_000_000 });
+    expect(v.unkBal).toEqual({ H: false, G: false });
+    expect(v.unk).toBe(false);
+    expect(v.people.G.stakeKrw).toBe(924_500_000);
+    expect(v.xKrw).toBe(59_500_000);
+  });
+
+  it("kyG 미설정 → unk", () => {
+    const v = nameVs(ctxOf({ kyG: null }));
+    expect(v.unkBal.G).toBe(true);
+    expect(v.unk).toBe(true);
+  });
+});
+
+describe("뺄 계좌 · 바로 출금 금액 (R11 · R15 · D-15)", () => {
+  it("검산 — p1 H → kyH · p1 G → kbG · p2 J → kbH(본인 명의 없음 → 첫 계좌)", () => {
+    const a = views();
+    expect(payAccount("p1", "H", a)).toBe("kyH");
+    expect(payAccount("p1", "G", a)).toBe("kbG");
+    expect(payAccount("p2", "J", a)).toBe("kbH");
+    expect(payAccount("p2", "H", a)).toBe("kbH");
+  });
+
+  it("예수금 내림차순(미설정 0) 뒤 본인 명의 첫 계좌", () => {
+    expect(payAccount("p1", "G", views({ kbG: null }))).toBe("kyG");
+    expect(payAccount("p1", "G", views({ kyG: 900_000_000 }))).toBe("kyG");
+  });
+
+  it("withdrawAmount — 만원 미만 버림 · 0 · 음수는 0", () => {
+    expect(withdrawAmount(524_500_007)).toBe(524_500_000);
+    expect(withdrawAmount(9_999)).toBe(0);
+    expect(withdrawAmount(0)).toBe(0);
+    expect(withdrawAmount(-50_000)).toBe(0);
+  });
+});
+
+describe("정산 계획 settlePlan (D-16 · D-17)", () => {
+  it("p1 · 바로 출금 없음 — 확정 가능 · 몫 · 정산 수익", () => {
+    expect(settlePlan("p1", ctxOf(), [])).toEqual({
+      can: true,
+      block: null,
+      openKrw: 1_049_000_000,
+      distKrw: 1_049_000_000,
+      carryKrw: 0,
+      shares: { H: 524_500_000, G: 524_500_000 },
+      profitKrw: 1_049_000_000,
+      outs: [],
+    });
+  });
+
+  it("바로 출금 — 김현중 kyH · 정근형 kbG · 묶음에 없는 사람은 무시", () => {
+    expect(settlePlan("p1", ctxOf(), ["H"]).outs).toEqual([{ who: "H", fromAcc: "kyH", amountKrw: 524_500_000 }]);
+    expect(settlePlan("p1", ctxOf(), ["G"]).outs).toEqual([{ who: "G", fromAcc: "kbG", amountKrw: 524_500_000 }]);
+    expect(settlePlan("p1", ctxOf(), ["J", "G", "H"]).outs.map((o) => o.who)).toEqual(["H", "G"]);
+  });
+
+  it("몫 524,500,007 → 바로 출금 524,500,000(만원 미만 버림)", () => {
+    const plan = settlePlan("p1", ctxOf({ kbG: 845_000_014 }), ["H"]);
+    expect(plan.shares.H).toBe(524_500_007);
+    expect(plan.outs).toEqual([{ who: "H", fromAcc: "kyH", amountKrw: 524_500_000 }]);
+  });
+
+  it("4 : 3 : 3 — 묶음 비율 순서(J · H · G) · 정산 수익 = 몫 합", () => {
+    const plan = settlePlan("p2", ctxOf({ kbH: 500_000_005 }), ["G", "H", "J"]);
+    expect(plan.can).toBe(true);
+    expect(plan.profitKrw).toBe(100_000_004);
+    expect(plan.outs).toEqual([
+      { who: "J", fromAcc: "kbH", amountKrw: 40_000_000 },
+      { who: "H", fromAcc: "kbH", amountKrw: 30_000_000 },
+      { who: "G", fromAcc: "kbH", amountKrw: 30_000_000 },
+    ]);
+  });
+
+  it("바로 출금 금액이 0 인 줄은 만들지 않는다", () => {
+    const plan = settlePlan("p2", ctxOf({ kbH: 400_005_000 }), ["J", "H", "G"]);
+    expect(plan.can).toBe(true);
+    expect(plan.shares).toEqual({ J: 2_000, H: 1_500, G: 1_500 });
+    expect(plan.outs).toEqual([]);
+  });
+
+  it("미설정 → unset", () => {
+    expect(settlePlan("p1", ctxOf({ kyG: null }), ["H"])).toMatchObject({
+      can: false,
+      block: "unset",
+      openKrw: null,
+      outs: [],
+    });
+  });
+
+  it("쥬니 손실 이월 → carry(남은 금액)", () => {
+    expect(settlePlan("p2", ctxOf(), ["J"])).toMatchObject({ can: false, block: "carry", openKrw: -28_000_000, carryKrw: 28_000_000, outs: [] });
+    expect(settlePlan("p2", ctxOf({ kbH: 250_000_000 }), [])).toMatchObject({ block: "carry", carryKrw: 150_000_000 });
+  });
+
+  it("p1 정산 전 수익 0 이하 → none", () => {
+    expect(settlePlan("p1", ctxOf({}, SEED, [P1_SETTLE]), ["H"])).toMatchObject({ can: false, block: "none", openKrw: 0, outs: [] });
+  });
+});
+
+describe("정산 뒤 회귀 (D-09)", () => {
+  // p1 정산 확정 + 김현중 바로 출금(교보 김현중) → 교보 김현중 예수금 684,000,000 − 524,500,000 = 159,500,000 반영.
+  const after = ctxOf({ kyH: 159_500_000 }, [...SEED, P1_OUT_H], [P1_SETTLE]);
+
+  it("묶음 누적 그대로 · 정산 전 수익 0", () => {
+    expect(cumProfit("p1", after.accounts, after.ledger)).toBe(1_049_000_000);
+    expect(openProfit("p1", after)).toBe(0);
+  });
+
+  it("김현중 남겨 둔 돈 0 · 지금 몫 전체 4억 / 정근형 남겨 둔 돈 5억 2,450만 · 지금 몫 전체 924,500,000", () => {
+    const h = personSummary("H", after);
+    expect(h.dueKrw).toBe(0);
+    expect(h.stakeKrw).toBe(400_000_000);
+    const g = personSummary("G", after);
+    expect(g.dueKrw).toBe(524_500_000);
+    expect(g.stakeKrw).toBe(924_500_000);
+  });
+
+  it("명의 대 몫 x 59,500,000 그대로", () => {
+    expect(nameVs(after).xKrw).toBe(59_500_000);
+  });
+});
+
+describe("사람-묶음 규칙 personAllowedFor (D-29)", () => {
+  it("출자 · 원금 회수 — 그 계좌 묶음 비율에 없는 사람만 false", () => {
+    expect(personAllowedFor("contribute", "kbG", "J")).toBe(false);
+    expect(personAllowedFor("contribute", "kbH", "J")).toBe(true);
+    expect(personAllowedFor("contribute", "kbG", "H")).toBe(true);
+    expect(personAllowedFor("withdraw_principal", "kyG", "J")).toBe(false);
+    expect(personAllowedFor("withdraw_principal", "kbH", "G")).toBe(true);
+  });
+
+  it("수익 출금 · 계좌 옮김 — 늘 true", () => {
+    expect(personAllowedFor("withdraw_profit", "kbG", "J")).toBe(true);
+    expect(personAllowedFor("move", "kbG", null)).toBe(true);
+  });
+});
+
+describe("sortLedgerRows (목업 ledgerList)", () => {
+  it("날짜 최신이 위 · 같은 날은 id 큰 것이 위 · 입력은 그대로", () => {
+    const input = [
+      row(1, { txDate: "2026-09-13", kind: "contribute", amountKrw: 1 }),
+      row(2, { txDate: "2026-11-01", kind: "contribute", amountKrw: 1 }),
+      row(3, { txDate: "2026-09-13", kind: "contribute", amountKrw: 1 }),
+      row(4, { txDate: "2025-12-31", kind: "contribute", amountKrw: 1 }),
+    ];
+    expect(sortLedgerRows(input).map((t) => t.id)).toEqual([2, 3, 1, 4]);
+    expect(input.map((t) => t.id)).toEqual([1, 2, 3, 4]);
   });
 });
