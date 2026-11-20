@@ -54,7 +54,7 @@ coverage:
     description: "거래 저장 · 고치기 RPC — 17키 반환 · created_by · edited_by/at · FUTURE_DATE · PERSON_NOT_IN_POOL · NO_SUCH_ROW · SETTLE_LINKED · history edit · 23514 그대로"
     verification:
       - kind: integration
-        ref: "bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/settlement.test.sql (절 L · 27 단언)"
+        ref: "bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/settlement.test.sql (절 L · 24 단언)"
         status: pass
     human_judgment: false
   - id: D2
@@ -164,7 +164,7 @@ status: complete
 
 ## pgTAP 단언 수
 
-- `supabase/tests/settlement.test.sql` — **192**(44-01 104 + 이 플랜 88: L 27 · D 9 · C 30 · X1 8 · X2 17 · 도우미 함수 has_function 은 L0 · C0 에 포함) · 192 ok · 0 not ok.
+- `supabase/tests/settlement.test.sql` — **192**(44-01 104 + 이 플랜 88: L 24 · D 9 · C 30 · X1 8 · X2 17 — 함수 존재 has_function 은 L0 3 · C0 2 로 L · C 에 포함) · 192 ok · 0 not ok.
 - 회귀: `supabase/tests/dart_alert.test.sql` 183 ok · 0 not ok(마이그레이션 148개 재생).
 - 절 머리: `-- L.` · `-- D.` · `-- C.` · `-- X.`. 일회용 컨테이너 1개씩 · 원격 DB 접촉 0.
 
