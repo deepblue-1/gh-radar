@@ -30,7 +30,7 @@ SET LOCAL search_path = public, extensions;
 
 SELECT plan(104);
 
--- ── S. 모양 ───────────────────────────────────────────────────────
+-- S. 모양 ──────────────────────────────────────────────────────────
 SELECT has_table('public', 'settlement_accounts', 'S1 표 settlement_accounts');
 SELECT has_table('public', 'settlement_budget_reads', 'S2 표 settlement_budget_reads');
 SELECT has_table('public', 'settlement_settles', 'S3 표 settlement_settles');
@@ -112,7 +112,7 @@ SELECT lives_ok($$INSERT INTO public.settlement_ledger (tx_date, kind, from_acc,
                 'S30 계좌 옮김(법인 용역) 통과');
 DELETE FROM public.settlement_ledger;
 
--- ── R. 조회 ───────────────────────────────────────────────────────
+-- R. 조회 ──────────────────────────────────────────────────────────
 SELECT is((SELECT array_agg(k ORDER BY k)
              FROM unnest(ARRAY['accounts', 'reads', 'ledger', 'settles']) k
             WHERE jsonb_typeof(public.admin_settlement_raw() -> k) = 'array'
@@ -199,7 +199,7 @@ SELECT is(jsonb_array_length(public.admin_settlement_raw() -> 'settles'), 2, 'R1
 SELECT throws_ok($$INSERT INTO public.settlement_settles (pool, profit_krw, shares, snapshot, read_at, created_by)
                    VALUES ('p1', 0, '{}', '{}', now(), 'x')$$, '23514', NULL, 'R19 정산 수익 0 이하 → 23514');
 
--- ── W. 읽은 값 기록 ────────────────────────────────────────────────
+-- W. 읽은 값 기록 ───────────────────────────────────────────────────
 SELECT lives_ok($$SELECT public.settlement_record_reads(
                    '[{"accKey": "kyH", "budgetKrw": 680000000, "source": "live", "serverKey": "KYOBO91", "readAt": "2026-11-19T10:58:00Z"}]'::jsonb)$$,
                 'W1 첫 기록');
@@ -218,7 +218,7 @@ SELECT is(jsonb_path_query_array(public.admin_settlement_raw(), '$.reads[*].accK
           '["kbG", "kyH"]'::jsonb, 'W7 조회 reads 에 실린다');
 SELECT is(public.admin_settlement_raw() -> 'reads' -> 1 -> 'serverKey', 'null'::jsonb, 'W8 serverKey null 그대로');
 
--- ── K. 키 집합(shared SettlementRaw 와 글자 그대로) ────────────────
+-- K. 키 집합(shared SettlementRaw 와 글자 그대로) ───────────────────
 SELECT set_eq($$SELECT jsonb_object_keys(public.admin_settlement_raw())$$,
               ARRAY['accounts', 'registry', 'reads', 'ledger', 'settles'], 'K1 최상위 다섯 키');
 SELECT set_eq($$SELECT DISTINCT jsonb_object_keys(e) FROM jsonb_array_elements(public.admin_settlement_raw() -> 'accounts') e$$,
@@ -265,7 +265,7 @@ SELECT ok((SELECT bool_and((SELECT count(*) FROM jsonb_object_keys(e)) = 17)
 SELECT ok((SELECT bool_and((SELECT count(*) FROM jsonb_object_keys(e)) = 9)
              FROM jsonb_array_elements(public.admin_settlement_raw() -> 'settles') e), 'K16 settles 모든 항목 9키');
 
--- ── P. 권한 · 함수 속성 ────────────────────────────────────────────
+-- P. 권한 · 함수 속성 ───────────────────────────────────────────────
 SELECT is(has_table_privilege(r.role, t.tbl, 'SELECT'), r.expect,
           format('P %s SELECT %s = %s', r.role, t.tbl, r.expect))
   FROM (VALUES ('anon', false), ('authenticated', false), ('service_role', true)) AS r(role, expect)
