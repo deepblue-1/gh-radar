@@ -2,13 +2,24 @@ import { Router, type Router as RouterT, type Request } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { z } from "zod";
 import {
+  SETTLEMENT_POOLS,
+  addEffects,
   appliedEffect,
+  cumProfit,
   effectDiff,
+  formatEokMan,
   pendAccKeys,
+  poolAccountRows,
   reflectEffect,
+  settlePlan,
+  settledSum,
+  type SettlePlan,
   type SettlementAccKey,
   type SettlementEffect,
+  type SettlementLedgerRow,
   type SettlementPend,
+  type SettlementPoolId,
+  type SettlementSettleRow,
   type SettlementView,
   type SettlementWriteResponse,
 } from "@gh-radar/shared";
@@ -22,7 +33,9 @@ import {
   SETTLEMENT_TEXT_FUTURE_DATE,
   SETTLEMENT_TEXT_PERSON_NOT_IN_POOL,
   SettlementDeleteBodySchema,
+  SettlementCancelBodySchema,
   SettlementLedgerBodySchema,
+  SettlementSettleBodySchema,
   settlementIdParam,
   type SettlementLedgerBodyT,
 } from "../schemas/settlement.js";
@@ -32,10 +45,12 @@ import {
   planPend,
   planReflect,
   readSettlement,
+  reflectRows,
   retryPend,
   sendReflect,
   unrevertedMessage,
   type ReflectPlanItem,
+  type SettlementRead,
 } from "../services/settlement-budget.js";
 import { DbError, audit } from "./admin.js";
 
@@ -52,6 +67,11 @@ import { DbError, audit } from "./admin.js";
  * - DELETE /settlement/ledger/:id : 거래 지우기(D-30) — 반영 켬이면 넣어 둔 증감을 되돌린다 · 못 되돌릴 것을 미리 알면 409
  *                                  `REVERT_UNREADABLE`(아무것도 바꾸지 않음) · 지운 뒤 보내기만 실패하면 `unreverted` · `message`.
  * - POST /settlement/ledger/:id/retry : 다시 반영(D-26) — 못 보낸 계좌만 · 지금 값 = 목표값이면 보내지 않는다(Pitfall 2).
+ * - POST /settlement/settles      : 정산 확정(44-08 · D-16) — server 가 누른 순간 예수금으로 shared `settlePlan` 을 돌려 몫 ·
+ *                                  바로 출금 줄을 만든다(브라우저 숫자는 받지 않는다) · 확정 불가면 409 `CANNOT_SETTLE` ·
+ *                                  기대값 어긋남은 409 `STALE_SETTLE`(Pitfall 5) · 같은 계좌 여러 줄은 합쳐 한 번 보낸다.
+ * - POST /settlement/settles/:id/cancel : 정산 취소(D-17 · D-23 · D-30) — 그 묶음 가장 최근 정산만 · 바로 출금 줄이 넣어 둔
+ *                                  증감을 되돌린다 · 못 되돌릴 것을 미리 알면 409 `REVERT_UNREADABLE`.
  *
  * ── 돈 경로 순서(D-26) ─────────────────────────────────────
  *   검증(zod) → (반영 켬) 그 순간 예수금 읽기 → 계좌별 목표값 → 저장 RPC(pend = 보낼 모든 계좌 · 목표값 포함)
@@ -138,6 +158,74 @@ async function recordPend(req: Request, pends: { id: number; pend: SettlementPen
 }
 
 const accountsOf = (e: SettlementEffect) => Object.keys(e) as SettlementAccKey[];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 정산 확정 · 취소(44-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NoSuchSettle = () => new ApiError(404, "NOT_FOUND", "없는 정산이에요");
+const NotLatest = () => new ApiError(409, "NOT_LATEST", "더 최근 정산부터 차례로 취소할 수 있어요");
+
+/** 정산 RPC 오류 → API 오류(44-03 오류 코드 표 · 업무 코드는 `message`). 그 밖은 DB_ERROR. */
+function settleRpcError(error: unknown, msg: string): ApiError {
+  const e = error as PgError;
+  if (e.message === "STALE_SETTLE") {
+    return new ApiError(409, "STALE_SETTLE", "다른 곳에서 먼저 정산했어요 — 화면을 다시 불러와 주세요");
+  }
+  if (e.message === "NOT_LATEST") return NotLatest();
+  if (e.message === "NO_SUCH_ROW") return NoSuchSettle();
+  if (e.code === "23514") return ValidationFailed(SETTLEMENT_TEXT_BAD_SHAPE);
+  return DbError(msg, error);
+}
+
+/** 확정할 수 없을 때의 문장(UI-SPEC ⑧ 「확정할 수 없을 때」 — 시트 상자와 같은 글자). */
+function settleBlockMessage(pool: SettlementPoolId, plan: SettlePlan): string {
+  const def = SETTLEMENT_POOLS[pool];
+  if (plan.block === "unset") {
+    return "예수금이 설정되지 않은 계좌가 있어요. 계좌 메뉴에서 설정한 뒤 정산할 수 있어요.";
+  }
+  if (plan.block === "carry") {
+    return `원금 ${formatEokMan(def.baseKrw ?? 0)}까지 ${formatEokMan(plan.carryKrw)} 남았습니다. 회복한 뒤부터 ${def.ratioLabel} 로 나눕니다.`;
+  }
+  return "나눌 수익이 없습니다.";
+}
+
+/**
+ * 정산 기록에 남길 그때의 값(D-16) — 그 묶음 계좌별 예수금 · 넣은 돈 · 들어온 돈 · 나간 돈 · 수익 · 못 읽음 · 읽은 시각,
+ * 누적 수익 · 이미 정산한 수익. 바로 출금을 반영하기 **전** 읽기 한 벌로 만든다(목업 `settle-ok`).
+ * readAt = 그 묶음 계좌 중 가장 최근 읽은 시각(없으면 지금 — 표 열이 NOT NULL).
+ */
+function settleSnapshot(
+  read: SettlementRead,
+  pool: SettlementPoolId,
+): { snapshot: SettlementSettleRow["snapshot"]; readAt: string } {
+  const accounts = poolAccountRows(pool, read.accounts, read.raw.ledger);
+  let readAt: string | null = null;
+  for (const a of accounts) {
+    if (a.readAt !== null && (readAt === null || Date.parse(a.readAt) > Date.parse(readAt))) readAt = a.readAt;
+  }
+  return {
+    snapshot: {
+      accounts,
+      cumKrw: cumProfit(pool, read.accounts, read.raw.ledger),
+      prevKrw: settledSum(pool, read.raw.settles),
+    },
+    readAt: readAt ?? read.nowIso,
+  };
+}
+
+/** 줄별 남은 pend → 계좌별 합(응답 `pend`) — 증감은 더하고 목표값 · 사유는 같은 계좌 첫 줄 것(합쳐 보낸 한 번의 값). */
+function sumPends(pends: Iterable<SettlementPend>): SettlementPend {
+  const out: SettlementPend = {};
+  for (const p of pends) {
+    for (const acc of pendAccKeys(p)) {
+      const e = p[acc]!;
+      const cur = out[acc];
+      out[acc] = cur ? { ...cur, deltaKrw: cur.deltaKrw + e.deltaKrw } : { ...e };
+    }
+  }
+  return out;
+}
 
 /**
  * 거래 저장 · 고치기 공용(`id` null = 새 줄). 반영 끔이면 읽기 · 보내기 없이 `reflect false` · `pend {}` 로 저장한다.
@@ -311,6 +399,164 @@ adminSettlementRouter.post("/settlement/ledger/:id/retry", async (req, res, next
       id,
       pend,
       ...(left.length > 0 ? { message: pendMessage(pend) } : {}),
+    };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 확정 RPC 반환 `{settleId, rowIds}` — 모양이 어긋나면 계약 위반(DB_ERROR · relay 쓰기 전). */
+function confirmResult(data: unknown, outs: number): { settleId: number; rowIds: number[] } {
+  const d = data as { settleId?: unknown; rowIds?: unknown } | null;
+  const ok =
+    typeof d?.settleId === "number" &&
+    Array.isArray(d.rowIds) &&
+    d.rowIds.length === outs &&
+    d.rowIds.every((x) => typeof x === "number");
+  if (!ok) throw DbError("정산 확정에 실패했습니다.", new Error("settlement_settle_confirm shape"));
+  return { settleId: d!.settleId as number, rowIds: d!.rowIds as number[] };
+}
+
+/**
+ * POST /settlement/settles — 정산 확정(D-09 · D-15 · D-16 · D-26 · Pitfall 5). 바디 `{ pool, outs, memo, reflect, expectPrev }`.
+ *
+ * 그 순간 예수금 읽기(못 읽은 계좌는 마지막 값 · stale) → shared `settlePlan` → 확정 불가면 409 `CANNOT_SETTLE`(RPC 0 · relay 0)
+ * → 줄별 증감(`withdraw_profit` · 뺄 계좌 −금액) → (반영 켬) 같은 계좌 증감을 합친 목표값으로 줄마다 처음 pend
+ * → 확정 RPC(정산 + 바로 출금 줄 한 트랜잭션 · 기대값 대조) → **RPC 가 성공했을 때만** 합쳐 한 번 보내기 → 줄별 남은 것 기록.
+ * 스냅샷은 보내기 **전** 읽기 한 벌이라 예수금은 반영 전 값이다.
+ */
+adminSettlementRouter.post("/settlement/settles", async (req, res, next) => {
+  try {
+    const body = parseSettlement(SettlementSettleBodySchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+
+    const read = await readSettlement(req);
+    const plan = settlePlan(body.pool, { accounts: read.accounts, ledger: read.raw.ledger, settles: read.raw.settles }, body.outs);
+    if (!plan.can) throw new ApiError(409, "CANNOT_SETTLE", settleBlockMessage(body.pool, plan));
+
+    const effects = plan.outs.map((o) =>
+      reflectEffect({ kind: "withdraw_profit", fromAcc: o.fromAcc, toAcc: null, amountKrw: o.amountKrw }),
+    );
+    const reflectOn = body.reflect && plan.outs.length > 0;
+    const reflectPlan = reflectOn ? planReflect(read, addEffects(effects)) : [];
+    const firstPend = (e: SettlementEffect): SettlementPend => {
+      const p: SettlementPend = {};
+      for (const acc of accountsOf(e)) {
+        const it = reflectPlan.find((x) => x.accKey === acc);
+        if (it) p[acc] = { deltaKrw: e[acc]!, targetKrw: it.targetKrw, reason: it.block ?? "failed" };
+      }
+      return p;
+    };
+
+    const { snapshot, readAt } = settleSnapshot(read, body.pool);
+    const { data, error } = await supabase.rpc("settlement_settle_confirm", {
+      p_pool: body.pool,
+      p_expect_prev: body.expectPrev,
+      p_settle: { profitKrw: plan.profitKrw, shares: plan.shares, snapshot, readAt, memo: body.memo },
+      p_outs: plan.outs.map((o, i) => ({
+        who: o.who,
+        fromAcc: o.fromAcc,
+        amountKrw: o.amountKrw,
+        reflect: body.reflect,
+        pend: reflectOn ? firstPend(effects[i]!) : {},
+      })),
+      p_by: req.adminEmail!,
+    });
+    if (error) throw settleRpcError(error, "정산 확정에 실패했습니다.");
+    const { settleId, rowIds } = confirmResult(data, plan.outs.length);
+
+    let pend: SettlementPend = {};
+    if (reflectOn) {
+      const left = await reflectRows(
+        req,
+        read,
+        rowIds.map((id, i) => ({ id, effect: effects[i]! })),
+      );
+      await recordPend(
+        req,
+        rowIds.map((id) => ({ id, pend: left.get(id) ?? {} })),
+      );
+      pend = sumPends(left.values());
+    }
+    audit(req, "settlement-confirm", body.pool, { settleId, outs: plan.outs.length, reflect: body.reflect });
+    const out: SettlementWriteResponse = {
+      ok: true,
+      id: settleId,
+      pend,
+      ...(pendAccKeys(pend).length > 0 ? { message: pendMessage(pend) } : {}),
+    };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 취소 RPC 반환 `{rows}` — 취소 전 바로 출금 줄(17키). 모양이 어긋나면 계약 위반(DB_ERROR). */
+function cancelRows(data: unknown): SettlementLedgerRow[] {
+  const rows = (data as { rows?: unknown } | null)?.rows;
+  if (!Array.isArray(rows) || !rows.every((r) => typeof (r as { id?: unknown } | null)?.id === "number")) {
+    throw DbError("정산 취소에 실패했습니다.", new Error("settlement_settle_cancel shape"));
+  }
+  return rows as SettlementLedgerRow[];
+}
+
+/**
+ * POST /settlement/settles/:id/cancel — 정산 취소(D-17 · D-21 · D-23 · D-30). 바디 `{ reflect }`.
+ * 그 묶음 가장 최근 정산만(RPC 가 `NOT_LATEST` 로 다시 본다) · 바로 출금 줄은 RPC 가 함께 지운다.
+ * 반영 켬이면 그 줄들이 예수금에 넣어 둔 증감(`appliedEffect` 합 — 못 보냈던 계좌는 빠진다)을 되돌린다:
+ * 되돌릴 수 없다는 것을 미리 알 수 있으면(못 읽음 · 대응 · 등록 서버 없음 · 1원 미만) 취소 전에 409 `REVERT_UNREADABLE`
+ * (취소 RPC 0 · relay 쓰기 0) · **RPC 가 성공했을 때만** 합쳐 한 번 보내기 · 보내기만 실패한 계좌는 지운 줄 pend 에 남기고
+ * `unreverted` · `message`(화면은 확인 창을 닫지 않고 그 문장을 보인다).
+ */
+adminSettlementRouter.post("/settlement/settles/:id/cancel", async (req, res, next) => {
+  try {
+    const { id } = parseSettlement(settlementIdParam, req.params);
+    const { reflect } = parseSettlement(SettlementCancelBodySchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+
+    let read: SettlementRead | null = null;
+    // 감사 대상 = 묶음(반영 끔은 정산을 읽지 않아 모른다 → "settle").
+    let pool: string = "settle";
+    if (reflect) {
+      read = await readSettlement(req);
+      const settle = read.raw.settles.find((s) => s.id === id);
+      if (!settle) throw NoSuchSettle();
+      pool = settle.pool;
+      // 읽은 값으로 먼저 본다 — 더 최근 정산이 있으면 못 읽음 안내보다 「차례로 취소」 가 맞는 문장이다(RPC 가 다시 본다).
+      if (read.raw.settles.some((s) => s.pool === settle.pool && s.id > id)) throw NotLatest();
+      const revert = effectDiff(
+        addEffects(read.raw.ledger.filter((r) => r.settleId === id).map((r) => appliedEffect(r))),
+        {},
+      );
+      if (accountsOf(revert).length > 0) assertRevertable(read, revert, "취소해요");
+    }
+
+    const { data, error } = await supabase.rpc("settlement_settle_cancel", { p_id: id, p_by: req.adminEmail! });
+    if (error) throw settleRpcError(error, "정산 취소에 실패했습니다.");
+    const rows = cancelRows(data);
+
+    let pend: SettlementPend = {};
+    if (read !== null) {
+      const items = rows
+        .map((r) => ({ id: r.id, effect: effectDiff(appliedEffect(r), {}) }))
+        .filter((it) => accountsOf(it.effect).length > 0);
+      if (items.length > 0) {
+        const left = await reflectRows(req, read, items);
+        const leftRows = items
+          .map((it) => ({ id: it.id, pend: left.get(it.id) ?? {} }))
+          .filter((p) => pendAccKeys(p.pend).length > 0);
+        if (leftRows.length > 0) await recordPend(req, leftRows);
+        pend = sumPends(left.values());
+      }
+    }
+    const unreverted = pendAccKeys(pend);
+    audit(req, "settlement-cancel", pool, { settleId: id, reflect, unreverted });
+    const out: SettlementWriteResponse = {
+      ok: true,
+      pend,
+      unreverted,
+      ...(unreverted.length > 0 ? { message: unrevertedMessage(unreverted) } : {}),
     };
     res.json(out);
   } catch (e) {
