@@ -137,7 +137,11 @@ const accRows = () => qa('[data-slot="settle-sheet"] [data-slot="settlement-acc-
 const readLine = () => text(q('[data-slot="settle-sheet"] [data-slot="settlement-acc-read"]'));
 const market = () => q('[data-slot="settle-market"]');
 const splitLabel = () => text(q('[data-slot="settle-split-label"]'));
-const splitRows = () => qa('[data-slot="settle-split-row"]').map((e) => text(e));
+// 줄 = 왼쪽(점 · 이름 · 비율) | 몫 | 알약 — 칸 사이는 flex 간격이라 textContent 에 공백이 없다.
+const splitRows = () =>
+  qa('[data-slot="settle-split-row"]').map((e) =>
+    [text(e.children[0]), text(q('b', e)), text(q('[data-slot="settle-out"]', e))].join(' | '),
+  );
 const outBtn = (person: 'H' | 'G' | 'J') =>
   q<HTMLButtonElement>(`[data-slot="settle-split-row"][data-person="${person}"] [data-slot="settle-out"]`);
 const outAccounts = () => q('[data-slot="settle-out-accounts"]');
@@ -188,7 +192,7 @@ describe('SettleSheet — 처음 열기(E8 populated)', () => {
     expect(accRows().map((r) => r.getAttribute('data-acc'))).toEqual(['kbG', 'kyH', 'kyG']);
     expect(readLine()).toBe('예수금 읽은 시각 오늘 14:32');
     expect(splitLabel()).toBe('나누기 5 : 5 · 지금 뺄 사람만 「바로 출금」');
-    expect(splitRows()).toEqual(['김현중 50% +5억 2,450만 바로 출금', '정근형 50% +5억 2,450만 바로 출금']);
+    expect(splitRows()).toEqual(['김현중 50% | +5억 2,450만 | 바로 출금', '정근형 50% | +5억 2,450만 | 바로 출금']);
     expect(qa('[data-slot="settle-split-row"] [data-slot="person-dot"]')).toHaveLength(2);
     expect(outBtn('H')?.getAttribute('aria-pressed')).toBe('false');
     expect(outAccounts()).toBeNull();
@@ -310,15 +314,16 @@ describe('「정산 확정」(D-16 · Pitfall 5)', () => {
     await waitFor(() => expect(confirmBtn()?.disabled).toBe(false));
   });
 
-  it('바로 출금 없음 · 메모 → reflect false · memo 그대로', () => {
+  it('바로 출금 없음 · 메모 → reflect false · memo 그대로', async () => {
     at(NIGHT);
     const { onConfirm } = open();
     fireEvent.change(memoInput()!, { target: { value: '11월 정산' } });
     click(confirmBtn());
     expect(onConfirm.mock.calls[0]![0]).toEqual({ pool: 'p1', outs: [], memo: '11월 정산', reflect: false, expectPrev: null });
+    await waitFor(() => expect(confirmBtn()?.disabled).toBe(false));
   });
 
-  it('스위치를 끄면 reflect false', () => {
+  it('스위치를 끄면 reflect false', async () => {
     at(NIGHT);
     const { onConfirm } = open();
     click(outBtn('G'));
@@ -326,6 +331,7 @@ describe('「정산 확정」(D-16 · Pitfall 5)', () => {
     expect(sw()?.getAttribute('aria-checked')).toBe('false');
     click(confirmBtn());
     expect(onConfirm.mock.calls[0]![0]).toEqual({ pool: 'p1', outs: ['G'], memo: '', reflect: false, expectPrev: null });
+    await waitFor(() => expect(confirmBtn()?.disabled).toBe(false));
   });
 
   it('실패(message X) → 시트 유지 · 「정산을 확정하지 못했어요 · X」(role alert)', async () => {
@@ -337,11 +343,12 @@ describe('「정산 확정」(D-16 · Pitfall 5)', () => {
     expect(confirmBtn()?.disabled).toBe(false);
   });
 
-  it('p1 정산 id 7 · p2 정산 id 12 → p1 확정의 expectPrev 7', () => {
+  it('p1 정산 id 7 · p2 정산 id 12 → p1 확정의 expectPrev 7', async () => {
     at(NIGHT);
     const { onConfirm } = open(view({}, [settleRow(12, 'p2', 10_000_000), settleRow(7, 'p1', 100_000_000)]));
     click(confirmBtn());
     expect(onConfirm.mock.calls[0]![0]).toMatchObject({ pool: 'p1', expectPrev: 7 });
+    await waitFor(() => expect(confirmBtn()?.disabled).toBe(false));
   });
 });
 
