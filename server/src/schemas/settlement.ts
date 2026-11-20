@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { kstDateIso, personAllowedFor } from "@gh-radar/shared";
+import { SETTLEMENT_POOLS, kstDateIso, personAllowedFor } from "@gh-radar/shared";
 
 /**
  * Phase 44 (44-05) — 정산 거래 쓰기 입력 검증. 위반은 RPC · relay 전에 400 `VALIDATION_FAILED`(RPC 0회 · relay 0회).
@@ -89,3 +89,33 @@ export const SettlementDeleteBodySchema = z.object({ reflect: z.boolean() }).str
 
 /** 경로 `:id` — 양의 정수. */
 export const settlementIdParam = z.object({ id: z.coerce.number().int().positive() });
+
+export const SETTLEMENT_TEXT_OUT_NOT_IN_POOL = "그 묶음에 몫이 없는 사람은 바로 출금을 고를 수 없어요";
+export const SETTLEMENT_TEXT_OUT_DUP = "바로 출금에 같은 사람이 두 번 있어요";
+
+/**
+ * POST /settlement/settles — 정산 확정(44-08 · D-16). 브라우저는 고른 것만 보낸다 — 숫자(수익 · 몫 · 금액)는 받지 않는다(`.strict()`).
+ * outs = 「바로 출금」 을 고른 사람(그 묶음 비율에 있는 사람만 · 중복 없음) · expectPrev = 브라우저가 본 그 묶음 최신 정산 id(없으면 null · Pitfall 5).
+ */
+export const SettlementSettleBodySchema = z
+  .object({
+    pool: z.enum(["p1", "p2"]),
+    outs: z.array(PersonSchema).max(3),
+    memo: z.string().max(100).default(""),
+    reflect: z.boolean(),
+    expectPrev: z.number().int().positive().nullable(),
+  })
+  .strict()
+  .superRefine((b, ctx) => {
+    if (new Set(b.outs).size !== b.outs.length) {
+      ctx.addIssue({ code: "custom", path: ["outs"], message: SETTLEMENT_TEXT_OUT_DUP });
+    }
+    if (b.outs.some((p) => SETTLEMENT_POOLS[b.pool].ratio[p] === undefined)) {
+      ctx.addIssue({ code: "custom", path: ["outs"], message: SETTLEMENT_TEXT_OUT_NOT_IN_POOL });
+    }
+  });
+
+export type SettlementSettleBodyT = z.infer<typeof SettlementSettleBodySchema>;
+
+/** POST /settlement/settles/:id/cancel — 「예수금에도 반영」(켜면 그 정산의 바로 출금 줄이 넣어 둔 증감을 되돌린다). */
+export const SettlementCancelBodySchema = z.object({ reflect: z.boolean() }).strict();
