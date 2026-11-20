@@ -101,6 +101,7 @@ import { useIsinLabels } from "@/lib/isin-labels";
 import { isActiveStrategy } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
+import { clearNavStallLog, readNavStallLog, type NavStallRecord } from "@/lib/router-transition";
 import { priceIsinsOf, useSubscribedPriceOf } from "@/lib/use-available-krw";
 import { orderPillOf, quotePillOf } from "@/lib/quote-state";
 import { viAccountRunning } from "@/lib/use-relay-socket";
@@ -658,6 +659,52 @@ export function MeClient() {
       <Suspense fallback={null}>
         <MeTabs />
       </Suspense>
+
+      <NavStallLogSection />
     </div>
+  );
+}
+
+/**
+ * 「이동 멈춤 기록」(debug ios-resume-sidebar-stall) — 메뉴를 눌렀는데 10초 넘게 안 넘어가 앱이 스스로 다시 연 기록.
+ * 기기 localStorage 에만 있다(`lib/router-transition.ts`). 기록이 없으면 아무것도 그리지 않는다. 원인 확정용 증거라 접어 둔다.
+ * 마운트 뒤에 읽는다 — 서버 HTML 에는 없다(하이드레이션 불일치 방지).
+ */
+function NavStallLogSection() {
+  const [records, setRecords] = useState<NavStallRecord[]>([]);
+  useEffect(() => {
+    setRecords(readNavStallLog());
+  }, []);
+  if (records.length === 0) return null;
+  const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`;
+  return (
+    <details
+      data-slot="nav-stall-log"
+      className="rounded-[16px] bg-[var(--card)] px-4 py-3 text-[length:var(--t-sm)] text-[var(--fg)]"
+    >
+      <summary className="cursor-pointer font-semibold">이동 멈춤 기록 {records.length}건</summary>
+      <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+        {[...records].reverse().map((r) => (
+          <li
+            key={`${r.at}-${r.to}`}
+            className="mono break-all text-[12px] leading-snug text-[var(--muted-fg)]"
+          >
+            {new Date(r.at).toLocaleString("ko-KR", { hour12: false })} · {r.from} → {r.to} · 대기{" "}
+            {sec(r.waitedMs)} · 복귀 후 {r.sinceResumeMs === null ? "—" : sec(r.sinceResumeMs)} ·{" "}
+            {r.online ? "온라인" : "오프라인"}
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        className="mt-2 text-[12px] text-[var(--muted-fg)] underline"
+        onClick={() => {
+          clearNavStallLog();
+          setRecords([]);
+        }}
+      >
+        기록 지우기
+      </button>
+    </details>
   );
 }
