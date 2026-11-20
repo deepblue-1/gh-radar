@@ -38,7 +38,9 @@ configure({
   },
 });
 
-import { SettlementClient } from '../settlement-client';
+import { ADMIN_ACCOUNTS_TEXT } from '@/components/admin/accounts-client';
+
+import { SETTLEMENT_TEXT, SettlementClient } from '../settlement-client';
 
 const M = '−';
 const NOW = '2026-11-20T05:32:00.000Z'; // KST 14:32
@@ -167,6 +169,12 @@ describe('SettlementClient — 정산 전 수익(트레이서)', () => {
     expect(await screen.findByText('정산 전 수익')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(fetchSettlementMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('오류 · 권한 문구는 계좌 화면(ADMIN_ACCOUNTS_TEXT)과 글자 그대로', () => {
+    expect(SETTLEMENT_TEXT.forbidden).toBe(ADMIN_ACCOUNTS_TEXT.forbidden);
+    expect(SETTLEMENT_TEXT.loadFailed).toBe(ADMIN_ACCOUNTS_TEXT.loadFailed);
+    expect(SETTLEMENT_TEXT.retry).toBe(ADMIN_ACCOUNTS_TEXT.retry);
   });
 
   it('kyG 미설정 → 그 줄 「미설정」 · 수익 「—」 · 현중 · 근형 묶음 값 「—」 · 쥬니는 그대로', async () => {

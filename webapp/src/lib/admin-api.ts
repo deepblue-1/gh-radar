@@ -16,6 +16,7 @@
  *   N-02 — 계좌 저장 바디에 선택 `orderEndpoint`(KB 주문자 IP/MAC · 연결 사용자마다 계좌 PUT 에 실린다).
  *   quick 261107-moq — `POST …/dma-users/:dma/accounts/:b/:n/server-only { action }`(「서버에만 있음」 계좌를 이 사용자에 연결 ·
  *   그 서버에서 빼기 — remove 는 relay 를 거쳐 서버까지 간다 → `RELAY_TIMEOUT_MS`).
+ *   Phase 44 — `GET /api/admin/settlement`(정산 화면 — 계좌 4개 예수금 · 거래 · 정산 · `fetchSettlement`).
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -50,6 +51,7 @@ import type {
   AdminUsersOverview,
   AppRole,
   DmaBroker,
+  SettlementView,
 } from "@gh-radar/shared";
 
 import type { ApiFetchInit } from "./api";
@@ -312,4 +314,13 @@ export function setAdminAccountFee(
     `${accountPath(broker, accountNo)}/fee`,
     jsonInit("PUT", body, { timeoutMs: RELAY_TIMEOUT_MS }),
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 정산 (Phase 44)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 정산 화면 — 계좌 4개의 예수금(계좌 메뉴와 같은 판정 · 못 읽으면 마지막 읽은 값) · 거래 기록 · 정산 기록. relay 읽기는 서버 2초 상한. */
+export function fetchSettlement(): Promise<SettlementView> {
+  return authFetch<SettlementView>("/api/admin/settlement");
 }
