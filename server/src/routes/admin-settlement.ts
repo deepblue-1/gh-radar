@@ -4,6 +4,7 @@ import type { z } from "zod";
 import {
   appliedEffect,
   effectDiff,
+  pendAccKeys,
   reflectEffect,
   type SettlementAccKey,
   type SettlementEffect,
@@ -20,11 +21,22 @@ import {
   SETTLEMENT_TEXT_BAD_SHAPE,
   SETTLEMENT_TEXT_FUTURE_DATE,
   SETTLEMENT_TEXT_PERSON_NOT_IN_POOL,
+  SettlementDeleteBodySchema,
   SettlementLedgerBodySchema,
   settlementIdParam,
   type SettlementLedgerBodyT,
 } from "../schemas/settlement.js";
-import { planPend, planReflect, readSettlement, sendReflect } from "../services/settlement-budget.js";
+import {
+  assertRevertable,
+  pendMessage,
+  planPend,
+  planReflect,
+  readSettlement,
+  retryPend,
+  sendReflect,
+  unrevertedMessage,
+  type ReflectPlanItem,
+} from "../services/settlement-budget.js";
 import { DbError, audit } from "./admin.js";
 
 /**
@@ -37,6 +49,9 @@ import { DbError, audit } from "./admin.js";
  * - POST /settlement/ledger      : 거래 저장(44-05 · D-10 · D-12 · D-29) — 「예수금에도 반영」 이면 그 계좌 예수금을 같이 고친다.
  * - PUT  /settlement/ledger/:id  : 거래 고치기(D-19 · D-23) — 반영 켬이면 「옛 반영 되돌림 + 새 값」 차이 한 벌만 보낸다 ·
  *                                  끄면 예수금을 그대로 두고 reflect false · pend {} 로 저장한다. 정산 때 만든 줄은 409.
+ * - DELETE /settlement/ledger/:id : 거래 지우기(D-30) — 반영 켬이면 넣어 둔 증감을 되돌린다 · 못 되돌릴 것을 미리 알면 409
+ *                                  `REVERT_UNREADABLE`(아무것도 바꾸지 않음) · 지운 뒤 보내기만 실패하면 `unreverted` · `message`.
+ * - POST /settlement/ledger/:id/retry : 다시 반영(D-26) — 못 보낸 계좌만 · 지금 값 = 목표값이면 보내지 않는다(Pitfall 2).
  *
  * ── 돈 경로 순서(D-26) ─────────────────────────────────────
  *   검증(zod) → (반영 켬) 그 순간 예수금 읽기 → 계좌별 목표값 → 저장 RPC(pend = 보낼 모든 계좌 · 목표값 포함)
@@ -215,6 +230,89 @@ adminSettlementRouter.put("/settlement/ledger/:id", async (req, res, next) => {
     const { id } = parseSettlement(settlementIdParam, req.params);
     const body = parseSettlement(SettlementLedgerBodySchema, req.body ?? {});
     res.json(await saveLedger(req, id, body));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * DELETE /settlement/ledger/:id — 거래 지우기(D-19 · D-23 · D-30). 바디 `{ reflect }`.
+ * 반영 켬이면 그 거래가 예수금에 넣어 둔 증감(`appliedEffect` — 못 보냈던 계좌는 빠진다)을 되돌린다.
+ * 되돌릴 수 없다는 것을 미리 알 수 있으면(못 읽음 · 대응 · 등록 서버 없음 · 1원 미만) 지우기 전에 409 `REVERT_UNREADABLE`
+ * (지우기 RPC 0 · relay 쓰기 0). 지운 뒤 보내기만 실패한 계좌는 지운 줄 pend 에 남기고(D-21 추적) `unreverted` · `message`.
+ */
+adminSettlementRouter.delete("/settlement/ledger/:id", async (req, res, next) => {
+  try {
+    const { id } = parseSettlement(settlementIdParam, req.params);
+    const { reflect } = parseSettlement(SettlementDeleteBodySchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+    const remove = async () => {
+      const { error } = await supabase.rpc("settlement_ledger_delete", { p_id: id, p_by: req.adminEmail! });
+      if (error) throw ledgerRpcError(error, "거래 지우기에 실패했습니다.");
+    };
+
+    let plan: ReflectPlanItem[] = [];
+    // 감사 대상 = 거래 종류(반영 끔은 옛 줄을 읽지 않아 모른다 → "ledger").
+    let kind: string = "ledger";
+    if (reflect) {
+      const read = await readSettlement(req);
+      const old = read.raw.ledger.find((r) => r.id === id);
+      if (!old) throw NoSuchLedgerRow();
+      if (old.settleId !== null) throw SettleLinked();
+      kind = old.kind;
+      const revert = effectDiff(appliedEffect(old), {});
+      if (accountsOf(revert).length > 0) plan = assertRevertable(read, revert, "지워요");
+    }
+
+    await remove();
+    const pend = plan.length > 0 ? await sendReflect(req, plan) : {};
+    const unreverted = pendAccKeys(pend);
+    if (unreverted.length > 0) await recordPend(req, [{ id, pend }]);
+    audit(req, "settlement-ledger-delete", kind, {
+      id,
+      reflect,
+      accounts: plan.map((it) => it.accKey),
+      unreverted,
+    });
+    const out: SettlementWriteResponse = {
+      ok: true,
+      pend,
+      unreverted,
+      ...(unreverted.length > 0 ? { message: unrevertedMessage(unreverted) } : {}),
+    };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /settlement/ledger/:id/retry — 다시 반영(D-26). 못 보낸 계좌만 다시 보낸다(확인 없이 · 화면 「다시 반영」).
+ * 지금 값 = 기록된 목표값이면 보내지 않고 반영됨으로 정리(Pitfall 2) · 아니면 지금 + 못 보낸 증감.
+ */
+adminSettlementRouter.post("/settlement/ledger/:id/retry", async (req, res, next) => {
+  try {
+    const { id } = parseSettlement(settlementIdParam, req.params);
+    const read = await readSettlement(req);
+    const row = read.raw.ledger.find((r) => r.id === id);
+    if (!row) throw NoSuchLedgerRow();
+    const before = pendAccKeys(row.pend);
+    if (before.length === 0) {
+      const empty: SettlementWriteResponse = { ok: true, id, pend: {} };
+      res.json(empty);
+      return;
+    }
+    const pend = await retryPend(req, read, row.pend);
+    await recordPend(req, [{ id, pend }]);
+    const left = pendAccKeys(pend);
+    audit(req, "settlement-ledger-retry", row.kind, { id, accounts: before, left });
+    const out: SettlementWriteResponse = {
+      ok: true,
+      id,
+      pend,
+      ...(left.length > 0 ? { message: pendMessage(pend) } : {}),
+    };
+    res.json(out);
   } catch (e) {
     next(e);
   }
