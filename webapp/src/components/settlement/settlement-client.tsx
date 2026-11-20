@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SettlementCtx, SettlementView } from "@gh-radar/shared";
+import { pendAccKeys, type SettlementCtx, type SettlementView } from "@gh-radar/shared";
 
 import { AdminPanelPage } from "@/components/admin/admin-sheet";
 import { ADMIN_BUTTON_SECONDARY } from "@/components/admin/reflect-chip";
@@ -9,10 +9,11 @@ import { CARD } from "@/components/layout/page-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchSettlement } from "@/lib/admin-api";
+import { fetchSettlement, retrySettlementLedger } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { ActivityCard, type ActivitySegment } from "./activity-card";
 import { NameVsCard } from "./name-vs-card";
 import { OpenPoolsCard } from "./open-pools-card";
 import { PersonCards } from "./person-cards";
@@ -41,7 +42,15 @@ export const SETTLEMENT_TEXT = {
   forbidden: "관리자만 사용할 수 있어요.",
   loadFailed: "불러오지 못했어요",
   retry: "다시 시도",
+  retryFailed: "다시 반영하지 못했어요",
 } as const;
+
+function withoutKey(m: Readonly<Record<number, string>>, id: number): Readonly<Record<number, string>> {
+  if (!(id in m)) return m;
+  const next = { ...m };
+  delete next[id];
+  return next;
+}
 
 type LoadState =
   | { kind: "loading" }
@@ -52,8 +61,14 @@ type LoadState =
 export function SettlementClient() {
   const T = SETTLEMENT_TEXT;
   const [state, setState] = useState<LoadState>({ kind: "loading" });
-  // 활동 카드(⑥) 세그먼트 — 화면 안 상태 · 기본 「계좌 거래」 · ⑤ 「이체 내역 보기」 → 「현중 ↔ 근형 이체」.
-  const [activitySegment, setActivitySegment] = useState<"settle" | "ledger" | "hg">("ledger");
+  // 활동 카드(⑥) — 화면 안 상태. 세그먼트 기본 「계좌 거래」 · ⑤ 「이체 내역 보기」 → 「현중 ↔ 근형 이체」.
+  // 펼친 줄은 id 집합(여러 줄 동시 펼침 · 다시 불러와도 그대로) · 첫 화면은 모두 닫힘.
+  const [activitySegment, setActivitySegment] = useState<ActivitySegment>("ledger");
+  const [openSettle, setOpenSettle] = useState<ReadonlySet<number>>(() => new Set());
+  const [openLedger, setOpenLedger] = useState<ReadonlySet<number>>(() => new Set());
+  // 「다시 반영」(D-26) — 보내는 중인 거래 id · 거래 id → 오류 문장.
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+  const [retryErrors, setRetryErrors] = useState<Readonly<Record<number, string>>>({});
   const seq = useRef(0);
 
   const reload = useCallback(async () => {
@@ -93,6 +108,36 @@ export function SettlementClient() {
     void reload();
   };
 
+  /**
+   * 「다시 반영」 — 확인 없이 바로 보낸다(못 보낸 계좌만 · 서버가 고른다). 응답 `pend` 가 남거나 요청이 실패하면
+   * 그 줄 아래 「다시 반영하지 못했어요 · <message>」. 끝나면 늘 목록을 다시 불러온다(꼬리표 · 예수금 줄 갱신).
+   */
+  const onRetry = useCallback(
+    async (id: number) => {
+      setRetryingId(id);
+      setRetryErrors((prev) => withoutKey(prev, id));
+      const fail = (message: string | undefined) =>
+        setRetryErrors((prev) => ({ ...prev, [id]: message ? `${T.retryFailed} · ${message}` : T.retryFailed }));
+      try {
+        const res = await retrySettlementLedger(id);
+        if (pendAccKeys(res.pend ?? {}).length > 0) fail(res.message);
+      } catch (err) {
+        fail(err instanceof Error ? err.message : undefined);
+      } finally {
+        setRetryingId(null);
+        await reload();
+      }
+    },
+    [reload, T.retryFailed],
+  );
+
+  const toggle = (set: ReadonlySet<number>, id: number): ReadonlySet<number> => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+
   return (
     <AdminPanelPage data-slot="admin-settlement" panelOpen={false} className="@container/settle gap-3">
       <PageHeader title={T.title} className="mb-1" />
@@ -127,12 +172,22 @@ export function SettlementClient() {
           <OpenPoolsCard view={state.view} />
           <div
             data-slot="settlement-name-transfer"
-            data-activity-segment={activitySegment}
             className="grid min-w-0 grid-cols-1 gap-3 @min-[768px]/settle:grid-cols-2"
           >
             <NameVsCard ctx={ctx} />
             <TransferCard ledger={ctx.ledger} onShowTransfers={() => setActivitySegment("hg")} />
           </div>
+          <ActivityCard
+            ctx={ctx}
+            nowIso={state.view.now}
+            segment={activitySegment}
+            onSegment={setActivitySegment}
+            openSettle={openSettle}
+            openLedger={openLedger}
+            onToggleSettle={(id) => setOpenSettle((s) => toggle(s, id))}
+            onToggleLedger={(id) => setOpenLedger((s) => toggle(s, id))}
+            ledgerHandlers={{ onRetry: (id) => void onRetry(id), retryingId, retryErrors }}
+          />
         </>
       )}
     </AdminPanelPage>
