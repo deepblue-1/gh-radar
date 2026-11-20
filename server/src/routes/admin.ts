@@ -324,7 +324,7 @@ function sanitizeAccountCosts(servers: object): AdminAccountCostsRaw {
  * relay 계좌별 예수금 · 비용률(Phase 36 · D-05 — 67 live 우선 · 87 폴백은 shared 파생이 한다). `fetchOrderEndpoints` 와 같은 꼴:
  * 클라이언트 없음 · 비200 · 모양 위반 · throw 면 null(카드는 「— · 확인 전」) — 개요는 어떤 relay 응답에도 200 이다. 로그엔 status 만.
  */
-async function fetchAccountCosts(req: Request): Promise<AdminAccountCostsRaw | null> {
+export async function fetchAccountCosts(req: Request): Promise<AdminAccountCostsRaw | null> {
   const relay = req.app.locals.relayAdmin as RelayAdminClient | undefined;
   if (!relay) return null;
   let status = 0;
