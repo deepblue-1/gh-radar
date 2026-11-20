@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { AdminAccountMaster, AdminAccountView, AdminUsersOverview } from '@gh-radar/shared';
+import {
+  accountCostOf,
+  indexAccountCosts,
+  normalizeAccountNo,
+  settlementBudgetOf,
+  type AdminAccountCostRow,
+  type AdminAccountCostsRaw,
+  type AdminAccountMaster,
+  type AdminAccountView,
+  type AdminUsersOverview,
+  type SettlementRawAccount,
+  type SettlementRawServer,
+} from '@gh-radar/shared';
 
 import {
   fanoutSlotLabel,
@@ -8,6 +20,7 @@ import {
   orderEndpointToSend,
   summarizeLinkedCosts,
   summarizeLinkedOrderEndpoint,
+  type LinkedAccount,
 } from '../account-linked-summary';
 
 /**
@@ -249,5 +262,123 @@ describe('flattenFanout', () => {
         { server: 'leetr', outcome: 'failed', message: '없는 계좌' },
       ],
     });
+  });
+});
+
+/**
+ * Phase 44 D-03 — 정산 예수금 판정(shared `settlementBudgetOf`)은 계좌 메뉴 판정(`summarizeLinkedCosts`)과 같다.
+ *
+ * 같은 relay 응답(`AdminAccountCostsRaw`)과 같은 연결(사용자 2 · 서버 2 · 주문 서버 KB120)을 양쪽 모양으로 만들어 넣고
+ * 예수금 · 출처 서버(계좌 메뉴 라벨 「<DMA id> · <서버>」 의 서버 부분) · 서버 간 다름 여부가 같은지 4 경우로 대조한다.
+ * 양쪽 값은 같은 `accountCostOf(indexAccountCosts(raw).get(서버)?.get(정규화 계좌), dma)` 로 만든다(행이 없으면 그 서버 첫 행으로 내려가는 규칙까지 같게).
+ */
+describe('D-03 — 정산 예수금 판정은 계좌 메뉴와 같다', () => {
+  const ACC_NO = '5120009880';
+  const ORDER = 'KB120';
+  const costRow = (dmaUserId: string, budgetKrw: number, liveBudgetKrw: number | null): AdminAccountCostRow => ({
+    dmaUserId,
+    accountNo: ACC_NO,
+    budgetKrw,
+    feePpm: 100,
+    sellTaxPpm: 2000,
+    liveBudgetKrw,
+  });
+
+  function judge(raw: AdminAccountCostsRaw, links: { dma: string; servers: string[] }[]) {
+    const idx = indexAccountCosts(raw);
+    const key = normalizeAccountNo(ACC_NO);
+    const linked: LinkedAccount = {
+      slots: links.flatMap((l) =>
+        l.servers.map((s) => ({ dmaUserId: l.dma, serverKey: s, label: fanoutSlotLabel(l.dma, s) })),
+      ),
+      views: new Map(
+        links.map((l) => [
+          l.dma,
+          view(l.servers, {
+            defaultOrderServer: ORDER,
+            costs: Object.fromEntries(l.servers.map((s) => [s, accountCostOf(idx.get(s)?.get(key), l.dma)])),
+          }),
+        ]),
+      ),
+      registry: [
+        { key: 'KB120', broker: 'KB', enabled: true },
+        { key: 'KB121', broker: 'KB', enabled: true },
+      ],
+    };
+    const account: SettlementRawAccount = {
+      accKey: 'kbG',
+      broker: 'KB',
+      accountNo: ACC_NO,
+      name: '주식',
+      links: links.map((l) => ({
+        dmaUserId: l.dma,
+        servers: l.servers.map((s) => ({ serverKey: s, state: 'active' as const, isOrder: false })),
+      })),
+    };
+    const registry: SettlementRawServer[] = [
+      { key: 'KB120', broker: 'KB', enabled: true, isOrderServer: ORDER === 'KB120' },
+      { key: 'KB121', broker: 'KB', enabled: true, isOrderServer: false },
+    ];
+    const menu = summarizeLinkedCosts(linked).summary;
+    const settle = settlementBudgetOf(account, registry, raw);
+    return { menu, settle };
+  }
+
+  /** 두 판정이 같은 예수금 · 같은 출처 서버 · 같은 다름 여부를 낸다. */
+  function expectSame(r: ReturnType<typeof judge>, want: { budgetKrw: number; server: string; mismatch: boolean }) {
+    expect(r.menu.state).toBe('known');
+    expect(r.settle.state).toBe('known');
+    if (r.settle.state !== 'known') return;
+    expect(r.menu.budgetKrw).toBe(want.budgetKrw);
+    expect(r.settle.budgetKrw).toBe(want.budgetKrw);
+    expect(r.menu.source!.split(' · ')[1]).toBe(want.server);
+    expect(r.settle.source).toBe(want.server);
+    expect(r.menu.budgetMismatches.length > 0).toBe(want.mismatch);
+    expect(r.settle.mismatch).toBe(want.mismatch);
+  }
+
+  const TWO_USERS = [
+    { dma: 'kimtr', servers: ['KB120', 'KB121'] },
+    { dma: 'leetr', servers: ['KB120'] },
+  ];
+
+  it('① 67 live 우선 — 87 값(8억)이 아니라 live 값(9억) · 출처 주문 서버 KB120 · 다름 없음', () => {
+    const r = judge(
+      { servers: { KB120: [costRow('kimtr', 800_000_000, 900_000_000)], KB121: [costRow('kimtr', 900_000_000, null)] } },
+      TWO_USERS,
+    );
+    expectSame(r, { budgetKrw: 900_000_000, server: 'KB120', mismatch: false });
+    expect(r.settle.state === 'known' && r.settle.budgetSource).toBe('live');
+  });
+
+  it('② live 없음 → 87 값으로 내려감(8억 · snapshot)', () => {
+    const r = judge(
+      { servers: { KB120: [costRow('kimtr', 800_000_000, null)], KB121: [costRow('kimtr', 800_000_000, null)] } },
+      TWO_USERS,
+    );
+    expectSame(r, { budgetKrw: 800_000_000, server: 'KB120', mismatch: false });
+    expect(r.settle.state === 'known' && r.settle.budgetSource).toBe('snapshot');
+  });
+
+  it('③ 첫 사용자(kimtr · KB121)가 모름 → 둘째 사용자(leetr · KB120) 값', () => {
+    const r = judge({ servers: { KB120: [costRow('leetr', 500_000_000, 500_000_000)] } }, [
+      { dma: 'kimtr', servers: ['KB121'] },
+      { dma: 'leetr', servers: ['KB120'] },
+    ]);
+    expectSame(r, { budgetKrw: 500_000_000, server: 'KB120', mismatch: false });
+    expect(r.menu.source).toBe('leetr · KB120');
+  });
+
+  it('④ 서버 간 다름 — KB120 9억 · KB121 7억 → 주문 서버(KB120) 값 · 양쪽 모두 다름', () => {
+    const r = judge(
+      {
+        servers: {
+          KB120: [costRow('kimtr', 900_000_000, 900_000_000)],
+          KB121: [costRow('kimtr', 700_000_000, 700_000_000)],
+        },
+      },
+      TWO_USERS,
+    );
+    expectSame(r, { budgetKrw: 900_000_000, server: 'KB120', mismatch: true });
   });
 });
