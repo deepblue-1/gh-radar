@@ -13,8 +13,10 @@ import { fetchSettlement } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { NameVsCard } from "./name-vs-card";
 import { OpenPoolsCard } from "./open-pools-card";
 import { PersonCards } from "./person-cards";
+import { TransferCard } from "./transfer-card";
 
 /**
  * SettlementClient — `/admin/settlement` 본문 (Phase 44 · UI-SPEC ① · E1).
@@ -23,8 +25,9 @@ import { PersonCards } from "./person-cards";
  * - 상태 loading | error | forbidden | ready(accounts-client 꼴). 403 은 「관리자만 사용할 수 있어요.」(role 없음),
  *   그 밖 실패는 오류 상자(`role="alert"`) + 「다시 시도」 가 본문 전체를 대신한다.
  * - `reload()` = 저장 뒤 다시 불러오기 — 화면을 비우지 않고 값만 바꾼다. 실패하면 보이던 값을 그대로 둔다(seq 가드).
- * - 본문 순서(UI-SPEC ①): 머리 → 세 사람 카드(②) → 「정산 전 수익」(③). 계산 입력 `SettlementCtx` 는 응답에서 한 번 만든다.
- *   머리 두 버튼(「거래 기록」 · 「정산하기」)은 44-10 · 44-11 이 달고, 명의 대 몫 · 활동 카드는 44-09 가 이 본문에 더한다.
+ * - 본문 순서(UI-SPEC ①): 머리 → 세 사람 카드(②) → 「정산 전 수익」(③) → 「명의 대 몫」(④) · 「현중 ↔ 근형 계좌이체」(⑤)(넓으면 2열)
+ *   → 활동 카드(⑥). 계산 입력 `SettlementCtx` 는 응답에서 한 번 만든다. 첫 불러오기 동안은 Skeleton 뿐 — 불러온 뒤 ② ~ ⑥ 이 한 번에 나타난다.
+ * - 머리 두 버튼(「거래 기록」 · 「정산하기」)은 44-10 · 44-11 이 단다.
  */
 
 /**
@@ -49,6 +52,8 @@ type LoadState =
 export function SettlementClient() {
   const T = SETTLEMENT_TEXT;
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  // 활동 카드(⑥) 세그먼트 — 화면 안 상태 · 기본 「계좌 거래」 · ⑤ 「이체 내역 보기」 → 「현중 ↔ 근형 이체」.
+  const [activitySegment, setActivitySegment] = useState<"settle" | "ledger" | "hg">("ledger");
   const seq = useRef(0);
 
   const reload = useCallback(async () => {
@@ -120,6 +125,14 @@ export function SettlementClient() {
         <>
           <PersonCards ctx={ctx} />
           <OpenPoolsCard view={state.view} />
+          <div
+            data-slot="settlement-name-transfer"
+            data-activity-segment={activitySegment}
+            className="grid min-w-0 grid-cols-1 gap-3 @min-[768px]/settle:grid-cols-2"
+          >
+            <NameVsCard ctx={ctx} />
+            <TransferCard ledger={ctx.ledger} onShowTransfers={() => setActivitySegment("hg")} />
+          </div>
         </>
       )}
     </AdminPanelPage>

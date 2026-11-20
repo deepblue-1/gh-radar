@@ -106,6 +106,11 @@ const lines = (slot: string) =>
         .map((c) => text(c))
         .join('|'),
   );
+/** 카드 제목 「제목|부제」(두 글자 덩이 사이는 gap 이라 textContent 에 띄어쓰기가 없다). */
+const heading = (c: HTMLElement | null) =>
+  Array.from(c?.querySelector('h2')?.children ?? [])
+    .map((s) => text(s))
+    .join('|');
 const zeroDir = () => text(card('settlement-name-zero')?.querySelector('[data-slot="settlement-name-zero-dir"]'));
 const zeroAmt = () => text(card('settlement-name-zero')?.querySelector('[data-slot="settlement-name-zero-amt"]'));
 
@@ -124,7 +129,7 @@ describe('NameVsCard — 명의 대 몫(④ · 44-09 T1)', () => {
       ].join(' / '),
     );
     const c = card('settlement-name-vs');
-    expect(text(c?.querySelector('h2'))).toBe('명의 대 몫 누구 이름 계좌에 누구 돈이 있나');
+    expect(heading(c)).toBe('명의 대 몫|누구 이름 계좌에 누구 돈이 있나');
     expect(zeroDir()).toBe('김현중 명의 계좌에 정근형 몫이 들어 있습니다');
     expect(zeroAmt()).toBe('김현중 → 정근형 5,950만원이면 맞음');
     // 두 번째 사람 묶음 위 hairline
@@ -176,7 +181,7 @@ describe('TransferCard — 현중 ↔ 근형 계좌이체(⑤ · 44-09 T1)', () 
       ].join(' / '),
     );
     const c = card('settlement-transfer');
-    expect(text(c?.querySelector('h2'))).toBe('현중 ↔ 근형 계좌이체 실제로 오간 돈 · 소명용');
+    expect(heading(c)).toBe('현중 ↔ 근형 계좌이체|실제로 오간 돈 · 소명용');
     // 「차액」 줄 위 hairline
     expect(c!.querySelectorAll<HTMLElement>('[data-slot="settlement-tr2-row"]')[2]!.className).toContain('border-t');
   });
