@@ -583,3 +583,258 @@ describe("reflectRows — 같은 계좌 증감을 합쳐 한 번 · 못 보내�
     expect(out.get(22)).toEqual({ kbH: { deltaKrw: -200_000_000, targetKrw: 72_000_000, reason: "failed" } });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /settlement/ledger/:id — 지우기 + 되돌림(D-19 · D-23 · D-30)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UNREADABLE_KBG = "KB 정근형 예수금을 읽지 못해 되돌릴 수 없어요 — 스위치를 끄면 예수금은 그대로 두고 지워요";
+const BELOW_KBG = "KB 정근형 예수금이 0 이하가 되어 되돌릴 수 없어요 — 스위치를 끄면 예수금은 그대로 두고 지워요";
+const UNREVERTED_KBG = "KB 정근형 예수금은 되돌리지 못했어요 — 계좌 메뉴에서 맞춰 주세요";
+
+describe("DELETE /api/admin/settlement/ledger/:id — 지우기 · 되돌림", () => {
+  const del = (app: Parameters<typeof request>[0], id: number | string, reflect = true) =>
+    auth(request(app).delete(`/api/admin/settlement/ledger/${id}`)).send({ reflect });
+
+  it("반영 켬 · 옛 줄 출자 H → kbG 1억 · kbG 읽힘 → 지우기 RPC 1회 → kbG 지금 − 1억 보냄 · unreverted []", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete"]);
+    expect(paramsOf(rec, "settlement_ledger_delete")).toEqual([{ p_id: 12, p_by: ADMIN_EMAIL }]);
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 745_000_000 } },
+    ]);
+  });
+
+  it("계좌 옮김 kbG → kyH 4억 · kyH 는 못 보냈던 줄 → 되돌림은 kbG +4억 한 계좌만", async () => {
+    const relay = relayOf();
+    const { app } = makeApp({}, relay.client);
+    const res = await del(app, 14);
+    expect(res.status).toBe(200);
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 1_245_000_000 } },
+    ]);
+  });
+
+  it("(D-30) kbG 를 그 순간 못 읽음 → 409 REVERT_UNREADABLE · 지우기 RPC 0 · relay 쓰기 0 · 문장 그대로", async () => {
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: UNREADABLE_KBG });
+    expect(fns(rec)).not.toContain("settlement_ledger_delete");
+    expect(fns(rec)).not.toContain("settlement_set_pend");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("(D-30) 계좌 대응 없음(kbG 빠짐) → 같은 문장 · 409 · 아무것도 바꾸지 않음", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({ raw: RAW({ accounts: ACCOUNTS.filter((a) => a.accKey !== "kbG") }) }, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: UNREADABLE_KBG });
+    expect(fns(rec)).not.toContain("settlement_ledger_delete");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("(D-30) 되돌린 값 < 1(출자 1억 · 지금 kbG 50,000,000) → 409 · 「0 이하가 되어」 문장 그대로", async () => {
+    const relay = relayOf({ costs: costsOf({ kbG: 50_000_000 }) });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: BELOW_KBG });
+    expect(fns(rec)).not.toContain("settlement_ledger_delete");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("(D-30) 지운 뒤 보내기 실패 → 지우기는 됨 · 지운 줄 pend 기록 · unreverted [kbG] · message 그대로", async () => {
+    const relay = relayOf({ budget: () => outcome("failed") });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(200);
+    const pend = { kbG: { deltaKrw: -100_000_000, targetKrw: 745_000_000, reason: "failed" } };
+    expect(res.body).toEqual({ ok: true, pend, unreverted: ["kbG"], message: UNREVERTED_KBG });
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete", "settlement_set_pend"]);
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 12, pend }] }]);
+  });
+
+  it("반영 끔 → relay 읽기 · 쓰기 0 · 지우기 RPC 1", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 12, false);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(relay.calls).toHaveLength(0);
+    expect(fns(rec)).toEqual(["settlement_ledger_delete"]);
+  });
+
+  it("DELETE 지우기 RPC 오류 → relay 쓰기 0 · set_pend 0 · 500 DB_ERROR", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({ del: pgErr("XX000", "boom") }, relay.client);
+    const res = await del(app, 12);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(fns(rec)).not.toContain("settlement_set_pend");
+  });
+
+  it("반영한 적 없는 줄(reflect false)을 반영 켬으로 지움 → 되돌릴 것 없음 · relay 쓰기 0 · 지우기 RPC 1", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 13);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(fns(rec).filter((f) => f === "settlement_ledger_delete")).toHaveLength(1);
+  });
+
+  it("정산 줄 → 409 SETTLE_LINKED · 없는 id → 404 · 반영 끔이면 RPC 오류를 옮긴다", async () => {
+    const relay = relayOf();
+    const a = makeApp({}, relay.client);
+    const r1 = await del(a.app, 11);
+    expect(r1.status).toBe(409);
+    expect(r1.body.error.code).toBe("SETTLE_LINKED");
+    const r2 = await del(a.app, 999);
+    expect(r2.status).toBe(404);
+    expect(r2.body.error.message).toBe("없는 거래예요");
+    expect(fns(a.rec)).not.toContain("settlement_ledger_delete");
+
+    const b = makeApp({ del: pgErr("P0001", "SETTLE_LINKED") }, relay.client);
+    expect((await del(b.app, 11, false)).status).toBe(409);
+    const c = makeApp({ del: pgErr("P0001", "NO_SUCH_ROW") }, relay.client);
+    expect((await del(c.app, 999, false)).status).toBe(404);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("바디에 reflect 없음 → 400 · RPC 0", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).delete("/api/admin/settlement/ledger/12")).send({});
+    expect(res.status).toBe(400);
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /settlement/ledger/:id/retry — 다시 반영(D-26 · Pitfall 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("POST /api/admin/settlement/ledger/:id/retry — 다시 반영(목표값 대조)", () => {
+  const retry = (app: Parameters<typeof request>[0], id: number | string) =>
+    auth(request(app).post(`/api/admin/settlement/ledger/${id}/retry`)).send({});
+
+  it("지금 kyH = 기록된 목표값 1,084,000,000 → 보내지 않음(두 번 더하지 않음) · set_pend {}", async () => {
+    const relay = relayOf({ costs: costsOf({ kyH: 1_084_000_000 }) });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await retry(app, 14);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 14, pend: {} });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 14, pend: {} }] }]);
+  });
+
+  it("지금 kyH 684,000,000 → 지금 + 4억 = 1,084,000,000 보냄 · pend {}", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await retry(app, 14);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 14, pend: {} });
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "h01", broker: "KYOBO", accountNo: NO.kyH, body: { budgetKrw: 1_084_000_000 } },
+    ]);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_set_pend"]);
+  });
+
+  it("다시 실패 → pend 그대로 + message 「교보 김현중 미반영 — 매매 서버에 보내지 못했어요」", async () => {
+    const relay = relayOf({ budget: () => outcome("failed") });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await retry(app, 14);
+    expect(res.status).toBe(200);
+    const pend = { kyH: { deltaKrw: 400_000_000, targetKrw: 1_084_000_000, reason: "failed" } };
+    expect(res.body).toEqual({ ok: true, id: 14, pend, message: "교보 김현중 미반영 — 매매 서버에 보내지 못했어요" });
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 14, pend }] }]);
+  });
+
+  it("pend 없는 줄 → 200 · 아무것도 안 함(relay 쓰기 0 · set_pend 0)", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await retry(app, 12);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, pend: {} });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(fns(rec)).not.toContain("settlement_set_pend");
+  });
+
+  it("사유 unreachable(targetKrw null) → 지금 + delta 로 보냄", async () => {
+    const relay = relayOf();
+    const ledger = [
+      ...LEDGER,
+      row(15, {
+        txDate: "2026-11-19",
+        kind: "contribute",
+        who: "H",
+        toAcc: "kbG",
+        amountKrw: 100_000_000,
+        reflect: true,
+        pend: { kbG: { deltaKrw: 100_000_000, targetKrw: null, reason: "unreachable" } },
+      }),
+    ];
+    const { app } = makeApp({ raw: RAW({ ledger }) }, relay.client);
+    const res = await retry(app, 15);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 15, pend: {} });
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 945_000_000 } },
+    ]);
+  });
+
+  it("1원 미만이 되는 다시 반영 → 보내지 않음 · message 「… 예수금이 0 이하가 되어 보내지 않았어요」", async () => {
+    const relay = relayOf({ costs: costsOf({ kbG: 50_000_000 }) });
+    const ledger = [
+      ...LEDGER,
+      row(16, {
+        txDate: "2026-11-19",
+        kind: "withdraw_profit",
+        who: "G",
+        fromAcc: "kbG",
+        amountKrw: 100_000_000,
+        reflect: true,
+        pend: { kbG: { deltaKrw: -100_000_000, targetKrw: null, reason: "unreachable" } },
+      }),
+    ];
+    const { app } = makeApp({ raw: RAW({ ledger }) }, relay.client);
+    const res = await retry(app, 16);
+    expect(res.status).toBe(200);
+    expect(res.body.pend).toEqual({ kbG: { deltaKrw: -100_000_000, targetKrw: null, reason: "below_one" } });
+    expect(res.body.message).toBe("KB 정근형 미반영 — 예수금이 0 이하가 되어 보내지 않았어요");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("없는 id → 404 · relay 쓰기 0", async () => {
+    const relay = relayOf();
+    const { app } = makeApp({}, relay.client);
+    const res = await retry(app, 999);
+    expect(res.status).toBe(404);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+});
+
+describe("지우기 · 다시 반영 관문(D-18) — 비관리자 403 · RPC 0 · relay 0", () => {
+  it("DELETE · RETRY 비관리자 → 403", async () => {
+    for (const send of [
+      (app: Parameters<typeof request>[0]) => request(app).delete("/api/admin/settlement/ledger/12"),
+      (app: Parameters<typeof request>[0]) => request(app).post("/api/admin/settlement/ledger/14/retry"),
+    ]) {
+      const relay = relayOf();
+      const { app, rec } = makeApp({}, relay.client);
+      const res = await send(app).set("Authorization", `Bearer ${TRADER_TOKEN}`).send({ reflect: true });
+      expect(res.status).toBe(403);
+      expect(rec.rpcCalls).toHaveLength(0);
+      expect(relay.calls).toHaveLength(0);
+    }
+  });
+});
