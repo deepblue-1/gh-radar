@@ -297,3 +297,9 @@ None — 외부 서비스 설정 없음.
 ---
 *Phase: 44-admin-settlement*
 *Completed: 2026-11-20*
+
+## Self-Check: PASSED
+
+- 새 파일 3개 · 고친 파일 1개 · SUMMARY 있음(FOUND 5 — `git diff --name-only bd688dca..HEAD`)
+- 커밋 `06b704f0` · `15253a5a` · `7b21f415` · `3b5e8852` 가 이 브랜치 HEAD 의 조상(`git log bd688dca..HEAD`) · 코드 커밋 수 4 = frontmatter `commits: 4`
+- 바뀐 파일은 플랜 files_modified 4개 + 이 SUMMARY 뿐 · STATE.md · ROADMAP.md · `admin-api.ts` · `admin-sheet.tsx` · `pnpm-lock.yaml` 손대지 않음 · 작업 트리 깨끗함
