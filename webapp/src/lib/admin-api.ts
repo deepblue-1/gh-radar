@@ -18,6 +18,10 @@
  *   그 서버에서 빼기 — remove 는 relay 를 거쳐 서버까지 간다 → `RELAY_TIMEOUT_MS`).
  *   Phase 44 — `GET /api/admin/settlement`(정산 화면 — 계좌 4개 예수금 · 거래 · 정산 · `fetchSettlement`) ·
  *   `POST /api/admin/settlement/ledger/:id/retry`(못 보낸 예수금 다시 반영 · `retrySettlementLedger` → `SETTLEMENT_WRITE_TIMEOUT_MS`).
+ *   44-10 — `POST /api/admin/settlement/ledger` · `PUT …/ledger/:id`(거래 저장 · 고치기 · `saveSettlementLedger`) ·
+ *   `DELETE …/ledger/:id { reflect }`(거래 지우기 · `deleteSettlementLedger`) · `POST /api/admin/settlement/settles`(정산 확정 ·
+ *   `confirmSettlement`) · `POST …/settles/:id/cancel { reflect }`(정산 취소 · `cancelSettlement`) — 넷 다 예수금 반영을 실을 수 있어
+ *   `SETTLEMENT_WRITE_TIMEOUT_MS`.
  *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
@@ -52,6 +56,10 @@ import type {
   AdminUsersOverview,
   AppRole,
   DmaBroker,
+  SettlementCancelBody,
+  SettlementDeleteBody,
+  SettlementLedgerBody,
+  SettlementSettleBody,
   SettlementView,
   SettlementWriteResponse,
 } from "@gh-radar/shared";
@@ -338,5 +346,51 @@ export function retrySettlementLedger(id: number): Promise<SettlementWriteRespon
   return authFetch<SettlementWriteResponse>(
     `/api/admin/settlement/ledger/${id}/retry`,
     jsonInit("POST", {}, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS }),
+  );
+}
+
+/**
+ * 거래 저장 — `id` 가 없으면 새 거래(POST) · 있으면 고치기(PUT · D-19). `reflect` 가 켜져 있으면 server 가 예수금도 고친다
+ * (고치기는 옛 반영 되돌림 + 새 값을 합친 차이 한 벌 · D-23). 못 보낸 계좌는 응답 `pend` 에 남는다(거래는 저장됨 · D-26).
+ * 업무 규칙 위반은 400 `VALIDATION_FAILED`(문장은 `message`) · 정산 때 만든 줄은 409 `SETTLE_LINKED`.
+ */
+export function saveSettlementLedger(body: SettlementLedgerBody, id?: number): Promise<SettlementWriteResponse> {
+  const init = jsonInit(id === undefined ? "POST" : "PUT", body, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS });
+  return authFetch<SettlementWriteResponse>(
+    id === undefined ? "/api/admin/settlement/ledger" : `/api/admin/settlement/ledger/${id}`,
+    init,
+  );
+}
+
+/**
+ * 거래 지우기(D-30) — `reflect` 가 켜져 있으면 그 거래가 넣어 둔 예수금 증감을 되돌린다.
+ * 되돌릴 수 없다는 것을 미리 알면 409 `REVERT_UNREADABLE`(지우지 않음 · 문장은 `message`) · 지운 뒤 보내기만 실패하면
+ * 200 `unreverted`(계좌 키) + `message`.
+ */
+export function deleteSettlementLedger(id: number, reflect: boolean): Promise<SettlementWriteResponse> {
+  const body: SettlementDeleteBody = { reflect };
+  return authFetch<SettlementWriteResponse>(
+    `/api/admin/settlement/ledger/${id}`,
+    jsonInit("DELETE", body, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS }),
+  );
+}
+
+/**
+ * 정산 확정(D-16) — 브라우저는 고른 것(묶음 · 바로 출금 사람 · 메모 · 반영 · 본 최신 정산 id)만 보낸다. 숫자는 server 가
+ * 누른 순간 읽은 예수금으로 정한다. 응답 `id` = 새 정산 id.
+ */
+export function confirmSettlement(body: SettlementSettleBody): Promise<SettlementWriteResponse> {
+  return authFetch<SettlementWriteResponse>(
+    "/api/admin/settlement/settles",
+    jsonInit("POST", body, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS }),
+  );
+}
+
+/** 정산 취소(D-17) — 묶음별 가장 최근 정산만. `reflect` 가 켜져 있으면 그 정산의 바로 출금 줄 반영을 되돌린다(D-30 은 지우기와 같은 모양). */
+export function cancelSettlement(id: number, reflect: boolean): Promise<SettlementWriteResponse> {
+  const body: SettlementCancelBody = { reflect };
+  return authFetch<SettlementWriteResponse>(
+    `/api/admin/settlement/settles/${id}/cancel`,
+    jsonInit("POST", body, { timeoutMs: SETTLEMENT_WRITE_TIMEOUT_MS }),
   );
 }

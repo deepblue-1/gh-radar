@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { pendAccKeys, type SettlementCtx, type SettlementView } from "@gh-radar/shared";
+import {
+  appliedEffect,
+  effectDiff,
+  isSettlementMarketHours,
+  pendAccKeys,
+  type SettlementCtx,
+  type SettlementLedgerBody,
+  type SettlementLedgerRow,
+  type SettlementView,
+} from "@gh-radar/shared";
 
 import { AdminPanelPage } from "@/components/admin/admin-sheet";
 import { ADMIN_BUTTON_SECONDARY } from "@/components/admin/reflect-chip";
@@ -9,14 +18,22 @@ import { CARD } from "@/components/layout/page-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchSettlement, retrySettlementLedger } from "@/lib/admin-api";
+import {
+  deleteSettlementLedger,
+  fetchSettlement,
+  retrySettlementLedger,
+  saveSettlementLedger,
+} from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ActivityCard, type ActivitySegment } from "./activity-card";
+import { LedgerSheet } from "./ledger-sheet";
 import { NameVsCard } from "./name-vs-card";
 import { OpenPoolsCard } from "./open-pools-card";
 import { PersonCards } from "./person-cards";
+import { reflectPreviewLines } from "./reflect-box";
+import { CONFIRM_TEXT, SettleConfirm, deleteConfirmText } from "./settle-confirm";
 import { TransferCard } from "./transfer-card";
 
 /**
@@ -28,7 +45,12 @@ import { TransferCard } from "./transfer-card";
  * - `reload()` = 저장 뒤 다시 불러오기 — 화면을 비우지 않고 값만 바꾼다. 실패하면 보이던 값을 그대로 둔다(seq 가드).
  * - 본문 순서(UI-SPEC ①): 머리 → 세 사람 카드(②) → 「정산 전 수익」(③) → 「명의 대 몫」(④) · 「현중 ↔ 근형 계좌이체」(⑤)(넓으면 2열)
  *   → 활동 카드(⑥). 계산 입력 `SettlementCtx` 는 응답에서 한 번 만든다. 첫 불러오기 동안은 Skeleton 뿐 — 불러온 뒤 ② ~ ⑥ 이 한 번에 나타난다.
- * - 머리 두 버튼(「거래 기록」 · 「정산하기」)은 44-10 · 44-11 이 단다.
+ * - 머리 「거래 기록」(44-10) → ⑦ 시트(새 거래) · 거래 줄 펼침 「고치기」 → ⑦ 고치기 · 「지우기」 → ⑨ 확인 창. 시트가 열린 동안
+ *   `AdminPanelPage` 가 패널 폭을 비운다. 저장 성공 → 시트 닫힘 · 세그먼트가 「정산 기록」 이었으면 「계좌 거래」 로 · 다시 불러오기.
+ *   「정산하기」 는 44-11 이 단다.
+ * - 지우기(D-23 · D-30): 반영했던 것이 있을 때만 ⑩ 상자(기본 켜짐 · 되돌릴 값 미리 보기). server 가 되돌릴 수 없다고 미리 거부하면
+ *   (409 `REVERT_UNREADABLE`) 창을 두고 server 문장을 그대로 · 지운 뒤 보내기만 실패하면(`unreverted`) 문장 + 확정 잠금 ·
+ *   「닫기」 로 닫을 때 다시 불러온다. 그 밖 거부는 「지우지 못했어요 · <message>」.
  */
 
 /**
@@ -43,7 +65,30 @@ export const SETTLEMENT_TEXT = {
   loadFailed: "불러오지 못했어요",
   retry: "다시 시도",
   retryFailed: "다시 반영하지 못했어요",
+  ledgerCreate: "거래 기록",
 } as const;
+
+/**
+ * ⑦ 시트 — `row` 가 있으면 고치기(D-19) · 없으면 새 거래. 닫을 때는 `open` 만 내려 닫히는 동안 제목 · 값이 바뀌지 않게 한다.
+ */
+interface LedgerSheetState {
+  open: boolean;
+  row: SettlementLedgerRow | null;
+}
+
+/**
+ * ⑨ 거래 지우기 확인 — `reflect` = ⑩ 스위치(상자가 없으면 쓰지 않는다) · `error` = 완성 문장 ·
+ * `locked` = 지운 뒤 되돌리기만 실패해 확정 단추를 잠갔다(닫을 때 다시 불러온다 · D-30).
+ * 닫을 때는 `open` 만 내려 닫히는 동안 문단이 비지 않게 한다.
+ */
+interface DeleteTarget {
+  open: boolean;
+  row: SettlementLedgerRow;
+  reflect: boolean;
+  busy: boolean;
+  error: string | null;
+  locked: boolean;
+}
 
 function withoutKey(m: Readonly<Record<number, string>>, id: number): Readonly<Record<number, string>> {
   if (!(id in m)) return m;
@@ -69,6 +114,9 @@ export function SettlementClient() {
   // 「다시 반영」(D-26) — 보내는 중인 거래 id · 거래 id → 오류 문장.
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [retryErrors, setRetryErrors] = useState<Readonly<Record<number, string>>>({});
+  // ⑦ 거래 시트 · ⑨ 거래 지우기 확인(44-10).
+  const [ledgerSheet, setLedgerSheet] = useState<LedgerSheetState>({ open: false, row: null });
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const seq = useRef(0);
 
   const reload = useCallback(async () => {
@@ -131,6 +179,55 @@ export function SettlementClient() {
     [reload, T.retryFailed],
   );
 
+  /**
+   * ⑦ 저장 — 새 거래는 POST · 고치기는 PUT(그 줄 id). 성공하면(못 보낸 계좌가 남아도 · D-26) 시트를 닫고 세그먼트가
+   * 「정산 기록」 이었으면 「계좌 거래」 로 바꾼 뒤 다시 불러온다. 실패는 그대로 던져 시트가 하단 오류 줄을 보이게 한다.
+   */
+  const editId = ledgerSheet.row?.id;
+  const onSaveLedger = useCallback(
+    async (body: SettlementLedgerBody) => {
+      await saveSettlementLedger(body, editId);
+      setLedgerSheet((s) => ({ ...s, open: false }));
+      setActivitySegment((s) => (s === "settle" ? "ledger" : s));
+      void reload();
+    },
+    [editId, reload],
+  );
+
+  /** ⑨ 거래 지우기 확정(D-23 · D-30). 반영 상자가 없으면(반영했던 것이 없음) 늘 reflect false 로 보낸다. */
+  const onConfirmDelete = async () => {
+    const t = deleteTarget;
+    if (!t || t.busy || t.locked) return;
+    const reflect = Object.keys(appliedEffect(t.row)).length > 0 ? t.reflect : false;
+    setDeleteTarget({ ...t, busy: true, error: null });
+    try {
+      const res = await deleteSettlementLedger(t.row.id, reflect);
+      if ((res.unreverted ?? []).length > 0) {
+        // 지웠지만 예수금 되돌리기만 실패 — 창을 두고 server 문장(접두 없음) + 확정 잠금 · 닫을 때 다시 불러온다.
+        setDeleteTarget((cur) => cur && { ...cur, busy: false, locked: true, error: res.message ?? null });
+        return;
+      }
+      setDeleteTarget((cur) => cur && { ...cur, open: false, busy: false });
+      void reload();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      // 미리 막고 안내(409 REVERT_UNREADABLE) — server 문장 그대로 · 잠그지 않는다(스위치를 끄고 다시 누를 수 있다).
+      const error =
+        err instanceof ApiClientError && err.code === "REVERT_UNREADABLE"
+          ? message
+          : message
+            ? `${CONFIRM_TEXT.deleteFailed} · ${message}`
+            : CONFIRM_TEXT.deleteFailed;
+      setDeleteTarget((cur) => cur && { ...cur, busy: false, error });
+    }
+  };
+
+  const onCloseDelete = () => {
+    const locked = deleteTarget?.locked === true;
+    setDeleteTarget((cur) => cur && { ...cur, open: false });
+    if (locked) void reload();
+  };
+
   const toggle = (set: ReadonlySet<number>, id: number): ReadonlySet<number> => {
     const next = new Set(set);
     if (next.has(id)) next.delete(id);
@@ -139,8 +236,24 @@ export function SettlementClient() {
   };
 
   return (
-    <AdminPanelPage data-slot="admin-settlement" panelOpen={false} className="@container/settle gap-3">
-      <PageHeader title={T.title} className="mb-1" />
+    <AdminPanelPage data-slot="admin-settlement" panelOpen={ledgerSheet.open} className="@container/settle gap-3">
+      <PageHeader
+        title={T.title}
+        className="mb-1"
+        actions={
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            data-slot="settlement-ledger-create"
+            disabled={state.kind !== "ready"}
+            onClick={() => setLedgerSheet({ open: true, row: null })}
+            className={cn(ADMIN_BUTTON_SECONDARY, "h-9 bg-[var(--card)] sm:h-8 dark:bg-[var(--muted)]")}
+          >
+            {T.ledgerCreate}
+          </Button>
+        }
+      />
 
       {state.kind === "loading" && <SettlementSkeleton />}
 
@@ -186,8 +299,47 @@ export function SettlementClient() {
             openLedger={openLedger}
             onToggleSettle={(id) => setOpenSettle((s) => toggle(s, id))}
             onToggleLedger={(id) => setOpenLedger((s) => toggle(s, id))}
-            ledgerHandlers={{ onRetry: (id) => void onRetry(id), retryingId, retryErrors }}
+            ledgerHandlers={{
+              onEdit: (row) => setLedgerSheet({ open: true, row }),
+              onDelete: (row) => setDeleteTarget({ open: true, row, reflect: true, busy: false, error: null, locked: false }),
+              onRetry: (id) => void onRetry(id),
+              retryingId,
+              retryErrors,
+            }}
           />
+          <LedgerSheet
+            open={ledgerSheet.open}
+            mode={ledgerSheet.row ? "edit" : "new"}
+            row={ledgerSheet.row}
+            accounts={state.view.accounts}
+            nowIso={state.view.now}
+            onClose={() => setLedgerSheet((s) => ({ ...s, open: false }))}
+            onSave={onSaveLedger}
+          />
+          {deleteTarget && (
+            <SettleConfirm
+              open={deleteTarget.open}
+              title={CONFIRM_TEXT.deleteTitle}
+              body={deleteConfirmText(deleteTarget.row, state.view.now)}
+              confirmLabel={CONFIRM_TEXT.delete}
+              reflect={
+                Object.keys(appliedEffect(deleteTarget.row)).length > 0
+                  ? {
+                      on: deleteTarget.reflect,
+                      onToggle: (next) =>
+                        setDeleteTarget((cur) => cur && { ...cur, reflect: next, error: cur.locked ? cur.error : null }),
+                      lines: reflectPreviewLines(effectDiff(appliedEffect(deleteTarget.row), {}), state.view.accounts),
+                      marketHours: isSettlementMarketHours(new Date()),
+                    }
+                  : null
+              }
+              busy={deleteTarget.busy}
+              error={deleteTarget.error}
+              confirmDisabled={deleteTarget.locked}
+              onClose={onCloseDelete}
+              onConfirm={() => void onConfirmDelete()}
+            />
+          )}
         </>
       )}
     </AdminPanelPage>
