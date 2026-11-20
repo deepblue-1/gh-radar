@@ -811,6 +811,75 @@ export function sortLedgerRows<T extends Pick<SettlementLedgerRow, "id" | "txDat
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 예수금 반영 증감(R12 ~ R14 · D-10 · D-19 · D-23 · D-26) — 목업 eff · applied · diff · addMap
+// server 반영(거래 저장 · 고치기 · 지우기 · 정산 확정 · 취소)과 webapp 미리 보기가 같은 함수를 쓴다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 계좌별 예수금 증감(원). 0 인 계좌는 넣지 않는다. */
+export type SettlementEffect = Partial<Record<SettlementAccKey, number>>;
+
+/** 거래가 예수금에 주는 증감(R12 · 목업 `eff`) — 출자 = 받은 계좌 + · 수익 출금 · 원금 회수 = 뺀 계좌 − · 계좌 옮김 = 보낸 계좌 − · 받은 계좌 +. */
+export function reflectEffect(
+  row: Pick<SettlementLedgerBody, "kind" | "fromAcc" | "toAcc" | "amountKrw">,
+): SettlementEffect {
+  const e: SettlementEffect = {};
+  if (row.kind === "contribute") {
+    if (row.toAcc) e[row.toAcc] = row.amountKrw;
+  } else if (row.kind === "move") {
+    if (row.fromAcc && row.toAcc && row.fromAcc !== row.toAcc) {
+      e[row.fromAcc] = -row.amountKrw;
+      e[row.toAcc] = row.amountKrw;
+    }
+  } else if (row.fromAcc) {
+    e[row.fromAcc] = -row.amountKrw;
+  }
+  return e;
+}
+
+/**
+ * 그 거래로 지금 예수금에 실제 들어가 있는 증감(R13 · 목업 `applied`) — 반영한 거래의 증감 − 못 보낸 증감(`pend[acc].deltaKrw`).
+ * 0 인 계좌는 결과에서 뺀다 — 「반영했던 것이 있나」(D-23 상자 표시)는 결과 키가 하나라도 있는지로 판정한다.
+ */
+export function appliedEffect(
+  row: Pick<SettlementLedgerRow, "kind" | "fromAcc" | "toAcc" | "amountKrw" | "reflect" | "pend"> | null,
+): SettlementEffect {
+  const m: SettlementEffect = {};
+  if (!row || !row.reflect) return m;
+  const e = reflectEffect(row);
+  for (const acc of SETTLEMENT_ACC_KEYS) {
+    const v = (e[acc] ?? 0) - (row.pend[acc]?.deltaKrw ?? 0);
+    if (v !== 0) m[acc] = v;
+  }
+  return m;
+}
+
+/** 예수금을 cur → want 로 맞출 때 계좌별로 보낼 차이(R14 · 목업 `diff`) — 새 값 − 지금 값 · 0 이 아닌 계좌만. */
+export function effectDiff(cur: SettlementEffect, want: SettlementEffect): SettlementEffect {
+  const m: SettlementEffect = {};
+  for (const acc of SETTLEMENT_ACC_KEYS) {
+    const v = (want[acc] ?? 0) - (cur[acc] ?? 0);
+    if (v !== 0) m[acc] = v;
+  }
+  return m;
+}
+
+/** 증감 여러 벌의 계좌별 합(목업 `addMap`) — 정산 바로 출금 여러 줄 · 취소 되돌림. 합이 0 인 계좌는 뺀다. */
+export function addEffects(list: readonly SettlementEffect[]): SettlementEffect {
+  const m: SettlementEffect = {};
+  for (const acc of SETTLEMENT_ACC_KEYS) {
+    let v = 0;
+    for (const x of list) v += x[acc] ?? 0;
+    if (v !== 0) m[acc] = v;
+  }
+  return m;
+}
+
+/** 못 보낸 항목이 있는 계좌 키(SETTLEMENT_ACCOUNTS 순서 · 목업 `hasPend`). */
+export function pendAccKeys(pend: SettlementPend): SettlementAccKey[] {
+  return SETTLEMENT_ACC_KEYS.filter((acc) => pend[acc] !== undefined && pend[acc] !== null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 표기(D-08 · UI-SPEC 「숫자 · 날짜 표기 계약」) — 입력은 원
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -902,4 +971,20 @@ export function settlementStampLabel(iso: string): string {
 export function settlementTimeLabel(iso: string): string {
   const p = kstParts(iso);
   return `${p.hh}:${p.mm}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 장중 판정(R16 · D-13) — 평일 KST 08:00 ~ 20:00(NXT 포함)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 정산 반영 경고용 장중 판정 — 평일(월 ~ 금) KST 08:00 이상 20:00 미만이면 true. 휴장일은 따지지 않는다(경고 문구일 뿐).
+ * 기존 marketHours.ts 의 장 판정(08:00 ~ 15:30)은 부르지도 감싸지도 않는다 — 15:30 뒤 NXT 체결 시간에 경고가 사라진다(Pitfall 6).
+ */
+export function isSettlementMarketHours(now: Date = new Date()): boolean {
+  const k = new Date(now.getTime() + KST_OFFSET_MS);
+  const day = k.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = k.getUTCHours() * 60 + k.getUTCMinutes();
+  return minutes >= 480 && minutes < 1200;
 }
