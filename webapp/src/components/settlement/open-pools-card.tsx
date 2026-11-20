@@ -1,15 +1,22 @@
+import Link from "next/link";
+import { Fragment } from "react";
 import {
-  SETTLEMENT_ACCOUNTS,
-  SETTLEMENT_MINUS,
+  SETTLEMENT_PEOPLE,
   SETTLEMENT_POOLS,
   cumProfit,
-  formatEokManMinus,
+  distributable,
+  formatEokMan,
   formatEokManSigned,
+  openProfit,
   poolAccountRows,
   poolOk,
   profitTone,
+  settledSum,
   settlementReadLabel,
+  shareOf,
   type SettlementAccountView,
+  type SettlementCtx,
+  type SettlementPerson,
   type SettlementPoolId,
   type SettlementView,
 } from "@gh-radar/shared";
@@ -17,18 +24,38 @@ import {
 import { CARD } from "@/components/layout/page-layout";
 import { cn } from "@/lib/utils";
 
+import { AccountTable } from "./account-table";
+
 /**
- * OpenPoolsCard — 「정산 전 수익」 카드(UI-SPEC ③ · 목업 `openPoolsCard` · `accTable`).
+ * OpenPoolsCard — 「정산 전 수익」 카드(UI-SPEC ③ · 목업 `openPoolsCard` · D-24 · D-25 · D-28 · D-04).
  *
- * 44-01 은 최소 모양이다 — 묶음 두 개(현중 · 근형 → 쥬니)마다 머리(이름 · 비율 · 묶음 값)와 계좌 표(예수금 · 넣은 돈 · 수익).
- * 계산은 shared 한 벌(`poolAccountRows` · `poolOk` · `cumProfit` — 수익 = 예수금 − 넣은 돈 · D-01).
- * 정산 이력 반영(정산 전 수익 = 누적 − 정산한 합) · 누적 줄 · 미설정 안내 · 못 읽음 줄 · 서버 간 다름 줄 · l3 몫 줄은 44-06 이
- * 이 파일을 완성하며 더한다(정산 이력이 없을 때 묶음 값은 누적과 같다).
+ * - 부제 「수익 = 예수금 − 넣은 돈 · 예수금 읽은 시각 …」(값을 가진 계좌 중 가장 최근 시각) + 그 아래 D-28 예수금 기준 한 줄(늘 보임).
+ * - 묶음 두 개(현중 · 근형 → 쥬니)마다 머리(이름 · 비율 · 정산 전 수익 = 누적 − 이미 정산한 수익) · 계좌 표(`AccountTable`) · l3 줄.
+ * - 묶음 계좌 중 예수금 미설정이 있으면 묶음 값 「—」 · l3 미설정 안내 + 「계좌 메뉴에서 설정」 · 누적 줄 없음(목업 `ok && prev`).
+ * - l3: 미설정 안내 / 원금 기준(쥬니)이 있고 정산 전 수익 ≤ 0 이면 손실 이월 줄 / 그 밖 사람마다 점 + 이름 + 몫.
+ * - 계산은 shared 한 벌(`openProfit` · `distributable` · `shareOf` · `settledSum` · `cumProfit`) — 화면이 새로 만들지 않는다.
  */
 
 const POOL_ORDER: readonly SettlementPoolId[] = ["p1", "p2"];
 
 const TONE_CLASS = { up: "text-[var(--up)]", down: "text-[var(--down)]" } as const;
+
+const PERSON_DOT_BG: Readonly<Record<SettlementPerson, string>> = {
+  H: "bg-[var(--person-h)]",
+  G: "bg-[var(--person-g)]",
+  J: "bg-[var(--person-j)]",
+};
+
+/** 사람 점(8×8 · 장식) — 옆 이름 글자가 뜻을 진다. ② · ③ · ⑥ · ⑧ 이 함께 쓴다. */
+export function PersonDot({ person, className }: { person: SettlementPerson; className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-slot="person-dot"
+      className={cn("mr-1.5 inline-block size-2 shrink-0 rounded-full align-[1px]", PERSON_DOT_BG[person], className)}
+    />
+  );
+}
 
 /** 화면이 보이는 값의 읽은 시각 — 값을 가진(known · stale) 계좌 중 가장 최근. */
 function latestReadAt(accounts: readonly SettlementAccountView[]): string | null {
@@ -40,9 +67,8 @@ function latestReadAt(accounts: readonly SettlementAccountView[]): string | null
   return best;
 }
 
-const labelOf = (acc: string) => SETTLEMENT_ACCOUNTS.find((a) => a.key === acc)?.label ?? acc;
-
 export function OpenPoolsCard({ view }: { view: SettlementView }) {
+  const ctx: SettlementCtx = { accounts: view.accounts, ledger: view.ledger, settles: view.settles };
   const readAt = latestReadAt(view.accounts);
   // 문구 정본(UI-SPEC ③) — 빼기 표시는 U+2212.
   const subtitle = `수익 = 예수금 − 넣은 돈${readAt ? ` · 예수금 읽은 시각 ${settlementReadLabel(readAt, view.now)}` : ""}`;
@@ -55,23 +81,38 @@ export function OpenPoolsCard({ view }: { view: SettlementView }) {
         "min-w-0 p-3 ring-1 ring-inset ring-[var(--border-subtle)] dark:ring-0 @min-[768px]/settle:p-4",
       )}
     >
-      <h2 className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <h2 className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="text-[14px] font-semibold text-[var(--fg)]">정산 전 수익</span>
         <span className="text-[12px] font-normal text-[var(--muted-fg)]">{subtitle}</span>
       </h2>
+      <p data-slot="settlement-budget-basis" className="mt-1 break-keep text-[12px] text-[var(--muted-fg)]">
+        예수금은 현금 + 보유 종목 매입금액 기준이에요(평가금액 아님)
+      </p>
       {POOL_ORDER.map((pid, i) => (
-        <PoolBlock key={pid} pool={pid} view={view} first={i === 0} />
+        <PoolBlock key={pid} pool={pid} view={view} ctx={ctx} first={i === 0} />
       ))}
     </section>
   );
 }
 
-function PoolBlock({ pool, view, first }: { pool: SettlementPoolId; view: SettlementView; first: boolean }) {
+function PoolBlock({
+  pool,
+  view,
+  ctx,
+  first,
+}: {
+  pool: SettlementPoolId;
+  view: SettlementView;
+  ctx: SettlementCtx;
+  first: boolean;
+}) {
   const def = SETTLEMENT_POOLS[pool];
   const ok = poolOk(pool, view.accounts);
-  const value = cumProfit(pool, view.accounts, view.ledger);
-  const tone = ok ? profitTone(value) : null;
+  const open = openProfit(pool, ctx);
+  const prev = settledSum(pool, view.settles);
+  const tone = ok ? profitTone(open) : null;
   const rows = poolAccountRows(pool, view.accounts, view.ledger);
+  const mismatch = view.accounts.filter((a) => a.pool === pool && a.mismatch).map((a) => a.accKey);
 
   return (
     <div
@@ -91,52 +132,53 @@ function PoolBlock({ pool, view, first }: { pool: SettlementPoolId; view: Settle
             ok ? (tone ? TONE_CLASS[tone] : "text-[var(--fg)]") : "text-[var(--faint)]",
           )}
         >
-          {ok ? formatEokManSigned(value) : "—"}
+          {ok ? formatEokManSigned(open) : "—"}
         </span>
       </div>
 
-      <div
-        data-slot="settlement-acc-table"
-        className="my-2 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-baseline gap-x-2 gap-y-1 text-[13px] @min-[768px]/settle:gap-x-4"
-      >
-        <span aria-hidden="true" />
-        <span className="whitespace-nowrap text-right text-[12px] text-[var(--faint)]">예수금</span>
-        <span className="whitespace-nowrap text-right text-[12px] text-[var(--faint)]">넣은 돈</span>
-        <span className="whitespace-nowrap text-right text-[12px] text-[var(--faint)]">수익</span>
-        {rows.map((r) => {
-          const label = labelOf(r.accKey);
-          const pTone = r.profitKrw === null ? null : profitTone(r.profitKrw);
-          return (
-            <div key={r.accKey} data-slot="settlement-acc-row" data-acc={r.accKey} className="contents">
-              <span className="min-w-0 truncate text-[var(--fg)]" title={label}>
-                {label}
-              </span>
-              <span
-                className={cn(
-                  "whitespace-nowrap text-right tabular-nums",
-                  r.budgetKrw === null ? "text-[var(--led-latent)]" : "text-[var(--fg)]",
-                )}
-              >
-                {r.budgetKrw === null ? "미설정" : formatEokManMinus(r.budgetKrw)}
-              </span>
-              <span
-                className="whitespace-nowrap text-right tabular-nums text-[var(--fg)]"
-                title={`들어온 돈 ${formatEokManMinus(r.inKrw)} ${SETTLEMENT_MINUS} 나간 돈 ${formatEokManMinus(r.outKrw)}`}
-              >
-                {formatEokManMinus(r.putKrw)}
-              </span>
-              <span
-                className={cn(
-                  "whitespace-nowrap text-right tabular-nums",
-                  r.profitKrw === null ? "text-[var(--faint)]" : pTone ? TONE_CLASS[pTone] : "text-[var(--fg)]",
-                )}
-              >
-                {r.profitKrw === null ? "—" : formatEokManSigned(r.profitKrw)}
-              </span>
-            </div>
-          );
-        })}
+      <AccountTable
+        rows={rows}
+        cum={ok && prev > 0 ? { cumKrw: cumProfit(pool, view.accounts, view.ledger), prevKrw: prev } : null}
+        mode="now"
+        mismatch={mismatch}
+        nowIso={view.now}
+      />
+
+      <div data-slot="settlement-pool-l3" className="mt-2 break-keep text-[12px]">
+        {!ok ? (
+          <>
+            <span className="text-[var(--led-latent)]">예수금이 설정되지 않은 계좌가 있어요</span>{" "}
+            <Link href="/admin/accounts" className="text-[var(--accent-fg)] hover:underline">
+              계좌 메뉴에서 설정
+            </Link>
+          </>
+        ) : def.baseKrw !== undefined && open <= 0 ? (
+          <span className="text-[var(--muted-fg)]">
+            원금 {formatEokMan(def.baseKrw)}까지 {formatEokMan(-open)} 남음 — 회복한 뒤부터 나눕니다
+          </span>
+        ) : (
+          <SharesLine pool={pool} distKrw={distributable(pool, ctx)} />
+        )}
       </div>
     </div>
+  );
+}
+
+/** l3 몫 줄 — 점 「김현중 +5억 2,450만」 · 점 「정근형 +5억 2,450만」(몫 600 무색 · 구분 「 · 」 `--faint`). */
+function SharesLine({ pool, distKrw }: { pool: SettlementPoolId; distKrw: number }) {
+  const people = Object.keys(SETTLEMENT_POOLS[pool].ratio) as SettlementPerson[];
+  return (
+    <span className="text-[var(--fg)]">
+      {people.map((p, i) => (
+        <Fragment key={p}>
+          {i > 0 && <span className="text-[var(--faint)]"> · </span>}
+          <span className="whitespace-nowrap">
+            <PersonDot person={p} />
+            {SETTLEMENT_PEOPLE[p].name}{" "}
+            <span className="font-semibold tabular-nums">{formatEokManSigned(shareOf(pool, distKrw, p))}</span>
+          </span>
+        </Fragment>
+      ))}
+    </span>
   );
 }
