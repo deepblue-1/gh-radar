@@ -16,6 +16,7 @@ import {
   type SettlePlan,
   type SettlementAccKey,
   type SettlementEffect,
+  type SettlementLedgerRow,
   type SettlementPend,
   type SettlementPoolId,
   type SettlementSettleRow,
@@ -32,6 +33,7 @@ import {
   SETTLEMENT_TEXT_FUTURE_DATE,
   SETTLEMENT_TEXT_PERSON_NOT_IN_POOL,
   SettlementDeleteBodySchema,
+  SettlementCancelBodySchema,
   SettlementLedgerBodySchema,
   SettlementSettleBodySchema,
   settlementIdParam,
@@ -162,6 +164,7 @@ const accountsOf = (e: SettlementEffect) => Object.keys(e) as SettlementAccKey[]
 // ─────────────────────────────────────────────────────────────────────────────
 
 const NoSuchSettle = () => new ApiError(404, "NOT_FOUND", "없는 정산이에요");
+const NotLatest = () => new ApiError(409, "NOT_LATEST", "더 최근 정산부터 차례로 취소할 수 있어요");
 
 /** 정산 RPC 오류 → API 오류(44-03 오류 코드 표 · 업무 코드는 `message`). 그 밖은 DB_ERROR. */
 function settleRpcError(error: unknown, msg: string): ApiError {
@@ -169,7 +172,7 @@ function settleRpcError(error: unknown, msg: string): ApiError {
   if (e.message === "STALE_SETTLE") {
     return new ApiError(409, "STALE_SETTLE", "다른 곳에서 먼저 정산했어요 — 화면을 다시 불러와 주세요");
   }
-  if (e.message === "NOT_LATEST") return new ApiError(409, "NOT_LATEST", "더 최근 정산부터 차례로 취소할 수 있어요");
+  if (e.message === "NOT_LATEST") return NotLatest();
   if (e.message === "NO_SUCH_ROW") return NoSuchSettle();
   if (e.code === "23514") return ValidationFailed(SETTLEMENT_TEXT_BAD_SHAPE);
   return DbError(msg, error);
@@ -482,6 +485,78 @@ adminSettlementRouter.post("/settlement/settles", async (req, res, next) => {
       id: settleId,
       pend,
       ...(pendAccKeys(pend).length > 0 ? { message: pendMessage(pend) } : {}),
+    };
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 취소 RPC 반환 `{rows}` — 취소 전 바로 출금 줄(17키). 모양이 어긋나면 계약 위반(DB_ERROR). */
+function cancelRows(data: unknown): SettlementLedgerRow[] {
+  const rows = (data as { rows?: unknown } | null)?.rows;
+  if (!Array.isArray(rows) || !rows.every((r) => typeof (r as { id?: unknown } | null)?.id === "number")) {
+    throw DbError("정산 취소에 실패했습니다.", new Error("settlement_settle_cancel shape"));
+  }
+  return rows as SettlementLedgerRow[];
+}
+
+/**
+ * POST /settlement/settles/:id/cancel — 정산 취소(D-17 · D-21 · D-23 · D-30). 바디 `{ reflect }`.
+ * 그 묶음 가장 최근 정산만(RPC 가 `NOT_LATEST` 로 다시 본다) · 바로 출금 줄은 RPC 가 함께 지운다.
+ * 반영 켬이면 그 줄들이 예수금에 넣어 둔 증감(`appliedEffect` 합 — 못 보냈던 계좌는 빠진다)을 되돌린다:
+ * 되돌릴 수 없다는 것을 미리 알 수 있으면(못 읽음 · 대응 · 등록 서버 없음 · 1원 미만) 취소 전에 409 `REVERT_UNREADABLE`
+ * (취소 RPC 0 · relay 쓰기 0) · **RPC 가 성공했을 때만** 합쳐 한 번 보내기 · 보내기만 실패한 계좌는 지운 줄 pend 에 남기고
+ * `unreverted` · `message`(화면은 확인 창을 닫지 않고 그 문장을 보인다).
+ */
+adminSettlementRouter.post("/settlement/settles/:id/cancel", async (req, res, next) => {
+  try {
+    const { id } = parseSettlement(settlementIdParam, req.params);
+    const { reflect } = parseSettlement(SettlementCancelBodySchema, req.body ?? {});
+    const supabase = req.app.locals.supabase as SupabaseClient;
+
+    let read: SettlementRead | null = null;
+    // 감사 대상 = 묶음(반영 끔은 정산을 읽지 않아 모른다 → "settle").
+    let pool: string = "settle";
+    if (reflect) {
+      read = await readSettlement(req);
+      const settle = read.raw.settles.find((s) => s.id === id);
+      if (!settle) throw NoSuchSettle();
+      pool = settle.pool;
+      // 읽은 값으로 먼저 본다 — 더 최근 정산이 있으면 못 읽음 안내보다 「차례로 취소」 가 맞는 문장이다(RPC 가 다시 본다).
+      if (read.raw.settles.some((s) => s.pool === settle.pool && s.id > id)) throw NotLatest();
+      const revert = effectDiff(
+        addEffects(read.raw.ledger.filter((r) => r.settleId === id).map((r) => appliedEffect(r))),
+        {},
+      );
+      if (accountsOf(revert).length > 0) assertRevertable(read, revert, "취소해요");
+    }
+
+    const { data, error } = await supabase.rpc("settlement_settle_cancel", { p_id: id, p_by: req.adminEmail! });
+    if (error) throw settleRpcError(error, "정산 취소에 실패했습니다.");
+    const rows = cancelRows(data);
+
+    let pend: SettlementPend = {};
+    if (read !== null) {
+      const items = rows
+        .map((r) => ({ id: r.id, effect: effectDiff(appliedEffect(r), {}) }))
+        .filter((it) => accountsOf(it.effect).length > 0);
+      if (items.length > 0) {
+        const left = await reflectRows(req, read, items);
+        const leftRows = items
+          .map((it) => ({ id: it.id, pend: left.get(it.id) ?? {} }))
+          .filter((p) => pendAccKeys(p.pend).length > 0);
+        if (leftRows.length > 0) await recordPend(req, leftRows);
+        pend = sumPends(left.values());
+      }
+    }
+    const unreverted = pendAccKeys(pend);
+    audit(req, "settlement-cancel", pool, { settleId: id, reflect, unreverted });
+    const out: SettlementWriteResponse = {
+      ok: true,
+      pend,
+      unreverted,
+      ...(unreverted.length > 0 ? { message: unrevertedMessage(unreverted) } : {}),
     };
     res.json(out);
   } catch (e) {
