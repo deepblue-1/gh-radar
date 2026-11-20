@@ -510,3 +510,219 @@ describe("POST /api/admin/settlement/settles — 정산 확정", () => {
     expect(relay.calls).toHaveLength(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /settlement/settles/:id/cancel — 정산 취소
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CANCEL = (id: number) => `/api/admin/settlement/settles/${id}/cancel`;
+
+const settleRow = (id: number, o: Partial<SettlementSettleRow> = {}): SettlementSettleRow => ({
+  id,
+  pool: "p1",
+  profitKrw: 1_049_000_000,
+  shares: { H: 524_500_000, G: 524_500_000 },
+  snapshot: { accounts: [], cumKrw: 1_049_000_000, prevKrw: 0 },
+  readAt: "2026-11-20T05:00:00.000Z",
+  memo: "",
+  createdBy: ADMIN_EMAIL,
+  createdAt: "2026-11-20T05:00:00.000Z",
+  ...o,
+});
+
+/** 정산 31 의 바로 출금 줄 — 김현중 · kyH 524,500,000 · 반영함. */
+const OUT_H = (o: Partial<SettlementLedgerRow> = {}): SettlementLedgerRow =>
+  row(201, {
+    txDate: "2026-11-20",
+    kind: "withdraw_profit",
+    who: "H",
+    fromAcc: "kyH",
+    amountKrw: 524_500_000,
+    settleId: 31,
+    reflect: true,
+    seeded: false,
+    ...o,
+  });
+
+/** 바로 출금 뒤의 예수금(kyH 159,500,000). */
+const AFTER = costsOf({ kyH: 159_500_000 });
+
+const cancelRaw = (
+  out: SettlementLedgerRow[] = [OUT_H()],
+  settles: SettlementSettleRow[] = [settleRow(31)],
+  accounts?: SettlementRawAccount[],
+) => RAW({ ledger: [...SEED, ...out], settles, ...(accounts ? { accounts } : {}) });
+
+const cancelReturns = (rows: SettlementLedgerRow[]): RpcHandler => () => ({ data: { rows }, error: null });
+
+const UNREADABLE_KYH = "교보 김현중 예수금을 읽지 못해 되돌릴 수 없어요 — 스위치를 끄면 예수금은 그대로 두고 취소해요";
+
+describe("POST /api/admin/settlement/settles/:id/cancel — 정산 취소", () => {
+  it("반영 켬 · 최신 p1 정산 · kyH 159,500,000 → 취소 RPC 1 → kyH 684,000,000 한 번 · unreverted []", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel"]);
+    expect(paramsOf<{ p_id: number; p_by: string }>(rec, "settlement_settle_cancel")).toEqual([
+      { p_id: 31, p_by: ADMIN_EMAIL },
+    ]);
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "h01", broker: "KYOBO", accountNo: NO.kyH, body: { budgetKrw: 684_000_000 } },
+    ]);
+  });
+
+  it("4 : 3 : 3 세 줄 모두 kbH → 되돌림도 합쳐 한 번(kbH 500,000,005)", async () => {
+    const out = (id: number, who: "J" | "H" | "G", amountKrw: number) =>
+      row(id, { txDate: "2026-11-20", kind: "withdraw_profit", who, fromAcc: "kbH", amountKrw, settleId: 41, reflect: true });
+    const outs = [out(211, "J", 40_000_000), out(212, "H", 30_000_000), out(213, "G", 30_000_000)];
+    const relay = relayOf({ costs: costsOf({ kbH: 400_000_005 }) });
+    const { app } = makeApp(
+      { raw: cancelRaw(outs, [settleRow(41, { pool: "p2" })]), cancel: cancelReturns(outs) },
+      relay.client,
+    );
+    const res = await auth(request(app).post(CANCEL(41))).send({ reflect: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "h01", broker: "KB", accountNo: NO.kbH, body: { budgetKrw: 500_000_005 } },
+    ]);
+  });
+
+  it("바로 출금 줄 pend 에 kyH 가 남아 있던 정산(반영 안 됨) → 되돌릴 것 없음 · relay 쓰기 0", async () => {
+    const out = OUT_H({ pend: { kyH: { deltaKrw: -524_500_000, targetKrw: 159_500_000, reason: "failed" } } });
+    const relay = relayOf();
+    const { app, rec } = makeApp({ raw: cancelRaw([out]), cancel: cancelReturns([out]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel"]);
+  });
+
+  it("(D-30) kyH 를 그 순간 못 읽음 → 409 REVERT_UNREADABLE · 문장 그대로 · 취소 RPC 0 · relay 쓰기 0", async () => {
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: UNREADABLE_KYH });
+    expect(fns(rec)).toEqual(["admin_settlement_raw"]);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("(D-30) 계좌 대응 없음(kyH 빠짐) → 같은 문장 · 409 · 취소 RPC 0 · relay 쓰기 0", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp(
+      {
+        raw: cancelRaw([OUT_H()], [settleRow(31)], ACCOUNTS.filter((a) => a.accKey !== "kyH")),
+        cancel: cancelReturns([OUT_H()]),
+      },
+      relay.client,
+    );
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: UNREADABLE_KYH });
+    expect(fns(rec)).not.toContain("settlement_settle_cancel");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("취소 RPC NOT_LATEST → 409 「더 최근 정산부터 차례로 취소할 수 있어요」 · relay 쓰기 0", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app } = makeApp({ raw: cancelRaw(), cancel: pgErr("P0001", "NOT_LATEST") }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "NOT_LATEST", message: "더 최근 정산부터 차례로 취소할 수 있어요" });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("같은 묶음에 더 최근 정산이 있으면 읽은 값으로 먼저 409 NOT_LATEST(못 읽음 안내보다 앞) · 취소 RPC 0", async () => {
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp(
+      { raw: cancelRaw([OUT_H()], [settleRow(32), settleRow(31)]), cancel: cancelReturns([OUT_H()]) },
+      relay.client,
+    );
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("NOT_LATEST");
+    expect(fns(rec)).toEqual(["admin_settlement_raw"]);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("취소 RPC NO_SUCH_ROW → 404 「없는 정산이에요」 · relay 쓰기 0", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app } = makeApp({ raw: cancelRaw(), cancel: pgErr("P0001", "NO_SUCH_ROW") }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toEqual({ code: "NOT_FOUND", message: "없는 정산이에요" });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("반영 켬인데 읽은 정산 목록에 없음 → 404 · 취소 RPC 0", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp({ raw: cancelRaw() }, relay.client);
+    const res = await auth(request(app).post(CANCEL(99))).send({ reflect: true });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toEqual({ code: "NOT_FOUND", message: "없는 정산이에요" });
+    expect(fns(rec)).toEqual(["admin_settlement_raw"]);
+  });
+
+  it("취소 RPC 오류 → relay 쓰기 0 — 일반 오류(XX000)면 500 DB_ERROR · set_pend 0", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp({ raw: cancelRaw(), cancel: pgErr("XX000", "boom") }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel"]);
+  });
+
+  it("(D-30) 취소 뒤 보내기만 실패 → 200 · 지운 줄 pend 기록 · unreverted [kyH] · 문장 그대로", async () => {
+    const relay = relayOf({ costs: AFTER, budget: () => outcome("failed") });
+    const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(200);
+    const want = { kyH: { deltaKrw: 524_500_000, targetKrw: 684_000_000, reason: "failed" } };
+    expect(res.body).toEqual({
+      ok: true,
+      pend: want,
+      unreverted: ["kyH"],
+      message: "교보 김현중 예수금은 되돌리지 못했어요 — 계좌 메뉴에서 맞춰 주세요",
+    });
+    expect(budgetCalls(relay.calls)).toHaveLength(1);
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 201, pend: want }] }]);
+  });
+
+  it("반영 끔 → relay 읽기 · 쓰기 0 · 취소 RPC 1", async () => {
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: false });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(fns(rec)).toEqual(["settlement_settle_cancel"]);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("바디 · 경로 검증 → 400 · RPC 0", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({}, relay.client);
+    const r1 = await auth(request(app).post(CANCEL(31))).send({});
+    const r2 = await auth(request(app).post(CANCEL(31))).send({ reflect: true, extra: 1 });
+    const r3 = await auth(request(app).post("/api/admin/settlement/settles/abc/cancel")).send({ reflect: false });
+    expect([r1.status, r2.status, r3.status]).toEqual([400, 400, 400]);
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("비관리자 → 403 · RPC 0 · relay 0", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({ raw: cancelRaw() }, relay.client);
+    const res = await request(app)
+      .post(CANCEL(31))
+      .set("Authorization", `Bearer ${TRADER_TOKEN}`)
+      .send({ reflect: true });
+    expect(res.status).toBe(403);
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+});
