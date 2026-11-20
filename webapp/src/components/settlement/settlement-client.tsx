@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  addEffects,
   appliedEffect,
   effectDiff,
   isSettlementMarketHours,
@@ -9,16 +10,20 @@ import {
   type SettlementCtx,
   type SettlementLedgerBody,
   type SettlementLedgerRow,
+  type SettlementSettleBody,
+  type SettlementSettleRow,
   type SettlementView,
 } from "@gh-radar/shared";
 
 import { AdminPanelPage } from "@/components/admin/admin-sheet";
-import { ADMIN_BUTTON_SECONDARY } from "@/components/admin/reflect-chip";
+import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY } from "@/components/admin/reflect-chip";
 import { CARD } from "@/components/layout/page-layout";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  cancelSettlement,
+  confirmSettlement,
   deleteSettlementLedger,
   fetchSettlement,
   retrySettlementLedger,
@@ -33,7 +38,8 @@ import { NameVsCard } from "./name-vs-card";
 import { OpenPoolsCard } from "./open-pools-card";
 import { PersonCards } from "./person-cards";
 import { reflectPreviewLines } from "./reflect-box";
-import { CONFIRM_TEXT, SettleConfirm, deleteConfirmText } from "./settle-confirm";
+import { CONFIRM_TEXT, SettleConfirm, cancelConfirmText, deleteConfirmText } from "./settle-confirm";
+import { SettleSheet } from "./settle-sheet";
 import { TransferCard } from "./transfer-card";
 
 /**
@@ -47,10 +53,13 @@ import { TransferCard } from "./transfer-card";
  *   → 활동 카드(⑥). 계산 입력 `SettlementCtx` 는 응답에서 한 번 만든다. 첫 불러오기 동안은 Skeleton 뿐 — 불러온 뒤 ② ~ ⑥ 이 한 번에 나타난다.
  * - 머리 「거래 기록」(44-10) → ⑦ 시트(새 거래) · 거래 줄 펼침 「고치기」 → ⑦ 고치기 · 「지우기」 → ⑨ 확인 창. 시트가 열린 동안
  *   `AdminPanelPage` 가 패널 폭을 비운다. 저장 성공 → 시트 닫힘 · 세그먼트가 「정산 기록」 이었으면 「계좌 거래」 로 · 다시 불러오기.
- *   「정산하기」 는 44-11 이 단다.
+ * - 머리 「정산하기」(44-11) → ⑧ 시트. 열 때 화면 값을 바로 보이고 `reload()` 로 예수금을 다시 읽어 조용히 바꾼다(실패하면 지금 값 그대로 ·
+ *   사용자 확정 2026-11-20). 확정 성공 → 시트 닫힘 · 세그먼트 「정산 기록」 · 새 정산 줄 펼침 · 다시 불러오기. 확정 숫자는 server 가 누른 순간 읽은 값(D-16).
  * - 지우기(D-23 · D-30): 반영했던 것이 있을 때만 ⑩ 상자(기본 켜짐 · 되돌릴 값 미리 보기). server 가 되돌릴 수 없다고 미리 거부하면
  *   (409 `REVERT_UNREADABLE`) 창을 두고 server 문장을 그대로 · 지운 뒤 보내기만 실패하면(`unreverted`) 문장 + 확정 잠금 ·
  *   「닫기」 로 닫을 때 다시 불러온다. 그 밖 거부는 「지우지 못했어요 · <message>」.
+ * - 정산 취소(D-17 · D-23 · D-30): 묶음별 가장 최근 정산 줄의 「정산 취소」 → ⑨ 확인. 그 정산의 바로 출금 줄이 예수금에 반영했던 것이
+ *   있을 때만 ⑩ 상자. D-30 두 갈래는 지우기와 같다 · 그 밖 거부는 「정산을 취소하지 못했어요 · <message>」.
  */
 
 /**
@@ -66,6 +75,7 @@ export const SETTLEMENT_TEXT = {
   retry: "다시 시도",
   retryFailed: "다시 반영하지 못했어요",
   ledgerCreate: "거래 기록",
+  settleOpen: "정산하기",
 } as const;
 
 /**
@@ -84,6 +94,19 @@ interface LedgerSheetState {
 interface DeleteTarget {
   open: boolean;
   row: SettlementLedgerRow;
+  reflect: boolean;
+  busy: boolean;
+  error: string | null;
+  locked: boolean;
+}
+
+/**
+ * ⑨ 정산 취소 확인 — `outRows` = 그 정산의 바로 출금 줄(연 순간의 값 · 닫히는 동안 문단이 바뀌지 않게). 나머지는 `DeleteTarget` 과 같다.
+ */
+interface CancelTarget {
+  open: boolean;
+  settle: SettlementSettleRow;
+  outRows: SettlementLedgerRow[];
   reflect: boolean;
   busy: boolean;
   error: string | null;
@@ -117,6 +140,9 @@ export function SettlementClient() {
   // ⑦ 거래 시트 · ⑨ 거래 지우기 확인(44-10).
   const [ledgerSheet, setLedgerSheet] = useState<LedgerSheetState>({ open: false, row: null });
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  // ⑧ 정산하기 시트 · ⑨ 정산 취소 확인(44-11).
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const seq = useRef(0);
 
   const reload = useCallback(async () => {
@@ -228,6 +254,65 @@ export function SettlementClient() {
     if (locked) void reload();
   };
 
+  /** ⑧ 열기 — 화면 값을 바로 보이고 예수금을 다시 읽는다(실패하면 지금 값 그대로 · reload 의 seq 가드). */
+  const onOpenSettle = () => {
+    setSettleOpen(true);
+    void reload();
+  };
+
+  /**
+   * ⑧ 확정 — 바디는 시트가 만든 `{ pool, outs, memo, reflect, expectPrev }` 그대로(D-16). 성공하면 시트를 닫고 「정산 기록」 으로 ·
+   * 새 정산 줄을 펼친 채(UI-SPEC ⑥ 흐름) 다시 불러온다. 실패는 그대로 던져 시트가 하단 오류 줄을 보이게 한다.
+   */
+  const onConfirmSettle = useCallback(
+    async (body: SettlementSettleBody) => {
+      const res = await confirmSettlement(body);
+      setSettleOpen(false);
+      setActivitySegment("settle");
+      const newId = res.id;
+      if (newId !== undefined) setOpenSettle((s) => new Set(s).add(newId));
+      void reload();
+    },
+    [reload],
+  );
+
+  /** ⑨ 정산 취소 — 그 정산의 바로 출금 줄이 지금 예수금에 넣어 둔 증감(없으면 상자 없음 · D-23). */
+  const cancelApplied = (t: CancelTarget) => addEffects(t.outRows.map(appliedEffect));
+
+  /** ⑨ 정산 취소 확정(D-17 · D-23 · D-30) — 거래 지우기와 같은 갈래. 반영 상자가 없으면 늘 reflect false. */
+  const onConfirmCancel = async () => {
+    const t = cancelTarget;
+    if (!t || t.busy || t.locked) return;
+    const reflect = Object.keys(cancelApplied(t)).length > 0 ? t.reflect : false;
+    setCancelTarget({ ...t, busy: true, error: null });
+    try {
+      const res = await cancelSettlement(t.settle.id, reflect);
+      if ((res.unreverted ?? []).length > 0) {
+        // 취소했지만 예수금 되돌리기만 실패 — 창을 두고 server 문장(접두 없음) + 확정 잠금 · 닫을 때 다시 불러온다.
+        setCancelTarget((cur) => cur && { ...cur, busy: false, locked: true, error: res.message ?? null });
+        return;
+      }
+      setCancelTarget((cur) => cur && { ...cur, open: false, busy: false });
+      void reload();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      // 미리 막고 안내(409 REVERT_UNREADABLE) — server 문장 그대로 · 잠그지 않는다(스위치를 끄고 다시 누를 수 있다).
+      const error =
+        err instanceof ApiClientError && err.code === "REVERT_UNREADABLE"
+          ? message
+          : message
+            ? `${CONFIRM_TEXT.cancelFailed} · ${message}`
+            : CONFIRM_TEXT.cancelFailed;
+      setCancelTarget((cur) => cur && { ...cur, busy: false, error });
+    }
+  };
+
+  const onCloseCancel = () => {
+    const locked = cancelTarget?.locked === true;
+    setCancelTarget((cur) => cur && { ...cur, open: false });
+    if (locked) void reload();
+  };
+
   const toggle = (set: ReadonlySet<number>, id: number): ReadonlySet<number> => {
     const next = new Set(set);
     if (next.has(id)) next.delete(id);
@@ -236,22 +321,38 @@ export function SettlementClient() {
   };
 
   return (
-    <AdminPanelPage data-slot="admin-settlement" panelOpen={ledgerSheet.open} className="@container/settle gap-3">
+    <AdminPanelPage
+      data-slot="admin-settlement"
+      panelOpen={ledgerSheet.open || settleOpen}
+      className="@container/settle gap-3"
+    >
       <PageHeader
         title={T.title}
         className="mb-1"
         actions={
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            data-slot="settlement-ledger-create"
-            disabled={state.kind !== "ready"}
-            onClick={() => setLedgerSheet({ open: true, row: null })}
-            className={cn(ADMIN_BUTTON_SECONDARY, "h-9 bg-[var(--card)] sm:h-8 dark:bg-[var(--muted)]")}
-          >
-            {T.ledgerCreate}
-          </Button>
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              data-slot="settlement-ledger-create"
+              disabled={state.kind !== "ready"}
+              onClick={() => setLedgerSheet({ open: true, row: null })}
+              className={cn(ADMIN_BUTTON_SECONDARY, "h-9 bg-[var(--card)] sm:h-8 dark:bg-[var(--muted)]")}
+            >
+              {T.ledgerCreate}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              data-slot="settlement-settle-create"
+              disabled={state.kind !== "ready"}
+              onClick={onOpenSettle}
+              className={cn(ADMIN_BUTTON_PRIMARY, "h-9 sm:h-8")}
+            >
+              {T.settleOpen}
+            </Button>
+          </>
         }
       />
 
@@ -306,6 +407,17 @@ export function SettlementClient() {
               retryingId,
               retryErrors,
             }}
+            onCancelSettle={(settle) =>
+              setCancelTarget({
+                open: true,
+                settle,
+                outRows: state.view.ledger.filter((r) => r.settleId === settle.id),
+                reflect: true,
+                busy: false,
+                error: null,
+                locked: false,
+              })
+            }
           />
           <LedgerSheet
             open={ledgerSheet.open}
@@ -338,6 +450,37 @@ export function SettlementClient() {
               confirmDisabled={deleteTarget.locked}
               onClose={onCloseDelete}
               onConfirm={() => void onConfirmDelete()}
+            />
+          )}
+          <SettleSheet
+            open={settleOpen}
+            view={state.view}
+            nowIso={state.view.now}
+            onClose={() => setSettleOpen(false)}
+            onConfirm={onConfirmSettle}
+          />
+          {cancelTarget && (
+            <SettleConfirm
+              open={cancelTarget.open}
+              title={CONFIRM_TEXT.cancelTitle}
+              body={cancelConfirmText(cancelTarget.settle, cancelTarget.outRows.length, state.view.now)}
+              confirmLabel={CONFIRM_TEXT.cancel}
+              reflect={
+                Object.keys(cancelApplied(cancelTarget)).length > 0
+                  ? {
+                      on: cancelTarget.reflect,
+                      onToggle: (next) =>
+                        setCancelTarget((cur) => cur && { ...cur, reflect: next, error: cur.locked ? cur.error : null }),
+                      lines: reflectPreviewLines(effectDiff(cancelApplied(cancelTarget), {}), state.view.accounts),
+                      marketHours: isSettlementMarketHours(new Date()),
+                    }
+                  : null
+              }
+              busy={cancelTarget.busy}
+              error={cancelTarget.error}
+              confirmDisabled={cancelTarget.locked}
+              onClose={onCloseCancel}
+              onConfirm={() => void onConfirmCancel()}
             />
           )}
         </>
