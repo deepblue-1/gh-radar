@@ -182,7 +182,7 @@ status: complete
 
 ## Issues Encountered
 
-- server 전체 `vitest run --maxWorkers=2` — 1137건 중 3건 실패: 알려진 `news.test.ts` V-news-cursor-a(날짜 고정 픽스처) 외에 `admin-servers.test.ts` 「모르는 DB 오류 → 500」 · `teamflow-report.test.ts` 「⑥ RPC {access:false} → 403」 이 전체 실행에서만 떨어졌고 두 파일만 다시 돌리면 49건 모두 통과했다. 이 플랜이 건드리지 않은 파일이고 동시 실행 부하에 따른 흔들림으로 보여 고치지 않았다.
+- server 전체 `vitest run --maxWorkers=2` 첫 실행 — 1137건 중 3건 실패: 알려진 `news.test.ts` V-news-cursor-a(날짜 고정 픽스처) 외에 `admin-servers.test.ts` 「모르는 DB 오류 → 500」 · `teamflow-report.test.ts` 「⑥ RPC {access:false} → 403」. 확인 실행 세 번: 두 파일만 → 49건 통과 / 새 테스트 파일 빼고 전체 → news 1건만 실패 / 새 테스트 파일 넣고 전체 다시 → news 1건만 실패(1136 통과). 새 파일과 무관한 흔들림으로 확정 — 고치지 않았다. 최종 상태: 알려진 news 1건 외 실패 0.
 
 ## Known Stubs
 
