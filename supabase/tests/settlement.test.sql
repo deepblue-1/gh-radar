@@ -16,7 +16,12 @@
 --   W. 읽은 값 기록 — 두 번 부르면 계좌당 1행(upsert) · 마지막 값 · 시각 · 0 도 그대로 · 배열이 아니면 22023
 --   P. 권한 — 표 5 RLS 켜짐 · anon · authenticated SELECT 불가 · service_role 가능 · 함수 3 anon · authenticated EXECUTE 불가 ·
 --      service_role 가능 · RPC 2 SECURITY DEFINER · 함수 3 search_path 고정
---   (44-03 이 L · D · C · X 절을 이 파일에 이어 쓴다.)
+--   (44-03 — <VERSION>_settlement_ledger_rpc.sql · <VERSION>_settlement_settle_rpc.sql 의 쓰기 RPC 5)
+--   L. 거래 저장 · 고치기 — 새 줄 17키 · createdBy · (D-12) 내일 FUTURE_DATE · 어제 저장 · (D-29) PERSON_NOT_IN_POOL ·
+--      고치기 같은 id · editedBy · history edit(before 전체) · 없는 id · 지운 줄 NO_SUCH_ROW · 정산 줄 SETTLE_LINKED · 23514 그대로
+--   D. 지우기 — 반환 = 지우기 전 행 · 지움 표시 · history delete · 조회에서 빠짐 · 행은 남음 · NO_SUCH_ROW · SETTLE_LINKED
+--   X. 반영 결과 기록 — 지운 줄 포함 · 없는 id NO_SUCH_ROW(전체 취소) · 22023
+--      (+ 44-03 T2: C 절 확정 · 취소 · X 절 쓰기 RPC 권한)
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/settlement.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(원격 DB 접촉 0). 전체가 한 트랜잭션 + ROLLBACK.
@@ -28,7 +33,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(104);
+SELECT plan(145);
 
 -- S. 모양 ──────────────────────────────────────────────────────────
 SELECT has_table('public', 'settlement_accounts', 'S1 표 settlement_accounts');
@@ -289,6 +294,200 @@ SELECT ok((SELECT bool_and('search_path=public, pg_temp' = ANY (proconfig)) FROM
             WHERE oid IN ('public.admin_settlement_raw()'::regprocedure, 'public.settlement_record_reads(jsonb)'::regprocedure,
                           'public.settlement_ledger_json(public.settlement_ledger)'::regprocedure)),
           'P 함수 3 search_path 고정');
+
+-- ════ 44-03 쓰기 RPC — 앞 절이 남긴 거래 · 정산을 비우고 시작한다(history → ledger → settles 순 · FK). ════
+DELETE FROM public.settlement_ledger_history;
+DELETE FROM public.settlement_ledger;
+DELETE FROM public.settlement_settles;
+
+-- 테스트 도우미 — KST 오늘 ± n 의 txDate 조각 · 이름 붙인 id.
+CREATE TEMP TABLE t44_ids (k text PRIMARY KEY, id bigint NOT NULL);
+CREATE FUNCTION pg_temp.t44_day(n int) RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object('txDate', to_char((now() AT TIME ZONE 'Asia/Seoul')::date + n, 'YYYY-MM-DD'))
+$$;
+CREATE FUNCTION pg_temp.t44_id(p_k text) RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT id FROM t44_ids WHERE k = p_k
+$$;
+
+-- L. 거래 저장 · 고치기(D-12 · D-19 · D-20 · D-21 · D-29) ─────────────
+SELECT has_function('public', 'settlement_ledger_save', ARRAY['bigint', 'jsonb', 'text'],
+                    'L0 settlement_ledger_save(bigint, jsonb, text)');
+SELECT has_function('public', 'settlement_ledger_delete', ARRAY['bigint', 'text'],
+                    'L0 settlement_ledger_delete(bigint, text)');
+SELECT has_function('public', 'settlement_set_pend', ARRAY['jsonb'], 'L0 settlement_set_pend(jsonb)');
+
+-- L1 새 줄 — 오늘 출자 김현중 → kbG 1억 · 반영 켬 · pend {}.
+CREATE TEMP TABLE t44_l1 AS
+SELECT public.settlement_ledger_save(NULL,
+         pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "fromAcc": null, "toAcc": "kbG", "via": null,
+                                 "amountKrw": 100000000, "memo": "", "reflect": true, "pend": {}}'::jsonb,
+         'admin@example.invalid') AS r;
+INSERT INTO t44_ids SELECT 'l1', (r ->> 'id')::bigint FROM t44_l1;
+SELECT set_eq($$SELECT jsonb_object_keys(r) FROM t44_l1$$,
+              ARRAY['id', 'txDate', 'kind', 'who', 'fromAcc', 'toAcc', 'via', 'amountKrw', 'memo', 'settleId', 'reflect',
+                    'pend', 'seeded', 'createdBy', 'createdAt', 'editedBy', 'editedAt'],
+              'L1 새 줄 반환 키 17(settlement_ledger_json 한 벌)');
+SELECT is((SELECT r - 'id' - 'createdAt' FROM t44_l1),
+          pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "fromAcc": null, "toAcc": "kbG", "via": null,
+                                  "amountKrw": 100000000, "memo": "", "settleId": null, "reflect": true, "pend": {},
+                                  "seeded": false, "createdBy": "admin@example.invalid", "editedBy": null,
+                                  "editedAt": null}'::jsonb,
+          'L1 (D-20) 값 그대로 · reflect true · seeded false · createdBy = p_by · editedBy 없음');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger
+            WHERE id = pg_temp.t44_id('l1') AND created_by = 'admin@example.invalid' AND deleted_at IS NULL),
+          1, 'L1 표에 1행 · created_by');
+
+-- L2 날짜 — 내일(KST) 거부 · 어제 저장(pend 키 없으면 {}).
+SELECT throws_ok($$SELECT public.settlement_ledger_save(NULL,
+                     pg_temp.t44_day(1) || '{"kind": "contribute", "who": "H", "toAcc": "kbG", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'FUTURE_DATE', 'L2 (D-12) 내일(KST) 날짜 → FUTURE_DATE');
+CREATE TEMP TABLE t44_l2 AS
+SELECT public.settlement_ledger_save(NULL,
+         pg_temp.t44_day(-1) || '{"kind": "withdraw_profit", "who": "G", "fromAcc": "kyH", "amountKrw": 20000000,
+                                  "memo": "어제", "reflect": false}'::jsonb,
+         'admin@example.invalid') AS r;
+INSERT INTO t44_ids SELECT 'l2', (r ->> 'id')::bigint FROM t44_l2;
+SELECT is((SELECT r ->> 'txDate' FROM t44_l2), pg_temp.t44_day(-1) ->> 'txDate', 'L2 (D-12) 어제 날짜 → 저장');
+SELECT is((SELECT r -> 'pend' FROM t44_l2), '{}'::jsonb, 'L2 pend 키 없으면 {}');
+
+-- L3 사람-묶음(D-29) — RPC 가 표 CHECK(23514) 앞에서 업무 코드로 거부한다.
+SELECT throws_ok($$SELECT public.settlement_ledger_save(NULL,
+                     pg_temp.t44_day(0) || '{"kind": "contribute", "who": "J", "toAcc": "kbG", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'PERSON_NOT_IN_POOL', 'L3 (D-29) 출자 심쥬니 → kbG → PERSON_NOT_IN_POOL');
+SELECT throws_ok($$SELECT public.settlement_ledger_save(NULL,
+                     pg_temp.t44_day(0) || '{"kind": "withdraw_principal", "who": "J", "fromAcc": "kyG", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'PERSON_NOT_IN_POOL', 'L3 (D-29) 원금 회수 심쥬니 ← kyG → PERSON_NOT_IN_POOL');
+SELECT lives_ok($$SELECT public.settlement_ledger_save(NULL,
+                    pg_temp.t44_day(0) || '{"kind": "contribute", "who": "J", "toAcc": "kbH", "amountKrw": 100000000,
+                                            "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                'L3 (D-29) 출자 심쥬니 → kbH 통과');
+SELECT throws_ok($$SELECT public.settlement_ledger_save(pg_temp.t44_id('l1'),
+                     pg_temp.t44_day(0) || '{"kind": "contribute", "who": "J", "toAcc": "kyH", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'PERSON_NOT_IN_POOL', 'L3 (D-29) 고치기도 같은 규칙 → PERSON_NOT_IN_POOL');
+
+-- L4 고치기 — 같은 id · 금액 5,000만 · 메모 · pend · editedBy · history(before = 고치기 전 행 전체).
+CREATE TEMP TABLE t44_l4 AS
+SELECT public.settlement_ledger_save(pg_temp.t44_id('l1'),
+         pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "toAcc": "kbG", "amountKrw": 50000000,
+                                 "memo": "5천만으로 고침", "reflect": true,
+                                 "pend": {"kbG": {"deltaKrw": 50000000, "targetKrw": null, "reason": "unreachable"}}}'::jsonb,
+         'editor@example.invalid') AS r;
+SELECT is((SELECT (r ->> 'id')::bigint FROM t44_l4), pg_temp.t44_id('l1'), 'L4 (D-19) 고치기 → 같은 id');
+SELECT is((SELECT r - 'id' - 'createdAt' - 'editedAt' FROM t44_l4),
+          pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "fromAcc": null, "toAcc": "kbG", "via": null,
+                                  "amountKrw": 50000000, "memo": "5천만으로 고침", "settleId": null, "reflect": true,
+                                  "pend": {"kbG": {"deltaKrw": 50000000, "targetKrw": null, "reason": "unreachable"}},
+                                  "seeded": false, "createdBy": "admin@example.invalid",
+                                  "editedBy": "editor@example.invalid"}'::jsonb,
+          'L4 (D-20) 고친 값 · pend · editedBy = p_by · createdBy 그대로');
+SELECT ok((SELECT r -> 'editedAt' <> 'null'::jsonb FROM t44_l4), 'L4 (D-20) editedAt 채워짐');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger_history WHERE ledger_id = pg_temp.t44_id('l1')),
+          1, 'L4 (D-21) history 1행');
+SELECT is((SELECT (action, before ->> 'amount_krw', before ->> 'memo', by)::text
+             FROM public.settlement_ledger_history WHERE ledger_id = pg_temp.t44_id('l1')),
+          ('edit'::text, '100000000'::text, ''::text, 'editor@example.invalid'::text)::text,
+          'L4 (D-21) history action edit · before = 고치기 전 행(amount_krw 100000000) · by');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger WHERE created_by = 'admin@example.invalid'
+              AND amount_krw IN (100000000, 50000000) AND who = 'H'),
+          1, 'L4 고치기는 새 행을 만들지 않는다');
+
+-- L5 고칠 수 없는 줄 — 픽스처: 지운 줄 1 · 정산 바로 출금 줄 1(표에 직접 · 정산 RPC 없이).
+WITH s AS (
+  INSERT INTO public.settlement_settles (pool, profit_krw, shares, snapshot, read_at, created_by)
+  VALUES ('p2', 1000, '{"J": 400, "H": 300, "G": 300}', '{"accounts": [], "cumKrw": 1000, "prevKrw": 0}', now(),
+          'admin@example.invalid')
+  RETURNING id)
+INSERT INTO t44_ids SELECT 'fx_settle', id FROM s;
+WITH l AS (
+  INSERT INTO public.settlement_ledger (tx_date, kind, who, from_acc, amount_krw, settle_id, created_by)
+  VALUES ('2026-11-01', 'withdraw_profit', 'J', 'kbH', 400, pg_temp.t44_id('fx_settle'), 'admin@example.invalid')
+  RETURNING id)
+INSERT INTO t44_ids SELECT 'fx_linked', id FROM l;
+WITH l AS (
+  INSERT INTO public.settlement_ledger (tx_date, kind, who, to_acc, amount_krw, deleted_at, deleted_by, deleted_reason)
+  VALUES ('2026-11-01', 'contribute', 'G', 'kyG', 1, now(), 'admin@example.invalid', 'delete')
+  RETURNING id)
+INSERT INTO t44_ids SELECT 'fx_deleted', id FROM l;
+SELECT throws_ok($$SELECT public.settlement_ledger_save((SELECT max(id) + 1000 FROM public.settlement_ledger),
+                     pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "toAcc": "kbG", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'L5 없는 id 고치기 → NO_SUCH_ROW');
+SELECT throws_ok($$SELECT public.settlement_ledger_save(pg_temp.t44_id('fx_deleted'),
+                     pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "toAcc": "kbG", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'L5 지운 줄 고치기 → NO_SUCH_ROW');
+SELECT throws_ok($$SELECT public.settlement_ledger_save(pg_temp.t44_id('fx_linked'),
+                     pg_temp.t44_day(0) || '{"kind": "withdraw_profit", "who": "J", "fromAcc": "kbH", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 'P0001', 'SETTLE_LINKED', 'L5 (D-19) 정산 바로 출금 줄 고치기 → SETTLE_LINKED');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger_history
+            WHERE ledger_id IN (pg_temp.t44_id('fx_deleted'), pg_temp.t44_id('fx_linked'))),
+          0, 'L5 거부된 고치기는 이력을 남기지 않는다');
+
+-- L6 모양 CHECK 위반은 원래 코드(23514) 그대로.
+SELECT throws_ok($$SELECT public.settlement_ledger_save(NULL,
+                     pg_temp.t44_day(0) || '{"kind": "contribute", "who": "H", "fromAcc": "kyH", "amountKrw": 1,
+                                             "memo": "", "reflect": false}'::jsonb, 'admin@example.invalid')$$,
+                 '23514', NULL, 'L6 출자에 받은 계좌 없음 → 23514 그대로');
+
+-- D. 지우기(D-19 · D-21) ─────────────────────────────────────────────
+CREATE TEMP TABLE t44_d1 AS
+SELECT public.settlement_ledger_delete(pg_temp.t44_id('l1'), 'deleter@example.invalid') AS r;
+SELECT is((SELECT r FROM t44_d1), (SELECT r FROM t44_l4),
+          'D1 반환 = 지우기 전 행(17키 · 고친 값 · reflect · pend 그대로)');
+SELECT is((SELECT (deleted_at IS NOT NULL, deleted_by, deleted_reason)::text
+             FROM public.settlement_ledger WHERE id = pg_temp.t44_id('l1')),
+          (true, 'deleter@example.invalid'::text, 'delete'::text)::text,
+          'D1 (D-21) 지움 표시 deleted_at · deleted_by · deleted_reason = delete');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger_history
+            WHERE ledger_id = pg_temp.t44_id('l1') AND action = 'delete' AND by = 'deleter@example.invalid'
+              AND before ->> 'deleted_at' IS NULL AND before ->> 'amount_krw' = '50000000'),
+          1, 'D1 (D-21) history delete 1행 · before = 지우기 전 행');
+SELECT ok(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(public.admin_settlement_raw() -> 'ledger') e
+                       WHERE (e ->> 'id')::bigint = pg_temp.t44_id('l1')),
+          'D1 admin_settlement_raw() ledger 에서 빠짐');
+SELECT is((SELECT count(*)::int FROM public.settlement_ledger WHERE id = pg_temp.t44_id('l1')),
+          1, 'D1 (D-21) 행은 남는다 — 물리 삭제 없음');
+
+SELECT throws_ok($$SELECT public.settlement_ledger_delete(pg_temp.t44_id('l1'), 'admin@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'D2 지운 줄 다시 지우기 → NO_SUCH_ROW');
+SELECT throws_ok($$SELECT public.settlement_ledger_delete((SELECT max(id) + 1000 FROM public.settlement_ledger),
+                     'admin@example.invalid')$$,
+                 'P0001', 'NO_SUCH_ROW', 'D2 없는 id 지우기 → NO_SUCH_ROW');
+SELECT throws_ok($$SELECT public.settlement_ledger_delete(pg_temp.t44_id('fx_linked'), 'admin@example.invalid')$$,
+                 'P0001', 'SETTLE_LINKED', 'D2 (D-19) 정산 바로 출금 줄 지우기 → SETTLE_LINKED');
+SELECT is((SELECT deleted_at FROM public.settlement_ledger WHERE id = pg_temp.t44_id('fx_linked')),
+          NULL::timestamptz, 'D2 거부된 줄은 지움 표시 없음');
+
+-- X. 반영 결과 기록(D-26) · 쓰기 RPC 권한 ──────────────────────────────
+SELECT lives_ok($$SELECT public.settlement_set_pend(jsonb_build_array(
+                    jsonb_build_object('id', pg_temp.t44_id('l1'),
+                      'pend', '{"kyH": {"deltaKrw": 400000000, "targetKrw": null, "reason": "unreachable"}}'::jsonb),
+                    jsonb_build_object('id', pg_temp.t44_id('l2'),
+                      'pend', '{"kyH": {"deltaKrw": -20000000, "targetKrw": 670000000, "reason": "timeout"}}'::jsonb)))$$,
+                'X1 반영 결과 기록 2줄(지운 줄 포함)');
+SELECT is((SELECT pend FROM public.settlement_ledger WHERE id = pg_temp.t44_id('l1')),
+          '{"kyH": {"deltaKrw": 400000000, "targetKrw": null, "reason": "unreachable"}}'::jsonb,
+          'X1 (D-21) 지운 줄에도 pend 기록');
+SELECT is((SELECT pend FROM public.settlement_ledger WHERE id = pg_temp.t44_id('l2')),
+          '{"kyH": {"deltaKrw": -20000000, "targetKrw": 670000000, "reason": "timeout"}}'::jsonb,
+          'X1 (D-26) 계좌별 {deltaKrw, targetKrw, reason} 그대로');
+SELECT throws_ok($$SELECT public.settlement_set_pend(jsonb_build_array(
+                     jsonb_build_object('id', pg_temp.t44_id('l2'), 'pend', '{}'::jsonb),
+                     jsonb_build_object('id', (SELECT max(id) + 1000 FROM public.settlement_ledger), 'pend', '{}'::jsonb)))$$,
+                 'P0001', 'NO_SUCH_ROW', 'X1 없는 id → NO_SUCH_ROW');
+SELECT is((SELECT pend -> 'kyH' ->> 'reason' FROM public.settlement_ledger WHERE id = pg_temp.t44_id('l2')),
+          'timeout', 'X1 없는 id 가 섞이면 같은 호출의 앞 줄도 기록되지 않는다(한 트랜잭션)');
+SELECT throws_ok($$SELECT public.settlement_set_pend('{"id": 1, "pend": {}}'::jsonb)$$, '22023', NULL,
+                 'X1 배열이 아니면 22023');
+SELECT throws_ok($$SELECT public.settlement_set_pend(jsonb_build_array(
+                     jsonb_build_object('id', pg_temp.t44_id('l2'), 'pend', '[]'::jsonb)))$$, '22023', NULL,
+                 'X1 pend 가 객체가 아니면 22023');
+SELECT lives_ok($$SELECT public.settlement_set_pend('[]'::jsonb)$$, 'X1 빈 배열은 아무것도 하지 않는다');
 
 SELECT * FROM finish();
 ROLLBACK;
