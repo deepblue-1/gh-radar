@@ -454,6 +454,363 @@ export function cumProfit(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 정산 계산(R3 ~ R11 · R15) — 목업 settledSum · openProfit · dist · share · caps · person · hgOf · hgSum · nameVs · payAcc · outRows
+//
+// 목업과 달라진 점:
+// - 몫은 0 쪽 버림(Math.trunc · R6) — 목업의 반올림 식은 4 : 3 : 3 에서 몫 합이 수익을 넘는다.
+// - 원금은 그 묶음 칸에 없는 사람(현중 · 근형 묶음의 심쥬니)을 더하지 않는다(R7 — 목업은 숫자 아님 값).
+// - 남겨 둔 돈은 저장된 정산 몫을 더한다(다시 계산하지 않는다 — D-01 Reversibility).
+// - 바로 출금 금액은 만원 미만 버림이고 0 이면 줄을 만들지 않는다(R15).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 정산 계산 입력 — GET /api/admin/settlement 응답(`SettlementView`)에서 바로 만든다. */
+export interface SettlementCtx {
+  accounts: SettlementAccountView[];
+  /** 지운 줄 제외. */
+  ledger: SettlementLedgerRow[];
+  /** 취소한 정산 제외. */
+  settles: SettlementSettleRow[];
+}
+
+/** 사람별 원금(R7) — 묶음마다 그 묶음 비율에 있는 사람 칸만. */
+export type SettlementCaps = Record<SettlementPoolId, Partial<Record<SettlementPerson, number>>>;
+
+const POOL_IDS: readonly SettlementPoolId[] = ["p1", "p2"];
+
+function poolOfAcc(acc: SettlementAccKey): SettlementPoolId {
+  return SETTLEMENT_ACCOUNTS.find((a) => a.key === acc)!.pool;
+}
+
+function ownerOfAcc(acc: SettlementAccKey): SettlementPerson {
+  return SETTLEMENT_ACCOUNTS.find((a) => a.key === acc)!.owner;
+}
+
+/** 그 묶음 비율의 사람 순서(p1 H · G / p2 J · H · G). */
+function poolMembers(pool: SettlementPoolId): SettlementPerson[] {
+  return Object.keys(SETTLEMENT_POOLS[pool].ratio) as SettlementPerson[];
+}
+
+/** 취소 안 된 정산 수익의 합(R3) — 입력 settles 는 이미 취소 제외. */
+export function settledSum(pool: SettlementPoolId, settles: readonly SettlementSettleRow[]): number {
+  let sum = 0;
+  for (const s of settles) if (s.pool === pool) sum += s.profitKrw;
+  return sum;
+}
+
+/** 정산 전 수익(D-01 · 규칙 2) = 묶음 누적 수익 − 그 묶음 정산 수익의 합. */
+export function openProfit(pool: SettlementPoolId, ctx: SettlementCtx): number {
+  return cumProfit(pool, ctx.accounts, ctx.ledger) - settledSum(pool, ctx.settles);
+}
+
+/** 나눌 수익 — 원금 기준(`baseKrw`)이 있는 묶음은 0 이하면 0(회복할 때까지 이월 · D-06). */
+export function distributable(pool: SettlementPoolId, ctx: SettlementCtx): number {
+  const open = openProfit(pool, ctx);
+  return SETTLEMENT_POOLS[pool].baseKrw !== undefined ? Math.max(0, open) : open;
+}
+
+/** 한 사람 몫(R6) = trunc(수익 × 비율 / 100) — 원 미만 0 쪽 버림 · 비율에 없으면 0. */
+export function shareOf(pool: SettlementPoolId, profitKrw: number, person: SettlementPerson): number {
+  const ratio = SETTLEMENT_POOLS[pool].ratio[person];
+  if (ratio === undefined) return 0;
+  return Math.trunc((profitKrw * ratio) / 100);
+}
+
+/** 정산 몫 한 벌 — 정산 수익 = 몫의 합(끝전 1 ~ 2원은 정산 전 수익에 남는다 · D-09). */
+export function settleShares(
+  pool: SettlementPoolId,
+  distKrw: number,
+): { shares: Partial<Record<SettlementPerson, number>>; profitKrw: number } {
+  const shares: Partial<Record<SettlementPerson, number>> = {};
+  let profitKrw = 0;
+  for (const p of poolMembers(pool)) {
+    const v = shareOf(pool, distKrw, p);
+    shares[p] = v;
+    profitKrw += v;
+  }
+  return { shares, profitKrw };
+}
+
+/**
+ * 사람별 원금(R7 · 목업 `caps`).
+ * 출자 = 받은 계좌 묶음 + · 원금 회수 = 뺀 계좌 묶음 − · 계좌 옮김이 묶음을 넘으면 김현중 · 정근형 각 금액 / 2 를 보낸 묶음에서 빼고 받은 묶음에 더한다.
+ * 그 묶음 칸에 없는 사람은 더하지 않는다(DB CHECK 가 막지만 계산도 방어).
+ */
+export function principalCaps(ledger: readonly SettlementLedgerRow[]): SettlementCaps {
+  const caps = {} as SettlementCaps;
+  for (const pool of POOL_IDS) {
+    caps[pool] = {};
+    for (const p of poolMembers(pool)) caps[pool][p] = 0;
+  }
+  const add = (pool: SettlementPoolId, p: SettlementPerson, v: number) => {
+    const cur = caps[pool][p];
+    if (cur !== undefined) caps[pool][p] = cur + v;
+  };
+  for (const t of ledger) {
+    if (t.kind === "contribute") {
+      if (t.toAcc && t.who) add(poolOfAcc(t.toAcc), t.who, t.amountKrw);
+    } else if (t.kind === "withdraw_principal") {
+      if (t.fromAcc && t.who) add(poolOfAcc(t.fromAcc), t.who, -t.amountKrw);
+    } else if (t.kind === "move") {
+      if (!t.fromAcc || !t.toAcc) continue;
+      const a = poolOfAcc(t.fromAcc);
+      const b = poolOfAcc(t.toAcc);
+      if (a === b) continue;
+      for (const p of ["H", "G"] as const) {
+        add(a, p, -t.amountKrw / 2);
+        add(b, p, t.amountKrw / 2);
+      }
+    }
+  }
+  return caps;
+}
+
+export interface PersonSummary {
+  /** 남겨 둔 돈 = 정산 몫 합 − 수익 출금 합. */
+  dueKrw: number;
+  /** 몫이 있는 묶음마다 정산 전 몫 — 그 묶음 예수금 미설정이면 null. */
+  open: Partial<Record<SettlementPoolId, number | null>>;
+  openSum: number;
+  /** 원금 칸이 있는 묶음마다 원금. */
+  cap: Partial<Record<SettlementPoolId, number>>;
+  capSum: number;
+  /** 원금보장 묶음의 손실 몫(D-06). */
+  lossKrw: number;
+  /** 예수금 미설정 계좌가 낀 묶음에 몫이 있다(D-25 · 화면 「—」). */
+  unk: boolean;
+  totalKrw: number;
+  /** 지금 몫 전체 = 원금 + 남겨 둔 돈 + 정산 전 몫 − 손실. */
+  stakeKrw: number;
+}
+
+/** 사람 한 명의 정산 요약(R8 · 목업 `person`). */
+export function personSummary(person: SettlementPerson, ctx: SettlementCtx): PersonSummary {
+  const caps = principalCaps(ctx.ledger);
+
+  let settled = 0;
+  for (const s of ctx.settles) settled += s.shares[person] ?? 0;
+  let taken = 0;
+  for (const t of ctx.ledger) if (t.kind === "withdraw_profit" && t.who === person) taken += t.amountKrw;
+  const dueKrw = settled - taken;
+
+  const open: PersonSummary["open"] = {};
+  const cap: PersonSummary["cap"] = {};
+  let unk = false;
+  let openSum = 0;
+  let capSum = 0;
+  let lossKrw = 0;
+  for (const pool of POOL_IDS) {
+    const def = SETTLEMENT_POOLS[pool];
+    const ok = poolOk(pool, ctx.accounts);
+    if (def.ratio[person] !== undefined) {
+      if (ok) {
+        const v = shareOf(pool, distributable(pool, ctx), person);
+        open[pool] = v;
+        openSum += v;
+      } else {
+        open[pool] = null;
+        unk = true;
+      }
+    }
+    const c = caps[pool][person];
+    if (c !== undefined) {
+      cap[pool] = c;
+      capSum += c;
+      // 원금보장: 손실은 guard 가 자기 원금까지 혼자 지고, 넘는 부분만 나머지가 똑같이 나눈다(D-06).
+      if (def.guard !== undefined && ok) {
+        const L = Math.max(0, -openProfit(pool, ctx));
+        const own = Math.min(L, Math.max(0, caps[pool][def.guard] ?? 0));
+        const slots = Object.keys(caps[pool]).length;
+        lossKrw += person === def.guard ? own : Math.trunc((L - own) / (slots - 1));
+      }
+    }
+  }
+
+  const totalKrw = dueKrw + openSum;
+  return { dueKrw, open, openSum, cap, capSum, lossKrw, unk, totalKrw, stakeKrw: capSum + dueKrw + openSum - lossKrw };
+}
+
+/**
+ * 김현중 ↔ 정근형 사이에 명의가 바뀐 돈(R9 · 목업 `hgOf`).
+ * 출자 = 넣은 사람 → 받은 계좌 명의 · 계좌 옮김 = 보낸 계좌 명의 → 받은 계좌 명의 · 수익 출금 · 원금 회수 = 뺀 계좌 명의 → 받는 사람.
+ * 같은 사람이거나 심쥬니가 끼면 null. corp = 법인 용역(개인 이체가 아니다).
+ */
+export function hgOf(
+  row: Pick<SettlementLedgerRow, "kind" | "who" | "fromAcc" | "toAcc" | "via">,
+): { from: "H" | "G"; to: "H" | "G"; corp: boolean } | null {
+  let from: SettlementPerson | null;
+  let to: SettlementPerson | null;
+  if (row.kind === "contribute") {
+    from = row.who;
+    to = row.toAcc ? ownerOfAcc(row.toAcc) : null;
+  } else if (row.kind === "move") {
+    from = row.fromAcc ? ownerOfAcc(row.fromAcc) : null;
+    to = row.toAcc ? ownerOfAcc(row.toAcc) : null;
+  } else {
+    from = row.fromAcc ? ownerOfAcc(row.fromAcc) : null;
+    to = row.who;
+  }
+  if (from === null || to === null || from === to || from === "J" || to === "J") return null;
+  return { from, to, corp: row.via === "corp_service" };
+}
+
+export interface HgSummary {
+  /** 김현중 → 정근형 개인 이체 합 · 건수. */
+  hgKrw: number;
+  hgCount: number;
+  /** 정근형 → 김현중 개인 이체 합 · 건수. */
+  ghKrw: number;
+  ghCount: number;
+  /** 법인 용역(방향 무관) 합 · 건수 — 개인 이체 합에서 뺀다. */
+  corpKrw: number;
+  corpCount: number;
+}
+
+/** 계좌이체 누적(R9 · 목업 `hgSum`). */
+export function hgSum(ledger: readonly SettlementLedgerRow[]): HgSummary {
+  const r: HgSummary = { hgKrw: 0, hgCount: 0, ghKrw: 0, ghCount: 0, corpKrw: 0, corpCount: 0 };
+  for (const t of ledger) {
+    const x = hgOf(t);
+    if (!x) continue;
+    if (x.corp) {
+      r.corpKrw += t.amountKrw;
+      r.corpCount += 1;
+    } else if (x.from === "H") {
+      r.hgKrw += t.amountKrw;
+      r.hgCount += 1;
+    } else {
+      r.ghKrw += t.amountKrw;
+      r.ghCount += 1;
+    }
+  }
+  return r;
+}
+
+export interface NameVs {
+  /** 명의 계좌 예수금 합(미설정은 더하지 않는다). */
+  balKrw: { H: number; G: number };
+  /** 그 명의 계좌 중 미설정이 있다. */
+  unkBal: { H: boolean; G: boolean };
+  people: Record<SettlementPerson, PersonSummary>;
+  unk: boolean;
+  /** 정근형 지금 몫 전체 − 정근형 명의 예수금 — 양수면 김현중 명의 계좌에 정근형 몫 x(김현중 → 정근형). */
+  xKrw: number;
+}
+
+/** 명의 대 몫(R10 · 규칙 6 · 목업 `nameVs`). */
+export function nameVs(ctx: SettlementCtx): NameVs {
+  const balKrw = { H: 0, G: 0 };
+  const unkBal = { H: false, G: false };
+  for (const def of SETTLEMENT_ACCOUNTS) {
+    if (def.owner === "J") continue;
+    const v = budgetOf(ctx.accounts, def.key);
+    if (v === null) unkBal[def.owner] = true;
+    else balKrw[def.owner] += v;
+  }
+  const people = {
+    H: personSummary("H", ctx),
+    G: personSummary("G", ctx),
+    J: personSummary("J", ctx),
+  };
+  return {
+    balKrw,
+    unkBal,
+    people,
+    unk: unkBal.H || unkBal.G || people.H.unk || people.G.unk,
+    xKrw: people.G.stakeKrw - balKrw.G,
+  };
+}
+
+/** 「바로 출금」 을 뺄 계좌(R11 · D-15) — 묶음 계좌를 예수금 내림차순(미설정 0)으로 줄 세운 뒤 본인 명의 첫 계좌, 없으면 첫 계좌. */
+export function payAccount(
+  pool: SettlementPoolId,
+  person: SettlementPerson,
+  accounts: readonly SettlementAccountView[],
+): SettlementAccKey {
+  const xs = poolDefs(pool)
+    .slice()
+    .sort((a, b) => (budgetOf(accounts, b.key) ?? 0) - (budgetOf(accounts, a.key) ?? 0));
+  return (xs.find((a) => a.owner === person) ?? xs[0]!).key;
+}
+
+/** 바로 출금 금액(R15) — 몫에서 만원 미만을 버린 값 · 0 이하는 0. */
+export function withdrawAmount(shareKrw: number): number {
+  if (!(shareKrw > 0)) return 0;
+  return Math.floor(shareKrw / 10_000) * 10_000;
+}
+
+/** 확정할 수 없는 이유 — unset 예수금 미설정 · carry 쥬니 손실 이월 · none 나눌 수익 없음(UI-SPEC ⑧). */
+export type SettlePlanBlock = "unset" | "carry" | "none";
+
+export interface SettlePlan {
+  can: boolean;
+  block: SettlePlanBlock | null;
+  /** 정산 전 수익 — unset 이면 null. */
+  openKrw: number | null;
+  distKrw: number;
+  /** carry 일 때 원금 기준까지 남은 금액. */
+  carryKrw: number;
+  shares: Partial<Record<SettlementPerson, number>>;
+  /** 정산 수익 = 몫의 합. */
+  profitKrw: number;
+  /** 바로 출금 줄(그 묶음 비율 순서 · 금액 0 인 줄 없음). */
+  outs: { who: SettlementPerson; fromAcc: SettlementAccKey; amountKrw: number }[];
+}
+
+/**
+ * 정산 계획(D-16 · D-17 · 목업 `settle-ok` · `outRows`) — server 확정과 webapp 정산 시트가 같은 함수를 쓴다.
+ * outs = 「바로 출금」 을 고른 사람(그 묶음 비율에 없는 사람은 무시).
+ */
+export function settlePlan(pool: SettlementPoolId, ctx: SettlementCtx, outs: readonly SettlementPerson[]): SettlePlan {
+  const blocked = (block: SettlePlanBlock, openKrw: number | null, distKrw: number, carryKrw: number): SettlePlan => ({
+    can: false,
+    block,
+    openKrw,
+    distKrw,
+    carryKrw,
+    shares: {},
+    profitKrw: 0,
+    outs: [],
+  });
+  if (!poolOk(pool, ctx.accounts)) return blocked("unset", null, 0, 0);
+  const open = openProfit(pool, ctx);
+  const distKrw = distributable(pool, ctx);
+  if (SETTLEMENT_POOLS[pool].baseKrw !== undefined && open <= 0) return blocked("carry", open, distKrw, -open);
+  if (distKrw <= 0) return blocked("none", open, distKrw, 0);
+
+  const { shares, profitKrw } = settleShares(pool, distKrw);
+  const rows: SettlePlan["outs"] = [];
+  for (const p of poolMembers(pool)) {
+    if (!outs.includes(p)) continue;
+    const amountKrw = withdrawAmount(shares[p] ?? 0);
+    if (amountKrw === 0) continue;
+    rows.push({ who: p, fromAcc: payAccount(pool, p, ctx.accounts), amountKrw });
+  }
+  return { can: true, block: null, openKrw: open, distKrw, carryKrw: 0, shares, profitKrw, outs: rows };
+}
+
+/**
+ * 사람-묶음 규칙(D-29) — 출자 · 원금 회수는 그 계좌 묶음 비율에 있는 사람만(현중 · 근형 묶음의 심쥬니 불가).
+ * 계좌 옮김 · 수익 출금은 늘 true. 출자 · 원금 회수인데 사람이 아직 없으면(null) false.
+ */
+export function personAllowedFor(
+  kind: SettlementKind,
+  accKey: SettlementAccKey,
+  person: SettlementPerson | null,
+): boolean {
+  if (kind !== "contribute" && kind !== "withdraw_principal") return true;
+  if (person === null) return false;
+  return SETTLEMENT_POOLS[poolOfAcc(accKey)].ratio[person] !== undefined;
+}
+
+/** 거래 줄 화면 순서(목업 `ledgerList`) — 날짜 내림차순 · 같은 날은 id 내림차순(나중에 적은 줄이 위). 새 배열. */
+export function sortLedgerRows<T extends Pick<SettlementLedgerRow, "id" | "txDate">>(ledger: readonly T[]): T[] {
+  return ledger.slice().sort((a, b) => {
+    if (a.txDate !== b.txDate) return a.txDate < b.txDate ? 1 : -1;
+    return b.id - a.id;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 표기(D-08 · UI-SPEC 「숫자 · 날짜 표기 계약」) — 입력은 원
 // ─────────────────────────────────────────────────────────────────────────────
 
