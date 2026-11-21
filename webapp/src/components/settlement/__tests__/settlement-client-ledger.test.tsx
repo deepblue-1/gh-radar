@@ -178,6 +178,9 @@ async function expand(id: number) {
 }
 
 beforeEach(() => {
+  // 거래 시트의 「오늘」 = 응답 now 와 브라우저 시계 중 늦은 날짜(WR-01) — 시계를 NOW 에 고정한다(Date 만).
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(NOW));
   fetchSettlementMock.mockReset();
   saveMock.mockReset();
   deleteMock.mockReset();
@@ -186,6 +189,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 

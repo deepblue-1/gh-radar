@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
-import { mockSettlementApi } from '../fixtures/settlement';
+import { SETTLEMENT_NOW, mockSettlementApi } from '../fixtures/settlement';
 
 /**
  * Phase 44 (44-12) — 웹 Admin `/admin/settlement` 어드민 정산 E2E.
@@ -204,6 +204,8 @@ test.describe('어드민 정산', () => {
 
   test('P44-F2 390 — 「거래 기록」 → 출자 · 김현중 · KB 김현중 · 1만원 → 「저장」: 요청 바디 · 시트 닫힘', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    // 시트의 「오늘」 = 응답 now 와 브라우저 시계 중 늦은 날짜(WR-01) — 브라우저 시계를 응답 now 에 고정한다(타이머는 진짜).
+    await page.clock.setFixedTime(new Date(SETTLEMENT_NOW));
     const api = await mockSettlementApi(page);
     await open(page);
 
@@ -217,7 +219,7 @@ test.describe('어드민 정산', () => {
     await expect(pill(sheet, '받은 계좌', 'KB 김현중')).toHaveAttribute('aria-checked', 'true');
     await sheet.locator('[data-slot="ledger-amount"]').fill('1');
     await expect(sheet.locator('[data-slot="ledger-amount"]')).toHaveValue('1');
-    // 날짜 기본 = 응답 now 의 KST 오늘.
+    // 날짜 기본 = 시트를 연 순간의 KST 오늘(응답 now 와 같은 날로 고정).
     await expect(sheet.locator('[data-slot="ledger-date"]')).toHaveValue('2026-11-20');
 
     await sheet.locator('[data-slot="ledger-save"]').click();

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, configure, fireEvent, render, waitFor } from '@testing-library/react';
 import {
   SETTLEMENT_ACCOUNTS,
@@ -22,6 +22,7 @@ import {
  * | 미리 보기 | 수익 출금 KB 정근형 1억 | 「KB 정근형 예수금 8억 4,500만 → 7억 4,500만」 |
  * | 고치기 | 옛 줄 1억 · reflect | 「거래 고치기」 · 값 채움 · 켜짐 · 5,000만 → 「… → 8억 9,500만」(D-23) |
  * | 저장 중 · 실패 | onSave 대기 · 거부 | 두 버튼 비활성 · aria-busy · readOnly / 「저장하지 못했어요 · X」 |
+ * | 자정 넘긴 탭(WR-01) | 응답 now 어제 · 시계 오늘 / 시계가 늦음 / 닫힌 채 날이 바뀜 | 오늘 · max 오늘 · 켜짐 · 저장 / 응답 날 / 연 순간 다시 정함 |
  */
 
 // 실패 메시지에 DOM 덤프를 붙이지 않는다 — 한 줄 메시지라 TAP 보고(RED 증거)가 깨지지 않는다.
@@ -132,7 +133,14 @@ function open(props: Partial<Parameters<typeof LedgerSheet>[0]> = {}) {
   return { ...utils, onSave: (props.onSave as typeof onSave | undefined) ?? onSave, onClose };
 }
 
+// 시트의 「오늘」 = 응답 now 와 브라우저 시계 중 늦은 날짜(WR-01) — 시계를 NOW 에 고정한다(Date 만 · 타이머는 진짜).
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(NOW));
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -206,6 +214,41 @@ describe('LedgerSheet — 날짜 · 스위치 기본값(D-11 · D-12)', () => {
     expect(sw()?.getAttribute('aria-checked')).toBe('false');
     type(dateInput(), YESTERDAY);
     type(dateInput(), TODAY);
+    expect(sw()?.getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('LedgerSheet — 자정을 넘겨 열어 둔 탭(WR-01)', () => {
+  it('응답 now 가 어제(11/19 23:50)여도 지금 시계가 11/20 이면 → 날짜 · max 오늘(11/20) · 스위치 켜짐 · 오늘 저장 통과', async () => {
+    const { onSave } = open({ nowIso: '2026-11-19T14:50:00.000Z' }); // KST 11/19 23:50
+    expect(dateInput()?.value).toBe(TODAY);
+    expect(dateInput()?.getAttribute('max')).toBe(TODAY);
+    expect(sw()?.getAttribute('aria-checked')).toBe('true');
+    click(pill('뺀 계좌', 'KB 정근형'));
+    click(pill('받는 사람', '정근형'));
+    type(amount(), '100');
+    click(saveBtn());
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ txDate: TODAY, reflect: true });
+    expect(errorOf('date')).toBeNull();
+  });
+
+  it('브라우저 시계가 응답 now 보다 늦게 가도(11/19) 오늘은 응답 now 의 날(11/20) 아래로 내려가지 않는다', () => {
+    vi.setSystemTime(new Date('2026-11-19T05:00:00.000Z'));
+    open();
+    expect(dateInput()?.value).toBe(TODAY);
+    expect(dateInput()?.getAttribute('max')).toBe(TODAY);
+  });
+
+  it('열려 있지 않던 시트를 연 순간 시계로 오늘을 다시 정한다(같은 응답 now)', () => {
+    vi.setSystemTime(new Date('2026-11-19T14:00:00.000Z')); // KST 11/19 23:00 — 응답도 11/19
+    const props = { nowIso: '2026-11-19T14:00:00.000Z' };
+    const { rerender, onSave, onClose } = open({ ...props, open: false });
+    vi.setSystemTime(new Date(NOW)); // 자정을 넘겨 11/20 14:32 에 연다
+    rerender(
+      <LedgerSheet open mode="new" row={null} accounts={ACCOUNTS} nowIso={props.nowIso} onClose={onClose} onSave={onSave} />,
+    );
+    expect(dateInput()?.value).toBe(TODAY);
     expect(sw()?.getAttribute('aria-checked')).toBe('true');
   });
 });

@@ -36,7 +36,7 @@ import { ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box
  *
  * - 칸 순서(D-27): 무슨 거래 → 계좌 · 사람 → 금액 → 날짜 → 메모 → 「예수금에도 반영」 상자. 종류는 네 가지뿐(D-05 · D-07) —
  *   손익을 손으로 더하는 칸 · 공동 비용 종류가 없다.
- * - 처음 값(사용자 확정 2026-11-20): 「수익 출금」 · 계좌 · 사람 안 고름 · 경로 「계좌이체」 · 날짜 오늘(KST · 응답 `now` 기준) ·
+ * - 처음 값(사용자 확정 2026-11-20): 「수익 출금」 · 계좌 · 사람 안 고름 · 경로 「계좌이체」 · 날짜 오늘(KST · 시트를 연 순간 · WR-01) ·
  *   금액 빈 칸. 필요한 계좌 · 사람을 다 고르기 전에는 「저장」 비활성 · 미리 보기 줄 없음.
  * - 종류를 바꿔도 같은 이름 칸은 값을 이어받는다(목업 `draftTx` — 뺀 = 보낸 계좌 · 받은 계좌 · 사람이 한 상태).
  * - 금액(D-09)은 만원 — 숫자만 · 최대 7자리 · 천단위 콤마 · 저장 값 = 만원 × 10,000 원.
@@ -175,7 +175,7 @@ export interface LedgerSheetProps {
   row: SettlementLedgerRow | null;
   /** 응답 `accounts` — 미리 보기의 지금 예수금. */
   accounts: readonly SettlementAccountView[];
-  /** 응답 `now` — 오늘(KST) · 날짜 `max` · 미래 판정 · 스위치 기본값의 기준. */
+  /** 응답 `now` — 오늘(KST)의 아랫선. 시트를 열 때 브라우저 시계와 비교해 늦은 날짜를 오늘로 쓴다(WR-01). */
   nowIso: string;
   onClose: () => void;
   /** 저장 — 거부하면 시트가 하단 오류 줄을 보인다. 성공 뒤 닫기 · 다시 불러오기는 부르는 쪽 몫. */
@@ -186,14 +186,26 @@ const LABEL = "text-[length:var(--t-caption)] leading-[1.5] text-[var(--muted-fg
 const ERROR_LINE = "text-[length:var(--t-caption)] leading-[1.5] break-keep text-[var(--destructive)]";
 const FOOT_BUTTON = "h-11 flex-1 text-[14px] font-semibold";
 
-export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave }: LedgerSheetProps) {
-  const today = kstDateIso(new Date(nowIso));
-  const editRow = mode === "edit" ? row : null;
-  const reflectDefault = (date: string) => (editRow?.reflect ? true : defaultReflectOn(date, today));
-  const initialDraft = () => (editRow ? draftOfRow(editRow) : newDraft(today));
+/**
+ * 시트를 연 순간의 KST 오늘(WR-01) — 응답 `now` 와 브라우저 시계 중 늦은 날짜. 응답 `now` 만 쓰면 자정을 넘겨 열어 둔 탭에서
+ * 어제를 「오늘」 로 보아(스위치 켜짐 · 오늘 날짜는 `max` 와 검증에 막힘) 지난 날짜 거래를 반영한 기록이 남는다. 브라우저 시계가
+ * 늦게 가도 응답 `now` 아래로 내려가지 않는다. 미래 날짜의 최종 판정은 server(D-12 · KST 오늘)다.
+ */
+function openedToday(nowIso: string): string {
+  const fromServer = kstDateIso(new Date(nowIso));
+  const fromClock = kstDateIso(new Date());
+  return fromClock > fromServer ? fromClock : fromServer;
+}
 
-  const [draft, setDraft] = useState<LedgerDraft>(initialDraft);
-  const [reflect, setReflect] = useState<boolean>(() => reflectDefault(initialDraft().txDate));
+export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave }: LedgerSheetProps) {
+  const editRow = mode === "edit" ? row : null;
+  const reflectDefault = (date: string, todayIso: string) => (editRow?.reflect ? true : defaultReflectOn(date, todayIso));
+  const initialDraft = (todayIso: string) => (editRow ? draftOfRow(editRow) : newDraft(todayIso));
+
+  // 「오늘」 은 시트를 열 때마다 다시 정한다(아래 세션 맞추기) — 열린 동안은 바뀌지 않는다.
+  const [today, setToday] = useState<string>(() => openedToday(nowIso));
+  const [draft, setDraft] = useState<LedgerDraft>(() => initialDraft(today));
+  const [reflect, setReflect] = useState<boolean>(() => reflectDefault(initialDraft(today).txDate, today));
   const [errors, setErrors] = useState<FieldErrors>(NO_ERRORS);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -204,9 +216,11 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
   if (session !== seen) {
     setSeen(session);
     if (session !== null) {
-      const d = initialDraft();
+      const t = openedToday(nowIso);
+      const d = initialDraft(t);
+      setToday(t);
       setDraft(d);
-      setReflect(reflectDefault(d.txDate));
+      setReflect(reflectDefault(d.txDate, t));
       setErrors(NO_ERRORS);
       setBusy(false);
       setSaveError(null);
@@ -242,7 +256,7 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
 
   const onDate = (value: string) => {
     setDraft((d) => ({ ...d, txDate: value }));
-    setReflect(reflectDefault(value));
+    setReflect(reflectDefault(value, today));
     setErrors((e) => ({ ...e, date: null }));
   };
 
