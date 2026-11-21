@@ -13,7 +13,8 @@ import { SETTLEMENT_NOW, mockSettlementApi } from '../fixtures/settlement';
  *   머리 두 버튼이 잘리지 않는다(UI E1 · E2 · E3 · E4 · E6 · E8 overflow 의 자동 부분 — 사람 눈 확인은 44-13 · UAT 에 남는다).
  * ④ 흐름 — 정산 확정(D-16 · D-17 · D-27) · 거래 기록(D-10 · D-27) · 사람-묶음 막기(D-29)의 요청 바디와 화면 흐름.
  *
- * 사람 카드 큰 숫자(`totalKrw` vs `stakeKrw` — 44-06 열린 질문)는 값을 잠그지 않는다(잘림만 본다).
+ * 사람 카드 큰 숫자는 `totalKrw`(totalKrw 유지 — 사용자 결정 2026-11-21 · 44-13-SUMMARY) — 값은 잠그지 않는다(잘림만 본다).
+ * ⑤ P44-F4 — 시트 첫 포커스 · 금액 상한 안내 · 터치 히트 44(quick 261121-gdx · 44-UI-REVIEW 5 ~ 8).
  */
 
 async function horizontalOverflow(page: Page): Promise<{ doc: number; main: number }> {
@@ -32,6 +33,19 @@ async function expectNotClipped(locator: Locator, what: string): Promise<void> {
   const c = await clipOf(locator);
   expect(c.client, `${what} — 폭 0(측정 대상이 그려지지 않음)`).toBeGreaterThan(0);
   expect(c.scroll, `${what} — scrollWidth ${c.scroll} > clientWidth ${c.client}`).toBeLessThanOrEqual(c.client);
+}
+
+/**
+ * 요소 가운데에서 세로로 `dy` 떨어진 점을 누르면 그 요소(또는 그 안)가 맞는가 — 보이는 모양 밖 히트 영역(`after:` 의사 요소)
+ * 까지 잰다. 먼저 요소를 화면 가운데로 스크롤한다(시트 안이면 시트 본문 스크롤).
+ */
+async function hitsSelf(locator: Locator, dy: number): Promise<boolean> {
+  return locator.evaluate((el, d) => {
+    el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2 + d);
+    return hit !== null && (hit === el || el.contains(hit));
+  }, dy);
 }
 
 const root = (page: Page) => page.locator('[data-slot="admin-settlement"]');
@@ -126,7 +140,7 @@ test.describe('어드민 정산', () => {
       // 문서 · 앱 셸 main 가로 스크롤 0.
       expect(await horizontalOverflow(page)).toEqual({ doc: 0, main: 0 });
 
-      // ② 「내 수익 몫」 큰 숫자 3개 — 값은 잠그지 않고(44-06 열린 질문) 잘림만.
+      // ② 「내 수익 몫」 큰 숫자 3개 — 값은 잠그지 않고 잘림만(totalKrw 유지 — 사용자 결정 2026-11-21 · 44-13-SUMMARY).
       const bigs = root(page).locator('[data-slot="settlement-person-big"]');
       await expect(bigs).toHaveCount(3);
       for (let i = 0; i < 3; i++) await expectNotClipped(bigs.nth(i), `사람 카드 ${i} 큰 숫자`);
@@ -249,5 +263,40 @@ test.describe('어드민 정산', () => {
     await expect(pill(sheet, '넣은 사람', '심쥬니')).toHaveAttribute('aria-disabled', 'true');
     await expect(pill(sheet, '넣은 사람', '김현중')).not.toHaveAttribute('aria-disabled', 'true');
     await expect(pill(sheet, '넣은 사람', '정근형')).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('P44-F4 390 — 시트 첫 포커스 · 금액 상한 안내 · 터치 히트 44', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.clock.setFixedTime(new Date(SETTLEMENT_NOW));
+    await mockSettlementApi(page);
+    await open(page);
+
+    // (1) ⑤ 「이체 내역 보기」(보이는 높이 18) — 가운데 위아래 21 지점도 이 버튼.
+    const showTransfers = root(page).locator('[data-slot="settlement-transfer"]').getByRole('button', { name: '이체 내역 보기' });
+    expect(await hitsSelf(showTransfers, -21), '「이체 내역 보기」 위 21').toBe(true);
+    expect(await hitsSelf(showTransfers, 21), '「이체 내역 보기」 아래 21').toBe(true);
+
+    // (2) 펼친 거래 줄 「고치기」(보이는 높이 32).
+    const item = activity(page).locator('[data-slot="settlement-ledger-item"]').first();
+    await item.locator('[data-slot="settlement-ledger-row"]').click();
+    const edit = item.getByRole('button', { name: '고치기', exact: true });
+    await expect(edit).toBeVisible();
+    expect(await hitsSelf(edit, -21), '「고치기」 위 21').toBe(true);
+    expect(await hitsSelf(edit, 21), '「고치기」 아래 21').toBe(true);
+
+    // (3) 시트 첫 포커스 = 시트 컨테이너 · 머리 닫기 × 아님.
+    const sheet = await openSheet(page, ledgerHead(page), '거래 기록');
+    await expect(sheet).toBeFocused();
+    await expect(sheet.locator('[data-slot="sheet-close"]')).not.toBeFocused();
+
+    // (4) 「무슨 거래」 첫 알약 — 위 21(아래쪽은 줄바꿈된 다음 줄 히트와 겹칠 수 있어 재지 않는다).
+    const firstPill = pillGroup(sheet, '무슨 거래').getByRole('radio').first();
+    expect(await hitsSelf(firstPill, -21), '「무슨 거래」 첫 알약 위 21').toBe(true);
+
+    // (5) 금액 8자리 → 값 그대로(빈 칸) · 칸 오류 줄에 상한 안내.
+    const amount = sheet.locator('[data-slot="ledger-amount"]');
+    await amount.fill('99999999');
+    await expect(amount).toHaveValue('');
+    await expect(sheet.locator('[data-slot="ledger-error-amount"]')).toHaveText('금액은 만원 단위로 9,999,999만원까지 적을 수 있어요');
   });
 });
