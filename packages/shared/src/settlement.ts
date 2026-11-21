@@ -314,12 +314,12 @@ export function settlementBudgetOf(
       slots.push({ dmaUserId: link.dmaUserId, serverKey: s.serverKey, cost });
     }
     if (canon !== null) continue;
-    const view = {
+    const view: SummarizeAccountCostsInput["account"] = {
       servers: link.servers.map((s) => ({ serverKey: s.serverKey, state: s.state })),
       orderServer: active.find((s) => s.isOrder)?.serverKey ?? null,
       defaultOrderServer,
       costs: costsBySrv,
-    } as unknown as SummarizeAccountCostsInput["account"];
+    };
     const sum = summarizeAccountCosts({ account: view, registry: reg });
     if (sum.state === "known" && sum.source !== null) {
       const cost = costsBySrv[sum.source];

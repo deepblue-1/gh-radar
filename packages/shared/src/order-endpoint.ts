@@ -94,8 +94,11 @@ export function validateOrderEndpointInput(input: { ip: string; mac: string }): 
  * registered = active 등록 서버(레지스트리 순 · 레지스트리에 없는 키는 뒤) · enabledRegistered = 그중 켜진 것 ·
  * designated = 켜진 등록 서버 안에 있을 때만 지정(꺼진 지정은 relay 도 무시). 규칙 자체는 `resolveEffectiveOrderServer` 한 벌.
  */
+/** 판정이 읽는 등록 서버 모양 — 서버 키 · 상태만(칩의 tone · message 는 읽지 않는다). `AdminAccountView.servers` 가 그대로 맞는다. */
+type RegisteredServerRef = { serverKey: string; state: "active" | "removing" };
+
 function registeredServersOf(
-  account: Pick<AdminAccountView, "servers" | "orderServer">,
+  account: { servers: readonly RegisteredServerRef[]; orderServer?: string | null },
   registry: readonly { key: string; enabled: boolean }[],
 ): { registered: string[]; enabledRegistered: string[]; designated: string | null } {
   const active = new Set(account.servers.filter((s) => s.state === "active").map((s) => s.serverKey));
@@ -186,7 +189,13 @@ export type AccountCostSummary = {
 };
 
 export type SummarizeAccountCostsInput = {
-  account: Pick<AdminAccountView, "servers" | "orderServer" | "defaultOrderServer" | "costs">;
+  /**
+   * 판정이 읽는 필드만(IN-06) — `AdminAccountView` 가 그대로 맞고, 정산(`settlementBudgetOf`)은 캐스트 없이 같은 모양을 만든다.
+   * 판정이 새 필드를 읽기 시작하면 여기에 더해야 컴파일되므로 두 판정이 몰래 갈라지지 않는다.
+   */
+  account: Pick<AdminAccountView, "orderServer" | "defaultOrderServer" | "costs"> & {
+    servers: readonly RegisteredServerRef[];
+  };
   /** 서버 레지스트리(개요 `servers` — 레지스트리 순). 여기 없는 서버는 켜진 것으로 본다. */
   registry: readonly { key: string; enabled: boolean }[];
 };
