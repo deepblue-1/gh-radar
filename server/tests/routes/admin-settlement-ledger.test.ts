@@ -701,13 +701,18 @@ describe("DELETE /api/admin/settlement/ledger/:id — 지우기 · 되돌림", (
   const del = (app: Parameters<typeof request>[0], id: number | string, reflect = true) =>
     auth(request(app).delete(`/api/admin/settlement/ledger/${id}`)).send({ reflect });
 
-  it("반영 켬 · 옛 줄 출자 H → kbG 1억 · kbG 읽힘 → 지우기 RPC 1회 → kbG 지금 − 1억 보냄 · unreverted []", async () => {
+  it("반영 켬 · 옛 줄 출자 H → kbG 1억 · kbG 읽힘 → 지우기 RPC 1회 → (IN-01 되돌릴 증감 먼저 기록) → kbG 지금 − 1억 보냄 → pend {}", async () => {
     const relay = relayOf();
     const { app, rec } = makeApp({}, relay.client);
     const res = await del(app, 12);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
-    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete"]);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete", "settlement_set_pend", "settlement_set_pend"]);
+    // IN-01 — 보내기 전에 지운 줄에 되돌릴 증감(목표값)을 남기고, 보낸 뒤 {} 로 덮는다.
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([
+      { p_pends: [{ id: 12, pend: { kbG: { deltaKrw: -100_000_000, targetKrw: 745_000_000, reason: "failed" } } }] },
+      { p_pends: [{ id: 12, pend: {} }] },
+    ]);
     expect(paramsOf(rec, "settlement_ledger_delete")).toEqual([{ p_id: 12, p_by: ADMIN_EMAIL }]);
     expect(budgetCalls(relay.calls)).toEqual([
       { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 745_000_000 } },
@@ -815,8 +820,24 @@ describe("DELETE /api/admin/settlement/ledger/:id — 지우기 · 되돌림", (
     expect(res.status).toBe(200);
     const pend = { kbG: { deltaKrw: -100_000_000, targetKrw: 745_000_000, reason: "failed" } };
     expect(res.body).toEqual({ ok: true, pend, unreverted: ["kbG"], message: UNREVERTED_KBG });
-    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete", "settlement_set_pend"]);
-    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 12, pend }] }]);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_ledger_delete", "settlement_set_pend", "settlement_set_pend"]);
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 12, pend }] }, { p_pends: [{ id: 12, pend }] }]);
+  });
+
+  it("(IN-01) 보내는 동안에는 이미 지운 줄에 되돌릴 증감이 기록돼 있다(보내기 전에 남김)", async () => {
+    let seenAtSend: string[] = [];
+    let recRef: { rpcCalls: { fn: string }[] } | null = null;
+    const relay = relayOf({
+      budget: () => {
+        seenAtSend = recRef ? fns(recRef) : [];
+        return undefined;
+      },
+    });
+    const made = makeApp({}, relay.client);
+    recRef = made.rec;
+    const res = await del(made.app, 12);
+    expect(res.status).toBe(200);
+    expect(seenAtSend).toEqual(["admin_settlement_raw", "settlement_ledger_delete", "settlement_set_pend"]);
   });
 
   it("반영 끔 → relay 읽기 · 쓰기 0 · 지우기 RPC 1", async () => {

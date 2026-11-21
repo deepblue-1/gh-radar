@@ -426,9 +426,15 @@ adminSettlementRouter.delete("/settlement/ledger/:id", async (req, res, next) =>
     }
 
     await remove();
-    const pend = plan.length > 0 ? await sendReflect(req, plan) : {};
+    let pend: SettlementPend = {};
+    if (plan.length > 0) {
+      // IN-01 — 보내기 전에 되돌릴 증감(목표값 포함)을 지운 줄에 먼저 남긴다. 보내는 동안 server 가 죽어도 흔적이 남고,
+      // 보낸 뒤 남은 것(전부 성공이면 {})으로 덮는다. 저장 경로(D-26 ③)와 같은 뜻 — DB 변경 없이 두 번 기록으로.
+      await recordPend(req, [{ id, pend: planPend(plan) }]);
+      pend = await sendReflect(req, plan);
+      await recordPend(req, [{ id, pend }]);
+    }
     const unreverted = pendAccKeys(pend);
-    if (unreverted.length > 0) await recordPend(req, [{ id, pend }]);
     audit(req, "settlement-ledger-delete", kind, {
       id,
       reflect,
@@ -616,11 +622,14 @@ adminSettlementRouter.post("/settlement/settles/:id/cancel", async (req, res, ne
         .map((r) => ({ id: r.id, effect: revertOf(at, [r]) }))
         .filter((it) => accountsOf(it.effect).length > 0);
       if (items.length > 0) {
-        const left = await reflectRows(req, read, items);
-        const leftRows = items
-          .map((it) => ({ id: it.id, pend: left.get(it.id) ?? {} }))
-          .filter((p) => pendAccKeys(p.pend).length > 0);
-        if (leftRows.length > 0) await recordPend(req, leftRows);
+        // IN-01 — 지우기와 같다: 보내기 전에 줄마다 되돌릴 증감(목표값 포함)을 남기고, 보낸 뒤 남은 것(없으면 {})으로 덮는다.
+        const left = await reflectRows(req, at, items, {
+          beforeSend: (planned) => recordPend(req, items.map((it) => ({ id: it.id, pend: planned.get(it.id) ?? {} }))),
+        });
+        await recordPend(
+          req,
+          items.map((it) => ({ id: it.id, pend: left.get(it.id) ?? {} })),
+        );
         pend = sumPends(left.values());
       }
     }

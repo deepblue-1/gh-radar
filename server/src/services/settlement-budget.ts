@@ -190,27 +190,36 @@ export async function reflectDeltas(req: Request, read: SettlementRead, deltas: 
   return sendReflect(req, planReflect(read, deltas));
 }
 
-/**
- * 여러 줄(정산 바로 출금 · 취소 되돌림 — 44-08)을 계좌별로 합쳐(`addEffects`) 한 번만 보내고, 남은 계좌는 그 계좌에 증감이 있는
- * 줄마다 `{ deltaKrw: 그 줄 자기 증감, targetKrw: 합친 목표값, reason }` 으로 나눠 준다.
- */
-export async function reflectRows(
-  req: Request,
-  read: SettlementRead,
-  rows: readonly { id: number; effect: SettlementEffect }[],
-): Promise<Map<number, SettlementPend>> {
-  const left = await reflectDeltas(req, read, addEffects(rows.map((r) => r.effect)));
+/** 계좌별로 합친 pend → 줄별 pend — 그 계좌에 증감이 있는 줄마다 `{ deltaKrw: 그 줄 자기 증감, targetKrw: 합친 목표값, reason }`. */
+function splitPend(rows: readonly { id: number; effect: SettlementEffect }[], merged: SettlementPend): Map<number, SettlementPend> {
   const out = new Map<number, SettlementPend>();
   for (const r of rows) {
     const p: SettlementPend = {};
-    for (const acc of pendAccKeys(left)) {
+    for (const acc of pendAccKeys(merged)) {
       const d = r.effect[acc] ?? 0;
-      const e = left[acc]!;
+      const e = merged[acc]!;
       if (d !== 0) p[acc] = { deltaKrw: d, targetKrw: e.targetKrw, reason: e.reason };
     }
     out.set(r.id, p);
   }
   return out;
+}
+
+/**
+ * 여러 줄(정산 바로 출금 · 취소 되돌림 — 44-08)을 계좌별로 합쳐(`addEffects`) 한 번만 보내고, 남은 계좌는 그 계좌에 증감이 있는
+ * 줄마다 `{ deltaKrw: 그 줄 자기 증감, targetKrw: 합친 목표값, reason }` 으로 나눠 준다.
+ * `beforeSend` 가 있으면 보내기 **전에** 「보낼 모든 계좌」 줄별 pend(목표값 포함 · reason failed)를 넘긴다 — 정산 취소가 그것을
+ * 지운 줄에 먼저 남겨, 보내는 동안 server 가 죽어도 되돌릴 증감의 흔적이 남게 한다(IN-01 · 저장 경로의 D-26 ③ 과 같은 뜻).
+ */
+export async function reflectRows(
+  req: Request,
+  read: SettlementRead,
+  rows: readonly { id: number; effect: SettlementEffect }[],
+  opts: { beforeSend?: (planned: Map<number, SettlementPend>) => Promise<void> } = {},
+): Promise<Map<number, SettlementPend>> {
+  const plan = planReflect(read, addEffects(rows.map((r) => r.effect)));
+  if (opts.beforeSend) await opts.beforeSend(splitPend(rows, planPend(plan)));
+  return splitPend(rows, await sendReflect(req, plan));
 }
 
 /** 이번 요청에서 읽은 지금 값 — 목표값 대조(shared `reconcilePend` · `appliedEffectAt`)의 입력. */

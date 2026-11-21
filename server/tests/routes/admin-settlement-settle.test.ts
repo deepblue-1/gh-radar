@@ -584,13 +584,18 @@ const cancelReturns = (rows: SettlementLedgerRow[]): RpcHandler => () => ({ data
 const UNREADABLE_KYH = "교보 김현중 예수금을 읽지 못해 되돌릴 수 없어요 — 스위치를 끄면 예수금은 그대로 두고 취소해요";
 
 describe("POST /api/admin/settlement/settles/:id/cancel — 정산 취소", () => {
-  it("반영 켬 · 최신 p1 정산 · kyH 159,500,000 → 취소 RPC 1 → kyH 684,000,000 한 번 · unreverted []", async () => {
+  it("반영 켬 · 최신 p1 정산 · kyH 159,500,000 → 취소 RPC 1 → (IN-01 되돌릴 증감 먼저 기록) → kyH 684,000,000 한 번 → pend {} · unreverted []", async () => {
     const relay = relayOf({ costs: AFTER });
     const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
     const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
-    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel"]);
+    expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel", "settlement_set_pend", "settlement_set_pend"]);
+    // IN-01 — 보내기 전에 지운 줄에 되돌릴 증감(목표값)을 남기고, 보낸 뒤 {} 로 덮는다.
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([
+      { p_pends: [{ id: 201, pend: { kyH: { deltaKrw: 524_500_000, targetKrw: 684_000_000, reason: "failed" } } }] },
+      { p_pends: [{ id: 201, pend: {} }] },
+    ]);
     expect(paramsOf<{ p_id: number; p_by: string }>(rec, "settlement_settle_cancel")).toEqual([
       { p_id: 31, p_by: ADMIN_EMAIL },
     ]);
@@ -740,7 +745,11 @@ describe("POST /api/admin/settlement/settles/:id/cancel — 정산 취소", () =
       message: "교보 김현중 예수금은 되돌리지 못했어요 — 계좌 메뉴에서 맞춰 주세요",
     });
     expect(budgetCalls(relay.calls)).toHaveLength(1);
-    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 201, pend: want }] }]);
+    // IN-01 — 보내기 전 기록(목표값) → 보낸 뒤 남은 것.
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([
+      { p_pends: [{ id: 201, pend: want }] },
+      { p_pends: [{ id: 201, pend: want }] },
+    ]);
   });
 
   it("반영 끔 → relay 읽기 · 쓰기 0 · 취소 RPC 1", async () => {
