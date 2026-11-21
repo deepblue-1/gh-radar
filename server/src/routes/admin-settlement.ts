@@ -1,4 +1,4 @@
-import { Router, type Router as RouterT, type Request } from "express";
+import { Router, type Router as RouterT, type Request, type RequestHandler } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { z } from "zod";
 import {
@@ -91,11 +91,52 @@ import { DbError, audit } from "./admin.js";
  *   D-20     적은 사람 · 고친 사람 = `req.adminEmail`(RPC `p_by`) · 쓰기마다 `audit` 한 줄(계좌번호 · 금액 없이).
  *   권한     정산 표 · RPC 는 service_role 전용(anon · authenticated 명시 REVOKE) — 이 라우터가 유일한 창구.
  *   T-15-07  에러는 전부 `next(e)` — `errorHandler` 가 프로덕션에서 원문을 감춘다. 경고 로그엔 계좌 키 · 오류 코드만(계좌번호 · 금액 없음).
+ *   IN-05    정산 쓰기는 인스턴스 안에서 한 번에 하나씩(`serializeSettlementWrites` — 같은 계좌 동시 반영의 읽고-고치고-쓰기 경합).
  */
 
 export const adminSettlementRouter: RouterT = Router();
 
-adminSettlementRouter.use("/settlement", requireAuth(), requireAdmin());
+/** 쓰기 줄 세우기의 안전 상한 — 응답이 끝나지 않는 요청 하나가 뒤 쓰기를 영영 막지 않게(relay 쓰기 상한 15초 + 여유). */
+const WRITE_LOCK_MAX_MS = 60_000;
+let writeTail: Promise<void> = Promise.resolve();
+
+/**
+ * 정산 쓰기 줄 세우기(IN-05) — 이 인스턴스에서 정산 쓰기(GET 밖 전부)를 한 번에 하나씩 처리한다. 쓰기는 「예수금 읽기 →
+ * 목표값 계산 → 절댓값 보내기(op 6)」 라, 두 탭 · 두 관리자가 같은 계좌를 동시에 반영하면 둘 다 같은 「지금 값」 을 읽어 한쪽
+ * 증감이 사라진다. 줄은 응답이 끝나거나(finish) 연결이 끊길 때(close) · 상한 시간이 지나면 푼다.
+ *
+ * 한계(문서화한 전제): 줄은 인스턴스 메모리라 다른 Cloud Run 인스턴스(최대 3)의 쓰기와는 겹칠 수 있다 — 관리자 1 ~ 2명 ·
+ * 최소 인스턴스 1 로 같은 인스턴스가 받는 것이 보통이다. 응답을 잃은 「거래 기록」 을 다시 눌러 같은 줄이 두 번 생기는 것은
+ * 막지 못한다(멱등 키는 DB 변경이 필요해 하지 않았다) — 화면이 시간 초과 · 네트워크 실패를 「저장됐는지 확인하지 못했어요」 로
+ * 알리고 목록을 다시 불러온다.
+ */
+function serializeSettlementWrites(): RequestHandler {
+  return (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD") {
+      next();
+      return;
+    }
+    const prev = writeTail;
+    let release!: () => void;
+    writeTail = new Promise<void>((r) => {
+      release = r;
+    });
+    let released = false;
+    const timer = setTimeout(() => done(), WRITE_LOCK_MAX_MS);
+    timer.unref?.();
+    function done() {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      release();
+    }
+    res.once("finish", done);
+    res.once("close", done);
+    void prev.then(() => next());
+  };
+}
+
+adminSettlementRouter.use("/settlement", requireAuth(), requireAdmin(), serializeSettlementWrites());
 
 type PgError = { code?: string; message?: string };
 

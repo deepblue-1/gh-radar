@@ -27,6 +27,7 @@ import {
 import { AdminSheet } from "@/components/admin/admin-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { REFLECT_TEXT, ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box";
@@ -46,7 +47,8 @@ import { REFLECT_TEXT, ReflectBox, defaultReflectOn, reflectPreviewLines } from 
  *   고치기는 반영했던 거래면 켜짐(날짜를 바꿔도) · 아니면 날짜 규칙. 미리 보기 = `effectDiff(appliedEffectAt(옛 줄, 지금 값), reflectEffect(초안))`
  *   (옛 줄 pend 는 server 와 같은 목표값 대조 · CR-01).
  * - 검증은 「저장」 을 누를 때. 오류는 칸별 — 그 칸(금액 · 날짜 입력 또는 관련 알약)을 고치면 그 칸 오류만 지운다(researcher decision 14).
- * - 토스트 · alert 창 없음. 저장 실패는 하단 버튼 위 오류 줄 「저장하지 못했어요 · <message>」 로 말한다.
+ * - 토스트 · alert 창 없음. 저장 실패는 하단 버튼 위 오류 줄 「저장하지 못했어요 · <message>」 로 말한다. 응답을 못 받은 경우
+ *   (시간 초과 · 네트워크)는 저장됐을 수 있어 「저장됐는지 확인하지 못했어요 — …」 로 말한다(IN-05 · 부르는 쪽이 목록을 다시 불러온다).
  */
 
 export const LEDGER_SHEET_TEXT = {
@@ -70,6 +72,8 @@ export const LEDGER_SHEET_TEXT = {
   dateEmpty: "날짜를 골라 주세요",
   dateFuture: "미래 날짜는 적을 수 없어요",
   saveFailed: "저장하지 못했어요",
+  /** 응답을 못 받음(시간 초과 · 네트워크) — server 는 저장했을 수 있다(IN-05). 다시 누르면 같은 거래가 두 번 생길 수 있다. */
+  saveUnknown: "저장됐는지 확인하지 못했어요 — 목록을 다시 불러왔어요. 같은 거래가 생겼는지 확인한 뒤 다시 저장해 주세요",
 } as const;
 
 const T = LEDGER_SHEET_TEXT;
@@ -272,7 +276,8 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
       await onSave(ledgerDraftToBody(draft, reflect));
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
-      setSaveError(message ? `${T.saveFailed} · ${message}` : T.saveFailed);
+      if (err instanceof ApiClientError && err.status === 0) setSaveError(T.saveUnknown);
+      else setSaveError(message ? `${T.saveFailed} · ${message}` : T.saveFailed);
     } finally {
       setBusy(false);
     }

@@ -224,7 +224,13 @@ export function SettlementClient() {
   const editId = ledgerSheet.row?.id;
   const onSaveLedger = useCallback(
     async (body: SettlementLedgerBody) => {
-      await saveSettlementLedger(body, editId);
+      try {
+        await saveSettlementLedger(body, editId);
+      } catch (err) {
+        // 응답을 못 받음(시간 초과 · 네트워크) — server 는 저장했을 수 있다(IN-05). 목록을 다시 불러와 확인할 수 있게 한다.
+        if (err instanceof ApiClientError && err.status === 0) void reload();
+        throw err;
+      }
       setLedgerSheet((s) => ({ ...s, open: false }));
       setActivitySegment((s) => (s === "settle" ? "ledger" : s));
       void reload();

@@ -410,6 +410,54 @@ describe("POST /api/admin/settlement/ledger — 거래 저장 · 예수금 반�
   });
 });
 
+describe("(IN-05) 정산 쓰기 줄 세우기 — 같은 인스턴스의 동시 쓰기는 앞 쓰기가 끝난 뒤 읽는다", () => {
+  it("두 저장이 동시에 와도 두 번째 예수금 읽기는 첫 번째 보내기 · 기록이 끝난 뒤", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstSent = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    let sends = 0;
+    const guard = setTimeout(() => releaseFirst(), 1_000);
+    const relay = relayOf({
+      budget: async () => {
+        sends += 1;
+        if (sends === 1) await firstSent;
+        return undefined;
+      },
+    });
+    const { app, rec } = makeApp({}, relay.client);
+    const p1 = auth(request(app).post("/api/admin/settlement/ledger")).send(body()).then((r) => r);
+    // 첫 요청이 relay 보내기에서 멈춘 동안 두 번째를 보낸다.
+    await vi.waitFor(() => expect(sends).toBe(1));
+    const p2 = auth(request(app).post("/api/admin/settlement/ledger")).send(body()).then((r) => r);
+    await new Promise((r) => setTimeout(r, 50));
+    // 두 번째는 아직 읽지도 않았다(줄 대기).
+    expect(fns(rec).filter((f) => f === "admin_settlement_raw")).toHaveLength(1);
+    releaseFirst();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    clearTimeout(guard);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(fns(rec)).toEqual([
+      "admin_settlement_raw",
+      "settlement_ledger_save",
+      "settlement_set_pend",
+      "admin_settlement_raw",
+      "settlement_ledger_save",
+      "settlement_set_pend",
+    ]);
+  });
+
+  it("앞 쓰기가 오류로 끝나도 줄이 풀려 다음 쓰기가 처리된다", async () => {
+    const relay = relayOf();
+    const { app } = makeApp({ save: pgErr("XX000", "boom") }, relay.client);
+    const r1 = await auth(request(app).post("/api/admin/settlement/ledger")).send(body());
+    expect(r1.status).toBe(500);
+    const r2 = await auth(request(app).post("/api/admin/settlement/ledger")).send(body({ reflect: false }));
+    expect(r2.status).toBe(500);
+  });
+});
+
 describe("POST /api/admin/settlement/ledger — 바디 검증(D-09 · D-12 · D-29) · RPC 0 · relay 0", () => {
   const bad: [string, Partial<SettlementLedgerBody> & Record<string, unknown>, string | null][] = [
     ["심쥬니 출자 → kbG(D-29)", { who: "J", toAcc: "kbG" }, "심쥬니"],

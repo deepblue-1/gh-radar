@@ -263,6 +263,25 @@ describe('저장 → 닫힘 · 다시 불러오기 · 세그먼트 규칙(⑥ �
   });
 });
 
+describe('(IN-05) 응답을 못 받은 저장(시간 초과 · 네트워크)', () => {
+  it('시트 유지 · 「저장됐는지 확인하지 못했어요 — …」(접두 없음) · 목록을 다시 불러옴', async () => {
+    saveMock.mockRejectedValue(new ApiClientError({ code: 'TIMEOUT', status: 0, message: '요청이 시간 초과되었습니다' }));
+    await ready();
+    click(headButton());
+    click(sheetPill('뺀 계좌', 'KB 정근형'));
+    click(sheetPill('받는 사람', '정근형'));
+    fireEvent.change(q<HTMLInputElement>('[data-slot="ledger-amount"]')!, { target: { value: '100' } });
+    click(q('[data-slot="ledger-save"]'));
+    await waitFor(() =>
+      expect(text(q('[data-slot="ledger-save-error"]'))).toBe(
+        '저장됐는지 확인하지 못했어요 — 목록을 다시 불러왔어요. 같은 거래가 생겼는지 확인한 뒤 다시 저장해 주세요',
+      ),
+    );
+    expect(sheet()).not.toBeNull();
+    await waitFor(() => expect(fetchSettlementMock).toHaveBeenCalledTimes(2));
+  });
+});
+
 describe('줄 「고치기」(D-19)', () => {
   it('펼친 줄 「고치기」 → 「거래 고치기」 · 저장 → PUT(id 7)', async () => {
     saveMock.mockResolvedValue({ ok: true, id: 7, pend: {} });
