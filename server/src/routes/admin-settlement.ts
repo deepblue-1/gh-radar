@@ -296,12 +296,22 @@ async function saveLedger(
 adminSettlementRouter.get("/settlement", async (req, res, next) => {
   try {
     const { raw, accounts, reads, nowIso } = await readSettlement(req);
-    if (reads.length > 0) {
+    // IN-03 — 음수 예수금(실제 손실 상태)은 화면에는 그대로 보이되 DB 기록에서는 뺀다. 표 CHECK(budget_krw ≥ 0)가 한 문장
+    // upsert 를 통째로 실패시켜 다른 계좌 기록까지 버려지지 않게 한다(그 계좌는 마지막으로 기록된 값이 남는다).
+    const negative = reads.filter((r) => r.budgetKrw < 0).map((r) => r.accKey);
+    if (negative.length > 0) {
+      logger.warn(
+        { settlement: { op: "record-reads", negative } },
+        "[admin] 정산 예수금이 음수인 계좌는 읽은 값 기록에서 뺀다",
+      );
+    }
+    const toRecord = reads.filter((r) => r.budgetKrw >= 0);
+    if (toRecord.length > 0) {
       const supabase = req.app.locals.supabase as SupabaseClient;
       let code: string | null = null;
       let failed = false;
       try {
-        const { error } = await supabase.rpc("settlement_record_reads", { p_reads: reads });
+        const { error } = await supabase.rpc("settlement_record_reads", { p_reads: toRecord });
         if (error) {
           failed = true;
           code = (error as { code?: string }).code ?? null;
@@ -311,7 +321,7 @@ adminSettlementRouter.get("/settlement", async (req, res, next) => {
       }
       if (failed) {
         logger.warn(
-          { settlement: { op: "record-reads", accounts: reads.map((r) => r.accKey), code } },
+          { settlement: { op: "record-reads", accounts: toRecord.map((r) => r.accKey), code } },
           "[admin] 정산 읽은 예수금 기록 실패 — 응답은 방금 읽은 값으로",
         );
       }

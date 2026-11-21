@@ -213,6 +213,22 @@ describe("GET /api/admin/settlement", () => {
     expect(p.p_reads.find((r) => r.accKey === "kyG")).toMatchObject({ budgetKrw: 0 });
   });
 
+  it("(IN-03) relay 가 kyG 예수금 −5,000,000 → 화면은 known 음수 그대로 · 기록에서는 kyG 만 빼고 세 계좌 기록 · 경고 1회", async () => {
+    const warn = vi.spyOn(logger, "warn");
+    const relay = makeFakeRelay(relayWith(costsOf(-5_000_000)));
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).get("/api/admin/settlement"));
+    expect(res.status).toBe(200);
+    const body = res.body as SettlementView;
+    expect(body.accounts.find((a) => a.accKey === "kyG")).toMatchObject({ state: "known", budgetKrw: -5_000_000 });
+    const p = rec.rpcCalls.find((c) => c.fn === "settlement_record_reads")!.params as { p_reads: SettlementRawRead[] };
+    expect(p.p_reads.map((r) => r.accKey)).toEqual(["kbG", "kyH", "kbH"]);
+    const ours = warn.mock.calls.filter(
+      (args) => (args[0] as { settlement?: { op?: string } })?.settlement?.op === "record-reads",
+    );
+    expect(ours.map((c) => c[0])).toEqual([{ settlement: { op: "record-reads", negative: ["kyG"] } }]);
+  });
+
   it("⑤ admin_settlement_raw 오류 · 모양 위반 → 500 DB_ERROR", async () => {
     const relay = makeFakeRelay(relayWith(costsOf()));
     const e1 = makeApp({ raw: () => ({ data: null, error: { code: "XX000", message: "boom" } }) }, relay.client);

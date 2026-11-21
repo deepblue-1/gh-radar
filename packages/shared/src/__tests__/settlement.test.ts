@@ -370,6 +370,13 @@ describe("buildSettlementAccounts (D-04)", () => {
     ]);
   });
 
+  it("(IN-03) known 음수 → 「미설정」 이 아니라 known 음수 그대로 · reads 에도 남는다(기록에서 빼는 것은 라우트 몫)", () => {
+    const costs: AdminAccountCostsRaw = { servers: { KB120: [costRow("a01", "1001", -5_000_000)] } };
+    const { accounts, reads } = buildSettlementAccounts(raw(), costs, NOW);
+    expect(accounts[0]).toMatchObject({ accKey: "kbG", state: "known", budgetKrw: -5_000_000, readAt: NOW });
+    expect(reads).toEqual([{ accKey: "kbG", budgetKrw: -5_000_000, source: "snapshot", serverKey: "KB120", readAt: NOW }]);
+  });
+
   it("못 읽음 + 마지막 값 → stale(그 값 · 그 시각) · 못 읽음 + 기록 없음 → unset", () => {
     const at = "2026-11-19T10:58:00.000Z";
     const { accounts, reads } = buildSettlementAccounts(

@@ -349,6 +349,8 @@ export function settlementBudgetOf(
  *
  * - raw 에 그 계좌가 없으면(계좌 대응 전) unset.
  * - relay 로 읽음(known) → reads 에 기록 · 값이 0 이면 unset(D-25 「미설정」 · readAt 은 지금) 아니면 known.
+ *   음수(실현손익으로 깎인 실제 손실 상태)도 known 이다 — 「미설정」 으로 바꾸면 손실이 「설정 안 됨」 으로 보인다(IN-03).
+ *   DB 기록은 라우트가 음수를 빼고 남긴다(`settlement_budget_reads` CHECK ≥ 0).
  * - 못 읽음 → DB 의 마지막 값 — 0 보다 크면 stale(그 값 · 그 시각) · 0 이면 unset(그 시각) · 없으면 unset(시각 없음).
  */
 export function buildSettlementAccounts(
@@ -371,7 +373,7 @@ export function buildSettlementAccounts(
         serverKey: pick.source,
         readAt: nowIso,
       });
-      return pick.budgetKrw > 0
+      return pick.budgetKrw !== 0
         ? { ...base, state: "known", budgetKrw: pick.budgetKrw, readAt: nowIso, mismatch: pick.mismatch }
         : { ...base, state: "unset", budgetKrw: null, readAt: nowIso, mismatch: false };
     }
