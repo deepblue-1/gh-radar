@@ -42,10 +42,18 @@ export const ACTIVITY_SUB = "mb-2 rounded-[12px] bg-[var(--muted)] px-4 py-1";
 /** 펼침 단추 줄(`.ma`). */
 export const ACTIVITY_ACTIONS =
   "flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-2 pb-3 text-[12px] first:border-t-0";
-/** 펼친 줄 작은 버튼 — `--muted` 상자 위 `--card` 면 + 테두리(researcher decision 22). */
+/**
+ * 터치 히트 44(quick 261121-gdx · 44-UI-REVIEW 5 · 8) — 보이는 크기는 그대로 두고 누르는 영역만 세로 44.
+ * 위아래로 넘친 부분은 투명 의사 요소(reflect-box 스위치 `after:` 히트 선례). 높이가 18 이든 32 든 가운데 기준 44.
+ * 줄바꿈된 알약 줄 사이(틈 8)에서는 위아래 히트가 4px 겹친다(뒤 DOM 이 이김 · 보이는 알약 면은 가리지 않음).
+ */
+export const SETTLE_HIT_44 =
+  "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']";
+/** 펼친 줄 작은 버튼 — `--muted` 상자 위 `--card` 면 + 테두리(researcher decision 22) · 히트 44. */
 export const ACTIVITY_SMALL_BUTTON = cn(
   ADMIN_BUTTON_SECONDARY,
   "bg-[var(--card)] ring-1 ring-inset ring-[var(--border-subtle)]",
+  SETTLE_HIT_44,
 );
 /** 형제 줄 위 hairline · 첫 줄 없음. */
 export const ACTIVITY_ITEM = "border-t border-[var(--border-subtle)] first:border-t-0";

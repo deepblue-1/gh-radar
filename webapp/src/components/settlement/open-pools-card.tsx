@@ -124,7 +124,7 @@ function PoolBlock({
       className={cn("mt-3 border-t border-[var(--border-subtle)] pt-3", first && "mt-2 border-t-0 pt-0")}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="flex min-w-0 items-baseline gap-1.5">
+        <span className="flex min-w-0 items-baseline gap-2">
           <span className="text-[14px] font-semibold text-[var(--fg)]">{def.name}</span>
           <span className="text-[12px] text-[var(--muted-fg)]">{def.ratioLabel}</span>
         </span>

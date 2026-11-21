@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { SETTLE_HIT_44 } from "./ledger-row";
 import { REFLECT_TEXT, ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box";
 
 /**
@@ -40,13 +41,15 @@ import { REFLECT_TEXT, ReflectBox, defaultReflectOn, reflectPreviewLines } from 
  * - 처음 값(사용자 확정 2026-11-20): 「수익 출금」 · 계좌 · 사람 안 고름 · 경로 「계좌이체」 · 날짜 오늘(KST · 시트를 연 순간 · WR-01) ·
  *   금액 빈 칸. 필요한 계좌 · 사람을 다 고르기 전에는 「저장」 비활성 · 미리 보기 줄 없음.
  * - 종류를 바꿔도 같은 이름 칸은 값을 이어받는다(목업 `draftTx` — 뺀 = 보낸 계좌 · 받은 계좌 · 사람이 한 상태).
- * - 금액(D-09)은 만원 — 숫자만 · 최대 7자리 · 천단위 콤마 · 저장 값 = 만원 × 10,000 원.
+ * - 금액(D-09)은 만원 — 숫자만 · 최대 7자리 · 천단위 콤마 · 저장 값 = 만원 × 10,000 원. 넘치면 값은 그대로 · 칸 오류 줄에 상한 안내
+ *   (앞 7자리로 잘라 넣지 않는다 — 원 단위 금액을 붙여넣으면 만 배 금액이 조용히 들어간다 · quick 261121-gdx).
  * - D-29: 출자 · 원금 회수인데 고른 계좌 묶음 비율에 없는 사람(현중 · 근형 묶음의 심쥬니)은 알약을 막는다(흐림 ·
  *   `aria-disabled` · 방향키 건너뜀). 종류 · 계좌를 바꿔 지금 고른 사람이 막히면 사람 선택을 비운다.
  * - 스위치(D-11 · D-23): 새 거래는 날짜가 오늘이면 켜짐 · 지난 날짜면 꺼짐 — 날짜를 바꿀 때마다 다시 적용한다.
  *   고치기는 반영했던 거래면 켜짐(날짜를 바꿔도) · 아니면 날짜 규칙. 미리 보기 = `effectDiff(appliedEffectAt(옛 줄, 지금 값), reflectEffect(초안))`
  *   (옛 줄 pend 는 server 와 같은 목표값 대조 · CR-01).
  * - 검증은 「저장」 을 누를 때. 오류는 칸별 — 그 칸(금액 · 날짜 입력 또는 관련 알약)을 고치면 그 칸 오류만 지운다(researcher decision 14).
+ * - 열릴 때 첫 포커스는 시트 컨테이너(preventScroll) — 머리 × 버튼에 포커스 링이 서지 않게(quick 261121-gdx · 44-UI-REVIEW 7).
  * - 토스트 · alert 창 없음. 저장 실패는 하단 버튼 위 오류 줄 「저장하지 못했어요 · <message>」 로 말한다. 응답을 못 받은 경우
  *   (시간 초과 · 네트워크)는 저장됐을 수 있어 「저장됐는지 확인하지 못했어요 — …」 로 말한다(IN-05 · 부르는 쪽이 목록을 다시 불러온다).
  */
@@ -68,6 +71,8 @@ export const LEDGER_SHEET_TEXT = {
   cancel: "취소",
   save: "저장",
   amountEmpty: "금액을 넣어 주세요",
+  /** 7자리 넘는 입력 — 값은 그대로 두고 칸 오류 줄로 말한다(D-09 상한). */
+  amountMax: "금액은 만원 단위로 9,999,999만원까지 적을 수 있어요",
   sameAcc: "보낸 계좌와 받은 계좌가 같아요",
   dateEmpty: "날짜를 골라 주세요",
   dateFuture: "미래 날짜는 적을 수 없어요",
@@ -254,7 +259,11 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
 
   const onAmount = (value: string) => {
     const digits = value.replace(/\D/g, "");
-    if (digits.length > AMOUNT_MAX_DIGITS) return;
+    if (digits.length > AMOUNT_MAX_DIGITS) {
+      // 값은 바꾸지 않는다(잘라 넣지 않음) — 칸 오류 줄에 상한 안내만. 범위 안 입력이 오면 아래 `amount: null` 이 지운다.
+      setErrors((e) => ({ ...e, amount: T.amountMax }));
+      return;
+    }
     setDraft((d) => ({ ...d, amountManwon: digits.replace(/^0+(?=\d)/, "") }));
     setErrors((e) => ({ ...e, amount: null }));
   };
@@ -364,6 +373,11 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
         if (!next && !busy) onClose();
       }}
       title={editRow ? T.titleEdit : T.titleNew}
+      // 첫 포커스 = 시트 컨테이너(Radix 콘텐츠 tabIndex -1) · preventScroll — 머리 × 에 포커스가 가지 않게(app-shell 드로어 선례).
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+      }}
       footer={
         <div className="flex w-full min-w-0 flex-col gap-2">
           {saveError && (
@@ -560,6 +574,7 @@ function PillGroup<V extends string>({
             }}
             className={cn(
               "inline-flex h-8 flex-none items-center rounded-full border px-3 text-[length:var(--t-sm)] whitespace-nowrap transition-colors",
+              SETTLE_HIT_44,
               on
                 ? "border-[var(--fg)] bg-transparent font-semibold text-[var(--fg)]"
                 : "border-transparent bg-[var(--muted)] font-normal text-[var(--muted-fg)]",

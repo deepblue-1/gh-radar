@@ -16,7 +16,8 @@ import {
  * | 처음 | 새로 열기 | 「거래 기록」 · 「수익 출금」 · 계좌 · 사람 안 고름 · 「저장」 비활성 · 날짜 오늘 · max 오늘 · 금액 placeholder 「0」 · 미리 보기 없음 · 스위치 켜짐 |
  * | 칸 순서 | 종류 넷 | 무슨 거래 → 계좌 · 사람 → 금액 → 날짜 → 메모(D-27) · 같은 이름 칸 이어받음 |
  * | 날짜 | 어제 → 오늘 | 스위치 꺼짐 「예수금은 그대로 둬요」 → 켜짐(D-11) |
- * | 금액 | 12345 · 8자리 | 「12,345」 · 무시 · 바디 123,450,000 원(D-09) |
+ * | 금액 | 12345 · 8자리 | 「12,345」 · 값 그대로 · 상한 안내(칸 오류 줄) · 바디 123,450,000 원(D-09) |
+ * | 첫 포커스 | 열기 | 시트 컨테이너(머리 × 아님 · quick 261121-gdx) |
  * | D-29 | 출자 + KB 정근형 | 「심쥬니」 aria-disabled · 클릭 무시 · 방향키 건너뜀 · 조합이 바뀌면 사람 비움 |
  * | 검증 | 빈 금액 · 같은 계좌 · 빈 날짜 · 미래 날짜 | 칸 aria-invalid + 오류 줄(alert) · onSave 0 · 그 칸을 고치면 사라짐 |
  * | 미리 보기 | 수익 출금 KB 정근형 1억 | 「KB 정근형 예수금 8억 4,500만 → 7억 4,500만」 |
@@ -255,7 +256,7 @@ describe('LedgerSheet — 자정을 넘겨 열어 둔 탭(WR-01)', () => {
 });
 
 describe('LedgerSheet — 금액(D-09)', () => {
-  it('「12345」 → 「12,345」 · 8자리째 무시 · 저장 바디 amountKrw 123,450,000', async () => {
+  it('「12345」 → 「12,345」 · 8자리째 값 그대로 · 상한 안내 · 저장 바디 amountKrw 123,450,000', async () => {
     const { onSave } = open();
     type(amount(), '12345');
     expect(amount()?.value).toBe('12,345');
@@ -263,7 +264,12 @@ describe('LedgerSheet — 금액(D-09)', () => {
     expect(amount()?.value).toBe('1,234,567');
     type(amount(), '1,234,5678');
     expect(amount()?.value).toBe('1,234,567');
+    expect(errorOf('amount')?.textContent).toBe('금액은 만원 단위로 9,999,999만원까지 적을 수 있어요');
+    expect(errorOf('amount')?.getAttribute('role')).toBe('alert');
+    expect(amount()?.getAttribute('aria-invalid')).toBe('true');
     type(amount(), '12,345');
+    expect(errorOf('amount')).toBeNull();
+    expect(amount()?.getAttribute('aria-invalid')).toBeNull();
     click(pill('뺀 계좌', 'KB 정근형'));
     click(pill('받는 사람', '정근형'));
     click(saveBtn());
@@ -281,6 +287,23 @@ describe('LedgerSheet — 금액(D-09)', () => {
       memo: '',
       reflect: true,
     });
+  });
+});
+
+describe('LedgerSheet — 금액 상한 · 첫 포커스 (quick 261121-gdx · 44-UI-REVIEW 6 · 7)', () => {
+  it('빈 칸에 「99999999」(8자리) → 값 빈 칸 그대로 · 「금액을 넣어 주세요」 가 아니라 상한 안내', () => {
+    open();
+    type(amount(), '99999999');
+    expect(amount()?.value).toBe('');
+    expect(errorOf('amount')?.textContent).toBe(LEDGER_SHEET_TEXT.amountMax);
+    expect(errorOf('amount')?.textContent).not.toBe(LEDGER_SHEET_TEXT.amountEmpty);
+  });
+
+  it('열면 첫 포커스가 시트 컨테이너([data-admin-sheet]) · 머리 닫기 버튼이 아니다', async () => {
+    open();
+    const sheet = document.querySelector('[data-admin-sheet]');
+    await waitFor(() => expect(document.activeElement).toBe(sheet));
+    expect(document.activeElement).not.toBe(document.querySelector('[data-slot="sheet-close"]'));
   });
 });
 

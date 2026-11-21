@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
  * - side 는 **뷰포트** 기준이다 — 시트는 앱 셸 레벨 오버레이라 본문 폭 컨테이너 쿼리 대상이 아니다
  *   (CLAUDE.md Conventions: 앱 셸 · 사이드바는 뷰포트 브레이크포인트). SSR 첫 렌더는 데스크톱(right).
  * - 머리(제목 = 접근 이름 · 닫기 ×) · 스크롤 본문 · 고정 footer(29-17 의 「사용자 삭제 · 다시 반영」 자리).
+ * - 첫 포커스는 선택형 `onOpenAutoFocus` — 주지 않으면 Radix 기본(머리 닫기 ×). 정산 시트는 컨테이너로 돌린다(quick 261121-gdx).
  *
  * 29-17(편집) · 29-18(서버) · 29-19(생성) 시트가 이 틀을 쓴다 — 저장 버튼 · 토스트 같은 목업 밖 요소는 두지 않는다.
  */
@@ -58,6 +59,8 @@ export interface AdminSheetProps {
   children: ReactNode;
   /** 본문 밖 고정 하단 영역. */
   footer?: ReactNode;
+  /** 열릴 때 첫 포커스 — 주지 않으면 Radix 기본(머리 닫기 버튼). 정산 시트는 컨테이너로 돌린다. */
+  onOpenAutoFocus?: (event: Event) => void;
 }
 
 export function AdminSheet({
@@ -68,6 +71,7 @@ export function AdminSheet({
   description,
   children,
   footer,
+  onOpenAutoFocus,
 }: AdminSheetProps) {
   const desktop = useIsDesktopViewport();
 
@@ -79,6 +83,7 @@ export function AdminSheet({
         overlay={!desktop}
         // 데스크톱 비모달: 바깥 pointerdown · focus 로 닫지 않는다(목록 행 클릭 = 선택 전환). Esc · × 는 그대로 닫는다.
         onInteractOutside={desktop ? (e) => e.preventDefault() : undefined}
+        onOpenAutoFocus={onOpenAutoFocus}
         data-admin-sheet=""
         className={cn(
           // 다크의 --popover 는 --muted 와 같은 색(#2d2d2d)이라 시트 안 muted 면(버튼 · 세그먼트 · 입력 · 배지)이 사라진다 —

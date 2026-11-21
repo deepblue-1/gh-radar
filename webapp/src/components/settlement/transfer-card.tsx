@@ -3,6 +3,7 @@ import { formatEokMan, formatEokManMinus, hgSum, type SettlementLedgerRow } from
 import { CARD } from "@/components/layout/page-layout";
 import { cn } from "@/lib/utils";
 
+import { SETTLE_HIT_44 } from "./ledger-row";
 import { Tr2Row } from "./name-vs-card";
 
 /**
@@ -53,7 +54,7 @@ export function TransferCard({
         <button
           type="button"
           onClick={onShowTransfers}
-          className="text-[12px] text-[var(--accent-fg)] hover:underline"
+          className={cn("text-[12px] text-[var(--accent-fg)] hover:underline", SETTLE_HIT_44)}
         >
           이체 내역 보기
         </button>

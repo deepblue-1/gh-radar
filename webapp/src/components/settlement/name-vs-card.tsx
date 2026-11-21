@@ -91,7 +91,7 @@ function ZeroAmount({ children }: { children: ReactNode }) {
   return (
     <p
       data-slot="settlement-name-zero-amt"
-      className="mt-0.5 text-[18px] font-semibold leading-[1.2] tracking-[-0.01em] text-[var(--fg)]"
+      className="mt-1 text-[18px] font-semibold leading-[1.2] tracking-[-0.01em] text-[var(--fg)]"
     >
       {children}
     </p>

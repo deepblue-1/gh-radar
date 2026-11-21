@@ -205,6 +205,22 @@ describe('SettleSheet — 처음 열기(E8 populated)', () => {
     // 기간 줄(「25년 말 ~ 11/19」)이 없다(D-27)
     expect(text(q('[data-slot="settle-sheet"]'))).not.toContain('25년 말');
   });
+
+  it('열면 첫 포커스가 시트 컨테이너([data-admin-sheet]) · 머리 닫기 버튼이 아니다(quick 261121-gdx · 44-UI-REVIEW 7)', async () => {
+    at(NIGHT);
+    open();
+    const sheet = document.querySelector('[data-admin-sheet]');
+    await waitFor(() => expect(document.activeElement).toBe(sheet));
+    expect(document.activeElement).not.toBe(document.querySelector('[data-slot="sheet-close"]'));
+  });
+
+  it('「바로 출금」 켜짐 면은 정산 전용 --settle-on-bg(흰 글자 4.5 : 1 · 44-UI-REVIEW 3)', () => {
+    at(NIGHT);
+    open();
+    click(outBtn('H'));
+    expect(outBtn('H')?.className).toContain('bg-[var(--settle-on-bg)]');
+    expect(outBtn('H')?.className).not.toContain('bg-[var(--primary)]');
+  });
 });
 
 describe('바로 출금 · 뺄 계좌 · 반영 상자(D-09 · D-15 · 규칙 3)', () => {

@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { AccountTable } from "./account-table";
+import { SETTLE_HIT_44 } from "./ledger-row";
 import { PersonDot } from "./open-pools-card";
 import { ReflectBox, reflectPreviewLines } from "./reflect-box";
 
@@ -48,7 +49,8 @@ import { ReflectBox, reflectPreviewLines } from "./reflect-box";
  * - 쥬니 정산 전 수익이 정확히 0 이면 shared 는 `block: "carry"` · `carryKrw: 0` 을 돌려준다 — 「원금 4억까지 0 남았습니다」 는
  *   뜻이 없어 「나눌 수익이 없습니다.」 로 말한다(44-11 결정 · 만으로 내린 값이 0 인 경우까지 — shared `carryShown`).
  *   이월 기준은 shared `carryBasisLabel` — 지난 정산이 있으면 「지난 정산 수준까지」 · 없으면 「원금 <넣은 돈 합>까지」(IN-02).
- * - 열릴 때 첫 포커스: `AdminSheet` 가 `onOpenAutoFocus` 를 받지 않아 Radix 기본(머리 × 버튼)이다(44-10 과 같은 한계 · 공용 골격은 손대지 않음).
+ * - 열릴 때 첫 포커스: 시트 컨테이너(preventScroll) — `AdminSheet` 의 선택형 `onOpenAutoFocus` 로 머리 × 버튼 대신 컨테이너에 둔다
+ *   (quick 261121-gdx · 44-UI-REVIEW 7 · 정산 밖 시트는 종전 Radix 기본 그대로).
  */
 
 export const SETTLE_SHEET_TEXT = {
@@ -207,6 +209,11 @@ export function SettleSheet({ open, view, nowIso, onClose, onConfirm }: SettleSh
         if (!next && !busy) onClose();
       }}
       title={T.title}
+      // 첫 포커스 = 시트 컨테이너(Radix 콘텐츠 tabIndex -1) · preventScroll — 머리 × 에 포커스가 가지 않게(app-shell 드로어 선례).
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+      }}
       footer={
         <div className="flex w-full min-w-0 flex-col gap-2">
           {error && (
@@ -322,6 +329,7 @@ export function SettleSheet({ open, view, nowIso, onClose, onConfirm }: SettleSh
                           onClick={() => toggleOut(p)}
                           className={cn(
                             "inline-flex h-8 flex-none items-center rounded-full border px-3 text-[12px] font-semibold whitespace-nowrap transition-colors",
+                            SETTLE_HIT_44,
                             "disabled:cursor-not-allowed disabled:opacity-50",
                             on
                               ? "border-[var(--settle-on-bg)] bg-[var(--settle-on-bg)] text-[var(--primary-fg)]"
@@ -425,6 +433,7 @@ function PoolPills({
             }}
             className={cn(
               "inline-flex h-8 flex-none items-center rounded-full border px-3 text-[length:var(--t-sm)] whitespace-nowrap transition-colors",
+              SETTLE_HIT_44,
               on
                 ? "border-[var(--fg)] bg-transparent font-semibold text-[var(--fg)]"
                 : "border-transparent bg-[var(--muted)] font-normal text-[var(--muted-fg)]",

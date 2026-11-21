@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 /**
  * Phase 29 (29-15) — `AdminSheet` 반응형 시트 골격 (D-14 · 목업 A).
@@ -141,5 +141,31 @@ describe('AdminSheet', () => {
     expect(overlays()).toHaveLength(1);
     fireEvent.pointerDown(overlays()[0]);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('onOpenAutoFocus 없음 → 종전 Radix 기본 · 첫 포커스는 머리 닫기 버튼', async () => {
+    mockViewport(false);
+    render(
+      <AdminSheet open onOpenChange={() => {}} title="시트">
+        <p>본문</p>
+      </AdminSheet>,
+    );
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-slot="sheet-close"]')));
+  });
+
+  it('onOpenAutoFocus 를 주면 열릴 때 1회 불리고 그 핸들러가 첫 포커스를 정한다(quick 261121-gdx)', async () => {
+    mockViewport(false);
+    const onOpenAutoFocus = vi.fn((e: Event) => {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+    });
+    render(
+      <AdminSheet open onOpenChange={() => {}} title="시트" onOpenAutoFocus={onOpenAutoFocus}>
+        <p>본문</p>
+      </AdminSheet>,
+    );
+    await waitFor(() => expect(onOpenAutoFocus).toHaveBeenCalledTimes(1));
+    expect(document.activeElement).toBe(content());
+    expect(document.activeElement).not.toBe(document.querySelector('[data-slot="sheet-close"]'));
   });
 });
