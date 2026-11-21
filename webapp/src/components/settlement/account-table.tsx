@@ -26,14 +26,12 @@ import { cn } from "@/lib/utils";
 const TONE_CLASS = { up: "text-[var(--up)]", down: "text-[var(--down)]" } as const;
 const WARN_LINE = "col-span-full break-keep text-[var(--led-latent)]";
 
-function defaultLabel(acc: SettlementAccKey): string {
+function labelOf(acc: SettlementAccKey): string {
   return SETTLEMENT_ACCOUNTS.find((a) => a.key === acc)?.label ?? acc;
 }
 
 export interface AccountTableProps {
   rows: SettlementSnapshotAccount[];
-  /** 계좌 이름 바꿔 쓰기(없으면 shared 라벨). */
-  labels?: Partial<Record<SettlementAccKey, string>>;
   /** 누적 줄 — 정산한 적 있는 묶음만(부르는 쪽이 판정). null 이면 줄 없음. */
   cum: { cumKrw: number; prevKrw: number } | null;
   /** now = 지금 화면 · past = 지난 정산 기록(못 읽음 줄 끝 문구가 다르다). */
@@ -48,9 +46,7 @@ export interface AccountTableProps {
   compact?: boolean;
 }
 
-export function AccountTable({ rows, labels, cum, mode, readLine, mismatch, nowIso, compact }: AccountTableProps) {
-  const labelOf = (acc: SettlementAccKey) => labels?.[acc] ?? defaultLabel(acc);
-
+export function AccountTable({ rows, cum, mode, readLine, mismatch, nowIso, compact }: AccountTableProps) {
   // 못 읽은 계좌 — 같은 읽은 시각끼리 한 줄(「교보 김현중 · 교보 정근형 — …」).
   const staleGroups: { when: string; names: string[] }[] = [];
   for (const r of rows) {
