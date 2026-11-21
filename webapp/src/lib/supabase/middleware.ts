@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { decideAccess, type AccessRole } from "./access-gate";
+import { decideAccess, isAdminPath, type AccessRole } from "./access-gate";
 import { isPublicPath } from "./public-path";
 
 /**
@@ -80,10 +80,21 @@ export async function updateSession(request: NextRequest) {
   // [Phase 29 D-01 · D-04 · D-21] 역할 게이트 — 판정 표는 access-gate.ts 가 정본, 여기서는 호출만.
   if (user && !isPublic) {
     const { data, error } = await supabase.rpc("my_app_access");
+    const role = (data as AccessRole | null) ?? null;
+    // [quick 261121-n1b] trader 에게 연 어드민 메뉴 — 추가 왕복은 trader 의 /admin 요청에만(그 밖 사용자 · 경로는 0).
+    // 오류 · 배열 아님 → [](fail closed — 열린 메뉴 없음 = 홈으로). 문자열만 넘기고 키 판정은 access-gate 가 한다.
+    let adminMenus: string[] = [];
+    if (error === null && role === "trader" && isAdminPath(pathname)) {
+      const menus = await supabase.rpc("my_admin_menus");
+      if (menus.error === null && Array.isArray(menus.data)) {
+        adminMenus = (menus.data as unknown[]).filter((m): m is string => typeof m === "string");
+      }
+    }
     const decision = decideAccess({
       pathname,
-      role: (data as AccessRole | null) ?? null,
+      role,
       roleError: error !== null,
+      adminMenus,
     });
     if (decision.kind === "redirect") {
       const url = request.nextUrl.clone();

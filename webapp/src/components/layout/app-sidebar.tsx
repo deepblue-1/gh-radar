@@ -13,6 +13,7 @@ import {
   type LatchLedTone,
 } from "@/components/trading/latch-led";
 import { useAppRole } from "@/hooks/use-app-role";
+import { useAdminMenus } from "@/hooks/use-admin-menus";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { useAuth } from "@/lib/auth-context";
 import { accountFullLabelOf, accountShortLabelOf, type AccountLabelInput } from "@/lib/account-label";
@@ -190,8 +191,8 @@ const NAV_TICKS = { href: "/analytics/ticks", label: "틱뷰어" } as const;
 
 /**
  * 「Admin」 그룹 제목 = 첫 하위 항목 `/admin/pnl` 링크(Phase 29 D-13 · quick 261106-ntl N-04). 하위 순서(quick 261106-ntl N-04) =
- * 매매손익(Phase 36 D-17) · 계좌(quick 261106-lwu D-01) · 사용자 · 서버 · 러쉬 주문(Phase 35 D-11). 위치는 My page 뒤 = 목록 맨 끝(quick 261106-lwu D-02 — 종전 「분석 뒤 · My page 앞」 을 뒤집었다). 노출은 **역할만** 본다 — `useAppRole() === "admin"`(RPC `my_app_access`, relay 연결과 무관).
- * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만)와 Express `requireAdmin` 이다.
+ * 매매손익(Phase 36 D-17) · 계좌(quick 261106-lwu D-01) · 사용자 · 서버 · 러쉬 주문(Phase 35 D-11). 위치는 My page 뒤 = 목록 맨 끝(quick 261106-lwu D-02 — 종전 「분석 뒤 · My page 앞」 을 뒤집었다). 노출은 admin 은 전부 · trader 는 열린 메뉴만(quick 261121-n1b — `useAppRole()` + `useAdminMenus(role)` · RPC `my_app_access` · `my_admin_menus`, relay 연결과 무관). 매매손익이 닫힌 trader 의 제목 링크는 `/admin/settlement`.
+ * 숨김은 권한이 아니다(위 ④) — 실제 차단은 middleware(`/admin` 접두 = admin 만 · trader 는 열린 메뉴 경로만)와 Express `requireAdmin` · `requireAdminOrMenu` 다.
  * 활성은 「분석」 규율 그대로 하위 항목이 켠다(펼침에서 제목은 켜지 않음) · 레일은 `/admin` 접두 일치로 제목 아이콘.
  * 앱 · 좁은 화면은 드로어 사이드바로 들어간다.
  */
@@ -604,7 +605,14 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { accounts, limitChasers, viSlots } = useRelayContext();
   const tradingVisible = useTradingVisible();
-  const adminVisible = useAppRole() === "admin";
+  // quick 261121-n1b — admin 은 전부 · trader 는 열린 메뉴(매매손익 · 정산)만. 메뉴 훅은 trader 일 때만 RPC 를 부른다.
+  const role = useAppRole();
+  const adminMenus = useAdminMenus(role);
+  const isAdmin = role === "admin";
+  const showPnl = isAdmin || adminMenus.includes("pnl");
+  const showSettlement = isAdmin || adminMenus.includes("settlement");
+  const adminVisible = showPnl || showSettlement;
+  const adminHeading: NavLeaf = showPnl ? NAV_ADMIN : { ...NAV_ADMIN, href: NAV_ADMIN_SETTLEMENT.href };
   const labels = useIsinLabels();
   const rail = useSidebarCollapsed();
 
@@ -753,72 +761,84 @@ export function AppSidebar() {
 
         {adminVisible && (
           <>
-            {/* 「Admin」(Phase 29 D-13) — My page 뒤 · 목록 맨 끝(quick 261106-lwu D-02). 제목 링크 = 첫 항목 /admin/pnl(quick 261106-ntl N-04). 노출은 역할만(트레이딩 노출 조건과 무관). */}
+            {/* 「Admin」(Phase 29 D-13) — My page 뒤 · 목록 맨 끝(quick 261106-lwu D-02). 제목 링크 = 첫 항목 /admin/pnl(quick 261106-ntl N-04 · 매매손익이 닫힌 trader 는 /admin/settlement). 노출은 admin 전부 · trader 열린 메뉴만(quick 261121-n1b · 트레이딩 노출 조건과 무관). */}
             <GroupHeading
               label={NAV_ADMIN.label}
               icon={NAV_ADMIN.icon}
-              item={NAV_ADMIN}
+              item={adminHeading}
               active={rail && inAdmin}
-              ariaCurrent={rail && isActive(NAV_ADMIN.href)}
+              ariaCurrent={rail && isActive(adminHeading.href)}
               rail={rail}
             />
             <li className="rail:hidden">
               <ul className={SUB_LIST}>
                 {/* quick 261106-ntl N-04 · Phase 44 D-18 — 매매손익 · 정산 · 계좌 · 사용자 · 서버 · 러쉬 주문. */}
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_PNL.href}
-                    label={NAV_ADMIN_PNL.label}
-                    item="admin-pnl"
-                    active={isActive(NAV_ADMIN_PNL.href)}
-                    rail={rail}
-                  />
-                </li>
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_SETTLEMENT.href}
-                    label={NAV_ADMIN_SETTLEMENT.label}
-                    item="admin-settlement"
-                    active={isActive(NAV_ADMIN_SETTLEMENT.href)}
-                    rail={rail}
-                  />
-                </li>
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_ACCOUNTS.href}
-                    label={NAV_ADMIN_ACCOUNTS.label}
-                    item="admin-accounts"
-                    active={isActive(NAV_ADMIN_ACCOUNTS.href)}
-                    rail={rail}
-                  />
-                </li>
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_USERS.href}
-                    label={NAV_ADMIN_USERS.label}
-                    item="admin-users"
-                    active={isActive(NAV_ADMIN_USERS.href)}
-                    rail={rail}
-                  />
-                </li>
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_SERVERS.href}
-                    label={NAV_ADMIN_SERVERS.label}
-                    item="admin-servers"
-                    active={isActive(NAV_ADMIN_SERVERS.href)}
-                    rail={rail}
-                  />
-                </li>
-                <li>
-                  <SubNavLink
-                    href={NAV_ADMIN_LAUNCH.href}
-                    label={NAV_ADMIN_LAUNCH.label}
-                    item="admin-launch"
-                    active={isActive(NAV_ADMIN_LAUNCH.href)}
-                    rail={rail}
-                  />
-                </li>
+                {showPnl && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_PNL.href}
+                      label={NAV_ADMIN_PNL.label}
+                      item="admin-pnl"
+                      active={isActive(NAV_ADMIN_PNL.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
+                {showSettlement && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_SETTLEMENT.href}
+                      label={NAV_ADMIN_SETTLEMENT.label}
+                      item="admin-settlement"
+                      active={isActive(NAV_ADMIN_SETTLEMENT.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
+                {isAdmin && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_ACCOUNTS.href}
+                      label={NAV_ADMIN_ACCOUNTS.label}
+                      item="admin-accounts"
+                      active={isActive(NAV_ADMIN_ACCOUNTS.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
+                {isAdmin && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_USERS.href}
+                      label={NAV_ADMIN_USERS.label}
+                      item="admin-users"
+                      active={isActive(NAV_ADMIN_USERS.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
+                {isAdmin && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_SERVERS.href}
+                      label={NAV_ADMIN_SERVERS.label}
+                      item="admin-servers"
+                      active={isActive(NAV_ADMIN_SERVERS.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
+                {isAdmin && (
+                  <li>
+                    <SubNavLink
+                      href={NAV_ADMIN_LAUNCH.href}
+                      label={NAV_ADMIN_LAUNCH.label}
+                      item="admin-launch"
+                      active={isActive(NAV_ADMIN_LAUNCH.href)}
+                      rail={rail}
+                    />
+                  </li>
+                )}
               </ul>
             </li>
           </>

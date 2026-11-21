@@ -9,6 +9,9 @@
  *   역할 조회 오류도 같다 — fail closed. 조회 실패를 「허용」 으로 위장하지 않는다.
  * - D-04: 매 요청 판정이라 강등 · 허용 해제는 다음 페이지 이동부터 막힌다(JWT 클레임 · 캐시 없음).
  * - D-02: `/admin` 은 admin 만. trader 는 Admin 을 뺀 전부.
+ *   quick 261121-n1b — trader 는 열린 메뉴 경로만(`ADMIN_MENU_PATHS` · 매매손익 `/admin/pnl` · 정산 `/admin/settlement`).
+ *   메뉴는 trader 일 때만 효력이다 — viewer 는 저장값이 있어도 막힌다. middleware 는 trader 의 `/admin` 요청에만
+ *   `my_admin_menus()` 를 한 번 더 불러 `adminMenus` 로 넘긴다(server `requireAdminOrMenu` 와 같은 규칙).
  * - D-21: viewer 는 스캐너 · 뉴스 · 테마만 — 트레이딩 · 분석 · 챗봇 · My page 는 홈으로 돌린다.
  *
  * 접두 판정은 `public-path.ts` 와 같은 경계 비교(「prefix 와 같거나 prefix + `/` 로 시작」)라 이름이 비슷한
@@ -37,10 +40,33 @@ export const VIEWER_BLOCKED_PREFIXES: readonly string[] = [
   "/me",
 ];
 
+/**
+ * trader 에게 열 수 있는 어드민 메뉴 → 화면 경로(quick 261121-n1b). 키는 `@gh-radar/shared` 의 `ADMIN_MENU_KEYS` 와 같다
+ * (import 없이 두어 순수 모듈을 유지한다). 여기 없는 `/admin` 경로(사용자 · 계좌 · 서버 · 러쉬 주문 · `/admin` 자체)는 admin 전용.
+ */
+export const ADMIN_MENU_PATHS = {
+  pnl: "/admin/pnl",
+  settlement: "/admin/settlement",
+} as const;
+
 const HOME_PATH = "/";
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+/** `/admin` 표면인가(경계 비교) — middleware 가 trader 의 메뉴 조회를 이 경로에만 한다. */
+export function isAdminPath(pathname: string): boolean {
+  return matchesPrefix(pathname, ADMIN_PREFIX);
+}
+
+/** trader 의 열린 메뉴 중 이 경로를 여는 것이 있는가 — 모르는 문자열은 무시한다. */
+function menuOpensPath(pathname: string, adminMenus: readonly string[]): boolean {
+  return adminMenus.some(
+    (key) =>
+      Object.hasOwn(ADMIN_MENU_PATHS, key) &&
+      matchesPrefix(pathname, ADMIN_MENU_PATHS[key as keyof typeof ADMIN_MENU_PATHS]),
+  );
 }
 
 /**
@@ -49,16 +75,20 @@ function matchesPrefix(pathname: string, prefix: string): boolean {
  * 규칙 순서(먼저 맞는 것이 이긴다):
  * 1. 역할 조회 오류 또는 역할 없음 → `/pending` 자체만 통과, 나머지는 `/pending`
  * 2. 역할이 있는데 `/pending` → `/`
- * 3. `/admin` 접두이고 admin 이 아님 → `/`
+ * 3. `/admin` 접두이고 admin 이 아님 → `/` — 단 trader 이고 열린 메뉴(`adminMenus`)의 경로면 통과
+ *    (quick 261121-n1b — trader 는 열린 메뉴 경로만)
  * 4. viewer 이고 차단 접두 → `/`
  * 5. 통과
+ *
+ * `adminMenus` 는 trader 의 `/admin` 요청에서만 의미가 있다 — 생략하면 `[]`(열린 메뉴 없음 = 기존 판정 그대로).
  */
 export function decideAccess(input: {
   pathname: string;
   role: AccessRole | null;
   roleError: boolean;
+  adminMenus?: readonly string[];
 }): AccessDecision {
-  const { pathname, role, roleError } = input;
+  const { pathname, role, roleError, adminMenus = [] } = input;
 
   if (roleError || role === null) {
     return pathname === PENDING_PATH
@@ -70,8 +100,9 @@ export function decideAccess(input: {
     return { kind: "redirect", to: HOME_PATH };
   }
 
-  if (matchesPrefix(pathname, ADMIN_PREFIX) && role !== "admin") {
-    return { kind: "redirect", to: HOME_PATH };
+  if (isAdminPath(pathname) && role !== "admin") {
+    const menuOpen = role === "trader" && menuOpensPath(pathname, adminMenus);
+    if (!menuOpen) return { kind: "redirect", to: HOME_PATH };
   }
 
   if (

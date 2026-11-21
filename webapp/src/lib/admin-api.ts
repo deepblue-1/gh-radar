@@ -23,6 +23,8 @@
  *   `confirmSettlement`) · `POST …/settles/:id/cancel { reflect }`(정산 취소 · `cancelSettlement`) — 넷 다 예수금 반영을 실을 수 있어
  *   `SETTLEMENT_WRITE_TIMEOUT_MS`.
  *
+ *   quick 261121-n1b — `PATCH /api/admin/users/:email { adminMenus }`(trader 에게 매매손익 · 정산 메뉴 열기).
+ *
  * ③ 경로 조각은 전부 `encodeURIComponent`
  *   이메일(`@` · `+`) · DMA id · 계좌번호 · 서버 키가 경로에 들어간다. Express 5 가 퍼센트 디코딩을 한 번
  *   하므로(29-10 결정) 여기서 한 번만 인코딩한다.
@@ -46,6 +48,7 @@ import type {
   AdminCommandResponse,
   AdminCreateUserBody,
   AdminDmaInput,
+  AdminMenu,
   AdminOrderServerBody,
   AdminOrderServerResponse,
   AdminPutAccountBody,
@@ -133,6 +136,14 @@ export function upsertAdminUser(body: AdminCreateUserBody): Promise<AdminCreateU
 
 export function patchAdminRole(email: string, role: AppRole): Promise<AdminWriteResponse> {
   return authFetch<AdminWriteResponse>(userPath(email), jsonInit("PATCH", { role }));
+}
+
+/**
+ * 어드민 메뉴 변경(quick 261121-n1b) — 같은 `PATCH /api/admin/users/:email` 에 `{ adminMenus }`. 배열 전체를 보낸다
+ * (서버가 중복 제거 · `ADMIN_MENU_KEYS` 순서로 저장). trader 에게만 효력 · relay 통보 없음(`relayNotified: false`).
+ */
+export function patchAdminMenus(email: string, adminMenus: readonly AdminMenu[]): Promise<AdminWriteResponse> {
+  return authFetch<AdminWriteResponse>(userPath(email), jsonInit("PATCH", { adminMenus }));
 }
 
 /**

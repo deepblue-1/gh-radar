@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { AdminAccountMaster, AdminServerResult, AdminUsersOverview, AdminUserView, AppRole } from "@gh-radar/shared";
+import type {
+  AdminAccountMaster,
+  AdminMenu,
+  AdminServerResult,
+  AdminUsersOverview,
+  AdminUserView,
+  AppRole,
+} from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,11 +19,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { connectAdminDma, deleteAdminUser, patchAdminRole, reconcileDmaUser } from "@/lib/admin-api";
+import { connectAdminDma, deleteAdminUser, patchAdminMenus, patchAdminRole, reconcileDmaUser } from "@/lib/admin-api";
 import { ApiClientError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { AccountEditor, BusyLines, chipOfResult, ResultChips } from "./account-editor";
+import { ADMIN_MENUS_TEXT, AdminMenusField } from "./admin-menus-field";
 import { AdminSheet } from "./admin-sheet";
 import {
   clearChangedErrors,
@@ -38,7 +46,8 @@ import { ROLE_CHIP_CLASS } from "./user-row";
  * UserSheet — `/admin/users` 편집 시트 (Phase 29 D-14 · D-15 · D-23 ④ · 목업 A `editor()`).
  *
  * `AdminSheet`(폰 바텀시트 · 데스크톱 우측 440px — 목록은 남는다) 안: 머리(이메일 · 역할 칩 · 닫기) → 역할 세그먼트 →
- * DMA 사용자 id(비밀번호 변경) → 계좌 · 등록 서버 → 하단 「사용자 삭제」 · 「다시 반영」.
+ * (trader) 어드민 메뉴 스위치(quick 261121-n1b · 스케치 034 A) → DMA 사용자 id(비밀번호 변경) → 계좌 · 등록 서버 →
+ * 하단 「사용자 삭제」 · 「다시 반영」.
  *
  * **「저장」 버튼이 없다(D-15 — 목업 A 의 저장 버튼은 CONTEXT 가 이긴다).** 필드마다 누르는 즉시 한 요청이 가고
  * (`useFieldSave` — 필드당 1건 비행 · 마지막 값 대기), 응답이 오면 그 자리가 플래시 · 칩으로 바뀌고 목록을 다시 읽는다
@@ -147,6 +156,16 @@ export function UserSheet({ user, servers, accounts, onChanged, onClose, initial
   );
   const shownRole = role.value ?? user.role;
 
+  // quick 261121-n1b — 어드민 메뉴(trader 에게만 효력). 스위치 두 개가 배열 하나를 공유하므로 필드는 하나다(1건 비행 · 마지막 값 대기).
+  // 다음 배열은 반드시 낙관 값 `shownMenus` 에서 만든다 — user.adminMenus 에서 만들면 연달아 누른 첫 변경이 사라진다.
+  const menus = useFieldSave<readonly AdminMenu[]>(
+    async (next) => {
+      await patchAdminMenus(user.email, next);
+    },
+    { onSuccess: () => onChanged(), describeError: defaultSaveErrorText, releaseOn: user },
+  );
+  const shownMenus: readonly AdminMenu[] = menus.value ?? user.adminMenus ?? [];
+
   // 「다시 반영」 — 결과는 계좌 칩으로 내려 보낸다(id 가 바뀔 때 한 번 반영).
   const [reconcileBatch, setReconcileBatch] = useState<{ id: number; results: readonly AdminServerResult[] } | null>(
     () => (initialResults && initialResults.length > 0 ? { id: 1, results: initialResults } : null),
@@ -254,6 +273,13 @@ export function UserSheet({ user, servers, accounts, onChanged, onClose, initial
           <div className={ADMIN_FIELD_LABEL}>{USER_SHEET_TEXT.roleLabel}</div>
           <RoleSegment value={shownRole} onChange={role.run} state={role.state} error={role.error} />
         </section>
+
+        {shownRole === "trader" && (
+          <section aria-label={ADMIN_MENUS_TEXT.label} className={ADMIN_FIELD}>
+            <div className={ADMIN_FIELD_LABEL}>{ADMIN_MENUS_TEXT.label}</div>
+            <AdminMenusField value={shownMenus} onChange={menus.run} state={menus.state} error={menus.error} />
+          </section>
+        )}
 
         <section aria-label={USER_SHEET_TEXT.dmaLabel} data-slot="admin-field-dma" className={ADMIN_FIELD}>
           <div className={ADMIN_FIELD_LABEL}>{USER_SHEET_TEXT.dmaLabel}</div>

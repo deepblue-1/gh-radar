@@ -3,12 +3,14 @@ import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import { ADMIN_MENU_CHIP_CLASS, ADMIN_MENU_LABEL } from "./admin-menus-field";
 import { ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from "./reflect-chip";
 
 /**
  * UserRow — `/admin/users` 목록 1행 (Phase 29 D-14 · 목업 A `row()`).
  *
- * 구조: 이니셜 원 · 이메일 · 메타 줄(역할 칩 · `DMA <id>` 또는 「DMA 연결 없음」 · 「· 계좌 N」 · 서버별 반영 칩) · `›`.
+ * 구조: 이니셜 원 · 이메일 · 메타 줄(역할 칩 · (trader) 켠 어드민 메뉴 테두리 칩(quick 261121-n1b) · `DMA <id>` 또는
+ * 「DMA 연결 없음」 · 「· 계좌 N」 · 서버별 반영 칩) · `›`.
  * 행 전체가 버튼이다 — 누르면 `onOpen`(편집 시트는 29-17 이 연다).
  *
  * 「서버에만 있음」 행(`ServerOnlyRow`)은 87 에만 있고 어떤 웹 사용자에도 연결되지 않은 DMA id 다 — 편집 대상이
@@ -78,6 +80,17 @@ export function UserRow({ user, selected = false, onOpen }: UserRowProps) {
           <span data-slot="admin-role-chip" data-role={user.role} className={cn(ADMIN_CHIP_BASE, ROLE_CHIP_CLASS[user.role])}>
             {user.role}
           </span>
+          {user.role === "trader" &&
+            (user.adminMenus ?? []).map((key) => (
+              <span
+                key={key}
+                data-slot="admin-menu-chip"
+                data-menu={key}
+                className={cn(ADMIN_CHIP_BASE, ADMIN_MENU_CHIP_CLASS)}
+              >
+                {ADMIN_MENU_LABEL[key]}
+              </span>
+            ))}
           <DmaLabel dmaUserId={user.dmaUserId} />
           {user.accountCount > 0 && <span>· 계좌 {user.accountCount}</span>}
           {user.servers.length > 0 && (

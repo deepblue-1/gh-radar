@@ -15,6 +15,7 @@ import { ApiClientError } from '@/lib/api';
 const fetchAdminUsersMock = vi.fn();
 const fetchAdminAccountsMock = vi.fn();
 const patchAdminRoleMock = vi.fn();
+const patchAdminMenusMock = vi.fn();
 const putDmaAccountMock = vi.fn();
 const removeDmaAccountMock = vi.fn();
 const changeDmaPasswordMock = vi.fn();
@@ -26,6 +27,8 @@ vi.mock('@/lib/admin-api', () => ({
   fetchAdminAccounts: () => fetchAdminAccountsMock(),
   upsertAdminUser: vi.fn(),
   patchAdminRole: (email: string, role: string) => patchAdminRoleMock(email, role),
+  // quick 261121-n1b — 어드민 메뉴 스위치(배열 전체).
+  patchAdminMenus: (email: string, menus: readonly string[]) => patchAdminMenusMock(email, menus),
   putDmaAccount: (dma: string, body: unknown) => putDmaAccountMock(dma, body),
   removeDmaAccount: (dma: string, broker: string, no: string) => removeDmaAccountMock(dma, broker, no),
   changeDmaPassword: (dma: string, pw: string) => changeDmaPasswordMock(dma, pw),
@@ -107,6 +110,7 @@ beforeEach(() => {
   for (const m of [
     fetchAdminUsersMock,
     patchAdminRoleMock,
+    patchAdminMenusMock,
     putDmaAccountMock,
     removeDmaAccountMock,
     changeDmaPasswordMock,
@@ -488,5 +492,121 @@ describe('UserSheet — 다시 반영 · 사용자 삭제 · 마지막 계좌', 
     expect(footerBtn('다시 반영')).toBeDisabled();
     expect(footerBtn('사용자 삭제')).not.toBeDisabled();
     expect(document.querySelector('[data-slot="admin-accounts"]')).toBeNull();
+  });
+});
+
+// ============================================================
+// quick 261121-n1b — 「어드민 메뉴」 칸 · 목록 칩 (스케치 034 A)
+// ============================================================
+
+const menusField = () => document.querySelector('[data-slot="admin-field-menus"]') as HTMLElement | null;
+const menuSwitch = (name: '매매손익' | '정산') => within(menusField()!).getByRole('switch', { name });
+
+describe('UserSheet — 어드민 메뉴 (quick 261121-n1b)', () => {
+  it('trader 시트 → 「역할」 바로 아래 「어드민 메뉴」 칸 · 스위치 2개(꺼짐) · 설명 · 안내 문장', () => {
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
+    const section = screen.getByRole('region', { name: '어드민 메뉴' });
+    expect(section.previousElementSibling).toHaveAttribute('aria-label', '역할');
+    expect(within(section).getByText('어드민 메뉴')).toBeInTheDocument();
+    expect(menuSwitch('매매손익')).toHaveAttribute('aria-checked', 'false');
+    expect(menuSwitch('정산')).toHaveAttribute('aria-checked', 'false');
+    expect(within(section).getByText('모든 계좌의 일자별 손익을 봐요')).toBeInTheDocument();
+    expect(within(section).getByText('정산 화면을 보고 거래 · 정산 확정까지 할 수 있어요')).toBeInTheDocument();
+    expect(
+      within(section).getByText('켠 메뉴만 이 사람 사이드바의 Admin 아래에 보여요. 사용자 · 계좌 · 서버 · 러쉬 주문은 열 수 없어요.'),
+    ).toBeInTheDocument();
+    expect(
+      Array.from(section.querySelectorAll('[data-slot="admin-menu-row"]')).map((r) => r.getAttribute('data-menu')),
+    ).toEqual(['pnl', 'settlement']);
+  });
+
+  it('저장된 메뉴는 켜진 스위치로 · admin · viewer 시트엔 칸 없음', () => {
+    const a = render(
+      <UserSheet user={{ ...KIM, adminMenus: ['settlement'] }} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />,
+    );
+    expect(menuSwitch('정산')).toHaveAttribute('aria-checked', 'true');
+    expect(menuSwitch('매매손익')).toHaveAttribute('aria-checked', 'false');
+    a.unmount();
+
+    for (const role of ['admin', 'viewer'] as const) {
+      const r = render(
+        <UserSheet user={{ ...KIM, role, adminMenus: ['pnl', 'settlement'] }} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />,
+      );
+      expect(menusField()).toBeNull();
+      expect(screen.queryByRole('region', { name: '어드민 메뉴' })).toBeNull();
+      r.unmount();
+    }
+  });
+
+  it('스위치 클릭 → patchAdminMenus(email, 고정 순서 배열) 1회 · 플래시 · onChanged 1회', async () => {
+    patchAdminMenusMock.mockResolvedValue({ ok: true, relayNotified: false });
+    const onChanged = vi.fn();
+    render(
+      <UserSheet user={{ ...KIM, adminMenus: ['settlement'] }} servers={SERVERS} accounts={[]} onChanged={onChanged} onClose={() => {}} />,
+    );
+    fireEvent.click(menuSwitch('매매손익'));
+    expect(patchAdminMenusMock).toHaveBeenCalledTimes(1);
+    expect(patchAdminMenusMock).toHaveBeenCalledWith(KIM.email, ['pnl', 'settlement']);
+    expect(menuSwitch('매매손익')).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(menusField()).toHaveAttribute('data-state', 'flash'));
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(patchAdminRoleMock).not.toHaveBeenCalled();
+  });
+
+  it('연달아 두 스위치 → 두 번째 요청 배열에 첫 변경이 들어 있다(낙관 값 기준)', async () => {
+    const first = deferred<unknown>();
+    patchAdminMenusMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce({ ok: true, relayNotified: false });
+    render(<UserSheet user={KIM} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />);
+
+    fireEvent.click(menuSwitch('매매손익'));
+    fireEvent.click(menuSwitch('정산'));
+    expect(patchAdminMenusMock).toHaveBeenCalledTimes(1);
+    expect(patchAdminMenusMock).toHaveBeenNthCalledWith(1, KIM.email, ['pnl']);
+    expect(menuSwitch('매매손익')).toHaveAttribute('aria-checked', 'true');
+    expect(menuSwitch('정산')).toHaveAttribute('aria-checked', 'true');
+
+    await act(async () => {
+      first.resolve({ ok: true, relayNotified: false });
+    });
+    expect(patchAdminMenusMock).toHaveBeenCalledTimes(2);
+    expect(patchAdminMenusMock).toHaveBeenNthCalledWith(2, KIM.email, ['pnl', 'settlement']);
+  });
+
+  it('끄기 → 그 키만 뺀 배열 · 실패 → 칸 아래 오류 한 줄 · 스위치는 서버 값으로', async () => {
+    patchAdminMenusMock.mockRejectedValue(new ApiClientError({ code: 'DB_ERROR', message: 'boom', status: 500 }));
+    render(
+      <UserSheet user={{ ...KIM, adminMenus: ['pnl', 'settlement'] }} servers={SERVERS} accounts={[]} onChanged={() => {}} onClose={() => {}} />,
+    );
+    fireEvent.click(menuSwitch('정산'));
+    expect(patchAdminMenusMock).toHaveBeenCalledWith(KIM.email, ['pnl']);
+    const err = await screen.findByRole('alert');
+    expect(err).toHaveAttribute('data-slot', 'admin-menus-error');
+    expect(menusField()).toContainElement(err);
+    expect(menuSwitch('정산')).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('UsersClient 목록 줄 — 어드민 메뉴 칩 (quick 261121-n1b)', () => {
+  it('trader 줄에 켠 메뉴만 테두리 칩 · 메뉴 없는 trader · admin · viewer 줄엔 칩 없음', async () => {
+    const LEE: AdminUserView = { ...KIM, email: 'lee.trader@example.invalid', dmaUserId: 'leetr', adminMenus: [] };
+    const BOSS: AdminUserView = { ...KIM, email: 'boss@example.invalid', role: 'admin', dmaUserId: null, adminMenus: ['pnl'], accountCount: 0, servers: [], accounts: [] };
+    const VIEW: AdminUserView = { ...KIM, email: 'view@example.invalid', role: 'viewer', dmaUserId: null, adminMenus: ['pnl', 'settlement'], accountCount: 0, servers: [], accounts: [] };
+    fetchAdminUsersMock.mockResolvedValue({
+      ...OVERVIEW,
+      users: [BOSS, { ...KIM, adminMenus: ['pnl', 'settlement'] }, LEE, VIEW],
+    });
+    render(<UsersClient />);
+    await screen.findByRole('button', { name: `${KIM.email} 편집` });
+    const chipsOf = (email: string) =>
+      Array.from(
+        document.querySelectorAll(`[data-slot="admin-user-row"][data-email="${email}"] [data-slot="admin-menu-chip"]`),
+      ).map((c) => c.textContent);
+    expect(chipsOf(KIM.email)).toEqual(['매매손익', '정산']);
+    expect(chipsOf(LEE.email)).toEqual([]);
+    expect(chipsOf(BOSS.email)).toEqual([]);
+    expect(chipsOf(VIEW.email)).toEqual([]);
+    const chip = document.querySelector(`[data-email="${KIM.email}"] [data-slot="admin-menu-chip"][data-menu="pnl"]`)!;
+    expect(chip.className).toContain('text-[var(--primary)]');
+    expect(chip.className).toContain('bg-transparent');
   });
 });

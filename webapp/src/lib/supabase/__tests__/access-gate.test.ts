@@ -101,3 +101,62 @@ describe('decideAccess — viewer (D-21 스캐너 · 뉴스 · 테마만)', () =
     expect(decideAccess({ pathname: '/mentor', role: 'viewer', roleError: false })).toEqual(next);
   });
 });
+
+describe('decideAccess — trader 어드민 메뉴 (quick 261121-n1b)', () => {
+  const trader = (pathname: string, adminMenus?: readonly string[]) =>
+    decideAccess({ pathname, role: 'trader', roleError: false, adminMenus });
+
+  it('trader + [pnl] → /admin/pnl · /admin/pnl/x 통과 · /admin/settlement 는 /', () => {
+    expect(trader('/admin/pnl', ['pnl'])).toEqual(next);
+    expect(trader('/admin/pnl/x', ['pnl'])).toEqual(next);
+    expect(trader('/admin/settlement', ['pnl'])).toEqual(toHome);
+  });
+
+  it('trader + [settlement] → /admin/settlement 통과 · /admin/pnl 은 /', () => {
+    expect(trader('/admin/settlement', ['settlement'])).toEqual(next);
+    expect(trader('/admin/pnl', ['settlement'])).toEqual(toHome);
+  });
+
+  it.each(['/admin', '/admin/users', '/admin/accounts', '/admin/servers', '/admin/launch'])(
+    'trader + [pnl, settlement] 여도 %j 는 /',
+    (pathname) => {
+      expect(trader(pathname, ['pnl', 'settlement'])).toEqual(toHome);
+    },
+  );
+
+  it('경계 밖 이웃 이름 /admin/pnlx · /admin/settlements 는 /', () => {
+    expect(trader('/admin/pnlx', ['pnl', 'settlement'])).toEqual(toHome);
+    expect(trader('/admin/settlements', ['pnl', 'settlement'])).toEqual(toHome);
+  });
+
+  it('모르는 메뉴 문자열 · 프로토타입 키는 무시 → /', () => {
+    expect(trader('/admin/users', ['users'])).toEqual(toHome);
+    expect(trader('/admin/pnl', ['toString', '__proto__'])).toEqual(toHome);
+  });
+
+  it('메뉴 없음 · 생략 → 기존 판정 그대로(/admin/pnl 도 /)', () => {
+    expect(trader('/admin/pnl', [])).toEqual(toHome);
+    expect(trader('/admin/pnl')).toEqual(toHome);
+  });
+
+  it('viewer + [pnl, settlement] → /admin/pnl · /admin/settlement 도 / (메뉴는 trader 에게만 효력)', () => {
+    for (const pathname of ['/admin/pnl', '/admin/settlement']) {
+      expect(
+        decideAccess({ pathname, role: 'viewer', roleError: false, adminMenus: ['pnl', 'settlement'] }),
+      ).toEqual(toHome);
+    }
+  });
+
+  it('역할 오류 · 역할 없음 우선순위 불변 — 메뉴가 있어도 /pending', () => {
+    expect(
+      decideAccess({ pathname: '/admin/pnl', role: 'trader', roleError: true, adminMenus: ['pnl'] }),
+    ).toEqual(toPending);
+    expect(
+      decideAccess({ pathname: '/admin/pnl', role: null, roleError: false, adminMenus: ['pnl'] }),
+    ).toEqual(toPending);
+  });
+
+  it('admin 은 메뉴와 무관하게 /admin 전부 통과', () => {
+    expect(decideAccess({ pathname: '/admin/users', role: 'admin', roleError: false, adminMenus: [] })).toEqual(next);
+  });
+});

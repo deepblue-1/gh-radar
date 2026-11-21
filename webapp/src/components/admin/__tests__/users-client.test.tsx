@@ -21,6 +21,8 @@ vi.mock('@/lib/admin-api', () => ({
   // quick 261106-lwu — 계좌 마스터를 사용자 개요와 병렬로 읽는다(시트 피커 후보).
   fetchAdminAccounts: () => fetchAdminAccountsMock(),
   upsertAdminUser: (body: unknown) => upsertAdminUserMock(body),
+  // quick 261121-n1b — 시트의 어드민 메뉴 스위치(이 파일은 부르지 않는다 · 열거형 목에 이름만).
+  patchAdminMenus: vi.fn(),
 }));
 
 // PageHeader 의 BackButton 만 router 를 쓰지만, 안전하게 navigation 을 스텁한다.

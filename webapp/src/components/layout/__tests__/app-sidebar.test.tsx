@@ -55,6 +55,17 @@ vi.mock("@/hooks/use-app-role", () => ({
   useAppRole: () => mockRole,
 }));
 
+// quick 261121-n1b — trader 에게 연 어드민 메뉴(`useAdminMenus(role)` · RPC my_admin_menus). 기본은 [](메뉴 없음).
+// 받은 role 을 기록해 사이드바가 useAppRole 결과를 그대로 넘기는지 본다.
+let mockMenus: readonly ("pnl" | "settlement")[] = [];
+let menusRoleArg: unknown = "unset";
+vi.mock("@/hooks/use-admin-menus", () => ({
+  useAdminMenus: (role: unknown) => {
+    menusRoleArg = role;
+    return mockMenus;
+  },
+}));
+
 // UserSection 은 Radix Popover + Supabase 세션 표면이라 트리 계약과 무관하다.
 vi.mock("../user-section", () => ({
   UserSection: () => <div data-testid="user-section" />,
@@ -264,6 +275,8 @@ beforeEach(() => {
   mockAuth = guest();
   mockRelay = relayState();
   mockRole = null;
+  mockMenus = [];
+  menusRoleArg = "unset";
 });
 
 // ---------------------------------------------------------------------------
@@ -1594,6 +1607,55 @@ describe("AppSidebar — 「My page · Admin › 매매손익 · 정산 · 계�
       expect(screen.queryByText("Admin")).toBeNull();
       r.unmount();
     }
+  });
+
+  it("(quick 261121-n1b) trader + [pnl, settlement] → 「Admin」(/admin/pnl) + 「매매손익」 · 「정산」 두 줄만", () => {
+    mockRole = "trader";
+    mockMenus = ["pnl", "settlement"];
+    setupReady();
+    render(<AppSidebar />);
+    expect(menusRoleArg).toBe("trader");
+    expect(admin()).toHaveAttribute("href", "/admin/pnl");
+    expect(pnl()).toHaveAttribute("href", "/admin/pnl");
+    expect(settlement()).toHaveAttribute("href", "/admin/settlement");
+    expect(accounts()).toBeNull();
+    expect(users()).toBeNull();
+    expect(servers()).toBeNull();
+    expect(launch()).toBeNull();
+    const sub = admin()!.closest("li")!.nextElementSibling!;
+    expect(Array.from(sub.querySelectorAll("a")).map((a) => (a.textContent ?? "").trim())).toEqual(["매매손익", "정산"]);
+  });
+
+  it("(quick 261121-n1b) trader + [settlement] → 「정산」 만 · 제목 링크 /admin/settlement · 그 경로에서 「정산」 만 활성", () => {
+    mockRole = "trader";
+    mockMenus = ["settlement"];
+    mockPathname = "/admin/settlement";
+    setupReady();
+    render(<AppSidebar />);
+    expect(admin()).toHaveAttribute("href", "/admin/settlement");
+    expect(pnl()).toBeNull();
+    expect(settlement()).toHaveAttribute("aria-current", "page");
+    expect(admin()).not.toHaveAttribute("aria-current");
+    expect(users()).toBeNull();
+    expect(document.querySelectorAll('nav [aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("(quick 261121-n1b) trader + [] → Admin 묶음 없음", () => {
+    mockRole = "trader";
+    mockMenus = [];
+    setupReady();
+    render(<AppSidebar />);
+    expect(admin()).toBeNull();
+    expect(pnl()).toBeNull();
+    expect(settlement()).toBeNull();
+  });
+
+  it("(quick 261121-n1b) admin 은 메뉴 훅 결과와 무관하게 6개 전부", () => {
+    mockRole = "admin";
+    mockMenus = [];
+    setupReady();
+    render(<AppSidebar />);
+    for (const a of [pnl(), settlement(), accounts(), users(), servers(), launch()]) expect(a).not.toBeNull();
   });
 
   it("/admin/users → 「사용자」 만 활성 · /admin/servers → 「서버」 만 활성 · 「Admin」 제목은 꺼짐", () => {
