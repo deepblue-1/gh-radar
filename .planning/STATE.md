@@ -6,10 +6,10 @@ current_phase: 44
 current_phase_name: 어드민 정산
 status: executing
 stopped_at: Phase 44 UI-SPEC approved
-last_updated: "2026-11-21T03:19:54.227Z"
-last_activity: 2026-11-20
+last_updated: "2026-11-21T08:11:11.774Z"
+last_activity: 2026-11-21
 last_activity_desc: Phase 44 execution started
-state_head: 1891bf5a4fc3ff5aa483f081c2fe50e68b95e426
+state_head: 7b9e95502232853e557b941c2401696306648cf2
 progress:
   total_phases: 15
   completed_phases: 14
@@ -36,7 +36,7 @@ Phase 43 (공시 텔레그램 알림): COMPLETE 2026-11-16 — 9/9 + quick 26111
 Phase 41 (한투 뉴스·공시 피드): COMPLETE 2026-11-13 — 14/14 · 배포 11-12(DB 20261112100000 · 20261112200000 + UAT 보정 마이그레이션 4 · kis-news-sync Job · server · webapp) · UAT 11-12 「됐다」 · 하루 뒤 확인 11-13(공시 지연 중앙 3.3초 · 한투 91,179회 · 홈 AI −3%) · Nyquist 빈칸 0 · UI 18/24 · 검증 passed 8/8 · 리뷰 차단 2 · 경고 11 · 참고 19(처분 open — 후속 quick 권고 CR-01 → WR-02 → CR-60)
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
-Last activity: 2026-11-21 - Completed quick task 261121-gdx: Phase 44 UI 리뷰 처리 (코드 리뷰 11건 수정 포함)
+Last activity: 2026-11-21 - Completed quick task 261121-n1b: trader 에게 어드민 매매손익 · 정산 메뉴만 여는 권한
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -198,6 +198,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 95 | 경계 지도 q16 이 수능일 17:00 발사를 담음 — launch_map_for_admin · launchFireOf Q16 KRX 15:00 ~ 18:00 창(DB 적용 · 당일 대기열 launch-live 수동 실행) | 2026-11-19 | 2bd0cbaf | — |
 | 96 | 경계 지도 발사 계획 조각 시각 자동 정렬(칸 벗어나면 오름차순) — 0cd9612d | 2026-11-19 | 0cd9612d | — |
 | 261121-gdx | Phase 44 UI 리뷰 처리 — 정산 화면 대비 · 첫 포커스 · 히트 44 · 금액 상한 안내 · 간격 · ② 문서 정정 | 2026-11-21 | 1891bf5a | [261121-gdx-phase-44-ui-review-fixes-settlement-only](./quick/261121-gdx-phase-44-ui-review-fixes-settlement-only/) |
+| 261121-n1b | trader 에게 어드민 매매손익 · 정산 메뉴만 여는 권한(app_users.admin_menus · 사용자 시트 스위치 · server/웹 관문 · millesjung 두 메뉴) | 2026-11-21 | 7b9e9550 | [261121-n1b-trader-admin-menu-grant](./quick/261121-n1b-trader-admin-menu-grant/) |
 
 ## Session Continuity
 

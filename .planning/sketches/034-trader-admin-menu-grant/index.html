@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sketch 034 — trader 에게 어드민 메뉴 열기 A/B/C</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: all .15s; }
+#nav button:hover { border-color: #555; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 36px; padding: 34px 12px 60px; flex-wrap: wrap; }
+
+.f {
+  --bg: #0a0a0a; --surface: #0a0a0a; --card: #151515; --muted: #2d2d2d; --raised2: #3d3d3d; --hair: #262626;
+  --fg: #fff; --fg2: #e4e4e4; --mfg: #9e9e9e; --faint: #636363;
+  --primary: #3485fa; --armed: #2fca73; --scrim: rgba(0,0,0,.6);
+  font-variant-numeric: tabular-nums; word-break: keep-all;
+  background: var(--surface); color: var(--fg2); border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30;
+  position: relative; overflow: hidden;
+}
+.f.light {
+  --bg: #fff; --surface: #f2f4f6; --card: #fff; --muted: #f2f4f6; --raised2: #e5e8eb; --hair: #e5e8eb;
+  --fg: #191f28; --fg2: #333d4b; --mfg: #6b7684; --faint: #b0b8c1;
+  --primary: #3182f6; --armed: #03b26c; --scrim: rgba(0,0,0,.35);
+}
+.f.desktop { width: 980px; height: 640px; display: flex; }
+.f.phone { width: 390px; height: 780px; border-radius: 28px; }
+.cap { position: absolute; top: -22px; left: 4px; font-size: 11.5px; color: #777; }
+.wrap { position: relative; }
+
+/* 사이드바(데스크톱) */
+.side { width: 200px; flex: none; background: var(--bg); border-right: 1px solid var(--hair); padding: 14px 10px; font-size: 13.5px; display: flex; flex-direction: column; gap: 2px; }
+.side .it { padding: 7px 10px; border-radius: 8px; color: var(--mfg); }
+.side .grp { margin-top: 10px; padding: 7px 10px; color: var(--fg); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.side .sub { padding: 6px 10px 6px 28px; border-radius: 8px; color: var(--mfg); }
+.side .sub.on { background: var(--muted); color: var(--fg); font-weight: 600; }
+
+.main { flex: 1; min-width: 0; padding: 18px 20px; overflow: hidden; }
+.pt { font-size: 20px; font-weight: 700; color: var(--fg); margin: 0 0 12px; }
+.sec { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 8px; }
+.sec h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--fg); }
+.sec .n { font-size: 12px; color: var(--mfg); }
+.list { background: var(--card); border-radius: 16px; overflow: hidden; }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hair); cursor: pointer; }
+.desktop .row { padding: 12px 20px; }
+.row:last-child { border-bottom: 0; }
+.row.sel { background: color-mix(in oklab, var(--muted) 55%, transparent); box-shadow: inset 3px 0 0 var(--primary); }
+.av { width: 36px; height: 36px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; font-weight: 700; font-size: 14px; color: var(--fg); flex: none; }
+.who { flex: 1; min-width: 0; }
+.em { display: block; font-size: 14px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { margin-top: 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12.5px; color: var(--mfg); }
+.meta b { color: var(--fg); font-weight: 600; }
+.ch { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--muted); color: var(--fg2); }
+.ch.admin { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+.ch.menu { background: transparent; color: var(--primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent); }
+.chev { color: var(--faint); font-size: 16px; flex: none; }
+
+/* B — 줄 안 알약 스위치 */
+.pills { display: flex; gap: 6px; flex: none; }
+.pill { font: inherit; font-size: 12px; font-weight: 600; height: 28px; padding: 0 10px; border-radius: 999px; border: 0; cursor: pointer; background: transparent; color: var(--mfg); box-shadow: inset 0 0 0 1px var(--raised2); display: inline-flex; align-items: center; gap: 5px; }
+.pill.on { background: color-mix(in srgb, var(--primary) 16%, transparent); color: var(--primary); box-shadow: none; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
+.pill.on .dot { opacity: 1; }
+.phone .pills { margin-top: 8px; }
+
+/* 시트 */
+.sheetD { position: absolute; top: 0; right: 0; bottom: 0; width: 440px; background: var(--card); border-left: 1px solid var(--hair); display: flex; flex-direction: column; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 20; }
+.sheetP { position: absolute; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--card); border-radius: 22px 22px 0 0; max-height: 82%; display: flex; flex-direction: column; }
+.grab { width: 40px; height: 4px; border-radius: 4px; background: var(--faint); margin: 10px auto 0; flex: none; }
+.sh { display: flex; align-items: center; gap: 10px; padding: 16px 20px 8px; }
+.phone .sh { padding: 14px 16px 8px; }
+.sh .t { font-size: 17px; font-weight: 700; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh .x { margin-left: auto; color: var(--mfg); font-size: 18px; cursor: pointer; }
+.sb { padding: 0 20px 20px; overflow: auto; flex: 1; }
+.phone .sb { padding: 0 16px 20px; }
+.fld { border-bottom: 1px solid var(--hair); padding: 12px 0; }
+.fld:last-child { border-bottom: 0; }
+.lb { font-size: 12px; color: var(--mfg); margin-bottom: 6px; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--muted); }
+.seg span { height: 28px; padding: 0 12px; display: grid; place-items: center; border-radius: 8px; font-size: 13px; color: var(--mfg); }
+.phone .seg span { height: 36px; }
+.seg span.on { background: var(--card); color: var(--fg); font-weight: 600; }
+.warn { font-size: 12px; color: var(--mfg); margin: 6px 0 0; line-height: 1.5; }
+.val { font-size: 15px; color: var(--fg); }
+
+/* A — 스위치 줄 */
+.mrow { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 0; }
+.mrow + .mrow { border-top: 1px solid var(--hair); }
+.mrow .tx { flex: 1; min-width: 0; }
+.mrow .tx b { display: block; font-size: 14px; font-weight: 600; color: var(--fg); }
+.mrow .tx small { display: block; font-size: 12px; color: var(--mfg); margin-top: 1px; }
+.sw { width: 44px; height: 26px; border-radius: 999px; background: var(--raised2); border: 0; position: relative; cursor: pointer; transition: background .15s; flex: none; }
+.sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--primary); }
+.sw.on::after { transform: translateX(18px); }
+.note { font-size: 12px; color: var(--mfg); line-height: 1.5; margin: 4px 0 0; }
+
+/* C — 시트 안 알약 */
+.cpills { display: flex; gap: 6px; flex-wrap: wrap; }
+.cpills .pill { height: 36px; padding: 0 14px; font-size: 13px; }
+.desktop .cpills .pill { height: 30px; }
+
+/* 폰 화면 머리 */
+.ptop { padding: 16px 16px 8px; }
+.phone .list { margin: 0 12px; }
+.phone .sec { padding: 8px 16px 8px; }
+
+/* trader 가 보는 사이드바 미리 보기 */
+.preview { width: 230px; }
+.preview .box { background: #151515; border-radius: 14px; box-shadow: 0 0 0 1px #2a2a30; padding: 14px 10px; font-size: 13.5px; }
+.preview.light .box { background: #fff; }
+.preview .box .it { padding: 7px 10px; color: #9e9e9e; }
+.preview .box .grp { margin-top: 8px; padding: 7px 10px; color: #fff; font-weight: 600; }
+.preview.light .box .grp { color: #191f28; }
+.preview .box .sub { padding: 6px 10px 6px 28px; color: #9e9e9e; }
+.preview .box .sub.gone { text-decoration: line-through; opacity: .35; }
+.preview .hint { font-size: 11.5px; color: #777; margin: 8px 2px 0; line-height: 1.55; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">안</span>
+    <button data-v="A" class="on">A 시트 스위치 줄</button>
+    <button data-v="B">B 목록 줄 알약</button>
+    <button data-v="C">C 시트 안 알약</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-th="dark" class="on">다크</button>
+    <button data-th="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const S = { v: 'A', th: 'dark', sel: 'millesjung@gmail.com', open: true };
+const USERS = [
+  { email: 'alex@jx1.io', role: 'admin', dma: 'alex', acc: 3 },
+  { email: 'ezmesya@gmail.com', role: 'admin', dma: 'ezmesya', acc: 4 },
+  { email: 'millesjung@gmail.com', role: 'trader', dma: 'mjung', acc: 2, menus: { pnl: true, settlement: true } },
+  { email: 'trader2@gmail.com', role: 'trader', dma: 'tr02', acc: 1, menus: { pnl: false, settlement: false } },
+  { email: 'viewer@gmail.com', role: 'viewer', dma: null, acc: 0 },
+];
+const MENUS = [
+  ['pnl', '매매손익', '모든 계좌의 일자별 손익을 봐요'],
+  ['settlement', '정산', '정산 화면을 보고 거래 · 정산 확정까지 할 수 있어요'],
+];
+const DESC = {
+  A: '<b>A 편집 시트 안 스위치 줄</b> — trader 줄을 누르면 열리는 편집 시트의 「역할」 바로 아래에 「어드민 메뉴」 칸 · 메뉴마다 이름 · 한 줄 설명 · 스위치. 누르는 즉시 저장(다른 칸처럼 저장 버튼 없음). 목록 줄에는 켠 메뉴만 테두리 칩으로 보인다. admin · viewer 시트에는 이 칸이 없다.',
+  B: '<b>B 목록 줄 안 알약</b> — 시트를 열지 않고 목록 줄 오른쪽(폰은 줄 아래)의 알약 「매매손익」 「정산」 을 눌러 바로 켜고 끈다. 한눈에 누가 무엇을 열었는지 보이지만 줄을 누르면 시트가 열리는 동작과 같은 자리에 겹친다.',
+  C: '<b>C 시트 안 알약</b> — A 와 같은 자리(역할 아래)지만 스위치 줄 대신 알약 한 줄. 짧지만 「정산은 적기까지 된다」 같은 설명이 안 보인다.',
+};
+const esc = (s) => s;
+function menuChips(u) {
+  if (u.role !== 'trader' || S.v === 'B') return '';
+  return MENUS.filter(([k]) => u.menus[k]).map(([, l]) => `<span class="ch menu">${l}</span>`).join('');
+}
+function row(u, w) {
+  const meta = `<span class="ch ${u.role === 'admin' ? 'admin' : ''}">${u.role}</span>${u.dma ? `<span>DMA <b>${u.dma}</b></span>` : '<span style="color:var(--faint)">DMA 연결 없음</span>'}${u.acc ? `<span>· 계좌 ${u.acc}</span>` : ''}${menuChips(u)}`;
+  const pills = S.v === 'B' && u.role === 'trader'
+    ? `<div class="pills">${MENUS.map(([k, l]) => `<button class="pill ${u.menus[k] ? 'on' : ''}" data-act="m" data-em="${u.email}" data-k="${k}"><i class="dot"></i>${l}</button>`).join('')}</div>` : '';
+  const sel = S.open && S.sel === u.email ? 'sel' : '';
+  if (w === 'phone') {
+    return `<div class="row ${sel}" data-act="open" data-em="${u.email}"><div class="av">${u.email[0].toUpperCase()}</div><div class="who"><span class="em">${u.email}</span><div class="meta">${meta}</div>${pills}</div><span class="chev">›</span></div>`;
+  }
+  return `<div class="row ${sel}" data-act="open" data-em="${u.email}"><div class="av">${u.email[0].toUpperCase()}</div><div class="who"><span class="em">${u.email}</span><div class="meta">${meta}</div></div>${pills}<span class="chev">›</span></div>`;
+}
+function menuField(u) {
+  if (u.role !== 'trader' || S.v === 'B') return '';
+  if (S.v === 'A') {
+    return `<div class="fld"><div class="lb">어드민 메뉴</div>${MENUS.map(([k, l, d]) => `<div class="mrow"><span class="tx"><b>${l}</b><small>${d}</small></span><button class="sw ${u.menus[k] ? 'on' : ''}" data-act="m" data-em="${u.email}" data-k="${k}" aria-label="${l}"></button></div>`).join('')}<p class="note">켠 메뉴만 이 사람 사이드바의 Admin 아래에 보여요. 사용자 · 계좌 · 서버 · 러쉬 주문은 열 수 없어요.</p></div>`;
+  }
+  return `<div class="fld"><div class="lb">어드민 메뉴 · 누르면 바로 열고 닫혀요</div><div class="cpills">${MENUS.map(([k, l]) => `<button class="pill ${u.menus[k] ? 'on' : ''}" data-act="m" data-em="${u.email}" data-k="${k}"><i class="dot"></i>${l}</button>`).join('')}</div></div>`;
+}
+function sheetBody(u) {
+  const roles = ['admin', 'trader', 'viewer'];
+  return `<div class="sh"><span class="t">${u.email}</span><span class="ch ${u.role === 'admin' ? 'admin' : ''}">${u.role}</span><span class="x" data-act="close">✕</span></div>
+  <div class="sb">
+    <div class="fld"><div class="lb">역할</div><div class="seg">${roles.map((r) => `<span class="${r === u.role ? 'on' : ''}">${r}</span>`).join('')}</div><p class="warn">역할을 바꾸면 다음 화면 이동부터 바로 적용돼요.</p></div>
+    ${menuField(u)}
+    <div class="fld"><div class="lb">DMA 사용자 id (모든 서버 공통)</div><div class="val">${u.dma ?? '—'}</div></div>
+    <div class="fld"><div class="lb">계좌 · 등록 서버</div><div class="val" style="color:var(--mfg);font-size:13px">계좌 ${u.acc}개 …</div></div>
+  </div>`;
+}
+function frame(w) {
+  const u = USERS.find((x) => x.email === S.sel);
+  const list = `<div class="sec"><h2>사용자</h2><span class="n">${USERS.length}명</span></div><div class="list">${USERS.map((x) => row(x, w)).join('')}</div>`;
+  const light = S.th === 'light' ? 'light' : '';
+  if (w === 'desktop') {
+    const side = `<div class="side"><div class="it">트레이딩</div><div class="it">분석</div><div class="it">My page</div><div class="grp">Admin</div><div class="sub">매매손익</div><div class="sub">정산</div><div class="sub">계좌</div><div class="sub on">사용자</div><div class="sub">서버</div><div class="sub">러쉬 주문</div></div>`;
+    const sheet = S.open ? `<div class="sheetD">${sheetBody(u)}</div>` : '';
+    return `<div class="wrap"><span class="cap">데스크톱 · 관리자(alex) 화면</span><div class="f desktop ${light}" data-frame="desktop">${side}<div class="main" style="${S.open ? 'padding-right:460px' : ''}"><div class="pt">사용자</div>${list}</div>${sheet}</div></div>`;
+  }
+  const sheet = S.open ? `<div class="scrim" data-act="close"></div><div class="sheetP"><div class="grab"></div>${sheetBody(u)}</div>` : '';
+  return `<div class="wrap"><span class="cap">폰 390 · 관리자 화면</span><div class="f phone ${light}" data-frame="phone"><div class="ptop"><div class="pt" style="margin:0">사용자</div></div>${list}${sheet}</div></div>`;
+}
+function preview() {
+  const m = USERS.find((x) => x.email === 'millesjung@gmail.com').menus;
+  const any = m.pnl || m.settlement;
+  const subs = MENUS.map(([k, l]) => (m[k] ? `<div class="sub">${l}</div>` : '')).join('');
+  return `<div class="wrap preview ${S.th === 'light' ? 'light' : ''}"><span class="cap">millesjung 이 보는 사이드바</span><div class="box"><div class="it">트레이딩</div><div class="it">분석</div><div class="it">My page</div>${any ? `<div class="grp">Admin</div>${subs}` : ''}</div><p class="hint">공통(모든 안): 켠 메뉴만 Admin 아래에 보인다. 하나도 안 켜면 Admin 묶음 자체가 없다. 주소를 직접 쳐도 닫힌 메뉴 · 사용자 · 계좌 · 서버 · 러쉬 주문은 홈으로 돌아간다. 정산은 보기와 거래 적기 · 정산 확정 · 취소까지 관리자와 같다.</p></div>`;
+}
+function render() {
+  document.getElementById('desc').innerHTML = DESC[S.v];
+  document.getElementById('stage').innerHTML = frame('phone') + frame('desktop') + preview();
+}
+document.getElementById('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const key = ['v', 'th'].find((k) => b.dataset[k] !== undefined); if (!key) return;
+  S[key] = b.dataset[key];
+  if (key === 'v') S.open = S.v !== 'B';
+  b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+  render();
+});
+document.getElementById('stage').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]'); if (!t) return;
+  const a = t.dataset.act;
+  if (a === 'm') { e.stopPropagation(); const u = USERS.find((x) => x.email === t.dataset.em); u.menus[t.dataset.k] = !u.menus[t.dataset.k]; }
+  else if (a === 'open') { S.sel = t.dataset.em; S.open = true; }
+  else if (a === 'close') S.open = false;
+  render();
+});
+render();
+</script>
+</body>
+</html>
