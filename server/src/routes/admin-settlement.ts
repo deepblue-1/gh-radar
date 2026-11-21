@@ -118,21 +118,28 @@ function serializeSettlementWrites(): RequestHandler {
     }
     const prev = writeTail;
     let release!: () => void;
-    writeTail = new Promise<void>((r) => {
+    const mine = new Promise<void>((r) => {
       release = r;
     });
+    // 다음 쓰기는 앞 쓰기와 이 쓰기가 둘 다 끝나야 시작한다 — 이 요청이 기다리다 끊겨 먼저 풀려도 앞 쓰기를 건너뛰지 않는다.
+    writeTail = prev.then(() => mine);
     let released = false;
-    const timer = setTimeout(() => done(), WRITE_LOCK_MAX_MS);
-    timer.unref?.();
+    let timer: ReturnType<typeof setTimeout> | null = null;
     function done() {
       if (released) return;
       released = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       release();
     }
     res.once("finish", done);
     res.once("close", done);
-    void prev.then(() => next());
+    void prev.then(() => {
+      // 상한은 줄을 얻은 순간부터 잰다 — 기다리는 동안 재면 앞 쓰기가 끝나기 전에 풀려 두 쓰기가 겹칠 수 있다.
+      if (released) return;
+      timer = setTimeout(done, WRITE_LOCK_MAX_MS);
+      timer.unref?.();
+      next();
+    });
   };
 }
 
