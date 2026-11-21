@@ -337,7 +337,8 @@ export function fetchSettlement(): Promise<SettlementView> {
 
 /**
  * 정산 쓰기(예수금 반영을 실을 수 있는 요청)의 브라우저 타임아웃.
- * 계좌 옮김은 두 계좌를 차례로 보낸다 — 계좌마다 relay 쓰기 상한 15초 + 읽기 2초 + DB 여유(RESEARCH Pitfall 3).
+ * server 는 계좌 옮김의 두 계좌를 병렬로 보낸다(RESEARCH Pitfall 3) — relay 쓰기 상한 15초 + 읽기 2초 + DB 왕복이면 최악 약 20초.
+ * 남는 몫은 server 의 정산 쓰기 줄 세우기(앞 쓰기를 기다림 · IN-05)와 느린 망의 여유다.
  */
 export const SETTLEMENT_WRITE_TIMEOUT_MS = 40_000;
 
