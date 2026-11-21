@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addEffects,
-  appliedEffect,
+  appliedEffectAt,
   effectDiff,
   isSettlementMarketHours,
+  nowBudgetsOfAccounts,
   pendAccKeys,
+  type SettlementAccountView,
   type SettlementCtx,
   type SettlementLedgerBody,
   type SettlementLedgerRow,
@@ -111,6 +113,16 @@ interface CancelTarget {
   busy: boolean;
   error: string | null;
   locked: boolean;
+}
+
+/**
+ * 지우기 · 정산 취소가 되돌릴 증감(CR-01 — server `revertOf` 와 같은 목표값 대조). 화면이 이번 조회 때 읽은 값으로 판정한다:
+ * 지금 값 = 기록된 목표값인 계좌(보냈는데 응답만 못 받은 반영)는 「들어감」, 보냈지만 지금 못 읽은 계좌는 「들어갔을 수 있음」 으로
+ * 센다 — 그래서 그런 계좌만 걸린 거래도 ⑩ 상자가 나오고 server 에 reflect true 를 보낸다(최종 판정은 server 가 그 순간 읽은 값으로).
+ */
+function revertApplied(rows: readonly SettlementLedgerRow[], accounts: readonly SettlementAccountView[]) {
+  const now = nowBudgetsOfAccounts(accounts);
+  return addEffects(rows.map((r) => appliedEffectAt(r, now, { unknownApplied: true })));
 }
 
 function withoutKey(m: Readonly<Record<number, string>>, id: number): Readonly<Record<number, string>> {
@@ -224,7 +236,7 @@ export function SettlementClient() {
   const onConfirmDelete = async () => {
     const t = deleteTarget;
     if (!t || t.busy || t.locked) return;
-    const reflect = Object.keys(appliedEffect(t.row)).length > 0 ? t.reflect : false;
+    const reflect = Object.keys(revertApplied([t.row], view?.accounts ?? [])).length > 0 ? t.reflect : false;
     setDeleteTarget({ ...t, busy: true, error: null });
     try {
       const res = await deleteSettlementLedger(t.row.id, reflect);
@@ -276,8 +288,8 @@ export function SettlementClient() {
     [reload],
   );
 
-  /** ⑨ 정산 취소 — 그 정산의 바로 출금 줄이 지금 예수금에 넣어 둔 증감(없으면 상자 없음 · D-23). */
-  const cancelApplied = (t: CancelTarget) => addEffects(t.outRows.map(appliedEffect));
+  /** ⑨ 정산 취소 — 그 정산의 바로 출금 줄이 지금 예수금에 넣어 둔 증감(없으면 상자 없음 · D-23 · 목표값 대조 CR-01). */
+  const cancelApplied = (t: CancelTarget) => revertApplied(t.outRows, view?.accounts ?? []);
 
   /** ⑨ 정산 취소 확정(D-17 · D-23 · D-30) — 거래 지우기와 같은 갈래. 반영 상자가 없으면 늘 reflect false. */
   const onConfirmCancel = async () => {
@@ -435,12 +447,15 @@ export function SettlementClient() {
               body={deleteConfirmText(deleteTarget.row, state.view.now)}
               confirmLabel={CONFIRM_TEXT.delete}
               reflect={
-                Object.keys(appliedEffect(deleteTarget.row)).length > 0
+                Object.keys(revertApplied([deleteTarget.row], state.view.accounts)).length > 0
                   ? {
                       on: deleteTarget.reflect,
                       onToggle: (next) =>
                         setDeleteTarget((cur) => cur && { ...cur, reflect: next, error: cur.locked ? cur.error : null }),
-                      lines: reflectPreviewLines(effectDiff(appliedEffect(deleteTarget.row), {}), state.view.accounts),
+                      lines: reflectPreviewLines(
+                        effectDiff(revertApplied([deleteTarget.row], state.view.accounts), {}),
+                        state.view.accounts,
+                      ),
                       marketHours: isSettlementMarketHours(new Date()),
                     }
                   : null

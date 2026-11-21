@@ -4,7 +4,7 @@ import type { z } from "zod";
 import {
   SETTLEMENT_POOLS,
   addEffects,
-  appliedEffect,
+  appliedEffectAt,
   cumProfit,
   effectDiff,
   formatEokMan,
@@ -40,7 +40,9 @@ import {
   type SettlementLedgerBodyT,
 } from "../schemas/settlement.js";
 import {
+  assertReconcilable,
   assertRevertable,
+  nowOf,
   pendMessage,
   planPend,
   planReflect,
@@ -159,6 +161,16 @@ async function recordPend(req: Request, pends: { id: number; pend: SettlementPen
 
 const accountsOf = (e: SettlementEffect) => Object.keys(e) as SettlementAccKey[];
 
+/**
+ * 지우기 · 정산 취소의 되돌림 증감(CR-01) — 줄들이 지금 예수금에 넣어 둔 증감의 반대. pend 는 목표값으로 대조한다:
+ * 지금 값 = 목표값인 계좌는 들어간 것이라 되돌리고, 보냈지만 지금 못 읽은 계좌는 「들어갔을 수 있음」 으로 넣어
+ * `assertRevertable` 이 「읽지 못해 되돌릴 수 없어요」(D-30)로 막게 한다.
+ */
+function revertOf(read: SettlementRead, rows: readonly SettlementLedgerRow[]): SettlementEffect {
+  const now = nowOf(read);
+  return effectDiff(addEffects(rows.map((r) => appliedEffectAt(r, now, { unknownApplied: true }))), {});
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 정산 확정 · 취소(44-08)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -229,7 +241,8 @@ function sumPends(pends: Iterable<SettlementPend>): SettlementPend {
 
 /**
  * 거래 저장 · 고치기 공용(`id` null = 새 줄). 반영 끔이면 읽기 · 보내기 없이 `reflect false` · `pend {}` 로 저장한다.
- * 반영 켬이면 그 순간 예수금을 읽고 증감(새 줄 = `reflectEffect` · 고치기 = `effectDiff(appliedEffect(옛 줄), reflectEffect(새 값))`)
+ * 반영 켬이면 그 순간 예수금을 읽고 증감(새 줄 = `reflectEffect` · 고치기 = `effectDiff(appliedEffectAt(옛 줄, 지금 값), reflectEffect(새 값))`
+ *   — 옛 pend 는 목표값으로 대조 · 들어갔는지 모르는 계좌가 있으면 409 `REFLECT_UNKNOWN` · CR-01)
  * 의 목표값을 계산해 저장 RPC → 성공일 때만 보내기 → 남은 것 기록.
  */
 async function saveLedger(
@@ -258,7 +271,9 @@ async function saveLedger(
     const old = read.raw.ledger.find((r) => r.id === id);
     if (!old) throw NoSuchLedgerRow();
     if (old.settleId !== null) throw SettleLinked();
-    deltas = effectDiff(appliedEffect(old), reflectEffect(body));
+    // CR-01 — 옛 pend 를 목표값으로 대조한 뒤 계산한다(이미 들어간 증감을 다시 보내지 않는다). 모르는 계좌가 있으면 409.
+    assertReconcilable(read, old.pend);
+    deltas = effectDiff(appliedEffectAt(old, nowOf(read)), reflectEffect(body));
   }
   const plan = planReflect(read, deltas);
 
@@ -325,7 +340,8 @@ adminSettlementRouter.put("/settlement/ledger/:id", async (req, res, next) => {
 
 /**
  * DELETE /settlement/ledger/:id — 거래 지우기(D-19 · D-23 · D-30). 바디 `{ reflect }`.
- * 반영 켬이면 그 거래가 예수금에 넣어 둔 증감(`appliedEffect` — 못 보냈던 계좌는 빠진다)을 되돌린다.
+ * 반영 켬이면 그 거래가 예수금에 넣어 둔 증감(`revertOf` — 못 보냈던 계좌는 빠지고, 지금 값 = 목표값인 계좌는 들어간 것으로 센다 ·
+ * 보냈지만 지금 못 읽은 계좌는 아래 409 로 막는다 · CR-01)을 되돌린다.
  * 되돌릴 수 없다는 것을 미리 알 수 있으면(못 읽음 · 대응 · 등록 서버 없음 · 1원 미만) 지우기 전에 409 `REVERT_UNREADABLE`
  * (지우기 RPC 0 · relay 쓰기 0). 지운 뒤 보내기만 실패한 계좌는 지운 줄 pend 에 남기고(D-21 추적) `unreverted` · `message`.
  */
@@ -348,7 +364,7 @@ adminSettlementRouter.delete("/settlement/ledger/:id", async (req, res, next) =>
       if (!old) throw NoSuchLedgerRow();
       if (old.settleId !== null) throw SettleLinked();
       kind = old.kind;
-      const revert = effectDiff(appliedEffect(old), {});
+      const revert = revertOf(read, [old]);
       if (accountsOf(revert).length > 0) plan = assertRevertable(read, revert, "지워요");
     }
 
@@ -504,7 +520,7 @@ function cancelRows(data: unknown): SettlementLedgerRow[] {
 /**
  * POST /settlement/settles/:id/cancel — 정산 취소(D-17 · D-21 · D-23 · D-30). 바디 `{ reflect }`.
  * 그 묶음 가장 최근 정산만(RPC 가 `NOT_LATEST` 로 다시 본다) · 바로 출금 줄은 RPC 가 함께 지운다.
- * 반영 켬이면 그 줄들이 예수금에 넣어 둔 증감(`appliedEffect` 합 — 못 보냈던 계좌는 빠진다)을 되돌린다:
+ * 반영 켬이면 그 줄들이 예수금에 넣어 둔 증감(`revertOf` — 지우기와 같은 목표값 대조 · CR-01)을 되돌린다:
  * 되돌릴 수 없다는 것을 미리 알 수 있으면(못 읽음 · 대응 · 등록 서버 없음 · 1원 미만) 취소 전에 409 `REVERT_UNREADABLE`
  * (취소 RPC 0 · relay 쓰기 0) · **RPC 가 성공했을 때만** 합쳐 한 번 보내기 · 보내기만 실패한 계좌는 지운 줄 pend 에 남기고
  * `unreverted` · `message`(화면은 확인 창을 닫지 않고 그 문장을 보인다).
@@ -525,9 +541,9 @@ adminSettlementRouter.post("/settlement/settles/:id/cancel", async (req, res, ne
       pool = settle.pool;
       // 읽은 값으로 먼저 본다 — 더 최근 정산이 있으면 못 읽음 안내보다 「차례로 취소」 가 맞는 문장이다(RPC 가 다시 본다).
       if (read.raw.settles.some((s) => s.pool === settle.pool && s.id > id)) throw NotLatest();
-      const revert = effectDiff(
-        addEffects(read.raw.ledger.filter((r) => r.settleId === id).map((r) => appliedEffect(r))),
-        {},
+      const revert = revertOf(
+        read,
+        read.raw.ledger.filter((r) => r.settleId === id),
       );
       if (accountsOf(revert).length > 0) assertRevertable(read, revert, "취소해요");
     }
@@ -538,8 +554,9 @@ adminSettlementRouter.post("/settlement/settles/:id/cancel", async (req, res, ne
 
     let pend: SettlementPend = {};
     if (read !== null) {
+      const at = read;
       const items = rows
-        .map((r) => ({ id: r.id, effect: effectDiff(appliedEffect(r), {}) }))
+        .map((r) => ({ id: r.id, effect: revertOf(at, [r]) }))
         .filter((it) => accountsOf(it.effect).length > 0);
       if (items.length > 0) {
         const left = await reflectRows(req, read, items);

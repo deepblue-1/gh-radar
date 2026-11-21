@@ -10,6 +10,8 @@
  * | effectDiff(고치기) | 금액만 바뀜 · 계좌만 바뀜 · 같음 · 지우기 · 새로 적기 | 차이 · 두 계좌 · {} · 되돌림 · 그대로 |
  * | addEffects | 정산 바로 출금 여러 줄 · 취소 되돌림 | 계좌별 합 |
  * | pendAccKeys | 항목 있는 계좌 | SETTLEMENT_ACCOUNTS 순서 |
+ * | reconcilePend · appliedEffectAt(CR-01) | 지금 = 목표값 · 다름 · 못 읽음 · 목표값 없음 | 들어감(뺌) · 남김 · unknown(남김 · 옵션이면 들어감) · 남김 |
+ * | nowBudgetsOfReads · nowBudgetsOfAccounts | 읽은 값 · known / stale / unset | 그대로 · known 만 |
  * | isSettlementMarketHours | 금 07:59 · 08:00 · 19:59 · 20:00 · 토 10:00 · UTC 자정 근처 | false · true · true · false · false · KST 기준 |
  */
 import { describe, expect, it } from "vitest";
@@ -17,10 +19,15 @@ import { describe, expect, it } from "vitest";
 import {
   addEffects,
   appliedEffect,
+  appliedEffectAt,
   effectDiff,
   isSettlementMarketHours,
+  nowBudgetsOfAccounts,
+  nowBudgetsOfReads,
   pendAccKeys,
+  reconcilePend,
   reflectEffect,
+  type SettlementAccountView,
   type SettlementLedgerRow,
   type SettlementPend,
 } from "../settlement";
@@ -122,6 +129,63 @@ describe("addEffects · pendAccKeys", () => {
     };
     expect(pendAccKeys(pend)).toEqual(["kbG", "kbH"]);
     expect(pendAccKeys({})).toEqual([]);
+  });
+});
+
+describe("reconcilePend · appliedEffectAt (Pitfall 2 목표값 대조 · CR-01)", () => {
+  // 계좌 옮김 kbG → kyH 4억 · 두 계좌 모두 timeout(보냈는데 응답만 못 받음) · 목표값 kbG 445,000,000 · kyH 1,084,000,000.
+  const move = tx({
+    kind: "move",
+    fromAcc: "kbG",
+    toAcc: "kyH",
+    amountKrw: 400_000_000,
+    pend: {
+      kbG: { deltaKrw: -400_000_000, targetKrw: 445_000_000, reason: "timeout" },
+      kyH: { deltaKrw: 400_000_000, targetKrw: 1_084_000_000, reason: "timeout" },
+    },
+  });
+
+  it("지금 값 = 목표값 → 들어감(pend 에서 뺌) · 다름 → 남김", () => {
+    const r = reconcilePend(move.pend, { kbG: 445_000_000, kyH: 684_000_000 });
+    expect(r.landed).toEqual(["kbG"]);
+    expect(r.unknown).toEqual([]);
+    expect(r.pend).toEqual({ kyH: move.pend.kyH });
+    // appliedEffect 만 쓰면 두 계좌 다 「안 들어감」 → {} — 대조를 거치면 kbG −4억은 들어간 것.
+    expect(appliedEffect(move)).toEqual({});
+    expect(appliedEffectAt(move, { kbG: 445_000_000, kyH: 684_000_000 })).toEqual({ kbG: -400_000_000 });
+  });
+
+  it("둘 다 목표값 → 그 거래 증감 전체가 들어감", () => {
+    expect(appliedEffectAt(move, { kbG: 445_000_000, kyH: 1_084_000_000 })).toEqual({ kbG: -400_000_000, kyH: 400_000_000 });
+  });
+
+  it("보냈지만 지금 못 읽음 → unknown · pend 에 남김 · unknownApplied 면 「들어갔을 수 있음」 으로 센다", () => {
+    const r = reconcilePend(move.pend, { kbG: 845_000_000 });
+    expect(r.unknown).toEqual(["kyH"]);
+    expect(r.pend).toEqual(move.pend);
+    expect(appliedEffectAt(move, { kbG: 845_000_000 })).toEqual({});
+    expect(appliedEffectAt(move, { kbG: 845_000_000 }, { unknownApplied: true })).toEqual({ kyH: 400_000_000 });
+  });
+
+  it("목표값 없음(보내지 않음 — 못 읽음 · 1원 미만 · 서버 없음) → 지금 값과 무관하게 안 들어감 · unknown 도 아님", () => {
+    const pend: SettlementPend = { kbG: { deltaKrw: 100_000_000, targetKrw: null, reason: "unreachable" } };
+    const row = tx({ kind: "contribute", toAcc: "kbG", amountKrw: 100_000_000, pend });
+    expect(reconcilePend(pend, {})).toEqual({ pend, landed: [], unknown: [] });
+    expect(appliedEffectAt(row, {}, { unknownApplied: true })).toEqual({});
+  });
+
+  it("반영 안 한 줄 · null → {}", () => {
+    expect(appliedEffectAt(null, {})).toEqual({});
+    expect(appliedEffectAt({ ...move, reflect: false }, { kbG: 445_000_000, kyH: 1_084_000_000 })).toEqual({});
+  });
+
+  it("nowBudgetsOfReads — 읽은 값 그대로(0 포함) · nowBudgetsOfAccounts — known 만(stale · unset 제외)", () => {
+    expect(nowBudgetsOfReads([{ accKey: "kbG", budgetKrw: 0 }, { accKey: "kyH", budgetKrw: 5 }])).toEqual({ kbG: 0, kyH: 5 });
+    const acc = (accKey: SettlementAccountView["accKey"], state: SettlementAccountView["state"], budgetKrw: number | null) =>
+      ({ accKey, label: "", owner: "H", pool: "p1", state, budgetKrw, readAt: null, mismatch: false }) as SettlementAccountView;
+    expect(
+      nowBudgetsOfAccounts([acc("kbG", "known", 445_000_000), acc("kyH", "stale", 684_000_000), acc("kyG", "unset", null)]),
+    ).toEqual({ kbG: 445_000_000 });
   });
 });
 

@@ -21,6 +21,7 @@ import { ApiClientError } from '@/lib/api';
  * | 고치기 | 줄 펼침 「고치기」 | 「거래 고치기」 · PUT(id) |
  * | 지우기 | reflect · pend {} | 확인 문단 · 상자 켜짐 · 미리 보기 두 줄 · DELETE(id, true) · 닫힘 · 다시 불러옴 |
  * | 지우기 | reflect false | 상자 없음 · DELETE(id, false) |
+ * | 지우기(CR-01) | timeout pend · 지금 값 = 목표값 / ≠ | 상자 켜짐 · 되돌림 줄 · DELETE(id, true) / 상자 없음 · DELETE(id, false) |
  * | D-30 | unreverted | 창 유지 · 문장 그대로(접두 없음) · 확정 잠금 · 「닫기」 때 다시 불러옴 |
  * | D-30 | 409 REVERT_UNREADABLE | 창 유지 · 문장 그대로 · 확정 활성 · 스위치 끄면 줄 사라짐 → DELETE(id, false) |
  * | 그 밖 | SETTLE_LINKED | 「지우지 못했어요 · X」 |
@@ -315,6 +316,52 @@ describe('줄 「지우기」 · 확인 창(⑨ · D-23)', () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledTimes(1));
     expect(deleteMock.mock.calls[0]).toEqual([5, false]);
     await waitFor(() => expect(confirmBox()).toBeNull());
+  });
+
+  it('(CR-01) 보냈는데 응답만 못 받은 줄 · 지금 값 = 목표값(들어감) → 상자 켜짐 · 되돌림 미리 보기 · DELETE(8, true)', async () => {
+    deleteMock.mockResolvedValue(OK);
+    const timeoutRow = ledgerRow(8, {
+      txDate: '2026-11-19',
+      kind: 'contribute',
+      who: 'H',
+      toAcc: 'kbG',
+      amountKrw: 100_000_000,
+      reflect: true,
+      seeded: false,
+      // 지금 kbG 845,000,000 = 목표값 — 실제로 들어간 반영.
+      pend: { kbG: { deltaKrw: 100_000_000, targetKrw: 845_000_000, reason: 'timeout' } },
+    });
+    fetchSettlementMock.mockResolvedValue({ ...view(), ledger: [...LEDGER, timeoutRow] });
+    await ready();
+    await expand(8);
+    click(rowAction(8, '지우기'));
+    expect(confirmSwitch()?.getAttribute('aria-checked')).toBe('true');
+    expect(confirmLines()).toBe('KB 정근형 예수금 8억 4,500만 → 7억 4,500만');
+    click(confirmButton('지우기'));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledTimes(1));
+    expect(deleteMock.mock.calls[0]).toEqual([8, true]);
+  });
+
+  it('(CR-01) 보냈는데 응답만 못 받은 줄 · 지금 값 ≠ 목표값(안 들어감) → 상자 없음 · DELETE(8, false)', async () => {
+    deleteMock.mockResolvedValue(OK);
+    const timeoutRow = ledgerRow(8, {
+      txDate: '2026-11-19',
+      kind: 'contribute',
+      who: 'H',
+      toAcc: 'kbG',
+      amountKrw: 100_000_000,
+      reflect: true,
+      seeded: false,
+      pend: { kbG: { deltaKrw: 100_000_000, targetKrw: 945_000_000, reason: 'timeout' } },
+    });
+    fetchSettlementMock.mockResolvedValue({ ...view(), ledger: [...LEDGER, timeoutRow] });
+    await ready();
+    await expand(8);
+    click(rowAction(8, '지우기'));
+    expect(q('[data-slot="reflect-box"]', confirmBox()!)).toBeNull();
+    click(confirmButton('지우기'));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledTimes(1));
+    expect(deleteMock.mock.calls[0]).toEqual([8, false]);
   });
 
   it('스위치를 끄고 지우면 DELETE(7, false)', async () => {

@@ -8,10 +8,11 @@ import {
   SETTLEMENT_PEOPLE,
   SETTLEMENT_PERSON_ORDER,
   SETTLEMENT_VIA_LABEL,
-  appliedEffect,
+  appliedEffectAt,
   effectDiff,
   isSettlementMarketHours,
   kstDateIso,
+  nowBudgetsOfAccounts,
   personAllowedFor,
   reflectEffect,
   type SettlementAccKey,
@@ -42,7 +43,8 @@ import { ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box
  * - D-29: 출자 · 원금 회수인데 고른 계좌 묶음 비율에 없는 사람(현중 · 근형 묶음의 심쥬니)은 알약을 막는다(흐림 ·
  *   `aria-disabled` · 방향키 건너뜀). 종류 · 계좌를 바꿔 지금 고른 사람이 막히면 사람 선택을 비운다.
  * - 스위치(D-11 · D-23): 새 거래는 날짜가 오늘이면 켜짐 · 지난 날짜면 꺼짐 — 날짜를 바꿀 때마다 다시 적용한다.
- *   고치기는 반영했던 거래면 켜짐(날짜를 바꿔도) · 아니면 날짜 규칙. 미리 보기 = `effectDiff(appliedEffect(옛 줄), reflectEffect(초안))`.
+ *   고치기는 반영했던 거래면 켜짐(날짜를 바꿔도) · 아니면 날짜 규칙. 미리 보기 = `effectDiff(appliedEffectAt(옛 줄, 지금 값), reflectEffect(초안))`
+ *   (옛 줄 pend 는 server 와 같은 목표값 대조 · CR-01).
  * - 검증은 「저장」 을 누를 때. 오류는 칸별 — 그 칸(금액 · 날짜 입력 또는 관련 알약)을 고치면 그 칸 오류만 지운다(researcher decision 14).
  * - 토스트 · alert 창 없음. 저장 실패는 하단 버튼 위 오류 줄 「저장하지 못했어요 · <message>」 로 말한다.
  */
@@ -219,7 +221,10 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
   const complete = isComplete(draft);
   const body = ledgerDraftToBody(draft, reflect);
   const lines = complete
-    ? reflectPreviewLines(effectDiff(editRow ? appliedEffect(editRow) : {}, reflectEffect(body)), accounts)
+    ? reflectPreviewLines(
+        effectDiff(editRow ? appliedEffectAt(editRow, nowBudgetsOfAccounts(accounts)) : {}, reflectEffect(body)),
+        accounts,
+      )
     : [];
 
   /** 알약 변경 — 계좌 · 종류를 바꾸면 금액 칸의 「같은 계좌」 오류만 지운다(관련 알약). */

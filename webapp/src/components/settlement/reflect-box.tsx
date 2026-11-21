@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
  * 장중 여부를 호출부가 넘긴다.
  *
  * - 미리 보기 증감은 호출부가 shared 로 만든다: ⑦ 새 거래 `reflectEffect(draft)` · 고치기
- *   `effectDiff(appliedEffect(old), reflectEffect(draft))` · ⑧ `addEffects(plan.outs.map(reflectEffect))` ·
- *   ⑨ 지우기 `effectDiff(appliedEffect(row), {})` · 정산 취소 `effectDiff(addEffects(그 정산 줄들.map(appliedEffect)), {})`.
+ *   `effectDiff(appliedEffectAt(old, 지금 값), reflectEffect(draft))` · ⑧ `addEffects(plan.outs.map(reflectEffect))` ·
+ *   ⑨ 지우기 · 정산 취소 `effectDiff(revertApplied(줄들), {})`(목표값 대조 — 들어갔을 수 있는 계좌 포함 · CR-01).
  *   그 결과를 `reflectPreviewLines(effect, view.accounts)` 로 줄로 바꿔 `lines` 에 넘긴다.
  * - 장중 여부는 호출부가 shared `isSettlementMarketHours()`(평일 KST `08:00` ~ `20:00`)로 정해 `marketHours` 에 넘긴다.
  * - `ui/switch.tsx` · 상따 `GroupSwitch` 는 쓰지 않는다 — 같은 기하(시각 40×24 · thumb 20 · 히트 44)로 Radix 프리미티브를 직접 그린다.

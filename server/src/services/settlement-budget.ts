@@ -5,11 +5,14 @@ import {
   SETTLEMENT_ACCOUNTS,
   addEffects,
   buildSettlementAccounts,
+  nowBudgetsOfReads,
   pendAccKeys,
+  reconcilePend,
   type DmaBroker,
   type SettlementAccKey,
   type SettlementAccountView,
   type SettlementEffect,
+  type SettlementNowBudgets,
   type SettlementPend,
   type SettlementPendEntry,
   type SettlementPendReason,
@@ -63,7 +66,8 @@ export async function readSettlement(req: Request): Promise<SettlementRead> {
 //
 // op 6 은 「값 설정」 뿐이라 증감을 「이번 요청에서 읽은 값 + 증감 → 그 절댓값 보내기」 로 흉내 낸다. 틈은 여기 한 곳에서 막는다:
 //   Pitfall 1  새 값 1원 미만 → 보내지 않음(below_one) — op 6 의 0 은 「해제」 다.
-//   Pitfall 2  timeout 은 「모름」 — pend 에 목표값(targetKrw)을 남기고, 다시 반영은 지금 값 = 목표값이면 보내지 않는다.
+//   Pitfall 2  timeout 은 「모름」 — pend 에 목표값(targetKrw)을 남기고, 지금 값 = 목표값이면 들어간 것으로 본다(shared
+//              `reconcilePend`). 다시 반영 · 고치기 · 지우기 · 정산 취소 넷 다 이 대조를 거친다(CR-01).
 //   Pitfall 3  계좌 옮김 두 계좌는 병렬로 보낸다.
 //   Pitfall 8  결과 0건(빈 fan-out)은 반영됨이 아니다 — `results.length > 0` 을 함께 본다.
 // 대상 사용자는 정산 RPC(`admin_settlement_raw`)가 준 링크에서 고른다 — 계좌 메뉴의 대상 조회를 계좌마다 다시 부르지 않는다.
@@ -209,19 +213,42 @@ export async function reflectRows(
   return out;
 }
 
+/** 이번 요청에서 읽은 지금 값 — 목표값 대조(shared `reconcilePend` · `appliedEffectAt`)의 입력. */
+export function nowOf(read: SettlementRead): SettlementNowBudgets {
+  return nowBudgetsOfReads(read.reads);
+}
+
 /**
- * 다시 반영(D-26) — 못 보낸 계좌만. 이번 요청에서 읽은 지금 값이 기록된 목표값과 같으면 앞 시도가 실제로 들어간 것이라
- * 보내지 않고 반영됨으로 정리한다(Pitfall 2 — 두 번 더하지 않음). 아니면 `deltaKrw` 를 증감으로 다시 계획 · 보내기.
+ * 다시 반영(D-26) — 못 보낸 계좌만. 목표값 대조(shared `reconcilePend` — 고치기 · 지우기 · 정산 취소와 같은 판정)로
+ * 지금 값 = 기록된 목표값인 계좌는 앞 시도가 실제로 들어간 것이라 보내지 않고 반영됨으로 정리한다(Pitfall 2 — 두 번 더하지 않음).
+ * 보냈지만 지금 못 읽어 들어갔는지 모르는 계좌는 보내지도 않고 원래 항목(목표값 포함)을 그대로 남긴다 — 목표값을 지우면 다음
+ * 대조의 근거가 사라진다. 나머지는 `deltaKrw` 를 증감으로 다시 계획 · 보내기.
  */
 export async function retryPend(req: Request, read: SettlementRead, pend: SettlementPend): Promise<SettlementPend> {
+  const { pend: left, unknown } = reconcilePend(pend, nowOf(read));
   const deltas: SettlementEffect = {};
-  for (const acc of pendAccKeys(pend)) {
-    const e = pend[acc]!;
-    const now = read.reads.find((r) => r.accKey === acc)?.budgetKrw;
-    if (now !== undefined && e.targetKrw !== null && now === e.targetKrw) continue;
-    if (e.deltaKrw !== 0) deltas[acc] = e.deltaKrw;
+  for (const acc of pendAccKeys(left)) {
+    const e = left[acc]!;
+    if (!unknown.includes(acc) && e.deltaKrw !== 0) deltas[acc] = e.deltaKrw;
   }
-  return reflectDeltas(req, read, deltas);
+  const out = await reflectDeltas(req, read, deltas);
+  for (const acc of unknown) out[acc] = left[acc]!;
+  return out;
+}
+
+/**
+ * 거래 고치기(반영 켬) 전에 — 보냈지만 지금 못 읽어 들어갔는지 모르는 계좌가 있으면 409 `REFLECT_UNKNOWN`(아무것도 바꾸지 않음).
+ * 그대로 고치면 옛 증감을 「안 들어감」 으로 보고 새 값을 통째로 다시 보내거나(두 번 들어감), 새 pend 가 목표값 기록을 덮어 다음
+ * 대조의 근거가 사라진다(CR-01).
+ */
+export function assertReconcilable(read: SettlementRead, pend: SettlementPend): void {
+  const { unknown } = reconcilePend(pend, nowOf(read));
+  if (unknown.length === 0) return;
+  throw new ApiError(
+    409,
+    "REFLECT_UNKNOWN",
+    `${accLabels(unknown)} 예수금을 읽지 못해 앞서 보낸 반영이 들어갔는지 알 수 없어요 — 예수금이 읽힌 뒤 다시 저장해 주세요`,
+  );
 }
 
 /**

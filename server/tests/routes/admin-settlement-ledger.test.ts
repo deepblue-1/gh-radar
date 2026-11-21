@@ -497,6 +497,63 @@ describe("PUT /api/admin/settlement/ledger/:id — 고치기", () => {
     });
   });
 
+  // CR-01 — 「보냈는데 응답만 못 받은(timeout)」 반영. 출자 H → kbG 1억 · pend 에 목표값 945,000,000 이 남은 줄 15.
+  const TIMEOUT_ROW = row(15, {
+    txDate: "2026-11-19",
+    kind: "contribute",
+    who: "H",
+    toAcc: "kbG",
+    amountKrw: 100_000_000,
+    reflect: true,
+    pend: { kbG: { deltaKrw: 100_000_000, targetKrw: 945_000_000, reason: "timeout" } },
+  });
+  const timeoutRaw = () => RAW({ ledger: [...LEDGER, TIMEOUT_ROW] });
+  const editTimeout = (o: Partial<SettlementLedgerBody> = {}) =>
+    body({ txDate: "2026-11-19", kind: "contribute", who: "H", fromAcc: null, toAcc: "kbG", amountKrw: 100_000_000, ...o });
+
+  it("(CR-01) timeout 이 실제로 들어감(지금 kbG = 목표값) · 메모만 고침 → 다시 보내지 않음 · 저장 pend {}", async () => {
+    const relay = relayOf({ costs: costsOf({ kbG: 945_000_000 }) });
+    const { app, rec } = makeApp({ raw: timeoutRaw() }, relay.client);
+    const res = await auth(request(app).put("/api/admin/settlement/ledger/15")).send(editTimeout({ memo: "메모만" }));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 15, pend: {} });
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(paramsOf<SaveParams>(rec, "settlement_ledger_save")[0]!.p_row.pend).toEqual({});
+  });
+
+  it("(CR-01) timeout 이 실제로 들어감 · 금액 1억 → 1억 5,000만 → 차이 +5,000만만 보냄(995,000,000 · 두 번 들어가지 않음)", async () => {
+    const relay = relayOf({ costs: costsOf({ kbG: 945_000_000 }) });
+    const { app } = makeApp({ raw: timeoutRaw() }, relay.client);
+    const res = await auth(request(app).put("/api/admin/settlement/ledger/15")).send(editTimeout({ amountKrw: 150_000_000 }));
+    expect(res.status).toBe(200);
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 995_000_000 } },
+    ]);
+  });
+
+  it("(CR-01) timeout 이 안 들어감(지금 kbG 845,000,000 ≠ 목표값) · 메모만 고침 → 그 증감을 다시 보냄(945,000,000)", async () => {
+    const relay = relayOf();
+    const { app } = makeApp({ raw: timeoutRaw() }, relay.client);
+    const res = await auth(request(app).put("/api/admin/settlement/ledger/15")).send(editTimeout({ memo: "메모만" }));
+    expect(res.status).toBe(200);
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 945_000_000 } },
+    ]);
+  });
+
+  it("(CR-01) timeout 계좌를 지금 못 읽음 → 409 REFLECT_UNKNOWN · 저장 RPC 0 · relay 쓰기 0", async () => {
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp({ raw: timeoutRaw() }, relay.client);
+    const res = await auth(request(app).put("/api/admin/settlement/ledger/15")).send(editTimeout({ memo: "메모만" }));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({
+      code: "REFLECT_UNKNOWN",
+      message: "KB 정근형 예수금을 읽지 못해 앞서 보낸 반영이 들어갔는지 알 수 없어요 — 예수금이 읽힌 뒤 다시 저장해 주세요",
+    });
+    expect(fns(rec)).not.toContain("settlement_ledger_save");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
   it("PUT 저장 RPC 오류 → relay 쓰기 0 · set_pend 0 · 500 DB_ERROR", async () => {
     const relay = relayOf();
     const { app, rec } = makeApp({ save: pgErr("XX000", "boom") }, relay.client);
@@ -617,6 +674,59 @@ describe("DELETE /api/admin/settlement/ledger/:id — 지우기 · 되돌림", (
     expect(budgetCalls(relay.calls)).toEqual([
       { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 1_245_000_000 } },
     ]);
+  });
+
+  it("(CR-01) 계좌 옮김 kyH 가 실제로 들어감(지금 kyH = 목표값 1,084,000,000) → 두 계좌 다 되돌림", async () => {
+    const relay = relayOf({ costs: costsOf({ kyH: 1_084_000_000 }) });
+    const { app } = makeApp({}, relay.client);
+    const res = await del(app, 14);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(budgetCalls(relay.calls).map((c) => [c.accountNo, c.body])).toEqual(
+      expect.arrayContaining([
+        [NO.kbG, { budgetKrw: 1_245_000_000 }],
+        [NO.kyH, { budgetKrw: 684_000_000 }],
+      ]),
+    );
+    expect(budgetCalls(relay.calls)).toHaveLength(2);
+  });
+
+  it("(CR-01) timeout 출자 한 계좌만 걸린 줄이 실제로 들어감 → 되돌림 kbG − 1억 보냄(예수금에 남지 않음)", async () => {
+    const ledger = [
+      ...LEDGER,
+      row(15, {
+        txDate: "2026-11-19",
+        kind: "contribute",
+        who: "H",
+        toAcc: "kbG",
+        amountKrw: 100_000_000,
+        reflect: true,
+        pend: { kbG: { deltaKrw: 100_000_000, targetKrw: 945_000_000, reason: "timeout" } },
+      }),
+    ];
+    const relay = relayOf({ costs: costsOf({ kbG: 945_000_000 }) });
+    const { app, rec } = makeApp({ raw: RAW({ ledger }) }, relay.client);
+    const res = await del(app, 15);
+    expect(res.status).toBe(200);
+    expect(fns(rec)).toContain("settlement_ledger_delete");
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "g01", broker: "KB", accountNo: NO.kbG, body: { budgetKrw: 845_000_000 } },
+    ]);
+  });
+
+  it("(CR-01) 보냈지만 지금 못 읽은 계좌(kyH)는 「들어갔을 수 있음」 → 409 REVERT_UNREADABLE · 지우기 RPC 0", async () => {
+    const relay = relayOf({
+      costs: { servers: { KB120: [costRow("g01", NO.kbG, BUDGETS.kbG), costRow("h01", NO.kbH, BUDGETS.kbH)] } },
+    });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await del(app, 14);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({
+      code: "REVERT_UNREADABLE",
+      message: "교보 김현중 예수금을 읽지 못해 되돌릴 수 없어요 — 스위치를 끄면 예수금은 그대로 두고 지워요",
+    });
+    expect(fns(rec)).not.toContain("settlement_ledger_delete");
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
   });
 
   it("(D-30) kbG 를 그 순간 못 읽음 → 409 REVERT_UNREADABLE · 지우기 RPC 0 · relay 쓰기 0 · 문장 그대로", async () => {
@@ -812,6 +922,17 @@ describe("POST /api/admin/settlement/ledger/:id/retry — 다시 반영(목표�
     expect(res.body.pend).toEqual({ kbG: { deltaKrw: -100_000_000, targetKrw: null, reason: "below_one" } });
     expect(res.body.message).toBe("KB 정근형 미반영 — 예수금이 0 이하가 되어 보내지 않았어요");
     expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
+  it("(CR-01) 보냈지만 지금 못 읽음 → 보내지 않고 원래 항목(목표값 포함)을 그대로 남긴다", async () => {
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await retry(app, 14);
+    expect(res.status).toBe(200);
+    const pend = { kyH: { deltaKrw: 400_000_000, targetKrw: 1_084_000_000, reason: "failed" } };
+    expect(res.body.pend).toEqual(pend);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+    expect(paramsOf<SetPendParams>(rec, "settlement_set_pend")).toEqual([{ p_pends: [{ id: 14, pend }] }]);
   });
 
   it("없는 id → 404 · relay 쓰기 0", async () => {

@@ -879,6 +879,77 @@ export function pendAccKeys(pend: SettlementPend): SettlementAccKey[] {
   return SETTLEMENT_ACC_KEYS.filter((acc) => pend[acc] !== undefined && pend[acc] !== null);
 }
 
+/** 계좌별 지금 예수금(원) — 목표값 대조(Pitfall 2)의 「지금 값」. 지금 읽지 못한 계좌는 키가 없다. */
+export type SettlementNowBudgets = Partial<Record<SettlementAccKey, number>>;
+
+/** server — 이번 요청에서 relay 로 읽은 값(0 포함)만. DB 의 마지막 값(stale)은 넣지 않는다. */
+export function nowBudgetsOfReads(reads: readonly Pick<SettlementRawRead, "accKey" | "budgetKrw">[]): SettlementNowBudgets {
+  const now: SettlementNowBudgets = {};
+  for (const r of reads) now[r.accKey] = r.budgetKrw;
+  return now;
+}
+
+/** webapp — 화면 응답에서 이번 조회 때 읽은(known) 계좌만. 못 읽어 마지막 값을 보이는(stale) 계좌는 넣지 않는다. */
+export function nowBudgetsOfAccounts(accounts: readonly SettlementAccountView[]): SettlementNowBudgets {
+  const now: SettlementNowBudgets = {};
+  for (const a of accounts) if (a.state === "known" && a.budgetKrw !== null) now[a.accKey] = a.budgetKrw;
+  return now;
+}
+
+/** 목표값 대조 결과. */
+export interface SettlementPendReconcile {
+  /** 들어간 것으로 판정한 계좌를 뺀 pend — 아직 안 들어갔거나 들어갔는지 모르는 항목이 남는다. */
+  pend: SettlementPend;
+  /** 지금 값 = 기록된 목표값 — 앞 시도가 실제로 들어간 계좌(pend 에서 뺐다). */
+  landed: SettlementAccKey[];
+  /** 보냈지만(목표값 있음) 지금 값을 못 읽어 들어갔는지 모르는 계좌(pend 에 남겨 둔다). */
+  unknown: SettlementAccKey[];
+}
+
+/**
+ * 목표값 대조(Pitfall 2 · CR-01) — op 6 은 「값 설정」 이라 timeout · 결과 기록 실패는 「들어갔는지 모름」 이다. 저장 때 남긴
+ * 목표값(`targetKrw`)과 지금 값이 같으면 실제로 들어간 것으로 보고 pend 에서 뺀다. 목표값이 없는 항목(보내지 않음 — 못 읽음 ·
+ * 1원 미만 · 서버 없음)은 늘 안 들어간 것이다. 다시 반영 · 고치기 · 지우기 · 정산 취소가 모두 이 한 판정을 쓴다.
+ */
+export function reconcilePend(pend: SettlementPend, now: SettlementNowBudgets): SettlementPendReconcile {
+  const out: SettlementPend = {};
+  const landed: SettlementAccKey[] = [];
+  const unknown: SettlementAccKey[] = [];
+  for (const acc of pendAccKeys(pend)) {
+    const e = pend[acc]!;
+    if (e.targetKrw !== null) {
+      const v = now[acc];
+      if (v === undefined) unknown.push(acc);
+      else if (v === e.targetKrw) {
+        landed.push(acc);
+        continue;
+      }
+    }
+    out[acc] = e;
+  }
+  return { pend: out, landed, unknown };
+}
+
+/**
+ * 목표값 대조를 거친 `appliedEffect` — 그 거래로 지금 예수금에 들어가 있는 증감. 들어간 것으로 판정한 계좌는 「들어감」 으로 센다.
+ * `unknownApplied` 가 true 면 들어갔는지 모르는 계좌도 「들어갔을 수 있음」 으로 센다 — 지우기 · 정산 취소는 그 계좌를 되돌림에
+ * 넣어 「읽지 못해 되돌릴 수 없어요」(D-30)로 막고, 확인 창은 반영 상자를 보인다. 고치기 · 미리 보기는 false(기본).
+ */
+export function appliedEffectAt(
+  row: Pick<SettlementLedgerRow, "kind" | "fromAcc" | "toAcc" | "amountKrw" | "reflect" | "pend"> | null,
+  now: SettlementNowBudgets,
+  opts: { unknownApplied?: boolean } = {},
+): SettlementEffect {
+  if (!row) return {};
+  const r = reconcilePend(row.pend, now);
+  let pend = r.pend;
+  if (opts.unknownApplied && r.unknown.length > 0) {
+    pend = { ...pend };
+    for (const acc of r.unknown) delete pend[acc];
+  }
+  return appliedEffect({ ...row, pend });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 표기(D-08 · UI-SPEC 「숫자 · 날짜 표기 계약」) — 입력은 원
 // ─────────────────────────────────────────────────────────────────────────────

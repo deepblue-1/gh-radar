@@ -601,6 +601,30 @@ describe("POST /api/admin/settlement/settles/:id/cancel — 정산 취소", () =
     expect(fns(rec)).toEqual(["admin_settlement_raw", "settlement_settle_cancel"]);
   });
 
+  it("(CR-01) 바로 출금 줄이 timeout 이었지만 실제로 들어감(지금 kyH = 목표값 159,500,000) → kyH 684,000,000 으로 되돌림", async () => {
+    const out = OUT_H({ pend: { kyH: { deltaKrw: -524_500_000, targetKrw: 159_500_000, reason: "timeout" } } });
+    const relay = relayOf({ costs: AFTER });
+    const { app, rec } = makeApp({ raw: cancelRaw([out]), cancel: cancelReturns([out]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, pend: {}, unreverted: [] });
+    expect(fns(rec)).toContain("settlement_settle_cancel");
+    expect(budgetCalls(relay.calls)).toEqual([
+      { dma: "h01", broker: "KYOBO", accountNo: NO.kyH, body: { budgetKrw: 684_000_000 } },
+    ]);
+  });
+
+  it("(CR-01) timeout 바로 출금 줄 · kyH 를 지금 못 읽음 → 「들어갔을 수 있음」 → 409 REVERT_UNREADABLE · 취소 RPC 0", async () => {
+    const out = OUT_H({ pend: { kyH: { deltaKrw: -524_500_000, targetKrw: 159_500_000, reason: "timeout" } } });
+    const relay = relayOf({ costs: null });
+    const { app, rec } = makeApp({ raw: cancelRaw([out]), cancel: cancelReturns([out]) }, relay.client);
+    const res = await auth(request(app).post(CANCEL(31))).send({ reflect: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({ code: "REVERT_UNREADABLE", message: UNREADABLE_KYH });
+    expect(fns(rec)).toEqual(["admin_settlement_raw"]);
+    expect(budgetCalls(relay.calls)).toHaveLength(0);
+  });
+
   it("(D-30) kyH 를 그 순간 못 읽음 → 409 REVERT_UNREADABLE · 문장 그대로 · 취소 RPC 0 · relay 쓰기 0", async () => {
     const relay = relayOf({ costs: null });
     const { app, rec } = makeApp({ raw: cancelRaw(), cancel: cancelReturns([OUT_H()]) }, relay.client);
