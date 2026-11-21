@@ -6,10 +6,12 @@ import { createApp } from "../../src/app";
 import {
   ADMIN_TOKEN,
   TRADER_TOKEN,
+  appUsersWithTraderMenus,
   baseAppUsers,
   baseUsers,
   makeAdminSupabase,
   type AdminSupabaseOpts,
+  type AppUserRow,
 } from "../fixtures/admin-supabase";
 
 /**
@@ -48,10 +50,10 @@ const report: PnlReport = {
 const roleLookups = (rec: ReturnType<typeof makeAdminSupabase>["rec"]) =>
   rec.ops.filter((o) => o.table === "app_users" && o.kind === "select").length;
 
-function makeApp(rpc: Record<string, RpcHandler> = {}) {
+function makeApp(rpc: Record<string, RpcHandler> = {}, appUsers: AppUserRow[] = baseAppUsers()) {
   const sb = makeAdminSupabase({
     users: baseUsers,
-    appUsers: baseAppUsers(),
+    appUsers,
     rpc: {
       dma_pnl_daily_for_admin: () => ({ data: report, error: null }),
       ...rpc,
@@ -81,6 +83,23 @@ describe("GET /api/admin/pnl — 어드민 일자별 매매손익 (D-17 ①)", (
 
   it("② trader → 403 FORBIDDEN · RPC 0회", async () => {
     const { app, rec } = makeApp();
+    const res = await auth(request(app).get("/api/admin/pnl"), TRADER_TOKEN);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("FORBIDDEN");
+    expect(rec.rpcCalls).toEqual([]);
+  });
+
+  it("②-b (quick 261121-n1b) 매매손익이 열린 trader → 200 · RPC 1회 · 역할 조회 1회", async () => {
+    const { app, rec } = makeApp({}, appUsersWithTraderMenus(["pnl"]));
+    const res = await auth(request(app).get("/api/admin/pnl"), TRADER_TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(report);
+    expect(rec.rpcCalls.map((c) => c.fn)).toEqual(["dma_pnl_daily_for_admin"]);
+    expect(roleLookups(rec)).toBe(1);
+  });
+
+  it("②-c (quick 261121-n1b) 정산만 열린 trader → 403 · RPC 0회", async () => {
+    const { app, rec } = makeApp({}, appUsersWithTraderMenus(["settlement"]));
     const res = await auth(request(app).get("/api/admin/pnl"), TRADER_TOKEN);
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("FORBIDDEN");

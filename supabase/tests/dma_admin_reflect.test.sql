@@ -164,13 +164,13 @@ SELECT is(
 SELECT is(
   (SELECT e FROM jsonb_array_elements((SELECT r FROM t_raw WHERE label = 'shape') -> 'appUsers') e
     WHERE e ->> 'email' = 'r5-pre@example.invalid'),
-  '{"email":"r5-pre@example.invalid","role":"viewer","dmaUserId":null,"signedUp":false}'::jsonb,
+  '{"email":"r5-pre@example.invalid","role":"viewer","dmaUserId":null,"signedUp":false,"adminMenus":[]}'::jsonb,
   '(raw.appUsers r5-pre, 사전 등록 signedUp false · dmaUserId null)'
 );
 SELECT is(
   (SELECT e FROM jsonb_array_elements((SELECT r FROM t_raw WHERE label = 'shape') -> 'appUsers') e
     WHERE e ->> 'email' = 'r5-a@example.invalid'),
-  '{"email":"r5-a@example.invalid","role":"trader","dmaUserId":"r5d1","signedUp":true}'::jsonb,
+  '{"email":"r5-a@example.invalid","role":"trader","dmaUserId":"r5d1","signedUp":true,"adminMenus":[]}'::jsonb,
   '(raw.appUsers r5-a, 가입 signedUp true · dmaUserId r5d1)'
 );
 SELECT is(

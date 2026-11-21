@@ -27,7 +27,7 @@ import {
 } from "@gh-radar/shared";
 
 import { requireAuth } from "../middleware/require-auth.js";
-import { requireAdmin } from "../middleware/require-admin.js";
+import { requireAdminOrMenu } from "../middleware/require-admin.js";
 import { ApiError, ValidationFailed } from "../errors.js";
 import { logger } from "../logger.js";
 import {
@@ -85,7 +85,8 @@ import { DbError, audit } from "./admin.js";
  *
  * ── 방어선 ──────────────────────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401.
- *   D-18     `requireAdmin()` — DB role 을 매 요청 조회. admin 이 아니면 403 · RPC 0회 · relay 0회.
+ *   D-18     `requireAdminOrMenu`(메뉴 `settlement`) — DB role · admin_menus 를 매 요청 조회. admin 또는 정산 메뉴가 열린 trader
+ *            (quick 261121-n1b — 보기 + 모든 쓰기)가 아니면 403 · RPC 0회 · relay 0회.
  *            관문은 `/settlement` 경로에만 건다 — 이 라우터는 adminRouter 앞에 마운트되므로(app.ts) 전체에 걸면 다른 어드민
  *            요청도 역할 조회를 한 번 더 한다.
  *   D-20     적은 사람 · 고친 사람 = `req.adminEmail`(RPC `p_by`) · 쓰기마다 `audit` 한 줄(계좌번호 · 금액 없이).
@@ -143,7 +144,7 @@ function serializeSettlementWrites(): RequestHandler {
   };
 }
 
-adminSettlementRouter.use("/settlement", requireAuth(), requireAdmin(), serializeSettlementWrites());
+adminSettlementRouter.use("/settlement", requireAuth(), requireAdminOrMenu("settlement"), serializeSettlementWrites());
 
 type PgError = { code?: string; message?: string };
 

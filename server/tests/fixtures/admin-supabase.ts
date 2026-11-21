@@ -12,7 +12,18 @@
  * 기록(`rec`)으로 「무엇을 몇 번 불렀는지」 를 단언한다(왕복 수 · 쓰기 대상 · 필터).
  */
 
-export type AppUserRow = { email: string; role: string; dma_user_id: string | null; updated_at?: string };
+export type AppUserRow = {
+  email: string;
+  role: string;
+  dma_user_id: string | null;
+  updated_at?: string;
+  /** quick 261121-n1b — trader 에게 연 어드민 메뉴(`pnl` · `settlement`). 없으면 메뉴 없음. */
+  admin_menus?: unknown;
+};
+
+/** baseAppUsers 의 trader 행에 어드민 메뉴를 덮어쓴 표(quick 261121-n1b 관문 테스트용). */
+export const appUsersWithTraderMenus = (menus: unknown): AppUserRow[] =>
+  baseAppUsers().map((r) => (r.email === "trader@gmail.com" ? { ...r, admin_menus: menus } : r));
 
 export type AdminSupabaseOpts = {
   users?: Record<string, { id: string; email?: string | null }>;
@@ -177,6 +188,8 @@ export const ADMIN_TOKEN = "tok-admin";
 export const TRADER_TOKEN = "tok-trader";
 export const PENDING_TOKEN = "tok-pending";
 export const NO_EMAIL_TOKEN = "tok-no-email";
+/** quick 261121-n1b — viewer(viewer@gmail.com · baseAppUsers 에 있음). */
+export const VIEWER_TOKEN = "tok-viewer";
 
 export const ADMIN_EMAIL = "alex@jx1.io";
 
@@ -185,6 +198,7 @@ export const baseUsers: AdminSupabaseOpts["users"] = {
   [TRADER_TOKEN]: { id: "00000000-0000-4000-8000-000000000002", email: "trader@gmail.com" },
   [PENDING_TOKEN]: { id: "00000000-0000-4000-8000-000000000003", email: "pending@gmail.com" },
   [NO_EMAIL_TOKEN]: { id: "00000000-0000-4000-8000-000000000004", email: null },
+  [VIEWER_TOKEN]: { id: "00000000-0000-4000-8000-000000000005", email: "viewer@gmail.com" },
 };
 
 export const baseAppUsers = (): AppUserRow[] => [

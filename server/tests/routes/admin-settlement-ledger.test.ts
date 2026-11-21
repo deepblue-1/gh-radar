@@ -18,10 +18,12 @@ import {
   ADMIN_EMAIL,
   ADMIN_TOKEN,
   TRADER_TOKEN,
+  appUsersWithTraderMenus,
   baseAppUsers,
   baseUsers,
   makeAdminSupabase,
   type AdminSupabaseOpts,
+  type AppUserRow,
 } from "../fixtures/admin-supabase";
 import { makeFakeRelay, relayReject, type FakeRelayCall, type FakeRelayHandler } from "../fixtures/fake-relay-admin";
 
@@ -166,12 +168,12 @@ const saveOk: RpcHandler = (params) => {
 const pgErr = (code: string, message: string): RpcHandler => () => ({ data: null, error: { code, message } });
 
 function makeApp(
-  opts: { raw?: SettlementRaw; save?: RpcHandler; del?: RpcHandler; setPend?: RpcHandler } = {},
+  opts: { raw?: SettlementRaw; save?: RpcHandler; del?: RpcHandler; setPend?: RpcHandler; appUsers?: AppUserRow[] } = {},
   relayAdmin?: RelayAdminClient,
 ) {
   const sb = makeAdminSupabase({
     users: baseUsers,
-    appUsers: baseAppUsers(),
+    appUsers: opts.appUsers ?? baseAppUsers(),
     rpc: {
       admin_settlement_raw: () => ({ data: opts.raw ?? RAW(), error: null }),
       settlement_record_reads: () => ({ data: null, error: null }),
@@ -366,6 +368,31 @@ describe("POST /api/admin/settlement/ledger — 거래 저장 · 예수금 반�
     expect(relay.calls).toHaveLength(0);
     expect(fns(rec)).toEqual(["settlement_ledger_save"]);
     expect(paramsOf<SaveParams>(rec, "settlement_ledger_save")[0]!.p_row).toMatchObject({ reflect: false, pend: {} });
+  });
+
+  it("(quick 261121-n1b) 정산이 열린 trader 도 저장 200 · RPC p_by = 그 trader 이메일(감사 = 실제로 누른 사람)", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({ appUsers: appUsersWithTraderMenus(["settlement"]) }, relay.client);
+    const res = await request(app)
+      .post("/api/admin/settlement/ledger")
+      .set("Authorization", `Bearer ${TRADER_TOKEN}`)
+      .send(body({ reflect: false }));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 101, pend: {} });
+    expect(fns(rec)).toEqual(["settlement_ledger_save"]);
+    expect(paramsOf<SaveParams>(rec, "settlement_ledger_save")[0]!.p_by).toBe("trader@gmail.com");
+  });
+
+  it("(quick 261121-n1b) 매매손익만 열린 trader → 저장 403 · RPC 0 · relay 0", async () => {
+    const relay = relayOf();
+    const { app, rec } = makeApp({ appUsers: appUsersWithTraderMenus(["pnl"]) }, relay.client);
+    const res = await request(app)
+      .post("/api/admin/settlement/ledger")
+      .set("Authorization", `Bearer ${TRADER_TOKEN}`)
+      .send(body({ reflect: false }));
+    expect(res.status).toBe(403);
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
   });
 
   it("(D-13) 장중이어도 server 는 반영을 막지 않는다 — 시각과 무관하게 보낸다", async () => {

@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { SERVER_KEY_RE, brokerOfServerKey, isValidAccountNoInput, normalizeAccountNo } from "@gh-radar/shared";
+import {
+  ADMIN_MENU_KEYS,
+  SERVER_KEY_RE,
+  brokerOfServerKey,
+  isValidAccountNoInput,
+  normalizeAccountNo,
+} from "@gh-radar/shared";
 
 /**
  * Phase 29 (D-01 · D-03 · D-04) — Admin 허용 / 역할 쓰기 입력 검증.
@@ -134,10 +140,27 @@ export const AdminUserUpsertBody = z
     }
   });
 
-/** PATCH /api/admin/users/:email — 역할 변경. */
-export const AdminRolePatchBody = z.object({
-  role: AppRoleSchema,
-});
+/**
+ * 어드민 메뉴 목록(quick 261121-n1b) — `ADMIN_MENU_KEYS` 밖 값은 400. 중복을 지우고 `ADMIN_MENU_KEYS` 순서로 고정한다
+ * (DB 에 같은 집합이 늘 같은 배열로 저장되게). `[]` = 전부 끄기.
+ */
+const AdminMenusSchema = z
+  .array(z.enum(ADMIN_MENU_KEYS))
+  .max(8)
+  .transform((arr) => ADMIN_MENU_KEYS.filter((k) => arr.includes(k)));
+
+/**
+ * PATCH /api/admin/users/:email — 역할 · 어드민 메뉴 변경. 둘 중 하나는 있어야 한다(`{}` 는 400).
+ * 메뉴는 trader 에게만 효력이 있지만 역할과 상관없이 저장한다(역할이 바뀌어도 값은 남는다 — 효력만 없어짐).
+ */
+export const AdminRolePatchBody = z
+  .object({
+    role: AppRoleSchema.optional(),
+    adminMenus: AdminMenusSchema.optional(),
+  })
+  .refine((v) => v.role !== undefined || v.adminMenus !== undefined, {
+    message: "role 또는 adminMenus 가 필요해요",
+  });
 
 /**
  * 경로 `:email`. Express 5 라우터가 경로 파라미터의 퍼센트 인코딩을 이미 풀어 준다(`%40` → `@`) —

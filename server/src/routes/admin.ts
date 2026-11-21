@@ -54,7 +54,8 @@ import type { AdminCommandResponse } from "@gh-radar/shared";
  *                          `dma` 가 있으면(trader/admin · D-16) upsert 뒤 relay `POST /internal/admin/dma-users` 1회 →
  *                          서버별 결과 배열을 그대로 `results` 로. viewer + dma 는 400. 이미 DMA 가 연결된 이메일 + dma 는
  *                          upsert 전에 409 `DMA_LINKED`(29-27 CR-01 — 정본 가드는 DB 생성 RPC).
- * - PATCH  /users/:email : `{ role }` — 역할 변경(D-04 강등 즉시). 없는 이메일 404.
+ * - PATCH  /users/:email : `{ role?, adminMenus? }`(하나 이상) — 역할 변경(D-04 강등 즉시) · 어드민 메뉴 변경(quick 261121-n1b —
+ *                          trader 에게 매매손익 · 정산만 연다). 없는 이메일 404. 메뉴만 바꾼 요청은 relay 통보 없음.
  * - DELETE /users/:email : DMA 없음 → 행 삭제 · DMA 를 다른 웹 사용자와 공유 → 이 웹 사용자 행만 삭제(서버 무접촉) ·
  *                          DMA 단독 → relay DMA 유저 삭제 → 전 서버 ok 일 때만 행 삭제(아니면 `deleted: false` · 행 유지).
  *                          `?skipDisabled=1`(29-34 WR-04 — webapp 확인 다이얼로그가 꺼진 등록 서버를 알린 뒤) → relay 같은 쿼리:
@@ -417,24 +418,31 @@ adminRouter.post("/users", async (req, res, next) => {
   }
 });
 
-// --- PATCH /users/:email — 역할 변경 (D-04 강등 즉시) ---
+// --- PATCH /users/:email — 역할 변경 (D-04 강등 즉시) · 어드민 메뉴 변경 (quick 261121-n1b) ---
 adminRouter.patch("/users/:email", async (req, res, next) => {
   try {
     const { email } = parseOrThrow(adminEmailParam, req.params);
-    const { role } = parseOrThrow(AdminRolePatchBody, req.body ?? {});
-    if (email === req.adminEmail && role !== "admin") throw SelfLockout();
+    const { role, adminMenus } = parseOrThrow(AdminRolePatchBody, req.body ?? {});
+    if (role !== undefined && email === req.adminEmail && role !== "admin") throw SelfLockout();
 
     const supabase = req.app.locals.supabase as SupabaseClient;
     const { data, error } = await supabase
       .from("app_users")
-      .update({ role, updated_at: new Date().toISOString() })
+      .update({
+        ...(role !== undefined ? { role } : {}),
+        ...(adminMenus !== undefined ? { admin_menus: adminMenus } : {}),
+        updated_at: new Date().toISOString(),
+      })
       .eq("email", email)
       .select("email");
-    if (error) throw DbError("역할 변경에 실패했습니다.", error);
+    if (error) throw DbError(role !== undefined ? "역할 변경에 실패했습니다." : "어드민 메뉴 변경에 실패했습니다.", error);
     if (!Array.isArray(data) || data.length === 0) throw UserNotFound();
 
-    audit(req, "role", email, { role });
-    res.json({ ok: true, relayNotified: await notifyAccess(req, "role") });
+    if (role !== undefined) audit(req, "role", email, { role });
+    if (adminMenus !== undefined) audit(req, "admin-menus", email, { adminMenus });
+    // relay 는 app_users 를 dma_app_access_map() 의 명시 열(role 등)로만 읽고 admin_menus 는 읽지 않는다 —
+    // 메뉴만 바꾼 요청은 통보할 것이 없다(false). 메뉴 관문은 server requireAdminOrMenu · webapp middleware 가 매 요청 DB 를 본다.
+    res.json({ ok: true, relayNotified: role !== undefined ? await notifyAccess(req, "role") : false });
   } catch (e) {
     next(e);
   }

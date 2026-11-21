@@ -25,6 +25,7 @@ import {
   ADMIN_TOKEN,
   PENDING_TOKEN,
   TRADER_TOKEN,
+  appUsersWithTraderMenus,
   baseAppUsers,
   baseUsers,
   makeAdminSupabase,
@@ -142,6 +143,27 @@ describe("GET /api/admin/users", () => {
     expect(res.body.users[0].email).toBe("alex@jx1.io");
     // 왕복: 역할 조회 1회 + RPC 1회. 쓰기 0.
     expect(rec.ops.map((o) => o.kind)).toEqual(["select"]);
+  });
+
+  it("(quick 261121-n1b) 두 메뉴가 열린 trader 여도 → 403 · RPC 0회 (사용자 화면은 admin 전용)", async () => {
+    const { app, rec } = makeApp({ appUsers: appUsersWithTraderMenus(["pnl", "settlement"]) });
+    const res = await request(app).get("/api/admin/users").set("Authorization", `Bearer ${TRADER_TOKEN}`);
+    expect(res.status).toBe(403);
+    expect(rec.rpcCalls).toHaveLength(0);
+  });
+
+  it("(quick 261121-n1b) 원자료 adminMenus → users[].adminMenus 그대로 · 없는 사용자는 []", async () => {
+    const withMenus: AdminUsersRaw = {
+      ...raw,
+      appUsers: raw.appUsers.map((u) => (u.email === "trader@gmail.com" ? { ...u, adminMenus: ["settlement"] } : u)),
+    };
+    const { app } = makeApp({ raw: withMenus });
+    const res = await auth(request(app).get("/api/admin/users"));
+    expect(res.status).toBe(200);
+    const byEmail = Object.fromEntries(
+      (res.body.users as { email: string; adminMenus: string[] }[]).map((u) => [u.email, u.adminMenus]),
+    );
+    expect(byEmail).toEqual({ "alex@jx1.io": [], "trader@gmail.com": ["settlement"], "pre@gmail.com": [] });
   });
 
   it("RPC 오류 → 500 DB_ERROR · 원문 미노출", async () => {
@@ -515,6 +537,62 @@ describe("PATCH /api/admin/users/:email — 역할 변경", () => {
     const b = await auth(request(app).patch("/api/admin/users/not-an-email")).send({ role: "viewer" });
     expect(b.status).toBe(400);
     expect(b.body.error.code).toBe("VALIDATION_FAILED");
+  });
+});
+
+describe("PATCH /api/admin/users/:email — 어드민 메뉴 (quick 261121-n1b)", () => {
+  it("{ adminMenus: [settlement, pnl, pnl] } → 200 · 저장 [pnl, settlement](고정 순서 · 중복 제거) · role 안 바뀜 · relay 0", async () => {
+    const relay = fakeRelay();
+    const { app, rec, rows } = makeApp({}, relay.client);
+    const res = await auth(request(app).patch("/api/admin/users/trader%40gmail.com")).send({
+      adminMenus: ["settlement", "pnl", "pnl"],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, relayNotified: false });
+    const up = rec.ops.find((o) => o.kind === "update")!;
+    expect(up.filters).toEqual([["eq", "email", "trader@gmail.com"]]);
+    expect(up.payload).toEqual({ admin_menus: ["pnl", "settlement"], updated_at: up.payload!.updated_at });
+    expect(typeof up.payload!.updated_at).toBe("string");
+    expect(rows.get("trader@gmail.com")?.admin_menus).toEqual(["pnl", "settlement"]);
+    expect(rows.get("trader@gmail.com")?.role).toBe("trader");
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("{ adminMenus: [] } → 200 · 저장 [] (전부 끄기)", async () => {
+    const { app, rows } = makeApp({ appUsers: appUsersWithTraderMenus(["pnl"]) }, fakeRelay().client);
+    const res = await auth(request(app).patch("/api/admin/users/trader%40gmail.com")).send({ adminMenus: [] });
+    expect(res.status).toBe(200);
+    expect(rows.get("trader@gmail.com")?.admin_menus).toEqual([]);
+  });
+
+  it("본인(admin)에게 메뉴만 보내도 자기 잠금 아님 → 200 (role 이 없으면 SELF_LOCKOUT 검사 안 함)", async () => {
+    const { app } = makeApp({}, fakeRelay().client);
+    const res = await auth(request(app).patch(`/api/admin/users/${encodeURIComponent(ADMIN_EMAIL)}`)).send({ adminMenus: ["pnl"] });
+    expect(res.status).toBe(200);
+  });
+
+  it("{ adminMenus: [users] } · {} · { adminMenus: 문자열 } → 400 VALIDATION_FAILED · 쓰기 0", async () => {
+    const { app, rec } = makeApp({}, fakeRelay().client);
+    for (const bad of [{ adminMenus: ["users"] }, {}, { adminMenus: "pnl" }]) {
+      const res = await auth(request(app).patch("/api/admin/users/trader%40gmail.com")).send(bad);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_FAILED");
+    }
+    expect(rec.ops.filter((o) => o.kind === "update")).toHaveLength(0);
+  });
+
+  it("없는 이메일 → 404 NOT_FOUND", async () => {
+    const { app } = makeApp({}, fakeRelay().client);
+    const res = await auth(request(app).patch("/api/admin/users/ghost%40gmail.com")).send({ adminMenus: ["pnl"] });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("update 오류 → 500 DB_ERROR 「어드민 메뉴 변경에 실패했습니다.」", async () => {
+    const { app } = makeApp({ dbError: { update: { message: "boom" } } }, fakeRelay().client);
+    const res = await auth(request(app).patch("/api/admin/users/trader%40gmail.com")).send({ adminMenus: ["pnl"] });
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe("DB_ERROR");
   });
 });
 

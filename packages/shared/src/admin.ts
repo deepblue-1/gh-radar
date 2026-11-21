@@ -22,6 +22,13 @@ import { normalizeOrderIp, normalizeOrderMac } from "./order-endpoint";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type AppRole = "admin" | "trader" | "viewer";
+
+/**
+ * trader 에게 골라 여는 어드민 메뉴(quick 261121-n1b) — `app_users.admin_menus` CHECK 와 같은 값 · 이 순서가 저장 · 표시 순서다.
+ * **role = trader 일 때만 효력**: admin 은 원래 전부, viewer 는 저장값이 있어도 없음. 역할이 바뀌어도 저장값은 남는다(효력만 없어짐).
+ */
+export const ADMIN_MENU_KEYS = ["pnl", "settlement"] as const;
+export type AdminMenu = (typeof ADMIN_MENU_KEYS)[number];
 export type DmaBroker = "KB" | "KYOBO";
 
 /** 서버 레지스트리 키 — `dma_servers.key` CHECK 와 같은 정규식(KB120 · KYOBO119 …). */
@@ -137,7 +144,8 @@ export interface AdminResultRow {
 
 /** `admin_users_raw()` 반환 — 개요 파생의 유일한 입력. */
 export interface AdminUsersRaw {
-  appUsers: { email: string; role: AppRole; dmaUserId: string | null; signedUp: boolean }[];
+  /** `adminMenus` 는 선택 필드(기존 픽스처 · 옛 RPC 본문 호환 — quick 261121-n1b). */
+  appUsers: { email: string; role: AppRole; dmaUserId: string | null; signedUp: boolean; adminMenus?: AdminMenu[] }[];
   pending: { email: string; signedUpAt: string }[];
   intent: AdminIntentRow[];
   /** 87 을 받은 서버 목록 — 여기 없는 서버는 「아직 모름」 이다. users_rev 는 ulong 이라 문자열. */
@@ -265,6 +273,11 @@ export interface AdminUserView {
   role: AppRole;
   dmaUserId: string | null;
   signedUp: boolean;
+  /**
+   * 열어 준 어드민 메뉴(quick 261121-n1b · `ADMIN_MENU_KEYS` 순서) — trader 일 때만 효력. 선택 필드(기존 픽스처 호환) —
+   * `deriveAdminUsersOverview` 는 늘 채운다. 소비처는 `?? []` 로 읽는다.
+   */
+  adminMenus?: AdminMenu[];
   /** active 계좌 수. */
   accountCount: number;
   /** 유저 행의 서버별 칩. */
@@ -1003,7 +1016,13 @@ export function deriveAdminUsersOverview(
   const users: AdminUserView[] = [...raw.appUsers]
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || (a.email < b.email ? -1 : a.email > b.email ? 1 : 0))
     .map((u) => {
-      const head = { email: u.email, role: u.role, dmaUserId: u.dmaUserId, signedUp: u.signedUp };
+      const head = {
+        email: u.email,
+        role: u.role,
+        dmaUserId: u.dmaUserId,
+        signedUp: u.signedUp,
+        adminMenus: u.adminMenus ?? [],
+      };
       if (!u.dmaUserId) return { ...head, accountCount: 0, servers: [], accounts: [] };
       const judged = judgeUser(idx, u.dmaUserId);
       const { accounts, accountCount } = userAccounts(idx, u.dmaUserId, judged, endpointIdx, costIdx);

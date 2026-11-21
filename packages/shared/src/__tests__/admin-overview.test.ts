@@ -555,12 +555,28 @@ describe("서버에만 있음 행 · 승인 대기 · 정렬", () => {
         role: "viewer",
         dmaUserId: null,
         signedUp: true,
+        adminMenus: [],
         accountCount: 0,
         servers: [],
         accounts: [],
       },
     ]);
     expect(ov.servers).toEqual(SERVERS);
+  });
+
+  it("(quick 261121-n1b) 원자료 adminMenus 는 그대로 싣고 · 없으면 [] 로 채운다", () => {
+    const ov = deriveAdminUsersOverview(
+      raw({
+        appUsers: [
+          { email: "kim.trader@gmail.com", role: "trader", dmaUserId: null, signedUp: true, adminMenus: ["pnl", "settlement"] },
+          { email: "park.view@gmail.com", role: "viewer", dmaUserId: null, signedUp: true },
+        ],
+      }),
+    );
+    expect(ov.users.map((u) => [u.email, u.adminMenus])).toEqual([
+      ["kim.trader@gmail.com", ["pnl", "settlement"]],
+      ["park.view@gmail.com", []],
+    ]);
   });
 });
 

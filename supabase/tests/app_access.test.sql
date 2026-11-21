@@ -10,6 +10,8 @@
 --   - 잠금: RLS 활성 · 정책 0개 · anon/authenticated 표 권한 없음
 --   - RPC: my_app_access() = JWT 이메일(대소문자 무관) 본인 역할 또는 NULL · anon EXECUTE 없음 · authenticated 있음
 --   - D-02 흡수: is_theme_admin() = app_users.role = 'admin' · 테마 정책 2개 이름 그대로 · theme_admins 표 남음
+--   - quick 261121-n1b: admin_menus 열(NOT NULL · 기본 '{}' · CHECK pnl/settlement 만) · my_admin_menus() = trader 만 저장값 ·
+--     admin · viewer · 표에 없음 · 이메일 없는 JWT 는 '{}' · anon EXECUTE 없음 · millesjung UPDATE 는 행을 만들지 않음
 --
 -- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/app_access.test.sql`
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유 · 원격 DB 접촉 0).
@@ -23,7 +25,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(30);
+SELECT plan(43);
 
 -- ── 첫 단언 — 픽스처 삽입 전 · 재생 직후 운영 시드 ─────────────────
 SELECT is(
@@ -121,6 +123,42 @@ SELECT is(has_function_privilege('anon', 'public.my_app_access()', 'EXECUTE'), f
 SELECT is(has_function_privilege('authenticated', 'public.my_app_access()', 'EXECUTE'), true, '(authenticated, my_app_access EXECUTE 있음)');
 SELECT is(has_function_privilege('anon', 'public.is_theme_admin()', 'EXECUTE'), false, '(anon, is_theme_admin EXECUTE 없음)');
 SELECT is(has_function_privilege('authenticated', 'public.is_theme_admin()', 'EXECUTE'), true, '(authenticated, is_theme_admin EXECUTE 있음)');
+
+-- ── quick 261121-n1b — 어드민 메뉴 열 · 본인 메뉴 RPC ─────────────────
+SELECT has_column('public', 'app_users', 'admin_menus', '(app_users.admin_menus, 열 존재)');
+SELECT col_not_null('public', 'app_users', 'admin_menus', '(app_users.admin_menus, NOT NULL)');
+SELECT is(
+  (SELECT admin_menus FROM public.app_users WHERE email = 'alex@jx1.io'),
+  '{}'::text[], '(alex@jx1.io, 열 추가 전 행 → 기본값 {})'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.app_users WHERE email = 'millesjung@gmail.com'),
+  0, '(millesjung@gmail.com, 마이그레이션 UPDATE 는 행을 만들지 않음 — 로컬 재생 0행)'
+);
+SELECT throws_ok(
+  $$UPDATE public.app_users SET admin_menus = ARRAY['users'] WHERE email = 't29-trader@example.invalid'$$,
+  '23514', NULL, '(t29-trader@example.invalid, admin_menus {users} → CHECK 위반)'
+);
+SELECT lives_ok(
+  $$UPDATE public.app_users SET admin_menus = ARRAY['pnl','settlement'] WHERE email = 't29-trader@example.invalid'$$,
+  '(t29-trader@example.invalid, admin_menus {pnl,settlement} → 허용)'
+);
+INSERT INTO public.app_users (email, role, admin_menus) VALUES
+  ('t29-menu-admin@example.invalid', 'admin', ARRAY['pnl','settlement']),
+  ('t29-menu-viewer@example.invalid', 'viewer', ARRAY['pnl','settlement']);
+
+SELECT set_config('request.jwt.claims', '{"email":"T29-Trader@example.invalid"}', true);
+SELECT is(public.my_admin_menus(), ARRAY['pnl','settlement']::text[], '(T29-Trader@example.invalid, my_admin_menus = {pnl,settlement} — trader · 대소문자 무관)');
+SELECT set_config('request.jwt.claims', '{"email":"t29-menu-admin@example.invalid"}', true);
+SELECT is(public.my_admin_menus(), '{}'::text[], '(t29-menu-admin@example.invalid, 메뉴 저장된 admin → {})');
+SELECT set_config('request.jwt.claims', '{"email":"t29-menu-viewer@example.invalid"}', true);
+SELECT is(public.my_admin_menus(), '{}'::text[], '(t29-menu-viewer@example.invalid, 메뉴 저장된 viewer → {})');
+SELECT set_config('request.jwt.claims', '{"email":"t29-pending@example.invalid"}', true);
+SELECT is(public.my_admin_menus(), '{}'::text[], '(t29-pending@example.invalid, 표에 없음 → {})');
+SELECT set_config('request.jwt.claims', '{}', true);
+SELECT is(public.my_admin_menus(), '{}'::text[], '(이메일 없는 JWT, my_admin_menus = {})');
+SELECT is(has_function_privilege('anon', 'public.my_admin_menus()', 'EXECUTE'), false, '(anon, my_admin_menus EXECUTE 없음)');
+SELECT is(has_function_privilege('authenticated', 'public.my_admin_menus()', 'EXECUTE'), true, '(authenticated, my_admin_menus EXECUTE 있음)');
 
 -- ── D-02 흡수 회귀 — 정책 이름 · theme_admins 표 그대로 ─────────────
 SELECT is(

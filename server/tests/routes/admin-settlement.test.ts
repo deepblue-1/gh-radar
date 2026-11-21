@@ -14,10 +14,12 @@ import type { RelayAdminClient } from "../../src/services/relay-admin-client";
 import {
   ADMIN_TOKEN,
   TRADER_TOKEN,
+  appUsersWithTraderMenus,
   baseAppUsers,
   baseUsers,
   makeAdminSupabase,
   type AdminSupabaseOpts,
+  type AppUserRow,
 } from "../fixtures/admin-supabase";
 import { makeFakeRelay, type FakeRelayHandler } from "../fixtures/fake-relay-admin";
 
@@ -110,10 +112,13 @@ const relayWith = (costs: unknown): FakeRelayHandler => (c) =>
 
 type RpcHandler = NonNullable<AdminSupabaseOpts["rpc"]>[string];
 
-function makeApp(opts: { raw?: RpcHandler; record?: RpcHandler } = {}, relayAdmin?: RelayAdminClient) {
+function makeApp(
+  opts: { raw?: RpcHandler; record?: RpcHandler; appUsers?: AppUserRow[] } = {},
+  relayAdmin?: RelayAdminClient,
+) {
   const sb = makeAdminSupabase({
     users: baseUsers,
-    appUsers: baseAppUsers(),
+    appUsers: opts.appUsers ?? baseAppUsers(),
     rpc: {
       admin_settlement_raw: opts.raw ?? (() => ({ data: RAW(), error: null })),
       settlement_record_reads: opts.record ?? (() => ({ data: null, error: null })),
@@ -134,6 +139,25 @@ describe("GET /api/admin/settlement", () => {
   it("① 비관리자 → 403 · RPC 0 · relay 0", async () => {
     const relay = makeFakeRelay(relayWith(costsOf()));
     const { app, rec } = makeApp({}, relay.client);
+    const res = await request(app).get("/api/admin/settlement").set("Authorization", `Bearer ${TRADER_TOKEN}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("FORBIDDEN");
+    expect(rec.rpcCalls).toHaveLength(0);
+    expect(relay.calls).toHaveLength(0);
+  });
+
+  it("①-b (quick 261121-n1b) 정산이 열린 trader → 200 · 역할 조회 1", async () => {
+    const relay = makeFakeRelay(relayWith(costsOf()));
+    const { app, rec } = makeApp({ appUsers: appUsersWithTraderMenus(["settlement"]) }, relay.client);
+    const res = await request(app).get("/api/admin/settlement").set("Authorization", `Bearer ${TRADER_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect((res.body as SettlementView).accounts).toHaveLength(4);
+    expect(rec.ops.filter((o) => o.table === "app_users" && o.kind === "select")).toHaveLength(1);
+  });
+
+  it("①-c (quick 261121-n1b) 매매손익만 열린 trader → 403 · RPC 0 · relay 0", async () => {
+    const relay = makeFakeRelay(relayWith(costsOf()));
+    const { app, rec } = makeApp({ appUsers: appUsersWithTraderMenus(["pnl"]) }, relay.client);
     const res = await request(app).get("/api/admin/settlement").set("Authorization", `Bearer ${TRADER_TOKEN}`);
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("FORBIDDEN");
