@@ -163,7 +163,7 @@ export function SettleConfirm({
             </p>
           )}
         </div>
-        <DialogFooter className="flex-row">
+        <DialogFooter className="flex-row border-[var(--border-subtle)]">
           <Button type="button" variant="secondary" className={FOOT_BUTTON} disabled={busy} onClick={onClose}>
             {CONFIRM_TEXT.close}
           </Button>

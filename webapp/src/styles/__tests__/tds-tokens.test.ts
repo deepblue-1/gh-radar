@@ -142,6 +142,7 @@ const THEME_COLOR_TOKENS = [
   'ma-1', 'ma-2', 'ma-3', 'ma-4', 'ma-5', 'ma-6',
   'launch-ok', 'launch-ok-bg', 'launch-bad', 'launch-bad-bg', 'launch-gate', 'launch-gate-bg',
   'launch-other', 'launch-grid',
+  'settle-warn-fg', 'settle-on-bg',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
@@ -292,5 +293,43 @@ describe('행 구분선은 hairline(--border-subtle)', () => {
   it('방향 구분선이 면 외곽선 토큰 --border 를 쓰지 않는다', () => {
     const violations = findRowDividerViolations();
     expect(violations, `--border 를 쓰는 행 구분선:\n${violations.join('\n')}`).toEqual([]);
+  });
+});
+
+/** `fg` 를 `alpha` 만큼 `bg` 위에 섞은 불투명 `#rrggbb`(color-mix in srgb 근사 · 채널별 반올림). */
+function mixHex(fg: string, bg: string, alpha: number): string {
+  const ch = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16);
+  return `#${[1, 3, 5]
+    .map((i) => Math.round(alpha * ch(fg, i) + (1 - alpha) * ch(bg, i)).toString(16).padStart(2, '0'))
+    .join('')}`.toLowerCase();
+}
+
+describe('정산 화면 대비 (quick 261121-gdx · 44-UI-REVIEW 2 · 3)', () => {
+  const THEMES = [
+    ['라이트', LIGHT],
+    ['다크', DARK],
+  ] as const;
+
+  it.each(THEMES)('%s 경고 글자 --settle-warn-fg 는 카드 · --muted 위 4.5 : 1 이상', (_label, block) => {
+    const fg = resolve(block, 'settle-warn-fg');
+    expect(contrast(fg, resolve(block, 'card'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(fg, resolve(block, 'muted'))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(THEMES)('%s 꼬리표 — 면은 --led-latent 18% 틴트, 글자 --settle-warn-fg 는 그 위 4.5 : 1 이상', (_label, block) => {
+    const fg = resolve(block, 'settle-warn-fg');
+    const tint = resolve(block, 'led-latent');
+    expect(contrast(fg, mixHex(tint, resolve(block, 'card'), 0.18))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(fg, mixHex(tint, resolve(block, 'muted'), 0.18))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(THEMES)('%s 「바로 출금」 켜짐 — 흰 글자 4.5 : 1 이상 · 면 대 --muted 상자 3 : 1 이상', (_label, block) => {
+    const on = resolve(block, 'settle-on-bg');
+    expect(contrast(resolve(block, 'primary-fg'), on)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(on, resolve(block, 'muted'))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('다크 --settle-warn-fg 는 다크 --led-latent 와 같은 값(다크 무변경)', () => {
+    expect(resolve(DARK, 'settle-warn-fg').toLowerCase()).toBe(resolve(DARK, 'led-latent').toLowerCase());
   });
 });

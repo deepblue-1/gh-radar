@@ -133,7 +133,7 @@ describe('ReflectBox', () => {
     const { container } = render(<ReflectBox on onToggle={() => {}} lines={lines} marketHours={false} />);
     const line = container.querySelector('[data-slot="reflect-line"]');
     expect(line?.textContent).toBe('KB 정근형 예수금 8억 4,500만 — 매매 서버에서 못 읽어 지금은 보내지 못해요');
-    expect(line?.className).toContain('text-[var(--led-latent)]');
+    expect(line?.className).toContain('text-[var(--settle-warn-fg)]');
   });
 
   it('1원 미만 — 경고 색 「KB 정근형 예수금 5,000만 → 0 이하라 보내지 않아요」', () => {
@@ -141,7 +141,7 @@ describe('ReflectBox', () => {
     const { container } = render(<ReflectBox on onToggle={() => {}} lines={lines} marketHours={false} />);
     const line = container.querySelector('[data-slot="reflect-line"]');
     expect(line?.textContent).toBe('KB 정근형 예수금 5,000만 → 0 이하라 보내지 않아요');
-    expect(line?.className).toContain('text-[var(--led-latent)]');
+    expect(line?.className).toContain('text-[var(--settle-warn-fg)]');
   });
 
   it('두 계좌 — 두 줄(첫 줄 mt-2 · 다음 줄 mt-1)', () => {
@@ -176,7 +176,7 @@ describe('ReflectBox', () => {
   it('켜짐 + 장중 → 「체결과 겹치면 어긋날 수 있어요」(warn) / 장 밖 → 없음', () => {
     const { rerender } = render(<ReflectBox on onToggle={() => {}} lines={oneLine()} marketHours />);
     const warn = screen.getByText('체결과 겹치면 어긋날 수 있어요');
-    expect(warn.className).toContain('text-[var(--led-latent)]');
+    expect(warn.className).toContain('text-[var(--settle-warn-fg)]');
     rerender(<ReflectBox on onToggle={() => {}} lines={oneLine()} marketHours={false} />);
     expect(screen.queryByText('체결과 겹치면 어긋날 수 있어요')).toBeNull();
   });

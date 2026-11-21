@@ -221,7 +221,10 @@ describe('ActivityCard — 세그먼트 · 계좌 거래 줄(44-09 T2)', () => {
     expect(tags(3).map((t) => text(t)).join(',')).toBe('계좌 옮김,법인 용역 · 개인 이체 아님');
     expect(tags(3)[1]!.className).toContain('text-[var(--led-armed)]');
     expect(tags(7).map((t) => text(t)).join(',')).toBe('계좌 옮김,근형 → 현중');
-    expect(tags(7)[1]!.className).toContain('text-[var(--led-latent)]');
+    // 면은 공용 warn 틴트(--led-latent 18%) 그대로 · 글자만 정산 전용 진한 주황(quick 261121-gdx · 44-UI-REVIEW 2).
+    expect(tags(7)[1]!.className).toContain('text-[var(--settle-warn-fg)]');
+    expect(tags(7)[1]!.className).toContain('var(--led-latent)_18%');
+    expect(tags(7)[1]!.className).not.toContain('text-[var(--led-latent)]');
     expect(tags(1).map((t) => text(t)).join(',')).toBe('출자,현중 → 근형');
     expect(tags(4).map((t) => text(t)).join(',')).toBe('출자');
     expect(text(q('[data-slot="settlement-ledger-flow"]', ledgerItem(7)!))).toBe('KB 정근형 → 교보 김현중');

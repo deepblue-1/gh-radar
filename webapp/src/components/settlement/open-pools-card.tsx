@@ -150,7 +150,7 @@ function PoolBlock({
       <div data-slot="settlement-pool-l3" className="mt-2 break-keep text-[12px]">
         {!ok ? (
           <>
-            <span className="text-[var(--led-latent)]">예수금이 설정되지 않은 계좌가 있어요</span>{" "}
+            <span className="text-[var(--settle-warn-fg)]">예수금이 설정되지 않은 계좌가 있어요</span>{" "}
             <Link href="/admin/accounts" className="text-[var(--accent-fg)] hover:underline">
               계좌 메뉴에서 설정
             </Link>

@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
  */
 
 const TONE_CLASS = { up: "text-[var(--up)]", down: "text-[var(--down)]" } as const;
-const WARN_LINE = "col-span-full break-keep text-[var(--led-latent)]";
+const WARN_LINE = "col-span-full break-keep text-[var(--settle-warn-fg)]";
 
 function labelOf(acc: SettlementAccKey): string {
   return SETTLEMENT_ACCOUNTS.find((a) => a.key === acc)?.label ?? acc;
@@ -84,7 +84,7 @@ export function AccountTable({ rows, cum, mode, readLine, mismatch, nowIso, comp
             <span
               className={cn(
                 "whitespace-nowrap text-right tabular-nums",
-                r.budgetKrw === null ? "text-[var(--led-latent)]" : "text-[var(--fg)]",
+                r.budgetKrw === null ? "text-[var(--settle-warn-fg)]" : "text-[var(--fg)]",
               )}
             >
               {r.budgetKrw === null ? "미설정" : formatEokManMinus(r.budgetKrw)}

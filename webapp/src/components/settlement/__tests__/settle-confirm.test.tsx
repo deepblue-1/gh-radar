@@ -140,6 +140,13 @@ describe('SettleConfirm', () => {
     expect(ok.getAttribute('data-variant')).toBe('destructive');
   });
 
+  it('하단 구분선은 hairline --border-subtle(색 없는 border-t 가 currentColor 로 그려지지 않게 · 44-UI-REVIEW 4)', () => {
+    renderConfirm();
+    const footer = screen.getByRole('alertdialog').querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.className).toContain('border-t');
+    expect(footer?.className).toContain('border-[var(--border-subtle)]');
+  });
+
   it('확정 · 닫기 누르면 onConfirm · onClose', () => {
     const { onClose, onConfirm } = renderConfirm();
     fireEvent.click(screen.getByRole('button', { name: '지우기' }));

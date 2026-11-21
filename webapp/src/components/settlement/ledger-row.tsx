@@ -207,7 +207,7 @@ export function LedgerRow({
           {row.via === "corp_service" ? (
             <Tag className={ADMIN_TONE_CLASS.ok}>법인 용역 · 개인 이체 아님</Tag>
           ) : hg ? (
-            <Tag className={ADMIN_TONE_CLASS.warn}>
+            <Tag className={cn(ADMIN_TONE_CLASS.warn, "text-[var(--settle-warn-fg)]")}>
               {personName(hg.from).slice(1)} → {personName(hg.to).slice(1)}
             </Tag>
           ) : null}

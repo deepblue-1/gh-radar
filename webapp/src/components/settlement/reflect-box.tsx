@@ -86,7 +86,7 @@ export interface ReflectBoxProps {
 }
 
 const CAPTION = 'text-[length:var(--t-caption)] leading-[1.5]';
-const WARN = 'text-[var(--led-latent)]';
+const WARN = 'text-[var(--settle-warn-fg)]';
 
 function fromText(fromKrw: number | null): string {
   return fromKrw === null ? REFLECT_TEXT.unset : formatEokManMinus(fromKrw);

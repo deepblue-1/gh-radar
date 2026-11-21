@@ -280,7 +280,7 @@ export function SettleSheet({ open, view, nowIso, onClose, onConfirm }: SettleSh
             compact
           />
           {marketHours && (
-            <span data-slot="settle-market" className={cn(CAPTION, "break-keep text-[var(--led-latent)]")}>
+            <span data-slot="settle-market" className={cn(CAPTION, "break-keep text-[var(--settle-warn-fg)]")}>
               {T.market}
             </span>
           )}
@@ -324,7 +324,7 @@ export function SettleSheet({ open, view, nowIso, onClose, onConfirm }: SettleSh
                             "inline-flex h-8 flex-none items-center rounded-full border px-3 text-[12px] font-semibold whitespace-nowrap transition-colors",
                             "disabled:cursor-not-allowed disabled:opacity-50",
                             on
-                              ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-fg)]"
+                              ? "border-[var(--settle-on-bg)] bg-[var(--settle-on-bg)] text-[var(--primary-fg)]"
                               : "border-[var(--border-subtle)] bg-transparent text-[var(--muted-fg)]",
                           )}
                         >

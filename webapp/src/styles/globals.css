@@ -92,6 +92,12 @@
   --person-h: #2bb8a6;
   --person-g: #8b7cf6;
   --person-j: #d9902a;
+  /* Phase 44 정산 화면 전용(quick 261121-gdx · 44-UI-REVIEW 2 · 3) — 경고 글자 / 「바로 출금」 켜짐 면. 전역 `--led-latent`(상따 LED 축) ·
+     `--primary` 를 바꾸지 않으려고 정산만 따로 둔다(사용자 결정 2026-11-21). 다른 화면에서 재사용하지 마라.
+     라이트 대비: 경고 글자 흰 카드 5.95 · `--muted` 5.39 · 꼬리표 틴트(--led-latent 18%) 5.22 · 틴트 on `--muted` 4.80 /
+     켜짐 면 위 흰 글자 5.41 · 면 대 `--muted` 상자 4.91. */
+  --settle-warn-fg: #9c4f00;
+  --settle-on-bg: #1b64da;
   /* 매집 상태 축(quick-261018-rfy · 작업대 「매집」 패널) — 매도중 주황 · 이월 노랑. 가격 방향(--up/--down) · LED · 팀(--team) 축과
      서로 대체하지 마라(매집중 배지는 --team). 라이트 글자/면 대비 4.77:1 · 4.67:1(AA) · 다크는 목업 값. */
   --accum-sell: #c2410c;
@@ -297,6 +303,12 @@
   --person-h: #2bb8a6;
   --person-g: #8b7cf6;
   --person-j: #d9902a;
+  /* Phase 44 정산 화면 전용 다크(quick 261121-gdx · 44-UI-REVIEW 2 · 3) — 경고 글자 / 「바로 출금」 켜짐 면. 전역 `--led-latent` ·
+     `--primary` 를 바꾸지 않으려고 정산만 따로 둔다(사용자 결정 2026-11-21). 다른 화면에서 재사용하지 마라.
+     경고 글자는 `--led-latent` 다크 값과 같게 유지(tds-tokens.test 가 동치 고정 · 다크 무변경).
+     켜짐 면은 `--primary` 와 같은 색상각 215° — 흰 글자 4.56 · 면 대 `--muted` 상자 3.02(비텍스트). */
+  --settle-warn-fg: #ffb13d;
+  --settle-on-bg: #1a71eb;
   /* 매집 상태 축 다크 — 의미는 `:root` 쪽 주석. */
   --accum-sell: #ff9f43;
   --accum-sell-bg: rgba(255, 159, 67, 0.16);
