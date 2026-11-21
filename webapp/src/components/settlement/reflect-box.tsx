@@ -32,6 +32,8 @@ export const REFLECT_TEXT = {
   offKeepsApplied: '이전 반영분은 예수금에 그대로 남아요',
   market: '체결과 겹치면 어긋날 수 있어요',
   belowOne: '0 이하라 보내지 않아요',
+  /** 이번 조회 때 못 읽어 마지막 값을 보이는 계좌(IN-08) — server 는 그 순간 읽은 값만 쓰므로 그 계좌는 보내지 않는다. */
+  stale: '매매 서버에서 못 읽어 지금은 보내지 못해요',
   unset: '미설정',
 } as const;
 
@@ -45,6 +47,8 @@ export interface ReflectLine {
   toKrw: number;
   /** 새 예수금이 1원 미만 — 서버가 보내지 않는다(server 반영의 1원 판정과 같다). */
   belowOne: boolean;
+  /** 이번 조회 때 못 읽어 마지막 값(stale)을 보이는 계좌 — 서버가 보내지 않는다(server 반영의 「못 읽음」 판정 · IN-08). */
+  stale: boolean;
 }
 
 /** 증감을 미리 보기 줄로 — 0 이 아닌 계좌만 · SETTLEMENT_ACCOUNTS 순서. */
@@ -56,9 +60,10 @@ export function reflectPreviewLines(
   for (const def of SETTLEMENT_ACCOUNTS) {
     const delta = effect[def.key] ?? 0;
     if (delta === 0) continue;
-    const fromKrw = accounts.find((a) => a.accKey === def.key)?.budgetKrw ?? null;
+    const view = accounts.find((a) => a.accKey === def.key);
+    const fromKrw = view?.budgetKrw ?? null;
     const toKrw = (fromKrw ?? 0) + delta;
-    lines.push({ accKey: def.key, label: def.label, fromKrw, toKrw, belowOne: toKrw < 1 });
+    lines.push({ accKey: def.key, label: def.label, fromKrw, toKrw, belowOne: toKrw < 1, stale: view?.state === 'stale' });
   }
   return lines;
 }
@@ -111,7 +116,11 @@ export function ReflectBox({ on, onToggle, lines, marketHours, disabled = false,
         {on ? (
           <>
             {lines.map((l, i) =>
-              l.belowOne ? (
+              l.stale ? (
+                <div key={l.accKey} data-slot="reflect-line" className={cn(CAPTION, WARN, 'break-keep', i === 0 ? 'mt-2' : 'mt-1')}>
+                  {`${l.label} 예수금 ${fromText(l.fromKrw)} — ${REFLECT_TEXT.stale}`}
+                </div>
+              ) : l.belowOne ? (
                 <div key={l.accKey} data-slot="reflect-line" className={cn(CAPTION, WARN, 'break-keep', i === 0 ? 'mt-2' : 'mt-1')}>
                   {`${l.label} 예수금 ${fromText(l.fromKrw)} → ${REFLECT_TEXT.belowOne}`}
                 </div>

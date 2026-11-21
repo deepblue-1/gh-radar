@@ -51,7 +51,7 @@ function renderNode(node: ReactNode) {
   return render(<div data-testid="host">{node}</div>);
 }
 
-const LINE: ReflectLine = { accKey: 'kbG', label: 'KB 정근형', fromKrw: 745_000_000, toKrw: 845_000_000, belowOne: false };
+const LINE: ReflectLine = { accKey: 'kbG', label: 'KB 정근형', fromKrw: 745_000_000, toKrw: 845_000_000, belowOne: false, stale: false };
 
 interface Overrides {
   reflect?: { on: boolean; onToggle: (n: boolean) => void; lines: ReflectLine[]; marketHours: boolean } | null;

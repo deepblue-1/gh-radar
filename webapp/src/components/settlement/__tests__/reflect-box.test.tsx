@@ -19,6 +19,7 @@ import { accLabel, ledgerFlowParts, ledgerKindLabel, personName } from '../settl
  * | 미설정 | kyG null · +2,000만 | 「교보 정근형 예수금 미설정 → 2,000만」 |
  * | 1원 미만 | kbG 5,000만 · −1억 | belowOne · 「… 5,000만 → 0 이하라 보내지 않아요」(warn) |
  * | 두 계좌 | 옮김 kyH → kbG | SETTLEMENT_ACCOUNTS 순서로 두 줄 |
+ * | 못 읽음(IN-08) | kbG stale | stale · 「… — 매매 서버에서 못 읽어 지금은 보내지 못해요」(warn) |
  * | 꺼짐 | on false | 「예수금은 그대로 둬요」 · 미리 보기 · 장중 줄 없음 |
  * | 장중 | on + marketHours | 「체결과 겹치면 어긋날 수 있어요」 |
  * | 스위치 | 클릭 | 접근 이름 「예수금에도 반영」 · onToggle(false) |
@@ -55,14 +56,14 @@ describe('reflectPreviewLines', () => {
   it('한 계좌 감소 — 옛 값 · 새 값 · belowOne false', () => {
     const lines = reflectPreviewLines({ kbG: -100_000_000 }, accountsWith({ kbG: 845_000_000 }));
     expect(lines).toEqual([
-      { accKey: 'kbG', label: 'KB 정근형', fromKrw: 845_000_000, toKrw: 745_000_000, belowOne: false },
+      { accKey: 'kbG', label: 'KB 정근형', fromKrw: 845_000_000, toKrw: 745_000_000, belowOne: false, stale: false },
     ]);
   });
 
   it('미설정 계좌에 더하면 from 은 null · to 는 0 에서 더한 값', () => {
     const lines = reflectPreviewLines({ kyG: 20_000_000 }, accountsWith({ kyG: null }));
     expect(lines).toEqual([
-      { accKey: 'kyG', label: '교보 정근형', fromKrw: null, toKrw: 20_000_000, belowOne: false },
+      { accKey: 'kyG', label: '교보 정근형', fromKrw: null, toKrw: 20_000_000, belowOne: false, stale: false },
     ]);
   });
 
@@ -123,6 +124,16 @@ describe('ReflectBox', () => {
     expect(container.querySelector('[data-slot="reflect-line"]')?.textContent).toBe(
       '교보 정근형 예수금 미설정 → 2,000만',
     );
+  });
+
+  it('(IN-08) 못 읽어 마지막 값을 보이는(stale) 계좌 — 경고 색 「KB 정근형 예수금 8억 4,500만 — 매매 서버에서 못 읽어 지금은 보내지 못해요」', () => {
+    const accounts = accountsWith({ kbG: 845_000_000 }).map((a) => (a.accKey === 'kbG' ? { ...a, state: 'stale' as const } : a));
+    const lines = reflectPreviewLines({ kbG: -100_000_000 }, accounts);
+    expect(lines[0]).toMatchObject({ accKey: 'kbG', fromKrw: 845_000_000, stale: true });
+    const { container } = render(<ReflectBox on onToggle={() => {}} lines={lines} marketHours={false} />);
+    const line = container.querySelector('[data-slot="reflect-line"]');
+    expect(line?.textContent).toBe('KB 정근형 예수금 8억 4,500만 — 매매 서버에서 못 읽어 지금은 보내지 못해요');
+    expect(line?.className).toContain('text-[var(--led-latent)]');
   });
 
   it('1원 미만 — 경고 색 「KB 정근형 예수금 5,000만 → 0 이하라 보내지 않아요」', () => {
