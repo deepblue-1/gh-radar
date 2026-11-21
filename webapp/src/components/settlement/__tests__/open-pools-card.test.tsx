@@ -134,6 +134,20 @@ describe('OpenPoolsCard — 정산 전 수익(44-06 T1)', () => {
     expect(qa('[data-slot="settlement-acc-cum"]')).toHaveLength(0);
   });
 
+  it('(IN-02) 쥬니를 정산한 적이 있으면 이월 기준은 「지난 정산 수준」 · 남은 금액이 만으로 0 이면 「나눌 수익이 없습니다」', () => {
+    const settleP2: SettlementSettleRow = { ...SETTLE_P1, id: 2, pool: 'p2', profitKrw: 10_000_000, shares: { J: 4_000_000, H: 3_000_000, G: 3_000_000 } };
+    const { unmount } = render(<OpenPoolsCard view={view({}, [settleP2])} />);
+    expect(text(q(`${pool('p2')} [data-slot="settlement-pool-l3"]`))).toBe('지난 정산 수준까지 3,800만 남음 — 회복한 뒤부터 나눕니다');
+    unmount();
+    for (const kbH of [400_000_000, 399_995_000]) {
+      const v = view();
+      const accounts = v.accounts.map((a) => (a.accKey === 'kbH' ? { ...a, budgetKrw: kbH } : a));
+      const { unmount: u } = render(<OpenPoolsCard view={{ ...v, accounts }} />);
+      expect(text(q(`${pool('p2')} [data-slot="settlement-pool-l3"]`))).toBe('나눌 수익이 없습니다');
+      u();
+    }
+  });
+
   it('② p1 정산 1억 → 묶음 값 = 누적 − 1억 · 누적 줄', () => {
     render(<OpenPoolsCard view={view({}, [SETTLE_P1])} />);
     expect(text(q(`${pool('p1')} [data-slot="settlement-pool-value"]`))).toBe('+9억 4,900만');

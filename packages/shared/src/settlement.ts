@@ -508,6 +508,23 @@ export function distributable(pool: SettlementPoolId, ctx: SettlementCtx): numbe
   return SETTLEMENT_POOLS[pool].baseKrw !== undefined ? Math.max(0, open) : open;
 }
 
+/**
+ * 원금 기준 묶음(쥬니)의 손실 이월 문장 「<기준>까지 X 남음」 의 기준(IN-02). 남은 금액 X = −정산 전 수익이므로:
+ * - 정산한 적이 있으면 「지난 정산 수준」 — 정산 전 수익 = 누적 − 이미 정산한 수익이라 X 는 마지막 정산 뒤 수준까지의 거리다.
+ * - 없으면 「원금 N」 — N = 그 묶음 계좌의 넣은 돈 합(X = 넣은 돈 − 예수금과 같은 기준). 처음 4억 그대로면 「원금 4억」.
+ */
+export function carryBasisLabel(pool: SettlementPoolId, ctx: Pick<SettlementCtx, "ledger" | "settles">): string {
+  if (settledSum(pool, ctx.settles) > 0) return "지난 정산 수준";
+  let put = 0;
+  for (const def of poolDefs(pool)) put += ledgerFlows(ctx.ledger, def.key).putKrw;
+  return `원금 ${formatEokMan(put)}`;
+}
+
+/** 이월 문장을 보일 금액인가 — 만으로 내린 값이 0 이면 「… 0만 남음」 대신 「나눌 수익이 없습니다」(44-11 결정 · 화면 · 시트 · server 공통). */
+export function carryShown(carryKrw: number): boolean {
+  return carryKrw > 0 && manOf(carryKrw) > 0;
+}
+
 /** 한 사람 몫(R6) = trunc(수익 × 비율 / 100) — 원 미만 0 쪽 버림 · 비율에 없으면 0. */
 export function shareOf(pool: SettlementPoolId, profitKrw: number, person: SettlementPerson): number {
   const ratio = SETTLEMENT_POOLS[pool].ratio[person];

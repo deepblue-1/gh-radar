@@ -31,6 +31,8 @@ import { describe, expect, it } from "vitest";
 import type { AdminAccountCostRow, AdminAccountCostsRaw } from "../admin";
 import {
   buildSettlementAccounts,
+  carryBasisLabel,
+  carryShown,
   cumProfit,
   distributable,
   formatEokMan,
@@ -451,6 +453,22 @@ describe("정산 전 수익 · 나눌 수익 (R3 · D-01 · 규칙 2)", () => {
     expect(distributable("p1", ctx)).toBe(204_000_001);
     const loss = ctxOf({}, SEED, [settleRow(1, "p1", 1_100_000_000, { H: 550_000_000, G: 550_000_000 })]);
     expect(distributable("p1", loss)).toBe(-51_000_000);
+  });
+});
+
+describe("이월 문장 기준 carryBasisLabel · carryShown (IN-02)", () => {
+  it("정산 없음 → 「원금 4억」(쥬니 계좌 넣은 돈 합) · 쥬니 정산이 있으면 「지난 정산 수준」(p1 정산은 상관없음)", () => {
+    expect(carryBasisLabel("p2", ctxOf())).toBe("원금 4억");
+    expect(carryBasisLabel("p2", ctxOf({}, SEED, [P1_SETTLE]))).toBe("원금 4억");
+    const p2 = settleRow(2, "p2", 10_000_000, { J: 4_000_000, H: 3_000_000, G: 3_000_000 });
+    expect(carryBasisLabel("p2", ctxOf({}, SEED, [p2]))).toBe("지난 정산 수준");
+  });
+
+  it("남은 금액이 만으로 0(0 · 9,999원)이면 문장을 보이지 않는다 · 1만 이상이면 보인다", () => {
+    expect(carryShown(0)).toBe(false);
+    expect(carryShown(9_999)).toBe(false);
+    expect(carryShown(10_000)).toBe(true);
+    expect(carryShown(28_000_000)).toBe(true);
   });
 });
 

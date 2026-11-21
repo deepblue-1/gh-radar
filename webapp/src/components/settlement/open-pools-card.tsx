@@ -3,6 +3,8 @@ import { Fragment } from "react";
 import {
   SETTLEMENT_PEOPLE,
   SETTLEMENT_POOLS,
+  carryBasisLabel,
+  carryShown,
   cumProfit,
   distributable,
   formatEokMan,
@@ -32,7 +34,8 @@ import { AccountTable } from "./account-table";
  * - 부제 「수익 = 예수금 − 넣은 돈 · 예수금 읽은 시각 …」(값을 가진 계좌 중 가장 최근 시각) + 그 아래 D-28 예수금 기준 한 줄(늘 보임).
  * - 묶음 두 개(현중 · 근형 → 쥬니)마다 머리(이름 · 비율 · 정산 전 수익 = 누적 − 이미 정산한 수익) · 계좌 표(`AccountTable`) · l3 줄.
  * - 묶음 계좌 중 예수금 미설정이 있으면 묶음 값 「—」 · l3 미설정 안내 + 「계좌 메뉴에서 설정」 · 누적 줄 없음(목업 `ok && prev`).
- * - l3: 미설정 안내 / 원금 기준(쥬니)이 있고 정산 전 수익 ≤ 0 이면 손실 이월 줄 / 그 밖 사람마다 점 + 이름 + 몫.
+ * - l3: 미설정 안내 / 원금 기준(쥬니)이 있고 정산 전 수익 ≤ 0 이면 손실 이월 줄(기준 = shared `carryBasisLabel` · 남은 금액이
+ *   만으로 0 이면 「나눌 수익이 없습니다」 · IN-02) / 그 밖 사람마다 점 + 이름 + 몫.
  * - 계산은 shared 한 벌(`openProfit` · `distributable` · `shareOf` · `settledSum` · `cumProfit`) — 화면이 새로 만들지 않는다.
  */
 
@@ -154,7 +157,9 @@ function PoolBlock({
           </>
         ) : def.baseKrw !== undefined && open <= 0 ? (
           <span className="text-[var(--muted-fg)]">
-            원금 {formatEokMan(def.baseKrw)}까지 {formatEokMan(-open)} 남음 — 회복한 뒤부터 나눕니다
+            {carryShown(-open)
+              ? `${carryBasisLabel(pool, ctx)}까지 ${formatEokMan(-open)} 남음 — 회복한 뒤부터 나눕니다`
+              : "나눌 수익이 없습니다"}
           </span>
         ) : (
           <SharesLine pool={pool} distKrw={distributable(pool, ctx)} />

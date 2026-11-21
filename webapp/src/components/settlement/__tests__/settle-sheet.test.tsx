@@ -252,6 +252,14 @@ describe('확정할 수 없을 때(E8 empty · 규칙 4 · D-25)', () => {
     expect(accRows().map((r) => r.getAttribute('data-acc'))).toEqual(['kbH']);
   });
 
+  it('(IN-02) 쥬니를 정산한 적이 있고 그 뒤 손실 → 「지난 정산 수준까지 3,800만 남았습니다. …」', () => {
+    at(NIGHT);
+    open(view({}, [settleRow(4, 'p2', 10_000_000)]));
+    click(poolPill('쥬니'));
+    expect(text(blocked())).toBe('지난 정산 수준까지 3,800만 남았습니다. 회복한 뒤부터 4 : 3 : 3 로 나눕니다.');
+    expect(confirmBtn()?.disabled).toBe(true);
+  });
+
   it('kyG 미설정 → 「—」 · 표 「미설정」 · 미설정 문단 · 비활성', () => {
     at(NIGHT);
     open(view({ kyG: { state: 'unset' } }));

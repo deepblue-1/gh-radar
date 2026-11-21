@@ -410,6 +410,32 @@ describe("POST /api/admin/settlement/settles — 정산 확정", () => {
         }),
         message: "나눌 수익이 없습니다.",
       },
+      {
+        name: "(IN-02) 쥬니를 정산한 적이 있고 그 뒤 손실 → 「지난 정산 수준까지」",
+        pool: "p2",
+        raw: RAW({
+          settles: [
+            {
+              id: 7,
+              pool: "p2",
+              profitKrw: 10_000_000,
+              shares: { J: 4_000_000, H: 3_000_000, G: 3_000_000 },
+              snapshot: { accounts: [], cumKrw: 10_000_000, prevKrw: 0 },
+              readAt: "2026-11-19T06:00:00.000Z",
+              memo: "",
+              createdBy: ADMIN_EMAIL,
+              createdAt: "2026-11-19T06:00:00.000Z",
+            },
+          ],
+        }),
+        message: "지난 정산 수준까지 3,800만 남았습니다. 회복한 뒤부터 4 : 3 : 3 로 나눕니다.",
+      },
+      {
+        name: "(IN-02) 쥬니 정산 전 수익이 정확히 0 → 「원금 … 0만」 대신 「나눌 수익이 없습니다.」",
+        pool: "p2",
+        costs: costsOf({ kbH: 400_000_000 }),
+        message: "나눌 수익이 없습니다.",
+      },
     ];
     for (const tc of cases) {
       it(tc.name, async () => {

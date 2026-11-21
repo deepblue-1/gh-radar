@@ -5,6 +5,8 @@ import {
   SETTLEMENT_POOLS,
   addEffects,
   appliedEffectAt,
+  carryBasisLabel,
+  carryShown,
   cumProfit,
   effectDiff,
   formatEokMan,
@@ -190,14 +192,18 @@ function settleRpcError(error: unknown, msg: string): ApiError {
   return DbError(msg, error);
 }
 
-/** 확정할 수 없을 때의 문장(UI-SPEC ⑧ 「확정할 수 없을 때」 — 시트 상자와 같은 글자). */
-function settleBlockMessage(pool: SettlementPoolId, plan: SettlePlan): string {
+/**
+ * 확정할 수 없을 때의 문장(UI-SPEC ⑧ 「확정할 수 없을 때」 — 시트 상자와 같은 글자). 이월 기준은 shared `carryBasisLabel`
+ * (지난 정산이 있으면 「지난 정산 수준」) · 남은 금액이 만으로 0 이면 「나눌 수익이 없습니다.」(IN-02 · `carryShown`).
+ */
+function settleBlockMessage(pool: SettlementPoolId, plan: SettlePlan, read: SettlementRead): string {
   const def = SETTLEMENT_POOLS[pool];
   if (plan.block === "unset") {
     return "예수금이 설정되지 않은 계좌가 있어요. 계좌 메뉴에서 설정한 뒤 정산할 수 있어요.";
   }
-  if (plan.block === "carry") {
-    return `원금 ${formatEokMan(def.baseKrw ?? 0)}까지 ${formatEokMan(plan.carryKrw)} 남았습니다. 회복한 뒤부터 ${def.ratioLabel} 로 나눕니다.`;
+  if (plan.block === "carry" && carryShown(plan.carryKrw)) {
+    const basis = carryBasisLabel(pool, { ledger: read.raw.ledger, settles: read.raw.settles });
+    return `${basis}까지 ${formatEokMan(plan.carryKrw)} 남았습니다. 회복한 뒤부터 ${def.ratioLabel} 로 나눕니다.`;
   }
   return "나눌 수익이 없습니다.";
 }
@@ -449,7 +455,7 @@ adminSettlementRouter.post("/settlement/settles", async (req, res, next) => {
 
     const read = await readSettlement(req);
     const plan = settlePlan(body.pool, { accounts: read.accounts, ledger: read.raw.ledger, settles: read.raw.settles }, body.outs);
-    if (!plan.can) throw new ApiError(409, "CANNOT_SETTLE", settleBlockMessage(body.pool, plan));
+    if (!plan.can) throw new ApiError(409, "CANNOT_SETTLE", settleBlockMessage(body.pool, plan, read));
 
     const effects = plan.outs.map((o) =>
       reflectEffect({ kind: "withdraw_profit", fromAcc: o.fromAcc, toAcc: null, amountKrw: o.amountKrw }),

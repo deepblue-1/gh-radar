@@ -6,6 +6,8 @@ import {
   SETTLEMENT_PEOPLE,
   SETTLEMENT_POOLS,
   addEffects,
+  carryBasisLabel,
+  carryShown,
   cumProfit,
   formatEokMan,
   formatEokManSigned,
@@ -44,7 +46,8 @@ import { ReflectBox, reflectPreviewLines } from "./reflect-box";
  * - 열린 동안 `view` 가 새 값으로 바뀌면(부르는 쪽의 열 때 다시 읽기) 표 · 큰 숫자 · 읽은 시각이 조용히 바뀐다 —
  *   묶음 · 바로 출금 · 스위치 · 메모는 그대로 둔다. 처음 값으로 돌리는 것은 닫혔다 열릴 때뿐이다.
  * - 쥬니 정산 전 수익이 정확히 0 이면 shared 는 `block: "carry"` · `carryKrw: 0` 을 돌려준다 — 「원금 4억까지 0 남았습니다」 는
- *   뜻이 없어 「나눌 수익이 없습니다.」 로 말한다(44-11 결정).
+ *   뜻이 없어 「나눌 수익이 없습니다.」 로 말한다(44-11 결정 · 만으로 내린 값이 0 인 경우까지 — shared `carryShown`).
+ *   이월 기준은 shared `carryBasisLabel` — 지난 정산이 있으면 「지난 정산 수준까지」 · 없으면 「원금 <넣은 돈 합>까지」(IN-02).
  * - 열릴 때 첫 포커스: `AdminSheet` 가 `onOpenAutoFocus` 를 받지 않아 Radix 기본(머리 × 버튼)이다(44-10 과 같은 한계 · 공용 골격은 손대지 않음).
  */
 
@@ -186,10 +189,10 @@ export function SettleSheet({ open, view, nowIso, onClose, onConfirm }: SettleSh
   let blockedText: ReactNode = null;
   if (!plan.can) {
     if (plan.block === "unset") blockedText = T.unset;
-    else if (plan.block === "carry" && def.baseKrw !== undefined && plan.carryKrw > 0)
+    else if (plan.block === "carry" && carryShown(plan.carryKrw))
       blockedText = (
         <>
-          {`원금 ${formatEokMan(def.baseKrw)}까지 `}
+          {`${carryBasisLabel(pool, view)}까지 `}
           <b className="font-semibold">{formatEokMan(plan.carryKrw)}</b>
           {` 남았습니다. 회복한 뒤부터 ${def.ratioLabel} 로 나눕니다.`}
         </>
