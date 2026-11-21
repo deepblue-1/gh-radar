@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import { ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box";
+import { REFLECT_TEXT, ReflectBox, defaultReflectOn, reflectPreviewLines } from "./reflect-box";
 
 /**
  * Phase 44 — 「거래 기록」 · 「거래 고치기」 시트(⑦ · UI-SPEC ⑦ · E7 · D-05 · D-07 ~ D-13 · D-19 · D-23 · D-27 · D-29).
@@ -234,12 +234,13 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
 
   const complete = isComplete(draft);
   const body = ledgerDraftToBody(draft, reflect);
+  const now = nowBudgetsOfAccounts(accounts);
   const lines = complete
-    ? reflectPreviewLines(
-        effectDiff(editRow ? appliedEffectAt(editRow, nowBudgetsOfAccounts(accounts)) : {}, reflectEffect(body)),
-        accounts,
-      )
+    ? reflectPreviewLines(effectDiff(editRow ? appliedEffectAt(editRow, now) : {}, reflectEffect(body)), accounts)
     : [];
+  // IN-04 — 반영했던(들어갔을 수 있는 것 포함) 거래를 스위치를 끄고 고치면 옛 증감은 예수금에 남는다 · 줄은 「반영 안 함」 이 된다.
+  const keepsApplied =
+    editRow !== null && Object.keys(appliedEffectAt(editRow, now, { unknownApplied: true })).length > 0;
 
   /** 알약 변경 — 계좌 · 종류를 바꾸면 금액 칸의 「같은 계좌」 오류만 지운다(관련 알약). */
   const pickPill = (patch: Partial<LedgerDraft>, accRelated: boolean) => {
@@ -464,6 +465,7 @@ export function LedgerSheet({ open, mode, row, accounts, nowIso, onClose, onSave
           lines={lines}
           marketHours={isSettlementMarketHours(new Date())}
           disabled={busy}
+          offNote={keepsApplied ? REFLECT_TEXT.offKeepsApplied : undefined}
         />
       </div>
     </AdminSheet>

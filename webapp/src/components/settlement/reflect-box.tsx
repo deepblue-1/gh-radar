@@ -28,6 +28,8 @@ import { cn } from '@/lib/utils';
 export const REFLECT_TEXT = {
   label: '예수금에도 반영',
   off: '예수금은 그대로 둬요',
+  /** 반영했던 거래를 스위치를 끄고 고칠 때(IN-04) — 옛 증감은 예수금에 남고 그 줄은 「반영 안 함」 이 된다(목업 동작 그대로). */
+  offKeepsApplied: '이전 반영분은 예수금에 그대로 남아요',
   market: '체결과 겹치면 어긋날 수 있어요',
   belowOne: '0 이하라 보내지 않아요',
   unset: '미설정',
@@ -74,6 +76,8 @@ export interface ReflectBoxProps {
   marketHours: boolean;
   /** 보내는 중(시트 · 확인 창 비행 중) — 스위치를 잠근다. */
   disabled?: boolean;
+  /** 꺼짐일 때 「예수금은 그대로 둬요」 아래 덧붙이는 경고 한 줄(반영했던 거래 고치기 · IN-04). */
+  offNote?: string;
 }
 
 const CAPTION = 'text-[length:var(--t-caption)] leading-[1.5]';
@@ -83,7 +87,7 @@ function fromText(fromKrw: number | null): string {
   return fromKrw === null ? REFLECT_TEXT.unset : formatEokManMinus(fromKrw);
 }
 
-export function ReflectBox({ on, onToggle, lines, marketHours, disabled = false }: ReflectBoxProps) {
+export function ReflectBox({ on, onToggle, lines, marketHours, disabled = false, offNote }: ReflectBoxProps) {
   return (
     <div data-slot="reflect-box" className="rounded-[12px] bg-[var(--muted)] px-4 py-3">
       <div className="flex items-center justify-between gap-2">
@@ -124,7 +128,14 @@ export function ReflectBox({ on, onToggle, lines, marketHours, disabled = false 
             {marketHours && lines.length > 0 && <div className={cn(CAPTION, WARN, 'mt-2 break-keep')}>{REFLECT_TEXT.market}</div>}
           </>
         ) : (
-          <div className={cn(CAPTION, 'mt-2 text-[var(--muted-fg)]')}>{REFLECT_TEXT.off}</div>
+          <>
+            <div className={cn(CAPTION, 'mt-2 text-[var(--muted-fg)]')}>{REFLECT_TEXT.off}</div>
+            {offNote && (
+              <div data-slot="reflect-off-note" className={cn(CAPTION, WARN, 'mt-1 break-keep')}>
+                {offNote}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

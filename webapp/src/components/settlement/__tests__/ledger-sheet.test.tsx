@@ -21,6 +21,7 @@ import {
  * | 검증 | 빈 금액 · 같은 계좌 · 빈 날짜 · 미래 날짜 | 칸 aria-invalid + 오류 줄(alert) · onSave 0 · 그 칸을 고치면 사라짐 |
  * | 미리 보기 | 수익 출금 KB 정근형 1억 | 「KB 정근형 예수금 8억 4,500만 → 7억 4,500만」 |
  * | 고치기 | 옛 줄 1억 · reflect | 「거래 고치기」 · 값 채움 · 켜짐 · 5,000만 → 「… → 8억 9,500만」(D-23) |
+ * | 고치기 끔(IN-04) | 반영했던 줄 · 스위치 끔 / 못 보낸 줄 | 「이전 반영분은 예수금에 그대로 남아요」 / 없음 |
  * | 저장 중 · 실패 | onSave 대기 · 거부 | 두 버튼 비활성 · aria-busy · readOnly / 「저장하지 못했어요 · X」 |
  * | 자정 넘긴 탭(WR-01) | 응답 now 어제 · 시계 오늘 / 시계가 늦음 / 닫힌 채 날이 바뀜 | 오늘 · max 오늘 · 켜짐 · 저장 / 응답 날 / 연 순간 다시 정함 |
  */
@@ -488,9 +489,27 @@ describe('LedgerSheet — 고치기(D-19 · D-23)', () => {
     expect(sw()?.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('옛 줄 reflect false · 지난 날짜 → 꺼짐', () => {
+  it('옛 줄 reflect false · 지난 날짜 → 꺼짐 · 「이전 반영분」 줄 없음', () => {
     open({ mode: 'edit', row: { ...old, reflect: false } });
     expect(sw()?.getAttribute('aria-checked')).toBe('false');
+    expect(document.querySelector('[data-slot="reflect-off-note"]')).toBeNull();
+  });
+
+  it('(IN-04) 반영했던 거래의 스위치를 끄면 「예수금은 그대로 둬요」 아래 「이전 반영분은 예수금에 그대로 남아요」 · 켜면 사라짐', () => {
+    open({ mode: 'edit', row: old });
+    expect(document.querySelector('[data-slot="reflect-off-note"]')).toBeNull();
+    click(sw());
+    expect(reflectText()).toContain('예수금은 그대로 둬요');
+    expect(document.querySelector('[data-slot="reflect-off-note"]')?.textContent).toBe('이전 반영분은 예수금에 그대로 남아요');
+    click(sw());
+    expect(document.querySelector('[data-slot="reflect-off-note"]')).toBeNull();
+  });
+
+  it('(IN-04) 반영 켬이었지만 전부 못 보낸 거래(pend · 목표값 없음)는 남은 반영분이 없어 줄 없음', () => {
+    const notSent = { ...old, pend: { kbG: { deltaKrw: -100_000_000, targetKrw: null, reason: 'unreachable' as const } } };
+    open({ mode: 'edit', row: notSent });
+    click(sw());
+    expect(document.querySelector('[data-slot="reflect-off-note"]')).toBeNull();
   });
 
   it('고치기 저장 → 바디는 고친 값', async () => {
