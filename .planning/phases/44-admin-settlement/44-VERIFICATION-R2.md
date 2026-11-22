@@ -1,8 +1,8 @@
 ---
 phase: 44-admin-settlement
 verified: 2026-11-21T16:05:00+09:00
-status: human_needed
-score: 12/13 must-haves verified
+status: passed
+score: 13/13 must-haves verified
 covered_files:
   - ".planning/phases/44-admin-settlement/44-01-PLAN.md"
   - ".planning/phases/44-admin-settlement/44-01-SUMMARY.md"
@@ -30,10 +30,6 @@ covered_files:
   - ".planning/phases/44-admin-settlement/44-12-SUMMARY.md"
   - ".planning/phases/44-admin-settlement/44-13-PLAN.md"
   - ".planning/phases/44-admin-settlement/44-13-SUMMARY.md"
-  - ".planning/phases/44-admin-settlement/44-REVIEW-DISPOSITION.md"
-  - ".planning/phases/44-admin-settlement/44-REVIEW-FIX.md"
-  - ".planning/phases/44-admin-settlement/44-UI-REVIEW.md"
-  - ".planning/phases/44-admin-settlement/44-UI-SPEC.md"
   - "packages/shared/src/__tests__/settlement-reflect.test.ts"
   - "packages/shared/src/admin.ts"
   - "packages/shared/src/index.ts"
@@ -71,9 +67,14 @@ covered_files:
   - "webapp/src/components/settlement/transfer-card.tsx"
   - "webapp/src/lib/admin-api.ts"
   - "webapp/src/styles/globals.css"
-covered_digest: "v4:sha256:48acd44310ef8887d9b8d0988d51838147bf98c32b28363a6351160c3d3e08da"
-behavior_unverified: 1
+covered_digest: "v4:sha256:7cc757bbda604222614c0c5e7e2635fd331ca92c19c121659e030f3af9d6d6df"
+behavior_unverified: 0
 overrides_applied: 0
+round2_status: human_needed
+round2_score: 12/13 must-haves verified
+round2_covered_digest: "v4:sha256:48acd44310ef8887d9b8d0988d51838147bf98c32b28363a6351160c3d3e08da"
+human_verification_resolved: "44-UAT.md 7/7 pass (2026-11-22) — Truth 13 운영 소액 반영 → 고치기 → 지우기 예수금 = UAT 테스트 4 (server 7b9e9550 · CR-01 수정 8ba37647 포함)"
+digest_refreshed: "2026-11-22 — quick-261121-n1b(정산 · 매매손익 관문을 「admin 또는 그 메뉴가 열린 trader」 로 완화 · 사이드바 · 사용자 API)가 covered 파일 6개를 바꿔 지문을 다시 계산. D-18 「관리자만」 은 사용자 결정으로 완화 — 그 quick 의 테스트 통과"
 re_verification:
   previous_report: 44-VERIFICATION.md
   previous_status: gaps_found
@@ -83,7 +84,7 @@ re_verification:
     - "사람 카드 큰 숫자 값이 UI-SPEC ② 계약과 같다 — totalKrw 결정이 UI-SPEC · UI-REVIEW · e2e 주석에 반영됨(1891bf5a · a3ec92d0)"
   gaps_remaining: []
   regressions: []
-behavior_unverified_items:
+behavior_resolved_items:
   - truth: "운영 매매 서버에서 실제 예수금 반영 · 되돌림과 실제 숫자가 CONTEXT 검산과 맞는다 — CR-01 수정 뒤 server(a3ec92d0) 기준"
     test: "수정 뒤 배포된 운영 server 에서 정산 화면 소액 거래를 「예수금에도 반영」 켠 채 저장 → 계좌 메뉴 예수금 확인 → 그 거래 고치기(금액 변경) → 차이만큼만 바뀌는지 확인 → 지우기(되돌림 켬) → 원래 값 복귀 확인. 첫 화면 숫자를 CONTEXT 검산과 대조"
     expected: "저장 직후 그 계좌 예수금이 거래 금액만큼, 고치기 뒤 차이만큼만 바뀌고, 지우면 원래 값으로 돌아온다. 계좌이체 4억 · 7억 · 법인 용역 3억 은 검산과 같다"

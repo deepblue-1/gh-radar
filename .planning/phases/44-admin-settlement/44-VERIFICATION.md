@@ -1,8 +1,13 @@
 ---
 phase: 44-admin-settlement
-verified: 2026-11-21T11:20:00+09:00
-status: gaps_found
-score: 10/13 must-haves verified
+verified: 2026-11-21T16:05:00+09:00
+status: passed
+score: 13/13 must-haves verified
+superseded_by: 44-VERIFICATION-R2.md
+round1_verified: 2026-11-21T11:20:00+09:00
+round1_status: gaps_found
+round1_score: 10/13 must-haves verified
+round1_covered_digest: "v4:sha256:c3b4ec1bcff0ae4044fff884e9371bc5fe0bf2874867bcc297b943e9a8ea31a3"
 covered_files:
   - ".planning/phases/44-admin-settlement/44-01-PLAN.md"
   - ".planning/phases/44-admin-settlement/44-01-SUMMARY.md"
@@ -30,8 +35,10 @@ covered_files:
   - ".planning/phases/44-admin-settlement/44-12-SUMMARY.md"
   - ".planning/phases/44-admin-settlement/44-13-PLAN.md"
   - ".planning/phases/44-admin-settlement/44-13-SUMMARY.md"
+  - "packages/shared/src/__tests__/settlement-reflect.test.ts"
   - "packages/shared/src/admin.ts"
   - "packages/shared/src/index.ts"
+  - "packages/shared/src/order-endpoint.ts"
   - "packages/shared/src/settlement.ts"
   - "server/src/app.ts"
   - "server/src/routes/admin-accounts.ts"
@@ -39,11 +46,15 @@ covered_files:
   - "server/src/routes/admin.ts"
   - "server/src/schemas/settlement.ts"
   - "server/src/services/settlement-budget.ts"
+  - "server/tests/routes/admin-settlement-ledger.test.ts"
+  - "server/tests/routes/admin-settlement-settle.test.ts"
   - "supabase/migrations/20261120100000_settlement.sql"
   - "supabase/migrations/20261120110000_settlement_ledger_rpc.sql"
   - "supabase/migrations/20261120120000_settlement_settle_rpc.sql"
   - "supabase/migrations/20261120130000_settlement_seed.sql"
+  - "webapp/e2e/specs/admin-settlement.spec.ts"
   - "webapp/src/app/admin/settlement/page.tsx"
+  - "webapp/src/components/admin/admin-sheet.tsx"
   - "webapp/src/components/layout/app-sidebar.tsx"
   - "webapp/src/components/settlement/account-table.tsx"
   - "webapp/src/components/settlement/activity-card.tsx"
@@ -61,10 +72,12 @@ covered_files:
   - "webapp/src/components/settlement/transfer-card.tsx"
   - "webapp/src/lib/admin-api.ts"
   - "webapp/src/styles/globals.css"
-covered_digest: "v4:sha256:c3b4ec1bcff0ae4044fff884e9371bc5fe0bf2874867bcc297b943e9a8ea31a3"
-behavior_unverified: 1
+covered_digest: "v4:sha256:7cc757bbda604222614c0c5e7e2635fd331ca92c19c121659e030f3af9d6d6df"
+behavior_unverified: 0
 overrides_applied: 0
-gaps:
+human_verification_resolved: "44-UAT.md 7/7 pass (2026-11-22) — Truth 13 운영 소액 반영 → 고치기 → 지우기 예수금 = UAT 테스트 4 (server 7b9e9550 · CR-01 수정 8ba37647 포함)"
+digest_refreshed: "2026-11-22 — quick-261121-n1b(정산 · 매매손익 관문을 「admin 또는 그 메뉴가 열린 trader」 로 완화 · 사이드바 · 사용자 API)가 covered 파일 6개를 바꿔 지문을 다시 계산. D-18 「관리자만」 은 사용자 결정으로 완화 — 그 quick 의 테스트 통과"
+round1_gaps:
   - truth: "거래 고치기 · 지우기 · 정산 취소가 예수금을 두 번 넣거나 되돌리지 못하는 일 없이 맞춘다 (D-19 · D-23 · D-26 · 리서치 Pitfall 2)"
     status: failed
     reason: "「보냈는데 응답만 못 받은(timeout)」 반영을 걸러내는 목표값 대조가 「다시 반영」(retryPend) 에만 있다. 고치기 · 지우기 · 정산 취소는 pend 가 남은 계좌를 무조건 「안 들어감」 으로 계산한다(appliedEffect 가 pend.deltaKrw 를 조건 없이 뺀다). 실제로 들어갔다면 고치기는 같은 증감을 한 번 더 보내고, 지우기 · 취소는 되돌리지 않아 매매 서버 예수금(주문 가능 금액 기준)에 거래 금액이 그대로 남는다. 코드 리뷰 CR-01(critical)이 아직 처분 open 이다. 검증자가 코드를 직접 읽어 같은 결함을 확인했다."
@@ -81,7 +94,7 @@ gaps:
       - "retryPend 의 목표값 대조를 한 함수로 빼서 고치기 · 지우기 · 정산 취소가 appliedEffect 를 부르기 전에 쓴다(리뷰 CR-01 Fix 의 settlePendByTarget) — 이번 요청에서 읽은 값 = 목표값인 계좌는 「들어감」 으로 보고 pend 에서 뺀다"
       - "또는 pend 가 남은 줄은 「다시 반영」 이 끝날 때까지 고치기 · 지우기(반영 켬)를 409 로 막고 화면도 단추 대신 「먼저 다시 반영해 주세요」 를 보인다(반영 끔 고치기도 pend 를 덮어쓰므로 함께 막는다)"
       - "회귀 테스트: timeout 이 난 거래 → 고치기 · 지우기 · 정산 취소 각각에서 현재 예수금 = 목표값일 때 이중 반영 · 미되돌림이 없다는 단언 (지금 admin-settlement-ledger.test.ts 의 timeout 테스트는 저장 직후 pend 모양만 잠근다)"
-behavior_unverified_items:
+round1_behavior_unverified_items:
   - truth: "운영 매매 서버에서 실제 예수금 반영 · 되돌림과 실제 숫자가 CONTEXT 검산과 맞는다"
     test: "정산 화면에서 소액 거래를 「예수금에도 반영」 켠 채 저장 → 계좌 메뉴 예수금 확인 → 그 거래 지우기(되돌림) → 값 복귀 확인. 첫 화면 숫자를 CONTEXT 검산(계좌 수익 · 지금 몫 전체 · 명의 대 몫)과 대조"
     expected: "저장 직후 해당 계좌 예수금이 거래 금액만큼 바뀌고, 지우면 원래 값으로 돌아온다. 계좌이체 4억 · 7억 · 법인 용역 3억 은 검산과 정확히 같고, 나머지는 예수금 차이만큼만 다르다"
