@@ -1563,7 +1563,7 @@ KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간�
 
 | 항목 | 값 |
 |------|-----|
-| 게이트웨이 | `211.47.36.250:443`(로그인) · 데이터채널 `:20001` (LEA-128-CBC) |
+| 게이트웨이 | `211.47.36.230:443` = `ks.iprovest.com`(로그인) · 데이터채널 `:20001` (LEA-128-CBC). 2026-11-21 교보 VPN 작업으로 `.250` → `.230` 변경 — 아래 §접속 주소 변경 |
 | 클라이언트 | `/opt/SecurwaySSL/SecuwaySSLU_client` (secuway.tar.gz, 2026-09-21 설치) |
 | 인터페이스 | `tun1` (`10.212.8.x/16`) |
 | 도달 대상 | 로그인 응답이 설치하는 호스트 라우트 `10.16.207.112` · `10.16.207.119` · `10.16.207.127` via `10.212.0.1` (.112·.119 `:22` 확인 2026-09-21 · .127 2026-09-28 추가 quick-260928-ei9 — §DMA 서버 추가 절차) |
@@ -1584,6 +1584,31 @@ KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간�
 ### ⚠ 데스크톱과 동시접속 금지 (상호배제)
 
 이 VM 세션과 데스크톱 클라이언트는 **교보에 등록된 단말 MAC 이 동일**하다(VM `42:01:0a:0a:00:05` 를 등록). 동시에 접속하면 교보가 한쪽 세션을 끊거나 계정을 잠글 수 있다. **VM 상시 터널을 켜 둔 동안 데스크톱 SecuwaySSL 을 띄우지 말 것**(반대도 마찬가지). VM 을 잠시 내리려면 `sudo systemctl stop securwayssl.service`.
+
+**Mac 앱을 끊은 뒤엔 Mac 게이트웨이(WireGuard)를 재기동한다.** Mac SecuwaySSL 앱은 접속할 때 `10.16.207.112` · `.119` · `.127`
+경로를 자기 utun 으로 덮어쓰고, 끊을 때 그 경로를 지운다. 이때 WireGuard(`KB-DMA`) 쪽 경로까지 사라져 Mac → 교보 서버가 `en0`
+(공유기)로 새고 접속이 안 된다 — VM · relay 는 정상이다(2026-11-21 사례). 메뉴바 「VM 게이트웨이」 를 껐다 켜거나
+`sudo wg-quick down KB-DMA && sudo wg-quick up KB-DMA`. 확인은 `route -n get 10.16.207.119` 의 `interface: utun4`.
+
+### 접속 주소 변경 (2026-11-21)
+
+VM 클라이언트 설정 `/opt/SecurwaySSL/conf/client.info` 의 `vpn_ip` 는 **IP 하드코딩**이다(벤더 형식). Mac 앱은 `ks.iprovest.com`
+(호스트명)을 들고 있어 교보가 IP 를 바꿔도 따라가지만 VM 은 안 따라간다.
+
+- **증상:** 교보 작업 뒤 저널에 `sslvpn did not come up within 30s` 만 반복(`Error:` 줄 없음) → `StartLimitBurst` 소진 → `failed`.
+  `client.log` 는 `Attempting to establish TCP connection with … :20001` 에서 멈춘 뒤 갱신이 없다. 옛 IP 의 443 · 20001 이 무응답이다.
+- **진단:** `dig +short ks.iprovest.com` 과 `client.info` 의 `vpn_ip` 를 대조한다. Mac 앱이 붙어 있으면 `/Users/Shared/SecuwaySSLU/client.log`
+  의 `TCP_CLIENT link remote` 줄이 실제 접속 IP 다.
+- **복구 (Mac 앱 접속을 먼저 끊고 — 같은 계정):**
+  ```bash
+  F=/opt/SecurwaySSL/conf/client.info
+  sudo cp -p $F $F.bak-$(date +%y%m%d)
+  sudo sed -i 's/^vpn_ip: .*/vpn_ip: <새 IP> /' $F
+  sudo systemctl reset-failed securwayssl.service && sudo systemctl start securwayssl.service
+  ```
+  2026-11-21: `.250` → `.230` 교체 후 첫 시도에 접속(재시작 0회) · 경로 3개 · MAC 등록 유지 · relay KYOBO119 `ready` (백업 `client.info.bak-261121`).
+- **⚠ 벤더 아카이브는 옛 주소 그대로:** 저장소 `infra/relay/secuway.tar.gz` 안 `client.info` 는 여전히 `vpn_ip: 211.47.36.250` 이다.
+  이 아카이브로 VM 을 재설치하면 위 `sed` 를 다시 해야 한다.
 
 ### 워치독 · 재접속 동작 (quick-261007-b9o)
 
