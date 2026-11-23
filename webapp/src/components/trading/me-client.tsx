@@ -666,7 +666,7 @@ export function MeClient() {
 }
 
 /**
- * 「이동 멈춤 기록」(debug ios-resume-sidebar-stall) — 메뉴를 눌렀는데 10초 넘게 안 넘어가 앱이 스스로 다시 연 기록.
+ * 「이동 멈춤 기록」(debug ios-resume-sidebar-stall) — 메뉴를 눌렀는데 몇 초(`NAV_STALL_MS`) 넘게 안 넘어가 앱이 스스로 다시 연 기록.
  * 기기 localStorage 에만 있다(`lib/router-transition.ts`). 기록이 없으면 아무것도 그리지 않는다. 원인 확정용 증거라 접어 둔다.
  * 마운트 뒤에 읽는다 — 서버 HTML 에는 없다(하이드레이션 불일치 방지).
  */
@@ -690,7 +690,8 @@ function NavStallLogSection() {
             className="mono break-all text-[12px] leading-snug text-[var(--muted-fg)]"
           >
             {new Date(r.at).toLocaleString("ko-KR", { hour12: false })} · {r.from} → {r.to} · 대기{" "}
-            {sec(r.waitedMs)} · 복귀 후 {r.sinceResumeMs === null ? "—" : sec(r.sinceResumeMs)} ·{" "}
+            {sec(r.waitedMs)}
+            {r.taps !== undefined && r.taps > 1 ? ` · 탭 ${r.taps}회` : ""} · 복귀 후 {r.sinceResumeMs === null ? "—" : sec(r.sinceResumeMs)} ·{" "}
             {r.online ? "온라인" : "오프라인"}
           </li>
         ))}

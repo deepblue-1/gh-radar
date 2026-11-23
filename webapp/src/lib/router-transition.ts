@@ -16,6 +16,8 @@
  * 원인이 환경(OS 의 연결 동결)이라 없앨 수 없으므로 감지해서 되살린다: 이동 시작 후 `NAV_STALL_MS` 가 지나도 주소가 출발
  * 그대로면 기록을 남기고 그 주소로 **문서 이동**(`location.assign`)한다 — 새 문서는 새 연결 · 새 세션 · 새 relay 로 시작한다.
  * - 주소가 바뀌면(어디로든 — 리다이렉트 포함) 이동이 끝난 것으로 본다. 그래서 같은 주소로의 이동 · 뒤로/앞으로는 감시하지 않는다.
+ * - 멈춘 채 다른 링크를 또 눌러도(같은 출발지) 시계는 **첫 탭**부터 잰다 — 가려는 곳만 마지막 탭으로 바꾼다. 탭마다 시계를
+ *   다시 걸면 답답해서 누를수록 되살리기가 늦어진다(2026-11-23 실기기: 홈 → 로고 연타).
  * - 화면이 숨어 있으면 강제 이동하지 않고 다시 기다린다(백그라운드에서 문서를 갈아엎지 않는다).
  * - 개발 서버(`next dev` 첫 컴파일은 10초를 넘는다 · e2e 도 dev)에서는 끈다.
  * - 기록은 기기 localStorage 에만 둔다(최근 `NAV_STALL_LOG_MAX` 건) — My page 「이동 멈춤 기록」이 보여 준다.
@@ -26,8 +28,12 @@ export type RouterTransitionListener = (to: URL, type: RouterTransitionType) => 
 
 const listeners = new Set<RouterTransitionListener>();
 
-/** 이동 시작 후 이만큼 지나도 주소가 그대로면 멈춘 것으로 본다. 이동은 평소 1초 안팎이다. */
-export const NAV_STALL_MS = 10_000;
+/**
+ * 이동 시작 후 이만큼 지나도 주소가 그대로면 멈춘 것으로 본다. 이동은 평소 1초 안팎이다.
+ * 10초 → 6초(2026-11-23): 실기기 멈춤 1건에서 되살리기 문서 이동은 같은 조건에서 약 2초에 끝났다(relay 소켓 1001 → 새 소켓).
+ * 6초를 넘긴 정상 이동을 잘못 잡아도 대가는 「누른 그 주소를 문서로 다시 읽음」 뿐이다.
+ */
+export const NAV_STALL_MS = 6_000;
 /** 기록 보관 건수 상한. */
 export const NAV_STALL_LOG_MAX = 20;
 export const NAV_STALL_LOG_KEY = 'gh-nav-stall-log';
@@ -41,9 +47,11 @@ export interface NavStallRecord {
   /** 가려던 주소(경로 + 쿼리). */
   to: string;
   type: RouterTransitionType;
-  /** 이동 시작부터 강제 이동까지(ms). */
+  /** 첫 탭부터 강제 이동까지(ms). */
   waitedMs: number;
-  /** 화면이 마지막으로 다시 보이게 된 뒤 이동 시작까지(ms) — 복귀 직후 몰림 여부. 이 문서에서 숨김이 없었으면 null. */
+  /** 멈춘 동안 이동을 시도한 횟수(첫 탭 포함). 2026-11-23 이전 기록에는 없다. */
+  taps?: number;
+  /** 화면이 마지막으로 다시 보이게 된 뒤 첫 탭까지(ms) — 복귀 직후 몰림 여부. 이 문서에서 숨김이 없었으면 null. */
   sinceResumeMs: number | null;
   /** 강제 이동 시점의 `navigator.onLine`. */
   online: boolean;
@@ -56,6 +64,7 @@ interface Watch {
   type: RouterTransitionType;
   startedAt: number;
   sinceResumeMs: number | null;
+  taps: number;
 }
 
 let watch: Watch | null = null;
@@ -121,6 +130,7 @@ function checkStall(w: Watch): void {
     to: pathOf(w.to),
     type: w.type,
     waitedMs: Date.now() - w.startedAt,
+    taps: w.taps,
     sinceResumeMs: w.sinceResumeMs,
     online: navigator.onLine,
   });
@@ -131,15 +141,23 @@ function checkStall(w: Watch): void {
 function armStallWatch(to: URL, type: RouterTransitionType): void {
   if (!watchdogEnabled) return;
   hookVisibility();
+  const from = pathOf(window.location);
+  const watchable =
+    type !== 'traverse' && // 뒤로/앞으로는 주소가 먼저 바뀌어 판정할 수 없다.
+    to.origin === window.location.origin &&
+    pathOf(to) !== from; // 같은 주소로의 이동은 주소 변화로 끝을 알 수 없다.
   if (watch !== null) {
-    // 새 이동이 앞 이동을 대신한다(Next 도 대기 중 이동을 버린다).
+    if (watchable && watch.from === from) {
+      // 아직 출발지에 묶여 있다 — 새 이동이 앞 이동을 대신하지만(Next 도 대기 중 이동을 버린다) 시계는 첫 탭 그대로.
+      watch.to = to;
+      watch.type = type;
+      watch.taps += 1;
+      return;
+    }
     clearTimeout(watch.timer);
     watch = null;
   }
-  if (type === 'traverse') return; // 뒤로/앞으로는 주소가 먼저 바뀌어 판정할 수 없다.
-  if (to.origin !== window.location.origin) return;
-  const from = pathOf(window.location);
-  if (pathOf(to) === from) return; // 같은 주소로의 이동은 주소 변화로 끝을 알 수 없다.
+  if (!watchable) return;
   const startedAt = Date.now();
   const w: Watch = {
     timer: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -148,6 +166,7 @@ function armStallWatch(to: URL, type: RouterTransitionType): void {
     type,
     startedAt,
     sinceResumeMs: lastVisibleAt === null ? null : startedAt - lastVisibleAt,
+    taps: 1,
   };
   w.timer = setTimeout(() => checkStall(w), NAV_STALL_MS);
   watch = w;

@@ -37,7 +37,7 @@ describe('이동 멈춤 감시', () => {
     vi.restoreAllMocks();
   });
 
-  it('10초 지나도 주소가 그대로면 기록하고 그 주소로 문서 이동한다', () => {
+  it('NAV_STALL_MS 지나도 주소가 그대로면 기록하고 그 주소로 문서 이동한다', () => {
     noteRouterTransitionStart('/me', 'push');
     vi.advanceTimersByTime(NAV_STALL_MS - 1);
     expect(hardNavigate).not.toHaveBeenCalled();
@@ -45,7 +45,7 @@ describe('이동 멈춤 감시', () => {
     expect(hardNavigate).toHaveBeenCalledWith(`${window.location.origin}/me`);
     const log = readNavStallLog();
     expect(log).toHaveLength(1);
-    expect(log[0]).toMatchObject({ from: '/trading', to: '/me', type: 'push', waitedMs: NAV_STALL_MS });
+    expect(log[0]).toMatchObject({ from: '/trading', to: '/me', type: 'push', waitedMs: NAV_STALL_MS, taps: 1 });
   });
 
   it('주소가 바뀌었으면(리다이렉트 포함) 아무것도 하지 않는다', () => {
@@ -56,15 +56,34 @@ describe('이동 멈춤 감시', () => {
     expect(readNavStallLog()).toHaveLength(0);
   });
 
-  it('새 이동이 앞 이동의 감시를 대신한다', () => {
+  it('멈춘 채 또 누르면 시계는 첫 탭 그대로 · 가려는 곳은 마지막 탭으로', () => {
     noteRouterTransitionStart('/me', 'push');
     vi.advanceTimersByTime(NAV_STALL_MS - 1000);
     noteRouterTransitionStart('/search', 'push');
+    noteRouterTransitionStart('/', 'push');
     vi.advanceTimersByTime(1000);
-    expect(hardNavigate).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(NAV_STALL_MS - 1000);
     expect(hardNavigate).toHaveBeenCalledTimes(1);
+    expect(hardNavigate).toHaveBeenCalledWith(`${window.location.origin}/`);
+    expect(readNavStallLog()[0]).toMatchObject({ from: '/trading', to: '/', waitedMs: NAV_STALL_MS, taps: 3 });
+  });
+
+  it('앞 이동이 끝난 뒤(주소가 바뀐 뒤) 새 이동은 새 시계로 잰다', () => {
+    noteRouterTransitionStart('/me', 'push');
+    window.history.pushState(null, '', '/me');
+    vi.advanceTimersByTime(NAV_STALL_MS - 1000);
+    noteRouterTransitionStart('/search', 'push');
+    vi.advanceTimersByTime(NAV_STALL_MS - 1);
+    expect(hardNavigate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(hardNavigate).toHaveBeenCalledWith(`${window.location.origin}/search`);
+    expect(readNavStallLog()[0]).toMatchObject({ from: '/me', taps: 1 });
+  });
+
+  it('뒤로 가기는 멈춘 이동의 감시를 거둔다', () => {
+    noteRouterTransitionStart('/me', 'push');
+    noteRouterTransitionStart('/x', 'traverse');
+    vi.advanceTimersByTime(NAV_STALL_MS * 2);
+    expect(hardNavigate).not.toHaveBeenCalled();
   });
 
   it('숨어 있는 동안은 문서 이동하지 않고 보이면 다시 본다', () => {
