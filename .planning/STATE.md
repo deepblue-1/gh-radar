@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v1.1
 milestone_name: 운영 유지보수
 current_phase: 44
-current_phase_name: 어드민 정산
 status: completed
 stopped_at: Phase 44 complete — all phases complete
-last_updated: "2026-11-22T06:43:00.702Z"
+last_updated: "2026-11-23T13:09:37.246Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 44 complete
-state_head: 10b9ed30b10c3c9f8026ee25d8baf6ac343db552
+state_head: 5d85f23a9132f144ecc88dabfcbc3084b3a00250
 progress:
   total_phases: 15
   completed_phases: 15
   total_plans: 180
   completed_plans: 180
   percent: 100
+current_phase_name: 어드민 정산
 ---
 
 # Project State
@@ -200,6 +200,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 96 | 경계 지도 발사 계획 조각 시각 자동 정렬(칸 벗어나면 오름차순) — 0cd9612d | 2026-11-19 | 0cd9612d | — |
 | 261121-gdx | Phase 44 UI 리뷰 처리 — 정산 화면 대비 · 첫 포커스 · 히트 44 · 금액 상한 안내 · 간격 · ② 문서 정정 | 2026-11-21 | 1891bf5a | [261121-gdx-phase-44-ui-review-fixes-settlement-only](./quick/261121-gdx-phase-44-ui-review-fixes-settlement-only/) |
 | 261121-n1b | trader 에게 어드민 매매손익 · 정산 메뉴만 여는 권한(app_users.admin_menus · 사용자 시트 스위치 · server/웹 관문 · millesjung 두 메뉴) | 2026-11-21 | 7b9e9550 | [261121-n1b-trader-admin-menu-grant](./quick/261121-n1b-trader-admin-menu-grant/) |
+| 99 | tick-convert promote Job 메모리 2Gi → 8Gi(cpu 2) — 11-23 삼성전자 NXT 해제 OOM | 2026-11-23 | 5d85f23a | — |
 
 ## Session Continuity
 

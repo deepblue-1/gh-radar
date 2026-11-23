@@ -26,7 +26,7 @@
  *
  * 격자 크기 상한(WR-30 · nightly · request 와 같은 규칙): 다시 압축한 격자가 `GRID_MAX_BYTES`(버킷 50MB)를 넘으면 올리지 않고
  * `tooLarge` 로 센다(실패 아님 · 종료 0 · 알림 없음). export `bytes`(119 원본 프레임 합)가 상한의 `PREFETCH_FACTOR` 배를 넘으면
- * 바이트를 당기기 전에 건너뛴다(2Gi Job 안에서 큰 키 원시를 펼치지 않는다).
+ * 바이트를 당기기 전에 건너뛴다(8Gi Job 안에서 큰 키 원시를 펼치지 않는다 · 11-23 삼성전자 NXT 원시 ≈1GB 가 2Gi 에서 OOM 뒤 상향).
  */
 import zlib from "node:zlib";
 import {

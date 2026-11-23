@@ -307,13 +307,17 @@ if [[ -n "${TICKGW_URL:-}" ]]; then
 
   # 승격 Job — 같은 이미지 · args 오버라이드로 CMD 만 바꾼다(ENTRYPOINT [node, dist/index.js] 그대로 · tests/entry.test.ts)
   # GCS 볼륨 · TICK_ARCHIVE_DIR 없음(promote 는 원본 아카이브를 읽지 않는다 · config 가 promote 에선 요구하지 않는다)
-  echo "▶ deploying Cloud Run Job: $PROMOTE_JOB (cpu=1, memory=2Gi, timeout=1800s, VPC $VPC_NAME private-ranges-only, args=promote)..."
+  echo "▶ deploying Cloud Run Job: $PROMOTE_JOB (cpu=2, memory=8Gi, timeout=1800s, VPC $VPC_NAME private-ranges-only, args=promote)..."
+  # 8Gi — 키 하나의 원시를 프레임 해제분 + 이어붙인 사본 두 벌로 든다(decompressFrames). 11-23 삼성전자 NXT
+  # (export 48.5MB · 184만 건 · 원시 ≈1GB)가 2Gi 를 넘어 20:10 · 20:40 둘 다 OOM. 실측: 삼성 KRX 11-17(export 45MB · 201만 건 ·
+  # 원시 1055MB) 해제 → 격자 → 팀 값 최대 RSS 2.4GB. 사전 판정 상한(60MiB 압축 ≈ 원시 1.4GB)이면 ≈3.2GB — 8Gi 의 40%.
+  # 4Gi 초과는 cpu 2 가 필요하다(Cloud Run). 하루 2회 1분 남짓이라 비용 무시.
   gcloud run jobs deploy "$PROMOTE_JOB" \
     --image="$IMAGE" \
     --region="$REGION" \
     --service-account="$RUNTIME_SA" \
-    --cpu=1 \
-    --memory=2Gi \
+    --cpu=2 \
+    --memory=8Gi \
     --task-timeout=1800s \
     --max-retries=0 \
     --parallelism=1 \
