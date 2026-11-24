@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 8d073739
-// synced-date:        2026-11-15
+// server-repo-commit: cab42f16
+// synced-date:        2026-11-25
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -292,6 +292,14 @@ table DirectOrderReq {
                               // "G2" = 장개시전 시간외종가 · "G3" = 장종료후 시간외종가.
                               // 값이 있으면 예약(15:20~16:00)·장전 G1 판정을 타지 않는다 (18.2 D-12).
                               // 그 외 값은 브로커에 닿기 전에 즉시 거부다 (18.2-05).
+                              // Phase 49 (시간외종가 「땡」 예약, 필드 선언 무변경 — 값만 둘 추가):
+                              // "G2Q" = 08:30 장개시전 시간외종가 **예약** — 서버가 보관했다가 08:30 + 보정에 G2 로 발사.
+                              //   접수 창 평일 [06:00, 08:30) · [queued_order] g2_queue_enabled ∧ offhours_close_enabled.
+                              // "G3Q" = 15:30 장종료후 시간외종가 **예약** — 종목별 종가 결정 신호에 G3 로 발사.
+                              //   접수 창 평일 [15:21, 15:30) · [queued_order] g3_queue_enabled ∧ offhours_close_enabled.
+                              // 접수 창 · 스위치 밖이면 브로커에 닿기 전에 거부하고 다른 갈래(즉시 발주 · 16:00 예약)로
+                              //   접지 않는다. 가격 · 조각 수는 서버가 정한다(가격 0 · 조각 1 — 클라 값 무시).
+                              // 구 서버는 모르는 값이라 위 「그 외 값」 으로 거부한다 (fail-closed).
 }
 
 // 계좌번호 관리 요청
@@ -1034,6 +1042,17 @@ table QueuedWindowState {
     g2_open: bool;           // KRX 장개시전 시간외종가 [08:30,08:40)
     g3_open: bool;           // KRX 장종료후 시간외종가 G3/AB1~G4/AB1 2단 (M4 미수신 폴백 [15:40,16:00))
     nxt_preopen_open: bool;  // [preopen_order] enabled AND NXT 평일 08:00 전
+
+    // === 이하 Phase 49 추가 (테이블 말미 append) ===
+    // 표시 전용 — 상따창 수동주문 탭 라벨. 구 서버는 싣지 않아 false 다. 서버 창 비트마스크
+    // (Gateway::ComputeWindowMask 비트 32 · 64)에서 나오고, 주문 판정(G2Q/G3Q)은 주문 도착 시각에 서버가 따로 한다.
+
+    g2_queue_open: bool;     // [queued_order] g2_queue_enabled AND [preopen_order] offhours_close_enabled
+                             // AND MarketClock::IsKrxG2QueueWindow (평일 [06:00, 08:30) — 08:30 장개시전
+                             // 시간외종가 예약 접수 창)
+    g3_queue_open: bool;     // [queued_order] g3_queue_enabled AND [preopen_order] offhours_close_enabled
+                             // AND MarketClock::IsKrxG3QueueWindow (평일 [15:21, 15:30) — 15:30 장종료후
+                             // 시간외종가 예약 접수 창)
 }
 
 // ============================================================================
@@ -1471,10 +1490,10 @@ enum StrategyEventKind : ubyte {
     LimitExposed = 1,    // 상한가노출 — 상한가에 매도잔량이 노출됨 (시세 이벤트, 계좌 없음)
     LimitEntered = 2,    // 상한가진입 — 매수1 == 상한가 && 매도잔량 0 (시세 이벤트, 계좌 없음)
     BuyOrder = 3,        // 매수주문 — A 접수 시점에 1건 (전송 시각은 gw_time_ms, 접수 지연은 accept_latency_us)
-    Queued = 4,          // 대기 — 상한가 매수 줄서기 (base_cum/ahead_qty/expected_cum)
-    FirstFill = 5,       // 첫체결 — error_volume = expected_cum − 첫 체결 시점 누적
+    Queued = 4,          // 대기 — 상한가 매수 줄서기, 진입 짝 순간 (base_cum/ahead_qty = 진입 때 앞(내 수량 제외)/expected_cum) (quick-261118-ms7)
+    FirstFill = 5,       // 첫체결 — error_volume = 첫 체결 순간 모형의 체결 시작까지 남은 주(≥ 0) (quick-261118-ms7)
     SellOrder = 6,       // 매도주문
-    Cancelled = 7,       // 취소 — cancel_reason · remaining_volume
+    Cancelled = 7,       // 취소 — cancel_reason · remaining_volume(취소 순간 체결 시작까지 남은 주) (quick-261118-ms7)
     Rejected = 8,        // 거부 — result_code · message
     StateTransition = 9, // 상태전이 — 설정 변경 이력(Cfg*) + 서버 자동 상태전이(Auto*)(gh-radar Phase 39, quick-261106-kjo).
                          // 저널 80 전용(82·81 없음 — IsObserverOnlyKind). 43칸 매핑은 gh-radar 인박스 노트 261106-chatbot-kind9-mapping.md.
@@ -1597,12 +1616,12 @@ table StrategyEvent {            // 43 필드 — HANDOFF v0.1 표 순서·이�
     bid1_qty: long;              // 매도주문: 매수1 잔량
     accept_latency_us: int;      // 전송→접수 통보 (0 = 미측정). BuyOrder 는 접수 시점에 쓴다 (전송 시각은 gw_time_ms)
     immediate_fill_qty: long;    // 즉시체결 분 (0 이면 없음)
-    queue_case: byte;            // 1 잔량 보고 낸 주문 · 2 잔량 쌓이기 전 주문
-    base_cum: ulong;             // 대기: 기준 누적
-    ahead_qty: ulong;            // 대기: 내 앞 물량
-    expected_cum: ulong;         // 대기: 체결예상 누적
-    error_volume: long;          // 첫체결: expected_cum − 첫 체결 시점 누적 (부호 있음)
-    remaining_volume: long;      // 취소: expected_cum − 취소 시점 누적 (대기 아니었으면 0 — has_remaining 으로 구분)
+    queue_case: byte;            // 1 A 순간 bid1 == 상한가(정지 구간 밖) · 2 그 밖 — 대기(4)는 진입 짝 순간에 나간다 (quick-261118-ms7)
+    base_cum: ulong;             // 대기: 진입 순간 누적
+    ahead_qty: ulong;            // 대기: 진입 때 체결 시작까지 남은 주(내 수량 제외) — 진행률 분모 (quick-261118-ms7)
+    expected_cum: ulong;         // 대기: 체결 시작 예상 누적 = base_cum + ahead_qty
+    error_volume: long;          // 첫체결: 첫 체결 순간 모형의 체결 시작까지 남은 주 (≥ 0, 정답 ≈ 0) (quick-261118-ms7)
+    remaining_volume: long;      // 취소: 취소 순간 모형의 체결 시작까지 남은 주 (대기 아니었으면 0 — has_remaining 으로 구분) (quick-261118-ms7)
     has_remaining: bool;         // remaining_volume 유효 여부
     cancel_reason: CancelReason; // 1 Manual · 2 ExitSell · 3 Bid1Drop · 4 VIWatch · 5 Exchange · 6 Close · 7~9 서버 취소 경로
     result_code: int;            // 거부: 거래소·증권사 코드
@@ -1626,9 +1645,9 @@ table QueueProgressItem {        // 그 (isin, exchange) 의 대기 또는 첫 �
     exchange: string;            // KRX / NXT
     isin: string;
     group: OrderGroup;
-    expected_cum: ulong;         // 체결예상 누적
+    expected_cum: ulong;         // 체결 시작 예상 누적 = current_cum + remaining_volume (quick-261118-ms7)
     current_cum: ulong;          // 현재 누적거래량 (서버가 진실 원본)
-    remaining_volume: long;      // expected_cum − current_cum
+    remaining_volume: long;      // 체결 시작까지 남은 주(내 수량 제외) = max(0, min(줄 앞, 상한가 매수잔량 − 내 남은 수량)) (quick-261118-ms7)
     progress_bp: int;            // 진행률 bp (0~10000)
     first_filled: bool;          // 첫 체결이 났다 — true 면 expected_cum·current_cum·remaining_volume·progress_bp 는 첫 체결 순간 값으로 고정(current_cum = 그 순간 누적), 전량 체결·취소·정정·거부 때 빠진다. 기본 false (quick-260930-e5g)
 }
@@ -2024,19 +2043,23 @@ table AdminCommandReq {          // 44 본문 — admin 관찰자 연결 전용 
                                  // 같은 값. 멱등 = code 0·rev 불변·87 없음, 변경 = 86 → 87. BUSY 없음, 67 없음(클라 계산에 안 쓰인다).
                                  // 다른 op 는 이 필드를 읽지 않는다 (Phase 41 D-28)
     // === 이하 Phase 43 추가 (말미 append) ===
-    launch_profile: string;      // op 8/9 — "Q16"(16:00 예약) · "N"(09:00:30 NXT). op 9 는 읽지 않는다(전체 조회)
+    launch_profile: string;      // op 8/9 — "Q16"(16:00 예약) · "N"(09:00:30 NXT) · "G2"(08:30 장개시전 시간외종가 예약 발사,
+                                 // Phase 49 — op 8 만, 08:30 발사가 꺼진 서버는 거부). op 9 는 읽지 않는다(전체 조회)
     launch_market: string;       // op 8 — "K" 코스피 · "Q" 코스닥. op 9 는 읽지 않는다
     launch_offsets_us: [int];    // op 8 — 발사 시각 목록 µs(기준 16:00:00.000000 / 09:00:30.000000, 음수 = 앞당김).
                                  //   Q16: 길이 1 ~ [queued_order] max_pieces · 같거나 커지는 순서(서버가 정렬하지 않음) ·
                                  //        각 [offset_clamp_min_us, offset_clamp_max_us]
                                  //   N  : 길이 1 · [-2000, 2000]
+                                 //   G2 : 길이 1 · [-3000, 20000] · 기준 08:30:00.000000 (Phase 49 — 시장별 한 값, 교보도 그 시장 칸만).
+                                 //        08:30 발사가 꺼진 서버([queued_order] g2_queue_enabled = false)는 op 8 G2 를 86 code 1 로
+                                 //        거부한다. 거부 문구는 G2 전용 네 문장(기존 Q16/N 문구 무변경 — server/docs/protocol.md)
                                  // 거부는 전부 86 code 1 + 고정 문구(새 code 없음) · 같은 값 = code 0 「변경 없음」 rev 불변 94 없음 ·
                                  // 변경 = 86 「저장 — 다음 발사부터 적용」 → 94. users 레지스트리와 무관 — BUSY·87·users_rev 변화 없음.
                                  // **N 값은 저장·조회되고 발사 적용은 Phase 43 마지막 플랜(43-07)부터** — 그 전엔
                                  // [open_arb] nxt_fire_offset_us 로 쏜다. 16:00 조각 수 = Q16 목록 길이(발사 때 재분할 —
                                  // DirectOrderReq.piece_count 는 서버가 무시, D-05). 다른 op 는 이 세 필드를 읽지 않는다
     // === 이하 Phase 47 추가 (말미 append) ===
-    launch_tail_probe_count: int;    // op 10 SetLaunchTailProbe 전용 — launch_profile("Q16" 16:00 · "N" 09:00:30, 그 밖 거부) +
+    launch_tail_probe_count: int;    // op 10 SetLaunchTailProbe 전용 — launch_profile("Q16" 16:00 · "N" 09:00:30, 그 밖 거부 — "G2" 포함) +
     launch_tail_probe_step_us: int;  // 발 수 0..10(0 = 끔) · 간격 µs 1..100. count 0 이어도 step 을 검사·저장한다.
                                      // 거부는 86 code 1 + 고정 문구(새 code 없음) · 같은 값 code 0 「변경 없음」 rev 불변 94 없음 ·
                                      // 변경 = 86 「저장 — 다음 발사부터 적용」 → 94. 저장 = log/launch_plan.toml(plan_rev 공유 +1),
@@ -2072,14 +2095,14 @@ table AdminUsersSnapshot {       // 87 본문 — users.toml 전체 (WinForms �
 
 // === 이하 Phase 43 추가 (발사 계획 — 94 본문, 43-CONTEXT D-02·D-13) ===
 table LaunchPlanEntry {          // 94 의 칸 1행 — (발사, 시장) 하나
-    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT)
+    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT) · "G2"(08:30 시간외종가 예약 발사, Phase 49)
     market: string;              // "K" 코스피 · "Q" 코스닥
-    offsets_us: [int];           // 발사 시각 목록 µs — Q16 = 조각 수만큼(비감소) · N = 길이 1. 기준·범위는 AdminCommandReq.launch_offsets_us
+    offsets_us: [int];           // 발사 시각 목록 µs — Q16 = 조각 수만큼(비감소) · N · G2 = 길이 1. 기준·범위는 AdminCommandReq.launch_offsets_us
 }
 
 // === 이하 Phase 47 추가 (뒤탐침 — 94 tail_probes 행) ===
 table LaunchTailProbe {          // 94 의 뒤탐침 1행 — (서버, 발사) 하나. 같은 서버의 K/Q 두 스레드(Q16) · 두 레인(N)이 같은 값
-    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT)
+    profile: string;             // "Q16"(16:00 예약) · "N"(09:00:30 NXT). G2 행 없음(08:30 은 뒤탐침 대상 아님, op 10 은 G2 를 거부)
     count: int;                  // 발 수 0..10 · 0 = 끔
     step_us: int;                // 발 간격 µs 1..100 — 송신 = 마지막 실조각 계획 시각 + (i+1)·step_us, kind 17 planned_us 같은 식
 }
@@ -2088,9 +2111,13 @@ table LaunchPlanSnapshot {       // 94 본문 — 서버 한 대의 발사 계�
     request_id: ulong;           // 44 의 request_id 에코
     plan_rev: ulong;             // 계획 리비전 — 기동 파일 값(처음 1) · 변경마다 +1. users_rev 와 별도 카운터이고 파일(log/launch_plan.toml)에 남는다
     updated_at: string;          // 마지막 변경 시각 "YYYY-MM-DDTHH:MM:SS" KST — 초깃값 생성 직후·변경 이력 없음이면 빈 값일 수 있다
-    entries: [LaunchPlanEntry];  // Q16/K · Q16/Q · N/K · N/Q 네 행 고정 순서. N 은 offsets_us 길이 1
+    entries: [LaunchPlanEntry];  // 앞 네 행 Q16/K · Q16/Q · N/K · N/Q 고정 순서. N 은 offsets_us 길이 1.
+                                 // Phase 49: 08:30 발사가 켜진 서버는 말미에 G2/K · G2/Q 두 행(offsets_us 길이 1)을 덧붙인다 —
+                                 // 꺼진 서버 · 구 서버는 그 두 행이 없다(행 없음 = 이 서버는 08:30 발사를 모름).
+                                 // 읽는 쪽은 (profile, market) 로 찾고 행 수 · 인덱스를 가정하지 않는다
     // === 이하 Phase 47 추가 (말미 append) ===
-    tail_probes: [LaunchTailProbe];  // Q16 · N 두 행 고정 순서. 구 서버는 이 칸이 없다(relay 는 「서버가 뒤탐침 설정을 모름」 읽기 전용)
+    tail_probes: [LaunchTailProbe];  // Q16 · N 두 행 고정 순서. 구 서버는 이 칸이 없다(relay 는 「서버가 뒤탐침 설정을 모름」 읽기 전용).
+                                     // G2 행 없음(뒤탐침 대상 아님, op 10 은 G2 를 거부 — Phase 49)
 }
 
 // ============================================================================
@@ -2398,4 +2425,29 @@ root_type Envelope;
 // tail_probes([LaunchTailProbe], Q16 · N 두 행 고정 순서). MsgType · Envelope 슬롯 · 기존 필드 무변경 — append-only.
 // 서버 먼저면 구 relay/웹이 94 새 칸을 무시하고, relay 먼저면 구 서버는 tail_probes 가 없어 읽기 전용 + op 10 → 86 code 1 — 둘 다 안전하다.
 // op 번호 10 · 새 vtable 슬롯은 폐기해도 재사용 금지.
+// ============================================================================
+
+// ============================================================================
+// === Phase 49 (시간외종가 땡) 변경 요약 ①: 77 QueuedWindowState 말미 g2_queue_open · g3_queue_open(bool) append ·
+//     2 DirectOrderReq.krx_session 값 "G2Q" · "G3Q" 추가(필드 무변경) ===
+//
+// Phase 49(2026-11-24): 77 QueuedWindowState 말미 g2_queue_open · g3_queue_open(bool, vtable 16 · 18) append — 08:30 · 15:30
+// 시간외종가 예약 접수 창(평일 [06:00, 08:30) · [15:21, 15:30))을 클라 상따창 라벨에 알리는 표시 전용 힌트, 77 은 Notice 그대로.
+// 2 DirectOrderReq.krx_session 에 "G2Q" · "G3Q"(예약 표식) 값 추가 — 필드 선언 무변경, 창 · 스위치 밖은 브로커에 닿기 전 거부.
+// MsgType · Envelope 슬롯 · 기존 필드 무변경 — append-only. 구 클라는 새 필드를 무시하고 새 값을 보내지 않으며, 구 서버가 보낸
+// 77 을 새 클라가 읽으면 두 값은 false 다 → 서버 먼저 배포가 안전하다. 새 vtable 슬롯 16 · 18 은 폐기해도 재사용 금지.
+// ============================================================================
+
+// ============================================================================
+// === Phase 49 (시간외종가 땡) 변경 요약 ②: 44 op 8 launch_profile 값 "G2" 추가(필드 무변경) · 94 entries 말미 G2/K · G2/Q
+//     두 행(08:30 발사 켜진 서버만) · 86 G2 전용 문구(기존 문구 무변경) · 발사 저널 kind 17/18 profile 4 = G2 · expected_cum 83000000 ===
+//
+// Phase 49(2026-11-24, D-03 · D-18): 44 op 8 launch_profile = "G2" + launch_market "K"|"Q" + launch_offsets_us 길이 1
+// ([-3000, 20000]µs · 기준 08:30:00.000000) — 필드 · 테이블 · MsgType 무변경, 값만 추가. 94 LaunchPlanSnapshot.entries 는 앞 네 행
+// (Q16/K · Q16/Q · N/K · N/Q) 순서 · 내용 그대로 + [queued_order] g2_queue_enabled 가 켜진 서버만 말미 G2/K · G2/Q 두 행(새 벡터
+// 아님 — 읽는 쪽은 (profile, market) 로 찾는다). tail_probes 는 Q16 · N 두 행 그대로(op 10 은 G2 를 기존 문구로 거부).
+// 86 거부는 code 1 + G2 전용 문구 네 문장(스위치 꺼짐 · market 밖 · 길이 ≠ 1 · 범위 밖), 기존 Q16/N 문구는 한 글자도 바뀌지 않는다.
+// 발사 저널 kind 17/18 은 profile 정수 4 = G2 · expected_cum(fire_base) 83000000(08:30:00.000000). 94 는 Notice 그대로.
+// 서버 먼저 배포가 안전하다(구 relay 는 모르는 행을 warn 1줄 뒤 버린다). relay 먼저면 op 8 G2 → 구 서버가 기존 문구
+// 「발사 계획 대상 밖(profile Q16|N · market K|Q)」 로 86 code 1. 둘 다 안전하다 — 배포 순서 무관.
 // ============================================================================

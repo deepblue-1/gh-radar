@@ -52,8 +52,18 @@ nxtPreopenOpen():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+g2QueueOpen():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
+g3QueueOpen():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startQueuedWindowState(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(8);
 }
 
 static addOpen(builder:flatbuffers.Builder, open:boolean) {
@@ -80,12 +90,20 @@ static addNxtPreopenOpen(builder:flatbuffers.Builder, nxtPreopenOpen:boolean) {
   builder.addFieldInt8(5, +nxtPreopenOpen, +false);
 }
 
+static addG2QueueOpen(builder:flatbuffers.Builder, g2QueueOpen:boolean) {
+  builder.addFieldInt8(6, +g2QueueOpen, +false);
+}
+
+static addG3QueueOpen(builder:flatbuffers.Builder, g3QueueOpen:boolean) {
+  builder.addFieldInt8(7, +g3QueueOpen, +false);
+}
+
 static endQueuedWindowState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createQueuedWindowState(builder:flatbuffers.Builder, open:boolean, maxPieces:number, preopenOpen:boolean, g2Open:boolean, g3Open:boolean, nxtPreopenOpen:boolean):flatbuffers.Offset {
+static createQueuedWindowState(builder:flatbuffers.Builder, open:boolean, maxPieces:number, preopenOpen:boolean, g2Open:boolean, g3Open:boolean, nxtPreopenOpen:boolean, g2QueueOpen:boolean, g3QueueOpen:boolean):flatbuffers.Offset {
   QueuedWindowState.startQueuedWindowState(builder);
   QueuedWindowState.addOpen(builder, open);
   QueuedWindowState.addMaxPieces(builder, maxPieces);
@@ -93,6 +111,8 @@ static createQueuedWindowState(builder:flatbuffers.Builder, open:boolean, maxPie
   QueuedWindowState.addG2Open(builder, g2Open);
   QueuedWindowState.addG3Open(builder, g3Open);
   QueuedWindowState.addNxtPreopenOpen(builder, nxtPreopenOpen);
+  QueuedWindowState.addG2QueueOpen(builder, g2QueueOpen);
+  QueuedWindowState.addG3QueueOpen(builder, g3QueueOpen);
   return QueuedWindowState.endQueuedWindowState(builder);
 }
 }
