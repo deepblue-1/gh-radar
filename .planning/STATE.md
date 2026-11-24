@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 44
 status: completed
 stopped_at: Phase 44 complete — all phases complete
-last_updated: "2026-11-24T23:31:14.998Z"
+last_updated: "2026-11-24T23:38:25.949Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 44 complete
-state_head: 0aa799f451bb140158893d1c74c89ac6cd817317
+state_head: 1cde94efb78fec21dc02c91554a7ff97ef1ee31f
 progress:
   total_phases: 15
   completed_phases: 15
@@ -202,6 +202,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261121-n1b | trader 에게 어드민 매매손익 · 정산 메뉴만 여는 권한(app_users.admin_menus · 사용자 시트 스위치 · server/웹 관문 · millesjung 두 메뉴) | 2026-11-21 | 7b9e9550 | [261121-n1b-trader-admin-menu-grant](./quick/261121-n1b-trader-admin-menu-grant/) |
 | 99 | tick-convert promote Job 메모리 2Gi → 8Gi(cpu 2) — 11-23 삼성전자 NXT 해제 OOM | 2026-11-23 | 5d85f23a | — |
 | 100 | gh-trade 인계 261125-sigan-ttaeng-g2 — relay 생성물 재동기화 · DB 매핑 kind 17/18 profile 4 → G2(20261125090000 운영 적용) · 3b2b7555 | 2026-11-25 | 0aa799f4 | — |
+| 101 | 주문로그 조회 RPC 에 kind 17·18(발사 조각·머리) 제외 복원 — 11-09 핫픽스 22b1d41e 회귀 · 20261125100000 운영 적용 | 2026-11-25 | 1cde94ef | — |
 
 ## Session Continuity
 
