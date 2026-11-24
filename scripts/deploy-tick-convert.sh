@@ -308,10 +308,10 @@ if [[ -n "${TICKGW_URL:-}" ]]; then
   # 승격 Job — 같은 이미지 · args 오버라이드로 CMD 만 바꾼다(ENTRYPOINT [node, dist/index.js] 그대로 · tests/entry.test.ts)
   # GCS 볼륨 · TICK_ARCHIVE_DIR 없음(promote 는 원본 아카이브를 읽지 않는다 · config 가 promote 에선 요구하지 않는다)
   echo "▶ deploying Cloud Run Job: $PROMOTE_JOB (cpu=2, memory=8Gi, timeout=1800s, VPC $VPC_NAME private-ranges-only, args=promote)..."
-  # 8Gi — 키 하나의 원시를 프레임 해제분 + 이어붙인 사본 두 벌로 든다(decompressFrames). 11-23 삼성전자 NXT
-  # (export 48.5MB · 184만 건 · 원시 ≈1GB)가 2Gi 를 넘어 20:10 · 20:40 둘 다 OOM. 실측: 삼성 KRX 11-17(export 45MB · 201만 건 ·
-  # 원시 1055MB) 해제 → 격자 → 팀 값 최대 RSS 2.4GB. 사전 판정 상한(60MiB 압축 ≈ 원시 1.4GB)이면 ≈3.2GB — 8Gi 의 40%.
-  # 4Gi 초과는 cpu 2 가 필요하다(Cloud Run). 하루 2회 1분 남짓이라 비용 무시.
+  # 8Gi — 11-23 삼성전자 NXT(export 48.5MB · 184만 건 · 원시 ≈1GB)가 2Gi 를 넘어 20:10 · 20:40 둘 다 OOM 뒤 상향.
+  # 그때 해제는 원시를 두 벌 + 프레임 내부 사본으로 들었다(실측 삼성 KRX 11-17 원시 1055MB · 16MB 프레임 3개 → 최대 3.1GB).
+  # decompressFrames 를 두 번 흘려 한 버퍼에 쓰게 바꾼 뒤 같은 입력 최대 1.6GB(해제 → 격자 → 팀 값). 사전 판정 상한(60MiB 압축
+  # ≈ 원시 1.4GB)이어도 ≈2.1GB 라 8Gi 는 넉넉하다(줄이는 건 운영 실측 뒤 별건). 4Gi 초과는 cpu 2 가 필요하다(Cloud Run).
   gcloud run jobs deploy "$PROMOTE_JOB" \
     --image="$IMAGE" \
     --region="$REGION" \

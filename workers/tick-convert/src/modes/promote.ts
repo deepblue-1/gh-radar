@@ -9,7 +9,8 @@
  *      promoted 로 남아 `grid_ready` 로 요청 변환을 막는 일이 없다.
  *   (closed_through 뒤 레코드가 조금 더 있어도 된다 — 계약은 「그 시각까지는 빠짐없음」 이다.)
  *
- * 한 키: export/bytes(이어붙인 zstd 프레임) → `splitZstdFrames` 로 나눠 프레임마다 풀기(Node zstd 는 첫 프레임만 푼다 · 37-02)
+ * 한 키: export/bytes(이어붙인 zstd 프레임) → `splitZstdFrames` 로 나눠 프레임마다 풀기(Node zstd 는 첫 프레임만 푼다 · 37-02 ·
+ *   `decompressFrames` 는 두 번 흘려 미리 잡은 버퍼 하나에 쓴다 — 최대 메모리 ≈ 원시 1벌)
  *   → 레코드 수 · A3 · 첫/끝 recv · DayRateTracker(A3 ∧ G1) → 재확인 → `buildGridFile`(level TICK_ZSTD_LEVEL · 한 프레임)
  *   → 팀 값(team-day.ts gridTeamOf · quick 261103-j4d — 계산 실패는 그 행 팀 값만 null)
  *   → 업로드 `grid/<D>/<EX>/<isin>.promoted.ticks.zst` → `tick_grid_upsert('promoted', [row])`(sources ['promoted']).
@@ -33,7 +34,6 @@ import {
   A3_LAYOUT,
   DayRateTracker,
   TICK_FMT,
-  concatBytes,
   dayStartNs,
   decodeFields,
   iterRecords,
@@ -128,11 +128,39 @@ function toNum(v: unknown): number {
   return typeof v === "bigint" ? Number(v) : Number(v);
 }
 
-/** 이어붙인 zstd 프레임 전부를 푼다(프레임마다 · 37-02 함정). */
-export function decompressFrames(buf: Uint8Array): Uint8Array {
+/** 해제 스트림 출력 조각 크기 — 1GB 원시면 조각 약 1천 개(기본 16KB 면 6만 번 넘는 콜백). */
+const INFLATE_CHUNK = 1 << 20;
+
+/** 프레임 하나를 흘려 풀며 조각마다 `fn` 에 넘긴다 — 그 프레임 원시를 한 덩어리로 모으지 않는다. */
+async function eachInflatedChunk(frame: Uint8Array, fn: (chunk: Uint8Array) => void): Promise<void> {
+  const z = zlib.createZstdDecompress({ chunkSize: INFLATE_CHUNK });
+  z.end(frame);
+  for await (const c of z) fn(c as Buffer);
+}
+
+/**
+ * 이어붙인 zstd 프레임 전부를 푼다(프레임마다 · 37-02 함정) — 최대 메모리 ≈ 원시 1벌.
+ *
+ * 프레임별 `zstdDecompressSync` 결과를 모아 `concatBytes` 하던 방식은 원시를 두 벌(+ 해제 중인 프레임의 내부 사본) 들어
+ * 원시의 약 3배가 최대였다(11-23 삼성전자 NXT 원시 ≈1GB 가 2Gi 승격 Job 에서 OOM · 실측 삼성 KRX 1055MB → 3.1GB).
+ * 두 번 흘려 푼다 — 1차는 길이만 세고, 2차는 그 길이로 한 번 잡은 버퍼에 조각을 바로 쓴다. 출력 크기를 프레임 헤더
+ * (Frame_Content_Size)에 기대지 않는다(119 인덱서의 스트리밍 압축 출력엔 없을 수 있다). 해제 CPU 는 2배(1GB 에 1 ~ 2초).
+ */
+export async function decompressFrames(buf: Uint8Array): Promise<Uint8Array> {
   const frames = splitZstdFrames(buf);
-  if (frames.length === 1) return new Uint8Array(zlib.zstdDecompressSync(frames[0]!));
-  return concatBytes(frames.map((f) => new Uint8Array(zlib.zstdDecompressSync(f))));
+  let total = 0;
+  for (const f of frames) await eachInflatedChunk(f, (c) => (total += c.length));
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const f of frames) {
+    await eachInflatedChunk(f, (c) => {
+      if (off + c.length > total) throw new Error(`zstd: 2차 해제가 1차 길이 ${total}B 를 넘었다`);
+      out.set(c, off);
+      off += c.length;
+    });
+  }
+  if (off !== total) throw new Error(`zstd: 2차 해제 ${off}B ≠ 1차 ${total}B`);
+  return out;
 }
 
 type Scanned = {
@@ -193,7 +221,7 @@ async function promoteKey(
 
   const buf = await client.bytes(date, key.isin, key.ex);
   out.bytesRead = buf.length;
-  const raw = decompressFrames(buf);
+  const raw = await decompressFrames(buf);
   const s = scanRecords(raw, key.ex);
 
   // 완결 재확인 2 — 그날 08:00 부터 · export 가 말한 레코드 수 그대로 · 잘린 꼬리 없음

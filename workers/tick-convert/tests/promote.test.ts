@@ -94,13 +94,43 @@ describe("경계 리터럴 — tickgw kstDayStartNs(37-09)와 같은 값", () =>
 });
 
 describe("다중 프레임 해제", () => {
-  it("이어붙인 두 프레임을 모두 푼다 — Node zstdDecompressSync 한 번은 첫 프레임만 준다(37-02 함정)", () => {
+  it("이어붙인 두 프레임을 모두 푼다 — Node zstdDecompressSync 한 번은 첫 프레임만 준다(37-02 함정)", async () => {
     const k = keyOf(A, "KRX");
     const served = servedOf(k);
     expect(splitZstdFrames(served).length).toBe(2);
     expect(new Uint8Array(zlib.zstdDecompressSync(served)).length).toBeLessThan(rawOf(k).length);
-    expect(decompressFrames(served)).toEqual(rawOf(k));
-    expect([...iterRecords(decompressFrames(served))].length).toBe(6);
+    expect(await decompressFrames(served)).toEqual(rawOf(k));
+    expect([...iterRecords(await decompressFrames(served))].length).toBe(6);
+  });
+
+  it("해제 조각(1MB)보다 큰 프레임 · 크기 헤더 없는 스트리밍 압축 프레임 · 스킵 가능 프레임을 섞어도 원시 그대로(정확한 길이 한 버퍼)", async () => {
+    const big = new Uint8Array(3 * 1024 * 1024 + 123).map((_, i) => (i * 31 + (i >> 9)) & 0xff); // 해제 조각 4개에 걸친다
+    const small = new TextEncoder().encode("tail-frame");
+    // createZstdCompress 스트림 출력 — 압축기가 입력 길이를 미리 모르면 Frame_Content_Size 를 쓰지 않는다(119 인덱서 모양)
+    const streamed = await new Promise<Uint8Array>((resolve, reject) => {
+      const parts: Buffer[] = [];
+      const z = zlib.createZstdCompress();
+      z.on("data", (c: Buffer) => parts.push(c)).on("end", () => resolve(new Uint8Array(Buffer.concat(parts)))).on("error", reject);
+      for (let i = 0; i < big.length; i += 256 * 1024) z.write(big.subarray(i, i + 256 * 1024));
+      z.end();
+    });
+    const skippable = new Uint8Array([0x50, 0x2a, 0x4d, 0x18, 3, 0, 0, 0, 9, 9, 9]);
+    const buf = new Uint8Array(Buffer.concat([streamed, skippable, zlib.zstdCompressSync(small)]));
+    const frames = splitZstdFrames(buf);
+    expect(frames.length).toBe(3); // Node 스트림은 끝에 빈 프레임 하나를 더 쓴다 — 빈 프레임도 그대로 지나가야 한다
+    expect(frames[0]![4]! >> 6).toBe(0); // Frame_Content_Size 플래그 0
+    expect((frames[0]![4]! >> 5) & 1).toBe(0); // single-segment 아님 → 크기 헤더 없음
+    const out = await decompressFrames(buf);
+    expect(out.length).toBe(big.length + small.length);
+    expect(out.buffer.byteLength).toBe(out.length); // 남는 용량 없이 원시 1벌
+    expect(Buffer.from(out.subarray(0, big.length)).equals(Buffer.from(big))).toBe(true);
+    expect(Buffer.from(out.subarray(big.length)).toString()).toBe("tail-frame");
+  });
+
+  it("깨진 프레임이면 거부한다(그 키만 failed 로 셀 수 있게 throw)", async () => {
+    const f = new Uint8Array(zlib.zstdCompressSync(Buffer.alloc(200_000, 7).map((_, i) => i & 0xff)));
+    f[f.length - 5]! ^= 0xff;
+    await expect(decompressFrames(f)).rejects.toThrow();
   });
 });
 

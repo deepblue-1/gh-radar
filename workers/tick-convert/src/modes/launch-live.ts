@@ -245,7 +245,7 @@ export async function runLaunchLive(deps: LaunchLiveDeps, args: LaunchLiveArgs):
         }
         let buf: Uint8Array;
         try {
-          buf = decompressFrames(r.raw);
+          buf = await decompressFrames(r.raw);
         } catch (err) {
           out.failed += 1;
           logger.error({ ...log, bytes: r.bytes, err }, "tick-convert launch-live: 해제 실패");
