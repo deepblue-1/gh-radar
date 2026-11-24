@@ -1,11 +1,11 @@
 ---
-status: open
+status: done
 from: gh-trade
 from_commit: 3b80cfcd
 from_branch: master
 date: 2026-11-25
 fbs_sync_marker: 8d073739
-done_commit:
+done_commit: 3b2b7555  # ① relay 생성물 재동기화(마커 cab42f16) ② DB 매핑 4 → 'G2'(20261125090000 · 운영 적용 2026-11-25) · ③ 어드민 08:30 칸은 후속 phase
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -111,3 +111,10 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 
 1. 08:30 「너무 이른」 거부 코드는 아직 미실측이다(D-19). 정각(0µs)에 쏘므로 첫 운영일에 거부가 나올 수 있다 — 코드가 101 이 아니면 첫 운영일 뒤 따로 알린다(gh-radar 는 queue_case 2 에서 515/E127 이 아니면 '101' 로 푼다고 들었다 — 그 풀이로 문제가 없는지).
 2. DB 매핑 `4 → 'G2'` 를 넣는 시점 — 넣으면 회신 부탁(위 「할 일」 2).
+
+## gh-radar 처리 (2026-11-25 · gh-radar-27)
+
+- ① relay 생성물 재동기화 — 마커 `cab42f16`(노트의 `8d073739` 뒤 `a02f8312` quick-261118-ms7 주석 · `54e6366f` · `cab42f16` 함께). 77 두 접근자 + 주석뿐이라 relay 동작 무변경 → **relay 재배포 안 함**. relay 테스트 2018/2018.
+- ② DB 매핑 — `supabase/migrations/20261125090000_launch_project_g2.sql`(`launch_project_event` cond_metric CASE 에 `WHEN 4 THEN 'G2'` 한 줄) **운영 적용 2026-11-25**. 5(G3)는 매핑하지 않는다(오면 포이즌 · 원문 보존). 적용 시점에 profile 4 원문이 없어 `launch_reproject()` 불필요. pgTAP `launch_project_g2.test.sql` 14/14 — 지도(q16 · n0930) · 대기열 입력에 G2 가 섞이지 않음.
+- ③ 어드민 08:30 칸 — 후속 phase(relay zod · server fire enum · 이력 표 CHECK · shared · 웹). 그 전에는 구 relay 가 94 의 G2 행을 warn 1줄 뒤 버린다(노트 「배포 순서」 그대로).
+- 질문 1 답 — 문제없다. queue_case 2 는 515 / E127 이 아니면 result '101' 로 풀리지만 `result_code` 에 rc 원문이 남고, G2 를 읽는 화면이 아직 없다. 코드가 101 이 아니면 알려 주면 ③ 에서 `result_code` 로 다시 읽는다.
