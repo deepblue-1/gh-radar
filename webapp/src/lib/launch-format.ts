@@ -13,6 +13,7 @@
  */
 
 import {
+  LAUNCH_FIRE_KEYS,
   LAUNCH_ORDER,
   LAUNCH_SERVERS,
   brokerOfServerKey,
@@ -22,6 +23,7 @@ import {
   isLaunchTailProbe,
   launchDaysOf,
   launchOpenArbPnlOf,
+  launchPlanProfileOf,
   launchServerLabelOf,
   type LaunchFire,
   type LaunchHeadRow,
@@ -78,7 +80,7 @@ const cell = (v: string | number | null | undefined): string =>
   v === null || v === undefined || v === '' ? DASH : String(v);
 
 /**
- * 키 열 — Q16 「Q153015001 · j0 · R0」 · 그 밖 「N · idx1」. null 칸은 「—」.
+ * 키 열 — Q16 · G2(예약 · quick-261125-c2i) 「Q153015001 · j0 · R0」 · 그 밖 「N · idx1」. null 칸은 「—」.
  * 16:00 뒤탐침(probe true · round −2)은 「Q153015001 · 뒤탐침 2」(piece_idx + 1 · null 이면 번호 없음 · quick-261030-dz7).
  */
 export function pieceKeyLabelOf(
@@ -87,7 +89,7 @@ export function pieceKeyLabelOf(
   if (isLaunchTailProbe(p)) {
     return p.piece_idx === null ? `${cell(p.queued_id)} · 뒤탐침` : `${cell(p.queued_id)} · 뒤탐침 ${p.piece_idx + 1}`;
   }
-  if (p.profile === 'Q16') return `${cell(p.queued_id)} · j${cell(p.piece_idx)} · R${cell(p.round)}`;
+  if (p.profile === 'Q16' || p.profile === 'G2') return `${cell(p.queued_id)} · j${cell(p.piece_idx)} · R${cell(p.round)}`;
   return `${cell(p.queued_id)} · idx${cell(p.piece_idx)}`;
 }
 
@@ -113,16 +115,24 @@ export function serverMarketLabelOf(gateway: string, market: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 탭 조각 — 발사 세그먼트(16:00 예약 · 09:00:30 개장차익)
+// 탭 조각 — 발사 세그먼트(16:00 예약 · 09:00:30 개장차익 · 08:30 시간외종가)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 행이 그 세그먼트에 속하는가 — q16 = Q16 · KRX 16:00:00 / n0930 = N · A 의 KRX 매수 회차(본회차 09:00:27 · 재확인
- * 09:00:29 등 — 실제 fire_base) · NXT 09:00:30 전부. 기준시각 판정은 shared `isLaunchFireBaseOf`.
+ * 행이 그 세그먼트에 속하는가 — q16 = Q16 · KRX 16:00:00 / g0830 = G2 · KRX 08:30:00(quick-261125-c2i) /
+ * n0930 = N · A 의 KRX 매수 회차(본회차 09:00:27 · 재확인 09:00:29 등 — 실제 fire_base) · NXT 09:00:30 전부.
+ * 기준시각 판정은 shared `isLaunchFireBaseOf`. 세 갈래를 명시한다(새 세그먼트가 조용히 N · A 로 가지 않게).
  */
 export function isOrderTabRow(row: FireKey, fire: LaunchFire): boolean {
   if (!isLaunchFireBaseOf(row.profile, row.fire_exchange, row.fire_base)) return false;
-  return fire === 'q16' ? row.profile === 'Q16' : row.profile === 'N' || row.profile === 'A';
+  switch (fire) {
+    case 'q16':
+      return row.profile === 'Q16';
+    case 'g0830':
+      return row.profile === 'G2';
+    case 'n0930':
+      return row.profile === 'N' || row.profile === 'A';
+  }
 }
 
 function orderIndexOf(gateway: string, market: string): number {
@@ -178,8 +188,9 @@ interface LaunchHeadCardBase {
   offset: string;
 }
 
+/** 예약 발사 카드 — 16:00 Q16 · 08:30 G2(quick-261125-c2i · 같은 꼴 — 경계 · 학습 줄 · 이른 거부 「101」). */
 export interface LaunchHeadCardQ16 extends LaunchHeadCardBase {
-  fire: 'q16';
+  fire: 'q16' | 'g0830';
   /** 「lo ~ hi」 · 「전부 접수 (첫 접수 hiµs)」 · 「전부 101 (마지막 loµs)」 · 「판단 불가」 */
   gate: string;
   /**
@@ -302,7 +313,9 @@ export function launchHeadCardOf(input: LaunchHeadCardInput): LaunchHeadCardMode
     };
   }
 
-  const head = heads.find((h) => h.profile === 'Q16');
+  // 예약 발사(q16 · g0830) — 머리 profile 은 세그먼트의 계획 프로파일(Q16 · G2). G2 이른 거부는 DB 투영이 「101」 로 푼다.
+  const profile = launchPlanProfileOf(fire);
+  const head = heads.find((h) => h.profile === profile);
   let gate: string;
   if (head !== undefined && (head.gate_lo_us !== null || head.gate_hi_us !== null)) {
     gate = gateText(head.gate_lo_us, head.gate_hi_us);
@@ -331,9 +344,9 @@ export function launchTabOf(raw: string | null | undefined): LaunchTab | null {
   return raw === 'orders' || raw === 'map' ? raw : null;
 }
 
-/** `?fire=` 원문 → 'q16' | 'n0930' (그 밖 null). */
+/** `?fire=` 원문 → shared `LAUNCH_FIRE_KEYS`(q16 · n0930 · g0830) 정확 일치 · 그 밖 null. */
 export function launchFireParamOf(raw: string | null | undefined): LaunchFire | null {
-  return raw === 'q16' || raw === 'n0930' ? raw : null;
+  return (LAUNCH_FIRE_KEYS as readonly string[]).includes(raw ?? '') ? (raw as LaunchFire) : null;
 }
 
 /**

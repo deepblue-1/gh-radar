@@ -285,9 +285,10 @@ describe('LaunchOrdersView — 빈 상태 · 오류', () => {
   it('세그먼트 글자는 짧게 「16:00」 · 「09:00:30」 · title · aria-label 은 전체 이름', () => {
     const { container } = view();
     const btns = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="launch-fire-seg"] button'));
-    expect(btns.map((b) => b.textContent)).toEqual(['16:00', '09:00:30']);
-    expect(btns.map((b) => b.getAttribute('title'))).toEqual(['16:00 예약', '09:00:30 개장차익']);
-    expect(btns.map((b) => b.getAttribute('aria-label'))).toEqual(['16:00 예약', '09:00:30 개장차익']);
+    // quick-261125-c2i — 끝에 08:30(G2) 칸이 붙는다(앞 두 칸은 그대로).
+    expect(btns.map((b) => b.textContent)).toEqual(['16:00', '09:00:30', '08:30']);
+    expect(btns.map((b) => b.getAttribute('title'))).toEqual(['16:00 예약', '09:00:30 개장차익', '08:30 시간외종가']);
+    expect(btns.map((b) => b.getAttribute('aria-label'))).toEqual(['16:00 예약', '09:00:30 개장차익', '08:30 시간외종가']);
   });
 
   it('세그먼트 → onFire', () => {
@@ -535,5 +536,50 @@ describe('LaunchOrdersView — 09:00:30 개장차익 손익(quick-261112-tlw)', 
     expect(container.querySelectorAll('[data-slot="launch-sub"]')).toHaveLength(0);
     expect(container.querySelectorAll('[data-pnl-only]')).toHaveLength(0);
     for (const c of cardsOf(container)) expect(c).not.toHaveTextContent('손익');
+  });
+});
+
+describe('LaunchOrdersView — 08:30 시간외종가(quick-261125-c2i)', () => {
+  const G2 = { profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:00' } as const;
+  const resp: LaunchOrdersResponse = {
+    ...RESP,
+    heads: [
+      ...RESP.heads,
+      head({ gateway: 'KB120', market: 'K', ...G2, offset_used_us: 12000, gate_lo_us: 11000, gate_hi_us: 12000, next_offset_us: 12000 }),
+    ],
+    pieces: [
+      ...RESP.pieces,
+      piece({ gateway: 'KB120', market: 'K', ...G2, wire: 0, queued_id: 'Q083000001', piece_idx: 0, round: 0, sent_rel_us: 12000, result: '접수', accept_time: 83000004 }),
+      piece({ gateway: 'KB120', market: 'K', ...G2, wire: 1, queued_id: 'Q083000002', piece_idx: 0, round: 0, sent_rel_us: 11000, result: '101' }),
+    ],
+  };
+
+  it('세그먼트 08:30 버튼 — data-fire g0830 · 글자 08:30 · aria-label 08:30 시간외종가 · 클릭 → onFire("g0830") · 기존 두 칸 순서 유지', () => {
+    const { container, props } = view({ resp });
+    const btns = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-slot="launch-fire-seg"] button'));
+    expect(btns.map((b) => b.dataset.fire)).toEqual(['q16', 'n0930', 'g0830']);
+    const g = btns[2]!;
+    expect(g.textContent).toBe('08:30');
+    expect(g.getAttribute('aria-label')).toBe('08:30 시간외종가');
+    fireEvent.click(g);
+    expect(props.onFire).toHaveBeenCalledWith('g0830');
+  });
+
+  it('g0830 → G2 조각만 표에 · 예약 꼴 열 머리 · 카드 작은 글자 G2 · 경계 · 학습 줄', () => {
+    const { container } = view({ resp, fire: 'g0830' });
+    const table = groupOf(container, 'KB120', 'K');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Q083000001 · j0 · R0');
+    expect(rows[0]).toHaveTextContent('08:30:00.004');
+    expect(within(table).getByRole('columnheader', { name: '예약 · 조각 · 라운드' })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: '접수 시각' })).toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: '발사' })).toBeNull();
+    expect(groupOf(container, 'KB120', 'Q')).toBeNull();
+    const card = cardsOf(container).find((c) => c.dataset.market === 'K')!;
+    expect(card).toHaveTextContent('2조각 · G2');
+    expect(card).toHaveTextContent('경계+11,000 ~ +12,000');
+    expect(card).toHaveTextContent('다음 발사 계획 첫 조각+12,000µs');
+    expect(card).toHaveTextContent('접수 1101 1');
   });
 });

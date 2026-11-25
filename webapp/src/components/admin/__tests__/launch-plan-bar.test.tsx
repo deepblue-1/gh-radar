@@ -153,3 +153,44 @@ describe('LaunchPlanBar — 뒤탐침 꼬리(quick-261107-l7w)', () => {
     expect(qa('[data-slot="launch-plan-tail"]')).toHaveLength(0);
   });
 });
+
+describe('LaunchPlanBar — 08:30 「이 서버는 08:30 발사를 모름」(quick-261125-c2i)', () => {
+  it('source unsupported → 경고 줄 · 「계획 고치기」 비활성 · title 같은 문구 · 「서버 연결 안 됨」 없음 · 편집 칸 안 열림', () => {
+    let toggled = 0;
+    render(
+      <LaunchPlanBar
+        fire="g0830"
+        plan={plan({ source: 'unsupported', entry: null, lines: [], fallbackUs: 9000 })}
+        editing
+        onToggle={() => {
+          toggled++;
+        }}
+      >
+        <div data-slot="editor-child" />
+      </LaunchPlanBar>,
+    );
+    const line = q('[data-slot="launch-plan-line"]')!;
+    expect(line.textContent).toBe('이 서버는 08:30 발사를 모름');
+    expect(line.dataset.tone).toBe('warn');
+    expect(q('[data-slot="launch-plan-bar"]')!.textContent).not.toContain('서버 연결 안 됨');
+    const btn = q('[data-slot="launch-plan-edit-toggle"]') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('title')).toBe('이 서버는 08:30 발사를 모름');
+    expect(btn.textContent).toBe('계획 고치기');
+    fireEvent.click(btn);
+    expect(toggled).toBe(0);
+    expect(q('[data-slot="editor-child"]')).toBeNull();
+  });
+
+  it('g0830 server → 한 값 줄 「+12,000µs」 · 고치기 켜짐', () => {
+    render(
+      <LaunchPlanBar
+        fire="g0830"
+        plan={plan({ entry: { profile: 'G2', market: 'K', offsets_us: [12000] }, lines: [12000] })}
+        onToggle={() => {}}
+      />,
+    );
+    expect(q('[data-slot="launch-plan-line"]')!.textContent).toBe('+12,000µs');
+    expect((q('[data-slot="launch-plan-edit-toggle"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+});

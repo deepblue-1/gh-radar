@@ -135,7 +135,12 @@ export interface LaunchOrdersViewProps {
 const FIRE_SEGMENTS: readonly { value: LaunchFire; label: string; full: string }[] = [
   { value: 'q16', label: '16:00', full: '16:00 예약' },
   { value: 'n0930', label: '09:00:30', full: '09:00:30 개장차익' },
+  // quick-261125-c2i — 08:30 G2(장개시전 시간외종가 예약). 기존 두 칸 순서 유지 · 끝에 더한다.
+  { value: 'g0830', label: '08:30', full: '08:30 시간외종가' },
 ];
+
+/** 카드 작은 글자 — 세그먼트별 발사 프로파일 표기. */
+const CARD_PROFILE_LABEL: Record<LaunchFire, string> = { q16: 'Q16', n0930: 'N·A', g0830: 'G2' };
 
 export function LaunchOrdersView({
   resp,
@@ -349,7 +354,7 @@ export function LaunchHeadCard({ gateway, market, model, pnl }: LaunchHeadCardPr
       <div className="flex items-baseline gap-2 text-[14px] font-bold text-[var(--fg)]">
         {model.title}
         <small className="text-[12px] font-medium text-[var(--muted-fg)]">
-          {model.count}조각 · {model.fire === 'q16' ? 'Q16' : 'N·A'}
+          {model.count}조각 · {CARD_PROFILE_LABEL[model.fire]}
           {model.probes > 0 && <span data-slot="launch-card-probes">{` · 탐침 ${model.probes}`}</span>}
         </small>
       </div>
@@ -357,16 +362,17 @@ export function LaunchHeadCard({ gateway, market, model, pnl }: LaunchHeadCardPr
         <Counts counts={model.counts} badLabel={model.badLabel} />
       </CardRow>
       <CardRow label="오프셋 (발사 기준)">{model.offset}</CardRow>
-      {model.fire === 'q16' ? (
-        <>
-          <CardRow label="경계">{model.gate}</CardRow>
-          <CardRow label={model.learnLabel}>{model.learn}</CardRow>
-        </>
-      ) : (
+      {model.fire === 'n0930' ? (
         <>
           <CardRow label="재전송">{model.retries}회</CardRow>
           <CardRow label="다음 오프셋">{model.next}</CardRow>
           {pnl !== undefined && <CardPnlRow rows={pnl} />}
+        </>
+      ) : (
+        // 예약 발사(16:00 Q16 · 08:30 G2) — 경계 · 학습 줄.
+        <>
+          <CardRow label="경계">{model.gate}</CardRow>
+          <CardRow label={model.learnLabel}>{model.learn}</CardRow>
         </>
       )}
     </div>
@@ -467,7 +473,8 @@ function ResultPill({ result }: { result: string }) {
 }
 
 function PiecesTable({ pieces, fire }: { pieces: readonly LaunchPieceRow[]; fire: LaunchFire }) {
-  const q16 = fire === 'q16';
+  // 예약 꼴(16:00 Q16 · 08:30 G2) — 09:00:30 개장차익이 아니면 「예약 · 조각 · 라운드」 · 「접수 시각」 열.
+  const q16 = fire !== 'n0930';
   return (
     <table className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap">
       <thead>

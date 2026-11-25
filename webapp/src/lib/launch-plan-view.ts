@@ -13,11 +13,16 @@
  *
  * 대신 값 = 최신 머리 `next_offset_us`(`mapNextOffsetOf`) 하나뿐이다 — 머리에 조각 목록이 없어 Q16 도 첫 조각 1개.
  * 계획 줄 · 점선 값을 상수로 박지 않는다(서버 계획 또는 머리 값에서만 온다).
+ *
+ * 08:30 G2(quick-261125-c2i) — 서버가 ok 인데 94 에 (G2, 시장) 행이 없으면 「이 서버는 08:30 발사를 모름」(`unsupported`) —
+ * 08:30 스위치를 켠 서버만 G2 행을 보낸다(인박스 261125-sigan-ttaeng-g2 ⓑ). 대신 값 경로로 빠지지 않는다.
  */
 
 import {
   launchPlanEntryOf,
+  launchPlanEntryStateOf,
   launchPlanProfileOf,
+  launchTailProbeProfileOf,
   validateLaunchPlanDraft,
   validateLaunchTailProbeDraft,
   type AdminServerResult,
@@ -31,6 +36,7 @@ import {
   type LaunchRibbonCell,
   type LaunchTailProbe,
   type LaunchTailProbeChangeRow,
+  type LaunchTailProbeFire,
   type LaunchTailProbeSaveResponse,
   type LaunchTailProbeValue,
 } from '@gh-radar/shared';
@@ -45,9 +51,16 @@ export type LaunchPlanState =
   | { kind: 'error' }
   | { kind: 'ready'; resp: LaunchPlanResponse };
 
+/** 「이 서버는 08:30 발사를 모름」 — 인박스 261125-sigan-ttaeng-g2 ⓑ 문구 그대로(바꾸지 않는다). */
+export const LAUNCH_PLAN_G2_UNKNOWN = '이 서버는 08:30 발사를 모름';
+
 /** 패널 하나의 계획 모델 — `lines` 가 지도 점선(µs · 0번 = 첫 조각)이다. */
 export interface PanelPlan {
-  source: 'server' | 'fallback' | 'loading' | 'absent';
+  /**
+   * `unsupported` = g0830 전용 — 서버 ok 인데 94 에 (G2, 시장) 행 없음(08:30 스위치 꺼짐 · 구 서버) · 점선 없음 · 대신 값 없음 ·
+   * 편집 비활성(quick-261125-c2i L-3).
+   */
+  source: 'server' | 'fallback' | 'loading' | 'absent' | 'unsupported';
   /** 점선으로 그릴 값 — server = 계획 조각 전부 · 그 밖 = 대신 값 1개(없으면 빈 배열). */
   lines: number[];
   /** 서버 계획 칸(source server 일 때만). */
@@ -83,18 +96,21 @@ export function panelPlanOf(
     .filter((c) => c.gateway === gateway && c.fire === fire && c.market === market)
     .sort(byAtDesc);
   const lastChange = changes.find((c) => c.outcome === 'ok') ?? null;
-  const entry = launchPlanEntryOf(state.resp.servers[gateway], fire, market as LaunchMarket);
+  const st = launchPlanEntryStateOf(state.resp.servers[gateway], fire, market as LaunchMarket);
 
-  if (entry !== null) {
-    return { source: 'server', lines: [...entry.offsets_us], entry, fallbackUs, lastChange, changes };
+  if (st.kind === 'set') {
+    return { source: 'server', lines: [...st.entry.offsets_us], entry: st.entry, fallbackUs, lastChange, changes };
+  }
+  if (st.kind === 'missing' && fire === 'g0830') {
+    return { source: 'unsupported', lines: [], entry: null, fallbackUs, lastChange, changes };
   }
   return { source: 'fallback', lines: fallbackLines, entry: null, fallbackUs, lastChange, changes };
 }
 
-/** 계획 줄 값 — q16 「3조각 −350 · −345 · −325µs」 · n0930 「−245µs」. */
+/** 계획 줄 값 — q16 「3조각 −350 · −345 · −325µs」 · n0930 · g0830(한 값) 「−245µs」. */
 export function planLineText(entry: Pick<LaunchPlanEntry, 'offsets_us'>, fire: LaunchFire): string {
   const xs = entry.offsets_us;
-  if (fire === 'n0930') return `${fmtUs(xs[0])}µs`;
+  if (fire !== 'q16') return `${fmtUs(xs[0])}µs`;
   return `${xs.length}조각 ${xs.map((v) => fmtUs(v)).join(' · ')}µs`;
 }
 
@@ -392,7 +408,7 @@ export interface SaveResultView {
   line: { tone: SaveTone; text: string };
 }
 
-const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30' };
+const FIRE_CLOCK: Record<LaunchFire, string> = { q16: '16:00', n0930: '09:00:30', g0830: '08:30' };
 
 /**
  * timeout 결과 줄 꼬리 — 다시 읽기 결과별(35 R3-WR-01). 못 읽었거나(failed) 더 새 저장에 밀렸으면(superseded) 지금 보이는
@@ -528,8 +544,12 @@ export function tailProbeValueText(v: LaunchTailProbeValue | null): string {
 const tpByAtDesc = (a: LaunchTailProbeChangeRow, b: LaunchTailProbeChangeRow): number =>
   a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id;
 
-/** 이 (서버, 발사)의 뒤탐침 이력 — at 내림차순. ready 가 아니거나 구 server(키 없음)면 []. */
-export function tailProbeChangesOf(state: LaunchPlanState, gateway: string, fire: LaunchFire): LaunchTailProbeChangeRow[] {
+/** 이 (서버, 발사)의 뒤탐침 이력 — at 내림차순. ready 가 아니거나 구 server(키 없음)면 []. g0830 은 뒤탐침이 없다(타입으로 막는다). */
+export function tailProbeChangesOf(
+  state: LaunchPlanState,
+  gateway: string,
+  fire: LaunchTailProbeFire,
+): LaunchTailProbeChangeRow[] {
   if (state.kind !== 'ready') return [];
   return (state.resp.tail_probe_changes ?? []).filter((c) => c.gateway === gateway && c.fire === fire).sort(tpByAtDesc);
 }
@@ -547,7 +567,7 @@ export function tailProbeChangesOf(state: LaunchPlanState, gateway: string, fire
  */
 export interface LaunchTailProbeEdit {
   gateway: string;
-  fire: LaunchFire;
+  fire: LaunchTailProbeFire;
   base: LaunchTailProbeValue;
   count: number;
   stepRaw: string;
@@ -556,7 +576,7 @@ export interface LaunchTailProbeEdit {
 }
 
 /** 「뒤탐침 고치기」 — 서버 값으로 칸을 채운다. */
-export function tailProbeEditOf(gateway: string, fire: LaunchFire, base: LaunchTailProbeValue): LaunchTailProbeEdit {
+export function tailProbeEditOf(gateway: string, fire: LaunchTailProbeFire, base: LaunchTailProbeValue): LaunchTailProbeEdit {
   return {
     gateway,
     fire,
@@ -604,13 +624,13 @@ export function tailProbeStateWithSave(
 export function tailProbeStateWithSent(
   state: LaunchPlanState,
   gateway: string,
-  fire: LaunchFire,
+  fire: LaunchTailProbeFire,
   value: LaunchTailProbeValue,
 ): LaunchPlanState {
   if (state.kind !== 'ready') return state;
   const server = state.resp.servers[gateway];
   if (server === undefined || server.status !== 'ok') return state;
-  const profile = launchPlanProfileOf(fire);
+  const profile = launchTailProbeProfileOf(fire);
   const row: LaunchTailProbe = { profile, count: value.count, step_us: value.step_us };
   const rows = server.tail_probes ?? [];
   const tail_probes = rows.some((t) => t.profile === profile)
@@ -631,7 +651,7 @@ export function maxTailProbeChangeIdOf(state: LaunchPlanState): number {
  */
 export function tailProbeSaveRowSeenIn(
   rows: readonly LaunchTailProbeChangeRow[],
-  save: { gateway: string; fire: LaunchFire; value: LaunchTailProbeValue; afterId: number },
+  save: { gateway: string; fire: LaunchTailProbeFire; value: LaunchTailProbeValue; afterId: number },
 ): boolean {
   return rows.some(
     (c) =>

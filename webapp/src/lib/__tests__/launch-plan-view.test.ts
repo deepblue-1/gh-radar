@@ -9,6 +9,7 @@ import type {
 } from '@gh-radar/shared';
 
 import {
+  LAUNCH_PLAN_G2_UNKNOWN,
   LAUNCH_PLAN_HISTORY_MAX,
   LAUNCH_PLAN_UNKNOWN_OP_MESSAGE,
   changeOutcomeView,
@@ -22,6 +23,7 @@ import {
   planLineText,
   planNeedsReload,
   planRereadOf,
+  planSaveMarketsOf,
   planStateWithReload,
   planStateWithSave,
   planStateWithSentEntry,
@@ -618,5 +620,86 @@ describe('tailProbePlanSuffixText(quick-261107-l7w)', () => {
     expect(tailProbePlanSuffixText({ count: 5, step_us: 10 })).toBe('+ 뒤탐침 5발 · 10µs');
     expect(tailProbePlanSuffixText({ count: 0, step_us: 10 })).toBe('· 뒤탐침 꺼짐');
     expect(tailProbePlanSuffixText({ count: 10, step_us: 100 })).toBe('+ 뒤탐침 10발 · 100µs');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2 계획 칸 · 「이 서버는 08:30 발사를 모름」
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('08:30 G2 계획(quick-261125-c2i)', () => {
+  const FOUR: LaunchPlanServer = {
+    status: 'ok',
+    plan_rev: 1,
+    updated_at: null,
+    entries: [
+      { profile: 'Q16', market: 'K', offsets_us: [-200, -190, -170] },
+      { profile: 'Q16', market: 'Q', offsets_us: [-200, -190, -170] },
+      { profile: 'N', market: 'K', offsets_us: [-245] },
+      { profile: 'N', market: 'Q', offsets_us: [-245] },
+    ],
+  };
+  // 인박스 261125-sigan-ttaeng-g2 ⓑ 켬 예시 — 말미 G2/K [12000] · G2/Q [0].
+  const SIX: LaunchPlanServer = {
+    ...FOUR,
+    entries: [
+      ...(FOUR.status === 'ok' ? FOUR.entries : []),
+      { profile: 'G2', market: 'K', offsets_us: [12000] },
+      { profile: 'G2', market: 'Q', offsets_us: [0] },
+    ],
+  };
+  const G2_HEADS: LaunchHeadRow[] = [
+    { ...head('KB120', 'K', 9000), profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:00' },
+  ];
+
+  it('문구 = 인박스 ⓑ 그대로', () => {
+    expect(LAUNCH_PLAN_G2_UNKNOWN).toBe('이 서버는 08:30 발사를 모름');
+  });
+
+  it('서버 ok 4행(G2 행 없음) → unsupported · lines [] · entry null(대신 값으로 빠지지 않는다)', () => {
+    const p = panelPlanOf(ready({ KB120: FOUR }), G2_HEADS, 'KB120', 'K', 'g0830');
+    expect(p).toMatchObject({ source: 'unsupported', lines: [], entry: null });
+  });
+
+  it('서버 ok 6행 → server · lines [12000]', () => {
+    const p = panelPlanOf(ready({ KB120: SIX }), G2_HEADS, 'KB120', 'K', 'g0830');
+    expect(p).toMatchObject({ source: 'server', lines: [12000], entry: { profile: 'G2', market: 'K', offsets_us: [12000] } });
+  });
+
+  it('서버 offline · 조회 실패 → fallback(종전 · G2 머리 대신 값)', () => {
+    expect(panelPlanOf(ready({ KB120: { status: 'offline' } }), G2_HEADS, 'KB120', 'K', 'g0830')).toMatchObject({
+      source: 'fallback',
+      lines: [9000],
+    });
+    expect(panelPlanOf({ kind: 'error' }, G2_HEADS, 'KB120', 'K', 'g0830').source).toBe('fallback');
+  });
+
+  it('q16 · n0930 은 ok 인데 칸이 없어도 여전히 fallback', () => {
+    const empty: LaunchPlanServer = { ...FOUR, entries: [] };
+    expect(panelPlanOf(ready({ KB120: empty }), HEADS, 'KB120', 'Q', 'q16').source).toBe('fallback');
+    expect(panelPlanOf(ready({ KB120: empty }), HEADS, 'KB120', 'Q', 'n0930').source).toBe('fallback');
+  });
+
+  it('planLineText(g0830) — 한 값(조각 수 접두 없음)', () => {
+    expect(planLineText({ offsets_us: [12000] }, 'g0830')).toBe('+12,000µs');
+    expect(planLineText({ offsets_us: [-2500] }, 'g0830')).toBe(`${M}2,500µs`);
+  });
+
+  it('planSaveMarketsOf — G2 는 그 패널 시장 하나(교보도 K 를 같이 보내지 않는다 · 인박스 ⓐ)', () => {
+    expect(planSaveMarketsOf('KYOBO119', 'g0830', 'Q')).toEqual(['Q']);
+    expect(planSaveMarketsOf('KB120', 'g0830', 'K')).toEqual(['K']);
+    expect(planSaveMarketsOf('KYOBO119', 'n0930', 'Q')).toEqual(['K', 'Q']);
+  });
+
+  it('저장 ok 결과 줄 — 「다음 08:30 발사부터」', () => {
+    const v = saveResultViewOf({ server: 'KB120', outcome: 'ok' }, 'g0830', new Date('2026-11-25T00:00:00Z'));
+    expect(v.line.text).toBe('저장됨 · 09:00 · 다음 08:30 발사부터');
+  });
+
+  it('편집 검증 — 한도 −3000 ~ 20000 · 한 값', () => {
+    const e = planEditOf('KB120', 'K', 'g0830', [0]);
+    expect(planEditWithDraft(e, ['20000']).valid).toEqual([20000]);
+    expect(planEditWithDraft(e, ['20001']).valid).toEqual([0]);
+    expect(planEditWithDraft(e, ['1', '2']).valid).toEqual([0]);
   });
 });

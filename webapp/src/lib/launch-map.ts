@@ -17,6 +17,7 @@ import {
   isLaunchTailProbe,
   launchFireOf,
   launchGateSideOf,
+  launchPlanProfileOf,
   launchRibbonAt,
   type LaunchDay,
   type LaunchFire,
@@ -48,8 +49,11 @@ export const LAUNCH_CHART = {
   TICK_MIN_PX: 28,
 } as const;
 
-/** 축 상한(µs) — 중앙값 ± 이 값 밖은 축을 늘리지 않는다. */
-const AXIS_CAP: Record<LaunchFire, number> = { q16: 300, n0930: 100 };
+/**
+ * 축 상한(µs) — 중앙값 ± 이 값 밖은 축을 늘리지 않는다.
+ * g0830 = 20000(quick-261125-c2i) — 한도 −3000 ~ +20000µs · 첫 운영일 전이라 경계 군집 폭을 모른다. 넓게 잡고 밖은 기존 ◂/▸ 표식.
+ */
+const AXIS_CAP: Record<LaunchFire, number> = { q16: 300, n0930: 100, g0830: 20000 };
 
 /** 이 폭(µs)을 넘는 값 묶음은 넓은 축(여유 8 · 10 단위), 아니면 좁은 축(여유 3 · 1 단위). */
 const WIDE_SPAN = 40;
@@ -188,7 +192,7 @@ export function launchGateBandOf(
 }
 
 /**
- * 패널의 다음 첫 조각(µs) — q16 = Q16 머리 · n0930 = N 머리의 next_offset_us(같은 서버 · 시장 · 발사 기준).
+ * 패널의 다음 첫 조각(µs) — q16 = Q16 머리 · n0930 = N 머리 · g0830 = G2 머리의 next_offset_us(같은 서버 · 시장 · 발사 기준).
  * 여러 행이면 가장 최근 거래일. 없거나 값이 null 이면 null(백필 머리 · 계획 어드민 전환 뒤 빈 값 — 점선 없음).
  */
 export function mapNextOffsetOf(
@@ -197,7 +201,7 @@ export function mapNextOffsetOf(
   market: string,
   fire: LaunchFire,
 ): number | null {
-  const profile = fire === 'q16' ? 'Q16' : 'N';
+  const profile = launchPlanProfileOf(fire);
   // 교보 N 은 한 레인 — 머리가 market=K 1행뿐이라(quick-261109-eqv) 코스닥 패널은 N/K 머리도 본다(옛 N/Q 머리에 머물지
   // 않게). 같은 거래일이면 제 시장 머리가 먼저(합치기 전 날짜는 그대로).
   const common = isCommonLaunchPlan(gateway, fire);

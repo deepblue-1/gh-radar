@@ -16,6 +16,7 @@ import type {
   LaunchPlanServer,
   LaunchRange,
   LaunchTailProbe,
+  LaunchTailProbeFire,
   LaunchTailProbeSaveBody,
   LaunchTailProbeSaveResponse,
 } from '@gh-radar/shared';
@@ -520,7 +521,11 @@ export function launchPlanSaveOk(gateway: string, fire: LaunchFire, market: Laun
  * PUT /tail-probe 기본 응답(quick-261107-l7w) — `launchPlanFixtureWithTailProbes()` 의 그 서버에서 그 profile 행만 바디 값으로 바꾼
  * ok plan(plan_rev +1) + ok 이력 1행(before = 픽스처 값). **합성 · 실서버 값 아님.**
  */
-export function launchTailProbeSaveOk(gateway: string, fire: LaunchFire, body: LaunchTailProbeSaveBody): LaunchTailProbeSaveResponse {
+export function launchTailProbeSaveOk(
+  gateway: string,
+  fire: LaunchTailProbeFire,
+  body: LaunchTailProbeSaveBody,
+): LaunchTailProbeSaveResponse {
   const base = launchPlanFixtureWithTailProbes().servers[gateway];
   const profile = fire === 'q16' ? 'Q16' : 'N';
   if (base === undefined || base.status !== 'ok') {
@@ -574,7 +579,7 @@ export interface MockLaunchApiOptions {
   /** PUT /tail-probe/:gateway/:fire — 없으면 `launchTailProbeSaveOk`(quick-261107-l7w). */
   saveTailProbe?: (
     gateway: string,
-    fire: LaunchFire,
+    fire: LaunchTailProbeFire,
     body: LaunchTailProbeSaveBody,
   ) => LaunchTailProbeSaveResponse | { status: number; body: unknown };
 }
@@ -651,7 +656,11 @@ export async function mockLaunchApi(page: Page, opts: MockLaunchApiOptions = {})
       }
     } else if (rec.path.startsWith('/tail-probe/') && rec.method === 'PUT') {
       const [gateway = '', fire = ''] = rec.path.slice('/tail-probe/'.length).split('/').map(decodeURIComponent);
-      const out = (opts.saveTailProbe ?? launchTailProbeSaveOk)(gateway, fire as LaunchFire, rec.body as LaunchTailProbeSaveBody);
+      const out = (opts.saveTailProbe ?? launchTailProbeSaveOk)(
+        gateway,
+        fire as LaunchTailProbeFire,
+        rec.body as LaunchTailProbeSaveBody,
+      );
       if (isStatusBody(out)) {
         status = out.status;
         body = out.body;

@@ -6,6 +6,7 @@ import {
   LAUNCH_FIRES,
   LAUNCH_ORDER,
   isLaunchTailProbe,
+  isLaunchTailProbeFire,
   launchDaysOf,
   launchPlanEntryOf,
   launchPanelStatsOf,
@@ -110,6 +111,9 @@ import { LaunchTailProbeBar, LaunchTailProbeEditor } from './launch-tail-probe-b
  *   값이 set 이고 패널이 서버 계획이면 그 패널 「다음 발사 계획」 줄 끝에 꼬리(「+ 뒤탐침 5발 · 10µs」 · 「· 뒤탐침 꺼짐」)와 지도 예정
  *   표식(계획 마지막 조각 + (i+1)·step · muted 점선 + 빈 삼각형 · 범례 「예정 뒤탐침」)을 그린다. 뒤탐침 칸이 열려 있으면 둘 다
  *   유효 초안 값을 따른다(표식 data-src draft · 기준은 서버 계획 — 두 편집 칸은 동시에 안 열린다).
+ * - 08:30 G2(quick-261125-c2i · 인박스 261125-sigan-ttaeng-g2): 시장마다 한 값 편집(코스피 · 코스닥 따로 — 교보도 그 시장만) ·
+ *   서버 ok 인데 94 에 G2 행이 없으면 패널마다 「이 서버는 08:30 발사를 모름」(편집 비활성). 뒤탐침은 08:30 에 없다 —
+ *   뒤탐침 막대 · 예정 표식 · 계획 줄 꼬리를 `isLaunchTailProbeFire` 명시 검사로 그리지 않는다.
  * - 요약 카드는 고른 서버 2장이라 폭과 무관하게 한 줄 2열이다.
  * - 폰 390: 요약 카드 2열 · 패널 SVG 는 640 고정 + 패널 래퍼 가로 스크롤(`LaunchGateChart`) · 부모 `min-w-0` 으로 페이지는
  *   넓어지지 않는다.
@@ -207,6 +211,8 @@ export function LaunchMapTab({ gw, fire, range, onFire, onRange }: LaunchMapTabP
 
   // 「뒤탐침 고치기」(서버 값) · 「닫기」(null). 열면 계획 편집 칸을 닫는다(한 번에 하나).
   const onTailProbeEdit = (base: LaunchTailProbeValue | null) => {
+    // 08:30(G2)은 뒤탐침이 없다(인박스 ⓑ) — 막대를 그리지 않으니 오지 않지만 타입으로도 막는다.
+    if (!isLaunchTailProbeFire(fire)) return;
     setTpLastSave(null);
     setTpEdit(base === null ? null : tailProbeEditOf(gw, fire, base));
     if (base !== null) {
@@ -494,6 +500,7 @@ const RANGE_CHIPS: readonly { value: LaunchRange; label: string }[] = [
 const FOOT: Record<LaunchFire, string> = {
   q16: '조각 간격은 10/12부터 0/+10/+20µs, 10/22부터 0/+10/+30µs. 금액 부족 등 기타 거부는 경계 계산에서 뺀다.',
   n0930: 'N 오프셋은 고정값 — 선은 최신 N 머리 값 · 재전송은 첫 발만 점 · 횟수는 툴팁',
+  g0830: '08:30 시간외종가 예약 — 시장마다 한 값(코스피 · 코스닥 따로) · 뒤탐침 없음. 기타 거부는 경계 계산에서 뺀다.',
 };
 
 interface MapPanel {
@@ -554,8 +561,10 @@ export function LaunchMapView({
   const sideless = ready && fire === 'n0930' && mine.some((p) => p.side === null);
   // 범례 뒤탐침 견본 — 고른 서버 조각에 뒤탐침(16:00 Q16 · 09:00:30 N · 인박스 261107-nxt-tail-probe-kind17)이 있으면.
   const tailProbed = ready && mine.some(isLaunchTailProbe);
-  // 고른 서버 · 고른 발사의 뒤탐침 상태(quick-261107-l7w) — 편집 칸 기준 값.
-  const tpState = plan.kind === 'ready' ? launchTailProbeStateOf(plan.resp.servers[gw], fire) : null;
+  // 고른 서버 · 고른 발사의 뒤탐침 상태(quick-261107-l7w) — 편집 칸 기준 값. 08:30(G2)은 뒤탐침이 없어 null(명시 fire 검사 —
+  // `launchTailProbeStateOf` 의 unsupported 경로는 「이 서버 버전은 뒤탐침 설정을 몰라요」 를 그리므로 쓰지 않는다 · quick-261125-c2i).
+  const tpState =
+    plan.kind === 'ready' && isLaunchTailProbeFire(fire) ? launchTailProbeStateOf(plan.resp.servers[gw], fire) : null;
   // 교보 09:00:30 N 공통 칸 기준(N/K) · 갈라짐(인박스 261109-kyobo-n-single-field).
   const commonEntry =
     plan.kind === 'ready' && isCommonLaunchPlan(gw, fire)
@@ -651,7 +660,7 @@ export function LaunchMapView({
               <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
             ))}
           </div>
-          {plan.kind !== 'absent' && (
+          {plan.kind !== 'absent' && isLaunchTailProbeFire(fire) && (
             <LaunchTailProbeBar
               gateway={gw}
               fire={fire}
@@ -795,7 +804,7 @@ function LaunchLegend({
     >
       <LegendItem swatch={<i className={cn(DOT, 'bg-[var(--launch-ok)]')} />}>접수</LegendItem>
       <LegendItem swatch={<i className={cn(DOT, 'bg-[var(--launch-bad)]')} />}>
-        {fire === 'q16' ? '101 거부(너무 이름)' : '101·515 거부'}
+        {fire === 'n0930' ? '101·515 거부' : '101 거부(너무 이름)'}
       </LegendItem>
       <LegendItem swatch={<i className={cn(DOT, 'border-2 border-[var(--launch-other)]')} />}>
         기타 거부(시각과 무관)

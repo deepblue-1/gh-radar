@@ -438,3 +438,33 @@ describe('launchRangeParamOf — ?range 원문', () => {
     expect(launchRangeParamOf(null)).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2 지도(머리 · 축 상한)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('08:30 G2 지도(quick-261125-c2i)', () => {
+  const G2 = { profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:00' } as const;
+
+  it('mapNextOffsetOf(g0830) — 같은 날 Q16 · N 머리가 있어도 G2 머리 next_offset_us', () => {
+    const heads = [
+      head({ gateway: 'KB120', market: 'K', profile: 'Q16', next_offset_us: -337 }),
+      head({ gateway: 'KB120', market: 'K', profile: 'N', next_offset_us: -245 }),
+      head({ gateway: 'KB120', market: 'K', ...G2, next_offset_us: 12000 }),
+    ];
+    expect(mapNextOffsetOf(heads, 'KB120', 'K', 'g0830')).toBe(12000);
+    expect(mapNextOffsetOf(heads, 'KB120', 'K', 'q16')).toBe(-337);
+    expect(mapNextOffsetOf(heads, 'KB120', 'K', 'n0930')).toBe(-245);
+    expect(mapNextOffsetOf(heads.slice(0, 2), 'KB120', 'K', 'g0830')).toBeNull();
+  });
+
+  it('축 상한 20000 — 중앙값에서 20000µs 안쪽 점은 축 밖 표식 없음 · 넘으면 ◂/▸', () => {
+    const values = [0, 11000, 12000, 12500, 13000];
+    const axis = launchAxisOf(values, [18000], 'g0830');
+    for (const v of [...values, 18000]) expect(axis.offAxis(v)).toBeNull();
+    // 같은 값을 q16 상한(300)으로 그리면 멀리 떨어진 점이 축 밖이 된다 — g0830 상한이 따로 있다는 확인.
+    expect(launchAxisOf(values, [18000], 'q16').offAxis(0)).toBe('lo');
+    const far = launchAxisOf([12000, 12000, 12000, 40000], [], 'g0830');
+    expect(far.offAxis(40000)).toBe('hi');
+  });
+});

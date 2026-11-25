@@ -10,6 +10,8 @@ import {
   fmtAcceptTime,
   fmtEokMan,
   fmtUs,
+  isCommonLaunchPlan,
+  isOrderTabRow,
   launchFireParamOf,
   launchGatewayParamOf,
   fmtPnl,
@@ -703,5 +705,65 @@ describe('개장차익 손익 표기 · 묶음 · 카드 합계(quick-261112-tlw
     const split = launchPnlSplitOf({ gateway: 'KB120', fills: FILLS, pieces: PIECES });
     expect(launchPnlSummaryOf(split.byMarket.get('Q')!)).toEqual({ total: -262_876, stocks: 2, resid: 1 });
     expect(launchPnlSummaryOf([])).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2(장개시전 시간외종가 예약 · 인박스 261125-sigan-ttaeng-g2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('08:30 G2 세그먼트(quick-261125-c2i)', () => {
+  const G2 = { profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:00' } as const;
+  const g2Pieces = [
+    piece({ gateway: 'KB120', market: 'K', ...G2, wire: 0, queued_id: 'Q083000001', piece_idx: 0, round: 0, sent_rel_us: 12000, result: '접수' }),
+    piece({ gateway: 'KB120', market: 'K', ...G2, wire: 1, queued_id: 'Q083000002', piece_idx: 0, round: 0, sent_rel_us: 11000, result: '101' }),
+  ];
+  const q16K = piece({ gateway: 'KB120', market: 'K', wire: 0, sent_rel_us: -300, result: '접수' });
+
+  it('launchFireParamOf — g0830 통과 · G2 · G0830 은 null', () => {
+    expect(launchFireParamOf('g0830')).toBe('g0830');
+    expect(launchFireParamOf('G2')).toBeNull();
+    expect(launchFireParamOf('G0830')).toBeNull();
+  });
+
+  it('isOrderTabRow — G2 KRX 08:30:00 은 g0830 에만 · Q16 16:00 은 g0830 아님', () => {
+    expect(isOrderTabRow(G2, 'g0830')).toBe(true);
+    expect(isOrderTabRow(G2, 'q16')).toBe(false);
+    expect(isOrderTabRow(G2, 'n0930')).toBe(false);
+    expect(isOrderTabRow({ profile: 'Q16', fire_exchange: 'KRX', fire_base: '16:00:00' }, 'g0830')).toBe(false);
+    expect(isOrderTabRow({ profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:01' }, 'g0830')).toBe(false);
+  });
+
+  it('orderTabPiecesOf(g0830) — G2 조각만', () => {
+    expect(orderTabPiecesOf([q16K, ...g2Pieces, ...N_KBQ], 'g0830').map((p) => p.profile)).toEqual(['G2', 'G2']);
+  });
+
+  it('isCommonLaunchPlan(교보, g0830) = false — G2 는 그 시장 칸만(인박스 ⓐ)', () => {
+    expect(isCommonLaunchPlan('KYOBO119', 'g0830')).toBe(false);
+    expect(isCommonLaunchPlan('KYOBO119', 'n0930')).toBe(true);
+  });
+
+  it('pieceKeyLabelOf — G2 는 예약 꼴(예약 · 조각 · 라운드)', () => {
+    expect(pieceKeyLabelOf({ profile: 'G2', queued_id: 'Q083000001', piece_idx: 0, round: 0 })).toBe('Q083000001 · j0 · R0');
+  });
+
+  it('launchHeadCardOf(g0830) — G2 머리를 본다(같은 날 Q16 머리는 보지 않는다) · badLabel 101', () => {
+    const g2Head = head({ gateway: 'KB120', market: 'K', ...G2, offset_used_us: 12000, gate_lo_us: 11000, gate_hi_us: 12000, next_offset_us: 12000 });
+    const q16Head = head({ gateway: 'KB120', market: 'K', offset_used_us: -300, gate_lo_us: -310, gate_hi_us: -300, next_offset_us: -290 });
+    const card = launchHeadCardOf({ gateway: 'KB120', market: 'K', fire: 'g0830', pieces: [q16K, ...g2Pieces], heads: [q16Head, g2Head] });
+    expect(card).toMatchObject({
+      fire: 'g0830',
+      count: 2,
+      counts: { ok: 1, bad: 1, other: 0 },
+      badLabel: '101',
+      offset: '+12,000µs',
+      gate: '+11,000 ~ +12,000',
+      learnLabel: '다음 발사 계획 첫 조각',
+      learn: '+12,000µs',
+    });
+  });
+
+  it('launchHeadCardOf(g0830) — G2 조각 · 머리 없으면 null(Q16 만 있는 날)', () => {
+    expect(launchHeadCardOf({ gateway: 'KB120', market: 'K', fire: 'g0830', pieces: [q16K], heads: [] })).toBeNull();
   });
 });

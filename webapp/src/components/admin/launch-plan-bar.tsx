@@ -7,6 +7,7 @@ import type { LaunchFire } from '@gh-radar/shared';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  LAUNCH_PLAN_G2_UNKNOWN,
   LAUNCH_PLAN_HISTORY_MAX,
   changeAtText,
   changeOutcomeView,
@@ -27,6 +28,8 @@ import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './ref
  * - source absent(배포 전 404 · D-35) → 아무것도 그리지 않는다.
  * - server → 계획 값(목업 `.pstrip b` — `--primary` 700 · 점선과 같은 색) + 마지막 성공 변경 「· 22:41 · 이메일」.
  * - fallback → 「서버 연결 안 됨 · 마지막 발사 값 −337µs」(`data-tone="warn"` · `--led-latent` 글자).
+ * - unsupported(08:30 전용 · quick-261125-c2i) → 「이 서버는 08:30 발사를 모름」(fallback 줄과 같은 글자 꼴) · 「계획 고치기」 비활성 ·
+ *   title 도 같은 문구(서버 ok 인데 94 에 G2 행 없음 = 08:30 스위치 꺼짐 · 구 서버).
  * - loading → 값 자리 스켈레톤(aria-busy).
  * - 이력이 있으면 「변경 이력 n」 접힘(날짜별 표 꼴) — 최근 `LAUNCH_PLAN_HISTORY_MAX` 행 · 결과 알약은 Admin 칩 한 벌.
  *
@@ -97,6 +100,15 @@ export function LaunchPlanBar({
             {fallbackLineText(plan.fallbackUs)}
           </span>
         )}
+        {plan.source === 'unsupported' && (
+          <span
+            data-slot="launch-plan-line"
+            data-tone="warn"
+            className="font-semibold break-keep text-[var(--led-latent)] tabular-nums"
+          >
+            {LAUNCH_PLAN_G2_UNKNOWN}
+          </span>
+        )}
         {plan.source === 'server' && plan.entry !== null && tail !== null && tail !== '' && (
           <span data-slot="launch-plan-tail" className="font-semibold break-keep text-[var(--fg-2)] tabular-nums">
             {tail}
@@ -118,7 +130,9 @@ export function LaunchPlanBar({
               data-slot="launch-plan-edit-toggle"
               aria-expanded={editable ? editing : undefined}
               disabled={!editable}
-              title={editable ? undefined : LAUNCH_PLAN_EDIT_BLOCKED}
+              title={
+                editable ? undefined : plan.source === 'unsupported' ? LAUNCH_PLAN_G2_UNKNOWN : LAUNCH_PLAN_EDIT_BLOCKED
+              }
               onClick={onToggle}
               className={ADMIN_BUTTON_SECONDARY}
             >

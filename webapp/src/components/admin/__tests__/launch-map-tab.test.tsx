@@ -1435,3 +1435,129 @@ describe('LaunchMapTab — 교보 09:00:30 N 공통 칸(인박스 261109-kyobo-n
     expect(vi.mocked(saveLaunchPlan).mock.calls[0]).toEqual(['KB120', 'n0930', 'Q', [-240]]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2(인박스 261125-sigan-ttaeng-g2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('08:30 G2 지도(quick-261125-c2i)', () => {
+  const G2_HEAD = { profile: 'G2', fire_exchange: 'KRX', fire_base: '08:30:00' } as const;
+  const g2Piece = (gateway: string, market: string, wire: number, rel: number, result: string): LaunchMapPiece =>
+    nPiece({ gateway, market, wire, sent_rel_us: rel, result, profile: 'G2', fire_exchange: 'KRX', side: null });
+  /** 11/26 08:30 — KB120 · 교보119 코스피 · 코스닥 G2 조각 + G2 머리(합성). */
+  const g0830 = (): LaunchMapResponse => ({
+    days: ['20261126'],
+    heads: [
+      head({ ...G2_HEAD, trade_date: '20261126', gateway: 'KB120', market: 'K', next_offset_us: 12000 }),
+      head({ ...G2_HEAD, trade_date: '20261126', gateway: 'KB120', market: 'Q', next_offset_us: 0 }),
+      head({ ...G2_HEAD, trade_date: '20261126', gateway: 'KYOBO119', market: 'Q', next_offset_us: 0 }),
+    ],
+    pieces: [
+      g2Piece('KB120', 'K', 0, 12000, '접수'),
+      g2Piece('KB120', 'K', 1, 11000, '101'),
+      g2Piece('KB120', 'Q', 0, 0, '접수'),
+      g2Piece('KYOBO119', 'K', 0, 500, '접수'),
+      g2Piece('KYOBO119', 'Q', 0, 0, '접수'),
+    ],
+  });
+  /** 인박스 ⓑ 켬 예시 — 기존 네 행 + 말미 G2/K · G2/Q · tail_probes 는 Q16 · N 만. */
+  const withG2 = (s: LaunchPlanServer, k: number, q: number): LaunchPlanServer =>
+    s.status === 'ok'
+      ? {
+          ...s,
+          entries: [...s.entries, { profile: 'G2', market: 'K', offsets_us: [k] }, { profile: 'G2', market: 'Q', offsets_us: [q] }],
+        }
+      : s;
+  const withTp = (s: LaunchPlanServer): LaunchPlanServer =>
+    s.status === 'ok'
+      ? {
+          ...s,
+          tail_probes: [
+            { profile: 'Q16', count: 5, step_us: 10 },
+            { profile: 'N', count: 3, step_us: 10 },
+          ],
+        }
+      : s;
+  /** KB120 = 스위치 켬(G2 행) · 교보119 = 스위치 꺼짐(네 행). 둘 다 tail_probes 있음. */
+  const planG2 = (): LaunchPlanResponse => {
+    const base = planResp();
+    return {
+      ...base,
+      servers: {
+        KB120: withTp(withG2(base.servers.KB120!, 12000, 0)),
+        KYOBO119: withTp(base.servers.KYOBO119!),
+      },
+      tail_probe_changes: [],
+    };
+  };
+
+  afterEach(() => {
+    vi.mocked(fetchLaunchMap).mockReset();
+    vi.mocked(fetchLaunchPlan).mockReset();
+    vi.mocked(saveLaunchPlan).mockReset();
+  });
+
+  it('스위치 꺼진 서버(G2 행 없음) → 패널마다 「이 서버는 08:30 발사를 모름」 · 고치기 비활성 · 「서버 연결 안 됨」 없음', () => {
+    const { container } = view({ gw: 'KYOBO119', resp: g0830(), fire: 'g0830', range: '10d', plan: { kind: 'ready', resp: planG2() }, onEdit: vi.fn() });
+    for (const m of ['K', 'Q']) {
+      const p = panelOf(container, 'KYOBO119', m);
+      const line = one(p, '[data-slot="launch-plan-line"]');
+      expect(line.textContent).toBe('이 서버는 08:30 발사를 모름');
+      expect(line.dataset.tone).toBe('warn');
+      expect(p.textContent).not.toContain('서버 연결 안 됨');
+      expect((one(p, '[data-slot="launch-plan-edit-toggle"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(slots(p, 'launch-next')).toHaveLength(0);
+    }
+  });
+
+  it('뒤탐침 막대 · 예정 표식 · 계획 줄 꼬리 없음(tail_probes 가 있어도) · 16:00 에서는 막대가 그대로', () => {
+    const plan = { kind: 'ready', resp: planG2() } as const;
+    const g = view({ resp: g0830(), fire: 'g0830', range: '10d', plan });
+    expect(slots(g.container, 'launch-tail-probe')).toHaveLength(0);
+    expect(slots(g.container, 'launch-tail-probe-planned')).toHaveLength(0);
+    expect(slots(g.container, 'launch-plan-tail')).toHaveLength(0);
+    expect(one(panelOf(g.container, 'KB120', 'K'), '[data-slot="launch-plan-line"]').textContent).toBe('+12,000µs');
+    g.unmount();
+    const q = view({ plan });
+    expect(slots(q.container, 'launch-tail-probe')).toHaveLength(1);
+    expect(slots(q.container, 'launch-plan-tail').length).toBeGreaterThan(0);
+  });
+
+  it('범례 거부 라벨 「101 거부(너무 이름)」 · 마름모 항목 없음 · 푸터 08:30 문구', () => {
+    const { container } = view({ resp: g0830(), fire: 'g0830', range: '10d', plan: { kind: 'ready', resp: planG2() } });
+    const legend = one(container, '[data-slot="launch-legend"]').textContent;
+    expect(legend).toContain('101 거부(너무 이름)');
+    expect(legend).not.toContain('101·515 거부');
+    expect(legend).not.toContain('마름모');
+    expect(one(container, '[data-slot="launch-foot"]').textContent).toContain('08:30 시간외종가 예약');
+  });
+
+  it('G2 행 있는 서버 → 「계획 고치기」 켜짐 · 한 값 편집 칸 · 저장은 그 패널 시장 하나(op 8 G2)', async () => {
+    vi.mocked(fetchLaunchMap).mockResolvedValue(g0830());
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planG2() });
+    const kbAfter = withTp(withG2(planResp().servers.KB120!, 12000, 3000));
+    vi.mocked(saveLaunchPlan).mockResolvedValueOnce({
+      result: { server: 'KB120', outcome: 'ok', code: 0 },
+      plan: kbAfter,
+      change: null,
+    });
+    const { container } = render(<LaunchMapTab gw="KB120" fire="g0830" range="10d" onFire={vi.fn()} onRange={vi.fn()} />);
+    await waitFor(() =>
+      expect((panelOf(container, 'KB120', 'Q').querySelector('[data-slot="launch-plan-edit-toggle"]') as HTMLButtonElement | null)?.disabled).toBe(false),
+    );
+    expect(slots(container, 'launch-tail-probe')).toHaveLength(0);
+    const p = panelOf(container, 'KB120', 'Q');
+    fireEvent.click(one(p, '[data-slot="launch-plan-edit-toggle"]'));
+    const input = within(p).getByLabelText('발사 시각(µs)') as HTMLInputElement;
+    expect(input.value).toBe('0');
+    expect(p.querySelectorAll('[data-slot="launch-plan-input"]')).toHaveLength(1);
+    fireEvent.change(input, { target: { value: '3000' } });
+    fireEvent.click(one(p, '[data-slot="launch-plan-save"]'));
+    await waitFor(() => expect(saveLaunchPlan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveLaunchPlan).mock.calls).toEqual([['KB120', 'g0830', 'Q', [3000]]]);
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe('+3,000µs'),
+    );
+    expect(one(panelOf(container, 'KB120', 'K'), '[data-slot="launch-plan-line"]').textContent).toBe('+12,000µs');
+  });
+});

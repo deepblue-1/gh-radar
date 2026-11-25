@@ -8,7 +8,7 @@ import {
   launchTailProbeOffsets,
   launchTailProbeStateOf,
   validateLaunchTailProbeDraft,
-  type LaunchFire,
+  type LaunchTailProbeFire,
   type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
@@ -55,7 +55,8 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TO
 
 export interface LaunchTailProbeBarProps {
   gateway: string;
-  fire: LaunchFire;
+  /** q16 · n0930 만 — 08:30(G2)은 뒤탐침이 없다(인박스 261125-sigan-ttaeng-g2 ⓑ · 지도 탭이 막대를 그리지 않는다). */
+  fire: LaunchTailProbeFire;
   plan: LaunchPlanState;
   now?: Date;
   /** 편집 칸이 열려 있는가. */
@@ -214,7 +215,7 @@ function SummaryValue({ count, stepUs }: { count: number; stepUs: number }) {
 
 export interface LaunchTailProbeEditorProps {
   gateway: string;
-  fire: LaunchFire;
+  fire: LaunchTailProbeFire;
   /** 서버 현재 값 — 「되돌리기」 · 변경 없음 판정 기준. */
   server: LaunchTailProbeValue;
   count: number;

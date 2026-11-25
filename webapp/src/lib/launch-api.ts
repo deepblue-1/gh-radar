@@ -21,6 +21,7 @@ import type {
   LaunchPlanSaveBody,
   LaunchPlanSaveResponse,
   LaunchRange,
+  LaunchTailProbeFire,
   LaunchTailProbeSaveBody,
   LaunchTailProbeSaveResponse,
   LaunchTailProbeValue,
@@ -110,7 +111,8 @@ export function saveLaunchPlan(
  */
 export function saveLaunchTailProbe(
   gateway: string,
-  fire: LaunchFire,
+  /** q16 · n0930 만 — 08:30(G2)은 뒤탐침 대상 아님(server 도 400). */
+  fire: LaunchTailProbeFire,
   value: LaunchTailProbeValue,
 ): Promise<LaunchTailProbeSaveResponse> {
   const path = `/api/admin/launch/tail-probe/${encodeURIComponent(gateway)}/${encodeURIComponent(fire)}`;
