@@ -132,24 +132,36 @@ describe('LaunchPlanBar', () => {
   });
 });
 
-describe('LaunchPlanBar — 뒤탐침 꼬리(quick-261107-l7w)', () => {
-  it('server + tail → 계획 값 바로 뒤 · 마지막 변경 앞에 꼬리', () => {
-    render(<LaunchPlanBar fire="q16" plan={plan({ lastChange: row() })} now={SAME_DAY_NOW} tail="+ 뒤탐침 5발 · 10µs" />);
-    const kids = Array.from(q('[data-slot="launch-plan-bar"] > div')!.children).map((e) => (e as HTMLElement).dataset.slot);
-    const iLine = kids.indexOf('launch-plan-line');
-    expect(kids[iLine + 1]).toBe('launch-plan-tail');
-    expect(kids[iLine + 2]).toBe('launch-plan-last');
-    expect(q('[data-slot="launch-plan-tail"]')!.textContent).toBe('+ 뒤탐침 5발 · 10µs');
+describe('LaunchPlanBar — ⇄ 다른 시장과 한 번에 쏨(quick-261125-lju)', () => {
+  it('집합 없음 · 빈 집합 → planLineText 그대로(글자 하나 다르지 않음) · ⇄ 0', () => {
+    const a = render(<LaunchPlanBar fire="q16" plan={plan({})} />);
+    const text = q('[data-slot="launch-plan-line"]')!.textContent;
+    expect(text).toBe(`3조각 ${M}350 · ${M}345 · ${M}325µs`);
+    expect(qa('[data-slot="launch-combined"]')).toHaveLength(0);
+    a.unmount();
+    render(<LaunchPlanBar fire="q16" plan={plan({})} combined={new Set()} />);
+    expect(q('[data-slot="launch-plan-line"]')!.textContent).toBe(text);
+    expect(qa('[data-slot="launch-combined"]')).toHaveLength(0);
   });
 
-  it('「· 뒤탐침 꺼짐」 · tail 없음/null · source ≠ server → 꼬리 없음', () => {
-    const a = render(<LaunchPlanBar fire="n0930" plan={plan({})} tail="· 뒤탐침 꺼짐" />);
-    expect(q('[data-slot="launch-plan-tail"]')!.textContent).toBe('· 뒤탐침 꺼짐');
-    a.unmount();
-    const b = render(<LaunchPlanBar fire="q16" plan={plan({})} tail={null} />);
-    expect(qa('[data-slot="launch-plan-tail"]')).toHaveLength(0);
-    b.unmount();
-    render(<LaunchPlanBar fire="q16" plan={plan({ source: 'fallback', entry: null, lines: [-337] })} tail="+ 뒤탐침 5발 · 10µs" />);
+  it('집합에 든 값 뒤에만 ⇄ · title · 같은 꼴(「3조각 」 + 값들 + µs)', () => {
+    render(
+      <LaunchPlanBar
+        fire="q16"
+        plan={plan({})}
+        combined={new Set([-345, -999])}
+        combinedTitle="코스닥과 같은 시각 — 한 번에 쏨"
+      />,
+    );
+    const marks = qa('[data-slot="launch-combined"]');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.getAttribute('title')).toBe('코스닥과 같은 시각 — 한 번에 쏨');
+    expect(marks[0]!.closest<HTMLElement>('[data-slot="launch-plan-value"]')!.dataset.us).toBe('-345');
+    expect(q('[data-slot="launch-plan-line"]')!.textContent).toBe(`3조각 ${M}350 · ${M}345⇄ · ${M}325µs`);
+  });
+
+  it('옛 꼬리 슬롯은 없다', () => {
+    render(<LaunchPlanBar fire="q16" plan={plan({ lastChange: row() })} now={SAME_DAY_NOW} />);
     expect(qa('[data-slot="launch-plan-tail"]')).toHaveLength(0);
   });
 });

@@ -24,7 +24,6 @@ import type {
   LaunchTailProbeFire,
   LaunchTailProbeSaveBody,
   LaunchTailProbeSaveResponse,
-  LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
 import { RELAY_TIMEOUT_MS } from './admin-api';
@@ -105,18 +104,20 @@ export function saveLaunchPlan(
 }
 
 /**
- * 뒤탐침 저장(quick-261107-l7w `PUT /api/admin/launch/tail-probe/:gateway/:fire` · 바디 `{ count, step_us }`). `saveLaunchPlan` 과
+ * 탐침 저장(quick-261125-lju `PUT /api/admin/launch/tail-probe/:gateway/:fire` · 바디 `{ market, offsets_us }` — 정각 기준 µs 목록 ·
+ * 이른 시각부터 정렬해서 보낸다 · 빈 배열 = 꺼짐). 교보 N 공통은 market K 로 1건(gh-trade 가 두 행을 맞춘다). `saveLaunchPlan` 과
  * 같은 꼴 — relay 가 실패해도 server 는 200(`result.outcome` 로 가른다) · 응답 plan 이 있으면 다시 부르지 않는다 · 상한
  * `RELAY_TIMEOUT_MS`. 범위 검사는 server 가 하지 않는다 — 부르기 전에 `validateLaunchTailProbeDraft` 로 막는다(편집 칸).
  */
 export function saveLaunchTailProbe(
   gateway: string,
-  /** q16 · n0930 만 — 08:30(G2)은 뒤탐침 대상 아님(server 도 400). */
+  /** q16 · n0930 만 — 08:30(G2)은 탐침 대상 아님(server 도 400). */
   fire: LaunchTailProbeFire,
-  value: LaunchTailProbeValue,
+  market: LaunchMarket,
+  offsets: readonly number[],
 ): Promise<LaunchTailProbeSaveResponse> {
   const path = `/api/admin/launch/tail-probe/${encodeURIComponent(gateway)}/${encodeURIComponent(fire)}`;
-  const body: LaunchTailProbeSaveBody = { count: value.count, step_us: value.step_us };
+  const body: LaunchTailProbeSaveBody = { market, offsets_us: [...offsets] };
   return authFetch<LaunchTailProbeSaveResponse>(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

@@ -17,8 +17,10 @@ import {
   planLineText,
   type PanelPlan,
 } from '@/lib/launch-plan-view';
+import { fmtUs } from '@/lib/launch-format';
 import { cn } from '@/lib/utils';
 
+import { CombinedMark } from './launch-tail-probe-bar';
 import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './reflect-chip';
 
 /**
@@ -36,8 +38,8 @@ import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './ref
  * 글자 12.5px · 라벨 `--muted-fg` · tabular-nums · flex-wrap(폰 390 에서 줄바꿈 · 표는 가로 스크롤).
  * `now` 는 「오늘이면 시각만」 판정 기준(테스트 주입 · 기본 지금).
  *
- * 꼬리(`tail` · quick-261107-l7w 목업 변형 C `.plan .pr`) — source server 이고 칸이 있을 때만 계획 값 바로 뒤(마지막 변경 앞)에
- * 「+ 뒤탐침 5발 · 10µs」 · 「· 뒤탐침 꺼짐」(`--fg-2` 600). 없음 · null 이면 그리지 않는다.
+ * ⇄(`combined` · quick-261125-lju 목업 v4 `.ch`) — 교보 16:00 합친 레인이 켜졌을 때 다른 시장의 실조각 · 탐침과 같은 µs 인 계획 값
+ * 뒤에 「⇄」(title = `combinedTitle`). 집합이 없거나 비면 지금과 글자 하나 다르지 않은 `planLineText` 그대로다.
  *
  * 「계획 고치기」/「닫기」(35-15 · D-24) — `onToggle` 이 있을 때만 첫 줄 끝에 붙는다. 서버 계획(source server)일 때만 켜지고,
  * 대신 값 · 조회 중이면 비활성 + title(지금 서버 값을 모르면 고칠 기준이 없다). `children` = 편집 칸 자리(첫 줄 바로 아래).
@@ -53,8 +55,10 @@ export interface LaunchPlanBarProps {
   onToggle?: () => void;
   /** 편집 칸(열렸을 때). */
   children?: ReactNode;
-  /** 뒤탐침 꼬리 문구(`tailProbePlanSuffixText`) — 없으면 안 그린다. */
-  tail?: string | null;
+  /** ⇄ 를 붙일 µs 집합(`tailProbeCombinedSetOf`) — 없거나 비면 붙이지 않는다. */
+  combined?: ReadonlySet<number> | null;
+  /** ⇄ title(`tailProbeCombinedTitleOf`). */
+  combinedTitle?: string;
 }
 
 /** 서버 계획을 못 읽은 패널의 「계획 고치기」 title. */
@@ -70,7 +74,8 @@ export function LaunchPlanBar({
   editing = false,
   onToggle,
   children,
-  tail = null,
+  combined = null,
+  combinedTitle = '',
 }: LaunchPlanBarProps) {
   if (plan.source === 'absent') return null;
   const loading = plan.source === 'loading';
@@ -88,7 +93,11 @@ export function LaunchPlanBar({
         <span className="whitespace-nowrap">다음 발사 계획</span>
         {plan.source === 'server' && plan.entry !== null && (
           <b data-slot="launch-plan-line" className="font-bold break-keep text-[var(--primary)] tabular-nums">
-            {planLineText(plan.entry, fire)}
+            {combined === null || combined.size === 0 ? (
+              planLineText(plan.entry, fire)
+            ) : (
+              <CombinedPlanLine offsets={plan.entry.offsets_us} fire={fire} combined={combined} title={combinedTitle} />
+            )}
           </b>
         )}
         {plan.source === 'fallback' && (
@@ -107,11 +116,6 @@ export function LaunchPlanBar({
             className="font-semibold break-keep text-[var(--led-latent)] tabular-nums"
           >
             {LAUNCH_PLAN_G2_UNKNOWN}
-          </span>
-        )}
-        {plan.source === 'server' && plan.entry !== null && tail !== null && tail !== '' && (
-          <span data-slot="launch-plan-tail" className="font-semibold break-keep text-[var(--fg-2)] tabular-nums">
-            {tail}
           </span>
         )}
         {loading && <Skeleton className="h-3.5 w-40" />}
@@ -185,5 +189,33 @@ export function LaunchPlanBar({
         </details>
       )}
     </div>
+  );
+}
+
+/** ⇄ 가 붙는 계획 줄 — `planLineText` 와 같은 꼴(q16 「n조각 」 + 값들 · 그 밖 한 값)을 값마다 그리고 해당 값 뒤에 ⇄. */
+function CombinedPlanLine({
+  offsets,
+  fire,
+  combined,
+  title,
+}: {
+  offsets: readonly number[];
+  fire: LaunchFire;
+  combined: ReadonlySet<number>;
+  title: string;
+}) {
+  const xs = fire === 'q16' ? offsets : offsets.slice(0, 1);
+  return (
+    <>
+      {fire === 'q16' && `${offsets.length}조각 `}
+      {xs.map((v, i) => (
+        <span key={i} data-slot="launch-plan-value" data-us={v}>
+          {i > 0 && ' · '}
+          {fmtUs(v)}
+          {combined.has(v) && <CombinedMark title={title} />}
+        </span>
+      ))}
+      µs
+    </>
   );
 }

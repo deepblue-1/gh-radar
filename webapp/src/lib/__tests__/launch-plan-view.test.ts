@@ -32,17 +32,23 @@ import {
   saveRowSeenIn,
   TAIL_PROBE_UNKNOWN_TEXT,
   TAIL_PROBE_UNSUPPORTED_TEXT,
+  tailProbeAddChipOf,
+  tailProbeChangeText,
   tailProbeChangesOf,
+  tailProbeCombinedOn,
+  tailProbeCombinedSetOf,
+  tailProbeCombinedTitleOf,
+  tailProbeGroupText,
+  tailProbeLegacyText,
   tailProbeSummaryParts,
   tailProbeSummaryText,
-  tailProbeValueText,
   maxTailProbeChangeIdOf,
   tailProbeEditOf,
   tailProbeEditWithDraft,
+  tailProbeSaveMarketOf,
   tailProbeSaveRowSeenIn,
   tailProbeStateWithSave,
   tailProbeStateWithSent,
-  tailProbePlanSuffixText,
 } from '../launch-plan-view';
 
 /**
@@ -481,10 +487,11 @@ describe('편집 · 저장(35-15)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 표기 · 상태 보존
+// quick-261125-lju — 탐침(정각 기준 시장별 목록) 표기 · 상태 보존 · ⇄
 // ─────────────────────────────────────────────────────────────────────────────
 
 let tpId = 100;
+/** 목록 행 기본 — KB120 · q16 · K · [−210] → [−220, −210]. */
 function tpRow(over: Partial<LaunchTailProbeChangeRow>): LaunchTailProbeChangeRow {
   return {
     id: tpId++,
@@ -492,10 +499,13 @@ function tpRow(over: Partial<LaunchTailProbeChangeRow>): LaunchTailProbeChangeRo
     admin_email: 'a@b.c',
     gateway: 'KB120',
     fire: 'q16',
-    before_count: 5,
-    before_step_us: 10,
-    after_count: 3,
-    after_step_us: 20,
+    market: 'K',
+    before_count: null,
+    before_step_us: null,
+    after_count: null,
+    after_step_us: null,
+    before_offsets_us: [-210],
+    after_offsets_us: [-220, -210],
     outcome: 'ok',
     code: null,
     message: null,
@@ -504,39 +514,93 @@ function tpRow(over: Partial<LaunchTailProbeChangeRow>): LaunchTailProbeChangeRo
   };
 }
 
-describe('뒤탐침 표기(quick-261107-l7w)', () => {
-  it('tailProbeSummaryText — 5/10 · 1/10 · 0 · 3/20', () => {
-    expect(tailProbeSummaryText({ count: 5, step_us: 10 })).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs');
-    expect(tailProbeSummaryText({ count: 1, step_us: 10 })).toBe('1발 · 10µs 간격 · 마지막 조각 뒤 +10µs');
-    expect(tailProbeSummaryText({ count: 0, step_us: 10 })).toBe('꺼짐 · 0발');
-    expect(tailProbeSummaryText({ count: 3, step_us: 20 })).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs');
-    expect(tailProbeSummaryParts({ count: 5, step_us: 10 })).toEqual({
-      strong: '5발 · 10µs 간격',
-      rest: ' · 마지막 조각 뒤 +10 ~ +50µs',
+/** 옛 개수 · 간격 행 — market null · 목록 칸 null. */
+function tpLegacyRow(over: Partial<LaunchTailProbeChangeRow>): LaunchTailProbeChangeRow {
+  return tpRow({
+    market: null,
+    before_offsets_us: null,
+    after_offsets_us: null,
+    before_count: 3,
+    before_step_us: 10,
+    after_count: 5,
+    after_step_us: 10,
+    ...over,
+  });
+}
+
+describe('탐침 표기(quick-261125-lju)', () => {
+  it('tailProbeSummaryParts — [−210, −200] → 「2발」 + 묶음 · [−270, −270, −200] → −270×2 · [] → 꺼짐 + 「 · 0발」', () => {
+    expect(tailProbeSummaryParts([-210, -200])).toEqual({
+      strong: '2발',
+      groups: [
+        { us: -210, n: 1 },
+        { us: -200, n: 1 },
+      ],
+      rest: '',
     });
+    expect(tailProbeSummaryParts([-200, -270, -270]).groups).toEqual([
+      { us: -270, n: 2 },
+      { us: -200, n: 1 },
+    ]);
+    expect(tailProbeSummaryParts([])).toEqual({ strong: '꺼짐', groups: [], rest: ' · 0발' });
   });
 
-  it('tailProbeValueText — 「5발 · 10µs」 · null → —', () => {
-    expect(tailProbeValueText({ count: 5, step_us: 10 })).toBe('5발 · 10µs');
-    expect(tailProbeValueText(null)).toBe('—');
+  it('tailProbeSummaryText — 「5발 · −210 · −200 · −190 · −180 · −170µs」 · 「3발 · −270×2 · −200µs」 · 「꺼짐 · 0발」 · 정각 뒤 +', () => {
+    expect(tailProbeSummaryText([-210, -200, -190, -180, -170])).toBe(`5발 · ${M}210 · ${M}200 · ${M}190 · ${M}180 · ${M}170µs`);
+    expect(tailProbeSummaryText([-270, -270, -200])).toBe(`3발 · ${M}270×2 · ${M}200µs`);
+    expect(tailProbeSummaryText([])).toBe('꺼짐 · 0발');
+    expect(tailProbeSummaryText([30, 0, -10])).toBe(`3발 · ${M}10 · 0 · +30µs`);
+    expect(tailProbeGroupText({ us: -1500, n: 3 })).toBe(`${M}1,500×3`);
+  });
+
+  it('tailProbeLegacyText — 「뒤탐침 5발 10µs 간격」 · step 0 「뒤탐침 5발」 · count 0 「뒤탐침 꺼짐」', () => {
+    expect(tailProbeLegacyText({ count: 5, step_us: 10 })).toBe('뒤탐침 5발 10µs 간격');
+    expect(tailProbeLegacyText({ count: 5, step_us: 0 })).toBe('뒤탐침 5발');
+    expect(tailProbeLegacyText({ count: 0, step_us: 10 })).toBe('뒤탐침 꺼짐');
+  });
+
+  it('tailProbeChangeText — 목록 행 · before null · 옛 행', () => {
+    expect(tailProbeChangeText(tpRow({ before_offsets_us: [-210], after_offsets_us: [] }))).toBe(`1발 ${M}210µs → 꺼짐`);
+    expect(tailProbeChangeText(tpRow({ before_offsets_us: null, after_offsets_us: [-270, -270, -200] }))).toBe(
+      `— → 3발 ${M}270×2 · ${M}200µs`,
+    );
+    expect(tailProbeChangeText(tpLegacyRow({}))).toBe('뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격');
+    expect(tailProbeChangeText(tpLegacyRow({ before_count: null, before_step_us: null }))).toBe('— → 뒤탐침 5발 10µs 간격');
   });
 
   it('문구 상수 원문', () => {
-    expect(TAIL_PROBE_UNSUPPORTED_TEXT).toBe('이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요');
-    expect(TAIL_PROBE_UNKNOWN_TEXT).toBe('뒤탐침 값을 읽지 못했어요');
+    expect(TAIL_PROBE_UNSUPPORTED_TEXT).toBe('이 서버 버전은 시장별 탐침을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요');
+    expect(TAIL_PROBE_UNKNOWN_TEXT).toBe('탐침 값을 읽지 못했어요');
   });
 
-  it('tailProbeChangesOf — 그 서버 · 그 발사만 · at 내림차순(같은 at 은 id 내림차순) · ready 아니면 · 키 없으면 []', () => {
+  it('tailProbeChangesOf — 그 서버 · 발사 · 시장(+ 옛 행 market null)만 · at 내림차순 · ready 아니면 · 키 없으면 []', () => {
     const a = tpRow({ at: '2026-11-07T05:00:00Z' });
     const b = tpRow({ at: '2026-11-07T06:00:00Z' });
     const c = tpRow({ at: '2026-11-07T06:00:00Z' });
+    const q = tpRow({ market: 'Q' });
+    const legacy = tpLegacyRow({ at: '2026-11-01T06:00:00Z' });
     const other = tpRow({ fire: 'n0930' });
     const ky = tpRow({ gateway: 'KYOBO119' });
-    const st = { kind: 'ready' as const, resp: { servers: {}, changes: [], tail_probe_changes: [a, other, b, ky, c] } };
-    expect(tailProbeChangesOf(st, 'KB120', 'q16').map((r) => r.id)).toEqual([c.id, b.id, a.id]);
-    expect(tailProbeChangesOf(st, 'KB120', 'n0930')).toEqual([other]);
-    expect(tailProbeChangesOf({ kind: 'loading' }, 'KB120', 'q16')).toEqual([]);
-    expect(tailProbeChangesOf({ kind: 'ready', resp: { servers: {}, changes: [] } }, 'KB120', 'q16')).toEqual([]);
+    const st = {
+      kind: 'ready' as const,
+      resp: { servers: {}, changes: [], tail_probe_changes: [a, other, q, b, legacy, ky, c] },
+    };
+    expect(tailProbeChangesOf(st, 'KB120', 'q16', 'K').map((r) => r.id)).toEqual([c.id, b.id, a.id, legacy.id]);
+    expect(tailProbeChangesOf(st, 'KB120', 'q16', 'Q').map((r) => r.id)).toEqual([q.id, legacy.id]);
+    expect(tailProbeChangesOf(st, 'KB120', 'n0930', 'K')).toEqual([other]);
+    expect(tailProbeChangesOf({ kind: 'loading' }, 'KB120', 'q16', 'K')).toEqual([]);
+    expect(tailProbeChangesOf({ kind: 'ready', resp: { servers: {}, changes: [] } }, 'KB120', 'q16', 'K')).toEqual([]);
+  });
+
+  it('tailProbeAddChipOf — 가장 늦은 유효 칩 + 10 · 유효 칩 없으면 계획 마지막 + 10 · 상한에서 멈춤', () => {
+    expect(tailProbeAddChipOf('q16', ['210', 'x'], [-260, -220])).toBe('200');
+    expect(tailProbeAddChipOf('q16', ['x'], [-260, -220])).toBe('210');
+    expect(tailProbeAddChipOf('q16', [], [-260, -220])).toBe('210');
+    expect(tailProbeAddChipOf('q16', ['+995'], [])).toBe('+1000');
+    expect(tailProbeAddChipOf('q16', ['+1000'], [])).toBe('+1000');
+    expect(tailProbeAddChipOf('q16', ['4000', '300'], [])).toBe('290');
+    expect(tailProbeAddChipOf('n0930', ['+1995'], [-40])).toBe('+2000');
+    expect(tailProbeAddChipOf('q16', ['5'], [])).toBe('+5');
   });
 
   it('planStateWithSave — tail_probe_changes 등 나머지 키를 보존한다', () => {
@@ -558,31 +622,40 @@ describe('뒤탐침 표기(quick-261107-l7w)', () => {
   });
 });
 
-describe('뒤탐침 편집 · 저장 반영(quick-261107-l7w)', () => {
-  const TP_KB: LaunchPlanServer = {
-    ...OK_KB,
-    tail_probes: [
-      { profile: 'Q16', count: 5, step_us: 10 },
-      { profile: 'N', count: 0, step_us: 10 },
-    ],
-  };
+describe('탐침 편집 · 저장 반영(quick-261125-lju)', () => {
+  const FOUR = [
+    { profile: 'Q16' as const, count: 2, step_us: 0, market: 'K' as const, offsets_us: [-210, -200] },
+    { profile: 'N' as const, count: 0, step_us: 0, market: 'K' as const, offsets_us: [] },
+    { profile: 'Q16' as const, count: 1, step_us: 0, market: 'Q' as const, offsets_us: [-300] },
+    { profile: 'N' as const, count: 0, step_us: 0, market: 'Q' as const, offsets_us: [] },
+  ];
+  const TP_KB: LaunchPlanServer = { ...OK_KB, tail_probes: FOUR };
 
-  it('tailProbeEditOf · tailProbeEditWithDraft — 유효면 valid 갱신 · 위반이면 valid 유지 + error 원문', () => {
-    const e0 = tailProbeEditOf('KB120', 'q16', { count: 5, step_us: 10 });
-    expect(e0).toMatchObject({ count: 5, stepRaw: '10', valid: { count: 5, step_us: 10 }, error: null });
-    const e1 = tailProbeEditWithDraft(e0, 3, '20');
-    expect(e1).toMatchObject({ count: 3, stepRaw: '20', valid: { count: 3, step_us: 20 }, error: null });
-    const e2 = tailProbeEditWithDraft(e1, 3, '101');
-    expect(e2).toMatchObject({ stepRaw: '101', valid: { count: 3, step_us: 20 } });
-    expect(e2.error).toEqual({ field: 'step', message: '간격은 1 ~ 100µs 사이여야 해요' });
-    expect(tailProbeEditWithDraft(e1, 10, '20').valid).toEqual({ count: 10, step_us: 20 });
+  it('tailProbeEditOf — 서버 값 정렬 · 칩 원문(− 기본 · + 정각 뒤) · valid 복사', () => {
+    const e0 = tailProbeEditOf('KB120', 'q16', 'Q', [30, -210, 0]);
+    expect(e0).toEqual({ gateway: 'KB120', fire: 'q16', market: 'Q', base: [-210, 0, 30], draft: ['210', '0', '+30'], valid: [-210, 0, 30] });
+  });
+
+  it('tailProbeEditWithDraft — 유효면 valid = 정렬 값 · 위반이면 valid 유지 · 칩 자리는 그대로', () => {
+    const e0 = tailProbeEditOf('KB120', 'q16', 'K', [-210, -200]);
+    const e1 = tailProbeEditWithDraft(e0, ['+30', '210']);
+    expect(e1).toMatchObject({ draft: ['+30', '210'], valid: [-210, 30] });
+    const e2 = tailProbeEditWithDraft(e1, ['+30', '4000']);
+    expect(e2).toMatchObject({ draft: ['+30', '4000'], valid: [-210, 30] });
+    expect(tailProbeEditWithDraft(e1, []).valid).toEqual([]);
+  });
+
+  it('tailProbeSaveMarketOf — 교보 N 공통 = K · 그 밖 = 패널 시장', () => {
+    expect(tailProbeSaveMarketOf('KYOBO119', 'n0930', 'Q')).toBe('K');
+    expect(tailProbeSaveMarketOf('KYOBO119', 'q16', 'Q')).toBe('Q');
+    expect(tailProbeSaveMarketOf('KB120', 'n0930', 'Q')).toBe('Q');
   });
 
   it('tailProbeStateWithSave — plan 으로 그 서버 교체 · change 는 tail_probe_changes 맨 앞 · 계획 이력은 그대로', () => {
     const t0 = tpRow({});
     const pc = row({});
     const s0 = { kind: 'ready' as const, resp: { servers: { KB120: TP_KB }, changes: [pc], tail_probe_changes: [t0] } };
-    const next: LaunchPlanServer = { ...TP_KB, plan_rev: 9, tail_probes: [{ profile: 'Q16', count: 3, step_us: 20 }] };
+    const next: LaunchPlanServer = { ...TP_KB, plan_rev: 9 };
     const t1 = tpRow({});
     const s1 = tailProbeStateWithSave(s0, 'KB120', { plan: next, change: t1 });
     expect(s1.kind === 'ready' && s1.resp.servers.KB120).toBe(next);
@@ -592,38 +665,72 @@ describe('뒤탐침 편집 · 저장 반영(quick-261107-l7w)', () => {
     expect(tailProbeStateWithSave({ kind: 'error' }, 'KB120', { plan: next, change: t1 })).toEqual({ kind: 'error' });
   });
 
-  it('tailProbeStateWithSent — 그 profile 행만 보낸 값 · 배열 없으면 그 행 하나로 · 서버 non-ok 면 그대로', () => {
-    const s0 = { kind: 'ready' as const, resp: { servers: { KB120: TP_KB, KYOBO119: OK_KB, KYOBO112: { status: 'offline' as const } }, changes: [] } };
-    const s1 = tailProbeStateWithSent(s0, 'KB120', 'n0930', { count: 2, step_us: 15 });
-    expect(s1.kind === 'ready' && s1.resp.servers.KB120?.status === 'ok' && s1.resp.servers.KB120.tail_probes).toEqual([
-      { profile: 'Q16', count: 5, step_us: 10 },
-      { profile: 'N', count: 2, step_us: 15 },
+  it('tailProbeStateWithSent — 그 (profile, market) 행만 · 공통이면 K · Q 두 행 · 없으면 덧붙임 · 서버 non-ok 면 그대로', () => {
+    const s0 = {
+      kind: 'ready' as const,
+      resp: { servers: { KB120: TP_KB, KYOBO119: OK_KB, KYOBO112: { status: 'offline' as const } }, changes: [] },
+    };
+    const s1 = tailProbeStateWithSent(s0, 'KB120', 'q16', ['Q'], [-320, -310]);
+    const rows1 = s1.kind === 'ready' && s1.resp.servers.KB120?.status === 'ok' ? s1.resp.servers.KB120.tail_probes : null;
+    expect(rows1).toEqual([
+      FOUR[0],
+      FOUR[1],
+      { profile: 'Q16', count: 2, step_us: 0, market: 'Q', offsets_us: [-320, -310] },
+      FOUR[3],
     ]);
-    const s2 = tailProbeStateWithSent(s0, 'KYOBO119', 'q16', { count: 1, step_us: 5 });
+    const s2 = tailProbeStateWithSent(s0, 'KYOBO119', 'n0930', ['K', 'Q'], [-30]);
     expect(s2.kind === 'ready' && s2.resp.servers.KYOBO119?.status === 'ok' && s2.resp.servers.KYOBO119.tail_probes).toEqual([
-      { profile: 'Q16', count: 1, step_us: 5 },
+      { profile: 'N', count: 1, step_us: 0, market: 'K', offsets_us: [-30] },
+      { profile: 'N', count: 1, step_us: 0, market: 'Q', offsets_us: [-30] },
     ]);
-    expect(tailProbeStateWithSent(s0, 'KYOBO112', 'q16', { count: 1, step_us: 5 })).toBe(s0);
+    expect(tailProbeStateWithSent(s0, 'KYOBO112', 'q16', ['K'], [-1])).toBe(s0);
   });
 
-  it('maxTailProbeChangeIdOf · tailProbeSaveRowSeenIn — 같은 (서버, 발사) · 같은 값 · afterId 보다 새 행만', () => {
+  it('maxTailProbeChangeIdOf · tailProbeSaveRowSeenIn — 같은 (서버, 발사, 시장) · 같은 목록 · afterId 보다 새 행만', () => {
     const a = tpRow({ id: 40 });
     const b = tpRow({ id: 41 });
     expect(maxTailProbeChangeIdOf({ kind: 'ready', resp: { servers: {}, changes: [], tail_probe_changes: [b, a] } })).toBe(41);
     expect(maxTailProbeChangeIdOf({ kind: 'loading' })).toBe(0);
-    const save = { gateway: 'KB120', fire: 'q16' as const, value: { count: 3, step_us: 20 }, afterId: 41 };
+    const save = { gateway: 'KB120', fire: 'q16' as const, market: 'K' as const, offsets: [-220, -210], afterId: 41 };
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 42 })], save)).toBe(true);
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 41 })], save)).toBe(false);
     expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, fire: 'n0930' })], save)).toBe(false);
-    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, after_step_us: 10 })], save)).toBe(false);
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, market: 'Q' })], save)).toBe(false);
+    expect(tailProbeSaveRowSeenIn([tpRow({ id: 42, after_offsets_us: [-220] })], save)).toBe(false);
+    expect(tailProbeSaveRowSeenIn([tpLegacyRow({ id: 42 })], save)).toBe(false);
   });
 });
 
-describe('tailProbePlanSuffixText(quick-261107-l7w)', () => {
-  it('5/10 → 「+ 뒤탐침 5발 · 10µs」 · 0 → 「· 뒤탐침 꺼짐」 · 10/100', () => {
-    expect(tailProbePlanSuffixText({ count: 5, step_us: 10 })).toBe('+ 뒤탐침 5발 · 10µs');
-    expect(tailProbePlanSuffixText({ count: 0, step_us: 10 })).toBe('· 뒤탐침 꺼짐');
-    expect(tailProbePlanSuffixText({ count: 10, step_us: 100 })).toBe('+ 뒤탐침 10발 · 100µs');
+describe('⇄ 다른 시장과 한 번에 쏨(quick-261125-lju · kyobo_q16_combined true 일 때만)', () => {
+  const KY: LaunchPlanServer = {
+    status: 'ok',
+    plan_rev: 3,
+    updated_at: null,
+    entries: [
+      { profile: 'Q16', market: 'K', offsets_us: [-350, -340] },
+      { profile: 'Q16', market: 'Q', offsets_us: [-345, -335] },
+    ],
+  };
+
+  it('tailProbeCombinedOn — 교보 · q16 · true 만 참 · false · 칸 없음 · n0930 · non-ok · KB(true 여도) 는 거짓', () => {
+    expect(tailProbeCombinedOn({ ...KY, kyobo_q16_combined: true }, 'KYOBO119', 'q16')).toBe(true);
+    expect(tailProbeCombinedOn({ ...KY, kyobo_q16_combined: true }, 'KYOBO112', 'q16')).toBe(true);
+    expect(tailProbeCombinedOn({ ...KY, kyobo_q16_combined: false }, 'KYOBO119', 'q16')).toBe(false);
+    expect(tailProbeCombinedOn(KY, 'KYOBO119', 'q16')).toBe(false);
+    expect(tailProbeCombinedOn({ ...KY, kyobo_q16_combined: true }, 'KYOBO119', 'n0930')).toBe(false);
+    expect(tailProbeCombinedOn({ ...KY, kyobo_q16_combined: true }, 'KB120', 'q16')).toBe(false);
+    expect(tailProbeCombinedOn({ status: 'offline' }, 'KYOBO119', 'q16')).toBe(false);
+    expect(tailProbeCombinedOn(undefined, 'KYOBO119', 'q16')).toBe(false);
+  });
+
+  it('tailProbeCombinedSetOf — 다른 시장 계획 조각 + 다른 시장 보이는 탐침', () => {
+    expect([...tailProbeCombinedSetOf(KY, 'q16', 'K', [-300])].sort((a, b) => a - b)).toEqual([-345, -335, -300]);
+    expect([...tailProbeCombinedSetOf(KY, 'q16', 'Q', [])].sort((a, b) => a - b)).toEqual([-350, -340]);
+  });
+
+  it('tailProbeCombinedTitleOf — 코스피 패널 → 「코스닥과 …」 · 코스닥 패널 → 「코스피와 …」', () => {
+    expect(tailProbeCombinedTitleOf('K')).toBe('코스닥과 같은 시각 — 한 번에 쏨');
+    expect(tailProbeCombinedTitleOf('Q')).toBe('코스피와 같은 시각 — 한 번에 쏨');
   });
 });
 

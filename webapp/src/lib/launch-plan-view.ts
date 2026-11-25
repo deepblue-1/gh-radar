@@ -19,10 +19,14 @@
  */
 
 import {
+  LAUNCH_PLAN_LIMITS,
+  brokerOfServerKey,
   launchPlanEntryOf,
   launchPlanEntryStateOf,
   launchPlanProfileOf,
+  launchTailProbeChipText,
   launchTailProbeProfileOf,
+  parseLaunchTailProbeChip,
   validateLaunchPlanDraft,
   validateLaunchTailProbeDraft,
   type AdminServerResult,
@@ -33,6 +37,7 @@ import {
   type LaunchPlanEntry,
   type LaunchPlanResponse,
   type LaunchPlanSaveResponse,
+  type LaunchPlanServer,
   type LaunchRibbonCell,
   type LaunchTailProbe,
   type LaunchTailProbeChangeRow,
@@ -41,7 +46,7 @@ import {
   type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
-import { DASH, fmtUs, isCommonLaunchPlan } from './launch-format';
+import { COMMON_PLAN_BASE_MARKET, DASH, fmtUs, isCommonLaunchPlan } from './launch-format';
 import { mapNextOffsetOf } from './launch-map';
 
 /** 지도 탭의 계획 조회 상태. */
@@ -252,7 +257,7 @@ export function planStateWithSave(
   if (state.kind !== 'ready') return state;
   const servers = resp.plan === null ? state.resp.servers : { ...state.resp.servers, [gateway]: resp.plan };
   const changes = resp.change === null ? state.resp.changes : [resp.change, ...state.resp.changes];
-  // 나머지 키(tail_probe_changes 등 · quick-261107-l7w)는 그대로 둔다 — 계획 저장이 뒤탐침 이력을 지우지 않게.
+  // 나머지 키(tail_probe_changes 등 · quick-261107-l7w)는 그대로 둔다 — 계획 저장이 탐침 이력을 지우지 않게.
   return { kind: 'ready', resp: { ...state.resp, servers, changes } };
 }
 
@@ -311,7 +316,7 @@ export function planStateWithReload(
   }
   const seen = new Set(state.resp.changes.map((c) => c.id));
   const changes = [...state.resp.changes, ...resp.changes.filter((c) => !seen.has(c.id))];
-  // 뒤탐침 이력도 같은 규칙(id 로 합침 · quick-261107-l7w). 구 server 응답(키 없음)은 [] 로 읽는다.
+  // 탐침 이력도 같은 규칙(id 로 합침 · quick-261107-l7w). 구 server 응답(키 없음)은 [] 로 읽는다.
   const tpMine = state.resp.tail_probe_changes ?? [];
   const tpSeen = new Set(tpMine.map((c) => c.id));
   const tail_probe_changes = [...tpMine, ...(resp.tail_probe_changes ?? []).filter((c) => !tpSeen.has(c.id))];
@@ -496,102 +501,166 @@ export const LAUNCH_PLAN_APPLY_NOTE =
   '저장하면 서버 재기동 없이 다음 발사부터 적용돼요. 발사 1초 전(15:59:59 · 09:00:29) 이후에 저장하면 그다음 발사부터 적용돼요.';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 뒤탐침(quick-261107-l7w) — 「<서버> 뒤탐침」 줄 · 이력 표기
+// 탐침(quick-261125-lju) — 시장 패널 안 「탐침」 줄 · 이력 표기(채택 목업 mockup-probe-per-market-v4)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 구 서버 · relay 와이어 대기(ok 인데 tail_probes 없음) — 경고색 한 줄 · 고치기 버튼 없음. */
-export const TAIL_PROBE_UNSUPPORTED_TEXT = '이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요';
+/** 그 (서버, 발사, 시장) 목록이 94 에 없음(구 서버 · relay 와이어 대기) — 경고색 한 줄 · 고치기 버튼 없음. */
+export const TAIL_PROBE_UNSUPPORTED_TEXT = '이 서버 버전은 시장별 탐침을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요';
 
 /** 계획을 못 읽음(서버 non-ok · 조회 실패) — muted 한 줄 · 고치기 버튼 없음. */
-export const TAIL_PROBE_UNKNOWN_TEXT = '뒤탐침 값을 읽지 못했어요';
+export const TAIL_PROBE_UNKNOWN_TEXT = '탐침 값을 읽지 못했어요';
+
+/** 같은 µs 끼리 묶은 한 덩어리(정렬 순) — 「−270×2」. */
+export interface TailProbeGroup {
+  us: number;
+  n: number;
+}
+
+/** 값 목록 → 오름차순 묶음(같은 µs 는 n 으로 센다). */
+export function tailProbeGroupsOf(offsets: readonly number[]): TailProbeGroup[] {
+  const out: TailProbeGroup[] = [];
+  for (const v of [...offsets].sort((a, b) => a - b)) {
+    const last = out[out.length - 1];
+    if (last !== undefined && last.us === v) last.n += 1;
+    else out.push({ us: v, n: 1 });
+  }
+  return out;
+}
+
+/** 묶음 하나 표기 — 「−210」 · 「−270×2」(µs 단위는 줄 끝에 한 번). */
+export function tailProbeGroupText(g: TailProbeGroup): string {
+  return g.n > 1 ? `${fmtUs(g.us)}×${g.n}` : fmtUs(g.us);
+}
 
 /**
- * 뒤탐침 값 줄 — 굵게(`strong`) + 나머지(`rest`). 숫자는 양수 그대로(「+10」 · fmtUs 를 쓰지 않는다 — 늘 마지막 조각 뒤).
- * - count 0 → 「꺼짐」 + 「 · 0발」
- * - count 1 → 「1발 · 10µs 간격」 + 「 · 마지막 조각 뒤 +10µs」
- * - 그 밖 → 「5발 · 10µs 간격」 + 「 · 마지막 조각 뒤 +10 ~ +50µs」
+ * 탐침 줄 값 — 굵게(`strong`) + 묶음(`groups` · 각 뒤에 ⇄ 가 붙을 수 있다) + 나머지(`rest`).
+ * - [] → 「꺼짐」 + 「 · 0발」(묶음 없음)
+ * - 그 밖 → 「n발」 + 묶음(줄 글 = 「 · 」 + 묶음을 「 · 」 로 이은 것 + 「µs」)
  */
-export function tailProbeSummaryParts(v: LaunchTailProbeValue): { strong: string; rest: string } {
-  if (v.count <= 0) return { strong: '꺼짐', rest: ' · 0발' };
-  const first = v.step_us;
-  const last = v.count * v.step_us;
-  const span = v.count === 1 ? `+${first}µs` : `+${first} ~ +${last}µs`;
-  return { strong: `${v.count}발 · ${v.step_us}µs 간격`, rest: ` · 마지막 조각 뒤 ${span}` };
+export function tailProbeSummaryParts(offsets: readonly number[]): { strong: string; groups: TailProbeGroup[]; rest: string } {
+  if (offsets.length === 0) return { strong: '꺼짐', groups: [], rest: ' · 0발' };
+  return { strong: `${offsets.length}발`, groups: tailProbeGroupsOf(offsets), rest: '' };
 }
 
-/** 뒤탐침 값 줄 전체 문구(`tailProbeSummaryParts` 를 이은 것). */
-export function tailProbeSummaryText(v: LaunchTailProbeValue): string {
-  const p = tailProbeSummaryParts(v);
-  return `${p.strong}${p.rest}`;
+/** 탐침 줄 값 전체 문구 — 「5발 · −210 · −200µs」 · 「꺼짐 · 0발」. */
+export function tailProbeSummaryText(offsets: readonly number[]): string {
+  const p = tailProbeSummaryParts(offsets);
+  if (p.groups.length === 0) return `${p.strong}${p.rest}`;
+  return `${p.strong} · ${p.groups.map(tailProbeGroupText).join(' · ')}µs`;
 }
 
-/** 이력 전 · 후 값 — 「5발 · 10µs」 · 모르면(null) 「—」. */
-export function tailProbeValueText(v: LaunchTailProbeValue | null): string {
-  return v === null ? DASH : `${v.count}발 · ${v.step_us}µs`;
+/** 옛 개수 · 간격 값(구 서버 행 · 옛 이력) — 「뒤탐침 5발 10µs 간격」 · step 0 「뒤탐침 5발」 · count 0 「뒤탐침 꺼짐」. */
+export function tailProbeLegacyText(v: LaunchTailProbeValue): string {
+  if (v.count <= 0) return '뒤탐침 꺼짐';
+  return v.step_us > 0 ? `뒤탐침 ${v.count}발 ${v.step_us}µs 간격` : `뒤탐침 ${v.count}발`;
+}
+
+/** 이력 목록 값 — 「1발 −210µs」 · 「2발 −210 · −200µs」 · [] 「꺼짐」 · 모름(null) 「—」. */
+function tailProbeListText(offsets: readonly number[] | null): string {
+  if (offsets === null) return DASH;
+  if (offsets.length === 0) return '꺼짐';
+  return `${offsets.length}발 ${tailProbeGroupsOf(offsets).map(tailProbeGroupText).join(' · ')}µs`;
+}
+
+/** 이력 전 → 후 — 목록 행(after_offsets_us 있음)은 목록 표기 · 옛 행은 「뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격」. */
+export function tailProbeChangeText(row: LaunchTailProbeChangeRow): string {
+  if (row.after_offsets_us !== null) {
+    return `${tailProbeListText(row.before_offsets_us)} → ${tailProbeListText(row.after_offsets_us)}`;
+  }
+  const before =
+    row.before_count === null || row.before_step_us === null
+      ? DASH
+      : tailProbeLegacyText({ count: row.before_count, step_us: row.before_step_us });
+  const after =
+    row.after_count === null || row.after_step_us === null
+      ? DASH
+      : tailProbeLegacyText({ count: row.after_count, step_us: row.after_step_us });
+  return `${before} → ${after}`;
 }
 
 const tpByAtDesc = (a: LaunchTailProbeChangeRow, b: LaunchTailProbeChangeRow): number =>
   a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id;
 
-/** 이 (서버, 발사)의 뒤탐침 이력 — at 내림차순. ready 가 아니거나 구 server(키 없음)면 []. g0830 은 뒤탐침이 없다(타입으로 막는다). */
+/**
+ * 이 (서버, 발사, 시장)의 탐침 이력 — 그 시장 행 + 옛 행(market null · 시장 공통이던 개수 · 간격) · at 내림차순.
+ * ready 가 아니거나 구 server(키 없음)면 []. g0830 은 탐침이 없다(타입으로 막는다).
+ */
 export function tailProbeChangesOf(
   state: LaunchPlanState,
   gateway: string,
   fire: LaunchTailProbeFire,
+  market: LaunchMarket,
 ): LaunchTailProbeChangeRow[] {
   if (state.kind !== 'ready') return [];
-  return (state.resp.tail_probe_changes ?? []).filter((c) => c.gateway === gateway && c.fire === fire).sort(tpByAtDesc);
+  return (state.resp.tail_probe_changes ?? [])
+    .filter((c) => c.gateway === gateway && c.fire === fire && (c.market === market || c.market === null))
+    .sort(tpByAtDesc);
+}
+
+/**
+ * 「+ 추가」 칩 값 — 가장 늦은 유효 칩 + 10µs, 유효 칩이 없으면 그 시장 계획 마지막(가장 늦은) 조각 + 10µs ·
+ * 둘 다 없으면 정각(0). 한도 상한(`LAUNCH_PLAN_LIMITS[fire].maxUs`)에서 멈춘다. 칩 원문으로 돌려준다.
+ */
+export function tailProbeAddChipOf(
+  fire: LaunchTailProbeFire,
+  draft: readonly string[],
+  planOffsets: readonly number[],
+): string {
+  const lim = LAUNCH_PLAN_LIMITS[fire];
+  const ok = draft
+    .map(parseLaunchTailProbeChip)
+    .filter((v): v is number => v !== null && v >= lim.minUs && v <= lim.maxUs);
+  const ref = ok.length > 0 ? Math.max(...ok) : planOffsets.length > 0 ? Math.max(...planOffsets) : -10;
+  return launchTailProbeChipText(Math.max(lim.minUs, Math.min(lim.maxUs, ref + 10)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 뒤탐침 편집 · 저장(quick-261107-l7w) — 계획 편집 칸(35-15)과 같은 규칙
+// 탐침 편집 · 저장(quick-261125-lju) — 계획 편집 칸(35-15)과 같은 규칙
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 열린 뒤탐침 편집 칸(고른 서버 · 고른 발사 하나). 상태는 지도 탭이 쥔다.
- * - `count` = 스테퍼 숫자 · `stepRaw` = 간격 입력 원문(숫자로 바꾸지 않는다).
- * - `valid` = 마지막으로 검증을 통과한 값(S9 결) — 오류 동안에도 예정 칩 · 지도 초안 표식은 이 값을 그린다.
- * - `error` = 지금 초안의 첫 위반(shared `validateLaunchTailProbeDraft` 문구 원문) · 없으면 null.
- * - `base` = 칸을 열 때(또는 저장 뒤 다시 열 때)의 서버 값.
+ * 열린 탐침 편집 칸(고른 서버 · 고른 발사 · 패널 시장 하나). 상태는 지도 탭이 쥔다.
+ * - `market` = 편집 칸이 열린 패널 시장(교보 N 공통이어도 패널 자리 — 저장 · 상태 읽기 시장은 `tailProbeSaveMarketOf`).
+ * - `base` = 칸을 열 때(또는 저장 뒤 다시 열 때)의 서버 값(정렬).
+ * - `draft` = 칩 원문(입력 중 자리를 옮기지 않는다 — 정렬은 저장 값에만).
+ * - `valid` = 마지막으로 검증을 통과한 정렬 값 — 오류 동안에도 지도 초안 표식은 이 값을 그린다(S9 결).
  */
 export interface LaunchTailProbeEdit {
   gateway: string;
   fire: LaunchTailProbeFire;
-  base: LaunchTailProbeValue;
-  count: number;
-  stepRaw: string;
-  valid: LaunchTailProbeValue;
-  error: { field: 'count' | 'step'; message: string } | null;
+  market: LaunchMarket;
+  base: number[];
+  draft: string[];
+  valid: number[];
 }
 
-/** 「뒤탐침 고치기」 — 서버 값으로 칸을 채운다. */
-export function tailProbeEditOf(gateway: string, fire: LaunchTailProbeFire, base: LaunchTailProbeValue): LaunchTailProbeEdit {
-  return {
-    gateway,
-    fire,
-    base: { ...base },
-    count: base.count,
-    stepRaw: String(base.step_us),
-    valid: { ...base },
-    error: null,
-  };
+/** 「탐침 고치기」 — 서버 값(정렬)으로 칩을 채운다. */
+export function tailProbeEditOf(
+  gateway: string,
+  fire: LaunchTailProbeFire,
+  market: LaunchMarket,
+  base: readonly number[],
+): LaunchTailProbeEdit {
+  const sorted = [...base].sort((a, b) => a - b);
+  return { gateway, fire, market, base: sorted, draft: sorted.map(launchTailProbeChipText), valid: [...sorted] };
 }
 
-/** 입력 반영 — 검증이 통과할 때만 `valid` 를 바꾸고, 아니면 `valid` 유지 + error(검증은 shared 한 벌). */
-export function tailProbeEditWithDraft(edit: LaunchTailProbeEdit, count: number, stepRaw: string): LaunchTailProbeEdit {
-  const check = validateLaunchTailProbeDraft(count, stepRaw);
-  return check.ok
-    ? { ...edit, count, stepRaw, valid: check.value, error: null }
-    : { ...edit, count, stepRaw, error: { field: check.field, message: check.message } };
-}
-
-/** 같은 뒤탐침 값인가. */
-export function sameTailProbe(a: LaunchTailProbeValue, b: LaunchTailProbeValue): boolean {
-  return a.count === b.count && a.step_us === b.step_us;
+/** 입력 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(검증은 shared 한 벌). */
+export function tailProbeEditWithDraft(edit: LaunchTailProbeEdit, draft: string[]): LaunchTailProbeEdit {
+  const check = validateLaunchTailProbeDraft(edit.fire, draft);
+  return { ...edit, draft, valid: check.ok ? check.values : edit.valid };
 }
 
 /**
- * 뒤탐침 저장 응답 → 계획 상태. 응답 plan 이 있으면 그 서버를 통째로 바꾸고(실패여도 relay 가 다시 읽은 값이면 그것이 지금 값),
+ * 저장 · 상태 읽기 시장 — 교보 09:00:30 N 공통이면 `COMMON_PLAN_BASE_MARKET`(K), 아니면 그 패널 시장.
+ * PUT 은 늘 1건이다(계획 저장의 K → Q 두 번 보내기와 다르다 — gh-trade 가 한 번으로 두 행을 맞춘다).
+ */
+export function tailProbeSaveMarketOf(gateway: string, fire: LaunchTailProbeFire, market: LaunchMarket): LaunchMarket {
+  return isCommonLaunchPlan(gateway, fire) ? COMMON_PLAN_BASE_MARKET : market;
+}
+
+/**
+ * 탐침 저장 응답 → 계획 상태. 응답 plan 이 있으면 그 서버를 통째로 바꾸고(실패여도 relay 가 다시 읽은 값이면 그것이 지금 값),
  * change 가 있으면 `tail_probe_changes` 맨 앞에 넣는다(null = 기록 실패 · 늘리지 않는다). ready 가 아니면 그대로.
  */
 export function tailProbeStateWithSave(
@@ -607,55 +676,94 @@ export function tailProbeStateWithSave(
 }
 
 /**
- * 뒤탐침 저장 ok · 응답 plan 없음 — 그 서버 `tail_probes` 의 그 profile 행만 보낸 값으로(code 0 = 그 값이 들어갔다). 배열이 없으면
- * 그 행 하나로 만든다. ready 가 아니거나 그 서버가 ok 가 아니면 그대로.
+ * 탐침 저장 ok · 응답 plan 없음 — 그 서버 `tail_probes` 의 (profile, market) 행을 보낸 값으로(code 0 = 그 값이 들어갔다).
+ * 교보 N 공통이면 [K, Q] 두 행 다(gh-trade 가 두 행을 맞춘다). 행 = { profile, count: 길이, step_us: 0, market, offsets_us } ·
+ * 없으면 덧붙인다. ready 가 아니거나 그 서버가 ok 가 아니면 그대로.
  */
 export function tailProbeStateWithSent(
   state: LaunchPlanState,
   gateway: string,
   fire: LaunchTailProbeFire,
-  value: LaunchTailProbeValue,
+  markets: readonly LaunchMarket[],
+  offsets: readonly number[],
 ): LaunchPlanState {
   if (state.kind !== 'ready') return state;
   const server = state.resp.servers[gateway];
   if (server === undefined || server.status !== 'ok') return state;
   const profile = launchTailProbeProfileOf(fire);
-  const row: LaunchTailProbe = { profile, count: value.count, step_us: value.step_us };
-  const rows = server.tail_probes ?? [];
-  const tail_probes = rows.some((t) => t.profile === profile)
-    ? rows.map((t) => (t.profile === profile ? row : t))
-    : [...rows, row];
+  let tail_probes: LaunchTailProbe[] = [...(server.tail_probes ?? [])];
+  for (const market of markets) {
+    const row: LaunchTailProbe = { profile, count: offsets.length, step_us: 0, market, offsets_us: [...offsets] };
+    tail_probes = tail_probes.some((t) => t.profile === profile && t.market === market)
+      ? tail_probes.map((t) => (t.profile === profile && t.market === market ? row : t))
+      : [...tail_probes, row];
+  }
   return { kind: 'ready', resp: { ...state.resp, servers: { ...state.resp.servers, [gateway]: { ...server, tail_probes } } } };
 }
 
-/** 계획 상태가 아는 뒤탐침 이력 id 최댓값 — 없으면 0(`tailProbeSaveRowSeenIn` 기준 · 35 R3-IN-01 결). */
+/** 계획 상태가 아는 탐침 이력 id 최댓값 — 없으면 0(`tailProbeSaveRowSeenIn` 기준 · 35 R3-IN-01 결). */
 export function maxTailProbeChangeIdOf(state: LaunchPlanState): number {
   if (state.kind !== 'ready') return 0;
   return (state.resp.tail_probe_changes ?? []).reduce((m, c) => (c.id > m ? c.id : m), 0);
 }
 
 /**
- * 다시 읽은 뒤탐침 이력에 이 저장의 행이 보이나 — 같은 (서버, 발사) · 같은 보낸 값 · 저장 직전에 알던 id(`afterId`)보다 새 행.
- * 보이면 다시 읽기의 조회가 그 저장 처리 뒤에 나갔다(`saveRowSeenIn` 과 같은 근거).
+ * 다시 읽은 탐침 이력에 이 저장의 행이 보이나 — 같은 (서버, 발사, 저장 시장) · 같은 보낸 목록 · 저장 직전에 알던 id(`afterId`)보다
+ * 새 행. 보이면 다시 읽기의 조회가 그 저장 처리 뒤에 나갔다(`saveRowSeenIn` 과 같은 근거).
  */
 export function tailProbeSaveRowSeenIn(
   rows: readonly LaunchTailProbeChangeRow[],
-  save: { gateway: string; fire: LaunchTailProbeFire; value: LaunchTailProbeValue; afterId: number },
+  save: { gateway: string; fire: LaunchTailProbeFire; market: LaunchMarket; offsets: readonly number[]; afterId: number },
 ): boolean {
   return rows.some(
     (c) =>
       c.id > save.afterId &&
       c.gateway === save.gateway &&
       c.fire === save.fire &&
-      c.after_count === save.value.count &&
-      c.after_step_us === save.value.step_us,
+      c.market === save.market &&
+      c.after_offsets_us !== null &&
+      sameOffsets(c.after_offsets_us, save.offsets),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⇄ 「다른 시장과 한 번에 쏨」(quick-261125-lju · gh-trade 확정 — 94 말미 bool)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARKET_NAME: Record<LaunchMarket, string> = { K: '코스피', Q: '코스닥' };
+const otherMarketOf = (m: LaunchMarket): LaunchMarket => (m === 'K' ? 'Q' : 'K');
+
+/**
+ * ⇄ 판정 한 곳 — 16:00(q16) · 교보 서버 · 서버 ok · `kyobo_q16_combined === true` 일 때만 참.
+ * 칸이 없으면(구 서버 · 지금 와이어) 꺼짐 — 「교보 서버 = 켜짐」 으로 가정하지 않는다(gh-trade 정정 2026-11-25).
+ * KB 는 bool 이 true 로 와도 거짓(시장마다 회선이 따로라 묶음이 없다).
+ */
+export function tailProbeCombinedOn(server: LaunchPlanServer | undefined, gateway: string, fire: LaunchFire): boolean {
+  return (
+    fire === 'q16' &&
+    brokerOfServerKey(gateway) === 'KYOBO' &&
+    server !== undefined &&
+    server.status === 'ok' &&
+    server.kyobo_q16_combined === true
   );
 }
 
 /**
- * 시장 패널 「다음 발사 계획」 줄 꼬리(목업 변형 C `.plan .pr`) — count > 0 「+ 뒤탐침 5발 · 10µs」 · 0 「· 뒤탐침 꺼짐」.
- * 구 서버 · 계획 대신 값이면 지도 탭이 꼬리를 주지 않는다.
+ * 이 시장 값에 ⇄ 를 붙일 µs 집합 — 다른 시장의 서버 계획 조각 + 다른 시장의 보이는 탐침 값(`otherProbes` — 그 시장 편집 중이면
+ * 유효 초안, 아니면 서버 값). `tailProbeCombinedOn` 이 참일 때만 부른다.
  */
-export function tailProbePlanSuffixText(v: LaunchTailProbeValue): string {
-  return v.count > 0 ? `+ 뒤탐침 ${v.count}발 · ${v.step_us}µs` : '· 뒤탐침 꺼짐';
+export function tailProbeCombinedSetOf(
+  server: LaunchPlanServer | undefined,
+  fire: LaunchTailProbeFire,
+  market: LaunchMarket,
+  otherProbes: readonly number[],
+): Set<number> {
+  const plan = launchPlanEntryOf(server, fire, otherMarketOf(market))?.offsets_us ?? [];
+  return new Set([...plan, ...otherProbes]);
+}
+
+/** ⇄ title — 다른 시장이 코스피면 「코스피와 같은 시각 — 한 번에 쏨」 · 코스닥이면 「코스닥과 같은 시각 — 한 번에 쏨」. */
+export function tailProbeCombinedTitleOf(market: LaunchMarket): string {
+  const other = otherMarketOf(market);
+  return `${MARKET_NAME[other]}${other === 'K' ? '와' : '과'} 같은 시각 — 한 번에 쏨`;
 }

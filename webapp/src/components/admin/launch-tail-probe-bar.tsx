@@ -3,16 +3,16 @@
 import type { ReactNode } from 'react';
 
 import {
-  LAUNCH_TAIL_PROBE_LIMITS,
-  launchServerLabelOf,
-  launchTailProbeOffsets,
+  LAUNCH_TAIL_PROBE_MAX_SHOTS,
+  launchTailProbeChipText,
   launchTailProbeStateOf,
+  parseLaunchTailProbeChip,
+  shiftLaunchTailProbeDraft,
   validateLaunchTailProbeDraft,
+  type LaunchMarket,
   type LaunchTailProbeFire,
-  type LaunchTailProbeValue,
 } from '@gh-radar/shared';
 
-import { CARD } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -21,11 +21,14 @@ import {
   TAIL_PROBE_UNSUPPORTED_TEXT,
   changeAtText,
   changeOutcomeView,
-  sameTailProbe,
+  sameOffsets,
   saveResultViewOf,
+  tailProbeAddChipOf,
+  tailProbeChangeText,
   tailProbeChangesOf,
+  tailProbeGroupText,
+  tailProbeLegacyText,
   tailProbeSummaryParts,
-  tailProbeValueText,
   type LaunchPlanState,
   type SaveTone,
 } from '@/lib/launch-plan-view';
@@ -35,63 +38,88 @@ import type { LaunchPlanSaveState } from './launch-plan-editor';
 import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from './reflect-chip';
 
 /**
- * 「<서버> 뒤탐침」 줄 — 경계 지도 탭 요약 카드 아래 · 시장 패널 위(quick-261107-l7w · 채택 목업
- * `mockup-tail-probe-setting.html` 변형 C `.tp`). 고른 서버 · 고른 발사(16:00 Q16 / 09:00:30 N) 하나의 뒤탐침 개수 · 간격.
- * 코스피 · 코스닥 공통(gh-trade 계약 — 단위 = (서버, profile)).
+ * 「탐침」 줄 · 편집 칸 · ⇄ — 경계 지도 시장 패널 안 「다음 발사 계획」 줄 바로 아래(quick-261125-lju · 채택 목업
+ * `reference/mockup-probe-per-market-v4.html` 의 `panel()` · `editor()` 가 정본).
+ * 값 = 정각 기준 부호 있는 µs 목록(시장별 · 0 ~ 10발 · 교보 09:00:30 N 은 공통 한 목록).
  *
- * 상태(`data-state`):
+ * `LaunchTailProbeLine` 상태(`data-state`):
  * - 계획 absent(배포 전 404) → 아무것도 그리지 않는다(계획 기능과 같이 숨김).
  * - loading → 값 자리 스켈레톤.
- * - unknown(계획을 못 읽음 — 서버 non-ok · 조회 실패) → muted 「뒤탐침 값을 읽지 못했어요」 · 고치기 버튼 없음.
- * - unsupported(ok 인데 tail_probes 없음 — 구 서버 · relay 와이어 대기) → 경고색(`data-tone="warn"` · `--led-latent`)
- *   「이 서버 버전은 뒤탐침 설정을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요」 · 고치기 버튼 없음.
- * - set(count > 0) → 「5발 · 10µs 간격」 굵은 `--primary` + 「 · 마지막 조각 뒤 +10 ~ +50µs」.
- * - off(count 0) → 「꺼짐」 굵은 muted + 「 · 0발」.
+ * - unknown(계획을 못 읽음 — 서버 non-ok · 조회 실패) → muted 「탐침 값을 읽지 못했어요」 · 고치기 버튼 없음.
+ * - unsupported(그 시장 목록이 94 에 없음 — 구 서버 · relay 와이어 대기) → 경고색(`data-tone="warn"` · `--led-latent`)
+ *   「이 서버 버전은 시장별 탐침을 몰라요 — …」 + 옛 개수 · 간격 행이 있으면 「 · 지금 뒤탐침 5발 10µs 간격」 · 고치기 버튼 없음.
+ * - set → 「탐침 」 + 굵은 `--primary` 「n발」 + 「 · 」 + 묶음(−270×2 · ⇄) + 「µs」.
+ * - off(빈 목록) → 「탐침 」 + 굵은 muted 「꺼짐」 + 「 · 0발」.
  *
- * 「뒤탐침 고치기」/「닫기」 는 `onToggle` 이 있고 set · off 일 때만 그린다. `children` = 편집 칸 자리(`editing` 일 때).
- * 이력이 있으면 「변경 이력 n」 접힘(그 서버 · 그 발사 행만 · 최근 `LAUNCH_PLAN_HISTORY_MAX` 행 · 결과 알약은 Admin 칩 한 벌).
- * 글자 12.5px · tabular-nums · flex-wrap · break-keep(폰 390 에서 줄바꿈 · 표는 가로 스크롤).
+ * 「탐침 고치기」/「닫기」 는 `onToggle` 이 있고 set · off 일 때만. `children` = 편집 칸 자리(`editing` 일 때).
+ * 이력 접힘 「탐침 변경 이력 n」 = 그 시장 행 + 옛 행(market null) · 최근 `LAUNCH_PLAN_HISTORY_MAX` 행 · 결과 알약은 Admin 칩 한 벌.
+ * 서버 라벨 제목 · 「코스피 · 코스닥 공통」 부제는 없다(패널 머리가 이미 서버 · 시장을 말한다).
+ * 위치 경고(실조각 앞 · 사이 · 뒤)는 어디에도 없다(사용자 결정).
+ * 글자 12.5px · tabular-nums · flex-wrap · break-keep(폰 390 에서 줄바꿈 · 칩 줄바꿈 · 표는 가로 스크롤).
  */
 
-export interface LaunchTailProbeBarProps {
-  gateway: string;
-  /** q16 · n0930 만 — 08:30(G2)은 뒤탐침이 없다(인박스 261125-sigan-ttaeng-g2 ⓑ · 지도 탭이 막대를 그리지 않는다). */
-  fire: LaunchTailProbeFire;
-  plan: LaunchPlanState;
-  now?: Date;
-  /** 편집 칸이 열려 있는가. */
-  editing?: boolean;
-  /** 「뒤탐침 고치기」/「닫기」 — 없으면 버튼을 그리지 않는다. */
-  onToggle?: () => void;
-  /** 편집 칸(열렸을 때). */
-  children?: ReactNode;
+export type LaunchTailProbeLineState = 'loading' | 'unknown' | 'unsupported' | 'set' | 'off';
+
+/** ⇄ 「다른 시장과 한 번에 쏨」 — 목업 `.ch`(10px 굵게 · `--primary` · 옅은 바탕 · 둥근 모서리). */
+export function CombinedMark({ title }: { title: string }) {
+  return (
+    <span
+      data-slot="launch-combined"
+      title={title}
+      aria-label={title}
+      className="ml-[3px] inline-flex items-center justify-center rounded-[5px] bg-[color-mix(in_oklab,var(--primary)_14%,transparent)] px-1 text-[10px] leading-4 font-bold text-[var(--primary)]"
+    >
+      ⇄
+    </span>
+  );
 }
 
-export type LaunchTailProbeBarState = 'loading' | 'unknown' | 'unsupported' | 'set' | 'off';
+export interface LaunchTailProbeLineProps {
+  gateway: string;
+  /** q16 · n0930 만 — 08:30(G2)은 탐침이 없다(인박스 261125-sigan-ttaeng-g2 ⓑ · 지도 탭이 줄을 그리지 않는다). */
+  fire: LaunchTailProbeFire;
+  /** 패널 시장(이력 거르기 · data-market). */
+  market: LaunchMarket;
+  /** 상태 읽기 시장 — 교보 N 공통이면 K(`tailProbeSaveMarketOf`) · 아니면 패널 시장. */
+  stateMarket: LaunchMarket;
+  plan: LaunchPlanState;
+  now?: Date;
+  editing?: boolean;
+  /** 「탐침 고치기」/「닫기」 — 없으면 버튼을 그리지 않는다. */
+  onToggle?: () => void;
+  /** ⇄ 를 붙일 µs 집합 — 없거나 비면 붙이지 않는다. */
+  combined?: ReadonlySet<number> | null;
+  combinedTitle?: string;
+  children?: ReactNode;
+}
 
 const TH = 'bg-[var(--band)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
 const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
 
-export function LaunchTailProbeBar({
+export function LaunchTailProbeLine({
   gateway,
   fire,
+  market,
+  stateMarket,
   plan,
   now = new Date(),
   editing = false,
   onToggle,
+  combined = null,
+  combinedTitle = '',
   children,
-}: LaunchTailProbeBarProps) {
+}: LaunchTailProbeLineProps) {
   if (plan.kind === 'absent') return null;
   const st =
     plan.kind === 'loading'
       ? null
       : plan.kind === 'error'
         ? ({ kind: 'unknown' } as const)
-        : launchTailProbeStateOf(plan.resp.servers[gateway], fire);
-  const state: LaunchTailProbeBarState =
-    st === null ? 'loading' : st.kind === 'set' ? (st.value.count > 0 ? 'set' : 'off') : st.kind;
+        : launchTailProbeStateOf(plan.resp.servers[gateway], fire, stateMarket);
+  const state: LaunchTailProbeLineState =
+    st === null ? 'loading' : st.kind === 'set' ? (st.offsets_us.length > 0 ? 'set' : 'off') : st.kind;
   const editable = st !== null && st.kind === 'set';
-  const changes = tailProbeChangesOf(plan, gateway, fire);
+  const changes = tailProbeChangesOf(plan, gateway, fire, market);
   const rows = changes.slice(0, LAUNCH_PLAN_HISTORY_MAX);
 
   return (
@@ -100,32 +128,39 @@ export function LaunchTailProbeBar({
       data-state={state}
       data-gateway={gateway}
       data-fire={fire}
+      data-market={market}
       aria-busy={state === 'loading' ? 'true' : undefined}
-      className={cn(
-        CARD,
-        'flex min-w-0 flex-col gap-2 px-3.5 py-3 text-[12.5px] text-[var(--muted-fg)] ring-1 ring-[var(--border-subtle)] ring-inset dark:ring-0',
-      )}
+      className="flex min-w-0 flex-col gap-1.5 text-[12.5px] text-[var(--muted-fg)]"
     >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <h3 data-slot="launch-tail-probe-title" className="text-[14px] font-bold text-[var(--fg)]">
-          {`${launchServerLabelOf(gateway)} 뒤탐침`}
-        </h3>
-        <small className="text-[11.5px] font-normal break-keep text-[var(--muted-fg)]">코스피 · 코스닥 공통</small>
-      </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-        {state === 'loading' && <Skeleton className="h-3.5 w-48" />}
+        {state === 'loading' && (
+          <>
+            <span className="whitespace-nowrap">탐침</span>
+            <Skeleton className="h-3.5 w-40" />
+          </>
+        )}
         {state !== 'loading' && (
           <span
             data-slot="launch-tail-probe-summary"
             data-tone={state === 'unsupported' ? 'warn' : undefined}
             className={cn(
-              'break-keep tabular-nums',
+              'min-w-0 break-keep tabular-nums',
               state === 'unsupported' && 'font-semibold text-[var(--led-latent)]',
             )}
           >
             {state === 'unknown' && TAIL_PROBE_UNKNOWN_TEXT}
-            {state === 'unsupported' && TAIL_PROBE_UNSUPPORTED_TEXT}
-            {st !== null && st.kind === 'set' && <SummaryValue count={st.value.count} stepUs={st.value.step_us} />}
+            {st !== null && st.kind === 'unsupported' && (
+              <>
+                {TAIL_PROBE_UNSUPPORTED_TEXT}
+                {st.legacy !== null && ` · 지금 ${tailProbeLegacyText(st.legacy)}`}
+              </>
+            )}
+            {st !== null && st.kind === 'set' && (
+              <>
+                {'탐침 '}
+                <SummaryValue offsets={st.offsets_us} combined={combined} combinedTitle={combinedTitle} />
+              </>
+            )}
           </span>
         )}
         {onToggle !== undefined && editable && (
@@ -140,7 +175,7 @@ export function LaunchTailProbeBar({
               onClick={onToggle}
               className={ADMIN_BUTTON_SECONDARY}
             >
-              {editing ? '닫기' : '뒤탐침 고치기'}
+              {editing ? '닫기' : '탐침 고치기'}
             </Button>
           </>
         )}
@@ -148,7 +183,7 @@ export function LaunchTailProbeBar({
       {editing && editable && children}
       {rows.length > 0 && (
         <details data-slot="launch-tail-probe-history-fold" className="min-w-0">
-          <summary className="cursor-pointer font-semibold select-none">{`변경 이력 ${changes.length}`}</summary>
+          <summary className="cursor-pointer font-semibold select-none">{`탐침 변경 이력 ${changes.length}`}</summary>
           <div className="mt-2 min-w-0 overflow-x-auto">
             <table
               data-slot="launch-tail-probe-history"
@@ -165,17 +200,11 @@ export function LaunchTailProbeBar({
               <tbody>
                 {rows.map((r) => {
                   const out = changeOutcomeView(r);
-                  const before =
-                    r.before_count === null || r.before_step_us === null
-                      ? null
-                      : { count: r.before_count, step_us: r.before_step_us };
                   return (
-                    <tr key={r.id}>
+                    <tr key={r.id} data-market={r.market ?? undefined}>
                       <td className={cn(TD, 'tabular-nums')}>{changeAtText(r.at, now)}</td>
                       <td className={TD}>{r.admin_email}</td>
-                      <td className={cn(TD, 'tabular-nums')}>
-                        {`${tailProbeValueText(before)} → ${tailProbeValueText({ count: r.after_count, step_us: r.after_step_us })}`}
-                      </td>
+                      <td className={cn(TD, 'tabular-nums')}>{tailProbeChangeText(r)}</td>
                       <td className={TD}>
                         <span
                           data-slot="launch-tail-probe-outcome"
@@ -198,151 +227,215 @@ export function LaunchTailProbeBar({
   );
 }
 
-/** 값 줄 — set 은 굵은 `--primary` · off(「꺼짐」)는 굵은 muted. */
-function SummaryValue({ count, stepUs }: { count: number; stepUs: number }) {
-  const p = tailProbeSummaryParts({ count, step_us: stepUs });
+/** 값 — set 은 굵은 `--primary` 「n발」 + 묶음(⇄) + 「µs」 · off 는 굵은 muted 「꺼짐」 + 「 · 0발」. */
+function SummaryValue({
+  offsets,
+  combined,
+  combinedTitle,
+}: {
+  offsets: readonly number[];
+  combined: ReadonlySet<number> | null;
+  combinedTitle: string;
+}) {
+  const p = tailProbeSummaryParts(offsets);
+  if (p.groups.length === 0) {
+    return (
+      <>
+        <b className="font-bold text-[var(--muted-fg)]">{p.strong}</b>
+        {p.rest}
+      </>
+    );
+  }
   return (
     <>
-      <b className={cn('font-bold', count > 0 ? 'text-[var(--primary)]' : 'text-[var(--muted-fg)]')}>{p.strong}</b>
-      {p.rest}
+      <b className="font-bold text-[var(--primary)]">{p.strong}</b>
+      {' · '}
+      {p.groups.map((g, i) => (
+        <span key={`${g.us}|${i}`} data-slot="launch-tail-probe-value" data-us={g.us}>
+          {i > 0 && ' · '}
+          {tailProbeGroupText(g)}
+          {combined !== null && combined.has(g.us) && <CombinedMark title={combinedTitle} />}
+        </span>
+      ))}
+      µs
     </>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 편집 칸(목업 변형 C `.ed`)
+// 편집 칸(목업 v4 `.ed`)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** 전체 이동 버튼 — 목업 SHIFTS(−10 −5 −3 −1 | +1 +3 +5 +10). */
+const SHIFT_LEFT = [-10, -5, -3, -1] as const;
+const SHIFT_RIGHT = [1, 3, 5, 10] as const;
+
+const MARKET_NAME: Record<LaunchMarket, string> = { K: '코스피', Q: '코스닥' };
 
 export interface LaunchTailProbeEditorProps {
   gateway: string;
   fire: LaunchTailProbeFire;
-  /** 서버 현재 값 — 「되돌리기」 · 변경 없음 판정 기준. */
-  server: LaunchTailProbeValue;
-  count: number;
-  stepRaw: string;
-  /** 마지막 유효 값 — 예정 칩(오류 동안에도 지우지 않는다). */
-  preview: LaunchTailProbeValue;
-  onDraft: (count: number, stepRaw: string) => void;
+  /** 편집 칸이 열린 패널 시장(라벨 · 힌트). */
+  market: LaunchMarket;
+  /** 교보 09:00:30 N 공통 한 목록인가(힌트 「코스피 · 코스닥 공통」). */
+  common?: boolean;
+  /** 서버 현재 값(정렬) — 「되돌리기」 · 변경 없음 판정 기준. */
+  server: readonly number[];
+  /** 칩 원문(입력 중 자리 불변). */
+  draft: readonly string[];
+  /** 그 시장 계획 조각 — 「+ 추가」 기준(유효 칩이 없을 때). */
+  planOffsets: readonly number[];
+  /** ⇄ 를 붙일 µs 집합 — 없거나 비면 붙이지 않는다. */
+  combined?: ReadonlySet<number> | null;
+  combinedTitle?: string;
+  onDraft: (draft: string[]) => void;
   onSave: () => void;
   saving?: boolean;
-  /** 마지막 저장 결과(이 서버 · 이 발사) — 없으면 null. */
+  /** 마지막 저장 결과(이 서버 · 이 발사 · 이 시장) — 없으면 null. */
   result?: LaunchPlanSaveState | null;
 }
 
-const LABEL = 'min-w-[44px] text-[12.5px] font-semibold text-[var(--muted-fg)]';
+const LABEL = 'min-w-[44px] shrink-0 text-[12.5px] font-semibold text-[var(--muted-fg)]';
 const HINT = 'text-[11.5px] break-keep text-[var(--muted-fg)]';
-const STEP_BTN =
-  'inline-flex size-8 items-center justify-center text-[16px] text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-40';
+const SHIFT_BTN =
+  'h-7 min-w-[34px] rounded-[7px] px-1 text-[12px] font-semibold text-[var(--fg)] tabular-nums enabled:hover:bg-[var(--card)] disabled:cursor-not-allowed disabled:opacity-35';
 const LINE_TONE: Record<SaveTone, string> = {
   ok: 'text-[var(--muted-fg)]',
   err: 'text-[var(--destructive)]',
   warn: 'text-[var(--led-latent)]',
 };
 
+/** 입력값 거르기 — 숫자와 + 만 남긴다(폰 숫자 키패드 · 붙여넣기). */
+const chipInputOf = (raw: string): string => raw.replace(/[^\d+]/g, '');
+
 /**
- * 「뒤탐침 고치기」 편집 칸 — 발 수 스테퍼(`LAUNCH_TAIL_PROBE_LIMITS` · 0 = 끔) · 간격 입력(µs) · 예정 칩(+10µs · +20µs …) ·
- * 되돌리기 · 저장 · 결과 줄(계획 저장과 같은 그림 — `saveResultViewOf`). 상태는 부모(지도 탭)가 쥔다.
- * - 검증 위반 = alert 한 줄(shared 문구 원문) · 간격 칸 `aria-invalid` · 저장 비활성 · 예정 칩은 직전 유효 값.
- * - 「저장」 은 유효 · 서버 값과 다름 · 저장 중 아님일 때만. 「되돌리기」 = 서버 값(같으면 비활성).
- * - 저장 중에도 입력은 막지 않는다(계획 편집 칸 규칙).
+ * 「탐침 고치기」 편집 칸(목업 v4 `.ed`) — 전체 이동 8버튼 · 칩 한 묶음(− 고정 접두 · + 는 정각 뒤 · × 삭제 · 「+ 추가」) · 힌트 ·
+ * alert(shared 검증 문구) · 결과 줄 · 되돌리기 · 저장. 상태는 부모(지도 탭)가 쥔다.
+ * - 전체 이동 = `shiftLaunchTailProbeDraft` 한 함수 — null 이면 그 버튼 비활성(한 발이라도 한도 밖 · 검증 오류 · 빈 초안).
+ * - 입력 중 칩 순서는 바뀌지 않는다(정렬은 저장 값에만). 저장 중에도 입력은 막지 않는다(계획 편집 칸 규칙).
+ * - 「저장」 은 검증 통과 · 정렬 값이 서버 값과 다름 · 저장 중 아님일 때만. 「되돌리기」 = 서버 칩(같으면 비활성).
  */
 export function LaunchTailProbeEditor({
   gateway,
   fire,
+  market,
+  common = false,
   server,
-  count,
-  stepRaw,
-  preview,
+  draft,
+  planOffsets,
+  combined = null,
+  combinedTitle = '',
   onDraft,
   onSave,
   saving = false,
   result = null,
 }: LaunchTailProbeEditorProps) {
-  const lim = LAUNCH_TAIL_PROBE_LIMITS;
-  const check = validateLaunchTailProbeDraft(count, stepRaw);
-  const changed = check.ok && !sameTailProbe(check.value, server);
-  const canSave = check.ok && changed && !saving;
-  const pristine = count === server.count && stepRaw === String(server.step_us);
-  const stepBad = !check.ok && check.field === 'step';
-  const offsets = launchTailProbeOffsets(0, preview);
+  const check = validateLaunchTailProbeDraft(fire, draft);
+  const bad = new Set(check.ok ? [] : check.badIdx);
+  const changed = check.ok && !sameOffsets(check.values, server);
+  const canSave = changed && !saving;
+  const serverChips = server.map(launchTailProbeChipText);
+  const pristine = draft.length === serverChips.length && draft.every((v, i) => v === serverChips[i]);
+  const full = draft.length >= LAUNCH_TAIL_PROBE_MAX_SHOTS;
   const view = result === null ? null : saveResultViewOf(result.result, fire, result.at, result.reread);
+  const name = MARKET_NAME[market];
+
+  const shiftButton = (delta: number) => {
+    const next = shiftLaunchTailProbeDraft(fire, draft, delta);
+    const label = delta < 0 ? `−${-delta}` : `+${delta}`;
+    return (
+      <button
+        key={delta}
+        type="button"
+        data-slot="launch-tail-probe-shift"
+        data-delta={delta}
+        aria-label={`전체 ${label}µs`}
+        disabled={next === null || saving}
+        onClick={() => next !== null && onDraft(next)}
+        className={SHIFT_BTN}
+      >
+        {label}
+      </button>
+    );
+  };
 
   return (
     <div
       data-slot="launch-tail-probe-editor"
       data-gateway={gateway}
+      data-market={market}
       className="flex min-w-0 flex-col gap-2.5 rounded-[12px] bg-[var(--band)] px-3 py-3 text-[12.5px] text-[var(--fg-2)]"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className={LABEL}>발 수</span>
-        <span className="inline-flex items-center rounded-[9px] bg-[var(--muted)]">
-          <button
-            type="button"
-            data-slot="launch-tail-probe-dec"
-            aria-label="발 수 줄이기"
-            disabled={count <= lim.minCount}
-            onClick={() => onDraft(Math.max(lim.minCount, count - 1), stepRaw)}
-            className={STEP_BTN}
-          >
-            −
-          </button>
-          <b data-slot="launch-tail-probe-count" className="min-w-7 text-center text-[14px] text-[var(--fg)] tabular-nums">
-            {count}
-          </b>
-          <button
-            type="button"
-            data-slot="launch-tail-probe-inc"
-            aria-label="발 수 늘리기"
-            disabled={count >= lim.maxCount}
-            onClick={() => onDraft(Math.min(lim.maxCount, count + 1), stepRaw)}
-            className={STEP_BTN}
-          >
-            +
-          </button>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+        <span className={LABEL}>전체 이동</span>
+        <span className="inline-flex flex-wrap items-stretch gap-px rounded-[9px] bg-[var(--muted)] p-0.5">
+          {SHIFT_LEFT.map(shiftButton)}
+          <span aria-hidden className="mx-0.5 my-[5px] w-px bg-[var(--border-subtle)]" />
+          {SHIFT_RIGHT.map(shiftButton)}
         </span>
-        <span className={HINT}>{`${lim.minCount} ~ ${lim.maxCount} · 0 = 끔`}</span>
+        <span className={HINT}>{`µs · ${common ? '코스피 · 코스닥 공통' : `${name} 탐침만`} · − 더 이르게 · + 더 늦게`}</span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className={LABEL}>간격</span>
-        <label
-          className={cn(
-            'inline-flex h-8 w-[92px] shrink-0 items-center gap-1 rounded-[9px] bg-[var(--muted)] px-2.5',
-            stepBad && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
-          )}
-        >
-          <input
-            data-slot="launch-tail-probe-step"
-            inputMode="numeric"
-            autoComplete="off"
-            aria-label="뒤탐침 간격(µs)"
-            aria-invalid={stepBad ? true : undefined}
-            value={stepRaw}
-            onChange={(e) => onDraft(count, e.target.value)}
-            className="w-full min-w-0 border-0 bg-transparent text-right text-[14px] font-semibold text-[var(--fg)] tabular-nums outline-none"
-          />
-          <small className="text-[11px] text-[var(--muted-fg)]">µs</small>
-        </label>
-        <span className={HINT}>{`${lim.minStepUs} ~ ${lim.maxStepUs}µs · 첫 발 = 마지막 조각 + 간격`}</span>
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className={LABEL}>예정</span>
-        {offsets.length === 0 ? (
-          <span data-slot="launch-tail-probe-preview-off" className={HINT}>
-            뒤탐침을 쏘지 않아요
-          </span>
-        ) : (
-          <div data-slot="launch-tail-probe-preview" className="flex min-w-0 flex-wrap gap-1.5">
-            {offsets.map((v, i) => (
+      <div className="flex min-w-0 items-start gap-x-2.5">
+        <span className={cn(LABEL, 'pt-[7px]')}>탐침</span>
+        <div data-slot="launch-tail-probe-chips" className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+          {draft.map((raw, i) => {
+            const v = parseLaunchTailProbeChip(raw);
+            const isBad = bad.has(i);
+            return (
               <span
                 key={i}
                 data-slot="launch-tail-probe-chip"
-                className="rounded-[6px] bg-[var(--muted)] px-1.5 py-0.5 text-[11.5px] text-[var(--fg-2)] tabular-nums"
+                data-idx={i}
+                data-bad={isBad ? 'true' : undefined}
+                className={cn(
+                  'inline-flex h-8 items-center gap-px rounded-[9px] bg-[var(--muted)] pr-0.5 pl-2',
+                  isBad && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
+                )}
               >
-                {`+${v}µs`}
+                <span aria-hidden className="w-2 text-[13.5px] font-semibold text-[var(--fg)]">
+                  {raw.trim().startsWith('+') ? '' : '−'}
+                </span>
+                <input
+                  data-slot="launch-tail-probe-chip-input"
+                  inputMode="tel"
+                  autoComplete="off"
+                  aria-label={`${name} 탐침 ${i + 1}번(정각 −µs)`}
+                  aria-invalid={isBad ? true : undefined}
+                  value={raw}
+                  onChange={(e) => {
+                    const next = [...draft];
+                    next[i] = chipInputOf(e.target.value);
+                    onDraft(next);
+                  }}
+                  className="w-10 border-0 bg-transparent text-right text-[13.5px] font-semibold text-[var(--fg)] tabular-nums outline-none"
+                />
+                <small className="ml-0.5 text-[10.5px] text-[var(--muted-fg)]">µs</small>
+                {v !== null && !isBad && combined !== null && combined.has(v) && <CombinedMark title={combinedTitle} />}
+                <button
+                  type="button"
+                  data-slot="launch-tail-probe-chip-del"
+                  aria-label={`탐침 ${i + 1}번 지우기`}
+                  onClick={() => onDraft(draft.filter((_, j) => j !== i))}
+                  className="h-[26px] w-6 rounded-[7px] text-[13px] text-[var(--muted-fg)] hover:text-[var(--destructive)]"
+                >
+                  ×
+                </button>
               </span>
-            ))}
-          </div>
-        )}
+            );
+          })}
+          <button
+            type="button"
+            data-slot="launch-tail-probe-add"
+            disabled={full}
+            onClick={() => onDraft([...draft, tailProbeAddChipOf(fire, draft, planOffsets)])}
+            className="inline-flex h-8 items-center rounded-[9px] bg-[var(--muted)] px-[11px] text-[12.5px] font-semibold text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            + 추가
+          </button>
+        </div>
+      </div>
+      <div data-slot="launch-tail-probe-hint" className={HINT}>
+        {`${draft.length} / ${LAUNCH_TAIL_PROBE_MAX_SHOTS}발 · 정각 기준 · 숫자만 치면 정각 −, 정각 뒤는 앞에 + · 저장할 때 이른 시각부터 정렬`}
       </div>
       {!check.ok && (
         <div data-slot="launch-tail-probe-alert" role="alert" className="text-[12.5px] break-keep text-[var(--destructive)]">
@@ -370,7 +463,7 @@ export function LaunchTailProbeEditor({
           variant="secondary"
           data-slot="launch-tail-probe-revert"
           disabled={pristine}
-          onClick={() => onDraft(server.count, String(server.step_us))}
+          onClick={() => onDraft(serverChips)}
           className={ADMIN_BUTTON_SECONDARY}
         >
           되돌리기

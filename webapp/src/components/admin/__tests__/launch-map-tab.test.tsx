@@ -12,6 +12,7 @@ import type {
   LaunchPlanResponse,
   LaunchPlanServer,
   LaunchServer,
+  LaunchTailProbe,
   LaunchTailProbeChangeRow,
 } from '@gh-radar/shared';
 
@@ -462,68 +463,198 @@ describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
   });
 });
 
-describe('LaunchMapView — 뒤탐침 줄(quick-261107-l7w)', () => {
-  const withTp = (over: Partial<Record<'KB120' | 'KYOBO119', LaunchPlanServer>> = {}): LaunchPlanResponse => {
-    const base = planResp(over);
-    const tp = (s: LaunchPlanServer, rows: { profile: 'Q16' | 'N'; count: number; step_us: number }[]): LaunchPlanServer =>
-      s.status === 'ok' ? { ...s, tail_probes: rows } : s;
-    return {
-      ...base,
-      servers: {
-        KB120: tp(base.servers.KB120!, [
-          { profile: 'Q16', count: 5, step_us: 10 },
-          { profile: 'N', count: 0, step_us: 10 },
-        ]),
-        KYOBO119: tp(base.servers.KYOBO119!, [
-          { profile: 'Q16', count: 3, step_us: 20 },
-          { profile: 'N', count: 5, step_us: 10 },
-        ]),
-      },
-      tail_probe_changes: [],
-    };
-  };
-  const order = (c: HTMLElement) =>
-    Array.from(c.querySelectorAll<HTMLElement>('[data-slot="launch-map"] > [data-slot]')).map((e) => e.dataset.slot);
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-lju — 시장 패널마다 탐침 줄 · ⇄ · 지도 표식
+// ─────────────────────────────────────────────────────────────────────────────
 
-  it('줄은 launch-kpis 와 launch-panels 사이 하나 · plan absent 면 없음', () => {
-    const { container, unmount } = view({ plan: { kind: 'ready', resp: withTp() } });
-    const o = order(container);
-    expect(o.indexOf('launch-tail-probe')).toBe(o.indexOf('launch-kpis') + 1);
-    expect(o.indexOf('launch-panels')).toBe(o.indexOf('launch-tail-probe') + 1);
-    expect(slots(container, 'launch-tail-probe')).toHaveLength(1);
+/** 94 시장별 4행 [Q16·K, N·K, Q16·Q, N·Q]. */
+function tpRows(q16K: number[], q16Q: number[], nK: number[] = [], nQ: number[] = nK): LaunchTailProbe[] {
+  return [
+    { profile: 'Q16', count: q16K.length, step_us: 0, market: 'K', offsets_us: q16K },
+    { profile: 'N', count: nK.length, step_us: 0, market: 'K', offsets_us: nK },
+    { profile: 'Q16', count: q16Q.length, step_us: 0, market: 'Q', offsets_us: q16Q },
+    { profile: 'N', count: nQ.length, step_us: 0, market: 'Q', offsets_us: nQ },
+  ];
+}
+
+const withTpRows = (s: LaunchPlanServer, rows: LaunchTailProbe[] | undefined, combined?: boolean): LaunchPlanServer =>
+  s.status === 'ok'
+    ? { ...s, ...(rows !== undefined ? { tail_probes: rows } : {}), ...(combined !== undefined ? { kyobo_q16_combined: combined } : {}) }
+    : s;
+
+/** KB120 Q16 K [−315, −305] · Q [−320, −310, −310] · N 꺼짐 / 교보119 Q16 K [−520, −300] · Q [−400] · N [−30](K) · [−99](Q). */
+function tpPlanResp(opts: { kbCombined?: boolean; kyCombined?: boolean; rows?: LaunchTailProbeChangeRow[] } = {}): LaunchPlanResponse {
+  const base = planResp();
+  return {
+    ...base,
+    servers: {
+      KB120: withTpRows(base.servers.KB120!, tpRows([-315, -305], [-320, -310, -310]), opts.kbCombined),
+      KYOBO119: withTpRows(base.servers.KYOBO119!, tpRows([-520, -300], [-400], [-30], [-99]), opts.kyCombined),
+    },
+    tail_probe_changes: opts.rows ?? [],
+  };
+}
+
+const tpSummaryOf = (c: HTMLElement, g: string, m: string) =>
+  one(panelOf(c, g, m), '[data-slot="launch-tail-probe-summary"]').textContent;
+
+describe('LaunchMapView — 패널마다 탐침 줄(quick-261125-lju)', () => {
+  it('16:00 — 패널마다 줄 1개 · 「다음 발사 계획」 줄 바로 아래 · 위쪽 공통 막대 0 · plan absent 면 0', () => {
+    const { container, unmount } = view({ plan: { kind: 'ready', resp: tpPlanResp() } });
+    expect(slots(container, 'launch-tail-probe')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-slot="launch-map"] > [data-slot="launch-tail-probe"]')).toHaveLength(0);
+    for (const m of ['Q', 'K']) {
+      const p = panelOf(container, 'KB120', m);
+      expect(one(p, '[data-slot="launch-plan-bar"]').nextElementSibling?.getAttribute('data-slot')).toBe('launch-tail-probe');
+      expect(one(p, '[data-slot="launch-tail-probe"]').dataset.market).toBe(m);
+    }
+    expect(tpSummaryOf(container, 'KB120', 'K')).toBe(`탐침 2발 · ${M}315 · ${M}305µs`);
+    expect(tpSummaryOf(container, 'KB120', 'Q')).toBe(`탐침 3발 · ${M}320 · ${M}310×2µs`);
     unmount();
     const absent = view();
     expect(slots(absent.container, 'launch-tail-probe')).toHaveLength(0);
   });
 
-  it('서버 칩 · 발사에 따라 그 서버 · 그 발사 값 — KB120 16:00 5/10 · 09:00:30 꺼짐 · 교보119 16:00 3/20', () => {
-    const plan = { kind: 'ready', resp: withTp() } as const;
-    const cases: [LaunchMapViewProps['gw'], 'q16' | 'n0930', string, string][] = [
-      ['KB120', 'q16', 'KB120 뒤탐침', '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'],
-      ['KB120', 'n0930', 'KB120 뒤탐침', '꺼짐 · 0발'],
-      ['KYOBO119', 'q16', '교보119 뒤탐침', '3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'],
-      ['KYOBO119', 'n0930', '교보119 뒤탐침', '5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'],
-    ];
-    for (const [gw, fire, title, text] of cases) {
-      const r = view({ gw, fire, ...(fire === 'n0930' ? { resp: n0930(), range: '10d' as const } : {}), plan });
-      expect(one(r.container, '[data-slot="launch-tail-probe-title"]').textContent).toBe(title);
-      expect(one(r.container, '[data-slot="launch-tail-probe-summary"]').textContent).toBe(text);
-      r.unmount();
-    }
+  it('09:00:30 — KB N 꺼짐 「탐침 꺼짐 · 0발」 · 교보 N 공통이면 두 패널 모두 K 행 값', () => {
+    const plan = { kind: 'ready', resp: tpPlanResp() } as const;
+    const kb = view({ resp: n0930(), fire: 'n0930', range: '10d', plan });
+    expect(tpSummaryOf(kb.container, 'KB120', 'K')).toBe('탐침 꺼짐 · 0발');
+    expect(tpSummaryOf(kb.container, 'KB120', 'Q')).toBe('탐침 꺼짐 · 0발');
+    kb.unmount();
+    const ky = view({ resp: n0930(), gw: 'KYOBO119', fire: 'n0930', range: '10d', plan });
+    expect(tpSummaryOf(ky.container, 'KYOBO119', 'K')).toBe(`탐침 1발 · ${M}30µs`);
+    expect(tpSummaryOf(ky.container, 'KYOBO119', 'Q')).toBe(`탐침 1발 · ${M}30µs`);
   });
 
-  it('기본 계획 응답(tail_probes 없음) → 경고 한 줄 · 고치기 버튼 없음 · 패널 계획 줄은 그대로', () => {
-    const { container } = view({ plan: { kind: 'ready', resp: planResp() } });
-    const bar = one(container, '[data-slot="launch-tail-probe"]');
-    expect(bar.dataset.state).toBe('unsupported');
+  it('기본 계획 응답(tail_probes 없음 = 지금 운영 와이어) → 패널마다 경고 문구 · 고치기 버튼 0 · 계획 줄은 그대로', () => {
+    const { container } = view({ plan: { kind: 'ready', resp: planResp() }, onTailProbeEdit: vi.fn() });
+    const lines = slots(container, 'launch-tail-probe');
+    expect(lines.map((l) => l.dataset.state)).toEqual(['unsupported', 'unsupported']);
+    expect(tpSummaryOf(container, 'KB120', 'Q')).toBe('이 서버 버전은 시장별 탐침을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요');
     expect(slots(container, 'launch-tail-probe-toggle')).toHaveLength(0);
     expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
       `3조각 ${M}350 · ${M}345 · ${M}325µs`,
     );
   });
+
+  it('옛 개수 · 간격 행만 → 경고 문구 + 「 · 지금 뒤탐침 5발 10µs 간격」 · 버튼 0', () => {
+    const base = planResp();
+    const legacy: LaunchTailProbe[] = [
+      { profile: 'Q16', count: 5, step_us: 10 },
+      { profile: 'N', count: 0, step_us: 10 },
+    ];
+    const resp = { ...base, servers: { ...base.servers, KB120: withTpRows(base.servers.KB120!, legacy) } };
+    const { container } = view({ plan: { kind: 'ready', resp }, onTailProbeEdit: vi.fn() });
+    expect(tpSummaryOf(container, 'KB120', 'K')).toBe(
+      '이 서버 버전은 시장별 탐침을 몰라요 — gh-trade 업데이트 뒤 바꿀 수 있어요 · 지금 뒤탐침 5발 10µs 간격',
+    );
+    expect(slots(container, 'launch-tail-probe-toggle')).toHaveLength(0);
+  });
+
+  it('계획 조회 실패(error) → 패널마다 「탐침 값을 읽지 못했어요」 · 버튼 0', () => {
+    const { container } = view({ plan: { kind: 'error' }, onTailProbeEdit: vi.fn() });
+    expect(slots(container, 'launch-tail-probe').map((l) => l.dataset.state)).toEqual(['unknown', 'unknown']);
+    expect(tpSummaryOf(container, 'KB120', 'K')).toBe('탐침 값을 읽지 못했어요');
+    expect(slots(container, 'launch-tail-probe-toggle')).toHaveLength(0);
+  });
+
+  it('고치기 버튼 — set · off 이고 onTailProbeEdit 있으면 패널마다 · 누르면 그 시장 · 서버 값으로', () => {
+    const onTailProbeEdit = vi.fn();
+    const { container } = view({ plan: { kind: 'ready', resp: tpPlanResp() }, onTailProbeEdit });
+    expect(slots(container, 'launch-tail-probe-toggle')).toHaveLength(2);
+    fireEvent.click(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-tail-probe-toggle"]'));
+    expect(onTailProbeEdit).toHaveBeenCalledWith({ market: 'Q', base: [-320, -310, -310] });
+  });
 });
 
-describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
+describe('LaunchMapView — ⇄ 다른 시장과 한 번에 쏨(quick-261125-lju · kyobo_q16_combined true 일 때만)', () => {
+  const marksIn = (el: HTMLElement) => slots(el, 'launch-combined');
+  const legendCombined = (c: HTMLElement) => c.querySelectorAll('[data-legend="combined"]');
+
+  it('교보 16:00 · true → 다른 시장 계획 · 탐침과 같은 µs 에 ⇄(계획 줄 · 탐침 줄) · title · 범례 항목', () => {
+    const { container } = view({ gw: 'KYOBO119', plan: { kind: 'ready', resp: tpPlanResp({ kyCombined: true }) } });
+    const k = panelOf(container, 'KYOBO119', 'K');
+    const q = panelOf(container, 'KYOBO119', 'Q');
+    // 코스피 계획 [−410, −400, −380] 중 −400 = 코스닥 탐침 · 코스피 탐침 −520 = 코스닥 계획.
+    expect(marksIn(one(k, '[data-slot="launch-plan-line"]')).map((x) => x.closest<HTMLElement>('[data-us]')!.dataset.us)).toEqual(['-400']);
+    expect(marksIn(one(k, '[data-slot="launch-tail-probe"]')).map((x) => x.closest<HTMLElement>('[data-us]')!.dataset.us)).toEqual(['-520']);
+    expect(marksIn(k)[0]!.getAttribute('title')).toBe('코스닥과 같은 시각 — 한 번에 쏨');
+    // 코스닥 계획 −520 = 코스피 탐침 · 코스닥 탐침 −400 = 코스피 계획.
+    expect(marksIn(one(q, '[data-slot="launch-plan-line"]')).map((x) => x.closest<HTMLElement>('[data-us]')!.dataset.us)).toEqual(['-520']);
+    expect(marksIn(one(q, '[data-slot="launch-tail-probe"]')).map((x) => x.closest<HTMLElement>('[data-us]')!.dataset.us)).toEqual(['-400']);
+    expect(marksIn(q)[0]!.getAttribute('title')).toBe('코스피와 같은 시각 — 한 번에 쏨');
+    expect(legendCombined(container)).toHaveLength(1);
+    expect(legendCombined(container)[0]!.textContent).toBe('⇄다른 시장과 한 번에 쏨');
+  });
+
+  it('false · 칸 없음(지금 와이어) · KB(true 로 와도) · 09:00:30 → ⇄ 0 · 범례 항목 0', () => {
+    for (const v of [
+      view({ gw: 'KYOBO119', plan: { kind: 'ready', resp: tpPlanResp({ kyCombined: false }) } }),
+      view({ gw: 'KYOBO119', plan: { kind: 'ready', resp: tpPlanResp() } }),
+      view({ gw: 'KB120', plan: { kind: 'ready', resp: tpPlanResp({ kbCombined: true }) } }),
+      view({ gw: 'KYOBO119', resp: n0930(), fire: 'n0930', range: '10d', plan: { kind: 'ready', resp: tpPlanResp({ kyCombined: true }) } }),
+    ]) {
+      expect(marksIn(v.container)).toHaveLength(0);
+      expect(legendCombined(v.container)).toHaveLength(0);
+      v.unmount();
+    }
+  });
+
+  it('편집 중인 시장은 유효 초안이 다른 시장 ⇄ 기준 — 코스닥 초안 [−410] → 코스피 계획 −410 에 ⇄', () => {
+    const tpEditing = { gateway: 'KYOBO119', fire: 'q16' as const, market: 'Q' as const, base: [-400], draft: ['410'], valid: [-410] };
+    const { container } = view({
+      gw: 'KYOBO119',
+      plan: { kind: 'ready', resp: tpPlanResp({ kyCombined: true }) },
+      tpEditing,
+      onTailProbeEdit: vi.fn(),
+    });
+    const k = panelOf(container, 'KYOBO119', 'K');
+    expect(marksIn(one(k, '[data-slot="launch-plan-line"]')).map((x) => x.closest<HTMLElement>('[data-us]')!.dataset.us)).toEqual(['-410']);
+    // 편집 칸 칩에도 붙는다(코스닥 칩 −410 = 코스피 계획).
+    const chip = one(panelOf(container, 'KYOBO119', 'Q'), '[data-slot="launch-tail-probe-chip"]');
+    expect(chip.querySelector('[data-slot="launch-combined"]')).not.toBeNull();
+  });
+});
+
+describe('LaunchMapView — 지도 탐침 표식(정각 기준 절대 µs · quick-261125-lju)', () => {
+  const planned = (c: HTMLElement) => slots(c, 'launch-tail-probe-planned');
+  const legendPlanned = (c: HTMLElement) => c.querySelectorAll('[data-legend="tail-probe-planned"]');
+
+  it('16:00 KB120 → 패널마다 그 시장 탐침 수만큼 · data-src server · 범례 「예정 탐침」 1', () => {
+    const { container } = view({ plan: { kind: 'ready', resp: tpPlanResp() } });
+    expect(planned(panelOf(container, 'KB120', 'K'))).toHaveLength(2);
+    expect(planned(panelOf(container, 'KB120', 'Q'))).toHaveLength(3);
+    expect(planned(container).every((g) => g.dataset.src === 'server')).toBe(true);
+    expect(legendPlanned(container)).toHaveLength(1);
+    expect(legendPlanned(container)[0]!.textContent).toBe('예정 탐침');
+  });
+
+  it('편집 중인 패널만 유효 초안(data-src draft) · 다른 패널은 서버 값', () => {
+    const tpEditing = { gateway: 'KB120', fire: 'q16' as const, market: 'K' as const, base: [-315, -305], draft: ['330', 'x'], valid: [-330] };
+    const { container } = view({ plan: { kind: 'ready', resp: tpPlanResp() }, tpEditing, onTailProbeEdit: vi.fn() });
+    const k = planned(panelOf(container, 'KB120', 'K'));
+    expect(k).toHaveLength(1);
+    expect(k[0]!.dataset.src).toBe('draft');
+    const q = planned(panelOf(container, 'KB120', 'Q'));
+    expect(q).toHaveLength(3);
+    expect(q.every((g) => g.dataset.src === 'server')).toBe(true);
+    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
+  });
+
+  it('지금 와이어(tail_probes 없음) · 계획 실패 · 09:00:30 꺼짐 → 표식 0 · 범례 「예정 탐침」 0', () => {
+    for (const v of [
+      view({ plan: { kind: 'ready', resp: planResp() } }),
+      view({ plan: { kind: 'error' } }),
+      view({ resp: n0930(), fire: 'n0930', range: '10d', plan: { kind: 'ready', resp: tpPlanResp() } }),
+    ]) {
+      expect(planned(v.container)).toHaveLength(0);
+      expect(legendPlanned(v.container)).toHaveLength(0);
+      v.unmount();
+    }
+  });
+});
+
+describe('LaunchMapView — 범례 탐침 항목(quick-261030-dz7)', () => {
   const lastDay = DAYS[0]!;
   const withTail: LaunchMapResponse = {
     ...Q16_ALL,
@@ -548,20 +679,21 @@ describe('LaunchMapView — 범례 뒤탐침 항목(quick-261030-dz7)', () => {
     ],
   };
 
-  it('q16 응답에 뒤탐침 있음 → 범례에 「뒤탐침」 항목 1개 · 패널에 삼각형 1', () => {
+  it('q16 응답에 탐침 조각 있음 → 범례 「삼각형 = 탐침」 항목 1개 · 「뒤탐침」 글자 없음 · 패널에 삼각형 1', () => {
     const { container } = view({ resp: withTail });
     const legend = one(container, '[data-slot="launch-legend"]');
-    expect(legend.textContent!.match(/뒤탐침/g)).toHaveLength(1);
+    expect(legend.textContent!.match(/삼각형 = 탐침/g)).toHaveLength(1);
+    expect(legend.textContent).not.toContain('뒤탐침');
     expect(legend.querySelector('[data-legend="tail-probe"] svg path')).not.toBeNull();
     expect(container.querySelectorAll('[data-slot="launch-chart"] path[data-shape="triangle"]')).toHaveLength(1);
   });
 
-  it('Q16_ALL(탐침 없음) · n0930 → 범례에 「뒤탐침」 없음', () => {
+  it('Q16_ALL(탐침 없음) · n0930 → 범례에 「탐침」 없음', () => {
     const { container, unmount } = view();
-    expect(one(container, '[data-slot="launch-legend"]').textContent).not.toContain('뒤탐침');
+    expect(one(container, '[data-slot="launch-legend"]').textContent).not.toContain('탐침');
     unmount();
     const n = view({ resp: n0930(), fire: 'n0930', range: '10d' });
-    expect(one(n.container, '[data-slot="launch-legend"]').textContent).not.toContain('뒤탐침');
+    expect(one(n.container, '[data-slot="launch-legend"]').textContent).not.toContain('탐침');
   });
 });
 
@@ -1063,10 +1195,10 @@ describe('LaunchMapTab — 서버 전환(quick-261107-iep)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 저장(LaunchMapTab)
+// quick-261125-lju — 탐침 저장(LaunchMapTab · 패널마다 칩 편집 칸)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('LaunchMapTab — 뒤탐침 저장(quick-261107-l7w)', () => {
+describe('LaunchMapTab — 탐침 저장(quick-261125-lju)', () => {
   afterEach(() => {
     vi.mocked(fetchLaunchMap).mockReset();
     vi.mocked(fetchLaunchPlan).mockReset();
@@ -1074,100 +1206,109 @@ describe('LaunchMapTab — 뒤탐침 저장(quick-261107-l7w)', () => {
     vi.mocked(saveLaunchTailProbe).mockReset();
   });
 
-  const TP = [
-    { profile: 'Q16' as const, count: 5, step_us: 10 },
-    { profile: 'N' as const, count: 0, step_us: 10 },
-  ];
-  const withTp = (kbTp = TP, rows: LaunchTailProbeChangeRow[] = []): LaunchPlanResponse => {
-    const base = planResp();
-    const kb = base.servers.KB120!;
-    return { ...base, servers: { ...base.servers, KB120: kb.status === 'ok' ? { ...kb, tail_probes: kbTp } : kb }, tail_probe_changes: rows };
-  };
+  const K0 = [-315, -305];
+  const SENT = [-305, -300, 30];
+  /** KB120 서버 — Q16 K 탐침 = k. */
+  const kbWith = (k: number[]): LaunchPlanServer => withTpRows(planResp().servers.KB120!, tpRows(k, [-320, -310, -310]));
+  const respWith = (k: number[], rows: LaunchTailProbeChangeRow[] = []): LaunchPlanResponse => ({
+    ...planResp(),
+    servers: { ...planResp().servers, KB120: kbWith(k) },
+    tail_probe_changes: rows,
+  });
   const tpRow = (over: Partial<LaunchTailProbeChangeRow> = {}): LaunchTailProbeChangeRow => ({
     id: 301,
     at: '2026-11-07T06:00:00Z',
     admin_email: 'a@b.c',
     gateway: 'KB120',
     fire: 'q16',
-    before_count: 5,
-    before_step_us: 10,
-    after_count: 3,
-    after_step_us: 20,
+    market: 'K',
+    before_count: null,
+    before_step_us: null,
+    after_count: null,
+    after_step_us: null,
+    before_offsets_us: K0,
+    after_offsets_us: SENT,
     outcome: 'ok',
     code: null,
     message: null,
     plan_rev: 8,
     ...over,
   });
-  const NEW_TP = [
-    { profile: 'Q16' as const, count: 3, step_us: 20 },
-    { profile: 'N' as const, count: 0, step_us: 10 },
-  ];
-  const summary = (c: HTMLElement) => one(c, '[data-slot="launch-tail-probe-summary"]').textContent;
+  const kPanel = (c: HTMLElement) => panelOf(c, 'KB120', 'K');
+  const summaryK = (c: HTMLElement) => one(kPanel(c), '[data-slot="launch-tail-probe-summary"]').textContent;
+  const chipInputs = (el: HTMLElement) => slots(el, 'launch-tail-probe-chip-input') as HTMLInputElement[];
   const tab = (gw: LaunchServer, fire: 'q16' | 'n0930' = 'q16') => (
     <LaunchMapTab gw={gw} fire={fire} range="all" onFire={vi.fn()} onRange={vi.fn()} />
   );
 
-  /** KB120 16:00 뒤탐침 칸을 열어 「−」 두 번(3) · 간격 20 으로 바꾼다. save = 저장까지 누른다. */
+  /** KB120 16:00 코스피 탐침 칸을 열어 「+ 추가」(−295) · 1번 칩을 「+30」 · 2번 칩을 「300」 으로 → 정렬 [−305, −300, +30]. */
   async function openTp(save = true) {
     vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
     const r = render(tab('KB120'));
-    await waitFor(() => expect(summary(r.container)).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs'));
-    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-toggle"]'));
-    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-dec"]'));
-    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-dec"]'));
-    fireEvent.change(one(r.container, '[data-slot="launch-tail-probe-step"]'), { target: { value: '20' } });
-    if (save) fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-save"]'));
+    await waitFor(() => expect(summaryK(r.container)).toBe(`탐침 2발 · ${M}315 · ${M}305µs`));
+    fireEvent.click(one(kPanel(r.container), '[data-slot="launch-tail-probe-toggle"]'));
+    fireEvent.click(one(kPanel(r.container), '[data-slot="launch-tail-probe-add"]'));
+    expect(chipInputs(kPanel(r.container)).map((i) => i.value)).toEqual(['315', '305', '295']);
+    fireEvent.change(chipInputs(kPanel(r.container))[0]!, { target: { value: '+30' } });
+    fireEvent.change(chipInputs(kPanel(r.container))[2]!, { target: { value: '300' } });
+    // 입력 중 칩 자리는 그대로(정렬은 저장 값에만).
+    expect(chipInputs(kPanel(r.container)).map((i) => i.value)).toEqual(['+30', '305', '300']);
+    if (save) fireEvent.click(one(kPanel(r.container), '[data-slot="launch-tail-probe-save"]'));
     return r;
   }
 
-  it('저장 ok + plan → PUT 1건(KB120 · q16 · {3,20}) · 결과 줄 · 값 줄 갱신 · 이력 +1 · /map · /plan 재요청 0', async () => {
-    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp(TP, [tpRow({ id: 300, after_count: 5, after_step_us: 10 })]) });
-    const after = withTp(NEW_TP).servers.KB120!;
-    vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'ok' }, plan: after, change: tpRow() });
+  it('저장 ok + plan → PUT 1건(KB120 · q16 · K · 정렬 값) · 결과 줄 · 값 줄 갱신 · 정렬된 서버 값으로 다시 열림 · 이력 +1 · 재요청 0', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: respWith(K0, [tpRow({ id: 300, after_offsets_us: K0, before_offsets_us: null })]) });
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'ok' }, plan: kbWith(SENT), change: tpRow() });
     const { container } = await openTp();
-    await waitFor(() => expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'));
+    await waitFor(() => expect(summaryK(container)).toBe(`탐침 3발 · ${M}305 · ${M}300 · +30µs`));
     expect(saveLaunchTailProbe).toHaveBeenCalledTimes(1);
-    expect(saveLaunchTailProbe).toHaveBeenCalledWith('KB120', 'q16', { count: 3, step_us: 20 });
-    expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toMatch(/^저장됨 · \d\d:\d\d · 다음 16:00 발사부터$/);
-    expect(one(container, '[data-slot="launch-tail-probe-history-fold"] summary').textContent).toBe('변경 이력 2');
-    // 저장 값으로 다시 열림 — 저장 · 되돌리기 비활성
-    expect(one(container, '[data-slot="launch-tail-probe-save"]').hasAttribute('disabled')).toBe(true);
+    expect(saveLaunchTailProbe).toHaveBeenCalledWith('KB120', 'q16', 'K', SENT);
+    expect(one(kPanel(container), '[data-slot="launch-tail-probe-result-line"]').textContent).toMatch(
+      /^저장됨 · \d\d:\d\d · 다음 16:00 발사부터$/,
+    );
+    expect(chipInputs(kPanel(container)).map((i) => i.value)).toEqual(['305', '300', '+30']);
+    expect(one(kPanel(container), '[data-slot="launch-tail-probe-save"]').hasAttribute('disabled')).toBe(true);
+    expect(one(kPanel(container), '[data-slot="launch-tail-probe-history-fold"] summary').textContent).toBe('탐침 변경 이력 2');
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
     expect(fetchLaunchMap).toHaveBeenCalledTimes(1);
   });
 
   it('저장 ok + plan null → 보낸 값으로 먼저 맞춤 + /plan 1회 다시 읽기', async () => {
     vi.mocked(fetchLaunchPlan)
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp() })
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP) });
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(K0) })
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(SENT) });
     vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'ok' }, plan: null, change: null });
     const { container } = await openTp();
-    await waitFor(() => expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs'));
+    await waitFor(() => expect(summaryK(container)).toBe(`탐침 3발 · ${M}305 · ${M}300 · +30µs`));
     await waitFor(() => expect(fetchLaunchPlan).toHaveBeenCalledTimes(2));
   });
 
   it('응답 timeout → 「응답 없음」 + 다시 읽기', async () => {
     vi.mocked(fetchLaunchPlan)
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp() })
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP) });
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(K0) })
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(SENT) });
     vi.mocked(saveLaunchTailProbe).mockResolvedValue({ result: { server: 'KB120', outcome: 'timeout' }, plan: null, change: null });
     const { container } = await openTp();
     await waitFor(() =>
-      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
+      expect(one(kPanel(container), '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
         'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽은 계획으로 확인',
       ),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
-    expect(summary(container)).toBe('3발 · 20µs 간격 · 마지막 조각 뒤 +20 ~ +60µs');
+    expect(summaryK(container)).toBe(`탐침 3발 · ${M}305 · ${M}300 · +30µs`);
   });
 
   it('4xx → 「실패」 · 다시 읽기 없음', async () => {
-    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
-    vi.mocked(saveLaunchTailProbe).mockRejectedValue(new ApiClientError({ code: 'VALIDATION_FAILED', message: 'count: 정수', status: 400 }));
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: respWith(K0) });
+    vi.mocked(saveLaunchTailProbe).mockRejectedValue(
+      new ApiClientError({ code: 'VALIDATION_FAILED', message: 'offsets_us: 정수', status: 400 }),
+    );
     const { container } = await openTp();
     await waitFor(() =>
-      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe('KB120 실패: 요청 거부(400) · count: 정수'),
+      expect(one(kPanel(container), '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
+        'KB120 실패: 요청 거부(400) · offsets_us: 정수',
+      ),
     );
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
   });
@@ -1177,177 +1318,90 @@ describe('LaunchMapTab — 뒤탐침 저장(quick-261107-l7w)', () => {
     ['행 없음', [], 'KB120 응답 없음: 반영됐는지 몰라요 — 다시 읽었지만 서버가 이 저장을 처리하기 전 값일 수 있어요 · 잠시 뒤 새로고침'],
   ])('요청 throw → timeout + 다시 읽기 · %s', async (_l, rows, line) => {
     vi.mocked(fetchLaunchPlan)
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(TP, [tpRow({ id: 301, after_count: 5, after_step_us: 10 })]) })
-      .mockResolvedValueOnce({ kind: 'ready', resp: withTp(NEW_TP, rows) });
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(K0, [tpRow({ id: 301, after_offsets_us: K0 })]) })
+      .mockResolvedValueOnce({ kind: 'ready', resp: respWith(SENT, rows) });
     vi.mocked(saveLaunchTailProbe).mockRejectedValue(new Error('network'));
     const { container } = await openTp();
-    await waitFor(() => expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(line));
+    await waitFor(() => expect(one(kPanel(container), '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(line));
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
   });
 
-  it('failed code 1 「알 수 없는 명령입니다」 → 「서버 미지원」 줄', async () => {
-    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+  it('failed code 1 → 서버 문구 원문이 결과 줄에 · 값 줄 그대로 · 다시 읽기 없음', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: respWith(K0) });
     vi.mocked(saveLaunchTailProbe).mockResolvedValue({
-      result: { server: 'KB120', outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' },
+      result: { server: 'KB120', outcome: 'failed', code: 1, message: '오프셋은 작은 값부터 차례로(같은 값 허용)' },
       plan: null,
-      change: tpRow({ outcome: 'failed', code: 1, message: '알 수 없는 명령입니다' }),
+      change: tpRow({ outcome: 'failed', code: 1, message: '오프셋은 작은 값부터 차례로(같은 값 허용)' }),
     });
     const { container } = await openTp();
     await waitFor(() =>
-      expect(one(container, '[data-slot="launch-tail-probe-result-line"]').textContent).toBe(
-        'KB120 실패: 서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장',
+      expect(one(kPanel(container), '[data-slot="launch-tail-probe-result-line"]').textContent).toContain(
+        '오프셋은 작은 값부터 차례로(같은 값 허용)',
       ),
     );
-    expect(summary(container)).toBe('5발 · 10µs 간격 · 마지막 조각 뒤 +10 ~ +50µs');
+    expect(summaryK(container)).toBe(`탐침 2발 · ${M}315 · ${M}305µs`);
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
   });
 
-  it('한 번에 하나 — 뒤탐침 칸을 연 채 계획 고치기 → 뒤탐침 칸 닫힘 · 반대도', async () => {
-    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+  it('한 번에 하나 — 코스피 탐침 칸 → 코스닥 계획 고치기(탐침 닫힘) → 코스닥 탐침(계획 닫힘) → 코스피 탐침(코스닥 탐침 닫힘)', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: respWith(K0) });
     const { container } = await openTp(false);
-    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
-    fireEvent.click(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-edit-toggle"]'));
+    const q = () => panelOf(container, 'KB120', 'Q');
+    expect(slots(kPanel(container), 'launch-tail-probe-editor')).toHaveLength(1);
+    fireEvent.click(one(q(), '[data-slot="launch-plan-edit-toggle"]'));
     expect(slots(container, 'launch-plan-editor')).toHaveLength(1);
     expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(0);
-    fireEvent.click(one(container, '[data-slot="launch-tail-probe-toggle"]'));
-    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
+    fireEvent.click(one(q(), '[data-slot="launch-tail-probe-toggle"]'));
+    expect(slots(q(), 'launch-tail-probe-editor')).toHaveLength(1);
     expect(slots(container, 'launch-plan-editor')).toHaveLength(0);
+    fireEvent.click(one(kPanel(container), '[data-slot="launch-tail-probe-toggle"]'));
+    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
+    expect(slots(kPanel(container), 'launch-tail-probe-editor')).toHaveLength(1);
   });
 
   it('서버 칩 · 발사가 바뀌면 닫힘(돌아와도 닫힌 채)', async () => {
-    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: withTp() });
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: respWith(K0) });
     const r = await openTp(false);
     expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(1);
     r.rerender(tab('KYOBO119'));
     expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
     r.rerender(tab('KB120'));
     expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
-    fireEvent.click(one(r.container, '[data-slot="launch-tail-probe-toggle"]'));
+    fireEvent.click(one(kPanel(r.container), '[data-slot="launch-tail-probe-toggle"]'));
     expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(1);
     r.rerender(tab('KB120', 'n0930'));
     expect(slots(r.container, 'launch-tail-probe-editor')).toHaveLength(0);
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 지도 예정 뒤탐침 · 계획 줄 꼬리 · 범례(예정 + 인박스 09:00:30 견본)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('LaunchMapView — 예정 뒤탐침 · 꼬리 · 범례(quick-261107-l7w)', () => {
-  const tpResp = (kb: { profile: 'Q16' | 'N'; count: number; step_us: number }[], base = planResp()): LaunchPlanResponse => {
-    const s = base.servers.KB120!;
-    return { ...base, servers: { ...base.servers, KB120: s.status === 'ok' ? { ...s, tail_probes: kb } : s }, tail_probe_changes: [] };
-  };
-  const TP = [
-    { profile: 'Q16' as const, count: 5, step_us: 10 },
-    { profile: 'N' as const, count: 0, step_us: 10 },
-  ];
-  const planned = (c: HTMLElement) => slots(c, 'launch-tail-probe-planned');
-  const legendPlanned = (c: HTMLElement) => c.querySelectorAll('[data-legend="tail-probe-planned"]');
-
-  it('16:00 KB120 5/10 → 두 패널 꼬리 「+ 뒤탐침 5발 · 10µs」 · 패널마다 표식 5(계획 마지막 조각 기준) · 범례 「예정 뒤탐침」', () => {
-    const { container } = view({ plan: { kind: 'ready', resp: tpResp(TP) } });
-    for (const m of ['Q', 'K']) {
-      const p = panelOf(container, 'KB120', m);
-      expect(one(p, '[data-slot="launch-plan-tail"]').textContent).toBe('+ 뒤탐침 5발 · 10µs');
-      expect(planned(p)).toHaveLength(5);
-      expect(planned(p).every((g) => g.dataset.src === 'server')).toBe(true);
-    }
-    // KB 코스닥 계획 [−350, −345, −325] → 마지막 −325 + 10·(i+1)
-    expect(planned(panelOf(container, 'KB120', 'Q')).map((g) => g.querySelector('title')!.textContent)).toEqual([
-      `예정 뒤탐침 1번 ${M}315µs`,
-      `예정 뒤탐침 2번 ${M}305µs`,
-      `예정 뒤탐침 3번 ${M}295µs`,
-      `예정 뒤탐침 4번 ${M}285µs`,
-      `예정 뒤탐침 5번 ${M}275µs`,
-    ]);
-    expect(legendPlanned(container)).toHaveLength(1);
-    expect(legendPlanned(container)[0]!.textContent).toBe('예정 뒤탐침');
-  });
-
-  it('뒤탐침 편집 칸 열림(유효 초안 3/20) → 표식 3 · data-src draft · 꼬리도 초안 값', () => {
-    const tpEditing = {
-      gateway: 'KB120',
-      fire: 'q16' as const,
-      base: { count: 5, step_us: 10 },
-      count: 3,
-      stepRaw: '20',
-      valid: { count: 3, step_us: 20 },
-      error: null,
-    };
-    const { container } = view({ plan: { kind: 'ready', resp: tpResp(TP) }, tpEditing, onTailProbeEdit: vi.fn() });
-    const p = panelOf(container, 'KB120', 'Q');
-    expect(planned(p)).toHaveLength(3);
-    expect(planned(p).every((g) => g.dataset.src === 'draft')).toBe(true);
-    expect(one(p, '[data-slot="launch-plan-tail"]').textContent).toBe('+ 뒤탐침 3발 · 20µs');
-    expect(slots(container, 'launch-tail-probe-editor')).toHaveLength(1);
-  });
-
-  it('09:00:30 · N 0발 → 꼬리 「· 뒤탐침 꺼짐」 · 표식 0 · 범례 「예정 뒤탐침」 없음', () => {
-    const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d', plan: { kind: 'ready', resp: tpResp(TP) } });
-    const p = panelOf(container, 'KB120', 'Q');
-    expect(one(p, '[data-slot="launch-plan-tail"]').textContent).toBe('· 뒤탐침 꺼짐');
-    expect(planned(container)).toHaveLength(0);
-    expect(legendPlanned(container)).toHaveLength(0);
-  });
-
-  it('09:00:30 · N 5/10 → 한 칸 계획이 기준(−20150 + 10·(i+1)) · 표식 5', () => {
-    const base = planResp({ KB120: okServer([-340, -335, -320], [-350, -345, -325], -20150) });
-    const { container } = view({
-      resp: n0930(),
-      fire: 'n0930',
-      range: '10d',
-      plan: { kind: 'ready', resp: tpResp([{ profile: 'N', count: 5, step_us: 10 }], base) },
+  it('교보 09:00:30 N 공통 — 코스닥 패널에서 열어도 K 행 값 · 저장 PUT 1건 market K · 저장 뒤 두 패널 같은 값', async () => {
+    const kyWith = (k: number[], q: number[]): LaunchPlanServer =>
+      withTpRows(planResp().servers.KYOBO119!, tpRows([-520, -300], [-400], k, q));
+    const resp = (k: number[], q: number[]): LaunchPlanResponse => ({
+      ...planResp(),
+      servers: { ...planResp().servers, KYOBO119: kyWith(k, q) },
+      tail_probe_changes: [],
     });
-    const p = panelOf(container, 'KB120', 'Q');
-    expect(planned(p).map((g) => g.querySelector('title')!.textContent)).toEqual([
-      `예정 뒤탐침 1번 ${M}20,140µs`,
-      `예정 뒤탐침 2번 ${M}20,130µs`,
-      `예정 뒤탐침 3번 ${M}20,120µs`,
-      `예정 뒤탐침 4번 ${M}20,110µs`,
-      `예정 뒤탐침 5번 ${M}20,100µs`,
-    ]);
-    expect(one(p, '[data-slot="launch-plan-tail"]').textContent).toBe('+ 뒤탐침 5발 · 10µs');
-  });
-
-  it('구 서버(tail_probes 없음) · 계획 대신 값(error) · 서버 failed → 꼬리 0 · 표식 0', () => {
-    for (const plan of [
-      { kind: 'ready' as const, resp: planResp() },
-      { kind: 'error' as const },
-      { kind: 'ready' as const, resp: tpResp(TP, planResp({ KB120: { status: 'failed', code: 1, message: 'x' } })) },
-    ]) {
-      const { container, unmount } = view({ plan });
-      expect(slots(container, 'launch-plan-tail')).toHaveLength(0);
-      expect(planned(container)).toHaveLength(0);
-      expect(legendPlanned(container)).toHaveLength(0);
-      unmount();
-    }
-  });
-
-  it('인박스 261107-nxt-tail-probe-kind17 — 09:00:30 응답(고른 서버)에 N 뒤탐침 조각 → 범례 뒤탐침 항목 1 · 삼각형 1 / 다른 서버만 있으면 없음', () => {
-    const base = n0930();
-    const withN: LaunchMapResponse = {
-      ...base,
-      pieces: [
-        ...base.pieces,
-        nPiece({
-          gateway: 'KB120',
-          market: 'Q',
-          wire: 3,
-          sent_rel_us: -20131,
-          result: '기타',
-          probe: true,
-          round: -2,
-          result_code: 'E127',
-        }),
-      ],
-    };
-    const { container, unmount } = view({ resp: withN, fire: 'n0930', range: '10d' });
-    expect(container.querySelectorAll('[data-legend="tail-probe"]')).toHaveLength(1);
-    expect(container.querySelectorAll('[data-slot="launch-chart"] path[data-shape="triangle"]')).toHaveLength(1);
-    unmount();
-    const ky = view({ resp: withN, gw: 'KYOBO119', fire: 'n0930', range: '10d' });
-    expect(ky.container.querySelectorAll('[data-legend="tail-probe"]')).toHaveLength(0);
+    vi.mocked(fetchLaunchMap).mockResolvedValue(n0930());
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: resp([-30], [-99]) });
+    vi.mocked(saveLaunchTailProbe).mockResolvedValue({
+      result: { server: 'KYOBO119', outcome: 'ok' },
+      plan: kyWith([-30, -20], [-30, -20]),
+      change: null,
+    });
+    const { container } = render(tab('KYOBO119', 'n0930'));
+    const sumOf = (m: string) => one(panelOf(container, 'KYOBO119', m), '[data-slot="launch-tail-probe-summary"]').textContent;
+    await waitFor(() => expect(sumOf('Q')).toBe(`탐침 1발 · ${M}30µs`));
+    expect(sumOf('K')).toBe(`탐침 1발 · ${M}30µs`);
+    const q = panelOf(container, 'KYOBO119', 'Q');
+    fireEvent.click(one(q, '[data-slot="launch-tail-probe-toggle"]'));
+    expect(chipInputs(q).map((i) => i.value)).toEqual(['30']);
+    expect(q.textContent).toContain('코스피 · 코스닥 공통');
+    fireEvent.click(one(q, '[data-slot="launch-tail-probe-add"]'));
+    fireEvent.click(one(q, '[data-slot="launch-tail-probe-save"]'));
+    await waitFor(() => expect(sumOf('Q')).toBe(`탐침 2발 · ${M}30 · ${M}20µs`));
+    expect(sumOf('K')).toBe(`탐침 2발 · ${M}30 · ${M}20µs`);
+    expect(saveLaunchTailProbe).toHaveBeenCalledTimes(1);
+    expect(saveLaunchTailProbe).toHaveBeenCalledWith('KYOBO119', 'n0930', 'K', [-30, -20]);
   });
 });
 
@@ -1494,16 +1548,7 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
           entries: [...s.entries, { profile: 'G2', market: 'K', offsets_us: [k] }, { profile: 'G2', market: 'Q', offsets_us: [q] }],
         }
       : s;
-  const withTp = (s: LaunchPlanServer): LaunchPlanServer =>
-    s.status === 'ok'
-      ? {
-          ...s,
-          tail_probes: [
-            { profile: 'Q16', count: 5, step_us: 10 },
-            { profile: 'N', count: 3, step_us: 10 },
-          ],
-        }
-      : s;
+  const withTp = (s: LaunchPlanServer): LaunchPlanServer => withTpRows(s, tpRows([-315, -305], [-320], [-30]));
   /** KB120 = 스위치 켬(G2 행) · 교보119 = 스위치 꺼짐(네 행). 둘 다 tail_probes 있음. */
   const planG2 = (): LaunchPlanResponse => {
     const base = planResp();
@@ -1550,17 +1595,17 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
     expect(onEdit).toHaveBeenCalledWith({ gateway: 'KB120', market: 'K', offsets: [12000] });
   });
 
-  it('뒤탐침 막대 · 예정 표식 · 계획 줄 꼬리 없음(tail_probes 가 있어도) · 16:00 에서는 막대가 그대로', () => {
+  it('탐침 줄 · 예정 표식 없음(tail_probes 가 있어도) · 16:00 에서는 패널마다 줄', () => {
     const plan = { kind: 'ready', resp: planG2() } as const;
-    const g = view({ resp: g0830(), fire: 'g0830', range: '10d', plan });
+    const g = view({ resp: g0830(), fire: 'g0830', range: '10d', plan, onTailProbeEdit: vi.fn() });
     expect(slots(g.container, 'launch-tail-probe')).toHaveLength(0);
     expect(slots(g.container, 'launch-tail-probe-planned')).toHaveLength(0);
-    expect(slots(g.container, 'launch-plan-tail')).toHaveLength(0);
+    expect(slots(g.container, 'launch-tail-probe-toggle')).toHaveLength(0);
     expect(one(panelOf(g.container, 'KB120', 'K'), '[data-slot="launch-plan-line"]').textContent).toBe('+12,000µs');
     g.unmount();
     const q = view({ plan });
-    expect(slots(q.container, 'launch-tail-probe')).toHaveLength(1);
-    expect(slots(q.container, 'launch-plan-tail').length).toBeGreaterThan(0);
+    expect(slots(q.container, 'launch-tail-probe')).toHaveLength(2);
+    expect(slots(q.container, 'launch-tail-probe-planned').length).toBeGreaterThan(0);
   });
 
   it('범례 거부 라벨 「101 거부(너무 이름)」 · 마름모 항목 없음 · 푸터 08:30 문구', () => {

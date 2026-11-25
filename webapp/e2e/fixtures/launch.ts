@@ -305,7 +305,7 @@ export function launchMapFixture(fire: LaunchFire, range: LaunchRange): LaunchMa
 }
 
 /**
- * 09:00:30 지도 + N 뒤탐침 조각(quick-261107-l7w · 인박스 261107-nxt-tail-probe-kind17) — KB120 코스닥 마지막 날 N 실조각 마지막
+ * 09:00:30 지도 + N 탐침 조각(quick-261107-l7w · 인박스 261107-nxt-tail-probe-kind17) — KB120 코스닥 마지막 날 N 실조각 마지막
  * (−20141µs) 뒤 +10 ~ +50µs 5행 · probe true · round −2 · fire_exchange NXT · 「기타」 E127. q16 은 기본 그대로. **합성.**
  */
 export function launchMapFixtureWithNTailProbes(fire: LaunchFire, range: LaunchRange): LaunchMapResponse {
@@ -410,58 +410,95 @@ export function launchPlanFixture(): LaunchPlanResponse {
   };
 }
 
+/** 94 시장별 4행 [Q16·K, N·K, Q16·Q, N·Q](quick-261125-lju) — count = 목록 길이 · step_us 0. */
+export function launchTailProbeRows(q16K: number[], q16Q: number[], nK: number[] = [], nQ: number[] = nK): LaunchTailProbe[] {
+  return [
+    { profile: 'Q16', count: q16K.length, step_us: 0, market: 'K', offsets_us: q16K },
+    { profile: 'N', count: nK.length, step_us: 0, market: 'K', offsets_us: nK },
+    { profile: 'Q16', count: q16Q.length, step_us: 0, market: 'Q', offsets_us: q16Q },
+    { profile: 'N', count: nQ.length, step_us: 0, market: 'Q', offsets_us: nQ },
+  ];
+}
+
 /**
- * GET /plan 뒤탐침 응답(quick-261107-l7w) — `launchPlanFixture()` 에 서버마다 tail_probes 를 싣는다:
- * KB120 [Q16 5발 · 10µs · N 꺼짐 0/10] · KYOBO119 [Q16 3발 · 20µs · N 5발 · 10µs]. 이력 = KB120 16:00 ok 1행 + failed code 1 1행.
- * 기본 `launchPlanFixture()` 는 tail_probes 가 없다(= 지금 운영의 구 서버 · relay 와이어 대기 경로). **합성.**
+ * GET /plan 탐침 응답(quick-261125-lju · 시장별 정각 기준 목록) — `launchPlanFixture()` 에 서버마다 4행 tail_probes:
+ * - KB120 — Q16 코스피 [−330 · −320 · −310 · −300 · −290] · 코스닥 [−340 · −330 · −320 · −310 · −300] · N 꺼짐.
+ * - KYOBO119 — Q16 코스피 [−520 · −370](−520 = 코스닥 계획) · 코스닥 [−490 · −400](−400 = 코스피 계획) · `kyobo_q16_combined` true ·
+ *   N 두 행 같은 목록 [−30 · −20](교보 N 공통).
+ * 이력 = KB120 16:00 옛 개수 · 간격 행 1(market null) + 코스피 목록 ok 1 + 코스피 failed code 1 1(서버 문구 원문).
+ * 기본 `launchPlanFixture()` 는 tail_probes 가 없다(= 지금 운영 와이어 · unsupported 경로). **합성.**
  */
 export function launchPlanFixtureWithTailProbes(): LaunchPlanResponse {
   const base = launchPlanFixture();
   const tp: Record<string, LaunchTailProbe[]> = {
-    KB120: [
-      { profile: 'Q16', count: 5, step_us: 10 },
-      { profile: 'N', count: 0, step_us: 10 },
-    ],
-    KYOBO119: [
-      { profile: 'Q16', count: 3, step_us: 20 },
-      { profile: 'N', count: 5, step_us: 10 },
-    ],
+    KB120: launchTailProbeRows([-330, -320, -310, -300, -290], [-340, -330, -320, -310, -300]),
+    KYOBO119: launchTailProbeRows([-520, -370], [-490, -400], [-30, -20]),
   };
+  const combined: Record<string, boolean> = { KYOBO119: true };
   return {
     ...base,
     servers: Object.fromEntries(
-      Object.entries(base.servers).map(([k, v]) => [k, v.status === 'ok' && tp[k] ? { ...v, tail_probes: tp[k] } : v]),
+      Object.entries(base.servers).map(([k, v]) => [
+        k,
+        v.status === 'ok' && tp[k]
+          ? { ...v, tail_probes: tp[k], ...(combined[k] !== undefined ? { kyobo_q16_combined: combined[k] } : {}) }
+          : v,
+      ]),
     ),
     tail_probe_changes: [
       {
+        id: 13,
+        at: '2026-11-25T05:41:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        market: 'K',
+        before_count: null,
+        before_step_us: null,
+        after_count: null,
+        after_step_us: null,
+        before_offsets_us: [-300, -290, -280, -270, -260],
+        after_offsets_us: [-330, -320, -310, -300, -290],
+        outcome: 'ok',
+        code: null,
+        message: null,
+        plan_rev: 4,
+      },
+      {
         id: 12,
+        at: '2026-11-25T05:30:00Z',
+        admin_email: 'admin@example.com',
+        gateway: 'KB120',
+        fire: 'q16',
+        market: 'K',
+        before_count: null,
+        before_step_us: null,
+        after_count: null,
+        after_step_us: null,
+        before_offsets_us: [-300, -290, -280, -270, -260],
+        after_offsets_us: [-290, -300],
+        outcome: 'failed',
+        code: 1,
+        message: '오프셋은 작은 값부터 차례로(같은 값 허용)',
+        plan_rev: null,
+      },
+      {
+        id: 11,
         at: '2026-11-06T13:41:00Z',
         admin_email: 'admin@example.com',
         gateway: 'KB120',
         fire: 'q16',
+        market: null,
         before_count: 3,
         before_step_us: 10,
         after_count: 5,
         after_step_us: 10,
+        before_offsets_us: null,
+        after_offsets_us: null,
         outcome: 'ok',
         code: null,
         message: null,
         plan_rev: 3,
-      },
-      {
-        id: 11,
-        at: '2026-11-06T13:30:00Z',
-        admin_email: 'admin@example.com',
-        gateway: 'KB120',
-        fire: 'q16',
-        before_count: 3,
-        before_step_us: 10,
-        after_count: 12,
-        after_step_us: 10,
-        outcome: 'failed',
-        code: 1,
-        message: '뒤탐침 발 수 범위 밖',
-        plan_rev: null,
       },
     ],
   };
@@ -519,8 +556,9 @@ export function launchPlanSaveOk(gateway: string, fire: LaunchFire, market: Laun
 }
 
 /**
- * PUT /tail-probe 기본 응답(quick-261107-l7w) — `launchPlanFixtureWithTailProbes()` 의 그 서버에서 그 profile 행만 바디 값으로 바꾼
- * ok plan(plan_rev +1) + ok 이력 1행(before = 픽스처 값). **합성 · 실서버 값 아님.**
+ * PUT /tail-probe 기본 응답(quick-261125-lju) — `launchPlanFixtureWithTailProbes()` 의 그 서버에서 그 (profile, market) 행만 바디
+ * 목록으로 바꾼 ok plan(plan_rev +1 · 교보 09:00:30 N 이면 K · Q 두 행 다 — gh-trade 가 두 행을 맞춘다) + 목록 이력 1행
+ * (before = 픽스처 값). **합성 · 실서버 값 아님.**
  */
 export function launchTailProbeSaveOk(
   gateway: string,
@@ -532,7 +570,8 @@ export function launchTailProbeSaveOk(
   if (base === undefined || base.status !== 'ok') {
     return { result: { server: gateway, outcome: 'offline' }, plan: null, change: null };
   }
-  const before = base.tail_probes?.find((t) => t.profile === profile) ?? null;
+  const markets: LaunchMarket[] = fire === 'n0930' && gateway.startsWith('KYOBO') ? ['K', 'Q'] : [body.market];
+  const before = base.tail_probes?.find((t) => t.profile === profile && t.market === body.market)?.offsets_us ?? null;
   const rev = (base.plan_rev ?? 0) + 1;
   const at = new Date().toISOString();
   return {
@@ -542,7 +581,9 @@ export function launchTailProbeSaveOk(
       plan_rev: rev,
       updated_at: at,
       tail_probes: (base.tail_probes ?? []).map((t) =>
-        t.profile === profile ? { profile, count: body.count, step_us: body.step_us } : t,
+        t.profile === profile && t.market !== undefined && markets.includes(t.market)
+          ? { ...t, count: body.offsets_us.length, offsets_us: [...body.offsets_us] }
+          : t,
       ),
     },
     change: {
@@ -551,10 +592,13 @@ export function launchTailProbeSaveOk(
       admin_email: 'admin@example.com',
       gateway,
       fire,
-      before_count: before?.count ?? null,
-      before_step_us: before?.step_us ?? null,
-      after_count: body.count,
-      after_step_us: body.step_us,
+      market: body.market,
+      before_count: null,
+      before_step_us: null,
+      after_count: null,
+      after_step_us: null,
+      before_offsets_us: before === null ? null : [...before],
+      after_offsets_us: [...body.offsets_us],
       outcome: 'ok',
       code: null,
       message: null,
@@ -577,7 +621,7 @@ export interface MockLaunchApiOptions {
     market: LaunchMarket,
     body: LaunchPlanSaveBody,
   ) => LaunchPlanSaveResponse | { status: number; body: unknown };
-  /** PUT /tail-probe/:gateway/:fire — 없으면 `launchTailProbeSaveOk`(quick-261107-l7w). */
+  /** PUT /tail-probe/:gateway/:fire — 없으면 `launchTailProbeSaveOk`(quick-261125-lju). */
   saveTailProbe?: (
     gateway: string,
     fire: LaunchTailProbeFire,
@@ -595,7 +639,7 @@ export interface LaunchApiMock {
   planGets: () => LaunchRequestRecord[];
   /** PUT /plan/... 요청만(바디 포함). */
   planPuts: () => LaunchRequestRecord[];
-  /** PUT /tail-probe/... 요청만(바디 포함 · quick-261107-l7w). */
+  /** PUT /tail-probe/... 요청만(바디 { market, offsets_us } 포함 · quick-261125-lju). */
   tailProbePuts: () => LaunchRequestRecord[];
 }
 
