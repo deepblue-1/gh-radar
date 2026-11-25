@@ -11,6 +11,7 @@
  * - 교보 서버 계좌는 `branchNo` · `traderId` 가 **빈 문자열**이다(D-23 ③) — 빈 값을 채우거나 거르지 않는다.
  * - 비밀번호는 44 의 op 1 요청에만 실리고 86/87 어디에도 없다. 로그 인자로 넘기지 않는다.
  */
+import type { LaunchPlanProfile } from "@gh-radar/shared";
 
 /** admin 관찰자 역할 번호 (`ObserverLoginReq.role` / `ObserverLoginResp.role`). 0 = journal · 1 = quote · 2 = admin. */
 export const ADMIN_ROLE = 2;
@@ -140,13 +141,18 @@ export type AdminCommandInput = {
   feePpm?: number;
   /** op 7 만 싣는다 — uint32 ppm(0 = 해제). 규칙은 `feePpm` 과 같다(두 값은 늘 함께 나간다). */
   sellTaxPpm?: number;
-  /** op 8 만 싣는다 — "Q16" | "N". 대상 판정은 서버(code 1 「발사 계획 대상 밖…」). */
+  /**
+   * op 8 · op 10 이 싣는다 — Q16 · N · G2(08:30 · quick-261125-c2i). op 10 은 뒤탐침 바디가 Q16 | N 으로 좁힌다
+   * (shared `LaunchTailProbeRelaySetBody`). 대상 판정은 서버(code 1 「발사 계획 대상 밖…」 · G2 꺼짐은 「G2 발사 계획 대상 아님…」).
+   */
   launchProfile?: LaunchProfile;
   /** op 8 만 싣는다 — "K" | "Q". */
   launchMarket?: LaunchMarket;
   /**
-   * op 8 만 싣는다 — µs 정수(int32) 목록 · 기준 16:00:00.000000 / 09:00:30.000000 · 음수 = 앞당김. Q16 = 조각 목록 · N = 길이 1.
-   * 길이 · 범위 · 순서는 서버 설정값(119/120 = Q16 −3000~1000 · 10조각 · N ±2000)으로 서버가 판정한다 — relay 는 int32 구조만 본다.
+   * op 8 만 싣는다 — µs 정수(int32) 목록 · 기준 16:00:00.000000 / 09:00:30.000000 / 08:30:00.000000(G2) · 음수 = 앞당김.
+   * Q16 = 조각 목록 · N · G2 = 길이 1.
+   * 길이 · 범위 · 순서는 서버 설정값(119/120 = Q16 −3000~1000 · 10조각 · N ±2000 · G2 −3000~20000)으로 서버가 판정한다 —
+   * relay 는 int32 구조만 본다.
    */
   launchOffsetsUs?: readonly number[];
   /**
@@ -158,8 +164,8 @@ export type AdminCommandInput = {
   launchTailProbeStepUs?: number;
 };
 
-/** 발사 계획 프로파일 — 94 의 `profile` · 44 의 `launch_profile`. */
-export type LaunchProfile = "Q16" | "N";
+/** 발사 계획 프로파일 — 94 의 `profile` · 44 의 `launch_profile`. 목록 정본 = shared `LaunchPlanProfile`(Q16 · N · G2). */
+export type LaunchProfile = LaunchPlanProfile;
 
 /** 발사 계획 시장 — 94 의 `market` · 44 의 `launch_market`. */
 export type LaunchMarket = "K" | "Q";

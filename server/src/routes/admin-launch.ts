@@ -38,13 +38,16 @@ import type { RelayAdminClient } from "../services/relay-admin-client.js";
  * Phase 35 D-20 — 발사 경계 지도 어드민(`/admin/launch`) **조회 전용** 라우트.
  *
  * - GET /launch/orders?d=YYYYMMDD : 주문 내역 하루치(`LaunchOrdersResponse`). `d` 생략 = 최신 거래일.
- * - GET /launch/map?fire=q16|n0930&range=10d|20d|all : 경계 지도(`LaunchMapResponse`). 기본 q16 · 10d.
+ * - GET /launch/map?fire=q16|n0930|g0830&range=10d|20d|all : 경계 지도(`LaunchMapResponse`). 기본 q16 · 10d.
+ *   g0830 = KRX 08:30:00 G2(quick-261125-c2i).
  * - GET /launch/plan : 서버별 현재 발사 계획 + 변경 이력(`LaunchPlanResponse` · 35-13 D-25) — relay 조회 ‖ 계획 이력 RPC ‖
  *                      뒤탐침 이력 RPC `launch_tail_probe_changes_for_admin`(quick-261107-l7w)를 Promise.all 로 병렬
  *                      (relay 왕복 1 · Supabase 왕복은 병렬이라 직렬 증가 없음). 서버별 뒤탐침 값은 relay 결과의 `tail_probes`.
- * - PUT /launch/plan/:gateway/:fire/:market `{ offsets_us }` : 계획 한 칸 저장(D-27 · D-29) — relay 저장 1회(저장 직전 값 ·
+ * - PUT /launch/plan/:gateway/:fire/:market `{ offsets_us }` : 계획 한 칸 저장(D-27 · D-29 · fire q16|n0930|g0830 — g0830 = G2 한 값 ·
+ *                      그 시장 하나만) — relay 저장 1회(저장 직전 값 ·
  *                      저장 뒤 재조회 값까지) → 이력 1행 기록(결과와 무관 · 실패 포함) → `LaunchPlanSaveResponse` 200.
- * - PUT /launch/tail-probe/:gateway/:fire `{ count, step_us }` : 뒤탐침 저장(quick-261107-l7w) — relay 저장 1회(op 10 · 와이어
+ * - PUT /launch/tail-probe/:gateway/:fire `{ count, step_us }` : 뒤탐침 저장(quick-261107-l7w · fire q16|n0930 만 — g0830 은 400 ·
+ *                      G2 는 뒤탐침 대상 아님) — relay 저장 1회(op 10 · 와이어
  *                      대기면 relay 503 → offline 확정 미반영) → 이력 1행(`launch_tail_probe_changes` · 실패 포함) →
  *                      `LaunchTailProbeSaveResponse` 200.
  *

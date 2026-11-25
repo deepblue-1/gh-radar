@@ -96,7 +96,9 @@ import { Router, type ErrorRequestHandler, type RequestHandler } from "express";
 import { z, ZodError } from "zod";
 import {
   isValidAccountNoInput,
+  LAUNCH_PLAN_PROFILES,
   LAUNCH_PLAN_SERVER_MAX_PIECES,
+  LAUNCH_TAIL_PROBE_PROFILES,
   maskDmaUserId,
   normalizeAccountNo,
   SERVER_KEY_RE,
@@ -331,10 +333,13 @@ const LaunchPlanServersQuery = z.object({
 /** int32 — 44 `launch_offsets_us: [int]` 구조 상한. 범위(Q16 −3000~1000 · N ±2000)는 서버 설정값이라 서버가 판정한다. */
 const Int32 = z.number().int().min(-2147483648).max(2147483647);
 
-/** `PUT /launch-plan/:server` 바디(shared `LaunchPlanRelaySetBody`) — 구조만 · 추가 키 거부. 순서 · 범위는 보지 않는다(D-26 · D-30). */
+/**
+ * `PUT /launch-plan/:server` 바디(shared `LaunchPlanRelaySetBody`) — 구조만 · 추가 키 거부. 순서 · 범위는 보지 않는다(D-26 · D-30).
+ * profile = shared `LAUNCH_PLAN_PROFILES`(Q16 · N · G2 — G2 = 08:30 · quick-261125-c2i · 인박스 261125-sigan-ttaeng-g2 ⓐ).
+ */
 const LaunchPlanSetBody = z
   .object({
-    profile: z.enum(["Q16", "N"]),
+    profile: z.enum(LAUNCH_PLAN_PROFILES),
     market: z.enum(["K", "Q"]),
     offsets_us: z.array(Int32).min(1).max(LAUNCH_PLAN_SERVER_MAX_PIECES),
   })
@@ -343,10 +348,11 @@ const LaunchPlanSetBody = z
 /**
  * `PUT /launch-tail-probe/:server` 바디(shared `LaunchTailProbeRelaySetBody` · quick-261107-l7w) — 구조만 · 추가 키 거부.
  * 범위(count 0..10 · step_us 1..100)는 보지 않는다 — gh-trade 86 code 1 고정 문구가 말한다(계획 경로 D-30 결).
+ * profile = shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N 만) — G2 는 뒤탐침 대상 아님(인박스 261125-sigan-ttaeng-g2 ⓑ · op 10).
  */
 const LaunchTailProbeSetBody = z
   .object({
-    profile: z.enum(["Q16", "N"]),
+    profile: z.enum(LAUNCH_TAIL_PROBE_PROFILES),
     count: Int32,
     step_us: Int32,
   })

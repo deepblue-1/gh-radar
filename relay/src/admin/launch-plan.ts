@@ -15,7 +15,8 @@
  *   - command `timeout` · `offline` → 그 상태 그대로(조회는 아무것도 바꾸지 않는다 — 저장의 offline 은 아래 「결과 모름」)
  *   - 조회 요청 마감(`LAUNCH_PLAN_READ_DEADLINE_MS` · 35 R2-WR-02)까지 답이 없음 → 그 서버만 `timeout`(다른 서버 결과는 산다)
  *   - 같은 request_id 86 code ≠ 0(구 서버 code 1 「알 수 없는 명령입니다」 · 10 · 11) → `failed { code, message 원문 }`
- *   - 94 스냅샷 → `ok { plan_rev, updated_at, entries }` — entries 는 Q16|N × K|Q 행만(모르는 행은 warn 후 뺀다) · plan_rev 가
+ *   - 94 스냅샷 → `ok { plan_rev, updated_at, entries }` — entries 는 Q16|N|G2 × K|Q 행만(모르는 행은 warn 후 뺀다 ·
+ *     G2/K · G2/Q 는 08:30 스위치 켠 서버만 말미에 덧붙인다 — 인박스 261125-sigan-ttaeng-g2 ⓑ · quick-261125-c2i) · plan_rev 가
  *     안전 정수를 넘으면 null + warn · updated_at 빈 문자열(손으로 만든 파일) → null
  *
  * 저장(`set` · D-27 · D-29) — 판정 앞단(skipped · offline)은 조회와 같다(44 0건). 그다음 같은 연결 FIFO 로 조회(전 값) → op 8 저장 →
@@ -40,6 +41,8 @@
  */
 import {
   interpretAdminResult,
+  LAUNCH_PLAN_PROFILES,
+  LAUNCH_TAIL_PROBE_PROFILES,
   type AdminServerResult,
   type LaunchPlanEntry as WireLaunchPlanEntry,
   type LaunchPlanRelaySetBody,
@@ -105,7 +108,10 @@ export type LaunchPlanServiceDeps = {
   tailProbeWire?: LaunchTailProbeWire;
 };
 
-const PROFILES = new Set<string>(["Q16", "N"]);
+/** 94 entries 가 통과시키는 프로파일 — shared `LAUNCH_PLAN_PROFILES`(Q16 · N · G2). */
+const PLAN_PROFILES = new Set<string>(LAUNCH_PLAN_PROFILES);
+/** 94 tail_probes 가 통과시키는 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 뒤탐침 대상 아님 · ⓑ). */
+const TAIL_PROBE_PROFILES = new Set<string>(LAUNCH_TAIL_PROBE_PROFILES);
 const MARKETS = new Set<string>(["K", "Q"]);
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
@@ -326,7 +332,7 @@ export class LaunchPlanService {
     const entries: WireLaunchPlanEntry[] = [];
     const dropped: { profile: string; market: string }[] = [];
     for (const e of snap.entries) {
-      if (PROFILES.has(e.profile) && MARKETS.has(e.market)) {
+      if (PLAN_PROFILES.has(e.profile) && MARKETS.has(e.market)) {
         entries.push({
           profile: e.profile as WireLaunchPlanEntry["profile"],
           market: e.market as WireLaunchPlanEntry["market"],
@@ -354,7 +360,7 @@ export class LaunchPlanService {
 
   /**
    * 94 뒤탐침 행 → 계약 모양. 어댑터가 undefined · 빈 배열을 주면 undefined(키를 싣지 않는다 = 구 서버 · 와이어 대기).
-   * profile ∈ Q16|N 이고 count · stepUs 가 정수인 행만 옮기고 나머지는 warn 1줄 후 뺀다(entries 의 「모르는 행」 결) —
+   * profile ∈ Q16|N(G2 행은 오지 않기로 했다 — 와도 뺀다)이고 count · stepUs 가 정수인 행만 옮기고 나머지는 warn 1줄 후 뺀다(entries 의 「모르는 행」 결) —
    * 다 빠지면 역시 undefined.
    */
   #tailProbesOf(serverKey: string, snap: LaunchPlanSnapshot): LaunchTailProbe[] | undefined {
@@ -363,7 +369,7 @@ export class LaunchPlanService {
     const out: LaunchTailProbe[] = [];
     const dropped: LaunchTailProbeWireRow[] = [];
     for (const r of rows) {
-      if (PROFILES.has(r.profile) && Number.isInteger(r.count) && Number.isInteger(r.stepUs)) {
+      if (TAIL_PROBE_PROFILES.has(r.profile) && Number.isInteger(r.count) && Number.isInteger(r.stepUs)) {
         out.push({ profile: r.profile as LaunchTailProbe["profile"], count: r.count, step_us: r.stepUs });
       } else {
         dropped.push({ profile: r.profile, count: r.count, stepUs: r.stepUs });

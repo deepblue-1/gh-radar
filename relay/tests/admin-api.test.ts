@@ -1861,7 +1861,8 @@ describe("P35 발사 계획 저장 PUT /launch-plan/:server (35-17 Task 2)", () 
   /** 라우트 검증 · 감사만 볼 때의 서비스 대역 — set 인자를 기록하고 정해 둔 응답을 돌려준다. */
   function fakeLaunchPlan(out?: Awaited<ReturnType<SetFn>>) {
     const set = vi.fn<SetFn>(async (server) => out ?? { result: { server, outcome: "ok", usersRev: "12" }, before_us: [-350], plan: null });
-    return { read: vi.fn(async () => ({})), set };
+    // setTailProbe · tailProbeSettable — 주입 타입(Pick) 을 채운다(quick-261107-l7w 뒤 typecheck:tests 오류 · 이 경로는 부르지 않는다).
+    return { read: vi.fn(async () => ({})), set, setTailProbe: vi.fn(), tailProbeSettable: false };
   }
 
   it("W1 실 서비스 — op 9 → op 8 → op 9 · op 8 의 94 는 버림 · 200 { result ok, before_us, plan 새 값 }", async () => {
@@ -1980,6 +1981,19 @@ describe("P35 발사 계획 저장 PUT /launch-plan/:server (35-17 Task 2)", () 
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_PLAN_UNAVAILABLE");
   });
+
+  it("W5 quick-261125-c2i — profile G2(08:30) 바디 → 200 · 서비스 set 에 G2 · 그 시장 하나 / profile A 는 여전히 400", async () => {
+    const lp = fakeLaunchPlan();
+    h = await startHarness({ launchPlan: lp, now: () => 1_000_000 });
+    const g2 = { profile: "G2", market: "K", offsets_us: [12000] };
+    const res = await call(h, "PUT", `${PATH}/KB120`, g2);
+    expect(res.status).toBe(200);
+    expect(lp.set).toHaveBeenCalledTimes(1);
+    expect(lp.set).toHaveBeenCalledWith("KB120", g2, { deadlineAt: 1_010_000 });
+    const bad = await call(h, "PUT", `${PATH}/KB120`, { ...g2, profile: "A" });
+    expect(bad.status).toBe(400);
+    expect(lp.set).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**
@@ -2055,6 +2069,15 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
       expect((await call(h, "PUT", `${PATH}/KB120`, b)).status, JSON.stringify(b)).toBe(200);
     }
     expect(setTailProbe).toHaveBeenCalledTimes(3);
+  });
+
+  it("TW3b quick-261125-c2i — profile G2 는 뒤탐침 대상 아님 → 400 VALIDATION_FAILED · setTailProbe 0회", async () => {
+    const { lp, setTailProbe } = fakeLaunchPlan(true);
+    h = await startHarness({ launchPlan: lp });
+    const res = await call(h, "PUT", `${PATH}/KB120`, { profile: "G2", count: 0, step_us: 10 });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
+    expect(setTailProbe).not.toHaveBeenCalled();
   });
 
   it("TW4 settable → 200 서비스 결과 그대로 · deadlineAt = 도착 + 마감 · 감사 1줄", async () => {

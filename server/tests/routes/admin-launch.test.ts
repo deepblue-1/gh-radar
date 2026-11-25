@@ -268,6 +268,8 @@ describe("GET /api/admin/launch/map — 경계 지도 (LAUNCH-05 · D-15 · D-20
     ["?range=all", { p_fire: "q16", p_days: null }],
     ["?fire=n0930", { p_fire: "n0930", p_days: 10 }],
     ["?fire=n0930&range=all", { p_fire: "n0930", p_days: null }],
+    // quick-261125-c2i — 08:30 G2 지도(KRX 08:30:00).
+    ["?fire=g0830", { p_fire: "g0830", p_days: 10 }],
   ])("%s → params %j (LAUNCH_RANGE_DAYS)", async (q, params) => {
     const { app, rec } = makeApp();
     const res = await auth(request(app).get(`/api/admin/launch/map${q}`));
@@ -275,7 +277,7 @@ describe("GET /api/admin/launch/map — 경계 지도 (LAUNCH-05 · D-15 · D-20
     expect(rec.rpcCalls).toEqual([{ fn: "launch_map_for_admin", params }]);
   });
 
-  it.each(["?fire=x", "?range=5d", "?fire=Q16", "?range=all&fire=krx"])(
+  it.each(["?fire=x", "?range=5d", "?fire=Q16", "?range=all&fire=krx", "?fire=G2"])(
     "%s → 400 VALIDATION_FAILED · RPC 0회",
     async (q) => {
       const { app, rec } = makeApp();
@@ -674,6 +676,29 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
     });
   });
 
+  it("quick-261125-c2i g0830 → relay 바디 profile G2 · 그 시장 하나(K) · 이력 fire g0830 · 감사 target KB120/g0830/K", async () => {
+    const info = vi.spyOn(logger, "info");
+    const relay = makeFakeRelay();
+    const { app, rec } = makeApp({}, relay.client);
+    const res = await auth(request(app).put("/api/admin/launch/plan/KB120/g0830/K")).send({ offsets_us: [12000] });
+    expect(res.status).toBe(200);
+    expect(relay.calls).toEqual([
+      {
+        method: "PUT",
+        path: "/internal/admin/launch-plan/KB120",
+        adminEmail: ADMIN_EMAIL,
+        body: { profile: "G2", market: "K", offsets_us: [12000] },
+      },
+    ]);
+    expect(recordCalls(rec)).toHaveLength(1);
+    expect(recordCalls(rec)[0]!.params).toMatchObject({
+      p: { gateway: "KB120", fire: "g0830", market: "K", after_us: [12000], outcome: "ok" },
+    });
+    const a = auditLines(info);
+    expect(a).toHaveLength(1);
+    expect(a[0]![0]).toMatchObject({ op: "launch-plan-put", target: "KB120/g0830/K", outcome: "ok" });
+  });
+
   it("quick-261107-iep 교보112 PUT → relay 경로 KYOBO112 · result.server KYOBO112 · 이력 gateway KYOBO112 (가짜 기본 PUT 응답)", async () => {
     const relay = makeFakeRelay();
     const { app, rec } = makeApp({}, relay.client);
@@ -939,6 +964,8 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT", () => {
   it.each([
     ["KB121 경로", "/api/admin/launch/tail-probe/KB121/q16", { count: 3, step_us: 20 }],
     ["fire x", "/api/admin/launch/tail-probe/KB120/x", { count: 3, step_us: 20 }],
+    // quick-261125-c2i — G2(08:30)는 뒤탐침 대상 아님(인박스 ⓑ).
+    ["fire g0830", "/api/admin/launch/tail-probe/KB120/g0830", { count: 0, step_us: 10 }],
     ["count 1.5", TP_PUT_PATH, { count: 1.5, step_us: 20 }],
     ["추가 키", TP_PUT_PATH, { count: 3, step_us: 20, extra: 1 }],
     ["문자열", TP_PUT_PATH, { count: "3", step_us: 20 }],

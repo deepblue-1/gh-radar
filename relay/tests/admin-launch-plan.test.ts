@@ -688,3 +688,103 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
     expect(kb.inputs).toHaveLength(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2(인박스 261125-sigan-ttaeng-g2 ⓐ ⓑ)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("quick-261125-c2i 08:30 G2 계획 행 · 뒤탐침 Q16|N 유지", () => {
+  let logs: LogCall[];
+
+  beforeEach(async () => {
+    logs = await spyLogs();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 인박스 ⓑ 켬 예시 — 기존 네 행 + 말미 G2/K [12000] · G2/Q [0]. */
+  const SIX: LaunchPlanEntry[] = [
+    ...ENTRIES,
+    { profile: "G2", market: "K", offsetsUs: [12000] },
+    { profile: "G2", market: "Q", offsetsUs: [0] },
+  ];
+
+  it("G-R1 94 여섯 행 → entries 여섯 행 · G2 두 행이 그 순서로 · 모르는 행 warn 없음", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ entries: SIX.map((e) => ({ ...e, offsetsUs: [...e.offsetsUs] })) })]);
+    const { svc } = rig({ admins: { KB120: kb } });
+    expect(await svc.read(["KB120"])).toEqual({
+      KB120: {
+        status: "ok",
+        plan_rev: 3,
+        updated_at: "2026-10-27T22:41:00",
+        entries: [
+          ...WIRE_ENTRIES,
+          { profile: "G2", market: "K", offsets_us: [12000] },
+          { profile: "G2", market: "Q", offsets_us: [0] },
+        ],
+      },
+    });
+    expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("G-R2 네 행 스냅샷(스위치 꺼짐 · 구 서버)은 종전 결과 그대로", async () => {
+    const kb = new FakeAdmin([snapshotOutcome()]);
+    const { svc } = rig({ admins: { KB120: kb } });
+    expect(await svc.read(["KB120"])).toEqual({
+      KB120: { status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES },
+    });
+    expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("G-R3 tail_probes 의 G2 행은 뺀다 — Q16 · N 만 · warn 1줄(모르는 뒤탐침 행)", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({
+        tailProbes: [
+          { profile: "Q16", count: 5, stepUs: 10 },
+          { profile: "N", count: 0, stepUs: 10 },
+          { profile: "G2", count: 1, stepUs: 10 },
+        ],
+      }),
+    ]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).toMatchObject({
+      status: "ok",
+      tail_probes: [
+        { profile: "Q16", count: 5, step_us: 10 },
+        { profile: "N", count: 0, step_us: 10 },
+      ],
+    });
+    const warns = logs.filter((c) => c.level === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.args[1]).toBe("[admin] 발사 계획 스냅샷의 모르는 뒤탐침 행 — 뺀다");
+    expect(warns[0]!.args[0]).toEqual({ server: "KB120", dropped: [{ profile: "G2", count: 1, stepUs: 10 }] });
+  });
+
+  it("G-S1 set G2/K [12000] → op 8 launchProfile G2 · 그 시장 하나 · before_us = 전 조회 G2/K", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({ entries: SIX.map((e) => ({ ...e, offsetsUs: e.profile === "G2" && e.market === "K" ? [0] : [...e.offsetsUs] })) }),
+      respOutcome(0, ""),
+      snapshotOutcome({ planRev: 4n, entries: SIX.map((e) => ({ ...e, offsetsUs: [...e.offsetsUs] })) }),
+    ]);
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    const out = await svc.set("KB120", { profile: "G2", market: "K", offsets_us: [12000] }, { deadlineAt: clock.t + 10_000 });
+    expect(kb.inputs).toEqual([
+      { op: ADMIN_OP.GetLaunchPlan, userId: "" },
+      { op: ADMIN_OP.SetLaunchPlan, userId: "", launchProfile: "G2", launchMarket: "K", launchOffsetsUs: [12000] },
+      { op: ADMIN_OP.GetLaunchPlan, userId: "" },
+    ]);
+    expect(out.result.outcome).toBe("ok");
+    expect(out.before_us).toEqual([0]);
+  });
+
+  it("G-S2 전 조회에 G2 행이 없으면(스위치 꺼짐) before_us null", async () => {
+    const kb = new FakeAdmin([snapshotOutcome(), respOutcome(1, "G2 발사 계획 대상 아님(08:30 발사 꺼짐)")]);
+    const { svc, clock } = rig({ admins: { KB120: kb } });
+    const out = await svc.set("KB120", { profile: "G2", market: "Q", offsets_us: [0] }, { deadlineAt: clock.t + 10_000 });
+    expect(out.before_us).toBeNull();
+    expect(out.result).toMatchObject({ outcome: "failed", code: 1, message: "G2 발사 계획 대상 아님(08:30 발사 꺼짐)" });
+  });
+});

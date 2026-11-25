@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   LAUNCH_PLAN_GATEWAYS,
   LAUNCH_RANGE_DAYS,
+  LAUNCH_TAIL_PROBE_PROFILES,
   launchPlanProfileOf,
+  launchTailProbeProfileOf,
   type AdminServerResult,
   type LaunchFire,
   type LaunchMarket,
@@ -13,6 +15,7 @@ import {
   type LaunchPlanServer,
   type LaunchRange,
   type LaunchTailProbeChangeRow,
+  type LaunchTailProbeFire,
   type LaunchTailProbeRelaySetResponse,
   type LaunchTailProbeValue,
 } from "@gh-radar/shared";
@@ -141,7 +144,8 @@ export async function getLaunchTailProbeChanges(supabase: SupabaseClient): Promi
   return data.tail_probe_changes as LaunchTailProbeChangeRow[];
 }
 
-const TAIL_PROBE_PROFILES: readonly unknown[] = ["Q16", "N"];
+/** 뒤탐침 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 뒤탐침 대상 아님 · 인박스 261125-sigan-ttaeng-g2 ⓑ). */
+const TAIL_PROBE_PROFILES: readonly unknown[] = LAUNCH_TAIL_PROBE_PROFILES;
 
 /** ok 서버의 `tail_probes` — 없음(구 서버 · 와이어 대기) 또는 배열이고 원소마다 { profile Q16|N · count · step_us number }. */
 const isTailProbes = (v: unknown): boolean =>
@@ -380,7 +384,7 @@ export async function saveLaunchTailProbeViaRelay(
   relay: RelayAdminClient | undefined,
   adminEmail: string,
   gateway: string,
-  fire: LaunchFire,
+  fire: LaunchTailProbeFire,
   value: LaunchTailProbeValue,
 ): Promise<LaunchTailProbeRelaySetResponse> {
   if (!relay) {
@@ -390,7 +394,7 @@ export async function saveLaunchTailProbeViaRelay(
   try {
     const r = await relay.setLaunchTailProbe(
       gateway,
-      { profile: launchPlanProfileOf(fire), count: value.count, step_us: value.step_us },
+      { profile: launchTailProbeProfileOf(fire), count: value.count, step_us: value.step_us },
       adminEmail,
     );
     status = r.status;
