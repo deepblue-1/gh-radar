@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 44
 status: completed
 stopped_at: Phase 44 complete — all phases complete
-last_updated: "2026-11-25T00:23:57.392Z"
-last_activity: 2026-11-22
+last_updated: "2026-11-25T00:43:06.734Z"
+last_activity: 2026-11-25
 last_activity_desc: Phase 44 complete
-state_head: 8bc8eabff45278734276db94a7446fb9a194446c
+state_head: 16c2a6114ca2b1549f21f5ed42a6411d2cd72d94
 progress:
   total_phases: 15
   completed_phases: 15
@@ -204,6 +204,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 100 | gh-trade 인계 261125-sigan-ttaeng-g2 — relay 생성물 재동기화 · DB 매핑 kind 17/18 profile 4 → G2(20261125090000 운영 적용) · 3b2b7555 | 2026-11-25 | 0aa799f4 | — |
 | 101 | 주문로그 조회 RPC 에 kind 17·18(발사 조각·머리) 제외 복원 — 11-09 핫픽스 22b1d41e 회귀 · 20261125100000 운영 적용 | 2026-11-25 | 1cde94ef | — |
 | 261125-c2i | 어드민 발사 경계 지도 08:30 G2 발사 기준 — 계획 편집(G2 · K/Q 한 값 · −3000 ~ +20000µs) · 이력 CHECK · 지도 g0830 · 주문 내역 세그먼트 · 뒤탐침 숨김 | 2026-11-25 | 8bc8eabf | [261125-c2i-admin-launch-g2-0830](./quick/261125-c2i-admin-launch-g2-0830/) |
+| 103 | 발사 계획 편집 — 입력 중 자동 정렬 없애고 저장 때 정렬해 보냄 (16c2a611) | 2026-11-25 | 16c2a611 | — |
 
 ## Session Continuity
 
