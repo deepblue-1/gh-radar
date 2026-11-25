@@ -14,7 +14,10 @@ import {
   launchAxisOf,
   launchDateLabelOf,
   launchGateBandOf,
+  launchHiddenDotsOf,
+  launchHiddenDotsText,
   launchMarkOf,
+  launchOnAxis,
   launchRibbonCellsOf,
   launchStackOf,
   launchHoverOf,
@@ -22,6 +25,7 @@ import {
   launchTooltipOf,
   trianglePathOf,
   xOfUs,
+  type LaunchAxis,
   type LaunchBandKind,
 } from '@/lib/launch-map';
 import { cn } from '@/lib/utils';
@@ -37,8 +41,10 @@ import { cn } from '@/lib/utils';
  * - 레이어(아래 → 위): 눈금 세로 격자 → 날짜 행 줄 · 왼쪽 「MM/DD」 → 경계 띠(+ 전부 거부 날 「경계는 이보다 뒤 →」) →
  *   점(같은 µs 는 세로 4px 대칭 쌓기 · 09:00:30 매도 = 마름모 · 탐침(16:00 · 09:00:30) = 삼각형 · 각 점 `<title>`) → 「쐈다면」 리본(칸마다 접수 · 모름 · 거부
  *   세 겹) → 다음 발사 계획 점선(조각마다 1개 · 행과 리본을 지난다 · planLines 가 비면 없음) → x 눈금 글.
- * - 축은 값 전부를 담는다(quick-261125-lju 사용자 결정 — 축 상한 · 축 끝 표식 폐기): 점 · 계획 · 바꿀 계획 · 탐침의 최소 ~ 최대.
+ * - 축(quick-261125-lju 사용자 결정): 지난 날 점은 중앙값 ± 퍼짐 상한 안만 축 후보 · 계획 · 바꿀 계획 · 탐침은 전부 축 후보.
  *   그래서 계획 점선 · 바꿀 계획 실선 · 탐침 표식은 받은 값 전부를 그리고(인덱스 · data-idx 그대로) 축 끝 글은 없다.
+ *   축 밖에 남은 먼 점은 그리지 않고 패널 머리에 「먼 점 n개 숨김」(title = 날짜 · µs 목록 · 0개면 없음) — 경계 띠 · 리본은 축 끝에서
+ *   잘린다 · 날짜별 표는 숨김과 무관하게 모든 값을 보인다.
  * - 바꿀 계획(35-15 · D-28 · 목업 `mockup-launch-plan-preview.html` `draftFor()`): 편집 중 `draftLines` 값마다 `--launch-gate`
  *   실선(행 + 리본 · 계획 점선 위) + 행 아래 번호(1..n = 조각).
  * - 예정 탐침(quick-261107-l7w · 정각 기준 절대 µs quick-261125-lju): `tailProbeLines` 값마다 행 영역 세로 점선(`--muted-fg` ·
@@ -107,6 +113,12 @@ export function LaunchGateChart({
 }: LaunchGateChartProps) {
   const title = serverMarketLabelOf(gateway, market);
   const stats = launchPanelStatsOf(days);
+  const axis = launchAxisOf(
+    days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us)),
+    [...planLines, ...draftLines, ...tailProbeLines],
+    fire,
+  );
+  const hidden = launchHiddenDotsText(launchHiddenDotsOf(days, axis));
 
   return (
     <section
@@ -122,6 +134,15 @@ export function LaunchGateChart({
             ? '이 범위에 발사 없음'
             : `경계 잡힌 날 ${stats.n_gate} · 전부 접수 ${stats.n_all_accept} · 전부 거부 ${stats.n_all_reject}`}
         </span>
+        {hidden !== null && (
+          <span
+            data-slot="launch-hidden-dots"
+            title={hidden.title}
+            className="text-[11.5px] break-keep text-[var(--muted-fg)] opacity-80"
+          >
+            {hidden.text}
+          </span>
+        )}
       </div>
       {children}
       {days.length > 0 && (
@@ -129,6 +150,7 @@ export function LaunchGateChart({
           <LaunchGateSvg
             title={title}
             fire={fire}
+            axis={axis}
             days={days}
             planLines={planLines}
             draftLines={draftLines}
@@ -145,6 +167,7 @@ export function LaunchGateChart({
 function LaunchGateSvg({
   title,
   fire,
+  axis,
   days,
   planLines,
   draftLines,
@@ -153,6 +176,7 @@ function LaunchGateSvg({
 }: {
   title: string;
   fire: LaunchFire;
+  axis: LaunchAxis;
   days: readonly LaunchDay<LaunchChartPiece>[];
   planLines: readonly number[];
   draftLines: readonly number[];
@@ -168,10 +192,6 @@ function LaunchGateSvg({
   const ry = rowsBottom + GAP_R;
   const H = ry + RIBBON_H + TICK_H;
 
-  const axis = launchAxisOf(
-    days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us)),
-    [...planLines, ...draftLines, ...tailProbeLines],
-  );
   const x = (v: number) => xOfUs(v, axis, left, right);
   const ticks = launchTicksOf(axis, right - left);
   const ribbon = launchRibbonCellsOf(days, axis, right - left);
@@ -225,6 +245,8 @@ function LaunchGateSvg({
                 </text>
               )}
               {d.pieces.map((p, j) => {
+                // 축 밖 먼 점은 그리지 않는다 — 패널 머리 「먼 점 n개 숨김」 이 센다.
+                if (!launchOnAxis(p.sent_rel_us, axis)) return null;
                 const mark = launchMarkOf(p, fire);
                 const cx = x(p.sent_rel_us);
                 const py = cy + dys[j]!;

@@ -17,6 +17,8 @@ import {
   launchRibbonCellsOf,
   launchStackOf,
   launchTicksOf,
+  launchHiddenDotsOf,
+  launchHiddenDotsText,
   launchHoverOf,
   launchTooltipOf,
   mapNextOffsetOf,
@@ -73,51 +75,51 @@ describe('launchAxisOf — 첨부 4패널 축(첨부 식)', () => {
     ['교보', '코스닥', -526, -560, -460],
     ['교보', '코스피', -400, -430, -350],
   ])('%s %s · next %d → %d ~ %d', (broker, market, next, xmin, xmax) => {
-    const axis = launchAxisOf(relsOf(broker, market), [next]);
+    const axis = launchAxisOf(relsOf(broker, market), [next], 'q16');
     expect([axis.xmin, axis.xmax]).toEqual([xmin, xmax]);
   });
 
-  it('값 전부를 담는다 — 점 · mark 가 모두 축 안(축 상한 없음 · quick-261125-lju)', () => {
+  it('보통 점 · mark 는 모두 축 안 · 축 모양은 { xmin, xmax } 뿐(quick-261125-lju)', () => {
     const rels = relsOf('KB', '코스닥');
-    const axis = launchAxisOf(rels, [-337]);
+    const axis = launchAxisOf(rels, [-337], 'q16');
     for (const v of [...rels, -337]) expect(inAxis(axis, v), String(v)).toBe(true);
     expect(Object.keys(axis).sort()).toEqual(['xmax', 'xmin']);
   });
 
   it('marks 여러 개(서버 계획 조각마다 · Pitfall S8) — 축이 −350 · −325 를 담는다', () => {
-    const axis = launchAxisOf([-347, -322], [-350, -345, -325]);
+    const axis = launchAxisOf([-347, -322], [-350, -345, -325], 'q16');
     for (const v of [-350, -345, -325]) expect(inAxis(axis, v)).toBe(true);
     expect(axis.xmin).toBeLessThanOrEqual(-350);
     expect(axis.xmax).toBeGreaterThanOrEqual(-325);
   });
 
   it('첫 mark 가 아닌 조각도 축을 넓힌다 — marks [−340, −345, −300] 의 −300 이 축 안', () => {
-    const axis = launchAxisOf([-347, -322], [-340, -345, -300]);
+    const axis = launchAxisOf([-347, -322], [-340, -345, -300], 'q16');
     expect(inAxis(axis, -300)).toBe(true);
     expect(axis.xmax).toBeGreaterThanOrEqual(-300);
   });
 
   it('먼 mark(−35000 · 오타)도 축을 넓힌다 — xmin = floor((−35000 − 8)/10)·10 · xmax 는 그대로', () => {
-    const base = launchAxisOf(relsOf('KB', '코스닥'), []);
-    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-35000]);
+    const base = launchAxisOf(relsOf('KB', '코스닥'), [], 'q16');
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-35000], 'q16');
     expect(axis.xmin).toBe(-35010);
     expect(axis.xmax).toBe(base.xmax);
   });
 
   it('marks [] 는 mark 없는 축(옛 next null) 과 같다 · values 가 비면 0 중심', () => {
-    const axis = launchAxisOf([], []);
+    const axis = launchAxisOf([], [], 'n0930');
     expect([axis.xmin, axis.xmax]).toEqual([-3, 3]);
   });
 
   it('values 가 비면 첫 mark 를 중심으로 좁은 축', () => {
-    const axis = launchAxisOf([], [-245]);
+    const axis = launchAxisOf([], [-245], 'n0930');
     expect([axis.xmin, axis.xmax]).toEqual([-248, -242]);
   });
 });
 
 describe('launchTicksOf', () => {
   it('KB 코스닥 축(−360~−280) · plotPx 568 → step 10 · 9개', () => {
-    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337]);
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337], 'q16');
     expect(PLOT).toBe(568);
     const t = launchTicksOf(axis, PLOT);
     expect(t.step).toBe(10);
@@ -126,7 +128,7 @@ describe('launchTicksOf', () => {
 });
 
 describe('xOfUs', () => {
-  const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337]);
+  const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337], 'q16');
   it('선형 — xmin = left · xmax = right · 가운데', () => {
     expect(xOfUs(-360, axis, LEFT, RIGHT)).toBe(LEFT);
     expect(xOfUs(-280, axis, LEFT, RIGHT)).toBe(RIGHT);
@@ -149,7 +151,7 @@ describe('launchStackOf', () => {
 });
 
 describe('launchGateBandOf — 4종', () => {
-  const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337]);
+  const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337], 'q16');
   const x = (v: number) => xOfUs(v, axis, LEFT, RIGHT);
 
   it('경계(10/14 lo −350 · hi −342) → lo~hi', () => {
@@ -263,7 +265,7 @@ const N_1026 = [-20148, -20143, -20148, -20143, -20141, -20149, -20142, -20149, 
 describe('launchRibbonCellsOf — 첨부 리본 식 · 칸 값 = shared launchRibbonAt', () => {
   it('KB 코스닥(−360~−280 · plotPx 568) → stepR 0.2 · 칸 400 · v −337 = 접수 5 · 거부 3 · 모름 2', () => {
     const days = daysOf('KB', '코스닥');
-    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337]);
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337], 'q16');
     const r = launchRibbonCellsOf(days, axis, PLOT);
     expect(r.stepR).toBe(0.2);
     expect(r.cells).toHaveLength(400);
@@ -273,16 +275,35 @@ describe('launchRibbonCellsOf — 첨부 리본 식 · 칸 값 = shared launchRi
   });
 
   it('칸 v 는 정수 i 로 계산 — 0.2 누적 오차 없음', () => {
-    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337]);
+    const axis = launchAxisOf(relsOf('KB', '코스닥'), [-337], 'q16');
     const r = launchRibbonCellsOf(daysOf('KB', '코스닥'), axis, PLOT);
     for (const cell of r.cells) expect(Math.round(cell.v * 5)).toBeCloseTo(cell.v * 5, 9);
     expect(r.cells.at(-1)!.v).toBe(-280.2);
   });
 });
 
-describe('축은 값 전부를 담는다(quick-261125-lju 사용자 결정 — 먼 오발 점도 축을 넓힌다)', () => {
+describe('축 — 점은 중앙값 ± 퍼짐 상한 · 계획 · 초안 · 탐침은 전부(quick-261125-lju 사용자 결정)', () => {
+  it('탐침 · 계획 −1500 은 축을 늘린다(상한 없음) · 점은 그대로 축 안 · 숨김 0', () => {
+    const rels = relsOf('KB', '코스닥');
+    const axis = launchAxisOf(rels, [-337, -1500], 'q16');
+    expect(axis.xmin).toBe(-1510);
+    expect(inAxis(axis, -1500)).toBe(true);
+    for (const v of rels) expect(inAxis(axis, v)).toBe(true);
+    expect(launchHiddenDotsOf(daysOf('KB', '코스닥'), axis)).toEqual([]);
+  });
+
+  it('launchHiddenDotsText — 0개 null · 「먼 점 n개 숨김」 · title 날짜 µs 목록', () => {
+    expect(launchHiddenDotsText([])).toBeNull();
+    expect(
+      launchHiddenDotsText([
+        { date: '20261026', us: -20148 },
+        { date: '20261027', us: 900 },
+      ]),
+    ).toEqual({ text: '먼 점 2개 숨김', title: '10/26 −20,148µs · 10/27 +900µs' });
+  });
+
   it('n0930 −20,149 … −20,138 만 → 좁은 축 −20152 ~ −20135 · 눈금 2 · 칸 0.2', () => {
-    const axis = launchAxisOf(N_1026, []);
+    const axis = launchAxisOf(N_1026, [], 'n0930');
     expect([axis.xmin, axis.xmax]).toEqual([-20152, -20135]);
     expect(launchTicksOf(axis, PLOT).step).toBe(2);
     const days = launchDaysOf(N_1026.map((v, wire) => ({ trade_date: '20261026', wire, sent_rel_us: v, result: '101' })));
@@ -290,7 +311,7 @@ describe('축은 값 전부를 담는다(quick-261125-lju 사용자 결정 — �
   });
 
   it('n0930 −20,149 … −20,138 + next −245 → 축 −20160 ~ −230(next 포함) · 눈금 ≤ 12 · 칸 ≤ plotPx', () => {
-    const axis = launchAxisOf(N_1026, [-245]);
+    const axis = launchAxisOf(N_1026, [-245], 'n0930');
     expect([axis.xmin, axis.xmax]).toEqual([-20160, -230]);
     expect(inAxis(axis, -245)).toBe(true);
     expect(launchTicksOf(axis, PLOT).values.length).toBeLessThanOrEqual(12);
@@ -298,11 +319,14 @@ describe('축은 값 전부를 담는다(quick-261125-lju 사용자 결정 — �
     expect(launchRibbonCellsOf(days, axis, PLOT).cells.length).toBeLessThanOrEqual(PLOT);
   });
 
-  it('섞인 축 [−300, −305, −20148] → xmin ≤ −20148(−20160) · xmax −290 · 눈금 ≤ 12 · 칸 ≤ plotPx', () => {
+  it('먼 점 1개 [−300, −305, −20148] q16 → 축은 그 점으로 늘지 않는다(−308 ~ −297) · 숨김 1 · 눈금 ≤ 12 · 칸 ≤ plotPx', () => {
     const values = [-300, -305, -20148];
-    const axis = launchAxisOf(values, []);
-    expect([axis.xmin, axis.xmax]).toEqual([-20160, -290]);
-    for (const v of values) expect(inAxis(axis, v)).toBe(true);
+    const axis = launchAxisOf(values, [], 'q16');
+    expect([axis.xmin, axis.xmax]).toEqual([-308, -297]);
+    expect(inAxis(axis, -20148)).toBe(false);
+    expect(launchHiddenDotsOf(launchDaysOf(values.map((v, wire) => ({ trade_date: '20261026', wire, sent_rel_us: v, result: '101' }))), axis)).toEqual([
+      { date: '20261026', us: -20148 },
+    ]);
     expect(launchTicksOf(axis, PLOT).values.length).toBeLessThanOrEqual(12);
     const days = launchDaysOf(values.map((v, wire) => ({ trade_date: '20261026', wire, sent_rel_us: v, result: '접수' })));
     expect(launchRibbonCellsOf(days, axis, PLOT).cells.length).toBeLessThanOrEqual(PLOT);
@@ -464,12 +488,14 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
     expect(mapNextOffsetOf(heads.slice(0, 2), 'KB120', 'K', 'g0830')).toBeNull();
   });
 
-  it('08:30 넓은 값도 전부 축 안 — [0 … 13000] + 18000 · [12000×3, 40000]', () => {
+  it('08:30 퍼짐 상한 20000 — 중앙값에서 20000µs 안쪽 점은 축 안 · 넘는 점(40000)은 축 밖(숨김) · q16 상한이면 0 이 숨김', () => {
     const values = [0, 11000, 12000, 12500, 13000];
-    const axis = launchAxisOf(values, [18000]);
+    const axis = launchAxisOf(values, [18000], 'g0830');
     for (const v of [...values, 18000]) expect(inAxis(axis, v)).toBe(true);
-    const far = launchAxisOf([12000, 12000, 12000, 40000], []);
-    expect(inAxis(far, 40000)).toBe(true);
+    // 같은 점을 q16 상한(300)으로 잡으면 0 은 축 후보가 아니다(mark 18000 은 그대로 축을 늘린다).
+    expect(inAxis(launchAxisOf(values, [18000], 'q16'), 0)).toBe(false);
+    const far = launchAxisOf([12000, 12000, 12000, 40000], [], 'g0830');
+    expect(inAxis(far, 40000)).toBe(false);
     expect(inAxis(far, 12000)).toBe(true);
   });
 });

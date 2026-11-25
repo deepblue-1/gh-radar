@@ -5,9 +5,11 @@
  *   `reference/mockup-launch-gate-map.html`(좁은 축 · 마름모 · 「날짜별 표 보기」). 컴포넌트(`LaunchGateChart`)는
  *   그리기만 하고 축 · 눈금 · 쌓기 · 띠 · 리본 칸 · 표식 · 툴팁은 여기서 테스트가 잠근다.
  * - **경계 · 리본 값은 shared 한 벌**(`launchDaysOf` · `launchRibbonAt`) — 여기는 그것을 좌표로 옮길 뿐이다.
- * - **축은 값 전부를 담는다**(quick-261125-lju 사용자 결정 — 축 상한 · 축 끝 표식 폐기 · 지도 전체): 점 · 계획 · 바꿀 계획 ·
- *   탐침의 최소 ~ 최대로 축을 잡는다. 10/26 N −20,148µs 같은 먼 오발 점도 그 패널 축을 넓힌다(받아들인 결과).
- *   눈금 ≤ 12개 · 간격 ≥ 28px · 리본 칸 수 ≤ 그림 폭 px 는 그대로라 넓은 축에서도 SVG 노드 수가 폭에 비례한다.
+ * - **축 규칙(quick-261125-lju 사용자 결정 · 지도 전체):** 지난 날 조각 점은 중앙값 ± 퍼짐 상한(`DOT_SPREAD_US` — q16 300 ·
+ *   n0930 100 · g0830 20000µs) 안의 점만 축 후보다(10/26 N −20,148µs 같은 먼 오발 점이 축을 늘리지 않게). 계획 · 바꿀 계획 ·
+ *   탐침(사용자가 넣은 값)은 **전부** 축 후보다(상한 없음 — 범위 밖이어도 축을 늘려 보인다). 만들어진 축 밖 점은 그리지 않고
+ *   패널 머리에 「먼 점 n개 숨김」(`launchHiddenDotsOf`)으로만 센다 — 축 끝 고정 표식 · 「축 밖」 꼬리 · 축 끝 글은 없다.
+ *   눈금 ≤ 12개 · 간격 ≥ 28px · 리본 칸 수 ≤ 그림 폭 px 로 SVG 노드 수가 폭에 비례한다.
  * - 단위: µs(발사 기준시각 대비 송신 시각 · 왼쪽이 이름) · 폭 W 는 `useChartWidth` 실측과 viewBox 1:1(글자 11px 고정).
  */
 
@@ -49,6 +51,12 @@ export const LAUNCH_CHART = {
   TICK_MIN_PX: 28,
 } as const;
 
+/**
+ * 조각 점 퍼짐 상한(µs) — 점 아래 중앙값 ± 이 값 밖의 점은 축 후보가 아니다(그 점은 숨김). 계획 · 초안 · 탐침에는 쓰지 않는다.
+ * g0830 = 20000(quick-261125-c2i) — 한도 −3000 ~ +20000µs · 첫 운영일 전이라 경계 군집 폭을 모른다.
+ */
+const DOT_SPREAD_US: Record<LaunchFire, number> = { q16: 300, n0930: 100, g0830: 20000 };
+
 /** 이 폭(µs)을 넘는 값 묶음은 넓은 축(여유 8 · 10 단위), 아니면 좁은 축(여유 3 · 1 단위). */
 const WIDE_SPAN = 40;
 
@@ -62,14 +70,26 @@ export function launchAxisFrom(xmin: number, xmax: number): LaunchAxis {
   return { xmin, xmax };
 }
 
+/** 정렬된 배열의 아래 중앙값 — 실제 값 하나라 core 가 비지 않는다. */
+function lowerMedian(sorted: readonly number[]): number {
+  return sorted[Math.floor((sorted.length - 1) / 2)]!;
+}
+
 /**
- * 축 — 첨부 식(:170-173) 그대로 values(점) ∪ marks(계획 · 바꿀 계획 · 탐침) **전부**의 최소 · 최대(비면 0 하나) ·
- * span = max − min · span > 40 이면 여유 8 · 10 단위, 아니면 여유 3 · 1 단위 ·
+ * 축 — 첨부 식(:170-173)에 점 퍼짐 상한을 더했다. core = values(점) 중 아래 중앙값 ± `DOT_SPREAD_US[fire]` 안의 점 +
+ * marks(계획 · 바꿀 계획 · 탐침) **전부**(비면 0 하나) · span = max − min · span > 40 이면 여유 8 · 10 단위, 아니면 여유 3 · 1 단위 ·
  * xmin = floor((min − pad)/unit)·unit · xmax = ceil((max + pad)/unit)·unit.
- * 축 상한은 없다(quick-261125-lju 사용자 결정) — 그려지는 값은 늘 축 안이다.
+ * marks 는 상한 없이 축을 늘린다(quick-261125-lju 사용자 결정) — 축 밖에 남을 수 있는 것은 먼 점뿐이고 그 점은 그리지 않는다.
  */
-export function launchAxisOf(values: readonly number[], marks: readonly number[]): LaunchAxis {
-  const all = [...values, ...marks];
+export function launchAxisOf(values: readonly number[], marks: readonly number[], fire: LaunchFire): LaunchAxis {
+  const all: number[] = [];
+  if (values.length > 0) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const m = lowerMedian(sorted);
+    const cap = DOT_SPREAD_US[fire];
+    for (const v of sorted) if (Math.abs(v - m) <= cap) all.push(v);
+  }
+  all.push(...marks);
   if (all.length === 0) all.push(0);
   let lo = all[0]!;
   let hi = all[0]!;
@@ -118,7 +138,31 @@ export function launchTicksOf(axis: LaunchAxis, plotPx: number): { step: number;
   return { step, values };
 }
 
-/** µs → x · 선형 · 축 밖은 끝(left · right)으로 고정(안전장치 — 축이 값 전부를 담아 그림 경로에서는 오지 않는다). */
+/** 축 안인가(양 끝 포함) — 밖이면 그 점은 그리지 않는다(먼 점 숨김). */
+export function launchOnAxis(v: number, axis: LaunchAxis): boolean {
+  return v >= axis.xmin && v <= axis.xmax;
+}
+
+/** 축 밖이라 그리지 않은 점 — 날짜 오름차순 · 날 안 조각 순서. 날짜별 표는 숨김과 무관하게 전부 보인다. */
+export function launchHiddenDotsOf(
+  days: readonly LaunchDay<{ sent_rel_us: number }>[],
+  axis: LaunchAxis,
+): { date: string; us: number }[] {
+  return days.flatMap((d) =>
+    d.pieces.filter((p) => !launchOnAxis(p.sent_rel_us, axis)).map((p) => ({ date: d.date, us: p.sent_rel_us })),
+  );
+}
+
+/** 「먼 점 n개 숨김」 글 · title(「10/26 −20,148µs · 10/26 −20,143µs」) — 0개면 null(글 없음). */
+export function launchHiddenDotsText(hidden: readonly { date: string; us: number }[]): { text: string; title: string } | null {
+  if (hidden.length === 0) return null;
+  return {
+    text: `먼 점 ${hidden.length}개 숨김`,
+    title: hidden.map((h) => `${launchDateLabelOf(h.date)} ${fmtUs(h.us)}µs`).join(' · '),
+  };
+}
+
+/** µs → x · 선형 · 축 밖은 끝(left · right)으로 고정(경계 띠 · 리본이 축 끝에서 잘린다 · 점은 축 밖이면 그리지 않는다). */
 export function xOfUs(v: number, axis: LaunchAxis, left: number, right: number): number {
   const span = axis.xmax - axis.xmin;
   if (span <= 0) return (left + right) / 2;
@@ -166,8 +210,10 @@ export function launchGateBandOf(
   const x = (v: number) => xOfUs(v, axis, left, right);
   const { lo, hi } = day;
   if (lo !== null && hi !== null) {
-    const x0 = Math.min(x(lo), x(hi));
-    return { kind: 'gate', x0, x1: x0 + Math.max(Math.abs(x(hi) - x(lo)), GATE_MIN_PX) };
+    // 축 밖은 축 끝에서 잘린다(xOfUs 고정) — 최소 폭 2px 도 오른쪽 끝을 넘지 않게 안쪽으로 민다.
+    const a = Math.min(x(lo), x(hi));
+    const x1 = Math.min(right, a + Math.max(Math.abs(x(hi) - x(lo)), GATE_MIN_PX));
+    return { kind: 'gate', x0: Math.min(a, x1 - GATE_MIN_PX), x1 };
   }
   if (lo !== null) return { kind: 'reject_after', x0: x(lo), x1: right };
   if (hi !== null) return { kind: 'accept_before', x0: left, x1: x(hi) };

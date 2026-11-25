@@ -227,6 +227,7 @@ describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름
     const axis = launchAxisOf(
       N0930_KB_Q.map((p) => p.sent_rel_us),
       [-245],
+      'n0930',
     );
     const { cells } = launchRibbonCellsOf(days, axis, LAUNCH_CHART.W_MIN - LAUNCH_CHART.L - LAUNCH_CHART.R);
     expect(cells.length).toBeGreaterThan(0);
@@ -235,9 +236,9 @@ describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름
   });
 });
 
-describe('LaunchGateChart — 먼 점도 축 안(축 상한 · 축 끝 표식 폐기 · quick-261125-lju)', () => {
-  it('q16 한 날 [−300, −305, −20148] → −20148 점은 축 왼쪽 끝(xmin 이 그 값을 담는다) · 「◂/▸」 0 · title 꼬리 없음', () => {
-    const days = launchDaysOf(
+describe('LaunchGateChart — 먼 점 숨김 · 계획 · 탐침은 축을 늘림(quick-261125-lju 사용자 결정)', () => {
+  const outlierDays = () =>
+    launchDaysOf(
       [-300, -305, -20148].map((v, wire) => ({
         trade_date: '20261026',
         gateway: 'KB120',
@@ -252,17 +253,53 @@ describe('LaunchGateChart — 먼 점도 축 안(축 상한 · 축 끝 표식 �
         retry: null,
       })),
     );
-    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={days} planLines={[]} />);
-    const svg = document.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+  const svgOf = () => document.querySelector<SVGSVGElement>('svg[data-slot="launch-chart"]')!;
+
+  it('q16 한 날 [−300, −305, −20148] → 축은 그 점으로 늘지 않음 · 먼 점 미표시 · 「먼 점 1개 숨김」(title 날짜 µs) · ◂/▸ 0', () => {
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={outlierDays()} planLines={[]} />);
+    const svg = svgOf();
+    const titles = [...svg.querySelectorAll('circle title')].map((t) => t.textContent);
+    expect(titles).toHaveLength(2);
+    expect(titles.some((t) => t!.includes('−20,148'))).toBe(false);
+    const hidden = document.querySelector('[data-slot="launch-hidden-dots"]')!;
+    expect(hidden.textContent).toBe('먼 점 1개 숨김');
+    expect(hidden.getAttribute('title')).toBe('10/26 −20,148µs');
     expect(svg.textContent).not.toContain('◂');
     expect(svg.textContent).not.toContain('▸');
-    expect(svg.querySelectorAll('[data-slot="launch-off-axis"]')).toHaveLength(0);
-    const out = [...svg.querySelectorAll('circle')].find((c) => c.querySelector('title')!.textContent!.includes('−20,148'))!;
-    // 축 −20160 ~ −290 · −20148 은 왼쪽 끝에서 조금 안(여유 8 · 10 단위).
-    const cx = Number(out.getAttribute('cx'));
-    expect(cx).toBeGreaterThan(LAUNCH_CHART.L);
-    expect(cx).toBeLessThan(LAUNCH_CHART.L + 2);
-    expect(out.querySelector('title')!.textContent).toBe('10/26 −20,148µs · wire 2 · 접수');
+    // 축은 −308 ~ −297(눈금 글에 −20,1xx 없음)
+    expect(svg.querySelector('[data-slot="launch-ticks"]')!.textContent).not.toContain('20,');
+    // 날짜별 표는 숨김과 무관하게 모든 값을 보인다
+    expect(document.querySelector('[data-slot="launch-day-table"]')!.textContent).toContain('−20,148');
+  });
+
+  it('탐침 · 계획 −1500 은 축을 늘린다 — 점선 · 탐침 표식이 그려지고 숨김 글 0', () => {
+    const days = launchDaysOf(
+      [-300, -305].map((v, wire) => ({
+        trade_date: '20261026',
+        gateway: 'KB120',
+        market: 'Q',
+        profile: 'Q16',
+        fire_exchange: 'KRX',
+        side: null,
+        wire,
+        piece_idx: wire,
+        sent_rel_us: v,
+        result: '접수',
+        retry: null,
+      })),
+    );
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={days} planLines={[-1500]} tailProbeLines={[-1500]} />);
+    expect(svgOf().querySelectorAll('[data-slot="launch-next"]')).toHaveLength(1);
+    expect(svgOf().querySelectorAll('[data-slot="launch-tail-probe-planned"]')).toHaveLength(1);
+    expect(svgOf().querySelectorAll('circle')).toHaveLength(2);
+    expect(document.querySelector('[data-slot="launch-hidden-dots"]')).toBeNull();
+    // 축 −1510 ~ −290(점 −300 · −305 와 −1500 을 함께 담는다) · 눈금 200 간격
+    expect(svgOf().querySelector('[data-slot="launch-ticks"]')!.textContent).toContain('\u22121,400');
+  });
+
+  it('먼 점이 없으면 숨김 글 없음', () => {
+    render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={daysOf('KB120', 'Q')} planLines={[-350]} />);
+    expect(document.querySelector('[data-slot="launch-hidden-dots"]')).toBeNull();
   });
 });
 
@@ -341,7 +378,7 @@ describe('LaunchGateChart — 바꿀 계획 draftLines', () => {
   it('바꿀 값도 축 후보 — −250 은 축을 넓혀 그 선이 축 안에 든다', () => {
     const days = daysOf('KB120', 'Q');
     const values = days.flatMap((d) => d.pieces.map((p) => p.sent_rel_us));
-    expect(launchAxisOf(values, [-350]).xmax).toBeLessThan(-250);
+    expect(launchAxisOf(values, [-350], 'q16').xmax).toBeLessThan(-250);
     render(<LaunchGateChart gateway="KB120" market="Q" fire="q16" days={days} planLines={[-350]} draftLines={[-250]} />);
     expect(document.querySelectorAll('[data-slot="launch-draft-line"]')).toHaveLength(1);
     expect(document.querySelectorAll('[data-slot="launch-draft-off"]')).toHaveLength(0);
