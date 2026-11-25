@@ -211,7 +211,8 @@ describe('LaunchMapView — 16:00 「전체」', () => {
   });
 
   it('오른쪽 끝 눈금 글은 오른쪽 맞춤 — SVG 밖으로 잘리지 않는다(09:00:30 「−20,136」)', () => {
-    const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d' });
+    // 머리 없음 = 점선 없음 — 축이 점(−20,1xx)만 담아 끝 눈금이 −20,136(머리 −245 가 있으면 축이 그 값까지 넓어진다 · quick-261125-lju).
+    const { container } = view({ resp: { ...n0930(), heads: [] }, fire: 'n0930', range: '10d' });
     const edge = Array.from(container.querySelectorAll('[data-slot="launch-ticks"] text')).filter(
       (t) => Number(t.getAttribute('x')) > 640 - 14 - 24,
     );
@@ -446,11 +447,12 @@ describe('LaunchMapView — 다음 발사 계획(상태별)', () => {
     expect(kpiNextOf(ky.container, 'KYOBO119', 'Q')).toBe(`${M}526µs`);
   });
 
-  it('n0930 + ready → KB 코스닥 줄 「−245µs」 · 점선 1개(축 밖이면 「▸ 다음」 글) · 범례 「다음 발사 계획(시각)」', () => {
+  it('n0930 + ready → KB 코스닥 줄 「−245µs」 · 점선 1개(점과 멀어도 축이 담는다 · 축 끝 글 0) · 범례 「다음 발사 계획(시각)」', () => {
     const { container } = view({ resp: n0930(), fire: 'n0930', range: '10d', plan: { kind: 'ready', resp: planResp() } });
     const kbq = panelOf(container, 'KB120', 'Q');
     expect(one(kbq, '[data-slot="launch-plan-line"]').textContent).toBe(`${M}245µs`);
-    expect(slots(kbq, 'launch-next').length + slots(kbq, 'launch-next-off').length).toBe(1);
+    expect(slots(kbq, 'launch-next')).toHaveLength(1);
+    expect(slots(kbq, 'launch-next-off')).toHaveLength(0);
     expect(kpiNextOf(container, 'KB120', 'Q')).toBe(`${M}245µs`);
     expect(one(container, '[data-slot="launch-legend"]').textContent).toContain('다음 발사 계획(시각)');
   });
@@ -624,6 +626,11 @@ describe('LaunchMapView — 지도 탐침 표식(정각 기준 절대 µs · qui
     const { container } = view({ plan: { kind: 'ready', resp: tpPlanResp() } });
     expect(planned(panelOf(container, 'KB120', 'K'))).toHaveLength(2);
     expect(planned(panelOf(container, 'KB120', 'Q'))).toHaveLength(3);
+    // 정각 기준 절대 µs 그대로(계획 마지막 조각 + 간격 계산 없음)
+    expect(planned(panelOf(container, 'KB120', 'K')).map((g) => g.querySelector('title')!.textContent)).toEqual([
+      `예정 탐침 1번 ${M}315µs`,
+      `예정 탐침 2번 ${M}305µs`,
+    ]);
     expect(planned(container).every((g) => g.dataset.src === 'server')).toBe(true);
     expect(legendPlanned(container)).toHaveLength(1);
     expect(legendPlanned(container)[0]!.textContent).toBe('예정 탐침');

@@ -5,9 +5,9 @@
  *   `reference/mockup-launch-gate-map.html`(좁은 축 · 마름모 · 「날짜별 표 보기」). 컴포넌트(`LaunchGateChart`)는
  *   그리기만 하고 축 · 눈금 · 쌓기 · 띠 · 리본 칸 · 표식 · 툴팁은 여기서 테스트가 잠근다.
  * - **경계 · 리본 값은 shared 한 벌**(`launchDaysOf` · `launchRibbonAt`) — 여기는 그것을 좌표로 옮길 뿐이다.
- * - **이상치 상한(Pitfall 4):** 10/26 N 의 −20,148µs 오발처럼 한 점이 축을 수천 배 늘리지 않게, 축은 중앙값 ± 상한
- *   (q16 300 · n0930 100µs) 안의 값으로만 잡는다. 밖의 점은 축 끝에 고정하고 컴포넌트가 바깥 표식(◂/▸)을 붙인다.
- *   눈금 ≤ 12개 · 간격 ≥ 28px · 리본 칸 수 ≤ 그림 폭 px 로 SVG 노드 수가 폭에 비례한다.
+ * - **축은 값 전부를 담는다**(quick-261125-lju 사용자 결정 — 축 상한 · 축 끝 표식 폐기 · 지도 전체): 점 · 계획 · 바꿀 계획 ·
+ *   탐침의 최소 ~ 최대로 축을 잡는다. 10/26 N −20,148µs 같은 먼 오발 점도 그 패널 축을 넓힌다(받아들인 결과).
+ *   눈금 ≤ 12개 · 간격 ≥ 28px · 리본 칸 수 ≤ 그림 폭 px 는 그대로라 넓은 축에서도 SVG 노드 수가 폭에 비례한다.
  * - 단위: µs(발사 기준시각 대비 송신 시각 · 왼쪽이 이름) · 폭 W 는 `useChartWidth` 실측과 viewBox 1:1(글자 11px 고정).
  */
 
@@ -30,7 +30,7 @@ import { COMMON_PLAN_BASE_MARKET, fmtUs, isCommonLaunchPlan, type LaunchResultTo
 
 /**
  * 패널 배치 — 그림 영역 x = [L, W − R] · 첫 행 위끝 T · 날짜 행 RH · 행과 리본 사이 GAP_R · 리본 RIBBON_H ·
- * 아래 눈금 글 TICK_H · 점 반지름 DOT_R · 뒤탐침 삼각형 위 꼭짓점 거리 TRI_R(목업 MARK.A r) · 같은 µs 세로 간격 STACK_DY ·
+ * 아래 눈금 글 TICK_H · 점 반지름 DOT_R · 탐침 삼각형 위 꼭짓점 거리 TRI_R(목업 MARK.A r) · 같은 µs 세로 간격 STACK_DY ·
  * 눈금 상한 TICK_MAX 개 · 눈금 최소 간격 TICK_MIN_PX.
  */
 export const LAUNCH_CHART = {
@@ -49,51 +49,34 @@ export const LAUNCH_CHART = {
   TICK_MIN_PX: 28,
 } as const;
 
-/**
- * 축 상한(µs) — 중앙값 ± 이 값 밖은 축을 늘리지 않는다.
- * g0830 = 20000(quick-261125-c2i) — 한도 −3000 ~ +20000µs · 첫 운영일 전이라 경계 군집 폭을 모른다. 넓게 잡고 밖은 기존 ◂/▸ 표식.
- */
-const AXIS_CAP: Record<LaunchFire, number> = { q16: 300, n0930: 100, g0830: 20000 };
-
 /** 이 폭(µs)을 넘는 값 묶음은 넓은 축(여유 8 · 10 단위), 아니면 좁은 축(여유 3 · 1 단위). */
 const WIDE_SPAN = 40;
-
-export type LaunchOffAxis = 'lo' | 'hi' | null;
 
 export interface LaunchAxis {
   xmin: number;
   xmax: number;
-  /** 축 밖이면 쪽('lo' = 왼쪽 밖 · 'hi' = 오른쪽 밖), 안이면 null. */
-  offAxis: (v: number) => LaunchOffAxis;
 }
 
 /** 최소 · 최대로 축을 만든다(테스트 · 강제 축용). */
 export function launchAxisFrom(xmin: number, xmax: number): LaunchAxis {
-  return { xmin, xmax, offAxis: (v) => (v < xmin ? 'lo' : v > xmax ? 'hi' : null) };
-}
-
-/** 정렬된 배열의 아래 중앙값 — 실제 값 하나라 core 가 비지 않는다. */
-function lowerMedian(sorted: readonly number[]): number {
-  return sorted[Math.floor((sorted.length - 1) / 2)]!;
+  return { xmin, xmax };
 }
 
 /**
- * 축 — 첨부 식(:170-173)에 상한을 더했다. m = values 아래 중앙값(비면 첫 mark ?? 0) · core = m ± cap 안의 values +
- * m ± cap 안의 marks **전부**(다음 발사 계획 조각마다 · Pitfall S8 — 계획 점선이 축 밖으로 밀리지 않게) ·
+ * 축 — 첨부 식(:170-173) 그대로 values(점) ∪ marks(계획 · 바꿀 계획 · 탐침) **전부**의 최소 · 최대(비면 0 하나) ·
  * span = max − min · span > 40 이면 여유 8 · 10 단위, 아니면 여유 3 · 1 단위 ·
  * xmin = floor((min − pad)/unit)·unit · xmax = ceil((max + pad)/unit)·unit.
- * m ± cap 밖의 mark(오타 같은 먼 값)는 축을 늘리지 않는다 — 컴포넌트가 「◂/▸ 다음 …µs」 글로 떨어뜨린다.
+ * 축 상한은 없다(quick-261125-lju 사용자 결정) — 그려지는 값은 늘 축 안이다.
  */
-export function launchAxisOf(values: readonly number[], marks: readonly number[], fire: LaunchFire): LaunchAxis {
-  const cap = AXIS_CAP[fire];
-  const sorted = [...values].sort((a, b) => a - b);
-  const m = sorted.length > 0 ? lowerMedian(sorted) : (marks[0] ?? 0);
-  const near = (v: number) => Math.abs(v - m) <= cap;
-  const core = sorted.filter(near);
-  for (const v of marks) if (near(v)) core.push(v);
-  if (core.length === 0) core.push(m);
-  const lo = Math.min(...core);
-  const hi = Math.max(...core);
+export function launchAxisOf(values: readonly number[], marks: readonly number[]): LaunchAxis {
+  const all = [...values, ...marks];
+  if (all.length === 0) all.push(0);
+  let lo = all[0]!;
+  let hi = all[0]!;
+  for (const v of all) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
   const wide = hi - lo > WIDE_SPAN;
   const pad = wide ? 8 : 3;
   const unit = wide ? 10 : 1;
@@ -135,7 +118,7 @@ export function launchTicksOf(axis: LaunchAxis, plotPx: number): { step: number;
   return { step, values };
 }
 
-/** µs → x · 선형 · 축 밖은 끝(left · right)으로 고정. */
+/** µs → x · 선형 · 축 밖은 끝(left · right)으로 고정(안전장치 — 축이 값 전부를 담아 그림 경로에서는 오지 않는다). */
 export function xOfUs(v: number, axis: LaunchAxis, left: number, right: number): number {
   const span = axis.xmax - axis.xmin;
   if (span <= 0) return (left + right) / 2;
@@ -263,16 +246,16 @@ export interface LaunchMark {
   tone: LaunchResultTone;
 }
 
-/** 표식 · 툴팁이 읽는 뒤탐침 판정 칸(선택 — 없으면 실조각). */
+/** 표식 · 툴팁이 읽는 탐침 판정 칸(선택 — 없으면 실조각). */
 type ProbeFields = { probe?: boolean | null; round?: number | null; result_code?: string | null };
 
 const GATE_TONE = { open: 'ok', closed: 'bad' } as const;
 
 /**
- * 점 표식(D-17 · 오케스트레이터 결정 5 · quick-261030-dz7 결정 2) — 뒤탐침은(16:00 · 09:00:30 · `isLaunchTailProbe`) 삼각형(목업 A안) ·
+ * 점 표식(D-17 · 오케스트레이터 결정 5 · quick-261030-dz7 결정 2) — 탐침은(16:00 · 09:00:30 · `isLaunchTailProbe`) 삼각형(목업 A안) ·
  * 09:00:30 합패널의 매도(A 매도 다리)는 마름모 · 그 밖(N 매수 · side null(D-08) · 16:00 실조각)은 원.
  * 색 축 = shared `launchGateSideOf`(열림 ok · 거부 bad · 경계 밖 other) — 실조각에선 `resultToneOf` 와 같은 값이고,
- * 뒤탐침 「기타」 는 판정 한 벌에서 열림(가격거부) / 경계 밖(E127)이 갈린다.
+ * 탐침 「기타」 는 판정 한 벌에서 열림(가격거부) / 경계 밖(E127)이 갈린다.
  */
 export function launchMarkOf(
   piece: { side: string | null; result: string } & ProbeFields,
@@ -290,7 +273,7 @@ export function diamondPathOf(cx: number, cy: number, r: number): string {
   return `M${cx} ${cy - r} L${cx + r} ${cy} L${cx} ${cy + r} L${cx - r} ${cy} Z`;
 }
 
-/** 뒤탐침 삼각형 경로(목업 MARK.A) — 위 꼭짓점 (cx, cy − r) · 아래 두 꼭짓점 (cx ± 0.95r, cy + 0.7r). */
+/** 탐침 삼각형 경로(목업 MARK.A) — 위 꼭짓점 (cx, cy − r) · 아래 두 꼭짓점 (cx ± 0.95r, cy + 0.7r). */
 export function trianglePathOf(cx: number, cy: number, r: number): string {
   const dx = tidy(r * 0.95);
   const dy = tidy(r * 0.7);
@@ -299,7 +282,7 @@ export function trianglePathOf(cx: number, cy: number, r: number): string {
 
 const SIDE_TIP: Readonly<Record<string, string>> = { buy: '매수', sell: '매도' };
 
-/** 툴팁 · 호버가 읽는 조각 모양 — piece_idx 와 뒤탐침 칸은 선택. */
+/** 툴팁 · 호버가 읽는 조각 모양 — piece_idx 와 탐침 칸은 선택. */
 type TipPiece = {
   sent_rel_us: number;
   wire: number;
@@ -310,11 +293,11 @@ type TipPiece = {
 } & ProbeFields;
 
 /**
- * 뒤탐침 툴팁 조각 — 「뒤탐침 i+1」 + 결과 글(quick-261030-dz7 결정 3). 접수 · 101/515 = 원문 · 판정 열림(접수 아님) =
+ * 탐침 툴팁 조각 — 「탐침 i+1」 + 결과 글(quick-261030-dz7 결정 3). 접수 · 101/515 = 원문 · 판정 열림(접수 아님) =
  * 「가격거부(열림)」 · 그 밖 「<원문>(경계 밖)」. 접수 · 거부가 아니고 result_code 가 있으면 원문 코드를 뒤에 붙인다.
  */
 function tailProbeTipParts(piece: TipPiece): string[] {
-  const parts = [piece.piece_idx == null ? '뒤탐침' : `뒤탐침 ${piece.piece_idx + 1}`];
+  const parts = [piece.piece_idx == null ? '탐침' : `탐침 ${piece.piece_idx + 1}`];
   if (isLaunchAccept(piece.result) || isLaunchReject(piece.result)) {
     parts.push(piece.result);
     return parts;
@@ -324,8 +307,8 @@ function tailProbeTipParts(piece: TipPiece): string[] {
   return parts;
 }
 
-/** 툴팁 · 호버 공통 꼬리 — 날짜 · (뒤탐침 | wire · 매수/매도 · 결과 · 재전송) · 축 밖. */
-function tipPartsOf(piece: TipPiece, fire: LaunchFire, offAxis: boolean): string[] {
+/** 툴팁 · 호버 공통 꼬리 — 날짜 · (탐침 | wire · 매수/매도 · 결과 · 재전송). */
+function tipPartsOf(piece: TipPiece, fire: LaunchFire): string[] {
   const parts: string[] = [];
   if (isLaunchTailProbe(piece)) {
     parts.push(...tailProbeTipParts(piece));
@@ -335,34 +318,32 @@ function tipPartsOf(piece: TipPiece, fire: LaunchFire, offAxis: boolean): string
     parts.push(piece.result);
     if (fire === 'n0930' && piece.retry) parts.push(`재전송 ${piece.retry}`);
   }
-  if (offAxis) parts.push('축 밖');
   return parts;
 }
 
 /**
  * 점 `<title>` — q16 「MM/DD −350µs · wire 2 · 101」 · n0930 「MM/DD −20,148µs · wire 0 · 매수 · 101 · 재전송 2」
- * (side null 「구분 없음」 · retry 0/null 이면 재전송 조각 생략) · 축 밖이면 끝에 「 · 축 밖」.
+ * (side null 「구분 없음」 · retry 0/null 이면 재전송 조각 생략).
  * 재전송 1·2·3회는 점을 따로 그리지 않고 여기 횟수로만 싣는다(첫 발 송신 시각 점 하나).
- * 뒤탐침은(16:00 · 09:00:30) wire 대신 「10/30 −250µs · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
+ * 탐침은(16:00 · 09:00:30) wire 대신 「10/30 −250µs · 탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
-export function launchTooltipOf(date: string, piece: TipPiece, fire: LaunchFire, offAxis = false): string {
-  return [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, ...tipPartsOf(piece, fire, offAxis)].join(' · ');
+export function launchTooltipOf(date: string, piece: TipPiece, fire: LaunchFire): string {
+  return [`${launchDateLabelOf(date)} ${fmtUs(piece.sent_rel_us)}µs`, ...tipPartsOf(piece, fire)].join(' · ');
 }
 
 /**
  * 점 위 즉시 툴팁(사용자 UAT 2026-10-27 — 「점에 마우스를 대면 −247µs 처럼」) — 큰 줄 = 송신 µs 하나,
- * 작은 줄 = 날짜 · wire · (n0930 매수/매도) · 결과 · (재전송) · (축 밖). `<title>` 과 같은 재료를 두 줄로 나눈 것.
- * 뒤탐침은(16:00 · 09:00:30) 작은 줄 「10/30 · 뒤탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
+ * 작은 줄 = 날짜 · wire · (n0930 매수/매도) · 결과 · (재전송). `<title>` 과 같은 재료를 두 줄로 나눈 것.
+ * 탐침은(16:00 · 09:00:30) 작은 줄 「10/30 · 탐침 2 · 가격거부(열림) · F083」(quick-261030-dz7).
  */
 export function launchHoverOf(
   date: string,
   piece: TipPiece,
   fire: LaunchFire,
-  offAxis = false,
 ): { value: string; detail: string } {
   return {
     value: `${fmtUs(piece.sent_rel_us)}µs`,
-    detail: [launchDateLabelOf(date), ...tipPartsOf(piece, fire, offAxis)].join(' · '),
+    detail: [launchDateLabelOf(date), ...tipPartsOf(piece, fire)].join(' · '),
   };
 }
 

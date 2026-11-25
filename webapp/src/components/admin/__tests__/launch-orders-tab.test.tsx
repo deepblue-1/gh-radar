@@ -298,7 +298,7 @@ describe('LaunchOrdersView — 빈 상태 · 오류', () => {
   });
 });
 
-describe('LaunchHeadCard — 뒤탐침 표기(35 IN-02)', () => {
+describe('LaunchHeadCard — 탐침 표기(35 IN-02)', () => {
   const model = {
     gateway: 'KB120',
     market: 'Q',

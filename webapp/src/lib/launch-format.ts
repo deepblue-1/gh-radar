@@ -81,13 +81,14 @@ const cell = (v: string | number | null | undefined): string =>
 
 /**
  * 키 열 — Q16 · G2(예약 · quick-261125-c2i) 「Q153015001 · j0 · R0」 · 그 밖 「N · idx1」. null 칸은 「—」.
- * 16:00 뒤탐침(probe true · round −2)은 「Q153015001 · 뒤탐침 2」(piece_idx + 1 · null 이면 번호 없음 · quick-261030-dz7).
+ * 16:00 탐침(probe true · round −2)은 「Q153015001 · 탐침 2」(piece_idx + 1 · null 이면 번호 없음 · quick-261030-dz7 ·
+ * 화면 이름 「탐침」 quick-261125-lju).
  */
 export function pieceKeyLabelOf(
   p: Pick<LaunchPieceRow, 'profile' | 'queued_id' | 'piece_idx' | 'round'> & Partial<Pick<LaunchPieceRow, 'probe'>>,
 ): string {
   if (isLaunchTailProbe(p)) {
-    return p.piece_idx === null ? `${cell(p.queued_id)} · 뒤탐침` : `${cell(p.queued_id)} · 뒤탐침 ${p.piece_idx + 1}`;
+    return p.piece_idx === null ? `${cell(p.queued_id)} · 탐침` : `${cell(p.queued_id)} · 탐침 ${p.piece_idx + 1}`;
   }
   if (p.profile === 'Q16' || p.profile === 'G2') return `${cell(p.queued_id)} · j${cell(p.piece_idx)} · R${cell(p.round)}`;
   return `${cell(p.queued_id)} · idx${cell(p.piece_idx)}`;

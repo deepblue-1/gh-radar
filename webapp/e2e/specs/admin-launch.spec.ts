@@ -908,6 +908,9 @@ const tpChipInputs = (page: Page, gateway: string, market: string) =>
   tpEditor(page, gateway, market).locator('[data-slot="launch-tail-probe-chip-input"]');
 const tpPlanned = (page: Page, gateway: string, market: string) =>
   panel(page, gateway, market).locator('[data-slot="launch-tail-probe-planned"]');
+/** 칩 입력 원문 목록(칸 순서). */
+const tpChipValues = (page: Page, gateway: string, market: string) =>
+  tpChipInputs(page, gateway, market).evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
 
 const KB_K_TEXT = `탐침 5발 · ${MINUS}330 · ${MINUS}320 · ${MINUS}310 · ${MINUS}300 · ${MINUS}290µs`;
 const KB_Q_TEXT = `탐침 5발 · ${MINUS}340 · ${MINUS}330 · ${MINUS}320 · ${MINUS}310 · ${MINUS}300µs`;
@@ -1020,10 +1023,10 @@ test.describe('어드민 발사 · 탐침(고치기)', () => {
     await expect(tpChipInputs(page, 'KB120', 'K').nth(5)).toHaveValue('280');
     // 1번 칩을 정각 뒤 +30 으로 — 입력 중 칩 자리는 그대로
     await tpChipInputs(page, 'KB120', 'K').nth(0).fill('+30');
-    await expect(tpChipInputs(page, 'KB120', 'K')).toHaveValues(['+30', '320', '310', '300', '290', '280']);
+    await expect.poll(() => tpChipValues(page, 'KB120', 'K')).toEqual(['+30', '320', '310', '300', '290', '280']);
     // 전체 이동 −5 → 칸 순서 그대로 이동
     await ed.getByRole('button', { name: `전체 ${MINUS}5µs` }).click();
-    await expect(tpChipInputs(page, 'KB120', 'K')).toHaveValues(['+25', '325', '315', '305', '295', '285']);
+    await expect.poll(() => tpChipValues(page, 'KB120', 'K')).toEqual(['+25', '325', '315', '305', '295', '285']);
     await expect(tpPlanned(page, 'KB120', 'K')).toHaveCount(6);
     await expect(tpPlanned(page, 'KB120', 'K').first()).toHaveAttribute('data-src', 'draft');
     await page.screenshot({ path: test.info().outputPath('tail-probe-edit-1280.png'), fullPage: true });
@@ -1039,7 +1042,7 @@ test.describe('어드민 발사 · 탐침(고치기)', () => {
     await expect(tpSummary(page, 'KB120', 'K')).toHaveText(
       `탐침 6발 · ${MINUS}325 · ${MINUS}315 · ${MINUS}305 · ${MINUS}295 · ${MINUS}285 · +25µs`,
     );
-    await expect(tpChipInputs(page, 'KB120', 'K')).toHaveValues(['325', '315', '305', '295', '285', '+25']);
+    await expect.poll(() => tpChipValues(page, 'KB120', 'K')).toEqual(['325', '315', '305', '295', '285', '+25']);
     await expect(ed.locator('[data-slot="launch-tail-probe-save"]')).toBeDisabled();
     await expect(tpSummary(page, 'KB120', 'Q')).toHaveText(KB_Q_TEXT);
     await expect(tpLine(page, 'KB120', 'K').locator('[data-slot="launch-tail-probe-history-fold"] summary')).toHaveText(
