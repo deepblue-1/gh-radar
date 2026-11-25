@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>탐침 시장별 목업 v4</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.65; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+.f {
+  --bg: #ffffff; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6; --muted-fg: #6b7684; --faint: #b0b8c1;
+  --border-subtle: #e5e8eb; --card: #ffffff; --band: #f7f8fa; --primary: #3182f6; --warn: #c98a00; --bad: #c8402f; --ok: #1f8a5b;
+  --gate: #7c5cff; --gate-band: rgba(124,92,255,.16);
+  --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,.1);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  position: relative; flex: none; background: var(--bg); color: var(--fg-2); font-family: var(--font);
+  -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; border-radius: 12px; overflow: hidden;
+}
+.f.dark {
+  --bg: #0a0a0a; --fg: #ffffff; --fg-2: #e4e4e4; --muted: #2d2d2d; --muted-fg: #9e9e9e; --faint: #636363;
+  --border-subtle: #3d3d3d; --card: #151515; --band: #101013; --primary: #4c9bff; --warn: #e0a526; --bad: #ec6a57; --ok: #3fbf86;
+  --gate: #a48bff; --gate-band: rgba(164,139,255,.18);
+  --seg-on-bg: #4e4e4e; --seg-on-fg: #ffffff; --seg-on-shadow: none;
+}
+.f.phone { width: 390px; min-height: 844px; border-radius: 30px; }
+.f.desktop { width: 1280px; min-height: 760px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 232px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--fg); }
+.side a { display: flex; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 15px; font-weight: 500; }
+.side a.sub { padding: 7px 10px 7px 38px; font-size: 14px; color: var(--fg-2); }
+.side a.sub.cur { background: var(--muted); color: var(--fg); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.appbar { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; font-size: 19px; font-weight: 700; color: var(--fg); }
+.f.desktop .appbar { display: none; }
+.main { padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.f.desktop .main { padding: 24px 32px; max-width: 1120px; width: 100%; margin: 0 auto; }
+h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); }
+.tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border-subtle); font-size: 15px; font-weight: 600; }
+.tabs span { padding: 8px 2px 10px; color: var(--muted-fg); }
+.tabs span.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.chip { flex: none; display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--muted); color: var(--muted-fg); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.chip.on { background: var(--fg); color: var(--bg); }
+.seg { display: inline-flex; background: var(--muted); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
+.seg span { font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 8px; color: var(--muted-fg); white-space: nowrap; cursor: pointer; }
+.seg span.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.sp { flex: 1; }
+.f:not(.dark) .tp, .f:not(.dark) .panel { box-shadow: inset 0 0 0 1px var(--border-subtle); }
+
+.tp, .panel { background: var(--card); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--muted-fg); min-width: 0; }
+.tp .h, .panel .h { font-weight: 700; color: var(--fg); font-size: 14px; }
+.tp .h small, .panel .h small { font-weight: 400; color: var(--muted-fg); font-size: 11.5px; margin-left: 6px; }
+.sum b { color: var(--primary); font-weight: 700; }
+.sum b.offc { color: var(--muted-fg); }
+.btn { font: inherit; display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 11px; border-radius: 9px; border: 0; background: var(--muted); color: var(--fg); font-size: 12.5px; font-weight: 600; white-space: nowrap; flex: none; cursor: pointer; }
+.btn.pri { background: var(--primary); color: #fff; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.ed { background: var(--band); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; color: var(--fg-2); }
+.f.dark .ed { background: #0f0f12; }
+.lab { min-width: 44px; flex: none; color: var(--muted-fg); font-size: 12.5px; font-weight: 600; }
+.hint { font-size: 11.5px; color: var(--muted-fg); }
+.alert { font-size: 12.5px; color: var(--bad); }
+.warnline { font-size: 12.5px; color: var(--warn); font-weight: 600; }
+.okline { font-size: 12.5px; color: var(--muted-fg); }
+.okline em { font-style: normal; background: rgba(63,191,134,.18); color: var(--ok); border-radius: 5px; padding: 1px 6px; margin-right: 6px; font-size: 11px; font-weight: 600; }
+
+.shift { display: inline-flex; background: var(--muted); border-radius: 9px; padding: 2px; gap: 1px; }
+.shift button { font: inherit; border: 0; background: transparent; color: var(--fg); font-size: 12px; font-weight: 600; height: 28px; min-width: 34px; padding: 0 4px; border-radius: 7px; cursor: pointer; }
+.shift button:hover:not(:disabled) { background: var(--seg-on-bg); }
+.shift button:disabled { opacity: .35; cursor: not-allowed; }
+.shift .div { width: 1px; background: var(--border-subtle); margin: 5px 2px; }
+
+.cl { display: flex; flex-wrap: wrap; gap: 6px; }
+.cc { display: inline-flex; align-items: center; gap: 1px; background: var(--muted); border-radius: 9px; height: 32px; padding: 0 2px 0 8px; }
+.cc.bad { box-shadow: inset 0 0 0 1.5px var(--bad); }
+.cc.mid { box-shadow: inset 0 0 0 1.5px var(--warn); }
+.wbox { background: rgba(224,165,38,.12); border-radius: 10px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; }
+.wbox .wt { color: var(--warn); font-weight: 700; font-size: 12.5px; }
+.wbox .wd { color: var(--fg-2); font-size: 12px; line-height: 1.5; }
+.cc .sg { color: var(--fg); font-size: 13.5px; font-weight: 600; width: 8px; }
+.cc input { font: inherit; width: 40px; border: 0; background: transparent; color: var(--fg); text-align: right; font-size: 13.5px; font-weight: 600; outline: none; font-variant-numeric: tabular-nums; }
+.cc small { color: var(--muted-fg); font-size: 10.5px; margin-left: 2px; }
+.cc .x { font: inherit; border: 0; background: transparent; color: var(--muted-fg); width: 24px; height: 26px; border-radius: 7px; font-size: 13px; cursor: pointer; }
+.cc .x:hover { color: var(--bad); }
+.cc.add { padding: 0 11px; color: var(--primary); font-weight: 600; font-size: 12.5px; cursor: pointer; border: 0; font-family: inherit; }
+.cc.add:disabled { opacity: .4; cursor: not-allowed; }
+
+.chartwrap { overflow-x: auto; min-width: 0; }
+svg text { font-family: var(--font); font-size: 11px; fill: var(--muted-fg); }
+table.hist { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; color: var(--fg); }
+table.hist th { background: var(--band); padding: 6px 8px; text-align: left; font-weight: 600; color: var(--muted-fg); font-size: 11.5px; }
+table.hist td { border-top: 1px solid var(--border-subtle); padding: 6px 8px; }
+.pill { font-size: 11px; border-radius: 6px; padding: 1px 6px; background: rgba(63,191,134,.18); color: var(--ok); font-weight: 600; }
+details summary { cursor: pointer; font-weight: 600; }
+.lg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; }
+.lg i { display: inline-block; vertical-align: middle; margin-right: 4px; }
+
+.ch { display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--primary); background:rgba(76,155,255,.14); border-radius:5px; padding:0 4px; margin-left:3px; line-height:16px; }
+.plan { color: var(--muted-fg); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">상태</span>
+    <button data-s="view">보기</button>
+    <button data-s="edit" class="on">코스피 고치는 중</button>
+    <button data-s="same">코스닥과 같은 시각</button>
+    <button data-s="far">멀리 떨어진 값(−1500)</button>
+    <button data-s="err">한도 밖</button>
+    <button data-s="full">10발 꽉 참</button>
+    <button data-s="off">꺼짐(0발)</button>
+  </div>
+  <div class="g"><span class="l">묶음 표시</span>
+    <button data-b="on" class="on">켬</button>
+    <button data-b="off">끔</button>
+  </div>
+  <div class="g"><span class="l">기기</span>
+    <button data-d="phone" class="on">폰 390</button>
+    <button data-d="desktop">데스크톱</button>
+  </div>
+  <div class="g"><span class="l">테마</span>
+    <button data-t="light">라이트</button>
+    <button data-t="dark" class="on">다크</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const CAP = 10, SHIFTS = [10, 5, 3, 1];
+const LIM = { q16: [-3000, 1000], n: [-2000, 2000] };
+const MKT = { K: '코스피', Q: '코스닥' };
+const PLAN = { q16: { K: [-260, -250, -240, -230, -220], Q: [-350, -345, -340, -335, -330] }, n: { K: [-40], Q: [-38] } };
+const INIT = { q16: { K: [-210, -200, -190, -180, -170], Q: [-320, -310, -300, -290, -280] }, n: { K: [-30, -20, -10, 0, 10], Q: [-28, -18, -8, 2, 12] } };
+const S = { s: 'edit', b: 'on', d: 'phone', t: 'dark', fire: 'q16' };
+let server, open, draft, saved;   // server[m] 숫자 · open = 편집 중 시장 · draft[m] 문자열
+
+const DAYS_K = {
+  q16: [
+    { d: '11/25', p: [-259, -249, -239, -228, -219], lo: -232, hi: -228 },
+    { d: '11/24', p: [-261, -251, -241, -231, -221], lo: -236, hi: -231 },
+    { d: '11/21', p: [-258, -248, -238, -229, -218], lo: -240, hi: -238 },
+    { d: '11/20', p: [-260, -250, -240, -230, -220], lo: -230, hi: -226 },
+  ],
+  n: [
+    { d: '11/25', p: [-41], lo: -41, hi: -35 }, { d: '11/24', p: [-39], lo: -45, hi: -39 },
+    { d: '11/21', p: [-40], lo: -40, hi: -33 }, { d: '11/20', p: [-42], lo: -48, hi: -42 },
+  ],
+};
+const DAYS = {};
+for (const f of ['q16', 'n']) {
+  const sh = f === 'q16' ? -90 : 2;
+  DAYS[f] = { K: DAYS_K[f], Q: DAYS_K[f].map(d => ({ d: d.d, p: d.p.map(v => v + sh), lo: d.lo + sh, hi: d.hi + sh })) };
+}
+
+const DESC = '<b>탐침 — 시장마다 따로</b>. 코스피 · 코스닥 패널마다 「다음 발사 계획」 줄 아래 「탐침」 줄과 「탐침 고치기」 가 있고, 편집 칸은 그 패널 안에서 열린다(계획 고치기와 같은 자리 규칙). 값은 정각 기준 · 숫자만 치면 정각 − · 정각 뒤는 앞에 + · 저장할 때 이른 시각부터 정렬 · 전체 이동은 그 시장 탐침만 옮긴다. 위치 경고 없음. 지도 축은 값에 맞춰 늘린다. <b>묶음 표시</b>(켬일 때): 다른 시장의 실조각 · 탐침과 같은 µs 인 칩 · 계획 값에 「⇄」 — 서버가 두 시장 주문을 한 번에 쏘는 자리(gh-trade 판정 대기). 필요 없으면 「끔」.';
+
+const toStr = v => v > 0 ? '+' + v : String(-v);
+const parse = r => /^\+\d+$/.test(r) ? +r.slice(1) : /^\d+$/.test(r) ? -(+r) : NaN;
+const fmt = v => v > 0 ? `+${v}` : v === 0 ? '0' : `−${-v}`;
+const other = m => m === 'K' ? 'Q' : 'K';
+
+function init() {
+  server = { K: INIT[S.fire].K.slice(), Q: INIT[S.fire].Q.slice() };
+  open = S.s === 'view' ? null : 'K';
+  const samples = {
+    q16: { same: [-345, -340, -210, -200], far: [-1500, -210, -200, -190], err: [-210, -200, -4000], off: [],
+           full: [-300, -290, -280, -270, -270, -215, -200, -190, -180, -170] },
+    n: { same: [-38, -28, -20, -10], far: [-1500, -30, -20, -10], err: [-30, -20, -2500], off: [],
+         full: [-35, -30, -25, -20, -20, -15, -10, -5, 0, 10] },
+  };
+  draft = { K: (samples[S.fire][S.s] ?? server.K).map(toStr), Q: server.Q.map(toStr) };
+  saved = null;
+}
+const nums = m => draft[m].map(parse);
+const shown = m => open === m ? nums(m).filter(Number.isFinite) : server[m];
+function badIdx(m) { const [lo, hi] = LIM[S.fire]; return nums(m).map((v, i) => (!Number.isFinite(v) || v < lo || v > hi) ? i : -1).filter(i => i >= 0); }
+function canShift(m, d) {
+  const ns = nums(m), [lo, hi] = LIM[S.fire];
+  return ns.length > 0 && !badIdx(m).length && ns.every(v => v + d >= lo && v + d <= hi);
+}
+// 다른 시장과 같은 µs (실조각 계획 + 탐침) — 묶음 자리
+function sameSet(m) { return new Set([...PLAN[S.fire][other(m)], ...shown(other(m))]); }
+const chain = (m, v) => S.b === 'on' && sameSet(m).has(v) ? `<span class="ch" title="${MKT[other(m)]}과 같은 시각 — 한 번에 쏨">⇄</span>` : '';
+function groupText(m, arr) {
+  const s = arr.slice().sort((a, b) => a - b), g = [];
+  for (const v of s) { const l = g[g.length - 1]; if (l && l.v === v) l.n++; else g.push({ v, n: 1 }); }
+  return g.map(x => `${fmt(x.v)}${x.n > 1 ? '×' + x.n : ''}${chain(m, x.v)}`).join(' · ');
+}
+
+function axisOf(values, marks) {
+  const all = [...values, ...marks]; const lo = Math.min(...all), hi = Math.max(...all);
+  const wide = hi - lo > 40, pad = wide ? 8 : 3, unit = wide ? 10 : 1;
+  return [Math.floor((lo - pad) / unit) * unit, Math.ceil((hi + pad) / unit) * unit];
+}
+function niceStep(span, px) {
+  for (const c of [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (span / c <= 12 && (c / span) * px >= 36) return c;
+  return 1000;
+}
+function chart(m) {
+  const W = S.d === 'desktop' ? 960 : 640, L = 48, R = 14, T = 20, RH = 24;
+  const days = DAYS[S.fire][m], plan = PLAN[S.fire][m], probes = shown(m);
+  const [xmin, xmax] = axisOf(days.flatMap(d => d.p), [...plan, ...probes]);
+  const x = v => L + (v - xmin) / (xmax - xmin) * (W - L - R);
+  const H = T + days.length * RH + 16 + 22, yb = T + days.length * RH;
+  const step = niceStep(xmax - xmin, W - L - R);
+  let g = '';
+  for (let t = Math.ceil(xmin / step) * step; t <= xmax; t += step) {
+    g += `<line x1="${x(t)}" x2="${x(t)}" y1="${T - 6}" y2="${yb}" stroke="var(--border-subtle)"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle">${fmt(t)}</text>`;
+  }
+  if (0 >= xmin && 0 <= xmax) g += `<line x1="${x(0)}" x2="${x(0)}" y1="${T - 10}" y2="${yb}" stroke="var(--fg-2)" stroke-width="1.5"/><text x="${x(0)}" y="${T - 12}" text-anchor="middle" style="fill:var(--fg)">정각</text>`;
+  days.forEach((d, i) => {
+    const y = T + i * RH + RH / 2;
+    g += `<text x="6" y="${y + 4}">${d.d}</text><rect x="${Math.min(x(d.lo), x(d.hi))}" y="${y - 8}" width="${Math.max(2, Math.abs(x(d.hi) - x(d.lo)))}" height="16" rx="3" fill="var(--gate-band)"/>`;
+    d.p.forEach(v => { g += `<circle cx="${x(v)}" cy="${y}" r="4" fill="${v <= d.lo ? 'var(--ok)' : 'var(--bad)'}" opacity=".9"/>`; });
+  });
+  plan.forEach(v => { g += `<line x1="${x(v)}" x2="${x(v)}" y1="${T - 4}" y2="${yb}" stroke="var(--primary)" stroke-dasharray="4 3"/>`; });
+  probes.forEach((v, i) => {
+    g += `<line x1="${x(v)}" x2="${x(v)}" y1="${T - 4}" y2="${yb}" stroke="var(--muted-fg)" stroke-dasharray="1.5 3"/>`;
+    g += `<path d="M${x(v)} ${yb + 2} l5 9 h-10 z" fill="none" stroke="var(--muted-fg)" stroke-width="1.3"><title>탐침 ${i + 1}번 ${fmt(v)}µs</title></path>`;
+  });
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+
+function editor(m) {
+  const bad = badIdx(m), [lo, hi] = LIM[S.fire];
+  const ns = nums(m);
+  const changed = JSON.stringify(ns.slice().sort((a, b) => a - b)) !== JSON.stringify(server[m].slice().sort((a, b) => a - b));
+  const canSave = !bad.length && changed;
+  const shift = SHIFTS.map(d => `<button data-sh="${-d}" data-m="${m}" ${canShift(m, -d) ? '' : 'disabled'}>−${d}</button>`).join('') + '<span class="div"></span>' +
+    SHIFTS.slice().reverse().map(d => `<button data-sh="${d}" data-m="${m}" ${canShift(m, d) ? '' : 'disabled'}>+${d}</button>`).join('');
+  const chips = draft[m].map((r, i) => {
+    const v = parse(r);
+    return `<span class="cc ${bad.includes(i) ? 'bad' : ''}"><span class="sg">${r.startsWith('+') ? '' : '−'}</span><input data-i="${i}" data-m="${m}" value="${r}" inputmode="numeric" aria-label="${MKT[m]} 탐침 ${i + 1}번(정각 −µs)"><small>µs</small>${Number.isFinite(v) ? chain(m, v) : ''}<button class="x" data-del="${i}" data-m="${m}" aria-label="탐침 ${i + 1}번 지우기">×</button></span>`;
+  }).join('');
+  return `<div class="ed">
+    <div class="row"><span class="lab">전체 이동</span><span class="shift">${shift}</span><span class="hint">µs · ${MKT[m]} 탐침만 · − 더 이르게 · + 더 늦게</span></div>
+    <div class="row" style="align-items:flex-start"><span class="lab" style="padding-top:7px">탐침</span><div class="cl" style="flex:1;min-width:0">${chips}<button class="cc add" data-add data-m="${m}" ${draft[m].length >= CAP ? 'disabled' : ''}>+ 추가</button></div></div>
+    <div class="hint">${draft[m].length} / ${CAP}발 · 정각 기준 · 숫자만 치면 정각 −, 정각 뒤는 앞에 + · 저장할 때 이른 시각부터 정렬</div>
+    ${bad.length ? `<div class="alert" role="alert">탐침 시각은 ${fmt(lo)} ~ ${fmt(hi)}µs 사이여야 해요</div>` : ''}
+    <div class="row">${saved === m ? '<span class="okline"><em>반영</em>저장 — 다음 발사부터 적용 · 방금</span>' : ''}<span class="sp"></span><button class="btn" data-revert data-m="${m}" ${JSON.stringify(draft[m]) === JSON.stringify(server[m].map(toStr)) ? 'disabled' : ''}>되돌리기</button><button class="btn pri" data-save data-m="${m}" ${canSave ? '' : 'disabled'}>저장</button></div>
+  </div>`;
+}
+function panel(m) {
+  const label = S.fire === 'q16' ? '16:00' : '09:00:30 N';
+  const plan = PLAN[S.fire][m], sv = server[m];
+  return `<div class="panel">
+    <div class="h">KB 120 ${MKT[m]}<small>${label} · 최근 4일</small></div>
+    <div class="row"><span class="plan">다음 발사 계획 <b style="color:var(--primary)">${plan.map(v => fmt(v) + chain(m, v)).join(' · ')}µs</b></span><span class="sp"></span><button class="btn">계획 고치기</button></div>
+    <div class="row"><span class="sum">탐침 ${sv.length ? `<b>${sv.length}발</b> · ${groupText(m, sv)}µs` : '<b class="offc">꺼짐</b> · 0발'}</span><span class="sp"></span><button class="btn" data-toggle data-m="${m}">${open === m ? '닫기' : '탐침 고치기'}</button></div>
+    ${open === m ? editor(m) : ''}
+    <div class="chartwrap">${chart(m)}</div>
+    <div class="lg"><span><i style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></i>접수</span><span><i style="width:8px;height:8px;border-radius:50%;background:var(--bad)"></i>거부(101)</span><span><i style="width:12px;height:8px;background:var(--gate-band)"></i>경계</span><span><i style="width:12px;border-top:1.5px dashed var(--primary)"></i>계획</span><span><i style="width:12px;border-top:1.5px dotted var(--muted-fg)"></i>△ 탐침</span>${S.b === 'on' ? '<span><span class="ch">⇄</span> 다른 시장과 한 번에 쏨</span>' : ''}</div>
+    <details><summary>탐침 변경 이력 1</summary><div style="overflow-x:auto;margin-top:8px"><table class="hist">
+      <tr><th>시각</th><th>이메일</th><th>전 → 후</th><th>결과</th></tr>
+      <tr><td>11-07 17:02</td><td>ezmesya@…</td><td>뒤탐침 5발 10µs 간격 → 5발 +10 ~ +50µs</td><td><span class="pill">반영</span></td></tr>
+    </table></div></details>
+  </div>`;
+}
+
+function render() {
+  const f = document.createElement('div');
+  f.className = `f ${S.d} ${S.t}`;
+  f.innerHTML = `
+    <div class="side"><div class="brand">gh-radar</div><a>대시보드</a><a>관리</a><a class="sub">사용자</a><a class="sub cur">발사</a></div>
+    <div class="col"><div class="appbar">☰ 발사</div><div class="main">
+      ${S.d === 'desktop' ? '<h1>발사</h1>' : ''}
+      <div class="tabs"><span>주문</span><span class="on">경계 지도</span></div>
+      <div class="chips"><span class="chip on">KB 120</span><span class="chip">KB 121</span><span class="chip">교보 119</span><span class="chip">교보 127</span></div>
+      <div class="row"><span class="seg"><span>08:30</span><span data-fire="n" class="${S.fire === 'n' ? 'on' : ''}">09:00:30</span><span data-fire="q16" class="${S.fire === 'q16' ? 'on' : ''}">16:00</span></span></div>
+      ${panel('K')}
+      ${panel('Q')}
+    </div></div>`;
+  const st = document.getElementById('stage'); st.innerHTML = ''; st.appendChild(f);
+  document.getElementById('desc').innerHTML = DESC;
+  wire(f);
+}
+function wire(f) {
+  const M = el => el.dataset.m;
+  f.querySelectorAll('[data-sh]').forEach(b => b.onclick = () => { const m = M(b); draft[m] = nums(m).map(v => toStr(v + +b.dataset.sh)); saved = null; render(); });
+  f.querySelectorAll('input[data-i]').forEach(inp => inp.oninput = () => {
+    const m = M(inp), i = +inp.dataset.i; draft[m][i] = inp.value.replace(/[^\d+]/g, ''); saved = null;
+    const pos = inp.selectionStart; render();
+    const a = document.querySelector(`input[data-m="${m}"][data-i="${i}"]`); if (a) { a.focus(); a.setSelectionRange(pos, pos); }
+  });
+  f.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { draft[M(b)].splice(+b.dataset.del, 1); saved = null; render(); });
+  f.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
+    const m = M(b), ns = nums(m).filter(Number.isFinite);
+    const last = ns.length ? Math.max(...ns) : Math.max(...PLAN[S.fire][m]);
+    draft[m].push(toStr(Math.min(LIM[S.fire][1], last + 10))); saved = null; render();
+  });
+  f.querySelectorAll('[data-save]').forEach(b => b.onclick = () => { const m = M(b); server[m] = nums(m).sort((a, b) => a - b); draft[m] = server[m].map(toStr); saved = m; render(); });
+  f.querySelectorAll('[data-revert]').forEach(b => b.onclick = () => { const m = M(b); draft[m] = server[m].map(toStr); render(); });
+  f.querySelectorAll('[data-toggle]').forEach(b => b.onclick = () => { const m = M(b); if (open === m) open = null; else { open = m; draft[m] = server[m].map(toStr); } saved = null; render(); });
+  f.querySelectorAll('[data-fire]').forEach(s => s.onclick = () => { S.fire = s.dataset.fire; init(); render(); });
+}
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
+  const k = b.dataset.s ? 's' : b.dataset.b ? 'b' : b.dataset.d ? 'd' : 't';
+  document.querySelectorAll(`#nav [data-${k}]`).forEach(x => x.classList.toggle('on', x === b));
+  S[k] = b.dataset[k];
+  if (k === 's') init();
+  render();
+});
+init(); render();
+</script>
+</body>
+</html>
