@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 44
 status: completed
 stopped_at: Phase 44 complete — all phases complete
-last_updated: "2026-11-24T23:38:25.949Z"
+last_updated: "2026-11-25T00:23:57.392Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 44 complete
-state_head: 1cde94efb78fec21dc02c91554a7ff97ef1ee31f
+state_head: 8bc8eabff45278734276db94a7446fb9a194446c
 progress:
   total_phases: 15
   completed_phases: 15
@@ -37,7 +37,7 @@ Phase 43 (공시 텔레그램 알림): COMPLETE 2026-11-16 — 9/9 + quick 26111
 Phase 41 (한투 뉴스·공시 피드): COMPLETE 2026-11-13 — 14/14 · 배포 11-12(DB 20261112100000 · 20261112200000 + UAT 보정 마이그레이션 4 · kis-news-sync Job · server · webapp) · UAT 11-12 「됐다」 · 하루 뒤 확인 11-13(공시 지연 중앙 3.3초 · 한투 91,179회 · 홈 AI −3%) · Nyquist 빈칸 0 · UI 18/24 · 검증 passed 8/8 · 리뷰 차단 2 · 경고 11 · 참고 19(처분 open — 후속 quick 권고 CR-01 → WR-02 → CR-60)
 Phase 39 (매매진단 챗봇): COMPLETE 2026-11-09 — 9/9 · 배포 11-06(DB 20261106100000 · server 00076→00082-bcd · webapp a1136df0·bd3105ec·06333ece·e6879a2d) · gh-trade kind 9 11-06 17:14 · Sys 해제/전부 정지 21:51 · UAT 8/8(사용자 11-09 · ③은 11-09 적재 445행·답변 인용으로 대체) · 검증 passed 5/5 · 리뷰 경고 8 · 참고 5(처분 open) · UI 16/24
 Phase 40 (체결 앱 푸시 알림): COMPLETE 2026-11-09 — 13/13 · 배포 11-07(DB · relay 8226fdb2 · server 825382f7 · webapp · iOS 202611071000 · Android 611071006) · 실기기 UAT 11-09 통과 · 검증 passed 5/5 · 리뷰 경고 7 · 참고 6(처분 open) · 후속 8a612976(탭 착지 앱 셸)
-Last activity: 2026-11-22 — Phase 44 complete
+Last activity: 2026-11-25 - Completed quick task 261125-c2i: 어드민 발사 08:30 G2 발사 기준
 Phase 37 (틱 전문 뷰어): COMPLETE 2026-11-04 — 19/19 · 검증 R2 12/12 passed · 리뷰 3라운드 수정 · UAT 3/3 pass(11-04 19:55 따라잡기 · 20:01 마감 마무리 closed 16 · 20:10 승격 16/16 failed 0 · 20:40 late 승격 16/16) · 후속 6dc9b62c(따라잡기 예비분은 보는 종목 있을 때만) · c88dc3ea(캐시 96→192MB · 컨테이너 512m)
 Phase 38 (틱뷰어 우리 주문·체결 표시): COMPLETE 2026-11-03 — 10/10 · 배포(DB 20261104100000 17:08 · server 00072-44q · webapp 17:11 · UAT 반영 18:22) · UAT ok(탐색 근거·주문 포함 · 「우리 주문」 탭 스케치 026 A · 호가 기본 금액) · 검증 passed 21/21 · 리뷰 2라운드 15건 전부 수정(R1 9 · R2 6) · 후속 quick 261104-6lh(as-of 헤더 · journal_epoch) 배포(DB 20261104500000 · server 00074 · tickgw bdbe480e · webapp 120ab5eb) · 2026-11-04 장중 틱뷰어 우리 체결 확인 · CLOSED(브랜치 phase-38-own-orders 정리)
 Previous: 2026-11-03 - Completed quick task 261103-j4d: 틱뷰어 목록 팀 당일순매수 · 누적순매수 · 당일손익
@@ -203,6 +203,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 99 | tick-convert promote Job 메모리 2Gi → 8Gi(cpu 2) — 11-23 삼성전자 NXT 해제 OOM | 2026-11-23 | 5d85f23a | — |
 | 100 | gh-trade 인계 261125-sigan-ttaeng-g2 — relay 생성물 재동기화 · DB 매핑 kind 17/18 profile 4 → G2(20261125090000 운영 적용) · 3b2b7555 | 2026-11-25 | 0aa799f4 | — |
 | 101 | 주문로그 조회 RPC 에 kind 17·18(발사 조각·머리) 제외 복원 — 11-09 핫픽스 22b1d41e 회귀 · 20261125100000 운영 적용 | 2026-11-25 | 1cde94ef | — |
+| 261125-c2i | 어드민 발사 경계 지도 08:30 G2 발사 기준 — 계획 편집(G2 · K/Q 한 값 · −3000 ~ +20000µs) · 이력 CHECK · 지도 g0830 · 주문 내역 세그먼트 · 뒤탐침 숨김 | 2026-11-25 | 8bc8eabf | [261125-c2i-admin-launch-g2-0830](./quick/261125-c2i-admin-launch-g2-0830/) |
 
 ## Session Continuity
 
