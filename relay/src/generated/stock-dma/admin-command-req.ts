@@ -108,8 +108,23 @@ launchTailProbeStepUs():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+launchTailProbeOffsetsUs(index: number):number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.readInt32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
+}
+
+launchTailProbeOffsetsUsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+launchTailProbeOffsetsUsArray():Int32Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? new Int32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
+}
+
 static startAdminCommandReq(builder:flatbuffers.Builder) {
-  builder.startObject(13);
+  builder.startObject(14);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -179,6 +194,27 @@ static addLaunchTailProbeCount(builder:flatbuffers.Builder, launchTailProbeCount
 
 static addLaunchTailProbeStepUs(builder:flatbuffers.Builder, launchTailProbeStepUs:number) {
   builder.addFieldInt32(12, launchTailProbeStepUs, 0);
+}
+
+static addLaunchTailProbeOffsetsUs(builder:flatbuffers.Builder, launchTailProbeOffsetsUsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(13, launchTailProbeOffsetsUsOffset, 0);
+}
+
+static createLaunchTailProbeOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array):flatbuffers.Offset;
+/**
+ * @deprecated This Uint8Array overload will be removed in the future.
+ */
+static createLaunchTailProbeOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset;
+static createLaunchTailProbeOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array|Uint8Array):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addInt32(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startLaunchTailProbeOffsetsUsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static endAdminCommandReq(builder:flatbuffers.Builder):flatbuffers.Offset {

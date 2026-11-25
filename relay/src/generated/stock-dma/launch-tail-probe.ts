@@ -39,8 +39,30 @@ stepUs():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+market():string|null
+market(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+market(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+offsetsUs(index: number):number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readInt32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
+}
+
+offsetsUsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+offsetsUsArray():Int32Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? new Int32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
+}
+
 static startLaunchTailProbe(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(5);
 }
 
 static addProfile(builder:flatbuffers.Builder, profileOffset:flatbuffers.Offset) {
@@ -55,16 +77,43 @@ static addStepUs(builder:flatbuffers.Builder, stepUs:number) {
   builder.addFieldInt32(2, stepUs, 0);
 }
 
+static addMarket(builder:flatbuffers.Builder, marketOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, marketOffset, 0);
+}
+
+static addOffsetsUs(builder:flatbuffers.Builder, offsetsUsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, offsetsUsOffset, 0);
+}
+
+static createOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array):flatbuffers.Offset;
+/**
+ * @deprecated This Uint8Array overload will be removed in the future.
+ */
+static createOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Uint8Array):flatbuffers.Offset;
+static createOffsetsUsVector(builder:flatbuffers.Builder, data:number[]|Int32Array|Uint8Array):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addInt32(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startOffsetsUsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endLaunchTailProbe(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createLaunchTailProbe(builder:flatbuffers.Builder, profileOffset:flatbuffers.Offset, count:number, stepUs:number):flatbuffers.Offset {
+static createLaunchTailProbe(builder:flatbuffers.Builder, profileOffset:flatbuffers.Offset, count:number, stepUs:number, marketOffset:flatbuffers.Offset, offsetsUsOffset:flatbuffers.Offset):flatbuffers.Offset {
   LaunchTailProbe.startLaunchTailProbe(builder);
   LaunchTailProbe.addProfile(builder, profileOffset);
   LaunchTailProbe.addCount(builder, count);
   LaunchTailProbe.addStepUs(builder, stepUs);
+  LaunchTailProbe.addMarket(builder, marketOffset);
+  LaunchTailProbe.addOffsetsUs(builder, offsetsUsOffset);
   return LaunchTailProbe.endLaunchTailProbe(builder);
 }
 }

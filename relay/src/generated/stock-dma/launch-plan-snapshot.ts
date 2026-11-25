@@ -63,8 +63,13 @@ tailProbesLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
+kyoboQ16Combined():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startLaunchPlanSnapshot(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(6);
 }
 
 static addRequestId(builder:flatbuffers.Builder, requestId:bigint) {
@@ -111,18 +116,23 @@ static startTailProbesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addKyoboQ16Combined(builder:flatbuffers.Builder, kyoboQ16Combined:boolean) {
+  builder.addFieldInt8(5, +kyoboQ16Combined, +false);
+}
+
 static endLaunchPlanSnapshot(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createLaunchPlanSnapshot(builder:flatbuffers.Builder, requestId:bigint, planRev:bigint, updatedAtOffset:flatbuffers.Offset, entriesOffset:flatbuffers.Offset, tailProbesOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createLaunchPlanSnapshot(builder:flatbuffers.Builder, requestId:bigint, planRev:bigint, updatedAtOffset:flatbuffers.Offset, entriesOffset:flatbuffers.Offset, tailProbesOffset:flatbuffers.Offset, kyoboQ16Combined:boolean):flatbuffers.Offset {
   LaunchPlanSnapshot.startLaunchPlanSnapshot(builder);
   LaunchPlanSnapshot.addRequestId(builder, requestId);
   LaunchPlanSnapshot.addPlanRev(builder, planRev);
   LaunchPlanSnapshot.addUpdatedAt(builder, updatedAtOffset);
   LaunchPlanSnapshot.addEntries(builder, entriesOffset);
   LaunchPlanSnapshot.addTailProbes(builder, tailProbesOffset);
+  LaunchPlanSnapshot.addKyoboQ16Combined(builder, kyoboQ16Combined);
   return LaunchPlanSnapshot.endLaunchPlanSnapshot(builder);
 }
 }
