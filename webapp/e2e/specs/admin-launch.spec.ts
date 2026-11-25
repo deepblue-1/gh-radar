@@ -777,7 +777,17 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
 
   test('P35-P5 1280 — 09:00:30 KYOBO119 코스피 · 발사 시각 한 칸 · 2500 범위 오류 → −190 · P2 1행 · 바디 [−190]', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    const api = await mockLaunchApi(page, { plan: launchPlanFixture });
+    // 교보 N 공통 칸 — K → Q 두 번 저장 뒤 실서버는 N 두 칸이 같은 값. 기본 목은 그 칸만 바꾸므로 N 두 칸을 함께 바꾼다.
+    const api = await mockLaunchApi(page, {
+      plan: launchPlanFixture,
+      savePlan: (gateway, fire, market, body) => {
+        const r = launchPlanSaveOk(gateway, fire, market, body);
+        if (r.plan?.status === 'ok') {
+          r.plan.entries = r.plan.entries.map((e) => (e.profile === 'N' ? { ...e, offsets_us: [...body.offsets_us] } : e));
+        }
+        return r;
+      },
+    });
     await open(page, '/admin/launch?tab=map&range=all&fire=n0930&gw=KYOBO119');
     await expect(panels(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(serverChip(page, '교보119')).toHaveAttribute('aria-checked', 'true');
@@ -804,9 +814,9 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toContainText(/저장됨 · \d\d:\d\d · 다음 09:00:30 발사부터/, {
       timeout: 15_000,
     });
-    expect(api.planPuts()).toHaveLength(1);
-    expect(api.planPuts()[0]!.path).toBe('/plan/KYOBO119/n0930/K');
-    expect(api.planPuts()[0]!.body).toEqual({ offsets_us: [-190] });
+    // 교보 N 은 코스피 · 코스닥 공통 칸 — 저장 op 8 K → Q 두 번(인박스 261109-kyobo-n-single-field · cad36b55).
+    expect(api.planPuts().map((p) => p.path)).toEqual(['/plan/KYOBO119/n0930/K', '/plan/KYOBO119/n0930/Q']);
+    for (const p of api.planPuts()) expect(p.body).toEqual({ offsets_us: [-190] });
     await expect(kyk.locator('[data-slot="launch-plan-line"]')).toHaveText(`${MINUS}190µs`);
     await page.screenshot({ path: test.info().outputPath('launch-plan-n0930-1280.png'), fullPage: true });
   });

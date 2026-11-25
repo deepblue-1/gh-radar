@@ -20,6 +20,7 @@ import type {
   LaunchTailProbeSaveBody,
   LaunchTailProbeSaveResponse,
 } from '@gh-radar/shared';
+import { launchPlanProfileOf } from '@gh-radar/shared';
 
 /**
  * Phase 35 (35-06) — 발사 어드민 E2E 픽스처.
@@ -483,7 +484,7 @@ let savedId = 100;
  */
 export function launchPlanSaveOk(gateway: string, fire: LaunchFire, market: LaunchMarket, body: LaunchPlanSaveBody): LaunchPlanSaveResponse {
   const base = launchPlanFixture().servers[gateway];
-  const profile = fire === 'q16' ? 'Q16' : 'N';
+  const profile = launchPlanProfileOf(fire);
   if (base === undefined || base.status !== 'ok') {
     return { result: { server: gateway, outcome: 'offline' }, plan: null, change: null };
   }

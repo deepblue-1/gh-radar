@@ -306,7 +306,8 @@ export function LaunchFireSeg({ fire, onFire }: { fire: LaunchFire; onFire: (f: 
             aria-label={s.full}
             onClick={() => !on && onFire(s.value)}
             className={cn(
-              'min-h-8 rounded-[8px] px-3 text-[13px] font-semibold whitespace-nowrap',
+              // px-2.5 — 세 칸(16:00 · 09:00:30 · 08:30)이 폰 390 에서 날짜 알약 옆 한 줄에 들어가는 폭(quick-261125-c2i 실측 210 → 198px).
+              'min-h-8 rounded-[8px] px-2.5 text-[13px] font-semibold whitespace-nowrap',
               on
                 ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
                 : 'text-[var(--muted-fg)] hover:text-[var(--fg)]',
