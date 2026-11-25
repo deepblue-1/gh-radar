@@ -24,6 +24,7 @@ import {
   launchPanelStatsOf,
   launchRibbonAt,
   LAUNCH_FIRES,
+  LAUNCH_FIRE_KEYS,
   LAUNCH_OPENARB_COST_BP,
   LAUNCH_ORDER,
   LAUNCH_RANGE_DAYS,
@@ -397,8 +398,37 @@ describe("발사 기준 — launchFireBaseOf · launchFireOf · LAUNCH_FIRES (D-
     expect(LAUNCH_FIRES).toEqual({
       q16: { fire_exchange: "KRX", fire_base: "16:00:00" },
       n0930: { fire_exchange: "NXT", fire_base: "09:00:30" },
+      // quick-261125-c2i — 08:30 G2(장개시전 시간외종가 예약) 지도 칸.
+      g0830: { fire_exchange: "KRX", fire_base: "08:30:00" },
     });
     expect(LAUNCH_RANGE_DAYS).toEqual({ "10d": 10, "20d": 20, all: null });
+  });
+});
+
+describe("08:30 G2 발사 기준 (quick-261125-c2i)", () => {
+  it("LAUNCH_FIRE_KEYS = q16 · n0930 · g0830(순서 그대로) = LAUNCH_FIRES 키", () => {
+    expect([...LAUNCH_FIRE_KEYS]).toEqual(["q16", "n0930", "g0830"]);
+    expect(Object.keys(LAUNCH_FIRES)).toEqual([...LAUNCH_FIRE_KEYS]);
+    expect(LAUNCH_FIRES.g0830).toEqual({ fire_exchange: "KRX", fire_base: "08:30:00" });
+  });
+
+  it("launchFireOf — KRX 08:30:00 정확 일치만 g0830 · q16 창 · n0930 결과 불변", () => {
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "08:30:00" })).toBe("g0830");
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "08:30:01" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "08:29:59" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "NXT", fire_base: "08:30:00" })).toBeNull();
+    expect(launchFireOf({ fire_exchange: "KRX", fire_base: "16:00:00" })).toBe("q16");
+    expect(launchFireOf({ fire_exchange: "NXT", fire_base: "09:00:30" })).toBe("n0930");
+  });
+
+  it("launchFireBaseOf · isLaunchFireBaseOf — G2 는 KRX 08:30:00", () => {
+    expect(launchFireBaseOf("G2", "KRX")).toBe("08:30:00");
+    expect(launchFireBaseOf("G2", "NXT")).toBeNull();
+    expect(isLaunchFireBaseOf("G2", "KRX", "08:30:00")).toBe(true);
+    expect(isLaunchFireBaseOf("G2", "KRX", "09:00:27")).toBe(false);
+    expect(isLaunchFireBaseOf("G2", "NXT", "08:30:00")).toBe(false);
+    expect(isLaunchFireBaseOf("Q16", "KRX", "08:30:00")).toBe(false);
+    expect(isLaunchFireBaseOf("A", "KRX", "08:30:00")).toBe(false);
   });
 });
 

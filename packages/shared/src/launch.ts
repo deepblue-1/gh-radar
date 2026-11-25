@@ -17,7 +17,8 @@
  *   `launchGateSideOf`. 웹 지도(경계 띠 · 리본)와 relay 백필 머리 계산이 **이 한 벌**을 쓴다 — SQL 에 두 번째
  *   구현을 두지 않는다(RESEARCH Pattern 6). 백필 머리(`launchHeadOf`)는 실조각만 센다(뒤탐침 제외).
  * - 발사 기준 = 거래소 + 기준시각(D-03 · D-17): 16:00:00 KRX(Q16) · 09:00:27 KRX(A 매수 — 주문 내역에만) ·
- *   09:00:30 NXT(N 매수 + A 매도 — 한 지도). 지도 대상은 `LAUNCH_FIRES` 둘뿐이다.
+ *   09:00:30 NXT(N 매수 + A 매도 — 한 지도) · 08:30:00 KRX(G2 — 장개시전 시간외종가 예약 · quick-261125-c2i).
+ *   지도 대상은 `LAUNCH_FIRES` 셋뿐이다.
  *   A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`,
  *   `launchFireBaseOf` 는 백필 기본값(quick-261030-d7b).
  * - `account` · `dma_user_id` 는 어드민 전용 예외(D-02) — 원문 표의 감사 칸 규칙(T-19-08)과 다르다.
@@ -30,8 +31,14 @@ import type { LimitupDate } from "./limitup-report";
 // 축 — 발사 기준 · 범위 · 시장 · 패널 순서
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 지도 발사 기준 — q16 = 16:00:00 KRX · n0930 = 09:00:30 NXT. */
-export type LaunchFire = "q16" | "n0930";
+/**
+ * 지도 발사 기준 목록 한 벌 — q16 = 16:00:00 KRX · n0930 = 09:00:30 NXT ·
+ * g0830 = 08:30:00 KRX G2(장개시전 시간외종가 예약 발사 · 인박스 `261125-sigan-ttaeng-g2` · quick-261125-c2i).
+ * server zod · 웹 쿼리 화이트리스트가 이 배열을 그대로 쓴다(두 번째 목록 금지).
+ */
+export const LAUNCH_FIRE_KEYS = ["q16", "n0930", "g0830"] as const;
+/** 지도 발사 기준. */
+export type LaunchFire = (typeof LAUNCH_FIRE_KEYS)[number];
 /** 지도 범위 세그먼트 — 발사 기준별 최근 거래일 수(all = 전체). */
 export type LaunchRange = "10d" | "20d" | "all";
 /** 시장 — K = 코스피 · Q = 코스닥(`dma_strategy_events` 관례). */
@@ -44,6 +51,7 @@ export const LAUNCH_RANGE_DAYS: Record<LaunchRange, number | null> = { "10d": 10
 export const LAUNCH_FIRES = {
   q16: { fire_exchange: "KRX", fire_base: "16:00:00" },
   n0930: { fire_exchange: "NXT", fire_base: "09:00:30" },
+  g0830: { fire_exchange: "KRX", fire_base: "08:30:00" },
 } as const satisfies Record<LaunchFire, { fire_exchange: string; fire_base: string }>;
 
 /**
@@ -90,7 +98,7 @@ export interface LaunchPieceRow {
   trade_date: LimitupDate;
   /** 서버 키 — KB120 · KYOBO119 · KYOBO112 */
   gateway: string;
-  /** Q16 · N · A (CHECK 없음 — 모르는 값도 그대로) */
+  /** Q16 · N · A · G2 (CHECK 없음 — 모르는 값도 그대로) */
   profile: string;
   /** KRX · NXT */
   fire_exchange: string;
@@ -505,7 +513,9 @@ export function launchRibbonAt(days: readonly LaunchDay<unknown>[], v: number): 
 
 /**
  * (profile, 거래소) → 발사 기준시각 `"HH:MM:SS"`. Q16 = KRX 16:00:00 · A = KRX 09:00:27(매수 다리) ·
+ * G2 = KRX 08:30:00(장개시전 시간외종가 예약 · quick-261125-c2i) ·
  * N · A = NXT 09:00:30(N 매수 · A 매도 다리). 그 밖 조합은 null(백필 입력이면 거부 사유).
+ * G2 를 더해도 백필 동작은 바뀌지 않는다 — relay launch-backfill 의 `NDJSON_PROFILES`(Q16 · N · A)가 G2 를 먼저 거절한다.
  * A KRX 는 본회차 09:00:27 + 재확인 회차(예 09:00:29) — 주문 내역 판정은 `isLaunchFireBaseOf`, 이 함수는
  * relay launch-backfill 이 ndjson 에 fire_base 가 없을 때 쓰는 백필 기본값(백필 입력은 본회차로 정한다).
  */
@@ -513,6 +523,7 @@ export function launchFireBaseOf(profile: string, fireExchange: string): string 
   if (fireExchange === "KRX") {
     if (profile === "Q16") return "16:00:00";
     if (profile === "A") return "09:00:27";
+    if (profile === "G2") return "08:30:00";
     return null;
   }
   if (fireExchange === "NXT" && (profile === "N" || profile === "A")) return "09:00:30";
@@ -535,7 +546,7 @@ const Q16_KRX_FIRE_BASE_UNTIL = "18:00:00";
  *
  * A · KRX 는 `09:00:00` 이상 `09:00:30` 미만이면 true(본회차 09:00:27 · 마감선 재확인 회차 09:00:29 …).
  * Q16 · KRX 는 `15:00:00` 이상 `18:00:00` 미만이면 true(평소 16:00:00 · 장 시간이 밀린 날 17:00:00 — 2026-11-19 수능일).
- * 그 밖은 `launchFireBaseOf` 결과가 null 이 아니고 fireBase 와 같을 때만 true.
+ * 그 밖(N · A NXT · G2 KRX 08:30:00)은 `launchFireBaseOf` 결과가 null 이 아니고 fireBase 와 같을 때만 true.
  *
  * 범위를 09:00:27 이상이 아니라 09:00:00 이상으로 잡는 근거: StockDMA.fbs `case1_fire_ms` 는 09:00:00 기준 설정값
  * (기본 27000 · 2026-10-24 전 29000 · 25000 미만 또는 29500 이상 거부)이고 마감선 09:00:29.5 재확인 회차가
@@ -555,7 +566,8 @@ export function isLaunchFireBaseOf(profile: string, fireExchange: string, fireBa
 /**
  * (거래소, 기준시각) → 지도 발사. A 의 KRX 09:00:27 다리는 지도 대상이 아니라 null(주문 내역에만).
  * q16 = KRX 의 Q16 창(`15:00:00` 이상 `18:00:00` 미만 — 장 시간이 밀린 날 17:00:00 포함 · 2026-11-19 수능일) ·
- * n0930 = NXT 09:00:30 정확 일치. 지도 RPC `launch_map_for_admin` 의 거르기와 같다.
+ * n0930 = NXT 09:00:30 정확 일치 · g0830 = KRX 08:30:00 정확 일치(G2 · q16 창과 겹치지 않는다).
+ * 지도 RPC `launch_map_for_admin` 의 거르기와 같다.
  */
 export function launchFireOf(row: { fire_exchange: string; fire_base: string }): LaunchFire | null {
   if (row.fire_exchange === "KRX" && row.fire_base >= Q16_KRX_FIRE_BASE_FROM && row.fire_base < Q16_KRX_FIRE_BASE_UNTIL) {
@@ -563,6 +575,8 @@ export function launchFireOf(row: { fire_exchange: string; fire_base: string }):
   }
   const n = LAUNCH_FIRES.n0930;
   if (row.fire_exchange === n.fire_exchange && row.fire_base === n.fire_base) return "n0930";
+  const g = LAUNCH_FIRES.g0830;
+  if (row.fire_exchange === g.fire_exchange && row.fire_base === g.fire_base) return "g0830";
   return null;
 }
 

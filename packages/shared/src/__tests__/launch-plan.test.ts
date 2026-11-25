@@ -18,7 +18,13 @@ import {
   LAUNCH_PLAN_SERVER_MAX_PIECES,
   LAUNCH_TAIL_PROBE_CHANGE_COLUMNS,
   LAUNCH_TAIL_PROBE_LIMITS,
+  LAUNCH_PLAN_PROFILES,
+  LAUNCH_TAIL_PROBE_FIRES,
+  LAUNCH_TAIL_PROBE_PROFILES,
+  isLaunchTailProbeFire,
   launchPlanEntryOf,
+  launchPlanEntryStateOf,
+  launchTailProbeProfileOf,
   launchTailProbeOffsets,
   launchTailProbeStateOf,
   validateLaunchTailProbeDraft,
@@ -82,6 +88,11 @@ describe("launch-plan 계약", () => {
     expect(launchPlanProfileOf("n0930")).toBe("N");
   });
 
+  it("launchPlanProfileOf — g0830 → G2(quick-261125-c2i · 조용히 N 으로 가지 않는다)", () => {
+    expect(launchPlanProfileOf("g0830")).toBe("G2");
+    expect([...LAUNCH_PLAN_PROFILES]).toEqual(["Q16", "N", "G2"]);
+  });
+
   it("LAUNCH_PLAN_GATEWAYS = 발사 서버 한 벌(KB120 · KYOBO119 · KYOBO112) = LAUNCH_ORDER 서버 키 중복 제거", () => {
     expect([...LAUNCH_PLAN_GATEWAYS]).toEqual(["KB120", "KYOBO119", "KYOBO112"]);
     expect([...LAUNCH_PLAN_GATEWAYS]).toEqual([...LAUNCH_SERVERS]);
@@ -126,6 +137,8 @@ describe("LAUNCH_PLAN_LIMITS · launchPlanUsText", () => {
     expect(LAUNCH_PLAN_LIMITS).toEqual({
       q16: { minUs: -3000, maxUs: 1000, minPieces: 1, maxPieces: 10, maxSpanUs: 500 },
       n0930: { minUs: -2000, maxUs: 2000, minPieces: 1, maxPieces: 1, maxSpanUs: null },
+      // quick-261125-c2i — 08:30 G2(인박스 261125-sigan-ttaeng-g2 ⓐ). 아래 g0830 묶음이 따로 잠근다.
+      g0830: { minUs: -3000, maxUs: 20000, minPieces: 1, maxPieces: 1, maxSpanUs: null },
     });
     expect(LAUNCH_PLAN_SERVER_MAX_PIECES).toBe(64);
   });
@@ -400,5 +413,116 @@ describe("launchTailProbeStateOf", () => {
     ]);
     expect(launchTailProbeStateOf(s, "q16")).toEqual({ kind: "set", value: { count: 5, step_us: 10 } });
     expect(launchTailProbeStateOf(s, "n0930")).toEqual({ kind: "set", value: { count: 0, step_us: 10 } });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-c2i — 08:30 G2 계획 칸 · 뒤탐침 좁은 타입
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("g0830 편집 한도 — 인박스 261125-sigan-ttaeng-g2 ⓐ(−3000 ~ +20000µs · 한 값)", () => {
+  it("LAUNCH_PLAN_LIMITS.g0830", () => {
+    expect(LAUNCH_PLAN_LIMITS.g0830).toEqual({ minUs: -3000, maxUs: 20000, minPieces: 1, maxPieces: 1, maxSpanUs: null });
+  });
+
+  it("경계값 0 · 20000 · −3000 ok", () => {
+    expect(validateLaunchPlanDraft("g0830", ["0"])).toEqual({ ok: true, values: [0] });
+    expect(validateLaunchPlanDraft("g0830", ["20000"])).toEqual({ ok: true, values: [20000] });
+    expect(validateLaunchPlanDraft("g0830", ["-3000"])).toEqual({ ok: true, values: [-3000] });
+  });
+
+  it("범위 밖 20001 · −3001 → range · 「발사 시각은 −3000 ~ 20000µs 사이여야 해요」", () => {
+    const msg = "발사 시각은 \u22123000 ~ 20000µs 사이여야 해요";
+    expect(validateLaunchPlanDraft("g0830", ["20001"])).toEqual({ ok: false, badIdx: 0, kind: "range", message: msg });
+    expect(validateLaunchPlanDraft("g0830", ["-3001"])).toEqual({ ok: false, badIdx: 0, kind: "range", message: msg });
+  });
+
+  it("두 값 → count · 「발사 시각은 한 값이에요」", () => {
+    expect(validateLaunchPlanDraft("g0830", ["1", "2"])).toEqual({
+      ok: false,
+      badIdx: -1,
+      kind: "count",
+      message: "발사 시각은 한 값이에요",
+    });
+  });
+});
+
+describe("launchPlanEntryStateOf — unknown · missing · set", () => {
+  const four: LaunchPlanServer = {
+    status: "ok",
+    plan_rev: 1,
+    updated_at: null,
+    entries: [
+      { profile: "Q16", market: "K", offsets_us: [-200, -190, -170] },
+      { profile: "Q16", market: "Q", offsets_us: [-200, -190, -170] },
+      { profile: "N", market: "K", offsets_us: [-245] },
+      { profile: "N", market: "Q", offsets_us: [-245] },
+    ],
+  };
+  // 인박스 ⓑ 켬 예시 — 말미 G2/K [12000] · G2/Q [0].
+  const six: LaunchPlanServer = {
+    ...four,
+    entries: [
+      ...(four.status === "ok" ? four.entries : []),
+      { profile: "G2", market: "K", offsets_us: [12000] },
+      { profile: "G2", market: "Q", offsets_us: [0] },
+    ],
+  };
+
+  it("서버 없음 · failed · offline → unknown", () => {
+    expect(launchPlanEntryStateOf(undefined, "g0830", "K")).toEqual({ kind: "unknown" });
+    expect(launchPlanEntryStateOf({ status: "failed", code: 1, message: "x" }, "g0830", "K")).toEqual({ kind: "unknown" });
+    expect(launchPlanEntryStateOf({ status: "offline" }, "g0830", "K")).toEqual({ kind: "unknown" });
+  });
+
+  it("ok 4행(스위치 꺼짐 · 구 서버) → g0830 K missing · q16 K set", () => {
+    expect(launchPlanEntryStateOf(four, "g0830", "K")).toEqual({ kind: "missing" });
+    expect(launchPlanEntryStateOf(four, "q16", "K")).toEqual({
+      kind: "set",
+      entry: { profile: "Q16", market: "K", offsets_us: [-200, -190, -170] },
+    });
+  });
+
+  it("ok 6행 → g0830 K set [12000] · Q set [0]", () => {
+    expect(launchPlanEntryStateOf(six, "g0830", "K")).toEqual({
+      kind: "set",
+      entry: { profile: "G2", market: "K", offsets_us: [12000] },
+    });
+    expect(launchPlanEntryStateOf(six, "g0830", "Q")).toEqual({
+      kind: "set",
+      entry: { profile: "G2", market: "Q", offsets_us: [0] },
+    });
+  });
+
+  it("launchPlanEntryOf 계약 불변 — missing · unknown 둘 다 null · set 은 그 칸", () => {
+    expect(launchPlanEntryOf(four, "g0830", "K")).toBeNull();
+    expect(launchPlanEntryOf({ status: "offline" }, "g0830", "K")).toBeNull();
+    expect(launchPlanEntryOf(six, "g0830", "K")).toEqual({ profile: "G2", market: "K", offsets_us: [12000] });
+  });
+});
+
+describe("뒤탐침 좁은 축 — G2 · g0830 없음(인박스 ⓑ · L-2)", () => {
+  it("LAUNCH_TAIL_PROBE_PROFILES = Q16 · N · LAUNCH_TAIL_PROBE_FIRES = q16 · n0930", () => {
+    expect([...LAUNCH_TAIL_PROBE_PROFILES]).toEqual(["Q16", "N"]);
+    expect([...LAUNCH_TAIL_PROBE_FIRES]).toEqual(["q16", "n0930"]);
+  });
+
+  it("isLaunchTailProbeFire — g0830 false · q16 · n0930 true", () => {
+    expect(isLaunchTailProbeFire("g0830")).toBe(false);
+    expect(isLaunchTailProbeFire("q16")).toBe(true);
+    expect(isLaunchTailProbeFire("n0930")).toBe(true);
+  });
+
+  it("launchTailProbeProfileOf — q16 → Q16 · n0930 → N", () => {
+    expect(launchTailProbeProfileOf("q16")).toBe("Q16");
+    expect(launchTailProbeProfileOf("n0930")).toBe("N");
+  });
+
+  it("타입 고정 — g0830 은 뒤탐침 상태 인자가 아니고 G2 는 뒤탐침 행 profile 이 아니다", () => {
+    // @ts-expect-error — LaunchTailProbeFire 는 q16 | n0930 뿐
+    expect(launchTailProbeStateOf(undefined, "g0830")).toEqual({ kind: "unknown" });
+    // @ts-expect-error — LaunchTailProbe.profile 은 Q16 | N 뿐
+    const x: LaunchTailProbe = { profile: "G2", count: 0, step_us: 1 };
+    expect(x.count).toBe(0);
   });
 });
