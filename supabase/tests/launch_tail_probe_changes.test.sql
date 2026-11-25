@@ -2,10 +2,11 @@
 -- quick-261107-l7w — 발사 뒤탐침 변경 이력(launch_tail_probe_changes) · 기록/읽기 RPC pgTAP.
 --
 -- 대상 마이그레이션: supabase/migrations/20261107200000_launch_tail_probe_changes.sql
+--   (+ 20261125120000_launch_tail_probe_offsets.sql 이 시장 · 목록 칸 3개를 더해 키 16개 · 목록 모드는 launch_tail_probe_offsets.test.sql)
 --
 -- 잠그는 것:
 --   - 트레이서: launch_tail_probe_change_record 로 한 행(KB120 · q16 · before 5/10 · after 3/20 · ok · plan_rev 7) →
---     반환 jsonb 키 집합 = shared LAUNCH_TAIL_PROBE_CHANGE_COLUMNS 13개(계약 핀) →
+--     반환 jsonb 키 집합 = shared LAUNCH_TAIL_PROBE_CHANGE_COLUMNS 16개(계약 핀) →
 --     launch_tail_probe_changes_for_admin(20) 이 { tail_probe_changes: [그 행] } 으로 같은 키를 돌려준다.
 --   - 읽기 모양: (gateway, fire) 마다 최근 p_limit 행 + 같은 키의 마지막 ok 1행(중복 없음) · 다른 키는 섞이지 않는다 ·
 --     전체 at 내림차순(같은 at 은 id 내림차순).
@@ -30,11 +31,12 @@ CREATE TEMP TABLE t_setup (label text PRIMARY KEY, r jsonb);
 
 SELECT plan(27);
 
--- shared LAUNCH_TAIL_PROBE_CHANGE_COLUMNS 와 같은 13개(정렬본 비교).
+-- shared LAUNCH_TAIL_PROBE_CHANGE_COLUMNS 와 같은 16개(정렬본 비교).
 CREATE TEMP TABLE t_cols AS
 SELECT ARRAY(SELECT unnest(ARRAY[
-  'id', 'at', 'admin_email', 'gateway', 'fire',
+  'id', 'at', 'admin_email', 'gateway', 'fire', 'market',
   'before_count', 'before_step_us', 'after_count', 'after_step_us',
+  'before_offsets_us', 'after_offsets_us',
   'outcome', 'code', 'message', 'plan_rev'
 ]) ORDER BY 1) AS cols;
 
@@ -54,7 +56,7 @@ INSERT INTO t_setup SELECT 'ok_1', public.launch_tail_probe_change_record(jsonb_
 SELECT is(
   (SELECT ARRAY(SELECT jsonb_object_keys(r) ORDER BY 1) FROM t_setup WHERE label = 'ok_1'),
   (SELECT cols FROM t_cols),
-  '(KB120, q16, 키 13개) launch_tail_probe_change_record 반환 키 집합 = LAUNCH_TAIL_PROBE_CHANGE_COLUMNS'
+  '(KB120, q16, 키 16개) launch_tail_probe_change_record 반환 키 집합 = LAUNCH_TAIL_PROBE_CHANGE_COLUMNS'
 );
 
 SELECT is(
@@ -80,7 +82,7 @@ SELECT is(
 SELECT is(
   ARRAY(SELECT jsonb_object_keys(public.launch_tail_probe_changes_for_admin(20) -> 'tail_probe_changes' -> 0) ORDER BY 1),
   (SELECT cols FROM t_cols),
-  '(KB120, q16, 키 13개) 읽기 tail_probe_changes[0] 키 집합 = LAUNCH_TAIL_PROBE_CHANGE_COLUMNS'
+  '(KB120, q16, 키 16개) 읽기 tail_probe_changes[0] 키 집합 = LAUNCH_TAIL_PROBE_CHANGE_COLUMNS'
 );
 
 -- ── 2. (gateway, fire)별 최근 N + 마지막 ok ──────────────────────────

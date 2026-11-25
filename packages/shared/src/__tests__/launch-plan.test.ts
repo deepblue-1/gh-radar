@@ -17,7 +17,7 @@ import {
   LAUNCH_PLAN_LIMITS,
   LAUNCH_PLAN_SERVER_MAX_PIECES,
   LAUNCH_TAIL_PROBE_CHANGE_COLUMNS,
-  LAUNCH_TAIL_PROBE_LIMITS,
+  LAUNCH_TAIL_PROBE_MAX_SHOTS,
   LAUNCH_PLAN_PROFILES,
   LAUNCH_TAIL_PROBE_FIRES,
   LAUNCH_TAIL_PROBE_PROFILES,
@@ -25,8 +25,10 @@ import {
   launchPlanEntryOf,
   launchPlanEntryStateOf,
   launchTailProbeProfileOf,
-  launchTailProbeOffsets,
+  launchTailProbeChipText,
   launchTailProbeStateOf,
+  parseLaunchTailProbeChip,
+  shiftLaunchTailProbeDraft,
   validateLaunchTailProbeDraft,
   launchPlanProfileOf,
   launchPlanUsText,
@@ -308,21 +310,24 @@ describe("launchPlanVerdictRows — 셀 = launchRibbonAt 그대로(D-28)", () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 뒤탐침(quick-261107-l7w)
+// 탐침 — 정각 기준 시장별 µs 목록(quick-261125-lju)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("뒤탐침 계약 — LAUNCH_TAIL_PROBE_CHANGE_COLUMNS · 한도", () => {
-  it("이력 열 13개 = 기록 RPC 반환 키(pgTAP 과 같은 목록)", () => {
+describe("탐침 계약 — LAUNCH_TAIL_PROBE_CHANGE_COLUMNS · 발 수 상한", () => {
+  it("이력 열 16개 = 기록 RPC 반환 키(pgTAP 과 같은 목록)", () => {
     expect([...LAUNCH_TAIL_PROBE_CHANGE_COLUMNS]).toEqual([
       "id",
       "at",
       "admin_email",
       "gateway",
       "fire",
+      "market",
       "before_count",
       "before_step_us",
       "after_count",
       "after_step_us",
+      "before_offsets_us",
+      "after_offsets_us",
       "outcome",
       "code",
       "message",
@@ -330,62 +335,123 @@ describe("뒤탐침 계약 — LAUNCH_TAIL_PROBE_CHANGE_COLUMNS · 한도", () =
     ]);
   });
 
-  it("한도 = count 0..10 · step 1..100µs(gh-trade 계약 · 0..5 → 0..10)", () => {
-    expect(LAUNCH_TAIL_PROBE_LIMITS).toEqual({ minCount: 0, maxCount: 10, minStepUs: 1, maxStepUs: 100 });
+  it("발 수 상한 10 · 범위 한도는 LAUNCH_PLAN_LIMITS 그대로(두 번째 숫자 없음)", () => {
+    expect(LAUNCH_TAIL_PROBE_MAX_SHOTS).toBe(10);
   });
 });
 
-describe("validateLaunchTailProbeDraft", () => {
+describe("parseLaunchTailProbeChip · launchTailProbeChipText", () => {
   it.each([
-    [5, "10", { count: 5, step_us: 10 }],
-    [0, "10", { count: 0, step_us: 10 }],
-    [3, " 20 ", { count: 3, step_us: 20 }],
-    [1, "1", { count: 1, step_us: 1 }],
-    [5, "100", { count: 5, step_us: 100 }],
-    [10, "100", { count: 10, step_us: 100 }],
-    [6, "10", { count: 6, step_us: 10 }],
-  ])("(%s, %j) → ok %j", (count, raw, value) => {
-    expect(validateLaunchTailProbeDraft(count, raw)).toEqual({ ok: true, value });
+    ["210", -210],
+    ["+30", 30],
+    ["0", 0],
+    ["+0", 0],
+    [" 0 ", 0],
+    [" 270 ", -270],
+  ])("%j → %s", (raw, v) => {
+    expect(Object.is(parseLaunchTailProbeChip(raw), v)).toBe(true);
   });
 
-  it("count 0 이어도 step 을 검사한다 — (0, '0') step 위반", () => {
-    expect(validateLaunchTailProbeDraft(0, "0")).toEqual({
-      ok: false,
-      field: "step",
-      message: "간격은 1 ~ 100µs 사이여야 해요",
-    });
+  it.each(["", "+", "-5", "1.5", "1+2", "abc", "1e1", "++3"])("%j → null", (raw) => {
+    expect(parseLaunchTailProbeChip(raw)).toBeNull();
   });
 
-  it.each([11, -1, 1.5])("count %s → count 위반", (count) => {
-    expect(validateLaunchTailProbeDraft(count, "10")).toEqual({
-      ok: false,
-      field: "count",
-      message: "발 수는 0 ~ 10 사이여야 해요",
-    });
-  });
-
-  it("(3, '101') → 범위 위반", () => {
-    expect(validateLaunchTailProbeDraft(3, "101")).toMatchObject({ ok: false, field: "step", message: "간격은 1 ~ 100µs 사이여야 해요" });
-  });
-
-  it.each(["1.5", "", "abc", "+5", "1e1"])("(3, %j) → 정수 위반", (raw) => {
-    expect(validateLaunchTailProbeDraft(3, raw)).toEqual({ ok: false, field: "step", message: "간격은 정수 µs 여야 해요" });
+  it.each([
+    [-210, "210"],
+    [30, "+30"],
+    [0, "0"],
+  ])("%s → %j · 왕복 동일", (v, text) => {
+    expect(launchTailProbeChipText(v)).toBe(text);
+    expect(parseLaunchTailProbeChip(launchTailProbeChipText(v))).toBe(v);
   });
 });
 
-describe("launchTailProbeOffsets", () => {
-  it("(−353, 5발 · 10µs) → [−343, −333, −323, −313, −303]", () => {
-    expect(launchTailProbeOffsets(-353, { count: 5, step_us: 10 })).toEqual([-343, -333, -323, -313, -303]);
+describe("validateLaunchTailProbeDraft(fire, 칩 원문)", () => {
+  it("q16 [210, 200, +30] → ok 오름차순 [−210, −200, 30]", () => {
+    expect(validateLaunchTailProbeDraft("q16", ["210", "200", "+30"])).toEqual({ ok: true, values: [-210, -200, 30] });
   });
-  it("count 0 → []", () => {
-    expect(launchTailProbeOffsets(-353, { count: 0, step_us: 10 })).toEqual([]);
+
+  it("입력 순서와 상관없이 정렬 · 중복 허용", () => {
+    expect(validateLaunchTailProbeDraft("q16", ["+30", "210"])).toEqual({ ok: true, values: [-210, 30] });
+    expect(validateLaunchTailProbeDraft("q16", ["200", "200"])).toEqual({ ok: true, values: [-200, -200] });
   });
-  it("(100, 3발 · 20µs) → [120, 140, 160]", () => {
-    expect(launchTailProbeOffsets(100, { count: 3, step_us: 20 })).toEqual([120, 140, 160]);
+
+  it("[] → ok [](꺼짐)", () => {
+    expect(validateLaunchTailProbeDraft("q16", [])).toEqual({ ok: true, values: [] });
+  });
+
+  it("10칸 ok · 11칸 → count(badIdx 빈 배열)", () => {
+    expect(validateLaunchTailProbeDraft("q16", Array(10).fill("100"))).toMatchObject({ ok: true });
+    expect(validateLaunchTailProbeDraft("q16", Array(11).fill("100"))).toEqual({
+      ok: false,
+      kind: "count",
+      badIdx: [],
+      message: "탐침은 0 ~ 10발이에요",
+    });
+  });
+
+  it("[4000, x, 200] → badIdx [0, 1] · 첫 위반(0번 range) 문구", () => {
+    expect(validateLaunchTailProbeDraft("q16", ["4000", "x", "200"])).toEqual({
+      ok: false,
+      kind: "range",
+      badIdx: [0, 1],
+      message: "탐침 시각은 −3000 ~ +1000µs 사이여야 해요",
+    });
+  });
+
+  it("첫 위반이 정수 위반이면 int 문구(번호 = 칸 + 1)", () => {
+    expect(validateLaunchTailProbeDraft("q16", ["210", "", "+5000"])).toEqual({
+      ok: false,
+      kind: "int",
+      badIdx: [1, 2],
+      message: "탐침 시각은 숫자만 써요 — 정각 뒤는 앞에 + (2번)",
+    });
+  });
+
+  it("q16 경계 −3000 · +1000 ok · +1001 · 3001 range", () => {
+    expect(validateLaunchTailProbeDraft("q16", ["3000", "+1000"])).toEqual({ ok: true, values: [-3000, 1000] });
+    expect(validateLaunchTailProbeDraft("q16", ["+1001"])).toMatchObject({ ok: false, kind: "range", badIdx: [0] });
+    expect(validateLaunchTailProbeDraft("q16", ["3001"])).toMatchObject({ ok: false, kind: "range", badIdx: [0] });
+  });
+
+  it("n0930 한도 = −2000 ~ +2000(LAUNCH_PLAN_LIMITS.n0930)", () => {
+    expect(validateLaunchTailProbeDraft("n0930", ["2000", "+2000"])).toEqual({ ok: true, values: [-2000, 2000] });
+    expect(validateLaunchTailProbeDraft("n0930", ["2001"])).toEqual({
+      ok: false,
+      kind: "range",
+      badIdx: [0],
+      message: "탐침 시각은 −2000 ~ +2000µs 사이여야 해요",
+    });
   });
 });
 
-describe("launchTailProbeStateOf", () => {
+describe("shiftLaunchTailProbeDraft — 칸 순서 그대로 · 한도 밖이면 null", () => {
+  it("q16 [210, +30] −10 → [220, +20]", () => {
+    expect(shiftLaunchTailProbeDraft("q16", ["210", "+30"], -10)).toEqual(["220", "+20"]);
+  });
+
+  it("정렬하지 않는다 — [+30, 210] +5 → [+35, 205]", () => {
+    expect(shiftLaunchTailProbeDraft("q16", ["+30", "210"], 5)).toEqual(["+35", "205"]);
+  });
+
+  it("0 을 지나가면 부호가 바뀐다 — [5] +10 → [+5] · [+3] −3 → [0]", () => {
+    expect(shiftLaunchTailProbeDraft("q16", ["5"], 10)).toEqual(["+5"]);
+    expect(shiftLaunchTailProbeDraft("q16", ["+3"], -3)).toEqual(["0"]);
+  });
+
+  it("한 발이라도 한도 밖 → null — [2995] −10 · [+995] +10", () => {
+    expect(shiftLaunchTailProbeDraft("q16", ["2995"], -10)).toBeNull();
+    expect(shiftLaunchTailProbeDraft("q16", ["100", "+995"], 10)).toBeNull();
+    expect(shiftLaunchTailProbeDraft("q16", ["100", "+995"], 5)).toEqual(["95", "+1000"]);
+  });
+
+  it("검증 오류 초안 · 빈 초안 → null", () => {
+    expect(shiftLaunchTailProbeDraft("q16", ["210", "x"], 1)).toBeNull();
+    expect(shiftLaunchTailProbeDraft("q16", [], 1)).toBeNull();
+  });
+});
+
+describe("launchTailProbeStateOf(server, fire, market)", () => {
   const ok = (tail_probes?: LaunchTailProbe[]): LaunchPlanServer => ({
     status: "ok",
     plan_rev: 3,
@@ -393,32 +459,59 @@ describe("launchTailProbeStateOf", () => {
     entries: [],
     ...(tail_probes ? { tail_probes } : {}),
   });
+  const four: LaunchTailProbe[] = [
+    { profile: "Q16", count: 2, step_us: 0, market: "K", offsets_us: [-210, -200] },
+    { profile: "N", count: 0, step_us: 0, market: "K", offsets_us: [] },
+    { profile: "Q16", count: 1, step_us: 0, market: "Q", offsets_us: [-300] },
+    { profile: "N", count: 0, step_us: 0, market: "Q", offsets_us: [] },
+  ];
 
   it("undefined · failed · offline → unknown", () => {
-    expect(launchTailProbeStateOf(undefined, "q16")).toEqual({ kind: "unknown" });
-    expect(launchTailProbeStateOf({ status: "failed", code: 1, message: "x" }, "q16")).toEqual({ kind: "unknown" });
-    expect(launchTailProbeStateOf({ status: "offline" }, "n0930")).toEqual({ kind: "unknown" });
+    expect(launchTailProbeStateOf(undefined, "q16", "K")).toEqual({ kind: "unknown" });
+    expect(launchTailProbeStateOf({ status: "failed", code: 1, message: "x" }, "q16", "K")).toEqual({ kind: "unknown" });
+    expect(launchTailProbeStateOf({ status: "offline" }, "n0930", "Q")).toEqual({ kind: "unknown" });
   });
 
-  it("ok 인데 tail_probes 없음 · 그 profile 행 없음 → unsupported", () => {
-    expect(launchTailProbeStateOf(ok(), "q16")).toEqual({ kind: "unsupported" });
-    expect(launchTailProbeStateOf(ok([{ profile: "Q16", count: 5, step_us: 10 }]), "n0930")).toEqual({
-      kind: "unsupported",
-    });
+  it("시장별 4행 → set(그 시장 행 · 값 복사 · [] = 꺼짐)", () => {
+    const s = ok(four);
+    expect(launchTailProbeStateOf(s, "q16", "K")).toEqual({ kind: "set", offsets_us: [-210, -200] });
+    expect(launchTailProbeStateOf(s, "q16", "Q")).toEqual({ kind: "set", offsets_us: [-300] });
+    expect(launchTailProbeStateOf(s, "n0930", "K")).toEqual({ kind: "set", offsets_us: [] });
+    const st = launchTailProbeStateOf(s, "q16", "K");
+    if (st.kind === "set") st.offsets_us.push(1);
+    expect(four[0]!.offsets_us).toEqual([-210, -200]);
   });
 
-  it("ok + 행 → set(발사 기준별 profile)", () => {
+  it("tail_probes 없음 → unsupported legacy null", () => {
+    expect(launchTailProbeStateOf(ok(), "q16", "K")).toEqual({ kind: "unsupported", legacy: null });
+  });
+
+  it("market 없는 옛 행만 → unsupported legacy = 첫 옛 행 count/step", () => {
     const s = ok([
       { profile: "Q16", count: 5, step_us: 10 },
       { profile: "N", count: 0, step_us: 10 },
     ]);
-    expect(launchTailProbeStateOf(s, "q16")).toEqual({ kind: "set", value: { count: 5, step_us: 10 } });
-    expect(launchTailProbeStateOf(s, "n0930")).toEqual({ kind: "set", value: { count: 0, step_us: 10 } });
+    expect(launchTailProbeStateOf(s, "q16", "K")).toEqual({ kind: "unsupported", legacy: { count: 5, step_us: 10 } });
+    expect(launchTailProbeStateOf(s, "n0930", "Q")).toEqual({ kind: "unsupported", legacy: { count: 0, step_us: 10 } });
+  });
+
+  it("같은 profile 이 market 없이 4행(새 서버를 지금 파서로 읽은 모양) → unsupported · 첫 행", () => {
+    const s = ok([
+      { profile: "Q16", count: 2, step_us: 0 },
+      { profile: "N", count: 0, step_us: 0 },
+      { profile: "Q16", count: 1, step_us: 0 },
+      { profile: "N", count: 0, step_us: 0 },
+    ]);
+    expect(launchTailProbeStateOf(s, "q16", "Q")).toEqual({ kind: "unsupported", legacy: { count: 2, step_us: 0 } });
+  });
+
+  it("다른 시장 행만 있으면 unsupported", () => {
+    expect(launchTailProbeStateOf(ok([four[0]!]), "q16", "Q")).toEqual({ kind: "unsupported", legacy: null });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261125-c2i — 08:30 G2 계획 칸 · 뒤탐침 좁은 타입
+// quick-261125-c2i — 08:30 G2 계획 칸 · 탐침 좁은 타입
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("g0830 편집 한도 — 인박스 261125-sigan-ttaeng-g2 ⓐ(−3000 ~ +20000µs · 한 값)", () => {
@@ -502,7 +595,7 @@ describe("launchPlanEntryStateOf — unknown · missing · set", () => {
   });
 });
 
-describe("뒤탐침 좁은 축 — G2 · g0830 없음(인박스 ⓑ · L-2)", () => {
+describe("탐침 좁은 축 — G2 · g0830 없음(인박스 ⓑ · L-2)", () => {
   it("LAUNCH_TAIL_PROBE_PROFILES = Q16 · N · LAUNCH_TAIL_PROBE_FIRES = q16 · n0930", () => {
     expect([...LAUNCH_TAIL_PROBE_PROFILES]).toEqual(["Q16", "N"]);
     expect([...LAUNCH_TAIL_PROBE_FIRES]).toEqual(["q16", "n0930"]);
@@ -519,9 +612,11 @@ describe("뒤탐침 좁은 축 — G2 · g0830 없음(인박스 ⓑ · L-2)", ()
     expect(launchTailProbeProfileOf("n0930")).toBe("N");
   });
 
-  it("타입 고정 — g0830 은 뒤탐침 상태 인자가 아니고 G2 는 뒤탐침 행 profile 이 아니다", () => {
-    // @ts-expect-error — LaunchTailProbeFire 는 q16 | n0930 뿐
-    expect(launchTailProbeStateOf(undefined, "g0830")).toEqual({ kind: "unknown" });
+  it("타입 고정 — g0830 은 탐침 상태 인자가 아니고 G2 는 탐침 행 profile 이 아니다", () => {
+    // @ts-expect-error — LaunchTailProbeFire 는 q16 | n0930 뿐(시장 인자는 채워 fire 타입만 시험한다)
+    expect(launchTailProbeStateOf(undefined, "g0830", "K")).toEqual({ kind: "unknown" });
+    // @ts-expect-error — validateLaunchTailProbeDraft 도 g0830 을 받지 않는다
+    expect(validateLaunchTailProbeDraft("g0830", [])).toMatchObject({ ok: true });
     // @ts-expect-error — LaunchTailProbe.profile 은 Q16 | N 뿐
     const x: LaunchTailProbe = { profile: "G2", count: 0, step_us: 1 };
     expect(x.count).toBe(0);

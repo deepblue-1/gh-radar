@@ -65,11 +65,12 @@
  * (`LaunchPlanRelaySetResponse` · result.server = 경로 키) · 감사 1줄(route · server · profile · market · n · outcome · code).
  * deps `launchPlan` 이 없으면 두 라우트 503 `LAUNCH_PLAN_UNAVAILABLE`.
  *
- * 뒤탐침(quick-261107-l7w) — `PUT /launch-tail-probe/:server` body `{ profile: Q16|N, count: int32, step_us: int32 }`(추가 키 400 ·
- * **범위는 막지 않는다** — gh-trade code 1 고정 문구가 말한다) → `launchPlan.tailProbeSettable` 이 거짓(와이어 대기 · 운영 기본
- * `LAUNCH_TAIL_PROBE_WIRE_PENDING`)이면 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(op 10 0건 · 확정 미반영 — server 가 offline 으로 접는다) →
- * 아니면 조회(전) → op 10 → 조회(후) · 요청 도착 마감 → 200 `{ result, before, plan }`(`LaunchTailProbeRelaySetResponse`) ·
- * 감사 1줄(route · server · profile · count · step_us · outcome · code). 조회는 `GET /launch-plan` 응답의 `tail_probes`.
+ * 탐침(quick-261107-l7w · 시장별 정각 기준 목록 quick-261125-lju) — `PUT /launch-tail-probe/:server` body
+ * `{ profile: Q16|N, market: K|Q, offsets_us: int32[0..64] }`(추가 키 · 옛 `count` · `step_us` 400 · **범위 · 개수 · 순서는 막지 않는다** —
+ * gh-trade 86 code 1 이 말한다) → `launchPlan.tailProbeSettable` 이 거짓(목록 모드 와이어 대기 · 지금 운영 주입)이면 503
+ * `LAUNCH_TAIL_PROBE_UNAVAILABLE`(op 10 0건 · 확정 미반영 — server 가 offline 으로 접는다) → 아니면 조회(전) → op 10 목록 모드 →
+ * 조회(후) · 요청 도착 마감 → 200 `{ result, before, plan }`(`LaunchTailProbeRelaySetResponse`) · 감사 1줄(route · server · profile ·
+ * market · n · outcome · code). 조회는 `GET /launch-plan` 응답의 `tail_probes` · `kyobo_q16_combined`.
  *
  * 계좌 PUT 의 주문자 IP/MAC(Phase 30 · IPMAC-02 · D-07 · D-10) — body 최상위 선택 `orderEndpoint { orderIp, orderMac }`(계좌 객체
  * 밖). **KB 계좌만**(교보면 400 — 교보 서버는 형식을 보지 않고 저장한다) · 두 키 모두 필수(하나만 오면 400) · **형식 검사 없음**
@@ -346,15 +347,15 @@ const LaunchPlanSetBody = z
   .strict();
 
 /**
- * `PUT /launch-tail-probe/:server` 바디(shared `LaunchTailProbeRelaySetBody` · quick-261107-l7w) — 구조만 · 추가 키 거부.
- * 범위(count 0..10 · step_us 1..100)는 보지 않는다 — gh-trade 86 code 1 고정 문구가 말한다(계획 경로 D-30 결).
- * profile = shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N 만) — G2 는 뒤탐침 대상 아님(인박스 261125-sigan-ttaeng-g2 ⓑ · op 10).
+ * `PUT /launch-tail-probe/:server` 바디(shared `LaunchTailProbeRelaySetBody` · quick-261125-lju) — 구조만 · 추가 키 거부.
+ * 범위 · 발 수 10 · 순서는 보지 않는다 — gh-trade 86 code 1 이 말한다(계획 경로 D-30 결). 빈 배열 = 끔.
+ * profile = shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N 만) — G2 는 탐침 대상 아님(인박스 261125-sigan-ttaeng-g2 ⓑ · op 10).
  */
 const LaunchTailProbeSetBody = z
   .object({
     profile: z.enum(LAUNCH_TAIL_PROBE_PROFILES),
-    count: Int32,
-    step_us: Int32,
+    market: z.enum(["K", "Q"]),
+    offsets_us: z.array(Int32).max(LAUNCH_PLAN_SERVER_MAX_PIECES),
   })
   .strict();
 
@@ -910,21 +911,21 @@ export function createAdminRouter(deps: AdminApiDeps): Router {
     res.status(200).json(out);
   });
 
-  // 뒤탐침 저장(quick-261107-l7w) — 와이어 대기(어댑터 canSet 거짓)면 op 10 을 보내지 않고 503(확정 미반영). 그 밖은 계획 저장과 같은 흐름.
+  // 탐침 저장(quick-261125-lju) — 목록 모드 와이어 대기(어댑터 canSet 거짓)면 op 10 을 보내지 않고 503(확정 미반영). 그 밖은 계획 저장과 같은 흐름.
   router.put("/launch-tail-probe/:server", async (req, res) => {
     const deadlineAt = deadlineOf();
     const launchPlan = launchPlanOf();
     const { server } = LaunchPlanServerParam.parse(req.params);
     const body = LaunchTailProbeSetBody.parse(req.body);
     if (!launchPlan.tailProbeSettable) {
-      throw new RelayApiError(503, "LAUNCH_TAIL_PROBE_UNAVAILABLE", "뒤탐침 설정 와이어가 아직 준비되지 않았습니다");
+      throw new RelayApiError(503, "LAUNCH_TAIL_PROBE_UNAVAILABLE", "탐침 설정 와이어가 아직 준비되지 않았습니다");
     }
     const out = await launchPlan.setTailProbe(server, body, { deadlineAt });
     audit(res.locals.adminEmail as string, "PUT /launch-tail-probe/:server", null, { results: [out.result] }, {
       server,
       profile: body.profile,
-      count: body.count,
-      step_us: body.step_us,
+      market: body.market,
+      n: body.offsets_us.length,
     });
     res.status(200).json(out);
   });

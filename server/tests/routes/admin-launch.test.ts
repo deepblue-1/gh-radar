@@ -24,7 +24,7 @@ import {
   makeAdminSupabase,
   type AdminSupabaseOpts,
 } from "../fixtures/admin-supabase";
-import { makeFakeRelay, relayReject } from "../fixtures/fake-relay-admin";
+import { LAUNCH_TAIL_PROBES_DEFAULT, makeFakeRelay, relayReject } from "../fixtures/fake-relay-admin";
 
 /**
  * Phase 35 (35-05) — `/api/admin/launch/*`. 35-02 RPC 응답 모양을 그대로(snake_case · 계좌 열 포함) 통과시키는지,
@@ -144,14 +144,14 @@ function makeApp(rpc: Record<string, RpcHandler> = {}, relayAdmin?: RelayAdminCl
       launch_orders_for_admin: () => ({ data: orders, error: null }),
       launch_map_for_admin: () => ({ data: map, error: null }),
       launch_plan_changes_for_admin: () => ({ data: { changes: [] }, error: null }),
-      // quick-261107-l7w 뒤탐침 이력 읽기 — 기본 빈 목록.
+      // quick-261107-l7w 탐침 이력 읽기 — 기본 빈 목록.
       launch_tail_probe_changes_for_admin: () => ({ data: { tail_probe_changes: [] }, error: null }),
       // 35-12 기록 RPC 계약 — 받은 p 에 id · at 을 붙인 행 하나.
       launch_plan_change_record: (params) => ({
         data: { id: 7, at: "2026-10-27T13:41:00+00:00", ...(params as { p: object }).p },
         error: null,
       }),
-      // quick-261107-l7w 뒤탐침 기록 RPC 계약 — 받은 p 에 id · at 을 붙인 행 하나.
+      // quick-261107-l7w 탐침 기록 RPC 계약 — 받은 p 에 id · at 을 붙인 행 하나.
       launch_tail_probe_change_record: (params) => ({
         data: { id: 21, at: "2026-11-07T06:10:00+00:00", ...(params as { p: object }).p },
         error: null,
@@ -487,7 +487,7 @@ describe("P35 발사 계획 GET — /api/admin/launch/plan (D-25 · D-29 · D-30
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 읽기(GET /launch/plan 에 얹음)
+// quick-261125-lju — 탐침 읽기(GET /launch/plan 에 얹음 · 시장별 4행 · 합친 레인 bool)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const tpChangeRow: LaunchTailProbeChangeRow = {
@@ -496,20 +496,23 @@ const tpChangeRow: LaunchTailProbeChangeRow = {
   admin_email: ADMIN_EMAIL,
   gateway: "KB120",
   fire: "q16",
-  before_count: 5,
-  before_step_us: 10,
-  after_count: 3,
-  after_step_us: 20,
+  market: "K",
+  before_count: null,
+  before_step_us: null,
+  after_count: null,
+  after_step_us: null,
+  before_offsets_us: [-210, -200],
+  after_offsets_us: [-220, -210],
   outcome: "ok",
   code: null,
   message: null,
   plan_rev: 5,
 };
 
-describe("quick-261107-l7w 뒤탐침 읽기 — GET /api/admin/launch/plan", () => {
+describe("quick-261125-lju 탐침 읽기 — GET /api/admin/launch/plan", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("TP-G1 relay 의 tail_probes 그대로 통과 · tail_probe_changes = RPC 값 · RPC 2개(계획 이력 · 뒤탐침 이력)", async () => {
+  it("TP-G1 relay 의 시장별 tail_probes 그대로 통과 · tail_probe_changes = RPC 값 · RPC 2개(계획 이력 · 탐침 이력)", async () => {
     const relay = makeFakeRelay(undefined, { tailProbes: true });
     const { app, rec } = makeApp(
       { launch_tail_probe_changes_for_admin: () => ({ data: { tail_probe_changes: [tpChangeRow] }, error: null }) },
@@ -517,10 +520,7 @@ describe("quick-261107-l7w 뒤탐침 읽기 — GET /api/admin/launch/plan", () 
     );
     const res = await auth(request(app).get("/api/admin/launch/plan"));
     expect(res.status).toBe(200);
-    expect(res.body.servers.KB120.tail_probes).toEqual([
-      { profile: "Q16", count: 5, step_us: 10 },
-      { profile: "N", count: 0, step_us: 10 },
-    ]);
+    expect(res.body.servers.KB120.tail_probes).toEqual(LAUNCH_TAIL_PROBES_DEFAULT);
     expect(res.body.servers.KYOBO119.tail_probes).toBeDefined();
     expect(res.body.tail_probe_changes).toEqual([tpChangeRow]);
     expect(rec.rpcCalls).toEqual([
@@ -539,7 +539,33 @@ describe("quick-261107-l7w 뒤탐침 읽기 — GET /api/admin/launch/plan", () 
   });
 
   it.each([
+    ["true", true],
+    ["false", false],
+  ])("TP-G1c kyobo_q16_combined %s 그대로 통과 · 옛 행(market 없음)도 통과", async (_l, v) => {
+    const relay = makeFakeRelay((c) =>
+      c.method === "GET" && c.path.startsWith("/internal/admin/launch-plan")
+        ? {
+            status: 200,
+            data: {
+              servers: {
+                KB120: { ...kb120Plan, tail_probes: [{ profile: "Q16", count: 5, step_us: 10 }] },
+                KYOBO119: { ...kyobo112Plan, kyobo_q16_combined: v, tail_probes: LAUNCH_TAIL_PROBES_DEFAULT },
+                KYOBO112: kyobo112Plan,
+              },
+            },
+          }
+        : undefined,
+    );
+    const res = await auth(request(makeApp({}, relay.client).app).get("/api/admin/launch/plan"));
+    expect(res.status).toBe(200);
+    expect(res.body.servers.KYOBO119).toMatchObject({ status: "ok", kyobo_q16_combined: v });
+    expect(res.body.servers.KB120.tail_probes).toEqual([{ profile: "Q16", count: 5, step_us: 10 }]);
+  });
+
+  it.each([
     ["배열 아님", "x"],
+    ["market 어휘 밖", [{ profile: "Q16", count: 1, step_us: 0, market: "X", offsets_us: [-1] }]],
+    ["offsets_us 문자열 원소", [{ profile: "Q16", count: 1, step_us: 0, market: "K", offsets_us: ["-1"] }]],
     ["profile 어휘 밖", [{ profile: "X", count: 5, step_us: 10 }]],
     ["count 문자열", [{ profile: "Q16", count: "5", step_us: 10 }]],
     ["step_us 없음", [{ profile: "Q16", count: 5 }]],
@@ -559,7 +585,18 @@ describe("quick-261107-l7w 뒤탐침 읽기 — GET /api/admin/launch/plan", () 
     expect(planWarns(warn)[0]![0]).toEqual({ relay: { op: "launch-plan-get", status: 200, offline: ["KB120"] } });
   });
 
-  it("TP-G3 뒤탐침 이력 RPC 오류 → 500 DB_ERROR(원문 비노출) / { tail_probe_changes: null } → 500", async () => {
+  it("TP-G2b kyobo_q16_combined 가 boolean 아님 → 그 서버만 offline", async () => {
+    const relay = makeFakeRelay((c) =>
+      c.method === "GET" && c.path.startsWith("/internal/admin/launch-plan")
+        ? { status: 200, data: { servers: { KB120: { ...kb120Plan, kyobo_q16_combined: "true" }, KYOBO119: kyoboFailed, KYOBO112: kyobo112Plan } } }
+        : undefined,
+    );
+    const res = await auth(request(makeApp({}, relay.client).app).get("/api/admin/launch/plan"));
+    expect(res.body.servers.KB120.status).toBe("offline");
+    expect(res.body.servers.KYOBO112).toEqual(kyobo112Plan);
+  });
+
+  it("TP-G3 탐침 이력 RPC 오류 → 500 DB_ERROR(원문 비노출) / { tail_probe_changes: null } → 500", async () => {
     const relay = makeFakeRelay();
     const res = await auth(
       request(
@@ -898,11 +935,12 @@ describe("P35 발사 계획 PUT — /api/admin/launch/plan/:gateway/:fire/:marke
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 저장 PUT /api/admin/launch/tail-probe/:gateway/:fire
+// quick-261125-lju — 탐침 저장 PUT /api/admin/launch/tail-probe/:gateway/:fire { market, offsets_us }
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TP_PUT_PATH = "/api/admin/launch/tail-probe/KB120/q16";
 const TP_RELAY_PATH = "/internal/admin/launch-tail-probe/KB120";
+const TP_BODY = { market: "Q", offsets_us: [-300, -290] };
 
 const tpRecordCalls = (rec: ReturnType<typeof makeAdminSupabase>["rec"]) =>
   rec.rpcCalls.filter((c) => c.fn === "launch_tail_probe_change_record");
@@ -913,63 +951,76 @@ const tpRelayPut = (r: { status: number; data: unknown; netCode?: string } | (()
     return typeof r === "function" ? r() : r;
   });
 
-describe("quick-261107-l7w 뒤탐침 저장 PUT", () => {
+/** 목록 모드 이력 p — 옛 칸 넷은 null. */
+const tpP = (over: Record<string, unknown>) => ({
+  admin_email: ADMIN_EMAIL,
+  gateway: "KB120",
+  fire: "q16",
+  market: "Q",
+  before_count: null,
+  before_step_us: null,
+  after_count: null,
+  after_step_us: null,
+  before_offsets_us: null,
+  after_offsets_us: [-300, -290],
+  outcome: "ok",
+  code: null,
+  message: null,
+  plan_rev: null,
+  ...over,
+});
+
+describe("quick-261125-lju 탐침 저장 PUT", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("TP-P1 KB120/q16 {3,20} → relay PUT 1회(Q16 3 20) → 기록 RPC(before 5/10 · after 3/20 · ok · plan_rev) → 200 { result, plan, change } · 감사 1줄", async () => {
+  it("TP-P1 KB120/q16 { Q, [−300, −290] } → relay PUT 1회(Q16 · Q · 목록) → 기록 RPC(목록 모드 · before = 전 Q 목록) → 200 · 감사 1줄", async () => {
     const info = vi.spyOn(logger, "info");
     const relay = makeFakeRelay();
     const { app, rec } = makeApp({}, relay.client);
-    const res = await auth(request(app).put(TP_PUT_PATH)).send({ count: 3, step_us: 20 });
+    const res = await auth(request(app).put(TP_PUT_PATH)).send(TP_BODY);
     expect(res.status).toBe(200);
     expect(relay.calls).toEqual([
-      { method: "PUT", path: TP_RELAY_PATH, adminEmail: ADMIN_EMAIL, body: { profile: "Q16", count: 3, step_us: 20 } },
+      { method: "PUT", path: TP_RELAY_PATH, adminEmail: ADMIN_EMAIL, body: { profile: "Q16", market: "Q", offsets_us: [-300, -290] } },
     ]);
-    const p = {
-      admin_email: ADMIN_EMAIL,
-      gateway: "KB120",
-      fire: "q16",
-      before_count: 5,
-      before_step_us: 10,
-      after_count: 3,
-      after_step_us: 20,
-      outcome: "ok",
-      code: null,
-      message: null,
-      plan_rev: 4,
-    };
+    const p = tpP({ before_offsets_us: [-310, -300], plan_rev: 4 });
     expect(rec.rpcCalls).toEqual([{ fn: "launch_tail_probe_change_record", params: { p } }]);
     expect(res.body.result).toEqual({ server: "KB120", outcome: "ok" });
-    expect(res.body.plan.tail_probes).toEqual([
-      { profile: "Q16", count: 3, step_us: 20 },
-      { profile: "N", count: 0, step_us: 10 },
-    ]);
+    expect(res.body.plan.tail_probes[2]).toEqual({ profile: "Q16", count: 2, step_us: 0, market: "Q", offsets_us: [-300, -290] });
     expect(res.body.change).toEqual({ id: 21, at: "2026-11-07T06:10:00+00:00", ...p });
     const a = info.mock.calls.filter((args) => {
       const o = args[0] as { audit?: string; op?: string } | undefined;
       return o?.audit === "admin" && o.op === "launch-tail-probe-put";
     });
     expect(a).toHaveLength(1);
-    expect(a[0]![0]).toMatchObject({ op: "launch-tail-probe-put", target: "KB120/q16", outcome: "ok", code: null });
+    expect(a[0]![0]).toMatchObject({ op: "launch-tail-probe-put", target: "KB120/q16/Q", outcome: "ok", code: null });
   });
 
-  it("TP-P1b n0930 → profile N · 범위 밖 값(count 12)도 그대로 relay 로(범위는 gh-trade code 1)", async () => {
-    const relay = makeFakeRelay();
-    const { app } = makeApp({}, relay.client);
-    const res = await auth(request(app).put("/api/admin/launch/tail-probe/KYOBO112/n0930")).send({ count: 12, step_us: 10 });
-    expect(res.status).toBe(200);
-    expect(relay.calls[0]).toMatchObject({ path: "/internal/admin/launch-tail-probe/KYOBO112", body: { profile: "N", count: 12, step_us: 10 } });
+  it("TP-P1b n0930 → profile N · 범위 밖 · 11발 · 순서 어긋남 · 빈 목록도 그대로 relay 로(gh-trade 86 이 말한다)", async () => {
+    for (const offsets_us of [[5000], Array(11).fill(-100), [-200, -300], []]) {
+      const relay = makeFakeRelay();
+      const { app } = makeApp({}, relay.client);
+      const res = await auth(request(app).put("/api/admin/launch/tail-probe/KYOBO112/n0930")).send({ market: "K", offsets_us });
+      expect(res.status).toBe(200);
+      expect(relay.calls[0]).toMatchObject({
+        path: "/internal/admin/launch-tail-probe/KYOBO112",
+        body: { profile: "N", market: "K", offsets_us },
+      });
+    }
   });
 
   it.each([
-    ["KB121 경로", "/api/admin/launch/tail-probe/KB121/q16", { count: 3, step_us: 20 }],
-    ["fire x", "/api/admin/launch/tail-probe/KB120/x", { count: 3, step_us: 20 }],
-    // quick-261125-c2i — G2(08:30)는 뒤탐침 대상 아님(인박스 ⓑ).
-    ["fire g0830", "/api/admin/launch/tail-probe/KB120/g0830", { count: 0, step_us: 10 }],
-    ["count 1.5", TP_PUT_PATH, { count: 1.5, step_us: 20 }],
-    ["추가 키", TP_PUT_PATH, { count: 3, step_us: 20, extra: 1 }],
-    ["문자열", TP_PUT_PATH, { count: "3", step_us: 20 }],
-    ["step_us 없음", TP_PUT_PATH, { count: 3 }],
+    ["KB121 경로", "/api/admin/launch/tail-probe/KB121/q16", TP_BODY],
+    ["fire x", "/api/admin/launch/tail-probe/KB120/x", TP_BODY],
+    // quick-261125-c2i — G2(08:30)는 탐침 대상 아님(인박스 ⓑ).
+    ["fire g0830", "/api/admin/launch/tail-probe/KB120/g0830", TP_BODY],
+    ["옛 바디 { count, step_us }", TP_PUT_PATH, { count: 3, step_us: 20 }],
+    ["market 없음", TP_PUT_PATH, { offsets_us: [-200] }],
+    ["market X", TP_PUT_PATH, { market: "X", offsets_us: [-200] }],
+    ["offsets_us 없음", TP_PUT_PATH, { market: "K" }],
+    ["원소 1.5", TP_PUT_PATH, { market: "K", offsets_us: [-1.5] }],
+    ["원소 문자열", TP_PUT_PATH, { market: "K", offsets_us: ["-200"] }],
+    ["65개", TP_PUT_PATH, { market: "K", offsets_us: Array(65).fill(-1) }],
+    ["추가 키", TP_PUT_PATH, { ...TP_BODY, extra: 1 }],
   ])("TP-P2 %s → 400 · relay 0 · RPC 0", async (_l, path, body) => {
     const relay = makeFakeRelay();
     const { app, rec } = makeApp({}, relay.client);
@@ -979,56 +1030,44 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT", () => {
     expect(rec.rpcCalls).toEqual([]);
   });
 
-  it("TP-P3 relay 503 LAUNCH_TAIL_PROBE_UNAVAILABLE(와이어 대기) → offline 확정 미반영 문구 · 이력 1행 offline", async () => {
+  it("TP-P3 relay 503 LAUNCH_TAIL_PROBE_UNAVAILABLE(목록 모드 와이어 대기) → offline 확정 미반영 문구 · 이력 1행 offline", async () => {
     const relay = tpRelayPut(relayReject(503, "LAUNCH_TAIL_PROBE_UNAVAILABLE"));
     const { app, rec } = makeApp({}, relay.client);
-    const res = await auth(request(app).put(TP_PUT_PATH)).send({ count: 3, step_us: 20 });
+    const res = await auth(request(app).put(TP_PUT_PATH)).send(TP_BODY);
     expect(res.status).toBe(200);
     const msg = "relay 가 거부했어요(503 LAUNCH_TAIL_PROBE_UNAVAILABLE). relay 설정 · 배포를 확인하세요.";
     expect(res.body).toMatchObject({ result: { server: "KB120", outcome: "offline", message: msg }, plan: null });
     expect(tpRecordCalls(rec)).toHaveLength(1);
-    expect(tpRecordCalls(rec)[0]!.params).toEqual({
-      p: {
-        admin_email: ADMIN_EMAIL,
-        gateway: "KB120",
-        fire: "q16",
-        before_count: null,
-        before_step_us: null,
-        after_count: 3,
-        after_step_us: 20,
-        outcome: "offline",
-        code: null,
-        message: msg,
-        plan_rev: null,
-      },
-    });
+    expect(tpRecordCalls(rec)[0]!.params).toEqual({ p: tpP({ outcome: "offline", message: msg }) });
   });
 
   it("TP-P3b relay 404(구 relay) → offline", async () => {
     const relay = tpRelayPut(relayReject(404, "NOT_FOUND"));
-    const res = await auth(request(makeApp({}, relay.client).app).put(TP_PUT_PATH)).send({ count: 3, step_us: 20 });
+    const res = await auth(request(makeApp({}, relay.client).app).put(TP_PUT_PATH)).send(TP_BODY);
     expect(res.body.result.outcome).toBe("offline");
   });
 
   it.each([
     ["500", { status: 500, data: { error: { code: "X", message: "y" } } }],
     ["503 다른 code", { status: 503, data: { error: { code: "OTHER", message: "y" } } }],
-    ["모양 위반 before", { status: 200, data: { result: { server: "KB120", outcome: "ok" }, before: { count: "5" }, plan: null } }],
+    ["모양 위반 before(옛 객체)", { status: 200, data: { result: { server: "KB120", outcome: "ok" }, before: { count: 5, step_us: 10 }, plan: null } }],
+    ["모양 위반 before(문자열 원소)", { status: 200, data: { result: { server: "KB120", outcome: "ok" }, before: ["-1"], plan: null } }],
     ["다른 서버 결과", { status: 200, data: { result: { server: "KYOBO119", outcome: "ok" }, before: null, plan: null } }],
   ])("TP-P4 relay %s → timeout(결과 모름) RELAY_UNKNOWN_SAVE_MESSAGE · 이력 1행", async (_l, r) => {
     const relay = tpRelayPut(r);
     const { app, rec } = makeApp({}, relay.client);
-    const res = await auth(request(app).put(TP_PUT_PATH)).send({ count: 3, step_us: 20 });
+    const res = await auth(request(app).put(TP_PUT_PATH)).send(TP_BODY);
     expect(res.status).toBe(200);
     expect(res.body.result).toEqual({ server: "KB120", outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE });
     expect(tpRecordCalls(rec)).toHaveLength(1);
   });
 
-  it("TP-P5 relayAdmin 미설정 → offline 「relay 연결이 설정되지 않았어요」 · 기록 1행", async () => {
+  it("TP-P5 relayAdmin 미설정 → offline 「relay 연결이 설정되지 않았어요」 · 기록 1행(빈 목록 = 꺼짐)", async () => {
     const { app, rec } = makeApp();
-    const res = await auth(request(app).put(TP_PUT_PATH)).send({ count: 0, step_us: 10 });
+    const res = await auth(request(app).put(TP_PUT_PATH)).send({ market: "K", offsets_us: [] });
     expect(res.body.result).toEqual({ server: "KB120", outcome: "offline", message: "relay 연결이 설정되지 않았어요" });
     expect(tpRecordCalls(rec)).toHaveLength(1);
+    expect(tpRecordCalls(rec)[0]!.params).toMatchObject({ p: { market: "K", after_offsets_us: [], before_offsets_us: null } });
   });
 
   it("TP-P6 기록 RPC 오류 → 200 · change null · logger.error 1회", async () => {
@@ -1038,19 +1077,19 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT", () => {
       { launch_tail_probe_change_record: () => ({ data: null, error: { code: "42883", message: "x" } }) },
       relay.client,
     );
-    const res = await auth(request(app).put(TP_PUT_PATH)).send({ count: 3, step_us: 20 });
+    const res = await auth(request(app).put(TP_PUT_PATH)).send(TP_BODY);
     expect(res.status).toBe(200);
     expect(res.body.change).toBeNull();
     expect(res.body.result.outcome).toBe("ok");
-    const calls = error.mock.calls.filter((a) => a[1] === "[admin-launch] 발사 뒤탐침 이력 기록 실패");
+    const calls = error.mock.calls.filter((a) => a[1] === "[admin-launch] 발사 탐침 이력 기록 실패");
     expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toMatchObject({ gateway: "KB120", fire: "q16", outcome: "ok" });
+    expect(calls[0]![0]).toMatchObject({ gateway: "KB120", fire: "q16", market: "Q", outcome: "ok" });
   });
 
   it("TP-P7 trader → 403 · relay 0 · RPC 0", async () => {
     const relay = makeFakeRelay();
     const { app, rec } = makeApp({}, relay.client);
-    const res = await auth(request(app).put(TP_PUT_PATH), TRADER_TOKEN).send({ count: 3, step_us: 20 });
+    const res = await auth(request(app).put(TP_PUT_PATH), TRADER_TOKEN).send(TP_BODY);
     expect(res.status).toBe(403);
     expect(relay.calls).toHaveLength(0);
     expect(rec.rpcCalls).toEqual([]);

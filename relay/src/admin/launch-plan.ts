@@ -35,9 +35,10 @@
  *
  * 범위 · 순서 · 조각 수는 보지 않는다 — gh-trade 가 code 1 + 고정 문구로 말한다(D-26 · D-34). relay 는 int32 구조만(admin-api zod).
  *
- * 뒤탐침(quick-261107-l7w) — 94 말미 `tail_probes` 를 ok 결과의 `tail_probes` 로 옮긴다. 와이어(.fbs) 를 직접 읽지 않고
- * **주입된 어댑터**(`LaunchTailProbeWire`)를 거친다 — 운영 = `relay/src/index.ts` `LAUNCH_TAIL_PROBE_WIRE`(gh-trade Phase 47 연결 ·
- * op 10 인코드 · 94 tail_probes 디코드). `LAUNCH_TAIL_PROBE_WIRE_PENDING` 은 테스트 · 와이어 없는 대역용.
+ * 탐침(quick-261107-l7w · 시장별 정각 기준 목록 quick-261125-lju) — 94 말미 `tail_probes` 를 ok 결과의 `tail_probes` 로,
+ * 말미 bool `kyobo_q16_combined` 를 ok 결과의 `kyobo_q16_combined` 로 옮긴다. 와이어(.fbs) 를 직접 읽지 않고 **주입된 어댑터**
+ * (`LaunchTailProbeWire`)를 거친다 — 운영 = `relay/src/index.ts` `LAUNCH_TAIL_PROBE_WIRE`(지금 = 목록 모드 op 10 을 못 실어
+ * 읽기 전용 · ⇄ 칸 없음). `LAUNCH_TAIL_PROBE_WIRE_PENDING` 은 테스트 · 와이어 없는 대역용.
  */
 import {
   interpretAdminResult,
@@ -70,28 +71,33 @@ export const SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE = "사용이 꺼진 서버 —
 export const LAUNCH_PLAN_READ_DEADLINE_MS = 5_000;
 
 /**
- * 뒤탐침 와이어 어댑터(quick-261107-l7w) — 44 op 10 인코드 · 94 `tail_probes` 디코드가 붙었는지와 스냅샷에서 행을 꺼내는 법.
- * `canSet` = op 10 을 와이어에 실을 수 있나(거짓이면 서비스는 op 10 을 보내지 않고 라우트가 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
- * `tailProbesOf` = 94 스냅샷의 뒤탐침 행(undefined · 빈 배열 = 칸 없음 → ok 결과에 `tail_probes` 키를 싣지 않는다).
+ * 탐침 와이어 어댑터(quick-261107-l7w · quick-261125-lju) — 44 op 10 목록 모드 인코드 · 94 시장별 `tail_probes` · 말미
+ * `kyobo_q16_combined` 디코드가 붙었는지와 스냅샷에서 꺼내는 법.
+ * `canSet` = **목록 모드 op 10**(offsets 벡터 + count −1 + launch_market)을 와이어에 실을 수 있나(거짓이면 서비스는 op 10 을 보내지
+ * 않고 라우트가 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
+ * `tailProbesOf` = 94 스냅샷의 탐침 행(undefined · 빈 배열 = 칸 없음 → ok 결과에 `tail_probes` 키를 싣지 않는다).
+ * `kyoboQ16CombinedOf` = 94 말미 bool(undefined = 칸 없음 → ok 결과에 `kyobo_q16_combined` 키를 싣지 않는다 = 웹 ⇄ 꺼짐).
  *
- * **후속 quick 체크리스트(gh-trade .fbs 인계 뒤 — 이 순서로)**
+ * **후속 quick 체크리스트(gh-trade Phase 50 .fbs 인계 뒤 — 이 순서로)**
  *   ① gh-trade `sync-relay-schema.sh` 로 `relay/src/generated/*` 갱신(손 편집 금지 · flatc 고정 버전은 gh-trade 소유).
- *   ② `relay/src/dma/envelope.ts` `buildAdminCommandReq` 에 op 10 의 `launch_profile` · `launch_tail_probe_count` ·
- *      `launch_tail_probe_step_us` 조립(`AdminCommandInput.launchProfile` · `launchTailProbeCount` · `launchTailProbeStepUs`).
- *   ③ `parseLaunchPlanSnapshot` 이 94 `tail_probes` 를 `snap.tailProbes` 로 — 길이 0 = 칸 없음 → undefined
- *      (flatbuffers 는 칸 없음과 빈 벡터를 못 가른다).
- *   ④ `relay/src/index.ts` 주입을 `{ canSet: true, tailProbesOf: (s) => s.tailProbes }` 로.
+ *   ② `relay/src/dma/envelope.ts` `buildAdminCommandReq` 의 op 10 에 목록 모드 조립 — `launch_tail_probe_offsets_us` 벡터
+ *      (`AdminCommandInput.launchTailProbeOffsetsUs` · 빈 배열도 칸을 만든다 = 끔) · `launch_tail_probe_count` −1 · `launch_market`.
+ *   ③ `parseLaunchPlanSnapshot` 이 94 행의 `market` · `offsets_us` 를 `LaunchTailProbeWireRow.market` · `offsetsUs` 로, 말미
+ *      `kyobo_q16_combined` 를 `snap.kyoboQ16Combined` 로 채운다.
+ *   ④ `relay/src/index.ts` 주입을 `canSet: true` 로.
  *   ⑤ relay 배포.
  */
 export interface LaunchTailProbeWire {
   readonly canSet: boolean;
   tailProbesOf(snap: LaunchPlanSnapshot): readonly LaunchTailProbeWireRow[] | undefined;
+  kyoboQ16CombinedOf(snap: LaunchPlanSnapshot): boolean | undefined;
 }
 
-/** 와이어 대기(운영 기본) — op 10 을 못 싣고 94 의 뒤탐침도 읽지 않는다. */
+/** 와이어 대기(테스트 기본) — op 10 을 못 싣고 94 의 탐침 · 합친 레인 bool 도 읽지 않는다. */
 export const LAUNCH_TAIL_PROBE_WIRE_PENDING: LaunchTailProbeWire = Object.freeze({
   canSet: false,
   tailProbesOf: () => undefined,
+  kyoboQ16CombinedOf: () => undefined,
 });
 
 /** 발사 계획이 쓰는 admin 연결 표면 — 테스트가 대역을 넣을 수 있게 좁힌다. `AdminConn` 이 만족한다. */
@@ -104,13 +110,13 @@ export type LaunchPlanServiceDeps = {
   pipelines: { get(key: string): { admin: LaunchPlanAdminConn } | undefined };
   /** 시각 주입구(ms). 기본 `Date.now` — 저장의 후 조회 마감 판정. */
   now?: () => number;
-  /** 뒤탐침 와이어 어댑터 — 없으면 `LAUNCH_TAIL_PROBE_WIRE_PENDING`(quick-261107-l7w). */
+  /** 탐침 와이어 어댑터 — 없으면 `LAUNCH_TAIL_PROBE_WIRE_PENDING`(quick-261107-l7w · quick-261125-lju). */
   tailProbeWire?: LaunchTailProbeWire;
 };
 
 /** 94 entries 가 통과시키는 프로파일 — shared `LAUNCH_PLAN_PROFILES`(Q16 · N · G2). */
 const PLAN_PROFILES = new Set<string>(LAUNCH_PLAN_PROFILES);
-/** 94 tail_probes 가 통과시키는 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 뒤탐침 대상 아님 · ⓑ). */
+/** 94 tail_probes 가 통과시키는 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 탐침 대상 아님 · ⓑ). */
 const TAIL_PROBE_PROFILES = new Set<string>(LAUNCH_TAIL_PROBE_PROFILES);
 const MARKETS = new Set<string>(["K", "Q"]);
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
@@ -179,14 +185,15 @@ export class LaunchPlanService {
     return { result: out.result, before_us: out.before, plan: out.plan };
   }
 
-  /** 뒤탐침 op 10 을 와이어에 실을 수 있나 — 어댑터 `canSet`(quick-261107-l7w). 거짓이면 라우트가 503 으로 막는다. */
+  /** 목록 모드 op 10 을 와이어에 실을 수 있나 — 어댑터 `canSet`(quick-261125-lju). 거짓이면 라우트가 503 으로 막는다. */
   get tailProbeSettable(): boolean {
     return this.#wire.canSet;
   }
 
   /**
-   * 서버 1대의 (profile) 뒤탐침을 저장한다 — 조회(전) → op 10 → (ok 면 · 마감 안이면) 조회(후). 판정 · 마감 · 결과 모름 규칙은 `set`
-   * 과 같은 파이프라인(`#saveVia`). before = 전 조회 ok 의 `tail_probes` 에서 그 profile 행(없으면 null).
+   * 서버 1대의 (profile, market) 탐침 목록을 저장한다 — 조회(전) → op 10 목록 모드(count −1 · offsets · market) → (ok 면 · 마감
+   * 안이면) 조회(후). 판정 · 마감 · 결과 모름 규칙은 `set` 과 같은 파이프라인(`#saveVia`). before = 전 조회 ok 의 `tail_probes` 에서
+   * 같은 profile + market 이고 `offsets_us` 가 있는 행의 복사본(없으면 null). 범위 · 개수 · 순서는 보지 않는다(gh-trade 86).
    * `tailProbeSettable` 이 거짓일 때 부르면 던진다(라우트가 먼저 막는다 — 프로그래밍 오류 · op 10 을 빈 칸으로 보내지 않게).
    */
   async setTailProbe(
@@ -194,27 +201,30 @@ export class LaunchPlanService {
     body: LaunchTailProbeRelaySetBody,
     opts: { deadlineAt: number },
   ): Promise<LaunchTailProbeRelaySetResponse> {
-    if (!this.#wire.canSet) throw new Error("뒤탐침 와이어 대기 — setTailProbe 를 부르기 전에 tailProbeSettable 을 확인하라");
+    if (!this.#wire.canSet) throw new Error("탐침 와이어 대기 — setTailProbe 를 부르기 전에 tailProbeSettable 을 확인하라");
     const out = await this.#saveVia(serverKey, opts, {
       input: {
         op: ADMIN_OP.SetLaunchTailProbe,
         userId: "",
         launchProfile: body.profile,
-        launchTailProbeCount: body.count,
-        launchTailProbeStepUs: body.step_us,
+        launchMarket: body.market,
+        launchTailProbeCount: -1,
+        launchTailProbeOffsetsUs: body.offsets_us,
       },
       op: ADMIN_OP.SetLaunchTailProbe,
       beforeOf: (snap) => {
-        const row = snap.tail_probes?.find((t) => t.profile === body.profile);
-        return row === undefined ? null : { count: row.count, step_us: row.step_us };
+        const row = snap.tail_probes?.find(
+          (t) => t.profile === body.profile && t.market === body.market && Array.isArray(t.offsets_us),
+        );
+        return row === undefined ? null : [...row.offsets_us!];
       },
-      label: "발사 뒤탐침 저장",
+      label: "발사 탐침 저장",
     });
     return { result: out.result, before: out.before, plan: out.plan };
   }
 
   /**
-   * 저장 파이프라인 한 벌(계획 op 8 · 뒤탐침 op 10) — 모듈 머리 「저장」. 앞단 판정(skipped · offline · 44 0건) → 전 조회(마감 −
+   * 저장 파이프라인 한 벌(계획 op 8 · 탐침 op 10) — 모듈 머리 「저장」. 앞단 판정(skipped · offline · 44 0건) → 전 조회(마감 −
    * ADMIN_COMMAND_TIMEOUT_MS) → 송신 전 isReady → command → 마감 · 결과 모름 timeout · 늦은 결과 warn → interpretAdminResult →
    * ok 면 마감 안에서 후 조회. `beforeOf` = 전 조회 ok 스냅샷에서 「저장 직전 값」 을 고른다. 로그 문구 = `[admin] <label> …`.
    */
@@ -349,33 +359,48 @@ export class LaunchPlanService {
       planRev = null;
     }
     const tailProbes = this.#tailProbesOf(serverKey, snap);
+    const combined = this.#wire.kyoboQ16CombinedOf(snap);
     return {
       status: "ok",
       plan_rev: planRev,
       updated_at: snap.updatedAt === "" ? null : snap.updatedAt,
       entries,
       ...(tailProbes !== undefined ? { tail_probes: tailProbes } : {}),
+      ...(typeof combined === "boolean" ? { kyobo_q16_combined: combined } : {}),
     };
   }
 
   /**
-   * 94 뒤탐침 행 → 계약 모양. 어댑터가 undefined · 빈 배열을 주면 undefined(키를 싣지 않는다 = 구 서버 · 와이어 대기).
-   * profile ∈ Q16|N(G2 행은 오지 않기로 했다 — 와도 뺀다)이고 count · stepUs 가 정수인 행만 옮기고 나머지는 warn 1줄 후 뺀다(entries 의 「모르는 행」 결) —
-   * 다 빠지면 역시 undefined.
+   * 94 탐침 행 → 계약 모양. 어댑터가 undefined · 빈 배열을 주면 undefined(키를 싣지 않는다 = 구 서버 · 와이어 대기).
+   * - profile ∈ Q16|N(G2 행은 오지 않기로 했다 — 와도 뺀다) · count · stepUs 정수.
+   * - market 이 비었거나 없으면 옛 행(market · offsets_us 키 없음).
+   * - market 이 K|Q 면 새 행 — offsets_us = offsetsUs(없으면 [] · flatbuffers 는 빈 벡터와 칸 없음을 못 가른다) · 원소마다 정수.
+   * 어긋난 행(모르는 profile · market 'X' · 정수 아닌 값)은 warn 1줄 후 뺀다(entries 의 「모르는 행」 결) — 다 빠지면 역시 undefined.
    */
   #tailProbesOf(serverKey: string, snap: LaunchPlanSnapshot): LaunchTailProbe[] | undefined {
     const rows = this.#wire.tailProbesOf(snap);
     if (rows === undefined || rows.length === 0) return undefined;
     const out: LaunchTailProbe[] = [];
-    const dropped: LaunchTailProbeWireRow[] = [];
+    const dropped: { profile: string; market: string | undefined; count: number; stepUs: number }[] = [];
     for (const r of rows) {
-      if (TAIL_PROBE_PROFILES.has(r.profile) && Number.isInteger(r.count) && Number.isInteger(r.stepUs)) {
+      const base = TAIL_PROBE_PROFILES.has(r.profile) && Number.isInteger(r.count) && Number.isInteger(r.stepUs);
+      const legacy = r.market === undefined || r.market === "";
+      const offsets = r.offsetsUs ?? [];
+      if (base && legacy) {
         out.push({ profile: r.profile as LaunchTailProbe["profile"], count: r.count, step_us: r.stepUs });
+      } else if (base && MARKETS.has(r.market!) && offsets.every((v) => Number.isInteger(v))) {
+        out.push({
+          profile: r.profile as LaunchTailProbe["profile"],
+          count: r.count,
+          step_us: r.stepUs,
+          market: r.market as NonNullable<LaunchTailProbe["market"]>,
+          offsets_us: [...offsets],
+        });
       } else {
-        dropped.push({ profile: r.profile, count: r.count, stepUs: r.stepUs });
+        dropped.push({ profile: r.profile, market: r.market, count: r.count, stepUs: r.stepUs });
       }
     }
-    if (dropped.length > 0) logger.warn({ server: serverKey, dropped }, "[admin] 발사 계획 스냅샷의 모르는 뒤탐침 행 — 뺀다");
+    if (dropped.length > 0) logger.warn({ server: serverKey, dropped }, "[admin] 발사 계획 스냅샷의 모르는 탐침 행 — 뺀다");
     return out.length > 0 ? out : undefined;
   }
 }

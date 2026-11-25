@@ -146,7 +146,7 @@ export type AdminCommandInput = {
    * (shared `LaunchTailProbeRelaySetBody`). 대상 판정은 서버(code 1 「발사 계획 대상 밖…」 · G2 꺼짐은 「G2 발사 계획 대상 아님…」).
    */
   launchProfile?: LaunchProfile;
-  /** op 8 만 싣는다 — "K" | "Q". */
+  /** op 8 · op 10 목록 모드가 싣는다 — "K" | "Q"(op 10 목록 모드는 필수 · 빠지면 86 거부). */
   launchMarket?: LaunchMarket;
   /**
    * op 8 만 싣는다 — µs 정수(int32) 목록 · 기준 16:00:00.000000 / 09:00:30.000000 / 08:30:00.000000(G2) · 음수 = 앞당김.
@@ -156,12 +156,18 @@ export type AdminCommandInput = {
    */
   launchOffsetsUs?: readonly number[];
   /**
-   * op 10 만 — 뒤탐침 발 수(0..10 · 0 = 끔) · 간격 µs(1..100). 범위는 서버가 판정한다(code 1).
-   * **와이어 조립은 후속 quick** — 지금 `buildAdminCommandReq` 는 이 칸을 싣지 않으므로 `LaunchPlanService` 는 어댑터 `canSet` 이
-   * 거짓이면 op 10 을 보내지 않는다(라우트 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
+   * op 10 만 — 옛 개수 · 간격 모드의 발 수(0..10 · 0 = 끔) · 간격 µs(1..100) — `buildAdminCommandReq` 가 싣는다(gh-trade Phase 47).
+   * 목록 모드(아래 `launchTailProbeOffsetsUs`)에서는 count = −1 · step 은 쓰지 않는다. 범위는 서버가 판정한다(code 1).
    */
   launchTailProbeCount?: number;
   launchTailProbeStepUs?: number;
+  /**
+   * op 10 목록 모드(quick-261125-lju) — 정각 기준 µs 목록(int32 · 빈 배열 = 끔 · **필드 존재로 판정**) · 이때 `launchTailProbeCount` = −1
+   * (구 서버 보호 — 구 서버는 CountOutOfRange 거부) · `launchMarket` 필수. 범위 · 개수 · 순서는 서버가 판정한다(code 1).
+   * **지금 `buildAdminCommandReq` 는 이 칸을 싣지 않는다**(relay 생성물에 새 칸이 없다 — gh-trade Phase 50 .fbs 대기). 후속 연결 전까지
+   * `LaunchPlanService` 는 어댑터 `canSet` 거짓으로 op 10 을 보내지 않는다(라우트 503 LAUNCH_TAIL_PROBE_UNAVAILABLE).
+   */
+  launchTailProbeOffsetsUs?: readonly number[];
 };
 
 /** 발사 계획 프로파일 — 94 의 `profile` · 44 의 `launch_profile`. 목록 정본 = shared `LaunchPlanProfile`(Q16 · N · G2). */
@@ -192,11 +198,17 @@ export type LaunchPlanSnapshot = {
   /** 서버 순서 그대로 — 4행 고정 순서 Q16/K · Q16/Q · N/K · N/Q(relay 는 정렬 · 보정하지 않는다). */
   entries: LaunchPlanEntry[];
   /**
-   * 94 말미 `tail_probes`(quick-261107-l7w · gh-trade-70 합의) — 프로파일별 뒤탐침 개수 · 간격(Q16 · N 두 행 고정 순서).
+   * 94 말미 `tail_probes`(quick-261107-l7w · gh-trade-70 합의) — 옛 서버 = 프로파일별 개수 · 간격(Q16 · N 두 행) ·
+   * 새 서버(quick-261125-lju) = 시장별 4행(market · offsetsUs).
    * `parseLaunchPlanSnapshot` 이 94 `tail_probes`(vtable 12 · gh-trade Phase 47)에서 채운다 · 칸 없음(구 서버) = undefined.
    * 소비는 `LaunchPlanService` 의 와이어 어댑터(`LaunchTailProbeWire.tailProbesOf`)를 거친다.
    */
   tailProbes?: LaunchTailProbeWireRow[];
+  /**
+   * 94 말미 bool `kyobo_q16_combined`(quick-261125-lju · gh-trade Phase 50) — 교보 16:00 합친 레인 스위치 실제 값(KB 는 늘 false).
+   * **파서 연결은 후속** — 지금 `parseLaunchPlanSnapshot` 은 채우지 않는다(undefined = 칸 없음 = 꺼짐).
+   */
+  kyoboQ16Combined?: boolean;
 };
 
 /** 94 `tail_probes` 한 행(파싱 결과 · camelCase). 서버 문자열 · 숫자를 그대로 둔다 — 판정은 소비자(`LaunchPlanService`). */
@@ -204,8 +216,15 @@ export type LaunchTailProbeWireRow = {
   profile: string;
   /** 0..10(0 = 끔) — 범위는 서버가 판정한다. */
   count: number;
-  /** 1..100µs — 범위는 서버가 판정한다. */
+  /** 옛 서버 1..100µs · 새 서버 0(「등간격 아님」) — 범위는 서버가 판정한다. */
   stepUs: number;
+  /**
+   * 새 서버 행 말미(quick-261125-lju) — "K" | "Q" · 빈 문자열(또는 없음) = 옛 서버 행. 4행 순서 [Q16·K, N·K, Q16·Q, N·Q].
+   * **파서 연결은 후속**(생성물 대기) — 지금 `parseLaunchPlanSnapshot` 은 채우지 않는다.
+   */
+  market?: string;
+  /** 새 서버 행 — 정각 기준 µs 목록(flatbuffers 는 빈 벡터와 칸 없음을 못 가른다 — market 이 있으면 없음 = []). */
+  offsetsUs?: readonly number[];
 };
 
 /** 86 파싱 결과. */

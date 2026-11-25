@@ -1820,7 +1820,10 @@ describe("P35 발사 계획 조회 GET /launch-plan (35-17 Task 1)", () => {
 
   it("L4 read 에 deadlineAt = 도착 + LAUNCH_PLAN_READ_DEADLINE_MS 를 넘긴다(R2-WR-02 · server 6초 상한 안)", async () => {
     const read = vi.fn<NonNullable<AdminApiDeps["launchPlan"]>["read"]>(async () => ({ KB120: { status: "timeout" } }));
-    h = await startHarness({ launchPlan: { read, set: vi.fn() }, now: () => 1_000_000 });
+    h = await startHarness({
+      launchPlan: { read, set: vi.fn(), setTailProbe: vi.fn(), tailProbeSettable: false },
+      now: () => 1_000_000,
+    });
     const res = await call(h, "GET", `${PATH}?servers=KB120`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ servers: { KB120: { status: "timeout" } } });
@@ -1997,15 +2000,16 @@ describe("P35 발사 계획 저장 PUT /launch-plan/:server (35-17 Task 2)", () 
 });
 
 /**
- * 잠그는 것 (quick-261107-l7w — PUT /launch-tail-probe/:server):
- *   TW1 실 서비스(PENDING 기본) → 503 LAUNCH_TAIL_PROBE_UNAVAILABLE · op 10 0건 · 감사 없음
+ * 잠그는 것 (quick-261125-lju — PUT /launch-tail-probe/:server 목록 모드):
+ *   TW1 실 서비스(PENDING 기본 · 운영 주입도 canSet 거짓) → 503 LAUNCH_TAIL_PROBE_UNAVAILABLE · op 10 0건 · 감사 없음
  *   TW2 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE
- *   TW3 바디 · 경로 구조 위반(count 1.5 · step_us "10" · 추가 키 · profile "X" · 키 형식) → 400 · setTailProbe 0회 / 범위 밖은 통과
- *   TW4 settable 대역 → 200 그대로 · deadlineAt · 감사 1줄(route · server · profile · count · step_us · results)
+ *   TW3 바디 · 경로 구조 위반(옛 { profile, count, step_us } · market 없음/'X' · 정수 아닌 원소 · 65개 · 추가 키 · 키 형식) → 400 ·
+ *       setTailProbe 0회 / 범위 밖 · 11발 · 순서 어긋남 · 빈 목록은 통과(gh-trade 86 이 말한다)
+ *   TW4 settable 대역 → 200 그대로 · deadlineAt · 감사 1줄(route · server · profile · market · n · results)
  */
-describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () => {
+describe("quick-261125-lju 탐침 저장 PUT /launch-tail-probe/:server", () => {
   const PATH = "/internal/admin/launch-tail-probe";
-  const BODY = { profile: "Q16", count: 3, step_us: 20 };
+  const BODY = { profile: "Q16", market: "Q", offsets_us: [-300, -290] };
   let h: Harness | undefined;
 
   afterEach(async () => {
@@ -2019,7 +2023,7 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
 
   function fakeLaunchPlan(settable: boolean, out?: Awaited<ReturnType<SetTp>>) {
     const setTailProbe = vi.fn<SetTp>(
-      async (server) => out ?? { result: { server, outcome: "ok", usersRev: "12" }, before: { count: 5, step_us: 10 }, plan: null },
+      async (server) => out ?? { result: { server, outcome: "ok", usersRev: "12" }, before: [-210], plan: null },
     );
     const lp: Lp = { read: vi.fn(async () => ({})), set: vi.fn(), setTailProbe, tailProbeSettable: settable };
     return { lp, setTailProbe };
@@ -2035,6 +2039,18 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
     expect(logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청")).toHaveLength(0);
   });
 
+  it("TW1b 대역 settable 거짓 → 503 · setTailProbe 0회", async () => {
+    const { lp, setTailProbe } = fakeLaunchPlan(false);
+    h = await startHarness({ launchPlan: lp });
+    const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string; message: string } }).error).toMatchObject({
+      code: "LAUNCH_TAIL_PROBE_UNAVAILABLE",
+      message: "탐침 설정 와이어가 아직 준비되지 않았습니다",
+    });
+    expect(setTailProbe).not.toHaveBeenCalled();
+  });
+
   it("TW2 launchPlan 주입 없음 → 503 LAUNCH_PLAN_UNAVAILABLE", async () => {
     h = await startHarness({ launchPlan: null });
     const res = await call(h, "PUT", `${PATH}/KB120`, BODY);
@@ -2042,16 +2058,20 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("LAUNCH_PLAN_UNAVAILABLE");
   });
 
-  it("TW3 구조 위반 → 400 · setTailProbe 0회 / 범위 밖(count 12 · step 0 · 음수)은 통과", async () => {
+  it("TW3 구조 위반 → 400 · setTailProbe 0회 / 범위 밖 · 11발 · 순서 어긋남 · 빈 목록은 통과", async () => {
     const { lp, setTailProbe } = fakeLaunchPlan(true);
     h = await startHarness({ launchPlan: lp });
     const bad: unknown[] = [
-      { ...BODY, count: 1.5 },
-      { ...BODY, step_us: "10" },
+      { profile: "Q16", count: 3, step_us: 20 },
+      { profile: "Q16", offsets_us: [-200] },
+      { ...BODY, market: "X" },
+      { ...BODY, offsets_us: [-1.5] },
+      { ...BODY, offsets_us: ["-200"] },
+      { ...BODY, offsets_us: Array(65).fill(-1) },
+      { ...BODY, offsets_us: [2 ** 31] },
       { ...BODY, extra: 1 },
+      { ...BODY, count: -1 },
       { ...BODY, profile: "X" },
-      { profile: "Q16", count: 3 },
-      { ...BODY, count: 2 ** 31 },
     ];
     for (const b of bad) {
       const res = await call(h, "PUT", `${PATH}/KB120`, b);
@@ -2062,37 +2082,39 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
     expect(setTailProbe).not.toHaveBeenCalled();
 
     for (const b of [
-      { ...BODY, count: 12 },
-      { ...BODY, step_us: 0 },
-      { ...BODY, count: -1, step_us: 500 },
+      { ...BODY, offsets_us: [5000] },
+      { ...BODY, offsets_us: Array(11).fill(-100) },
+      { ...BODY, offsets_us: [-200, -300] },
+      { ...BODY, offsets_us: [] },
     ]) {
       expect((await call(h, "PUT", `${PATH}/KB120`, b)).status, JSON.stringify(b)).toBe(200);
     }
-    expect(setTailProbe).toHaveBeenCalledTimes(3);
+    expect(setTailProbe).toHaveBeenCalledTimes(4);
   });
 
-  it("TW3b quick-261125-c2i — profile G2 는 뒤탐침 대상 아님 → 400 VALIDATION_FAILED · setTailProbe 0회", async () => {
+  it("TW3b quick-261125-c2i — profile G2 는 탐침 대상 아님 → 400 VALIDATION_FAILED · setTailProbe 0회", async () => {
     const { lp, setTailProbe } = fakeLaunchPlan(true);
     h = await startHarness({ launchPlan: lp });
-    const res = await call(h, "PUT", `${PATH}/KB120`, { profile: "G2", count: 0, step_us: 10 });
+    const res = await call(h, "PUT", `${PATH}/KB120`, { profile: "G2", market: "K", offsets_us: [] });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_FAILED");
     expect(setTailProbe).not.toHaveBeenCalled();
   });
 
-  it("TW4 settable → 200 서비스 결과 그대로 · deadlineAt = 도착 + 마감 · 감사 1줄", async () => {
+  it("TW4 settable → 200 서비스 결과 그대로 · deadlineAt = 도착 + 마감 · 감사 1줄(market · n)", async () => {
     const logs = await spyLogs();
     const failed = {
-      result: { server: "KYOBO119", outcome: "failed" as const, code: 1, message: "뒤탐침 발 수 범위 밖" },
-      before: { count: 5, step_us: 10 },
+      result: { server: "KYOBO119", outcome: "failed" as const, code: 1, message: "발 수는 0 ~ 10" },
+      before: [-350],
       plan: null,
     };
     const { lp, setTailProbe } = fakeLaunchPlan(true, failed);
     h = await startHarness({ launchPlan: lp, now: () => 1_000_000 });
-    const res = await call(h, "PUT", `${PATH}/KYOBO119`, { profile: "N", count: 12, step_us: 10 });
+    const body = { profile: "N", market: "K", offsets_us: Array(11).fill(-100) };
+    const res = await call(h, "PUT", `${PATH}/KYOBO119`, body);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(failed);
-    expect(setTailProbe).toHaveBeenCalledWith("KYOBO119", { profile: "N", count: 12, step_us: 10 }, { deadlineAt: 1_010_000 });
+    expect(setTailProbe).toHaveBeenCalledWith("KYOBO119", body, { deadlineAt: 1_010_000 });
     const audits = logs.filter((c) => c.level === "info" && c.args[1] === "[admin-audit] Admin 변경 요청");
     expect(audits).toHaveLength(1);
     expect(audits[0]!.args[0]).toEqual({
@@ -2100,8 +2122,8 @@ describe("quick-261107-l7w 뒤탐침 저장 PUT /launch-tail-probe/:server", () 
       route: "PUT /launch-tail-probe/:server",
       server: "KYOBO119",
       profile: "N",
-      count: 12,
-      step_us: 10,
+      market: "K",
+      n: 11,
       servers: [{ server: "KYOBO119", outcome: "failed", code: 1 }],
     });
   });

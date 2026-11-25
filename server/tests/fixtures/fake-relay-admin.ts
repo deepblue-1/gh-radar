@@ -17,9 +17,10 @@ import {
  *   account-costs   → 200 `{ servers: {} }` (36-04 — 전 서버 「확인 전」)
  *   quote-primary → 200 `{ ok: true }`
  *   GET launch-plan → 200 `{ servers: { KB120, KYOBO119, KYOBO112 } }` 셋 다 ok 4칸(35-13 · quick-261107-iep · `LAUNCH_PLAN_DEFAULT`)
- *                    — `opts.tailProbes` 면 서버마다 `tail_probes`(`LAUNCH_TAIL_PROBES_DEFAULT` · quick-261107-l7w). 기본은 없음(구 서버).
- *   PUT launch-tail-probe/:server → 200 `{ result: { server, outcome: "ok" }, before: { count: 5, step_us: 10 }, plan: 그 서버 기본 계획 +
- *                    tail_probes(보낸 profile 행만 바디 값) }`(quick-261107-l7w — relay 가 와이어를 붙인 뒤의 모양 · 대기 503 은 handler 로 주입)
+ *                    — `opts.tailProbes` 면 서버마다 `tail_probes`(`LAUNCH_TAIL_PROBES_DEFAULT` 시장별 4행 · quick-261125-lju). 기본은 없음(구 서버).
+ *   PUT launch-tail-probe/:server → 200 `{ result: { server, outcome: "ok" }, before: 그 (profile, market) 기본 목록, plan: 그 서버 기본 계획 +
+ *                    tail_probes(보낸 profile · market 행만 바디 목록) }`(quick-261125-lju — relay 가 목록 모드 와이어를 붙인 뒤의 모양 ·
+ *                    대기 503 은 handler 로 주입)
  *   PUT launch-plan/:server → 200 `{ result: { server, outcome: "ok" }, before_us: [-350,-345,-325], plan: 그 서버 기본 계획 }`
  */
 
@@ -56,10 +57,12 @@ export const LAUNCH_PLAN_DEFAULT: Record<string, ReturnType<typeof planOf>> = {
   KYOBO112: planOf(-200),
 };
 
-/** 가짜 relay 의 기본 뒤탐침(quick-261107-l7w) — Q16 5발 · 10µs · N 꺼짐(0발 · 10µs). */
+/** 가짜 relay 의 기본 탐침(quick-261125-lju) — 4행 [Q16·K, N·K, Q16·Q, N·Q] · Q16 두 시장 2발 · N 꺼짐. */
 export const LAUNCH_TAIL_PROBES_DEFAULT = [
-  { profile: "Q16", count: 5, step_us: 10 },
-  { profile: "N", count: 0, step_us: 10 },
+  { profile: "Q16", count: 2, step_us: 0, market: "K", offsets_us: [-210, -200] },
+  { profile: "N", count: 0, step_us: 0, market: "K", offsets_us: [] as number[] },
+  { profile: "Q16", count: 2, step_us: 0, market: "Q", offsets_us: [-310, -300] },
+  { profile: "N", count: 0, step_us: 0, market: "Q", offsets_us: [] as number[] },
 ];
 
 export type FakeRelayOpts = {
@@ -92,13 +95,14 @@ function defaultResponse(call: FakeRelayCall, opts: FakeRelayOpts = {}): RelayAd
   }
   if (call.method === "PUT" && call.path.startsWith("/internal/admin/launch-tail-probe/")) {
     const server = decodeURIComponent(call.path.slice("/internal/admin/launch-tail-probe/".length));
-    const b = call.body as { profile: string; count: number; step_us: number };
+    const b = call.body as { profile: string; market: string; offsets_us: number[] };
     const base = LAUNCH_PLAN_DEFAULT[server];
+    const prev = LAUNCH_TAIL_PROBES_DEFAULT.find((t) => t.profile === b.profile && t.market === b.market);
     return {
       status: 200,
       data: {
         result: { server, outcome: "ok" },
-        before: { count: 5, step_us: 10 },
+        before: prev ? [...prev.offsets_us] : null,
         plan:
           base === undefined
             ? null
@@ -106,7 +110,9 @@ function defaultResponse(call: FakeRelayCall, opts: FakeRelayOpts = {}): RelayAd
                 ...base,
                 plan_rev: base.plan_rev + 1,
                 tail_probes: LAUNCH_TAIL_PROBES_DEFAULT.map((t) =>
-                  t.profile === b.profile ? { profile: t.profile, count: b.count, step_us: b.step_us } : t,
+                  t.profile === b.profile && t.market === b.market
+                    ? { ...t, count: b.offsets_us.length, offsets_us: [...b.offsets_us] }
+                    : t,
                 ),
               },
       },

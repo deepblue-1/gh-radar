@@ -8,7 +8,7 @@
  *   서버 거부 문구도 모른다 — **「서버 1대의 계획(Q16/N × K/Q + 08:30 스위치 켠 서버의 G2/K · G2/Q)」** 이라는
  *   우리 쪽 의미만 담는다(G2 = quick-261125-c2i · 인박스 `261125-sigan-ttaeng-g2`).
  * - 쓰는 쪽 = server(요청자 이메일 · relay 도달 실패 시도도 1행 · D-29). relay 는 이 경로에서 DB 무관.
- * - 뒤탐침 개수 · 간격(quick-261107-l7w)도 같은 계약에 얹는다 — 아래 「뒤탐침」 절(gh-trade-70 합의).
+ * - 탐침(정각 기준 시장별 µs 목록 · quick-261125-lju)도 같은 계약에 얹는다 — 아래 「탐침」 절(gh-trade 답신 최종 계약).
  */
 import type { AdminOutcome, AdminServerResult } from "./admin";
 import {
@@ -66,8 +66,13 @@ export type LaunchPlanServer =
       plan_rev: number | null;
       updated_at: string | null;
       entries: LaunchPlanEntry[];
-      /** 뒤탐침 설정(quick-261107-l7w) — 없음 = 구 서버 · relay 와이어 대기(웹은 「이 서버 버전은 뒤탐침 설정을 몰라요」). */
+      /**
+       * 탐침 설정(quick-261125-lju · 아래 「탐침」 절) — 새 서버 = 시장별 4행(market · offsets_us) · 구 서버 = market 없는 개수 · 간격 행 ·
+       * 없음 = relay 와이어 대기. 웹은 그 (profile, market) 목록이 없으면 읽기 전용.
+       */
       tail_probes?: LaunchTailProbe[];
+      /** 94 말미 bool — 교보 16:00 합친 레인 스위치 실제 값(KB 는 늘 false). 칸 없음 = 꺼짐(구 서버 · 파서 대기). */
+      kyobo_q16_combined?: boolean;
     }
   | { status: "failed"; code: number; message: string }
   | { status: "offline" | "timeout" | "skipped"; message?: string };
@@ -119,7 +124,7 @@ export const LAUNCH_PLAN_CHANGE_COLUMNS = [
 export interface LaunchPlanResponse {
   servers: Record<string, LaunchPlanServer>;
   changes: LaunchPlanChangeRow[];
-  /** 뒤탐침 이력(quick-261107-l7w) — 구 server(이 칸 모름)는 없음 — 웹은 [] 로 읽는다. */
+  /** 탐침 이력(quick-261107-l7w · 목록 칸 quick-261125-lju) — 구 server(이 칸 모름)는 없음 — 웹은 [] 로 읽는다. */
   tail_probe_changes?: LaunchTailProbeChangeRow[];
 }
 
@@ -308,113 +313,179 @@ export function launchPlanVerdictRows(
   });
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 뒤탐침 — (서버, 프로파일)별 개수 · 간격(quick-261107-l7w)
+// 탐침 — (서버, 프로파일, 시장)별 정각 기준 µs 목록(quick-261125-lju · 앞선 개수 · 간격 계약 quick-261107-l7w 를 대체)
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// 출처: gh-trade-70 합의(2026-11-07 · `.planning/quick/261107-l7w-*/261107-l7w-CONTEXT.md` 「gh-trade 계약」).
-// - 단위 = (서버, profile) — Q16(16:00) · N(09:00:30). 코스피 · 코스닥 공통(시장별로 안 나눈다).
-// - count 0..10(0 = 끔 · 2026-11-07 gh-trade 사용자 결정으로 0..5 → 0..10) · step_us 1..100
-//   (끝발 최대 = 마지막 실조각 + 1000µs).
-//   count 0 이어도 step 은 범위 검사 · 저장한다.
-// - 범위 밖 = 86 code 1 + 고정 문구(새 code 없음) — 웹은 서버 문구 원문을 그대로 보인다.
-// - 저장 = 44 op 10 SetLaunchTailProbe(launch_profile + count + step_us) · 조회 = op 9 의 94 말미 `tail_probes`
-//   (Q16 · N 두 행 고정 순서). plan_rev 는 계획과 공유(+1) · 다음 발사부터 적용.
-// - 의미: i 번째(0부터) 뒤탐침 = 마지막 실조각 계획 시각 + (i+1)·step_us(kind 17 planned_us 와 같은 식).
-// - G2(08:30)는 뒤탐침 대상이 아니다 — 인박스 261125-sigan-ttaeng-g2 ⓑ: tail_probes 에 G2 행 없음 · op 10 은 G2 대상 아님.
-//   그래서 뒤탐침 축(프로파일 · 발사 기준)은 계획 축보다 좁은 타입으로 따로 둔다(quick-261125-c2i L-2).
+// 출처: gh-trade 「러쉬주문 탐침」 답신 최종 계약(`.planning/quick/261125-lju-*/reference/gh-trade-replies.md` · 2026-11-25 정정 포함).
+// - 값 = **정각 기준 부호 있는 µs 목록** — op 8 `launch_offsets_us` 와 같은 축(16:00:00.000000 · 09:00:30.000000).
+//   kind 17 round −2 `planned_us` = 목록 값 그대로. 한도 = `LAUNCH_PLAN_LIMITS[fire].minUs/maxUs`(두 번째 숫자 없음).
+// - 발 수 0 ~ 10(빈 목록 = 꺼짐) · 중복 허용 · 서버는 정렬하지 않는다(비감소 위반 = 86 code 1) — 웹이 오름차순으로 보낸다.
+//   위치(실조각 앞 · 사이 · 뒤)는 서버도 웹도 따지지 않는다(사용자 결정 — 위치 경고 없음).
+// - 시장별: 94 `tail_probes` 4행 [Q16·K, N·K, Q16·Q, N·Q] · 행 말미 `market` · `offsets_us`(구 칸 count = 길이 · step_us = 0).
+//   구 서버는 market 없는 Q16 · N 두 행(개수 · 간격)만 준다 → 웹은 읽기 전용(unsupported · 옛 값 꼬리).
+// - 교보 N = 공통 한 목록 — K · Q 어느 쪽으로 저장해도 두 행 같은 값(웹은 K 로 1건 · 계획 교보 N 공통 칸 규칙과 같다).
+// - 저장 = 44 op 10 목록 모드(offsets 벡터 + count −1 + launch_market 필수) · plan_rev 는 계획과 공유(+1).
+// - 교보 16:00 합친 레인 스위치 = 94 말미 bool `kyobo_q16_combined`(true 일 때만 켜짐 · 칸 없음 = 꺼짐 · KB 는 늘 false).
+// - G2(08:30)는 탐침 대상이 아니다 — 인박스 261125-sigan-ttaeng-g2 ⓑ: tail_probes 에 G2 행 없음 · op 10 은 G2 대상 아님.
+//   그래서 탐침 축(프로파일 · 발사 기준)은 계획 축보다 좁은 타입으로 따로 둔다(quick-261125-c2i L-2).
 
-/** 뒤탐침 프로파일 — Q16 · N 만(G2 없음). relay zod · 94 tail_probes 거르기가 이 배열을 쓴다. */
+/** 탐침 프로파일 — Q16 · N 만(G2 없음). relay zod · 94 tail_probes 거르기가 이 배열을 쓴다. */
 export const LAUNCH_TAIL_PROBE_PROFILES = ["Q16", "N"] as const satisfies readonly LaunchPlanProfile[];
 export type LaunchTailProbeProfile = (typeof LAUNCH_TAIL_PROBE_PROFILES)[number];
 
-/** 뒤탐침 발사 기준 — q16 · n0930 만(g0830 없음). server zod 가 이 배열을 쓴다. */
+/** 탐침 발사 기준 — q16 · n0930 만(g0830 없음). server zod 가 이 배열을 쓴다. */
 export const LAUNCH_TAIL_PROBE_FIRES = ["q16", "n0930"] as const satisfies readonly LaunchFire[];
 export type LaunchTailProbeFire = (typeof LAUNCH_TAIL_PROBE_FIRES)[number];
 
-/** 이 발사 기준에 뒤탐침이 있는가 — 웹이 뒤탐침 막대 · 표식을 이 검사로만 그린다. */
+/** 이 발사 기준에 탐침이 있는가 — 웹이 탐침 줄 · 표식을 이 검사로만 그린다. */
 export function isLaunchTailProbeFire(fire: LaunchFire): fire is LaunchTailProbeFire {
   return (LAUNCH_TAIL_PROBE_FIRES as readonly LaunchFire[]).includes(fire);
 }
 
-/** 뒤탐침 발사 기준 → 뒤탐침 프로파일. */
+/** 탐침 발사 기준 → 탐침 프로파일. */
 export function launchTailProbeProfileOf(fire: LaunchTailProbeFire): LaunchTailProbeProfile {
   return fire === "q16" ? "Q16" : "N";
 }
 
-/** 94 `tail_probes` 한 행 — 프로파일별 뒤탐침 설정. */
+/**
+ * 94 `tail_probes` 한 행.
+ * - 새 서버 행 = `market` · `offsets_us` 가 있다(count = 목록 길이 · step_us = 0).
+ * - 옛 서버 행 = `market` · `offsets_us` 키가 없다(개수 · 간격 — 시장 공통).
+ */
 export interface LaunchTailProbe {
   profile: LaunchTailProbeProfile;
   count: number;
   step_us: number;
+  market?: LaunchMarket;
+  /** 정각 기준 µs 목록(서버 순서 그대로 · 빈 배열 = 꺼짐). market 이 있는 행만. */
+  offsets_us?: number[];
 }
 
-/** 뒤탐침 값(프로파일 없이) — 편집 칸 · 이력 전/후 · 표식 계산이 쓴다. */
+/** 옛 탐침 값(개수 · 간격) — 구 서버 행 · 옛 이력 행 표시용. */
 export interface LaunchTailProbeValue {
   count: number;
   step_us: number;
 }
 
-/**
- * 뒤탐침 편집 한도 — gh-trade 계약(count 0..10 · step 1..100µs · 끝발 최대 +1000µs).
- * 서버 설정이 바뀌면 이 한 곳만 고친다(웹 · relay · server 에 두 번째 숫자를 두지 않는다 — `LAUNCH_PLAN_LIMITS` 결).
- */
-export const LAUNCH_TAIL_PROBE_LIMITS = { minCount: 0, maxCount: 10, minStepUs: 1, maxStepUs: 100 } as const;
+/** 탐침 발 수 상한(0 ~ 10 · 0 = 꺼짐). 범위 한도는 `LAUNCH_PLAN_LIMITS[fire]` 를 그대로 쓴다. */
+export const LAUNCH_TAIL_PROBE_MAX_SHOTS = 10;
 
-/** 뒤탐침 초안 검사 결과. */
+const CHIP_RE = /^\+?\d+$/;
+
+/**
+ * 칩 원문 → 정각 기준 µs. 앞뒤 공백은 자른다. `+숫자` = 정각 뒤(양수) · 숫자만 = 정각 앞(음수) · `0` · `+0` = 0.
+ * 그 밖(빈 문자열 · `+` 만 · `-5` · 소수 · `1+2`)은 null.
+ */
+export function parseLaunchTailProbeChip(raw: string): number | null {
+  const s = raw.trim();
+  if (!CHIP_RE.test(s)) return null;
+  const n = Number(s.startsWith("+") ? s.slice(1) : s);
+  if (!Number.isSafeInteger(n)) return null;
+  if (n === 0) return 0;
+  return s.startsWith("+") ? n : -n;
+}
+
+/** µs → 칩 원문(`parseLaunchTailProbeChip` 의 역) — 양수 `+v` · 0 「0」 · 음수 절댓값 숫자. */
+export function launchTailProbeChipText(v: number): string {
+  if (v > 0) return `+${v}`;
+  if (v === 0) return "0";
+  return String(Math.abs(v));
+}
+
+/** 검증 문구용 부호 있는 µs — 음수 U+2212 + 절댓값 · 양수 `+v` · 0 「0」. */
+function signedUsText(v: number): string {
+  return v > 0 ? `+${v}` : launchPlanUsText(v);
+}
+
+/** 탐침 초안 검사 결과 — badIdx 는 위반 칸 전부(0부터 · 오름차순 · 개수 위반은 빈 배열). message 는 칸 순서로 첫 위반 문구. */
 export type LaunchTailProbeDraftCheck =
-  | { ok: true; value: LaunchTailProbeValue }
-  | { ok: false; field: "count" | "step"; message: string };
+  | { ok: true; values: number[] }
+  | { ok: false; kind: "count" | "int" | "range"; badIdx: number[]; message: string };
 
 /**
- * 뒤탐침 편집 칸 검사 — 발 수(스테퍼 숫자) → 간격(입력 원문 · 앞뒤 공백은 잘라서 본다) 순으로 첫 위반 하나.
- * count 0(끔)이어도 간격을 검사한다(계약 — 0 으로 저장해도 step 은 남는다).
+ * 탐침 칩 원문 배열 검사 — 개수(> 10) → 칸마다(칩 파스 → 범위 `LAUNCH_PLAN_LIMITS[fire]`). 위치 검사는 없다(사용자 결정).
+ * 통과하면 `values` = 이른 시각부터 정렬한 값(중복 유지 — 저장 값). 빈 배열 = 꺼짐(ok).
  */
-export function validateLaunchTailProbeDraft(count: number, stepRaw: string): LaunchTailProbeDraftCheck {
-  const lim = LAUNCH_TAIL_PROBE_LIMITS;
-  if (!Number.isInteger(count) || count < lim.minCount || count > lim.maxCount) {
-    return { ok: false, field: "count", message: `발 수는 ${lim.minCount} ~ ${lim.maxCount} 사이여야 해요` };
+export function validateLaunchTailProbeDraft(fire: LaunchTailProbeFire, raw: readonly string[]): LaunchTailProbeDraftCheck {
+  if (raw.length > LAUNCH_TAIL_PROBE_MAX_SHOTS) {
+    return { ok: false, kind: "count", badIdx: [], message: `탐침은 0 ~ ${LAUNCH_TAIL_PROBE_MAX_SHOTS}발이에요` };
   }
-  const s = stepRaw.trim();
-  if (!INT_RE.test(s)) {
-    return { ok: false, field: "step", message: "간격은 정수 µs 여야 해요" };
+  const lim = LAUNCH_PLAN_LIMITS[fire];
+  const values: number[] = [];
+  const badIdx: number[] = [];
+  let first: { kind: "int" | "range"; message: string } | null = null;
+  for (let i = 0; i < raw.length; i++) {
+    const v = parseLaunchTailProbeChip(raw[i]!);
+    if (v === null) {
+      badIdx.push(i);
+      first ??= { kind: "int", message: `탐침 시각은 숫자만 써요 — 정각 뒤는 앞에 + (${i + 1}번)` };
+    } else if (v < lim.minUs || v > lim.maxUs) {
+      badIdx.push(i);
+      first ??= {
+        kind: "range",
+        message: `탐침 시각은 ${signedUsText(lim.minUs)} ~ ${signedUsText(lim.maxUs)}µs 사이여야 해요`,
+      };
+    } else {
+      values.push(v);
+    }
   }
-  const step = Number(s) || 0;
-  if (step < lim.minStepUs || step > lim.maxStepUs) {
-    return { ok: false, field: "step", message: `간격은 ${lim.minStepUs} ~ ${lim.maxStepUs}µs 사이여야 해요` };
-  }
-  return { ok: true, value: { count, step_us: step } };
-}
-
-/** 예정 뒤탐침 시각 — i 번째(0부터) = lastUs + (i+1)·step_us, count 개(0 이면 빈 배열). */
-export function launchTailProbeOffsets(lastUs: number, v: LaunchTailProbeValue): number[] {
-  const n = Math.max(0, Math.floor(v.count));
-  return Array.from({ length: n }, (_, i) => lastUs + (i + 1) * v.step_us);
+  if (first !== null) return { ok: false, kind: first.kind, badIdx, message: first.message };
+  return { ok: true, values: values.sort((a, b) => a - b) };
 }
 
 /**
- * 서버 1대 · 발사 기준 하나의 뒤탐침 상태.
+ * 전체 이동 — 칸 순서 그대로 v + delta 의 칩 원문 배열(정렬하지 않는다 — 입력 중 칩 자리 불변).
+ * 초안이 비었거나 · 검증 실패거나 · 한 발이라도 한도 밖으로 나가면 null(웹 버튼 비활성 판정 = 이 함수 하나).
+ */
+export function shiftLaunchTailProbeDraft(
+  fire: LaunchTailProbeFire,
+  raw: readonly string[],
+  delta: number,
+): string[] | null {
+  if (raw.length === 0) return null;
+  if (!validateLaunchTailProbeDraft(fire, raw).ok) return null;
+  const lim = LAUNCH_PLAN_LIMITS[fire];
+  const out: string[] = [];
+  for (const r of raw) {
+    const v = parseLaunchTailProbeChip(r)! + delta;
+    if (v < lim.minUs || v > lim.maxUs) return null;
+    out.push(launchTailProbeChipText(v));
+  }
+  return out;
+}
+
+/**
+ * 서버 1대 · 발사 기준 · 시장 하나의 탐침 상태.
  * - unknown = 계획을 못 읽음(서버 없음 · ok 아님)
- * - unsupported = ok 인데 `tail_probes` 칸이 없거나 그 profile 행이 없음(구 서버 · relay 와이어 대기)
- * - set = 값 있음(count 0 = 꺼짐 포함)
+ * - set = 그 (profile, market) 행에 `offsets_us` 가 있다(빈 배열 = 꺼짐)
+ * - unsupported = 그 행이 없다(구 서버 · relay 와이어 대기) — market 없는 옛 행이 있으면 첫 행의 개수 · 간격(`legacy`), 없으면 null
+ * 같은 profile 이 market 없이 여러 행이어도(새 서버를 지금 파서로 읽은 모양) 첫 행만 본다.
  */
 export type LaunchTailProbeState =
   | { kind: "unknown" }
-  | { kind: "unsupported" }
-  | { kind: "set"; value: LaunchTailProbeValue };
+  | { kind: "unsupported"; legacy: LaunchTailProbeValue | null }
+  | { kind: "set"; offsets_us: number[] };
 
 export function launchTailProbeStateOf(
   server: LaunchPlanServer | undefined,
   fire: LaunchTailProbeFire,
+  market: LaunchMarket,
 ): LaunchTailProbeState {
   if (!server || server.status !== "ok") return { kind: "unknown" };
   const profile = launchTailProbeProfileOf(fire);
-  const row = server.tail_probes?.find((t) => t.profile === profile);
-  if (!row) return { kind: "unsupported" };
-  return { kind: "set", value: { count: row.count, step_us: row.step_us } };
+  const rows = server.tail_probes ?? [];
+  const row = rows.find((t) => t.profile === profile && t.market === market && Array.isArray(t.offsets_us));
+  if (row) return { kind: "set", offsets_us: [...row.offsets_us!] };
+  const legacy = rows.find((t) => t.profile === profile && t.market === undefined);
+  return { kind: "unsupported", legacy: legacy ? { count: legacy.count, step_us: legacy.step_us } : null };
 }
 
-/** 이력 — launch_tail_probe_changes 한 행(시도마다 1행 · 실패 포함 · 계획 이력 D-29 와 같은 규칙). */
+/**
+ * 이력 — launch_tail_probe_changes 한 행(시도마다 1행 · 실패 포함 · 계획 이력 D-29 와 같은 규칙).
+ * 목록 행(market · after_offsets_us 있음)과 옛 행(개수 · 간격 · market null)이 한 표에 섞인다.
+ */
 export interface LaunchTailProbeChangeRow {
   id: number;
   /** timestamptz ISO 문자열 */
@@ -423,12 +494,18 @@ export interface LaunchTailProbeChangeRow {
   gateway: string;
   /** q16 | n0930 — launch_tail_probe_changes CHECK 그대로(g0830 없음). */
   fire: LaunchTailProbeFire;
-  /** 저장 직전 서버 조회값 · 모르면 null */
+  /** 목록 행의 시장(교보 N 공통은 K) · 옛 행 null */
+  market: LaunchMarket | null;
+  /** 옛 행 — 저장 직전 서버 조회값 · 모르면 null */
   before_count: number | null;
   before_step_us: number | null;
-  /** 보낸 값 */
-  after_count: number;
-  after_step_us: number;
+  /** 옛 행 — 보낸 값 · 목록 행 null */
+  after_count: number | null;
+  after_step_us: number | null;
+  /** 목록 행 — 저장 직전 서버 조회값 · 모르면 null */
+  before_offsets_us: number[] | null;
+  /** 목록 행 — 보낸 값(빈 배열 = 꺼짐) · 옛 행 null */
+  after_offsets_us: number[] | null;
   outcome: AdminOutcome;
   code: number | null;
   message: string | null;
@@ -436,30 +513,33 @@ export interface LaunchTailProbeChangeRow {
   plan_rev: number | null;
 }
 
-/** 이력 행 열 이름 — 기록 RPC 반환 jsonb 키와 같다(pgTAP 이 같은 13개를 단언 · 계약 핀). */
+/** 이력 행 열 이름 — 기록 RPC 반환 jsonb 키와 같다(pgTAP 이 같은 16개를 단언 · 계약 핀). */
 export const LAUNCH_TAIL_PROBE_CHANGE_COLUMNS = [
   "id",
   "at",
   "admin_email",
   "gateway",
   "fire",
+  "market",
   "before_count",
   "before_step_us",
   "after_count",
   "after_step_us",
+  "before_offsets_us",
+  "after_offsets_us",
   "outcome",
   "code",
   "message",
   "plan_rev",
 ] as const satisfies readonly (keyof LaunchTailProbeChangeRow)[];
 
-/** `PUT /api/admin/launch/tail-probe/:gateway/:fire` 바디. */
+/** `PUT /api/admin/launch/tail-probe/:gateway/:fire` 바디 — 저장 시장 · 정렬된 목록(교보 N 은 K 로 1건). */
 export interface LaunchTailProbeSaveBody {
-  count: number;
-  step_us: number;
+  market: LaunchMarket;
+  offsets_us: number[];
 }
 
-/** 뒤탐침 저장 응답 — 결과 + 저장 뒤 다시 읽은 계획(tail_probes 포함) + 기록된 이력 행(기록 실패면 null). */
+/** 탐침 저장 응답 — 결과 + 저장 뒤 다시 읽은 계획(tail_probes 포함) + 기록된 이력 행(기록 실패면 null). */
 export interface LaunchTailProbeSaveResponse {
   result: AdminServerResult;
   plan: LaunchPlanServer | null;
@@ -469,13 +549,13 @@ export interface LaunchTailProbeSaveResponse {
 /** relay `PUT /internal/admin/launch-tail-probe/:server` 바디. */
 export interface LaunchTailProbeRelaySetBody {
   profile: LaunchTailProbeProfile;
-  count: number;
-  step_us: number;
+  market: LaunchMarket;
+  offsets_us: number[];
 }
 
-/** relay 뒤탐침 저장 응답 — 저장 직전 값(before)과 저장 뒤 다시 읽은 계획. */
+/** relay 탐침 저장 응답 — 저장 직전 그 (profile, market) 목록(before · 모르면 null)과 저장 뒤 다시 읽은 계획. */
 export interface LaunchTailProbeRelaySetResponse {
   result: AdminServerResult;
-  before: LaunchTailProbeValue | null;
+  before: number[] | null;
   plan: LaunchPlanServer | null;
 }

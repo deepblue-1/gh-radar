@@ -17,7 +17,6 @@ import {
   type LaunchTailProbeChangeRow,
   type LaunchTailProbeFire,
   type LaunchTailProbeRelaySetResponse,
-  type LaunchTailProbeValue,
 } from "@gh-radar/shared";
 
 import { ApiError } from "../errors.js";
@@ -131,10 +130,10 @@ export async function getLaunchPlanChanges(supabase: SupabaseClient): Promise<La
   return data.changes as LaunchPlanChangeRow[];
 }
 
-const TAIL_PROBE_CHANGES_FAIL = "발사 뒤탐침 이력 조회에 실패했습니다.";
+const TAIL_PROBE_CHANGES_FAIL = "발사 탐침 이력 조회에 실패했습니다.";
 
 /**
- * 뒤탐침 변경 이력(quick-261107-l7w) — RPC `launch_tail_probe_changes_for_admin` 1회 → `tail_probe_changes`.
+ * 탐침 변경 이력(quick-261107-l7w · 시장별 quick-261125-lju) — RPC `launch_tail_probe_changes_for_admin` 1회 → `tail_probe_changes`.
  * 배열이 아니면 500(웹이 바로 순회한다). 계획 이력과 같은 한도(키별 최근 N + 마지막 ok).
  */
 export async function getLaunchTailProbeChanges(supabase: SupabaseClient): Promise<LaunchTailProbeChangeRow[]> {
@@ -144,10 +143,13 @@ export async function getLaunchTailProbeChanges(supabase: SupabaseClient): Promi
   return data.tail_probe_changes as LaunchTailProbeChangeRow[];
 }
 
-/** 뒤탐침 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 뒤탐침 대상 아님 · 인박스 261125-sigan-ttaeng-g2 ⓑ). */
+/** 탐침 프로파일 — shared `LAUNCH_TAIL_PROBE_PROFILES`(Q16 · N · G2 는 탐침 대상 아님 · 인박스 261125-sigan-ttaeng-g2 ⓑ). */
 const TAIL_PROBE_PROFILES: readonly unknown[] = LAUNCH_TAIL_PROBE_PROFILES;
 
-/** ok 서버의 `tail_probes` — 없음(구 서버 · 와이어 대기) 또는 배열이고 원소마다 { profile Q16|N · count · step_us number }. */
+/**
+ * ok 서버의 `tail_probes` — 없음(구 서버 · 와이어 대기) 또는 배열이고 원소마다 { profile Q16|N · count · step_us number } +
+ * 선택 market(K|Q) · offsets_us(number 배열 · quick-261125-lju 시장별 행).
+ */
 const isTailProbes = (v: unknown): boolean =>
   v === undefined ||
   (Array.isArray(v) &&
@@ -156,7 +158,9 @@ const isTailProbes = (v: unknown): boolean =>
         isObject(t) &&
         TAIL_PROBE_PROFILES.includes(t.profile) &&
         typeof t.count === "number" &&
-        typeof t.step_us === "number",
+        typeof t.step_us === "number" &&
+        (t.market === undefined || t.market === "K" || t.market === "Q") &&
+        (t.offsets_us === undefined || isNumberArray(t.offsets_us)),
     ));
 
 /** relay 가 준 서버 값 하나가 `LaunchPlanServer` 모양인지 — 아니면 그 서버는 offline 으로 접는다. */
@@ -164,7 +168,11 @@ function isLaunchPlanServer(v: unknown): v is LaunchPlanServer {
   if (!isObject(v)) return false;
   switch (v.status) {
     case "ok":
-      return Array.isArray(v.entries) && isTailProbes(v.tail_probes);
+      return (
+        Array.isArray(v.entries) &&
+        isTailProbes(v.tail_probes) &&
+        (v.kyobo_q16_combined === undefined || typeof v.kyobo_q16_combined === "boolean")
+      );
     case "failed":
       return typeof v.code === "number" && typeof v.message === "string";
     case "offline":
@@ -268,8 +276,8 @@ const NOT_SENT_NET_CODES: ReadonlySet<string> = new Set([
  *   - status 0 + 연결 단계 오류 코드(`NOT_SENT_NET_CODES` — relay 재배포 · 재기동 중 연결 거부 · relay VM 정지로 연결 단계 상한 등)
  *   - 400(zod 경로 · 바디 · 요청자 이메일) · 401(공유 비밀 불일치) · 404(라우트 없음 = 구 relay) — 모두 핸들러 앞단
  *   - 503 `LAUNCH_PLAN_UNAVAILABLE`(relay 에 발사 계획 경로가 결선되지 않음 — `launchPlanOf` 가 set 전에 던진다)
- *   - 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(quick-261107-l7w — relay 뒤탐침 와이어 대기 · setTailProbe 전에 던진다 · op 10 0건)
- *   (404 = 구 relay 가 뒤탐침 경로를 모름 — 위 404 규칙으로 이미 미송신)
+ *   - 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(quick-261107-l7w — relay 탐침 목록 모드 와이어 대기 · setTailProbe 전에 던진다 · op 10 0건)
+ *   (404 = 구 relay 가 탐침 경로를 모름 — 위 404 규칙으로 이미 미송신)
  * 그 밖(타임아웃 · 연결 리셋 · 다른 5xx · 모양 위반)은 relay 가 op 8 을 보냈을 수 있다 — 호출부가 timeout 으로 접는다.
  */
 const RELAY_NOT_SENT_503: ReadonlySet<string> = new Set(["LAUNCH_PLAN_UNAVAILABLE", "LAUNCH_TAIL_PROBE_UNAVAILABLE"]);
@@ -352,12 +360,12 @@ export async function saveLaunchPlanViaRelay(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 저장 · 이력 기록
+// quick-261107-l7w · quick-261125-lju — 탐침 저장 · 이력 기록
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TAIL_PROBE_RECORD_FAIL = "발사 뒤탐침 이력 기록에 실패했습니다.";
+const TAIL_PROBE_RECORD_FAIL = "발사 탐침 이력 기록에 실패했습니다.";
 
-/** 뒤탐침 이력 1행 기록(시도마다 · 실패 포함) — RPC `launch_tail_probe_change_record` `{ p }` 1회 → 기록된 행. */
+/** 탐침 이력 1행 기록(시도마다 · 실패 포함 · 목록 모드) — RPC `launch_tail_probe_change_record` `{ p }` 1회 → 기록된 행. */
 export async function recordLaunchTailProbeChange(
   supabase: SupabaseClient,
   input: Omit<LaunchTailProbeChangeRow, "id" | "at">,
@@ -368,15 +376,13 @@ export async function recordLaunchTailProbeChange(
   return data as unknown as LaunchTailProbeChangeRow;
 }
 
-const isTailProbeValue = (v: unknown): v is LaunchTailProbeValue =>
-  isObject(v) && typeof v.count === "number" && typeof v.step_us === "number";
-
 /**
- * 뒤탐침 저장 — relay `setLaunchTailProbe` 1회. 규칙은 `saveLaunchPlanViaRelay` 와 같다(**throw 하지 않는다** — 호출부가 이력 1행):
+ * 탐침 저장(quick-261125-lju) — relay `setLaunchTailProbe` 1회 · 바디 { profile, market, offsets_us }. 규칙은 `saveLaunchPlanViaRelay`
+ * 와 같다(**throw 하지 않는다** — 호출부가 이력 1행):
  *   - relay 미설정 → offline(`RELAY_NOT_CONFIGURED_MESSAGE`).
  *   - `relayNotSent`(연결 거부 · 400 · 401 · 404 = 구 relay · 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE` = 와이어 대기 · 503
  *     `LAUNCH_PLAN_UNAVAILABLE`) → offline(`relayNotSentMessage` — 원인) · op 10 은 나가지 않았다(확정 미반영).
- *   - 200 모양(result 가 이 서버 · before null 또는 {count, step_us} · plan null 또는 `LaunchPlanServer`) → 그대로.
+ *   - 200 모양(result 가 이 서버 · before null 또는 number 배열 · plan null 또는 `LaunchPlanServer`) → 그대로.
  *   - 그 밖(타임아웃 · 리셋 · 다른 5xx · 모양 위반) → timeout(`RELAY_UNKNOWN_SAVE_MESSAGE` — 결과 모름).
  * 로그에는 relay status 만(바디 원문 금지).
  */
@@ -385,7 +391,8 @@ export async function saveLaunchTailProbeViaRelay(
   adminEmail: string,
   gateway: string,
   fire: LaunchTailProbeFire,
-  value: LaunchTailProbeValue,
+  market: LaunchMarket,
+  offsets: number[],
 ): Promise<LaunchTailProbeRelaySetResponse> {
   if (!relay) {
     return { result: { server: gateway, outcome: "offline", message: RELAY_NOT_CONFIGURED_MESSAGE }, before: null, plan: null };
@@ -394,14 +401,14 @@ export async function saveLaunchTailProbeViaRelay(
   try {
     const r = await relay.setLaunchTailProbe(
       gateway,
-      { profile: launchTailProbeProfileOf(fire), count: value.count, step_us: value.step_us },
+      { profile: launchTailProbeProfileOf(fire), market, offsets_us: offsets },
       adminEmail,
     );
     status = r.status;
     if (relayNotSent(r)) {
       logger.warn(
         { relay: { op: "launch-tail-probe-put", status, ...(r.netCode !== undefined ? { code: r.netCode } : {}) } },
-        "[admin-launch] 발사 뒤탐침 저장 relay 가 보내기 전에 막힘 → offline(확정 미반영)",
+        "[admin-launch] 발사 탐침 저장 relay 가 보내기 전에 막힘 → offline(확정 미반영)",
       );
       return { result: { server: gateway, outcome: "offline", message: relayNotSentMessage(r) }, before: null, plan: null };
     }
@@ -410,18 +417,18 @@ export async function saveLaunchTailProbeViaRelay(
       r.status === 200 &&
       isObject(d) &&
       isServerResultOf(d.result, gateway) &&
-      (d.before === null || isTailProbeValue(d.before)) &&
+      (d.before === null || isNumberArray(d.before)) &&
       (d.plan === null || isLaunchPlanServer(d.plan))
     ) {
       return {
         result: d.result,
-        before: d.before === null ? null : { count: d.before.count, step_us: d.before.step_us },
+        before: d.before === null ? null : [...d.before],
         plan: d.plan,
       };
     }
   } catch {
     // 닿지 못함과 같게 본다(status 0).
   }
-  logger.warn({ relay: { op: "launch-tail-probe-put", status } }, "[admin-launch] 발사 뒤탐침 저장 relay 실패 → timeout(결과 모름)");
+  logger.warn({ relay: { op: "launch-tail-probe-put", status } }, "[admin-launch] 발사 탐침 저장 relay 실패 → timeout(결과 모름)");
   return { result: { server: gateway, outcome: "timeout", message: RELAY_UNKNOWN_SAVE_MESSAGE }, before: null, plan: null };
 }

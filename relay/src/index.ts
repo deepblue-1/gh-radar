@@ -123,10 +123,17 @@ import { AdminSessionSync } from "./admin/session-sync.js";
 import { createAdminRouter } from "./admin/admin-api.js";
 import { LaunchPlanService, type LaunchTailProbeWire } from "./admin/launch-plan.js";
 
-/** 뒤탐침 와이어(gh-trade Phase 47 · 마커 eac98e43) — envelope 가 op 10 을 싣고 94 tail_probes 를 `snap.tailProbes` 로 푼다. */
+/**
+ * 탐침 와이어(quick-261125-lju) — 지금 envelope 는 op 10 의 옛 개수 · 간격 모드만 싣고(gh-trade Phase 47) 목록 모드
+ * (offsets 벡터 · count −1 · launch_market)는 못 싣는다 — relay 생성물에 새 칸이 없다(gh-trade Phase 50 .fbs 대기).
+ * 그래서 운영 = 읽기 전용: `canSet` 거짓(PUT 503 LAUNCH_TAIL_PROBE_UNAVAILABLE) · 94 행은 지금 파서가 주는 옛 개수 · 간격 행만
+ * (웹 「이 서버 버전은 시장별 탐침을 몰라요」) · `kyoboQ16Combined` 는 파서가 채우지 않아 undefined(웹 ⇄ 꺼짐).
+ * 생성물 도착 뒤 연결 순서는 `admin/launch-plan.ts` `LaunchTailProbeWire` 머리 체크리스트.
+ */
 const LAUNCH_TAIL_PROBE_WIRE: LaunchTailProbeWire = Object.freeze({
-  canSet: true,
+  canSet: false,
   tailProbesOf: (s: Parameters<LaunchTailProbeWire["tailProbesOf"]>[0]) => s.tailProbes,
+  kyoboQ16CombinedOf: (s: Parameters<LaunchTailProbeWire["kyoboQ16CombinedOf"]>[0]) => s.kyoboQ16Combined,
 });
 import { AdminSnapshotSink } from "./admin/snapshot-sink.js";
 import type { JournalAccessView } from "./journal/types.js";

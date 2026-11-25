@@ -44,11 +44,11 @@ export const LaunchPlanParams = z.object({
 export type LaunchPlanParamsT = z.infer<typeof LaunchPlanParams>;
 
 /**
- * quick-261107-l7w — `PUT /api/admin/launch/tail-probe/:gateway/:fire` 입력. 어긋나면 400 · relay 0회 · RPC 0회.
- * **구조만** — gateway ∈ `LAUNCH_PLAN_GATEWAYS` · fire ∈ q16 | n0930(shared `LAUNCH_TAIL_PROBE_FIRES` — G2 는 뒤탐침 대상 아님 ·
- * 인박스 261125-sigan-ttaeng-g2 ⓑ · g0830 은 400) · count · step_us 는 int32 정수 · 추가 키 거부.
- * 범위(count 0~10 · step 1~100µs)는 웹 편집 칸(shared `validateLaunchTailProbeDraft`)과 gh-trade code 1 이 말한다 — server 가 막으면
- * 서버 거부 문구 경로가 죽는다.
+ * quick-261125-lju — `PUT /api/admin/launch/tail-probe/:gateway/:fire` 입력. 어긋나면 400 · relay 0회 · RPC 0회.
+ * **구조만** — gateway ∈ `LAUNCH_PLAN_GATEWAYS` · fire ∈ q16 | n0930(shared `LAUNCH_TAIL_PROBE_FIRES` — G2 는 탐침 대상 아님 ·
+ * 인박스 261125-sigan-ttaeng-g2 ⓑ · g0830 은 400) · 바디 { market: K|Q, offsets_us: int32[0..64] }(옛 count · step_us · 추가 키 거부).
+ * 범위 · 발 수 10 · 순서는 웹 편집 칸(shared `validateLaunchTailProbeDraft`)과 gh-trade 86 code 1 이 말한다 — server 가 막으면
+ * 서버 거부 문구 경로가 죽는다. 교보 N 공통은 웹이 K 로 1건 보낸다(gh-trade 가 두 행을 맞춘다).
  */
 export const LaunchTailProbeParams = z.object({
   gateway: z.enum(LAUNCH_PLAN_GATEWAYS),
@@ -58,7 +58,12 @@ export type LaunchTailProbeParamsT = z.infer<typeof LaunchTailProbeParams>;
 
 const Int32 = z.number().int().min(-2147483648).max(2147483647);
 
-export const LaunchTailProbeSaveBodySchema = z.object({ count: Int32, step_us: Int32 }).strict();
+export const LaunchTailProbeSaveBodySchema = z
+  .object({
+    market: z.enum(["K", "Q"]),
+    offsets_us: z.array(Int32).max(LAUNCH_PLAN_SERVER_MAX_PIECES),
+  })
+  .strict();
 
 export const LaunchPlanSaveBodySchema = z
   .object({

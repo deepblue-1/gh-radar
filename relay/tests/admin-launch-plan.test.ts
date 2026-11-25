@@ -24,12 +24,16 @@
  *   S4  마감 — 저장이 끝난 시각 + ADMIN_COMMAND_TIMEOUT_MS 가 deadlineAt 을 넘으면 후 조회를 건너뛰고 plan null · 같으면 보낸다
  *   S5  skipped(꺼진 · 없는 서버) · offline(연결 없음 · ready 아님) → 그 결과 · before_us null · plan null · command 0회
  *
- * 잠그는 것 (quick-261107-l7w — 뒤탐침 · 와이어 어댑터 주입):
- *   TP-R1 PENDING(기본) — 스냅샷에 tailProbes 가 있어도 결과에 tail_probes 키 없음
- *   TP-R2 테스트 어댑터(tailProbesOf = s.tailProbes) — [Q16 5/10 · N 0/10] → tail_probes 그대로(snake_case)
- *   TP-R3 모르는 profile · 정수 아닌 count/stepUs 행은 빠지고 warn 1줄 · 다 빠지면 · 어댑터가 [] 를 주면 키 없음
+ * 잠그는 것 (quick-261125-lju — 탐침 · 와이어 어댑터 주입):
+ *   TP-R1 PENDING(기본) — 스냅샷에 tailProbes · kyoboQ16Combined 가 있어도 결과에 두 키 없음
+ *   TP-R2 시장별 4행 → market · offsets_us 행(offsetsUs 없음 = []) · 옛 행(market 없음 · 빈 문자열) → 옛 모양
+ *   TP-R3 모르는 profile · market 'X' · 정수 아닌 값 행은 빠지고 warn 1줄 · 다 빠지면 · 어댑터가 [] 를 주면 키 없음
+ *   TP-R4 kyoboQ16Combined true/false → kyobo_q16_combined 그대로 · 없음 → 키 없음
+ *   TP-S* setTailProbe 목록 모드 입력(count −1 · offsets · market) · before 고르기(같은 profile + market) · 판정 규칙
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { LaunchPlanServer } from "@gh-radar/shared";
 
 import { ADMIN_COMMAND_TIMEOUT_MS, type AdminCommandOutcome, type AdminConn } from "../src/admin/admin-conn.js";
 import {
@@ -470,18 +474,38 @@ describe("P35 LaunchPlanService.set (35-17 Task 2)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 읽기(와이어 어댑터 주입)
+// quick-261125-lju — 탐침 읽기(와이어 어댑터 주입 · 시장별 4행 · 합친 레인 bool)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** 후속 quick 이 index.ts 에 넣을 어댑터와 같은 모양(읽기만 — canSet 은 테스트마다). */
-const READ_WIRE: LaunchTailProbeWire = { canSet: false, tailProbesOf: (s) => s.tailProbes };
+const READ_WIRE: LaunchTailProbeWire = {
+  canSet: false,
+  tailProbesOf: (s) => s.tailProbes,
+  kyoboQ16CombinedOf: (s) => s.kyoboQ16Combined,
+};
 
-const TAIL_PROBES_WIRE = [
+/** 옛 서버 모양 — market 없는 개수 · 간격 두 행. */
+const LEGACY_TP_WIRE = [
   { profile: "Q16", count: 5, stepUs: 10 },
   { profile: "N", count: 0, stepUs: 10 },
 ];
 
-describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
+/** 새 서버 모양 — 4행 [Q16·K, N·K, Q16·Q, N·Q] · count = 길이 · stepUs 0. */
+const FOUR_TP_WIRE = [
+  { profile: "Q16", count: 1, stepUs: 0, market: "K", offsetsUs: [-210] },
+  { profile: "N", count: 0, stepUs: 0, market: "K", offsetsUs: [] },
+  { profile: "Q16", count: 2, stepUs: 0, market: "Q", offsetsUs: [-300, -290] },
+  { profile: "N", count: 0, stepUs: 0, market: "Q" },
+];
+
+const FOUR_TP = [
+  { profile: "Q16", count: 1, step_us: 0, market: "K", offsets_us: [-210] },
+  { profile: "N", count: 0, step_us: 0, market: "K", offsets_us: [] },
+  { profile: "Q16", count: 2, step_us: 0, market: "Q", offsets_us: [-300, -290] },
+  { profile: "N", count: 0, step_us: 0, market: "Q", offsets_us: [] },
+];
+
+describe("quick-261125-lju LaunchPlanService 탐침 읽기", () => {
   let logs: LogCall[];
 
   beforeEach(async () => {
@@ -492,17 +516,19 @@ describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
     vi.restoreAllMocks();
   });
 
-  it("TP-R1 PENDING(기본) — 스냅샷에 tailProbes 가 있어도 tail_probes 키를 싣지 않는다", async () => {
+  it("TP-R1 PENDING(기본) — 스냅샷에 tailProbes · kyoboQ16Combined 가 있어도 두 키를 싣지 않는다", async () => {
     expect(LAUNCH_TAIL_PROBE_WIRE_PENDING.canSet).toBe(false);
-    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE })]);
+    expect(LAUNCH_TAIL_PROBE_WIRE_PENDING.kyoboQ16CombinedOf({} as never)).toBeUndefined();
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE, kyoboQ16Combined: true })]);
     const { svc } = rig({ admins: { KB120: kb } });
     const out = await svc.read(["KB120"]);
     expect(out.KB120).toEqual({ status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES });
     expect(out.KB120).not.toHaveProperty("tail_probes");
+    expect(out.KB120).not.toHaveProperty("kyobo_q16_combined");
   });
 
-  it("TP-R2 테스트 어댑터 — [Q16 5/10 · N 0/10] → tail_probes 그대로(snake_case) · warn 없음", async () => {
-    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE })]);
+  it("TP-R2 시장별 4행 → market · offsets_us 행(offsetsUs 없음 = []) · warn 없음", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE })]);
     const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
     const out = await svc.read(["KB120"]);
     expect(out.KB120).toEqual({
@@ -510,32 +536,57 @@ describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
       plan_rev: 3,
       updated_at: "2026-10-27T22:41:00",
       entries: WIRE_ENTRIES,
-      tail_probes: [
-        { profile: "Q16", count: 5, step_us: 10 },
-        { profile: "N", count: 0, step_us: 10 },
-      ],
+      tail_probes: FOUR_TP,
     });
     expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
   });
 
-  it("TP-R3 모르는 profile · 정수 아닌 count/stepUs 행은 빠지고 warn 1줄", async () => {
+  it("TP-R2b 옛 서버 행(market 없음 · 빈 문자열) → market · offsets_us 키 없는 옛 행", async () => {
     const kb = new FakeAdmin([
       snapshotOutcome({
         tailProbes: [
           { profile: "Q16", count: 5, stepUs: 10 },
-          { profile: "X", count: 1, stepUs: 10 },
-          { profile: "N", count: 1.5, stepUs: 10 },
-          { profile: "N", count: 2, stepUs: Number.NaN },
+          { profile: "N", count: 0, stepUs: 10, market: "" },
         ],
       }),
     ]);
     const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
     const out = await svc.read(["KB120"]);
-    expect(out.KB120).toMatchObject({ status: "ok", tail_probes: [{ profile: "Q16", count: 5, step_us: 10 }] });
+    const ok = out.KB120 as Extract<LaunchPlanServer, { status: "ok" }>;
+    expect(ok.tail_probes).toEqual([
+      { profile: "Q16", count: 5, step_us: 10 },
+      { profile: "N", count: 0, step_us: 10 },
+    ]);
+    for (const t of ok.tail_probes!) {
+      expect(Object.keys(t).sort()).toEqual(["count", "profile", "step_us"]);
+    }
+  });
+
+  it("TP-R3 모르는 profile · market 'X' · 정수 아닌 count/stepUs/offsets 행은 빠지고 warn 1줄", async () => {
+    const kb = new FakeAdmin([
+      snapshotOutcome({
+        tailProbes: [
+          { profile: "Q16", count: 1, stepUs: 0, market: "K", offsetsUs: [-210] },
+          { profile: "X", count: 1, stepUs: 10 },
+          { profile: "N", count: 1.5, stepUs: 10 },
+          { profile: "N", count: 2, stepUs: Number.NaN },
+          { profile: "Q16", count: 1, stepUs: 0, market: "X", offsetsUs: [-1] },
+          { profile: "Q16", count: 1, stepUs: 0, market: "Q", offsetsUs: [-1.5] },
+        ],
+      }),
+    ]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).toMatchObject({
+      status: "ok",
+      tail_probes: [{ profile: "Q16", count: 1, step_us: 0, market: "K", offsets_us: [-210] }],
+    });
+    expect((out.KB120 as { tail_probes: unknown[] }).tail_probes).toHaveLength(1);
     const warns = logs.filter((c) => c.level === "warn");
     expect(warns).toHaveLength(1);
     expect(warns[0]!.args[0]).toMatchObject({ server: "KB120" });
-    expect((warns[0]!.args[0] as { dropped: unknown[] }).dropped).toHaveLength(3);
+    expect(warns[0]!.args[1]).toBe("[admin] 발사 계획 스냅샷의 모르는 탐침 행 — 뺀다");
+    expect((warns[0]!.args[0] as { dropped: unknown[] }).dropped).toHaveLength(5);
   });
 
   it("TP-R3b 어댑터가 [] · undefined 를 주거나 행이 다 빠지면 키 없음", async () => {
@@ -550,22 +601,38 @@ describe("quick-261107-l7w LaunchPlanService 뒤탐침 읽기", () => {
       expect(out.KB120).toEqual({ status: "ok", plan_rev: 3, updated_at: "2026-10-27T22:41:00", entries: WIRE_ENTRIES });
     }
   });
+
+  it.each([
+    ["true", true, { kyobo_q16_combined: true }],
+    ["false", false, { kyobo_q16_combined: false }],
+  ] as const)("TP-R4 kyoboQ16Combined %s → ok 결과 kyobo_q16_combined 그대로", async (_l, v, expected) => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE, kyoboQ16Combined: v })]);
+    const { svc } = rig({ admins: { KYOBO119: kb }, rows: [serverRow("KYOBO119")], wire: READ_WIRE });
+    const out = await svc.read(["KYOBO119"]);
+    expect(out.KYOBO119).toMatchObject({ status: "ok", ...expected, tail_probes: FOUR_TP });
+  });
+
+  it("TP-R4b kyoboQ16Combined 없음(지금 와이어) → kyobo_q16_combined 키 없음", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE })]);
+    const { svc } = rig({ admins: { KB120: kb }, wire: READ_WIRE });
+    const out = await svc.read(["KB120"]);
+    expect(out.KB120).not.toHaveProperty("kyobo_q16_combined");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-261107-l7w — 뒤탐침 저장(op 10 · 테스트 어댑터 canSet true)
+// quick-261125-lju — 탐침 저장(op 10 목록 모드 · 테스트 어댑터 canSet true)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SET_WIRE: LaunchTailProbeWire = { canSet: true, tailProbesOf: (s) => s.tailProbes };
+const SET_WIRE: LaunchTailProbeWire = { ...READ_WIRE, canSet: true };
 
-describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
+describe("quick-261125-lju LaunchPlanService.setTailProbe", () => {
   let logs: LogCall[];
-  const BODY = { profile: "Q16", count: 3, step_us: 20 } as const;
-  const AFTER_TP = [
-    { profile: "Q16", count: 3, stepUs: 20 },
-    { profile: "N", count: 0, stepUs: 10 },
-  ];
-  const RANGE = "뒤탐침 발 수 범위 밖(0~10)";
+  const BODY = { profile: "Q16", market: "Q", offsets_us: [-300, -290] } as const;
+  const AFTER_TP_WIRE = FOUR_TP_WIRE.map((r) =>
+    r.profile === "Q16" && r.market === "Q" ? { ...r, count: 2, offsetsUs: [-280, -270] } : r,
+  );
+  const RANGE = "오프셋은 작은 값부터 차례로(같은 값 허용)";
 
   beforeEach(async () => {
     logs = await spyLogs();
@@ -575,82 +642,94 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
     vi.restoreAllMocks();
   });
 
-  it("TP-S1 op 9 → op 10(세 필드) → op 9 · ok · before = 전 Q16 행 {5,10} · plan = 후 스냅샷(tail_probes 포함)", async () => {
+  it("TP-S1 op 9 → op 10(목록 모드: count −1 · offsets · market) → op 9 · ok · before = 전 Q16/Q 목록 · plan = 후 스냅샷", async () => {
     const kb = new FakeAdmin([
-      snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE }),
+      snapshotOutcome({ tailProbes: FOUR_TP_WIRE }),
       respOutcome(0, ""),
-      snapshotOutcome({ planRev: 4n, tailProbes: AFTER_TP }),
+      snapshotOutcome({ planRev: 4n, tailProbes: AFTER_TP_WIRE }),
     ]);
     const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
     expect(svc.tailProbeSettable).toBe(true);
 
-    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
+    const out = await svc.setTailProbe("KB120", { ...BODY, offsets_us: [...BODY.offsets_us] }, { deadlineAt: clock.t + 10_000 });
     expect(kb.inputs).toEqual([
       { op: ADMIN_OP.GetLaunchPlan, userId: "" },
-      { op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "Q16", launchTailProbeCount: 3, launchTailProbeStepUs: 20 },
+      {
+        op: ADMIN_OP.SetLaunchTailProbe,
+        userId: "",
+        launchProfile: "Q16",
+        launchMarket: "Q",
+        launchTailProbeCount: -1,
+        launchTailProbeOffsetsUs: [-300, -290],
+      },
       { op: ADMIN_OP.GetLaunchPlan, userId: "" },
     ]);
-    expect(out).toEqual({
-      result: { server: "KB120", outcome: "ok", usersRev: "12" },
-      before: { count: 5, step_us: 10 },
-      plan: {
-        status: "ok",
-        plan_rev: 4,
-        updated_at: "2026-10-27T22:41:00",
-        entries: WIRE_ENTRIES,
-        tail_probes: [
-          { profile: "Q16", count: 3, step_us: 20 },
-          { profile: "N", count: 0, step_us: 10 },
-        ],
-      },
+    expect(out.result).toEqual({ server: "KB120", outcome: "ok", usersRev: "12" });
+    expect(out.before).toEqual([-300, -290]);
+    expect(out.plan).toMatchObject({ status: "ok", plan_rev: 4 });
+    expect((out.plan as { tail_probes: unknown[] }).tail_probes[2]).toEqual({
+      profile: "Q16",
+      count: 2,
+      step_us: 0,
+      market: "Q",
+      offsets_us: [-280, -270],
     });
     expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
+  });
+
+  it("TP-S1b 빈 목록(끔)도 그대로 싣는다 · before 는 같은 시장 행만 — K 행은 고르지 않는다", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE }), respOutcome(0, ""), snapshotOutcome()]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { profile: "N", market: "Q", offsets_us: [] }, { deadlineAt: clock.t + 10_000 });
+    expect(kb.inputs[1]).toEqual({
+      op: ADMIN_OP.SetLaunchTailProbe,
+      userId: "",
+      launchProfile: "N",
+      launchMarket: "Q",
+      launchTailProbeCount: -1,
+      launchTailProbeOffsetsUs: [],
+    });
+    expect(out.before).toEqual([]);
+  });
+
+  it("TP-S1c before — 전 스냅샷이 옛 행(market 없음)뿐이면 null", async () => {
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: LEGACY_TP_WIRE }), respOutcome(1, RANGE)]);
+    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
+    const out = await svc.setTailProbe("KB120", { ...BODY, offsets_us: [...BODY.offsets_us] }, { deadlineAt: clock.t + 10_000 });
+    expect(out.before).toBeNull();
   });
 
   it("TP-S2 86 code 1 → failed 원문 · plan null · 후 조회 없음 · warn / 전 스냅샷에 행 없으면 before null", async () => {
     const kb = new FakeAdmin([snapshotOutcome(), respOutcome(1, RANGE)]);
     const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
-    const out = await svc.setTailProbe("KB120", { ...BODY, count: 12 }, { deadlineAt: clock.t + 10_000 });
+    const out = await svc.setTailProbe("KB120", { ...BODY, offsets_us: [-290, -300] }, { deadlineAt: clock.t + 10_000 });
     expect(out).toEqual({ result: { server: "KB120", outcome: "failed", code: 1, message: RANGE }, before: null, plan: null });
     expect(kb.ops()).toEqual([ADMIN_OP.GetLaunchPlan, ADMIN_OP.SetLaunchTailProbe]);
     const warns = logs.filter((c) => c.level === "warn");
     expect(warns).toHaveLength(1);
-    expect(warns[0]!.args).toEqual([{ server: "KB120", code: 1, message: RANGE }, "[admin] 발사 뒤탐침 저장 거부(86)"]);
-  });
-
-  it("TP-S3 같은 값 code 0 「변경 없음」 → ok · 후 조회", async () => {
-    const kb = new FakeAdmin([
-      snapshotOutcome({ tailProbes: AFTER_TP }),
-      respOutcome(0, "변경 없음"),
-      snapshotOutcome({ tailProbes: AFTER_TP }),
-    ]);
-    const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
-    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
-    expect(out.result.outcome).toBe("ok");
-    expect(out.before).toEqual({ count: 3, step_us: 20 });
-    expect(out.plan).toMatchObject({ status: "ok", tail_probes: [{ profile: "Q16", count: 3, step_us: 20 }, { profile: "N" }] });
+    expect(warns[0]!.args).toEqual([{ server: "KB120", code: 1, message: RANGE }, "[admin] 발사 탐침 저장 거부(86)"]);
   });
 
   it.each([
     ["timeout", { kind: "timeout" }],
     ["offline(비행 중 끊김)", { kind: "offline" }],
   ] as const)("TP-S4 저장 %s → 결과 모름 timeout · plan null", async (_l, reply) => {
-    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: TAIL_PROBES_WIRE }), reply]);
+    const kb = new FakeAdmin([snapshotOutcome({ tailProbes: FOUR_TP_WIRE }), reply]);
     const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
-    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 });
-    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before: { count: 5, step_us: 10 }, plan: null });
+    const out = await svc.setTailProbe("KB120", { ...BODY, offsets_us: [...BODY.offsets_us] }, { deadlineAt: clock.t + 10_000 });
+    expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before: [-300, -290], plan: null });
   });
 
   it("TP-S4b 마감 초과 → timeout · 늦은 결과 warn", async () => {
     let release!: (o: AdminCommandOutcome) => void;
     const kb = new FakeAdmin([() => new Promise<AdminCommandOutcome>((r) => (release = r))]);
     const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
-    const out = await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 50 });
+    const out = await svc.setTailProbe("KB120", { ...BODY, offsets_us: [...BODY.offsets_us] }, { deadlineAt: clock.t + 50 });
     expect(out).toEqual({ result: { server: "KB120", outcome: "timeout" }, before: null, plan: null });
     expect(kb.ops()).toEqual([ADMIN_OP.SetLaunchTailProbe]);
     release(respOutcome(0, ""));
     await vi.waitFor(() => expect(logs.filter((c) => c.level === "warn")).toHaveLength(2));
-    expect(logs.filter((c) => c.level === "warn")[1]!.args[1]).toBe("[admin] 발사 뒤탐침 저장 — 마감 뒤 도착한 결과");
+    expect(logs.filter((c) => c.level === "warn")[1]!.args[1]).toBe("[admin] 발사 탐침 저장 — 마감 뒤 도착한 결과");
   });
 
   it("TP-S5 전 조회 사이 끊김 → op 10 안 보냄 · offline / skipped · offline 앞단 → command 0회", async () => {
@@ -661,7 +740,8 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
       },
     ]);
     const { svc, clock } = rig({ admins: { KB120: kb }, wire: SET_WIRE });
-    expect(await svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 })).toEqual({
+    const body = () => ({ ...BODY, offsets_us: [...BODY.offsets_us] });
+    expect(await svc.setTailProbe("KB120", body(), { deadlineAt: clock.t + 10_000 })).toEqual({
       result: { server: "KB120", outcome: "offline" },
       before: null,
       plan: null,
@@ -671,12 +751,12 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
     const off = new FakeAdmin();
     off.isReady = false;
     const r2 = rig({ rows: [serverRow("KB120"), serverRow("KYOBO119", false)], admins: { KB120: off }, wire: SET_WIRE });
-    expect((await r2.svc.setTailProbe("KYOBO119", { ...BODY }, { deadlineAt: r2.clock.t + 10_000 })).result).toEqual({
+    expect((await r2.svc.setTailProbe("KYOBO119", body(), { deadlineAt: r2.clock.t + 10_000 })).result).toEqual({
       server: "KYOBO119",
       outcome: "skipped",
       message: SKIPPED_DISABLED_LAUNCH_PLAN_MESSAGE,
     });
-    expect((await r2.svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: r2.clock.t + 10_000 })).result.outcome).toBe("offline");
+    expect((await r2.svc.setTailProbe("KB120", body(), { deadlineAt: r2.clock.t + 10_000 })).result.outcome).toBe("offline");
     expect(off.inputs).toHaveLength(0);
   });
 
@@ -684,7 +764,9 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
     const kb = new FakeAdmin();
     const { svc, clock } = rig({ admins: { KB120: kb } });
     expect(svc.tailProbeSettable).toBe(false);
-    await expect(svc.setTailProbe("KB120", { ...BODY }, { deadlineAt: clock.t + 10_000 })).rejects.toThrow();
+    await expect(
+      svc.setTailProbe("KB120", { ...BODY, offsets_us: [...BODY.offsets_us] }, { deadlineAt: clock.t + 10_000 }),
+    ).rejects.toThrow();
     expect(kb.inputs).toHaveLength(0);
   });
 });
@@ -693,7 +775,7 @@ describe("quick-261107-l7w LaunchPlanService.setTailProbe", () => {
 // quick-261125-c2i — 08:30 G2(인박스 261125-sigan-ttaeng-g2 ⓐ ⓑ)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("quick-261125-c2i 08:30 G2 계획 행 · 뒤탐침 Q16|N 유지", () => {
+describe("quick-261125-c2i 08:30 G2 계획 행 · 탐침 Q16|N 유지", () => {
   let logs: LogCall[];
 
   beforeEach(async () => {
@@ -738,7 +820,7 @@ describe("quick-261125-c2i 08:30 G2 계획 행 · 뒤탐침 Q16|N 유지", () =>
     expect(logs.filter((c) => c.level === "warn" || c.level === "error")).toEqual([]);
   });
 
-  it("G-R3 tail_probes 의 G2 행은 뺀다 — Q16 · N 만 · warn 1줄(모르는 뒤탐침 행)", async () => {
+  it("G-R3 tail_probes 의 G2 행은 뺀다 — Q16 · N 만 · warn 1줄(모르는 탐침 행)", async () => {
     const kb = new FakeAdmin([
       snapshotOutcome({
         tailProbes: [
@@ -759,7 +841,7 @@ describe("quick-261125-c2i 08:30 G2 계획 행 · 뒤탐침 Q16|N 유지", () =>
     });
     const warns = logs.filter((c) => c.level === "warn");
     expect(warns).toHaveLength(1);
-    expect(warns[0]!.args[1]).toBe("[admin] 발사 계획 스냅샷의 모르는 뒤탐침 행 — 뺀다");
+    expect(warns[0]!.args[1]).toBe("[admin] 발사 계획 스냅샷의 모르는 탐침 행 — 뺀다");
     expect(warns[0]!.args[0]).toEqual({ server: "KB120", dropped: [{ profile: "G2", count: 1, stepUs: 10 }] });
   });
 

@@ -271,9 +271,10 @@ export type RelayAdminClient = {
     adminEmail: string,
   ): Promise<RelayAdminResponse<LaunchPlanRelaySetResponse>>;
   /**
-   * 뒤탐침 저장(quick-261107-l7w) — `PUT /internal/admin/launch-tail-probe/:server` 바디 `{ profile, count, step_us }`.
-   * relay 가 저장 직전 값을 읽고(before) op 10 으로 저장한 뒤 다시 읽어(plan) `{ result, before, plan }` 로 준다. 기본 상한(쓰기).
-   * relay 와이어 대기(PENDING)면 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`(op 10 0건 — 확정 미반영). 이력 기록은 server 몫.
+   * 탐침 저장(quick-261125-lju) — `PUT /internal/admin/launch-tail-probe/:server` 바디 `{ profile, market, offsets_us }`
+   * (정각 기준 µs 목록 · 빈 배열 = 끔). relay 가 저장 직전 그 (profile, market) 목록을 읽고(before) op 10 목록 모드로 저장한 뒤 다시
+   * 읽어(plan) `{ result, before, plan }` 로 준다. 기본 상한(쓰기). relay 목록 모드 와이어 대기면 503 `LAUNCH_TAIL_PROBE_UNAVAILABLE`
+   * (op 10 0건 — 확정 미반영). 이력 기록은 server 몫.
    */
   setLaunchTailProbe(
     server: string,
