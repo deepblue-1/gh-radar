@@ -566,6 +566,12 @@ describe('탐침 표기(quick-261125-lju)', () => {
     );
     expect(tailProbeChangeText(tpLegacyRow({}))).toBe('뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격');
     expect(tailProbeChangeText(tpLegacyRow({ before_count: null, before_step_us: null }))).toBe('— → 뒤탐침 5발 10µs 간격');
+    // 구 server 응답 — 목록 칸 키 자체가 없다(undefined) → 옛 행으로 읽는다(배포 순서 무관 · 터지지 않음)
+    const bare = tpLegacyRow({}) as unknown as Record<string, unknown>;
+    delete bare.market;
+    delete bare.before_offsets_us;
+    delete bare.after_offsets_us;
+    expect(tailProbeChangeText(bare as unknown as LaunchTailProbeChangeRow)).toBe('뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격');
   });
 
   it('문구 상수 원문', () => {
@@ -588,6 +594,13 @@ describe('탐침 표기(quick-261125-lju)', () => {
     expect(tailProbeChangesOf(st, 'KB120', 'q16', 'K').map((r) => r.id)).toEqual([c.id, b.id, a.id, legacy.id]);
     expect(tailProbeChangesOf(st, 'KB120', 'q16', 'Q').map((r) => r.id)).toEqual([q.id, legacy.id]);
     expect(tailProbeChangesOf(st, 'KB120', 'n0930', 'K')).toEqual([other]);
+    // 구 server 이력 행 — market 키 없음(undefined) → 옛 행으로 두 시장 모두에 보인다
+    const bareRow = tpLegacyRow({ at: '2026-10-01T06:00:00Z' }) as unknown as Record<string, unknown>;
+    delete bareRow.market;
+    const bare = bareRow as unknown as LaunchTailProbeChangeRow;
+    const st2 = { kind: 'ready' as const, resp: { servers: {}, changes: [], tail_probe_changes: [bare] } };
+    expect(tailProbeChangesOf(st2, 'KB120', 'q16', 'K')).toEqual([bare]);
+    expect(tailProbeChangesOf(st2, 'KB120', 'q16', 'Q')).toEqual([bare]);
     expect(tailProbeChangesOf({ kind: 'loading' }, 'KB120', 'q16', 'K')).toEqual([]);
     expect(tailProbeChangesOf({ kind: 'ready', resp: { servers: {}, changes: [] } }, 'KB120', 'q16', 'K')).toEqual([]);
   });

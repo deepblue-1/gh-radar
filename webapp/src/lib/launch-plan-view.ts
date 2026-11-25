@@ -564,7 +564,8 @@ function tailProbeListText(offsets: readonly number[] | null): string {
 
 /** 이력 전 → 후 — 목록 행(after_offsets_us 있음)은 목록 표기 · 옛 행은 「뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격」. */
 export function tailProbeChangeText(row: LaunchTailProbeChangeRow): string {
-  if (row.after_offsets_us !== null) {
+  // 구 server(배포 전 · quick-261125-lju 전 모양)는 목록 칸 키 자체가 없다(undefined) — null 과 같이 옛 행으로 읽는다.
+  if (row.after_offsets_us != null) {
     return `${tailProbeListText(row.before_offsets_us)} → ${tailProbeListText(row.after_offsets_us)}`;
   }
   const before =
@@ -593,7 +594,7 @@ export function tailProbeChangesOf(
 ): LaunchTailProbeChangeRow[] {
   if (state.kind !== 'ready') return [];
   return (state.resp.tail_probe_changes ?? [])
-    .filter((c) => c.gateway === gateway && c.fire === fire && (c.market === market || c.market === null))
+    .filter((c) => c.gateway === gateway && c.fire === fire && (c.market === market || c.market == null))
     .sort(tpByAtDesc);
 }
 
