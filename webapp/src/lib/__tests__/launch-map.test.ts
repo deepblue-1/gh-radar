@@ -17,8 +17,10 @@ import {
   launchRibbonCellsOf,
   launchStackOf,
   launchTicksOf,
+  LAUNCH_DOT_HIT_R,
   launchHiddenDotsOf,
   launchHiddenDotsText,
+  launchNearestDotOf,
   launchHoverOf,
   launchTooltipOf,
   mapNextOffsetOf,
@@ -497,5 +499,32 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
     const far = launchAxisOf([12000, 12000, 12000, 40000], [], 'g0830');
     expect(inAxis(far, 40000)).toBe(false);
     expect(inAxis(far, 12000)).toBe(true);
+  });
+});
+
+describe('launchNearestDotOf — 포인터에서 가장 가까운 점(2026-11-25 「점 위에서 이웃 점 툴팁」 버그)', () => {
+  const A = { cx: 100, cy: 50 };
+  const B = { cx: 103, cy: 50 };
+
+  it('붙은 두 점(x · x+3) — 각 점 중심 → 자기 점', () => {
+    expect(launchNearestDotOf([A, B], 100, 50)).toBe(0);
+    expect(launchNearestDotOf([A, B], 103, 50)).toBe(1);
+  });
+
+  it('사이 → 더 가까운 쪽 · 정확히 가운데면 앞 점', () => {
+    expect(launchNearestDotOf([A, B], 101, 50)).toBe(0);
+    expect(launchNearestDotOf([A, B], 102, 50)).toBe(1);
+    expect(launchNearestDotOf([A, B], 101.5, 50)).toBe(0);
+  });
+
+  it('같은 µs 세로 쌓기(4px)도 2D 거리로 갈린다', () => {
+    expect(launchNearestDotOf([{ cx: 100, cy: 46 }, { cx: 100, cy: 50 }, { cx: 100, cy: 54 }], 100, 53)).toBe(2);
+  });
+
+  it('반경 밖 → null · 반경 경계(= r)는 잡힌다 · 점 없음 → null', () => {
+    expect(LAUNCH_DOT_HIT_R).toBe(8);
+    expect(launchNearestDotOf([A, B], 100, 59)).toBeNull();
+    expect(launchNearestDotOf([A], 100, 58)).toBe(0);
+    expect(launchNearestDotOf([], 0, 0)).toBeNull();
   });
 });

@@ -349,10 +349,16 @@ test.describe('어드민 발사 · 경계 지도', () => {
 
     // 점에 마우스를 대면 즉시 µs 툴팁(사용자 UAT 2026-10-27)
     const kbPanel = panel(page, 'KB120', 'Q');
-    await kbPanel.locator('rect[data-slot="launch-dot-hit"]').first().hover();
+    // 점 중심에 대면 그 점 툴팁(가장 가까운 점 판정 · 2026-11-25 「점보다 왼쪽에 대야 나온다」 버그)
+    const dot = kbPanel.locator('[data-slot="launch-chart"] circle').nth(3);
+    await dot.scrollIntoViewIfNeeded();
+    const db = (await dot.boundingBox())!;
+    await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2);
     const tip = kbPanel.locator('[data-slot="launch-dot-tip"]');
     await expect(tip).toBeVisible();
     await expect(tip).toContainText(/^[−+]?[\d,]+µs/);
+    const dotUs = (await dot.locator('title').textContent())!.split(' ')[1]!;
+    await expect(tip.locator('div').first()).toHaveText(dotUs);
 
     const kb = kpi(page, 'KB120', 'Q');
     await expect(kb).toContainText('KB120 코스닥 · 10일');

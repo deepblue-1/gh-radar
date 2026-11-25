@@ -10,6 +10,7 @@ import { useChartWidth } from '@/hooks/use-chart-width';
 import { DASH, serverMarketLabelOf, fmtUs } from '@/lib/launch-format';
 import {
   LAUNCH_CHART,
+  LAUNCH_DOT_HIT_R,
   diamondPathOf,
   launchAxisOf,
   launchDateLabelOf,
@@ -17,6 +18,7 @@ import {
   launchHiddenDotsOf,
   launchHiddenDotsText,
   launchMarkOf,
+  launchNearestDotOf,
   launchOnAxis,
   launchRibbonCellsOf,
   launchStackOf,
@@ -193,6 +195,22 @@ function LaunchGateSvg({
   const H = ry + RIBBON_H + TICK_H;
 
   const x = (v: number) => xOfUs(v, axis, left, right);
+  // 그려진(축 안) 점 전부 — 포인터에서 가장 가까운 점 하나를 고른다(점마다 겹치는 감지 칸을 두지 않는다 · 2026-11-25 버그).
+  const dots: HoverDot[] = days.flatMap((d, i) => {
+    const cy = T + i * RH + RH / 2;
+    const dys = launchStackOf(d.pieces);
+    return d.pieces.flatMap((p, j) =>
+      launchOnAxis(p.sent_rel_us, axis)
+        ? [{ cx: x(p.sent_rel_us), cy: cy + dys[j]!, ...launchHoverOf(d.date, p, fire) }]
+        : [],
+    );
+  });
+  const pick = (e: { clientX: number; clientY: number; currentTarget: SVGRectElement }) => {
+    // viewBox = 폭 1:1 — svg 화면 상자 기준 좌표가 곧 svg 좌표(래퍼 가로 스크롤은 상자 left 에 이미 반영된다).
+    const box = (e.currentTarget.ownerSVGElement ?? e.currentTarget).getBoundingClientRect();
+    const k = launchNearestDotOf(dots, e.clientX - box.left, e.clientY - box.top);
+    setHover(k === null ? null : dots[k]!);
+  };
   const ticks = launchTicksOf(axis, right - left);
   const ribbon = launchRibbonCellsOf(days, axis, right - left);
   const single = planLines.length === 1;
@@ -251,19 +269,27 @@ function LaunchGateSvg({
                 const cx = x(p.sent_rel_us);
                 const py = cy + dys[j]!;
                 const tip = launchTooltipOf(d.date, p, fire);
-                const show = () => setHover({ cx, cy: py, ...launchHoverOf(d.date, p, fire) });
                 const hollow = mark.tone === 'other';
                 const paint = hollow
                   ? { fill: 'none', stroke: 'var(--launch-other)', strokeWidth: 1.6 }
                   : { fill: TONE_FILL[mark.tone], stroke: 'var(--card)', strokeWidth: 1 };
                 const dot = mark.shape === 'triangle' ? (
-                  <path data-shape="triangle" data-tone={mark.tone} d={trianglePathOf(cx, py, TRI_R)} {...paint}>
+                  <path
+                    data-shape="triangle"
+                    data-tone={mark.tone}
+                    data-cx={cx}
+                    data-cy={py}
+                    d={trianglePathOf(cx, py, TRI_R)}
+                    {...paint}
+                  >
                     <title>{tip}</title>
                   </path>
                 ) : mark.shape === 'diamond' ? (
                   <path
                     data-shape="diamond"
                     data-tone={mark.tone}
+                    data-cx={cx}
+                    data-cy={py}
                     d={diamondPathOf(cx, py, hollow ? DIAMOND_R - 0.7 : DIAMOND_R)}
                     {...paint}
                   >
@@ -280,27 +306,26 @@ function LaunchGateSvg({
                     <title>{tip}</title>
                   </circle>
                 );
-                // 점(r 4.5)은 맞추기 어렵고 속 빈 「기타」 점은 테두리만 잡혀서, 보이지 않는 넓은 감지 칸을 위에 둔다.
-                return (
-                  <Fragment key={j}>
-                    {dot}
-                    <rect
-                      data-slot="launch-dot-hit"
-                      x={cx - HIT}
-                      y={py - HIT}
-                      width={HIT * 2}
-                      height={HIT * 2}
-                      fill="transparent"
-                      pointerEvents="all"
-                      onMouseEnter={show}
-                      onClick={show}
-                    />
-                  </Fragment>
-                );
+                return <Fragment key={j}>{dot}</Fragment>;
               })}
             </g>
           );
         })}
+
+        {/* 점 감지 층 — 날짜 행 전체 위 투명 칸 하나 · 포인터에서 가장 가까운 점(반경 LAUNCH_DOT_HIT_R)을 고른다(이동 · 클릭/터치 같은 판정) */}
+        {dots.length > 0 && (
+          <rect
+            data-slot="launch-dot-hit"
+            x={0}
+            y={T - LAUNCH_DOT_HIT_R}
+            width={W}
+            height={rowsBottom - T + LAUNCH_DOT_HIT_R * 2}
+            fill="transparent"
+            pointerEvents="all"
+            onMouseMove={pick}
+            onClick={pick}
+          />
+        )}
 
         {/* 「쐈다면」 리본 — 칸마다 위 접수 · 가운데 모름 · 아래 거부(날 수 비율) */}
         <text x={left} y={ry - 8} {...TEXT}>
@@ -420,8 +445,6 @@ function LaunchGateSvg({
   );
 }
 
-/** 감지 칸 반쪽 폭 — 점 사이 간격(세로 쌓기 4px)보다 넓어도 마지막에 그린 점이 이긴다. */
-const HIT = 8;
 
 interface HoverDot {
   cx: number;

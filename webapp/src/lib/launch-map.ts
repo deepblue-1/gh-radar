@@ -162,6 +162,32 @@ export function launchHiddenDotsText(hidden: readonly { date: string; us: number
   };
 }
 
+/** 점 감지 반경(px) — 포인터에서 이 거리 안의 점만 고른다(점 r 4.5 보다 넓게 · 속 빈 「기타」 점도 잡히게). */
+export const LAUNCH_DOT_HIT_R = 8;
+
+/**
+ * 포인터(px, py · svg 좌표)에서 가장 가까운 점의 인덱스 — 2D 거리(같은 µs 세로 쌓기 4px 도 갈린다) · 반경 `r` 밖이면 null.
+ * 거리가 같으면 앞 점. 점마다 겹치는 감지 칸을 두면 뒤에 그린 이웃 칸이 앞 점 중심을 덮어 엉뚱한 점이 잡힌다
+ * (2026-11-25 사용자 버그 보고) — 그래서 칸 대신 거리로 고른다.
+ */
+export function launchNearestDotOf(
+  dots: readonly { cx: number; cy: number }[],
+  px: number,
+  py: number,
+  r: number = LAUNCH_DOT_HIT_R,
+): number | null {
+  let best: number | null = null;
+  let bestD = r * r;
+  dots.forEach((d, i) => {
+    const dd = (d.cx - px) ** 2 + (d.cy - py) ** 2;
+    if (dd < bestD || (dd === bestD && best === null)) {
+      best = i;
+      bestD = dd;
+    }
+  });
+  return best;
+}
+
 /** µs → x · 선형 · 축 밖은 끝(left · right)으로 고정(경계 띠 · 리본이 축 끝에서 잘린다 · 점은 축 밖이면 그리지 않는다). */
 export function xOfUs(v: number, axis: LaunchAxis, left: number, right: number): number {
   const span = axis.xmax - axis.xmin;

@@ -200,18 +200,37 @@ describe('LaunchGateChart — 09:00:30 합패널(N 매수 원 · A 매도 마름
     expect(titles).toContain('10/26 −20,148µs · wire 0 · 매수 · 101 · 재전송 2');
   });
 
-  it('점 감지 칸에 마우스를 대면 즉시 툴팁 「−20,139µs」 · 「10/26 · wire 3 · 매도 · 101」, 벗어나면 사라진다', () => {
+  it('마름모 중심에 마우스를 대면 즉시 툴팁 「−20,139µs」 · 「10/26 · wire 3 · 매도 · 101」, 점 없는 곳 · 벗어나면 사라진다', () => {
     const { svg } = renderN();
-    const hits = svg.querySelectorAll('rect[data-slot="launch-dot-hit"]');
-    expect(hits).toHaveLength(4);
+    const layers = svg.querySelectorAll('rect[data-slot="launch-dot-hit"]');
+    expect(layers).toHaveLength(1);
+    const layer = layers[0]!;
     const wrap = svg.parentElement!;
     expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).toBeNull();
-    const diamondHit = [...hits].find((h) => h.previousElementSibling?.getAttribute('data-shape') === 'diamond')!;
-    fireEvent.mouseEnter(diamondHit);
-    const tip = wrap.querySelector('[data-slot="launch-dot-tip"]')!;
-    expect(tip.textContent).toBe('−20,139µs10/26 · wire 3 · 매도 · 101');
+    const dia = svg.querySelector<SVGPathElement>('path[data-shape="diamond"]')!;
+    const at = { clientX: Number(dia.dataset.cx), clientY: Number(dia.dataset.cy) };
+    fireEvent.mouseMove(layer, at);
+    expect(wrap.querySelector('[data-slot="launch-dot-tip"]')!.textContent).toBe('−20,139µs10/26 · wire 3 · 매도 · 101');
+    // 점에서 멀리(반경 밖) → 툴팁 사라짐
+    fireEvent.mouseMove(layer, { clientX: at.clientX, clientY: at.clientY + 20 });
+    expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).toBeNull();
+    fireEvent.click(layer, at);
+    expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).not.toBeNull();
     fireEvent.mouseLeave(wrap);
     expect(wrap.querySelector('[data-slot="launch-dot-tip"]')).toBeNull();
+  });
+
+  it('붙은 점 — 각 점 중심에 대면 그 점 툴팁(이웃 점이 아니라 · 2026-11-25 버그)', () => {
+    const { svg } = renderN();
+    const layer = svg.querySelector('rect[data-slot="launch-dot-hit"]')!;
+    const wrap = svg.parentElement!;
+    const circles = [...svg.querySelectorAll<SVGCircleElement>('circle')];
+    expect(circles.length).toBeGreaterThan(1);
+    for (const c of circles) {
+      fireEvent.mouseMove(layer, { clientX: Number(c.getAttribute('cx')), clientY: Number(c.getAttribute('cy')) });
+      const us = c.querySelector('title')!.textContent!.split(' ')[1]!;
+      expect(wrap.querySelector('[data-slot="launch-dot-tip"] div')!.textContent).toBe(us);
+    }
   });
 
   it('next −245 가 점(−20,1xx)과 멀어도 축이 담는다 → 점선 1 · 축 끝 글 0(quick-261125-lju)', () => {
@@ -493,9 +512,8 @@ describe('LaunchGateChart — 16:00 탐침 ▲(quick-261030-dz7 · 목업 A안)'
     const { svg, row } = renderTp();
     const tri = row('20261030').querySelectorAll('path[data-shape="triangle"]')[1]!;
     expect(tri.querySelector('title')!.textContent).toBe('10/30 −250µs · 탐침 2 · 가격거부(열림) · F083');
-    const hit = tri.nextElementSibling!;
-    expect(hit.getAttribute('data-slot')).toBe('launch-dot-hit');
-    fireEvent.mouseEnter(hit);
+    const layer = svg.querySelector('rect[data-slot="launch-dot-hit"]')!;
+    fireEvent.mouseMove(layer, { clientX: Number(tri.getAttribute('data-cx')), clientY: Number(tri.getAttribute('data-cy')) });
     const tip = svg.parentElement!.querySelector('[data-slot="launch-dot-tip"]')!;
     expect(tip.textContent).toBe('−250µs10/30 · 탐침 2 · 가격거부(열림) · F083');
   });
