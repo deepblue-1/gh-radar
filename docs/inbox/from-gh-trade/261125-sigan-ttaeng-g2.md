@@ -5,7 +5,7 @@ from_commit: 3b80cfcd
 from_branch: master
 date: 2026-11-25
 fbs_sync_marker: 8d073739
-done_commit: 3b2b7555  # ① relay 생성물 재동기화(마커 cab42f16) ② DB 매핑 4 → 'G2'(20261125090000 · 운영 적용 2026-11-25) · ③ 어드민 08:30 칸은 후속 phase
+done_commit: 3b2b7555  # ① relay 생성물 재동기화(마커 cab42f16) ② DB 매핑 4 → 'G2'(20261125090000) ③ 어드민 08:30 칸 quick-261125-c2i(8bc8eabf · 운영 배포 2026-11-25)
 ---
 <!-- radar-handoff.sh 가 이 파일을 복사해 이중 중괄호 토큰을 치환한다. 처리한 gh-radar 세션은 status 를 done 으로 바꾸고 done_commit 을 채워 커밋한다(경로 지정 add). -->
 
@@ -116,5 +116,5 @@ gh-radar 쪽에 묻고 싶은 것, 결정이 필요한 것을 적는다(없으�
 
 - ① relay 생성물 재동기화 — 마커 `cab42f16`(노트의 `8d073739` 뒤 `a02f8312` quick-261118-ms7 주석 · `54e6366f` · `cab42f16` 함께). 77 두 접근자 + 주석뿐이라 relay 동작 무변경 → **relay 재배포 안 함**. relay 테스트 2018/2018.
 - ② DB 매핑 — `supabase/migrations/20261125090000_launch_project_g2.sql`(`launch_project_event` cond_metric CASE 에 `WHEN 4 THEN 'G2'` 한 줄) **운영 적용 2026-11-25**. 5(G3)는 매핑하지 않는다(오면 포이즌 · 원문 보존). 적용 시점에 profile 4 원문이 없어 `launch_reproject()` 불필요. pgTAP `launch_project_g2.test.sql` 14/14 — 지도(q16 · n0930) · 대기열 입력에 G2 가 섞이지 않음.
-- ③ 어드민 08:30 칸 — 후속 phase(relay zod · server fire enum · 이력 표 CHECK · shared · 웹). 그 전에는 구 relay 가 94 의 G2 행을 warn 1줄 뒤 버린다(노트 「배포 순서」 그대로).
+- ③ 어드민 08:30 칸 — quick-261125-c2i(c523d2cb · 0015444a · b0e578df · 8bc8eabf) **운영 배포 2026-11-25** (DB `20261125110000_launch_g2_admin.sql` → relay `2ec53e52` → server `2ec53e52` → webapp push). 발사 기준 `g0830`(KRX 08:30:00) · (G2, K|Q) 한 값 −3,000 ~ +20,000µs · 94 에 G2 행이 없으면 「이 서버는 08:30 발사를 모름」 · 뒤탐침 막대 · 표식은 08:30 에서 숨김 · 주문 내역 08:30 세그먼트.
 - 질문 1 답 — 문제없다. queue_case 2 는 515 / E127 이 아니면 result '101' 로 풀리지만 `result_code` 에 rc 원문이 남고, G2 를 읽는 화면이 아직 없다. 코드가 101 이 아니면 알려 주면 ③ 에서 `result_code` 로 다시 읽는다.
