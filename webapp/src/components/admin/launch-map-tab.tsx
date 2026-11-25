@@ -557,6 +557,9 @@ export function LaunchMapView({
   const panels = useMemo(() => (resp === null ? [] : panelsOf(resp, gw, fire, plan)), [resp, gw, fire, plan]);
   const ready = status === 'ready' && resp !== null;
   const noHistory = ready && resp.days.length === 0;
+  // 발사 기록이 없어도 계획을 읽었으면 패널(「이 범위에 발사 없음」 + 계획 줄)을 그린다 — 08:30 은 첫 발사 전에 계획을
+  // 넣어야 한다(quick-261125-c2i 후속). 계획 기능이 없으면(absent) 종전 빈 카드.
+  const planOnly = noHistory && plan.kind !== 'absent';
   const mine = ready ? resp.pieces.filter((p) => p.gateway === gw) : [];
   const sideless = ready && fire === 'n0930' && mine.some((p) => p.side === null);
   // 범례 뒤탐침 견본 — 고른 서버 조각에 뒤탐침(16:00 Q16 · 09:00:30 N · 인박스 261107-nxt-tail-probe-kind17)이 있으면.
@@ -629,7 +632,7 @@ export function LaunchMapView({
         </div>
       )}
 
-      {noHistory && (
+      {noHistory && !planOnly && (
         <div data-slot="launch-empty" className={cn(CARD, 'flex flex-col items-center gap-1 px-4 py-12 text-center')}>
           <p className="text-[length:var(--t-sm)] font-semibold break-keep text-[var(--fg)]">
             아직 적재된 발사가 없어요 · 첫 적재는 16:00:01
@@ -637,7 +640,7 @@ export function LaunchMapView({
         </div>
       )}
 
-      {ready && !noHistory && (
+      {ready && (!noHistory || planOnly) && (
         <>
           <LaunchLegend
             fire={fire}
@@ -655,11 +658,13 @@ export function LaunchMapView({
               {LAUNCH_PLAN_APPLY_NOTE}
             </p>
           )}
-          <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2">
-            {panels.map((p) => (
-              <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
-            ))}
-          </div>
+          {!noHistory && (
+            <div data-slot="launch-kpis" className="grid min-w-0 grid-cols-2 gap-2">
+              {panels.map((p) => (
+                <LaunchKpiCard key={`${p.gateway}|${p.market}`} {...p} />
+              ))}
+            </div>
+          )}
           {plan.kind !== 'absent' && isLaunchTailProbeFire(fire) && (
             <LaunchTailProbeBar
               gateway={gw}

@@ -1536,6 +1536,20 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
     }
   });
 
+  it('첫 발사 전(days []) 이어도 계획을 읽었으면 패널 · 계획 줄 · 고치기 — 빈 카드 · KPI 없음', () => {
+    const onEdit = vi.fn();
+    const { container } = view({ resp: { days: [], heads: [], pieces: [] }, fire: 'g0830', range: '10d', plan: { kind: 'ready', resp: planG2() }, onEdit });
+    expect(slots(container, 'launch-empty')).toHaveLength(0);
+    expect(slots(container, 'launch-kpi')).toHaveLength(0);
+    const p = panelOf(container, 'KB120', 'K');
+    expect(p.textContent).toContain('이 범위에 발사 없음');
+    expect(one(p, '[data-slot="launch-plan-line"]').textContent).toBe('+12,000µs');
+    const toggle = one(p, '[data-slot="launch-plan-edit-toggle"]') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(onEdit).toHaveBeenCalledWith({ gateway: 'KB120', market: 'K', offsets: [12000] });
+  });
+
   it('뒤탐침 막대 · 예정 표식 · 계획 줄 꼬리 없음(tail_probes 가 있어도) · 16:00 에서는 막대가 그대로', () => {
     const plan = { kind: 'ready', resp: planG2() } as const;
     const g = view({ resp: g0830(), fire: 'g0830', range: '10d', plan });
