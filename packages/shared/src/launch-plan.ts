@@ -188,13 +188,13 @@ export function launchPlanUsText(v: number): string {
 /** 편집 초안 검사 결과 — badIdx 는 0부터(개수 위반은 -1 · 화면 번호 = badIdx + 1). */
 export type LaunchPlanDraftCheck =
   | { ok: true; values: number[] }
-  | { ok: false; badIdx: number; kind: "count" | "int" | "range" | "order" | "span"; message: string };
+  | { ok: false; badIdx: number; kind: "count" | "int" | "range" | "span"; message: string };
 
 const INT_RE = /^-?\d+$/;
 
 /**
- * 편집 칸 원문(문자열) 검사 — 개수 → 칸마다(정수 → 범위) → 순서(q16 만 · 같은 값 허용) → 폭(마지막 − 첫 ≤ `maxSpanUs` ·
- * 위반이면 badIdx = 마지막 칸) 순으로 첫 위반 하나만 돌려준다.
+ * 편집 칸 원문(문자열) 검사 — 개수 → 칸마다(정수 → 범위) → 폭(가장 늦은 − 가장 이른 ≤ `maxSpanUs` · 위반이면 badIdx =
+ * 가장 늦은 값의 칸) 순으로 첫 위반 하나만 돌려준다. 칸 순서는 자유 — 통과하면 `values` 는 이른 시각부터 정렬된 값이다.
  * 원문을 숫자로 바꾸기 전에 검사한다(웹이 입력 원문을 쥔다 · 앞뒤 공백은 잘라서 본다 · `+5` · 소수 · 지수는 정수 위반).
  */
 export function validateLaunchPlanDraft(fire: LaunchFire, raw: readonly string[]): LaunchPlanDraftCheck {
@@ -225,31 +225,20 @@ export function validateLaunchPlanDraft(fire: LaunchFire, raw: readonly string[]
     values.push(v);
   }
 
-  for (let i = 1; i < values.length; i++) {
-    if (values[i]! < values[i - 1]!) {
-      return {
-        ok: false,
-        badIdx: i,
-        kind: "order",
-        message:
-          `${label}은 앞 조각과 같거나 늦어야 해요 — ${i + 1}번 ${launchPlanUsText(values[i]!)}µs 가 ` +
-          `${i}번 ${launchPlanUsText(values[i - 1]!)}µs 보다 이릅니다`,
-      };
-    }
-  }
-
-  // 순서 검사를 통과했으니 폭 = 마지막 − 첫(≥ 0).
-  const span = values[values.length - 1]! - values[0]!;
+  // 순서는 검사하지 않는다 — 칸은 아무 순서로 넣어도 되고 이른 시각부터 정렬한 값을 돌려준다(저장 · 미리보기는 정렬된 값 · fast-261125).
+  // 폭 = 가장 늦은 − 가장 이른. 위반이면 badIdx = 가장 늦은 값이 든 칸(같은 값이 여럿이면 뒤 칸).
+  const sorted = [...values].sort((a, b) => a - b);
+  const span = sorted[sorted.length - 1]! - sorted[0]!;
   if (lim.maxSpanUs !== null && span > lim.maxSpanUs) {
     return {
       ok: false,
-      badIdx: values.length - 1,
+      badIdx: values.lastIndexOf(sorted[sorted.length - 1]!),
       kind: "span",
-      message: `${label}은 첫 조각과 마지막 조각 차이가 ${lim.maxSpanUs}µs 이하여야 해요 — 지금 ${span}µs`,
+      message: `${label}은 가장 이른 조각과 가장 늦은 조각 차이가 ${lim.maxSpanUs}µs 이하여야 해요 — 지금 ${span}µs`,
     };
   }
 
-  return { ok: true, values };
+  return { ok: true, values: sorted };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

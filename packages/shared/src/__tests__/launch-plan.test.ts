@@ -150,7 +150,7 @@ describe("LAUNCH_PLAN_LIMITS · launchPlanUsText", () => {
   });
 });
 
-describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) → 순서 → 폭", () => {
+describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) → 폭 · 순서는 자유(정렬해서 돌려줌)", () => {
   it("ok — 값 배열 · 같은 값 허용 · 앞뒤 공백은 잘라서 본다", () => {
     expect(validateLaunchPlanDraft("q16", ["-350", "-345", "-325"])).toEqual({ ok: true, values: [-350, -345, -325] });
     expect(validateLaunchPlanDraft("q16", ["-350", "-345", "-345"])).toEqual({ ok: true, values: [-350, -345, -345] });
@@ -158,13 +158,10 @@ describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) �
     expect(validateLaunchPlanDraft("n0930", ["-245"])).toEqual({ ok: true, values: [-245] });
   });
 
-  it("순서 위반 — badIdx 1 · 문구 원문(U+2212 · 쉼표 없음)", () => {
-    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "-325"])).toEqual({
-      ok: false,
-      badIdx: 1,
-      kind: "order",
-      message: "조각 시각은 앞 조각과 같거나 늦어야 해요 — 2번 −360µs 가 1번 −350µs 보다 이릅니다",
-    });
+  it("순서가 뒤섞여도 ok — values 는 이른 시각부터 정렬(fast-261125)", () => {
+    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "-325"])).toEqual({ ok: true, values: [-360, -350, -325] });
+    expect(validateLaunchPlanDraft("q16", ["-325", "-345", "-400"])).toEqual({ ok: true, values: [-400, -345, -325] });
+    expect(validateLaunchPlanDraft("q16", ["-300", "-345", "-345"])).toEqual({ ok: true, values: [-345, -345, -300] });
   });
 
   it("범위 위반 — 16:00 · 09:00:30 문구 원문", () => {
@@ -214,25 +211,29 @@ describe("validateLaunchPlanDraft — 개수 → 칸마다(정수 → 범위) �
       ok: false,
       badIdx: 2,
       kind: "span",
-      message: "조각 시각은 첫 조각과 마지막 조각 차이가 500µs 이하여야 해요 — 지금 501µs",
+      message: "조각 시각은 가장 이른 조각과 가장 늦은 조각 차이가 500µs 이하여야 해요 — 지금 501µs",
     });
     expect(validateLaunchPlanDraft("q16", ["-350", "-345", "150"])).toEqual({ ok: true, values: [-350, -345, 150] });
     expect(validateLaunchPlanDraft("q16", ["-3000", "1000"])).toMatchObject({ ok: false, badIdx: 1, kind: "span" });
   });
 
-  it("폭 검사는 순서 검사 뒤 — 순서 위반이 먼저 · 한 칸이면 폭 없음", () => {
-    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "500"])).toMatchObject({ badIdx: 1, kind: "order" });
+  it("폭 = 가장 늦은 − 가장 이른 · badIdx = 가장 늦은 값의 칸 · 한 칸이면 폭 없음", () => {
+    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "500"])).toEqual({
+      ok: false,
+      badIdx: 2,
+      kind: "span",
+      message: "조각 시각은 가장 이른 조각과 가장 늦은 조각 차이가 500µs 이하여야 해요 — 지금 860µs",
+    });
+    expect(validateLaunchPlanDraft("q16", ["500", "-350", "-360"])).toMatchObject({ badIdx: 0, kind: "span" });
     expect(validateLaunchPlanDraft("q16", ["-350", "5000"])).toMatchObject({ badIdx: 1, kind: "range" });
     expect(validateLaunchPlanDraft("q16", ["-3000"])).toEqual({ ok: true, values: [-3000] });
   });
 
-  it("첫 위반 하나만 — 칸 순서대로 정수 → 범위 · 순서는 칸 검사가 다 통과한 뒤", () => {
+  it("첫 위반 하나만 — 칸 순서대로 정수 → 범위 · 폭은 칸 검사가 다 통과한 뒤", () => {
     // 1번 범위 위반이 2번 정수 위반보다 먼저
     expect(validateLaunchPlanDraft("q16", ["-3500", "-34.5"])).toMatchObject({ badIdx: 0, kind: "range" });
-    // 순서 위반(2번)이 있어도 3번 범위 위반이 먼저
-    expect(validateLaunchPlanDraft("q16", ["-350", "-360", "5000"])).toMatchObject({ badIdx: 2, kind: "range" });
-    // 순서 위반 둘이면 첫 번째
-    expect(validateLaunchPlanDraft("q16", ["-300", "-310", "-320"])).toMatchObject({ badIdx: 1, kind: "order" });
+    // 폭 위반보다 3번 범위 위반이 먼저
+    expect(validateLaunchPlanDraft("q16", ["-350", "-3000", "5000"])).toMatchObject({ badIdx: 2, kind: "range" });
   });
 
   it("개수 위반 — q16 0칸 · 11칸 · n0930 두 칸 → badIdx -1", () => {

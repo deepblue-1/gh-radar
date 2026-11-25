@@ -103,40 +103,37 @@ describe('LaunchPlanEditor — 16:00 스테퍼', () => {
   });
 });
 
-describe('LaunchPlanEditor — 조각 시각 자동 정렬(fast-261119)', () => {
-  it('맨 뒤 칸에 가장 이른 값 → 칸을 벗어나면 맨 앞으로 · 순서 오류 사라지고 저장 가능', () => {
+describe('LaunchPlanEditor — 칸 순서 자유 · 저장 때 정렬(fast-261125)', () => {
+  it('맨 뒤 칸에 가장 이른 값 → 칸을 벗어나도 그 자리 그대로 · 오류 없음 · 저장 가능', () => {
     render(<Harness />);
     type(inputs()[2]!, '-400');
-    expect(screen.getByRole('alert')).not.toBeNull();
     fireEvent.blur(inputs()[2]!);
-    expect(inputs().map((i) => i.value)).toEqual(['-400', '-350', '-345']);
+    expect(inputs().map((i) => i.value)).toEqual(['-350', '-345', '-400']);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(saveBtn()).toBeEnabled();
   });
 
-  it('정수가 아닌 칸이 있으면 정렬하지 않는다 · 이미 순서면 그대로', () => {
+  it('순서만 바꾼 같은 값 → 바뀐 것 없음(저장 비활성)', () => {
     render(<Harness />);
-    type(inputs()[0]!, '-');
-    fireEvent.blur(inputs()[0]!);
-    expect(inputs().map((i) => i.value)).toEqual(['-', '-345', '-325']);
-    type(inputs()[0]!, '-350');
-    fireEvent.blur(inputs()[0]!);
-    expect(inputs().map((i) => i.value)).toEqual(['-350', '-345', '-325']);
-    expect(revertBtn()).toBeDisabled();
+    type(inputs()[0]!, '-325');
+    type(inputs()[2]!, '-350');
+    expect(inputs().map((i) => i.value)).toEqual(['-325', '-345', '-350']);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(saveBtn()).toBeDisabled();
   });
 });
 
 describe('LaunchPlanEditor — 검증 표시(D-26 · D-34)', () => {
-  it('2번 −360 → 그 칸만 aria-invalid · role=alert 순서 문구 · 저장 비활성 · 입력값 유지', () => {
+  it('1번 200(폭 545 · 가장 늦은 값이 앞 칸) → 그 칸만 aria-invalid · 폭 문구 · 저장 비활성 · 입력값 유지', () => {
     render(<Harness />);
-    type(inputs()[1]!, '-360');
-    expect(inputs().map((i) => i.getAttribute('aria-invalid'))).toEqual([null, 'true', null]);
+    type(inputs()[0]!, '200');
+    expect(inputs().map((i) => i.getAttribute('aria-invalid'))).toEqual(['true', null, null]);
     expect(screen.getByRole('alert').textContent).toBe(
-      `조각 시각은 앞 조각과 같거나 늦어야 해요 — 2번 ${M}360µs 가 1번 ${M}350µs 보다 이릅니다`,
+      '조각 시각은 가장 이른 조각과 가장 늦은 조각 차이가 500µs 이하여야 해요 — 지금 545µs',
     );
     expect(q('[data-slot="launch-plan-alert"]')).not.toBeNull();
     expect(saveBtn()).toBeDisabled();
-    expect(inputs()[1]!.value).toBe('-360');
+    expect(inputs()[0]!.value).toBe('200');
   });
 
   it('1번 −3500 → 범위 문구 · 「-」 → 정수 문구 · 고치면 alert 사라짐', () => {
@@ -156,7 +153,9 @@ describe('LaunchPlanEditor — 검증 표시(D-26 · D-34)', () => {
     render(<Harness />);
     type(inputs()[2]!, '151');
     expect(inputs().map((i) => i.getAttribute('aria-invalid'))).toEqual([null, null, 'true']);
-    expect(screen.getByRole('alert').textContent).toBe('조각 시각은 첫 조각과 마지막 조각 차이가 500µs 이하여야 해요 — 지금 501µs');
+    expect(screen.getByRole('alert').textContent).toBe(
+      '조각 시각은 가장 이른 조각과 가장 늦은 조각 차이가 500µs 이하여야 해요 — 지금 501µs',
+    );
     expect(saveBtn()).toBeDisabled();
     type(inputs()[2]!, '150');
     expect(screen.queryByRole('alert')).toBeNull();
@@ -322,7 +321,7 @@ describe('LaunchPlanEditor — 미리보기 P2', () => {
     render(<PreviewHarness />);
     type(inputs()[1]!, '-340');
     expect(cellsOf(previewRows()[1]!)[2]).toBe(`${M}340`);
-    type(inputs()[1]!, '-360');
+    type(inputs()[1]!, '-3500');
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(cellsOf(previewRows()[1]!)[2]).toBe(`${M}340`);
     type(inputs()[1]!, '-');

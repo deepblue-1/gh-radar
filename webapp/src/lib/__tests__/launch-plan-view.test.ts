@@ -455,9 +455,13 @@ describe('편집 · 저장(35-15)', () => {
     expect(e0.draft).toEqual(['-350', '-345', '-325']);
     const e1 = planEditWithDraft(e0, ['-350', '-340', '-325']);
     expect(e1.valid).toEqual([-350, -340, -325]);
-    const e2 = planEditWithDraft(e1, ['-350', '-360', '-325']);
-    expect(e2.draft).toEqual(['-350', '-360', '-325']);
+    const e2 = planEditWithDraft(e1, ['-350', '-3500', '-325']);
+    expect(e2.draft).toEqual(['-350', '-3500', '-325']);
     expect(e2.valid).toEqual([-350, -340, -325]);
+    // 순서가 뒤섞인 초안 — 칸은 입력 그대로 · valid(저장 · 미리보기)는 이른 시각부터 정렬(fast-261125)
+    const e3 = planEditWithDraft(e2, ['-325', '-345', '-400']);
+    expect(e3.draft).toEqual(['-325', '-345', '-400']);
+    expect(e3.valid).toEqual([-400, -345, -325]);
   });
 
   it('planStateWithSave — plan 으로 그 서버만 교체 · change 는 맨 앞 · null 이면 그대로 · ready 아니면 그대로', () => {

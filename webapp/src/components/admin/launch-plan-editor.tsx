@@ -17,7 +17,6 @@ import {
   commonPlanSplitText,
   sameOffsets,
   saveResultViewOf,
-  sortedPlanDraft,
   verdictCellText,
   type LaunchPlanReread,
   type SaveTone,
@@ -33,7 +32,8 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  * 저장 단위 = 그 패널(서버 × 시장 × 지금 세그먼트 발사) 1칸. 상태는 부모(지도 탭)가 쥔다 — 이 컴포넌트는 그리기 · 이벤트만.
  * - `draft` = 칸마다 입력 원문 문자열. 검증은 shared `validateLaunchPlanDraft` 한 벌(웹에서 다시 쓰지 않는다).
  * - 16:00 = 「조각 수」 −/+ 스테퍼(`LAUNCH_PLAN_LIMITS` · + 는 마지막 칸 값을 복사해 붙이고 − 는 마지막 칸을 뺀다) + 칸마다 µs.
- *   칸을 벗어나면(blur) 이른 시각부터 자동 정렬(`sortedPlanDraft` — 모든 칸이 정수일 때만) — 맨 뒤 칸에 가장 이른 값을 넣어도 맨 앞으로 간다.
+ *   칸 순서는 자유 — 입력 중에는 칸을 움직이지 않고, 검증이 이른 시각부터 정렬한 값을 돌려줘 저장 · 미리보기는 정렬된 값이다
+ *   (저장 뒤 칸이 정렬된 서버 값으로 다시 열린다 · fast-261125).
  *   09:00:30 = 「발사 시각」 한 칸(스테퍼 없음). 「첫 시각 + 간격」 · 「고르게 채우기」 도우미는 없다(Deferred).
  * - 검증 위반 = 그 칸만 `aria-invalid` + 빨간 테두리 · `role=alert` 한 줄(shared 문구 원문) · 저장 비활성 · 입력값은 그대로.
  *   개수 위반(badIdx −1)은 칸 표시 없이 alert 만. 폭 위반(16:00 마지막 − 첫 > 500µs)은 마지막 칸에 표시.
@@ -115,10 +115,6 @@ export function LaunchPlanEditor({
   const setAt = (i: number, v: string) => onDraft(draft.map((s, j) => (j === i ? v : s)));
   const add = () => onDraft([...draft, draft[draft.length - 1] ?? String(entry.offsets_us[0] ?? 0)]);
   const drop = () => onDraft(draft.slice(0, -1));
-  const sortOnBlur = () => {
-    const sorted = sortedPlanDraft(draft);
-    if (sorted !== null) onDraft(sorted);
-  };
 
   return (
     <div
@@ -176,7 +172,6 @@ export function LaunchPlanEditor({
                   aria-invalid={bad ? true : undefined}
                   value={s}
                   onChange={(e) => setAt(i, e.target.value)}
-                  onBlur={multi ? sortOnBlur : undefined}
                   className="w-full min-w-0 border-0 bg-transparent text-right text-[14px] font-semibold text-[var(--fg)] tabular-nums outline-none"
                 />
                 <small className="text-[11.5px] text-[var(--muted-fg)]">µs</small>

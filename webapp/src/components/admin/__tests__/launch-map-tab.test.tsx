@@ -711,6 +711,32 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     await waitFor(() => expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true));
   });
 
+  it('순서가 뒤섞인 칸 → 저장은 이른 시각부터 정렬해 보낸다 · 저장 뒤 칸도 정렬된 값으로 다시 열린다(fast-261125)', async () => {
+    vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
+    vi.mocked(saveLaunchPlan).mockResolvedValue({
+      result: { server: 'KB120', outcome: 'ok', usersRev: '12' },
+      plan: null,
+      change: null,
+    });
+    vi.mocked(fetchLaunchMap).mockResolvedValue(Q16_ALL);
+    const { container } = render(<LaunchMapTab gw="KB120" fire="q16" range="all" onFire={vi.fn()} onRange={vi.fn()} />);
+    await waitFor(() =>
+      expect(one(panelOf(container, 'KB120', 'Q'), '[data-slot="launch-plan-line"]').textContent).toBe(
+        `3조각 ${M}350 · ${M}345 · ${M}325µs`,
+      ),
+    );
+    const kbq = () => panelOf(container, 'KB120', 'Q');
+    fireEvent.click(one(kbq(), '[data-slot="launch-plan-edit-toggle"]'));
+    const in3 = within(kbq()).getByLabelText('3번 조각 시각(µs)');
+    fireEvent.change(in3, { target: { value: '-400' } });
+    fireEvent.blur(in3);
+    const values = () => within(kbq()).getAllByRole('textbox').map((i) => (i as HTMLInputElement).value);
+    expect(values()).toEqual(['-350', '-345', '-400']);
+    fireEvent.click(one(kbq(), '[data-slot="launch-plan-save"]'));
+    expect(saveLaunchPlan).toHaveBeenCalledWith('KB120', 'q16', 'Q', [-400, -350, -345]);
+    await waitFor(() => expect(values()).toEqual(['-400', '-350', '-345']));
+  });
+
   it('IN-03 저장 중에 고친 입력은 ok 응답(서버 값)이 와도 덮어쓰지 않는다(안 고친 경우의 다시 열기는 WR-01 단언)', async () => {
     vi.mocked(fetchLaunchPlan).mockResolvedValue({ kind: 'ready', resp: planResp() });
     let answer!: (v: Awaited<ReturnType<typeof saveLaunchPlan>>) => void;

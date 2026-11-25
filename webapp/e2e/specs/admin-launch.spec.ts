@@ -694,7 +694,7 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     expect(api.planGets(), '계획 재요청 없음').toHaveLength(getsBefore);
   });
 
-  test('P35-P4 1280 — ① 순서 오류(alert · 저장 비활성 · 실선은 직전 유효 값) ② 서버 거부 code 1 ③ 502 → 응답 없음(결과 모름) · 다시 읽기', async ({ page }) => {
+  test('P35-P4 1280 — ① 범위 오류(alert · 저장 비활성 · 실선은 직전 유효 값) ② 서버 거부 code 1 ③ 502 → 응답 없음(결과 모름) · 다시 읽기', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     let mode: 'code1' | '502' = 'code1';
     const api = await mockLaunchApi(page, {
@@ -723,25 +723,23 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(root(page).locator('[data-slot="launch-legend"]')).toContainText('바꿀 계획(저장 전 · 번호 = 조각)');
     await expect(kbq.locator('[data-slot="launch-draft-line"]'), '서버 값과 같으면 바꿀 선 없음').toHaveCount(0);
 
-    // ① 유효 값 −340 → 바꿀 실선 3 · 그다음 −360(순서 위반) → alert · 저장 비활성 · 실선은 −340 그대로
+    // ① 유효 값 −340 → 바꿀 실선 3 · 그다음 −3500(범위 위반) → alert · 저장 비활성 · 실선은 −340 그대로
     const in2 = ed.getByLabel('2번 조각 시각(µs)');
     await in2.fill('-340');
     await expect(kbq.locator('[data-slot="launch-draft-line"]')).toHaveCount(3);
     await expect(kbq.locator('[data-slot="launch-draft-line"][data-idx="1"] title')).toHaveText(`바꿀 2번 ${MINUS}340µs`);
-    await in2.fill('-360');
-    await expect(ed.getByRole('alert')).toHaveText(
-      `조각 시각은 앞 조각과 같거나 늦어야 해요 — 2번 ${MINUS}360µs 가 1번 ${MINUS}350µs 보다 이릅니다`,
-    );
+    await in2.fill('-3500');
+    await expect(ed.getByRole('alert')).toHaveText(`조각 시각은 ${MINUS}3000 ~ 1000µs 사이여야 해요`);
     await expect(in2).toHaveAttribute('aria-invalid', 'true');
     await expect(ed.locator('[data-slot="launch-plan-save"]')).toBeDisabled();
-    await expect(in2).toHaveValue('-360');
+    await expect(in2).toHaveValue('-3500');
     await expect(kbq.locator('[data-slot="launch-draft-line"]')).toHaveCount(3);
     await expect(kbq.locator('[data-slot="launch-draft-line"][data-idx="1"] title')).toHaveText(`바꿀 2번 ${MINUS}340µs`);
     await expect(
       ed.locator('[data-slot="launch-plan-preview"] tbody tr').nth(1).locator('td').nth(2),
       '표도 직전 유효 값',
     ).toHaveText(`${MINUS}340`);
-    await page.screenshot({ path: test.info().outputPath('launch-plan-order-error-1280.png'), fullPage: true });
+    await page.screenshot({ path: test.info().outputPath('launch-plan-range-error-1280.png'), fullPage: true });
 
     // ② 서버 거부 code 1 — 칩 · 줄 · 입력값 유지 · 이력 맨 앞에 실패 1행
     await in2.fill('-340');
