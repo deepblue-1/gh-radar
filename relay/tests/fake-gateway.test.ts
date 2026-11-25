@@ -502,8 +502,8 @@ describe("Phase 29 admin 모드", () => {
 
     expect(gateway.adminCommandRequests()).toEqual([
       // budgetKrw · feePpm · sellTaxPpm(Phase 36 op 6/7 슬롯) — 부재 = 0. launch_profile · 뒤탐침 count · step_us(Phase 47) — 부재 = "" · 0.
-      { requestId: 2n ** 63n + 5n, op: 1, userId: "new-user", password: "pw-test", account: KB_ACC, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0, launchProfile: "", launchTailProbeCount: 0, launchTailProbeStepUs: 0 },
-      { requestId: 8n, op: 5, userId: "", password: "", account: null, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0, launchProfile: "", launchTailProbeCount: 0, launchTailProbeStepUs: 0 },
+      { requestId: 2n ** 63n + 5n, op: 1, userId: "new-user", password: "pw-test", account: KB_ACC, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0, launchProfile: "", launchTailProbeCount: 0, launchTailProbeStepUs: 0, launchMarket: "", launchTailProbeOffsetsUs: null },
+      { requestId: 8n, op: 5, userId: "", password: "", account: null, budgetKrw: 0n, feePpm: 0, sellTaxPpm: 0, launchProfile: "", launchTailProbeCount: 0, launchTailProbeStepUs: 0, launchMarket: "", launchTailProbeOffsetsUs: null },
     ]);
   });
 

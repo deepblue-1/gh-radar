@@ -173,6 +173,10 @@ export type AdminCommandRequest = {
   launchTailProbeCount: number;
   /** op 10 뒤탐침 간격 µs(vtable 28 · 부재 = 0). */
   launchTailProbeStepUs: number;
+  /** op 8/10 launch_market(부재 = ""). */
+  launchMarket: string;
+  /** op 10 목록 모드 탐침 µs(vtable 30 · gh-trade Phase 50) — 칸 없음 = null · 빈 벡터 = [](끔). */
+  launchTailProbeOffsetsUs: number[] | null;
 };
 
 /** admin handler 결과 — 86 입력(생략 = 86 없음 · op 5) + 선택 87 입력. 둘 다 있으면 86 → 87 순서로 쓴다. */
@@ -1005,6 +1009,11 @@ export function readAdminCommandRequest(msgType: number, payload: Buffer): Admin
     launchProfile: req.launchProfile() ?? "",
     launchTailProbeCount: req.launchTailProbeCount(),
     launchTailProbeStepUs: req.launchTailProbeStepUs(),
+    launchMarket: req.launchMarket() ?? "",
+    launchTailProbeOffsetsUs: (() => {
+      const arr = req.launchTailProbeOffsetsUsArray();
+      return arr === null ? null : Array.from(arr);
+    })(),
     account:
       a === null
         ? null

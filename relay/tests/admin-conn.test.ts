@@ -486,6 +486,7 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
         { profile: "N", market: "K", offsetsUs: [-200] },
         { profile: "N", market: "Q", offsetsUs: [-245] },
       ],
+      kyoboQ16Combined: false,
     });
     // 94 는 users.toml 과 무관 — 87 캐시 · snapshot 이벤트를 건드리지 않는다.
     expect(snapshots).toHaveLength(1);
@@ -594,6 +595,90 @@ describe("AdminConn 실 TCP — 가짜 게이트웨이 admin 모드 · 실 DmaCl
     if (oOld.kind !== "result") throw new Error("unreachable");
     expect(oOld.launchPlan).toBeDefined();
     expect(oOld.launchPlan && "tailProbes" in oOld.launchPlan).toBe(false);
+  });
+
+  it("P50-W1 op 10 목록 모드 → 44 에 offsets 벡터(30) · count −1 · launch_market · 빈 목록도 칸이 있다 · 옛 모드는 벡터 칸 없음", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p = c.command({
+      op: ADMIN_OP.SetLaunchTailProbe,
+      userId: "",
+      launchProfile: "Q16",
+      launchMarket: "Q",
+      launchTailProbeOffsetsUs: [-350, -350, -200, 50],
+    });
+    await waitFor(() => commands().length === 1, "op 10 목록");
+    const r = commands()[0]!;
+    expect(r.op).toBe(10);
+    expect(r.launchProfile).toBe("Q16");
+    expect(r.launchMarket).toBe("Q");
+    expect(r.launchTailProbeCount).toBe(-1);
+    expect(r.launchTailProbeStepUs).toBe(0);
+    expect(r.launchTailProbeOffsetsUs).toEqual([-350, -350, -200, 50]);
+    gateway.respondAdminCommand(sock, { requestId: r.requestId, ok: true, code: 0, message: "저장 — 다음 발사부터 적용", usersRev: 3n });
+    await p;
+
+    const pOff = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "N", launchMarket: "K", launchTailProbeOffsetsUs: [] });
+    await waitFor(() => commands().length === 2, "op 10 빈 목록");
+    const rOff = commands()[1]!;
+    expect(rOff.launchTailProbeOffsetsUs).toEqual([]);
+    expect(rOff.launchTailProbeCount).toBe(-1);
+    expect(rOff.launchMarket).toBe("K");
+    gateway.respondAdminCommand(sock, { requestId: rOff.requestId, ok: true, code: 0, message: "변경 없음", usersRev: 3n });
+    await pOff;
+
+    const pLegacy = c.command({ op: ADMIN_OP.SetLaunchTailProbe, userId: "", launchProfile: "N", launchTailProbeCount: 5, launchTailProbeStepUs: 10 });
+    await waitFor(() => commands().length === 3, "op 10 옛 모드");
+    const rLegacy = commands()[2]!;
+    expect(rLegacy.launchTailProbeOffsetsUs).toBeNull();
+    expect(rLegacy.launchTailProbeCount).toBe(5);
+    expect(rLegacy.launchMarket).toBe("");
+    gateway.respondAdminCommand(sock, { requestId: rLegacy.requestId, ok: true, code: 0, message: "변경 없음", usersRev: 3n });
+    await pLegacy;
+  });
+
+  it("P50-W2 94 시장별 4행(market · offsets_us) · kyobo_q16_combined → launchPlan · 칸 없는 94 는 false", async () => {
+    const { c } = await readyConn();
+    gateway.onAdminCommand(null);
+    const sock = await gateway.waitForAdminConnection();
+
+    const p = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 1, "op 9 44");
+    gateway.sendFrame(
+      sock,
+      buildLaunchPlanSnapshotFrame({
+        requestId: commands()[0]!.requestId,
+        tailProbes: [
+          { profile: "Q16", count: 2, stepUs: 0, market: "K", offsetsUs: [-210, -200] },
+          { profile: "N", count: 0, stepUs: 0, market: "K", offsetsUs: [] },
+          { profile: "Q16", count: 1, stepUs: 0, market: "Q", offsetsUs: [-300] },
+          { profile: "N", count: 0, stepUs: 0, market: "Q" },
+        ],
+        kyoboQ16Combined: true,
+      }),
+    );
+    const o = await p;
+    if (o.kind !== "result") throw new Error("unreachable");
+    expect(o.launchPlan?.tailProbes).toEqual([
+      { profile: "Q16", count: 2, stepUs: 0, market: "K", offsetsUs: [-210, -200] },
+      { profile: "N", count: 0, stepUs: 0, market: "K", offsetsUs: [] },
+      { profile: "Q16", count: 1, stepUs: 0, market: "Q", offsetsUs: [-300] },
+      { profile: "N", count: 0, stepUs: 0, market: "Q", offsetsUs: [] },
+    ]);
+    expect(o.launchPlan?.kyoboQ16Combined).toBe(true);
+
+    const pOld = c.command({ op: ADMIN_OP.GetLaunchPlan, userId: "" });
+    await waitFor(() => commands().length === 2, "op 9 두 번째");
+    gateway.sendFrame(
+      sock,
+      buildLaunchPlanSnapshotFrame({ requestId: commands()[1]!.requestId, tailProbes: [{ profile: "Q16", count: 5, stepUs: 10 }] }),
+    );
+    const oOld = await pOld;
+    if (oOld.kind !== "result") throw new Error("unreachable");
+    expect(oOld.launchPlan?.tailProbes).toEqual([{ profile: "Q16", count: 5, stepUs: 10 }]);
+    expect(oOld.launchPlan?.kyoboQ16Combined).toBe(false);
   });
 
   it("P35-S2 op 9 → 같은 request_id 86 code 1(구 서버) · 10 · 11 → 즉시 result(launchPlan 없음 · 타임아웃 아님)", async () => {

@@ -206,7 +206,7 @@ export type LaunchPlanSnapshot = {
   tailProbes?: LaunchTailProbeWireRow[];
   /**
    * 94 말미 bool `kyobo_q16_combined`(quick-261125-lju · gh-trade Phase 50) — 교보 16:00 합친 레인 스위치 실제 값(KB 는 늘 false).
-   * **파서 연결은 후속** — 지금 `parseLaunchPlanSnapshot` 은 채우지 않는다(undefined = 칸 없음 = 꺼짐).
+   * `parseLaunchPlanSnapshot` 이 채운다 — 칸 없음(구 서버)은 false = 꺼짐.
    */
   kyoboQ16Combined?: boolean;
 };
@@ -220,7 +220,7 @@ export type LaunchTailProbeWireRow = {
   stepUs: number;
   /**
    * 새 서버 행 말미(quick-261125-lju) — "K" | "Q" · 빈 문자열(또는 없음) = 옛 서버 행. 4행 순서 [Q16·K, N·K, Q16·Q, N·Q].
-   * **파서 연결은 후속**(생성물 대기) — 지금 `parseLaunchPlanSnapshot` 은 채우지 않는다.
+   * `parseLaunchPlanSnapshot` 이 채운다(gh-trade Phase 50 · 마커 63e7632a).
    */
   market?: string;
   /** 새 서버 행 — 정각 기준 µs 목록(flatbuffers 는 빈 벡터와 칸 없음을 못 가른다 — market 이 있으면 없음 = []). */

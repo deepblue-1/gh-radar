@@ -3664,14 +3664,26 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
     }
   }
   // op 10 SetLaunchTailProbe(gh-trade Phase 47 · quick-261107-l7w) — launch_profile + count(vtable 26) · step_us(28).
-  // 범위(0..10 · 1..100)는 서버가 판정한다(86 code 1 고정 문구) — relay 는 int32 구조만 본다.
+  // 목록 모드(gh-trade Phase 50 · quick-261125-lju) — `launchTailProbeOffsetsUs` 가 있으면 launch_tail_probe_offsets_us(vtable 30)
+  // 벡터를 **빈 배열이어도 만들어** 싣는다(서버는 칸 존재로 목록 모드를 판정 — 빼면 옛 개수 · 간격 모드로 읽힌다) · count −1(구 서버는
+  // 범위 밖 거부 = 안전한 실패) · launch_market 필수. 범위 · 순서는 서버가 판정한다(86 code 1 고정 문구) — relay 는 int32 구조만 본다.
+  const tailList = input.op === ADMIN_OP.SetLaunchTailProbe ? (input.launchTailProbeOffsetsUs ?? null) : null;
   const tailProbe =
     input.op === ADMIN_OP.SetLaunchTailProbe
-      ? { count: input.launchTailProbeCount ?? 0, stepUs: input.launchTailProbeStepUs ?? 0 }
+      ? tailList !== null
+        ? { count: -1, stepUs: 0 }
+        : { count: input.launchTailProbeCount ?? 0, stepUs: input.launchTailProbeStepUs ?? 0 }
       : null;
   if (tailProbe !== null) {
     for (const [label, v] of [["launch_tail_probe_count", tailProbe.count], ["launch_tail_probe_step_us", tailProbe.stepUs]] as const) {
       if (!Number.isInteger(v) || v < -0x8000_0000 || v > 0x7fff_ffff) throw new RangeError(`admin ${label} 가 int32 범위가 아니다: ${String(v)}`);
+    }
+  }
+  if (tailList !== null) {
+    for (const v of tailList) {
+      if (!Number.isInteger(v) || v < -0x8000_0000 || v > 0x7fff_ffff) {
+        throw new RangeError(`admin launch_tail_probe_offsets_us 값이 int32 범위가 아니다: ${String(v)}`);
+      }
     }
   }
   const b = new flatbuffers.Builder(256);
@@ -3688,6 +3700,8 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
         }
       : null;
   const tailProfile = tailProbe !== null ? b.createString(input.launchProfile ?? "") : null;
+  const tailMarket = tailList !== null ? b.createString(input.launchMarket ?? "") : null;
+  const tailOffsets = tailList !== null ? AdminCommandReq.createLaunchTailProbeOffsetsUsVector(b, [...tailList]) : null;
 
   AdminCommandReq.startAdminCommandReq(b);
   AdminCommandReq.addRequestId(b, requestId);
@@ -3710,6 +3724,8 @@ export function buildAdminCommandReq(input: AdminCommandInput): Uint8Array {
     // count 0 은 기본값이라 바이트에서 빠질 수 있다 — 서버가 읽으면 0(gh-trade 인계 261107-launch-tail-probe-op10).
     AdminCommandReq.addLaunchTailProbeCount(b, tailProbe.count);
     AdminCommandReq.addLaunchTailProbeStepUs(b, tailProbe.stepUs);
+    if (tailMarket !== null) AdminCommandReq.addLaunchMarket(b, tailMarket);
+    if (tailOffsets !== null) AdminCommandReq.addLaunchTailProbeOffsetsUs(b, tailOffsets);
   }
   const table = AdminCommandReq.endAdminCommandReq(b);
 
@@ -3826,8 +3842,9 @@ export function parseLaunchPlanSnapshot(env: Envelope): LaunchPlanSnapshot | nul
       for (let j = 0; j < m; j += 1) offsetsUs.push(e.offsetsUs(j) ?? 0);
       entries.push({ profile: e.profile() ?? "", market: e.market() ?? "", offsetsUs });
     }
-    // 94 tail_probes(vtable 12 · gh-trade Phase 47) — Q16 · N 두 행. 길이 0 = 칸 없음(구 서버)과 못 가르므로 undefined
-    // (웹 「이 서버 버전은 뒤탐침 설정을 몰라요」). 행 수는 엔트리와 같은 상한으로 자른다.
+    // 94 tail_probes(vtable 12 · gh-trade Phase 47) — 옛 서버 Q16 · N 두 행 · 새 서버(Phase 50) 시장별 4행 [Q16·K, N·K, Q16·Q, N·Q].
+    // 길이 0 = 칸 없음(구 서버)과 못 가르므로 undefined. 행 말미 market(vtable 10)이 있으면 새 서버 행 — offsets_us(vtable 12)를
+    // 싣는다(빈 벡터 = 꺼짐 · flatbuffers 는 칸 없음과 못 가르므로 market 으로 판정). 행 수는 엔트리와 같은 상한으로 자른다.
     const tn = takeCount(r.tailProbesLength(), MAX_LAUNCH_PLAN_ENTRIES, "발사 계획 스냅샷 뒤탐침");
     let tailProbes: LaunchTailProbeWireRow[] | undefined;
     if (tn > 0) {
@@ -3836,7 +3853,15 @@ export function parseLaunchPlanSnapshot(env: Envelope): LaunchPlanSnapshot | nul
       for (let i = 0; i < tn; i += 1) {
         const t = r.tailProbes(i, tScratch);
         if (t === null) return dropField("tail-probe-null", msgType, { index: i });
-        tailProbes.push({ profile: t.profile() ?? "", count: t.count(), stepUs: t.stepUs() });
+        const market = t.market();
+        if (market !== null && market !== "") {
+          const k = takeCount(t.offsetsUsLength(), MAX_LAUNCH_PLAN_OFFSETS, "발사 계획 스냅샷 탐침 offsets");
+          const offsetsUs: number[] = [];
+          for (let j = 0; j < k; j += 1) offsetsUs.push(t.offsetsUs(j) ?? 0);
+          tailProbes.push({ profile: t.profile() ?? "", count: t.count(), stepUs: t.stepUs(), market, offsetsUs });
+        } else {
+          tailProbes.push({ profile: t.profile() ?? "", count: t.count(), stepUs: t.stepUs() });
+        }
       }
     }
     return {
@@ -3845,6 +3870,8 @@ export function parseLaunchPlanSnapshot(env: Envelope): LaunchPlanSnapshot | nul
       updatedAt: r.updatedAt() ?? "",
       entries,
       ...(tailProbes !== undefined ? { tailProbes } : {}),
+      // 94 말미 kyobo_q16_combined(vtable 14 · gh-trade Phase 50) — 칸 없음(구 서버) = false = 꺼짐(KB 는 늘 false).
+      kyoboQ16Combined: r.kyoboQ16Combined(),
     };
   } catch (err) {
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });

@@ -3021,6 +3021,7 @@ describe("35-16 발사 계획 코덱 (44 op 8/9 조립 · 94 파싱 — gh-trade
         { profile: "N", market: "K", offsetsUs: [-200] },
         { profile: "N", market: "Q", offsetsUs: [-245] },
       ],
+      kyoboQ16Combined: false,
     });
   });
 

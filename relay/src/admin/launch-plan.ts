@@ -78,7 +78,7 @@ export const LAUNCH_PLAN_READ_DEADLINE_MS = 5_000;
  * `tailProbesOf` = 94 스냅샷의 탐침 행(undefined · 빈 배열 = 칸 없음 → ok 결과에 `tail_probes` 키를 싣지 않는다).
  * `kyoboQ16CombinedOf` = 94 말미 bool(undefined = 칸 없음 → ok 결과에 `kyobo_q16_combined` 키를 싣지 않는다 = 웹 ⇄ 꺼짐).
  *
- * **후속 quick 체크리스트(gh-trade Phase 50 .fbs 인계 뒤 — 이 순서로)**
+ * **연결 체크리스트(gh-trade Phase 50 .fbs 인계 뒤) — ① ~ ④ 완료(마커 63e7632a · fast-261125), ⑤ 배포는 gh-trade Phase 50 배포 뒤**
  *   ① gh-trade `sync-relay-schema.sh` 로 `relay/src/generated/*` 갱신(손 편집 금지 · flatc 고정 버전은 gh-trade 소유).
  *   ② `relay/src/dma/envelope.ts` `buildAdminCommandReq` 의 op 10 에 목록 모드 조립 — `launch_tail_probe_offsets_us` 벡터
  *      (`AdminCommandInput.launchTailProbeOffsetsUs` · 빈 배열도 칸을 만든다 = 끔) · `launch_tail_probe_count` −1 · `launch_market`.

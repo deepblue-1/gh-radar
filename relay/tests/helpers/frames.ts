@@ -2157,8 +2157,13 @@ export type FakeLaunchPlanSnapshotInput = {
   planRev?: bigint;
   updatedAt?: string | null;
   entries?: readonly FakeLaunchPlanEntryInput[];
-  /** 94 tail_probes(vtable 12 · gh-trade Phase 47). 생략 = 칸 없음(구 서버). */
-  tailProbes?: readonly { profile: string; count: number; stepUs: number }[];
+  /**
+   * 94 tail_probes(vtable 12 · gh-trade Phase 47). 생략 = 칸 없음(구 서버). 행 말미 market(vtable 10) · offsetsUs(12)는
+   * gh-trade Phase 50 시장별 행 — 생략하면 옛 행(칸 없음).
+   */
+  tailProbes?: readonly { profile: string; count: number; stepUs: number; market?: string; offsetsUs?: readonly number[] }[];
+  /** 94 말미 kyobo_q16_combined(vtable 14 · gh-trade Phase 50). 생략 = 칸 없음(읽으면 false). */
+  kyoboQ16Combined?: boolean;
 };
 
 /** 서버 4행 고정 순서의 가짜 계획(실서버 설정값 아님 — 노트 예시 꼴의 µs). */
@@ -2185,7 +2190,16 @@ export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput 
       ? null
       : LaunchPlanSnapshot.createTailProbesVector(
           b,
-          input.tailProbes.map((t) => LaunchTailProbe.createLaunchTailProbe(b, b.createString(t.profile), t.count, t.stepUs)),
+          input.tailProbes.map((t) =>
+            LaunchTailProbe.createLaunchTailProbe(
+              b,
+              b.createString(t.profile),
+              t.count,
+              t.stepUs,
+              t.market === undefined ? 0 : b.createString(t.market),
+              t.offsetsUs === undefined ? 0 : LaunchTailProbe.createOffsetsUsVector(b, [...t.offsetsUs]),
+            ),
+          ),
         );
   const updatedAtRaw = input.updatedAt === undefined ? "2026-10-27T22:41:00" : input.updatedAt;
   const updatedAt = updatedAtRaw === null ? null : b.createString(updatedAtRaw);
@@ -2195,6 +2209,7 @@ export function buildLaunchPlanSnapshotFrame(input: FakeLaunchPlanSnapshotInput 
   if (updatedAt !== null) LaunchPlanSnapshot.addUpdatedAt(b, updatedAt);
   LaunchPlanSnapshot.addEntries(b, entriesVec);
   if (tailVec !== null) LaunchPlanSnapshot.addTailProbes(b, tailVec);
+  if (input.kyoboQ16Combined !== undefined) LaunchPlanSnapshot.addKyoboQ16Combined(b, input.kyoboQ16Combined);
   const snap = LaunchPlanSnapshot.endLaunchPlanSnapshot(b);
 
   Envelope.startEnvelope(b);
