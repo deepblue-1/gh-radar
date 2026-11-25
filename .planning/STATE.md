@@ -5,10 +5,10 @@ milestone_name: 운영 유지보수
 current_phase: 44
 status: completed
 stopped_at: Phase 44 complete — all phases complete
-last_updated: "2026-11-25T07:46:17.313Z"
+last_updated: "2026-11-25T08:18:27.352Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 44 complete
-state_head: 0d81f39ea8f617ce154fcd408d837af2b9a5f922
+state_head: f444af4e8df575e91561c18922f712ea57daa701
 progress:
   total_phases: 15
   completed_phases: 15
@@ -206,6 +206,7 @@ v1.0 quick 130건: `.planning/milestones/v1.0-quick/README.md`. 이전 이력: [
 | 261125-c2i | 어드민 발사 경계 지도 08:30 G2 발사 기준 — 계획 편집(G2 · K/Q 한 값 · −3000 ~ +20000µs) · 이력 CHECK · 지도 g0830 · 주문 내역 세그먼트 · 뒤탐침 숨김 | 2026-11-25 | 8bc8eabf | [261125-c2i-admin-launch-g2-0830](./quick/261125-c2i-admin-launch-g2-0830/) |
 | 103 | 발사 계획 편집 — 입력 중 자동 정렬 없애고 저장 때 정렬해 보냄 (16c2a611) | 2026-11-25 | 16c2a611 | — |
 | 261125-lju | 탐침 — 정각 기준 시장별 µs 목록(칩 편집 · 전체 이동 · ⇄) + 경계 지도 축 값에 맞춤 · 먼 점 숨김 · 점 툴팁 최근접 | 2026-11-25 | 0d81f39e | [261125-lju-probe-abs-per-market](./quick/261125-lju-probe-abs-per-market/) |
+| 105 | relay 탐침 와이어 연결 — op 10 목록 모드 · 94 시장별 행 · kyobo_q16_combined · canSet 켬 (261125-lju 후속 · 마커 63e7632a) | 2026-11-25 | f444af4e | — |
 
 ## Session Continuity
 
