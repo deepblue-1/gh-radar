@@ -519,6 +519,9 @@ const RANGE_CHIPS: readonly { value: LaunchRange; label: string }[] = [
   { value: 'all', label: '전체' },
 ];
 
+/** 경계 지도에서 고를 수 없는 발사 기준 — 08:30 은 증권사 예약 주문을 쓴다(경계 지도 대상 아님). */
+const MAP_FIRE_DISABLED: Partial<Record<LaunchFire, string>> = { g0830: '08:30 은 증권사 예약 주문을 써요 — 경계 지도 없음' };
+
 const FOOT: Record<LaunchFire, string> = {
   q16: '조각 간격은 10/12부터 0/+10/+20µs, 10/22부터 0/+10/+30µs. 금액 부족 등 기타 거부는 경계 계산에서 뺀다.',
   n0930: 'N 오프셋은 고정값 — 선은 최신 N 머리 값 · 재전송은 첫 발만 점 · 횟수는 툴팁',
@@ -634,7 +637,7 @@ export function LaunchMapView({
             );
           })}
         </div>
-        <LaunchFireSeg fire={fire} onFire={onFire} />
+        <LaunchFireSeg fire={fire} onFire={onFire} disabled={MAP_FIRE_DISABLED} />
       </div>
 
       {status === 'loading' && <MapSkeleton />}
@@ -746,8 +749,6 @@ export function LaunchMapView({
                         onSave={() => onSave?.()}
                         saving={saving}
                         result={lastSave}
-                        days={p.days}
-                        preview={editing.valid}
                       />
                     )}
                   </LaunchPlanBar>

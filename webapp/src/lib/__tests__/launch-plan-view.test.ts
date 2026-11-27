@@ -18,6 +18,7 @@ import {
   lastChangeText,
   maxChangeIdOf,
   panelPlanOf,
+  planDraftCheck,
   planEditOf,
   planEditWithDraft,
   planLineText,
@@ -456,18 +457,31 @@ describe('편집 · 저장(35-15)', () => {
     for (const s of [401, 400]) expect(line(s, 'x').text).not.toContain('몰라요');
   });
 
-  it('planEditWithDraft — 검증 통과일 때만 valid 를 바꾼다(S9)', () => {
+  it('planEditWithDraft — 칩 원문(숫자만 = 정각 앞 · + = 정각 뒤) · 검증 통과일 때만 valid 를 바꾼다(S9)', () => {
     const e0 = planEditOf('KB120', 'Q', 'q16', [-350, -345, -325]);
-    expect(e0.draft).toEqual(['-350', '-345', '-325']);
-    const e1 = planEditWithDraft(e0, ['-350', '-340', '-325']);
+    expect(e0.draft).toEqual(['350', '345', '325']);
+    const e1 = planEditWithDraft(e0, ['350', '340', '325']);
     expect(e1.valid).toEqual([-350, -340, -325]);
-    const e2 = planEditWithDraft(e1, ['-350', '-3500', '-325']);
-    expect(e2.draft).toEqual(['-350', '-3500', '-325']);
+    const e2 = planEditWithDraft(e1, ['350', '3500', '325']);
+    expect(e2.draft).toEqual(['350', '3500', '325']);
     expect(e2.valid).toEqual([-350, -340, -325]);
-    // 순서가 뒤섞인 초안 — 칸은 입력 그대로 · valid(저장 · 미리보기)는 이른 시각부터 정렬(fast-261125)
-    const e3 = planEditWithDraft(e2, ['-325', '-345', '-400']);
-    expect(e3.draft).toEqual(['-325', '-345', '-400']);
+    // 순서가 뒤섞인 초안 — 칸은 입력 그대로 · valid(저장 · 지도 선)는 이른 시각부터 정렬(fast-261125)
+    const e3 = planEditWithDraft(e2, ['325', '345', '400']);
+    expect(e3.draft).toEqual(['325', '345', '400']);
     expect(e3.valid).toEqual([-400, -345, -325]);
+    // + = 정각 뒤 · 0 은 「0」
+    expect(planEditOf('KB120', 'Q', 'q16', [-10, 0, 20]).draft).toEqual(['10', '0', '+20']);
+    expect(planEditWithDraft(e3, ['10', '0', '+20']).valid).toEqual([-10, 0, 20]);
+  });
+
+  it('planDraftCheck — 칩으로 못 읽는 칸(빈 칸 · 「+」 만)은 숫자 문구 · 범위 · 폭은 shared 문구 그대로', () => {
+    expect(planDraftCheck('q16', ['+'])).toMatchObject({ ok: false, kind: 'int', badIdx: 0, message: '조각 시각은 숫자만 써요 — 정각 뒤는 앞에 + (1번)' });
+    expect(planDraftCheck('n0930', ['350', ''])).toMatchObject({ ok: false, kind: 'count' });
+    expect(planDraftCheck('n0930', [''])).toMatchObject({ ok: false, kind: 'int', message: '발사 시각은 숫자만 써요 — 정각 뒤는 앞에 + (1번)' });
+    expect(planDraftCheck('q16', ['3500'])).toMatchObject({ ok: false, kind: 'range', message: '조각 시각은 \u22123000 ~ 1000µs 사이여야 해요' });
+    expect(planDraftCheck('q16', ['345', '+0'])).toEqual({ ok: true, values: [-345, 0] });
+    // 부호 있는 원문(「-5」)은 칩이 아니다 — 정수 위반(−5 로 통과시키지 않는다)
+    expect(planDraftCheck('q16', ['-5'])).toMatchObject({ ok: false, kind: 'int' });
   });
 
   it('planStateWithSave — plan 으로 그 서버만 교체 · change 는 맨 앞 · null 이면 그대로 · ready 아니면 그대로', () => {
@@ -822,8 +836,8 @@ describe('08:30 G2 계획(quick-261125-c2i)', () => {
 
   it('편집 검증 — 한도 −3000 ~ 20000 · 한 값', () => {
     const e = planEditOf('KB120', 'K', 'g0830', [0]);
-    expect(planEditWithDraft(e, ['20000']).valid).toEqual([20000]);
-    expect(planEditWithDraft(e, ['20001']).valid).toEqual([0]);
+    expect(planEditWithDraft(e, ['+20000']).valid).toEqual([20000]);
+    expect(planEditWithDraft(e, ['+20001']).valid).toEqual([0]);
     expect(planEditWithDraft(e, ['1', '2']).valid).toEqual([0]);
   });
 });

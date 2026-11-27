@@ -182,6 +182,20 @@ describe('LaunchMapView — 16:00 「전체」', () => {
     expect(Array.from(controls.children).map((c) => c.getAttribute('data-slot'))).toEqual(['launch-range', 'launch-fire-seg']);
   });
 
+  it('발사 세그먼트 08:30 은 비활성(증권사 예약 주문 사용 · 261127) — 16:00 · 09:00:30 만 고른다', () => {
+    const onFire = vi.fn();
+    const { container } = view({ onFire });
+    const btn = (f: string) => one(container, `[data-slot="launch-fire-seg"] [data-fire="${f}"]`) as HTMLButtonElement;
+    expect(btn('g0830').disabled).toBe(true);
+    expect(btn('g0830').title).toBe('08:30 은 증권사 예약 주문을 써요 — 경계 지도 없음');
+    expect(btn('q16').disabled).toBe(false);
+    expect(btn('n0930').disabled).toBe(false);
+    fireEvent.click(btn('g0830'));
+    expect(onFire).not.toHaveBeenCalled();
+    fireEvent.click(btn('n0930'));
+    expect(onFire).toHaveBeenCalledWith('n0930');
+  });
+
   it('시작 · 끝 날짜 입력이 없다(프리셋 칩만)', () => {
     const { container } = view();
     expect(container.querySelectorAll('input')).toHaveLength(0);
@@ -867,13 +881,13 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     const kbq = () => panelOf(container, 'KB120', 'Q');
     fireEvent.click(one(kbq(), '[data-slot="launch-plan-edit-toggle"]'));
     const in3 = within(kbq()).getByLabelText('3번 조각 시각(µs)');
-    fireEvent.change(in3, { target: { value: '-400' } });
+    fireEvent.change(in3, { target: { value: '400' } });
     fireEvent.blur(in3);
     const values = () => within(kbq()).getAllByRole('textbox').map((i) => (i as HTMLInputElement).value);
-    expect(values()).toEqual(['-350', '-345', '-400']);
+    expect(values()).toEqual(['350', '345', '400']);
     fireEvent.click(one(kbq(), '[data-slot="launch-plan-save"]'));
     expect(saveLaunchPlan).toHaveBeenCalledWith('KB120', 'q16', 'Q', [-400, -350, -345]);
-    await waitFor(() => expect(values()).toEqual(['-400', '-350', '-345']));
+    await waitFor(() => expect(values()).toEqual(['400', '350', '345']));
   });
 
   it('IN-03 저장 중에 고친 입력은 ok 응답(서버 값)이 와도 덮어쓰지 않는다(안 고친 경우의 다시 열기는 WR-01 단언)', async () => {
@@ -884,7 +898,7 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     const kbq = () => panelOf(container, 'KB120', 'Q');
     const in3 = () => within(kbq()).getByLabelText('3번 조각 시각(µs)') as HTMLInputElement;
     // 저장 중 — 3번을 −320 으로 고친다.
-    fireEvent.change(in3(), { target: { value: '-320' } });
+    fireEvent.change(in3(), { target: { value: '320' } });
     answer({
       result: { server: 'KB120', outcome: 'ok', usersRev: '12' },
       plan: okServer([-340, -335, -320], NEW_Q, -245),
@@ -893,7 +907,7 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     await waitFor(() =>
       expect(one(kbq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}350 · ${M}340 · ${M}325µs`),
     );
-    expect(in3().value).toBe('-320');
+    expect(in3().value).toBe('320');
     expect(one(kbq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(false);
   });
 
@@ -971,7 +985,7 @@ describe('LaunchMapTab — 저장 뒤 계획 다시 읽기(35 CR-01 결과 모�
     expect(one(kyq(), '[data-slot="launch-plan-line"]').textContent).toBe(`3조각 ${M}530 · ${M}515 · ${M}500µs`);
     expect(kyq().querySelector('[data-slot="launch-plan-save"]')).toBeNull(); // 서버 전환으로 편집 칸은 닫혀 있다
     fireEvent.click(one(kyq(), '[data-slot="launch-plan-edit-toggle"]'));
-    expect((within(kyq()).getByLabelText('2번 조각 시각(µs)') as HTMLInputElement).value).toBe('-515');
+    expect((within(kyq()).getByLabelText('2번 조각 시각(µs)') as HTMLInputElement).value).toBe('515');
     expect(one(kyq(), '[data-slot="launch-plan-save"]').hasAttribute('disabled')).toBe(true);
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(2);
   });
@@ -1276,7 +1290,7 @@ describe('LaunchMapTab — 탐침 저장(quick-261125-lju)', () => {
     );
     expect(chipInputs(kPanel(container)).map((i) => i.value)).toEqual(['305', '300', '+30']);
     expect(one(kPanel(container), '[data-slot="launch-tail-probe-save"]').hasAttribute('disabled')).toBe(true);
-    expect(one(kPanel(container), '[data-slot="launch-tail-probe-history-fold"] summary').textContent).toBe('탐침 변경 이력 2');
+    expect(kPanel(container).querySelector('[data-slot="launch-tail-probe-history-fold"]')).toBeNull(); // 이력 표 없음(261127)
     expect(fetchLaunchPlan).toHaveBeenCalledTimes(1);
     expect(fetchLaunchMap).toHaveBeenCalledTimes(1);
   });
@@ -1454,7 +1468,7 @@ describe('LaunchMapTab — 교보 09:00:30 N 공통 칸(인박스 261109-kyobo-n
 
   it('교보 코스닥 패널에서 열어도 N/K 값 · 「코스피 · 코스닥 공통 한 값」 · 갈라짐 줄 없음', async () => {
     const p = await openN('KYOBO119', 'Q', planResp({ KYOBO119: kyoboN(-349, -349) }));
-    expect((within(p).getByLabelText('발사 시각(µs)') as HTMLInputElement).value).toBe('-349');
+    expect((within(p).getByLabelText('발사 시각(µs)') as HTMLInputElement).value).toBe('349');
     expect(one(p, '[data-slot="launch-plan-scope"]').textContent).toContain('코스피 · 코스닥 공통 한 값');
     expect(p.querySelector('[data-slot="launch-plan-split"]')).toBeNull();
     expect((one(p, '[data-slot="launch-plan-save"]') as HTMLButtonElement).disabled).toBe(true);
@@ -1643,7 +1657,7 @@ describe('08:30 G2 지도(quick-261125-c2i)', () => {
     const input = within(p).getByLabelText('발사 시각(µs)') as HTMLInputElement;
     expect(input.value).toBe('0');
     expect(p.querySelectorAll('[data-slot="launch-plan-input"]')).toHaveLength(1);
-    fireEvent.change(input, { target: { value: '3000' } });
+    fireEvent.change(input, { target: { value: '+3000' } });
     fireEvent.click(one(p, '[data-slot="launch-plan-save"]'));
     await waitFor(() => expect(saveLaunchPlan).toHaveBeenCalledTimes(1));
     expect(vi.mocked(saveLaunchPlan).mock.calls).toEqual([['KB120', 'g0830', 'Q', [3000]]]);

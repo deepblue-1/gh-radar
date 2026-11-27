@@ -91,43 +91,18 @@ describe('LaunchPlanBar', () => {
     expect(q('[data-slot="launch-plan-last"]')!.textContent).toBe('· 10/27 22:41 · a@b.c');
   });
 
-  it('changes 12행 → 「변경 이력 12」 접힘 · 펼치면 10행 · 열 시각 · 이메일 · 전 → 후 · 결과 알약', () => {
-    const changes = Array.from({ length: 12 }, (_, i) =>
-      row({
-        at: `2026-10-27T1${Math.floor(i / 6)}:${String((i % 6) * 10).padStart(2, '0')}:00Z`,
-        outcome: i === 0 ? 'failed' : 'ok',
-        code: i === 0 ? 1 : null,
-        message: i === 0 ? '순서 위반' : null,
-        before_us: i === 1 ? null : [-355, -350, -330],
-      }),
-    );
+  it('변경 이력 표는 그리지 않는다(261127) — 이력이 있어도 접힘 없음 · 마지막 변경 한 줄은 그대로', () => {
+    const changes = [row({ outcome: 'failed', code: 1, message: '순서 위반' }), row({})];
     render(<LaunchPlanBar fire="q16" plan={plan({ changes, lastChange: changes[1]! })} now={NOW} />);
-    const details = document.querySelector<HTMLDetailsElement>('details[data-slot="launch-plan-history-fold"]')!;
-    expect(details.open).toBe(false);
-    expect(details.querySelector('summary')!.textContent).toBe('변경 이력 12');
-    fireEvent.click(details.querySelector('summary')!);
-    const rows = qa('[data-slot="launch-plan-history"] tbody tr');
-    expect(rows).toHaveLength(10);
-    const cells = Array.from(rows[0]!.querySelectorAll('td')).map((td) => td.textContent);
-    expect(cells[1]).toBe('a@b.c');
-    expect(cells[2]).toBe(`${M}355 · ${M}350 · ${M}330 → ${M}350 · ${M}345 · ${M}325`);
-    const pill = rows[0]!.querySelector<HTMLElement>('[data-slot="launch-plan-outcome"]')!;
-    expect(pill.textContent).toBe('실패');
-    expect(pill.dataset.tone).toBe('err');
-    expect(pill.getAttribute('title')).toBe('순서 위반');
-    expect(rows[1]!.querySelectorAll('td')[2]!.textContent).toBe(`— → ${M}350 · ${M}345 · ${M}325`);
-    expect(rows[1]!.querySelector('[data-slot="launch-plan-outcome"]')!.textContent).toBe('저장됨');
-  });
-
-  it('changes 0 → 「변경 이력」 접힘 없음', () => {
-    render(<LaunchPlanBar fire="q16" plan={plan({})} />);
     expect(q('[data-slot="launch-plan-history-fold"]')).toBeNull();
+    expect(document.querySelector('table')).toBeNull();
+    expect(q('[data-slot="launch-plan-last"]')).not.toBeNull();
   });
 
-  it('fallback 이어도 이력이 있으면 접힘을 보인다(서버 실패 원인 추적)', () => {
+  it('fallback 은 이력이 있어도 접힘 · 마지막 변경 줄 없음', () => {
     const r = row({ outcome: 'offline' });
     render(<LaunchPlanBar fire="q16" plan={plan({ source: 'fallback', entry: null, lines: [-337], changes: [r] })} />);
-    expect(q('[data-slot="launch-plan-history-fold"] summary')!.textContent).toBe('변경 이력 1');
+    expect(q('[data-slot="launch-plan-history-fold"]')).toBeNull();
     expect(q('[data-slot="launch-plan-last"]')).toBeNull();
   });
 });

@@ -2,22 +2,18 @@
 
 import {
   LAUNCH_PLAN_LIMITS,
-  launchPlanVerdictRows,
-  validateLaunchPlanDraft,
+  launchTailProbeChipText,
   type AdminServerResult,
-  type LaunchDay,
   type LaunchFire,
   type LaunchPlanEntry,
-  type LaunchRibbonCell,
 } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
-import { DASH, fmtUs } from '@/lib/launch-format';
 import {
   commonPlanSplitText,
+  planDraftCheck,
   sameOffsets,
   saveResultViewOf,
-  verdictCellText,
   type LaunchPlanReread,
   type SaveTone,
 } from '@/lib/launch-plan-view';
@@ -30,7 +26,8 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  * `mockup-launch-plan-edit.html` 편집 칸 A).
  *
  * 저장 단위 = 그 패널(서버 × 시장 × 지금 세그먼트 발사) 1칸. 상태는 부모(지도 탭)가 쥔다 — 이 컴포넌트는 그리기 · 이벤트만.
- * - `draft` = 칸마다 입력 원문 문자열. 검증은 shared `validateLaunchPlanDraft` 한 벌(웹에서 다시 쓰지 않는다).
+ * - `draft` = 칸마다 칩 원문(탐침 칩과 같은 꼴 · 261127) — 칸 앞에 − 가 고정으로 붙어 숫자만 치면 정각 앞, 정각 뒤는 앞에 +.
+ *   검증은 `planDraftCheck`(칩 → 부호 있는 값 → shared `validateLaunchPlanDraft` 한 벌).
  * - 16:00 = 「조각 수」 −/+ 스테퍼(`LAUNCH_PLAN_LIMITS` · + 는 마지막 칸 값을 복사해 붙이고 − 는 마지막 칸을 뺀다) + 칸마다 µs.
  *   칸 순서는 자유 — 입력 중에는 칸을 움직이지 않고, 검증이 이른 시각부터 정렬한 값을 돌려줘 저장 · 미리보기는 정렬된 값이다
  *   (저장 뒤 칸이 정렬된 서버 값으로 다시 열린다 · fast-261125).
@@ -40,9 +37,7 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './ref
  * - 「저장」 은 검증 통과 · 서버 값과 다름 · 저장 중 아님일 때만 켜진다. 「되돌리기」 = 서버 현재 값(같으면 비활성).
  * - 저장 중에도 입력은 막지 않는다(값 유지 · 버튼만 「저장 중…」). 저장 중에 고친 입력은 응답이 와도 덮어쓰지 않는다 —
  *   지도 탭은 응답 때의 초안이 저장 요청 때와 같을 때만 칸을 저장 값으로 다시 연다(35 IN-03).
- * - 미리보기 P2(D-28 · 목업 `mockup-launch-plan-preview.html` `verdict()`): 조각마다 지금 / 바꿀 µs 와 「지난 N일에 쐈다면」
- *   접수 · 모름 · 거부 날 수(shared `launchPlanVerdictRows` — 리본과 같은 식). N = 그 패널 지금 범위의 날 수. 바꿀 값은
- *   `preview`(마지막 유효 값 · Pitfall S9) — 검증 오류 동안에도 지우지 않는다. 표는 자기 래퍼 안에서만 가로 스크롤.
+ * - 「지금 / 바꿀 / 쐈다면」 미리보기 표는 그리지 않는다(사용자 결정 261127 — 지도 리본 · 바꿀 계획 선이 같은 정보).
  * - 교보 09:00:30 N(`common` · 인박스 261109-kyobo-n-single-field): 안내 글이 「코스피 · 코스닥 공통 한 값」 으로 바뀌고, 서버 K · Q 가
  *   갈라져 있으면 경고색 한 줄 + 값이 같아도 「저장」 을 켠다(저장이 K → Q 두 번 보내 둘을 맞춘다 — 지도 탭 `onSave`).
  * - 결과 = Admin 칩 한 벌(`ReflectChip`) + 결과 줄(`saveResultViewOf` — outcome · code 로 가르고 code 1 은 「알 수 없는 명령입니다」 만 서버 미지원).
@@ -66,10 +61,6 @@ export interface LaunchPlanEditorProps {
   saving?: boolean;
   /** 마지막 저장 결과(이 칸) — 없으면 null. */
   result?: LaunchPlanSaveState | null;
-  /** 그 패널 지금 범위의 날들(미리보기 표) — 비면 표 없음. */
-  days?: readonly LaunchDay<unknown>[];
-  /** 바꿀 값(마지막 유효 값 · S9) — 기본 서버 값. */
-  preview?: readonly number[];
   /**
    * 교보 09:00:30 N 공통 칸(인박스 261109-kyobo-n-single-field) — 있으면 「코스피 · 코스닥 공통」 안내 · `entry` 는 N/K 값.
    * `split` = 서버 K · Q 가 갈라져 있을 때 두 값(안내 줄 · 값이 같아도 저장 켬 — 저장이 둘을 맞춘다).
@@ -77,11 +68,12 @@ export interface LaunchPlanEditorProps {
   common?: { split: { K: readonly number[]; Q: readonly number[] } | null } | null;
 }
 
-const NO_DAYS: readonly LaunchDay<unknown>[] = [];
-
 const LABEL = 'min-w-[52px] text-[12.5px] font-semibold text-[var(--muted-fg)]';
 const STEP_BTN =
   'inline-flex size-8 items-center justify-center text-[16px] text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-40';
+
+/** 입력값 거르기 — 숫자와 + 만 남긴다(탐침 칩과 같은 규칙 · 폰 숫자 키패드 · 붙여넣기). */
+const chipInputOf = (raw: string): string => raw.replace(/[^\d+]/g, '');
 
 const LINE_TONE: Record<SaveTone, string> = {
   ok: 'text-[var(--muted-fg)]',
@@ -98,22 +90,21 @@ export function LaunchPlanEditor({
   onSave,
   saving = false,
   result = null,
-  days = NO_DAYS,
-  preview,
   common = null,
 }: LaunchPlanEditorProps) {
   const lim = LAUNCH_PLAN_LIMITS[fire];
   const multi = lim.maxPieces > 1;
-  const check = validateLaunchPlanDraft(fire, draft);
+  const check = planDraftCheck(fire, draft);
   const badIdx = check.ok ? null : check.badIdx;
   const split = common?.split ?? null;
   const changed = check.ok && (split !== null || !sameOffsets(check.values, entry.offsets_us));
   const canSave = check.ok && changed && !saving;
-  const pristine = draft.length === entry.offsets_us.length && draft.every((s, i) => s === String(entry.offsets_us[i]));
+  const serverChips = entry.offsets_us.map(launchTailProbeChipText);
+  const pristine = draft.length === serverChips.length && draft.every((s, i) => s === serverChips[i]);
   const view = result === null ? null : saveResultViewOf(result.result, fire, result.at, result.reread);
 
   const setAt = (i: number, v: string) => onDraft(draft.map((s, j) => (j === i ? v : s)));
-  const add = () => onDraft([...draft, draft[draft.length - 1] ?? String(entry.offsets_us[0] ?? 0)]);
+  const add = () => onDraft([...draft, draft[draft.length - 1] ?? serverChips[0] ?? '0']);
   const drop = () => onDraft(draft.slice(0, -1));
 
   return (
@@ -158,22 +149,29 @@ export function LaunchPlanEditor({
               <label
                 key={i}
                 className={cn(
-                  'inline-flex h-9 w-[104px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[var(--muted)] px-2.5',
+                  'inline-flex h-9 w-[112px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[var(--muted)] px-2.5',
                   bad && 'shadow-[inset_0_0_0_1.5px_var(--destructive)]',
                 )}
               >
                 {multi && <span className="text-[11.5px] font-bold text-[var(--muted-fg)]">{i + 1}</span>}
-                <input
-                  data-slot="launch-plan-input"
-                  data-idx={i}
-                  inputMode="numeric"
-                  autoComplete="off"
-                  aria-label={multi ? `${i + 1}번 조각 시각(µs)` : '발사 시각(µs)'}
-                  aria-invalid={bad ? true : undefined}
-                  value={s}
-                  onChange={(e) => setAt(i, e.target.value)}
-                  className="w-full min-w-0 border-0 bg-transparent text-right text-[14px] font-semibold text-[var(--fg)] tabular-nums outline-none"
-                />
+                <span className="ml-auto inline-flex min-w-0 items-center">
+                  <span aria-hidden className="text-[14px] font-semibold text-[var(--fg)]">
+                    {s.trim().startsWith('+') ? '' : '−'}
+                  </span>
+                  <input
+                    data-slot="launch-plan-input"
+                    data-idx={i}
+                    inputMode="tel"
+                    autoComplete="off"
+                    aria-label={multi ? `${i + 1}번 조각 시각(µs)` : '발사 시각(µs)'}
+                    aria-invalid={bad ? true : undefined}
+                    value={s}
+                    onChange={(e) => setAt(i, chipInputOf(e.target.value))}
+                    // 글자 수만큼만 넓혀 − 접두가 숫자에 붙는다(ch = 숫자 한 칸 · 0.5ch 여유는 오른쪽).
+                    style={{ width: `${Math.max(s.length, 1) + 0.5}ch` }}
+                    className="max-w-[52px] min-w-0 border-0 bg-transparent text-left text-[14px] font-semibold text-[var(--fg)] tabular-nums outline-none"
+                  />
+                </span>
                 <small className="text-[11.5px] text-[var(--muted-fg)]">µs</small>
               </label>
             );
@@ -192,7 +190,9 @@ export function LaunchPlanEditor({
           {commonPlanSplitText(split)}
         </div>
       )}
-      {days.length > 0 && <LaunchPlanPreview days={days} cur={entry.offsets_us} next={preview ?? entry.offsets_us} />}
+      <div data-slot="launch-plan-hint" className="text-[11.5px] break-keep text-[var(--muted-fg)]">
+        정각 기준 · 숫자만 치면 정각 −, 정각 뒤는 앞에 +
+      </div>
       {!check.ok && (
         <div data-slot="launch-plan-alert" role="alert" className="text-[12.5px] break-keep text-[var(--destructive)]">
           {check.message}
@@ -219,7 +219,7 @@ export function LaunchPlanEditor({
           variant="secondary"
           data-slot="launch-plan-revert"
           disabled={pristine}
-          onClick={() => onDraft(entry.offsets_us.map(String))}
+          onClick={() => onDraft(serverChips)}
           className={ADMIN_BUTTON_SECONDARY}
         >
           되돌리기
@@ -235,71 +235,6 @@ export function LaunchPlanEditor({
           {saving ? '저장 중…' : '저장'}
         </Button>
       </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 미리보기 P2 — 조각별 「지난 N일에 쐈다면」
-// ─────────────────────────────────────────────────────────────────────────────
-
-const TH = 'bg-[var(--card)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
-const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
-const NUMERIC = 'text-right tabular-nums';
-
-function VerdictCell({ cell }: { cell: LaunchRibbonCell | null }) {
-  if (cell === null) return <>{DASH}</>;
-  // 글자는 verdictCellText 와 같다(색만 나눈다).
-  return (
-    <span data-slot="launch-plan-verdict" data-text={verdictCellText(cell)} className="tabular-nums">
-      <span className="font-bold text-[var(--launch-ok)]">{`접수 ${cell.ok}`}</span>
-      {' · '}
-      <span className="text-[var(--muted-fg)]">{`모름 ${cell.unknown}`}</span>
-      {' · '}
-      <span className="font-bold text-[var(--launch-bad)]">{`거부 ${cell.bad}`}</span>
-    </span>
-  );
-}
-
-function LaunchPlanPreview({
-  days,
-  cur,
-  next,
-}: {
-  days: readonly LaunchDay<unknown>[];
-  cur: readonly number[];
-  next: readonly number[];
-}) {
-  const rows = launchPlanVerdictRows(days, cur, next);
-  const n = days.length;
-  return (
-    <div data-slot="launch-plan-preview" className="min-w-0 overflow-x-auto">
-      <table className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap text-[var(--fg)]">
-        <thead>
-          <tr>
-            <th className={TH}>조각</th>
-            <th className={cn(TH, 'text-right')}>지금 µs</th>
-            <th className={cn(TH, 'text-right')}>바꿀 µs</th>
-            <th className={TH}>{`지금 — 지난 ${n}일에 쐈다면`}</th>
-            <th className={TH}>{`바꿀 — 지난 ${n}일에 쐈다면`}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.idx} data-idx={r.idx}>
-              <td className={cn(TD, 'tabular-nums')}>{r.idx + 1}</td>
-              <td className={cn(TD, NUMERIC)}>{fmtUs(r.cur)}</td>
-              <td className={cn(TD, NUMERIC, 'font-bold text-[var(--launch-gate)]')}>{fmtUs(r.next)}</td>
-              <td className={TD}>
-                <VerdictCell cell={r.cur_cell} />
-              </td>
-              <td className={TD}>
-                <VerdictCell cell={r.next_cell} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

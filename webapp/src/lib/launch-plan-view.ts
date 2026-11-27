@@ -34,6 +34,7 @@ import {
   type LaunchHeadRow,
   type LaunchMarket,
   type LaunchPlanChangeRow,
+  type LaunchPlanDraftCheck,
   type LaunchPlanEntry,
   type LaunchPlanResponse,
   type LaunchPlanSaveResponse,
@@ -194,7 +195,8 @@ export function changeOutcomeView(row: Pick<LaunchPlanChangeRow, 'outcome' | 'me
 
 /**
  * 열린 편집 칸 하나(한 번에 한 패널 · D-24). 상태는 지도 탭이 쥔다.
- * - `draft` = 칸마다 입력 원문 문자열(숫자로 바꾸지 않는다 — 「-」 만 친 칸도 그대로 둔다).
+ * - `draft` = 칸마다 칩 원문(탐침 칩과 같은 꼴 — 숫자만 = 정각 앞 · `+숫자` = 정각 뒤 · 화면은 − 고정 접두 · 261127).
+ *   숫자로 바꾸지 않는다(「+」 만 친 칸도 그대로 둔다). 검사는 `planDraftCheck`.
  * - `valid` = 마지막으로 검증을 통과한 값(Pitfall S9) — 오류 동안에도 미리보기 선 · 표는 이 값을 그린다.
  */
 export interface LaunchPlanEdit {
@@ -207,7 +209,7 @@ export interface LaunchPlanEdit {
 
 /** 「계획 고치기」 — 서버 값으로 칸을 채운다. */
 export function planEditOf(gateway: string, market: LaunchMarket, fire: LaunchFire, offsets: readonly number[]): LaunchPlanEdit {
-  return { gateway, market, fire, draft: offsets.map(String), valid: [...offsets] };
+  return { gateway, market, fire, draft: offsets.map(launchTailProbeChipText), valid: [...offsets] };
 }
 
 /** 저장 때 op 8 을 보낼 시장 순서 — 공통이면 K → Q, 아니면 그 패널 시장 하나. */
@@ -234,9 +236,26 @@ export function commonPlanSplitText(split: { K: readonly number[]; Q: readonly n
   return `지금 코스피 ${v(split.K)} · 코스닥 ${v(split.Q)}µs 로 갈라져 있어요 — 저장하면 하나로 맞춰요`;
 }
 
-/** 입력 하나 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(S9 · 검증은 shared 한 벌). */
+/**
+ * 계획 칩 원문 검사 — 칩(`parseLaunchTailProbeChip`)을 부호 있는 정수 문자열로 바꿔 shared `validateLaunchPlanDraft` 한 벌로 본다.
+ * 칩으로 못 읽는 칸(빈 칸 · 「+」 만 · 「-5」)은 빈 문자열로 넘겨 정수 위반이 되고, 그 문구만 칩 입력 규칙으로 바꾼다.
+ */
+export function planDraftCheck(fire: LaunchFire, draft: readonly string[]): LaunchPlanDraftCheck {
+  const check = validateLaunchPlanDraft(
+    fire,
+    draft.map((c) => {
+      const v = parseLaunchTailProbeChip(c);
+      return v === null ? '' : String(v);
+    }),
+  );
+  if (check.ok || check.kind !== 'int') return check;
+  const label = fire === 'q16' ? '조각 시각' : '발사 시각';
+  return { ...check, message: `${label}은 숫자만 써요 — 정각 뒤는 앞에 + (${check.badIdx + 1}번)` };
+}
+
+/** 입력 하나 반영 — 검증이 통과할 때만 `valid` 를 바꾼다(S9 · 검증은 `planDraftCheck` 한 벌). */
 export function planEditWithDraft(edit: LaunchPlanEdit, draft: string[]): LaunchPlanEdit {
-  const check = validateLaunchPlanDraft(edit.fire, draft);
+  const check = planDraftCheck(edit.fire, draft);
   return { ...edit, draft, valid: check.ok ? check.values : edit.valid };
 }
 

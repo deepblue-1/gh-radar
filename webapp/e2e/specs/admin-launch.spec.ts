@@ -377,6 +377,9 @@ test.describe('어드민 발사 · 경계 지도', () => {
     const dotsKy = await root(page).locator('[data-slot="launch-chart"] circle').count();
     expect(dotsKb + dotsKy, 'KB120 점 + 교보119 점 = 첨부 조각 196').toBe(196);
 
+    // 08:30 은 증권사 예약 주문 — 경계 지도 세그먼트에서 비활성(261127)
+    await expect(root(page).locator('[data-slot="launch-fire-seg"] [data-fire="g0830"]')).toBeDisabled();
+
     await page.waitForTimeout(500);
     expect(api.maps().map((r) => r.query)).toEqual([{ fire: 'q16', range: 'all' }]);
     expect(api.orders(), '지도 탭 진입은 주문 내역을 받지 않는다').toHaveLength(0);
@@ -548,7 +551,7 @@ const planBar = (page: Page, gateway: string, market: string) =>
   panel(page, gateway, market).locator('[data-slot="launch-plan-bar"]');
 
 test.describe('어드민 발사 · 발사 계획(읽기)', () => {
-  test('P35-P1 1280 — 서버 ok · KB120 코스닥 줄 「3조각」 · 점선 3 · KPI −350 · 마지막 변경 · 변경 이력 2 · /plan 1건', async ({ page }) => {
+  test('P35-P1 1280 — 서버 ok · KB120 코스닥 줄 「3조각」 · 점선 3 · KPI −350 · 마지막 변경 · 변경 이력 표 없음 · /plan 1건', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixture });
     await open(page, '/admin/launch?tab=map&range=all');
@@ -564,20 +567,8 @@ test.describe('어드민 발사 · 발사 계획(읽기)', () => {
     await expect(kbq.locator('[data-slot="launch-plan-last"]')).toContainText('admin@example.com');
     await expect(root(page).locator('[data-slot="launch-legend"]')).toContainText('다음 발사 계획(조각마다 점선)');
 
-    const fold = kbq.locator('[data-slot="launch-plan-history-fold"]');
-    await expect(fold.locator('summary')).toHaveText('변경 이력 2');
-    await fold.locator('summary').click();
-    const rows = fold.locator('[data-slot="launch-plan-history"] tbody tr');
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toBeVisible();
-    await expect(rows.nth(0).locator('[data-slot="launch-plan-outcome"]')).toHaveText('저장됨');
-    await expect(rows.nth(1).locator('[data-slot="launch-plan-outcome"]')).toHaveText('실패');
-    await expect(rows.nth(1).locator('[data-slot="launch-plan-outcome"]')).toHaveAttribute(
-      'title',
-      '조각 시각 순서가 맞지 않아요',
-    );
-    // 이력이 없는 패널엔 접힘이 없다
-    await expect(panel(page, 'KB120', 'K').locator('[data-slot="launch-plan-history-fold"]')).toHaveCount(0);
+    // 변경 이력 표는 그리지 않는다(261127) — 이력이 있는 패널도 접힘 없음
+    await expect(root(page).locator('[data-slot="launch-plan-history-fold"]')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('launch-plan-read-1280.png'), fullPage: true });
 
     await page.waitForTimeout(300);
@@ -676,7 +667,8 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     const save = ed.locator('[data-slot="launch-plan-save"]');
     await expect(save, '서버 값과 같으면 저장 비활성').toBeDisabled();
 
-    await ed.getByLabel('2번 조각 시각(µs)').fill('-340');
+    await expect(ed.getByLabel('2번 조각 시각(µs)'), '칩 원문 = 절댓값(앞 − 는 고정 접두)').toHaveValue('345');
+    await ed.getByLabel('2번 조각 시각(µs)').fill('340');
     await expect(save).toBeEnabled();
     await save.click();
 
@@ -691,7 +683,6 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(kbq.locator('[data-slot="launch-plan-line"]')).toHaveText(`3조각 ${MINUS}350 · ${MINUS}340 · ${MINUS}325µs`);
     await expect(kbq.locator('[data-slot="launch-next"]')).toHaveCount(3);
     await expect(kbq.locator('[data-slot="launch-next"][data-idx="1"] title')).toHaveText(`다음 발사 계획 2번 ${MINUS}340µs`);
-    await expect(kbq.locator('[data-slot="launch-plan-history-fold"] summary')).toHaveText('변경 이력 3');
     await expect(save, '저장 뒤 = 서버 값 → 저장 비활성').toBeDisabled();
     await page.screenshot({ path: test.info().outputPath('launch-plan-save-1280.png'), fullPage: true });
 
@@ -731,24 +722,21 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
 
     // ① 유효 값 −340 → 바꿀 실선 3 · 그다음 −3500(범위 위반) → alert · 저장 비활성 · 실선은 −340 그대로
     const in2 = ed.getByLabel('2번 조각 시각(µs)');
-    await in2.fill('-340');
+    await in2.fill('340');
     await expect(kbq.locator('[data-slot="launch-draft-line"]')).toHaveCount(3);
     await expect(kbq.locator('[data-slot="launch-draft-line"][data-idx="1"] title')).toHaveText(`바꿀 2번 ${MINUS}340µs`);
-    await in2.fill('-3500');
+    await in2.fill('3500');
     await expect(ed.getByRole('alert')).toHaveText(`조각 시각은 ${MINUS}3000 ~ 1000µs 사이여야 해요`);
     await expect(in2).toHaveAttribute('aria-invalid', 'true');
     await expect(ed.locator('[data-slot="launch-plan-save"]')).toBeDisabled();
-    await expect(in2).toHaveValue('-3500');
+    await expect(in2).toHaveValue('3500');
     await expect(kbq.locator('[data-slot="launch-draft-line"]')).toHaveCount(3);
     await expect(kbq.locator('[data-slot="launch-draft-line"][data-idx="1"] title')).toHaveText(`바꿀 2번 ${MINUS}340µs`);
-    await expect(
-      ed.locator('[data-slot="launch-plan-preview"] tbody tr').nth(1).locator('td').nth(2),
-      '표도 직전 유효 값',
-    ).toHaveText(`${MINUS}340`);
+    await expect(ed.locator('[data-slot="launch-plan-preview"]'), '미리보기 표 없음(261127)').toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('launch-plan-range-error-1280.png'), fullPage: true });
 
-    // ② 서버 거부 code 1 — 칩 · 줄 · 입력값 유지 · 이력 맨 앞에 실패 1행
-    await in2.fill('-340');
+    // ② 서버 거부 code 1 — 칩 · 줄 · 입력값 유지
+    await in2.fill('340');
     await ed.locator('[data-slot="launch-plan-save"]').click();
     const chip = ed.locator('[data-slot="launch-plan-result"] [data-slot="reflect-chip"]');
     await expect(chip).toHaveText('KB120 · 실패', { timeout: 15_000 });
@@ -756,11 +744,10 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toHaveText(
       'KB120 실패: 서버 미지원 · 알 수 없는 명령입니다 — 서버 업데이트 뒤 다시 저장',
     );
-    await expect(in2).toHaveValue('-340');
+    await expect(in2).toHaveValue('340');
     await expect(kbq.locator('[data-slot="launch-plan-line"]'), '서버 값 그대로').toHaveText(
       `3조각 ${MINUS}350 · ${MINUS}345 · ${MINUS}325µs`,
     );
-    await expect(kbq.locator('[data-slot="launch-plan-history-fold"] summary')).toHaveText('변경 이력 3');
     await page.screenshot({ path: test.info().outputPath('launch-plan-code1-1280.png'), fullPage: true });
 
     // ③ 502(요청 자체 실패) → 결과 모름 「KB120 응답 없음: …」(「미반영」 으로 단정하지 않는다 · 35 CR-01) · 계획 1회 다시 읽기.
@@ -774,12 +761,12 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
       { timeout: 15_000 },
     );
     await expect(chip).toHaveText('KB120 · 응답 없음');
-    await expect(in2).toHaveValue('-340');
+    await expect(in2).toHaveValue('340');
     expect(api.planPuts()).toHaveLength(2);
     await expect.poll(() => api.planGets().length, { message: '결과 모름 → GET /plan 1회 더' }).toBe(getsBefore502 + 1);
   });
 
-  test('P35-P5 1280 — 09:00:30 KYOBO119 코스피 · 발사 시각 한 칸 · 2500 범위 오류 → −190 · P2 1행 · 바디 [−190]', async ({ page }) => {
+  test('P35-P5 1280 — 09:00:30 KYOBO119 코스피 · 발사 시각 한 칸 · +2500 범위 오류 → 190(− 접두) · 미리보기 표 없음 · 바디 [−190]', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     // 교보 N 공통 칸 — K → Q 두 번 저장 뒤 실서버는 N 두 칸이 같은 값. 기본 목은 그 칸만 바꾸므로 N 두 칸을 함께 바꾼다.
     const api = await mockLaunchApi(page, {
@@ -803,16 +790,13 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await expect(ed.locator('[data-slot="launch-plan-input"]')).toHaveCount(1);
     await expect(ed.locator('[data-slot="launch-plan-stepper"]')).toHaveCount(0);
     const input = ed.getByLabel('발사 시각(µs)');
-    await input.fill('2500');
+    await expect(input).toHaveValue('200');
+    await input.fill('+2500');
     await expect(ed.getByRole('alert')).toHaveText(`발사 시각은 ${MINUS}2000 ~ 2000µs 사이여야 해요`);
     await expect(ed.locator('[data-slot="launch-plan-save"]')).toBeDisabled();
-    await input.fill('-190');
+    await input.fill('190');
     await expect(ed.getByRole('alert')).toHaveCount(0);
-    const rows = ed.locator('[data-slot="launch-plan-preview"] tbody tr');
-    await expect(rows).toHaveCount(1);
-    await expect(rows.nth(0).locator('td').nth(1)).toHaveText(`${MINUS}200`);
-    await expect(rows.nth(0).locator('td').nth(2)).toHaveText(`${MINUS}190`);
-    await expect(ed.locator('[data-slot="launch-plan-preview"] thead')).toContainText('지난 1일에 쐈다면');
+    await expect(ed.locator('[data-slot="launch-plan-preview"]')).toHaveCount(0);
 
     await ed.locator('[data-slot="launch-plan-save"]').click();
     await expect(ed.locator('[data-slot="launch-plan-result-line"]')).toContainText(/저장됨 · \d\d:\d\d · 다음 09:00:30 발사부터/, {
@@ -825,7 +809,7 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     await page.screenshot({ path: test.info().outputPath('launch-plan-n0930-1280.png'), fullPage: true });
   });
 
-  test('P35-P6 390 — 편집 칸 펼친 KB120 코스닥 · 페이지 가로 스크롤 0 · 칸 줄바꿈 · P2 표만 가로 스크롤 · 한 패널만 · 세그먼트 · 서버 칩 바꾸면 닫힘', async ({ page }) => {
+  test('P35-P6 390 — 편집 칸 펼친 KB120 코스닥 · 페이지 가로 스크롤 0 · 칸 줄바꿈 · 미리보기 표 없음 · 한 패널만 · 세그먼트 · 서버 칩 바꾸면 닫힘', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixture });
     await open(page, '/admin/launch?tab=map&range=all');
@@ -848,9 +832,9 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
     const boxes = await labels.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect));
     for (const b of boxes) expect(b.right, '칸이 편집 칸 폭 안').toBeLessThanOrEqual(edBox.x + edBox.width + 0.5);
     expect(new Set(boxes.map((b) => Math.round(b.top))).size, '칸이 줄바꿈').toBeGreaterThan(1);
-    // 가장 긴 값(−3000 · 5글자)도 칸 안에서 잘리지 않는다
+    // 가장 긴 값(+1000 · 5글자)도 칸 안에서 잘리지 않는다(− 는 칸 밖 고정 접두)
     const first = ed.getByLabel('1번 조각 시각(µs)');
-    await first.fill('-3000');
+    await first.fill('+1000');
     // input 의 scrollWidth 는 캐럿 자리 1px 을 더해 늘 넘치므로, 글자 폭을 직접 잰다.
     const clip = await first.evaluate((el) => {
       const input = el as HTMLInputElement;
@@ -858,13 +842,8 @@ test.describe('어드민 발사 · 발사 계획(고치기)', () => {
       ctx.font = getComputedStyle(input).font;
       return { text: ctx.measureText(input.value).width, cw: input.clientWidth };
     });
-    expect(clip.text, '−3000 이 칸 안에 다 보인다').toBeLessThanOrEqual(clip.cw);
-
-    const fit = await ed
-      .locator('[data-slot="launch-plan-preview"]')
-      .evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, ox: getComputedStyle(el).overflowX }));
-    expect(fit.ox).toBe('auto');
-    expect(fit.sw, 'P2 표 래퍼 안 가로 스크롤').toBeGreaterThan(fit.cw);
+    expect(clip.text, '+1000 이 칸 안에 다 보인다').toBeLessThanOrEqual(clip.cw);
+    await expect(ed.locator('[data-slot="launch-plan-preview"]')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('launch-plan-edit-390.png'), fullPage: true });
 
     // 다른 패널 「계획 고치기」 → 앞 편집 닫힘(한 번에 한 패널)
@@ -922,7 +901,7 @@ const KB_K_TEXT = `탐침 5발 · ${MINUS}330 · ${MINUS}320 · ${MINUS}310 · $
 const KB_Q_TEXT = `탐침 5발 · ${MINUS}340 · ${MINUS}330 · ${MINUS}320 · ${MINUS}310 · ${MINUS}300µs`;
 
 test.describe('어드민 발사 · 탐침(읽기)', () => {
-  test('TP-R1 1280 — 패널마다 줄(계획 줄 바로 아래) · 위쪽 공통 막대 0 · 이력 접힘 · 09:00:30 꺼짐 · 교보 ⇄ + 범례 · KB ⇄ 0 · /plan 1건', async ({ page }) => {
+  test('TP-R1 1280 — 패널마다 줄(계획 줄 바로 아래) · 위쪽 공통 막대 0 · 이력 표 없음 · 09:00:30 꺼짐 · 교보 ⇄ + 범례 · KB ⇄ 0 · /plan 1건', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const api = await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
     await open(page, '/admin/launch?tab=map&range=all');
@@ -941,23 +920,8 @@ test.describe('어드민 발사 · 탐침(읽기)', () => {
     // KB 는 ⇄ 없음(bool 없음 · KB 는 늘 꺼짐)
     await expect(root(page).locator('[data-slot="launch-combined"]')).toHaveCount(0);
     await expect(root(page).locator('[data-legend="combined"]')).toHaveCount(0);
-    // 이력 — 코스피 = 목록 ok · failed(원문) · 옛 개수 · 간격 행 / 코스닥 = 옛 행만
-    const fold = tpLine(page, 'KB120', 'K').locator('[data-slot="launch-tail-probe-history-fold"]');
-    await expect(fold.locator('summary')).toHaveText('탐침 변경 이력 3');
-    await fold.locator('summary').click();
-    const cells = fold.locator('tbody tr td:nth-child(3)');
-    await expect(cells).toHaveText([
-      `5발 ${MINUS}300 · ${MINUS}290 · ${MINUS}280 · ${MINUS}270 · ${MINUS}260µs → 5발 ${MINUS}330 · ${MINUS}320 · ${MINUS}310 · ${MINUS}300 · ${MINUS}290µs`,
-      `5발 ${MINUS}300 · ${MINUS}290 · ${MINUS}280 · ${MINUS}270 · ${MINUS}260µs → 2발 ${MINUS}300 · ${MINUS}290µs`,
-      '뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격',
-    ]);
-    await expect(fold.locator('[data-slot="launch-tail-probe-outcome"]').nth(1)).toHaveAttribute(
-      'title',
-      '오프셋은 작은 값부터 차례로(같은 값 허용)',
-    );
-    await expect(tpLine(page, 'KB120', 'Q').locator('[data-slot="launch-tail-probe-history-fold"] summary')).toHaveText(
-      '탐침 변경 이력 1',
-    );
+    // 탐침 변경 이력 표는 그리지 않는다(261127) — 이력 행이 있어도 접힘 없음
+    await expect(root(page).locator('[data-slot="launch-tail-probe-history-fold"]')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('tail-probe-read-1280.png'), fullPage: true });
 
     await root(page).getByRole('button', { name: '09:00:30 개장차익' }).click();
@@ -1051,9 +1015,6 @@ test.describe('어드민 발사 · 탐침(고치기)', () => {
     await expect.poll(() => tpChipValues(page, 'KB120', 'K')).toEqual(['325', '315', '305', '295', '285', '+25']);
     await expect(ed.locator('[data-slot="launch-tail-probe-save"]')).toBeDisabled();
     await expect(tpSummary(page, 'KB120', 'Q')).toHaveText(KB_Q_TEXT);
-    await expect(tpLine(page, 'KB120', 'K').locator('[data-slot="launch-tail-probe-history-fold"] summary')).toHaveText(
-      '탐침 변경 이력 4',
-    );
     await page.waitForTimeout(300);
     expect(api.maps()).toHaveLength(mapsBefore);
     expect(api.planGets()).toHaveLength(1);
@@ -1170,12 +1131,11 @@ test.describe('어드민 발사 · 탐침(지도 · 폰)', () => {
     await expect(panel(page, 'KB120', 'Q').locator('path[data-shape="triangle"]')).toHaveCount(5);
   });
 
-  test('TP-D4 390 — 칩 10개 편집 칸 · 탐침 줄 · 이력 접힘 펼침 · 칩 줄바꿈 · 페이지 가로 스크롤 0', async ({ page }) => {
+  test('TP-D4 390 — 칩 10개 편집 칸 · 탐침 줄 · 칩 줄바꿈 · 페이지 가로 스크롤 0', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockLaunchApi(page, { plan: launchPlanFixtureWithTailProbes });
     await open(page, '/admin/launch?tab=map&range=all');
     await expect(tpToggle(page, 'KB120', 'K')).toBeVisible({ timeout: 15_000 });
-    await tpLine(page, 'KB120', 'K').locator('[data-slot="launch-tail-probe-history-fold"] summary').click();
     await tpToggle(page, 'KB120', 'K').click();
     const ed = tpEditor(page, 'KB120', 'K');
     const add = ed.locator('[data-slot="launch-tail-probe-add"]');

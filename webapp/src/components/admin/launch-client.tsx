@@ -24,7 +24,7 @@ import { LaunchServerChips } from './launch-server-chips';
  * - `d` — YYYYMMDD(`parseYmdParam`). 없으면 최신(server 가 정한다). 형식 오류는 `router.replace` 로 d 만 지운다.
  *   날짜 이동 = `router.push`(뒤로 가기로 이전 날).
  * - `fire` — q16(기본) · n0930 · g0830(08:30 G2 · quick-261125-c2i — shared `LAUNCH_FIRE_KEYS`). 그 밖 값은 `router.replace` 로 지운다. 두 탭 공용. 주문 내역은 전환해도 다시 받지 않고(한 응답에 두 발사가 다 있다),
- *   경계 지도는 발사 기준별 응답이라 전환마다 1건 받는다.
+ *   경계 지도는 발사 기준별 응답이라 전환마다 1건 받는다. 경계 지도는 08:30 을 고를 수 없고(증권사 예약 주문 사용) fire=g0830 이면 16:00 을 그린다.
  * - `range` — 경계 지도 프리셋 10d(기본) · 20d · all. 잘못된 값은 `router.replace` 로 지운다. 칩 전환 = `router.replace`.
  * - `gw` — 발사 서버 키(shared `LAUNCH_SERVERS` — KB120(기본) · KYOBO119 · KYOBO112 · quick-261107-iep). 두 탭 공용이고
  *   탭 줄 아래 · 컨트롤 줄 위(Tabs 안 · 탭 패널 밖 한 벌 · quick-261107-jhk H1) 서버 칩(`LaunchServerChips`)이 고른다(칩 전환 = `router.replace`). 클라이언트 필터라 서버를 바꿔도
@@ -94,6 +94,9 @@ export function LaunchClient() {
     document.title = d === null ? TITLE : `${TITLE} · ${fmtYmdShort(d)}`;
   }, [d]);
 
+  // 경계 지도는 08:30 을 그리지 않는다(증권사 예약 주문 사용 · 세그먼트 비활성) — 주문 내역에서 08:30 을 보다 넘어오면 16:00.
+  const mapFire: LaunchFire = fire === 'g0830' ? 'q16' : fire;
+
   const onTab = (v: string) => router.replace(hrefWith((p) => p.set('tab', v)));
   const onGoDate = (to: LimitupDate) => router.push(hrefWith((p) => p.set('d', to)));
   const onLatest = () => router.push(hrefWith((p) => p.delete('d')));
@@ -120,7 +123,7 @@ export function LaunchClient() {
           <LaunchOrdersTab gw={gw} d={d} fire={fire} onGoDate={onGoDate} onFire={onFire} onLatest={onLatest} />
         </TabsContent>
         <TabsContent value="map" className="min-w-0">
-          <LaunchMapTab gw={gw} fire={fire} range={range} onFire={onFire} onRange={onRange} />
+          <LaunchMapTab gw={gw} fire={mapFire} range={range} onFire={onFire} onRange={onRange} />
         </TabsContent>
       </Tabs>
     </div>

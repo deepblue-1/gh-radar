@@ -8,20 +8,15 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   LAUNCH_PLAN_G2_UNKNOWN,
-  LAUNCH_PLAN_HISTORY_MAX,
-  changeAtText,
-  changeOutcomeView,
-  changeValuesText,
   fallbackLineText,
   lastChangeText,
   planLineText,
   type PanelPlan,
 } from '@/lib/launch-plan-view';
 import { fmtUs } from '@/lib/launch-format';
-import { cn } from '@/lib/utils';
 
 import { CombinedMark } from './launch-tail-probe-bar';
-import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './reflect-chip';
+import { ADMIN_BUTTON_SECONDARY } from './reflect-chip';
 
 /**
  * 「다음 발사 계획」 줄 — 경계 지도 패널 머리 아래(Phase 35 범위 7 · D-24 · D-25 · D-29 · 채택 목업
@@ -33,9 +28,9 @@ import { ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS } from './ref
  * - unsupported(08:30 전용 · quick-261125-c2i) → 「이 서버는 08:30 발사를 모름」(fallback 줄과 같은 글자 꼴) · 「계획 고치기」 비활성 ·
  *   title 도 같은 문구(서버 ok 인데 94 에 G2 행 없음 = 08:30 스위치 꺼짐 · 구 서버).
  * - loading → 값 자리 스켈레톤(aria-busy).
- * - 이력이 있으면 「변경 이력 n」 접힘(날짜별 표 꼴) — 최근 `LAUNCH_PLAN_HISTORY_MAX` 행 · 결과 알약은 Admin 칩 한 벌.
+ * - 변경 이력 표는 그리지 않는다(사용자 결정 261127 — 마지막 변경 한 줄만).
  *
- * 글자 12.5px · 라벨 `--muted-fg` · tabular-nums · flex-wrap(폰 390 에서 줄바꿈 · 표는 가로 스크롤).
+ * 글자 12.5px · 라벨 `--muted-fg` · tabular-nums · flex-wrap(폰 390 에서 줄바꿈).
  * `now` 는 「오늘이면 시각만」 판정 기준(테스트 주입 · 기본 지금).
  *
  * ⇄(`combined` · quick-261125-lju 목업 v4 `.ch`) — 교보 16:00 합친 레인이 켜졌을 때 다른 시장의 실조각 · 탐침과 같은 µs 인 계획 값
@@ -64,9 +59,6 @@ export interface LaunchPlanBarProps {
 /** 서버 계획을 못 읽은 패널의 「계획 고치기」 title. */
 export const LAUNCH_PLAN_EDIT_BLOCKED = '서버 계획을 읽지 못해 고칠 수 없어요';
 
-const TH = 'bg-[var(--band)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
-const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
-
 export function LaunchPlanBar({
   fire,
   plan,
@@ -80,7 +72,6 @@ export function LaunchPlanBar({
   if (plan.source === 'absent') return null;
   const loading = plan.source === 'loading';
   const editable = plan.source === 'server' && plan.entry !== null;
-  const rows = plan.changes.slice(0, LAUNCH_PLAN_HISTORY_MAX);
 
   return (
     <div
@@ -146,48 +137,6 @@ export function LaunchPlanBar({
         )}
       </div>
       {editing && editable && children}
-      {rows.length > 0 && (
-        <details data-slot="launch-plan-history-fold" className="min-w-0">
-          <summary className="cursor-pointer font-semibold select-none">{`변경 이력 ${plan.changes.length}`}</summary>
-          <div className="mt-2 min-w-0 overflow-x-auto">
-            <table
-              data-slot="launch-plan-history"
-              className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap text-[var(--fg)]"
-            >
-              <thead>
-                <tr>
-                  <th className={TH}>시각</th>
-                  <th className={TH}>이메일</th>
-                  <th className={TH}>전 → 후 µs</th>
-                  <th className={TH}>결과</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const out = changeOutcomeView(r);
-                  return (
-                    <tr key={r.id}>
-                      <td className={cn(TD, 'tabular-nums')}>{changeAtText(r.at, now)}</td>
-                      <td className={TD}>{r.admin_email}</td>
-                      <td className={cn(TD, 'tabular-nums')}>{changeValuesText(r.before_us, r.after_us)}</td>
-                      <td className={TD}>
-                        <span
-                          data-slot="launch-plan-outcome"
-                          data-tone={out.tone}
-                          title={out.title}
-                          className={cn(ADMIN_CHIP_BASE, ADMIN_TONE_CLASS[out.tone])}
-                        >
-                          {out.text}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      )}
     </div>
   );
 }

@@ -17,7 +17,6 @@ import {
  * 고치기 버튼 조건 · ⇄ · 이력 접힘(그 시장 + 옛 행) / 칩 편집 칸(− 접두 · + 정각 뒤 · 위반 · 전체 이동 · 추가 · 삭제 · 되돌리기 · 저장).
  */
 
-const NOW = new Date('2026-11-07T07:00:00Z'); // KST 16:00
 const M = '−';
 
 function okServer(tail_probes?: LaunchTailProbe[]): LaunchPlanServer {
@@ -78,7 +77,6 @@ function line(over: Partial<LaunchTailProbeLineProps> = {}) {
     market: 'K',
     stateMarket: 'K',
     plan: ready({ KB120: okServer(FOUR) }),
-    now: NOW,
     ...over,
   };
   return { ...render(<LaunchTailProbeLine {...props} />), props };
@@ -171,36 +169,11 @@ describe('LaunchTailProbeLine — 상태', () => {
     expect(qa(b.container, 'launch-combined')).toHaveLength(0);
   });
 
-  it('이력 접힘 「탐침 변경 이력 n」 — 그 시장 + 옛 행(market null)만 · 전 → 후 · 결과 알약', () => {
+  it('탐침 변경 이력 표는 그리지 않는다(261127) — 이력 행이 있어도 접힘 없음', () => {
     const k = tpRow({ before_offsets_us: [-210], after_offsets_us: [] });
-    const qRow = tpRow({ market: 'Q' });
-    const legacy = tpRow({
-      market: null,
-      before_offsets_us: null,
-      after_offsets_us: null,
-      before_count: 3,
-      before_step_us: 10,
-      after_count: 5,
-      after_step_us: 10,
-      at: '2026-11-06T06:00:00Z',
-    });
-    const fail = tpRow({ outcome: 'failed', code: 1, message: '발 수는 0 ~ 10', at: '2026-11-07T05:00:00Z' });
-    const n = tpRow({ fire: 'n0930' });
-    const { container } = line({ plan: ready({ KB120: okServer(FOUR) }, [k, qRow, legacy, fail, n]) });
-    const fold = q(container, 'launch-tail-probe-history-fold')!;
-    expect(fold.querySelector('summary')!.textContent).toBe('탐침 변경 이력 3');
-    const rows = Array.from(fold.querySelectorAll('tbody tr'));
-    expect(rows.map((r) => r.querySelectorAll('td')[2]!.textContent)).toEqual([
-      `1발 ${M}210µs → 꺼짐`,
-      `1발 ${M}210µs → 꺼짐`,
-      '뒤탐침 3발 10µs 간격 → 뒤탐침 5발 10µs 간격',
-    ]);
-    expect(qa(container, 'launch-tail-probe-outcome').map((o) => o.dataset.tone)).toEqual(['ok', 'err', 'ok']);
-  });
-
-  it('이력 없음 → 접힘 없음', () => {
-    const { container } = line();
+    const { container } = line({ plan: ready({ KB120: okServer(FOUR) }, [k]) });
     expect(q(container, 'launch-tail-probe-history-fold')).toBeNull();
+    expect(container.querySelector('table')).toBeNull();
   });
 });
 

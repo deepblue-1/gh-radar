@@ -43,6 +43,17 @@ describe('LaunchClient — 쿼리 정본화', () => {
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
+  it('?fire=g0830 — 주문 내역은 08:30 그대로 · 경계 지도는 16:00 을 그린다(08:30 비활성 · 261127) · replace 없음', () => {
+    nav.query = 'tab=orders&fire=g0830';
+    const a = render(<LaunchClient />);
+    expect(a.container.querySelector('[data-slot="orders"]')?.getAttribute('data-fire')).toBe('g0830');
+    a.unmount();
+    nav.query = 'tab=map&fire=g0830';
+    const b = render(<LaunchClient />);
+    expect(b.container.querySelector('[data-slot="map"]')?.getAttribute('data-fire')).toBe('q16');
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
   it('잘못된 fire · range 가 함께면 한 번에 둘 다 지운다', () => {
     nav.query = 'tab=map&range=30d&fire=x';
     render(<LaunchClient />);

@@ -286,7 +286,16 @@ export function LaunchOrdersView({
 // 발사 기준 세그먼트 — 주문 내역 · 경계 지도 두 탭이 같은 꼴 · 같은 `?fire` 키
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function LaunchFireSeg({ fire, onFire }: { fire: LaunchFire; onFire: (f: LaunchFire) => void }) {
+export function LaunchFireSeg({
+  fire,
+  onFire,
+  disabled,
+}: {
+  fire: LaunchFire;
+  onFire: (f: LaunchFire) => void;
+  /** 고를 수 없는 칸 → 사유(title) — 경계 지도는 08:30 을 막는다(증권사 예약 주문 사용 · 지도 없음). */
+  disabled?: Partial<Record<LaunchFire, string>>;
+}) {
   return (
     <div
       data-slot="launch-fire-seg"
@@ -296,21 +305,23 @@ export function LaunchFireSeg({ fire, onFire }: { fire: LaunchFire; onFire: (f: 
     >
       {FIRE_SEGMENTS.map((s) => {
         const on = s.value === fire;
+        const off = disabled?.[s.value];
         return (
           <button
             key={s.value}
             type="button"
             aria-pressed={on}
             data-fire={s.value}
-            title={s.full}
+            disabled={off !== undefined}
+            title={off ?? s.full}
             aria-label={s.full}
             onClick={() => !on && onFire(s.value)}
             className={cn(
               // px-2.5 — 세 칸(16:00 · 09:00:30 · 08:30)이 폰 390 에서 날짜 알약 옆 한 줄에 들어가는 폭(quick-261125-c2i 실측 210 → 198px).
-              'min-h-8 rounded-[8px] px-2.5 text-[13px] font-semibold whitespace-nowrap',
+              'min-h-8 rounded-[8px] px-2.5 text-[13px] font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-40',
               on
                 ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
-                : 'text-[var(--muted-fg)] hover:text-[var(--fg)]',
+                : 'text-[var(--muted-fg)] enabled:hover:text-[var(--fg)]',
             )}
           >
             {s.label}

@@ -16,16 +16,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  LAUNCH_PLAN_HISTORY_MAX,
   TAIL_PROBE_UNKNOWN_TEXT,
   TAIL_PROBE_UNSUPPORTED_TEXT,
-  changeAtText,
-  changeOutcomeView,
   sameOffsets,
   saveResultViewOf,
   tailProbeAddChipOf,
-  tailProbeChangeText,
-  tailProbeChangesOf,
   tailProbeGroupText,
   tailProbeLegacyText,
   tailProbeSummaryParts,
@@ -35,7 +30,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import type { LaunchPlanSaveState } from './launch-plan-editor';
-import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TONE_CLASS, ReflectChip } from './reflect-chip';
+import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ReflectChip } from './reflect-chip';
 
 /**
  * 「탐침」 줄 · 편집 칸 · ⇄ — 경계 지도 시장 패널 안 「다음 발사 계획」 줄 바로 아래(quick-261125-lju · 채택 목업
@@ -52,7 +47,7 @@ import { ADMIN_BUTTON_PRIMARY, ADMIN_BUTTON_SECONDARY, ADMIN_CHIP_BASE, ADMIN_TO
  * - off(빈 목록) → 「탐침 」 + 굵은 muted 「꺼짐」 + 「 · 0발」.
  *
  * 「탐침 고치기」/「닫기」 는 `onToggle` 이 있고 set · off 일 때만. `children` = 편집 칸 자리(`editing` 일 때).
- * 이력 접힘 「탐침 변경 이력 n」 = 그 시장 행 + 옛 행(market null) · 최근 `LAUNCH_PLAN_HISTORY_MAX` 행 · 결과 알약은 Admin 칩 한 벌.
+ * 탐침 변경 이력 표는 그리지 않는다(사용자 결정 261127).
  * 서버 라벨 제목 · 「코스피 · 코스닥 공통」 부제는 없다(패널 머리가 이미 서버 · 시장을 말한다).
  * 위치 경고(실조각 앞 · 사이 · 뒤)는 어디에도 없다(사용자 결정).
  * 글자 12.5px · tabular-nums · flex-wrap · break-keep(폰 390 에서 줄바꿈 · 칩 줄바꿈 · 표는 가로 스크롤).
@@ -78,12 +73,11 @@ export interface LaunchTailProbeLineProps {
   gateway: string;
   /** q16 · n0930 만 — 08:30(G2)은 탐침이 없다(인박스 261125-sigan-ttaeng-g2 ⓑ · 지도 탭이 줄을 그리지 않는다). */
   fire: LaunchTailProbeFire;
-  /** 패널 시장(이력 거르기 · data-market). */
+  /** 패널 시장(data-market). */
   market: LaunchMarket;
   /** 상태 읽기 시장 — 교보 N 공통이면 K(`tailProbeSaveMarketOf`) · 아니면 패널 시장. */
   stateMarket: LaunchMarket;
   plan: LaunchPlanState;
-  now?: Date;
   editing?: boolean;
   /** 「탐침 고치기」/「닫기」 — 없으면 버튼을 그리지 않는다. */
   onToggle?: () => void;
@@ -93,16 +87,12 @@ export interface LaunchTailProbeLineProps {
   children?: ReactNode;
 }
 
-const TH = 'bg-[var(--band)] px-2.5 py-2 text-left text-[11.5px] font-semibold text-[var(--muted-fg)]';
-const TD = 'border-t border-[var(--border-subtle)] px-2.5 py-1.5';
-
 export function LaunchTailProbeLine({
   gateway,
   fire,
   market,
   stateMarket,
   plan,
-  now = new Date(),
   editing = false,
   onToggle,
   combined = null,
@@ -119,8 +109,6 @@ export function LaunchTailProbeLine({
   const state: LaunchTailProbeLineState =
     st === null ? 'loading' : st.kind === 'set' ? (st.offsets_us.length > 0 ? 'set' : 'off') : st.kind;
   const editable = st !== null && st.kind === 'set';
-  const changes = tailProbeChangesOf(plan, gateway, fire, market);
-  const rows = changes.slice(0, LAUNCH_PLAN_HISTORY_MAX);
 
   return (
     <div
@@ -181,48 +169,6 @@ export function LaunchTailProbeLine({
         )}
       </div>
       {editing && editable && children}
-      {rows.length > 0 && (
-        <details data-slot="launch-tail-probe-history-fold" className="min-w-0">
-          <summary className="cursor-pointer font-semibold select-none">{`탐침 변경 이력 ${changes.length}`}</summary>
-          <div className="mt-2 min-w-0 overflow-x-auto">
-            <table
-              data-slot="launch-tail-probe-history"
-              className="w-full min-w-max border-collapse text-[12.5px] whitespace-nowrap text-[var(--fg)]"
-            >
-              <thead>
-                <tr>
-                  <th className={TH}>시각</th>
-                  <th className={TH}>이메일</th>
-                  <th className={TH}>전 → 후</th>
-                  <th className={TH}>결과</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const out = changeOutcomeView(r);
-                  return (
-                    <tr key={r.id} data-market={r.market ?? undefined}>
-                      <td className={cn(TD, 'tabular-nums')}>{changeAtText(r.at, now)}</td>
-                      <td className={TD}>{r.admin_email}</td>
-                      <td className={cn(TD, 'tabular-nums')}>{tailProbeChangeText(r)}</td>
-                      <td className={TD}>
-                        <span
-                          data-slot="launch-tail-probe-outcome"
-                          data-tone={out.tone}
-                          title={out.title}
-                          className={cn(ADMIN_CHIP_BASE, ADMIN_TONE_CLASS[out.tone])}
-                        >
-                          {out.text}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      )}
     </div>
   );
 }
